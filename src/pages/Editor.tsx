@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import Toolbar from "../components/Toolbar";
-import ChartCanvas from "../components/ChartCanvas";
+import CanvasChartCanvas from "../components/CanvasChartCanvas";
 import NoteInfoPanel from "../components/NoteInfoPanel";
 import type { ChartNote } from "../notes/Charts";
 
@@ -399,7 +399,7 @@ export default function Editor({ }: EditorProps) {
               justifyContent: 'center',
               backgroundColor: '#000000' // 确保包装容器也是黑色
             }}>
-              <ChartCanvas 
+              <CanvasChartCanvas 
                 notes={notes} 
                 setNotes={handleNotesChange} 
                 selectedTool={selectedTool}
