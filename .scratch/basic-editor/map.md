@@ -11,7 +11,7 @@
 ## Notes
 
 - **领域**：BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON 数组（见 `docs/plans/谱面代码规则文档.md`）。
-- **每次会话必读**：`docs/plans/详细设计.md`（规格，含"细化功能/进阶功能"编号）、`docs/plans/TODO.md`（任务/BUG 清单）、`docs/plans/谱面代码规则文档.md`（代码格式）、`docs/plans/需求文档.md`。
+- **每次会话必读**：`docs/adr/`（决策，权威）+ `CONTEXT.md`（术语，权威）。`docs/plans/` 下的详细设计/TODO/规则文档为基础期产物、可能过时且**不纳入 git**，仅作历史参考；冲突时以 ADR + CONTEXT 为准。
 - **需调用的技能**：`/grilling`、`/domain-modeling`、`/research`、`/prototype`。
 - **技术栈**：Electron + React 19 + TypeScript + Vite。活跃渲染器 = `src/components/FinalVirtualCanvas.tsx`（Canvas 虚拟画布）。
 - **当前代码硬事实（已核对）**：项目当前**不通过编译**；存在 App.tsx 的真实类型错误 + 大量死代码 canvas 组件（OptimizedCanvasChartCanvas / VirtualCanvasChartCanvas / SimpleVirtualCanvas / DebugCanvas / CanvasChartCanvas / ChartCanvas / CanvasChartCanvasExample）与 App.tsx 里残留的 4 个测试组件。活跃 `FinalVirtualCanvas` 中，音符替换规则（`NoteReplacementRules`/`SlideEndpointManager`）的 import 被**注释掉**（放在旧 canvas 组件里）。无测试框架配置（有 `tests/unit/*.test.ts` 但没有 runner / test script）。
@@ -43,7 +43,7 @@
 - [12 编辑器布局自适应](./issues/12-编辑器布局自适应.md) — 页面显示不全（需 90% 缩放）根因=固定像素布局合计约 1528px 超出窄屏；仅完成根因评估，**自适应布局未实现**（本次不实现，待规划）。
 - [05 基础编辑操作范围锁定](./issues/05-基础编辑操作范围锁定.md) — 已 /grilling 定案并**实现**：多选/拖拽圈选/Shift加选/Ctrl+A(仅画布)、粘贴到鼠标锚点、镜像(左右lane+方向翻转+滑条端点同步)、快捷键(Ctrl+C/X/V/Z/Y/Delete/Backspace/Ctrl+M)+上下文分发、undo/redo 清选区；新增 `NoteEditing.ts` 纯逻辑+8单测。`tsc` 全绿、17 测试通过。07 已解锁。
 - [07 音符替换与滑条端点规则重新接入](./issues/07-音符替换与滑条端点规则重新接入.md) — 已**实现**：恢复 NoteReplacementRules import；single/flick/skill/directional 放置改走 handleNoteReplacement（重叠替换+方向键组合），新增两点击自动连接滑条（含滑条间合并）；修复 'single'→'Single' 归一化与 subBeat||0 匹配。新增 9 单测，tsc/build 全绿、28 测试通过。已知缺口：滑条端点扩展交互③、占位样式、端点撞键、组合滑条工具（记录待办）。09 已解锁。
-- [音符覆盖与滑条规则文档](./issues/07-音符替换与滑条端点规则重新接入.md) — **grill-with-docs 定案**：产出权威规则 `docs/plans/音符覆盖与滑条规则文档.md` + `CONTEXT.md` 术语。定案：滑条禁止横向；滑条结点覆盖（中间节点单键/滑键/技能键忽略、方向键拆条；端点单键忽略/技能键加两端skill/滑键仅尾部加flick/方向键拆条）；撤销深拷贝使方向键与滑条逐步回退；ChartConverter 补 skill 序列化；"删除滑条子段"= 独立 feature。待实现。
+- [音符覆盖与滑条规则](./issues/07-音符替换与滑条端点规则重新接入.md) — **grill-with-docs 定案**：产出权威规则 **`docs/adr/0001-音符覆盖与滑条规则.md`** + `CONTEXT.md` 术语。定案：滑条禁止横向；滑条结点覆盖（中间节点单键/滑键/技能键忽略、方向键拆条；端点单键忽略/技能键加两端skill/滑键仅尾部加flick/方向键拆条）；撤销深拷贝使方向键与滑条逐步回退；ChartConverter 补 skill 序列化；"删除滑条子段"= 独立 feature。待实现。
 
 ## Not yet specified
 
