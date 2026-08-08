@@ -136,7 +136,27 @@ describe('handleNoteReplacement - 滑条结点（ADR-0001 1.2）', () => {
     ]);
   });
 
-  it('方向键放 2 结点滑条端点：整条删除，仅剩独立方向键', () => {
+  it('方向键放中间节点：单侧仅剩单结点时退化为独立音符（ADR 1.2.1）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0 },
+        { beat: 1, lane: 1, skill: true },
+        { beat: 2, lane: 2 }
+      ]
+    }];
+    // 方向键放到中间节点 (1,1)
+    const r = handleNoteReplacement(notes, 1, 1, 0, 'ldirectional');
+    expect(r.shouldReplace).toBe(true);
+    // 两侧各剩 1 结点 → 退化为独立音符；中间节点变为独立方向键
+    expect(r.newNotes).toEqual([
+      { beat: 0, lane: 0, subBeat: 0, type: 'Single' },
+      { beat: 2, lane: 2, subBeat: 0, type: 'Single' },
+      { beat: 1, lane: 1, subBeat: 0, type: 'LDirectional', length: 1 }
+    ]);
+  });
+
+  it('方向键放 2 结点滑条端点：另一端退化为独立音符（ADR 1.2.2）', () => {
     const notes: ChartNote[] = [{
       type: 'Slide',
       connections: [
@@ -147,7 +167,24 @@ describe('handleNoteReplacement - 滑条结点（ADR-0001 1.2）', () => {
     const r = handleNoteReplacement(notes, 2, 2, 0, 'rdirectional');
     expect(r.shouldReplace).toBe(true);
     expect(r.newNotes).toEqual([
+      { beat: 0, lane: 0, subBeat: 0, type: 'Single' },
       { beat: 2, lane: 2, subBeat: 0, type: 'RDirectional', length: 1 }
+    ]);
+  });
+
+  it('方向键放 2 结点滑条端点：另一端带 skill 标记时退化为技能键', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0, skill: true },
+        { beat: 2, lane: 2 }
+      ]
+    }];
+    const r = handleNoteReplacement(notes, 2, 2, 0, 'ldirectional');
+    expect(r.shouldReplace).toBe(true);
+    expect(r.newNotes).toEqual([
+      { beat: 0, lane: 0, subBeat: 0, type: 'Single', skill: true },
+      { beat: 2, lane: 2, subBeat: 0, type: 'LDirectional', length: 1 }
     ]);
   });
 

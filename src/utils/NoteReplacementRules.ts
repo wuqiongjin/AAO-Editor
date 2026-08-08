@@ -130,6 +130,22 @@ function handleSlideNoteReplacement(
 }
 
 /**
+ * 将单个滑条连接点退化为独立音符（ADR-0001 1.2.2：2 结点滑条端点被覆盖时另一端点退化）
+ * 依据连接点的标记：skill → 技能键、flick → 滑键、无标记 → 普通单键
+ */
+function connectionToNote(conn: SlideNote["connections"][number]): ChartNote {
+    const note: { beat: number; lane: number; subBeat: number; type: "Single"; flick?: boolean; skill?: boolean } = {
+        beat: conn.beat,
+        lane: conn.lane,
+        subBeat: conn.subBeat || 0,
+        type: "Single"
+    };
+    if (conn.flick) note.flick = true;
+    if (conn.skill) note.skill = true;
+    return note;
+}
+
+/**
  * 方向键放置到滑条结点上的拆条逻辑（ADR-0001 1.2.1 中间拆两侧 / 1.2.2 端点拆端）
  * @param connectionIndex 被放置方向键的结点下标
  */
@@ -154,9 +170,11 @@ function splitSlideAtNode(
     const isEndPoint = connectionIndex === conns.length - 1;
 
     if (isEndPoint) {
-        // 去掉尾部端点，相邻中间节点升级为新端点；仅剩 2 结点则整条删除
+        // 去掉尾部端点，相邻中间节点升级为新端点；仅剩 1 个结点（另一端）时退化为独立音符（ADR 1.2.2）
         const remaining = conns.slice(0, connectionIndex);
-        if (remaining.length >= 2) {
+        if (remaining.length === 1) {
+            newNotes.push(connectionToNote(remaining[0]));
+        } else if (remaining.length >= 2) {
             newNotes.push({ type: slideType, connections: remaining });
         }
         newNotes.push(independentNote);
@@ -164,22 +182,29 @@ function splitSlideAtNode(
     }
 
     if (isStartPoint) {
-        // 去掉头部端点，相邻中间节点升级为新端点；仅剩 2 结点则整条删除
+        // 去掉头部端点，相邻中间节点升级为新端点；仅剩 1 个结点（另一端）时退化为独立音符（ADR 1.2.2）
         const remaining = conns.slice(connectionIndex + 1);
-        if (remaining.length >= 2) {
+        if (remaining.length === 1) {
+            newNotes.push(connectionToNote(remaining[0]));
+        } else if (remaining.length >= 2) {
             newNotes.push({ type: slideType, connections: remaining });
         }
         newNotes.push(independentNote);
         return { shouldReplace: true, newNotes, message: "端点方向键拆条" };
     }
 
-    // 中间节点：拆成两侧两条（左段 [起点..前一中间节点]、右段 [后一中间节点..终点]）
+    // 中间节点：拆成两侧两条（左段 [起点..前一中间节点]、右段 [后一中间节点..终点]）；
+    // 某一侧仅剩 1 个结点（无相邻滑条结点）时，该结点退化为独立音符（ADR 1.2.1）
     const left = conns.slice(0, connectionIndex);
     const right = conns.slice(connectionIndex + 1);
-    if (left.length >= 2) {
+    if (left.length === 1) {
+        newNotes.push(connectionToNote(left[0]));
+    } else if (left.length >= 2) {
         newNotes.push({ type: slideType, connections: left });
     }
-    if (right.length >= 2) {
+    if (right.length === 1) {
+        newNotes.push(connectionToNote(right[0]));
+    } else if (right.length >= 2) {
         newNotes.push({ type: slideType, connections: right });
     }
     newNotes.push(independentNote);

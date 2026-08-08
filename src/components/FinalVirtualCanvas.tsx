@@ -711,7 +711,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     const canvasPos1 = virtualToCanvas(virtualX1, virtualY1);
                     const canvasPos2 = virtualToCanvas(virtualX2, virtualY2);
 
-                    // 计算四边形的四个顶点
+                    // 计算四边形的四个顶点：上下两边水平、与横向轨道对齐的平行四边形
                     const halfLaneWidth = (LANE_WIDTH * viewport.scale) / 2;
                     const left1 = canvasPos1.x - halfLaneWidth;
                     const right1 = canvasPos1.x + halfLaneWidth;
