@@ -13,7 +13,6 @@ interface FinalVirtualCanvasProps {
     beatDisplay: number;
     onMousePositionChange: (position: { lane: number; beat: number } | null) => void;
     scale: number;
-    isCombinationMode: boolean;
     onScrollChange?: (scrollY: number, virtualHeight: number) => void;
     externalScrollY?: number; // 外部控制的滚动位置
 }
@@ -79,7 +78,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     beatDisplay,
     onMousePositionChange,
     scale,
-    isCombinationMode,
     onScrollChange,
     externalScrollY
 }, ref) => {
@@ -95,7 +93,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const [dragging, setDragging] = useState(false);
     const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
     const [slideBuffer] = useState<{ beat: number; lane: number; subBeat?: number }[]>([]);
-    const [selectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+    const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+    const selectionStartRef = useRef<{ x: number; y: number } | null>(null); // 圈选起点（画布坐标）
+    const selectionMovedRef = useRef(false); // 是否已发生拖拽（区分点击与圈选）
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const spriteIcon = useRef<CanvasSpriteIcon>(new CanvasSpriteIcon());
@@ -257,6 +257,96 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const getNoteVirtualX = (lane: number) => {
         // 虚拟X原点位于轨道内容左缘（trackBgX），lane中心即相对该原点的偏移
         return lane * LANE_WIDTH + LANE_WIDTH / 2;
+    };
+
+    // 画布坐标 -> lane/beat（用于命中与圈选）
+    const getLaneBeatFromCanvas = (cx: number, cy: number) => {
+        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
+        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
+        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
+        const trackBgX = trackStartX + borderTotalWidth;
+        const relativeX = cx - trackBgX;
+        const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
+        const virtualY = viewport.scrollY + cy / viewport.scale;
+        const beat = virtualYToBeat(virtualY);
+        if (lane >= 0 && lane < LANES && beat >= 0) {
+            const subBeatPosition = beat * beatDisplay;
+            const nearestSubBeat = Math.round(subBeatPosition);
+            const preciseBeat = nearestSubBeat / beatDisplay;
+            return { lane, preciseBeat };
+        }
+        return null;
+    };
+
+    // 音符的虚拟坐标集合（用于命中测试）
+    const getNoteVirtualPoints = (note: ChartNote): { x: number; y: number }[] => {
+        if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
+            return [{ x: getNoteVirtualX(note.lane), y: getNoteVirtualY(note.beat, note.subBeat || 0) }];
+        } else if (note.type === "Slide" || note.type === "Long") {
+            return note.connections.map(c => ({ x: getNoteVirtualX(c.lane), y: getNoteVirtualY(c.beat, c.subBeat || 0) }));
+        } else if (note.type === "BPM") {
+            return [{ x: getNoteVirtualX(0), y: getNoteVirtualY(note.beat) }];
+        }
+        return [];
+    };
+
+    // 查找指定 lane/beat 处的音符下标
+    const findNoteIndexAt = (lane: number, preciseBeat: number) => {
+        return notes.findIndex(note => {
+            if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
+                return Math.abs(note.beat - preciseBeat) < 0.0001 && note.lane === lane;
+            } else if (note.type === "Slide" || note.type === "Long") {
+                return note.connections.some(conn =>
+                    Math.abs(conn.beat - preciseBeat) < 0.0001 && conn.lane === lane
+                );
+            }
+            return false;
+        });
+    };
+
+    // 点选：点击单选 / Shift 或组合状态 加选
+    const selectNoteAtPoint = (cx: number, cy: number, additive: boolean) => {
+        const pos = getLaneBeatFromCanvas(cx, cy);
+        if (!pos) {
+            if (!additive) setSelectedNotes([]);
+            return;
+        }
+        const noteIndex = findNoteIndexAt(pos.lane, pos.preciseBeat);
+        if (noteIndex !== -1) {
+            if (additive) {
+                if (selectedNotes.includes(noteIndex)) {
+                    setSelectedNotes(selectedNotes.filter(i => i !== noteIndex));
+                } else {
+                    setSelectedNotes([...selectedNotes, noteIndex]);
+                }
+            } else {
+                setSelectedNotes([noteIndex]);
+            }
+        } else if (!additive) {
+            setSelectedNotes([]);
+        }
+    };
+
+    // 圈选：选中矩形框内音符
+    const selectNotesInBox = (box: { x1: number; y1: number; x2: number; y2: number }) => {
+        const minX = Math.min(box.x1, box.x2);
+        const maxX = Math.max(box.x1, box.x2);
+        const minY = Math.min(box.y1, box.y2);
+        const maxY = Math.max(box.y1, box.y2);
+        const tl = canvasToVirtual(minX, minY);
+        const br = canvasToVirtual(maxX, maxY);
+        const vminX = Math.min(tl.x, br.x);
+        const vmaxX = Math.max(tl.x, br.x);
+        const vminY = Math.min(tl.y, br.y);
+        const vmaxY = Math.max(tl.y, br.y);
+        const indices: number[] = [];
+        notes.forEach((note, index) => {
+            const pts = getNoteVirtualPoints(note);
+            if (pts.some(p => p.x >= vminX && p.x <= vmaxX && p.y >= vminY && p.y <= vmaxY)) {
+                indices.push(index);
+            }
+        });
+        setSelectedNotes(indices);
     };
 
     // ---------------------------
@@ -906,14 +996,15 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     }, [viewport]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
-        // 只有在按住特定键时才允许拖拽
-        if (e.shiftKey || e.ctrlKey) {
-            e.preventDefault();
-            setDragging(true);
-            setDragStart({ x: e.clientX, y: e.clientY });
+        // 鼠标状态下：记录圈选起点，支持点击单选与拖拽圈选
+        if (selectedTool === "mouse") {
+            const rect = canvasRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            selectionStartRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            selectionMovedRef.current = false;
+            setSelectionBox(null);
         }
-        // 不阻止默认行为，允许点击事件正常处理
-    }, []);
+    }, [selectedTool]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         const rect = canvasRef.current?.getBoundingClientRect();
@@ -922,28 +1013,27 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
 
-        // 计算轨道在Canvas中的居中位置
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-        const trackBgX = trackStartX + borderTotalWidth;
-
-        // 计算相对于轨道背景的鼠标位置
-        const relativeX = mouseX - trackBgX;
-        const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
-
-        // 计算beat位置 - 使用正确的虚拟坐标转换
-        const virtualY = viewport.scrollY + mouseY / viewport.scale;
-        const beat = virtualYToBeat(virtualY);
-
-        if (lane >= 0 && lane < LANES && beat >= 0) {
-            // 对齐到节拍显示值
-            const subBeatPosition = beat * beatDisplay;
-            const nearestSubBeat = Math.round(subBeatPosition);
-            const preciseBeat = nearestSubBeat / beatDisplay;
-            onMousePositionChange({ lane, beat: preciseBeat });
+        // 更新状态栏鼠标位置与粘贴锚点
+        const pos = getLaneBeatFromCanvas(mouseX, mouseY);
+        if (pos) {
+            onMousePositionChange({ lane: pos.lane, beat: pos.preciseBeat });
         } else {
             onMousePositionChange(null);
+        }
+
+        // 鼠标状态下：拖拽更新圈选矩形
+        if (selectedTool === "mouse" && selectionStartRef.current) {
+            const dx = mouseX - selectionStartRef.current.x;
+            const dy = mouseY - selectionStartRef.current.y;
+            if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+                selectionMovedRef.current = true;
+                setSelectionBox({
+                    x1: selectionStartRef.current.x,
+                    y1: selectionStartRef.current.y,
+                    x2: mouseX,
+                    y2: mouseY
+                });
+            }
         }
 
         // 禁用拖拽滚动，滚动由父容器处理
@@ -951,64 +1041,12 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             // 拖拽滚动由父容器处理，虚拟画布不处理拖拽滚动
             setDragStart({ x: e.clientX, y: e.clientY });
         }
-    }, [dragging, dragStart, viewport, onMousePositionChange, beatDisplay]);
+    }, [dragging, dragStart, viewport, onMousePositionChange, beatDisplay, selectedTool]);
 
     // 处理鼠标点击事件
     const handleClick = useCallback((e: React.MouseEvent) => {
+        // 鼠标状态下的选择（点击/圈选）已在 mouseup 中处理，这里直接跳过
         if (selectedTool === "mouse") {
-            // 鼠标状态下点击音符进行选择
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (!rect) return;
-
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
-            // 计算轨道在Canvas中的居中位置
-            const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-            const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-            const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-            const trackBgX = trackStartX + borderTotalWidth;
-
-            // 计算相对于轨道背景的鼠标位置
-            const relativeX = mouseX - trackBgX;
-            const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
-
-            // 计算beat位置 - 使用正确的虚拟坐标转换
-            const virtualY = viewport.scrollY + mouseY / viewport.scale;
-            const beat = virtualYToBeat(virtualY);
-
-            if (lane >= 0 && lane < LANES && beat >= 0) {
-                // 对齐到节拍显示值
-                const subBeatPosition = beat * beatDisplay;
-                const nearestSubBeat = Math.round(subBeatPosition);
-                const preciseBeat = nearestSubBeat / beatDisplay;
-
-                // 查找点击的音符
-                const noteIndex = notes.findIndex(note => {
-                    if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
-                        return Math.abs(note.beat - preciseBeat) < 0.0001 && note.lane === lane;
-                    } else if (note.type === "Slide" || note.type === "Long") {
-                        return note.connections.some(conn =>
-                            Math.abs(conn.beat - preciseBeat) < 0.0001 && conn.lane === lane
-                        );
-                    }
-                    return false;
-                });
-
-                if (noteIndex !== -1) {
-                    if (isCombinationMode) {
-                        if (selectedNotes.includes(noteIndex)) {
-                            setSelectedNotes(selectedNotes.filter(i => i !== noteIndex));
-                        } else {
-                            setSelectedNotes([...selectedNotes, noteIndex]);
-                        }
-                    } else {
-                        setSelectedNotes([noteIndex]);
-                    }
-                } else if (!isCombinationMode) {
-                    setSelectedNotes([]);
-                }
-            }
             return;
         }
 
@@ -1091,12 +1129,31 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 }
             }
         }
-    }, [selectedTool, selectedNotes, setSelectedNotes, isCombinationMode, notes, viewport, beatDisplay]);
+    }, [selectedTool, selectedNotes, setSelectedNotes, notes, viewport, beatDisplay]);
 
-    const handleMouseUp = useCallback(() => {
+    const handleMouseUp = useCallback((e: React.MouseEvent) => {
         setDragging(false);
         setDragStart(null);
-    }, []);
+
+        // 鼠标状态下完成点选或圈选
+        if (selectedTool !== "mouse" || !selectionStartRef.current) {
+            selectionStartRef.current = null;
+            setSelectionBox(null);
+            return;
+        }
+
+        if (selectionMovedRef.current && selectionBox) {
+            // 拖拽圈选：选中框内音符
+            selectNotesInBox(selectionBox);
+        } else {
+            // 点击单选 / Shift 加选
+            const start = selectionStartRef.current;
+            selectNoteAtPoint(start.x, start.y, e.shiftKey);
+        }
+
+        selectionStartRef.current = null;
+        setSelectionBox(null);
+    }, [selectedTool, selectionBox, notes, selectedNotes]);
 
     // ---------------------------
     // 生命周期和效果
@@ -1206,6 +1263,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
+                    onMouseLeave={() => onMousePositionChange(null)}
                     onClick={handleClick}
                     style={{
                         backgroundColor: '#000000',

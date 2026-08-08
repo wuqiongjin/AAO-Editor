@@ -3,6 +3,7 @@ import type { ChartNote } from '../notes/Charts';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
+import { mirrorNotes, shiftGroupToAnchor } from '../utils/NoteEditing';
 
 interface EditorProps {
   song: File;
@@ -12,11 +13,11 @@ const Editor: React.FC<EditorProps> = () => {
   // 状态管理
   const [notes, setNotes] = useState<ChartNote[]>([]);
   const [selectedNotes, setSelectedNotes] = useState<number[]>([]);
-  const [selectedTool, setSelectedTool] = useState<string>('select');
+  const [selectedTool, setSelectedTool] = useState<string>('mouse');
   const [clipboard, setClipboard] = useState<ChartNote[]>([]);
   const [beatDisplay, setBeatDisplay] = useState(4);
   const [currentBpm, _setCurrentBpm] = useState(120);
-  const [_mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [mousePosition, setMousePosition] = useState<{ lane: number; beat: number } | null>(null);
   const [scale, setScale] = useState(1);
   const [isCombinationMode, setIsCombinationMode] = useState(false);
   
@@ -122,6 +123,7 @@ const Editor: React.FC<EditorProps> = () => {
     if (historyIndex > 0) {
       setHistoryIndex(historyIndex - 1);
       setNotes(history[historyIndex - 1]);
+      setSelectedNotes([]);
     }
   };
   
@@ -129,6 +131,7 @@ const Editor: React.FC<EditorProps> = () => {
     if (historyIndex < history.length - 1) {
       setHistoryIndex(historyIndex + 1);
       setNotes(history[historyIndex + 1]);
+      setSelectedNotes([]);
     }
   };
   
@@ -155,10 +158,14 @@ const Editor: React.FC<EditorProps> = () => {
   };
   
   const pasteNotes = () => {
-    if (clipboard.length > 0) {
-      const newNotes = [...notes, ...clipboard];
-      handleNotesChange(newNotes);
-    }
+    if (clipboard.length === 0 || !mousePosition) return;
+    // 以剪贴板组"左上角"(最小 beat/lane) 为锚点，粘贴到鼠标所在 lane/beat，保持组内相对位移
+    const pasted = shiftGroupToAnchor(clipboard, mousePosition.beat, mousePosition.lane);
+    const newNotes = [...notes, ...pasted];
+    handleNotesChange(newNotes);
+    // 粘贴后选中新粘贴的音符
+    const startIndex = notes.length;
+    setSelectedNotes(pasted.map((_, i) => startIndex + i));
   };
   
   const deleteSelectedNotes = () => {
@@ -168,6 +175,33 @@ const Editor: React.FC<EditorProps> = () => {
       setSelectedNotes([]);
     }
   };
+
+  // 镜像：左右 lane 翻转 + 方向键 L↔R 翻转 + 滑条端点 lane 同步；BPM 线不参与
+  const mirrorSelected = () => {
+    if (selectedNotes.length === 0) return;
+    handleNotesChange(mirrorNotes(notes, selectedNotes));
+  };
+
+  // 键盘快捷键（作用域：画布编辑；焦点在输入元素/代码编辑器时放行原生行为）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === "c") { e.preventDefault(); copySelected(); }
+      else if (mod && key === "x") { e.preventDefault(); cutSelected(); }
+      else if (mod && key === "v") { e.preventDefault(); pasteNotes(); }
+      else if (mod && key === "z") { e.preventDefault(); undo(); }
+      else if (mod && key === "y") { e.preventDefault(); redo(); }
+      else if (mod && key === "a") { e.preventDefault(); setSelectedNotes(notes.map((_, i) => i)); }
+      else if (mod && key === "m") { e.preventDefault(); mirrorSelected(); }
+      else if (key === "delete" || key === "backspace") { e.preventDefault(); deleteSelectedNotes(); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [notes, selectedNotes, clipboard, mousePosition, history, historyIndex]);
   
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -197,9 +231,9 @@ const Editor: React.FC<EditorProps> = () => {
             onCut={cutSelected}
             onPaste={pasteNotes}
             onDelete={deleteSelectedNotes}
-            onMirror={() => {}}
+            onMirror={mirrorSelected}
             canCopy={selectedNotes.length > 0}
-            canPaste={clipboard.length > 0}
+            canPaste={clipboard.length > 0 && mousePosition !== null}
             scale={scale}
             onZoomIn={() => setScale(prev => Math.min(prev + 0.1, 3))}
             onZoomOut={() => setScale(prev => Math.max(prev - 0.1, 0.1))}
@@ -295,13 +329,8 @@ const Editor: React.FC<EditorProps> = () => {
               selectedNotes={selectedNotes}
               setSelectedNotes={setSelectedNotes}
               beatDisplay={beatDisplay}
-              onMousePositionChange={(position) => {
-                if (position) {
-                  setMousePosition({ x: position.lane, y: position.beat });
-                }
-              }}
+              onMousePositionChange={setMousePosition}
               scale={scale}
-              isCombinationMode={isCombinationMode}
               onScrollChange={handleVirtualScrollChange}
             />
           </div>
