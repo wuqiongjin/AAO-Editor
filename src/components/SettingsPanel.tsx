@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FUNCTIONS, functionById, setFunctionBinding, loadConfig, getDefaultConfig,
-  exportConfig, formatKey, type ShortcutConfig, type FunctionId,
+  exportConfig, formatKey, setCapturingShortcut, type ShortcutConfig, type FunctionId,
 } from '../utils/ShortcutConfig';
 
 interface SettingsPanelProps {
@@ -22,8 +22,8 @@ const PANEL_STYLE: React.CSSProperties = {
   fontFamily: 'system-ui, sans-serif', fontSize: '14px',
 };
 
-/** 由按键事件构建规范绑定串（小写修饰键 + 小写主键）；纯修饰键 / 无法记录的按键返回 null */
-function comboFromKeyEvent(e: React.KeyboardEvent): string | null {
+/** 由按键事件构建规范绑定串（小写修饰键 + 小写主键）；纯修饰键返回 null。React 与原生 KeyboardEvent 结构兼容。 */
+function comboFromKeyEvent(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): string | null {
   if (['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) return null;
   const mods: string[] = [];
   if (e.ctrlKey || e.metaKey) mods.push('ctrl');
@@ -33,69 +33,100 @@ function comboFromKeyEvent(e: React.KeyboardEvent): string | null {
   return [...mods, main].join('+');
 }
 
-const CODE_INPUT_STYLE: React.CSSProperties = {
+const KEY_DISPLAY_STYLE: React.CSSProperties = {
   width: '150px', boxSizing: 'border-box',
   fontFamily: '"SF Mono", Consolas, Menlo, monospace', fontSize: '13px',
   background: '#1e1e1e', color: '#d4d4d4', borderRadius: '4px',
   padding: '4px 8px', border: '1px solid #3c3c3c', textAlign: 'center', cursor: 'pointer',
 };
-const RECORDING_STYLE: React.CSSProperties = { ...CODE_INPUT_STYLE, borderColor: '#569cd6', color: '#569cd6' };
-const ERROR_STYLE: React.CSSProperties = { ...CODE_INPUT_STYLE, borderColor: '#dc2626' };
+
+/** 快捷键显示块：点击后打开独立记录弹窗（类 VSCode） */
+function ShortcutDisplay({ value, hasError, onClick }: {
+  value: string; hasError: boolean; onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      style={hasError ? { ...KEY_DISPLAY_STYLE, borderColor: '#dc2626' } : KEY_DISPLAY_STYLE}
+      onClick={onClick}
+      title="点击修改快捷键"
+    >
+      {formatKey(value)}
+    </button>
+  );
+}
 
 /**
- * 快捷键记录输入框（类 VSCode）：点击后进入"记录"态，捕获用户按键动作组合成键位，
- * Enter 确认、Esc 取消；展示为大写键帽文本。底层用 <input> 使编辑器全局 keydown 放行（不误触发）。
+ * 独立的快捷键记录弹窗（类 VSCode）：
+ * 打开时挂载 window keydown 捕获用户按键组合，Enter 确认、Esc 取消；
+ * 通过 isCapturingShortcut 让编辑器全局快捷键放行，避免误触发。
  */
-function ShortcutInput({ value, hasError, onCommit }: {
-  value: string; hasError: boolean; onCommit: (binding: string) => void;
+function ShortcutRecorder({ id, onCommit, onCancel }: {
+  id: FunctionId; onCommit: (binding: string) => void; onCancel: () => void;
 }) {
-  const [recording, setRecording] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
+  const draftRef = useRef<string | null>(null);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.key === 'Enter') {
-      if (recording && draft) onCommit(draft);
-      setRecording(false);
-      setDraft(null);
-      return;
-    }
-    if (e.key === 'Escape') {
-      setRecording(false);
-      setDraft(null);
-      return;
-    }
-    const combo = comboFromKeyEvent(e);
-    if (combo) {
-      setDraft(combo);
-      setRecording(true);
-    }
-  };
-
-  const style = hasError ? ERROR_STYLE : recording ? RECORDING_STYLE : CODE_INPUT_STYLE;
-  const shown = recording ? (draft ? formatKey(draft) : '…') : formatKey(value);
+  useEffect(() => {
+    setCapturingShortcut(true);
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        if (draftRef.current) onCommit(draftRef.current);
+        onCancel();
+        return;
+      }
+      if (e.key === 'Escape') {
+        onCancel();
+        return;
+      }
+      const combo = comboFromKeyEvent(e);
+      if (combo) {
+        draftRef.current = combo;
+        setDraft(combo);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      setCapturingShortcut(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
-    <input
-      style={style}
-      value={shown}
-      readOnly
-      onFocus={e => { (e.target as HTMLInputElement).select(); }}
-      onKeyDown={handleKeyDown}
-      title={recording ? '按下组合键，Enter 确认，Esc 取消' : '点击以记录新的快捷键'}
-    />
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 1100, backgroundColor: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={onCancel}
+    >
+      <div
+        style={{
+          backgroundColor: '#2d2d2d', borderRadius: '8px', padding: '28px 40px',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.4)', textAlign: 'center',
+          fontFamily: '"SF Mono", Consolas, Menlo, monospace', color: '#d4d4d4',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ fontSize: '34px', marginBottom: '16px', color: '#569cd6' }}>
+          {draft ? formatKey(draft) : '…'}
+        </div>
+        <div style={{ fontSize: '13px', color: '#9cdcfe' }}>先按所需的组合键，再按 enter 键。</div>
+        <div style={{ fontSize: '12px', color: '#6a9955', marginTop: '12px' }}>{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
+      </div>
+    </div>
   );
 }
 
 /**
  * 快捷键设置面板（ADR-0002 §5）
  * Q6 定案：按「具体功能」编辑单键；支持按功能名部分匹配搜索。
- * 本次改版：① 展示统一大写（不区分大小写）；② 输入改为"记录按键动作"式（类 VSCode），非手输文本。
+ * 展示统一大写（不区分大小写）；修改时点击键位弹出独立记录弹窗（类 VSCode，非手输文本）。
  */
 export default function SettingsPanel({ config, onChange, onClose }: SettingsPanelProps) {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<{ id: FunctionId; msg: string } | null>(null);
+  const [editingId, setEditingId] = useState<FunctionId | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const visible = useMemo(() => {
@@ -157,7 +188,7 @@ export default function SettingsPanel({ config, onChange, onClose }: SettingsPan
           />
           <button style={toolBtnStyle} onClick={handleExport}>导出 JSON</button>
           <button style={toolBtnStyle} onClick={() => fileRef.current?.click()}>导入 JSON</button>
-          <button style={toolBtnStyle} onClick={() => onChange(getDefaultConfig())}>恢复默认</button>
+          <button style={toolBtnStyle} onClick={() => { setError(null); onChange(getDefaultConfig()); }}>恢复默认</button>
           <input
             ref={fileRef} type="file" accept="application/json" style={{ display: 'none' }}
             onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ''; }}
@@ -165,7 +196,7 @@ export default function SettingsPanel({ config, onChange, onClose }: SettingsPan
         </div>
 
         <div style={{ color: '#6b7280', fontSize: '12px', marginBottom: '10px' }}>
-          点击右侧键位框进入记录态，直接按下想要的组合键，按 Enter 确认、Esc 取消（不区分大小写）。
+          点击右侧键位框，在弹出的弹窗中按下想要的组合键，再按 Enter 确认（不区分大小写）。
         </div>
 
         {error && (
@@ -191,10 +222,10 @@ export default function SettingsPanel({ config, onChange, onClose }: SettingsPan
                   {f.label}
                 </td>
                 <td style={{ padding: '6px', borderBottom: '1px solid #f3f4f6' }}>
-                  <ShortcutInput
+                  <ShortcutDisplay
                     value={config[f.id]}
                     hasError={error?.id === f.id}
-                    onCommit={binding => commit(f.id, binding)}
+                    onClick={() => setEditingId(f.id)}
                   />
                 </td>
               </tr>
@@ -202,6 +233,14 @@ export default function SettingsPanel({ config, onChange, onClose }: SettingsPan
           </tbody>
         </table>
       </div>
+
+      {editingId && (
+        <ShortcutRecorder
+          id={editingId}
+          onCommit={binding => commit(editingId, binding)}
+          onCancel={() => setEditingId(null)}
+        />
+      )}
     </div>
   );
 }

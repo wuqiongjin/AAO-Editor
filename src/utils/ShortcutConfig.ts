@@ -149,6 +149,11 @@ export function resolveAction(e: KeyboardEvent, cfg: ShortcutConfig): FunctionId
   return buildBindingIndex(cfg).get(normalizeKeyEvent(e)) ?? null;
 }
 
+// 全局"正在记录快捷键"标志：记录弹窗打开时置 true，Editor 全局 keydown 据此放行，避免误触发。
+let capturing = false;
+export const setCapturingShortcut = (v: boolean): void => { capturing = v; };
+export const isCapturingShortcut = (): boolean => capturing;
+
 /** 冲突检测：某键位是否已属于"其它"功能 */
 export function bindingTakenByOther(cfg: ShortcutConfig, target: FunctionId, binding: string): FunctionId | null {
   for (const f of FUNCTIONS) {

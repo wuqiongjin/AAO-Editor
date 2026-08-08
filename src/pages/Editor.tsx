@@ -8,7 +8,7 @@ import SettingsPanel from '../components/SettingsPanel';
 import { shiftGroupToAnchor } from '../utils/NoteEditing';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectionNoteIndices } from '../utils/SelectionEditing';
 import { handleNoteReplacement } from '../utils/NoteReplacementRules';
-import { loadConfig, saveConfig, resolveAction, type FunctionId, type ShortcutConfig } from '../utils/ShortcutConfig';
+import { loadConfig, saveConfig, resolveAction, isCapturingShortcut, type FunctionId, type ShortcutConfig } from '../utils/ShortcutConfig';
 
 interface EditorProps {
   song: File;
@@ -272,6 +272,7 @@ const Editor: React.FC<EditorProps> = () => {
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
+      if (isCapturingShortcut()) return; // 快捷键记录弹窗打开时放行，由弹窗捕获按键
       const fn = resolveAction(e, shortcutConfig);
       if (!fn) return;
       e.preventDefault();
