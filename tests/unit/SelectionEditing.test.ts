@@ -25,11 +25,17 @@ describe('selectionNoteIndices', () => {
 });
 
 describe('deleteSelection', () => {
-  it('删区域 = 删除整条滑条', () => {
+  it('删区域 = 拆滑条：两端结点保留为新端点，单侧单结点退化', () => {
+    // 滑条 E(0)—A(1)—B(2)—F(3)，删除区域 R0（E–A 连接带）
     const notes = [slide(), { type: 'Single', beat: 5, lane: 0 } as ChartNote];
     const out = deleteSelection(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }]);
-    expect(out).toHaveLength(1);
+    // E 侧仅剩单结点 → 退化为独立音符（skill）；A—B—F 保留为滑条；另一首普通音符不受影响
+    expect(out).toHaveLength(3);
     expect(out[0].type).toBe('Single');
+    expect((out[0] as any).skill).toBe(true);
+    expect((out[0] as any).beat).toBe(0);
+    expect((out[1] as any).connections.map((c: { beat: number }) => c.beat)).toEqual([1, 2, 3]);
+    expect(out[2].type).toBe('Single');
   });
 
   it('删中间结点：仅移除该结点，其余保持连接', () => {
@@ -105,12 +111,19 @@ describe('copySelection', () => {
 });
 
 describe('cutSelection', () => {
-  it('剪切区域：只移除该段两端点，其余保持连接（与删除不同）', () => {
+  it('剪切区域：= 复制该区域 + 删除该区域（拆滑条）', () => {
+    // 滑条 E(0)—A(1)—B(2)—F(3)，剪切区域 R0（E–A 连接带）
     const out = cutSelection([slide()], [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }]);
-    expect(out.clipboard).toHaveLength(1); // 该段（2 结点滑条）
-    expect(out.newNotes).toHaveLength(1);
-    const s = out.newNotes[0] as any;
-    expect(s.connections.map((c: { beat: number }) => c.beat)).toEqual([2, 3]);
+    // 剪贴板：该区域物质化为 2 结点滑条 [E, A]
+    expect(out.clipboard).toHaveLength(1);
+    expect((out.clipboard[0] as any).type).toBe('Slide');
+    expect((out.clipboard[0] as any).connections.map((c: { beat: number }) => c.beat)).toEqual([0, 1]);
+    // 删除区域：E 退化为独立音符（skill），A—B—F 保留为滑条
+    expect(out.newNotes).toHaveLength(2);
+    expect(out.newNotes[0].type).toBe('Single');
+    expect((out.newNotes[0] as any).skill).toBe(true);
+    expect((out.newNotes[0] as any).beat).toBe(0);
+    expect((out.newNotes[1] as any).connections.map((c: { beat: number }) => c.beat)).toEqual([1, 2, 3]);
   });
 
   it('剪切单个结点：移除该结点', () => {

@@ -25,64 +25,82 @@ const groupByNote = (items: SelectionItem[]): Map<number, SelectionItem[]> => {
 
 /**
  * 删除选择条目（ADR-0001 §6.2）
- * - kind 'note' / 'slideRegion' → 删除整条（滑条区域删除=删整条滑条）
- * - kind 'slideNode' → 移除该结点（剩余 1 结点时退化为独立音符）
+ * - kind 'note' → 删除整条音符
+ * - kind 'slideRegion' → 拆滑条（在该区域处拆成两段，两端结点保留为新端点）
+ * - kind 'slideNode' → 移除该结点（剩余单结点时退化为独立音符）
  * 同一滑条内多个子部分删除会合并处理。
  */
 export function deleteSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[] {
-  return removeSelection(notes, items, 'wholeSlide');
+  return removeSelection(notes, items);
 }
 
 /**
  * 从 notes 中移除指定选择条目，重建数组（无就地变异）
- * @param regionMode 'wholeSlide' 删区域=删整条（delete）；'segment' 删区域=只删该段（cut）
+ * 滑条的处理：收集需移除的结点（slideNode）与需拆分的区域（slideRegion），
+ * 然后按统一算法拆分——跳过被移除结点（相邻结点保持连接），
+ * 在拆分点之后断开成新的滑条段。
  */
-function removeSelection(
-  notes: ChartNote[],
-  items: SelectionItem[],
-  regionMode: 'wholeSlide' | 'segment'
-): ChartNote[] {
+function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[] {
   const fullRemove = new Set<number>(); // 整条删除的 noteIndex
   const nodeRemove = new Map<number, Set<number>>(); // noteIndex -> 需移除的 connIndex 集合
+  const splitAfter = new Map<number, Set<number>>(); // noteIndex -> 需在该 connIndex 之后拆分的集合（区域）
 
   for (const it of items) {
     if (it.kind === 'note') {
       fullRemove.add(it.noteIndex);
-    } else if (it.kind === 'slideRegion') {
-      if (regionMode === 'wholeSlide') {
-        fullRemove.add(it.noteIndex);
-      } else {
-        // 剪切区域：只移除该段两端点
-        const set = nodeRemove.get(it.noteIndex) ?? new Set<number>();
-        set.add(it.connIndex);
-        set.add(it.connIndex + 1);
-        nodeRemove.set(it.noteIndex, set);
-      }
-    } else {
-      // slideNode
+    } else if (it.kind === 'slideNode') {
       const set = nodeRemove.get(it.noteIndex) ?? new Set<number>();
       set.add(it.connIndex);
       nodeRemove.set(it.noteIndex, set);
+    } else {
+      // slideRegion：在该连接带处拆分（connIndex 之后断开）
+      const set = splitAfter.get(it.noteIndex) ?? new Set<number>();
+      set.add(it.connIndex);
+      splitAfter.set(it.noteIndex, set);
     }
   }
 
   const result: ChartNote[] = [];
   notes.forEach((note, i) => {
     if (fullRemove.has(i)) return;
-    const toRemove = nodeRemove.get(i);
-    if (toRemove && isSlide(note)) {
-      const newConns = note.connections.filter((_, ci) => !toRemove.has(ci));
-      if (newConns.length === 0) return;
-      if (newConns.length === 1) {
-        result.push(connectionToNote(newConns[0]));
-      } else {
-        result.push({ ...note, connections: newConns });
-      }
+    if (isSlide(note) && (nodeRemove.has(i) || splitAfter.has(i))) {
+      result.push(...splitSlide(note, nodeRemove.get(i) ?? new Set(), splitAfter.get(i) ?? new Set()));
       return;
     }
     result.push(note);
   });
   return result;
+}
+
+/**
+ * 对一条滑条执行"拆滑条 + 移除结点"（ADR-0001 §6.2）
+ * @param nodeRemove 需移除的结点下标（跳过该结点，相邻结点保持连接）
+ * @param splitAfter 需在该下标之后拆分的点（区域断开成两段）
+ * 每段：>=2 结点 → 保留为滑条；==1 结点 → 按标记退化为独立音符
+ */
+function splitSlide(
+  note: SlideNote,
+  nodeRemove: Set<number>,
+  splitAfter: Set<number>
+): ChartNote[] {
+  const conns = note.connections;
+  const out: ChartNote[] = [];
+  let seg: typeof conns = [];
+  for (let idx = 0; idx < conns.length; idx++) {
+    if (nodeRemove.has(idx)) continue; // 移除结点，段继续
+    seg.push(conns[idx]);
+    if (splitAfter.has(idx)) {
+      out.push(materializeSegment(note.type, seg));
+      seg = [];
+    }
+  }
+  if (seg.length > 0) out.push(materializeSegment(note.type, seg));
+  return out;
+}
+
+function materializeSegment(type: "Slide" | "Long", seg: SlideNote["connections"]): ChartNote {
+  if (seg.length === 1) return connectionToNote(seg[0]);
+  return { type, connections: seg } as SlideNote;
 }
 
 /**
@@ -133,11 +151,11 @@ export function copySelection(notes: ChartNote[], items: SelectionItem[]): Chart
 
 /**
  * 剪切选择条目 → { 剪贴板物质化内容, 移除后的 notes }
- * 剪切区域只移除该段（与"删除区域=删整条"不同）；剪切结点移除该结点。
+ * 剪切 = 复制该区域 + 删除该区域（ADR-0001 §6.3，与"删除"对区域的语义统一：拆滑条）。
  */
 export function cutSelection(notes: ChartNote[], items: SelectionItem[]): { clipboard: ChartNote[]; newNotes: ChartNote[] } {
   const clipboard = copySelection(notes, items);
-  const newNotes = removeSelection(notes, items, 'segment');
+  const newNotes = removeSelection(notes, items);
   return { clipboard, newNotes };
 }
 
