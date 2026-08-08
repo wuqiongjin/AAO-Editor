@@ -1,3 +1,4 @@
+import { describe, test, expect } from 'vitest';
 import {
     convertNotesToChartCode,
     convertChartCodeToNotes,
@@ -5,6 +6,7 @@ import {
     parseChartCodeFromJSON,
     validateChartCode
 } from '../../src/utils/ChartConverter';
+import type { ChartCodeNote } from '../../src/utils/ChartConverter';
 import type { ChartNote } from '../../src/notes/Charts';
 
 describe('Chart Converter', () => {
@@ -91,7 +93,7 @@ describe('Chart Converter', () => {
         });
 
         // Check Long note (converted to Slide)
-        const longNote = chartCode.find(n => n.type === "Slide" && n.connections.length === 3);
+        const longNote = chartCode.find(n => n.type === "Slide" && n.connections[0].beat === 20);
         expect(longNote).toEqual({
             type: "Slide",
             connections: [
@@ -131,7 +133,7 @@ describe('Chart Converter', () => {
         expect(slideNote).toBeDefined();
 
         // Check Long note (converted to Slide)
-        const longNote = convertedNotes.find(n => n.type === "Slide" && n.connections.length === 3);
+        const longNote = convertedNotes.find(n => n.type === "Slide" && n.connections[0].beat === 20);
         expect(longNote).toBeDefined();
     });
 

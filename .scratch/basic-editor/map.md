@@ -38,6 +38,7 @@
 - [02 谱面代码格式对齐](./issues/02-谱面代码格式对齐.md) — 内部格式与 Bestdori 高度兼容，无需重设计；只需 Bestdori 导入/导出适配器 + 字段规范化（direction 字符串↔数字）。
 - [03 音频播放与预览线架构](./issues/03-音频播放与预览线架构.md) — 用 AudioContext+AudioBufferSourceNode，渲染进程 decodeAudioData；预览线在 FinalVirtualCanvas 的 RAF 循环读 currentTime 转换；按键音提前 ~100ms 预调度；无需 Electron 主进程解码。
 - [04 Electron 文件持久化与导出](./issues/04-Electron文件持久化与导出.md) — 加 IPC 通道（preload invoke → main ipcMain.handle + dialog + fs）；MVP 导出 chartCodeToJSON 的 JSON 字符串。
+- [06 死代码整理与构建修复](./issues/06-死代码整理与构建修复.md) — 已执行：删除 8 个死 canvas 组件 + 4 个测试脚手架，收敛到 FinalVirtualCanvas；修复 App.tsx 类型错误与各类死变量/死函数；`tsc -b` 与 `npm run build` 全绿；配置 vitest 使 9 个单元测试通过。仓库进入干净可编译可测试基线。（同时解阻塞了 10；07 仍待 05）
 
 ## Not yet specified
 

@@ -29,7 +29,6 @@
     "noUncheckedSideEffectImports": true
   },
   "include": [
-    "src",
-    "tests/debug/SpriteDebug.tsx"
+    "src"
   ]
 }

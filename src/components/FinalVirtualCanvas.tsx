@@ -43,13 +43,7 @@ const VIEWPORT_PADDING = 200;
 // 虚拟高度配置 - 可以手动修改这个值来调整虚拟高度
 const VIRTUAL_HEIGHT_MULTIPLIER = 1.0; // 虚拟高度倍数，可以调整这个值
 
-// 虚拟画布边界配置
-const VIRTUAL_BOUNDS = {
-    minY: 0, // 虚拟画布下限
-    maxY: BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER, // 虚拟画布上限
-    minX: 0,
-    maxX: LANES * LANE_WIDTH + (1 + 4 + 1 + 1 + 1 + 1) * 2
-};
+// 虚拟画布边界配置（暂未使用，缩放边界由 getScaledVirtualBounds 计算）
 
 // 缩放时的虚拟边界调整
 const getScaledVirtualBounds = (scale: number) => {
@@ -107,8 +101,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const [dragging, setDragging] = useState(false);
     const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
     const [slideBuffer] = useState<{ beat: number; lane: number; subBeat?: number }[]>([]);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [isSelecting] = useState(false); // 保留用于未来功能
     const [selectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -523,8 +515,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // 绘制音符
     const renderNotes = useCallback((ctx: CanvasRenderingContext2D, visibleNotes: { note: ChartNote; index: number }[]) => {
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-
         // 第一层：普通音符和方向键主体
         visibleNotes.forEach(({ note, index }) => {
             const isSelected = selectedNotes.includes(index);
@@ -1069,7 +1059,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
-            const virtualMouse = canvasToVirtual(mouseX, mouseY);
 
             // 计算轨道在Canvas中的居中位置
             const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
@@ -1126,7 +1115,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const virtualMouse = canvasToVirtual(mouseX, mouseY);
 
         // 计算轨道在Canvas中的居中位置
         const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);

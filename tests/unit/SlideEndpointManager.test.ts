@@ -1,5 +1,6 @@
+import { describe, test, expect, beforeEach } from 'vitest';
 import { SlideEndpointManager } from '../../src/utils/SlideEndpointManager';
-import type { ChartNote, SlideNote } from '../../src/notes/Charts';
+import type { ChartNote } from '../../src/notes/Charts';
 
 describe('SlideEndpointManager', () => {
     let manager: SlideEndpointManager;

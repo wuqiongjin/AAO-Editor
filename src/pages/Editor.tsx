@@ -8,15 +8,15 @@ interface EditorProps {
   song: File;
 }
 
-const Editor: React.FC<EditorProps> = ({ song }) => {
+const Editor: React.FC<EditorProps> = () => {
   // 状态管理
   const [notes, setNotes] = useState<ChartNote[]>([]);
   const [selectedNotes, setSelectedNotes] = useState<number[]>([]);
   const [selectedTool, setSelectedTool] = useState<string>('select');
   const [clipboard, setClipboard] = useState<ChartNote[]>([]);
   const [beatDisplay, setBeatDisplay] = useState(4);
-  const [currentBpm, setCurrentBpm] = useState(120);
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [currentBpm, _setCurrentBpm] = useState(120);
+  const [_mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
   const [isCombinationMode, setIsCombinationMode] = useState(false);
   
@@ -25,7 +25,7 @@ const Editor: React.FC<EditorProps> = ({ song }) => {
   const [historyIndex, setHistoryIndex] = useState(0);
   
   // 虚拟画布相关状态
-  const [virtualScrollY, setVirtualScrollY] = useState(0);
+  const [_virtualScrollY, setVirtualScrollY] = useState(0);
   const [virtualHeight, setVirtualHeight] = useState(0);
   
   // 滚动同步相关
@@ -229,32 +229,6 @@ const Editor: React.FC<EditorProps> = ({ song }) => {
       handleNotesChange(newNotes);
       setSelectedNotes([]);
     }
-  };
-  
-  const selectAllNotes = () => {
-    setSelectedNotes(notes.map((_, index) => index));
-  };
-  
-  const deselectAllNotes = () => {
-    setSelectedNotes([]);
-  };
-  
-  // 音符操作
-  const handleAddNote = (note: ChartNote) => {
-    const newNotes = [...notes, note];
-    handleNotesChange(newNotes);
-  };
-  
-  const handleUpdateNote = (index: number, updatedNote: ChartNote) => {
-    const newNotes = [...notes];
-    newNotes[index] = updatedNote;
-    handleNotesChange(newNotes);
-  };
-  
-  const handleDeleteNote = (index: number) => {
-    const newNotes = notes.filter((_, i) => i !== index);
-    handleNotesChange(newNotes);
-    setSelectedNotes(selectedNotes.filter(i => i !== index));
   };
   
   return (
