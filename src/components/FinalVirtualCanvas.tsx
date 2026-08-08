@@ -970,14 +970,33 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const subBeat = slideBuffer.subBeat || 0;
         const virtualY = getNoteVirtualY(slideBuffer.beat, subBeat);
         const virtualX = getNoteVirtualX(slideBuffer.lane);
-        const canvasPos = virtualToCanvas(virtualX, virtualY);
+        const { x, y } = virtualToCanvas(virtualX, virtualY);
+        const s = viewport.scale;
 
-        ctx.fillStyle = 'orange';
-        ctx.globalAlpha = 0.7;
+        // 外层柔光光晕
         ctx.beginPath();
-        ctx.arc(canvasPos.x, canvasPos.y, 8 * viewport.scale, 0, 2 * Math.PI);
+        ctx.arc(x, y, 15 * s, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
         ctx.fill();
-        ctx.globalAlpha = 1.0;
+
+        // 描边环（半透明）
+        ctx.beginPath();
+        ctx.arc(x, y, 10 * s, 0, 2 * Math.PI);
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.55)';
+        ctx.lineWidth = 2 * s;
+        ctx.stroke();
+
+        // 实心中心点
+        ctx.beginPath();
+        ctx.arc(x, y, 5 * s, 0, 2 * Math.PI);
+        ctx.fillStyle = '#00e5ff';
+        ctx.fill();
+
+        // 中心白色高光，增添立体感
+        ctx.beginPath();
+        ctx.arc(x - 1.2 * s, y - 1.2 * s, 1.6 * s, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fill();
     }, [slideBuffer, viewport]);
 
     // 渲染BPM数字
@@ -1057,6 +1076,13 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
         // 普通滚轮滚动由父容器处理，不在这里处理
     }, [viewport]);
+
+    // 切换离开滑条工具时清空待连接锚点（防止残留红点）
+    useEffect(() => {
+        if (selectedTool !== "slide") {
+            setSlideBuffer(null);
+        }
+    }, [selectedTool]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         // 鼠标状态下：记录圈选起点，支持点击单选与拖拽圈选
