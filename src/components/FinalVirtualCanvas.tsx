@@ -928,11 +928,12 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 bpm: (note as any).bpm,
                 virtualY,
                 canvasPos,
-                inViewport: canvasPos.y >= 0 && canvasPos.y <= CANVAS_HEIGHT
+                inViewport: canvasPos.y >= -50 && canvasPos.y <= CANVAS_HEIGHT + 50,
+                willRender: canvasPos.y >= -50 && canvasPos.y <= CANVAS_HEIGHT + 50
             });
 
-            // 检查是否在可见区域内
-            if (canvasPos.y >= 0 && canvasPos.y <= CANVAS_HEIGHT) {
+            // 检查是否在可见区域内 - 放宽检查范围，确保BPM在最下面时也能显示
+            if (canvasPos.y >= -50 && canvasPos.y <= CANVAS_HEIGHT + 50) {
                 // 计算轨道在Canvas中的居中位置
                 const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
                 const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
@@ -964,11 +965,14 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const textY = canvasPos.y - 15 * viewport.scale; // 在BPM线上面15像素
                 const textX = trackStartX - 80; // 在轨道左侧80像素处
 
-                ctx.fillStyle = '#ff6666';
-                ctx.font = `bold ${12 * viewport.scale}px Arial`;
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(`BPM ${(note as any).bpm}`, textX, textY);
+                // 确保BPM数字在画布范围内显示
+                if (textY >= -20 && textY <= CANVAS_HEIGHT + 20) {
+                    ctx.fillStyle = '#ff6666';
+                    ctx.font = `bold ${12 * viewport.scale}px Arial`;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(`BPM ${(note as any).bpm}`, textX, textY);
+                }
             }
         });
     }, [notes, viewport]);
