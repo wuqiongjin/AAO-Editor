@@ -114,7 +114,9 @@ const Editor: React.FC<EditorProps> = () => {
   
   const addToHistory = (newNotes: ChartNote[]) => {
     const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push([...newNotes]);
+    // 规则4（ADR-0001）：历史快照必须深拷贝，防止对象就地变异泄漏到多份快照，
+    // 使方向键 length 与滑条结点变更可逐步 Ctrl+Z/Y 回退
+    newHistory.push(structuredClone(newNotes));
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
   };

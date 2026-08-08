@@ -12,6 +12,7 @@ export interface ChartCodeSingle {
     lane: number;
     type: "Single";
     flick?: boolean;
+    skill?: boolean;
 }
 
 export interface ChartCodeDirectional {
@@ -21,6 +22,7 @@ export interface ChartCodeDirectional {
     direction: "Left" | "Right";
     width: number;
     flick?: boolean;
+    skill?: boolean;
 }
 
 export interface ChartCodeSlideConnection {
@@ -28,6 +30,7 @@ export interface ChartCodeSlideConnection {
     lane: number;
     hidden?: boolean;
     flick?: boolean;
+    skill?: boolean;
 }
 
 export interface ChartCodeSlide {
@@ -110,6 +113,10 @@ function convertSingleNote(note: SingleNote): ChartCodeSingle {
         result.flick = true;
     }
 
+    if (note.skill) {
+        result.skill = true;
+    }
+
     return result;
 }
 
@@ -127,6 +134,10 @@ function convertLDirectionalNote(note: LDirectionalNote): ChartCodeDirectional {
 
     if (note.flick) {
         result.flick = true;
+    }
+
+    if (note.skill) {
+        result.skill = true;
     }
 
     return result;
@@ -148,6 +159,10 @@ function convertRDirectionalNote(note: RDirectionalNote): ChartCodeDirectional {
         result.flick = true;
     }
 
+    if (note.skill) {
+        result.skill = true;
+    }
+
     return result;
 }
 
@@ -167,6 +182,10 @@ function convertSlideNote(note: SlideNote): ChartCodeSlide {
 
         if (conn.flick) {
             result.flick = true;
+        }
+
+        if (conn.skill) {
+            result.skill = true;
         }
 
         return result;

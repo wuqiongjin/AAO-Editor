@@ -1088,16 +1088,24 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 if (!slideBuffer) {
                     setSlideBuffer(point);
                 } else {
-                    const comb = handleSlideToSlideCombination(notes, [slideBuffer, point]);
-                    if (comb.shouldCombine) {
-                        _setNotes(comb.newNotes);
+                    // 规则2：禁止横向放置——同 beat（含 subBeat）的两点不可连成滑条
+                    const sameBeat =
+                        slideBuffer.beat === point.beat &&
+                        (slideBuffer.subBeat || 0) === (point.subBeat || 0);
+                    if (sameBeat) {
+                        setSlideBuffer(null);
                     } else {
-                        const newNotes = [...comb.newNotes];
-                        const [start, end] = [slideBuffer, point].sort(
-                            (a, b) => (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0))
-                        );
-                        newNotes.push({ type: "Slide", connections: [start, end] });
-                        _setNotes(newNotes);
+                        const comb = handleSlideToSlideCombination(notes, [slideBuffer, point]);
+                        if (comb.shouldCombine) {
+                            _setNotes(comb.newNotes);
+                        } else {
+                            const newNotes = [...comb.newNotes];
+                            const [start, end] = [slideBuffer, point].sort(
+                                (a, b) => (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0))
+                            );
+                            newNotes.push({ type: "Slide", connections: [start, end] });
+                            _setNotes(newNotes);
+                        }
                     }
                     setSlideBuffer(null);
                 }
