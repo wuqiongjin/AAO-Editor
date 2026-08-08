@@ -73,8 +73,9 @@ export const functionsByCategory = (cat: string): FunctionDef[] =>
 export const functionMode = (id: FunctionId): 'switch' | 'exec' =>
   id.startsWith('switch') ? 'switch' : 'exec';
 
-/** 键位展示格式（大写）：ctrl+f → Ctrl+F，空格 → Space，ctrl+shift+q → Ctrl+Shift+Q */
-export const formatKey = (key: string): string => {
+/** 键位展示格式（大写）：ctrl+f → Ctrl+F，空格 → Space，ctrl+shift+q → Ctrl+Shift+Q；null(屏蔽) → — */
+export const formatKey = (key: string | null): string => {
+  if (!key) return '—';
   if (key === ' ') return 'Space';
   return key.split('+').map(p => {
     if (p === 'ctrl') return 'Ctrl';
@@ -86,16 +87,24 @@ export const formatKey = (key: string): string => {
 
 /** 某类别下用于 tooltip 展示的 切换/执行 键位行（按当前配置） */
 export const categoryShortcuts = (cfg: ShortcutConfig, cat: string): { mode: string; key: string }[] =>
-  functionsByCategory(cat).map(f => ({
-    mode: functionMode(f.id) === 'switch' ? '切换' : '执行',
-    key: formatKey(cfg[f.id]),
-  }));
+  functionsByCategory(cat)
+    .map(f => {
+      const b = cfg[f.id];
+      if (!b) return null; // 已屏蔽（未绑定）的功能不出现在 tooltip
+      return {
+        mode: functionMode(f.id) === 'switch' ? '切换' : '执行',
+        key: formatKey(b),
+      };
+    })
+    .filter((x): x is { mode: string; key: string } => x !== null);
 
 /** 全部类别（保序去重） */
 export const categories = (): string[] => [...new Set(FUNCTIONS.map(f => f.category))];
 
-/** 配置 = 每个具体功能绑定一个键（小写规范形式） */
-export type ShortcutConfig = Record<FunctionId, string>;
+/**
+ * 配置 = 每个具体功能绑定一个键（小写规范形式）；值为 null 表示**屏蔽该功能快捷键**（未绑定、不触发）。
+ */
+export type ShortcutConfig = Record<FunctionId, string | null>;
 
 /** 按键事件 → 规范绑定串（小写）：修饰键依次为 ctrl(含 meta)/alt/shift，后接主键小写 */
 export function normalizeKeyEvent(e: KeyboardEvent): string {
@@ -125,7 +134,8 @@ export function loadConfig(storage: Pick<Storage, 'getItem'> = localStorage): Sh
     const cfg = getDefaultConfig();
     for (const f of FUNCTIONS) {
       const v = parsed[f.id];
-      if (typeof v === 'string') cfg[f.id] = v.toLowerCase();
+      if (v === null) cfg[f.id] = null; // 显式屏蔽
+      else if (typeof v === 'string') cfg[f.id] = v.toLowerCase();
     }
     return cfg;
   } catch {
@@ -137,10 +147,13 @@ export function saveConfig(cfg: ShortcutConfig, storage: Pick<Storage, 'setItem'
   storage.setItem(STORAGE_KEY, JSON.stringify(cfg));
 }
 
-/** 构建 绑定串 → 功能 的反向索引（供按键解析） */
+/** 构建 绑定串 → 功能 的反向索引（供按键解析；屏蔽/未绑定的功能不索引） */
 export function buildBindingIndex(cfg: ShortcutConfig): Map<string, FunctionId> {
   const map = new Map<string, FunctionId>();
-  for (const f of FUNCTIONS) map.set(cfg[f.id], f.id);
+  for (const f of FUNCTIONS) {
+    const b = cfg[f.id];
+    if (b) map.set(b, f.id);
+  }
   return map;
 }
 
@@ -163,8 +176,12 @@ export function bindingTakenByOther(cfg: ShortcutConfig, target: FunctionId, bin
   return null;
 }
 
-/** 为某个功能设置键位：冲突时返回冲突功能 id，否则写入并返回 null */
-export function setFunctionBinding(cfg: ShortcutConfig, id: FunctionId, binding: string): FunctionId | null {
+/** 为某个功能设置键位：传入 null/空串表示**屏蔽**（清除绑定）；冲突时返回冲突功能 id，否则写入并返回 null */
+export function setFunctionBinding(cfg: ShortcutConfig, id: FunctionId, binding: string | null): FunctionId | null {
+  if (binding === null || binding === '') {
+    cfg[id] = null;
+    return null;
+  }
   binding = binding.toLowerCase();
   const conflict = bindingTakenByOther(cfg, id, binding);
   if (conflict) return conflict;

@@ -64,6 +64,26 @@ describe('冲突检测', () => {
     expect(cfg.switchFlick).toBe('h');
   });
 
+  it('屏蔽：传入 null 清空绑定且不冲突', () => {
+    const cfg = getDefaultConfig();
+    const conflict = setFunctionBinding(cfg, 'switchSingle', null);
+    expect(conflict).toBeNull();
+    expect(cfg.switchSingle).toBeNull();
+  });
+
+  it('屏蔽后 buildBindingIndex 不再索引、resolveAction 不命中', () => {
+    const cfg = getDefaultConfig();
+    setFunctionBinding(cfg, 'switchSingle', null);
+    expect(buildBindingIndex(cfg).get('f')).toBeUndefined();
+    expect(resolveAction(keyEvent('f'), cfg)).toBeNull();
+    expect(resolveAction(keyEvent('f', true), cfg)).toBe('execSingle'); // 其它功能不受影响
+  });
+
+  it('loadConfig 保留显式屏蔽值 null', () => {
+    const cfg = loadConfig({ getItem: () => JSON.stringify({ switchSingle: null }) });
+    expect(cfg.switchSingle).toBeNull();
+  });
+
   it('bindingTakenByOther 返回占用方', () => {
     const cfg = getDefaultConfig();
     expect(bindingTakenByOther(cfg, 'execSingle', 'f')).toBe('switchSingle');

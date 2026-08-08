@@ -35,24 +35,31 @@ function comboFromKeyEvent(e: { key: string; ctrlKey: boolean; metaKey: boolean;
 
 const KEY_DISPLAY_STYLE: React.CSSProperties = {
   width: '150px', boxSizing: 'border-box',
-  fontFamily: '"SF Mono", Consolas, Menlo, monospace', fontSize: '13px',
-  background: '#1e1e1e', color: '#d4d4d4', borderRadius: '4px',
-  padding: '4px 8px', border: '1px solid #3c3c3c', textAlign: 'center', cursor: 'pointer',
+  fontFamily: '"SF Mono", Consolas, Menlo, monospace', fontSize: '13px', fontWeight: 600,
+  background: '#f1f5f9', color: '#1e293b', borderRadius: '6px',
+  padding: '4px 8px', border: '1px solid #cbd5e1', textAlign: 'center', cursor: 'pointer',
 };
 
-/** 快捷键显示块：点击后打开独立记录弹窗（类 VSCode） */
+/** 快捷键显示块（键帽样式）：点击后打开独立记录弹窗（类 VSCode）；disabled 时显示已屏蔽 */
 function ShortcutDisplay({ value, hasError, onClick }: {
   value: string; hasError: boolean; onClick: () => void;
 }) {
+  const style = hasError
+    ? { ...KEY_DISPLAY_STYLE, borderColor: '#dc2626', color: '#dc2626' }
+    : KEY_DISPLAY_STYLE;
   return (
-    <button
-      type="button"
-      style={hasError ? { ...KEY_DISPLAY_STYLE, borderColor: '#dc2626' } : KEY_DISPLAY_STYLE}
-      onClick={onClick}
-      title="点击修改快捷键"
-    >
+    <button type="button" style={style} onClick={onClick} title="点击修改快捷键">
       {formatKey(value)}
     </button>
+  );
+}
+
+/** 已屏蔽占位 */
+function ShortcutDisabled() {
+  return (
+    <span style={{ width: '150px', display: 'inline-block', textAlign: 'center', color: '#9ca3af', fontSize: '13px', fontStyle: 'italic' }}>
+      已屏蔽
+    </span>
   );
 }
 
@@ -97,22 +104,22 @@ function ShortcutRecorder({ id, onCommit, onCancel }: {
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 1100, backgroundColor: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 1100, backgroundColor: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onClick={onCancel}
     >
       <div
         style={{
-          backgroundColor: '#2d2d2d', borderRadius: '8px', padding: '28px 40px',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.4)', textAlign: 'center',
-          fontFamily: '"SF Mono", Consolas, Menlo, monospace', color: '#d4d4d4',
+          backgroundColor: '#ffffff', borderRadius: '12px', padding: '28px 44px',
+          border: '2px solid #3b82f6', boxShadow: '0 16px 40px rgba(15,23,42,0.25)',
+          textAlign: 'center', fontFamily: '"SF Mono", Consolas, Menlo, monospace',
         }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ fontSize: '34px', marginBottom: '16px', color: '#569cd6' }}>
+        <div style={{ fontSize: '38px', fontWeight: 700, marginBottom: '16px', color: '#2563eb' }}>
           {draft ? formatKey(draft) : '…'}
         </div>
-        <div style={{ fontSize: '13px', color: '#9cdcfe' }}>先按所需的组合键，再按 enter 键。</div>
-        <div style={{ fontSize: '12px', color: '#6a9955', marginTop: '12px' }}>{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
+        <div style={{ fontSize: '13px', color: '#475569' }}>先按所需的组合键，再按 enter 键。</div>
+        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '12px' }}>{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
       </div>
     </div>
   );
@@ -142,6 +149,14 @@ export default function SettingsPanel({ config, onChange, onClose }: SettingsPan
       setError({ id, msg: `键位 "${formatKey(binding)}" 已被功能「${functionById(conflict).label}」占用` });
       return;
     }
+    setError(null);
+    onChange(next);
+  };
+
+  // 启用/屏蔽（屏蔽 = 清空绑定为 null，不触发；重新启用恢复默认绑定）
+  const setEnabled = (id: FunctionId, enabled: boolean) => {
+    const next = { ...config };
+    next[id] = enabled ? getDefaultConfig()[id] : null;
     setError(null);
     onChange(next);
   };
@@ -212,24 +227,39 @@ export default function SettingsPanel({ config, onChange, onClose }: SettingsPan
             <tr style={{ color: '#6b7280', fontSize: '12px', textAlign: 'left' }}>
               <th style={{ padding: '4px 6px', borderBottom: '1px solid #e5e7eb' }}>功能</th>
               <th style={{ padding: '4px 6px', borderBottom: '1px solid #e5e7eb' }}>快捷键</th>
+              <th style={{ padding: '4px 6px', borderBottom: '1px solid #e5e7eb', textAlign: 'center', width: '70px' }}>启用</th>
             </tr>
           </thead>
           <tbody>
-            {visible.map(f => (
-              <tr key={f.id}>
-                <td style={{ padding: '6px', borderBottom: '1px solid #f3f4f6' }}>
-                  <span style={{ color: '#9ca3af', fontSize: '12px', marginRight: '8px' }}>{f.category}</span>
-                  {f.label}
-                </td>
-                <td style={{ padding: '6px', borderBottom: '1px solid #f3f4f6' }}>
-                  <ShortcutDisplay
-                    value={config[f.id]}
-                    hasError={error?.id === f.id}
-                    onClick={() => setEditingId(f.id)}
-                  />
-                </td>
-              </tr>
-            ))}
+            {visible.map(f => {
+              const bound = config[f.id] !== null;
+              return (
+                <tr key={f.id} style={{ opacity: bound ? 1 : 0.55 }}>
+                  <td style={{ padding: '6px', borderBottom: '1px solid #f3f4f6' }}>
+                    <span style={{ color: '#9ca3af', fontSize: '12px', marginRight: '8px' }}>{f.category}</span>
+                    {f.label}
+                  </td>
+                  <td style={{ padding: '6px', borderBottom: '1px solid #f3f4f6' }}>
+                    {bound
+                      ? <ShortcutDisplay
+                          value={config[f.id] as string}
+                          hasError={error?.id === f.id}
+                          onClick={() => setEditingId(f.id)}
+                        />
+                      : <ShortcutDisabled />}
+                  </td>
+                  <td style={{ padding: '6px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>
+                    <label style={{ fontSize: '12px', color: '#4b5563', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={bound}
+                        onChange={e => setEnabled(f.id, e.target.checked)}
+                      />
+                    </label>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
