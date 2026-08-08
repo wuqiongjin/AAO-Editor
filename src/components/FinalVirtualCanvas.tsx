@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import type { ChartNote } from "../notes/Charts";
 import CanvasSpriteIcon, { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcons } from './CanvasSpriteIcon';
-// import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
-// import { slideEndpointManager } from '../utils/SlideEndpointManager';
+import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
 
 interface FinalVirtualCanvasProps {
     notes: ChartNote[];
@@ -92,7 +91,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     const [dragging, setDragging] = useState(false);
     const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-    const [slideBuffer] = useState<{ beat: number; lane: number; subBeat?: number }[]>([]);
+    const [slideBuffer, setSlideBuffer] = useState<{ beat: number; lane: number; subBeat?: number } | null>(null);
     const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const selectionStartRef = useRef<{ x: number; y: number } | null>(null); // 圈选起点（画布坐标）
     const selectionMovedRef = useRef(false); // 是否已发生拖拽（区分点击与圈选）
@@ -900,21 +899,20 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         ctx.setLineDash([]);
     }, [selectionBox]);
 
-    // 绘制滑条缓冲区
+    // 绘制滑条缓冲区（待连接的滑条起点/终点）
     const renderSlideBuffer = useCallback((ctx: CanvasRenderingContext2D) => {
-        slideBuffer.forEach((point) => {
-            const subBeat = point.subBeat || 0;
-            const virtualY = getNoteVirtualY(point.beat, subBeat);
-            const virtualX = getNoteVirtualX(point.lane);
-            const canvasPos = virtualToCanvas(virtualX, virtualY);
+        if (!slideBuffer) return;
+        const subBeat = slideBuffer.subBeat || 0;
+        const virtualY = getNoteVirtualY(slideBuffer.beat, subBeat);
+        const virtualX = getNoteVirtualX(slideBuffer.lane);
+        const canvasPos = virtualToCanvas(virtualX, virtualY);
 
-            ctx.fillStyle = 'orange';
-            ctx.globalAlpha = 0.7;
-            ctx.beginPath();
-            ctx.arc(canvasPos.x, canvasPos.y, 8 * viewport.scale, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.globalAlpha = 1.0;
-        });
+        ctx.fillStyle = 'orange';
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath();
+        ctx.arc(canvasPos.x, canvasPos.y, 8 * viewport.scale, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
     }, [slideBuffer, viewport]);
 
     // 渲染BPM数字
@@ -1077,46 +1075,32 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             const nearestSubBeat = Math.round(subBeatPosition);
             const preciseBeat = nearestSubBeat / beatDisplay;
 
-            // 音符放置逻辑
-            if (selectedTool === "single") {
-                const newNote: ChartNote = {
-                    beat: preciseBeat,
-                    lane: lane,
-                    type: "Single"
-                };
-                _setNotes([...notes, newNote]);
-            } else if (selectedTool === "flick") {
-                const newNote: ChartNote = {
-                    beat: preciseBeat,
-                    lane: lane,
-                    type: "Single",
-                    flick: true
-                };
-                _setNotes([...notes, newNote]);
-            } else if (selectedTool === "skill") {
-                const newNote: ChartNote = {
-                    beat: preciseBeat,
-                    lane: lane,
-                    type: "Single",
-                    skill: true
-                };
-                _setNotes([...notes, newNote]);
-            } else if (selectedTool === "ldirectional") {
-                const newNote: ChartNote = {
-                    beat: preciseBeat,
-                    lane: lane,
-                    type: "LDirectional",
-                    length: 1
-                };
-                _setNotes([...notes, newNote]);
-            } else if (selectedTool === "rdirectional") {
-                const newNote: ChartNote = {
-                    beat: preciseBeat,
-                    lane: lane,
-                    type: "RDirectional",
-                    length: 1
-                };
-                _setNotes([...notes, newNote]);
+            // 音符放置逻辑：应用覆盖替换规则（替换/方向键组合）
+            if (selectedTool === "single" || selectedTool === "flick" || selectedTool === "skill"
+                || selectedTool === "ldirectional" || selectedTool === "rdirectional") {
+                const result = handleNoteReplacement(notes, preciseBeat, lane, 0, selectedTool);
+                if (result.shouldReplace) {
+                    _setNotes(result.newNotes);
+                }
+            } else if (selectedTool === "slide") {
+                // 自动连接滑条：两点击创建滑条，并应用滑条与滑条组合规则
+                const point = { beat: preciseBeat, lane, subBeat: 0 };
+                if (!slideBuffer) {
+                    setSlideBuffer(point);
+                } else {
+                    const comb = handleSlideToSlideCombination(notes, [slideBuffer, point]);
+                    if (comb.shouldCombine) {
+                        _setNotes(comb.newNotes);
+                    } else {
+                        const newNotes = [...comb.newNotes];
+                        const [start, end] = [slideBuffer, point].sort(
+                            (a, b) => (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0))
+                        );
+                        newNotes.push({ type: "Slide", connections: [start, end] });
+                        _setNotes(newNotes);
+                    }
+                    setSlideBuffer(null);
+                }
             } else if (selectedTool === "bpm") {
                 const bpm = parseInt(prompt("请输入 BPM 数值") || "0", 10);
                 if (!isNaN(bpm) && bpm > 0) {
@@ -1129,7 +1113,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 }
             }
         }
-    }, [selectedTool, selectedNotes, setSelectedNotes, notes, viewport, beatDisplay]);
+    }, [selectedTool, selectedNotes, setSelectedNotes, notes, viewport, beatDisplay, slideBuffer]);
 
     const handleMouseUp = useCallback((e: React.MouseEvent) => {
         setDragging(false);

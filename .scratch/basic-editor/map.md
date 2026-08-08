@@ -42,6 +42,7 @@
 - [11 坐标模型统一与渲染框架重构](./issues/11-坐标模型统一与渲染框架重构.md) — 坐标模型已定案并在坐标/命中层落地：虚拟 X 原点=轨道内容左缘 `trackBgX`、音符 X 不含 `borderTotalWidth`、`virtualToCanvas`/`canvasToVirtual` 统一减去 `trackBgX`，保证任意缩放下音符与网格对齐（修症状 2/3/4）；并清除 FinalVirtualCanvas 内 25 处 `console.log`。`tsc` 全绿。渲染框架/性能重构仍推迟（见 10）。
 - [12 编辑器布局自适应](./issues/12-编辑器布局自适应.md) — 页面显示不全（需 90% 缩放）根因=固定像素布局合计约 1528px 超出窄屏；仅完成根因评估，**自适应布局未实现**（本次不实现，待规划）。
 - [05 基础编辑操作范围锁定](./issues/05-基础编辑操作范围锁定.md) — 已 /grilling 定案并**实现**：多选/拖拽圈选/Shift加选/Ctrl+A(仅画布)、粘贴到鼠标锚点、镜像(左右lane+方向翻转+滑条端点同步)、快捷键(Ctrl+C/X/V/Z/Y/Delete/Backspace/Ctrl+M)+上下文分发、undo/redo 清选区；新增 `NoteEditing.ts` 纯逻辑+8单测。`tsc` 全绿、17 测试通过。07 已解锁。
+- [07 音符替换与滑条端点规则重新接入](./issues/07-音符替换与滑条端点规则重新接入.md) — 已**实现**：恢复 NoteReplacementRules import；single/flick/skill/directional 放置改走 handleNoteReplacement（重叠替换+方向键组合），新增两点击自动连接滑条（含滑条间合并）；修复 'single'→'Single' 归一化与 subBeat||0 匹配。新增 9 单测，tsc/build 全绿、28 测试通过。已知缺口：滑条端点扩展交互③、占位样式、端点撞键、组合滑条工具（记录待办）。09 已解锁。
 
 ## Not yet specified
 

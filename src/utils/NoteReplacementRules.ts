@@ -30,14 +30,19 @@ export function handleNoteReplacement(
 ): NoteReplacementResult {
     const newNotes = [...notes];
 
+    // 统一 newNoteType：单键工具 id 为小写 "single"，模块内部与音符类型一致用 "Single"
+    if (newNoteType === "single") {
+        newNoteType = "Single";
+    }
+
     // 查找同一位置是否已有音符
     const existingNoteIndex = newNotes.findIndex(note => {
         if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
-            return note.beat === beat && note.lane === lane && note.subBeat === subBeat;
+            return note.beat === beat && note.lane === lane && (note.subBeat || 0) === (subBeat || 0);
         } else if (note.type === "Slide" || note.type === "Long") {
             // 检查滑条音符的连接点
             return note.connections.some((conn: any) =>
-                conn.beat === beat && conn.lane === lane && conn.subBeat === subBeat
+                conn.beat === beat && conn.lane === lane && (conn.subBeat || 0) === (subBeat || 0)
             );
         }
         return false;
@@ -72,7 +77,7 @@ function handleSlideNoteReplacement(
 ): NoteReplacementResult {
     const existingNote = newNotes[existingNoteIndex] as SlideNote;
     const connectionIndex = existingNote.connections.findIndex(conn =>
-        conn.beat === beat && conn.lane === lane && conn.subBeat === subBeat
+        conn.beat === beat && conn.lane === lane && (conn.subBeat || 0) === (subBeat || 0)
     );
 
     if (connectionIndex !== -1) {
