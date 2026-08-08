@@ -3,6 +3,9 @@ import type { ChartNote, SlideNote, SelectionItem } from "../notes/Charts";
 import CanvasSpriteIcon, { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcons } from './CanvasSpriteIcon';
 import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
 import { deleteSelection } from '../utils/SelectionEditing';
+import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
+
+export type EditingToolAction = 'copy' | 'cut' | 'delete' | 'mirror';
 
 interface FinalVirtualCanvasProps {
     notes: ChartNote[];
@@ -15,6 +18,9 @@ interface FinalVirtualCanvasProps {
     scale: number;
     onScrollChange?: (scrollY: number, virtualHeight: number) => void;
     externalScrollY?: number; // 外部控制的滚动位置
+    clipboard?: ChartNote[]; // 剪贴板内容（供粘贴预览）
+    onEditToolAction?: (action: EditingToolAction, item: SelectionItem) => void; // 编辑工具态：点击命中音符即执行
+    onEditToolPaste?: (pos: { beat: number; lane: number }) => void; // 粘贴工具态：点击位置即粘贴
 }
 
 const LANES = 7;
@@ -79,7 +85,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     onMousePositionChange,
     scale,
     onScrollChange,
-    externalScrollY
+    externalScrollY,
+    clipboard,
+    onEditToolAction,
+    onEditToolPaste
 }, ref) => {
     // 视口状态
     const [viewport, setViewport] = useState<ViewportState>({
@@ -96,6 +105,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const selectionStartRef = useRef<{ x: number; y: number } | null>(null); // 圈选起点（画布坐标）
     const selectionMovedRef = useRef(false); // 是否已发生拖拽（区分点击与圈选）
+    // 光标悬停位置（画布坐标），供工具态预览（放置/粘贴/镜像悬停）
+    const [hoverPos, setHoverPos] = useState<{ cx: number; cy: number } | null>(null);
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const spriteIcon = useRef<CanvasSpriteIcon>(new CanvasSpriteIcon());
@@ -319,7 +330,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     };
 
     // 圈选：按命中子部分选中框内音符（框到结点→结点；框到区域→区域）
-    const selectItemsInBox = (box: { x1: number; y1: number; x2: number; y2: number }) => {
+    const computeItemsInBox = useCallback((box: { x1: number; y1: number; x2: number; y2: number }): SelectionItem[] => {
         const minX = Math.min(box.x1, box.x2);
         const maxX = Math.max(box.x1, box.x2);
         const minY = Math.min(box.y1, box.y2);
@@ -360,7 +371,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 }
             }
         });
-        setSelectedItems(result);
+        return result;
+    }, [notes, canvasToVirtual, getNoteVirtualX, getNoteVirtualY]);
+
+    const selectItemsInBox = (box: { x1: number; y1: number; x2: number; y2: number }) => {
+        setSelectedItems(computeItemsInBox(box));
     };
 
     // ---------------------------
@@ -471,7 +486,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 绘制滑条缓冲区
         renderSlideBuffer(ctx);
 
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay]);
+        // 绘制工具态预览（放置/粘贴/镜像幽灵，ADR-0002 §4）
+        renderToolPreview(ctx);
+
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard]);
 
     // 绘制网格
     const renderGrid = useCallback((ctx: CanvasRenderingContext2D, trackStartX: number, trackBgX: number, trackBgWidth: number) => {
@@ -999,6 +1017,165 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         ctx.fill();
     }, [slideBuffer, viewport]);
 
+    // 在虚拟坐标绘制低透明度音符幽灵（简化为圆形，ADR-0002 §4）
+    // 渲染单个精灵图标（幽灵/预览用；透明度由调用方通过 ctx.globalAlpha 控制）
+    const renderSpriteGhost = (ctx: CanvasRenderingContext2D, icon: any, cx: number, cy: number, size: number, heightScale: number) => {
+        spriteIcon.current.render(ctx, {
+            ...icon,
+            canvasX: cx, canvasY: cy,
+            canvasSize: size, canvasWidth: size, canvasHeight: size * heightScale,
+            scale: viewport.scale,
+        });
+    };
+
+    // 渲染一条滑条的完整外观幽灵（连接带 + 各结点图标）
+    const renderSlideGhost = (ctx: CanvasRenderingContext2D, note: { connections: SlideNote["connections"] }) => {
+        const conns = note.connections;
+        if (conns.length < 2) return;
+        for (let i = 0; i < conns.length - 1; i++) {
+            const c1 = conns[i]; const c2 = conns[i + 1];
+            const p1 = virtualToCanvas(getNoteVirtualX(c1.lane), getNoteVirtualY(c1.beat, c1.subBeat || 0));
+            const p2 = virtualToCanvas(getNoteVirtualX(c2.lane), getNoteVirtualY(c2.beat, c2.subBeat || 0));
+            const half = (LANE_WIDTH * viewport.scale) / 2;
+            const quad = [[p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y]];
+            const minX = Math.min(p1.x - half, p2.x - half);
+            const maxX = Math.max(p1.x + half, p2.x + half);
+            const minY = Math.min(p1.y, p2.y);
+            const maxY = Math.max(p1.y, p2.y);
+            const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+            const w = maxX - minX, h = maxY - minY;
+            const sz = Math.max(Math.sqrt(w * w + h * h), Math.max(w, h)) * 1.0;
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(quad[0][0], quad[0][1]);
+            for (let j = 1; j < quad.length; j++) ctx.lineTo(quad[j][0], quad[j][1]);
+            ctx.closePath();
+            ctx.clip();
+            spriteIcon.current.render(ctx, {
+                ...CanvasSlideLineIcons.slideLine,
+                canvasX: cx, canvasY: cy, canvasSize: sz, canvasWidth: sz, canvasHeight: h, scale: 1,
+            });
+            ctx.restore();
+        }
+        conns.forEach(conn => {
+            const c = virtualToCanvas(getNoteVirtualX(conn.lane), getNoteVirtualY(conn.beat, conn.subBeat || 0));
+            const icon = { ...CanvasSlideLineIcons.endpoint, ...(conn.flick ? CanvasNoteIcons.flick : {}), ...(conn.skill ? CanvasNoteIcons.skill : {}) };
+            renderSpriteGhost(ctx, icon, c.x, c.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
+        });
+    };
+
+    // 渲染一个音符的完整外观幽灵（Q2/Q5：用真实图标而非圆圈；方向键保留其 length 变体）
+    const renderNoteGhost = (ctx: CanvasRenderingContext2D, note: ChartNote) => {
+        if (note.type === "Single") {
+            const c = virtualToCanvas(getNoteVirtualX(note.lane), getNoteVirtualY(note.beat, note.subBeat || 0));
+            let icon = BaseSpriteIcons.tap;
+            if (note.flick) icon = BaseSpriteIcons.flick;
+            else if (note.skill) icon = BaseSpriteIcons.skill;
+            renderSpriteGhost(ctx, icon, c.x, c.y, NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE);
+        } else if (note.type === "LDirectional" || note.type === "RDirectional") {
+            const c = virtualToCanvas(getNoteVirtualX(note.lane), getNoteVirtualY(note.beat, note.subBeat || 0));
+            const len = note.length || 1;
+            const icon = note.type === "LDirectional"
+                ? (len === 1 ? CanvasNoteIcons.leftFlickL1 : len === 2 ? CanvasNoteIcons.leftFlickL2 : CanvasNoteIcons.leftFlickL3)
+                : (len === 1 ? CanvasNoteIcons.rightFlickR1 : len === 2 ? CanvasNoteIcons.rightFlickR2 : CanvasNoteIcons.rightFlickR3);
+            renderSpriteGhost(ctx, icon, c.x, c.y, DIRECTIONAL_ICON_SIZE, DIRECTIONAL_HEIGHT_SCALE);
+        } else if (note.type === "Slide" || note.type === "Long") {
+            renderSlideGhost(ctx, note);
+        }
+    };
+
+    // 放置工具态幽灵：按工具构造一个代表音符（方向键默认 length=1，Q5）
+    const ghostNoteForTool = (tool: string, lane: number, beat: number): ChartNote | null => {
+        switch (tool) {
+            case 'single': return { type: "Single", lane, beat, subBeat: 0 };
+            case 'flick': return { type: "Single", lane, beat, subBeat: 0, flick: true };
+            case 'skill': return { type: "Single", lane, beat, subBeat: 0, skill: true };
+            case 'ldirectional': return { type: "LDirectional", lane, beat, subBeat: 0, length: 1 };
+            case 'rdirectional': return { type: "RDirectional", lane, beat, subBeat: 0, length: 1 };
+            default: return null;
+        }
+    };
+
+    // 绘制一组选择条目的镜像结果幽灵（Q4/Q5：用真实图标；滑条区域保留连接带）
+    const drawMirrorGhosts = (ctx: CanvasRenderingContext2D, items: SelectionItem[]) => {
+        for (const it of items) {
+            const note = notes[it.noteIndex];
+            if (!note) continue;
+            if (note.type === "Slide" || note.type === "Long") {
+                if (it.kind === 'slideNode') {
+                    const conn = note.connections[it.connIndex];
+                    renderNoteGhost(ctx, { type: "Single", lane: 6 - conn.lane, beat: conn.beat, subBeat: conn.subBeat || 0 });
+                } else if (it.kind === 'slideRegion') {
+                    const c1 = note.connections[it.connIndex];
+                    const c2 = note.connections[it.connIndex + 1];
+                    renderSlideGhost(ctx, {
+                        type: note.type, connections: [
+                            { ...c1, lane: 6 - c1.lane },
+                            { ...c2, lane: 6 - c2.lane },
+                        ],
+                    } as SlideNote);
+                } else {
+                    renderNoteGhost(ctx, mirrorNote(note));
+                }
+            } else {
+                renderNoteGhost(ctx, mirrorNote(note));
+            }
+        }
+    };
+
+    // 镜像工具态悬停预览（Q14）：仅预览单个键；滑条结点/连接带当作一个普通单键预览
+    const drawMirrorHoverGhost = (ctx: CanvasRenderingContext2D, hit: SelectionItem) => {
+        const note = notes[hit.noteIndex];
+        if (!note) return;
+        if (note.type === "Slide" || note.type === "Long") {
+            if (hit.kind !== 'slideNode' && hit.kind !== 'slideRegion') return;
+            const conn = note.connections[hit.connIndex];
+            renderNoteGhost(ctx, { type: "Single", lane: 6 - conn.lane, beat: conn.beat, subBeat: conn.subBeat || 0 });
+        } else {
+            renderNoteGhost(ctx, mirrorNote(note));
+        }
+    };
+
+    // 工具态预览：光标/框选处绘制低透明度结果幽灵（ADR-0002 §4）
+    const renderToolPreview = (ctx: CanvasRenderingContext2D) => {
+        if (!hoverPos) return;
+        const pos = getLaneBeatFromCanvas(hoverPos.cx, hoverPos.cy);
+        if (!pos) return;
+
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+
+        // 音符放置工具态：光标处放置幽灵（真实图标，Q2）
+        if (selectedTool === 'single' || selectedTool === 'flick' || selectedTool === 'skill'
+            || selectedTool === 'ldirectional' || selectedTool === 'rdirectional') {
+            const ghost = ghostNoteForTool(selectedTool, pos.lane, pos.preciseBeat);
+            if (ghost) renderNoteGhost(ctx, ghost);
+            ctx.restore();
+            return;
+        }
+
+        // 粘贴工具态：剪贴板组幽灵（Q4/Q5：保留源音符原本外观）
+        if (selectedTool === 'paste' && clipboard && clipboard.length > 0) {
+            const shifted = shiftGroupToAnchor(clipboard, pos.preciseBeat, pos.lane);
+            for (const n of shifted) renderNoteGhost(ctx, n);
+            ctx.restore();
+            return;
+        }
+
+        // 镜像工具态（Q14）：悬停仅预览单个键；框选按下态预览含连接区域（与实际镜像一致）
+        if (selectedTool === 'mirror') {
+            if (selectionBox) {
+                drawMirrorGhosts(ctx, computeItemsInBox(selectionBox));
+            } else {
+                const hit = findItemAt(hoverPos.cx, hoverPos.cy);
+                if (hit) drawMirrorHoverGhost(ctx, hit);
+            }
+        }
+
+        ctx.restore();
+    };
+
+
     // 渲染BPM数字
     const renderBpmNumbers = useCallback((ctx: CanvasRenderingContext2D) => {
         const bpmMarks = notes.filter(note => note.type === "BPM");
@@ -1085,8 +1262,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     }, [selectedTool]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
-        // 鼠标状态下：记录圈选起点，支持点击单选与拖拽圈选
-        if (selectedTool === "mouse") {
+        // 鼠标 / 镜像工具态：记录圈选起点，支持点击单选与拖拽圈选（镜像框选用于预览+批量执行）
+        if (selectedTool === "mouse" || selectedTool === "mirror") {
             const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
             selectionStartRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -1102,6 +1279,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
 
+        // 记录悬停位置（供工具态预览：放置/粘贴/镜像）
+        setHoverPos({ cx: mouseX, cy: mouseY });
+
         // 更新状态栏鼠标位置与粘贴锚点
         const pos = getLaneBeatFromCanvas(mouseX, mouseY);
         if (pos) {
@@ -1110,8 +1290,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             onMousePositionChange(null);
         }
 
-        // 鼠标状态下：拖拽更新圈选矩形
-        if (selectedTool === "mouse" && selectionStartRef.current) {
+        // 鼠标 / 镜像工具态：拖拽更新圈选矩形
+        if ((selectedTool === "mouse" || selectedTool === "mirror") && selectionStartRef.current) {
             const dx = mouseX - selectionStartRef.current.x;
             const dy = mouseY - selectionStartRef.current.y;
             if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
@@ -1132,114 +1312,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
     }, [dragging, dragStart, viewport, onMousePositionChange, beatDisplay, selectedTool]);
 
-    // 处理鼠标点击事件
-    const handleClick = useCallback((e: React.MouseEvent) => {
-        // 鼠标状态下的选择（点击/圈选）已在 mouseup 中处理，这里直接跳过
-        if (selectedTool === "mouse") {
-            return;
-        }
-
-        // 其他工具的处理逻辑
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return;
-
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-
-        // 计算轨道在Canvas中的居中位置
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-        const trackBgX = trackStartX + borderTotalWidth;
-
-        // 计算相对于轨道背景的鼠标位置
-        const relativeX = mouseX - trackBgX;
-        const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
-
-        // 计算beat位置 - 使用正确的虚拟坐标转换
-        const virtualY = viewport.scrollY + mouseY / viewport.scale;
-        const beat = virtualYToBeat(virtualY);
-
-        if (lane >= 0 && lane < LANES && beat >= 0) {
-            // 对齐到节拍显示值
-            const subBeatPosition = beat * beatDisplay;
-            const nearestSubBeat = Math.round(subBeatPosition);
-            const preciseBeat = nearestSubBeat / beatDisplay;
-
-            // 音符放置逻辑：应用覆盖替换规则（替换/方向键组合）
-            if (selectedTool === "single" || selectedTool === "flick" || selectedTool === "skill"
-                || selectedTool === "ldirectional" || selectedTool === "rdirectional") {
-                const result = handleNoteReplacement(notes, preciseBeat, lane, 0, selectedTool);
-                if (result.shouldReplace) {
-                    _setNotes(result.newNotes);
-                }
-            } else if (selectedTool === "slide") {
-                // 自动连接滑条：两点击创建滑条，并应用滑条与滑条组合规则
-                const point = { beat: preciseBeat, lane, subBeat: 0 };
-                if (!slideBuffer) {
-                    setSlideBuffer(point);
-                } else {
-                    // 规则2：禁止横向放置——同 beat（含 subBeat）的两点不可连成滑条
-                    const sameBeat =
-                        slideBuffer.beat === point.beat &&
-                        (slideBuffer.subBeat || 0) === (point.subBeat || 0);
-                    if (sameBeat) {
-                        setSlideBuffer(null);
-                    } else {
-                        const comb = handleSlideToSlideCombination(notes, [slideBuffer, point]);
-                        if (comb.shouldCombine) {
-                            _setNotes(comb.newNotes);
-                        } else {
-                            const newNotes = [...comb.newNotes];
-                            const [start, end] = [slideBuffer, point].sort(
-                                (a, b) => (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0))
-                            );
-                            newNotes.push({ type: "Slide", connections: [start, end] });
-                            _setNotes(newNotes);
-                        }
-                    }
-                    setSlideBuffer(null);
-                }
-            } else if (selectedTool === "bpm") {
-                const bpm = parseInt(prompt("请输入 BPM 数值") || "0", 10);
-                if (!isNaN(bpm) && bpm > 0) {
-                    const newNote: ChartNote = {
-                        beat: preciseBeat,
-                        type: "BPM",
-                        bpm: bpm
-                    };
-                    _setNotes([...notes, newNote]);
-                }
-            }
-        }
-    }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer]);
-
-    const handleMouseUp = useCallback((e: React.MouseEvent) => {
-        setDragging(false);
-        setDragStart(null);
-
-        // 鼠标状态下完成点选或圈选
-        if (selectedTool !== "mouse" || !selectionStartRef.current) {
-            selectionStartRef.current = null;
-            setSelectionBox(null);
-            return;
-        }
-
-        if (selectionMovedRef.current && selectionBox) {
-            // 拖拽圈选：选中框内音符（按子部分）
-            selectItemsInBox(selectionBox);
-        } else {
-            // 点击单选 / Shift 加选 / Ctrl 选整条滑条
-            const start = selectionStartRef.current;
-            selectItemAtPoint(start.x, start.y, e.shiftKey, e.ctrlKey || e.metaKey);
-        }
-
-        selectionStartRef.current = null;
-        setSelectionBox(null);
-    }, [selectedTool, selectionBox, notes, selectedItems]);
-
     // ---------------------------
-    // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
+    // 命中测试（供编辑工具态点击执行 / 右键删除 / 镜像悬停预览）
     // ---------------------------
     // 命中测试：返回点击位置命中的选择条目（任意音符类型）
     // - 普通音符/方向键/BPM → {kind:'note'}
@@ -1327,6 +1401,154 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         return inside;
     }, []);
 
+    // 处理鼠标点击事件
+    const handleClick = useCallback((e: React.MouseEvent) => {
+        // 鼠标状态下的选择（点击/圈选）已在 mouseup 中处理，这里直接跳过
+        if (selectedTool === "mouse") {
+            return;
+        }
+
+        // 其他工具的处理逻辑
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect) return;
+
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        // 计算轨道在Canvas中的居中位置
+        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
+        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
+        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
+        const trackBgX = trackStartX + borderTotalWidth;
+
+        // 计算相对于轨道背景的鼠标位置
+        const relativeX = mouseX - trackBgX;
+        const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
+
+        // 计算beat位置 - 使用正确的虚拟坐标转换
+        const virtualY = viewport.scrollY + mouseY / viewport.scale;
+        const beat = virtualYToBeat(virtualY);
+
+        if (lane >= 0 && lane < LANES && beat >= 0) {
+            // 对齐到节拍显示值
+            const subBeatPosition = beat * beatDisplay;
+            const nearestSubBeat = Math.round(subBeatPosition);
+            const preciseBeat = nearestSubBeat / beatDisplay;
+
+            // 音符放置逻辑：应用覆盖替换规则（替换/方向键组合）
+            if (selectedTool === "single" || selectedTool === "flick" || selectedTool === "skill"
+                || selectedTool === "ldirectional" || selectedTool === "rdirectional") {
+                const result = handleNoteReplacement(notes, preciseBeat, lane, 0, selectedTool);
+                if (result.shouldReplace) {
+                    _setNotes(result.newNotes);
+                }
+            } else if (selectedTool === "slide") {
+                // 自动连接滑条：两点击创建滑条，并应用滑条与滑条组合规则
+                const point = { beat: preciseBeat, lane, subBeat: 0 };
+                if (!slideBuffer) {
+                    setSlideBuffer(point);
+                } else {
+                    // 规则2：禁止横向放置——同 beat（含 subBeat）的两点不可连成滑条
+                    const sameBeat =
+                        slideBuffer.beat === point.beat &&
+                        (slideBuffer.subBeat || 0) === (point.subBeat || 0);
+                    if (sameBeat) {
+                        setSlideBuffer(null);
+                    } else {
+                        const comb = handleSlideToSlideCombination(notes, [slideBuffer, point]);
+                        if (comb.shouldCombine) {
+                            _setNotes(comb.newNotes);
+                        } else {
+                            const newNotes = [...comb.newNotes];
+                            const [start, end] = [slideBuffer, point].sort(
+                                (a, b) => (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0))
+                            );
+                            newNotes.push({ type: "Slide", connections: [start, end] });
+                            _setNotes(newNotes);
+                        }
+                    }
+                    setSlideBuffer(null);
+                }
+            } else if (selectedTool === "bpm") {
+                const bpm = parseInt(prompt("请输入 BPM 数值") || "0", 10);
+                if (!isNaN(bpm) && bpm > 0) {
+                    const newNote: ChartNote = {
+                        beat: preciseBeat,
+                        type: "BPM",
+                        bpm: bpm
+                    };
+                    _setNotes([...notes, newNote]);
+                }
+            }
+        }
+    }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer]);
+
+    const handleMouseUp = useCallback((e: React.MouseEvent) => {
+        setDragging(false);
+        setDragStart(null);
+
+        const rect = canvasRef.current?.getBoundingClientRect();
+        const mx = rect ? e.clientX - rect.left : 0;
+        const my = rect ? e.clientY - rect.top : 0;
+
+        // 镜像工具态：单点点击命中即镜像；拖拽圈选 → 预览（渲染时）+ 松手批量镜像
+        if (selectedTool === "mirror") {
+            if (selectionStartRef.current && selectionMovedRef.current && selectionBox) {
+                const items = computeItemsInBox(selectionBox);
+                setSelectedItems(items);
+                if (items.length > 0 && onEditToolAction) {
+                    items.forEach(it => onEditToolAction('mirror', it));
+                }
+            } else if (onEditToolAction) {
+                const hit = findItemAt(mx, my);
+                if (hit) onEditToolAction('mirror', hit);
+            }
+            selectionStartRef.current = null;
+            setSelectionBox(null);
+            return;
+        }
+
+        // 复制/剪切/删除工具态：点击命中音符即执行
+        if ((selectedTool === "copy" || selectedTool === "cut" || selectedTool === "delete") && onEditToolAction) {
+            const hit = findItemAt(mx, my);
+            if (hit) onEditToolAction(selectedTool, hit);
+            selectionStartRef.current = null;
+            setSelectionBox(null);
+            return;
+        }
+
+        // 粘贴工具态：点击位置即粘贴
+        if (selectedTool === "paste" && onEditToolPaste) {
+            const pos = getLaneBeatFromCanvas(mx, my);
+            if (pos) onEditToolPaste({ beat: pos.preciseBeat, lane: pos.lane });
+            selectionStartRef.current = null;
+            setSelectionBox(null);
+            return;
+        }
+
+        // 鼠标状态下完成点选或圈选
+        if (selectedTool !== "mouse" || !selectionStartRef.current) {
+            selectionStartRef.current = null;
+            setSelectionBox(null);
+            return;
+        }
+
+        if (selectionMovedRef.current && selectionBox) {
+            // 拖拽圈选：选中框内音符（按子部分）
+            selectItemsInBox(selectionBox);
+        } else {
+            // 点击单选 / Shift 加选 / Ctrl 选整条滑条
+            const start = selectionStartRef.current;
+            selectItemAtPoint(start.x, start.y, e.shiftKey, e.ctrlKey || e.metaKey);
+        }
+
+        selectionStartRef.current = null;
+        setSelectionBox(null);
+    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, onEditToolAction, onEditToolPaste, findItemAt, getLaneBeatFromCanvas]);
+
+    // ---------------------------
+    // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
+    // ---------------------------
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
         const rect = canvasRef.current?.getBoundingClientRect();

@@ -2,9 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { ChartNote, SelectionItem } from '../notes/Charts';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
+import type { EditingToolAction } from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
+import SettingsPanel from '../components/SettingsPanel';
 import { shiftGroupToAnchor } from '../utils/NoteEditing';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectionNoteIndices } from '../utils/SelectionEditing';
+import { handleNoteReplacement } from '../utils/NoteReplacementRules';
+import { loadConfig, saveConfig, resolveAction, type FunctionId, type ShortcutConfig } from '../utils/ShortcutConfig';
 
 interface EditorProps {
   song: File;
@@ -16,6 +20,9 @@ const Editor: React.FC<EditorProps> = () => {
   const [selectedItems, setSelectedItems] = useState<SelectionItem[]>([]);
   const [selectedTool, setSelectedTool] = useState<string>('mouse');
   const [clipboard, setClipboard] = useState<ChartNote[]>([]);
+  // 快捷键配置（ADR-0002）：localStorage 持久化；修改即保存
+  const [shortcutConfig, setShortcutConfig] = useState<ShortcutConfig>(() => loadConfig());
+  const [showSettings, setShowSettings] = useState(false);
   const [beatDisplay, setBeatDisplay] = useState(4);
   const [currentBpm, _setCurrentBpm] = useState(120);
   const [mousePosition, setMousePosition] = useState<{ lane: number; beat: number } | null>(null);
@@ -183,27 +190,96 @@ const Editor: React.FC<EditorProps> = () => {
     handleNotesChange(mirrorSelection(notes, selectedItems));
   };
 
-  // 键盘快捷键（作用域：画布编辑；焦点在输入元素/代码编辑器时放行原生行为）
+  // 更新快捷键配置并持久化（ADR-0002 §5）
+  const updateShortcutConfig = (next: ShortcutConfig) => {
+    setShortcutConfig(next);
+    saveConfig(next);
+  };
+
+  // 执行键：在当前光标位置立即放置音符（ADR-0002 §2.1）
+  const placeNoteAtCursor = (tool: string) => {
+    if (!mousePosition) return;
+    const result = handleNoteReplacement(notes, mousePosition.beat, mousePosition.lane, 0, tool);
+    if (result.shouldReplace) handleNotesChange(result.newNotes);
+  };
+
+  // 编辑工具态（Model A）：点击命中音符即执行（ADR-0002 §3.2）
+  const handleEditToolAction = (action: EditingToolAction, item: SelectionItem) => {
+    setSelectedItems([item]);
+    if (action === 'copy') {
+      setClipboard(copySelection(notes, [item]));
+    } else if (action === 'cut') {
+      const { clipboard, newNotes } = cutSelection(notes, [item]);
+      setClipboard(clipboard);
+      handleNotesChange(newNotes);
+      setSelectedItems([]);
+    } else if (action === 'delete') {
+      handleNotesChange(deleteSelection(notes, [item]));
+      setSelectedItems([]);
+    } else if (action === 'mirror') {
+      handleNotesChange(mirrorSelection(notes, [item]));
+    }
+  };
+
+  // 粘贴工具态：点击位置即粘贴（ADR-0002 §3.3）
+  const handleEditToolPaste = (pos: { beat: number; lane: number }) => {
+    if (clipboard.length === 0) return;
+    const pasted = shiftGroupToAnchor(clipboard, pos.beat, pos.lane);
+    const newNotes = [...notes, ...pasted];
+    handleNotesChange(newNotes);
+    const startIndex = notes.length;
+    setSelectedItems(pasted.map((_, i) => ({ kind: 'note', noteIndex: startIndex + i })));
+  };
+
+  // 具体功能分发（ADR-0002）：切换功能切换工具态；执行功能立即执行
+  // 注意：BPM / 滑条 为交互式放置（BPM 弹窗输入数值、滑条拖拽定两点），其"执行"键等价于切换工具态。
+  const runFunction = (fn: FunctionId) => {
+    switch (fn) {
+      case 'switchSingle': setSelectedTool('single'); break;
+      case 'execSingle': placeNoteAtCursor('single'); break;
+      case 'switchFlick': setSelectedTool('flick'); break;
+      case 'execFlick': placeNoteAtCursor('flick'); break;
+      case 'switchSkill': setSelectedTool('skill'); break;
+      case 'execSkill': placeNoteAtCursor('skill'); break;
+      case 'switchLDirectional': setSelectedTool('ldirectional'); break;
+      case 'execLDirectional': placeNoteAtCursor('ldirectional'); break;
+      case 'switchRDirectional': setSelectedTool('rdirectional'); break;
+      case 'execRDirectional': placeNoteAtCursor('rdirectional'); break;
+      case 'switchBpm': setSelectedTool('bpm'); break;
+      case 'execBpm': setSelectedTool('bpm'); break;
+      case 'switchSlide': setSelectedTool('slide'); break;
+      case 'execSlide': setSelectedTool('slide'); break;
+      case 'switchMouse': setSelectedTool('mouse'); break;
+      case 'switchCopy': setSelectedTool('copy'); break;
+      case 'execCopy': copySelected(); break;
+      case 'switchPaste': setSelectedTool('paste'); break;
+      case 'execPaste': pasteNotes(); break;
+      case 'switchCut': setSelectedTool('cut'); break;
+      case 'execCut': cutSelected(); break;
+      case 'switchDelete': setSelectedTool('delete'); break;
+      case 'execDelete': deleteSelectedNotes(); break;
+      case 'switchMirror': setSelectedTool('mirror'); break;
+      case 'execMirror': mirrorSelected(); break;
+      case 'undo': undo(); break;
+      case 'redo': redo(); break;
+      case 'play': /* 播放/暂停（播放引擎未实现，占位）*/ break;
+    }
+  };
+
+  // 键盘快捷键（ADR-0002）：作用域仅画布；焦点在输入元素时放行原生行为
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
-      const mod = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
-      if (mod && key === "c") { e.preventDefault(); copySelected(); }
-      else if (mod && key === "x") { e.preventDefault(); cutSelected(); }
-      else if (mod && key === "v") { e.preventDefault(); pasteNotes(); }
-      else if (mod && key === "z") { e.preventDefault(); undo(); }
-      else if (mod && key === "y") { e.preventDefault(); redo(); }
-      else if (mod && key === "a") { e.preventDefault(); setSelectedItems(notes.map((_, i) => ({ kind: 'note', noteIndex: i }))); }
-      else if (mod && key === "m") { e.preventDefault(); mirrorSelected(); }
-      else if (mod && key === "d") { e.preventDefault(); deleteSelectedNotes(); }
-      else if (key === "delete" || key === "backspace") { e.preventDefault(); deleteSelectedNotes(); }
+      const fn = resolveAction(e, shortcutConfig);
+      if (!fn) return;
+      e.preventDefault();
+      runFunction(fn);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [notes, selectedItems, clipboard, mousePosition, history, historyIndex]);
+  }, [notes, selectedItems, clipboard, mousePosition, history, historyIndex, shortcutConfig]);
   
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -223,6 +299,7 @@ const Editor: React.FC<EditorProps> = () => {
           <Toolbar
             selectedTool={selectedTool}
             setSelectedTool={setSelectedTool}
+            shortcutConfig={shortcutConfig}
             beatDisplay={beatDisplay}
             setBeatDisplay={setBeatDisplay}
             onUndo={undo}
@@ -289,6 +366,13 @@ const Editor: React.FC<EditorProps> = () => {
           }}>
             <span style={{ color: '#374151', fontSize: '14px' }}>BPM {currentBpm}</span>
             <span style={{ color: '#374151', fontSize: '14px' }}>节拍: {beatDisplay}/4</span>
+            <button
+              style={{
+                backgroundColor: '#374151', color: 'white', border: 'none',
+                borderRadius: '4px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer'
+              }}
+              onClick={() => setShowSettings(true)}
+            >快捷键</button>
           </div>
         </div>
         
@@ -334,6 +418,9 @@ const Editor: React.FC<EditorProps> = () => {
               onMousePositionChange={setMousePosition}
               scale={scale}
               onScrollChange={handleVirtualScrollChange}
+              clipboard={clipboard}
+              onEditToolAction={handleEditToolAction}
+              onEditToolPaste={handleEditToolPaste}
             />
           </div>
         </div>
@@ -424,6 +511,14 @@ const Editor: React.FC<EditorProps> = () => {
           </div>
         </div>
       </div>
+      {/* 快捷键设置面板（ADR-0002 §5） */}
+      {showSettings && (
+        <SettingsPanel
+          config={shortcutConfig}
+          onChange={updateShortcutConfig}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 };

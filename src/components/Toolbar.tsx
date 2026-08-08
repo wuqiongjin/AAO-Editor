@@ -15,10 +15,12 @@ import {
   Pause,
 } from "lucide-react";
 import SpriteIcon, { NoteIcons } from './SpriteIcon';
+import { categoryShortcuts, type ShortcutConfig } from '../utils/ShortcutConfig';
 
 interface ToolbarProps {
   selectedTool: string;
   setSelectedTool: (tool: string) => void;
+  shortcutConfig: ShortcutConfig;
   beatDisplay: number;
   setBeatDisplay: (beat: number) => void;
   onUndo: () => void;
@@ -60,7 +62,20 @@ export default function Toolbar({
   onZoomOut,
   isCombinationMode,
   setCombinationMode,
+  shortcutConfig,
 }: ToolbarProps) {
+  // 工具 id → 快捷键类别（tooltip 按类别合并 切换/执行）
+  const toolCategory: Record<string, string> = {
+    mouse: "鼠标", bpm: "BPM", single: "单键", flick: "滑键",
+    skill: "技能", ldirectional: "左滑", rdirectional: "右滑", slide: "滑条",
+    copy: "复制", cut: "剪切", paste: "粘贴", delete: "删除", mirror: "镜像",
+    undo: "撤销", redo: "重做",
+  };
+  const tooltipForCategory = (cat: string): string => {
+    const lines = categoryShortcuts(shortcutConfig, cat);
+    if (lines.length === 0) return cat;
+    return [cat, ...lines.map(l => `${l.mode}  ${l.key}`)].join("\n");
+  };
   const tools = [
     { id: "mouse", icon: <MousePointer size={20} />, label: "鼠标状态" },
     { id: "bpm", icon: <Music size={20} />, label: "BPM键型" },
@@ -136,7 +151,7 @@ export default function Toolbar({
                   console.log('Tool clicked:', tool.id, 'Current selectedTool:', selectedTool);
                   setSelectedTool(tool.id);
                 }}
-                title={tool.label}
+                title={tooltipForCategory(toolCategory[tool.id])}
                 style={{
                   backgroundColor: selectedTool === tool.id ? '#dbeafe' : undefined,
                   borderColor: selectedTool === tool.id ? '#3b82f6' : undefined,
@@ -201,7 +216,7 @@ export default function Toolbar({
                 }`}
               onClick={onCopy}
               disabled={!canCopy}
-              title="复制 (Ctrl+C)"
+              title={tooltipForCategory(toolCategory.copy)}
             >
               <Copy size={16} />
               <span>复制</span>
@@ -221,7 +236,7 @@ export default function Toolbar({
                 }`}
               onClick={onPaste}
               disabled={!canPaste}
-              title="粘贴 (Ctrl+V)"
+              title={tooltipForCategory(toolCategory.paste)}
             >
               <Clipboard size={16} />
               <span>粘贴</span>
@@ -241,7 +256,7 @@ export default function Toolbar({
                 }`}
               onClick={onMirror}
               disabled={!canCopy}
-              title="镜像 (Ctrl+M)"
+              title={tooltipForCategory(toolCategory.mirror)}
             >
               <RotateCcw size={16} />
               <span>镜像</span>
@@ -261,7 +276,7 @@ export default function Toolbar({
                 }`}
               onClick={onRedo}
               disabled={!canRedo}
-              title="还原 (Ctrl+Y)"
+              title={tooltipForCategory(toolCategory.redo)}
             >
               <Redo size={16} />
               <span>还原</span>

@@ -44,6 +44,7 @@
 - [05 基础编辑操作范围锁定](./issues/05-基础编辑操作范围锁定.md) — 已 /grilling 定案并**实现**：多选/拖拽圈选/Shift加选/Ctrl+A(仅画布)、粘贴到鼠标锚点、镜像(左右lane+方向翻转+滑条端点同步)、快捷键(Ctrl+C/X/V/Z/Y/Delete/Backspace/Ctrl+M)+上下文分发、undo/redo 清选区；新增 `NoteEditing.ts` 纯逻辑+8单测。`tsc` 全绿、17 测试通过。07 已解锁。
 - [07 音符替换与滑条端点规则重新接入](./issues/07-音符替换与滑条端点规则重新接入.md) — 已**实现**：恢复 NoteReplacementRules import；single/flick/skill/directional 放置改走 handleNoteReplacement（重叠替换+方向键组合），新增两点击自动连接滑条（含滑条间合并）；修复 'single'→'Single' 归一化与 subBeat||0 匹配。新增 9 单测，tsc/build 全绿、28 测试通过。已知缺口：滑条端点扩展交互③、占位样式、端点撞键、组合滑条工具（记录待办）。09 已解锁。
 - [音符覆盖与滑条规则](./issues/07-音符替换与滑条端点规则重新接入.md) — **grill-with-docs 定案并实现**：权威规则 **`docs/adr/0001-音符覆盖与滑条规则.md`** + `CONTEXT.md` 术语。已实现：滑条禁止横向；滑条结点覆盖/拆条（单键任意结点忽略、滑键仅尾部加flick、技能键两端加skill、方向键中间拆两侧/端点拆端，flick与skill可并存）；撤销深拷贝(structuredClone)使方向键与滑条逐步回退；ChartConverter 补 skill 序列化。tsc/build 全绿、35 测试通过。"删除滑条子段"= 独立 feature 待做。
+- [13 快捷键系统与自定义配置](./issues/13-快捷键系统与自定义配置.md) — **grill-with-docs 定案（未实现）**：权威规则 **`docs/adr/0002-快捷键系统与自定义配置.md`** + `CONTEXT.md` 术语。统一功能注册表（一功能多键/一键不多功能/冲突检测）；音符/编辑功能目录与默认键位（废弃旧 Ctrl 键位）；工具键 + 执行键双交互（编辑工具态 = Model A 点击即执行）；预览（放置/粘贴幽灵 + 镜像悬停单键与框选含连接区域）；localStorage 持久化 + 设置面板 UI + 导出/导入 JSON；仅画布作用域。待实现。
 
 ## Not yet specified
 
