@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
-import type { ChartNote } from "../notes/Charts";
+import type { ChartNote, SlideNote } from "../notes/Charts";
 import CanvasSpriteIcon, { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcons } from './CanvasSpriteIcon';
-import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
+import { handleNoteReplacement, handleSlideToSlideCombination, deleteSlideSegment } from '../utils/NoteReplacementRules';
 
 interface FinalVirtualCanvasProps {
     notes: ChartNote[];
@@ -1148,6 +1148,86 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     }, [selectedTool, selectionBox, notes, selectedNotes]);
 
     // ---------------------------
+    // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
+    // ---------------------------
+    // 判断点击位置是否命中滑条的某个部分
+    // 返回 { noteIndex, connIndex }；connIndex 为空表示命中连接带区域（删除整条滑条）
+    const findSlideHitAt = useCallback((cx: number, cy: number): { noteIndex: number; connIndex: number | null } | null => {
+        const nodeRadius = (SLIDE_ICON_SIZE / 2) * viewport.scale + 4 * viewport.scale;
+        const halfLaneWidth = (LANE_WIDTH * viewport.scale) / 2;
+
+        for (let i = 0; i < notes.length; i++) {
+            const note = notes[i];
+            if (note.type !== "Slide" && note.type !== "Long") continue;
+            const connections = (note as SlideNote).connections;
+
+            // 先检测是否命中结点（端点或中间结点）
+            for (let ci = 0; ci < connections.length; ci++) {
+                const conn = connections[ci];
+                const vx = getNoteVirtualX(conn.lane);
+                const vy = getNoteVirtualY(conn.beat, conn.subBeat || 0);
+                const pos = virtualToCanvas(vx, vy);
+                const dx = pos.x - cx;
+                const dy = pos.y - cy;
+                if (dx * dx + dy * dy <= nodeRadius * nodeRadius) {
+                    return { noteIndex: i, connIndex: ci };
+                }
+            }
+
+            // 再检测是否命中连接带区域（平行四边形）
+            for (let ci = 0; ci < connections.length - 1; ci++) {
+                const conn1 = connections[ci];
+                const conn2 = connections[ci + 1];
+                const p1 = virtualToCanvas(
+                    getNoteVirtualX(conn1.lane),
+                    getNoteVirtualY(conn1.beat, conn1.subBeat || 0)
+                );
+                const p2 = virtualToCanvas(
+                    getNoteVirtualX(conn2.lane),
+                    getNoteVirtualY(conn2.beat, conn2.subBeat || 0)
+                );
+                // 上下两边水平、与横向轨道对齐的平行四边形
+                const quad = [
+                    [p1.x - halfLaneWidth, p1.y],
+                    [p1.x + halfLaneWidth, p1.y],
+                    [p2.x + halfLaneWidth, p2.y],
+                    [p2.x - halfLaneWidth, p2.y]
+                ];
+                if (pointInQuad(cx, cy, quad)) {
+                    return { noteIndex: i, connIndex: null };
+                }
+            }
+        }
+        return null;
+    }, [notes, viewport]);
+
+    // 点在四边形内判定
+    const pointInQuad = useCallback((px: number, py: number, quad: number[][]): boolean => {
+        let inside = false;
+        for (let i = 0, j = quad.length - 1; i < quad.length; j = i++) {
+            const xi = quad[i][0], yi = quad[i][1];
+            const xj = quad[j][0], yj = quad[j][1];
+            const intersect = ((yi > py) !== (yj > py)) &&
+                (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }, []);
+
+    const handleContextMenu = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const hit = findSlideHitAt(mouseX, mouseY);
+        if (!hit) return;
+
+        _setNotes(deleteSlideSegment(notes, hit.noteIndex, hit.connIndex));
+    }, [notes, findSlideHitAt]);
+
+    // ---------------------------
     // 生命周期和效果
     // ---------------------------
     useEffect(() => {
@@ -1255,6 +1335,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
+                    onContextMenu={handleContextMenu}
                     onMouseLeave={() => onMousePositionChange(null)}
                     onClick={handleClick}
                     style={{

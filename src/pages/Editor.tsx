@@ -199,6 +199,7 @@ const Editor: React.FC<EditorProps> = () => {
       else if (mod && key === "y") { e.preventDefault(); redo(); }
       else if (mod && key === "a") { e.preventDefault(); setSelectedNotes(notes.map((_, i) => i)); }
       else if (mod && key === "m") { e.preventDefault(); mirrorSelected(); }
+      else if (mod && key === "d") { e.preventDefault(); deleteSelectedNotes(); }
       else if (key === "delete" || key === "backspace") { e.preventDefault(); deleteSelectedNotes(); }
     };
     window.addEventListener("keydown", onKeyDown);

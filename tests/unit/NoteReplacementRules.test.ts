@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   handleNoteReplacement,
-  handleSlideToSlideCombination
+  handleSlideToSlideCombination,
+  deleteSlideSegment
 } from '../../src/utils/NoteReplacementRules';
 import type { ChartNote } from '../../src/notes/Charts';
 
@@ -240,5 +241,95 @@ describe('handleSlideToSlideCombination - 滑条组合', () => {
     // 原终点转为途径结点，新终点追加
     expect(conns[1]).toEqual({ beat: 2, lane: 2, hidden: false });
     expect(conns[2]).toEqual({ beat: 4, lane: 0 });
+  });
+});
+
+describe('deleteSlideSegment - 删除滑条子段（ADR-0001 §6）', () => {
+  it('删除连接带区域（connIndex=null）：删除整条滑条', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0 },
+        { beat: 2, lane: 2 }
+      ]
+    }];
+    const result = deleteSlideSegment(notes, 0, null);
+    expect(result).toHaveLength(0);
+  });
+
+  it('删除中间结点：仅移除该结点，其余保持连接（不拆滑条）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0 },
+        { beat: 1, lane: 1 },
+        { beat: 2, lane: 2 }
+      ]
+    }];
+    const result = deleteSlideSegment(notes, 0, 1);
+    expect(result).toHaveLength(1);
+    expect((result[0] as any).connections).toEqual([
+      { beat: 0, lane: 0 },
+      { beat: 2, lane: 2 }
+    ]);
+  });
+
+  it('删除多结点滑条的端点：去端点，相邻中间结点升为新端点', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0 },
+        { beat: 1, lane: 1 },
+        { beat: 2, lane: 2 }
+      ]
+    }];
+    const result = deleteSlideSegment(notes, 0, 0);
+    expect(result).toHaveLength(1);
+    expect((result[0] as any).connections).toEqual([
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 2 }
+    ]);
+  });
+
+  it('删除 2 结点滑条的端点：剩余单结点退化为普通单键', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0 },
+        { beat: 2, lane: 2 }
+      ]
+    }];
+    const result = deleteSlideSegment(notes, 0, 1);
+    expect(result).toEqual([
+      { beat: 0, lane: 0, subBeat: 0, type: 'Single' }
+    ]);
+  });
+
+  it('剩余单结点带 skill 标记时退化为技能键', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0, skill: true },
+        { beat: 2, lane: 2 }
+      ]
+    }];
+    const result = deleteSlideSegment(notes, 0, 1);
+    expect(result).toEqual([
+      { beat: 0, lane: 0, subBeat: 0, type: 'Single', skill: true }
+    ]);
+  });
+
+  it('剩余单结点带 flick 标记时退化为滑键', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0 },
+        { beat: 2, lane: 2, flick: true }
+      ]
+    }];
+    const result = deleteSlideSegment(notes, 0, 0);
+    expect(result).toEqual([
+      { beat: 2, lane: 2, subBeat: 0, type: 'Single', flick: true }
+    ]);
   });
 });
