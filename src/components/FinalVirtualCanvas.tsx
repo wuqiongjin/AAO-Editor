@@ -53,20 +53,23 @@ const VIRTUAL_BOUNDS = {
 
 // 缩放时的虚拟边界调整
 const getScaledVirtualBounds = (scale: number) => {
-    // 缩放时设置固定的虚拟边界，限制显示和加载范围
-    const baseHeight = BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER;
-    const baseWidth = LANES * LANE_WIDTH + (1 + 4 + 1 + 1 + 1 + 1) * 2;
+    // 使用固定的虚拟高度计算，避免依赖组件内部函数
+    const totalVirtualHeight = BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER;
+    const totalVirtualWidth = LANES * LANE_WIDTH + (1 + 4 + 1 + 1 + 1 + 1) * 2;
 
-    // 根据缩放级别调整边界，但保持合理的范围
-    const scaleFactor = Math.max(0.1, Math.min(3.0, scale));
-    const scaledHeight = baseHeight * scaleFactor;
-    const scaledWidth = baseWidth * scaleFactor;
+    console.log('🔧 缩放边界计算:', {
+        scale,
+        totalVirtualHeight,
+        totalVirtualWidth,
+        BEATS,
+        VIRTUAL_HEIGHT_MULTIPLIER
+    });
 
     return {
         minY: 0,
-        maxY: scaledHeight, // 随缩放调整高度
+        maxY: totalVirtualHeight, // 使用实际虚拟高度
         minX: 0,
-        maxX: scaledWidth // 随缩放调整宽度
+        maxX: totalVirtualWidth // 使用实际虚拟宽度
     };
 };
 
@@ -222,12 +225,26 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const getViewportBounds = () => {
         const padding = VIEWPORT_PADDING / viewport.scale;
         const scaledBounds = getScaledVirtualBounds(viewport.scale);
-        return {
+
+        // 修复边界计算逻辑
+        const bounds = {
             minX: Math.max(scaledBounds.minX, viewport.scrollX - padding),
             maxX: Math.min(scaledBounds.maxX, viewport.scrollX + CANVAS_WIDTH / viewport.scale + padding),
             minY: Math.max(scaledBounds.minY, viewport.scrollY - padding),
             maxY: Math.min(scaledBounds.maxY, viewport.scrollY + CANVAS_HEIGHT / viewport.scale + padding)
         };
+
+        console.log('🔍 视口边界计算:', {
+            viewport: viewport.scrollY,
+            scale: viewport.scale,
+            padding,
+            scaledBounds,
+            bounds,
+            CANVAS_HEIGHT: CANVAS_HEIGHT / viewport.scale,
+            'viewport + CANVAS_HEIGHT': viewport.scrollY + CANVAS_HEIGHT / viewport.scale
+        });
+
+        return bounds;
     };
 
     // ---------------------------
@@ -236,8 +253,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const getNoteVirtualY = (beat: number, subBeat: number = 0) => {
         const preciseBeat = beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
         const virtualY = beatToVirtualY(preciseBeat);
-        const totalVirtualHeight = beatToVirtualY(BEATS);
-        return totalVirtualHeight - virtualY;
+        // 直接返回虚拟Y坐标，不进行翻转
+        return virtualY;
     };
 
     const getNoteVirtualX = (lane: number) => {
@@ -252,6 +269,12 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const bounds = getViewportBounds();
         const visibleNotes: { note: ChartNote; index: number }[] = [];
 
+        console.log('🔍 视口边界检查:', {
+            bounds,
+            viewport: viewport.scrollY,
+            scale: viewport.scale
+        });
+
         notes.forEach((note, index) => {
             let isVisible = false;
 
@@ -260,6 +283,14 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const virtualX = getNoteVirtualX(note.lane);
                 isVisible = virtualY >= bounds.minY && virtualY <= bounds.maxY &&
                     virtualX >= bounds.minX && virtualX <= bounds.maxX;
+
+                console.log('🎵 音符可见性检查:', {
+                    note: { beat: note.beat, lane: note.lane, type: note.type },
+                    virtualY,
+                    virtualX,
+                    bounds,
+                    isVisible
+                });
             } else if (note.type === "Slide" || note.type === "Long") {
                 // 检查滑条是否有任何连接点在视口内
                 isVisible = note.connections.some(conn => {
@@ -286,14 +317,38 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // ---------------------------
     const renderCanvas = useCallback(() => {
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas) {
+            console.log('❌ Canvas ref is null');
+            return;
+        }
 
         const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        if (!ctx) {
+            console.log('❌ Canvas context is null');
+            return;
+        }
+
+        console.log('🎨 开始渲染虚拟画布:', {
+            viewport: viewport.scrollY,
+            scale: viewport.scale,
+            notesCount: notes.length
+        });
 
         // 设置固定画布尺寸
         canvas.width = CANVAS_WIDTH;
         canvas.height = CANVAS_HEIGHT;
+
+        console.log('🎨 Canvas尺寸设置:', {
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height,
+            CANVAS_WIDTH,
+            CANVAS_HEIGHT,
+            canvasStyle: {
+                width: canvas.style.width,
+                height: canvas.style.height,
+                display: canvas.style.display
+            }
+        });
 
         // 清空画布
         ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -302,17 +357,27 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
+        // 测试绘制已移除，恢复正常的轨道渲染
+
+        console.log('🎨 测试绘制完成:', {
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height,
+            testRectangles: '4个彩色方块已绘制'
+        });
+
         // 计算虚拟总尺寸
-        const totalVirtualHeight = beatToVirtualY(BEATS);
+        const totalVirtualHeight = beatToVirtualY(BEATS) * VIRTUAL_HEIGHT_MULTIPLIER;
         const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
         const totalVirtualWidth = LANES * LANE_WIDTH + borderTotalWidth * 2;
 
-        // 更新视口状态
-        setViewport(prev => ({
-            ...prev,
-            virtualWidth: totalVirtualWidth,
-            virtualHeight: totalVirtualHeight
-        }));
+        // 只在虚拟高度发生变化时更新视口状态，避免渲染循环
+        if (Math.abs(viewport.virtualHeight - totalVirtualHeight) > 1) {
+            setViewport(prev => ({
+                ...prev,
+                virtualWidth: totalVirtualWidth,
+                virtualHeight: totalVirtualHeight
+            }));
+        }
 
         // 计算轨道在Canvas中的居中位置
         const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
@@ -323,6 +388,16 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const trackBgY = 0;
         const trackBgWidth = LANES * LANE_WIDTH * viewport.scale;
         const trackBgHeight = CANVAS_HEIGHT;
+
+        console.log('🎨 绘制轨道背景:', {
+            trackBgX,
+            trackBgY,
+            trackBgWidth,
+            trackBgHeight,
+            viewport: viewport.scrollY,
+            scale: viewport.scale
+        });
+
         ctx.fillStyle = '#00000A';
         ctx.fillRect(trackBgX, trackBgY, trackBgWidth, trackBgHeight);
 
@@ -331,6 +406,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         // 获取可见音符并渲染
         const visibleNotes = getVisibleNotes();
+        console.log('🎵 可见音符数量:', visibleNotes.length);
         renderNotes(ctx, visibleNotes);
 
         // 渲染BPM数字（在画布内部）
@@ -344,6 +420,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 绘制滑条缓冲区
         renderSlideBuffer(ctx);
 
+        console.log('✅ 虚拟画布渲染完成');
+
     }, [notes, selectedNotes, viewport, selectionBox, slideBuffer, beatDisplay]);
 
     // 绘制网格
@@ -351,9 +429,20 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
         const totalVirtualHeight = beatToVirtualY(BEATS);
 
+        console.log('🎨 开始绘制网格:', {
+            trackStartX,
+            trackBgX,
+            trackBgWidth,
+            totalVirtualHeight,
+            viewport: viewport.scrollY,
+            scale: viewport.scale
+        });
+
         // 绘制垂直线（轨道线）
+        console.log('📏 绘制垂直轨道线:', { LANES, trackStartX, borderTotalWidth, scale: viewport.scale });
         for (let lane = 0; lane <= LANES; lane++) {
             const x = trackStartX + borderTotalWidth + lane * LANE_WIDTH * viewport.scale;
+            console.log(`🎯 轨道线 ${lane}:`, { x, lane, LANE_WIDTH: LANE_WIDTH * viewport.scale });
 
             if (lane === 0 || lane === LANES) {
                 // 外侧轨道边框
@@ -383,12 +472,20 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         // 绘制水平线（节拍线）
         const bounds = getViewportBounds();
+        console.log('🔍 绘制水平线:', { bounds, viewport: viewport.scrollY, scale: viewport.scale });
+
+        let drawnLines = 0;
         for (let beat = 0; beat < BEATS; beat++) {
-            const virtualY = totalVirtualHeight - beatToVirtualY(beat);
-            if (virtualY < bounds.minY || virtualY > bounds.maxY) continue;
+            const virtualY = beatToVirtualY(beat);
+            if (virtualY < bounds.minY || virtualY > bounds.maxY) {
+                if (beat < 5) console.log(`⏭️ 跳过beat ${beat}:`, { virtualY, bounds });
+                continue;
+            }
 
             const canvasPos = virtualToCanvas(0, virtualY);
             if (canvasPos.y >= 0 && canvasPos.y <= CANVAS_HEIGHT) {
+                drawnLines++;
+                if (drawnLines <= 5) console.log(`✅ 绘制beat ${beat}:`, { virtualY, canvasPos, bounds });
                 // 整数beat用实线
                 ctx.strokeStyle = '#555555';
                 ctx.lineWidth = Math.max(2, 2 * viewport.scale);
@@ -402,7 +499,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             // 绘制子节拍线（非整数beat用虚线）
             for (let subBeat = 1; subBeat < beatDisplay; subBeat++) {
                 const preciseBeat = beat + subBeat / beatDisplay;
-                const subVirtualY = totalVirtualHeight - beatToVirtualY(preciseBeat);
+                const subVirtualY = beatToVirtualY(preciseBeat);
                 if (subVirtualY < bounds.minY || subVirtualY > bounds.maxY) continue;
 
                 const subCanvasPos = virtualToCanvas(0, subVirtualY);
@@ -420,6 +517,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 }
             }
         }
+
+        console.log('📊 网格绘制完成:', { drawnLines, totalBeats: BEATS });
     }, [viewport, beatDisplay]);
 
     // 绘制音符
@@ -815,9 +914,22 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const renderBpmNumbers = useCallback((ctx: CanvasRenderingContext2D) => {
         const bpmMarks = notes.filter(note => note.type === "BPM");
 
+        console.log('🎵 渲染BPM数字:', {
+            bpmMarksCount: bpmMarks.length,
+            bpmMarks: bpmMarks.map(note => ({ beat: note.beat, bpm: (note as any).bpm }))
+        });
+
         bpmMarks.forEach((note) => {
             const virtualY = getNoteVirtualY(note.beat);
             const canvasPos = virtualToCanvas(0, virtualY);
+
+            console.log('🎵 BPM渲染检查:', {
+                beat: note.beat,
+                bpm: (note as any).bpm,
+                virtualY,
+                canvasPos,
+                inViewport: canvasPos.y >= 0 && canvasPos.y <= CANVAS_HEIGHT
+            });
 
             // 检查是否在可见区域内
             if (canvasPos.y >= 0 && canvasPos.y <= CANVAS_HEIGHT) {
@@ -825,6 +937,28 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
                 const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
                 const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
+                const trackBgX = trackStartX + borderTotalWidth;
+                const trackBgWidth = LANES * LANE_WIDTH * viewport.scale;
+
+                console.log('🎵 绘制BPM线和数字:', {
+                    text: `BPM ${(note as any).bpm}`,
+                    beat: note.beat,
+                    virtualY,
+                    canvasPos,
+                    trackStartX,
+                    trackBgX,
+                    trackBgWidth,
+                    scale: viewport.scale
+                });
+
+                // 绘制BPM线（红色横线）
+                ctx.strokeStyle = '#ff6666';
+                ctx.lineWidth = 3 * viewport.scale;
+                ctx.setLineDash([]); // 实线
+                ctx.beginPath();
+                ctx.moveTo(trackBgX, canvasPos.y);
+                ctx.lineTo(trackBgX + trackBgWidth, canvasPos.y);
+                ctx.stroke();
 
                 // 将BPM数字放在轨道外面（左侧），在BPM线上面
                 const textY = canvasPos.y - 15 * viewport.scale; // 在BPM线上面15像素
@@ -843,10 +977,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // 事件处理
     // ---------------------------
     const handleWheel = useCallback((e: WheelEvent) => {
-        e.preventDefault();
-
-        // 检查是否按住Ctrl键进行缩放
+        // 只处理Ctrl+滚轮缩放，禁用普通滚动
         if (e.ctrlKey) {
+            e.preventDefault();
+
             const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
 
@@ -870,18 +1004,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 scrollX: newScrollX,
                 scrollY: newScrollY
             }));
-        } else {
-            // 普通滚轮进行滚动
-            const deltaY = e.deltaY;
-
-            setViewport(prev => {
-                const scaledBounds = getScaledVirtualBounds(prev.scale);
-                return {
-                    ...prev,
-                    scrollY: Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / prev.scale, prev.scrollY + deltaY / prev.scale))
-                };
-            });
         }
+        // 普通滚轮滚动由父容器处理，不在这里处理
     }, [viewport]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -925,21 +1049,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             onMousePositionChange(null);
         }
 
-        // 处理拖拽 - 只允许纵向拖拽
+        // 禁用拖拽滚动，滚动由父容器处理
         if (dragging && dragStart) {
-            const deltaX = e.clientX - dragStart.x;
-            const deltaY = e.clientY - dragStart.y;
-
-            setViewport(prev => {
-                const scaledBounds = getScaledVirtualBounds(prev.scale);
-                return {
-                    ...prev,
-                    // 禁用横向拖拽，保持scrollX不变
-                    scrollX: prev.scrollX,
-                    scrollY: Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / prev.scale, prev.scrollY - deltaY / prev.scale))
-                };
-            });
-
+            // 拖拽滚动由父容器处理，虚拟画布不处理拖拽滚动
             setDragStart({ x: e.clientX, y: e.clientY });
         }
     }, [dragging, dragStart, viewport, onMousePositionChange, beatDisplay]);
@@ -1117,12 +1229,19 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         };
     }, []);
 
-    // 初始视口设置
+    // 初始视口设置 - 只在组件首次挂载时执行
     useEffect(() => {
         const totalVirtualHeight = beatToVirtualY(BEATS) * VIRTUAL_HEIGHT_MULTIPLIER;
         const scaledBounds = getScaledVirtualBounds(viewport.scale);
         // 确保初始滚动位置在最下面，但在虚拟边界内
         const initialScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale, totalVirtualHeight - CANVAS_HEIGHT / viewport.scale));
+
+        console.log('🎯 初始视口设置:', {
+            totalVirtualHeight,
+            initialScrollY,
+            scaledBounds,
+            currentScrollY: viewport.scrollY
+        });
 
         setViewport(prev => ({
             ...prev,
@@ -1130,7 +1249,12 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             virtualHeight: totalVirtualHeight,
             virtualWidth: LANES * LANE_WIDTH + (1 + 4 + 1 + 1 + 1 + 1) * 2
         }));
-    }, []);
+
+        // 通知父组件虚拟高度变化
+        if (onScrollChange) {
+            onScrollChange(initialScrollY, totalVirtualHeight);
+        }
+    }, []); // 只在组件首次挂载时执行，不监听任何依赖
 
     // 同步外部scale变化
     useEffect(() => {
@@ -1150,9 +1274,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // 同步外部滚动位置
     useEffect(() => {
         if (externalScrollY !== undefined) {
+            console.log('🎯 接收外部滚动位置:', { externalScrollY, currentScrollY: viewport.scrollY });
             setViewport(prev => {
                 const scaledBounds = getScaledVirtualBounds(prev.scale);
                 const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / prev.scale, externalScrollY));
+                console.log('🔄 设置新的滚动位置:', { oldScrollY: prev.scrollY, newScrollY, externalScrollY });
                 return {
                     ...prev,
                     scrollY: newScrollY
@@ -1165,43 +1291,48 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     return (
         <div style={{
             backgroundColor: '#000000',
-            padding: '20px',
+            padding: '0',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            minHeight: '100vh',
-            overflowX: 'hidden' // 禁用横向滚动
+            justifyContent: 'center',
+            width: '100%',
+            height: 'auto', // 根据内容自动调整高度
+            overflow: 'hidden' // 完全禁用滚动条
         }}>
-            <div style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'center',
-                width: '100%'
-            }}>
 
-                {/* 画布区域 */}
-                <div style={{
-                    position: 'relative',
-                    backgroundColor: '#000000',
-                    display: 'flex',
-                    justifyContent: 'center'
-                }}>
-                    <canvas
-                        ref={canvasRef}
-                        width={CANVAS_WIDTH}
-                        height={CANVAS_HEIGHT}
-                        onMouseDown={handleMouseDown}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onClick={handleClick}
-                        style={{
-                            backgroundColor: '#000000',
-                            display: 'block',
-                            userSelect: 'none',
-                            border: '1px solid #333'
-                        }}
-                    />
-                </div>
+            {/* 画布区域 - 完全填充容器 */}
+            <div style={{
+                position: 'relative',
+                backgroundColor: '#000000',
+                width: '100%',
+                height: '100%',
+                minHeight: '100%', // 确保最小高度
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                overflow: 'hidden' // 禁用滚动条
+            }}>
+                <canvas
+                    ref={canvasRef}
+                    width={CANVAS_WIDTH}
+                    height={CANVAS_HEIGHT}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onClick={handleClick}
+                    style={{
+                        backgroundColor: '#000000',
+                        display: 'block',
+                        userSelect: 'none',
+                        border: '1px solid #333',
+                        width: `${CANVAS_WIDTH}px`, // 使用固定像素值
+                        height: `${CANVAS_HEIGHT}px`, // 使用固定像素值
+                        objectFit: 'contain', // 保持比例，完全填充容器
+                        position: 'relative',
+                        zIndex: 10 // 确保Canvas在最上层
+                    }}
+                />
             </div>
         </div>
     );

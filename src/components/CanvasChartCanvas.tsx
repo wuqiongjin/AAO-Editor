@@ -163,8 +163,8 @@ export default function CanvasChartCanvas({
         const totalOffset = beatToOffset(BEATS); // 总高度
         const finalY = totalOffset - offsetFromZero;
 
-        // 应用缩放
-        return finalY * scale;
+        // 移除二次缩放，因为 beatToOffset 已经处理了缩放
+        return finalY;
     };
 
     // 重要：共享的总高度与宽度（用于左侧定位与Canvas高度一致）
@@ -191,7 +191,7 @@ export default function CanvasChartCanvas({
     const renderGrid = useCallback((ctx: CanvasRenderingContext2D) => {
         // 绘制水平线（节拍线）- 自下往上绘制
         for (let beat = 0; beat < BEATS; beat++) {
-            const y = limitedHeight - beatToOffset(beat); // beat 的顶部
+            const y = totalHeight - beatToOffset(beat); // beat 的顶部
 
             ctx.strokeStyle = '#555555';
             ctx.lineWidth = Math.max(2, 2 * scale);
@@ -203,7 +203,7 @@ export default function CanvasChartCanvas({
             // 绘制子节拍线：对于每个 subBeat 位置直接计算对应的 absolute offset
             for (let subBeat = 1; subBeat < beatDisplay; subBeat++) {
                 const preciseBeat = beat + subBeat / beatDisplay;
-                const subY = limitedHeight - beatToOffset(preciseBeat);
+                const subY = totalHeight - beatToOffset(preciseBeat);
 
                 ctx.strokeStyle = '#666666';
                 ctx.lineWidth = Math.max(0.5, 1 * scale);
@@ -250,11 +250,11 @@ export default function CanvasChartCanvas({
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.moveTo(x, 0);
-                ctx.lineTo(x, limitedHeight);
+                ctx.lineTo(x, totalHeight);
                 ctx.stroke();
             }
         }
-    }, [limitedHeight, beatToOffset, beatDisplay, scale, borderTotalWidth]);
+    }, [totalHeight, beatToOffset, beatDisplay, scale, borderTotalWidth]);
 
     // 绘制音符
     const renderNotes = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -638,7 +638,7 @@ export default function CanvasChartCanvas({
 
         // 设置Canvas尺寸
         canvas.width = canvasWidth;
-        canvas.height = limitedHeight;
+        canvas.height = totalHeight;
 
 
         // 确保Canvas有最小尺寸
@@ -657,7 +657,7 @@ export default function CanvasChartCanvas({
 
         // 绘制轨道内背景
         ctx.fillStyle = '#00000A';
-        ctx.fillRect(borderTotalWidth, 0, LANES * LANE_WIDTH * scale, limitedHeight);
+        ctx.fillRect(borderTotalWidth, 0, LANES * LANE_WIDTH * scale, totalHeight);
 
         // 绘制网格
         renderGrid(ctx);
@@ -971,18 +971,19 @@ export default function CanvasChartCanvas({
         const adjustedX = x - borderTotalWidth;
         const lane = Math.floor(adjustedX / (LANE_WIDTH * scale));
 
-        // 反向计算：从点击位置计算 beat
+        // 反向计算：从点击位置计算 beat（与ChartCanvas.tsx保持一致）
         const relativeY = y - offsetY;
-        const totalHeight = beatToOffset(BEATS);
-        const reversedYFromTop = totalHeight - relativeY;
-        let beat = 0;
+        const totalHeightInner = totalHeight;
+        const reversedY = totalHeightInner - relativeY;
 
-        if (reversedYFromTop <= 0) {
+        // 使用 offsetToBeat 直接反向计算
+        let beat = 0;
+        if (reversedY <= 0) {
             beat = 0;
-        } else if (reversedYFromTop >= totalHeight) {
+        } else if (reversedY >= totalHeightInner) {
             beat = BEATS;
         } else {
-            beat = offsetToBeat(reversedYFromTop);
+            beat = offsetToBeat(reversedY);
         }
 
         if (lane >= 0 && lane < LANES && beat >= 0) {
@@ -1007,7 +1008,7 @@ export default function CanvasChartCanvas({
                         display: 'flex',
                         alignItems: 'flex-start',
                         transform: `translateY(${offsetY}px)`,
-                        minHeight: limitedHeight
+                        minHeight: totalHeight
                     }}
                 >
                     {/* 左侧 BPM 数字列（在画布外部） */}
@@ -1018,16 +1019,16 @@ export default function CanvasChartCanvas({
                             position: 'relative',
                             // pointerEvents: 'none' 确保不会拦截鼠标事件（比如放置音符）
                             pointerEvents: 'none',
-                            height: limitedHeight,
+                            height: totalHeight,
                             backgroundColor: '#000000' // BMP列背景也设为黑色
                         }}
                     >
                         {/* 内层 relative 容器用于让每个 BPM 数字用 absolute top: ypx 定位 */}
-                        <div style={{ position: 'relative', height: limitedHeight }}>
+                        <div style={{ position: 'relative', height: totalHeight }}>
                             {bpmMarks.map((note, idx) => {
                                 const rawY = getNoteY(note.beat);
                                 // 保证在容器范围内（防止越界）
-                                const y = Math.max(0, Math.min(limitedHeight, rawY));
+                                const y = Math.max(0, Math.min(totalHeight, rawY));
                                 return (
                                     <div
                                         key={`bpm-left-${idx}`}
@@ -1056,7 +1057,7 @@ export default function CanvasChartCanvas({
                             ref={canvasRef}
                             className="border"
                             width={canvasWidth}
-                            height={limitedHeight}
+                            height={totalHeight}
                             onMouseDown={handleMouseDown}
                             onMouseMove={handleMouseMove}
                             onMouseUp={handleMouseUp}
@@ -1072,7 +1073,7 @@ export default function CanvasChartCanvas({
                                 overflow: 'visible', // 允许directional修饰器显示在Canvas边界外
                                 border: '1px solid #333', // 添加边框以便调试
                                 width: `${canvasWidth}px`, // 明确设置CSS宽度
-                                height: `${limitedHeight}px` // 明确设置CSS高度
+                                height: `${totalHeight}px` // 明确设置CSS高度
                             }}
                         />
                     </div>
