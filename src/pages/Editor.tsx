@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import type { ChartNote } from '../notes/Charts';
+import type { ChartNote, SelectionItem } from '../notes/Charts';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
-import { mirrorNotes, shiftGroupToAnchor } from '../utils/NoteEditing';
+import { shiftGroupToAnchor } from '../utils/NoteEditing';
+import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectionNoteIndices } from '../utils/SelectionEditing';
 
 interface EditorProps {
   song: File;
@@ -12,7 +13,7 @@ interface EditorProps {
 const Editor: React.FC<EditorProps> = () => {
   // 状态管理
   const [notes, setNotes] = useState<ChartNote[]>([]);
-  const [selectedNotes, setSelectedNotes] = useState<number[]>([]);
+  const [selectedItems, setSelectedItems] = useState<SelectionItem[]>([]);
   const [selectedTool, setSelectedTool] = useState<string>('mouse');
   const [clipboard, setClipboard] = useState<ChartNote[]>([]);
   const [beatDisplay, setBeatDisplay] = useState(4);
@@ -125,7 +126,7 @@ const Editor: React.FC<EditorProps> = () => {
     if (historyIndex > 0) {
       setHistoryIndex(historyIndex - 1);
       setNotes(history[historyIndex - 1]);
-      setSelectedNotes([]);
+      setSelectedItems([]);
     }
   };
   
@@ -133,7 +134,7 @@ const Editor: React.FC<EditorProps> = () => {
     if (historyIndex < history.length - 1) {
       setHistoryIndex(historyIndex + 1);
       setNotes(history[historyIndex + 1]);
-      setSelectedNotes([]);
+      setSelectedItems([]);
     }
   };
   
@@ -144,18 +145,17 @@ const Editor: React.FC<EditorProps> = () => {
   
   // 编辑功能
   const copySelected = () => {
-    if (selectedNotes.length > 0) {
-      const copiedNotes = selectedNotes.map(index => notes[index]).filter(Boolean);
-      setClipboard(copiedNotes);
+    if (selectedItems.length > 0) {
+      setClipboard(copySelection(notes, selectedItems));
     }
   };
   
   const cutSelected = () => {
-    if (selectedNotes.length > 0) {
-      copySelected();
-      const newNotes = notes.filter((_, index) => !selectedNotes.includes(index));
+    if (selectedItems.length > 0) {
+      const { clipboard, newNotes } = cutSelection(notes, selectedItems);
+      setClipboard(clipboard);
       handleNotesChange(newNotes);
-      setSelectedNotes([]);
+      setSelectedItems([]);
     }
   };
   
@@ -167,21 +167,20 @@ const Editor: React.FC<EditorProps> = () => {
     handleNotesChange(newNotes);
     // 粘贴后选中新粘贴的音符
     const startIndex = notes.length;
-    setSelectedNotes(pasted.map((_, i) => startIndex + i));
+    setSelectedItems(pasted.map((_, i) => ({ kind: 'note', noteIndex: startIndex + i })));
   };
   
   const deleteSelectedNotes = () => {
-    if (selectedNotes.length > 0) {
-      const newNotes = notes.filter((_, index) => !selectedNotes.includes(index));
-      handleNotesChange(newNotes);
-      setSelectedNotes([]);
+    if (selectedItems.length > 0) {
+      handleNotesChange(deleteSelection(notes, selectedItems));
+      setSelectedItems([]);
     }
   };
 
-  // 镜像：左右 lane 翻转 + 方向键 L↔R 翻转 + 滑条端点 lane 同步；BPM 线不参与
+  // 镜像：作用于选择条目（整条音符整体镜像；滑条子部分只翻转其 lane）
   const mirrorSelected = () => {
-    if (selectedNotes.length === 0) return;
-    handleNotesChange(mirrorNotes(notes, selectedNotes));
+    if (selectedItems.length === 0) return;
+    handleNotesChange(mirrorSelection(notes, selectedItems));
   };
 
   // 键盘快捷键（作用域：画布编辑；焦点在输入元素/代码编辑器时放行原生行为）
@@ -197,14 +196,14 @@ const Editor: React.FC<EditorProps> = () => {
       else if (mod && key === "v") { e.preventDefault(); pasteNotes(); }
       else if (mod && key === "z") { e.preventDefault(); undo(); }
       else if (mod && key === "y") { e.preventDefault(); redo(); }
-      else if (mod && key === "a") { e.preventDefault(); setSelectedNotes(notes.map((_, i) => i)); }
+      else if (mod && key === "a") { e.preventDefault(); setSelectedItems(notes.map((_, i) => ({ kind: 'note', noteIndex: i }))); }
       else if (mod && key === "m") { e.preventDefault(); mirrorSelected(); }
       else if (mod && key === "d") { e.preventDefault(); deleteSelectedNotes(); }
       else if (key === "delete" || key === "backspace") { e.preventDefault(); deleteSelectedNotes(); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [notes, selectedNotes, clipboard, mousePosition, history, historyIndex]);
+  }, [notes, selectedItems, clipboard, mousePosition, history, historyIndex]);
   
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -235,7 +234,7 @@ const Editor: React.FC<EditorProps> = () => {
             onPaste={pasteNotes}
             onDelete={deleteSelectedNotes}
             onMirror={mirrorSelected}
-            canCopy={selectedNotes.length > 0}
+            canCopy={selectedItems.length > 0}
             canPaste={clipboard.length > 0 && mousePosition !== null}
             scale={scale}
             onZoomIn={() => setScale(prev => Math.min(prev + 0.1, 3))}
@@ -329,8 +328,8 @@ const Editor: React.FC<EditorProps> = () => {
               notes={notes}
               setNotes={handleNotesChange}
               selectedTool={selectedTool}
-              selectedNotes={selectedNotes}
-              setSelectedNotes={setSelectedNotes}
+              selectedItems={selectedItems}
+              setSelectedItems={setSelectedItems}
               beatDisplay={beatDisplay}
               onMousePositionChange={setMousePosition}
               scale={scale}
@@ -381,7 +380,7 @@ const Editor: React.FC<EditorProps> = () => {
             <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '14px' }}>
               <input type="checkbox" /> 组
             </label>
-            <span style={{ fontSize: '14px' }}>已选中 {selectedNotes.length}</span>
+            <span style={{ fontSize: '14px' }}>已选中 {selectedItems.length}</span>
             <button style={{
               backgroundColor: '#ef4444',
               color: 'white',
@@ -395,7 +394,7 @@ const Editor: React.FC<EditorProps> = () => {
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
           <NoteInfoPanel
-            selectedNotes={selectedNotes}
+            selectedNotes={selectionNoteIndices(selectedItems)}
             notes={notes}
             onNotesChange={handleNotesChange}
           />

@@ -64,3 +64,9 @@ export interface SystemNote {
 }
 
 export type ChartNote = SingleNote | LDirectionalNote | RDirectionalNote | SlideNote | LongNote | BpmNote | SystemNote;
+
+// 选择条目（ADR-0001 §6）：滑条可分区域/端点/中间结点独立选中与编辑
+export type SelectionItem =
+  | { kind: 'note'; noteIndex: number }                    // 整条音符（含 Ctrl+左键选中的整条滑条）
+  | { kind: 'slideRegion'; noteIndex: number; connIndex: number } // 滑条"段/区域"：connIndex↔connIndex+1 两结点间的连接带
+  | { kind: 'slideNode'; noteIndex: number; connIndex: number }; // 滑条端点或中间结点

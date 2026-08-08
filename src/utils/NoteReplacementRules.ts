@@ -144,6 +144,7 @@ function connectionToNote(conn: SlideNote["connections"][number]): ChartNote {
     if (conn.skill) note.skill = true;
     return note;
 }
+export { connectionToNote };
 
 /**
  * 删除滑条子段（ADR-0001 §6 独立 feature + 用户定案 2026-08-08）

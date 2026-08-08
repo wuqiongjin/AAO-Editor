@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
-import type { ChartNote, SlideNote } from "../notes/Charts";
+import type { ChartNote, SlideNote, SelectionItem } from "../notes/Charts";
 import CanvasSpriteIcon, { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcons } from './CanvasSpriteIcon';
-import { handleNoteReplacement, handleSlideToSlideCombination, deleteSlideSegment } from '../utils/NoteReplacementRules';
+import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
+import { deleteSelection } from '../utils/SelectionEditing';
 
 interface FinalVirtualCanvasProps {
     notes: ChartNote[];
     setNotes: (notes: ChartNote[]) => void;
     selectedTool: string;
-    selectedNotes: number[];
-    setSelectedNotes: (notes: number[]) => void;
+    selectedItems: SelectionItem[];
+    setSelectedItems: (items: SelectionItem[]) => void;
     beatDisplay: number;
     onMousePositionChange: (position: { lane: number; beat: number } | null) => void;
     scale: number;
@@ -72,8 +73,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     notes,
     setNotes: _setNotes,
     selectedTool,
-    selectedNotes,
-    setSelectedNotes,
+    selectedItems,
+    setSelectedItems,
     beatDisplay,
     onMousePositionChange,
     scale,
@@ -289,45 +290,36 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         return [];
     };
 
-    // 查找指定 lane/beat 处的音符下标
-    const findNoteIndexAt = (lane: number, preciseBeat: number) => {
-        return notes.findIndex(note => {
-            if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
-                return Math.abs(note.beat - preciseBeat) < 0.0001 && note.lane === lane;
-            } else if (note.type === "Slide" || note.type === "Long") {
-                return note.connections.some(conn =>
-                    Math.abs(conn.beat - preciseBeat) < 0.0001 && conn.lane === lane
-                );
-            }
-            return false;
-        });
-    };
+    // 判断 SelectionItem 是否已在选中集中（同 kind/noteIndex/connIndex 视为同一条目）
+    const sameItem = (a: SelectionItem, b: SelectionItem) =>
+        a.kind === b.kind && a.noteIndex === b.noteIndex &&
+        (a.kind === 'note' ? true : a.connIndex === (b as any).connIndex);
 
-    // 点选：点击单选 / Shift 或组合状态 加选
-    const selectNoteAtPoint = (cx: number, cy: number, additive: boolean) => {
-        const pos = getLaneBeatFromCanvas(cx, cy);
-        if (!pos) {
-            if (!additive) setSelectedNotes([]);
+    // 点选：普通左键选子部分 / Ctrl+左键选整条滑条 / Shift 加选
+    const selectItemAtPoint = (cx: number, cy: number, additive: boolean, ctrl: boolean) => {
+        const hit = findItemAt(cx, cy);
+        if (!hit) {
+            if (!additive) setSelectedItems([]);
             return;
         }
-        const noteIndex = findNoteIndexAt(pos.lane, pos.preciseBeat);
-        if (noteIndex !== -1) {
-            if (additive) {
-                if (selectedNotes.includes(noteIndex)) {
-                    setSelectedNotes(selectedNotes.filter(i => i !== noteIndex));
-                } else {
-                    setSelectedNotes([...selectedNotes, noteIndex]);
-                }
+        // Ctrl+左键 → 选中整条滑条（{kind:'note'}）；否则选命中的子部分
+        const target: SelectionItem = ctrl ? { kind: 'note', noteIndex: hit.noteIndex } : hit;
+        if (additive) {
+            const exists = selectedItems.some(it => sameItem(it, target));
+            if (exists) {
+                setSelectedItems(selectedItems.filter(it => !sameItem(it, target)));
             } else {
-                setSelectedNotes([noteIndex]);
+                // 加选整条时，清掉同一滑条的既有子部分选择（ADR §6.1 整条与子部分互斥）
+                const filtered = ctrl ? selectedItems.filter(it => it.noteIndex !== target.noteIndex) : selectedItems;
+                setSelectedItems([...filtered, target]);
             }
-        } else if (!additive) {
-            setSelectedNotes([]);
+        } else {
+            setSelectedItems([target]);
         }
     };
 
-    // 圈选：选中矩形框内音符
-    const selectNotesInBox = (box: { x1: number; y1: number; x2: number; y2: number }) => {
+    // 圈选：按命中子部分选中框内音符（框到结点→结点；框到区域→区域）
+    const selectItemsInBox = (box: { x1: number; y1: number; x2: number; y2: number }) => {
         const minX = Math.min(box.x1, box.x2);
         const maxX = Math.max(box.x1, box.x2);
         const minY = Math.min(box.y1, box.y2);
@@ -338,14 +330,37 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const vmaxX = Math.max(tl.x, br.x);
         const vminY = Math.min(tl.y, br.y);
         const vmaxY = Math.max(tl.y, br.y);
-        const indices: number[] = [];
+        const result: SelectionItem[] = [];
         notes.forEach((note, index) => {
-            const pts = getNoteVirtualPoints(note);
-            if (pts.some(p => p.x >= vminX && p.x <= vmaxX && p.y >= vminY && p.y <= vmaxY)) {
-                indices.push(index);
+            if (note.type === "Slide" || note.type === "Long") {
+                const conns = note.connections;
+                // 结点：虚拟坐标落在框内 → 选中该结点
+                conns.forEach((conn, ci) => {
+                    const x = getNoteVirtualX(conn.lane);
+                    const y = getNoteVirtualY(conn.beat, conn.subBeat || 0);
+                    if (x >= vminX && x <= vmaxX && y >= vminY && y <= vmaxY) {
+                        result.push({ kind: 'slideNode', noteIndex: index, connIndex: ci });
+                    }
+                });
+                // 区域：两端点都在框内 → 选中该区域
+                for (let ci = 0; ci < conns.length - 1; ci++) {
+                    const c1 = conns[ci];
+                    const c2 = conns[ci + 1];
+                    const p1 = { x: getNoteVirtualX(c1.lane), y: getNoteVirtualY(c1.beat, c1.subBeat || 0) };
+                    const p2 = { x: getNoteVirtualX(c2.lane), y: getNoteVirtualY(c2.beat, c2.subBeat || 0) };
+                    if (p1.x >= vminX && p1.x <= vmaxX && p1.y >= vminY && p1.y <= vmaxY &&
+                        p2.x >= vminX && p2.x <= vmaxX && p2.y >= vminY && p2.y <= vmaxY) {
+                        result.push({ kind: 'slideRegion', noteIndex: index, connIndex: ci });
+                    }
+                }
+            } else {
+                const pts = getNoteVirtualPoints(note);
+                if (pts.some(p => p.x >= vminX && p.x <= vmaxX && p.y >= vminY && p.y <= vmaxY)) {
+                    result.push({ kind: 'note', noteIndex: index });
+                }
             }
         });
-        setSelectedNotes(indices);
+        setSelectedItems(result);
     };
 
     // ---------------------------
@@ -456,7 +471,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 绘制滑条缓冲区
         renderSlideBuffer(ctx);
 
-    }, [notes, selectedNotes, viewport, selectionBox, slideBuffer, beatDisplay]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay]);
 
     // 绘制网格
     const renderGrid = useCallback((ctx: CanvasRenderingContext2D, trackStartX: number, trackBgX: number, trackBgWidth: number) => {
@@ -539,11 +554,18 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         }, [viewport, beatDisplay]);
 
+    // 选中状态判定辅助（ADR-0001 §6：整条/结点/区域）
+    const isNoteSelected = (index: number) => selectedItems.some(it => it.kind === 'note' && it.noteIndex === index);
+    const isSlideNodeSelected = (index: number, connIndex: number) =>
+        selectedItems.some(it => it.kind === 'slideNode' && it.noteIndex === index && it.connIndex === connIndex);
+    const isSlideRegionSelected = (index: number, connIndex: number) =>
+        selectedItems.some(it => it.kind === 'slideRegion' && it.noteIndex === index && it.connIndex === connIndex);
+
     // 绘制音符
     const renderNotes = useCallback((ctx: CanvasRenderingContext2D, visibleNotes: { note: ChartNote; index: number }[]) => {
         // 第一层：普通音符和方向键主体
         visibleNotes.forEach(({ note, index }) => {
-            const isSelected = selectedNotes.includes(index);
+            const isSelected = isNoteSelected(index);
 
             if (note.type === "Single") {
                 const subBeat = note.subBeat || 0;
@@ -802,7 +824,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     });
                 });
 
-                // 选中状态
+                // 选中状态（ADR §6：整条高亮虚线框；结点/区域各自独立高亮圈）
                 if (isSelected) {
                     const minX = Math.min(...connections.map(c => getNoteVirtualX(c.lane))) - 10;
                     const minY = Math.min(...connections.map(c => getNoteVirtualY(c.beat, c.subBeat || 0))) - 10;
@@ -818,6 +840,49 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     ctx.globalAlpha = 0.7;
                     ctx.strokeRect(canvasMin.x, canvasMin.y, canvasMax.x - canvasMin.x, canvasMax.y - canvasMin.y);
                     ctx.setLineDash([]);
+                    ctx.globalAlpha = 1.0;
+                }
+
+                // 被选中的滑条结点高亮圈（解耦：集中于此，便于后续调整样式）
+                connections.forEach((conn, ci) => {
+                    if (!isSlideNodeSelected(index, ci)) return;
+                    const pos = virtualToCanvas(
+                        getNoteVirtualX(conn.lane),
+                        getNoteVirtualY(conn.beat, conn.subBeat || 0)
+                    );
+                    ctx.strokeStyle = '#00e5ff';
+                    ctx.lineWidth = 3 * viewport.scale;
+                    ctx.globalAlpha = 0.9;
+                    ctx.beginPath();
+                    ctx.arc(pos.x, pos.y, (SLIDE_ICON_SIZE / 2) * viewport.scale + 6, 0, 2 * Math.PI);
+                    ctx.stroke();
+                    ctx.globalAlpha = 1.0;
+                });
+
+                // 被选中的滑条区域高亮描边（解耦：集中于此）
+                for (let ci = 0; ci < connections.length - 1; ci++) {
+                    if (!isSlideRegionSelected(index, ci)) continue;
+                    const c1 = connections[ci];
+                    const c2 = connections[ci + 1];
+                    const p1 = virtualToCanvas(
+                        getNoteVirtualX(c1.lane),
+                        getNoteVirtualY(c1.beat, c1.subBeat || 0)
+                    );
+                    const p2 = virtualToCanvas(
+                        getNoteVirtualX(c2.lane),
+                        getNoteVirtualY(c2.beat, c2.subBeat || 0)
+                    );
+                    const halfLaneWidth = (LANE_WIDTH * viewport.scale) / 2;
+                    ctx.strokeStyle = '#00e5ff';
+                    ctx.lineWidth = 2 * viewport.scale;
+                    ctx.globalAlpha = 0.9;
+                    ctx.beginPath();
+                    ctx.moveTo(p1.x - halfLaneWidth, p1.y);
+                    ctx.lineTo(p1.x + halfLaneWidth, p1.y);
+                    ctx.lineTo(p2.x + halfLaneWidth, p2.y);
+                    ctx.lineTo(p2.x - halfLaneWidth, p2.y);
+                    ctx.closePath();
+                    ctx.stroke();
                     ctx.globalAlpha = 1.0;
                 }
             }
@@ -878,7 +943,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 });
             }
         });
-    }, [selectedNotes, viewport]);
+    }, [selectedItems, viewport]);
 
     // 绘制选择框
     const renderSelectionBox = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -1121,7 +1186,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 }
             }
         }
-    }, [selectedTool, selectedNotes, setSelectedNotes, notes, viewport, beatDisplay, slideBuffer]);
+    }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer]);
 
     const handleMouseUp = useCallback((e: React.MouseEvent) => {
         setDragging(false);
@@ -1135,66 +1200,88 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
 
         if (selectionMovedRef.current && selectionBox) {
-            // 拖拽圈选：选中框内音符
-            selectNotesInBox(selectionBox);
+            // 拖拽圈选：选中框内音符（按子部分）
+            selectItemsInBox(selectionBox);
         } else {
-            // 点击单选 / Shift 加选
+            // 点击单选 / Shift 加选 / Ctrl 选整条滑条
             const start = selectionStartRef.current;
-            selectNoteAtPoint(start.x, start.y, e.shiftKey);
+            selectItemAtPoint(start.x, start.y, e.shiftKey, e.ctrlKey || e.metaKey);
         }
 
         selectionStartRef.current = null;
         setSelectionBox(null);
-    }, [selectedTool, selectionBox, notes, selectedNotes]);
+    }, [selectedTool, selectionBox, notes, selectedItems]);
 
     // ---------------------------
     // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
     // ---------------------------
-    // 判断点击位置是否命中滑条的某个部分
-    // 返回 { noteIndex, connIndex }；connIndex 为空表示命中连接带区域（删除整条滑条）
-    const findSlideHitAt = useCallback((cx: number, cy: number): { noteIndex: number; connIndex: number | null } | null => {
-        const nodeRadius = (SLIDE_ICON_SIZE / 2) * viewport.scale + 4 * viewport.scale;
+    // 命中测试：返回点击位置命中的选择条目（任意音符类型）
+    // - 普通音符/方向键/BPM → {kind:'note'}
+    // - 滑条结点 → {kind:'slideNode', connIndex}
+    // - 滑条连接带区域 → {kind:'slideRegion', connIndex}
+    const findItemAt = useCallback((cx: number, cy: number): SelectionItem | null => {
+        const slideNodeRadius = (SLIDE_ICON_SIZE / 2) * viewport.scale + 4 * viewport.scale;
+        const noteRadius = (NOTE_ICON_SIZE / 2) * viewport.scale + 4 * viewport.scale;
         const halfLaneWidth = (LANE_WIDTH * viewport.scale) / 2;
 
         for (let i = 0; i < notes.length; i++) {
             const note = notes[i];
-            if (note.type !== "Slide" && note.type !== "Long") continue;
-            const connections = (note as SlideNote).connections;
 
-            // 先检测是否命中结点（端点或中间结点）
-            for (let ci = 0; ci < connections.length; ci++) {
-                const conn = connections[ci];
-                const vx = getNoteVirtualX(conn.lane);
-                const vy = getNoteVirtualY(conn.beat, conn.subBeat || 0);
+            if (note.type === "Slide" || note.type === "Long") {
+                const connections = (note as SlideNote).connections;
+
+                // 先检测是否命中结点（端点或中间结点）
+                for (let ci = 0; ci < connections.length; ci++) {
+                    const conn = connections[ci];
+                    const vx = getNoteVirtualX(conn.lane);
+                    const vy = getNoteVirtualY(conn.beat, conn.subBeat || 0);
+                    const pos = virtualToCanvas(vx, vy);
+                    const dx = pos.x - cx;
+                    const dy = pos.y - cy;
+                    if (dx * dx + dy * dy <= slideNodeRadius * slideNodeRadius) {
+                        return { kind: 'slideNode', noteIndex: i, connIndex: ci };
+                    }
+                }
+
+                // 再检测是否命中连接带区域（平行四边形）
+                for (let ci = 0; ci < connections.length - 1; ci++) {
+                    const conn1 = connections[ci];
+                    const conn2 = connections[ci + 1];
+                    const p1 = virtualToCanvas(
+                        getNoteVirtualX(conn1.lane),
+                        getNoteVirtualY(conn1.beat, conn1.subBeat || 0)
+                    );
+                    const p2 = virtualToCanvas(
+                        getNoteVirtualX(conn2.lane),
+                        getNoteVirtualY(conn2.beat, conn2.subBeat || 0)
+                    );
+                    // 上下两边水平、与横向轨道对齐的平行四边形
+                    const quad = [
+                        [p1.x - halfLaneWidth, p1.y],
+                        [p1.x + halfLaneWidth, p1.y],
+                        [p2.x + halfLaneWidth, p2.y],
+                        [p2.x - halfLaneWidth, p2.y]
+                    ];
+                    if (pointInQuad(cx, cy, quad)) {
+                        return { kind: 'slideRegion', noteIndex: i, connIndex: ci };
+                    }
+                }
+            } else if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
+                const vx = getNoteVirtualX(note.lane);
+                const vy = getNoteVirtualY(note.beat, note.subBeat || 0);
                 const pos = virtualToCanvas(vx, vy);
                 const dx = pos.x - cx;
                 const dy = pos.y - cy;
-                if (dx * dx + dy * dy <= nodeRadius * nodeRadius) {
-                    return { noteIndex: i, connIndex: ci };
+                if (dx * dx + dy * dy <= noteRadius * noteRadius) {
+                    return { kind: 'note', noteIndex: i };
                 }
-            }
-
-            // 再检测是否命中连接带区域（平行四边形）
-            for (let ci = 0; ci < connections.length - 1; ci++) {
-                const conn1 = connections[ci];
-                const conn2 = connections[ci + 1];
-                const p1 = virtualToCanvas(
-                    getNoteVirtualX(conn1.lane),
-                    getNoteVirtualY(conn1.beat, conn1.subBeat || 0)
-                );
-                const p2 = virtualToCanvas(
-                    getNoteVirtualX(conn2.lane),
-                    getNoteVirtualY(conn2.beat, conn2.subBeat || 0)
-                );
-                // 上下两边水平、与横向轨道对齐的平行四边形
-                const quad = [
-                    [p1.x - halfLaneWidth, p1.y],
-                    [p1.x + halfLaneWidth, p1.y],
-                    [p2.x + halfLaneWidth, p2.y],
-                    [p2.x - halfLaneWidth, p2.y]
-                ];
-                if (pointInQuad(cx, cy, quad)) {
-                    return { noteIndex: i, connIndex: null };
+            } else if (note.type === "BPM") {
+                const vy = getNoteVirtualY(note.beat);
+                const pos = virtualToCanvas(getNoteVirtualX(0), vy);
+                const dx = pos.x - cx;
+                const dy = pos.y - cy;
+                if (dx * dx + dy * dy <= noteRadius * noteRadius) {
+                    return { kind: 'note', noteIndex: i };
                 }
             }
         }
@@ -1221,11 +1308,13 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
 
-        const hit = findSlideHitAt(mouseX, mouseY);
+        // 右键 = 选中命中目标 + 删除（对任意音符生效）
+        const hit = findItemAt(mouseX, mouseY);
         if (!hit) return;
 
-        _setNotes(deleteSlideSegment(notes, hit.noteIndex, hit.connIndex));
-    }, [notes, findSlideHitAt]);
+        setSelectedItems([hit]);
+        _setNotes(deleteSelection(notes, [hit]));
+    }, [notes, findItemAt]);
 
     // ---------------------------
     // 生命周期和效果

@@ -241,7 +241,7 @@ export default function Toolbar({
                 }`}
               onClick={onMirror}
               disabled={!canCopy}
-              title="镜像"
+              title="镜像 (Ctrl+M)"
             >
               <RotateCcw size={16} />
               <span>镜像</span>
