@@ -70,3 +70,26 @@ describe('noteEditing - paste to anchor', () => {
     expect(shiftGroupToAnchor([], 0, 0)).toEqual([]);
   });
 });
+
+describe('noteEditing - paste preserves group width', () => {
+  it('keeps the group width when anchor would overflow the track', () => {
+    const clip: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 0 },
+      { type: 'Single', beat: 1, lane: 5 }
+    ];
+    // 组宽度 = lane 0..5（6 道）；锚点 lane 5 会把组右缘推到 10，超出轨道，整体左移以保持宽度
+    const out = shiftGroupToAnchor(clip, 10, 5) as any;
+    expect(out[0].lane).toBe(1);
+    expect(out[1].lane).toBe(6);
+  });
+
+  it('anchors exactly to cursor lane when within bounds', () => {
+    const clip: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 1 },
+      { type: 'Single', beat: 1, lane: 3 }
+    ];
+    const out = shiftGroupToAnchor(clip, 10, 4) as any;
+    expect(out[0].lane).toBe(4);
+    expect(out[1].lane).toBe(6);
+  });
+});
