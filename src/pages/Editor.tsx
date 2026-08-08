@@ -25,13 +25,10 @@ const Editor: React.FC<EditorProps> = () => {
   const [historyIndex, setHistoryIndex] = useState(0);
   
   // 虚拟画布相关状态
-  const [_virtualScrollY, setVirtualScrollY] = useState(0);
   const [virtualHeight, setVirtualHeight] = useState(0);
   
-  // 滚动同步相关
-  const isScrollingFromVirtual = useRef(false);
-  const isScrollingFromScrollbar = useRef(false);
-  const scrollSyncTimeout = useRef<number | null>(null);
+  // 滚动同步相关：滚动条是滚动位置的唯一来源，虚拟画布只跟随滚动条
+  const initialScrollDone = useRef(false); // 是否已做初始滚动（滚动条默认在最下面）
   
   // 区域宽度状态
   const [leftPanelWidth, setLeftPanelWidth] = useState(470);
@@ -42,84 +39,34 @@ const Editor: React.FC<EditorProps> = () => {
   const chartAreaRef = useRef<HTMLDivElement>(null);
   const virtualCanvasRef = useRef<any>(null);
   
-  // 处理虚拟画布滚动变化
-  const handleVirtualScrollChange = (scrollY: number, height: number) => {
-    setVirtualScrollY(scrollY);
+  // 处理虚拟画布滚动变化：仅记录虚拟高度，配合滚动条映射
+  const handleVirtualScrollChange = (_scrollY: number, height: number) => {
     setVirtualHeight(height);
-    
-    // 如果是从滚动条触发的滚动，跳过同步
-    if (isScrollingFromScrollbar.current) return;
-    
-    // 清除之前的防抖定时器
-    if (scrollSyncTimeout.current) {
-      clearTimeout(scrollSyncTimeout.current);
-    }
-    
-    // 使用防抖机制，避免频繁同步
-    scrollSyncTimeout.current = setTimeout(() => {
-      // 同步虚拟画布滚动到谱面画布滚动条
-      if (chartAreaRef.current && height > 0) {
-        isScrollingFromVirtual.current = true;
-        const scrollContainer = chartAreaRef.current;
-        if (scrollContainer) {
-          const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-          if (maxScroll > 0) {
-            const scrollRatio = scrollY / (height - scrollContainer.clientHeight);
-            const newScrollTop = scrollRatio * maxScroll;
-            scrollContainer.scrollTop = newScrollTop;
-          }
-        }
-        
-        // 延迟重置标志，避免立即触发滚动条的回调
-        setTimeout(() => {
-          isScrollingFromVirtual.current = false;
-        }, 5); // 减少延迟时间
-      }
-    }, 8); // 减少防抖间隔，提高响应性
   };
   
-  // 设置虚拟内容高度
+  // 设置虚拟内容高度，并在首次设置时把滚动条放到最底部（起始拍位置）
   useEffect(() => {
-    if (chartAreaRef.current && virtualHeight > 0) {
-      const scrollContainer = chartAreaRef.current;
-      const contentElement = scrollContainer.querySelector('.virtual-content') as HTMLElement;
-      if (contentElement) {
-        contentElement.style.height = `${virtualHeight + 1000}px`; // 增加额外高度确保能滚动到最下面
-      }
+    const scrollContainer = chartAreaRef.current;
+    if (!scrollContainer || virtualHeight <= 0) return;
+    const contentElement = scrollContainer.querySelector('.virtual-content') as HTMLElement;
+    if (!contentElement) return;
+    contentElement.style.height = `${virtualHeight}px`;
+    if (!initialScrollDone.current) {
+      scrollContainer.scrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+      initialScrollDone.current = true;
     }
   }, [virtualHeight]);
   
-  // 处理滚动条变化
+  // 处理滚动条变化：滚动条是唯一滚动来源，把其位置按比例映射到虚拟画布
   const handleScrollbarChange = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.target as HTMLDivElement;
     const scrollTop = target.scrollTop;
-    
-    // 如果是从虚拟画布触发的滚动，跳过处理
-    if (isScrollingFromVirtual.current) return;
-    
-    // 清除之前的防抖定时器
-    if (scrollSyncTimeout.current) {
-      clearTimeout(scrollSyncTimeout.current);
-    }
-    
-    // 使用防抖机制，避免频繁同步
-    scrollSyncTimeout.current = setTimeout(() => {
-      // 计算滚动比例并同步到虚拟画布
-      if (virtualCanvasRef.current && virtualCanvasRef.current.setScrollY && virtualHeight > 0) {
-        isScrollingFromScrollbar.current = true;
-        
-        const maxScroll = target.scrollHeight - target.clientHeight;
-        const scrollRatio = maxScroll > 0 ? scrollTop / maxScroll : 0;
-        const virtualScrollY = scrollRatio * (virtualHeight - target.clientHeight);
-        
-        virtualCanvasRef.current.setScrollY(virtualScrollY);
-        
-        // 延迟重置标志，避免立即触发虚拟画布的回调
-        setTimeout(() => {
-          isScrollingFromScrollbar.current = false;
-        }, 5); // 减少延迟时间
-      }
-    }, 8); // 减少防抖间隔，提高响应性
+    const maxScroll = target.scrollHeight - target.clientHeight;
+    if (maxScroll <= 0 || !virtualCanvasRef.current || !virtualHeight) return;
+    // 虚拟画布滚动范围与滚动条滚动范围呈线性映射
+    const maxCanvasScroll = virtualCanvasRef.current.getMaxScrollY?.() ?? virtualHeight;
+    const scrollRatio = Math.max(0, Math.min(1, scrollTop / maxScroll));
+    virtualCanvasRef.current.setScrollY(scrollRatio * maxCanvasScroll);
   };
   
   // 拖拽处理函数
@@ -163,15 +110,6 @@ const Editor: React.FC<EditorProps> = () => {
       };
     }
   }, [isDragging, leftPanelWidth, rightPanelWidth]);
-  
-  // 清理定时器
-  useEffect(() => {
-    return () => {
-      if (scrollSyncTimeout.current) {
-        clearTimeout(scrollSyncTimeout.current);
-      }
-    };
-  }, []);
   
   const addToHistory = (newNotes: ChartNote[]) => {
     const newHistory = history.slice(0, historyIndex + 1);
@@ -332,7 +270,7 @@ const Editor: React.FC<EditorProps> = () => {
             top: 0,
             left: 0,
             width: '100%',
-            height: virtualHeight > 0 ? `${virtualHeight + 1000}px` : 'auto',
+            height: virtualHeight > 0 ? `${virtualHeight}px` : 'auto',
             pointerEvents: 'none'
           }} />
           

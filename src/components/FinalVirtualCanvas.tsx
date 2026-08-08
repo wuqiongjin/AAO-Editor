@@ -42,22 +42,16 @@ const VIEWPORT_PADDING = 200;
 
 // 虚拟高度配置 - 可以手动修改这个值来调整虚拟高度
 const VIRTUAL_HEIGHT_MULTIPLIER = 1.0; // 虚拟高度倍数，可以调整这个值
+// 完整谱面虚拟高度（下落式：起始拍 beat 0 在画布最底部）
+const TOTAL_VIRTUAL_HEIGHT = BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER;
 
 // 虚拟画布边界配置（暂未使用，缩放边界由 getScaledVirtualBounds 计算）
 
 // 缩放时的虚拟边界调整
-const getScaledVirtualBounds = (scale: number) => {
+const getScaledVirtualBounds = (_scale: number) => {
     // 使用固定的虚拟高度计算，避免依赖组件内部函数
     const totalVirtualHeight = BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER;
     const totalVirtualWidth = LANES * LANE_WIDTH + (1 + 4 + 1 + 1 + 1 + 1) * 2;
-
-    console.log('🔧 缩放边界计算:', {
-        scale,
-        totalVirtualHeight,
-        totalVirtualWidth,
-        BEATS,
-        VIRTUAL_HEIGHT_MULTIPLIER
-    });
 
     return {
         minY: 0,
@@ -120,7 +114,12 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             });
         },
         getScrollY: () => viewport.scrollY,
-        getVirtualHeight: () => viewport.virtualHeight
+        getVirtualHeight: () => viewport.virtualHeight,
+        // 虚拟画布可滚动的最大范围（供父组件滚动条做线性映射）
+        getMaxScrollY: () => {
+            const scaledBounds = getScaledVirtualBounds(viewport.scale);
+            return Math.max(0, scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale);
+        }
     }));
 
     // ---------------------------
@@ -145,7 +144,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // ---------------------------
     // 虚拟坐标转换函数
     // ---------------------------
-    const beatToVirtualY = (beat: number) => {
+    const beatToVirtualYRaw = (beat: number) => {
         const bpmEvents = getSortedBpmEvents();
         let offset = 0;
         for (let i = 0; i < bpmEvents.length; i++) {
@@ -169,7 +168,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         return offset;
     };
 
-    const virtualYToBeat = (virtualY: number) => {
+    // 自下而上（下落式音游）：起始拍 beat 0 位于画布最底部，越往后越靠上
+    const beatToVirtualY = (beat: number) => TOTAL_VIRTUAL_HEIGHT - beatToVirtualYRaw(beat);
+
+    const virtualYToBeatRaw = (virtualY: number) => {
         const bpmEvents = getSortedBpmEvents();
         let remaining = virtualY;
         for (let i = 0; i < bpmEvents.length; i++) {
@@ -196,17 +198,30 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         return BEATS;
     };
 
+    // 与 beatToVirtualY 对应的反变换
+    const virtualYToBeat = (virtualY: number) => virtualYToBeatRaw(TOTAL_VIRTUAL_HEIGHT - virtualY);
+
     // ---------------------------
     // 坐标转换：虚拟坐标 <-> 画布坐标
     // ---------------------------
     const virtualToCanvas = (virtualX: number, virtualY: number) => {
-        const canvasX = (virtualX - viewport.scrollX) * viewport.scale;
+        // 虚拟X原点位于轨道内容左缘（trackBgX = trackStartX + borderTotalWidth），
+        // 轨道已水平居中，故画布X加上该偏移；trackBgX 与 scale 统一缩放，保证任意缩放下对齐。
+        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
+        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
+        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
+        const trackBgX = trackStartX + borderTotalWidth;
+        const canvasX = trackBgX + (virtualX - viewport.scrollX) * viewport.scale;
         const canvasY = (virtualY - viewport.scrollY) * viewport.scale;
         return { x: canvasX, y: canvasY };
     };
 
     const canvasToVirtual = (canvasX: number, canvasY: number) => {
-        const virtualX = canvasX / viewport.scale + viewport.scrollX;
+        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
+        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
+        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
+        const trackBgX = trackStartX + borderTotalWidth;
+        const virtualX = (canvasX - trackBgX) / viewport.scale + viewport.scrollX;
         const virtualY = canvasY / viewport.scale + viewport.scrollY;
         return { x: virtualX, y: virtualY };
     };
@@ -226,16 +241,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             maxY: Math.min(scaledBounds.maxY, viewport.scrollY + CANVAS_HEIGHT / viewport.scale + padding)
         };
 
-        console.log('🔍 视口边界计算:', {
-            viewport: viewport.scrollY,
-            scale: viewport.scale,
-            padding,
-            scaledBounds,
-            bounds,
-            CANVAS_HEIGHT: CANVAS_HEIGHT / viewport.scale,
-            'viewport + CANVAS_HEIGHT': viewport.scrollY + CANVAS_HEIGHT / viewport.scale
-        });
-
         return bounds;
     };
 
@@ -250,8 +255,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     };
 
     const getNoteVirtualX = (lane: number) => {
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-        return borderTotalWidth + lane * LANE_WIDTH + LANE_WIDTH / 2;
+        // 虚拟X原点位于轨道内容左缘（trackBgX），lane中心即相对该原点的偏移
+        return lane * LANE_WIDTH + LANE_WIDTH / 2;
     };
 
     // ---------------------------
@@ -261,12 +266,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const bounds = getViewportBounds();
         const visibleNotes: { note: ChartNote; index: number }[] = [];
 
-        console.log('🔍 视口边界检查:', {
-            bounds,
-            viewport: viewport.scrollY,
-            scale: viewport.scale
-        });
-
         notes.forEach((note, index) => {
             let isVisible = false;
 
@@ -275,14 +274,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const virtualX = getNoteVirtualX(note.lane);
                 isVisible = virtualY >= bounds.minY && virtualY <= bounds.maxY &&
                     virtualX >= bounds.minX && virtualX <= bounds.maxX;
-
-                console.log('🎵 音符可见性检查:', {
-                    note: { beat: note.beat, lane: note.lane, type: note.type },
-                    virtualY,
-                    virtualX,
-                    bounds,
-                    isVisible
-                });
             } else if (note.type === "Slide" || note.type === "Long") {
                 // 检查滑条是否有任何连接点在视口内
                 isVisible = note.connections.some(conn => {
@@ -310,37 +301,17 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const renderCanvas = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) {
-            console.log('❌ Canvas ref is null');
             return;
         }
 
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-            console.log('❌ Canvas context is null');
             return;
         }
-
-        console.log('🎨 开始渲染虚拟画布:', {
-            viewport: viewport.scrollY,
-            scale: viewport.scale,
-            notesCount: notes.length
-        });
 
         // 设置固定画布尺寸
         canvas.width = CANVAS_WIDTH;
         canvas.height = CANVAS_HEIGHT;
-
-        console.log('🎨 Canvas尺寸设置:', {
-            canvasWidth: canvas.width,
-            canvasHeight: canvas.height,
-            CANVAS_WIDTH,
-            CANVAS_HEIGHT,
-            canvasStyle: {
-                width: canvas.style.width,
-                height: canvas.style.height,
-                display: canvas.style.display
-            }
-        });
 
         // 清空画布
         ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -351,14 +322,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         // 测试绘制已移除，恢复正常的轨道渲染
 
-        console.log('🎨 测试绘制完成:', {
-            canvasWidth: canvas.width,
-            canvasHeight: canvas.height,
-            testRectangles: '4个彩色方块已绘制'
-        });
-
         // 计算虚拟总尺寸
-        const totalVirtualHeight = beatToVirtualY(BEATS) * VIRTUAL_HEIGHT_MULTIPLIER;
+        const totalVirtualHeight = TOTAL_VIRTUAL_HEIGHT;
         const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
         const totalVirtualWidth = LANES * LANE_WIDTH + borderTotalWidth * 2;
 
@@ -381,15 +346,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const trackBgWidth = LANES * LANE_WIDTH * viewport.scale;
         const trackBgHeight = CANVAS_HEIGHT;
 
-        console.log('🎨 绘制轨道背景:', {
-            trackBgX,
-            trackBgY,
-            trackBgWidth,
-            trackBgHeight,
-            viewport: viewport.scrollY,
-            scale: viewport.scale
-        });
-
         ctx.fillStyle = '#00000A';
         ctx.fillRect(trackBgX, trackBgY, trackBgWidth, trackBgHeight);
 
@@ -398,7 +354,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         // 获取可见音符并渲染
         const visibleNotes = getVisibleNotes();
-        console.log('🎵 可见音符数量:', visibleNotes.length);
         renderNotes(ctx, visibleNotes);
 
         // 渲染BPM数字（在画布内部）
@@ -412,29 +367,15 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 绘制滑条缓冲区
         renderSlideBuffer(ctx);
 
-        console.log('✅ 虚拟画布渲染完成');
-
     }, [notes, selectedNotes, viewport, selectionBox, slideBuffer, beatDisplay]);
 
     // 绘制网格
     const renderGrid = useCallback((ctx: CanvasRenderingContext2D, trackStartX: number, trackBgX: number, trackBgWidth: number) => {
         const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-        const totalVirtualHeight = beatToVirtualY(BEATS);
-
-        console.log('🎨 开始绘制网格:', {
-            trackStartX,
-            trackBgX,
-            trackBgWidth,
-            totalVirtualHeight,
-            viewport: viewport.scrollY,
-            scale: viewport.scale
-        });
 
         // 绘制垂直线（轨道线）
-        console.log('📏 绘制垂直轨道线:', { LANES, trackStartX, borderTotalWidth, scale: viewport.scale });
         for (let lane = 0; lane <= LANES; lane++) {
             const x = trackStartX + borderTotalWidth + lane * LANE_WIDTH * viewport.scale;
-            console.log(`🎯 轨道线 ${lane}:`, { x, lane, LANE_WIDTH: LANE_WIDTH * viewport.scale });
 
             if (lane === 0 || lane === LANES) {
                 // 外侧轨道边框
@@ -464,20 +405,17 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         // 绘制水平线（节拍线）
         const bounds = getViewportBounds();
-        console.log('🔍 绘制水平线:', { bounds, viewport: viewport.scrollY, scale: viewport.scale });
 
         let drawnLines = 0;
         for (let beat = 0; beat < BEATS; beat++) {
             const virtualY = beatToVirtualY(beat);
             if (virtualY < bounds.minY || virtualY > bounds.maxY) {
-                if (beat < 5) console.log(`⏭️ 跳过beat ${beat}:`, { virtualY, bounds });
                 continue;
             }
 
             const canvasPos = virtualToCanvas(0, virtualY);
             if (canvasPos.y >= 0 && canvasPos.y <= CANVAS_HEIGHT) {
                 drawnLines++;
-                if (drawnLines <= 5) console.log(`✅ 绘制beat ${beat}:`, { virtualY, canvasPos, bounds });
                 // 整数beat用实线
                 ctx.strokeStyle = '#555555';
                 ctx.lineWidth = Math.max(2, 2 * viewport.scale);
@@ -510,8 +448,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             }
         }
 
-        console.log('📊 网格绘制完成:', { drawnLines, totalBeats: BEATS });
-    }, [viewport, beatDisplay]);
+        }, [viewport, beatDisplay]);
 
     // 绘制音符
     const renderNotes = useCallback((ctx: CanvasRenderingContext2D, visibleNotes: { note: ChartNote; index: number }[]) => {
@@ -525,7 +462,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const virtualX = getNoteVirtualX(note.lane);
                 const canvasPos = virtualToCanvas(virtualX, virtualY);
                 const iconSize = NOTE_ICON_SIZE * viewport.scale;
-                const iconHeight = iconSize * NOTE_HEIGHT_SCALE;
 
                 // 根据音符类型选择图标
                 let iconConfig = BaseSpriteIcons.tap;
@@ -535,14 +471,14 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     iconConfig = BaseSpriteIcons.skill;
                 }
 
-                // 渲染主图标
+                // 渲染主图标（canvasSize 传未缩放基准尺寸，scale 统一缩放，避免二次缩放）
                 spriteIcon.current.render(ctx, {
                     ...iconConfig,
                     canvasX: canvasPos.x,
                     canvasY: canvasPos.y,
-                    canvasSize: iconSize,
-                    canvasWidth: iconSize,
-                    canvasHeight: iconHeight,
+                    canvasSize: NOTE_ICON_SIZE,
+                    canvasWidth: NOTE_ICON_SIZE,
+                    canvasHeight: NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
                     scale: viewport.scale,
                     renderLayer: 'main'
                 });
@@ -563,7 +499,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const virtualX = getNoteVirtualX(note.lane);
                 const canvasPos = virtualToCanvas(virtualX, virtualY);
                 const iconSize = DIRECTIONAL_ICON_SIZE * viewport.scale;
-                const iconHeight = iconSize * DIRECTIONAL_HEIGHT_SCALE;
 
                 // 根据length属性选择对应的组合图标配置
                 let iconConfig;
@@ -586,9 +521,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     ...iconConfig,
                     canvasX: canvasPos.x,
                     canvasY: canvasPos.y,
-                    canvasSize: iconSize,
-                    canvasWidth: iconSize,
-                    canvasHeight: iconHeight,
+                    canvasSize: DIRECTIONAL_ICON_SIZE,
+                    canvasWidth: DIRECTIONAL_ICON_SIZE,
+                    canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
                     scale: viewport.scale,
                     renderLayer: 'main'
                 });
@@ -609,7 +544,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const virtualX = getNoteVirtualX(note.lane);
                 const canvasPos = virtualToCanvas(virtualX, virtualY);
                 const iconSize = DIRECTIONAL_ICON_SIZE * viewport.scale;
-                const iconHeight = iconSize * DIRECTIONAL_HEIGHT_SCALE;
 
                 // 根据length属性选择对应的组合图标配置
                 let iconConfig;
@@ -632,9 +566,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     ...iconConfig,
                     canvasX: canvasPos.x,
                     canvasY: canvasPos.y,
-                    canvasSize: iconSize,
-                    canvasWidth: iconSize,
-                    canvasHeight: iconHeight,
+                    canvasSize: DIRECTIONAL_ICON_SIZE,
+                    canvasWidth: DIRECTIONAL_ICON_SIZE,
+                    canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
                     scale: viewport.scale,
                     renderLayer: 'main'
                 });
@@ -673,9 +607,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             } else if (note.type === "Slide" || note.type === "Long") {
                 const connections = note.connections;
                 if (connections.length < 2) return;
-
-                const iconSize = SLIDE_ICON_SIZE * viewport.scale;
-                const iconHeight = iconSize * SLIDE_HEIGHT_SCALE;
 
                 // 渲染连接线
                 for (let i = 0; i < connections.length - 1; i++) {
@@ -734,7 +665,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                         canvasSize: slideIconSize,
                         canvasWidth: slideIconSize,
                         canvasHeight: height,
-                        scale: viewport.scale
+                        scale: 1 // 尺寸已是画布像素，禁止再次缩放
                     });
 
                     ctx.restore();
@@ -775,9 +706,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                         ...iconConfig,
                         canvasX: canvasPos.x,
                         canvasY: canvasPos.y,
-                        canvasSize: iconSize,
-                        canvasWidth: iconSize,
-                        canvasHeight: iconHeight,
+                        canvasSize: SLIDE_ICON_SIZE,
+                        canvasWidth: SLIDE_ICON_SIZE,
+                        canvasHeight: SLIDE_ICON_SIZE * SLIDE_HEIGHT_SCALE,
                         scale: viewport.scale
                     });
                 });
@@ -810,8 +741,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const virtualY = getNoteVirtualY(note.beat, subBeat);
                 const virtualX = getNoteVirtualX(note.lane);
                 const canvasPos = virtualToCanvas(virtualX, virtualY);
-                const iconSize = DIRECTIONAL_ICON_SIZE * viewport.scale;
-                const iconHeight = iconSize * DIRECTIONAL_HEIGHT_SCALE;
 
                 // 根据length属性选择对应的组合图标配置
                 let iconConfig;
@@ -835,9 +764,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     ...iconConfig,
                     canvasX: canvasPos.x,
                     canvasY: canvasPos.y,
-                    canvasSize: iconSize,
-                    canvasWidth: iconSize,
-                    canvasHeight: iconHeight,
+                    canvasSize: DIRECTIONAL_ICON_SIZE,
+                    canvasWidth: DIRECTIONAL_ICON_SIZE,
+                    canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
                     scale: viewport.scale,
                     renderLayer: 'decorators'
                 });
@@ -847,16 +776,14 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const virtualY = getNoteVirtualY(note.beat, subBeat);
                 const virtualX = getNoteVirtualX(note.lane);
                 const canvasPos = virtualToCanvas(virtualX, virtualY);
-                const iconSize = NOTE_ICON_SIZE * viewport.scale;
-                const iconHeight = iconSize * NOTE_HEIGHT_SCALE;
 
                 spriteIcon.current.render(ctx, {
                     ...CanvasNoteIcons.flick,
                     canvasX: canvasPos.x,
                     canvasY: canvasPos.y,
-                    canvasSize: iconSize,
-                    canvasWidth: iconSize,
-                    canvasHeight: iconHeight,
+                    canvasSize: NOTE_ICON_SIZE,
+                    canvasWidth: NOTE_ICON_SIZE,
+                    canvasHeight: NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
                     scale: viewport.scale,
                     renderLayer: 'decorators'
                 });
@@ -904,23 +831,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const renderBpmNumbers = useCallback((ctx: CanvasRenderingContext2D) => {
         const bpmMarks = notes.filter(note => note.type === "BPM");
 
-        console.log('🎵 渲染BPM数字:', {
-            bpmMarksCount: bpmMarks.length,
-            bpmMarks: bpmMarks.map(note => ({ beat: note.beat, bpm: (note as any).bpm }))
-        });
-
         bpmMarks.forEach((note) => {
             const virtualY = getNoteVirtualY(note.beat);
             const canvasPos = virtualToCanvas(0, virtualY);
-
-            console.log('🎵 BPM渲染检查:', {
-                beat: note.beat,
-                bpm: (note as any).bpm,
-                virtualY,
-                canvasPos,
-                inViewport: canvasPos.y >= -50 && canvasPos.y <= CANVAS_HEIGHT + 50,
-                willRender: canvasPos.y >= -50 && canvasPos.y <= CANVAS_HEIGHT + 50
-            });
 
             // 检查是否在可见区域内 - 放宽检查范围，确保BPM在最下面时也能显示
             if (canvasPos.y >= -50 && canvasPos.y <= CANVAS_HEIGHT + 50) {
@@ -930,17 +843,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
                 const trackBgX = trackStartX + borderTotalWidth;
                 const trackBgWidth = LANES * LANE_WIDTH * viewport.scale;
-
-                console.log('🎵 绘制BPM线和数字:', {
-                    text: `BPM ${(note as any).bpm}`,
-                    beat: note.beat,
-                    virtualY,
-                    canvasPos,
-                    trackStartX,
-                    trackBgX,
-                    trackBgWidth,
-                    scale: viewport.scale
-                });
 
                 // 绘制BPM线（红色横线）
                 ctx.strokeStyle = '#ff6666';
@@ -988,14 +890,15 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * zoomFactor));
 
-            // 计算新的滚动位置，保持鼠标位置不变
-            const newScrollX = virtualMouse.x - mouseX / newScale;
+            // 计算新的垂直滚动位置，保持鼠标所在 beat 纵向不变
+            // 水平方向无滚动（轨道始终水平居中），scrollX 保持 0，
+            // 音符随 trackBgX 一起缩放就不会漂移。
             const newScrollY = virtualMouse.y - mouseY / newScale;
 
             setViewport(prev => ({
                 ...prev,
                 scale: newScale,
-                scrollX: newScrollX,
+                scrollX: 0,
                 scrollY: newScrollY
             }));
         }
@@ -1223,17 +1126,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // 初始视口设置 - 只在组件首次挂载时执行
     useEffect(() => {
-        const totalVirtualHeight = beatToVirtualY(BEATS) * VIRTUAL_HEIGHT_MULTIPLIER;
+        const totalVirtualHeight = TOTAL_VIRTUAL_HEIGHT;
         const scaledBounds = getScaledVirtualBounds(viewport.scale);
-        // 确保初始滚动位置在最下面，但在虚拟边界内
+        // 确保初始滚动位置在最下面（起始拍），但在虚拟边界内
         const initialScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale, totalVirtualHeight - CANVAS_HEIGHT / viewport.scale));
-
-        console.log('🎯 初始视口设置:', {
-            totalVirtualHeight,
-            initialScrollY,
-            scaledBounds,
-            currentScrollY: viewport.scrollY
-        });
 
         setViewport(prev => ({
             ...prev,
@@ -1266,11 +1162,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // 同步外部滚动位置
     useEffect(() => {
         if (externalScrollY !== undefined) {
-            console.log('🎯 接收外部滚动位置:', { externalScrollY, currentScrollY: viewport.scrollY });
             setViewport(prev => {
                 const scaledBounds = getScaledVirtualBounds(prev.scale);
                 const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / prev.scale, externalScrollY));
-                console.log('🔄 设置新的滚动位置:', { oldScrollY: prev.scrollY, newScrollY, externalScrollY });
                 return {
                     ...prev,
                     scrollY: newScrollY

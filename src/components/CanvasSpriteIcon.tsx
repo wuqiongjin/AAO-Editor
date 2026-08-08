@@ -129,8 +129,9 @@ export default class CanvasSpriteIcon {
                 const sX = dec.scale ?? 1;
                 const scaleX = dec.scaleX ?? sX;
                 const scaleY = dec.scaleY ?? sX;
-                const dW = displayW * scaleX;
-                const dH = displayH * scaleY;
+                // 装饰器尺寸同样乘以 viewport.scale，与主图标/轨道保持一致的缩放比例
+                const dW = displayW * scaleX * scale;
+                const dH = displayH * scaleY * scale;
                 const offsetX = (dec.offsetX ?? 0) * scale;
                 const offsetY = (dec.offsetY ?? 0) * scale;
 

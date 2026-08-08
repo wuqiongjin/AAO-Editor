@@ -6,6 +6,8 @@
   "homepage": "./",
   "scripts": {
     "dev": "vite",
+    "dev:cloud": "DISABLE_HMR=1 vite",
+    "setup": "bash scripts/setup.sh",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
