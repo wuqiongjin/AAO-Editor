@@ -1,14 +1,12 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../notes/Charts';
 import { connectionToNote } from './NoteReplacementRules';
-import { mirrorNote } from './NoteEditing';
+import { mirrorNote, mirrorLane } from './NoteEditing';
 
 /**
  * 滑条子部分选择与编辑规则（ADR-0001 §6）
  * 以 SelectionItem 为单位，支持滑条的区域/端点/中间结点独立编辑，
  * 也兼容整条音符（{kind:'note'}，含 Ctrl+左键选中的整条滑条）。
  */
-
-const mirrorLane = (lane: number) => 6 - lane; // TOTAL_LANES=7
 
 const isSlide = (n: ChartNote): n is SlideNote => n.type === 'Slide' || n.type === 'Long';
 

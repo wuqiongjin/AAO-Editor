@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { ChevronDown, ChevronUp, Copy, RotateCcw } from "lucide-react";
 import type { ChartNote } from "../notes/Charts";
 import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes } from "../utils/ChartConverter";
+import { mirrorNote } from "../utils/NoteEditing";
 
 interface NoteInfoPanelProps {
     selectedNotes: number[];
@@ -238,13 +239,8 @@ export default function NoteInfoPanel({ selectedNotes, notes, onNotesChange }: N
     const handleMirrorSelected = () => {
         if (selectedNotes.length === 0) return;
 
-        const newNotes = [...notes];
-        selectedNotes.forEach(index => {
-            const note = newNotes[index];
-            if (note && 'lane' in note) {
-                note.lane = 4 - note.lane; // 镜像到对面轨道
-            }
-        });
+        // 复用领域唯一镜像实现（C5:修 4-lane bug，并使方向键 L↔R/滑条连接点同步翻转，与画布镜像语义一致）
+        const newNotes = notes.map((note, index) => selectedNotes.includes(index) ? mirrorNote(note) : note);
         onNotesChange(newNotes);
     };
 

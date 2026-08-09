@@ -512,9 +512,6 @@ const Editor: React.FC<EditorProps> = () => {
         }}>
           <span style={{ fontWeight: 'bold' }}>音符</span>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '14px' }}>
-              <input type="checkbox" /> 组
-            </label>
             <span style={{ fontSize: '14px' }}>已选中 {selectedItems.length}</span>
             <button style={{
               backgroundColor: '#ef4444',
@@ -547,15 +544,6 @@ const Editor: React.FC<EditorProps> = () => {
           <span style={{ fontWeight: 'bold' }}>谱面</span>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '14px' }}>[ ] {notes.length}</span>
-            <button style={{
-              backgroundColor: '#3b82f6',
-              color: 'white',
-              padding: '4px 8px',
-              borderRadius: '4px',
-              fontSize: '12px',
-              border: 'none',
-              cursor: 'pointer'
-            }}>应</button>
           </div>
         </div>
         {!rightCollapsed && (

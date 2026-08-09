@@ -3,7 +3,6 @@ interface SongUploaderProps {
   }
   
 export default function SongUploader({ onUpload }: SongUploaderProps) {
-    console.log("SongUploader");
     return (
       <div className="flex flex-col items-center justify-center h-screen gap-4">
         <h1 className="text-xl font-bold">请选择一首歌曲文件开始编辑</h1>

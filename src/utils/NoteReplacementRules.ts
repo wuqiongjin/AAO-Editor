@@ -535,7 +535,6 @@ export function removeOverlappedNotes(
     notes: ChartNote[],
     position: { beat: number; lane: number; subBeat?: number }
 ): void {
-    console.log("检查位置覆盖:", position);
     // 只处理非滑条类型的音符，滑条类型的音符由滑条组合逻辑处理
     for (let i = notes.length - 1; i >= 0; i--) {
         const note = notes[i];
@@ -547,7 +546,6 @@ export function removeOverlappedNotes(
                 (note.subBeat || 0) === (position.subBeat || 0)) {
                 // 删除被覆盖的音符
                 notes.splice(i, 1);
-                console.log(`删除被覆盖的音符: ${note.type} at (${position.beat}, ${position.lane})`);
             }
         }
         // 注意：不处理滑条类型的音符，让滑条组合逻辑来处理

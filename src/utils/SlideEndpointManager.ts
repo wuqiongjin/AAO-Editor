@@ -142,21 +142,6 @@ export class SlideEndpointManager {
         this.startPoints.clear();
         this.endPoints.clear();
     }
-
-    /**
-     * 调试信息：打印所有端点
-     */
-    debugPrint(): void {
-        console.log('=== 滑条端点管理器调试信息 ===');
-        console.log('起点数量:', this.startPoints.size);
-        this.startPoints.forEach((endpoint, key) => {
-            console.log(`起点 ${key}:`, endpoint);
-        });
-        console.log('终点数量:', this.endPoints.size);
-        this.endPoints.forEach((endpoint, key) => {
-            console.log(`终点 ${key}:`, endpoint);
-        });
-    }
 }
 
 // 全局单例实例

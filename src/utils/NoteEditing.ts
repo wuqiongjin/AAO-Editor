@@ -3,7 +3,8 @@ import type { ChartNote } from "../notes/Charts";
 // 轨道总数（与 FinalVirtualCanvas 的 LANES 保持一致）
 export const TOTAL_LANES = 7;
 
-const mirrorLane = (lane: number) => TOTAL_LANES - 1 - lane;
+// 轨道镜像（唯一实现，三处调用点收敛于此——NoteEditing/SelectionEditing/NoteInfoPanel）
+export const mirrorLane = (lane: number) => TOTAL_LANES - 1 - lane;
 
 // 对单个音符做左右镜像：lane 翻转 + 方向键 L↔R 翻转 + 滑条端点 lane 同步；BPM/System 不参与
 export const mirrorNote = (n: ChartNote): ChartNote => {

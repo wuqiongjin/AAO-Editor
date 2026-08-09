@@ -147,10 +147,7 @@ export default function Toolbar({
                   ? "bg-blue-200 text-blue-700 border-2 border-blue-500 shadow-lg ring-2 ring-blue-300 transform scale-105"
                   : "text-gray-700 hover:bg-gray-100 border-2 border-transparent hover:border-gray-300"
                   }`}
-                onClick={() => {
-                  console.log('Tool clicked:', tool.id, 'Current selectedTool:', selectedTool);
-                  setSelectedTool(tool.id);
-                }}
+                onClick={() => setSelectedTool(tool.id)}
                 title={tooltipForCategory(toolCategory[tool.id])}
                 style={{
                   backgroundColor: selectedTool === tool.id ? '#dbeafe' : undefined,
@@ -300,31 +297,16 @@ export default function Toolbar({
           </button>
         </div>
 
-        {/* 播放控制 */}
+        {/* 播放控制（音频引擎未实现，按钮禁用占位——见 issue 14；勿误以为可用） */}
         <div>
           <h3 className="text-xs font-semibold mb-3 text-gray-600 uppercase tracking-wide">播放</h3>
           <div className="flex gap-2">
-            <button className="flex-1 p-2 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors" title="播放 (空格)">
+            <button disabled title="播放 (空格)（音频播放待实现，见 issue 14）" className="flex-1 p-2 bg-gray-200 border border-gray-300 rounded-md opacity-60 cursor-not-allowed">
               <Play size={16} className="mx-auto" />
             </button>
-            <button className="flex-1 p-2 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors" title="暂停">
+            <button disabled title="暂停（音频播放待实现，见 issue 14）" className="flex-1 p-2 bg-gray-200 border border-gray-300 rounded-md opacity-60 cursor-not-allowed">
               <Pause size={16} className="mx-auto" />
             </button>
-          </div>
-        </div>
-
-        {/* 额外内容确保滚动条出现 */}
-        <div>
-          <h3 className="text-xs font-semibold mb-3 text-gray-600 uppercase tracking-wide">设置</h3>
-          <div className="space-y-2">
-            <div className="p-2 bg-white border border-gray-300 rounded-md">
-              <div className="text-sm text-gray-600">自动保存</div>
-              <div className="text-xs text-gray-400">每30秒自动保存</div>
-            </div>
-            <div className="p-2 bg-white border border-gray-300 rounded-md">
-              <div className="text-sm text-gray-600">网格对齐</div>
-              <div className="text-xs text-gray-400">启用网格吸附</div>
-            </div>
           </div>
         </div>
       </div>

@@ -14,7 +14,7 @@
 - **每次会话必读**：`docs/adr/`（决策，权威）+ `CONTEXT.md`（术语，权威）。`docs/plans/` 下的详细设计/TODO/规则文档为基础期产物、可能过时且**不纳入 git**，仅作历史参考；冲突时以 ADR + CONTEXT 为准。
 - **需调用的技能**：`/grilling`、`/domain-modeling`、`/research`、`/prototype`。
 - **技术栈**：Electron + React 19 + TypeScript + Vite。活跃渲染器 = `src/components/FinalVirtualCanvas.tsx`（Canvas 虚拟画布）。
-- **当前代码硬事实（已更新）**：项目**可编译可测试**（`tsc -b` / `npm run build` 全绿，vitest 74 测试通过）。死代码 canvas 组件已清理，收敛到活跃 `FinalVirtualCanvas.tsx`；音符替换规则（`NoteReplacementRules`/`SlideEndpointManager`）已重新接入；布局已自适应（见 12）。音频播放/预览线、文件保存导出仍待实现。
+- **当前代码硬事实（已更新）**：项目**可编译可测试**（`tsc -b` / `npm run build` 全绿，vitest 74 测试通过）。死代码 canvas 组件已清理，收敛到活跃 `FinalVirtualCanvas.tsx`；音符替换规则（`NoteReplacementRules`/`SlideEndpointManager`）已重新接入；布局已自适应（见 12）；架构零风险清扫完成（死代码/坐标几何/镜像 lane，见 15）。音频播放/预览线、文件保存导出仍待实现。
 - **偏好**：中文注释；遵循详细设计的编号术语；惯例见 `docs/plans/NAMING_CONVENTIONS.md`。
 
 ## 当前状态盘点（已核实的基线，非决策）
@@ -46,6 +46,7 @@
 - [音符覆盖与滑条规则](./issues/07-音符替换与滑条端点规则重新接入.md) — **grill-with-docs 定案并实现**：权威规则 **`docs/adr/0001-音符覆盖与滑条规则.md`** + `CONTEXT.md` 术语。已实现：滑条禁止横向；滑条结点覆盖/拆条（单键任意结点忽略、滑键仅尾部加flick、技能键两端加skill、方向键中间拆两侧/端点拆端，flick与skill可并存）；撤销深拷贝(structuredClone)使方向键与滑条逐步回退；ChartConverter 补 skill 序列化。tsc/build 全绿、35 测试通过。"删除滑条子段"= 独立 feature 待做。
 - [13 快捷键系统与自定义配置](./issues/13-快捷键系统与自定义配置.md) — **grill-with-docs 定案并实现**：权威规则 **`docs/adr/0002-快捷键系统与自定义配置.md`** + `CONTEXT.md` 术语。注册表扁平化为**按具体功能单键**（切换/执行拆分为独立功能，一功能一键、冲突检测）；音符(含 BPM/滑条)/编辑/播放动作默认键位（废弃旧 Ctrl 键位）；工具键 + 执行键双交互（编辑工具态 = Model A 点击即执行）；预览（放置/粘贴幽灵 + 镜像悬停单键与框选含连接区域，真实图标）；设置面板 UI（搜索 + 独立记录弹窗改键 + **屏蔽** + 导出/导入 JSON + 恢复默认）+ localStorage 持久化；Toolbar tooltip 动态化；仅画布作用域。已实现。
 - [12 编辑器布局自适应](./issues/12-编辑器布局自适应.md) — **grill-with-docs 定案并实现**：废弃固定像素总宽（1528px 溢出根因），三栏自适应 + 可折叠（左/右面板随视口取 `min(px, vw)` 上限 + `min-width:0` 防溢出 + 画布由固定 750px 改为随视口等比例收缩，缓冲像素不变、事件坐标经 `cssToCanvas` 按显示比例换算）。1280px 窄屏 100% 缩放即可看全；左右面板可各折叠/展开（分隔条悬浮钮）。`tsc -b`/build 全绿、74 测试通过。折叠状态持久化/布局预设（ADR-0003 L2）待配置系统落地。
+- [15 架构整洁清扫（C1+C2+C5）](./issues/15-架构整洁清扫-C1C2C5.md) — **improve-codebase-architecture 评审的零风险清扫已执行**：C1 死代码（删除 StatusBar/dragging/externalScrollY 死通道/debugPrint/Toolbar 静态卡/无 onClick 占位「组」「应」/console.log×5；播放按钮 disabled 注明待实现）；C2 坐标几何收敛（`TRACK_CHROME_TOTAL` 常量替代 12 处魔法数 + `trackGeometry` 唯一实现替代 7 处内联居中公式，坐标语义不变）；C5 镜像 lane 修复真实 bug（NoteInfoPanel 4-lane → 统一 `mirrorLane`/`mirrorNote`，含方向键/滑条同步）。tsc/build 全绿、74 测试通过。C3/C4/C6 留待后续。
 
 ## Not yet specified
 

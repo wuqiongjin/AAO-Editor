@@ -17,7 +17,6 @@ interface FinalVirtualCanvasProps {
     onMousePositionChange: (position: { lane: number; beat: number } | null) => void;
     scale: number;
     onScrollChange?: (scrollY: number, virtualHeight: number) => void;
-    externalScrollY?: number; // 外部控制的滚动位置
     clipboard?: ChartNote[]; // 剪贴板内容（供粘贴预览）
     onEditToolAction?: (action: EditingToolAction, item: SelectionItem) => void; // 编辑工具态：点击命中音符即执行
     onEditToolPaste?: (pos: { beat: number; lane: number }) => void; // 粘贴工具态：点击位置即粘贴
@@ -45,6 +44,18 @@ const MAX_SCALE = 3.0;
 const MIN_SCALE = 0.1;
 const VIEWPORT_PADDING = 200;
 
+// 轨道外壳/chrome 总宽度常量（原 12 处魔法表达式 (1+4+1+1+1+1) 收敛为单一定义；轨道左右各一份）
+const TRACK_CHROME_TOTAL = (1 + 4 + 1 + 1 + 1 + 1);
+
+// 轨道水平居中几何（唯一实现；trackBgX = 轨道内容左缘 = 虚拟X原点，见 issue 11 坐标模型）
+const trackGeometry = (scale: number) => {
+    const totalTrackWidth = LANES * LANE_WIDTH * scale + TRACK_CHROME_TOTAL * 2;
+    const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
+    const trackBgX = trackStartX + TRACK_CHROME_TOTAL;
+    const trackBgWidth = LANES * LANE_WIDTH * scale;
+    return { totalTrackWidth, trackStartX, trackBgX, trackBgWidth };
+};
+
 // 虚拟高度配置 - 可以手动修改这个值来调整虚拟高度
 const VIRTUAL_HEIGHT_MULTIPLIER = 1.0; // 虚拟高度倍数，可以调整这个值
 // 完整谱面虚拟高度（下落式：起始拍 beat 0 在画布最底部）
@@ -56,7 +67,7 @@ const TOTAL_VIRTUAL_HEIGHT = BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER;
 const getScaledVirtualBounds = (_scale: number) => {
     // 使用固定的虚拟高度计算，避免依赖组件内部函数
     const totalVirtualHeight = BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER;
-    const totalVirtualWidth = LANES * LANE_WIDTH + (1 + 4 + 1 + 1 + 1 + 1) * 2;
+    const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
 
     return {
         minY: 0,
@@ -85,7 +96,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     onMousePositionChange,
     scale,
     onScrollChange,
-    externalScrollY,
     clipboard,
     onEditToolAction,
     onEditToolPaste
@@ -95,12 +105,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         scrollX: 0,
         scrollY: 0,
         scale: scale,
-        virtualWidth: LANES * LANE_WIDTH + (1 + 4 + 1 + 1 + 1 + 1) * 2,
+        virtualWidth: LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2,
         virtualHeight: BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER
     });
 
-    const [dragging, setDragging] = useState(false);
-    const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
     const [slideBuffer, setSlideBuffer] = useState<{ beat: number; lane: number; subBeat?: number } | null>(null);
     const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const selectionStartRef = useRef<{ x: number; y: number } | null>(null); // 圈选起点（画布坐标）
@@ -216,22 +224,16 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // 坐标转换：虚拟坐标 <-> 画布坐标
     // ---------------------------
     const virtualToCanvas = (virtualX: number, virtualY: number) => {
-        // 虚拟X原点位于轨道内容左缘（trackBgX = trackStartX + borderTotalWidth），
-        // 轨道已水平居中，故画布X加上该偏移；trackBgX 与 scale 统一缩放，保证任意缩放下对齐。
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-        const trackBgX = trackStartX + borderTotalWidth;
+        // 虚拟X原点位于轨道内容左缘（trackBgX = trackStartX + TRACK_CHROME_TOTAL），
+        // 轨道已水平居中，故画布X加上该偏移；trackBgX 与 scale 统一缩放（唯一实现 trackGeometry）。
+        const { trackBgX } = trackGeometry(viewport.scale);
         const canvasX = trackBgX + (virtualX - viewport.scrollX) * viewport.scale;
         const canvasY = (virtualY - viewport.scrollY) * viewport.scale;
         return { x: canvasX, y: canvasY };
     };
 
     const canvasToVirtual = (canvasX: number, canvasY: number) => {
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-        const trackBgX = trackStartX + borderTotalWidth;
+        const { trackBgX } = trackGeometry(viewport.scale);
         const virtualX = (canvasX - trackBgX) / viewport.scale + viewport.scrollX;
         const virtualY = canvasY / viewport.scale + viewport.scrollY;
         return { x: virtualX, y: virtualY };
@@ -272,10 +274,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // 画布坐标 -> lane/beat（用于命中与圈选）
     const getLaneBeatFromCanvas = (cx: number, cy: number) => {
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-        const trackBgX = trackStartX + borderTotalWidth;
+        const { trackBgX } = trackGeometry(viewport.scale);
         const relativeX = cx - trackBgX;
         const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
         const virtualY = viewport.scrollY + cy / viewport.scale;
@@ -443,8 +442,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         // 计算虚拟总尺寸
         const totalVirtualHeight = TOTAL_VIRTUAL_HEIGHT;
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-        const totalVirtualWidth = LANES * LANE_WIDTH + borderTotalWidth * 2;
+        const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
 
         // 只在虚拟高度发生变化时更新视口状态，避免渲染循环
         if (Math.abs(viewport.virtualHeight - totalVirtualHeight) > 1) {
@@ -455,14 +453,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             }));
         }
 
-        // 计算轨道在Canvas中的居中位置
-        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-
-        // 绘制轨道内背景
-        const trackBgX = trackStartX + borderTotalWidth;
+        // 计算轨道在Canvas中的居中位置（唯一几何：trackGeometry）
+        const { trackStartX, trackBgX, trackBgWidth } = trackGeometry(viewport.scale);
         const trackBgY = 0;
-        const trackBgWidth = LANES * LANE_WIDTH * viewport.scale;
         const trackBgHeight = CANVAS_HEIGHT;
 
         ctx.fillStyle = '#00000A';
@@ -493,7 +486,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // 绘制网格
     const renderGrid = useCallback((ctx: CanvasRenderingContext2D, trackStartX: number, trackBgX: number, trackBgWidth: number) => {
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
+        const borderTotalWidth = TRACK_CHROME_TOTAL;
 
         // 绘制垂直线（轨道线）
         for (let lane = 0; lane <= LANES; lane++) {
@@ -714,12 +707,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 }
             } else if (note.type === "BPM") {
                 const virtualY = getNoteVirtualY(note.beat);
-                const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-                // 计算轨道在Canvas中的居中位置
-                const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-                const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-                const trackBgX = trackStartX + borderTotalWidth;
-                const trackBgWidth = LANES * LANE_WIDTH * viewport.scale;
+                // 计算轨道在Canvas中的居中位置（唯一几何：trackGeometry）
+                const { trackBgX, trackBgWidth } = trackGeometry(viewport.scale);
 
                 // 直接使用画布坐标，不进行虚拟坐标转换
                 const canvasStart = { x: trackBgX, y: virtualToCanvas(0, virtualY).y };
@@ -1186,12 +1175,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
             // 检查是否在可见区域内 - 放宽检查范围，确保BPM在最下面时也能显示
             if (canvasPos.y >= -50 && canvasPos.y <= CANVAS_HEIGHT + 50) {
-                // 计算轨道在Canvas中的居中位置
-                const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-                const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-                const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-                const trackBgX = trackStartX + borderTotalWidth;
-                const trackBgWidth = LANES * LANE_WIDTH * viewport.scale;
+                // 计算轨道在Canvas中的居中位置（唯一几何：trackGeometry）
+                const { trackStartX, trackBgX, trackBgWidth } = trackGeometry(viewport.scale);
 
                 // 绘制BPM线（红色横线）
                 ctx.strokeStyle = '#ff6666';
@@ -1316,11 +1301,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
 
         // 禁用拖拽滚动，滚动由父容器处理
-        if (dragging && dragStart) {
-            // 拖拽滚动由父容器处理，虚拟画布不处理拖拽滚动
-            setDragStart({ x: e.clientX, y: e.clientY });
-        }
-    }, [dragging, dragStart, viewport, onMousePositionChange, beatDisplay, selectedTool, cssToCanvas]);
+    }, [viewport, onMousePositionChange, beatDisplay, selectedTool, cssToCanvas]);
 
     // ---------------------------
     // 命中测试（供编辑工具态点击执行 / 右键删除 / 镜像悬停预览）
@@ -1425,11 +1406,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const mouseX = pos.x;
         const mouseY = pos.y;
 
-        // 计算轨道在Canvas中的居中位置
-        const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
-        const totalTrackWidth = LANES * LANE_WIDTH * viewport.scale + borderTotalWidth * 2;
-        const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-        const trackBgX = trackStartX + borderTotalWidth;
+        // 计算轨道在Canvas中的居中位置（唯一几何：trackGeometry）
+        const { trackBgX } = trackGeometry(viewport.scale);
 
         // 计算相对于轨道背景的鼠标位置
         const relativeX = mouseX - trackBgX;
@@ -1494,9 +1472,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer, cssToCanvas]);
 
     const handleMouseUp = useCallback((e: React.MouseEvent) => {
-        setDragging(false);
-        setDragStart(null);
-
         const pos = cssToCanvas(e);
         const mx = pos ? pos.x : 0;
         const my = pos ? pos.y : 0;
@@ -1611,7 +1586,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             ...prev,
             scrollY: initialScrollY,
             virtualHeight: totalVirtualHeight,
-            virtualWidth: LANES * LANE_WIDTH + (1 + 4 + 1 + 1 + 1 + 1) * 2
+            virtualWidth: LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2
         }));
 
         // 通知父组件虚拟高度变化
@@ -1635,19 +1610,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
     }, [viewport.scrollY, viewport.virtualHeight, onScrollChange]);
 
-    // 同步外部滚动位置
-    useEffect(() => {
-        if (externalScrollY !== undefined) {
-            setViewport(prev => {
-                const scaledBounds = getScaledVirtualBounds(prev.scale);
-                const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / prev.scale, externalScrollY));
-                return {
-                    ...prev,
-                    scrollY: newScrollY
-                };
-            });
-        }
-    }, [externalScrollY]);
+    // 同步外部滚动位置（死通道移除：Editor 从不传 externalScrollY，见 C1 清扫）
+    // useEffect(() => {...}, [externalScrollY]);   // 已删除
 
 
     return (
