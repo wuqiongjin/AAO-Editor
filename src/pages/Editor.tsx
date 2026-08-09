@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { ChartNote, SelectionItem } from '../notes/Charts';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
@@ -8,12 +8,14 @@ import SettingsPanel from '../components/SettingsPanel';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectionNoteIndices } from '../utils/SelectionEditing';
 import { handleNoteReplacement, pasteChartNotes } from '../utils/NoteReplacementRules';
 import { loadConfig, saveConfig, resolveAction, isCapturingShortcut, type FunctionId, type ShortcutConfig } from '../utils/ShortcutConfig';
+import { AudioEngine } from '../utils/AudioEngine';
 
 interface EditorProps {
-  song: File;
+  song: File | null;
+  onBack?: () => void;
 }
 
-const Editor: React.FC<EditorProps> = () => {
+const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   // 状态管理
   const [notes, setNotes] = useState<ChartNote[]>([]);
   const [selectedItems, setSelectedItems] = useState<SelectionItem[]>([]);
@@ -27,6 +29,12 @@ const Editor: React.FC<EditorProps> = () => {
   const [mousePosition, setMousePosition] = useState<{ lane: number; beat: number } | null>(null);
   const [scale, setScale] = useState(1);
   const [isCombinationMode, setIsCombinationMode] = useState(false);
+
+  // 音频播放（ticket 14）：引擎全局单例（挂在 ref 上，避免重建 AudioContext）
+  const engineRef = useRef<AudioEngine | null>(null);
+  if (!engineRef.current) engineRef.current = new AudioEngine();
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [canPlay, setCanPlay] = useState(false);
   
   // 历史记录
   const [history, setHistory] = useState<ChartNote[][]>([[]]);
@@ -209,6 +217,47 @@ const Editor: React.FC<EditorProps> = () => {
     if (result.shouldReplace) handleNotesChange(result.newNotes);
   };
 
+  // 音频解码（ticket 14）：song 变化时 decode；无歌曲（跳过）→ 清除音频
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (!song) {
+      engine.clear();
+      setCanPlay(false);
+      setIsPlaying(false);
+      return;
+    }
+    let cancelled = false;
+    engine.load(song)
+      .then(() => { if (!cancelled) { setCanPlay(true); setIsPlaying(false); } })
+      .catch(() => { if (!cancelled) { setCanPlay(false); setIsPlaying(false); } });
+    return () => { cancelled = true; };
+  }, [song]);
+
+  // 谱面/BPM 变化时同步按键音事件（编辑中先听局部段也保持正确）
+  useEffect(() => {
+    engineRef.current?.setChart(notes, beatDisplay);
+  }, [notes, beatDisplay]);
+
+  // 播放/暂停切换（工具栏按钮 + 空格快捷键共用）
+  const togglePlay = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine || !engine.canPlay) {
+      if (engine && engine.isPlaying) { engine.pause(); setIsPlaying(false); }
+      return;
+    }
+    if (engine.isPlaying) {
+      engine.pause();
+      setIsPlaying(false);
+    } else {
+      void engine.play().then(() => setIsPlaying(true));
+    }
+  }, []);
+
+  // FinalCanvas 每帧读取播放位置（预览线），并驱动按键音预调度
+  const getPlaybackSeconds = useCallback(() => engineRef.current?.getSeconds() ?? 0, []);
+  const handlePlaybackTick = useCallback(() => { engineRef.current?.tick(); }, []);
+
   // 编辑工具态（Model A）：点击命中音符即执行（ADR-0002 §3.2）
   const handleEditToolAction = (action: EditingToolAction, item: SelectionItem) => {
     setSelectedItems([item]);
@@ -271,7 +320,7 @@ const Editor: React.FC<EditorProps> = () => {
       case 'execMirror': mirrorSelected(); break;
       case 'undo': undo(); break;
       case 'redo': redo(); break;
-      case 'play': /* 播放/暂停（播放引擎未实现，占位）*/ break;
+      case 'play': togglePlay(); break;
     }
   };
 
@@ -313,6 +362,9 @@ const Editor: React.FC<EditorProps> = () => {
             shortcutConfig={shortcutConfig}
             beatDisplay={beatDisplay}
             setBeatDisplay={setBeatDisplay}
+            isPlaying={isPlaying}
+            canPlay={canPlay}
+            onTogglePlay={togglePlay}
             onUndo={undo}
             onRedo={redo}
             canUndo={historyIndex > 0}
@@ -404,6 +456,16 @@ const Editor: React.FC<EditorProps> = () => {
           }}>
             <span style={{ color: '#374151', fontSize: '14px' }}>BPM {currentBpm}</span>
             <span style={{ color: '#374151', fontSize: '14px' }}>节拍: {beatDisplay}/4</span>
+            {onBack && (
+              <button
+                style={{
+                  backgroundColor: '#374151', color: 'white', border: 'none',
+                  borderRadius: '4px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer'
+                }}
+                onClick={onBack}
+                title={song ? "重新选择歌曲" : "选择歌曲（当前为无歌曲模式）"}
+              >{song ? '换歌' : '选歌'}</button>
+            )}
             <button
               style={{
                 backgroundColor: '#374151', color: 'white', border: 'none',
@@ -460,6 +522,9 @@ const Editor: React.FC<EditorProps> = () => {
               clipboard={clipboard}
               onEditToolAction={handleEditToolAction}
               onEditToolPaste={handleEditToolPaste}
+              isPlaying={isPlaying}
+              getPlaybackSeconds={getPlaybackSeconds}
+              onPlaybackTick={handlePlaybackTick}
             />
           </div>
         </div>

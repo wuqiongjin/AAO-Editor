@@ -4,6 +4,7 @@ import CanvasSpriteIcon, { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcon
 import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
 import { deleteSelection } from '../utils/SelectionEditing';
 import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
+import { getBpmEvents, secondsToBeat } from '../utils/AudioTiming';
 
 export type EditingToolAction = 'copy' | 'cut' | 'delete' | 'mirror';
 
@@ -20,6 +21,9 @@ interface FinalVirtualCanvasProps {
     clipboard?: ChartNote[]; // 剪贴板内容（供粘贴预览）
     onEditToolAction?: (action: EditingToolAction, item: SelectionItem) => void; // 编辑工具态：点击命中音符即执行
     onEditToolPaste?: (pos: { beat: number; lane: number }) => void; // 粘贴工具态：点击位置即粘贴
+    isPlaying?: boolean; // 音频播放中（驱动预览线 RAF 循环）
+    getPlaybackSeconds?: () => number; // 读取当前播放位置（秒，音频引擎提供）
+    onPlaybackTick?: (seconds: number) => void; // 每帧播放回调（供按键音预调度）
 }
 
 const LANES = 7;
@@ -98,7 +102,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     onScrollChange,
     clipboard,
     onEditToolAction,
-    onEditToolPaste
+    onEditToolPaste,
+    isPlaying = false,
+    getPlaybackSeconds,
+    onPlaybackTick
 }, ref) => {
     // 视口状态
     const [viewport, setViewport] = useState<ViewportState>({
@@ -115,6 +122,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const selectionMovedRef = useRef(false); // 是否已发生拖拽（区分点击与圈选）
     // 光标悬停位置（画布坐标），供工具态预览（放置/粘贴/镜像悬停）
     const [hoverPos, setHoverPos] = useState<{ cx: number; cy: number } | null>(null);
+    // 播放预览线：当前播放位置（秒）；null = 未播放过
+    const [playhead, setPlayhead] = useState<number | null>(null);
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const spriteIcon = useRef<CanvasSpriteIcon>(new CanvasSpriteIcon());
@@ -144,21 +153,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // ---------------------------
     // BPM 事件处理
     // ---------------------------
-    const getSortedBpmEvents = () => {
-        const bpmEvents: { beat: number; bpm: number }[] = [];
-        for (const note of notes) {
-            if (note.type === "BPM") {
-                bpmEvents.push({ beat: note.beat, bpm: (note as any).bpm });
-            }
-        }
-        bpmEvents.sort((a, b) => a.beat - b.beat);
-
-        if (bpmEvents.length === 0 || bpmEvents[0].beat > 0) {
-            bpmEvents.unshift({ beat: 0, bpm: 120 });
-        }
-
-        return bpmEvents;
-    };
+    // 与 AudioTiming 共享同一实现（时间→beat 与 beat→Y 都用同一事件表，保证预览线对齐）
+    const getSortedBpmEvents = () => getBpmEvents(notes);
 
     // ---------------------------
     // 虚拟坐标转换函数
@@ -482,7 +478,33 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 绘制工具态预览（放置/粘贴/镜像幽灵，ADR-0002 §4）
         renderToolPreview(ctx);
 
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard]);
+        // 播放预览线（时间→beat→y，ticket 03）：播放中随 RAF 刷新，暂停时停留在最后位置
+        if (playhead !== null) {
+            const playBeat = secondsToBeat(getBpmEvents(notes), playhead);
+            const playCanvasY = virtualToCanvas(0, beatToVirtualY(playBeat)).y;
+            if (playCanvasY >= -40 && playCanvasY <= CANVAS_HEIGHT + 40) {
+                const { trackBgX, trackBgWidth } = trackGeometry(viewport.scale);
+                ctx.save();
+                ctx.strokeStyle = '#00e5ff';
+                ctx.lineWidth = 2.5 * viewport.scale;
+                ctx.setLineDash([10 * viewport.scale, 6 * viewport.scale]);
+                ctx.shadowColor = '#00e5ff';
+                ctx.shadowBlur = 10 * viewport.scale;
+                ctx.beginPath();
+                ctx.moveTo(trackBgX, playCanvasY);
+                ctx.lineTo(trackBgX + trackBgWidth, playCanvasY);
+                ctx.stroke();
+                ctx.restore();
+                // 时间标签（轨道右侧）
+                ctx.fillStyle = '#00e5ff';
+                ctx.font = `bold ${12 * viewport.scale}px Arial`;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`${playhead.toFixed(1)}s`, trackBgX + trackBgWidth + 8 * viewport.scale, playCanvasY);
+            }
+        }
+
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, playhead]);
 
     // 绘制网格
     const renderGrid = useCallback((ctx: CanvasRenderingContext2D, trackStartX: number, trackBgX: number, trackBgWidth: number) => {
@@ -1574,6 +1596,20 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             }
         };
     }, []);
+
+    // 播放时持续 RAF：读播放位置（秒）→ 驱动预览线渲染 + 按键音预调度
+    useEffect(() => {
+        if (!isPlaying) return;
+        let raf = 0;
+        const loop = () => {
+            const seconds = getPlaybackSeconds ? getPlaybackSeconds() : 0;
+            setPlayhead(seconds);
+            if (onPlaybackTick) onPlaybackTick(seconds);
+            raf = requestAnimationFrame(loop);
+        };
+        raf = requestAnimationFrame(loop);
+        return () => cancelAnimationFrame(raf);
+    }, [isPlaying, getPlaybackSeconds, onPlaybackTick]);
 
     // 初始视口设置 - 只在组件首次挂载时执行
     useEffect(() => {

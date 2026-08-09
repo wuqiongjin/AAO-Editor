@@ -15,7 +15,7 @@ import {
   Pause,
 } from "lucide-react";
 import SpriteIcon, { NoteIcons } from './SpriteIcon';
-import { categoryShortcuts, type ShortcutConfig } from '../utils/ShortcutConfig';
+import { categoryShortcuts, formatKey, type ShortcutConfig } from '../utils/ShortcutConfig';
 
 interface ToolbarProps {
   selectedTool: string;
@@ -23,6 +23,9 @@ interface ToolbarProps {
   shortcutConfig: ShortcutConfig;
   beatDisplay: number;
   setBeatDisplay: (beat: number) => void;
+  isPlaying: boolean;
+  canPlay: boolean;
+  onTogglePlay: () => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
@@ -46,6 +49,9 @@ export default function Toolbar({
   setSelectedTool,
   beatDisplay,
   setBeatDisplay,
+  isPlaying,
+  canPlay,
+  onTogglePlay,
   onUndo,
   onRedo,
   canUndo,
@@ -297,14 +303,24 @@ export default function Toolbar({
           </button>
         </div>
 
-        {/* 播放控制（音频引擎未实现，按钮禁用占位——见 issue 14；勿误以为可用） */}
+        {/* 播放控制（ticket 14 已接通：AudioEngine 播放/暂停 + 预览线 + 按键音） */}
         <div>
           <h3 className="text-xs font-semibold mb-3 text-gray-600 uppercase tracking-wide">播放</h3>
           <div className="flex gap-2">
-            <button disabled title="播放 (空格)（音频播放待实现，见 issue 14）" className="flex-1 p-2 bg-gray-200 border border-gray-300 rounded-md opacity-60 cursor-not-allowed">
-              <Play size={16} className="mx-auto" />
+            <button
+              onClick={onTogglePlay}
+              disabled={!canPlay}
+              title={canPlay ? `播放/暂停（${formatKey(shortcutConfig.play)}）` : "未加载音乐，无法播放"}
+              className={`flex-1 p-2 border border-gray-300 rounded-md transition-colors ${canPlay ? "bg-white hover:bg-gray-50" : "bg-gray-200 opacity-60 cursor-not-allowed"}`}
+            >
+              {isPlaying ? <Pause size={16} className="mx-auto" /> : <Play size={16} className="mx-auto" />}
             </button>
-            <button disabled title="暂停（音频播放待实现，见 issue 14）" className="flex-1 p-2 bg-gray-200 border border-gray-300 rounded-md opacity-60 cursor-not-allowed">
+            <button
+              onClick={onTogglePlay}
+              disabled={!canPlay}
+              title={canPlay ? `暂停（${formatKey(shortcutConfig.play)} 切换）` : "未加载音频，无法播放"}
+              className={`flex-1 p-2 border border-gray-300 rounded-md transition-colors ${canPlay ? "bg-white hover:bg-gray-50" : "bg-gray-200 opacity-60 cursor-not-allowed"}`}
+            >
               <Pause size={16} className="mx-auto" />
             </button>
           </div>
