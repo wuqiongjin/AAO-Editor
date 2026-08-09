@@ -76,3 +76,16 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 主题 | Theme | 亮/暗内置两套 + 注册机制；**谱面画布始终深色**，主题只作用于面板/工具栏/弹窗等 chrome |
 | 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出 |
 | 上下文分域 | Context domains | 状态管理组织：`EditingContext`（音符/历史/选择）、`UIContext`（面板/缩放）、`ConfigContext`（设置）；`Editor` 只负责组装 |
+
+## 播放与预览（ADR-0004）
+
+| 术语 | 英文 | 说明 |
+| --- | --- | --- |
+| 判定线 | Judgment line | 播放（含暂停停住态）时固定在**画布底部**的横线，代表"此刻"，谱面沿判定线向上滚动；常显（停/播同线） |
+| 合成时间线 | Synthetic timeline | 无音频时的播放时钟（`performance.now` + RAF），与音频时间线行为同构 |
+| 临时起点标记 | Start marker | 双击画布左侧沟槽（轨道外、画布内）标记的 beat 位；**Ctrl+空格** 跳回并播放；双击/选中后可删除；**不入谱面数据** |
+| 播放条 | Playback bar | 画布底部的播放控件条（播放/暂停、时间码、音量、时长编辑、素材切换等） |
+| 素材包 | KeySoundSet | 按键音素材集合，按击打样式分类 `{ tap, flick, skill, slide }`；可切换、激活项持久化：四类素材 + 占位默认 |
+| 谱面末端 | Chart tail | 谱面可播时长的无音频推算值：所有音符（含滑条结点）最大 beat 经 BPM 事件换算为秒 + 1 小节尾部余量 |
+
+> 播放时长的规则：有音频＝音频自身长度；无音频且谱面非空 → 谱面末端；无音频且空谱 → 默认 30 秒（播放条可按本次会话修改）。

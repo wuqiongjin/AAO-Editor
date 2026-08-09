@@ -19,7 +19,7 @@ export type FunctionId =
   | 'switchDelete' | 'execDelete'
   | 'switchMirror' | 'execMirror'
   | 'switchMouse'
-  | 'undo' | 'redo' | 'play';
+  | 'undo' | 'redo' | 'play' | 'jumpToMarker';
 
 export interface FunctionDef {
   id: FunctionId;
@@ -60,6 +60,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'undo',               label: '撤销',        category: '撤销', binding: 'ctrl+z' },
   { id: 'redo',               label: '重做',        category: '重做', binding: 'ctrl+y' },
   { id: 'play',               label: '播放/暂停',   category: '播放', binding: ' ' },
+  { id: 'jumpToMarker',       label: '回到起点标记', category: '播放', binding: 'ctrl+ ' },
 ];
 
 export const functionById = (id: FunctionId): FunctionDef =>

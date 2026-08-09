@@ -9,6 +9,10 @@ import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectio
 import { handleNoteReplacement, pasteChartNotes } from '../utils/NoteReplacementRules';
 import { loadConfig, saveConfig, resolveAction, isCapturingShortcut, type FunctionId, type ShortcutConfig } from '../utils/ShortcutConfig';
 import { AudioEngine } from '../utils/AudioEngine';
+import { getBpmEvents, beatToSeconds, computeChartEndSeconds, EMPTY_CHART_DURATION_SECONDS } from '../utils/AudioTiming';
+import { keySoundSetById } from '../utils/KeySound';
+import { loadSettings, saveSettings } from '../utils/AppSettings';
+import PlayBar from '../components/PlayBar';
 
 interface EditorProps {
   song: File | null;
@@ -35,6 +39,21 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   if (!engineRef.current) engineRef.current = new AudioEngine();
   const [isPlaying, setIsPlaying] = useState(false);
   const [canPlay, setCanPlay] = useState(false);
+  // 播放条（ADR-0004 §5/§7）：时长（会话级）、音量、素材包
+  const [duration, setDuration] = useState(EMPTY_CHART_DURATION_SECONDS);
+  const [volume, setVolume] = useState(0.8);
+  const [keySetId, setKeySetId] = useState(() => loadSettings().audio.keySet);
+  // 播放 RAF 循环 + 滚动协调（滚动条=唯一滚动来源，播放头经它回写）
+  const playbackRafRef = useRef<number | undefined>(undefined);
+  const isPlayingRef = useRef(false);
+  const durationRef = useRef(duration);
+  const durationEditedRef = useRef(false);
+  const lastTargetScrollYRef = useRef(0);
+  
+  // 当前播放位置（秒）：供播放条时间码显示
+  const [currentSeconds, setCurrentSeconds] = useState(0);
+  // 起点标记（存于 canvas 内，经 ref 访问）
+  const [markerState, setMarkerState] = useState<{ beat: number | null; selected: boolean }>({ beat: null, selected: false });
   
   // 历史记录
   const [history, setHistory] = useState<ChartNote[][]>([[]]);
@@ -76,16 +95,43 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     }
   }, [virtualHeight]);
   
-  // 处理滚动条变化：滚动条是唯一滚动来源，把其位置按比例映射到虚拟画布
+  // 滚动条 ↔ 画布 scrollY 的偏移映射（ADR-0004 §3 修订：滚动条只覆盖谱面实际长度，无空白）。
+  // 谱面可用滚动区间 { top, bottom }（getChartScrollRange，虚拟像素）；滚动条 DOM scrollTop 与之线性映射。
+  const chartRangeOf = () => {
+    const canvas = virtualCanvasRef.current;
+    const range = canvas?.getChartScrollRange?.() ?? null;
+    const base = range ? range.top : 0;
+    const span = range ? Math.max(1, range.bottom - range.top) : (canvas?.getMaxScrollY?.() ?? 1);
+    return { base, span };
+  };
+  // DOM scrollTop → 画布 scrollY（用户拖动滚动条读取）
+  const scrollTopToCanvasY = (scrollTop: number, maxScroll: number) => {
+    const { base, span } = chartRangeOf();
+    const ratio = maxScroll > 0 ? scrollTop / maxScroll : 0;
+    return base + Math.max(0, Math.min(1, ratio)) * span;
+  };
+  // 画布 scrollY → DOM scrollTop（播放头写滚动条）
+  const canvasYToScrollTop = (canvasScrollY: number, maxScroll: number) => {
+    const { base, span } = chartRangeOf();
+    const ratio = (canvasScrollY - base) / span;
+    return Math.max(0, Math.min(1, ratio)) * maxScroll;
+  };
+  // 处理滚动条变化：滚动条是唯一滚动来源，把其位置按偏移映射到画布虚拟坐标。
+  // 播放中完全锁定滚动（Bug1：不再回写 setScrollY/seek，消除"播放头↔滚动条"双向反馈自锁；Bug2：播放中禁止滚动）；
+  // 暂停滚动 = 设播放起点（seek 到该处但【不自动播放】，再次空格才开播）。
   const handleScrollbarChange = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.target as HTMLDivElement;
     const scrollTop = target.scrollTop;
     const maxScroll = target.scrollHeight - target.clientHeight;
-    if (maxScroll <= 0 || !virtualCanvasRef.current || !virtualHeight) return;
-    // 虚拟画布滚动范围与滚动条滚动范围呈线性映射
-    const maxCanvasScroll = virtualCanvasRef.current.getMaxScrollY?.() ?? virtualHeight;
-    const scrollRatio = Math.max(0, Math.min(1, scrollTop / maxScroll));
-    virtualCanvasRef.current.setScrollY(scrollRatio * maxCanvasScroll);
+    if (maxScroll <= 0 || !virtualCanvasRef.current) return;
+    // 播放中：滚动条只由播放头写，用户滚动一律忽略（不回写画布、不 seek）
+    if (isPlayingRef.current) return;
+    const canvasScrollY = scrollTopToCanvasY(scrollTop, maxScroll);
+    virtualCanvasRef.current.setScrollY(canvasScrollY);
+    // 暂停滚动 = 设播放起点：seek 更新播放位置与时间码，但不自动播放
+    const seconds = virtualCanvasRef.current.getPlaybackSecondsForScrollY?.(canvasScrollY) ?? 0;
+    engineRef.current?.seek(seconds);
+    setCurrentSeconds(seconds);
   };
   
   // 拖拽处理函数
@@ -192,6 +238,8 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   };
   
   const deleteSelectedNotes = () => {
+    // 起点标记选中态与音符选择互斥（ADR-0004 §4）：标记选中时 Delete 删除标记
+    if (deleteMarkerIfSelected()) return;
     if (selectedItems.length > 0) {
       handleNotesChange(deleteSelection(notes, selectedItems));
       setSelectedItems([]);
@@ -239,24 +287,154 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     engineRef.current?.setChart(notes, beatDisplay);
   }, [notes, beatDisplay]);
 
-  // 播放/暂停切换（工具栏按钮 + 空格快捷键共用）
-  const togglePlay = useCallback(() => {
+  // 播放时长（ADR-0004 §3）：有音频=音频长度；无音频=谱面末端+1小节尾量；空谱默认30s；播放条可改（会话级）
+  const computeDuration = useCallback((): number => {
     const engine = engineRef.current;
-    if (!engine || !engine.canPlay) {
-      if (engine && engine.isPlaying) { engine.pause(); setIsPlaying(false); }
-      return;
-    }
-    if (engine.isPlaying) {
-      engine.pause();
-      setIsPlaying(false);
-    } else {
-      void engine.play().then(() => setIsPlaying(true));
-    }
+    const audioDuration = engine?.duration;
+    if (audioDuration != null) return audioDuration;
+    const chartEnd = computeChartEndSeconds(notes, beatDisplay, getBpmEvents(notes));
+    return chartEnd != null ? chartEnd : EMPTY_CHART_DURATION_SECONDS;
+  }, [notes, beatDisplay]);
+
+  // 播放 RAF 循环（ADR-0004 §1）：逐帧读播放位置 → 驱动画布滚动跟随 → 同步滚动条 + 按键音调度
+  // 滚动条是唯一滚动来源：播放头经 setScrollY 回写，画布 scrollY 与 DOM scrollTop 线性映射。
+  const startPlaybackLoop = useCallback(() => {
+    if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
+    isPlayingRef.current = true;
+    const loop = () => {
+      if (!isPlayingRef.current) return;
+      const engine = engineRef.current;
+      const canvas = virtualCanvasRef.current;
+      if (!engine || !canvas) return;
+      const current = engine.getSeconds();
+      setCurrentSeconds(current);
+      // 播放到终点自动停住、停在当前位置（ADR-0004 §1/§4，不循环）
+      if (current >= durationRef.current) {
+        stopPlayback();
+        return;
+      }
+      // 播放头驱动画布滚动（判定线压在底部）
+      const targetScrollY = canvas.getScrollYForPlaybackSeconds(current);
+      lastTargetScrollYRef.current = targetScrollY;
+      canvas.setScrollY(targetScrollY);
+      // 同步 DOM 滚动条（偏移映射；播放中 onScroll 已忽略，不会回写 seek/画布）
+      if (chartAreaRef.current) {
+        const maxScroll = chartAreaRef.current.scrollHeight - chartAreaRef.current.clientHeight;
+        const nextScrollTop = canvasYToScrollTop(targetScrollY, maxScroll);
+        if (Math.abs(nextScrollTop - chartAreaRef.current.scrollTop) > 0.5) {
+          chartAreaRef.current.scrollTop = nextScrollTop;
+        }
+      }
+      engine.tick(); // 按键音预调度
+      playbackRafRef.current = requestAnimationFrame(loop);
+    };
+    playbackRafRef.current = requestAnimationFrame(loop);
   }, []);
 
-  // FinalCanvas 每帧读取播放位置（预览线），并驱动按键音预调度
-  const getPlaybackSeconds = useCallback(() => engineRef.current?.getSeconds() ?? 0, []);
-  const handlePlaybackTick = useCallback(() => { engineRef.current?.tick(); }, []);
+  // 停止播放 RAF 循环并冻结引擎（停在当前位置，不循环）
+  const stopPlayback = useCallback(() => {
+    isPlayingRef.current = false;
+    if (playbackRafRef.current) {
+      cancelAnimationFrame(playbackRafRef.current);
+      playbackRafRef.current = undefined;
+    }
+    const engine = engineRef.current;
+    if (engine?.isPlaying) engine.pause();
+    setIsPlaying(false);
+  }, []);
+
+  // 播放/暂停切换（工具栏按钮 + 空格快捷键共用；ADR-0004 §2 无音频也照常播）
+  const togglePlay = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (engine.isPlaying) {
+      stopPlayback();
+    } else {
+      // 播放到终点后再次播放 → 从头播（ADR-0004 §1）
+      if (engine.getSeconds() >= durationRef.current) {
+        engine.seek(0);
+      }
+      void engine.play().then(() => {
+        setIsPlaying(true);
+        startPlaybackLoop();
+      });
+    }
+  }, [stopPlayback, startPlaybackLoop]);
+
+  // 回到起点标记并播放（ADR-0004 §4）：跳回标记 beat → 自动播放（播放中=跳转续播，暂停=从该点开播）
+  const jumpToMarker = useCallback(() => {
+    const engine = engineRef.current;
+    const canvas = virtualCanvasRef.current;
+    if (!engine || !canvas) return;
+    const markerBeat = canvas.getMarkerBeat?.();
+    if (markerBeat == null) return;
+    const secs = beatToSeconds(getBpmEvents(notes), markerBeat);
+    engine.seek(secs);
+    if (!engine.isPlaying) {
+      void engine.play().then(() => {
+        setIsPlaying(true);
+        startPlaybackLoop();
+      });
+    }
+  }, [notes, startPlaybackLoop]);
+
+  // 删除选中起点标记（ADR-0004 §4）：标记选中态与音符选择互斥
+  const deleteMarkerIfSelected = useCallback((): boolean => {
+    const canvas = virtualCanvasRef.current;
+    if (!canvas?.getMarkerSelected?.()) return false;
+    canvas.clearMarker?.();
+    setMarkerState({ beat: null, selected: false });
+    return true;
+  }, []);
+
+  // 画布标记状态同步（始源在 canvas 内，Editor 经此刷新播放条提示）
+  const handleMarkerChange = useCallback((state: { beat: number | null; selected: boolean }) => {
+    setMarkerState(state);
+  }, []);
+
+  // 播放条：音量（作用于引擎 masterGain）
+  const handleVolumeChange = useCallback((v: number) => {
+    setVolume(v);
+    engineRef.current?.setVolume(v);
+  }, []);
+
+  // 播放条：键音素材切换 + 持久化（ADR-0004 §7 settings）
+  const handleKeySetChange = useCallback((id: string) => {
+    setKeySetId(id);
+    engineRef.current?.setKeySet(keySoundSetById(id));
+    saveSettings({ ...loadSettings(), audio: { keySet: id } });
+  }, []);
+
+  // 播放条：无音频时长编辑（会话级，不写入谱面）
+  const handleDurationChange = useCallback((sec: number) => {
+    if (!(sec > 0)) return;
+    setDuration(sec);
+    durationRef.current = sec;
+    durationEditedRef.current = true;
+  }, []);
+
+  // 播放时长（ADR-0004 §3）：有音频=音频长度；无音频=谱面末端/默认30s；用户改过则沿用
+  useEffect(() => {
+    const engine = engineRef.current;
+    const audioDuration = engine?.duration;
+    if (audioDuration != null) {
+      setDuration(audioDuration);
+      durationRef.current = audioDuration;
+      durationEditedRef.current = false;
+      return;
+    }
+    if (durationEditedRef.current) return; // 会话内已手动改过，沿用
+    const d = computeDuration();
+    setDuration(d);
+    durationRef.current = d;
+  }, [canPlay, notes, beatDisplay, computeDuration]);
+
+  // 初始化：把激活素材/音量应用到引擎
+  useEffect(() => {
+    engineRef.current?.setKeySet(keySoundSetById(keySetId));
+    engineRef.current?.setVolume(volume);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 编辑工具态（Model A）：点击命中音符即执行（ADR-0002 §3.2）
   const handleEditToolAction = (action: EditingToolAction, item: SelectionItem) => {
@@ -321,6 +499,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       case 'undo': undo(); break;
       case 'redo': redo(); break;
       case 'play': togglePlay(); break;
+      case 'jumpToMarker': jumpToMarker(); break;
     }
   };
 
@@ -522,12 +701,26 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
               clipboard={clipboard}
               onEditToolAction={handleEditToolAction}
               onEditToolPaste={handleEditToolPaste}
-              isPlaying={isPlaying}
-              getPlaybackSeconds={getPlaybackSeconds}
-              onPlaybackTick={handlePlaybackTick}
+              onMarkerChange={handleMarkerChange}
             />
           </div>
         </div>
+        {/* 底部播放条（ADR-0004 §5）：播放类控件收敛于此 */}
+        <PlayBar
+          isPlaying={isPlaying}
+          hasAudio={canPlay}
+          currentSeconds={currentSeconds}
+          duration={duration}
+          onTogglePlay={togglePlay}
+          onDurationChange={handleDurationChange}
+          volume={volume}
+          onVolumeChange={handleVolumeChange}
+          keySetId={keySetId}
+          onKeySetChange={handleKeySetChange}
+          hasMarker={markerState.beat !== null}
+          markerBeat={markerState.beat}
+          jumpBinding={shortcutConfig.jumpToMarker}
+        />
       </div>
       
       {/* 右侧拖拽分隔条 */}

@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import type { ChartNote, SlideNote, SelectionItem } from "../notes/Charts";
 import CanvasSpriteIcon, { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcons } from './CanvasSpriteIcon';
 import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
 import { deleteSelection } from '../utils/SelectionEditing';
 import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
-import { getBpmEvents, secondsToBeat } from '../utils/AudioTiming';
+import { getBpmEvents, secondsToBeat, beatToSeconds, computeChartEndBeat } from '../utils/AudioTiming';
 
 export type EditingToolAction = 'copy' | 'cut' | 'delete' | 'mirror';
 
@@ -21,9 +21,7 @@ interface FinalVirtualCanvasProps {
     clipboard?: ChartNote[]; // 剪贴板内容（供粘贴预览）
     onEditToolAction?: (action: EditingToolAction, item: SelectionItem) => void; // 编辑工具态：点击命中音符即执行
     onEditToolPaste?: (pos: { beat: number; lane: number }) => void; // 粘贴工具态：点击位置即粘贴
-    isPlaying?: boolean; // 音频播放中（驱动预览线 RAF 循环）
-    getPlaybackSeconds?: () => number; // 读取当前播放位置（秒，音频引擎提供）
-    onPlaybackTick?: (seconds: number) => void; // 每帧播放回调（供按键音预调度）
+    onMarkerChange?: (state: { beat: number | null; selected: boolean }) => void; // 起点标记状态同步（ADR-0004 §4）
 }
 
 const LANES = 7;
@@ -32,6 +30,8 @@ const BEAT_HEIGHT = 220; // 基准节拍高度
 const LANE_WIDTH = 30;
 const CANVAS_WIDTH = 750;  // 最终确定的谱面宽度
 const CANVAS_HEIGHT = 900; // 最终确定的谱面高度
+// 判定线（ADR-0004 §1）：固定画布底部，谱面随播放上移；常量 = 判定线距画布底部的像素偏移
+const JUDGE_LINE_Y = CANVAS_HEIGHT - 60;
 
 // 音符大小配置
 const NOTE_ICON_SIZE = 36;
@@ -62,15 +62,14 @@ const trackGeometry = (scale: number) => {
 
 // 虚拟高度配置 - 可以手动修改这个值来调整虚拟高度
 const VIRTUAL_HEIGHT_MULTIPLIER = 1.0; // 虚拟高度倍数，可以调整这个值
-// 完整谱面虚拟高度（下落式：起始拍 beat 0 在画布最底部）
-const TOTAL_VIRTUAL_HEIGHT = BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER;
+// 空谱/兜底的最短谱面拍数（ADR-0004 §3 修订：虚拟高度随谱面末端自适应，空谱也至少保留一段可视空间）
+const FLOOR_BEATS = 8;
 
-// 虚拟画布边界配置（暂未使用，缩放边界由 getScaledVirtualBounds 计算）
-
-// 缩放时的虚拟边界调整
-const getScaledVirtualBounds = (_scale: number) => {
-    // 使用固定的虚拟高度计算，避免依赖组件内部函数
-    const totalVirtualHeight = BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER;
+// 缩放时的虚拟边界（ADR-0004 §3 修订：总高按谱面末端的【真实 BPM 像素高度】chartEndVirtualY 计算，
+// 使任意 BPM 下网格都精确铺满、播到谱面末端即到底、无多余空白）
+const getScaledVirtualBounds = (_scale: number, chartEndVirtualY: number) => {
+    // 总高 = 谱面末端真实像素高度（不含判定线偏移），使滚动到顶时谱面末端正好落在画布顶部、无顶端空白
+    const totalVirtualHeight = chartEndVirtualY;
     const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
 
     return {
@@ -103,9 +102,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     clipboard,
     onEditToolAction,
     onEditToolPaste,
-    isPlaying = false,
-    getPlaybackSeconds,
-    onPlaybackTick
+    onMarkerChange,
 }, ref) => {
     // 视口状态
     const [viewport, setViewport] = useState<ViewportState>({
@@ -117,13 +114,25 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     });
 
     const [slideBuffer, setSlideBuffer] = useState<{ beat: number; lane: number; subBeat?: number } | null>(null);
+
+    // 谱面末端 beat（ADR-0004 §3 修订）：虚拟高度/坐标/滚动范围都随其自适应；空谱用 FLOOR_BEATS 兜底
+    const chartEndBeat = useMemo(
+        () => computeChartEndBeat(notes, beatDisplay) ?? FLOOR_BEATS,
+        [notes, beatDisplay],
+    );
     const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const selectionStartRef = useRef<{ x: number; y: number } | null>(null); // 圈选起点（画布坐标）
     const selectionMovedRef = useRef(false); // 是否已发生拖拽（区分点击与圈选）
     // 光标悬停位置（画布坐标），供工具态预览（放置/粘贴/镜像悬停）
     const [hoverPos, setHoverPos] = useState<{ cx: number; cy: number } | null>(null);
-    // 播放预览线：当前播放位置（秒）；null = 未播放过
-    const [playhead, setPlayhead] = useState<number | null>(null);
+    // 临时起点标记（ADR-0004 §4）：不入谱面数据、随会话丢弃；markerSelected 与音符选择互斥
+    const [markerBeat, setMarkerBeat] = useState<number | null>(null);
+    const [markerSelected, setMarkerSelected] = useState(false);
+
+    // 起点标记状态同步给 Editor（播放条提示 / Delete 删除判定）
+    useEffect(() => {
+        onMarkerChange?.({ beat: markerBeat, selected: markerSelected });
+    }, [markerBeat, markerSelected, onMarkerChange]);
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const spriteIcon = useRef<CanvasSpriteIcon>(new CanvasSpriteIcon());
@@ -133,7 +142,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     useImperativeHandle(ref, () => ({
         setScrollY: (scrollY: number) => {
             setViewport(prev => {
-                const scaledBounds = getScaledVirtualBounds(prev.scale);
+                const scaledBounds = getScaledVirtualBounds(prev.scale, chartEndVirtualY);
                 const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / prev.scale, scrollY));
                 return {
                     ...prev,
@@ -145,9 +154,37 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         getVirtualHeight: () => viewport.virtualHeight,
         // 虚拟画布可滚动的最大范围（供父组件滚动条做线性映射）
         getMaxScrollY: () => {
-            const scaledBounds = getScaledVirtualBounds(viewport.scale);
+            const scaledBounds = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
             return Math.max(0, scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale);
-        }
+        },
+        // 播放跟随（ADR-0004 §1）：给定播放位置(秒) → 目标 scrollY（使判定线压在底部）
+        getScrollYForPlaybackSeconds: (seconds: number) => {
+            const beat = secondsToBeat(getSortedBpmEvents(), seconds);
+            const targetScrollY = beatToVirtualY(beat) - JUDGE_LINE_Y / viewport.scale;
+            const scaledBounds = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
+            return Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale, targetScrollY));
+        },
+        // 播放跟随反向（拖动滚动条=seek）：给定 scrollY → 判定线处对应播放位置(秒)
+        getPlaybackSecondsForScrollY: (scrollY: number) => {
+            const virtualY = scrollY + JUDGE_LINE_Y / viewport.scale;
+            const beat = virtualYToBeat(virtualY);
+            return beatToSeconds(getSortedBpmEvents(), beat);
+        },
+        // 谱面可用滚动范围（ADR-0004 §3 修订：滚动条随谱面长度自适应，无空白）：
+        // 自谱面末端(含尾量，空谱用 FLOOR_BEATS 兜底)到 beat 0 的画布 scrollY 区间 { top, bottom }。
+        getChartScrollRange: () => {
+            const sb = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
+            const clamp = (y: number) => Math.max(sb.minY, Math.min(sb.maxY - CANVAS_HEIGHT / viewport.scale, y));
+            const bottom = clamp(beatToVirtualY(0) - JUDGE_LINE_Y / viewport.scale);
+            const top = clamp(beatToVirtualY(chartEndBeat) - JUDGE_LINE_Y / viewport.scale);
+            return { top, bottom };
+        },
+        // 起点标记访问（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除
+        getMarkerBeat: () => markerBeat,
+        setMarkerBeat: (beat: number | null) => { setMarkerBeat(beat); },
+        getMarkerSelected: () => markerSelected,
+        setMarkerSelected: (sel: boolean) => setMarkerSelected(sel),
+        clearMarker: () => { setMarkerBeat(null); setMarkerSelected(false); },
     }));
 
     // ---------------------------
@@ -183,8 +220,13 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         return offset;
     };
 
+    // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它，
+    // 消除「线性 220px/拍」与「按 BPM 分段」不一致在非 120 BPM 下残留的顶端空白
+    const chartEndVirtualY = useMemo(() => beatToVirtualYRaw(chartEndBeat), [chartEndBeat, notes]);
+
     // 自下而上（下落式音游）：起始拍 beat 0 位于画布最底部，越往后越靠上
-    const beatToVirtualY = (beat: number) => TOTAL_VIRTUAL_HEIGHT - beatToVirtualYRaw(beat);
+    // ADR-0004 §3 修订：总高随谱面末端自适应（+判定线偏移，使谱面末端到顶正好落在判定线），无人为 360 拍空白
+    const beatToVirtualY = (beat: number) => chartEndVirtualY - beatToVirtualYRaw(beat);
 
     const virtualYToBeatRaw = (virtualY: number) => {
         const bpmEvents = getSortedBpmEvents();
@@ -214,7 +256,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     };
 
     // 与 beatToVirtualY 对应的反变换
-    const virtualYToBeat = (virtualY: number) => virtualYToBeatRaw(TOTAL_VIRTUAL_HEIGHT - virtualY);
+    const virtualYToBeat = (virtualY: number) => virtualYToBeatRaw(chartEndVirtualY - virtualY);
 
     // ---------------------------
     // 坐标转换：虚拟坐标 <-> 画布坐标
@@ -240,7 +282,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // ---------------------------
     const getViewportBounds = () => {
         const padding = VIEWPORT_PADDING / viewport.scale;
-        const scaledBounds = getScaledVirtualBounds(viewport.scale);
+        const scaledBounds = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
 
         // 修复边界计算逻辑
         const bounds = {
@@ -303,6 +345,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // 点选：普通左键选子部分 / Ctrl+左键选整条滑条 / Shift 加选
     const selectItemAtPoint = (cx: number, cy: number, additive: boolean, ctrl: boolean) => {
+        setMarkerSelected(false); // 起点标记与音符选择互斥（ADR-0004 §4）
         const hit = findItemAt(cx, cy);
         if (!hit) {
             if (!additive) setSelectedItems([]);
@@ -371,6 +414,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     const selectItemsInBox = (box: { x1: number; y1: number; x2: number; y2: number }) => {
         setSelectedItems(computeItemsInBox(box));
+        setMarkerSelected(false); // 起点标记与音符选择互斥（ADR-0004 §4）
     };
 
     // ---------------------------
@@ -412,6 +456,48 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // ---------------------------
     // 渲染函数
     // ---------------------------
+    // 判定线（ADR-0004 §1）：固定画布底部；常显（停/播同线）
+    const renderJudgeLine = useCallback((ctx: CanvasRenderingContext2D) => {
+        const { trackBgX, trackBgWidth } = trackGeometry(viewport.scale);
+        const y = JUDGE_LINE_Y;
+        ctx.save();
+        ctx.strokeStyle = '#e0f7ff';
+        ctx.lineWidth = 3 * viewport.scale;
+        ctx.shadowColor = '#00e5ff';
+        ctx.shadowBlur = 12 * viewport.scale;
+        ctx.beginPath();
+        ctx.moveTo(trackBgX, y);
+        ctx.lineTo(trackBgX + trackBgWidth, y);
+        ctx.stroke();
+        ctx.restore();
+    }, [viewport]);
+
+    // 临时起点标记（ADR-0004 §4）：左沟槽竖向标记线；选中时高亮
+    const renderStartMarker = useCallback((ctx: CanvasRenderingContext2D) => {
+        if (markerBeat === null) return;
+        const { trackBgX } = trackGeometry(viewport.scale);
+        const markerVirtualY = beatToVirtualY(markerBeat);
+        const markerCanvasY = virtualToCanvas(0, markerVirtualY).y;
+        if (markerCanvasY < -20 || markerCanvasY > CANVAS_HEIGHT + 20) return;
+        const color = markerSelected ? '#ffd166' : '#9ca3af';
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3 * viewport.scale;
+        ctx.beginPath();
+        ctx.moveTo(0, markerCanvasY);
+        ctx.lineTo(trackBgX, markerCanvasY);
+        ctx.stroke();
+        // 左侧小旗标
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(0, markerCanvasY);
+        ctx.lineTo(14 * viewport.scale, markerCanvasY - 7 * viewport.scale);
+        ctx.lineTo(14 * viewport.scale, markerCanvasY + 7 * viewport.scale);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }, [viewport, markerBeat, markerSelected]);
+
     const renderCanvas = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) {
@@ -437,7 +523,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 测试绘制已移除，恢复正常的轨道渲染
 
         // 计算虚拟总尺寸
-        const totalVirtualHeight = TOTAL_VIRTUAL_HEIGHT;
+        const totalVirtualHeight = chartEndVirtualY;
         const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
 
         // 只在虚拟高度发生变化时更新视口状态，避免渲染循环
@@ -478,33 +564,13 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 绘制工具态预览（放置/粘贴/镜像幽灵，ADR-0002 §4）
         renderToolPreview(ctx);
 
-        // 播放预览线（时间→beat→y，ticket 03）：播放中随 RAF 刷新，暂停时停留在最后位置
-        if (playhead !== null) {
-            const playBeat = secondsToBeat(getBpmEvents(notes), playhead);
-            const playCanvasY = virtualToCanvas(0, beatToVirtualY(playBeat)).y;
-            if (playCanvasY >= -40 && playCanvasY <= CANVAS_HEIGHT + 40) {
-                const { trackBgX, trackBgWidth } = trackGeometry(viewport.scale);
-                ctx.save();
-                ctx.strokeStyle = '#00e5ff';
-                ctx.lineWidth = 2.5 * viewport.scale;
-                ctx.setLineDash([10 * viewport.scale, 6 * viewport.scale]);
-                ctx.shadowColor = '#00e5ff';
-                ctx.shadowBlur = 10 * viewport.scale;
-                ctx.beginPath();
-                ctx.moveTo(trackBgX, playCanvasY);
-                ctx.lineTo(trackBgX + trackBgWidth, playCanvasY);
-                ctx.stroke();
-                ctx.restore();
-                // 时间标签（轨道右侧）
-                ctx.fillStyle = '#00e5ff';
-                ctx.font = `bold ${12 * viewport.scale}px Arial`;
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(`${playhead.toFixed(1)}s`, trackBgX + trackBgWidth + 8 * viewport.scale, playCanvasY);
-            }
-        }
+        // 判定线（ADR-0004 §1）：固定画布底部，停/播同线；谱面随播放上移
+        renderJudgeLine(ctx);
 
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, playhead]);
+        // 临时起点标记（ADR-0004 §4）：左沟槽竖向标记线
+        renderStartMarker(ctx);
+
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected]);
 
     // 绘制网格
     const renderGrid = useCallback((ctx: CanvasRenderingContext2D, trackStartX: number, trackBgX: number, trackBgWidth: number) => {
@@ -544,7 +610,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const bounds = getViewportBounds();
 
         let drawnLines = 0;
-        for (let beat = 0; beat < BEATS; beat++) {
+        for (let beat = 0; beat <= chartEndBeat; beat++) {
             const virtualY = beatToVirtualY(beat);
             if (virtualY < bounds.minY || virtualY > bounds.maxY) {
                 continue;
@@ -1493,6 +1559,38 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
     }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer, cssToCanvas]);
 
+    // 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）
+    const hitStartMarker = useCallback((cx: number, cy: number): boolean => {
+        if (markerBeat === null) return false;
+        const { trackBgX } = trackGeometry(viewport.scale);
+        if (cx >= trackBgX) return false;
+        const markerVirtualY = beatToVirtualY(markerBeat);
+        const markerCanvasY = virtualToCanvas(0, markerVirtualY).y;
+        return Math.abs(cy - markerCanvasY) < 10 * viewport.scale;
+    }, [markerBeat, viewport]);
+
+    // 左沟槽双击：放置/删除临时起点标记
+    const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+        const pos = cssToCanvas(e);
+        if (!pos) return;
+        const { trackBgX } = trackGeometry(viewport.scale);
+        // 仅左沟槽（轨道外、画布内）处理
+        if (pos.x >= trackBgX) return;
+        const virtualY = viewport.scrollY + pos.y / viewport.scale;
+        const beat = virtualYToBeat(virtualY);
+        // 命中既有标记线 → 删除
+        if (hitStartMarker(pos.x, pos.y)) {
+            setMarkerBeat(null);
+            setMarkerSelected(false);
+            return;
+        }
+        // 否则放置：吸附到 beatDisplay 子拍
+        const snapped = Math.round(beat * beatDisplay) / beatDisplay;
+        setMarkerSelected(true);
+        setSelectedItems([]);
+        setMarkerBeat(snapped);
+    }, [viewport, beatDisplay, cssToCanvas, hitStartMarker]);
+
     const handleMouseUp = useCallback((e: React.MouseEvent) => {
         const pos = cssToCanvas(e);
         const mx = pos ? pos.x : 0;
@@ -1546,12 +1644,18 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         } else {
             // 点击单选 / Shift 加选 / Ctrl 选整条滑条
             const start = selectionStartRef.current;
-            selectItemAtPoint(start.x, start.y, e.shiftKey, e.ctrlKey || e.metaKey);
+            // 左沟槽命中起点标记 → 选中标记（与音符选择互斥）
+            if (hitStartMarker(start.x, start.y)) {
+                setSelectedItems([]);
+                setMarkerSelected(true);
+            } else {
+                selectItemAtPoint(start.x, start.y, e.shiftKey, e.ctrlKey || e.metaKey);
+            }
         }
 
         selectionStartRef.current = null;
         setSelectionBox(null);
-    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, onEditToolAction, onEditToolPaste, findItemAt, getLaneBeatFromCanvas, cssToCanvas]);
+    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, onEditToolAction, onEditToolPaste, findItemAt, getLaneBeatFromCanvas, cssToCanvas, hitStartMarker]);
 
     // ---------------------------
     // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
@@ -1597,24 +1701,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         };
     }, []);
 
-    // 播放时持续 RAF：读播放位置（秒）→ 驱动预览线渲染 + 按键音预调度
-    useEffect(() => {
-        if (!isPlaying) return;
-        let raf = 0;
-        const loop = () => {
-            const seconds = getPlaybackSeconds ? getPlaybackSeconds() : 0;
-            setPlayhead(seconds);
-            if (onPlaybackTick) onPlaybackTick(seconds);
-            raf = requestAnimationFrame(loop);
-        };
-        raf = requestAnimationFrame(loop);
-        return () => cancelAnimationFrame(raf);
-    }, [isPlaying, getPlaybackSeconds, onPlaybackTick]);
-
     // 初始视口设置 - 只在组件首次挂载时执行
     useEffect(() => {
-        const totalVirtualHeight = TOTAL_VIRTUAL_HEIGHT;
-        const scaledBounds = getScaledVirtualBounds(viewport.scale);
+        const totalVirtualHeight = chartEndVirtualY;
+        const scaledBounds = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
         // 确保初始滚动位置在最下面（起始拍），但在虚拟边界内
         const initialScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale, totalVirtualHeight - CANVAS_HEIGHT / viewport.scale));
 
@@ -1683,6 +1773,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onContextMenu={handleContextMenu}
+                    onDoubleClick={handleDoubleClick}
                     onMouseLeave={() => onMousePositionChange(null)}
                     onClick={handleClick}
                     style={{

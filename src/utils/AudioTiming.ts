@@ -68,25 +68,80 @@ export function secondsToBeat(events: BpmEvent[], seconds: number): number {
 export interface KeySoundEvent {
   time: number;
   lane: number;
+  /** 击打样式（ADR-0004 §7：按键音素材包按此分类） */
+  kind: 'tap' | 'flick' | 'skill' | 'slide';
+}
+
+/** 谱面末端尾量拍数（ADR-0004 §3 修订：仅留 1 拍，避免结束后多余网格/空白） */
+export const CHART_END_TAIL_BEATS = 1;
+/** 空谱兜底时长（秒，播放条可改、会话级） */
+export const EMPTY_CHART_DURATION_SECONDS = 30;
+
+/** 某音符最后一个"发声/位置点"的精确 beat（含滑条结点）；无则返回 -Infinity */
+function noteEndBeat(note: ChartNote, beatDisplay: number): number {
+  const precise = (beat: number, subBeat?: number) => beat + (subBeat ?? 0) / beatDisplay;
+  switch (note.type) {
+    case 'Single':
+    case 'LDirectional':
+    case 'RDirectional':
+      return precise(note.beat, note.subBeat);
+    case 'Slide':
+    case 'Long':
+      return note.connections.reduce(
+        (max, c) => Math.max(max, precise(c.beat, c.subBeat)),
+        -Infinity,
+      );
+    case 'BPM':
+    case 'System':
+      return note.beat;
+  }
+}
+
+/** 全谱最大精确 beat（含滑条结点）；空谱返回 -Infinity */
+function maxNoteBeat(notes: ChartNote[], beatDisplay: number): number {
+  let maxBeat = -Infinity;
+  for (const note of notes) {
+    maxBeat = Math.max(maxBeat, noteEndBeat(note, beatDisplay));
+  }
+  return maxBeat;
+}
+
+/** 谱面末端 beat = 最大 beat + 尾量（1 拍）；空谱返回 null（调用方用默认） */
+export function computeChartEndBeat(notes: ChartNote[], beatDisplay: number): number | null {
+  const m = maxNoteBeat(notes, beatDisplay);
+  if (!isFinite(m)) return null;
+  return m + CHART_END_TAIL_BEATS;
+}
+
+/** 谱面末端时长（秒）：所有音符最大 beat 经 BPM 换算 + 尾量（1 拍）；空谱返回 null（调用方用默认 30s） */
+export function computeChartEndSeconds(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): number | null {
+  const maxBeat = maxNoteBeat(notes, beatDisplay);
+  if (!isFinite(maxBeat)) return null;
+  const endSeconds = beatToSeconds(bpmEvents, maxBeat);
+  const tailSeconds =
+    beatToSeconds(bpmEvents, maxBeat + CHART_END_TAIL_BEATS) - endSeconds;
+  return endSeconds + tailSeconds;
 }
 
 export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): KeySoundEvent[] {
   const out: KeySoundEvent[] = [];
-  const push = (beat: number, lane: number, subBeat?: number) => {
+  const push = (beat: number, lane: number, kind: KeySoundEvent['kind'], subBeat?: number) => {
     const preciseBeat = beat + (subBeat ?? 0) / beatDisplay;
-    out.push({ time: beatToSeconds(bpmEvents, preciseBeat), lane });
+    out.push({ time: beatToSeconds(bpmEvents, preciseBeat), lane, kind });
   };
   for (const note of notes) {
     switch (note.type) {
       case 'Single':
+        push(note.beat, note.lane, note.flick ? 'flick' : note.skill ? 'skill' : 'tap', note.subBeat);
+        break;
       case 'LDirectional':
       case 'RDirectional':
-        push(note.beat, note.lane, note.subBeat);
+        push(note.beat, note.lane, 'flick', note.subBeat);
         break;
       case 'Slide':
       case 'Long':
         for (const conn of note.connections) {
-          push(conn.beat, conn.lane, conn.subBeat);
+          push(conn.beat, conn.lane, 'slide', conn.subBeat);
         }
         break;
       default:

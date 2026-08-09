@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  getBpmEvents, beatToSeconds, secondsToBeat, buildKeyEvents, DEFAULT_BPM,
+  getBpmEvents, beatToSeconds, secondsToBeat, buildKeyEvents, computeChartEndSeconds,
+  EMPTY_CHART_DURATION_SECONDS, DEFAULT_BPM,
   type BpmEvent,
 } from '../../src/utils/AudioTiming';
 import type { ChartNote } from '../../src/notes/Charts';
@@ -73,8 +74,8 @@ describe('buildKeyEvents', () => {
     ];
     const events = buildKeyEvents(notes, 4, bpm120);
     expect(events).toEqual([
-      { time: 0, lane: 0 },
-      { time: 0.5, lane: 3 },
+      { time: 0, lane: 0, kind: 'tap' },
+      { time: 0.5, lane: 3, kind: 'tap' },
     ]);
   });
 
@@ -91,9 +92,9 @@ describe('buildKeyEvents', () => {
     ];
     const events = buildKeyEvents(notes, 4, bpm120);
     expect(events).toHaveLength(3);
-    expect(events[0]).toEqual({ time: 0, lane: 0 });
-    expect(events[1]).toEqual({ time: 0.5, lane: 3 });
-    expect(events[2]).toEqual({ time: 1, lane: 1 });
+    expect(events[0]).toEqual({ time: 0, lane: 0, kind: 'slide' });
+    expect(events[1]).toEqual({ time: 0.5, lane: 3, kind: 'slide' });
+    expect(events[2]).toEqual({ time: 1, lane: 1, kind: 'flick' });
   });
 
   it('BPM / 系统音符不发声', () => {
@@ -110,5 +111,41 @@ describe('buildKeyEvents', () => {
     expect(buildKeyEvents(notes, 4, bpm120)[0].time).toBeCloseTo(0.25);
     // beatDisplay=8：precise = 2/8 = 0.25 拍 → 0.125s
     expect(buildKeyEvents(notes, 8, bpm120)[0].time).toBeCloseTo(0.125);
+  });
+});
+
+describe('computeChartEndSeconds', () => {
+  const bpm120: BpmEvent[] = [{ beat: 0, bpm: 120 }];
+
+  it('空谱返回 null（调用方用默认 30s）', () => {
+    expect(computeChartEndSeconds([], 4, bpm120)).toBeNull();
+  });
+
+  it('末端 = 最大 beat 秒 + 1 拍尾量', () => {
+    // 最大音符 beat=8 @120bpm → 4s；+1拍(0.5s) 尾量 → 4.5s
+    const notes: ChartNote[] = [{ type: 'Single', lane: 0, beat: 8, subBeat: 0 }];
+    expect(computeChartEndSeconds(notes, 4, bpm120)).toBeCloseTo(4.5);
+  });
+
+  it('滑条取末尾结点 beat（含子拍）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [{ beat: 0, lane: 0 }, { beat: 4, lane: 3, subBeat: 2 }],
+    }];
+    // 末尾结点 beat=4.5 @120bpm → 2.25s；+1拍尾量(0.5s) → 2.75s
+    expect(computeChartEndSeconds(notes, 4, bpm120)).toBeCloseTo(2.75);
+  });
+
+  it('BPM 变化时按事件分段换算', () => {
+    const events: BpmEvent[] = [{ beat: 0, bpm: 120 }, { beat: 4, bpm: 240 }];
+    const notes: ChartNote[] = [{ type: 'Single', lane: 0, beat: 8, subBeat: 0 }];
+    // beat0-4 @120 → 2s；beat4-8 @240 → 1s；合计 3s；+1拍尾量(beat8-9 @240 → 0.25s) → 3.25s
+    expect(computeChartEndSeconds(notes, 4, events)).toBeCloseTo(3.25);
+  });
+});
+
+describe('EMPTY_CHART_DURATION_SECONDS', () => {
+  it('空谱默认时长 30s', () => {
+    expect(EMPTY_CHART_DURATION_SECONDS).toBe(30);
   });
 });

@@ -14,7 +14,7 @@
 - **每次会话必读**：`docs/adr/`（决策，权威）+ `CONTEXT.md`（术语，权威）。`docs/plans/` 下的详细设计/TODO/规则文档为基础期产物、可能过时且**不纳入 git**，仅作历史参考；冲突时以 ADR + CONTEXT 为准。
 - **需调用的技能**：`/grilling`、`/domain-modeling`、`/research`、`/prototype`。
 - **技术栈**：Electron + React 19 + TypeScript + Vite。活跃渲染器 = `src/components/FinalVirtualCanvas.tsx`（Canvas 虚拟画布）。
-- **当前代码硬事实（已更新）**：项目**可编译可测试**（`tsc -b` / `npm run build` 全绿，vitest 84 测试通过）。死代码 canvas 组件已清理，收敛到活跃 `FinalVirtualCanvas.tsx`；音符替换规则（`NoteReplacementRules`/`SlideEndpointManager`）已重新接入；布局已自适应（见 12）；架构零风险清扫完成（见 15）；粘贴已应用覆盖规则（见 16）。音频播放/预览线、文件保存导出仍待实现。
+- **当前代码硬事实（已更新）**：项目**可编译可测试**（`tsc -b` / `npm run build` 全绿，vitest 95 测试通过）。死代码 canvas 组件已清理，收敛到活跃 `FinalVirtualCanvas.tsx`；音符替换规则（`NoteReplacementRules`/`SlideEndpointManager`）已重新接入；布局已自适应（见 12）；架构零风险清扫完成（见 15）；粘贴已应用覆盖规则（见 16）；**音频播放 + 预览线 + 按键音已实现**（见 14）。文件保存导出仍待实现。
 - **偏好**：中文注释；遵循详细设计的编号术语；惯例见 `docs/plans/NAMING_CONVENTIONS.md`。
 
 ## 当前状态盘点（已核实的基线，非决策）
@@ -48,13 +48,15 @@
 - [12 编辑器布局自适应](./issues/12-编辑器布局自适应.md) — **grill-with-docs 定案并实现**：废弃固定像素总宽（1528px 溢出根因），三栏自适应 + 可折叠（左/右面板随视口取 `min(px, vw)` 上限 + `min-width:0` 防溢出 + 画布由固定 750px 改为随视口等比例收缩，缓冲像素不变、事件坐标经 `cssToCanvas` 按显示比例换算）。1280px 窄屏 100% 缩放即可看全；左右面板可各折叠/展开（分隔条悬浮钮）。`tsc -b`/build 全绿、74 测试通过。折叠状态持久化/布局预设（ADR-0003 L2）待配置系统落地。
 - [15 架构整洁清扫（C1+C2+C5）](./issues/15-架构整洁清扫-C1C2C5.md) — **improve-codebase-architecture 评审的零风险清扫已执行**：C1 死代码（删除 StatusBar/dragging/externalScrollY 死通道/debugPrint/Toolbar 静态卡/无 onClick 占位「组」「应」/console.log×5；播放按钮 disabled 注明待实现）；C2 坐标几何收敛（`TRACK_CHROME_TOTAL` 常量替代 12 处魔法数 + `trackGeometry` 唯一实现替代 7 处内联居中公式，坐标语义不变）；C5 镜像 lane 修复真实 bug（NoteInfoPanel 4-lane → 统一 `mirrorLane`/`mirrorNote`）。tsc/build 全绿、74 测试通过。C3/C4/C6 留待后续。
 - [16 粘贴应用覆盖规则](./issues/16-粘贴应用覆盖规则.md) — **bug 修复**：粘贴不再直接 concat（修复同坐标重叠音符），新增 `pasteChartNotes` 使每个粘贴音符按 ADR-0001 覆盖规则处理（空位原样保留标记/length；普通覆盖替换/方向键 length+1；滑条结点 单键忽略/滑键尾端+flick/技能键两端+skill/方向键拆条；滑条清理重叠后独立加入不组合）。Editor 两处粘贴入口统一接入，新增 10 单测。tsc/build 全绿、84 测试通过。
+- [14 音频播放与预览线实现](./issues/14-音频播放与预览线实现.md) — **已实现**：按 ticket 03 架构落地 —— 新增 `AudioTiming.ts`（BPM 事件/时间↔beat 换算/按键音事件，纯逻辑 11 单测）与 `AudioEngine.ts`（AudioContext+AudioBufferSourceNode 精确播放/暂停/seek，渲染进程 decodeAudioData，RAF 提前 100ms 预调度按键音 + 振荡器对象池）；`FinalVirtualCanvas` 播放 RAF 读秒画预览线（秒→beat→y，虚线+时间标签）；Toolbar 播放/暂停按钮接通；`play` 快捷键接通 togglePlay；Editor 消费 `song` 解码 + "跳过（无歌曲模式）"直接进编辑器（顶栏"换歌"）。tsc/build 全绿、95 测试通过。（**交互模型已被 ADR-0004 取代**，见下一条）
+- [播放预览交互（ADR-0004 定案）](./issues/17-播放预览交互重做.md) — **grill-with-docs 定案**（docs/adr/0004-播放预览交互.md）：首版"静止谱面+移动线"改为"**判定线固定画布底部 + 谱面随播放上移**"；无音频用**合成时间线**照常播谱；播放时长=音频长度/谱面末端+1小节余量/空谱默认30s（可改）；**临时起点标记**（左沟槽双击设/删 + Ctrl+空格回跳并播放，新 FunctionId 默认 ctrl+space，入 ADR-0002 体系）；**素材包 KeySoundSet**（tap/flick/skill/slide 四类，切换+持久化进 settings，占位默认）；**底部播放条**承载播放类控件；布局 tab 化只定方向（交 ADR-0003 正式 layout）。**待实现（issue 17 为载体）。**
 
 ## Not yet specified
 
 可再细化的雾（推进边界后毕业）：
 
 - **工作台 UI 与配置系统（已定案，待实现）**：设计已由 **ADR-0003** 锁定——取消上传页直达工作台（加载音频为顶栏按钮）；样式改 CSS design tokens、内置亮/暗主题（谱面画布固定深色）；布局 L1 折叠 + L2 命名预设、目标桌面三平台 + 浏览器、1280px 窄屏不溢出；统一 versioned `settings` JSON（主题+布局+快捷键）导入导出；状态管理改 `Editing/UI/Config` 三个 Context 分域。尚未排期实现，待后续 issue。**其中"面板折叠 UI"为 issue 12 的过渡形态，随工作台改造正式重做（样式随主题 token、折叠/宽度/预设纳入 settings JSON），勿在过渡形态上返工。**
-- **"谱面预览"的形态**：音频播放 + 预览线到底是编辑器内联播放，还是独立预览模式？待 03 音频架构 research 后再定。
+- **~~"谱面预览"的形态~~（已定案 ADR-0004）**：编辑器**内联播放**（非独立预览模式）：判定线固定底部 + 谱面随播放上移；无音频合成时间线照常播；临时起点标记回跳；底部播放条。实现载体 = issue 17。
 - **更多音符样式 / 图标资源管理**：noteskin 资源如何组织与导入更多样式。待基本编辑完成后才可定。
 - **负数 BPM 语义细节**：支持范围与网格伸缩规则。
 - **撤/重做对滑条、方向键形态的完整覆盖**（Ctrl+Z 无法回退方向键形态——需一个扩展现有 history 的决策）。
