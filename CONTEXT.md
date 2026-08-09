@@ -65,3 +65,14 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 预览 | 工具态下、未执行时，光标悬停/框选显示的低透明度**真实图标**幽灵 |
 
 > 规则细节：见 [ADR-0001 音符覆盖与滑条规则](./docs/adr/0001-音符覆盖与滑条规则.md)。
+
+## 工作台与配置系统（ADR-0003）
+
+| 术语 | 英文 | 说明 |
+| --- | --- | --- |
+| 工作台 | Workspace | 进入应用后直达的全屏编辑界面（无独立上传页）；加载音频是工作台内的一次可选操作 |
+| 布局预设 | Layout preset | 把当前 面板宽度/折叠态/缩放 存成的**命名快照**，可恢复；只存布局信息、不含谱面数据 |
+| 设计令牌 | Design token | CSS variables 体系（颜色/间距/圆角/字号/阴影），主题与皮肤的取值来源 |
+| 主题 | Theme | 亮/暗内置两套 + 注册机制；**谱面画布始终深色**，主题只作用于面板/工具栏/弹窗等 chrome |
+| 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出 |
+| 上下文分域 | Context domains | 状态管理组织：`EditingContext`（音符/历史/选择）、`UIContext`（面板/缩放）、`ConfigContext`（设置）；`Editor` 只负责组装 |
