@@ -1,5 +1,6 @@
 import type { ChartNote, SlideNote, LDirectionalNote, RDirectionalNote } from '../notes/Charts';
 import { slideEndpointManager } from './SlideEndpointManager';
+import { shiftGroupToAnchor } from './NoteEditing';
 
 /**
  * 音符覆盖替换规则工具类
@@ -550,5 +551,90 @@ export function removeOverlappedNotes(
         }
         // 注意：不处理滑条类型的音符，让滑条组合逻辑来处理
     }
+}
+
+/**
+ * 粘贴剪贴板音符组，遵守 ADR-0001 覆盖规则（修复直接 concat 导致同坐标重叠音符）
+ * - 空位 → 原样粘贴（保留 flick/skill/subBeat/方向键 length 等字段）
+ * - 与既有普通音符重叠 → 按放置覆盖规则处理（替换 / 方向键 length+1 / 替换为方向键，ADR §1.1）
+ * - 与滑条结点重叠 → 单键忽略、滑键仅尾部加 flick、技能键两端加 skill、方向键拆条（ADR §1.2）
+ * - 滑条本身 → 清理其连接点覆盖的普通音符后作为独立实体加入，不与既有滑条组合（ADR §6.3）
+ * @returns newNotes 应用覆盖后的音符数组；newStartIndex 为原数组末尾下标（粘贴内容起始，供选中）
+ */
+export function pasteChartNotes(
+    notes: ChartNote[],
+    clipboard: ChartNote[],
+    anchorBeat: number,
+    anchorLane: number
+): { newNotes: ChartNote[]; newStartIndex: number } {
+    const pasted = shiftGroupToAnchor(clipboard, anchorBeat, anchorLane);
+    let newNotes = [...notes];
+    const newStartIndex = newNotes.length;
+
+    for (const note of pasted) {
+        // 滑条/长条：独立实体粘贴（ADR §6.3 不与既有滑条组合）；按"滑条放置"语义清理其连接点覆盖的普通音符
+        if (note.type === "Slide" || note.type === "Long") {
+            for (const conn of (note as SlideNote).connections) {
+                removeOverlappedNotes(newNotes, conn);
+            }
+            newNotes.push(structuredClone(note));
+            continue;
+        }
+
+        // BPM/System：覆盖规则不适用；同位置直接替换，否则新增
+        if (note.type === "BPM" || note.type === "System") {
+            const idx = newNotes.findIndex(n => n.type === note.type && n.beat === note.beat);
+            if (idx !== -1) {
+                newNotes[idx] = structuredClone(note);
+            } else {
+                newNotes.push(structuredClone(note));
+            }
+            continue;
+        }
+
+        // 普通音符 / 方向键（唯一含 lane 的音符类型）：提取坐标
+        const beat: number = (note as { beat: number }).beat;
+        const lane: number = (note as { lane: number }).lane;
+        const subBeat: number = (note as { subBeat?: number }).subBeat || 0;
+
+        // 查找同位置既有音符（含滑条结点）
+        const existingIndex = newNotes.findIndex(n => {
+            if (n.type === "Single" || n.type === "LDirectional" || n.type === "RDirectional") {
+                return n.beat === beat && n.lane === lane && (n.subBeat || 0) === subBeat;
+            }
+            if (n.type === "Slide" || n.type === "Long") {
+                return (n as SlideNote).connections.some(c =>
+                    c.beat === beat && c.lane === lane && (c.subBeat || 0) === subBeat
+                );
+            }
+            return false;
+        });
+
+        if (existingIndex === -1) {
+            // 空位：原样粘贴（保留 flick/skill/length 标记）
+            newNotes.push(structuredClone(note));
+            continue;
+        }
+
+        // 有既有音符：应用覆盖替换规则（ADR §1）
+        const tool = note.type === "Single"
+            ? (note.flick ? "flick" : (note.skill ? "skill" : "single"))
+            : note.type.toLowerCase(); // "ldirectional" | "rdirectional"
+        const result = handleNoteReplacement(newNotes, beat, lane, subBeat, tool);
+        if (result.shouldReplace) newNotes = result.newNotes;
+
+        // 方向键：覆盖/拆条产生的新方向键保持粘贴件的 length（若 >1）
+        if ((note.type === "LDirectional" || note.type === "RDirectional") && note.length > 1) {
+            const idx = newNotes.findIndex(n =>
+                n.type === note.type && n.beat === beat && n.lane === lane && (n.subBeat || 0) === subBeat
+            );
+            const existing = idx !== -1 ? newNotes[idx] : null;
+            if (existing && (existing.type === "LDirectional" || existing.type === "RDirectional") && existing.length === 1) {
+                newNotes[idx] = { ...existing, length: note.length };
+            }
+        }
+    }
+
+    return { newNotes, newStartIndex };
 }
 

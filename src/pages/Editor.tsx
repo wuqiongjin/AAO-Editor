@@ -5,9 +5,8 @@ import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
 import type { EditingToolAction } from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
 import SettingsPanel from '../components/SettingsPanel';
-import { shiftGroupToAnchor } from '../utils/NoteEditing';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectionNoteIndices } from '../utils/SelectionEditing';
-import { handleNoteReplacement } from '../utils/NoteReplacementRules';
+import { handleNoteReplacement, pasteChartNotes } from '../utils/NoteReplacementRules';
 import { loadConfig, saveConfig, resolveAction, isCapturingShortcut, type FunctionId, type ShortcutConfig } from '../utils/ShortcutConfig';
 
 interface EditorProps {
@@ -171,13 +170,17 @@ const Editor: React.FC<EditorProps> = () => {
   
   const pasteNotes = () => {
     if (clipboard.length === 0 || !mousePosition) return;
-    // 以剪贴板组"左上角"(最小 beat/lane) 为锚点，粘贴到鼠标所在 lane/beat，保持组内相对位移
-    const pasted = shiftGroupToAnchor(clipboard, mousePosition.beat, mousePosition.lane);
-    const newNotes = [...notes, ...pasted];
+    // 以剪贴板组"左上角"(最小 beat/lane) 为锚点，粘贴到鼠标所在 lane/beat；
+    // 走 ADR-0001 覆盖规则，避免同坐标重叠音符（含滑条结点表现）
+    const { newNotes, newStartIndex } = pasteChartNotes(notes, clipboard, mousePosition.beat, mousePosition.lane);
     handleNotesChange(newNotes);
-    // 粘贴后选中新粘贴的音符
-    const startIndex = notes.length;
-    setSelectedItems(pasted.map((_, i) => ({ kind: 'note', noteIndex: startIndex + i })));
+    // 粘贴后选中新粘贴的音符（覆盖/拆条可能改变数组长度，越界条目不选）
+    setSelectedItems(
+      clipboard
+        .map((_, i) => newStartIndex + i)
+        .filter(i => i < newNotes.length)
+        .map(i => ({ kind: 'note', noteIndex: i }))
+    );
   };
   
   const deleteSelectedNotes = () => {
@@ -224,14 +227,17 @@ const Editor: React.FC<EditorProps> = () => {
     }
   };
 
-  // 粘贴工具态：点击位置即粘贴（ADR-0002 §3.3）
+  // 粘贴工具态：点击位置即粘贴（ADR-0002 §3.3，粘贴走 ADR-0001 覆盖规则）
   const handleEditToolPaste = (pos: { beat: number; lane: number }) => {
     if (clipboard.length === 0) return;
-    const pasted = shiftGroupToAnchor(clipboard, pos.beat, pos.lane);
-    const newNotes = [...notes, ...pasted];
+    const { newNotes, newStartIndex } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
     handleNotesChange(newNotes);
-    const startIndex = notes.length;
-    setSelectedItems(pasted.map((_, i) => ({ kind: 'note', noteIndex: startIndex + i })));
+    setSelectedItems(
+      clipboard
+        .map((_, i) => newStartIndex + i)
+        .filter(i => i < newNotes.length)
+        .map(i => ({ kind: 'note', noteIndex: i }))
+    );
   };
 
   // 具体功能分发（ADR-0002）：切换功能切换工具态；执行功能立即执行
