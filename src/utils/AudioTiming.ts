@@ -2,6 +2,7 @@
 // ticket 03 定案：播放 / 预览线 / 按键音共用同一"BPM 事件 → 秒"换算，
 // 避免 FinalCanvas 与 AudioEngine 各自实现导致时间轴漂移。
 import type { ChartNote } from '../notes/Charts';
+import type { KeySoundKind } from './KeySound';
 
 export interface BpmEvent {
   beat: number;
@@ -69,7 +70,9 @@ export interface KeySoundEvent {
   time: number;
   lane: number;
   /** 击打样式（ADR-0004 §7：按键音素材包按此分类） */
-  kind: 'tap' | 'flick' | 'skill' | 'slide';
+  kind: KeySoundKind;
+  /** 方向键：组合长度 length(1..3)，选对应分档采样（issue 18）；其余样式无 */
+  tier?: number;
 }
 
 /** 谱面末端尾量拍数（ADR-0004 §3 修订：仅留 1 拍，避免结束后多余网格/空白） */
@@ -125,9 +128,9 @@ export function computeChartEndSeconds(notes: ChartNote[], beatDisplay: number, 
 
 export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): KeySoundEvent[] {
   const out: KeySoundEvent[] = [];
-  const push = (beat: number, lane: number, kind: KeySoundEvent['kind'], subBeat?: number) => {
+  const push = (beat: number, lane: number, kind: KeySoundEvent['kind'], subBeat?: number, tier?: number) => {
     const preciseBeat = beat + (subBeat ?? 0) / beatDisplay;
-    out.push({ time: beatToSeconds(bpmEvents, preciseBeat), lane, kind });
+    out.push({ time: beatToSeconds(bpmEvents, preciseBeat), lane, kind, tier });
   };
   for (const note of notes) {
     switch (note.type) {
@@ -136,11 +139,14 @@ export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvent
         break;
       case 'LDirectional':
       case 'RDirectional':
-        push(note.beat, note.lane, 'flick', note.subBeat);
+        // 方向键：击打样式 directional，按组合长度(1..3)分档音效（issue 18）
+        push(note.beat, note.lane, 'directional', note.subBeat, note.length);
         break;
       case 'Slide':
       case 'Long':
         for (const conn of note.connections) {
+          // hidden 结点不显示、也不应发声（SP 绿条/新型滑条中间隐藏点）
+          if (conn.hidden) continue;
           push(conn.beat, conn.lane, 'slide', conn.subBeat);
         }
         break;

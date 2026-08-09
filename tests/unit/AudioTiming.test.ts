@@ -79,7 +79,7 @@ describe('buildKeyEvents', () => {
     ]);
   });
 
-  it('滑条每个连接点都发声、方向键发声', () => {
+  it('滑条每个连接点都发声、方向键发声（按组合长度分档）', () => {
     const notes: ChartNote[] = [
       {
         type: 'Slide',
@@ -94,7 +94,33 @@ describe('buildKeyEvents', () => {
     expect(events).toHaveLength(3);
     expect(events[0]).toEqual({ time: 0, lane: 0, kind: 'slide' });
     expect(events[1]).toEqual({ time: 0.5, lane: 3, kind: 'slide' });
-    expect(events[2]).toEqual({ time: 1, lane: 1, kind: 'flick' });
+    expect(events[2]).toEqual({ time: 1, lane: 1, kind: 'directional', tier: 1 });
+  });
+
+  it('hidden 连接结点不发声（SP 绿条/新型滑条中间隐藏点）', () => {
+    const notes: ChartNote[] = [
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 0, lane: 0 },
+          { beat: 1, lane: 3, hidden: true },
+          { beat: 2, lane: 1 },
+        ],
+      },
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.map(e => e.time)).toEqual([0, 1]);
+  });
+
+  it('方向键按组合长度 length 分档采样（1/2/3）', () => {
+    const notes: ChartNote[] = [
+      { type: 'LDirectional', lane: 0, beat: 0, subBeat: 0, length: 1 },
+      { type: 'LDirectional', lane: 1, beat: 1, subBeat: 0, length: 2 },
+      { type: 'RDirectional', lane: 2, beat: 2, subBeat: 0, length: 3 },
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.map(e => e.tier)).toEqual([1, 2, 3]);
+    expect(events.every(e => e.kind === 'directional')).toBe(true);
   });
 
   it('BPM / 系统音符不发声', () => {

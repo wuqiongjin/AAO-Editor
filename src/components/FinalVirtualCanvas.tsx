@@ -68,8 +68,9 @@ const FLOOR_BEATS = 8;
 // 缩放时的虚拟边界（ADR-0004 §3 修订：总高按谱面末端的【真实 BPM 像素高度】chartEndVirtualY 计算，
 // 使任意 BPM 下网格都精确铺满、播到谱面末端即到底、无多余空白）
 const getScaledVirtualBounds = (_scale: number, chartEndVirtualY: number) => {
-    // 总高 = 谱面末端真实像素高度（不含判定线偏移），使滚动到顶时谱面末端正好落在画布顶部、无顶端空白
-    const totalVirtualHeight = chartEndVirtualY;
+    // 总高 = 谱面末端真实像素高度 + 判定线画布偏移（/scale 换算为虚拟单位），
+    // 使滚动到顶（scrollY=0）时谱面末端正好落在判定线，而非画布顶部——否则播放头会提前 判定线偏移 触顶冻结。
+    const totalVirtualHeight = chartEndVirtualY + JUDGE_LINE_Y / _scale;
     const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
 
     return {
@@ -226,7 +227,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // 自下而上（下落式音游）：起始拍 beat 0 位于画布最底部，越往后越靠上
     // ADR-0004 §3 修订：总高随谱面末端自适应（+判定线偏移，使谱面末端到顶正好落在判定线），无人为 360 拍空白
-    const beatToVirtualY = (beat: number) => chartEndVirtualY - beatToVirtualYRaw(beat);
+    const beatToVirtualY = (beat: number) =>
+        (chartEndVirtualY + JUDGE_LINE_Y / viewport.scale) - beatToVirtualYRaw(beat);
 
     const virtualYToBeatRaw = (virtualY: number) => {
         const bpmEvents = getSortedBpmEvents();
@@ -256,7 +258,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     };
 
     // 与 beatToVirtualY 对应的反变换
-    const virtualYToBeat = (virtualY: number) => virtualYToBeatRaw(chartEndVirtualY - virtualY);
+    const virtualYToBeat = (virtualY: number) =>
+        virtualYToBeatRaw((chartEndVirtualY + JUDGE_LINE_Y / viewport.scale) - virtualY);
 
     // ---------------------------
     // 坐标转换：虚拟坐标 <-> 画布坐标
@@ -523,7 +526,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 测试绘制已移除，恢复正常的轨道渲染
 
         // 计算虚拟总尺寸
-        const totalVirtualHeight = chartEndVirtualY;
+        const totalVirtualHeight = chartEndVirtualY + JUDGE_LINE_Y / viewport.scale;
         const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
 
         // 只在虚拟高度发生变化时更新视口状态，避免渲染循环
@@ -1703,7 +1706,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // 初始视口设置 - 只在组件首次挂载时执行
     useEffect(() => {
-        const totalVirtualHeight = chartEndVirtualY;
+        const totalVirtualHeight = chartEndVirtualY + JUDGE_LINE_Y / viewport.scale;
         const scaledBounds = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
         // 确保初始滚动位置在最下面（起始拍），但在虚拟边界内
         const initialScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale, totalVirtualHeight - CANVAS_HEIGHT / viewport.scale));

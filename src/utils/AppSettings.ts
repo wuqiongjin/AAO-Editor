@@ -1,6 +1,6 @@
 // 轻量应用配置（ADR-0004 §7 实现确认）：本期仅存 audio.keySet，
 // ADR-0003 完整 settings（theme/layout/shortcuts 合并）后续再做，本期隔离不返工。
-import { DEFAULT_KEY_SOUND_SET_ID } from './KeySound';
+import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID } from './KeySound';
 
 export interface AppSettings {
   schemaVersion: 1;
@@ -10,7 +10,7 @@ export interface AppSettings {
 const STORAGE_KEY = 'bangdream.settings.v1';
 
 export function defaultSettings(): AppSettings {
-  return { schemaVersion: 1, audio: { keySet: DEFAULT_KEY_SOUND_SET_ID } };
+  return { schemaVersion: 1, audio: { keySet: DEFAULT_ACTIVE_KEY_SOUND_SET_ID } };
 }
 
 export function loadSettings(storage: Pick<Storage, 'getItem'> = localStorage): AppSettings {
