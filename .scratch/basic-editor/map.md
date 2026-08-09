@@ -14,7 +14,7 @@
 - **每次会话必读**：`docs/adr/`（决策，权威）+ `CONTEXT.md`（术语，权威）。`docs/plans/` 下的详细设计/TODO/规则文档为基础期产物、可能过时且**不纳入 git**，仅作历史参考；冲突时以 ADR + CONTEXT 为准。
 - **需调用的技能**：`/grilling`、`/domain-modeling`、`/research`、`/prototype`。
 - **技术栈**：Electron + React 19 + TypeScript + Vite。活跃渲染器 = `src/components/FinalVirtualCanvas.tsx`（Canvas 虚拟画布）。
-- **当前代码硬事实（已更新）**：项目**可编译可测试**（`tsc -b` / `npm run build` 全绿，vitest 74 测试通过）。死代码 canvas 组件已清理，收敛到活跃 `FinalVirtualCanvas.tsx`；音符替换规则（`NoteReplacementRules`/`SlideEndpointManager`）已重新接入。音频播放/预览线、文件保存导出、布局自适应仍待实现。
+- **当前代码硬事实（已更新）**：项目**可编译可测试**（`tsc -b` / `npm run build` 全绿，vitest 74 测试通过）。死代码 canvas 组件已清理，收敛到活跃 `FinalVirtualCanvas.tsx`；音符替换规则（`NoteReplacementRules`/`SlideEndpointManager`）已重新接入；布局已自适应（见 12）。音频播放/预览线、文件保存导出仍待实现。
 - **偏好**：中文注释；遵循详细设计的编号术语；惯例见 `docs/plans/NAMING_CONVENTIONS.md`。
 
 ## 当前状态盘点（已核实的基线，非决策）
@@ -45,12 +45,13 @@
 - [07 音符替换与滑条端点规则重新接入](./issues/07-音符替换与滑条端点规则重新接入.md) — 已**实现**：恢复 NoteReplacementRules import；single/flick/skill/directional 放置改走 handleNoteReplacement（重叠替换+方向键组合），新增两点击自动连接滑条（含滑条间合并）；修复 'single'→'Single' 归一化与 subBeat||0 匹配。新增 9 单测，tsc/build 全绿、28 测试通过。已知缺口：滑条端点扩展交互③、占位样式、端点撞键、组合滑条工具（记录待办）。09 已解锁。
 - [音符覆盖与滑条规则](./issues/07-音符替换与滑条端点规则重新接入.md) — **grill-with-docs 定案并实现**：权威规则 **`docs/adr/0001-音符覆盖与滑条规则.md`** + `CONTEXT.md` 术语。已实现：滑条禁止横向；滑条结点覆盖/拆条（单键任意结点忽略、滑键仅尾部加flick、技能键两端加skill、方向键中间拆两侧/端点拆端，flick与skill可并存）；撤销深拷贝(structuredClone)使方向键与滑条逐步回退；ChartConverter 补 skill 序列化。tsc/build 全绿、35 测试通过。"删除滑条子段"= 独立 feature 待做。
 - [13 快捷键系统与自定义配置](./issues/13-快捷键系统与自定义配置.md) — **grill-with-docs 定案并实现**：权威规则 **`docs/adr/0002-快捷键系统与自定义配置.md`** + `CONTEXT.md` 术语。注册表扁平化为**按具体功能单键**（切换/执行拆分为独立功能，一功能一键、冲突检测）；音符(含 BPM/滑条)/编辑/播放动作默认键位（废弃旧 Ctrl 键位）；工具键 + 执行键双交互（编辑工具态 = Model A 点击即执行）；预览（放置/粘贴幽灵 + 镜像悬停单键与框选含连接区域，真实图标）；设置面板 UI（搜索 + 独立记录弹窗改键 + **屏蔽** + 导出/导入 JSON + 恢复默认）+ localStorage 持久化；Toolbar tooltip 动态化；仅画布作用域。已实现。
+- [12 编辑器布局自适应](./issues/12-编辑器布局自适应.md) — **grill-with-docs 定案并实现**：废弃固定像素总宽（1528px 溢出根因），三栏自适应 + 可折叠（左/右面板随视口取 `min(px, vw)` 上限 + `min-width:0` 防溢出 + 画布由固定 750px 改为随视口等比例收缩，缓冲像素不变、事件坐标经 `cssToCanvas` 按显示比例换算）。1280px 窄屏 100% 缩放即可看全；左右面板可各折叠/展开（分隔条悬浮钮）。`tsc -b`/build 全绿、74 测试通过。折叠状态持久化/布局预设（ADR-0003 L2）待配置系统落地。
 
 ## Not yet specified
 
 可再细化的雾（推进边界后毕业）：
 
-- **工作台 UI 与配置系统（已定案，待实现）**：设计已由 **ADR-0003** 锁定——取消上传页直达工作台（加载音频为顶栏按钮）；样式改 CSS design tokens、内置亮/暗主题（谱面画布固定深色）；布局 L1 折叠 + L2 命名预设、目标桌面三平台 + 浏览器、1280px 窄屏不溢出；统一 versioned `settings` JSON（主题+布局+快捷键）导入导出；状态管理改 `Editing/UI/Config` 三个 Context 分域。尚未排期实现，待后续 issue。
+- **工作台 UI 与配置系统（已定案，待实现）**：设计已由 **ADR-0003** 锁定——取消上传页直达工作台（加载音频为顶栏按钮）；样式改 CSS design tokens、内置亮/暗主题（谱面画布固定深色）；布局 L1 折叠 + L2 命名预设、目标桌面三平台 + 浏览器、1280px 窄屏不溢出；统一 versioned `settings` JSON（主题+布局+快捷键）导入导出；状态管理改 `Editing/UI/Config` 三个 Context 分域。尚未排期实现，待后续 issue。**其中"面板折叠 UI"为 issue 12 的过渡形态，随工作台改造正式重做（样式随主题 token、折叠/宽度/预设纳入 settings JSON），勿在过渡形态上返工。**
 - **"谱面预览"的形态**：音频播放 + 预览线到底是编辑器内联播放，还是独立预览模式？待 03 音频架构 research 后再定。
 - **更多音符样式 / 图标资源管理**：noteskin 资源如何组织与导入更多样式。待基本编辑完成后才可定。
 - **负数 BPM 语义细节**：支持范围与网格伸缩规则。

@@ -1221,16 +1221,26 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // ---------------------------
     // 事件处理
     // ---------------------------
+    // 画布缓冲像素固定为 CANVAS_WIDTH / CANVAS_HEIGHT，但 CSS 显示尺寸随视口自适应缩放（issue 12 布局自适应）。
+    // 事件坐标取自 getBoundingClientRect（CSS 显示像素），须按显示比例换算回缓冲像素，保证命中/放置与渲染一致。
+    const cssToCanvas = useCallback((e: { clientX: number; clientY: number }): { x: number; y: number } | null => {
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+        return {
+            x: (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width),
+            y: (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height),
+        };
+    }, []);
+
     const handleWheel = useCallback((e: WheelEvent) => {
         // 只处理Ctrl+滚轮缩放，禁用普通滚动
         if (e.ctrlKey) {
             e.preventDefault();
 
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (!rect) return;
-
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+            const pos = cssToCanvas(e);
+            if (!pos) return;
+            const mouseX = pos.x;
+            const mouseY = pos.y;
 
             // 获取鼠标在虚拟坐标系中的位置
             const virtualMouse = canvasToVirtual(mouseX, mouseY);
@@ -1252,7 +1262,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             }));
         }
         // 普通滚轮滚动由父容器处理，不在这里处理
-    }, [viewport]);
+    }, [viewport, cssToCanvas]);
 
     // 切换离开滑条工具时清空待连接锚点（防止残留红点）
     useEffect(() => {
@@ -1264,20 +1274,20 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         // 鼠标 / 镜像工具态：记录圈选起点，支持点击单选与拖拽圈选（镜像框选用于预览+批量执行）
         if (selectedTool === "mouse" || selectedTool === "mirror") {
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            selectionStartRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            const pos = cssToCanvas(e);
+            if (!pos) return;
+            selectionStartRef.current = { x: pos.x, y: pos.y };
             selectionMovedRef.current = false;
             setSelectionBox(null);
         }
     }, [selectedTool]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return;
+        const canvasPos = cssToCanvas(e);
+        if (!canvasPos) return;
 
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+        const mouseX = canvasPos.x;
+        const mouseY = canvasPos.y;
 
         // 记录悬停位置（供工具态预览：放置/粘贴/镜像）
         setHoverPos({ cx: mouseX, cy: mouseY });
@@ -1310,7 +1320,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             // 拖拽滚动由父容器处理，虚拟画布不处理拖拽滚动
             setDragStart({ x: e.clientX, y: e.clientY });
         }
-    }, [dragging, dragStart, viewport, onMousePositionChange, beatDisplay, selectedTool]);
+    }, [dragging, dragStart, viewport, onMousePositionChange, beatDisplay, selectedTool, cssToCanvas]);
 
     // ---------------------------
     // 命中测试（供编辑工具态点击执行 / 右键删除 / 镜像悬停预览）
@@ -1409,11 +1419,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
 
         // 其他工具的处理逻辑
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return;
+        const pos = cssToCanvas(e);
+        if (!pos) return;
 
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+        const mouseX = pos.x;
+        const mouseY = pos.y;
 
         // 计算轨道在Canvas中的居中位置
         const borderTotalWidth = (1 + 4 + 1 + 1 + 1 + 1);
@@ -1481,15 +1491,15 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 }
             }
         }
-    }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer]);
+    }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer, cssToCanvas]);
 
     const handleMouseUp = useCallback((e: React.MouseEvent) => {
         setDragging(false);
         setDragStart(null);
 
-        const rect = canvasRef.current?.getBoundingClientRect();
-        const mx = rect ? e.clientX - rect.left : 0;
-        const my = rect ? e.clientY - rect.top : 0;
+        const pos = cssToCanvas(e);
+        const mx = pos ? pos.x : 0;
+        const my = pos ? pos.y : 0;
 
         // 镜像工具态：单点点击命中即镜像；拖拽圈选 → 预览（渲染时）+ 松手批量镜像
         if (selectedTool === "mirror") {
@@ -1544,7 +1554,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         selectionStartRef.current = null;
         setSelectionBox(null);
-    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, onEditToolAction, onEditToolPaste, findItemAt, getLaneBeatFromCanvas]);
+    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, onEditToolAction, onEditToolPaste, findItemAt, getLaneBeatFromCanvas, cssToCanvas]);
 
     // ---------------------------
     // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
@@ -1680,8 +1690,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                         display: 'block',
                         userSelect: 'none',
                         border: '1px solid #333',
-                        width: `${CANVAS_WIDTH}px`, // 使用固定像素值
-                        height: `${CANVAS_HEIGHT}px`, // 使用固定像素值
+                        // 显示尺寸随视口自适应（issue 12：窄屏不横向溢出、画布等比例收缩）；
+                        // 缓冲像素仍为 CANVAS_WIDTH/HEIGHT，事件坐标经 cssToCanvas 按显示比例换算。
+                        width: `min(${CANVAS_WIDTH}px, 100%)`,
+                        height: 'auto',
+                        aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
                         objectFit: 'contain', // 保持比例，完全填充容器
                         position: 'relative',
                         zIndex: 10 // 确保Canvas在最上层

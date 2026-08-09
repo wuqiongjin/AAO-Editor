@@ -39,9 +39,12 @@ const Editor: React.FC<EditorProps> = () => {
   // 滚动同步相关：滚动条是滚动位置的唯一来源，虚拟画布只跟随滚动条
   const initialScrollDone = useRef(false); // 是否已做初始滚动（滚动条默认在最下面）
   
-  // 区域宽度状态
-  const [leftPanelWidth, setLeftPanelWidth] = useState(470);
-  const [rightPanelWidth, setRightPanelWidth] = useState(300);
+  // 区域宽度状态（issue 12 布局自适应 / ADR-0003 L1）：
+  // 默认宽度随视口收缩（px 上限 + vw 兜底，窄屏不横向溢出），并支持折叠/展开
+  const [leftPanelWidth, setLeftPanelWidth] = useState(() => Math.min(470, Math.round(window.innerWidth * 0.30)));
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => Math.min(300, Math.round(window.innerWidth * 0.20)));
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
   const [isDragging, setIsDragging] = useState<'left' | 'right' | null>(null);
   
   // 谱面画布容器引用
@@ -91,8 +94,8 @@ const Editor: React.FC<EditorProps> = () => {
     const newLeftWidth = isDragging === 'left' ? e.clientX : leftPanelWidth;
     const newRightWidth = isDragging === 'right' ? containerWidth - e.clientX : rightPanelWidth;
     
-    // 设置最小和最大宽度限制
-    const minWidth = 200;
+    // 设置最小和最大宽度限制：min/max 随视口缩放（窄屏可收到更小，宽屏不超半屏）
+    const minWidth = Math.min(160, containerWidth * 0.2);
     const maxWidth = containerWidth * 0.5;
     
     if (isDragging === 'left') {
@@ -286,13 +289,14 @@ const Editor: React.FC<EditorProps> = () => {
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* 左侧工具栏区域 */}
       <div style={{
-        width: `${leftPanelWidth}px`,
+        width: leftCollapsed ? '0px' : `min(${leftPanelWidth}px, 34vw)`,
+        minWidth: leftCollapsed ? '0px' : 'min(160px, 20vw)',
         backgroundColor: '#f3f4f6',
         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
-        minWidth: `${leftPanelWidth}px`,
+        overflow: 'hidden',
         zIndex: 10,
         position: 'relative'
       }}>
@@ -321,6 +325,19 @@ const Editor: React.FC<EditorProps> = () => {
             setCombinationMode={setIsCombinationMode}
           />
         </div>
+        {!leftCollapsed && (
+          <button
+            onClick={() => setLeftCollapsed(true)}
+            title="收起左侧工具栏"
+            style={{
+              position: 'absolute', top: 4, right: 4, zIndex: 40,
+              width: 22, height: 22, padding: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: 'rgba(55,65,81,0.15)', border: 'none', borderRadius: 4,
+              cursor: 'pointer', color: '#374151', fontSize: 12
+            }}
+          >◀</button>
+        )}
       </div>
       
       {/* 左侧拖拽分隔条 */}
@@ -334,11 +351,25 @@ const Editor: React.FC<EditorProps> = () => {
           zIndex: 10,
           position: 'relative'
         }}
-        onMouseDown={(e) => handleMouseDown(e, 'left')}
-      />
+        onMouseDown={(e) => { if (leftCollapsed) setLeftCollapsed(false); handleMouseDown(e, 'left'); }}
+      >
+        {leftCollapsed && (
+          <button
+            onClick={() => setLeftCollapsed(false)}
+            title="展开左侧工具栏"
+            style={{
+              position: 'absolute', top: 8, right: 6, zIndex: 40,
+              width: 20, height: 20, padding: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: '#3b82f6', border: 'none', borderRadius: 4,
+              cursor: 'pointer', color: 'white', fontSize: 11
+            }}
+          >▶</button>
+        )}
+      </div>
       
       {/* 中间谱面画布区域 */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#000000' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#000000', minWidth: 0 }}>
         {/* 顶部控制栏 */}
         <div style={{
           height: '32px',
@@ -406,6 +437,7 @@ const Editor: React.FC<EditorProps> = () => {
             alignItems: 'center',
             backgroundColor: '#000000',
             padding: '20px',
+            boxSizing: 'border-box',
             zIndex: 1
           }}>
             <FinalVirtualCanvas
@@ -438,18 +470,33 @@ const Editor: React.FC<EditorProps> = () => {
           zIndex: 10,
           position: 'relative'
         }}
-        onMouseDown={(e) => handleMouseDown(e, 'right')}
-      />
+        onMouseDown={(e) => { if (rightCollapsed) setRightCollapsed(false); handleMouseDown(e, 'right'); }}
+      >
+        {rightCollapsed && (
+          <button
+            onClick={() => setRightCollapsed(false)}
+            title="展开右侧面板"
+            style={{
+              position: 'absolute', top: 8, right: 6, zIndex: 40,
+              width: 20, height: 20, padding: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: '#3b82f6', border: 'none', borderRadius: 4,
+              cursor: 'pointer', color: 'white', fontSize: 11
+            }}
+          >◀</button>
+        )}
+      </div>
       
       {/* 右侧信息面板区域 */}
       <div style={{
-        width: `${rightPanelWidth}px`,
+        width: rightCollapsed ? '0px' : `min(${rightPanelWidth}px, 24vw)`,
+        minWidth: rightCollapsed ? '0px' : 'min(160px, 20vw)',
         backgroundColor: '#f3f4f6',
         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
-        minWidth: `${rightPanelWidth}px`,
+        overflow: 'hidden',
         zIndex: 10,
         position: 'relative'
       }}>
@@ -511,6 +558,19 @@ const Editor: React.FC<EditorProps> = () => {
             }}>应</button>
           </div>
         </div>
+        {!rightCollapsed && (
+          <button
+            onClick={() => setRightCollapsed(true)}
+            title="收起右侧面板"
+            style={{
+              position: 'absolute', top: 4, left: 4, zIndex: 40,
+              width: 22, height: 22, padding: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: 'rgba(55,65,81,0.15)', border: 'none', borderRadius: 4,
+              cursor: 'pointer', color: '#374151', fontSize: 12
+            }}
+          >▶</button>
+        )}
       </div>
       {/* 快捷键设置面板（ADR-0002 §5） */}
       {showSettings && (
