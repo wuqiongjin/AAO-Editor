@@ -115,6 +115,22 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     });
 
     const [slideBuffer, setSlideBuffer] = useState<{ beat: number; lane: number; subBeat?: number } | null>(null);
+    // 皮肤图片就绪信号：懒加载图片异步到达后 +1，触发一次重绘（否则连接带等未预热的素材会一直空白）
+    const [skinVersion, setSkinVersion] = useState(0);
+
+    // 画布用到的全部皮肤图（含未被工具栏预热的 longNoteLine.png），挂载即预加载，加载完触发重绘
+    useEffect(() => {
+        let cancelled = false;
+        CanvasSpriteIcon.ensureImagesLoaded([
+            './assets/skins/RhythmGameSprites.png',
+            './assets/skins/DirectionalFlickSprites.png',
+            './assets/skins/longNoteLine.png',
+            './assets/skins/longNoteLine2.png',
+        ]).then(() => {
+            if (!cancelled) setSkinVersion(v => v + 1);
+        });
+        return () => { cancelled = true; };
+    }, []);
 
     // 谱面末端 beat（ADR-0004 §3 修订）：虚拟高度/坐标/滚动范围都随其自适应；空谱用 FLOOR_BEATS 兜底
     const chartEndBeat = useMemo(
@@ -573,7 +589,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 临时起点标记（ADR-0004 §4）：左沟槽竖向标记线
         renderStartMarker(ctx);
 
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion]);
 
     // 绘制网格
     const renderGrid = useCallback((ctx: CanvasRenderingContext2D, trackStartX: number, trackBgX: number, trackBgWidth: number) => {
