@@ -5,6 +5,10 @@ import type { ChartNote, SelectionItem } from '../notes/Charts';
 import type { EditingToolAction } from '../components/FinalVirtualCanvas';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../utils/SelectionEditing';
 import { handleNoteReplacement, pasteChartNotes } from '../utils/NoteReplacementRules';
+import {
+  createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
+  type HistoryState,
+} from '../utils/History';
 import type { ChartPosition } from './index';
 
 // H5 收口：所有位置参数统一为 ChartPosition（{ beat, lane }）
@@ -42,49 +46,39 @@ export interface EditingContextValue {
 const EditingContext = createContext<EditingContextValue | null>(null);
 
 export function EditingProvider({ children }: { children: ReactNode }) {
-  const [notes, setNotes] = useState<ChartNote[]>([]);
   const [selectedItems, setSelectedItems] = useState<SelectionItem[]>([]);
   const [clipboard, setClipboard] = useState<ChartNote[]>([]);
-  // 历史记录（ADR-0001）：快照必须深拷贝，防止对象就地变异泄漏到多份快照
-  // H1 收口：history + historyIndex 合并为单一原子状态，避免 updater 内副作用
-  // （React StrictMode 双调用 + 连续 addToHistory 时的闭包陈旧都一次性解决）
-  const [historyState, setHistoryState] = useState<{ history: ChartNote[][]; historyIndex: number }>({
-    history: [[]],
-    historyIndex: 0,
-  });
-  const history = historyState.history;
-  const historyIndex = historyState.historyIndex;
+  // 历史记录（ADR-0001）：谱面 notes 以历史栈为单一真相源（ADR-0003 候选 D 收口）。
+  // 快照用结构共享（编辑函数均不可变，未改动音符复用原引用），不做全量 structuredClone。
+  // H1 收口：history + historyIndex 合并为单一原子状态，updater 保持纯函数（无 React StrictMode 副作用）。
+  const [historyState, setHistoryState] = useState<HistoryState<ChartNote[]>>(() =>
+    createHistory<ChartNote[]>([]),
+  );
+  const history = historyState.stack;
+  const historyIndex = historyState.index;
+  // 当前谱面 = 历史栈 index 指向的快照
+  const notes = currentHistory(historyState);
 
   const addToHistory = useCallback((newNotes: ChartNote[]) => {
-    setHistoryState(prev => {
-      const newHistory = [...prev.history.slice(0, prev.historyIndex + 1), structuredClone(newNotes)];
-      return { history: newHistory, historyIndex: newHistory.length - 1 };
-    });
+    setHistoryState(prev => pushHistory(prev, newNotes));
   }, []);
 
   const handleNotesChange = useCallback((newNotes: ChartNote[]) => {
-    setNotes(newNotes);
     addToHistory(newNotes);
   }, [addToHistory]);
 
+  const setNotes = useCallback((n: ChartNote[]) => {
+    setHistoryState(prev => pushHistory(prev, n));
+  }, []);
+
   const undo = useCallback(() => {
-    setHistoryState(prev => {
-      if (prev.historyIndex <= 0) return prev;
-      const newIndex = prev.historyIndex - 1;
-      setNotes(prev.history[newIndex]);
-      setSelectedItems([]);
-      return { history: prev.history, historyIndex: newIndex };
-    });
+    setHistoryState(prev => undoHistory(prev) ?? prev);
+    setSelectedItems([]);
   }, []);
 
   const redo = useCallback(() => {
-    setHistoryState(prev => {
-      if (prev.historyIndex >= prev.history.length - 1) return prev;
-      const newIndex = prev.historyIndex + 1;
-      setNotes(prev.history[newIndex]);
-      setSelectedItems([]);
-      return { history: prev.history, historyIndex: newIndex };
-    });
+    setHistoryState(prev => redoHistory(prev) ?? prev);
+    setSelectedItems([]);
   }, []);
 
   const copy = useCallback(() => {
