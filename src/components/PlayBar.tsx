@@ -1,6 +1,7 @@
 import { Play, Pause } from "lucide-react";
 import { formatKey } from "../utils/ShortcutConfig";
 import { KEY_SOUND_SETS } from "../utils/KeySound";
+import { usePlayback, useConfig } from "../contexts";
 
 function formatTime(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
@@ -10,36 +11,28 @@ function formatTime(sec: number): string {
 }
 
 interface PlayBarProps {
-  isPlaying: boolean;
-  hasAudio: boolean;
-  currentSeconds: number;
-  duration: number;
+  // 仅留音频引擎 / 会话级状态相关的回调；播放态/配置经 hooks 直读（ADR-0003 §7）
   onTogglePlay: () => void;
   onDurationChange: (sec: number) => void;
-  volume: number;
   onVolumeChange: (v: number) => void;
-  keySetId: string;
   onKeySetChange: (id: string) => void;
-  hasMarker: boolean;
-  markerBeat: number | null;
-  jumpBinding: string | null;
 }
 
-function PlayBar({
-  isPlaying,
-  hasAudio,
-  currentSeconds,
-  duration,
+export default function PlayBar({
   onTogglePlay,
   onDurationChange,
-  volume,
   onVolumeChange,
-  keySetId,
   onKeySetChange,
-  hasMarker,
-  markerBeat,
-  jumpBinding,
 }: PlayBarProps) {
+  // M1 收口：经 usePlayback / useConfig 取播放态与键音素材
+  const {
+    isPlaying, canPlay, currentSeconds, duration,
+    volume, markerBeat,
+  } = usePlayback();
+  const { settings, setKeySetId } = useConfig();
+  const shortcutConfig = settings.shortcuts;
+  const keySetId = settings.audio.keySet;
+
   return (
     <div style={{
       height: '32px',
@@ -72,7 +65,7 @@ function PlayBar({
       </span>
 
       {/* 无音频：时长可改（会话级） */}
-      {!hasAudio && (
+      {!canPlay && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#9ca3af' }}>
           时长
           <input
@@ -104,12 +97,12 @@ function PlayBar({
         />
       </label>
 
-      {/* 键音素材切换 */}
+      {/* 键音素材切换：经 ConfigContext 持久化 + 引擎回调（Editor 处理） */}
       <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#9ca3af' }}>
         素材
         <select
           value={keySetId}
-          onChange={e => onKeySetChange(e.target.value)}
+          onChange={e => { setKeySetId(e.target.value); onKeySetChange(e.target.value); }}
           style={{ background: '#111827', color: '#e5e7eb', border: '1px solid #4b5563', borderRadius: 4, padding: '2px 4px', fontSize: 12 }}
         >
           {KEY_SOUND_SETS.map(s => (
@@ -119,13 +112,11 @@ function PlayBar({
       </label>
 
       {/* 起点标记提示 */}
-      <span style={{ color: hasMarker ? '#ffd166' : '#6b7280', marginLeft: 'auto' }}>
-        {hasMarker
-          ? `起点标记 @ ${markerBeat?.toFixed(2)} 拍 · 回跳 ${jumpBinding ? formatKey(jumpBinding) : '—'}`
+      <span style={{ color: markerBeat !== null ? '#ffd166' : '#6b7280', marginLeft: 'auto' }}>
+        {markerBeat !== null
+          ? `起点标记 @ ${markerBeat.toFixed(2)} 拍 · 回跳 ${formatKey(shortcutConfig.jumpToMarker)}`
           : '双击左沟槽设置起点标记'}
       </span>
     </div>
   );
 }
-
-export default PlayBar;

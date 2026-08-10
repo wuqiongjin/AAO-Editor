@@ -5,11 +5,10 @@ import type { ChartNote, SelectionItem } from '../notes/Charts';
 import type { EditingToolAction } from '../components/FinalVirtualCanvas';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../utils/SelectionEditing';
 import { handleNoteReplacement, pasteChartNotes } from '../utils/NoteReplacementRules';
+import type { ChartPosition } from './index';
 
-export interface Position {
-  beat: number;
-  lane: number;
-}
+// H5 收口：所有位置参数统一为 ChartPosition（{ beat, lane }）
+export type Position = ChartPosition;
 
 export interface EditingContextValue {
   // 数据
@@ -47,17 +46,21 @@ export function EditingProvider({ children }: { children: ReactNode }) {
   const [selectedItems, setSelectedItems] = useState<SelectionItem[]>([]);
   const [clipboard, setClipboard] = useState<ChartNote[]>([]);
   // 历史记录（ADR-0001）：快照必须深拷贝，防止对象就地变异泄漏到多份快照
-  const [history, setHistory] = useState<ChartNote[][]>([[]]);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  // H1 收口：history + historyIndex 合并为单一原子状态，避免 updater 内副作用
+  // （React StrictMode 双调用 + 连续 addToHistory 时的闭包陈旧都一次性解决）
+  const [historyState, setHistoryState] = useState<{ history: ChartNote[][]; historyIndex: number }>({
+    history: [[]],
+    historyIndex: 0,
+  });
+  const history = historyState.history;
+  const historyIndex = historyState.historyIndex;
 
   const addToHistory = useCallback((newNotes: ChartNote[]) => {
-    setHistory(prev => {
-      const newHistory = prev.slice(0, historyIndex + 1);
-      newHistory.push(structuredClone(newNotes));
-      setHistoryIndex(newHistory.length - 1);
-      return newHistory;
+    setHistoryState(prev => {
+      const newHistory = [...prev.history.slice(0, prev.historyIndex + 1), structuredClone(newNotes)];
+      return { history: newHistory, historyIndex: newHistory.length - 1 };
     });
-  }, [historyIndex]);
+  }, []);
 
   const handleNotesChange = useCallback((newNotes: ChartNote[]) => {
     setNotes(newNotes);
@@ -65,20 +68,24 @@ export function EditingProvider({ children }: { children: ReactNode }) {
   }, [addToHistory]);
 
   const undo = useCallback(() => {
-    if (historyIndex > 0) {
-      setHistoryIndex(historyIndex - 1);
-      setNotes(history[historyIndex - 1]);
+    setHistoryState(prev => {
+      if (prev.historyIndex <= 0) return prev;
+      const newIndex = prev.historyIndex - 1;
+      setNotes(prev.history[newIndex]);
       setSelectedItems([]);
-    }
-  }, [historyIndex, history]);
+      return { history: prev.history, historyIndex: newIndex };
+    });
+  }, []);
 
   const redo = useCallback(() => {
-    if (historyIndex < history.length - 1) {
-      setHistoryIndex(historyIndex + 1);
-      setNotes(history[historyIndex + 1]);
+    setHistoryState(prev => {
+      if (prev.historyIndex >= prev.history.length - 1) return prev;
+      const newIndex = prev.historyIndex + 1;
+      setNotes(prev.history[newIndex]);
       setSelectedItems([]);
-    }
-  }, [historyIndex, history]);
+      return { history: prev.history, historyIndex: newIndex };
+    });
+  }, []);
 
   const copy = useCallback(() => {
     if (selectedItems.length > 0) setClipboard(copySelection(notes, selectedItems));

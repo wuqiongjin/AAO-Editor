@@ -1,36 +1,41 @@
-// ConfigContext（ADR-0003 §7.3）：配置 token + 导入导出的配置。
-// 当前承载：快捷键配置（ADR-0002）+ 音频键音素材（ADR-0004 §7 settings）。
-// ADR-0003 完整 settings（theme/layout/shortcuts 合并）后续在此扩展，本期先隔离收纳既有配置状态。
+// ConfigContext（ADR-0003 §7.3）：统一 versioned settings JSON（ADR-0003 §6）。
+// 承载：theme / layout / shortcuts / audio，按字段写回（updateSettings）。
+// Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { loadConfig, saveConfig, type ShortcutConfig } from '../utils/ShortcutConfig';
-import { loadSettings, saveSettings } from '../utils/AppSettings';
+import { loadSettings, saveSettings, updateSettings, type AppSettings } from '../utils/AppSettings';
+import { getDefaultConfig, type ShortcutConfig } from '../utils/ShortcutConfig';
 
 export interface ConfigContextValue {
-  shortcutConfig: ShortcutConfig;
-  updateShortcutConfig: (next: ShortcutConfig) => void;
-  keySetId: string;
+  settings: AppSettings;
+  setShortcutConfig: (next: ShortcutConfig) => void;
   setKeySetId: (id: string) => void;
 }
 
 const ConfigContext = createContext<ConfigContextValue | null>(null);
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
-  // 快捷键配置（ADR-0002）：localStorage 持久化；修改即保存
-  const [shortcutConfig, setShortcutConfig] = useState<ShortcutConfig>(() => loadConfig());
-  // 键音素材（ADR-0004 §7 settings）
-  const [keySetId, setKeySetIdState] = useState(() => loadSettings().audio.keySet);
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
 
-  const updateShortcutConfig = (next: ShortcutConfig) => {
-    setShortcutConfig(next);
-    saveConfig(next);
+  const setShortcutConfig = (next: ShortcutConfig) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { shortcuts: next });
+      saveSettings(merged);
+      return merged;
+    });
   };
 
   const setKeySetId = (id: string) => {
-    setKeySetIdState(id);
-    saveSettings({ ...loadSettings(), audio: { keySet: id } });
+    setSettings(prev => {
+      const merged = updateSettings(prev, { audio: { keySet: id } });
+      saveSettings(merged);
+      return merged;
+    });
   };
 
-  const value: ConfigContextValue = { shortcutConfig, updateShortcutConfig, keySetId, setKeySetId };
+  // 兼容旧 API 形态（保留 default shortcut config 作为回退）
+  void getDefaultConfig;
+
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

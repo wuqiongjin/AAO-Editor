@@ -15,61 +15,34 @@ import {
   Pause,
 } from "lucide-react";
 import SpriteIcon, { NoteIcons } from './SpriteIcon';
-import { categoryShortcuts, formatKey, type ShortcutConfig } from '../utils/ShortcutConfig';
+import { categoryShortcuts, formatKey } from '../utils/ShortcutConfig';
+import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
 
 interface ToolbarProps {
-  selectedTool: string;
-  setSelectedTool: (tool: string) => void;
-  shortcutConfig: ShortcutConfig;
-  beatDisplay: number;
-  setBeatDisplay: (beat: number) => void;
-  isPlaying: boolean;
-  canPlay: boolean;
+  // 仅留音频引擎相关的回调；UI/编辑/配置状态经 hooks 直读（ADR-0003 §7）
   onTogglePlay: () => void;
-  onUndo: () => void;
-  onRedo: () => void;
-  canUndo: boolean;
-  canRedo: boolean;
-  onCopy: () => void;
-  onCut: () => void;
-  onPaste: () => void;
-  onDelete: () => void;
-  onMirror: () => void;
-  canCopy: boolean;
-  canPaste: boolean;
-  scale: number;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  isCombinationMode: boolean;
-  setCombinationMode: (mode: boolean) => void;
 }
 
-export default function Toolbar({
-  selectedTool,
-  setSelectedTool,
-  beatDisplay,
-  setBeatDisplay,
-  isPlaying,
-  canPlay,
-  onTogglePlay,
-  onUndo,
-  onRedo,
-  canUndo,
-  canRedo,
-  onCopy,
-  onCut,
-  onPaste,
-  onDelete,
-  onMirror,
-  canCopy,
-  canPaste,
-  scale,
-  onZoomIn,
-  onZoomOut,
-  isCombinationMode,
-  setCombinationMode,
-  shortcutConfig,
-}: ToolbarProps) {
+export default function Toolbar({ onTogglePlay }: ToolbarProps) {
+  // M1 收口：按 ADR-0003 §7 拆分——三域直读 hooks
+  const editing = useEditing();
+  const ui = useUI();
+  const { settings } = useConfig();
+  const { isPlaying, canPlay } = usePlayback();
+  const shortcutConfig = settings.shortcuts;
+
+  const {
+    selectedItems, clipboard, canUndo, canRedo,
+    copy, cut, paste, deleteSelected, mirror, undo, redo,
+  } = editing;
+  const {
+    selectedTool, setSelectedTool, beatDisplay, setBeatDisplay,
+    scale, setScale, isCombinationMode, setCombinationMode,
+    mousePosition,
+  } = ui;
+  const canCopy = selectedItems.length > 0;
+  const canPaste = clipboard.length > 0 && mousePosition !== null;
+
   // 工具 id → 快捷键类别（tooltip 按类别合并 切换/执行）
   const toolCategory: Record<string, string> = {
     mouse: "鼠标", bpm: "BPM", single: "单键", flick: "滑键",
@@ -192,14 +165,14 @@ export default function Toolbar({
           <div className="flex gap-2">
             <button
               className="flex-1 p-2 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-              onClick={onZoomIn}
+              onClick={() => setScale(prev => Math.min(prev + 0.1, 3))}
               title="放大"
             >
               <ZoomIn size={16} className="mx-auto" />
             </button>
             <button
               className="flex-1 p-2 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-              onClick={onZoomOut}
+              onClick={() => setScale(prev => Math.max(prev - 0.1, 0.1))}
               title="缩小"
             >
               <ZoomOut size={16} className="mx-auto" />
@@ -217,7 +190,7 @@ export default function Toolbar({
             <button
               className={`w-full p-2 rounded-md text-sm flex items-center space-x-3 transition-colors ${canCopy ? "text-gray-700 hover:bg-gray-100" : "text-gray-400 cursor-not-allowed"
                 }`}
-              onClick={onCopy}
+              onClick={copy}
               disabled={!canCopy}
               title={tooltipForCategory(toolCategory.copy)}
             >
@@ -227,7 +200,7 @@ export default function Toolbar({
             <button
               className={`w-full p-2 rounded-md text-sm flex items-center space-x-3 transition-colors ${canCopy ? "text-gray-700 hover:bg-gray-100" : "text-gray-400 cursor-not-allowed"
                 }`}
-              onClick={onCut}
+              onClick={cut}
               disabled={!canCopy}
               title="剪切 (Ctrl+X)"
             >
@@ -237,7 +210,7 @@ export default function Toolbar({
             <button
               className={`w-full p-2 rounded-md text-sm flex items-center space-x-3 transition-colors ${canPaste ? "text-gray-700 hover:bg-gray-100" : "text-gray-400 cursor-not-allowed"
                 }`}
-              onClick={onPaste}
+              onClick={() => mousePosition && paste(mousePosition)}
               disabled={!canPaste}
               title={tooltipForCategory(toolCategory.paste)}
             >
@@ -247,7 +220,7 @@ export default function Toolbar({
             <button
               className={`w-full p-2 rounded-md text-sm flex items-center space-x-3 transition-colors ${canCopy ? "text-gray-700 hover:bg-gray-100" : "text-gray-400 cursor-not-allowed"
                 }`}
-              onClick={onDelete}
+              onClick={deleteSelected}
               disabled={!canCopy}
               title="删除 (Delete)"
             >
@@ -257,7 +230,7 @@ export default function Toolbar({
             <button
               className={`w-full p-2 rounded-md text-sm flex items-center space-x-3 transition-colors ${canCopy ? "text-gray-700 hover:bg-gray-100" : "text-gray-400 cursor-not-allowed"
                 }`}
-              onClick={onMirror}
+              onClick={mirror}
               disabled={!canCopy}
               title={tooltipForCategory(toolCategory.mirror)}
             >
@@ -267,7 +240,7 @@ export default function Toolbar({
             <button
               className={`w-full p-2 rounded-md text-sm flex items-center space-x-3 transition-colors ${canUndo ? "text-gray-700 hover:bg-gray-100" : "text-gray-400 cursor-not-allowed"
                 }`}
-              onClick={onUndo}
+              onClick={undo}
               disabled={!canUndo}
               title="撤销 (Ctrl+Z)"
             >
@@ -277,7 +250,7 @@ export default function Toolbar({
             <button
               className={`w-full p-2 rounded-md text-sm flex items-center space-x-3 transition-colors ${canRedo ? "text-gray-700 hover:bg-gray-100" : "text-gray-400 cursor-not-allowed"
                 }`}
-              onClick={onRedo}
+              onClick={redo}
               disabled={!canRedo}
               title={tooltipForCategory(toolCategory.redo)}
             >

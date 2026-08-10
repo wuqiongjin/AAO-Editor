@@ -6,31 +6,19 @@ import { deleteSelection } from '../utils/SelectionEditing';
 import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
 import { getBpmEvents, secondsToBeat, beatToSeconds, computeChartEndBeat, type BpmEvent } from '../utils/AudioTiming';
 import {
-  ChartGeometry, LANES, LANE_WIDTH, BEAT_HEIGHT,
+  ChartGeometry, LANES, LANE_WIDTH,
   CANVAS_WIDTH, CANVAS_HEIGHT, JUDGE_LINE_Y, TRACK_CHROME_TOTAL,
 } from '../utils/ChartGeometry';
+import { useEditing, useUI, usePlayback } from '../contexts';
 
 export type EditingToolAction = 'copy' | 'cut' | 'delete' | 'mirror';
 
 interface FinalVirtualCanvasProps {
-    notes: ChartNote[];
-    setNotes: (notes: ChartNote[]) => void;
-    selectedTool: string;
-    selectedItems: SelectionItem[];
-    setSelectedItems: (items: SelectionItem[]) => void;
-    beatDisplay: number;
-    onMousePositionChange: (position: { lane: number; beat: number } | null) => void;
-    scale: number;
-    onScrollChange?: (scrollY: number, virtualHeight: number) => void;
-    clipboard?: ChartNote[]; // 剪贴板内容（供粘贴预览）
-    onEditToolAction?: (action: EditingToolAction, item: SelectionItem) => void; // 编辑工具态：点击命中音符即执行
-    onEditToolPaste?: (pos: { beat: number; lane: number }) => void; // 粘贴工具态：点击位置即粘贴
-    onMarkerChange?: (state: { beat: number | null; selected: boolean }) => void; // 起点标记状态同步（ADR-0004 §4）
+  // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
+  onScrollChange?: (scrollY: number, virtualHeight: number) => void;
 }
 
-const BEATS = 360;
-// 虚拟高度配置 - 可以手动修改这个值来调整虚拟高度
-const VIRTUAL_HEIGHT_MULTIPLIER = 1.0; // 虚拟高度倍数，可以调整这个值
+// 收口：BEATS = 360 死常量已删除——BPM 段换算统一走 ChartGeometry，分段累加不再需要拍数兜底
 // 空谱/兜底的最短谱面拍数（ADR-0004 §3 修订：虚拟高度随谱面末端自适应，空谱也至少保留一段可视空间）
 const FLOOR_BEATS = 8;
 
@@ -58,27 +46,22 @@ interface ViewportState {
 }
 
 const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
-    notes,
-    setNotes: _setNotes,
-    selectedTool,
-    selectedItems,
-    setSelectedItems,
-    beatDisplay,
-    onMousePositionChange,
-    scale,
     onScrollChange,
-    clipboard,
-    onEditToolAction,
-    onEditToolPaste,
-    onMarkerChange,
 }, ref) => {
+    // M1 收口（ADR-0003 §7）：状态经 hooks 直读，避免 Editor 作为 prop relay
+    const {
+        notes, selectedItems, setSelectedItems, clipboard,
+        handleNotesChange, editToolAction, editToolPaste,
+    } = useEditing();
+    const { selectedTool, beatDisplay, scale, setMousePosition } = useUI();
+    const { setMarker: setMarkerContext } = usePlayback();
     // 视口状态
     const [viewport, setViewport] = useState<ViewportState>({
         scrollX: 0,
         scrollY: 0,
         scale: scale,
         virtualWidth: LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2,
-        virtualHeight: BEAT_HEIGHT * BEATS * VIRTUAL_HEIGHT_MULTIPLIER
+        virtualHeight: 0, // 收口：BEATS 死常量已删，初始为 0 由 chartEndVirtualY 驱动
     });
 
     const [slideBuffer, setSlideBuffer] = useState<{ beat: number; lane: number; subBeat?: number } | null>(null);
@@ -113,10 +96,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const [markerBeat, setMarkerBeat] = useState<number | null>(null);
     const [markerSelected, setMarkerSelected] = useState(false);
 
-    // 起点标记状态同步给 Editor（播放条提示 / Delete 删除判定）
+    // 起点标记状态同步到 PlaybackContext（供 PlayBar 提示 / Delete 删除判定走同一路径）
     useEffect(() => {
-        onMarkerChange?.({ beat: markerBeat, selected: markerSelected });
-    }, [markerBeat, markerSelected, onMarkerChange]);
+        setMarkerContext(markerBeat);
+    }, [markerBeat, setMarkerContext]);
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const spriteIcon = useRef<CanvasSpriteIcon>(new CanvasSpriteIcon());
@@ -1189,9 +1172,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 更新状态栏鼠标位置与粘贴锚点
         const pos = getLaneBeatFromCanvas(mouseX, mouseY);
         if (pos) {
-            onMousePositionChange({ lane: pos.lane, beat: pos.preciseBeat });
+            setMousePosition({ beat: pos.preciseBeat, lane: pos.lane });
         } else {
-            onMousePositionChange(null);
+            setMousePosition(null);
         }
 
         // 鼠标 / 镜像工具态：拖拽更新圈选矩形
@@ -1210,7 +1193,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
 
         // 禁用拖拽滚动，滚动由父容器处理
-    }, [geometry, viewport, onMousePositionChange, beatDisplay, selectedTool, cssToCanvas]);
+    }, [geometry, viewport, setMousePosition, beatDisplay, selectedTool, cssToCanvas]);
 
     // ---------------------------
     // 命中测试（供编辑工具态点击执行 / 右键删除 / 镜像悬停预览）
@@ -1337,7 +1320,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 || selectedTool === "ldirectional" || selectedTool === "rdirectional") {
                 const result = handleNoteReplacement(notes, preciseBeat, lane, 0, selectedTool);
                 if (result.shouldReplace) {
-                    _setNotes(result.newNotes);
+                    handleNotesChange(result.newNotes);
                 }
             } else if (selectedTool === "slide") {
                 // 自动连接滑条：两点击创建滑条，并应用滑条与滑条组合规则
@@ -1354,14 +1337,14 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     } else {
                         const comb = handleSlideToSlideCombination(notes, [slideBuffer, point]);
                         if (comb.shouldCombine) {
-                            _setNotes(comb.newNotes);
+                            handleNotesChange(comb.newNotes);
                         } else {
                             const newNotes = [...comb.newNotes];
                             const [start, end] = [slideBuffer, point].sort(
                                 (a, b) => (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0))
                             );
                             newNotes.push({ type: "Slide", connections: [start, end] });
-                            _setNotes(newNotes);
+                            handleNotesChange(newNotes);
                         }
                     }
                     setSlideBuffer(null);
@@ -1374,7 +1357,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                         type: "BPM",
                         bpm: bpm
                     };
-                    _setNotes([...notes, newNote]);
+                    handleNotesChange([...notes, newNote]);
                 }
             }
         }
@@ -1422,12 +1405,12 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             if (selectionStartRef.current && selectionMovedRef.current && selectionBox) {
                 const items = computeItemsInBox(selectionBox);
                 setSelectedItems(items);
-                if (items.length > 0 && onEditToolAction) {
-                    items.forEach(it => onEditToolAction('mirror', it));
+                if (items.length > 0) {
+                    items.forEach(it => editToolAction('mirror', it));
                 }
-            } else if (onEditToolAction) {
+            } else {
                 const hit = findItemAt(mx, my);
-                if (hit) onEditToolAction('mirror', hit);
+                if (hit) editToolAction('mirror', hit);
             }
             selectionStartRef.current = null;
             setSelectionBox(null);
@@ -1435,18 +1418,18 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
 
         // 复制/剪切/删除工具态：点击命中音符即执行
-        if ((selectedTool === "copy" || selectedTool === "cut" || selectedTool === "delete") && onEditToolAction) {
+        if (selectedTool === "copy" || selectedTool === "cut" || selectedTool === "delete") {
             const hit = findItemAt(mx, my);
-            if (hit) onEditToolAction(selectedTool, hit);
+            if (hit) editToolAction(selectedTool, hit);
             selectionStartRef.current = null;
             setSelectionBox(null);
             return;
         }
 
         // 粘贴工具态：点击位置即粘贴
-        if (selectedTool === "paste" && onEditToolPaste) {
+        if (selectedTool === "paste" && editToolPaste) {
             const pos = getLaneBeatFromCanvas(mx, my);
-            if (pos) onEditToolPaste({ beat: pos.preciseBeat, lane: pos.lane });
+            if (pos) editToolPaste({ beat: pos.preciseBeat, lane: pos.lane });
             selectionStartRef.current = null;
             setSelectionBox(null);
             return;
@@ -1476,7 +1459,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
         selectionStartRef.current = null;
         setSelectionBox(null);
-    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, onEditToolAction, onEditToolPaste, findItemAt, getLaneBeatFromCanvas, cssToCanvas, hitStartMarker]);
+    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, editToolAction, editToolPaste, findItemAt, getLaneBeatFromCanvas, cssToCanvas, hitStartMarker]);
 
     // ---------------------------
     // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
@@ -1493,7 +1476,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         if (!hit) return;
 
         setSelectedItems([hit]);
-        _setNotes(deleteSelection(notes, [hit]));
+        handleNotesChange(deleteSelection(notes, [hit]));
     }, [notes, findItemAt]);
 
     // ---------------------------
@@ -1595,7 +1578,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     onMouseUp={handleMouseUp}
                     onContextMenu={handleContextMenu}
                     onDoubleClick={handleDoubleClick}
-                    onMouseLeave={() => onMousePositionChange(null)}
+                    onMouseLeave={() => setMousePosition(null)}
                     onClick={handleClick}
                     style={{
                         backgroundColor: '#000000',

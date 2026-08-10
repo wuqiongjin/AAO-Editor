@@ -1,15 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
 import SettingsPanel from '../components/SettingsPanel';
-import { selectionNoteIndices } from '../utils/SelectionEditing';
 import { resolveAction, isCapturingShortcut, type FunctionId } from '../utils/ShortcutConfig';
 import { AudioEngine } from '../utils/AudioEngine';
 import { getBpmEvents, beatToSeconds, computeChartEndSeconds, EMPTY_CHART_DURATION_SECONDS } from '../utils/AudioTiming';
 import { keySoundSetById } from '../utils/KeySound';
 import PlayBar from '../components/PlayBar';
-import { useEditing, useUI, useConfig } from '../contexts';
+import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
 
 interface EditorProps {
   song: File | null;
@@ -17,57 +16,61 @@ interface EditorProps {
 }
 
 /**
- * Editor（ADR-0003 §7）：只保留【组装】职责——挂三个 Provider 的消费、播放编排、布局。
- * 编辑数据/状态归 EditingContext，UI 布局归 UIContext，配置归 ConfigContext，不再在 Editor 堆全部编辑状态。
+ * Editor（ADR-0003 §7 + M1 收口）：只保留【组装】职责——挂四域 Provider 的消费、播放编排、布局。
+ * 编辑数据/状态归 EditingContext，UI 布局归 UIContext，配置归 ConfigContext，播放态归 PlaybackContext。
+ * 子组件（Toolbar / PlayBar / NoteInfoPanel / SettingsPanel / FinalVirtualCanvas）按域直读 hooks，
+ * 此处仅留 Editor 编排所需的最高层：音频引擎编排 / 滚动协调 / 布局壳。
  */
 const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
-  // 三域状态
+  // 四域状态（M1 收口：子组件已按域直读 hooks；此处仅取 Editor 编排所需）
   const editing = useEditing();
   const ui = useUI();
   const config = useConfig();
+  const playback = usePlayback();
 
+  const { notes, selectedItems, clipboard } = editing;
   const {
-    notes, selectedItems, clipboard,
-    setSelectedItems,
-    handleNotesChange,
-    history, historyIndex, canUndo, canRedo, undo, redo,
-    copy, cut, paste, deleteSelected, mirror, place,
-    editToolAction, editToolPaste,
-  } = editing;
-  const {
-    selectedTool, setSelectedTool, scale, setScale,
-    beatDisplay, setBeatDisplay, isCombinationMode, setCombinationMode,
-    showSettings, setShowSettings, currentBpm, mousePosition, setMousePosition,
+    mousePosition,
+    setSelectedTool,
+    beatDisplay,
+    showSettings, setShowSettings,
     leftPanelWidth, rightPanelWidth, leftCollapsed, rightCollapsed,
     isDragging, startDrag, toggleLeftPanel, toggleRightPanel,
   } = ui;
-  const { shortcutConfig, updateShortcutConfig, keySetId, setKeySetId } = config;
+  const {
+    copy, cut, paste, deleteSelected, mirror, place, undo, redo,
+  } = editing;
+  const { settings } = config;
+  const shortcutConfig = settings.shortcuts;
+  const {
+    setIsPlaying, setCanPlay,
+    setCurrentSeconds,
+    duration: ctxDuration, setDuration: setCtxDuration,
+    volume: ctxVolume, setVolume: setCtxVolume,
+    canPlay,
+  } = playback;
+
+  // 当前 BPM：谱面首个 BPM 标记的 bpm（无则兜底 120，与旧 Editor 行为一致）
+  const currentBpm = useMemo(() => {
+    const bpmNote = notes.find((n): n is { type: 'BPM'; beat: number; bpm: number } => n.type === 'BPM');
+    return bpmNote ? bpmNote.bpm : 120;
+  }, [notes]);
 
   // 音频播放（ticket 14）：引擎全局单例（挂在 ref 上，避免重建 AudioContext）
   const engineRef = useRef<AudioEngine | null>(null);
   if (!engineRef.current) engineRef.current = new AudioEngine();
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [canPlay, setCanPlay] = useState(false);
-  // 播放条（ADR-0004 §5/§7）：时长（会话级）、音量、素材包
-  const [duration, setDuration] = useState(EMPTY_CHART_DURATION_SECONDS);
-  const [volume, setVolume] = useState(0.8);
   // 播放 RAF 循环 + 滚动协调（滚动条=唯一滚动来源，播放头经它回写）
   const playbackRafRef = useRef<number | undefined>(undefined);
   const isPlayingRef = useRef(false);
-  const durationRef = useRef(duration);
+  const durationRef = useRef(ctxDuration);
   const durationEditedRef = useRef(false);
   const lastTargetScrollYRef = useRef(0);
 
-  // 当前播放位置（秒）：供播放条时间码显示
-  const [currentSeconds, setCurrentSeconds] = useState(0);
-  // 起点标记（存于 canvas 内，经 ref 访问）
-  const [markerState, setMarkerState] = useState<{ beat: number | null; selected: boolean }>({ beat: null, selected: false });
-
-  // 虚拟画布相关状态
+  // 虚拟画布相关状态（虚拟高度经 onScrollChange 同步到滚动容器）
   const [virtualHeight, setVirtualHeight] = useState(0);
 
   // 滚动同步相关：滚动条是滚动位置的唯一来源，虚拟画布只跟随滚动条
-  const initialScrollDone = useRef(false); // 是否已做初始滚动（滚动条默认在最下面）
+  const initialScrollDone = useRef(false);
 
   // 谱面画布容器引用
   const chartAreaRef = useRef<HTMLDivElement>(null);
@@ -99,13 +102,11 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     const span = range ? Math.max(1, range.bottom - range.top) : (canvas?.getMaxScrollY?.() ?? 1);
     return { base, span };
   };
-  // DOM scrollTop → 画布 scrollY（用户拖动滚动条读取）
   const scrollTopToCanvasY = (scrollTop: number, maxScroll: number) => {
     const { base, span } = chartRangeOf();
     const ratio = maxScroll > 0 ? scrollTop / maxScroll : 0;
     return base + Math.max(0, Math.min(1, ratio)) * span;
   };
-  // 画布 scrollY → DOM scrollTop（播放头写滚动条）
   const canvasYToScrollTop = (canvasScrollY: number, maxScroll: number) => {
     const { base, span } = chartRangeOf();
     const ratio = (canvasScrollY - base) / span;
@@ -223,9 +224,9 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     const engine = engineRef.current;
     const canvas = virtualCanvasRef.current;
     if (!engine || !canvas) return;
-    const markerBeat = canvas.getMarkerBeat?.();
-    if (markerBeat == null) return;
-    const secs = beatToSeconds(getBpmEvents(notes), markerBeat);
+    const beat = canvas.getMarkerBeat?.();
+    if (beat == null) return;
+    const secs = beatToSeconds(getBpmEvents(notes), beat);
     engine.seek(secs);
     if (!engine.isPlaying) {
       void engine.play().then(() => {
@@ -240,56 +241,49 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     const canvas = virtualCanvasRef.current;
     if (!canvas?.getMarkerSelected?.()) return false;
     canvas.clearMarker?.();
-    setMarkerState({ beat: null, selected: false });
     return true;
   }, []);
 
-  // 画布标记状态同步（始源在 canvas 内，Editor 经此刷新播放条提示）
-  const handleMarkerChange = useCallback((state: { beat: number | null; selected: boolean }) => {
-    setMarkerState(state);
-  }, []);
-
-  // 播放条：音量（作用于引擎 masterGain）
+  // 播放条：音量（作用于引擎 masterGain，状态经 PlaybackContext 共享）
   const handleVolumeChange = useCallback((v: number) => {
-    setVolume(v);
+    setCtxVolume(v);
     engineRef.current?.setVolume(v);
-  }, []);
+  }, [setCtxVolume]);
 
-  // 播放条：键音素材切换 + 持久化（ADR-0004 §7 settings，经 ConfigContext）
+  // 播放条：键音素材切换（持久化经 ConfigContext，引擎侧由 Editor 同步）
   const handleKeySetChange = useCallback((id: string) => {
-    setKeySetId(id);
     engineRef.current?.setKeySet(keySoundSetById(id));
-  }, [setKeySetId]);
+  }, []);
 
   // 播放条：无音频时长编辑（会话级，不写入谱面）
   const handleDurationChange = useCallback((sec: number) => {
     if (!(sec > 0)) return;
-    setDuration(sec);
+    setCtxDuration(sec);
     durationRef.current = sec;
     durationEditedRef.current = true;
-  }, []);
+  }, [setCtxDuration]);
 
   // 播放时长（ADR-0004 §3）：有音频=音频长度；无音频=谱面末端/默认30s；用户改过则沿用
   useEffect(() => {
     const engine = engineRef.current;
     const audioDuration = engine?.duration;
     if (audioDuration != null) {
-      setDuration(audioDuration);
+      setCtxDuration(audioDuration);
       durationRef.current = audioDuration;
       durationEditedRef.current = false;
       return;
     }
     if (durationEditedRef.current) return;
     const d = computeDuration();
-    setDuration(d);
+    setCtxDuration(d);
     durationRef.current = d;
-  }, [canPlay, notes, beatDisplay, computeDuration]);
+  }, [canPlay, notes, beatDisplay, computeDuration, setCtxDuration]);
 
   // 初始化：把激活素材/音量应用到引擎
   useEffect(() => {
-    engineRef.current?.setKeySet(keySoundSetById(keySetId));
-    engineRef.current?.setVolume(volume);
-  }, [keySetId, volume]);
+    engineRef.current?.setKeySet(keySoundSetById(settings.audio.keySet));
+    engineRef.current?.setVolume(ctxVolume);
+  }, [settings.audio.keySet, ctxVolume]);
 
   // 删除选中（含起点标记优先）：标记选中时 Delete 删除标记
   const deleteSelectedNotes = () => {
@@ -354,7 +348,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [runFunction, shortcutConfig, notes, selectedItems, clipboard, mousePosition, history, historyIndex]);
+  }, [runFunction, shortcutConfig, notes, selectedItems, clipboard, mousePosition]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
@@ -372,32 +366,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
         position: 'relative'
       }}>
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          <Toolbar
-            selectedTool={selectedTool}
-            setSelectedTool={setSelectedTool}
-            shortcutConfig={shortcutConfig}
-            beatDisplay={beatDisplay}
-            setBeatDisplay={setBeatDisplay}
-            isPlaying={isPlaying}
-            canPlay={canPlay}
-            onTogglePlay={togglePlay}
-            onUndo={undo}
-            onRedo={redo}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            onCopy={copy}
-            onCut={cut}
-            onPaste={pasteAtCursor}
-            onDelete={deleteSelectedNotes}
-            onMirror={mirror}
-            canCopy={selectedItems.length > 0}
-            canPaste={clipboard.length > 0 && mousePosition !== null}
-            scale={scale}
-            onZoomIn={() => setScale(prev => Math.min(prev + 0.1, 3))}
-            onZoomOut={() => setScale(prev => Math.max(prev - 0.1, 0.1))}
-            isCombinationMode={isCombinationMode}
-            setCombinationMode={setCombinationMode}
-          />
+          <Toolbar onTogglePlay={togglePlay} />
         </div>
         {!leftCollapsed && (
           <button
@@ -526,37 +495,16 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
           }}>
             <FinalVirtualCanvas
               ref={virtualCanvasRef}
-              notes={notes}
-              setNotes={handleNotesChange}
-              selectedTool={selectedTool}
-              selectedItems={selectedItems}
-              setSelectedItems={setSelectedItems}
-              beatDisplay={beatDisplay}
-              onMousePositionChange={setMousePosition}
-              scale={scale}
               onScrollChange={handleVirtualScrollChange}
-              clipboard={clipboard}
-              onEditToolAction={editToolAction}
-              onEditToolPaste={editToolPaste}
-              onMarkerChange={handleMarkerChange}
             />
           </div>
         </div>
-        {/* 底部播放条（ADR-0004 §5）：播放类控件收敛于此 */}
+        {/* 底部播放条（ADR-0004 §5）：播放类控件收敛于此；状态经 PlaybackContext 共享 */}
         <PlayBar
-          isPlaying={isPlaying}
-          hasAudio={canPlay}
-          currentSeconds={currentSeconds}
-          duration={duration}
           onTogglePlay={togglePlay}
           onDurationChange={handleDurationChange}
-          volume={volume}
           onVolumeChange={handleVolumeChange}
-          keySetId={keySetId}
           onKeySetChange={handleKeySetChange}
-          hasMarker={markerState.beat !== null}
-          markerBeat={markerState.beat}
-          jumpBinding={shortcutConfig.jumpToMarker}
         />
       </div>
 
@@ -626,11 +574,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
           </div>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-          <NoteInfoPanel
-            selectedNotes={selectionNoteIndices(selectedItems)}
-            notes={notes}
-            onNotesChange={handleNotesChange}
-          />
+          <NoteInfoPanel />
         </div>
         <div style={{
           height: '32px',
@@ -663,11 +607,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       </div>
       {/* 快捷键设置面板（ADR-0002 §5） */}
       {showSettings && (
-        <SettingsPanel
-          config={shortcutConfig}
-          onChange={updateShortcutConfig}
-          onClose={() => setShowSettings(false)}
-        />
+        <SettingsPanel onClose={() => setShowSettings(false)} />
       )}
     </div>
   );

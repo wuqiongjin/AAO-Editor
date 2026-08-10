@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FUNCTIONS, functionById, setFunctionBinding, loadConfig, getDefaultConfig,
-  exportConfig, formatKey, setCapturingShortcut, type ShortcutConfig, type FunctionId,
+  exportConfig, formatKey, setCapturingShortcut, type FunctionId,
 } from '../utils/ShortcutConfig';
+import { useConfig } from '../contexts';
 
+// M1 收口（ADR-0003 §7）：config / onClose 经 hooks 直读，外部仅传关闭回调
 interface SettingsPanelProps {
-  config: ShortcutConfig;
-  onChange: (cfg: ShortcutConfig) => void;
   onClose: () => void;
 }
 
@@ -130,7 +130,11 @@ function ShortcutRecorder({ id, onCommit, onCancel }: {
  * Q6 定案：按「具体功能」编辑单键；支持按功能名部分匹配搜索。
  * 展示统一大写（不区分大小写）；修改时点击键位弹出独立记录弹窗（类 VSCode，非手输文本）。
  */
-export default function SettingsPanel({ config, onChange, onClose }: SettingsPanelProps) {
+export default function SettingsPanel({ onClose }: SettingsPanelProps) {
+  // M1 收口：直读 ConfigContext / UIContext，组件对外只暴露关闭回调
+  const { settings, setShortcutConfig } = useConfig();
+  const config = settings.shortcuts;
+  const onChange = setShortcutConfig;
   const [query, setQuery] = useState('');
   const [error, setError] = useState<{ id: FunctionId; msg: string } | null>(null);
   const [editingId, setEditingId] = useState<FunctionId | null>(null);

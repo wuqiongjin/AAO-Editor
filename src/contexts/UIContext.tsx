@@ -1,11 +1,10 @@
 // UIContext（ADR-0003 §7.2）：工作台 UI 状态——工具/缩放/节拍/组合态/设置弹窗/布局（面板宽与折叠）/鼠标悬停位置。
 // 布局收纳（issue 12 / ADR-0003 L1）：面板宽度与折叠态、拖拽分隔条逻辑集中于此。
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import type { ChartPosition } from './index';
 
-export interface MousePos {
-  lane: number;
-  beat: number;
-}
+// H5 收口：mousePosition 直接复用 ChartPosition（{ beat, lane }）
+export type MousePos = ChartPosition;
 
 export interface UIContextValue {
   selectedTool: string;
@@ -18,7 +17,6 @@ export interface UIContextValue {
   setCombinationMode: (v: boolean) => void;
   showSettings: boolean;
   setShowSettings: (v: boolean) => void;
-  currentBpm: number;
   mousePosition: MousePos | null;
   setMousePosition: (p: MousePos | null) => void;
   // 布局（ADR-0003 L1）
@@ -40,8 +38,8 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [beatDisplay, setBeatDisplay] = useState(4);
   const [isCombinationMode, setCombinationMode] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [currentBpm] = useState(120);
-  const [mousePosition, setMousePosition] = useState<MousePos | null>(null);
+  // 收口：删 currentBpm 死状态（120 写死、原 Editor 即 _setCurrentBpm 形态）
+  const [mousePosition, setMousePosition] = useState<ChartPosition | null>(null);
 
   // 区域宽度（issue 12 / ADR-0003 L1）：默认随视口收缩（px 上限 + vw 兜底），并支持折叠/展开
   const [leftPanelWidth, setLeftPanelWidth] = useState(() => Math.min(470, Math.round(window.innerWidth * 0.30)));
@@ -74,7 +72,9 @@ export function UIProvider({ children }: { children: ReactNode }) {
     };
   }, [isDragging]);
 
+  // 收口：toggle 风格对齐（两侧都用具名函数，避免内联箭头每渲染产生新引用）
   const toggleLeftPanel = () => setLeftCollapsed(v => !v);
+  const toggleRightPanel = () => setRightCollapsed(v => !v);
 
   const value: UIContextValue = {
     selectedTool, setSelectedTool,
@@ -82,13 +82,12 @@ export function UIProvider({ children }: { children: ReactNode }) {
     beatDisplay, setBeatDisplay,
     isCombinationMode, setCombinationMode,
     showSettings, setShowSettings,
-    currentBpm,
     mousePosition, setMousePosition,
     leftPanelWidth, rightPanelWidth,
     leftCollapsed, rightCollapsed,
     isDragging, startDrag,
     toggleLeftPanel,
-    toggleRightPanel: () => setRightCollapsed(v => !v),
+    toggleRightPanel,
   };
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>;

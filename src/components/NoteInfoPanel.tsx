@@ -1,16 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { ChevronDown, ChevronUp, Copy, RotateCcw } from "lucide-react";
-import type { ChartNote } from "../notes/Charts";
 import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes } from "../utils/ChartConverter";
-import { mirrorNote } from "../utils/NoteEditing";
+import { useEditing } from "../contexts";
+import { selectionNoteIndices } from "../utils/SelectionEditing";
 
-interface NoteInfoPanelProps {
-    selectedNotes: number[];
-    notes: ChartNote[];
-    onNotesChange: (notes: ChartNote[]) => void;
-}
+// M1 收口（ADR-0003 §7）：notes / 选中条目直读 EditingContext，组件不再接收 selectedNotes/notes/onNotesChange props
 
-export default function NoteInfoPanel({ selectedNotes, notes, onNotesChange }: NoteInfoPanelProps) {
+export default function NoteInfoPanel() {
+    const { notes, selectedItems, handleNotesChange, deleteSelected, mirror } = useEditing();
+    const selectedNotes = selectionNoteIndices(selectedItems);
     const [isCombinationMode, setIsCombinationMode] = useState(false);
     const [chartCode, setChartCode] = useState("");
     const [isCodeEditorCollapsed, setIsCodeEditorCollapsed] = useState(false);
@@ -72,7 +70,7 @@ export default function NoteInfoPanel({ selectedNotes, notes, onNotesChange }: N
         validateCode(newCode);
     };
 
-    // 应用谱面代码到编辑器
+    // 应用谱面代码：经 useEditing.handleNotesChange 走历史记录
     const handleApply = () => {
         // 重新验证代码
         const isValidCode = validateCode(chartCode);
@@ -89,7 +87,7 @@ export default function NoteInfoPanel({ selectedNotes, notes, onNotesChange }: N
         try {
             const parsedCode = parseChartCodeFromJSON(chartCode);
             const newNotes = convertChartCodeToNotes(parsedCode);
-            onNotesChange(newNotes);
+            handleNotesChange(newNotes);
             setIsDirty(false);
             setLastAppliedCode(chartCode);
             alert('谱面代码已成功应用到编辑器');
@@ -229,19 +227,15 @@ export default function NoteInfoPanel({ selectedNotes, notes, onNotesChange }: N
         }
     };
 
+    // 删除/镜像选中：直接走 useEditing 的领域操作（与画布/Toolbar 走同一路径）
     const handleDeleteSelected = () => {
         if (selectedNotes.length === 0) return;
-
-        const newNotes = notes.filter((_, index) => !selectedNotes.includes(index));
-        onNotesChange(newNotes);
+        deleteSelected();
     };
 
     const handleMirrorSelected = () => {
         if (selectedNotes.length === 0) return;
-
-        // 复用领域唯一镜像实现（C5:修 4-lane bug，并使方向键 L↔R/滑条连接点同步翻转，与画布镜像语义一致）
-        const newNotes = notes.map((note, index) => selectedNotes.includes(index) ? mirrorNote(note) : note);
-        onNotesChange(newNotes);
+        mirror();
     };
 
     return (
