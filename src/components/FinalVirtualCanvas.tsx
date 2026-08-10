@@ -4,7 +4,11 @@ import CanvasSpriteIcon, { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcon
 import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
 import { deleteSelection } from '../utils/SelectionEditing';
 import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
-import { getBpmEvents, secondsToBeat, beatToSeconds, computeChartEndBeat } from '../utils/AudioTiming';
+import { getBpmEvents, secondsToBeat, beatToSeconds, computeChartEndBeat, type BpmEvent } from '../utils/AudioTiming';
+import {
+  ChartGeometry, LANES, LANE_WIDTH, BEAT_HEIGHT,
+  CANVAS_WIDTH, CANVAS_HEIGHT, JUDGE_LINE_Y, TRACK_CHROME_TOTAL,
+} from '../utils/ChartGeometry';
 
 export type EditingToolAction = 'copy' | 'cut' | 'delete' | 'mirror';
 
@@ -24,14 +28,11 @@ interface FinalVirtualCanvasProps {
     onMarkerChange?: (state: { beat: number | null; selected: boolean }) => void; // 起点标记状态同步（ADR-0004 §4）
 }
 
-const LANES = 7;
 const BEATS = 360;
-const BEAT_HEIGHT = 220; // 基准节拍高度
-const LANE_WIDTH = 30;
-const CANVAS_WIDTH = 750;  // 最终确定的谱面宽度
-const CANVAS_HEIGHT = 900; // 最终确定的谱面高度
-// 判定线（ADR-0004 §1）：固定画布底部，谱面随播放上移；常量 = 判定线距画布底部的像素偏移
-const JUDGE_LINE_Y = CANVAS_HEIGHT - 60;
+// 虚拟高度配置 - 可以手动修改这个值来调整虚拟高度
+const VIRTUAL_HEIGHT_MULTIPLIER = 1.0; // 虚拟高度倍数，可以调整这个值
+// 空谱/兜底的最短谱面拍数（ADR-0004 §3 修订：虚拟高度随谱面末端自适应，空谱也至少保留一段可视空间）
+const FLOOR_BEATS = 8;
 
 // 音符大小配置
 const NOTE_ICON_SIZE = 36;
@@ -46,40 +47,6 @@ const SLIDE_HEIGHT_SCALE = 0.6;
 // 虚拟画布配置
 const MAX_SCALE = 3.0;
 const MIN_SCALE = 0.1;
-const VIEWPORT_PADDING = 200;
-
-// 轨道外壳/chrome 总宽度常量（原 12 处魔法表达式 (1+4+1+1+1+1) 收敛为单一定义；轨道左右各一份）
-const TRACK_CHROME_TOTAL = (1 + 4 + 1 + 1 + 1 + 1);
-
-// 轨道水平居中几何（唯一实现；trackBgX = 轨道内容左缘 = 虚拟X原点，见 issue 11 坐标模型）
-const trackGeometry = (scale: number) => {
-    const totalTrackWidth = LANES * LANE_WIDTH * scale + TRACK_CHROME_TOTAL * 2;
-    const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
-    const trackBgX = trackStartX + TRACK_CHROME_TOTAL;
-    const trackBgWidth = LANES * LANE_WIDTH * scale;
-    return { totalTrackWidth, trackStartX, trackBgX, trackBgWidth };
-};
-
-// 虚拟高度配置 - 可以手动修改这个值来调整虚拟高度
-const VIRTUAL_HEIGHT_MULTIPLIER = 1.0; // 虚拟高度倍数，可以调整这个值
-// 空谱/兜底的最短谱面拍数（ADR-0004 §3 修订：虚拟高度随谱面末端自适应，空谱也至少保留一段可视空间）
-const FLOOR_BEATS = 8;
-
-// 缩放时的虚拟边界（ADR-0004 §3 修订：总高按谱面末端的【真实 BPM 像素高度】chartEndVirtualY 计算，
-// 使任意 BPM 下网格都精确铺满、播到谱面末端即到底、无多余空白）
-const getScaledVirtualBounds = (_scale: number, chartEndVirtualY: number) => {
-    // 总高 = 谱面末端真实像素高度 + 判定线画布偏移（/scale 换算为虚拟单位），
-    // 使滚动到顶（scrollY=0）时谱面末端正好落在判定线，而非画布顶部——否则播放头会提前 判定线偏移 触顶冻结。
-    const totalVirtualHeight = chartEndVirtualY + JUDGE_LINE_Y / _scale;
-    const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
-
-    return {
-        minY: 0,
-        maxY: totalVirtualHeight, // 使用实际虚拟高度
-        minX: 0,
-        maxX: totalVirtualWidth // 使用实际虚拟宽度
-    };
-};
 
 // 视口状态接口
 interface ViewportState {
@@ -159,7 +126,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     useImperativeHandle(ref, () => ({
         setScrollY: (scrollY: number) => {
             setViewport(prev => {
-                const scaledBounds = getScaledVirtualBounds(prev.scale, chartEndVirtualY);
+                const scaledBounds = getScaledVirtualBounds(prev.scale);
                 const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / prev.scale, scrollY));
                 return {
                     ...prev,
@@ -171,14 +138,14 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         getVirtualHeight: () => viewport.virtualHeight,
         // 虚拟画布可滚动的最大范围（供父组件滚动条做线性映射）
         getMaxScrollY: () => {
-            const scaledBounds = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
+            const scaledBounds = getScaledVirtualBounds(viewport.scale);
             return Math.max(0, scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale);
         },
         // 播放跟随（ADR-0004 §1）：给定播放位置(秒) → 目标 scrollY（使判定线压在底部）
         getScrollYForPlaybackSeconds: (seconds: number) => {
             const beat = secondsToBeat(getSortedBpmEvents(), seconds);
             const targetScrollY = beatToVirtualY(beat) - JUDGE_LINE_Y / viewport.scale;
-            const scaledBounds = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
+            const scaledBounds = getScaledVirtualBounds(viewport.scale);
             return Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale, targetScrollY));
         },
         // 播放跟随反向（拖动滚动条=seek）：给定 scrollY → 判定线处对应播放位置(秒)
@@ -190,7 +157,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 谱面可用滚动范围（ADR-0004 §3 修订：滚动条随谱面长度自适应，无空白）：
         // 自谱面末端(含尾量，空谱用 FLOOR_BEATS 兜底)到 beat 0 的画布 scrollY 区间 { top, bottom }。
         getChartScrollRange: () => {
-            const sb = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
+            const sb = getScaledVirtualBounds(viewport.scale);
             const clamp = (y: number) => Math.max(sb.minY, Math.min(sb.maxY - CANVAS_HEIGHT / viewport.scale, y));
             const bottom = clamp(beatToVirtualY(0) - JUDGE_LINE_Y / viewport.scale);
             const top = clamp(beatToVirtualY(chartEndBeat) - JUDGE_LINE_Y / viewport.scale);
@@ -205,157 +172,28 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     }));
 
     // ---------------------------
-    // BPM 事件处理
+    // 谱面几何（ADR-0003 候选 B/C）：BPM→虚拟Y 走缓存时间线，坐标/剔除/命中统一由 ChartGeometry 提供
     // ---------------------------
-    // 与 AudioTiming 共享同一实现（时间→beat 与 beat→Y 都用同一事件表，保证预览线对齐）
-    const getSortedBpmEvents = () => getBpmEvents(notes);
+    // 仅依赖 notes 与 chartEndBeat，与缩放/滚动无关 → 一次构建、缓存二分查询
+    const geometry = useMemo(() => new ChartGeometry(getBpmEvents(notes), chartEndBeat), [notes, chartEndBeat]);
+    // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它
+    const chartEndVirtualY = geometry.chartEndVirtualY;
+    // 与 AudioTiming 共享同一 BPM 事件表（时间→beat 与 beat→Y 都用同一事件表，保证预览线对齐）
+    const getSortedBpmEvents = () => geometry.bpmEvents as BpmEvent[];
 
-    // ---------------------------
-    // 虚拟坐标转换函数
-    // ---------------------------
-    const beatToVirtualYRaw = (beat: number) => {
-        const bpmEvents = getSortedBpmEvents();
-        let offset = 0;
-        for (let i = 0; i < bpmEvents.length; i++) {
-            const cur = bpmEvents[i];
-            const next = bpmEvents[i + 1];
-            const segmentStart = cur.beat;
-            const segmentEnd = next ? next.beat : Infinity;
-
-            if (beat <= segmentStart) break;
-
-            const segFrom = segmentStart;
-            const segTo = Math.min(segmentEnd, beat);
-            if (segTo > segFrom) {
-                const lengthInBeats = segTo - segFrom;
-                const perBeatHeight = (BEAT_HEIGHT * 120) / cur.bpm;
-                offset += lengthInBeats * perBeatHeight;
-            }
-
-            if (segmentEnd >= beat) break;
-        }
-        return offset;
-    };
-
-    // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它，
-    // 消除「线性 220px/拍」与「按 BPM 分段」不一致在非 120 BPM 下残留的顶端空白
-    const chartEndVirtualY = useMemo(() => beatToVirtualYRaw(chartEndBeat), [chartEndBeat, notes]);
-
-    // 自下而上（下落式音游）：起始拍 beat 0 位于画布最底部，越往后越靠上
-    // ADR-0004 §3 修订：总高随谱面末端自适应（+判定线偏移，使谱面末端到顶正好落在判定线），无人为 360 拍空白
-    const beatToVirtualY = (beat: number) =>
-        (chartEndVirtualY + JUDGE_LINE_Y / viewport.scale) - beatToVirtualYRaw(beat);
-
-    const virtualYToBeatRaw = (virtualY: number) => {
-        const bpmEvents = getSortedBpmEvents();
-        let remaining = virtualY;
-        for (let i = 0; i < bpmEvents.length; i++) {
-            const cur = bpmEvents[i];
-            const next = bpmEvents[i + 1];
-            const segStart = cur.beat;
-            const segEnd = next ? next.beat : Infinity;
-            const segLenBeats = segEnd - segStart;
-            const perBeatHeight = (BEAT_HEIGHT * 120) / cur.bpm;
-
-            if (!isFinite(segEnd)) {
-                const beatOffset = remaining / perBeatHeight;
-                return segStart + beatOffset;
-            }
-
-            const segHeight = segLenBeats * perBeatHeight;
-            if (remaining <= segHeight) {
-                const beatOffset = remaining / perBeatHeight;
-                return segStart + beatOffset;
-            } else {
-                remaining -= segHeight;
-            }
-        }
-        return BEATS;
-    };
-
-    // 与 beatToVirtualY 对应的反变换
-    const virtualYToBeat = (virtualY: number) =>
-        virtualYToBeatRaw((chartEndVirtualY + JUDGE_LINE_Y / viewport.scale) - virtualY);
-
-    // ---------------------------
-    // 坐标转换：虚拟坐标 <-> 画布坐标
-    // ---------------------------
-    const virtualToCanvas = (virtualX: number, virtualY: number) => {
-        // 虚拟X原点位于轨道内容左缘（trackBgX = trackStartX + TRACK_CHROME_TOTAL），
-        // 轨道已水平居中，故画布X加上该偏移；trackBgX 与 scale 统一缩放（唯一实现 trackGeometry）。
-        const { trackBgX } = trackGeometry(viewport.scale);
-        const canvasX = trackBgX + (virtualX - viewport.scrollX) * viewport.scale;
-        const canvasY = (virtualY - viewport.scrollY) * viewport.scale;
-        return { x: canvasX, y: canvasY };
-    };
-
-    const canvasToVirtual = (canvasX: number, canvasY: number) => {
-        const { trackBgX } = trackGeometry(viewport.scale);
-        const virtualX = (canvasX - trackBgX) / viewport.scale + viewport.scrollX;
-        const virtualY = canvasY / viewport.scale + viewport.scrollY;
-        return { x: virtualX, y: virtualY };
-    };
-
-    // ---------------------------
-    // 视口范围计算
-    // ---------------------------
-    const getViewportBounds = () => {
-        const padding = VIEWPORT_PADDING / viewport.scale;
-        const scaledBounds = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
-
-        // 修复边界计算逻辑
-        const bounds = {
-            minX: Math.max(scaledBounds.minX, viewport.scrollX - padding),
-            maxX: Math.min(scaledBounds.maxX, viewport.scrollX + CANVAS_WIDTH / viewport.scale + padding),
-            minY: Math.max(scaledBounds.minY, viewport.scrollY - padding),
-            maxY: Math.min(scaledBounds.maxY, viewport.scrollY + CANVAS_HEIGHT / viewport.scale + padding)
-        };
-
-        return bounds;
-    };
-
-    // ---------------------------
-    // 音符位置计算
-    // ---------------------------
-    const getNoteVirtualY = (beat: number, subBeat: number = 0) => {
-        const preciseBeat = beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
-        const virtualY = beatToVirtualY(preciseBeat);
-        // 直接返回虚拟Y坐标，不进行翻转
-        return virtualY;
-    };
-
-    const getNoteVirtualX = (lane: number) => {
-        // 虚拟X原点位于轨道内容左缘（trackBgX），lane中心即相对该原点的偏移
-        return lane * LANE_WIDTH + LANE_WIDTH / 2;
-    };
-
-    // 画布坐标 -> lane/beat（用于命中与圈选）
-    const getLaneBeatFromCanvas = (cx: number, cy: number) => {
-        const { trackBgX } = trackGeometry(viewport.scale);
-        const relativeX = cx - trackBgX;
-        const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
-        const virtualY = viewport.scrollY + cy / viewport.scale;
-        const beat = virtualYToBeat(virtualY);
-        if (lane >= 0 && lane < LANES && beat >= 0) {
-            const subBeatPosition = beat * beatDisplay;
-            const nearestSubBeat = Math.round(subBeatPosition);
-            const preciseBeat = nearestSubBeat / beatDisplay;
-            return { lane, preciseBeat };
-        }
-        return null;
-    };
-
-    // 音符的虚拟坐标集合（用于命中测试）
-    const getNoteVirtualPoints = (note: ChartNote): { x: number; y: number }[] => {
-        if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
-            return [{ x: getNoteVirtualX(note.lane), y: getNoteVirtualY(note.beat, note.subBeat || 0) }];
-        } else if (note.type === "Slide" || note.type === "Long") {
-            return note.connections.map(c => ({ x: getNoteVirtualX(c.lane), y: getNoteVirtualY(c.beat, c.subBeat || 0) }));
-        } else if (note.type === "BPM") {
-            return [{ x: getNoteVirtualX(0), y: getNoteVirtualY(note.beat) }];
-        }
-        return [];
-    };
+    // 坐标变换（薄封装，保持既有调用签名不变；内部均为 O(log BPM) 缓存查询）
+    const trackGeometry = (scale: number) => geometry.trackGeometry(scale);
+    const getScaledVirtualBounds = (scale: number) => geometry.scaledVirtualBounds(scale);
+    const beatToVirtualY = (beat: number) => geometry.beatToVirtualY(beat, viewport.scale);
+    const virtualYToBeat = (virtualY: number) => geometry.virtualYToBeat(virtualY, viewport.scale);
+    const virtualToCanvas = (virtualX: number, virtualY: number) => geometry.virtualToCanvas(virtualX, virtualY, viewport);
+    const canvasToVirtual = (canvasX: number, canvasY: number) => geometry.canvasToVirtual(canvasX, canvasY, viewport);
+    const getViewportBounds = () => geometry.viewportBounds(viewport);
+    const getNoteVirtualY = (beat: number, subBeat: number = 0) => geometry.noteVirtualY(beat, subBeat, viewport.scale, beatDisplay);
+    const getNoteVirtualX = (lane: number) => geometry.noteVirtualX(lane);
+    const getLaneBeatFromCanvas = (cx: number, cy: number) => geometry.laneBeatFromCanvas(cx, cy, viewport, beatDisplay);
+    const getVisibleNotes = () => geometry.visibleNotes(notes, viewport, beatDisplay);
+    const getNoteVirtualPoints = (note: ChartNote) => geometry.noteVirtualPoints(note, viewport.scale, beatDisplay);
 
     // 判断 SelectionItem 是否已在选中集中（同 kind/noteIndex/connIndex 视为同一条目）
     const sameItem = (a: SelectionItem, b: SelectionItem) =>
@@ -437,42 +275,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     };
 
     // ---------------------------
-    // 视口剔除：只渲染可见区域的音符
-    // ---------------------------
-    const getVisibleNotes = () => {
-        const bounds = getViewportBounds();
-        const visibleNotes: { note: ChartNote; index: number }[] = [];
-
-        notes.forEach((note, index) => {
-            let isVisible = false;
-
-            if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
-                const virtualY = getNoteVirtualY(note.beat, note.subBeat || 0);
-                const virtualX = getNoteVirtualX(note.lane);
-                isVisible = virtualY >= bounds.minY && virtualY <= bounds.maxY &&
-                    virtualX >= bounds.minX && virtualX <= bounds.maxX;
-            } else if (note.type === "Slide" || note.type === "Long") {
-                // 检查滑条是否有任何连接点在视口内
-                isVisible = note.connections.some(conn => {
-                    const virtualY = getNoteVirtualY(conn.beat, conn.subBeat || 0);
-                    const virtualX = getNoteVirtualX(conn.lane);
-                    return virtualY >= bounds.minY && virtualY <= bounds.maxY &&
-                        virtualX >= bounds.minX && virtualX <= bounds.maxX;
-                });
-            } else if (note.type === "BPM") {
-                const virtualY = getNoteVirtualY(note.beat);
-                isVisible = virtualY >= bounds.minY && virtualY <= bounds.maxY;
-            }
-
-            if (isVisible) {
-                visibleNotes.push({ note, index });
-            }
-        });
-
-        return visibleNotes;
-    };
-
-    // ---------------------------
     // 渲染函数
     // ---------------------------
     // 判定线（ADR-0004 §1）：固定画布底部；常显（停/播同线）
@@ -489,7 +291,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         ctx.lineTo(trackBgX + trackBgWidth, y);
         ctx.stroke();
         ctx.restore();
-    }, [viewport]);
+    }, [geometry, viewport]);
 
     // 临时起点标记（ADR-0004 §4）：左沟槽竖向标记线；选中时高亮
     const renderStartMarker = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -515,7 +317,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         ctx.closePath();
         ctx.fill();
         ctx.restore();
-    }, [viewport, markerBeat, markerSelected]);
+    }, [geometry, viewport, markerBeat, markerSelected]);
 
     const renderCanvas = useCallback(() => {
         const canvas = canvasRef.current;
@@ -670,7 +472,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             }
         }
 
-        }, [viewport, beatDisplay]);
+        }, [geometry, viewport, beatDisplay]);
 
     // 选中状态判定辅助（ADR-0001 §6：整条/结点/区域）
     const isNoteSelected = (index: number) => selectedItems.some(it => it.kind === 'note' && it.noteIndex === index);
@@ -1057,7 +859,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 });
             }
         });
-    }, [selectedItems, viewport]);
+    }, [geometry, selectedItems, viewport]);
 
     // 绘制选择框
     const renderSelectionBox = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -1111,7 +913,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         ctx.arc(x - 1.2 * s, y - 1.2 * s, 1.6 * s, 0, 2 * Math.PI);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
         ctx.fill();
-    }, [slideBuffer, viewport]);
+    }, [geometry, slideBuffer, viewport]);
 
     // 在虚拟坐标绘制低透明度音符幽灵（简化为圆形，ADR-0002 §4）
     // 渲染单个精灵图标（幽灵/预览用；透明度由调用方通过 ctx.globalAlpha 控制）
@@ -1354,7 +1156,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             }));
         }
         // 普通滚轮滚动由父容器处理，不在这里处理
-    }, [viewport, cssToCanvas]);
+    }, [geometry, viewport, cssToCanvas]);
 
     // 切换离开滑条工具时清空待连接锚点（防止残留红点）
     useEffect(() => {
@@ -1408,7 +1210,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
 
         // 禁用拖拽滚动，滚动由父容器处理
-    }, [viewport, onMousePositionChange, beatDisplay, selectedTool, cssToCanvas]);
+    }, [geometry, viewport, onMousePositionChange, beatDisplay, selectedTool, cssToCanvas]);
 
     // ---------------------------
     // 命中测试（供编辑工具态点击执行 / 右键删除 / 镜像悬停预览）
@@ -1586,7 +1388,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const markerVirtualY = beatToVirtualY(markerBeat);
         const markerCanvasY = virtualToCanvas(0, markerVirtualY).y;
         return Math.abs(cy - markerCanvasY) < 10 * viewport.scale;
-    }, [markerBeat, viewport]);
+    }, [geometry, markerBeat, viewport]);
 
     // 左沟槽双击：放置/删除临时起点标记
     const handleDoubleClick = useCallback((e: React.MouseEvent) => {
@@ -1608,7 +1410,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         setMarkerSelected(true);
         setSelectedItems([]);
         setMarkerBeat(snapped);
-    }, [viewport, beatDisplay, cssToCanvas, hitStartMarker]);
+    }, [geometry, viewport, beatDisplay, cssToCanvas, hitStartMarker]);
 
     const handleMouseUp = useCallback((e: React.MouseEvent) => {
         const pos = cssToCanvas(e);
@@ -1723,7 +1525,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // 初始视口设置 - 只在组件首次挂载时执行
     useEffect(() => {
         const totalVirtualHeight = chartEndVirtualY + JUDGE_LINE_Y / viewport.scale;
-        const scaledBounds = getScaledVirtualBounds(viewport.scale, chartEndVirtualY);
+        const scaledBounds = getScaledVirtualBounds(viewport.scale);
         // 确保初始滚动位置在最下面（起始拍），但在虚拟边界内
         const initialScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale, totalVirtualHeight - CANVAS_HEIGHT / viewport.scale));
 

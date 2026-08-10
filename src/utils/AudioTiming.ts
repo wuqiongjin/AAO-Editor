@@ -3,11 +3,9 @@
 // 避免 FinalCanvas 与 AudioEngine 各自实现导致时间轴漂移。
 import type { ChartNote } from '../notes/Charts';
 import type { KeySoundKind } from './KeySound';
+import { BpmTimeline, type BpmTimelineEvent } from './BpmTimeline';
 
-export interface BpmEvent {
-  beat: number;
-  bpm: number;
-}
+export interface BpmEvent extends BpmTimelineEvent {}
 
 export const DEFAULT_BPM = 120;
 
@@ -29,40 +27,19 @@ export function getBpmEvents(notes: ChartNote[]): BpmEvent[] {
   return events;
 }
 
+/** 以"秒/拍"为单位的 BPM 时间线（每拍 60/bpm 秒） */
+function secondsTimeline(events: BpmEvent[]): BpmTimeline {
+  return new BpmTimeline(events, (bpm) => 60 / bpm);
+}
+
 /** beat → 秒：分段累加，每拍耗时 60/bpm 秒（含 subBeat 已在调用侧折算为精确 beat） */
 export function beatToSeconds(events: BpmEvent[], beat: number): number {
-  let seconds = 0;
-  for (let i = 0; i < events.length; i++) {
-    const cur = events[i];
-    const next = events[i + 1];
-    if (beat <= cur.beat) break;
-    const segEnd = next ? next.beat : Infinity;
-    const segLen = Math.min(segEnd, beat) - cur.beat;
-    if (segLen > 0) {
-      seconds += segLen * (60 / cur.bpm);
-    }
-    if (segEnd >= beat) break;
-  }
-  return seconds;
+  return secondsTimeline(events).positionOfBeat(beat);
 }
 
 /** 秒 → beat（含分数段）；与 beatToSeconds 互逆 */
 export function secondsToBeat(events: BpmEvent[], seconds: number): number {
-  let remaining = seconds;
-  for (let i = 0; i < events.length; i++) {
-    const cur = events[i];
-    const next = events[i + 1];
-    const segLenBeats = next ? next.beat - cur.beat : Infinity;
-    if (!isFinite(segLenBeats)) {
-      return cur.beat + remaining * (cur.bpm / 60);
-    }
-    const segSeconds = segLenBeats * (60 / cur.bpm);
-    if (remaining < segSeconds) {
-      return cur.beat + remaining * (cur.bpm / 60);
-    }
-    remaining -= segSeconds;
-  }
-  return events.length > 0 ? events[events.length - 1].beat : 0;
+  return secondsTimeline(events).beatOfPosition(seconds);
 }
 
 /** 按键音事件：每个"会出声"的音符（普通/方向/滑条结点）平铺为音频秒，按时间升序 */

@@ -1,0 +1,185 @@
+// 谱面画布几何（纯逻辑，node 环境可单测）。
+// ADR-0003 候选 B：把 FinalVirtualCanvas 里"坐标变换 / 视口剔除 / 音符定位"从组件中
+// 抽成可测深厚模块；BPM→虚拟Y 用 BpmTimeline（候选 C）单一实现并缓存，避免每帧全量分段累加。
+//
+// 坐标系（issue 11）：虚拟坐标（X 原点=轨道内容左缘，Y 自下而上、beat 0 在判定线）↔ 画布坐标。
+import type { ChartNote } from '../notes/Charts';
+import { BpmTimeline, type BpmTimelineEvent } from './BpmTimeline';
+
+export const LANES = 7;
+export const BEAT_HEIGHT = 220; // 基准节拍高度
+export const LANE_WIDTH = 30;
+export const CANVAS_WIDTH = 750; // 谱面缓冲像素宽
+export const CANVAS_HEIGHT = 900; // 谱面缓冲像素高
+// 判定线（ADR-0004 §1）：固定画布底部，谱面随播放上移；常量 = 判定线距画布底部的像素偏移
+export const JUDGE_LINE_Y = CANVAS_HEIGHT - 60;
+// 轨道外壳/chrome 总宽度（原 12 处魔法表达式 (1+4+1+1+1+1) 收敛；轨道左右各一份）
+export const TRACK_CHROME_TOTAL = 1 + 4 + 1 + 1 + 1 + 1;
+// 视口剔除的上下左右外扩（虚拟单位）
+export const VIEWPORT_PADDING = 200;
+
+export interface GeometryViewport {
+  scrollX: number;
+  scrollY: number;
+  scale: number;
+}
+
+export interface GeometryPoint {
+  x: number;
+  y: number;
+}
+
+export interface GeometryBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+/**
+ * 谱面画布几何：构造时预计算 BPM→虚拟Y 像素时间线（仅依赖 BPM 事件与谱面末端，与缩放/滚动无关），
+ * 查询用二分缓存；缩放/滚动相关的变换由调用方传入 viewport。
+ */
+export class ChartGeometry {
+  readonly bpmEvents: readonly BpmTimelineEvent[];
+  readonly chartEndBeat: number;
+  /** BPM→虚拟像素时间线：每拍 BEAT_HEIGHT*120/bpm 像素 */
+  readonly timeline: BpmTimeline;
+  /** 谱面末端的真实 BPM 像素高度 */
+  readonly chartEndVirtualY: number;
+
+  constructor(bpmEvents: readonly BpmTimelineEvent[], chartEndBeat: number) {
+    this.bpmEvents = bpmEvents;
+    this.chartEndBeat = chartEndBeat;
+    this.timeline = new BpmTimeline(bpmEvents, (bpm) => (BEAT_HEIGHT * 120) / bpm);
+    this.chartEndVirtualY = this.timeline.positionOfBeat(chartEndBeat);
+  }
+
+  /** 轨道水平居中几何（唯一实现；trackBgX = 轨道内容左缘 = 虚拟X原点，见 issue 11） */
+  trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; trackBgX: number; trackBgWidth: number } {
+    const totalTrackWidth = LANES * LANE_WIDTH * scale + TRACK_CHROME_TOTAL * 2;
+    const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
+    const trackBgX = trackStartX + TRACK_CHROME_TOTAL;
+    const trackBgWidth = LANES * LANE_WIDTH * scale;
+    return { totalTrackWidth, trackStartX, trackBgX, trackBgWidth };
+  }
+
+  /** 缩放时的虚拟边界（ADR-0004 §3：总高随谱面末端自适应，滚动到顶时末端正好落在判定线） */
+  scaledVirtualBounds(scale: number): GeometryBounds {
+    const totalVirtualHeight = this.chartEndVirtualY + JUDGE_LINE_Y / scale;
+    const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
+    return { minY: 0, maxY: totalVirtualHeight, minX: 0, maxX: totalVirtualWidth };
+  }
+
+  /** 谱面总虚拟高度（chartEndVirtualY + 判定线偏移折回虚拟单位） */
+  totalVirtualHeight(scale: number): number {
+    return this.chartEndVirtualY + JUDGE_LINE_Y / scale;
+  }
+
+  /** beat → 虚拟Y（自下而上翻转：beat 0 在底部） */
+  beatToVirtualY(beat: number, scale: number): number {
+    return this.chartEndVirtualY + JUDGE_LINE_Y / scale - this.timeline.positionOfBeat(beat);
+  }
+
+  /** 虚拟Y → beat（与 beatToVirtualY 互逆） */
+  virtualYToBeat(virtualY: number, scale: number): number {
+    return this.timeline.beatOfPosition(this.chartEndVirtualY + JUDGE_LINE_Y / scale - virtualY);
+  }
+
+  /** 虚拟坐标 → 画布坐标 */
+  virtualToCanvas(virtualX: number, virtualY: number, viewport: GeometryViewport): GeometryPoint {
+    const { trackBgX } = this.trackGeometry(viewport.scale);
+    return {
+      x: trackBgX + (virtualX - viewport.scrollX) * viewport.scale,
+      y: (virtualY - viewport.scrollY) * viewport.scale,
+    };
+  }
+
+  /** 画布坐标 → 虚拟坐标 */
+  canvasToVirtual(canvasX: number, canvasY: number, viewport: GeometryViewport): GeometryPoint {
+    const { trackBgX } = this.trackGeometry(viewport.scale);
+    return {
+      x: (canvasX - trackBgX) / viewport.scale + viewport.scrollX,
+      y: canvasY / viewport.scale + viewport.scrollY,
+    };
+  }
+
+  /** 视口可见范围（虚拟坐标，含外扩 padding） */
+  viewportBounds(viewport: GeometryViewport): GeometryBounds {
+    const padding = VIEWPORT_PADDING / viewport.scale;
+    const sb = this.scaledVirtualBounds(viewport.scale);
+    return {
+      minX: Math.max(sb.minX, viewport.scrollX - padding),
+      maxX: Math.min(sb.maxX, viewport.scrollX + CANVAS_WIDTH / viewport.scale + padding),
+      minY: Math.max(sb.minY, viewport.scrollY - padding),
+      maxY: Math.min(sb.maxY, viewport.scrollY + CANVAS_HEIGHT / viewport.scale + padding),
+    };
+  }
+
+  /** lane → 音符中心虚拟X */
+  noteVirtualX(lane: number): number {
+    return lane * LANE_WIDTH + LANE_WIDTH / 2;
+  }
+
+  /** beat(+subBeat) → 音符中心虚拟Y */
+  noteVirtualY(beat: number, subBeat: number, scale: number, beatDisplay: number): number {
+    const preciseBeat = beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
+    return this.beatToVirtualY(preciseBeat, scale);
+  }
+
+  /** 画布坐标 → lane/beat（用于命中与圈选）；轨道外/负拍返回 null */
+  laneBeatFromCanvas(cx: number, cy: number, viewport: GeometryViewport, beatDisplay: number): { lane: number; preciseBeat: number } | null {
+    const { trackBgX } = this.trackGeometry(viewport.scale);
+    const relativeX = cx - trackBgX;
+    const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
+    const virtualY = viewport.scrollY + cy / viewport.scale;
+    const beat = this.virtualYToBeat(virtualY, viewport.scale);
+    if (lane >= 0 && lane < LANES && beat >= 0) {
+      const nearestSubBeat = Math.round(beat * beatDisplay);
+      return { lane, preciseBeat: nearestSubBeat / beatDisplay };
+    }
+    return null;
+  }
+
+  /** 音符的虚拟坐标点集合（用于命中测试/圈选） */
+  noteVirtualPoints(note: ChartNote, scale: number, beatDisplay: number): GeometryPoint[] {
+    if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
+      return [{ x: this.noteVirtualX(note.lane), y: this.noteVirtualY(note.beat, note.subBeat || 0, scale, beatDisplay) }];
+    }
+    if (note.type === 'Slide' || note.type === 'Long') {
+      return note.connections.map((c) => ({
+        x: this.noteVirtualX(c.lane),
+        y: this.noteVirtualY(c.beat, c.subBeat || 0, scale, beatDisplay),
+      }));
+    }
+    if (note.type === 'BPM') {
+      return [{ x: this.noteVirtualX(0), y: this.noteVirtualY(note.beat, 0, scale, beatDisplay) }];
+    }
+    return [];
+  }
+
+  /** 视口剔除：只返回可见区域内的音符（含 index 供选中/编辑用） */
+  visibleNotes(notes: readonly ChartNote[], viewport: GeometryViewport, beatDisplay: number): { note: ChartNote; index: number }[] {
+    const bounds = this.viewportBounds(viewport);
+    const visible: { note: ChartNote; index: number }[] = [];
+    notes.forEach((note, index) => {
+      let isVisible = false;
+      if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
+        const y = this.noteVirtualY(note.beat, note.subBeat || 0, viewport.scale, beatDisplay);
+        const x = this.noteVirtualX(note.lane);
+        isVisible = y >= bounds.minY && y <= bounds.maxY && x >= bounds.minX && x <= bounds.maxX;
+      } else if (note.type === 'Slide' || note.type === 'Long') {
+        isVisible = note.connections.some((c) => {
+          const y = this.noteVirtualY(c.beat, c.subBeat || 0, viewport.scale, beatDisplay);
+          const x = this.noteVirtualX(c.lane);
+          return y >= bounds.minY && y <= bounds.maxY && x >= bounds.minX && x <= bounds.maxX;
+        });
+      } else if (note.type === 'BPM') {
+        const y = this.noteVirtualY(note.beat, 0, viewport.scale, beatDisplay);
+        isVisible = y >= bounds.minY && y <= bounds.maxY;
+      }
+      if (isVisible) visible.push({ note, index });
+    });
+    return visible;
+  }
+}
