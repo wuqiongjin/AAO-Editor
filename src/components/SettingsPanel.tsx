@@ -4,6 +4,7 @@ import {
   exportConfig, formatKey, setCapturingShortcut, type FunctionId,
 } from '../utils/ShortcutConfig';
 import { useConfig } from '../contexts';
+import type { AppSettings } from '../utils/AppSettings';
 
 // M1 收口（ADR-0003 §7）：config / onClose 经 hooks 直读，外部仅传关闭回调
 interface SettingsPanelProps {
@@ -11,15 +12,15 @@ interface SettingsPanelProps {
 }
 
 const MODAL_STYLE: React.CSSProperties = {
-  position: 'fixed', inset: 0, zIndex: 1000,
-  backgroundColor: 'rgba(0,0,0,0.45)',
+  position: 'fixed', inset: 0, zIndex: 'var(--z-modal)',
+  backgroundColor: 'rgba(12, 14, 17, 0.5)',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 const PANEL_STYLE: React.CSSProperties = {
-  backgroundColor: '#ffffff', borderRadius: '8px',
+  backgroundColor: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)',
   width: '620px', maxHeight: '80vh', overflowY: 'auto',
-  padding: '16px 20px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-  fontFamily: 'system-ui, sans-serif', fontSize: '14px',
+  padding: 'var(--space-4) var(--space-5)', boxShadow: 'var(--shadow-lg)',
+  fontFamily: 'var(--font-sans)', fontSize: 'var(--text-base)', color: 'var(--text)',
 };
 
 /** 由按键事件构建规范绑定串（小写修饰键 + 小写主键）；纯修饰键返回 null。React 与原生 KeyboardEvent 结构兼容。 */
@@ -35,9 +36,11 @@ function comboFromKeyEvent(e: { key: string; ctrlKey: boolean; metaKey: boolean;
 
 const KEY_DISPLAY_STYLE: React.CSSProperties = {
   width: '150px', boxSizing: 'border-box',
-  fontFamily: '"SF Mono", Consolas, Menlo, monospace', fontSize: '13px', fontWeight: 600,
-  background: '#f1f5f9', color: '#1e293b', borderRadius: '6px',
-  padding: '4px 8px', border: '1px solid #cbd5e1', textAlign: 'center', cursor: 'pointer',
+  fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', fontWeight: 600,
+  fontVariantNumeric: 'tabular-nums',
+  background: 'var(--bg-inset)', color: 'var(--text)', borderRadius: 'var(--radius-sm)',
+  padding: '4px 8px', border: '1px solid var(--border-strong)', textAlign: 'center', cursor: 'pointer',
+  transition: 'background-color var(--dur) var(--ease), border-color var(--dur) var(--ease)',
 };
 
 /** 快捷键显示块（键帽样式）：点击后打开独立记录弹窗（类 VSCode）；disabled 时显示已屏蔽 */
@@ -45,7 +48,7 @@ function ShortcutDisplay({ value, hasError, onClick }: {
   value: string; hasError: boolean; onClick: () => void;
 }) {
   const style = hasError
-    ? { ...KEY_DISPLAY_STYLE, borderColor: '#dc2626', color: '#dc2626' }
+    ? { ...KEY_DISPLAY_STYLE, borderColor: 'var(--danger)', color: 'var(--danger-text)' }
     : KEY_DISPLAY_STYLE;
   return (
     <button type="button" style={style} onClick={onClick} title="点击修改快捷键">
@@ -57,7 +60,7 @@ function ShortcutDisplay({ value, hasError, onClick }: {
 /** 已屏蔽占位 */
 function ShortcutDisabled() {
   return (
-    <span style={{ width: '150px', display: 'inline-block', textAlign: 'center', color: '#9ca3af', fontSize: '13px', fontStyle: 'italic' }}>
+    <span style={{ width: '150px', display: 'inline-block', textAlign: 'center', color: 'var(--text-subtle)', fontSize: 'var(--text-sm)', fontStyle: 'italic' }}>
       已屏蔽
     </span>
   );
@@ -104,22 +107,22 @@ function ShortcutRecorder({ id, onCommit, onCancel }: {
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 1100, backgroundColor: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 'var(--z-recorder)', backgroundColor: 'rgba(12,14,17,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onClick={onCancel}
     >
       <div
         style={{
-          backgroundColor: '#ffffff', borderRadius: '12px', padding: '28px 44px',
-          border: '2px solid #3b82f6', boxShadow: '0 16px 40px rgba(15,23,42,0.25)',
-          textAlign: 'center', fontFamily: '"SF Mono", Consolas, Menlo, monospace',
+          backgroundColor: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)', padding: '28px 44px',
+          border: '2px solid var(--accent)', boxShadow: 'var(--shadow-lg)',
+          textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--text)',
         }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ fontSize: '38px', fontWeight: 700, marginBottom: '16px', color: '#2563eb' }}>
+        <div style={{ fontSize: '38px', fontWeight: 700, marginBottom: '16px', color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
           {draft ? formatKey(draft) : '…'}
         </div>
-        <div style={{ fontSize: '13px', color: '#475569' }}>先按所需的组合键，再按 enter 键。</div>
-        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '12px' }}>{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>先按所需的组合键，再按 enter 键。</div>
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', marginTop: '12px' }}>{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
       </div>
     </div>
   );
@@ -132,8 +135,9 @@ function ShortcutRecorder({ id, onCommit, onCancel }: {
  */
 export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   // M1 收口：直读 ConfigContext / UIContext，组件对外只暴露关闭回调
-  const { settings, setShortcutConfig } = useConfig();
+  const { settings, setShortcutConfig, setTheme } = useConfig();
   const config = settings.shortcuts;
+  const theme = settings.theme;
   const onChange = setShortcutConfig;
   const [query, setQuery] = useState('');
   const [error, setError] = useState<{ id: FunctionId; msg: string } | null>(null);
@@ -190,12 +194,54 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
     URL.revokeObjectURL(url);
   };
 
+  const themeOptions: Array<{ value: AppSettings['theme']; label: string }> = [
+    { value: 'light', label: '亮色' },
+    { value: 'dark', label: '暗色' },
+    { value: 'system', label: '跟随系统' },
+  ];
+
   return (
     <div style={MODAL_STYLE} onClick={onClose}>
       <div style={PANEL_STYLE} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <h3 style={{ margin: 0, fontSize: '16px' }}>快捷键设置</h3>
+          <h3 style={{ margin: 0, fontSize: 'var(--text-lg)' }}>快捷键设置</h3>
           <button onClick={onClose} style={closeBtnStyle}>关闭</button>
+        </div>
+
+        {/* 外观 / 主题（ADR-0003 §5） */}
+        <div style={{
+          border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+          padding: 'var(--space-3) var(--space-4)', marginBottom: 'var(--space-3)',
+        }}>
+          <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 'var(--space-2)' }}>外观 / 主题</div>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            {themeOptions.map(o => {
+              const active = theme === o.value;
+              return (
+                <button
+                  key={o.value}
+                  onClick={() => setTheme(o.value)}
+                  style={{
+                    padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-sm)',
+                    border: active ? '1px solid var(--accent)' : '1px solid var(--border)',
+                    backgroundColor: active ? 'var(--accent-soft)' : 'var(--bg-inset)',
+                    color: active ? 'var(--accent-text)' : 'var(--text)',
+                    cursor: 'pointer', fontSize: 'var(--text-sm)', fontFamily: 'inherit',
+                    display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+                    transition: 'background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    checked={active}
+                    onChange={() => setTheme(o.value)}
+                    style={{ accentColor: 'var(--accent)', margin: 0, cursor: 'pointer' }}
+                  />
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', alignItems: 'center' }}>
@@ -203,7 +249,11 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
             placeholder="搜索功能名称…"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            style={{ flex: 1, border: '1px solid #d1d5db', borderRadius: '4px', padding: '5px 8px', fontSize: '13px' }}
+            style={{
+              flex: 1, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+              padding: '5px 8px', fontSize: 'var(--text-sm)', backgroundColor: 'var(--bg-inset)', color: 'var(--text)',
+              outline: 'none', transition: 'border-color var(--dur) var(--ease)',
+            }}
           />
           <button style={toolBtnStyle} onClick={handleExport}>导出 JSON</button>
           <button style={toolBtnStyle} onClick={() => fileRef.current?.click()}>导入 JSON</button>
@@ -214,24 +264,24 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           />
         </div>
 
-        <div style={{ color: '#6b7280', fontSize: '12px', marginBottom: '10px' }}>
+        <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', marginBottom: '10px' }}>
           点击右侧键位框，在弹出的弹窗中按下想要的组合键，再按 Enter 确认（不区分大小写）。
         </div>
 
         {error && (
-          <div style={{ color: '#dc2626', marginBottom: '10px', fontSize: '13px' }}>{error.msg}</div>
+          <div style={{ color: 'var(--danger-text)', marginBottom: '10px', fontSize: 'var(--text-sm)' }}>{error.msg}</div>
         )}
 
         {visible.length === 0 && (
-          <div style={{ color: '#6b7280', padding: '12px 0' }}>无匹配功能</div>
+          <div style={{ color: 'var(--text-muted)', padding: '12px 0' }}>无匹配功能</div>
         )}
 
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ color: '#6b7280', fontSize: '12px', textAlign: 'left' }}>
-              <th style={{ padding: '4px 6px', borderBottom: '1px solid #e5e7eb' }}>功能</th>
-              <th style={{ padding: '4px 6px', borderBottom: '1px solid #e5e7eb' }}>快捷键</th>
-              <th style={{ padding: '4px 6px', borderBottom: '1px solid #e5e7eb', textAlign: 'center', width: '70px' }}>启用</th>
+            <tr style={{ color: 'var(--text-subtle)', fontSize: 'var(--text-xs)', textAlign: 'left' }}>
+              <th style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)' }}>功能</th>
+              <th style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)' }}>快捷键</th>
+              <th style={{ padding: '4px 6px', borderBottom: '1px solid var(--border)', textAlign: 'center', width: '70px' }}>启用</th>
             </tr>
           </thead>
           <tbody>
@@ -239,11 +289,11 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
               const bound = config[f.id] !== null;
               return (
                 <tr key={f.id} style={{ opacity: bound ? 1 : 0.55 }}>
-                  <td style={{ padding: '6px', borderBottom: '1px solid #f3f4f6' }}>
-                    <span style={{ color: '#9ca3af', fontSize: '12px', marginRight: '8px' }}>{f.category}</span>
+                  <td style={{ padding: '6px', borderBottom: '1px solid var(--border-faint)' }}>
+                    <span style={{ color: 'var(--text-subtle)', fontSize: 'var(--text-xs)', marginRight: '8px' }}>{f.category}</span>
                     {f.label}
                   </td>
-                  <td style={{ padding: '6px', borderBottom: '1px solid #f3f4f6' }}>
+                  <td style={{ padding: '6px', borderBottom: '1px solid var(--border-faint)' }}>
                     {bound
                       ? <ShortcutDisplay
                           value={config[f.id] as string}
@@ -252,12 +302,13 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
                         />
                       : <ShortcutDisabled />}
                   </td>
-                  <td style={{ padding: '6px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>
-                    <label style={{ fontSize: '12px', color: '#4b5563', cursor: 'pointer' }}>
+                  <td style={{ padding: '6px', borderBottom: '1px solid var(--border-faint)', textAlign: 'center' }}>
+                    <label style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', cursor: 'pointer' }}>
                       <input
                         type="checkbox"
                         checked={bound}
                         onChange={e => setEnabled(f.id, e.target.checked)}
+                        style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
                       />
                     </label>
                   </td>
@@ -280,8 +331,12 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 }
 
 const closeBtnStyle: React.CSSProperties = {
-  border: '1px solid #d1d5db', background: '#f3f4f6', borderRadius: '4px', padding: '2px 10px', cursor: 'pointer',
+  border: '1px solid var(--border)', background: 'var(--bg-inset)', color: 'var(--text)',
+  borderRadius: 'var(--radius-sm)', padding: '2px 10px', cursor: 'pointer', fontFamily: 'inherit',
+  transition: 'background-color var(--dur) var(--ease)',
 };
 const toolBtnStyle: React.CSSProperties = {
-  border: '1px solid #d1d5db', background: '#ffffff', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer',
+  border: '1px solid var(--border)', background: 'var(--bg-inset)', color: 'var(--text)',
+  borderRadius: 'var(--radius-sm)', padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit',
+  fontSize: 'var(--text-xs)', transition: 'background-color var(--dur) var(--ease)',
 };

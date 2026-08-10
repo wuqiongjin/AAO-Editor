@@ -425,7 +425,7 @@ function renderSlideGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCt
   conns.forEach(conn => {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
     const icon = { ...CanvasSlideLineIcons.endpoint, ...(conn.flick ? CanvasNoteIcons.flick : {}), ...(conn.skill ? CanvasNoteIcons.skill : {}) };
-    renderSpriteGhost(ctx, c, rc, icon, cpt.x, cpt.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
+    renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
   });
 }
 
@@ -436,14 +436,14 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     let icon = BaseSpriteIcons.tap;
     if (note.flick) icon = BaseSpriteIcons.flick;
     else if (note.skill) icon = BaseSpriteIcons.skill;
-    renderSpriteGhost(ctx, c, rc, icon, cpt.x, cpt.y, NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE);
+    renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE);
   } else if (note.type === "LDirectional" || note.type === "RDirectional") {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
     const len = note.length || 1;
     const icon = note.type === "LDirectional"
       ? (len === 1 ? CanvasNoteIcons.leftFlickL1 : len === 2 ? CanvasNoteIcons.leftFlickL2 : CanvasNoteIcons.leftFlickL3)
       : (len === 1 ? CanvasNoteIcons.rightFlickR1 : len === 2 ? CanvasNoteIcons.rightFlickR2 : CanvasNoteIcons.rightFlickR3);
-    renderSpriteGhost(ctx, c, rc, icon, cpt.x, cpt.y, DIRECTIONAL_ICON_SIZE, DIRECTIONAL_HEIGHT_SCALE);
+    renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, DIRECTIONAL_ICON_SIZE, DIRECTIONAL_HEIGHT_SCALE);
   } else if (note.type === "Slide" || note.type === "Long") {
     renderSlideGhost(ctx, c, rc, note);
   }

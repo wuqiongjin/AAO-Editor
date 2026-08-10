@@ -35,38 +35,41 @@ export default function PlayBar({
 
   return (
     <div style={{
-      height: '32px',
-      backgroundColor: '#1f2937',
-      color: '#e5e7eb',
+      height: 'var(--playbar-h)',
+      backgroundColor: 'var(--bg-elevated)',
+      color: 'var(--text)',
       display: 'flex',
       alignItems: 'center',
-      gap: '12px',
-      padding: '0 12px',
-      fontSize: '12px',
+      gap: 'var(--space-3)',
+      padding: '0 var(--space-3)',
+      fontSize: 'var(--text-xs)',
       flexShrink: 0,
-      borderTop: '1px solid #374151',
+      borderTop: '1px solid var(--border)',
     }}>
       {/* 播放/暂停 */}
       <button
         onClick={onTogglePlay}
         title="播放/暂停"
         style={{
-          background: '#374151', color: '#e5e7eb', border: 'none',
-          borderRadius: 4, width: 26, height: 26, cursor: 'pointer',
+          background: 'var(--bg-inset)', color: 'var(--text)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-sm)', width: 26, height: 26, cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
         }}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-inset)')}
       >
         {isPlaying ? <Pause size={16} /> : <Play size={16} />}
       </button>
 
       {/* 时间码 */}
-      <span style={{ color: '#9ca3af', fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
         {formatTime(currentSeconds)} / {formatTime(duration)}
       </span>
 
       {/* 无音频：时长可改（会话级） */}
       {!canPlay && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#9ca3af' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}>
           时长
           <input
             type="number"
@@ -75,8 +78,10 @@ export default function PlayBar({
             onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) onDurationChange(v); }}
             title="无音频时设置谱面播放时长（仅本次会话）"
             style={{
-              width: 56, background: '#111827', color: '#e5e7eb', border: '1px solid #4b5563',
-              borderRadius: 4, padding: '2px 4px', fontSize: 12,
+              width: 56, background: 'var(--bg-inset)', color: 'var(--text)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)', padding: '2px 4px', fontSize: 'var(--text-xs)',
+              fontVariantNumeric: 'tabular-nums', outline: 'none',
+              transition: 'border-color var(--dur) var(--ease)',
             }}
           />
           <span>s</span>
@@ -84,7 +89,7 @@ export default function PlayBar({
       )}
 
       {/* 音量 */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#9ca3af' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}>
         音量
         <input
           type="range"
@@ -93,17 +98,20 @@ export default function PlayBar({
           step={0.05}
           value={volume}
           onChange={e => onVolumeChange(parseFloat(e.target.value))}
-          style={{ width: 90 }}
+          style={{ width: 90, accentColor: 'var(--accent)' }}
         />
       </label>
 
       {/* 键音素材切换：经 ConfigContext 持久化 + 引擎回调（Editor 处理） */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#9ca3af' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}>
         素材
         <select
           value={keySetId}
           onChange={e => { setKeySetId(e.target.value); onKeySetChange(e.target.value); }}
-          style={{ background: '#111827', color: '#e5e7eb', border: '1px solid #4b5563', borderRadius: 4, padding: '2px 4px', fontSize: 12 }}
+          style={{
+            background: 'var(--bg-inset)', color: 'var(--text)', border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)', padding: '2px 4px', fontSize: 'var(--text-xs)', cursor: 'pointer',
+          }}
         >
           {KEY_SOUND_SETS.map(s => (
             <option key={s.id} value={s.id}>{s.label}</option>
@@ -112,7 +120,7 @@ export default function PlayBar({
       </label>
 
       {/* 起点标记提示 */}
-      <span style={{ color: markerBeat !== null ? '#ffd166' : '#6b7280', marginLeft: 'auto' }}>
+      <span style={{ color: markerBeat !== null ? 'var(--warning)' : 'var(--text-subtle)', marginLeft: 'auto' }}>
         {markerBeat !== null
           ? `起点标记 @ ${markerBeat.toFixed(2)} 拍 · 回跳 ${formatKey(shortcutConfig.jumpToMarker)}`
           : '双击左沟槽设置起点标记'}

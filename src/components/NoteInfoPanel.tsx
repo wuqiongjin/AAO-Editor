@@ -1,8 +1,53 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, Copy, RotateCcw } from "lucide-react";
 import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes } from "../utils/ChartConverter";
 import { useEditing } from "../contexts";
 import { selectionNoteIndices } from "../utils/SelectionEditing";
+
+/** 动作按钮（primary=强调实底 / danger=危险 / 默认=中性描边），带 hover/pressed 令牌化样式 */
+function ActionBtn({ children, onClick, disabled, variant }: {
+  children: ReactNode; onClick: () => void; disabled?: boolean;
+  variant?: 'primary' | 'danger';
+}) {
+  const [hover, setHover] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  let bg = 'var(--bg-inset)';
+  let fg = 'var(--text)';
+  let border = '1px solid var(--border)';
+  if (variant === 'primary') {
+    bg = hover ? 'var(--accent-hover)' : 'var(--accent)';
+    fg = 'var(--text-on-accent)';
+    border = '1px solid transparent';
+  } else if (variant === 'danger') {
+    bg = hover ? 'var(--danger)' : 'var(--danger-soft)';
+    fg = 'var(--danger-text)';
+    border = '1px solid transparent';
+  } else {
+    bg = hover ? 'var(--bg-hover)' : 'var(--bg-inset)';
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: 'var(--space-2) var(--space-3)',
+        backgroundColor: bg, color: fg, border, borderRadius: 'var(--radius-sm)',
+        fontSize: 'var(--text-sm)', fontFamily: 'inherit', cursor: disabled ? 'not-allowed' : 'pointer',
+        display: 'flex', alignItems: 'center', gap: 'var(--space-1)', opacity: disabled ? 0.5 : 1,
+        transform: pressed ? 'scale(0.98)' : undefined,
+        transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease)',
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => { setHover(false); setPressed(false); }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+    >
+      {children}
+    </button>
+  );
+}
 
 // M1 收口（ADR-0003 §7）：notes / 选中条目直读 EditingContext，组件不再接收 selectedNotes/notes/onNotesChange props
 
@@ -239,73 +284,76 @@ export default function NoteInfoPanel() {
     };
 
     return (
-        <div className="h-full flex flex-col">
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 'var(--space-3)' }}>
             {/* 音符信息区块 */}
-            <div className="bg-white border-b border-gray-200 shadow-sm">
-                <div className="p-4 border-b border-gray-100">
-                    <h3 className="text-lg font-semibold mb-2 text-gray-800">音符信息</h3>
+            <div style={{
+                backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden',
+            }}>
+                <div style={{ padding: 'var(--space-3) var(--space-4)', borderBottom: '1px solid var(--border)' }}>
+                    <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>音符信息</h3>
                 </div>
 
-                <div className="p-4">
+                <div style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                     {/* 组合状态切换 */}
-                    <div className="mb-4">
-                        <label className="flex items-center">
-                            <input
-                                type="checkbox"
-                                checked={isCombinationMode}
-                                onChange={(e) => setIsCombinationMode(e.target.checked)}
-                                className="mr-2"
-                            />
-                            组合状态
-                        </label>
-                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
+                            checked={isCombinationMode}
+                            onChange={(e) => setIsCombinationMode(e.target.checked)}
+                            style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
+                        />
+                        组合状态
+                    </label>
 
                     {/* 选中音符数量 */}
-                    <div className="mb-4">
-                        <span className="text-sm text-gray-600">
+                    <div>
+                        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
                             已选中 {selectedNotes.length} 个音符
                         </span>
                     </div>
 
                     {/* 操作按钮 */}
-                    <div className="space-y-2">
-                        <button
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                        <ActionBtn
                             onClick={handleDeleteSelected}
                             disabled={selectedNotes.length === 0}
-                            className="w-full px-3 py-2 bg-red-500 text-white rounded disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-red-600 transition-colors"
-                        >
-                            删除选中
-                        </button>
-                        <button
+                            variant="danger"
+                        >删除选中</ActionBtn>
+                        <ActionBtn
                             onClick={handleMirrorSelected}
                             disabled={selectedNotes.length === 0}
-                            className="w-full px-3 py-2 bg-blue-500 text-white rounded disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-600 transition-colors"
-                        >
-                            镜像选中
-                        </button>
+                        >镜像选中</ActionBtn>
                     </div>
                 </div>
 
                 {/* 选中音符详情 */}
-                <div className="max-h-64 overflow-y-auto p-4 bg-gray-50">
+                <div style={{
+                    maxHeight: 256, overflowY: 'auto', padding: 'var(--space-3) var(--space-4)',
+                    borderTop: '1px solid var(--border)', backgroundColor: 'var(--bg-inset)',
+                }}>
                     {selectedNoteObjects.length > 0 ? (
-                        <div className="space-y-3">
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                             {selectedNoteObjects.map((note, index) => (
-                                <div key={index} className="p-3 bg-white rounded border shadow-sm">
-                                    <div className="font-medium text-gray-800">
+                                <div key={index} style={{
+                                    padding: 'var(--space-3)', backgroundColor: 'var(--bg-elevated)',
+                                    borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
+                                    boxShadow: 'var(--shadow-sm)',
+                                }}>
+                                    <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
                                         {note.type === "Single" && "单键音符"}
                                         {note.type === "Slide" && "滑条音符"}
                                         {note.type === "BPM" && "BPM标记"}
                                     </div>
                                     {note.type === "Single" && (
-                                        <div className="text-sm text-gray-600 mt-1">
+                                        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)', fontVariantNumeric: 'tabular-nums' }}>
                                             <div>轨道: {note.lane}</div>
                                             <div>节拍: {note.beat}</div>
-                                            {note.flick && <div className="text-red-500">滑键</div>}
+                                            {note.flick && <div style={{ color: 'var(--danger-text)' }}>滑键</div>}
                                         </div>
                                     )}
                                     {note.type === "Slide" && (
-                                        <div className="text-sm text-gray-600 mt-1">
+                                        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)', fontVariantNumeric: 'tabular-nums' }}>
                                             <div>连接点: {note.connections.length}</div>
                                             {note.connections.map((conn, i) => (
                                                 <div key={i}>
@@ -315,7 +363,7 @@ export default function NoteInfoPanel() {
                                         </div>
                                     )}
                                     {note.type === "BPM" && (
-                                        <div className="text-sm text-gray-600 mt-1">
+                                        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)', fontVariantNumeric: 'tabular-nums' }}>
                                             <div>节拍: {note.beat}</div>
                                             <div>BPM: {note.bpm}</div>
                                         </div>
@@ -324,42 +372,46 @@ export default function NoteInfoPanel() {
                             ))}
                         </div>
                     ) : (
-                        <div className="text-gray-500 text-center py-8">
+                        <div style={{ color: 'var(--text-subtle)', textAlign: 'center', padding: 'var(--space-8) 0', fontSize: 'var(--text-sm)' }}>
+                            未选中音符
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* 分割线 */}
-            <div className="border-t border-gray-200"></div>
-
             {/* 谱面代码编辑器区块 */}
-            <div className={`bg-white transition-all duration-300 ${isCodeEditorCollapsed ? 'flex-shrink-0' : 'flex-1'}`}>
-                <div className="p-4 border-b border-gray-100">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold text-gray-800">谱面代码编辑器
-                            <button
-                                onClick={() => setIsCodeEditorCollapsed(!isCodeEditorCollapsed)}
-                                className="ml-2 p-1 hover:bg-gray-100 rounded transition-colors"
-                                title={isCodeEditorCollapsed ? "展开" : "折叠"}
-                            >
-                                {isCodeEditorCollapsed ? (
-                                    <ChevronDown size={20} className="text-gray-500" />
-                                ) : (
-                                    <ChevronUp size={20} className="text-gray-500" />
-                                )}
-                            </button>
-                        </h3>
-                    </div>
+            <div style={{
+                backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)',
+                display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                flex: isCodeEditorCollapsed ? '0 0 auto' : 1, minHeight: isCodeEditorCollapsed ? 'auto' : 0,
+                transition: 'flex var(--dur) var(--ease)',
+            }}>
+                <div style={{ padding: 'var(--space-3) var(--space-4)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>谱面代码编辑器</h3>
+                    <button
+                        onClick={() => setIsCodeEditorCollapsed(!isCodeEditorCollapsed)}
+                        title={isCodeEditorCollapsed ? "展开" : "折叠"}
+                        style={{
+                            width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                            backgroundColor: 'transparent', color: 'var(--text-muted)',
+                            transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                        {isCodeEditorCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                    </button>
                 </div>
 
                 {!isCodeEditorCollapsed && (
-                    <div className="flex flex-col h-full">
+                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
                         {/* 错误信息 */}
                         {!isValid && validationErrors.length > 0 && (
-                            <div className="p-3 bg-red-50 border-b border-red-200">
-                                <h4 className="font-semibold text-red-800 mb-2 text-sm">错误信息:</h4>
-                                <ul className="text-xs text-red-700 space-y-1">
+                            <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--danger-soft)', borderBottom: '1px solid var(--danger)', color: 'var(--danger-text)' }}>
+                                <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>错误信息:</h4>
+                                <ul style={{ margin: 0, paddingLeft: 'var(--space-4)', fontSize: 'var(--text-xs)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
                                     {validationErrors.map((error, index) => (
                                         <li key={index}>• {error}</li>
                                     ))}
@@ -368,56 +420,36 @@ export default function NoteInfoPanel() {
                         )}
 
                         {/* 代码编辑器 */}
-                        <div className="flex-1 p-4">
+                        <div style={{ flex: 1, padding: 'var(--space-3)', minHeight: 0 }}>
                             <textarea
                                 ref={textareaRef}
                                 value={chartCode}
                                 onChange={handleCodeChange}
                                 onKeyDown={handleKeyDown}
-                                className="w-full h-full p-3 border border-gray-300 rounded font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                spellCheck={false}
                                 placeholder="谱面代码将在这里显示..."
                                 style={{
-                                    scrollbarWidth: 'thin',
-                                    scrollbarColor: '#9ca3af #e5e7eb',
-                                    minHeight: '300px',
-                                    width: '90%',
-                                    height: '100%',
-                                    tabSize: 4,
+                                    width: '100%', height: '100%', minHeight: 260, boxSizing: 'border-box', resize: 'none',
+                                    padding: 'var(--space-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                                    backgroundColor: 'var(--bg-inset)', color: 'var(--text)',
+                                    fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', lineHeight: 1.6,
+                                    tabSize: 4, outline: 'none',
+                                    transition: 'border-color var(--dur) var(--ease)',
                                 }}
-                                spellCheck={false}
                             />
                         </div>
 
                         {/* 工具栏 */}
-                        <div className="p-4 border-t border-gray-200 bg-gray-50">
-                            <div className="flex gap-2 flex-wrap">
-                                <button
-                                    onClick={handleApply}
-                                    disabled={!isValid}
-                                    className="px-4 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    应用更改
-                                </button>
-                                <button
-                                    onClick={handleReset}
-                                    className="px-4 py-2 bg-gray-500 text-white text-sm rounded hover:bg-gray-600 transition-colors"
-                                >
-                                    <RotateCcw size={16} className="inline mr-1" />
-                                    重置
-                                </button>
-                                <button
-                                    onClick={handleCopy}
-                                    className="px-4 py-2 bg-purple-500 text-white text-sm rounded hover:bg-purple-600 transition-colors"
-                                >
-                                    <Copy size={16} className="inline mr-1" />
-                                    复制
-                                </button>
-                                {isDirty && (
-                                    <span className="px-3 py-2 text-orange-600 text-sm flex items-center">
-                                        未保存的更改
-                                    </span>
-                                )}
-                            </div>
+                        <div style={{
+                            padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-inset)', display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center',
+                        }}>
+                            <ActionBtn onClick={handleApply} disabled={!isValid} variant="primary">应用更改</ActionBtn>
+                            <ActionBtn onClick={handleReset}><RotateCcw size={16} />重置</ActionBtn>
+                            <ActionBtn onClick={handleCopy}><Copy size={16} />复制</ActionBtn>
+                            {isDirty && (
+                                <span style={{ color: 'var(--warning)', fontSize: 'var(--text-xs)' }}>未保存的更改</span>
+                            )}
                         </div>
                     </div>
                 )}

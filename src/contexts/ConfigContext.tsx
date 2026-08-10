@@ -9,6 +9,7 @@ export interface ConfigContextValue {
   settings: AppSettings;
   setShortcutConfig: (next: ShortcutConfig) => void;
   setKeySetId: (id: string) => void;
+  setTheme: (theme: AppSettings['theme']) => void;
 }
 
 const ConfigContext = createContext<ConfigContextValue | null>(null);
@@ -32,10 +33,18 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const setTheme = (theme: AppSettings['theme']) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { theme });
+      saveSettings(merged);
+      return merged;
+    });
+  };
+
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

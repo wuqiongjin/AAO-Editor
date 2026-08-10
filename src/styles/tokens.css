@@ -1,0 +1,189 @@
+/* ============================================================
+   design tokens（ADR-0003 §4/§5）
+   零运行时样式依赖：全站唯一色值/间距/圆角/字号/阴影出处。
+   - 亮色为默认（ADR-0003 视觉定稿：亮为主，暗为辅）
+   - 暗色经 [data-theme="dark"] 覆盖
+   - 谱面画布始终固定深色（--canvas-bg），不随主题变化
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- 中性色（单一冷灰家族，避免冷暖混用） ---- */
+  --bg: #f6f7f9;            /* 页面/面板底色 */
+  --bg-elevated: #ffffff;   /* 卡片/弹窗/浮层 */
+  --bg-hover: #eef0f3;      /* hover 底色 */
+  --bg-active: #e3e6eb;     /* 按下/选中底色 */
+  --bg-inset: #f1f3f6;      /* 内嵌输入区 */
+  --border: #e4e7ec;        /* 常规边框 */
+  --border-strong: #cdd3dd; /* 强调边框 */
+  --border-faint: #eef0f4;  /* 最弱分隔 */
+
+  /* ---- 文字 ---- */
+  --text: #1f2633;
+  --text-muted: #5c6573;
+  --text-subtle: #929aa8;
+  --text-inverse: #ffffff;
+  --text-on-accent: #06324a;
+
+  /* ---- 单一强调色（青色系，脱 AI 蓝紫模板） ---- */
+  --accent: #0d9fd6;
+  --accent-hover: #0a86b8;
+  --accent-active: #0874a3;
+  --accent-soft: #dff3fc;        /* 强调色浅底（选中/激活） */
+  --accent-text: #075e83;        /* 强调色上的文字 */
+  --focus-ring: rgba(13, 159, 214, 0.45);
+
+  /* ---- 语义色 ---- */
+  --danger: #e5484d;
+  --danger-soft: #fde3e3;
+  --danger-text: #b42318;
+  --warning: #e08900;
+  --warning-soft: #fdeeda;
+  --success: #1a9e6b;
+
+  /* ---- 谱面画布（固定深色，两主题一致） ---- */
+  --canvas-bg: #0c0e11;
+  --canvas-border: #20242b;
+
+  /* ---- 间距 scale ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* ---- 圆角（内紧外松） ---- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  /* ---- 字号 ---- */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+
+  /* ---- 字体 ---- */
+  --font-sans: "Inter", "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", Consolas, "Menlo", monospace;
+
+  /* ---- 阴影（带底色色相，非纯黑） ---- */
+  --shadow-sm: 0 1px 2px rgba(20, 26, 38, 0.06), 0 1px 3px rgba(20, 26, 38, 0.06);
+  --shadow-md: 0 4px 12px rgba(20, 26, 38, 0.08), 0 2px 4px rgba(20, 26, 38, 0.05);
+  --shadow-lg: 0 16px 40px rgba(20, 26, 38, 0.16), 0 6px 16px rgba(20, 26, 38, 0.08);
+
+  /* ---- z-index scale ---- */
+  --z-dock: 10;
+  --z-overlay: 100;
+  --z-modal: 1000;
+  --z-recorder: 1100;
+
+  /* ---- 动效 ---- */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur: 160ms;
+
+  /* ---- 布局尺寸 ---- */
+  --panel-header-h: 38px;
+  --topbar-h: 40px;
+  --playbar-h: 36px;
+}
+
+/* 暗色主题（辅助）：默认亮为主，可切换到此 */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #15181d;
+  --bg-elevated: #1c2027;
+  --bg-hover: #242932;
+  --bg-active: #2d333f;
+  --bg-inset: #11141a;
+  --border: #282e38;
+  --border-strong: #39414f;
+  --border-faint: #22262f;
+
+  --text: #e6e9ee;
+  --text-muted: #a4abb8;
+  --text-subtle: #737b8a;
+  --text-inverse: #0d1014;
+  --text-on-accent: #eaf7fd;
+
+  --accent: #35b6ea;
+  --accent-hover: #63c6f0;
+  --accent-active: #7ed1f4;
+  --accent-soft: rgba(53, 182, 234, 0.16);
+  --accent-text: #8fd9f7;
+  --focus-ring: rgba(53, 182, 234, 0.5);
+
+  --danger: #f4716f;
+  --danger-soft: rgba(244, 113, 111, 0.14);
+  --danger-text: #ffb3b1;
+  --warning: #f5a623;
+  --warning-soft: rgba(245, 166, 35, 0.14);
+  --success: #34c48e;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5), 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+
+/* 跟随系统（JS 将解析后的 light/dark 落到 data-theme，此处仅兜底） */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    color-scheme: dark;
+  }
+}
+
+/* ---- 基础元素 ---- */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--text);
+  background-color: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+}
+
+/* 统一可访问性焦点环 */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* 细滚动条（与主题一致） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-full);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}

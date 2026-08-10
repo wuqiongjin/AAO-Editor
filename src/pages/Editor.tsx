@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { ChevronLeft, ChevronRight, PanelRight, Trash2 } from 'lucide-react';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
@@ -9,6 +10,67 @@ import { getBpmEvents, beatToSeconds, computeChartEndSeconds, EMPTY_CHART_DURATI
 import { keySoundSetById } from '../utils/KeySound';
 import PlayBar from '../components/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
+import type { AppSettings } from '../utils/AppSettings';
+
+// ---- 顶栏内联控件样式（统一走令牌） ----
+const topBtnStyle: React.CSSProperties = {
+  backgroundColor: 'var(--bg-inset)',
+  color: 'var(--text)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-sm)',
+  padding: '2px 10px',
+  fontSize: 'var(--text-xs)',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+};
+const inlineIconBtn: React.CSSProperties = {
+  width: 26, height: 26, padding: 0,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  backgroundColor: 'var(--bg-inset)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-sm)',
+  cursor: 'pointer', color: 'var(--text-muted)',
+  transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease)',
+};
+
+/** 顶栏主题分段控件：亮 / 暗 / 跟随，当前项高亮（ADR-0003 §5） */
+function ThemeSegment({ theme, setTheme }: {
+  theme: AppSettings['theme']; setTheme: (t: AppSettings['theme']) => void;
+}) {
+  const options: Array<{ value: AppSettings['theme']; label: string }> = [
+    { value: 'light', label: '亮' },
+    { value: 'dark', label: '暗' },
+    { value: 'system', label: '跟随' },
+  ];
+  return (
+    <div style={{
+      display: 'flex', backgroundColor: 'var(--bg-inset)',
+      borderRadius: 'var(--radius-sm)', padding: 2, gap: 2,
+    }}>
+      {options.map(o => {
+        const active = theme === o.value;
+        return (
+          <button
+            key={o.value}
+            onClick={() => setTheme(o.value)}
+            style={{
+              padding: '2px 10px', border: 'none', cursor: 'pointer',
+              fontSize: 'var(--text-xs)', fontFamily: 'inherit',
+              borderRadius: 'var(--radius-sm)', whiteSpace: 'nowrap',
+              backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
+              color: active ? 'var(--accent-text)' : 'var(--text-muted)',
+              fontWeight: active ? 600 : 400,
+              transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 interface EditorProps {
   song: File | null;
@@ -40,7 +102,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   const {
     copy, cut, paste, deleteSelected, mirror, place, undo, redo,
   } = editing;
-  const { settings } = config;
+  const { settings, setTheme } = config;
   const shortcutConfig = settings.shortcuts;
   const {
     setIsPlaying, setCanPlay,
@@ -351,35 +413,30 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   }, [runFunction, shortcutConfig, notes, selectedItems, clipboard, mousePosition]);
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
       {/* 左侧工具栏区域 */}
       <div style={{
         width: leftCollapsed ? '0px' : `min(${leftPanelWidth}px, 34vw)`,
         minWidth: leftCollapsed ? '0px' : 'min(160px, 20vw)',
-        backgroundColor: '#f3f4f6',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+        backgroundColor: 'var(--bg)',
+        borderRight: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
         overflow: 'hidden',
-        zIndex: 10,
-        position: 'relative'
+        zIndex: 'var(--z-dock)',
+        position: 'relative',
+        transition: 'width var(--dur) var(--ease)'
       }}>
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           <Toolbar onTogglePlay={togglePlay} />
         </div>
         {!leftCollapsed && (
           <button
             onClick={toggleLeftPanel}
             title="收起左侧工具栏"
-            style={{
-              position: 'absolute', top: 4, right: 4, zIndex: 40,
-              width: 22, height: 22, padding: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              backgroundColor: 'rgba(55,65,81,0.15)', border: 'none', borderRadius: 4,
-              cursor: 'pointer', color: '#374151', fontSize: 12
-            }}
-          >◀</button>
+            style={{ ...inlineIconBtn, position: 'absolute', top: 'var(--space-1)', right: 'var(--space-1)', zIndex: 40 }}
+          ><ChevronLeft size={14} /></button>
         )}
       </div>
 
@@ -387,11 +444,11 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       <div
         style={{
           width: '4px',
-          backgroundColor: isDragging === 'left' ? '#3b82f6' : '#e5e7eb',
+          backgroundColor: isDragging === 'left' ? 'var(--accent)' : 'var(--border)',
           cursor: 'col-resize',
           flexShrink: 0,
-          transition: 'background-color 0.2s',
-          zIndex: 10,
+          transition: 'background-color var(--dur) var(--ease)',
+          zIndex: 'var(--z-dock)',
           position: 'relative'
         }}
         onMouseDown={(e) => { if (leftCollapsed) toggleLeftPanel(); e.preventDefault(); startDrag('left'); }}
@@ -401,61 +458,45 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
             onClick={toggleLeftPanel}
             title="展开左侧工具栏"
             style={{
-              position: 'absolute', top: 8, right: 6, zIndex: 40,
-              width: 20, height: 20, padding: 0,
+              position: 'absolute', top: 'var(--space-2)', right: 6, zIndex: 40,
+              width: 24, height: 24, padding: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              backgroundColor: '#3b82f6', border: 'none', borderRadius: 4,
-              cursor: 'pointer', color: 'white', fontSize: 11
+              backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-strong)',
+              borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--text-muted)',
+              boxShadow: 'var(--shadow-sm)',
+              transition: 'color var(--dur) var(--ease), transform var(--dur) var(--ease)'
             }}
-          >▶</button>
+          ><PanelRight size={14} /></button>
         )}
       </div>
 
-      {/* 中间谱面画布区域 */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#000000', minWidth: 0 }}>
+      {/* 中间谱面画布区域（固定深色，ADR-0003 硬约束） */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--canvas-bg)', minWidth: 0 }}>
         {/* 顶部控制栏 */}
         <div style={{
-          height: '32px',
-          backgroundColor: '#e5e7eb',
+          height: 'var(--topbar-h)',
+          backgroundColor: 'var(--bg)',
+          borderBottom: '1px solid var(--border)',
           display: 'flex',
           alignItems: 'center',
-          padding: '0 12px',
-          borderBottom: '1px solid #333333',
-          flexShrink: 0,
-          width: 'calc(100% - 20px)',
-          position: 'relative',
-          overflow: 'visible'
+          padding: '0 var(--space-3)',
+          gap: 'var(--space-3)',
+          flexShrink: 0
         }}>
-          <span style={{
-            flexShrink: 0,
-            minWidth: '60px'
-          }}>谱面画布</span>
-          <div style={{
-            position: 'absolute',
-            right: '20px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <span style={{ color: '#374151', fontSize: '14px' }}>BPM {currentBpm}</span>
-            <span style={{ color: '#374151', fontSize: '14px' }}>节拍: {beatDisplay}/4</span>
+          <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text)' }}>谱面画布</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>BPM {currentBpm}</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>节拍: {beatDisplay}/4</span>
+            <ThemeSegment theme={settings.theme} setTheme={setTheme} />
             {onBack && (
               <button
-                style={{
-                  backgroundColor: '#374151', color: 'white', border: 'none',
-                  borderRadius: '4px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer'
-                }}
+                style={topBtnStyle}
                 onClick={onBack}
                 title={song ? "重新选择歌曲" : "选择歌曲（当前为无歌曲模式）"}
               >{song ? '换歌' : '选歌'}</button>
             )}
             <button
-              style={{
-                backgroundColor: '#374151', color: 'white', border: 'none',
-                borderRadius: '4px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer'
-              }}
+              style={topBtnStyle}
               onClick={() => setShowSettings(true)}
             >快捷键</button>
           </div>
@@ -466,7 +507,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
           flex: 1,
           overflow: 'auto',
           overflowX: 'hidden',
-          backgroundColor: '#000000',
+          backgroundColor: 'var(--canvas-bg)',
           position: 'relative'
         }} onScroll={handleScrollbarChange}>
           {/* 虚拟内容区域 - 用于控制滚动条长度，适配虚拟画布高度 */}
@@ -488,8 +529,8 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            backgroundColor: '#000000',
-            padding: '20px',
+            backgroundColor: 'var(--canvas-bg)',
+            padding: 'var(--space-5)',
             boxSizing: 'border-box',
             zIndex: 1
           }}>
@@ -512,11 +553,11 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       <div
         style={{
           width: '4px',
-          backgroundColor: isDragging === 'right' ? '#3b82f6' : '#e5e7eb',
+          backgroundColor: isDragging === 'right' ? 'var(--accent)' : 'var(--border)',
           cursor: 'col-resize',
           flexShrink: 0,
-          transition: 'background-color 0.2s',
-          zIndex: 10,
+          transition: 'background-color var(--dur) var(--ease)',
+          zIndex: 'var(--z-dock)',
           position: 'relative'
         }}
         onMouseDown={(e) => { if (rightCollapsed) toggleRightPanel(); e.preventDefault(); startDrag('right'); }}
@@ -526,13 +567,15 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
             onClick={toggleRightPanel}
             title="展开右侧面板"
             style={{
-              position: 'absolute', top: 8, right: 6, zIndex: 40,
-              width: 20, height: 20, padding: 0,
+              position: 'absolute', top: 'var(--space-2)', right: 6, zIndex: 40,
+              width: 24, height: 24, padding: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              backgroundColor: '#3b82f6', border: 'none', borderRadius: 4,
-              cursor: 'pointer', color: 'white', fontSize: 11
+              backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-strong)',
+              borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--text-muted)',
+              boxShadow: 'var(--shadow-sm)',
+              transition: 'color var(--dur) var(--ease), transform var(--dur) var(--ease)'
             }}
-          >◀</button>
+          ><ChevronLeft size={14} /></button>
         )}
       </div>
 
@@ -540,70 +583,60 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       <div style={{
         width: rightCollapsed ? '0px' : `min(${rightPanelWidth}px, 24vw)`,
         minWidth: rightCollapsed ? '0px' : 'min(160px, 20vw)',
-        backgroundColor: '#f3f4f6',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+        backgroundColor: 'var(--bg)',
+        borderLeft: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
         flexShrink: 0,
         overflow: 'hidden',
-        zIndex: 10,
-        position: 'relative'
+        zIndex: 'var(--z-dock)',
+        position: 'relative',
+        transition: 'width var(--dur) var(--ease)'
       }}>
         <div style={{
-          height: '32px',
-          backgroundColor: '#e5e7eb',
-          color: '#374151',
+          height: 'var(--panel-header-h)',
+          backgroundColor: 'var(--bg)',
+          borderBottom: '1px solid var(--border)',
           display: 'flex',
           alignItems: 'center',
-          padding: '0 12px',
-          borderBottom: '1px solid #333333',
+          padding: '0 var(--space-3)',
+          gap: 'var(--space-2)',
           flexShrink: 0
         }}>
-          <span style={{ fontWeight: 'bold' }}>音符</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '14px' }}>已选中 {selectedItems.length}</span>
-            <button style={{
-              backgroundColor: '#ef4444',
-              color: 'white',
-              padding: '4px 8px',
-              borderRadius: '4px',
-              fontSize: '12px',
-              border: 'none',
-              cursor: 'pointer'
-            }} onClick={deleteSelectedNotes}>删</button>
+          <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>音符</span>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>已选中 {selectedItems.length}</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+            <button
+              onClick={deleteSelectedNotes}
+              title="删除选中"
+              style={{
+                ...inlineIconBtn,
+                backgroundColor: 'var(--danger-soft)', borderColor: 'transparent', color: 'var(--danger-text)'
+              }}
+            ><Trash2 size={14} /></button>
+            <button
+              onClick={toggleRightPanel}
+              title="收起右侧面板"
+              style={inlineIconBtn}
+            ><ChevronRight size={14} /></button>
           </div>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-3)', backgroundColor: 'var(--bg)' }}>
           <NoteInfoPanel />
         </div>
         <div style={{
-          height: '32px',
-          backgroundColor: '#e5e7eb',
-          color: '#374151',
+          height: 'var(--panel-header-h)',
+          backgroundColor: 'var(--bg)',
+          borderTop: '1px solid var(--border)',
           display: 'flex',
           alignItems: 'center',
-          padding: '0 12px',
-          borderTop: '1px solid #333333',
+          padding: '0 var(--space-3)',
+          gap: 'var(--space-2)',
           flexShrink: 0
         }}>
-          <span style={{ fontWeight: 'bold' }}>谱面</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '14px' }}>[ ] {notes.length}</span>
-          </div>
+          <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>谱面</span>
+          <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>[ ] {notes.length}</span>
         </div>
-        {!rightCollapsed && (
-          <button
-            onClick={toggleRightPanel}
-            title="收起右侧面板"
-            style={{
-              position: 'absolute', top: 4, left: 4, zIndex: 40,
-              width: 22, height: 22, padding: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              backgroundColor: 'rgba(55,65,81,0.15)', border: 'none', borderRadius: 4,
-              cursor: 'pointer', color: '#374151', fontSize: 12
-            }}
-          >▶</button>
-        )}
       </div>
       {/* 快捷键设置面板（ADR-0002 §5） */}
       {showSettings && (
