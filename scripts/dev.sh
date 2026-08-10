@@ -20,6 +20,14 @@ if [ "${1:-}" = "--no-hmr" ]; then
   NO_HMR=1
 fi
 
+# CNB 云环境的对外访问网址：绕开 VSCode 端口转发隧道，避免刷新无限转圈
+PROXY_URL="${CNB_VSCODE_PROXY_URI:-}"
+if [ -n "$PROXY_URL" ]; then
+  PUBLIC_URL="${PROXY_URL//\{\{port\}\}/5173}"
+  echo "==> 对外访问地址（CNB 代理，绕开 VSCode 转发隧道）："
+  echo "    $PUBLIC_URL"
+fi
+
 echo "==> 启动 Vite 开发服务器（host: 0.0.0.0, port: 5173）"
 if [ "$NO_HMR" = "1" ]; then
   echo "    已关闭 HMR（--no-hmr），刷新页面将始终可用，不会无限转圈"
