@@ -1,38 +1,47 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import type { ChartNote, SelectionItem } from '../notes/Charts';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
-import type { EditingToolAction } from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
 import SettingsPanel from '../components/SettingsPanel';
-import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectionNoteIndices } from '../utils/SelectionEditing';
-import { handleNoteReplacement, pasteChartNotes } from '../utils/NoteReplacementRules';
-import { loadConfig, saveConfig, resolveAction, isCapturingShortcut, type FunctionId, type ShortcutConfig } from '../utils/ShortcutConfig';
+import { selectionNoteIndices } from '../utils/SelectionEditing';
+import { resolveAction, isCapturingShortcut, type FunctionId } from '../utils/ShortcutConfig';
 import { AudioEngine } from '../utils/AudioEngine';
 import { getBpmEvents, beatToSeconds, computeChartEndSeconds, EMPTY_CHART_DURATION_SECONDS } from '../utils/AudioTiming';
 import { keySoundSetById } from '../utils/KeySound';
-import { loadSettings, saveSettings } from '../utils/AppSettings';
 import PlayBar from '../components/PlayBar';
+import { useEditing, useUI, useConfig } from '../contexts';
 
 interface EditorProps {
   song: File | null;
   onBack?: () => void;
 }
 
+/**
+ * Editor（ADR-0003 §7）：只保留【组装】职责——挂三个 Provider 的消费、播放编排、布局。
+ * 编辑数据/状态归 EditingContext，UI 布局归 UIContext，配置归 ConfigContext，不再在 Editor 堆全部编辑状态。
+ */
 const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
-  // 状态管理
-  const [notes, setNotes] = useState<ChartNote[]>([]);
-  const [selectedItems, setSelectedItems] = useState<SelectionItem[]>([]);
-  const [selectedTool, setSelectedTool] = useState<string>('mouse');
-  const [clipboard, setClipboard] = useState<ChartNote[]>([]);
-  // 快捷键配置（ADR-0002）：localStorage 持久化；修改即保存
-  const [shortcutConfig, setShortcutConfig] = useState<ShortcutConfig>(() => loadConfig());
-  const [showSettings, setShowSettings] = useState(false);
-  const [beatDisplay, setBeatDisplay] = useState(4);
-  const [currentBpm, _setCurrentBpm] = useState(120);
-  const [mousePosition, setMousePosition] = useState<{ lane: number; beat: number } | null>(null);
-  const [scale, setScale] = useState(1);
-  const [isCombinationMode, setIsCombinationMode] = useState(false);
+  // 三域状态
+  const editing = useEditing();
+  const ui = useUI();
+  const config = useConfig();
+
+  const {
+    notes, selectedItems, clipboard,
+    setSelectedItems,
+    handleNotesChange,
+    history, historyIndex, canUndo, canRedo, undo, redo,
+    copy, cut, paste, deleteSelected, mirror, place,
+    editToolAction, editToolPaste,
+  } = editing;
+  const {
+    selectedTool, setSelectedTool, scale, setScale,
+    beatDisplay, setBeatDisplay, isCombinationMode, setCombinationMode,
+    showSettings, setShowSettings, currentBpm, mousePosition, setMousePosition,
+    leftPanelWidth, rightPanelWidth, leftCollapsed, rightCollapsed,
+    isDragging, startDrag, toggleLeftPanel, toggleRightPanel,
+  } = ui;
+  const { shortcutConfig, updateShortcutConfig, keySetId, setKeySetId } = config;
 
   // 音频播放（ticket 14）：引擎全局单例（挂在 ref 上，避免重建 AudioContext）
   const engineRef = useRef<AudioEngine | null>(null);
@@ -42,46 +51,33 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   // 播放条（ADR-0004 §5/§7）：时长（会话级）、音量、素材包
   const [duration, setDuration] = useState(EMPTY_CHART_DURATION_SECONDS);
   const [volume, setVolume] = useState(0.8);
-  const [keySetId, setKeySetId] = useState(() => loadSettings().audio.keySet);
   // 播放 RAF 循环 + 滚动协调（滚动条=唯一滚动来源，播放头经它回写）
   const playbackRafRef = useRef<number | undefined>(undefined);
   const isPlayingRef = useRef(false);
   const durationRef = useRef(duration);
   const durationEditedRef = useRef(false);
   const lastTargetScrollYRef = useRef(0);
-  
+
   // 当前播放位置（秒）：供播放条时间码显示
   const [currentSeconds, setCurrentSeconds] = useState(0);
   // 起点标记（存于 canvas 内，经 ref 访问）
   const [markerState, setMarkerState] = useState<{ beat: number | null; selected: boolean }>({ beat: null, selected: false });
-  
-  // 历史记录
-  const [history, setHistory] = useState<ChartNote[][]>([[]]);
-  const [historyIndex, setHistoryIndex] = useState(0);
-  
+
   // 虚拟画布相关状态
   const [virtualHeight, setVirtualHeight] = useState(0);
-  
+
   // 滚动同步相关：滚动条是滚动位置的唯一来源，虚拟画布只跟随滚动条
   const initialScrollDone = useRef(false); // 是否已做初始滚动（滚动条默认在最下面）
-  
-  // 区域宽度状态（issue 12 布局自适应 / ADR-0003 L1）：
-  // 默认宽度随视口收缩（px 上限 + vw 兜底，窄屏不横向溢出），并支持折叠/展开
-  const [leftPanelWidth, setLeftPanelWidth] = useState(() => Math.min(470, Math.round(window.innerWidth * 0.30)));
-  const [rightPanelWidth, setRightPanelWidth] = useState(() => Math.min(300, Math.round(window.innerWidth * 0.20)));
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [isDragging, setIsDragging] = useState<'left' | 'right' | null>(null);
-  
+
   // 谱面画布容器引用
   const chartAreaRef = useRef<HTMLDivElement>(null);
   const virtualCanvasRef = useRef<any>(null);
-  
+
   // 处理虚拟画布滚动变化：仅记录虚拟高度，配合滚动条映射
   const handleVirtualScrollChange = (_scrollY: number, height: number) => {
     setVirtualHeight(height);
   };
-  
+
   // 设置虚拟内容高度，并在首次设置时把滚动条放到最底部（起始拍位置）
   useEffect(() => {
     const scrollContainer = chartAreaRef.current;
@@ -94,9 +90,8 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       initialScrollDone.current = true;
     }
   }, [virtualHeight]);
-  
+
   // 滚动条 ↔ 画布 scrollY 的偏移映射（ADR-0004 §3 修订：滚动条只覆盖谱面实际长度，无空白）。
-  // 谱面可用滚动区间 { top, bottom }（getChartScrollRange，虚拟像素）；滚动条 DOM scrollTop 与之线性映射。
   const chartRangeOf = () => {
     const canvas = virtualCanvasRef.current;
     const range = canvas?.getChartScrollRange?.() ?? null;
@@ -124,145 +119,12 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     const scrollTop = target.scrollTop;
     const maxScroll = target.scrollHeight - target.clientHeight;
     if (maxScroll <= 0 || !virtualCanvasRef.current) return;
-    // 播放中：滚动条只由播放头写，用户滚动一律忽略（不回写画布、不 seek）
     if (isPlayingRef.current) return;
     const canvasScrollY = scrollTopToCanvasY(scrollTop, maxScroll);
     virtualCanvasRef.current.setScrollY(canvasScrollY);
-    // 暂停滚动 = 设播放起点：seek 更新播放位置与时间码，但不自动播放
     const seconds = virtualCanvasRef.current.getPlaybackSecondsForScrollY?.(canvasScrollY) ?? 0;
     engineRef.current?.seek(seconds);
     setCurrentSeconds(seconds);
-  };
-  
-  // 拖拽处理函数
-  const handleMouseDown = (e: React.MouseEvent, type: 'left' | 'right') => {
-    e.preventDefault();
-    setIsDragging(type);
-  };
-  
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!isDragging) return;
-    
-    const containerWidth = window.innerWidth;
-    const newLeftWidth = isDragging === 'left' ? e.clientX : leftPanelWidth;
-    const newRightWidth = isDragging === 'right' ? containerWidth - e.clientX : rightPanelWidth;
-    
-    // 设置最小和最大宽度限制：min/max 随视口缩放（窄屏可收到更小，宽屏不超半屏）
-    const minWidth = Math.min(160, containerWidth * 0.2);
-    const maxWidth = containerWidth * 0.5;
-    
-    if (isDragging === 'left') {
-      const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newLeftWidth));
-      setLeftPanelWidth(clampedWidth);
-    } else if (isDragging === 'right') {
-      const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newRightWidth));
-      setRightPanelWidth(clampedWidth);
-    }
-  };
-  
-  const handleMouseUp = () => {
-    setIsDragging(null);
-  };
-  
-  // 添加全局鼠标事件监听
-  useEffect(() => {
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isDragging, leftPanelWidth, rightPanelWidth]);
-  
-  const addToHistory = (newNotes: ChartNote[]) => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    // 规则4（ADR-0001）：历史快照必须深拷贝，防止对象就地变异泄漏到多份快照，
-    // 使方向键 length 与滑条结点变更可逐步 Ctrl+Z/Y 回退
-    newHistory.push(structuredClone(newNotes));
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-  };
-  
-  const undo = () => {
-    if (historyIndex > 0) {
-      setHistoryIndex(historyIndex - 1);
-      setNotes(history[historyIndex - 1]);
-      setSelectedItems([]);
-    }
-  };
-  
-  const redo = () => {
-    if (historyIndex < history.length - 1) {
-      setHistoryIndex(historyIndex + 1);
-      setNotes(history[historyIndex + 1]);
-      setSelectedItems([]);
-    }
-  };
-  
-  const handleNotesChange = (newNotes: ChartNote[]) => {
-    setNotes(newNotes);
-    addToHistory(newNotes);
-  };
-  
-  // 编辑功能
-  const copySelected = () => {
-    if (selectedItems.length > 0) {
-      setClipboard(copySelection(notes, selectedItems));
-    }
-  };
-  
-  const cutSelected = () => {
-    if (selectedItems.length > 0) {
-      const { clipboard, newNotes } = cutSelection(notes, selectedItems);
-      setClipboard(clipboard);
-      handleNotesChange(newNotes);
-      setSelectedItems([]);
-    }
-  };
-  
-  const pasteNotes = () => {
-    if (clipboard.length === 0 || !mousePosition) return;
-    // 以剪贴板组"左上角"(最小 beat/lane) 为锚点，粘贴到鼠标所在 lane/beat；
-    // 走 ADR-0001 覆盖规则，避免同坐标重叠音符（含滑条结点表现）
-    const { newNotes, newStartIndex } = pasteChartNotes(notes, clipboard, mousePosition.beat, mousePosition.lane);
-    handleNotesChange(newNotes);
-    // 粘贴后选中新粘贴的音符（覆盖/拆条可能改变数组长度，越界条目不选）
-    setSelectedItems(
-      clipboard
-        .map((_, i) => newStartIndex + i)
-        .filter(i => i < newNotes.length)
-        .map(i => ({ kind: 'note', noteIndex: i }))
-    );
-  };
-  
-  const deleteSelectedNotes = () => {
-    // 起点标记选中态与音符选择互斥（ADR-0004 §4）：标记选中时 Delete 删除标记
-    if (deleteMarkerIfSelected()) return;
-    if (selectedItems.length > 0) {
-      handleNotesChange(deleteSelection(notes, selectedItems));
-      setSelectedItems([]);
-    }
-  };
-
-  // 镜像：作用于选择条目（整条音符整体镜像；滑条子部分只翻转其 lane）
-  const mirrorSelected = () => {
-    if (selectedItems.length === 0) return;
-    handleNotesChange(mirrorSelection(notes, selectedItems));
-  };
-
-  // 更新快捷键配置并持久化（ADR-0002 §5）
-  const updateShortcutConfig = (next: ShortcutConfig) => {
-    setShortcutConfig(next);
-    saveConfig(next);
-  };
-
-  // 执行键：在当前光标位置立即放置音符（ADR-0002 §2.1）
-  const placeNoteAtCursor = (tool: string) => {
-    if (!mousePosition) return;
-    const result = handleNoteReplacement(notes, mousePosition.beat, mousePosition.lane, 0, tool);
-    if (result.shouldReplace) handleNotesChange(result.newNotes);
   };
 
   // 音频解码（ticket 14）：song 变化时 decode；无歌曲（跳过）→ 清除音频
@@ -297,7 +159,6 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   }, [notes, beatDisplay]);
 
   // 播放 RAF 循环（ADR-0004 §1）：逐帧读播放位置 → 驱动画布滚动跟随 → 同步滚动条 + 按键音调度
-  // 滚动条是唯一滚动来源：播放头经 setScrollY 回写，画布 scrollY 与 DOM scrollTop 线性映射。
   const startPlaybackLoop = useCallback(() => {
     if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
     isPlayingRef.current = true;
@@ -308,16 +169,13 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       if (!engine || !canvas) return;
       const current = engine.getSeconds();
       setCurrentSeconds(current);
-      // 播放到终点自动停住、停在当前位置（ADR-0004 §1/§4，不循环）
       if (current >= durationRef.current) {
         stopPlayback();
         return;
       }
-      // 播放头驱动画布滚动（判定线压在底部）
       const targetScrollY = canvas.getScrollYForPlaybackSeconds(current);
       lastTargetScrollYRef.current = targetScrollY;
       canvas.setScrollY(targetScrollY);
-      // 同步 DOM 滚动条（偏移映射；播放中 onScroll 已忽略，不会回写 seek/画布）
       if (chartAreaRef.current) {
         const maxScroll = chartAreaRef.current.scrollHeight - chartAreaRef.current.clientHeight;
         const nextScrollTop = canvasYToScrollTop(targetScrollY, maxScroll);
@@ -350,7 +208,6 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     if (engine.isPlaying) {
       stopPlayback();
     } else {
-      // 播放到终点后再次播放 → 从头播（ADR-0004 §1）
       if (engine.getSeconds() >= durationRef.current) {
         engine.seek(0);
       }
@@ -361,7 +218,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     }
   }, [stopPlayback, startPlaybackLoop]);
 
-  // 回到起点标记并播放（ADR-0004 §4）：跳回标记 beat → 自动播放（播放中=跳转续播，暂停=从该点开播）
+  // 回到起点标记并播放（ADR-0004 §4）：跳回标记 beat → 自动播放
   const jumpToMarker = useCallback(() => {
     const engine = engineRef.current;
     const canvas = virtualCanvasRef.current;
@@ -398,12 +255,11 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     engineRef.current?.setVolume(v);
   }, []);
 
-  // 播放条：键音素材切换 + 持久化（ADR-0004 §7 settings）
+  // 播放条：键音素材切换 + 持久化（ADR-0004 §7 settings，经 ConfigContext）
   const handleKeySetChange = useCallback((id: string) => {
     setKeySetId(id);
     engineRef.current?.setKeySet(keySoundSetById(id));
-    saveSettings({ ...loadSettings(), audio: { keySet: id } });
-  }, []);
+  }, [setKeySetId]);
 
   // 播放条：无音频时长编辑（会话级，不写入谱面）
   const handleDurationChange = useCallback((sec: number) => {
@@ -423,7 +279,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       durationEditedRef.current = false;
       return;
     }
-    if (durationEditedRef.current) return; // 会话内已手动改过，沿用
+    if (durationEditedRef.current) return;
     const d = computeDuration();
     setDuration(d);
     durationRef.current = d;
@@ -433,69 +289,50 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   useEffect(() => {
     engineRef.current?.setKeySet(keySoundSetById(keySetId));
     engineRef.current?.setVolume(volume);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [keySetId, volume]);
 
-  // 编辑工具态（Model A）：点击命中音符即执行（ADR-0002 §3.2）
-  const handleEditToolAction = (action: EditingToolAction, item: SelectionItem) => {
-    setSelectedItems([item]);
-    if (action === 'copy') {
-      setClipboard(copySelection(notes, [item]));
-    } else if (action === 'cut') {
-      const { clipboard, newNotes } = cutSelection(notes, [item]);
-      setClipboard(clipboard);
-      handleNotesChange(newNotes);
-      setSelectedItems([]);
-    } else if (action === 'delete') {
-      handleNotesChange(deleteSelection(notes, [item]));
-      setSelectedItems([]);
-    } else if (action === 'mirror') {
-      handleNotesChange(mirrorSelection(notes, [item]));
-    }
+  // 删除选中（含起点标记优先）：标记选中时 Delete 删除标记
+  const deleteSelectedNotes = () => {
+    if (deleteMarkerIfSelected()) return;
+    deleteSelected();
   };
 
-  // 粘贴工具态：点击位置即粘贴（ADR-0002 §3.3，粘贴走 ADR-0001 覆盖规则）
-  const handleEditToolPaste = (pos: { beat: number; lane: number }) => {
-    if (clipboard.length === 0) return;
-    const { newNotes, newStartIndex } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
-    handleNotesChange(newNotes);
-    setSelectedItems(
-      clipboard
-        .map((_, i) => newStartIndex + i)
-        .filter(i => i < newNotes.length)
-        .map(i => ({ kind: 'note', noteIndex: i }))
-    );
+  // 在当前光标位置立即放置/粘贴音符（ADR-0002 §2.1）
+  const placeAtCursor = (tool: string) => {
+    if (mousePosition) place(tool, mousePosition);
+  };
+  const pasteAtCursor = () => {
+    if (mousePosition) paste(mousePosition);
   };
 
   // 具体功能分发（ADR-0002）：切换功能切换工具态；执行功能立即执行
-  // 注意：BPM / 滑条 为交互式放置（BPM 弹窗输入数值、滑条拖拽定两点），其"执行"键等价于切换工具态。
   const runFunction = (fn: FunctionId) => {
     switch (fn) {
       case 'switchSingle': setSelectedTool('single'); break;
-      case 'execSingle': placeNoteAtCursor('single'); break;
+      case 'execSingle': placeAtCursor('single'); break;
       case 'switchFlick': setSelectedTool('flick'); break;
-      case 'execFlick': placeNoteAtCursor('flick'); break;
+      case 'execFlick': placeAtCursor('flick'); break;
       case 'switchSkill': setSelectedTool('skill'); break;
-      case 'execSkill': placeNoteAtCursor('skill'); break;
+      case 'execSkill': placeAtCursor('skill'); break;
       case 'switchLDirectional': setSelectedTool('ldirectional'); break;
-      case 'execLDirectional': placeNoteAtCursor('ldirectional'); break;
+      case 'execLDirectional': placeAtCursor('ldirectional'); break;
       case 'switchRDirectional': setSelectedTool('rdirectional'); break;
-      case 'execRDirectional': placeNoteAtCursor('rdirectional'); break;
+      case 'execRDirectional': placeAtCursor('rdirectional'); break;
       case 'switchBpm': setSelectedTool('bpm'); break;
       case 'execBpm': setSelectedTool('bpm'); break;
       case 'switchSlide': setSelectedTool('slide'); break;
       case 'execSlide': setSelectedTool('slide'); break;
       case 'switchMouse': setSelectedTool('mouse'); break;
       case 'switchCopy': setSelectedTool('copy'); break;
-      case 'execCopy': copySelected(); break;
+      case 'execCopy': copy(); break;
       case 'switchPaste': setSelectedTool('paste'); break;
-      case 'execPaste': pasteNotes(); break;
+      case 'execPaste': pasteAtCursor(); break;
       case 'switchCut': setSelectedTool('cut'); break;
-      case 'execCut': cutSelected(); break;
+      case 'execCut': cut(); break;
       case 'switchDelete': setSelectedTool('delete'); break;
       case 'execDelete': deleteSelectedNotes(); break;
       case 'switchMirror': setSelectedTool('mirror'); break;
-      case 'execMirror': mirrorSelected(); break;
+      case 'execMirror': mirror(); break;
       case 'undo': undo(); break;
       case 'redo': redo(); break;
       case 'play': togglePlay(); break;
@@ -509,7 +346,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
-      if (isCapturingShortcut()) return; // 快捷键记录弹窗打开时放行，由弹窗捕获按键
+      if (isCapturingShortcut()) return;
       const fn = resolveAction(e, shortcutConfig);
       if (!fn) return;
       e.preventDefault();
@@ -517,8 +354,8 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [notes, selectedItems, clipboard, mousePosition, history, historyIndex, shortcutConfig]);
-  
+  }, [runFunction, shortcutConfig, notes, selectedItems, clipboard, mousePosition, history, historyIndex]);
+
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* 左侧工具栏区域 */}
@@ -546,25 +383,25 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
             onTogglePlay={togglePlay}
             onUndo={undo}
             onRedo={redo}
-            canUndo={historyIndex > 0}
-            canRedo={historyIndex < history.length - 1}
-            onCopy={copySelected}
-            onCut={cutSelected}
-            onPaste={pasteNotes}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onCopy={copy}
+            onCut={cut}
+            onPaste={pasteAtCursor}
             onDelete={deleteSelectedNotes}
-            onMirror={mirrorSelected}
+            onMirror={mirror}
             canCopy={selectedItems.length > 0}
             canPaste={clipboard.length > 0 && mousePosition !== null}
             scale={scale}
             onZoomIn={() => setScale(prev => Math.min(prev + 0.1, 3))}
             onZoomOut={() => setScale(prev => Math.max(prev - 0.1, 0.1))}
             isCombinationMode={isCombinationMode}
-            setCombinationMode={setIsCombinationMode}
+            setCombinationMode={setCombinationMode}
           />
         </div>
         {!leftCollapsed && (
           <button
-            onClick={() => setLeftCollapsed(true)}
+            onClick={toggleLeftPanel}
             title="收起左侧工具栏"
             style={{
               position: 'absolute', top: 4, right: 4, zIndex: 40,
@@ -576,7 +413,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
           >◀</button>
         )}
       </div>
-      
+
       {/* 左侧拖拽分隔条 */}
       <div
         style={{
@@ -588,11 +425,11 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
           zIndex: 10,
           position: 'relative'
         }}
-        onMouseDown={(e) => { if (leftCollapsed) setLeftCollapsed(false); handleMouseDown(e, 'left'); }}
+        onMouseDown={(e) => { if (leftCollapsed) toggleLeftPanel(); e.preventDefault(); startDrag('left'); }}
       >
         {leftCollapsed && (
           <button
-            onClick={() => setLeftCollapsed(false)}
+            onClick={toggleLeftPanel}
             title="展开左侧工具栏"
             style={{
               position: 'absolute', top: 8, right: 6, zIndex: 40,
@@ -604,7 +441,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
           >▶</button>
         )}
       </div>
-      
+
       {/* 中间谱面画布区域 */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#000000', minWidth: 0 }}>
         {/* 顶部控制栏 */}
@@ -654,7 +491,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
             >快捷键</button>
           </div>
         </div>
-        
+
         {/* 谱面画布滚动容器 */}
         <div ref={chartAreaRef} style={{
           flex: 1,
@@ -672,7 +509,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
             height: virtualHeight > 0 ? `${virtualHeight}px` : 'auto',
             pointerEvents: 'none'
           }} />
-          
+
           {/* 谱面画布 - 使用sticky定位，固定在视口中 */}
           <div style={{
             position: 'sticky',
@@ -699,8 +536,8 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
               scale={scale}
               onScrollChange={handleVirtualScrollChange}
               clipboard={clipboard}
-              onEditToolAction={handleEditToolAction}
-              onEditToolPaste={handleEditToolPaste}
+              onEditToolAction={editToolAction}
+              onEditToolPaste={editToolPaste}
               onMarkerChange={handleMarkerChange}
             />
           </div>
@@ -722,7 +559,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
           jumpBinding={shortcutConfig.jumpToMarker}
         />
       </div>
-      
+
       {/* 右侧拖拽分隔条 */}
       <div
         style={{
@@ -734,11 +571,11 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
           zIndex: 10,
           position: 'relative'
         }}
-        onMouseDown={(e) => { if (rightCollapsed) setRightCollapsed(false); handleMouseDown(e, 'right'); }}
+        onMouseDown={(e) => { if (rightCollapsed) toggleRightPanel(); e.preventDefault(); startDrag('right'); }}
       >
         {rightCollapsed && (
           <button
-            onClick={() => setRightCollapsed(false)}
+            onClick={toggleRightPanel}
             title="展开右侧面板"
             style={{
               position: 'absolute', top: 8, right: 6, zIndex: 40,
@@ -750,7 +587,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
           >◀</button>
         )}
       </div>
-      
+
       {/* 右侧信息面板区域 */}
       <div style={{
         width: rightCollapsed ? '0px' : `min(${rightPanelWidth}px, 24vw)`,
@@ -812,7 +649,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
         </div>
         {!rightCollapsed && (
           <button
-            onClick={() => setRightCollapsed(true)}
+            onClick={toggleRightPanel}
             title="收起右侧面板"
             style={{
               position: 'absolute', top: 4, left: 4, zIndex: 40,
