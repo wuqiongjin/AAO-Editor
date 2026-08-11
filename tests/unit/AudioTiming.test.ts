@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  getBpmEvents, beatToSeconds, secondsToBeat, buildKeyEvents, computeChartEndSeconds,
+  getBpmEvents, beatToSeconds, secondsToBeat, buildKeyEvents, chartLengthToEndBeat,
   EMPTY_CHART_DURATION_SECONDS, DEFAULT_BPM,
   type BpmEvent,
 } from '../../src/utils/AudioTiming';
@@ -140,33 +140,25 @@ describe('buildKeyEvents', () => {
   });
 });
 
-describe('computeChartEndSeconds', () => {
+describe('chartLengthToEndBeat', () => {
   const bpm120: BpmEvent[] = [{ beat: 0, bpm: 120 }];
 
-  it('空谱返回 null（调用方用默认 30s）', () => {
-    expect(computeChartEndSeconds([], 4, bpm120)).toBeNull();
+  it('谱面末端 beat = 谱面长度(秒) 经 BPM 换算，与音符无关（ADR-0005）', () => {
+    // 30s @120bpm → 60 拍
+    expect(chartLengthToEndBeat(bpm120, 30)).toBeCloseTo(60);
+    // 60s @120bpm → 120 拍
+    expect(chartLengthToEndBeat(bpm120, 60)).toBeCloseTo(120);
   });
 
-  it('末端 = 最大 beat 秒 + 1 拍尾量', () => {
-    // 最大音符 beat=8 @120bpm → 4s；+1拍(0.5s) 尾量 → 4.5s
-    const notes: ChartNote[] = [{ type: 'Single', lane: 0, beat: 8, subBeat: 0 }];
-    expect(computeChartEndSeconds(notes, 4, bpm120)).toBeCloseTo(4.5);
+  it('BPM 变化时按事件分段换算（时间锚定，不因音符变化）', () => {
+    const events: BpmEvent[] = [{ beat: 0, bpm: 120 }, { beat: 30, bpm: 240 }];
+    // 20s：前 15s(30拍@120) + 后 5s(20拍@240) → 50 拍
+    expect(chartLengthToEndBeat(events, 20)).toBeCloseTo(50);
   });
 
-  it('滑条取末尾结点 beat（含子拍）', () => {
-    const notes: ChartNote[] = [{
-      type: 'Slide',
-      connections: [{ beat: 0, lane: 0 }, { beat: 4, lane: 3, subBeat: 2 }],
-    }];
-    // 末尾结点 beat=4.5 @120bpm → 2.25s；+1拍尾量(0.5s) → 2.75s
-    expect(computeChartEndSeconds(notes, 4, bpm120)).toBeCloseTo(2.75);
-  });
-
-  it('BPM 变化时按事件分段换算', () => {
-    const events: BpmEvent[] = [{ beat: 0, bpm: 120 }, { beat: 4, bpm: 240 }];
-    const notes: ChartNote[] = [{ type: 'Single', lane: 0, beat: 8, subBeat: 0 }];
-    // beat0-4 @120 → 2s；beat4-8 @240 → 1s；合计 3s；+1拍尾量(beat8-9 @240 → 0.25s) → 3.25s
-    expect(computeChartEndSeconds(notes, 4, events)).toBeCloseTo(3.25);
+  it('空谱（无音符）同样按谱面长度换算，不塌缩到个位数拍', () => {
+    // 无音频默认 30s @120 → 60 拍，而非旧版"空谱仅 8 拍/1 拍"
+    expect(chartLengthToEndBeat(bpm120, EMPTY_CHART_DURATION_SECONDS)).toBeCloseTo(60);
   });
 });
 

@@ -3,7 +3,7 @@ import type { ChartNote, SelectionItem } from "../notes/Charts";
 import CanvasSpriteIcon from './CanvasSpriteIcon';
 import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
 import { deleteSelection } from '../utils/SelectionEditing';
-import { getBpmEvents, secondsToBeat, beatToSeconds, computeChartEndBeat, type BpmEvent } from '../utils/AudioTiming';
+import { getBpmEvents, secondsToBeat, beatToSeconds, chartLengthToEndBeat, type BpmEvent } from '../utils/AudioTiming';
 import {
   ChartGeometry, LANES, LANE_WIDTH,
   CANVAS_WIDTH, CANVAS_HEIGHT, JUDGE_LINE_Y, TRACK_CHROME_TOTAL,
@@ -16,10 +16,9 @@ export type EditingToolAction = 'copy' | 'cut' | 'delete' | 'mirror';
 interface FinalVirtualCanvasProps {
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
   onScrollChange?: (scrollY: number, virtualHeight: number) => void;
+  /** 谱面长度（秒，ADR-0005 §1）：显式、与音符无关；有音频=音频时长，无音频=持久化值(默认30s) */
+  chartEndSeconds: number;
 }
-
-// 空谱/兜底的最短谱面拍数（ADR-0004 §3 修订：虚拟高度随谱面末端自适应，空谱也至少保留一段可视空间）
-const FLOOR_BEATS = 8;
 
 // 视口缩放配置
 const MAX_SCALE = 3.0;
@@ -32,6 +31,7 @@ const MIN_SCALE = 0.1;
  */
 const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     onScrollChange,
+    chartEndSeconds,
 }, ref) => {
     // 状态经 hooks 直读（ADR-0003 §7）
     const {
@@ -67,10 +67,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         return () => { cancelled = true; };
     }, []);
 
-    // 谱面末端 beat（ADR-0004 §3 修订）：虚拟高度/坐标/滚动范围都随其自适应；空谱用 FLOOR_BEATS 兜底
+    // 谱面末端 beat（ADR-0005 §1/§7）：由显式谱面长度(秒) 经 BPM 事件换算得出，与音符无关、无尾量。
+    // 空谱/无音频也用谱面长度（默认 30s）换算，不再有 FLOOR_BEATS 兜底。
     const chartEndBeat = useMemo(
-        () => computeChartEndBeat(notes, beatDisplay) ?? FLOOR_BEATS,
-        [notes, beatDisplay],
+        () => chartLengthToEndBeat(getBpmEvents(notes), chartEndSeconds),
+        [notes, chartEndSeconds],
     );
     const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     const selectionStartRef = useRef<{ x: number; y: number } | null>(null); // 圈选起点（画布坐标）
@@ -331,6 +332,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             const nearestSubBeat = Math.round(subBeatPosition);
             const preciseBeat = nearestSubBeat / beatDisplay;
 
+            // ADR-0005 §5：超出谱面长度（显式末端）的放置一律禁止；需先手动加长谱面再放置
+            if (preciseBeat > chartEndBeat + 1e-6) {
+                return;
+            }
+
             if (selectedTool === "single" || selectedTool === "flick" || selectedTool === "skill"
                 || selectedTool === "ldirectional" || selectedTool === "rdirectional") {
                 const result = handleNoteReplacement(notes, preciseBeat, lane, 0, selectedTool);
@@ -374,7 +380,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 }
             }
         }
-    }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer, cssToCanvas]);
+    }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer, chartEndBeat, cssToCanvas]);
 
     // 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）
     const hitStartMarker = useCallback((cx: number, cy: number): boolean => {

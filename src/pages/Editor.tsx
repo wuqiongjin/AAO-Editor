@@ -6,7 +6,8 @@ import NoteInfoPanel from '../components/NoteInfoPanel';
 import SettingsPanel from '../components/SettingsPanel';
 import { resolveAction, isCapturingShortcut, type FunctionId } from '../utils/ShortcutConfig';
 import { AudioEngine } from '../utils/AudioEngine';
-import { getBpmEvents, beatToSeconds, computeChartEndSeconds, EMPTY_CHART_DURATION_SECONDS } from '../utils/AudioTiming';
+import { getBpmEvents, beatToSeconds } from '../utils/AudioTiming';
+import { ChartProjectStore, DEFAULT_PROJECT_ID } from '../utils/ChartProject';
 import { keySoundSetById } from '../utils/KeySound';
 import PlayBar from '../components/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
@@ -125,8 +126,16 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   const playbackRafRef = useRef<number | undefined>(undefined);
   const isPlayingRef = useRef(false);
   const durationRef = useRef(ctxDuration);
-  const durationEditedRef = useRef(false);
   const lastTargetScrollYRef = useRef(0);
+
+  // 谱面工程持久化（ADR-0005 §2/§6）：IndexedDB 键值表，无音频也恢复时长/音符；音频加载即写、编辑防抖落盘
+  const chartProjectStoreRef = useRef<ChartProjectStore | null>(null);
+  if (!chartProjectStoreRef.current) chartProjectStoreRef.current = new ChartProjectStore();
+  const audioDataRef = useRef<{ audioName?: string; audioBlob?: Blob }>({});
+  const saveTimerRef = useRef<number | undefined>(undefined);
+  // 最新 notes 快照（供持久化回调读取，避免 useCallback 闭包过期）
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
 
   // 虚拟画布相关状态（虚拟高度经 onScrollChange 同步到滚动容器）
   const [virtualHeight, setVirtualHeight] = useState(0);
@@ -202,7 +211,14 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     }
     let cancelled = false;
     engine.load(song)
-      .then(() => { if (!cancelled) { setCanPlay(true); setIsPlaying(false); } })
+      .then(() => {
+        if (cancelled) return;
+        // ADR-0005 §6：音频加载即写入谱面工程（File 即 Blob，随工程持久化）
+        audioDataRef.current = { audioName: song.name, audioBlob: song };
+        persistChartProject();
+        setCanPlay(true);
+        setIsPlaying(false);
+      })
       .catch(() => { if (!cancelled) { setCanPlay(false); setIsPlaying(false); } });
     return () => { cancelled = true; };
   }, [song]);
@@ -212,14 +228,50 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     engineRef.current?.setChart(notes, beatDisplay);
   }, [notes, beatDisplay]);
 
-  // 播放时长（ADR-0004 §3）：有音频=音频长度；无音频=谱面末端+1小节尾量；空谱默认30s；播放条可改（会话级）
-  const computeDuration = useCallback((): number => {
-    const engine = engineRef.current;
-    const audioDuration = engine?.duration;
-    if (audioDuration != null) return audioDuration;
-    const chartEnd = computeChartEndSeconds(notes, beatDisplay, getBpmEvents(notes));
-    return chartEnd != null ? chartEnd : EMPTY_CHART_DURATION_SECONDS;
-  }, [notes, beatDisplay]);
+  // 谱面工程持久化（ADR-0005 §6）：读取最新 ref 快照写入 IndexedDB（接口抽象化，未来可换后端）
+  const persistChartProject = useCallback(() => {
+    const store = chartProjectStoreRef.current;
+    if (!store) return;
+    store.save({
+      id: DEFAULT_PROJECT_ID,
+      durationSeconds: durationRef.current,
+      notes: notesRef.current,
+      ...audioDataRef.current,
+    }).catch(() => { /* 幂等落盘，失败静默（下次编辑再试） */ });
+  }, []);
+
+  // 自动防抖保存（ADR-0005 §6）：notes / 谱面时长变化后 ~800ms 落盘；切工具/切面板由状态变化自然触发
+  useEffect(() => {
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => persistChartProject(), 800);
+    return () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current); };
+  }, [notes, ctxDuration, persistChartProject]);
+
+  // 挂载时恢复谱面工程（ADR-0005 §6）：重开恢复音符/时长；无显式选歌时同时恢复音频
+  useEffect(() => {
+    const store = chartProjectStoreRef.current;
+    if (!store) return;
+    let cancelled = false;
+    store.get().then((project) => {
+      if (cancelled || !project) return;
+      if (project.notes.length > 0) editing.resetNotes(project.notes);
+      // 有音频时以音频时长为准（ADR-0005 §4），仅在无音频时恢复持久化谱面时长
+      if (project.durationSeconds > 0 && engineRef.current?.duration == null) {
+        setCtxDuration(project.durationSeconds);
+        durationRef.current = project.durationSeconds;
+      }
+      if (!song && project.audioBlob && project.audioName) {
+        audioDataRef.current = { audioName: project.audioName, audioBlob: project.audioBlob };
+        const file = new File([project.audioBlob], project.audioName);
+        engineRef.current?.load(file)
+          .then(() => { if (!cancelled) { setCanPlay(true); setIsPlaying(false); } })
+          .catch(() => { if (!cancelled) { setCanPlay(false); setIsPlaying(false); } });
+      }
+    });
+    return () => { cancelled = true; };
+    // 仅挂载执行一次：song 用挂载值（用户显式选歌时以所选歌为准，不覆盖其音频）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 播放 RAF 循环（ADR-0004 §1）：逐帧读播放位置 → 驱动画布滚动跟随 → 同步滚动条 + 按键音调度
   const startPlaybackLoop = useCallback(() => {
@@ -317,29 +369,22 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     engineRef.current?.setKeySet(keySoundSetById(id));
   }, []);
 
-  // 播放条：无音频时长编辑（会话级，不写入谱面）
+  // 播放条：谱面时长编辑（ADR-0005 §4）：写入谱面时长字段并持久化（无音频时手动增长谱面长度）
   const handleDurationChange = useCallback((sec: number) => {
     if (!(sec > 0)) return;
     setCtxDuration(sec);
     durationRef.current = sec;
-    durationEditedRef.current = true;
   }, [setCtxDuration]);
 
-  // 播放时长（ADR-0004 §3）：有音频=音频长度；无音频=谱面末端/默认30s；用户改过则沿用
+  // 播放时长（ADR-0005 §4）：有音频=音频时长（覆盖）；无音频=持久化值(默认30s)，随编辑持久化
   useEffect(() => {
     const engine = engineRef.current;
     const audioDuration = engine?.duration;
     if (audioDuration != null) {
       setCtxDuration(audioDuration);
       durationRef.current = audioDuration;
-      durationEditedRef.current = false;
-      return;
     }
-    if (durationEditedRef.current) return;
-    const d = computeDuration();
-    setCtxDuration(d);
-    durationRef.current = d;
-  }, [canPlay, notes, beatDisplay, computeDuration, setCtxDuration]);
+  }, [canPlay, setCtxDuration]);
 
   // 初始化：把激活素材/音量应用到引擎
   useEffect(() => {
@@ -537,6 +582,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
             <FinalVirtualCanvas
               ref={virtualCanvasRef}
               onScrollChange={handleVirtualScrollChange}
+              chartEndSeconds={ctxDuration}
             />
           </div>
         </div>

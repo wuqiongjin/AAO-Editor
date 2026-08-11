@@ -76,7 +76,7 @@ export default function PlayBar({
             min={1}
             value={Math.round(duration)}
             onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) onDurationChange(v); }}
-            title="无音频时设置谱面播放时长（仅本次会话）"
+            title="无音频时设置谱面长度（秒，持久化）"
             style={{
               width: 56, background: 'var(--bg-inset)', color: 'var(--text)', border: '1px solid var(--border)',
               borderRadius: 'var(--radius-sm)', padding: '2px 4px', fontSize: 'var(--text-xs)',

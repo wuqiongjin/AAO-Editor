@@ -52,55 +52,15 @@ export interface KeySoundEvent {
   tier?: number;
 }
 
-/** 谱面末端尾量拍数（ADR-0004 §3 修订：仅留 1 拍，避免结束后多余网格/空白） */
-export const CHART_END_TAIL_BEATS = 1;
-/** 空谱兜底时长（秒，播放条可改、会话级） */
+/** 空谱兜底时长（秒，ADR-0005 §4：无音频时默认谱面长度，可手动改并持久化） */
 export const EMPTY_CHART_DURATION_SECONDS = 30;
 
-/** 某音符最后一个"发声/位置点"的精确 beat（含滑条结点）；无则返回 -Infinity */
-function noteEndBeat(note: ChartNote, beatDisplay: number): number {
-  const precise = (beat: number, subBeat?: number) => beat + (subBeat ?? 0) / beatDisplay;
-  switch (note.type) {
-    case 'Single':
-    case 'LDirectional':
-    case 'RDirectional':
-      return precise(note.beat, note.subBeat);
-    case 'Slide':
-    case 'Long':
-      return note.connections.reduce(
-        (max, c) => Math.max(max, precise(c.beat, c.subBeat)),
-        -Infinity,
-      );
-    case 'BPM':
-    case 'System':
-      return note.beat;
-  }
-}
-
-/** 全谱最大精确 beat（含滑条结点）；空谱返回 -Infinity */
-function maxNoteBeat(notes: ChartNote[], beatDisplay: number): number {
-  let maxBeat = -Infinity;
-  for (const note of notes) {
-    maxBeat = Math.max(maxBeat, noteEndBeat(note, beatDisplay));
-  }
-  return maxBeat;
-}
-
-/** 谱面末端 beat = 最大 beat + 尾量（1 拍）；空谱返回 null（调用方用默认） */
-export function computeChartEndBeat(notes: ChartNote[], beatDisplay: number): number | null {
-  const m = maxNoteBeat(notes, beatDisplay);
-  if (!isFinite(m)) return null;
-  return m + CHART_END_TAIL_BEATS;
-}
-
-/** 谱面末端时长（秒）：所有音符最大 beat 经 BPM 换算 + 尾量（1 拍）；空谱返回 null（调用方用默认 30s） */
-export function computeChartEndSeconds(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): number | null {
-  const maxBeat = maxNoteBeat(notes, beatDisplay);
-  if (!isFinite(maxBeat)) return null;
-  const endSeconds = beatToSeconds(bpmEvents, maxBeat);
-  const tailSeconds =
-    beatToSeconds(bpmEvents, maxBeat + CHART_END_TAIL_BEATS) - endSeconds;
-  return endSeconds + tailSeconds;
+/**
+ * 谱面末端 beat（ADR-0005 §1/§7）：谱面长度是显式、秒域、与音符无关的属性；
+ * 画布/网格/滚动的末端由「谱面长度(秒) 经 BPM 事件换算」得出，不再由音符推算，也不加尾量。
+ */
+export function chartLengthToEndBeat(bpmEvents: BpmEvent[], durationSeconds: number): number {
+  return secondsToBeat(bpmEvents, durationSeconds);
 }
 
 export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): KeySoundEvent[] {

@@ -25,6 +25,8 @@ export interface EditingContextValue {
   clipboard: ChartNote[];
   // 基础 setter
   setNotes: (notes: ChartNote[]) => void;
+  /** 重置整个谱面（ADR-0005 §6：加载持久化工程时干净恢复，不产生撤销记录） */
+  resetNotes: (notes: ChartNote[]) => void;
   setSelectedItems: (items: SelectionItem[]) => void;
   setClipboard: (c: ChartNote[]) => void;
   // 带历史记录的变更入口
@@ -72,6 +74,13 @@ export function EditingProvider({ children }: { children: ReactNode }) {
 
   const setNotes = useCallback((n: ChartNote[]) => {
     setHistoryState(prev => pushHistory(prev, n));
+  }, []);
+
+  const resetNotes = useCallback((n: ChartNote[]) => {
+    // 空谱回保底（ADR-0001：谱面必须有初始 BPM）
+    const notesToUse = n.length > 0 ? n : [{ beat: 0, type: "BPM", bpm: 120 } as ChartNote];
+    setHistoryState(createHistory(notesToUse));
+    setSelectedItems([]);
   }, []);
 
   const undo = useCallback(() => {
@@ -148,7 +157,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     canUndo: historyIndex > 0,
     canRedo: historyIndex < history.length - 1,
     selectedItems, clipboard,
-    setNotes, setSelectedItems, setClipboard,
+    setNotes, resetNotes, setSelectedItems, setClipboard,
     handleNotesChange, undo, redo,
     copy, cut, paste: pasteAt, deleteSelected, mirror, place, editToolAction, editToolPaste: pasteAt,
   };
