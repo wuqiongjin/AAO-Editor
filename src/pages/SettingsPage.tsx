@@ -48,7 +48,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="page-content">
+    <div className="page-content is-fill">
       <header className="page-intro">
         <span>应用设置</span>
         <h2>设置</h2>

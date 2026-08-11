@@ -1,6 +1,7 @@
 import { Play, Pause } from "lucide-react";
 import { formatKey } from "../utils/ShortcutConfig";
 import { KEY_SOUND_SETS } from "../utils/KeySound";
+import { MAX_DURATION_SECONDS } from "../utils/AppSettings";
 import { usePlayback, useConfig } from "../contexts";
 
 function formatTime(sec: number): string {
@@ -74,8 +75,9 @@ export default function PlayBar({
           <input
             type="number"
             min={1}
+            max={MAX_DURATION_SECONDS}
             value={Math.round(duration)}
-            onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) onDurationChange(v); }}
+            onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) onDurationChange(Math.min(v, MAX_DURATION_SECONDS)); }}
             title="无音频时设置谱面长度（秒，持久化）"
             style={{
               width: 56, background: 'var(--bg-inset)', color: 'var(--text)', border: '1px solid var(--border)',

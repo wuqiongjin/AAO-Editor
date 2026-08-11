@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { AlertTriangle, Check, Clock3, Music2, Upload } from 'lucide-react';
 import { useAudioPage } from '../contexts/AudioPageContext';
+import { MAX_DURATION_SECONDS } from '../utils/AppSettings';
 
 // 音频页（issue 28 Q15）：
 // - 导入/解码失败用内联错误横幅就地反馈（文字醒目、可即时重试）；
@@ -18,7 +19,7 @@ export default function AudioPage() {
   const pickFile = () => fileRef.current?.click();
 
   return (
-    <div className="page-content">
+    <div className="page-content is-fill">
       <header className="page-intro">
         <span>当前谱面工程</span>
         <h2>音频与谱面时长</h2>
@@ -91,11 +92,12 @@ export default function AudioPage() {
             <input
               type="number"
               min={1}
+              max={MAX_DURATION_SECONDS}
               value={Math.round(api?.duration ?? 30)}
               readOnly={canPlay}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
-                if (!isNaN(v) && v > 0) api?.onDurationChange(v);
+                if (!isNaN(v) && v > 0) api?.onDurationChange(Math.min(v, MAX_DURATION_SECONDS));
               }}
             />
             <span>秒</span>

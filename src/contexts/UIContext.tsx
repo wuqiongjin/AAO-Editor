@@ -39,7 +39,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [mousePosition, setMousePosition] = useState<ChartPosition | null>(null);
 
   // 区域宽度（issue 12 / ADR-0003 L1）：默认随视口收缩（px 上限 + vw 兜底），并支持折叠/展开
-  const [leftPanelWidth, setLeftPanelWidth] = useState(() => Math.min(470, Math.round(window.innerWidth * 0.30)));
+  const [leftPanelWidth, setLeftPanelWidth] = useState(() => Math.min(380, Math.round(window.innerWidth * 0.30)));
   const [rightPanelWidth, setRightPanelWidth] = useState(() => Math.min(300, Math.round(window.innerWidth * 0.20)));
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);

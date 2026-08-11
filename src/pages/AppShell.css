@@ -158,6 +158,44 @@
   display: none;
 }
 
+/* 工作台左列内的应用导航（与工具面板合成同一左列，纵向窄栏；展开/折叠仅控制标签显示）。
+   与外层独立导航 .app-nav 的尺寸/内边距保持一致，保证工作台与非工作台页图标位置统一（issue 28 第 2 轮）。 */
+.app-nav-inline {
+  display: flex;
+  flex-direction: column;
+  width: 156px;
+  flex-shrink: 0;
+  padding: 12px 10px;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg));
+}
+.app-nav-inline .app-nav-items {
+  flex-direction: column;
+  gap: 4px;
+}
+.app-nav-inline .app-nav-toggle {
+  margin-top: auto;
+}
+.app-nav-inline.is-collapsed {
+  width: 52px;
+  align-items: center;
+  padding-right: 7px;
+  padding-left: 7px;
+}
+.app-nav-inline.is-collapsed .app-nav-item,
+.app-nav-inline.is-collapsed .app-nav-toggle {
+  width: 40px;
+  justify-content: center;
+  padding: 0;
+}
+.app-nav-inline.is-collapsed .app-nav-item span,
+.app-nav-inline.is-collapsed .app-nav-item kbd {
+  display: none;
+}
+.app-nav-inline.is-collapsed .app-nav-toggle {
+  grid-template-columns: 1fr;
+}
+
 /* ---- 页面容器（保活：全部挂载，仅激活页可见） ---- */
 .app-surface {
   position: relative;
@@ -189,6 +227,48 @@
 
 .page-content.is-wide {
   width: min(1040px, calc(100% - 64px));
+}
+
+/* 快捷键页：整页不滚动，只滚动表格内容（issue 28 P4）；顶部收窄、多让高度给表格（issue 28 第 2 轮 Q2） */
+.page-content.is-fill {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 22px 0 32px;
+}
+
+.page-content.is-fill .page-intro {
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+
+.page-content.is-fill .page-intro h2 {
+  font-size: 20px;
+}
+
+.page-content.is-fill .page-intro p {
+  margin-bottom: 0;
+}
+
+/* 各页内容区：在固定「标题+描述」头部之下独立滚动（针对页面内容本身，而非整页） */
+.page-content.is-fill .shortcut-surface,
+.page-content.is-fill .audio-layout,
+.page-content.is-fill .settings-layout {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.page-content.is-fill .shortcut-surface {
+  display: flex;
+  flex-direction: column;
+}
+
+.page-content.is-fill .shortcut-table {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .page-intro {

@@ -123,7 +123,7 @@ export default function ShortcutsPage() {
   };
 
   return (
-    <div className="page-content is-wide">
+    <div className="page-content is-wide is-fill">
       <header className="page-intro">
         <span>输入与效率</span>
         <h2>快捷键</h2>
@@ -156,7 +156,16 @@ export default function ShortcutsPage() {
           {visible.map((f) => {
             const bound = config[f.id] !== null;
             return (
-              <div className={`shortcut-row${bound ? '' : ' disabled'}`} role="row" key={f.id}>
+              <div
+                className={`shortcut-row${bound ? '' : ' disabled'}`}
+                role="row"
+                key={f.id}
+                onDoubleClick={(e) => {
+                  // 双击整行打开编辑；双击「启用」开关 / 键位按钮不重复触发（它们各自有单击/双击语义）
+                  if ((e.target as HTMLElement).closest('button')) return;
+                  setEditingId(f.id);
+                }}
+              >
                 <span className="shortcut-group">{f.category}</span>
                 <strong>{f.label}</strong>
                 {bound ? (

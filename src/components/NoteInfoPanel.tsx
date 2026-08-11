@@ -436,7 +436,6 @@ export default function NoteInfoPanel() {
                 borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)',
                 display: 'flex', flexDirection: 'column', overflow: 'hidden',
                 flex: isCodeEditorCollapsed ? '0 0 auto' : 1, minHeight: isCodeEditorCollapsed ? 'auto' : 0,
-                transition: 'flex var(--dur) var(--ease)',
             }}>
                 <div style={{ padding: 'var(--space-3) var(--space-4)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>谱面代码编辑器</h3>
@@ -494,7 +493,7 @@ export default function NoteInfoPanel() {
                                 spellCheck={false}
                                 placeholder="谱面代码将在这里显示..."
                                 style={{
-                                    width: '100%', height: '100%', minHeight: 260, boxSizing: 'border-box', resize: 'none',
+                                    width: '100%', height: '100%', minHeight: 0, boxSizing: 'border-box', resize: 'none',
                                     padding: 'var(--space-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
                                     backgroundColor: 'var(--bg-inset)', color: 'var(--text)',
                                     fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', lineHeight: 1.6,

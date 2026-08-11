@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, PanelRight, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2 } from 'lucide-react';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
@@ -11,7 +11,8 @@ import { keySoundSetById } from '../utils/KeySound';
 import PlayBar from '../components/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
 import { useAudioPageRegister } from '../contexts/AudioPageContext';
-import type { AppSettings } from '../utils/AppSettings';
+import { MAX_DURATION_SECONDS } from '../utils/AppSettings';
+import { AppNav, useAppNav } from './AppNav';
 
 // ---- 顶栏内联控件样式（统一走令牌） ----
 const inlineIconBtn: React.CSSProperties = {
@@ -24,43 +25,14 @@ const inlineIconBtn: React.CSSProperties = {
   transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease)',
 };
 
-/** 顶栏主题分段控件：亮 / 暗 / 跟随，当前项高亮（ADR-0003 §5） */
-function ThemeSegment({ theme, setTheme }: {
-  theme: AppSettings['theme']; setTheme: (t: AppSettings['theme']) => void;
-}) {
-  const options: Array<{ value: AppSettings['theme']; label: string }> = [
-    { value: 'light', label: '亮' },
-    { value: 'dark', label: '暗' },
-    { value: 'system', label: '跟随' },
-  ];
-  return (
-    <div style={{
-      display: 'flex', backgroundColor: 'var(--bg-inset)',
-      borderRadius: 'var(--radius-sm)', padding: 2, gap: 2,
-    }}>
-      {options.map(o => {
-        const active = theme === o.value;
-        return (
-          <button
-            key={o.value}
-            onClick={() => setTheme(o.value)}
-            style={{
-              padding: '2px 10px', border: 'none', cursor: 'pointer',
-              fontSize: 'var(--text-xs)', fontFamily: 'inherit',
-              borderRadius: 'var(--radius-sm)', whiteSpace: 'nowrap',
-              backgroundColor: active ? 'var(--accent-soft)' : 'transparent',
-              color: active ? 'var(--accent-text)' : 'var(--text-muted)',
-              fontWeight: active ? 600 : 400,
-              transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
-            }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+// 折叠窄轨上的展开按钮（issue 28 P2：34px 窄轨 + 展开按钮）
+const railBtn: React.CSSProperties = {
+  width: 28, height: 28, padding: 0,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  border: 'none', borderRadius: 'var(--radius-sm)',
+  background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer',
+  transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+};
 
 interface EditorProps {
   // 入口直达（ADR-0003 §2 + issue 27）：Editor 不再接收 song/onBack，音频由音频面板管理
@@ -92,8 +64,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const {
     copy, cut, paste, deleteSelected, mirror, place, undo, redo,
   } = editing;
-  const { settings, setTheme } = config;
+  const { settings } = config;
   const shortcutConfig = settings.shortcuts;
+  const { navCollapsed } = useAppNav();
   const {
     setIsPlaying, setCanPlay,
     setCurrentSeconds,
@@ -378,6 +351,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 播放条：谱面时长编辑（ADR-0005 §4）：写入谱面时长字段并持久化（无音频时手动增长谱面长度）
   const handleDurationChange = useCallback((sec: number) => {
     if (!(sec > 0)) return;
+    sec = Math.min(sec, MAX_DURATION_SECONDS); // 上限 30 分钟（issue 28 P6）
     setCtxDuration(sec);
     durationRef.current = sec;
   }, [setCtxDuration]);
@@ -477,6 +451,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
       if (isCapturingShortcut()) return;
+      // Esc 收起所有打开的浮层面板（issue 28 P1/P2：点 Esc 关面板）
+      if (e.key === 'Escape') {
+        if (!leftCollapsed) toggleLeftPanel();
+        if (!rightCollapsed) toggleRightPanel();
+        return;
+      }
       const fn = resolveAction(e, shortcutConfig);
       if (!fn) return;
       e.preventDefault();
@@ -484,67 +464,53 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active, runFunction, shortcutConfig, notes, selectedItems, clipboard, mousePosition]);
+  }, [active, runFunction, shortcutConfig, notes, selectedItems, clipboard, mousePosition,
+      leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
-      {/* 左侧工具栏区域 */}
-      <div style={{
-        width: leftCollapsed ? '0px' : `min(${leftPanelWidth}px, 34vw)`,
-        minWidth: leftCollapsed ? '0px' : 'min(160px, 20vw)',
-        backgroundColor: 'var(--bg)',
-        borderRight: '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-        flexShrink: 0,
-        overflow: 'hidden',
-        zIndex: 'var(--z-dock)',
-        position: 'relative',
-        transition: 'width var(--dur) var(--ease)'
-      }}>
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <Toolbar onTogglePlay={togglePlay} />
+      {/* 左侧工具栏列（共享列：与画布同排、压缩画布，issue 28 P1 回滚） */}
+      {leftCollapsed ? (
+        <div style={{ flexShrink: 0, position: 'relative' }}>
+          {/* 折叠态：导航栏固定不变地占用自身空间（52/156px），工具栏隐藏；仅展开时导航才挤占工具栏 */}
+          <div className={`app-nav-inline${navCollapsed ? ' is-collapsed' : ''}`}>
+            <AppNav />
+          </div>
+          <button
+            onClick={toggleLeftPanel}
+            title="展开左侧工具栏"
+            style={{ ...inlineIconBtn, position: 'absolute', top: 'var(--space-1)', right: 'var(--space-1)', zIndex: 40 }}
+          ><PanelRightOpen size={14} /></button>
         </div>
-        {!leftCollapsed && (
+      ) : (
+        <div style={{
+          width: `min(${leftPanelWidth}px, 30vw)`, flexShrink: 0,
+          backgroundColor: 'var(--bg)', borderRight: '1px solid var(--border)',
+          display: 'flex', flexDirection: 'row', overflow: 'hidden', position: 'relative',
+        }}>
+          {/* 应用导航（与工具面板合成同一左列，纵向窄栏；展开/折叠仅控制标签显示） */}
+          <div className={`app-nav-inline${navCollapsed ? ' is-collapsed' : ''}`}>
+            <AppNav />
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              <Toolbar onTogglePlay={togglePlay} />
+            </div>
+          </div>
           <button
             onClick={toggleLeftPanel}
             title="收起左侧工具栏"
             style={{ ...inlineIconBtn, position: 'absolute', top: 'var(--space-1)', right: 'var(--space-1)', zIndex: 40 }}
           ><ChevronLeft size={14} /></button>
-        )}
-      </div>
+          {/* 拖拽调宽手柄（贴面板右缘） */}
+          <div
+            onMouseDown={(e) => { e.preventDefault(); startDrag('left'); }}
+            style={{ position: 'absolute', top: 0, bottom: 0, right: -3, width: 6, cursor: 'col-resize', zIndex: 40, background: isDragging === 'left' ? 'var(--accent)' : 'transparent' }}
+          />
+        </div>
+      )}
 
-      {/* 左侧拖拽分隔条 */}
-      <div
-        style={{
-          width: '4px',
-          backgroundColor: isDragging === 'left' ? 'var(--accent)' : 'var(--border)',
-          cursor: 'col-resize',
-          flexShrink: 0,
-          transition: 'background-color var(--dur) var(--ease)',
-          zIndex: 'var(--z-dock)',
-          position: 'relative'
-        }}
-        onMouseDown={(e) => { if (leftCollapsed) toggleLeftPanel(); e.preventDefault(); startDrag('left'); }}
-      >
-        {leftCollapsed && (
-          <button
-            onClick={toggleLeftPanel}
-            title="展开左侧工具栏"
-            style={{
-              position: 'absolute', top: 'var(--space-2)', right: 6, zIndex: 40,
-              width: 24, height: 24, padding: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-strong)',
-              borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--text-muted)',
-              boxShadow: 'var(--shadow-sm)',
-              transition: 'color var(--dur) var(--ease), transform var(--dur) var(--ease)'
-            }}
-          ><PanelRight size={14} /></button>
-        )}
-      </div>
-
-      {/* 中间谱面画布区域（固定深色，ADR-0003 硬约束） */}
+      {/* 中间谱面画布区域（与左右面板共享一列，画布宽度随面板开合变化） */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--canvas-bg)', minWidth: 0 }}>
         {/* 顶部控制栏 */}
         <div style={{
@@ -561,7 +527,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
             <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>BPM {currentBpm}</span>
             <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>节拍: {beatDisplay}/4</span>
-            <ThemeSegment theme={settings.theme} setTheme={setTheme} />
           </div>
         </div>
 
@@ -613,95 +578,72 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         />
       </div>
 
-      {/* 右侧拖拽分隔条 */}
-      <div
-        style={{
-          width: '4px',
-          backgroundColor: isDragging === 'right' ? 'var(--accent)' : 'var(--border)',
-          cursor: 'col-resize',
-          flexShrink: 0,
-          transition: 'background-color var(--dur) var(--ease)',
-          zIndex: 'var(--z-dock)',
-          position: 'relative'
-        }}
-        onMouseDown={(e) => { if (rightCollapsed) toggleRightPanel(); e.preventDefault(); startDrag('right'); }}
-      >
-        {rightCollapsed && (
-          <button
-            onClick={toggleRightPanel}
-            title="展开右侧面板"
-            style={{
-              position: 'absolute', top: 'var(--space-2)', right: 6, zIndex: 40,
-              width: 24, height: 24, padding: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border-strong)',
-              borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--text-muted)',
-              boxShadow: 'var(--shadow-sm)',
-              transition: 'color var(--dur) var(--ease), transform var(--dur) var(--ease)'
-            }}
-          ><ChevronLeft size={14} /></button>
-        )}
-      </div>
-
-      {/* 右侧信息面板区域 */}
-      <div style={{
-        width: rightCollapsed ? '0px' : `min(${rightPanelWidth}px, 24vw)`,
-        minWidth: rightCollapsed ? '0px' : 'min(160px, 20vw)',
-        backgroundColor: 'var(--bg)',
-        borderLeft: '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-        flexShrink: 0,
-        overflow: 'hidden',
-        zIndex: 'var(--z-dock)',
-        position: 'relative',
-        transition: 'width var(--dur) var(--ease)'
-      }}>
+      {/* 右侧信息面板列（共享列：与画布同排、压缩画布，issue 28 P1 回滚） */}
+      {rightCollapsed ? (
         <div style={{
-          height: 'var(--panel-header-h)',
-          backgroundColor: 'var(--bg)',
-          borderBottom: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 var(--space-3)',
-          gap: 'var(--space-2)',
-          flexShrink: 0
+          width: 34, flexShrink: 0,
+          backgroundColor: 'var(--bg-elevated)', borderLeft: '1px solid var(--border)',
+          display: 'flex', justifyContent: 'center', paddingTop: 'var(--space-1)',
         }}>
-          <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>音符</span>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>已选中 {selectedItems.length}</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-            <button
-              onClick={deleteSelectedNotes}
-              title="删除选中"
-              style={{
-                ...inlineIconBtn,
-                backgroundColor: 'var(--danger-soft)', borderColor: 'transparent', color: 'var(--danger-text)'
-              }}
-            ><Trash2 size={14} /></button>
-            <button
-              onClick={toggleRightPanel}
-              title="收起右侧面板"
-              style={inlineIconBtn}
-            ><ChevronRight size={14} /></button>
+          <button onClick={toggleRightPanel} title="展开右侧面板" style={railBtn}><PanelLeftOpen size={16} /></button>
+        </div>
+      ) : (
+        <div style={{
+          width: `min(${rightPanelWidth}px, 24vw)`, flexShrink: 0,
+          backgroundColor: 'var(--bg)', borderLeft: '1px solid var(--border)',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative',
+        }}>
+          <div style={{
+            height: 'var(--panel-header-h)',
+            backgroundColor: 'var(--bg)',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 var(--space-3)',
+            gap: 'var(--space-2)',
+            flexShrink: 0
+          }}>
+            <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>音符</span>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>已选中 {selectedItems.length}</span>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+              <button
+                onClick={deleteSelectedNotes}
+                title="删除选中"
+                style={{
+                  ...inlineIconBtn,
+                  backgroundColor: 'var(--danger-soft)', borderColor: 'transparent', color: 'var(--danger-text)'
+                }}
+              ><Trash2 size={14} /></button>
+              <button
+                onClick={toggleRightPanel}
+                title="收起右侧面板"
+                style={inlineIconBtn}
+              ><ChevronRight size={14} /></button>
+            </div>
           </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-3)', backgroundColor: 'var(--bg)' }}>
+            <NoteInfoPanel />
+          </div>
+          <div style={{
+            height: 'var(--panel-header-h)',
+            backgroundColor: 'var(--bg)',
+            borderTop: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 var(--space-3)',
+            gap: 'var(--space-2)',
+            flexShrink: 0
+          }}>
+            <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>谱面</span>
+            <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>[ ] {notes.length}</span>
+          </div>
+          {/* 拖拽调宽手柄（贴面板左缘） */}
+          <div
+            onMouseDown={(e) => { e.preventDefault(); startDrag('right'); }}
+            style={{ position: 'absolute', top: 0, bottom: 0, left: -3, width: 6, cursor: 'col-resize', zIndex: 40, background: isDragging === 'right' ? 'var(--accent)' : 'transparent' }}
+          />
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-3)', backgroundColor: 'var(--bg)' }}>
-          <NoteInfoPanel />
-        </div>
-        <div style={{
-          height: 'var(--panel-header-h)',
-          backgroundColor: 'var(--bg)',
-          borderTop: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 var(--space-3)',
-          gap: 'var(--space-2)',
-          flexShrink: 0
-        }}>
-          <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>谱面</span>
-          <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>[ ] {notes.length}</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 };

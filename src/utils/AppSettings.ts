@@ -21,12 +21,15 @@ export interface AppSettings {
 
 const STORAGE_KEY = 'bangdream.settings.v1';
 
+/** 谱面时长上限（秒）：30 分钟，防误输入把画布撑爆（issue 28 第 2 轮 P6） */
+export const MAX_DURATION_SECONDS = 1800;
+
 export function defaultSettings(): AppSettings {
   return {
     schemaVersion: 1,
     theme: 'system',
     layout: {
-      leftPanel: { width: 470, collapsed: false },
+      leftPanel: { width: 380, collapsed: false },
       rightPanel: { width: 300, collapsed: false },
     },
     shortcuts: getDefaultConfig(),
