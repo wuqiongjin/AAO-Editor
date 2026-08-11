@@ -51,8 +51,11 @@ export function EditingProvider({ children }: { children: ReactNode }) {
   // 历史记录（ADR-0001）：谱面 notes 以历史栈为单一真相源（ADR-0003 候选 D 收口）。
   // 快照用结构共享（编辑函数均不可变，未改动音符复用原引用），不做全量 structuredClone。
   // H1 收口：history + historyIndex 合并为单一原子状态，updater 保持纯函数（无 React StrictMode 副作用）。
+  // 初始谱面（ADR-0001 谱面必须有初始 BPM）：空谱默认含第0拍120bpm，而非空数组。
+  // 这样初次打开即渲染 BPM 线 / 代码编辑器显示初始 BPM，无需重置才有。
+  const initialNotes: ChartNote[] = [{ beat: 0, type: "BPM", bpm: 120 }];
   const [historyState, setHistoryState] = useState<HistoryState<ChartNote[]>>(() =>
-    createHistory<ChartNote[]>([]),
+    createHistory<ChartNote[]>(initialNotes),
   );
   const history = historyState.stack;
   const historyIndex = historyState.index;
