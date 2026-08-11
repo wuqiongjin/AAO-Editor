@@ -10,6 +10,7 @@ import { getBpmEvents, beatToSeconds } from '../utils/AudioTiming';
 import { ChartProjectStore, DEFAULT_PROJECT_ID } from '../utils/ChartProject';
 import { keySoundSetById } from '../utils/KeySound';
 import PlayBar from '../components/PlayBar';
+import AudioPanel from '../components/AudioPanel';
 import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
 import type { AppSettings } from '../utils/AppSettings';
 
@@ -74,8 +75,7 @@ function ThemeSegment({ theme, setTheme }: {
 }
 
 interface EditorProps {
-  song: File | null;
-  onBack?: () => void;
+  // 入口直达（ADR-0003 §2 + issue 27）：Editor 不再接收 song/onBack，音频由音频面板管理
 }
 
 /**
@@ -84,7 +84,7 @@ interface EditorProps {
  * 子组件（Toolbar / PlayBar / NoteInfoPanel / SettingsPanel / FinalVirtualCanvas）按域直读 hooks，
  * 此处仅留 Editor 编排所需的最高层：音频引擎编排 / 滚动协调 / 布局壳。
  */
-const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
+const Editor: React.FC<EditorProps> = () => {
   // 四域状态（M1 收口：子组件已按域直读 hooks；此处仅取 Editor 编排所需）
   const editing = useEditing();
   const ui = useUI();
@@ -141,6 +141,11 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
 
   // 虚拟画布相关状态（虚拟高度经 onScrollChange 同步到滚动容器）
   const [virtualHeight, setVirtualHeight] = useState(0);
+
+  // 页面切换（issue 27 最简 Tab 底层）：工作台 ↔ 音频面板
+  const [page, setPage] = useState<'workspace' | 'audio'>('workspace');
+  // 当前音频文件名（无音频为 null，供音频面板显示）
+  const [audioName, setAudioName] = useState<string | null>(null);
 
   // 滚动同步相关：滚动条是滚动位置的唯一来源，虚拟画布只跟随滚动条
   const initialScrollDone = useRef(false);
@@ -201,30 +206,6 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     setCurrentSeconds(seconds);
   };
 
-  // 音频解码（ticket 14）：song 变化时 decode；无歌曲（跳过）→ 清除音频
-  useEffect(() => {
-    const engine = engineRef.current;
-    if (!engine) return;
-    if (!song) {
-      engine.clear();
-      setCanPlay(false);
-      setIsPlaying(false);
-      return;
-    }
-    let cancelled = false;
-    engine.load(song)
-      .then(() => {
-        if (cancelled) return;
-        // ADR-0005 §6：音频加载即写入谱面工程（File 即 Blob，随工程持久化）
-        audioDataRef.current = { audioName: song.name, audioBlob: song };
-        persistChartProject();
-        setCanPlay(true);
-        setIsPlaying(false);
-      })
-      .catch(() => { if (!cancelled) { setCanPlay(false); setIsPlaying(false); } });
-    return () => { cancelled = true; };
-  }, [song]);
-
   // 谱面/BPM 变化时同步按键音事件（编辑中先听局部段也保持正确）
   useEffect(() => {
     engineRef.current?.setChart(notes, beatDisplay);
@@ -249,7 +230,33 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     return () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current); };
   }, [notes, ctxDuration, persistChartProject]);
 
-  // 挂载时恢复谱面工程（ADR-0005 §6）：重开恢复音符/时长；无显式选歌时同时恢复音频
+  // 音频导入/更换（issue 27）：音频面板回调；加载即 persist（ADR-0005 §6，File 即 Blob 随工程持久化）
+  const importAudio = useCallback((file: File) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.load(file)
+      .then(() => {
+        audioDataRef.current = { audioName: file.name, audioBlob: file };
+        setAudioName(file.name);
+        persistChartProject();
+        setCanPlay(true);
+        setIsPlaying(false);
+      })
+      .catch(() => { setCanPlay(false); setIsPlaying(false); });
+  }, [persistChartProject]);
+
+  // 清除音频（issue 27）：回到无音频态；时长保留当前值（可编辑），重载音频会覆盖（ADR-0005 §4）
+  const clearAudio = useCallback(() => {
+    const engine = engineRef.current;
+    engine?.clear();
+    audioDataRef.current = {};
+    setAudioName(null);
+    setCanPlay(false);
+    setIsPlaying(false);
+    persistChartProject();
+  }, [persistChartProject]);
+
+  // 挂载时恢复谱面工程（ADR-0005 §6）：重开恢复音符/时长/音频
   useEffect(() => {
     const store = chartProjectStoreRef.current;
     if (!store) return;
@@ -262,8 +269,10 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
         setCtxDuration(project.durationSeconds);
         durationRef.current = project.durationSeconds;
       }
-      if (!song && project.audioBlob && project.audioName) {
+      // 入口直达后无"显式选歌"概念：挂载即恢复持久化音频（无则无音频态）
+      if (project.audioBlob && project.audioName) {
         audioDataRef.current = { audioName: project.audioName, audioBlob: project.audioBlob };
+        setAudioName(project.audioName);
         const file = new File([project.audioBlob], project.audioName);
         engineRef.current?.load(file)
           .then(() => { if (!cancelled) { setCanPlay(true); setIsPlaying(false); } })
@@ -271,7 +280,7 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
       }
     });
     return () => { cancelled = true; };
-    // 仅挂载执行一次：song 用挂载值（用户显式选歌时以所选歌为准，不覆盖其音频）
+    // 仅挂载执行一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -459,6 +468,21 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [runFunction, shortcutConfig, notes, selectedItems, clipboard, mousePosition]);
 
+  // 页面切换（issue 27 最简 Tab 底层）：音频面板为独立页面，承载 导入/换/清除 音频与无音频时长编辑
+  if (page === 'audio') {
+    return (
+      <AudioPanel
+        audioName={audioName}
+        canPlay={canPlay}
+        duration={ctxDuration}
+        onDurationChange={handleDurationChange}
+        onImportAudio={importAudio}
+        onClearAudio={clearAudio}
+        onBackToWorkspace={() => setPage('workspace')}
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
       {/* 左侧工具栏区域 */}
@@ -535,13 +559,11 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
             <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>BPM {currentBpm}</span>
             <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>节拍: {beatDisplay}/4</span>
             <ThemeSegment theme={settings.theme} setTheme={setTheme} />
-            {onBack && (
-              <button
-                style={topBtnStyle}
-                onClick={onBack}
-                title={song ? "重新选择歌曲" : "选择歌曲（当前为无歌曲模式）"}
-              >{song ? '换歌' : '选歌'}</button>
-            )}
+            <button
+              style={topBtnStyle}
+              onClick={() => setPage('audio')}
+              title="音频管理（导入 / 更换 / 清除音频）"
+            >音频</button>
             <button
               style={topBtnStyle}
               onClick={() => setShowSettings(true)}

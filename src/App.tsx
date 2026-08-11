@@ -1,6 +1,4 @@
-import { useState } from 'react'
 import './App.css'
-import SongUploader from "./components/SongUploader";
 import Editor from "./pages/Editor";
 import { EditingProvider, UIProvider, ConfigProvider, PlaybackProvider, useConfig } from "./contexts";
 import { useApplyTheme } from "./styles/theme";
@@ -14,14 +12,15 @@ function ThemeSync() {
 
 // 工作台状态四域（ADR-0003 §7 + 播放编排）：编辑数据 / UI 布局 / 配置 / 播放状态，
 // 均挂在 Editor 外层，子组件按需经 hooks 取各自域，避免 Editor 反复作为 prop relay。
-function Workbench(props: { song: File | null; onBack: () => void }) {
+// 入口直达（ADR-0003 §2）：无独立上传页，直接进入工作台。
+function Workbench() {
   return (
     <EditingProvider>
       <UIProvider>
         <ConfigProvider>
           <PlaybackProvider>
             <ThemeSync />
-            <Editor {...props} />
+            <Editor />
           </PlaybackProvider>
         </ConfigProvider>
       </UIProvider>
@@ -30,24 +29,7 @@ function Workbench(props: { song: File | null; onBack: () => void }) {
 }
 
 function App() {
-  const [song, setSong] = useState<File | null>(null);
-  const [inEditor, setInEditor] = useState(false);
-
-  // 进入编辑器：选歌（File）或跳过（null，无歌曲模式）
-  const enterEditor = (file: File | null) => {
-    setSong(file);
-    setInEditor(true);
-  };
-
-  if (!inEditor) {
-    return (
-      <div>
-        <SongUploader onUpload={enterEditor} />
-      </div>
-    );
-  }
-
-  return <Workbench song={song} onBack={() => setInEditor(false)} />;
+  return <Workbench />;
 }
 
 export default App
