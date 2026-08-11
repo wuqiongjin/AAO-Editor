@@ -136,6 +136,8 @@ const Editor: React.FC<EditorProps> = ({ song, onBack }) => {
   // 最新 notes 快照（供持久化回调读取，避免 useCallback 闭包过期）
   const notesRef = useRef(notes);
   notesRef.current = notes;
+  // durationRef 与 ctxDuration 保持同步（NoteInfoPanel 等经 setDuration 延时时，持久化/播放边界读到实时值）
+  durationRef.current = ctxDuration;
 
   // 虚拟画布相关状态（虚拟高度经 onScrollChange 同步到滚动容器）
   const [virtualHeight, setVirtualHeight] = useState(0);

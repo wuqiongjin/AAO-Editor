@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  getBpmEvents, beatToSeconds, secondsToBeat, buildKeyEvents, chartLengthToEndBeat,
+  getBpmEvents, beatToSeconds, secondsToBeat, buildKeyEvents, chartLengthToEndBeat, maxNoteEndSeconds,
   EMPTY_CHART_DURATION_SECONDS, DEFAULT_BPM,
   type BpmEvent,
 } from '../../src/utils/AudioTiming';
@@ -159,6 +159,36 @@ describe('chartLengthToEndBeat', () => {
   it('空谱（无音符）同样按谱面长度换算，不塌缩到个位数拍', () => {
     // 无音频默认 30s @120 → 60 拍，而非旧版"空谱仅 8 拍/1 拍"
     expect(chartLengthToEndBeat(bpm120, EMPTY_CHART_DURATION_SECONDS)).toBeCloseTo(60);
+  });
+});
+
+describe('maxNoteEndSeconds', () => {
+  const bpm120: BpmEvent[] = [{ beat: 0, bpm: 120 }];
+
+  it('返回最后音符结束时间（秒，不含尾量）', () => {
+    // 最大 beat=8 @120bpm → 4s
+    const notes: ChartNote[] = [{ type: 'Single', lane: 0, beat: 8, subBeat: 0 }];
+    expect(maxNoteEndSeconds(notes, 4, bpm120)).toBeCloseTo(4);
+  });
+
+  it('滑条取末尾结点（含子拍）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [{ beat: 0, lane: 0 }, { beat: 4, lane: 3, subBeat: 2 }],
+    }];
+    // 末尾结点 beat=4.5 @120 → 2.25s
+    expect(maxNoteEndSeconds(notes, 4, bpm120)).toBeCloseTo(2.25);
+  });
+
+  it('BPM 变化时按事件分段换算', () => {
+    const events: BpmEvent[] = [{ beat: 0, bpm: 120 }, { beat: 4, bpm: 240 }];
+    const notes: ChartNote[] = [{ type: 'Single', lane: 0, beat: 8, subBeat: 0 }];
+    // beat0-4 @120 → 2s；beat4-8 @240 → 1s；合计 3s
+    expect(maxNoteEndSeconds(notes, 4, events)).toBeCloseTo(3);
+  });
+
+  it('空谱返回 0', () => {
+    expect(maxNoteEndSeconds([], 4, bpm120)).toBe(0);
   });
 });
 

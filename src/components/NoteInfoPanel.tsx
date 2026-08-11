@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { ChevronDown, ChevronUp, Copy, RotateCcw, RefreshCw } from "lucide-react";
 import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes } from "../utils/ChartConverter";
-import { useEditing } from "../contexts";
+import { useEditing, usePlayback, useUI } from "../contexts";
+import { maxNoteEndSeconds, getBpmEvents } from "../utils/AudioTiming";
 import { selectionNoteIndices } from "../utils/SelectionEditing";
 import type { ChartNote } from "../notes/Charts";
 import {
@@ -58,6 +59,8 @@ function ActionBtn({ children, onClick, disabled, variant }: {
 
 export default function NoteInfoPanel() {
     const { notes, selectedItems, handleNotesChange, deleteSelected, mirror } = useEditing();
+    const { canPlay, duration, setDuration } = usePlayback();
+    const { beatDisplay } = useUI();
     const selectedNotes = selectionNoteIndices(selectedItems);
     const [isCombinationMode, setIsCombinationMode] = useState(false);
     // 代码文本真实撤销/重做：chartCode 由 textHistory 撤销栈派生（复用 History 纯模块）
@@ -164,6 +167,13 @@ export default function NoteInfoPanel() {
             }
             const newNotes = convertChartCodeToNotes(parsedCode);
             handleNotesChange(newNotes);
+            // ADR-0005 §4.5：无音频导入谱面代码时，若代码比当前谱面长度更长，自动延长谱面长度到代码最后音符结束时间
+            if (!canPlay) {
+                const endSeconds = maxNoteEndSeconds(newNotes, beatDisplay, getBpmEvents(newNotes));
+                if (endSeconds > duration) {
+                    setDuration(endSeconds);
+                }
+            }
             setLastAppliedCode(chartCode);
             setAppliedNotesCount(newNotes.length);
             setTextHistory(createHistory(chartCode));

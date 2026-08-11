@@ -63,6 +63,45 @@ export function chartLengthToEndBeat(bpmEvents: BpmEvent[], durationSeconds: num
   return secondsToBeat(bpmEvents, durationSeconds);
 }
 
+/** 某音符最后一个位置点的精确 beat（含滑条结点）；滑条无结点返回 -Infinity */
+function noteEndBeat(note: ChartNote, beatDisplay: number): number {
+  const precise = (beat: number, subBeat?: number) => beat + (subBeat ?? 0) / beatDisplay;
+  switch (note.type) {
+    case 'Single':
+    case 'LDirectional':
+    case 'RDirectional':
+      return precise(note.beat, note.subBeat);
+    case 'Slide':
+    case 'Long':
+      return note.connections.reduce(
+        (max, c) => Math.max(max, precise(c.beat, c.subBeat)),
+        -Infinity,
+      );
+    case 'BPM':
+    case 'System':
+      return note.beat;
+  }
+}
+
+/** 全谱最大精确 beat（含滑条结点）；空谱返回 -Infinity */
+function maxNoteBeat(notes: ChartNote[], beatDisplay: number): number {
+  let maxBeat = -Infinity;
+  for (const note of notes) {
+    maxBeat = Math.max(maxBeat, noteEndBeat(note, beatDisplay));
+  }
+  return maxBeat;
+}
+
+/**
+ * 谱面代码最后音符的结束时间（秒，ADR-0005 §4.5）：无音频导入谱面代码时，
+ * 若代码比当前谱面长度更长，用此值延长谱面长度到代码结尾。不含尾量。
+ */
+export function maxNoteEndSeconds(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): number {
+  const m = maxNoteBeat(notes, beatDisplay);
+  if (!isFinite(m)) return 0;
+  return beatToSeconds(bpmEvents, m);
+}
+
 export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): KeySoundEvent[] {
   const out: KeySoundEvent[] = [];
   const push = (beat: number, lane: number, kind: KeySoundEvent['kind'], subBeat?: number, tier?: number) => {
