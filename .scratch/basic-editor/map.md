@@ -23,7 +23,7 @@
 
 - 入口：`SongUploader → Editor`。Editor 左侧 Toolbar、中间 `FinalVirtualCanvas`、右侧 NoteInfoPanel + 谱面面板。
 - 音符数据模型：`src/notes/Charts.tsx`（Single / LDirectional / RDirectional / Slide / Long / BPM / System）。
-- 谱面代码：`ChartConverter.ts` 实现 notes↔code JSON 双向转换，与规则文档一致；skill/charge 暂不支持（文档明示"暂不支持"）。
+- 谱面代码：`ChartConverter.ts` 实现 notes↔code JSON 双向转换，与规则文档一致；skill 已支持往返映射（issue 08）。
 - 编辑操作（Editor.tsx）：复制/剪切/删除可用（按选中下标）；**粘贴只追加到末尾**（不会粘贴到光标处）；**镜像为 `() => {}` 空桩**；撤销/还原可用；**无任何键盘快捷键绑定**（工具栏提示 Ctrl+C/X/V/Z/Y/Del 但没人监听）。
 - 播放/暂停按钮无 onClick（惰性）；无音频播放、无预览线、无按键音。
 - 无文件保存/加载/导出（Electron main/preload 待查）。
@@ -52,6 +52,7 @@
 - [播放预览交互（ADR-0004 定案）](./issues/17-播放预览交互重做.md) — **grill-with-docs 定案**（docs/adr/0004-播放预览交互.md）：首版"静止谱面+移动线"改为"**判定线固定画布底部 + 谱面随播放上移**"；无音频用**合成时间线**照常播谱；播放时长=音频长度/谱面末端+1小节余量/空谱默认30s（可改）；**临时起点标记**（左沟槽双击设/删 + Ctrl+空格回跳并播放，新 FunctionId 默认 ctrl+space，入 ADR-0002 体系）；**素材包 KeySoundSet**（tap/flick/skill/slide 四类，切换+持久化进 settings，占位默认）；**底部播放条**承载播放类控件；布局 tab 化只定方向（交 ADR-0003 正式 layout）。**待实现（issue 17 为载体）。**
 - [真实键音音效加载（issue 18）](./issues/18-真实键音WAV加载.md) — **已实现**：方向键从 flick 拆出，键种扩为 `{tap,flick,skill,slide,directional}`；方向键按组合长度 length(1..3) 分 3 档音效——tap+slide→`perfect.mp3`、flick→`flick.mp3`、skill→`SE_RHYTHM_TAP_SKILL.mp3`、方向键→`directional_fl/_2/_3.mp3`；`AudioEngine` 用 `decodeAudioData` 解码、`AudioBufferSourceNode` 播放，采样缺失时振荡器兜底。默认激活官方素材包（持久化 `audio.keySet`），占位包可切换回。**issue 20 修订：音频内联为 Vite `?inline` data-URI（`src/assets/audio/`，零媒体网络请求，规避 IDM 等下载插件劫持）**。ADR-0004 §7 已修订。tsc/build 全绿、101 单测通过。
 - [键音无声与 IDM 下载劫持（issue 20）](./issues/20-键音无声与IDM下载劫持.md) — **已修复**：issue 18 用 `fetch('.mp3')` 请求音频，被浏览器下载插件（IDM）劫持 → 无声 + 频弹下载（干净浏览器验证代码本身正常）。改为 Vite `?inline` 把 6 个 MP3 内联为 base64 data-URI，**运行时零媒体请求**，插件无从劫持；web/Electron 构建后并入 JS bundle。
+- [08 谱面代码编辑器完善](./issues/08-谱面代码编辑器完善.md) — **grill-with-docs 定案**：代码编辑器保留内嵌 textarea；新增强制「应用时校验 beat0 必有 BPM」；文本用真实撤销/重做栈（Ctrl+Z/Y 仅作用代码文本、不碰谱面，再次应用才生效）；双向同步=代码草稿/应用生效，dirty+canvas 变动标过期不覆盖 + 覆盖风险黄条 + 「用画布刷新代码」；一并补全 convertChartCodeToNotes/convertNotesToChartCode 的 skill 往返映射（ADR-0001 对齐，当前 skill 往返丢失）。待实现。
 - [21 架构整改·谱面核心与上下文分域](./issues/21-架构整改-谱面核心与上下文分域.md) — **improve-codebase-architecture 评审的候选 A/B/C/D 已落地（4 个 Phase，每笔提交 tsc+vitest 全绿、133 测试）**：Phase1 候选 B+C 统一 BPM 换算（`BpmTimeline` 单一遍历器 + 段缓存，消除 AudioTiming 与 ChartGeometry 两套平行累加）；Phase2 候选 A 上下文分域（Editing/UI/Config/Playback 四 Context，Editor 收为组装层、子组件经 hooks 直读，消除 13 透传 props）；Phase3 候选 B 收尾（FinalVirtualCanvas 1600+ 行拆薄，渲染/命中/坐标收敛 `src/renderer/` 纯模块，依赖注入 RenderCtx，新增 10 单测）；Phase4 候选 D 历史轻量化（`History.ts` 纯模块 + **结构共享快照**替代每次全量 structuredClone，击键 O(n)→O(1)，**正面回应 issue 10 第三问**；notes 以历史栈为单一真相源，修复 impure updater）。候选 E（统一 Settings）/F（tokens）留待 ADR-0003 正式 issue，勿返工。
 
 ## Not yet specified

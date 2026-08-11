@@ -242,6 +242,9 @@ export function convertChartCodeToNotes(chartCode: ChartCodeNote[]): ChartNote[]
                 if (codeNote.flick) {
                     singleNote.flick = true;
                 }
+                if (codeNote.skill) {
+                    singleNote.skill = true;
+                }
                 notes.push(singleNote);
                 break;
 
@@ -263,6 +266,9 @@ export function convertChartCodeToNotes(chartCode: ChartCodeNote[]): ChartNote[]
                 if (codeNote.flick) {
                     (directionalNote as any).flick = true;
                 }
+                if (codeNote.skill) {
+                    (directionalNote as any).skill = true;
+                }
                 notes.push(directionalNote);
                 break;
             }
@@ -274,7 +280,8 @@ export function convertChartCodeToNotes(chartCode: ChartCodeNote[]): ChartNote[]
                         beat: conn.beat,
                         lane: conn.lane,
                         hidden: conn.hidden,
-                        flick: conn.flick
+                        flick: conn.flick,
+                        skill: conn.skill
                     }))
                 };
                 notes.push(slideNote);

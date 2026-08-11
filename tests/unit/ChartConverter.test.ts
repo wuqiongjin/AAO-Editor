@@ -10,7 +10,39 @@ import type { ChartCodeNote } from '../../src/utils/ChartConverter';
 import type { ChartNote } from '../../src/notes/Charts';
 
 describe('Chart Converter', () => {
-    test('序列化 skill 标记（单键/方向键/滑条连接点）', () => {
+    test('skill 往返映射（单键/方向键/滑条连接点）', () => {
+        const notes: ChartNote[] = [
+            { beat: 4, lane: 0, type: "Single", skill: true },
+            { beat: 8, lane: 2, type: "LDirectional", length: 2, skill: true },
+            { beat: 8, lane: 5, type: "RDirectional", length: 3 },
+            {
+                type: "Slide",
+                connections: [
+                    { beat: 10, lane: 2, skill: true },
+                    { beat: 11, lane: 1, hidden: true, flick: true, skill: true },
+                    { beat: 12, lane: 0 }
+                ]
+            }
+        ];
+        const code = convertNotesToChartCode(notes);
+        const back = convertChartCodeToNotes(code);
+
+        const single = back.find(n => n.type === "Single") as any;
+        expect(single.skill).toBe(true);
+
+        const left = back.find(n => n.type === "LDirectional") as any;
+        expect(left.skill).toBe(true);
+
+        const right = back.find(n => n.type === "RDirectional") as any;
+        expect(right.skill).toBeUndefined();
+
+        const slide = back.find(n => n.type === "Slide") as any;
+        expect(slide.connections[0].skill).toBe(true);
+        expect(slide.connections[1].skill).toBe(true);
+        expect(slide.connections[2].skill).toBeUndefined();
+    });
+
+    test('serialize skill 标记（单键/方向键/滑条连接点）', () => {
         const notes: ChartNote[] = [
             { beat: 4, lane: 0, type: "Single", skill: true },
             { beat: 8, lane: 2, type: "LDirectional", length: 2, skill: true },

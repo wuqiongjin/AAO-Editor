@@ -11,7 +11,6 @@ export interface SingleNote extends BaseNote {
   type: "Single";
   flick?: boolean; // flicker 特殊标记
   skill?: boolean; // 技能音符标记
-  charge?: boolean; // 蓄力音符标记
 }
 
 export interface LDirectionalNote extends BaseNote {
@@ -19,7 +18,6 @@ export interface LDirectionalNote extends BaseNote {
   length: number; // 组合长度 (1-3)
   flick?: boolean; // 是否带flick
   skill?: boolean; // 技能音符标记
-  charge?: boolean; // 蓄力音符标记
 }
 
 export interface RDirectionalNote extends BaseNote {
@@ -27,7 +25,6 @@ export interface RDirectionalNote extends BaseNote {
   length: number; // 组合长度 (1-3)
   flick?: boolean; // 是否带flick
   skill?: boolean; // 技能音符标记
-  charge?: boolean; // 蓄力音符标记
 }
 
 // SlideNote 和 LongNote 完全等价，都使用connections结构
@@ -48,7 +45,6 @@ export interface ConnectionNote {
   hidden?: boolean; // 隐藏连接点（用于滑条中间点）
   flick?: boolean; // 连接点是否带flick
   skill?: boolean; // 技能音符标记
-  charge?: boolean; // 蓄力音符标记
 }
 
 export interface BpmNote {

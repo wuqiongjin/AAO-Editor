@@ -1,8 +1,13 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
-import { ChevronDown, ChevronUp, Copy, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, RotateCcw, RefreshCw } from "lucide-react";
 import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes } from "../utils/ChartConverter";
 import { useEditing } from "../contexts";
 import { selectionNoteIndices } from "../utils/SelectionEditing";
+import type { ChartNote } from "../notes/Charts";
+import {
+    createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
+    type HistoryState,
+} from "../utils/History";
 
 /** 动作按钮（primary=强调实底 / danger=危险 / 默认=中性描边），带 hover/pressed 令牌化样式 */
 function ActionBtn({ children, onClick, disabled, variant }: {
@@ -55,13 +60,22 @@ export default function NoteInfoPanel() {
     const { notes, selectedItems, handleNotesChange, deleteSelected, mirror } = useEditing();
     const selectedNotes = selectionNoteIndices(selectedItems);
     const [isCombinationMode, setIsCombinationMode] = useState(false);
-    const [chartCode, setChartCode] = useState("");
+    // 代码文本真实撤销/重做：chartCode 由 textHistory 撤销栈派生（复用 History 纯模块）
+    const [textHistory, setTextHistory] = useState<HistoryState<string>>(() => createHistory(""));
+    const chartCode = currentHistory(textHistory);
     const [isCodeEditorCollapsed, setIsCodeEditorCollapsed] = useState(false);
     const [isValid, setIsValid] = useState(true);
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
-    const [isDirty, setIsDirty] = useState(false);
     const [lastAppliedCode, setLastAppliedCode] = useState("");
+    // 上次应用/同步时的画布音符数，用于 dirty + canvas 变动的过期检测
+    const [appliedNotesCount, setAppliedNotesCount] = useState(notes.length);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    // 记录上次生成代码所依据的 notes，仅当 notes 真正变化时才重建代码（避免撤销到已应用态时误清撤销栈）
+    const prevNotesRef = useRef<ChartNote[] | null>(null);
+    // dirty = 代码草稿与上次应用状态不一致（派生，随 chartCode/lastAppliedCode 自动更新）
+    const isDirty = chartCode !== lastAppliedCode;
+    // 过期：用户有未应用草稿，且画布自上次同步后已变化
+    const isStale = isDirty && notes.length !== appliedNotesCount;
 
     const selectedNoteObjects = selectedNotes.map(index => notes[index]).filter(Boolean);
 
@@ -86,44 +100,48 @@ export default function NoteInfoPanel() {
         return chartCodeToJSON(defaultCode);
     };
 
-    // 当音符数据变化时更新代码
+    // 当音符数据变化时更新代码（非 dirty 时同步；dirty 时保留用户草稿）。
+    // 仅当 notes 真正变化（或首次）才重建代码——撤销到已应用态时 isDirty 会变 false，
+    // 但 notes 未变，不应重建（否则会清空文本撤销栈，抹掉 redo 分支）。
     useEffect(() => {
-        if (!isDirty) {
+        const firstRun = prevNotesRef.current === null;
+        const notesChanged = prevNotesRef.current !== notes;
+        prevNotesRef.current = notes;
+        if (!isDirty && (firstRun || notesChanged)) {
             const code = convertNotesToChartCode(notes);
             const jsonString = chartCodeToJSON(code);
-            setChartCode(jsonString);
+            setTextHistory(createHistory(jsonString));
             setLastAppliedCode(jsonString);
+            setAppliedNotesCount(notes.length);
         }
     }, [notes, isDirty]);
 
-    // 处理代码变化
+    // 处理代码变化：压入撤销栈；空代码回到保底状态
     const handleCodeChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
         const newCode = event.target.value;
-        setChartCode(newCode);
-        setIsDirty(true);
 
-        // 如果代码为空，自动设置为默认BPM状态
+        // 空代码 → 保底状态（第0拍 120bpm）
         if (newCode.trim() === '') {
             const defaultCode = getDefaultBPMCode();
-            setChartCode(defaultCode);
+            setTextHistory(createHistory(defaultCode));
             setIsValid(true);
             setValidationErrors([]);
             return;
         }
 
+        // 压入撤销栈（真实文本撤销/重做）
+        setTextHistory(prev => pushHistory(prev, newCode));
         // 只验证格式，不自动回退
         validateCode(newCode);
     };
 
     // 应用谱面代码：经 useEditing.handleNotesChange 走历史记录
     const handleApply = () => {
-        // 重新验证代码
         const isValidCode = validateCode(chartCode);
 
         if (!isValidCode) {
             alert('谱面代码格式错误，已回退到上次应用的状态');
-            setChartCode(lastAppliedCode);
-            setIsDirty(false);
+            setTextHistory(createHistory(lastAppliedCode));
             setIsValid(true);
             setValidationErrors([]);
             return;
@@ -131,15 +149,28 @@ export default function NoteInfoPanel() {
 
         try {
             const parsedCode = parseChartCodeFromJSON(chartCode);
+            // 强制校验：beat0 必须有 BPM 音符（保底语义，ADR-0001 谱面必须有初始 BPM）
+            const hasBeat0Bpm = parsedCode.some(note => note.type === 'BPM' && note.beat === 0);
+            if (!hasBeat0Bpm) {
+                alert('谱面必须包含第 0 拍的 BPM 音符，无法应用');
+                return;
+            }
+            // 覆盖风险确认：画布已在草稿之后被改动
+            if (isStale) {
+                const delta = Math.abs(notes.length - appliedNotesCount);
+                if (!window.confirm(`应用将覆盖画布上的 ${delta} 个音符改动，确定应用？`)) {
+                    return;
+                }
+            }
             const newNotes = convertChartCodeToNotes(parsedCode);
             handleNotesChange(newNotes);
-            setIsDirty(false);
             setLastAppliedCode(chartCode);
+            setAppliedNotesCount(newNotes.length);
+            setTextHistory(createHistory(chartCode));
             alert('谱面代码已成功应用到编辑器');
         } catch (error) {
             alert('应用谱面代码失败，已回退到上次应用的状态: ' + (error as Error).message);
-            setChartCode(lastAppliedCode);
-            setIsDirty(false);
+            setTextHistory(createHistory(lastAppliedCode));
             setIsValid(true);
             setValidationErrors([]);
         }
@@ -148,8 +179,18 @@ export default function NoteInfoPanel() {
     // 重置为默认BPM状态
     const handleReset = () => {
         const defaultCode = getDefaultBPMCode();
-        setChartCode(defaultCode);
-        setIsDirty(false);
+        setTextHistory(createHistory(defaultCode));
+        setIsValid(true);
+        setValidationErrors([]);
+    };
+
+    // 用画布刷新代码（丢弃草稿，从当前画布重新生成）
+    const handleRefreshFromCanvas = () => {
+        const code = convertNotesToChartCode(notes);
+        const jsonString = chartCodeToJSON(code);
+        setTextHistory(createHistory(jsonString));
+        setLastAppliedCode(jsonString);
+        setAppliedNotesCount(notes.length);
         setIsValid(true);
         setValidationErrors([]);
     };
@@ -189,8 +230,7 @@ export default function NoteInfoPanel() {
                         const selectedText = value.substring(start, end);
                         navigator.clipboard.writeText(selectedText);
                         const newValue = value.substring(0, start) + value.substring(end);
-                        setChartCode(newValue);
-                        setIsDirty(true);
+                        setTextHistory(prev => pushHistory(prev, newValue));
                         setTimeout(() => {
                             textarea.selectionStart = textarea.selectionEnd = start;
                         }, 0);
@@ -201,18 +241,21 @@ export default function NoteInfoPanel() {
                     event.preventDefault();
                     navigator.clipboard.readText().then(text => {
                         const newValue = value.substring(0, start) + text + value.substring(end);
-                        setChartCode(newValue);
-                        setIsDirty(true);
+                        setTextHistory(prev => pushHistory(prev, newValue));
                         setTimeout(() => {
                             textarea.selectionStart = textarea.selectionEnd = start + text.length;
                         }, 0);
                     });
                     break;
                 case 'z':
-                    // 撤销（这里简化为清空，实际可以维护历史记录）
+                    // 撤销文本编辑（真实撤销栈，仅作用代码文本，不碰谱面）
                     event.preventDefault();
-                    setChartCode(lastAppliedCode);
-                    setIsDirty(false);
+                    setTextHistory(prev => undoHistory(prev) ?? prev);
+                    break;
+                case 'y':
+                    // 重做文本编辑（真实重做栈）
+                    event.preventDefault();
+                    setTextHistory(prev => redoHistory(prev) ?? prev);
                     break;
                 case 'a':
                     // 全选
@@ -233,8 +276,7 @@ export default function NoteInfoPanel() {
 
             // 插入4个空格作为缩进
             const newValue = value.substring(0, start) + '    ' + value.substring(end);
-            setChartCode(newValue);
-            setIsDirty(true);
+            setTextHistory(prev => pushHistory(prev, newValue));
 
             // 设置光标位置
             setTimeout(() => {
@@ -262,8 +304,7 @@ export default function NoteInfoPanel() {
             }
 
             const newValue = value.substring(0, start) + '\n' + newIndent + value.substring(end);
-            setChartCode(newValue);
-            setIsDirty(true);
+            setTextHistory(prev => pushHistory(prev, newValue));
 
             // 设置光标位置
             setTimeout(() => {
@@ -416,6 +457,20 @@ export default function NoteInfoPanel() {
                                         <li key={index}>• {error}</li>
                                     ))}
                                 </ul>
+                            </div>
+                        )}
+
+                        {/* 过期提示：草稿未应用 + 画布已变动 */}
+                        {isStale && (
+                            <div style={{
+                                padding: 'var(--space-3)', backgroundColor: 'var(--warning-soft)',
+                                borderBottom: '1px solid var(--warning)', color: 'var(--warning)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)',
+                            }}>
+                                <span style={{ fontSize: 'var(--text-xs)' }}>
+                                    代码已过期（画布已更新 {Math.abs(notes.length - appliedNotesCount)} 个音符），应用将覆盖画布改动。
+                                </span>
+                                <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={14} />用画布刷新代码</ActionBtn>
                             </div>
                         )}
 
