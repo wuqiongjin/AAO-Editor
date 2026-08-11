@@ -54,6 +54,10 @@
 - [键音无声与 IDM 下载劫持（issue 20）](./issues/20-键音无声与IDM下载劫持.md) — **已修复**：issue 18 用 `fetch('.mp3')` 请求音频，被浏览器下载插件（IDM）劫持 → 无声 + 频弹下载（干净浏览器验证代码本身正常）。改为 Vite `?inline` 把 6 个 MP3 内联为 base64 data-URI，**运行时零媒体请求**，插件无从劫持；web/Electron 构建后并入 JS bundle。
 - [08 谱面代码编辑器完善](./issues/08-谱面代码编辑器完善.md) — **grill-with-docs 定案**：代码编辑器保留内嵌 textarea；新增强制「应用时校验 beat0 必有 BPM」；文本用真实撤销/重做栈（Ctrl+Z/Y 仅作用代码文本、不碰谱面，再次应用才生效）；双向同步=代码草稿/应用生效，dirty+canvas 变动标过期不覆盖 + 覆盖风险黄条 + 「用画布刷新代码」；一并补全 convertChartCodeToNotes/convertNotesToChartCode 的 skill 往返映射（ADR-0001 对齐，当前 skill 往返丢失）。待实现。
 - [21 架构整改·谱面核心与上下文分域](./issues/21-架构整改-谱面核心与上下文分域.md) — **improve-codebase-architecture 评审的候选 A/B/C/D 已落地（4 个 Phase，每笔提交 tsc+vitest 全绿、133 测试）**：Phase1 候选 B+C 统一 BPM 换算（`BpmTimeline` 单一遍历器 + 段缓存，消除 AudioTiming 与 ChartGeometry 两套平行累加）；Phase2 候选 A 上下文分域（Editing/UI/Config/Playback 四 Context，Editor 收为组装层、子组件经 hooks 直读，消除 13 透传 props）；Phase3 候选 B 收尾（FinalVirtualCanvas 1600+ 行拆薄，渲染/命中/坐标收敛 `src/renderer/` 纯模块，依赖注入 RenderCtx，新增 10 单测）；Phase4 候选 D 历史轻量化（`History.ts` 纯模块 + **结构共享快照**替代每次全量 structuredClone，击键 O(n)→O(1)，**正面回应 issue 10 第三问**；notes 以历史栈为单一真相源，修复 impure updater）。候选 E（统一 Settings）/F（tokens）留待 ADR-0003 正式 issue，勿返工。
+- [显式谱面长度与谱面工程持久化（ADR-0005 定案）](./issues/23-显式谱面长度与谱面工程持久化.md) — **grill-with-docs 定案**（**`docs/adr/0005-显式谱面长度与谱面工程持久化.md`** + CONTEXT.md 术语）：谱面长度改**显式、秒域、与音符解耦**（有音频=音频时长/无音频默认30s 可改），取代 ADR-0004 §3"谱面末端=最大音符beat+1拍尾量"的推算语义，修复 bug 9/10/11；引入**谱面工程 Chart project** = { 代码 + 谱面时长 + 音频 Blob }，IndexedDB 键值表持久化（预留多谱面 id），编辑自动防抖保存；超出谱面长度放置=禁止；打开画布定位 beat 0。**待实现（issue 23 为载体）。**
+- [导入谱面代码后滚动条定位错误（issue 24）](./issues/24-导入谱面代码后滚动条定位错误.md) — bug：导入/应用谱面代码后滚动条跳到结尾，期望按秒数保持原位置。独立跟踪。
+- [存储后端 Electron 改造（issue 25）](./issues/25-存储后端Electron改造.md) — 未来跟踪：谱面工程持久化本期用 IndexedDB（接口抽象化），未来切 Electron `userData` 后端（接 issue 04 IPC）。待后续 grill/实现。
+- [多谱面工作区（issue 26）](./issues/26-多谱面工作区.md) — 未来跟踪：多谱面工程列表/切换/隔离；基于 ADR-0005 已预留的"id→工程"键值表，不改存储结构。待后续单独 grill。
 
 ## Not yet specified
 
