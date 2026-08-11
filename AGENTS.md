@@ -15,7 +15,7 @@ Single-context layout — `CONTEXT.md` + `docs/adr/` at the repo root. See `docs
 ## Development server
 
 - 启动开发服务器一律用 `bash scripts/dev.sh`，不要手动 `npx vite` / `npm run dev` / `npm run dev:cloud`。
-  dev.sh 统一处理了文件描述符上限、HMR 开关和对外地址打印；需要关闭 HMR（云环境避免刷新无限转圈）时用 `bash scripts/dev.sh --no-hmr`。
+  dev.sh 统一处理了文件描述符上限和对外地址打印。
 - 访问地址（给用户 / OpenPreview / curl 验证时使用）：
   - 若设置了 `CNB_VSCODE_PROXY_URI`（云环境，形如 `https://<workspace-id>-{{port}}.cnb.run`）：
     对外访问地址 = 将 `{{port}}` 替换为 `5173`（dev.sh 启动时会打印）。

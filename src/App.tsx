@@ -1,7 +1,11 @@
+import { lazy, Suspense } from 'react';
 import './App.css'
-import Editor from "./pages/Editor";
+import AppShell from "./pages/AppShell";
 import { EditingProvider, UIProvider, ConfigProvider, PlaybackProvider, useConfig } from "./contexts";
+import { AudioPageProvider } from "./contexts/AudioPageContext";
 import { useApplyTheme } from "./styles/theme";
+
+const PageShellPrototype = lazy(() => import('./prototypes/PageShellPrototype'));
 
 // 主题同步（ADR-0003 §5）：把 settings.theme 落到 <html data-theme>，驱动 tokens.css 亮/暗。
 function ThemeSync() {
@@ -10,17 +14,19 @@ function ThemeSync() {
   return null;
 }
 
-// 工作台状态四域（ADR-0003 §7 + 播放编排）：编辑数据 / UI 布局 / 配置 / 播放状态，
-// 均挂在 Editor 外层，子组件按需经 hooks 取各自域，避免 Editor 反复作为 prop relay。
-// 入口直达（ADR-0003 §2）：无独立上传页，直接进入工作台。
-function Workbench() {
+// 工作台状态四域（ADR-0003 §7 + 播放编排）+ 音频页桥接（issue 28 Q16）：
+// 均挂在 AppShell 外层，页面壳与各页子组件按需经 hooks 取各自域。
+// issue 28：由 AppShell 承载四页注册（工作台/音频/设置/快捷键），并保活挂载工作台。
+function Root() {
   return (
     <EditingProvider>
       <UIProvider>
         <ConfigProvider>
           <PlaybackProvider>
-            <ThemeSync />
-            <Editor />
+            <AudioPageProvider>
+              <ThemeSync />
+              <AppShell />
+            </AudioPageProvider>
           </PlaybackProvider>
         </ConfigProvider>
       </UIProvider>
@@ -29,7 +35,15 @@ function Workbench() {
 }
 
 function App() {
-  return <Workbench />;
+  const isPageShellPrototype = new URLSearchParams(window.location.search).get('prototype') === 'page-shell';
+  if (isPageShellPrototype) {
+    return (
+      <Suspense fallback={<div style={{ padding: 24 }}>正在载入布局原型…</div>}>
+        <PageShellPrototype />
+      </Suspense>
+    );
+  }
+  return <Root />;
 }
 
 export default App

@@ -3,29 +3,17 @@ import { ChevronLeft, ChevronRight, PanelRight, Trash2 } from 'lucide-react';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
-import SettingsPanel from '../components/SettingsPanel';
 import { resolveAction, isCapturingShortcut, type FunctionId } from '../utils/ShortcutConfig';
 import { AudioEngine } from '../utils/AudioEngine';
 import { getBpmEvents, beatToSeconds } from '../utils/AudioTiming';
 import { ChartProjectStore, DEFAULT_PROJECT_ID } from '../utils/ChartProject';
 import { keySoundSetById } from '../utils/KeySound';
 import PlayBar from '../components/PlayBar';
-import AudioPanel from '../components/AudioPanel';
 import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
+import { useAudioPageRegister } from '../contexts/AudioPageContext';
 import type { AppSettings } from '../utils/AppSettings';
 
 // ---- 顶栏内联控件样式（统一走令牌） ----
-const topBtnStyle: React.CSSProperties = {
-  backgroundColor: 'var(--bg-inset)',
-  color: 'var(--text)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)',
-  padding: '2px 10px',
-  fontSize: 'var(--text-xs)',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
-};
 const inlineIconBtn: React.CSSProperties = {
   width: 26, height: 26, padding: 0,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -76,15 +64,17 @@ function ThemeSegment({ theme, setTheme }: {
 
 interface EditorProps {
   // 入口直达（ADR-0003 §2 + issue 27）：Editor 不再接收 song/onBack，音频由音频面板管理
+  /** issue 28 页面壳表面契约（Q16）：false 时暂停播放并抑制全局输入（工作台非激活页保活挂载） */
+  active?: boolean;
 }
 
 /**
  * Editor（ADR-0003 §7 + M1 收口）：只保留【组装】职责——挂四域 Provider 的消费、播放编排、布局。
  * 编辑数据/状态归 EditingContext，UI 布局归 UIContext，配置归 ConfigContext，播放态归 PlaybackContext。
- * 子组件（Toolbar / PlayBar / NoteInfoPanel / SettingsPanel / FinalVirtualCanvas）按域直读 hooks，
+ * 子组件（Toolbar / PlayBar / NoteInfoPanel / FinalVirtualCanvas）按域直读 hooks，
  * 此处仅留 Editor 编排所需的最高层：音频引擎编排 / 滚动协调 / 布局壳。
  */
-const Editor: React.FC<EditorProps> = () => {
+const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 四域状态（M1 收口：子组件已按域直读 hooks；此处仅取 Editor 编排所需）
   const editing = useEditing();
   const ui = useUI();
@@ -96,7 +86,6 @@ const Editor: React.FC<EditorProps> = () => {
     mousePosition,
     setSelectedTool,
     beatDisplay,
-    showSettings, setShowSettings,
     leftPanelWidth, rightPanelWidth, leftCollapsed, rightCollapsed,
     isDragging, startDrag, toggleLeftPanel, toggleRightPanel,
   } = ui;
@@ -142,10 +131,9 @@ const Editor: React.FC<EditorProps> = () => {
   // 虚拟画布相关状态（虚拟高度经 onScrollChange 同步到滚动容器）
   const [virtualHeight, setVirtualHeight] = useState(0);
 
-  // 页面切换（issue 27 最简 Tab 底层）：工作台 ↔ 音频面板
-  const [page, setPage] = useState<'workspace' | 'audio'>('workspace');
-  // 当前音频文件名（无音频为 null，供音频面板显示）
+  // 当前音频文件名（无音频为 null）与导入/解码错误（issue 28 Q15：经 AudioPageContext 暴露给音频页）
   const [audioName, setAudioName] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
 
   // 滚动同步相关：滚动条是滚动位置的唯一来源，虚拟画布只跟随滚动条
   const initialScrollDone = useRef(false);
@@ -230,10 +218,12 @@ const Editor: React.FC<EditorProps> = () => {
     return () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current); };
   }, [notes, ctxDuration, persistChartProject]);
 
-  // 音频导入/更换（issue 27）：音频面板回调；加载即 persist（ADR-0005 §6，File 即 Blob 随工程持久化）
+  // 音频导入/更换（issue 27）：音频面板回调；加载即 persist（ADR-0005 §6，File 即 Blob 随工程持久化）。
+  // 解码失败经 audioError 暴露（issue 28 Q15：音频页内联横幅）。
   const importAudio = useCallback((file: File) => {
     const engine = engineRef.current;
     if (!engine) return;
+    setAudioError(null);
     engine.load(file)
       .then(() => {
         audioDataRef.current = { audioName: file.name, audioBlob: file };
@@ -242,7 +232,11 @@ const Editor: React.FC<EditorProps> = () => {
         setCanPlay(true);
         setIsPlaying(false);
       })
-      .catch(() => { setCanPlay(false); setIsPlaying(false); });
+      .catch((err: unknown) => {
+        setCanPlay(false);
+        setIsPlaying(false);
+        setAudioError(err instanceof Error && err.message ? err.message : '该文件无法解码为音频，请更换文件后重试。');
+      });
   }, [persistChartProject]);
 
   // 清除音频（issue 27）：回到无音频态；时长保留当前值（可编辑），重载音频会覆盖（ADR-0005 §4）
@@ -251,6 +245,7 @@ const Editor: React.FC<EditorProps> = () => {
     engine?.clear();
     audioDataRef.current = {};
     setAudioName(null);
+    setAudioError(null);
     setCanPlay(false);
     setIsPlaying(false);
     persistChartProject();
@@ -387,6 +382,27 @@ const Editor: React.FC<EditorProps> = () => {
     durationRef.current = sec;
   }, [setCtxDuration]);
 
+  // 工作台 → 音频页桥接（issue 28 Q16 黑盒边界）：把音频数据/操作注册到 AudioPageContext，
+  // 由应用壳的音频页读取，避免页面壳与播放引擎直接耦合。
+  const registerAudioApi = useAudioPageRegister();
+  useEffect(() => {
+    registerAudioApi({
+      audioName,
+      duration: ctxDuration,
+      error: audioError,
+      importAudio,
+      clearAudio,
+      dismissError: () => setAudioError(null),
+      onDurationChange: handleDurationChange,
+    });
+    return () => registerAudioApi(null);
+  }, [audioName, audioError, ctxDuration, importAudio, clearAudio, handleDurationChange, registerAudioApi]);
+
+  // 页面壳表面契约（issue 28 Q16）：工作台失活（切到其它页）时自动暂停播放。
+  useEffect(() => {
+    if (!active) stopPlayback();
+  }, [active, stopPlayback]);
+
   // 播放时长（ADR-0005 §4）：有音频=音频时长（覆盖）；无音频=持久化值(默认30s)，随编辑持久化
   useEffect(() => {
     const engine = engineRef.current;
@@ -452,9 +468,11 @@ const Editor: React.FC<EditorProps> = () => {
     }
   };
 
-  // 键盘快捷键（ADR-0002）：作用域仅画布；焦点在输入元素时放行原生行为
+  // 键盘快捷键（ADR-0002）：作用域仅画布；焦点在输入元素时放行原生行为。
+  // 工作台非激活（保活挂载在后台）时抑制全局输入（issue 28 Q16）。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!active) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
@@ -466,22 +484,7 @@ const Editor: React.FC<EditorProps> = () => {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [runFunction, shortcutConfig, notes, selectedItems, clipboard, mousePosition]);
-
-  // 页面切换（issue 27 最简 Tab 底层）：音频面板为独立页面，承载 导入/换/清除 音频与无音频时长编辑
-  if (page === 'audio') {
-    return (
-      <AudioPanel
-        audioName={audioName}
-        canPlay={canPlay}
-        duration={ctxDuration}
-        onDurationChange={handleDurationChange}
-        onImportAudio={importAudio}
-        onClearAudio={clearAudio}
-        onBackToWorkspace={() => setPage('workspace')}
-      />
-    );
-  }
+  }, [active, runFunction, shortcutConfig, notes, selectedItems, clipboard, mousePosition]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
@@ -559,15 +562,6 @@ const Editor: React.FC<EditorProps> = () => {
             <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>BPM {currentBpm}</span>
             <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>节拍: {beatDisplay}/4</span>
             <ThemeSegment theme={settings.theme} setTheme={setTheme} />
-            <button
-              style={topBtnStyle}
-              onClick={() => setPage('audio')}
-              title="音频管理（导入 / 更换 / 清除音频）"
-            >音频</button>
-            <button
-              style={topBtnStyle}
-              onClick={() => setShowSettings(true)}
-            >快捷键</button>
           </div>
         </div>
 
@@ -708,10 +702,6 @@ const Editor: React.FC<EditorProps> = () => {
           <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>[ ] {notes.length}</span>
         </div>
       </div>
-      {/* 快捷键设置面板（ADR-0002 §5） */}
-      {showSettings && (
-        <SettingsPanel onClose={() => setShowSettings(false)} />
-      )}
     </div>
   );
 };
