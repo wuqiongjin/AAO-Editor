@@ -552,7 +552,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             alignItems: 'center',
             justifyContent: 'center',
             width: '100%',
-            height: 'auto', // 根据内容自动调整高度
+            height: '100%', // 铺满外层 sticky 容器的可视高度（父级已给确定高度）
             overflow: 'hidden' // 完全禁用滚动条
         }}>
 
@@ -584,10 +584,13 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                         display: 'block',
                         userSelect: 'none',
                         border: '1px solid #333',
-                        width: `min(${CANVAS_WIDTH}px, 100%)`,
+                        // 画布按固有 750:900 比例缩放，同时受容器宽高约束（object-fit:contain 语义，
+                        // 无 letterbox 变形）。确保判定线（画布底部上方 60px）始终落在可视区域内、播放条之上。
+                        width: 'auto',
                         height: 'auto',
-                        aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
-                        objectFit: 'contain', // 保持比例，完全填充容器
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain',
                         position: 'relative',
                         zIndex: 10 // 确保Canvas在最上层
                     }}

@@ -112,6 +112,23 @@ describe('buildKeyEvents', () => {
     expect(events.map(e => e.time)).toEqual([0, 1]);
   });
 
+  it('滑条结点按键音跟随击打样式：flick 发声效、skill 发技能音、普通发 slide 音', () => {
+    const notes: ChartNote[] = [
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 0, lane: 0 },
+          { beat: 1, lane: 1, flick: true },
+          { beat: 2, lane: 2, skill: true },
+        ],
+      },
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.map(e => e.kind)).toEqual(['slide', 'flick', 'skill']);
+    expect(events[1].time).toBeCloseTo(0.5);
+    expect(events[2].time).toBeCloseTo(1);
+  });
+
   it('方向键按组合长度 length 分档采样（1/2/3）', () => {
     const notes: ChartNote[] = [
       { type: 'LDirectional', lane: 0, beat: 0, subBeat: 0, length: 1 },

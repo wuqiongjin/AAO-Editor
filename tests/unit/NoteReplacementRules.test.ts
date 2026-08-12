@@ -79,7 +79,7 @@ describe('handleNoteReplacement - 滑条结点（ADR-0001 1.2）', () => {
     expect(r.shouldReplace).toBe(false);
   });
 
-  it('技能键放端点：两端都加 skill', () => {
+  it('技能键放端点：仅在点击的端点加 skill', () => {
     const notes: ChartNote[] = [{
       type: 'Slide',
       connections: [
@@ -91,6 +91,21 @@ describe('handleNoteReplacement - 滑条结点（ADR-0001 1.2）', () => {
     expect(r.shouldReplace).toBe(true);
     const conns = (r.newNotes[0] as any).connections;
     expect(conns[0].skill).toBe(true);
+    expect(conns[1].skill).toBeUndefined();
+  });
+
+  it('技能键放终点：仅在点击的终点加 skill，起点不受影响', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0 },
+        { beat: 2, lane: 2 }
+      ]
+    }];
+    const r = handleNoteReplacement(notes, 2, 2, 0, 'skill');
+    expect(r.shouldReplace).toBe(true);
+    const conns = (r.newNotes[0] as any).connections;
+    expect(conns[0].skill).toBeUndefined();
     expect(conns[1].skill).toBe(true);
   });
 

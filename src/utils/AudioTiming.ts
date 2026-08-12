@@ -123,7 +123,9 @@ export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvent
         for (const conn of note.connections) {
           // hidden 结点不显示、也不应发声（SP 绿条/新型滑条中间隐藏点）
           if (conn.hidden) continue;
-          push(conn.beat, conn.lane, 'slide', conn.subBeat);
+          // 结点按键音跟随其击打样式：flick 结点发声效、skill 结点发技能音、普通结点发 slide 音
+          const kind: KeySoundEvent['kind'] = conn.flick ? 'flick' : conn.skill ? 'skill' : 'slide';
+          push(conn.beat, conn.lane, kind, conn.subBeat);
         }
         break;
       default:

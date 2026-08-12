@@ -110,14 +110,14 @@ function handleSlideNoteReplacement(
         return { shouldReplace: false, newNotes, message: "忽略不处理" };
     }
 
-    // 技能键：两端都加 skill（只加不清）；中间忽略
+    // 技能键：仅在点击的端点加 skill（只加不清）；中间忽略
     if (newNoteType === "skill") {
         if (isStartPoint || isEndPoint) {
             const updated = conns.map((c, i) =>
-                (i === 0 || i === conns.length - 1) ? { ...c, skill: true } : c
+                i === connectionIndex ? { ...c, skill: true } : c
             );
             newNotes[existingNoteIndex] = { ...existingNote, connections: updated };
-            return { shouldReplace: true, newNotes, message: "两端加技能键标记" };
+            return { shouldReplace: true, newNotes, message: "端点加技能键标记" };
         }
         return { shouldReplace: false, newNotes, message: "忽略不处理" };
     }

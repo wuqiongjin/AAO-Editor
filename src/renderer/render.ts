@@ -98,6 +98,8 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
   }
 
   const bounds = c.getViewportBounds();
+  // 完整拍实线画到谱面末端覆盖的整数拍（chartEndBeat 为整数时保留其结束拍实线）；
+  // 子节拍虚线仅在不超过谱面末端时绘制（避免末端之后多画网格切分）
   for (let beat = 0; beat <= rc.chartEndBeat; beat++) {
     const virtualY = c.beatToVirtualY(beat);
     if (virtualY < bounds.minY || virtualY > bounds.maxY) continue;
@@ -113,6 +115,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
     }
     for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
       const preciseBeat = beat + subBeat / rc.beatDisplay;
+      if (preciseBeat > rc.chartEndBeat + 1e-6) continue;
       const subVirtualY = c.beatToVirtualY(preciseBeat);
       if (subVirtualY < bounds.minY || subVirtualY > bounds.maxY) continue;
       const subCanvasPos = c.virtualToCanvas(0, subVirtualY);
@@ -564,6 +567,34 @@ export function renderBpmNumbers(ctx: CanvasRenderingContext2D, c: Coords, rc: R
   });
 }
 
+/** 谱面起始线 / 结束线（Bug3）：标记谱面有效范围的首尾，横跨整个画布宽度（超出轨道本身） */
+export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  const draw = (beat: number, color: string, label: string) => {
+    const canvasY = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
+    if (canvasY < -20 || canvasY > CANVAS_HEIGHT + 20) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2 * rc.viewport.scale;
+    ctx.setLineDash([6 * rc.viewport.scale, 5 * rc.viewport.scale]);
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(0, canvasY);
+    ctx.lineTo(CANVAS_WIDTH, canvasY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // 左侧小标签
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.95;
+    ctx.font = `${11 * rc.viewport.scale}px sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, 4, canvasY);
+    ctx.restore();
+  };
+  draw(0, '#7c9cff', '起始');
+  draw(rc.chartEndBeat, '#ff9c7c', '结束');
+}
+
 /**
  * 单次全量绘制编排（ADR-0003 候选 B 的组件薄层入口）：
  * 设置画布尺寸 → 清屏 → 背景 → 轨道 → 网格 → 音符 → BPM → 选择框 → 滑条缓冲 → 工具预览 → 判定线 → 起点标记。
@@ -583,6 +614,7 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   ctx.fillRect(trackBgX, 0, trackBgWidth, CANVAS_HEIGHT);
 
   renderGrid(ctx, c, rc);
+  renderBoundLines(ctx, c, rc);
 
   const visibleNotes = c.getVisibleNotes();
   renderNotes(ctx, c, rc, visibleNotes);
