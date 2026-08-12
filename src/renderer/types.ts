@@ -2,7 +2,7 @@
 // 把 FinalVirtualCanvas 的「渲染 + 命中」从组件闭包中提出为可注入依赖的纯模块，
 // 组件只保留挂载/生命周期/事件绑定，性能热路径集中于此、可独立单测。
 import type { ChartNote, SelectionItem } from '../notes/Charts';
-import type { ChartGeometry } from '../utils/ChartGeometry';
+import type { ChartGeometry, SurfaceSize } from '../utils/ChartGeometry';
 import type CanvasSpriteIcon from '../components/CanvasSpriteIcon';
 
 /** 视口状态（虚拟尺寸 + 滚动 + 缩放） */
@@ -39,6 +39,10 @@ export interface HoverPos {
 export interface RenderCtx {
   geometry: ChartGeometry;
   viewport: ViewportState;
+  /** 渲染面尺寸（CSS 像素），ADR-0006 §1：随容器变化 */
+  surface: SurfaceSize;
+  /** 设备像素比（上限 2），ADR-0006 §1：buffer = surface × dpr */
+  dpr: number;
   beatDisplay: number;
   chartEndBeat: number;
   notes: ChartNote[];

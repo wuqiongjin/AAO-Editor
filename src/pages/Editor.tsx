@@ -13,6 +13,7 @@ import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
 import { useAudioPageRegister } from '../contexts/AudioPageContext';
 import { MAX_DURATION_SECONDS } from '../utils/AppSettings';
 import { AppNav, useAppNav } from './AppNav';
+import { DEFAULT_SURFACE, type SurfaceSize } from '../utils/ChartGeometry';
 
 // ---- 顶栏内联控件样式（统一走令牌） ----
 const inlineIconBtn: React.CSSProperties = {
@@ -122,6 +123,21 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const chartAreaRef = useRef<HTMLDivElement>(null);
   const virtualCanvasRef = useRef<any>(null);
 
+  // 渲染面尺寸（ADR-0006 §1）：随谱面画布容器变化，经 ResizeObserver 提供；缓冲 = surface × dpr
+  const [surface, setSurface] = useState<SurfaceSize>(DEFAULT_SURFACE);
+  useEffect(() => {
+    const el = chartAreaRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setSurface({ w: Math.round(width), h: Math.round(height) });
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // 处理虚拟画布滚动变化：仅记录虚拟高度，配合滚动条映射。
   // 同步更新"判定线处秒数"锚点（issue24）：正常浏览/缩放/播放时，凡画布 scrollY 变化都据此
   // 刷新 lastScrollSecondsRef，避免它只依赖 DOM 滚动事件而在缩放/播放/初始定位后失准。
@@ -179,8 +195,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 普通放音符/改长度不改 BPM、缩放不触发，避免干扰缩放锚点与放音符后的正常滚动。
   const chartEndKey = useMemo(() => {
     const bpm = getBpmEvents(notes).map(e => `${e.beat}:${e.bpm}`).join(',');
-    return `${ctxDuration}|${bpm}`;
-  }, [notes, ctxDuration]);
+    // 并入渲染面尺寸（ADR-0006 §3）：resize 时同样按秒重锚，保证判定线处秒数不变
+    return `${ctxDuration}|${bpm}|${surface.w}x${surface.h}`;
+  }, [notes, ctxDuration, surface]);
 
   // issue24：chartEnd 变化（应用谱面代码/改时长/BPM 事件）后，按 lastScrollSecondsRef 的
   // 秒数重新锚定 DOM 滚动条与画布 scrollY，避免同一 scrollY 因 chartEndVirtualY 变化而漂移到结尾。
@@ -614,8 +631,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
           {/* 谱面画布 - 使用sticky定位，固定在视口中 */}
           {/* 高度用 100%（滚动容器可视高度）而非 100vh：画布区域下方还有播放条，
-              100vh 会让 sticky 容器向下溢出 ~播放条高度，把判定线（画布底部上方 60px）
-              推到播放条之下被遮挡。改用 100% 使画布正好铺满滚动容器的可视视口。 */}
+              100vh 会让 sticky 容器向下溢出 ~播放条高度，把判定线（画布底边）推到播放条之下被遮挡。
+              改用 100% 使画布正好铺满滚动容器的可视视口，判定线=画布底边=PlayBar 正上方（ADR-0006 §2）。 */}
           <div style={{
             position: 'sticky',
             top: '0px',
@@ -625,7 +642,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             justifyContent: 'center',
             alignItems: 'center',
             backgroundColor: 'var(--canvas-bg)',
-            padding: 'var(--space-5)',
+            // ADR-0006 §1：去内边距，使 canvas 铺满谱面画布区域、无留白
+            padding: '0',
             boxSizing: 'border-box',
             zIndex: 1
           }}>
@@ -633,6 +651,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
               ref={virtualCanvasRef}
               onScrollChange={handleVirtualScrollChange}
               chartEndSeconds={ctxDuration}
+              surface={surface}
             />
           </div>
         </div>

@@ -2,7 +2,7 @@
 // 从组件闭包中提出为依赖注入的纯函数。组件每次 RAF 组装 RenderCtx 调用 renderChart。
 // 本模块不含任何 React 状态；性能热路径（视口剔除/缓存/增量重绘）将来在此落地。
 import type { ChartNote, SelectionItem, SlideNote } from '../notes/Charts';
-import { LANES, LANE_WIDTH, CANVAS_WIDTH, CANVAS_HEIGHT, JUDGE_LINE_Y, TRACK_CHROME_TOTAL } from '../utils/ChartGeometry';
+import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL } from '../utils/ChartGeometry';
 import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
 import { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcons } from '../components/CanvasSpriteIcon';
 import { makeCoords, type Coords } from './coords';
@@ -27,10 +27,10 @@ const isSlideNodeSelected = (rc: RenderCtx, index: number, connIndex: number) =>
 const isSlideRegionSelected = (rc: RenderCtx, index: number, connIndex: number) =>
   rc.selectedItems.some(it => it.kind === 'slideRegion' && it.noteIndex === index && it.connIndex === connIndex);
 
-/** 判定线（ADR-0004 §1）：固定画布底部；常显（停/播同线） */
+/** 判定线（ADR-0004 §1 + ADR-0006 §2）：固定画布【下边边缘】；常显（停/播同线） */
 export function renderJudgeLine(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-  const y = JUDGE_LINE_Y;
+  const y = rc.surface.h; // 判定线 = 画布下边边缘
   ctx.save();
   ctx.strokeStyle = '#e0f7ff';
   ctx.lineWidth = 3 * rc.viewport.scale;
@@ -48,7 +48,7 @@ export function renderStartMarker(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   if (rc.markerBeat === null) return;
   const { trackBgX } = c.trackGeometry(rc.viewport.scale);
   const markerCanvasY = c.virtualToCanvas(0, c.beatToVirtualY(rc.markerBeat)).y;
-  if (markerCanvasY < -20 || markerCanvasY > CANVAS_HEIGHT + 20) return;
+  if (markerCanvasY < -20 || markerCanvasY > rc.surface.h + 20) return;
   const color = rc.markerSelected ? '#ffd166' : '#9ca3af';
   ctx.save();
   ctx.strokeStyle = color;
@@ -84,7 +84,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
         const width = borderWidths[index] * rc.viewport.scale;
         const rectX = isRightBorder ? (x + currentOffset) : (x - currentOffset - width);
         ctx.fillStyle = color;
-        ctx.fillRect(rectX, 0, width, CANVAS_HEIGHT);
+        ctx.fillRect(rectX, 0, width, rc.surface.h);
         currentOffset += width;
       });
     } else {
@@ -92,7 +92,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x, CANVAS_HEIGHT);
+      ctx.lineTo(x, rc.surface.h);
       ctx.stroke();
     }
   }
@@ -104,7 +104,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
     const virtualY = c.beatToVirtualY(beat);
     if (virtualY < bounds.minY || virtualY > bounds.maxY) continue;
     const canvasPos = c.virtualToCanvas(0, virtualY);
-    if (canvasPos.y >= 0 && canvasPos.y <= CANVAS_HEIGHT) {
+    if (canvasPos.y >= 0 && canvasPos.y <= rc.surface.h) {
       ctx.strokeStyle = '#555555';
       ctx.lineWidth = Math.max(2, 2 * rc.viewport.scale);
       ctx.setLineDash([]);
@@ -119,7 +119,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
       const subVirtualY = c.beatToVirtualY(preciseBeat);
       if (subVirtualY < bounds.minY || subVirtualY > bounds.maxY) continue;
       const subCanvasPos = c.virtualToCanvas(0, subVirtualY);
-      if (subCanvasPos.y >= 0 && subCanvasPos.y <= CANVAS_HEIGHT) {
+      if (subCanvasPos.y >= 0 && subCanvasPos.y <= rc.surface.h) {
         ctx.strokeStyle = '#666666';
         ctx.lineWidth = Math.max(0.5, 1 * rc.viewport.scale);
         ctx.setLineDash([4 * rc.viewport.scale, 6 * rc.viewport.scale]);
@@ -545,7 +545,7 @@ export function renderBpmNumbers(ctx: CanvasRenderingContext2D, c: Coords, rc: R
   const bpmMarks = rc.notes.filter(note => note.type === "BPM");
   bpmMarks.forEach((note) => {
     const canvasPos = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat));
-    if (canvasPos.y >= -50 && canvasPos.y <= CANVAS_HEIGHT + 50) {
+    if (canvasPos.y >= -50 && canvasPos.y <= rc.surface.h + 50) {
       const { trackStartX, trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
       ctx.strokeStyle = '#ff6666';
       ctx.lineWidth = 3 * rc.viewport.scale;
@@ -556,7 +556,7 @@ export function renderBpmNumbers(ctx: CanvasRenderingContext2D, c: Coords, rc: R
       ctx.stroke();
       const textY = canvasPos.y - 15 * rc.viewport.scale;
       const textX = trackStartX - 80;
-      if (textY >= -20 && textY <= CANVAS_HEIGHT + 20) {
+      if (textY >= -20 && textY <= rc.surface.h + 20) {
         ctx.fillStyle = '#ff6666';
         ctx.font = `bold ${12 * rc.viewport.scale}px Arial`;
         ctx.textAlign = 'left';
@@ -571,7 +571,7 @@ export function renderBpmNumbers(ctx: CanvasRenderingContext2D, c: Coords, rc: R
 export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   const draw = (beat: number, color: string, label: string) => {
     const canvasY = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
-    if (canvasY < -20 || canvasY > CANVAS_HEIGHT + 20) return;
+    if (canvasY < -20 || canvasY > rc.surface.h + 20) return;
     ctx.save();
     ctx.strokeStyle = color;
     ctx.lineWidth = 2 * rc.viewport.scale;
@@ -579,7 +579,7 @@ export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: R
     ctx.globalAlpha = 0.9;
     ctx.beginPath();
     ctx.moveTo(0, canvasY);
-    ctx.lineTo(CANVAS_WIDTH, canvasY);
+    ctx.lineTo(rc.surface.w, canvasY);
     ctx.stroke();
     ctx.setLineDash([]);
     // 左侧小标签
@@ -601,17 +601,19 @@ export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: R
  * 不持有任何 React 状态；虚拟高度同步等副作用由组件自行处理。
  */
 export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, rc: RenderCtx) {
-  canvas.width = CANVAS_WIDTH;
-  canvas.height = CANVAS_HEIGHT;
+  // buffer = surface × dpr（ADR-0006 §1）；此后绘制/命中均用 CSS 像素坐标
+  canvas.width = Math.round(rc.surface.w * rc.dpr);
+  canvas.height = Math.round(rc.surface.h * rc.dpr);
+  ctx.setTransform(rc.dpr, 0, 0, rc.dpr, 0, 0);
 
-  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.clearRect(0, 0, rc.surface.w, rc.surface.h);
   ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.fillRect(0, 0, rc.surface.w, rc.surface.h);
 
   const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
   const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
   ctx.fillStyle = '#00000A';
-  ctx.fillRect(trackBgX, 0, trackBgWidth, CANVAS_HEIGHT);
+  ctx.fillRect(trackBgX, 0, trackBgWidth, rc.surface.h);
 
   renderGrid(ctx, c, rc);
   renderBoundLines(ctx, c, rc);

@@ -6,7 +6,7 @@ import { deleteSelection } from '../utils/SelectionEditing';
 import { getBpmEvents, secondsToBeat, beatToSeconds, chartLengthToEndBeat, type BpmEvent } from '../utils/AudioTiming';
 import {
   ChartGeometry, LANES, LANE_WIDTH,
-  CANVAS_WIDTH, CANVAS_HEIGHT, JUDGE_LINE_Y, TRACK_CHROME_TOTAL,
+  DEFAULT_SURFACE, TRACK_CHROME_TOTAL, type SurfaceSize,
 } from '../utils/ChartGeometry';
 import { useEditing, useUI, usePlayback } from '../contexts';
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../renderer';
@@ -18,6 +18,8 @@ interface FinalVirtualCanvasProps {
   onScrollChange?: (scrollY: number, virtualHeight: number) => void;
   /** 谱面长度（秒，ADR-0005 §1）：显式、与音符无关；有音频=音频时长，无音频=持久化值(默认30s) */
   chartEndSeconds: number;
+  /** 渲染面尺寸（CSS 像素，ADR-0006 §1）：由 Editor 经 ResizeObserver 提供；缓冲 = surface × dpr */
+  surface: SurfaceSize;
 }
 
 // 视口缩放配置
@@ -32,7 +34,10 @@ const MIN_SCALE = 0.1;
 const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     onScrollChange,
     chartEndSeconds,
+    surface,
 }, ref) => {
+    // 渲染面兜底：ResizeObserver 尚未回传前的有效尺寸（ADR-0006 §1）
+    const surf: SurfaceSize = surface.w > 0 && surface.h > 0 ? surface : DEFAULT_SURFACE;
     // 状态经 hooks 直读（ADR-0003 §7）
     const {
         notes, selectedItems, setSelectedItems, clipboard,
@@ -96,7 +101,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         setScrollY: (scrollY: number) => {
             setViewport(prev => {
                 const scaledBounds = getScaledVirtualBounds(prev.scale);
-                const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / prev.scale, scrollY));
+                const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / prev.scale, scrollY));
                 return {
                     ...prev,
                     scrollY: newScrollY
@@ -108,27 +113,27 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         // 虚拟画布可滚动的最大范围（供父组件滚动条做线性映射）
         getMaxScrollY: () => {
             const scaledBounds = getScaledVirtualBounds(viewport.scale);
-            return Math.max(0, scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale);
+            return Math.max(0, scaledBounds.maxY - surf.h / viewport.scale);
         },
-        // 播放跟随（ADR-0004 §1）：给定播放位置(秒) → 目标 scrollY（使判定线压在底部）
+        // 播放跟随（ADR-0004 §1）：给定播放位置(秒) → 目标 scrollY（使判定线压在底部=渲染面底边）
         getScrollYForPlaybackSeconds: (seconds: number) => {
             const beat = secondsToBeat(getSortedBpmEvents(), seconds);
-            const targetScrollY = beatToVirtualY(beat) - JUDGE_LINE_Y / viewport.scale;
+            const targetScrollY = beatToVirtualY(beat) - surf.h / viewport.scale;
             const scaledBounds = getScaledVirtualBounds(viewport.scale);
-            return Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale, targetScrollY));
+            return Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / viewport.scale, targetScrollY));
         },
         // 播放跟随反向（拖动滚动条=seek）：给定 scrollY → 判定线处对应播放位置(秒)
         getPlaybackSecondsForScrollY: (scrollY: number) => {
-            const virtualY = scrollY + JUDGE_LINE_Y / viewport.scale;
+            const virtualY = scrollY + surf.h / viewport.scale;
             const beat = virtualYToBeat(virtualY);
             return beatToSeconds(getSortedBpmEvents(), beat);
         },
         // 谱面可用滚动范围（ADR-0004 §3 修订：滚动条随谱面长度自适应，无空白）
         getChartScrollRange: () => {
             const sb = getScaledVirtualBounds(viewport.scale);
-            const clamp = (y: number) => Math.max(sb.minY, Math.min(sb.maxY - CANVAS_HEIGHT / viewport.scale, y));
-            const bottom = clamp(beatToVirtualY(0) - JUDGE_LINE_Y / viewport.scale);
-            const top = clamp(beatToVirtualY(chartEndBeat) - JUDGE_LINE_Y / viewport.scale);
+            const clamp = (y: number) => Math.max(sb.minY, Math.min(sb.maxY - surf.h / viewport.scale, y));
+            const bottom = clamp(beatToVirtualY(0) - surf.h / viewport.scale);
+            const top = clamp(beatToVirtualY(chartEndBeat) - surf.h / viewport.scale);
             return { top, bottom };
         },
         // 起点标记访问（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除
@@ -142,7 +147,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // ---------------------------
     // 谱面几何（ADR-0003 候选 B/C）：BPM→虚拟Y 走缓存时间线，坐标/剔除/命中统一由 ChartGeometry 提供
     // ---------------------------
-    const geometry = useMemo(() => new ChartGeometry(getBpmEvents(notes), chartEndBeat), [notes, chartEndBeat]);
+    const geometry = useMemo(() => new ChartGeometry(getBpmEvents(notes), chartEndBeat, surf), [notes, chartEndBeat, surf]);
     // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它
     const chartEndVirtualY = geometry.chartEndVirtualY;
     // 与 AudioTiming 共享同一 BPM 事件表（时间→beat 与 beat→Y 都用同一事件表，保证预览线对齐）
@@ -202,6 +207,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         const rc: RenderCtx = {
             geometry,
             viewport,
+            surface: surf,
+            dpr: Math.min(window.devicePixelRatio || 1, 2), // ADR-0006 §1：dpr 上限 2
             beatDisplay,
             chartEndBeat,
             notes,
@@ -220,7 +227,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {
-        const totalVirtualHeight = chartEndVirtualY + JUDGE_LINE_Y / viewport.scale;
+        const totalVirtualHeight = chartEndVirtualY + surf.h / geometry.effectiveScale(viewport.scale);
         const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
         if (Math.abs(viewport.virtualHeight - totalVirtualHeight) > 1) {
             setViewport(prev => ({
@@ -229,19 +236,19 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 virtualHeight: totalVirtualHeight
             }));
         }
-    }, [chartEndVirtualY, viewport.scale, viewport.virtualHeight]);
+    }, [chartEndVirtualY, viewport.scale, viewport.virtualHeight, surf, geometry]);
 
     // ---------------------------
     // 事件处理
     // ---------------------------
-    // 画布缓冲像素固定为 CANVAS_WIDTH / CANVAS_HEIGHT，但 CSS 显示尺寸随视口自适应缩放（issue 12 布局自适应）。
-    // 事件坐标取自 getBoundingClientRect（CSS 显示像素），须按显示比例换算回缓冲像素，保证命中/放置与渲染一致。
+    // 渲染面动态化（ADR-0006 §1）：几何/命中/绘制均用 CSS 像素坐标（缓冲 = surface × dpr，绘制时 setTransform）。
+    // 事件坐标取自 getBoundingClientRect（CSS 显示像素），与几何坐标同基准，无需再换算。
     const cssToCanvas = useCallback((e: { clientX: number; clientY: number }): { x: number; y: number } | null => {
         const rect = canvasRef.current?.getBoundingClientRect();
         if (!rect || rect.width <= 0 || rect.height <= 0) return null;
         return {
-            x: (e.clientX - rect.left) * (CANVAS_WIDTH / rect.width),
-            y: (e.clientY - rect.top) * (CANVAS_HEIGHT / rect.height),
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
         };
     }, []);
 
@@ -254,10 +261,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             const virtualMouse = canvasToVirtual(pos.x, pos.y);
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * zoomFactor));
-            const newScrollY = virtualMouse.y - pos.y / newScale;
+            const effNewScale = geometry.effectiveScale(newScale);
+            const newScrollY = virtualMouse.y - pos.y / effNewScale;
             setViewport(prev => ({
                 ...prev,
-                scale: newScale,
+                scale: effNewScale, // 视图 scale 恒等于 effectiveScale（ADR-0006 Q4=A）
                 scrollX: 0,
                 scrollY: newScrollY
             }));
@@ -514,9 +522,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // 初始视口设置 - 只在组件首次挂载时执行
     useEffect(() => {
-        const totalVirtualHeight = chartEndVirtualY + JUDGE_LINE_Y / viewport.scale;
+        const es = geometry.effectiveScale(viewport.scale);
+        const totalVirtualHeight = chartEndVirtualY + surf.h / es;
         const scaledBounds = getScaledVirtualBounds(viewport.scale);
-        const initialScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - CANVAS_HEIGHT / viewport.scale, totalVirtualHeight - CANVAS_HEIGHT / viewport.scale));
+        const initialScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / es, totalVirtualHeight - surf.h / es));
         setViewport(prev => ({
             ...prev,
             scrollY: initialScrollY,
@@ -528,13 +537,13 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
     }, []); // 只在组件首次挂载时执行，不监听任何依赖
 
-    // 同步外部scale变化
+    // 同步外部scale变化（ADR-0006 Q4=A：视图 scale 恒等于 effectiveScale，保证渲染/命中一致）
     useEffect(() => {
         setViewport(prev => ({
             ...prev,
-            scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale))
+            scale: geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)))
         }));
-    }, [scale]);
+    }, [scale, geometry]);
 
     // 通知滚动变化
     useEffect(() => {
@@ -570,8 +579,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             }}>
                 <canvas
                     ref={canvasRef}
-                    width={CANVAS_WIDTH}
-                    height={CANVAS_HEIGHT}
+                    width={surf.w}
+                    height={surf.h}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
@@ -584,13 +593,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                         display: 'block',
                         userSelect: 'none',
                         border: '1px solid #333',
-                        // 画布按固有 750:900 比例缩放，同时受容器宽高约束（object-fit:contain 语义，
-                        // 无 letterbox 变形）。确保判定线（画布底部上方 60px）始终落在可视区域内、播放条之上。
-                        width: 'auto',
-                        height: 'auto',
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        objectFit: 'contain',
+                        // ADR-0006 §1：canvas 铺满谱面画布容器；缓冲 = surface × dpr（renderChart 设置），
+                        // 宽高比恒定 → 无变形、无 letterbox。
+                        width: '100%',
+                        height: '100%',
                         position: 'relative',
                         zIndex: 10 // 确保Canvas在最上层
                     }}

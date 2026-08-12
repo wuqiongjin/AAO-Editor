@@ -9,14 +9,24 @@ import { BpmTimeline, type BpmTimelineEvent } from './BpmTimeline';
 export const LANES = 7;
 export const BEAT_HEIGHT = 220; // 基准节拍高度
 export const LANE_WIDTH = 30;
-export const CANVAS_WIDTH = 750; // 谱面缓冲像素宽
-export const CANVAS_HEIGHT = 900; // 谱面缓冲像素高
-// 判定线（ADR-0004 §1）：固定画布底部，谱面随播放上移；常量 = 判定线距画布底部的像素偏移
-export const JUDGE_LINE_Y = CANVAS_HEIGHT - 60;
+// 默认渲染面（无 surface 传入时的兜底，兼容既有测试与旧行为）
+export const DEFAULT_SURFACE = { w: 750, h: 900 };
+export const CANVAS_WIDTH = DEFAULT_SURFACE.w; // 兼容旧导出（= 默认渲染面宽）
+export const CANVAS_HEIGHT = DEFAULT_SURFACE.h; // 兼容旧导出（= 默认渲染面高）
+// 判定线（ADR-0004 §1 + ADR-0006 §2 修订）：固定画布【下边边缘】，谱面随播放上移。
+// 渲染面尺寸动态化后，判定线偏移 = surface.h，不再用固定常量。
 // 轨道外壳/chrome 总宽度（原 12 处魔法表达式 (1+4+1+1+1+1) 收敛；轨道左右各一份）
 export const TRACK_CHROME_TOTAL = 1 + 4 + 1 + 1 + 1 + 1;
 // 视口剔除的上下左右外扩（虚拟单位）
 export const VIEWPORT_PADDING = 200;
+// 最小缩放（防止过窄渲染面下 fitWidth 为负导致 scale 非法）
+const MIN_SCALE = 0.1;
+
+/** 渲染面尺寸（CSS 像素）：画布缓冲 = surface × dpr（ADR-0006 §1） */
+export interface SurfaceSize {
+  w: number;
+  h: number;
+}
 
 export interface GeometryViewport {
   scrollX: number;
@@ -43,76 +53,93 @@ export interface GeometryBounds {
 export class ChartGeometry {
   readonly bpmEvents: readonly BpmTimelineEvent[];
   readonly chartEndBeat: number;
+  /** 渲染面尺寸（CSS 像素），ADR-0006 §1：随容器变化 */
+  readonly surface: SurfaceSize;
   /** BPM→虚拟像素时间线：每拍 BEAT_HEIGHT*120/bpm 像素 */
   readonly timeline: BpmTimeline;
   /** 谱面末端的真实 BPM 像素高度 */
   readonly chartEndVirtualY: number;
 
-  constructor(bpmEvents: readonly BpmTimelineEvent[], chartEndBeat: number) {
+  constructor(bpmEvents: readonly BpmTimelineEvent[], chartEndBeat: number, surface: SurfaceSize = DEFAULT_SURFACE) {
     this.bpmEvents = bpmEvents;
     this.chartEndBeat = chartEndBeat;
+    this.surface = surface;
     this.timeline = new BpmTimeline(bpmEvents, (bpm) => (BEAT_HEIGHT * 120) / bpm);
     this.chartEndVirtualY = this.timeline.positionOfBeat(chartEndBeat);
   }
 
+  /**
+   * 实际生效缩放（ADR-0006 §1 Q4=A）：用户 zoom 与"轨道不超出画布宽"的钳制取小。
+   * 保证 7 轨水平居中时始终完整可见、不变形；渲染面过窄时自动收缩。
+   */
+  effectiveScale(scale: number): number {
+    const fitWidth = (this.surface.w - TRACK_CHROME_TOTAL * 2) / (LANES * LANE_WIDTH);
+    return Math.max(MIN_SCALE, Math.min(scale, fitWidth));
+  }
+
   /** 轨道水平居中几何（唯一实现；trackBgX = 轨道内容左缘 = 虚拟X原点，见 issue 11） */
   trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; trackBgX: number; trackBgWidth: number } {
-    const totalTrackWidth = LANES * LANE_WIDTH * scale + TRACK_CHROME_TOTAL * 2;
-    const trackStartX = (CANVAS_WIDTH - totalTrackWidth) / 2;
+    const es = this.effectiveScale(scale);
+    const totalTrackWidth = LANES * LANE_WIDTH * es + TRACK_CHROME_TOTAL * 2;
+    const trackStartX = (this.surface.w - totalTrackWidth) / 2;
     const trackBgX = trackStartX + TRACK_CHROME_TOTAL;
-    const trackBgWidth = LANES * LANE_WIDTH * scale;
+    const trackBgWidth = LANES * LANE_WIDTH * es;
     return { totalTrackWidth, trackStartX, trackBgX, trackBgWidth };
   }
 
-  /** 缩放时的虚拟边界（ADR-0004 §3：总高随谱面末端自适应，滚动到顶时末端正好落在判定线） */
+  /** 缩放时的虚拟边界（ADR-0004 §3：总高随谱面末端自适应，滚动到顶时末端正好落在判定线；判定线=渲染面底边） */
   scaledVirtualBounds(scale: number): GeometryBounds {
-    const totalVirtualHeight = this.chartEndVirtualY + JUDGE_LINE_Y / scale;
+    const es = this.effectiveScale(scale);
+    const totalVirtualHeight = this.chartEndVirtualY + this.surface.h / es;
     const totalVirtualWidth = LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2;
     return { minY: 0, maxY: totalVirtualHeight, minX: 0, maxX: totalVirtualWidth };
   }
 
-  /** 谱面总虚拟高度（chartEndVirtualY + 判定线偏移折回虚拟单位） */
+  /** 谱面总虚拟高度（chartEndVirtualY + 渲染面高折回虚拟单位） */
   totalVirtualHeight(scale: number): number {
-    return this.chartEndVirtualY + JUDGE_LINE_Y / scale;
+    return this.chartEndVirtualY + this.surface.h / this.effectiveScale(scale);
   }
 
-  /** beat → 虚拟Y（自下而上翻转：beat 0 在底部） */
+  /** beat → 虚拟Y（自下而上翻转：beat 0 在判定线=渲染面底边） */
   beatToVirtualY(beat: number, scale: number): number {
-    return this.chartEndVirtualY + JUDGE_LINE_Y / scale - this.timeline.positionOfBeat(beat);
+    return this.chartEndVirtualY + this.surface.h / this.effectiveScale(scale) - this.timeline.positionOfBeat(beat);
   }
 
   /** 虚拟Y → beat（与 beatToVirtualY 互逆） */
   virtualYToBeat(virtualY: number, scale: number): number {
-    return this.timeline.beatOfPosition(this.chartEndVirtualY + JUDGE_LINE_Y / scale - virtualY);
+    return this.timeline.beatOfPosition(this.chartEndVirtualY + this.surface.h / this.effectiveScale(scale) - virtualY);
   }
 
-  /** 虚拟坐标 → 画布坐标 */
+  /** 虚拟坐标 → 画布坐标（CSS 像素） */
   virtualToCanvas(virtualX: number, virtualY: number, viewport: GeometryViewport): GeometryPoint {
     const { trackBgX } = this.trackGeometry(viewport.scale);
+    const es = this.effectiveScale(viewport.scale);
     return {
-      x: trackBgX + (virtualX - viewport.scrollX) * viewport.scale,
-      y: (virtualY - viewport.scrollY) * viewport.scale,
+      x: trackBgX + (virtualX - viewport.scrollX) * es,
+      y: (virtualY - viewport.scrollY) * es,
     };
   }
 
-  /** 画布坐标 → 虚拟坐标 */
+  /** 画布坐标（CSS 像素） → 虚拟坐标 */
   canvasToVirtual(canvasX: number, canvasY: number, viewport: GeometryViewport): GeometryPoint {
     const { trackBgX } = this.trackGeometry(viewport.scale);
+    const es = this.effectiveScale(viewport.scale);
     return {
-      x: (canvasX - trackBgX) / viewport.scale + viewport.scrollX,
-      y: canvasY / viewport.scale + viewport.scrollY,
+      x: (canvasX - trackBgX) / es + viewport.scrollX,
+      y: canvasY / es + viewport.scrollY,
     };
   }
 
   /** 视口可见范围（虚拟坐标，含外扩 padding） */
   viewportBounds(viewport: GeometryViewport): GeometryBounds {
-    const padding = VIEWPORT_PADDING / viewport.scale;
+    const es = this.effectiveScale(viewport.scale);
+    const padding = VIEWPORT_PADDING / es;
     const sb = this.scaledVirtualBounds(viewport.scale);
     return {
       minX: Math.max(sb.minX, viewport.scrollX - padding),
-      maxX: Math.min(sb.maxX, viewport.scrollX + CANVAS_WIDTH / viewport.scale + padding),
+      maxX: Math.min(sb.maxX, viewport.scrollX + this.surface.w / es + padding),
       minY: Math.max(sb.minY, viewport.scrollY - padding),
-      maxY: Math.min(sb.maxY, viewport.scrollY + CANVAS_HEIGHT / viewport.scale + padding),
+      maxY: Math.min(sb.maxY, viewport.scrollY + this.surface.h / es + padding),
     };
   }
 
@@ -130,9 +157,10 @@ export class ChartGeometry {
   /** 画布坐标 → lane/beat（用于命中与圈选）；轨道外/负拍返回 null */
   laneBeatFromCanvas(cx: number, cy: number, viewport: GeometryViewport, beatDisplay: number): { lane: number; preciseBeat: number } | null {
     const { trackBgX } = this.trackGeometry(viewport.scale);
+    const es = this.effectiveScale(viewport.scale);
     const relativeX = cx - trackBgX;
-    const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
-    const virtualY = viewport.scrollY + cy / viewport.scale;
+    const lane = Math.floor(relativeX / (LANE_WIDTH * es));
+    const virtualY = viewport.scrollY + cy / es;
     const beat = this.virtualYToBeat(virtualY, viewport.scale);
     if (lane >= 0 && lane < LANES && beat >= 0) {
       const nearestSubBeat = Math.round(beat * beatDisplay);
