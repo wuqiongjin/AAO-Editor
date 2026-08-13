@@ -4,7 +4,8 @@ import {
     convertChartCodeToNotes,
     chartCodeToJSON,
     parseChartCodeFromJSON,
-    validateChartCode
+    validateChartCode,
+    hasBeat0Bpm
 } from '../../src/utils/ChartConverter';
 import type { ChartCodeNote } from '../../src/utils/ChartConverter';
 import type { ChartNote } from '../../src/notes/Charts';
@@ -218,5 +219,11 @@ describe('Chart Converter', () => {
 
         expect(validation.valid).toBe(false);
         expect(validation.errors.length).toBeGreaterThan(0);
+    });
+
+    test('hasBeat0Bpm 判定第 0 拍 BPM 保底', () => {
+        expect(hasBeat0Bpm([{ beat: 0, type: 'BPM', bpm: 120 }])).toBe(true);
+        expect(hasBeat0Bpm([{ beat: 4, type: 'Single', lane: 0 }] as ChartCodeNote[])).toBe(false);
+        expect(hasBeat0Bpm([{ beat: 0, type: 'Single', lane: 0 }] as ChartCodeNote[])).toBe(false);
     });
 });

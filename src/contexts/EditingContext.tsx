@@ -2,7 +2,6 @@
 // 以及编辑操作（复制/剪切/粘贴/删除/镜像/放置/编辑工具态）。粘贴/放置需要坐标，由调用方以参数传入（解耦鼠标位置）。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
 import type { ChartNote, SelectionItem } from '../notes/Charts';
-import type { EditingToolAction } from '../components/FinalVirtualCanvas';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../utils/SelectionEditing';
 import { handleNoteReplacement, pasteChartNotes } from '../utils/NoteReplacementRules';
 import {
@@ -44,6 +43,9 @@ export interface EditingContextValue {
   editToolAction: (action: EditingToolAction, item: SelectionItem) => void;
   editToolPaste: (pos: Position) => void;
 }
+
+/** 编辑工具的动作：由编辑态工具触发，作用于单个选中项（复制/剪切/删除/镜像） */
+export type EditingToolAction = 'copy' | 'cut' | 'delete' | 'mirror';
 
 const EditingContext = createContext<EditingContextValue | null>(null);
 

@@ -13,8 +13,6 @@ export interface UIContextValue {
   setScale: (scale: number | ((prev: number) => number)) => void;
   beatDisplay: number;
   setBeatDisplay: (b: number) => void;
-  isCombinationMode: boolean;
-  setCombinationMode: (v: boolean) => void;
   mousePosition: MousePos | null;
   setMousePosition: (p: MousePos | null) => void;
   // 布局（ADR-0003 L1）
@@ -34,7 +32,6 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [selectedTool, setSelectedTool] = useState('mouse');
   const [scale, setScale] = useState(1);
   const [beatDisplay, setBeatDisplay] = useState(4);
-  const [isCombinationMode, setCombinationMode] = useState(false);
   // 收口：删 currentBpm 死状态（120 写死、原 Editor 即 _setCurrentBpm 形态）
   const [mousePosition, setMousePosition] = useState<ChartPosition | null>(null);
 
@@ -77,7 +74,6 @@ export function UIProvider({ children }: { children: ReactNode }) {
     selectedTool, setSelectedTool,
     scale, setScale,
     beatDisplay, setBeatDisplay,
-    isCombinationMode, setCombinationMode,
     mousePosition, setMousePosition,
     leftPanelWidth, rightPanelWidth,
     leftCollapsed, rightCollapsed,

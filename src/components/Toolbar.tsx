@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
 import {
   Music,
-  Square,
   MousePointer,
   ZoomIn,
   ZoomOut,
@@ -104,7 +103,7 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
   } = editing;
   const {
     selectedTool, setSelectedTool, beatDisplay, setBeatDisplay,
-    scale, setScale, isCombinationMode, setCombinationMode,
+    scale, setScale,
     mousePosition,
   } = ui;
   const canCopy = selectedItems.length > 0;
@@ -247,18 +246,6 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
             <ToolbarButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title="撤销 (Ctrl+Z)" />
             <ToolbarButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
           </div>
-        </div>
-
-        {/* 组合状态 */}
-        <div>
-          <SectionHeader>状态</SectionHeader>
-          <ToolbarButton
-            active={isCombinationMode}
-            icon={<Square size={16} />}
-            label="组合状态"
-            onClick={() => setCombinationMode(!isCombinationMode)}
-            title="组合状态 - 支持多选音符"
-          />
         </div>
 
         {/* 播放控制（ticket 14 已接通：AudioEngine 播放/暂停 + 预览线 + 按键音） */}

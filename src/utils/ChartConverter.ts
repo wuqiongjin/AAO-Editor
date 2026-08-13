@@ -367,3 +367,11 @@ export function validateChartCode(chartCode: ChartCodeNote[]): { valid: boolean;
         errors
     };
 }
+
+/**
+ * 谱面代码是否包含第 0 拍的 BPM 音符（ADR-0001 谱面必须有初始 BPM）。
+ * 保底语义的唯一权威判定：空/未指定初始 BPM 的代码应回到默认 120bpm 状态。
+ */
+export function hasBeat0Bpm(chartCode: ChartCodeNote[]): boolean {
+    return chartCode.some(note => note.type === 'BPM' && note.beat === 0);
+}
