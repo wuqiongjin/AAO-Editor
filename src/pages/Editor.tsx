@@ -282,6 +282,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       .then(() => {
         audioDataRef.current = { audioName: file.name, audioBlob: file };
         setAudioName(file.name);
+        // bug 34：换音频时无论 canPlay 是否已 true 都直接按新音频时长刷新谱面时长，避免残留旧时长
+        const ad = engine.duration;
+        if (ad != null) {
+          setCtxDuration(ad);
+          durationRef.current = ad;
+        }
         persistChartProject();
         setCanPlay(true);
         setIsPlaying(false);
@@ -459,6 +465,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   }, [active, stopPlayback]);
 
   // 播放时长（ADR-0005 §4）：有音频=音频时长（覆盖）；无音频=持久化值(默认30s)，随编辑持久化
+  // bug 34：依赖补 audioName。换音频时 canPlay 已是 true，setCanPlay(true) 不产生状态变化 → 原 effect 不重跑、
+  // 残留旧时长；setAudioName(file.name) 在换音频必然触发，据此用新音频时长刷新谱面时长。
   useEffect(() => {
     const engine = engineRef.current;
     const audioDuration = engine?.duration;
@@ -466,7 +474,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       setCtxDuration(audioDuration);
       durationRef.current = audioDuration;
     }
-  }, [canPlay, setCtxDuration]);
+  }, [canPlay, audioName, setCtxDuration]);
 
   // 初始化：把激活素材/音量应用到引擎
   useEffect(() => {
@@ -552,16 +560,19 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
       {/* 左侧工具栏列（共享列：与画布同排、压缩画布，issue 28 P1 回滚） */}
       {leftCollapsed ? (
-        <div style={{ flexShrink: 0, position: 'relative' }}>
+        <div style={{ display: 'flex', flexShrink: 0 }}>
           {/* 折叠态：导航栏固定不变地占用自身空间（52/156px），工具栏隐藏；仅展开时导航才挤占工具栏 */}
           <div className={`app-nav-inline${navCollapsed ? ' is-collapsed' : ''}`}>
             <AppNav />
           </div>
-          <button
-            onClick={toggleLeftPanel}
-            title="展开左侧工具栏"
-            style={{ ...inlineIconBtn, position: 'absolute', top: 'var(--space-1)', right: 'var(--space-1)', zIndex: 40 }}
-          ><PanelRightOpen size={14} /></button>
+          {/* 折叠窄轨（bug 31：与右侧折叠 rail 对称的独立 div，承载「展开左侧工具栏」按钮） */}
+          <div style={{
+            width: 34, flexShrink: 0,
+            backgroundColor: 'var(--bg-elevated)', borderRight: '1px solid var(--border)',
+            display: 'flex', justifyContent: 'center', paddingTop: 'var(--space-1)',
+          }}>
+            <button onClick={toggleLeftPanel} title="展开左侧工具栏" style={railBtn}><PanelRightOpen size={16} /></button>
+          </div>
         </div>
       ) : (
         <div style={{

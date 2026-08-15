@@ -9,8 +9,10 @@ import { DEFAULT_KEY_SOUND_SET_ID, keySoundSetById, type KeySoundSet, type KeySo
 
 export type PlaybackState = 'idle' | 'ready' | 'playing' | 'paused';
 
-/** 按键音预调度提前量（秒）：提前调度补偿 RAF/音频时间线误差，避免迟到爆音 */
-const KEY_SCHEDULE_AHEAD = 0.1;
+/** 按键音预调度提前量（秒）：需覆盖后台页 setInterval 被节流到 ~1s 的最坏间隔，避免切后台后丢音（bug 33） */
+const KEY_SCHEDULE_AHEAD = 2.0;
+/** 调度器驱动间隔（秒）：不依赖 rAF（页面切后台 rAF 会被浏览器暂停），用 setInterval 脱离 rAF 持续推进按键音调度 */
+const SCHEDULE_INTERVAL = 0.2;
 /** 单个按键音时长（秒） */
 const KEY_SOUND_DURATION = 0.06;
 
@@ -37,6 +39,8 @@ export class AudioEngine {
   private sampleLoads = new Map<string, Promise<AudioBuffer>>();
   /** 当前素材包的全部采样预加载 Promise（play() 前 await，保证首拍就走真实采样，避免振荡器兜底） */
   private preloadPromise: Promise<void> | null = null;
+  /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
+  private schedTimer: ReturnType<typeof setInterval> | null = null;
 
   get isPlaying(): boolean {
     return this.state === 'playing';
@@ -102,6 +106,7 @@ export class AudioEngine {
   clear(): void {
     this.cancelScheduled();
     this.stopCurrent();
+    this.stopScheduler();
     this.buffer = null;
     this.offsetSeconds = 0;
     this.state = 'idle';
@@ -146,6 +151,7 @@ export class AudioEngine {
     }
     this.state = 'playing';
     this.rewindKeyIndex();
+    this.startScheduler();
   }
 
   pause(): void {
@@ -153,6 +159,7 @@ export class AudioEngine {
     this.offsetSeconds = this.getSeconds();
     this.stopCurrent();
     this.cancelScheduled();
+    this.stopScheduler();
     this.state = 'paused';
   }
 
@@ -161,7 +168,26 @@ export class AudioEngine {
     this.offsetSeconds = 0;
     this.stopCurrent();
     this.cancelScheduled();
+    this.stopScheduler();
     this.state = this.buffer ? 'ready' : 'idle';
+  }
+
+  /**
+   * 启动/停止按键音调度器（bug 33）：
+   * 按键音原本由 Editor 的 rAF 回调驱动 tick()，但页面切后台后浏览器会暂停 rAF，
+   * 而 AudioContext 时钟仍推进（音乐继续放），导致按键音丢失。这里用 setInterval
+   * 脱离 rAF 独立推进调度，配合大提前量 KEY_SCHEDULE_AHEAD 覆盖后台 ~1s 节流。
+   */
+  private startScheduler(): void {
+    this.stopScheduler();
+    this.schedTimer = setInterval(() => this.tick(), SCHEDULE_INTERVAL * 1000);
+  }
+
+  private stopScheduler(): void {
+    if (this.schedTimer !== null) {
+      clearInterval(this.schedTimer);
+      this.schedTimer = null;
+    }
   }
 
   /** 精确 seek：暂停时直接改游标；播放中重建 source 从新位置续播（含合成时间线） */

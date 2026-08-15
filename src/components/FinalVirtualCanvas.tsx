@@ -87,7 +87,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         [notes, chartEndSeconds],
     );
     const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
-    const selectionStartRef = useRef<{ x: number; y: number } | null>(null); // 圈选起点（画布坐标）
+    // 圈选起点（bug 32：同时记画布坐标与虚拟坐标；滚动时用虚拟坐标锚定谱面时刻/轨道不变，行为如"长截图"）
+    const selectionStartRef = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
     const selectionMovedRef = useRef(false); // 是否已发生拖拽（区分点击与圈选）
     // 光标悬停位置（画布坐标），供工具态预览（放置/粘贴/镜像悬停）
     const [hoverPos, setHoverPos] = useState<{ cx: number; cy: number } | null>(null);
@@ -301,11 +302,13 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         if (selectedTool === "mouse" || selectedTool === "mirror") {
             const pos = cssToCanvas(e);
             if (!pos) return;
-            selectionStartRef.current = { x: pos.x, y: pos.y };
+            // bug 32：起点同时存画布坐标（拖拽阈值/渲染基线）与虚拟坐标（滚动时锚定谱面时刻）
+            const v = canvasToVirtual(pos.x, pos.y);
+            selectionStartRef.current = { x: pos.x, y: pos.y, vx: v.x, vy: v.y };
             selectionMovedRef.current = false;
             setSelectionBox(null);
         }
-    }, [selectedTool]);
+    }, [selectedTool, canvasToVirtual]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         const canvasPos = cssToCanvas(e);
@@ -323,19 +326,20 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
         // 鼠标 / 镜像工具态：拖拽更新圈选矩形
         if ((selectedTool === "mouse" || selectedTool === "mirror") && selectionStartRef.current) {
-            const dx = mouseX - selectionStartRef.current.x;
-            const dy = mouseY - selectionStartRef.current.y;
+            const start = selectionStartRef.current;
+            const dx = mouseX - start.x;
+            const dy = mouseY - start.y;
             if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
                 selectionMovedRef.current = true;
-                setSelectionBox({
-                    x1: selectionStartRef.current.x,
-                    y1: selectionStartRef.current.y,
-                    x2: mouseX,
-                    y2: mouseY
-                });
+                // bug 32：以虚拟坐标求矩（起点锚定谱面时刻/轨道），再转回画布坐标供渲染/命中——
+                // 即使拖拽过程中滚动，起点对应的拍点也不漂移（"长截图"式选区）
+                const cur = canvasToVirtual(mouseX, mouseY);
+                const p1 = virtualToCanvas(start.vx, start.vy);
+                const p2 = virtualToCanvas(cur.x, cur.y);
+                setSelectionBox({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
             }
         }
-    }, [geometry, viewport, setMousePosition, beatDisplay, selectedTool, cssToCanvas]);
+    }, [geometry, viewport, setMousePosition, beatDisplay, selectedTool, cssToCanvas, canvasToVirtual, virtualToCanvas]);
 
     // 处理鼠标点击事件（放置音符 / 滑条连接 / BPM）
     const handleClick = useCallback((e: React.MouseEvent) => {
@@ -486,17 +490,21 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             selectItemsInBox(selectionBox);
         } else {
             const start = selectionStartRef.current;
-            if (hitStartMarker(start.x, start.y)) {
-                setSelectedItems([]);
-                setMarkerSelected(true);
-            } else {
-                selectItemAtPoint(start.x, start.y, e.shiftKey, e.ctrlKey || e.metaKey);
+            if (start) {
+                // bug 32：单击也以虚拟起点反解画布坐标，滚动后仍命中原拍点（起点锚定谱面坐标）
+                const p = virtualToCanvas(start.vx, start.vy);
+                if (hitStartMarker(p.x, p.y)) {
+                    setSelectedItems([]);
+                    setMarkerSelected(true);
+                } else {
+                    selectItemAtPoint(p.x, p.y, e.shiftKey, e.ctrlKey || e.metaKey);
+                }
             }
         }
 
         selectionStartRef.current = null;
         setSelectionBox(null);
-    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, editToolAction, editToolPaste, findItemAt, getLaneBeatFromCanvas, cssToCanvas, hitStartMarker]);
+    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, editToolAction, editToolPaste, findItemAt, getLaneBeatFromCanvas, cssToCanvas, hitStartMarker, virtualToCanvas]);
 
     // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
