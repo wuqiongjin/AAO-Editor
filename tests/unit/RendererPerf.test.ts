@@ -1,0 +1,330 @@
+// issue 10 性能测试：密集音符（3000-5000）下缩放流畅性保障。
+// node 环境用 stub ctx 计量 JS 侧开销与调用次数（真实光栅化由浏览器 ?perf=1 基线覆盖）。
+import { describe, it, expect, beforeEach } from 'vitest';
+import { ChartGeometry, LANES, LANE_WIDTH } from '../../src/utils/ChartGeometry';
+import { renderChart, visibleBeatRange } from '../../src/renderer/render';
+import {
+  drawNotesLayer, resetNoteLayerCache, tileIndexRange, tileBlitRect, posRangeOf,
+  TILE_PX, __setTileCanvasFactoryForTests,
+} from '../../src/renderer/noteLayerCache';
+import { makeCoords } from '../../src/renderer/coords';
+import type { RenderCtx } from '../../src/renderer/types';
+import type { ChartNote } from '../../src/notes/Charts';
+
+const bpm120 = [{ beat: 0, bpm: 120 }];
+const SURFACE = { w: 750, h: 900 };
+const BEAT_DISPLAY = 4;
+
+/** 生成密集谱面：n 个音符散布在 [0, chartEndBeat]，含单键/方向键/滑条/BPM */
+function makeDenseNotes(n: number, chartEndBeat: number): ChartNote[] {
+  const notes: ChartNote[] = [];
+  for (let i = 0; i < n; i++) {
+    const beat = Math.round((i / n) * chartEndBeat * 4) / 4;
+    const lane = i % LANES;
+    const kind = i % 10;
+    if (kind === 0 && i > 0 && beat + 2 <= chartEndBeat) {
+      notes.push({
+        type: 'Slide',
+        connections: [
+          { lane, beat },
+          { lane: (lane + 3) % LANES, beat: beat + 1 },
+          { lane: (lane + 6) % LANES, beat: beat + 2 },
+        ],
+      } as ChartNote);
+    } else if (kind === 1) {
+      notes.push({ type: 'LDirectional', lane, beat, subBeat: 0, length: (i % 3) + 1 } as ChartNote);
+    } else if (kind === 2) {
+      notes.push({ type: 'RDirectional', lane, beat, subBeat: 0, length: (i % 3) + 1 } as ChartNote);
+    } else if (kind === 3 && i > 0) {
+      notes.push({ type: 'BPM', beat, bpm: 120 } as ChartNote);
+    } else {
+      notes.push({ type: 'Single', lane, beat, subBeat: i % 4 === 3 ? 2 : 0, flick: i % 7 === 0 } as ChartNote);
+    }
+  }
+  return notes;
+}
+
+/** 旧版 O(n) 全量扫描语义（作为二分实现的对照基准） */
+function bruteForceVisible(g: ChartGeometry, notes: ChartNote[], viewport: { scrollX: number; scrollY: number; scale: number }, beatDisplay: number): Set<number> {
+  const bounds = g.viewportBounds(viewport);
+  const out = new Set<number>();
+  notes.forEach((note, index) => {
+    let visible = false;
+    if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
+      const y = g.noteVirtualY(note.beat, note.subBeat || 0, viewport.scale, beatDisplay);
+      visible = y >= bounds.minY && y <= bounds.maxY;
+    } else if (note.type === 'Slide' || note.type === 'Long') {
+      visible = note.connections.some(c => {
+        const y = g.noteVirtualY(c.beat, c.subBeat || 0, viewport.scale, beatDisplay);
+        return y >= bounds.minY && y <= bounds.maxY;
+      });
+    } else if (note.type === 'BPM') {
+      const y = g.noteVirtualY(note.beat, 0, viewport.scale, beatDisplay);
+      visible = y >= bounds.minY && y <= bounds.maxY;
+    }
+    if (visible) out.add(index);
+  });
+  return out;
+}
+
+// ---------------- stub canvas 基建 ----------------
+interface Counters { drawImage: number; spriteRenders: number; }
+function makeCountingCtx(counters: Counters): CanvasRenderingContext2D {
+  return new Proxy({}, {
+    get(_t, prop) {
+      if (prop === 'drawImage') {
+        return () => { counters.drawImage++; };
+      }
+      return () => undefined;
+    },
+    set() { return true; },
+  }) as unknown as CanvasRenderingContext2D;
+}
+function makeCanvasStub(counters: Counters) {
+  return { width: 0, height: 0, getContext: () => makeCountingCtx(counters) };
+}
+
+// 共享空引用：瓦片缓存 basis 按 selectedItems/clipboard 引用判失效，帧间必须稳定
+const EMPTY_SELECTED: never[] = [];
+const EMPTY_CLIPBOARD: never[] = [];
+
+function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: number, es: number, scrollY: number, zoomGesture: boolean, counters: Counters): RenderCtx {
+  return {
+    geometry,
+    viewport: { scrollX: 0, scrollY, scale: es, virtualWidth: 0, virtualHeight: 0 },
+    surface: SURFACE,
+    dpr: 1,
+    beatDisplay: BEAT_DISPLAY,
+    chartEndBeat,
+    notes,
+    selectedItems: EMPTY_SELECTED,
+    selectionBox: null,
+    slideBuffer: null,
+    hoverPos: null,
+    clipboard: EMPTY_CLIPBOARD,
+    markerBeat: null,
+    markerSelected: false,
+    selectedTool: 'mouse',
+    spriteIcon: { render: () => { counters.spriteRenders++; } } as unknown as RenderCtx['spriteIcon'],
+    zoomGesture,
+  };
+}
+
+/** 保持指定 beat 位于画布中心的 scrollY（模拟以鼠标为锚的缩放） */
+function scrollYForCenterBeat(g: ChartGeometry, beat: number, es: number): number {
+  return g.beatToVirtualY(beat, es) - SURFACE.h / (2 * es);
+}
+
+// ---------------- 测试 ----------------
+describe('visibleBeatRange（网格只迭代可见拍）', () => {
+  it('长谱面（2000 拍）窄视口只返回窗口内拍数，与谱面总长无关', () => {
+    const g = new ChartGeometry(bpm120, 2000, SURFACE);
+    const es = 1;
+    const scrollY = scrollYForCenterBeat(g, 1000, es);
+    const viewport = { scrollX: 0, scrollY, scale: es };
+    const r = visibleBeatRange(g, viewport, 2000);
+    // 视口高 900px + padding 400px ≈ 1300px ≈ 6 拍 + 余量；绝不应接近 2000
+    expect(r.max - r.min).toBeLessThanOrEqual(12);
+    expect(r.min).toBeLessThanOrEqual(1000);
+    expect(r.max).toBeGreaterThanOrEqual(1000);
+    expect(r.min).toBeGreaterThanOrEqual(0);
+    expect(r.max).toBeLessThanOrEqual(2000);
+  });
+
+  it('谱面末端与起点处钳制到 [0, chartEndBeat]', () => {
+    const g = new ChartGeometry(bpm120, 50, SURFACE);
+    // scrollY=0 → 视口在谱面末端（虚拟Y顶部 = 大 beat 端），不越界
+    const top = { scrollX: 0, scrollY: 0, scale: 1 };
+    const rt = visibleBeatRange(g, top, 50);
+    expect(rt.max).toBe(50);
+    expect(rt.min).toBeGreaterThanOrEqual(0);
+    // 滚到最大（判定线压 beat 0）→ 不出现负 beat
+    const bottom = { scrollX: 0, scrollY: Math.max(0, g.totalVirtualHeight(1) - SURFACE.h), scale: 1 };
+    const rb = visibleBeatRange(g, bottom, 50);
+    expect(rb.min).toBe(0);
+    expect(rb.max).toBeLessThanOrEqual(50);
+  });
+});
+
+describe('visibleNotes 二分剔除（排序索引）', () => {
+  it('5000 音符多视口下与旧版 O(n) 全量扫描结果一致', () => {
+    const chartEndBeat = 1500;
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    for (const es of [0.2, 0.5, 1]) {
+      const total = g.totalVirtualHeight(es);
+      for (const frac of [0.1, 0.35, 0.5, 0.75, 0.95]) {
+        const scrollY = Math.max(0, Math.min(total - SURFACE.h / es, (total - SURFACE.h / es) * frac));
+        const viewport = { scrollX: 0, scrollY, scale: es };
+        const fast = new Set(g.visibleNotes(notes, viewport, BEAT_DISPLAY).map(v => v.index));
+        const brute = bruteForceVisible(g, notes, viewport, BEAT_DISPLAY);
+        expect([...fast].sort((a, b) => a - b)).toEqual([...brute].sort((a, b) => a - b));
+      }
+    }
+  });
+
+  it('索引只构建一次：同 notes 重复查询为 O(log n + 可见数)（时间护栏）', () => {
+    const chartEndBeat = 1500;
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    g.visibleNotes(notes, { scrollX: 0, scrollY: 0, scale: 0.5 }, BEAT_DISPLAY); // 预热索引
+    const t0 = performance.now();
+    for (let i = 0; i < 200; i++) {
+      g.visibleNotes(notes, { scrollX: 0, scrollY: (i % 50) * 300, scale: 0.5 }, BEAT_DISPLAY);
+    }
+    const dt = performance.now() - t0;
+    expect(dt).toBeLessThan(250); // 旧实现 200 次 × O(5000·log) 通常数百 ms 量级；二分后应远低于此
+  });
+});
+
+describe('noteLayerCache 瓦片数学', () => {
+  it('tileIndexRange 覆盖请求区间', () => {
+    expect(tileIndexRange(0, TILE_PX - 1)).toEqual({ lo: 0, hi: 0 });
+    expect(tileIndexRange(0, TILE_PX)).toEqual({ lo: 0, hi: 1 });
+    expect(tileIndexRange(-500, 3000)).toEqual({ lo: 0, hi: Math.floor(3000 / TILE_PX) });
+  });
+
+  it('blit 矩形把 lane 中心与音符 Y 精确映射到主画布坐标（k=1 与 k≠1 均精确）', () => {
+    const chartEndBeat = 100;
+    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    for (const [es, refScale] of [[0.8, 0.8], [0.9, 0.6]] as const) {
+      const scrollY = scrollYForCenterBeat(g, 50, es);
+      const viewport = { scrollX: 0, scrollY, scale: es };
+      const anchorY = (g.chartEndVirtualY - scrollY) * es + SURFACE.h;
+      const c = makeCoords(g, viewport, BEAT_DISPLAY, []);
+      // refScale 布局的瓦片位图坐标系（位图与主画布同宽 → X 即主画布 ref 布局坐标）
+      const cRef = makeCoords(g, { scrollX: 0, scrollY, scale: refScale }, BEAT_DISPLAY, []);
+      const posOf = (beat: number) => g.chartEndVirtualY + SURFACE.h / es - g.beatToVirtualY(beat, es);
+      for (const lane of [0, 3, 6]) {
+        for (const beat of [30, 50, 77]) {
+          const pos = posOf(beat);
+          const tileId = Math.floor(pos / TILE_PX);
+          const r = tileBlitRect(tileId, es, refScale, anchorY, SURFACE.w);
+          const k = es / refScale;
+          // 音符在瓦片位图内的位置：Y 走伪视口 pos 映射，X 走 refScale 主画布布局
+          const p1 = (tileId + 1) * TILE_PX;
+          const bitmapY = (p1 - pos) * refScale;
+          const bitmapX = cRef.virtualToCanvas(cRef.getNoteVirtualX(lane), cRef.getNoteVirtualY(beat)).x;
+          // blit 后的屏幕坐标（X 绕画布中心 × k，Y 线性 × k）
+          const screenY = r.y + bitmapY * (r.h / (TILE_PX * refScale));
+          const screenX = r.x + bitmapX * (r.w / SURFACE.w);
+          const expected = c.virtualToCanvas(c.getNoteVirtualX(lane), c.getNoteVirtualY(beat));
+          expect(Math.abs(screenX - expected.x)).toBeLessThan(1e-6);
+          expect(Math.abs(screenY - expected.y)).toBeLessThan(1e-6);
+          expect(k).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  it('posRangeOf 覆盖视口 pos 区间', () => {
+    const g = new ChartGeometry(bpm120, 100, SURFACE);
+    const es = 0.8;
+    const scrollY = scrollYForCenterBeat(g, 50, es);
+    const rc = makeRc(g, [], 100, es, scrollY, false, { drawImage: 0, spriteRenders: 0 });
+    const { posMin, posMax } = posRangeOf(rc);
+    expect(posMin).toBeLessThan(posMax);
+    const { lo, hi } = tileIndexRange(posMin, posMax);
+    expect(lo * TILE_PX).toBeLessThanOrEqual(posMax);
+    expect((hi + 1) * TILE_PX).toBeGreaterThanOrEqual(posMin);
+  });
+});
+
+describe('端到端缩放性能（stub canvas，5000 音符）', () => {
+  beforeEach(() => {
+    resetNoteLayerCache();
+    __setTileCanvasFactoryForTests(() => {
+      const counters = { drawImage: 0, spriteRenders: 0 };
+      return makeCanvasStub(counters);
+    });
+  });
+
+  const chartEndBeat = 1500;
+
+  it('缩放手势帧零音符重绘、少量 drawImage、JS 开销在 60fps 预算内', () => {
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const mainCounters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const mainCtx = makeCountingCtx(mainCounters);
+    const mainCanvas = { width: 0, height: 0 };
+
+    // 初帧（zoomGesture=false）：同步构建可见瓦片
+    let es = 0.4;
+    let rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), false, mainCounters);
+    const tBuild0 = performance.now();
+    renderChart(mainCtx, mainCanvas as unknown as HTMLCanvasElement, rc);
+    const buildMs = performance.now() - tBuild0;
+    expect(buildMs).toBeLessThan(500); // 一次性构建（≈一次直渲成本）
+    const spritesAfterBuild = mainCounters.spriteRenders;
+    expect(spritesAfterBuild).toBeGreaterThan(0); // 确认确实画了音符
+
+    // 连续 9 帧 zoom-in 手势（0.4 → ~0.94，窗口单调收缩 → 无新瓦片进入）
+    const frameTimes: number[] = [];
+    for (let k = 1; k <= 9; k++) {
+      es = 0.4 * Math.pow(1.1, k);
+      mainCounters.drawImage = 0;
+      rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), true, mainCounters);
+      const t0 = performance.now();
+      renderChart(mainCtx, mainCanvas as unknown as HTMLCanvasElement, rc);
+      frameTimes.push(performance.now() - t0);
+      // 核心断言：手势帧不重绘任何音符精灵，只 blit 瓦片
+      expect(mainCounters.spriteRenders).toBe(spritesAfterBuild);
+      expect(mainCounters.drawImage).toBeLessThanOrEqual(8);
+    }
+    const avg = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
+    const max = Math.max(...frameTimes);
+    expect(avg).toBeLessThan(16); // 60fps 帧预算
+    expect(max).toBeLessThan(40);
+
+    // settle 帧（手势结束）：以最终 es 高清重建可见瓦片
+    mainCounters.spriteRenders = 0;
+    rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), false, mainCounters);
+    const tSettle0 = performance.now();
+    renderChart(mainCtx, mainCanvas as unknown as HTMLCanvasElement, rc);
+    expect(performance.now() - tSettle0).toBeLessThan(500);
+    expect(mainCounters.spriteRenders).toBeGreaterThan(0);
+
+    // settle 后同 es 再来一帧手势：瓦片已新鲜 → 依然零重绘
+    const spritesAfterSettle = mainCounters.spriteRenders;
+    rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), true, mainCounters);
+    renderChart(mainCtx, mainCanvas as unknown as HTMLCanvasElement, rc);
+    expect(mainCounters.spriteRenders).toBe(spritesAfterSettle);
+  });
+
+  it('zoom-out 手势（窗口扩张）帧耗时仍受控；高倍直渲模式可用', () => {
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const canvas = { width: 0, height: 0 };
+
+    let es = 0.94;
+    let rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), false, counters);
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc); // 初始构建
+
+    for (let k = 1; k <= 9; k++) {
+      es = 0.94 * Math.pow(0.9, k);
+      rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), true, counters);
+      const t0 = performance.now();
+      renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+      expect(performance.now() - t0).toBeLessThan(40);
+    }
+
+    // es > MAX_CACHE_ES → 直渲模式：正常绘制可见音符
+    resetNoteLayerCache();
+    counters.spriteRenders = 0;
+    rc = makeRc(g, notes, chartEndBeat, 1.5, scrollYForCenterBeat(g, 750, 1.5), false, counters);
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    expect(counters.spriteRenders).toBeGreaterThan(0);
+  });
+
+  it('drawNotesLayer 对外可独立调用（直渲分支）', () => {
+    const notes = makeDenseNotes(100, 50);
+    const geometry = new ChartGeometry(bpm120, 50, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const rc = makeRc(geometry, notes, 50, 1.5, 100, false, counters);
+    drawNotesLayer(ctx, rc);
+    expect(counters.spriteRenders).toBeGreaterThan(0);
+  });
+});

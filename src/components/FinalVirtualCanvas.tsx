@@ -41,7 +41,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         notes, selectedItems, setSelectedItems, clipboard,
         handleNotesChange, editToolAction, editToolPaste,
     } = useEditing();
-    const { selectedTool, beatDisplay, scale, setMousePosition } = useUI();
+    const { selectedTool, beatDisplay, scale, setScale, setMousePosition } = useUI();
     const { setMarker: setMarkerContext } = usePlayback();
     // 视口状态
     const [viewport, setViewport] = useState<ViewportState>({
@@ -52,9 +52,19 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         virtualHeight: 0, // 初始 0，由 chartEndVirtualY 驱动
     });
 
+    // 缩放双入口联动（issue 10 回归修复）：工具栏 ±0.1 / 设置面板改 ui.scale 时同步画布视口；
+    // ctrl+滚轮路径在 handleWheel 里反向回写 ui.scale（那里已比较生效值，此处不会形成循环）。
+    useEffect(() => {
+        setViewport(prev => Math.abs(prev.scale - scale) > 1e-6 ? { ...prev, scale } : prev);
+    }, [scale]);
+
     const [slideBuffer, setSlideBuffer] = useState<{ beat: number; lane: number; subBeat?: number } | null>(null);
     // 皮肤图片就绪信号：懒加载图片异步到达后 +1，触发一次重绘（否则连接带等未预热的素材会一直空白）
     const [skinVersion, setSkinVersion] = useState(0);
+    // 缩放手势状态（issue 10）：手势期间离屏瓦片只按比例 blit；结束后 settle 触发一次高清重渲
+    const [renderTick, setRenderTick] = useState(0);
+    const zoomGestureUntilRef = useRef(0);
+    const zoomSettleTimerRef = useRef<number | undefined>(undefined);
 
     // 画布用到的全部皮肤图（含未被工具栏预热的 longNoteLine.png），挂载即预加载，加载完触发重绘
     useEffect(() => {
@@ -219,9 +229,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             markerSelected,
             selectedTool,
             spriteIcon: spriteIcon.current,
+            zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
+            skinVersion,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick]);
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {
@@ -267,9 +279,15 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                 scrollX: 0,
                 scrollY: newScrollY
             }));
+            // 回写工具栏缩放数字（issue 10 回归修复）：ui.scale 与 viewport.scale 保持同一生效值
+            setScale(effNewScale);
+            // 缩放手势窗口（issue 10）：手势中瓦片只按比例 blit；停止 250ms 后 settle 一次高清重渲
+            zoomGestureUntilRef.current = performance.now() + 240;
+            if (zoomSettleTimerRef.current !== undefined) clearTimeout(zoomSettleTimerRef.current);
+            zoomSettleTimerRef.current = window.setTimeout(() => setRenderTick(t => t + 1), 250);
         }
         // 普通滚轮滚动由父容器处理，不在这里处理
-    }, [geometry, viewport, cssToCanvas]);
+    }, [geometry, viewport, cssToCanvas, setScale]);
 
     // 切换离开滑条工具时清空待连接锚点（防止残留红点）
     useEffect(() => {
@@ -514,6 +532,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         return () => {
             if (animationFrameRef.current) {
                 cancelAnimationFrame(animationFrameRef.current);
+            }
+            if (zoomSettleTimerRef.current !== undefined) {
+                clearTimeout(zoomSettleTimerRef.current);
             }
         };
     }, []);

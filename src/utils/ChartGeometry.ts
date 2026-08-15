@@ -169,7 +169,43 @@ export class ChartGeometry {
     return null;
   }
 
-  /** 音符的虚拟坐标点集合（用于命中测试/圈选） */
+  /** 排序索引缓存（issue 10 性能）：见 ensureNoteIndex */
+  private noteIndex: {
+    notes: readonly ChartNote[];
+    beatDisplay: number;
+    points: { beat: number; index: number }[];
+    spans: { index: number; minBeat: number; maxBeat: number }[];
+  } | null = null;
+
+  /** 构建音符排序索引（O(n log n)，按 notes 引用 + beatDisplay 缓存）；视口剔除由此降为 O(log n + 可见数) */
+  private ensureNoteIndex(notes: readonly ChartNote[], beatDisplay: number) {
+    if (this.noteIndex && this.noteIndex.notes === notes && this.noteIndex.beatDisplay === beatDisplay) {
+      return this.noteIndex;
+    }
+    const points: { beat: number; index: number }[] = [];
+    const spans: { index: number; minBeat: number; maxBeat: number }[] = [];
+    notes.forEach((note, index) => {
+      if (note.type === 'Slide' || note.type === 'Long') {
+        let minBeat = Infinity, maxBeat = -Infinity;
+        for (const cn of note.connections) {
+          const sb = cn.subBeat || 0;
+          const b = cn.beat + (sb > 0 ? sb / beatDisplay : 0);
+          if (b < minBeat) minBeat = b;
+          if (b > maxBeat) maxBeat = b;
+        }
+        spans.push({ index, minBeat, maxBeat });
+      } else if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
+        const sb = note.subBeat || 0;
+        points.push({ beat: note.beat + (sb > 0 ? sb / beatDisplay : 0), index });
+      } else if (note.type === 'BPM') {
+        points.push({ beat: note.beat, index });
+      }
+    });
+    points.sort((a, b) => a.beat - b.beat);
+    this.noteIndex = { notes, beatDisplay, points, spans };
+    return this.noteIndex;
+  }
+
   noteVirtualPoints(note: ChartNote, scale: number, beatDisplay: number): GeometryPoint[] {
     if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
       return [{ x: this.noteVirtualX(note.lane), y: this.noteVirtualY(note.beat, note.subBeat || 0, scale, beatDisplay) }];
@@ -186,28 +222,36 @@ export class ChartGeometry {
     return [];
   }
 
-  /** 视口剔除：只返回可见区域内的音符（含 index 供选中/编辑用） */
-  visibleNotes(notes: readonly ChartNote[], viewport: GeometryViewport, beatDisplay: number): { note: ChartNote; index: number }[] {
-    const bounds = this.viewportBounds(viewport);
+  /** 视口剔除：只返回可见区域内的音符（含 index 供选中/编辑用）。点音符走排序索引二分，滑条走区间扫描。 */
+  visibleNotes(notes: readonly ChartNote[], viewport: GeometryViewport, beatDisplay: number, boundsOverride?: GeometryBounds): { note: ChartNote; index: number }[] {
+    const idx = this.ensureNoteIndex(notes, beatDisplay);
+    const bounds = boundsOverride ?? this.viewportBounds(viewport);
+    // 视口虚拟Y范围 → beat 窗口（virtualY 自上而下递减 ↔ beat 递增，与 noteVirtualY 精确互逆）
+    const loBeat = this.virtualYToBeat(bounds.maxY, viewport.scale);
+    const hiBeat = this.virtualYToBeat(bounds.minY, viewport.scale);
     const visible: { note: ChartNote; index: number }[] = [];
-    notes.forEach((note, index) => {
-      let isVisible = false;
-      if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
-        const y = this.noteVirtualY(note.beat, note.subBeat || 0, viewport.scale, beatDisplay);
-        const x = this.noteVirtualX(note.lane);
-        isVisible = y >= bounds.minY && y <= bounds.maxY && x >= bounds.minX && x <= bounds.maxX;
-      } else if (note.type === 'Slide' || note.type === 'Long') {
-        isVisible = note.connections.some((c) => {
-          const y = this.noteVirtualY(c.beat, c.subBeat || 0, viewport.scale, beatDisplay);
-          const x = this.noteVirtualX(c.lane);
-          return y >= bounds.minY && y <= bounds.maxY && x >= bounds.minX && x <= bounds.maxX;
-        });
-      } else if (note.type === 'BPM') {
-        const y = this.noteVirtualY(note.beat, 0, viewport.scale, beatDisplay);
-        isVisible = y >= bounds.minY && y <= bounds.maxY;
-      }
-      if (isVisible) visible.push({ note, index });
-    });
+
+    // 点音符：二分找下界，顺序扫描到窗口上界
+    const pts = idx.points;
+    let lo = 0, hi = pts.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (pts[mid].beat < loBeat) lo = mid + 1; else hi = mid;
+    }
+    for (let i = lo; i < pts.length && pts[i].beat <= hiBeat; i++) {
+      const { index } = pts[i];
+      const note = notes[index]!;
+      // X 校验保持与旧实现一致（轨道水平不滚动，恒在界内；BPM 无 lane 也按 lane0 校验）
+      const lane = note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional' ? note.lane : 0;
+      const x = this.noteVirtualX(lane);
+      if (x >= bounds.minX && x <= bounds.maxX) visible.push({ note, index });
+    }
+
+    // 跨度音符（滑条/长条）：任一端点或整体区间与 beat 窗口相交即可见
+    for (const s of idx.spans) {
+      if (s.maxBeat < loBeat || s.minBeat > hiBeat) continue;
+      visible.push({ note: notes[s.index]!, index: s.index });
+    }
     return visible;
   }
 }

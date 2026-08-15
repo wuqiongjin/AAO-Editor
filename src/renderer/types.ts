@@ -55,4 +55,8 @@ export interface RenderCtx {
   markerSelected: boolean;
   selectedTool: string;
   spriteIcon: CanvasSpriteIcon;
+  /** 缩放手势进行中（issue 10）：true 时离屏瓦片只按比例 blit 不重建，手势结束再高清重渲 */
+  zoomGesture?: boolean;
+  /** 皮肤图片就绪版本（issue 10）：图片异步加载完成后 +1，避免瓦片缓存命中未出图的旧帧 */
+  skinVersion?: number;
 }

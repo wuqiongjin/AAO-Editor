@@ -60,6 +60,7 @@
 - [多谱面工作区（issue 26）](./issues/26-多谱面工作区.md) — 未来跟踪：多谱面工程列表/切换/隔离；基于 ADR-0005 已预留的"id→工程"键值表，不改存储结构。待后续单独 grill。
 - [取消前置上传页与独立音频面板（issue 27）](./issues/27-取消前置上传页与独立音频面板.md) — **grill-with-docs 定案并实现**（修订 ADR-0003 §2 + CONTEXT 术语）：删 `SongUploader` 前置页 + `inEditor`/`onBack` 状态机，`App → Editor` 直达工作台；新增独立音频面板页面（`AudioPanel.tsx`，顶栏"音频"进入，承载导入/换/清除 + 无音频时长编辑）；`page: 'workspace' | 'audio'` 最简页面切换底层为 issue 28 铺路。时长语义沿 ADR-0005 §4 单一字段（清除音频→回无音频态可编辑；重载→音频时长覆盖）。tsc/build 全绿、137 测试通过、浏览器验证入口直达 + 面板切换 + 时长持久化一致。
 - [多页面管理/页面 Tab 架构（issue 28）](./issues/28-多页面管理-页面Tab架构.md) — 未来跟踪：完整页面 Tab 架构（工作台/音频/设置/快捷键/多工作区 等页面切换，避免单页堆砌）；基于 issue 27 的最简 Tab 底层扩展，与 issue 22（布局整改）、26（多谱面工作区）协同。待后续单独 grill。
+- [10 密集音符性能优化](./issues/10-密集音符性能优化.md) — **已实现并实测达标**：①视口裁剪——`ChartGeometry` 排序索引 + 二分 `visibleNotes`（O(n)→O(log n+可见数)），`renderGrid` 只遍历 `visibleBeatRange`；②缩放离屏瓦片缓存——新增 `src/renderer/noteLayerCache.ts`，手势期（240ms 窗口）只按比例 blit 旧瓦片、settle 250ms 后高清重渲，超大量级回退直渲；③history 轻量化已由 issue 21 候选 D 落地。测试：`RendererPerf.test.ts` 二分结果与旧 O(n) 扫描全对齐，全套 161 测试通过；浏览器 `?perf=1` 实测 5000 音符 40 帧连续缩放 **avg≈0.49ms / max≈2.8ms**（60fps 预算 16.7ms），`layerMode='tiles'`。
 
 ## Not yet specified
 

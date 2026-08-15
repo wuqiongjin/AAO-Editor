@@ -2,11 +2,13 @@
 // 从组件闭包中提出为依赖注入的纯函数。组件每次 RAF 组装 RenderCtx 调用 renderChart。
 // 本模块不含任何 React 状态；性能热路径（视口剔除/缓存/增量重绘）将来在此落地。
 import type { ChartNote, SelectionItem, SlideNote } from '../notes/Charts';
-import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL } from '../utils/ChartGeometry';
+import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport } from '../utils/ChartGeometry';
 import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
 import { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcons } from '../components/CanvasSpriteIcon';
+import { perf } from '../utils/perf';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, findItemAt } from './hitTest';
+import { drawNotesLayer } from './noteLayerCache';
 import type { RenderCtx } from './types';
 
 // 音符大小配置（与 hitTest 命中尺寸保持一致）
@@ -19,13 +21,31 @@ const NOTE_HEIGHT_SCALE = 0.6;
 const DIRECTIONAL_HEIGHT_SCALE = 0.33;
 const SLIDE_HEIGHT_SCALE = 0.6;
 
-/** 选中状态判定辅助（ADR-0001 §6：整条/结点/区域） */
-const isNoteSelected = (rc: RenderCtx, index: number) =>
-  rc.selectedItems.some(it => it.kind === 'note' && it.noteIndex === index);
-const isSlideNodeSelected = (rc: RenderCtx, index: number, connIndex: number) =>
-  rc.selectedItems.some(it => it.kind === 'slideNode' && it.noteIndex === index && it.connIndex === connIndex);
-const isSlideRegionSelected = (rc: RenderCtx, index: number, connIndex: number) =>
-  rc.selectedItems.some(it => it.kind === 'slideRegion' && it.noteIndex === index && it.connIndex === connIndex);
+/** 选中状态判定辅助（ADR-0001 §6：整条/结点/区域）。一次构建 Set/Map，密集音符下避免每音符 O(选择数) 扫描 */
+interface SelectionSets {
+  notes: Set<number>;
+  slideNodes: Map<number, Set<number>>;
+  slideRegions: Map<number, Set<number>>;
+}
+const buildSelectionSets = (rc: RenderCtx): SelectionSets => {
+  const notes = new Set<number>();
+  const slideNodes = new Map<number, Set<number>>();
+  const slideRegions = new Map<number, Set<number>>();
+  for (const it of rc.selectedItems) {
+    if (it.kind === 'note') notes.add(it.noteIndex);
+    else if (it.kind === 'slideNode') {
+      (slideNodes.get(it.noteIndex) ?? slideNodes.set(it.noteIndex, new Set()).get(it.noteIndex)!).add((it as { connIndex: number }).connIndex);
+    } else if (it.kind === 'slideRegion') {
+      (slideRegions.get(it.noteIndex) ?? slideRegions.set(it.noteIndex, new Set()).get(it.noteIndex)!).add((it as { connIndex: number }).connIndex);
+    }
+  }
+  return { notes, slideNodes, slideRegions };
+};
+const isNoteSelected = (sel: SelectionSets, index: number) => sel.notes.has(index);
+const isSlideNodeSelected = (sel: SelectionSets, index: number, connIndex: number) =>
+  sel.slideNodes.get(index)?.has(connIndex) ?? false;
+const isSlideRegionSelected = (sel: SelectionSets, index: number, connIndex: number) =>
+  sel.slideRegions.get(index)?.has(connIndex) ?? false;
 
 /** 判定线（ADR-0004 §1 + ADR-0006 §2）：固定画布【下边边缘】；常显（停/播同线） */
 export function renderJudgeLine(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
@@ -68,7 +88,18 @@ export function renderStartMarker(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   ctx.restore();
 }
 
-/** 绘制网格（轨道竖线 + 节拍/子节拍横线） */
+/**
+ * 视口可见拍范围（issue 10 性能，纯函数供单测）：
+ * 由视口虚拟Y边界反解 beat 窗口（含半拍余量），网格只迭代该窗口而非 [0, chartEndBeat] 全量。
+ */
+export function visibleBeatRange(geometry: ChartGeometry, viewport: GeometryViewport, chartEndBeat: number): { min: number; max: number } {
+  const b = geometry.viewportBounds(viewport);
+  const lo = geometry.virtualYToBeat(b.maxY, viewport.scale);
+  const hi = geometry.virtualYToBeat(b.minY, viewport.scale);
+  return { min: Math.max(0, Math.floor(lo - 0.5)), max: Math.min(chartEndBeat, Math.ceil(hi + 0.5)) };
+}
+
+/** 绘制网格（轨道竖线 + 节拍/子节拍横线）。只迭代可见拍范围；极小间距时按像素间距抽稀。 */
 export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   const { trackBgX, trackBgWidth, trackStartX } = c.trackGeometry(rc.viewport.scale);
   const borderTotalWidth = TRACK_CHROME_TOTAL;
@@ -97,49 +128,54 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
     }
   }
 
-  const bounds = c.getViewportBounds();
   // 完整拍实线画到谱面末端覆盖的整数拍（chartEndBeat 为整数时保留其结束拍实线）；
-  // 子节拍虚线仅在不超过谱面末端时绘制（避免末端之后多画网格切分）
-  for (let beat = 0; beat <= rc.chartEndBeat; beat++) {
-    const virtualY = c.beatToVirtualY(beat);
-    if (virtualY < bounds.minY || virtualY > bounds.maxY) continue;
-    const canvasPos = c.virtualToCanvas(0, virtualY);
+  // 子节拍虚线仅在不超过谱面末端时绘制（避免末端之后多画网格切分）。
+  // issue 10：只迭代视口内拍数（原实现从 beat 0 全量迭代到谱面末端，长谱密集缩放下每帧数千次无效循环）。
+  const { min: beatFrom, max: beatTo } = visibleBeatRange(rc.geometry, rc.viewport, rc.chartEndBeat);
+  let lastBeatY: number | null = null;   // 实线间距抽稀阈值
+  let lastSubY: number | null = null;   // 虚线间距抽稀阈值
+  for (let beat = beatFrom; beat <= beatTo; beat++) {
+    const canvasPos = c.virtualToCanvas(0, c.beatToVirtualY(beat));
     if (canvasPos.y >= 0 && canvasPos.y <= rc.surface.h) {
-      ctx.strokeStyle = '#555555';
-      ctx.lineWidth = Math.max(2, 2 * rc.viewport.scale);
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(trackBgX, canvasPos.y);
-      ctx.lineTo(trackBgX + trackBgWidth, canvasPos.y);
-      ctx.stroke();
+      if (lastBeatY === null || Math.abs(canvasPos.y - lastBeatY) >= 2) {
+        ctx.strokeStyle = '#555555';
+        ctx.lineWidth = Math.max(2, 2 * rc.viewport.scale);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(trackBgX, canvasPos.y);
+        ctx.lineTo(trackBgX + trackBgWidth, canvasPos.y);
+        ctx.stroke();
+        lastBeatY = canvasPos.y;
+      }
     }
     for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
       const preciseBeat = beat + subBeat / rc.beatDisplay;
       if (preciseBeat > rc.chartEndBeat + 1e-6) continue;
-      const subVirtualY = c.beatToVirtualY(preciseBeat);
-      if (subVirtualY < bounds.minY || subVirtualY > bounds.maxY) continue;
-      const subCanvasPos = c.virtualToCanvas(0, subVirtualY);
-      if (subCanvasPos.y >= 0 && subCanvasPos.y <= rc.surface.h) {
-        ctx.strokeStyle = '#666666';
-        ctx.lineWidth = Math.max(0.5, 1 * rc.viewport.scale);
-        ctx.setLineDash([4 * rc.viewport.scale, 6 * rc.viewport.scale]);
-        ctx.globalAlpha = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(trackBgX, subCanvasPos.y);
-        ctx.lineTo(trackBgX + trackBgWidth, subCanvasPos.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 1.0;
-      }
+      const subCanvasPos = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat));
+      if (subCanvasPos.y < 0 || subCanvasPos.y > rc.surface.h) continue;
+      // 间距抽稀：子拍线间距 < 5px 时不再逐条绘制（远看即为密实灰带，视觉等价）
+      if (lastSubY !== null && Math.abs(subCanvasPos.y - lastSubY) < 5) continue;
+      ctx.strokeStyle = '#666666';
+      ctx.lineWidth = Math.max(0.5, 1 * rc.viewport.scale);
+      ctx.setLineDash([4 * rc.viewport.scale, 6 * rc.viewport.scale]);
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(trackBgX, subCanvasPos.y);
+      ctx.lineTo(trackBgX + trackBgWidth, subCanvasPos.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1.0;
+      lastSubY = subCanvasPos.y;
     }
   }
 }
 
 /** 绘制音符（第一层：主体；第二层：装饰器） */
 export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  const sel = buildSelectionSets(rc);
   // 第一层：普通音符和方向键主体
   visibleNotes.forEach(({ note, index }) => {
-    const isSelected = isNoteSelected(rc, index);
+    const isSelected = isNoteSelected(sel, index);
     if (note.type === "Single") {
       const subBeat = note.subBeat || 0;
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
@@ -204,7 +240,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       ctx.stroke();
       ctx.setLineDash([]);
     } else if (note.type === "Slide" || note.type === "Long") {
-      renderSlideBody(ctx, c, rc, note, index);
+      renderSlideBody(ctx, c, rc, sel, note, index);
     }
   });
 
@@ -243,7 +279,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
 }
 
 /** 渲染一条滑条/长条：连接带 + 各结点 + 选中高亮（ADR §6 整条/结点/区域） */
-function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: ChartNote, index: number) {
+function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, sel: SelectionSets, note: ChartNote, index: number) {
   const connections = (note as SlideNote).connections;
   if (connections.length < 2) return;
 
@@ -297,7 +333,7 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     });
   });
 
-  const isSelected = isNoteSelected(rc, index);
+  const isSelected = isNoteSelected(sel, index);
   if (isSelected) {
     const xs = connections.map(cn => c.getNoteVirtualX(cn.lane));
     const ys = connections.map(cn => c.getNoteVirtualY(cn.beat, cn.subBeat || 0));
@@ -315,7 +351,7 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   }
 
   connections.forEach((conn, ci) => {
-    if (!isSlideNodeSelected(rc, index, ci)) return;
+    if (!isSlideNodeSelected(sel, index, ci)) return;
     const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 3 * rc.viewport.scale;
@@ -327,7 +363,7 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   });
 
   for (let ci = 0; ci < connections.length - 1; ci++) {
-    if (!isSlideRegionSelected(rc, index, ci)) continue;
+    if (!isSlideRegionSelected(sel, index, ci)) continue;
     const c1 = connections[ci], c2 = connections[ci + 1];
     const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
     const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
@@ -540,10 +576,10 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   ctx.restore();
 }
 
-/** 渲染 BPM 数字（红色横线 + 左侧数值） */
-export function renderBpmNumbers(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
-  const bpmMarks = rc.notes.filter(note => note.type === "BPM");
-  bpmMarks.forEach((note) => {
+/** 渲染 BPM 数字（红色横线 + 左侧数值）。issue 10：基于可见集而非全量 notes.filter（省 O(n) 扫描与数组分配） */
+export function renderBpmNumbers(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  visibleNotes.forEach(({ note }) => {
+    if (note.type !== "BPM") return;
     const canvasPos = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat));
     if (canvasPos.y >= -50 && canvasPos.y <= rc.surface.h + 50) {
       const { trackStartX, trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
@@ -597,13 +633,17 @@ export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: R
 
 /**
  * 单次全量绘制编排（ADR-0003 候选 B 的组件薄层入口）：
- * 设置画布尺寸 → 清屏 → 背景 → 轨道 → 网格 → 音符 → BPM → 选择框 → 滑条缓冲 → 工具预览 → 判定线 → 起点标记。
+ * 设置画布尺寸 → 清屏 → 背景 → 轨道 → 网格 → 音符（离屏瓦片层）→ BPM → 选择框 → 滑条缓冲 → 工具预览 → 判定线 → 起点标记。
  * 不持有任何 React 状态；虚拟高度同步等副作用由组件自行处理。
+ * issue 10：缓冲尺寸仅在变化时重设（每帧重设会强制重分配像素缓冲并清空画布状态）；
+ * 音符层走 noteLayerCache 离屏瓦片；全程 perf.record 计量（?perf=1 时经 window.__perf 暴露）。
  */
 export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, rc: RenderCtx) {
+  const t0 = perf.enabled ? performance.now() : 0;
   // buffer = surface × dpr（ADR-0006 §1）；此后绘制/命中均用 CSS 像素坐标
-  canvas.width = Math.round(rc.surface.w * rc.dpr);
-  canvas.height = Math.round(rc.surface.h * rc.dpr);
+  const bw = Math.round(rc.surface.w * rc.dpr), bh = Math.round(rc.surface.h * rc.dpr);
+  if (canvas.width !== bw) canvas.width = bw;
+  if (canvas.height !== bh) canvas.height = bh;
   ctx.setTransform(rc.dpr, 0, 0, rc.dpr, 0, 0);
 
   ctx.clearRect(0, 0, rc.surface.w, rc.surface.h);
@@ -618,13 +658,17 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   renderGrid(ctx, c, rc);
   renderBoundLines(ctx, c, rc);
 
+  // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片，不逐音符重绘
+  drawNotesLayer(ctx, rc);
+  // BPM 标注基于可见集（二分剔除，O(log n + 可见数)）
   const visibleNotes = c.getVisibleNotes();
-  renderNotes(ctx, c, rc, visibleNotes);
-  renderBpmNumbers(ctx, c, rc);
+  renderBpmNumbers(ctx, c, rc, visibleNotes);
 
   if (rc.selectionBox) renderSelectionBox(ctx, rc);
   renderSlideBuffer(ctx, c, rc);
   renderToolPreview(ctx, c, rc);
   renderJudgeLine(ctx, c, rc);
   renderStartMarker(ctx, c, rc);
+
+  if (perf.enabled) perf.record(performance.now() - t0);
 }
