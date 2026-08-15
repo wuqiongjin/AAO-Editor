@@ -9,6 +9,7 @@ import { perf } from '../utils/perf';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, findItemAt } from './hitTest';
 import { drawNotesLayer } from './noteLayerCache';
+import { drawStaticLayer } from './staticLayerCache';
 import type { RenderCtx } from './types';
 
 // 音符大小配置（与 hitTest 命中尺寸保持一致）
@@ -668,10 +669,11 @@ export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: R
 
 /**
  * 单次全量绘制编排（ADR-0003 候选 B 的组件薄层入口）：
- * 设置画布尺寸 → 清屏 → 背景 → 轨道 → 网格 → 音符（离屏瓦片层）→ BPM → 选择框 → 滑条缓冲 → 工具预览 → 判定线 → 起点标记。
+ * 设置画布尺寸 → 静态层 blit（离屏缓存，issue 36 F2）→ 音符（离屏瓦片层）→ BPM → 选择框 → 滑条缓冲 → 工具预览 → 判定线 → 起点标记。
  * 不持有任何 React 状态；虚拟高度同步等副作用由组件自行处理。
  * issue 10：缓冲尺寸仅在变化时重设（每帧重设会强制重分配像素缓冲并清空画布状态）；
- * 音符层走 noteLayerCache 离屏瓦片；全程 perf.record 计量（?perf=1 时经 window.__perf 暴露）。
+ * issue 36 F2：清屏/背景/轨道底/网格/起止线收敛进 staticLayerCache——交互帧只 blit，
+ * 滚动/缩放帧重建一次（与旧直绘同阶），消除密集谱下每帧全量重绘静态层的固定地板成本。
  */
 export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, rc: RenderCtx) {
   const t0 = perf.enabled ? performance.now() : 0;
@@ -681,17 +683,10 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   if (canvas.height !== bh) canvas.height = bh;
   ctx.setTransform(rc.dpr, 0, 0, rc.dpr, 0, 0);
 
-  ctx.clearRect(0, 0, rc.surface.w, rc.surface.h);
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, rc.surface.w, rc.surface.h);
+  // 静态层（黑底+轨道底+网格+起止线，含整幅清屏）离屏缓存 blit（issue 36 F2）
+  drawStaticLayer(ctx, rc);
 
   const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
-  const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-  ctx.fillStyle = '#00000A';
-  ctx.fillRect(trackBgX, 0, trackBgWidth, rc.surface.h);
-
-  renderGrid(ctx, c, rc);
-  renderBoundLines(ctx, c, rc);
 
   // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片，不逐音符重绘
   drawNotesLayer(ctx, rc);

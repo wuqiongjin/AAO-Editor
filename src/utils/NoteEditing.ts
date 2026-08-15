@@ -3,6 +3,23 @@ import type { ChartNote } from "../notes/Charts";
 // 轨道总数（与 FinalVirtualCanvas 的 LANES 保持一致）
 export const TOTAL_LANES = 7;
 
+/**
+ * 谱面音符数统计（issue 36）：与按键音事件（AudioTiming.buildKeyEvents）同一口径——
+ * 滑条/长条按**非 hidden 结点数**计（两端点 + 非 hidden 中间结点，每个可击打结点各计 1），
+ * 其余音符（单键/方向键/BPM/System）各计 1。
+ */
+export const countChartNotes = (notes: readonly ChartNote[]): number => {
+  let count = 0;
+  for (const n of notes) {
+    if (n.type === "Slide" || n.type === "Long") {
+      for (const c of n.connections) if (!c.hidden) count++;
+    } else {
+      count++;
+    }
+  }
+  return count;
+};
+
 // 轨道镜像（唯一实现，三处调用点收敛于此——NoteEditing/SelectionEditing/NoteInfoPanel）
 export const mirrorLane = (lane: number) => TOTAL_LANES - 1 - lane;
 

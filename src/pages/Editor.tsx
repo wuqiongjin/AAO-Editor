@@ -12,6 +12,7 @@ import PlayBar from '../components/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
 import { useAudioPageRegister } from '../contexts/AudioPageContext';
 import { MAX_DURATION_SECONDS } from '../utils/AppSettings';
+import { countChartNotes } from '../utils/NoteEditing';
 import { AppNav, useAppNav } from './AppNav';
 import { DEFAULT_SURFACE, type SurfaceSize } from '../utils/ChartGeometry';
 
@@ -82,6 +83,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     return bpmNote ? bpmNote.bpm : 120;
   }, [notes]);
 
+  // 音符数统计（issue 36）：滑条按非 hidden 结点数计，与按键音事件同一口径
+  const noteCount = useMemo(() => countChartNotes(notes), [notes]);
+
   // 音频播放（ticket 14）：引擎全局单例（挂在 ref 上，避免重建 AudioContext）
   const engineRef = useRef<AudioEngine | null>(null);
   if (!engineRef.current) engineRef.current = new AudioEngine();
@@ -124,18 +128,38 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const virtualCanvasRef = useRef<any>(null);
 
   // 渲染面尺寸（ADR-0006 §1）：随谱面画布容器变化，经 ResizeObserver 提供；缓冲 = surface × dpr
+  // issue 36：窗口连续缩放期间 RO 每帧回调 setSurface → 几何重建 + 瓦片全量重建 + 重锚链
+  // （3000+ 音符下体感明显卡顿）。首次立即应用；此后 150ms 尾随防抖合并为停止后一次应用，
+  // 拖拽期间画布缓冲不变、由 CSS 拉伸显示（合成器 GPU 缩放，廉价），停止后一次高清重建。
   const [surface, setSurface] = useState<SurfaceSize>(DEFAULT_SURFACE);
   useEffect(() => {
     const el = chartAreaRef.current;
     if (!el) return;
+    let timer: number | undefined;
+    let lastKey = '';
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        setSurface({ w: Math.round(width), h: Math.round(height) });
+        const next = { w: Math.round(width), h: Math.round(height) };
+        const key = `${next.w}x${next.h}`;
+        if (key === lastKey) continue;
+        if (!lastKey) { // 挂载首次回调：立即应用，避免用兜底尺寸渲染
+          lastKey = key;
+          setSurface(next);
+          continue;
+        }
+        if (timer !== undefined) window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          lastKey = key;
+          setSurface(next);
+        }, 150);
       }
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, []);
 
   // 处理虚拟画布滚动变化：仅记录虚拟高度，配合滚动条映射。
@@ -249,8 +273,15 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   };
 
   // 谱面/BPM 变化时同步按键音事件（编辑中先听局部段也保持正确）
+  // issue 36：buildKeyEvents 为 O(n log n)（3000 音符 ≈1-2ms），原先同步跑在每次编辑的
+  // 提交路径上；防抖 300ms 移出输入延迟路径（播放中仍即时同步，保证键音调度不滞后）
   useEffect(() => {
-    engineRef.current?.setChart(notes, beatDisplay);
+    if (isPlayingRef.current) {
+      engineRef.current?.setChart(notes, beatDisplay);
+      return;
+    }
+    const t = window.setTimeout(() => engineRef.current?.setChart(notes, beatDisplay), 300);
+    return () => window.clearTimeout(t);
   }, [notes, beatDisplay]);
 
   // 谱面工程持久化（ADR-0005 §6）：读取最新 ref 快照写入 IndexedDB（接口抽象化，未来可换后端）
@@ -732,7 +763,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             flexShrink: 0
           }}>
             <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>谱面</span>
-            <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>[ ] {notes.length}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>[ ] {noteCount}</span>
           </div>
           {/* 拖拽调宽手柄（贴面板左缘） */}
           <div

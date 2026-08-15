@@ -8,6 +8,7 @@ import { renderChart } from '../../src/renderer/render';
 import {
   drawNotesLayer, resetNoteLayerCache, diffNotes, TILE_PX, __setTileCanvasFactoryForTests,
 } from '../../src/renderer/noteLayerCache';
+import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '../../src/renderer/staticLayerCache';
 import { handleNoteReplacement, handleSlideToSlideCombination } from '../../src/utils/NoteReplacementRules';
 import type { RenderCtx } from '../../src/renderer/types';
 import type { ChartNote } from '../../src/notes/Charts';
@@ -125,7 +126,12 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
 
   beforeEach(() => {
     resetNoteLayerCache();
+    resetStaticLayerCache();
     __setTileCanvasFactoryForTests(() => ({
+      width: 0, height: 0,
+      getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, arcs: 0 }),
+    }));
+    __setStaticCanvasFactoryForTests(() => ({
       width: 0, height: 0,
       getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, arcs: 0 }),
     }));

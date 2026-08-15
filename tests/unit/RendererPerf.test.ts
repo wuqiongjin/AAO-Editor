@@ -7,6 +7,7 @@ import {
   drawNotesLayer, resetNoteLayerCache, tileIndexRange, tileBlitRect, posRangeOf,
   TILE_PX, __setTileCanvasFactoryForTests,
 } from '../../src/renderer/noteLayerCache';
+import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '../../src/renderer/staticLayerCache';
 import { makeCoords } from '../../src/renderer/coords';
 import type { RenderCtx } from '../../src/renderer/types';
 import type { ChartNote } from '../../src/notes/Charts';
@@ -88,11 +89,11 @@ function makeCanvasStub(counters: Counters) {
 const EMPTY_SELECTED: never[] = [];
 const EMPTY_CLIPBOARD: never[] = [];
 
-function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: number, es: number, scrollY: number, zoomGesture: boolean, counters: Counters): RenderCtx {
+function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: number, es: number, scrollY: number, zoomGesture: boolean, counters: Counters, surface: { w: number; h: number } = SURFACE): RenderCtx {
   return {
     geometry,
     viewport: { scrollX: 0, scrollY, scale: es, virtualWidth: 0, virtualHeight: 0 },
-    surface: SURFACE,
+    surface,
     dpr: 1,
     beatDisplay: BEAT_DISPLAY,
     chartEndBeat,
@@ -217,6 +218,39 @@ describe('noteLayerCache 瓦片数学', () => {
     }
   });
 
+  it('surface 宽高变化后 blit 仍精确（issue 36 F3a：按渲染时宽度缩放、绕当前宽度居中）', () => {
+    const chartEndBeat = 100;
+    // 瓦片在 (w=750, h=900) 下以 refScale 渲染；结算后画布变为 (w=1000, h=1100)
+    const gOld = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const surfaceNew = { w: 1000, h: 1100 };
+    const gNew = new ChartGeometry(bpm120, chartEndBeat, surfaceNew);
+    for (const [es, refScale] of [[0.7, 0.7], [0.9, 0.6]] as const) {
+      const scrollY = scrollYForCenterBeat(gOld, 50, es);
+      const viewport = { scrollX: 0, scrollY, scale: es };
+      // anchorY 必须用【当前】几何（新 surface.h）：Y 精确性由此保证
+      const anchorY = (gNew.chartEndVirtualY - scrollY) * es + surfaceNew.h;
+      const cNew = makeCoords(gNew, viewport, BEAT_DISPLAY, []);
+      const cRef = makeCoords(gOld, { scrollX: 0, scrollY, scale: refScale }, BEAT_DISPLAY, []);
+      // pos 空间与 surface 无关（pos = positionOfBeat），用渲染时几何计算
+      const posOf = (beat: number) => gOld.chartEndVirtualY + SURFACE.h / es - gOld.beatToVirtualY(beat, es);
+      for (const lane of [0, 3, 6]) {
+        for (const beat of [30, 50, 77]) {
+          const pos = posOf(beat);
+          const tileId = Math.floor(pos / TILE_PX);
+          const r = tileBlitRect(tileId, es, refScale, anchorY, surfaceNew.w, SURFACE.w);
+          const p1 = (tileId + 1) * TILE_PX;
+          const bitmapY = (p1 - pos) * refScale;
+          const bitmapX = cRef.virtualToCanvas(cRef.getNoteVirtualX(lane), cRef.getNoteVirtualY(beat)).x;
+          const screenY = r.y + bitmapY * (r.h / (TILE_PX * refScale));
+          const screenX = r.x + bitmapX * (r.w / SURFACE.w);
+          const expected = cNew.virtualToCanvas(cNew.getNoteVirtualX(lane), cNew.getNoteVirtualY(beat));
+          expect(Math.abs(screenX - expected.x)).toBeLessThan(1e-6);
+          expect(Math.abs(screenY - expected.y)).toBeLessThan(1e-6);
+        }
+      }
+    }
+  });
+
   it('posRangeOf 覆盖视口 pos 区间', () => {
     const g = new ChartGeometry(bpm120, 100, SURFACE);
     const es = 0.8;
@@ -233,7 +267,12 @@ describe('noteLayerCache 瓦片数学', () => {
 describe('端到端缩放性能（stub canvas，5000 音符）', () => {
   beforeEach(() => {
     resetNoteLayerCache();
+    resetStaticLayerCache();
     __setTileCanvasFactoryForTests(() => {
+      const counters = { drawImage: 0, spriteRenders: 0 };
+      return makeCanvasStub(counters);
+    });
+    __setStaticCanvasFactoryForTests(() => {
       const counters = { drawImage: 0, spriteRenders: 0 };
       return makeCanvasStub(counters);
     });
@@ -326,5 +365,68 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     const rc = makeRc(geometry, notes, 50, 1.5, 100, false, counters);
     drawNotesLayer(ctx, rc);
     expect(counters.spriteRenders).toBeGreaterThan(0);
+  });
+
+  it('surface 宽高变化（窗口缩放结算）后瓦片零重建（issue 36 F3a）', () => {
+    const notes = makeDenseNotes(3000, chartEndBeat);
+    const g1 = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const canvas = { width: 0, height: 0 };
+    const es = 0.5;
+
+    // 初帧：以 (750×900) 构建可见瓦片
+    let rc = makeRc(g1, notes, chartEndBeat, es, scrollYForCenterBeat(g1, 750, es), false, counters);
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    const spritesAfterBuild = counters.spriteRenders;
+    expect(spritesAfterBuild).toBeGreaterThan(0);
+
+    // 窗口缩放结算：宽度变大、高度变小（可见集为子集 → 已建瓦片应全部续用），
+    // geometry 实例随之重建（时间线内容相同）
+    const surface2 = { w: 1000, h: 800 };
+    const g2 = new ChartGeometry(bpm120, chartEndBeat, surface2);
+    const scrollY2 = g2.beatToVirtualY(750, es) - surface2.h / (2 * es); // 同拍居中（pos 空间与 surface 无关 → 同批瓦片命中）
+    rc = makeRc(g2, notes, chartEndBeat, es, scrollY2, false, counters, surface2);
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    // 核心断言：零音符重绘（瓦片续用，纯 blit）；静态层重建不计 sprite
+    expect(counters.spriteRenders).toBe(spritesAfterBuild);
+    expect(counters.drawImage).toBeGreaterThan(0);
+  });
+
+  it('静态层离屏缓存（issue 36 F2）：交互帧不重绘网格（仅 blit）', () => {
+    const notes = makeDenseNotes(1000, chartEndBeat);
+    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const canvas = { width: 0, height: 0 };
+    const es = 0.5;
+    const scrollY = scrollYForCenterBeat(g, 750, es);
+
+    // 计量【静态位图 ctx】的绘制调用（网格/起止线的 stroke/fillText 只发生在重建时；
+    // 主画布上的判定线/BPM 线是每帧动态层，不进静态缓存，不能用主 ctx 计数）
+    const staticDraws = { n: 0 };
+    __setStaticCanvasFactoryForTests(() => ({
+      width: 0, height: 0,
+      getContext: () => new Proxy({}, {
+        get(_t, prop) {
+          if (prop === 'stroke' || prop === 'fillText') return () => { staticDraws.n++; };
+          return () => undefined;
+        },
+        set() { return true; },
+      }),
+    }));
+
+    // 初帧：静态层重建（网格 stroke/fillText > 0）
+    let rc = makeRc(g, notes, chartEndBeat, es, scrollY, false, counters);
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    expect(staticDraws.n).toBeGreaterThan(0);
+
+    // 交互帧（仅 hoverPos 变化，视口/几何/时间线不变）：静态层命中 → 位图零绘制，主画布仅 blit
+    rc = { ...rc, hoverPos: { cx: 300, cy: 400 } };
+    staticDraws.n = 0;
+    counters.drawImage = 0;
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    expect(staticDraws.n).toBe(0);
+    expect(counters.drawImage).toBeGreaterThanOrEqual(1); // 静态层 blit
   });
 });

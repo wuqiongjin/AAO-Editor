@@ -586,11 +586,14 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     }, []); // 只在组件首次挂载时执行，不监听任何依赖
 
     // 同步外部scale变化（ADR-0006 Q4=A：视图 scale 恒等于 effectiveScale，保证渲染/命中一致）
+    // issue 36 F3b：surface/chartEnd/BPM 变化都会换 geometry 实例，若此处无条件新建 viewport
+    // 对象，即使 effectiveScale 值未变也会多出一次渲染 + rAF 重排（resize 结算链双渲染的来源之一）。
+    // 值未变时返回 prev，与上方 [scale] effect 的守卫同款。
     useEffect(() => {
-        setViewport(prev => ({
-            ...prev,
-            scale: geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)))
-        }));
+        setViewport(prev => {
+            const next = geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)));
+            return Math.abs(prev.scale - next) > 1e-9 ? { ...prev, scale: next } : prev;
+        });
     }, [scale, geometry]);
 
     // 通知滚动变化

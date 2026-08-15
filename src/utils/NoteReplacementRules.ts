@@ -419,9 +419,6 @@ export function handleSlideToSlideCombination(
         return { shouldCombine: false, newNotes: notes, message: "滑条连接点数量不正确" };
     }
 
-    // 更新端点管理器
-    slideEndpointManager.updateEndpoints(notes);
-
     // 首先判断新滑条的起点和终点（起点beat值一定小于终点）
     const [firstClick, secondClick] = newSlideConnections;
     let newSlideStart: { beat: number; lane: number; subBeat?: number };
@@ -453,6 +450,10 @@ export function handleSlideToSlideCombination(
     // 先处理音符覆盖替换：删除被滑条端点覆盖的其他音符
     removeOverlappedNotes(newNotes, newSlideStart);
     removeOverlappedNotes(newNotes, newSlideEnd);
+
+    // 更新端点管理器（issue 36：必须在 removeOverlappedNotes 之后——splice 会移位后续音符下标，
+    // 用旧数组下标定位滑条会合并错目标（改到别的音符）甚至对非滑条取 connections 直接崩溃）
+    slideEndpointManager.updateEndpoints(newNotes);
 
     // 情况1：现有滑条终点 + 新滑条起点：将现有滑条终点转换为途径结点，合并滑条
     const existingEndPoint = slideEndpointManager.findEndPoint(newSlideStart.beat, newSlideStart.lane, newSlideStart.subBeat);
