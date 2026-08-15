@@ -2,7 +2,7 @@
 // 从组件闭包中提出为依赖注入的纯函数。组件每次 RAF 组装 RenderCtx 调用 renderChart。
 // 本模块不含任何 React 状态；性能热路径（视口剔除/缓存/增量重绘）将来在此落地。
 import type { ChartNote, SelectionItem, SlideNote } from '../notes/Charts';
-import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport } from '../utils/ChartGeometry';
+import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport, type GeometryPoint } from '../utils/ChartGeometry';
 import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
 import { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcons } from '../components/CanvasSpriteIcon';
 import { perf } from '../utils/perf';
@@ -170,9 +170,25 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
   }
 }
 
-/** 绘制音符（第一层：主体；第二层：装饰器） */
-export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+/** 点音符选中圈（黄圈）：瓦片内与叠加层共用同一实现，保证视觉逐像素一致 */
+function strokeSelectedCircle(ctx: CanvasRenderingContext2D, canvasPos: GeometryPoint, iconSize: number, scale: number) {
+  ctx.strokeStyle = 'yellow';
+  ctx.lineWidth = 3 * scale;
+  ctx.globalAlpha = 0.8;
+  ctx.beginPath();
+  ctx.arc(canvasPos.x, canvasPos.y, iconSize / 2 + 4, 0, 2 * Math.PI);
+  ctx.stroke();
+  ctx.globalAlpha = 1.0;
+}
+
+/**
+ * 绘制音符（第一层：主体；第二层：装饰器）。
+ * issue 35 F1：opts.skipSelection=true 供离屏瓦片渲染（瓦片不含选中态，选中高亮由主画布叠加层绘制，
+ * 选择变化不再使瓦片缓存失效）。
+ */
+export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[], opts?: { skipSelection?: boolean }) {
   const sel = buildSelectionSets(rc);
+  const skipSelection = opts?.skipSelection === true;
   // 第一层：普通音符和方向键主体
   visibleNotes.forEach(({ note, index }) => {
     const isSelected = isNoteSelected(sel, index);
@@ -190,14 +206,8 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
         canvasHeight: NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
         scale: rc.viewport.scale, renderLayer: 'main',
       });
-      if (isSelected) {
-        ctx.strokeStyle = 'yellow';
-        ctx.lineWidth = 3 * rc.viewport.scale;
-        ctx.globalAlpha = 0.8;
-        ctx.beginPath();
-        ctx.arc(canvasPos.x, canvasPos.y, iconSize / 2 + 4, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.globalAlpha = 1.0;
+      if (isSelected && !skipSelection) {
+        strokeSelectedCircle(ctx, canvasPos, iconSize, rc.viewport.scale);
       }
     } else if (note.type === "LDirectional" || note.type === "RDirectional") {
       const subBeat = note.subBeat || 0;
@@ -218,14 +228,8 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
         canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
         scale: rc.viewport.scale, renderLayer: 'main',
       });
-      if (isSelected) {
-        ctx.strokeStyle = 'yellow';
-        ctx.lineWidth = 3 * rc.viewport.scale;
-        ctx.globalAlpha = 0.8;
-        ctx.beginPath();
-        ctx.arc(canvasPos.x, canvasPos.y, iconSize / 2 + 4, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.globalAlpha = 1.0;
+      if (isSelected && !skipSelection) {
+        strokeSelectedCircle(ctx, canvasPos, iconSize, rc.viewport.scale);
       }
     } else if (note.type === "BPM") {
       const virtualY = c.getNoteVirtualY(note.beat);
@@ -240,7 +244,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       ctx.stroke();
       ctx.setLineDash([]);
     } else if (note.type === "Slide" || note.type === "Long") {
-      renderSlideBody(ctx, c, rc, sel, note, index);
+      renderSlideBody(ctx, c, rc, sel, note, index, skipSelection);
     }
   });
 
@@ -278,8 +282,8 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   });
 }
 
-/** 渲染一条滑条/长条：连接带 + 各结点 + 选中高亮（ADR §6 整条/结点/区域） */
-function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, sel: SelectionSets, note: ChartNote, index: number) {
+/** 渲染一条滑条/长条：连接带 + 各结点 + 选中高亮（ADR §6 整条/结点/区域）；skipSelection 供瓦片渲染跳过高亮 */
+function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, sel: SelectionSets, note: ChartNote, index: number, skipSelection?: boolean) {
   const connections = (note as SlideNote).connections;
   if (connections.length < 2) return;
 
@@ -333,6 +337,12 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     });
   });
 
+  if (!skipSelection) drawSlideSelection(ctx, c, rc, sel, note, index);
+}
+
+/** 滑条选中高亮（整条黄虚线框 + 结点青圈 + 区域青框）：瓦片内与叠加层共用同一实现，保证视觉逐像素一致 */
+function drawSlideSelection(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, sel: SelectionSets, note: ChartNote, index: number) {
+  const connections = (note as SlideNote).connections;
   const isSelected = isNoteSelected(sel, index);
   if (isSelected) {
     const xs = connections.map(cn => c.getNoteVirtualX(cn.lane));
@@ -379,6 +389,31 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     ctx.closePath();
     ctx.stroke();
     ctx.globalAlpha = 1.0;
+  }
+}
+
+/**
+ * 选中高亮叠加层（issue 35 F1）：瓦片不含选中态，选中后由主画布在瓦片 blit 之上逐帧叠加。
+ * 只遍历可见音符并跳过未选中项（O(选中∩可见)），选择变化不再触发瓦片重建；
+ * 复用 renderNotes 的同一套高亮绘制（strokeSelectedCircle / drawSlideSelection），视觉逐像素对齐旧实现。
+ */
+export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  if (rc.selectedItems.length === 0) return;
+  const sel = buildSelectionSets(rc);
+  if (sel.notes.size === 0 && sel.slideNodes.size === 0 && sel.slideRegions.size === 0) return;
+  for (const { note, index } of visibleNotes) {
+    if (note.type === "Single") {
+      if (!isNoteSelected(sel, index)) continue;
+      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
+      strokeSelectedCircle(ctx, canvasPos, NOTE_ICON_SIZE * rc.viewport.scale, rc.viewport.scale);
+    } else if (note.type === "LDirectional" || note.type === "RDirectional") {
+      if (!isNoteSelected(sel, index)) continue;
+      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
+      strokeSelectedCircle(ctx, canvasPos, DIRECTIONAL_ICON_SIZE * rc.viewport.scale, rc.viewport.scale);
+    } else if (note.type === "Slide" || note.type === "Long") {
+      if (!isNoteSelected(sel, index) && !sel.slideNodes.has(index) && !sel.slideRegions.has(index)) continue;
+      drawSlideSelection(ctx, c, rc, sel, note, index);
+    }
   }
 }
 

@@ -344,12 +344,13 @@ function handleSingleAndDirectionalReplacement(
             const directionalNote = existingNote as LDirectionalNote | RDirectionalNote;
             const expectedType = newNoteType === "ldirectional" ? "LDirectional" : "RDirectional";
             if (directionalNote.type === expectedType) {
-                // 同类型，组合处理
+                // 同类型，组合处理（issue 35 F6：构造新对象，不得在位变异共享引用——
+                // 否则结构共享历史撤销后长度不回退，且瓦片增量失效 diff 失效）
                 if (directionalNote.length < 3) {
-                    directionalNote.length += 1;
+                    newNotes[existingNoteIndex] = { ...directionalNote, length: directionalNote.length + 1 };
                     return { shouldReplace: true, newNotes, message: "方向键长度+1" };
                 } else {
-                    directionalNote.length = 1;
+                    newNotes[existingNoteIndex] = { ...directionalNote, length: 1 };
                     return { shouldReplace: true, newNotes, message: "方向键长度重置为1" };
                 }
             } else {
@@ -459,17 +460,19 @@ export function handleSlideToSlideCombination(
         const slideNote = newNotes[existingEndPoint.noteIndex] as SlideNote;
         const connection = slideNote.connections[existingEndPoint.connectionIndex];
 
-        // 将现有滑条的终点转换为途径结点
+        // 将现有滑条的终点转换为途径结点（issue 35 F6：不可变构造，不得在位变异共享数组）
         const pathwayConnection = {
             beat: connection.beat,
             lane: connection.lane,
             subBeat: connection.subBeat,
             hidden: false
         };
-        slideNote.connections[existingEndPoint.connectionIndex] = pathwayConnection;
-
+        const updatedConnections = slideNote.connections.map((c, i) =>
+            i === existingEndPoint.connectionIndex ? pathwayConnection : c
+        );
         // 添加新滑条的终点
-        slideNote.connections.push(newSlideEnd);
+        updatedConnections.push(newSlideEnd);
+        newNotes[existingEndPoint.noteIndex] = { ...slideNote, connections: updatedConnections };
 
         return {
             shouldCombine: true,
@@ -485,17 +488,19 @@ export function handleSlideToSlideCombination(
         const slideNote = newNotes[existingStartPoint.noteIndex] as SlideNote;
         const connection = slideNote.connections[existingStartPoint.connectionIndex];
 
-        // 将现有滑条的起点转换为途径结点
+        // 将现有滑条的起点转换为途径结点（issue 35 F6：不可变构造，不得在位变异共享数组）
         const pathwayConnection = {
             beat: connection.beat,
             lane: connection.lane,
             subBeat: connection.subBeat,
             hidden: false
         };
-        slideNote.connections[existingStartPoint.connectionIndex] = pathwayConnection;
-
+        const updatedConnections = slideNote.connections.map((c, i) =>
+            i === existingStartPoint.connectionIndex ? pathwayConnection : c
+        );
         // 将新滑条的起点添加到现有滑条的最前面
-        slideNote.connections.unshift(newSlideStart);
+        updatedConnections.unshift(newSlideStart);
+        newNotes[existingStartPoint.noteIndex] = { ...slideNote, connections: updatedConnections };
 
         return {
             shouldCombine: true,

@@ -61,6 +61,7 @@
 - [取消前置上传页与独立音频面板（issue 27）](./issues/27-取消前置上传页与独立音频面板.md) — **grill-with-docs 定案并实现**（修订 ADR-0003 §2 + CONTEXT 术语）：删 `SongUploader` 前置页 + `inEditor`/`onBack` 状态机，`App → Editor` 直达工作台；新增独立音频面板页面（`AudioPanel.tsx`，顶栏"音频"进入，承载导入/换/清除 + 无音频时长编辑）；`page: 'workspace' | 'audio'` 最简页面切换底层为 issue 28 铺路。时长语义沿 ADR-0005 §4 单一字段（清除音频→回无音频态可编辑；重载→音频时长覆盖）。tsc/build 全绿、137 测试通过、浏览器验证入口直达 + 面板切换 + 时长持久化一致。
 - [多页面管理/页面 Tab 架构（issue 28）](./issues/28-多页面管理-页面Tab架构.md) — 未来跟踪：完整页面 Tab 架构（工作台/音频/设置/快捷键/多工作区 等页面切换，避免单页堆砌）；基于 issue 27 的最简 Tab 底层扩展，与 issue 22（布局整改）、26（多谱面工作区）协同。待后续单独 grill。
 - [10 密集音符性能优化](./issues/10-密集音符性能优化.md) — **已实现并实测达标**：①视口裁剪——`ChartGeometry` 排序索引 + 二分 `visibleNotes`（O(n)→O(log n+可见数)），`renderGrid` 只遍历 `visibleBeatRange`；②缩放离屏瓦片缓存——新增 `src/renderer/noteLayerCache.ts`，手势期（240ms 窗口）只按比例 blit 旧瓦片、settle 250ms 后高清重渲，超大量级回退直渲；③history 轻量化已由 issue 21 候选 D 落地。测试：`RendererPerf.test.ts` 二分结果与旧 O(n) 扫描全对齐，全套 161 测试通过；浏览器 `?perf=1` 实测 5000 音符 40 帧连续缩放 **avg≈0.49ms / max≈2.8ms**（60fps 预算 16.7ms），`layerMode='tiles'`。
+- [35 密集音符放置与操作卡顿](./issues/35-密集音符放置与操作卡顿.md) — **已实现并实测达标**：放置/点选/框选卡顿根因=每次编辑全量重建可见瓦片（选中态在缓存键里 + `geometry` 引用不稳定）+ 代码编辑器每次全量重建 100KB+ 文本 + 两处在位变异破坏 History 结构共享。修复：F1 选中高亮移出瓦片改主画布叠加层 `renderSelectionOverlay`（选择变化 0 瓦片重建）；F2 geometry 身份稳定（BPM/谱长/表面不变则复用实例）；F3 notes 前缀/后缀引用 diff 按变化拍区间增量失效瓦片（放置 4-5 块→0-2 块）；F5 画布→代码同步 250ms 防抖；F6 修 `NoteReplacementRules` 两处在位变异（结构共享下撤销不回退 bug，亦为 F3 前提）。新增 `InteractionPerf.test.ts`（14 例），全套 175 测试通过。浏览器实测 3000 音符：放置点击 107ms→11.6-15.9ms（-90%/-70%）、选择 render 本体 0.3ms/0 重建、框选 mouseup 68→22-31ms（单 RAF 口径；双 RAF 口径有 ~2 帧 vsync 地板 ≈28-33ms，见 issue 口径修订）；F1 视觉 A/B 像素 diff 99.8% 一致（仅高亮 z-order 预期变化）。
 
 ## Not yet specified
 
@@ -70,7 +71,7 @@
 - **~~"谱面预览"的形态~~（已定案 ADR-0004）**：编辑器**内联播放**（非独立预览模式）：判定线固定底部 + 谱面随播放上移；无音频合成时间线照常播；临时起点标记回跳；底部播放条。实现载体 = issue 17。
 - **更多音符样式 / 图标资源管理**：noteskin 资源如何组织与导入更多样式。待基本编辑完成后才可定。
 - **负数 BPM 语义细节**：支持范围与网格伸缩规则。
-- **撤/重做对滑条、方向键形态的完整覆盖**（Ctrl+Z 无法回退方向键形态——需一个扩展现有 history 的决策）。
+- **~~撤/重做对滑条、方向键形态的完整覆盖~~（已解决）**：issue 21 结构共享 History + issue 35 F6 修复 `NoteReplacementRules` 两处在位变异后，方向键长度与滑条组合均可正确回退。
 
 ## Out of scope
 

@@ -13,10 +13,11 @@
 //
 // 缩放手势策略：手势期间（rc.zoomGesture）对 stale 瓦片只做按比例 blit（可能轻微模糊），
 // 手势结束（组件 250ms settle 后触发一次重渲）再以最终 es 高清重建瓦片。
-import { renderNotes } from './render';
+import { renderNotes, renderSelectionOverlay } from './render';
 import { makeCoords } from './coords';
 import type { RenderCtx } from './types';
 import { VIEWPORT_PADDING, type GeometryBounds } from '../utils/ChartGeometry';
+import type { ChartNote, SlideNote } from '../notes/Charts';
 import { perf } from '../utils/perf';
 
 /** 瓦片的 pos 空间高度（timeline 像素） */
@@ -45,15 +46,97 @@ export function __setTileCanvasFactoryForTests(factory: () => any) {
 
 const tiles = new Map<number, Tile>();
 
-/** 缓存失效依据：任一输入变引用即全量失效（notes 每次编辑都换数组 → 全量重建，成本≈一次直渲） */
+/**
+ * 缓存失效依据（issue 35）：
+ * - selectedItems 不再参与失效（F1：选中高亮移出瓦片，由主画布叠加层逐帧绘制）；
+ * - geometry/beatDisplay/surfaceW/dpr/skinVersion 任一变化仍全量失效；
+ * - notes 引用变化走 F3 增量失效：前后数组做前缀/后缀引用 diff（结构共享，F6 保证不可变），
+ *   仅删除覆盖「变更拍区间」的瓦片。单次放置从全量 4-5 块重建降为 ≈1 块。
+ */
 let basis: {
-  notes: unknown; selectedItems: unknown; geometry: unknown;
+  notes: readonly ChartNote[]; geometry: unknown;
   beatDisplay: number; surfaceW: number; dpr: number; skinVersion: number;
 } | null = null;
 
 export function resetNoteLayerCache() {
   tiles.clear();
   basis = null;
+}
+
+// ---------------- F3：notes 变化 diff → 失效拍区间 ----------------
+
+/** 变更中段音符数超过该阈值 → 视为批量/结构变化，回退全量失效（diff 本身 O(n) 引用比较，代价可忽略） */
+const DIFF_FULL_LIMIT = 64;
+
+/** 单个音符覆盖的精确拍区间（滑条取连接点首尾；subBeat 按 beatDisplay 折算） */
+function noteBeatSpan(note: ChartNote, beatDisplay: number): { min: number; max: number } | null {
+  if (note.type === 'Slide' || note.type === 'Long') {
+    const conns = (note as SlideNote).connections;
+    if (conns.length === 0) return null;
+    let min = Infinity, max = -Infinity;
+    for (const cn of conns) {
+      const sb = cn.subBeat || 0;
+      const b = cn.beat + (sb > 0 ? sb / beatDisplay : 0);
+      if (b < min) min = b;
+      if (b > max) max = b;
+    }
+    return { min, max };
+  }
+  if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
+    const sb = note.subBeat || 0;
+    const b = note.beat + (sb > 0 ? sb / beatDisplay : 0);
+    return { min: b, max: b };
+  }
+  if (note.type === 'BPM') return { min: note.beat, max: note.beat };
+  return null;
+}
+
+export type NotesDiff =
+  | { kind: 'none' }
+  | { kind: 'range'; minBeat: number; maxBeat: number }
+  | { kind: 'full' };
+
+/**
+ * 前后 notes 数组的结构共享 diff（纯函数，供单测）：
+ * 公共前缀/后缀按引用比较（F6 修复在位变异后，未变音符保持同引用），
+ * 变更中段收敛为精确拍区间；中段过大（批量粘贴/整体替换）返回 full。
+ */
+export function diffNotes(oldNotes: readonly ChartNote[], newNotes: readonly ChartNote[], beatDisplay: number): NotesDiff {
+  const maxP = Math.min(oldNotes.length, newNotes.length);
+  let p = 0;
+  while (p < maxP && oldNotes[p] === newNotes[p]) p++;
+  let eo = oldNotes.length - 1, en = newNotes.length - 1;
+  while (eo >= p && en >= p && oldNotes[eo] === newNotes[en]) { eo--; en--; }
+  const nOld = eo - p + 1, nNew = en - p + 1;
+  if (nOld <= 0 && nNew <= 0) return { kind: 'none' };
+  if (nOld + nNew > DIFF_FULL_LIMIT) return { kind: 'full' };
+  let minBeat = Infinity, maxBeat = -Infinity;
+  const acc = (note: ChartNote | undefined) => {
+    if (!note) return;
+    const span = noteBeatSpan(note, beatDisplay);
+    if (!span) return;
+    if (span.min < minBeat) minBeat = span.min;
+    if (span.max > maxBeat) maxBeat = span.max;
+  };
+  for (let i = p; i <= eo; i++) acc(oldNotes[i]);
+  for (let i = p; i <= en; i++) acc(newNotes[i]);
+  if (minBeat > maxBeat) return { kind: 'none' }; // 变更均为无渲染痕迹的类型
+  return { kind: 'range', minBeat, maxBeat };
+}
+
+/**
+ * 删除覆盖 [minBeat, maxBeat] 的瓦片。外扩余量 = 瓦片渲染时的 VIEWPORT_PADDING
+ * （跨瓦片音符会在相邻瓦片重复绘制）+ 音符半高/选中圈，保证所有画过这些音符的瓦片都被失效。
+ */
+function invalidateTilesForBeatRange(minBeat: number, maxBeat: number, rc: RenderCtx) {
+  const es = rc.viewport.scale;
+  const cEs = rc.geometry.chartEndVirtualY + rc.surface.h / es;
+  // pos 随 beat 递减（低拍在上、pos 大）
+  const posMax = cEs - rc.geometry.beatToVirtualY(Math.max(0, minBeat), es);
+  const posMin = cEs - rc.geometry.beatToVirtualY(Math.max(0, maxBeat), es);
+  const margin = (VIEWPORT_PADDING + 48) / es;
+  const { lo, hi } = tileIndexRange(posMin - margin, posMax + margin);
+  for (let id = lo; id <= hi; id++) tiles.delete(id);
 }
 
 /** pos 空间可见范围：pos = C(es) − virtualY（viewportBounds 已含 VIEWPORT_PADDING 外扩） */
@@ -125,7 +208,8 @@ function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
   const fakeSurface = { w: cssW, h: cssH };
   const fakeRc: RenderCtx = { ...rc, viewport: vp, surface: fakeSurface };
   const c = makeCoords(rc.geometry, vp, rc.beatDisplay, rc.notes);
-  renderNotes(tctx, c, fakeRc, vis);
+  // F1：瓦片不含选中态（选中高亮由主画布叠加层绘制，选择变化不再重建瓦片）
+  renderNotes(tctx, c, fakeRc, vis, { skipSelection: true });
   const tile: Tile = { canvas, refScale: es, bytes: bw * bh * 4, empty: false };
   tiles.set(tileId, tile);
   evictOverBudget();
@@ -149,16 +233,21 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
   }
 
   const nb = {
-    notes: rc.notes, selectedItems: rc.selectedItems, geometry: rc.geometry,
+    notes: rc.notes, geometry: rc.geometry,
     beatDisplay: rc.beatDisplay, surfaceW: rc.surface.w, dpr: rc.dpr,
     skinVersion: rc.skinVersion ?? 0,
   };
   if (
-    !basis || basis.notes !== nb.notes || basis.selectedItems !== nb.selectedItems ||
-    basis.geometry !== nb.geometry || basis.beatDisplay !== nb.beatDisplay ||
+    !basis || basis.geometry !== nb.geometry || basis.beatDisplay !== nb.beatDisplay ||
     basis.surfaceW !== nb.surfaceW || basis.dpr !== nb.dpr || basis.skinVersion !== nb.skinVersion
   ) {
     tiles.clear();
+    basis = nb;
+  } else if (basis.notes !== nb.notes) {
+    // F3：notes 引用变化 → 结构共享 diff，仅失效覆盖变更拍区间的瓦片
+    const diff = diffNotes(basis.notes, rc.notes, rc.beatDisplay);
+    if (diff.kind === 'full') tiles.clear();
+    else if (diff.kind === 'range') invalidateTilesForBeatRange(diff.minBeat, diff.maxBeat, rc);
     basis = nb;
   }
 
@@ -180,6 +269,11 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     if (r.y > rc.surface.h || r.y + r.h < 0) continue; // 屏外瓦片（padding 外扩可能引入）
     ctx.drawImage(t.canvas, r.x, r.y, r.w, r.h);
     blitted++;
+  }
+  // F1：选中高亮叠加层（瓦片不含选中态，O(选中∩可见) 逐帧绘制，与瓦片 blit 逐像素对齐）
+  if (rc.selectedItems.length > 0) {
+    const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
+    renderSelectionOverlay(ctx, c, rc, c.getVisibleNotes());
   }
   perf.info({ layerMode: 'tiles', tiles: tiles.size, blitted, rebuilt, staleBlit });
 }

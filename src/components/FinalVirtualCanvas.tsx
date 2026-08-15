@@ -24,6 +24,10 @@ interface FinalVirtualCanvasProps {
 const MAX_SCALE = 3.0;
 const MIN_SCALE = 0.1;
 
+/** BPM 事件表内容相等（issue 35 F2：内容未变时 geometry 复用旧实例，事件数通常 ≤ 个位数） */
+const bpmEventsContentEqual = (a: readonly BpmEvent[], b: readonly BpmEvent[]) =>
+    a === b || (a.length === b.length && a.every((e, i) => e.beat === b[i].beat && e.bpm === b[i].bpm));
+
 /**
  * FinalVirtualCanvas（ADR-0003 候选 B 收口）：已拆成薄层。
  * 渲染/命中/坐标全部收敛到 src/renderer 纯模块，本组件只保留：
@@ -155,8 +159,25 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     // ---------------------------
     // 谱面几何（ADR-0003 候选 B/C）：BPM→虚拟Y 走缓存时间线，坐标/剔除/命中统一由 ChartGeometry 提供
+    // issue 35 F2：BPM 事件内容/谱长/渲染面未变时复用旧实例——否则每次编辑普通音符都新建实例，
+    // geometry 引用变化本身就会触发瓦片缓存全量失效（密集音符下放置/选择卡顿的根因之一）。
     // ---------------------------
-    const geometry = useMemo(() => new ChartGeometry(getBpmEvents(notes), chartEndBeat, surf), [notes, chartEndBeat, surf]);
+    const geometryRef = useRef<ChartGeometry | null>(null);
+    const geometry = useMemo(() => {
+        const bpmEvents = getBpmEvents(notes);
+        const prev = geometryRef.current;
+        if (
+            prev &&
+            prev.chartEndBeat === chartEndBeat &&
+            prev.surface.w === surf.w && prev.surface.h === surf.h &&
+            bpmEventsContentEqual(prev.bpmEvents, bpmEvents)
+        ) {
+            return prev;
+        }
+        const next = new ChartGeometry(bpmEvents, chartEndBeat, surf);
+        geometryRef.current = next;
+        return next;
+    }, [notes, chartEndBeat, surf]);
     // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它
     const chartEndVirtualY = geometry.chartEndVirtualY;
     // 与 AudioTiming 共享同一 BPM 事件表（时间→beat 与 beat→Y 都用同一事件表，保证预览线对齐）

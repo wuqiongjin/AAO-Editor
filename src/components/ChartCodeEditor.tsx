@@ -63,17 +63,30 @@ export default function ChartCodeEditor() {
     // 当音符数据变化时更新代码（非 dirty 时同步；dirty 时保留用户草稿）。
     // 仅当 notes 真正变化（或首次）才重建代码——撤销到已应用态时 isDirty 会变 false，
     // 但 notes 未变，不应重建（否则会清空文本撤销栈，抹掉 redo 分支）。
+    // issue 35 F5：画布→代码同步防抖 250ms——密集音符下每次编辑都全量
+    // convertNotesToChartCode + chartCodeToJSON（≈100KB+ 字符串）+ textarea 全量赋值，
+    // 是放置卡顿主因之一；连续编辑只在停顿后重建一次。首次挂载仍立即同步。
+    // prevNotesRef 只在重建真正发生时才推进：防抖期间用户转为 dirty 取消了本次同步，
+    // 之后 isDirty 回落时 notesChanged 仍为 true，代码最终会与画布一致（不留陈旧态）。
     useEffect(() => {
+        if (isDirty) return;
         const firstRun = prevNotesRef.current === null;
         const notesChanged = prevNotesRef.current !== notes;
-        prevNotesRef.current = notes;
-        if (!isDirty && (firstRun || notesChanged)) {
+        if (!(firstRun || notesChanged)) return;
+        const build = () => {
             const code = convertNotesToChartCode(notes);
             const jsonString = chartCodeToJSON(code);
             setTextHistory(createHistory(jsonString));
             setLastAppliedCode(jsonString);
             setAppliedNotesCount(notes.length);
+            prevNotesRef.current = notes;
+        };
+        if (firstRun) {
+            build();
+            return;
         }
+        const timer = window.setTimeout(build, 250);
+        return () => window.clearTimeout(timer);
     }, [notes, isDirty]);
 
     // 处理代码变化：压入撤销栈；空代码回到保底状态
