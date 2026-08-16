@@ -270,7 +270,9 @@ export default function ChartCodeEditor() {
                 <span>谱面代码</span>
             </button>
 
-            {/* 按需弹窗：render 到 body，遮罩覆盖画布；关闭即卸载文本区（成本归零） */}
+            {/* 按需弹窗：render 到 body，遮罩覆盖画布；关闭即卸载文本区（成本归零）。
+                关闭判定用 onMouseDown 而非 onClick：拖选文字从弹窗内按到遮罩上时，
+                mousedown 已被内层弹窗 stopPropagation 拦截，遮罩不触发关闭，避免拖选误关。 */}
             {open && createPortal(
                 <div
                     style={{
@@ -278,9 +280,10 @@ export default function ChartCodeEditor() {
                         backgroundColor: 'rgba(0,0,0,0.4)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
-                    onClick={requestClose}
+                    onMouseDown={requestClose}
                 >
                     <div
+                        onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
                         style={{
                             width: 'min(920px, 92vw)', height: 'min(640px, 86vh)',
