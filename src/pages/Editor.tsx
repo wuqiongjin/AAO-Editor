@@ -128,31 +128,60 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const virtualCanvasRef = useRef<any>(null);
 
   // 渲染面尺寸（ADR-0006 §1）：随谱面画布容器变化，经 ResizeObserver 提供；缓冲 = surface × dpr
-  // issue 36：窗口连续缩放期间 RO 每帧回调 setSurface → 几何重建 + 瓦片全量重建 + 重锚链
-  // （3000+ 音符下体感明显卡顿）。首次立即应用；此后 150ms 尾随防抖合并为停止后一次应用，
-  // 拖拽期间画布缓冲不变、由 CSS 拉伸显示（合成器 GPU 缩放，廉价），停止后一次高清重建。
+  // issue 36：窗口连续缩放期间 RO 每帧回调 setSurface → 几何重建 + 缓冲/重锚链（3000+ 音符下体感卡顿），
+  // 因此需合并连续 resize。
+  // issue 38（第二版根因修订）：轨道可见宽 = LANES·LANE_WIDTH·effectiveScale，
+  // effectiveScale = min(用户scale, fitWidth(surface.w))。容器宽（surface.w）变化会改变 effectiveScale，
+  // 进而改变轨道宽。两处离散布局变化此前残留轨迹闪烁：
+  // (a) 切回工作台页：切走时页面 display:none → RO 报 {0,0}，若提交会给子组件产生 surface=0 → 被
+  //     FinalVirtualCanvas 兜底成固定 DEFAULT_SURFACE=750，而真实容器≠750 → CSS width:100% 把 750 宽缓冲
+  //     拉伸铺满真实宽度 → 轨道被横向拉宽一帧，随后真实宽到达才修正（"先变宽再回归"）。
+  //     修复：0 尺寸（隐藏/未布局）属于退化态，从不提交，保持上一真实 surface 直到重新测得真实尺寸。
+  // (b) 折叠/展开侧栏：fitWidth<用户scale（钳制区）时，surface.w 变化应让轨道跟随；但 viewport.scale
+  //     只在 paint 后的 useEffect 里按新 geometry 重新钳制，而渲染用 useLayoutEffect 在 paint 前已用
+  //     新 geometry×旧 viewport.scale 算 effectiveScale → 钳制区轨道宽错一帧（见 FinalVirtualCanvas）。
+  // 本篇 RO 侧只处理 (a)：0 尺寸直接跳过（既不提交、也不当作回调推进突发/尾随状态）。
+  const SPARSE_GAP_MS = 100;   // 与上一回调间隔 ≥ 100ms → 视为新的独立离散事件
+  const STREAM_MS = 150;       // 密集持续 ≥ 150ms → 定性为连续缩放流，转为尾随合并
+  const TRAIL_MS = 150;        // 事件/流停止后结算一次最新值
   const [surface, setSurface] = useState<SurfaceSize>(DEFAULT_SURFACE);
   useEffect(() => {
     const el = chartAreaRef.current;
     if (!el) return;
     let timer: number | undefined;
-    let lastKey = '';
+    let lastCommittedKey = '';
+    let lastValue: SurfaceSize = { w: 0, h: 0 };
+    let lastCallbackAt = 0;
+    let burstStartAt = 0;
+    const commit = (v: SurfaceSize) => {
+      const key = `${v.w}x${v.h}`;
+      if (key === lastCommittedKey) return;
+      lastCommittedKey = key;
+      setSurface(v);
+    };
     const ro = new ResizeObserver((entries) => {
+      const now = performance.now();
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         const next = { w: Math.round(width), h: Math.round(height) };
         const key = `${next.w}x${next.h}`;
-        if (key === lastKey) continue;
-        if (!lastKey) { // 挂载首次回调：立即应用，避免用兜底尺寸渲染
-          lastKey = key;
-          setSurface(next);
-          continue;
-        }
+        // 退化尺寸（隐藏 display:none 时会报 {0,0}）：不提交、也不推进突发/尾随状态。
+        // 提交会触发 FinalVirtualCanvas 的 DEFAULT_SURFACE=750 兜底并 CSS 拉伸（轨道横向拉宽一帧），
+        // 切回工作台页即复现"先变宽再回归"。保持上一真实 surface 直到重新测得真实尺寸。
+        if (next.w <= 0 || next.h <= 0) continue;
+        if (key === lastCommittedKey) continue; // 已生效，忽略
+        lastValue = next;
+        // 前沿：独立离散事件、或突发早期（未定性为持续流）——立即应用最新值，避免陈旧轨道宽度
+        const dense = now - lastCallbackAt < SPARSE_GAP_MS;
+        if (!dense) burstStartAt = now;
+        if (!dense || now - burstStartAt < STREAM_MS) commit(next);
+        // 持续密集超过阈值（连续窗口缩放）：不再逐条应用，交由尾部结算一次最新值
+        lastCallbackAt = now;
         if (timer !== undefined) window.clearTimeout(timer);
         timer = window.setTimeout(() => {
-          lastKey = key;
-          setSurface(next);
-        }, 150);
+          timer = undefined;
+          commit(lastValue);
+        }, TRAIL_MS);
       }
     });
     ro.observe(el);

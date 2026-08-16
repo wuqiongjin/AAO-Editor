@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import type { ChartNote, SelectionItem } from "../notes/Charts";
 import CanvasSpriteIcon from './CanvasSpriteIcon';
 import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
@@ -107,7 +107,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const spriteIcon = useRef<CanvasSpriteIcon>(new CanvasSpriteIcon());
-    const animationFrameRef = useRef<number | undefined>(undefined);
 
     // 暴露方法给父组件
     useImperativeHandle(ref, () => ({
@@ -550,18 +549,29 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         return () => canvas.removeEventListener('wheel', handleWheel);
     }, [handleWheel]);
 
-    useEffect(() => {
-        if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current);
+    // 渲染：在 React 提交后、浏览器 paint 前【同步】调用 renderChart（useLayoutEffect）。
+    // issue 38（根因 b）：轨道可见宽 = LANES·LANE_WIDTH·effectiveScale，而
+    // effectiveScale = min(用户scale, fitWidth(surface.w))。容器宽（surface.w）变化 - 折叠/展开侧栏、
+    // 切回工作台 - 会改变 fitWidth；在 fitWidth<用户scale（钳制区）时轨道宽应跟随容器宽。
+    // 但原先 viewport.scale 只在 paint 后的单独 useEffect 里按新 geometry 重新钳制，而此处渲染在
+    // paint 前已用【新 geometry × 旧 viewport.scale】算 effectiveScale → 钳制区轨道宽错一帧（"先偏宽/
+    // 偏窄、随后修正"）。
+    // 修复：渲染前先核对 viewport.scale == effectiveScale(新 geometry)；若不等，先同步 setViewport
+    // （useLayoutEffect 内的 setState 会在 paint 前引发同步重渲染），本次不绘制；重渲染后 renderCanvas
+    // 闭包已带正确 scale，再按正确轨道宽原子绘制。保证 surface 变化帧轨道宽即正确、无陈旧帧。
+    useLayoutEffect(() => {
+        const es = geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)));
+        if (Math.abs(viewport.scale - es) > 1e-9) {
+            setViewport((prev) =>
+                Math.abs(prev.scale - es) > 1e-9 ? { ...prev, scale: es } : prev
+            );
+            return; // 待重渲染后再绘制
         }
-        animationFrameRef.current = requestAnimationFrame(renderCanvas);
-    }, [renderCanvas]);
+        renderCanvas();
+    }, [renderCanvas, viewport.scale, geometry, scale]);
 
     useEffect(() => {
         return () => {
-            if (animationFrameRef.current) {
-                cancelAnimationFrame(animationFrameRef.current);
-            }
             if (zoomSettleTimerRef.current !== undefined) {
                 clearTimeout(zoomSettleTimerRef.current);
             }
@@ -630,8 +640,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             }}>
                 <canvas
                     ref={canvasRef}
-                    width={surf.w}
-                    height={surf.h}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
@@ -644,10 +652,17 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                         display: 'block',
                         userSelect: 'none',
                         border: '1px solid #333',
-                        // ADR-0006 §1：canvas 铺满谱面画布容器；缓冲 = surface × dpr（renderChart 设置），
-                        // 宽高比恒定 → 无变形、无 letterbox。
-                        width: '100%',
-                        height: '100%',
+                        // ADR-0006 §1：canvas 缓冲 = surface × dpr（renderChart 设置）；React 不触碰缓冲属性
+                        // （不在 JSX 里写 width={surf.w} 作为 HTML 属性，那会重设缓冲并触发错帧）。
+                        // issue 38（根因 b，第二版）：轨道水平居中 trackStartX=(surface.w − 轨道宽)/2 由
+                        // surface 决定，而 surface 由 RO 异步测得——容器因折叠/展开侧栏瞬间变宽时，canvas
+                        // CSS 若用 width:100% 会立刻撑到新宽度，但 surface（决定轨道中心）还要晚一帧才更新，
+                        // 于是出现一帧「canvas 已变宽、轨道仍画在旧中心」的错位闪烁（先偏移再回归）。
+                        // 修复：canvas 的 CSS 尺寸直接用 surface 的 px 值，使 DOM 尺寸与绘制内容始终同步；
+                        // 过渡那一帧旧尺寸 canvas 由外层 flex 居中，轨道仍保持居中→无偏移。稳态下 surface
+                        // 恒等于容器宽，canvas 仍铺满容器。此处只设 CSS 尺寸，绝不触碰缓冲属性。
+                        width: `${surf.w}px`,
+                        height: `${surf.h}px`,
                         position: 'relative',
                         zIndex: 10 // 确保Canvas在最上层
                     }}
