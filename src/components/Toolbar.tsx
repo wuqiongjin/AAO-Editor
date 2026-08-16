@@ -17,6 +17,7 @@ import {
 import SpriteIcon, { NoteIcons } from './SpriteIcon';
 import { categoryShortcuts, formatKey } from '../utils/ShortcutConfig';
 import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
+import ChartCodeEditor from './ChartCodeEditor';
 
 interface ToolbarProps {
   // 仅留音频引擎相关的回调；UI/编辑/配置状态经 hooks 直读（ADR-0003 §7）
@@ -245,6 +246,8 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
             <ToolbarButton icon={<RotateCcw size={16} />} label="镜像" onClick={mirror} disabled={!canCopy} title={tooltipForCategory(toolCategory.mirror)} />
             <ToolbarButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title="撤销 (Ctrl+Z)" />
             <ToolbarButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
+            {/* issue 37：谱面代码改按需弹窗——入口按钮（点击才打开弹窗，常驻无代码同步成本） */}
+            <ChartCodeEditor />
           </div>
         </div>
 

@@ -1,10 +1,9 @@
 // NoteInfoPanel（ADR-0003 §7）：右侧「音符信息」面板。
 // 只负责「选中音符」域：数量、详情、删除/镜像。
-// 谱面代码编辑器已拆为独立深模块 ChartCodeEditor（见其文件头注释）。
+// issue 37：谱面代码编辑器已改为按需弹窗（入口移至左侧工具栏「编辑」分组），此处不再占位。
 import { useEditing } from "../contexts";
 import { selectionNoteIndices } from "../utils/SelectionEditing";
 import ActionBtn from "./ActionBtn";
-import ChartCodeEditor from "./ChartCodeEditor";
 
 export default function NoteInfoPanel() {
     const { notes, selectedItems, deleteSelected, mirror } = useEditing();
@@ -105,9 +104,6 @@ export default function NoteInfoPanel() {
                     )}
                 </div>
             </div>
-
-            {/* 谱面代码编辑器（深模块） */}
-            <ChartCodeEditor />
         </div>
     );
 }

@@ -1,12 +1,17 @@
 // 谱面代码编辑器（深模块，ADR-0003 §9 谱面代码为未来 AI 通道）：
-// 封装「代码文本撤销栈 / 双向同步 / 校验 / 应用」为一整体，对外只读 hooks 直读领域状态。
+// 封装「代码文本撤销栈 / 单向同步 / 校验 / 应用」为一整体，对外只读 hooks 直读领域状态。
+// issue 37：由「常驻内嵌面板」改为「按需弹窗」——
+//   * 单向同步：打开时「画布→代码」同步一次；应用时「代码→画布」；不随画布编辑实时同步。
+//   * 打开才构建/渲染 textarea（成本归零：关闭即卸载 textarea，无画布→代码字符串成本，
+//     避免 issue 36 RC-A 的受控 textarea 全量赋值 + 巨型文本布局 + gBCR 强制重排主因）。
+//   * 关闭即丢弃草稿：再次打开从画布全新同步，无残留状态泄漏。
 // 文本变换逻辑下沉到 utils/CodeEditorOps（纯函数，可单测）。
-import { useState, useEffect, useRef } from "react";
-import { ChevronDown, ChevronUp, Copy, RotateCcw, RefreshCw } from "lucide-react";
+import { useState, useRef } from "react";
+import { createPortal } from "react-dom";
+import { Braces, Copy, RotateCcw, RefreshCw, X } from "lucide-react";
 import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes, hasBeat0Bpm } from "../utils/ChartConverter";
 import { useEditing, usePlayback, useUI } from "../contexts";
 import { maxNoteEndSeconds, getBpmEvents } from "../utils/AudioTiming";
-import type { ChartNote } from "../notes/Charts";
 import {
     createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
     type HistoryState,
@@ -22,21 +27,21 @@ export default function ChartCodeEditor() {
     const { canPlay, duration, setDuration } = usePlayback();
     const { beatDisplay } = useUI();
 
+    const [open, setOpen] = useState(false);
     // 代码文本真实撤销/重做：chartCode 由 textHistory 撤销栈派生（复用 History 纯模块）
     const [textHistory, setTextHistory] = useState<HistoryState<string>>(() => createHistory(""));
     const chartCode = currentHistory(textHistory);
-    const [isCodeEditorCollapsed, setIsCodeEditorCollapsed] = useState(false);
     const [isValid, setIsValid] = useState(true);
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
+    // dirty 基准：打开时（或应用后）同步的最新代码串
     const [lastAppliedCode, setLastAppliedCode] = useState("");
-    // 上次应用/同步时的画布音符数，用于 dirty + canvas 变动的过期检测
+    // 打开/应用时的画布音符数，用于 dirty + canvas 变动的过期检测（单向同步下画布可能已变）
     const [appliedNotesCount, setAppliedNotesCount] = useState(notes.length);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    // 记录上次生成代码所依据的 notes，仅当 notes 真正变化时才重建代码（避免撤销到已应用态时误清撤销栈）
-    const prevNotesRef = useRef<ChartNote[] | null>(null);
-    // dirty = 代码草稿与上次应用状态不一致（派生，随 chartCode/lastAppliedCode 自动更新）
+
+    // dirty = 代码文本与被同步的基准不一致（派生）
     const isDirty = chartCode !== lastAppliedCode;
-    // 过期：用户有未应用草稿，且画布自上次同步后已变化
+    // 过期：有未应用草稿，且画布自上次同步后已变化（应用时需覆盖确认）
     const isStale = isDirty && notes.length !== appliedNotesCount;
 
     // 验证谱面代码
@@ -60,34 +65,26 @@ export default function ChartCodeEditor() {
         return chartCodeToJSON(defaultCode);
     };
 
-    // 当音符数据变化时更新代码（非 dirty 时同步；dirty 时保留用户草稿）。
-    // 仅当 notes 真正变化（或首次）才重建代码——撤销到已应用态时 isDirty 会变 false，
-    // 但 notes 未变，不应重建（否则会清空文本撤销栈，抹掉 redo 分支）。
-    // issue 35 F5：画布→代码同步防抖 250ms——密集音符下每次编辑都全量
-    // convertNotesToChartCode + chartCodeToJSON（≈100KB+ 字符串）+ textarea 全量赋值，
-    // 是放置卡顿主因之一；连续编辑只在停顿后重建一次。首次挂载仍立即同步。
-    // prevNotesRef 只在重建真正发生时才推进：防抖期间用户转为 dirty 取消了本次同步，
-    // 之后 isDirty 回落时 notesChanged 仍为 true，代码最终会与画布一致（不留陈旧态）。
-    useEffect(() => {
-        if (isDirty) return;
-        const firstRun = prevNotesRef.current === null;
-        const notesChanged = prevNotesRef.current !== notes;
-        if (!(firstRun || notesChanged)) return;
-        const build = () => {
-            const code = convertNotesToChartCode(notes);
-            const jsonString = chartCodeToJSON(code);
-            setTextHistory(createHistory(jsonString));
-            setLastAppliedCode(jsonString);
-            setAppliedNotesCount(notes.length);
-            prevNotesRef.current = notes;
-        };
-        if (firstRun) {
-            build();
+    // 打开弹窗：以当前画布全量构建代码（单向「画布→代码」，同步进行一次）。
+    // 关闭即丢弃草稿——每次打开都从画布重建基准，重置撤销栈，无残留状态。
+    const handleOpen = () => {
+        const code = convertNotesToChartCode(notes);
+        const jsonString = chartCodeToJSON(code);
+        setTextHistory(createHistory(jsonString));
+        setLastAppliedCode(jsonString);
+        setAppliedNotesCount(notes.length);
+        setIsValid(true);
+        setValidationErrors([]);
+        setOpen(true);
+    };
+
+    // 关闭弹窗：有未应用草稿时确认（丢弃后关闭），否则直接关闭
+    const requestClose = () => {
+        if (isDirty && !window.confirm('谱面代码有未应用的更改，关闭将丢弃这些更改，确定关闭？')) {
             return;
         }
-        const timer = window.setTimeout(build, 250);
-        return () => window.clearTimeout(timer);
-    }, [notes, isDirty]);
+        setOpen(false);
+    };
 
     // 处理代码变化：压入撤销栈；空代码回到保底状态
     const handleCodeChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -108,7 +105,7 @@ export default function ChartCodeEditor() {
         validateCode(newCode);
     };
 
-    // 应用谱面代码：经 useEditing.handleNotesChange 走历史记录
+    // 应用谱面代码：经 useEditing.handleNotesChange 走历史记录（单向「代码→画布」）
     const handleApply = () => {
         const isValidCode = validateCode(chartCode);
 
@@ -163,7 +160,7 @@ export default function ChartCodeEditor() {
         setValidationErrors([]);
     };
 
-    // 用画布刷新代码（丢弃草稿，从当前画布重新生成）
+    // 用画布刷新代码（丢弃草稿，从当前画布重新生成；单向同步下画布可能已变）
     const handleRefreshFromCanvas = () => {
         const code = convertNotesToChartCode(notes);
         const jsonString = chartCodeToJSON(code);
@@ -249,92 +246,138 @@ export default function ChartCodeEditor() {
     };
 
     return (
-        <div style={{
-            backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)',
-            display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            flex: isCodeEditorCollapsed ? '0 0 auto' : 1, minHeight: isCodeEditorCollapsed ? 'auto' : 0,
-        }}>
-            <div style={{ padding: 'var(--space-3) var(--space-4)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>谱面代码编辑器</h3>
-                <button
-                    onClick={() => setIsCodeEditorCollapsed(!isCodeEditorCollapsed)}
-                    title={isCodeEditorCollapsed ? "展开" : "折叠"}
+        <>
+            {/* 入口按钮（工具列「编辑」分组内）——点击才打开弹窗，常驻状态不做任何代码同步 */}
+            <button
+                onClick={handleOpen}
+                title="打开谱面代码编辑器"
+                style={{
+                    width: '100%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+                    gap: 'var(--space-3)',
+                    padding: 'var(--space-2) var(--space-3)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid transparent',
+                    backgroundColor: 'transparent', color: 'var(--text)',
+                    cursor: 'pointer', textAlign: 'left',
+                    fontFamily: 'inherit', fontSize: 'var(--text-sm)',
+                    transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            >
+                <span style={{ display: 'flex', flexShrink: 0 }}><Braces size={20} /></span>
+                <span>谱面代码</span>
+            </button>
+
+            {/* 按需弹窗：render 到 body，遮罩覆盖画布；关闭即卸载文本区（成本归零） */}
+            {open && createPortal(
+                <div
                     style={{
-                        width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-                        backgroundColor: 'transparent', color: 'var(--text-muted)',
-                        transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+                        position: 'fixed', inset: 0, zIndex: 'var(--z-modal)',
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    onClick={requestClose}
                 >
-                    {isCodeEditorCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-                </button>
-            </div>
-
-            {!isCodeEditorCollapsed && (
-                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                    {/* 错误信息 */}
-                    {!isValid && validationErrors.length > 0 && (
-                        <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--danger-soft)', borderBottom: '1px solid var(--danger)', color: 'var(--danger-text)' }}>
-                            <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>错误信息:</h4>
-                            <ul style={{ margin: 0, paddingLeft: 'var(--space-4)', fontSize: 'var(--text-xs)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-                                {validationErrors.map((error, index) => (
-                                    <li key={index}>• {error}</li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-
-                    {/* 过期提示：草稿未应用 + 画布已变动 */}
-                    {isStale && (
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: 'min(920px, 92vw)', height: 'min(640px, 86vh)',
+                            backgroundColor: 'var(--bg-elevated)',
+                            border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+                            boxShadow: 'var(--shadow-lg)',
+                            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                        }}
+                    >
+                        {/* 头部 */}
                         <div style={{
-                            padding: 'var(--space-3)', backgroundColor: 'var(--warning-soft)',
-                            borderBottom: '1px solid var(--warning)', color: 'var(--warning)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)',
+                            padding: 'var(--space-3) var(--space-4)', borderBottom: '1px solid var(--border)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            backgroundColor: 'var(--bg)',
                         }}>
-                            <span style={{ fontSize: 'var(--text-xs)' }}>
-                                代码已过期（画布已更新 {Math.abs(notes.length - appliedNotesCount)} 个音符），应用将覆盖画布改动。
-                            </span>
-                            <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={14} />用画布刷新代码</ActionBtn>
+                            <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>谱面代码编辑器</h3>
+                            <button
+                                onClick={requestClose}
+                                title="关闭"
+                                style={{
+                                    width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                                    backgroundColor: 'transparent', color: 'var(--text-muted)',
+                                    transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                            >
+                                <X size={18} />
+                            </button>
                         </div>
-                    )}
 
-                    {/* 代码编辑器 */}
-                    <div style={{ flex: 1, padding: 'var(--space-3)', minHeight: 0 }}>
-                        <textarea
-                            ref={textareaRef}
-                            value={chartCode}
-                            onChange={handleCodeChange}
-                            onKeyDown={handleKeyDown}
-                            spellCheck={false}
-                            placeholder="谱面代码将在这里显示..."
-                            style={{
-                                width: '100%', height: '100%', minHeight: 0, boxSizing: 'border-box', resize: 'none',
-                                padding: 'var(--space-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                                backgroundColor: 'var(--bg-inset)', color: 'var(--text)',
-                                fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', lineHeight: 1.6,
-                                tabSize: 4, outline: 'none',
-                                transition: 'border-color var(--dur) var(--ease)',
-                            }}
-                        />
-                    </div>
-
-                    {/* 工具栏 */}
-                    <div style={{
-                        padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--border)',
-                        backgroundColor: 'var(--bg-inset)', display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center',
-                    }}>
-                        <ActionBtn onClick={handleApply} disabled={!isValid} variant="primary">应用更改</ActionBtn>
-                        <ActionBtn onClick={handleReset}><RotateCcw size={16} />重置</ActionBtn>
-                        <ActionBtn onClick={handleCopy}><Copy size={16} />复制</ActionBtn>
-                        {isDirty && (
-                            <span style={{ color: 'var(--warning)', fontSize: 'var(--text-xs)' }}>未保存的更改</span>
+                        {/* 过期提示：草稿未应用 + 画布已变动 */}
+                        {isStale && (
+                            <div style={{
+                                padding: 'var(--space-3)', backgroundColor: 'var(--warning-soft)',
+                                borderBottom: '1px solid var(--warning)', color: 'var(--warning)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)',
+                            }}>
+                                <span style={{ fontSize: 'var(--text-xs)' }}>
+                                    代码已过期（画布已更新 {Math.abs(notes.length - appliedNotesCount)} 个音符），应用将覆盖画布改动。
+                                </span>
+                                <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={14} />用画布刷新代码</ActionBtn>
+                            </div>
                         )}
+
+                        {/* 错误信息 */}
+                        {!isValid && validationErrors.length > 0 && (
+                            <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--danger-soft)', borderBottom: '1px solid var(--danger)', color: 'var(--danger-text)' }}>
+                                <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>错误信息:</h4>
+                                <ul style={{ margin: 0, paddingLeft: 'var(--space-4)', fontSize: 'var(--text-xs)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                                    {validationErrors.map((error, index) => (
+                                        <li key={index}>• {error}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* 代码编辑器 */}
+                        <div style={{ flex: 1, padding: 'var(--space-3)', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                            <textarea
+                                ref={textareaRef}
+                                value={chartCode}
+                                onChange={handleCodeChange}
+                                onKeyDown={handleKeyDown}
+                                spellCheck={false}
+                                placeholder="谱面代码将在这里显示..."
+                                style={{
+                                    width: '100%', height: '100%', minHeight: 0, boxSizing: 'border-box', resize: 'none',
+                                    padding: 'var(--space-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                                    backgroundColor: 'var(--bg-inset)', color: 'var(--text)',
+                                    fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', lineHeight: 1.6,
+                                    tabSize: 4, outline: 'none',
+                                    transition: 'border-color var(--dur) var(--ease)',
+                                }}
+                            />
+                        </div>
+
+                        {/* 工具栏 */}
+                        <div style={{
+                            padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-inset)', display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center',
+                        }}>
+                            <ActionBtn onClick={handleApply} disabled={!isValid} variant="primary">应用更改</ActionBtn>
+                            <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={16} />从画布刷新</ActionBtn>
+                            <ActionBtn onClick={handleReset}><RotateCcw size={16} />重置</ActionBtn>
+                            <ActionBtn onClick={handleCopy}><Copy size={16} />复制</ActionBtn>
+                            {isDirty && (
+                                <span style={{ color: 'var(--warning)', fontSize: 'var(--text-xs)' }}>未保存的更改</span>
+                            )}
+                            <span style={{ flex: 1 }} />
+                            <ActionBtn onClick={requestClose}>关闭</ActionBtn>
+                        </div>
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
-        </div>
+        </>
     );
 }
