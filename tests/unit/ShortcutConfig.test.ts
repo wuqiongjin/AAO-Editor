@@ -113,6 +113,8 @@ describe('展示辅助', () => {
   it('formatKey 格式化', () => {
     expect(formatKey('ctrl+f')).toBe('Ctrl+F');
     expect(formatKey(' ')).toBe('Space');
+    expect(formatKey('ctrl+ ')).toBe('Ctrl+Space'); // 「跳回起点标记」组合键中空格的展示
+    expect(formatKey('ctrl+shift+q')).toBe('Ctrl+Shift+Q');
   });
 
   it('categoryShortcuts 合并 切换/执行', () => {

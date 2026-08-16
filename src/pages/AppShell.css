@@ -762,39 +762,6 @@
   overflow: hidden;
 }
 
-.app-shortcut-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 20px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-inset);
-}
-
-.app-shortcut-list > span {
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.app-shortcut-list kbd {
-  display: inline-block;
-  margin: 0 2px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--bg-elevated);
-  color: var(--text);
-  padding: 2px 6px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-
-.app-shortcut-note {
-  color: var(--text-subtle);
-  font-size: 10px;
-  line-height: 1.5;
-}
-
 .shortcut-toolbar {
   display: flex;
   align-items: center;
@@ -839,7 +806,7 @@
 .shortcut-row {
   display: grid;
   min-height: 52px;
-  grid-template-columns: 90px minmax(180px, 1fr) 210px 54px;
+  grid-template-columns: 90px minmax(160px, 1fr) minmax(120px, 1fr) 32px 54px;
   align-items: center;
   gap: 12px;
   padding: 0 16px;
@@ -851,12 +818,69 @@
   border-bottom: 0;
 }
 
+/* 系统级（切页）快捷键：只读、置灰，无操作区 */
+.shortcut-row.is-system {
+  background: color-mix(in srgb, var(--bg-inset) 55%, transparent);
+}
+
+.shortcut-row.is-system .shortcut-group,
+.shortcut-row.is-system strong {
+  color: var(--text-muted);
+}
+
 .shortcut-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   min-height: 34px;
   background: var(--bg-inset);
   color: var(--text-subtle);
   font-size: 10px;
   font-weight: 700;
+}
+
+/* 「修改」入口：铅笔图标，hover/focus 高亮；禁用（已屏蔽）态隐藏语义 */
+.edit-binding {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: background-color 120ms var(--ease), color 120ms var(--ease), opacity 120ms var(--ease);
+}
+
+.edit-binding:hover:not(:disabled),
+.edit-binding:focus-visible:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--accent-text);
+  opacity: 1;
+}
+
+.edit-binding:disabled {
+  cursor: not-allowed;
+  opacity: 0.2;
+}
+
+/* 系统级快捷键：一个功能可能支持多个可替换快捷键，各自独立键块并排 */
+.sys-keybindings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 组合键之间的加号分隔符：独立于键块，淡色小字 */
+.combo-plus {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .shortcut-group {
@@ -962,7 +986,7 @@
   }
 
   .shortcut-row {
-    grid-template-columns: 62px minmax(140px, 1fr) 150px 42px;
+    grid-template-columns: 62px minmax(120px, 1fr) minmax(90px, 1fr) 26px 42px;
     gap: 8px;
     padding: 0 12px;
   }

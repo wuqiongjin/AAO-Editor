@@ -82,6 +82,7 @@ export const formatKey = (key: string | null): string => {
     if (p === 'ctrl') return 'Ctrl';
     if (p === 'shift') return 'Shift';
     if (p === 'alt') return 'Alt';
+    if (p === ' ') return 'Space'; // 组合键中的空格（如 ctrl+ 空格）也应显示为 Space
     return p.toUpperCase();
   }).join('+');
 };

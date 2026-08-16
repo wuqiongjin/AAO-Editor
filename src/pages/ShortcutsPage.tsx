@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { RotateCcw, Search } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Pencil, RotateCcw, Search } from 'lucide-react';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, setCapturingShortcut, type FunctionId,
@@ -18,6 +18,32 @@ const APP_SHORTCUTS: Array<{ label: string; combo: string }> = [
   { label: '切换到设置', combo: 'Ctrl/⌘+Shift+3' },
   { label: '切换到快捷键', combo: 'Ctrl/⌘+Shift+4' },
 ];
+
+/**
+ * 把可能含「/」备选的组合串展开为一条条完整快捷键。
+ * 例：'Ctrl/⌘+Shift+1' → [['Ctrl','Shift','1'], ['⌘','Shift','1']]
+ * 即一个功能支持多个（可互相替换的）快捷键时，各自生成一个独立键块。
+ */
+function expandCombo(combo: string): string[][] {
+  return combo
+    .split('+')
+    .map(seg => seg.split('/'))
+    .reduce<string[][]>((acc, alts) => alts.flatMap(alt => acc.map(prefix => [...prefix, alt])), [[]]);
+}
+
+/** 把一组按键渲染为「键块 + 键块 + 键块」；加号作为键间分隔、不渲染进键块内部 */
+function KeyChips({ parts }: { parts: string[] }) {
+  return (
+    <>
+      {parts.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 && <span className="combo-plus" aria-hidden="true">+</span>}
+          <kbd>{p}</kbd>
+        </Fragment>
+      ))}
+    </>
+  );
+}
 
 /** 由按键事件构建规范绑定串（小写）；纯修饰键返回 null。 */
 function comboFromKeyEvent(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): string | null {
@@ -104,6 +130,13 @@ export default function ShortcutsPage() {
     );
   }, [query, config]);
 
+  // 应用级（切页）快捷键：仅展示、只读，不参与配置/编辑；随搜索过滤
+  const visibleApp = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return APP_SHORTCUTS;
+    return APP_SHORTCUTS.filter(s => s.label.toLowerCase().includes(q) || s.combo.toLowerCase().includes(q));
+  }, [query]);
+
   const commit = (id: FunctionId, binding: string) => {
     const next = { ...config };
     const conflict = setFunctionBinding(next, id, binding);
@@ -123,7 +156,7 @@ export default function ShortcutsPage() {
   };
 
   return (
-    <div className="page-content is-wide is-fill">
+    <div className="page-content is-fill">
       <header className="page-intro">
         <span>输入与效率</span>
         <h2>快捷键</h2>
@@ -131,17 +164,6 @@ export default function ShortcutsPage() {
       </header>
 
       <section className="shortcut-surface surface-section">
-        <div className="app-shortcut-list">
-          <span>应用级快捷键（不可编辑）</span>
-          {APP_SHORTCUTS.map((s) => (
-            <span key={s.label} title={`${s.label} · 不可编辑`}>
-              <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>{s.label}</span>
-              {s.combo.split('+').map((part) => <kbd key={part}>{part}</kbd>)}
-            </span>
-          ))}
-          <span className="app-shortcut-note">切页快捷键固定绑定，不支持自定义。</span>
-        </div>
-
         <div className="shortcut-toolbar">
           <label className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索功能或按键" /></label>
           <button className="button-secondary" type="button" onClick={() => { setError(null); setShortcutConfig(getDefaultConfig()); }}><RotateCcw size={15} />恢复默认</button>
@@ -151,8 +173,27 @@ export default function ShortcutsPage() {
 
         <div className="shortcut-table" role="table" aria-label="快捷键列表">
           <div className="shortcut-row shortcut-head" role="row">
-            <span>类别</span><span>功能</span><span>快捷键</span><span>启用</span>
+            <span>类别</span><span>功能</span><span>快捷键</span><span>修改</span><span>启用</span>
           </div>
+
+          {/* 应用级（切页）快捷键：只读展示，固定绑定、不支持自定义/启用/修改 */}
+          {visibleApp.map((s) => (
+            <div className="shortcut-row is-system" role="row" key={s.label}>
+              <span className="shortcut-group">系统</span>
+              <strong>{s.label}</strong>
+              {/* 每个可替换的快捷键各成一个独立键块（如 Ctrl+Shift+1 与 ⌘+Shift+1），并排在同一行 */}
+              <div className="sys-keybindings">
+                {expandCombo(s.combo).map((parts, i) => (
+                  <span className="key-binding is-disabled" key={i} title={`${s.label} · 固定绑定，不支持修改`}>
+                    <KeyChips parts={parts} />
+                  </span>
+                ))}
+              </div>
+              <span aria-hidden="true" />
+              <span aria-hidden="true" />
+            </div>
+          ))}
+
           {visible.map((f) => {
             const bound = config[f.id] !== null;
             return (
@@ -176,11 +217,24 @@ export default function ShortcutsPage() {
                     title="点击修改快捷键"
                     style={error?.id === f.id ? { borderColor: 'var(--danger)', color: 'var(--danger-text)' } : undefined}
                   >
-                    {formatKey(config[f.id] as string).split('+').map((part) => <kbd key={part}>{part}</kbd>)}
+                    {formatKey(config[f.id] as string).split('+').map((part, k) => (
+                      <Fragment key={k}>
+                        {k > 0 && <span className="combo-plus" aria-hidden="true">+</span>}
+                        <kbd>{part}</kbd>
+                      </Fragment>
+                    ))}
                   </button>
                 ) : (
                   <span className="key-binding is-disabled">已屏蔽</span>
                 )}
+                <button
+                  className="edit-binding"
+                  type="button"
+                  disabled={!bound}
+                  onClick={() => bound && setEditingId(f.id)}
+                  title={bound ? '修改快捷键' : '已屏蔽，先启用才能修改'}
+                  aria-label={`修改${f.label}的快捷键`}
+                ><Pencil size={14} /></button>
                 <label style={{ display: 'flex', justifyContent: 'center' }}>
                   <button
                     className={`switch compact${bound ? ' is-on' : ''}`}
@@ -192,7 +246,7 @@ export default function ShortcutsPage() {
               </div>
             );
           })}
-          {visible.length === 0 && <div className="empty-result">没有匹配的功能</div>}
+          {visible.length === 0 && visibleApp.length === 0 && <div className="empty-result">没有匹配的功能</div>}
         </div>
       </section>
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2 } from 'lucide-react';
+import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2 } from 'lucide-react';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
@@ -620,11 +620,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
               <Toolbar onTogglePlay={togglePlay} />
             </div>
           </div>
-          <button
-            onClick={toggleLeftPanel}
-            title="收起左侧工具栏"
-            style={{ ...inlineIconBtn, position: 'absolute', top: 'var(--space-1)', right: 'var(--space-1)', zIndex: 40 }}
-          ><ChevronLeft size={14} /></button>
           {/* 拖拽调宽手柄（贴面板右缘） */}
           <div
             onMouseDown={(e) => { e.preventDefault(); startDrag('left'); }}

@@ -13,6 +13,7 @@ import {
   Redo,
   Play,
   Pause,
+  ChevronLeft,
 } from "lucide-react";
 import SpriteIcon, { NoteIcons } from './SpriteIcon';
 import { categoryShortcuts, formatKey } from '../utils/ShortcutConfig';
@@ -105,7 +106,7 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
   const {
     selectedTool, setSelectedTool, beatDisplay, setBeatDisplay,
     scale, setScale,
-    mousePosition,
+    mousePosition, toggleLeftPanel,
   } = ui;
   const canCopy = selectedItems.length > 0;
   const canPaste = clipboard.length > 0 && mousePosition !== null;
@@ -147,12 +148,24 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      {/* 工具栏头部：标题 + 当前工具提示（右侧留白避开 Editor 的折叠按钮） */}
+      {/* 工具栏头部：折叠按钮 + 标题 + 当前工具提示 */}
       <div style={{
-        height: 'var(--panel-header-h)', padding: '0 var(--space-3)', paddingRight: 44,
+        height: 'var(--panel-header-h)', padding: '0 var(--space-2)',
         display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
         borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg)', flexShrink: 0,
       }}>
+        {/* 折叠按钮（工具栏文字左侧，与右侧面板折叠按钮镜像对称）：收起左侧工具栏 */}
+        <button
+          onClick={toggleLeftPanel}
+          title="收起左侧工具栏"
+          style={{
+            width: 26, height: 26, padding: 0, flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+            backgroundColor: 'var(--bg-inset)', color: 'var(--text-muted)', cursor: 'pointer',
+            transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+          }}
+        ><ChevronLeft size={14} /></button>
         <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>工具栏</span>
         <span style={{
           marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--accent-text)',
