@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2 } from 'lucide-react';
+import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
 import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
+import IconButton from '../components/IconButton';
 import { resolveAction, isCapturingShortcut, type FunctionId } from '../utils/ShortcutConfig';
 import { AudioEngine } from '../utils/AudioEngine';
-import { getBpmEvents, beatToSeconds } from '../utils/AudioTiming';
+import { getBpmEvents, beatToSeconds, secondsToBeat } from '../utils/AudioTiming';
 import { ChartProjectStore, DEFAULT_PROJECT_ID } from '../utils/ChartProject';
 import { keySoundSetById } from '../utils/KeySound';
 import PlayBar from '../components/PlayBar';
@@ -15,26 +16,6 @@ import { MAX_DURATION_SECONDS } from '../utils/AppSettings';
 import { countChartNotes } from '../utils/NoteEditing';
 import { AppNav, useAppNav } from './AppNav';
 import { DEFAULT_SURFACE, type SurfaceSize } from '../utils/ChartGeometry';
-
-// ---- 顶栏内联控件样式（统一走令牌） ----
-const inlineIconBtn: React.CSSProperties = {
-  width: 26, height: 26, padding: 0,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  backgroundColor: 'var(--bg-inset)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)',
-  cursor: 'pointer', color: 'var(--text-muted)',
-  transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease)',
-};
-
-// 折叠窄轨上的展开按钮（issue 28 P2：34px 窄轨 + 展开按钮）
-const railBtn: React.CSSProperties = {
-  width: 28, height: 28, padding: 0,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  border: 'none', borderRadius: 'var(--radius-sm)',
-  background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer',
-  transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
-};
 
 interface EditorProps {
   // 入口直达（ADR-0003 §2 + issue 27）：Editor 不再接收 song/onBack，音频由音频面板管理
@@ -59,14 +40,16 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const {
     mousePosition,
     setSelectedTool,
+    scale, setScale,
     beatDisplay,
     leftPanelWidth, rightPanelWidth, leftCollapsed, rightCollapsed,
     isDragging, startDrag, toggleLeftPanel, toggleRightPanel,
+    setLeftPanelWidth, setRightPanelWidth, setLeftCollapsed, setRightCollapsed,
   } = ui;
   const {
     copy, cut, paste, deleteSelected, mirror, place, undo, redo,
   } = editing;
-  const { settings } = config;
+  const { settings, setLayout } = config;
   const shortcutConfig = settings.shortcuts;
   const { navCollapsed } = useAppNav();
   const {
@@ -75,13 +58,18 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     duration: ctxDuration, setDuration: setCtxDuration,
     volume: ctxVolume, setVolume: setCtxVolume,
     canPlay,
+    currentSeconds: playheadSeconds,
+    markerBeat,
   } = playback;
 
-  // 当前 BPM：谱面首个 BPM 标记的 bpm（无则兜底 120，与旧 Editor 行为一致）
-  const currentBpm = useMemo(() => {
-    const bpmNote = notes.find((n): n is { type: 'BPM'; beat: number; bpm: number } => n.type === 'BPM');
-    return bpmNote ? bpmNote.bpm : 120;
-  }, [notes]);
+  // 当前播放头所在区间的 BPM（顶栏实时区）：取该 beat 生效的 BPM 事件
+  const currentRegionBpm = useMemo(() => {
+    const events = getBpmEvents(notes);
+    const beat = secondsToBeat(events, playheadSeconds);
+    let bpm = 120;
+    for (const e of events) if (e.beat <= beat) bpm = e.bpm;
+    return bpm;
+  }, [notes, playheadSeconds]);
 
   // 音符数统计（issue 36）：滑条按非 hidden 结点数计，与按键音事件同一口径
   const noteCount = useMemo(() => countChartNotes(notes), [notes]);
@@ -399,6 +387,30 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 布局持久化（ADR-0003 §6 + issue 22）：挂载时从 settings 初始化面板宽/折叠；
+  // 用户折叠/拖宽后回写 settings.layout（下次打开沿用）。
+  // hydrated 状态门控首帧：init 应用 settings 后才允许持久化回写，避免首帧用 UIContext 默认值覆盖已存布局。
+  const [layoutHydrated, setLayoutHydrated] = useState(false);
+  useEffect(() => {
+    const { leftPanel, rightPanel } = settings.layout;
+    setLeftPanelWidth(leftPanel.width);
+    setLeftCollapsed(leftPanel.collapsed);
+    setRightPanelWidth(rightPanel.width);
+    setRightCollapsed(rightPanel.collapsed);
+    setLayoutHydrated(true);
+    // 仅挂载初始化一次（依赖保持最小，读取的是初始 settings）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!layoutHydrated) return;
+    setLayout({
+      leftPanel: { width: leftPanelWidth, collapsed: leftCollapsed },
+      rightPanel: { width: rightPanelWidth, collapsed: rightCollapsed },
+    });
+    // setLayout 引用稳定（useCallback），此处非必要 deps；避免因 unstable 引用重触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutHydrated, leftPanelWidth, leftCollapsed, rightPanelWidth, rightCollapsed]);
+
   // 播放 RAF 循环（ADR-0004 §1）：逐帧读播放位置 → 驱动画布滚动跟随 → 同步滚动条 + 按键音调度
   const startPlaybackLoop = useCallback(() => {
     if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
@@ -459,6 +471,25 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     }
   }, [stopPlayback, startPlaybackLoop]);
 
+  // 进度条 seek（ADR-0004 + issue 22）：定位引擎到目标秒；暂停/停止时"设播放起点不自动播"，
+  // 播放中则仅 seek，后续 RAF 继续跟随。
+  const handleSeek = useCallback((sec: number) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const clamped = Math.max(0, Math.min(sec, durationRef.current));
+    engine.seek(clamped);
+    setCurrentSeconds(clamped);
+    // 画布跟随跳转到判定线处（与播放 RAF 同类滚动；暂停时亦生效，issue 22 §7）
+    const canvas = virtualCanvasRef.current;
+    if (canvas) {
+      const targetY = canvas.getScrollYForPlaybackSeconds(clamped);
+      canvas.setScrollY(targetY);
+    }
+    if (!engine.isPlaying) {
+      stopPlayback();
+    }
+  }, [setCurrentSeconds, stopPlayback]);
+
   // 回到起点标记并播放（ADR-0004 §4）：跳回标记 beat → 自动播放
   const jumpToMarker = useCallback(() => {
     const engine = engineRef.current;
@@ -489,11 +520,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setCtxVolume(v);
     engineRef.current?.setVolume(v);
   }, [setCtxVolume]);
-
-  // 播放条：键音素材切换（持久化经 ConfigContext，引擎侧由 Editor 同步）
-  const handleKeySetChange = useCallback((id: string) => {
-    engineRef.current?.setKeySet(keySoundSetById(id));
-  }, []);
 
   // 播放条：谱面时长编辑（ADR-0005 §4）：写入谱面时长字段并持久化（无音频时手动增长谱面长度）
   const handleDurationChange = useCallback((sec: number) => {
@@ -629,9 +655,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           <div style={{
             width: 34, flexShrink: 0,
             backgroundColor: 'var(--bg-elevated)', borderRight: '1px solid var(--border)',
-            display: 'flex', justifyContent: 'center', paddingTop: 'var(--space-1)',
+            display: 'flex', flexDirection: 'column',
           }}>
-            <button onClick={toggleLeftPanel} title="展开左侧工具栏" style={railBtn}><PanelRightOpen size={16} /></button>
+            {/* 头部留白带：按钮保持与折叠前（面板头部）同一垂直位置 */}
+            <div style={{ height: 'var(--panel-header-h)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <IconButton width="auto" icon={<PanelRightOpen size={16} />} title="展开左侧工具栏" onClick={toggleLeftPanel} />
+            </div>
           </div>
         </div>
       ) : (
@@ -646,7 +675,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-              <Toolbar onTogglePlay={togglePlay} />
+              <Toolbar />
             </div>
           </div>
           {/* 拖拽调宽手柄（贴面板右缘） */}
@@ -671,9 +700,31 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           flexShrink: 0
         }}>
           <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text)' }}>谱面画布</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>BPM {currentBpm}</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums' }}>节拍: {beatDisplay}/4</span>
+
+          {/* 右侧聚集实时控件（工具徽标与起点标记提示已移除/迁往右栏，见 issue 22 §4） */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            {/* 当前播放线所在区间 BPM */}
+            <span style={{
+              color: 'var(--text-muted)', fontSize: 'var(--text-xs)',
+              fontVariantNumeric: 'tabular-nums', display: 'flex', alignItems: 'center', gap: 4,
+            }}>
+              BPM <b style={{ color: 'var(--text)', fontWeight: 600 }}>{currentRegionBpm}</b>
+            </span>
+
+            {/* 缩放（issue 22：自左侧工具栏移入顶栏） */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <IconButton width="auto" size="sm" icon={<ZoomOut size={14} />} title="缩小" onClick={() => setScale(prev => Math.max(prev - 0.1, 0.1))} />
+              <span
+                onDoubleClick={() => setScale(1)}
+                title="双击复原 100%"
+                style={{
+                  fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
+                  fontVariantNumeric: 'tabular-nums', minWidth: 40, textAlign: 'center',
+                  cursor: 'pointer', userSelect: 'none',
+                }}
+              >{Math.round(scale * 100)}%</span>
+              <IconButton width="auto" size="sm" icon={<ZoomIn size={14} />} title="放大" onClick={() => setScale(prev => Math.min(prev + 0.1, 3))} />
+            </div>
           </div>
         </div>
 
@@ -721,12 +772,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             />
           </div>
         </div>
-        {/* 底部播放条（ADR-0004 §5）：播放类控件收敛于此；状态经 PlaybackContext 共享 */}
+        {/* 底部播放条（ADR-0004 §5 + issue 22）：进度条 + 音量；键音素材迁往 tab（issue 29） */}
         <PlayBar
           onTogglePlay={togglePlay}
-          onDurationChange={handleDurationChange}
           onVolumeChange={handleVolumeChange}
-          onKeySetChange={handleKeySetChange}
+          onSeek={handleSeek}
         />
       </div>
 
@@ -735,9 +785,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         <div style={{
           width: 34, flexShrink: 0,
           backgroundColor: 'var(--bg-elevated)', borderLeft: '1px solid var(--border)',
-          display: 'flex', justifyContent: 'center', paddingTop: 'var(--space-1)',
+          display: 'flex', flexDirection: 'column',
         }}>
-          <button onClick={toggleRightPanel} title="展开右侧面板" style={railBtn}><PanelLeftOpen size={16} /></button>
+          {/* 头部留白带：按钮保持与折叠前（面板头部）同一垂直位置 */}
+          <div style={{ height: 'var(--panel-header-h)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <IconButton width="auto" icon={<PanelLeftOpen size={16} />} title="展开右侧面板" onClick={toggleRightPanel} />
+          </div>
         </div>
       ) : (
         <div style={{
@@ -756,38 +809,40 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             flexShrink: 0
           }}>
             <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>音符</span>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>已选中 {selectedItems.length}</span>
+            {/* 音符总数徽标（issue 22：背景框标识，去"共"前缀） */}
+            <span title="音符总数" style={{
+              backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)', padding: '0 var(--space-2)',
+              fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums', color: 'var(--text)',
+            }}>{noteCount}</span>
+            {selectedItems.length > 0 && (
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-text)' }}>已选 {selectedItems.length}</span>
+            )}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-              <button
-                onClick={deleteSelectedNotes}
-                title="删除选中"
-                style={{
-                  ...inlineIconBtn,
-                  backgroundColor: 'var(--danger-soft)', borderColor: 'transparent', color: 'var(--danger-text)'
-                }}
-              ><Trash2 size={14} /></button>
-              <button
-                onClick={toggleRightPanel}
-                title="收起右侧面板"
-                style={inlineIconBtn}
-              ><ChevronRight size={14} /></button>
+              <IconButton width="auto" size="sm" danger icon={<Trash2 size={14} />} title="删除选中" onClick={deleteSelectedNotes} />
+              <IconButton width="auto" size="sm" icon={<ChevronRight size={14} />} title="收起右侧面板" onClick={toggleRightPanel} />
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-3)', backgroundColor: 'var(--bg)' }}>
             <NoteInfoPanel />
           </div>
+          {/* 起点标记提示（tip 样式，issue 22：自顶栏迁往右栏底部） */}
           <div style={{
             height: 'var(--panel-header-h)',
             backgroundColor: 'var(--bg)',
             borderTop: '1px solid var(--border)',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
             padding: '0 var(--space-3)',
             gap: 'var(--space-2)',
-            flexShrink: 0
+            flexShrink: 0,
+            fontSize: 'var(--text-xs)',
+            color: markerBeat !== null ? 'var(--warning)' : 'var(--text-subtle)',
           }}>
-            <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>谱面</span>
-            <span style={{ marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>[ ] {noteCount}</span>
+            {markerBeat !== null
+              ? `起点标记 @ ${markerBeat.toFixed(2)} 拍`
+              : '双击左沟槽设置起点标记'}
           </div>
           {/* 拖拽调宽手柄（贴面板左缘） */}
           <div

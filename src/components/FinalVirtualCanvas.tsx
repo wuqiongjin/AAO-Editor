@@ -10,6 +10,8 @@ import {
 } from '../utils/ChartGeometry';
 import { useEditing, useUI, usePlayback } from '../contexts';
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../renderer';
+import { countNotesUpToBeat } from '../utils/NoteEditing';
+import { formatTimePrecise } from '../utils/TimeFormat';
 
 interface FinalVirtualCanvasProps {
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
@@ -46,7 +48,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         handleNotesChange, editToolAction, editToolPaste,
     } = useEditing();
     const { selectedTool, beatDisplay, scale, setScale, setMousePosition } = useUI();
-    const { setMarker: setMarkerContext } = usePlayback();
+    const { setMarker: setMarkerContext, currentSeconds } = usePlayback();
     // 视口状态
     const [viewport, setViewport] = useState<ViewportState>({
         scrollX: 0,
@@ -613,6 +615,17 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
     }, [viewport.scrollY, viewport.virtualHeight, onScrollChange]);
 
+    // 画布实时信息叠加（issue 22）：判定线处精确时间（左下）+ 已过判定线音符数（右下）。
+    // 判定线 = 画布底边，故叠加层贴 bottom 置于其上；pointerEvents:none 不干扰画布交互。
+    const playheadBeat = useMemo(
+        () => secondsToBeat(getBpmEvents(notes), currentSeconds),
+        [notes, currentSeconds],
+    );
+    const passedNoteCount = useMemo(
+        () => countNotesUpToBeat(notes, playheadBeat),
+        [notes, playheadBeat],
+    );
+
     return (
         <div style={{
             backgroundColor: '#000000',
@@ -667,6 +680,19 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                         zIndex: 10 // 确保Canvas在最上层
                     }}
                 />
+
+                {/* 画布实时信息叠加层（issue 22）：常显，不拦截指针 */}
+                <div style={{
+                    position: 'absolute', left: 0, right: 0, bottom: 8,
+                    display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+                    pointerEvents: 'none', zIndex: 20, padding: '0 12px',
+                    fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
+                    fontSize: 'var(--text-sm)', color: 'rgba(230,236,239,0.75)',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+                }}>
+                    <span>{formatTimePrecise(currentSeconds)}</span>
+                    <span title="已过判定线的音符数">♪ {passedNoteCount}</span>
+                </div>
             </div>
         </div>
     );

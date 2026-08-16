@@ -20,6 +20,42 @@ export const countChartNotes = (notes: readonly ChartNote[]): number => {
   return count;
 };
 
+// 音符的"起始拍"（判定线处判读：音符起手节拍是否已到达/越过判定线）
+const noteStartBeat = (n: ChartNote): number => {
+  if (n.type === "Slide" || n.type === "Long") {
+    // 滑条/长条按首结点起始拍；无结点（异常）时保守按 0 计（必然已过线）
+    return n.connections[0]?.beat ?? 0;
+  }
+  return n.beat;
+};
+
+/**
+ * 已到达/越过判定线的可打击音符数（issue 22 画布右下角实时统计）。
+ * 口径：单键/方向键按自身起始拍，滑条/长条按首结点起始拍；BPM/System 无击打语义不计入。
+ * 起始拍 ≤ playheadBeat（含边界）视为"已过判定线"。
+ */
+export const countNotesUpToBeat = (
+  notes: readonly ChartNote[],
+  playheadBeat: number,
+): number => {
+  let count = 0;
+  for (const n of notes) {
+    switch (n.type) {
+      case "Single":
+      case "LDirectional":
+      case "RDirectional":
+      case "Slide":
+      case "Long":
+        if (noteStartBeat(n) <= playheadBeat) count++;
+        break;
+      case "BPM":
+      case "System":
+        break;
+    }
+  }
+  return count;
+};
+
 // 轨道镜像（唯一实现，三处调用点收敛于此——NoteEditing/SelectionEditing/NoteInfoPanel）
 export const mirrorLane = (lane: number) => TOTAL_LANES - 1 - lane;
 

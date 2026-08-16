@@ -1,9 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import {
   Music,
   MousePointer,
-  ZoomIn,
-  ZoomOut,
   Copy,
   Scissors,
   Clipboard,
@@ -11,19 +9,13 @@ import {
   RotateCcw,
   Undo,
   Redo,
-  Play,
-  Pause,
   ChevronLeft,
 } from "lucide-react";
 import SpriteIcon, { NoteIcons } from './SpriteIcon';
-import { categoryShortcuts, formatKey } from '../utils/ShortcutConfig';
-import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
+import { categoryShortcuts } from '../utils/ShortcutConfig';
+import { useConfig, useEditing, useUI } from '../contexts';
+import IconButton from './IconButton';
 import ChartCodeEditor from './ChartCodeEditor';
-
-interface ToolbarProps {
-  // 仅留音频引擎相关的回调；UI/编辑/配置状态经 hooks 直读（ADR-0003 §7）
-  onTogglePlay: () => void;
-}
 
 /** 区块标题（统一样式：小号大写灰字） */
 function SectionHeader({ children }: { children: ReactNode }) {
@@ -35,68 +27,18 @@ function SectionHeader({ children }: { children: ReactNode }) {
   );
 }
 
-/** 通用工具栏按钮：带 hover / pressed / active / disabled / danger 态的令牌化样式 */
-function ToolbarButton({
-  onClick, disabled, title, active, outlined, danger, icon, label,
-}: {
-  onClick: () => void; disabled?: boolean; title?: string;
-  active?: boolean; outlined?: boolean; danger?: boolean;
-  icon?: ReactNode; label?: string;
-}) {
-  const [hover, setHover] = useState(false);
-  const [pressed, setPressed] = useState(false);
+// 工具 id → 快捷键类别（tooltip 按类别合并 切换/执行）
+const toolCategory: Record<string, string> = {
+  mouse: "鼠标", bpm: "BPM", single: "单键", flick: "滑键",
+  skill: "技能", ldirectional: "左滑", rdirectional: "右滑", slide: "滑条",
+  copy: "复制", cut: "剪切", paste: "粘贴", delete: "删除", mirror: "镜像",
+  undo: "撤销", redo: "重做",
+};
 
-  let bg = 'transparent';
-  let fg: string | undefined;
-  let border = '1px solid transparent';
-  if (active) {
-    bg = 'var(--accent-soft)'; fg = 'var(--accent-text)'; border = '1px solid var(--accent)';
-  } else if (danger) {
-    bg = hover ? 'var(--danger-soft)' : 'transparent'; fg = 'var(--danger-text)';
-  } else if (outlined) {
-    bg = hover ? 'var(--bg-hover)' : 'var(--bg-inset)'; border = '1px solid var(--border)'; fg = 'var(--text)';
-  } else {
-    bg = hover ? 'var(--bg-hover)' : 'transparent'; fg = disabled ? 'var(--text-subtle)' : 'var(--text)';
-  }
-
-  return (
-    <button
-      style={{
-        width: '100%',
-        display: 'flex', alignItems: 'center', justifyContent: label ? 'flex-start' : 'center',
-        gap: 'var(--space-3)',
-        padding: 'var(--space-2) var(--space-3)',
-        borderRadius: 'var(--radius-sm)',
-        border,
-        backgroundColor: bg,
-        color: fg,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        textAlign: 'left',
-        fontFamily: 'inherit', fontSize: 'var(--text-sm)',
-        opacity: disabled ? 0.45 : 1,
-        transform: pressed ? 'scale(0.98)' : undefined,
-        transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease), transform var(--dur) var(--ease)',
-      }}
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => { setHover(false); setPressed(false); }}
-      onMouseDown={() => setPressed(true)}
-      onMouseUp={() => setPressed(false)}
-    >
-      {icon && <span style={{ display: 'flex', flexShrink: 0 }}>{icon}</span>}
-      {label && <span>{label}</span>}
-    </button>
-  );
-}
-
-export default function Toolbar({ onTogglePlay }: ToolbarProps) {
-  // M1 收口：按 ADR-0003 §7 拆分——三域直读 hooks
+export default function Toolbar() {
   const editing = useEditing();
   const ui = useUI();
   const { settings } = useConfig();
-  const { isPlaying, canPlay } = usePlayback();
   const shortcutConfig = settings.shortcuts;
 
   const {
@@ -105,33 +47,26 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
   } = editing;
   const {
     selectedTool, setSelectedTool, beatDisplay, setBeatDisplay,
-    scale, setScale,
     mousePosition, toggleLeftPanel,
   } = ui;
   const canCopy = selectedItems.length > 0;
   const canPaste = clipboard.length > 0 && mousePosition !== null;
 
-  // 工具 id → 快捷键类别（tooltip 按类别合并 切换/执行）
-  const toolCategory: Record<string, string> = {
-    mouse: "鼠标", bpm: "BPM", single: "单键", flick: "滑键",
-    skill: "技能", ldirectional: "左滑", rdirectional: "右滑", slide: "滑条",
-    copy: "复制", cut: "剪切", paste: "粘贴", delete: "删除", mirror: "镜像",
-    undo: "撤销", redo: "重做",
-  };
+  // 工具 tooltip：合并 切换/执行 两类快捷键
   const tooltipForCategory = (cat: string): string => {
     const lines = categoryShortcuts(shortcutConfig, cat);
-    if (lines.length === 0) return cat;
-    return [cat, ...lines.map(l => `${l.mode}  ${l.key}`)].join("\n");
+    return lines.length > 0 ? [`${cat}（${lines.map(l => l.mode + ' ' + l.key).join(' / ')}）`].join('\n') : cat;
   };
+
   const tools = [
-    { id: "mouse", icon: <MousePointer size={20} />, label: "鼠标状态" },
-    { id: "bpm", icon: <Music size={20} />, label: "BPM键型" },
-    { id: "single", icon: <SpriteIcon {...NoteIcons.tap} size={20} />, label: "单键音符" },
-    { id: "flick", icon: <SpriteIcon {...NoteIcons.flick} size={20} />, label: "滑键音符" },
-    { id: "skill", icon: <SpriteIcon {...NoteIcons.skill} size={20} />, label: "技能音符" },
-    { id: "ldirectional", icon: <SpriteIcon {...NoteIcons.leftFlick} size={20} />, label: "左方向滑键" },
-    { id: "rdirectional", icon: <SpriteIcon {...NoteIcons.rightFlick} size={20} />, label: "右方向滑键" },
-    { id: "slide", icon: <SpriteIcon {...NoteIcons.slide} size={20} />, label: "滑条音符" },
+    { id: "mouse", icon: <MousePointer size={18} />, label: "鼠标" },
+    { id: "bpm", icon: <Music size={18} />, label: "BPM" },
+    { id: "single", icon: <SpriteIcon {...NoteIcons.tap} size={18} />, label: "单键" },
+    { id: "flick", icon: <SpriteIcon {...NoteIcons.flick} size={18} />, label: "滑键" },
+    { id: "skill", icon: <SpriteIcon {...NoteIcons.skill} size={18} />, label: "技能" },
+    { id: "ldirectional", icon: <SpriteIcon {...NoteIcons.leftFlick} size={18} />, label: "左滑" },
+    { id: "rdirectional", icon: <SpriteIcon {...NoteIcons.rightFlick} size={18} />, label: "右滑" },
+    { id: "slide", icon: <SpriteIcon {...NoteIcons.slide} size={18} />, label: "滑条" },
   ];
   const currentToolLabel = tools.find(t => t.id === selectedTool)?.label ?? selectedTool;
 
@@ -154,23 +89,17 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
         display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
         borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg)', flexShrink: 0,
       }}>
-        {/* 折叠按钮（工具栏文字左侧，与右侧面板折叠按钮镜像对称）：收起左侧工具栏 */}
-        <button
+        <IconButton
           onClick={toggleLeftPanel}
           title="收起左侧工具栏"
-          style={{
-            width: 26, height: 26, padding: 0, flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-            backgroundColor: 'var(--bg-inset)', color: 'var(--text-muted)', cursor: 'pointer',
-            transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
-          }}
-        ><ChevronLeft size={14} /></button>
+          width="auto"
+          icon={<ChevronLeft size={14} />}
+        />
         <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>工具栏</span>
         <span style={{
           marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--accent-text)',
           backgroundColor: 'var(--accent-soft)', padding: '2px var(--space-2)',
-          borderRadius: 'var(--radius-sm)', maxWidth: 140, overflow: 'hidden',
+          borderRadius: 'var(--radius-sm)', maxWidth: 90, overflow: 'hidden',
           textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{currentToolLabel}</span>
       </div>
@@ -180,16 +109,15 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
         flex: 1, overflowY: 'auto', padding: 'var(--space-4)',
         display: 'flex', flexDirection: 'column', gap: 'var(--space-6)',
       }}>
-        {/* 工具选择 */}
+        {/* 主工具：键型选择（紧凑 2 列网格，选中态 + 完整 tooltip） */}
         <div>
-          <SectionHeader>基础键型</SectionHeader>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+          <SectionHeader>键型工具</SectionHeader>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-1)' }}>
             {tools.map((tool) => (
-              <ToolbarButton
+              <IconButton
                 key={tool.id}
                 active={selectedTool === tool.id}
                 icon={tool.icon}
-                label={tool.label}
                 onClick={() => setSelectedTool(tool.id)}
                 title={tooltipForCategory(toolCategory[tool.id])}
               />
@@ -197,9 +125,9 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
           </div>
         </div>
 
-        {/* 节拍显示工具 */}
+        {/* 节拍吸附 */}
         <div>
-          <SectionHeader>节拍显示</SectionHeader>
+          <SectionHeader>节拍吸附</SectionHeader>
           <select
             value={beatDisplay}
             onChange={(e) => setBeatDisplay(Number(e.target.value))}
@@ -219,63 +147,20 @@ export default function Toolbar({ onTogglePlay }: ToolbarProps) {
           </select>
         </div>
 
-        {/* 缩放控制 */}
-        <div>
-          <SectionHeader>缩放</SectionHeader>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <div style={{ flex: 1 }}>
-              <ToolbarButton
-                outlined
-                icon={<ZoomIn size={16} />}
-                onClick={() => setScale(prev => Math.min(prev + 0.1, 3))}
-                title="放大"
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <ToolbarButton
-                outlined
-                icon={<ZoomOut size={16} />}
-                onClick={() => setScale(prev => Math.max(prev - 0.1, 0.1))}
-                title="缩小"
-              />
-            </div>
-          </div>
-          <div style={{
-            fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
-            marginTop: 'var(--space-2)', textAlign: 'center', fontVariantNumeric: 'tabular-nums',
-          }}>
-            {Math.round(scale * 100)}%
-          </div>
-        </div>
-
-        {/* 编辑功能 */}
+        {/* 编辑功能（对选中对象/剪贴板）：2 列网格，谱面代码铺满 */}
         <div>
           <SectionHeader>编辑</SectionHeader>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-            <ToolbarButton icon={<Copy size={16} />} label="复制" onClick={copy} disabled={!canCopy} title={tooltipForCategory(toolCategory.copy)} />
-            <ToolbarButton icon={<Scissors size={16} />} label="剪切" onClick={cut} disabled={!canCopy} title="剪切 (Ctrl+X)" />
-            <ToolbarButton icon={<Clipboard size={16} />} label="粘贴" onClick={() => mousePosition && paste(mousePosition)} disabled={!canPaste} title={tooltipForCategory(toolCategory.paste)} />
-            <ToolbarButton icon={<Trash2 size={16} />} label="删除" onClick={deleteSelected} disabled={!canCopy} danger title="删除 (Delete)" />
-            <ToolbarButton icon={<RotateCcw size={16} />} label="镜像" onClick={mirror} disabled={!canCopy} title={tooltipForCategory(toolCategory.mirror)} />
-            <ToolbarButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title="撤销 (Ctrl+Z)" />
-            <ToolbarButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
-            {/* issue 37：谱面代码改按需弹窗——入口按钮（点击才打开弹窗，常驻无代码同步成本） */}
-            <ChartCodeEditor />
-          </div>
-        </div>
-
-        {/* 播放控制（ticket 14 已接通：AudioEngine 播放/暂停 + 预览线 + 按键音） */}
-        <div>
-          <SectionHeader>播放</SectionHeader>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            <div style={{ flex: 1 }}>
-              <ToolbarButton
-                outlined
-                icon={isPlaying ? <Pause size={16} /> : <Play size={16} />}
-                onClick={onTogglePlay}
-                disabled={!canPlay}
-                title={canPlay ? `播放/暂停（${formatKey(shortcutConfig.play)}）` : "未加载音乐，无法播放"}
-              />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-1)' }}>
+            <IconButton icon={<Copy size={16} />} label="复制" onClick={copy} disabled={!canCopy} title={tooltipForCategory(toolCategory.copy)} />
+            <IconButton icon={<Scissors size={16} />} label="剪切" onClick={cut} disabled={!canCopy} title="剪切 (Ctrl+X)" />
+            <IconButton icon={<Clipboard size={16} />} label="粘贴" onClick={() => mousePosition && paste(mousePosition)} disabled={!canPaste} title={tooltipForCategory(toolCategory.paste)} />
+            <IconButton icon={<Trash2 size={16} />} label="删除" onClick={deleteSelected} disabled={!canCopy} danger title="删除 (Delete)" />
+            <IconButton icon={<RotateCcw size={16} />} label="镜像" onClick={mirror} disabled={!canCopy} title={tooltipForCategory(toolCategory.mirror)} />
+            <IconButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title="撤销 (Ctrl+Z)" />
+            <IconButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
+            {/* issue 37：谱面代码改按需弹窗——入口按钮（点击才打开弹窗，常驻无代码同步成本），跨 2 列 */}
+            <div style={{ gridColumn: '1 / -1' }}>
+              <ChartCodeEditor />
             </div>
           </div>
         </div>

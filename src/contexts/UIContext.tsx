@@ -24,6 +24,11 @@ export interface UIContextValue {
   startDrag: (side: 'left' | 'right') => void;
   toggleLeftPanel: () => void;
   toggleRightPanel: () => void;
+  // 布局持久化（issue 22 / ADR-0003 §6）：供 Editor 从 settings 初始化与回写
+  setLeftPanelWidth: (w: number) => void;
+  setRightPanelWidth: (w: number) => void;
+  setLeftCollapsed: (v: boolean) => void;
+  setRightCollapsed: (v: boolean) => void;
 }
 
 const UIContext = createContext<UIContextValue | null>(null);
@@ -80,6 +85,8 @@ export function UIProvider({ children }: { children: ReactNode }) {
     isDragging, startDrag,
     toggleLeftPanel,
     toggleRightPanel,
+    setLeftPanelWidth, setRightPanelWidth,
+    setLeftCollapsed, setRightCollapsed,
   };
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>;
