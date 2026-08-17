@@ -15,8 +15,9 @@ import { useConfig } from '../contexts';
 const APP_SHORTCUTS: Array<{ label: string; combo: string }> = [
   { label: '切换到工作台', combo: 'Ctrl/⌘+Shift+1' },
   { label: '切换到音频', combo: 'Ctrl/⌘+Shift+2' },
-  { label: '切换到设置', combo: 'Ctrl/⌘+Shift+3' },
+  { label: '切换到素材', combo: 'Ctrl/⌘+Shift+3' },
   { label: '切换到快捷键', combo: 'Ctrl/⌘+Shift+4' },
+  { label: '切换到设置', combo: 'Ctrl/⌘+Shift+5' },
 ];
 
 /**

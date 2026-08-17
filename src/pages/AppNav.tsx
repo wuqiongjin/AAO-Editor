@@ -1,16 +1,17 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import { ChevronsLeft, ChevronsRight, Keyboard, LayoutDashboard, Music2, Settings2 } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
 
 // 应用级导航（issue 28）：跨页持久、可折叠（默认折叠）。
 // 工作台页：与左侧工具面板合成同一左列（顶部导航、下方工具）；非工作台页：独立左列导航栏。
 // 展开/折叠只控制标签是否显示，不额外占用一列（画布宽度不受影响）。
-export type PageId = 'workspace' | 'audio' | 'settings' | 'shortcuts';
+export type PageId = 'workspace' | 'audio' | 'settings' | 'shortcuts' | 'assets';
 
 const NAV_ITEMS: Array<{ id: PageId; label: string; shortcut: string; icon: typeof LayoutDashboard }> = [
   { id: 'workspace', label: '工作台', shortcut: '⇧⌘1', icon: LayoutDashboard },
   { id: 'audio', label: '音频', shortcut: '⇧⌘2', icon: Music2 },
-  { id: 'settings', label: '设置', shortcut: '⇧⌘3', icon: Settings2 },
+  { id: 'assets', label: '素材', shortcut: '⇧⌘3', icon: Layers },
   { id: 'shortcuts', label: '快捷键', shortcut: '⇧⌘4', icon: Keyboard },
+  { id: 'settings', label: '设置', shortcut: '⇧⌘5', icon: Settings2 },
 ];
 
 interface AppNavValue {
