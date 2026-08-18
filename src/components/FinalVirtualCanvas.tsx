@@ -8,7 +8,7 @@ import {
   ChartGeometry, LANES, LANE_WIDTH,
   DEFAULT_SURFACE, TRACK_CHROME_TOTAL, type SurfaceSize,
 } from '../utils/ChartGeometry';
-import { useEditing, useUI, usePlayback } from '../contexts';
+import { useEditing, useUI, usePlayback, useConfig } from '../contexts';
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../renderer';
 import { countNotesUpToBeat } from '../utils/NoteEditing';
 import { formatTimePrecise } from '../utils/TimeFormat';
@@ -49,6 +49,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     } = useEditing();
     const { selectedTool, beatDisplay, scale, setScale, setMousePosition } = useUI();
     const { setMarker: setMarkerContext, currentSeconds } = usePlayback();
+    // issue 39 功能设置·画布显示：纵向比例进 geometry（重建），其余渲染参数经 RenderCtx 注入渲染器
+    const { settings } = useConfig();
+    const display = settings.display;
     // 视口状态
     const [viewport, setViewport] = useState<ViewportState>({
         scrollX: 0,
@@ -164,6 +167,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // geometry 引用变化本身就会触发瓦片缓存全量失效（密集音符下放置/选择卡顿的根因之一）。
     // ---------------------------
     const geometryRef = useRef<ChartGeometry | null>(null);
+    const verticalRatio = display.verticalRatio;
     const geometry = useMemo(() => {
         const bpmEvents = getBpmEvents(notes);
         const prev = geometryRef.current;
@@ -171,14 +175,16 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             prev &&
             prev.chartEndBeat === chartEndBeat &&
             prev.surface.w === surf.w && prev.surface.h === surf.h &&
+            prev.verticalRatio === verticalRatio &&
             bpmEventsContentEqual(prev.bpmEvents, bpmEvents)
         ) {
             return prev;
         }
-        const next = new ChartGeometry(bpmEvents, chartEndBeat, surf);
+        const next = new ChartGeometry(bpmEvents, chartEndBeat, surf, verticalRatio);
         geometryRef.current = next;
         return next;
-    }, [notes, chartEndBeat, surf]);
+        // issue 39 #5：纵向比例变化 → 重建 geometry（改变每小节纵向高度）
+    }, [notes, chartEndBeat, surf, verticalRatio]);
     // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它
     const chartEndVirtualY = geometry.chartEndVirtualY;
     // 与 AudioTiming 共享同一 BPM 事件表（时间→beat 与 beat→Y 都用同一事件表，保证预览线对齐）
@@ -200,7 +206,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // 点选：普通左键选子部分 / Ctrl+左键选整条滑条 / Shift 加选
     const selectItemAtPoint = (cx: number, cy: number, additive: boolean, ctrl: boolean) => {
         setMarkerSelected(false); // 起点标记与音符选择互斥（ADR-0004 §4）
-        const hit = findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes });
+        const hit = findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
         if (!hit) {
             if (!additive) setSelectedItems([]);
             return;
@@ -239,7 +245,8 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             geometry,
             viewport,
             surface: surf,
-            dpr: Math.min(window.devicePixelRatio || 1, 2), // ADR-0006 §1：dpr 上限 2
+            // issue 39 #6：图像品质 → 画布 dpr 上限（流畅 1x / 标准 2x（原行为）/ 高清 3x）
+            dpr: Math.min(window.devicePixelRatio || 1, display.imageQuality === 'smooth' ? 1 : display.imageQuality === 'hd' ? 3 : 2),
             beatDisplay,
             chartEndBeat,
             notes,
@@ -254,9 +261,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             spriteIcon: spriteIcon.current,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
             skinVersion,
+            // issue 39：画布显示参数（节奏图示大小/长压线不透明度/同时点击线）
+            display: { noteSize: display.noteSize, slideOpacity: display.slideOpacity, simultaneousClickLines: display.simultaneousClickLines },
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.imageQuality]);
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {

@@ -59,12 +59,15 @@ export class ChartGeometry {
   readonly timeline: BpmTimeline;
   /** 谱面末端的真实 BPM 像素高度 */
   readonly chartEndVirtualY: number;
+  /** 纵向比例（issue 39 #5）：每小节纵向高度的标量，0.5..2.0；默认 1 */
+  readonly verticalRatio: number;
 
-  constructor(bpmEvents: readonly BpmTimelineEvent[], chartEndBeat: number, surface: SurfaceSize = DEFAULT_SURFACE) {
+  constructor(bpmEvents: readonly BpmTimelineEvent[], chartEndBeat: number, surface: SurfaceSize = DEFAULT_SURFACE, verticalRatio = 1) {
     this.bpmEvents = bpmEvents;
     this.chartEndBeat = chartEndBeat;
     this.surface = surface;
-    this.timeline = new BpmTimeline(bpmEvents, (bpm) => (BEAT_HEIGHT * 120) / bpm);
+    this.verticalRatio = verticalRatio;
+    this.timeline = new BpmTimeline(bpmEvents, (bpm) => (BEAT_HEIGHT * verticalRatio * 120) / bpm);
     this.chartEndVirtualY = this.timeline.positionOfBeat(chartEndBeat);
   }
 

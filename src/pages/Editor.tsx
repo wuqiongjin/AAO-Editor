@@ -562,11 +562,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     }
   }, [canPlay, audioName, setCtxDuration]);
 
-  // 初始化：把激活素材/音量应用到引擎
+  // 初始化：把激活素材/音量/SE 音量应用到引擎（issue 39 #7 SE 音量独立于主音量）
   useEffect(() => {
     engineRef.current?.setKeySet(keySoundSetById(settings.audio.keySet));
     engineRef.current?.setVolume(ctxVolume);
-  }, [settings.audio.keySet, ctxVolume]);
+    engineRef.current?.setSeVolume(settings.audio.seVolume);
+  }, [settings.audio.keySet, ctxVolume, settings.audio.seVolume]);
 
   // 删除选中（含起点标记优先）：标记选中时 Delete 删除标记
   const deleteSelectedNotes = () => {

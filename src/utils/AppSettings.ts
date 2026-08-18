@@ -16,7 +16,22 @@ export interface AppSettings {
     rightPanel: { width: number; collapsed: boolean };
   };
   shortcuts: ShortcutConfig;
-  audio: { keySet: string };
+  audio: { keySet: string; /** 节奏图示 SE 音量（键音独立音量，0..1，0=静音），issue 39 #7 */ seVolume: number };
+  /** 画布显示 / 播放参数（issue 39 功能设置组）。数值均以比例存储：100% = 1。 */
+  display: {
+    /** 节奏图示大小（音符占轨道比例），0.1..2.0，issue 39 #1 */
+    noteSize: number;
+    /** 长压线不透明度，0.1..1.0，issue 39 #2 */
+    slideOpacity: number;
+    /** 同时点击线开关（同节拍音符连接线），issue 39 #3 */
+    simultaneousClickLines: boolean;
+    /** 色觉辅助开关（tap 实/虚拍款式），issue 39 #4 —— 本轮仅存未渲染，虚拍图标待 Issue-41 */
+    colorAssist: boolean;
+    /** 纵向比例（每小节纵向高度），0.5..2.0，与画布整体缩放正交，issue 39 #5 */
+    verticalRatio: number;
+    /** 图像品质（三档），issue 39 #6 */
+    imageQuality: 'smooth' | 'standard' | 'hd';
+  };
 }
 
 const STORAGE_KEY = 'bangdream.settings.v1';
@@ -33,7 +48,15 @@ export function defaultSettings(): AppSettings {
       rightPanel: { width: 300, collapsed: false },
     },
     shortcuts: getDefaultConfig(),
-    audio: { keySet: DEFAULT_ACTIVE_KEY_SOUND_SET_ID },
+    audio: { keySet: DEFAULT_ACTIVE_KEY_SOUND_SET_ID, seVolume: 1 },
+    display: {
+      noteSize: 1,
+      slideOpacity: 1,
+      simultaneousClickLines: true,
+      colorAssist: true,
+      verticalRatio: 1,
+      imageQuality: 'standard',
+    },
   };
 }
 
@@ -45,6 +68,12 @@ function mergeSettings(parsed: unknown): AppSettings {
   const layout = (obj.layout && typeof obj.layout === 'object' ? obj.layout : {}) as Record<string, unknown>;
   const leftPanel = (layout.leftPanel && typeof layout.leftPanel === 'object' ? layout.leftPanel : {}) as Record<string, unknown>;
   const rightPanel = (layout.rightPanel && typeof layout.rightPanel === 'object' ? layout.rightPanel : {}) as Record<string, unknown>;
+  const display = (obj.display && typeof obj.display === 'object' ? obj.display : {}) as Record<string, unknown>;
+  const clamp = (v: unknown, min: number, max: number, dft: number) => typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : dft;
+  const quality =
+    display.imageQuality === 'smooth' || display.imageQuality === 'standard' || display.imageQuality === 'hd'
+      ? display.imageQuality
+      : defaults.display.imageQuality;
   return {
     schemaVersion: 1,
     theme: obj.theme === 'light' || obj.theme === 'dark' || obj.theme === 'system' ? obj.theme : defaults.theme,
@@ -62,6 +91,15 @@ function mergeSettings(parsed: unknown): AppSettings {
     shortcuts: defaults.shortcuts,
     audio: {
       keySet: typeof audio.keySet === 'string' ? audio.keySet : defaults.audio.keySet,
+      seVolume: clamp(audio.seVolume, 0, 1, defaults.audio.seVolume),
+    },
+    display: {
+      noteSize: clamp(display.noteSize, 0.1, 2, defaults.display.noteSize),
+      slideOpacity: clamp(display.slideOpacity, 0.1, 1, defaults.display.slideOpacity),
+      simultaneousClickLines: typeof display.simultaneousClickLines === 'boolean' ? display.simultaneousClickLines : defaults.display.simultaneousClickLines,
+      colorAssist: typeof display.colorAssist === 'boolean' ? display.colorAssist : defaults.display.colorAssist,
+      verticalRatio: clamp(display.verticalRatio, 0.5, 2, defaults.display.verticalRatio),
+      imageQuality: quality,
     },
   };
 }
@@ -98,7 +136,7 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> = localStorage): 
     return {
       ...defaultSettings(),
       shortcuts: legacyShortcuts,
-      audio: { keySet: audioKeySet ?? DEFAULT_ACTIVE_KEY_SOUND_SET_ID },
+      audio: { ...defaultSettings().audio, keySet: audioKeySet ?? DEFAULT_ACTIVE_KEY_SOUND_SET_ID },
     };
   } catch {
     return defaultSettings();
@@ -113,13 +151,20 @@ export function saveSettings(settings: AppSettings, storage: Pick<Storage, 'setI
 /** 字段级更新助手：M2 收口，ConfigContext 改用此函数做单字段写回，避免重读+整对象覆盖。 */
 export function updateSettings(
   prev: AppSettings,
-  patch: Partial<{ theme: AppSettings['theme']; layout: AppSettings['layout']; shortcuts: AppSettings['shortcuts']; audio: AppSettings['audio'] }>,
+  patch: Partial<{
+    theme: AppSettings['theme'];
+    layout: AppSettings['layout'];
+    shortcuts: AppSettings['shortcuts'];
+    audio: Partial<AppSettings['audio']>;
+    display: Partial<AppSettings['display']>;
+  }>,
 ): AppSettings {
   return {
     schemaVersion: 1,
     theme: patch.theme ?? prev.theme,
     layout: patch.layout ?? prev.layout,
     shortcuts: patch.shortcuts ?? prev.shortcuts,
-    audio: patch.audio ?? prev.audio,
+    audio: { ...prev.audio, ...(patch.audio ?? {}) },
+    display: { ...prev.display, ...(patch.display ?? {}) },
   };
 }

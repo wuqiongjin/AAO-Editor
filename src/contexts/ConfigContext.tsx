@@ -12,6 +12,10 @@ export interface ConfigContextValue {
   setTheme: (theme: AppSettings['theme']) => void;
   /** 布局（面板宽/折叠，ADR-0003 §6）：字段级写回并持久化 */
   setLayout: (layout: AppSettings['layout']) => void;
+  /** 画布显示参数（issue 39 功能设置·画布显示）：字段级写回并持久化 */
+  setDisplay: (patch: Partial<AppSettings['display']>) => void;
+  /** 节奏图示 SE 音量（issue 39 功能设置·播放）：0..1 字段级写回并持久化 */
+  setSeVolume: (volume: number) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
   setAllSettings: (next: AppSettings) => void;
   /** 恢复默认设置（Q13 配置数据）：重置为出厂默认并持久化 */
@@ -56,6 +60,22 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setDisplay = (patch: Partial<AppSettings['display']>) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { display: patch });
+      saveSettings(merged);
+      return merged;
+    });
+  };
+
+  const setSeVolume = (volume: number) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { audio: { seVolume: volume } });
+      saveSettings(merged);
+      return merged;
+    });
+  };
+
   const setAllSettings = (next: AppSettings) => {
     saveSettings(next);
     setSettings(next);
@@ -70,7 +90,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setAllSettings, resetSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setAllSettings, resetSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

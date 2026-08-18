@@ -1,12 +1,14 @@
 import { useRef, useState } from 'react';
-import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload } from 'lucide-react';
+import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye, Music2 } from 'lucide-react';
 import { useConfig } from '../contexts';
 import { loadSettings } from '../utils/AppSettings';
 import type { AppSettings } from '../utils/AppSettings';
 
-// 设置页（issue 28 Q13）：左侧次级索引（外观 / 布局 / 配置数据），右侧详情。
-// 音频偏好本期不进设置页（音频页自管）；导入/导出/恢复默认统一收敛在「配置数据」。
-type Section = 'appearance' | 'layout' | 'data';
+// 设置页（issue 28 Q13 + issue 39）：左侧次级索引分为两组——
+// 「应用设置」：外观 / 布局 / 配置数据（现有三类归入，语义不变）
+// 「功能设置」：画布显示 / 播放（谱面呈现参数，issue 39）
+// 修改立即生效并持久化（versioned settings，ADR-0003 §6）。
+type Section = 'appearance' | 'layout' | 'data' | 'canvas' | 'playback';
 
 const THEME_OPTIONS: Array<{ value: AppSettings['theme']; label: string; swatch: string }> = [
   { value: 'light', label: '亮色', swatch: 'light' },
@@ -14,8 +16,53 @@ const THEME_OPTIONS: Array<{ value: AppSettings['theme']; label: string; swatch:
   { value: 'system', label: '跟随系统', swatch: 'system' },
 ];
 
+const QUALITY_OPTIONS: Array<{ value: AppSettings['display']['imageQuality']; label: string }> = [
+  { value: 'smooth', label: '流畅' },
+  { value: 'standard', label: '标准' },
+  { value: 'hd', label: '高清' },
+];
+
+/** 行内滑块行：百分比参数（值以比例存储，UI 以 % 显示） */
+function PercentSliderRow({
+  label, hint, value, min, max, step, onChange,
+}: {
+  label: string; hint: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void;
+}) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row__text">
+        <strong>{label}</strong>
+        <span>{hint}</span>
+      </div>
+      <div className="slider-control">
+        <input
+          type="range" min={min} max={max} step={step} value={Math.round(value * 100)}
+          onChange={(e) => onChange(Number(e.target.value) / 100)}
+        />
+        <span className="slider-value">{Math.round(value * 100)}%</span>
+      </div>
+    </div>
+  );
+}
+
+/** 行内开关行：布尔参数 */
+function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row__text">
+        <strong>{label}</strong>
+        <span>{hint}</span>
+      </div>
+      <button
+        className={`switch${checked ? ' is-on' : ''}`} type="button" role="switch" aria-checked={checked}
+        aria-label={label} onClick={() => onChange(!checked)}
+      ><span /></button>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
-  const { settings, setTheme, setAllSettings, resetSettings } = useConfig();
+  const { settings, setTheme, setDisplay, setSeVolume, setAllSettings, resetSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
@@ -57,15 +104,27 @@ export default function SettingsPage() {
 
       <div className="settings-layout">
         <aside className="settings-index" aria-label="设置分类">
-          <button className={section === 'appearance' ? 'is-active' : ''} type="button" onClick={() => setSection('appearance')}>
-            <MonitorCog size={17} />外观
-          </button>
-          <button className={section === 'layout' ? 'is-active' : ''} type="button" onClick={() => setSection('layout')}>
-            <SlidersHorizontal size={17} />布局
-          </button>
-          <button className={section === 'data' ? 'is-active' : ''} type="button" onClick={() => setSection('data')}>
-            <Download size={17} />配置数据
-          </button>
+          <div className="settings-index-group" role="group" aria-label="应用设置">
+            <div className="settings-index-title">应用设置</div>
+            <button className={section === 'appearance' ? 'is-active' : ''} type="button" onClick={() => setSection('appearance')}>
+              <MonitorCog size={17} />外观
+            </button>
+            <button className={section === 'layout' ? 'is-active' : ''} type="button" onClick={() => setSection('layout')}>
+              <SlidersHorizontal size={17} />布局
+            </button>
+            <button className={section === 'data' ? 'is-active' : ''} type="button" onClick={() => setSection('data')}>
+              <Download size={17} />配置数据
+            </button>
+          </div>
+          <div className="settings-index-group" role="group" aria-label="功能设置">
+            <div className="settings-index-title">功能设置</div>
+            <button className={section === 'canvas' ? 'is-active' : ''} type="button" onClick={() => setSection('canvas')}>
+              <Eye size={17} />画布显示
+            </button>
+            <button className={section === 'playback' ? 'is-active' : ''} type="button" onClick={() => setSection('playback')}>
+              <Music2 size={17} />播放
+            </button>
+          </div>
         </aside>
 
         <section className="settings-detail surface-section">
@@ -102,14 +161,73 @@ export default function SettingsPage() {
                 <p>面板开合、宽度与画布缩放的说明。</p>
               </div>
               <div className="settings-row">
-                <div><strong>工具 / 属性面板</strong><span>在工作台底部或画布两侧拖拽，或点击面板标题旁的收起按钮</span></div>
+                <div className="settings-row__text"><strong>工具 / 属性面板</strong><span>在工作台底部或画布两侧拖拽，或点击面板标题旁的收起按钮</span></div>
               </div>
               <div className="settings-row">
-                <div><strong>应用导航</strong><span>左侧导航可折叠为图标栏，默认为折叠态</span></div>
+                <div className="settings-row__text"><strong>应用导航</strong><span>左侧导航可折叠为图标栏，默认为折叠态</span></div>
               </div>
               <div className="settings-row">
-                <div><strong>画布缩放</strong><span>按住 Ctrl 滚动鼠标滚轮可缩放谱面画布</span></div>
+                <div className="settings-row__text"><strong>画布缩放</strong><span>按住 Ctrl 滚动鼠标滚轮可缩放谱面画布</span></div>
               </div>
+            </>
+          )}
+
+          {section === 'canvas' && (
+            <>
+              <div className="settings-heading">
+                <h2>画布显示</h2>
+                <p>谱面画布上音符与判定线的呈现参数，修改即对画布生效。</p>
+              </div>
+              <PercentSliderRow
+                label="节奏图示大小" hint="音符占轨道的大小（相对所在轨道宽度）"
+                value={settings.display.noteSize} min={10} max={200} step={10}
+                onChange={(v) => setDisplay({ noteSize: v })}
+              />
+              <PercentSliderRow
+                label="长压线不透明度" hint="滑条（Slide）线条的不透明度，调低则变淡"
+                value={settings.display.slideOpacity} min={10} max={100} step={10}
+                onChange={(v) => setDisplay({ slideOpacity: v })}
+              />
+              <ToggleRow
+                label="同时点击线" hint="同节拍的同水平线音符之间显示连接线"
+                checked={settings.display.simultaneousClickLines}
+                onChange={(v) => setDisplay({ simultaneousClickLines: v })}
+              />
+              <PercentSliderRow
+                label="纵向比例" hint="每小节的纵向高度（与整体缩放正交并存）"
+                value={settings.display.verticalRatio} min={50} max={200} step={10}
+                onChange={(v) => setDisplay({ verticalRatio: v })}
+              />
+              <div className="settings-row">
+                <div className="settings-row__text">
+                  <strong>图像品质</strong>
+                  <span>画布渲染精度档位；标准为默认行为</span>
+                </div>
+                <div className="segmented">
+                  {QUALITY_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={settings.display.imageQuality === opt.value ? 'is-active' : ''}
+                      type="button"
+                      onClick={() => setDisplay({ imageQuality: opt.value })}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {section === 'playback' && (
+            <>
+              <div className="settings-heading">
+                <h2>播放</h2>
+                <p>播放过程中的音效参数；音频 tab 只管谱面 BGM，不在此范围。</p>
+              </div>
+              <PercentSliderRow
+                label="节奏图示 SE 音量" hint="键音（音符击打音效）的独立音量，不影响 BGM"
+                value={settings.audio.seVolume} min={0} max={100} step={5}
+                onChange={(v) => setSeVolume(v)}
+              />
             </>
           )}
 
@@ -117,7 +235,7 @@ export default function SettingsPage() {
             <>
               <div className="settings-heading">
                 <h2>配置数据</h2>
-                <p>导入或导出主题、布局、音频偏好和快捷键。谱面工程不在此范围。</p>
+                <p>导入或导出主题、布局、音频偏好、画布显示与快捷键。谱面工程不在此范围。</p>
               </div>
               <div className="data-actions">
                 <button className="button-secondary" type="button" onClick={handleExport}>
@@ -134,9 +252,9 @@ export default function SettingsPage() {
               {importError && <div className="shortcut-error">{importError}</div>}
 
               <div className="danger-row">
-                <div>
+                <div className="settings-row__text">
                   <strong>恢复默认设置</strong>
-                  <span>{resetConfirm ? '确定恢复？将覆盖当前主题、布局与快捷键。' : '重置为主题、布局、快捷键与音频偏好为出厂默认，不会删除谱面工程'}</span>
+                  <span>{resetConfirm ? '确定恢复？将覆盖当前主题、布局、画布显示与快捷键。' : '重置为主题、布局、画布显示、快捷键与音频偏好为出厂默认，不会删除谱面工程'}</span>
                 </div>
                 {resetConfirm ? (
                   <span style={{ display: 'flex', gap: 8 }}>

@@ -59,4 +59,16 @@ export interface RenderCtx {
   zoomGesture?: boolean;
   /** 皮肤图片就绪版本（issue 10）：图片异步加载完成后 +1，避免瓦片缓存命中未出图的旧帧 */
   skinVersion?: number;
+  /** 画布显示参数（issue 39 功能设置·画布显示）：由组件从 settings 读取注入，null = 用默认行为 */
+  display?: RenderDisplayOptions;
+}
+
+/** 画布显示参数（issue 39）。数值以比例存储（100% = 1）。 */
+export interface RenderDisplayOptions {
+  /** 节奏图示大小：音符占轨道比例，0.1..2.0（#1） */
+  noteSize: number;
+  /** 长压线不透明度：slide 线条不透明度，0.1..1.0（#2） */
+  slideOpacity: number;
+  /** 同时点击线开关：同节拍音符连接线（#3） */
+  simultaneousClickLines: boolean;
 }

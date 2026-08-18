@@ -69,6 +69,10 @@ const tiles = new Map<number, Tile>();
 let basis: {
   notes: readonly ChartNote[]; bpmEvents: readonly BpmTimelineEvent[];
   chartEndBeat: number; beatDisplay: number; dpr: number; skinVersion: number;
+  /** issue 39：节奏图示大小 / 长压线不透明度烘进音符瓦片，变化时需全量失效 */
+  noteSize: number; slideOpacity: number;
+  /** issue 39 #5：纵向比例改变 timeline 高度 → pos 空间平移，需全量失效 */
+  verticalRatio: number;
 } | null = null;
 
 export function resetNoteLayerCache() {
@@ -276,13 +280,18 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     chartEndBeat: rc.geometry.chartEndBeat,
     beatDisplay: rc.beatDisplay, dpr: rc.dpr,
     skinVersion: rc.skinVersion ?? 0,
+    noteSize: rc.display?.noteSize ?? 1,
+    slideOpacity: rc.display?.slideOpacity ?? 1,
+    verticalRatio: rc.geometry.verticalRatio,
   };
   if (
     !basis || basis.chartEndBeat !== nb.chartEndBeat || basis.beatDisplay !== nb.beatDisplay ||
     basis.dpr !== nb.dpr || basis.skinVersion !== nb.skinVersion ||
+    basis.noteSize !== nb.noteSize || basis.slideOpacity !== nb.slideOpacity ||
+    basis.verticalRatio !== nb.verticalRatio ||
     !bpmEventsEqual(basis.bpmEvents, nb.bpmEvents)
   ) {
-    // 时间线内容/节拍显示/dpr/皮肤变化 → pos 空间或位图语义变化，全量失效。
+    // 时间线内容/节拍显示/dpr/皮肤/音符大小/长压线不透明度/纵向比例变化 → pos 空间或位图语义变化，全量失效。
     // 注意：surface 宽高与 geometry 实例不在失效依据内（issue 36 F3a，见 basis 注释）。
     tiles.clear();
     basis = nb;

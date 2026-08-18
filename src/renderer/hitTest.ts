@@ -28,6 +28,8 @@ export interface HitTestDeps {
   viewport: GeometryViewport;
   beatDisplay: number;
   notes: readonly ChartNote[];
+  /** 节奏图示大小比例（issue 39 #1，0.1..2.0；默认 1）：命中半径与渲染图标同步缩放 */
+  noteSize?: number;
 }
 
 /**
@@ -38,8 +40,9 @@ export interface HitTestDeps {
  */
 export function findItemAt(cx: number, cy: number, deps: HitTestDeps): SelectionItem | null {
   const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
-  const slideNodeRadius = (SLIDE_ICON_SIZE / 2) * deps.viewport.scale + 4 * deps.viewport.scale;
-  const noteRadius = (NOTE_ICON_SIZE / 2) * deps.viewport.scale + 4 * deps.viewport.scale;
+  const ns = deps.noteSize ?? 1;
+  const slideNodeRadius = (SLIDE_ICON_SIZE * ns / 2) * deps.viewport.scale + 4 * deps.viewport.scale;
+  const noteRadius = (NOTE_ICON_SIZE * ns / 2) * deps.viewport.scale + 4 * deps.viewport.scale;
   const halfLaneWidth = (LANE_WIDTH * deps.viewport.scale) / 2;
 
   for (let i = 0; i < deps.notes.length; i++) {

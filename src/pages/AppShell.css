@@ -1007,6 +1007,88 @@
   transform: translateX(14px);
 }
 
+/* ---- 设置页（issue 39）：两组结构（应用设置/功能设置）---- */
+.settings-index-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-index-group + .settings-index-group {
+  margin-top: 16px;
+}
+.settings-index-title {
+  padding: 0 10px 4px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+/* 参数行：文本区左、控件右 */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-row__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.settings-row .slider-control,
+.settings-row .segmented,
+.settings-row .switch {
+  flex: 0 0 auto;
+}
+
+/* 滑块（百分比参数） */
+.slider-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+}
+.slider-control input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 120px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.slider-value {
+  width: 44px;
+  flex: 0 0 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* 分段选择（图像品质三档） */
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.segmented button {
+  min-height: 30px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 14px;
+  font-size: 11px;
+}
+.segmented button:last-child {
+  border-right: 0;
+}
+.segmented button.is-active {
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-weight: 650;
+}
+
 .data-actions {
   display: flex;
   gap: 8px;

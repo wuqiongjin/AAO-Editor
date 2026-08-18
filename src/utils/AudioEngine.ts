@@ -21,6 +21,10 @@ export class AudioEngine {
   private buffer: AudioBuffer | null = null;
   private source: AudioBufferSourceNode | null = null;
   private masterGain: GainNode | null = null;
+  /** 节奏图示 SE 音量（issue 39 #7）：独立于背景音乐的键音 GainNode，插在 masterGain 之前 */
+  private seGain: GainNode | null = null;
+  /** SE 音量暂存（ctx 未建时记录，建 seGain 时应用） */
+  private seVolume = 1;
   private offsetSeconds = 0;
   private startCtxSecond = 0;
   private startPerfSecond = 0;
@@ -78,6 +82,13 @@ export class AudioEngine {
     if (this.masterGain) this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
   }
 
+  /** 节奏图示 SE 音量（issue 39 #7，0..1）：仅作用于键音，不影响背景音乐 */
+  setSeVolume(volume: number): void {
+    const v = Math.max(0, Math.min(1, volume));
+    if (this.seGain) this.seGain.gain.value = v;
+    else this.seVolume = v; // ctx 未建时暂存，ensureCtx 创建 seGain 时应用
+  }
+
   private ensureCtx(): AudioContext {
     if (!this.ctx) {
       const Ctor =
@@ -87,6 +98,10 @@ export class AudioEngine {
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = 1;
       this.masterGain.connect(this.ctx.destination);
+      // issue 39 #7：SE gain 插在 masterGain 之前，键音汇入 seGain → masterGain → destination
+      this.seGain = this.ctx.createGain();
+      this.seGain.gain.value = this.seVolume;
+      this.seGain.connect(this.masterGain);
     }
     return this.ctx;
   }
@@ -297,7 +312,9 @@ export class AudioEngine {
     src.buffer = buffer;
     const gain = ctx.createGain();
     src.connect(gain);
-    if (this.masterGain) gain.connect(this.masterGain);
+    // issue 39 #7：键音经独立 seGain 汇入 masterGain（SE 音量独立于背景音乐）
+    if (this.seGain) gain.connect(this.seGain);
+    else if (this.masterGain) gain.connect(this.masterGain);
     else gain.connect(ctx.destination);
     const now = ctx.currentTime;
     gain.gain.cancelScheduledValues(now);
@@ -342,7 +359,9 @@ export class AudioEngine {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
-    if (this.masterGain) gain.connect(this.masterGain);
+    // issue 39 #7：键音经独立 seGain 汇入 masterGain（SE 音量独立于背景音乐）
+    if (this.seGain) gain.connect(this.seGain);
+    else if (this.masterGain) gain.connect(this.masterGain);
     else gain.connect(ctx.destination);
     return { osc, gain };
   }
