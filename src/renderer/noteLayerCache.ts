@@ -247,6 +247,8 @@ function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
   // 相对 2.0 内存 -44%、重建填充快 ~44%（密集谱放置延迟受益）；主画布仍按完整 dpr。若要更清晰需同步
   // 上调 TILE_DPR_CAP 并接受内存/重建成本上升——属观感变更，需用户确认后再动。
   tctx.imageSmoothingEnabled = true;
+  // issue 40：与主画布同用高阶滤波，压低缩小时精灵边缘的子像素混色/杂色
+  tctx.imageSmoothingQuality = 'high';
   const fakeSurface = { w: cssW, h: cssH };
   const fakeRc: RenderCtx = { ...rc, viewport: vp, surface: fakeSurface };
   const c = makeCoords(rc.geometry, vp, rc.beatDisplay, rc.notes);

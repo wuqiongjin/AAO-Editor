@@ -29,6 +29,8 @@ export interface SpriteIconConfig {
     inkLeft?: number;
     /** 可见墨迹相对矩形右边缩进（源像素） */
     inkRight?: number;
+    /** 音符墨迹的目标屏幕绘制尺寸（覆盖默认 canvas 尺寸）；issue 40 收紧矩形时等比收窄以保持墨迹尺寸 */
+    out?: { w: number; h: number };
 }
 
 export interface CanvasSpriteIconProps {
@@ -179,23 +181,31 @@ export default class CanvasSpriteIcon {
 // issue 40 坐标规范化：以下 `x/y/w/h` 均为**源图内像素矩形**（从源图左上角算起）。
 // 源图尺寸：RhythmGameSprites.png = 2048×1024；DirectionalFlickSprites.png = 1024×1024。
 // 新增音符款式/皮肤：只需在下面追加一条数据（含 inkLeft/inkRight 墨迹缩进），不碰提取逻辑。
+// `out`：可选，音符**墨迹**在屏幕上的目标绘制尺寸（覆盖默认 canvas 尺寸）。
+//   —— issue 40（渲染质量）：主音符源矩形已收紧到可见墨迹（四周近透明过渡带 + 相邻深青图元
+//   会在双线性缩小时混出「黑黑白白」杂边）。收紧矩形后须把绘制尺寸按同比例缩小，墨迹屏幕
+//   尺寸保持不变、观感仅更「贴合墨迹」，不留瑕疵边。
 export const BaseSpriteIcons = {
     // 单键音符 (Tap Note)
     tap: {
         src: './assets/skins/RhythmGameSprites.png',
-        x: 1550, y: 904, w: 308, h: 120
+        x: 1553, y: 912, w: 302, h: 103,
+        // 原 308×120 → 收紧 302×103：绘制尺寸等比收窄以保持墨迹屏幕尺寸
+        out: { w: 36 * (302 / 308), h: 21.6 * (103 / 120) },
     },
 
     // 滑键音符 (Flick Note)
     flick: {
         src: './assets/skins/RhythmGameSprites.png',
-        x: 0, y: 904, w: 308, h: 120
+        x: 3, y: 912, w: 302, h: 104,
+        out: { w: 36 * (302 / 308), h: 21.6 * (104 / 120) },
     },
 
     // 技能音符 (Skill Note)
     skill: {
         src: './assets/skins/RhythmGameSprites.png',
-        x: 930, y: 782, w: 308, h: 120
+        x: 933, y: 787, w: 302, h: 107,
+        out: { w: 36 * (302 / 308), h: 21.6 * (107 / 120) },
     },
 
     // 左方向滑键（含墨迹缩进：可见墨迹相对精灵框左右边的源像素距离）

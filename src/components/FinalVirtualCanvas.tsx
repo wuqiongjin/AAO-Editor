@@ -245,8 +245,10 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             geometry,
             viewport,
             surface: surf,
-            // issue 39 #6：图像品质 → 画布 dpr 上限（流畅 1x / 标准 2x（原行为）/ 高清 3x）
-            dpr: Math.min(window.devicePixelRatio || 1, display.imageQuality === 'smooth' ? 1 : display.imageQuality === 'hd' ? 3 : 2),
+            // issue 39 #6：图像品质 → 画布 dpr 上限（流畅 1x / 标准 2.5x / 高清 3x）
+            // issue 40：标准从 2 提到 2.5（缩小采样比更小 → 音符边缘更锐利、杂色更轻，
+            // 代价是增加约 56% 画布像素/显存与重绘成本；主画布按完整 dpr，瓦片另有 TILE_DPR_CAP）
+            dpr: Math.min(window.devicePixelRatio || 1, display.imageQuality === 'smooth' ? 1 : display.imageQuality === 'hd' ? 3 : 2.5),
             beatDisplay,
             chartEndBeat,
             notes,

@@ -212,8 +212,10 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       rc.spriteIcon.render(ctx, {
         ...iconConfig,
         canvasX: canvasPos.x, canvasY: canvasPos.y,
-        canvasSize: NOTE_ICON_SIZE, canvasWidth: NOTE_ICON_SIZE,
-        canvasHeight: NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
+        canvasSize: NOTE_ICON_SIZE,
+        // issue 40：主音符矩形已收紧到墨迹，绘制尺寸取 out（墨迹屏幕尺寸），默认回退 NOTE_ICON_SIZE
+        canvasWidth: iconConfig.out?.w ?? NOTE_ICON_SIZE,
+        canvasHeight: iconConfig.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
         scale: spriteScale, renderLayer: 'main',
       });
       if (isSelected && !skipSelection) {
@@ -281,11 +283,13 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
     } else if (note.type === "Single" && note.flick) {
       const subBeat = note.subBeat || 0;
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
+      const flickCfg = CanvasNoteIcons.flick;
       rc.spriteIcon.render(ctx, {
-        ...CanvasNoteIcons.flick,
+        ...flickCfg,
         canvasX: canvasPos.x, canvasY: canvasPos.y,
-        canvasSize: NOTE_ICON_SIZE, canvasWidth: NOTE_ICON_SIZE,
-        canvasHeight: NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
+        canvasSize: NOTE_ICON_SIZE,
+        canvasWidth: flickCfg.out?.w ?? NOTE_ICON_SIZE,
+        canvasHeight: flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
         scale: spriteScale, renderLayer: 'decorators',
       });
     }
@@ -475,10 +479,13 @@ export function renderSlideBuffer(ctx: CanvasRenderingContext2D, c: Coords, rc: 
 
 /** 渲染单个精灵图标（幽灵/预览用；透明度由调用方 ctx.globalAlpha 控制） */
 function renderSpriteGhost(ctx: CanvasRenderingContext2D, rc: RenderCtx, icon: any, cx: number, cy: number, size: number, heightScale: number) {
+  // issue 40：主音符矩形已收紧到墨迹，ghost 也用 out 保持一致；方向滑键等无 out 用传入尺寸
+  const w = icon.out?.w ?? size;
+  const h = icon.out?.h ?? size * heightScale;
   rc.spriteIcon.render(ctx, {
     ...icon,
     canvasX: cx, canvasY: cy,
-    canvasSize: size, canvasWidth: size, canvasHeight: size * heightScale,
+    canvasSize: size, canvasWidth: w, canvasHeight: h,
     scale: rc.viewport.scale,
   });
 }
@@ -770,9 +777,10 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
 
   // issue 40（渲染质量）：统一/声明精灵图平滑策略——源图缩到音符尺寸用**双线性平滑**缩放
   // （能保留边缘层次，优于 DOM 版的 'pixelated' 硬边；'pixelated' 仅用于工具栏等小 UI 图标的
-  // DOM 展示，两者用途不同）。仅显式置 true（与浏览器默认一致，不改既有观感）；不设 quality='high'
-  // 以免悄悄改变默认滤波观感（如需提升需用户确认）。
+  // DOM 展示，两者用途不同）。quality='high' 用更高阶滤波（双三次）进一步压低缩小时的
+  // 子像素混色/边缘杂色（配合源矩形已收紧到墨迹）。
   ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   // 静态层（黑底+轨道底+网格+起止线，含整幅清屏）离屏缓存 blit（issue 36 F2）
   drawStaticLayer(ctx, rc);
