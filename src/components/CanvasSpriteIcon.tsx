@@ -1,23 +1,43 @@
+/**
+ * 精灵图配置（issue 40 坐标规范化）：`x/y/w/h` 为**源图内像素矩形**（从源图左上角算起），
+ * 直观可读、无需换算；新增音符款式/皮肤只加一条数据，不碰提取逻辑。
+ *
+ * 旧实现用「负百分比偏移 + 百分比尺寸（含缩放系数）」从 2048×1024/1024×1024 大图反解截取，
+ * 抽象难懂（issue 39 grill Q8）。现改回直接像素矩形，`computeSrcRect` 只做边界裁剪。
+ *
+ * 额外字段：
+ * - `inkLeft/inkRight`：方向滑键等精灵框内可见墨迹相对矩形左右边的**源像素缩进**，
+ *   供「同时点击连接线」等以墨迹真实边缘定位（消除连接线头与图标间的空隙，issue 40 关联 BUG）。
+ */
 export interface SpriteIconConfig {
     src: string;
+    /** 源图内像素矩形 x（左上角） */
     x: number;
+    /** 源图内像素矩形 y（左上角） */
     y: number;
-    width: number;
-    height: number;
+    /** 源图内矩形宽（像素） */
+    w: number;
+    /** 源图内矩形高（像素） */
+    h: number;
     offsetX?: number;
     offsetY?: number;
     scale?: number;
     scaleX?: number;
     scaleY?: number;
     zIndex?: number;
+    /** 可见墨迹相对矩形左边缩进（源像素）：连接线等以此贴合真实墨迹边缘 */
+    inkLeft?: number;
+    /** 可见墨迹相对矩形右边缩进（源像素） */
+    inkRight?: number;
 }
 
 export interface CanvasSpriteIconProps {
     src: string;
+    /** 源图内像素矩形 */
     x: number;
     y: number;
-    width: number;
-    height: number;
+    w: number;
+    h: number;
     canvasX: number;
     canvasY: number;
     canvasSize: number;
@@ -68,26 +88,22 @@ export default class CanvasSpriteIcon {
         return CanvasSpriteIcon.imageCache.get(url) ?? null;
     }
 
-    private static computeSrcRect(img: HTMLImageElement, cfg: { x: number; y: number; width: number; height: number; }) {
-        const { x, y, width, height } = cfg;
-        if (width === 0 || height === 0) return null;
+    private static computeSrcRect(img: HTMLImageElement, cfg: { x: number; y: number; w: number; h: number; }) {
+        const { x, y, w, h } = cfg;
+        if (w === 0 || h === 0) return null;
 
-        const srcW = (img.width * 100) / width;
-        const srcH = (img.height * 100) / height;
-        const srcX = (-x * img.width) / width;
-        const srcY = (-y * img.height) / height;
+        // x/y/w/h 已是源图内像素矩形：只需按图片边界裁剪（防源图坐标越界/历史遗留越界值）
+        const srcX = Math.max(0, Math.min(img.width, x));
+        const srcY = Math.max(0, Math.min(img.height, y));
+        const srcW = Math.max(0, Math.min(img.width - srcX, w));
+        const srcH = Math.max(0, Math.min(img.height - srcY, h));
 
-        const clampedSrcX = Math.max(0, Math.min(img.width, srcX));
-        const clampedSrcY = Math.max(0, Math.min(img.height, srcY));
-        const clampedSrcW = Math.max(0, Math.min(img.width - clampedSrcX, srcW));
-        const clampedSrcH = Math.max(0, Math.min(img.height - clampedSrcY, srcH));
-
-        return { sx: clampedSrcX, sy: clampedSrcY, sw: clampedSrcW, sh: clampedSrcH };
+        return { sx: srcX, sy: srcY, sw: srcW, sh: srcH };
     }
 
     private static drawSingle(
         ctx: CanvasRenderingContext2D,
-        cfg: { src: string; x: number; y: number; width: number; height: number; canvasX: number; canvasY: number; canvasW: number; canvasH: number; overallScale?: number; scaleX?: number; scaleY?: number; }
+        cfg: { src: string; x: number; y: number; w: number; h: number; canvasX: number; canvasY: number; canvasW: number; canvasH: number; overallScale?: number; scaleX?: number; scaleY?: number; }
     ) {
         const img = CanvasSpriteIcon.getImageSync(cfg.src);
         if (!img) {
@@ -112,13 +128,13 @@ export default class CanvasSpriteIcon {
     }
 
     public render(ctx: CanvasRenderingContext2D, props: CanvasSpriteIconProps) {
-        const { src, x, y, width, height, canvasX, canvasY, canvasSize, canvasWidth, canvasHeight, scale = 1.0, decorators = [], renderLayer = 'all' } = props;
+        const { src, x, y, w, h, canvasX, canvasY, canvasSize, canvasWidth, canvasHeight, scale = 1.0, decorators = [], renderLayer = 'all' } = props;
 
         const displayW = canvasWidth ?? canvasSize;
         const displayH = canvasHeight ?? canvasSize;
 
         if (renderLayer === 'main' || renderLayer === 'all') {
-            CanvasSpriteIcon.drawSingle(ctx, { src, x, y, width, height, canvasX, canvasY, canvasW: displayW, canvasH: displayH, overallScale: scale });
+            CanvasSpriteIcon.drawSingle(ctx, { src, x, y, w, h, canvasX, canvasY, canvasW: displayW, canvasH: displayH, overallScale: scale });
         }
 
         const low = decorators.filter(d => (d.zIndex ?? 0) < 10).sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
@@ -136,7 +152,7 @@ export default class CanvasSpriteIcon {
                 const offsetY = (dec.offsetY ?? 0) * scale;
 
                 CanvasSpriteIcon.drawSingle(ctx, {
-                    src: dec.src, x: dec.x, y: dec.y, width: dec.width, height: dec.height,
+                    src: dec.src, x: dec.x, y: dec.y, w: dec.w, h: dec.h,
                     canvasX: canvasX + offsetX, canvasY: canvasY + offsetY,
                     canvasW: dW, canvasH: dH, overallScale: 1, scaleX: 1, scaleY: 1
                 });
@@ -159,95 +175,85 @@ export default class CanvasSpriteIcon {
 }
 
 // 导出配置常量（与SVGSpriteIcon保持一致）
+//
+// issue 40 坐标规范化：以下 `x/y/w/h` 均为**源图内像素矩形**（从源图左上角算起）。
+// 源图尺寸：RhythmGameSprites.png = 2048×1024；DirectionalFlickSprites.png = 1024×1024。
+// 新增音符款式/皮肤：只需在下面追加一条数据（含 inkLeft/inkRight 墨迹缩进），不碰提取逻辑。
 export const BaseSpriteIcons = {
-    // 单键音符 (Tap Note) - 使用竞品的确切坐标
+    // 单键音符 (Tap Note)
     tap: {
         src: './assets/skins/RhythmGameSprites.png',
-        x: -503.247,
-        y: -753.333,
-        width: 664.935,
-        height: 853.333
+        x: 1550, y: 904, w: 308, h: 120
     },
 
-    // 滑键音符 (Flick Note) - 使用竞品的确切坐标
+    // 滑键音符 (Flick Note)
     flick: {
         src: './assets/skins/RhythmGameSprites.png',
-        x: 0,
-        y: -753.333,
-        width: 664.935,
-        height: 853.333
+        x: 0, y: 904, w: 308, h: 120
     },
 
-    // 技能音符 (Skill Note) - 使用竞品的确切坐标
+    // 技能音符 (Skill Note)
     skill: {
         src: './assets/skins/RhythmGameSprites.png',
-        x: -301.948,
-        y: -651.667,
-        width: 664.935,
-        height: 853.333
+        x: 930, y: 782, w: 308, h: 120
     },
 
-    // 左方向滑键 - 使用竞品的确切坐标
+    // 左方向滑键（含墨迹缩进：可见墨迹相对精灵框左右边的源像素距离）
     leftFlick: {
         src: './assets/skins/DirectionalFlickSprites.png',
-        x: 2,
-        y: -651.667,
-        width: 320.468,
-        height: 853.333
+        x: 0, y: 782, w: 319.532, h: 120,
+        inkLeft: 42, inkRight: 67
     },
 
-    // 右方向滑键 - 使用竞品的确切坐标
+    // 右方向滑键（含墨迹缩进）
     rightFlick: {
         src: './assets/skins/DirectionalFlickSprites.png',
-        x: 2,
-        y: -143.333,
-        width: 320.468,
-        height: 853.333
-    }
+        x: 0, y: 172, w: 319.532, h: 120,
+        inkLeft: 55, inkRight: 53
+    },
+
+    // 虚拍（tap 的虚拍款式）接入点（issue 40 / issue 39 #4 色觉辅助）：
+    // !!! 具体源图矩形坐标待 Issue-41 可视化定位工具从图上取后填写；当前 w/h=0 使其 inert 不绘制。
+    // !!! 接入时只需照抄上面的 { src, x, y, w, h } 形态（可含 inkLeft/inkRight），无需改提取逻辑。
+    tapVirtual: {
+        src: './assets/skins/RhythmGameSprites.png',
+        x: 0, y: 0, w: 0, h: 0
+    },
 };
 
-// 装饰器图标配置
+// 装饰器图标配置（x/y/w/h 均为源图内像素矩形）
 export const DecoratorIcons = {
     // 滑键装饰器，用于组合到滑键上方
     flickDecorator: {
         src: './assets/skins/RhythmGameSprites.png',
-        x: -400.123,
-        y: -53.333,
-        width: 664.935,
-        height: 995.333,
-        offsetX: 7,  // 相对于主图标的X偏移 (向右偏移9px)
-        offsetY: -12, // 相对于主图标的Y偏移（向上偏移12px）
-        scale: 1.0, // 装饰器整体缩放比例
-        scaleX: 1.0, // X轴缩放比例（宽度保持不变）
-        scaleY: 0.6  // Y轴缩放比例（高度压缩到60%，变窄）
+        x: 1232.379, y: 54.869, w: 308, h: 102.88,
+        offsetX: 7,  // 相对于主图标的X偏移
+        offsetY: -12, // 相对于主图标的Y偏移（向上）
+        scale: 1.0,
+        scaleX: 1.0,
+        scaleY: 0.6
     },
 
     // 左方向滑键装饰器，用于组合到滑键上方
     LDirectionalFlickDecorator: {
         src: './assets/skins/DirectionalFlickSprites.png',
-        x: -199.247,
-        y: -429.333,
-        width: 664.935,
-        height: 853.333,
-        offsetX: -28,  // 相对于主图标的X偏移 (向左偏移28px)
-        offsetY: 0, // 相对于主图标的Y偏移
-        scale: 1.0, // 装饰器整体缩放比例
-        scaleX: 0.5, // X轴缩放比例（宽度压缩到50%）
-        scaleY: 0.8  // Y轴缩放比例（高度压缩到80%，变窄）
+        x: 306.84, y: 515.2, w: 154, h: 120,
+        offsetX: -28,
+        offsetY: 0,
+        scale: 1.0,
+        scaleX: 0.5,
+        scaleY: 0.8
     },
 
     // 右方向滑键装饰器，用于组合到滑键上方
     RDirectionalFlickDecorator: {
         src: './assets/skins/DirectionalFlickSprites.png',
-        x: -190.247,
-        y: -283.333,
-        width: 664.935,
-        height: 853.333,
-        offsetX: 28,  // 相对于主图标的X偏移 (向右偏移8px)
-        offsetY: 0, // 相对于主图标的Y偏移
-        scale: 1.0, // 装饰器整体缩放比例
-        scaleX: 0.5, // X轴缩放比例（宽度压缩到50%）
-        scaleY: 0.8  // Y轴缩放比例（高度压缩到80%，变窄）
+        x: 292.98, y: 340, w: 154, h: 120,
+        offsetX: 28,
+        offsetY: 0,
+        scale: 1.0,
+        scaleX: 0.5,
+        scaleY: 0.8
     }
 };
 
@@ -259,29 +265,27 @@ export const CompositeNoteConfigs = {
         decorators: [
             {
                 ...DecoratorIcons.flickDecorator,
-                zIndex: 10 // 设置与方向键装饰器相同的高优先级
+                zIndex: 10
             }
         ]
     },
     // 左方向滑键组合 - 根据length属性选择不同的组合
-    // L1: 1个LDirectionalFlickDecorator + 1个leftFlick
     leftFlickL1: {
         ...BaseSpriteIcons.leftFlick,
         decorators: [
             {
                 ...DecoratorIcons.LDirectionalFlickDecorator,
                 offsetX: -18,
-                zIndex: 10 // 设置更高的图层优先级
+                zIndex: 10
             }
         ]
     },
-    // L2: 1个LDirectionalFlickDecorator + 2个leftFlick
     leftFlickL2: {
         ...BaseSpriteIcons.leftFlick,
         decorators: [
             {
                 ...BaseSpriteIcons.leftFlick,
-                offsetX: -30, // 第二个leftFlick向左偏移 (偏移数值 = 轨道宽度)
+                offsetX: -30,
                 offsetY: 0,
                 scale: 0.9
             },
@@ -290,23 +294,22 @@ export const CompositeNoteConfigs = {
                 offsetX: -48,
                 offsetY: 0,
                 scale: 1.0,
-                zIndex: 10 // 设置更高的图层优先级
+                zIndex: 10
             }
         ]
     },
-    // L3: 1个LDirectionalFlickDecorator + 3个leftFlick
     leftFlickL3: {
         ...BaseSpriteIcons.leftFlick,
         decorators: [
             {
                 ...BaseSpriteIcons.leftFlick,
-                offsetX: -30, // 第二个leftFlick向左偏移 (偏移数值 = 轨道宽度)
+                offsetX: -30,
                 offsetY: 0,
                 scale: 0.9
             },
             {
                 ...BaseSpriteIcons.leftFlick,
-                offsetX: -60, // 第三个leftFlick更向左偏移
+                offsetX: -60,
                 offsetY: 0,
                 scale: 0.9
             },
@@ -315,30 +318,28 @@ export const CompositeNoteConfigs = {
                 offsetX: -78,
                 offsetY: 0,
                 scale: 1.0,
-                zIndex: 10 // 设置更高的图层优先级
+                zIndex: 10
             }
         ]
     },
 
     // 右方向滑键组合 - 根据length属性选择不同的组合
-    // R1: 1个RDirectionalFlickDecorator + 1个rightFlick
     rightFlickR1: {
         ...BaseSpriteIcons.rightFlick,
         decorators: [
             {
                 ...DecoratorIcons.RDirectionalFlickDecorator,
                 offsetX: 18,
-                zIndex: 10 // 设置更高的图层优先级
+                zIndex: 10
             }
         ]
     },
-    // R2: 1个RDirectionalFlickDecorator + 2个rightFlick
     rightFlickR2: {
         ...BaseSpriteIcons.rightFlick,
         decorators: [
             {
                 ...BaseSpriteIcons.rightFlick,
-                offsetX: 30, // 第二个rightFlick向右偏移 (偏移数值 = 轨道宽度)
+                offsetX: 30,
                 offsetY: 0,
                 scale: 0.9
             },
@@ -347,23 +348,22 @@ export const CompositeNoteConfigs = {
                 offsetX: 48,
                 offsetY: 0,
                 scale: 1.0,
-                zIndex: 10 // 设置更高的图层优先级
+                zIndex: 10
             }
         ]
     },
-    // R3: 1个RDirectionalFlickDecorator + 3个rightFlick
     rightFlickR3: {
         ...BaseSpriteIcons.rightFlick,
         decorators: [
             {
                 ...BaseSpriteIcons.rightFlick,
-                offsetX: 30, // 第二个rightFlick向右偏移 (偏移数值 = 轨道宽度)
+                offsetX: 30,
                 offsetY: 0,
                 scale: 0.9
             },
             {
                 ...BaseSpriteIcons.rightFlick,
-                offsetX: 60, // 第三个rightFlick更向右偏移
+                offsetX: 60,
                 offsetY: 0,
                 scale: 0.9
             },
@@ -372,7 +372,7 @@ export const CompositeNoteConfigs = {
                 offsetX: 78,
                 offsetY: 0,
                 scale: 1.0,
-                zIndex: 10 // 设置更高的图层优先级
+                zIndex: 10
             }
         ]
     },
@@ -383,7 +383,7 @@ export const CompositeNoteConfigs = {
         decorators: [
             {
                 ...DecoratorIcons.LDirectionalFlickDecorator,
-                zIndex: 10 // 设置更高的图层优先级
+                zIndex: 10
             }
         ]
     },
@@ -392,7 +392,7 @@ export const CompositeNoteConfigs = {
         decorators: [
             {
                 ...DecoratorIcons.RDirectionalFlickDecorator,
-                zIndex: 10 // 设置更高的图层优先级
+                zIndex: 10
             }
         ]
     },
@@ -405,41 +405,29 @@ export const CompositeNoteConfigs = {
 // 为了向后兼容，保留原来的SVGNoteIcons名称
 export const CanvasNoteIcons = CompositeNoteConfigs;
 
-// 滑条连接线配置
+// 滑条连接线配置（x/y/w/h = 源图内像素矩形）
 export const CanvasSlideLineIcons = {
-    // 普通连接线
+    // 普通连接线（longNoteLine.png 整图 146×205）
     slideLine: {
         src: './assets/skins/longNoteLine.png',
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100
+        x: 0, y: 0, w: 146, h: 205
     },
 
-    // SP滑条连接线 (Special滑条连接线)
+    // SP滑条连接线（longNoteLine2.png 整图 146×205）
     SPSlideLine: {
         src: './assets/skins/longNoteLine2.png',
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 100
+        x: 0, y: 0, w: 146, h: 205
     },
 
     // pathway音符 (滑条途径结点音符样式)
     pathway: {
         src: './assets/skins/RhythmGameSprites.png',
-        x: -100.247,
-        y: -242.333,
-        width: 664.935,
-        height: 853.333
+        x: 308.76, y: 290.8, w: 308, h: 120
     },
 
     // endpoint音符 (滑条起始点音符样式)
     endpoint: {
         src: './assets/skins/RhythmGameSprites.png',
-        x: -402.247,
-        y: -652.333,
-        width: 664.935,
-        height: 853.333
+        x: 1238.92, y: 782.8, w: 308, h: 120
     }
 };

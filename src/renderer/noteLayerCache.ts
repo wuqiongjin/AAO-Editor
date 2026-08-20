@@ -242,6 +242,11 @@ function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
   canvas.height = bh;
   const tctx = canvas.getContext('2d');
   tctx.setTransform(tileDpr, 0, 0, tileDpr, 0, 0);
+  // issue 40（渲染质量）：瓦片承载音符精灵，与主画布同一平滑策略（显式置 true，与默认一致不改观感）。
+  // 瓦片 dpr 权衡（issue 36 定 1.5 + 本 issue 复核）：瓦片只有精灵、无文字，1.5 dpr 高分屏几乎不可辨，
+  // 相对 2.0 内存 -44%、重建填充快 ~44%（密集谱放置延迟受益）；主画布仍按完整 dpr。若要更清晰需同步
+  // 上调 TILE_DPR_CAP 并接受内存/重建成本上升——属观感变更，需用户确认后再动。
+  tctx.imageSmoothingEnabled = true;
   const fakeSurface = { w: cssW, h: cssH };
   const fakeRc: RenderCtx = { ...rc, viewport: vp, surface: fakeSurface };
   const c = makeCoords(rc.geometry, vp, rc.beatDisplay, rc.notes);

@@ -693,13 +693,20 @@ export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: R
  */
 export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
   const ns = rc.display?.noteSize ?? 1;
-  const iconHalf = (DIRECTIONAL_ICON_SIZE * ns * rc.viewport.scale) / 2; // 方向滑键图标绘制半宽（canvas px）
-  type P = { x: number; y: number; dirEdge: number | null };
+  const base = ns * rc.viewport.scale; // 图标基础缩放（canvas px / 设计尺寸）
+  // 方向滑键连接线端点 = 可见墨迹边缘（issue 40）：精灵框内含横向透明留白，若按精灵框边缘定位，
+  // 线头会与可见墨迹之间留空隙。这里用规范化后的 inkLeft/inkRight（源像素缩进）换算成
+  // 「墨迹边缘距图标中心」的 canvas px，线头天然贴合真实墨迹边缘；普通音符（含 slide 起止结点）仍用正中心。
+  type P = { x: number; y: number; dirEdge: { left: number; right: number } | null };
+  const inkEdge = (icon: { w: number; inkLeft?: number; inkRight?: number }) => ({
+    left: DIRECTIONAL_ICON_SIZE * base * (0.5 - (icon.inkLeft ?? 0) / icon.w),   // 左缘（本音符作右端点时用）
+    right: DIRECTIONAL_ICON_SIZE * base * (0.5 - (icon.inkRight ?? 0) / icon.w), // 右缘（本音符作左端点时用）
+  });
   const groups = new Map<number, P[]>();
   const EPS = 1e-6;
   const key = (beat: number, subBeat?: number): number => beat + (subBeat && subBeat > 0 ? subBeat / rc.beatDisplay : 0);
 
-  const push = (k: number, lane: number, beat: number, subBeat: number | undefined, dirEdge: number | null) => {
+  const push = (k: number, lane: number, beat: number, subBeat: number | undefined, dirEdge: P['dirEdge']) => {
     const pos = c.virtualToCanvas(c.getNoteVirtualX(lane), c.getNoteVirtualY(beat, subBeat || 0));
     let arr: P[] | undefined;
     for (const [gk, g] of groups) {
@@ -713,7 +720,8 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
     if (note.type === 'Single') {
       push(key(note.beat, note.subBeat), note.lane, note.beat, note.subBeat, null);
     } else if (note.type === 'LDirectional' || note.type === 'RDirectional') {
-      push(key(note.beat, note.subBeat), note.lane, note.beat, note.subBeat, iconHalf);
+      const icon = note.type === 'LDirectional' ? BaseSpriteIcons.leftFlick : BaseSpriteIcons.rightFlick;
+      push(key(note.beat, note.subBeat), note.lane, note.beat, note.subBeat, inkEdge(icon));
     } else if (note.type === 'Slide' || note.type === 'Long') {
       const conns = (note as SlideNote).connections;
       if (conns.length < 2) continue;
@@ -732,9 +740,9 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
     g.sort((a, b) => a.x - b.x);
     for (let i = 0; i < g.length - 1; i++) {
       const a = g[i], b = g[i + 1];
-      // 端点：方向滑键停在其靠内边缘，普通音符（含 slide 起止结点）用正中心
-      const fromX = a.dirEdge != null ? a.x + a.dirEdge : a.x;
-      const toX = b.dirEdge != null ? b.x - b.dirEdge : b.x;
+      // 左端点取 a 的右缘墨迹，右端点取 b 的左缘墨迹；普通音符（含 slide 起止结点）用正中心
+      const fromX = a.dirEdge != null ? a.x + a.dirEdge.right : a.x;
+      const toX = b.dirEdge != null ? b.x - b.dirEdge.left : b.x;
       ctx.beginPath();
       ctx.moveTo(fromX, a.y);
       ctx.lineTo(toX, b.y);
@@ -759,6 +767,12 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   if (canvas.width !== bw) canvas.width = bw;
   if (canvas.height !== bh) canvas.height = bh;
   ctx.setTransform(rc.dpr, 0, 0, rc.dpr, 0, 0);
+
+  // issue 40（渲染质量）：统一/声明精灵图平滑策略——源图缩到音符尺寸用**双线性平滑**缩放
+  // （能保留边缘层次，优于 DOM 版的 'pixelated' 硬边；'pixelated' 仅用于工具栏等小 UI 图标的
+  // DOM 展示，两者用途不同）。仅显式置 true（与浏览器默认一致，不改既有观感）；不设 quality='high'
+  // 以免悄悄改变默认滤波观感（如需提升需用户确认）。
+  ctx.imageSmoothingEnabled = true;
 
   // 静态层（黑底+轨道底+网格+起止线，含整幅清屏）离屏缓存 blit（issue 36 F2）
   drawStaticLayer(ctx, rc);
