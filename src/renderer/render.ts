@@ -303,7 +303,8 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     const conn1 = connections[i], conn2 = connections[i + 1];
     const canvasPos1 = c.virtualToCanvas(c.getNoteVirtualX(conn1.lane), c.getNoteVirtualY(conn1.beat, conn1.subBeat || 0));
     const canvasPos2 = c.virtualToCanvas(c.getNoteVirtualX(conn2.lane), c.getNoteVirtualY(conn2.beat, conn2.subBeat || 0));
-    const halfLaneWidth = (LANE_WIDTH * rc.viewport.scale) / 2;
+    // issue 39 #1 补修：连接带宽度与结点图标同步 × noteSize，避免调大小后带与结点脱节
+    const halfLaneWidth = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
     const left1 = canvasPos1.x - halfLaneWidth, right1 = canvasPos1.x + halfLaneWidth;
     const left2 = canvasPos2.x - halfLaneWidth, right2 = canvasPos2.x + halfLaneWidth;
     const quadPoints = [[left1, canvasPos1.y], [right1, canvasPos1.y], [right2, canvasPos2.y], [left2, canvasPos2.y]];
@@ -391,7 +392,8 @@ function drawSlideSelection(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
     const c1 = connections[ci], c2 = connections[ci + 1];
     const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
     const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
-    const halfLaneWidth = (LANE_WIDTH * rc.viewport.scale) / 2;
+    // 区域高亮框与连接带同宽（× noteSize，与 renderSlideBody 一致）
+    const halfLaneWidth = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 2 * rc.viewport.scale;
     ctx.globalAlpha = 0.9;
@@ -489,7 +491,7 @@ function renderSlideGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCt
     const c1 = conns[i], c2 = conns[i + 1];
     const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
     const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
-    const half = (LANE_WIDTH * rc.viewport.scale) / 2;
+    const half = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
     const quad = [[p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y]];
     const minX = Math.min(p1.x - half, p2.x - half);
     const maxX = Math.max(p1.x + half, p2.x + half);

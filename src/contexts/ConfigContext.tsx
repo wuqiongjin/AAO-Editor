@@ -2,7 +2,7 @@
 // 承载：theme / layout / shortcuts / audio，按字段写回（updateSettings）。
 // Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
-import { loadSettings, saveSettings, updateSettings, defaultSettings, type AppSettings } from '../utils/AppSettings';
+import { loadSettings, saveSettings, updateSettings, type AppSettings } from '../utils/AppSettings';
 import { getDefaultConfig, type ShortcutConfig } from '../utils/ShortcutConfig';
 
 export interface ConfigContextValue {
@@ -18,8 +18,6 @@ export interface ConfigContextValue {
   setSeVolume: (volume: number) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
   setAllSettings: (next: AppSettings) => void;
-  /** 恢复默认设置（Q13 配置数据）：重置为出厂默认并持久化 */
-  resetSettings: () => void;
 }
 
 const ConfigContext = createContext<ConfigContextValue | null>(null);
@@ -81,16 +79,10 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setSettings(next);
   };
 
-  const resetSettings = () => {
-    const next = defaultSettings();
-    saveSettings(next);
-    setSettings(next);
-  };
-
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setAllSettings, resetSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

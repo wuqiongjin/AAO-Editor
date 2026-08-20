@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye, Music2 } from 'lucide-react';
 import { useConfig } from '../contexts';
-import { loadSettings } from '../utils/AppSettings';
+import { defaultSettings, loadSettings } from '../utils/AppSettings';
 import type { AppSettings } from '../utils/AppSettings';
 
 // 设置页（issue 28 Q13 + issue 39）：左侧次级索引分为两组——
@@ -45,6 +45,30 @@ function PercentSliderRow({
   );
 }
 
+/** 分组"恢复默认"行：本组参数恢复出厂默认，需二次确认（用户反馈：整体重置放配置数据语义不符） */
+function ResetRow({ label, hint, confirming, onConfirm, onToggle }: {
+  label: string; hint: string; confirming: boolean; onToggle: () => void; onConfirm: () => void;
+}) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row__text">
+        <strong>{label}</strong>
+        <span>{confirming ? `确定恢复？${hint}` : hint}</span>
+      </div>
+      {confirming ? (
+        <span className="inline-actions">
+          <button className="button-secondary" type="button" onClick={onConfirm}>确认恢复</button>
+          <button className="button-secondary" type="button" onClick={onToggle}>取消</button>
+        </span>
+      ) : (
+        <button className="button-secondary" type="button" onClick={onToggle}>
+          <RotateCcw size={15} />恢复默认
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** 行内开关行：布尔参数 */
 function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -62,11 +86,15 @@ function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: st
 }
 
 export default function SettingsPage() {
-  const { settings, setTheme, setDisplay, setSeVolume, setAllSettings, resetSettings } = useConfig();
+  const { settings, setTheme, setDisplay, setSeVolume, setAllSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
-  const [resetConfirm, setResetConfirm] = useState(false);
+  // 分组恢复默认：画布显示/播放各自只重置本组参数（用户反馈：整体重置放在配置数据语义不符）
+  const [resetConfirm, setResetConfirm] = useState<'canvas' | 'playback' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const resetCanvasDefaults = () => setDisplay(defaultSettings().display);
+  const resetPlaybackDefaults = () => setSeVolume(defaultSettings().audio.seVolume);
 
   const handleExport = () => {
     const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
@@ -203,17 +231,23 @@ export default function SettingsPage() {
                   <strong>图像品质</strong>
                   <span>画布渲染精度档位；标准为默认行为</span>
                 </div>
-                <div className="segmented">
+                <select
+                  className="select-control"
+                  value={settings.display.imageQuality}
+                  onChange={(e) => setDisplay({ imageQuality: e.target.value as AppSettings['display']['imageQuality'] })}
+                  aria-label="图像品质"
+                >
                   {QUALITY_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      className={settings.display.imageQuality === opt.value ? 'is-active' : ''}
-                      type="button"
-                      onClick={() => setDisplay({ imageQuality: opt.value })}
-                    >{opt.label}</button>
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
-                </div>
+                </select>
               </div>
+              <ResetRow
+                label="恢复默认" hint="将本组（画布显示）全部参数恢复为出厂默认，不影响其它设置"
+                confirming={resetConfirm === 'canvas'}
+                onToggle={() => setResetConfirm(resetConfirm === 'canvas' ? null : 'canvas')}
+                onConfirm={() => { resetCanvasDefaults(); setResetConfirm(null); }}
+              />
             </>
           )}
 
@@ -227,6 +261,12 @@ export default function SettingsPage() {
                 label="节奏图示 SE 音量" hint="键音（音符击打音效）的独立音量，不影响 BGM"
                 value={settings.audio.seVolume} min={0} max={100} step={5}
                 onChange={(v) => setSeVolume(v)}
+              />
+              <ResetRow
+                label="恢复默认" hint="将本组（播放）全部参数恢复为出厂默认，不影响其它设置"
+                confirming={resetConfirm === 'playback'}
+                onToggle={() => setResetConfirm(resetConfirm === 'playback' ? null : 'playback')}
+                onConfirm={() => { resetPlaybackDefaults(); setResetConfirm(null); }}
               />
             </>
           )}
@@ -250,27 +290,6 @@ export default function SettingsPage() {
                 />
               </div>
               {importError && <div className="shortcut-error">{importError}</div>}
-
-              <div className="danger-row">
-                <div className="settings-row__text">
-                  <strong>恢复默认设置</strong>
-                  <span>{resetConfirm ? '确定恢复？将覆盖当前主题、布局、画布显示与快捷键。' : '重置为主题、布局、画布显示、快捷键与音频偏好为出厂默认，不会删除谱面工程'}</span>
-                </div>
-                {resetConfirm ? (
-                  <span style={{ display: 'flex', gap: 8 }}>
-                    <button type="button" onClick={() => { resetSettings(); setResetConfirm(false); }}>确认恢复</button>
-                    <button
-                      type="button"
-                      style={{ background: 'var(--bg-inset)', color: 'var(--text)', border: '1px solid var(--border)' }}
-                      onClick={() => setResetConfirm(false)}
-                    >取消</button>
-                  </span>
-                ) : (
-                  <button type="button" onClick={() => setResetConfirm(true)}>
-                    <RotateCcw size={15} />恢复默认
-                  </button>
-                )}
-              </div>
             </>
           )}
         </section>

@@ -43,7 +43,8 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
   const ns = deps.noteSize ?? 1;
   const slideNodeRadius = (SLIDE_ICON_SIZE * ns / 2) * deps.viewport.scale + 4 * deps.viewport.scale;
   const noteRadius = (NOTE_ICON_SIZE * ns / 2) * deps.viewport.scale + 4 * deps.viewport.scale;
-  const halfLaneWidth = (LANE_WIDTH * deps.viewport.scale) / 2;
+  // 连接带区域与渲染同步 × noteSize（render.renderSlideBody 的带宽已含 ns）
+  const halfLaneWidth = (LANE_WIDTH * deps.viewport.scale * ns) / 2;
 
   for (let i = 0; i < deps.notes.length; i++) {
     const note = deps.notes[i];

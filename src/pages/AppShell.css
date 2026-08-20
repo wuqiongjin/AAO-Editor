@@ -1036,8 +1036,9 @@
   min-width: 0;
 }
 .settings-row .slider-control,
-.settings-row .segmented,
-.settings-row .switch {
+.settings-row .select-control,
+.settings-row .switch,
+.settings-row .inline-actions {
   flex: 0 0 auto;
 }
 
@@ -1063,30 +1064,27 @@
   font-size: 12px;
 }
 
-/* 分段选择（图像品质三档） */
-.segmented {
-  display: flex;
+/* 下拉选择（图像品质三档，issue 39 追加问题：替换丑的分段按钮） */
+.select-control {
+  min-height: 34px;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  overflow: hidden;
-}
-.segmented button {
-  min-height: 30px;
-  border: 0;
-  border-right: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0 14px;
-  font-size: 11px;
-}
-.segmented button:last-child {
-  border-right: 0;
-}
-.segmented button.is-active {
-  background: var(--bg-elevated);
+  border-radius: 6px;
+  background: var(--bg-inset);
   color: var(--text);
-  font-weight: 650;
+  padding: 0 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.select-control:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* 行内动作组（恢复默认「确认/取消」双按钮） */
+.inline-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .data-actions {
