@@ -19,6 +19,7 @@ if [ -n "$PROXY_URL" ]; then
   PUBLIC_URL="${PROXY_URL//\{\{port\}\}/5173}"
   echo "==> 对外访问地址（CNB 代理，绕开 VSCode 转发隧道）："
   echo "    $PUBLIC_URL"
+  echo "    ${PUBLIC_URL%/}/sprite-locator.html  （精灵图定位工具，独立入口，不随主应用发布）"
 fi
 
 echo "==> 启动 Vite 开发服务器（host: 0.0.0.0, port: 5173）"

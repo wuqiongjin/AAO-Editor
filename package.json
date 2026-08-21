@@ -9,14 +9,15 @@
     "dev:cloud": "DISABLE_HMR=1 vite",
     "setup": "bash scripts/setup.sh",
     "build": "tsc -b && vite build",
+    "build:release": "vite build --mode release",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
-    "electron:dist": "npm run build && electron-builder --publish=never"
+    "electron:build": "npm run build:release && electron-builder",
+    "electron:dist": "npm run build:release && electron-builder --publish=never"
   },
   "dependencies": {
     "lucide-react": "^0.544.0",
