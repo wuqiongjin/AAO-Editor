@@ -66,6 +66,9 @@ export function listNoteSkinPacks(): NoteSkinPack[] {
   return NOTE_SKIN_PACKS;
 }
 
+/** 默认选择（六条目默认值，来自构建期生成器）；供 UI 判定"是否已覆盖" */
+export const DEFAULT_NOTE_SKIN_SELECTION: NoteSkinSelection = NOTE_SKIN_DEFAULT_SELECTION as NoteSkinSelection;
+
 /** 选择归一化：缺字段/包不存在/类别不符 → 默认包（定案 Q10 静默回退） */
 export function normalizeNoteSkinSelection(raw: unknown): NoteSkinSelection {
   const sel = { ...NOTE_SKIN_DEFAULT_SELECTION } as NoteSkinSelection;

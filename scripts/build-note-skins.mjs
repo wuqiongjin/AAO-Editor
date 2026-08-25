@@ -32,8 +32,9 @@ const OVERRIDES_FILE = 'scripts/note-skin-overrides.json';
 const NOTE_PACKS = [
   { id: 'skin00', dir: 'rhythm-note-skins/skin00_rip', label: 'Skin 00' },
 ];
+// 方向键包面向用户与普通包同名（用户不感知"两种包"；同编号天然配对；按条目覆盖区按 eligibility 自动分流）
 const DIR_PACKS = [
-  { id: 'directionalflickskin00', dir: 'directional-flick-skins/directionalflickskin00_rip', label: '方向滑键 Skin 00' },
+  { id: 'directionalflickskin00', dir: 'directional-flick-skins/directionalflickskin00_rip', label: 'Skin 00' },
 ];
 
 const LANES = 7;

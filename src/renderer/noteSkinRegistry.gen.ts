@@ -547,7 +547,7 @@ export const NOTE_SKIN_PACKS: NoteSkinPack[] = [
   {
     "kind": "directional",
     "id": "directionalflickskin00",
-    "label": "方向滑键 Skin 00",
+    "label": "Skin 00",
     "atlas": "./assets/skins/directionalflickskin00/DirectionalFlickSprites.png",
     "atlasW": 1024,
     "atlasH": 1024,

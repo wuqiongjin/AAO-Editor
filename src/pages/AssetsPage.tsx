@@ -1,23 +1,27 @@
 import { useMemo, useState } from 'react';
-import { Check, Image as ImageIcon, Palette } from 'lucide-react';
+import { Check, Image as ImageIcon, Palette, Sparkles, Wand2 } from 'lucide-react';
 import { useConfig } from '../contexts';
 import { KEY_SOUND_SETS, type KeySoundSample } from '../utils/KeySound';
 import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from '../utils/KeySoundMeta';
 import {
   listNoteSkinPacks,
   normalizeNoteSkinSelection,
-  NOTE_SKIN_ITEM_IDS,
-  NOTE_SKIN_ITEM_META,
-  type NoteSkinItemId,
 } from '../renderer/noteSkin';
 import NoteSkinPreview from '../components/NoteSkinPreview';
 
 // 素材页（issue 29）：导航第 3 项（音频之后，设置置末）。
 // grill 2026-08-17 定案：类别 ≥3 后页内改**类别子 tab**（键音 | 音符皮肤 | 背景皮肤），一次看一个类别。
-// - 键音素材包：卡片列表，点「切换」写 settings.audio.keySet（与播放条同字段，立即生效并持久化）。
-// - 音符皮肤（grill 2026-08-24 定案）：官方同名整包预设一键应用 + 六条目独立覆盖；
-//   顶部综合预览画布（Q8=B，真实精灵绘制）实时反映当前组合。
-// - 背景皮肤：占位（数据模型待后续 grill）。
+//   - 键音素材包：卡片列表，点「使用此包」写 settings.audio.keySet（与播放条同字段，立即生效并持久化）。
+//   - 音符皮肤（grill 2026-08-24 定案 + 2026-08-25 形态整改）：官方同名整包预设一键应用 + 六条目独立覆盖；
+//     顶部综合预览画布（Q8=B 真实精灵绘制）实时反映当前组合。
+//   - 背景皮肤：占位（数据模型待后续 grill）。
+//
+// 形态整改（2026-08-25 切片 1，详见 issue 29 Comments）：
+//   - 选中态：去掉「切换」按钮，整卡加 ✓ 主色实心徽标 + 描边/底色对比；
+//   - 未选中态：主色实心「使用此包 / 应用」按钮；
+//   - 整包预设被部分条目覆盖时，预设卡 + 该条目卡 各显示一个「● 已覆盖 / 已修改」红点（Q9=A 双点提示）；
+//   - 「按条目独立覆盖」改为「条目卡 + 包缩略格」网格（Q3-1 = 网格+缩略；缩略真实精灵在下轮切片接入，本轮先占位文字方块）；
+//   - 综合预览改 2×3 网格 + 当前组合大标题（Q3-2）。
 
 /** 采样类型短标签：真实音频 / 振荡器占位 / 分档音频 */
 function sampleTag(sample: KeySoundSample): string {
@@ -82,44 +86,52 @@ function KeySoundPanel({ activeId, onSelect }: { activeId: string; onSelect: (id
         <span className="state-label">{KEY_SOUND_SETS.length} 个</span>
       </div>
 
-      {KEY_SOUND_SETS.map((set) => {
-        const active = set.id === activeId;
-        return (
-          <div key={set.id} className={`asset-set${active ? ' is-active' : ''}`}>
-            <div className="asset-set-visual" aria-hidden="true">
-              <span className="eq">
-                <i /><i /><i /><i /><i />
-              </span>
-            </div>
-            <div className="asset-set-body">
-              <div className="asset-set-head">
-                <strong>{set.label}</strong>
-                {active ? (
-                  <span className="state-label success">使用中</span>
-                ) : (
-                  <button type="button" onClick={() => onSelect(set.id)}>
-                    切换
-                  </button>
-                )}
+      <div className="asset-set-grid">
+        {KEY_SOUND_SETS.map((set) => {
+          const active = set.id === activeId;
+          return (
+            <div key={set.id} className={`asset-set${active ? ' is-active' : ''}`}>
+              <div className="asset-set-visual" aria-hidden="true">
+                <span className="eq">
+                  <i /><i /><i /><i /><i />
+                </span>
               </div>
-              <ul className="asset-samples">
-                {KEY_SOUND_KINDS.map((kind) => {
-                  const meta = KEY_SOUND_KIND_META[kind];
-                  const sample = set.samples[kind];
-                  const synth = !sample.src && !sample.tierSrcs;
-                  return (
-                    <li key={kind} title={meta.hint}>
-                      <span className={`asset-sample-dot${synth ? ' is-synth' : ''}`} />
-                      <span>{meta.label}</span>
-                      <span className="asset-sample-tag">{sampleTag(sample)}</span>
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className="asset-set-body">
+                <div className="asset-set-head">
+                  <strong>{set.label}</strong>
+                  {active ? (
+                    <span className="state-pill success" aria-label="正在使用">
+                      <Check size={13} /> 使用中
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button-primary asset-set-apply"
+                      onClick={() => onSelect(set.id)}
+                    >
+                      使用此包
+                    </button>
+                  )}
+                </div>
+                <ul className="asset-samples">
+                  {KEY_SOUND_KINDS.map((kind) => {
+                    const meta = KEY_SOUND_KIND_META[kind];
+                    const sample = set.samples[kind];
+                    const synth = !sample.src && !sample.tierSrcs;
+                    return (
+                      <li key={kind} title={meta.hint}>
+                        <span className={`asset-sample-dot${synth ? ' is-synth' : ''}`} />
+                        <span>{meta.label}</span>
+                        <span className="asset-sample-tag">{sampleTag(sample)}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
       <div className="flow-note"><Check size={15} />切换后立即对后续播放生效；当前播放中的按键音将在暂停/重播后使用新素材。</div>
     </section>
@@ -150,67 +162,83 @@ function NoteSkinPanel() {
     selection.tap === noteId && selection.flick === noteId && selection.skill === noteId && selection.slide === noteId
     && (pairedDir === null || (selection.dirL === pairedDir && selection.dirR === pairedDir));
 
+  /** "整包预设被部分条目覆盖"——与默认完全相等才算"未修改" */
+  const isPresetModified = (noteId: string, pairedDir: string | null) =>
+    !isPresetActive(noteId, pairedDir);
+
   return (
     <section className="skin-panel" aria-label="音符皮肤">
       <div className="section-heading">
         <div>
           <h2>音符皮肤</h2>
-          <p>谱面音符的外观素材包。整包一键应用，或按条目单独覆盖；预览实时反映当前组合。</p>
+          <p>谱面音符的外观素材包。每行 = 1 个音符类型 = 1 个真实精灵示例 + 1 组可选包。点任意缩略切换；与整包预设并存。</p>
         </div>
         <span className="state-label">{packs.length} 个</span>
       </div>
 
-      {/* 综合预览（grill Q8=B）：真实精灵绘制六类样例，选择变化即时刷新 */}
-      <NoteSkinPreview selection={selection} />
-
-      <div className="skin-presets">
-        <h3>整包预设</h3>
+      {/* 整包预设（Q14 切片 3 前置：一键整包 = 高频高优，先看见） */}
+      <div className="skin-section">
+        <div className="skin-section-head">
+          <Wand2 size={16} />
+          <h3>整包预设</h3>
+          <span className="field-help">官方同编号配对，一键写入六条目；之后仍可按条目单独覆盖。</span>
+        </div>
         <div className="skin-preset-list">
           {notePacks.map((pack) => {
             const active = isPresetActive(pack.id, pack.pairedDir);
+            const modified = isPresetModified(pack.id, pack.pairedDir);
             return (
-              <div key={pack.id} className={`skin-preset${active ? ' is-active' : ''}`}>
-                <div className="skin-preset-head">
-                  <strong>{pack.label}</strong>
-                  {active ? (
-                    <span className="state-label success">使用中</span>
-                  ) : (
-                    <button type="button" onClick={() => applyPreset(pack.id, pack.pairedDir)}>应用整包</button>
-                  )}
+              <div
+                key={pack.id}
+                className={[
+                  'asset-set',
+                  'skin-preset',
+                  active ? 'is-active' : '',
+                  modified && !active ? 'is-modified' : '',
+                ].filter(Boolean).join(' ')}
+              >
+                <div className="asset-set-visual" aria-hidden="true">
+                  <Sparkles size={20} />
                 </div>
-                <span className="field-help">
-                  {pack.pairedDir ? `含方向键配对：${packs.find((p) => p.id === pack.pairedDir)?.label ?? pack.pairedDir}` : '不含方向键配对'}
-                </span>
+                <div className="asset-set-body">
+                  <div className="asset-set-head">
+                    <strong>{pack.label}</strong>
+                    {active ? (
+                      <span className="state-pill success" aria-label="整包正在使用">
+                        <Check size={13} /> 整包使用中
+                      </span>
+                    ) : modified ? (
+                      <span className="state-pill warning" aria-label="已被条目覆盖">
+                        ● 已修改
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="button-primary asset-set-apply"
+                        onClick={() => applyPreset(pack.id, pack.pairedDir)}
+                      >
+                        应用整包
+                      </button>
+                    )}
+                  </div>
+                  {/* 整包预设 = 1 套皮肤 = 同时覆盖 6 类音符；不向用户暴露"方向键配对"这种实现细节 */}
+                </div>
               </div>
             );
           })}
         </div>
       </div>
 
-      <div className="skin-items">
-        <h3>按条目覆盖</h3>
-        {NOTE_SKIN_ITEM_IDS.map((item: NoteSkinItemId) => {
-          const meta = NOTE_SKIN_ITEM_META[item];
-          const eligible = packs.filter((p) => p.kind === meta.eligible);
-          return (
-            <label key={item} className="skin-item">
-              <span className="skin-item-name" title={meta.hint}>{meta.label}</span>
-              <select
-                value={selection[item]}
-                onChange={(e) => setNoteSkin({ [item]: e.target.value })}
-              >
-                {eligible.map((p) => (
-                  <option key={p.id} value={p.id}>{p.label}</option>
-                ))}
-              </select>
-            </label>
-          );
-        })}
-        <div className="flow-note"><Check size={15} />条目选择立即生效并自动保存；画布音符外观即时切换。</div>
-      </div>
+      {/* 综合预览 + 按条目选择（Q13=A 切片 3：6 列 2 行，列对齐；高信息密度） */}
+      <NoteSkinPreview
+        selection={selection}
+        onChange={(item, packId) => setNoteSkin({ [item]: packId })}
+      />
     </section>
   );
 }
+
+// 单条目覆盖行已并入 NoteSkinPreview（2026-08-25 切片 2），此处不再需要 SkinItemRow。
 
 // ---------------- 背景皮肤（占位） ----------------
 

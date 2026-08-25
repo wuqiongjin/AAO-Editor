@@ -1,45 +1,35 @@
-// 用户 2026-08-25 第 2 轮反馈：音符皮肤预览里 Slide 应当竖向（连接带竖直拉伸 + 端点上下堆叠），
-// 与画布上"按住位置在轨道上、终点 beat 出现在下方"的阅读方向一致。
-// 这里只测布局纯函数 computeSlidePreviewLayout，不引入 jsdom/canvas。
+// 2026-08-25 切片 3（Q13=A）：音符皮肤预览改 6 列 2 行布局。
+// 第 1 行：6 个真实精灵预览画布；第 2 行：6 个对应包选择器。
+// 这里只测单列的几何纯函数 computeSlideColLayout（slide 列特殊：竖向连接带 + 上下端点 + 中间结点）。
+// 不变量：竖向、端点上下、bandH > bandW。
 import { describe, it, expect } from 'vitest';
-import { computeSlidePreviewLayout } from '../../src/components/NoteSkinPreview';
+import { computeSlideColLayout, PREVIEW_CELL_W, PREVIEW_CELL_H } from '../../src/components/NoteSkinPreview';
 
-describe('音符皮肤预览：Slide 布局（用户 2026-08-25 第 2/3 轮）', () => {
-  it('Slide 应当竖向：连接带高 > 宽，端点在 y 方向分离，共享 x', () => {
-    const W = 660, H = 128;
-    const l = computeSlidePreviewLayout(W, H);
-    // 1) 连接带是竖条：bandH > bandW
+describe('音符皮肤预览：Slide 列布局（切片 3，2026-08-25 Q13=A）', () => {
+  it('Slide 列应当竖向：连接带高 > 宽，端点在 y 方向分离', () => {
+    const l = computeSlideColLayout(PREVIEW_CELL_W, PREVIEW_CELL_H);
     expect(l.bandH, '连接带应当竖向拉伸（高>宽）').toBeGreaterThan(l.bandW);
-    // 2) 上端点 y < 中间结点 y < 下端点 y（时间从上往下读：起点在上、终点在下）
-    expect(l.slideTop).toBeLessThan(l.cy);
-    expect(l.cy).toBeLessThan(l.slideBottom);
-    // 3) 端点与连接带共享 x（垂直排列）
-    expect(l.slideX).toBe(l.cellX);
-    // 4) 中间结点 y 是端点 y 的中点
-    const midY = (l.slideTop + l.slideBottom) / 2;
-    expect(midY).toBeCloseTo(l.cy, 6);
+    expect(l.topY).toBeLessThan(l.midY);
+    expect(l.midY).toBeLessThan(l.bottomY);
   });
 
-  it('Slide 预览位于第 6 格（cellX = 5.5/6 × W）', () => {
-    const W = 660;
-    const l = computeSlidePreviewLayout(W, 128);
-    expect(l.slideX).toBeCloseTo((5 + 0.5) * (W / 6), 6);
+  it('Slide 列中线 = 端点中点（中间结点 y = 上下端点 y 的中点）', () => {
+    const l = computeSlideColLayout(PREVIEW_CELL_W, PREVIEW_CELL_H);
+    const midFromEndpoints = (l.topY + l.bottomY) / 2;
+    expect(midFromEndpoints).toBeCloseTo(l.midY, 6);
   });
 
-  it('不同画布尺寸下"竖向布局"不变量仍成立', () => {
-    for (const [W, H] of [[480, 96], [660, 128], [960, 160]] as const) {
-      const l = computeSlidePreviewLayout(W, H);
+  it('不同列宽下"竖向布局"不变量仍成立', () => {
+    for (const [W, H] of [[120, 80], [140, 88], [180, 100]] as const) {
+      const l = computeSlideColLayout(W, H);
       expect(l.bandH).toBeGreaterThan(l.bandW);
-      expect(l.slideTop).toBeLessThan(l.cy);
-      expect(l.cy).toBeLessThan(l.slideBottom);
+      expect(l.topY).toBeLessThan(l.midY);
+      expect(l.midY).toBeLessThan(l.bottomY);
     }
   });
 
-  it('连接带宽度应明显比端点水平占位更宽（用户第 3 轮反馈：旧 bandW=18 太细，连接带与端点宽度持平反而像"瘦条"）', () => {
-    // 端点水平占位 ≈ canvasWidth(36) × scale(1.3) = 46.8 设计 px
-    // 连接带宽度应比端点水平占位明显更宽
-    const l = computeSlidePreviewLayout(660, 128);
-    const endpointVisualW = 36 * 1.3;
-    expect(l.bandW, `连接带宽度 ${l.bandW} 应大于端点水平占位 ${endpointVisualW}`).toBeGreaterThan(endpointVisualW);
+  it('cx 居中（= W/2）', () => {
+    const l = computeSlideColLayout(PREVIEW_CELL_W, PREVIEW_CELL_H);
+    expect(l.cx).toBeCloseTo(PREVIEW_CELL_W / 2, 6);
   });
 });
