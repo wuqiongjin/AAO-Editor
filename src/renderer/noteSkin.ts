@@ -47,10 +47,15 @@ export const NOTE_SKIN_GEOMETRY = {
   /** 滑键箭头：墨迹宽 = 主体宽 × 0.68；墨迹底部落在主体中心线上方 3px（图5 紧贴观感） */
   FLICK_TOP_INK_W_RATIO: 0.68,
   FLICK_TOP_INK_BOTTOM_Y: -3,
-  /** 方向键：本体设计宽 45（DIRECTIONAL_ICON_SIZE）；箭头墨迹高 16；水平重叠 15（旧组合 L1/L2/L3 偏移反推） */
+  /** 方向键：本体设计宽 45（DIRECTIONAL_ICON_SIZE）；箭头墨迹高 16；
+   *  箭头中线相对本体中线的外推量（设计 px）。
+   *  第 1 轮：OVERLAP=15 → 箭头塞本体正中（重叠）
+   *  第 2 轮：INTO_BODY=5（向内偏移 5px）→ 箭头完全在本体内（外缘不外露）
+   *  第 3 轮：INTO_BODY=0（无偏移）→ 箭头中线在本体外缘附近，外缘露本体外 2-3px（"一点点距离"）
+   *  更大值（如 15）会让外缘明显外露、像两个独立元素。 */
   DIR_BODY_HALF_W: 22.5,
   DIR_CHEVRON_INK_H: 16,
-  DIR_CHEVRON_OVERLAP: 15,
+  DIR_CHEVRON_INTO_BODY: 3,
 } as const;
 
 export function getNoteSkinPack(id: string): NoteSkinPack | undefined {
@@ -215,7 +220,10 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
       offsetVirtualX: sign * k * LANE_WIDTH,
     }));
 
-    // 外侧箭头（视觉修订 4）：墨迹高 16 设计px，水平 GAP = 半身 + 半墨迹 − 重叠 15，墨迹偏心修正并入 extra
+    // 外侧箭头（视觉修订 4 第 2 轮 2026-08-25）：箭头中线 = 本体外缘 - sign * DIR_CHEVRON_INTO_BODY
+    //   即箭头中线相对本体远缘 = sign * (DIR_BODY_HALF_W - DIR_CHEVRON_INTO_BODY)（负=L 在本体内，正=R 在本体内）
+    //   箭头墨迹半宽 inkHalfW，箭头左(L)/右(R)墨迹缘相对本体远缘 = -(DIR_BODY_HALF_W - DIR_CHEVRON_INTO_BODY) ± inkHalfW
+    //   INTO_BODY > inkHalfW：箭头左半压本体；INTO_BODY = inkHalfW：箭头左缘贴本体外缘；INTO_BODY < inkHalfW：箭头部分外露
     const topRect = type === 'L' ? pack.flickTopL : pack.flickTopR;
     const ink = pack.ink[type === 'L' ? 'note_flick_top_l' : 'note_flick_top_r'];
     let chevron: DirGroupVisual['chevron'] = null;
@@ -226,15 +234,17 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
         const drawH = NOTE_SKIN_GEOMETRY.DIR_CHEVRON_INK_H * (topRect.h / inkH);
         const drawW = drawH * (topRect.w / topRect.h);
         const inkHalfW = (drawW * inkW) / topRect.w / 2;
-        const gap = NOTE_SKIN_GEOMETRY.DIR_BODY_HALF_W + inkHalfW - NOTE_SKIN_GEOMETRY.DIR_CHEVRON_OVERLAP;
         const inkCenterXF = (ink.left + inkW / 2) / topRect.w;
+        // 箭头中线相对本体中线（设计 px）：sign 决定方向，INTO_BODY 控制向内吃进量
+        const arrowCenterX = sign * (NOTE_SKIN_GEOMETRY.DIR_BODY_HALF_W - NOTE_SKIN_GEOMETRY.DIR_CHEVRON_INTO_BODY);
         chevron = {
           config: rectToConfig(pack.atlas, topRect),
           offsetVirtualX: sign * (len - 1) * LANE_WIDTH,
-          extraDesignX: sign * gap - (inkCenterXF - 0.5) * drawW,
+          extraDesignX: arrowCenterX - (inkCenterXF - 0.5) * drawW,
           drawW,
           drawH,
         };
+        void inkHalfW; // 保留为未来 if 调整用（断言可见性）
       }
     }
     return { bodies, chevron };

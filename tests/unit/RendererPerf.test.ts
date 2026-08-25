@@ -109,7 +109,7 @@ function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: numbe
     markerBeat: null,
     markerSelected: false,
     selectedTool: 'mouse',
-    spriteIcon: { render: () => { counters.spriteRenders++; } } as unknown as RenderCtx['spriteIcon'],
+    spriteIcon: { render: () => { counters.spriteRenders++; }, renderDecorator: () => undefined } as unknown as RenderCtx['spriteIcon'],
     noteIcons: SHARED_NOTE_ICONS,
     zoomGesture,
   };

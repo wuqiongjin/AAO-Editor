@@ -280,22 +280,25 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   });
 
   // 第二层：装饰器层 - 确保装饰器在所有音符之上
+  // 用户 2026-08-25 反馈：flick 实际放置时无装饰箭头（皮肤预览有，画布没有）。
+  // 根因：之前用 renderLayer: 'decorators' 单独渲染 dec，该分支要求主精灵传 decorators
+  // 才会触发挂件渲染；直接 ...dec 当主精灵又会被 drawSingle 忽略 offsetX/offsetY。
+  // 修法：调 spriteIcon.renderDecorator（专门为"主精灵已画、补一个挂件"设计），
+  // offsetX/offsetY 正确按 spriteScale 应用。
   visibleNotes.forEach(({ note }) => {
     if (note.type === "Single" && note.flick) {
-      // issue 29：滑键 = 本体（第一层已画）+ 顶部箭头挂件（note_flick_top，包未提供时无挂件）
+      const dec = icons.flickTopDecorator;
+      if (!dec) return;
       const subBeat = note.subBeat || 0;
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
-      const dec = icons.flickTopDecorator;
-      if (dec) {
-        rc.spriteIcon.render(ctx, {
-          ...dec,
-          canvasX: canvasPos.x, canvasY: canvasPos.y,
-          canvasSize: NOTE_ICON_SIZE,
-          canvasWidth: NOTE_ICON_SIZE,
-          canvasHeight: NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
-          scale: spriteScale, renderLayer: 'decorators',
-        });
-      }
+      const flickCfg = icons.flickFor(note.lane);
+      const anchor = {
+        canvasX: canvasPos.x,
+        canvasY: canvasPos.y,
+        drawW: flickCfg.out?.w ?? NOTE_ICON_SIZE,
+        drawH: flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
+      };
+      rc.spriteIcon.renderDecorator(ctx, anchor, dec, spriteScale);
     }
   });
 }

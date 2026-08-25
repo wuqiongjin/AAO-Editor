@@ -50,6 +50,18 @@ export interface CanvasSpriteIconProps {
     renderLayer?: 'main' | 'decorators' | 'all';
 }
 
+/** 锚点（主精灵位置 + 设计尺寸）——供 `renderDecorator` 把挂件贴在主精灵上。 */
+export interface SpriteAnchor {
+    /** 主精灵中心 canvasX */
+    canvasX: number;
+    /** 主精灵中心 canvasY */
+    canvasY: number;
+    /** 主精灵设计宽（drawW） */
+    drawW: number;
+    /** 主精灵设计高（drawH） */
+    drawH: number;
+}
+
 export default class CanvasSpriteIcon {
     private static imageCache: Map<string, HTMLImageElement> = new Map();
     private static loadingPromises: Map<string, Promise<HTMLImageElement>> = new Map();
@@ -64,7 +76,7 @@ export default class CanvasSpriteIcon {
             return Promise.resolve(CanvasSpriteIcon.imageCache.get(url)!);
         }
         if (CanvasSpriteIcon.loadingPromises.has(url)) {
-            return CanvasSpriteIcon.loadingPromises.get(url)!;
+            return Promise.resolve(CanvasSpriteIcon.loadingPromises.get(url)!);
         }
 
         const p = new Promise<HTMLImageElement>((resolve, reject) => {
@@ -109,7 +121,7 @@ export default class CanvasSpriteIcon {
     ) {
         const img = CanvasSpriteIcon.getImageSync(cfg.src);
         if (!img) {
-            CanvasSpriteIcon.loadImage(cfg.src).catch(() => {});
+            CanvasSpriteIcon.loadImage(cfg.src).catch(() => undefined);
             return false;
         }
         const rect = CanvasSpriteIcon.computeSrcRect(img, cfg);
@@ -129,11 +141,41 @@ export default class CanvasSpriteIcon {
         return true;
     }
 
+    /**
+     * 渲染一串挂件（设计 px 偏移按 spriteScale 应用）。
+     *  提取为静态方法以供 `renderDecorator` 复用。
+     */
+    private static drawDecorators(
+        ctx: CanvasRenderingContext2D,
+        anchor: SpriteAnchor,
+        list: SpriteIconConfig[],
+        spriteScale: number,
+    ) {
+        for (const dec of list) {
+            const sX = dec.scale ?? 1;
+            const scaleX = dec.scaleX ?? sX;
+            const scaleY = dec.scaleY ?? sX;
+            // 装饰器尺寸相对主精灵设计尺寸按 scaleX/Y 缩放
+            const dW = anchor.drawW * scaleX * spriteScale;
+            const dH = anchor.drawH * scaleY * spriteScale;
+            const offsetX = (dec.offsetX ?? 0) * spriteScale;
+            const offsetY = (dec.offsetY ?? 0) * spriteScale;
+            CanvasSpriteIcon.drawSingle(ctx, {
+                src: dec.src, x: dec.x, y: dec.y, w: dec.w, h: dec.h,
+                canvasX: anchor.canvasX + offsetX,
+                canvasY: anchor.canvasY + offsetY,
+                canvasW: dW, canvasH: dH,
+                overallScale: 1, scaleX: 1, scaleY: 1,
+            });
+        }
+    }
+
     public render(ctx: CanvasRenderingContext2D, props: CanvasSpriteIconProps) {
         const { src, x, y, w, h, canvasX, canvasY, canvasSize, canvasWidth, canvasHeight, scale = 1.0, decorators = [], renderLayer = 'all' } = props;
 
         const displayW = canvasWidth ?? canvasSize;
         const displayH = canvasHeight ?? canvasSize;
+        const anchor: SpriteAnchor = { canvasX, canvasY, drawW: displayW, drawH: displayH };
 
         if (renderLayer === 'main' || renderLayer === 'all') {
             CanvasSpriteIcon.drawSingle(ctx, { src, x, y, w, h, canvasX, canvasY, canvasW: displayW, canvasH: displayH, overallScale: scale });
@@ -142,27 +184,18 @@ export default class CanvasSpriteIcon {
         const low = decorators.filter(d => (d.zIndex ?? 0) < 10).sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
         const high = decorators.filter(d => (d.zIndex ?? 0) >= 10).sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
-        const renderDecoratorList = (list: SpriteIconConfig[]) => {
-            for (const dec of list) {
-                const sX = dec.scale ?? 1;
-                const scaleX = dec.scaleX ?? sX;
-                const scaleY = dec.scaleY ?? sX;
-                // 装饰器尺寸同样乘以 viewport.scale，与主图标/轨道保持一致的缩放比例
-                const dW = displayW * scaleX * scale;
-                const dH = displayH * scaleY * scale;
-                const offsetX = (dec.offsetX ?? 0) * scale;
-                const offsetY = (dec.offsetY ?? 0) * scale;
+        if (renderLayer === 'main' || renderLayer === 'all') CanvasSpriteIcon.drawDecorators(ctx, anchor, low, scale);
+        if (renderLayer === 'decorators' || renderLayer === 'all') CanvasSpriteIcon.drawDecorators(ctx, anchor, high, scale);
+    }
 
-                CanvasSpriteIcon.drawSingle(ctx, {
-                    src: dec.src, x: dec.x, y: dec.y, w: dec.w, h: dec.h,
-                    canvasX: canvasX + offsetX, canvasY: canvasY + offsetY,
-                    canvasW: dW, canvasH: dH, overallScale: 1, scaleX: 1, scaleY: 1
-                });
-            }
-        };
-
-        if (renderLayer === 'main' || renderLayer === 'all') renderDecoratorList(low);
-        if (renderLayer === 'decorators' || renderLayer === 'all') renderDecoratorList(high);
+    /**
+     * 单独绘制一个挂件（不画主精灵）——用于"挂件单独覆盖"渲染路径（如 flick 顶部箭头，
+     * 主精灵已在第一层画过，第二层只画挂件；旧实现用 renderLayer:'decorators' 是错的，
+     * 因为该分支需要主精灵传 decorators 才会触发渲染，直接传挂件当主精灵又丢失 offset）。
+     *  挂件的 offsetX/offsetY 是设计 px，会按 spriteScale 应用。
+     */
+    public renderDecorator(ctx: CanvasRenderingContext2D, anchor: SpriteAnchor, dec: SpriteIconConfig, spriteScale: number) {
+        CanvasSpriteIcon.drawDecorators(ctx, anchor, [dec], spriteScale);
     }
 
     public isPointInIcon(px: number, py: number, props: CanvasSpriteIconProps) {

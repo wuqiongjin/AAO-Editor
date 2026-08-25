@@ -6,7 +6,35 @@ import { useEffect, useRef } from 'react';
 import CanvasSpriteIcon from './CanvasSpriteIcon';
 import { buildActiveNoteIcons, type NoteSkinSelection } from '../renderer/noteSkin';
 
+/** 6 个预览格（从左到右）共享同一基础尺寸 */
 const CELL_COUNT = 6;
+
+/** Slide 预览布局（用户 2026-08-25 第 2 轮反馈：竖向；端点上下堆叠 + 中间结点 + 竖直连接带）。
+ *  抽出为纯函数供测试独立校验布局形态（避免 jsdom 渲染画布）。 */
+export interface SlidePreviewLayout {
+  cellX: number;
+  cy: number;
+  slideX: number;
+  slideTop: number;
+  slideBottom: number;
+  bandW: number;
+  bandH: number;
+}
+export function computeSlidePreviewLayout(W: number, H: number): SlidePreviewLayout {
+  const cellX = (i: number) => (W / CELL_COUNT) * (i + 0.5);
+  const cy = H * 0.52;
+  const slideX = cellX(5);
+  const slideHalfH = 36;
+  return {
+    cellX: slideX,
+    cy,
+    slideX,
+    slideTop: cy - slideHalfH,
+    slideBottom: cy + slideHalfH,
+    bandW: 48,            // 连接带视觉宽度（用户 2026-08-25 第 3 轮反馈：旧 18 太细；连接带应比端点水平占位更宽，贴近图2）
+    bandH: slideHalfH * 2,
+  };
+}
 
 export default function NoteSkinPreview({ selection }: { selection: NoteSkinSelection }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -84,25 +112,38 @@ export default function NoteSkinPreview({ selection }: { selection: NoteSkinSele
           });
         }
       }
-      // 6 滑条：连接带（整图拉伸）+ 端点(单键皮肤) + 中间结点(note_slide_among)
+      // 6 滑条：竖向连接带（整图拉伸进四边形）+ 上/下端点(长条端帽) + 中间结点(note_slide_among)
+      // 用户 2026-08-25 第 2 轮反馈：第 1 轮改为横向与"在画布上阅读滑条走向"不一致——
+      //   预览区是从上往下读时间轴的，所以预览中滑条应当竖向（连接带竖直拉伸、上端=起点、下端=终点），
+      //   端点上下堆叠；这与画布上"按住位置在轨道上、终点 beat 出现在下方"的阅读方向一致。
+      // 布局由纯函数 computeSlidePreviewLayout 算出，单测可独立校验"竖向布局"不变量。
+      const layout = computeSlidePreviewLayout(W, H);
+      const slideX = layout.slideX;
+      const slideTop = layout.slideTop;
+      const slideBottom = layout.slideBottom;
+      const bandW = layout.bandW;
+      const bandH = layout.bandH;
       sprite.render(ctx, {
         ...icons.slideBand,
-        canvasX: cellX(5), canvasY: cy, canvasSize: 84,
-        canvasWidth: 18, canvasHeight: 92, scale: 1, renderLayer: 'main',
+        canvasX: slideX, canvasY: (slideTop + slideBottom) / 2, canvasSize: Math.max(bandW, bandH),
+        canvasWidth: bandW, canvasHeight: bandH, scale: 1, renderLayer: 'main',
       });
+      // 上端点（长条端帽，对应 slide 起点）
       sprite.render(ctx, {
         ...icons.slideEndpointFor(3),
-        canvasX: cellX(5), canvasY: cy - 36, canvasSize: 36,
+        canvasX: slideX, canvasY: slideTop, canvasSize: 36,
         canvasWidth: 36, canvasHeight: 21.6, scale: 1.3, renderLayer: 'main',
       });
+      // 中间结点
       sprite.render(ctx, {
         ...icons.slideAmongFor(3),
-        canvasX: cellX(5), canvasY: cy, canvasSize: 36,
+        canvasX: slideX, canvasY: layout.cy, canvasSize: 36,
         canvasWidth: 36, canvasHeight: 21.6, scale: 1.3, renderLayer: 'main',
       });
+      // 下端点（长条端帽，对应 slide 终点）
       sprite.render(ctx, {
         ...icons.slideEndpointFor(3),
-        canvasX: cellX(5), canvasY: cy + 36, canvasSize: 36,
+        canvasX: slideX, canvasY: slideBottom, canvasSize: 36,
         canvasWidth: 36, canvasHeight: 21.6, scale: 1.3, renderLayer: 'main',
       });
     };

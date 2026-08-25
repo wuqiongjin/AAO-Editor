@@ -193,6 +193,53 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
     expect(icons.dirGroup('L', 9).bodies).toHaveLength(3);
   });
 
+  it('dirGroup：方向键装饰箭头与本体部分重叠（用户 2026-08-25 第 2/3 轮反馈，参照图2 穿越观感）', () => {
+    // 不变式（dirGroup 注释）：箭头中线 = 本体远缘 - sign * DIR_CHEVRON_INTO_BODY
+    //   化简：L 方向 (sign=-1) 箭头中线 = -DIR_BODY_HALF_W + INTO_BODY
+    //        R 方向 (sign=+1) 箭头中线 = +DIR_BODY_HALF_W - INTO_BODY
+    //   中线相对本体中线 = sign * (DIR_BODY_HALF_W - INTO_BODY)
+    //   INTO_BODY =  0  : 中线在本体远缘
+    //   INTO_BODY =  5  : 中线在本体远缘内 5px（外缘塞本体内 ~3px）
+    //   INTO_BODY = 10  : 中线在本体远缘外 10px（外缘略外露 ~2px）—— 第 3 轮"一点点距离"
+    //   INTO_BODY = 15  : 中线在本体远缘外 15px（外缘明显外露 ~7px）—— 第 2 轮图2 观感
+    //   实际 extraDesignX = 中线 - (inkCenterXF - 0.5) * drawW（墨迹偏心修正）
+    //   箭头外缘 = 中线 - inkHalfW（设计 px，相对本体中线）
+    //   L 外缘在本体远缘外  =  (-DIR_BODY_HALF_W + INTO_BODY) - inkHalfW - (-DIR_BODY_HALF_W)
+    //                       =  INTO_BODY - inkHalfW
+    //   R 对称：外露 = INTO_BODY - inkHalfW
+    //   通用：beyondBody = INTO_BODY - inkHalfW
+    for (const type of ['L', 'R'] as const) {
+      for (const len of [1, 2, 3] as const) {
+        const g = icons.dirGroup(type, len);
+        expect(g.chevron, `dirGroup(${type}, ${len}) 必须有 chevron`).not.toBeNull();
+        const topRect = type === 'L'
+          ? dirPacks.find((p) => p.id === 'directionalflickskin00')!.flickTopL!
+          : dirPacks.find((p) => p.id === 'directionalflickskin00')!.flickTopR!;
+        const ink = dirPacks.find((p) => p.id === 'directionalflickskin00')!.ink[
+          type === 'L' ? 'note_flick_top_l' : 'note_flick_top_r'
+        ]!;
+        const inkW = topRect.w - ink.left - ink.right;
+        const inkHalfW = (g.chevron!.drawW * inkW) / topRect.w / 2;
+        // 几何算"外缘外露本体外多少"（设计 px，符号约定：L 用 extraDesignX - inkHalfW 偏左为更外）
+        //   真实：extraDesignX = 中线 - bias = sign*(DIR_BODY_HALF_W - INTO_BODY) - (inkCenterXF - 0.5)*drawW
+        //   不去手算偏心，改为：通过 beyondBody = bodyEdge - sign*extraDesignX - inkHalfW 反推
+        const bodyEdge = NOTE_SKIN_GEOMETRY.DIR_BODY_HALF_W;
+        const sign = type === 'L' ? -1 : 1;
+        const beyondBody = bodyEdge - sign * g.chevron!.extraDesignX - inkHalfW;
+        // 第 3 轮（INTO_BODY=10）：箭头外缘相对本体远缘外露约 (INTO_BODY - inkHalfW) px
+        const expectedBeyond = NOTE_SKIN_GEOMETRY.DIR_CHEVRON_INTO_BODY - inkHalfW;
+        // 容许 ±2.5px 容差（墨迹偏心 + drawW 推导浮点误差）
+        expect(beyondBody, `dirGroup(${type}, ${len}) 外缘外露 ${beyondBody.toFixed(2)}px 应≈ ${expectedBeyond.toFixed(2)}px (±2.5)`)
+          .toBeGreaterThan(expectedBeyond - 2.5);
+        expect(beyondBody).toBeLessThan(expectedBeyond + 2.5);
+        // 不变量：箭头**尖端**应始终在本体外（露本体外至少 inkHalfW * 0.4）
+        //   防止"完全脱开成两个独立元素"（INTO_BODY 过大时）
+        expect(beyondBody, `dirGroup(${type}, ${len}) 箭头完全脱开本体 ${beyondBody.toFixed(2)}px`)
+          .toBeLessThan(inkHalfW * 2);
+      }
+    }
+  });
+
   it('preloadSrcs 覆盖当前选择涉及的全部图片', () => {
     const srcs = icons.preloadSrcs();
     expect(srcs).toContain(skin00.atlas);
