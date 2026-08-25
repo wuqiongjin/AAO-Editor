@@ -30,10 +30,10 @@ import {
  */
 
 const SKIN_FILES: Array<{ label: string; url: string }> = [
-  { label: 'RhythmGameSprites.png', url: './assets/skins/RhythmGameSprites.png' },
-  { label: 'DirectionalFlickSprites.png', url: './assets/skins/DirectionalFlickSprites.png' },
-  { label: 'longNoteLine.png', url: './assets/skins/longNoteLine.png' },
-  { label: 'longNoteLine2.png', url: './assets/skins/longNoteLine2.png' },
+  { label: 'RhythmGameSprites.png', url: './assets/skins/legacy/RhythmGameSprites.png' },
+  { label: 'DirectionalFlickSprites.png', url: './assets/skins/legacy/DirectionalFlickSprites.png' },
+  { label: 'longNoteLine.png', url: './assets/skins/legacy/longNoteLine.png' },
+  { label: 'longNoteLine2.png', url: './assets/skins/legacy/longNoteLine2.png' },
 ];
 
 const MIN_ZOOM = 0.05;

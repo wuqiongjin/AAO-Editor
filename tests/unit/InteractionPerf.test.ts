@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChartGeometry } from '../../src/utils/ChartGeometry';
 import { renderChart } from '../../src/renderer/render';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/renderer/noteSkin';
 import {
   drawNotesLayer, resetNoteLayerCache, diffNotes, TILE_PX, __setTileCanvasFactoryForTests,
 } from '../../src/renderer/noteLayerCache';
@@ -45,6 +46,8 @@ function makeCountingCtx(counters: Counters): CanvasRenderingContext2D {
 
 const EMPTY_SELECTED: never[] = [];
 const EMPTY_CLIPBOARD: never[] = [];
+// 音符皮肤图标集（issue 29）：默认选择构建一次共享（纯数据，不含 DOM）
+const SHARED_NOTE_ICONS = buildActiveNoteIcons(normalizeNoteSkinSelection(undefined));
 
 function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: number, es: number, scrollY: number, selectedItems: unknown[], counters: Counters, spriteCounter?: { n: number }): RenderCtx {
   return {
@@ -64,6 +67,7 @@ function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: numbe
     markerSelected: false,
     selectedTool: 'mouse',
     spriteIcon: { render: () => { if (spriteCounter) spriteCounter.n++; else counters.sprites++; } } as unknown as RenderCtx['spriteIcon'],
+    noteIcons: SHARED_NOTE_ICONS,
   };
 }
 

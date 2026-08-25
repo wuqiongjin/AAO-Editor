@@ -4,6 +4,7 @@ import { ChartGeometry } from '../../src/utils/ChartGeometry';
 import { drawNotesLayer, resetNoteLayerCache, __setTileCanvasFactoryForTests, __getTilesForTests, TILE_PX } from '../../src/renderer/noteLayerCache';
 import { handleSlideToSlideCombination } from '../../src/utils/NoteReplacementRules';
 import type { RenderCtx } from '../../src/renderer/types';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/renderer/noteSkin';
 import type { ChartNote } from '../../src/notes/Charts';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
@@ -40,6 +41,7 @@ function makeRc(g: ChartGeometry, notes: ChartNote[], scrollY: number): RenderCt
     markerSelected: false,
     selectedTool: 'mouse',
     spriteIcon: { render: () => undefined } as unknown as RenderCtx['spriteIcon'],
+    noteIcons: buildActiveNoteIcons(normalizeNoteSkinSelection(undefined)),
   };
 }
 

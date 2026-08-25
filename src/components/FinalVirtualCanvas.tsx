@@ -10,6 +10,7 @@ import {
 } from '../utils/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../contexts';
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../renderer';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../renderer/noteSkin';
 import { countNotesUpToBeat } from '../utils/NoteEditing';
 import { formatTimePrecise } from '../utils/TimeFormat';
 
@@ -52,6 +53,9 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // issue 39 功能设置·画布显示：纵向比例进 geometry（重建），其余渲染参数经 RenderCtx 注入渲染器
     const { settings } = useConfig();
     const display = settings.display;
+    // 音符皮肤（issue 29）：六条目选择 → 归一化（缺省/非法回退默认包）→ 图标集；引用稳定，仅选择变化时重建
+    const noteSkin = useMemo(() => normalizeNoteSkinSelection(settings.visual?.noteSkin), [settings.visual?.noteSkin]);
+    const noteIcons = useMemo(() => buildActiveNoteIcons(noteSkin), [noteSkin]);
     // 视口状态
     const [viewport, setViewport] = useState<ViewportState>({
         scrollX: 0,
@@ -75,19 +79,17 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const zoomGestureUntilRef = useRef(0);
     const zoomSettleTimerRef = useRef<number | undefined>(undefined);
 
-    // 画布用到的全部皮肤图（含未被工具栏预热的 longNoteLine.png），挂载即预加载，加载完触发重绘
+    // 画布用到的全部皮肤图（issue 29：随当前音符皮肤选择动态解析），挂载/换肤即预加载，加载完触发重绘；
+    // 单图失败不阻断（按缺图渲染，drawSingle 每帧重试加载），无论成败都 bump skinVersion 全量失效瓦片
     useEffect(() => {
         let cancelled = false;
-        CanvasSpriteIcon.ensureImagesLoaded([
-            './assets/skins/RhythmGameSprites.png',
-            './assets/skins/DirectionalFlickSprites.png',
-            './assets/skins/longNoteLine.png',
-            './assets/skins/longNoteLine2.png',
-        ]).then(() => {
-            if (!cancelled) setSkinVersion(v => v + 1);
-        });
+        CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs())
+            .catch((e) => console.warn('[FinalVirtualCanvas] 音符皮肤图片预热失败（按缺图渲染）:', e))
+            .then(() => {
+                if (!cancelled) setSkinVersion(v => v + 1);
+            });
         return () => { cancelled = true; };
-    }, []);
+    }, [noteIcons]);
 
     // 谱面末端 beat（ADR-0005 §1/§7）：由显式谱面长度(秒) 经 BPM 事件换算得出，与音符无关、无尾量。
     // 空谱/无音频也用谱面长度（默认 30s）换算，不再有 FLOOR_BEATS 兜底。
@@ -261,13 +263,14 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             markerSelected,
             selectedTool,
             spriteIcon: spriteIcon.current,
+            noteIcons,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
             skinVersion,
             // issue 39：画布显示参数（节奏图示大小/长压线不透明度/同时点击线）
             display: { noteSize: display.noteSize, slideOpacity: display.slideOpacity, simultaneousClickLines: display.simultaneousClickLines },
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.imageQuality]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.imageQuality, noteIcons]);
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {

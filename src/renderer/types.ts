@@ -4,6 +4,7 @@
 import type { ChartNote, SelectionItem } from '../notes/Charts';
 import type { ChartGeometry, SurfaceSize } from '../utils/ChartGeometry';
 import type CanvasSpriteIcon from '../components/CanvasSpriteIcon';
+import type { ActiveNoteIcons } from './noteSkin';
 
 /** 视口状态（虚拟尺寸 + 滚动 + 缩放） */
 export interface ViewportState {
@@ -55,6 +56,8 @@ export interface RenderCtx {
   markerSelected: boolean;
   selectedTool: string;
   spriteIcon: CanvasSpriteIcon;
+  /** 音符皮肤图标集（issue 29）：由组件按 settings.visual.noteSkin 构建注入；换肤时引用变化 → 瓦片经 skinVersion 失效 */
+  noteIcons: ActiveNoteIcons;
   /** 缩放手势进行中（issue 10）：true 时离屏瓦片只按比例 blit 不重建，手势结束再高清重渲 */
   zoomGesture?: boolean;
   /** 皮肤图片就绪版本（issue 10）：图片异步加载完成后 +1，避免瓦片缓存命中未出图的旧帧 */

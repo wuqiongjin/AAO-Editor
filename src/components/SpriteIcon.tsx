@@ -66,7 +66,7 @@ export default function SpriteIcon({
 export const NoteIcons = {
     // 单键音符 (Tap Note) - 基于你提供的精确坐标
     tap: {
-        src: './assets/skins/RhythmGameSprites.png',
+        src: './assets/skins/legacy/RhythmGameSprites.png',
         x: -503.247,
         y: -753.333,
         width: 664.935,
@@ -75,7 +75,7 @@ export const NoteIcons = {
 
     // 滑键音符 (Flick Note) - 基于你提供的精确坐标
     flick: {
-        src: './assets/skins/RhythmGameSprites.png',
+        src: './assets/skins/legacy/RhythmGameSprites.png',
         x: 0,
         y: -753.333,
         width: 664.935,
@@ -84,7 +84,7 @@ export const NoteIcons = {
 
     // 技能音符 (Skill Note) - 基于你提供的精确坐标
     skill: {
-        src: './assets/skins/RhythmGameSprites.png',
+        src: './assets/skins/legacy/RhythmGameSprites.png',
         x: -301.948,
         y: -651.667,
         width: 664.935,
@@ -93,7 +93,7 @@ export const NoteIcons = {
 
     // 左方向滑键 - 基于你提供的精确坐标
     leftFlick: {
-        src: './assets/skins/DirectionalFlickSprites.png',
+        src: './assets/skins/legacy/DirectionalFlickSprites.png',
         x: 0,
         y: -651.667,
         width: 332.468,
@@ -102,7 +102,7 @@ export const NoteIcons = {
 
     // 右方向滑键 - 基于你提供的精确坐标
     rightFlick: {
-        src: './assets/skins/DirectionalFlickSprites.png',
+        src: './assets/skins/legacy/DirectionalFlickSprites.png',
         x: 0,
         y: -143.333,
         width: 332.468,
@@ -111,7 +111,7 @@ export const NoteIcons = {
 
     // 滑条音符 (Slide Note) - 使用longNoteLine2.png
     slide: {
-        src: './assets/skins/longNoteLine2.png',
+        src: './assets/skins/legacy/longNoteLine2.png',
         x: 0,
         y: 0,
         width: 100,
@@ -123,7 +123,7 @@ export const NoteIcons = {
 export const SlideLineIcons = {
     // 滑条连接线 - 使用longNoteLine.png
     line: {
-        src: './assets/skins/longNoteLine.png',
+        src: './assets/skins/legacy/longNoteLine.png',
         x: 0,
         y: 0,
         width: 100,
@@ -132,7 +132,7 @@ export const SlideLineIcons = {
 
     // 长音符连接线 - 使用longNoteLine2.png
     longLine: {
-        src: './assets/skins/longNoteLine2.png',
+        src: './assets/skins/legacy/longNoteLine2.png',
         x: 0,
         y: 0,
         width: 100,

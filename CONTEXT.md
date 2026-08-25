@@ -89,10 +89,24 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 合成时间线 | Synthetic timeline | 无音频时的播放时钟（`performance.now` + RAF），与音频时间线行为同构 |
 | 临时起点标记 | Start marker | 双击画布左侧沟槽（轨道外、画布内）标记的 beat 位；**Ctrl+空格** 跳回并播放；双击/选中后可删除；**不入谱面数据** |
 | 播放条 | Playback bar | 画布底部的播放控件条（播放/暂停、时间码、音量、时长编辑、素材切换等） |
-| 素材包 | KeySoundSet | 按键音素材集合，按击打样式分类 `{ tap, flick, skill, slide }`；可切换、激活项持久化：四类素材 + 占位默认 |
+| 素材包 | KeySoundSet | 按键音素材集合，按击打样式分类（五类口径见下方「素材系统」）；整包切换、持久化 |
 | ~~谱面末端~~ | ~~Chart tail~~ | **已废弃**（被 ADR-0005 的"谱面长度"取代）：旧的"由音符推算可播时长"语义不再成立 |
 
 > 播放时长的规则：有音频＝音频自身长度；无音频＝谱面长度（见下方 ADR-0005 谱面长度）。
+
+## 素材系统（issue 29）
+
+| 术语 | 英文 | 说明 |
+| --- | --- | --- |
+| 素材页 | Assets page | 应用级页面（导航第 3 项 `⇧⌘3`）；页内**类别子 tab**：键音 / 音符皮肤 / 背景皮肤，一次看一个类别，可扩展 |
+| 素材包 | KeySoundSet | 按键音素材集合，按击打样式分类 `{ tap, flick, skill, slide, directional }`；整包切换，激活项持久化 `settings.audio.keySet` |
+| 音符皮肤 | Note skin | 音符外观素材包；注册表由 `scripts/build-note-skins.mjs` 从 Bestdori 归档解析 `.sprites` 官方坐标生成（`src/renderer/noteSkinRegistry.gen.ts`，产物入库） |
+| 皮肤条目 | Note skin item | 六条目：单键 `tap` / 滑键 `flick` / 技能键 `skill` / 左方向 `dirL` / 右方向 `dirR` / 滑条 `slide`；slide 管三件套 = `longNoteLine` + `longNoteLine2` + `note_slide_among` |
+| 整包预设 | Skin preset | 官方同名配对（skin0N + directionalflickskin0N）一键写入六条目；写入后各条目仍可独立覆盖 |
+| per-lane | per-lane sprite | 官方精灵按轨道一张（透视观感差异）；方向键 length=N = N 条覆盖轨道各贴本轨图；滑条端点复用单键皮肤 |
+| 谱面背景皮肤 | Chart background skin | 谱面画布的可选背景图层（画布固定深色主题不变）；数据模型待后续 grill，占位 |
+
+> 规则细节：皮肤与音符类型的完整映射、资源接入边界见 `.scratch/basic-editor/issues/29-素材页面-键音素材包与皮肤.md` 定案记录；归档使用边界见 `docs/resource/bestdori/README.md`。
 
 ## 谱面长度与谱面工程（ADR-0005）
 

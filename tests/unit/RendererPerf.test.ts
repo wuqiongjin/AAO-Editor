@@ -3,6 +3,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChartGeometry, LANES, LANE_WIDTH } from '../../src/utils/ChartGeometry';
 import { renderChart, visibleBeatRange } from '../../src/renderer/render';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/renderer/noteSkin';
 import {
   drawNotesLayer, resetNoteLayerCache, tileIndexRange, tileBlitRect, posRangeOf,
   TILE_PX, __setTileCanvasFactoryForTests,
@@ -88,6 +89,8 @@ function makeCanvasStub(counters: Counters) {
 // 共享空引用：瓦片缓存 basis 按 selectedItems/clipboard 引用判失效，帧间必须稳定
 const EMPTY_SELECTED: never[] = [];
 const EMPTY_CLIPBOARD: never[] = [];
+// 音符皮肤图标集（issue 29）：默认选择构建一次共享（纯数据，不含 DOM）
+const SHARED_NOTE_ICONS = buildActiveNoteIcons(normalizeNoteSkinSelection(undefined));
 
 function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: number, es: number, scrollY: number, zoomGesture: boolean, counters: Counters, surface: { w: number; h: number } = SURFACE): RenderCtx {
   return {
@@ -107,6 +110,7 @@ function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: numbe
     markerSelected: false,
     selectedTool: 'mouse',
     spriteIcon: { render: () => { counters.spriteRenders++; } } as unknown as RenderCtx['spriteIcon'],
+    noteIcons: SHARED_NOTE_ICONS,
     zoomGesture,
   };
 }

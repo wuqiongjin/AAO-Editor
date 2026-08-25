@@ -7,6 +7,7 @@
 // - 旧版 schema（仅有 {schemaVersion, audio.keySet}）已包含 audio 段，load 时按字段合并。
 import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutConfig';
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID } from './KeySound';
+import { NOTE_SKIN_DEFAULT_SELECTION } from '../renderer/noteSkinRegistry.gen';
 
 export interface AppSettings {
   schemaVersion: 1;
@@ -32,6 +33,20 @@ export interface AppSettings {
     /** 图像品质（三档），issue 39 #6 */
     imageQuality: 'smooth' | 'standard' | 'hd';
   };
+  /** 素材域（issue 29 音符皮肤）：六条目 → 皮肤包 id。包合法性由 renderer/noteSkin.ts 归一化（缺省/非法回退默认包） */
+  visual: {
+    noteSkin: Partial<NoteSkinSelectionRaw>;
+  };
+}
+
+/** 音符皮肤六条目（与 renderer/noteSkin.ts 的 NoteSkinItemId 一致；此处独立声明避免 utils→renderer 运行时依赖） */
+export interface NoteSkinSelectionRaw {
+  tap: string;
+  flick: string;
+  skill: string;
+  dirL: string;
+  dirR: string;
+  slide: string;
 }
 
 const STORAGE_KEY = 'bangdream.settings.v1';
@@ -57,6 +72,7 @@ export function defaultSettings(): AppSettings {
       verticalRatio: 1,
       imageQuality: 'standard',
     },
+    visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION } },
   };
 }
 
@@ -69,6 +85,13 @@ function mergeSettings(parsed: unknown): AppSettings {
   const leftPanel = (layout.leftPanel && typeof layout.leftPanel === 'object' ? layout.leftPanel : {}) as Record<string, unknown>;
   const rightPanel = (layout.rightPanel && typeof layout.rightPanel === 'object' ? layout.rightPanel : {}) as Record<string, unknown>;
   const display = (obj.display && typeof obj.display === 'object' ? obj.display : {}) as Record<string, unknown>;
+  const visual = (obj.visual && typeof obj.visual === 'object' ? obj.visual : {}) as Record<string, unknown>;
+  const rawNoteSkin = (visual.noteSkin && typeof visual.noteSkin === 'object' ? visual.noteSkin : {}) as Record<string, unknown>;
+  // 音符皮肤：仅保留六条目的字符串值；包 id 合法性由 renderer/noteSkin.ts 在读取时归一化
+  const noteSkin: Partial<NoteSkinSelectionRaw> = {};
+  for (const k of ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide'] as const) {
+    if (typeof rawNoteSkin[k] === 'string') noteSkin[k] = rawNoteSkin[k] as string;
+  }
   const clamp = (v: unknown, min: number, max: number, dft: number) => typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : dft;
   const quality =
     display.imageQuality === 'smooth' || display.imageQuality === 'standard' || display.imageQuality === 'hd'
@@ -101,6 +124,7 @@ function mergeSettings(parsed: unknown): AppSettings {
       verticalRatio: clamp(display.verticalRatio, 0.5, 2, defaults.display.verticalRatio),
       imageQuality: quality,
     },
+    visual: { noteSkin },
   };
 }
 
@@ -157,6 +181,7 @@ export function updateSettings(
     shortcuts: AppSettings['shortcuts'];
     audio: Partial<AppSettings['audio']>;
     display: Partial<AppSettings['display']>;
+    visual: Partial<AppSettings['visual']>;
   }>,
 ): AppSettings {
   return {
@@ -166,5 +191,6 @@ export function updateSettings(
     shortcuts: patch.shortcuts ?? prev.shortcuts,
     audio: { ...prev.audio, ...(patch.audio ?? {}) },
     display: { ...prev.display, ...(patch.display ?? {}) },
+    visual: { ...prev.visual, ...(patch.visual ?? {}) },
   };
 }

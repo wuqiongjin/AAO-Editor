@@ -4,12 +4,12 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../notes/Charts';
 import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport, type GeometryPoint } from '../utils/ChartGeometry';
 import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
-import { CanvasNoteIcons, CanvasSlideLineIcons, BaseSpriteIcons } from '../components/CanvasSpriteIcon';
 import { perf } from '../utils/perf';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, findItemAt } from './hitTest';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
+import type { DirGroupVisual } from './noteSkin';
 import type { RenderCtx } from './types';
 
 // 音符大小配置（与 hitTest 命中尺寸保持一致）
@@ -183,6 +183,34 @@ function strokeSelectedCircle(ctx: CanvasRenderingContext2D, canvasPos: Geometry
 }
 
 /**
+ * 绘制方向键整组（issue 29 视觉修订 2026-08-24）：N 条覆盖轨道各贴一枚扁平本体 +
+ * note_flick_top_l/r 箭头组合到最外侧（几何由构建期墨迹推导，见 noteSkin.ts）。
+ * 本体轨道间距只随视口 scale（贴轨道）；箭头重叠量随 spriteScale（随 noteSize 等比）。
+ */
+function renderDirGroup(ctx: CanvasRenderingContext2D, rc: RenderCtx, group: DirGroupVisual, anchorX: number, anchorY: number, spriteScale: number) {
+  for (const b of group.bodies) {
+    rc.spriteIcon.render(ctx, {
+      ...b.config,
+      canvasX: anchorX + b.offsetVirtualX * rc.viewport.scale,
+      canvasY: anchorY,
+      canvasSize: DIRECTIONAL_ICON_SIZE, canvasWidth: DIRECTIONAL_ICON_SIZE,
+      canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
+      scale: spriteScale, renderLayer: 'main',
+    });
+  }
+  const cv = group.chevron;
+  if (cv) {
+    rc.spriteIcon.render(ctx, {
+      ...cv.config,
+      canvasX: anchorX + cv.offsetVirtualX * rc.viewport.scale + cv.extraDesignX * spriteScale,
+      canvasY: anchorY,
+      canvasSize: DIRECTIONAL_ICON_SIZE, canvasWidth: cv.drawW, canvasHeight: cv.drawH,
+      scale: spriteScale, renderLayer: 'main',
+    });
+  }
+}
+
+/**
  * 绘制音符（第一层：主体；第二层：装饰器）。
  * issue 35 F1：opts.skipSelection=true 供离屏瓦片渲染（瓦片不含选中态，选中高亮由主画布叠加层绘制，
  * 选择变化不再使瓦片缓存失效）。
@@ -194,6 +222,8 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   // 组合挂件（方向滑键的装饰器 offset 同乘 scale）整体等比缩放，相对间距不变（修回归）。
   const ns = rc.display?.noteSize ?? 1;
   const spriteScale = rc.viewport.scale * ns;
+  // 音符皮肤图标集（issue 29）：按 settings.visual.noteSkin 解析的 per-lane 官方精灵
+  const icons = rc.noteIcons;
   // 同时点击线（issue 39 #3）：画在音符层内、音符主体之前 → 与音符同一瓦片/同一缩放基准，
   // 缩放下线随音符一起比例缩放（修回归）；slide 起止端点也参与双押线。
   if (rc.display?.simultaneousClickLines) {
@@ -206,9 +236,9 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       const subBeat = note.subBeat || 0;
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
       const iconSize = NOTE_ICON_SIZE * ns * rc.viewport.scale;
-      let iconConfig = BaseSpriteIcons.tap;
-      if (note.flick) iconConfig = BaseSpriteIcons.flick;
-      else if (note.skill) iconConfig = BaseSpriteIcons.skill;
+      let iconConfig = icons.tapFor(note.lane);
+      if (note.flick) iconConfig = icons.flickFor(note.lane);
+      else if (note.skill) iconConfig = icons.skillFor(note.lane);
       rc.spriteIcon.render(ctx, {
         ...iconConfig,
         canvasX: canvasPos.x, canvasY: canvasPos.y,
@@ -226,20 +256,9 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
       const iconSize = DIRECTIONAL_ICON_SIZE * ns * rc.viewport.scale;
       const isLeft = note.type === "LDirectional";
-      let iconConfig;
-      switch (note.length) {
-        case 1: iconConfig = isLeft ? CanvasNoteIcons.leftFlickL1 : CanvasNoteIcons.rightFlickR1; break;
-        case 2: iconConfig = isLeft ? CanvasNoteIcons.leftFlickL2 : CanvasNoteIcons.rightFlickR2; break;
-        case 3: iconConfig = isLeft ? CanvasNoteIcons.leftFlickL3 : CanvasNoteIcons.rightFlickR3; break;
-        default: iconConfig = isLeft ? CanvasNoteIcons.leftFlickL1 : CanvasNoteIcons.rightFlickR1;
-      }
-      rc.spriteIcon.render(ctx, {
-        ...iconConfig,
-        canvasX: canvasPos.x, canvasY: canvasPos.y,
-        canvasSize: DIRECTIONAL_ICON_SIZE, canvasWidth: DIRECTIONAL_ICON_SIZE,
-        canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
-        scale: spriteScale, renderLayer: 'main',
-      });
+      // issue 29：N 条覆盖轨道扁平本体 + 最外侧箭头（dirGroup 几何由墨迹推导）
+      const len = Math.min(Math.max(note.length || 1, 1), 3);
+      renderDirGroup(ctx, rc, icons.dirGroup(isLeft ? 'L' : 'R', len), canvasPos.x, canvasPos.y, spriteScale);
       if (isSelected && !skipSelection) {
         strokeSelectedCircle(ctx, canvasPos, iconSize, rc.viewport.scale);
       }
@@ -262,36 +281,21 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
 
   // 第二层：装饰器层 - 确保装饰器在所有音符之上
   visibleNotes.forEach(({ note }) => {
-    if (note.type === "LDirectional" || note.type === "RDirectional") {
+    if (note.type === "Single" && note.flick) {
+      // issue 29：滑键 = 本体（第一层已画）+ 顶部箭头挂件（note_flick_top，包未提供时无挂件）
       const subBeat = note.subBeat || 0;
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
-      const isLeft = note.type === "LDirectional";
-      let iconConfig;
-      switch (note.length) {
-        case 1: iconConfig = isLeft ? CanvasNoteIcons.leftFlickL1 : CanvasNoteIcons.rightFlickR1; break;
-        case 2: iconConfig = isLeft ? CanvasNoteIcons.leftFlickL2 : CanvasNoteIcons.rightFlickR2; break;
-        case 3: iconConfig = isLeft ? CanvasNoteIcons.leftFlickL3 : CanvasNoteIcons.rightFlickR3; break;
-        default: iconConfig = isLeft ? CanvasNoteIcons.leftFlickL1 : CanvasNoteIcons.rightFlickR1;
+      const dec = icons.flickTopDecorator;
+      if (dec) {
+        rc.spriteIcon.render(ctx, {
+          ...dec,
+          canvasX: canvasPos.x, canvasY: canvasPos.y,
+          canvasSize: NOTE_ICON_SIZE,
+          canvasWidth: NOTE_ICON_SIZE,
+          canvasHeight: NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
+          scale: spriteScale, renderLayer: 'decorators',
+        });
       }
-      rc.spriteIcon.render(ctx, {
-        ...iconConfig,
-        canvasX: canvasPos.x, canvasY: canvasPos.y,
-        canvasSize: DIRECTIONAL_ICON_SIZE, canvasWidth: DIRECTIONAL_ICON_SIZE,
-        canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
-        scale: spriteScale, renderLayer: 'decorators',
-      });
-    } else if (note.type === "Single" && note.flick) {
-      const subBeat = note.subBeat || 0;
-      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
-      const flickCfg = CanvasNoteIcons.flick;
-      rc.spriteIcon.render(ctx, {
-        ...flickCfg,
-        canvasX: canvasPos.x, canvasY: canvasPos.y,
-        canvasSize: NOTE_ICON_SIZE,
-        canvasWidth: flickCfg.out?.w ?? NOTE_ICON_SIZE,
-        canvasHeight: flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
-        scale: spriteScale, renderLayer: 'decorators',
-      });
     }
   });
 }
@@ -302,6 +306,7 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   if (connections.length < 2) return;
   // issue 39 #1：slide 结点（起止/中间）图标随节奏图示大小缩放；连接带是线条，不随。
   const spriteScale = rc.viewport.scale * (rc.display?.noteSize ?? 1);
+  const icons = rc.noteIcons;
 
   for (let i = 0; i < connections.length - 1; i++) {
     const conn1 = connections[i], conn2 = connections[i + 1];
@@ -330,7 +335,7 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     ctx.closePath();
     ctx.clip();
     rc.spriteIcon.render(ctx, {
-      ...CanvasSlideLineIcons.slideLine,
+      ...icons.slideBand,
       canvasX: centerX, canvasY: centerY, canvasSize: slideIconSize,
       canvasWidth: slideIconSize, canvasHeight: height, scale: 1,
     });
@@ -343,9 +348,10 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     const isFirst = i === 0, isLast = i === connections.length - 1;
     let iconConfig;
     if (isFirst || isLast) {
-      iconConfig = { ...CanvasSlideLineIcons.endpoint, ...(conn.flick ? CanvasNoteIcons.flick : {}), ...(conn.skill ? CanvasNoteIcons.skill : {}) };
+      // 端点 = 单键皮肤（定案），结点带 flick/skill 时换对应图（spread 覆盖 src/矩形）
+      iconConfig = { ...icons.slideEndpointFor(conn.lane), ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
     } else {
-      iconConfig = { ...CanvasSlideLineIcons.pathway, ...(conn.flick ? CanvasNoteIcons.flick : {}), ...(conn.skill ? CanvasNoteIcons.skill : {}) };
+      iconConfig = { ...icons.slideAmongFor(conn.lane), ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
     }
     rc.spriteIcon.render(ctx, {
       ...iconConfig,
@@ -514,33 +520,34 @@ function renderSlideGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCt
     ctx.closePath();
     ctx.clip();
     rc.spriteIcon.render(ctx, {
-      ...CanvasSlideLineIcons.slideLine,
+      ...rc.noteIcons.slideBand,
       canvasX: cx, canvasY: cy, canvasSize: sz, canvasWidth: sz, canvasHeight: h, scale: 1,
     });
     ctx.restore();
   }
   conns.forEach(conn => {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
-    const icon = { ...CanvasSlideLineIcons.endpoint, ...(conn.flick ? CanvasNoteIcons.flick : {}), ...(conn.skill ? CanvasNoteIcons.skill : {}) };
+    const icons = rc.noteIcons;
+    const icon = { ...icons.slideEndpointFor(conn.lane), ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
     renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
   });
 }
 
 /** 渲染一个音符的完整外观幽灵（真实图标；方向键保留 length 变体） */
 function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: ChartNote) {
+  const icons = rc.noteIcons;
   if (note.type === "Single") {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
-    let icon = BaseSpriteIcons.tap;
-    if (note.flick) icon = BaseSpriteIcons.flick;
-    else if (note.skill) icon = BaseSpriteIcons.skill;
+    let icon = icons.tapFor(note.lane);
+    if (note.flick) icon = icons.flickFor(note.lane);
+    else if (note.skill) icon = icons.skillFor(note.lane);
     renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE);
   } else if (note.type === "LDirectional" || note.type === "RDirectional") {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
-    const len = note.length || 1;
-    const icon = note.type === "LDirectional"
-      ? (len === 1 ? CanvasNoteIcons.leftFlickL1 : len === 2 ? CanvasNoteIcons.leftFlickL2 : CanvasNoteIcons.leftFlickL3)
-      : (len === 1 ? CanvasNoteIcons.rightFlickR1 : len === 2 ? CanvasNoteIcons.rightFlickR2 : CanvasNoteIcons.rightFlickR3);
-    renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, DIRECTIONAL_ICON_SIZE, DIRECTIONAL_HEIGHT_SCALE);
+    // issue 29：与 renderNotes 同构（扁平本体 ×N + 外侧箭头）
+    const isLeft = note.type === "LDirectional";
+    const len = Math.min(Math.max(note.length || 1, 1), 3);
+    renderDirGroup(ctx, rc, icons.dirGroup(isLeft ? 'L' : 'R', len), cpt.x, cpt.y, rc.viewport.scale);
   } else if (note.type === "Slide" || note.type === "Long") {
     renderSlideGhost(ctx, c, rc, note);
   }
@@ -705,10 +712,6 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
   // 线头会与可见墨迹之间留空隙。这里用规范化后的 inkLeft/inkRight（源像素缩进）换算成
   // 「墨迹边缘距图标中心」的 canvas px，线头天然贴合真实墨迹边缘；普通音符（含 slide 起止结点）仍用正中心。
   type P = { x: number; y: number; dirEdge: { left: number; right: number } | null };
-  const inkEdge = (icon: { w: number; inkLeft?: number; inkRight?: number }) => ({
-    left: DIRECTIONAL_ICON_SIZE * base * (0.5 - (icon.inkLeft ?? 0) / icon.w),   // 左缘（本音符作右端点时用）
-    right: DIRECTIONAL_ICON_SIZE * base * (0.5 - (icon.inkRight ?? 0) / icon.w), // 右缘（本音符作左端点时用）
-  });
   const groups = new Map<number, P[]>();
   const EPS = 1e-6;
   const key = (beat: number, subBeat?: number): number => beat + (subBeat && subBeat > 0 ? subBeat / rc.beatDisplay : 0);
@@ -727,8 +730,12 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
     if (note.type === 'Single') {
       push(key(note.beat, note.subBeat), note.lane, note.beat, note.subBeat, null);
     } else if (note.type === 'LDirectional' || note.type === 'RDirectional') {
-      const icon = note.type === 'LDirectional' ? BaseSpriteIcons.leftFlick : BaseSpriteIcons.rightFlick;
-      push(key(note.beat, note.subBeat), note.lane, note.beat, note.subBeat, inkEdge(icon));
+      // issue 29：墨迹取当前皮肤该轨道方向键精灵的覆写/缺省值
+      const ink = rc.noteIcons.dirInk(note.type === 'LDirectional' ? 'L' : 'R');
+      push(key(note.beat, note.subBeat), note.lane, note.beat, note.subBeat, {
+        left: DIRECTIONAL_ICON_SIZE * base * (0.5 - ink.inkLeft / ink.w),
+        right: DIRECTIONAL_ICON_SIZE * base * (0.5 - ink.inkRight / ink.w),
+      });
     } else if (note.type === 'Slide' || note.type === 'Long') {
       const conns = (note as SlideNote).connections;
       if (conns.length < 2) continue;

@@ -16,6 +16,8 @@ export interface ConfigContextValue {
   setDisplay: (patch: Partial<AppSettings['display']>) => void;
   /** 节奏图示 SE 音量（issue 39 功能设置·播放）：0..1 字段级写回并持久化 */
   setSeVolume: (volume: number) => void;
+  /** 音符皮肤（issue 29）：六条目字段级写回并持久化；包合法性由 renderer/noteSkin.ts 归一化 */
+  setNoteSkin: (patch: Partial<AppSettings['visual']['noteSkin']>) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
   setAllSettings: (next: AppSettings) => void;
 }
@@ -74,6 +76,15 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // 音符皮肤（issue 29）：与键音同范式——字段级写回、立即生效并持久化
+  const setNoteSkin = (patch: Partial<AppSettings['visual']['noteSkin']>) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { visual: { noteSkin: { ...prev.visual.noteSkin, ...patch } } });
+      saveSettings(merged);
+      return merged;
+    });
+  };
+
   const setAllSettings = (next: AppSettings) => {
     saveSettings(next);
     setSettings(next);
@@ -82,7 +93,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setNoteSkin, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

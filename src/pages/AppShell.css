@@ -821,6 +821,171 @@
   line-height: 1.6;
 }
 
+/* ---- 素材页（issue 29）：类别子 tab + 音符皮肤 ---- */
+
+/* 类别子 tab（grill 2026-08-17：类别 ≥3 后一次看一个类别，可扩展） */
+.assets-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.assets-tab {
+  min-height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: color 140ms var(--ease), border-color 140ms var(--ease), background 140ms var(--ease);
+}
+
+.assets-tab:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.assets-tab.is-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+/* 音符皮肤面板 */
+.skin-panel {
+  min-width: 0;
+}
+
+.skin-panel .section-heading {
+  padding: 0 2px;
+}
+
+.skin-panel .section-heading h2 {
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.skin-panel .section-heading p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* 综合预览画布（Q8=B：真实精灵绘制六类样例） */
+.skin-live-preview {
+  margin-top: 12px;
+}
+
+.skin-live-preview-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--canvas-border);
+  border-radius: 8px;
+}
+
+.skin-live-preview-labels {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  margin-top: 6px;
+  color: var(--text-subtle);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* 整包预设卡片 */
+.skin-presets {
+  margin-top: 18px;
+}
+
+.skin-presets h3,
+.skin-items h3 {
+  margin: 0 0 8px;
+  padding: 0 2px;
+  font-size: 12px;
+  font-weight: 720;
+  color: var(--text-muted);
+}
+
+.skin-preset-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.skin-preset {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
+}
+
+.skin-preset:hover {
+  border-color: var(--border-strong);
+}
+
+.skin-preset.is-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent), var(--shadow-sm);
+}
+
+.skin-preset-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.skin-preset-head strong {
+  font-size: 13px;
+}
+
+.skin-preset .field-help {
+  margin: 0;
+  font-size: 11px;
+}
+
+/* 按条目覆盖 */
+.skin-items {
+  margin-top: 18px;
+  max-width: 460px;
+}
+
+.skin-item {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.skin-item-name {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+
+.skin-item select {
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+.skin-items .flow-note {
+  margin-top: 10px;
+}
+
 /* ---- 设置页（Q13 次级索引：外观/布局/配置数据） ---- */
 .settings-layout {
   display: grid;
