@@ -88,18 +88,27 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 判定线 | Judgment line | 播放（含暂停停住态）时固定在**画布底部**的横线，代表"此刻"，谱面沿判定线向上滚动；常显（停/播同线） |
 | 合成时间线 | Synthetic timeline | 无音频时的播放时钟（`performance.now` + RAF），与音频时间线行为同构 |
 | 临时起点标记 | Start marker | 双击画布左侧沟槽（轨道外、画布内）标记的 beat 位；**Ctrl+空格** 跳回并播放；双击/选中后可删除；**不入谱面数据** |
-| 播放条 | Playback bar | 画布底部的播放控件条（播放/暂停、时间码、音量、时长编辑、素材切换等） |
-| 素材包 | KeySoundSet | 按键音素材集合，按击打样式分类（五类口径见下方「素材系统」）；整包切换、持久化 |
+| 播放条 | Playback bar | 画布底部的播放控件条（播放/暂停、时间码、进度条等） |
+| 素材包 | KeySoundSet | 按键音素材集合，按击打样式分类（五类口径见下方「音频域」）；整包切换、持久化 |
 | ~~谱面末端~~ | ~~Chart tail~~ | **已废弃**（被 ADR-0005 的"谱面长度"取代）：旧的"由音符推算可播时长"语义不再成立 |
 
 > 播放时长的规则：有音频＝音频自身长度；无音频＝谱面长度（见下方 ADR-0005 谱面长度）。
 
-## 素材系统（issue 29）
+## 音频域（issue 29 切片 4 闭环 + issue 39 #7）
 
 | 术语 | 英文 | 说明 |
 | --- | --- | --- |
-| 素材页 | Assets page | 应用级页面（导航第 3 项 `⇧⌘3`）；页内**类别子 tab**：键音 / 音符皮肤 / 背景皮肤，一次看一个类别，可扩展 |
-| 素材包 | KeySoundSet | 按键音素材集合，按击打样式分类 `{ tap, flick, skill, slide, directional }`；整包切换，激活项持久化 `settings.audio.keySet` |
+| 音频域 | Audio domain | 设置对象 `settings.audio` 段：承载与**音源**相关的所有字段——`keySet`（键音素材包）、`seVolume`（节奏图示 SE 音量）；UI 集中在音频页（issue 29 切片 4 闭环） |
+| 音频页 | Audio page | 应用级页面（导航第 2 项 `⇧⌘2`）；承载**音频素材导入/换/清除**、**谱面时长**、**键音素材包**、**节奏图示 SE 音量**（issue 29 切片 4 后） |
+| 节奏图示 SE 音量 | SE volume | 键音（音符击打音效）的独立音量，0..1，**不影响 BGM**；原 issue 39 #7 落入设置页「功能设置·播放」，issue 29 切片 4 迁入音频页 |
+| 键音素材包 | KeySoundSet | 按键音素材集合，按击打样式分类 `{ tap, flick, skill, slide, directional }`；整包切换，激活项持久化 `settings.audio.keySet`；UI 在音频页（同音频素材同域） |
+| 击打样式 | KeySoundKind | `{ tap, flick, skill, slide, directional }` 五类（与 `KeySoundSet.samples` 一一对应） |
+
+## 视觉素材域（issue 29）
+
+| 术语 | 英文 | 说明 |
+| --- | --- | --- |
+| 视觉素材页 | Visual assets page | 应用级页面（导航第 3 项 `⇧⌘3`）；原「素材页」收窄为视觉素材；页内**类别子 tab**：音符皮肤 / 背景皮肤，一次看一个类别，可扩展 |
 | 音符皮肤 | Note skin | 音符外观素材包；注册表由 `scripts/build-note-skins.mjs` 从 Bestdori 归档解析 `.sprites` 官方坐标生成（`src/renderer/noteSkinRegistry.gen.ts`，产物入库） |
 | 皮肤条目 | Note skin item | 六条目：单键 `tap` / 滑键 `flick` / 技能键 `skill` / 左方向 `dirL` / 右方向 `dirR` / 滑条 `slide`；slide 管三件套 = `longNoteLine` + `longNoteLine2` + `note_slide_among` |
 | 整包预设 | Skin preset | 官方同名配对（skin0N + directionalflickskin0N）一键写入六条目；写入后各条目仍可独立覆盖 |

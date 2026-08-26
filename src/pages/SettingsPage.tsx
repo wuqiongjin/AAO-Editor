@@ -1,14 +1,16 @@
 import { useRef, useState } from 'react';
-import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye, Music2 } from 'lucide-react';
+import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
 import { useConfig } from '../contexts';
 import { defaultSettings, loadSettings } from '../utils/AppSettings';
 import type { AppSettings } from '../utils/AppSettings';
 
 // 设置页（issue 28 Q13 + issue 39）：左侧次级索引分为两组——
 // 「应用设置」：外观 / 布局 / 配置数据（现有三类归入，语义不变）
-// 「功能设置」：画布显示 / 播放（谱面呈现参数，issue 39）
+// 「功能设置」：画布显示（谱面呈现参数，issue 39）
+// 节奏图示 SE 音量（issue 39 #7）已迁音频页（issue 29 切片 4 闭环：键音 + SE 音量与音源同域），
+// 此处不再保留「播放」section。
 // 修改立即生效并持久化（versioned settings，ADR-0003 §6）。
-type Section = 'appearance' | 'layout' | 'data' | 'canvas' | 'playback';
+type Section = 'appearance' | 'layout' | 'data' | 'canvas';
 
 const THEME_OPTIONS: Array<{ value: AppSettings['theme']; label: string; swatch: string }> = [
   { value: 'light', label: '亮色', swatch: 'light' },
@@ -86,15 +88,14 @@ function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: st
 }
 
 export default function SettingsPage() {
-  const { settings, setTheme, setDisplay, setSeVolume, setAllSettings } = useConfig();
+  const { settings, setTheme, setDisplay, setAllSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
-  // 分组恢复默认：画布显示/播放各自只重置本组参数（用户反馈：整体重置放在配置数据语义不符）
-  const [resetConfirm, setResetConfirm] = useState<'canvas' | 'playback' | null>(null);
+  // 分组恢复默认：画布显示只重置本组参数（用户反馈：整体重置放在配置数据语义不符）
+  const [resetConfirm, setResetConfirm] = useState<'canvas' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const resetCanvasDefaults = () => setDisplay(defaultSettings().display);
-  const resetPlaybackDefaults = () => setSeVolume(defaultSettings().audio.seVolume);
 
   const handleExport = () => {
     const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
@@ -148,9 +149,6 @@ export default function SettingsPage() {
             <div className="settings-index-title">功能设置</div>
             <button className={section === 'canvas' ? 'is-active' : ''} type="button" onClick={() => setSection('canvas')}>
               <Eye size={17} />画布显示
-            </button>
-            <button className={section === 'playback' ? 'is-active' : ''} type="button" onClick={() => setSection('playback')}>
-              <Music2 size={17} />播放
             </button>
           </div>
         </aside>
@@ -247,26 +245,6 @@ export default function SettingsPage() {
                 confirming={resetConfirm === 'canvas'}
                 onToggle={() => setResetConfirm(resetConfirm === 'canvas' ? null : 'canvas')}
                 onConfirm={() => { resetCanvasDefaults(); setResetConfirm(null); }}
-              />
-            </>
-          )}
-
-          {section === 'playback' && (
-            <>
-              <div className="settings-heading">
-                <h2>播放</h2>
-                <p>播放过程中的音效参数；音频 tab 只管谱面 BGM，不在此范围。</p>
-              </div>
-              <PercentSliderRow
-                label="节奏图示 SE 音量" hint="键音（音符击打音效）的独立音量，不影响 BGM"
-                value={settings.audio.seVolume} min={0} max={100} step={5}
-                onChange={(v) => setSeVolume(v)}
-              />
-              <ResetRow
-                label="恢复默认" hint="将本组（播放）全部参数恢复为出厂默认，不影响其它设置"
-                confirming={resetConfirm === 'playback'}
-                onToggle={() => setResetConfirm(resetConfirm === 'playback' ? null : 'playback')}
-                onConfirm={() => { resetPlaybackDefaults(); setResetConfirm(null); }}
               />
             </>
           )}

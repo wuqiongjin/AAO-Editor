@@ -1,54 +1,45 @@
 import { useMemo, useState } from 'react';
 import { Check, Image as ImageIcon, Palette, Sparkles, Wand2 } from 'lucide-react';
 import { useConfig } from '../contexts';
-import { KEY_SOUND_SETS, type KeySoundSample } from '../utils/KeySound';
-import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from '../utils/KeySoundMeta';
 import {
   listNoteSkinPacks,
   normalizeNoteSkinSelection,
 } from '../renderer/noteSkin';
 import NoteSkinPreview from '../components/NoteSkinPreview';
 
-// 素材页（issue 29）：导航第 3 项（音频之后，设置置末）。
-// grill 2026-08-17 定案：类别 ≥3 后页内改**类别子 tab**（键音 | 音符皮肤 | 背景皮肤），一次看一个类别。
-//   - 键音素材包：卡片列表，点「使用此包」写 settings.audio.keySet（与播放条同字段，立即生效并持久化）。
-//   - 音符皮肤（grill 2026-08-24 定案 + 2026-08-25 形态整改）：官方同名整包预设一键应用 + 六条目独立覆盖；
+// 视觉素材页（issue 29 切片 4 闭环后）：导航第 3 项。
+// grill 2026-08-17 + 2026-08-24 定案：
+//   - 「素材」tab 收窄为**视觉素材**（音符皮肤 + 背景皮肤），键音整包与 SE 音量已迁音频页
+//     （与音源同域，归属于 settings.audio），与 settings.visual.noteSkin 解耦；
+//   - 页面内**类别子 tab**（音符皮肤 | 背景皮肤）一次看一个类别，可扩展；
+//   - 音符皮肤：官方同名整包预设一键应用 + 六条目独立覆盖；
 //     顶部综合预览画布（Q8=B 真实精灵绘制）实时反映当前组合。
-//   - 背景皮肤：占位（数据模型待后续 grill）。
 //
-// 形态整改（2026-08-25 切片 1，详见 issue 29 Comments）：
+// 形态整改（2026-08-25 切片 1-4，详见 issue 29 Comments）：
 //   - 选中态：去掉「切换」按钮，整卡加 ✓ 主色实心徽标 + 描边/底色对比；
-//   - 未选中态：主色实心「使用此包 / 应用」按钮；
+//   - 未选中态：主色实心「应用」按钮；
 //   - 整包预设被部分条目覆盖时，预设卡 + 该条目卡 各显示一个「● 已覆盖 / 已修改」红点（Q9=A 双点提示）；
-//   - 「按条目独立覆盖」改为「条目卡 + 包缩略格」网格（Q3-1 = 网格+缩略；缩略真实精灵在下轮切片接入，本轮先占位文字方块）；
-//   - 综合预览改 2×3 网格 + 当前组合大标题（Q3-2）。
+//   - 「按条目独立覆盖」改为「条目卡 + 包缩略格」网格；
+//   - 综合预览改 6 列 2 行（Q13=A，列对齐，高信息密度）；
+//   - 同号方向 vs 普通包用户视角下是 1 套皮肤（label 同名 = "Skin 0N"），底层 id 区分；
+//   - 副标 subtitle = "整包应用" / "已自定义 · N 项"（琥珀色 = 已自定义）。
 
-/** 采样类型短标签：真实音频 / 振荡器占位 / 分档音频 */
-function sampleTag(sample: KeySoundSample): string {
-  if (sample.tierSrcs) return '音频 · 分档';
-  if (sample.src) return '音频';
-  return '振荡器';
-}
-
-type AssetCategory = 'keysound' | 'noteskin' | 'background';
+type AssetCategory = 'noteskin' | 'background';
 
 const ASSET_CATEGORIES: { id: AssetCategory; label: string }[] = [
-  { id: 'keysound', label: '键音' },
   { id: 'noteskin', label: '音符皮肤' },
   { id: 'background', label: '背景皮肤' },
 ];
 
 export default function AssetsPage() {
-  const { settings, setKeySetId } = useConfig();
-  const activeId = settings.audio.keySet;
-  const [category, setCategory] = useState<AssetCategory>('keysound');
+  const [category, setCategory] = useState<AssetCategory>('noteskin');
 
   return (
     <div className="page-content is-wide">
       <header className="page-intro">
         <span>应用素材</span>
-        <h2>素材</h2>
-        <p>管理谱面编辑使用的键音与视觉素材包。切换立即生效并自动保存。</p>
+        <h2>视觉素材</h2>
+        <p>管理谱面编辑使用的视觉素材包（音符皮肤、背景皮肤）。键音素材包已迁至音频页。切换立即生效并自动保存。</p>
       </header>
 
       <div className="assets-tabs" role="tablist" aria-label="素材类别">
@@ -66,75 +57,9 @@ export default function AssetsPage() {
         ))}
       </div>
 
-      {category === 'keysound' && <KeySoundPanel activeId={activeId} onSelect={setKeySetId} />}
       {category === 'noteskin' && <NoteSkinPanel />}
       {category === 'background' && <BackgroundPlaceholder />}
     </div>
-  );
-}
-
-// ---------------- 键音素材包 ----------------
-
-function KeySoundPanel({ activeId, onSelect }: { activeId: string; onSelect: (id: string) => void }) {
-  return (
-    <section className="assets-sets" aria-label="键音素材包">
-      <div className="section-heading">
-        <div>
-          <h2>键音素材包</h2>
-          <p>播放时按击打样式（单键 / 滑键 / 技能键 / 滑条 / 方向键）触发对应音效</p>
-        </div>
-        <span className="state-label">{KEY_SOUND_SETS.length} 个</span>
-      </div>
-
-      <div className="asset-set-grid">
-        {KEY_SOUND_SETS.map((set) => {
-          const active = set.id === activeId;
-          return (
-            <div key={set.id} className={`asset-set${active ? ' is-active' : ''}`}>
-              <div className="asset-set-visual" aria-hidden="true">
-                <span className="eq">
-                  <i /><i /><i /><i /><i />
-                </span>
-              </div>
-              <div className="asset-set-body">
-                <div className="asset-set-head">
-                  <strong>{set.label}</strong>
-                  {active ? (
-                    <span className="state-pill success" aria-label="正在使用">
-                      <Check size={13} /> 使用中
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="button-primary asset-set-apply"
-                      onClick={() => onSelect(set.id)}
-                    >
-                      使用此包
-                    </button>
-                  )}
-                </div>
-                <ul className="asset-samples">
-                  {KEY_SOUND_KINDS.map((kind) => {
-                    const meta = KEY_SOUND_KIND_META[kind];
-                    const sample = set.samples[kind];
-                    const synth = !sample.src && !sample.tierSrcs;
-                    return (
-                      <li key={kind} title={meta.hint}>
-                        <span className={`asset-sample-dot${synth ? ' is-synth' : ''}`} />
-                        <span>{meta.label}</span>
-                        <span className="asset-sample-tag">{sampleTag(sample)}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flow-note"><Check size={15} />切换后立即对后续播放生效；当前播放中的按键音将在暂停/重播后使用新素材。</div>
-    </section>
   );
 }
 
