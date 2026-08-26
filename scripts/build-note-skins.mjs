@@ -28,13 +28,25 @@ const PUBLIC_ROOT = 'public/assets/skins';
 const REGISTRY_OUT = 'src/renderer/noteSkinRegistry.gen.ts';
 const OVERRIDES_FILE = 'scripts/note-skin-overrides.json';
 
-// ---- 内置清单（本轮：skin00 + directionalflickskin00 打通管线；扩容按定案在此加行） ----
+// ---- 内置清单（issue 29 2026-08-24 grill 定案 Q5：先 skin00 + directionalflickskin00 打通管线，
+//   验证后扩至 7 普通（skin00–06）+ 5 方向（directionalflickskin00–04）。
+//   扩容即在本清单加行，**无需改脚本**。） ----
 const NOTE_PACKS = [
   { id: 'skin00', dir: 'rhythm-note-skins/skin00_rip', label: 'Skin 00' },
+  { id: 'skin01', dir: 'rhythm-note-skins/skin01_rip', label: 'Skin 01' },
+  { id: 'skin02', dir: 'rhythm-note-skins/skin02_rip', label: 'Skin 02' },
+  { id: 'skin03', dir: 'rhythm-note-skins/skin03_rip', label: 'Skin 03' },
+  { id: 'skin04', dir: 'rhythm-note-skins/skin04_rip', label: 'Skin 04' },
+  { id: 'skin05', dir: 'rhythm-note-skins/skin05_rip', label: 'Skin 05' },
+  { id: 'skin06', dir: 'rhythm-note-skins/skin06_rip', label: 'Skin 06' },
 ];
 // 方向键包面向用户与普通包同名（用户不感知"两种包"；同编号天然配对；按条目覆盖区按 eligibility 自动分流）
 const DIR_PACKS = [
   { id: 'directionalflickskin00', dir: 'directional-flick-skins/directionalflickskin00_rip', label: 'Skin 00' },
+  { id: 'directionalflickskin01', dir: 'directional-flick-skins/directionalflickskin01_rip', label: 'Skin 01' },
+  { id: 'directionalflickskin02', dir: 'directional-flick-skins/directionalflickskin02_rip', label: 'Skin 02' },
+  { id: 'directionalflickskin03', dir: 'directional-flick-skins/directionalflickskin03_rip', label: 'Skin 03' },
+  { id: 'directionalflickskin04', dir: 'directional-flick-skins/directionalflickskin04_rip', label: 'Skin 04' },
 ];
 
 const LANES = 7;
