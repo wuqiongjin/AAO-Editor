@@ -44,7 +44,7 @@ export default function AssetsPage() {
   const [category, setCategory] = useState<AssetCategory>('keysound');
 
   return (
-    <div className="page-content is-fill">
+    <div className="page-content is-wide">
       <header className="page-intro">
         <span>应用素材</span>
         <h2>素材</h2>
@@ -144,8 +144,7 @@ function NoteSkinPanel() {
   const { settings, setNoteSkin } = useConfig();
   // 读取即归一化：缺省/非法包 id 回退默认包（渲染器同规则，两处观感一致）
   const selection = useMemo(() => normalizeNoteSkinSelection(settings.visual?.noteSkin), [settings.visual?.noteSkin]);
-  const packs = listNoteSkinPacks();
-  const notePacks = packs.filter((p) => p.kind === 'note');
+  const notePacks = listNoteSkinPacks().filter((p) => p.kind === 'note');
 
   /** 整包预设 = 官方同名配对（skin0N + directionalflickskin0N）一键写入六条目 */
   const applyPreset = (noteId: string, pairedDir: string | null) => {
@@ -162,31 +161,24 @@ function NoteSkinPanel() {
     selection.tap === noteId && selection.flick === noteId && selection.skill === noteId && selection.slide === noteId
     && (pairedDir === null || (selection.dirL === pairedDir && selection.dirR === pairedDir));
 
-  /** "整包预设被部分条目覆盖"——与默认完全相等才算"未修改" */
-  const isPresetModified = (noteId: string, pairedDir: string | null) =>
-    !isPresetActive(noteId, pairedDir);
-
   return (
     <section className="skin-panel" aria-label="音符皮肤">
       <div className="section-heading">
         <div>
           <h2>音符皮肤</h2>
-          <p>谱面音符的外观素材包。每行 = 1 个音符类型 = 1 个真实精灵示例 + 1 组可选包。点任意缩略切换；与整包预设并存。</p>
         </div>
-        <span className="state-label">{packs.length} 个</span>
+        <span className="state-label">{notePacks.length} 个</span>
       </div>
 
-      {/* 整包预设（Q14 切片 3 前置：一键整包 = 高频高优，先看见） */}
+      {/* 整包预设（一键整包 = 高频高优，先看见） */}
       <div className="skin-section">
-        <div className="skin-section-head">
+        <h3 className="skin-section-title">
           <Wand2 size={16} />
-          <h3>整包预设</h3>
-          <span className="field-help">官方同编号配对，一键写入六条目；之后仍可按条目单独覆盖。</span>
-        </div>
+          整包预设
+        </h3>
         <div className="skin-preset-list">
           {notePacks.map((pack) => {
             const active = isPresetActive(pack.id, pack.pairedDir);
-            const modified = isPresetModified(pack.id, pack.pairedDir);
             return (
               <div
                 key={pack.id}
@@ -194,7 +186,6 @@ function NoteSkinPanel() {
                   'asset-set',
                   'skin-preset',
                   active ? 'is-active' : '',
-                  modified && !active ? 'is-modified' : '',
                 ].filter(Boolean).join(' ')}
               >
                 <div className="asset-set-visual" aria-hidden="true">
@@ -206,10 +197,6 @@ function NoteSkinPanel() {
                     {active ? (
                       <span className="state-pill success" aria-label="整包正在使用">
                         <Check size={13} /> 整包使用中
-                      </span>
-                    ) : modified ? (
-                      <span className="state-pill warning" aria-label="已被条目覆盖">
-                        ● 已修改
                       </span>
                     ) : (
                       <button

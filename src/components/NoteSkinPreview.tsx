@@ -140,29 +140,29 @@ function drawPreviewSprite(
 
 /** 解析"当前组合"为面向用户的简短摘要。
  * 用户视角 = 1 套皮肤（可能带微调）：
- *   - 完全未覆盖（6 条目 = 整包预设的默认形态）→ 标题=皮肤名，副标="整包应用"
- *   - 有条目被覆盖 → 标题=最近一次整包名（或默认包名），副标="已自定义 · N 项"
+ *   - 6 条目完全命中某个整包预设（皮肤名）→ 标题=该整包名，副标="整包应用"
+ *   - 否则 = "已自定义" → 标题="已自定义"，副标="N 项被调整"
  * 不暴露"方向 vs 普通"这种底层包分类——按条目覆盖区按 eligibility 自动分流即可。
+ * 同编号方向 vs 普通包用户视角下是 1 套皮肤，故命中只要 note id + 配对方向 id 共同一致。
  */
 function summarizeSelection(selection: NoteSkinSelection): { title: string; subtitle: string } {
   const packs = listNoteSkinPacks();
+  const notePacks = packs.filter((p) => p.kind === 'note');
+  // 6 条目完全 = 某 note 整包 + 配对方向包 → 命中该整包预设
+  const matched = notePacks.find((p) => {
+    if (selection.tap !== p.id || selection.flick !== p.id || selection.skill !== p.id || selection.slide !== p.id) return false;
+    if (p.pairedDir) return selection.dirL === p.pairedDir && selection.dirR === p.pairedDir;
+    return true;
+  }) ?? null;
+  if (matched) {
+    return { title: matched.label, subtitle: '整包应用' };
+  }
+  // 未命中：vs 默认偏离的条目数
   const defaults = DEFAULT_NOTE_SKIN_SELECTION;
-  // 6 条目完全 = 默认（即未做任何覆盖）= 整包应用态
-  const isPureDefault = (NOTE_SKIN_ITEM_IDS_FOR_LABEL as readonly NoteSkinItemId[]).every(
-    (k) => selection[k] === defaults[k],
-  );
-  // 被覆盖的条目数
   const overriddenCount = (NOTE_SKIN_ITEM_IDS_FOR_LABEL as readonly NoteSkinItemId[]).filter(
     (k) => selection[k] !== defaults[k],
   ).length;
-  // 标题 = 默认整包预设的名字（"最近一次整包"对用户来说就是"我装的是哪套"）
-  // tap 默认走 note 包，其 label = 整包名（因为同编号方向包同名，所以这里天然就是 "Skin 00"）
-  const defaultNotePack = packs.find((p) => p.id === defaults.tap);
-  const title = defaultNotePack?.label ?? '默认';
-  if (isPureDefault) {
-    return { title, subtitle: '整包应用' };
-  }
-  return { title, subtitle: `已自定义 · ${overriddenCount} 项` };
+  return { title: '已自定义', subtitle: `${overriddenCount} 项被调整` };
 }
 
 export default function NoteSkinPreview({
@@ -210,7 +210,7 @@ export default function NoteSkinPreview({
       <div className="skin-live-preview-head">
         <span className="skin-live-preview-eyebrow">当前组合</span>
         <strong className="skin-live-preview-title">{summary.title}</strong>
-        <span className={`skin-live-preview-subtitle${summary.subtitle.startsWith('已自定义') ? ' is-modified' : ''}`}>{summary.subtitle}</span>
+        <span className={`skin-live-preview-subtitle${summary.title === '已自定义' ? ' is-modified' : ''}`}>{summary.subtitle}</span>
         <span className="skin-live-preview-meta">{COLS.length} 类音符 · 实时预览</span>
       </div>
       <div className="skin-col-grid" role="grid">
@@ -218,14 +218,8 @@ export default function NoteSkinPreview({
           const eligible = col.item === 'dirL' || col.item === 'dirR' ? 'directional' : 'note';
           const packs = listNoteSkinPacks().filter((p) => p.kind === eligible);
           const currentId = selection[col.item];
-          const currentPack = packs.find((p) => p.id === currentId);
-          const overridden = currentId !== DEFAULT_NOTE_SKIN_SELECTION[col.item];
           return (
-            <div
-              key={col.item}
-              className={`skin-col${overridden ? ' is-overridden' : ''}`}
-              role="row"
-            >
+            <div key={col.item} className="skin-col" role="row">
               <div className="skin-col-preview">
                 <canvas
                   ref={(el) => { canvasRefs.current[col.item] = el; }}
@@ -235,7 +229,6 @@ export default function NoteSkinPreview({
                   aria-label={`${col.label}预览`}
                 />
                 <span className="skin-col-label">{col.label}</span>
-                {overridden && <span className="state-pill warning skin-col-badge">已覆盖</span>}
               </div>
               <div className="skin-col-picker" role="radiogroup" aria-label={`${col.label}皮肤`}>
                 {packs.map((p) => {
@@ -259,9 +252,6 @@ export default function NoteSkinPreview({
                     </button>
                   );
                 })}
-              </div>
-              <div className="skin-col-current" title={currentPack?.label ?? currentId}>
-                {currentPack?.label ?? currentId}
               </div>
             </div>
           );

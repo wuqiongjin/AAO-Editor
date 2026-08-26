@@ -855,8 +855,19 @@
 }
 
 /* 音符皮肤面板 */
+/* 音符皮肤面板 = 单列（上下布局）：整包预设 + 6 列预览垂直堆叠。
+   不限制高度（之前 max-height + overflow 试图塞进 1 个 viewport 导致内容被裁）。
+   让 .page-content.is-fill 整页滚动承接——内容超过 viewport 时外层出滚动条。 */
 .skin-panel {
   min-width: 0;
+}
+
+.skin-panel > .skin-section {
+  margin-top: 16px;
+}
+
+.skin-panel > .skin-live-preview {
+  margin-top: 16px;
 }
 
 .skin-panel .section-heading {
@@ -912,19 +923,36 @@
 
 .skin-preset-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  /* 整包预设 = 多列网格（issue 29 切片 4 后整包预设变高频高优，2-4 列信息密度高，1 个 viewport 内扫读 7 套）。
+     1280px viewport 下 3-4 列：minmax 240px 让 4 列触发、minmax 320px 让 3 列触发。 */
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 10px;
 }
 
 .skin-preset {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
   box-shadow: var(--shadow-sm);
   transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
+}
+
+/* 整包预设卡：固定缩略图尺寸 = 视觉一致 + 全部同高（grid 同行一致） */
+.skin-preset > .asset-set-visual {
+  width: 84px;
+  height: 56px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.skin-preset > .asset-set-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
 }
 
 .skin-preset:hover {
@@ -1296,10 +1324,6 @@
   transition: background-color 140ms var(--ease);
 }
 
-.skin-col.is-overridden {
-  background: color-mix(in srgb, #f59e0b 6%, transparent);
-}
-
 .skin-col-preview {
   position: relative;
   display: grid;
@@ -1330,13 +1354,7 @@
   letter-spacing: 0.02em;
 }
 
-.skin-col-badge {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  padding: 1px 6px;
-  font-size: 9.5px;
-}
+
 
 /* 包选择 pill：胶囊形态，包名 + 右侧角标（防遮挡） */
 .skin-col-picker {
@@ -1397,20 +1415,6 @@
   margin-left: 4px;
 }
 
-.skin-col-current {
-  font-size: 10.5px;
-  color: var(--text-subtle);
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 1px;
-}
-
-.skin-col.is-overridden .skin-col-current {
-  color: #d97706;
-  font-weight: 700;
-}
 
 /* 窄屏：6 列拥挤，自动转 3 列 × 4 行 */
 @media (max-width: 880px) {
