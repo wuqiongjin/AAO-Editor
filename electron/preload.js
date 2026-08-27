@@ -2,7 +2,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // 暴露受保护的方法，允许渲染进程使用
 contextBridge.exposeInMainWorld('electronAPI', {
-    // 这里可以添加需要在渲染进程中使用的API
     platform: process.platform,
-    versions: process.versions
+    versions: process.versions,
+    // 谱面工程文件后端（issue 25）：渲染进程经此桥把工程数据落到 userData 文件。
+    // get 返回 { doc, audio(Uint8Array) | null } 或 null（无数据）；
+    // put 载荷见 src/utils/ChartProject.ts 的 ProjectPutWire。
+    projectStore: {
+        get: (id) => ipcRenderer.invoke('project:get', id),
+        put: (payload) => ipcRenderer.invoke('project:put', payload),
+    },
 });

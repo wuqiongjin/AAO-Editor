@@ -68,6 +68,7 @@
 - [39 设置页整改·应用与功能两组结构](./issues/39-设置页整改-应用与功能两组结构.md) — **open（grill 行为轮定案 + 主体实现 2026-08-18）**：两组结构（应用设置=外观/布局/配置数据；功能设置=画布显示/播放）+ 7 参数逐项以 bestdori 实测定案（节奏图示大小 10–200/10、长压线不透明度 10–100/10、同时点击线开关、色觉辅助开关、纵向比例 50–200/10、图像品质三档默认标准、节奏图示SE音量 0–100/5）。**已实现：结构 + 6 项**（schema/context/设置页 UI/画布渲染挂钩/瓦片失效/SE 独立 seGain），tsc 0、187 测试、build 全绿。**色觉辅助 #4 整体顺延**（虚拍图标坐标依赖 Issue-41 取样，连同「半拍整数倍→虚拍」判断逻辑一起落位）。**追加问题收尾（2026-08-19）**：图像品质改 select 下拉（弃分段按钮）、Slide 连接带宽度 × noteSize 四处同步（修"调大小连接线不变"）、恢复默认由配置数据整组改画布显示/播放分组各行。
 - [40 精灵图坐标规范化重构与渲染质量](./issues/40-精灵图坐标规范化重构与渲染质量.md) — **open（2026-08-18 立）**：`CanvasSpriteIcon` 负百分比偏移坐标系规范化成像素矩形 + 三张注册表整理 + 虚拍接入点预留 + 渲染质量（smoothing/瓦片DPR）提升。源自 issue 39 grill Q8（用户拍板 B→C 拆独立 issue）。
 - [41 精灵图可视化定位工具](./issues/41-精灵图可视化定位工具.md) — **resolved（2026-08-22 独立入口）**：同一仓库独立页 `/sprite-locator.html`（`src/sprite-locator/`），不占主导航、不进主 bundle、`build:release` 不打包。加载 skin 图，滚轮缩放/空格平移/拖拽框选，选区可手柄/键盘/数值微调，输出 BaseSpriteIcons 条目（{x,y,w,h}+可选 inkLeft/inkRight）。解阻塞 issue 39 #4（tapVirtual 坐标待用户用本工具量取后填入）。
+- [25 存储后端 Electron 改造](./issues/25-存储后端Electron改造.md) — **resolved（2026-08-27 实现+验证）**：谱面工程持久化按环境自动选后端——Electron 走 `userData/projects/<id>/{project.json,audio.bin}` 文件后端（ipcMain + 原子写 + id 白名单），浏览器照旧 IndexedDB；grill 定案无设置项。音频按 Blob 实例身份判重，未变声明 `keep` 不重传字节（防抖保存不再重写大音频）；首启静默迁移 IndexedDB→文件后端（幂等、原数据保留备份）。`ChartProjectStore` API 兼容、Editor 零改动。tsc 0 / 277 测试全过 / build 绿；Electron 手工验收清单见 issue。
 
 ## Not yet specified
 
