@@ -81,6 +81,22 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出 |
 | 上下文分域 | Context domains | 状态管理组织：`EditingContext`（音符/历史/选择）、`UIContext`（面板/缩放）、`ConfigContext`（设置）；`Editor` 只负责组装 |
 
+## 应用页面壳（ADR-0007）
+
+| 术语 | 英文 | 说明 |
+| --- | --- | --- |
+| 应用壳 | App shell | `src/pages/AppShell.tsx`——5 页注册 + 保活挂载 + 切页快捷键 + 可折叠应用导航；issue 28 闭环；不在内容壳 ADR 范围 |
+| 内容壳 | Content shell | `src/components/layout/AppPageShell.tsx`——4 个非工作台页共用的"页面头 + 独立于正文外的侧边索引 + 内容模式 + 宽度档"模板；compound component 形态（namespace）；ADR-0007 范围 |
+| 应用页面 | Application page | 应用壳中的单例功能目的地；当前范围为工作台、音频、素材、快捷键、设置（issue 28 §ADR-0003 既有定义） |
+| 内容页 | Content page | 接入内容壳的应用页面；**工作台不接入**（内部布局专属，issue 28 P1+P2）；当前范围 = 音频、素材、快捷键、设置 |
+| 工作台页 | Workspace page | **不接入内容壳**的应用页面（内部布局专属 + 黑盒接入应用壳，Editor 仅传 `active` 表面契约） |
+| 页面头 | Page header | 内容壳 `<AppPageShell.Header eyebrow title description />`；沿用 `.page-intro` class，CSS 不动；4 页沿用现状字符串，文案语义统一后续单开 issue |
+| 侧边索引 | Sidebar | 内容壳 `<AppPageShell.Sidebar>`——**独立于正文外**（不占正文空间，与"压在正文内"语义对立）；可空、可分组；激活态统一为"主色软底 + 主色文字 + 弱描边" |
+| 侧边分组 | Sidebar group | `<AppPageShell.SidebarGroup title>`——带不可点的分组标题；用于"应用设置 / 功能设置"等场景 |
+| 侧边项 | Sidebar item | `<AppPageShell.SidebarItem icon label>`——`icon` 为 `React.ComponentType`（lucide），size 17 由模板写死；激活态见上 |
+| 内容模式 | Content mode | `<AppPageShell.Body mode>`——`"default"`（整页滚） / `"fill"`（整页不动 + 内部子元素自身滚）；显式 prop，默认 `default` |
+| 宽度档 | Width tier | `<AppPageShell.Body width>`——`"default"` 920px / `"wide"` 1040px / `"narrow"` 720px（**本轮仅留接口不实现**）；显式 prop，无默认 |
+
 ## 播放与预览（ADR-0004）
 
 | 术语 | 英文 | 说明 |
