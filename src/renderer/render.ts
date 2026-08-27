@@ -365,6 +365,25 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     });
   });
 
+  // 补 flick 装饰箭头（fix: "flick 覆盖 Slide 尾部时装饰箭头缺失"）：
+  // 上面 spread 了 flickFor() 替换主精灵,但 flickFor 不含 flickTopDecorator 字段
+  // （Single 类型的装饰箭头在调用方 renderChart 的第二层显式补,见 line 290 注释）。
+  // slide/long 走 renderSlideBody 单点处理,这里必须自己补,否则尾部带 flick 的
+  // connection 画不出墨迹箭头,与 Single flick 视觉不一致。
+  const dec = icons.flickTopDecorator;
+  if (dec) {
+    connections.forEach((conn) => {
+      if (!conn.flick) return;
+      const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
+      const flickCfg = icons.flickFor(conn.lane);
+      rc.spriteIcon.renderDecorator(ctx, {
+        canvasX: pos.x, canvasY: pos.y,
+        drawW: flickCfg.out?.w ?? NOTE_ICON_SIZE,
+        drawH: flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
+      }, dec, spriteScale);
+    });
+  }
+
   if (!skipSelection) drawSlideSelection(ctx, c, rc, sel, note, index);
 }
 
