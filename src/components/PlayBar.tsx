@@ -162,12 +162,15 @@ export default function PlayBar({
           position: 'relative', width: '100%', height: 4, borderRadius: 'var(--radius-full)',
           backgroundColor: 'var(--border)', overflow: 'visible',
         }}>
-          {/* 已播放填充 */}
+          {/* 已播放填充：去掉 width transition,与圆点位置严格逐帧同步
+              （修 issue "音频进度条蓝线滞后圆点"——rAF 60fps 重渲下,160ms transition
+              与高频 width 更新在某些 GPU 合成路径上互动异常,蓝线会卡在旧值几秒;
+              圆点本身无 transition 立即跳,造成位置不一致。直接走逐帧瞬移,视觉上
+              rAF 16.7ms 间隔本身已足够平滑） */}
           <div style={{
             position: 'absolute', left: 0, top: 0, bottom: 0,
             width: `${ratio * 100}%`, borderRadius: 'var(--radius-full)',
             backgroundColor: 'var(--accent)',
-            transition: dragging ? 'none' : 'width var(--dur) var(--ease)',
           }} />
           {/* 滑块圆点 */}
           <div style={{
