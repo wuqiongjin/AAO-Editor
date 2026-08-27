@@ -64,6 +64,24 @@ export interface RenderCtx {
   skinVersion?: number;
   /** 画布显示参数（issue 39 功能设置·画布显示）：由组件从 settings 读取注入，null = 用默认行为 */
   display?: RenderDisplayOptions;
+  /** 谱面背景皮肤（issue 29 Q4 最小模型）：enabled×解码就绪时由组件注入；进静态层（cover 铺满 + 不透明度合成），
+   *  revision / opacity 变化经 staticLayerCache basis 失效重建。null/undefined = 无背景 */
+  background?: RenderBackgroundImage | null;
+}
+
+/** 背景皮肤渲染输入：source = 已解码位图（utils/backgroundSkin.ts 解码产物）；opacity/fit/scope 由 settings 提供 */
+export interface RenderBackgroundImage {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  /** 图片实例版本：换图 +1，静态层据此失效 */
+  revision: number;
+  /** 图片不透明度（0 = 纯黑画布，1 = 原图全亮）；缺失/非法由渲染器回退默认 */
+  opacity?: number;
+  /** 填充方式：cover 铺满裁剪（默认）/ contain 完整显示留黑边 */
+  fit?: 'cover' | 'contain';
+  /** 显示范围：outsideTrack 仅轨道外（默认，轨道区保持原始深色）/ fullCanvas 全画布（轨道区半透明压暗） */
+  scope?: 'outsideTrack' | 'fullCanvas';
 }
 
 /** 画布显示参数（issue 39）。数值以比例存储（100% = 1）。 */

@@ -9,6 +9,16 @@ import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutCon
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID } from './KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../renderer/noteSkinRegistry.gen';
 
+/** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */
+export const DEFAULT_BACKGROUND_OPACITY = 0.55;
+/** 背景填充方式缺省：cover 铺满裁剪 */
+export const DEFAULT_BACKGROUND_FIT = 'cover' as const;
+/** 背景显示范围缺省：仅轨道外显示（用户 grill 定案 2026-08-27：不覆盖轨道本身，不影响作谱） */
+export const DEFAULT_BACKGROUND_SCOPE = 'outsideTrack' as const;
+
+export type BackgroundFit = typeof DEFAULT_BACKGROUND_FIT | 'contain';
+export type BackgroundScope = typeof DEFAULT_BACKGROUND_SCOPE | 'fullCanvas';
+
 export interface AppSettings {
   schemaVersion: 1;
   theme: 'light' | 'dark' | 'system';
@@ -36,6 +46,15 @@ export interface AppSettings {
   /** 素材域（issue 29 音符皮肤）：六条目 → 皮肤包 id。包合法性由 renderer/noteSkin.ts 归一化（缺省/非法回退默认包） */
   visual: {
     noteSkin: Partial<NoteSkinSelectionRaw>;
+    /** 谱面背景皮肤（issue 29 Q4 最小模型，2026-08-27 定案；同日用户实机反馈修订加 opacity）。图片本体存 IndexedDB
+     *  （utils/backgroundSkin.ts），此处仅存引用状态；enabled=true 但图不存在时按无背景渲染（静默降级），
+     *  additive 不 bump schemaVersion。opacity 0..1：图片不透明度，越低画布原始黑底占比越多，默认 DEFAULT_BACKGROUND_OPACITY */
+    backgroundSkin?: {
+      enabled: boolean;
+      opacity?: number;
+      fit?: BackgroundFit;
+      scope?: BackgroundScope;
+    };
   };
 }
 
@@ -72,7 +91,7 @@ export function defaultSettings(): AppSettings {
       verticalRatio: 1,
       imageQuality: 'standard',
     },
-    visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION } },
+    visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
   };
 }
 
@@ -93,6 +112,17 @@ function mergeSettings(parsed: unknown): AppSettings {
     if (typeof rawNoteSkin[k] === 'string') noteSkin[k] = rawNoteSkin[k] as string;
   }
   const clamp = (v: unknown, min: number, max: number, dft: number) => typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : dft;
+  // 背景皮肤（issue 29 Q4 + 修订）：缺字段/非法值归一化；opacity 缺失 = 默认 0.55（additive，不 bump schemaVersion）
+  const rawBackgroundSkin = (visual.backgroundSkin && typeof visual.backgroundSkin === 'object' ? visual.backgroundSkin : {}) as Record<string, unknown>;
+  const fitRaw = rawBackgroundSkin.fit;
+  const scopeRaw = rawBackgroundSkin.scope;
+  const backgroundSkin: NonNullable<AppSettings['visual']['backgroundSkin']> = {
+    enabled: typeof rawBackgroundSkin.enabled === 'boolean' ? rawBackgroundSkin.enabled : defaults.visual.backgroundSkin?.enabled ?? false,
+    opacity: clamp(rawBackgroundSkin.opacity, 0, 1, DEFAULT_BACKGROUND_OPACITY),
+    // 枚举字段白名单归一化：白名单外 → 默认（fit 默认 cover；scope 默认 outsideTrack）
+    fit: fitRaw === 'cover' || fitRaw === 'contain' ? fitRaw : DEFAULT_BACKGROUND_FIT,
+    scope: scopeRaw === 'outsideTrack' || scopeRaw === 'fullCanvas' ? scopeRaw : DEFAULT_BACKGROUND_SCOPE,
+  };
   const quality =
     display.imageQuality === 'smooth' || display.imageQuality === 'standard' || display.imageQuality === 'hd'
       ? display.imageQuality
@@ -124,7 +154,7 @@ function mergeSettings(parsed: unknown): AppSettings {
       verticalRatio: clamp(display.verticalRatio, 0.5, 2, defaults.display.verticalRatio),
       imageQuality: quality,
     },
-    visual: { noteSkin },
+    visual: { noteSkin, backgroundSkin },
   };
 }
 

@@ -770,6 +770,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
               onScrollChange={handleVirtualScrollChange}
               chartEndSeconds={ctxDuration}
               surface={surface}
+              active={active}
             />
           </div>
         </div>

@@ -113,7 +113,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 皮肤条目 | Note skin item | 六条目：单键 `tap` / 滑键 `flick` / 技能键 `skill` / 左方向 `dirL` / 右方向 `dirR` / 滑条 `slide`；slide 管三件套 = `longNoteLine` + `longNoteLine2` + `note_slide_among` |
 | 整包预设 | Skin preset | 官方同名配对（skin0N + directionalflickskin0N）一键写入六条目；写入后各条目仍可独立覆盖 |
 | per-lane | per-lane sprite | 官方精灵按轨道一张（透视观感差异）；方向键 length=N = N 条覆盖轨道各贴本轨图；滑条端点复用单键皮肤 |
-| 谱面背景皮肤 | Chart background skin | 谱面画布的可选背景图层（画布固定深色主题不变）；数据模型待后续 grill，占位 |
+| 谱面背景皮肤 | Chart background skin | 谱面画布的可选背景图层（画布固定深色主题不变）；**最小模型已实现**（Q4 + 同日三轮修订）：1 张本地图片（IndexedDB `bangdream.assets`）+ 启用开关 + 清除；**可调不透明度**（默认 55%）/ **填充方式**（铺满裁剪 cover / 完整显示 contain）/ **显示范围**（仅轨道外 outsideTrack 默认，不覆盖轨道本身 / 全画布 fullCanvas）；渲染进静态层；回工作台激活即补帧重绘 |
 
 > 规则细节：皮肤与音符类型的完整映射、资源接入边界见 `.scratch/basic-editor/issues/29-素材页面-键音素材包与皮肤.md` 定案记录；归档使用边界见 `docs/resource/bestdori/README.md`。
 

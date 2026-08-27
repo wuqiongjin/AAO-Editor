@@ -11,6 +11,8 @@ import {
 import { useEditing, useUI, usePlayback, useConfig } from '../contexts';
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../renderer';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../renderer/noteSkin';
+import { normalizeBackgroundOpacity } from '../renderer/staticLayerCache';
+import { useBackgroundSkin } from '../utils/useBackgroundSkin';
 import { countNotesUpToBeat } from '../utils/NoteEditing';
 import { formatTimePrecise } from '../utils/TimeFormat';
 
@@ -21,6 +23,9 @@ interface FinalVirtualCanvasProps {
   chartEndSeconds: number;
   /** 渲染面尺寸（CSS 像素，ADR-0006 §1）：由 Editor 经 ResizeObserver 提供；缓冲 = surface × dpr */
   surface: SurfaceSize;
+  /** 工作台激活态（issue 28 表面契约透传）：false→true（回到工作台）时强制补一帧——
+   *  保活隐藏期间背景皮肤的换图/开关/透明度变化不经过任何画布交互路径（issue 29 用户反馈2），激活即重绘保证所见为最新 */
+  active?: boolean;
 }
 
 // 视口缩放配置
@@ -40,6 +45,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     onScrollChange,
     chartEndSeconds,
     surface,
+    active,
 }, ref) => {
     // 渲染面兜底：ResizeObserver 尚未回传前的有效尺寸（ADR-0006 §1）
     const surf: SurfaceSize = surface.w > 0 && surface.h > 0 ? surface : DEFAULT_SURFACE;
@@ -56,6 +62,22 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     // 音符皮肤（issue 29）：六条目选择 → 归一化（缺省/非法回退默认包）→ 图标集；引用稳定，仅选择变化时重建
     const noteSkin = useMemo(() => normalizeNoteSkinSelection(settings.visual?.noteSkin), [settings.visual?.noteSkin]);
     const noteIcons = useMemo(() => buildActiveNoteIcons(noteSkin), [noteSkin]);
+    // 背景皮肤（issue 29 Q4 最小模型）：store 快照（IndexedDB 懒装载）× settings 开关位 → 渲染输入；
+    // 开关/换图/透明度任一变化都会经此处注入，静态层据 revision+opacity 失效重建
+    const bgSnapshot = useBackgroundSkin();
+    const background = useMemo(() => {
+      const bg = settings.visual?.backgroundSkin;
+      if (!bg?.enabled || !bgSnapshot.image) return null;
+      return {
+        source: bgSnapshot.image.source as CanvasImageSource,
+        width: bgSnapshot.image.width,
+        height: bgSnapshot.image.height,
+        revision: bgSnapshot.revision,
+        opacity: normalizeBackgroundOpacity(bg.opacity),
+        fit: bg.fit === 'contain' ? 'contain' as const : 'cover' as const,
+        scope: bg.scope === 'fullCanvas' ? 'fullCanvas' as const : 'outsideTrack' as const,
+      };
+    }, [settings.visual?.backgroundSkin, bgSnapshot]);
     // 视口状态
     const [viewport, setViewport] = useState<ViewportState>({
         scrollX: 0,
@@ -268,9 +290,11 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
             skinVersion,
             // issue 39：画布显示参数（节奏图示大小/长压线不透明度/同时点击线）
             display: { noteSize: display.noteSize, slideOpacity: display.slideOpacity, simultaneousClickLines: display.simultaneousClickLines },
+            // 背景皮肤（issue 29 Q4）：进静态层绘制
+            background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.imageQuality, noteIcons]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.imageQuality, noteIcons, background]);
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {
@@ -585,6 +609,20 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
         }
         renderCanvas();
     }, [renderCanvas, viewport.scale, geometry, scale]);
+
+    // 回到工作台强制补一帧（issue 29 用户反馈2）：五页保活挂载（AppShell），离开工作台期间背景皮肤的
+    // 换图/开关/透明度变化不经过任何画布交互路径，可能停在旧帧直到用户滚动。经 ref 取最新 renderCanvas，
+    // 仅在 active 翻转为 true 时补绘一次，不增加交互帧成本。
+    const paintOnActivateRef = useRef<() => void>(() => {});
+    paintOnActivateRef.current = renderCanvas;
+    const wasActiveRef = useRef<boolean>(active ?? true);
+    useEffect(() => {
+        const now = active ?? true;
+        if (now && !wasActiveRef.current) {
+            paintOnActivateRef.current();
+        }
+        wasActiveRef.current = now;
+    }, [active]);
 
     useEffect(() => {
         return () => {

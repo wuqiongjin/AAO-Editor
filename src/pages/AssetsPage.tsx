@@ -1,11 +1,14 @@
-import { useMemo, useState } from 'react';
-import { Check, Image as ImageIcon, Palette, Sparkles, Wand2 } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Check, Eye, EyeOff, ImagePlus, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
 import { useConfig } from '../contexts';
 import {
   listNoteSkinPacks,
   normalizeNoteSkinSelection,
 } from '../renderer/noteSkin';
 import NoteSkinPreview from '../components/NoteSkinPreview';
+import { backgroundSkinStore } from '../utils/backgroundSkin';
+import { useBackgroundSkin } from '../utils/useBackgroundSkin';
+import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../utils/AppSettings';
 
 // 视觉素材页（issue 29 切片 4 闭环后）：导航第 3 项。
 // grill 2026-08-17 + 2026-08-24 定案：
@@ -23,6 +26,9 @@ import NoteSkinPreview from '../components/NoteSkinPreview';
 //   - 综合预览改 6 列 2 行（Q13=A，列对齐，高信息密度）；
 //   - 同号方向 vs 普通包用户视角下是 1 套皮肤（label 同名 = "Skin 0N"），底层 id 区分；
 //   - 副标 subtitle = "整包应用" / "已自定义 · N 项"（琥珀色 = 已自定义）。
+//
+// 背景皮肤（2026-08-27，Q4 最小模型定案并实现）：1 张本地图片（IndexedDB）+ 启用开关（settings）+ 清除；
+//   cover 铺满 + 固定暗色遮罩渲染进画布静态层；本面板承载上传 / 隐藏 / 清除。
 
 type AssetCategory = 'noteskin' | 'background';
 
@@ -58,7 +64,7 @@ export default function AssetsPage() {
       </div>
 
       {category === 'noteskin' && <NoteSkinPanel />}
-      {category === 'background' && <BackgroundPlaceholder />}
+      {category === 'background' && <BackgroundPanel />}
     </div>
   );
 }
@@ -152,25 +158,214 @@ function NoteSkinPanel() {
 
 // 单条目覆盖行已并入 NoteSkinPreview（2026-08-25 切片 2），此处不再需要 SkinItemRow。
 
-// ---------------- 背景皮肤（占位） ----------------
+// ---------------- 背景皮肤（issue 29 Q4 最小模型，2026-08-27 定案并实现） ----------------
+// 最小模型 = 1 张图（本地单张上传，png/jpeg/webp ≤20MB）+ 启用开关 + 清除。
+// 图片本体存 IndexedDB（utils/backgroundSkin.ts），settings.visual.backgroundSkin.enabled 只存开关位；
+// 上传成功自动启用；清除同时删库存档并关开关。渲染效果见 renderer/staticLayerCache.ts（cover 铺满 + 固定暗色遮罩）。
 
-function BackgroundPlaceholder() {
+const BG_ACCEPT = 'image/png,image/jpeg,image/webp';
+const BG_MAX_FILE_BYTES = 20 * 1024 * 1024;
+
+function BackgroundPanel() {
+  const { settings, setBackgroundSkin } = useConfig();
+  const snap = useBackgroundSkin();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const bg = settings.visual?.backgroundSkin;
+  const enabled = bg?.enabled ?? false;
+  const opacityPct = Math.round((bg?.opacity ?? DEFAULT_BACKGROUND_OPACITY) * 100);
+  const image = snap.image;
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      setError('仅支持 PNG / JPEG / WebP 格式图片');
+      return;
+    }
+    if (file.size > BG_MAX_FILE_BYTES) {
+      setError('图片过大（上限 20MB），请压缩后重试');
+      return;
+    }
+    setBusy(true);
+    try {
+      await backgroundSkinStore.setImage(file);
+      // 上传即启用（最小模型的"开关"语义：用户可见的结果优先）
+      setBackgroundSkin({ enabled: true });
+    } catch (e) {
+      console.error('[AssetsPage] 背景图保存失败:', e);
+      setError('背景图保存失败，请重试');
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const handleClear = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await backgroundSkinStore.clear();
+      setBackgroundSkin({ enabled: false });
+    } catch (e) {
+      console.error('[AssetsPage] 背景图清除失败:', e);
+      setError('清除失败，请重试');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <aside className="assets-skin surface-section" aria-label="背景皮肤（占位）">
-      <div className="assets-skin-head">
-        <ImageIcon size={18} />
+    <section className="skin-panel" aria-label="背景皮肤">
+      <div className="section-heading">
         <div>
           <h2>谱面背景皮肤</h2>
-          <p>谱面画布背景图</p>
+        </div>
+        <span className="state-label">{image ? (enabled ? '使用中' : '已隐藏') : '未设置'}</span>
+      </div>
+
+      <div className={`asset-set skin-preset bg-card${image && enabled ? ' is-active' : ''}`}>
+        <input
+          ref={fileRef}
+          type="file"
+          accept={BG_ACCEPT}
+          aria-hidden="true"
+          tabIndex={-1}
+          className="bg-file-input"
+          onChange={(e) => void handleFile(e.target.files?.[0])}
+        />
+
+        {/* 预览：真实背景图等比缩放展示；未上传时为占位视觉 */}
+        <div className={`bg-preview${image && !enabled ? ' is-off' : ''}`} aria-hidden="true">
+          {image ? (
+            <img src={image.url} alt="" />
+          ) : (
+            <ImagePlus size={26} />
+          )}
+        </div>
+
+        <div className="asset-set-body">
+          <div className="asset-set-head">
+            <strong>{image ? '自定义背景图' : '谱面画布背景'}</strong>
+            {snap.status === 'ready' && image && enabled && (
+              <span className="state-pill success" aria-label="背景正在使用">
+                <Check size={13} /> 使用中
+              </span>
+            )}
+            {snap.status === 'ready' && image && !enabled && (
+              <span className="state-pill warning">已隐藏</span>
+            )}
+            <span className="inline-actions">
+              {(!image || !enabled) && (
+                <button
+                  type="button"
+                  className="button-primary"
+                  disabled={busy || snap.status !== 'ready'}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <Upload size={14} />{image ? '更换并启用' : '上传图片'}
+                </button>
+              )}
+              {image && enabled && (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={busy}
+                  onClick={() => setBackgroundSkin({ enabled: false })}
+                >
+                  <EyeOff size={14} />隐藏
+                </button>
+              )}
+              {image && !enabled && (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={busy}
+                  onClick={() => setBackgroundSkin({ enabled: true })}
+                >
+                  <Eye size={14} />启用
+                </button>
+              )}
+              {image && (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={busy}
+                  onClick={() => void handleClear()}
+                >
+                  <Trash2 size={14} />清除
+                </button>
+              )}
+            </span>
+          </div>
+
+          {error ? (
+            <span className="field-help is-error">{error}</span>
+          ) : (
+            <span className="field-help">
+              给谱面画布设置一张背景图（PNG / JPEG / WebP，≤20MB）。画布固定深色主题不变，背景图为其上可选层；
+              自动铺满并压暗以保证音符可读。仅存本机，不上传服务器，随编辑器配置持久保存。
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="skin-preview" aria-hidden="true">
-        <Palette size={22} />
+      {/* 显示范围（用户 grill 定案：默认仅轨道外，不覆盖轨道本身，不影响作谱） */}
+      <div className="settings-row">
+        <div className="settings-row__text">
+          <strong>显示范围</strong>
+          <span>仅轨道外 = 背景只出现在轨道两侧空白区，轨道区域保持原始深色，完全不影响作谱；全画布 = 沉浸式铺满（轨道区压暗）。</span>
+        </div>
+        <select
+          className="select-control"
+          value={bg?.scope ?? DEFAULT_BACKGROUND_SCOPE}
+          disabled={!image || !enabled || busy}
+          onChange={(e) => setBackgroundSkin({ scope: e.target.value as 'outsideTrack' | 'fullCanvas' })}
+          aria-label="背景显示范围"
+        >
+          <option value="outsideTrack">仅轨道外</option>
+          <option value="fullCanvas">全画布</option>
+        </select>
       </div>
 
-      <span className="skin-badge">即将支持</span>
-      <span className="field-help">给谱面画布设置背景图（画布固定深色主题不变，背景图是其上的可选层）。数据模型待后续定案，此处仅预留分类。</span>
-    </aside>
+      {/* 填充方式（issue 29 扩展配置 grill 定案）：cover 铺满裁剪 / contain 完整显示留黑边 */}
+      <div className="settings-row">
+        <div className="settings-row__text">
+          <strong>填充方式</strong>
+          <span>铺满裁剪 = 等比放大盖满画布、超出裁剪；完整显示 = 等比缩放到放得下、不足处留黑边（不裁剪）。</span>
+        </div>
+        <select
+          className="select-control"
+          value={bg?.fit ?? DEFAULT_BACKGROUND_FIT}
+          disabled={!image || !enabled || busy}
+          onChange={(e) => setBackgroundSkin({ fit: e.target.value as 'cover' | 'contain' })}
+          aria-label="背景填充方式"
+        >
+          <option value="cover">铺满裁剪</option>
+          <option value="contain">完整显示</option>
+        </select>
+      </div>
+
+      {/* 不透明度（issue 29 修订 2026-08-27）：图片自身 alpha 合成，越低画布原始黑色占比越多；默认 55% 与首版固定遮罩观感一致 */}
+      <div className="settings-row">
+        <div className="settings-row__text">
+          <strong>背景不透明度</strong>
+          <span>图片越透明，画布原始黑色背景占比越多。0%（纯黑）— 100%（原图全亮），默认 55%。</span>
+        </div>
+        <div className="slider-control">
+          <input
+            type="range" min={0} max={100} step={5} value={opacityPct}
+            disabled={!image || !enabled || busy}
+            onChange={(e) => setBackgroundSkin({ opacity: Number(e.target.value) / 100 })}
+            aria-label="背景图不透明度"
+          />
+          <span className="slider-value">{opacityPct}%</span>
+        </div>
+      </div>
+
+      <div className="flow-note"><Check size={15} />启用后立即在画布生效；「隐藏」保留图片、一键恢复，「清除」彻底删除。</div>
+    </section>
   );
 }

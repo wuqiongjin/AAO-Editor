@@ -2,7 +2,7 @@
 // 承载：theme / layout / shortcuts / audio，按字段写回（updateSettings）。
 // Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
-import { loadSettings, saveSettings, updateSettings, type AppSettings } from '../utils/AppSettings';
+import { loadSettings, saveSettings, updateSettings, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../utils/AppSettings';
 import { getDefaultConfig, type ShortcutConfig } from '../utils/ShortcutConfig';
 
 export interface ConfigContextValue {
@@ -18,6 +18,9 @@ export interface ConfigContextValue {
   setSeVolume: (volume: number) => void;
   /** 音符皮肤（issue 29）：六条目字段级写回并持久化；包合法性由 renderer/noteSkin.ts 归一化 */
   setNoteSkin: (patch: Partial<AppSettings['visual']['noteSkin']>) => void;
+  /** 谱面背景皮肤（issue 29 Q4 + 修订）：字段级写回 settings.visual.backgroundSkin（enabled/opacity/fit/scope）；
+   *  图片本体经 utils/backgroundSkin.ts 存取，本方法只管配置位 */
+  setBackgroundSkin: (patch: { enabled?: boolean; opacity?: number; fit?: 'cover' | 'contain'; scope?: 'outsideTrack' | 'fullCanvas' }) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
   setAllSettings: (next: AppSettings) => void;
 }
@@ -85,6 +88,23 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // 背景皮肤（issue 29 Q4 + 修订）：字段级 patch（enabled/opacity/fit/scope）写回，段内合并保留其余字段
+  const setBackgroundSkin = (patch: { enabled?: boolean; opacity?: number; fit?: 'cover' | 'contain'; scope?: 'outsideTrack' | 'fullCanvas' }) => {
+    setSettings(prev => {
+      const prevBg = prev.visual.backgroundSkin ?? { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE };
+      const bg = {
+        enabled: prevBg.enabled,
+        opacity: prevBg.opacity,
+        fit: prevBg.fit,
+        scope: prevBg.scope,
+        ...patch,
+      };
+      const merged = updateSettings(prev, { visual: { backgroundSkin: bg } });
+      saveSettings(merged);
+      return merged;
+    });
+  };
+
   const setAllSettings = (next: AppSettings) => {
     saveSettings(next);
     setSettings(next);
@@ -93,7 +113,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setNoteSkin, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 
