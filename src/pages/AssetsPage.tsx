@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { Check, Eye, EyeOff, ImagePlus, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
+import { Check, Eye, EyeOff, ImagePlus, Music2, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
+import AppPageShell from '../components/layout/AppPageShell';
 import { useConfig } from '../contexts';
 import {
   listNoteSkinPacks,
@@ -10,11 +11,13 @@ import { backgroundSkinStore } from '../utils/backgroundSkin';
 import { useBackgroundSkin } from '../utils/useBackgroundSkin';
 import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../utils/AppSettings';
 
-// 视觉素材页（issue 29 切片 4 闭环后）：导航第 3 项。
-// grill 2026-08-17 + 2026-08-24 定案：
-//   - 「素材」tab 收窄为**视觉素材**（音符皮肤 + 背景皮肤），键音整包与 SE 音量已迁音频页
-//     （与音源同域，归属于 settings.audio），与 settings.visual.noteSkin 解耦；
-//   - 页面内**类别子 tab**（音符皮肤 | 背景皮肤）一次看一个类别，可扩展；
+// 视觉素材页（issue 29 切片 4 闭环后 + issue 44 内容壳迁移）：导航第 3 项。
+//   - 接入 <AppPageShell>：原"页内顶部 2 个类别 tab（.assets-tabs）"改为 <AppPageShell.Sidebar> 下 2 个
+//     <AppPageShell.SidebarItem>（音符皮肤 / 背景皮肤），Body 走 mode="default" width="wide"；
+//   - grill 2026-08-17 + 2026-08-24 定案：
+//     - 「素材」tab 收窄为**视觉素材**（音符皮肤 + 背景皮肤），键音整包与 SE 音量已迁音频页
+//       （与音源同域，归属于 settings.audio），与 settings.visual.noteSkin 解耦；
+//     - 页面内**类别子 tab**（音符皮肤 | 背景皮肤）一次看一个类别，可扩展；
 //   - 音符皮肤：官方同名整包预设一键应用 + 六条目独立覆盖；
 //     顶部综合预览画布（Q8=B 真实精灵绘制）实时反映当前组合。
 //
@@ -32,40 +35,40 @@ import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_
 
 type AssetCategory = 'noteskin' | 'background';
 
-const ASSET_CATEGORIES: { id: AssetCategory; label: string }[] = [
-  { id: 'noteskin', label: '音符皮肤' },
-  { id: 'background', label: '背景皮肤' },
+// 资产类别 → lucide 图标映射（issue 44 侧边项用图标，替代原"页内顶部 2 tab"）
+const ASSET_CATEGORIES: { id: AssetCategory; label: string; icon: typeof Music2 }[] = [
+  { id: 'noteskin', label: '音符皮肤', icon: Music2 },
+  { id: 'background', label: '背景皮肤', icon: ImagePlus },
 ];
 
 export default function AssetsPage() {
   const [category, setCategory] = useState<AssetCategory>('noteskin');
 
   return (
-    <div className="page-content is-wide">
-      <header className="page-intro">
-        <span>应用素材</span>
-        <h2>视觉素材</h2>
-        <p>管理谱面编辑使用的视觉素材包（音符皮肤、背景皮肤）。键音素材包已迁至音频页。切换立即生效并自动保存。</p>
-      </header>
+    <AppPageShell>
+      <AppPageShell.Header
+        eyebrow="应用素材"
+        title="视觉素材"
+        description="管理谱面编辑使用的视觉素材包（音符皮肤、背景皮肤）。键音素材包已迁至音频页。切换立即生效并自动保存。"
+      />
 
-      <div className="assets-tabs" role="tablist" aria-label="素材类别">
+      <AppPageShell.Sidebar ariaLabel="素材类别">
         {ASSET_CATEGORIES.map((cat) => (
-          <button
+          <AppPageShell.SidebarItem
             key={cat.id}
-            type="button"
-            role="tab"
-            aria-selected={category === cat.id}
-            className={`assets-tab${category === cat.id ? ' is-active' : ''}`}
+            icon={cat.icon}
+            label={cat.label}
+            active={category === cat.id}
             onClick={() => setCategory(cat.id)}
-          >
-            {cat.label}
-          </button>
+          />
         ))}
-      </div>
+      </AppPageShell.Sidebar>
 
-      {category === 'noteskin' && <NoteSkinPanel />}
-      {category === 'background' && <BackgroundPanel />}
-    </div>
+      <AppPageShell.Body mode="default" width="wide">
+        {category === 'noteskin' && <NoteSkinPanel />}
+        {category === 'background' && <BackgroundPanel />}
+      </AppPageShell.Body>
+    </AppPageShell>
   );
 }
 

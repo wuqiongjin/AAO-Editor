@@ -251,27 +251,34 @@
   margin-bottom: 0;
 }
 
-/* 各页内容区：在固定「标题+描述」头部之下由 .page-content 整页滚动（针对页面内容本身，而非各 section 内嵌） */
+/* 各页内容区：在固定「标题+描述」头部之下由 body 整页滚动（针对页面内容本身，而非各 section 内嵌）
+   兼容旧 .page-content.is-fill 与新 .app-page-shell__body.is-fill（issue 44 内容壳迁移）。 */
 .page-content.is-fill .shortcut-surface,
 .page-content.is-fill .assets-layout,
-.page-content.is-fill .settings-layout {
+.page-content.is-fill .settings-layout,
+.app-page-shell__body.is-fill .shortcut-surface,
+.app-page-shell__body.is-fill .assets-layout,
+.app-page-shell__body.is-fill .settings-layout {
   min-height: 0;
 }
 
 /* .audio-layout 旧版曾设 flex:1; overflow-y:auto 做"内嵌滚动"；issue 29 切片 4 闭环后音频页
    包含 3 个垂直堆叠的 section（音频素材 / 键音素材包 / SE 音量），若 layout 自身吞掉 flex 剩余空间
-   会把第二列挤塌。让 .audio-layout 走普通流高度，由 .page-content 整页滚动承接。 */
-.page-content.is-fill .audio-layout {
+   会把第二列挤塌。让 .audio-layout 走普通流高度，由 body 整页滚动承接。 */
+.page-content.is-fill .audio-layout,
+.app-page-shell__body.is-fill .audio-layout {
   min-height: 0;
 }
 
-.page-content.is-fill .shortcut-surface {
+.page-content.is-fill .shortcut-surface,
+.app-page-shell__body.is-fill .shortcut-surface {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.page-content.is-fill .shortcut-table {
+.page-content.is-fill .shortcut-table,
+.app-page-shell__body.is-fill .shortcut-table {
   min-height: 0;
   flex: 1;
   overflow-y: auto;

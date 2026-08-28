@@ -1,21 +1,19 @@
 import { useRef, useState } from 'react';
 import { AlertTriangle, Check, Clock3, Music2, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
+import AppPageShell from '../components/layout/AppPageShell';
 import { useAudioPage } from '../contexts/AudioPageContext';
 import { useConfig } from '../contexts';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../utils/AppSettings';
 import { KEY_SOUND_SETS, type KeySoundSample } from '../utils/KeySound';
 import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from '../utils/KeySoundMeta';
 
-// 音频页（issue 28 Q15 + issue 29 切片 4 闭环 + 2026-08-26 索引外置）：
-//   - 页面顶部次级索引 = 独立组件（`page-sidebar`，在 `.page-content` 同级左侧），
-//     仿照 AppShell 的 `app-nav` 模式：索引在页面**外**、不在 `.page-content` 内；
-//   - 3 个 section：音频素材（含谱面时长）/ 键音素材包 / SE 音量；
-//   - 键音/SE 与音源同域（settings.audio.{keySet, seVolume}），与视觉素材域解耦。
+// 音频页（issue 28 Q15 + issue 29 切片 4 闭环 + 2026-08-26 索引外置 + issue 44 内容壳迁移）：
+//   - 接入 <AppPageShell>：左侧次级索引走 <AppPageShell.Sidebar>（平铺 3 项），Body 走 mode="default" width="default"；
+//   - 3 个 section：音频素材（含谱面时长）/ 键音素材包 / SE 音量，在 Body 内自管。
 // - 导入/解码失败用内联错误横幅就地反馈（文字醒目、可即时重试）；
 // - 成功仅更新状态，不加 toast；
 // - 移除页内"返回工作台"按钮（切页由应用导航承担）；
 // - 清除音频不需二次确认（低风险、可重新导入），旁加说明"清除后需重新导入"。
-import './AudioPage.css';
 
 type AudioSection = 'audio' | 'keysound' | 'se';
 
@@ -28,43 +26,33 @@ const AUDIO_SECTIONS: { id: AudioSection; label: string; icon: typeof Music2 }[]
 export default function AudioPage() {
   const [section, setSection] = useState<AudioSection>('audio');
   return (
-    <div className="audio-page">
-      <aside className="page-sidebar" aria-label="音频域次级索引">
-        <div className="page-sidebar-title">音频域</div>
-        <nav role="tablist" aria-label="音频域分类">
-          {AUDIO_SECTIONS.map((s) => {
-            const Icon = s.icon;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                role="tab"
-                aria-selected={section === s.id}
-                className={`page-sidebar-tab${section === s.id ? ' is-active' : ''}`}
-                onClick={() => setSection(s.id)}
-              >
-                <Icon size={17} />
-                <span>{s.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
+    <AppPageShell>
+      <AppPageShell.Header
+        eyebrow="当前谱面工程"
+        title="音频与键音"
+        description="管理谱面工程使用的音频素材、键音素材包与节奏图示 SE 音量。键音与音源同域（设置对象 audio 段）。"
+      />
 
-      <div className="page-content is-fill">
-        <header className="page-intro">
-          <span>当前谱面工程</span>
-          <h2>音频与键音</h2>
-          <p>管理谱面工程使用的音频素材、键音素材包与节奏图示 SE 音量。键音与音源同域（设置对象 audio 段）。</p>
-        </header>
+      <AppPageShell.Sidebar ariaLabel="音频域次级索引">
+        {AUDIO_SECTIONS.map((s) => (
+          <AppPageShell.SidebarItem
+            key={s.id}
+            icon={s.icon}
+            label={s.label}
+            active={section === s.id}
+            onClick={() => setSection(s.id)}
+          />
+        ))}
+      </AppPageShell.Sidebar>
 
+      <AppPageShell.Body mode="default" width="default">
         <section className="surface-section audio-detail">
           {section === 'audio' && <AudioSection />}
           {section === 'keysound' && <KeySoundSection />}
           {section === 'se' && <SeVolumeSection />}
         </section>
-      </div>
-    </div>
+      </AppPageShell.Body>
+    </AppPageShell>
   );
 }
 

@@ -1,96 +1,9 @@
-/* 音频页（issue 28 Q15 + issue 29 切片 4 闭环 + 2026-08-26 索引外置）：
-   - 整体布局 = 左侧次级索引（独立组件 `.page-sidebar`）+ 右侧主内容（`.page-content.is-fill`）；
-   - 与 AppShell 的 `app-nav` 同级结构：sidebar 在页面外，content 走 `.page-content` 通用容器；
-   - 索引永远常驻左列（不折叠），与 app-nav 双层左侧导航（应用层 / 页面层）。
-   - 2026-08-26 反馈修订：sidebar 顶 padding 对齐 page-content 标题区（42px）、删 border-right
-     与 sidebar 独立背景色，让两侧视觉上融为一体（同一背景、零分割线）。 */
+/* 音频页（issue 28 Q15 + issue 29 切片 4 闭环 + 2026-08-26 索引外置 + issue 44 内容壳迁移）：
+   接入 <AppPageShell>（位于 src/components/layout/AppPageShell.tsx）：
+     - 整体布局交给壳：左侧次级索引（200px Sidebar） + 右侧 Body（max-width 920px 居中）；
+     - AudioPage 自身只管 .audio-detail（surface-section padding 等）。 */
 
-/* ---- 布局：sidebar + content 两列（同一背景、无分割） ---- */
-.audio-page {
-  display: flex;
-  align-items: flex-start; /* 关键：sidebar 顶部与 content 顶部对齐，而非垂直拉伸 */
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  background: var(--bg); /* 显式声明：与 .page-content 同色，视觉一体 */
-}
-
-/* ---- 左侧次级索引（独立组件 .page-sidebar） ----
-   2026-08-26 反馈修订 v2：sidebar 顶 padding 改为与右栏"音频素材" section 标题对齐
-   （42px 页面 padding + ~85px 标题区 [small text + h2 + 描述 + space] ≈ 128px）。
-   这样 sidebar 第一个 tab 的顶 ≈ section 标题顶，视觉上像同行的"组别标签"。 */
-.page-sidebar {
-  flex-shrink: 0;
-  width: 200px;
-  padding: 128px 12px 32px 24px;
-  background: transparent; /* 不单独着底色，与右侧融为一体 */
-  border-right: 0; /* 删除分割线 */
-  overflow-y: auto;
-}
-
-.page-sidebar-title {
-  margin: 0 0 12px;
-  padding: 0 12px;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.page-sidebar nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.page-sidebar-tab {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 120ms var(--ease), color 120ms var(--ease);
-}
-
-.page-sidebar-tab:hover {
-  background: var(--bg-inset);
-  color: var(--text);
-}
-
-.page-sidebar-tab.is-active {
-  background: var(--bg-elevated);
-  color: var(--text);
-  box-shadow: var(--shadow-sm);
-}
-
-.page-sidebar-tab:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-/* ---- 右侧主内容（与 SettingsPage 主体保持一致） ----
-   2026-08-26 反馈修订 v2：右栏右内边距 32 → 64，与左 sidebar 距离视觉对称；
-   内容区限制最大宽度 920px（与原 .page-content 默认值一致），居中后左右自动留白。 */
-.audio-page .page-content {
-  flex: 1;
-  min-width: 0;
-  width: 100%;
-  max-width: 920px;
-  margin: 0 auto 0 0; /* 紧贴 sidebar，向右限宽后右自然留白 */
-  height: 100%;
-  overflow-y: auto;
-  padding: 42px 64px 64px 32px;
-}
-
+/* ---- 详情 surface-section（issue 28 Q15 留 22px 内边距与"键音素材包"卡观感对齐） ---- */
 .audio-detail {
   padding: 22px;
   min-height: min-content;
@@ -151,25 +64,5 @@
 @media (max-width: 720px) {
   .asset-set-grid.asset-set-grid-3 {
     grid-template-columns: 1fr;
-  }
-}
-
-/* ---- 窄屏：sidebar 收起为顶部水平 tab ---- */
-@media (max-width: 720px) {
-  .audio-page {
-    flex-direction: column;
-  }
-  .page-sidebar {
-    width: 100%;
-    padding: 12px 16px;
-    border-right: 0;
-    border-bottom: 0; /* 与主背景同色，无分割 */
-  }
-  .page-sidebar nav {
-    flex-direction: row;
-    overflow-x: auto;
-  }
-  .page-sidebar-tab {
-    flex-shrink: 0;
   }
 }

@@ -1,15 +1,16 @@
 import { useRef, useState } from 'react';
 import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
+import AppPageShell from '../components/layout/AppPageShell';
 import { useConfig } from '../contexts';
 import { defaultSettings, loadSettings } from '../utils/AppSettings';
 import type { AppSettings } from '../utils/AppSettings';
 
-// 设置页（issue 28 Q13 + issue 39）：左侧次级索引分为两组——
-// 「应用设置」：外观 / 布局 / 配置数据（现有三类归入，语义不变）
-// 「功能设置」：画布显示（谱面呈现参数，issue 39）
-// 节奏图示 SE 音量（issue 39 #7）已迁音频页（issue 29 切片 4 闭环：键音 + SE 音量与音源同域），
-// 此处不再保留「播放」section。
-// 修改立即生效并持久化（versioned settings，ADR-0003 §6）。
+// 设置页（issue 28 Q13 + issue 39 + issue 44 内容壳迁移）：
+//   - 接入 <AppPageShell>：左侧次级索引走 <AppPageShell.Sidebar>（按组分组"应用设置 / 功能设置"），Body 走 mode="default" width="default"；
+//   - 侧边索引从"正文内 168px"搬到"正文外 200px"（Q3.2 / §1 统一化产物，detail 区从 752px 涨到 920px）；
+//   - 节奏图示 SE 音量（issue 39 #7）已迁音频页（issue 29 切片 4 闭环：键音 + SE 音量与音源同域），
+//     此处不再保留「播放」section。
+// - 修改立即生效并持久化（versioned settings，ADR-0003 §6）。
 type Section = 'appearance' | 'layout' | 'data' | 'canvas';
 
 const THEME_OPTIONS: Array<{ value: AppSettings['theme']; label: string; swatch: string }> = [
@@ -124,35 +125,25 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="page-content is-fill">
-      <header className="page-intro">
-        <span>应用设置</span>
-        <h2>设置</h2>
-        <p>修改立即生效并自动保存。导入与恢复默认属于高风险操作，会在执行前单独确认。</p>
-      </header>
+    <AppPageShell>
+      <AppPageShell.Header
+        eyebrow="应用设置"
+        title="设置"
+        description="修改立即生效并自动保存。导入与恢复默认属于高风险操作，会在执行前单独确认。"
+      />
 
-      <div className="settings-layout">
-        <aside className="settings-index" aria-label="设置分类">
-          <div className="settings-index-group" role="group" aria-label="应用设置">
-            <div className="settings-index-title">应用设置</div>
-            <button className={section === 'appearance' ? 'is-active' : ''} type="button" onClick={() => setSection('appearance')}>
-              <MonitorCog size={17} />外观
-            </button>
-            <button className={section === 'layout' ? 'is-active' : ''} type="button" onClick={() => setSection('layout')}>
-              <SlidersHorizontal size={17} />布局
-            </button>
-            <button className={section === 'data' ? 'is-active' : ''} type="button" onClick={() => setSection('data')}>
-              <Download size={17} />配置数据
-            </button>
-          </div>
-          <div className="settings-index-group" role="group" aria-label="功能设置">
-            <div className="settings-index-title">功能设置</div>
-            <button className={section === 'canvas' ? 'is-active' : ''} type="button" onClick={() => setSection('canvas')}>
-              <Eye size={17} />画布显示
-            </button>
-          </div>
-        </aside>
+      <AppPageShell.Sidebar ariaLabel="设置分类">
+        <AppPageShell.SidebarGroup title="应用设置">
+          <AppPageShell.SidebarItem icon={MonitorCog} label="外观" active={section === 'appearance'} onClick={() => setSection('appearance')} />
+          <AppPageShell.SidebarItem icon={SlidersHorizontal} label="布局" active={section === 'layout'} onClick={() => setSection('layout')} />
+          <AppPageShell.SidebarItem icon={Download} label="配置数据" active={section === 'data'} onClick={() => setSection('data')} />
+        </AppPageShell.SidebarGroup>
+        <AppPageShell.SidebarGroup title="功能设置">
+          <AppPageShell.SidebarItem icon={Eye} label="画布显示" active={section === 'canvas'} onClick={() => setSection('canvas')} />
+        </AppPageShell.SidebarGroup>
+      </AppPageShell.Sidebar>
 
+      <AppPageShell.Body mode="default" width="default">
         <section className="settings-detail surface-section">
           {section === 'appearance' && (
             <>
@@ -271,7 +262,7 @@ export default function SettingsPage() {
             </>
           )}
         </section>
-      </div>
-    </div>
+      </AppPageShell.Body>
+    </AppPageShell>
   );
 }

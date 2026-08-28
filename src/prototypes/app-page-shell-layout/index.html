@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>AppPageShell 版式原型（可丢弃）</title>
+<style>
+  /* ============================================================
+   * 单一 HTML 自包含；切 ?v=A|B|C|D 切版式；切 ?nav=200|52 改 app-nav 宽
+   * 设计令牌：与 src/styles/tokens.css 对齐
+   * ============================================================ */
+  :root {
+    --bg: #f6f7f9;
+    --bg-elevated: #ffffff;
+    --bg-hover: #eef0f3;
+    --bg-inset: #f1f3f6;
+    --border: #e4e7ec;
+    --border-strong: #cdd3dd;
+    --border-faint: #eef0f4;
+    --text: #1f2633;
+    --text-muted: #5c6573;
+    --text-subtle: #929aa8;
+    --accent: #0d9fd6;
+    --accent-soft: #dff3fc;
+    --accent-text: #075e83;
+    --radius-md: 10px;
+    --radius-sm: 6px;
+    --shadow-sm: 0 1px 2px rgba(20, 26, 38, 0.06), 0 1px 3px rgba(20, 26, 38, 0.06);
+    --shadow-md: 0 4px 12px rgba(20, 26, 38, 0.08), 0 2px 4px rgba(20, 26, 38, 0.05);
+  }
+  [data-theme="dark"] {
+    --bg: #15181d;
+    --bg-elevated: #1c2027;
+    --bg-hover: #242932;
+    --bg-inset: #11141a;
+    --border: #282e38;
+    --border-strong: #39414f;
+    --border-faint: #22262f;
+    --text: #e6e9ee;
+    --text-muted: #a4abb8;
+    --text-subtle: #737b8a;
+    --accent: #35b6ea;
+    --accent-soft: rgba(53, 182, 234, 0.16);
+    --accent-text: #8fd9f7;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Inter", "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  /* ============================================================
+   * 视口：app-shell 网格
+   * ============================================================ */
+  .app-shell {
+    display: grid;
+    grid-template-columns: var(--nav-width, 200px) minmax(0, 1fr);
+    width: 100%;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  /* ---- app-nav（应用壳层：5 个应用页切换） ---- */
+  .app-nav {
+    background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg));
+    border-right: 1px solid var(--border);
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .app-mark {
+    width: 34px; height: 34px;
+    margin: 1px 8px 22px;
+    display: grid; place-items: center;
+    border-radius: 9px;
+    background: var(--text); color: var(--bg-elevated);
+    font-size: 11px; font-weight: 800;
+  }
+  .app-nav-item {
+    display: grid;
+    grid-template-columns: 22px 1fr auto;
+    align-items: center;
+    gap: 9px;
+    min-height: 42px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+  }
+  .app-nav-item.is-active {
+    border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 650;
+  }
+  .app-nav-item .kbd {
+    color: var(--text-subtle);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 9px;
+  }
+  .app-nav-item.is-active .kbd { color: var(--accent-text); }
+
+  /* ---- .app-surface（保活挂载的 4 个非工作台页） ---- */
+  .app-surface { min-width: 0; min-height: 0; overflow: hidden; }
+  .app-page { position: absolute; inset: 0; display: none; }
+  .app-page.is-active { display: block; }
+  .app-page.is-active .app-page-shell { height: 100%; }
+
+  /* ============================================================
+   * 通用：Header (page-intro)
+   * ============================================================ */
+  .page-intro { margin-bottom: 24px; }
+  .page-intro > span {
+    display: block;
+    margin-bottom: 7px;
+    color: var(--accent-text);
+    font-size: 10px; font-weight: 750;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+  .page-intro h2 {
+    margin: 0;
+    color: var(--text);
+    font-size: 25px; font-weight: 740;
+    letter-spacing: -0.035em;
+    line-height: 1.15;
+  }
+  .page-intro p {
+    max-width: 58ch;
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 13px; line-height: 1.6;
+  }
+
+  /* ============================================================
+   * 通用：Sidebar / SidebarItem
+   * ============================================================ */
+  .app-page-shell__sidebar {
+    width: 200px;
+    flex-shrink: 0;
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .app-page-shell__sidebar-group { display: flex; flex-direction: column; gap: 4px; }
+  .app-page-shell__sidebar-group-title {
+    padding: 0 10px 4px;
+    color: var(--text-muted);
+    font-size: 10px; font-weight: 750;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+  .app-page-shell__sidebar-group-items { display: flex; flex-direction: column; gap: 2px; }
+  .app-page-shell__sidebar-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit; font-size: 12px; font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  .app-page-shell__sidebar-item:hover { background: var(--bg-hover); color: var(--text); }
+  .app-page-shell__sidebar-item.is-active {
+    border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 650;
+  }
+
+  /* ============================================================
+   * 通用：Body / surface-section
+   * ============================================================ */
+  .app-page-shell__body {
+    min-width: 0;
+    height: 100%;
+    overflow-y: auto;
+  }
+  .surface-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow-sm);
+  }
+  .settings-detail, .audio-detail { padding: 22px; min-height: 320px; }
+  .settings-heading h2 { margin: 0; font-size: 14px; font-weight: 720; }
+  .settings-heading p { margin: 4px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+  .settings-heading { padding-bottom: 19px; border-bottom: 1px solid var(--border-faint); }
+
+  /* ============================================================
+   * 4 个版式（互斥：v=A/B/C/D）
+   * ============================================================ */
+
+/* D: app-nav 收窄到 60px（图标态），整块 sidebar(200)+gap(24)+body(920)=1144 居中于 1280 视口
+   左右各留 (视口 - 200 - 1144) / 2 = 38 边距（默认 1280 视口）。
+   Header 宽 = 整块 1144（横跨整块），跟 body 平齐于同一左缘。 */
+.app-page-shell[data-v="D"] {
+  display: flex; flex-direction: column;
+  padding: 42px 0 0;
+  height: 100%;
+}
+.app-page-shell[data-v="D"] .page-intro {
+  width: 1144px;             /* sidebar(200)+gap(24)+body(920) */
+  margin: 0 auto 24px;       /* 居中于 1200 main 视口（app-nav 60），左右各 28 边距 */
+}
+.app-page-shell[data-v="D"] .app-page-shell__main {
+  display: flex; flex: 1 1 auto; min-height: 0;
+  width: 1144px;
+  margin: 0 auto;
+  gap: 24px;
+  align-items: stretch;
+}
+.app-page-shell[data-v="D"] .app-page-shell__body {
+  width: 920px;               /* 保持 ADR 硬约束 */
+  flex: 0 0 auto;
+}
+
+/* H: D 基础上 — Header 改跟 body 同宽（不横跨整块），左缘对齐到 body 左缘
+   用 position: absolute 绝对定位 Header（不依赖 flex margin 算法），
+   main 整块自身加 padding-top 占位 Header 高度，避免重叠 */
+.app-page-shell[data-v="H"] {
+  display: block;          /* 改成 block，让 absolute 相对 .app-page-shell 定位 */
+  padding: 42px 0 0;
+  height: 100%;
+  width: 100%;
+  position: relative;      /* absolute 定位基准 */
+  box-sizing: border-box;
+}
+.app-page-shell[data-v="H"] .page-intro {
+  position: absolute;
+  top: 42px;               /* 对应 .app-page-shell padding-top */
+  /* Header 左缘 = body 左缘 = 整块居中偏移 + sidebar + gap
+     整块居中偏移 = (父级宽 - 1144) / 2，父级宽随视口变；用 calc 与视口解耦。
+     var(--nav-width) 跟随 app-nav 实际宽（60/80/200） */
+  left: calc((100% - 1144px) / 2 + var(--nav-width) + 24px);
+  width: 920px;
+  margin: 0;
+}
+.app-page-shell[data-v="H"] .app-page-shell__main {
+  display: flex; flex: 1 1 auto; min-height: 0;
+  width: 1144px;
+  margin: 0 auto;
+  /* Header 高 ~98 + 24 margin = 122，main padding-top 让出这个高度避免重叠 */
+  padding-top: 122px;
+  gap: 24px;
+  align-items: stretch;
+}
+.app-page-shell[data-v="H"] .app-page-shell__body {
+  width: 920px;
+  flex: 0 0 auto;
+}
+
+  /* ============================================================
+   * 切换器（浮动底部）
+   * ============================================================ */
+  .switcher {
+    position: fixed;
+    left: 50%; bottom: 18px;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: var(--bg);
+    padding: 8px 14px;
+    border-radius: 999px;
+    display: flex; align-items: center; gap: 12px;
+    box-shadow: var(--shadow-md);
+    font-size: 12px;
+    z-index: 10000;
+    user-select: none;
+  }
+  .switcher button {
+    background: transparent;
+    border: 0;
+    color: var(--bg);
+    cursor: pointer;
+    font: inherit;
+    font-size: 14px;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+  }
+  .switcher button:hover { background: color-mix(in srgb, var(--bg) 20%, transparent); }
+  .switcher .label { font-weight: 700; min-width: 220px; text-align: center; }
+  .switcher .nav-toggle {
+    margin-left: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--bg);
+    background: transparent;
+    color: var(--bg);
+    font-size: 11px;
+    width: auto; height: auto;
+  }
+  .switcher .nav-toggle.is-on { background: var(--bg); color: var(--text); }
+  .swatch-row {
+    position: fixed; right: 18px; top: 18px;
+    display: flex; gap: 6px;
+    z-index: 10000;
+  }
+  .swatch-row button {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    cursor: pointer;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<!-- ============================================================
+     切换器 + 主题切换
+     ============================================================ -->
+<div class="switcher">
+  <button id="prev" aria-label="上一版">‹</button>
+  <span class="label" id="label">D — Header 横跨整块（1144），整块居中于 1200 main 视口（左右各 28 边距）</span>
+  <button id="next" aria-label="下一版">›</button>
+  <button id="navToggle" class="nav-toggle" title="切换 app-nav 宽 (60 → 80 → 200 → 60)">nav:60</button>
+</div>
+<div class="swatch-row">
+  <button id="themeLight" title="亮">☀</button>
+  <button id="themeDark" title="暗">☾</button>
+</div>
+
+<!-- ============================================================
+     app-shell 网格：app-nav + app-surface
+     ============================================================ -->
+<div class="app-shell" id="appShell">
+  <aside class="app-nav" aria-label="应用页面导航">
+    <div class="app-mark">BD</div>
+    <div class="app-nav-item is-active">
+      <span style="display:inline-grid;place-items:center;width:22px;height:22px">♬</span>
+      <span>音频</span><span class="kbd">⇧⌘2</span>
+    </div>
+    <div class="app-nav-item">
+      <span style="display:inline-grid;place-items:center;width:22px;height:22px">▦</span>
+      <span>素材</span><span class="kbd">⇧⌘3</span>
+    </div>
+    <div class="app-nav-item">
+      <span style="display:inline-grid;place-items:center;width:22px;height:22px">⌨</span>
+      <span>快捷键</span><span class="kbd">⇧⌘4</span>
+    </div>
+    <div class="app-nav-item">
+      <span style="display:inline-grid;place-items:center;width:22px;height:22px">⚙</span>
+      <span>设置</span><span class="kbd">⇧⌘5</span>
+    </div>
+  </aside>
+
+  <section class="app-surface">
+    <div class="app-page is-active">
+      <div class="app-page-shell" data-v="D">
+        <header class="page-intro">
+          <span>当前谱面工程</span>
+          <h2>音频与键音</h2>
+          <p>管理谱面工程使用的音频素材、键音素材包与节奏图示 SE 音量。键音与音源同域（设置对象 audio 段）。</p>
+        </header>
+        <div class="app-page-shell__main">
+          <aside class="app-page-shell__sidebar" aria-label="音频域次级索引">
+            <button class="app-page-shell__sidebar-item is-active">
+              <span style="display:inline-grid;place-items:center;width:17px;height:17px">♪</span>
+              <span>音频素材</span>
+            </button>
+            <button class="app-page-shell__sidebar-item">
+              <span style="display:inline-grid;place-items:center;width:17px;height:17px">▮</span>
+              <span>键音素材包</span>
+            </button>
+            <button class="app-page-shell__sidebar-item">
+              <span style="display:inline-grid;place-items:center;width:17px;height:17px">≡</span>
+              <span>节奏图示 SE 音量</span>
+            </button>
+          </aside>
+          <div class="app-page-shell__body">
+            <section class="surface-section audio-detail">
+              <div class="settings-heading">
+                <h2>音频素材</h2>
+                <p>支持浏览器可解码的常见音频格式；导入后谱面时长将跟随音频长度。</p>
+              </div>
+              <div style="margin-top:18px;border:1px solid var(--border);border-radius:8px;background:var(--bg-inset);padding:13px;display:flex;align-items:center;gap:12px">
+                <div style="width:40px;height:40px;border-radius:8px;background:var(--accent-soft);color:var(--accent-text);display:grid;place-items:center">♪</div>
+                <div style="flex:1">
+                  <strong style="font-size:11px">尚未导入音频</strong>
+                  <div style="font-size:10px;color:var(--text-muted)">无音频模式可正常编辑和预览谱面</div>
+                </div>
+                <button style="background:var(--accent);color:#fff;border:0;border-radius:6px;padding:6px 12px;font-size:11px;cursor:pointer">导入音频</button>
+              </div>
+              <div style="margin-top:18px;padding:14px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg-inset);display:flex;justify-content:space-between;align-items:center">
+                <div>
+                  <strong style="font-size:13px">谱面时长</strong>
+                  <div style="font-size:11px;color:var(--text-muted)">无音频时可手动修改</div>
+                </div>
+                <div style="font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace;font-size:14px">30 秒</div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  // ============================================================
+  // 切版：?v=A|B|C|D
+  // 切 app-nav 宽：?nav=200|60
+  // 切主题：#themeLight/Dark
+  // ============================================================
+  const LABELS = {
+    D: 'D — Header 横跨整块（1144），整块居中于 1200 main 视口（左右各 28 边距）',
+    H: 'H — Header 跟 body 同宽同左缘（不横跨整块），整块（sidebar+body）仍居中',
+  };
+  const params = new URLSearchParams(location.search);
+  let v = params.get('v') || 'D';
+  let navW = parseInt(params.get('nav') || '60', 10);
+
+  function apply() {
+    document.querySelector('.app-page-shell').setAttribute('data-v', v);
+    document.getElementById('appShell').style.setProperty('--nav-width', navW + 'px');
+    document.getElementById('label').textContent = LABELS[v] || v;
+    document.getElementById('navToggle').textContent = `nav:${navW}`;
+    document.getElementById('navToggle').classList.toggle('is-on', navW !== 200);
+    params.set('v', v); params.set('nav', String(navW));
+    history.replaceState(null, '', '?' + params.toString());
+  }
+  function cycle(dir) {
+    const order = ['D', 'H'];
+    const i = order.indexOf(v);
+    v = order[(i + dir + order.length) % order.length];
+    apply();
+  }
+  document.getElementById('prev').onclick = () => cycle(-1);
+  document.getElementById('next').onclick = () => cycle(1);
+  document.getElementById('navToggle').onclick = () => {
+    // 循环 60 → 80 → 200 → 60（默认 60，因 D 需要 60 才能装下 1144 整块）
+    navW = navW === 60 ? 80 : navW === 80 ? 200 : 60;
+    apply();
+  };
+  document.addEventListener('keydown', (e) => {
+    if (e.target.matches('input, textarea, [contenteditable]')) return;
+    if (e.key === 'ArrowLeft') cycle(-1);
+    if (e.key === 'ArrowRight') cycle(1);
+  });
+  document.getElementById('themeLight').onclick = () => document.documentElement.removeAttribute('data-theme');
+  document.getElementById('themeDark').onclick = () => document.documentElement.setAttribute('data-theme', 'dark');
+  apply();
+</script>
+</body>
+</html>

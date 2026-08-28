@@ -1,15 +1,17 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, RotateCcw, Search } from 'lucide-react';
+import AppPageShell from '../components/layout/AppPageShell';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, setCapturingShortcut, type FunctionId,
 } from '../utils/ShortcutConfig';
 import { useConfig } from '../contexts';
 
-// 快捷键页（issue 28 Q14）：
-// - 页顶只读信息区列出应用级快捷键（切页，不可编辑），便于发现。
-// - 下方平铺搜索表：搜索 / 点击键位编辑 / 启用·禁用 / 恢复默认。
-// - 导入/导出统一收敛到「设置 → 配置数据」，本页不再提供。
+// 快捷键页（issue 28 Q14 + issue 44 内容壳迁移）：
+//   - 接入 <AppPageShell>：不写 Sidebar（无页内子类别），Body 走 mode="fill" width="default"（表格自身滚）；
+//   - 页顶只读信息区列出应用级快捷键（切页，不可编辑），便于发现；
+//   - 下方平铺搜索表：搜索 / 点击键位编辑 / 启用·禁用 / 恢复默认；
+//   - 导入/导出统一收敛到「设置 → 配置数据」，本页不再提供。
 
 // 应用级快捷键（切页，硬绑定不可编辑）
 const APP_SHORTCUTS: Array<{ label: string; combo: string }> = [
@@ -157,14 +159,15 @@ export default function ShortcutsPage() {
   };
 
   return (
-    <div className="page-content is-fill">
-      <header className="page-intro">
-        <span>输入与效率</span>
-        <h2>快捷键</h2>
-        <p>搜索功能，点击键位后直接录入新的组合键。冲突会在保存前提示。</p>
-      </header>
+    <AppPageShell>
+      <AppPageShell.Header
+        eyebrow="输入与效率"
+        title="快捷键"
+        description="搜索功能，点击键位后直接录入新的组合键。冲突会在保存前提示。"
+      />
 
-      <section className="shortcut-surface surface-section">
+      <AppPageShell.Body mode="fill" width="default">
+        <section className="shortcut-surface surface-section">
         <div className="shortcut-toolbar">
           <label className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索功能或按键" /></label>
           <button className="button-secondary" type="button" onClick={() => { setError(null); setShortcutConfig(getDefaultConfig()); }}><RotateCcw size={15} />恢复默认</button>
@@ -258,6 +261,7 @@ export default function ShortcutsPage() {
           onCancel={() => setEditingId(null)}
         />
       )}
-    </div>
+      </AppPageShell.Body>
+    </AppPageShell>
   );
 }
