@@ -1,9 +1,13 @@
 /* ============================================================
- * 应用页面壳 / 内容壳（ADR-0007）
+ * 应用页面壳 / 内容壳（ADR-0007，issue 44 整改 · H 几何）
  * 4 个非工作台页（音频 / 素材 / 快捷键 / 设置）共用模板：
- *   - 顶部 Header（沿用 .page-intro 既有 class，CSS 不动）
- *   - 主体两列：左 Sidebar（可选，200px 固定宽）+ 右 Body（弹性 + max-width 档）
- *   - 模板硬约束 4 处：Header 下间距 / Sidebar-Body 横向 gap / Sidebar 内 padding / Body 居中与 max-width
+ *   - 顶部 Header（__head 包装层）：与 main 整块同宽、同居中方式；
+ *     intro 在包装层内 margin-left 偏移到 body 左缘 → Header 跟 body 同宽同左缘；
+ *   - 主体两列（main）：sidebar (200px) + body（max-width 档 = 920/1040），
+ *     整块（width = sidebar + gap + body）margin: 0 auto 居中于父级；
+ *   - 正常文档流：Header 占多高就占多高，与 main 天然不重叠；
+ *     视口收缩时 __head / main 经 max-width: 100% 同步收缩。
+ * 模板硬约束 4 处：Header 下间距 / Sidebar-Body 横向 gap / Sidebar 内 padding / Body max-width 档。
  * 其它全部由 design tokens + 页面作者自管。
  * ============================================================ */
 
@@ -15,30 +19,45 @@
   min-height: 0;
   background: var(--bg);
   color: var(--text);
-  padding: 42px 0 0; /* 顶 42px 与旧 .page-content padding-top 对齐；Header 顶部留白 */
+  padding: 42px 24px 0;
+  box-sizing: border-box;
 }
 
-/* Header 沿用 .page-intro 既有 class：margin-bottom: 24px（模板硬约束 #1，继承自 .page-intro）*/
+/* ---- Header 包装层：与 main 同宽同居中（width = --aps-block-width）---- */
+.app-page-shell__head {
+  width: var(--aps-block-width, 1144px);
+  max-width: 100%;
+  margin: 0 auto;
+}
 
-/* ---- 主体两列：sidebar (200px) + body ---- */
-/* 模板硬约束 #2：Sidebar-Body 横向 gap = 24px（与 --space-6 等同） */
+/* Header：跟 body 同宽同左缘（不横跨整块）
+   左缘偏移 = sidebar(200) + gap(24)；无 sidebar 时 --aps-header-indent = 0。 */
+.app-page-shell .page-intro {
+  width: var(--aps-body-width, 920px);
+  max-width: 100%;
+  margin: 0 0 24px var(--aps-header-indent, 0);
+  box-sizing: border-box;
+}
+
+/* ---- 主体两列：sidebar (200px) + body，整块宽 = --aps-block-width ---- */
 .app-page-shell__main {
   display: flex;
   flex: 1 1 auto;
-  align-items: stretch; /* sidebar 与 body 同高，避免 sidebar 短到只包住 3 个 item */
   min-height: 0;
-  width: 100%;
-  gap: 24px;
-  padding: 0 32px 0 0; /* 右 32px 与左侧 app-nav 形成对称 */
+  width: var(--aps-block-width, 1144px);
+  max-width: 100%;
+  margin: 0 auto;
+  gap: 24px;                  /* 模板硬约束 #2：sidebar-body 横向 gap */
+  align-items: stretch;
+  box-sizing: border-box;
 }
 
-/* ---- Sidebar ---- */
-/* 模板硬约束 #3：Sidebar 内 padding = 12px 10px（与 .app-nav 一致） */
+/* ---- Sidebar（模板硬约束 #3：内 padding = 12px 10px）---- */
 .app-page-shell__sidebar {
-  flex-shrink: 0;
+  flex: 0 0 200px;
   width: 200px;
   padding: 12px 10px;
-  background: transparent; /* 与 body 同色，无分割 */
+  background: transparent;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -67,8 +86,7 @@
   gap: 2px;
 }
 
-/* ---- SidebarItem ---- */
-/* 4 页统一视觉密度：同一字号 / 同一行高 / 同一 padding */
+/* ---- SidebarItem（4 页统一视觉密度）---- */
 .app-page-shell__sidebar-item {
   display: flex;
   align-items: center;
@@ -93,7 +111,6 @@
   color: var(--text);
 }
 
-/* 激活态统一：主色软底 + 主色文字 + 弱描边（Q23 统一化产物） */
 .app-page-shell__sidebar-item.is-active {
   border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
   background: var(--accent-soft);
@@ -106,37 +123,49 @@
   outline-offset: -2px;
 }
 
-/* ---- Body ---- */
-/* 模板硬约束 #4：Body 居中 + max-width（width 档由模板内联 style 注入）
-   实操修正：body 在 main 容器内**左对齐**（紧贴 sidebar + gap），宽度 = min(width 档, 剩余空间 - 32px)；
-   "Body 居中"只在低 viewport 宽度（剩余空间 < 模板值）时由 width:100% 自然回退（侧栏已折叠为顶部水平条）。
-   flex: 1 让 body 始终占满 main 剩余空间；max-width 限制内联 style 注入。*/
+/* ---- Body（模板硬约束 #4：max-width 档 920/1040）----
+   flex: 1 1 auto：main 满宽时 body = max-width 档值；
+   视口收缩时 body 跟 main 一起收缩，不再塌缩成内容宽。 */
 .app-page-shell__body {
-  flex: 1 1 auto; /* 占满 main 剩余空间 */
+  flex: 1 1 auto;
   min-width: 0;
-  height: 100%;
-  margin: 0; /* 紧贴 sidebar+gap 左对齐，无右侧自动居中 */
+  min-height: 0;
   overflow-y: auto;
   padding: 0 0 64px;
 }
 
-/* fill 模式：整页不动 + 内部子元素自身滚（用于快捷键表格） */
+/* Body 档位标注（max-width 值由 inline style 注入） */
+.app-page-shell__body.is-width-default { /* default 920 */ }
+.app-page-shell__body.is-width-wide    { /* wide 1040 */ }
+.app-page-shell__body.is-width-narrow  { /* narrow 720，本轮仅接口 */ }
+
+/* fill 模式（用于快捷键页）：整页不动 + 内部子元素自身滚 */
 .app-page-shell__body.is-fill {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding-top: 0;
   padding-bottom: 32px;
 }
 
-/* ---- 响应式：窄屏 sidebar 收起为顶部水平条（沿用 AudioPage 现行兜底） ---- */
+/* ---- 响应式：窄屏 sidebar 收起为顶部水平条 ---- */
 @media (max-width: 720px) {
+  .app-page-shell {
+    padding: 42px 16px 0;
+  }
+  .app-page-shell .page-intro {
+    margin-left: 0;
+    width: 100%;
+  }
   .app-page-shell__main {
     flex-direction: column;
+    width: 100%;
+    gap: 14px;
   }
   .app-page-shell__sidebar {
+    flex: none;
     width: 100%;
-    padding: 12px 16px;
+    padding: 12px 10px;
+    overflow-y: visible;
   }
   .app-page-shell__sidebar-group-items {
     flex-direction: row;

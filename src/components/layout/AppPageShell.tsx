@@ -1,4 +1,4 @@
-import { Children, isValidElement, type ComponentType, type ReactNode } from 'react';
+import { Children, createContext, isValidElement, type ComponentType, type ReactNode } from 'react';
 import './AppPageShell.css';
 
 // 应用页面壳 / 内容壳（ADR-0007）：
@@ -14,9 +14,19 @@ import './AppPageShell.css';
 //     <AppPageShell.Sidebar>…</AppPageShell.Sidebar>
 //     <AppPageShell.Body mode="default" width="default">…</AppPageShell.Body>
 //   </AppPageShell>
+//
+// 几何（按 issue 44 红框图 + H 原型定案，正常文档流实现）：
+//   - 整块（sidebar + body）与 Header 包装层同宽 blockWidth，均 margin: 0 auto 居中于 main 视口；
+//   - Header 跟 body 同宽同左缘（不横跨整块）：intro 在 __head 包装层内 margin-left = sidebar(200) + gap(24)；
+//   - 无 sidebar 时（快捷键页）indent = 0，Header 左缘 = 整块左缘；
+//   - Body flex: 1 1 auto + max-width 档值：main 满宽时 body = 档值，视口收缩时随 main 收缩；
+//   - 整块宽 = sidebar(200) + gap(24) + body(<width 档>)
 
 type WidthTier = 'default' | 'wide' | 'narrow';
 type ContentMode = 'default' | 'fill';
+
+const SIDEBAR_W = 200;          // 模板硬约束：4 页统一 200px
+const SIDEBAR_BODY_GAP = 24;    // 模板硬约束：sidebar-body 横向 gap
 
 const WIDTH_VALUES: Record<WidthTier, string> = {
   default: '920px',
@@ -92,15 +102,26 @@ type BodyProps = {
   children: ReactNode;
 };
 
+/**
+ * 共享 width 给 main 整块：BodyContext.Provider 让 main 知道整块宽。
+ * main 整块宽 = SIDEBAR_W + SIDEBAR_BODY_GAP + body width。
+ */
+const BodyContext = createContext<{ width: WidthTier; maxWidth: string }>({
+  width: 'default',
+  maxWidth: WIDTH_VALUES.default,
+});
+
 function Body({ mode = 'default', width, children }: BodyProps) {
+  const maxWidth = WIDTH_VALUES[width];
   const classes = ['app-page-shell__body', `is-width-${width}`];
   if (mode === 'fill') classes.push('is-fill');
-  const maxWidth = WIDTH_VALUES[width];
 
   return (
-    <div className={classes.join(' ')} style={{ maxWidth: `min(${maxWidth}, calc(100% - 32px))` }}>
-      {children}
-    </div>
+    <BodyContext.Provider value={{ width, maxWidth }}>
+      <div className={classes.join(' ')} style={{ maxWidth }}>
+        {children}
+      </div>
+    </BodyContext.Provider>
   );
 }
 
@@ -109,31 +130,48 @@ function Body({ mode = 'default', width, children }: BodyProps) {
 type AppPageShellProps = { children: ReactNode };
 
 /**
- * 容器根：组合 Header / Sidebar / Body 三段。
- * - Sidebar 与 Body 在同一 flex 行（独立于 Body 外）；
- * - 不写 Sidebar 时 Body 自占全宽；
- * - 用 Children 简单遍历识别以保留 namespace 心智模型（与 React 19 named children 区别仅在审查时间）。
+ * 容器根：组合 Header / Sidebar / Body 三段（正常文档流，无绝对定位）。
+ * - __head 包装层与 main 整块同宽（blockWidth），同用 margin: 0 auto 居中；
+ * - Header（.page-intro）在 __head 内 margin-left = sidebar(200) + gap(24)，
+ *   使 Header 左缘/宽度跟 Body 严格一致；
+ * - main 整块（sidebar+body）宽 = sidebar(200) + gap(24) + body(<width 档>)；
+ * - 不写 Sidebar 时（快捷键页）blockWidth = body 档值，Header indent = 0。
  */
 function AppPageShellRoot({ children }: AppPageShellProps) {
   let header: ReactNode = null;
   let sidebar: ReactNode = null;
-  let body: ReactNode = null;
+  let bodyNode: ReactNode = null;
+  let bodyWidth: WidthTier = 'default';
 
+  // 单次遍历：先收齐 header/sidebar/body 与 body width，再做几何计算（顺序敏感）。
   Children.forEach(children, (child) => {
     if (!isValidElement(child)) return;
     const type = child.type;
     if (type === Header) header = child;
     else if (type === Sidebar) sidebar = child;
-    else if (type === Body) body = child;
+    else if (type === Body) {
+      bodyNode = child;
+      const w = (child.props as { width?: WidthTier }).width;
+      if (w) bodyWidth = w;
+    }
   });
 
+  const bodyMaxWidth = parseInt(WIDTH_VALUES[bodyWidth], 10);
+  const hasSidebar = sidebar !== null;
+  const headerIndent = hasSidebar ? SIDEBAR_W + SIDEBAR_BODY_GAP : 0;
+  const blockWidth = headerIndent + bodyMaxWidth;
+
   return (
-    <div className="app-page-shell">
-      {header}
-      <div className="app-page-shell__main">
-        {sidebar}
-        {body}
-      </div>
+    <div
+      className="app-page-shell"
+      style={{
+        '--aps-block-width': `${blockWidth}px`,
+        '--aps-body-width': `${bodyMaxWidth}px`,
+        '--aps-header-indent': `${headerIndent}px`,
+      } as React.CSSProperties}
+    >
+      <div className="app-page-shell__head">{header}</div>
+      <div className="app-page-shell__main">{sidebar}{bodyNode}</div>
     </div>
   );
 }
@@ -155,3 +193,5 @@ AppPageShell.SidebarItem = SidebarItem;
 AppPageShell.Body = Body;
 
 export default AppPageShell;
+// BodyContext 仅供未来扩展（如 SidebarItem 想知道所在 Body 的 width），不强制使用
+export { BodyContext };
