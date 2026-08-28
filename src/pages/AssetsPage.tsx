@@ -64,7 +64,7 @@ export default function AssetsPage() {
         ))}
       </AppPageShell.Sidebar>
 
-      <AppPageShell.Body mode="default" width="wide">
+      <AppPageShell.Body mode="default">
         {category === 'noteskin' && <NoteSkinPanel />}
         {category === 'background' && <BackgroundPanel />}
       </AppPageShell.Body>

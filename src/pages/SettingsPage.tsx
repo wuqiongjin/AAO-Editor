@@ -143,7 +143,7 @@ export default function SettingsPage() {
         </AppPageShell.SidebarGroup>
       </AppPageShell.Sidebar>
 
-      <AppPageShell.Body mode="default" width="default">
+      <AppPageShell.Body mode="default">
         <section className="settings-detail surface-section">
           {section === 'appearance' && (
             <>

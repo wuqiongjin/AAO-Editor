@@ -166,7 +166,7 @@ export default function ShortcutsPage() {
         description="搜索功能，点击键位后直接录入新的组合键。冲突会在保存前提示。"
       />
 
-      <AppPageShell.Body mode="fill" width="default">
+      <AppPageShell.Body mode="fill">
         <section className="shortcut-surface surface-section">
         <div className="shortcut-toolbar">
           <label className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索功能或按键" /></label>

@@ -45,7 +45,7 @@ export default function AudioPage() {
         ))}
       </AppPageShell.Sidebar>
 
-      <AppPageShell.Body mode="default" width="default">
+      <AppPageShell.Body mode="default">
         <section className="surface-section audio-detail">
           {section === 'audio' && <AudioSection />}
           {section === 'keysound' && <KeySoundSection />}
