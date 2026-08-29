@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { PlaybackScrollModel, type ReAnchorTarget } from './PlaybackScrollModel';
 import { ChartGeometry } from '../chart/geometry/ChartGeometry';
-import { getBpmEvents, chartLengthToEndBeat } from './AudioTiming';
+import { getBpmEvents, chartLengthToEndBeat } from '../audio/AudioTiming';
 import type { ChartNote } from '../chart/types';
 import type { SurfaceSize } from '../chart/geometry/ChartGeometry';
 

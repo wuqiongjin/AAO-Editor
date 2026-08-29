@@ -3,7 +3,7 @@ import type { ChartNote, SelectionItem } from "../../types";
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { handleNoteReplacement, handleSlideToSlideCombination } from '../../editing/NoteReplacementRules';
 import { deleteSelection } from '../../editing/SelectionEditing';
-import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../../../utils/AudioTiming';
+import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../../../audio/AudioTiming';
 import {
   ChartGeometry, LANES, LANE_WIDTH,
   DEFAULT_SURFACE, TRACK_CHROME_TOTAL, type SurfaceSize,

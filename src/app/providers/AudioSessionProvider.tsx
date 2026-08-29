@@ -9,7 +9,7 @@
 //
 // 接缝：useAudioSession() 返回的是深模块的 snapshot + 操作集合，单一接缝。
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AudioSession, type AudioSessionSnapshot } from '../../utils/AudioSession';
+import { AudioSession, type AudioSessionSnapshot } from '../../audio/AudioSession';
 
 const AudioSessionContext = createContext<AudioSession | null>(null);
 

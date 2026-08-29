@@ -1,4 +1,4 @@
-import type { ChartNote, SingleNote, LDirectionalNote, RDirectionalNote, SlideNote, BpmNote } from '../chart/types';
+import type { ChartNote, SingleNote, LDirectionalNote, RDirectionalNote, SlideNote, BpmNote } from '../types';
 
 // 谱面代码类型定义
 export interface ChartCodeBPM {

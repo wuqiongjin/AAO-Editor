@@ -6,7 +6,7 @@
 // - 旧 bangdream.shortcuts.v1 仍可读（一次性回填到新 settings.shortcuts），不再写入。
 // - 旧版 schema（仅有 {schemaVersion, audio.keySet}）已包含 audio 段，load 时按字段合并。
 import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutConfig';
-import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID } from '../../utils/KeySound';
+import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID } from '../../audio/KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../renderer/noteSkinRegistry.gen';
 
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */

@@ -11,9 +11,9 @@
 //   - isPlaying 时完全锁定滚动条（onScroll 已在 Editor 侧判 isPlayingRef）
 //   - 卸载自动 stopPlayback（防止挂载在其他页时仍在跑 RAF）
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AudioEngine } from './AudioEngine';
+import type { AudioEngine } from '../audio/AudioEngine';
 import type { PlaybackScrollModel } from './PlaybackScrollModel';
-import { getBpmEvents, beatToSeconds } from './AudioTiming';
+import { getBpmEvents, beatToSeconds } from '../audio/AudioTiming';
 import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
 import type { ChartNote } from '../chart/types';
 import type { FinalVirtualCanvasHandle } from '../chart/components/canvas/FinalVirtualCanvas';

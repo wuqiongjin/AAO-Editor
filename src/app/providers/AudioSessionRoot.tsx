@@ -9,7 +9,7 @@
 // 接缝：单一 AudioSession 实例，工作台/音频页都朝它直接调用，桥接 context 消失。
 import { useMemo, useEffect, type ReactNode } from 'react';
 import { useConfig } from './ConfigProvider';
-import { createAudioSession } from '../../utils/AudioSession';
+import { createAudioSession } from '../../audio/AudioSession';
 import { AudioSessionProvider } from './AudioSessionProvider';
 
 export function AudioSessionRoot({ children }: { children: ReactNode }) {

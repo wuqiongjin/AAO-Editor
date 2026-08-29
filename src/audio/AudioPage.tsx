@@ -3,8 +3,8 @@ import { AlertTriangle, Check, Clock3, Music2, SlidersHorizontal, Upload, Volume
 import AppPageShell from '../layouts/AppPageShell';
 import { useAudioSession } from '../app/providers/AudioSessionProvider';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../chart/config/AppSettings';
-import { KEY_SOUND_SETS, type KeySoundSample } from '../utils/KeySound';
-import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from '../utils/KeySoundMeta';
+import { KEY_SOUND_SETS, type KeySoundSample } from './KeySound';
+import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from './KeySoundMeta';
 
 // 音频页（架构深化评审候选 3 收口后）：
 //   - 不再走 AudioPageContext 桥接——直接调音频会话深模块（useAudioSession）；

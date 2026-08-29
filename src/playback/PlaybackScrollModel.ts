@@ -23,7 +23,7 @@
 //
 // 纯逻辑：只依赖注入的 ChartGeometry + 用户缩放 scale，node 环境可单测。
 import type { ChartGeometry } from '../chart/geometry/ChartGeometry';
-import { secondsToBeat, beatToSeconds, type BpmEvent } from './AudioTiming';
+import { secondsToBeat, beatToSeconds, type BpmEvent } from '../audio/AudioTiming';
 
 export interface ReAnchorTarget {
   /** 画布虚拟 scrollY（判定线处=锚点秒）。 */

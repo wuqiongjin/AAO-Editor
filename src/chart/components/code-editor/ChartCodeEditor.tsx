@@ -9,9 +9,9 @@
 import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Braces, Copy, RotateCcw, RefreshCw, X } from "lucide-react";
-import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes, hasBeat0Bpm } from '../../../utils/ChartConverter';
+import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes, hasBeat0Bpm } from '../../editing/ChartConverter';
 import { useEditing, usePlayback, useUI } from '../../../app/ProviderTree';
-import { maxNoteEndSeconds, getBpmEvents } from '../../../utils/AudioTiming';
+import { maxNoteEndSeconds, getBpmEvents } from '../../../audio/AudioTiming';
 import {
     createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
     type HistoryState,
