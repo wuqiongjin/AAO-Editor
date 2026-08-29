@@ -1,8 +1,7 @@
 // UIContext（ADR-0003 §7.2）：工作台 UI 状态——工具/缩放/节拍/组合态/设置弹窗/布局（面板宽与折叠）/鼠标悬停位置。
 // 布局收纳（issue 12 / ADR-0003 L1）：面板宽度与折叠态、拖拽分隔条逻辑集中于此。
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { ChartPosition } from './index';
-
+import type { ChartPosition } from '../types/chart';
 // H5 收口：mousePosition 直接复用 ChartPosition（{ beat, lane }）
 export type MousePos = ChartPosition;
 
