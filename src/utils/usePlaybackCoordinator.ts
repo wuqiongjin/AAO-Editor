@@ -16,7 +16,7 @@ import type { PlaybackScrollModel } from './PlaybackScrollModel';
 import { getBpmEvents, beatToSeconds } from './AudioTiming';
 import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
 import type { ChartNote } from '../chart/types';
-import type { FinalVirtualCanvasHandle } from '../components/FinalVirtualCanvas';
+import type { FinalVirtualCanvasHandle } from '../chart/components/canvas/FinalVirtualCanvas';
 
 export interface UsePlaybackCoordinatorOptions {
   /** 引擎单例（Editor 持有） */

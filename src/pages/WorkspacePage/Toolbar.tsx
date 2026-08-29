@@ -11,11 +11,11 @@ import {
   Redo,
   ChevronLeft,
 } from "lucide-react";
-import SpriteIcon, { NoteIcons } from './SpriteIcon';
-import { categoryShortcuts } from '../chart/config/ShortcutConfig';
-import { useConfig, useEditing, useUI } from '../app/ProviderTree';
-import IconButton from './IconButton';
-import ChartCodeEditor from './ChartCodeEditor';
+import SpriteIcon, { NoteIcons } from '../../ui/SpriteIcon';
+import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
+import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
+import IconButton from '../../ui/IconButton';
+import ChartCodeEditor from '../../chart/components/code-editor/ChartCodeEditor';
 
 /** 区块标题（统一样式：小号大写灰字） */
 function SectionHeader({ children }: { children: ReactNode }) {

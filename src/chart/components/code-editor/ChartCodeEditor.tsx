@@ -9,18 +9,18 @@
 import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Braces, Copy, RotateCcw, RefreshCw, X } from "lucide-react";
-import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes, hasBeat0Bpm } from "../utils/ChartConverter";
-import { useEditing, usePlayback, useUI } from '../app/ProviderTree';
-import { maxNoteEndSeconds, getBpmEvents } from "../utils/AudioTiming";
+import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes, hasBeat0Bpm } from '../../../utils/ChartConverter';
+import { useEditing, usePlayback, useUI } from '../../../app/ProviderTree';
+import { maxNoteEndSeconds, getBpmEvents } from '../../../utils/AudioTiming';
 import {
     createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
     type HistoryState,
-} from "../chart/editing/History";
+} from '../../editing/History';
 import {
     insertTab, insertNewlineIndent, cutRange, pasteAt,
     type TextEditRange,
-} from "../chart/editing/CodeEditorOps";
-import ActionBtn from "./ActionBtn";
+} from '../../editing/CodeEditorOps';
+import ActionBtn from '../../../ui/ActionBtn';
 
 export default function ChartCodeEditor() {
     const { notes, handleNotesChange } = useEditing();

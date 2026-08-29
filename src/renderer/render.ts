@@ -4,7 +4,7 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport, type GeometryPoint } from '../chart/geometry/ChartGeometry';
 import { shiftGroupToAnchor, mirrorNote } from '../chart/editing/NoteEditing';
-import { perf } from '../utils/perf';
+import { perf } from '../chart/perf';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, findItemAt } from './hitTest';
 import { drawNotesLayer } from './noteLayerCache';

@@ -20,7 +20,7 @@ import type { RenderCtx } from './types';
 import { VIEWPORT_PADDING, type GeometryBounds } from '../chart/geometry/ChartGeometry';
 import type { BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
 import type { ChartNote, SlideNote } from '../chart/types';
-import { perf } from '../utils/perf';
+import { perf } from '../chart/perf';
 
 /** 瓦片的 pos 空间高度（timeline 像素） */
 export const TILE_PX = 512;

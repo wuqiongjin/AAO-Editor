@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { AlertTriangle, Check, Clock3, Music2, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
-import AppPageShell from '../components/layout/AppPageShell';
+import AppPageShell from '../layouts/AppPageShell';
 import { useAudioSession } from '../app/providers/AudioSessionProvider';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../chart/config/AppSettings';
 import { KEY_SOUND_SETS, type KeySoundSample } from '../utils/KeySound';

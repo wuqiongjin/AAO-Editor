@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import './App.css'
-import AppShell from "./pages/AppShell";
+import AppShell from "./layouts/AppShell";
 import { ProviderTree, useConfig } from "./app/ProviderTree";
 import { useApplyTheme } from "./styles/theme";
 

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
-import AppPageShell from '../components/layout/AppPageShell';
+import AppPageShell from '../layouts/AppPageShell';
 import { useConfig } from '../app/ProviderTree';
 import { defaultSettings, loadSettings } from '../chart/config/AppSettings';
 import type { AppSettings } from '../chart/config/AppSettings';

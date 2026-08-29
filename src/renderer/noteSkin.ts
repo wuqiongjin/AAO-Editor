@@ -18,7 +18,7 @@ import {
   type NoteSkinRect,
 } from './noteSkinRegistry.gen';
 import { LANE_WIDTH } from '../chart/geometry/ChartGeometry';
-import type { SpriteIconConfig } from '../components/CanvasSpriteIcon';
+import type { SpriteIconConfig } from '../ui/CanvasSpriteIcon';
 
 /** 素材页「音符皮肤」六条目（定案：左右方向键同族两皮肤，拆两条目；slide 管连接带+SP带+中间结点三件套） */
 export type NoteSkinItemId = 'tap' | 'flick' | 'skill' | 'dirL' | 'dirR' | 'slide';

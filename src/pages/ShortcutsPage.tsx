@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, RotateCcw, Search } from 'lucide-react';
-import AppPageShell from '../components/layout/AppPageShell';
+import AppPageShell from '../layouts/AppPageShell';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, setCapturingShortcut, type FunctionId,

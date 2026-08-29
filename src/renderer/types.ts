@@ -3,7 +3,7 @@
 // 组件只保留挂载/生命周期/事件绑定，性能热路径集中于此、可独立单测。
 import type { ChartNote, SelectionItem } from '../chart/types';
 import type { ChartGeometry, SurfaceSize } from '../chart/geometry/ChartGeometry';
-import type CanvasSpriteIcon from '../components/CanvasSpriteIcon';
+import type CanvasSpriteIcon from '../ui/CanvasSpriteIcon';
 import type { ActiveNoteIcons } from './noteSkin';
 
 /** 视口状态（虚拟尺寸 + 滚动 + 缩放） */

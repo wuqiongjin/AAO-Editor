@@ -9,7 +9,7 @@
 //   - 每个列上下有"标签"色块间隔。
 import { useEffect, useMemo, useRef } from 'react';
 import { Check } from 'lucide-react';
-import CanvasSpriteIcon from '../../components/CanvasSpriteIcon';
+import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import {
   buildActiveNoteIcons,
   listNoteSkinPacks,
