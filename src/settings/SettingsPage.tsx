@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
-import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
+import { Check, Download, Info, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
+import EmptyState from '../ui/EmptyState';
 import { useConfig } from '../app/ProviderTree';
 import { defaultSettings, loadSettings } from '../chart/config/AppSettings';
 import type { AppSettings } from '../chart/config/AppSettings';
@@ -177,15 +178,14 @@ export default function SettingsPage() {
                 <h2>布局</h2>
                 <p>面板开合、宽度与画布缩放的说明。</p>
               </div>
-              <div className="settings-row">
-                <div className="settings-row__text"><strong>工具 / 属性面板</strong><span>在工作台底部或画布两侧拖拽，或点击面板标题旁的收起按钮</span></div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-row__text"><strong>应用导航</strong><span>左侧导航可折叠为图标栏，默认为折叠态</span></div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-row__text"><strong>画布缩放</strong><span>按住 Ctrl 滚动鼠标滚轮可缩放谱面画布</span></div>
-              </div>
+              {/* 阶段 2 空态（2026-08-30 用户拍板）：layout 段无可配置控件（原 3 行纯说明文字），
+                  改为三段式 EmptyState（图 + 标题 + 描述）作为"说明区"占位，
+                  与其它 3 页空态保持视觉一致。 */}
+              <EmptyState
+                icon={Info}
+                title="布局在工作台内调整"
+                description="工具 / 属性面板可拖拽或点击标题旁的收起按钮；应用导航可在左侧折叠为图标栏；画布缩放按住 Ctrl 滚动鼠标滚轮。"
+              />
             </>
           )}
 

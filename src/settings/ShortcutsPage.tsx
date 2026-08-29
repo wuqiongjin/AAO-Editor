@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Pencil, RotateCcw, Search } from 'lucide-react';
+import { Pencil, RotateCcw, Search, SearchX } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
+import EmptyState from '../ui/EmptyState';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, setCapturingShortcut, type FunctionId,
@@ -250,7 +251,17 @@ export default function ShortcutsPage() {
               </div>
             );
           })}
-          {visible.length === 0 && visibleApp.length === 0 && <div className="empty-result">没有匹配的功能</div>}
+          {visible.length === 0 && visibleApp.length === 0 && (
+            <EmptyState
+              icon={SearchX}
+              title="没有匹配的功能"
+              description="尝试其他关键词，或清除搜索框后查看全部快捷键。"
+              primaryAction={{
+                label: '清除搜索',
+                onClick: () => setQuery(''),
+              }}
+            />
+          )}
         </div>
       </section>
 

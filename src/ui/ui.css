@@ -57,7 +57,7 @@
 
 .action-btn--primary {
   background-color: var(--accent);
-  color: var(--accent-text);
+  color: var(--text-on-accent);  /* 最深档蓝 #06324a，确保蓝底白底上都看清（亮 #06324a / 暗 #fff） */
   border-color: transparent;
 }
 .action-btn--primary:hover:not(:disabled) {
@@ -65,6 +65,9 @@
 }
 .action-btn--primary:active:not(:disabled) {
   background-color: var(--accent-active);
+  /* 任务 2 v6（2026-08-30）：active 态用白字（--accent-active 是 #0874a3 深蓝，
+     与 --text-on-accent #06324a 几乎同色看不清；切到 #fff WCAG AA 通过）。 */
+  color: #ffffff;
 }
 
 .action-btn--danger {
@@ -149,4 +152,54 @@
 }
 .icon-btn__label {
   white-space: nowrap;
+}
+
+/* ============================================================
+   EmptyState（src/ui/EmptyState.tsx）
+   三段式空态：图标 + 标题 + 描述 + 可选按钮组。
+   阶段 2 默认 padding/icon size 暂用 token 默认值（待用户拍板）。
+   ============================================================ */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+  gap: var(--space-3);
+}
+
+.empty-state__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-subtle);
+  margin-bottom: var(--space-2);
+}
+
+.empty-state__title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.empty-state__description {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  max-width: 380px;
+  line-height: 1.6;
+}
+
+.empty-state__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* action-btn 内的 icon 子元素统一间距 */
+.action-btn__icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
 }

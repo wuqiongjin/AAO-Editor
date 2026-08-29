@@ -1,25 +1,46 @@
-/* 音频页（issue 28 Q15 + issue 29 切片 4 闭环 + 2026-08-26 索引外置 + issue 44 内容壳迁移）：
+/* 音频页（issue 28 Q15 + issue 29 切片 4 闭环 + 2026-08-26 索引外置 + issue 44 内容壳迁移 +
+   2026-08-30 阶段 2 决策收口）：
    接入 <AppPageShell>（位于 src/components/layout/AppPageShell.tsx）：
      - 整体布局交给壳：左侧次级索引（200px Sidebar） + 右侧 Body（max-width 920px 居中）；
-     - AudioPage 自身只管 .audio-detail（surface-section padding 等）。 */
+     - 阶段 2：3 段各自独立 surface-section card，不再共用外层 .audio-detail 包装；
+     - 卡片本身：bg + 1px border + radius（不加 box-shadow），靠 border 提供"卡"的视觉分组。 */
+
+/* ---- 阶段 2 决策（2026-08-30 用户拍板）surface-section 方案 D ----
+ *
+ * 用户原话："还是以卡片式作为基底吧。现在这种裸外层的不如卡片式的。
+ *            但并不是回退到之前那种包装"
+ *
+ * 当前生效 = 方案 D：background + 1px border + radius（无 box-shadow、无 padding）
+ *   .surface-section {
+ *     background: var(--bg-elevated);
+ *     border: 1px solid var(--border);
+ *     border-radius: var(--radius-md);
+ *     padding: 0;
+ *   }
+ *   （定义在 AppShell.css；.audio-detail 仍保留 22px padding，让卡片内部有呼吸空间）
+ *   - 视觉上比"仅 bg"（方案 A）多一道边界线
+ *   - 比"bg + shadow + padding"（方案 B）更克制
+ *
+ * 历史方案 A/B/C 已弃用，注释保留作决策追溯。 */
 
 /* ---- 详情 surface-section（issue 28 Q15 留 22px 内边距与"键音素材包"卡观感对齐） ---- */
+/* 任务 1 v4（2026-08-30）：padding 已上提到 .surface-section（24px），这里只留 min-height，
+   避免"父 24px + 子 22px"双层 padding 导致内容贴边 / 呼吸过紧的不一致现象。 */
 .audio-detail {
-  padding: 22px;
   min-height: min-content;
 }
 
 /* ---- 谱面时长内联行（嵌入"音频素材" section 内） ---- */
+/* 任务 3（2026-08-30）：.audio-duration-row 去掉 border + bg-inset，只留 padding + 顶部细线。
+   已在 surface-section 卡内，"分组"靠顶部细线表达，不做"卡"的视觉重量。 */
 .audio-duration-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-top: 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-inset);
+  padding: 14px 0;
+  border-top: 1px solid var(--border-faint);
 }
 
 .audio-duration-head {

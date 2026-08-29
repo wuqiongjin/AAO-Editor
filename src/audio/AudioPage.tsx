@@ -1,14 +1,18 @@
 import { useRef, useState } from 'react';
-import { AlertTriangle, Check, Clock3, Music2, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
+import { AlertTriangle, Check, Clock3, FileAudio, Music2, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
+import EmptyState from '../ui/EmptyState';
 import { useAudioSession } from '../app/providers/AudioSessionProvider';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../chart/config/AppSettings';
 import { KEY_SOUND_SETS, type KeySoundSample } from './KeySound';
 import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from './KeySoundMeta';
 
-// 音频页（架构深化评审候选 3 收口后）：
+// 音频页（架构深化评审候选 3 收口后 + 2026-08-30 阶段 2 决策收口）：
 //   - 不再走 AudioPageContext 桥接——直接调音频会话深模块（useAudioSession）；
-//   - 3 个 section：音频素材（含谱面时长）/ 键音素材包 / SE 音量，在 Body 内自管；
+//   - 3 个 section：音频素材（含谱面时长）/ 键音素材包 / SE 音量，sidebar 切换；
+//   - 3 段各自独立 <section className="surface-section audio-detail"> card 基底
+//     （不再共用外层包装），切页时显示对应那张 card；
+//   - 卡片本身是轻量视觉分组（去 border，仅 bg 区分 + 细 radius），不堆 box-shadow；
 //   - 导入/解码失败用内联错误横幅就地反馈（文字醒目、可即时重试）；
 //   - 成功仅更新状态，不加 toast；
 //   - 清除音频不需二次确认（低风险、可重新导入），旁加说明"清除后需重新导入"。
@@ -44,11 +48,25 @@ export default function AudioPage() {
       </AppPageShell.Sidebar>
 
       <AppPageShell.Body mode="default">
-        <section className="surface-section audio-detail">
-          {section === 'audio' && <AudioSection />}
-          {section === 'keysound' && <KeySoundSection />}
-          {section === 'se' && <SeVolumeSection />}
-        </section>
+        {/* 阶段 2 决策（2026-08-30 用户拍板）：3 段各自独立 surface-section card 基底，
+            不再共用外层 .audio-detail 包装；每段自带卡片做视觉分组。
+            卡片本身用 .surface-section（已轻量化：去 border，仅 bg + radius）。
+            任务 1 方案 A/B/C 注释见 AudioPage.css 顶部。 */}
+        {section === 'audio' && (
+          <section className="surface-section audio-detail">
+            <AudioSection />
+          </section>
+        )}
+        {section === 'keysound' && (
+          <section className="surface-section audio-detail">
+            <KeySoundSection />
+          </section>
+        )}
+        {section === 'se' && (
+          <section className="surface-section audio-detail">
+            <SeVolumeSection />
+          </section>
+        )}
       </AppPageShell.Body>
     </AppPageShell>
   );
@@ -72,22 +90,51 @@ function AudioSection() {
         <p>支持浏览器可解码的常见音频格式；导入后谱面时长将跟随音频长度。</p>
       </div>
 
-      <div className="audio-file">
-        <span className="audio-file-icon"><Music2 size={22} /></span>
-        <div>
-          <strong>{canPlay ? audioName : '尚未导入音频'}</strong>
-          <span>{canPlay ? '已加载 · 谱面时长锁定为音频时长' : '无音频模式可正常编辑和预览谱面'}</span>
+      {/* 阶段 2 空态（2026-08-30 用户拍板）：
+          未导入音频时用三段式 EmptyState（图 + 标题 + 描述 + 主按钮"导入音频"）
+          替代原"尚未导入音频"灰色提示文字。已导入时回落到 .audio-file 卡 + 谱面时长行。 */}
+      {canPlay ? (
+        <div className="audio-file">
+          <span className="audio-file-icon"><Music2 size={22} /></span>
+          <div className="audio-file-info">
+            <strong>{audioName}</strong>
+            <span>已加载 · 谱面时长锁定为音频时长</span>
+          </div>
+          <div className="audio-file-actions">
+            {/* 任务 2 v4（2026-08-30）：两个按钮统一用 .action-btn。
+                - 更换音频 = .action-btn--primary（蓝实色，提示"主操作"）；
+                - 清除 = .action-btn--danger（红软底，提示"破坏性"，但不像 primary 那么重）。 */}
+            <button type="button" className="action-btn action-btn--primary" onClick={pickFile}>
+              <Upload size={16} />更换音频
+              <input
+                ref={fileRef}
+                type="file"
+                accept="audio/*"
+                style={{ display: 'none' }}
+                onChange={(e) => { if (e.target.files && e.target.files[0]) session.importAudio(e.target.files[0]); e.target.value = ''; }}
+              />
+            </button>
+            <button
+              type="button"
+              className="action-btn action-btn--danger"
+              onClick={() => session.clearAudio()}
+              title="清除后需重新导入"
+            >
+              清除
+            </button>
+          </div>
         </div>
-        {canPlay && (
-          <button type="button" onClick={() => session.clearAudio()} title="清除后需重新导入">
-            清除
-          </button>
-        )}
-      </div>
-
-      <div className="section-actions">
-        <button className="button-primary" type="button" onClick={pickFile}>
-          <Upload size={16} />{canPlay ? '更换音频' : '导入音频'}
+      ) : (
+        <EmptyState
+          icon={FileAudio}
+          title="尚未导入音频"
+          description="无音频模式可正常编辑和预览谱面；导入后谱面时长将自动跟随音频长度。"
+          primaryAction={{
+            label: '导入音频',
+            onClick: pickFile,
+            icon: Upload,
+          }}
+        >
           <input
             ref={fileRef}
             type="file"
@@ -95,9 +142,8 @@ function AudioSection() {
             style={{ display: 'none' }}
             onChange={(e) => { if (e.target.files && e.target.files[0]) session.importAudio(e.target.files[0]); e.target.value = ''; }}
           />
-        </button>
-        <span>导入后，谱面时长将跟随音频长度。</span>
-      </div>
+        </EmptyState>
+      )}
 
       {/* 谱面时长：嵌入音频素材 section 内（grill 2026-08-26 拍板 3-section 方案） */}
       <div className="audio-duration-row">
@@ -171,14 +217,19 @@ function KeySoundSection() {
               <div className="asset-set-body">
                 <div className="asset-set-head">
                   <strong>{set.label}</strong>
+                  {/* 任务 4 v4（2026-08-30）："使用此包" / "使用中" 统一为同一组件 .skin-pill。
+                      之前 v3 用 button + state-pill success（两个 class、两种观感，用户报"仍有差异"）。
+                      现在两边都是 .skin-pill：
+                        - 默认 = bg-inset + 灰字 + 1px border（点击态）
+                        - is-active = accent-soft + 深档文字 + accent border + Check 图标 */}
                   {active ? (
-                    <span className="state-pill success" aria-label="正在使用">
-                      <Check size={13} /> 使用中
+                    <span className="skin-pill is-active" aria-label="正在使用">
+                      <Check size={12} />使用中
                     </span>
                   ) : (
                     <button
                       type="button"
-                      className="button-primary asset-set-apply"
+                      className="skin-pill"
                       onClick={() => session.setKeySetId(set.id)}
                     >
                       使用此包

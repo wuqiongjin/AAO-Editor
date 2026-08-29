@@ -315,10 +315,21 @@
   line-height: 1.6;
 }
 
+/* 阶段 2 加回 1px border（2026-08-30 用户最终拍板，方案 D）：
+ * 用户原话："还是以卡片式作为基底吧... 但并不是回退到之前那种包装"
+ * v4（2026-08-30）：从"只 bg + border"升级到"bg + 1px border + 24px padding"。
+ *   - 由 .surface-section 自带 padding，避免子类各自再补 padding（之前 .audio-detail 22 + 父 0
+ *     vs .settings-detail 24 子类补 0 / 24 = 双层 / 漏层不一致）；
+ *   - 视觉仍克制（无 box-shadow），border + 24px 内边距给"卡"应有的呼吸空间。
+ * 详见 AudioPage.css 顶部 A/B/C/D 方案注释。 */
 .surface-section {
-  border: 1px solid var(--border);
-  border-radius: 10px;
   background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  /* 任务 1（2026-08-30 v4）：所有 surface-section 卡片自带 24px 内边距，
+     避免之前"卡片贴边 + 子类补 padding"的双重/漏 padding 怪现象。
+     留作视觉基底的 padding，个别子类（如 .shortcut-surface）可用 padding: 0 覆盖。 */
+  padding: 24px;
 }
 
 /* ---- 音频页（Q15） ---- */
@@ -358,16 +369,15 @@
    - settings-layout 复用（左侧次级索引 + 右侧 surface-section 详情）；
    - 谱面时长嵌入"音频素材" section 内部（顶部为导入卡、底部为时长行）；
    - 键音素材包：3 列网格（紧凑）。 */
+/* 任务 3（2026-08-30）：去 border + bg-inset，只留 padding + 顶部细线。 */
 .audio-duration-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-top: 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-inset);
+  padding: 14px 0;
+  border-top: 1px solid var(--border-faint);
 }
 
 .audio-duration-head {
@@ -460,16 +470,20 @@
   color: var(--success);
 }
 
+/* 任务 2（2026-08-30）：把"更换音频"按钮移入 .audio-file 卡内右侧，
+   与"清除"同一行；删 .section-actions 块。
+   保留 .audio-file "内嵌卡"观感（--bg-inset + --border-faint 细一档 border），
+   与外层 surface-section 形成"外白内灰"层次。 */
 .audio-file {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  margin-top: 22px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
   background: var(--bg-inset);
-  padding: 13px;
 }
 
 .audio-file-icon {
@@ -483,7 +497,7 @@
   color: var(--accent-text);
 }
 
-.audio-file div {
+.audio-file-info {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -503,12 +517,13 @@
   font-size: 10px;
 }
 
-.audio-file button {
-  border: 0;
-  background: transparent;
-  color: var(--danger-text);
-  cursor: pointer;
-  font-size: 11px;
+/* 任务 2 v4（2026-08-30）：.audio-file 内的按钮统一用 .action-btn（src/ui/ui.css），
+   不再写"全透明红字"覆盖规则——那会让 .action-btn--primary 的蓝底也变透明。
+   这里只保留布局信息；按钮视觉（primary 实色 / danger 软底）由 .action-btn 自己负责。 */
+.audio-file-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .section-actions {
@@ -679,23 +694,24 @@
   font-size: 11px;
 }
 
+/* 任务 3 v4（2026-08-30）：左侧缩略图列从 88 再缩到 72px（v3 仍偏宽），
+   .eq 高度保持 36px。.asset-samples 改为 2 列 grid——v3 是 flex-wrap，
+   标签一行 5 个换行时左侧 visual 占半的诡异观感由此消除。 */
 .asset-set {
   position: relative;
   display: grid;
-  grid-template-columns: 116px minmax(0, 1fr);
-  margin-top: 12px;
+  grid-template-columns: 56px minmax(0, 1fr);  /* 任务 5 v6（2026-08-30）：72 → 56，更扁平拉伸宽度 */
+  margin-top: 8px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
   box-shadow: var(--shadow-sm);
-  transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease), transform 140ms var(--ease);
+  transition: border-color 140ms var(--ease);
 }
 
 .asset-set:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
 }
 
 .asset-set.is-active {
@@ -729,7 +745,7 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  height: 44px;
+  height: 36px;
 }
 
 .eq i {
@@ -758,7 +774,10 @@
 /* 卡片右半：标题行 + 击打样式 chips */
 .asset-set-body {
   min-width: 0;
-  padding: 13px 15px;
+  padding: 10px 12px;  /* 任务 5 v5（2026-08-30）：13/15 → 10/12，让卡高度更紧凑 */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .asset-set-head {
@@ -774,32 +793,21 @@
   font-weight: 720;
 }
 
-.asset-set-head button {
-  flex: 0 0 auto;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-inset);
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px 12px;
-  font-size: 11px;
-  font-weight: 650;
-  transition: border-color 120ms var(--ease), color 120ms var(--ease), background-color 120ms var(--ease);
-}
+/* 任务 4 v4（2026-08-30）：asset-set-head 内"使用此包/使用中/应用整包"按钮统一为 .skin-pill
+   组件，删除此处的 button 覆盖规则（之前是 v3 的临时样式，已被 .skin-pill 取代）。 */
 
-.asset-set-head button:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-text);
-}
-
+/* 任务 4 v6（2026-08-30）：5 个标签改回横排，让 .asset-set 整体高度从 3 行降到 1 行。
+   之前 v4 改成 2 列 grid 拉高到 3 行（5 项 = 2+2+1），用户反馈"键音卡高度过高"（图 4）。
+   横排 + 字号缩到 10px 后，单行可放下 5 个标签，整体高度从 ~86px 降到 ~36px，更扁平。 */
 .asset-samples {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 11px 0 0;
+  gap: 4px 8px;
+  margin: 8px 0 0;
   padding: 0;
   list-style: none;
+  font-size: 10px;  /* 13 → 10 让单行可放下 */
+  color: var(--text-muted);
 }
 
 .asset-samples li {
@@ -842,7 +850,10 @@
   padding: 18px;
 }
 
-/* ---- 背景皮肤卡（issue 29 Q4 最小模型，2026-08-27）---- */
+/* ---- 背景皮肤卡（issue 29 Q4 最小模型，2026-08-27）----
+   阶段 2 改名：.bg-card → .bg-asset-set（命名 hygiene，与 .asset-set 同根；
+   旧类保留为 alias 避免其它页面引用断链）。 */
+.bg-asset-set,
 .bg-card {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -996,31 +1007,38 @@
   color: var(--accent-text);
 }
 
-/* 音符皮肤面板 */
-/* 音符皮肤面板 = 单列（上下布局）：整包预设 + 6 列预览垂直堆叠。
-   不限制高度（之前 max-height + overflow 试图塞进 1 个 viewport 导致内容被裁）。
-   让 .page-content.is-fill 整页滚动承接——内容超过 viewport 时外层出滚动条。 */
+/* 素材面板（音符皮肤 / 背景皮肤）
+   阶段 2 改名：.skin-panel → .assets-panel（命名 hygiene，明确归属"素材页"；
+   旧类保留为 alias）。
+   视觉：单列上下布局，整包预设 + 综合预览垂直堆叠；
+   不限制高度——让 .page-content / .app-page-shell__body 整页滚动承接。 */
+.assets-panel,
 .skin-panel {
   min-width: 0;
 }
 
+.assets-panel > .skin-section,
 .skin-panel > .skin-section {
   margin-top: 16px;
 }
 
+.assets-panel > .skin-live-preview,
 .skin-panel > .skin-live-preview {
   margin-top: 16px;
 }
 
+.assets-panel .section-heading,
 .skin-panel .section-heading {
   padding: 0 2px;
 }
 
+.assets-panel .section-heading h2,
 .skin-panel .section-heading h2 {
   font-size: 14px;
   font-weight: 720;
 }
 
+.assets-panel .section-heading p,
 .skin-panel .section-heading p {
   margin: 4px 0 0;
   color: var(--text-muted);
@@ -1165,13 +1183,16 @@
  * ============================================================ */
 
 /* 状态徽标：success=使用中(主色实心 ✓) / warning=已修改(琥珀红点) */
+/* 阶段 2 决策（2026-08-30 用户拍板）：方角徽标（border-radius: 999px → 6px），
+   redesign-skill 警告 "Pill-shaped New and Beta badges. Try square badges"；
+   删 box-shadow 多重叠加，保留 1px 内描边做"实心徽标"边界感。 */
 .state-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
   padding: 3px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
@@ -1180,15 +1201,15 @@
 }
 
 .state-pill.success {
-  color: #fff;
-  background: var(--accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 75%, transparent);
+  color: var(--text-on-accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .state-pill.warning {
-  color: #fff;
-  background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
-  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.55);
+  color: var(--warning-text);
+  background: var(--warning-soft);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
 }
 
 .state-pill.warning::before {
@@ -1196,8 +1217,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+  background: var(--warning);
   flex: 0 0 auto;
 }
 
@@ -1361,9 +1381,57 @@
   font-weight: 700;
 }
 
-/* 整包预设（共用 skin-section 头） */
+/* 整包预设（共用 skin-section 头）
+   任务 5 v4（2026-08-30）：.skin-section 在 .surface-section 内时去掉自身的 margin-top
+   （surface-section 已用 24px padding 做视觉分隔），避免双重间距。 */
 .skin-section {
+  margin-top: 0;
+}
+
+/* 任务 5 v4：整包预设外层 .skin-preset-section 内的 .skin-section 间距由 surface-section padding 提供。
+   这里单独保留：assets-panel 直接子级 .skin-section 仍然要 16px 顶部间距。 */
+.assets-panel > .skin-section,
+.skin-panel > .skin-section {
   margin-top: 16px;
+}
+
+.skin-preset-section > .skin-section {
+  margin-top: 0;
+}
+
+/* 任务 2 v5（2026-08-30）：h3 默认有 ~24px 顶部 margin，让"整包预设"文字与 surface-section 顶 padding 重叠。
+   归零让卡片 24px padding 是唯一间距来源。
+   任务 1 v5：title 行内三段：图标 + 标签 + 计数（label 左对齐，count 推到右侧）。 */
+.skin-section-title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.skin-section-title__label {
+  flex: 0 0 auto;
+}
+.skin-section-title__count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-subtle);
+}
+
+/* 任务 1 v5：保留 h2 给屏幕阅读器，视觉上不显示。 */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .skin-section-head {
@@ -1506,16 +1574,19 @@
   min-width: 0;
 }
 
+/* 阶段 2 决策（2026-08-30 用户拍板）：方角皮肤条目选择器（999px → 6px），
+   redesign-skill 警告 "Pill-shaped New and Beta badges. Try square badges"；
+   删 .is-active box-shadow 多重叠加，靠 1px border + bg 渐变做选中态。 */
 .skin-pill {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  padding: 4px 8px;
+  padding: 4px 10px;
   min-height: 26px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--bg-inset);
   color: var(--text-muted);
   font-size: 11px;
@@ -1532,9 +1603,8 @@
 
 .skin-pill.is-active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated));
+  background: var(--accent-soft);
   color: var(--text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .skin-pill-label {
@@ -1623,9 +1693,10 @@
   font-weight: 650;
 }
 
+/* 任务 1 v4（2026-08-30）：padding 上提到 .surface-section（24px），
+   避免与父级 surface-section 双重 padding。保留 min-height 给详情卡最低高度。 */
 .settings-detail {
   min-height: 360px;
-  padding: 24px;
 }
 
 .settings-heading {
@@ -2028,12 +2099,8 @@
   cursor: default;
 }
 
-.empty-result {
-  padding: 42px 16px;
-  color: var(--text-muted);
-  text-align: center;
-  font-size: 12px;
-}
+/* 注：原 .empty-result 灰色提示文字样式已在阶段 2 由 EmptyState 组件替代（4 页全接入），
+   搜索快捷键空态等场景请用 <EmptyState icon={SearchX} ... /> 而非本类。 */
 
 .shortcut-error {
   color: var(--danger-text);

@@ -83,6 +83,9 @@
   max-width: var(--aps-body-w);
   /* 覆盖 AppShell.css 旧 min(920px) 限宽 */
   box-sizing: border-box;
+  /* 任务 1 v6（2026-08-30）：Header 与 Body 间 0 间距过紧（图 2 反馈"快捷键页面卡片与内容间距过窄"）。
+     加 24px margin-bottom，让 Header 文字与 surface-section 卡片有 ~48px 总呼吸感。 */
+  margin-bottom: 24px;
 }
 
 /* 无 sidebar 页（快捷键）：__main 用 .app-page-shell__slot 占位槽预留 sidebar 位，

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
-import { Check, Eye, EyeOff, ImagePlus, Music2, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
+import { Check, Eye, EyeOff, ImageOff, ImagePlus, Music2, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
+import EmptyState from '../ui/EmptyState';
 import { useConfig } from '../app/ProviderTree';
 import {
   listNoteSkinPacks,
@@ -96,59 +97,68 @@ function NoteSkinPanel() {
     && (pairedDir === null || (selection.dirL === pairedDir && selection.dirR === pairedDir));
 
   return (
-    <section className="skin-panel" aria-label="音符皮肤">
+    <section className="assets-panel" aria-label="音符皮肤">
+      {/* 任务 1 v5（2026-08-30）：用户原话"音符皮肤"这个标题删掉，{notePacks.length} 个统计移到
+          整包预设同一行右侧。section-heading 整块替换为只带视觉分组的分隔。 */}
       <div className="section-heading">
         <div>
-          <h2>音符皮肤</h2>
+          <h2 className="visually-hidden">音符皮肤</h2>
         </div>
-        <span className="state-label">{notePacks.length} 个</span>
       </div>
 
-      {/* 整包预设（一键整包 = 高频高优，先看见） */}
-      <div className="skin-section">
-        <h3 className="skin-section-title">
-          <Wand2 size={16} />
-          整包预设
-        </h3>
-        <div className="skin-preset-list">
-          {notePacks.map((pack) => {
-            const active = isPresetActive(pack.id, pack.pairedDir);
-            return (
-              <div
-                key={pack.id}
-                className={[
-                  'asset-set',
-                  'skin-preset',
-                  active ? 'is-active' : '',
-                ].filter(Boolean).join(' ')}
-              >
-                <div className="asset-set-visual" aria-hidden="true">
-                  <Sparkles size={20} />
-                </div>
-                <div className="asset-set-body">
-                  <div className="asset-set-head">
-                    <strong>{pack.label}</strong>
-                    {active ? (
-                      <span className="state-pill success" aria-label="整包正在使用">
-                        <Check size={13} /> 整包使用中
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="button-primary asset-set-apply"
-                        onClick={() => applyPreset(pack.id, pack.pairedDir)}
-                      >
-                        应用整包
-                      </button>
-                    )}
+      {/* 任务 5 v4（2026-08-30）：整包预设区外层包 .surface-section 卡片（用户原话：
+          "素材页面也要使用这种卡片式组件吗？(类似设置页的这种卡片式的)")。
+          内部 .skin-preset card 不变（仍是 asset-set 风格），外层用 surface-section 提供
+          24px padding + bg-elevated + 1px border 视觉分组，与设置页 settings-detail 观感一致。 */}
+      <section className="surface-section skin-preset-section">
+        <div className="skin-section">
+          <h3 className="skin-section-title">
+            <Wand2 size={16} />
+            <span className="skin-section-title__label">整包预设</span>
+            <span className="skin-section-title__count state-label">{notePacks.length} 个</span>
+          </h3>
+          <div className="skin-preset-list">
+            {notePacks.map((pack) => {
+              const active = isPresetActive(pack.id, pack.pairedDir);
+              return (
+                <div
+                  key={pack.id}
+                  className={[
+                    'asset-set',
+                    'skin-preset',
+                    active ? 'is-active' : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  <div className="asset-set-visual" aria-hidden="true">
+                    <Sparkles size={20} />
                   </div>
-                  {/* 整包预设 = 1 套皮肤 = 同时覆盖 6 类音符；不向用户暴露"方向键配对"这种实现细节 */}
+                  <div className="asset-set-body">
+                    <div className="asset-set-head">
+                      <strong>{pack.label}</strong>
+                      {/* 任务 4 v4（2026-08-30）：与键音素材包统一——应用整包 / 整包使用中 = .skin-pill。
+                          整包预设不应有"按条目覆盖"提示，简洁就是 .skin-pill 一种规格。 */}
+                      {active ? (
+                        <span className="skin-pill is-active" aria-label="整包正在使用">
+                          <Check size={12} />整包使用中
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="skin-pill"
+                          onClick={() => applyPreset(pack.id, pack.pairedDir)}
+                        >
+                          应用整包
+                        </button>
+                      )}
+                    </div>
+                    {/* 整包预设 = 1 套皮肤 = 同时覆盖 6 类音符；不向用户暴露"方向键配对"这种实现细节 */}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      </section>
 
       {/* 综合预览 + 按条目选择（Q13=A 切片 3：6 列 2 行，列对齐；高信息密度） */}
       <NoteSkinPreview
@@ -221,7 +231,7 @@ function BackgroundPanel() {
   };
 
   return (
-    <section className="skin-panel" aria-label="背景皮肤">
+    <section className="assets-panel" aria-label="背景皮肤">
       <div className="section-heading">
         <div>
           <h2>谱面背景皮肤</h2>
@@ -229,69 +239,57 @@ function BackgroundPanel() {
         <span className="state-label">{image ? (enabled ? '使用中' : '已隐藏') : '未设置'}</span>
       </div>
 
-      <div className={`asset-set skin-preset bg-card${image && enabled ? ' is-active' : ''}`}>
-        <input
-          ref={fileRef}
-          type="file"
-          accept={BG_ACCEPT}
-          aria-hidden="true"
-          tabIndex={-1}
-          className="bg-file-input"
-          onChange={(e) => void handleFile(e.target.files?.[0])}
-        />
-
-        {/* 预览：真实背景图等比缩放展示；未上传时为占位视觉 */}
-        <div className={`bg-preview${image && !enabled ? ' is-off' : ''}`} aria-hidden="true">
-          {image ? (
+      {/* 任务 4 v5（2026-08-30）：背景皮肤整段包 surface-section，与整包预设卡片观感一致。
+          原 .assets-panel 容器无 padding/bg，等于裸外层，违反"卡片式"整改。 */}
+      <section className="surface-section bg-skin-section">
+        {/* 阶段 2 空态（2026-08-30 用户拍板）：
+          未上传图片时用三段式 EmptyState（图 + 标题 + 描述 + 主按钮"上传图片"）
+          替代原"未设置"灰色提示文字 + 占位预览。已上传时回落到原 asset-set 预览卡。 */}
+      {image ? (
+        <div className={`asset-set skin-preset bg-asset-set${enabled ? ' is-active' : ''}`}>
+          <div className={`bg-preview${!enabled ? ' is-off' : ''}`} aria-hidden="true">
             <img src={image.url} alt="" />
-          ) : (
-            <ImagePlus size={26} />
-          )}
-        </div>
+          </div>
 
-        <div className="asset-set-body">
-          <div className="asset-set-head">
-            <strong>{image ? '自定义背景图' : '谱面画布背景'}</strong>
-            {snap.status === 'ready' && image && enabled && (
-              <span className="state-pill success" aria-label="背景正在使用">
-                <Check size={13} /> 使用中
-              </span>
-            )}
-            {snap.status === 'ready' && image && !enabled && (
-              <span className="state-pill warning">已隐藏</span>
-            )}
-            <span className="inline-actions">
-              {(!image || !enabled) && (
+          <div className="asset-set-body">
+            <div className="asset-set-head">
+              <strong>自定义背景图</strong>
+              {snap.status === 'ready' && enabled && (
+                <span className="state-pill success" aria-label="背景正在使用">
+                  <Check size={13} /> 使用中
+                </span>
+              )}
+              {snap.status === 'ready' && !enabled && (
+                <span className="state-pill warning">已隐藏</span>
+              )}
+              <span className="inline-actions">
                 <button
                   type="button"
-                  className="button-primary"
-                  disabled={busy || snap.status !== 'ready'}
+                  className="button-secondary"
+                  disabled={busy}
                   onClick={() => fileRef.current?.click()}
                 >
-                  <Upload size={14} />{image ? '更换并启用' : '上传图片'}
+                  <Upload size={14} />更换
                 </button>
-              )}
-              {image && enabled && (
-                <button
-                  type="button"
-                  className="button-secondary"
-                  disabled={busy}
-                  onClick={() => setBackgroundSkin({ enabled: false })}
-                >
-                  <EyeOff size={14} />隐藏
-                </button>
-              )}
-              {image && !enabled && (
-                <button
-                  type="button"
-                  className="button-secondary"
-                  disabled={busy}
-                  onClick={() => setBackgroundSkin({ enabled: true })}
-                >
-                  <Eye size={14} />启用
-                </button>
-              )}
-              {image && (
+                {enabled ? (
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={busy}
+                    onClick={() => setBackgroundSkin({ enabled: false })}
+                  >
+                    <EyeOff size={14} />隐藏
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={busy}
+                    onClick={() => setBackgroundSkin({ enabled: true })}
+                  >
+                    <Eye size={14} />启用
+                  </button>
+                )}
                 <button
                   type="button"
                   className="button-secondary"
@@ -300,20 +298,44 @@ function BackgroundPanel() {
                 >
                   <Trash2 size={14} />清除
                 </button>
-              )}
-            </span>
-          </div>
+              </span>
+            </div>
 
-          {error ? (
-            <span className="field-help is-error">{error}</span>
-          ) : (
-            <span className="field-help">
-              给谱面画布设置一张背景图（PNG / JPEG / WebP，≤20MB）。画布固定深色主题不变，背景图为其上可选层；
-              自动铺满并压暗以保证音符可读。仅存本机，不上传服务器，随编辑器配置持久保存。
-            </span>
-          )}
+            {error ? (
+              <span className="field-help is-error">{error}</span>
+            ) : (
+              <span className="field-help">
+                给谱面画布设置一张背景图（PNG / JPEG / WebP，≤20MB）。画布固定深色主题不变，背景图为其上可选层；
+                自动铺满并压暗以保证音符可读。仅存本机，不上传服务器，随编辑器配置持久保存。
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <EmptyState
+          icon={ImageOff}
+          title="未设置背景"
+          description="为谱面画布上传一张背景图（PNG / JPEG / WebP，≤20MB）。仅存本机，不上传服务器。"
+          primaryAction={{
+            label: '上传图片',
+            onClick: () => fileRef.current?.click(),
+            icon: Upload,
+            disabled: busy || snap.status !== 'ready',
+          }}
+        >
+          <input
+            ref={fileRef}
+            type="file"
+            accept={BG_ACCEPT}
+            aria-hidden="true"
+            tabIndex={-1}
+            className="bg-file-input"
+            onChange={(e) => void handleFile(e.target.files?.[0])}
+          />
+          {error && <span className="field-help is-error">{error}</span>}
+        </EmptyState>
+      )}
+      </section> {/* 任务 4 v5：关闭 .bg-skin-section 卡片 */}
 
       {/* 显示范围（用户 grill 定案：默认仅轨道外，不覆盖轨道本身，不影响作谱） */}
       <div className="settings-row">
