@@ -26,12 +26,14 @@
   --text-inverse: #ffffff;
   --text-on-accent: #06324a;
 
-  /* ---- 单一强调色（青色系，脱 AI 蓝紫模板） ---- */
+  /* ---- 单一强调色（青蓝系；浅软底 + 主色文字，避开白字陷阱） ---- */
   --accent: #0d9fd6;
   --accent-hover: #0a86b8;
   --accent-active: #0874a3;
   --accent-soft: #dff3fc;        /* 强调色浅底（选中/激活） */
-  --accent-text: #075e83;        /* 强调色上的文字 */
+  --accent-text: #075e83;        /* 强调色上的文字/图标（主色深档，非白） */
+  --accent-disabled: #9fc6dc;    /* 禁用态青蓝 */
+  --overlay-bg: rgba(12, 14, 17, 0.5); /* 模态遮罩（暗底） */
   --focus-ring: rgba(13, 159, 214, 0.45);
 
   /* ---- 语义色 ---- */
@@ -40,6 +42,7 @@
   --danger-text: #b42318;
   --warning: #e08900;
   --warning-soft: #fdeeda;
+  --warning-text: #8a4d00;
   --success: #1a9e6b;
 
   /* ---- 谱面画布（固定深色，两主题一致） ---- */
@@ -69,11 +72,11 @@
   --text-lg: 16px;
   --text-xl: 20px;
 
-  /* ---- 字体 ---- */
-  --font-sans: "Inter", "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* ---- 字体（issue 49 阶段 1：替换 Inter → Geist） ---- */
+  --font-sans: "Geist Variable", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Consolas, "Menlo", monospace;
 
-  /* ---- 阴影（带底色色相，非纯黑） ---- */
+  /* ---- 阴影（带底色色相，与青蓝 accent 同冷调） ---- */
   --shadow-sm: 0 1px 2px rgba(20, 26, 38, 0.06), 0 1px 3px rgba(20, 26, 38, 0.06);
   --shadow-md: 0 4px 12px rgba(20, 26, 38, 0.08), 0 2px 4px rgba(20, 26, 38, 0.05);
   --shadow-lg: 0 16px 40px rgba(20, 26, 38, 0.16), 0 6px 16px rgba(20, 26, 38, 0.08);
@@ -84,9 +87,11 @@
   --z-modal: 1000;
   --z-recorder: 1100;
 
-  /* ---- 动效 ---- */
-  --ease: cubic-bezier(0.2, 0, 0, 1);
-  --dur: 160ms;
+  /* ---- 动效（issue 49 阶段 1：时长收敛 120/200/300） ---- */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;   /* 按下/弹起/小反馈 */
+  --dur: 200ms;        /* 默认过渡（hover/active/颜色） */
+  --dur-slow: 300ms;   /* 大切换/页面渐入 */
 
   /* ---- 布局尺寸 ---- */
   --panel-header-h: 38px;
@@ -111,20 +116,22 @@
   --text-muted: #a4abb8;
   --text-subtle: #737b8a;
   --text-inverse: #0d1014;
-  --text-on-accent: #eaf7fd;
+  --text-on-accent: #ffffff;
 
-  --accent: #35b6ea;
-  --accent-hover: #63c6f0;
-  --accent-active: #7ed1f4;
-  --accent-soft: rgba(53, 182, 234, 0.16);
-  --accent-text: #8fd9f7;
-  --focus-ring: rgba(53, 182, 234, 0.5);
+  --accent: #38bdf8;            /* 暗主题亮一档青蓝（slate-blue 系） */
+  --accent-hover: #5cc8fa;
+  --accent-active: #7dd3fc;
+  --accent-soft: rgba(56, 189, 248, 0.18);
+  --accent-text: #bae6fd;        /* 暗底下的主色文字，浅一档保证对比度 */
+  --accent-disabled: #1e4d6b;
+  --focus-ring: rgba(56, 189, 248, 0.55);
 
   --danger: #f4716f;
   --danger-soft: rgba(244, 113, 111, 0.14);
   --danger-text: #ffb3b1;
   --warning: #f5a623;
   --warning-soft: rgba(245, 166, 35, 0.14);
+  --warning-text: #fcd589;
   --success: #34c48e;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -186,4 +193,14 @@ button, input, select, textarea {
 }
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ---- 可访问性：减少动效全局兜底（issue 49 阶段 1 #10） ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
