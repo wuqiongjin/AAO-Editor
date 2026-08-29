@@ -1,19 +1,17 @@
 import { useRef, useState } from 'react';
 import { AlertTriangle, Check, Clock3, Music2, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
 import AppPageShell from '../components/layout/AppPageShell';
-import { useAudioPage } from '../contexts/AudioPageContext';
-import { useConfig } from '../contexts';
+import { useAudioSession } from '../contexts/AudioSessionContext';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../utils/AppSettings';
 import { KEY_SOUND_SETS, type KeySoundSample } from '../utils/KeySound';
 import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from '../utils/KeySoundMeta';
 
-// 音频页（issue 28 Q15 + issue 29 切片 4 闭环 + 2026-08-26 索引外置 + issue 44 内容壳迁移）：
-//   - 接入 <AppPageShell>：左侧次级索引走 <AppPageShell.Sidebar>（平铺 3 项），Body 走 mode="default" width="default"；
-//   - 3 个 section：音频素材（含谱面时长）/ 键音素材包 / SE 音量，在 Body 内自管。
-// - 导入/解码失败用内联错误横幅就地反馈（文字醒目、可即时重试）；
-// - 成功仅更新状态，不加 toast；
-// - 移除页内"返回工作台"按钮（切页由应用导航承担）；
-// - 清除音频不需二次确认（低风险、可重新导入），旁加说明"清除后需重新导入"。
+// 音频页（架构深化评审候选 3 收口后）：
+//   - 不再走 AudioPageContext 桥接——直接调音频会话深模块（useAudioSession）；
+//   - 3 个 section：音频素材（含谱面时长）/ 键音素材包 / SE 音量，在 Body 内自管；
+//   - 导入/解码失败用内联错误横幅就地反馈（文字醒目、可即时重试）；
+//   - 成功仅更新状态，不加 toast；
+//   - 清除音频不需二次确认（低风险、可重新导入），旁加说明"清除后需重新导入"。
 
 type AudioSection = 'audio' | 'keysound' | 'se';
 
@@ -59,12 +57,12 @@ export default function AudioPage() {
 // ---------------- 音频素材（含谱面时长） ----------------
 
 function AudioSection() {
-  const api = useAudioPage();
+  const [snap, session] = useAudioSession();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const audioName = api?.audioName ?? null;
+  const audioName = snap.audioName;
   const canPlay = audioName !== null;
-  const error = api?.error ?? null;
+  const error = snap.audioError;
   const pickFile = () => fileRef.current?.click();
 
   return (
@@ -81,7 +79,7 @@ function AudioSection() {
           <span>{canPlay ? '已加载 · 谱面时长锁定为音频时长' : '无音频模式可正常编辑和预览谱面'}</span>
         </div>
         {canPlay && (
-          <button type="button" onClick={() => api?.clearAudio()} title="清除后需重新导入">
+          <button type="button" onClick={() => session.clearAudio()} title="清除后需重新导入">
             清除
           </button>
         )}
@@ -95,7 +93,7 @@ function AudioSection() {
             type="file"
             accept="audio/*"
             style={{ display: 'none' }}
-            onChange={(e) => { if (e.target.files && e.target.files[0]) api?.importAudio(e.target.files[0]); e.target.value = ''; }}
+            onChange={(e) => { if (e.target.files && e.target.files[0]) session.importAudio(e.target.files[0]); e.target.value = ''; }}
           />
         </button>
         <span>导入后，谱面时长将跟随音频长度。</span>
@@ -115,11 +113,11 @@ function AudioSection() {
             type="number"
             min={1}
             max={MAX_DURATION_SECONDS}
-            value={Math.round(api?.duration ?? 30)}
+            value={Math.round(snap.chartDuration)}
             readOnly={canPlay}
             onChange={(e) => {
               const v = parseFloat(e.target.value);
-              if (!isNaN(v) && v > 0) api?.onDurationChange(Math.min(v, MAX_DURATION_SECONDS));
+              if (!isNaN(v) && v > 0) session.setChartDuration(Math.min(v, MAX_DURATION_SECONDS));
             }}
           />
           <span>秒</span>
@@ -138,7 +136,7 @@ function AudioSection() {
             <p style={{ margin: 0 }}>{error}</p>
             <div className="error-actions">
               <button type="button" onClick={pickFile}>重新选择音频</button>
-              <button type="button" onClick={() => api?.dismissError()}>知道了</button>
+              <button type="button" onClick={() => session.dismissError()}>知道了</button>
             </div>
           </div>
         </div>
@@ -150,8 +148,8 @@ function AudioSection() {
 // ---------------- 键音素材包 ----------------
 
 function KeySoundSection() {
-  const { settings, setKeySetId } = useConfig();
-  const activeId = settings.audio.keySet;
+  const [snap, session] = useAudioSession();
+  const activeId = snap.keySetId;
 
   return (
     <>
@@ -181,7 +179,7 @@ function KeySoundSection() {
                     <button
                       type="button"
                       className="button-primary asset-set-apply"
-                      onClick={() => setKeySetId(set.id)}
+                      onClick={() => session.setKeySetId(set.id)}
                     >
                       使用此包
                     </button>
@@ -215,8 +213,8 @@ function KeySoundSection() {
 // ---------------- 节奏图示 SE 音量 ----------------
 
 function SeVolumeSection() {
-  const { settings, setSeVolume } = useConfig();
-  const seVolumePercent = Math.round(settings.audio.seVolume * 100);
+  const [snap, session] = useAudioSession();
+  const seVolumePercent = Math.round(snap.seVolume * 100);
 
   return (
     <>
@@ -233,7 +231,7 @@ function SeVolumeSection() {
         <div className="slider-control">
           <input
             type="range" min={0} max={100} step={5} value={seVolumePercent}
-            onChange={(e) => setSeVolume(Number(e.target.value) / 100)}
+            onChange={(e) => session.setSeVolume(Number(e.target.value) / 100)}
             aria-label="节奏图示 SE 音量"
           />
           <span className="slider-value">{seVolumePercent}%</span>
@@ -247,7 +245,7 @@ function SeVolumeSection() {
         </div>
         <button
           className="button-secondary" type="button"
-          onClick={() => setSeVolume(defaultSettings().audio.seVolume)}
+          onClick={() => session.setSeVolume(defaultSettings().audio.seVolume)}
         >
           恢复默认
         </button>

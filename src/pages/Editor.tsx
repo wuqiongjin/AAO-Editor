@@ -5,10 +5,9 @@ import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../components
 import NoteInfoPanel from '../components/NoteInfoPanel';
 import IconButton from '../components/IconButton';
 import { type FunctionId } from '../utils/ShortcutConfig';
-import { AudioEngine } from '../utils/AudioEngine';
 import { getBpmEvents, secondsToBeat } from '../utils/AudioTiming';
 import PlayBar from '../components/PlayBar';
-import { useEditing, useUI, useConfig, usePlayback } from '../contexts';
+import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../contexts';
 import { countChartNotes } from '../utils/NoteEditing';
 import { AppNav, useAppNav } from './AppNav';
 import { useSurfaceSize } from '../utils/useSurfaceSize';
@@ -59,8 +58,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setIsPlaying, setCanPlay,
     setCurrentSeconds,
     duration: ctxDuration, setDuration: setCtxDuration,
-    volume: ctxVolume, setVolume: setCtxVolume,
-    canPlay,
+    setVolume: setCtxVolume,
     currentSeconds: playheadSeconds,
     markerBeat,
   } = playback;
@@ -83,25 +81,40 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 虚拟高度（由 FinalVirtualCanvas onScrollChange 喂入，Editor 经 effect 写到 .virtual-content）
   const [virtualHeight, setVirtualHeight] = useState(0);
 
-  // 引擎单例（候选 2：Engine 仍由 Editor 持有，避免重建 AudioContext；其它状态搬至各 hook）
-  const engineRef = useRef<AudioEngine | null>(null);
-  if (!engineRef.current) engineRef.current = new AudioEngine();
-  const engine = engineRef.current;
-
   // === 会话流 1：渲染面测量（候选 2 拆出，issue 36 / 38 不变量保留） ===
   const surface = useSurfaceSize(chartAreaRef);
 
   // === 会话流 2：滚动模型（候选 1 拆出；候选 2 再做生命周期封装） ===
-  const { scrollModel, chartEndKey, consumePendingReAnchor } = useScrollModel({
+  const { scrollModel, consumePendingReAnchor } = useScrollModel({
     notes, ctxDuration, surface, scale, verticalRatio: settings.display.verticalRatio,
   });
 
-  // === 会话流 6：持久化（挂载恢复 + 防抖 800ms 落盘） ===
-  // 注：持久化依赖 audioName/audioBlob；useAudioBridge 的 onPersistNow 反向依赖 persistence。
-  // 用 ref 把 audioName/audioBlob 暴露给持久化层，用 persistRef 把 saveNow 暴露给音频桥接，
-  // 打破两个 hook 的循环时序。
-  const audioMetaRef = useRef<{ audioName: string | null; audioBlob: Blob | null }>({ audioName: null, audioBlob: null });
-  const persistRef = useRef<() => Promise<void>>(async () => {});
+  // === 音频会话深模块（架构深化评审候选 3 收口） ===
+  // session 是单一接缝：拥有 engine + 音频文件 + 时长 + keySet + seVolume + persist 钩子。
+  // useAudioSession() 返回 [snapshot, session]，snapshot 驱动响应式，session 调方法。
+  const [audioSnap, audioSession] = useAudioSession();
+  // 引擎：session 单例，跨页面保活期间不重建
+  const engine = audioSession.getEngine();
+
+  // === 会话流 3：音频桥接（订阅 session 变化，副作用单向写回 PlaybackContext） ===
+  // 单一稳定回调：避免 useAudioBridge 内部 useEffect 因新引用反复触发
+  const syncChartDuration = useCallback((sec: number) => setCtxDuration(sec), [setCtxDuration]);
+  const syncCanPlay = useCallback((v: boolean) => setCanPlay(v), [setCanPlay]);
+  const syncIsPlaying = useCallback((v: boolean) => setIsPlaying(v), [setIsPlaying]);
+  // Editor 自身不直接消费 audioBridge 桥的回调（音频页已直接调 session）；
+  // 此处只为了让桥内部 3 个 effect（chartDuration / canPlay / isPlaying 同步）挂载。
+  useAudioBridge({
+    session: audioSession,
+    onChartDurationChange: syncChartDuration,
+    onCanPlayChange: syncCanPlay,
+    onIsPlayingChange: syncIsPlaying,
+  });
+  // 关键：把音频元数据稳定暴露给持久化层（替换旧的 audioMetaRef ref 环）
+  // 引用稳定：audioName 和 audioBlob 在 importAudio/clearAudio 时一起变，session 是单例
+  const audioForPersist = useMemo(
+    () => ({ audioName: audioSnap.audioName, audioBlob: audioSession.getAudioBlob() }),
+    [audioSnap.audioName, audioSession],
+  );
 
   // === 会话流 4：播放协调（RAF + togglePlay/seek/jumpToMarker） ===
   const playbackCoord = usePlaybackCoordinator({
@@ -117,61 +130,37 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   });
   const { togglePlay, seek, jumpToMarker, deleteMarkerIfSelected, stopPlayback } = playbackCoord;
 
-  // === 会话流 3：音频桥接（导入/清除/页桥/时长同步） ===
-  const audioBridge = useAudioBridge({
-    engine,
-    ctxDuration,
-    setCtxDuration,
-    onDurationChange: (sec) => {
-      setCtxDuration(sec);
-    },
-    onPersistNow: () => persistRef.current(),
-    keySetId: settings.audio.keySet,
-    seVolume: settings.audio.seVolume,
-    ctxVolume,
-    setCanPlay,
-    setIsPlaying,
-  });
-  const { audioName, dismissError } = audioBridge;
-
-  // 同步音频元数据给持久化层（用于恢复时直接走 importAudio 路径或按需 keep）
-  useEffect(() => {
-    audioMetaRef.current.audioName = audioName;
-  }, [audioName]);
-
-  // 播放时长（ADR-0005 §4 + bug 34）：有音频=音频时长；换音频时按 audioName 触发刷新
-  useEffect(() => {
-    const audioDuration = engine?.duration;
-    if (audioDuration != null) {
-      setCtxDuration(audioDuration);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPlay, audioName]);
-
-  // 挂载恢复（ADR-0005 §6）：通过 onRestore 把 project 灌入 Editor
+  // 挂载恢复（ADR-0005 §6）：通过 onRestore 把 project 灌入 Editor。
+  // 定义在持久化 hook 之前——持久化 hook 拿它当 onRestore 回调。
   const handleProjectRestore = useCallback(async (project: import('../utils/ChartProject').ChartProject) => {
     if (project.notes.length > 0) resetNotes(project.notes);
     if (project.durationSeconds > 0 && engine?.duration == null) {
       setCtxDuration(project.durationSeconds);
     }
     if (project.audioBlob && project.audioName) {
-      audioMetaRef.current = { audioName: project.audioName, audioBlob: project.audioBlob };
-      // 走 importAudio 路径（统一行为：含引擎 load + canPlay 设置）
+      // 走 importAudio 路径（统一行为：含引擎 load + 时长同步 + persist 触发）
       const file = new File([project.audioBlob], project.audioName);
-      audioBridge.importAudio(file);
+      audioSession.importAudio(file);
     }
-  }, [resetNotes, setCtxDuration, engine, audioBridge]);
+  }, [resetNotes, setCtxDuration, engine, audioSession]);
 
-  // === 会话流 6（续）：持久化 hook —— 在 audioMetaRef 初始化后接入 ===
+  // === 会话流 6：持久化（挂载恢复 + 防抖 800ms 落盘） ===
+  // 收口点：不再有 audioMetaRef / persistRef ref 环——audioForPersist 是稳定对象，
+  // 持久化 hook 的 saveNow 直接注入到 session.setPersistNow。
   const persistence = useChartProjectPersistence({
     notes,
     durationSeconds: ctxDuration,
-    audioName: audioMetaRef.current.audioName,
-    audioBlob: audioMetaRef.current.audioBlob,
+    audioName: audioForPersist.audioName,
+    audioBlob: audioForPersist.audioBlob,
     onRestore: handleProjectRestore,
   });
-  // 同步 saveNow 给 audioBridge（打破时序耦合）
-  persistRef.current = persistence.saveNow;
+  // 把 saveNow 一次性注入到 session（导入/清除后自动调）。
+  // 依赖 saveNow 函数本身（hook 返回的函数引用稳定），不依赖整个 persistence 对象。
+  // 用 useCallback 让闭包只依赖 saveNow 本身（与 deps 对齐）。
+  const persistNow = useCallback(() => persistence.saveNow(), [persistence]);
+  useEffect(() => {
+    audioSession.setPersistNow(persistNow);
+  }, [audioSession, persistNow]);
 
   // === 会话流 5：布局持久化（issue 22 §6 / ADR-0003 §6） ===
   useLayoutPersistence({ settings, ui, setLayout });
@@ -236,11 +225,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setCurrentSeconds(seconds);
   };
 
-  // 播放条：音量
+  // 播放条：音量（架构深化评审候选 3：主音量由 session.setVolume 转发，避免绕过 session；
+  // PlaybackContext.volume 仍为 UI 状态，由 setCtxVolume 维护；session 是底层真相源）
   const handleVolumeChange = useCallback((v: number) => {
     setCtxVolume(v);
-    engine?.setVolume(v);
-  }, [setCtxVolume, engine]);
+    audioSession.setVolume(v);
+  }, [setCtxVolume, audioSession]);
 
   // 页面壳表面契约（issue 28 Q16）：工作台失活时自动暂停
   useEffect(() => {
@@ -307,9 +297,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     }, [leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]),
   });
 
-  // 标记的 audioError 暂未渲染到 Editor（音频页接走）；保留 dismissError 供 AudioPageContext 调用
-  void dismissError;
-  void chartEndKey; // 仅供外部观察重锚时机（此 hook 已用）
+  // Editor 不消费 dismissError / chartEndKey（前者音频页已直接调 session；后者仅供 useScrollModel 内部用）
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>

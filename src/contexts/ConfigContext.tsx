@@ -30,29 +30,29 @@ const ConfigContext = createContext<ConfigContextValue | null>(null);
 export function ConfigProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
 
-  const setShortcutConfig = (next: ShortcutConfig) => {
+  const setShortcutConfig = useCallback((next: ShortcutConfig) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { shortcuts: next });
       saveSettings(merged);
       return merged;
     });
-  };
+  }, []);
 
-  const setKeySetId = (id: string) => {
+  const setKeySetId = useCallback((id: string) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { audio: { keySet: id } });
       saveSettings(merged);
       return merged;
     });
-  };
+  }, []);
 
-  const setTheme = (theme: AppSettings['theme']) => {
+  const setTheme = useCallback((theme: AppSettings['theme']) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { theme });
       saveSettings(merged);
       return merged;
     });
-  };
+  }, []);
 
   // 布局 setter 需保持引用稳定（Editor 的持久化 effect 依赖它做 deps；不稳定会导致无限重渲染）
   const setLayout = useCallback((layout: AppSettings['layout']) => {
@@ -63,33 +63,33 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const setDisplay = (patch: Partial<AppSettings['display']>) => {
+  const setDisplay = useCallback((patch: Partial<AppSettings['display']>) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { display: patch });
       saveSettings(merged);
       return merged;
     });
-  };
+  }, []);
 
-  const setSeVolume = (volume: number) => {
+  const setSeVolume = useCallback((volume: number) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { audio: { seVolume: volume } });
       saveSettings(merged);
       return merged;
     });
-  };
+  }, []);
 
   // 音符皮肤（issue 29）：与键音同范式——字段级写回、立即生效并持久化
-  const setNoteSkin = (patch: Partial<AppSettings['visual']['noteSkin']>) => {
+  const setNoteSkin = useCallback((patch: Partial<AppSettings['visual']['noteSkin']>) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { visual: { noteSkin: { ...prev.visual.noteSkin, ...patch } } });
       saveSettings(merged);
       return merged;
     });
-  };
+  }, []);
 
   // 背景皮肤（issue 29 Q4 + 修订）：字段级 patch（enabled/opacity/fit/scope）写回，段内合并保留其余字段
-  const setBackgroundSkin = (patch: { enabled?: boolean; opacity?: number; fit?: 'cover' | 'contain'; scope?: 'outsideTrack' | 'fullCanvas' }) => {
+  const setBackgroundSkin = useCallback((patch: { enabled?: boolean; opacity?: number; fit?: 'cover' | 'contain'; scope?: 'outsideTrack' | 'fullCanvas' }) => {
     setSettings(prev => {
       const prevBg = prev.visual.backgroundSkin ?? { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE };
       const bg = {
@@ -103,12 +103,12 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       saveSettings(merged);
       return merged;
     });
-  };
+  }, []);
 
-  const setAllSettings = (next: AppSettings) => {
+  const setAllSettings = useCallback((next: AppSettings) => {
     saveSettings(next);
     setSettings(next);
-  };
+  }, []);
 
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
