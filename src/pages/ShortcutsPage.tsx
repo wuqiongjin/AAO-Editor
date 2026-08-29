@@ -5,7 +5,7 @@ import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, setCapturingShortcut, type FunctionId,
 } from '../utils/ShortcutConfig';
-import { useConfig } from '../contexts';
+import { useConfig } from '../app/ProviderTree';
 
 // 快捷键页（issue 28 Q14 + issue 44 内容壳迁移）：
 //   - 接入 <AppPageShell>：不写 Sidebar（无页内子类别），Body 走 mode="fill" width="default"（表格自身滚）；

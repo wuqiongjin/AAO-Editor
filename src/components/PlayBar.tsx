@@ -2,7 +2,7 @@ import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, 
 import { Volume2, VolumeX, Play, Pause } from "lucide-react";
 import { formatKey } from "../utils/ShortcutConfig";
 import { formatTimePrecise, formatTimeWhole, parseTimeInput } from "../utils/TimeFormat";
-import { usePlayback, useConfig } from "../contexts";
+import { usePlayback, useConfig } from '../app/ProviderTree';
 
 interface PlayBarProps {
   onTogglePlay: () => void;

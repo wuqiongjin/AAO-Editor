@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import SpriteIcon, { NoteIcons } from './SpriteIcon';
 import { categoryShortcuts } from '../utils/ShortcutConfig';
-import { useConfig, useEditing, useUI } from '../contexts';
+import { useConfig, useEditing, useUI } from '../app/ProviderTree';
 import IconButton from './IconButton';
 import ChartCodeEditor from './ChartCodeEditor';
 

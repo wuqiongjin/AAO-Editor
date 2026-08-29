@@ -7,7 +7,7 @@ import IconButton from '../components/IconButton';
 import { type FunctionId } from '../utils/ShortcutConfig';
 import { getBpmEvents, secondsToBeat } from '../utils/AudioTiming';
 import PlayBar from '../components/PlayBar';
-import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../contexts';
+import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
 import { countChartNotes } from '../utils/NoteEditing';
 import { AppNav, useAppNav } from './AppNav';
 import { useSurfaceSize } from '../utils/useSurfaceSize';

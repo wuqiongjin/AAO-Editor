@@ -8,7 +8,7 @@
 //   - 仅挂载初始化一次
 import { useEffect, useState } from 'react';
 import type { AppSettings } from './AppSettings';
-import type { UIContextValue } from '../contexts/UIContext';
+import type { UIContextValue } from '../app/providers/UIProvider';
 
 export interface UseLayoutPersistenceOptions {
   /** 当前 settings.layout（来自 ConfigContext） */

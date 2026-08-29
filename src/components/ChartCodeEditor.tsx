@@ -10,7 +10,7 @@ import { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Braces, Copy, RotateCcw, RefreshCw, X } from "lucide-react";
 import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes, hasBeat0Bpm } from "../utils/ChartConverter";
-import { useEditing, usePlayback, useUI } from "../contexts";
+import { useEditing, usePlayback, useUI } from '../app/ProviderTree';
 import { maxNoteEndSeconds, getBpmEvents } from "../utils/AudioTiming";
 import {
     createHistory, pushHistory, undoHistory, redoHistory, currentHistory,

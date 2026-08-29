@@ -8,7 +8,7 @@ import {
   ChartGeometry, LANES, LANE_WIDTH,
   DEFAULT_SURFACE, TRACK_CHROME_TOTAL, type SurfaceSize,
 } from '../utils/ChartGeometry';
-import { useEditing, useUI, usePlayback, useConfig } from '../contexts';
+import { useEditing, useUI, usePlayback, useConfig } from '../app/ProviderTree';
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../renderer';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../renderer/noteSkin';
 import { normalizeBackgroundOpacity } from '../renderer/staticLayerCache';

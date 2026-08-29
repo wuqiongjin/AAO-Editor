@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Check, Eye, EyeOff, ImagePlus, Music2, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
 import AppPageShell from '../components/layout/AppPageShell';
-import { useConfig } from '../contexts';
+import { useConfig } from '../app/ProviderTree';
 import {
   listNoteSkinPacks,
   normalizeNoteSkinSelection,
