@@ -22,7 +22,7 @@
 //   两者经 geometry 的 timeline 严格互逆（BpmTimeline 分段线性，positionOfBeat/beatOfPosition 对偶）。
 //
 // 纯逻辑：只依赖注入的 ChartGeometry + 用户缩放 scale，node 环境可单测。
-import type { ChartGeometry } from './ChartGeometry';
+import type { ChartGeometry } from '../chart/geometry/ChartGeometry';
 import { secondsToBeat, beatToSeconds, type BpmEvent } from './AudioTiming';
 
 export interface ReAnchorTarget {

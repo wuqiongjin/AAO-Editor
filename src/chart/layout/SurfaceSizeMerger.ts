@@ -9,7 +9,7 @@
 //   3) 与上一回调间隔 ≥ SPARSE_GAP_MS 视为新的独立离散事件，立即应用最新值。
 //   4) 连续回调持续 ≥ STREAM_MS 定性为持续缩放流，不再逐条应用，交由尾部结算最新值。
 //   5) 事件/流停止后 TRAIL_MS 结算一次最新值。
-import { DEFAULT_SURFACE, type SurfaceSize } from './ChartGeometry';
+import { DEFAULT_SURFACE, type SurfaceSize } from '../geometry/ChartGeometry';
 
 export interface SurfaceSizeMergerConfig {
   /** 与上一回调间隔 ≥ 此值视为新的独立离散事件（默认 100ms） */

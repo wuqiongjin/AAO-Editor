@@ -10,10 +10,10 @@
 //   - 初始滚动（置底=beat0）由调用方在第一次 virtualHeight 就绪时触发
 import { useEffect, useMemo, useRef } from 'react';
 import { PlaybackScrollModel, type ReAnchorTarget } from './PlaybackScrollModel';
-import { ChartGeometry } from './ChartGeometry';
+import { ChartGeometry } from '../chart/geometry/ChartGeometry';
 import { getBpmEvents, chartLengthToEndBeat } from './AudioTiming';
-import type { ChartNote } from '../notes/Charts';
-import type { SurfaceSize } from './ChartGeometry';
+import type { ChartNote } from '../chart/types';
+import type { SurfaceSize } from '../chart/geometry/ChartGeometry';
 
 export interface UseScrollModelOptions {
   notes: ChartNote[];

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { ChartProjectStore, DEFAULT_PROJECT_ID, type ChartProject } from './ChartProject';
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
-import type { ChartNote } from '../notes/Charts';
+import type { ChartNote } from '../types';
 
 export interface UseChartProjectPersistenceOptions {
   /** 当前 notes（编辑中） */

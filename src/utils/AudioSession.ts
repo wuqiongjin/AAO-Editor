@@ -20,7 +20,7 @@
 //   - chartDuration 不超过 MAX_DURATION_SECONDS（issue 28 P6 上限 30 分钟）
 import { AudioEngine } from './AudioEngine';
 import { keySoundSetById } from './KeySound';
-import { MAX_DURATION_SECONDS } from './AppSettings';
+import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
 
 /** 音频会话的不可变快照（外部读取用） */
 export interface AudioSessionSnapshot {

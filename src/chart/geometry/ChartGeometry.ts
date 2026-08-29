@@ -3,7 +3,7 @@
 // 抽成可测深厚模块；BPM→虚拟Y 用 BpmTimeline（候选 C）单一实现并缓存，避免每帧全量分段累加。
 //
 // 坐标系（issue 11）：虚拟坐标（X 原点=轨道内容左缘，Y 自下而上、beat 0 在判定线）↔ 画布坐标。
-import type { ChartNote } from '../notes/Charts';
+import type { ChartNote } from '../types';
 import { BpmTimeline, type BpmTimelineEvent } from './BpmTimeline';
 
 export const LANES = 7;

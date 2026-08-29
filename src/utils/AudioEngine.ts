@@ -3,7 +3,7 @@
 // - 解码：渲染进程 decodeAudioData（SongUploader → File → ArrayBuffer → decode，不动主进程）
 // - 按键音：RAF 驱动 tick()，提前 ~100ms 预调度；每次新建 oscillator（Web Audio 禁止复停 oscillator）
 // - 双时钟（ADR-0004 §2）：有音频 = AudioContext 时间线；无音频 = performance.now + RAF 合成时间线，照常"播放谱面"
-import type { ChartNote } from '../notes/Charts';
+import type { ChartNote } from '../chart/types';
 import { getBpmEvents, buildKeyEvents, type KeySoundEvent } from './AudioTiming';
 import { DEFAULT_KEY_SOUND_SET_ID, keySoundSetById, type KeySoundSet, type KeySoundKind, type KeySoundSample } from './KeySound';
 

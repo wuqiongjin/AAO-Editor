@@ -1,9 +1,9 @@
 // 音频时间轴与谱面换算（纯逻辑，node 环境可单测）。
 // ticket 03 定案：播放 / 预览线 / 按键音共用同一"BPM 事件 → 秒"换算，
 // 避免 FinalCanvas 与 AudioEngine 各自实现导致时间轴漂移。
-import type { ChartNote } from '../notes/Charts';
+import type { ChartNote } from '../chart/types';
 import type { KeySoundKind } from './KeySound';
-import { BpmTimeline, type BpmTimelineEvent } from './BpmTimeline';
+import { BpmTimeline, type BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
 
 export interface BpmEvent extends BpmTimelineEvent {}
 

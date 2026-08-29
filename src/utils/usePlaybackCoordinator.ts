@@ -14,8 +14,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AudioEngine } from './AudioEngine';
 import type { PlaybackScrollModel } from './PlaybackScrollModel';
 import { getBpmEvents, beatToSeconds } from './AudioTiming';
-import { MAX_DURATION_SECONDS } from './AppSettings';
-import type { ChartNote } from '../notes/Charts';
+import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
+import type { ChartNote } from '../chart/types';
 import type { FinalVirtualCanvasHandle } from '../components/FinalVirtualCanvas';
 
 export interface UsePlaybackCoordinatorOptions {

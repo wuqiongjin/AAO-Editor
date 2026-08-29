@@ -1,4 +1,4 @@
-import type { ChartNote, SlideNote, LDirectionalNote, RDirectionalNote } from '../notes/Charts';
+import type { ChartNote, SlideNote, LDirectionalNote, RDirectionalNote } from '../types';
 import { slideEndpointManager } from './SlideEndpointManager';
 import { shiftGroupToAnchor } from './NoteEditing';
 

@@ -5,7 +5,7 @@
 // 该 hook 是 6 个会话流"渲染面测量"的拆出（架构深化评审候选 2），
 // 行为完全保持：突发/流/尾随状态机 + 退化尺寸跳过 + 已生效值去重。
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { DEFAULT_SURFACE, type SurfaceSize } from './ChartGeometry';
+import { DEFAULT_SURFACE, type SurfaceSize } from '../geometry/ChartGeometry';
 import { SurfaceSizeMerger, type SurfaceSizeMergerConfig } from './SurfaceSizeMerger';
 
 export interface UseSurfaceSizeOptions extends Omit<SurfaceSizeMergerConfig, 'onCommit'> {

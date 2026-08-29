@@ -12,9 +12,9 @@
 // 判定线/起点标记/BPM 标注/工具预览等动态或与音符相关的层不进此缓存。
 import { renderGrid, renderBoundLines } from './render';
 import { makeCoords } from './coords';
-import { DEFAULT_BACKGROUND_OPACITY } from '../utils/AppSettings';
+import { DEFAULT_BACKGROUND_OPACITY } from '../chart/config/AppSettings';
 import type { RenderCtx } from './types';
-import type { BpmTimelineEvent } from '../utils/BpmTimeline';
+import type { BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
 
 let cacheCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 

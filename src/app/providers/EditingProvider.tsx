@@ -1,14 +1,14 @@
 // EditingContext（ADR-0003 §7.1）：谱面数据与编辑——notes / history / selection / clipboard，
 // 以及编辑操作（复制/剪切/粘贴/删除/镜像/放置/编辑工具态）。粘贴/放置需要坐标，由调用方以参数传入（解耦鼠标位置）。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
-import type { ChartNote, SelectionItem } from '../../notes/Charts';
+import type { ChartNote, SelectionItem } from '../../chart/types';
 import type { ChartPosition } from '../../types/chart';
-import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../../utils/SelectionEditing';
-import { handleNoteReplacement, pasteChartNotes } from '../../utils/NoteReplacementRules';
+import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../../chart/editing/SelectionEditing';
+import { handleNoteReplacement, pasteChartNotes } from '../../chart/editing/NoteReplacementRules';
 import {
   createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
   type HistoryState,
-} from '../../utils/History';
+} from '../../chart/editing/History';
 // H5 收口：所有位置参数统一为 ChartPosition（{ beat, lane }）
 export type Position = ChartPosition;
 

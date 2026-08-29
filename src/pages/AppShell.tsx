@@ -5,7 +5,7 @@ import SettingsPage from './SettingsPage';
 import ShortcutsPage from './ShortcutsPage';
 import AssetsPage from './AssetsPage';
 import { AppNavProvider, AppNav, type PageId } from './AppNav';
-import { isCapturingShortcut } from '../utils/ShortcutConfig';
+import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
 import './AppShell.css';
 
 // 应用壳（issue 28 + issue 29）：五页注册 + 保活隐藏暂停 + 切页快捷键 + 可折叠导航（默认折叠）。

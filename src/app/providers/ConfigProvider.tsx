@@ -2,8 +2,8 @@
 // 承载：theme / layout / shortcuts / audio，按字段写回（updateSettings）。
 // Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
-import { loadSettings, saveSettings, updateSettings, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../utils/AppSettings';
-import { getDefaultConfig, type ShortcutConfig } from '../../utils/ShortcutConfig';
+import { loadSettings, saveSettings, updateSettings, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
+import { getDefaultConfig, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 
 export interface ConfigContextValue {
   settings: AppSettings;

@@ -1,7 +1,7 @@
 // 坐标薄封装：FinalVirtualCanvas 内联的几何换算，统一收敛为对 ChartGeometry 的直调。
 // 渲染与命中测试共用，去掉组件闭包对 geometry/viewport/beatDisplay/notes 的重复捕获。
-import type { ChartGeometry, GeometryBounds, GeometryPoint, GeometryViewport } from '../utils/ChartGeometry';
-import type { ChartNote } from '../notes/Charts';
+import type { ChartGeometry, GeometryBounds, GeometryPoint, GeometryViewport } from '../chart/geometry/ChartGeometry';
+import type { ChartNote } from '../chart/types';
 
 export interface Coords {
   trackGeometry: (scale: number) => ReturnType<ChartGeometry['trackGeometry']>;

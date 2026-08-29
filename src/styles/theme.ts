@@ -1,7 +1,7 @@
 // 主题应用（ADR-0003 §5）：把 settings.theme（light/dark/system）解析为
 // document 上的 data-theme（light/dark），并监听系统偏好变化。
 import { useEffect } from 'react';
-import type { AppSettings } from '../utils/AppSettings';
+import type { AppSettings } from '../chart/config/AppSettings';
 
 export function resolveTheme(theme: AppSettings['theme']): 'light' | 'dark' {
   if (theme === 'system') {

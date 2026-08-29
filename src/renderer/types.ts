@@ -1,8 +1,8 @@
 // 渲染器与命中测试的共享类型（ADR-0003 候选 B）：
 // 把 FinalVirtualCanvas 的「渲染 + 命中」从组件闭包中提出为可注入依赖的纯模块，
 // 组件只保留挂载/生命周期/事件绑定，性能热路径集中于此、可独立单测。
-import type { ChartNote, SelectionItem } from '../notes/Charts';
-import type { ChartGeometry, SurfaceSize } from '../utils/ChartGeometry';
+import type { ChartNote, SelectionItem } from '../chart/types';
+import type { ChartGeometry, SurfaceSize } from '../chart/geometry/ChartGeometry';
 import type CanvasSpriteIcon from '../components/CanvasSpriteIcon';
 import type { ActiveNoteIcons } from './noteSkin';
 

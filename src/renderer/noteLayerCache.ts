@@ -17,9 +17,9 @@
 import { renderNotes, renderSelectionOverlay } from './render';
 import { makeCoords } from './coords';
 import type { RenderCtx } from './types';
-import { VIEWPORT_PADDING, type GeometryBounds } from '../utils/ChartGeometry';
-import type { BpmTimelineEvent } from '../utils/BpmTimeline';
-import type { ChartNote, SlideNote } from '../notes/Charts';
+import { VIEWPORT_PADDING, type GeometryBounds } from '../chart/geometry/ChartGeometry';
+import type { BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
+import type { ChartNote, SlideNote } from '../chart/types';
 import { perf } from '../utils/perf';
 
 /** 瓦片的 pos 空间高度（timeline 像素） */

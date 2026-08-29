@@ -15,11 +15,11 @@ import { maxNoteEndSeconds, getBpmEvents } from "../utils/AudioTiming";
 import {
     createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
     type HistoryState,
-} from "../utils/History";
+} from "../chart/editing/History";
 import {
     insertTab, insertNewlineIndent, cutRange, pasteAt,
     type TextEditRange,
-} from "../utils/CodeEditorOps";
+} from "../chart/editing/CodeEditorOps";
 import ActionBtn from "./ActionBtn";
 
 export default function ChartCodeEditor() {

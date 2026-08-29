@@ -4,7 +4,7 @@ import AppPageShell from '../components/layout/AppPageShell';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, setCapturingShortcut, type FunctionId,
-} from '../utils/ShortcutConfig';
+} from '../chart/config/ShortcutConfig';
 import { useConfig } from '../app/ProviderTree';
 
 // 快捷键页（issue 28 Q14 + issue 44 内容壳迁移）：

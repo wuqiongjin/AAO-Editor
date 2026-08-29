@@ -12,7 +12,7 @@ import {
   ChevronLeft,
 } from "lucide-react";
 import SpriteIcon, { NoteIcons } from './SpriteIcon';
-import { categoryShortcuts } from '../utils/ShortcutConfig';
+import { categoryShortcuts } from '../chart/config/ShortcutConfig';
 import { useConfig, useEditing, useUI } from '../app/ProviderTree';
 import IconButton from './IconButton';
 import ChartCodeEditor from './ChartCodeEditor';

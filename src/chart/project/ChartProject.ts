@@ -8,7 +8,7 @@
 //   project.json = { schemaVersion, durationSeconds, notes, audioName?, audioPresent }
 //   audio.bin    = 音频原始字节（与 JSON 分离，仅在字节变化时重写，避免每次防抖保存重写大音频）
 // 本模块接口抽象化；未来多谱面（issue 26）只是加条目 + 列表 UI，不改存储结构。
-import type { ChartNote } from '../notes/Charts';
+import type { ChartNote } from '../types';
 
 export const DEFAULT_PROJECT_ID = 'default';
 

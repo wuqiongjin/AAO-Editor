@@ -1,20 +1,20 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import type { ChartNote, SelectionItem } from "../notes/Charts";
+import type { ChartNote, SelectionItem } from "../chart/types";
 import CanvasSpriteIcon from './CanvasSpriteIcon';
-import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
-import { deleteSelection } from '../utils/SelectionEditing';
+import { handleNoteReplacement, handleSlideToSlideCombination } from '../chart/editing/NoteReplacementRules';
+import { deleteSelection } from '../chart/editing/SelectionEditing';
 import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../utils/AudioTiming';
 import {
   ChartGeometry, LANES, LANE_WIDTH,
   DEFAULT_SURFACE, TRACK_CHROME_TOTAL, type SurfaceSize,
-} from '../utils/ChartGeometry';
+} from '../chart/geometry/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../app/ProviderTree';
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../renderer';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../renderer/noteSkin';
 import { normalizeBackgroundOpacity } from '../renderer/staticLayerCache';
-import { useBackgroundSkin } from '../utils/useBackgroundSkin';
-import { countNotesUpToBeat } from '../utils/NoteEditing';
-import { formatTimePrecise } from '../utils/TimeFormat';
+import { useBackgroundSkin } from '../chart/rendering/useBackgroundSkin';
+import { countNotesUpToBeat } from '../chart/editing/NoteEditing';
+import { formatTimePrecise } from '../chart/geometry/TimeFormat';
 
 interface FinalVirtualCanvasProps {
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）

@@ -7,8 +7,8 @@
 //   - setLayout 引用稳定（ConfigContext 已 useCallback），非 deps 也稳定，避免无限重渲染
 //   - 仅挂载初始化一次
 import { useEffect, useState } from 'react';
-import type { AppSettings } from './AppSettings';
-import type { UIContextValue } from '../app/providers/UIProvider';
+import type { UIContextValue } from '../../app/providers/UIProvider';
+import type { AppSettings } from '../../chart/config/AppSettings';
 
 export interface UseLayoutPersistenceOptions {
   /** 当前 settings.layout（来自 ConfigContext） */

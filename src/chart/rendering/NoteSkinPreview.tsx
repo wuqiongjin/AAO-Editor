@@ -9,14 +9,14 @@
 //   - 每个列上下有"标签"色块间隔。
 import { useEffect, useMemo, useRef } from 'react';
 import { Check } from 'lucide-react';
-import CanvasSpriteIcon from './CanvasSpriteIcon';
+import CanvasSpriteIcon from '../../components/CanvasSpriteIcon';
 import {
   buildActiveNoteIcons,
   listNoteSkinPacks,
   DEFAULT_NOTE_SKIN_SELECTION,
   type NoteSkinItemId,
   type NoteSkinSelection,
-} from '../renderer/noteSkin';
+} from '../../renderer/noteSkin';
 
 interface ColMeta {
   item: NoteSkinItemId;

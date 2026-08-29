@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Volume2, VolumeX, Play, Pause } from "lucide-react";
-import { formatKey } from "../utils/ShortcutConfig";
-import { formatTimePrecise, formatTimeWhole, parseTimeInput } from "../utils/TimeFormat";
+import { formatKey } from '../chart/config/ShortcutConfig';
+import { formatTimePrecise, formatTimeWhole, parseTimeInput } from '../chart/geometry/TimeFormat';
 import { usePlayback, useConfig } from '../app/ProviderTree';
 
 interface PlayBarProps {

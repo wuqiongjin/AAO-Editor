@@ -1,4 +1,4 @@
-import type { ChartNote, SlideNote } from '../notes/Charts';
+import type { ChartNote, SlideNote } from '../types';
 
 /**
  * 滑条端点管理器

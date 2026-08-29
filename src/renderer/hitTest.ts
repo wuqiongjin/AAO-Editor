@@ -1,8 +1,8 @@
 // 命中测试纯函数（ADR-0003 候选 B）：把 FinalVirtualCanvas 内的 findItemAt / 圈选判定
 // 抽出为可单测模块，依赖 geometry + viewport + notes，与 React 组件解耦。
-import type { ChartNote, SelectionItem } from '../notes/Charts';
-import type { ChartGeometry, GeometryViewport } from '../utils/ChartGeometry';
-import { LANE_WIDTH } from '../utils/ChartGeometry';
+import type { ChartNote, SelectionItem } from '../chart/types';
+import type { ChartGeometry, GeometryViewport } from '../chart/geometry/ChartGeometry';
+import { LANE_WIDTH } from '../chart/geometry/ChartGeometry';
 import { makeCoords } from './coords';
 import type { SelectionBox } from './types';
 

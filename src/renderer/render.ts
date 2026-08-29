@@ -1,9 +1,9 @@
 // 谱面渲染纯模块（ADR-0003 候选 B）：把 FinalVirtualCanvas 的 15 个 render* 函数
 // 从组件闭包中提出为依赖注入的纯函数。组件每次 RAF 组装 RenderCtx 调用 renderChart。
 // 本模块不含任何 React 状态；性能热路径（视口剔除/缓存/增量重绘）将来在此落地。
-import type { ChartNote, SelectionItem, SlideNote } from '../notes/Charts';
-import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport, type GeometryPoint } from '../utils/ChartGeometry';
-import { shiftGroupToAnchor, mirrorNote } from '../utils/NoteEditing';
+import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
+import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport, type GeometryPoint } from '../chart/geometry/ChartGeometry';
+import { shiftGroupToAnchor, mirrorNote } from '../chart/editing/NoteEditing';
 import { perf } from '../utils/perf';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, findItemAt } from './hitTest';

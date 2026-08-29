@@ -2,8 +2,8 @@ import { useRef, useState } from 'react';
 import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
 import AppPageShell from '../components/layout/AppPageShell';
 import { useConfig } from '../app/ProviderTree';
-import { defaultSettings, loadSettings } from '../utils/AppSettings';
-import type { AppSettings } from '../utils/AppSettings';
+import { defaultSettings, loadSettings } from '../chart/config/AppSettings';
+import type { AppSettings } from '../chart/config/AppSettings';
 
 // 设置页（issue 28 Q13 + issue 39 + issue 44 内容壳迁移）：
 //   - 接入 <AppPageShell>：左侧次级索引走 <AppPageShell.Sidebar>（按组分组"应用设置 / 功能设置"），Body 走 mode="default" width="default"；

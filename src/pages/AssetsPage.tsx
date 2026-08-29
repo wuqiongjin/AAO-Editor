@@ -6,10 +6,10 @@ import {
   listNoteSkinPacks,
   normalizeNoteSkinSelection,
 } from '../renderer/noteSkin';
-import NoteSkinPreview from '../components/NoteSkinPreview';
-import { backgroundSkinStore } from '../utils/backgroundSkin';
-import { useBackgroundSkin } from '../utils/useBackgroundSkin';
-import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../utils/AppSettings';
+import NoteSkinPreview from '../chart/rendering/NoteSkinPreview';
+import { backgroundSkinStore } from '../chart/rendering/backgroundSkin';
+import { useBackgroundSkin } from '../chart/rendering/useBackgroundSkin';
+import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../chart/config/AppSettings';
 
 // 视觉素材页（issue 29 切片 4 闭环后 + issue 44 内容壳迁移）：导航第 3 项。
 //   - 接入 <AppPageShell>：原"页内顶部 2 个类别 tab（.assets-tabs）"改为 <AppPageShell.Sidebar> 下 2 个

@@ -1,4 +1,4 @@
-import type { ChartNote } from "../notes/Charts";
+import type { ChartNote } from '../types';
 
 // 轨道总数（与 FinalVirtualCanvas 的 LANES 保持一致）
 export const TOTAL_LANES = 7;

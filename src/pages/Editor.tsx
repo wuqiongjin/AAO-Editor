@@ -4,19 +4,19 @@ import Toolbar from '../components/Toolbar';
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
 import IconButton from '../components/IconButton';
-import { type FunctionId } from '../utils/ShortcutConfig';
+import { type FunctionId } from '../chart/config/ShortcutConfig';
 import { getBpmEvents, secondsToBeat } from '../utils/AudioTiming';
 import PlayBar from '../components/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
-import { countChartNotes } from '../utils/NoteEditing';
+import { countChartNotes } from '../chart/editing/NoteEditing';
 import { AppNav, useAppNav } from './AppNav';
-import { useSurfaceSize } from '../utils/useSurfaceSize';
+import { useSurfaceSize } from '../chart/layout/useSurfaceSize';
 import { useScrollModel } from '../utils/useScrollModel';
 import { useAudioBridge } from '../utils/useAudioBridge';
 import { usePlaybackCoordinator } from '../utils/usePlaybackCoordinator';
-import { useChartProjectPersistence } from '../utils/useChartProjectPersistence';
-import { useLayoutPersistence } from '../utils/useLayoutPersistence';
-import { useShortcutDispatch } from '../utils/useShortcutDispatch';
+import { useChartProjectPersistence } from '../chart/project/useChartProjectPersistence';
+import { useLayoutPersistence } from '../chart/layout/useLayoutPersistence';
+import { useShortcutDispatch } from '../chart/config/useShortcutDispatch';
 
 interface EditorProps {
   /** issue 28 页面壳表面契约（Q16）：false 时暂停播放并抑制全局输入 */
@@ -132,7 +132,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // 挂载恢复（ADR-0005 §6）：通过 onRestore 把 project 灌入 Editor。
   // 定义在持久化 hook 之前——持久化 hook 拿它当 onRestore 回调。
-  const handleProjectRestore = useCallback(async (project: import('../utils/ChartProject').ChartProject) => {
+  const handleProjectRestore = useCallback(async (project: import('../chart/project/ChartProject').ChartProject) => {
     if (project.notes.length > 0) resetNotes(project.notes);
     if (project.durationSeconds > 0 && engine?.duration == null) {
       setCtxDuration(project.durationSeconds);
