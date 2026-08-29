@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const playBarPath = resolve(here, '../../src/components/PlayBar.tsx');
+const playBarPath = resolve(here, '../../src/playback/PlayBar.tsx');
 
 describe('PlayBar 进度条蓝线', () => {
   const src = readFileSync(playBarPath, 'utf8');

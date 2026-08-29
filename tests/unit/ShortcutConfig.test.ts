@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getDefaultConfig, resolveAction, buildBindingIndex, setFunctionBinding,
   bindingTakenByOther, loadConfig, formatKey, categoryShortcuts, functionMode,
-} from '../../src/utils/ShortcutConfig';
+} from '../../src/chart/config/ShortcutConfig';
 
 const keyEvent = (key: string, ctrl = false): KeyboardEvent =>
   ({ key, ctrlKey: ctrl, metaKey: false } as KeyboardEvent);

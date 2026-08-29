@@ -3,8 +3,8 @@ import {
   getBpmEvents, beatToSeconds, secondsToBeat, buildKeyEvents, chartLengthToEndBeat, maxNoteEndSeconds,
   EMPTY_CHART_DURATION_SECONDS, DEFAULT_BPM,
   type BpmEvent,
-} from '../../src/utils/AudioTiming';
-import type { ChartNote } from '../../src/notes/Charts';
+} from '../../src/audio/AudioTiming';
+import type { ChartNote } from '../../src/chart/types';
 
 describe('getBpmEvents', () => {
   it('无 BPM 音符时补默认 120 于 beat 0', () => {

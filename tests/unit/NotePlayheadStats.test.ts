@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { countNotesUpToBeat } from '../../src/utils/NoteEditing';
-import { formatTimePrecise, formatTimeWhole } from '../../src/utils/TimeFormat';
-import type { ChartNote } from '../../src/notes/Charts';
+import { countNotesUpToBeat } from '../../src/chart/editing/NoteEditing';
+import { formatTimePrecise, formatTimeWhole } from '../../src/chart/geometry/TimeFormat';
+import type { ChartNote } from '../../src/chart/types';
 
 describe('countNotesUpToBeat（判定线前音符数，issue 22）', () => {
   const notes: ChartNote[] = [

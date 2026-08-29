@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createHistory, pushHistory, undoHistory, redoHistory, canUndo, canRedo, currentHistory,
-} from '../../src/utils/History';
+} from '../../src/chart/editing/History';
 
 describe('History 纯模块（候选 D）', () => {
   it('初始快照：canUndo=false、canRedo=false', () => {

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const renderPath = resolve(here, '../../src/renderer/render.ts');
+const renderPath = resolve(here, '../../src/visual/render.ts');
 
 describe('renderSlideBody flick 装饰箭头', () => {
   const src = readFileSync(renderPath, 'utf8');

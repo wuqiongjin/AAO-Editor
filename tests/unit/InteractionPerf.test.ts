@@ -3,16 +3,16 @@
 // - F3 notes 按变化拍区间增量失效：单音符编辑只重建受影响瓦片；屏外编辑 0 重建
 // - F6 NoteReplacementRules 不可变：旧数组对象/连接点数组不被在位变异（History 结构共享 + F3 diff 前提）
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ChartGeometry } from '../../src/utils/ChartGeometry';
-import { renderChart } from '../../src/renderer/render';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/renderer/noteSkin';
+import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
+import { renderChart } from '../../src/visual/render';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/visual/noteSkin';
 import {
   drawNotesLayer, resetNoteLayerCache, diffNotes, TILE_PX, __setTileCanvasFactoryForTests,
-} from '../../src/renderer/noteLayerCache';
-import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '../../src/renderer/staticLayerCache';
-import { handleNoteReplacement, handleSlideToSlideCombination } from '../../src/utils/NoteReplacementRules';
-import type { RenderCtx } from '../../src/renderer/types';
-import type { ChartNote } from '../../src/notes/Charts';
+} from '../../src/visual/noteLayerCache';
+import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '../../src/visual/staticLayerCache';
+import { handleNoteReplacement, handleSlideToSlideCombination } from '../../src/chart/editing/NoteReplacementRules';
+import type { RenderCtx } from '../../src/visual/types';
+import type { ChartNote } from '../../src/chart/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 const SURFACE = { w: 750, h: 900 };

@@ -2,8 +2,8 @@
 // 验证：退化尺寸跳过、已生效值去重、稀疏立即应用、连续流延后尾随、卸载 flush 不变量。
 // 时间源通过 now() 注入以兼容单测（vi.useFakeTimers 不会劫持 performance.now）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SurfaceSizeMerger } from '../../src/utils/SurfaceSizeMerger';
-import type { SurfaceSize } from '../../src/utils/ChartGeometry';
+import { SurfaceSizeMerger } from '../../src/chart/layout/SurfaceSizeMerger';
+import type { SurfaceSize } from '../../src/chart/geometry/ChartGeometry';
 
 let virtualNow = 0;
 const tick = (ms: number) => { virtualNow += ms; };

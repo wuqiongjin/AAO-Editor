@@ -5,7 +5,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const editorSrc = readFileSync(
-  join(__dirname, '../../src/pages/Editor.tsx'),
+  join(__dirname, '../../src/chart/Editor.tsx'),
   'utf-8',
 );
 
@@ -62,7 +62,15 @@ describe('App.tsx · 候选 3 收口（音频会话 Provider 挂载）', () => {
   );
 
   it('挂载 AudioSessionProvider（替代 AudioPageProvider）', () => {
-    expect(appSrc).toMatch(/AudioSessionProvider/);
+    // issue 48 整改后，App.tsx 改用 ProviderTree 间接挂载；AudioSessionProvider
+    // 现在住在 src/app/providers/AudioSessionProvider.tsx，被 ProviderTree 引用。
+    // 这里同时校验「App.tsx 走 ProviderTree」和「ProviderTree 引用 AudioSessionProvider」。
+    const providerTreeSrc = readFileSync(
+      join(__dirname, '../../src/app/ProviderTree.tsx'),
+      'utf-8',
+    );
+    expect(providerTreeSrc).toMatch(/AudioSessionProvider/);
+    expect(appSrc).toMatch(/ProviderTree/);
     expect(appSrc).not.toMatch(/AudioPageProvider/);
   });
 
@@ -73,7 +81,7 @@ describe('App.tsx · 候选 3 收口（音频会话 Provider 挂载）', () => {
 
 describe('AudioPage.tsx · 候选 3 收口（直读 useAudioSession）', () => {
   const audioPageSrc = readFileSync(
-    join(__dirname, '../../src/pages/AudioPage.tsx'),
+    join(__dirname, '../../src/audio/AudioPage.tsx'),
     'utf-8',
   );
 

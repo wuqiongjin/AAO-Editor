@@ -3,11 +3,11 @@
 // 不变量来源：ADR-0004 §1/§3（判定线模型 + 滚动范围无空白）、ADR-0006 §2（判定线=画布底边）、
 // issue 24（按秒重锚三段式）、issue 38（有效缩放钳制）。
 import { describe, it, expect } from 'vitest';
-import { PlaybackScrollModel } from '../../src/utils/PlaybackScrollModel';
-import { ChartGeometry } from '../../src/utils/ChartGeometry';
+import { PlaybackScrollModel } from '../../src/playback/PlaybackScrollModel';
+import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
 import {
   chartLengthToEndBeat, secondsToBeat, beatToSeconds, type BpmEvent,
-} from '../../src/utils/AudioTiming';
+} from '../../src/audio/AudioTiming';
 
 const bpm120: BpmEvent[] = [{ beat: 0, bpm: 120 }];
 // 120bpm：每拍 0.5s、每拍 220px（BEAT_HEIGHT）。30s → 60 拍 → chartEndVirtualY 13200。

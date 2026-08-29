@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { mirrorNotes, mirrorNote, shiftGroupToAnchor } from '../../src/utils/NoteEditing';
-import type { ChartNote } from '../../src/notes/Charts';
+import { mirrorNotes, mirrorNote, shiftGroupToAnchor } from '../../src/chart/editing/NoteEditing';
+import type { ChartNote } from '../../src/chart/types';
 
 describe('noteEditing - mirror', () => {
   it('mirrors a Single note lane', () => {

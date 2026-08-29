@@ -1,9 +1,9 @@
 // ChartProjectPersistenceMerger（候选 2 / ADR-0005 §6）：谱面持久化防抖纯逻辑。
 // 拆出 useChartProjectPersistence 内 800ms 防抖 timer 行为，以便单测边界（多次快速编辑只落盘一次）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ChartProjectPersistenceMerger } from '../../src/utils/ChartProjectPersistenceMerger';
-import type { ChartProject } from '../../src/utils/ChartProject';
-import type { ChartNote } from '../../src/notes/Charts';
+import { ChartProjectPersistenceMerger } from '../../src/chart/project/ChartProjectPersistenceMerger';
+import type { ChartProject } from '../../src/chart/project/ChartProject';
+import type { ChartNote } from '../../src/chart/types';
 
 const emptyNotes: ChartNote[] = [];
 const projectOf = (notes: ChartNote[], durationSeconds = 30): ChartProject => ({

@@ -5,15 +5,15 @@ import {
   NOTE_SKIN_DEFAULT_SELECTION,
   type NoteSkinPackDirectional,
   type NoteSkinPackNote,
-} from '../../src/renderer/noteSkinRegistry.gen';
+} from '../../src/visual/gen/noteSkinRegistry.gen';
 import {
   buildActiveNoteIcons,
   normalizeNoteSkinSelection,
   NOTE_SKIN_ITEM_IDS,
   NOTE_SKIN_GEOMETRY,
-} from '../../src/renderer/noteSkin';
-import { LANE_WIDTH } from '../../src/utils/ChartGeometry';
-import { defaultSettings, loadSettings, updateSettings } from '../../src/utils/AppSettings';
+} from '../../src/visual/noteSkin';
+import { LANE_WIDTH } from '../../src/chart/geometry/ChartGeometry';
+import { defaultSettings, loadSettings, updateSettings } from '../../src/chart/config/AppSettings';
 
 const notePacks = NOTE_SKIN_PACKS.filter((p): p is NoteSkinPackNote => p.kind === 'note');
 const dirPacks = NOTE_SKIN_PACKS.filter((p): p is NoteSkinPackDirectional => p.kind === 'directional');

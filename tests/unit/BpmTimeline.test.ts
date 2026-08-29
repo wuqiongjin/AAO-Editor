@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { BpmTimeline } from '../../src/utils/BpmTimeline';
-import { DEFAULT_BPM, getBpmEvents, beatToSeconds, secondsToBeat } from '../../src/utils/AudioTiming';
-import type { ChartNote } from '../../src/notes/Charts';
+import { BpmTimeline } from '../../src/chart/geometry/BpmTimeline';
+import { DEFAULT_BPM, getBpmEvents, beatToSeconds, secondsToBeat } from '../../src/audio/AudioTiming';
+import type { ChartNote } from '../../src/chart/types';
 
 describe('BpmTimeline（秒坐标系）', () => {
   const sec = (events: { beat: number; bpm: number }[]) => new BpmTimeline(events, (bpm) => 60 / bpm);

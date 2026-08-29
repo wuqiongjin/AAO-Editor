@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { pasteChartNotes } from '../../src/utils/NoteReplacementRules';
-import type { ChartNote } from '../../src/notes/Charts';
+import { pasteChartNotes } from '../../src/chart/editing/NoteReplacementRules';
+import type { ChartNote } from '../../src/chart/types';
 
 // 粘贴 = 应用 ADR-0001 覆盖规则（修复直接 concat 导致同坐标重叠音符）
 describe('pasteChartNotes - 空位粘贴', () => {

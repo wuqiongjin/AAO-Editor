@@ -1,8 +1,8 @@
 // AudioSession（架构深化评审候选 3 深模块）的核心单测。
 // 注入假引擎：跳过真实 Web Audio，验证 session 的状态机 + 持久化钩子 + 订阅 + 竞态保护。
 import { describe, it, expect, vi } from 'vitest';
-import { AudioSession, type AudioSessionSnapshot } from '../../src/utils/AudioSession';
-import type { AudioEngine } from '../../src/utils/AudioEngine';
+import { AudioSession, type AudioSessionSnapshot } from '../../src/audio/AudioSession';
+import type { AudioEngine } from '../../src/audio/AudioEngine';
 
 /**
  * 假引擎：模拟 AudioEngine 的最小接口（不涉及 Web Audio）。

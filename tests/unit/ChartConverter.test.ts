@@ -6,9 +6,9 @@ import {
     parseChartCodeFromJSON,
     validateChartCode,
     hasBeat0Bpm
-} from '../../src/utils/ChartConverter';
-import type { ChartCodeNote } from '../../src/utils/ChartConverter';
-import type { ChartNote } from '../../src/notes/Charts';
+} from '../../src/chart/editing/ChartConverter';
+import type { ChartCodeNote } from '../../src/chart/editing/ChartConverter';
+import type { ChartNote } from '../../src/chart/types';
 
 describe('Chart Converter', () => {
     test('skill 往返映射（单键/方向键/滑条连接点）', () => {

@@ -1,17 +1,17 @@
 // issue 10 性能测试：密集音符（3000-5000）下缩放流畅性保障。
 // node 环境用 stub ctx 计量 JS 侧开销与调用次数（真实光栅化由浏览器 ?perf=1 基线覆盖）。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ChartGeometry, LANES, LANE_WIDTH } from '../../src/utils/ChartGeometry';
-import { renderChart, visibleBeatRange } from '../../src/renderer/render';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/renderer/noteSkin';
+import { ChartGeometry, LANES, LANE_WIDTH } from '../../src/chart/geometry/ChartGeometry';
+import { renderChart, visibleBeatRange } from '../../src/visual/render';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/visual/noteSkin';
 import {
   drawNotesLayer, resetNoteLayerCache, tileIndexRange, tileBlitRect, posRangeOf,
   TILE_PX, __setTileCanvasFactoryForTests,
-} from '../../src/renderer/noteLayerCache';
-import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '../../src/renderer/staticLayerCache';
-import { makeCoords } from '../../src/renderer/coords';
-import type { RenderCtx } from '../../src/renderer/types';
-import type { ChartNote } from '../../src/notes/Charts';
+} from '../../src/visual/noteLayerCache';
+import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '../../src/visual/staticLayerCache';
+import { makeCoords } from '../../src/visual/coords';
+import type { RenderCtx } from '../../src/visual/types';
+import type { ChartNote } from '../../src/chart/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 const SURFACE = { w: 750, h: 900 };

@@ -1,11 +1,11 @@
 // issue 36 复现：连续 Slide 自下向上连接扩展时，后半截渲染缺失（瓦片未失效？）
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ChartGeometry } from '../../src/utils/ChartGeometry';
-import { drawNotesLayer, resetNoteLayerCache, __setTileCanvasFactoryForTests, __getTilesForTests, TILE_PX } from '../../src/renderer/noteLayerCache';
-import { handleSlideToSlideCombination } from '../../src/utils/NoteReplacementRules';
-import type { RenderCtx } from '../../src/renderer/types';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/renderer/noteSkin';
-import type { ChartNote } from '../../src/notes/Charts';
+import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
+import { drawNotesLayer, resetNoteLayerCache, __setTileCanvasFactoryForTests, __getTilesForTests, TILE_PX } from '../../src/visual/noteLayerCache';
+import { handleSlideToSlideCombination } from '../../src/chart/editing/NoteReplacementRules';
+import type { RenderCtx } from '../../src/visual/types';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/visual/noteSkin';
+import type { ChartNote } from '../../src/chart/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 const SURFACE = { w: 750, h: 900 };

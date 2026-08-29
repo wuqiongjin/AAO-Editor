@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ChartGeometry } from '../../src/utils/ChartGeometry';
-import { makeCoords } from '../../src/renderer/coords';
-import { findItemAt, computeItemsInBox, pointInQuad, type HitTestDeps } from '../../src/renderer/hitTest';
-import type { ChartNote } from '../../src/notes/Charts';
+import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
+import { makeCoords } from '../../src/visual/coords';
+import { findItemAt, computeItemsInBox, pointInQuad, type HitTestDeps } from '../../src/visual/hitTest';
+import type { ChartNote } from '../../src/chart/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 

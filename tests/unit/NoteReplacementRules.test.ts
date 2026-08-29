@@ -3,8 +3,8 @@ import {
   handleNoteReplacement,
   handleSlideToSlideCombination,
   deleteSlideSegment
-} from '../../src/utils/NoteReplacementRules';
-import type { ChartNote } from '../../src/notes/Charts';
+} from '../../src/chart/editing/NoteReplacementRules';
+import type { ChartNote } from '../../src/chart/types';
 
 describe('handleNoteReplacement - 单键/方向键', () => {
   it('在空位放置单键音符', () => {

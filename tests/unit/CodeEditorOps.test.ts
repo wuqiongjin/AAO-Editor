@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { insertTab, insertNewlineIndent, cutRange, pasteAt } from '../../src/utils/CodeEditorOps';
+import { insertTab, insertNewlineIndent, cutRange, pasteAt } from '../../src/chart/editing/CodeEditorOps';
 
 describe('CodeEditorOps（谱面代码文本编辑纯变换）', () => {
   describe('insertTab', () => {

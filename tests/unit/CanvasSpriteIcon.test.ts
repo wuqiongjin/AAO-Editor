@@ -1,7 +1,7 @@
 // CanvasSpriteIcon 关键路径测试（用户 2026-08-25 反馈：flick 实际放置时无装饰箭头，
 //  根因是旧第二层渲染路径错误；新增的 renderDecorator 走"主精灵已画、补一个挂件"的最小路径）。
 import { describe, it, expect, beforeAll } from 'vitest';
-import CanvasSpriteIcon, { type SpriteIconConfig } from '../../src/components/CanvasSpriteIcon';
+import CanvasSpriteIcon, { type SpriteIconConfig } from '../../src/ui/CanvasSpriteIcon';
 
 function makeCtx(): { ctx: CanvasRenderingContext2D; drawCalls: Array<{ dx: number; dy: number; dW: number; dH: number; sx: number; sy: number; sw: number; sh: number }> } {
   const drawCalls: Array<{ dx: number; dy: number; dW: number; dH: number; sx: number; sy: number; sw: number; sh: number }> = [];

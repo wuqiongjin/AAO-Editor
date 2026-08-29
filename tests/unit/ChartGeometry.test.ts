@@ -6,8 +6,8 @@ import {
   TRACK_CHROME_TOTAL,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
-} from '../../src/utils/ChartGeometry';
-import type { ChartNote } from '../../src/notes/Charts';
+} from '../../src/chart/geometry/ChartGeometry';
+import type { ChartNote } from '../../src/chart/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 

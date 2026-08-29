@@ -7,14 +7,14 @@ import {
   DEFAULT_PROJECT_ID,
   ElectronFileProjectBackend,
   IndexedDbProjectBackend,
-} from '../../src/utils/ChartProject';
+} from '../../src/chart/project/ChartProject';
 import type {
   ChartProject,
   ElectronProjectBridge,
   ProjectGetWire,
   ProjectPutWire,
-} from '../../src/utils/ChartProject';
-import type { ChartNote } from '../../src/notes/Charts';
+} from '../../src/chart/project/ChartProject';
+import type { ChartNote } from '../../src/chart/types';
 
 const note = { beat: 4, lane: 3, type: 'Single' } as ChartNote;
 

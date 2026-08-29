@@ -1,8 +1,8 @@
 import { lazy, Suspense } from 'react';
-import './App.css'
+import './app/styles/App.css'
 import AppShell from "./layouts/AppShell";
 import { ProviderTree, useConfig } from "./app/ProviderTree";
-import { useApplyTheme } from "./styles/theme";
+import { useApplyTheme } from './app/styles/theme';
 
 const PageShellPrototype = lazy(() => import('./prototypes/PageShellPrototype'));
 

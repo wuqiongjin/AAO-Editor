@@ -3,12 +3,12 @@
 //   2) BackgroundSkinStore 纯逻辑（端口注入：内存持久化 + 假解码，node 环境无 IndexedDB/DOM）；
 //   3) settings.visual.backgroundSkin 开关位的归一化与 updateSettings 合并行为。
 import { describe, it, expect } from 'vitest';
-import { computeBackgroundDrawRect, normalizeBackgroundOpacity } from '../../src/renderer/staticLayerCache';
-import { BackgroundSkinStore, backgroundSkinStore } from '../../src/utils/backgroundSkin';
+import { computeBackgroundDrawRect, normalizeBackgroundOpacity } from '../../src/visual/staticLayerCache';
+import { BackgroundSkinStore, backgroundSkinStore } from '../../src/chart/rendering/backgroundSkin';
 import {
   defaultSettings, loadSettings, updateSettings,
   DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE,
-} from '../../src/utils/AppSettings';
+} from '../../src/chart/config/AppSettings';
 
 // ---------------- 1) cover 几何 ----------------
 

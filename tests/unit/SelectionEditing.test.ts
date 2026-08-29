@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { ChartNote, SelectionItem } from '../../src/notes/Charts';
-import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectionNoteIndices } from '../../src/utils/SelectionEditing';
+import type { ChartNote, SelectionItem } from '../../src/chart/types';
+import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectionNoteIndices } from '../../src/chart/editing/SelectionEditing';
 
 // 构造一条 4 结点滑条：E(端点,skill) — A — B — F(端点,flick)
 const slide = (): ChartNote => ({

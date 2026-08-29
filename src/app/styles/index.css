@@ -1,3 +1,3 @@
 /* 全局基础样式（ADR-0003 §4）：仅剩入口导入 design tokens 与极简 reset，
    Vite 模板残留已清理（App.css 同步清空）。 */
-@import './styles/tokens.css';
+@import './tokens.css';
