@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import Editor from '../chart/Editor';
 import AudioPage from '../audio/AudioPage';
-import SettingsPage from '../pages/SettingsPage';
-import ShortcutsPage from '../pages/ShortcutsPage';
-import AssetsPage from '../pages/AssetsPage';
+import SettingsPage from '../settings/SettingsPage';
+import ShortcutsPage from '../settings/ShortcutsPage';
+import AssetsPage from '../visual/AssetsPage';
 import { AppNavProvider, AppNav, type PageId } from './AppNav';
 import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
 import './AppShell.css';

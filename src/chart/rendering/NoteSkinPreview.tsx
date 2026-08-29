@@ -16,7 +16,7 @@ import {
   DEFAULT_NOTE_SKIN_SELECTION,
   type NoteSkinItemId,
   type NoteSkinSelection,
-} from '../../renderer/noteSkin';
+} from '../../visual/noteSkin';
 
 interface ColMeta {
   item: NoteSkinItemId;

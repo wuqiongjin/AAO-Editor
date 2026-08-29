@@ -5,7 +5,7 @@ import { useConfig } from '../app/ProviderTree';
 import {
   listNoteSkinPacks,
   normalizeNoteSkinSelection,
-} from '../renderer/noteSkin';
+} from './noteSkin';
 import NoteSkinPreview from '../chart/rendering/NoteSkinPreview';
 import { backgroundSkinStore } from '../chart/rendering/backgroundSkin';
 import { useBackgroundSkin } from '../chart/rendering/useBackgroundSkin';

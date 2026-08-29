@@ -16,7 +16,7 @@ import {
   type NoteSkinPackDirectional,
   type NoteSkinPackNote,
   type NoteSkinRect,
-} from './noteSkinRegistry.gen';
+} from './gen/noteSkinRegistry.gen';
 import { LANE_WIDTH } from '../chart/geometry/ChartGeometry';
 import type { SpriteIconConfig } from '../ui/CanvasSpriteIcon';
 

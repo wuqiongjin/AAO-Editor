@@ -9,9 +9,9 @@ import {
   DEFAULT_SURFACE, TRACK_CHROME_TOTAL, type SurfaceSize,
 } from '../../geometry/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../../../app/ProviderTree';
-import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../renderer';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../renderer/noteSkin';
-import { normalizeBackgroundOpacity } from '../../../renderer/staticLayerCache';
+import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../visual';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
+import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
