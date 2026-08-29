@@ -1,13 +1,23 @@
 /* ============================================================
- * 应用页面壳 / 内容壳（ADR-0007，issue 44 收口 · sidebar 紧贴 body + body 限宽）
+ * 应用页面壳 / 内容壳（ADR-0007，第四轮流体几何）
  * 4 个非工作台页（音频 / 素材 / 快捷键 / 设置）共用模板：
- *   - sidebar 紧贴 body 左边（gap 24px），sidebar 是 body 的附属（依附），
- *     不贴 main 视口 0；
- *   - 内容块（sidebar 200 + gap 24 + body 920）= 1144px，整块 margin: 0 auto 居中于 main 视口；
- *   - 4 页内容块距 main 视口左缘严格相同（= main vp 居中偏移）；
- *   - body 限宽 920（合适阅读宽度，4 页统一）；
- *   - 视口窄时（< 1144+app-nav），整块被 max-width: 100% 截断，body 实际宽随之缩；
- *   - header 跟 body 同左缘同宽 920。
+ *   - 几何全部相对 main 视口（.app-surface，不含应用导航）：
+ *       sidebar 宽 = clamp(140px, 12.5%, 200px)；
+ *       左边距 L = 48px（sidebar 起始位置）；
+ *       sidebar-body 横向 gap = 24px（模板硬约束 #2）；
+ *       body 宽 = max(920px, 920px + (主内容区 - 1440px) * 0.3)，主内容区 = 100vw - 导航宽；
+ *       右边距 R = 32px。
+ *   - 锚点效果：
+ *       主内容区 ≤1440：body 恒 920（1280 窗与历史固定 920 完全一致）；
+ *       1920 窗（导航折叠）：body ≈ 1048（+128，宽屏小幅变宽）；
+ *   - 4 页 body 左缘严格相同 = L + sidebar 宽 + 24，不论有无 sidebar 渲染
+ *     （快捷键页该位置为空槽）；
+ *   - header 跟 body 同左缘同宽：__head 与 __main 完全同构的 flex
+ *     （同 L/R padding、同 gap、同 sidebar 宽占位槽），header 与 body 的
+ *     包含块宽度一致 → --aps-body-w 的百分比基数一致 → 像素级对齐；
+ *   - 窄屏（main 视口 < sidebar + gap + 920 + L + R）：body 跌破 920 下限，
+ *     各段按 max-width: 100% 自然挤压；
+ *   - 视口 < 720px：sidebar 收为顶部水平条，L/R 归 16px（响应式段）。
  * 模板硬约束 3 处：Header 下间距 / sidebar-body 横向 gap / sidebar 内 padding。
  * 其它全部由 design tokens + 页面作者自管。
  * ============================================================ */
@@ -22,60 +32,79 @@
   color: var(--text);
   padding: 42px 0 0;
   box-sizing: border-box;
-  --aps-block-w: 1144px;
-  /* 内容块宽 = sidebar(200) + gap(24) + body(920) */
-  --aps-body-w: 920px;
-  /* body 限宽 */
-  --aps-block-shift: -5px;
-  /* 整块向左微调 5px（body 起始位置稍微偏左） */
+  --aps-sidebar-w: clamp(140px, 12.5%, 200px);
+  /* sidebar 宽（12.5% of main 视口，140–200 兜底） */
+  --aps-gap: 24px;
+  /* sidebar-body 横向 gap（模板硬约束 #2） */
+  --aps-inset-l: 51px;
+  /* 左边距 L：sidebar 起始位置（+3px 右移微调，header 与 body 同步右移） */
+  --aps-inset-r: 32px;
+  /* 右边距 R */
+  --aps-body-min: 920px;
+  /* body 下限宽（1440 主内容区以下的锚点 = 历史固定 920） */
+  --aps-body-bump: 12px;
+  /* body 额外加宽微调（用户要求 +12px），叠在 920 锚点之上，>1440 区间整体 +12 */
+  --aps-body-w: max(
+    var(--aps-body-min),
+    min(100%, calc(var(--aps-body-min) + var(--aps-body-bump) + (100vw - var(--nav-width, 52px) - 1440px) * 0.3))
+  );
+  /* body 宽：主内容区 ≤1440 恒 920（下限锚点）；>1440 按 0.3/px 线性增长
+     （100vw - 导航宽 = 主内容区；--nav-width 由 .app-shell 提供，折叠 52 / 展开 156 自适应），
+     并整体 +12px（--aps-body-bump）。
+     1920 窗折叠 ≈ 1060（+128+12）；min(100%, …) 窄屏兜底。
+     header 与 body 共用同一表达式且同父块，保证像素级同宽 */
 }
 
-/* Header：跟 body 同左缘同宽（在 main 整块内，margin-left 偏移到 body 左缘） */
-.app-page-shell .page-intro {
-  width: var(--aps-body-w);
-  max-width: 100%;
-  margin: 0 0 24px 0;
-  /* 在 __head 包装层内 margin-left = sidebar + gap */
-  box-sizing: border-box;
-}
-
+/* Header 行：与 __main 完全同构的 flex（同 padding / 同 gap / 同占位），
+   使 header 与 body 的包含块宽度一致 → 百分比基数一致 → 严格同宽对齐 */
 .app-page-shell__head {
-  width: var(--aps-block-w);
-  max-width: 100%;
-  margin: 0 auto;
-  padding-left: 224px;
-  /* sidebar(200) + gap(24) = 224，让 Header 左缘 = body 左缘 */
+  display: flex;
+  width: 100%;
+  padding-left: var(--aps-inset-l);
+  padding-right: var(--aps-inset-r);
+  gap: var(--aps-gap);
   box-sizing: border-box;
-  /* 整块向左微调 5px（让 body 起始位置稍微偏左） */
-  transform: translateX(var(--aps-block-shift));
 }
 
-/* main 整块：sidebar + gap + body，margin: 0 auto 居中于 main 视口 */
+/* 占位槽：顶替 main 里的 sidebar（同宽），把 header 推到 body 左缘。
+   header（__head）与 main（__main）共用此槽：两者都是 __root 下同 L/R padding 的
+   同构 flex 容器，内宽（= 父块宽 - L - R）一致 → 槽里的 12.5%（--aps-sidebar-w）
+   相对同一内宽解析，槽宽一致 → header 与 body 左缘像素级对齐
+   （避免旧做法把槽宽 bake 进 padding-left，其 12.5% 相对包含块父块宽解析而产生的偏移）。 */
+.app-page-shell__slot {
+  flex: 0 0 var(--aps-sidebar-w);
+  width: var(--aps-sidebar-w);
+}
+
+/* Header：跟 body 同左缘同宽（同款 flex 尺寸 + 同款 max-width 表达式） */
+.app-page-shell .page-intro {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: var(--aps-body-w);
+  /* 覆盖 AppShell.css 旧 min(920px) 限宽 */
+  box-sizing: border-box;
+}
+
+/* 无 sidebar 页（快捷键）：__main 用 .app-page-shell__slot 占位槽预留 sidebar 位，
+   body 左缘跟其它 3 页严格一致；占位槽与 __head 同几何，header/body 像素级对齐 */
+
+/* main 整块：sidebar + gap + body，fluid 铺满 main 视口（L/R 内边距） */
 .app-page-shell__main {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
-  width: var(--aps-block-w);
-  max-width: 100%;
-  margin: 0 auto;
-  gap: 24px;
-  /* 模板硬约束 #2：sidebar-body 横向 gap */
+  width: 100%;
+  padding-left: var(--aps-inset-l);
+  padding-right: var(--aps-inset-r);
+  gap: var(--aps-gap);
   align-items: stretch;
   box-sizing: border-box;
-  /* 整块向左微调 5px（与 __head 同步） */
-  transform: translateX(var(--aps-block-shift));
-}
-
-/* 无 sidebar 页（快捷键）：__head 不 padding-left 224，让 header 跟 body 都在 main 0 位置对齐 */
-.app-page-shell[data-has-sidebar="false"] .app-page-shell__head {
-  padding-left: 0;
 }
 
 /* ---- Sidebar（紧贴 body 左边，flex 子元素，由 main 布局）---- */
 .app-page-shell__sidebar {
-  flex: 0 0 200px;
-  /* sidebar 固定 200 宽（不随视口缩，4 页统一） */
-  width: 200px;
+  flex: 0 0 var(--aps-sidebar-w);
+  width: var(--aps-sidebar-w);
   padding: 12px 10px;
   /* 模板硬约束 #3 */
   background: transparent;
@@ -125,7 +154,10 @@
   font-weight: 600;
   text-align: left;
   cursor: pointer;
-  transition: background-color 120ms var(--ease), color 120ms var(--ease), border-color 120ms var(--ease);
+  transition:
+    background-color 120ms var(--ease),
+    color 120ms var(--ease),
+    border-color 120ms var(--ease);
 }
 
 .app-page-shell__sidebar-item:hover {
@@ -145,11 +177,13 @@
   outline-offset: -2px;
 }
 
-/* ---- Body（限宽 920，flex 子元素）---- */
+/* ---- Body（fluid，下限 920）---- */
 .app-page-shell__body {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
+  max-width: var(--aps-body-w);
+  /* 下限 920；1440 以上按 0.3/px 线性增长（与 header 同款表达式） */
   overflow-y: auto;
   /* 滚动：body 自身滚，main 容器不滚 */
   padding: 0 0 64px;
@@ -167,16 +201,25 @@
 /* ---- 响应式：窄屏 sidebar 收起为顶部水平条 ---- */
 @media (max-width: 720px) {
   .app-page-shell {
+    --aps-inset-l: 16px;
+    --aps-inset-r: 16px;
     padding: 42px 16px 0;
   }
 
   .app-page-shell__head {
     padding-left: 0;
+    padding-right: 0;
+    gap: 0;
+  }
+
+  .app-page-shell__slot {
+    display: none;
   }
 
   .app-page-shell__main {
     flex-direction: column;
-    width: 100%;
+    padding-left: 0;
+    padding-right: 0;
     gap: 14px;
   }
 

@@ -95,7 +95,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 侧边分组 | Sidebar group | `<AppPageShell.SidebarGroup title>`——带不可点的分组标题；用于"应用设置 / 功能设置"等场景 |
 | 侧边项 | Sidebar item | `<AppPageShell.SidebarItem icon label>`——`icon` 为 `React.ComponentType`（lucide），size 17 由模板写死；激活态见上 |
 | 内容模式 | Content mode | `<AppPageShell.Body mode>`——`"default"`（整页滚） / `"fill"`（整页不动 + 内部子元素自身滚）；显式 prop，默认 `default` |
-| 几何自适应 | Adaptive geometry | sidebar 宽 = `clamp(160px, 15.625%, 240px)`；body 宽 = 100% fluid 填满 main 剩余；4 页 body 距 main 视口左缘严格相同 = sidebar + 24（不论有无 sidebar）；不传 prop，模板自管（issue 44 第三轮） |
+| 几何自适应 | Adaptive geometry | sidebar 宽 = `clamp(140px, 12.5%, 200px)`；body 宽 = 锚点 920（主内容区 ≤1440 恒定）+ >1440 按 0.3/px 线性增长 + 整体 +12px（`--aps-body-bump`）；左边距 L=51 / 右边距 R=32；4 页 body 左缘严格相同 = L + sidebar 宽 + 24（`__slot` 占位槽对齐，不论有无 sidebar）；不传 prop，模板自管（issue 44 第四轮流体几何） |
 
 ## 播放与预览（ADR-0004）
 
