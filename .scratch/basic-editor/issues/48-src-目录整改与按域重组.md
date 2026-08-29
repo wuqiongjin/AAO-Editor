@@ -1,6 +1,6 @@
 # 48 src/ 目录整改：按业务域重组 + 死文件清理
 
-- **状态**：open（2026-08-29 起草）
+- **状态**：open（2026-08-29 起草）；候选 2 实施中（2026-08-29）
 - **类型**：整改（refactor）· 纯目录搬迁，零行为变更
 - **前置**：issue 45 / 46 / 47（音频域接缝收口）— 仓库已进入"按域深化"阶段，目录结构需要跟上
 
@@ -718,6 +718,31 @@ src/playback/useScrollModel.ts  # 同时从 public return 移除 chartEndKey
 
 ## Comments
 
-（执行时按时间顺序追加：commit SHA / tsc 通过 / 测试通过 / 任何回退）
+### 2026-08-29 · 候选 2 实施
+
+- 提交链：
+  - `18c1fc0` chore(tools): demote sprite-locator to tools/ (issue 48 candidate 2)
+  - `a79b456` docs(issue-48): log candidate 2 completion in issue comments
+  - 后续修订（code-review 后的精简）：把 Vite 插件从 `require('node:fs')` CJS 导入改为顶层 ESM `import`、插件名从 `sprite-locator-flatten` 改为更准确的 `sprite-locator-relocate`、把空 `catch {}` 收紧为只吞 `ENOENT`、给 `dev.sh` 加了一行说明
+- 搬迁范围：
+  - `src/sprite-locator/{main,SpriteLocator}.tsx + locator.ts + sprite-locator.css` → `tools/sprite-locator/`
+  - 根目录 `sprite-locator.html` → `tools/sprite-locator.html`
+  - 同步更新 `tests/unit/SpriteLocator.test.ts` import 路径
+  - `tsconfig.app.json` include 增加 `tools`
+- `vite.config.ts` 增量（关键）：
+  - `rollupOptions.input` 的 `sprite-locator` 源路径改为 `tools/sprite-locator.html`
+  - 新增 `sprite-locator-relocate` 插件：
+    - dev：`configureServer` 中间件把 `/sprite-locator.html` 重写到 `/tools/sprite-locator.html`（保持 dev.sh 公开 URL 不变）
+    - build：`closeBundle` 把 Vite 产出的 `dist/tools/sprite-locator.html` 移到 `dist/sprite-locator.html`（Vite 按 input 源路径保留目录结构；产物名仍按 input key）
+    - release 模式：早返回，sprite-locator 仍不进发行包
+- 验证：
+  - `npx tsc -b` 通过
+  - `npm test` 30 文件 / 365 用例通过
+  - `npx eslint tools/sprite-locator vite.config.ts` 无问题
+  - `npm run build`：`dist/sprite-locator.html` 正常生成，`dist/tools/` 自动清空
+  - `npm run build:release`：`dist/` 不含 sprite-locator.html
+  - dev 烟测：`/` 返回主应用（title `bangdream-editor`），`/sprite-locator.html` 返回工具页（title `精灵图定位工具`，script 指向 `/tools/sprite-locator/main.tsx`）
+- 风险回退：本提交无回退，所有 `git mv` 保留历史；如需回退 `git revert 18c1fc0` 即可。
+- 候选 2 状态：resolved（候选 1+3 已在前序 commit 完成，候选 2 本次闭环；候选 4 注释残留留作后续 issue）
 
 

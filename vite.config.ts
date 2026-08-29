@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -11,10 +13,48 @@ export default defineConfig(({ mode }) => {
   const isRelease = mode === 'release';
   const input = isRelease
     ? ({ main: 'index.html' } as Record<string, string>)
-    : ({ main: 'index.html', 'sprite-locator': 'sprite-locator.html' } as Record<string, string>);
+    : ({ main: 'index.html', 'sprite-locator': 'tools/sprite-locator.html' } as Record<string, string>);
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        // 把 `tools/sprite-locator.html` 在两个阶段都暴露成公开的 `/sprite-locator.html`：
+        //   - dev  ：`configureServer` 把 URL 重写到源文件位置。
+        //   - build：`closeBundle` 把 Vite 产出的 `dist/tools/sprite-locator.html` 移到 `dist/sprite-locator.html`，
+        //            原因：Vite/Rollup 按 input 源路径保留目录结构，导致产物落到 `dist/tools/`，但
+        //            `dev.sh` / 团队 / 旧 `dist/sprite-locator.html` 链接 / electron 发行包都按 `dist/` 平铺引用。
+        // 构建产物的 key 仍是 `sprite-locator`（与原 `rollupOptions.input` 一致），不破坏其他消费方。
+        name: 'sprite-locator-relocate',
+        configureServer(server) {
+          server.middlewares.use((req, _res, next) => {
+            if (req.url === '/sprite-locator.html') {
+              req.url = '/tools/sprite-locator.html';
+            }
+            next();
+          });
+        },
+        closeBundle() {
+          // release 模式不打 sprite-locator，跳过
+          if (isRelease) return;
+          const src = resolve(process.cwd(), 'dist/tools/sprite-locator.html');
+          const dest = resolve(process.cwd(), 'dist/sprite-locator.html');
+          if (!existsSync(src)) return;
+          mkdirSync(dirname(dest), { recursive: true });
+          if (existsSync(dest)) rmSync(dest);
+          renameSync(src, dest);
+          // 顺便把空了的 dist/tools/ 目录清掉（保留 src/tools/）；并发场景下读目录可能撞到 ENOENT，吞掉
+          const toolsDir = resolve(process.cwd(), 'dist/tools');
+          try {
+            if (existsSync(toolsDir) && readdirSync(toolsDir).length === 0) {
+              rmSync(toolsDir, { recursive: true, force: true });
+            }
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+          }
+        },
+      },
+    ],
     base: './', // 重要：设置为相对路径，这样Electron可以正确加载资源
     build: {
       outDir: 'dist',

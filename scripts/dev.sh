@@ -14,6 +14,8 @@ cd "$(dirname "$0")/.."
 ulimit -Sn 10000 2>/dev/null || true
 
 # CNB 云环境的对外访问网址：绕开 VSCode 端口转发隧道，避免刷新无限转圈
+# 注：sprite-locator 的源文件已搬到 tools/sprite-locator.html，但 vite.config.ts 里的
+#     dev 中间件会把公开 URL `/sprite-locator.html` 重写到源文件，所以这里 URL 不变。
 PROXY_URL="${CNB_VSCODE_PROXY_URI:-}"
 if [ -n "$PROXY_URL" ]; then
   PUBLIC_URL="${PROXY_URL//\{\{port\}\}/5173}"

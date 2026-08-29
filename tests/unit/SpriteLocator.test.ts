@@ -14,7 +14,7 @@ import {
   roundRect,
   unionInside,
   type PixelRect,
-} from '../../src/sprite-locator/locator';
+} from '../../tools/sprite-locator/locator';
 
 describe('normalizeRect', () => {
   it('与拖拽方向无关：从右下到左上也能归一化为左上角起点 + 宽高', () => {
