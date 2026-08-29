@@ -73,6 +73,7 @@
 - [40 精灵图坐标规范化重构与渲染质量](./issues/40-精灵图坐标规范化重构与渲染质量.md) — **open（2026-08-18 立）**：`CanvasSpriteIcon` 负百分比偏移坐标系规范化成像素矩形 + 三张注册表整理 + 虚拍接入点预留 + 渲染质量（smoothing/瓦片DPR）提升。源自 issue 39 grill Q8（用户拍板 B→C 拆独立 issue）。
 - [41 精灵图可视化定位工具](./issues/41-精灵图可视化定位工具.md) — **resolved（2026-08-22 独立入口）**：同一仓库独立页 `/sprite-locator.html`（`src/sprite-locator/`），不占主导航、不进主 bundle、`build:release` 不打包。加载 skin 图，滚轮缩放/空格平移/拖拽框选，选区可手柄/键盘/数值微调，输出 BaseSpriteIcons 条目（{x,y,w,h}+可选 inkLeft/inkRight）。解阻塞 issue 39 #4（tapVirtual 坐标待用户用本工具量取后填入）。
 - [25 存储后端 Electron 改造](./issues/25-存储后端Electron改造.md) — **resolved（2026-08-27 实现+验证）**：谱面工程持久化按环境自动选后端——Electron 走 `userData/projects/<id>/{project.json,audio.bin}` 文件后端（ipcMain + 原子写 + id 白名单），浏览器照旧 IndexedDB；grill 定案无设置项。音频按 Blob 实例身份判重，未变声明 `keep` 不重传字节（防抖保存不再重写大音频）；首启静默迁移 IndexedDB→文件后端（幂等、原数据保留备份）。`ChartProjectStore` API 兼容、Editor 零改动。tsc 0 / 277 测试全过 / build 绿；Electron 手工验收清单见 issue。
+- [45 判定线滚动模型深模块](./issues/45-判定线滚动模型深模块.md) — **resolved（2026-08-29，架构深化评审候选 1 收口）**：把「判定线此刻对应第几秒」的 秒↔scrollY↔滚动条 映射 + 按秒重锚状态机 + 有效缩放钳制，从 2 组件 + 2 纯模块 + ref 协议 收敛为单一深模块 `src/utils/PlaybackScrollModel.ts`（纯逻辑、node 可单测）。Editor 只应用 DOM scrollTop / 驱动画布，FinalVirtualCanvas 的 imperative handle 收窄到 `setScrollY`+起点标记（删除 6 个 秒↔scrollY 数学方法，ref 协议 seam 消除）。issue 24 重锚 + issue 38 缩放钳制的实现归位。新增 15 单测；tsc 0 / 315 测试全过 / build 绿 / lint 无新增错误；浏览器实测 issue 24 不变量（谱面拉长后判定线处秒数稳定不跳尾）成立。候选 2（播放协调模块）的地基。
 
 
 

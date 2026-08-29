@@ -1,0 +1,159 @@
+// 播放滚动模型（架构深化评审候选 1，2026-08-29）：把「判定线此刻对应第几秒」这条命脉
+// 从 2 组件 + 2 纯模块 + ref 协议 收敛为单一深模块。
+//
+// 之前（Before）：
+//   - Editor.tsx 拥有 RAF 循环 / 滚动条 onScroll / 两个重锚 effect / 4 个滚动 ref；
+//   - FinalVirtualCanvas.tsx 经 imperative ref 暴露 6 个 秒↔scrollY 数学方法；
+//   - 数学本身散在 ChartGeometry（beat↔virtualY）与 AudioTiming（秒↔beat）。
+// 理解「此刻第几秒」要跳 4 个文件，且无法脱离 DOM/RAF/ref 单测。
+//
+// 现在（After）：
+//   - 本模块 = 唯一实现 seconds↔scrollY↔滚动条 映射 + 按秒重锚状态机 + 有效缩放钳制；
+//   - Editor 只把本模块的结果【应用到 DOM】（scrollTop）与【让画布跟随】（setScrollY）；
+//   - FinalVirtualCanvas 的 imperative handle 收窄到 setScrollY + 起点标记（无秒↔scrollY 数学）。
+//
+// 坐标系不变量（ADR-0004 §1 + ADR-0006 §2，实现映射自原 FinalVirtualCanvas ref 方法，逐条等价）：
+//   判定线 = 画布【底边】= 虚拟 Y surface.h/scale（渲染面底边）。
+//   scrollY ∈ [0, chartEndVirtualY]：
+//     scrollY = 0            → 判定线处 = 谱面末端（最顶端）
+//     scrollY = chartEndY    → 判定线处 = beat 0（最底端）
+//   原画布 getScrollYForPlaybackSeconds：beatToVirtualY(beat) - surf.h/scale，钳制到同一区间。
+//   原画布 getPlaybackSecondsForScrollY：virtualYToBeat(scrollY + surf.h/scale) → beatToSeconds。
+//   两者经 geometry 的 timeline 严格互逆（BpmTimeline 分段线性，positionOfBeat/beatOfPosition 对偶）。
+//
+// 纯逻辑：只依赖注入的 ChartGeometry + 用户缩放 scale，node 环境可单测。
+import type { ChartGeometry } from './ChartGeometry';
+import { secondsToBeat, beatToSeconds, type BpmEvent } from './AudioTiming';
+
+export interface ReAnchorTarget {
+  /** 画布虚拟 scrollY（判定线处=锚点秒）。 */
+  scrollY: number;
+  /** 滚动条 DOM scrollTop（scrollY 经滚动范围映射到 [0, maxScroll]）。 */
+  scrollTop: number;
+}
+
+/** 谱面实际可滚范围（ADR-0004 §3 修订：滚动条只覆盖谱面长度，无空白）。 */
+export interface ScrollRange {
+  top: number;
+  bottom: number;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+export class PlaybackScrollModel {
+  private geometry: ChartGeometry;
+  private scale: number;
+
+  // 按秒重锚状态机（issue 24 三段式，从 Editor 的 4 个 ref 收敛）：
+  private initialized = false;      // 首次虚拟高度就绪并初始滚动后才允许重锚
+  private playing = false;          // 播放中 RAF 独占滚动，重锚让位
+  private anchorSeconds = 0;        // 「判定线处秒数」实时锚点
+  private pendingAnchorKey: string | null = null; // 待重锚标记（chartEndKey）
+
+  constructor(geometry: ChartGeometry, scale: number) {
+    this.geometry = geometry;
+    this.scale = scale;
+  }
+
+  /** 谱面/时长/渲染面/缩放变化时注入新几何与缩放（同实例，状态机状态保留）。 */
+  configure(geometry: ChartGeometry, scale: number): void {
+    this.geometry = geometry;
+    this.scale = scale;
+  }
+
+  // ---------------- 三域互映：seconds ↔ scrollY ↔ scrollTop ----------------
+
+  /** 谱面末端虚拟高度 = 可滚 scrollY 上限（= 原 getVirtualHeight / getMaxScrollY 的钳制上界）。 */
+  maxCanvasScrollY(): number {
+    return this.geometry.chartEndVirtualY;
+  }
+
+  /** 判定线=画布底边：scrollY=0 时判定线在末端，scrollY=chartEndY 时判定线在 beat0。 */
+  scrollYForSeconds(seconds: number): number {
+    const beat = secondsToBeat(this.geometry.bpmEvents as BpmEvent[], seconds);
+    const raw = this.geometry.chartEndVirtualY - this.geometry.timeline.positionOfBeat(beat);
+    return clamp(raw, 0, this.maxCanvasScrollY());
+  }
+
+  /** scrollY → 判定线处秒数（与 scrollYForSeconds 互逆）。 */
+  secondsForScrollY(scrollY: number): number {
+    const clamped = clamp(scrollY, 0, this.maxCanvasScrollY());
+    // 判定线虚拟 Y = scrollY + surface.h/scale（画布底边）
+    const judgeLineVirtualY = clamped + this.geometry.surface.h / this.effectiveScale();
+    const beat = this.geometry.virtualYToBeat(judgeLineVirtualY, this.scale);
+    return beatToSeconds(this.geometry.bpmEvents as BpmEvent[], beat);
+  }
+
+  /** 谱面实际可滚范围（top=末端、bottom=起点，无空白）。 */
+  scrollRange(): ScrollRange {
+    const bottom = this.maxCanvasScrollY();
+    return { top: 0, bottom };
+  }
+
+  /** 虚拟总高（scrollHeight 基准，Editor 的 .virtual-content 高度）。 */
+  virtualHeight(): number {
+    return this.geometry.totalVirtualHeight(this.scale);
+  }
+
+  /** 滚动条 DOM scrollTop → 画布虚拟 scrollY（ADR-0004 §3 修订：按谱面实际范围线性映射）。 */
+  scrollTopToCanvasScrollY(scrollTop: number, maxScroll: number): number {
+    if (maxScroll <= 0) return 0;
+    const { top, bottom } = this.scrollRange();
+    const span = Math.max(1, bottom - top);
+    const ratio = clamp(scrollTop / maxScroll, 0, 1);
+    return top + ratio * span;
+  }
+
+  /** 画布虚拟 scrollY → 滚动条 DOM scrollTop（scrollTopToCanvasScrollY 互逆）。 */
+  canvasScrollYToScrollTop(scrollY: number, maxScroll: number): number {
+    if (maxScroll <= 0) return 0;
+    const { top, bottom } = this.scrollRange();
+    const span = Math.max(1, bottom - top);
+    const ratio = clamp((scrollY - top) / span, 0, 1);
+    return ratio * maxScroll;
+  }
+
+  // ---------------- 有效缩放钳制（issue 38 / ADR-0006 Q4=A） ----------------
+
+  /** 有效缩放 = min(用户 scale, fitWidth(surface.w))，委托 ChartGeometry 单一实现。 */
+  effectiveScale(): number {
+    return this.geometry.effectiveScale(this.scale);
+  }
+
+  // ---------------- 按秒重锚状态机（issue 24） ----------------
+
+  markInitialized(): void { this.initialized = true; }
+  setPlaying(v: boolean): void { this.playing = v; }
+  /** 当前锚点秒数（供诊断/回写）。 */
+  getAnchorSeconds(): number { return this.anchorSeconds; }
+
+  /** 谱面末端变化源（时长/BPM/surface）变化时置位待重锚。
+   *  未初始化或播放中不置位（播放中 RAF 独占滚动）。 */
+  noteChartEndChange(chartEndKey: string): void {
+    if (!this.initialized || this.playing) return;
+    this.pendingAnchorKey = chartEndKey;
+  }
+
+  /** 正常浏览/缩放/播放时滚动观察：非待重锚期据此刷新锚点秒数。
+   *  待重锚期（pending）时【跳过】——新几何下的 scrollY 不能覆盖旧锚点（否则跳尾）。 */
+  noteScrollObserved(scrollY: number): void {
+    if (this.pendingAnchorKey == null) {
+      this.anchorSeconds = this.secondsForScrollY(scrollY);
+    }
+  }
+
+  /** virtualHeight 就绪后消费待重锚项：按锚点秒重算 scrollY 与 scrollTop 并清 pending。
+   *  返回 null = 无待重锚 / 播放中 / maxScroll 未就绪。
+   *  重锚后同步锚点（读回新几何下的实际秒），避免后续观察读到漂移值。 */
+  takePendingReAnchor(maxScroll: number): ReAnchorTarget | null {
+    if (!this.initialized || this.playing) return null;
+    const pending = this.pendingAnchorKey;
+    if (pending == null) return null;
+    this.pendingAnchorKey = null;
+    if (maxScroll <= 0) return null; // 与现实现一致：清 pending 但本次跳过
+    const scrollY = this.scrollYForSeconds(this.anchorSeconds);
+    const scrollTop = this.canvasScrollYToScrollTop(scrollY, maxScroll);
+    this.anchorSeconds = this.secondsForScrollY(scrollY);
+    return { scrollY, scrollTop };
+  }
+}

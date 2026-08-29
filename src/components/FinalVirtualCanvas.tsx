@@ -3,7 +3,7 @@ import type { ChartNote, SelectionItem } from "../notes/Charts";
 import CanvasSpriteIcon from './CanvasSpriteIcon';
 import { handleNoteReplacement, handleSlideToSlideCombination } from '../utils/NoteReplacementRules';
 import { deleteSelection } from '../utils/SelectionEditing';
-import { getBpmEvents, secondsToBeat, beatToSeconds, chartLengthToEndBeat, type BpmEvent } from '../utils/AudioTiming';
+import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../utils/AudioTiming';
 import {
   ChartGeometry, LANES, LANE_WIDTH,
   DEFAULT_SURFACE, TRACK_CHROME_TOTAL, type SurfaceSize,
@@ -28,6 +28,21 @@ interface FinalVirtualCanvasProps {
   active?: boolean;
 }
 
+/**
+ * 画布 imperative 句柄（架构深化评审候选 1 收窄）：只暴露 Editor 需要让画布【跟随】的动作与
+ * 起点标记状态；秒↔scrollY↔滚动条 的数学全部收敛到 PlaybackScrollModel，不再经此 ref 协议跨组件调用。
+ */
+export interface FinalVirtualCanvasHandle {
+  /** 应用目标 scrollY（画布跟随）：值由 PlaybackScrollModel 计算，画布内部钳制到可滚范围。 */
+  setScrollY: (scrollY: number) => void;
+  /** 起点标记（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除。 */
+  getMarkerBeat?: () => number | null;
+  setMarkerBeat?: (beat: number | null) => void;
+  getMarkerSelected?: () => boolean;
+  setMarkerSelected?: (sel: boolean) => void;
+  clearMarker?: () => void;
+}
+
 // 视口缩放配置
 const MAX_SCALE = 3.0;
 const MIN_SCALE = 0.1;
@@ -41,7 +56,7 @@ const bpmEventsContentEqual = (a: readonly BpmEvent[], b: readonly BpmEvent[]) =
  * 渲染/命中/坐标全部收敛到 src/renderer 纯模块，本组件只保留：
  * 挂载/canvas 生命周期/皮肤加载、事件绑定、视图状态(viewport)、坐标薄封装、imperative 方法。
  */
-const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
+const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanvasProps>(({
     onScrollChange,
     chartEndSeconds,
     surface,
@@ -137,7 +152,7 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const spriteIcon = useRef<CanvasSpriteIcon>(new CanvasSpriteIcon());
 
-    // 暴露方法给父组件
+    // 暴露方法给父组件（候选 1 收窄：只留 setScrollY 跟随 + 起点标记；秒↔scrollY 数学归 PlaybackScrollModel）
     useImperativeHandle(ref, () => ({
         setScrollY: (scrollY: number) => {
             setViewport(prev => {
@@ -148,34 +163,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
                     scrollY: newScrollY
                 };
             });
-        },
-        getScrollY: () => viewport.scrollY,
-        getVirtualHeight: () => viewport.virtualHeight,
-        // 虚拟画布可滚动的最大范围（供父组件滚动条做线性映射）
-        getMaxScrollY: () => {
-            const scaledBounds = getScaledVirtualBounds(viewport.scale);
-            return Math.max(0, scaledBounds.maxY - surf.h / viewport.scale);
-        },
-        // 播放跟随（ADR-0004 §1）：给定播放位置(秒) → 目标 scrollY（使判定线压在底部=渲染面底边）
-        getScrollYForPlaybackSeconds: (seconds: number) => {
-            const beat = secondsToBeat(getSortedBpmEvents(), seconds);
-            const targetScrollY = beatToVirtualY(beat) - surf.h / viewport.scale;
-            const scaledBounds = getScaledVirtualBounds(viewport.scale);
-            return Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / viewport.scale, targetScrollY));
-        },
-        // 播放跟随反向（拖动滚动条=seek）：给定 scrollY → 判定线处对应播放位置(秒)
-        getPlaybackSecondsForScrollY: (scrollY: number) => {
-            const virtualY = scrollY + surf.h / viewport.scale;
-            const beat = virtualYToBeat(virtualY);
-            return beatToSeconds(getSortedBpmEvents(), beat);
-        },
-        // 谱面可用滚动范围（ADR-0004 §3 修订：滚动条随谱面长度自适应，无空白）
-        getChartScrollRange: () => {
-            const sb = getScaledVirtualBounds(viewport.scale);
-            const clamp = (y: number) => Math.max(sb.minY, Math.min(sb.maxY - surf.h / viewport.scale, y));
-            const bottom = clamp(beatToVirtualY(0) - surf.h / viewport.scale);
-            const top = clamp(beatToVirtualY(chartEndBeat) - surf.h / viewport.scale);
-            return { top, bottom };
         },
         // 起点标记访问（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除
         getMarkerBeat: () => markerBeat,
@@ -211,8 +198,6 @@ const FinalVirtualCanvas = forwardRef<any, FinalVirtualCanvasProps>(({
     }, [notes, chartEndBeat, surf, verticalRatio]);
     // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它
     const chartEndVirtualY = geometry.chartEndVirtualY;
-    // 与 AudioTiming 共享同一 BPM 事件表（时间→beat 与 beat→Y 都用同一事件表，保证预览线对齐）
-    const getSortedBpmEvents = () => geometry.bpmEvents as BpmEvent[];
 
     // 坐标变换（薄封装，保持既有调用签名不变；内部均为 O(log BPM) 缓存查询）
     const getScaledVirtualBounds = (scale: number) => geometry.scaledVirtualBounds(scale);

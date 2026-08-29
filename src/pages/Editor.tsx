@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
 import Toolbar from '../components/Toolbar';
-import FinalVirtualCanvas from '../components/FinalVirtualCanvas';
+import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../components/FinalVirtualCanvas';
 import NoteInfoPanel from '../components/NoteInfoPanel';
 import IconButton from '../components/IconButton';
 import { resolveAction, isCapturingShortcut, type FunctionId } from '../utils/ShortcutConfig';
 import { AudioEngine } from '../utils/AudioEngine';
-import { getBpmEvents, beatToSeconds, secondsToBeat } from '../utils/AudioTiming';
+import { getBpmEvents, beatToSeconds, secondsToBeat, chartLengthToEndBeat } from '../utils/AudioTiming';
 import { ChartProjectStore, DEFAULT_PROJECT_ID } from '../utils/ChartProject';
 import { keySoundSetById } from '../utils/KeySound';
 import PlayBar from '../components/PlayBar';
@@ -15,7 +15,10 @@ import { useAudioPageRegister } from '../contexts/AudioPageContext';
 import { MAX_DURATION_SECONDS } from '../utils/AppSettings';
 import { countChartNotes } from '../utils/NoteEditing';
 import { AppNav, useAppNav } from './AppNav';
-import { DEFAULT_SURFACE, type SurfaceSize } from '../utils/ChartGeometry';
+import {
+  ChartGeometry, DEFAULT_SURFACE, type SurfaceSize,
+} from '../utils/ChartGeometry';
+import { PlaybackScrollModel } from '../utils/PlaybackScrollModel';
 
 interface EditorProps {
   // 入口直达（ADR-0003 §2 + issue 27）：Editor 不再接收 song/onBack，音频由音频面板管理
@@ -81,7 +84,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const playbackRafRef = useRef<number | undefined>(undefined);
   const isPlayingRef = useRef(false);
   const durationRef = useRef(ctxDuration);
-  const lastTargetScrollYRef = useRef(0);
 
   // 谱面工程持久化（ADR-0005 §2/§6）：IndexedDB 键值表，无音频也恢复时长/音符；音频加载即写、编辑防抖落盘
   const chartProjectStoreRef = useRef<ChartProjectStore | null>(null);
@@ -101,19 +103,18 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const [audioName, setAudioName] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
 
-  // 滚动同步相关：滚动条是滚动位置的唯一来源，虚拟画布只跟随滚动条
+  // 滚动同步相关（架构深化评审候选 1）：秒↔scrollY↔滚动条映射 + 按秒重锚状态机 收敛到深模块
+  // PlaybackScrollModel（src/utils/PlaybackScrollModel.ts），可脱离 DOM/RAF/ref 协议单测。
+  // Editor 只把模型结果【应用到 DOM】（scrollTop）与【让画布跟随】（setScrollY），不再自己算。
+  const scrollModelRef = useRef<PlaybackScrollModel | null>(null);
+  if (!scrollModelRef.current) scrollModelRef.current = new PlaybackScrollModel(new ChartGeometry([], 0), scale);
+  const scrollModel = scrollModelRef.current;
+  // 首帧初始滚动（.virtual-content 高度就绪后置底=beat0）只执行一次
   const initialScrollDone = useRef(false);
-  // issue24：实时记录"判定线处秒数"，供谱面长度变化后按秒数重新锚定滚动位置。
-  // 应用谱面代码/改时长/BPM 事件会改变 chartEndVirtualY → 同一画布 scrollY 会映射到不同秒数，
-  // 须在变化后按此秒数重算 scrollTop（不随谱面末端漂移到结尾）。
-  const lastScrollSecondsRef = useRef(0);
-  // issue24：待重锚标记。chartEnd 变化时置位，virtualHeight 就绪后真正执行按秒重锚。
-  // 声明在 handleVirtualScrollChange 之前，供其在"非待重锚"时同步锚点秒数。
-  const pendingAnchorKeyRef = useRef<string | null>(null);
 
   // 谱面画布容器引用
   const chartAreaRef = useRef<HTMLDivElement>(null);
-  const virtualCanvasRef = useRef<any>(null);
+  const virtualCanvasRef = useRef<FinalVirtualCanvasHandle>(null);
 
   // 渲染面尺寸（ADR-0006 §1）：随谱面画布容器变化，经 ResizeObserver 提供；缓冲 = surface × dpr
   // issue 36：窗口连续缩放期间 RO 每帧回调 setSurface → 几何重建 + 缓冲/重锚链（3000+ 音符下体感卡顿），
@@ -179,26 +180,26 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     };
   }, []);
 
-  // 处理虚拟画布滚动变化：仅记录虚拟高度，配合滚动条映射。
-  // 同步更新"判定线处秒数"锚点（issue24）：正常浏览/缩放/播放时，凡画布 scrollY 变化都据此
-  // 刷新 lastScrollSecondsRef，避免它只依赖 DOM 滚动事件而在缩放/播放/初始定位后失准。
-  // 但谱面变更（chartEndKey 变化）进入待重锚期间，画布几何已是新值——此时不得用新几何覆盖旧锚点，
-  // 否则按秒重锚会读到漂移值（跳尾）。故仅在 pendingAnchorKeyRef 为空（无待重锚）时同步。
+  // 处理虚拟画布滚动变化：记录虚拟高度（供 .virtual-content），并把画布 scrollY 喂给滚动模型做锚点观察。
+  // 锚点观察的 SKIP 保护（待重锚期不得用新几何覆盖旧锚点）由模型 noteScrollObserved 内部处理（issue 24）。
   // 必须 useCallback([]) 保持引用稳定：否则每个 Editor 渲染都会生成新函数引用 → FinalVirtualCanvas
-  // 的 onScrollChange effect 每帧触发 → 在导入代码那次渲染中会【早于】Editor 的 [chartEndKey]
-  // effect 置位 pending 之前就调用本函数，此时 pending==null 会拿【新几何】覆盖旧锚点（SKIP 失效）。
-  // 引用稳定后，onScrollChange 仅在 viewport.scrollY/virtualHeight 真正变化时触发，
-  // 而此时 pendingAnchorKeyRef 必已置位，SKIP 才能可靠保护锚点。
+  // 的 onScrollChange effect 每帧触发 → 在导入代码那次渲染中会【早于】下方 [chartEndKey] effect 置位
+  // pending 之前就调用本函数，此时 pending==null 会拿【新几何】覆盖旧锚点（SKIP 失效）。
+  // 引用稳定后，onScrollChange 仅在 viewport.scrollY/virtualHeight 真正变化时触发，pending 必已置位，SKIP 生效。
   const handleVirtualScrollChange = useCallback((scrollY: number, height: number) => {
     setVirtualHeight(height);
-    if (pendingAnchorKeyRef.current == null) {
-      const secs = virtualCanvasRef.current?.getPlaybackSecondsForScrollY?.(scrollY);
-      if (secs != null) lastScrollSecondsRef.current = secs;
-    } else {
-      // 谱面变更待重锚期间：不得用新几何覆盖旧锚点
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    scrollModelRef.current?.noteScrollObserved(scrollY);
   }, []);
+
+  // 谱面几何（BPM 事件 + 谱面末端 beat + 渲染面 + 纵向比例）→ 注入滚动模型。
+  // 每次渲染同步最新值：缩放/渲染面/谱面时长/BPM 变化都会重建几何并 configure 模型，
+  // 模型状态机状态（锚点/待重锚）保留在同一实例上。
+  const verticalRatio = settings.display.verticalRatio;
+  const scrollGeometry = useMemo(() => {
+    const bpmEvents = getBpmEvents(notes);
+    return new ChartGeometry(bpmEvents, chartLengthToEndBeat(bpmEvents, ctxDuration), surface, verticalRatio);
+  }, [notes, ctxDuration, surface, verticalRatio]);
+  scrollModel.configure(scrollGeometry, scale);
 
   // 设置虚拟内容高度，并在首次设置时把滚动条放到最底部（起始拍位置）
   useEffect(() => {
@@ -210,70 +211,42 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     if (!initialScrollDone.current) {
       scrollContainer.scrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
       initialScrollDone.current = true;
+      // 初始滚动（=beat0/起点）就绪后，模型开始允许按秒重锚
+      scrollModel.markInitialized();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtualHeight]);
 
-  // 滚动条 ↔ 画布 scrollY 的偏移映射（ADR-0004 §3 修订：滚动条只覆盖谱面实际长度，无空白）。
-  const chartRangeOf = () => {
-    const canvas = virtualCanvasRef.current;
-    const range = canvas?.getChartScrollRange?.() ?? null;
-    const base = range ? range.top : 0;
-    const span = range ? Math.max(1, range.bottom - range.top) : (canvas?.getMaxScrollY?.() ?? 1);
-    return { base, span };
-  };
-  const scrollTopToCanvasY = (scrollTop: number, maxScroll: number) => {
-    const { base, span } = chartRangeOf();
-    const ratio = maxScroll > 0 ? scrollTop / maxScroll : 0;
-    return base + Math.max(0, Math.min(1, ratio)) * span;
-  };
-  const canvasYToScrollTop = (canvasScrollY: number, maxScroll: number) => {
-    const { base, span } = chartRangeOf();
-    const ratio = (canvasScrollY - base) / span;
-    return Math.max(0, Math.min(1, ratio)) * maxScroll;
-  };
-
-  // issue24：谱面末端变化源（时长 / BPM 事件）的唯一标识。仅当这些变化时才按秒重锚，
-  // 普通放音符/改长度不改 BPM、缩放不触发，避免干扰缩放锚点与放音符后的正常滚动。
+  // 谱面末端变化源（时长 / BPM 事件 / 渲染面）的唯一标识。仅当这些变化时才按秒重锚，
+  // 普通放音符/缩放不触发（缩放走 viewport.scale 同步，不改变判定线处秒数语义）。
   const chartEndKey = useMemo(() => {
     const bpm = getBpmEvents(notes).map(e => `${e.beat}:${e.bpm}`).join(',');
     // 并入渲染面尺寸（ADR-0006 §3）：resize 时同样按秒重锚，保证判定线处秒数不变
     return `${ctxDuration}|${bpm}|${surface.w}x${surface.h}`;
   }, [notes, ctxDuration, surface]);
 
-  // issue24：chartEnd 变化（应用谱面代码/改时长/BPM 事件）后，按 lastScrollSecondsRef 的
-  // 秒数重新锚定 DOM 滚动条与画布 scrollY，避免同一 scrollY 因 chartEndVirtualY 变化而漂移到结尾。
-  //
-  // 关键时序：chartEnd 变化 → FinalVirtualCanvas 的 chartEndVirtualY 变化 → onScrollChange 把
-  // 新的 virtualHeight 回写 Editor → Editor 设置 .virtual-content 高度 → scrollHeight 才更新到位。
-  // 这条链跨多帧，若在 chartEnd 变化当帧立即用过期 maxScroll 重锚，时长不一致时会错算到偏结尾。
-  // 因此这里只「标记待重锚」，真正重锚放到 virtualHeight 就绪的 effect（下方）执行。
+  // 谱面末端变化（应用代码/改时长/BPM/surface）→ 模型置位待重锚（未初始化或播放中跳过）。
   useEffect(() => {
-    if (!initialScrollDone.current || isPlayingRef.current) return;
-    pendingAnchorKeyRef.current = chartEndKey;
+    scrollModel.noteChartEndChange(chartEndKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartEndKey]);
 
-  // issue24：virtualHeight 就绪（DOM 高度已设置、scrollHeight 为最新）后，若存在待重锚项则执行。
-  // 该 effect 依赖 virtualHeight：chartEnd 变化必然带来 virtualHeight 变化（缩放也会变，但缩放时
-  // pendingAnchorKeyRef 为 null 直接返回，不影响缩放锚点）。重锚后同步 lastScrollSecondsRef，避免
-  // 随后触发的 onScroll 读到漂移值。
+  // virtualHeight 就绪（.virtual-content 高度已写、scrollHeight 为最新）后消费待重锚：
+  // 模型按锚点秒算出 scrollY/scrollTop，Editor 只把结果应用到画布与 DOM。
   useEffect(() => {
     const canvas = virtualCanvasRef.current;
     const container = chartAreaRef.current;
-    const pending = pendingAnchorKeyRef.current;
-    if (!canvas || !container || !initialScrollDone.current || pending == null) return;
-    // 播放中由 RAF 循环独占滚动，跳过重锚避免抢滚动
-    if (isPlayingRef.current) return;
-    pendingAnchorKeyRef.current = null;
+    if (!canvas || !container) return;
     const maxScroll = container.scrollHeight - container.clientHeight;
-    if (maxScroll <= 0) return;
-    const targetScrollY = canvas.getScrollYForPlaybackSeconds(lastScrollSecondsRef.current);
-    canvas.setScrollY(targetScrollY);
-    container.scrollTop = canvasYToScrollTop(targetScrollY, maxScroll);
-    lastScrollSecondsRef.current = canvas.getPlaybackSecondsForScrollY?.(targetScrollY) ?? lastScrollSecondsRef.current;
+    const target = scrollModel.takePendingReAnchor(maxScroll);
+    if (!target) return;
+    canvas.setScrollY(target.scrollY);
+    container.scrollTop = target.scrollTop;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtualHeight]);
-  // 处理滚动条变化：滚动条是唯一滚动来源，把其位置按偏移映射到画布虚拟坐标。
-  // 播放中完全锁定滚动（Bug1：不再回写 setScrollY/seek，消除"播放头↔滚动条"双向反馈自锁；Bug2：播放中禁止滚动）；
+
+  // 处理滚动条变化：滚动条是唯一滚动来源，模型把其位置映射到画布 scrollY 与判定线处秒数。
+  // 播放中完全锁定滚动（ADR-0004 §1 修订：播放头独占滚动，不回写，避免双向反馈自锁）；
   // 暂停滚动 = 设播放起点（seek 到该处但【不自动播放】，再次空格才开播）。
   const handleScrollbarChange = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.target as HTMLDivElement;
@@ -281,10 +254,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     const maxScroll = target.scrollHeight - target.clientHeight;
     if (maxScroll <= 0 || !virtualCanvasRef.current) return;
     if (isPlayingRef.current) return;
-    const canvasScrollY = scrollTopToCanvasY(scrollTop, maxScroll);
+    const canvasScrollY = scrollModel.scrollTopToCanvasScrollY(scrollTop, maxScroll);
     virtualCanvasRef.current.setScrollY(canvasScrollY);
-    const seconds = virtualCanvasRef.current.getPlaybackSecondsForScrollY?.(canvasScrollY) ?? 0;
-    lastScrollSecondsRef.current = seconds;
+    const seconds = scrollModel.secondsForScrollY(canvasScrollY);
+    scrollModel.noteScrollObserved(canvasScrollY);
     engineRef.current?.seek(seconds);
     setCurrentSeconds(seconds);
   };
@@ -415,23 +388,24 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const startPlaybackLoop = useCallback(() => {
     if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
     isPlayingRef.current = true;
+    scrollModelRef.current?.setPlaying(true);
     const loop = () => {
       if (!isPlayingRef.current) return;
       const engine = engineRef.current;
       const canvas = virtualCanvasRef.current;
-      if (!engine || !canvas) return;
+      const model = scrollModelRef.current;
+      if (!engine || !canvas || !model) return;
       const current = engine.getSeconds();
       setCurrentSeconds(current);
       if (current >= durationRef.current) {
         stopPlayback();
         return;
       }
-      const targetScrollY = canvas.getScrollYForPlaybackSeconds(current);
-      lastTargetScrollYRef.current = targetScrollY;
+      const targetScrollY = model.scrollYForSeconds(current);
       canvas.setScrollY(targetScrollY);
       if (chartAreaRef.current) {
         const maxScroll = chartAreaRef.current.scrollHeight - chartAreaRef.current.clientHeight;
-        const nextScrollTop = canvasYToScrollTop(targetScrollY, maxScroll);
+        const nextScrollTop = model.canvasScrollYToScrollTop(targetScrollY, maxScroll);
         if (Math.abs(nextScrollTop - chartAreaRef.current.scrollTop) > 0.5) {
           chartAreaRef.current.scrollTop = nextScrollTop;
         }
@@ -445,6 +419,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 停止播放 RAF 循环并冻结引擎（停在当前位置，不循环）
   const stopPlayback = useCallback(() => {
     isPlayingRef.current = false;
+    scrollModelRef.current?.setPlaying(false);
     if (playbackRafRef.current) {
       cancelAnimationFrame(playbackRafRef.current);
       playbackRafRef.current = undefined;
@@ -481,8 +456,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setCurrentSeconds(clamped);
     // 画布跟随跳转到判定线处（与播放 RAF 同类滚动；暂停时亦生效，issue 22 §7）
     const canvas = virtualCanvasRef.current;
-    if (canvas) {
-      const targetY = canvas.getScrollYForPlaybackSeconds(clamped);
+    const model = scrollModelRef.current;
+    if (canvas && model) {
+      const targetY = model.scrollYForSeconds(clamped);
       canvas.setScrollY(targetY);
     }
     if (!engine.isPlaying) {
