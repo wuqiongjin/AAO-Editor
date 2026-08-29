@@ -1,6 +1,6 @@
 # 48 src/ 目录整改：按业务域重组 + 死文件清理
 
-- **状态**：open（2026-08-29 起草）；候选 2 实施中（2026-08-29）
+- **状态**：**resolved（2026-08-29）** — 候选 1+2+3 已闭环；候选 4 评估为"不闭环"（见 Comments）
 - **类型**：整改（refactor）· 纯目录搬迁，零行为变更
 - **前置**：issue 45 / 46 / 47（音频域接缝收口）— 仓库已进入"按域深化"阶段，目录结构需要跟上
 
@@ -131,9 +131,9 @@ tools/
 | 1 | `src/` 按域重组 | Strong | 半天~1 天 |
 | 2 | `sprite-locator/` → `tools/` | Worth exploring | 1-2 小时 |
 | 3 | 删 2 个死文件 | Strong | 5 分钟 |
-| 4 | 清理 issue 45/46/47 注释残留 | Worth exploring | 30 分钟 |
+| 4 | 清理 issue 45/46/47 注释残留 | Worth exploring → **closed-wontfix** | 30 分钟（实际 1.5-2h） |
 
-**推荐执行顺序**：1 + 3 合并一个 PR（树形搬迁 + 清理），2 同周单独 PR，4 顺手做掉或后续小 PR。
+**执行结果**：1 + 3 + 2 已闭环；4 评估为不闭环（见 Comments 2026-08-29 决议）。issue 整体 resolved。
 
 ## 搬迁计划
 
@@ -698,21 +698,22 @@ src/playback/useScrollModel.ts  # 同时从 public return 移除 chartEndKey
 
 ## 执行 checklist
 
-- [ ] Step 1 删死文件
-- [ ] Step 2 建新目录骨架
-- [ ] Step 3 跨域类型抽到 `src/types/`
-- [ ] Step 4 `ProviderTree` 装配（5 个 Provider 顺序核对）
-- [ ] Step 5a-5g `chart/` 7 个子目录搬迁
-- [ ] Step 6 `chart/components/` 复合组件
-- [ ] Step 7 `Editor.tsx` 迁 `chart/` + `WorkspacePage/` 路由壳
-- [ ] Step 8a-8c 壳 + 原子 + 清空 `components/` `utils/`
-- [ ] Step 9 `audio/`
-- [ ] Step 10 `playback/`
-- [ ] Step 11 `visual/` + `gen/` 隔离
-- [ ] Step 12 `settings/`
-- [ ] Step 13 `pages/routes.tsx` 路由表
-- [ ] Step 14 全局样式归 `app/styles/`
-- [ ] Step 15 收尾校验（tsc + lint + test + grep 孤儿）
+- [x] Step 1 删死文件
+- [x] Step 2 建新目录骨架
+- [x] Step 3 跨域类型抽到 `src/types/`
+- [x] Step 4 `ProviderTree` 装配（5 个 Provider 顺序核对）
+- [x] Step 5a-5g `chart/` 7 个子目录搬迁
+- [x] Step 6 `chart/components/` 复合组件
+- [x] Step 7 `Editor.tsx` 迁 `chart/` + `WorkspacePage/` 路由壳
+- [x] Step 8a-8c 壳 + 原子 + 清空 `components/` `utils/`
+- [x] Step 9 `audio/`
+- [x] Step 10 `playback/`
+- [x] Step 11 `visual/` + `gen/` 隔离
+- [x] Step 12 `settings/`
+- [x] Step 13 `pages/routes.tsx` 路由表
+- [x] Step 14 全局样式归 `app/styles/`
+- [x] Step 15 收尾校验（tsc + lint + test + grep 孤儿）
+- [x] 候选 4 注释残留：closed-wontfix（见 Comments）
 
 ---
 
@@ -744,5 +745,23 @@ src/playback/useScrollModel.ts  # 同时从 public return 移除 chartEndKey
   - dev 烟测：`/` 返回主应用（title `bangdream-editor`），`/sprite-locator.html` 返回工具页（title `精灵图定位工具`，script 指向 `/tools/sprite-locator/main.tsx`）
 - 风险回退：本提交无回退，所有 `git mv` 保留历史；如需回退 `git revert 18c1fc0` 即可。
 - 候选 2 状态：resolved（候选 1+3 已在前序 commit 完成，候选 2 本次闭环；候选 4 注释残留留作后续 issue）
+
+### 2026-08-29 · 候选 4 评估：关掉（不闭环）
+
+- 决议：**不执行候选 4**。issue 48 整体仍标 resolved（4 个候选中 3 个强推/探索已闭环，1 个有明确"不做"决定 = 整体落定）。
+- 核验结果：issue 描述列出的 5 个文件（`AudioSession.ts` / `useAudioBridge.ts` / `AudioSessionProvider.tsx` / `AudioPage.tsx` / `Editor.tsx`）经 `grep` 无 "issue 45/46/47" / "what changed" / "迁移" 残留——**描述与现状已不对齐**（候选 1+3 落地时已顺带清掉）。
+- 真正"what changed"型注释在另一组 5 个 hook 文件（issue 46 拆钩子产物）：
+  - `src/chart/project/useChartProjectPersistence.ts:3`
+  - `src/chart/layout/useLayoutPersistence.ts:3`
+  - `src/chart/config/useShortcutDispatch.ts:3`
+  - `src/playback/usePlaybackCoordinator.ts:3`
+  - `src/playback/useScrollModel.ts:3`
+  - 另 1 处：`src/app/providers/AudioSessionRoot.tsx:1` 顶部 "issue 47 收口，issue 48 整改迁位" 标记。
+- 不做理由：
+  1. 每行"拆出 Editor.tsx 内 ~X 行"紧跟"行为保持"清单——是 issue 46 故意保留的"commit 故事"，让后来人 5 秒看懂 hook 边界。删了等于毁掉拆钩子的考古资料，未来重拆/合并时无从下手。
+  2. `useScrollModel` 移除 `chartEndKey` 属于接口收紧，非"清注释"，需审计消费方 — 跟候选 4 标题不一致，独立 refactor。
+  3. 真实工作量 ≈ 1.5-2h（5 hook + 1 Provider + 接口收紧 + 测试），与"30 分钟"估价不符。
+- 后路：若未来要清理，建独立小 PR 改这 5 个 hook 顶部第 3 行注释（保留"行为保持"清单），`useScrollModel` 接口收紧另立 issue。
+- 候选 4 状态：**closed-wontfix**
 
 
