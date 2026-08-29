@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react';
-import Editor from '../chart/Editor';
-import AudioPage from '../audio/AudioPage';
-import SettingsPage from '../settings/SettingsPage';
-import ShortcutsPage from '../settings/ShortcutsPage';
-import AssetsPage from '../visual/AssetsPage';
 import { AppNavProvider, AppNav, type PageId } from './AppNav';
+import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
 import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
 import './AppShell.css';
 
@@ -13,6 +9,7 @@ import './AppShell.css';
 // - 工作台（Editor）黑盒接入（Q16）：仅传 active 表面契约（失活时暂停播放并抑制其全局输入）。
 // - 导航与工作台左侧工具面板合成同一左列（issue 28 第 2 轮）：工作台页由 Editor 内渲染导航，
 //   非工作台页由本壳渲染独立导航列；导航不再单独挤压画布。
+// - 路由层归 src/pages/PageRegistry.tsx：AppShell 不直接 import 各 page 文件。
 
 const NAV_ITEMS: Array<{ id: PageId; label: string; shortcut: string }> = [
   { id: 'workspace', label: '工作台', shortcut: '⇧⌘1' },
@@ -21,6 +18,8 @@ const NAV_ITEMS: Array<{ id: PageId; label: string; shortcut: string }> = [
   { id: 'shortcuts', label: '快捷键', shortcut: '⇧⌘4' },
   { id: 'settings', label: '设置', shortcut: '⇧⌘5' },
 ];
+
+const PAGE_IDS = Object.keys(PAGE_REGISTRY) as PageId[];
 
 export default function AppShell() {
   const [activePage, setActivePage] = useState<PageId>('workspace');
@@ -59,22 +58,10 @@ export default function AppShell() {
         )}
 
         <section className="app-surface">
-          {/* 保活挂载：五页始终渲染，仅激活页可见；工作台失活时由 active 表面契约暂停播放/抑制输入 */}
-          <div className={`app-page${activePage === 'workspace' ? ' is-active' : ''}`} aria-hidden={activePage !== 'workspace'}>
-            <Editor active={activePage === 'workspace'} />
-          </div>
-          <div className={`app-page${activePage === 'audio' ? ' is-active' : ''}`} aria-hidden={activePage !== 'audio'}>
-            <AudioPage />
-          </div>
-          <div className={`app-page${activePage === 'settings' ? ' is-active' : ''}`} aria-hidden={activePage !== 'settings'}>
-            <SettingsPage />
-          </div>
-          <div className={`app-page${activePage === 'shortcuts' ? ' is-active' : ''}`} aria-hidden={activePage !== 'shortcuts'}>
-            <ShortcutsPage />
-          </div>
-          <div className={`app-page${activePage === 'assets' ? ' is-active' : ''}`} aria-hidden={activePage !== 'assets'}>
-            <AssetsPage />
-          </div>
+          {/* 保活挂载：所有 page 始终渲染，仅激活页可见；工作台失活时由 active 表面契约暂停播放/抑制输入 */}
+          {PAGE_IDS.map(id => (
+            <PageSlot key={id} id={id} active={activePage === id} />
+          ))}
         </section>
       </div>
     </AppNavProvider>
