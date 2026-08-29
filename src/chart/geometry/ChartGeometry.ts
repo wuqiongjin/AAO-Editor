@@ -9,12 +9,10 @@ import { BpmTimeline, type BpmTimelineEvent } from './BpmTimeline';
 export const LANES = 7;
 export const BEAT_HEIGHT = 220; // 基准节拍高度
 export const LANE_WIDTH = 30;
-// 默认渲染面（无 surface 传入时的兜底，兼容既有测试与旧行为）
-export const DEFAULT_SURFACE = { w: 750, h: 900 };
-export const CANVAS_WIDTH = DEFAULT_SURFACE.w; // 兼容旧导出（= 默认渲染面宽）
-export const CANVAS_HEIGHT = DEFAULT_SURFACE.h; // 兼容旧导出（= 默认渲染面高）
-// 判定线（ADR-0004 §1 + ADR-0006 §2 修订）：固定画布【下边边缘】，谱面随播放上移。
-// 渲染面尺寸动态化后，判定线偏移 = surface.h，不再用固定常量。
+// issue 50：渲染面无默认值。ResizeObserver 必须先回调才能构造 ChartGeometry（语义诚实）。
+// 旧的 DEFAULT_SURFACE / CANVAS_WIDTH / CANVAS_HEIGHT 已删除（grep 确认外部无引用）。
+export const CANVAS_ASPECT = 5 / 6; // 画布宽高比（FinalVirtualCanvas min 维度算法用）
+// 判定线（ADR-0004 §1 + ADR-0006 §2 修订 + issue 50 删除绘制）：不再有视觉判定线；音符越过 chartArea 底边即被判定。
 // 轨道外壳/chrome 总宽度（原 12 处魔法表达式 (1+4+1+1+1+1) 收敛；轨道左右各一份）
 export const TRACK_CHROME_TOTAL = 1 + 4 + 1 + 1 + 1 + 1;
 // 视口剔除的上下左右外扩（虚拟单位）
@@ -62,7 +60,7 @@ export class ChartGeometry {
   /** 纵向比例（issue 39 #5）：每小节纵向高度的标量，0.5..2.0；默认 1 */
   readonly verticalRatio: number;
 
-  constructor(bpmEvents: readonly BpmTimelineEvent[], chartEndBeat: number, surface: SurfaceSize = DEFAULT_SURFACE, verticalRatio = 1) {
+  constructor(bpmEvents: readonly BpmTimelineEvent[], chartEndBeat: number, surface: SurfaceSize, verticalRatio = 1) {
     this.bpmEvents = bpmEvents;
     this.chartEndBeat = chartEndBeat;
     this.surface = surface;

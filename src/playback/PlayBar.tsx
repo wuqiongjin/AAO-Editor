@@ -84,7 +84,6 @@ export default function PlayBar({
       padding: '0 var(--space-3)',
       fontSize: 'var(--text-xs)',
       flexShrink: 0,
-      borderTop: '1px solid var(--border)',
     }}>
       {/* 播放/暂停 */}
       <button

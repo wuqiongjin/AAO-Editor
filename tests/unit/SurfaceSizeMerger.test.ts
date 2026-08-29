@@ -129,9 +129,9 @@ describe('SurfaceSizeMerger · 卸载 / flush', () => {
 describe('SurfaceSizeMerger · getCommitted 状态可读', () => {
   afterEach(() => { vi.useRealTimers(); });
 
-  it('反映最近一次 commit（无 commit 时为 DEFAULT_SURFACE）', () => {
+  it('反映最近一次 commit（无 commit 时为 null）', () => {
     const m = new SurfaceSizeMerger();
-    expect(m.getCommitted()).toEqual({ w: 750, h: 900 });
+    expect(m.getCommitted()).toBeNull();
     m.feed({ w: 600, h: 500 });
     expect(m.getCommitted()).toEqual({ w: 600, h: 500 });
     m.destroy();

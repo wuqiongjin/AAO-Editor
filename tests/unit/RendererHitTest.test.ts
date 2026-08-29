@@ -5,10 +5,12 @@ import { findItemAt, computeItemsInBox, pointInQuad, type HitTestDeps } from '..
 import type { ChartNote } from '../../src/chart/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
+// issue 50：测试用默认 surface（旧 DEFAULT_SURFACE 值）
+const TEST_SURFACE = { w: 750, h: 900 };
 
 /** 构造一个 scale=1、scrollY=0 的视图，画布坐标 == 虚拟坐标（x 含 trackBgX 偏移） */
 function makeDeps(notes: ChartNote[], chartEndBeat = 100): { deps: HitTestDeps; viewport: { scrollX: number; scrollY: number; scale: number }; canvas: (lane: number, beat: number, subBeat?: number) => { x: number; y: number } } {
-  const geometry = new ChartGeometry(bpm120, chartEndBeat);
+  const geometry = new ChartGeometry(bpm120, chartEndBeat, TEST_SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
   const beatDisplay = 4;
   const canvas = (lane: number, beat: number, subBeat = 0) =>
