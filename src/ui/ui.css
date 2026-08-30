@@ -37,7 +37,7 @@
 
 /* ============================================================
    ActionBtn（src/ui/ActionBtn.tsx）
-   variant: 默认（中性描边）| primary（玫红实底）| danger（危险）
+   variant: 默认（中性描边）| primary（深青蓝实底+白字）| danger（危险）
    ============================================================ */
 .action-btn {
   padding: var(--space-2) var(--space-3);
@@ -56,18 +56,18 @@
 }
 
 .action-btn--primary {
-  background-color: var(--accent);
-  color: var(--text-on-accent);  /* 最深档蓝 #06324a，确保蓝底白底上都看清（亮 #06324a / 暗 #fff） */
+  /* 基色 --accent-btn（亮 #075e83 / 暗 #0369a1）+ 白字 5.0-5.83:1（WCAG AA）。
+     旧版 --accent 蓝底 + --text-on-accent 深蓝字同为蓝色感知对比弱，"更换音频"按钮黑字看不清。 */
+  background-color: var(--accent-btn);
+  color: var(--accent-btn-text);
   border-color: transparent;
 }
 .action-btn--primary:hover:not(:disabled) {
-  background-color: var(--accent-hover);
+  background-color: var(--accent-btn-hover);
 }
 .action-btn--primary:active:not(:disabled) {
-  background-color: var(--accent-active);
-  /* 任务 2 v6（2026-08-30）：active 态用白字（--accent-active 是 #0874a3 深蓝，
-     与 --text-on-accent #06324a 几乎同色看不清；切到 #fff WCAG AA 通过）。 */
-  color: #ffffff;
+  background-color: var(--accent-btn-active);
+  color: var(--accent-btn-text);
 }
 
 .action-btn--danger {
@@ -116,10 +116,10 @@
   background-color: var(--bg-hover);
 }
 
-/* active：玫红选中态（fill 浅底 + 玫红描边 + 玫红文字） */
+/* active：选中态（浅软底 + 主色深档文字 + accent 边框，4.74:1 过 WCAG AA） */
 .icon-btn--active {
   background-color: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent);
 }
 .icon-btn--active:hover:not(:disabled) {

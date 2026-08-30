@@ -98,18 +98,15 @@ function NoteSkinPanel() {
 
   return (
     <section className="assets-panel" aria-label="音符皮肤">
-      {/* 任务 1 v5（2026-08-30）：用户原话"音符皮肤"这个标题删掉，{notePacks.length} 个统计移到
-          整包预设同一行右侧。section-heading 整块替换为只带视觉分组的分隔。 */}
+      {/* 删掉"音符皮肤"标题（与 AppPageShell.Header 重复），{notePacks.length} 移到整包预设右侧 */}
       <div className="section-heading">
         <div>
           <h2 className="visually-hidden">音符皮肤</h2>
         </div>
       </div>
 
-      {/* 任务 5 v4（2026-08-30）：整包预设区外层包 .surface-section 卡片（用户原话：
-          "素材页面也要使用这种卡片式组件吗？(类似设置页的这种卡片式的)")。
-          内部 .skin-preset card 不变（仍是 asset-set 风格），外层用 surface-section 提供
-          24px padding + bg-elevated + 1px border 视觉分组，与设置页 settings-detail 观感一致。 */}
+      {/* 整包预设外层包 .surface-section 卡片（用户原话"素材页面也要使用这种卡片式组件吗？"）。
+          内部 .skin-preset card 不变，外层 surface-section 提供 padding + bg + border 与设置页观感一致。 */}
       <section className="surface-section skin-preset-section">
         <div className="skin-section">
           <h3 className="skin-section-title">
@@ -135,8 +132,7 @@ function NoteSkinPanel() {
                   <div className="asset-set-body">
                     <div className="asset-set-head">
                       <strong>{pack.label}</strong>
-                      {/* 任务 4 v4（2026-08-30）：与键音素材包统一——应用整包 / 整包使用中 = .skin-pill。
-                          整包预设不应有"按条目覆盖"提示，简洁就是 .skin-pill 一种规格。 */}
+                      {/* 整包预设用 .skin-pill（与键音素材包统一规格）*/}
                       {active ? (
                         <span className="skin-pill is-active" aria-label="整包正在使用">
                           <Check size={12} />整包使用中
@@ -232,15 +228,9 @@ function BackgroundPanel() {
 
   return (
     <section className="assets-panel" aria-label="背景皮肤">
-      <div className="section-heading">
-        <div>
-          <h2>谱面背景皮肤</h2>
-        </div>
-        <span className="state-label">{image ? (enabled ? '使用中' : '已隐藏') : '未设置'}</span>
-      </div>
+      {/* 删除 section-heading（h2 "谱面背景皮肤" 与 AppPageShell.Header 重复；state-label 与上传卡内 EmptyState/asset-set 状态重复）。
+          assets-panel 直接装 2 个 surface-section 子卡：上传卡 + 设置卡。 */}
 
-      {/* 任务 4 v5（2026-08-30）：背景皮肤整段包 surface-section，与整包预设卡片观感一致。
-          原 .assets-panel 容器无 padding/bg，等于裸外层，违反"卡片式"整改。 */}
       <section className="surface-section bg-skin-section">
         {/* 阶段 2 空态（2026-08-30 用户拍板）：
           未上传图片时用三段式 EmptyState（图 + 标题 + 描述 + 主按钮"上传图片"）
@@ -337,60 +327,64 @@ function BackgroundPanel() {
       )}
       </section> {/* 任务 4 v5：关闭 .bg-skin-section 卡片 */}
 
-      {/* 显示范围（用户 grill 定案：默认仅轨道外，不覆盖轨道本身，不影响作谱） */}
-      <div className="settings-row">
-        <div className="settings-row__text">
-          <strong>显示范围</strong>
-          <span>仅轨道外 = 背景只出现在轨道两侧空白区，轨道区域保持原始深色，完全不影响作谱；全画布 = 沉浸式铺满（轨道区压暗）。</span>
-        </div>
-        <select
-          className="select-control"
-          value={bg?.scope ?? DEFAULT_BACKGROUND_SCOPE}
-          disabled={!image || !enabled || busy}
-          onChange={(e) => setBackgroundSkin({ scope: e.target.value as 'outsideTrack' | 'fullCanvas' })}
-          aria-label="背景显示范围"
-        >
-          <option value="outsideTrack">仅轨道外</option>
-          <option value="fullCanvas">全画布</option>
-        </select>
-      </div>
-
-      {/* 填充方式（issue 29 扩展配置 grill 定案）：cover 铺满裁剪 / contain 完整显示留黑边 */}
-      <div className="settings-row">
-        <div className="settings-row__text">
-          <strong>填充方式</strong>
-          <span>铺满裁剪 = 等比放大盖满画布、超出裁剪；完整显示 = 等比缩放到放得下、不足处留黑边（不裁剪）。</span>
-        </div>
-        <select
-          className="select-control"
-          value={bg?.fit ?? DEFAULT_BACKGROUND_FIT}
-          disabled={!image || !enabled || busy}
-          onChange={(e) => setBackgroundSkin({ fit: e.target.value as 'cover' | 'contain' })}
-          aria-label="背景填充方式"
-        >
-          <option value="cover">铺满裁剪</option>
-          <option value="contain">完整显示</option>
-        </select>
-      </div>
-
-      {/* 不透明度（issue 29 修订 2026-08-27）：图片自身 alpha 合成，越低画布原始黑色占比越多；默认 55% 与首版固定遮罩观感一致 */}
-      <div className="settings-row">
-        <div className="settings-row__text">
-          <strong>背景不透明度</strong>
-          <span>图片越透明，画布原始黑色背景占比越多。0%（纯黑）— 100%（原图全亮），默认 55%。</span>
-        </div>
-        <div className="slider-control">
-          <input
-            type="range" min={0} max={100} step={5} value={opacityPct}
+      {/* 显示范围/填充方式/不透明度 包到 surface-section 设置卡（bg-skin-settings-section），
+          与上传卡同款，形成"上传卡 + 设置卡"双卡结构。 */}
+      <section className="surface-section bg-skin-settings-section">
+        {/* 显示范围（用户 grill 定案：默认仅轨道外，不覆盖轨道本身，不影响作谱） */}
+        <div className="settings-row">
+          <div className="settings-row__text">
+            <strong>显示范围</strong>
+            <span>仅轨道外 = 背景只出现在轨道两侧空白区，轨道区域保持原始深色，完全不影响作谱；全画布 = 沉浸式铺满（轨道区压暗）。</span>
+          </div>
+          <select
+            className="select-control"
+            value={bg?.scope ?? DEFAULT_BACKGROUND_SCOPE}
             disabled={!image || !enabled || busy}
-            onChange={(e) => setBackgroundSkin({ opacity: Number(e.target.value) / 100 })}
-            aria-label="背景图不透明度"
-          />
-          <span className="slider-value">{opacityPct}%</span>
+            onChange={(e) => setBackgroundSkin({ scope: e.target.value as 'outsideTrack' | 'fullCanvas' })}
+            aria-label="背景显示范围"
+          >
+            <option value="outsideTrack">仅轨道外</option>
+            <option value="fullCanvas">全画布</option>
+          </select>
         </div>
-      </div>
 
-      <div className="flow-note"><Check size={15} />启用后立即在画布生效；「隐藏」保留图片、一键恢复，「清除」彻底删除。</div>
+        {/* 填充方式（issue 29 扩展配置 grill 定案）：cover 铺满裁剪 / contain 完整显示留黑边 */}
+        <div className="settings-row">
+          <div className="settings-row__text">
+            <strong>填充方式</strong>
+            <span>铺满裁剪 = 等比放大盖满画布、超出裁剪；完整显示 = 等比缩放到放得下、不足处留黑边（不裁剪）。</span>
+          </div>
+          <select
+            className="select-control"
+            value={bg?.fit ?? DEFAULT_BACKGROUND_FIT}
+            disabled={!image || !enabled || busy}
+            onChange={(e) => setBackgroundSkin({ fit: e.target.value as 'cover' | 'contain' })}
+            aria-label="背景填充方式"
+          >
+            <option value="cover">铺满裁剪</option>
+            <option value="contain">完整显示</option>
+          </select>
+        </div>
+
+        {/* 不透明度（issue 29 修订 2026-08-27）：图片自身 alpha 合成，越低画布原始黑色占比越多；默认 55% 与首版固定遮罩观感一致 */}
+        <div className="settings-row">
+          <div className="settings-row__text">
+            <strong>背景不透明度</strong>
+            <span>图片越透明，画布原始黑色背景占比越多。0%（纯黑）— 100%（原图全亮），默认 55%。</span>
+          </div>
+          <div className="slider-control">
+            <input
+              type="range" min={0} max={100} step={5} value={opacityPct}
+              disabled={!image || !enabled || busy}
+              onChange={(e) => setBackgroundSkin({ opacity: Number(e.target.value) / 100 })}
+              aria-label="背景图不透明度"
+            />
+            <span className="slider-value">{opacityPct}%</span>
+          </div>
+        </div>
+
+        <div className="flow-note"><Check size={15} />启用后立即在画布生效；「隐藏」保留图片、一键恢复，「清除」彻底删除。</div>
+      </section>
     </section>
   );
 }

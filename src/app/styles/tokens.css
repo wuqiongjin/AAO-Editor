@@ -36,6 +36,16 @@
   --overlay-bg: rgba(12, 14, 17, 0.5); /* 模态遮罩（暗底） */
   --focus-ring: rgba(13, 159, 214, 0.45);
 
+  /* ---- Primary 按钮专用色（2026-08-30）
+     --accent (#0d9fd6) 配 --text-on-accent (#06324a 蓝底深字) 对比度 4.55:1
+     数学过 WCAG AA，但同为蓝色感知对比极弱，"更换音频"等按钮黑字几乎看不清。
+     主按钮基色下沉到 #075e83（= 旧 accent-text），配白字 5.83:1 强对比；
+     hover/active 逐档加深，文字统一白。深色主题用 #0369a1 基色 + 白字 5.0:1。 */
+  --accent-btn: #075e83;             /* 主按钮基色（亮主题） */
+  --accent-btn-hover: #064d6e;       /* 主按钮 hover（更深一档） */
+  --accent-btn-active: #053d57;      /* 主按钮 active（最深一档） */
+  --accent-btn-text: #ffffff;        /* 主按钮文字（白，亮+暗主题都用白——亮底要深才看清） */
+
   /* ---- 语义色 ---- */
   --danger: #e5484d;
   --danger-soft: #fde3e3;
@@ -125,6 +135,12 @@
   --accent-text: #bae6fd;        /* 暗底下的主色文字，浅一档保证对比度 */
   --accent-disabled: #1e4d6b;
   --focus-ring: rgba(56, 189, 248, 0.55);
+
+  /* 主按钮色（2026-08-30）：暗主题基色下沉到 #0369a1（sky-700），配白字 5.0:1 */
+  --accent-btn: #0369a1;
+  --accent-btn-hover: #075985;
+  --accent-btn-active: #0c4a6e;
+  --accent-btn-text: #ffffff;
 
   --danger: #f4716f;
   --danger-soft: rgba(244, 113, 111, 0.14);

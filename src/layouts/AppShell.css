@@ -285,7 +285,9 @@
 }
 
 .page-intro {
-  margin-bottom: 24px;
+  /* 2026-08-30：与 AppPageShell.css 的 .app-page-shell .page-intro 同步上调到 32px。
+     历史值 24px：v6 拍板；用户再次反馈间距过紧（图 2）。 */
+  margin-bottom: 32px;
 }
 
 .page-intro > span {
@@ -406,21 +408,18 @@
   margin-top: 2px;
 }
 
-/* 键音素材包 3 列网格（issue 29 切片 4 + 2026-08-26 grill 拍板）：
-   默认 asset-set-grid 在小宽度会回退到 2 列；这里 920px 内容宽下保持 3 列。 */
+/* 键音素材包网格（issue 29 切片 4 + 2026-08-26 grill 拍板 3 列 +
+   2026-08-30 用户拍板改 2 列更扁平拉伸宽度）：
+   KEY_SOUND_SETS 只有 2 个 set（官方 + 占位），2 列每张卡更宽，
+   .asset-samples 5 个标签可在单行放下，整体高度从 3 行降到 1 行。
+   920px 内容宽下保持 2 列。 */
 .asset-set-grid.asset-set-grid-3 {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-@media (max-width: 900px) {
-  .asset-set-grid.asset-set-grid-3 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .asset-set-grid.asset-set-grid-3 {
     grid-template-columns: 1fr;
   }
@@ -654,9 +653,11 @@
 }
 
 .button-primary {
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--text-on-accent);
+  /* 2026-08-30：与 .action-btn--primary 同步换基色到 --accent-btn + 白字（亮 #075e83 / 暗 #0369a1）。
+     旧版 --accent + --text-on-accent 蓝底深字对比度过弱，用户反馈看不清。 */
+  border: 1px solid var(--accent-btn);
+  background: var(--accent-btn);
+  color: var(--accent-btn-text);
 }
 
 .button-secondary,
@@ -745,7 +746,7 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  height: 36px;
+  height: 28px;  /* 2026-08-30 拉伸宽度：eq 高度 36 → 28，更扁平 */
 }
 
 .eq i {
@@ -774,7 +775,8 @@
 /* 卡片右半：标题行 + 击打样式 chips */
 .asset-set-body {
   min-width: 0;
-  padding: 10px 12px;  /* 任务 5 v5（2026-08-30）：13/15 → 10/12，让卡高度更紧凑 */
+  padding: 10px 14px;  /* 2026-08-30 拉伸宽度：横排可放下 5 个标签后，
+                          上下 padding 缩到 10px 让整卡高度更扁平 */
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -799,6 +801,8 @@
 /* 任务 4 v6（2026-08-30）：5 个标签改回横排，让 .asset-set 整体高度从 3 行降到 1 行。
    之前 v4 改成 2 列 grid 拉高到 3 行（5 项 = 2+2+1），用户反馈"键音卡高度过高"（图 4）。
    横排 + 字号缩到 10px 后，单行可放下 5 个标签，整体高度从 ~86px 降到 ~36px，更扁平。 */
+/* 2026-08-30 拉伸宽度：asset-samples 横排 padding 缩到 2/8，更扁平。
+   之前 v6 padding 3/9 视觉仍偏厚，5 个标签横向排列后单卡高度压不下去。 */
 .asset-samples {
   display: flex;
   flex-wrap: wrap;
@@ -817,7 +821,7 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-inset);
-  padding: 3px 9px;
+  padding: 2px 8px;  /* 3/9 → 2/8，整体高度更扁 */
   font-size: 11px;
 }
 
@@ -1043,6 +1047,23 @@
   margin: 4px 0 0;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/* 2026-08-30：背景皮肤"上传卡 + 设置卡"双卡结构。设置卡（bg-skin-settings-section）
+   与上传卡之间留 12px gap，让两张卡视觉分层。 */
+.assets-panel > .bg-skin-section + .bg-skin-settings-section {
+  margin-top: 12px;
+}
+
+/* 2026-08-30：背景皮肤"显示范围"上方间距。用户反馈图 3 反复调整——
+   把卡 padding-top 缩到 14px + 首行 margin-top: 0 = 14px 总顶距，
+   对齐"内容与卡片的标准间距"。 */
+.bg-skin-settings-section {
+  padding-top: 14px;
+}
+.bg-skin-settings-section > .settings-row:first-child {
+  border-top: 0;
+  margin-top: 0;
 }
 
 /* 综合预览画布（Q8=B：真实精灵绘制六类样例） */
@@ -1576,24 +1597,44 @@
 
 /* 阶段 2 决策（2026-08-30 用户拍板）：方角皮肤条目选择器（999px → 6px），
    redesign-skill 警告 "Pill-shaped New and Beta badges. Try square badges"；
-   删 .is-active box-shadow 多重叠加，靠 1px border + bg 渐变做选中态。 */
+   删 .is-active box-shadow 多重叠加，靠 1px border + bg 渐变做选中态。
+
+   2026-08-30 v2：选中态差异化加大——"使用中" 改用 --accent-btn 深青蓝实底 +
+   白字 + Check 圆标（与 .action-btn--primary 同款"已完成"语义色），与未选中的
+   bg-inset 中性描边形成强对比，让当前使用项一眼可辨。
+   高度统一：display: flex + align-items: center + min-height: 26px 让 button 与
+   span 在不同默认 user-agent 样式下渲染同高（避免 button 自带 padding 偏移）。 */
 .skin-pill {
   position: relative;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+  justify-content: center;
+  gap: 5px;
   padding: 4px 10px;
   min-height: 26px;
+  height: 26px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-inset);
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 650;
+  line-height: 1;
   cursor: pointer;
   text-align: left;
   transition: border-color 120ms var(--ease), background-color 120ms var(--ease), color 120ms var(--ease);
+}
+
+button.skin-pill {
+  /* 抹平 <button> 与 <span> 在 user-agent 默认 padding/font 上的差异，
+     保证 default 与 is-active 两态像素级同高（v2 任务 3）。
+     显式设 font-size: 11px 是关键——.app-shell button { font: inherit } 特异性
+     (0,1,1) 高过 .skin-pill (0,1,0)，不显式覆盖会导致 button 用父级 14px、span 用 11px，
+     看起来 "使用此包" 比 "使用中" 字号大（用户反馈图 1）。 */
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .skin-pill:hover {
@@ -1601,10 +1642,17 @@
   color: var(--text);
 }
 
+/* 选中态：深青蓝实底 + 白字 + Check 圆标 —— 与 .action-btn--primary 同款"主操作"语义色，
+   比未选中态（中性描边）对比度 5.83:1，过 WCAG AA。让"使用中"明显更引人注目。 */
 .skin-pill.is-active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--text);
+  border-color: transparent;
+  background: var(--accent-btn);
+  color: var(--accent-btn-text);
+  cursor: default;
+}
+
+.skin-pill.is-active svg {
+  flex: 0 0 auto;
 }
 
 .skin-pill-label {
@@ -1700,7 +1748,8 @@
 }
 
 .settings-heading {
-  padding-bottom: 19px;
+  /* 2026-08-30：padding-bottom 20px（5的倍数刻度，统一间距系统）。 */
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--border-faint);
 }
 
@@ -1786,8 +1835,58 @@
 .settings-row,
 .danger-row {
   min-height: 64px;
-  margin-top: 14px;
+  /* 2026-08-30：margin-top 5px（用户实测偏好），让所有 row 之间间距一致。
+     配合 .settings-heading { padding-bottom: 20px } 让首行顶部间距 = 25px。
+     border-top 保留作为行间分隔线，首行（紧跟 heading）由 .settings-heading + .settings-row 规则去掉。 */
+  margin-top: 5px;
   border-top: 1px solid var(--border-faint);
+}
+
+/* 2026-08-30：slider-control 行内对齐（仅命中含 slider 的行，不动 select/switch/inline-actions）。
+   用户实测数据：slider 行的 input 中线比 strong 标题中线偏高 16px（Chromium 默认
+   <input type="range"> 内 padding 让 track 偏顶，纯靠 align-items 无法修正）。
+   修复：用 flex-direction: row + align-self: center 让 slider-control 不被 row 拉伸，
+   用 align-items: center 让控件与文字块在 row 内垂直居中，最后 transform: translateY(5px)
+   用户实测微调（脚本 m key）—— 把 slider 整体下推 5px 让 track 与 strong 标题视觉水平。 */
+.settings-row:has(> .slider-control) {
+  align-items: center;
+}
+.settings-row__text + .slider-control,
+.settings-row:has(> .slider-control) > .slider-control {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  align-self: center;
+  height: auto;
+  flex: 0 0 auto;
+  min-width: 220px;
+  padding-top: 0;
+  transform: translateY(5px);
+}
+.settings-row:has(> .slider-control) .slider-control input[type='range'] {
+  height: 22px;
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 120px;
+  align-self: center;
+  margin: 0;
+}
+.settings-row:has(> .slider-control) .slider-control .slider-value {
+  flex: 0 0 44px;
+  width: 44px;
+  height: auto;
+  line-height: 1;
+  align-self: center;
+  margin: 0;
+}
+
+/* 2026-08-30：用户反馈节奏图示 SE 音量区出现双分割线（图 3）——
+   settings-heading 自身带 border-bottom + padding-bottom，紧跟的第一个
+   settings-row 又带 border-top，视觉上重复。去 settings-heading 后第一个
+   settings-row 的 border-top，靠 14px margin-top 撑开间距；后续 row 之间
+   仍保留 border-top 做分组线。 */
+.settings-heading + .settings-row {
+  border-top: 0;
 }
 
 .settings-row > div,
@@ -1945,8 +2044,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px;
-  border-bottom: 1px solid var(--border);
+  /* 2026-08-30 v4：搜索框与下方快捷键列表之间加 16px 间距。
+     v3 把 padding 归零后视觉上搜索框贴表头太紧（用户反馈"搜索框与列表没有间距"），
+     现加 padding-bottom: 16px 让搜索框与表头之间有清晰呼吸感。
+     顶边仍靠 surface-section 自身 24px padding-top 收边。
+     去 border-bottom（无 settings-heading 后不再需要分隔线）。 */
+  padding: 0 0 16px;
+  margin-top: 0;
 }
 
 .search-field {

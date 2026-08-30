@@ -24,8 +24,7 @@
  * 历史方案 A/B/C 已弃用，注释保留作决策追溯。 */
 
 /* ---- 详情 surface-section（issue 28 Q15 留 22px 内边距与"键音素材包"卡观感对齐） ---- */
-/* 任务 1 v4（2026-08-30）：padding 已上提到 .surface-section（24px），这里只留 min-height，
-   避免"父 24px + 子 22px"双层 padding 导致内容贴边 / 呼吸过紧的不一致现象。 */
+/* padding 已上提到 .surface-section（24px），这里只留 min-height 避免双层 padding 不一致 */
 .audio-detail {
   min-height: min-content;
 }
@@ -69,17 +68,13 @@
   margin-top: 2px;
 }
 
-/* ---- 键音素材包 3 列网格（grill 2026-08-26 拍板） ---- */
+/* ---- 键音素材包 2 列网格（2026-08-30 用户拍板改 2 列更扁平拉伸宽度） ---- */
+/* 决策追溯：原 3 列（grill 2026-08-26 拍板）每张卡太窄、5 个标签放不下要 3 行；
+   现改 2 列后每张卡更宽，标签单行可放下，整体高度从 3 行降到 1 行。 */
 .asset-set-grid.asset-set-grid-3 {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-
-@media (max-width: 1080px) {
-  .asset-set-grid.asset-set-grid-3 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 720px) {
