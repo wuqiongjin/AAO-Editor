@@ -8,13 +8,37 @@
 .app-shell {
   --nav-width: 156px;
   display: grid;
-  grid-template-columns: var(--nav-width) minmax(0, 1fr);
+  /* 阶段 4 v4（2026-09-01）：左侧应用导航栏切页时完全静态——
+     grid-template-columns 不再 transition，避免工作台↔其它页切换时
+     两套导航列同时可见（外层 .app-nav 渐显 + workspace 内联 .app-nav-inline 渐隐
+     造成的"重叠闪烁"）。nav 列在 closed 模式宽度归 0，CSS 仍走瞬时切换；
+     内容页 .app-page 保留 150ms 交叉淡入，但用户感知不到列宽变化。
+     v5：用命名列锁住 .app-nav / .app-surface 的位置——
+     display:none 让 .app-nav 出 grid auto-placement，
+     .app-surface 就会自动落到第 1 列（0px 宽）→ 内容白屏。命名列 + 显式 grid-column 修复。 */
+  grid-template-columns: [nav] var(--nav-width) [surface] minmax(0, 1fr);
   width: 100%;
   height: 100dvh;
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
+}
+.app-shell > .app-nav {
+  grid-column: nav;
+}
+.app-shell > .app-surface {
+  grid-column: surface;
+}
+
+/* 工作台态：整列 .app-nav 直接 display:none，不再占 0px 宽 + 留底色（v4 修复）；
+   内容页 .app-page 保留 150ms 交叉淡入，但用户感知不到列宽变化；
+   这是彻底避免"双侧导航"叠影的关键。 */
+.app-shell[data-nav-mode='closed'] {
+  grid-template-columns: [nav] 0px [surface] minmax(0, 1fr);
+}
+.app-shell[data-nav-mode='closed'] > .app-nav {
+  display: none;
 }
 
 .app-shell *,
@@ -39,6 +63,11 @@
   padding: 12px 10px;
   border-right: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg));
+  /* 阶段 4 v3（2026-09-01）：nav 始终挂载且固定不动（应用 chrome 类，类 macOS dock）。
+     data-nav-mode=closed 时所在列宽归 0 + overflow:hidden 把它"挤出"视口，
+     但 nav 自身不参与切换动画（不 translateX / 不 fade）；切页动效由 grid 列宽 +
+     页面交叉淡入共同承接。 */
+  overflow: hidden;
 }
 
 .app-mark {
@@ -74,7 +103,11 @@
   cursor: pointer;
   padding: 0 10px;
   text-align: left;
-  transition: background-color 120ms var(--ease), color 120ms var(--ease), border-color 120ms var(--ease);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .app-nav-item:hover {
@@ -83,10 +116,20 @@
 }
 
 .app-nav-item.is-active {
-  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+  /* 阶段 4 v3（2026-09-01）：选中态切换用更明显的过渡——bg/color/border 走 200ms，
+     加 box-shadow 微光让"切换到 active"有可见的视觉反馈，符合 redesign-skill
+     "transitions should be visible but not distracting" 的取舍。 */
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: var(--accent-soft);
   color: var(--accent-text);
   font-weight: 650;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* 选中态图标不缩放——与未选中态保持尺寸一致，bg/color/border 切换已足够提供视觉反馈。
+   之前 scale(1.08) 会让"工作台"图标（默认选中）显得比其它图标大、与同列其它项的占用空间不一致。 */
+.app-nav-item svg {
+  transition: transform var(--dur) var(--ease);
 }
 
 .app-nav-item kbd {
@@ -122,6 +165,9 @@
 }
 
 /* 折叠态：导航收窄为图标栏 */
+/* 阶段 4 v2（2026-09-01）：--nav-width 折叠 156 → 52，grid-template-columns 跟随过渡。
+   CSS 变量本身不参与 transition，但 grid-template-columns 在两态同形（都是 2 列、首列 px、次列 minmax）
+   时浏览器能插值；transition 写在 .app-shell 上，确保两态切换都有动画。 */
 .app-shell.is-nav-collapsed {
   --nav-width: 52px;
 }
@@ -144,9 +190,36 @@
 .app-shell.is-nav-collapsed .app-nav-item,
 .app-shell.is-nav-collapsed .app-nav-toggle {
   display: flex;
-  width: 40px;
+  width: 38px;
   justify-content: center;
+  align-items: center;
   padding: 0;
+  /* 阶段 4 v4（2026-09-01）：折叠态图标居中修复——
+     base 规则有 gap:9px，折叠态只剩 svg + 两个 max-width:0 的伪 flex 子项，
+     gap 把 svg 推到左边 9px 处使图标看起来偏左。折叠态清零 gap 让 svg 居中。 */
+  gap: 0;
+  /* 阶段 4 v2（2026-09-01）：折叠展开过渡——width / padding 跟随 nav-width 200ms 平滑变化；
+     label / kbd 自身的 opacity / max-width 在下方独立 transition，组合成完整折叠动画。 */
+  transition:
+    background-color 120ms var(--ease),
+    color 120ms var(--ease),
+    border-color 120ms var(--ease),
+    padding 200ms var(--ease);
+}
+
+/* 同款 inline nav 折叠态 */
+.app-nav-inline.is-collapsed .app-nav-item,
+.app-nav-inline.is-collapsed .app-nav-toggle {
+  display: flex;
+  width: 38px;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  /* 阶段 4 v4（2026-09-01）：折叠态图标居中修复——清零 gap 让 svg 居中。 */
+  gap: 0;
+  transition:
+    width 200ms var(--ease),
+    padding 200ms var(--ease);
 }
 
 .app-shell.is-nav-collapsed .app-nav-toggle {
@@ -155,20 +228,46 @@
 
 .app-shell.is-nav-collapsed .app-nav-item span,
 .app-shell.is-nav-collapsed .app-nav-item kbd {
-  display: none;
+  /* 阶段 4 v2（2026-09-01）：折叠展开时 label / kbd 用 opacity + max-width 平滑过渡；
+     display:none 不能 transition，这里改用 max-width:0 + opacity:0 + 溢出隐藏，
+     width:0 让标签区域彻底收起，opacity 让文字淡出。
+     v5 修复：加 height:0 避免"3 字中文 label（57px 行高）撑高父按钮"，让所有折叠态按钮统一 42px。 */
+  opacity: 0;
+  max-width: 0;
+  height: 0;
+  line-height: 0;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.app-nav-item span,
+.app-nav-item kbd {
+  transition:
+    opacity 200ms var(--ease),
+    max-width 200ms var(--ease),
+    padding 200ms var(--ease);
 }
 
 /* 工作台左列内的应用导航（与工具面板合成同一左列，纵向窄栏；展开/折叠仅控制标签显示）。
    与外层独立导航 .app-nav 的尺寸/内边距保持一致，保证工作台与非工作台页图标位置统一（issue 28 第 2 轮）。 */
 .app-nav-inline {
-  display: flex;
   flex-direction: column;
   width: 156px;
   flex-shrink: 0;
   padding: 12px 10px;
   border-right: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg));
+  /* 阶段 4 v4（2026-09-01）：工作台失活时 inline nav 直接 display:none，
+     立即隐藏，不再 opacity 过渡——切到其它页时 inline nav 与外层 .app-nav 不再有时间重叠，
+     彻底消除两套导航同时可见的"重叠效果"。 */
+  display: none;
 }
+
+.app-page.is-active .app-nav-inline {
+  display: flex;
+}
+
 .app-nav-inline .app-nav-items {
   flex-direction: column;
   gap: 4px;
@@ -181,19 +280,39 @@
   align-items: center;
   padding-right: 7px;
   padding-left: 7px;
+  /* 阶段 4 v2（2026-09-01）：折叠展开过渡——width / padding 200ms 平滑变化。 */
+  transition:
+    width 200ms var(--ease),
+    padding 200ms var(--ease);
 }
-.app-nav-inline.is-collapsed .app-nav-item,
-.app-nav-inline.is-collapsed .app-nav-toggle {
-  width: 40px;
-  justify-content: center;
-  padding: 0;
-}
+
+/* 折叠态 item / toggle 走 .app-shell.is-nav-collapsed 处的统一定义（display:flex + 38px），
+   此处不再重复，避免特异性冲突后旧规则覆盖新规则（grid + 40px）。 */
+
 .app-nav-inline.is-collapsed .app-nav-item span,
 .app-nav-inline.is-collapsed .app-nav-item kbd {
-  display: none;
+  /* 阶段 4 v2（2026-09-01）：display:none 改 opacity:0 + max-width:0 让折叠可平滑过渡。
+     v5 修复：加 height:0 / line-height:0 避免"3 字中文 label 撑高父按钮"，
+     让所有 inline 折叠态按钮统一 42px。 */
+  opacity: 0;
+  max-width: 0;
+  height: 0;
+  line-height: 0;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 .app-nav-inline.is-collapsed .app-nav-toggle {
   grid-template-columns: 1fr;
+}
+
+/* 默认态（展开）span / kbd 也要带 transition，配合折叠态的 opacity:0 平滑过渡。 */
+.app-nav-inline .app-nav-item span,
+.app-nav-inline .app-nav-item kbd {
+  transition:
+    opacity 200ms var(--ease),
+    max-width 200ms var(--ease),
+    padding 200ms var(--ease);
 }
 
 /* ---- 页面容器（保活：全部挂载，交叉淡入）
@@ -216,12 +335,22 @@
   pointer-events: none;
   min-width: 0;
   min-height: 0;
-  transition: opacity 150ms var(--ease);
+  /* 阶段 4 v5（2026-09-01）：切页动效。
+     - 旧 page 保持静态，不主动参与退场动画（只有 opacity 渐隐）
+     - 新 page 从右滑入 + 淡入：translateX(12px) → 0，opacity 0 → 1，200ms ease
+     这样"从工作台切到其它页"和"从其它页切回工作台"都是丝滑滑入，
+     左侧导航栏仍瞬时（不参与切页动画，符合用户要求）。
+     入场距离从 12px 缩到 8px：缩到 4px 后过渡太弱像闪烁，12px 又太重像 modal。 */
+  transform: translateX(8px);
+  transition:
+    opacity 200ms var(--ease),
+    transform 200ms var(--ease);
 }
 
 .app-page.is-active {
   opacity: 1;
   pointer-events: auto;
+  transform: translateX(0);
 }
 
 /* ---- 通用页面内容布局 ---- */
@@ -2287,14 +2416,18 @@ button.skin-pill {
 
   .app-shell .app-nav-item {
     display: flex;
-    width: 40px;
+    width: 38px;
     justify-content: center;
+    align-items: center;
     padding: 0;
   }
 
   .app-shell .app-nav-item span,
   .app-shell .app-nav-item kbd {
-    display: none;
+    opacity: 0;
+    max-width: 0;
+    overflow: hidden;
+    pointer-events: none;
   }
 }
 
@@ -2334,4 +2467,187 @@ button.skin-pill {
     animation: none;
     height: 46%;
   }
+}
+
+/* ============================================================
+   工作台面板（阶段 4 v2 2026-09-01 折叠展开动效）
+   - ws-panel-left / ws-panel-right：DOM 始终挂载 nav rail + body + 折叠 toggle，
+     is-collapsed 类驱动 width / opacity / 内部 padding 200ms 平滑过渡；
+   - 折叠态 body 用 width:0 + opacity:0 收起（display:none 不能 transition）；
+   - nav inline (.app-nav-inline) 仍保留并由原 AppShell.css 折叠规则控制。
+   ============================================================ */
+
+/* ---- 共用：ws-panel 基底 ---- */
+.ws-panel {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  position: relative;
+  background: var(--bg);
+  /* width 由内联 style --ws-left-w / --ws-right-w 注入，
+     transition 让 .is-collapsed 切换时浏览器插值宽度 */
+  transition: width 200ms var(--ease);
+  overflow: hidden;
+}
+
+.ws-panel__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  /* 折叠态折叠 body：width 收 0、opacity 收 0；
+     min-width: 0 已经在基底，避免 flex 子项被 min-width 撑开 */
+  transition:
+    width 200ms var(--ease),
+    opacity 150ms var(--ease),
+    padding 200ms var(--ease);
+}
+
+.ws-panel__resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 40;
+  background: transparent;
+  transition: background-color 120ms var(--ease);
+}
+
+.ws-panel[data-side='left'] .ws-panel__resizer,
+.ws-panel-left .ws-panel__resizer {
+  right: -3px;
+}
+
+.ws-panel[data-side='right'] .ws-panel__resizer,
+.ws-panel-right .ws-panel__resizer {
+  left: -3px;
+}
+
+.ws-panel__resizer:hover {
+  background: var(--accent);
+}
+
+.ws-panel__resizer.is-dragging {
+  background: var(--accent);
+}
+
+.ws-panel__toggle {
+  width: 34px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  /* 阶段 4 v2：折叠条随 panel 的 is-collapsed 切换，宽 0 ↔ 34、padding 同步过渡。 */
+  transition:
+    width 200ms var(--ease),
+    opacity 150ms var(--ease),
+    padding 200ms var(--ease);
+}
+
+.ws-panel__toggle > div {
+  height: var(--panel-header-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---- 左侧工具栏面板 ---- */
+.ws-panel-left {
+  width: var(--ws-left-w, 240px);
+  border-right: 1px solid var(--border);
+}
+
+/* 折叠态：只显示 nav rail（156 / 52 视 navCollapsed）+ 34px 折叠条
+   body 用 width:0 + opacity:0 收起 */
+.ws-panel-left.is-collapsed {
+  width: calc(var(--ws-left-rail-w, 156px) + 34px);
+}
+
+.ws-panel-left.is-collapsed.is-nav-collapsed {
+  width: calc(var(--ws-left-rail-w, 52px) + 34px);
+}
+
+.ws-panel-left.is-collapsed .ws-panel__body {
+  width: 0;
+  opacity: 0;
+  padding-left: 0;
+  padding-right: 0;
+  pointer-events: none;
+}
+
+/* 展开态：toggle 条折叠隐藏（保留 DOM 让 transition 能动）。 */
+.ws-panel-left:not(.is-collapsed) .ws-panel__toggle {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* ---- 右侧信息面板 ---- */
+.ws-panel-right {
+  width: var(--ws-right-w, 280px);
+  border-left: 1px solid var(--border);
+}
+
+.ws-panel-right.is-collapsed {
+  width: 34px;
+}
+
+.ws-panel-right.is-collapsed .ws-panel__body {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 展开态：toggle 条折叠隐藏（保留 DOM 让 transition 能动）。 */
+.ws-panel-right:not(.is-collapsed) .ws-panel__toggle {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ws-panel__body-header {
+  height: var(--panel-header-h);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.ws-panel__body-footer {
+  height: var(--panel-header-h);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+}
+
+/* 起点标记存在时切到 warning 色（与原 inline 一致） */
+.ws-panel__body-footer.has-marker {
+  color: var(--warning);
+}
+
+.ws-panel__body-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  background: var(--bg);
+  min-height: 0;
+}
+
+/* 右侧面板：NoteInfoPanel 内容不带自身 padding，需要滚动容器补 12px。
+   左侧面板：Toolbar 自带 padding: var(--space-4) = 16px，不要叠加。 */
+.ws-panel-right .ws-panel__body-scroll {
+  padding: var(--space-3);
 }

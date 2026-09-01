@@ -157,10 +157,13 @@
   font-weight: 600;
   text-align: left;
   cursor: pointer;
+  /* 阶段 4 v3（2026-09-01）：选中态切换过渡走 200ms + box-shadow 微光，
+     与 app-nav-item 同节奏。 */
   transition:
-    background-color 120ms var(--ease),
-    color 120ms var(--ease),
-    border-color 120ms var(--ease);
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .app-page-shell__sidebar-item:hover {
@@ -169,10 +172,19 @@
 }
 
 .app-page-shell__sidebar-item.is-active {
-  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: var(--accent-soft);
   color: var(--accent-text);
   font-weight: 650;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* 选中态图标轻微缩放——与 app-nav-item 同款 */
+.app-page-shell__sidebar-item svg {
+  transition: transform var(--dur) var(--ease);
+}
+.app-page-shell__sidebar-item.is-active svg {
+  transform: scale(1.08);
 }
 
 .app-page-shell__sidebar-item:focus-visible {

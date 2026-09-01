@@ -41,21 +41,26 @@ export default function AppShell() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // 工作台页：导航已并入 Editor 左侧工具列，不另占列；其余页保留独立导航列。
+  // 工作台页：导航列宽度归 0（DOM 始终挂载，靠 CSS 平滑伸缩，不再条件渲染导致布局瞬变）；
+  // 其余页：保留独立导航列（CSS 自管 nav-width，折叠 52 / 展开 156）。
   const showShellNav = activePage !== 'workspace';
   const navValue = { activePage, setActivePage, navCollapsed, setNavCollapsed };
 
+  // 阶段 4 v2（2026-09-01）：grid-template-columns 用 CSS 自管（看 .app-shell 的 [data-nav-mode] 选择器），
+  // 这里只切 mode + 折叠态；nav-width 走 CSS 变量驱动，所有过渡由 CSS 完成。
+  // 数据属性驱动代替动态内联 style，避免 inline 优先于 transition 计算。
   return (
     <AppNavProvider value={navValue}>
       <div
-        className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}${showShellNav ? ' has-shell-nav' : ''}`}
-        style={{ gridTemplateColumns: showShellNav ? 'var(--nav-width) minmax(0, 1fr)' : 'minmax(0, 1fr)' }}
+        className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}`}
+        data-nav-mode={showShellNav ? 'open' : 'closed'}
       >
-        {showShellNav && (
-          <aside className="app-nav" aria-label="应用页面导航">
-            <AppNav />
-          </aside>
-        )}
+        {/* nav 始终渲染：mode=closed 时整列宽度 0 + 透明 + 不可交互，过渡由 CSS 自管。
+            修 bug：原条件渲染会让 grid 列数瞬变（workspace 1 列 → audio 2 列），交叉淡入时
+            出现"工作台展开态"中间闪一下。 */}
+        <aside className="app-nav" aria-label="应用页面导航" aria-hidden={!showShellNav} inert={!showShellNav || undefined}>
+          <AppNav />
+        </aside>
 
         <section className="app-surface">
           {/* 保活挂载：所有 page 始终渲染，仅激活页可见；工作台失活时由 active 表面契约暂停播放/抑制输入 */}

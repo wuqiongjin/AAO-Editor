@@ -34,8 +34,19 @@ export function useSurfaceSize(
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const merger = mergerRef.current!;
+    // merger 必须在当前 effect 内保证有效（StrictMode 第二次挂载时 render 还没跑，
+    // mergerRef.current 可能已被上轮 cleanup 置 null）；这里本地 lazy 创建。
+    let merger = mergerRef.current;
+    if (!merger || (merger as unknown as { destroyed?: boolean }).destroyed) {
+      merger = new SurfaceSizeMerger({ ...options, onCommit: (v) => onCommit.current(v) });
+      mergerRef.current = merger as SurfaceSizeMerger;
+    }
+    // 标记 merger 在当前 effect 周期内有效；cleanup 后回调若仍触发，则直接忽略
+    // 修复：之前 cleanup 中 ro.disconnect() 后 merger.destroy()，但 RO 回调可能已入队
+    // 在 disconnect 之后才执行 → 访问 null merger.feed 抛 TypeError。
+    let alive = true;
     const ro = new ResizeObserver((entries) => {
+      if (!alive) return;
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         merger.feed({ w: width, h: height });
@@ -43,11 +54,13 @@ export function useSurfaceSize(
     });
     ro.observe(el);
     return () => {
+      alive = false;
       ro.disconnect();
       merger.flush(); // 卸载时结算一次最新值
       merger.destroy();
-      // 重建：下次挂载重新初始化
-      mergerRef.current = null;
+      // 不再 mergerRef.current = null；下次 useEffect 内会自动 lazy 重建。
+      // StrictMode 双挂载场景：第一次 cleanup destroy 旧 merger，第二次 mount 时
+      // mergerRef.current 仍指向已 destroy 的对象，本函数开头判 destroyed 会替换。
     };
   }, [ref]);
   return surface;
