@@ -196,7 +196,12 @@
   grid-template-columns: 1fr;
 }
 
-/* ---- 页面容器（保活：全部挂载，仅激活页可见） ---- */
+/* ---- 页面容器（保活：全部挂载，交叉淡入）
+   阶段 4（2026-09-01）：display:none/block → opacity 交叉淡入。
+   5 页全部用 .app-page 包裹并保持挂载（lazy + Suspense 已在 PageRegistry 完成）；
+   改用 opacity 过渡（150ms ease）让切页时有交叉淡入观感。
+   pointer-events 配合避免不活跃页拦截鼠标。
+   aria-hidden 由 PageSlot 同步控制，已不影响可达性。 */
 .app-surface {
   position: relative;
   min-width: 0;
@@ -207,13 +212,16 @@
 .app-page {
   position: absolute;
   inset: 0;
-  display: none;
+  opacity: 0;
+  pointer-events: none;
   min-width: 0;
   min-height: 0;
+  transition: opacity 150ms var(--ease);
 }
 
 .app-page.is-active {
-  display: block;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ---- 通用页面内容布局 ---- */

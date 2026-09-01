@@ -145,7 +145,9 @@ export default function SettingsPage() {
       </AppPageShell.Sidebar>
 
       <AppPageShell.Body mode="default">
-        <section className="settings-detail surface-section">
+        {/* 阶段 4（2026-09-01）：app-stagger 让 settings-heading / 控件行 / 恢复默认等
+            按 40ms 阶梯式进入；切 section 时 React 重挂载，子元素动画自然重跑。 */}
+        <section className="settings-detail surface-section app-stagger">
           {section === 'appearance' && (
             <>
               <div className="settings-heading">

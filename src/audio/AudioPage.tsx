@@ -51,19 +51,22 @@ export default function AudioPage() {
         {/* 阶段 2 决策（2026-08-30 用户拍板）：3 段各自独立 surface-section card 基底，
             不再共用外层 .audio-detail 包装；每段自带卡片做视觉分组。
             卡片本身用 .surface-section（已轻量化：去 border，仅 bg + radius）。
-            任务 1 方案 A/B/C 注释见 AudioPage.css 顶部。 */}
+            任务 1 方案 A/B/C 注释见 AudioPage.css 顶部。
+            阶段 4（2026-09-01）：app-stagger 让卡片内的 settings-heading / audio-file /
+            audio-duration-row / flow-note / error-banner 按 40ms 阶梯式进入。
+            切 section 时 React 重挂载 body 子元素，动画自然重跑。 */}
         {section === 'audio' && (
-          <section className="surface-section audio-detail">
+          <section className="surface-section audio-detail app-stagger">
             <AudioSection />
           </section>
         )}
         {section === 'keysound' && (
-          <section className="surface-section audio-detail">
+          <section className="surface-section audio-detail app-stagger">
             <KeySoundSection />
           </section>
         )}
         {section === 'se' && (
-          <section className="surface-section audio-detail">
+          <section className="surface-section audio-detail app-stagger">
             <SeVolumeSection />
           </section>
         )}

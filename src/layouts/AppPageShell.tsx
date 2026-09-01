@@ -107,7 +107,11 @@ type BodyProps = {
 const BodyContext = createContext<{ mode: ContentMode }>({ mode: 'default' });
 
 function Body({ mode = 'default', children }: BodyProps) {
-  const classes = ['app-page-shell__body'];
+  // 阶段 4（2026-09-01）：默认加 app-stagger，让 body 直系子元素进入时按 40ms 间隔
+  // 阶梯式进入（Y 轴 8px + opacity）。多数页面 body 内只有一个 surface-section card，
+  // 此时表现为「该卡片整体浮入」；多 card 页（assets noteskin 等）会自然阶梯化。
+  // 切换 section/page 时 React 会卸载/重挂载 body 子元素，动画自然重跑。
+  const classes = ['app-page-shell__body', 'app-stagger'];
   if (mode === 'fill') classes.push('is-fill');
 
   return (

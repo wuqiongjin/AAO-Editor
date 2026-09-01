@@ -97,7 +97,8 @@ function NoteSkinPanel() {
     && (pairedDir === null || (selection.dirL === pairedDir && selection.dirR === pairedDir));
 
   return (
-    <section className="assets-panel" aria-label="音符皮肤">
+    // 阶段 4（2026-09-01）：app-stagger 让预设卡 / 综合预览 / 条目卡按 40ms 阶梯进入。
+    <section className="assets-panel app-stagger" aria-label="音符皮肤">
       {/* 删掉"音符皮肤"标题（与 AppPageShell.Header 重复），{notePacks.length} 移到整包预设右侧 */}
       <div className="section-heading">
         <div>
@@ -227,7 +228,8 @@ function BackgroundPanel() {
   };
 
   return (
-    <section className="assets-panel" aria-label="背景皮肤">
+    // 阶段 4（2026-09-01）：app-stagger 让上传卡 + 设置卡按 40ms 阶梯进入。
+    <section className="assets-panel app-stagger" aria-label="背景皮肤">
       {/* 删除 section-heading（h2 "谱面背景皮肤" 与 AppPageShell.Header 重复；state-label 与上传卡内 EmptyState/asset-set 状态重复）。
           assets-panel 直接装 2 个 surface-section 子卡：上传卡 + 设置卡。 */}
 
