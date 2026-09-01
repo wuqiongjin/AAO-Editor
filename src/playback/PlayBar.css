@@ -1,0 +1,137 @@
+/* ============================================================
+ * PlayBar（issue 49 阶段 3 inline 迁出）
+ * 工作台底部播放条：从 src/playback/PlayBar.tsx 的 style={{ ... }} 全部迁出。
+ * 视觉：左播放按钮 + 时间码 + 进度条 + 音量。
+ * ============================================================ */
+
+.play-bar {
+  height: var(--playbar-h);
+  background-color: var(--bg-elevated);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* 播放 / 暂停按钮 */
+.play-bar__play-btn {
+  background: var(--bg-inset);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.play-bar__play-btn:hover {
+  background-color: var(--bg-hover);
+}
+.play-bar__play-btn:active {
+  transform: scale(0.96);
+}
+
+/* 时间码组（紧邻）：当前时间 + 总时长 */
+.play-bar__time {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  white-space: nowrap;
+}
+.play-bar__time-current {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+  white-space: nowrap;
+}
+.play-bar__time-current.is-editable {
+  cursor: pointer;
+}
+.play-bar__time-input {
+  width: 64px;
+  background: var(--bg-inset);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.play-bar__time-total {
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 可拖拽进度条（占满剩余空间） */
+.play-bar__seek {
+  flex: 1;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+  min-width: 80px;
+}
+.play-bar__seek.is-no-cursor {
+  cursor: default;
+}
+.play-bar__seek-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background-color: var(--border);
+  overflow: visible;
+}
+/* 已播放填充：去掉 width transition，与圆点位置严格逐帧同步
+   （修 issue "音频进度条蓝线滞后圆点"——rAF 60fps 重渲下，160ms transition
+   与高频 width 更新在某些 GPU 合成路径上互动异常，蓝线会卡在旧值几秒；
+   圆点本身无 transition 立即跳，造成位置不一致。直接走逐帧瞬移，视觉上
+   rAF 16.7ms 间隔本身已足够平滑） */
+.play-bar__seek-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--radius-full);
+  background-color: var(--accent);
+}
+/* 滑块圆点 */
+.play-bar__seek-dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background-color: var(--accent);
+  border: 2px solid var(--bg-elevated);
+  transform: translate(-50%, -50%);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+}
+
+/* 音量 */
+.play-bar__volume {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.play-bar__volume-input {
+  width: 80px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}

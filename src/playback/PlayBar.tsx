@@ -3,6 +3,10 @@ import { Volume2, VolumeX, Play, Pause } from "lucide-react";
 import { formatKey } from '../chart/config/ShortcutConfig';
 import { formatTimePrecise, formatTimeWhole, parseTimeInput } from '../chart/geometry/TimeFormat';
 import { usePlayback, useConfig } from '../app/ProviderTree';
+import './PlayBar.css';
+
+// 工作台底部播放条（issue 22 + issue 49 阶段 3 迁出 inline）。
+// - 播放/暂停、时间码（无音频时可双击原地编辑）、可拖拽进度条 seek、音量。
 
 interface PlayBarProps {
   onTogglePlay: () => void;
@@ -74,38 +78,18 @@ export default function PlayBar({
   const endDrag = () => setDragging(false);
 
   return (
-    <div style={{
-      height: 'var(--playbar-h)',
-      backgroundColor: 'var(--bg-elevated)',
-      color: 'var(--text)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 'var(--space-3)',
-      padding: '0 var(--space-3)',
-      fontSize: 'var(--text-xs)',
-      flexShrink: 0,
-      borderTop: '1px solid var(--border)',
-    }}>
+    <div className="play-bar">
       {/* 播放/暂停 */}
       <button
         onClick={onTogglePlay}
         title={`播放/暂停（${formatKey(shortcutConfig.play)}）`}
-        style={{
-          background: 'var(--bg-inset)', color: 'var(--text)', border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-sm)', width: 28, height: 28, cursor: 'pointer', flexShrink: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease)',
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
-        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-inset)')}
-        onMouseDown={(e) => (e.currentTarget.style.transform = 'scale(0.96)')}
-        onMouseUp={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+        className="play-bar__play-btn"
       >
         {isPlaying ? <Pause size={15} /> : <Play size={15} />}
       </button>
 
       {/* 时间码组（紧邻）：当前时间 + 总时长；无音频时双击当前时间原地编辑 */}
-      <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 3, whiteSpace: 'nowrap' }}>
+      <span className="play-bar__time">
         {editingTime ? (
           <input
             ref={timeInputRef}
@@ -116,24 +100,16 @@ export default function PlayBar({
             onKeyDown={onTimeKeyDown}
             inputMode="decimal"
             title="输入 mm:ss 或 mm:ss.s 后回车（最大谱面长度，秒）"
-            style={{
-              width: 64, background: 'var(--bg-inset)', color: 'var(--text)',
-              border: '1px solid var(--accent)', borderRadius: 'var(--radius-sm)',
-              padding: '2px 4px', fontSize: 'var(--text-xs)',
-              fontVariantNumeric: 'tabular-nums', outline: 'none',
-            }}
+            className="play-bar__time-input"
           />
         ) : (
           <span
             onDoubleClick={beginEditTime}
             title={canPlay ? undefined : '双击编辑时间定位'}
-            style={{
-              color: 'var(--text)', fontVariantNumeric: 'tabular-nums',
-              cursor: canPlay ? 'default' : 'pointer', whiteSpace: 'nowrap',
-            }}
+            className={`play-bar__time-current${canPlay ? '' : ' is-editable'}`}
           >{formatTimePrecise(currentSeconds)}</span>
         )}
-        <span style={{ color: 'var(--text-subtle)', fontVariantNumeric: 'tabular-nums' }}>
+        <span className="play-bar__time-total">
           / {formatTimeWhole(duration)}
         </span>
       </span>
@@ -151,41 +127,27 @@ export default function PlayBar({
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        style={{
-          flex: 1, height: 18, display: 'flex', alignItems: 'center',
-          cursor: canPlay || !isPlaying ? 'pointer' : 'default',
-          touchAction: 'none',
-          minWidth: 80,
-        }}
+        className={`play-bar__seek${(!canPlay && isPlaying) ? ' is-no-cursor' : ''}`}
       >
-        <div style={{
-          position: 'relative', width: '100%', height: 4, borderRadius: 'var(--radius-full)',
-          backgroundColor: 'var(--border)', overflow: 'visible',
-        }}>
-          {/* 已播放填充：去掉 width transition,与圆点位置严格逐帧同步
-              （修 issue "音频进度条蓝线滞后圆点"——rAF 60fps 重渲下,160ms transition
-              与高频 width 更新在某些 GPU 合成路径上互动异常,蓝线会卡在旧值几秒;
-              圆点本身无 transition 立即跳,造成位置不一致。直接走逐帧瞬移,视觉上
+        <div className="play-bar__seek-track">
+          {/* 已播放填充：去掉 width transition，与圆点位置严格逐帧同步
+              （修 issue "音频进度条蓝线滞后圆点"——rAF 60fps 重渲下，160ms transition
+              与高频 width 更新在某些 GPU 合成路径上互动异常，蓝线会卡在旧值几秒；
+              圆点本身无 transition 立即跳，造成位置不一致。直接走逐帧瞬移，视觉上
               rAF 16.7ms 间隔本身已足够平滑） */}
-          <div style={{
-            position: 'absolute', left: 0, top: 0, bottom: 0,
-            width: `${ratio * 100}%`, borderRadius: 'var(--radius-full)',
-            backgroundColor: 'var(--accent)',
-          }} />
-          {/* 滑块圆点 */}
-          <div style={{
-            position: 'absolute', top: '50%', left: `${ratio * 100}%`,
-            width: 10, height: 10, borderRadius: 'var(--radius-full)',
-            backgroundColor: 'var(--accent)', border: '2px solid var(--bg-elevated)',
-            transform: 'translate(-50%, -50%)',
-            boxShadow: 'var(--shadow-sm)',
-            pointerEvents: 'none',
-          }} />
+          <div
+            className="play-bar__seek-fill"
+            style={{ width: `${ratio * 100}%` }}
+          />
+          <div
+            className="play-bar__seek-dot"
+            style={{ left: `${ratio * 100}%` }}
+          />
         </div>
       </div>
 
       {/* 音量 */}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)', flexShrink: 0 }} title="音量">
+      <label className="play-bar__volume" title="音量">
         {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
         <input
           type="range"
@@ -194,7 +156,7 @@ export default function PlayBar({
           step={0.05}
           value={volume}
           onChange={e => onVolumeChange(parseFloat(e.target.value))}
-          style={{ width: 80, accentColor: 'var(--accent)', cursor: 'pointer' }}
+          className="play-bar__volume-input"
         />
       </label>
     </div>

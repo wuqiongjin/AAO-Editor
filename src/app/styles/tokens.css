@@ -188,26 +188,38 @@ button, input, select, textarea {
   outline-offset: 1px;
 }
 
-/* 细滚动条（与主题一致） */
+/* ============================================================
+   滚动条（issue 49 阶段 3）
+   视口贴边 + 细柄无轨道（macOS 风 overlay-thin）：
+   - 轨道透明、handle 紧贴视口边（不在容器内挤一条 10px 槽）
+   - 默认 8px 柄 + 2px padding-border 让柄看上去只有 ~6px
+   - webkit + Firefox 都用同款 token 协调亮/暗主题
+   - 仅装饰，不影响布局（容器无 padding-right）
+   ============================================================ */
+
+/* 全局默认：所有可滚动元素都是 8px 柄 + 透明轨道（不影响容器内宽） */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong)) transparent;
 }
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-*::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: var(--radius-full);
-  border: 3px solid transparent;
-  background-clip: padding-box;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--text-subtle);
-  background-clip: padding-box;
+  width: 8px;
+  height: 8px;
 }
 *::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 120ms var(--ease);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 80%, var(--border-strong));
+}
+*::-webkit-scrollbar-corner {
   background: transparent;
 }
 

@@ -97,22 +97,18 @@ function ShortcutRecorder({ id, onCommit, onCancel }: {
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 'var(--z-recorder)', backgroundColor: 'rgba(12,14,17,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      className="shortcut-recorder"
       onClick={onCancel}
     >
       <div
-        style={{
-          backgroundColor: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)', padding: '28px 44px',
-          border: '2px solid var(--accent)', boxShadow: 'var(--shadow-lg)',
-          textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--text)',
-        }}
+        className="shortcut-recorder__panel"
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ fontSize: '38px', fontWeight: 700, marginBottom: '16px', color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
+        <div className="shortcut-recorder__keys">
           {draft ? formatKey(draft) : '…'}
         </div>
-        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>先按所需的组合键，再按 enter 键。</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', marginTop: '12px' }}>{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
+        <div className="shortcut-recorder__hint">先按所需的组合键，再按 enter 键。</div>
+        <div className="shortcut-recorder__meta">{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
       </div>
     </div>
   );

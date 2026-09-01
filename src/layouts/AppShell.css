@@ -2213,6 +2213,49 @@ button.skin-pill {
   font-weight: 650;
 }
 
+/* ---- 快捷键记录弹窗（issue 49 阶段 3 inline 迁出）----
+   类 VSCode 风格：全屏遮罩 + 居中浮层，Enter 确认 / Esc 取消。
+   浮层：青蓝 2px 描边 + 大字号键位显示 + 等宽字体。 */
+.shortcut-recorder {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-recorder);
+  background-color: rgba(12, 14, 17, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shortcut-recorder__panel {
+  background-color: var(--bg-elevated);
+  border-radius: var(--radius-lg);
+  padding: 28px 44px;
+  border: 2px solid var(--accent);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.shortcut-recorder__keys {
+  font-size: 38px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.shortcut-recorder__hint {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.shortcut-recorder__meta {
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+  margin-top: 12px;
+}
+
 /* ---- 响应式 ---- */
 @media (max-width: 1080px) {
   .app-shell {
