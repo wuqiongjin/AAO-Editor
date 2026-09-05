@@ -7,9 +7,8 @@ import './AppShell.css';
 // 应用壳（issue 28 + issue 29）：五页注册 + 保活隐藏暂停 + 切页快捷键 + 可折叠导航（默认折叠）。
 // - 五页全部保持挂载（保活），仅激活页可见（CSS display），离开工作台时自动暂停播放。
 // - 工作台（Editor）黑盒接入（Q16）：仅传 active 表面契约（失活时暂停播放并抑制其全局输入）。
-// - 导航与工作台左侧工具面板合成同一左列（issue 28 第 2 轮）：工作台页由 Editor 内渲染导航，
-//   非工作台页由本壳渲染独立导航列；导航不再单独挤压画布。
-// - 路由层归 src/pages/PageRegistry.tsx：AppShell 不直接 import 各 page 文件。
+// - 导航列永久常驻（2026-09-05）：所有页共用 .app-nav 一份导航；工作台左面板只含工具栏。
+//   路由层归 src/pages/PageRegistry.tsx：AppShell 不直接 import 各 page 文件。
 
 const NAV_ITEMS: Array<{ id: PageId; label: string; shortcut: string }> = [
   { id: 'workspace', label: '工作台', shortcut: '⇧⌘1' },
@@ -41,24 +40,16 @@ export default function AppShell() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // 工作台页：导航列宽度归 0（DOM 始终挂载，靠 CSS 平滑伸缩，不再条件渲染导致布局瞬变）；
-  // 其余页：保留独立导航列（CSS 自管 nav-width，折叠 52 / 展开 156）。
-  const showShellNav = activePage !== 'workspace';
   const navValue = { activePage, setActivePage, navCollapsed, setNavCollapsed };
 
-  // 阶段 4 v2（2026-09-01）：grid-template-columns 用 CSS 自管（看 .app-shell 的 [data-nav-mode] 选择器），
-  // 这里只切 mode + 折叠态；nav-width 走 CSS 变量驱动，所有过渡由 CSS 完成。
-  // 数据属性驱动代替动态内联 style，避免 inline 优先于 transition 计算。
+  // 2026-09-05 修切页闪烁：导航列永久常驻（所有页共用同一份 .app-nav，工作台不再内联渲染第二份）。
+  // 旧方案（workspace 隐藏外层列 + Editor 内联一份 nav）在切页瞬间要互换两套导航——
+  // 外层列 display:none 瞬切 + 新页半透明淡入，左侧导航条会"闪一下"。
+  // 常驻后 grid 列结构在所有页间恒定，切页只有 .app-page 内容区交叉淡入，无布局突变。
   return (
     <AppNavProvider value={navValue}>
-      <div
-        className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}`}
-        data-nav-mode={showShellNav ? 'open' : 'closed'}
-      >
-        {/* nav 始终渲染：mode=closed 时整列宽度 0 + 透明 + 不可交互，过渡由 CSS 自管。
-            修 bug：原条件渲染会让 grid 列数瞬变（workspace 1 列 → audio 2 列），交叉淡入时
-            出现"工作台展开态"中间闪一下。 */}
-        <aside className="app-nav" aria-label="应用页面导航" aria-hidden={!showShellNav} inert={!showShellNav || undefined}>
+      <div className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}`}>
+        <aside className="app-nav" aria-label="应用页面导航">
           <AppNav />
         </aside>
 

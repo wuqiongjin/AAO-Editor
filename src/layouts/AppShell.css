@@ -8,14 +8,10 @@
 .app-shell {
   --nav-width: 156px;
   display: grid;
-  /* 阶段 4 v4（2026-09-01）：左侧应用导航栏切页时完全静态——
-     grid-template-columns 不再 transition，避免工作台↔其它页切换时
-     两套导航列同时可见（外层 .app-nav 渐显 + workspace 内联 .app-nav-inline 渐隐
-     造成的"重叠闪烁"）。nav 列在 closed 模式宽度归 0，CSS 仍走瞬时切换；
-     内容页 .app-page 保留 150ms 交叉淡入，但用户感知不到列宽变化。
-     v5：用命名列锁住 .app-nav / .app-surface 的位置——
-     display:none 让 .app-nav 出 grid auto-placement，
-     .app-surface 就会自动落到第 1 列（0px 宽）→ 内容白屏。命名列 + 显式 grid-column 修复。 */
+  /* 2026-09-05 修切页闪烁：导航列永久常驻——grid 列结构在所有页之间恒定，
+     切页只有 .app-page 内容区交叉淡入，不再有"外层 nav 列 0px ↔ 156px 瞬切 +
+     workspace 内联 nav 互换"造成的布局突变与闪烁。
+     命名列锁住 .app-nav / .app-surface 的位置。 */
   grid-template-columns: [nav] var(--nav-width) [surface] minmax(0, 1fr);
   width: 100%;
   height: 100dvh;
@@ -29,16 +25,6 @@
 }
 .app-shell > .app-surface {
   grid-column: surface;
-}
-
-/* 工作台态：整列 .app-nav 直接 display:none，不再占 0px 宽 + 留底色（v4 修复）；
-   内容页 .app-page 保留 150ms 交叉淡入，但用户感知不到列宽变化；
-   这是彻底避免"双侧导航"叠影的关键。 */
-.app-shell[data-nav-mode='closed'] {
-  grid-template-columns: [nav] 0px [surface] minmax(0, 1fr);
-}
-.app-shell[data-nav-mode='closed'] > .app-nav {
-  display: none;
 }
 
 .app-shell *,
@@ -63,10 +49,8 @@
   padding: 12px 10px;
   border-right: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg));
-  /* 阶段 4 v3（2026-09-01）：nav 始终挂载且固定不动（应用 chrome 类，类 macOS dock）。
-     data-nav-mode=closed 时所在列宽归 0 + overflow:hidden 把它"挤出"视口，
-     但 nav 自身不参与切换动画（不 translateX / 不 fade）；切页动效由 grid 列宽 +
-     页面交叉淡入共同承接。 */
+  /* 2026-09-05：导航列永久常驻（应用 chrome，类 macOS dock），不参与切页动画。
+     切页动效由 .app-page 内容区交叉淡入承接。 */
   overflow: hidden;
 }
 
@@ -207,21 +191,6 @@
     padding 200ms var(--ease);
 }
 
-/* 同款 inline nav 折叠态 */
-.app-nav-inline.is-collapsed .app-nav-item,
-.app-nav-inline.is-collapsed .app-nav-toggle {
-  display: flex;
-  width: 38px;
-  justify-content: center;
-  align-items: center;
-  padding: 0;
-  /* 阶段 4 v4（2026-09-01）：折叠态图标居中修复——清零 gap 让 svg 居中。 */
-  gap: 0;
-  transition:
-    width 200ms var(--ease),
-    padding 200ms var(--ease);
-}
-
 .app-shell.is-nav-collapsed .app-nav-toggle {
   grid-template-columns: 1fr;
 }
@@ -249,72 +218,6 @@
     padding 200ms var(--ease);
 }
 
-/* 工作台左列内的应用导航（与工具面板合成同一左列，纵向窄栏；展开/折叠仅控制标签显示）。
-   与外层独立导航 .app-nav 的尺寸/内边距保持一致，保证工作台与非工作台页图标位置统一（issue 28 第 2 轮）。 */
-.app-nav-inline {
-  flex-direction: column;
-  width: 156px;
-  flex-shrink: 0;
-  padding: 12px 10px;
-  border-right: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg));
-  /* 阶段 4 v4（2026-09-01）：工作台失活时 inline nav 直接 display:none，
-     立即隐藏，不再 opacity 过渡——切到其它页时 inline nav 与外层 .app-nav 不再有时间重叠，
-     彻底消除两套导航同时可见的"重叠效果"。 */
-  display: none;
-}
-
-.app-page.is-active .app-nav-inline {
-  display: flex;
-}
-
-.app-nav-inline .app-nav-items {
-  flex-direction: column;
-  gap: 4px;
-}
-.app-nav-inline .app-nav-toggle {
-  margin-top: auto;
-}
-.app-nav-inline.is-collapsed {
-  width: 52px;
-  align-items: center;
-  padding-right: 7px;
-  padding-left: 7px;
-  /* 阶段 4 v2（2026-09-01）：折叠展开过渡——width / padding 200ms 平滑变化。 */
-  transition:
-    width 200ms var(--ease),
-    padding 200ms var(--ease);
-}
-
-/* 折叠态 item / toggle 走 .app-shell.is-nav-collapsed 处的统一定义（display:flex + 38px），
-   此处不再重复，避免特异性冲突后旧规则覆盖新规则（grid + 40px）。 */
-
-.app-nav-inline.is-collapsed .app-nav-item span,
-.app-nav-inline.is-collapsed .app-nav-item kbd {
-  /* 阶段 4 v2（2026-09-01）：display:none 改 opacity:0 + max-width:0 让折叠可平滑过渡。
-     v5 修复：加 height:0 / line-height:0 避免"3 字中文 label 撑高父按钮"，
-     让所有 inline 折叠态按钮统一 42px。 */
-  opacity: 0;
-  max-width: 0;
-  height: 0;
-  line-height: 0;
-  padding: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-.app-nav-inline.is-collapsed .app-nav-toggle {
-  grid-template-columns: 1fr;
-}
-
-/* 默认态（展开）span / kbd 也要带 transition，配合折叠态的 opacity:0 平滑过渡。 */
-.app-nav-inline .app-nav-item span,
-.app-nav-inline .app-nav-item kbd {
-  transition:
-    opacity 200ms var(--ease),
-    max-width 200ms var(--ease),
-    padding 200ms var(--ease);
-}
-
 /* ---- 页面容器（保活：全部挂载，交叉淡入）
    阶段 4（2026-09-01）：display:none/block → opacity 交叉淡入。
    5 页全部用 .app-page 包裹并保持挂载（lazy + Suspense 已在 PageRegistry 完成）；
@@ -335,16 +238,11 @@
   pointer-events: none;
   min-width: 0;
   min-height: 0;
-  /* 阶段 4 v5（2026-09-01）：切页动效。
-     - 旧 page 保持静态，不主动参与退场动画（只有 opacity 渐隐）
-     - 新 page 从右滑入 + 淡入：translateX(12px) → 0，opacity 0 → 1，200ms ease
-     这样"从工作台切到其它页"和"从其它页切回工作台"都是丝滑滑入，
-     左侧导航栏仍瞬时（不参与切页动画，符合用户要求）。
-     入场距离从 12px 缩到 8px：缩到 4px 后过渡太弱像闪烁，12px 又太重像 modal。 */
-  transform: translateX(8px);
-  transition:
-    opacity 200ms var(--ease),
-    transform 200ms var(--ease);
+  /* 2026-09-05 修切页抖动：纯 opacity 交叉淡入，不加 translateX。
+     之前 transform: translateX(8px) 在进/出两个方向都参与过渡——
+     新页从 +8px 滑入、旧页向 +8px 滑出，内容整体左右位移 ~7px 再回位，
+     被用户感知为"左右抖动一下才回到正确的位置"。去掉 transform 后内容位置恒定。 */
+  transition: opacity 150ms var(--ease);
 }
 
 .app-page.is-active {
@@ -2471,10 +2369,10 @@ button.skin-pill {
 
 /* ============================================================
    工作台面板（阶段 4 v2 2026-09-01 折叠展开动效）
-   - ws-panel-left / ws-panel-right：DOM 始终挂载 nav rail + body + 折叠 toggle，
+   - ws-panel-left / ws-panel-right：DOM 始终挂载 body + 折叠 toggle，
      is-collapsed 类驱动 width / opacity / 内部 padding 200ms 平滑过渡；
    - 折叠态 body 用 width:0 + opacity:0 收起（display:none 不能 transition）；
-   - nav inline (.app-nav-inline) 仍保留并由原 AppShell.css 折叠规则控制。
+   - 2026-09-05：应用导航不再内联（AppShell 的 .app-nav 常驻），左面板只含工具栏。
    ============================================================ */
 
 /* ---- 共用：ws-panel 基底 ---- */
@@ -2559,14 +2457,10 @@ button.skin-pill {
   border-right: 1px solid var(--border);
 }
 
-/* 折叠态：只显示 nav rail（156 / 52 视 navCollapsed）+ 34px 折叠条
+/* 折叠态：只剩 34px 折叠条（应用导航在 AppShell 常驻列，不在本面板内）
    body 用 width:0 + opacity:0 收起 */
 .ws-panel-left.is-collapsed {
-  width: calc(var(--ws-left-rail-w, 156px) + 34px);
-}
-
-.ws-panel-left.is-collapsed.is-nav-collapsed {
-  width: calc(var(--ws-left-rail-w, 52px) + 34px);
+  width: 34px;
 }
 
 .ws-panel-left.is-collapsed .ws-panel__body {

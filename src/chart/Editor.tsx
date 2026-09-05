@@ -9,7 +9,6 @@ import { getBpmEvents, secondsToBeat } from '../audio/AudioTiming';
 import PlayBar from '../playback/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
 import { countChartNotes } from '../chart/editing/NoteEditing';
-import { AppNav, useAppNav } from '../layouts/AppNav';
 import { useSurfaceSize } from '../chart/layout/useSurfaceSize';
 import { useScrollModel } from '../playback/useScrollModel';
 import { useAudioBridge } from '../audio/useAudioBridge';
@@ -53,7 +52,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   } = ui;
   const { settings, setLayout } = config;
   const shortcutConfig = settings.shortcuts;
-  const { navCollapsed } = useAppNav();
   const {
     setIsPlaying, setCanPlay,
     setCurrentSeconds,
@@ -302,21 +300,19 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
       {/* 左侧工具栏列（阶段 4 v2 2026-09-01）：
-          - DOM 始终挂载 nav rail + body + 折叠 toggle，collapsed/expanded 切换由
+          - DOM 始终挂载 body + 折叠 toggle，collapsed/expanded 切换由
             .ws-panel-left.is-collapsed 类驱动，width / opacity / padding 走 CSS 200ms 平滑过渡，
             避免旧版条件渲染导致的布局瞬变与画布宽度跳变；
           - 折叠态 body 用 width:0 + opacity:0 收起（display:none 不能 transition）；
-          - nav inline 仍保留并与外层导航同源，width/padding 由 .app-nav-inline 自己管理。 */}
+          - 应用导航不再内联（2026-09-05 修切页闪烁）：AppShell 的 .app-nav 常驻，
+            本面板只承载工具栏，避免切页时两套导航互换。 */}
       <div
-        className={`ws-panel ws-panel-left${leftCollapsed ? ' is-collapsed' : ''}${navCollapsed ? ' is-nav-collapsed' : ''}`}
+        className={`ws-panel ws-panel-left${leftCollapsed ? ' is-collapsed' : ''}`}
         style={{
           // expanded 宽度由 JS 注入（用户可拖拽 leftPanelWidth），folded 宽度由 CSS 类管
           '--ws-left-w': `${Math.min(leftPanelWidth, typeof window !== 'undefined' ? window.innerWidth * 0.3 : 9999)}px`,
         } as React.CSSProperties}
       >
-        <div className={`app-nav-inline${navCollapsed ? ' is-collapsed' : ''}`}>
-          <AppNav />
-        </div>
         <div className="ws-panel__body">
           <div className="ws-panel__body-scroll">
             <Toolbar />
