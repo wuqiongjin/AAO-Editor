@@ -93,6 +93,15 @@ function AudioSection() {
         <p>支持浏览器可解码的常见音频格式；导入后谱面时长将跟随音频长度。</p>
       </div>
 
+      {/* file input 无条件挂载（两分支共用一个 ref，避免各挂一份） */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="audio/*"
+        className="visually-hidden-input"
+        onChange={(e) => { if (e.target.files && e.target.files[0]) session.importAudio(e.target.files[0]); e.target.value = ''; }}
+      />
+
       {/* 阶段 2 空态（2026-08-30 用户拍板）：
           未导入音频时用三段式 EmptyState（图 + 标题 + 描述 + 主按钮"导入音频"）
           替代原"尚未导入音频"灰色提示文字。已导入时回落到 .audio-file 卡 + 谱面时长行。 */}
@@ -109,13 +118,6 @@ function AudioSection() {
                 - 清除 = .action-btn--danger（红软底，提示"破坏性"，但不像 primary 那么重）。 */}
             <button type="button" className="action-btn action-btn--primary" onClick={pickFile}>
               <Upload size={16} />更换音频
-              <input
-                ref={fileRef}
-                type="file"
-                accept="audio/*"
-                style={{ display: 'none' }}
-                onChange={(e) => { if (e.target.files && e.target.files[0]) session.importAudio(e.target.files[0]); e.target.value = ''; }}
-              />
             </button>
             <button
               type="button"
@@ -137,15 +139,7 @@ function AudioSection() {
             onClick: pickFile,
             icon: Upload,
           }}
-        >
-          <input
-            ref={fileRef}
-            type="file"
-            accept="audio/*"
-            style={{ display: 'none' }}
-            onChange={(e) => { if (e.target.files && e.target.files[0]) session.importAudio(e.target.files[0]); e.target.value = ''; }}
-          />
-        </EmptyState>
+        />
       )}
 
       {/* 谱面时长：嵌入音频素材 section 内（grill 2026-08-26 拍板 3-section 方案） */}

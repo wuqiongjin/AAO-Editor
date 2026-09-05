@@ -77,7 +77,7 @@
 }
 .action-btn--danger:hover:not(:disabled) {
   background-color: var(--danger);
-  color: #ffffff;
+  color: var(--text-inverse);
 }
 
 /* ============================================================

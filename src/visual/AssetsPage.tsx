@@ -237,6 +237,16 @@ function BackgroundPanel() {
         {/* 阶段 2 空态（2026-08-30 用户拍板）：
           未上传图片时用三段式 EmptyState（图 + 标题 + 描述 + 主按钮"上传图片"）
           替代原"未设置"灰色提示文字 + 占位预览。已上传时回落到原 asset-set 预览卡。 */}
+      {/* file input 无条件挂载：挂在 image 分支内会让已传图后的"更换"按钮 click() 落空 */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept={BG_ACCEPT}
+        aria-hidden="true"
+        tabIndex={-1}
+        className="visually-hidden-input"
+        onChange={(e) => void handleFile(e.target.files?.[0])}
+      />
       {image ? (
         <div className={`asset-set skin-preset bg-asset-set${enabled ? ' is-active' : ''}`}>
           <div className={`bg-preview${!enabled ? ' is-off' : ''}`} aria-hidden="true">
@@ -315,15 +325,6 @@ function BackgroundPanel() {
             disabled: busy || snap.status !== 'ready',
           }}
         >
-          <input
-            ref={fileRef}
-            type="file"
-            accept={BG_ACCEPT}
-            aria-hidden="true"
-            tabIndex={-1}
-            className="bg-file-input"
-            onChange={(e) => void handleFile(e.target.files?.[0])}
-          />
           {error && <span className="field-help is-error">{error}</span>}
         </EmptyState>
       )}

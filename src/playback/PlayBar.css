@@ -39,7 +39,7 @@
   background-color: var(--bg-hover);
 }
 .play-bar__play-btn:active {
-  transform: scale(0.96);
+  transform: scale(0.98);
 }
 
 /* 时间码组（紧邻）：当前时间 + 总时长 */

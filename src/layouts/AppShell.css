@@ -112,9 +112,6 @@
 
 /* 选中态图标不缩放——与未选中态保持尺寸一致，bg/color/border 切换已足够提供视觉反馈。
    之前 scale(1.08) 会让"工作台"图标（默认选中）显得比其它图标大、与同列其它项的占用空间不一致。 */
-.app-nav-item svg {
-  transition: transform var(--dur) var(--ease);
-}
 
 .app-nav-item kbd {
   color: var(--text-subtle);
@@ -248,7 +245,6 @@
 .app-page.is-active {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(0);
 }
 
 /* ---- 通用页面内容布局 ---- */
@@ -322,7 +318,7 @@
 .page-intro {
   /* 2026-08-30：与 AppPageShell.css 的 .app-page-shell .page-intro 同步上调到 32px。
      历史值 24px：v6 拍板；用户再次反馈间距过紧（图 2）。 */
-  margin-bottom: 32px;
+  margin-bottom: var(--space-8);
 }
 
 .page-intro > span {
@@ -366,7 +362,7 @@
   /* 任务 1（2026-08-30 v4）：所有 surface-section 卡片自带 24px 内边距，
      避免之前"卡片贴边 + 子类补 padding"的双重/漏 padding 怪现象。
      留作视觉基底的 padding，个别子类（如 .shortcut-surface）可用 padding: 0 覆盖。 */
-  padding: 24px;
+  padding: var(--space-6);
 }
 
 /* ---- 音频页（Q15） ---- */
@@ -896,7 +892,7 @@
 .bg-card {
   grid-template-columns: minmax(0, 1fr);
 }
-.bg-file-input {
+.visually-hidden-input {
   /* 无障碍：视觉隐藏的文件输入（label/按钮触发 click） */
   position: absolute;
   width: 1px;
@@ -2255,7 +2251,7 @@ button.skin-pill {
   position: fixed;
   inset: 0;
   z-index: var(--z-recorder);
-  background-color: rgba(12, 14, 17, 0.5);
+  background-color: var(--overlay-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2413,12 +2409,11 @@ button.skin-pill {
   transition: background-color 120ms var(--ease);
 }
 
-.ws-panel[data-side='left'] .ws-panel__resizer,
+/* data-side 实际挂在 .ws-panel__resizer 上（Editor.tsx），ws-panel 本身用修饰类区分左右 */
 .ws-panel-left .ws-panel__resizer {
   right: -3px;
 }
 
-.ws-panel[data-side='right'] .ws-panel__resizer,
 .ws-panel-right .ws-panel__resizer {
   left: -3px;
 }

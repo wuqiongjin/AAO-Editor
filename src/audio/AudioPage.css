@@ -10,21 +10,22 @@
  * 用户原话："还是以卡片式作为基底吧。现在这种裸外层的不如卡片式的。
  *            但并不是回退到之前那种包装"
  *
- * 当前生效 = 方案 D：background + 1px border + radius（无 box-shadow、无 padding）
+ * 当前生效 = 方案 D（v4 后的最终形态）：background + 1px border + radius + 24px padding：
  *   .surface-section {
  *     background: var(--bg-elevated);
  *     border: 1px solid var(--border);
  *     border-radius: var(--radius-md);
- *     padding: 0;
+ *     padding: var(--space-6);
  *   }
- *   （定义在 AppShell.css；.audio-detail 仍保留 22px padding，让卡片内部有呼吸空间）
+ *   （定义在 AppShell.css；padding 由 v4 上提到 .surface-section 自身，
+ *   避免各子类补 padding 的双层/漏层不一致）
  *   - 视觉上比"仅 bg"（方案 A）多一道边界线
- *   - 比"bg + shadow + padding"（方案 B）更克制
+ *   - 比"bg + shadow + padding"（方案 B）更克制（无 box-shadow）
  *
  * 历史方案 A/B/C 已弃用，注释保留作决策追溯。 */
 
-/* ---- 详情 surface-section（issue 28 Q15 留 22px 内边距与"键音素材包"卡观感对齐） ---- */
-/* padding 已上提到 .surface-section（24px），这里只留 min-height 避免双层 padding 不一致 */
+/* ---- 详情 surface-section：padding 已上提到 .surface-section（24px），
+   这里只留 min-height 避免双层 padding 不一致 ---- */
 .audio-detail {
   min-height: min-content;
 }

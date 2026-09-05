@@ -270,8 +270,12 @@ button, input, select, textarea {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    /* delay 同样清零：stagger 的 both 填充让 delay 期间处于 opacity:0 的 from 态，
+       只清 duration 不清 delay 的话，内容仍会空白最长 360ms */
+    animation-delay: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0.01ms !important;
     scroll-behavior: auto !important;
   }
 }

@@ -34,7 +34,7 @@
   box-sizing: border-box;
   --aps-sidebar-w: clamp(140px, 12.5%, 200px);
   /* sidebar 宽（12.5% of main 视口，140–200 兜底） */
-  --aps-gap: 24px;
+  --aps-gap: var(--space-6);
   /* sidebar-body 横向 gap（模板硬约束 #2） */
   --aps-inset-l: 51px;
   /* 左边距 L：sidebar 起始位置（+3px 右移微调，header 与 body 同步右移） */
@@ -85,7 +85,7 @@
   box-sizing: border-box;
   /* 任务 1（2026-08-30）：Header 与 Body 间呼吸感 32px（与卡片 24px padding 合计 ~56px，
      与音频页"页头→卡→h2→p→border→内容"多层节奏对齐）。用户反馈"间距过窄"上调至此值。 */
-  margin-bottom: 32px;
+  margin-bottom: var(--space-8);
 }
 
 /* 无 sidebar 页（快捷键）：__main 用 .app-page-shell__slot 占位槽预留 sidebar 位，
@@ -179,7 +179,9 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
-/* 选中态图标轻微缩放——与 app-nav-item 同款 */
+/* 选中态图标轻微缩放。与 .app-nav-item（不缩放）不同款是刻意的（2026-09-05 用户拍板）：
+   两者非复用关系——主导航因"工作台"常选中、图标偏大会破坏列内一致性而取消缩放；
+   内容页侧边索引用微缩放强化"当前项"，用户确认观感良好，保留。 */
 .app-page-shell__sidebar-item svg {
   transition: transform var(--dur) var(--ease);
 }
