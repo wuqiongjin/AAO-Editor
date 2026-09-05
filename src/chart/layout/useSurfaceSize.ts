@@ -5,19 +5,19 @@
 // 该 hook 是 6 个会话流"渲染面测量"的拆出（架构深化评审候选 2），
 // 行为完全保持：突发/流/尾随状态机 + 退化尺寸跳过 + 已生效值去重。
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { DEFAULT_SURFACE, type SurfaceSize } from '../geometry/ChartGeometry';
+import { type SurfaceSize } from '../geometry/ChartGeometry';
 import { SurfaceSizeMerger, type SurfaceSizeMergerConfig } from './SurfaceSizeMerger';
 
 export interface UseSurfaceSizeOptions extends Omit<SurfaceSizeMergerConfig, 'onCommit'> {
-  /** 自定义初始 surface（默认 DEFAULT_SURFACE） */
+  /** 自定义初始 surface（默认 null——ResizeObserver 尚未回调，组件不渲染） */
   initial?: SurfaceSize;
 }
 
 export function useSurfaceSize(
   ref: RefObject<HTMLElement | null>,
   options: UseSurfaceSizeOptions = {},
-): SurfaceSize {
-  const [surface, setSurface] = useState<SurfaceSize>(options.initial ?? DEFAULT_SURFACE);
+): SurfaceSize | null {
+  const [surface, setSurface] = useState<SurfaceSize | null>(options.initial ?? null);
   // onCommit 引用稳定：避免 merger 每次 useEffect 重建 → 重复挂 RO
   const onCommit = useRef<(v: SurfaceSize) => void>(() => {});
   onCommit.current = setSurface;
@@ -34,19 +34,8 @@ export function useSurfaceSize(
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    // merger 必须在当前 effect 内保证有效（StrictMode 第二次挂载时 render 还没跑，
-    // mergerRef.current 可能已被上轮 cleanup 置 null）；这里本地 lazy 创建。
-    let merger = mergerRef.current;
-    if (!merger || (merger as unknown as { destroyed?: boolean }).destroyed) {
-      merger = new SurfaceSizeMerger({ ...options, onCommit: (v) => onCommit.current(v) });
-      mergerRef.current = merger as SurfaceSizeMerger;
-    }
-    // 标记 merger 在当前 effect 周期内有效；cleanup 后回调若仍触发，则直接忽略
-    // 修复：之前 cleanup 中 ro.disconnect() 后 merger.destroy()，但 RO 回调可能已入队
-    // 在 disconnect 之后才执行 → 访问 null merger.feed 抛 TypeError。
-    let alive = true;
+    const merger = mergerRef.current!;
     const ro = new ResizeObserver((entries) => {
-      if (!alive) return;
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         merger.feed({ w: width, h: height });
@@ -54,13 +43,12 @@ export function useSurfaceSize(
     });
     ro.observe(el);
     return () => {
-      alive = false;
+      // issue 50 修复：仅断开 RO；merger 单例由 GC 在组件真卸载时回收（不主动 destroy）。
+      // 原因：React 18 StrictMode dev 下 effect cleanup 会在 mount→unmount→remount 循环里被反复调用，
+      // 任何 `mergerRef.current = null` / `merger.destroy()` 都会在 RO callback 异步 fire 之前把 merger
+      // 置空，导致 `merger.feed()` 抛 TypeError、setSurface 永远不触发、FinalVirtualCanvas 整个不渲染。
+      // merger 只持有 1 个 ResizeObserver 回调 + 几个状态字段，由 GC 回收即可。
       ro.disconnect();
-      merger.flush(); // 卸载时结算一次最新值
-      merger.destroy();
-      // 不再 mergerRef.current = null；下次 useEffect 内会自动 lazy 重建。
-      // StrictMode 双挂载场景：第一次 cleanup destroy 旧 merger，第二次 mount 时
-      // mergerRef.current 仍指向已 destroy 的对象，本函数开头判 destroyed 会替换。
     };
   }, [ref]);
   return surface;

@@ -6,7 +6,7 @@ import { deleteSelection } from '../../editing/SelectionEditing';
 import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../../../audio/AudioTiming';
 import {
   ChartGeometry, LANES, LANE_WIDTH,
-  DEFAULT_SURFACE, TRACK_CHROME_TOTAL, type SurfaceSize,
+  TRACK_CHROME_TOTAL, type SurfaceSize,
 } from '../../geometry/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../../../app/ProviderTree';
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../visual';
@@ -21,8 +21,12 @@ interface FinalVirtualCanvasProps {
   onScrollChange?: (scrollY: number, virtualHeight: number) => void;
   /** 谱面长度（秒，ADR-0005 §1）：显式、与音符无关；有音频=音频时长，无音频=持久化值(默认30s) */
   chartEndSeconds: number;
-  /** 渲染面尺寸（CSS 像素，ADR-0006 §1）：由 Editor 经 ResizeObserver 提供；缓冲 = surface × dpr */
-  surface: SurfaceSize;
+  /**
+   * 渲染面尺寸（CSS 像素，ADR-0006 §1）：由 Editor 经 ResizeObserver 提供；缓冲 = surface × dpr
+   * issue 50（Q8 a / Q24 a）：null = RO 尚未回调（mount 后 0~16ms），
+   * 组件不渲染（不画判定线、不响应指针——保护所有依赖 surface 的几何/绘制）
+   */
+  surface: SurfaceSize | null;
   /** 工作台激活态（issue 28 表面契约透传）：false→true（回到工作台）时强制补一帧——
    *  保活隐藏期间背景皮肤的换图/开关/透明度变化不经过任何画布交互路径（issue 29 用户反馈2），激活即重绘保证所见为最新 */
   active?: boolean;
@@ -62,8 +66,15 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     surface,
     active,
 }, ref) => {
-    // 渲染面兜底：ResizeObserver 尚未回传前的有效尺寸（ADR-0006 §1）
-    const surf: SurfaceSize = surface.w > 0 && surface.h > 0 ? surface : DEFAULT_SURFACE;
+    // issue 50（Q6 a 修正语义）：画布 == background（CSS width/height 100%），几何坐标系用 chartArea 真实尺寸。
+    // 之前的 min 维度算法（canvasW=min(parentW, floor(parentH*5/6))）导致左右 letterbox——父级比画布宽时
+    // 画布居中、左右留黑底，违反"画布与 background 贴合"原意。新语义：画布 DOM = 父级，绘制坐标系也 = 父级，
+    // 轨道水平居中绘制在画布内，多余的水平空间由 canvas 绘制层 letterbox 成黑底（renderChart 内部 trackStartX
+    // 居中算法已实现）。判定线 = 画布底 = chartArea 底——音符越过 chartArea 底即判（与 Q7 一致）。
+    // 兜底：surface null 时用 200×240 占位（与 useScrollModel 内部 fallback 对齐）；
+    // 实际渲染在 JSX return 前早 return null，不会真正画到这组值。
+    // useMemo 包裹：避免每次 render 重建对象导致下游 useMemo/useEffect 依赖抖动
+    const surf: SurfaceSize = useMemo(() => surface ?? { w: 200, h: 240 }, [surface]);
     // 状态经 hooks 直读（ADR-0003 §7）
     const {
         notes, selectedItems, setSelectedItems, clipboard,
@@ -663,6 +674,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         [notes, playheadBeat],
     );
 
+    // issue 50（Q24 a）：surface 为 null 时不渲染（chartArea 还未就绪；保护所有依赖 surface 的几何/绘制）
+    if (!surface) return null;
+
     return (
         <div style={{
             backgroundColor: '#000000',
@@ -701,18 +715,16 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                         backgroundColor: '#000000',
                         display: 'block',
                         userSelect: 'none',
+                        boxSizing: 'border-box', // issue 50：border 算进 100% 尺寸，避免比父级宽 2px 触发 overflow
                         border: '1px solid #333',
                         // ADR-0006 §1：canvas 缓冲 = surface × dpr（renderChart 设置）；React 不触碰缓冲属性
                         // （不在 JSX 里写 width={surf.w} 作为 HTML 属性，那会重设缓冲并触发错帧）。
-                        // issue 38（根因 b，第二版）：轨道水平居中 trackStartX=(surface.w − 轨道宽)/2 由
-                        // surface 决定，而 surface 由 RO 异步测得——容器因折叠/展开侧栏瞬间变宽时，canvas
-                        // CSS 若用 width:100% 会立刻撑到新宽度，但 surface（决定轨道中心）还要晚一帧才更新，
-                        // 于是出现一帧「canvas 已变宽、轨道仍画在旧中心」的错位闪烁（先偏移再回归）。
-                        // 修复：canvas 的 CSS 尺寸直接用 surface 的 px 值，使 DOM 尺寸与绘制内容始终同步；
-                        // 过渡那一帧旧尺寸 canvas 由外层 flex 居中，轨道仍保持居中→无偏移。稳态下 surface
-                        // 恒等于容器宽，canvas 仍铺满容器。此处只设 CSS 尺寸，绝不触碰缓冲属性。
-                        width: `${surf.w}px`,
-                        height: `${surf.h}px`,
+                        // issue 50（Q6 a 修正语义）：canvas CSS width/height = 100%，与 background div 同尺寸；
+                        // 绘制坐标系用 surf（= chartArea 真实尺寸），轨道在画布内水平居中（letterbox 在 canvas 绘制层）。
+                        // 之前的"width:100% 会闪一帧"担心在 issue 50 hotfix 后已不成立（StrictMode RO 同步回调，
+                        // 不会出现 canvas 已变宽但 surface 还在旧值的中间态）。
+                        width: '100%',
+                        height: '100%',
                         position: 'relative',
                         zIndex: 10 // 确保Canvas在最上层
                     }}

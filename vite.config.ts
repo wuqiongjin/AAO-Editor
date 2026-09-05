@@ -66,7 +66,9 @@ export default defineConfig(({ mode }) => {
     server: {
       // 绑定 0.0.0.0，让云环境的端口转发 / 代理能访问到
       host: true,
-      port: 5173,
+      // 端口可通过 DEV_PORT 环境变量覆盖（默认 5173）；scripts/dev.sh 会处理
+      // 占用的进程并打印对外访问地址。
+      port: Number(process.env.DEV_PORT) || 5173,
       strictPort: true,
       // 允许代理域名作为 Host 头，避免 Vite 默认拦截导致刷新被拒/挂起
       allowedHosts: true as const,

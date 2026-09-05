@@ -48,22 +48,6 @@ const isSlideNodeSelected = (sel: SelectionSets, index: number, connIndex: numbe
 const isSlideRegionSelected = (sel: SelectionSets, index: number, connIndex: number) =>
   sel.slideRegions.get(index)?.has(connIndex) ?? false;
 
-/** 判定线（ADR-0004 §1 + ADR-0006 §2）：固定画布【下边边缘】；常显（停/播同线） */
-export function renderJudgeLine(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
-  const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-  const y = rc.surface.h; // 判定线 = 画布下边边缘
-  ctx.save();
-  ctx.strokeStyle = '#e0f7ff';
-  ctx.lineWidth = 3 * rc.viewport.scale;
-  ctx.shadowColor = '#00e5ff';
-  ctx.shadowBlur = 12 * rc.viewport.scale;
-  ctx.beginPath();
-  ctx.moveTo(trackBgX, y);
-  ctx.lineTo(trackBgX + trackBgWidth, y);
-  ctx.stroke();
-  ctx.restore();
-}
-
 /** 临时起点标记（ADR-0004 §4）：左沟槽竖向标记线；选中时高亮 */
 export function renderStartMarker(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   if (rc.markerBeat === null) return;
@@ -797,6 +781,9 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
  * 滚动/缩放帧重建一次（与旧直绘同阶），消除密集谱下每帧全量重绘静态层的固定地板成本。
  */
 export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, rc: RenderCtx) {
+  // issue 50（Q24 a + Q8 a 延伸）：surface 未就绪时（null）不渲染——
+  // 保护所有依赖 surface 的绘制（几何/缓冲/像素坐标）
+  if (!rc.surface) return;
   const t0 = perf.enabled ? performance.now() : 0;
   // buffer = surface × dpr（ADR-0006 §1）；此后绘制/命中均用 CSS 像素坐标
   const bw = Math.round(rc.surface.w * rc.dpr), bh = Math.round(rc.surface.h * rc.dpr);
@@ -829,7 +816,6 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   if (rc.selectionBox) renderSelectionBox(ctx, rc);
   renderSlideBuffer(ctx, c, rc);
   renderToolPreview(ctx, c, rc);
-  renderJudgeLine(ctx, c, rc);
   renderStartMarker(ctx, c, rc);
 
   if (perf.enabled) perf.record(performance.now() - t0);

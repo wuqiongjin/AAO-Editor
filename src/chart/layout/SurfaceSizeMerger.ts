@@ -9,7 +9,7 @@
 //   3) 与上一回调间隔 ≥ SPARSE_GAP_MS 视为新的独立离散事件，立即应用最新值。
 //   4) 连续回调持续 ≥ STREAM_MS 定性为持续缩放流，不再逐条应用，交由尾部结算最新值。
 //   5) 事件/流停止后 TRAIL_MS 结算一次最新值。
-import { DEFAULT_SURFACE, type SurfaceSize } from '../geometry/ChartGeometry';
+import { type SurfaceSize } from '../geometry/ChartGeometry';
 
 export interface SurfaceSizeMergerConfig {
   /** 与上一回调间隔 ≥ 此值视为新的独立离散事件（默认 100ms） */
@@ -43,7 +43,7 @@ export class SurfaceSizeMerger {
 
   // 状态机
   private lastCommittedKey = '';
-  private lastCommitted: SurfaceSize = DEFAULT_SURFACE;
+  private lastCommitted: SurfaceSize | null = null;
   private lastValue: SurfaceSize = { w: 0, h: 0 };
   private lastCallbackAt = 0;
   private burstStartAt = 0;
@@ -60,17 +60,21 @@ export class SurfaceSizeMerger {
   }
 
   /** 当前已提交值（state machine 的对外可读状态，供 hook 初次渲染用） */
-  getCommitted(): SurfaceSize {
+  getCommitted(): SurfaceSize | null {
     return this.lastCommitted;
   }
 
   /** 喂入一次 ResizeObserver 回调（已做 contentRect 提取的尺寸，单测可直接传） */
   feed(raw: { w: number; h: number }): void {
     if (this.destroyed) return;
-    const next = { w: Math.round(raw.w), h: Math.round(raw.h) };
+    // 退化尺寸（用原始 raw 判定，不受 min 钳制影响）：跳过、不推进状态
+    if (raw.w <= this.degenerateThreshold || raw.h <= this.degenerateThreshold) return;
+    // issue 50（Q12 b）：min 200×240 钳制——防止 chartArea 折叠到极小时画布消失
+    const next = {
+      w: Math.max(200, Math.round(raw.w)),
+      h: Math.max(240, Math.round(raw.h)),
+    };
     const key = `${next.w}x${next.h}`;
-    // 退化尺寸：跳过、不推进状态
-    if (next.w <= this.degenerateThreshold || next.h <= this.degenerateThreshold) return;
     // 已生效：忽略
     if (key === this.lastCommittedKey) return;
     this.lastValue = next;
