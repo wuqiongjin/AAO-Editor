@@ -796,13 +796,33 @@
   background: var(--success);
 }
 
-.asset-sample-dot.is-synth {
-  background: var(--border-strong);
+/* 试听按钮（issue 29：键音包内点击击打样式播放音效） */
+.asset-sample-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: none;
+  background: none;
+  padding: 1px 3px;
+  border-radius: 4px;
+  color: var(--text-subtle);
+  cursor: pointer;
 }
 
-.asset-sample-tag {
-  color: var(--text-subtle);
-  font-size: 10px;
+.asset-sample-play:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--bg-inset);
+}
+
+.asset-sample-play:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.asset-sample-tiers {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
 }
 
 /* 皮肤占位卡 */

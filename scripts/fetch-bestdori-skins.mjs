@@ -19,6 +19,7 @@
  * 用法：
  *   node scripts/fetch-bestdori-skins.mjs [--server jp|en|tw|cn|kr]
  *                                         [--output docs/resource/bestdori]
+ *                                         [--category <id[,id...]>] [--package <name[,name...]>]
  *                                         [--dry-run] [--concurrency 3]
  *
  * 约定：
@@ -112,6 +113,10 @@ function printHelp() {
   --server <code>       Bestdori 服务器: ${SERVERS.join('|')}（默认: ${DEFAULT_SERVER}）
   --output <dir>        归档输出根目录（默认: ${DEFAULT_OUTPUT_REL}，相对仓库根；
                         显式相对路径则相对当前工作目录解析）
+  --category <ids>      只归档这些类别（逗号分隔，可重复传；默认全部）。
+                        例: --category rhythm-note-se
+  --package <names>     只归档这些叶子包名（逗号分隔，可重复传；与 --category 叠加过滤）。
+                        例: --package common,skin00,skin01
   --dry-run             只做目录发现并列出待下载清单，不写任何文件
   --concurrency <n>     并发请求数，2-4（默认: 3）
   -h, --help            显示本帮助
@@ -128,6 +133,8 @@ function parseArgs(argv) {
     output: null,
     dryRun: false,
     concurrency: 3,
+    category: [],
+    package: [],
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -143,6 +150,18 @@ function parseArgs(argv) {
         const value = argv[++i];
         if (!value) die('--output 需要一个参数');
         args.output = value;
+        break;
+      }
+      case '--category': {
+        const value = argv[++i];
+        if (!value) die('--category 需要一个参数（逗号分隔的类别 id）');
+        args.category.push(...value.split(',').map((s) => s.trim()).filter(Boolean));
+        break;
+      }
+      case '--package': {
+        const value = argv[++i];
+        if (!value) die('--package 需要一个参数（逗号分隔的叶子包名）');
+        args.package.push(...value.split(',').map((s) => s.trim()).filter(Boolean));
         break;
       }
       case '--dry-run':
@@ -472,7 +491,29 @@ async function main() {
     die(`目录树获取失败（${infoUrl}）: ${error.message}`, 2);
   }
 
-  const packages = buildPackageList(info, server);
+  const allPackages = buildPackageList(info, server);
+  // --category / --package 过滤：部分归档时只处理命中的叶子包；
+  // 未命中的包不视为"源上消失"，其既有 manifest 条目原样保留（见第 4 步 carriedOver）。
+  if (args.category.length > 0) {
+    const known = new Set(allPackages.map((p) => p.categoryId));
+    const unknown = args.category.filter((c) => !known.has(c));
+    if (unknown.length > 0) {
+      die(`--category 含未知类别: ${unknown.join(', ')}（已知: ${[...known].join(', ')}）`);
+    }
+  }
+  const packageFilter = new Set(args.package);
+  const packages = allPackages.filter(
+    (p) =>
+      (args.category.length === 0 || args.category.includes(p.categoryId)) &&
+      (!packageFilter.size || packageFilter.has(p.packageName)),
+  );
+  if (packageFilter.size > 0) {
+    const found = new Set(packages.map((p) => p.packageName));
+    const missing = [...packageFilter].filter((n) => !found.has(n));
+    if (missing.length > 0) {
+      console.warn(`[bestdori-fetch] 注意: --package 未在任何类别命中: ${missing.join(', ')}`);
+    }
+  }
   const { tasks, skippedBundles, packageFailures } = await buildTasks(
     packages,
     server,
@@ -634,10 +675,16 @@ async function main() {
   const failedPackageIds = new Set(
     packageFailures.map((f) => `${f.categoryId}::${f.assetPath}`),
   );
-  const carriedOver = previousEntries.filter((entry) => {
+  // 本轮被过滤掉的包（--category/--package 部分归档）：其既有条目保留进 manifest
+  const runPackageKeys = new Set(packages.map((p) => `${p.categoryId}::${p.assetPath}`));
+  const carriedMap = new Map();
+  for (const entry of previousEntries) {
     const key = `${entry.categoryId}::${entry.assetPath}`;
-    return failedPackageIds.has(key);
-  });
+    if (failedPackageIds.has(key) || !runPackageKeys.has(key)) {
+      carriedMap.set(entry.localPath, entry);
+    }
+  }
+  const carriedOver = [...carriedMap.values()];
 
   // 上轮有记录但本轮源上已消失的条目：从 manifest 移除并提示
   const plannedPaths = new Set(tasks.map((t) => t.localRel));
@@ -695,7 +742,8 @@ async function main() {
   console.log('\n== 归档完成 ==');
   console.log(`  新下载: ${downloadedEntries.length}（共 ${(totalBytes / 1024 / 1024).toFixed(1)} MB）`);
   console.log(`  未变化跳过: ${unchangedEntries.length}`);
-  if (carriedOver.length > 0) console.log(`  清单失败但本地有效而保留: ${carriedOver.length}`);
+  if (carriedOver.length > 0)
+    console.log(`  清单失败保留 / 部分归档保留既有条目: ${carriedOver.length}`);
   console.log(`  失败: ${failures.length + packageFailures.length}`);
   console.log(`  按策略跳过(.bundle): ${bundleSkipCount}`);
   console.log(`  manifest: ${path.relative(process.cwd(), manifestPath)}`);

@@ -6,7 +6,7 @@
 // - 旧 bangdream.shortcuts.v1 仍可读（一次性回填到新 settings.shortcuts），不再写入。
 // - 旧版 schema（仅有 {schemaVersion, audio.keySet}）已包含 audio 段，load 时按字段合并。
 import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutConfig';
-import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID } from '../../audio/KeySound';
+import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../audio/KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../visual/gen/noteSkinRegistry.gen';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../visual/gridStyle';
 
@@ -160,7 +160,8 @@ function mergeSettings(parsed: unknown): AppSettings {
     // 段内合并：若新 settings 里没有 shortcuts，则沿用 defaults 整体；之后由调用方尝试从旧 key 补齐
     shortcuts: defaults.shortcuts,
     audio: {
-      keySet: typeof audio.keySet === 'string' ? audio.keySet : defaults.audio.keySet,
+      // issue 29 删占位包：未知 id（含历史 'placeholder'/'bangdream'）归一化回落默认包，避免脏 id 驻留持久层
+      keySet: typeof audio.keySet === 'string' && isKnownKeySoundSetId(audio.keySet) ? audio.keySet : defaults.audio.keySet,
       seVolume: clamp(audio.seVolume, 0, 1, defaults.audio.seVolume),
     },
     display: {
@@ -211,7 +212,7 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> = localStorage): 
     return {
       ...defaultSettings(),
       shortcuts: legacyShortcuts,
-      audio: { ...defaultSettings().audio, keySet: audioKeySet ?? DEFAULT_ACTIVE_KEY_SOUND_SET_ID },
+      audio: { ...defaultSettings().audio, keySet: audioKeySet && isKnownKeySoundSetId(audioKeySet) ? audioKeySet : DEFAULT_ACTIVE_KEY_SOUND_SET_ID },
     };
   } catch {
     return defaultSettings();

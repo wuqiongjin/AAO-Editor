@@ -5,7 +5,7 @@
 // - 双时钟（ADR-0004 §2）：有音频 = AudioContext 时间线；无音频 = performance.now + RAF 合成时间线，照常"播放谱面"
 import type { ChartNote } from '../chart/types';
 import { getBpmEvents, buildKeyEvents, type KeySoundEvent } from './AudioTiming';
-import { DEFAULT_KEY_SOUND_SET_ID, keySoundSetById, type KeySoundSet, type KeySoundKind, type KeySoundSample } from './KeySound';
+import { loadKeySoundSet, KEY_SOUND_DEFAULT_TONES, type KeySoundSet, type KeySoundKind, type KeySoundSample } from './KeySound';
 
 export type PlaybackState = 'idle' | 'ready' | 'playing' | 'paused';
 
@@ -35,14 +35,16 @@ export class AudioEngine {
   /** 下一个待调度的按键音下标（推进式游标，避免每帧全量扫描大谱面） */
   private keyIndex = 0;
   private scheduled = new Set<AudioScheduledSourceNode>();
-  /** 当前激活素材包（ADR-0004 §7） */
-  private keySet: KeySoundSet = keySoundSetById(DEFAULT_KEY_SOUND_SET_ID);
+  /** 当前激活素材包 id（issue 29 多包注册表；加载在途时保留最新一次切换的 id） */
+  private keySetId = '';
+  /** 当前激活素材包（ADR-0004 §7）；null = chunk 未加载完成/加载失败（走振荡器兜底） */
+  private keySet: KeySoundSet | null = null;
   /** 真实采样缓存：src 路径 → 已解码 AudioBuffer（issue 18） */
   private sampleCache = new Map<string, AudioBuffer>();
   /** 进行中的采样加载（去重并发，避免重复 fetch/decode） */
   private sampleLoads = new Map<string, Promise<AudioBuffer>>();
-  /** 当前素材包的全部采样预加载 Promise（play() 前 await，保证首拍就走真实采样，避免振荡器兜底） */
-  private preloadPromise: Promise<void> | null = null;
+  /** 素材包 chunk 下载 + 采样解码就绪 Promise（play() 前 await，保证首拍就走真实采样，避免振荡器兜底） */
+  private keySetReady: Promise<void> = Promise.resolve();
   /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
   private schedTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -71,10 +73,49 @@ export class AudioEngine {
     return this.buffer ? this.buffer.duration : null;
   }
 
-  /** 切换激活素材包；异步预加载其真实采样（本地小文件，加载快）；play() 前会 await 此 Promise */
-  setKeySet(set: KeySoundSet): void {
-    this.keySet = set;
-    this.preloadPromise = this.preloadKeySet(set);
+  /**
+   * 切换激活素材包（issue 29）：动态 import 本包差异采样 chunk → 解码全部采样；
+   * play() 前 await 该就绪 Promise。加载完成/失败前 keySet 为 null，playTick 走振荡器兜底。
+   * 快速连点切换包安全：只有最后一次切换的结果会挂载（id 竞态判定）。
+   */
+  setKeySetId(id: string): void {
+    this.keySetId = id;
+    this.keySet = null;
+    this.keySetReady = (async () => {
+      const set = await loadKeySoundSet(id);
+      if (this.keySetId !== id) return; // 加载途中又切了包：丢弃过期结果
+      this.keySet = set;
+      await this.preloadKeySet(set);
+    })().catch(() => undefined); // chunk/解码失败：保持振荡器兜底（与旧"占位包"行为等价，不弹错）
+  }
+
+  /**
+   * 试听（issue 29）：播放指定素材包某击打样式的采样（方向键按 tier 1..3 分档）。
+   * 按需加载该包 chunk + 单采样解码；走 seGain（音量所见即所得）。失败退回振荡器兜底。
+   */
+  async previewKeySample(setId: string, kind: KeySoundKind, tier?: number): Promise<void> {
+    const ctx = this.ensureCtx();
+    // 试听通常由用户点击触发，是放行 AudioContext 的手势
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch {
+        /* 自动播放策略拒绝时静默 */
+      }
+    }
+    try {
+      const set = await loadKeySoundSet(setId);
+      const sample = set.samples[kind];
+      const src = this.srcFor(sample, kind, tier);
+      if (src) {
+        const buf = await this.loadSample(src);
+        this.playSampledTick(ctx, buf, ctx.currentTime);
+        return;
+      }
+      this.playOscillatorTick(ctx, kind, sample, ctx.currentTime);
+    } catch {
+      this.playOscillatorTick(ctx, kind, undefined, ctx.currentTime);
+    }
   }
 
   /** 主音量（0..1）：作用于音频与按键音（masterGain） */
@@ -144,11 +185,9 @@ export class AudioEngine {
         /* 提案：自动播放策略拒绝时静默（仍可编辑） */
       }
     }
-    // 确保真实采样已就绪再开播：避免首拍采样未命中而走振荡器兜底，
-    // 造成 tap 音不像 perfect.mp3、方向键"叠声"（振荡器占位声）。采样小、仅首次耗时。
-    if (this.preloadPromise) {
-      await this.preloadPromise.catch(() => undefined);
-    }
+    // 确保素材包采样已就绪再开播：避免首拍采样未命中而走振荡器兜底，
+    // 造成 tap 音不像真实采样、方向键"叠声"（振荡器兜底声）。chunk 小、仅首次耗时。
+    await this.keySetReady;
     this.stopCurrent();
     if (this.buffer) {
       const src = ctx.createBufferSource();
@@ -249,9 +288,8 @@ export class AudioEngine {
   private playTick(when: number, kind: KeySoundKind, tier?: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
-    const sample = this.keySet.samples[kind];
-    if (!sample) return;
-    const src = this.srcFor(sample, kind, tier);
+    const sample = this.keySet?.samples[kind];
+    const src = sample ? this.srcFor(sample, kind, tier) : undefined;
     if (src) {
       const buf = this.sampleCache.get(src);
       if (buf) {
@@ -261,7 +299,7 @@ export class AudioEngine {
       // 采样未就绪：异步补充加载（本次振荡器兜底，避免无声）
       void this.loadSample(src);
     }
-    this.playOscillatorTick(ctx, sample, when);
+    this.playOscillatorTick(ctx, kind, sample, when);
   }
 
   /** 解析某采样实际要播放的文件路径：方向键按 tier分档，其余用 src */
@@ -334,13 +372,14 @@ export class AudioEngine {
     this.scheduled.add(src);
   }
 
-  /** 振荡器占位（无 src 或采样未加载时兜底） */
-  private playOscillatorTick(ctx: AudioContext, sample: KeySoundSample, when: number): void {
+  /** 振荡器兜底（素材包未加载/加载失败，或采样缺失时保证按键有反馈声） */
+  private playOscillatorTick(ctx: AudioContext, kind: KeySoundKind, sample: KeySoundSample | undefined, when: number): void {
     const { osc, gain } = this.createTickNode(ctx);
     const now = ctx.currentTime;
-    // 极短包络防爆音：快起 + 指数衰减；频率/波形按素材包击打样式分类
-    osc.type = sample.oscillatorType ?? 'square';
-    osc.frequency.value = sample.frequency ?? 880;
+    const tone = KEY_SOUND_DEFAULT_TONES[kind];
+    // 极短包络防爆音：快起 + 指数衰减；频率/波形按击打样式兜底参数
+    osc.type = sample?.oscillatorType ?? tone.oscillatorType;
+    osc.frequency.value = sample?.frequency ?? tone.frequency;
     gain.gain.cancelScheduledValues(now);
     gain.gain.setValueAtTime(0.0001, when);
     gain.gain.linearRampToValueAtTime(0.12, when + 0.004);

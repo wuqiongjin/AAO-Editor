@@ -19,7 +19,7 @@
 //   - importAudio 在飞行中被新调用打断时，旧调用的回调被丢弃（inFlightToken 单调递增）
 //   - chartDuration 不超过 MAX_DURATION_SECONDS（issue 28 P6 上限 30 分钟）
 import { AudioEngine } from './AudioEngine';
-import { keySoundSetById } from './KeySound';
+import { keySoundSetEntryById, type KeySoundKind } from './KeySound';
 import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
 
 /** 音频会话的不可变快照（外部读取用） */
@@ -100,7 +100,8 @@ export class AudioSession {
   }) {
     this.factory = opts.engineFactory ?? defaultFactory;
     this.engine = this.factory();
-    this._keySetId = opts.keySetId;
+    // 历史持久化 id（'placeholder'/'bangdream' 等）归一化回落到默认包（issue 29 删占位包）
+    this._keySetId = keySoundSetEntryById(opts.keySetId).id;
     this._seVolume = clampFinite(opts.seVolume, 0, 1, 1);
     this._chartDuration = clampFinite(opts.chartDuration ?? 30, 0.1, MAX_DURATION_SECONDS, 30);
     this._volume = clampFinite(opts.volume ?? 0.8, 0, 1, 0.8);
@@ -108,7 +109,7 @@ export class AudioSession {
     // 构造时把初始音量/SE 音量/素材挂到引擎
     this.engine.setVolume(this._volume);
     this.engine.setSeVolume(this._seVolume);
-    this.engine.setKeySet(keySoundSetById(this._keySetId));
+    this.engine.setKeySetId(this._keySetId);
   }
 
   // ===== 订阅接口 =====
@@ -233,11 +234,20 @@ export class AudioSession {
 
   /** 切换激活素材包（音频页点击素材包卡片时调用） */
   setKeySetId(id: string): void {
-    if (this._keySetId === id) return;
-    this._keySetId = id;
-    this.engine.setKeySet(keySoundSetById(id));
-    this.persistKeySet(id);
+    const resolved = keySoundSetEntryById(id).id;
+    if (this._keySetId === resolved) return;
+    this._keySetId = resolved;
+    this.engine.setKeySetId(resolved);
+    this.persistKeySet(resolved);
     this.emit();
+  }
+
+  /**
+   * 试听（issue 29）：播放指定素材包某击打样式（方向键按 tier 1..3）的采样。
+   * 透传到引擎；素材包 chunk 首次点击时按需下载。返回 Promise 供 UI 展示加载态。
+   */
+  previewKeySample(setId: string, kind: KeySoundKind, tier?: number): Promise<void> {
+    return this.engine.previewKeySample(keySoundSetEntryById(setId).id, kind, tier);
   }
 
   /** 改 SE 音量（音频页 SE 滑杆）；NaN/越界拒绝 */
@@ -256,12 +266,13 @@ export class AudioSession {
    * 仅同步到引擎（不 emit），由调用方决定何时触发 snapshot。
    * 注意：构造时已经把初始值挂到引擎了，正常情况下 settings 与构造时一致 → 本方法早退。
    */
-  syncSettingsFromConfig(keySetId: string, seVolume: number): void {
+  syncSettingsFromConfig(rawKeySetId: string, seVolume: number): void {
+    const keySetId = keySoundSetEntryById(rawKeySetId).id;
     const kChanged = this._keySetId !== keySetId;
     const sChanged = this._seVolume !== seVolume;
     if (kChanged) {
       this._keySetId = keySetId;
-      this.engine.setKeySet(keySoundSetById(keySetId));
+      this.engine.setKeySetId(keySetId);
     }
     if (sChanged) {
       const v = clampFinite(seVolume, 0, 1, this._seVolume);

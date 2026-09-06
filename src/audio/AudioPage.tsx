@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react';
-import { AlertTriangle, Check, Clock3, FileAudio, Music2, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
+import { AlertTriangle, Check, Clock3, FileAudio, Music2, Play, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
 import EmptyState from '../ui/EmptyState';
 import { useAudioSession } from '../app/providers/AudioSessionProvider';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../chart/config/AppSettings';
-import { KEY_SOUND_SETS, type KeySoundSample } from './KeySound';
+import { KEY_SOUND_SETS, type KeySoundKind } from './KeySound';
 import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from './KeySoundMeta';
 
 // 音频页：直接调音频会话深模块（useAudioSession），3 个 section（音频素材/键音素材包/SE 音量）。
@@ -175,12 +175,22 @@ function AudioSection() {
 function KeySoundSection() {
   const [snap, session] = useAudioSession();
   const activeId = snap.keySetId;
+  // 试听进行中的行标识（'kind' 或 'kind:tier'）：包 chunk 首次点击需懒下载，期间禁用按钮
+  const [previewing, setPreviewing] = useState<string | null>(null);
+
+  const preview = (setId: string, kind: KeySoundKind, tier?: number) => {
+    const rowKey = tier ? `${kind}:${tier}` : kind;
+    setPreviewing(rowKey);
+    void session.previewKeySample(setId, kind, tier).finally(() => {
+      setPreviewing((p) => (p === rowKey ? null : p));
+    });
+  };
 
   return (
     <>
       <div className="settings-heading">
         <h2>键音素材包</h2>
-        <p>播放时按击打样式（单键 / 滑键 / 技能键 / 滑条 / 方向键）触发对应音效。激活项写 <code>settings.audio.keySet</code>，立即生效并持久化。</p>
+        <p>播放时按击打样式（单键 / 滑键 / 技能键 / 滑条 / 方向键）触发对应音效。点击 ▶ 可试听该包对应音效（无需切换）；激活项写 <code>settings.audio.keySet</code>，立即生效并持久化。</p>
       </div>
 
       <div className="asset-set-grid asset-set-grid-3">
@@ -214,13 +224,37 @@ function KeySoundSection() {
                 <ul className="asset-samples">
                   {KEY_SOUND_KINDS.map((kind) => {
                     const meta = KEY_SOUND_KIND_META[kind];
-                    const sample = set.samples[kind];
-                    const synth = !sample.src && !sample.tierSrcs;
                     return (
                       <li key={kind} title={meta.hint}>
-                        <span className={`asset-sample-dot${synth ? ' is-synth' : ''}`} />
+                        <span className="asset-sample-dot" />
                         <span>{meta.label}</span>
-                        <span className="asset-sample-tag">{sampleTag(sample)}</span>
+                        {kind === 'directional' ? (
+                          // 方向键按组合长度 1..3 分档：逐档试听
+                          <span className="asset-sample-tiers" aria-label="方向键分档试听">
+                            {[1, 2, 3].map((tier) => (
+                              <button
+                                key={tier}
+                                type="button"
+                                className="asset-sample-play"
+                                disabled={previewing !== null}
+                                aria-label={`试听方向键 ${tier} 连`}
+                                onClick={() => preview(set.id, 'directional', tier)}
+                              >
+                                <Play size={11} />{tier}
+                              </button>
+                            ))}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="asset-sample-play"
+                            disabled={previewing !== null}
+                            aria-label={`试听${meta.label}`}
+                            onClick={() => preview(set.id, kind)}
+                          >
+                            <Play size={11} />
+                          </button>
+                        )}
                       </li>
                     );
                   })}
@@ -231,7 +265,7 @@ function KeySoundSection() {
         })}
       </div>
 
-      <div className="flow-note"><Check size={15} />切换后立即对后续播放生效；当前播放中的按键音将在暂停/重播后使用新素材。</div>
+      <div className="flow-note"><Check size={15} />切换后立即对后续播放生效；当前播放中的按键音将在暂停/重播后使用新素材。试听音量跟随 SE 音量设置。</div>
     </>
   );
 }
@@ -278,11 +312,4 @@ function SeVolumeSection() {
       </div>
     </>
   );
-}
-
-/** 采样类型短标签：真实音频 / 振荡器占位 / 分档音频（与 AssetsPage 同款，独立保留以解耦两页） */
-function sampleTag(sample: KeySoundSample): string {
-  if (sample.tierSrcs) return '音频 · 分档';
-  if (sample.src) return '音频';
-  return '振荡器';
 }
