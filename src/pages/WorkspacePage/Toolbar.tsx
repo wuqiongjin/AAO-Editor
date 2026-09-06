@@ -16,14 +16,17 @@ import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
 import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
 import IconButton from '../../ui/IconButton';
 import ChartCodeEditor from '../../chart/components/code-editor/ChartCodeEditor';
+import './Toolbar.css';
+
+// 工作台左侧工具栏（issue 22 + issue 28 + issue 49 阶段 3 迁出）：
+//   - 折叠按钮 + 标题 + 当前工具 pill（顶栏）
+//   - 3 段工具区：键型工具（3 列）/ 节拍吸附 / 编辑功能（2 列）
+//   - 谱面代码（issue 37）入口按钮跨 2 列
 
 /** 区块标题（统一样式：小号大写灰字） */
 function SectionHeader({ children }: { children: ReactNode }) {
   return (
-    <h3 style={{
-      margin: '0 0 var(--space-2)', fontSize: 'var(--text-2xs)', fontWeight: 600,
-      color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.06em',
-    }}>{children}</h3>
+    <h3 className="toolbar__section-header">{children}</h3>
   );
 }
 
@@ -82,37 +85,25 @@ export default function Toolbar() {
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div className="toolbar">
       {/* 工具栏头部：折叠按钮 + 标题 + 当前工具提示 */}
-      <div style={{
-        height: 'var(--panel-header-h)', padding: '0 var(--space-2)',
-        display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
-        borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg)', flexShrink: 0,
-      }}>
+      <div className="toolbar__head">
         <IconButton
           onClick={toggleLeftPanel}
           title="收起左侧工具栏"
           width="auto"
           icon={<ChevronLeft size={14} />}
         />
-        <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>工具栏</span>
-        <span style={{
-          marginLeft: 'auto', fontSize: 'var(--text-xs)', color: 'var(--accent-text)',
-          backgroundColor: 'var(--accent-soft)', padding: '2px var(--space-2)',
-          borderRadius: 'var(--radius-sm)', maxWidth: 90, overflow: 'hidden',
-          textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>{currentToolLabel}</span>
+        <span className="toolbar__title">工具栏</span>
+        <span className="toolbar__current-tool">{currentToolLabel}</span>
       </div>
 
       {/* 工具栏内容 - 可滚动 */}
-      <div style={{
-        flex: 1, overflowY: 'auto', padding: 'var(--space-4)',
-        display: 'flex', flexDirection: 'column', gap: 'var(--space-6)',
-      }}>
-        {/* 主工具：键型选择（紧凑 2 列网格，选中态 + 完整 tooltip） */}
+      <div className="toolbar__body">
+        {/* 主工具：键型选择（紧凑 3 列网格，选中态 + 完整 tooltip） */}
         <div>
           <SectionHeader>键型工具</SectionHeader>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-1)' }}>
+          <div className="toolbar__grid toolbar__grid--3">
             {tools.map((tool) => (
               <IconButton
                 key={tool.id}
@@ -131,13 +122,7 @@ export default function Toolbar() {
           <select
             value={beatDisplay}
             onChange={(e) => setBeatDisplay(Number(e.target.value))}
-            style={{
-              width: '100%', padding: 'var(--space-2)',
-              border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-              fontSize: 'var(--text-sm)', fontFamily: 'inherit',
-              backgroundColor: 'var(--bg-inset)', color: 'var(--text)', cursor: 'pointer',
-              transition: 'border-color var(--dur) var(--ease), background-color var(--dur) var(--ease)',
-            }}
+            className="toolbar__beat-select"
           >
             {beatOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -150,7 +135,7 @@ export default function Toolbar() {
         {/* 编辑功能（对选中对象/剪贴板）：2 列网格，谱面代码铺满 */}
         <div>
           <SectionHeader>编辑</SectionHeader>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-1)' }}>
+          <div className="toolbar__grid toolbar__grid--2">
             <IconButton icon={<Copy size={16} />} label="复制" onClick={copy} disabled={!canCopy} title={tooltipForCategory(toolCategory.copy)} />
             <IconButton icon={<Scissors size={16} />} label="剪切" onClick={cut} disabled={!canCopy} title="剪切 (Ctrl+X)" />
             <IconButton icon={<Clipboard size={16} />} label="粘贴" onClick={() => mousePosition && paste(mousePosition)} disabled={!canPaste} title={tooltipForCategory(toolCategory.paste)} />
@@ -159,7 +144,7 @@ export default function Toolbar() {
             <IconButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title="撤销 (Ctrl+Z)" />
             <IconButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
             {/* issue 37：谱面代码改按需弹窗——入口按钮（点击才打开弹窗，常驻无代码同步成本），跨 2 列 */}
-            <div style={{ gridColumn: '1 / -1' }}>
+            <div className="toolbar__grid-full">
               <ChartCodeEditor />
             </div>
           </div>

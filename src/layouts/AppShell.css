@@ -8,13 +8,20 @@
 .app-shell {
   --nav-width: 156px;
   display: grid;
-  grid-template-columns: var(--nav-width) minmax(0, 1fr);
+  /* 导航列常驻（grid 列结构恒定的关键：切页时无布局突变） */
+  grid-template-columns: [nav] var(--nav-width) [surface] minmax(0, 1fr);
   width: 100%;
   height: 100dvh;
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
+}
+.app-shell > .app-nav {
+  grid-column: nav;
+}
+.app-shell > .app-surface {
+  grid-column: surface;
 }
 
 .app-shell *,
@@ -39,6 +46,8 @@
   padding: 12px 10px;
   border-right: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg));
+  /* 导航列常驻，不参与切页动画 */
+  overflow: hidden;
 }
 
 .app-mark {
@@ -74,7 +83,11 @@
   cursor: pointer;
   padding: 0 10px;
   text-align: left;
-  transition: background-color 120ms var(--ease), color 120ms var(--ease), border-color 120ms var(--ease);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
 
 .app-nav-item:hover {
@@ -83,11 +96,14 @@
 }
 
 .app-nav-item.is-active {
-  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: var(--accent-soft);
   color: var(--accent-text);
   font-weight: 650;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
+
+/* 选中态图标不缩放——保持与未选中态尺寸一致 */
 
 .app-nav-item kbd {
   color: var(--text-subtle);
@@ -122,6 +138,7 @@
 }
 
 /* 折叠态：导航收窄为图标栏 */
+
 .app-shell.is-nav-collapsed {
   --nav-width: 52px;
 }
@@ -144,9 +161,16 @@
 .app-shell.is-nav-collapsed .app-nav-item,
 .app-shell.is-nav-collapsed .app-nav-toggle {
   display: flex;
-  width: 40px;
+  width: 38px;
   justify-content: center;
+  align-items: center;
   padding: 0;
+  gap: 0;
+  transition:
+    background-color 120ms var(--ease),
+    color 120ms var(--ease),
+    border-color 120ms var(--ease),
+    padding 200ms var(--ease);
 }
 
 .app-shell.is-nav-collapsed .app-nav-toggle {
@@ -155,48 +179,24 @@
 
 .app-shell.is-nav-collapsed .app-nav-item span,
 .app-shell.is-nav-collapsed .app-nav-item kbd {
-  display: none;
-}
-
-/* 工作台左列内的应用导航（与工具面板合成同一左列，纵向窄栏；展开/折叠仅控制标签显示）。
-   与外层独立导航 .app-nav 的尺寸/内边距保持一致，保证工作台与非工作台页图标位置统一（issue 28 第 2 轮）。 */
-.app-nav-inline {
-  display: flex;
-  flex-direction: column;
-  width: 156px;
-  flex-shrink: 0;
-  padding: 12px 10px;
-  border-right: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-elevated) 92%, var(--bg));
-}
-.app-nav-inline .app-nav-items {
-  flex-direction: column;
-  gap: 4px;
-}
-.app-nav-inline .app-nav-toggle {
-  margin-top: auto;
-}
-.app-nav-inline.is-collapsed {
-  width: 52px;
-  align-items: center;
-  padding-right: 7px;
-  padding-left: 7px;
-}
-.app-nav-inline.is-collapsed .app-nav-item,
-.app-nav-inline.is-collapsed .app-nav-toggle {
-  width: 40px;
-  justify-content: center;
+  opacity: 0;
+  max-width: 0;
+  height: 0;
+  line-height: 0;
   padding: 0;
-}
-.app-nav-inline.is-collapsed .app-nav-item span,
-.app-nav-inline.is-collapsed .app-nav-item kbd {
-  display: none;
-}
-.app-nav-inline.is-collapsed .app-nav-toggle {
-  grid-template-columns: 1fr;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-/* ---- 页面容器（保活：全部挂载，仅激活页可见） ---- */
+.app-nav-item span,
+.app-nav-item kbd {
+  transition:
+    opacity 200ms var(--ease),
+    max-width 200ms var(--ease),
+    padding 200ms var(--ease);
+}
+
+/* ---- 页面容器（保活：全部挂载，opacity 交叉淡入） ---- */
 .app-surface {
   position: relative;
   min-width: 0;
@@ -207,13 +207,16 @@
 .app-page {
   position: absolute;
   inset: 0;
-  display: none;
+  opacity: 0;
+  pointer-events: none;
   min-width: 0;
   min-height: 0;
+  transition: opacity 150ms var(--ease);
 }
 
 .app-page.is-active {
-  display: block;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ---- 通用页面内容布局 ---- */
@@ -262,9 +265,7 @@
   min-height: 0;
 }
 
-/* .audio-layout 旧版曾设 flex:1; overflow-y:auto 做"内嵌滚动"；issue 29 切片 4 闭环后音频页
-   包含 3 个垂直堆叠的 section（音频素材 / 键音素材包 / SE 音量），若 layout 自身吞掉 flex 剩余空间
-   会把第二列挤塌。让 .audio-layout 走普通流高度，由 body 整页滚动承接。 */
+/* 音频页含多个垂直 section，.audio-layout 走普通流高度，由 body 整页滚动承接 */
 .page-content.is-fill .audio-layout,
 .app-page-shell__body.is-fill .audio-layout {
   min-height: 0;
@@ -285,7 +286,7 @@
 }
 
 .page-intro {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-8);
 }
 
 .page-intro > span {
@@ -315,13 +316,15 @@
   line-height: 1.6;
 }
 
+/* 卡片式基底：bg + 1px border + 24px padding（padding 由 surface-section 自身提供） */
 .surface-section {
-  border: 1px solid var(--border);
-  border-radius: 10px;
   background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
 }
 
-/* ---- 音频页（Q15） ---- */
+/* ---- 音频页 ---- */
 .audio-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(230px, 0.75fr);
@@ -354,20 +357,14 @@
   gap: 6px;
 }
 
-/* 音频页 3-section 布局（grill 2026-08-26 拍板，对齐 SettingsPage 信息架构）：
-   - settings-layout 复用（左侧次级索引 + 右侧 surface-section 详情）；
-   - 谱面时长嵌入"音频素材" section 内部（顶部为导入卡、底部为时长行）；
-   - 键音素材包：3 列网格（紧凑）。 */
 .audio-duration-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-top: 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-inset);
+  padding: 14px 0;
+  border-top: 1px solid var(--border-faint);
 }
 
 .audio-duration-head {
@@ -396,21 +393,13 @@
   margin-top: 2px;
 }
 
-/* 键音素材包 3 列网格（issue 29 切片 4 + 2026-08-26 grill 拍板）：
-   默认 asset-set-grid 在小宽度会回退到 2 列；这里 920px 内容宽下保持 3 列。 */
 .asset-set-grid.asset-set-grid-3 {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-@media (max-width: 900px) {
-  .asset-set-grid.asset-set-grid-3 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .asset-set-grid.asset-set-grid-3 {
     grid-template-columns: 1fr;
   }
@@ -462,14 +451,14 @@
 
 .audio-file {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  margin-top: 22px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-md);
   background: var(--bg-inset);
-  padding: 13px;
 }
 
 .audio-file-icon {
@@ -483,7 +472,7 @@
   color: var(--accent-text);
 }
 
-.audio-file div {
+.audio-file-info {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -503,12 +492,10 @@
   font-size: 10px;
 }
 
-.audio-file button {
-  border: 0;
-  background: transparent;
-  color: var(--danger-text);
-  cursor: pointer;
-  font-size: 11px;
+.audio-file-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .section-actions {
@@ -639,9 +626,9 @@
 }
 
 .button-primary {
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--text-on-accent);
+  border: 1px solid var(--accent-btn);
+  background: var(--accent-btn);
+  color: var(--accent-btn-text);
 }
 
 .button-secondary,
@@ -682,20 +669,18 @@
 .asset-set {
   position: relative;
   display: grid;
-  grid-template-columns: 116px minmax(0, 1fr);
-  margin-top: 12px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  margin-top: 8px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
   box-shadow: var(--shadow-sm);
-  transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease), transform 140ms var(--ease);
+  transition: border-color 140ms var(--ease);
 }
 
 .asset-set:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
 }
 
 .asset-set.is-active {
@@ -729,7 +714,7 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  height: 44px;
+  height: 28px;
 }
 
 .eq i {
@@ -758,7 +743,10 @@
 /* 卡片右半：标题行 + 击打样式 chips */
 .asset-set-body {
   min-width: 0;
-  padding: 13px 15px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .asset-set-head {
@@ -774,32 +762,15 @@
   font-weight: 720;
 }
 
-.asset-set-head button {
-  flex: 0 0 auto;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-inset);
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px 12px;
-  font-size: 11px;
-  font-weight: 650;
-  transition: border-color 120ms var(--ease), color 120ms var(--ease), background-color 120ms var(--ease);
-}
-
-.asset-set-head button:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-text);
-}
-
 .asset-samples {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 11px 0 0;
+  gap: 4px 8px;
+  margin: 8px 0 0;
   padding: 0;
   list-style: none;
+  font-size: 10px;
+  color: var(--text-muted);
 }
 
 .asset-samples li {
@@ -809,7 +780,7 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-inset);
-  padding: 3px 9px;
+  padding: 2px 8px;
   font-size: 11px;
 }
 
@@ -842,11 +813,11 @@
   padding: 18px;
 }
 
-/* ---- 背景皮肤卡（issue 29 Q4 最小模型，2026-08-27）---- */
+.bg-asset-set,
 .bg-card {
   grid-template-columns: minmax(0, 1fr);
 }
-.bg-file-input {
+.visually-hidden-input {
   /* 无障碍：视觉隐藏的文件输入（label/按钮触发 click） */
   position: absolute;
   width: 1px;
@@ -965,7 +936,6 @@
 
 /* ---- 素材页（issue 29）：类别子 tab + 音符皮肤 ---- */
 
-/* 类别子 tab（grill 2026-08-17：类别 ≥3 后一次看一个类别，可扩展） */
 .assets-tabs {
   display: flex;
   gap: 6px;
@@ -996,35 +966,50 @@
   color: var(--accent-text);
 }
 
-/* 音符皮肤面板 */
-/* 音符皮肤面板 = 单列（上下布局）：整包预设 + 6 列预览垂直堆叠。
-   不限制高度（之前 max-height + overflow 试图塞进 1 个 viewport 导致内容被裁）。
-   让 .page-content.is-fill 整页滚动承接——内容超过 viewport 时外层出滚动条。 */
+/* 素材面板（音符皮肤 / 背景皮肤）：单列布局，整包预设 + 综合预览垂直堆叠 */
+.assets-panel,
 .skin-panel {
   min-width: 0;
 }
 
+.assets-panel > .skin-section,
 .skin-panel > .skin-section {
   margin-top: 16px;
 }
 
+.assets-panel > .skin-live-preview,
 .skin-panel > .skin-live-preview {
   margin-top: 16px;
 }
 
+.assets-panel .section-heading,
 .skin-panel .section-heading {
   padding: 0 2px;
 }
 
+.assets-panel .section-heading h2,
 .skin-panel .section-heading h2 {
   font-size: 14px;
   font-weight: 720;
 }
 
+.assets-panel .section-heading p,
 .skin-panel .section-heading p {
   margin: 4px 0 0;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+.assets-panel > .bg-skin-section + .bg-skin-settings-section {
+  margin-top: 12px;
+}
+
+.bg-skin-settings-section {
+  padding-top: 14px;
+}
+.bg-skin-settings-section > .settings-row:first-child {
+  border-top: 0;
+  margin-top: 0;
 }
 
 /* 综合预览画布（Q8=B：真实精灵绘制六类样例） */
@@ -1065,8 +1050,7 @@
 
 .skin-preset-list {
   display: grid;
-  /* 整包预设 = 多列网格（issue 29 切片 4 后整包预设变高频高优，2-4 列信息密度高，1 个 viewport 内扫读 7 套）。
-     1280px viewport 下 3-4 列：minmax 240px 让 4 列触发、minmax 320px 让 3 列触发。 */
+  /* 整包预设多列网格（高信息密度，单 viewport 可扫读多套） */
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 10px;
 }
@@ -1156,22 +1140,15 @@
   margin-top: 10px;
 }
 
-/* ============================================================
- * 素材页形态整改（issue 29 切片 1，2026-08-25）
- *  - 选中态：去掉「切换」按钮，改主色实心 ✓ 徽标 + 强描边/底色
- *  - 整包预设被部分条目覆盖：预设卡 + 条目卡 各显示一个「已修改 / 已覆盖」红点
- *  - 按条目覆盖：6 行裸 select → "条目卡 + 包缩略格" 网格
- *  - 综合预览：6 格水平 → 2×3 网格 + 当前组合标题 + 每格状态
- * ============================================================ */
-
 /* 状态徽标：success=使用中(主色实心 ✓) / warning=已修改(琥珀红点) */
+
 .state-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
   padding: 3px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
@@ -1180,15 +1157,15 @@
 }
 
 .state-pill.success {
-  color: #fff;
-  background: var(--accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 75%, transparent);
+  color: var(--text-on-accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .state-pill.warning {
-  color: #fff;
-  background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%);
-  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.55);
+  color: var(--warning-text);
+  background: var(--warning-soft);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
 }
 
 .state-pill.warning::before {
@@ -1196,8 +1173,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+  background: var(--warning);
   flex: 0 0 auto;
 }
 
@@ -1361,9 +1337,49 @@
   font-weight: 700;
 }
 
-/* 整包预设（共用 skin-section 头） */
+/* 整包预设（surface-section 内由 padding 提供视觉分隔） */
 .skin-section {
+  margin-top: 0;
+}
+
+.assets-panel > .skin-section,
+.skin-panel > .skin-section {
   margin-top: 16px;
+}
+
+.skin-preset-section > .skin-section {
+  margin-top: 0;
+}
+
+.skin-section-title {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.skin-section-title__label {
+  flex: 0 0 auto;
+}
+.skin-section-title__count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-subtle);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .skin-section-head {
@@ -1389,10 +1405,6 @@
 }
 
 /* ============================================================
- * 6 列 2 行网格（Q13=A 切片 3，2026-08-25）
- * 第 1 行：6 个真实精灵预览画布（label 浮在画布内）
- * 第 2 行：6 个包选择 pill（与第 1 行同列对齐）
- * 高信息密度 + 整页 1-2 个 viewport 内可看全
  * ============================================================ */
 
 .skin-live-preview {
@@ -1496,8 +1508,6 @@
   letter-spacing: 0.02em;
 }
 
-
-
 /* 包选择 pill：胶囊形态，包名 + 右侧角标（防遮挡） */
 .skin-col-picker {
   display: flex;
@@ -1508,21 +1518,31 @@
 
 .skin-pill {
   position: relative;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  padding: 4px 8px;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 10px;
   min-height: 26px;
+  height: 26px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--bg-inset);
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 650;
+  line-height: 1;
   cursor: pointer;
   text-align: left;
   transition: border-color 120ms var(--ease), background-color 120ms var(--ease), color 120ms var(--ease);
+}
+
+button.skin-pill {
+  /* 抹平 <button> 与 <span> 的 user-agent 默认样式差异 */
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .skin-pill:hover {
@@ -1530,11 +1550,17 @@
   color: var(--text);
 }
 
+/* 选中态：深青蓝实底 + 白字 + Check 圆标 —— 与 .action-btn--primary 同款"主操作"语义色，
+   比未选中态（中性描边）对比度 5.83:1，过 WCAG AA。让"使用中"明显更引人注目。 */
 .skin-pill.is-active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated));
-  color: var(--text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: transparent;
+  background: var(--accent-btn);
+  color: var(--accent-btn-text);
+  cursor: default;
+}
+
+.skin-pill.is-active svg {
+  flex: 0 0 auto;
 }
 
 .skin-pill-label {
@@ -1556,7 +1582,6 @@
   color: #fff;
   margin-left: 4px;
 }
-
 
 /* 窄屏：6 列拥挤，自动转 3 列 × 4 行 */
 @media (max-width: 880px) {
@@ -1625,11 +1650,10 @@
 
 .settings-detail {
   min-height: 360px;
-  padding: 24px;
 }
 
 .settings-heading {
-  padding-bottom: 19px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--border-faint);
 }
 
@@ -1715,8 +1739,44 @@
 .settings-row,
 .danger-row {
   min-height: 64px;
-  margin-top: 14px;
+  margin-top: 5px;
   border-top: 1px solid var(--border-faint);
+}
+
+.settings-row:has(> .slider-control) {
+  align-items: center;
+}
+.settings-row__text + .slider-control,
+.settings-row:has(> .slider-control) > .slider-control {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  align-self: center;
+  height: auto;
+  flex: 0 0 auto;
+  min-width: 220px;
+  padding-top: 0;
+  transform: translateY(5px);
+}
+.settings-row:has(> .slider-control) .slider-control input[type='range'] {
+  height: 22px;
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 120px;
+  align-self: center;
+  margin: 0;
+}
+.settings-row:has(> .slider-control) .slider-control .slider-value {
+  flex: 0 0 44px;
+  width: 44px;
+  height: auto;
+  line-height: 1;
+  align-self: center;
+  margin: 0;
+}
+
+.settings-heading + .settings-row {
+  border-top: 0;
 }
 
 .settings-row > div,
@@ -1874,8 +1934,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px;
-  border-bottom: 1px solid var(--border);
+  padding: 0 0 16px;
+  margin-top: 0;
 }
 
 .search-field {
@@ -2028,18 +2088,57 @@
   cursor: default;
 }
 
-.empty-result {
-  padding: 42px 16px;
-  color: var(--text-muted);
-  text-align: center;
-  font-size: 12px;
-}
+/* 注：原 .empty-result 灰色提示文字样式已在阶段 2 由 EmptyState 组件替代（4 页全接入），
+   搜索快捷键空态等场景请用 <EmptyState icon={SearchX} ... /> 而非本类。 */
 
 .shortcut-error {
   color: var(--danger-text);
   margin: 12px 16px 0;
   font-size: 12px;
   font-weight: 650;
+}
+
+/* ---- 快捷键记录弹窗（issue 49 阶段 3 inline 迁出）----
+   类 VSCode 风格：全屏遮罩 + 居中浮层，Enter 确认 / Esc 取消。
+   浮层：青蓝 2px 描边 + 大字号键位显示 + 等宽字体。 */
+.shortcut-recorder {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-recorder);
+  background-color: var(--overlay-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shortcut-recorder__panel {
+  background-color: var(--bg-elevated);
+  border-radius: var(--radius-lg);
+  padding: 28px 44px;
+  border: 2px solid var(--accent);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.shortcut-recorder__keys {
+  font-size: 38px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.shortcut-recorder__hint {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.shortcut-recorder__meta {
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+  margin-top: 12px;
 }
 
 /* ---- 响应式 ---- */
@@ -2065,14 +2164,18 @@
 
   .app-shell .app-nav-item {
     display: flex;
-    width: 40px;
+    width: 38px;
     justify-content: center;
+    align-items: center;
     padding: 0;
   }
 
   .app-shell .app-nav-item span,
   .app-shell .app-nav-item kbd {
-    display: none;
+    opacity: 0;
+    max-width: 0;
+    overflow: hidden;
+    pointer-events: none;
   }
 }
 
@@ -2112,4 +2215,179 @@
     animation: none;
     height: 46%;
   }
+}
+
+/* ============================================================
+   工作台面板
+   - 折叠态通过 is-collapsed 驱动 width/opacity 200ms 平滑过渡；
+   - 左面板只含工具栏（AppShell 的 .app-nav 常驻）。
+   ============================================================ */
+
+/* ---- 共用：ws-panel 基底 ---- */
+.ws-panel {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  position: relative;
+  background: var(--bg);
+  /* width 由内联 style --ws-left-w / --ws-right-w 注入，
+     transition 让 .is-collapsed 切换时浏览器插值宽度 */
+  transition: width 200ms var(--ease);
+  overflow: hidden;
+}
+
+.ws-panel__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  /* 折叠态折叠 body：width 收 0、opacity 收 0；
+     min-width: 0 已经在基底，避免 flex 子项被 min-width 撑开 */
+  transition:
+    width 200ms var(--ease),
+    opacity 150ms var(--ease),
+    padding 200ms var(--ease);
+}
+
+.ws-panel__resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 40;
+  background: transparent;
+  transition: background-color 120ms var(--ease);
+}
+
+/* data-side 实际挂在 .ws-panel__resizer 上（Editor.tsx），ws-panel 本身用修饰类区分左右 */
+.ws-panel-left .ws-panel__resizer {
+  right: -3px;
+}
+
+.ws-panel-right .ws-panel__resizer {
+  left: -3px;
+}
+
+.ws-panel__resizer:hover {
+  background: var(--accent);
+}
+
+.ws-panel__resizer.is-dragging {
+  background: var(--accent);
+}
+
+.ws-panel__toggle {
+  width: 34px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  transition:
+    width 200ms var(--ease),
+    opacity 150ms var(--ease),
+    padding 200ms var(--ease);
+}
+
+.ws-panel__toggle > div {
+  height: var(--panel-header-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---- 左侧工具栏面板 ---- */
+.ws-panel-left {
+  width: var(--ws-left-w, 240px);
+  border-right: 1px solid var(--border);
+}
+
+/* 折叠态：只剩 34px 折叠条（应用导航在 AppShell 常驻列，不在本面板内）
+   body 用 width:0 + opacity:0 收起 */
+.ws-panel-left.is-collapsed {
+  width: 34px;
+}
+
+.ws-panel-left.is-collapsed .ws-panel__body {
+  width: 0;
+  opacity: 0;
+  padding-left: 0;
+  padding-right: 0;
+  pointer-events: none;
+}
+
+/* 展开态：toggle 条折叠隐藏（保留 DOM 让 transition 能动）。 */
+.ws-panel-left:not(.is-collapsed) .ws-panel__toggle {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* ---- 右侧信息面板 ---- */
+.ws-panel-right {
+  width: var(--ws-right-w, 280px);
+  border-left: 1px solid var(--border);
+}
+
+.ws-panel-right.is-collapsed {
+  width: 34px;
+}
+
+.ws-panel-right.is-collapsed .ws-panel__body {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 展开态：toggle 条折叠隐藏（保留 DOM 让 transition 能动）。 */
+.ws-panel-right:not(.is-collapsed) .ws-panel__toggle {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ws-panel__body-header {
+  height: var(--panel-header-h);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.ws-panel__body-footer {
+  height: var(--panel-header-h);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+}
+
+/* 起点标记存在时切到 warning 色（与原 inline 一致） */
+.ws-panel__body-footer.has-marker {
+  color: var(--warning);
+}
+
+.ws-panel__body-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  background: var(--bg);
+  min-height: 0;
+}
+
+/* 右侧面板：NoteInfoPanel 内容不带自身 padding，需要滚动容器补 12px。
+   左侧面板：Toolbar 自带 padding: var(--space-4) = 16px，不要叠加。 */
+.ws-panel-right .ws-panel__body-scroll {
+  padding: var(--space-3);
 }

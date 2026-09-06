@@ -1,0 +1,202 @@
+/* ============================================================
+   ui 组件样式（issue 49 阶段 1 #3+#4+#7+#10）
+   公共 ActionBtn / IconButton 的 hover/active/focus 全交 CSS，
+   删组件 useState。设计基调：柔和克制 / 200ms / transform: scale(0.98)。
+   ============================================================ */
+
+/* ---- 基础：cursor / 过渡 / 按压缩放 ---- */
+.action-btn,
+.icon-btn {
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.action-btn:active,
+.icon-btn:active {
+  transform: scale(0.98);
+}
+
+.action-btn:focus-visible,
+.icon-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.action-btn:disabled,
+.icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+/* ============================================================
+   ActionBtn（src/ui/ActionBtn.tsx）
+   variant: 默认（中性描边）| primary（深青蓝实底+白字）| danger（危险）
+   ============================================================ */
+.action-btn {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  background-color: var(--bg-inset);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.action-btn:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+.action-btn--primary {
+  /* 基色深档 + 白字（WCAG AA 对比） */
+  background-color: var(--accent-btn);
+  color: var(--accent-btn-text);
+  border-color: transparent;
+}
+.action-btn--primary:hover:not(:disabled) {
+  background-color: var(--accent-btn-hover);
+}
+.action-btn--primary:active:not(:disabled) {
+  background-color: var(--accent-btn-active);
+  color: var(--accent-btn-text);
+}
+
+.action-btn--danger {
+  background-color: var(--danger-soft);
+  color: var(--danger-text);
+  border-color: transparent;
+}
+.action-btn--danger:hover:not(:disabled) {
+  background-color: var(--danger);
+  color: var(--text-inverse);
+}
+
+/* ============================================================
+   IconButton（src/ui/IconButton.tsx）
+   variant 组合：active / danger / outlined / 默认（透明）
+   尺寸：size=sm/md；width=full/auto
+   ============================================================ */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  outline: none;
+}
+
+.icon-btn--full { width: 100%; }
+.icon-btn--auto { width: auto; }
+.icon-btn--square { justify-content: center; padding: 8px; }
+.icon-btn--sm { font-size: var(--text-xs); }
+.icon-btn--sm.icon-btn--square { padding: 6px; }
+.icon-btn--sm:not(.icon-btn--square) { padding: 5px var(--space-2); }
+
+.icon-btn:disabled {
+  color: var(--text-subtle);
+  opacity: 0.45;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+/* active：选中态（浅软底 + 主色深档文字 + accent 边框，4.74:1 过 WCAG AA） */
+.icon-btn--active {
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+.icon-btn--active:hover:not(:disabled) {
+  background-color: var(--accent-soft);
+  filter: brightness(0.97);
+}
+
+/* danger：红色文字 + 透明底；hover 时加深为实底 */
+.icon-btn--danger {
+  color: var(--danger-text);
+}
+.icon-btn--danger:hover:not(:disabled) {
+  background-color: var(--danger-soft);
+}
+
+/* outlined：实底带边框中性态 */
+.icon-btn--outlined {
+  background-color: var(--bg-inset);
+  border-color: var(--border);
+  color: var(--text);
+}
+.icon-btn--outlined:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+/* 子元素：图标与文字 */
+.icon-btn__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.icon-btn__label {
+  white-space: nowrap;
+}
+
+/* ============================================================
+   EmptyState：三段式空态（图标 + 标题 + 描述 + 可选按钮组）
+   ============================================================ */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+  gap: var(--space-3);
+}
+
+.empty-state__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-subtle);
+  margin-bottom: var(--space-2);
+}
+
+.empty-state__title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.empty-state__description {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  max-width: 380px;
+  line-height: 1.6;
+}
+
+.empty-state__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* action-btn 内的 icon 子元素统一间距 */
+.action-btn__icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}

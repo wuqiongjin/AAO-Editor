@@ -9,7 +9,6 @@ import { getBpmEvents, secondsToBeat } from '../audio/AudioTiming';
 import PlayBar from '../playback/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
 import { countChartNotes } from '../chart/editing/NoteEditing';
-import { AppNav, useAppNav } from '../layouts/AppNav';
 import { useSurfaceSize } from '../chart/layout/useSurfaceSize';
 import { useScrollModel } from '../playback/useScrollModel';
 import { useAudioBridge } from '../audio/useAudioBridge';
@@ -53,7 +52,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   } = ui;
   const { settings, setLayout } = config;
   const shortcutConfig = settings.shortcuts;
-  const { navCollapsed } = useAppNav();
   const {
     setIsPlaying, setCanPlay,
     setCurrentSeconds,
@@ -301,42 +299,28 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
-      {/* 左侧工具栏列 */}
-      {leftCollapsed ? (
-        <div style={{ display: 'flex', flexShrink: 0 }}>
-          <div className={`app-nav-inline${navCollapsed ? ' is-collapsed' : ''}`}>
-            <AppNav />
-          </div>
-          <div style={{
-            width: 34, flexShrink: 0,
-            backgroundColor: 'var(--bg-elevated)', borderRight: '1px solid var(--border)',
-            display: 'flex', flexDirection: 'column',
-          }}>
-            <div style={{ height: 'var(--panel-header-h)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <IconButton width="auto" icon={<PanelRightOpen size={16} />} title="展开左侧工具栏" onClick={toggleLeftPanel} />
-            </div>
+      {/* 左侧工具栏列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}
+      <div
+        className={`ws-panel ws-panel-left${leftCollapsed ? ' is-collapsed' : ''}`}
+        style={{
+          // expanded 宽度由 JS 注入（用户可拖拽 leftPanelWidth），folded 宽度由 CSS 类管
+          '--ws-left-w': `${Math.min(leftPanelWidth, typeof window !== 'undefined' ? window.innerWidth * 0.3 : 9999)}px`,
+        } as React.CSSProperties}
+      >
+        <div className="ws-panel__body">
+          <div className="ws-panel__body-scroll">
+            <Toolbar />
           </div>
         </div>
-      ) : (
-        <div style={{
-          width: `min(${leftPanelWidth}px, 30vw)`, flexShrink: 0,
-          backgroundColor: 'var(--bg)', borderRight: '1px solid var(--border)',
-          display: 'flex', flexDirection: 'row', overflow: 'hidden', position: 'relative',
-        }}>
-          <div className={`app-nav-inline${navCollapsed ? ' is-collapsed' : ''}`}>
-            <AppNav />
-          </div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-              <Toolbar />
-            </div>
-          </div>
-          <div
-            onMouseDown={(e) => { e.preventDefault(); startDrag('left'); }}
-            style={{ position: 'absolute', top: 0, bottom: 0, right: -3, width: 6, cursor: 'col-resize', zIndex: 40, background: isDragging === 'left' ? 'var(--accent)' : 'transparent' }}
-          />
+        <div
+          onMouseDown={(e) => { e.preventDefault(); startDrag('left'); }}
+          className={`ws-panel__resizer${isDragging === 'left' ? ' is-dragging' : ''}`}
+          data-side="left"
+        />
+        <div className="ws-panel__toggle">
+          <IconButton width="auto" icon={<PanelRightOpen size={16} />} title="展开左侧工具栏" onClick={toggleLeftPanel} />
         </div>
-      )}
+      </div>
 
       {/* 中间谱面画布区域 */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--canvas-bg)', minWidth: 0 }}>
@@ -423,33 +407,18 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         />
       </div>
 
-      {/* 右侧信息面板列 */}
-      {rightCollapsed ? (
-        <div style={{
-          width: 34, flexShrink: 0,
-          backgroundColor: 'var(--bg-elevated)', borderLeft: '1px solid var(--border)',
-          display: 'flex', flexDirection: 'column',
-        }}>
-          <div style={{ height: 'var(--panel-header-h)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <IconButton width="auto" icon={<PanelLeftOpen size={16} />} title="展开右侧面板" onClick={toggleRightPanel} />
-          </div>
+      {/* 右侧信息面板列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}
+      <div
+        className={`ws-panel ws-panel-right${rightCollapsed ? ' is-collapsed' : ''}`}
+        style={{
+          '--ws-right-w': `${Math.min(rightPanelWidth, typeof window !== 'undefined' ? window.innerWidth * 0.24 : 9999)}px`,
+        } as React.CSSProperties}
+      >
+        <div className="ws-panel__toggle">
+          <IconButton width="auto" icon={<PanelLeftOpen size={16} />} title="展开右侧面板" onClick={toggleRightPanel} />
         </div>
-      ) : (
-        <div style={{
-          width: `min(${rightPanelWidth}px, 24vw)`, flexShrink: 0,
-          backgroundColor: 'var(--bg)', borderLeft: '1px solid var(--border)',
-          display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative',
-        }}>
-          <div style={{
-            height: 'var(--panel-header-h)',
-            backgroundColor: 'var(--bg)',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            padding: '0 var(--space-3)',
-            gap: 'var(--space-2)',
-            flexShrink: 0
-          }}>
+        <div className="ws-panel__body">
+          <div className="ws-panel__body-header">
             <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>音符</span>
             <span title="音符总数" style={{
               backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)',
@@ -464,32 +433,21 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
               <IconButton width="auto" size="sm" icon={<ChevronRight size={14} />} title="收起右侧面板" onClick={toggleRightPanel} />
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-3)', backgroundColor: 'var(--bg)' }}>
+          <div className="ws-panel__body-scroll">
             <NoteInfoPanel />
           </div>
-          <div style={{
-            height: 'var(--panel-header-h)',
-            backgroundColor: 'var(--bg)',
-            borderTop: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '0 var(--space-3)',
-            gap: 'var(--space-2)',
-            flexShrink: 0,
-            fontSize: 'var(--text-xs)',
-            color: markerBeat !== null ? 'var(--warning)' : 'var(--text-subtle)',
-          }}>
+          <div className={`ws-panel__body-footer ${markerBeat !== null ? 'has-marker' : ''}`}>
             {markerBeat !== null
               ? `起点标记 @ ${markerBeat.toFixed(2)} 拍`
               : '双击左沟槽设置起点标记'}
           </div>
-          <div
-            onMouseDown={(e) => { e.preventDefault(); startDrag('right'); }}
-            style={{ position: 'absolute', top: 0, bottom: 0, left: -3, width: 6, cursor: 'col-resize', zIndex: 40, background: isDragging === 'right' ? 'var(--accent)' : 'transparent' }}
-          />
         </div>
-      )}
+        <div
+          onMouseDown={(e) => { e.preventDefault(); startDrag('right'); }}
+          className={`ws-panel__resizer${isDragging === 'right' ? ' is-dragging' : ''}`}
+          data-side="right"
+        />
+      </div>
     </div>
   );
 };

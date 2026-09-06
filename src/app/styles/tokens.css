@@ -26,13 +26,21 @@
   --text-inverse: #ffffff;
   --text-on-accent: #06324a;
 
-  /* ---- 单一强调色（青色系，脱 AI 蓝紫模板） ---- */
+  /* ---- 单一强调色（青蓝系；浅软底 + 主色文字，避开白字陷阱） ---- */
   --accent: #0d9fd6;
   --accent-hover: #0a86b8;
   --accent-active: #0874a3;
   --accent-soft: #dff3fc;        /* 强调色浅底（选中/激活） */
-  --accent-text: #075e83;        /* 强调色上的文字 */
+  --accent-text: #075e83;        /* 强调色上的文字/图标（主色深档，非白） */
+  --accent-disabled: #9fc6dc;    /* 禁用态青蓝 */
+  --overlay-bg: rgba(12, 14, 17, 0.5); /* 模态遮罩（暗底） */
   --focus-ring: rgba(13, 159, 214, 0.45);
+
+  /* ---- Primary 按钮专用色（基色深档 + 白字，确保 WCAG AA 对比） ---- */
+  --accent-btn: #075e83;             /* 主按钮基色（亮主题） */
+  --accent-btn-hover: #064d6e;       /* 主按钮 hover（更深一档） */
+  --accent-btn-active: #053d57;      /* 主按钮 active（最深一档） */
+  --accent-btn-text: #ffffff;        /* 主按钮文字（白，亮+暗主题都用白——亮底要深才看清） */
 
   /* ---- 语义色 ---- */
   --danger: #e5484d;
@@ -40,6 +48,7 @@
   --danger-text: #b42318;
   --warning: #e08900;
   --warning-soft: #fdeeda;
+  --warning-text: #8a4d00;
   --success: #1a9e6b;
 
   /* ---- 谱面画布（固定深色，两主题一致） ---- */
@@ -69,11 +78,11 @@
   --text-lg: 16px;
   --text-xl: 20px;
 
-  /* ---- 字体 ---- */
-  --font-sans: "Inter", "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* ---- 字体（issue 49 阶段 1：替换 Inter → Geist） ---- */
+  --font-sans: "Geist Variable", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Consolas, "Menlo", monospace;
 
-  /* ---- 阴影（带底色色相，非纯黑） ---- */
+  /* ---- 阴影（带底色色相，与青蓝 accent 同冷调） ---- */
   --shadow-sm: 0 1px 2px rgba(20, 26, 38, 0.06), 0 1px 3px rgba(20, 26, 38, 0.06);
   --shadow-md: 0 4px 12px rgba(20, 26, 38, 0.08), 0 2px 4px rgba(20, 26, 38, 0.05);
   --shadow-lg: 0 16px 40px rgba(20, 26, 38, 0.16), 0 6px 16px rgba(20, 26, 38, 0.08);
@@ -84,9 +93,11 @@
   --z-modal: 1000;
   --z-recorder: 1100;
 
-  /* ---- 动效 ---- */
-  --ease: cubic-bezier(0.2, 0, 0, 1);
-  --dur: 160ms;
+  /* ---- 动效（issue 49 阶段 1：时长收敛 120/200/300） ---- */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;   /* 按下/弹起/小反馈 */
+  --dur: 200ms;        /* 默认过渡（hover/active/颜色） */
+  --dur-slow: 300ms;   /* 大切换/页面渐入 */
 
   /* ---- 布局尺寸 ---- */
   --panel-header-h: 38px;
@@ -111,20 +122,28 @@
   --text-muted: #a4abb8;
   --text-subtle: #737b8a;
   --text-inverse: #0d1014;
-  --text-on-accent: #eaf7fd;
+  --text-on-accent: #ffffff;
 
-  --accent: #35b6ea;
-  --accent-hover: #63c6f0;
-  --accent-active: #7ed1f4;
-  --accent-soft: rgba(53, 182, 234, 0.16);
-  --accent-text: #8fd9f7;
-  --focus-ring: rgba(53, 182, 234, 0.5);
+  --accent: #38bdf8;            /* 暗主题亮一档青蓝（slate-blue 系） */
+  --accent-hover: #5cc8fa;
+  --accent-active: #7dd3fc;
+  --accent-soft: rgba(56, 189, 248, 0.18);
+  --accent-text: #bae6fd;        /* 暗底下的主色文字，浅一档保证对比度 */
+  --accent-disabled: #1e4d6b;
+  --focus-ring: rgba(56, 189, 248, 0.55);
+
+  /* 主按钮色（暗主题） */
+  --accent-btn: #0369a1;
+  --accent-btn-hover: #075985;
+  --accent-btn-active: #0c4a6e;
+  --accent-btn-text: #ffffff;
 
   --danger: #f4716f;
   --danger-soft: rgba(244, 113, 111, 0.14);
   --danger-text: #ffb3b1;
   --warning: #f5a623;
   --warning-soft: rgba(245, 166, 35, 0.14);
+  --warning-text: #fcd589;
   --success: #34c48e;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -165,25 +184,94 @@ button, input, select, textarea {
   outline-offset: 1px;
 }
 
-/* 细滚动条（与主题一致） */
+/* ============================================================
+   滚动条（issue 49 阶段 3）
+   视口贴边 + 细柄无轨道（macOS 风 overlay-thin）：
+   - 轨道透明、handle 紧贴视口边（不在容器内挤一条 10px 槽）
+   - 默认 8px 柄 + 2px padding-border 让柄看上去只有 ~6px
+   - webkit + Firefox 都用同款 token 协调亮/暗主题
+   - 仅装饰，不影响布局（容器无 padding-right）
+   ============================================================ */
+
+/* 全局默认：所有可滚动元素都是 8px 柄 + 透明轨道（不影响容器内宽） */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong)) transparent;
 }
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-*::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: var(--radius-full);
-  border: 3px solid transparent;
-  background-clip: padding-box;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--text-subtle);
-  background-clip: padding-box;
+  width: 8px;
+  height: 8px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 120ms var(--ease);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 80%, var(--border-strong));
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ============================================================
+   动效（issue 49 阶段 4：切页动效 + 进入动效）
+   - 切页交叉淡入：150ms（快于内容进入 200ms，让页面"换"的感觉先于内容"出现"）
+   - 卡片/列表进入：staggered（Y 轴 8px + opacity，每项 40ms 间隔）
+   - hover：200ms ease-out（按钮/卡片/导航统一样式）
+   - active：100ms scale(0.98)
+   - 全部受全局 prefers-reduced-motion 兜底（位于本文件 §滚动条下方）
+   ============================================================ */
+
+@keyframes app-page-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes app-stagger-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 进入动效工具类：直系子元素按 nth-child 递增 40ms 延迟，
+  最大覆盖到第 10 项（再往后与第 10 项同延迟，避免长列表动画延迟堆积） */
+.app-stagger > * {
+  animation: app-stagger-enter var(--dur) var(--ease) both;
+}
+.app-stagger > *:nth-child(1)  { animation-delay: 0ms;   }
+.app-stagger > *:nth-child(2)  { animation-delay: 40ms;  }
+.app-stagger > *:nth-child(3)  { animation-delay: 80ms;  }
+.app-stagger > *:nth-child(4)  { animation-delay: 120ms; }
+.app-stagger > *:nth-child(5)  { animation-delay: 160ms; }
+.app-stagger > *:nth-child(6)  { animation-delay: 200ms; }
+.app-stagger > *:nth-child(7)  { animation-delay: 240ms; }
+.app-stagger > *:nth-child(8)  { animation-delay: 280ms; }
+.app-stagger > *:nth-child(9)  { animation-delay: 320ms; }
+.app-stagger > *:nth-child(n+10) { animation-delay: 360ms; }
+
+/* 单元素进入：纯 fade（不带 Y 轴位移，给页面/卡片顶层用） */
+.app-fade-in {
+  animation: app-page-fade-in 150ms var(--ease) both;
+}
+
+/* ---- 可访问性：减少动效全局兜底（issue 49 阶段 1 #10）
+   阶段 4 补充：阶段 4 新增的 keyframes（app-page-fade-in / app-stagger-enter）
+   与 .app-stagger > *、.app-fade-in 工具类全部受本规则覆盖，
+   缩到 0.01ms 让用户感受到的是"瞬切"，保留状态正确性（opacity:1 / translate:0）。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    /* delay 同样清零：stagger 的 both 填充让 delay 期间处于 opacity:0 的 from 态，
+       只清 duration 不清 delay 的话，内容仍会空白最长 360ms */
+    animation-delay: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

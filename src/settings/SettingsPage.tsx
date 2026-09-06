@@ -1,16 +1,12 @@
 import { useRef, useState } from 'react';
-import { Check, Download, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
+import { Check, Download, Info, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
+import EmptyState from '../ui/EmptyState';
 import { useConfig } from '../app/ProviderTree';
 import { defaultSettings, loadSettings } from '../chart/config/AppSettings';
 import type { AppSettings } from '../chart/config/AppSettings';
 
-// 设置页（issue 28 Q13 + issue 39 + issue 44 内容壳迁移）：
-//   - 接入 <AppPageShell>：左侧次级索引走 <AppPageShell.Sidebar>（按组分组"应用设置 / 功能设置"），Body 走 mode="default" width="default"；
-//   - 侧边索引从"正文内 168px"搬到"正文外 200px"（Q3.2 / §1 统一化产物，detail 区从 752px 涨到 920px）；
-//   - 节奏图示 SE 音量（issue 39 #7）已迁音频页（issue 29 切片 4 闭环：键音 + SE 音量与音源同域），
-//     此处不再保留「播放」section。
-// - 修改立即生效并持久化（versioned settings，ADR-0003 §6）。
+// 设置页：接入 AppPageShell（Sidebar 分组导航 + Body 设置详情），修改立即生效并持久化。
 type Section = 'appearance' | 'layout' | 'data' | 'canvas';
 
 const THEME_OPTIONS: Array<{ value: AppSettings['theme']; label: string; swatch: string }> = [
@@ -48,7 +44,7 @@ function PercentSliderRow({
   );
 }
 
-/** 分组"恢复默认"行：本组参数恢复出厂默认，需二次确认（用户反馈：整体重置放配置数据语义不符） */
+/** 分组"恢复默认"行：本组参数恢复出厂默认，需二次确认 */
 function ResetRow({ label, hint, confirming, onConfirm, onToggle }: {
   label: string; hint: string; confirming: boolean; onToggle: () => void; onConfirm: () => void;
 }) {
@@ -92,7 +88,6 @@ export default function SettingsPage() {
   const { settings, setTheme, setDisplay, setAllSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
-  // 分组恢复默认：画布显示只重置本组参数（用户反馈：整体重置放在配置数据语义不符）
   const [resetConfirm, setResetConfirm] = useState<'canvas' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -144,7 +139,7 @@ export default function SettingsPage() {
       </AppPageShell.Sidebar>
 
       <AppPageShell.Body mode="default">
-        <section className="settings-detail surface-section">
+        <section className="settings-detail surface-section app-stagger">
           {section === 'appearance' && (
             <>
               <div className="settings-heading">
@@ -177,15 +172,12 @@ export default function SettingsPage() {
                 <h2>布局</h2>
                 <p>面板开合、宽度与画布缩放的说明。</p>
               </div>
-              <div className="settings-row">
-                <div className="settings-row__text"><strong>工具 / 属性面板</strong><span>在工作台底部或画布两侧拖拽，或点击面板标题旁的收起按钮</span></div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-row__text"><strong>应用导航</strong><span>左侧导航可折叠为图标栏，默认为折叠态</span></div>
-              </div>
-              <div className="settings-row">
-                <div className="settings-row__text"><strong>画布缩放</strong><span>按住 Ctrl 滚动鼠标滚轮可缩放谱面画布</span></div>
-              </div>
+              {/* layout 段无可配置控件，用 EmptyState 作说明区 */}
+              <EmptyState
+                icon={Info}
+                title="布局在工作台内调整"
+                description="工具 / 属性面板可拖拽或点击标题旁的收起按钮；应用导航可在左侧折叠为图标栏；画布缩放按住 Ctrl 滚动鼠标滚轮。"
+              />
             </>
           )}
 

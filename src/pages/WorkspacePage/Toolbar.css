@@ -1,0 +1,93 @@
+/* ============================================================
+ * Toolbar（issue 49 阶段 3 inline 迁出）
+ * 工作台左侧工具栏：从 src/pages/WorkspacePage/Toolbar.tsx 的 style={{ ... }} 全部迁出。
+ * 视觉：折叠按钮 + 标题 + 当前工具 pill（顶栏）+ 3 段工具区（键型 / 节拍 / 编辑）。
+ * ============================================================ */
+
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- 顶栏：折叠按钮 + 标题 + 当前工具提示 ---- */
+.toolbar__head {
+  height: var(--panel-header-h);
+  padding: 0 var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  background-color: var(--bg);
+  flex-shrink: 0;
+}
+.toolbar__title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.toolbar__current-tool {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--accent-text);
+  background-color: var(--accent-soft);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 滚动内容区 ---- */
+.toolbar__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* ---- 区块标题（SectionHeader） ---- */
+.toolbar__section-header {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--text-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ---- 网格（键型 3 列 / 编辑 2 列） ---- */
+.toolbar__grid {
+  display: grid;
+  gap: var(--space-1);
+}
+.toolbar__grid--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+.toolbar__grid--2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+.toolbar__grid-full {
+  grid-column: 1 / -1;
+}
+
+/* ---- 节拍吸附 select ---- */
+.toolbar__beat-select {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  background-color: var(--bg-inset);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+.toolbar__beat-select:hover {
+  border-color: var(--border-strong);
+  background-color: var(--bg-hover);
+}

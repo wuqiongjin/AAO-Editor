@@ -1,17 +1,13 @@
 import { useRef, useState } from 'react';
-import { AlertTriangle, Check, Clock3, Music2, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
+import { AlertTriangle, Check, Clock3, FileAudio, Music2, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
+import EmptyState from '../ui/EmptyState';
 import { useAudioSession } from '../app/providers/AudioSessionProvider';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../chart/config/AppSettings';
 import { KEY_SOUND_SETS, type KeySoundSample } from './KeySound';
 import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from './KeySoundMeta';
 
-// 音频页（架构深化评审候选 3 收口后）：
-//   - 不再走 AudioPageContext 桥接——直接调音频会话深模块（useAudioSession）；
-//   - 3 个 section：音频素材（含谱面时长）/ 键音素材包 / SE 音量，在 Body 内自管；
-//   - 导入/解码失败用内联错误横幅就地反馈（文字醒目、可即时重试）；
-//   - 成功仅更新状态，不加 toast；
-//   - 清除音频不需二次确认（低风险、可重新导入），旁加说明"清除后需重新导入"。
+// 音频页：直接调音频会话深模块（useAudioSession），3 个 section（音频素材/键音素材包/SE 音量）。
 
 type AudioSection = 'audio' | 'keysound' | 'se';
 
@@ -44,11 +40,22 @@ export default function AudioPage() {
       </AppPageShell.Sidebar>
 
       <AppPageShell.Body mode="default">
-        <section className="surface-section audio-detail">
-          {section === 'audio' && <AudioSection />}
-          {section === 'keysound' && <KeySoundSection />}
-          {section === 'se' && <SeVolumeSection />}
-        </section>
+        {/* 3 段独立 surface-section 卡片（app-stagger 阶梯进入动画） */}
+        {section === 'audio' && (
+          <section className="surface-section audio-detail app-stagger">
+            <AudioSection />
+          </section>
+        )}
+        {section === 'keysound' && (
+          <section className="surface-section audio-detail app-stagger">
+            <KeySoundSection />
+          </section>
+        )}
+        {section === 'se' && (
+          <section className="surface-section audio-detail app-stagger">
+            <SeVolumeSection />
+          </section>
+        )}
       </AppPageShell.Body>
     </AppPageShell>
   );
@@ -72,34 +79,52 @@ function AudioSection() {
         <p>支持浏览器可解码的常见音频格式；导入后谱面时长将跟随音频长度。</p>
       </div>
 
-      <div className="audio-file">
-        <span className="audio-file-icon"><Music2 size={22} /></span>
-        <div>
-          <strong>{canPlay ? audioName : '尚未导入音频'}</strong>
-          <span>{canPlay ? '已加载 · 谱面时长锁定为音频时长' : '无音频模式可正常编辑和预览谱面'}</span>
+      {/* file input 无条件挂载（两分支共用一个 ref，避免各挂一份） */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="audio/*"
+        className="visually-hidden-input"
+        onChange={(e) => { if (e.target.files && e.target.files[0]) session.importAudio(e.target.files[0]); e.target.value = ''; }}
+      />
+
+      {/* 空态：未导入音频时用 EmptyState 引导 */}
+      {canPlay ? (
+        <div className="audio-file">
+          <span className="audio-file-icon"><Music2 size={22} /></span>
+          <div className="audio-file-info">
+            <strong>{audioName}</strong>
+            <span>已加载 · 谱面时长锁定为音频时长</span>
+          </div>
+          <div className="audio-file-actions">
+            {/* 更换/清除按钮（primary / danger variant） */}
+            <button type="button" className="action-btn action-btn--primary" onClick={pickFile}>
+              <Upload size={16} />更换音频
+            </button>
+            <button
+              type="button"
+              className="action-btn action-btn--danger"
+              onClick={() => session.clearAudio()}
+              title="清除后需重新导入"
+            >
+              清除
+            </button>
+          </div>
         </div>
-        {canPlay && (
-          <button type="button" onClick={() => session.clearAudio()} title="清除后需重新导入">
-            清除
-          </button>
-        )}
-      </div>
+      ) : (
+        <EmptyState
+          icon={FileAudio}
+          title="尚未导入音频"
+          description="无音频模式可正常编辑和预览谱面；导入后谱面时长将自动跟随音频长度。"
+          primaryAction={{
+            label: '导入音频',
+            onClick: pickFile,
+            icon: Upload,
+          }}
+        />
+      )}
 
-      <div className="section-actions">
-        <button className="button-primary" type="button" onClick={pickFile}>
-          <Upload size={16} />{canPlay ? '更换音频' : '导入音频'}
-          <input
-            ref={fileRef}
-            type="file"
-            accept="audio/*"
-            style={{ display: 'none' }}
-            onChange={(e) => { if (e.target.files && e.target.files[0]) session.importAudio(e.target.files[0]); e.target.value = ''; }}
-          />
-        </button>
-        <span>导入后，谱面时长将跟随音频长度。</span>
-      </div>
-
-      {/* 谱面时长：嵌入音频素材 section 内（grill 2026-08-26 拍板 3-section 方案） */}
+      {/* 谱面时长 */}
       <div className="audio-duration-row">
         <div className="audio-duration-head">
           <Clock3 size={18} />
@@ -171,14 +196,15 @@ function KeySoundSection() {
               <div className="asset-set-body">
                 <div className="asset-set-head">
                   <strong>{set.label}</strong>
+                  {/* 使用中 = is-active pill，未使用 = 可点击 pill */}
                   {active ? (
-                    <span className="state-pill success" aria-label="正在使用">
-                      <Check size={13} /> 使用中
+                    <span className="skin-pill is-active" aria-label="正在使用">
+                      <Check size={12} />使用中
                     </span>
                   ) : (
                     <button
                       type="button"
-                      className="button-primary asset-set-apply"
+                      className="skin-pill"
                       onClick={() => session.setKeySetId(set.id)}
                     >
                       使用此包

@@ -4,12 +4,9 @@ import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
 import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
 import './AppShell.css';
 
-// 应用壳（issue 28 + issue 29）：五页注册 + 保活隐藏暂停 + 切页快捷键 + 可折叠导航（默认折叠）。
-// - 五页全部保持挂载（保活），仅激活页可见（CSS display），离开工作台时自动暂停播放。
-// - 工作台（Editor）黑盒接入（Q16）：仅传 active 表面契约（失活时暂停播放并抑制其全局输入）。
-// - 导航与工作台左侧工具面板合成同一左列（issue 28 第 2 轮）：工作台页由 Editor 内渲染导航，
-//   非工作台页由本壳渲染独立导航列；导航不再单独挤压画布。
-// - 路由层归 src/pages/PageRegistry.tsx：AppShell 不直接 import 各 page 文件。
+// 应用壳：五页注册 + 保活隐藏暂停 + 切页快捷键 + 可折叠导航（默认折叠）。
+// - 导航列常驻，工作台左面板只含工具栏。
+// - 路由层归 src/pages/PageRegistry.tsx。
 
 const NAV_ITEMS: Array<{ id: PageId; label: string; shortcut: string }> = [
   { id: 'workspace', label: '工作台', shortcut: '⇧⌘1' },
@@ -41,21 +38,14 @@ export default function AppShell() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // 工作台页：导航已并入 Editor 左侧工具列，不另占列；其余页保留独立导航列。
-  const showShellNav = activePage !== 'workspace';
   const navValue = { activePage, setActivePage, navCollapsed, setNavCollapsed };
 
   return (
     <AppNavProvider value={navValue}>
-      <div
-        className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}${showShellNav ? ' has-shell-nav' : ''}`}
-        style={{ gridTemplateColumns: showShellNav ? 'var(--nav-width) minmax(0, 1fr)' : 'minmax(0, 1fr)' }}
-      >
-        {showShellNav && (
-          <aside className="app-nav" aria-label="应用页面导航">
-            <AppNav />
-          </aside>
-        )}
+      <div className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}`}>
+        <aside className="app-nav" aria-label="应用页面导航">
+          <AppNav />
+        </aside>
 
         <section className="app-surface">
           {/* 保活挂载：所有 page 始终渲染，仅激活页可见；工作台失活时由 active 表面契约暂停播放/抑制输入 */}

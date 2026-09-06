@@ -1,25 +1,21 @@
-/* 音频页（issue 28 Q15 + issue 29 切片 4 闭环 + 2026-08-26 索引外置 + issue 44 内容壳迁移）：
-   接入 <AppPageShell>（位于 src/components/layout/AppPageShell.tsx）：
-     - 整体布局交给壳：左侧次级索引（200px Sidebar） + 右侧 Body（max-width 920px 居中）；
-     - AudioPage 自身只管 .audio-detail（surface-section padding 等）。 */
+/* 音频页：接入 AppPageShell，3 段独立 surface-section card */
 
-/* ---- 详情 surface-section（issue 28 Q15 留 22px 内边距与"键音素材包"卡观感对齐） ---- */
+/* surface-section 由 AppShell.css 统一提供卡片式基底（bg + border + 24px padding） */
+
 .audio-detail {
-  padding: 22px;
   min-height: min-content;
 }
 
 /* ---- 谱面时长内联行（嵌入"音频素材" section 内） ---- */
+/* 顶部细线做分组分隔 */
 .audio-duration-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-top: 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-inset);
+  padding: 14px 0;
+  border-top: 1px solid var(--border-faint);
 }
 
 .audio-duration-head {
@@ -48,17 +44,10 @@
   margin-top: 2px;
 }
 
-/* ---- 键音素材包 3 列网格（grill 2026-08-26 拍板） ---- */
 .asset-set-grid.asset-set-grid-3 {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-
-@media (max-width: 1080px) {
-  .asset-set-grid.asset-set-grid-3 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 720px) {

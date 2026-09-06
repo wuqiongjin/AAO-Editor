@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Pencil, RotateCcw, Search } from 'lucide-react';
+import { Pencil, RotateCcw, Search, SearchX } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
+import EmptyState from '../ui/EmptyState';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, setCapturingShortcut, type FunctionId,
@@ -96,22 +97,18 @@ function ShortcutRecorder({ id, onCommit, onCancel }: {
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 'var(--z-recorder)', backgroundColor: 'rgba(12,14,17,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      className="shortcut-recorder"
       onClick={onCancel}
     >
       <div
-        style={{
-          backgroundColor: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)', padding: '28px 44px',
-          border: '2px solid var(--accent)', boxShadow: 'var(--shadow-lg)',
-          textAlign: 'center', fontFamily: 'var(--font-mono)', color: 'var(--text)',
-        }}
+        className="shortcut-recorder__panel"
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ fontSize: '38px', fontWeight: 700, marginBottom: '16px', color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
+        <div className="shortcut-recorder__keys">
           {draft ? formatKey(draft) : '…'}
         </div>
-        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>先按所需的组合键，再按 enter 键。</div>
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-subtle)', marginTop: '12px' }}>{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
+        <div className="shortcut-recorder__hint">先按所需的组合键，再按 enter 键。</div>
+        <div className="shortcut-recorder__meta">{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
       </div>
     </div>
   );
@@ -167,7 +164,9 @@ export default function ShortcutsPage() {
       />
 
       <AppPageShell.Body mode="fill">
-        <section className="shortcut-surface surface-section">
+
+        <section className="shortcut-surface surface-section app-stagger">
+        {/* 删掉 settings-heading（与 page header "快捷键" 重复），改在 toolbar 上加 padding-top 让搜索框与卡片间距与其它页一致 */}
         <div className="shortcut-toolbar">
           <label className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索功能或按键" /></label>
           <button className="button-secondary" type="button" onClick={() => { setError(null); setShortcutConfig(getDefaultConfig()); }}><RotateCcw size={15} />恢复默认</button>
@@ -250,7 +249,17 @@ export default function ShortcutsPage() {
               </div>
             );
           })}
-          {visible.length === 0 && visibleApp.length === 0 && <div className="empty-result">没有匹配的功能</div>}
+          {visible.length === 0 && visibleApp.length === 0 && (
+            <EmptyState
+              icon={SearchX}
+              title="没有匹配的功能"
+              description="尝试其他关键词，或清除搜索框后查看全部快捷键。"
+              primaryAction={{
+                label: '清除搜索',
+                onClick: () => setQuery(''),
+              }}
+            />
+          )}
         </div>
       </section>
 
