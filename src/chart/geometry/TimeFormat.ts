@@ -19,6 +19,17 @@ export function formatTimeWhole(seconds: number): string {
 }
 
 /**
+ * 分内时间（issue 54 实时显示线左沟槽）：`SS.ss`（秒.厘秒，两位小数），00.00–59.99 循环（mod 60），
+ * 不含分钟位。与完整时间码互补：范围小（<1 分钟）但精度更高。负值/非有限值按 00.00 处理。
+ */
+export function formatInMinuteTime(seconds: number): string {
+  if (!Number.isFinite(seconds)) return '00.00';
+  let v = Math.round((Math.max(0, seconds) % 60) * 100) / 100;
+  if (v >= 60) v = 0; // 59.996+ 四舍五入到 60.00 → 回绕 00.00
+  return v.toFixed(2).padStart(5, '0');
+}
+
+/**
  * 解析时间输入（播放条时间码双击编辑，issue 22）：接受 mm:ss / mm:ss.s（也容忍秒带小数）。
  * 返回秒数；无法解析返回 null。
  */

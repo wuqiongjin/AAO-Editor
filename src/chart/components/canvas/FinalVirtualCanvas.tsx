@@ -285,12 +285,21 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
             skinVersion,
             // issue 39：画布显示参数（节奏图示大小/长压线不透明度/同时点击线）
-            display: { noteSize: display.noteSize, slideOpacity: display.slideOpacity, simultaneousClickLines: display.simultaneousClickLines },
+            // issue 51/53 第二轮：轨道颜色主题 + 线形分层开关 + 文字大小系数（进静态层渲染参数）
+            display: {
+              noteSize: display.noteSize,
+              slideOpacity: display.slideOpacity,
+              simultaneousClickLines: display.simultaneousClickLines,
+              gridStyle: display.gridStyle,
+              lineShapeTiers: display.lineShapeTiers,
+              gridOpacity: display.gridOpacity,
+              labelScale: display.labelScale,
+            },
             // 背景皮肤（issue 29 Q4）：进静态层绘制
             background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.imageQuality, noteIcons, background]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background]);
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {
@@ -712,7 +721,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                     onMouseUp={handleMouseUp}
                     onContextMenu={handleContextMenu}
                     onDoubleClick={handleDoubleClick}
-                    onMouseLeave={() => setMousePosition(null)}
+                    onMouseLeave={() => { setMousePosition(null); setHoverPos(null); }} // issue 54：hoverPos 一并清空，实时显示线不残留
                     onClick={handleClick}
                     style={{
                         backgroundColor: '#000000',

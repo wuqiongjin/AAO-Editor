@@ -15,6 +15,7 @@ import { makeCoords } from './coords';
 import { DEFAULT_BACKGROUND_OPACITY } from '../chart/config/AppSettings';
 import type { RenderCtx } from './types';
 import type { BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
+import type { GridStylePreset } from './gridStyle';
 
 let cacheCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 
@@ -27,6 +28,12 @@ let basis: {
   scale: number;
   scrollY: number;
   beatDisplay: number;
+  /** 轨道颜色主题（issue 53 第二轮）：网格在静态层，主题切换需重建 */
+  gridStyle: GridStylePreset;
+  /** 线形分层开关 / 轨道线透明度 / 文字大小系数（issue 53/51）：起止线文字与网格都在静态层 */
+  lineShapeTiers: boolean;
+  gridOpacity: number;
+  labelScale: number;
   surfaceW: number;
   surfaceH: number;
   dpr: number;
@@ -91,6 +98,10 @@ export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     scale: rc.viewport.scale,
     scrollY: rc.viewport.scrollY,
     beatDisplay: rc.beatDisplay,
+    gridStyle: rc.display?.gridStyle ?? 'vivid',
+    lineShapeTiers: rc.display?.lineShapeTiers === true,
+    gridOpacity: rc.display?.gridOpacity ?? 0.8,
+    labelScale: rc.display?.labelScale ?? 1,
     surfaceW: rc.surface.w,
     surfaceH: rc.surface.h,
     dpr: rc.dpr,
@@ -103,6 +114,8 @@ export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
   const hit = basis !== null &&
     basis.scale === nb.scale && basis.scrollY === nb.scrollY &&
     basis.beatDisplay === nb.beatDisplay && basis.chartEndBeat === nb.chartEndBeat &&
+    basis.gridStyle === nb.gridStyle && basis.lineShapeTiers === nb.lineShapeTiers &&
+    basis.gridOpacity === nb.gridOpacity && basis.labelScale === nb.labelScale &&
     basis.surfaceW === nb.surfaceW && basis.surfaceH === nb.surfaceH && basis.dpr === nb.dpr &&
     // 背景皮肤五要素参与失效判定（issue 29 问题1根因：此前漏加背景字段，换图/调参被缓存命中吞掉，滚一下才重建）
     basis.bgActive === nb.bgActive && basis.bgRevision === nb.bgRevision && basis.bgOpacity === nb.bgOpacity &&

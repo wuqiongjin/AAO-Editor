@@ -8,6 +8,7 @@
 import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutConfig';
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID } from '../../audio/KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../visual/gen/noteSkinRegistry.gen';
+import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../visual/gridStyle';
 
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */
 export const DEFAULT_BACKGROUND_OPACITY = 0.55;
@@ -42,6 +43,14 @@ export interface AppSettings {
     verticalRatio: number;
     /** 图像品质（三档），issue 39 #6 */
     imageQuality: 'smooth' | 'standard' | 'hd';
+    /** 轨道颜色主题（issue 53 第二轮）：网格线层级配色；类型与白名单单一来源 visual/gridStyle.ts */
+    gridStyle: GridStylePreset;
+    /** 线形分层开关（issue 53 第二轮 Q3=A）：默认关（全实线，仅颜色分层） */
+    lineShapeTiers: boolean;
+    /** 轨道线透明度（issue 53 第三轮补）：网格线（节拍线+子节拍线）整体不透明度系数，0.1..1 */
+    gridOpacity: number;
+    /** 谱面文字大小系数（issue 51 第二轮 Q1=A）：0.5..3，默认 1（基准 14px/11px 已上调） */
+    labelScale: number;
   };
   /** 素材域（issue 29 音符皮肤）：六条目 → 皮肤包 id。包合法性由 renderer/noteSkin.ts 归一化（缺省/非法回退默认包） */
   visual: {
@@ -90,6 +99,10 @@ export function defaultSettings(): AppSettings {
       colorAssist: true,
       verticalRatio: 1,
       imageQuality: 'standard',
+      gridStyle: 'vivid',
+      lineShapeTiers: false,
+      gridOpacity: 0.8,
+      labelScale: 1,
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
   };
@@ -127,6 +140,10 @@ function mergeSettings(parsed: unknown): AppSettings {
     display.imageQuality === 'smooth' || display.imageQuality === 'standard' || display.imageQuality === 'hd'
       ? display.imageQuality
       : defaults.display.imageQuality;
+  // 轨道颜色主题（issue 53 第二轮）：枚举白名单归一化（单一来源 GRID_STYLE_PRESETS），白名单外 → vivid
+  const gridStyle = (GRID_STYLE_PRESETS as readonly string[]).includes(display.gridStyle as string)
+    ? (display.gridStyle as GridStylePreset)
+    : defaults.display.gridStyle;
   return {
     schemaVersion: 1,
     theme: obj.theme === 'light' || obj.theme === 'dark' || obj.theme === 'system' ? obj.theme : defaults.theme,
@@ -153,6 +170,10 @@ function mergeSettings(parsed: unknown): AppSettings {
       colorAssist: typeof display.colorAssist === 'boolean' ? display.colorAssist : defaults.display.colorAssist,
       verticalRatio: clamp(display.verticalRatio, 0.5, 2, defaults.display.verticalRatio),
       imageQuality: quality,
+      gridStyle,
+      lineShapeTiers: typeof display.lineShapeTiers === 'boolean' ? display.lineShapeTiers : defaults.display.lineShapeTiers,
+      gridOpacity: clamp(display.gridOpacity, 0.1, 1, defaults.display.gridOpacity),
+      labelScale: clamp(display.labelScale, 0.5, 3, defaults.display.labelScale),
     },
     visual: { noteSkin, backgroundSkin },
   };

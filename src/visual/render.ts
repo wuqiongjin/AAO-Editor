@@ -3,12 +3,16 @@
 // 本模块不含任何 React 状态；性能热路径（视口剔除/缓存/增量重绘）将来在此落地。
 import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport, type GeometryPoint } from '../chart/geometry/ChartGeometry';
-import { shiftGroupToAnchor, mirrorNote } from '../chart/editing/NoteEditing';
+import { shiftGroupToAnchor, mirrorNote, countNotesUpToBeat } from '../chart/editing/NoteEditing';
 import { perf } from '../chart/perf';
+import { beatToSeconds, getBpmEvents } from '../audio/AudioTiming';
+import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, findItemAt } from './hitTest';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
+import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
+import { GRID_STYLES, GRID_TIER_ORDER, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import type { DirGroupVisual } from './noteSkin';
 import type { RenderCtx } from './types';
 
@@ -87,10 +91,9 @@ export function visibleBeatRange(geometry: ChartGeometry, viewport: GeometryView
 /** 绘制网格（轨道竖线 + 节拍/子节拍横线）。只迭代可见拍范围；极小间距时按像素间距抽稀。 */
 export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   const { trackBgX, trackBgWidth, trackStartX } = c.trackGeometry(rc.viewport.scale);
-  const borderTotalWidth = TRACK_CHROME_TOTAL;
 
   for (let lane = 0; lane <= LANES; lane++) {
-    const x = trackStartX + borderTotalWidth + lane * LANE_WIDTH * rc.viewport.scale;
+    const x = trackStartX + TRACK_CHROME_TOTAL * rc.viewport.scale + lane * LANE_WIDTH * rc.viewport.scale;
     if (lane === 0 || lane === LANES) {
       const borderColors = ['#004C4C', '#004D4D', '#009898', '#00A6A6', '#008186', '#003D44'];
       const borderWidths = [1, 4, 1, 1, 1, 1];
@@ -113,46 +116,56 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
     }
   }
 
-  // 完整拍实线画到谱面末端覆盖的整数拍（chartEndBeat 为整数时保留其结束拍实线）；
-  // 子节拍虚线仅在不超过谱面末端时绘制（避免末端之后多画网格切分）。
-  // issue 10：只迭代视口内拍数（原实现从 beat 0 全量迭代到谱面末端，长谱密集缩放下每帧数千次无效循环）。
+  // 网格横线（issue 53 分层样式，第二轮修订）：分母分层（整拍 > 1/2 > 1/4 > 1/8 > 1/16），
+  // 层级靠**颜色**区分（主题亮度沿层级递减、下限远离黑）；形态阶梯改为可选开关
+  // lineShapeTiers（默认关 = 全实线），开启后叠加线形阶梯。透明度恒 1（避免暗上加暗跌近黑）。
+  // 抽稀按层级从高到低进行：与任一已绘制线过近的候选被跳过（优先保留高层级）。
   const { min: beatFrom, max: beatTo } = visibleBeatRange(rc.geometry, rc.viewport, rc.chartEndBeat);
-  let lastBeatY: number | null = null;   // 实线间距抽稀阈值
-  let lastSubY: number | null = null;   // 虚线间距抽稀阈值
+  const es = rc.viewport.scale;
+  const style = GRID_STYLES[normalizeGridStyle(rc.display?.gridStyle)];
+  const lineShapeTiers = rc.display?.lineShapeTiers === true;
+  const gridOpacity = rc.display?.gridOpacity ?? 1; // 轨道线透明度（第三轮补，用户可调）
+
+  interface GridCandidate { y: number; tier: GridTier }
+  const candidates: GridCandidate[] = [];
   for (let beat = beatFrom; beat <= beatTo; beat++) {
-    const canvasPos = c.virtualToCanvas(0, c.beatToVirtualY(beat));
-    if (canvasPos.y >= 0 && canvasPos.y <= rc.surface.h) {
-      if (lastBeatY === null || Math.abs(canvasPos.y - lastBeatY) >= 2) {
-        ctx.strokeStyle = '#555555';
-        ctx.lineWidth = Math.max(2, 2 * rc.viewport.scale);
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(trackBgX, canvasPos.y);
-        ctx.lineTo(trackBgX + trackBgWidth, canvasPos.y);
-        ctx.stroke();
-        lastBeatY = canvasPos.y;
-      }
-    }
+    const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
+    if (y >= 0 && y <= rc.surface.h) candidates.push({ y, tier: 'beat' });
     for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
       const preciseBeat = beat + subBeat / rc.beatDisplay;
       if (preciseBeat > rc.chartEndBeat + 1e-6) continue;
-      const subCanvasPos = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat));
-      if (subCanvasPos.y < 0 || subCanvasPos.y > rc.surface.h) continue;
-      // 间距抽稀：子拍线间距 < 5px 时不再逐条绘制（远看即为密实灰带，视觉等价）
-      if (lastSubY !== null && Math.abs(subCanvasPos.y - lastSubY) < 5) continue;
-      ctx.strokeStyle = '#666666';
-      ctx.lineWidth = Math.max(0.5, 1 * rc.viewport.scale);
-      ctx.setLineDash([4 * rc.viewport.scale, 6 * rc.viewport.scale]);
-      ctx.globalAlpha = 0.8;
-      ctx.beginPath();
-      ctx.moveTo(trackBgX, subCanvasPos.y);
-      ctx.lineTo(trackBgX + trackBgWidth, subCanvasPos.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1.0;
-      lastSubY = subCanvasPos.y;
+      const subY = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat)).y;
+      if (subY < 0 || subY > rc.surface.h) continue;
+      candidates.push({ y: subY, tier: gridTierOf(subBeat, rc.beatDisplay) });
     }
   }
+
+  const drawn: number[] = [];
+  const tooClose = (y: number, threshold: number) => {
+    for (const d of drawn) if (Math.abs(d - y) < threshold) return true;
+    return false;
+  };
+
+  for (const tier of GRID_TIER_ORDER) {
+    const s = style[tier];
+    const threshold = tier === 'beat' ? 2 : 5; // 抽稀阈值：拍线保持旧 2px 密度，子拍线 5px
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = tier === 'beat' ? Math.max(2, s.width * es) : Math.max(0.5, s.width * es);
+    ctx.globalAlpha = (s.alpha ?? 1) * gridOpacity;
+    const dash = gridLineDash(tier, lineShapeTiers, es);
+    ctx.setLineDash(dash ?? []);
+    for (const cand of candidates) {
+      if (cand.tier !== tier) continue;
+      if (tooClose(cand.y, threshold)) continue;
+      ctx.beginPath();
+      ctx.moveTo(trackBgX, cand.y);
+      ctx.lineTo(trackBgX + trackBgWidth, cand.y);
+      ctx.stroke();
+      drawn.push(cand.y);
+    }
+  }
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
 }
 
 /** 点音符选中圈（黄圈）：瓦片内与叠加层共用同一实现，保证视觉逐像素一致 */
@@ -246,18 +259,6 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       if (isSelected && !skipSelection) {
         strokeSelectedCircle(ctx, canvasPos, iconSize, rc.viewport.scale);
       }
-    } else if (note.type === "BPM") {
-      const virtualY = c.getNoteVirtualY(note.beat);
-      const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-      const y = c.virtualToCanvas(0, virtualY).y;
-      ctx.strokeStyle = 'red';
-      ctx.lineWidth = 3 * rc.viewport.scale;
-      ctx.setLineDash([5 * rc.viewport.scale, 5 * rc.viewport.scale]);
-      ctx.beginPath();
-      ctx.moveTo(trackBgX, y);
-      ctx.lineTo(trackBgX + trackBgWidth, y);
-      ctx.stroke();
-      ctx.setLineDash([]);
     } else if (note.type === "Slide" || note.type === "Long") {
       renderSlideBody(ctx, c, rc, sel, note, index, skipSelection);
     }
@@ -647,59 +648,138 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   ctx.restore();
 }
 
-/** 渲染 BPM 数字（红色横线 + 左侧数值）。issue 10：基于可见集而非全量 notes.filter（省 O(n) 扫描与数组分配） */
-export function renderBpmNumbers(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
-  visibleNotes.forEach(({ note }) => {
-    if (note.type !== "BPM") return;
-    const canvasPos = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat));
-    if (canvasPos.y >= -50 && canvasPos.y <= rc.surface.h + 50) {
-      const { trackStartX, trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-      ctx.strokeStyle = '#ff6666';
-      ctx.lineWidth = 3 * rc.viewport.scale;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(trackBgX, canvasPos.y);
-      ctx.lineTo(trackBgX + trackBgWidth, canvasPos.y);
-      ctx.stroke();
-      const textY = canvasPos.y - 15 * rc.viewport.scale;
-      const textX = trackStartX - 80;
-      if (textY >= -20 && textY <= rc.surface.h + 20) {
-        ctx.fillStyle = '#ff6666';
-        ctx.font = `bold ${12 * rc.viewport.scale}px Arial`;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`BPM ${(note as ChartNote & { bpm: number }).bpm}`, textX, textY);
-      }
-    }
-  });
+/**
+ * 渲染 BPM 标线（issue 51 + 第二轮修订）：低饱和主题色实线（跟随轨道颜色主题主色，Q5=B），
+ * 横跨轨道宽度。**由 renderChart 编排在音符层之下**（用户反馈：BPM 线不得覆盖音符，
+ * 与轨道线同层语义）；数值文字由 renderBpmLabels 在沟槽层绘制。
+ * issue 10：基于可见集而非全量 notes.filter（省 O(n) 扫描与数组分配）。
+ */
+export function renderBpmLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
+  const color = gridThemeBpmColor(normalizeGridStyle(rc.display?.gridStyle));
+  for (const { note } of visibleNotes) {
+    if (note.type !== "BPM") continue;
+    const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
+    if (y < -50 || y > rc.surface.h + 50) continue;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5 * rc.viewport.scale;
+    ctx.beginPath();
+    ctx.moveTo(trackBgX, y);
+    ctx.lineTo(trackBgX + trackBgWidth, y);
+    ctx.stroke();
+  }
 }
 
-/** 谱面起始线 / 结束线（Bug3）：标记谱面有效范围的首尾，横跨整个画布宽度（超出轨道本身） */
+/**
+ * 渲染 BPM 数值（issue 51 + 第二轮修订）：仅数值（不带 "BPM" 前缀），内带锚定
+ * （贴轨道左外缘 8px）、垂直居中于线、字号 = 14px × labelScale；越出画布时钳制
+ * （"都在谱面范围内"）。由 renderChart 编排在沟槽层（音符之上，沟槽内无音符）。
+ */
+export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  const color = gridThemeBpmColor(normalizeGridStyle(rc.display?.gridStyle));
+  const labelScale = rc.display?.labelScale ?? 1;
+  for (const { note } of visibleNotes) {
+    if (note.type !== "BPM") continue;
+    const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
+    if (y < -50 || y > rc.surface.h + 50) continue;
+    const layout = clampGutterLabelY(
+      layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale),
+      rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
+    );
+    drawGutterLabel(ctx, layout, String((note as ChartNote & { bpm: number }).bpm), color);
+  }
+}
+
+/** 起始线/结束线配色（issue 52 grill 定案：低饱和主题色三线三色，文字同色系更亮一档） */
+export const START_LINE_COLOR = '#53b8c9';
+export const START_TEXT_COLOR = '#7fd4e5';
+export const END_LINE_COLOR = '#d97b5a';
+export const END_TEXT_COLOR = '#f0a07e';
+
+/**
+ * 谱面起始线 / 结束线（issue 52 + 第二/三/四轮修订）：
+ * - 线 = 低饱和青蓝 / 暖橙虚线，**只画轨道两侧沟槽段**（第三轮：覆盖轨道内太影响观感）；
+ * - 文字 = START / END：**外带锚定**（动态间距，远离 BPM 数值内带——第二轮 Q2=A），
+ *   纵向**居中骑线**（第四轮：与 BPM 数值同位对齐，替代最初的"上/下"定位），
+ *   钳制在画布内；字号 = 21px × labelScale。
+ */
 export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
-  const draw = (beat: number, color: string, label: string) => {
+  const labelScale = rc.display?.labelScale ?? 1;
+  const draw = (beat: number, lineColor: string, textColor: string, label: string) => {
     const canvasY = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
-    if (canvasY < -20 || canvasY > rc.surface.h + 20) return;
+    if (canvasY < -24 || canvasY > rc.surface.h + 24) return;
+    const { trackStartX, totalTrackWidth } = c.trackGeometry(rc.viewport.scale);
     ctx.save();
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = lineColor;
     ctx.lineWidth = 2 * rc.viewport.scale;
     ctx.setLineDash([6 * rc.viewport.scale, 5 * rc.viewport.scale]);
     ctx.globalAlpha = 0.9;
     ctx.beginPath();
     ctx.moveTo(0, canvasY);
+    ctx.lineTo(trackStartX, canvasY);
+    ctx.moveTo(trackStartX + totalTrackWidth, canvasY);
     ctx.lineTo(rc.surface.w, canvasY);
     ctx.stroke();
-    ctx.setLineDash([]);
-    // 左侧小标签
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.95;
-    ctx.font = `${11 * rc.viewport.scale}px sans-serif`;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.fillText(label, 4, canvasY);
     ctx.restore();
+    const layout = clampGutterLabelY(
+      layoutGutterLabel(c, rc.viewport.scale, canvasY, 'centered', 'bound', labelScale),
+      rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
+    );
+    drawGutterLabel(ctx, layout, label, textColor);
   };
-  draw(0, '#7c9cff', '起始');
-  draw(rc.chartEndBeat, '#ff9c7c', '结束');
+  draw(0, START_LINE_COLOR, START_TEXT_COLOR, 'START');
+  draw(rc.chartEndBeat, END_LINE_COLOR, END_TEXT_COLOR, 'END');
+}
+
+/** 实时显示线线色（issue 54：中性白半透明细线，不占用主题色——主题色留给常显装饰） */
+const HOVER_LINE_COLOR = 'rgba(240, 244, 248, 0.55)';
+/** 实时信息文字（issue 54 + 第二轮 Q1=A）：基准 11px（比常显标线 14px 小一档）× labelScale、
+ *  等宽（数值变化不跳动）、中性白半透明——"临时读数 ≠ 常显装饰" */
+const HOVER_INFO_FONT_PX = 16.5;
+const HOVER_INFO_FONT = (labelScale: number) => `${HOVER_INFO_FONT_PX * labelScale}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+const HOVER_INFO_COLOR = 'rgba(232, 238, 244, 0.65)';
+const HOVER_INFO_GAP_PX = 8;
+
+/**
+ * 实时显示线（issue 54）：鼠标所在位置的水平线，**只在轨道宽度内绘制**（沟槽不画），
+ * 由 renderChart 编排在音符层之下。连续跟随鼠标 Y（不吸附网格）。
+ */
+export function renderHoverLine(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  if (!rc.hoverPos) return;
+  const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
+  ctx.save();
+  ctx.strokeStyle = HOVER_LINE_COLOR;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(trackBgX, rc.hoverPos.cy);
+  ctx.lineTo(trackBgX + trackBgWidth, rc.hoverPos.cy);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * 实时显示线两侧沟槽信息（issue 54）：左 = 分内时间 `SS.ss`（00.00–59.99 循环），
+ * 右 = 已过音符数 `♪ N`（与判定线计数同口径 countNotesUpToBeat：含恰好在线上的音符、
+ * 滑条算 1 条、BPM/System 不计）。由 renderChart 编排在常显装饰文字（BPM 数值/START/END）
+ * **之上**——临时浮动信息优先于常显装饰。
+ */
+export function renderHoverInfo(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  if (!rc.hoverPos) return;
+  const { trackStartX, totalTrackWidth } = c.trackGeometry(rc.viewport.scale);
+  const labelScale = rc.display?.labelScale ?? 1;
+  const beat = c.virtualYToBeat(c.canvasToVirtual(rc.hoverPos.cx, rc.hoverPos.cy).y);
+  const seconds = beatToSeconds(getBpmEvents(rc.notes), beat);
+  const count = countNotesUpToBeat(rc.notes, beat);
+  ctx.save();
+  ctx.font = HOVER_INFO_FONT(labelScale);
+  ctx.fillStyle = HOVER_INFO_COLOR;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'right';
+  ctx.fillText(formatInMinuteTime(seconds), trackStartX - HOVER_INFO_GAP_PX, rc.hoverPos.cy);
+  // 右侧锚轨道**右外缘**（含外框 chrome）——锚内容右缘会陷进边条内（用户反馈：向右偏移）
+  ctx.textAlign = 'left';
+  ctx.fillText(`♪ ${count}`, trackStartX + totalTrackWidth + HOVER_INFO_GAP_PX, rc.hoverPos.cy);
+  ctx.restore();
 }
 
 /**
@@ -803,15 +883,22 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
 
   const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
 
+  // BPM 标线（issue 51 + 用户反馈）：在音符层**之下**（与轨道线同层语义，不覆盖音符）
+  renderBpmLines(ctx, c, rc, c.getVisibleNotes());
+  // 实时显示线（issue 54）：鼠标 Y 水平线，画在音符层之下
+  renderHoverLine(ctx, c, rc);
+
   // 同时点击线（issue 39 #3）：画在音符层之下，音符图标覆盖其中点连线
   if (rc.display?.simultaneousClickLines) {
     renderSimultaneousClickLines(ctx, c, rc, c.getVisibleNotes());
   }
   // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片，不逐音符重绘
   drawNotesLayer(ctx, rc);
-  // BPM 标注基于可见集（二分剔除，O(log n + 可见数)）
+  // BPM 数值（issue 51）：沟槽层，基于可见集（二分剔除，O(log n + 可见数)）
   const visibleNotes = c.getVisibleNotes();
-  renderBpmNumbers(ctx, c, rc, visibleNotes);
+  renderBpmLabels(ctx, c, rc, visibleNotes);
+  // 实时信息文字（issue 54）：两侧沟槽，画在常显装饰文字之上
+  renderHoverInfo(ctx, c, rc);
 
   if (rc.selectionBox) renderSelectionBox(ctx, rc);
   renderSlideBuffer(ctx, c, rc);

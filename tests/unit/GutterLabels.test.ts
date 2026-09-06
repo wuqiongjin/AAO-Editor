@@ -1,0 +1,138 @@
+import { describe, it, expect } from 'vitest';
+import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
+import { makeCoords } from '../../src/visual/coords';
+import { renderBpmLabels } from '../../src/visual/render';
+import {
+  layoutGutterLabel,
+  clampGutterLabelY,
+  drawGutterLabel,
+  boundLabelGapPx,
+  BPM_LABEL_GAP_PX,
+  GUTTER_LABEL_FONT_PX,
+  GUTTER_LABEL_LINE_GAP_PX,
+} from '../../src/visual/gutterLabels';
+import { makeRecordingCtx, propValues, fillTexts } from './testHelpers';
+
+const bpm120 = [{ beat: 0, bpm: 120 }];
+const TEST_SURFACE = { w: 750, h: 900 };
+
+function makeCoordsAt(scale: number) {
+  const geometry = new ChartGeometry(bpm120, 40, TEST_SURFACE);
+  const viewport = { scrollX: 0, scrollY: 0, scale };
+  return { c: makeCoords(geometry, viewport, 4, []), geometry, viewport };
+}
+
+describe('layoutGutterLabel 外侧装饰文字锚定（issue 51 第二轮）', () => {
+  it('BPM 内带 8px；START/END 外带动态间距（随 labelScale 放大，恒让出内带文字盒）', () => {
+    const { c } = makeCoordsAt(1);
+    const { trackStartX } = c.trackGeometry(1);
+    expect(layoutGutterLabel(c, 1, 300, 'centered', 'bpm').x).toBe(trackStartX - BPM_LABEL_GAP_PX);
+    for (const labelScale of [1, 1.5, 3]) {
+      const boundGap = boundLabelGapPx(labelScale);
+      // 外带间距 = 内带 8px + BPM 文字盒（≤3 位数字 × 基准 × scale）+ 8px 间隔 → 恒不重叠
+      expect(boundGap).toBeGreaterThanOrEqual(BPM_LABEL_GAP_PX + GUTTER_LABEL_FONT_PX * labelScale * 2 + 8);
+      expect(layoutGutterLabel(c, 1, 300, 'above', 'bound', labelScale).x).toBe(trackStartX - boundGap);
+    }
+    expect(boundLabelGapPx(1.5)).toBeGreaterThan(boundLabelGapPx(1)); // 随字号系数放大
+  });
+
+  it('字号 = 21px 基准（原 150% 观感）× labelScale，跨 scale 恒定', () => {
+    const { c } = makeCoordsAt(2.5);
+    expect(layoutGutterLabel(c, 2.5, 300, 'centered', 'bpm').font).toContain('21px');
+    expect(layoutGutterLabel(c, 1, 300, 'centered', 'bpm', 1.5).font).toContain('32px');
+    const fonts = new Set([1, 2.5].map((scale) => layoutGutterLabel(c, scale, 300, 'centered', 'bpm').font));
+    expect(fonts.size).toBe(1); // 与 scale 无关
+  });
+
+  it('纵向定位：centered 居中于线；above/below 文字盒贴线（间距 0，与 BPM 数值骑线观感一致）', () => {
+    const { c } = makeCoordsAt(1);
+    const lineY = 456;
+    expect(layoutGutterLabel(c, 1, lineY, 'centered', 'bpm').y).toBe(lineY);
+    expect(layoutGutterLabel(c, 1, lineY, 'above', 'bound').y).toBe(lineY - GUTTER_LABEL_LINE_GAP_PX);
+    expect(layoutGutterLabel(c, 1, lineY, 'below', 'bound').y).toBe(lineY + GUTTER_LABEL_LINE_GAP_PX);
+    expect(GUTTER_LABEL_LINE_GAP_PX).toBe(0);
+    expect(layoutGutterLabel(c, 1, lineY, 'above', 'bound').textBaseline).toBe('alphabetic'); // 墨迹底压线
+    expect(layoutGutterLabel(c, 1, lineY, 'below', 'bound').textBaseline).toBe('top');
+  });
+
+  it('间距恒定：不同 scale 下 x 与 trackStartX 的差不变（锚定不随缩放变化）', () => {
+    const gapAt = (scale: number, band: 'bpm' | 'bound') => {
+      const { c } = makeCoordsAt(scale);
+      return c.trackGeometry(scale).trackStartX - layoutGutterLabel(c, scale, 0, 'centered', band).x;
+    };
+    for (const band of ['bpm', 'bound'] as const) {
+      expect(gapAt(0.5, band)).toBe(gapAt(1, band));
+      expect(gapAt(2.5, band)).toBe(gapAt(1, band));
+    }
+  });
+});
+
+describe('clampGutterLabelY / drawGutterLabel（issue 51：文字都在谱面范围内）', () => {
+  it('钳制：middle/bottom/top 基线各自保持文字盒完整可见', () => {
+    const { c } = makeCoordsAt(1);
+    const fontPx = GUTTER_LABEL_FONT_PX;
+    expect(clampGutterLabelY(layoutGutterLabel(c, 1, 2, 'centered', 'bpm'), 900, fontPx).y).toBe(fontPx / 2);
+    expect(clampGutterLabelY(layoutGutterLabel(c, 1, 898, 'centered', 'bpm'), 900, fontPx).y).toBe(900 - fontPx / 2);
+    expect(clampGutterLabelY(layoutGutterLabel(c, 1, 2, 'above', 'bound'), 900, fontPx).y).toBe(fontPx);
+    expect(clampGutterLabelY(layoutGutterLabel(c, 1, 898, 'below', 'bound'), 900, fontPx).y).toBe(900 - fontPx);
+  });
+
+  it('沟槽宽度不足时整体隐藏（优雅降级）', () => {
+    const { c } = makeCoordsAt(1);
+    const layout = layoutGutterLabel(c, 1, 400, 'centered', 'bound'); // x = trackStartX − 40
+    // 模拟超宽文字：measureText 恒返回 10000 → 文字盒左缘越出画布 → 不绘制
+    const wideCalls: [string, unknown[]][] = [];
+    const wideCtx = new Proxy({}, {
+      get(_t, prop) {
+        if (prop === 'measureText') return () => ({ width: 10000 });
+        return (...args: unknown[]) => { wideCalls.push([String(prop), args]); };
+      },
+      set(_t, prop, value) { wideCalls.push([String(prop), [value]]); return true; },
+    }) as unknown as CanvasRenderingContext2D;
+    expect(drawGutterLabel(wideCtx, layout, 'START', '#fff')).toBe(false);
+    expect(wideCalls.filter(([k]) => k === 'fillText').length).toBe(0);
+
+    // 正常宽度：绘制
+    const { proxy, calls } = makeRecordingCtx();
+    (proxy as unknown as { measureText: () => { width: number } }).measureText = () => ({ width: 30 });
+    expect(drawGutterLabel(proxy, layout, 'START', '#fff')).toBe(true);
+    expect(fillTexts(calls).length).toBe(1);
+    expect(propValues(calls, 'font').length).toBeGreaterThan(0);
+  });
+});
+
+describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () => {
+  function renderBpmAt(scrollY: number, beat = 0) {
+    const bpmNote = { type: 'BPM', beat, bpm: 120 } as never;
+    const geometry = new ChartGeometry(bpm120, 8, TEST_SURFACE);
+    const viewport = { scrollX: 0, scrollY, scale: 1 };
+    const c = makeCoords(geometry, viewport, 4, [bpmNote]);
+    const rc = {
+      geometry, viewport, surface: TEST_SURFACE, chartEndBeat: 8, beatDisplay: 4,
+      notes: [bpmNote], display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1 },
+    } as unknown as import('../../src/visual/types').RenderCtx;
+    const { proxy, calls } = makeRecordingCtx();
+    renderBpmLabels(proxy, c, rc, [{ note: bpmNote, index: 0 }]);
+    return calls;
+  }
+
+  it('远离端点的 BPM 数值垂直居中于线、内带锚定', () => {
+    // 中段 BPM（beat 4）：scrollY=1380 时线在 y=400
+    const calls = renderBpmAt(1380, 4);
+    const fills = fillTexts(calls);
+    expect(fills.length).toBe(1);
+    const [text, , y] = fills[0][1];
+    expect(text).toBe('120');
+    expect(y).toBe(400);
+    expect(propValues(calls, 'textBaseline')).toContain('middle');
+  });
+
+  it('起始线贴底边（scrollY=chartEnd）：数值钳制在画布内（不再堆叠/裁剪）', () => {
+    const geometry = new ChartGeometry(bpm120, 8, TEST_SURFACE);
+    const calls = renderBpmAt(geometry.chartEndVirtualY);
+    const fills = fillTexts(calls);
+    expect(fills.length).toBe(1);
+    const y = fills[0][1][2];
+    expect(y).toBeLessThanOrEqual(TEST_SURFACE.h - GUTTER_LABEL_FONT_PX / 2);
+  });
+});

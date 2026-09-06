@@ -10,6 +10,7 @@ import type { ChartNote } from '../../src/chart/types';
 const bpm120 = [{ beat: 0, bpm: 120 }];
 // issue 50：测试用默认 surface（旧 DEFAULT_SURFACE 值）；新构造函数 surface 必传
 const TEST_SURFACE = { w: 750, h: 900 };
+const TEST_SURFACE_W_NARROW = 200;
 const surface = (over: Partial<{ w: number; h: number }> = {}) => ({ w: over.w ?? TEST_SURFACE.w, h: over.h ?? TEST_SURFACE.h });
 
 describe('trackGeometry', () => {
@@ -102,9 +103,20 @@ describe('effectiveScale 缩放钳制（ADR-0006 Q4=A）', () => {
     // 轨道完全容纳于渲染面宽内
     expect(trackStartX).toBeGreaterThanOrEqual(0);
     expect(trackStartX + totalTrackWidth).toBeLessThanOrEqual(g.surface.w);
-    // 等比钳制：effectiveScale = fitWidth = (200-12)/210
-    expect(es).toBeCloseTo((200 - TRACK_CHROME_TOTAL * 2) / (LANES * LANE_WIDTH), 6);
+    // 等比钳制：effectiveScale = fitWidth = 200 / (210 + 18)（外框 chrome 随缩放，分母含 chrome）
+    expect(es).toBeCloseTo(TEST_SURFACE_W_NARROW / (LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL), 6);
     expect(trackBgWidth).toBeCloseTo(LANES * LANE_WIDTH * es, 6);
+  });
+
+  it('外框 chrome 随缩放缩放：预留与边条绘制一致（issue 51 修订，沟槽文字距离恒定的前提）', () => {
+    const g = new ChartGeometry(bpm120, 8, surface());
+    for (const es of [0.5, 1, 2.5]) {
+      const { trackStartX, trackBgX, totalTrackWidth } = g.trackGeometry(es);
+      expect(trackBgX - trackStartX).toBeCloseTo(TRACK_CHROME_TOTAL * es, 6);
+      expect(totalTrackWidth).toBeCloseTo((LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL) * es, 6);
+      // 居中对称：左右沟槽等宽
+      expect(trackStartX).toBeCloseTo((TEST_SURFACE.w - totalTrackWidth) / 2, 6);
+    }
   });
 });
 

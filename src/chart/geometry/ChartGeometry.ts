@@ -69,24 +69,27 @@ export class ChartGeometry {
     this.chartEndVirtualY = this.timeline.positionOfBeat(chartEndBeat);
   }
 
-  /**
-   * 实际生效缩放（ADR-0006 §1 Q4=A）：用户 zoom 与"轨道不超出画布宽"的钳制取小。
-   * 保证 7 轨水平居中时始终完整可见、不变形；渲染面过窄时自动收缩。
-   */
-  effectiveScale(scale: number): number {
-    const fitWidth = (this.surface.w - TRACK_CHROME_TOTAL * 2) / (LANES * LANE_WIDTH);
-    return Math.max(MIN_SCALE, Math.min(scale, fitWidth));
-  }
+/**
+ * 实际生效缩放（ADR-0006 §1 Q4=A）：用户 zoom 与"轨道不超出画布宽"的钳制取小。
+ * 保证 7 轨水平居中时始终完整可见、不变形；渲染面过窄时自动收缩。
+ * 外框 chrome 随缩放缩放（issue 51 修订：与 renderGrid 的边条绘制一致），fitWidth 分母含 chrome。
+ */
+effectiveScale(scale: number): number {
+  const fitWidth = this.surface.w / (LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL);
+  return Math.max(MIN_SCALE, Math.min(scale, fitWidth));
+}
 
-  /** 轨道水平居中几何（唯一实现；trackBgX = 轨道内容左缘 = 虚拟X原点，见 issue 11） */
-  trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; trackBgX: number; trackBgWidth: number } {
-    const es = this.effectiveScale(scale);
-    const totalTrackWidth = LANES * LANE_WIDTH * es + TRACK_CHROME_TOTAL * 2;
-    const trackStartX = (this.surface.w - totalTrackWidth) / 2;
-    const trackBgX = trackStartX + TRACK_CHROME_TOTAL;
-    const trackBgWidth = LANES * LANE_WIDTH * es;
-    return { totalTrackWidth, trackStartX, trackBgX, trackBgWidth };
-  }
+/** 轨道水平居中几何（唯一实现；trackBgX = 轨道内容左缘 = 虚拟X原点，见 issue 11）。
+ *  外框 chrome 随缩放缩放（issue 51 修订）：预留（本函数）与 renderGrid 边条绘制（×es）一致，
+ *  否则高倍下边条越过 trackStartX 侵入左沟槽、轨道整体偏心 (9es−9)/2 px。 */
+trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; trackBgX: number; trackBgWidth: number } {
+  const es = this.effectiveScale(scale);
+  const totalTrackWidth = (LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL) * es;
+  const trackStartX = (this.surface.w - totalTrackWidth) / 2;
+  const trackBgX = trackStartX + TRACK_CHROME_TOTAL * es;
+  const trackBgWidth = LANES * LANE_WIDTH * es;
+  return { totalTrackWidth, trackStartX, trackBgX, trackBgWidth };
+}
 
   /** 缩放时的虚拟边界（ADR-0004 §3：总高随谱面末端自适应，滚动到顶时末端正好落在判定线；判定线=渲染面底边） */
   scaledVirtualBounds(scale: number): GeometryBounds {

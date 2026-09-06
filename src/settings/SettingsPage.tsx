@@ -21,6 +21,13 @@ const QUALITY_OPTIONS: Array<{ value: AppSettings['display']['imageQuality']; la
   { value: 'hd', label: '高清' },
 ];
 
+const GRID_STYLE_OPTIONS: Array<{ value: AppSettings['display']['gridStyle']; label: string }> = [
+  { value: 'mono', label: '灰阶' },
+  { value: 'amber', label: '琥珀' },
+  { value: 'cyan', label: '青蓝' },
+  { value: 'vivid', label: '多彩' },
+];
+
 /** 行内滑块行：百分比参数（值以比例存储，UI 以 % 显示） */
 function PercentSliderRow({
   label, hint, value, min, max, step, onChange,
@@ -223,6 +230,37 @@ export default function SettingsPage() {
                   ))}
                 </select>
               </div>
+              <div className="settings-row">
+                <div className="settings-row__text">
+                  <strong>轨道颜色</strong>
+                  <span>网格线层级配色：整拍最亮眼，逐级变暗（黑底上保持可辨）</span>
+                </div>
+                <select
+                  className="select-control"
+                  value={settings.display.gridStyle}
+                  onChange={(e) => setDisplay({ gridStyle: e.target.value as AppSettings['display']['gridStyle'] })}
+                  aria-label="轨道颜色"
+                >
+                  {GRID_STYLE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <ToggleRow
+                label="线形分层" hint="开启后按层级叠加线形（整拍实线、1/2 长虚线、1/4 短虚线、更细为点线）；关闭时整拍实线、非整拍短虚线"
+                checked={settings.display.lineShapeTiers}
+                onChange={(v) => setDisplay({ lineShapeTiers: v })}
+              />
+              <PercentSliderRow
+                label="轨道线透明度" hint="网格线（节拍线/子节拍线）的整体不透明度"
+                value={settings.display.gridOpacity} min={10} max={100} step={10}
+                onChange={(v) => setDisplay({ gridOpacity: v })}
+              />
+              <PercentSliderRow
+                label="文字大小" hint="谱面标线文字（BPM 数值 / START / END）与实时读数的缩放"
+                value={settings.display.labelScale} min={50} max={300} step={10}
+                onChange={(v) => setDisplay({ labelScale: v })}
+              />
               <ResetRow
                 label="恢复默认" hint="将本组（画布显示）全部参数恢复为出厂默认，不影响其它设置"
                 confirming={resetConfirm === 'canvas'}
