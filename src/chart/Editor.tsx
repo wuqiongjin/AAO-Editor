@@ -83,7 +83,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const surface = useSurfaceSize(chartAreaRef);
 
   // === 会话流 2：滚动模型（候选 1 拆出；候选 2 再做生命周期封装） ===
-  const { scrollModel, consumePendingReAnchor } = useScrollModel({
+  const { scrollModel, chartEndKey, consumePendingReAnchor } = useScrollModel({
     notes, ctxDuration, surface, scale, verticalRatio: settings.display.verticalRatio,
   });
 
@@ -174,7 +174,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   }, [notes, beatDisplay, engine, playbackCoord.isPlaying]);
 
   // 画布 onScrollChange：写虚拟高度 + 喂滚动模型做锚点观察（SKIP 保护由模型内处理）
+  // lastCanvasScrollYRef：画布侧最新 scrollY，供 virtualHeight 落地后重写滚动条比例位（见下方 effect）
+  const lastCanvasScrollYRef = useRef(0);
   const handleVirtualScrollChange = useCallback((scrollY: number, height: number) => {
+    lastCanvasScrollYRef.current = scrollY;
     setVirtualHeight(height);
     scrollModel.noteScrollObserved(scrollY);
   }, [scrollModel]);
@@ -191,11 +194,24 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       scrollContainer.scrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
       initialScrollDone.current = true;
       scrollModel.markInitialized();
+    } else {
+      // 缩放（Ctrl+滚轮/工具栏）/谱长/渲染面变化都会改变 scrollHeight：旧 scrollTop 与新滚动范围
+      // 不再对应同一谱面位置——若越界，浏览器会钳制 scrollTop 并触发 scroll 事件，把画布 scrollY
+      // 拉回端点（"起始线/首拍 BPM 线缩放漂移后回弹"的次生通路）。这里在高度落地后按画布 scrollY
+      // 重写滚动条比例位（与播放 RAF 同款 0.5px 守卫）；滚动条来源的滚动不经过此分支（高度不变）。
+      const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+      const targetScrollTop = scrollModel.canvasScrollYToScrollTop(lastCanvasScrollYRef.current, maxScroll);
+      if (Math.abs(targetScrollTop - scrollContainer.scrollTop) > 0.5) {
+        scrollContainer.scrollTop = targetScrollTop;
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtualHeight]);
 
-  // virtualHeight 就绪后消费待重锚项（候选 1 不变量：谱面末端变化后按秒重锚，判定线处秒数稳定）
+  // virtualHeight 就绪后消费待重锚项（候选 1 不变量：谱面末端变化后按秒重锚，判定线处秒数稳定）。
+  // 依赖须含 chartEndKey：仅宽度类 surface 变化（不改 virtualHeight）也会置位待重锚，若只在
+  // virtualHeight 变化时消费，标记会潜伏到下一次缩放才发作，把鼠标锚定的视图强拉回锚点秒
+  //（宽度-only 变化时重锚为恒等操作，此处消费是无害 no-op）。
   useEffect(() => {
     const canvas = virtualCanvasRef.current;
     const container = chartAreaRef.current;
@@ -206,7 +222,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     canvas.setScrollY(target.scrollY);
     container.scrollTop = target.scrollTop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [virtualHeight]);
+  }, [virtualHeight, chartEndKey]);
 
   // 滚动条 onScroll：唯一滚动来源；播放中锁定避免双向反馈自锁（ADR-0004 §1 修订）
   const handleScrollbarChange = (e: React.UIEvent<HTMLDivElement>) => {
@@ -295,7 +311,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     }, [leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]),
   });
 
-  // Editor 不消费 dismissError / chartEndKey（前者音频页已直接调 session；后者仅供 useScrollModel 内部用）
+  // Editor 不消费 dismissError（音频页已直接调 session）；chartEndKey 已用于重锚 effect 依赖
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>

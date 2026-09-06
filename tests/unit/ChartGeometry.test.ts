@@ -131,3 +131,54 @@ describe('visibleNotes 视口剔除', () => {
       expect(visible.map(beatOf)).toEqual([50]);
     });
 });
+
+describe('zoomAnchorScrollY 缩放锚定（起始线/首拍 BPM 线漂移修复）', () => {
+  const g = new ChartGeometry(bpm120, 40, surface());
+  const chartEndY = g.chartEndVirtualY;
+
+  // 与渲染同一套画布 Y 公式：canvasY(beat) = (beatToVirtualY(beat, es) − scrollY) · es
+  const canvasYOfBeat = (beat: number, scrollY: number, es: number) =>
+    (g.beatToVirtualY(beat, es) - scrollY) * es;
+
+  it('放大/缩小后鼠标下的拍点画布位置不变（锚定不变量，pos 空间）', () => {
+    const mouseCanvasY = TEST_SURFACE.h / 2;
+    for (const es1 of [0.5, 1, 1.5]) {
+      // 取滚动范围中段，避免端点钳制介入
+      const scrollY = chartEndY / 2;
+      const beatUnderMouse = g.virtualYToBeat(scrollY + mouseCanvasY / es1, es1);
+      for (const k of [1.1, 0.9, 1.5, 1 / 1.5]) {
+        const newScrollY = g.zoomAnchorScrollY(mouseCanvasY, es1, scrollY, es1 * k);
+        expect(canvasYOfBeat(beatUnderMouse, newScrollY, es1 * k)).toBeCloseTo(mouseCanvasY, 6);
+      }
+    }
+  });
+
+  it('scale 不变的缩放请求返回原 scrollY', () => {
+    const scrollY = chartEndY / 2;
+    expect(g.zoomAnchorScrollY(400, 1, scrollY, 1)).toBeCloseTo(scrollY, 6);
+  });
+
+  it('谱面起点放大不越界（回归：旧数学 scrollY 超过 chartEndVirtualY 后被钳制拉回）', () => {
+    // 滚到谱面最底端（判定线处 beat 0，起始线/首拍 BPM 线所在），鼠标在画布中部放大
+    const mouseCanvasY = TEST_SURFACE.h / 2;
+    const newScrollY = g.zoomAnchorScrollY(mouseCanvasY, 1, chartEndY, 1.1);
+    expect(newScrollY).toBeLessThanOrEqual(chartEndY);
+    expect(newScrollY).toBeGreaterThanOrEqual(0);
+    // 锚定未被钳制破坏：鼠标下的拍点仍留在原画布位置
+    const beatUnderMouse = g.virtualYToBeat(chartEndY + mouseCanvasY, 1);
+    expect(canvasYOfBeat(beatUnderMouse, newScrollY, 1.1)).toBeCloseTo(mouseCanvasY, 6);
+  });
+
+  it('端点钳制：谱面起点缩小钉在起点（起始线不越出判定线），谱面末端放大钉在末端', () => {
+    const mouseCanvasY = TEST_SURFACE.h / 2;
+    // 起点缩小：raw scrollY > chartEndVirtualY → 钳回，起始线保持贴判定线
+    expect(g.zoomAnchorScrollY(mouseCanvasY, 1, chartEndY, 0.9)).toBe(chartEndY);
+    // 末端放大：raw scrollY < 0 → 钳回 0，结束线保持可见
+    expect(g.zoomAnchorScrollY(mouseCanvasY, 1, 0, 1.1)).toBe(0);
+  });
+
+  it('鼠标正压在起始线上放大：起始线原地不动（m=h 时锚点退化为端点钉住）', () => {
+    const newScrollY = g.zoomAnchorScrollY(TEST_SURFACE.h, 1, chartEndY, 1.1);
+    expect(canvasYOfBeat(0, newScrollY, 1.1)).toBeCloseTo(TEST_SURFACE.h, 6);
+  });
+});
