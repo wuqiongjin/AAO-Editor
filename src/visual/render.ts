@@ -208,6 +208,17 @@ function renderDirGroup(ctx: CanvasRenderingContext2D, rc: RenderCtx, group: Dir
 }
 
 /**
+ * 色觉辅助（issue 39 #4）半拍判断：音符精确拍位 pos = beat + subBeat/beatDisplay
+ * （与 getNoteVirtualY 同一折算口径）是否落在 0.5 拍整数倍上。
+ * 实拍（普通）款式 = 半拍整数倍；其余细分（如 1/4 拍的 0.25 偏移）→ 虚拍款式。
+ * beatDisplay 含 3/6/12 等非 2 幂网格（1/3 拍二进制不可精确表示），故用容差判整。
+ */
+export function isHalfBeatAligned(beat: number, subBeat: number, beatDisplay: number): boolean {
+  const pos = beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
+  return Math.abs(pos * 2 - Math.round(pos * 2)) < 1e-9;
+}
+
+/**
  * 绘制音符（第一层：主体；第二层：装饰器）。
  * issue 35 F1：opts.skipSelection=true 供离屏瓦片渲染（瓦片不含选中态，选中高亮由主画布叠加层绘制，
  * 选择变化不再使瓦片缓存失效）。
@@ -236,6 +247,8 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       let iconConfig = icons.tapFor(note.lane);
       if (note.flick) iconConfig = icons.flickFor(note.lane);
       else if (note.skill) iconConfig = icons.skillFor(note.lane);
+      // 色觉辅助（issue 39 #4）：开启后非半拍整数倍位置的普通 tap 用虚拍款式（flick/skill 不受影响）
+      else if (rc.display?.colorAssist && !isHalfBeatAligned(note.beat, subBeat, rc.beatDisplay)) iconConfig = icons.tapVirtualFor(note.lane);
       rc.spriteIcon.render(ctx, {
         ...iconConfig,
         canvasX: canvasPos.x, canvasY: canvasPos.y,
@@ -548,6 +561,8 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     let icon = icons.tapFor(note.lane);
     if (note.flick) icon = icons.flickFor(note.lane);
     else if (note.skill) icon = icons.skillFor(note.lane);
+    // 色觉辅助（issue 39 #4）：与 renderNotes 同口径，幽灵预览同步显示虚拍款
+    else if (rc.display?.colorAssist && !isHalfBeatAligned(note.beat, note.subBeat || 0, rc.beatDisplay)) icon = icons.tapVirtualFor(note.lane);
     renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE);
   } else if (note.type === "LDirectional" || note.type === "RDirectional") {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));

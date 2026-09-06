@@ -93,6 +93,8 @@ export interface RenderDisplayOptions {
   slideOpacity: number;
   /** 同时点击线开关：同节拍音符连接线（#3） */
   simultaneousClickLines: boolean;
+  /** 色觉辅助开关（#4）：开启后半拍整数倍位置之外的普通 tap 换虚拍款式（仅 Single 主体，不影响 flick/skill） */
+  colorAssist?: boolean;
   /** 轨道样式预设（issue 53，第二轮改为颜色主题 灰阶/琥珀/青蓝/多彩）；缺省/非法由渲染器回退 mono */
   gridStyle?: GridStylePreset;
   /** 线形分层开关（issue 53 第二轮 Q3=A，默认关）：开启后按层级叠加虚线形态阶梯 */

@@ -3,7 +3,7 @@
 // - 从 docs/resource/bestdori 归档（gitignore，仅研究用）把**选定**皮肤包的 PNG 拷入
 //   `public/assets/skins/<packId>/`（产物入库，离线零配置）；
 // - 解析包内 `.sprites`（Unity 序列化 JSON，含每张精灵的官方 m_Name/m_Rect），
-//   生成 `src/renderer/noteSkinRegistry.gen.ts`（入库，运行时唯一皮肤数据源）；
+//   生成 `src/visual/gen/noteSkinRegistry.gen.ts`（入库，运行时唯一皮肤数据源）；
 // - 归档目录本身不进 git、不进运行时，版权边界（docs/resource/bestdori/README.md）不破。
 //
 // 用法：
@@ -25,7 +25,7 @@ const CHECK_ONLY = process.argv.includes('--check');
 const ARCHIVE_ROOT = 'docs/resource/bestdori';
 const SERVER = 'jp';
 const PUBLIC_ROOT = 'public/assets/skins';
-const REGISTRY_OUT = 'src/renderer/noteSkinRegistry.gen.ts';
+const REGISTRY_OUT = 'src/visual/gen/noteSkinRegistry.gen.ts';
 const OVERRIDES_FILE = 'scripts/note-skin-overrides.json';
 
 // ---- 内置清单（issue 29 2026-08-24 grill 定案 Q5：先 skin00 + directionalflickskin00 打通管线，
@@ -221,10 +221,25 @@ function buildNotePack(spec, overrides) {
     return arr;
   };
 
+  /** 可选款式的逐轨道提取：缺精灵不报错（该 lane 为 null，渲染侧回退普通款） */
+  const perLaneOptional = (prefix) => {
+    const arr = [];
+    for (let lane = 0; lane < LANES; lane++) {
+      const r = sprites.get(`${prefix}_${lane}`);
+      if (!r) { arr.push(null); continue; }
+      rectInAtlas(r, atlas, `${spec.id} ${prefix}_${lane}`);
+      arr.push(r);
+    }
+    return arr;
+  };
+
   const tap = perLane('note_normal');
   const flick = perLane('note_flick');
   const skill = perLane('note_skill');
   const long = perLane('note_long');
+  // 虚拍款（issue 39 #4 色觉辅助）：note_normal_16_<lane>，非半拍整数倍位置的 tap 款式
+  const tapVirtual = perLaneOptional('note_normal_16');
+  if (tapVirtual.every((r) => !r)) fail(`${spec.id}: 缺 note_normal_16_<lane>（虚拍款，色觉辅助需要）`);
   const slideAmong = sprites.get('note_slide_among') ?? null;
   const flickTop = sprites.get('note_flick_top') ?? null;
   if (!slideAmong) fail(`${spec.id}: 缺 note_slide_among（滑条中间结点）`);
@@ -251,7 +266,7 @@ function buildNotePack(spec, overrides) {
     atlas: `./assets/skins/${spec.id}/RhythmGameSprites.png`,
     atlasW: atlas.w,
     atlasH: atlas.h,
-    tap, flick, skill, long,
+    tap, tapVirtual, flick, skill, long,
     flickTop, slideAmong,
     /** 精灵墨迹边界（源像素缩进，Record<精灵名, ink>），供运行时精确组合箭头/贴边 */
     ink,
@@ -382,6 +397,8 @@ export interface NoteSkinPackNote {
   atlasH: number;
   /** 单键 note_normal_<lane>，下标 = 轨道 0..6 */
   tap: (NoteSkinRect | null)[];
+  /** 虚拍款 note_normal_16_<lane>（issue 39 #4 色觉辅助：非半拍整数倍位置的 tap 款式；缺该精灵的包为 null，渲染回退普通款） */
+  tapVirtual: (NoteSkinRect | null)[];
   /** 滑键主体 note_flick_<lane>（菱形本体，箭头为独立 flickTop） */
   flick: (NoteSkinRect | null)[];
   /** 技能键 note_skill_<lane> */

@@ -113,6 +113,8 @@ export interface ActiveNoteIcons {
   /** 当前（已归一化）选择，供预览/调试 */
   selection: NoteSkinSelection;
   tapFor(lane: number): SpriteIconConfig;
+  /** 虚拍款式（issue 39 #4 色觉辅助）：非半拍整数倍位置的普通 tap；包缺该精灵时回退普通款 */
+  tapVirtualFor(lane: number): SpriteIconConfig;
   flickFor(lane: number): SpriteIconConfig;
   skillFor(lane: number): SpriteIconConfig;
   /** 方向键第 k 条覆盖轨道的精灵（扁平化：任意轨道同图）；k=0 为锚点轨 */
@@ -169,6 +171,9 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
   };
 
   const tapConfig = flatRect(tapPack, tapPack.tap, 'tap');
+  // 色觉辅助（issue 39 #4）虚拍款：tap 皮肤包的 note_normal_16；缺该精灵（null）时回退普通款（无需区分）
+  const tapVirtualRect = tapPack.tapVirtual[FLAT_LANE];
+  const tapVirtualConfig = tapVirtualRect ? rectToConfig(tapPack.atlas, tapVirtualRect) : tapConfig;
   const flickConfig = flatRect(flickPack, flickPack.flick, 'flick');
   const skillConfig = flatRect(skillPack, skillPack.skill, 'skill');
   const longConfig = flatRect(slidePack, slidePack.long, 'long');
@@ -256,6 +261,7 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
   return {
     selection,
     tapFor: () => tapConfig,
+    tapVirtualFor: () => tapVirtualConfig,
     flickFor: () => flickConfig,
     skillFor: () => skillConfig,
     dirFor: (type) => (type === 'L' ? dirLConfig : dirRConfig),

@@ -37,7 +37,7 @@ export interface AppSettings {
     slideOpacity: number;
     /** 同时点击线开关（同节拍音符连接线），issue 39 #3 */
     simultaneousClickLines: boolean;
-    /** 色觉辅助开关（tap 实/虚拍款式），issue 39 #4 —— 本轮仅存未渲染，虚拍图标待 Issue-41 */
+    /** 色觉辅助开关（tap 实/虚拍款式），issue 39 #4：非半拍整数倍位置的单键渲染为虚拍款（判定见 visual/render.ts isHalfBeatAligned） */
     colorAssist: boolean;
     /** 纵向比例（每小节纵向高度），0.5..2.0，与画布整体缩放正交，issue 39 #5 */
     verticalRatio: number;

@@ -71,6 +71,8 @@ let basis: {
   chartEndBeat: number; beatDisplay: number; dpr: number; skinVersion: number;
   /** issue 39：节奏图示大小 / 长压线不透明度烘进音符瓦片，变化时需全量失效 */
   noteSize: number; slideOpacity: number;
+  /** issue 39 #4：色觉辅助改变 tap 款式（实拍/虚拍位图），变化时需全量失效 */
+  colorAssist: boolean;
   /** issue 39 #5：纵向比例改变 timeline 高度 → pos 空间平移，需全量失效 */
   verticalRatio: number;
 } | null = null;
@@ -289,12 +291,14 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     skinVersion: rc.skinVersion ?? 0,
     noteSize: rc.display?.noteSize ?? 1,
     slideOpacity: rc.display?.slideOpacity ?? 1,
+    colorAssist: rc.display?.colorAssist ?? false,
     verticalRatio: rc.geometry.verticalRatio,
   };
   if (
     !basis || basis.chartEndBeat !== nb.chartEndBeat || basis.beatDisplay !== nb.beatDisplay ||
     basis.dpr !== nb.dpr || basis.skinVersion !== nb.skinVersion ||
     basis.noteSize !== nb.noteSize || basis.slideOpacity !== nb.slideOpacity ||
+    basis.colorAssist !== nb.colorAssist ||
     basis.verticalRatio !== nb.verticalRatio ||
     !bpmEventsEqual(basis.bpmEvents, nb.bpmEvents)
   ) {

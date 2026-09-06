@@ -209,6 +209,11 @@ export default function SettingsPage() {
                 checked={settings.display.simultaneousClickLines}
                 onChange={(v) => setDisplay({ simultaneousClickLines: v })}
               />
+              <ToggleRow
+                label="色觉辅助" hint="非半拍整数倍位置的单键显示为虚拍款式，用形态区分细分节奏（实/虚拍）"
+                checked={settings.display.colorAssist}
+                onChange={(v) => setDisplay({ colorAssist: v })}
+              />
               <PercentSliderRow
                 label="纵向比例" hint="每小节的纵向高度（与整体缩放正交并存）"
                 value={settings.display.verticalRatio} min={50} max={200} step={10}
