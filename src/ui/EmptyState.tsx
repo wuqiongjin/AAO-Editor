@@ -1,18 +1,8 @@
 import type { ComponentType, MouseEvent, ReactNode } from 'react';
 import './ui.css';
 
-// 空态三段式组件（issue 49 阶段 2，2026-08-30 用户拍板）：
-// 替代旧的"灰色提示文字"（如 .empty-result / "未设置"等），按 redesign-skill
-// "Empty states are mini onboarding moments" 给出图标 + 标题 + 描述 + 主操作。
-//
-// 阶段 2 v1 沿用版（subagent v1 已被用户回滚，本版由 v2 重建）：
-//   - 三段式：icon（subtle 色） + title（base 粗体） + description（muted 副文）
-//            + 可选 primaryAction（实底主按钮）/ secondaryAction（描边次按钮）；
-//   - 主按钮复用 ActionBtn 变体（避免再造按钮交互态）；
-//   - padding / icon size 暂用默认值（var(--space-8) 32px / 48px），待用户拍板；
-//   - 所有 children 直通顶部，便于在 description 下追加"次要说明 / 链接 / 图例"。
-//
-// 不假设"空态一定垂直居中"——外层 box 决定（卡片内 / 列表内 / 全页）。
+// 空态三段式组件：icon + title + description + 可选 primary/secondary 操作按钮。
+// 外层 box 决定是否垂直居中（卡片内 / 列表内 / 全页）。
 
 export type EmptyStateAction = {
   label: string;

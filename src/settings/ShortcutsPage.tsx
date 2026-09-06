@@ -164,7 +164,7 @@ export default function ShortcutsPage() {
       />
 
       <AppPageShell.Body mode="fill">
-        {/* 阶段 4（2026-09-01）：app-stagger 让 toolbar / 错误条 / 表格按 40ms 阶梯进入。 */}
+
         <section className="shortcut-surface surface-section app-stagger">
         {/* 删掉 settings-heading（与 page header "快捷键" 重复），改在 toolbar 上加 padding-top 让搜索框与卡片间距与其它页一致 */}
         <div className="shortcut-toolbar">

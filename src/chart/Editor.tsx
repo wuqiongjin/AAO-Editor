@@ -299,13 +299,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
-      {/* 左侧工具栏列（阶段 4 v2 2026-09-01）：
-          - DOM 始终挂载 body + 折叠 toggle，collapsed/expanded 切换由
-            .ws-panel-left.is-collapsed 类驱动，width / opacity / padding 走 CSS 200ms 平滑过渡，
-            避免旧版条件渲染导致的布局瞬变与画布宽度跳变；
-          - 折叠态 body 用 width:0 + opacity:0 收起（display:none 不能 transition）；
-          - 应用导航不再内联（2026-09-05 修切页闪烁）：AppShell 的 .app-nav 常驻，
-            本面板只承载工具栏，避免切页时两套导航互换。 */}
+      {/* 左侧工具栏列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}
       <div
         className={`ws-panel ws-panel-left${leftCollapsed ? ' is-collapsed' : ''}`}
         style={{
@@ -413,9 +407,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         />
       </div>
 
-      {/* 右侧信息面板列（阶段 4 v2 2026-09-01）：
-          DOM 始终挂载 nav rail（可选 toggle strip）+ header + body + footer，collapsed/expanded
-          切换由 .ws-panel-right.is-collapsed 类驱动，width / opacity 走 CSS 200ms 平滑过渡。 */}
+      {/* 右侧信息面板列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}
       <div
         className={`ws-panel ws-panel-right${rightCollapsed ? ' is-collapsed' : ''}`}
         style={{

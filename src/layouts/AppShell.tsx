@@ -4,11 +4,9 @@ import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
 import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
 import './AppShell.css';
 
-// 应用壳（issue 28 + issue 29）：五页注册 + 保活隐藏暂停 + 切页快捷键 + 可折叠导航（默认折叠）。
-// - 五页全部保持挂载（保活），仅激活页可见（CSS display），离开工作台时自动暂停播放。
-// - 工作台（Editor）黑盒接入（Q16）：仅传 active 表面契约（失活时暂停播放并抑制其全局输入）。
-// - 导航列永久常驻（2026-09-05）：所有页共用 .app-nav 一份导航；工作台左面板只含工具栏。
-//   路由层归 src/pages/PageRegistry.tsx：AppShell 不直接 import 各 page 文件。
+// 应用壳：五页注册 + 保活隐藏暂停 + 切页快捷键 + 可折叠导航（默认折叠）。
+// - 导航列常驻，工作台左面板只含工具栏。
+// - 路由层归 src/pages/PageRegistry.tsx。
 
 const NAV_ITEMS: Array<{ id: PageId; label: string; shortcut: string }> = [
   { id: 'workspace', label: '工作台', shortcut: '⇧⌘1' },
@@ -42,10 +40,6 @@ export default function AppShell() {
 
   const navValue = { activePage, setActivePage, navCollapsed, setNavCollapsed };
 
-  // 2026-09-05 修切页闪烁：导航列永久常驻（所有页共用同一份 .app-nav，工作台不再内联渲染第二份）。
-  // 旧方案（workspace 隐藏外层列 + Editor 内联一份 nav）在切页瞬间要互换两套导航——
-  // 外层列 display:none 瞬切 + 新页半透明淡入，左侧导航条会"闪一下"。
-  // 常驻后 grid 列结构在所有页间恒定，切页只有 .app-page 内容区交叉淡入，无布局突变。
   return (
     <AppNavProvider value={navValue}>
       <div className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}`}>

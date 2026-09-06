@@ -1,38 +1,13 @@
-/* 音频页（issue 28 Q15 + issue 29 切片 4 闭环 + 2026-08-26 索引外置 + issue 44 内容壳迁移 +
-   2026-08-30 阶段 2 决策收口）：
-   接入 <AppPageShell>（位于 src/components/layout/AppPageShell.tsx）：
-     - 整体布局交给壳：左侧次级索引（200px Sidebar） + 右侧 Body（max-width 920px 居中）；
-     - 阶段 2：3 段各自独立 surface-section card，不再共用外层 .audio-detail 包装；
-     - 卡片本身：bg + 1px border + radius（不加 box-shadow），靠 border 提供"卡"的视觉分组。 */
+/* 音频页：接入 AppPageShell，3 段独立 surface-section card */
 
-/* ---- 阶段 2 决策（2026-08-30 用户拍板）surface-section 方案 D ----
- *
- * 用户原话："还是以卡片式作为基底吧。现在这种裸外层的不如卡片式的。
- *            但并不是回退到之前那种包装"
- *
- * 当前生效 = 方案 D（v4 后的最终形态）：background + 1px border + radius + 24px padding：
- *   .surface-section {
- *     background: var(--bg-elevated);
- *     border: 1px solid var(--border);
- *     border-radius: var(--radius-md);
- *     padding: var(--space-6);
- *   }
- *   （定义在 AppShell.css；padding 由 v4 上提到 .surface-section 自身，
- *   避免各子类补 padding 的双层/漏层不一致）
- *   - 视觉上比"仅 bg"（方案 A）多一道边界线
- *   - 比"bg + shadow + padding"（方案 B）更克制（无 box-shadow）
- *
- * 历史方案 A/B/C 已弃用，注释保留作决策追溯。 */
+/* surface-section 由 AppShell.css 统一提供卡片式基底（bg + border + 24px padding） */
 
-/* ---- 详情 surface-section：padding 已上提到 .surface-section（24px），
-   这里只留 min-height 避免双层 padding 不一致 ---- */
 .audio-detail {
   min-height: min-content;
 }
 
 /* ---- 谱面时长内联行（嵌入"音频素材" section 内） ---- */
-/* 任务 3（2026-08-30）：.audio-duration-row 去掉 border + bg-inset，只留 padding + 顶部细线。
-   已在 surface-section 卡内，"分组"靠顶部细线表达，不做"卡"的视觉重量。 */
+/* 顶部细线做分组分隔 */
 .audio-duration-row {
   display: flex;
   align-items: center;
@@ -69,9 +44,6 @@
   margin-top: 2px;
 }
 
-/* ---- 键音素材包 2 列网格（2026-08-30 用户拍板改 2 列更扁平拉伸宽度） ---- */
-/* 决策追溯：原 3 列（grill 2026-08-26 拍板）每张卡太窄、5 个标签放不下要 3 行；
-   现改 2 列后每张卡更宽，标签单行可放下，整体高度从 3 行降到 1 行。 */
 .asset-set-grid.asset-set-grid-3 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

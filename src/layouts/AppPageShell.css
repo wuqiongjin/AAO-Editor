@@ -1,25 +1,8 @@
 /* ============================================================
- * 应用页面壳 / 内容壳（ADR-0007，第四轮流体几何）
- * 4 个非工作台页（音频 / 素材 / 快捷键 / 设置）共用模板：
- *   - 几何全部相对 main 视口（.app-surface，不含应用导航）：
- *       sidebar 宽 = clamp(140px, 12.5%, 200px)；
- *       左边距 L = 48px（sidebar 起始位置）；
- *       sidebar-body 横向 gap = 24px（模板硬约束 #2）；
- *       body 宽 = max(920px, 920px + (主内容区 - 1440px) * 0.3)，主内容区 = 100vw - 导航宽；
- *       右边距 R = 32px。
- *   - 锚点效果：
- *       主内容区 ≤1440：body 恒 920（1280 窗与历史固定 920 完全一致）；
- *       1920 窗（导航折叠）：body ≈ 1048（+128，宽屏小幅变宽）；
- *   - 4 页 body 左缘严格相同 = L + sidebar 宽 + 24，不论有无 sidebar 渲染
- *     （快捷键页该位置为空槽）；
- *   - header 跟 body 同左缘同宽：__head 与 __main 完全同构的 flex
- *     （同 L/R padding、同 gap、同 sidebar 宽占位槽），header 与 body 的
- *     包含块宽度一致 → --aps-body-w 的百分比基数一致 → 像素级对齐；
- *   - 窄屏（main 视口 < sidebar + gap + 920 + L + R）：body 跌破 920 下限，
- *     各段按 max-width: 100% 自然挤压；
- *   - 视口 < 720px：sidebar 收为顶部水平条，L/R 归 16px（响应式段）。
- * 模板硬约束 3 处：Header 下间距 / sidebar-body 横向 gap / sidebar 内 padding。
- * 其它全部由 design tokens + 页面作者自管。
+ * 应用页面壳 / 内容壳（ADR-0007，流体几何）
+ * sidebar 宽 = clamp(140px, 12.5%, 200px)；gap 24px；
+ * body 宽 = max(920px, 920px + (主内容区 - 1440px) * 0.3)。
+ * 4 页 body 左缘严格相同（无 sidebar 页用占位槽对齐）。
  * ============================================================ */
 
 .app-page-shell {
@@ -66,11 +49,7 @@
   box-sizing: border-box;
 }
 
-/* 占位槽：顶替 main 里的 sidebar（同宽），把 header 推到 body 左缘。
-   header（__head）与 main（__main）共用此槽：两者都是 __root 下同 L/R padding 的
-   同构 flex 容器，内宽（= 父块宽 - L - R）一致 → 槽里的 12.5%（--aps-sidebar-w）
-   相对同一内宽解析，槽宽一致 → header 与 body 左缘像素级对齐
-   （避免旧做法把槽宽 bake 进 padding-left，其 12.5% 相对包含块父块宽解析而产生的偏移）。 */
+/* 占位槽：header 与 main 同父块同构，槽宽一致 → 像素级对齐 */
 .app-page-shell__slot {
   flex: 0 0 var(--aps-sidebar-w);
   width: var(--aps-sidebar-w);
@@ -83,8 +62,6 @@
   max-width: var(--aps-body-w);
   /* 覆盖 AppShell.css 旧 min(920px) 限宽 */
   box-sizing: border-box;
-  /* 任务 1（2026-08-30）：Header 与 Body 间呼吸感 32px（与卡片 24px padding 合计 ~56px，
-     与音频页"页头→卡→h2→p→border→内容"多层节奏对齐）。用户反馈"间距过窄"上调至此值。 */
   margin-bottom: var(--space-8);
 }
 
@@ -157,8 +134,6 @@
   font-weight: 600;
   text-align: left;
   cursor: pointer;
-  /* 阶段 4 v3（2026-09-01）：选中态切换过渡走 200ms + box-shadow 微光，
-     与 app-nav-item 同节奏。 */
   transition:
     background-color var(--dur) var(--ease),
     color var(--dur) var(--ease),
@@ -179,9 +154,7 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
-/* 选中态图标轻微缩放。与 .app-nav-item（不缩放）不同款是刻意的（2026-09-05 用户拍板）：
-   两者非复用关系——主导航因"工作台"常选中、图标偏大会破坏列内一致性而取消缩放；
-   内容页侧边索引用微缩放强化"当前项"，用户确认观感良好，保留。 */
+/* 选中态图标轻微缩放（主导航不缩放是刻意的：避免"工作台"常选图标偏大破坏列一致性） */
 .app-page-shell__sidebar-item svg {
   transition: transform var(--dur) var(--ease);
 }

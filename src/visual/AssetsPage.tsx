@@ -12,27 +12,7 @@ import { backgroundSkinStore } from '../chart/rendering/backgroundSkin';
 import { useBackgroundSkin } from '../chart/rendering/useBackgroundSkin';
 import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../chart/config/AppSettings';
 
-// 视觉素材页（issue 29 切片 4 闭环后 + issue 44 内容壳迁移）：导航第 3 项。
-//   - 接入 <AppPageShell>：原"页内顶部 2 个类别 tab（.assets-tabs）"改为 <AppPageShell.Sidebar> 下 2 个
-//     <AppPageShell.SidebarItem>（音符皮肤 / 背景皮肤），Body 走 mode="default" width="wide"；
-//   - grill 2026-08-17 + 2026-08-24 定案：
-//     - 「素材」tab 收窄为**视觉素材**（音符皮肤 + 背景皮肤），键音整包与 SE 音量已迁音频页
-//       （与音源同域，归属于 settings.audio），与 settings.visual.noteSkin 解耦；
-//     - 页面内**类别子 tab**（音符皮肤 | 背景皮肤）一次看一个类别，可扩展；
-//   - 音符皮肤：官方同名整包预设一键应用 + 六条目独立覆盖；
-//     顶部综合预览画布（Q8=B 真实精灵绘制）实时反映当前组合。
-//
-// 形态整改（2026-08-25 切片 1-4，详见 issue 29 Comments）：
-//   - 选中态：去掉「切换」按钮，整卡加 ✓ 主色实心徽标 + 描边/底色对比；
-//   - 未选中态：主色实心「应用」按钮；
-//   - 整包预设被部分条目覆盖时，预设卡 + 该条目卡 各显示一个「● 已覆盖 / 已修改」红点（Q9=A 双点提示）；
-//   - 「按条目独立覆盖」改为「条目卡 + 包缩略格」网格；
-//   - 综合预览改 6 列 2 行（Q13=A，列对齐，高信息密度）；
-//   - 同号方向 vs 普通包用户视角下是 1 套皮肤（label 同名 = "Skin 0N"），底层 id 区分；
-//   - 副标 subtitle = "整包应用" / "已自定义 · N 项"（琥珀色 = 已自定义）。
-//
-// 背景皮肤（2026-08-27，Q4 最小模型定案并实现）：1 张本地图片（IndexedDB）+ 启用开关（settings）+ 清除；
-//   cover 铺满 + 固定暗色遮罩渲染进画布静态层；本面板承载上传 / 隐藏 / 清除。
+// 视觉素材页（导航第 3 项）：音符皮肤（整包预设 + 条目独立覆盖）+ 背景皮肤（单图上传/隐藏/清除）。
 
 type AssetCategory = 'noteskin' | 'background';
 
@@ -97,7 +77,6 @@ function NoteSkinPanel() {
     && (pairedDir === null || (selection.dirL === pairedDir && selection.dirR === pairedDir));
 
   return (
-    // 阶段 4（2026-09-01）：app-stagger 让预设卡 / 综合预览 / 条目卡按 40ms 阶梯进入。
     <section className="assets-panel app-stagger" aria-label="音符皮肤">
       {/* 删掉"音符皮肤"标题（与 AppPageShell.Header 重复），{notePacks.length} 移到整包预设右侧 */}
       <div className="section-heading">
@@ -106,8 +85,7 @@ function NoteSkinPanel() {
         </div>
       </div>
 
-      {/* 整包预设外层包 .surface-section 卡片（用户原话"素材页面也要使用这种卡片式组件吗？"）。
-          内部 .skin-preset card 不变，外层 surface-section 提供 padding + bg + border 与设置页观感一致。 */}
+      {/* 外层 surface-section 卡片（内部保留 .skin-preset card 容器） */}
       <section className="surface-section skin-preset-section">
         <div className="skin-section">
           <h3 className="skin-section-title">
@@ -157,7 +135,7 @@ function NoteSkinPanel() {
         </div>
       </section>
 
-      {/* 综合预览 + 按条目选择（Q13=A 切片 3：6 列 2 行，列对齐；高信息密度） */}
+      {/* 综合预览 + 按条目选择 */}
       <NoteSkinPreview
         selection={selection}
         onChange={(item, packId) => setNoteSkin({ [item]: packId })}
@@ -166,12 +144,7 @@ function NoteSkinPanel() {
   );
 }
 
-// 单条目覆盖行已并入 NoteSkinPreview（2026-08-25 切片 2），此处不再需要 SkinItemRow。
-
-// ---------------- 背景皮肤（issue 29 Q4 最小模型，2026-08-27 定案并实现） ----------------
-// 最小模型 = 1 张图（本地单张上传，png/jpeg/webp ≤20MB）+ 启用开关 + 清除。
-// 图片本体存 IndexedDB（utils/backgroundSkin.ts），settings.visual.backgroundSkin.enabled 只存开关位；
-// 上传成功自动启用；清除同时删库存档并关开关。渲染效果见 renderer/staticLayerCache.ts（cover 铺满 + 固定暗色遮罩）。
+// ---------------- 背景皮肤：单图上传（IndexedDB 存图）+ 启用开关 + 清除 ----------------
 
 const BG_ACCEPT = 'image/png,image/jpeg,image/webp';
 const BG_MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -228,15 +201,12 @@ function BackgroundPanel() {
   };
 
   return (
-    // 阶段 4（2026-09-01）：app-stagger 让上传卡 + 设置卡按 40ms 阶梯进入。
     <section className="assets-panel app-stagger" aria-label="背景皮肤">
       {/* 删除 section-heading（h2 "谱面背景皮肤" 与 AppPageShell.Header 重复；state-label 与上传卡内 EmptyState/asset-set 状态重复）。
           assets-panel 直接装 2 个 surface-section 子卡：上传卡 + 设置卡。 */}
 
       <section className="surface-section bg-skin-section">
-        {/* 阶段 2 空态（2026-08-30 用户拍板）：
-          未上传图片时用三段式 EmptyState（图 + 标题 + 描述 + 主按钮"上传图片"）
-          替代原"未设置"灰色提示文字 + 占位预览。已上传时回落到原 asset-set 预览卡。 */}
+        {/* 空态：未上传图片时引导上传 */}
       {/* file input 无条件挂载：挂在 image 分支内会让已传图后的"更换"按钮 click() 落空 */}
       <input
         ref={fileRef}
@@ -328,12 +298,12 @@ function BackgroundPanel() {
           {error && <span className="field-help is-error">{error}</span>}
         </EmptyState>
       )}
-      </section> {/* 任务 4 v5：关闭 .bg-skin-section 卡片 */}
+      </section>
 
       {/* 显示范围/填充方式/不透明度 包到 surface-section 设置卡（bg-skin-settings-section），
           与上传卡同款，形成"上传卡 + 设置卡"双卡结构。 */}
       <section className="surface-section bg-skin-settings-section">
-        {/* 显示范围（用户 grill 定案：默认仅轨道外，不覆盖轨道本身，不影响作谱） */}
+        {/* 显示范围 */}
         <div className="settings-row">
           <div className="settings-row__text">
             <strong>显示范围</strong>
@@ -351,7 +321,7 @@ function BackgroundPanel() {
           </select>
         </div>
 
-        {/* 填充方式（issue 29 扩展配置 grill 定案）：cover 铺满裁剪 / contain 完整显示留黑边 */}
+        {/* 填充方式 */}
         <div className="settings-row">
           <div className="settings-row__text">
             <strong>填充方式</strong>
@@ -369,7 +339,7 @@ function BackgroundPanel() {
           </select>
         </div>
 
-        {/* 不透明度（issue 29 修订 2026-08-27）：图片自身 alpha 合成，越低画布原始黑色占比越多；默认 55% 与首版固定遮罩观感一致 */}
+        {/* 不透明度 */}
         <div className="settings-row">
           <div className="settings-row__text">
             <strong>背景不透明度</strong>

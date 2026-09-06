@@ -6,12 +6,7 @@ import { useConfig } from '../app/ProviderTree';
 import { defaultSettings, loadSettings } from '../chart/config/AppSettings';
 import type { AppSettings } from '../chart/config/AppSettings';
 
-// 设置页（issue 28 Q13 + issue 39 + issue 44 内容壳迁移）：
-//   - 接入 <AppPageShell>：左侧次级索引走 <AppPageShell.Sidebar>（按组分组"应用设置 / 功能设置"），Body 走 mode="default" width="default"；
-//   - 侧边索引从"正文内 168px"搬到"正文外 200px"（Q3.2 / §1 统一化产物，detail 区从 752px 涨到 920px）；
-//   - 节奏图示 SE 音量（issue 39 #7）已迁音频页（issue 29 切片 4 闭环：键音 + SE 音量与音源同域），
-//     此处不再保留「播放」section。
-// - 修改立即生效并持久化（versioned settings，ADR-0003 §6）。
+// 设置页：接入 AppPageShell（Sidebar 分组导航 + Body 设置详情），修改立即生效并持久化。
 type Section = 'appearance' | 'layout' | 'data' | 'canvas';
 
 const THEME_OPTIONS: Array<{ value: AppSettings['theme']; label: string; swatch: string }> = [
@@ -49,7 +44,7 @@ function PercentSliderRow({
   );
 }
 
-/** 分组"恢复默认"行：本组参数恢复出厂默认，需二次确认（用户反馈：整体重置放配置数据语义不符） */
+/** 分组"恢复默认"行：本组参数恢复出厂默认，需二次确认 */
 function ResetRow({ label, hint, confirming, onConfirm, onToggle }: {
   label: string; hint: string; confirming: boolean; onToggle: () => void; onConfirm: () => void;
 }) {
@@ -93,7 +88,6 @@ export default function SettingsPage() {
   const { settings, setTheme, setDisplay, setAllSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
-  // 分组恢复默认：画布显示只重置本组参数（用户反馈：整体重置放在配置数据语义不符）
   const [resetConfirm, setResetConfirm] = useState<'canvas' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -145,8 +139,6 @@ export default function SettingsPage() {
       </AppPageShell.Sidebar>
 
       <AppPageShell.Body mode="default">
-        {/* 阶段 4（2026-09-01）：app-stagger 让 settings-heading / 控件行 / 恢复默认等
-            按 40ms 阶梯式进入；切 section 时 React 重挂载，子元素动画自然重跑。 */}
         <section className="settings-detail surface-section app-stagger">
           {section === 'appearance' && (
             <>
@@ -180,9 +172,7 @@ export default function SettingsPage() {
                 <h2>布局</h2>
                 <p>面板开合、宽度与画布缩放的说明。</p>
               </div>
-              {/* 阶段 2 空态（2026-08-30 用户拍板）：layout 段无可配置控件（原 3 行纯说明文字），
-                  改为三段式 EmptyState（图 + 标题 + 描述）作为"说明区"占位，
-                  与其它 3 页空态保持视觉一致。 */}
+              {/* layout 段无可配置控件，用 EmptyState 作说明区 */}
               <EmptyState
                 icon={Info}
                 title="布局在工作台内调整"

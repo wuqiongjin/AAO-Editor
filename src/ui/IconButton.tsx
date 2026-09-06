@@ -1,10 +1,7 @@
 import type { ReactNode, MouseEvent } from 'react';
 import './ui.css';
 
-// 统一按钮（issue 22 交互统一，Q6）：全站唯一按钮交互态出处。
-// 覆盖三种历史写法（ToolbarButton 内联 / PlayBar onMouseEnter / Editor inlineIconBtn）：
-// hover / active(scale) / disabled / danger / outlined / active 全套态 + focus-visible 焦点环。
-// 交互态全部走 CSS（issue 49 阶段 1 #3+#4），组件不维护 useState。
+// 统一按钮：全站按钮交互态（hover / active / disabled / danger / outlined）走 CSS。
 interface IconButtonProps {
   onClick?: (e: MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;

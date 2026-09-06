@@ -56,8 +56,7 @@
 }
 
 .action-btn--primary {
-  /* 基色 --accent-btn（亮 #075e83 / 暗 #0369a1）+ 白字 5.0-5.83:1（WCAG AA）。
-     旧版 --accent 蓝底 + --text-on-accent 深蓝字同为蓝色感知对比弱，"更换音频"按钮黑字看不清。 */
+  /* 基色深档 + 白字（WCAG AA 对比） */
   background-color: var(--accent-btn);
   color: var(--accent-btn-text);
   border-color: transparent;
@@ -155,9 +154,7 @@
 }
 
 /* ============================================================
-   EmptyState（src/ui/EmptyState.tsx）
-   三段式空态：图标 + 标题 + 描述 + 可选按钮组。
-   阶段 2 默认 padding/icon size 暂用 token 默认值（待用户拍板）。
+   EmptyState：三段式空态（图标 + 标题 + 描述 + 可选按钮组）
    ============================================================ */
 .empty-state {
   display: flex;
