@@ -66,9 +66,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     surface,
     active,
 }, ref) => {
-    // issue 50（Q6 a 修正语义）：画布 == background（CSS width/height 100%），几何坐标系用 chartArea 真实尺寸。
+    // issue 50（Q6 a 修正语义）：画布 == background（尺寸 = chartArea 实测 surf，CSS 不再写 100%），几何坐标系用 chartArea 真实尺寸。
     // 之前的 min 维度算法（canvasW=min(parentW, floor(parentH*5/6))）导致左右 letterbox——父级比画布宽时
-    // 画布居中、左右留黑底，违反"画布与 background 贴合"原意。新语义：画布 DOM = 父级，绘制坐标系也 = 父级，
+    // 画布居中、左右留黑底，违反"画布与 background 贴合"原意。新语义：画布 DOM = 父级实测尺寸（CSS 用 surf 而非
+    // 100%，见下方 canvas 样式注释；surf 即 chartArea 实测尺寸），绘制坐标系也 = 父级，
     // 轨道水平居中绘制在画布内，多余的水平空间由 canvas 绘制层 letterbox 成黑底（renderChart 内部 trackStartX
     // 居中算法已实现）。判定线 = 画布底 = chartArea 底——音符越过 chartArea 底即判（与 Q7 一致）。
     // 兜底：surface null 时用 200×240 占位（与 useScrollModel 内部 fallback 对齐）；
@@ -728,16 +729,18 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                         backgroundColor: '#000000',
                         display: 'block',
                         userSelect: 'none',
-                        boxSizing: 'border-box', // issue 50：border 算进 100% 尺寸，避免比父级宽 2px 触发 overflow
+                        boxSizing: 'border-box', // issue 50：border 算进尺寸，避免比父级宽 2px 触发 overflow
                         border: '1px solid #333',
                         // ADR-0006 §1：canvas 缓冲 = surface × dpr（renderChart 设置）；React 不触碰缓冲属性
                         // （不在 JSX 里写 width={surf.w} 作为 HTML 属性，那会重设缓冲并触发错帧）。
-                        // issue 50（Q6 a 修正语义）：canvas CSS width/height = 100%，与 background div 同尺寸；
-                        // 绘制坐标系用 surf（= chartArea 真实尺寸），轨道在画布内水平居中（letterbox 在 canvas 绘制层）。
-                        // 之前的"width:100% 会闪一帧"担心在 issue 50 hotfix 后已不成立（StrictMode RO 同步回调，
-                        // 不会出现 canvas 已变宽但 surface 还在旧值的中间态）。
-                        width: '100%',
-                        height: '100%',
+                        // CSS 尺寸改为跟随 surf 本身（而非 100%）：缓冲 = surf×dpr，若 CSS 盒 = 容器实时宽（100%），
+                        // 二者在面板展开/收起的 200ms width 过渡期间不同步——容器实时变宽/窄，surf 与缓冲滞后约一帧，
+                        // 浏览器把缓冲拉伸到 CSS 盒 → 轨道横向被拉宽再回弹（单侧几乎不可见，双侧折叠容器每帧变化翻倍、
+                        // 误差翻倍即可见）。改为 CSS = surf 后缓冲与 CSS 盒恒等 → 无拉伸；即便某帧 surf 略旧，画布只是
+                        // 在外层 #000 包装里居中、边缘留一条同为 #000 的黑缝（黑配黑不可见），轨道比例始终精确。
+                        // 稳态（surf==容器宽）与原 100% 行为一致；getBoundingClientRect 命中坐标也与绘制空间对齐。
+                        width: surf.w,
+                        height: surf.h,
                         position: 'relative',
                         zIndex: 10 // 确保Canvas在最上层
                     }}

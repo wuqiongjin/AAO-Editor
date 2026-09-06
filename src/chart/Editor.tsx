@@ -23,6 +23,13 @@ interface EditorProps {
 }
 
 /**
+ * 面板宽度过渡的守卫时长（ms）：覆盖 .ws-panel 的 `width 200ms` 过渡并留尾随结算余量。
+ * 展开/收起侧栏时置位，期间渲染面测量进入实时模式（逐帧提交），消除过渡后半段
+ * 画布缓冲被 CSS 拉伸造成的"轨道瞬间偏宽再回弹"。见 SurfaceSizeMerger.live。
+ */
+const PANEL_TRANSITION_GUARD_MS = 320;
+
+/**
  * Editor（架构深化评审候选 2 收口 + ADR-0003 §7）：只保留【组装】职责。
  * 把 6 种会话流全部拆到聚焦 hook（src/utils/use*.ts）：
  *   - 渲染面测量 → useSurfaceSize
@@ -80,7 +87,20 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const [virtualHeight, setVirtualHeight] = useState(0);
 
   // === 会话流 1：渲染面测量（候选 2 拆出，issue 36 / 38 不变量保留） ===
-  const surface = useSurfaceSize(chartAreaRef);
+  // 实时门控：展开/收起侧栏（.ws-panel width 200ms 过渡）或拖拽改宽面板期间，令测量逐帧提交，
+  // 使画布缓冲始终贴合容器实时宽度——否则合并器在过渡后半段冻结提交，缓冲被 CSS 拉伸，
+  // 轨道出现"瞬间偏宽再回弹"（同一根因也影响拖拽）。窗口 resize 不触发此门控，保留原节流。
+  const isDraggingRef = useRef(isDragging);
+  isDraggingRef.current = isDragging;
+  const panelAnimUntilRef = useRef(0);
+  useEffect(() => {
+    panelAnimUntilRef.current = performance.now() + PANEL_TRANSITION_GUARD_MS;
+  }, [leftCollapsed, rightCollapsed]);
+  const surfaceLive = useCallback(
+    () => isDraggingRef.current !== null || performance.now() < panelAnimUntilRef.current,
+    [],
+  );
+  const surface = useSurfaceSize(chartAreaRef, { live: surfaceLive });
 
   // === 会话流 2：滚动模型（候选 1 拆出；候选 2 再做生命周期封装） ===
   const { scrollModel, chartEndKey, consumePendingReAnchor } = useScrollModel({

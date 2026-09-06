@@ -8,7 +8,7 @@ import type { SurfaceSize } from '../../src/chart/geometry/ChartGeometry';
 let virtualNow = 0;
 const tick = (ms: number) => { virtualNow += ms; };
 
-const makeMerger = (commits: SurfaceSize[], opts: Partial<{ sparseGapMs: number; streamMs: number; trailMs: number }> = {}) =>
+const makeMerger = (commits: SurfaceSize[], opts: Partial<{ sparseGapMs: number; streamMs: number; trailMs: number; live: () => boolean }> = {}) =>
   new SurfaceSizeMerger({ ...opts, onCommit: (v) => commits.push(v), now: () => virtualNow });
 
 describe('SurfaceSizeMerger · 退化尺寸跳过', () => {
@@ -93,6 +93,39 @@ describe('SurfaceSizeMerger · 离散事件 / 突发 / 流合并', () => {
     m.feed({ w: 750, h: 900 });
     m.feed({ w: 750, h: 900 });
     expect(commits).toEqual([{ w: 750, h: 900 }]);
+    m.destroy();
+  });
+});
+
+describe('SurfaceSizeMerger · 实时模式（面板过渡/拖拽逐帧提交）', () => {
+  beforeEach(() => { virtualNow = 0; });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('live()=true 时，越过 streamMs 的连续流仍逐帧提交（不冻结），消除拉伸帧', () => {
+    vi.useFakeTimers();
+    const commits: SurfaceSize[] = [];
+    const m = makeMerger(commits, { sparseGapMs: 100, streamMs: 150, trailMs: 150, live: () => true });
+    // 模拟 200ms 面板过渡：每 20ms 一次密集回调，累计远超 streamMs
+    const seq = [{ w: 750, h: 900 }, { w: 700, h: 900 }, { w: 650, h: 900 }, { w: 600, h: 900 }, { w: 550, h: 900 }, { w: 500, h: 900 }];
+    for (const s of seq) { m.feed(s); tick(20); }
+    // 每次回调都立即提交 → 已提交序列包含全部中间值（非实时模式下后半段会被冻结丢弃）
+    expect(commits).toEqual(seq);
+    m.destroy();
+  });
+
+  it('live()=false 时，连续流越 streamMs 后冻结：中间值不逐帧提交，仅尾随结算最新值', () => {
+    vi.useFakeTimers();
+    const commits: SurfaceSize[] = [];
+    const m = makeMerger(commits, { sparseGapMs: 100, streamMs: 150, trailMs: 150, live: () => false });
+    m.feed({ w: 750, h: 900 });
+    const feeds = [{ w: 750, h: 900 }];
+    // 密集连续 12 帧、每帧间隔 20ms（均 < sparseGapMs）→ 累计 240ms > streamMs，越过阈值即冻结
+    for (let i = 1; i <= 12; i++) { const s = { w: 750 - 10 * i, h: 900 }; tick(20); m.feed(s); feeds.push(s); }
+    const midCount = commits.length;
+    vi.advanceTimersByTime(150); // 尾随结算最终值
+    expect(commits[commits.length - 1]).toEqual({ w: 630, h: 900 }); // 最后一帧由尾随落
+    expect(commits.length).toBeLessThan(feeds.length); // 冻结丢弃了部分中间帧
+    expect(commits.length).toBe(midCount + 1); // 冻结期未逐帧提交，仅尾随补一次
     m.destroy();
   });
 });

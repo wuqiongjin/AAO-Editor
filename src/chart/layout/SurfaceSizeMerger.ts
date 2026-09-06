@@ -24,9 +24,19 @@ export interface SurfaceSizeMergerConfig {
   now?: () => number;
   /** 提交副作用（默认 console.log；接入时改为 setState） */
   onCommit?: (value: SurfaceSize) => void;
+  /**
+   * 实时模式探针（默认恒 false）。返回 true 时（例如用户正在展开/收起侧栏、拖拽改宽面板），
+   * 每次 feed 都立即提交最新值，绕过 stream 冻结与突发早期判定。
+   *
+   * 根因：画布缓冲 = surface.w×dpr，而 canvas CSS 宽 = 100% 实时跟随容器；面板 200ms width 过渡
+   * 期间，容器宽每帧变化但 ResizeObserver 流被 streamMs(150ms) 判定为连续流后【冻结提交】（停后再等
+   * trailMs 尾随）。冻结期间画布停留在旧 surface.w 缓冲、被 CSS 拉伸 → 轨道瞬间偏宽再回弹。
+   * 实时模式让过渡全程逐帧贴合容器，消除该拉伸；窗口 resize（探针为 false）保留原节流不变。
+   */
+  live?: () => boolean;
 }
 
-const DEFAULT_CONFIG: Required<Omit<SurfaceSizeMergerConfig, 'now' | 'onCommit'>> = {
+const DEFAULT_CONFIG: Required<Omit<SurfaceSizeMergerConfig, 'now' | 'onCommit' | 'live'>> = {
   sparseGapMs: 100,
   streamMs: 150,
   trailMs: 150,
@@ -40,6 +50,7 @@ export class SurfaceSizeMerger {
   private readonly degenerateThreshold: number;
   private readonly now: () => number;
   private readonly onCommit: (value: SurfaceSize) => void;
+  private readonly live: () => boolean;
 
   // 状态机
   private lastCommittedKey = '';
@@ -57,6 +68,7 @@ export class SurfaceSizeMerger {
     this.degenerateThreshold = config.degenerateThreshold ?? DEFAULT_CONFIG.degenerateThreshold;
     this.now = config.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
     this.onCommit = config.onCommit ?? (() => {});
+    this.live = config.live ?? (() => false);
   }
 
   /** 当前已提交值（state machine 的对外可读状态，供 hook 初次渲染用） */
@@ -81,8 +93,9 @@ export class SurfaceSizeMerger {
     const now = this.now();
     const dense = now - this.lastCallbackAt < this.sparseGapMs;
     if (!dense) this.burstStartAt = now;
-    // 前沿：离散事件或突发早期 → 立即应用最新值
-    if (!dense || now - this.burstStartAt < this.streamMs) {
+    // 前沿：实时模式（面板过渡/拖拽中，需逐帧贴合容器）或离散事件或突发早期 → 立即应用最新值。
+    // 非实时模式下连续流越过 streamMs 后冻结提交，交由尾随结算——保留窗口 resize 的节流。
+    if (this.live() || !dense || now - this.burstStartAt < this.streamMs) {
       this.commit(next);
     }
     this.lastCallbackAt = now;
