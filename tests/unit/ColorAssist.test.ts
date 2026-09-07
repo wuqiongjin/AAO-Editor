@@ -140,7 +140,7 @@ function captureTaps(notes: ChartNote[], colorAssist: boolean) {
     clipboard: [],
     markerBeat: null,
     markerSelected: false,
-    selectedTool: 'mouse',
+    armedTool: null,
     spriteIcon: {
       render: (_c: unknown, cfg: { src: string; x: number; y: number; w: number; h: number }) => calls.push(cfg),
       renderDecorator: () => undefined,

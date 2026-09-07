@@ -199,3 +199,67 @@ export function mirrorSelection(notes: ChartNote[], items: SelectionItem[]): Cha
 export function selectionNoteIndices(items: SelectionItem[]): number[] {
   return [...new Set(items.map(it => it.noteIndex))];
 }
+
+/**
+ * 批量操作后的选区重映射（ADR-0008 §2.4"批量应用后选区保留"）：
+ * 批量键型替换/组合会增删移动数组元素，旧 noteIndex/connIndex 全部失效。
+ * 按【位置】在新旧数组间迁移：位置仍能找到同 kind 的目标则保留（新下标），
+ * 找不到（被消耗/被拆分）则整条丢弃。BPM/System 按 type+beat 匹配。
+ */
+export function remapSelection(oldNotes: ChartNote[], items: SelectionItem[], newNotes: ChartNote[]): SelectionItem[] {
+  const posKey = (beat: number, lane: number, subBeat: number) => `${beat}|${lane}|${subBeat}`;
+  // 新数组索引表：键型音符位置 → 下标；滑条/长条位置 → {下标, connIndex}
+  const keyIdx = new Map<string, number>();
+  const connIdx = new Map<string, { noteIndex: number; connIndex: number }>();
+  newNotes.forEach((n, i) => {
+    if (n.type === 'Single' || n.type === 'LDirectional' || n.type === 'RDirectional') {
+      keyIdx.set(posKey(n.beat, n.lane, n.subBeat || 0), i);
+    } else if (isSlide(n)) {
+      n.connections.forEach((c, ci) => {
+        const k = posKey(c.beat, c.lane, c.subBeat || 0);
+        if (!connIdx.has(k)) connIdx.set(k, { noteIndex: i, connIndex: ci });
+      });
+    }
+  });
+  const findConn = (beat: number, lane: number, subBeat: number) => connIdx.get(posKey(beat, lane, subBeat));
+
+  const out: SelectionItem[] = [];
+  for (const it of items) {
+    const old = oldNotes[it.noteIndex];
+    if (!old) continue;
+    if (old.type === 'Slide' || old.type === 'Long') {
+      if (it.kind === 'note') {
+        // 整条滑条：仍有一条滑条【起始结点】在旧起始位置 → 保留整条选择
+        const oc = old.connections[0];
+        const loc = oc ? findConn(oc.beat, oc.lane, oc.subBeat || 0) : undefined;
+        if (loc && loc.connIndex === 0) out.push({ kind: 'note', noteIndex: loc.noteIndex });
+        continue;
+      }
+      if (it.kind === 'slideNode') {
+        const c = old.connections[it.connIndex];
+        if (!c) continue;
+        const loc = findConn(c.beat, c.lane, c.subBeat || 0);
+        if (loc) out.push({ kind: 'slideNode', noteIndex: loc.noteIndex, connIndex: loc.connIndex });
+        continue;
+      }
+      // slideRegion：两段结点仍在同一条滑条且相邻 → 迁移到新 connIndex
+      const c1 = old.connections[it.connIndex], c2 = old.connections[it.connIndex + 1];
+      if (!c1 || !c2) continue;
+      const l1 = findConn(c1.beat, c1.lane, c1.subBeat || 0);
+      const l2 = findConn(c2.beat, c2.lane, c2.subBeat || 0);
+      if (l1 && l2 && l1.noteIndex === l2.noteIndex && l2.connIndex === l1.connIndex + 1) {
+        out.push({ kind: 'slideRegion', noteIndex: l1.noteIndex, connIndex: l1.connIndex });
+      }
+      continue;
+    }
+    if (old.type === 'BPM' || old.type === 'System') {
+      const i = newNotes.findIndex(n => n.type === old.type && n.beat === old.beat);
+      if (i !== -1) out.push({ kind: 'note', noteIndex: i });
+      continue;
+    }
+    // 键型音符
+    const i = keyIdx.get(posKey(old.beat, old.lane, old.subBeat || 0));
+    if (i !== undefined) out.push({ kind: 'note', noteIndex: i });
+  }
+  return out;
+}

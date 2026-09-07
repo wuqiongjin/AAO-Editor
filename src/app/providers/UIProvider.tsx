@@ -5,9 +5,15 @@ import type { ChartPosition } from '../../types/chart';
 // H5 收口：mousePosition 直接复用 ChartPosition（{ beat, lane }）
 export type MousePos = ChartPosition;
 
+// ADR-0008 §1 工具轴（持工具态）：所有工具共驻一根互斥轴；null = 指针态（默认底态）。
+// 工具被激活称"持工具态"，与对象轴（选区，EditingContext.selectedItems）解耦。
+export type KeyToolId = 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional';
+export type ActionToolId = 'copy' | 'cut' | 'delete' | 'paste' | 'mirror';
+export type ArmedTool = KeyToolId | 'bpm' | 'slide' | ActionToolId;
+
 export interface UIContextValue {
-  selectedTool: string;
-  setSelectedTool: (t: string) => void;
+  armedTool: ArmedTool | null;
+  setArmedTool: (t: ArmedTool | null) => void;
   scale: number;
   setScale: (scale: number | ((prev: number) => number)) => void;
   beatDisplay: number;
@@ -33,7 +39,7 @@ export interface UIContextValue {
 const UIContext = createContext<UIContextValue | null>(null);
 
 export function UIProvider({ children }: { children: ReactNode }) {
-  const [selectedTool, setSelectedTool] = useState('mouse');
+  const [armedTool, setArmedTool] = useState<ArmedTool | null>(null);
   const [scale, setScale] = useState(1);
   const [beatDisplay, setBeatDisplay] = useState(4);
   // 收口：删 currentBpm 死状态（120 写死、原 Editor 即 _setCurrentBpm 形态）
@@ -75,7 +81,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const toggleRightPanel = () => setRightCollapsed(v => !v);
 
   const value: UIContextValue = {
-    selectedTool, setSelectedTool,
+    armedTool, setArmedTool,
     scale, setScale,
     beatDisplay, setBeatDisplay,
     mousePosition, setMousePosition,

@@ -1,4 +1,4 @@
-import type { ChartNote, SlideNote, LDirectionalNote, RDirectionalNote } from '../types';
+import type { ChartNote, SelectionItem, SlideNote, LDirectionalNote, RDirectionalNote } from '../types';
 import { slideEndpointManager } from './SlideEndpointManager';
 import { shiftGroupToAnchor } from './NoteEditing';
 
@@ -63,6 +63,61 @@ export function handleNoteReplacement(
         // 没有现有音符，直接添加新音符
         return addNewNote(newNotes, beat, lane, subBeat, newNoteType);
     }
+}
+
+/** 键型批量应用的落点目标（ADR-0008 §2 框选矩阵：框内逐个位置应用替换规则） */
+export interface KeyPlacementTarget {
+    beat: number;
+    lane: number;
+    subBeat: number;
+}
+
+/**
+ * 从框选条目提取键型批量落点（ADR-0008 §2"键型放置框选 = 框内音符逐个应用 ADR-0001 替换规则"）：
+ * - kind 'note' 且为键型音符（单键/方向键）→ 音符自身位置
+ * - kind 'slideNode' → 该滑条结点位置（flick/skill/方向键对结点的处置由 §1.2 表决定）
+ * - 整条滑条 / slideRegion / BPM / System → 跳过（不参与批量替换）
+ */
+export function keyTargetsFromItems(notes: ChartNote[], items: SelectionItem[]): KeyPlacementTarget[] {
+    const out: KeyPlacementTarget[] = [];
+    for (const it of items) {
+        const note = notes[it.noteIndex];
+        if (!note) continue;
+        if (it.kind === 'note') {
+            if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
+                out.push({ beat: note.beat, lane: note.lane, subBeat: note.subBeat || 0 });
+            }
+        } else if (it.kind === 'slideNode') {
+            const conn = (note as SlideNote).connections?.[it.connIndex];
+            if (conn) out.push({ beat: conn.beat, lane: conn.lane, subBeat: conn.subBeat || 0 });
+        }
+        // slideRegion：忽略（区域中心非栅格落点；结点已逐个进批量）
+    }
+    return out;
+}
+
+/**
+ * 键型批量应用（ADR-0008 §2 框选矩阵 / §8"框选批量应用 = 一个可回退快照"）：
+ * 对每个落点顺序应用 handleNoteReplacement（后一个基于前一个结果，位置互异故次序无关）。
+ * 无任何落点生效时返回原数组引用（调用方据此跳过写历史）。
+ */
+export function batchApplyKeyType(
+    notes: ChartNote[],
+    targets: KeyPlacementTarget[],
+    tool: string
+): NoteReplacementResult {
+    let cur = notes;
+    let changed = false;
+    for (const t of targets) {
+        const r = handleNoteReplacement(cur, t.beat, t.lane, t.subBeat, tool);
+        if (r.shouldReplace) {
+            cur = r.newNotes;
+            changed = true;
+        }
+    }
+    return changed
+        ? { shouldReplace: true, newNotes: cur }
+        : { shouldReplace: false, newNotes: notes, message: '无可应用落点' };
 }
 
 /**

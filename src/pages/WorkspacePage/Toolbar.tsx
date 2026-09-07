@@ -14,6 +14,7 @@ import {
 import SpriteIcon, { NoteIcons } from '../../ui/SpriteIcon';
 import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
 import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
+import type { ArmedTool } from '../../app/providers/UIProvider';
 import IconButton from '../../ui/IconButton';
 import ChartCodeEditor from '../../chart/components/code-editor/ChartCodeEditor';
 import './Toolbar.css';
@@ -49,7 +50,7 @@ export default function Toolbar() {
     copy, cut, paste, deleteSelected, mirror, undo, redo,
   } = editing;
   const {
-    selectedTool, setSelectedTool, beatDisplay, setBeatDisplay,
+    armedTool, setArmedTool, beatDisplay, setBeatDisplay,
     mousePosition, toggleLeftPanel,
   } = ui;
   const canCopy = selectedItems.length > 0;
@@ -71,7 +72,13 @@ export default function Toolbar() {
     { id: "rdirectional", icon: <SpriteIcon {...NoteIcons.rightFlick} size={18} />, label: "右滑" },
     { id: "slide", icon: <SpriteIcon {...NoteIcons.slide} size={18} />, label: "滑条" },
   ];
-  const currentToolLabel = tools.find(t => t.id === selectedTool)?.label ?? selectedTool;
+  // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）
+  const currentToolLabel = armedTool === null ? '指针' : (tools.find(t => t.id === armedTool)?.label ?? armedTool);
+  const armOrRelease = (id: string) => {
+    if (id === 'mouse') { setArmedTool(null); return; }
+    // 退出三出口之一（§2 原则 3）：点击当前高亮工具 = 落回指针
+    setArmedTool(armedTool === id ? null : id as ArmedTool);
+  };
 
   const beatOptions = [
     { value: 1, label: "1/1" },
@@ -107,9 +114,9 @@ export default function Toolbar() {
             {tools.map((tool) => (
               <IconButton
                 key={tool.id}
-                active={selectedTool === tool.id}
+                active={armedTool === null ? tool.id === 'mouse' : armedTool === tool.id}
                 icon={tool.icon}
-                onClick={() => setSelectedTool(tool.id)}
+                onClick={() => armOrRelease(tool.id)}
                 title={tooltipForCategory(toolCategory[tool.id])}
               />
             ))}

@@ -65,7 +65,7 @@ function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: numbe
     clipboard: EMPTY_CLIPBOARD,
     markerBeat: null,
     markerSelected: false,
-    selectedTool: 'mouse',
+    armedTool: null,
     spriteIcon: { render: () => { if (spriteCounter) spriteCounter.n++; else counters.sprites++; }, renderDecorator: () => undefined } as unknown as RenderCtx['spriteIcon'],
     noteIcons: SHARED_NOTE_ICONS,
   };

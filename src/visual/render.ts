@@ -636,22 +636,22 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   ctx.save();
   ctx.globalAlpha = 0.35;
 
-  if (rc.selectedTool === 'single' || rc.selectedTool === 'flick' || rc.selectedTool === 'skill'
-      || rc.selectedTool === 'ldirectional' || rc.selectedTool === 'rdirectional') {
-    const ghost = ghostNoteForTool(rc.selectedTool, pos.lane, pos.preciseBeat);
+  if (rc.armedTool === 'single' || rc.armedTool === 'flick' || rc.armedTool === 'skill'
+      || rc.armedTool === 'ldirectional' || rc.armedTool === 'rdirectional') {
+    const ghost = ghostNoteForTool(rc.armedTool, pos.lane, pos.preciseBeat);
     if (ghost) renderNoteGhost(ctx, c, rc, ghost);
     ctx.restore();
     return;
   }
 
-  if (rc.selectedTool === 'paste' && rc.clipboard && rc.clipboard.length > 0) {
+  if (rc.armedTool === 'paste' && rc.clipboard && rc.clipboard.length > 0) {
     const shifted = shiftGroupToAnchor(rc.clipboard, pos.preciseBeat, pos.lane);
     for (const n of shifted) renderNoteGhost(ctx, c, rc, n);
     ctx.restore();
     return;
   }
 
-  if (rc.selectedTool === 'mirror') {
+  if (rc.armedTool === 'mirror') {
     if (rc.selectionBox) {
       drawMirrorGhosts(ctx, c, rc, computeItemsInBox(rc.selectionBox, { geometry: rc.geometry, viewport: rc.viewport, beatDisplay: rc.beatDisplay, notes: rc.notes }));
     } else {
@@ -660,6 +660,19 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
     }
   }
 
+  ctx.restore();
+}
+
+/**
+ * 拖拽移动落点幽灵（ADR-0008 §6）：指针态拖拽期间在吸附落点绘制移动结果的半透明幽灵，
+ * 原位置音符保持不动；松手非法（越界/碰撞）幽灵消失 = 回弹。原音符淡出标记由组件在
+ * dragGhost 中排除（未动的音符不进 ghost，瓦片层照常绘制）。
+ */
+export function renderDragGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  if (!rc.dragGhost || rc.dragGhost.length === 0) return;
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  for (const n of rc.dragGhost) renderNoteGhost(ctx, c, rc, n);
   ctx.restore();
 }
 
@@ -917,6 +930,7 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
 
   if (rc.selectionBox) renderSelectionBox(ctx, rc);
   renderSlideBuffer(ctx, c, rc);
+  if (rc.dragGhost) renderDragGhost(ctx, c, rc);
   renderToolPreview(ctx, c, rc);
   renderStartMarker(ctx, c, rc);
 

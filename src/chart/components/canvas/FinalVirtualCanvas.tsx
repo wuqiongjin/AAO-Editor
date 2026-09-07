@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import type { ChartNote, SelectionItem } from "../../types";
+import type { BpmNote, ChartNote, SelectionItem } from "../../types";
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
-import { handleNoteReplacement, handleSlideToSlideCombination } from '../../editing/NoteReplacementRules';
 import { deleteSelection } from '../../editing/SelectionEditing';
+import { planDragMove, draggableFromItems } from '../../editing/NoteDragging';
+import {
+  clickOps, boxSelectOps, execSlideOps, execBpmOps, pointerClickSelection,
+  sameSelectionItem, type MatrixOp, type SlidePoint,
+} from '../../editing/ToolActionMatrix';
 import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../../../audio/AudioTiming';
 import {
   ChartGeometry, LANES, LANE_WIDTH,
@@ -12,6 +16,7 @@ import { useEditing, useUI, usePlayback, useConfig } from '../../../app/Provider
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
+import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
@@ -33,8 +38,9 @@ interface FinalVirtualCanvasProps {
 }
 
 /**
- * 画布 imperative 句柄（架构深化评审候选 1 收窄）：只暴露 Editor 需要让画布【跟随】的动作与
- * 起点标记状态；秒↔scrollY↔滚动条 的数学全部收敛到 PlaybackScrollModel，不再经此 ref 协议跨组件调用。
+ * 画布 imperative 句柄（架构深化评审候选 1 收窄 + ADR-0008 §3 执行键入口）：
+ * 只暴露 Editor 需要让画布【跟随/代执行】的动作与起点标记状态；
+ * 秒↔scrollY↔滚动条 的数学全部收敛到 PlaybackScrollModel，不再经此 ref 协议跨组件调用。
  */
 export interface FinalVirtualCanvasHandle {
   /** 应用目标 scrollY（画布跟随）：值由 PlaybackScrollModel 计算，画布内部钳制到可滚范围。 */
@@ -45,22 +51,35 @@ export interface FinalVirtualCanvasHandle {
   getMarkerSelected?: () => boolean;
   setMarkerSelected?: (sel: boolean) => void;
   clearMarker?: () => void;
-  /** Esc 优先级链（issue 57 bug2）：若有待连接滑条锚点则取消并返回 true——Editor 据此决定本次 Esc 是否继续落到折叠侧栏 */
+  /** Esc 优先级链（ADR-0008 §7 第②档）：若有待连接滑条锚点则取消并返回 true——Editor 据此决定是否继续落档 */
   cancelPendingSlide?: () => boolean;
+  /** Ctrl+`（§3）：光标处放置 BPM 线（默认值沿用上次的值）→ 打开 §5 就地编辑；光标不在画布 = 无事发生 */
+  execBpm?: () => void;
+  /** Ctrl+E（§3）：有选区 → §4 组合成滑条；无选区 → 光标处放临时端点（与鼠标两击共用 slideBuffer） */
+  execSlide?: () => void;
 }
 
 // 视口缩放配置
 const MAX_SCALE = 3.0;
 const MIN_SCALE = 0.1;
 
+// 拖拽判定阈值（ADR-0008 §2 原则 1）：按下移动 ≥4px = 拖拽；<4px 快速起按 = 单击
+const DRAG_THRESHOLD_PX = 4;
+
 /** BPM 事件表内容相等（issue 35 F2：内容未变时 geometry 复用旧实例，事件数通常 ≤ 个位数） */
 const bpmEventsContentEqual = (a: readonly BpmEvent[], b: readonly BpmEvent[]) =>
     a === b || (a.length === b.length && a.every((e, i) => e.beat === b[i].beat && e.bpm === b[i].bpm));
 
 /**
- * FinalVirtualCanvas（ADR-0003 候选 B 收口）：已拆成薄层。
- * 渲染/命中/坐标全部收敛到 src/renderer 纯模块，本组件只保留：
- * 挂载/canvas 生命周期/皮肤加载、事件绑定、视图状态(viewport)、坐标薄封装、imperative 方法。
+ * FinalVirtualCanvas（ADR-0003 候选 B 收口 + ADR-0008 交互重构）：
+ * 渲染/命中/坐标全部收敛到 src/visual 纯模块；批量编辑语义收敛到 src/chart/editing 纯模块
+ * （NoteReplacementRules/SelectionEditing/SlideCombination/NoteDragging，均有行锁单测）。
+ * 本组件只保留：挂载/canvas 生命周期/皮肤加载、按下-拖拽-抬起输入状态机、视图状态(viewport)、
+ * BPM 就地编辑输入框（§5）、imperative 方法。
+ *
+ * 输入模型（§2）：mousedown 记录按下点（画布坐标 + 虚拟坐标双锚，bug 32）；
+ * mousemove 位移 ≥4px 进入拖拽（指针态按下音符 = 移动幽灵，其余 = 框选）；
+ * 全部点击/框选动作在 mouseup 分发——原 handleClick 删除，避免与全态框选双触发。
  */
 const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanvasProps>(({
     onScrollChange,
@@ -80,10 +99,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const surf: SurfaceSize = useMemo(() => surface ?? { w: 200, h: 240 }, [surface]);
     // 状态经 hooks 直读（ADR-0003 §7）
     const {
-        notes, selectedItems, setSelectedItems, clipboard,
-        handleNotesChange, editToolAction, editToolPaste,
+        notes, selectedItems, setSelectedItems, clipboard, setClipboard,
+        handleNotesChange,
     } = useEditing();
-    const { selectedTool, beatDisplay, scale, setScale, setMousePosition } = useUI();
+    // armedTool = 持工具态（ADR-0008 §1）：null = 指针底态；选区与工具解耦、常驻不清
+    const { armedTool, beatDisplay, scale, setScale, setMousePosition, mousePosition } = useUI();
     const { setMarker: setMarkerContext, currentSeconds } = usePlayback();
     // issue 39 功能设置·画布显示：纵向比例进 geometry（重建），其余渲染参数经 RenderCtx 注入渲染器
     const { settings } = useConfig();
@@ -129,6 +149,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const [renderTick, setRenderTick] = useState(0);
     const zoomGestureUntilRef = useRef(0);
     const zoomSettleTimerRef = useRef<number | undefined>(undefined);
+    // ADR-0008 §5：BPM 就地编辑（无模态打断）。默认值 = 上一次放置所设的值（初始 120）
+    const lastBpmRef = useRef(120);
+    const [bpmEdit, setBpmEdit] = useState<{ beat: number; value: string } | null>(null);
+    // 拖拽移动（§6）：指针态按下音符 → 拖 = 移动；ghost = 移动后受影响音符（渲染器半透明绘制）
+    const dragRef = useRef<{ items: SelectionItem[]; pressBeat: number; pressLane: number } | null>(null);
+    const [dragGhost, setDragGhost] = useState<ChartNote[] | null>(null);
 
     // 画布用到的全部皮肤图（issue 29：随当前音符皮肤选择动态解析），挂载/换肤即预加载，加载完触发重绘；
     // 单图失败不阻断（按缺图渲染，drawSingle 每帧重试加载），无论成败都 bump skinVersion 全量失效瓦片
@@ -166,32 +192,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const spriteIcon = useRef<CanvasSpriteIcon>(new CanvasSpriteIcon());
 
-    // 暴露方法给父组件（候选 1 收窄：只留 setScrollY 跟随 + 起点标记；秒↔scrollY 数学归 PlaybackScrollModel）
-    useImperativeHandle(ref, () => ({
-        setScrollY: (scrollY: number) => {
-            setViewport(prev => {
-                const scaledBounds = getScaledVirtualBounds(prev.scale);
-                const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / prev.scale, scrollY));
-                return {
-                    ...prev,
-                    scrollY: newScrollY
-                };
-            });
-        },
-        // 起点标记访问（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除
-        getMarkerBeat: () => markerBeat,
-        setMarkerBeat: (beat: number | null) => { setMarkerBeat(beat); },
-        getMarkerSelected: () => markerSelected,
-        setMarkerSelected: (sel: boolean) => setMarkerSelected(sel),
-        clearMarker: () => { setMarkerBeat(null); setMarkerSelected(false); },
-        // Esc 取消待连接滑条锚点（issue 57 bug2）：有锚点才消费本次 Esc（返回值供 Editor 决定后续）
-        cancelPendingSlide: () => {
-            if (slideBuffer === null) return false;
-            setSlideBuffer(null);
-            return true;
-        },
-    }));
-
     // ---------------------------
     // 谱面几何（ADR-0003 候选 B/C）：BPM→虚拟Y 走缓存时间线，坐标/剔除/命中统一由 ChartGeometry 提供
     // issue 35 F2：BPM 事件内容/谱长/渲染面未变时复用旧实例——否则每次编辑普通音符都新建实例，
@@ -227,38 +227,280 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const canvasToVirtual = (canvasX: number, canvasY: number) => geometry.canvasToVirtual(canvasX, canvasY, viewport);
     const getLaneBeatFromCanvas = (cx: number, cy: number) => geometry.laneBeatFromCanvas(cx, cy, viewport, beatDisplay);
 
-    // 判断 SelectionItem 是否已在选中集中（同 kind/noteIndex/connIndex 视为同一条目）
-    const sameItem = (a: SelectionItem, b: SelectionItem) =>
-        a.kind === b.kind && a.noteIndex === b.noteIndex &&
-        (a.kind === 'note' ? true : a.connIndex === (b as any).connIndex);
+    /** 放置/执行的合法落点：轨道内 ∧ beat≥0 ∧ 不超谱面末端（ADR-0005 §5）；非法 → null（§1"该位置非法则无事发生"） */
+    const snapPos = (cx: number, cy: number): { beat: number; lane: number } | null => {
+        const pos = getLaneBeatFromCanvas(cx, cy);
+        if (!pos) return null;
+        if (pos.preciseBeat > chartEndBeat + 1e-6) return null;
+        return { beat: pos.preciseBeat, lane: pos.lane };
+    };
 
-    // 点选：普通左键选子部分 / Ctrl+左键选整条滑条 / Shift 加选
+    // slideBuffer 归一化为矩阵输入（Canvas 态 subBeat 可选，矩阵 SlidePoint 必填）
+    const bufferPoint: SlidePoint | null = slideBuffer
+        ? { beat: slideBuffer.beat, lane: slideBuffer.lane, subBeat: slideBuffer.subBeat || 0 }
+        : null;
+
+    // 点选（ADR-0008 §2 指针行）：加选/去选/Ctrl 整条滑条的合并语义已纯函数化（pointerClickSelection，
+    // 行锁单测）；此处只做命中换算与"标记选中互斥"清标记
     const selectItemAtPoint = (cx: number, cy: number, additive: boolean, ctrl: boolean) => {
         setMarkerSelected(false); // 起点标记与音符选择互斥（ADR-0004 §4）
         const hit = findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
-        if (!hit) {
-            if (!additive) setSelectedItems([]);
-            return;
+        setSelectedItems(pointerClickSelection(selectedItems, hit, additive, ctrl));
+    };
+
+    // ---------------------------
+    // ADR-0008 §2 语义矩阵的画布侧编排（输入状态机）
+    // 交互处理器全部用普通函数（每次渲染重建、闭包恒新）——事件只经 React props 挂接，
+    // 不进任何 effect/缓存依赖，memo 化只会制造陈旧闭包风险。
+    // ---------------------------
+
+    /** 左沟槽 BPM 数字命中（§5 手势仲裁：单击数字 = 就地编辑；返回该 BPM 的 beat） */
+    const hitBpmLabel = (cx: number, cy: number): number | null => {
+        const { trackBgX } = geometry.trackGeometry(viewport.scale);
+        if (cx >= trackBgX) return null;
+        const fontPx = Math.round(GUTTER_LABEL_FONT_PX * (display.labelScale ?? 1));
+        const half = fontPx / 2 + 4; // 与绘制同款垂直居中 + 少量容差
+        for (const n of notes) {
+            if (n.type !== 'BPM') continue;
+            const y = virtualToCanvas(0, beatToVirtualY(n.beat)).y;
+            if (Math.abs(cy - y) <= half) return n.beat;
         }
-        // Ctrl+左键 → 选中整条滑条（{kind:'note'}）；否则选命中的子部分
-        const target: SelectionItem = ctrl ? { kind: 'note', noteIndex: hit.noteIndex } : hit;
-        if (additive) {
-            const exists = selectedItems.some(it => sameItem(it, target));
-            if (exists) {
-                setSelectedItems(selectedItems.filter(it => !sameItem(it, target)));
-            } else {
-                // 加选整条时，清掉同一滑条的既有子部分选择（ADR §6.1 整条与子部分互斥）
-                const filtered = ctrl ? selectedItems.filter(it => it.noteIndex !== target.noteIndex) : selectedItems;
-                setSelectedItems([...filtered, target]);
-            }
-        } else {
-            setSelectedItems([target]);
+        return null;
+    };
+
+    // 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）
+    const hitStartMarker = (cx: number, cy: number): boolean => {
+        if (markerBeat === null) return false;
+        const { trackBgX } = geometry.trackGeometry(viewport.scale);
+        if (cx >= trackBgX) return false;
+        const markerVirtualY = beatToVirtualY(markerBeat);
+        const markerCanvasY = virtualToCanvas(0, markerVirtualY).y;
+        return Math.abs(cy - markerCanvasY) < 10 * viewport.scale;
+    };
+
+    /** 矩阵 op 应用器：逐条执行 ToolActionMatrix（§2/§3 纯调度层）输出的副作用指令。
+     *  一次手势内 setNotes 至多一条 = 一个可回退快照（§8） */
+    const applyOps = (ops: MatrixOp[]) => {
+        for (const op of ops) {
+            if (op.t === 'setNotes') handleNotesChange(op.notes);
+            else if (op.t === 'setSelection') setSelectedItems(op.items);
+            else if (op.t === 'setClipboard') setClipboard(op.notes);
+            else if (op.t === 'setSlideBuffer') setSlideBuffer(op.point);
+            else if (op.t === 'openBpmEditor') setBpmEdit({ beat: op.beat, value: op.value });
         }
     };
 
-    const selectItemsInBox = (box: { x1: number; y1: number; x2: number; y2: number }) => {
-        setSelectedItems(computeItemsInBox(box, { geometry, viewport, beatDisplay, notes }));
-        setMarkerSelected(false); // 起点标记与音符选择互斥（ADR-0004 §4）
+    /** §5：提交就地编辑（Enter / 失焦）。无效数值 = 取消编辑（保留放置时已应用的值） */
+    const commitBpmEdit = () => {
+        if (!bpmEdit) return;
+        const v = parseInt(bpmEdit.value, 10);
+        const beat = bpmEdit.beat;
+        setBpmEdit(null);
+        if (Number.isNaN(v) || v <= 0) return;
+        const idx = notes.findIndex(n => n.type === 'BPM' && Math.abs(n.beat - beat) < 1e-9);
+        if (idx < 0) return; // 标记已不在（undo 等）→ 放弃
+        const cur = notes[idx] as BpmNote;
+        if (cur.bpm !== v) {
+            lastBpmRef.current = v;
+            handleNotesChange(notes.map((n, i) => i === idx ? { ...cur, bpm: v } : n));
+        }
+    };
+
+    // 就地编辑输入框挂载即聚焦全选（光标置于数字内，§5）
+    const attachBpmInput = useCallback((el: HTMLInputElement | null) => {
+        if (el) { el.focus(); el.select(); }
+    }, []);
+
+    /** §2 框选矩阵（行语义在 ToolActionMatrix.boxSelectOps，逐行锁单测）：
+     *  指针行 = 建立选区 + 标记互斥（本地语义），其余工具族行 = 纯调度输出 op */
+    const applyBoxAction = (box: { x1: number; y1: number; x2: number; y2: number }) => {
+        const items = computeItemsInBox(box, { geometry, viewport, beatDisplay, notes });
+        if (armedTool === null) {
+            setSelectedItems(items);
+            setMarkerSelected(false); // 起点标记与音符选择互斥（ADR-0004 §4）
+        } else {
+            applyOps(boxSelectOps(armedTool, notes, items));
+        }
+    };
+
+    /** §2 单击矩阵（未达拖拽阈值的快速起按）；坐标为虚拟锚定的按下点（bug 32） */
+    const handleToolClick = (cx: number, cy: number, e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
+        // §5 手势仲裁：任何工具态下单击沟槽 BPM 数字 = 就地编辑（无需切回 BPM 工具）。
+        // 用"既有值"打开编辑器，与 BPM 工具点击的"lastBpm 覆盖后编辑"是两条路径（§5）
+        const labelBeat = hitBpmLabel(cx, cy);
+        if (labelBeat !== null) {
+            const n = notes.find(nt => nt.type === 'BPM' && Math.abs(nt.beat - labelBeat) < 1e-9) as BpmNote | undefined;
+            if (n) { setBpmEdit({ beat: labelBeat, value: String(n.bpm) }); return; }
+        }
+        if (armedTool === null) {
+            // 指针：标记线 / 音符选中（Shift 加选、Ctrl 整条滑条）/ 空白清空选区
+            if (hitStartMarker(cx, cy)) {
+                setSelectedItems([]);
+                setMarkerSelected(true);
+            } else {
+                selectItemAtPoint(cx, cy, e.shiftKey, e.ctrlKey || e.metaKey);
+            }
+            return;
+        }
+        // 动作族（C/X/T/Q）才需要音符命中（空白=无效果不清选区）；其余行只吃栅格落点
+        const needHit = armedTool === 'copy' || armedTool === 'cut'
+            || armedTool === 'delete' || armedTool === 'mirror';
+        const hit = needHit
+            ? findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize })
+            : null;
+        applyOps(clickOps({
+            tool: armedTool, notes, hit,
+            pos: snapPos(cx, cy),
+            slideBuffer: bufferPoint,
+            lastBpm: lastBpmRef.current,
+            clipboard,
+        }));
+    };
+
+    /** §6：指针态按下音符 → 建立拖拽候选（命中 ∈ 选区且选区≥2 → 组拖，否则单拖命中项） */
+    const beginDragCandidate = (cx: number, cy: number) => {
+        const hit = findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
+        if (!hit) return;
+        const inSelection = selectedItems.some(it => sameSelectionItem(it, hit));
+        const source = inSelection && selectedItems.length >= 2 ? selectedItems : [hit];
+        const items = draggableFromItems(notes, source);
+        if (items.length === 0) return; // BPM/System/区域等非可拖对象 → 退回框选
+        const p = snapPos(cx, cy);
+        if (!p) return;
+        dragRef.current = { items, pressBeat: p.beat, pressLane: p.lane };
+    };
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        if (e.button !== 0) return; // 只响应左键（右键走 contextmenu）
+        const pos = cssToCanvas(e);
+        if (!pos) return;
+        // bug 32：起点同时存画布坐标（拖拽阈值/渲染基线）与虚拟坐标（滚动时锚定谱面时刻）
+        const v = canvasToVirtual(pos.x, pos.y);
+        selectionStartRef.current = { x: pos.x, y: pos.y, vx: v.x, vy: v.y };
+        selectionMovedRef.current = false;
+        setSelectionBox(null);
+        setDragGhost(null);
+        dragRef.current = null;
+        // 拖拽移动只存在于指针态（§6"其他持工具态下拖拽一律 = 框选"）；标记线上按下不拖音符
+        if (armedTool === null && !hitStartMarker(pos.x, pos.y)) {
+            beginDragCandidate(pos.x, pos.y);
+        }
+    };
+
+    /** 当前按下点相对拖拽锚的栅格位移（吸附 = beat 栅格 × lane 整格，与放置同规则） */
+    const dragDelta = (mx: number, my: number) => {
+        const drag = dragRef.current;
+        if (!drag) return null;
+        const cur = snapPos(mx, my);
+        if (!cur) return null;
+        return { dBeat: cur.beat - drag.pressBeat, dLane: cur.lane - drag.pressLane };
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        const canvasPos = cssToCanvas(e);
+        if (!canvasPos) return;
+        const mouseX = canvasPos.x;
+        const mouseY = canvasPos.y;
+        // 记录悬停位置（供工具态预览：放置/粘贴/镜像）
+        setHoverPos({ cx: mouseX, cy: mouseY });
+        // 更新状态栏鼠标位置与粘贴/执行键锚点
+        const pos = getLaneBeatFromCanvas(mouseX, mouseY);
+        if (pos) {
+            setMousePosition({ beat: pos.preciseBeat, lane: pos.lane });
+        } else {
+            setMousePosition(null);
+        }
+        if (!selectionStartRef.current) return;
+        const start = selectionStartRef.current;
+        const dx = mouseX - start.x;
+        const dy = mouseY - start.y;
+        if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return;
+        selectionMovedRef.current = true;
+        if (dragRef.current) {
+            // §6 指针态移动：幽灵预览 = 合法落点下的移动结果；非法 → 隐藏幽灵（松手回弹）
+            const d = dragDelta(mouseX, mouseY);
+            if (!d || (d.dBeat === 0 && d.dLane === 0)) { setDragGhost(null); return; }
+            const r = planDragMove(notes, dragRef.current.items, d, { chartEndBeat });
+            if (r.ok) {
+                setDragGhost(r.notes.filter((n, i) => n !== notes[i]));
+            } else {
+                setDragGhost(null);
+            }
+            return;
+        }
+        // §2 原则2：任何持工具态都可框选（原 mouse||mirror 门控废除）
+        // bug 32：以虚拟坐标求矩（起点锚定谱面时刻/轨道），再转回画布坐标供渲染/命中——
+        // 即使拖拽过程中滚动，起点对应的拍点也不漂移（"长截图"式选区）
+        const cur = canvasToVirtual(mouseX, mouseY);
+        const p1 = virtualToCanvas(start.vx, start.vy);
+        const p2 = virtualToCanvas(cur.x, cur.y);
+        setSelectionBox({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+    };
+
+    const handleMouseUp = (e: React.MouseEvent) => {
+        const start = selectionStartRef.current;
+        const moved = selectionMovedRef.current;
+        const box = selectionBox;
+        const drag = dragRef.current;
+        selectionStartRef.current = null;
+        dragRef.current = null;
+        setSelectionBox(null);
+        setDragGhost(null);
+        if (!start || e.button !== 0) return;
+
+        if (moved && drag) {
+            // §6 松手提交：合法 → 单次 handleNotesChange（一个快照）+ 拖拽集合保留为选区；非法 → 回弹
+            const pos = cssToCanvas(e);
+            const d = pos ? dragDelta(pos.x, pos.y) : null;
+            if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
+                const r = planDragMove(notes, drag.items, d, { chartEndBeat });
+                if (r.ok) {
+                    handleNotesChange(r.notes);
+                    setSelectedItems(r.items);
+                }
+            }
+            return;
+        }
+        if (moved) {
+            if (box) applyBoxAction(box);
+            return;
+        }
+        // 单击（<阈值）：bug 32 以虚拟起点反解画布坐标，滚动后仍命中原谱面位置
+        const p = virtualToCanvas(start.vx, start.vy);
+        handleToolClick(p.x, p.y, e);
+    };
+
+    // 左沟槽双击：放置/删除临时起点标记（ADR-0004）。BPM 数字位上让位给单击就地编辑（§5 手势仲裁）
+    const handleDoubleClick = (e: React.MouseEvent) => {
+        const pos = cssToCanvas(e);
+        if (!pos) return;
+        const { trackBgX } = geometry.trackGeometry(viewport.scale);
+        if (pos.x >= trackBgX) return;
+        if (hitBpmLabel(pos.x, pos.y) !== null) return;
+        const virtualY = viewport.scrollY + pos.y / viewport.scale;
+        const beat = virtualYToBeat(virtualY);
+        if (hitStartMarker(pos.x, pos.y)) {
+            setMarkerBeat(null);
+            setMarkerSelected(false);
+            return;
+        }
+        const snapped = Math.round(beat * beatDisplay) / beatDisplay;
+        setMarkerSelected(true);
+        setSelectedItems([]);
+        setMarkerBeat(snapped);
+    };
+
+    // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
+    const handleContextMenu = (e: React.MouseEvent) => {
+        e.preventDefault();
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const hit = findItemAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes });
+        if (!hit) return;
+        setSelectedItems([hit]);
+        handleNotesChange(deleteSelection(notes, [hit]));
     };
 
     // ---------------------------
@@ -288,7 +530,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             clipboard,
             markerBeat,
             markerSelected,
-            selectedTool,
+            armedTool,
+            dragGhost,
             spriteIcon: spriteIcon.current,
             noteIcons,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
@@ -309,7 +552,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, selectedTool, hoverPos, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, armedTool, hoverPos, dragGhost, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background]);
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {
@@ -325,7 +568,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     }, [chartEndVirtualY, viewport.scale, viewport.virtualHeight, surf, geometry]);
 
     // ---------------------------
-    // 事件处理
+    // 事件处理（滚轮例外：原生 listener，需 passive:false）
     // ---------------------------
     // 渲染面动态化（ADR-0006 §1）：几何/命中/绘制均用 CSS 像素坐标（缓冲 = surface × dpr，绘制时 setTransform）。
     // 事件坐标取自 getBoundingClientRect（CSS 显示像素），与几何坐标同基准，无需再换算。
@@ -368,256 +611,54 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 普通滚轮滚动由父容器处理，不在这里处理
     }, [geometry, viewport, cssToCanvas, setScale]);
 
+    // 暴露方法给父组件（候选 1 收窄 + ADR-0008 执行键入口；factory 每次渲染重建 → 闭包恒新）
+    useImperativeHandle(ref, () => ({
+        setScrollY: (scrollY: number) => {
+            setViewport(prev => {
+                const scaledBounds = getScaledVirtualBounds(prev.scale);
+                const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / prev.scale, scrollY));
+                return {
+                    ...prev,
+                    scrollY: newScrollY
+                };
+            });
+        },
+        // 起点标记访问（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除
+        getMarkerBeat: () => markerBeat,
+        setMarkerBeat: (beat: number | null) => { setMarkerBeat(beat); },
+        getMarkerSelected: () => markerSelected,
+        setMarkerSelected: (sel: boolean) => setMarkerSelected(sel),
+        clearMarker: () => { setMarkerBeat(null); setMarkerSelected(false); },
+        // Esc 四档链第②档（ADR-0008 §7）：有待连接滑条锚点才消费本次 Esc（返回值供 Editor 决定是否落档）
+        cancelPendingSlide: () => {
+            if (slideBuffer === null) return false;
+            setSlideBuffer(null);
+            return true;
+        },
+        // ADR-0008 §3 执行键（Ctrl+` / Ctrl+E）：经 ref 进画布，与鼠标路径共用 ToolActionMatrix 调度
+        execBpm: () => {
+            applyOps(execBpmOps({
+                notes, selectedItems, cursor: mousePosition,
+                slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
+            }));
+        },
+        execSlide: () => {
+            applyOps(execSlideOps({
+                notes, selectedItems, cursor: mousePosition,
+                slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
+            }));
+        },
+    }));
+
     // 切换离开滑条工具时清空待连接锚点（防止残留红点）
     useEffect(() => {
-        if (selectedTool !== "slide") {
+        if (armedTool !== "slide") {
             setSlideBuffer(null);
         }
-    }, [selectedTool]);
+    }, [armedTool]);
 
-    // 切换离开鼠标工具时清除音符选中态（issue 57 bug1）：选中高亮是鼠标工具的操作反馈，
-    // 切走后已无对应交互上下文，残留会误导后续工具的作用对象。
-    // 镜像/复制等工具在自己手势内写入的选中不受影响（本 effect 只在工具切换瞬间触发）。
-    useEffect(() => {
-        if (selectedTool !== "mouse") {
-            setSelectedItems([]);
-            setMarkerSelected(false); // 起点标记选中与音符选择同属鼠标交互，一并清除（标记本体保留）
-        }
-    }, [selectedTool, setSelectedItems]);
+    // （ADR-0008 §1 对象轴）原"切换离开鼠标工具清选区"effect 已删除：选区常驻、与持工具态解耦。
 
-    const handleMouseDown = useCallback((e: React.MouseEvent) => {
-        // 鼠标 / 镜像工具态：记录圈选起点，支持点击单选与拖拽圈选（镜像框选用于预览+批量执行）
-        if (selectedTool === "mouse" || selectedTool === "mirror") {
-            const pos = cssToCanvas(e);
-            if (!pos) return;
-            // bug 32：起点同时存画布坐标（拖拽阈值/渲染基线）与虚拟坐标（滚动时锚定谱面时刻）
-            const v = canvasToVirtual(pos.x, pos.y);
-            selectionStartRef.current = { x: pos.x, y: pos.y, vx: v.x, vy: v.y };
-            selectionMovedRef.current = false;
-            setSelectionBox(null);
-        }
-    }, [selectedTool, canvasToVirtual]);
-
-    const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        const canvasPos = cssToCanvas(e);
-        if (!canvasPos) return;
-        const mouseX = canvasPos.x;
-        const mouseY = canvasPos.y;
-        // 记录悬停位置（供工具态预览：放置/粘贴/镜像）
-        setHoverPos({ cx: mouseX, cy: mouseY });
-        // 更新状态栏鼠标位置与粘贴锚点
-        const pos = getLaneBeatFromCanvas(mouseX, mouseY);
-        if (pos) {
-            setMousePosition({ beat: pos.preciseBeat, lane: pos.lane });
-        } else {
-            setMousePosition(null);
-        }
-        // 鼠标 / 镜像工具态：拖拽更新圈选矩形
-        if ((selectedTool === "mouse" || selectedTool === "mirror") && selectionStartRef.current) {
-            const start = selectionStartRef.current;
-            const dx = mouseX - start.x;
-            const dy = mouseY - start.y;
-            if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-                selectionMovedRef.current = true;
-                // bug 32：以虚拟坐标求矩（起点锚定谱面时刻/轨道），再转回画布坐标供渲染/命中——
-                // 即使拖拽过程中滚动，起点对应的拍点也不漂移（"长截图"式选区）
-                const cur = canvasToVirtual(mouseX, mouseY);
-                const p1 = virtualToCanvas(start.vx, start.vy);
-                const p2 = virtualToCanvas(cur.x, cur.y);
-                setSelectionBox({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
-            }
-        }
-    }, [geometry, viewport, setMousePosition, beatDisplay, selectedTool, cssToCanvas, canvasToVirtual, virtualToCanvas]);
-
-    // 处理鼠标点击事件（放置音符 / 滑条连接 / BPM）
-    const handleClick = useCallback((e: React.MouseEvent) => {
-        // 鼠标状态下的选择（点击/圈选）已在 mouseup 中处理，这里直接跳过
-        if (selectedTool === "mouse") return;
-        const pos = cssToCanvas(e);
-        if (!pos) return;
-        const mouseX = pos.x;
-        const mouseY = pos.y;
-        const { trackBgX } = geometry.trackGeometry(viewport.scale);
-        const relativeX = mouseX - trackBgX;
-        const lane = Math.floor(relativeX / (LANE_WIDTH * viewport.scale));
-        const virtualY = viewport.scrollY + mouseY / viewport.scale;
-        const beat = virtualYToBeat(virtualY);
-
-        // issue 57 bug2：带待连接滑条锚点时，点击画布内非法放置位置（轨道左右/沟槽外、beat<0、
-        // 超出谱面末端）= 本次放置失败 → 取消锚点回到未放置状态，避免下一次有效点击从不慎遗忘的
-        // 旧锚点连线。画布外点击（滚动条/工具栏）不取消：拉滚动条去够远处的第二点是正常工作流。
-        const cancelPendingSlide = () => { if (slideBuffer !== null) setSlideBuffer(null); };
-
-        if (lane >= 0 && lane < LANES && beat >= 0) {
-            const subBeatPosition = beat * beatDisplay;
-            const nearestSubBeat = Math.round(subBeatPosition);
-            const preciseBeat = nearestSubBeat / beatDisplay;
-
-            // ADR-0005 §5：超出谱面长度（显式末端）的放置一律禁止；需先手动加长谱面再放置
-            if (preciseBeat > chartEndBeat + 1e-6) {
-                cancelPendingSlide();
-                return;
-            }
-
-            if (selectedTool === "single" || selectedTool === "flick" || selectedTool === "skill"
-                || selectedTool === "ldirectional" || selectedTool === "rdirectional") {
-                const result = handleNoteReplacement(notes, preciseBeat, lane, 0, selectedTool);
-                if (result.shouldReplace) {
-                    handleNotesChange(result.newNotes);
-                }
-            } else if (selectedTool === "slide") {
-                const point = { beat: preciseBeat, lane, subBeat: 0 };
-                if (!slideBuffer) {
-                    setSlideBuffer(point);
-                } else {
-                    const sameBeat =
-                        slideBuffer.beat === point.beat &&
-                        (slideBuffer.subBeat || 0) === (point.subBeat || 0);
-                    if (sameBeat) {
-                        setSlideBuffer(null);
-                    } else {
-                        const comb = handleSlideToSlideCombination(notes, [slideBuffer, point]);
-                        if (comb.shouldCombine) {
-                            handleNotesChange(comb.newNotes);
-                        } else {
-                            const newNotes = [...comb.newNotes];
-                            const [start, end] = [slideBuffer, point].sort(
-                                (a, b) => (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0))
-                            );
-                            newNotes.push({ type: "Slide", connections: [start, end] });
-                            handleNotesChange(newNotes);
-                        }
-                    }
-                    setSlideBuffer(null);
-                }
-            } else if (selectedTool === "bpm") {
-                const bpm = parseInt(prompt("请输入 BPM 数值") || "0", 10);
-                if (!isNaN(bpm) && bpm > 0) {
-                    const newNote: ChartNote = {
-                        beat: preciseBeat,
-                        type: "BPM",
-                        bpm: bpm
-                    };
-                    handleNotesChange([...notes, newNote]);
-                }
-            }
-        } else {
-            cancelPendingSlide();
-        }
-    }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer, chartEndBeat, cssToCanvas]);
-
-    // 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）
-    const hitStartMarker = useCallback((cx: number, cy: number): boolean => {
-        if (markerBeat === null) return false;
-        const { trackBgX } = geometry.trackGeometry(viewport.scale);
-        if (cx >= trackBgX) return false;
-        const markerVirtualY = beatToVirtualY(markerBeat);
-        const markerCanvasY = virtualToCanvas(0, markerVirtualY).y;
-        return Math.abs(cy - markerCanvasY) < 10 * viewport.scale;
-    }, [geometry, markerBeat, viewport]);
-
-    // 左沟槽双击：放置/删除临时起点标记
-    const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-        const pos = cssToCanvas(e);
-        if (!pos) return;
-        const { trackBgX } = geometry.trackGeometry(viewport.scale);
-        if (pos.x >= trackBgX) return;
-        const virtualY = viewport.scrollY + pos.y / viewport.scale;
-        const beat = virtualYToBeat(virtualY);
-        if (hitStartMarker(pos.x, pos.y)) {
-            setMarkerBeat(null);
-            setMarkerSelected(false);
-            return;
-        }
-        const snapped = Math.round(beat * beatDisplay) / beatDisplay;
-        setMarkerSelected(true);
-        setSelectedItems([]);
-        setMarkerBeat(snapped);
-    }, [geometry, viewport, beatDisplay, cssToCanvas, hitStartMarker]);
-
-    const handleMouseUp = useCallback((e: React.MouseEvent) => {
-        const pos = cssToCanvas(e);
-        const mx = pos ? pos.x : 0;
-        const my = pos ? pos.y : 0;
-
-        // 镜像工具态：单点点击命中即镜像；拖拽圈选 → 预览（渲染时）+ 松手批量镜像
-        if (selectedTool === "mirror") {
-            if (selectionStartRef.current && selectionMovedRef.current && selectionBox) {
-                const items = computeItemsInBox(selectionBox, { geometry, viewport, beatDisplay, notes });
-                setSelectedItems(items);
-                if (items.length > 0) {
-                    items.forEach(it => editToolAction('mirror', it));
-                }
-            } else {
-                const hit = findItemAt(mx, my, { geometry, viewport, beatDisplay, notes });
-                if (hit) editToolAction('mirror', hit);
-            }
-            selectionStartRef.current = null;
-            setSelectionBox(null);
-            return;
-        }
-
-        // 复制/剪切/删除工具态：点击命中音符即执行
-        if (selectedTool === "copy" || selectedTool === "cut" || selectedTool === "delete") {
-            const hit = findItemAt(mx, my, { geometry, viewport, beatDisplay, notes });
-            if (hit) editToolAction(selectedTool, hit);
-            selectionStartRef.current = null;
-            setSelectionBox(null);
-            return;
-        }
-
-        // 粘贴工具态：点击位置即粘贴
-        if (selectedTool === "paste" && editToolPaste) {
-            const pos2 = getLaneBeatFromCanvas(mx, my);
-            if (pos2) editToolPaste({ beat: pos2.preciseBeat, lane: pos2.lane });
-            selectionStartRef.current = null;
-            setSelectionBox(null);
-            return;
-        }
-
-        // 鼠标状态下完成点选或圈选
-        if (selectedTool !== "mouse" || !selectionStartRef.current) {
-            selectionStartRef.current = null;
-            setSelectionBox(null);
-            return;
-        }
-
-        if (selectionMovedRef.current && selectionBox) {
-            selectItemsInBox(selectionBox);
-        } else {
-            const start = selectionStartRef.current;
-            if (start) {
-                // bug 32：单击也以虚拟起点反解画布坐标，滚动后仍命中原拍点（起点锚定谱面坐标）
-                const p = virtualToCanvas(start.vx, start.vy);
-                if (hitStartMarker(p.x, p.y)) {
-                    setSelectedItems([]);
-                    setMarkerSelected(true);
-                } else {
-                    selectItemAtPoint(p.x, p.y, e.shiftKey, e.ctrlKey || e.metaKey);
-                }
-            }
-        }
-
-        selectionStartRef.current = null;
-        setSelectionBox(null);
-    }, [selectedTool, selectionBox, notes, selectedItems, computeItemsInBox, editToolAction, editToolPaste, findItemAt, getLaneBeatFromCanvas, cssToCanvas, hitStartMarker, virtualToCanvas]);
-
-    // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
-    const handleContextMenu = useCallback((e: React.MouseEvent) => {
-        e.preventDefault();
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        const hit = findItemAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes });
-        if (!hit) return;
-        setSelectedItems([hit]);
-        handleNotesChange(deleteSelection(notes, [hit]));
-    }, [notes, findItemAt]);
-
-    // ---------------------------
-    // 生命周期和效果
-    // ---------------------------
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -646,7 +687,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         renderCanvas();
     }, [renderCanvas, viewport.scale, geometry, scale]);
 
-    // 回到工作台强制补一帧（issue 29 用户反馈2）：五页保活挂载（AppShell），离开工作台期间背景皮肤的
+    // 回到工作台强制补一帧（issue 29 用户反馈2）：五页保活挂载（AppShell），离开工作台期间的背景皮肤的
     // 换图/开关/透明度变化不经过任何画布交互路径，可能停在旧帧直到用户滚动。经 ref 取最新 renderCanvas，
     // 仅在 active 翻转为 true 时补绘一次，不增加交互帧成本。
     const paintOnActivateRef = useRef<() => void>(() => {});
@@ -714,6 +755,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         [notes, playheadBeat],
     );
 
+    // ADR-0008 §5：BPM 就地编辑输入框定位——覆盖在沟槽数字上（与 layoutGutterLabel 同款锚定：
+    // 右缘 = 轨道左外缘 − 8px，垂直居中于 BPM 线、钳进画布）
+    let bpmInputBox: { left: number; top: number; width: number; height: number; fontPx: number } | null = null;
+    if (bpmEdit) {
+        const fontPx = Math.round(GUTTER_LABEL_FONT_PX * (display.labelScale ?? 1));
+        const { trackStartX } = geometry.trackGeometry(viewport.scale);
+        const rightEdge = trackStartX - BPM_LABEL_GAP_PX;
+        const width = Math.max((bpmEdit.value.length || 3) * fontPx * 0.62 + 8, fontPx * 2);
+        const lineY = virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y;
+        const centerY = Math.min(Math.max(lineY, fontPx / 2), surf.h - fontPx / 2);
+        bpmInputBox = { left: Math.max(0, rightEdge - width), top: centerY - fontPx / 2 - 3, width, height: fontPx + 6, fontPx };
+    }
+
     // issue 50（Q24 a）：surface 为 null 时不渲染（chartArea 还未就绪；保护所有依赖 surface 的几何/绘制）
     if (!surface) return null;
 
@@ -742,35 +796,78 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 alignItems: 'center',
                 overflow: 'hidden' // 禁用滚动条
             }}>
-                <canvas
-                    ref={canvasRef}
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onContextMenu={handleContextMenu}
-                    onDoubleClick={handleDoubleClick}
-                    onMouseLeave={() => { setMousePosition(null); setHoverPos(null); }} // issue 54：hoverPos 一并清空，实时显示线不残留
-                    onClick={handleClick}
-                    style={{
-                        backgroundColor: '#000000',
-                        display: 'block',
-                        userSelect: 'none',
-                        boxSizing: 'border-box', // issue 50：border 算进尺寸，避免比父级宽 2px 触发 overflow
-                        border: '1px solid #333',
-                        // ADR-0006 §1：canvas 缓冲 = surface × dpr（renderChart 设置）；React 不触碰缓冲属性
-                        // （不在 JSX 里写 width={surf.w} 作为 HTML 属性，那会重设缓冲并触发错帧）。
-                        // CSS 尺寸改为跟随 surf 本身（而非 100%）：缓冲 = surf×dpr，若 CSS 盒 = 容器实时宽（100%），
-                        // 二者在面板展开/收起的 200ms width 过渡期间不同步——容器实时变宽/窄，surf 与缓冲滞后约一帧，
-                        // 浏览器把缓冲拉伸到 CSS 盒 → 轨道横向被拉宽再回弹（单侧几乎不可见，双侧折叠容器每帧变化翻倍、
-                        // 误差翻倍即可见）。改为 CSS = surf 后缓冲与 CSS 盒恒等 → 无拉伸；即便某帧 surf 略旧，画布只是
-                        // 在外层 #000 包装里居中、边缘留一条同为 #000 的黑缝（黑配黑不可见），轨道比例始终精确。
-                        // 稳态（surf==容器宽）与原 100% 行为一致；getBoundingClientRect 命中坐标也与绘制空间对齐。
-                        width: surf.w,
-                        height: surf.h,
-                        position: 'relative',
-                        zIndex: 10 // 确保Canvas在最上层
-                    }}
-                />
+                {/* 画布盒（尺寸=surf）：canvas 与 BPM 就地编辑输入框共锚于此，输入框坐标=画布坐标 */}
+                <div style={{ position: 'relative', width: surf.w, height: surf.h, flexShrink: 0 }}>
+                    <canvas
+                        ref={canvasRef}
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onContextMenu={handleContextMenu}
+                        onDoubleClick={handleDoubleClick}
+                        onMouseLeave={() => {
+                            // issue 54：hoverPos 一并清空，实时显示线不残留；离开画布 = 取消进行中的按下手势
+                            setMousePosition(null); setHoverPos(null);
+                            selectionStartRef.current = null;
+                            selectionMovedRef.current = false;
+                            dragRef.current = null;
+                            setSelectionBox(null);
+                            setDragGhost(null);
+                        }}
+                        style={{
+                            backgroundColor: '#000000',
+                            display: 'block',
+                            userSelect: 'none',
+                            boxSizing: 'border-box', // issue 50：border 算进尺寸，避免比父级宽 2px 触发 overflow
+                            border: '1px solid #333',
+                            // ADR-0006 §1：canvas 缓冲 = surface × dpr（renderChart 设置）；React 不触碰缓冲属性
+                            // （不在 JSX 里写 width={surf.w} 作为 HTML 属性，那会重设缓冲并触发错帧）。
+                            // CSS 尺寸改为跟随 surf 本身（而非 100%）：缓冲 = surf×dpr，若 CSS 盒 = 容器实时宽（100%），
+                            // 二者在面板展开/收起的 200ms width 过渡期间不同步——容器实时变宽/窄，surf 与缓冲滞后约一帧，
+                            // 浏览器把缓冲拉伸到 CSS 盒 → 轨道横向被拉宽再回弹（单侧折叠几乎不可见，双侧折叠容器每帧变化翻倍、
+                            // 误差翻倍即可见）。改为 CSS = surf 后缓冲与 CSS 盒恒等 → 无拉伸；即便某帧 surf 略旧，画布只是
+                            // 在外层 #000 包装里居中、边缘留一条同为 #000 的黑缝（黑配黑不可见），轨道比例始终精确。
+                            // 稳态（surf==容器宽）与原 100% 行为一致；getBoundingClientRect 命中坐标也与绘制空间对齐。
+                            width: surf.w,
+                            height: surf.h,
+                            position: 'relative',
+                            zIndex: 10 // 确保Canvas在最上层（输入框在其上另设 z）
+                        }}
+                    />
+                    {/* ADR-0008 §5：BPM 数字就地编辑（Enter 应用/Esc 取消/失焦应用；无模态打断）。
+                        输入框焦点属 ADR-0002 §6 快捷键作用域放行，全局分发不抢键 */}
+                    {bpmEdit && bpmInputBox && (
+                        <input
+                            ref={attachBpmInput}
+                            value={bpmEdit.value}
+                            onChange={(e) => setBpmEdit(prev => prev ? { ...prev, value: e.target.value } : prev)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitBpmEdit(); }
+                                else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setBpmEdit(null); }
+                            }}
+                            onBlur={() => commitBpmEdit()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            style={{
+                                position: 'absolute',
+                                left: bpmInputBox.left,
+                                top: bpmInputBox.top,
+                                width: bpmInputBox.width,
+                                height: bpmInputBox.height,
+                                font: `600 ${bpmInputBox.fontPx}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`,
+                                textAlign: 'right',
+                                color: '#e6ecef',
+                                backgroundColor: 'rgba(18, 22, 26, 0.95)',
+                                border: '1px solid #53b8c9',
+                                borderRadius: 3,
+                                padding: '0 4px',
+                                boxSizing: 'border-box',
+                                outline: 'none',
+                                zIndex: 30,
+                            }}
+                        />
+                    )}
+                </div>
 
                 {/* 画布实时信息叠加层（issue 22）：常显，不拦截指针 */}
                 <div style={{

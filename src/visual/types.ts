@@ -55,7 +55,10 @@ export interface RenderCtx {
   clipboard: ChartNote[];
   markerBeat: number | null;
   markerSelected: boolean;
-  selectedTool: string;
+  /** 持工具态（ADR-0008 §1）：null = 指针态。渲染器按此分派幽灵预览（放置/粘贴/镜像） */
+  armedTool: string | null;
+  /** 拖拽移动实时幽灵（ADR-0008 §6）：拖拽中的落点音符（覆盖原位置渲染的临时结果），null = 无拖拽 */
+  dragGhost?: ChartNote[] | null;
   spriteIcon: CanvasSpriteIcon;
   /** 音符皮肤图标集（issue 29）：由组件按 settings.visual.noteSkin 构建注入；换肤时引用变化 → 瓦片经 skinVersion 失效 */
   noteIcons: ActiveNoteIcons;

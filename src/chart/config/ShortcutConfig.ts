@@ -19,6 +19,7 @@ export type FunctionId =
   | 'switchDelete' | 'execDelete'
   | 'switchMirror' | 'execMirror'
   | 'switchMouse'
+  | 'toggleSidebar'
   | 'undo' | 'redo' | 'play' | 'jumpToMarker';
 
 export interface FunctionDef {
@@ -57,6 +58,8 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'switchMirror',       label: '切换-镜像',   category: '镜像', binding: 'q' },
   { id: 'execMirror',         label: '执行-镜像',   category: '镜像', binding: 'ctrl+q' },
   { id: 'switchMouse',        label: '切换-鼠标',   category: '鼠标', binding: 'r' },
+  // ADR-0008 §7：侧栏折叠从 Esc 摘除，进注册表成可自定义功能；语义 = 左右两侧面板折叠/展开 toggle
+  { id: 'toggleSidebar',      label: '侧栏折叠/展开', category: '布局', binding: 'ctrl+b' },
   { id: 'undo',               label: '撤销',        category: '撤销', binding: 'ctrl+z' },
   { id: 'redo',               label: '重做',        category: '重做', binding: 'ctrl+y' },
   { id: 'play',               label: '播放/暂停',   category: '播放', binding: ' ' },

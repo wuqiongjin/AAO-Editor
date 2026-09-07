@@ -48,10 +48,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const config = useConfig();
   const playback = usePlayback();
 
-  const { notes, selectedItems, copy, cut, paste, deleteSelected, mirror, place, undo, redo, resetNotes } = editing;
+  const { notes, selectedItems, setSelectedItems, copy, cut, paste, deleteSelected, mirror, place, undo, redo, resetNotes } = editing;
   const {
     mousePosition,
-    setSelectedTool,
+    armedTool, setArmedTool,
     scale, setScale,
     beatDisplay,
     leftPanelWidth, rightPanelWidth, leftCollapsed, rightCollapsed,
@@ -285,55 +285,75 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     if (mousePosition) paste(mousePosition);
   }, [mousePosition, paste]);
 
-  // 具体功能分发（ADR-0002）：切换功能切换工具态；执行功能立即执行
+  // 具体功能分发（ADR-0002 + ADR-0008 §3）：切换功能 = 持工具态；执行功能 = 光标处瞬时执行（不占工具态）。
+  // BPM/Slide 执行键按 §3 修订语义经画布 ref 执行（就地编辑 / slideBuffer 双入口共用）。
   const runFunction = useCallback((fn: FunctionId) => {
     switch (fn) {
-      case 'switchSingle': setSelectedTool('single'); break;
+      case 'switchSingle': setArmedTool('single'); break;
       case 'execSingle': placeAtCursor('single'); break;
-      case 'switchFlick': setSelectedTool('flick'); break;
+      case 'switchFlick': setArmedTool('flick'); break;
       case 'execFlick': placeAtCursor('flick'); break;
-      case 'switchSkill': setSelectedTool('skill'); break;
+      case 'switchSkill': setArmedTool('skill'); break;
       case 'execSkill': placeAtCursor('skill'); break;
-      case 'switchLDirectional': setSelectedTool('ldirectional'); break;
+      case 'switchLDirectional': setArmedTool('ldirectional'); break;
       case 'execLDirectional': placeAtCursor('ldirectional'); break;
-      case 'switchRDirectional': setSelectedTool('rdirectional'); break;
+      case 'switchRDirectional': setArmedTool('rdirectional'); break;
       case 'execRDirectional': placeAtCursor('rdirectional'); break;
-      case 'switchBpm': setSelectedTool('bpm'); break;
-      case 'execBpm': setSelectedTool('bpm'); break;
-      case 'switchSlide': setSelectedTool('slide'); break;
-      case 'execSlide': setSelectedTool('slide'); break;
-      case 'switchMouse': setSelectedTool('mouse'); break;
-      case 'switchCopy': setSelectedTool('copy'); break;
+      case 'switchBpm': setArmedTool('bpm'); break;
+      case 'execBpm': virtualCanvasRef.current?.execBpm?.(); break;
+      case 'switchSlide': setArmedTool('slide'); break;
+      case 'execSlide': virtualCanvasRef.current?.execSlide?.(); break;
+      case 'switchMouse': setArmedTool(null); break;
+      case 'switchCopy': setArmedTool('copy'); break;
       case 'execCopy': copy(); break;
-      case 'switchPaste': setSelectedTool('paste'); break;
+      case 'switchPaste': setArmedTool('paste'); break;
       case 'execPaste': pasteAtCursor(); break;
-      case 'switchCut': setSelectedTool('cut'); break;
+      case 'switchCut': setArmedTool('cut'); break;
       case 'execCut': cut(); break;
-      case 'switchDelete': setSelectedTool('delete'); break;
+      case 'switchDelete': setArmedTool('delete'); break;
       case 'execDelete': deleteSelectedNotes(); break;
-      case 'switchMirror': setSelectedTool('mirror'); break;
+      case 'switchMirror': setArmedTool('mirror'); break;
       case 'execMirror': mirror(); break;
       case 'undo': undo(); break;
       case 'redo': redo(); break;
       case 'play': togglePlay(); break;
       case 'jumpToMarker': jumpToMarker(); break;
+      case 'toggleSidebar': {
+        // ADR-0008 §7：侧栏折叠从 Esc 摘除 → 独立功能（默认 Ctrl+B），两侧同折同展
+        const anyCollapsed = leftCollapsed || rightCollapsed;
+        if (anyCollapsed) {
+          if (leftCollapsed) toggleLeftPanel();
+          if (rightCollapsed) toggleRightPanel();
+        } else {
+          toggleLeftPanel();
+          toggleRightPanel();
+        }
+        break;
+      }
     }
-  }, [setSelectedTool, placeAtCursor, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, togglePlay, jumpToMarker]);
+  }, [setArmedTool, placeAtCursor, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, togglePlay, jumpToMarker,
+      leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
   useShortcutDispatch({
     shortcutConfig,
     active,
     runFunction,
-    // Esc 优先级链（issue 57 bug2/bug3）：
-    //   1. 谱面代码编辑器弹窗打开 → 由弹窗自身（capture 监听）消费，关闭编辑器，不会走到这里；
-    //   2. 有待连接滑条锚点 → 取消锚点（放置中的临时态先退掉）；
-    //   3. 否则 → 折叠左右侧栏。
+    // Esc 四档链（ADR-0008 §7，先到先吃、只吃一档）：
+    //   ① 弹窗自消费关闭（现状，capture 层）——不会走到这里；BPM 就地编辑输入框同理自消费；
+    //   ② 取消 Slide 临时端点锚；
+    //   ③ 清空选区（含起点标记选中）；
+    //   ④ 持工具态落回指针。
+    // 侧栏折叠已从此链摘除 → 独立功能 toggleSidebar（默认 Ctrl+B）。
     onEscape: useCallback(() => {
       if (virtualCanvasRef.current?.cancelPendingSlide?.()) return;
-      if (!leftCollapsed) toggleLeftPanel();
-      if (!rightCollapsed) toggleRightPanel();
-    }, [leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]),
+      if (selectedItems.length > 0 || virtualCanvasRef.current?.getMarkerSelected?.()) {
+        setSelectedItems([]);
+        virtualCanvasRef.current?.setMarkerSelected?.(false);
+        return;
+      }
+      if (armedTool !== null) setArmedTool(null);
+    }, [selectedItems, armedTool, setSelectedItems, setArmedTool]),
   });
 
   // Editor 不消费 dismissError（音频页已直接调 session）；chartEndKey 已用于重锚 effect 依赖
