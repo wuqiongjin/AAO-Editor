@@ -22,6 +22,19 @@ export function pushHistory<T>(state: HistoryState<T>, item: T): HistoryState<T>
   return { stack, index: stack.length - 1 };
 }
 
+/**
+ * 条件压栈（issue 57 bug4）：与当前快照按 equals 判等 → 视为无操作编辑，原样返回 state。
+ * 不占栈位也不截断 redo 分支（无操作不应销毁可重做的历史）。
+ * 默认 equals 为引用相等；内容语义判等由调用方传入（如 notesEqual）。
+ */
+export function pushHistoryIfChanged<T>(
+  state: HistoryState<T>,
+  item: T,
+  equals: (a: T, b: T) => boolean = Object.is,
+): HistoryState<T> {
+  return equals(currentHistory(state), item) ? state : pushHistory(state, item);
+}
+
 export const canUndo = <T,>(state: HistoryState<T>): boolean => state.index > 0;
 export const canRedo = <T,>(state: HistoryState<T>): boolean => state.index < state.stack.length - 1;
 

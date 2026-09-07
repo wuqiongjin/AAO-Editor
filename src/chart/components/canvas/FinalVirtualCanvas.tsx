@@ -45,6 +45,8 @@ export interface FinalVirtualCanvasHandle {
   getMarkerSelected?: () => boolean;
   setMarkerSelected?: (sel: boolean) => void;
   clearMarker?: () => void;
+  /** Esc 优先级链（issue 57 bug2）：若有待连接滑条锚点则取消并返回 true——Editor 据此决定本次 Esc 是否继续落到折叠侧栏 */
+  cancelPendingSlide?: () => boolean;
 }
 
 // 视口缩放配置
@@ -182,6 +184,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         getMarkerSelected: () => markerSelected,
         setMarkerSelected: (sel: boolean) => setMarkerSelected(sel),
         clearMarker: () => { setMarkerBeat(null); setMarkerSelected(false); },
+        // Esc 取消待连接滑条锚点（issue 57 bug2）：有锚点才消费本次 Esc（返回值供 Editor 决定后续）
+        cancelPendingSlide: () => {
+            if (slideBuffer === null) return false;
+            setSlideBuffer(null);
+            return true;
+        },
     }));
 
     // ---------------------------
@@ -367,6 +375,16 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }
     }, [selectedTool]);
 
+    // 切换离开鼠标工具时清除音符选中态（issue 57 bug1）：选中高亮是鼠标工具的操作反馈，
+    // 切走后已无对应交互上下文，残留会误导后续工具的作用对象。
+    // 镜像/复制等工具在自己手势内写入的选中不受影响（本 effect 只在工具切换瞬间触发）。
+    useEffect(() => {
+        if (selectedTool !== "mouse") {
+            setSelectedItems([]);
+            setMarkerSelected(false); // 起点标记选中与音符选择同属鼠标交互，一并清除（标记本体保留）
+        }
+    }, [selectedTool, setSelectedItems]);
+
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         // 鼠标 / 镜像工具态：记录圈选起点，支持点击单选与拖拽圈选（镜像框选用于预览+批量执行）
         if (selectedTool === "mouse" || selectedTool === "mirror") {
@@ -425,6 +443,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const virtualY = viewport.scrollY + mouseY / viewport.scale;
         const beat = virtualYToBeat(virtualY);
 
+        // issue 57 bug2：带待连接滑条锚点时，点击画布内非法放置位置（轨道左右/沟槽外、beat<0、
+        // 超出谱面末端）= 本次放置失败 → 取消锚点回到未放置状态，避免下一次有效点击从不慎遗忘的
+        // 旧锚点连线。画布外点击（滚动条/工具栏）不取消：拉滚动条去够远处的第二点是正常工作流。
+        const cancelPendingSlide = () => { if (slideBuffer !== null) setSlideBuffer(null); };
+
         if (lane >= 0 && lane < LANES && beat >= 0) {
             const subBeatPosition = beat * beatDisplay;
             const nearestSubBeat = Math.round(subBeatPosition);
@@ -432,6 +455,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
             // ADR-0005 §5：超出谱面长度（显式末端）的放置一律禁止；需先手动加长谱面再放置
             if (preciseBeat > chartEndBeat + 1e-6) {
+                cancelPendingSlide();
                 return;
             }
 
@@ -477,6 +501,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                     handleNotesChange([...notes, newNote]);
                 }
             }
+        } else {
+            cancelPendingSlide();
         }
     }, [selectedTool, selectedItems, setSelectedItems, notes, viewport, beatDisplay, slideBuffer, chartEndBeat, cssToCanvas]);
 

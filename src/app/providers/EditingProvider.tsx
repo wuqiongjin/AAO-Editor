@@ -6,9 +6,10 @@ import type { ChartPosition } from '../../types/chart';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../../chart/editing/SelectionEditing';
 import { handleNoteReplacement, pasteChartNotes } from '../../chart/editing/NoteReplacementRules';
 import {
-  createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
+  createHistory, pushHistoryIfChanged, undoHistory, redoHistory, currentHistory,
   type HistoryState,
 } from '../../chart/editing/History';
+import { notesEqual } from '../../chart/editing/NotesEqual';
 // H5 收口：所有位置参数统一为 ChartPosition（{ beat, lane }）
 export type Position = ChartPosition;
 
@@ -66,7 +67,9 @@ export function EditingProvider({ children }: { children: ReactNode }) {
   const notes = currentHistory(historyState);
 
   const addToHistory = useCallback((newNotes: ChartNote[]) => {
-    setHistoryState(prev => pushHistory(prev, newNotes));
+    // 历史去重（issue 57 bug4）：与当前快照语义相等的无操作编辑（如重复放置同一音符）
+    // 不占栈位——否则 Ctrl+Z 需按同样多次才退得掉第一次的真实改动。
+    setHistoryState(prev => pushHistoryIfChanged(prev, newNotes, notesEqual));
   }, []);
 
   const handleNotesChange = useCallback((newNotes: ChartNote[]) => {
@@ -74,7 +77,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
   }, [addToHistory]);
 
   const setNotes = useCallback((n: ChartNote[]) => {
-    setHistoryState(prev => pushHistory(prev, n));
+    setHistoryState(prev => pushHistoryIfChanged(prev, n, notesEqual));
   }, []);
 
   const resetNotes = useCallback((n: ChartNote[]) => {

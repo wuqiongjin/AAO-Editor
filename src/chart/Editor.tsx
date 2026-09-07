@@ -325,7 +325,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     shortcutConfig,
     active,
     runFunction,
+    // Esc 优先级链（issue 57 bug2/bug3）：
+    //   1. 谱面代码编辑器弹窗打开 → 由弹窗自身（capture 监听）消费，关闭编辑器，不会走到这里；
+    //   2. 有待连接滑条锚点 → 取消锚点（放置中的临时态先退掉）；
+    //   3. 否则 → 折叠左右侧栏。
     onEscape: useCallback(() => {
+      if (virtualCanvasRef.current?.cancelPendingSlide?.()) return;
       if (!leftCollapsed) toggleLeftPanel();
       if (!rightCollapsed) toggleRightPanel();
     }, [leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]),

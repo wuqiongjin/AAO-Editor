@@ -6,7 +6,7 @@
 //     避免 issue 36 RC-A 的受控 textarea 全量赋值 + 巨型文本布局 + gBCR 强制重排主因）。
 //   * 关闭即丢弃草稿：再次打开从画布全新同步，无残留状态泄漏。
 // 文本变换逻辑下沉到 utils/CodeEditorOps（纯函数，可单测）。
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Braces, Copy, RotateCcw, RefreshCw, X } from "lucide-react";
 import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes, hasBeat0Bpm } from '../../editing/ChartConverter';
@@ -85,6 +85,23 @@ export default function ChartCodeEditor() {
         }
         setOpen(false);
     };
+
+    // 弹窗打开期间接管 Esc（issue 57 bug3）：关闭编辑器（含 dirty 丢弃确认），而不是让后面的
+    // 左右侧栏折叠。window 捕获阶段监听、先于 useShortcutDispatch 的冒泡监听，stopPropagation 直接
+    // 截断全局链路；与焦点落点无关（textarea 内全局分发本就放行，但焦点在弹窗按钮上时会漏给折叠侧栏）。
+    const requestCloseRef = useRef(requestClose);
+    requestCloseRef.current = requestClose;
+    useEffect(() => {
+        if (!open) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            requestCloseRef.current();
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+    }, [open]);
 
     // 处理代码变化：压入撤销栈；空代码回到保底状态
     const handleCodeChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
