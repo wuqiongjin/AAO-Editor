@@ -223,6 +223,22 @@ describe('§2 框选矩阵', () => {
   it('slide 行：可吸入 <2 → 无事发生', () => {
     expect(boxSelectOps('slide', [single(1, 1), bpm(2, 120)], noteSel(0, 1))).toEqual([]);
   });
+  it('slide 行（§4 修订·滑条吸入）：框选两个独立滑条（slideNode 条目）→ 串链 + 选区=结果滑条', () => {
+    const notes: ChartNote[] = [slide(1, 1, 2, 2), slide(3, 3, 4, 4)];
+    const items: SelectionItem[] = [0, 1, 2, 3].map(ci =>
+      ({ kind: 'slideNode' as const, noteIndex: ci < 2 ? 0 : 1, connIndex: ci % 2 }));
+    const ops = boxSelectOps('slide', notes, items);
+    expect(ops).toHaveLength(3);
+    const setN = ops[0] as any;
+    const s = setN.notes[setN.notes.length - 1];
+    expect(s.type).toBe('Slide');
+    expect(s.connections.map((c: any) => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]);
+    expect(ops[1]).toEqual({ t: 'setSelection', items: noteSel(setN.notes.length - 1) });
+  });
+  it('slide 行（§4 修订）：单条滑条整框选中（来源=1）→ 无事发生', () => {
+    const items: SelectionItem[] = [0, 1, 2].map(ci => ({ kind: 'slideNode' as const, noteIndex: 0, connIndex: ci }));
+    expect(boxSelectOps('slide', [slide(1, 1, 2, 2, 3, 3)], items)).toEqual([]);
+  });
   it('动作行空框 = 无效果不清选区（C/X/T/Q 四行）', () => {
     for (const tool of ['copy', 'cut', 'delete', 'mirror'] as const) {
       expect(boxSelectOps(tool, [single(1, 1)], [])).toEqual([]);

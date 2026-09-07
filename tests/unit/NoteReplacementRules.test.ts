@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   handleNoteReplacement,
   handleSlideToSlideCombination,
-  deleteSlideSegment
+  deleteSlideSegment,
+  keyTargetsFromItems,
+  batchApplyKeyType,
 } from '../../src/chart/editing/NoteReplacementRules';
-import type { ChartNote } from '../../src/chart/types';
+import type { ChartNote, SlideNote } from '../../src/chart/types';
 
 describe('handleNoteReplacement - 单键/方向键', () => {
   it('在空位放置单键音符', () => {
@@ -346,5 +348,109 @@ describe('deleteSlideSegment - 删除滑条子段（ADR-0001 §6）', () => {
     expect(result).toEqual([
       { beat: 2, lane: 2, subBeat: 0, type: 'Single', flick: true }
     ]);
+  });
+});
+
+// ---- 键型批量框选（ADR-0008 §2 框选矩阵；Issue 55）----
+describe('keyTargetsFromItems（键型框选落点提取）', () => {
+  const singleN = (beat: number, lane: number): ChartNote =>
+    ({ type: 'Single', beat, lane, subBeat: 0 } as ChartNote);
+  const dirLN = (beat: number, lane: number, length = 1): ChartNote =>
+    ({ type: 'LDirectional', beat, lane, subBeat: 0, length });
+  const slideN = (...flat: number[]): ChartNote => {
+    const connections = [];
+    for (let i = 0; i < flat.length; i += 2) connections.push({ beat: flat[i], lane: flat[i + 1], subBeat: 0 });
+    return { type: 'Slide', connections } as ChartNote;
+  };
+  const noteSel = (...idxs: number[]) => idxs.map(i => ({ kind: 'note' as const, noteIndex: i }));
+
+  it('键型音符取自身位置；BPM/System/整条滑条/slideRegion 跳过；slideNode 取结点位置', () => {
+    const notes: ChartNote[] = [
+      singleN(1, 2),            // 0 键型 ✓
+      { type: 'BPM', beat: 2, bpm: 120 },        // 1 跳过
+      slideN(3, 1, 4, 2),       // 2 整条滑条 kind:'note' 跳过
+      dirLN(5, 0),              // 3 键型 ✓
+      { type: 'System', beat: 6, data: 'x' },    // 4 跳过
+    ];
+    const items = [
+      ...noteSel(0, 1, 2, 3, 4),
+      { kind: 'slideNode', noteIndex: 2, connIndex: 1 } as const,  // 滑条第2结点 ✓
+      { kind: 'slideRegion', noteIndex: 2, connIndex: 0 } as const,// 跳过
+    ];
+    expect(keyTargetsFromItems(notes, items)).toEqual([
+      { beat: 1, lane: 2, subBeat: 0 },
+      { beat: 5, lane: 0, subBeat: 0 },
+      { beat: 4, lane: 2, subBeat: 0 },
+    ]);
+  });
+});
+
+describe('batchApplyKeyType（框内逐个应用 ADR-0001 替换规则）', () => {
+  const singleN = (beat: number, lane: number): ChartNote =>
+    ({ type: 'Single', beat, lane, subBeat: 0 } as ChartNote);
+  const dirLN = (beat: number, lane: number, length = 1): ChartNote =>
+    ({ type: 'LDirectional', beat, lane, subBeat: 0, length });
+  const slideN = (...flat: number[]): ChartNote => {
+    const connections = [];
+    for (let i = 0; i < flat.length; i += 2) connections.push({ beat: flat[i], lane: flat[i + 1], subBeat: 0 });
+    return { type: 'Slide', connections } as ChartNote;
+  };
+
+  it('单键工具框选含空位+单键+方向键：空位新增、单键替换、方向键覆盖', () => {
+    const notes: ChartNote[] = [singleN(1, 1), dirLN(2, 2, 2)];
+    const r = batchApplyKeyType(notes, [
+      { beat: 0, lane: 0, subBeat: 0 },  // 空位 → 新增
+      { beat: 1, lane: 1, subBeat: 0 },  // 单键 → 替换（同型仍替换）
+      { beat: 2, lane: 2, subBeat: 0 },  // 方向键 → 替换为单键
+    ], 'single');
+    expect(r.shouldReplace).toBe(true);
+    expect(r.newNotes.filter(n => n.type === 'Single').length).toBe(3);
+    expect(r.newNotes.find(n => n.type === 'LDirectional')).toBeUndefined();
+  });
+
+  it('滑键框选滑条结点：尾部端点加 flick、中间/头部忽略（ADR-0001 §1.2 表）', () => {
+    const notes: ChartNote[] = [singleN(0, 3), slideN(1, 1, 2, 2, 3, 3)]; // 结点 1,1 / 2,2(中) / 3,3(尾)
+    const r = batchApplyKeyType(notes, [
+      { beat: 1, lane: 1, subBeat: 0 },
+      { beat: 2, lane: 2, subBeat: 0 },
+      { beat: 3, lane: 3, subBeat: 0 },
+    ], 'flick');
+    const s = r.newNotes.find(n => n.type === 'Slide') as SlideNote;
+    expect(s.connections.map(c => !!c.flick)).toEqual([false, false, true]);
+  });
+
+  it('技能键框选：两端加 skill、中间忽略', () => {
+    const notes: ChartNote[] = [slideN(1, 1, 2, 2, 3, 3)];
+    const r = batchApplyKeyType(notes, [
+      { beat: 1, lane: 1, subBeat: 0 },
+      { beat: 2, lane: 2, subBeat: 0 },
+      { beat: 3, lane: 3, subBeat: 0 },
+    ], 'skill');
+    const s = r.newNotes.find(n => n.type === 'Slide') as SlideNote;
+    expect(s.connections.map(c => !!c.skill)).toEqual([true, false, true]);
+  });
+
+  it('无可应用落点（如单键框选全是滑条结点）→ shouldReplace=false 且返回原数组引用', () => {
+    const notes: ChartNote[] = [slideN(1, 1, 2, 2)];
+    const targets = [{ beat: 1, lane: 1, subBeat: 0 }, { beat: 2, lane: 2, subBeat: 0 }];
+    const r = batchApplyKeyType(notes, targets, 'single');
+    expect(r.shouldReplace).toBe(false);
+    expect(r.newNotes).toBe(notes);
+  });
+
+  it('方向键框选中间结点 → 拆条生效：左右各 1 结点退化为独立音符 + 方向键本体', () => {
+    const notes: ChartNote[] = [slideN(1, 1, 2, 2, 3, 3)];
+    const r = batchApplyKeyType(notes, [{ beat: 2, lane: 2, subBeat: 0 }], 'ldirectional');
+    expect(r.shouldReplace).toBe(true);
+    expect(r.newNotes.some(n => n.type === 'LDirectional')).toBe(true);
+    expect(r.newNotes.filter(n => n.type === 'Slide').length).toBe(0);
+    expect(r.newNotes.filter(n => n.type === 'Single').length).toBe(2); // 两侧退化
+  });
+
+  it('无就地变异：入参数组不被改动', () => {
+    const notes: ChartNote[] = [singleN(1, 1)];
+    const snap = [...notes];
+    batchApplyKeyType(notes, [{ beat: 2, lane: 2, subBeat: 0 }], 'flick');
+    expect(notes).toEqual(snap);
   });
 });

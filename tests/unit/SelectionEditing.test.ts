@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ChartNote, SelectionItem } from '../../src/chart/types';
-import { deleteSelection, copySelection, cutSelection, mirrorSelection, selectionNoteIndices } from '../../src/chart/editing/SelectionEditing';
+import { deleteSelection, copySelection, cutSelection, mirrorSelection, remapSelection, selectionNoteIndices } from '../../src/chart/editing/SelectionEditing';
 
 // 构造一条 4 结点滑条：E(端点,skill) — A — B — F(端点,flick)
 const slide = (): ChartNote => ({
@@ -148,5 +148,62 @@ describe('mirrorSelection', () => {
     const out = mirrorSelection([slide()], [{ kind: 'note', noteIndex: 0 }]);
     const s = out[0] as any;
     expect(s.connections.map((c: any) => c.lane)).toEqual([6, 5, 4, 3]);
+  });
+});
+
+// ---- remapSelection（ADR-0008 §2.4 批量后选区保留；Issue 55）----
+describe('remapSelection（批量后选区按位置迁移）', () => {
+  const singleN = (beat: number, lane: number): ChartNote =>
+    ({ type: 'Single', beat, lane, subBeat: 0 } as ChartNote);
+  const flickN = (beat: number, lane: number): ChartNote =>
+    ({ ...singleN(beat, lane), flick: true } as ChartNote);
+  const dirLN = (beat: number, lane: number, length = 1): ChartNote =>
+    ({ type: 'LDirectional', beat, lane, subBeat: 0, length });
+  const slideN = (...flat: number[]): ChartNote => {
+    const connections = [];
+    for (let i = 0; i < flat.length; i += 2) connections.push({ beat: flat[i], lane: flat[i + 1], subBeat: 0 });
+    return { type: 'Slide', connections } as ChartNote;
+  };
+  const noteSel = (...idxs: number[]): SelectionItem[] => idxs.map(i => ({ kind: 'note' as const, noteIndex: i }));
+
+  it('键型音符批量替换后下标不变 → 选择保留', () => {
+    const old = [singleN(1, 1), singleN(2, 2)];
+    const next = [flickN(1, 1), flickN(2, 2)];
+    expect(remapSelection(old, noteSel(0, 1), next)).toEqual(noteSel(0, 1));
+  });
+
+  it('被消耗的音符（组合/删除）从选区丢弃', () => {
+    const old = [singleN(1, 1), singleN(2, 2), singleN(3, 3)];
+    const next = [slideN(1, 1, 2, 2, 3, 3)]; // 三个键被组合消耗
+    expect(remapSelection(old, noteSel(0, 1, 2), next)).toEqual([]);
+  });
+
+  it('整条滑条选择 → 起始结点仍在同一条滑条起点则保留', () => {
+    const old: ChartNote[] = [singleN(0, 0), slideN(1, 1, 2, 2)];
+    const next: ChartNote[] = [flickN(0, 0), slideN(1, 1, 2, 2)];
+    expect(remapSelection(old, noteSel(1), next)).toEqual(noteSel(1));
+  });
+
+  it('slideNode → 滑条拆条后迁移到新宿主滑条下标', () => {
+    const old: ChartNote[] = [slideN(1, 1, 2, 2, 3, 3)];
+    const next: ChartNote[] = [slideN(1, 1, 2, 2), dirLN(2, 2), slideN(3, 3, 4, 3)]; // 示意：中间结点独立化
+    const items: SelectionItem[] = [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }];
+    const remapped = remapSelection(old, items, next);
+    expect(remapped).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
+  });
+
+  it('slideRegion：两段结点仍同条相邻才保留', () => {
+    const old: ChartNote[] = [slideN(1, 1, 2, 2, 3, 3)];
+    const items: SelectionItem[] = [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }];
+    const kept = remapSelection(old, items, [slideN(1, 1, 2, 2, 3, 3)]);
+    expect(kept).toEqual(items);
+    const dropped = remapSelection(old, items, [slideN(1, 1), singleN(2, 2)]); // 拆散
+    expect(dropped).toEqual([]);
+  });
+
+  it('BPM 选择按 type+beat 迁移（前面插入音符导致下标移动）', () => {
+    const old: ChartNote[] = [{ type: 'BPM', beat: 0, bpm: 120 }, singleN(1, 1)];
+    const next: ChartNote[] = [singleN(0, 5), { type: 'BPM', beat: 0, bpm: 120 }, singleN(1, 1)];
+    expect(remapSelection(old, noteSel(0), next)).toEqual(noteSel(1));
   });
 });

@@ -385,28 +385,18 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   if (!skipSelection) drawSlideSelection(ctx, c, rc, sel, note, index);
 }
 
-/** 滑条选中高亮（整条黄虚线框 + 结点青圈 + 区域青框）：瓦片内与叠加层共用同一实现，保证视觉逐像素一致 */
+/**
+ * 滑条选中高亮（结点青圈 + 区域青框）：瓦片内与叠加层共用同一实现，保证视觉逐像素一致。
+ * issue 55 验收反馈 #3：原"整条选中 = 黄虚线包围框"在框选组合成功后被误读为多出的辅助线
+ * （组合自动把结果滑条留作选区，虚线框恰罩在新滑条上）→ 废除包围框，整条选中按
+ * "所有结点 + 所有区域高亮"绘制（贴合物本体轮廓）。黄圈/青框整体视觉重做归 issue 56-a。
+ */
 function drawSlideSelection(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, sel: SelectionSets, note: ChartNote, index: number) {
   const connections = (note as SlideNote).connections;
-  const isSelected = isNoteSelected(sel, index);
-  if (isSelected) {
-    const xs = connections.map(cn => c.getNoteVirtualX(cn.lane));
-    const ys = connections.map(cn => c.getNoteVirtualY(cn.beat, cn.subBeat || 0));
-    const minX = Math.min(...xs) - 10, maxX = Math.max(...xs) + 10;
-    const minY = Math.min(...ys) - 10, maxY = Math.max(...ys) + 10;
-    const canvasMin = c.virtualToCanvas(minX, minY);
-    const canvasMax = c.virtualToCanvas(maxX, maxY);
-    ctx.strokeStyle = 'yellow';
-    ctx.lineWidth = 2 * rc.viewport.scale;
-    ctx.setLineDash([5, 5]);
-    ctx.globalAlpha = 0.7;
-    ctx.strokeRect(canvasMin.x, canvasMin.y, canvasMax.x - canvasMin.x, canvasMax.y - canvasMin.y);
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1.0;
-  }
+  const whole = isNoteSelected(sel, index);
 
   connections.forEach((conn, ci) => {
-    if (!isSlideNodeSelected(sel, index, ci)) return;
+    if (!whole && !isSlideNodeSelected(sel, index, ci)) return;
     const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
     ctx.strokeStyle = '#00e5ff';
     ctx.lineWidth = 3 * rc.viewport.scale;
@@ -418,7 +408,7 @@ function drawSlideSelection(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   });
 
   for (let ci = 0; ci < connections.length - 1; ci++) {
-    if (!isSlideRegionSelected(sel, index, ci)) continue;
+    if (!whole && !isSlideRegionSelected(sel, index, ci)) continue;
     const c1 = connections[ci], c2 = connections[ci + 1];
     const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
     const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
