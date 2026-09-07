@@ -211,19 +211,19 @@ describe('§2 框选矩阵', () => {
     expect(boxSelectOps('bpm', [single(1, 1)], noteSel(0))).toEqual([]);
     expect(boxSelectOps('paste', [single(1, 1)], noteSel(0))).toEqual([]);
   });
-  it('slide 行：框选组合成滑条（§4）+ 选区=结果滑条 + 清两击锚点', () => {
+  it('slide 行：框选组合成滑条（§4）+ 完成后清选区（一次性动作，§2 原则 4 例外）+ 清两击锚点', () => {
     const notes: ChartNote[] = [single(1, 1), single(2, 2), bpm(9, 120)];
     const ops = boxSelectOps('slide', notes, noteSel(0, 1));
     expect(ops).toHaveLength(3);
     const setN = ops[0] as any;
     expect(setN.notes[setN.notes.length - 1].type).toBe('Slide'); // 组合滑条在数组末尾
-    expect(ops[1]).toEqual({ t: 'setSelection', items: noteSel(setN.notes.length - 1) });
+    expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
     expect(ops[2]).toEqual({ t: 'setSlideBuffer', point: null });
   });
   it('slide 行：可吸入 <2 → 无事发生', () => {
     expect(boxSelectOps('slide', [single(1, 1), bpm(2, 120)], noteSel(0, 1))).toEqual([]);
   });
-  it('slide 行（§4 修订·滑条吸入）：框选两个独立滑条（slideNode 条目）→ 串链 + 选区=结果滑条', () => {
+  it('slide 行（§4 修订·滑条吸入）：框选两个独立滑条（slideNode 条目）→ 串链 + 完成后清选区', () => {
     const notes: ChartNote[] = [slide(1, 1, 2, 2), slide(3, 3, 4, 4)];
     const items: SelectionItem[] = [0, 1, 2, 3].map(ci =>
       ({ kind: 'slideNode' as const, noteIndex: ci < 2 ? 0 : 1, connIndex: ci % 2 }));
@@ -233,7 +233,19 @@ describe('§2 框选矩阵', () => {
     const s = setN.notes[setN.notes.length - 1];
     expect(s.type).toBe('Slide');
     expect(s.connections.map((c: any) => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]);
-    expect(ops[1]).toEqual({ t: 'setSelection', items: noteSel(setN.notes.length - 1) });
+    expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
+  });
+  it('slide 行（§4 三轮修订·结点级吸入）：两条滑条只框各一个结点 → 也成链', () => {
+    const notes: ChartNote[] = [slide(1, 1, 2, 2), slide(3, 3, 4, 4)];
+    const items: SelectionItem[] = [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 },
+      { kind: 'slideNode', noteIndex: 1, connIndex: 0 },
+    ];
+    const ops = boxSelectOps('slide', notes, items);
+    expect(ops).toHaveLength(3);
+    const chain = ((ops[0] as any).notes.at(-1)) as any;
+    expect(chain.connections.map((c: any) => [c.beat, c.lane])).toEqual([[2, 2], [3, 3]]);
+    expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
   });
   it('slide 行（§4 修订）：单条滑条整框选中（来源=1）→ 无事发生', () => {
     const items: SelectionItem[] = [0, 1, 2].map(ci => ({ kind: 'slideNode' as const, noteIndex: 0, connIndex: ci }));
@@ -285,7 +297,7 @@ describe('§3 execSlideOps（Ctrl+E）', () => {
     expect(ops).toHaveLength(3);
     expect(ops[0].t).toBe('setNotes');
     expect((ops[0] as any).notes).toEqual([slide(1, 1, 2, 2)]); // 两键被吸入，谱面只剩结果滑条
-    expect(ops[1]).toEqual({ t: 'setSelection', items: noteSel(0) });
+    expect(ops[1]).toEqual({ t: 'setSelection', items: [] });    // 组合一次性 → 清选区
     expect(ops[2]).toEqual({ t: 'setSlideBuffer', point: null });
   });
   it('有选区但可吸入 <2 → 无事发生，且不落两击档（定案：无 fall-through）', () => {

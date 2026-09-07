@@ -256,8 +256,25 @@ describe('handleSlideToSlideCombination - 滑条组合', () => {
     const conns = (r.newNotes[0] as any).connections;
     expect(conns).toHaveLength(3);
     // 原终点转为途径结点，新终点追加
-    expect(conns[1]).toEqual({ beat: 2, lane: 2, hidden: false });
+    expect(conns[1]).toEqual({ beat: 2, lane: 2, subBeat: 0, hidden: false });
     expect(conns[2]).toEqual({ beat: 4, lane: 0 });
+  });
+
+  it('两击接合级联（§4 三轮修复）：A→B + 两击 B→C + C→D → 一步成 A→B→C→D', () => {
+    const notes: ChartNote[] = [
+      { type: 'Slide', connections: [{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }] },
+      { type: 'Slide', connections: [{ beat: 3, lane: 3 }, { beat: 4, lane: 4 }] },
+    ] as ChartNote[];
+    const r = handleSlideToSlideCombination(notes, [
+      { beat: 2, lane: 2 }, // buffer：既有滑条1的尾
+      { beat: 3, lane: 3 }, // 点击：既有滑条2的头
+    ]);
+    expect(r.shouldCombine).toBe(true);
+    expect(r.newNotes).toHaveLength(1); // 两条都被消耗，结果写回原下标 0
+    const conns = (r.newNotes[0] as any).connections;
+    expect(conns.map((c: any) => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]);
+    expect(conns[1]).toEqual({ beat: 2, lane: 2, subBeat: 0, hidden: false }); // 两接合点均为可见途径结点
+    expect(conns[2]).toEqual({ beat: 3, lane: 3, subBeat: 0, hidden: false });
   });
 });
 

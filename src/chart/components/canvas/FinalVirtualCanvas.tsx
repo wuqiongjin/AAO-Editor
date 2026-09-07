@@ -381,15 +381,18 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         setSelectionBox(null);
         setDragGhost(null);
         dragRef.current = null;
-        // 拖拽移动只存在于指针态（§6"其他持工具态下拖拽一律 = 框选"）；标记线上按下不拖音符
-        if (armedTool === null && !hitStartMarker(pos.x, pos.y)) {
+        // §6（三轮修订）：指针态音符上拖拽 = 移动；**任意持工具态 Shift+按住音符 = 移动**；
+        // 其余持工具态拖拽 = 框选（防误拖）；标记线上按下不拖音符。
+        // Shift+未移动松开 = 回落到该态原本单击语义（handleMouseUp 单击路径）
+        if ((armedTool === null || e.shiftKey) && !hitStartMarker(pos.x, pos.y)) {
             beginDragCandidate(pos.x, pos.y);
         }
     };
 
-    /** 当前按下点相对拖拽锚的栅格位移（吸附 = beat 栅格 × lane 整格，与放置同规则） */
-    const dragDelta = (mx: number, my: number) => {
-        const drag = dragRef.current;
+    /** 当前按下点相对拖拽锚的栅格位移（吸附 = beat 栅格 × lane 整格，与放置同规则）。
+     *  drag 可显式传入：mouseUp 提交时 dragRef 已清，必须用按下时的锚点快照（三轮修复：
+     *  旧代码先置空 dragRef 再调 dragDelta → 恒 null → 松手永远回弹） */
+    const dragDelta = (mx: number, my: number, drag = dragRef.current) => {
         if (!drag) return null;
         const cur = snapPos(mx, my);
         if (!cur) return null;
@@ -417,7 +420,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return;
         selectionMovedRef.current = true;
         if (dragRef.current) {
-            // §6 指针态移动：幽灵预览 = 合法落点下的移动结果；非法 → 隐藏幽灵（松手回弹）
+            // §6 移动中：幽灵预览 = 合法落点下的移动结果；非法 → 隐藏幽灵（松手回弹）
+            // 光标反馈（三轮修订，用户验收反馈 #4）：拖拽进行中 = grabbing
+            if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
             const d = dragDelta(mouseX, mouseY);
             if (!d || (d.dBeat === 0 && d.dLane === 0)) { setDragGhost(null); return; }
             const r = planDragMove(notes, dragRef.current.items, d, { chartEndBeat });
@@ -446,12 +451,14 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         dragRef.current = null;
         setSelectionBox(null);
         setDragGhost(null);
+        if (canvasRef.current) canvasRef.current.style.cursor = '';
         if (!start || e.button !== 0) return;
 
         if (moved && drag) {
-            // §6 松手提交：合法 → 单次 handleNotesChange（一个快照）+ 拖拽集合保留为选区；非法 → 回弹
+            // §6 松手提交：合法 → 单次 handleNotesChange（一个快照）+ 拖拽集合保留为选区；非法 → 回弹。
+            // drag 必须传给 dragDelta：dragRef 已清（三轮修复：提交位移恒 null 的根因）
             const pos = cssToCanvas(e);
-            const d = pos ? dragDelta(pos.x, pos.y) : null;
+            const d = pos ? dragDelta(pos.x, pos.y, drag) : null;
             if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
                 const r = planDragMove(notes, drag.items, d, { chartEndBeat });
                 if (r.ok) {
@@ -813,6 +820,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                             dragRef.current = null;
                             setSelectionBox(null);
                             setDragGhost(null);
+                            if (canvasRef.current) canvasRef.current.style.cursor = '';
                         }}
                         style={{
                             backgroundColor: '#000000',

@@ -47,7 +47,7 @@ export default function Toolbar() {
 
   const {
     selectedItems, clipboard, canUndo, canRedo,
-    copy, cut, paste, deleteSelected, mirror, undo, redo,
+    copy, cut, paste, undo, redo,
   } = editing;
   const {
     armedTool, setArmedTool, beatDisplay, setBeatDisplay,
@@ -72,8 +72,12 @@ export default function Toolbar() {
     { id: "rdirectional", icon: <SpriteIcon {...NoteIcons.rightFlick} size={18} />, label: "右滑" },
     { id: "slide", icon: <SpriteIcon {...NoteIcons.slide} size={18} />, label: "滑条" },
   ];
-  // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）
-  const currentToolLabel = armedTool === null ? '指针' : (tools.find(t => t.id === armedTool)?.label ?? armedTool);
+  // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）。
+  // 动作类持工具态（方案 A，issue 55 三轮：删除/镜像）标签供顶部 pill 显示
+  const armLabels: Record<string, string> = { delete: '删除', mirror: '镜像' };
+  const currentToolLabel = armedTool === null
+    ? '指针'
+    : (tools.find(t => t.id === armedTool)?.label ?? armLabels[armedTool] ?? armedTool);
   const armOrRelease = (id: string) => {
     if (id === 'mouse') { setArmedTool(null); return; }
     // 退出三出口之一（§2 原则 3）：点击当前高亮工具 = 落回指针
@@ -146,8 +150,10 @@ export default function Toolbar() {
             <IconButton icon={<Copy size={16} />} label="复制" onClick={copy} disabled={!canCopy} title={tooltipForCategory(toolCategory.copy)} />
             <IconButton icon={<Scissors size={16} />} label="剪切" onClick={cut} disabled={!canCopy} title="剪切 (Ctrl+X)" />
             <IconButton icon={<Clipboard size={16} />} label="粘贴" onClick={() => mousePosition && paste(mousePosition)} disabled={!canPaste} title={tooltipForCategory(toolCategory.paste)} />
-            <IconButton icon={<Trash2 size={16} />} label="删除" onClick={deleteSelected} disabled={!canCopy} danger title="删除 (Delete)" />
-            <IconButton icon={<RotateCcw size={16} />} label="镜像" onClick={mirror} disabled={!canCopy} title={tooltipForCategory(toolCategory.mirror)} />
+            {/* 删除/镜像 = 持工具态入口（方案 A）：单击进态，音符上点谁删/镜谁、框选批量；
+                再点按钮/Esc/切换工具退出。即时执行选区仍走 Delete/Ctrl+T、Ctrl+Q 执行键 */}
+            <IconButton icon={<Trash2 size={16} />} label="删除" onClick={() => armOrRelease('delete')} active={armedTool === 'delete'} danger title={tooltipForCategory(toolCategory.delete)} />
+            <IconButton icon={<RotateCcw size={16} />} label="镜像" onClick={() => armOrRelease('mirror')} active={armedTool === 'mirror'} title={tooltipForCategory(toolCategory.mirror)} />
             <IconButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title="撤销 (Ctrl+Z)" />
             <IconButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
             {/* issue 37：谱面代码改按需弹窗——入口按钮（点击才打开弹窗，常驻无代码同步成本），跨 2 列 */}

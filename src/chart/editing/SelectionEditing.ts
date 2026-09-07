@@ -1,5 +1,5 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../types';
-import { connectionToNote } from './NoteReplacementRules';
+import { connectionToNote } from './SlideCombination';
 import { mirrorNote, mirrorLane } from './NoteEditing';
 
 /**

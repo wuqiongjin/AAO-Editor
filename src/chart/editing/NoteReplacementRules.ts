@@ -1,5 +1,5 @@
-import type { ChartNote, SelectionItem, SlideNote, LDirectionalNote, RDirectionalNote } from '../types';
-import { slideEndpointManager } from './SlideEndpointManager';
+import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LDirectionalNote, RDirectionalNote } from '../types';
+import { connectionToNote, mergeChainWithSlides } from './SlideCombination';
 import { shiftGroupToAnchor } from './NoteEditing';
 
 /**
@@ -189,18 +189,7 @@ function handleSlideNoteReplacement(
  * 将单个滑条连接点退化为独立音符（ADR-0001 1.2.2：2 结点滑条端点被覆盖时另一端点退化）
  * 依据连接点的标记：skill → 技能键、flick → 滑键、无标记 → 普通单键
  */
-function connectionToNote(conn: SlideNote["connections"][number]): ChartNote {
-    const note: { beat: number; lane: number; subBeat: number; type: "Single"; flick?: boolean; skill?: boolean } = {
-        beat: conn.beat,
-        lane: conn.lane,
-        subBeat: conn.subBeat || 0,
-        type: "Single"
-    };
-    if (conn.flick) note.flick = true;
-    if (conn.skill) note.skill = true;
-    return note;
-}
-export { connectionToNote };
+
 
 /**
  * 删除滑条子段（ADR-0001 §6 独立 feature + 用户定案 2026-08-08）
@@ -450,10 +439,6 @@ function addNewNote(
     return { shouldReplace: true, newNotes, message: "添加新音符" };
 }
 
-/**
- * 滑条与滑条组合处理
- * 根据NOTE_REPLACEMENT_TEST.md中的规则实现
- */
 export interface SlideCombinationResult {
     shouldCombine: boolean;
     newNotes: ChartNote[];
@@ -461,10 +446,16 @@ export interface SlideCombinationResult {
 }
 
 /**
- * 处理滑条与滑条的组合
+ * 滑条与滑条组合处理（两击路径，ADR-0008 §4 三轮修订 = 级联合并）
+ * 用户两击确定的连接点（点击顺序不定，按 beat+subBeat 归一为链 [起, 止]）：
+ * - 先按端点删除被覆盖的键型音符（滑条/长条不在此处理，由结点级接合负责）；
+ * - 再经 mergeChainWithSlides **双向级联**：链头接既有滑条尾、链尾接既有滑条头，
+ *   循环直至无可合并（A→B + 两击 B→C + C→D → 一步成 A→B→C→D；旧实现只并一侧）。
+ * - 接合处共享点降为途径结点 hidden:false；端点同向重合（头+头/尾+尾）不合并（ADR-0001 §3 情况 3/4）。
+ * - 有消耗时结果**写回首条被消耗滑条的原下标**（SlideExtendRepro 锁：瓦片失效锚定原位置）；
+ *   无消耗 = false（调用方按独立新滑条放置）。
  * @param notes 当前所有音符
- * @param newSlideConnections 新滑条的连接点数组（用户点击的顺序）
- * @returns 组合结果
+ * @param newSlideConnections 新滑条的连接点数组（用户点击的顺序，恰好 2 个）
  */
 export function handleSlideToSlideCombination(
     notes: ChartNote[],
@@ -474,118 +465,40 @@ export function handleSlideToSlideCombination(
         return { shouldCombine: false, newNotes: notes, message: "滑条连接点数量不正确" };
     }
 
-    // 首先判断新滑条的起点和终点（起点beat值一定小于终点）
-    const [firstClick, secondClick] = newSlideConnections;
-    let newSlideStart: { beat: number; lane: number; subBeat?: number };
-    let newSlideEnd: { beat: number; lane: number; subBeat?: number };
-
-    if (firstClick.beat < secondClick.beat) {
-        // 第一次点击的beat值更小，是起点
-        newSlideStart = firstClick;
-        newSlideEnd = secondClick;
-    } else if (firstClick.beat > secondClick.beat) {
-        // 第二次点击的beat值更小，是起点
-        newSlideStart = secondClick;
-        newSlideEnd = firstClick;
-    } else {
-        // beat值相同，比较subBeat
-        const firstSubBeat = firstClick.subBeat || 0;
-        const secondSubBeat = secondClick.subBeat || 0;
-        if (firstSubBeat < secondSubBeat) {
-            newSlideStart = firstClick;
-            newSlideEnd = secondClick;
-        } else {
-            newSlideStart = secondClick;
-            newSlideEnd = firstClick;
-        }
-    }
+    const [a, b] = newSlideConnections;
+    const [start, end] =
+        (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) <= 0 ? [a, b] : [b, a];
 
     const newNotes = [...notes];
+    // 端点覆盖替换：删除与链端点重合的键型音符（与既有行为一致）
+    removeOverlappedNotes(newNotes, start);
+    removeOverlappedNotes(newNotes, end);
 
-    // 先处理音符覆盖替换：删除被滑条端点覆盖的其他音符
-    removeOverlappedNotes(newNotes, newSlideStart);
-    removeOverlappedNotes(newNotes, newSlideEnd);
-
-    // 更新端点管理器（issue 36：必须在 removeOverlappedNotes 之后——splice 会移位后续音符下标，
-    // 用旧数组下标定位滑条会合并错目标（改到别的音符）甚至对非滑条取 connections 直接崩溃）
-    slideEndpointManager.updateEndpoints(newNotes);
-
-    // 情况1：现有滑条终点 + 新滑条起点：将现有滑条终点转换为途径结点，合并滑条
-    const existingEndPoint = slideEndpointManager.findEndPoint(newSlideStart.beat, newSlideStart.lane, newSlideStart.subBeat);
-    if (existingEndPoint) {
-        const slideNote = newNotes[existingEndPoint.noteIndex] as SlideNote;
-        const connection = slideNote.connections[existingEndPoint.connectionIndex];
-
-        // 将现有滑条的终点转换为途径结点（issue 35 F6：不可变构造，不得在位变异共享数组）
-        const pathwayConnection = {
-            beat: connection.beat,
-            lane: connection.lane,
-            subBeat: connection.subBeat,
-            hidden: false
-        };
-        const updatedConnections = slideNote.connections.map((c, i) =>
-            i === existingEndPoint.connectionIndex ? pathwayConnection : c
-        );
-        // 添加新滑条的终点
-        updatedConnections.push(newSlideEnd);
-        newNotes[existingEndPoint.noteIndex] = { ...slideNote, connections: updatedConnections };
-
-        return {
-            shouldCombine: true,
-            newNotes,
-            message: "现有滑条终点 + 新滑条起点：合并滑条"
-        };
+    const chain: ConnectionNote[] = [
+        { beat: start.beat, lane: start.lane, subBeat: start.subBeat },
+        { beat: end.beat, lane: end.lane, subBeat: end.subBeat },
+    ];
+    const merged = mergeChainWithSlides(newNotes, chain);
+    if (merged.consumed.length === 0) {
+        return { shouldCombine: false, newNotes, message: "没有找到可组合的滑条" };
     }
 
-    // 情况2：现有滑条起点 + 新滑条终点：将现有滑条起点转换为途径结点，合并滑条
-    const existingStartPoint = slideEndpointManager.findStartPoint(newSlideEnd.beat, newSlideEnd.lane, newSlideEnd.subBeat);
-    //打印找到的起点坐标
-    if (existingStartPoint) {
-        const slideNote = newNotes[existingStartPoint.noteIndex] as SlideNote;
-        const connection = slideNote.connections[existingStartPoint.connectionIndex];
-
-        // 将现有滑条的起点转换为途径结点（issue 35 F6：不可变构造，不得在位变异共享数组）
-        const pathwayConnection = {
-            beat: connection.beat,
-            lane: connection.lane,
-            subBeat: connection.subBeat,
-            hidden: false
-        };
-        const updatedConnections = slideNote.connections.map((c, i) =>
-            i === existingStartPoint.connectionIndex ? pathwayConnection : c
-        );
-        // 将新滑条的起点添加到现有滑条的最前面
-        updatedConnections.unshift(newSlideStart);
-        newNotes[existingStartPoint.noteIndex] = { ...slideNote, connections: updatedConnections };
-
-        return {
-            shouldCombine: true,
-            newNotes,
-            message: "现有滑条起点 + 新滑条终点：合并滑条"
-        };
-    }
-
-    // 情况3：现有滑条终点 + 新滑条终点：忽略不处理，认为这是2个独立的滑条
-    const existingEndPoint2 = slideEndpointManager.findEndPoint(newSlideEnd.beat, newSlideEnd.lane, newSlideEnd.subBeat);
-    if (existingEndPoint2) {
-        return {
-            shouldCombine: false,
-            newNotes,
-            message: "现有滑条终点 + 新滑条终点：忽略不处理"
-        };
-    }
-
-    // 情况4：现有滑条起点 + 新滑条起点：忽略不处理，认为这是2个独立的滑条
-    const existingStartPoint2 = slideEndpointManager.findStartPoint(newSlideStart.beat, newSlideStart.lane, newSlideStart.subBeat);
-    if (existingStartPoint2) {
-        return {
-            shouldCombine: false,
-            newNotes,
-            message: "现有滑条起点 + 新滑条起点：忽略不处理"
-        };
-    }
-
-    return { shouldCombine: false, newNotes, message: "没有找到可组合的滑条" };
+    // 合并结果写回首条被消耗滑条的原下标（在位替换，其余保序；结构共享不动未涉及音符）
+    const consumedSet = new Set(merged.consumed);
+    const anchor = Math.min(...merged.consumed);
+    const result: ChartNote[] = [];
+    newNotes.forEach((n, i) => {
+        if (consumedSet.has(i)) {
+            if (i === anchor) result.push({ type: merged.type, connections: merged.connections } as SlideNote);
+            return;
+        }
+        result.push(n);
+    });
+    return {
+        shouldCombine: true,
+        newNotes: result,
+        message: `两击接合：级联合并 ${merged.consumed.length} 条滑条`,
+    };
 }
 
 /**

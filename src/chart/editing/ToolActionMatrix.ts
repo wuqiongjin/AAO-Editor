@@ -86,14 +86,16 @@ export function slideSecondClickOps(notes: ChartNote[], buf: SlidePoint, point: 
   return [{ t: 'setNotes', notes: newNotes }, { t: 'setSlideBuffer', point: null }];
 }
 
-/** §4 框选组合 / §3 Ctrl+E 有选区档：吸入选区中的键型音符成条（<2 无事发生）；
- *  组合成功顺带清两击锚点（其位置可能已被本次组合消耗，保留会产生悬空端点） */
+/** §4 框选组合 / §3 Ctrl+E 有选区档：吸入键型音符与滑条结点成条（来源 <2 无事发生）；
+ *  组合是一次性动作 → 完成后**清空选区**（§2 原则 4 的例外，三轮修订：来源已消耗、
+ *  结果滑条不自动进入选中态，避免"组合后多出选中描边"）；
+ *  顺带清两击锚点（其位置可能已被本次组合消耗，保留会产生悬空端点） */
 export function combineOps(notes: ChartNote[], items: SelectionItem[]): MatrixOp[] {
   const r = combineSelectionIntoSlide(notes, items);
   if (!r.shouldCombine) return [];
   return [
     { t: 'setNotes', notes: r.newNotes },
-    { t: 'setSelection', items: [{ kind: 'note', noteIndex: r.slideIndex! }] },
+    { t: 'setSelection', items: [] },
     { t: 'setSlideBuffer', point: null },
   ];
 }
