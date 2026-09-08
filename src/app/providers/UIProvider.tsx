@@ -8,7 +8,9 @@ export type MousePos = ChartPosition;
 // ADR-0008 §1 工具轴（持工具态）：所有工具共驻一根互斥轴；null = 指针态（默认底态）。
 // 工具被激活称"持工具态"，与对象轴（选区，EditingContext.selectedItems）解耦。
 export type KeyToolId = 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional';
-export type ActionToolId = 'copy' | 'cut' | 'delete' | 'paste' | 'mirror';
+// ADR-0008 §2.1（六轮）：复制/剪切**不占工具轴**（不 arm）——必须有选区、连续操作无意义/有误删风险，
+// 只保留 Ctrl+C / Ctrl+X 执行键作用于选区。故 ActionToolId 只剩 delete / paste / mirror。
+export type ActionToolId = 'delete' | 'paste' | 'mirror';
 export type ArmedTool = KeyToolId | 'bpm' | 'slide' | ActionToolId;
 
 export interface UIContextValue {

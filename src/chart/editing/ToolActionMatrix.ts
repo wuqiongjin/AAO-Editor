@@ -8,14 +8,18 @@ import {
   handleNoteReplacement, handleSlideToSlideCombination, keyTargetsFromItems,
   batchApplyKeyType, pasteChartNotes,
 } from './NoteReplacementRules';
-import { deleteSelection, copySelection, cutSelection, mirrorSelection, remapSelection } from './SelectionEditing';
+import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
 import { combineSelectionIntoSlide } from './SlideCombination';
 
-/** 持工具态（与 UIProvider.ArmedTool 同构；本模块保持零 UI 依赖） */
+/**
+ * 持工具态（与 UIProvider.ArmedTool 同构；本模块保持零 UI 依赖）。
+ * ADR-0008 §2.1（六轮）：**复制 / 剪切不占工具轴**——二者必须有选区（作用于对象而非位置），
+ * 连续复制无意义、连续剪切有误删风险，只保留 Ctrl+C / Ctrl+X 执行键作用于选区。
+ */
 export type MatrixTool =
   | 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional'
   | 'bpm' | 'slide'
-  | 'copy' | 'cut' | 'delete' | 'paste' | 'mirror';
+  | 'delete' | 'paste' | 'mirror';
 
 export interface SlidePoint { beat: number; lane: number; subBeat: number }
 export interface SnapPos { beat: number; lane: number }
@@ -29,8 +33,8 @@ export type MatrixOp =
 
 const isKeyTool = (tool: MatrixTool): tool is 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional' =>
   tool === 'single' || tool === 'flick' || tool === 'skill' || tool === 'ldirectional' || tool === 'rdirectional';
-const isActionTool = (tool: MatrixTool): tool is 'copy' | 'cut' | 'delete' | 'mirror' =>
-  tool === 'copy' || tool === 'cut' || tool === 'delete' || tool === 'mirror';
+const isActionTool = (tool: MatrixTool): tool is 'delete' | 'mirror' =>
+  tool === 'delete' || tool === 'mirror';
 
 const samePos = (a: SlidePoint, b: SlidePoint) =>
   a.beat === b.beat && (a.subBeat || 0) === (b.subBeat || 0);
@@ -135,7 +139,9 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     return slideSecondClickOps(notes, slideBuffer, point);
   }
   if (tool === 'paste') {
-    // 粘贴作用于位置：音符/空白两列同左
+    // §2.1：粘贴作用于位置 —— 剪贴板组的包围盒左上角对齐到该落点（锚点语义归 shiftGroupToAnchor）。
+    // 持工具态**驻留**（矩阵只产出 op，不清 armedTool）→ 连续粘贴；粘贴产物成为新选区。
+    // 光标/落点非法或剪贴板为空 → 无事发生（§1 非法位置原则）。
     if (!pos || clipboard.length === 0) return [];
     const { newNotes, newStartIndex } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
     const items = clipboard
@@ -161,31 +167,22 @@ export function boxSelectOps(tool: MatrixTool, notes: ChartNote[], items: Select
       ? [{ t: 'setNotes', notes: r.newNotes }, { t: 'setSelection', items: remapSelection(notes, items, r.newNotes) }]
       : [];
   }
-  if (tool === 'bpm' || tool === 'paste') return []; // 无效果
+  if (tool === 'bpm' || tool === 'paste') return []; // 无效果（粘贴作用于位置，非选区）
   if (tool === 'slide') return combineOps(notes, items); // §4 组合成滑条
   if (items.length === 0) return [];
-  if (tool === 'copy') {
-    return [{ t: 'setSelection', items }, { t: 'setClipboard', notes: copySelection(notes, items) }];
-  }
-  if (tool === 'cut') {
-    const { clipboard, newNotes } = cutSelection(notes, items);
-    return [{ t: 'setClipboard', notes: clipboard }, { t: 'setNotes', notes: newNotes }, { t: 'setSelection', items: [] }];
-  }
   if (tool === 'delete') {
     return [{ t: 'setNotes', notes: deleteSelection(notes, items) }, { t: 'setSelection', items: [] }];
   }
-  // mirror：拖拽期间预览（渲染器），松手立即执行（§2"无需二次确认"）
-  return [{ t: 'setSelection', items }, { t: 'setNotes', notes: mirrorSelection(notes, items) }];
+  if (tool === 'mirror') {
+    // mirror：拖拽期间预览（渲染器），松手立即执行（§2"无需二次确认"）
+    return [{ t: 'setSelection', items }, { t: 'setNotes', notes: mirrorSelection(notes, items) }];
+  }
+  return []; // 其余（含 §2.1 已退出工具轴的 copy/cut 旧配置残留）→ 无效果
 }
 
 /** 动作族作用于单个条目（= 原 editToolAction 的纯函数化，Model A） */
-function actionOnItemOps(tool: 'copy' | 'cut' | 'delete' | 'mirror', notes: ChartNote[], hit: SelectionItem): MatrixOp[] {
+function actionOnItemOps(tool: 'delete' | 'mirror', notes: ChartNote[], hit: SelectionItem): MatrixOp[] {
   const sel: SelectionItem[] = [hit];
-  if (tool === 'copy') return [{ t: 'setSelection', items: sel }, { t: 'setClipboard', notes: copySelection(notes, sel) }];
-  if (tool === 'cut') {
-    const { clipboard, newNotes } = cutSelection(notes, sel);
-    return [{ t: 'setClipboard', notes: clipboard }, { t: 'setNotes', notes: newNotes }, { t: 'setSelection', items: [] }];
-  }
   if (tool === 'delete') return [{ t: 'setNotes', notes: deleteSelection(notes, sel) }, { t: 'setSelection', items: [] }];
   return [{ t: 'setSelection', items: sel }, { t: 'setNotes', notes: mirrorSelection(notes, sel) }];
 }

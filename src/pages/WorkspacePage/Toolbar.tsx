@@ -47,14 +47,19 @@ export default function Toolbar() {
 
   const {
     selectedItems, clipboard, canUndo, canRedo,
-    copy, cut, paste, undo, redo,
+    copy, cut, undo, redo,
   } = editing;
   const {
     armedTool, setArmedTool, beatDisplay, setBeatDisplay,
-    mousePosition, toggleLeftPanel,
+    toggleLeftPanel,
   } = ui;
   const canCopy = selectedItems.length > 0;
-  const canPaste = clipboard.length > 0 && mousePosition !== null;
+  // §2.1（六轮）：粘贴 = 持工具态（悬停整组预览 + 单击粘贴并驻留 = 连续粘贴）。
+  // **空剪贴板 = 不可进态**：粘贴是唯一"前提缺失即完全空转"的工具——无剪贴板时单击无事发生、
+  // 悬停预览也为空（删除/镜像无选区时点中音符仍立即生效，键型/BPM/Slide 是放置、永远有产物）。
+  // 故按钮置灰并在 tooltip 说明原因；`V` 键同步（Editor.runFunction）以保持键鼠一致。
+  // 注：只判剪贴板，**不判光标**——光标不在画布只是"落点非法→无事发生"（§1），不该阻止进态。
+  const canPaste = clipboard.length > 0;
 
   // 工具 tooltip：合并 切换/执行 两类快捷键
   const tooltipForCategory = (cat: string): string => {
@@ -74,7 +79,7 @@ export default function Toolbar() {
   ];
   // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）。
   // 动作类持工具态（方案 A，issue 55 三轮：删除/镜像）标签供顶部 pill 显示
-  const armLabels: Record<string, string> = { delete: '删除', mirror: '镜像' };
+  const armLabels: Record<string, string> = { delete: '删除', mirror: '镜像', paste: '粘贴' };
   const currentToolLabel = armedTool === null
     ? '指针'
     : (tools.find(t => t.id === armedTool)?.label ?? armLabels[armedTool] ?? armedTool);
@@ -149,7 +154,16 @@ export default function Toolbar() {
           <div className="toolbar__grid toolbar__grid--2">
             <IconButton icon={<Copy size={16} />} label="复制" onClick={copy} disabled={!canCopy} title={tooltipForCategory(toolCategory.copy)} />
             <IconButton icon={<Scissors size={16} />} label="剪切" onClick={cut} disabled={!canCopy} title="剪切 (Ctrl+X)" />
-            <IconButton icon={<Clipboard size={16} />} label="粘贴" onClick={() => mousePosition && paste(mousePosition)} disabled={!canPaste} title={tooltipForCategory(toolCategory.paste)} />
+            {/* 粘贴 = 持工具态 arm/释放（§2.1 六轮）：与 v 键归位，悬停预览 + 单击粘贴并驻留（连续粘贴）；
+                空剪贴板 → 置灰（进态无意义）+ tooltip 说明；v 键同步不进态 */}
+            <IconButton
+                icon={<Clipboard size={16} />}
+                label="粘贴"
+                onClick={() => armOrRelease('paste')}
+                active={armedTool === 'paste'}
+                disabled={!canPaste}
+                title={canPaste ? tooltipForCategory(toolCategory.paste) : '粘贴（剪贴板为空，先 Ctrl+C 复制）'}
+            />
             {/* 删除/镜像 = 持工具态入口（方案 A）：单击进态，音符上点谁删/镜谁、框选批量；
                 再点按钮/Esc/切换工具退出。即时执行选区仍走 Delete/Ctrl+T、Ctrl+Q 执行键 */}
             <IconButton icon={<Trash2 size={16} />} label="删除" onClick={() => armOrRelease('delete')} active={armedTool === 'delete'} danger title={tooltipForCategory(toolCategory.delete)} />

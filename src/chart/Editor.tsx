@@ -48,7 +48,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const config = useConfig();
   const playback = usePlayback();
 
-  const { notes, selectedItems, setSelectedItems, copy, cut, paste, deleteSelected, mirror, place, undo, redo, resetNotes } = editing;
+  const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, paste, deleteSelected, mirror, place, undo, redo, resetNotes } = editing;
   const {
     mousePosition,
     armedTool, setArmedTool,
@@ -304,11 +304,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'switchSlide': setArmedTool('slide'); break;
       case 'execSlide': virtualCanvasRef.current?.execSlide?.(); break;
       case 'switchMouse': setArmedTool(null); break;
-      case 'switchCopy': setArmedTool('copy'); break;
       case 'execCopy': copy(); break;
-      case 'switchPaste': setArmedTool('paste'); break;
+      // §2.1（六轮）：空剪贴板 → 粘贴态是纯空转（无预览、单击无事发生），
+      // 与工具栏按钮同步：不进态。键鼠一致（避免"界面无、键盘有"的错位）。
+      case 'switchPaste': if (clipboard.length > 0) setArmedTool('paste'); break;
       case 'execPaste': pasteAtCursor(); break;
-      case 'switchCut': setArmedTool('cut'); break;
       case 'execCut': cut(); break;
       case 'switchDelete': setArmedTool('delete'); break;
       case 'execDelete': deleteSelectedNotes(); break;
@@ -331,7 +331,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         break;
       }
     }
-  }, [setArmedTool, placeAtCursor, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, togglePlay, jumpToMarker,
+  }, [setArmedTool, clipboard.length, placeAtCursor, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, togglePlay, jumpToMarker,
       leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===

@@ -347,9 +347,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             }
             return;
         }
-        // 动作族（C/X/T/Q）才需要音符命中（空白=无效果不清选区）；其余行只吃栅格落点
-        const needHit = armedTool === 'copy' || armedTool === 'cut'
-            || armedTool === 'delete' || armedTool === 'mirror';
+        // 动作族（删除/镜像，T/Q）才需要音符命中（空白=无效果不清选区）；其余行只吃栅格落点。
+        // 复制/剪切已按 §2.1 退出工具轴（不 arm），故不在其中。
+        const needHit = armedTool === 'delete' || armedTool === 'mirror';
         const hit = needHit
             ? findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize })
             : null;

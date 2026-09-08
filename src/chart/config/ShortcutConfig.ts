@@ -13,9 +13,11 @@ export type FunctionId =
   | 'switchRDirectional' | 'execRDirectional'
   | 'switchBpm' | 'execBpm'
   | 'switchSlide' | 'execSlide'
-  | 'switchCopy' | 'execCopy'
+  // ADR-0008 §2.1（六轮）：复制/剪切**不占工具轴**（不 arm）——连续复制无意义、连续剪切有误删风险，
+  // 二者必须有选区，只保留 execCopy / execCut 作用于选区。故无 switchCopy / switchCut。
+  | 'execCopy'
   | 'switchPaste' | 'execPaste'
-  | 'switchCut' | 'execCut'
+  | 'execCut'
   | 'switchDelete' | 'execDelete'
   | 'switchMirror' | 'execMirror'
   | 'switchMouse'
@@ -47,11 +49,9 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'execBpm',            label: '执行-BPM',    category: 'BPM', binding: 'ctrl+`' },
   { id: 'switchSlide',        label: '切换-滑条',   category: '滑条', binding: 'e' },
   { id: 'execSlide',          label: '执行-滑条',   category: '滑条', binding: 'ctrl+e' },
-  { id: 'switchCopy',         label: '切换-复制',   category: '复制', binding: 'c' },
   { id: 'execCopy',           label: '执行-复制',   category: '复制', binding: 'ctrl+c' },
   { id: 'switchPaste',        label: '切换-粘贴',   category: '粘贴', binding: 'v' },
   { id: 'execPaste',          label: '执行-粘贴',   category: '粘贴', binding: 'ctrl+v' },
-  { id: 'switchCut',          label: '切换-剪切',   category: '剪切', binding: 'x' },
   { id: 'execCut',            label: '执行-剪切',   category: '剪切', binding: 'ctrl+x' },
   { id: 'switchDelete',       label: '切换-删除',   category: '删除', binding: 't' },
   { id: 'execDelete',         label: '执行-删除',   category: '删除', binding: 'ctrl+t' },

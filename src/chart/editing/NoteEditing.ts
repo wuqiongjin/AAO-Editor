@@ -81,29 +81,39 @@ export const mirrorNote = (n: ChartNote): ChartNote => {
 export const mirrorNotes = (notes: ChartNote[], selected: number[]): ChartNote[] =>
   notes.map((n, i) => (selected.includes(i) ? mirrorNote(n) : n));
 
-// 剪贴板组的"左上角"(最小 beat/lane)，作为粘贴锚点
-const groupMinBeat = (clip: ChartNote[]) =>
-  Math.min(...clip.map(n =>
-    (n.type === "Slide" || n.type === "Long")
-      ? Math.min(...n.connections.map(c => c.beat))
-      : n.beat
-  ));
+/**
+ * 剪贴板组的"左上角"(最小 beat/lane)，作为粘贴锚点（ADR-0008 §2.1）。
+ * **BPM / System 不参与锚点计算**：它们没有 lane，参与 min 会污染组的左上角（把整组推远/推偏）；
+ * 它们只随最终的 beat 位移平移（见 shiftNote）。
+ */
+const isLaned = (n: ChartNote) => n.type !== "BPM" && n.type !== "System";
+const noteMinBeat = (n: ChartNote) =>
+  (n.type === "Slide" || n.type === "Long")
+    ? Math.min(...n.connections.map(c => c.beat))
+    : n.beat;
+const noteMinLane = (n: ChartNote) =>
+  (n.type === "Slide" || n.type === "Long")
+    ? Math.min(...n.connections.map(c => c.lane))
+    : (n as { lane: number }).lane; // 已由 isLaned 过滤掉 BPM/System
+const noteMaxLane = (n: ChartNote) =>
+  (n.type === "Slide" || n.type === "Long")
+    ? Math.max(...n.connections.map(c => c.lane))
+    : (n as { lane: number }).lane;
 
-const groupMinLane = (clip: ChartNote[]) =>
-  Math.min(...clip.map(n => {
-    if (n.type === "Slide" || n.type === "Long") {
-      return Math.min(...n.connections.map(c => c.lane));
-    }
-    return "lane" in n ? n.lane : 0;
-  }));
+const groupMinBeat = (clip: ChartNote[]) => {
+  const laned = clip.filter(isLaned);
+  return Math.min(...(laned.length > 0 ? laned : clip).map(noteMinBeat));
+};
 
-const groupMaxLane = (clip: ChartNote[]) =>
-  Math.max(...clip.map(n => {
-    if (n.type === "Slide" || n.type === "Long") {
-      return Math.max(...n.connections.map(c => c.lane));
-    }
-    return "lane" in n ? n.lane : 0;
-  }));
+const groupMinLane = (clip: ChartNote[]) => {
+  const laned = clip.filter(isLaned);
+  return Math.min(...(laned.length > 0 ? laned : clip).map(noteMinLane));
+};
+
+const groupMaxLane = (clip: ChartNote[]) => {
+  const laned = clip.filter(isLaned);
+  return Math.max(...(laned.length > 0 ? laned : clip).map(noteMaxLane));
+};
 
 const shiftNote = (n: ChartNote, dBeat: number, dLane: number): ChartNote => {
   if (n.type === "BPM" || n.type === "System") {

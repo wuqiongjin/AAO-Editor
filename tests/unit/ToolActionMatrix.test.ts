@@ -155,23 +155,11 @@ describe('§2 paste 工具单击', () => {
   });
 });
 
-// ══════════════════ §2 单击矩阵·动作工具行（C/X/T/Q，Model A）══════════════════
-describe('§2 copy/cut/delete/mirror 单击', () => {
+// ══════════════════ §2 单击矩阵·动作工具行（T/Q，Model A）══════════════════
+// §2.1（六轮）：copy / cut 已退出工具轴（不 arm），矩阵不再有这两行
+describe('§2 delete/mirror 单击', () => {
   const notes: ChartNote[] = [single(1, 1), single(2, 2)];
   const hit = noteSel(0)[0];
-  it('copy：选中命中项 + 写剪贴板', () => {
-    const ops = clickOps(input({ tool: 'copy', notes, hit }));
-    expect(ops).toEqual([
-      { t: 'setSelection', items: [hit] },
-      { t: 'setClipboard', notes: [single(1, 1)] },
-    ]);
-  });
-  it('cut：写剪贴板 + 删除 + 清选区', () => {
-    const ops = clickOps(input({ tool: 'cut', notes, hit }));
-    expect(ops.map(o => o.t)).toEqual(['setClipboard', 'setNotes', 'setSelection']);
-    expect((ops[1] as any).notes).toEqual([single(2, 2)]);
-    expect(ops[2]).toEqual({ t: 'setSelection', items: [] });
-  });
   it('delete：删除 + 清选区', () => {
     const ops = clickOps(input({ tool: 'delete', notes, hit }));
     expect(ops).toEqual([
@@ -184,8 +172,8 @@ describe('§2 copy/cut/delete/mirror 单击', () => {
     expect(ops[0]).toEqual({ t: 'setSelection', items: [hit] });
     expect((ops[1] as any).notes[0].lane).toBe(5);
   });
-  it('空白列 = 无效果、不清选区（hit=null 四行全空）', () => {
-    for (const tool of ['copy', 'cut', 'delete', 'mirror'] as const) {
+  it('空白列 = 无效果、不清选区（T/Q 两行）', () => {
+    for (const tool of ['delete', 'mirror'] as const) {
       expect(clickOps(input({ tool, notes, hit: null }))).toEqual([]);
     }
   });
@@ -252,24 +240,16 @@ describe('§2 框选矩阵', () => {
     const items: SelectionItem[] = [0, 1, 2].map(ci => ({ kind: 'slideNode' as const, noteIndex: 0, connIndex: ci }));
     expect(boxSelectOps('slide', [slide(1, 1, 2, 2, 3, 3)], items)).toEqual([]);
   });
-  it('动作行空框 = 无效果不清选区（C/X/T/Q 四行）', () => {
-    for (const tool of ['copy', 'cut', 'delete', 'mirror'] as const) {
+  it('动作行空框 = 无效果不清选区（T/Q 两行）', () => {
+    for (const tool of ['delete', 'mirror'] as const) {
       expect(boxSelectOps(tool, [single(1, 1)], [])).toEqual([]);
     }
   });
-  it('copy 行：选区 = 框内条目，剪贴板 = 框内容', () => {
+  it('§2.1（六轮）：copy / cut 不占工具轴 → 框选无效果（只走 Ctrl+C / Ctrl+X 执行键）', () => {
     const notes: ChartNote[] = [single(1, 1), single(2, 2)];
-    const ops = boxSelectOps('copy', notes, noteSel(0, 1));
-    expect(ops).toEqual([
-      { t: 'setSelection', items: noteSel(0, 1) },
-      { t: 'setClipboard', notes: [single(1, 1), single(2, 2)] },
-    ]);
-  });
-  it('cut 行：剪贴板 + 删框内 + 清选区（单快照）', () => {
-    const notes: ChartNote[] = [single(1, 1), single(2, 2)];
-    const ops = boxSelectOps('cut', notes, noteSel(0, 1));
-    expect(ops.map(o => o.t)).toEqual(['setClipboard', 'setNotes', 'setSelection']);
-    expect((ops[1] as any).notes).toEqual([]);
+    // 矩阵类型层面已移除；运行时兜底（旧配置残留）同样无效果
+    expect(boxSelectOps('copy' as never, notes, noteSel(0, 1))).toEqual([]);
+    expect(boxSelectOps('cut' as never, notes, noteSel(0, 1))).toEqual([]);
   });
   it('delete 行：删框内 + 清选区', () => {
     const notes: ChartNote[] = [single(1, 1), single(2, 2)];

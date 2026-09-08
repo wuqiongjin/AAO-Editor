@@ -93,3 +93,49 @@ describe('noteEditing - paste preserves group width', () => {
     expect(out[1].lane).toBe(6);
   });
 });
+
+describe('noteEditing - 粘贴锚点（ADR-0008 §2.1 六轮）', () => {
+  it('锚点 = 剪贴板组包围盒左上角（min beat × min lane）对齐光标，组形状纯平移保留', () => {
+    const clip: ChartNote[] = [
+      { type: 'Single', beat: 2, lane: 3 },
+      { type: 'Single', beat: 3, lane: 5 },
+    ];
+    const out = shiftGroupToAnchor(clip, 10, 1) as any[];
+    expect(out[0]).toMatchObject({ beat: 10, lane: 1 }); // 左上角精确落在光标
+    expect(out[1]).toMatchObject({ beat: 11, lane: 3 }); // 相对位移不变
+    // 没有任何音符落在光标的左侧/上方（内容自光标起向右下铺开）
+    for (const n of out) {
+      expect(n.lane).toBeGreaterThanOrEqual(1);
+      expect(n.beat).toBeGreaterThanOrEqual(10);
+    }
+  });
+
+  it('BPM / System 不参与锚点计算（无 lane，不污染组左上角）', () => {
+    const clip: ChartNote[] = [
+      { type: 'BPM', beat: 0, bpm: 120 },
+      { type: 'Single', beat: 4, lane: 2 },
+      { type: 'Single', beat: 5, lane: 4 },
+    ];
+    const out = shiftGroupToAnchor(clip, 8, 0) as any[];
+    // 旧实现：minBeat 取 BPM 的 0 → 整组被推到 8 之后；新实现：minBeat = 4
+    expect(out[1]).toMatchObject({ beat: 8, lane: 0 });
+    expect(out[2]).toMatchObject({ beat: 9, lane: 2 });
+    expect(out[0]).toMatchObject({ type: 'BPM', beat: 4 }); // BPM 只随 beat 位移平移
+  });
+
+  it('剪贴板只有 BPM/System 时回退到按 beat 锚定（不塌成 NaN）', () => {
+    const clip: ChartNote[] = [{ type: 'BPM', beat: 2, bpm: 150 }];
+    const out = shiftGroupToAnchor(clip, 7, 3) as any[];
+    expect(out[0]).toMatchObject({ type: 'BPM', beat: 7, bpm: 150 });
+  });
+
+  it('滑条参与锚点：按结点 min beat / min lane 计', () => {
+    const clip: ChartNote[] = [
+      { type: 'Slide', connections: [{ beat: 3, lane: 4 }, { beat: 4, lane: 2 }] },
+      { type: 'Single', beat: 3, lane: 6 },
+    ];
+    const out = shiftGroupToAnchor(clip, 9, 1) as any[];
+    expect(out[0].connections[0]).toMatchObject({ beat: 9, lane: 3 });
+    expect(out[1]).toMatchObject({ beat: 9, lane: 5 });
+  });
+});
