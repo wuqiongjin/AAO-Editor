@@ -103,3 +103,30 @@ export function clampGutterLabelY(layout: GutterLabelLayout, surfaceH: number, f
   else layout.y = Math.min(Math.max(layout.y, fontPx), surfaceH); // bottom / alphabetic：基线最低=画布底缘
   return layout;
 }
+
+/**
+ * BPM 数值文字盒（§5 手势仲裁修订 2026-09-08）：**只认数字自身的横向范围**，
+ * 不再把整条水平线都判成命中（否则左沟槽双击/单击在数字所在高度上永远吃不掉起点标记手势）。
+ * 与 §5 就地编辑输入框同款宽度估算（等宽字体 0.62em + 8px 内边距，最少 2 字宽），
+ * 右缘 = 内带锚点（轨道左外缘 − BPM_LABEL_GAP_PX）+ 少量容差；纵向与绘制同款居中 + 容差，
+ * 并沿用 clampGutterLabelY 的钳制（画布顶/底缘文字被推回时命中区同步）。
+ * 纯函数（不依赖 canvas 测量），供命中判定与单测共用。
+ */
+export function bpmLabelBox(
+  trackStartX: number,
+  lineCanvasY: number,
+  text: string,
+  labelScale = 1,
+  surfaceH?: number,
+): { x1: number; x2: number; y1: number; y2: number } {
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  const right = trackStartX - BPM_LABEL_GAP_PX;
+  const width = Math.max((text.length || 3) * fontPx * 0.62 + 8, fontPx * 2);
+  const y = surfaceH === undefined
+    ? lineCanvasY
+    : Math.min(Math.max(lineCanvasY, fontPx / 2), Math.max(surfaceH - fontPx / 2, fontPx / 2));
+  const half = fontPx / 2 + 4;
+  const y1 = Math.max(y - half, 0);
+  const y2 = surfaceH === undefined ? y + half : Math.min(y + half, surfaceH);
+  return { x1: right - width, x2: right + 4, y1, y2 };
+}

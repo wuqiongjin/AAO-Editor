@@ -276,6 +276,22 @@ describe('handleSlideToSlideCombination - 滑条组合', () => {
     expect(conns[1]).toEqual({ beat: 2, lane: 2, subBeat: 0, hidden: false }); // 两接合点均为可见途径结点
     expect(conns[2]).toEqual({ beat: 3, lane: 3, subBeat: 0, hidden: false });
   });
+
+  it('点击次序无关（§4 四轮修复）：先点后拍 C 再点前拍 B（C→B）→ 同样成 A→B→C→D', () => {
+    const notes: ChartNote[] = [
+      { type: 'Slide', connections: [{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }] },
+      { type: 'Slide', connections: [{ beat: 3, lane: 3 }, { beat: 4, lane: 4 }] },
+    ] as ChartNote[];
+    // 旧实现受 `||` 与 `<=` 优先级影响，beat 差非 0 时恒按点击顺序取链 → 链反序、两侧都不接
+    const r = handleSlideToSlideCombination(notes, [
+      { beat: 3, lane: 3 }, // 先点 C
+      { beat: 2, lane: 2 }, // 再点 B
+    ]);
+    expect(r.shouldCombine).toBe(true);
+    expect(r.newNotes).toHaveLength(1);
+    const conns = (r.newNotes[0] as any).connections;
+    expect(conns.map((c: any) => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]);
+  });
 });
 
 describe('deleteSlideSegment - 删除滑条子段（ADR-0001 §6）', () => {

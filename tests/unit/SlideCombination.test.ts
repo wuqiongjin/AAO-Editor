@@ -143,10 +143,10 @@ describe('combineSelectionIntoSlide：框选组合', () => {
     expect(combineSelectionIntoSlide(notes, []).shouldCombine).toBe(false);
   });
 
-  it('部分覆盖滑条：结点级吸入 + 宿主未覆盖段拆条退化（§4 三轮修订；BPM/slideRegion 不参与不消耗）', () => {
+  it('部分覆盖滑条：结点级吸入（宿主端点入链 → 先接合，不拆条；BPM/slideRegion 不参与不消耗）', () => {
     const notes: ChartNote[] = [
       single(1, 1),
-      slide(2, 2, 3, 3),               // 只框到第 1 个结点 → (2,2) 入链，残留 (3,3) 退化独立音符
+      slide(2, 2, 3, 3),               // 只框到第 0 个结点（宿主头端点）→ 整条被接合入链
       { type: 'BPM', beat: 4, bpm: 120 },
     ];
     const items: SelectionItem[] = [
@@ -156,11 +156,10 @@ describe('combineSelectionIntoSlide：框选组合', () => {
     ];
     const r = combineSelectionIntoSlide(notes, items);
     expect(r.shouldCombine).toBe(true); // 来源 = 键音符 + 被触碰滑条 = 2
-    expect(r.newNotes.map(n => n.type)).toEqual(['Single', 'BPM', 'Slide']);
-    expect((r.newNotes[0] as any).beat).toBe(3); // 残段退化独立音符
-    expect(r.newNotes[1]).toBe(notes[2]);        // BPM 不参与、结构共享
-    expect(((r.newNotes[2] as SlideNote).connections).map(c => [c.beat, c.lane]))
-      .toEqual([[1, 1], [2, 2]]);
+    expect(r.newNotes.map(n => n.type)).toEqual(['BPM', 'Slide']);
+    expect(r.newNotes[0]).toBe(notes[2]);        // BPM 不参与、结构共享
+    expect(((r.newNotes[1] as SlideNote).connections).map(c => [c.beat, c.lane]))
+      .toEqual([[1, 1], [2, 2], [3, 3]]);        // §3 接合：链尾 (2,2) == 宿主头端点
   });
 
   it('无就地变异：未受影响音符复用原引用，入参数组不被改动', () => {
@@ -306,67 +305,123 @@ describe('滑条吸入（ADR-0008 §4 修订 2026-09-07 · 验收反馈 #2）', 
     expect((r.newNotes[0] as SlideNote).type).toBe('Long');
   });
 
-  it('未框到的滑条结构共享；部分覆盖滑条拆出残段（§4 三轮修订）', () => {
+  it('未框到的滑条结构共享；被触碰滑条整条入链（§4 五轮修订 = 无拆条）', () => {
     const untouched = slide(9, 9, 10, 9);
-    const partial = slide(6, 0, 7, 0, 8, 0); // 只框到前两个结点 → 尾结点 (8,0) 退化独立音符
+    const partial = slide(6, 0, 7, 0, 8, 0); // 只框到前两个结点 → 整条入链，无残段
     const notes: ChartNote[] = [slide(1, 1, 2, 2), slide(3, 3, 4, 4), partial, untouched];
     const r = combineSelectionIntoSlide(notes, [
       ...slideNodes(0, 2), ...slideNodes(1, 2), ...slideNodes(2, 2),
     ]);
-    expect(r.newNotes.length).toBe(3); // 残段 Single + untouched + 组合链（push 在末尾）
-    expect(r.newNotes[0]).toEqual({ type: 'Single', beat: 8, lane: 0, subBeat: 0 });
-    expect(r.newNotes[1]).toBe(untouched);
-    expect(r.slideIndex).toBe(2);
-    expect(((r.newNotes[2] as SlideNote).connections).map(c => [c.beat, c.lane]))
-      .toEqual([[1, 1], [2, 2], [3, 3], [4, 4], [6, 0], [7, 0]]);
+    expect(r.newNotes.length).toBe(2); // untouched（结构共享）+ 组合链（push 在末尾）
+    expect(r.newNotes[0]).toBe(untouched);
+    expect(r.slideIndex).toBe(1);
+    expect(((r.newNotes[1] as SlideNote).connections).map(c => [c.beat, c.lane]))
+      .toEqual([[1, 1], [2, 2], [3, 3], [4, 4], [6, 0], [7, 0], [8, 0]]);
   });
 
-  it('用户样例：A→B、C→D 只框 B、C → 成链 B→C，A、D 各退化独立音符', () => {
+  it('用户样例（§4 四轮修订）：A→B、C→D 只框 B、C → 完整串成 A→B→C→D', () => {
     const notes: ChartNote[] = [slide(1, 1, 2, 2), slide(3, 3, 4, 4)];
     const r = combineSelectionIntoSlide(notes, [
-      { kind: 'slideNode', noteIndex: 0, connIndex: 1 }, // B
-      { kind: 'slideNode', noteIndex: 1, connIndex: 0 }, // C
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 }, // B（宿主 A→B 的尾端点）
+      { kind: 'slideNode', noteIndex: 1, connIndex: 0 }, // C（宿主 C→D 的头端点）
     ]);
     expect(r.shouldCombine).toBe(true);
-    expect(r.newNotes).toHaveLength(3);
-    expect(r.newNotes[0]).toEqual({ type: 'Single', beat: 1, lane: 1, subBeat: 0 }); // A
-    expect(r.newNotes[1]).toEqual({ type: 'Single', beat: 4, lane: 4, subBeat: 0 }); // D
-    expect(((r.newNotes[2] as SlideNote).connections).map(c => [c.beat, c.lane]))
-      .toEqual([[2, 2], [3, 3]]); // 链 = B→C
+    expect(r.newNotes).toHaveLength(1); // 两条宿主整条入链，无拆条残留
+    const s = r.newNotes[0] as SlideNote;
+    expect(s.connections.map(c => [c.beat, c.lane]))
+      .toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]);
   });
 
-  it('残段 ≥2 结点保留为子滑条（保原 Long 型）；结点对象结构共享', () => {
+  it('反向只框 C、B（点击次序无关）→ 同样串成 A→B→C→D', () => {
+    const notes: ChartNote[] = [slide(1, 1, 2, 2), slide(3, 3, 4, 4)];
+    const r = combineSelectionIntoSlide(notes, [
+      { kind: 'slideNode', noteIndex: 1, connIndex: 0 }, // C 先入
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 }, // B 后入
+    ]);
+    expect(((r.newNotes[0] as SlideNote).connections).map(c => [c.beat, c.lane]))
+      .toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]);
+  });
+
+  it('框住宿主中间结点 → 宿主仍整条入链（块内保序），另一条按拍序接在后面', () => {
+    const notes: ChartNote[] = [slide(1, 1, 2, 2, 3, 3), slide(5, 5, 6, 6)];
+    const r = combineSelectionIntoSlide(notes, [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 }, // (2,2) 中间结点 → 整条入链
+      { kind: 'slideNode', noteIndex: 1, connIndex: 0 }, // (5,5) 头端点
+    ]);
+    expect(r.shouldCombine).toBe(true);
+    expect(r.newNotes).toHaveLength(1);
+    expect(((r.newNotes[0] as SlideNote).connections).map(c => [c.beat, c.lane]))
+      .toEqual([[1, 1], [2, 2], [3, 3], [5, 5], [6, 6]]);
+  });
+
+  it('用户样例（§4 五轮修订）：A→B + 框 A 与中间的新音符 → A→新音符→B（B 不再被孤立）', () => {
+    const notes: ChartNote[] = [slide(1, 1, 5, 5), single(3, 3)];
+    const r = combineSelectionIntoSlide(notes, [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 0 }, // A
+      ...noteSel(1),                                      // 新增音符 (3,3)
+    ]);
+    expect(r.shouldCombine).toBe(true);
+    expect(r.newNotes).toHaveLength(1);
+    expect(((r.newNotes[0] as SlideNote).connections).map(c => [c.beat, c.lane]))
+      .toEqual([[1, 1], [3, 3], [5, 5]]);
+  });
+
+  it('新音符在宿主范围外 → 按拍序接到头/尾（A→B + 框尾 B 与更早的音符）', () => {
+    const notes: ChartNote[] = [slide(3, 3, 5, 5), single(1, 1)];
+    const r = combineSelectionIntoSlide(notes, [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 }, // B
+      ...noteSel(1),
+    ]);
+    expect(((r.newNotes[0] as SlideNote).connections).map(c => [c.beat, c.lane]))
+      .toEqual([[1, 1], [3, 3], [5, 5]]);
+  });
+
+  it('宿主块内保序：同拍回折段不被排序重排（K 路归并的意义）', () => {
+    const host = { type: 'Slide', connections: [
+      { beat: 1, lane: 1, subBeat: 0 }, { beat: 2, lane: 5, subBeat: 0 },
+      { beat: 2, lane: 1, subBeat: 0 }, { beat: 3, lane: 1, subBeat: 0 },
+    ] } as ChartNote;
+    const notes: ChartNote[] = [host, single(2, 3)];
+    const r = combineSelectionIntoSlide(notes, [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 },
+      ...noteSel(1),
+    ]);
+    // 宿主 (2,5)→(2,1) 的内部次序保留（纯全局排序会把它重排成 (2,1)→(2,5)）
+    expect(((r.newNotes[0] as SlideNote).connections).map(c => [c.beat, c.lane]))
+      .toEqual([[1, 1], [2, 3], [2, 5], [2, 1], [3, 1]]);
+  });
+
+  it('被触碰 Long 整条入链 → 组合结果保型（结点对象结构共享）', () => {
     const partial = { type: 'Long', connections: [
       { beat: 1, lane: 1, subBeat: 0 }, { beat: 2, lane: 2, subBeat: 0 },
       { beat: 3, lane: 3, subBeat: 0 }, { beat: 4, lane: 4, subBeat: 0 },
     ] } as ChartNote;
     const notes: ChartNote[] = [partial, single(9, 9)];
     const r = combineSelectionIntoSlide(notes, [
-      { kind: 'slideNode', noteIndex: 0, connIndex: 1 }, // 吸入 (2,2)
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 }, // 触碰 → 整条入链
       ...noteSel(1),                                      // + 键音符 (9,9) → 来源=2
     ]);
     expect(r.shouldCombine).toBe(true);
-    // 残段：头 [(1,1)] 退化 Single；尾 [(3,3),(4,4)] 连续段 ≥2 → 子滑条保原 Long 型
-    const child = r.newNotes[1] as SlideNote;
-    expect(child.type).toBe('Long');
-    expect(child.connections[0]).toBe((notes[0] as SlideNote).connections[2]); // 结点对象结构共享
-    expect(((r.newNotes[2] as SlideNote).connections).map(c => [c.beat, c.lane]))
-      .toEqual([[2, 2], [9, 9]]);
+    expect(r.newNotes).toHaveLength(1);
     expect(r.newNotes[r.slideIndex!].type).toBe('Long'); // 被触碰 Long → 组合结果保型
+    expect(((r.newNotes[0] as SlideNote).connections).map(c => [c.beat, c.lane]))
+      .toEqual([[1, 1], [2, 2], [3, 3], [4, 4], [9, 9]]);
   });
 
-  it('退化单结点保留 flick/skill 标记（拆条退化 = connectionToNote 语义）', () => {
+  it('归一表仍作用于整条入链的宿主结点：起点剥 flick、中间剥 skill、末尾保留', () => {
     const partial = { type: 'Slide', connections: [
       { beat: 1, lane: 1, subBeat: 0, flick: true }, { beat: 2, lane: 2, subBeat: 0 },
       { beat: 3, lane: 3, subBeat: 0, skill: true },
     ] } as ChartNote;
-    const notes: ChartNote[] = [partial, single(9, 9)];
+    const notes: ChartNote[] = [partial, single(9, 9, { flick: true })];
     const r = combineSelectionIntoSlide(notes, [
-      { kind: 'slideNode', noteIndex: 0, connIndex: 1 }, // 吸入中间结点 (2,2)
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 },
       ...noteSel(1),
     ]);
     expect(r.shouldCombine).toBe(true);
-    expect(r.newNotes[0]).toEqual({ type: 'Single', beat: 1, lane: 1, subBeat: 0, flick: true });
-    expect(r.newNotes[1]).toEqual({ type: 'Single', beat: 3, lane: 3, subBeat: 0, skill: true });
+    const s = r.newNotes[0] as SlideNote;
+    expect(s.connections[0]).toEqual({ beat: 1, lane: 1, subBeat: 0 });          // 起点剥 flick
+    expect(s.connections[2]).toEqual({ beat: 3, lane: 3, subBeat: 0 });          // 中间剥 skill
+    expect(s.connections[3]).toEqual({ beat: 9, lane: 9, subBeat: 0, flick: true }); // 末尾保留 flick
   });
 });

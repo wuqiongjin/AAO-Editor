@@ -81,7 +81,9 @@ export function slideSecondClickOps(notes: ChartNote[], buf: SlidePoint, point: 
   const comb = handleSlideToSlideCombination(notes, [buf, point]);
   if (comb.shouldCombine) return [{ t: 'setNotes', notes: comb.newNotes }, { t: 'setSlideBuffer', point: null }];
   const newNotes = [...comb.newNotes];
-  const [start, end] = [buf, point].sort((a, b) => (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)));
+  // 与 §4 排序规则同口径（beat → subBeat → lane），保证两击次序无关
+  const [start, end] = [buf, point].sort((a, b) =>
+    (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) || (a.lane - b.lane));
   newNotes.push({ type: 'Slide', connections: [start, end] });
   return [{ t: 'setNotes', notes: newNotes }, { t: 'setSlideBuffer', point: null }];
 }

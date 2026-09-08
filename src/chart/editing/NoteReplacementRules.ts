@@ -466,8 +466,11 @@ export function handleSlideToSlideCombination(
     }
 
     const [a, b] = newSlideConnections;
-    const [start, end] =
-        (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) <= 0 ? [a, b] : [b, a];
+    // 点击顺序不定 → 按 §4 排序规则归一为链 [起, 止]（beat → subBeat → lane 升序）。
+    // 注意：差值必须先算完再与 0 比较——旧写法 `(a.beat-b.beat) || (…) <= 0` 受运算优先级
+    // 影响，beat 差非 0 时恒按点击顺序取 [a,b]，导致先点后拍（C→B）时链反序、两侧都不接合。
+    const order = (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) || (a.lane - b.lane);
+    const [start, end] = order <= 0 ? [a, b] : [b, a];
 
     const newNotes = [...notes];
     // 端点覆盖替换：删除与链端点重合的键型音符（与既有行为一致）

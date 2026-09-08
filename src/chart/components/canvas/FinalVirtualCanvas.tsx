@@ -16,7 +16,7 @@ import { useEditing, useUI, usePlayback, useConfig } from '../../../app/Provider
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX } from '../../../visual/gutterLabels';
+import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, bpmLabelBox } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
@@ -254,16 +254,21 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 不进任何 effect/缓存依赖，memo 化只会制造陈旧闭包风险。
     // ---------------------------
 
-    /** 左沟槽 BPM 数字命中（§5 手势仲裁：单击数字 = 就地编辑；返回该 BPM 的 beat） */
+    /**
+     * 左沟槽 BPM 数字命中（§5 手势仲裁：单击数字 = 就地编辑；返回该 BPM 的 beat）。
+     * 命中区 = **数字自身的文字盒**（bpmLabelBox），不是整条水平线——否则数字所在高度上
+     * 的沟槽双击永远被判成"数字命中"、起点标记手势放不下去（2026-09-08 修订）。
+     */
     const hitBpmLabel = (cx: number, cy: number): number | null => {
-        const { trackBgX } = geometry.trackGeometry(viewport.scale);
+        const { trackBgX, trackStartX } = geometry.trackGeometry(viewport.scale);
         if (cx >= trackBgX) return null;
-        const fontPx = Math.round(GUTTER_LABEL_FONT_PX * (display.labelScale ?? 1));
-        const half = fontPx / 2 + 4; // 与绘制同款垂直居中 + 少量容差
+        const labelScale = display.labelScale ?? 1;
         for (const n of notes) {
             if (n.type !== 'BPM') continue;
             const y = virtualToCanvas(0, beatToVirtualY(n.beat)).y;
-            if (Math.abs(cy - y) <= half) return n.beat;
+            const box = bpmLabelBox(trackStartX, y, String(n.bpm), labelScale, surf.h);
+            if (box.x1 < 0) continue; // 沟槽不足、绘制时整体隐藏 → 不可命中
+            if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) return n.beat;
         }
         return null;
     };
@@ -427,7 +432,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             if (!d || (d.dBeat === 0 && d.dLane === 0)) { setDragGhost(null); return; }
             const r = planDragMove(notes, dragRef.current.items, d, { chartEndBeat });
             if (r.ok) {
-                setDragGhost(r.notes.filter((n, i) => n !== notes[i]));
+                // 幽灵 = 落点裁决后的受影响音符（覆盖/接合会增删元素，故由矩阵显式给出）
+                setDragGhost(r.ghost ?? []);
             } else {
                 setDragGhost(null);
             }

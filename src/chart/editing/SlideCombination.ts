@@ -98,13 +98,15 @@ const sameConn = (
 ) => a.beat === b.beat && a.lane === b.lane && (a.subBeat || 0) === (b.subBeat || 0);
 
 /**
- * 把选区组合成一条滑条（ADR-0008 §4，2026-09-07 三轮修订 = 结点级吸入 + 宿主拆条）。
- * 吸入来源 = ①kind:'note' 键型音符（本体消耗）；②滑条结点——slideNode 条目覆盖的结点参与成链，
- * 宿主未覆盖连续段按拆条语义保留（≥2 结点 = 子滑条保原 type，=1 结点 = 退化独立 Single）；
- * 完整覆盖或 kind:'note' 整条选中（Ctrl+E 路径）→ 全链入、本体消耗、无残留。
+ * 把选区组合成一条滑条（ADR-0008 §4，2026-09-08 五轮修订 = **触碰即整条入链**）。
+ * 吸入来源 = ①kind:'note' 键型音符（本体消耗）；②滑条——**任一结点入框（slideNode）或整条选中
+ * 即整条入链、本体消耗**（不再区分完整/部分覆盖，也不再拆条：组合 = 往滑条里并东西，不是切东西）。
+ * 排序 = **K 路保序归并**：每个被触碰滑条的结点序列是一整块（块内保原顺序，不重排宿主形状），
+ * 键音符各为单例块，块间按 §4 排序规则（beat→subBeat→lane）取最小头 —— 于是"框 A + 中间的新音符"
+ * → `A→新音符→B`（宿主残段不再被拆成孤立音符）。
  * slideRegion、BPM/System 不参与不消耗。来源对象（键音符 + 被触碰滑条）<2 → 无事发生。
- * 同位结点重合 → 合并单结点（hidden:false 可见接合点）；接合走 mergeChainWithSlides。
- * 结果 type：任一被吸入/消耗滑条为 Long → Long。
+ * 同位结点重合 → 合并单结点（hidden:false 可见接合点）；与未被触碰的既有滑条仍走 §3 接合。
+ * 结果 type：任一被吸入/消耗/接合滑条为 Long → Long。
  * 无就地变异：未受影响音符复用原引用（ADR-0001 §4 结构共享约束）。
  */
 export function combineSelectionIntoSlide(
@@ -112,57 +114,51 @@ export function combineSelectionIntoSlide(
   items: SelectionItem[],
 ): SlideCombineResult {
   const keyIdxs = new Set<number>();
-  const fullSlideIdxs = new Set<number>();
-  const nodeCover = new Map<number, Set<number>>();
+  const slideIdxs = new Set<number>();
   for (const it of items) {
     if (it.kind === 'note') {
       if (isAbsorbable(notes[it.noteIndex])) keyIdxs.add(it.noteIndex);
-      else if (isSlideLike(notes[it.noteIndex])) fullSlideIdxs.add(it.noteIndex);
+      else if (isSlideLike(notes[it.noteIndex])) slideIdxs.add(it.noteIndex);
     } else if (it.kind === 'slideNode' && isSlideLike(notes[it.noteIndex])) {
-      if (!nodeCover.has(it.noteIndex)) nodeCover.set(it.noteIndex, new Set());
-      nodeCover.get(it.noteIndex)!.add(it.connIndex);
+      slideIdxs.add(it.noteIndex); // 触碰即整条入链（五轮修订）
     }
+    // slideRegion：不参与不消耗
   }
-  // 全部结点都被框到 = 完整覆盖（框选语义），等价整条选中：本体消耗、无残留
-  for (const [i, covered] of nodeCover) {
-    if (covered.size === (notes[i] as SlideNote).connections.length) {
-      fullSlideIdxs.add(i);
-      nodeCover.delete(i);
-    }
-  }
-  // 来源计数（§4 修订）：键音符 + 整条消耗滑条 + 被触碰（部分覆盖）滑条 ≥2
-  if (keyIdxs.size + fullSlideIdxs.size + nodeCover.size < 2) {
+  // 来源计数（§4）：键音符 + 被触碰滑条 ≥2
+  if (keyIdxs.size + slideIdxs.size < 2) {
     return { shouldCombine: false, newNotes: notes, message: '组合来源不足 2 个' };
   }
 
-  const points: ChainPoint[] = [];
+  // 成链块：键音符 = 单例块；被触碰滑条 = 保序块（宿主形状不被重排）
+  const blocks: ChainPoint[][] = [];
   for (const i of keyIdxs) {
     const n = notes[i] as AbsorbableNote;
-    points.push({
+    blocks.push([{
       beat: n.beat, lane: n.lane, subBeat: n.subBeat || 0,
       flick: n.type === 'Single' && !!n.flick,
       skill: n.type === 'Single' && !!n.skill,
-    });
+    }]);
   }
-  for (const i of fullSlideIdxs) {
-    for (const c of (notes[i] as SlideNote).connections) {
-      points.push({
-        beat: c.beat, lane: c.lane, subBeat: c.subBeat || 0,
-        flick: !!c.flick, skill: !!c.skill, hidden: c.hidden,
-      });
+  for (const i of slideIdxs) {
+    blocks.push((notes[i] as SlideNote).connections.map(c => ({
+      beat: c.beat, lane: c.lane, subBeat: c.subBeat || 0,
+      flick: !!c.flick, skill: !!c.skill, hidden: c.hidden,
+    })));
+  }
+  // K 路归并：块内保序，块间按 §4 排序取最小头（全部单例块时退化为纯排序，与既有锁表一致）
+  const cmpPt = (a: ChainPoint, b: ChainPoint) =>
+    (a.beat - b.beat) || (a.subBeat - b.subBeat) || (a.lane - b.lane);
+  const cursor = blocks.map(() => 0);
+  const ordered: ChainPoint[] = [];
+  for (;;) {
+    let best = -1;
+    for (let b = 0; b < blocks.length; b++) {
+      if (cursor[b] >= blocks[b].length) continue;
+      if (best < 0 || cmpPt(blocks[b][cursor[b]], blocks[best][cursor[best]]) < 0) best = b;
     }
+    if (best < 0) break;
+    ordered.push(blocks[best][cursor[best]++]);
   }
-  for (const [i, covered] of nodeCover) {
-    const cs = (notes[i] as SlideNote).connections;
-    for (const ci of covered) {
-      const c = cs[ci];
-      points.push({
-        beat: c.beat, lane: c.lane, subBeat: c.subBeat || 0,
-        flick: !!c.flick, skill: !!c.skill, hidden: c.hidden,
-      });
-    }
-  }
-  const ordered = sortAbsorbable(points);
   // 同位置重合 → 合并单结点（标记 OR 汇集，接合点可见）
   const dedup: ChainPoint[] = [];
   for (const p of ordered) {
@@ -181,34 +177,26 @@ export function combineSelectionIntoSlide(
   const last = dedup.length - 1;
   const conns = dedup.map((p, k) => connFromPoint(p, k === 0 ? 'start' : k === last ? 'end' : 'middle'));
 
-  // 残留重建：键音符/整条消耗滑条移除；部分覆盖滑条 → 未覆盖连续段拆条（≥2=子滑条，=1=退化 Single）
-  const consumedNow = new Set<number>([...keyIdxs, ...fullSlideIdxs]);
+  // 残留重建（五轮修订 = 无拆条）：来源（键音符 + 被触碰滑条）本体消耗，其余原样保留（结构共享）
+  const consumedNow = new Set<number>([...keyIdxs, ...slideIdxs]);
   const rest: ChartNote[] = [];
+  const restOrig: number[] = []; // rest 下标 → notes 原下标
   for (let i = 0; i < notes.length; i++) {
     if (consumedNow.has(i)) continue;
-    const covered = nodeCover.get(i);
-    if (!covered) { rest.push(notes[i]); continue; }
-    const slide = notes[i] as SlideNote;
-    const runs: ConnectionNote[][] = [];
-    let cur: ConnectionNote[] = [];
-    slide.connections.forEach((c, ci) => {
-      if (covered.has(ci)) {
-        if (cur.length) { runs.push(cur); cur = []; }
-      } else {
-        cur.push(c);
-      }
-    });
-    if (cur.length) runs.push(cur);
-    for (const run of runs) {
-      rest.push(run.length >= 2 ? { ...slide, connections: run } : connectionToNote(run[0]));
-    }
+    rest.push(notes[i]);
+    restOrig.push(i);
   }
-  const hasLong = [...fullSlideIdxs, ...nodeCover.keys()].some(i => notes[i].type === 'Long');
+  // 与未被触碰的既有滑条仍走 §3 接合（链端点重合 → 级联合并）
   const merged = mergeChainWithSlides(rest, conns);
-  const connections = merged.connections;
+  const mergedSet = new Set(merged.consumed);
+  const hasLong = [
+    ...slideIdxs, ...merged.consumed.map(k => restOrig[k]),
+  ].some(i => notes[i]?.type === 'Long');
   const type = merged.type === 'Long' || hasLong ? 'Long' as const : 'Slide' as const;
-  const consumedSet = new Set(merged.consumed);
-  const newNotes = [...rest.filter((_, i) => !consumedSet.has(i)), { type, connections } as SlideNote];
+  const newNotes = [
+    ...rest.filter((_, k) => !mergedSet.has(k)),
+    { type, connections: merged.connections } as SlideNote,
+  ];
   return {
     shouldCombine: true,
     newNotes,
@@ -224,11 +212,14 @@ export function combineSelectionIntoSlide(
  * - 端点同向重合（起点+起点 / 终点+终点）→ 不合并（§3 情况 3/4），保持独立滑条
  * 循环直至无匹配（链合并后新端点可能又与另一条滑条重合 → 级联）。
  * 合并消耗既有滑条本体；链首/尾结点的 flick/skill 标记在降为中间结点时剥除（与两击路径一致）。
+ * @param exclude 不参与合并的 notes 下标（拖拽接合时排除被拖滑条自身，防自合并）
  */
 export function mergeChainWithSlides(
   notes: ChartNote[],
   chain: ConnectionNote[],
+  exclude: readonly number[] = [],
 ): { connections: ConnectionNote[]; type: 'Slide' | 'Long'; consumed: number[] } {
+  const skip = new Set(exclude);
   let out = [...chain];
   let type: 'Slide' | 'Long' = 'Slide';
   const pool = notes.map((n, i) => ({ n, idx: i })); // 工作副本（仅 splice；idx=在 notes 中的原下标）
@@ -237,6 +228,7 @@ export function mergeChainWithSlides(
   while (merged) {
     merged = false;
     for (let i = 0; i < pool.length; i++) {
+      if (skip.has(pool[i].idx)) continue;
       const n = pool[i].n;
       if (n.type !== 'Slide' && n.type !== 'Long') continue;
       const cs = n.connections;

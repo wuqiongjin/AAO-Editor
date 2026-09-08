@@ -235,7 +235,7 @@ describe('§2 框选矩阵', () => {
     expect(s.connections.map((c: any) => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]);
     expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
   });
-  it('slide 行（§4 三轮修订·结点级吸入）：两条滑条只框各一个结点 → 也成链', () => {
+  it('slide 行（§4 四轮修订·先接合后拆条）：两条滑条只框相邻端点 → 两条整链串成一条', () => {
     const notes: ChartNote[] = [slide(1, 1, 2, 2), slide(3, 3, 4, 4)];
     const items: SelectionItem[] = [
       { kind: 'slideNode', noteIndex: 0, connIndex: 1 },
@@ -244,7 +244,8 @@ describe('§2 框选矩阵', () => {
     const ops = boxSelectOps('slide', notes, items);
     expect(ops).toHaveLength(3);
     const chain = ((ops[0] as any).notes.at(-1)) as any;
-    expect(chain.connections.map((c: any) => [c.beat, c.lane])).toEqual([[2, 2], [3, 3]]);
+    expect(chain.connections.map((c: any) => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]);
+    expect((ops[0] as any).notes).toHaveLength(1); // 两条宿主都被接合消耗，无拆条残留
     expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
   });
   it('slide 行（§4 修订）：单条滑条整框选中（来源=1）→ 无事发生', () => {

@@ -7,6 +7,7 @@ import {
   clampGutterLabelY,
   drawGutterLabel,
   boundLabelGapPx,
+  bpmLabelBox,
   BPM_LABEL_GAP_PX,
   GUTTER_LABEL_FONT_PX,
   GUTTER_LABEL_LINE_GAP_PX,
@@ -134,5 +135,40 @@ describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () =
     expect(fills.length).toBe(1);
     const y = fills[0][1][2];
     expect(y).toBeLessThanOrEqual(TEST_SURFACE.h - GUTTER_LABEL_FONT_PX / 2);
+  });
+});
+describe('bpmLabelBox：BPM 数字命中盒（2026-09-08 修订：不再整条水平线都命中）', () => {
+  const TRACK_START_X = 300;
+  const LINE_Y = 400;
+
+  it('横向右缘 = 内带锚点（轨道左外缘 − 8），只覆盖数字自身宽度', () => {
+    const box = bpmLabelBox(TRACK_START_X, LINE_Y, '120');
+    expect(box.x2).toBe(TRACK_START_X - BPM_LABEL_GAP_PX + 4);
+    expect(box.x1).toBeLessThan(box.x2);
+    // 3 位数字 @21px → 约 47px 宽，远小于沟槽宽度（不会吃掉整条水平线）
+    expect(box.x2 - box.x1).toBeLessThan(60);
+    expect(box.x2 - box.x1).toBeGreaterThan(30);
+  });
+
+  it('数字更长 → 盒更宽；纵向以线为中心、随 labelScale 放大', () => {
+    const b3 = bpmLabelBox(TRACK_START_X, LINE_Y, '120');
+    const b5 = bpmLabelBox(TRACK_START_X, LINE_Y, '12000');
+    expect(b5.x1).toBeLessThan(b3.x1);
+    const big = bpmLabelBox(TRACK_START_X, LINE_Y, '120', 2);
+    expect(big.y2 - big.y1).toBeGreaterThan(b3.y2 - b3.y1);
+    expect((b3.y1 + b3.y2) / 2).toBe(LINE_Y);
+  });
+
+  it('顶/底缘沿用钳制：命中区随被推回的文字同步', () => {
+    const box = bpmLabelBox(TRACK_START_X, 2, '120', 1, 900);
+    expect(box.y1).toBeGreaterThanOrEqual(0);
+    const bottom = bpmLabelBox(TRACK_START_X, 899, '120', 1, 900);
+    expect(bottom.y2).toBeLessThanOrEqual(900);
+  });
+
+  it('沟槽宽度不足（盒左缘越出画布）→ 调用方据此判不可命中', () => {
+    // 与 drawGutterLabel 的隐藏条件同口径：x1 < 0
+    expect(bpmLabelBox(10, LINE_Y, '120').x1).toBeLessThan(0);
+    expect(bpmLabelBox(TRACK_START_X, LINE_Y, '120').x1).toBeGreaterThan(0);
   });
 });
