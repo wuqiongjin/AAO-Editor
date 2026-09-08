@@ -139,3 +139,22 @@ describe('noteEditing - 粘贴锚点（ADR-0008 §2.1 六轮）', () => {
     expect(out[1]).toMatchObject({ beat: 9, lane: 5 });
   });
 });
+
+describe('noteEditing - subBeat 单位（1/beatDisplay，评审修复）', () => {
+  it('锚点按真实拍位：带 subBeat 的首结点不被低估（内容不溢出到光标下方）', () => {
+    const clip: ChartNote[] = [
+      { type: 'Single', beat: 2, lane: 0, subBeat: 1 }, // beatDisplay=4 → 真实 2.25
+      { type: 'Single', beat: 3, lane: 0, subBeat: 0 },
+    ];
+    const out = shiftGroupToAnchor(clip, 10, 0, 4) as any[];
+    // 旧实现：min 只取 beat=2 → 整组下移 8 拍，首结点真实落点 10.25（溢出到光标之后）
+    expect(out[0].beat).toBeCloseTo(9.75, 6); // +subBeat 后真实落点恰为光标 10
+    expect(out[1].beat).toBeCloseTo(10.75, 6);
+  });
+
+  it('不传 beatDisplay 时回退默认 4（调用方未透传不报错）', () => {
+    const clip: ChartNote[] = [{ type: 'Single', beat: 2, lane: 0, subBeat: 2 }];
+    const out = shiftGroupToAnchor(clip, 6, 0) as any[];
+    expect(out[0].beat).toBeCloseTo(5.5, 6);
+  });
+});

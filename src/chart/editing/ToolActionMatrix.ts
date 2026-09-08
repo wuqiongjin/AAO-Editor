@@ -89,7 +89,12 @@ export function slideSecondClickOps(
   point: SlidePoint,
   clearSel: MatrixOp = { t: 'setSelection', items: [] },
 ): MatrixOp[] {
-  if (samePos(buf, point)) return [{ t: 'setSlideBuffer', point: null }, clearSel]; // 同位再点 = 取消锚点（bug 32 语义）
+  if (samePos(buf, point)) {
+    // 同 beat+subBeat 的两点（**不看 lane**）→ 不成条并清空缓冲。
+    // 该分支同时承担两条语义：① bug 32「同位再点 = 取消锚点」；② ADR-0001 §2「禁止横向放置（仅两击直放）」
+    // ——同拍不同轨即横向段，在此被拦下（框选组合路径不受此限，见 §4）。
+    return [{ t: 'setSlideBuffer', point: null }, clearSel];
+  }
   const comb = handleSlideToSlideCombination(notes, [buf, point]);
   if (comb.shouldCombine) return [{ t: 'setNotes', notes: comb.newNotes }, { t: 'setSlideBuffer', point: null }, clearSel];
   const newNotes = [...comb.newNotes];
@@ -157,11 +162,9 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     // §2.1：粘贴作用于位置 —— 剪贴板组的包围盒左上角对齐到该落点（锚点语义归 shiftGroupToAnchor）。
     // 持工具态**驻留**（矩阵只产出 op，不清 armedTool）→ 连续粘贴；粘贴产物成为新选区。
     if (!pos || clipboard.length === 0) return [clearSel]; // 非法落点/空剪贴板：只清选区
-    const { newNotes, newStartIndex } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
-    const items = clipboard
-      .map((_, i) => newStartIndex + i)
-      .filter(i => i < newNotes.length)
-      .map(i => ({ kind: 'note' as const, noteIndex: i }));
+    // 选区 = 实际写入/改动的下标（重叠替换与拆条会让下标不连续，不能用 newStartIndex+i）
+    const { newNotes, written } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
+    const items = written.map(i => ({ kind: 'note' as const, noteIndex: i }));
     return [{ t: 'setNotes', notes: newNotes }, { t: 'setSelection', items }];
   }
   if (isActionTool(tool)) {
@@ -228,5 +231,6 @@ export function execSlideOps(input: ExecInput): MatrixOp[] {
 export function execBpmOps(input: ExecInput): MatrixOp[] {
   const { notes, cursor, lastBpm, chartEndBeat } = input;
   if (!cursor || cursor.beat > chartEndBeat + 1e-6) return [];
-  return bpmPlaceOps(notes, cursor.beat, lastBpm);
+  // §2 原则 6：执行键与单击同语义 → 放置后清选区
+  return [...bpmPlaceOps(notes, cursor.beat, lastBpm), { t: 'setSelection', items: [] }];
 }

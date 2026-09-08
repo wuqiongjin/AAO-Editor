@@ -48,7 +48,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const config = useConfig();
   const playback = usePlayback();
 
-  const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, paste, deleteSelected, mirror, place, undo, redo, resetNotes } = editing;
+  const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, paste, deleteSelected, mirror, undo, redo, resetNotes } = editing;
   const {
     mousePosition,
     armedTool, setArmedTool,
@@ -277,10 +277,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     deleteSelected();
   }, [deleteMarkerIfSelected, deleteSelected]);
 
-  // 在当前光标位置立即放置/粘贴音符（ADR-0002 §2.1）
-  const placeAtCursor = useCallback((tool: string) => {
-    if (mousePosition) place(tool, mousePosition);
-  }, [mousePosition, place]);
+  // 在当前光标位置立即粘贴（ADR-0002 §2.1）。
+  // 键型执行键（Ctrl+F/G/A/S/D）改走画布 ref 的 execPlace：与单击放置共用 clickOps，
+  // 从而自动获得 §2 原则 6（清选区）与 snapPos 的 chartEndBeat 越末端判定
+  //（原先走 Editor.place 绕过矩阵，既不清选区、也能在谱面末端外放置）。
   const pasteAtCursor = useCallback(() => {
     if (mousePosition) paste(mousePosition);
   }, [mousePosition, paste]);
@@ -290,15 +290,15 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const runFunction = useCallback((fn: FunctionId) => {
     switch (fn) {
       case 'switchSingle': setArmedTool('single'); break;
-      case 'execSingle': placeAtCursor('single'); break;
+      case 'execSingle': virtualCanvasRef.current?.execPlace?.('single'); break;
       case 'switchFlick': setArmedTool('flick'); break;
-      case 'execFlick': placeAtCursor('flick'); break;
+      case 'execFlick': virtualCanvasRef.current?.execPlace?.('flick'); break;
       case 'switchSkill': setArmedTool('skill'); break;
-      case 'execSkill': placeAtCursor('skill'); break;
+      case 'execSkill': virtualCanvasRef.current?.execPlace?.('skill'); break;
       case 'switchLDirectional': setArmedTool('ldirectional'); break;
-      case 'execLDirectional': placeAtCursor('ldirectional'); break;
+      case 'execLDirectional': virtualCanvasRef.current?.execPlace?.('ldirectional'); break;
       case 'switchRDirectional': setArmedTool('rdirectional'); break;
-      case 'execRDirectional': placeAtCursor('rdirectional'); break;
+      case 'execRDirectional': virtualCanvasRef.current?.execPlace?.('rdirectional'); break;
       case 'switchBpm': setArmedTool('bpm'); break;
       case 'execBpm': virtualCanvasRef.current?.execBpm?.(); break;
       case 'switchSlide': setArmedTool('slide'); break;
@@ -331,7 +331,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         break;
       }
     }
-  }, [setArmedTool, clipboard.length, placeAtCursor, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, togglePlay, jumpToMarker,
+  }, [setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, togglePlay, jumpToMarker,
       leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===

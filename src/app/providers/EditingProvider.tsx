@@ -112,14 +112,10 @@ export function EditingProvider({ children }: { children: ReactNode }) {
 
   const pasteAt = useCallback((pos: Position) => {
     if (clipboard.length === 0) return;
-    const { newNotes, newStartIndex } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
+    const { newNotes, written } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
     handleNotesChange(newNotes);
-    setSelectedItems(
-      clipboard
-        .map((_, i) => newStartIndex + i)
-        .filter(i => i < newNotes.length)
-        .map(i => ({ kind: 'note' as const, noteIndex: i })),
-    );
+    // 选区 = 实际写入/改动的下标（与画布单击路径同口径，见 ToolActionMatrix.clickOps）
+    setSelectedItems(written.map(i => ({ kind: 'note' as const, noteIndex: i })));
   }, [notes, clipboard, handleNotesChange]);
 
   const deleteSelected = useCallback(() => {

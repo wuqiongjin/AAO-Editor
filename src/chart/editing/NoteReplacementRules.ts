@@ -536,14 +536,17 @@ export function removeOverlappedNotes(
  * - 与既有普通音符重叠 → 按放置覆盖规则处理（替换 / 方向键 length+1 / 替换为方向键，ADR §1.1）
  * - 与滑条结点重叠 → 单键忽略、滑键仅尾部加 flick、技能键两端加 skill、方向键拆条（ADR §1.2）
  * - 滑条本身 → 清理其连接点覆盖的普通音符后作为独立实体加入，不与既有滑条组合（ADR §6.3）
- * @returns newNotes 应用覆盖后的音符数组；newStartIndex 为原数组末尾下标（粘贴内容起始，供选中）
+ * @returns newNotes 应用覆盖后的音符数组；newStartIndex 为原数组末尾下标（兼容保留）；
+ *          **written = 本次粘贴实际写入/改动的下标**（按引用身份判定）。
+ *          注意 written **不**等于 `[newStartIndex, newStartIndex+n)`：重叠时是就地替换/拆条，
+ *          不 push、且可能多写（拆条）或少写，故不能按下标连续性假设选区。
  */
 export function pasteChartNotes(
     notes: ChartNote[],
     clipboard: ChartNote[],
     anchorBeat: number,
     anchorLane: number
-): { newNotes: ChartNote[]; newStartIndex: number } {
+): { newNotes: ChartNote[]; newStartIndex: number; written: number[] } {
     const pasted = shiftGroupToAnchor(clipboard, anchorBeat, anchorLane);
     let newNotes = [...notes];
     const newStartIndex = newNotes.length;
@@ -612,6 +615,10 @@ export function pasteChartNotes(
         }
     }
 
-    return { newNotes, newStartIndex };
+    // 实际写入/改动的下标：新数组里引用不在原数组中的那些（新增或替换产生的新对象，含拆条产物）
+    const original = new Set(notes);
+    const written: number[] = [];
+    newNotes.forEach((n, i) => { if (!original.has(n)) written.push(i); });
+    return { newNotes, newStartIndex, written };
 }
 

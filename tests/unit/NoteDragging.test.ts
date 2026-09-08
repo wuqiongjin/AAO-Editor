@@ -11,7 +11,7 @@ const slide = (...flat: number[]): ChartNote => {
   return { type: 'Slide', connections };
 };
 const noteSel = (...idxs: number[]): SelectionItem[] => idxs.map(i => ({ kind: 'note' as const, noteIndex: i }));
-const B = { chartEndBeat: 16 };
+const B = { chartEndBeat: 16, beatDisplay: 4 };
 
 describe('draggableFromItems', () => {
   it('键型/整条滑条/结点可拖；BPM/System/slideRegion 不可', () => {
@@ -209,5 +209,16 @@ describe('planDragMove 落点覆盖/接合（ADR-0008 §6 四轮修订）', () =
     expect(notes).toHaveLength(3);
     expect((notes[0] as any).beat).toBe(1);
     expect(r.notes[r.notes.length - 1]).toBe(keep);
+  });
+});
+
+describe('planDragMove - subBeat 单位（1/beatDisplay）', () => {
+  it('越界判定按真实拍位：subBeat 不再是"整拍小数"', () => {
+    // beat 15、subBeat 1（beatDisplay=4 → 真实 15.25）
+    const notes: ChartNote[] = [{ type: 'Single', beat: 15, lane: 0, subBeat: 1 } as ChartNote];
+    // 右移 0.5 → 真实 15.75 ≤ 16 → 合法（旧实现按 15.5+1=16.5 判越界，误杀）
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0.5, dLane: 0 }, B).ok).toBe(true);
+    // 右移 1 → 真实 16.25 > 16 → 越界
+    expect(planDragMove(notes, noteSel(0), { dBeat: 1, dLane: 0 }, B).reason).toBe('out-of-bounds');
   });
 });

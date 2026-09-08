@@ -635,7 +635,8 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   }
 
   if (rc.armedTool === 'paste' && rc.clipboard && rc.clipboard.length > 0) {
-    const shifted = shiftGroupToAnchor(rc.clipboard, pos.preciseBeat, pos.lane);
+    // 传入 beatDisplay：带 subBeat 的剪贴板结点才能按真实拍位锚定（与粘贴执行路径一致）
+    const shifted = shiftGroupToAnchor(rc.clipboard, pos.preciseBeat, pos.lane, rc.beatDisplay);
     for (const n of shifted) renderNoteGhost(ctx, c, rc, n);
     ctx.restore();
     return;

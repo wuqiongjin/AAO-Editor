@@ -134,6 +134,13 @@ describe('§2 Slide 工具单击（两击直放）', () => {
     expect(clickOps(input({ tool: 'slide', pos: sp(3, 5), slideBuffer: pt(3, 2) })))
       .toEqual([{ t: 'setSlideBuffer', point: null }, { t: 'setSelection', items: [] }]);
   });
+  it('ADR-0001 §2 禁止横向（仅两击直放）：同拍不同轨 = 不成条 + 清缓冲', () => {
+    // 与上一测同一分支，两层语义共用：横向段在此被拦（框选组合路径可产出同拍横向段，不受此限）
+    const ops = clickOps(input({ tool: 'slide', pos: sp(4, 6), slideBuffer: pt(4, 0) }));
+    expect(ops.map(o => o.t)).toEqual(['setSlideBuffer', 'setSelection']);
+    expect((ops[0] as any).point).toBeNull();
+    expect((ops[0] as any).notes).toBeUndefined();
+  });
   it('端点与既有滑条端点重合 → 走 ADR-0001 §3 合并', () => {
     const ops = clickOps(input({
       tool: 'slide', notes: [slide(1, 1, 2, 2)], pos: sp(3, 3), slideBuffer: pt(2, 2),
@@ -329,7 +336,7 @@ describe('§3 execSlideOps（Ctrl+E）', () => {
 });
 
 describe('§3 execBpmOps（Ctrl+`）', () => {
-  it('光标处放置（同拍覆盖）→ 就地编辑，与 BPM 工具单击同函数', () => {
+  it('光标处放置（同拍覆盖）→ 就地编辑 + 清选区，与 BPM 工具单击同函数（§3 / 原则 6）', () => {
     const ops = execBpmOps({
       notes: [bpm(2, 100)], selectedItems: [], cursor: sp(2, 1),
       slideBuffer: null, lastBpm: 150, chartEndBeat: 16,
@@ -337,6 +344,7 @@ describe('§3 execBpmOps（Ctrl+`）', () => {
     expect(ops).toEqual([
       { t: 'setNotes', notes: [bpm(2, 150)] },
       { t: 'openBpmEditor', beat: 2, value: '150' },
+      { t: 'setSelection', items: [] },
     ]);
   });
   it('光标不在画布 / 越过末端 → 无事发生', () => {

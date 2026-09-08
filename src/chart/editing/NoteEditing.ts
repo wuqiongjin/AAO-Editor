@@ -87,10 +87,13 @@ export const mirrorNotes = (notes: ChartNote[], selected: number[]): ChartNote[]
  * 它们只随最终的 beat 位移平移（见 shiftNote）。
  */
 const isLaned = (n: ChartNote) => n.type !== "BPM" && n.type !== "System";
-const noteMinBeat = (n: ChartNote) =>
+/** 真实拍位：subBeat 单位是 1/beatDisplay（与 ChartGeometry.noteVirtualY 同口径） */
+const trueBeat = (beat: number, subBeat: number | undefined, beatDisplay: number) =>
+  beat + ((subBeat || 0) > 0 ? (subBeat as number) / beatDisplay : 0);
+const noteMinBeat = (n: ChartNote, beatDisplay: number) =>
   (n.type === "Slide" || n.type === "Long")
-    ? Math.min(...n.connections.map(c => c.beat))
-    : n.beat;
+    ? Math.min(...n.connections.map(c => trueBeat(c.beat, c.subBeat, beatDisplay)))
+    : trueBeat(n.beat, (n as { subBeat?: number }).subBeat, beatDisplay);
 const noteMinLane = (n: ChartNote) =>
   (n.type === "Slide" || n.type === "Long")
     ? Math.min(...n.connections.map(c => c.lane))
@@ -100,9 +103,9 @@ const noteMaxLane = (n: ChartNote) =>
     ? Math.max(...n.connections.map(c => c.lane))
     : (n as { lane: number }).lane;
 
-const groupMinBeat = (clip: ChartNote[]) => {
+const groupMinBeat = (clip: ChartNote[], beatDisplay: number) => {
   const laned = clip.filter(isLaned);
-  return Math.min(...(laned.length > 0 ? laned : clip).map(noteMinBeat));
+  return Math.min(...(laned.length > 0 ? laned : clip).map(n => noteMinBeat(n, beatDisplay)));
 };
 
 const groupMinLane = (clip: ChartNote[]) => {
@@ -132,10 +135,19 @@ const shiftNote = (n: ChartNote, dBeat: number, dLane: number): ChartNote => {
   return { ...n, beat: n.beat + dBeat, lane: n.lane + dLane };
 };
 
-// 把剪贴板组粘贴到 (anchorBeat, anchorLane) 处，保持组内相对位移与整体宽度
-export const shiftGroupToAnchor = (clip: ChartNote[], anchorBeat: number, anchorLane: number): ChartNote[] => {
+/**
+ * 把剪贴板组粘贴到 (anchorBeat, anchorLane) 处，保持组内相对位移与整体宽度。
+ * @param beatDisplay 子拍细分（subBeat 的单位分母）；用于把组的 min 拍位换算成真实拍位，
+ *                    否则带 subBeat 的结点会让锚点被低估（内容溢出到光标左/上侧）。
+ */
+export const shiftGroupToAnchor = (
+  clip: ChartNote[],
+  anchorBeat: number,
+  anchorLane: number,
+  beatDisplay = 4,
+): ChartNote[] => {
   if (clip.length === 0) return [];
-  const deltaBeat = anchorBeat - groupMinBeat(clip);
+  const deltaBeat = anchorBeat - groupMinBeat(clip, beatDisplay);
   // 以组"左上角"为锚点；若把组左缘对齐到光标 lane 会超出轨道，则整体平移至恰好能放下的位置，保持组宽度不变
   const minLane = groupMinLane(clip);
   const maxLane = groupMaxLane(clip);

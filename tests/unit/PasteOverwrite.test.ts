@@ -118,3 +118,31 @@ describe('pasteChartNotes - 粘贴滑条本身', () => {
     expect(r.newNotes.filter(n => n.type === 'Slide')).toHaveLength(2);
   });
 });
+
+describe('pasteChartNotes - written（本次实际写入下标，2026-09-08 评审修复）', () => {
+  it('有重叠时下标不连续 → written 为实际写入项（不能假设 newStartIndex+i）', () => {
+    const notes: ChartNote[] = [{ type: 'Single', beat: 5, lane: 1, subBeat: 0 }];
+    const clipboard: ChartNote[] = [
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0, flick: true }, // 与既有同位 → 就地替换，不 push
+      { type: 'Single', beat: 6, lane: 1, subBeat: 0 },               // 空位 → push
+    ];
+    const r = pasteChartNotes(notes, clipboard, 5, 1);
+    expect(r.newNotes).toHaveLength(2);
+    // 旧实现：newStartIndex=1 → 只选中下标 1，漏掉被替换的下标 0
+    expect(r.written).toEqual([0, 1]);
+    expect((r.newNotes[0] as any).flick).toBe(true);
+  });
+
+  it('拆条产物也算写入（可能比剪贴板更多）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [{ beat: 1, lane: 0, subBeat: 0 }, { beat: 2, lane: 0, subBeat: 0 }, { beat: 3, lane: 0, subBeat: 0 }],
+    }];
+    const clipboard: ChartNote[] = [{ type: 'LDirectional', beat: 2, lane: 0, subBeat: 0, length: 1 }];
+    const r = pasteChartNotes(notes, clipboard, 2, 0);
+    // 中间结点被拆：两侧退化单键 + 独立方向键 = 3 个写入项（旧实现只选中 newStartIndex+0 = 1 个）
+    expect(r.written).toEqual([0, 1, 2]);
+    expect(r.newNotes.filter(n => n.type === 'Single')).toHaveLength(2);
+    expect(r.newNotes.filter(n => n.type === 'LDirectional')).toHaveLength(1);
+  });
+});

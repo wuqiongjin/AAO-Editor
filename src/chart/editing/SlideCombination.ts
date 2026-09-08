@@ -17,12 +17,17 @@ export const isAbsorbable = (n: ChartNote | undefined): n is AbsorbableNote =>
 
 export type NodeRole = 'start' | 'middle' | 'end';
 
-/** 排序规则（ADR-0008 §4）：beat+subBeat 升序，同拍按 lane 升序 */
+/**
+ * 排序规则（ADR-0008 §4，逐行锁单测）：beat+subBeat 升序，同拍按 lane 升序。
+ * **生产路径必须复用它**（K 路归并的块间比较器取此规则），否则锁表锁的是死代码。
+ */
+export const compareAbsorbable = <T extends { beat: number; subBeat?: number; lane: number }>(
+  a: T, b: T,
+): number => (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) || (a.lane - b.lane);
+
 export const sortAbsorbable = <T extends { beat: number; subBeat?: number; lane: number }>(
   arr: readonly T[],
-): T[] =>
-  [...arr].sort((a, b) =>
-    (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) || (a.lane - b.lane));
+): T[] => [...arr].sort(compareAbsorbable);
 
 /**
  * 形态归一表（ADR-0008 §4，逐行锁单测）：被吸音符 × 结点位置 → 滑条连接结点。
@@ -34,16 +39,21 @@ export const sortAbsorbable = <T extends { beat: number; subBeat?: number; lane:
  * | 方向键     | 普通端点           | 统一化         | 普通端点 |
  *
  * 方向键的 length 不随吸入保留；flick+skill 并存时按行叠加（起点留 skill、剥 flick）。
+ *
+ * **被吸音符 → 链结点的投影（上表第 0 步）与生产共用**：`chainPointFromNote` 既供本表使用，
+ * 也供 `combineSelectionIntoSlide` 的 K 路归并构造块使用——否则改了本表而生产路径另起炉灶，
+ * 单测全绿但行为已变（锁表失效）。
  */
+export function chainPointFromNote(note: AbsorbableNote): ChainPoint {
+  return {
+    beat: note.beat, lane: note.lane, subBeat: note.subBeat || 0,
+    flick: note.type === 'Single' && !!note.flick,
+    skill: note.type === 'Single' && !!note.skill,
+  };
+}
+
 export function connectionFromAbsorbedNote(note: AbsorbableNote, role: NodeRole): ConnectionNote {
-  return connFromPoint(
-    {
-      beat: note.beat, lane: note.lane, subBeat: note.subBeat || 0,
-      flick: note.type === 'Single' && !!note.flick,
-      skill: note.type === 'Single' && !!note.skill,
-    },
-    role,
-  );
+  return connFromPoint(chainPointFromNote(note), role);
 }
 
 /** 链结点位置点（键音符与滑条连接点的公共投影）；归一表按 role 施加 */
@@ -132,12 +142,7 @@ export function combineSelectionIntoSlide(
   // 成链块：键音符 = 单例块；被触碰滑条 = 保序块（宿主形状不被重排）
   const blocks: ChainPoint[][] = [];
   for (const i of keyIdxs) {
-    const n = notes[i] as AbsorbableNote;
-    blocks.push([{
-      beat: n.beat, lane: n.lane, subBeat: n.subBeat || 0,
-      flick: n.type === 'Single' && !!n.flick,
-      skill: n.type === 'Single' && !!n.skill,
-    }]);
+    blocks.push([chainPointFromNote(notes[i] as AbsorbableNote)]);
   }
   for (const i of slideIdxs) {
     blocks.push((notes[i] as SlideNote).connections.map(c => ({
@@ -145,16 +150,14 @@ export function combineSelectionIntoSlide(
       flick: !!c.flick, skill: !!c.skill, hidden: c.hidden,
     })));
   }
-  // K 路归并：块内保序，块间按 §4 排序取最小头（全部单例块时退化为纯排序，与既有锁表一致）
-  const cmpPt = (a: ChainPoint, b: ChainPoint) =>
-    (a.beat - b.beat) || (a.subBeat - b.subBeat) || (a.lane - b.lane);
+  // K 路归并：块内保序，块间按 §4 排序规则（compareAbsorbable，与 sortAbsorbable 同一份）取最小头
   const cursor = blocks.map(() => 0);
   const ordered: ChainPoint[] = [];
   for (;;) {
     let best = -1;
     for (let b = 0; b < blocks.length; b++) {
       if (cursor[b] >= blocks[b].length) continue;
-      if (best < 0 || cmpPt(blocks[b][cursor[b]], blocks[best][cursor[best]]) < 0) best = b;
+      if (best < 0 || compareAbsorbable(blocks[b][cursor[b]], blocks[best][cursor[best]]) < 0) best = b;
     }
     if (best < 0) break;
     ordered.push(blocks[best][cursor[best]++]);

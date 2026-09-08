@@ -5,7 +5,7 @@ import { deleteSelection } from '../../editing/SelectionEditing';
 import { planDragMove, draggableFromItems } from '../../editing/NoteDragging';
 import {
   clickOps, boxSelectOps, execSlideOps, execBpmOps, pointerClickSelection,
-  sameSelectionItem, type MatrixOp, type SlidePoint,
+  sameSelectionItem, type MatrixOp, type MatrixTool, type SlidePoint,
 } from '../../editing/ToolActionMatrix';
 import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../../../audio/AudioTiming';
 import {
@@ -57,6 +57,12 @@ export interface FinalVirtualCanvasHandle {
   execBpm?: () => void;
   /** Ctrl+E（§3）：有选区 → §4 组合成滑条；无选区 → 光标处放临时端点（与鼠标两击共用 slideBuffer） */
   execSlide?: () => void;
+  /**
+   * Ctrl+F/G/A/S/D（§3）：光标处放置该键型 —— **与单击放置共用 clickOps**，
+   * 故 §2 原则 6（清选区）与 snapPos 的"越谱面末端 = 非法落点"判定自动一致
+   *（原先走 Editor 的 place() 绕过矩阵：不清选区、且能在末端外放置）。
+   */
+  execPlace?: (tool: MatrixTool) => void;
 }
 
 // 视口缩放配置
@@ -430,7 +436,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
             const d = dragDelta(mouseX, mouseY);
             if (!d || (d.dBeat === 0 && d.dLane === 0)) { setDragGhost(null); return; }
-            const r = planDragMove(notes, dragRef.current.items, d, { chartEndBeat });
+            const r = planDragMove(notes, dragRef.current.items, d, { chartEndBeat, beatDisplay });
             if (r.ok) {
                 // 幽灵 = 落点裁决后的受影响音符（覆盖/接合会增删元素，故由矩阵显式给出）
                 setDragGhost(r.ghost ?? []);
@@ -466,7 +472,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             const pos = cssToCanvas(e);
             const d = pos ? dragDelta(pos.x, pos.y, drag) : null;
             if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
-                const r = planDragMove(notes, drag.items, d, { chartEndBeat });
+                const r = planDragMove(notes, drag.items, d, { chartEndBeat, beatDisplay });
                 if (r.ok) {
                     handleNotesChange(r.notes);
                     setSelectedItems(r.items);
@@ -510,7 +516,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (!rect) return;
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const hit = findItemAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes });
+        // noteSize 必须与另三处命中（点选/工具点击/拖拽候选）一致，否则 noteSize≠1 时命中盒与视觉不符
+        const hit = findItemAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
         if (!hit) return;
         // 删除后选区必须清空：原下标在 splice 后已指向别的音符（§2 原则 6 同族——谱面变更后旧选区不保留）
         handleNotesChange(deleteSelection(notes, [hit]));
@@ -660,6 +667,15 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             applyOps(execSlideOps({
                 notes, selectedItems, cursor: mousePosition,
                 slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
+            }));
+        },
+        // §3 键型执行键：光标不在画布 / 越过谱面末端 → 无事发生（不落子、也不清选区）
+        execPlace: (tool: MatrixTool) => {
+            if (!mousePosition || mousePosition.beat > chartEndBeat + 1e-6) return;
+            applyOps(clickOps({
+                tool, notes, hit: null,
+                pos: { beat: mousePosition.beat, lane: mousePosition.lane },
+                slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
             }));
         },
     }));

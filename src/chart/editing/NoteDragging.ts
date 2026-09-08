@@ -32,7 +32,12 @@ const TOTAL_LANES = 7; // 与 NoteEditing.TOTAL_LANES 一致（此处内联避�
 const EPS = 1e-6;
 
 const posKey = (beat: number, subBeat: number, lane: number) => `${beat}|${subBeat}|${lane}`;
-const sumBeat = (beat: number, subBeat: number) => beat + subBeat;
+/**
+ * 真实拍位：subBeat 的单位是 **1/beatDisplay**（与 ChartGeometry.noteVirtualY、
+ * hitTest 索引同口径），不能当作拍的小数部分直接相加。
+ */
+const sumBeat = (beat: number, subBeat: number, beatDisplay: number) =>
+  beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
 
 /** 工作数组元素：note + 其在入参 notes 中的原下标（覆盖/接合会增删元素，靠它重映射选区） */
 interface Tagged { note: ChartNote; orig: number }
@@ -53,12 +58,14 @@ export function planDragMove(
   notes: ChartNote[],
   items: SelectionItem[],
   delta: DragDelta,
-  bounds: { chartEndBeat: number },
+  /** chartEndBeat = 谱面末端；beatDisplay = 子拍细分（subBeat 的单位分母，用于真实拍位换算） */
+  bounds: { chartEndBeat: number; beatDisplay: number },
 ): DragMoveResult {
   const noChange: DragMoveResult = { ok: false, notes, items: [], reason: 'unsupported' };
   const fail = (reason: 'out-of-bounds' | 'collision' | 'unsupported'): DragMoveResult =>
     ({ ok: false, notes, items: [], reason });
   if (delta.dBeat === 0 && delta.dLane === 0) return { ok: true, notes, items };
+  const beatDisplay = bounds.beatDisplay > 0 ? bounds.beatDisplay : 1;
 
   // 归组：noteIndex → 拖拽方式（whole=整条移动；nodes=指定 conn 下标集合）
   type Plan = { kind: 'whole' } | { kind: 'nodes'; conns: Set<number> };
@@ -87,8 +94,10 @@ export function planDragMove(
   const dragItems = items.filter(it => plans.has(it.noteIndex));
 
   const inLane = (lane: number) => lane >= 0 && lane < TOTAL_LANES;
-  const inBeat = (beat: number, sub: number) =>
-    sumBeat(beat, sub) >= -EPS && sumBeat(beat, sub) <= bounds.chartEndBeat + EPS;
+  const inBeat = (beat: number, sub: number) => {
+    const b = sumBeat(beat, sub, beatDisplay);
+    return b >= -EPS && b <= bounds.chartEndBeat + EPS;
+  };
 
   // ① 位移后的音符 + 越界 / 邻居序校验（无就地变异）
   const moved = new Map<number, ChartNote>();
@@ -115,8 +124,8 @@ export function planDragMove(
           const prev = conns[ci - 1];
           const next = conns[ci + 1];
           // 结点必须严格保持在前后邻居之间（防交叉/退化段；端点只有单侧约束）
-          if (prev && sumBeat(c.beat, c.subBeat || 0) <= sumBeat(prev.beat, prev.subBeat || 0) + EPS) return fail('out-of-bounds');
-          if (next && sumBeat(c.beat, c.subBeat || 0) >= sumBeat(next.beat, next.subBeat || 0) - EPS) return fail('out-of-bounds');
+          if (prev && sumBeat(c.beat, c.subBeat || 0, beatDisplay) <= sumBeat(prev.beat, prev.subBeat || 0, beatDisplay) + EPS) return fail('out-of-bounds');
+          if (next && sumBeat(c.beat, c.subBeat || 0, beatDisplay) >= sumBeat(next.beat, next.subBeat || 0, beatDisplay) - EPS) return fail('out-of-bounds');
         }
       }
       moved.set(i, { ...n, connections: conns });
