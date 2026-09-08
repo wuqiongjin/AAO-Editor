@@ -512,8 +512,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const mouseY = e.clientY - rect.top;
         const hit = findItemAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes });
         if (!hit) return;
-        setSelectedItems([hit]);
+        // 删除后选区必须清空：原下标在 splice 后已指向别的音符（§2 原则 6 同族——谱面变更后旧选区不保留）
         handleNotesChange(deleteSelection(notes, [hit]));
+        setSelectedItems([]);
     };
 
     // ---------------------------

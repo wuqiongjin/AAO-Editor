@@ -79,17 +79,25 @@ export function bpmPlaceOps(notes: ChartNote[], beat: number, lastBpm: number): 
   return ops;
 }
 
-/** §4 两击直放的"第二次合法点击"→ 成条/接合。Ctrl+E 无选区档与鼠标两击共用 */
-export function slideSecondClickOps(notes: ChartNote[], buf: SlidePoint, point: SlidePoint): MatrixOp[] {
-  if (samePos(buf, point)) return [{ t: 'setSlideBuffer', point: null }]; // 同位再点 = 取消锚点（bug 32 语义）
+/**
+ * §4 两击直放的"第二次合法点击"→ 成条/接合。Ctrl+E 无选区档与鼠标两击共用。
+ * @param clearSel 成条/取消锚点后清选区的 op（原则 6）；由 clickOps 传入以复用同一实例
+ */
+export function slideSecondClickOps(
+  notes: ChartNote[],
+  buf: SlidePoint,
+  point: SlidePoint,
+  clearSel: MatrixOp = { t: 'setSelection', items: [] },
+): MatrixOp[] {
+  if (samePos(buf, point)) return [{ t: 'setSlideBuffer', point: null }, clearSel]; // 同位再点 = 取消锚点（bug 32 语义）
   const comb = handleSlideToSlideCombination(notes, [buf, point]);
-  if (comb.shouldCombine) return [{ t: 'setNotes', notes: comb.newNotes }, { t: 'setSlideBuffer', point: null }];
+  if (comb.shouldCombine) return [{ t: 'setNotes', notes: comb.newNotes }, { t: 'setSlideBuffer', point: null }, clearSel];
   const newNotes = [...comb.newNotes];
   // 与 §4 排序规则同口径（beat → subBeat → lane），保证两击次序无关
   const [start, end] = [buf, point].sort((a, b) =>
     (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) || (a.lane - b.lane));
   newNotes.push({ type: 'Slide', connections: [start, end] });
-  return [{ t: 'setNotes', notes: newNotes }, { t: 'setSlideBuffer', point: null }];
+  return [{ t: 'setNotes', notes: newNotes }, { t: 'setSlideBuffer', point: null }, clearSel];
 }
 
 /** §4 框选组合 / §3 Ctrl+E 有选区档：吸入键型音符与滑条结点成条（来源 <2 无事发生）；
@@ -118,31 +126,37 @@ export interface ClickInput {
   clipboard: ChartNote[];
 }
 
-/** §2 单击矩阵（工具族行 × 音符/空白列）；指针行不走此函数 */
+/** §2 单击矩阵（工具族行 × 音符/空白列）；指针行不走此函数（指针行在画布侧 selectItemAtPoint） */
 export function clickOps(input: ClickInput): MatrixOp[] {
   const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard } = input;
+  // §2 原则 6：**非指针态单击画布 = 新意图 → 清空选区**，与落点是否合法、动作是否生效无关
+  // （含"点轨道外/谱面末端外"这种非法落点：动作按 §1 无事发生，但选中态照样取消——
+  // 用户点了画布，注意力已经转移；选中态留着只是噪音）。
+  // 唯一保留选区的例外见原则 6：镜像/粘贴后 = 本次产物、框选批量后、拖拽后、复制后。
+  const clearSel: MatrixOp = { t: 'setSelection', items: [] };
   if (isKeyTool(tool)) {
     // 键型放置：音符/空白两列同格 = 栅格位放置（ADR-0001 替换规则由 handleNoteReplacement 内部处置）
-    if (!pos) return [];
+    if (!pos) return [clearSel];
     const r = handleNoteReplacement(notes, pos.beat, pos.lane, 0, tool);
-    return r.shouldReplace ? [{ t: 'setNotes', notes: r.newNotes }] : [];
+    return r.shouldReplace ? [{ t: 'setNotes', notes: r.newNotes }, clearSel] : [clearSel];
   }
   if (tool === 'bpm') {
-    if (!pos) return [];
-    return bpmPlaceOps(notes, pos.beat, lastBpm); // 放置 → 进入 §5 就地编辑（音符上/空白同左）
+    if (!pos) return [clearSel];
+    // 放置 → 进入 §5 就地编辑（音符上/空白同左）
+    return [...bpmPlaceOps(notes, pos.beat, lastBpm), clearSel];
   }
   if (tool === 'slide') {
-    // 非法位置点击 = 取消待连接锚点（issue 57 bug2 语义保留）
-    if (!pos) return slideBuffer ? [{ t: 'setSlideBuffer', point: null }] : [];
+    // 非法位置点击 = 取消待连接锚点（issue 57 bug2 语义保留）+ 清选区
+    if (!pos) return slideBuffer ? [{ t: 'setSlideBuffer', point: null }, clearSel] : [clearSel];
     const point: SlidePoint = { beat: pos.beat, lane: pos.lane, subBeat: 0 };
-    if (!slideBuffer) return [{ t: 'setSlideBuffer', point }];
-    return slideSecondClickOps(notes, slideBuffer, point);
+    // 第一击（挂锚点）同样清选区：与"点轨道外清"保持一致，不留"改不改谱面"的双轨判定
+    if (!slideBuffer) return [{ t: 'setSlideBuffer', point }, clearSel];
+    return slideSecondClickOps(notes, slideBuffer, point, clearSel);
   }
   if (tool === 'paste') {
     // §2.1：粘贴作用于位置 —— 剪贴板组的包围盒左上角对齐到该落点（锚点语义归 shiftGroupToAnchor）。
     // 持工具态**驻留**（矩阵只产出 op，不清 armedTool）→ 连续粘贴；粘贴产物成为新选区。
-    // 光标/落点非法或剪贴板为空 → 无事发生（§1 非法位置原则）。
-    if (!pos || clipboard.length === 0) return [];
+    if (!pos || clipboard.length === 0) return [clearSel]; // 非法落点/空剪贴板：只清选区
     const { newNotes, newStartIndex } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
     const items = clipboard
       .map((_, i) => newStartIndex + i)
@@ -151,8 +165,10 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     return [{ t: 'setNotes', notes: newNotes }, { t: 'setSelection', items }];
   }
   if (isActionTool(tool)) {
-    // 音符 = 选中并立即执行（Model A，ADR-0002 §3.2）；空白 = 无效果、不清选区（§2）
-    if (!hit) return [];
+    // 音符 = 选中并立即执行（Model A，ADR-0002 §3.2）；
+    // 轨道内空白 = 无效果不清选区（§2 定案，清选区用 Esc 或指针态点空白）；
+    // 轨道**外**（落点非法）= 无事发生但取消选中（原则 6）
+    if (!hit) return pos === null ? [clearSel] : [];
     return actionOnItemOps(tool, notes, hit);
   }
   return [];
@@ -203,7 +219,8 @@ export function execSlideOps(input: ExecInput): MatrixOp[] {
   if (selectedItems.length > 0) return combineOps(notes, selectedItems);
   if (!cursor || cursor.beat > chartEndBeat + 1e-6) return [];
   const point: SlidePoint = { beat: cursor.beat, lane: cursor.lane, subBeat: 0 };
-  if (!slideBuffer) return [{ t: 'setSlideBuffer', point }];
+  // 与 clickOps 同口径：挂锚点也清选区（§2 原则 6）
+  if (!slideBuffer) return [{ t: 'setSlideBuffer', point }, { t: 'setSelection', items: [] }];
   return slideSecondClickOps(notes, slideBuffer, point);
 }
 

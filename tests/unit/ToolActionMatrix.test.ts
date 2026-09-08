@@ -58,19 +58,21 @@ describe('§2 指针行·单击', () => {
 // ══════════════════ §2 单击矩阵·键型工具行 ══════════════════
 describe('§2 键型工具单击（single/flick/skill/l/r）', () => {
   const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
-  it('空白放置 = 追加（pos 合法即放置，不看 hit）', () => {
+  it('空白放置 = 追加（pos 合法即放置，不看 hit）+ 清选区（§2 原则 6）', () => {
     const ops = clickOps(input({ tool: 'single', notes, pos: sp(4, 3) }));
-    expect(ops).toHaveLength(1);
+    expect(ops).toHaveLength(2);
     expect(ops[0].t).toBe('setNotes');
     expect((ops[0] as any).notes.length).toBe(3);
+    expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
   });
   it('音符上点击与空白点击同格（hit 列不参与键型行）', () => {
     const a = clickOps(input({ tool: 'flick', notes, pos: sp(4, 3), hit: noteSel(0)[0] }));
     const b = clickOps(input({ tool: 'flick', notes, pos: sp(4, 3), hit: null }));
     expect(a).toEqual(b);
   });
-  it('非法位置（pos=null：轨道外/谱面末端外）→ 无事发生', () => {
-    expect(clickOps(input({ tool: 'single', notes, pos: null, hit: noteSel(0)[0] }))).toEqual([]);
+  it('非法位置（pos=null：轨道外/谱面末端外）→ 动作无事发生，但取消选中（§2 原则 6）', () => {
+    expect(clickOps(input({ tool: 'single', notes, pos: null, hit: noteSel(0)[0] })))
+      .toEqual([{ t: 'setSelection', items: [] }]);
   });
   it('替换规则内部处置（ADR-0001 表在 NoteReplacementRules 锁）：同位单键再放单键 → setNotes', () => {
     const ops = clickOps(input({ tool: 'single', notes, pos: sp(1, 1) }));
@@ -80,11 +82,12 @@ describe('§2 键型工具单击（single/flick/skill/l/r）', () => {
 
 // ══════════════════ §2 单击矩阵·BPM 行（含 §5 放置语义）══════════════════
 describe('§2 BPM 工具单击', () => {
-  it('空白新放置 = 追加 lastBpm + 打开就地编辑（默认值沿用上次所设值）', () => {
+  it('空白新放置 = 追加 lastBpm + 打开就地编辑（默认值沿用上次所设值）+ 清选区', () => {
     const ops = clickOps(input({ tool: 'bpm', pos: sp(4, 0), lastBpm: 150 }));
     expect(ops).toEqual([
       { t: 'setNotes', notes: [bpm(4, 150)] },
       { t: 'openBpmEditor', beat: 4, value: '150' },
+      { t: 'setSelection', items: [] },
     ]);
   });
   it('同拍已有 BPM 且值不同 → 字面覆盖为 lastBpm 再开编辑（ADR-0008 §5 定案）', () => {
@@ -92,47 +95,60 @@ describe('§2 BPM 工具单击', () => {
     expect(ops).toEqual([
       { t: 'setNotes', notes: [bpm(4, 150)] },
       { t: 'openBpmEditor', beat: 4, value: '150' },
+      { t: 'setSelection', items: [] },
     ]);
   });
-  it('同拍值相同 → 不写 notes（免空快照），只开编辑', () => {
+  it('同拍值相同 → 不写 notes（免空快照），只开编辑（仍清选区）', () => {
     const ops = clickOps(input({ tool: 'bpm', notes: [bpm(4, 150)], pos: sp(4, 0), lastBpm: 150 }));
-    expect(ops).toEqual([{ t: 'openBpmEditor', beat: 4, value: '150' }]);
+    expect(ops).toEqual([
+      { t: 'openBpmEditor', beat: 4, value: '150' },
+      { t: 'setSelection', items: [] },
+    ]);
   });
-  it('非法位置 → 无事发生', () => {
-    expect(clickOps(input({ tool: 'bpm', pos: null }))).toEqual([]);
+  it('非法位置 → 动作无事发生，但取消选中（§2 原则 6）', () => {
+    expect(clickOps(input({ tool: 'bpm', pos: null }))).toEqual([{ t: 'setSelection', items: [] }]);
   });
 });
 
 // ══════════════════ §2 单击矩阵·Slide 行（§4 两击直放）══════════════════
 describe('§2 Slide 工具单击（两击直放）', () => {
-  it('第一次合法点击 = 挂临时端点（subBeat 归 0）', () => {
+  it('第一次合法点击 = 挂临时端点（subBeat 归 0）+ 清选区（原则 6 扩订）', () => {
     expect(clickOps(input({ tool: 'slide', pos: sp(2, 1) })))
-      .toEqual([{ t: 'setSlideBuffer', point: pt(2, 1) }]);
+      .toEqual([{ t: 'setSlideBuffer', point: pt(2, 1) }, { t: 'setSelection', items: [] }]);
   });
-  it('第二次合法点击 = 成条（按拍排序）+ 清锚点', () => {
+  it('第二次合法点击 = 成条（按拍排序）+ 清锚点 + 清选区（§2 原则 6）', () => {
     const ops = clickOps(input({ tool: 'slide', pos: sp(1, 1), slideBuffer: pt(3, 2) }));
     expect(ops).toEqual([
       { t: 'setNotes', notes: [slide(1, 1, 3, 2)] },
       { t: 'setSlideBuffer', point: null },
+      { t: 'setSelection', items: [] },
     ]);
   });
-  it('第二次点击与锚点同拍同半拍 = 取消（bug 32 语义；只看拍位不看轨道）', () => {
+  it('挂锚点 / 取消锚点（都不改谱面）→ 同样清选区（原则 6 扩订：不按"是否改谱面"做双轨判定）', () => {
+    expect(clickOps(input({ tool: 'slide', pos: sp(2, 1) })))
+      .toEqual([{ t: 'setSlideBuffer', point: pt(2, 1) }, { t: 'setSelection', items: [] }]);
     expect(clickOps(input({ tool: 'slide', pos: sp(3, 5), slideBuffer: pt(3, 2) })))
-      .toEqual([{ t: 'setSlideBuffer', point: null }]);
+      .toEqual([{ t: 'setSlideBuffer', point: null }, { t: 'setSelection', items: [] }]);
+  });
+  it('第二次点击与锚点同拍同半拍 = 取消（bug 32 语义；只看拍位不看轨道）+ 清选区', () => {
+    expect(clickOps(input({ tool: 'slide', pos: sp(3, 5), slideBuffer: pt(3, 2) })))
+      .toEqual([{ t: 'setSlideBuffer', point: null }, { t: 'setSelection', items: [] }]);
   });
   it('端点与既有滑条端点重合 → 走 ADR-0001 §3 合并', () => {
     const ops = clickOps(input({
       tool: 'slide', notes: [slide(1, 1, 2, 2)], pos: sp(3, 3), slideBuffer: pt(2, 2),
     }));
-    expect(ops).toHaveLength(2);
+    expect(ops).toHaveLength(3);
     const merged = (ops[0] as any).notes.find(n => n.type === 'Slide') as SlideNote;
     expect(merged.connections.length).toBe(3);
     expect(ops[1]).toEqual({ t: 'setSlideBuffer', point: null });
+    expect(ops[2]).toEqual({ t: 'setSelection', items: [] });
   });
-  it('非法位置点击 = 取消锚点；无锚点时无事发生', () => {
+  it('轨道外点击 = 取消锚点 + 清选区；无锚点时只清选区', () => {
     expect(clickOps(input({ tool: 'slide', pos: null, slideBuffer: pt(2, 1) })))
-      .toEqual([{ t: 'setSlideBuffer', point: null }]);
-    expect(clickOps(input({ tool: 'slide', pos: null, slideBuffer: null }))).toEqual([]);
+      .toEqual([{ t: 'setSlideBuffer', point: null }, { t: 'setSelection', items: [] }]);
+    expect(clickOps(input({ tool: 'slide', pos: null, slideBuffer: null })))
+      .toEqual([{ t: 'setSelection', items: [] }]);
   });
 });
 
@@ -149,9 +165,11 @@ describe('§2 paste 工具单击', () => {
       items: [{ kind: 'note', noteIndex: 1 }, { kind: 'note', noteIndex: 2 }],
     });
   });
-  it('剪贴板空 / 非法位置 → 无事发生', () => {
-    expect(clickOps(input({ tool: 'paste', pos: sp(4, 3), clipboard: [] }))).toEqual([]);
-    expect(clickOps(input({ tool: 'paste', pos: null, clipboard }))).toEqual([]);
+  it('剪贴板空 / 轨道外 → 不粘贴，但取消选中（§2 原则 6）', () => {
+    expect(clickOps(input({ tool: 'paste', pos: sp(4, 3), clipboard: [] })))
+      .toEqual([{ t: 'setSelection', items: [] }]);
+    expect(clickOps(input({ tool: 'paste', pos: null, clipboard })))
+      .toEqual([{ t: 'setSelection', items: [] }]);
   });
 });
 
@@ -172,9 +190,11 @@ describe('§2 delete/mirror 单击', () => {
     expect(ops[0]).toEqual({ t: 'setSelection', items: [hit] });
     expect((ops[1] as any).notes[0].lane).toBe(5);
   });
-  it('空白列 = 无效果、不清选区（T/Q 两行）', () => {
+  it('轨道内空白 = 无效果、不清选区（§2 定案）；轨道外 = 清选区（原则 6）', () => {
     for (const tool of ['delete', 'mirror'] as const) {
-      expect(clickOps(input({ tool, notes, hit: null }))).toEqual([]);
+      expect(clickOps(input({ tool, notes, hit: null, pos: sp(4, 3) }))).toEqual([]);
+      expect(clickOps(input({ tool, notes, hit: null, pos: null })))
+        .toEqual([{ t: 'setSelection', items: [] }]);
     }
   });
   it('执行只看命中不看位置（pos=null 也照常执行）', () => {
@@ -291,11 +311,15 @@ describe('§3 execSlideOps（Ctrl+E）', () => {
   it('无选区 → 两击档：与 Slide 工具共用同一 slideBuffer（首次挂点/二次成条/同位取消）', () => {
     const base = { notes: [] as ChartNote[], selectedItems: [], lastBpm: 120, chartEndBeat: 16 };
     expect(execSlideOps({ ...base, cursor: sp(2, 1), slideBuffer: null }))
-      .toEqual([{ t: 'setSlideBuffer', point: pt(2, 1) }]);
+      .toEqual([{ t: 'setSlideBuffer', point: pt(2, 1) }, { t: 'setSelection', items: [] }]);
     expect(execSlideOps({ ...base, cursor: sp(1, 1), slideBuffer: pt(3, 2) }))
-      .toEqual([{ t: 'setNotes', notes: [slide(1, 1, 3, 2)] }, { t: 'setSlideBuffer', point: null }]);
+      .toEqual([
+        { t: 'setNotes', notes: [slide(1, 1, 3, 2)] },
+        { t: 'setSlideBuffer', point: null },
+        { t: 'setSelection', items: [] }, // 成条 → 清选区（原则 6）
+      ]);
     expect(execSlideOps({ ...base, cursor: sp(3, 2), slideBuffer: pt(3, 2) }))
-      .toEqual([{ t: 'setSlideBuffer', point: null }]);
+      .toEqual([{ t: 'setSlideBuffer', point: null }, { t: 'setSelection', items: [] }]);
   });
   it('光标不在画布 / 越过谱面末端 → 无事发生', () => {
     const base = { notes: [] as ChartNote[], selectedItems: [], slideBuffer: null, lastBpm: 120, chartEndBeat: 16 };
