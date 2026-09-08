@@ -40,12 +40,7 @@ export interface EditingContextValue {
   deleteSelected: () => void;
   mirror: () => void;
   place: (tool: string, pos: Position) => void;
-  editToolAction: (action: EditingToolAction, item: SelectionItem) => void;
-  editToolPaste: (pos: Position) => void;
 }
-
-/** 编辑工具的动作：由编辑态工具触发，作用于单个选中项（复制/剪切/删除/镜像） */
-export type EditingToolAction = 'copy' | 'cut' | 'delete' | 'mirror';
 
 const EditingContext = createContext<EditingContextValue | null>(null);
 
@@ -135,23 +130,6 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     if (result.shouldReplace) handleNotesChange(result.newNotes);
   }, [notes, handleNotesChange]);
 
-  const editToolAction = useCallback((action: EditingToolAction, item: SelectionItem) => {
-    setSelectedItems([item]);
-    if (action === 'copy') {
-      setClipboard(copySelection(notes, [item]));
-    } else if (action === 'cut') {
-      const { clipboard: cb, newNotes } = cutSelection(notes, [item]);
-      setClipboard(cb);
-      handleNotesChange(newNotes);
-      setSelectedItems([]);
-    } else if (action === 'delete') {
-      handleNotesChange(deleteSelection(notes, [item]));
-      setSelectedItems([]);
-    } else if (action === 'mirror') {
-      handleNotesChange(mirrorSelection(notes, [item]));
-    }
-  }, [notes, handleNotesChange]);
-
   const value: EditingContextValue = {
     notes, history, historyIndex,
     canUndo: historyIndex > 0,
@@ -159,7 +137,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     selectedItems, clipboard,
     setNotes, resetNotes, setSelectedItems, setClipboard,
     handleNotesChange, undo, redo,
-    copy, cut, paste: pasteAt, deleteSelected, mirror, place, editToolAction, editToolPaste: pasteAt,
+    copy, cut, paste: pasteAt, deleteSelected, mirror, place,
   };
 
   return <EditingContext.Provider value={value}>{children}</EditingContext.Provider>;

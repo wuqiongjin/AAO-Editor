@@ -16,7 +16,7 @@ import { useEditing, useUI, usePlayback, useConfig } from '../../../app/Provider
 import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, bpmLabelBox } from '../../../visual/gutterLabels';
+import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, bpmLabelBox, measureGutterLabelWidth } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
@@ -269,10 +269,14 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const { trackBgX, trackStartX } = geometry.trackGeometry(viewport.scale);
         if (cx >= trackBgX) return null;
         const labelScale = display.labelScale ?? 1;
+        // 与绘制端共用同一套宽度判定（传画布 ctx 精确测量），避免"已隐藏但仍可点中"的隐形热区
+        const mctx = canvasRef.current?.getContext('2d') ?? null;
         for (const n of notes) {
             if (n.type !== 'BPM') continue;
             const y = virtualToCanvas(0, beatToVirtualY(n.beat)).y;
-            const box = bpmLabelBox(trackStartX, y, String(n.bpm), labelScale, surf.h);
+            const text = String(n.bpm);
+            const width = measureGutterLabelWidth(text, Math.round(GUTTER_LABEL_FONT_PX * labelScale), mctx);
+            const box = bpmLabelBox(trackStartX, y, text, labelScale, surf.h, width);
             if (box.x1 < 0) continue; // 沟槽不足、绘制时整体隐藏 → 不可命中
             if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) return n.beat;
         }
@@ -519,9 +523,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // noteSize 必须与另三处命中（点选/工具点击/拖拽候选）一致，否则 noteSize≠1 时命中盒与视觉不符
         const hit = findItemAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
         if (!hit) return;
-        // 删除后选区必须清空：原下标在 splice 后已指向别的音符（§2 原则 6 同族——谱面变更后旧选区不保留）
+        // 删除后选区必须清空：原下标在 splice 后已指向别的音符（§2 原则 6 同族——谱面变更后旧选区不保留）。
+        // 同时清掉指向已消失对象的悬垂 UI 态：待连接锚点（可能正指向被删滑条的端点）与 BPM 就地编辑框。
         handleNotesChange(deleteSelection(notes, [hit]));
         setSelectedItems([]);
+        setSlideBuffer(null);
+        setBpmEdit(null);
     };
 
     // ---------------------------

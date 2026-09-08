@@ -36,9 +36,24 @@ export interface GutterLabelLayout {
   textAlign: CanvasTextAlign;
   textBaseline: CanvasTextBaseline;
   font: string;
+  /** 字号（px）：宽度/可见性判定与命中盒共用 */
+  fontPx: number;
 }
 
 const GUTTER_LABEL_FONT = (px: number) => `600 ${px}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+
+/**
+ * 沟槽文字宽度（等宽字体）：给 ctx 就精确测量，否则按 0.62em 估算。
+ * **绘制与命中判定必须共用本函数**，否则沟槽宽度临界时会出现"已隐藏但仍可点中"的隐形热区。
+ */
+export function measureGutterLabelWidth(
+  text: string,
+  fontPx: number,
+  ctx?: CanvasRenderingContext2D | null,
+): number {
+  const measured = ctx ? (ctx.font = GUTTER_LABEL_FONT(fontPx), ctx.measureText(text)?.width ?? 0) : 0;
+  return measured > 0 ? measured : Math.max((text.length || 3) * fontPx * 0.62, fontPx);
+}
 
 /**
  * 常显标线文字的锚定布局（纯函数，供单测）：
@@ -62,6 +77,7 @@ export function layoutGutterLabel(
     textAlign: 'right',
     textBaseline: 'middle',
     font: GUTTER_LABEL_FONT(fontPx),
+    fontPx,
   };
   if (placement === 'above') {
     // alphabetic 基线 = 大写墨迹底正好压线（'bottom' 基线含下伸空间，墨迹会悬空 ~5px）
@@ -82,7 +98,8 @@ export function layoutGutterLabel(
 export function drawGutterLabel(ctx: CanvasRenderingContext2D, layout: GutterLabelLayout, text: string, color: string): boolean {
   ctx.save();
   ctx.font = layout.font;
-  const textWidth = ctx.measureText(text)?.width ?? 0;
+  // 与命中判定共用同一套宽度/可见性判定（measureGutterLabelWidth）
+  const textWidth = measureGutterLabelWidth(text, layout.fontPx ?? GUTTER_LABEL_FONT_PX, ctx);
   if (layout.x - textWidth < 0) {
     ctx.restore();
     return false;
@@ -118,10 +135,12 @@ export function bpmLabelBox(
   text: string,
   labelScale = 1,
   surfaceH?: number,
+  /** 文字宽度：由 measureGutterLabelWidth 给出（可传画布 ctx 精确测量），与绘制端同一套判定 */
+  textWidth?: number,
 ): { x1: number; x2: number; y1: number; y2: number } {
   const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
   const right = trackStartX - BPM_LABEL_GAP_PX;
-  const width = Math.max((text.length || 3) * fontPx * 0.62 + 8, fontPx * 2);
+  const width = (textWidth ?? measureGutterLabelWidth(text, fontPx)) + 8;
   const y = surfaceH === undefined
     ? lineCanvasY
     : Math.min(Math.max(lineCanvasY, fontPx / 2), Math.max(surfaceH - fontPx / 2, fontPx / 2));

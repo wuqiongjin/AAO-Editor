@@ -281,9 +281,15 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 键型执行键（Ctrl+F/G/A/S/D）改走画布 ref 的 execPlace：与单击放置共用 clickOps，
   // 从而自动获得 §2 原则 6（清选区）与 snapPos 的 chartEndBeat 越末端判定
   //（原先走 Editor.place 绕过矩阵，既不清选区、也能在谱面末端外放置）。
+  // 光标位置走 ref：mousePosition 每次 mousemove 都换新引用，若进 useCallback 依赖会让
+  // runFunction 每次移动都变身份 → useShortcutDispatch 解绑/重绑 window keydown（高频路径）。
+  const mousePosRef = useRef(mousePosition);
+  mousePosRef.current = mousePosition;
+
   const pasteAtCursor = useCallback(() => {
-    if (mousePosition) paste(mousePosition);
-  }, [mousePosition, paste]);
+    const p = mousePosRef.current;
+    if (p) paste(p);
+  }, [paste]);
 
   // 具体功能分发（ADR-0002 + ADR-0008 §3）：切换功能 = 持工具态；执行功能 = 光标处瞬时执行（不占工具态）。
   // BPM/Slide 执行键按 §3 修订语义经画布 ref 执行（就地编辑 / slideBuffer 双入口共用）。

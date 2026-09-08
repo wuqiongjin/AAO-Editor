@@ -101,7 +101,8 @@ export function slideSecondClickOps(
   // 与 §4 排序规则同口径（beat → subBeat → lane），保证两击次序无关
   const [start, end] = [buf, point].sort((a, b) =>
     (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) || (a.lane - b.lane));
-  newNotes.push({ type: 'Slide', connections: [start, end] });
+  // clone：start/end 来自 slideBuffer / 落点对象，直接塞进谱面会让 UI 态与历史快照共享同一可变对象
+  newNotes.push({ type: 'Slide', connections: [{ ...start }, { ...end }] });
   return [{ t: 'setNotes', notes: newNotes }, { t: 'setSlideBuffer', point: null }, clearSel];
 }
 

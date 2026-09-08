@@ -153,7 +153,7 @@ export default function Toolbar() {
           <SectionHeader>编辑</SectionHeader>
           <div className="toolbar__grid toolbar__grid--2">
             <IconButton icon={<Copy size={16} />} label="复制" onClick={copy} disabled={!canCopy} title={tooltipForCategory(toolCategory.copy)} />
-            <IconButton icon={<Scissors size={16} />} label="剪切" onClick={cut} disabled={!canCopy} title="剪切 (Ctrl+X)" />
+            <IconButton icon={<Scissors size={16} />} label="剪切" onClick={cut} disabled={!canCopy} title={tooltipForCategory(toolCategory.cut)} />
             {/* 粘贴 = 持工具态 arm/释放（§2.1 六轮）：与 v 键归位，悬停预览 + 单击粘贴并驻留（连续粘贴）；
                 空剪贴板 → 置灰（进态无意义）+ tooltip 说明；v 键同步不进态 */}
             <IconButton
@@ -168,7 +168,7 @@ export default function Toolbar() {
                 再点按钮/Esc/切换工具退出。即时执行选区仍走 Delete/Ctrl+T、Ctrl+Q 执行键 */}
             <IconButton icon={<Trash2 size={16} />} label="删除" onClick={() => armOrRelease('delete')} active={armedTool === 'delete'} danger title={tooltipForCategory(toolCategory.delete)} />
             <IconButton icon={<RotateCcw size={16} />} label="镜像" onClick={() => armOrRelease('mirror')} active={armedTool === 'mirror'} title={tooltipForCategory(toolCategory.mirror)} />
-            <IconButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title="撤销 (Ctrl+Z)" />
+            <IconButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title={tooltipForCategory(toolCategory.undo)} />
             <IconButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
             {/* issue 37：谱面代码改按需弹窗——入口按钮（点击才打开弹窗，常驻无代码同步成本），跨 2 列 */}
             <div className="toolbar__grid-full">

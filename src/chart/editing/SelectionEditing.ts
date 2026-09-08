@@ -201,7 +201,7 @@ export function selectionNoteIndices(items: SelectionItem[]): number[] {
 }
 
 /**
- * 批量操作后的选区重映射（ADR-0008 §2.4"批量应用后选区保留"）：
+ * 批量操作后的选区重映射（ADR-0008 §2 原则 4"批量应用后选区保留"）：
  * 批量键型替换/组合会增删移动数组元素，旧 noteIndex/connIndex 全部失效。
  * 按【位置】在新旧数组间迁移：位置仍能找到同 kind 的目标则保留（新下标），
  * 找不到（被消耗/被拆分）则整条丢弃。BPM/System 按 type+beat 匹配。
