@@ -70,11 +70,22 @@ describe('findItemAt', () => {
     expect(findItemAt(mid.x, mid.y, deps)).toEqual({ kind: 'slideRegion', noteIndex: 0, connIndex: 0 });
   });
 
-  it('BPM 音符按 note 命中', () => {
+  // issue 59：BPM 线画在音符层**之下**，且 56 定过指针态不选中 / 不参与 hover → findItemAt 跳过 BPM
+  it('BPM 不在 findItemAt 判定内（交给 findBpmLineAt，保证"音符 > BPM 线"）', () => {
     const notes: ChartNote[] = [{ type: 'BPM', beat: 40, bpm: 120 }];
     const { deps, canvas } = makeDeps(notes);
     const p = canvas(0, 40);
-    expect(findItemAt(p.x, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+    expect(findItemAt(p.x, p.y, deps)).toBeNull();
+    expect(findBpmLineAt(p.x, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+  });
+
+  it('BPM 线压着音符时，findItemAt 先返回音符（BPM 不抢）', () => {
+    const notes: ChartNote[] = [
+      { type: 'BPM', beat: 40, bpm: 120 },
+      { type: 'Single', lane: 3, beat: 40 },
+    ];
+    const { deps, canvas } = makeDeps(notes);
+    expect(findItemAt(canvas(3, 40).x, canvas(3, 40).y, deps)).toEqual({ kind: 'note', noteIndex: 1 });
   });
 });
 
@@ -127,6 +138,30 @@ describe('computeItemsInBox', () => {
     const items = computeItemsInBox(box, deps);
     expect(items).toContainEqual({ kind: 'note', noteIndex: 0 });
     expect(items).toContainEqual({ kind: 'note', noteIndex: 1 });
+  });
+
+  it('BPM 线：只有被**整条框住**才入选（X + Y 完整覆盖）', () => {
+    const notes: ChartNote[] = [{ type: 'BPM', beat: 40, bpm: 120 }];
+    const { deps } = makeDeps(notes);
+    const { trackBgX, trackBgWidth } = deps.geometry.trackGeometry(1);
+    // 线的画布 y（beat 40）
+    const lineY = deps.geometry.virtualToCanvas(0, deps.geometry.noteVirtualY(40, 0, 1, 4), deps.viewport).y;
+
+    // ① 完整覆盖整条线 → 入选
+    const full = { x1: trackBgX - 10, y1: lineY - 5, x2: trackBgX + trackBgWidth + 10, y2: lineY + 5 };
+    expect(computeItemsInBox(full, deps)).toEqual([{ kind: 'note', noteIndex: 0 }]);
+
+    // ② 只框住 lane 0 那一点（旧行为）→ 不入选
+    const lane0Only = { x1: trackBgX - 5, y1: lineY - 5, x2: trackBgX + 30, y2: lineY + 5 };
+    expect(computeItemsInBox(lane0Only, deps)).toEqual([]);
+
+    // ③ Y 覆盖但 X 差一截（未盖到轨道右缘）→ 不入选
+    const partialX = { x1: trackBgX - 10, y1: lineY - 5, x2: trackBgX + trackBgWidth - 20, y2: lineY + 5 };
+    expect(computeItemsInBox(partialX, deps)).toEqual([]);
+
+    // ④ X 覆盖整条但 Y 差开 → 不入选
+    const offY = { x1: trackBgX - 10, y1: lineY + 20, x2: trackBgX + trackBgWidth + 10, y2: lineY + 40 };
+    expect(computeItemsInBox(offY, deps)).toEqual([]);
   });
 
   it('滑条两端点在框内返回 slideRegion', () => {

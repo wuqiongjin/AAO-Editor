@@ -1,6 +1,7 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../types';
 import { connectionToNote } from './SlideCombination';
 import { mirrorNote, mirrorLane } from './NoteEditing';
+import { DEFAULT_BPM } from '../../audio/AudioTiming';
 
 /**
  * 滑条子部分选择与编辑规则（ADR-0001 §6）
@@ -28,6 +29,10 @@ const groupByNote = (items: SelectionItem[]): Map<number, SelectionItem[]> => {
  * - kind 'slideRegion' → 拆滑条（在该区域处拆成两段，两端结点保留为新端点）
  * - kind 'slideNode' → 移除该结点（剩余单结点时退化为独立音符）
  * 同一滑条内多个子部分删除会合并处理。
+ *
+ * **例外（issue 59 / ADR-0001 保底）**：beat 0 的 BPM 线**不可删除** —— 谱面必须有初始 BPM，
+ * 对它执行删除退化为「重置为初始状态」（bpm = DEFAULT_BPM）。用户改过值（如 180）后再删，
+ * 看到的就是数值回到 120，而不是整条线消失。删除工具点击 / 右键 / 框选后 Delete 三条通路同此语义。
  */
 export function deleteSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[] {
   return removeSelection(notes, items);
@@ -61,7 +66,11 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
 
   const result: ChartNote[] = [];
   notes.forEach((note, i) => {
-    if (fullRemove.has(i)) return;
+    if (fullRemove.has(i)) {
+      // beat 0 的 BPM 线不可删 → 退化为重置为初始状态（bpm = 120），见 deleteSelection 注释
+      if (note.type === 'BPM' && note.beat === 0) result.push({ ...note, bpm: DEFAULT_BPM });
+      return;
+    }
     if (isSlide(note) && (nodeRemove.has(i) || splitAfter.has(i))) {
       result.push(...splitSlide(note, nodeRemove.get(i) ?? new Set(), splitAfter.get(i) ?? new Set()));
       return;

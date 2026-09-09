@@ -13,6 +13,40 @@ const slide = (): ChartNote => ({
   ]
 });
 
+// issue 59：beat 0 的 BPM 线不可删除 —— 删除退化为「重置为初始状态（120）」
+describe('deleteSelection · 初始 BPM 线保底', () => {
+  const bpm = (beat: number, v: number): ChartNote => ({ type: 'BPM', beat, bpm: v });
+
+  it('删除 beat0 BPM（值为 180）→ 不消失，数值重置为 120', () => {
+    const notes = [bpm(0, 180), { type: 'Single', beat: 4, lane: 0 } as ChartNote];
+    const out = deleteSelection(notes, [{ kind: 'note', noteIndex: 0 }]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual(bpm(0, 120));
+    expect(out[1]).toBe(notes[1]);
+  });
+
+  it('非 beat0 的 BPM 线照常删除', () => {
+    const notes = [bpm(0, 120), bpm(8, 150)];
+    const out = deleteSelection(notes, [{ kind: 'note', noteIndex: 1 }]);
+    expect(out).toEqual([bpm(0, 120)]);
+  });
+
+  it('框选含 beat0 BPM 的一组 → BPM 重置、其余照删', () => {
+    const notes = [bpm(0, 180), { type: 'Single', beat: 4, lane: 0 } as ChartNote, bpm(8, 150)];
+    const out = deleteSelection(notes, [
+      { kind: 'note', noteIndex: 0 },
+      { kind: 'note', noteIndex: 1 },
+      { kind: 'note', noteIndex: 2 },
+    ]);
+    expect(out).toEqual([bpm(0, 120)]);
+  });
+
+  it('已经是 120 时删除 → 内容不变（仍重置一次，快照去重由 pushHistoryIfChanged 负责）', () => {
+    const notes = [bpm(0, 120)];
+    expect(deleteSelection(notes, [{ kind: 'note', noteIndex: 0 }])).toEqual(notes);
+  });
+});
+
 describe('selectionNoteIndices', () => {
   it('提取去重后的音符下标', () => {
     const items: SelectionItem[] = [

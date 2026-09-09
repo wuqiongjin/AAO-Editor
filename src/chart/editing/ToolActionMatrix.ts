@@ -150,12 +150,11 @@ export function clickOps(input: ClickInput): MatrixOp[] {
   // 唯一保留选区的例外见原则 6：镜像/粘贴后 = 本次产物、框选批量后、拖拽后、复制后。
   const clearSel: MatrixOp = { t: 'setSelection', items: [] };
   // issue 56 Q14=A：点击**已有** BPM 线 = 无效果（BPM 的通路 = 完整框选 / 右键删除 / 沟槽数字就地编辑）。
-  // 两个例外（issue 59 定案）：删除工具 = 删除该线；音符代码工具 = 打开该 BPM 的代码。
-  // 作用域只到**非放置类**工具：键型/Slide/粘贴是栅格位放置，BPM 线不拦放置
+  // 例外（issue 59 定案）：**删除** = 删除该线；**音符代码** = 打开该 BPM 的代码（走下方 noteCode 行，同结果）。
+  // 作用域只到**非放置类**工具：键型 / Slide / 粘贴是栅格位放置，BPM 线不拦放置
   //（否则 lane 0 上恰好有 BPM 的拍就永远放不下音符）。
   if (hit && hitIsBpm(notes, hit)) {
     if (tool === 'delete') return actionOnItemOps('delete', notes, hit);
-    if (tool === 'noteCode') return [{ t: 'openNoteCode', target: { noteIndex: hit.noteIndex } }];
     if (tool === 'bpm' || tool === 'mirror') return [clearSel];
   }
   if (isKeyTool(tool)) {
@@ -217,7 +216,10 @@ export function boxSelectOps(tool: MatrixTool, notes: ChartNote[], items: Select
   }
   // §3：「音符代码」= **不可框选**（画布侧按下拖拽根本不启动框选；此处兜底为无效果）
   if (tool === 'noteCode') return [];
-  if (tool === 'bpm' || tool === 'paste') return []; // 无效果（粘贴作用于位置，非选区）
+  // §2 框选矩阵 BPM 格（issue 56 Q8 / issue 59 落地）：由「无效果」改为「按 X+Y 完整覆盖判据入选」
+  // —— 判据本身在 computeItemsInBox（BPM 线必须被整条框住），这里只负责把结果建成选区。
+  if (tool === 'bpm') return [{ t: 'setSelection', items }];
+  if (tool === 'paste') return []; // 无效果（粘贴作用于位置，非选区）
   if (tool === 'slide') return combineOps(notes, items); // §4 组合成滑条
   if (items.length === 0) return [];
   if (tool === 'delete') {

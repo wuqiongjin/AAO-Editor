@@ -230,11 +230,18 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它
     const chartEndVirtualY = geometry.chartEndVirtualY;
 
+    /**
+     * 命中测试依赖（几何 / 视口 / 谱面 / noteSize）。
+     * 七处调用（hover、点选、工具点击、拖拽候选、右键删除、BPM 整线、Ctrl+B）必须**同口径**，
+     * 否则 noteSize≠1 时命中盒与视觉不符 —— 收敛成一处，避免逐个手写时漂移。
+     */
+    const hitDeps = () => ({ geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
+
     // issue 56 c)：hover 命中项 —— 只在 hoverPos 变化时重算（findItemAt 不进每帧渲染路径，C6）。
     // noteSize 与点选/工具点击同口径，否则命中盒与视觉不符；hidden 结点由 findItemAt 侧跳过（A6）。
     const hoverItem = useMemo(() => {
         if (!hoverPos) return null;
-        return findItemAt(hoverPos.cx, hoverPos.cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
+        return findItemAt(hoverPos.cx, hoverPos.cy, hitDeps());
     }, [hoverPos, geometry, viewport, beatDisplay, notes, display.noteSize]);
 
     // 坐标变换（薄封装，保持既有调用签名不变；内部均为 O(log BPM) 缓存查询）
@@ -262,7 +269,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 行锁单测）；此处只做命中换算与"标记选中互斥"清标记
     const selectItemAtPoint = (cx: number, cy: number, additive: boolean, ctrl: boolean) => {
         setMarkerSelected(false); // 起点标记与音符选择互斥（ADR-0004 §4）
-        const hit = findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
+        const hit = findItemAt(cx, cy, hitDeps());
         setSelectedItems(pointerClickSelection(selectedItems, hit, additive, ctrl));
     };
 
@@ -374,13 +381,16 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 复制/剪切已按 §2.1 退出工具轴（不 arm），故不在其中。
         const needHit = armedTool === 'delete' || armedTool === 'mirror' || armedTool === 'noteCode';
         const hit = needHit
-            ? findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize })
+            ? findItemAt(cx, cy, hitDeps())
             : null;
-        // issue 59：BPM 线在视觉上是横跨轨道的**一整条线**，而 findItemAt 只认 lane 0 圆心一点。
-        // 删除 / 音符代码两态对 BPM 有明确语义（删该线 / 打开其代码），故补一条整线命中；
-        // 音符优先（findItemAt 先判），也不进 hover（56 Q14：BPM 不参与 hover）。
-        const bpmLineHit = hit === null && (armedTool === 'delete' || armedTool === 'noteCode')
-            ? findBpmLineAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize })
+        // issue 59：BPM 线在视觉上是横跨轨道的**一整条线**，画在音符层之下，而 findItemAt 完全跳过 BPM。
+        // 故对**需要对 BPM 表态的四态**（BPM / 删除 / 镜像 / 音符代码）补一条整线命中：
+        // 音符优先（findItemAt 先判），不进 hover（56 Q14：BPM 不参与 hover 反馈）。
+        // 四态缺一都会让 clickOps 里对应的矩阵行变成不可达的死分支（锁表单测也会变假绿）。
+        const needsBpmLine = armedTool === 'bpm' || armedTool === 'delete'
+            || armedTool === 'mirror' || armedTool === 'noteCode';
+        const bpmLineHit = hit === null && needsBpmLine
+            ? findBpmLineAt(cx, cy, hitDeps())
             : null;
         const effectiveHit = bpmLineHit ?? hit;
         applyOps(clickOps({
@@ -394,7 +404,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     /** §6：指针态按下音符 → 建立拖拽候选（命中 ∈ 选区且选区≥2 → 组拖，否则单拖命中项） */
     const beginDragCandidate = (cx: number, cy: number) => {
-        const hit = findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
+        const hit = findItemAt(cx, cy, hitDeps());
         if (!hit) return;
         const inSelection = selectedItems.some(it => sameSelectionItem(it, hit));
         const source = inSelection && selectedItems.length >= 2 ? selectedItems : [hit];
@@ -545,8 +555,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const mouseY = e.clientY - rect.top;
         // noteSize 必须与另三处命中（点选/工具点击/拖拽候选）一致，否则 noteSize≠1 时命中盒与视觉不符
         // issue 59：右键删除是 56 定的 BPM 三条通路之一，同样按"整条线"判（findItemAt 只认 lane 0 一点）
-        const hit = findItemAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize })
-            ?? findBpmLineAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
+        const hit = findItemAt(mouseX, mouseY, hitDeps())
+            ?? findBpmLineAt(mouseX, mouseY, hitDeps());
         if (!hit) return;
         // 删除后选区必须清空：原下标在 splice 后已指向别的音符（§2 原则 6 同族——谱面变更后旧选区不保留）。
         // 同时清掉指向已消失对象的悬垂 UI 态：待连接锚点（可能正指向被删滑条的端点）与 BPM 就地编辑框。
@@ -705,8 +715,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // issue 59 §2：Ctrl+B = 打开光标处音符的代码。与「音符代码」工具单击共用 clickOps，
         // 故粒度（findItemAt 数组序首个）、hidden 不可达、slideRegion 回退整条、BPM 例外全部一致。
         execNoteCode: () => {
+            // 与工具单击同口径：hoverItem（音符/滑条）优先，未命中再按整条 BPM 线判（issue 59）
+            const hit = hoverItem ?? (hoverPos
+                ? findBpmLineAt(hoverPos.cx, hoverPos.cy, hitDeps())
+                : null);
             applyOps(clickOps({
-                tool: 'noteCode', notes, hit: hoverItem,
+                tool: 'noteCode', notes, hit,
                 pos: null, slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
             }));
         },

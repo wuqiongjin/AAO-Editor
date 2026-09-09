@@ -329,7 +329,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'play': togglePlay(); break;
       case 'jumpToMarker': jumpToMarker(); break;
       case 'toggleSidebar': {
-        // ADR-0008 §7：侧栏折叠从 Esc 摘除 → 独立功能（默认 Ctrl+B），两侧同折同展
+        // ADR-0008 §7：侧栏折叠从 Esc 摘除 → 独立功能（issue 59 §2 起默认键为 Ctrl+Shift+B，
+        // Ctrl+B 已让给「执行-音符代码」），两侧同折同展
         const anyCollapsed = leftCollapsed || rightCollapsed;
         if (anyCollapsed) {
           if (leftCollapsed) toggleLeftPanel();

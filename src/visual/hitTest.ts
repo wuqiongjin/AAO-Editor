@@ -34,9 +34,12 @@ export interface HitTestDeps {
 
 /**
  * 命中测试：返回点击位置命中的选择条目（任意音符类型）。
- * - 普通音符/方向键/BPM → {kind:'note'}
+ * - 普通音符/方向键 → {kind:'note'}
  * - 滑条结点 → {kind:'slideNode', connIndex}
  * - 滑条连接带区域 → {kind:'slideRegion', connIndex}
+ * - **BPM 线不在此判定**（issue 59）：BPM 绘制在音符层**之下**，且 56 定过「指针态单击 BPM 不选中 /
+ *   BPM 不参与 hover」，故本函数跳过 BPM —— BPM 一律由 `findBpmLineAt` 按"整条线"在最后判定，
+ *   自然得到"音符 / 滑条（含段）> BPM 线"的优先级。
  */
 export function findItemAt(cx: number, cy: number, deps: HitTestDeps): SelectionItem | null {
   const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
@@ -84,23 +87,18 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
       if (dx * dx + dy * dy <= noteRadius * noteRadius) {
         return { kind: 'note', noteIndex: i };
       }
-    } else if (note.type === "BPM") {
-      const pos = c.virtualToCanvas(c.getNoteVirtualX(0), c.getNoteVirtualY(note.beat));
-      const dx = pos.x - cx, dy = pos.y - cy;
-      if (dx * dx + dy * dy <= noteRadius * noteRadius) {
-        return { kind: 'note', noteIndex: i };
-      }
     }
+    // BPM：不在此判定（见函数注释）——交由 findBpmLineAt 按整条线在最后判定
   }
   return null;
 }
 
 /**
- * BPM 线**整体**命中（issue 59）。
- * BPM 在视觉上是横跨轨道的一整条线，而 `findItemAt` 只认 lane 0 圆心一个点
- * （56 遗留 BUG：点线中段 / 右段不命中）。删除 / 音符代码两态对 BPM 有明确语义，
- * 故用本函数补一条整线命中；**音符优先**（调用方先用 findItemAt，未命中再问这里）。
- * 不进 hover（56 Q14=A：BPM 不参与 hover 反馈）。
+ * BPM 线**整体**命中（issue 59）——BPM 唯一的命中入口。
+ * BPM 视觉上是横跨轨道的一整条线，画在音符层**之下**；因此判定顺序恒为
+ * **音符 / 方向键 / 滑条结点 / 滑条段 → 最后才是 BPM 线**（调用方先用 findItemAt，未命中再问这里）。
+ * 用途：删除工具（删该线）、音符代码工具（打开其代码）、右键删除（56 定的三条通路之一）。
+ * 不进 hover（56 Q14=A：BPM 不参与 hover 反馈），指针态单击也不选中（56 Q14）。
  */
 export function findBpmLineAt(cx: number, cy: number, deps: HitTestDeps): SelectionItem | null {
   const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
@@ -119,6 +117,9 @@ export function findBpmLineAt(cx: number, cy: number, deps: HitTestDeps): Select
 /**
  * 圈选：按命中子部分选中框内音符（框到结点→结点；框到区域→区域）。
  * 普通音符框到任意虚拟点→note；滑条框到结点→slideNode、框到两端点→slideRegion。
+ * **BPM 线（issue 56 Q8 / issue 59 落地）**：判据 = **X + Y 完整覆盖整条线**（横跨轨道的整段宽度都要在框内）；
+ * 不接受"Y 包含即入选"，也不接受现状的"框到 lane 0 那个点即入选"。
+ * 理由（56 定案）：避免复制 / 批量操作时不小心携带多余的 BPM 线。
  */
 export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): SelectionItem[] {
   const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
@@ -153,6 +154,14 @@ export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): Selecti
             p2.x >= vminX && p2.x <= vmaxX && p2.y >= vminY && p2.y <= vmaxY) {
           result.push({ kind: 'slideRegion', noteIndex: index, connIndex: ci });
         }
+      }
+    } else if (note.type === "BPM") {
+      // 整线覆盖判据：框必须横跨**整条线**（轨道左缘 → 右缘）且 Y 含该线；
+      // 只框到 lane 0 那一点、或只满足 Y 都不算入选。判据在**画布坐标**下做（线的宽度是画布量）。
+      const { trackBgX, trackBgWidth } = c.trackGeometry(deps.viewport.scale);
+      const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
+      if (minX <= trackBgX && maxX >= trackBgX + trackBgWidth && minY <= y && maxY >= y) {
+        result.push({ kind: 'note', noteIndex: index });
       }
     } else {
       const pts = deps.geometry.noteVirtualPoints(note, deps.viewport.scale, deps.beatDisplay);
