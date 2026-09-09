@@ -232,14 +232,33 @@ describe('hover 描边层级（issue 56 c）', () => {
     expect(out.map(o => o.mode)).toEqual(['selected', 'hover']);
   });
 
-  it('hover 滑条 = 命中的那个子部分（Q50）', () => {
+  it('hover 滑条：结点任何工具态都画；段只在删除工具下画（用户 2026-09-09）', () => {
     const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12 }, { lane: 6, beat: 14 }])];
-    const node = outlinesOf({ notes, hover: { kind: 'slideNode', noteIndex: 0, connIndex: 1 } });
-    expect(node).toHaveLength(1);
-    expect(node[0]!.shape).toBe('rect');
-    const region = outlinesOf({ notes, hover: { kind: 'slideRegion', noteIndex: 0, connIndex: 0 } });
-    expect(region).toHaveLength(1);
-    expect(region[0]!.shape).toBe('quad');
+    const nodeHover: SelectionItem = { kind: 'slideNode', noteIndex: 0, connIndex: 1 };
+    const regionHover: SelectionItem = { kind: 'slideRegion', noteIndex: 0, connIndex: 0 };
+
+    // 结点 = 真正的可点对象 → 所有工具态都有 hover
+    for (const tool of [null, 'single', 'delete', 'mirror', 'slide', 'bpm']) {
+      const out = outlinesOf({ notes, hover: nodeHover, armedTool: tool });
+      expect(out).toHaveLength(1);
+      expect(out[0]!.shape).toBe('rect');
+    }
+    // 段（连接带）不是可点对象 → 除删除工具外一律无 hover
+    for (const tool of [null, 'single', 'mirror', 'slide', 'bpm']) {
+      expect(outlinesOf({ notes, hover: regionHover, armedTool: tool })).toHaveLength(0);
+    }
+    const danger = outlinesOf({ notes, hover: regionHover, armedTool: 'delete' });
+    expect(danger).toHaveLength(1);
+    expect(danger[0]!.shape).toBe('quad');
+    expect(danger[0]!.mode).toBe('danger');
+  });
+
+  it('段被框选入选后照常按选中态绘制（不受"段无 hover"影响）', () => {
+    const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12 }])];
+    const out = outlinesOf({ notes, select: [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }] });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.shape).toBe('quad');
+    expect(out[0]!.mode).toBe('selected');
   });
 
   it('删除态 hover 滑条：已选中的段与结点一起转红（Q51 覆盖整条轮廓）', () => {

@@ -295,7 +295,10 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       const half = (LANE_WIDTH * rc.viewport.scale * ns) / 2;
       for (let ci = 0; ci < conns.length - 1; ci++) {
         const inSel = whole || regions?.has(ci) === true;
-        const isHoverPart = hv?.kind === 'slideRegion' && hv.connIndex === ci;
+        // 段（连接带）不是可点对象 → **只在删除工具下给 hover 反馈**（拆条语义需要"这一段会被拆"的预告）；
+        // 其余工具态段完全不参与 hover，只有真正的结点有（用户 2026-09-09）。
+        // 段被框选入选时照常按选中态绘制（inSel 分支，不受此限）。
+        const isHoverPart = dangerTool && hv?.kind === 'slideRegion' && hv.connIndex === ci;
         if (!inSel && !isHoverPart) continue;
         const c1 = conns[ci], c2 = conns[ci + 1];
         const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
@@ -696,6 +699,15 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     // 色觉辅助（issue 39 #4）：与 renderNotes 同口径，幽灵预览同步显示虚拍款
     else if (rc.display?.colorAssist && !isHalfBeatAligned(note.beat, note.subBeat || 0, rc.beatDisplay)) icon = icons.tapVirtualFor(note.lane);
     renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE);
+    // 滑键幽灵此前只有本体、缺顶部箭头（与画布实绘不一致）→ 补挂件，锚点口径同 renderNotes 的第二层
+    if (note.flick && icons.flickTopDecorator) {
+      const flickCfg = icons.flickFor(note.lane);
+      rc.spriteIcon.renderDecorator(ctx, {
+        canvasX: cpt.x, canvasY: cpt.y,
+        drawW: flickCfg.out?.w ?? NOTE_ICON_SIZE,
+        drawH: flickCfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
+      }, icons.flickTopDecorator, rc.viewport.scale);
+    }
   } else if (note.type === "LDirectional" || note.type === "RDirectional") {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
     // issue 29：与 renderNotes 同构（扁平本体 ×N + 外侧箭头）
