@@ -96,6 +96,27 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
 }
 
 /**
+ * BPM 线**整体**命中（issue 59）。
+ * BPM 在视觉上是横跨轨道的一整条线，而 `findItemAt` 只认 lane 0 圆心一个点
+ * （56 遗留 BUG：点线中段 / 右段不命中）。删除 / 音符代码两态对 BPM 有明确语义，
+ * 故用本函数补一条整线命中；**音符优先**（调用方先用 findItemAt，未命中再问这里）。
+ * 不进 hover（56 Q14=A：BPM 不参与 hover 反馈）。
+ */
+export function findBpmLineAt(cx: number, cy: number, deps: HitTestDeps): SelectionItem | null {
+  const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
+  const { trackBgX, trackBgWidth } = c.trackGeometry(deps.viewport.scale);
+  if (cx < trackBgX || cx > trackBgX + trackBgWidth) return null;
+  const tol = 6 * deps.viewport.scale;
+  for (let i = 0; i < deps.notes.length; i++) {
+    const note = deps.notes[i];
+    if (note.type !== "BPM") continue;
+    const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
+    if (Math.abs(cy - y) <= tol) return { kind: 'note', noteIndex: i };
+  }
+  return null;
+}
+
+/**
  * 圈选：按命中子部分选中框内音符（框到结点→结点；框到区域→区域）。
  * 普通音符框到任意虚拟点→note；滑条框到结点→slideNode、框到两端点→slideRegion。
  */

@@ -521,3 +521,11 @@ export function formatValidationError(error: ValidationError): string {
 export function hasBeat0Bpm(chartCode: ChartCodeNote[]): boolean {
     return chartCode.some(note => note.type === 'BPM' && note.beat === 0);
 }
+
+/**
+ * 同一保底语义的另一侧判定：直接看内部音符数组（不经代码序列化）。
+ * 单音符 / 结点回写等"局部编辑"路径用它守住"不因局部编辑而失去第 0 拍 BPM"。
+ */
+export function hasBeat0BpmNote(notes: readonly ChartNote[]): boolean {
+    return notes.some(note => note.type === 'BPM' && note.beat === 0);
+}

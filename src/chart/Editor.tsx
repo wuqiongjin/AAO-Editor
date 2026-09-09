@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
 import Toolbar from '../pages/WorkspacePage/Toolbar';
+import { ChartCodeEditorProvider } from '../chart/components/code-editor/ChartCodeEditorProvider';
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../chart/components/canvas/FinalVirtualCanvas';
 import NoteInfoPanel from '../chart/components/side-panel/NoteInfoPanel';
 import IconButton from '../ui/IconButton';
@@ -320,6 +321,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'execDelete': deleteSelectedNotes(); break;
       case 'switchMirror': setArmedTool('mirror'); break;
       case 'execMirror': mirror(); break;
+      // issue 59 §2：B = 切「音符代码」工具态；Ctrl+B = 打开**光标处**音符的代码（不切工具）
+      case 'switchNoteCode': setArmedTool('noteCode'); break;
+      case 'execNoteCode': virtualCanvasRef.current?.execNoteCode?.(); break;
       case 'undo': undo(); break;
       case 'redo': redo(); break;
       case 'play': togglePlay(); break;
@@ -350,7 +354,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     //   ② 取消 Slide 临时端点锚；
     //   ③ 清空选区（含起点标记选中）；
     //   ④ 持工具态落回指针。
-    // 侧栏折叠已从此链摘除 → 独立功能 toggleSidebar（默认 Ctrl+B）。
+    // 侧栏折叠已从此链摘除 → 独立功能 toggleSidebar（issue 59 §2 起默认键为 Ctrl+Shift+B，
+    // Ctrl+B 让给「执行-音符代码」）。
     onEscape: useCallback(() => {
       if (virtualCanvasRef.current?.cancelPendingSlide?.()) return;
       if (selectedItems.length > 0 || virtualCanvasRef.current?.getMarkerSelected?.()) {
@@ -365,6 +370,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // Editor 不消费 dismissError（音频页已直接调 session）；chartEndKey 已用于重锚 effect 依赖
 
   return (
+    // issue 59 §2：弹窗打开态提到 Editor ——「谱面代码」按钮（工具栏）与「音符代码」工具（画布）
+    // 共用同一个弹窗组件，故 target 必须挂在两者共同的祖先上。
+    <ChartCodeEditorProvider>
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
       {/* 左侧工具栏列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}
       <div
@@ -516,6 +524,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         />
       </div>
     </div>
+    </ChartCodeEditorProvider>
   );
 };
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
 import { makeCoords } from '../../src/visual/coords';
-import { findItemAt, computeItemsInBox, pointInQuad, type HitTestDeps } from '../../src/visual/hitTest';
+import { findItemAt, findBpmLineAt, computeItemsInBox, pointInQuad, type HitTestDeps } from '../../src/visual/hitTest';
 import type { ChartNote } from '../../src/chart/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
@@ -75,6 +75,42 @@ describe('findItemAt', () => {
     const { deps, canvas } = makeDeps(notes);
     const p = canvas(0, 40);
     expect(findItemAt(p.x, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+  });
+});
+
+// issue 59：删除 / 音符代码两态下，BPM 线按**整条线**命中（findItemAt 只认 lane 0 圆心一点）
+describe('findBpmLineAt', () => {
+  const notes: ChartNote[] = [
+    { type: 'BPM', beat: 40, bpm: 120 },
+    { type: 'BPM', beat: 60, bpm: 150 },
+  ];
+
+  it('线中段 / 右段同样命中（findItemAt 在此返回 null）', () => {
+    const { deps, canvas } = makeDeps(notes);
+    const left = canvas(0, 40);
+    const right = canvas(6, 40);
+    expect(findItemAt((left.x + right.x) / 2, left.y, deps)).toBeNull(); // 旧行为：线中段打不中
+    expect(findBpmLineAt((left.x + right.x) / 2, left.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+    expect(findBpmLineAt(right.x, right.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+  });
+
+  it('纵向超出容差 / 轨道外（沟槽）→ 不命中', () => {
+    const { deps, canvas } = makeDeps(notes);
+    const p = canvas(3, 40);
+    expect(findBpmLineAt(p.x, p.y + 20, deps)).toBeNull();
+    const { trackBgX } = deps.geometry.trackGeometry(1);
+    expect(findBpmLineAt(trackBgX - 5, p.y, deps)).toBeNull();
+  });
+
+  it('多条 BPM 线各归其位', () => {
+    const { deps, canvas } = makeDeps(notes);
+    expect(findBpmLineAt(canvas(3, 60).x, canvas(3, 60).y, deps)).toEqual({ kind: 'note', noteIndex: 1 });
+  });
+
+  it('非 BPM 音符不参与', () => {
+    const keys: ChartNote[] = [{ type: 'Single', lane: 3, beat: 40 }];
+    const { deps, canvas } = makeDeps(keys);
+    expect(findBpmLineAt(canvas(3, 40).x, canvas(3, 40).y, deps)).toBeNull();
   });
 });
 

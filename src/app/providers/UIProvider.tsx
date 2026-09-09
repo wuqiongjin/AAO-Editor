@@ -10,7 +10,9 @@ export type MousePos = ChartPosition;
 export type KeyToolId = 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional';
 // ADR-0008 §2.1（六轮）：复制/剪切**不占工具轴**（不 arm）——必须有选区、连续操作无意义/有误删风险，
 // 只保留 Ctrl+C / Ctrl+X 执行键作用于选区。故 ActionToolId 只剩 delete / paste / mirror。
-export type ActionToolId = 'delete' | 'paste' | 'mirror';
+// issue 59 §2/§3：「音符代码」（tool id `noteCode`）是第七个持工具态——点谁看谁、弹窗关闭后态驻留；
+// 它是唯一不改谱面的工具：不可框选（原则 2 例外）、单击不清选区（原则 6 例外）。
+export type ActionToolId = 'delete' | 'paste' | 'mirror' | 'noteCode';
 export type ArmedTool = KeyToolId | 'bpm' | 'slide' | ActionToolId;
 
 export interface UIContextValue {

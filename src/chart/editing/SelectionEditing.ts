@@ -8,7 +8,8 @@ import { mirrorNote, mirrorLane } from './NoteEditing';
  * 也兼容整条音符（{kind:'note'}，含 Ctrl+左键选中的整条滑条）。
  */
 
-const isSlide = (n: ChartNote): n is SlideNote => n.type === 'Slide' || n.type === 'Long';
+/** 滑条 / 长条同构判定（Slide 与 Long 结构完全等价，见 types.ts） */
+export const isSlide = (n: ChartNote): n is SlideNote => n.type === 'Slide' || n.type === 'Long';
 
 // 把 items 按 noteIndex 分组，返回 Map
 const groupByNote = (items: SelectionItem[]): Map<number, SelectionItem[]> => {

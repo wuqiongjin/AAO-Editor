@@ -10,6 +10,9 @@ import {
 } from './NoteReplacementRules';
 import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
 import { combineSelectionIntoSlide } from './SlideCombination';
+// 对象视图目标（issue 59 §4）在 NoteCodeOps 定义（回写走同一类型），转出供 op 与调用方使用
+import type { NoteCodeTarget } from './NoteCodeOps';
+export type { NoteCodeTarget };
 
 /**
  * 持工具态（与 UIProvider.ArmedTool 同构；本模块保持零 UI 依赖）。
@@ -19,7 +22,8 @@ import { combineSelectionIntoSlide } from './SlideCombination';
 export type MatrixTool =
   | 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional'
   | 'bpm' | 'slide'
-  | 'delete' | 'paste' | 'mirror';
+  | 'delete' | 'paste' | 'mirror'
+  | 'noteCode'; // issue 59 §2：持工具态，点音符 = 打开该音符代码弹窗（唯一不改谱面的工具）
 
 export interface SlidePoint { beat: number; lane: number; subBeat: number }
 export interface SnapPos { beat: number; lane: number }
@@ -29,12 +33,17 @@ export type MatrixOp =
   | { t: 'setSelection'; items: SelectionItem[] }  // setSelectedItems
   | { t: 'setClipboard'; notes: ChartNote[] }      // setClipboard
   | { t: 'setSlideBuffer'; point: SlidePoint | null }
-  | { t: 'openBpmEditor'; beat: number; value: string }; // §5 就地编辑
+  | { t: 'openBpmEditor'; beat: number; value: string } // §5 就地编辑
+  | { t: 'openNoteCode'; target: NoteCodeTarget };      // issue 59 §3：打开该音符/结点的代码弹窗
 
 const isKeyTool = (tool: MatrixTool): tool is 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional' =>
   tool === 'single' || tool === 'flick' || tool === 'skill' || tool === 'ldirectional' || tool === 'rdirectional';
 const isActionTool = (tool: MatrixTool): tool is 'delete' | 'mirror' =>
   tool === 'delete' || tool === 'mirror';
+
+/** 命中的是否是一条**已有** BPM 线（issue 56 Q14=A：单击 BPM 线默认无效果，只有删除/音符代码两个例外） */
+const hitIsBpm = (notes: ChartNote[], hit: SelectionItem | null): boolean =>
+  hit !== null && hit.kind === 'note' && notes[hit.noteIndex]?.type === 'BPM';
 
 const samePos = (a: SlidePoint, b: SlidePoint) =>
   a.beat === b.beat && (a.subBeat || 0) === (b.subBeat || 0);
@@ -140,6 +149,15 @@ export function clickOps(input: ClickInput): MatrixOp[] {
   // 用户点了画布，注意力已经转移；选中态留着只是噪音）。
   // 唯一保留选区的例外见原则 6：镜像/粘贴后 = 本次产物、框选批量后、拖拽后、复制后。
   const clearSel: MatrixOp = { t: 'setSelection', items: [] };
+  // issue 56 Q14=A：点击**已有** BPM 线 = 无效果（BPM 的通路 = 完整框选 / 右键删除 / 沟槽数字就地编辑）。
+  // 两个例外（issue 59 定案）：删除工具 = 删除该线；音符代码工具 = 打开该 BPM 的代码。
+  // 作用域只到**非放置类**工具：键型/Slide/粘贴是栅格位放置，BPM 线不拦放置
+  //（否则 lane 0 上恰好有 BPM 的拍就永远放不下音符）。
+  if (hit && hitIsBpm(notes, hit)) {
+    if (tool === 'delete') return actionOnItemOps('delete', notes, hit);
+    if (tool === 'noteCode') return [{ t: 'openNoteCode', target: { noteIndex: hit.noteIndex } }];
+    if (tool === 'bpm' || tool === 'mirror') return [clearSel];
+  }
   if (isKeyTool(tool)) {
     // 键型放置：音符/空白两列同格 = 栅格位放置（ADR-0001 替换规则由 handleNoteReplacement 内部处置）
     if (!pos) return [clearSel];
@@ -168,6 +186,16 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     const items = written.map(i => ({ kind: 'note' as const, noteIndex: i }));
     return [{ t: 'setNotes', notes: newNotes }, { t: 'setSelection', items }];
   }
+  if (tool === 'noteCode') {
+    // §3「音符代码」：点音符 = 打开该音符/结点的代码（点击优先于选区，粒度沿用 findItemAt）；
+    // 点空白 = 无效果、**不清选区**（§2 原则 6 例外：它是唯一不改谱面的工具）
+    if (!hit) return [];
+    // §4：slideRegion 不支持 → 回退到整条滑条视图（target 不带 connIndex）
+    const target: NoteCodeTarget = hit.kind === 'slideNode'
+      ? { noteIndex: hit.noteIndex, connIndex: hit.connIndex }
+      : { noteIndex: hit.noteIndex };
+    return [{ t: 'openNoteCode', target }];
+  }
   if (isActionTool(tool)) {
     // 音符 = 选中并立即执行（Model A，ADR-0002 §3.2）；
     // 轨道内空白 = 无效果不清选区（§2 定案，清选区用 Esc 或指针态点空白）；
@@ -187,6 +215,8 @@ export function boxSelectOps(tool: MatrixTool, notes: ChartNote[], items: Select
       ? [{ t: 'setNotes', notes: r.newNotes }, { t: 'setSelection', items: remapSelection(notes, items, r.newNotes) }]
       : [];
   }
+  // §3：「音符代码」= **不可框选**（画布侧按下拖拽根本不启动框选；此处兜底为无效果）
+  if (tool === 'noteCode') return [];
   if (tool === 'bpm' || tool === 'paste') return []; // 无效果（粘贴作用于位置，非选区）
   if (tool === 'slide') return combineOps(notes, items); // §4 组合成滑条
   if (items.length === 0) return [];

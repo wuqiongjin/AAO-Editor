@@ -20,6 +20,8 @@ export type FunctionId =
   | 'execCut'
   | 'switchDelete' | 'execDelete'
   | 'switchMirror' | 'execMirror'
+  // issue 59 §2：音符代码 = 持工具态（点谁看谁）；Ctrl+B = 打开光标处音符的代码（不切工具的快捷版）
+  | 'switchNoteCode' | 'execNoteCode'
   | 'switchMouse'
   | 'toggleSidebar'
   | 'undo' | 'redo' | 'play' | 'jumpToMarker';
@@ -57,9 +59,13 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'execDelete',         label: '执行-删除',   category: '删除', binding: 'ctrl+t' },
   { id: 'switchMirror',       label: '切换-镜像',   category: '镜像', binding: 'q' },
   { id: 'execMirror',         label: '执行-镜像',   category: '镜像', binding: 'ctrl+q' },
+  { id: 'switchNoteCode',     label: '切换-音符代码', category: '音符代码', binding: 'b' },
+  // §2：执行键 = 打开**光标处**音符的代码（不切工具）
+  { id: 'execNoteCode',       label: '执行-音符代码', category: '音符代码', binding: 'ctrl+b' },
   { id: 'switchMouse',        label: '切换-鼠标',   category: '鼠标', binding: 'r' },
-  // ADR-0008 §7：侧栏折叠从 Esc 摘除，进注册表成可自定义功能；语义 = 左右两侧面板折叠/展开 toggle
-  { id: 'toggleSidebar',      label: '侧栏折叠/展开', category: '布局', binding: 'ctrl+b' },
+  // ADR-0008 §7：侧栏折叠从 Esc 摘除，进注册表成可自定义功能；语义 = 左右两侧面板折叠/展开 toggle。
+  // issue 59 §2：让出 Ctrl+B 给「执行-音符代码」→ 改 Ctrl+Shift+B
+  { id: 'toggleSidebar',      label: '侧栏折叠/展开', category: '布局', binding: 'ctrl+shift+b' },
   { id: 'undo',               label: '撤销',        category: '撤销', binding: 'ctrl+z' },
   { id: 'redo',               label: '重做',        category: '重做', binding: 'ctrl+y' },
   { id: 'play',               label: '播放/暂停',   category: '播放', binding: ' ' },

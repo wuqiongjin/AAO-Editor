@@ -30,6 +30,16 @@ describe('ShortcutConfig 默认配置', () => {
     expect(cfg.switchSlide).toBe('e');
     expect(cfg.play).toBe(' ');
   });
+
+  // issue 59 §2：音符代码占 B / Ctrl+B；侧栏折叠让出 Ctrl+B → Ctrl+Shift+B
+  it('默认含 音符代码 切换/执行，侧栏折叠改 Ctrl+Shift+B', () => {
+    const cfg = getDefaultConfig();
+    expect(cfg.switchNoteCode).toBe('b');
+    expect(cfg.execNoteCode).toBe('ctrl+b');
+    expect(cfg.toggleSidebar).toBe('ctrl+shift+b');
+    // 一键一功能：新键位不与既有功能相撞
+    expect(buildBindingIndex(cfg).size).toBe(Object.keys(cfg).length);
+  });
 });
 
 describe('resolveAction 按键解析', () => {
@@ -45,6 +55,15 @@ describe('resolveAction 按键解析', () => {
 
   it('未绑定按键返回 null', () => {
     expect(resolveAction(keyEvent('z'), getDefaultConfig())).toBeNull();
+  });
+
+  it('B / Ctrl+B / Ctrl+Shift+B 三者各归其位（issue 59 §2 键位裁决）', () => {
+    const cfg = getDefaultConfig();
+    const shiftEvent = (key: string, ctrl: boolean, shift: boolean): KeyboardEvent =>
+      ({ key, ctrlKey: ctrl, shiftKey: shift, metaKey: false } as KeyboardEvent);
+    expect(resolveAction(keyEvent('b'), cfg)).toBe('switchNoteCode');
+    expect(resolveAction(keyEvent('b', true), cfg)).toBe('execNoteCode');
+    expect(resolveAction(shiftEvent('B', true, true), cfg)).toBe('toggleSidebar');
   });
 });
 

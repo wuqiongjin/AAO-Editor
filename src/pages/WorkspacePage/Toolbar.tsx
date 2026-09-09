@@ -10,6 +10,7 @@ import {
   Undo,
   Redo,
   ChevronLeft,
+  FileCode,
 } from "lucide-react";
 import SpriteIcon, { NoteIcons } from '../../ui/SpriteIcon';
 import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
@@ -36,7 +37,7 @@ const toolCategory: Record<string, string> = {
   mouse: "鼠标", bpm: "BPM", single: "单键", flick: "滑键",
   skill: "技能", ldirectional: "左滑", rdirectional: "右滑", slide: "滑条",
   copy: "复制", cut: "剪切", paste: "粘贴", delete: "删除", mirror: "镜像",
-  undo: "撤销", redo: "重做",
+  noteCode: "音符代码", undo: "撤销", redo: "重做",
 };
 
 export default function Toolbar() {
@@ -79,7 +80,7 @@ export default function Toolbar() {
   ];
   // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）。
   // 动作类持工具态（方案 A，issue 55 三轮：删除/镜像）标签供顶部 pill 显示
-  const armLabels: Record<string, string> = { delete: '删除', mirror: '镜像', paste: '粘贴' };
+  const armLabels: Record<string, string> = { delete: '删除', mirror: '镜像', paste: '粘贴', noteCode: '音符代码' };
   const currentToolLabel = armedTool === null
     ? '指针'
     : (tools.find(t => t.id === armedTool)?.label ?? armLabels[armedTool] ?? armedTool);
@@ -170,6 +171,15 @@ export default function Toolbar() {
             <IconButton icon={<RotateCcw size={16} />} label="镜像" onClick={() => armOrRelease('mirror')} active={armedTool === 'mirror'} title={tooltipForCategory(toolCategory.mirror)} />
             <IconButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title={tooltipForCategory(toolCategory.undo)} />
             <IconButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
+            {/* issue 59 §2：「音符代码」= 持工具态（与删除/镜像同构），点音符即看其代码、弹窗关闭后态驻留；
+                Ctrl+B = 看光标处音符的代码（不切工具）。与下面的「谱面代码」（永远完整谱面）各司其职 */}
+            <IconButton
+                icon={<FileCode size={16} />}
+                label="音符代码"
+                onClick={() => armOrRelease('noteCode')}
+                active={armedTool === 'noteCode'}
+                title={`${tooltipForCategory(toolCategory.noteCode)}\n点音符查看其代码；Ctrl+B 看光标处音符`}
+            />
             {/* issue 37：谱面代码改按需弹窗——入口按钮（点击才打开弹窗，常驻无代码同步成本），跨 2 列 */}
             <div className="toolbar__grid-full">
               <ChartCodeEditor />

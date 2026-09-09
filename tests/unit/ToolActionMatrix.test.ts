@@ -108,6 +108,30 @@ describe('§2 BPM 工具单击', () => {
   it('非法位置 → 动作无事发生，但取消选中（§2 原则 6）', () => {
     expect(clickOps(input({ tool: 'bpm', pos: null }))).toEqual([{ t: 'setSelection', items: [] }]);
   });
+
+  // issue 56 Q14=A（issue 59 落地）：点击**已有** BPM 线 = 无效果；删除 / 音符代码 是两个例外
+  it('点击已有 BPM 线 = 无效果（动作不生效，但按 §2 原则 6 清选区）', () => {
+    const notes: ChartNote[] = [bpm(4, 120)];
+    expect(clickOps(input({ tool: 'bpm', notes, hit: noteSel(0)[0], pos: sp(4, 0), lastBpm: 150 })))
+      .toEqual([{ t: 'setSelection', items: [] }]);
+  });
+  it('删除工具单击已有 BPM 线 = 删除该线（issue 59 定案例外）', () => {
+    const notes: ChartNote[] = [bpm(4, 120), single(1, 1)];
+    expect(clickOps(input({ tool: 'delete', notes, hit: noteSel(0)[0], pos: sp(4, 0) })))
+      .toEqual([{ t: 'setNotes', notes: [single(1, 1)] }, { t: 'setSelection', items: [] }]);
+  });
+  it('镜像工具单击已有 BPM 线 = 不生效（无效果 + 清选区）', () => {
+    const notes: ChartNote[] = [bpm(4, 120)];
+    expect(clickOps(input({ tool: 'mirror', notes, hit: noteSel(0)[0], pos: sp(4, 0) })))
+      .toEqual([{ t: 'setSelection', items: [] }]);
+  });
+  it('键型工具单击已有 BPM 线 = 照常按栅格位放置（BPM 不拦放置）', () => {
+    // BPM 线的可交互点在 lane 0，点线右段时命中仍是它、但栅格位在 lane 3 → 照常放置单键
+    const notes: ChartNote[] = [bpm(4, 120)];
+    const ops = clickOps(input({ tool: 'single', notes, hit: noteSel(0)[0], pos: sp(4, 3) }));
+    expect(ops[0]?.t).toBe('setNotes');
+    expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
+  });
 });
 
 // ══════════════════ §2 单击矩阵·Slide 行（§4 两击直放）══════════════════
@@ -209,6 +233,33 @@ describe('§2 delete/mirror 单击', () => {
   });
 });
 
+// ══════════════════ §2 单击矩阵·音符代码行（issue 59 §3/§4）══════════════════
+describe('§2 音符代码工具单击（noteCode，issue 59）', () => {
+  const notes: ChartNote[] = [bpm(0, 120), single(1, 1), slide(2, 1, 3, 2, 4, 3)];
+  it('点整条音符 = 打开该音符代码（target 只有 noteIndex）', () => {
+    expect(clickOps(input({ tool: 'noteCode', notes, hit: noteSel(1)[0] })))
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 1 } }]);
+  });
+  it('点滑条结点 = 带 connIndex', () => {
+    const hit: SelectionItem = { kind: 'slideNode', noteIndex: 2, connIndex: 1 };
+    expect(clickOps(input({ tool: 'noteCode', notes, hit })))
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2, connIndex: 1 } }]);
+  });
+  it('§4 点滑条区域 = 不支持 → 回退整条（不带 connIndex）', () => {
+    const hit: SelectionItem = { kind: 'slideRegion', noteIndex: 2, connIndex: 1 };
+    expect(clickOps(input({ tool: 'noteCode', notes, hit })))
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2 } }]);
+  });
+  it('点击已有 BPM 线 = 打开该 BPM 的代码（issue 59 定案例外）', () => {
+    expect(clickOps(input({ tool: 'noteCode', notes, hit: noteSel(0)[0], pos: sp(0, 0) })))
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 0 } }]);
+  });
+  it('点空白 = 无效果且**不清选区**（§3 + §2 原则 6 例外）', () => {
+    expect(clickOps(input({ tool: 'noteCode', notes, hit: null, pos: sp(8, 3) }))).toEqual([]);
+    expect(clickOps(input({ tool: 'noteCode', notes, hit: null, pos: null }))).toEqual([]);
+  });
+});
+
 // ══════════════════ §2 框选矩阵（boxSelectOps）══════════════════
 describe('§2 框选矩阵', () => {
   it('键型行：框内逐个应用替换 + 原则4 选区保留（BPM 不参与不丢弃）', () => {
@@ -225,6 +276,9 @@ describe('§2 框选矩阵', () => {
   it('bpm / paste 行 = 无效果', () => {
     expect(boxSelectOps('bpm', [single(1, 1)], noteSel(0))).toEqual([]);
     expect(boxSelectOps('paste', [single(1, 1)], noteSel(0))).toEqual([]);
+  });
+  it('noteCode 行 = 不可框选 → 无效果（issue 59 §3：画布侧根本不启动框选，此处兜底）', () => {
+    expect(boxSelectOps('noteCode', [single(1, 1), bpm(2, 120)], noteSel(0, 1))).toEqual([]);
   });
   it('slide 行：框选组合成滑条（§4）+ 完成后清选区（一次性动作，§2 原则 4 例外）+ 清两击锚点', () => {
     const notes: ChartNote[] = [single(1, 1), single(2, 2), bpm(9, 120)];

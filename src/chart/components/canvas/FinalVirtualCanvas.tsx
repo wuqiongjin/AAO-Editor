@@ -13,7 +13,8 @@ import {
   TRACK_CHROME_TOTAL, type SurfaceSize,
 } from '../../geometry/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../../../app/ProviderTree';
-import { renderChart, findItemAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../visual';
+import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
+import { renderChart, findItemAt, findBpmLineAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, bpmLabelBox, measureGutterLabelWidth } from '../../../visual/gutterLabels';
@@ -57,6 +58,8 @@ export interface FinalVirtualCanvasHandle {
   execBpm?: () => void;
   /** Ctrl+E（§3）：有选区 → §4 组合成滑条；无选区 → 光标处放临时端点（与鼠标两击共用 slideBuffer） */
   execSlide?: () => void;
+  /** issue 59 §2：Ctrl+B —— 打开**光标处**音符的代码（不切工具的快捷版）；光标不在音符上 = 无事发生 */
+  execNoteCode?: () => void;
   /**
    * Ctrl+F/G/A/S/D（§3）：光标处放置该键型 —— **与单击放置共用 clickOps**，
    * 故 §2 原则 6（清选区）与 snapPos 的"越谱面末端 = 非法落点"判定自动一致
@@ -111,6 +114,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // armedTool = 持工具态（ADR-0008 §1）：null = 指针底态；选区与工具解耦、常驻不清
     const { armedTool, beatDisplay, scale, setScale, setMousePosition, mousePosition } = useUI();
     const { setMarker: setMarkerContext, currentSeconds } = usePlayback();
+    // issue 59 §2/§3：「音符代码」工具点击 → 打开该音符的代码弹窗（与「谱面代码」按钮共用同一弹窗）
+    const { openNoteCode } = useChartCodeEditor();
     // issue 39 功能设置·画布显示：纵向比例进 geometry（重建），其余渲染参数经 RenderCtx 注入渲染器
     const { settings } = useConfig();
     const display = settings.display;
@@ -309,6 +314,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             else if (op.t === 'setClipboard') setClipboard(op.notes);
             else if (op.t === 'setSlideBuffer') setSlideBuffer(op.point);
             else if (op.t === 'openBpmEditor') setBpmEdit({ beat: op.beat, value: op.value });
+            else if (op.t === 'openNoteCode') openNoteCode(op.target);
         }
     };
 
@@ -364,14 +370,21 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             }
             return;
         }
-        // 动作族（删除/镜像，T/Q）才需要音符命中（空白=无效果不清选区）；其余行只吃栅格落点。
+        // 动作族（删除/镜像，T/Q）与「音符代码」才需要音符命中（空白=无效果不清选区）；其余行只吃栅格落点。
         // 复制/剪切已按 §2.1 退出工具轴（不 arm），故不在其中。
-        const needHit = armedTool === 'delete' || armedTool === 'mirror';
+        const needHit = armedTool === 'delete' || armedTool === 'mirror' || armedTool === 'noteCode';
         const hit = needHit
             ? findItemAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize })
             : null;
+        // issue 59：BPM 线在视觉上是横跨轨道的**一整条线**，而 findItemAt 只认 lane 0 圆心一点。
+        // 删除 / 音符代码两态对 BPM 有明确语义（删该线 / 打开其代码），故补一条整线命中；
+        // 音符优先（findItemAt 先判），也不进 hover（56 Q14：BPM 不参与 hover）。
+        const bpmLineHit = hit === null && (armedTool === 'delete' || armedTool === 'noteCode')
+            ? findBpmLineAt(cx, cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize })
+            : null;
+        const effectiveHit = bpmLineHit ?? hit;
         applyOps(clickOps({
-            tool: armedTool, notes, hit,
+            tool: armedTool, notes, hit: effectiveHit,
             pos: snapPos(cx, cy),
             slideBuffer: bufferPoint,
             lastBpm: lastBpmRef.current,
@@ -456,6 +469,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             }
             return;
         }
+        // issue 59 §3：「音符代码」态**不启动框选**（而不是"框了松手无反应"）——它是唯一不改谱面的工具，
+        // 建选区对它毫无作用。Shift+按住音符 = 移动（§6 全局逃生口）不受此限（上面 dragRef 分支已先行返回）。
+        if (armedTool === 'noteCode') return;
         // §2 原则2：任何持工具态都可框选（原 mouse||mirror 门控废除）
         // bug 32：以虚拟坐标求矩（起点锚定谱面时刻/轨道），再转回画布坐标供渲染/命中——
         // 即使拖拽过程中滚动，起点对应的拍点也不漂移（"长截图"式选区）
@@ -528,7 +544,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         // noteSize 必须与另三处命中（点选/工具点击/拖拽候选）一致，否则 noteSize≠1 时命中盒与视觉不符
-        const hit = findItemAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
+        // issue 59：右键删除是 56 定的 BPM 三条通路之一，同样按"整条线"判（findItemAt 只认 lane 0 一点）
+        const hit = findItemAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize })
+            ?? findBpmLineAt(mouseX, mouseY, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
         if (!hit) return;
         // 删除后选区必须清空：原下标在 splice 后已指向别的音符（§2 原则 6 同族——谱面变更后旧选区不保留）。
         // 同时清掉指向已消失对象的悬垂 UI 态：待连接锚点（可能正指向被删滑条的端点）与 BPM 就地编辑框。
@@ -682,6 +700,14 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             applyOps(execSlideOps({
                 notes, selectedItems, cursor: mousePosition,
                 slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
+            }));
+        },
+        // issue 59 §2：Ctrl+B = 打开光标处音符的代码。与「音符代码」工具单击共用 clickOps，
+        // 故粒度（findItemAt 数组序首个）、hidden 不可达、slideRegion 回退整条、BPM 例外全部一致。
+        execNoteCode: () => {
+            applyOps(clickOps({
+                tool: 'noteCode', notes, hit: hoverItem,
+                pos: null, slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
             }));
         },
         // §3 键型执行键：光标不在画布 / 越过谱面末端 → 无事发生（不落子、也不清选区）
