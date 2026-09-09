@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, for
 import type { BpmNote, ChartNote, SelectionItem } from "../../types";
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { deleteSelection } from '../../editing/SelectionEditing';
-import { planDragMove, draggableFromItems } from '../../editing/NoteDragging';
+import { planDragMove, draggableFromItems, dragDeltaBeat, itemTrueBeat, type DragDelta } from '../../editing/NoteDragging';
 import {
   clickOps, boxSelectOps, execSlideOps, execBpmOps, pointerClickSelection,
   sameSelectionItem, type MatrixOp, type MatrixTool, type SlidePoint,
@@ -164,7 +164,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const lastBpmRef = useRef(120);
     const [bpmEdit, setBpmEdit] = useState<{ beat: number; value: string } | null>(null);
     // 拖拽移动（§6）：指针态按下音符 → 拖 = 移动；ghost = 移动后受影响音符（渲染器半透明绘制）
-    const dragRef = useRef<{ items: SelectionItem[]; pressBeat: number; pressLane: number } | null>(null);
+    // issue 61：拍位移的量化基准 = **被拖对象的落点**，不是"光标吸附拍位差"。
+    //   anchorBeat   = 被按住那件对象的真实拍位（组拖也以它为准，其余成员共用同一 delta）
+    //   rawPressBeat = 按下时光标的**未量化**拍位（与 anchorBeat 的差即"抓取偏移"，保住按住哪儿拖哪儿的手感）
+    const dragRef = useRef<{
+        items: SelectionItem[]; pressLane: number; anchorBeat: number; rawPressBeat: number;
+    } | null>(null);
     const [dragGhost, setDragGhost] = useState<ChartNote[] | null>(null);
 
     // 画布用到的全部皮肤图（issue 29：随当前音符皮肤选择动态解析），挂载/换肤即预加载，加载完触发重绘；
@@ -252,12 +257,13 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const canvasToVirtual = (canvasX: number, canvasY: number) => geometry.canvasToVirtual(canvasX, canvasY, viewport);
     const getLaneBeatFromCanvas = (cx: number, cy: number) => geometry.laneBeatFromCanvas(cx, cy, viewport, beatDisplay);
 
-    /** 放置/执行的合法落点：轨道内 ∧ beat≥0 ∧ 不超谱面末端（ADR-0005 §5）；非法 → null（§1"该位置非法则无事发生"） */
-    const snapPos = (cx: number, cy: number): { beat: number; lane: number } | null => {
+    /** 放置/执行的合法落点：轨道内 ∧ beat≥0 ∧ 不超谱面末端（ADR-0005 §5）；非法 → null（§1"该位置非法则无事发生"）。
+     *  `rawBeat` = 未量化拍位，只有拖拽用（issue 61），放置一律吃量化后的 `beat`。 */
+    const snapPos = (cx: number, cy: number): { beat: number; lane: number; rawBeat: number } | null => {
         const pos = getLaneBeatFromCanvas(cx, cy);
         if (!pos) return null;
         if (pos.preciseBeat > chartEndBeat + 1e-6) return null;
-        return { beat: pos.preciseBeat, lane: pos.lane };
+        return { beat: pos.preciseBeat, lane: pos.lane, rawBeat: pos.rawBeat };
     };
 
     // slideBuffer 归一化为矩阵输入（Canvas 态 subBeat 可选，矩阵 SlidePoint 必填）
@@ -412,8 +418,37 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (items.length === 0) return; // BPM/System/区域等非可拖对象 → 退回框选
         const p = snapPos(cx, cy);
         if (!p) return;
-        dragRef.current = { items, pressBeat: p.beat, pressLane: p.lane };
+        // issue 61：量化基准取**被按住那件对象**的真实拍位（按到滑条区域等不可拖条目时回退集合首件）
+        const anchor = items.some(it => sameSelectionItem(it, hit)) ? hit : items[0]!;
+        const anchorBeat = itemTrueBeat(notes, anchor, beatDisplay);
+        if (anchorBeat === null) return;
+        dragRef.current = { items, pressLane: p.lane, anchorBeat, rawPressBeat: p.rawBeat };
     };
+
+    // ---------------- issue 63：手势期间的隐式指针捕获 ----------------
+    // 按下后把 move/up 挂到 window：越出画布不再取消手势（旧实现 onMouseLeave 一律清按下态，
+    // 框选拉出画布即作废 → "框一条跨屏长滑条"做不到）。window 上只挂一次稳定壳，
+    // 经 gestureHandlersRef 转发到**最新一帧**的处理器（本组件处理器惯例：每次渲染重建）。
+    const gestureHandlersRef = useRef<{
+        move: (e: { clientX: number; clientY: number }) => void;
+        up: (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean } | null) => void;
+    }>({ move: () => { /* 首个手势开始前不会被调用 */ }, up: () => { } });
+    const onWindowMove = useCallback((e: MouseEvent) => gestureHandlersRef.current.move(e), []);
+    const onWindowUp = useCallback((e: MouseEvent) => gestureHandlersRef.current.up(e), []);
+    // 失焦（切窗口 / 弹窗抢焦点）时 mouseup 可能永远不来 → e=null 只收手势态，不触发任何动作
+    const onWindowBlur = useCallback(() => gestureHandlersRef.current.up(null), []);
+    const attachWindowGesture = useCallback(() => {
+        window.addEventListener('mousemove', onWindowMove);
+        window.addEventListener('mouseup', onWindowUp);
+        window.addEventListener('blur', onWindowBlur);
+    }, [onWindowMove, onWindowUp, onWindowBlur]);
+    const detachWindowGesture = useCallback(() => {
+        window.removeEventListener('mousemove', onWindowMove);
+        window.removeEventListener('mouseup', onWindowUp);
+        window.removeEventListener('blur', onWindowBlur);
+    }, [onWindowMove, onWindowUp, onWindowBlur]);
+    // 卸载兜底：手势中途被卸载（切页/关闭）不留悬挂监听
+    useEffect(() => detachWindowGesture, [detachWindowGesture]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
         if (e.button !== 0) return; // 只响应左键（右键走 contextmenu）
@@ -432,27 +467,48 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if ((armedTool === null || e.shiftKey) && !hitStartMarker(pos.x, pos.y)) {
             beginDragCandidate(pos.x, pos.y);
         }
+        // issue 63：手势一旦开始就由 window 接管 move/up —— 越出画布不再取消手势
+        attachWindowGesture();
     };
 
     /** 当前按下点相对拖拽锚的栅格位移（吸附 = beat 栅格 × lane 整格，与放置同规则）。
      *  drag 可显式传入：mouseUp 提交时 dragRef 已清，必须用按下时的锚点快照（三轮修复：
-     *  旧代码先置空 dragRef 再调 dragDelta → 恒 null → 松手永远回弹） */
-    const dragDelta = (mx: number, my: number, drag = dragRef.current) => {
+     *  旧代码先置空 dragRef 再调 dragDelta → 恒 null → 松手永远回弹）。
+     *  issue 61：拍位分量改由 `dragDeltaBeat` 算——量化**对象的落点**，不是"光标吸附拍位差"。 */
+    const dragDelta = (mx: number, my: number, drag = dragRef.current): DragDelta | null => {
         if (!drag) return null;
         const cur = snapPos(mx, my);
         if (!cur) return null;
-        return { dBeat: cur.beat - drag.pressBeat, dLane: cur.lane - drag.pressLane };
+        return {
+            dBeat: dragDeltaBeat({
+                anchorBeat: drag.anchorBeat,
+                rawPressBeat: drag.rawPressBeat,
+                rawCurBeat: cur.rawBeat,
+                beatDisplay,
+            }),
+            dLane: cur.lane - drag.pressLane,
+        };
     };
 
-    const handleMouseMove = (e: React.MouseEvent) => {
+    /** 画布坐标是否落在渲染面内（issue 63：window 接管后光标可能在画布外） */
+    const isInsideSurface = (x: number, y: number) => x >= 0 && y >= 0 && x <= surf.w && y <= surf.h;
+    /** 把画布坐标钳进渲染面（框选矩形不越出画布） */
+    const clampToSurface = (x: number, y: number) => ({
+        x: Math.min(Math.max(x, 0), surf.w),
+        y: Math.min(Math.max(y, 0), surf.h),
+    });
+
+    const handlePointerMove = (e: { clientX: number; clientY: number }) => {
         const canvasPos = cssToCanvas(e);
         if (!canvasPos) return;
         const mouseX = canvasPos.x;
         const mouseY = canvasPos.y;
-        // 记录悬停位置（供工具态预览：放置/粘贴/镜像）
-        setHoverPos({ cx: mouseX, cy: mouseY });
+        // issue 63：手势由 window 接管后光标可能在画布外 —— hover 系反馈（实时显示线 / 放置幽灵 /
+        // hover 描边 / 状态栏读数）出界一律关闭；手势本身继续。
+        const inside = isInsideSurface(mouseX, mouseY);
+        setHoverPos(inside ? { cx: mouseX, cy: mouseY } : null);
         // 更新状态栏鼠标位置与粘贴/执行键锚点
-        const pos = getLaneBeatFromCanvas(mouseX, mouseY);
+        const pos = inside ? getLaneBeatFromCanvas(mouseX, mouseY) : null;
         if (pos) {
             setMousePosition({ beat: pos.preciseBeat, lane: pos.lane });
         } else {
@@ -468,6 +524,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             // §6 移动中：幽灵预览 = 合法落点下的移动结果；非法 → 隐藏幽灵（松手回弹）
             // 光标反馈（三轮修订，用户验收反馈 #4）：拖拽进行中 = grabbing
             if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
+            // 坐标**不钳**：画布外 = 落点非法（ADR-0008 §1"该位置非法则无事发生"）→ 幽灵消失、松手回弹
             const d = dragDelta(mouseX, mouseY);
             if (!d || (d.dBeat === 0 && d.dLane === 0)) { setDragGhost(null); return; }
             const r = planDragMove(notes, dragRef.current.items, d, { chartEndBeat, beatDisplay });
@@ -479,6 +536,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             }
             return;
         }
+        // issue 65②：框选一起手就放弃两击直放的临时锚点（本把手势改走 §4 组合，锚点留着是误导）
+        if (slideBuffer !== null) setSlideBuffer(null);
         // issue 59 §3：「音符代码」态**不启动框选**（而不是"框了松手无反应"）——它是唯一不改谱面的工具，
         // 建选区对它毫无作用。Shift+按住音符 = 移动（§6 全局逃生口）不受此限（上面 dragRef 分支已先行返回）。
         if (armedTool === 'noteCode') return;
@@ -487,11 +546,15 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 即使拖拽过程中滚动，起点对应的拍点也不漂移（"长截图"式选区）
         const cur = canvasToVirtual(mouseX, mouseY);
         const p1 = virtualToCanvas(start.vx, start.vy);
-        const p2 = virtualToCanvas(cur.x, cur.y);
+        // issue 63：光标端钳进渲染面 —— 矩形不越出画布（结算用钳后的框，所见即所得）
+        const p2c = virtualToCanvas(cur.x, cur.y);
+        const p2 = clampToSurface(p2c.x, p2c.y);
         setSelectionBox({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
     };
 
-    const handleMouseUp = (e: React.MouseEvent) => {
+    /** 抬手结算（issue 63）。`e = null` = window 失焦这类异常收尾：只清手势态，不触发任何动作。 */
+    const handlePointerUp = (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean } | null) => {
+        if (e && e.button !== 0) return; // 非左键抬起：手势继续
         const start = selectionStartRef.current;
         const moved = selectionMovedRef.current;
         const box = selectionBox;
@@ -500,8 +563,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         dragRef.current = null;
         setSelectionBox(null);
         setDragGhost(null);
+        detachWindowGesture();
         if (canvasRef.current) canvasRef.current.style.cursor = '';
-        if (!start || e.button !== 0) return;
+        if (!start || !e || e.button !== 0) return;
 
         if (moved && drag) {
             // §6 松手提交：合法 → 单次 handleNotesChange（一个快照）+ 拖拽集合保留为选区；非法 → 回弹。
@@ -518,6 +582,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             return;
         }
         if (moved) {
+            // issue 63：画布外松手也照常结算（框选矩形已被钳在画布内）
             if (box) applyBoxAction(box);
             return;
         }
@@ -525,6 +590,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const p = virtualToCanvas(start.vx, start.vy);
         handleToolClick(p.x, p.y, e);
     };
+
+    // window 监听只挂一次，事件经此转发到最新一帧的闭包（本组件处理器惯例：每次渲染重建）
+    gestureHandlersRef.current = { move: handlePointerMove, up: handlePointerUp };
+
 
     // 左沟槽双击：放置/删除临时起点标记（ADR-0004）。BPM 数字位上让位给单击就地编辑（§5 手势仲裁）
     const handleDoubleClick = (e: React.MouseEvent) => {
@@ -886,19 +955,15 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                     <canvas
                         ref={canvasRef}
                         onMouseDown={handleMouseDown}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
+                        // issue 63：手势期间由 window 接管 move（画布自身监听让位，避免同一事件双份处理）；
+                        // 空闲时仍走画布监听做 hover 反馈
+                        onMouseMove={(e) => { if (!selectionStartRef.current) handlePointerMove(e); }}
                         onContextMenu={handleContextMenu}
                         onDoubleClick={handleDoubleClick}
                         onMouseLeave={() => {
-                            // issue 54：hoverPos 一并清空，实时显示线不残留；离开画布 = 取消进行中的按下手势
+                            // issue 54：hoverPos 一并清空，实时显示线不残留。
+                            // issue 63：**不再清按下态**——手势已由 window 接管，越出画布继续。
                             setMousePosition(null); setHoverPos(null);
-                            selectionStartRef.current = null;
-                            selectionMovedRef.current = false;
-                            dragRef.current = null;
-                            setSelectionBox(null);
-                            setDragGhost(null);
-                            if (canvasRef.current) canvasRef.current.style.cursor = '';
                         }}
                         style={{
                             backgroundColor: '#000000',

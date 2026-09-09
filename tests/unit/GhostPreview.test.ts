@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
 import { makeCoords } from '../../src/visual/coords';
-import { renderToolPreview } from '../../src/visual/render';
+import { renderToolPreview, renderDragGhost, renderSlideBuffer } from '../../src/visual/render';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/visual/noteSkin';
 import type { RenderCtx } from '../../src/visual/types';
 import type { ChartNote } from '../../src/chart/types';
@@ -16,14 +16,27 @@ const stubCtx = new Proxy({}, { get: () => () => undefined, set: () => true }) a
 
 interface Capture { renders: unknown[]; decorators: unknown[] }
 
-/** 在指定 lane/beat 处跑一次放置态幽灵，捕获 spriteIcon 的 render / renderDecorator 调用 */
-function ghostAt(tool: string, lane: number, beat: number): Capture {
+type Sprite = Record<string, unknown> & { src?: string };
+
+interface SceneOpts {
+  tool?: string;
+  slideBuffer?: { beat: number; lane: number; subBeat?: number } | null;
+  notes?: ChartNote[];
+  dragGhost?: ChartNote[];
+  /** hover 位置所在的 lane/beat（不传 = 无 hoverPos） */
+  hover?: { lane: number; beat: number } | null;
+}
+
+/** 搭一个最小渲染上下文并捕获 spriteIcon 的 render / renderDecorator 调用 */
+function scene(opts: SceneOpts) {
   const geometry = new ChartGeometry(bpm120, 100, SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: 1, virtualWidth: 0, virtualHeight: 0 };
-  const notes: ChartNote[] = [];
+  const notes: ChartNote[] = opts.notes ?? [];
   const c = makeCoords(geometry, viewport, BEAT_DISPLAY, notes);
-  const at = c.virtualToCanvas(c.getNoteVirtualX(lane), c.getNoteVirtualY(beat));
   const cap: Capture = { renders: [], decorators: [] };
+  const at = opts.hover
+    ? c.virtualToCanvas(c.getNoteVirtualX(opts.hover.lane), c.getNoteVirtualY(opts.hover.beat))
+    : null;
   const rc = {
     geometry,
     viewport,
@@ -34,13 +47,14 @@ function ghostAt(tool: string, lane: number, beat: number): Capture {
     notes,
     selectedItems: [],
     selectionBox: null,
-    slideBuffer: null,
-    hoverPos: { cx: at.x, cy: at.y },
+    slideBuffer: opts.slideBuffer ?? null,
+    hoverPos: at && opts.hover !== null ? { cx: at.x, cy: at.y } : null,
     hoverItem: null,
     clipboard: [],
     markerBeat: null,
     markerSelected: false,
-    armedTool: tool,
+    dragGhost: opts.dragGhost ?? null,
+    armedTool: opts.tool ?? 'mouse',
     spriteIcon: {
       render: (_ctx: unknown, cfg: unknown) => cap.renders.push(cfg),
       renderDecorator: (_ctx: unknown, _anchor: unknown, dec: unknown) => cap.decorators.push(dec),
@@ -48,8 +62,14 @@ function ghostAt(tool: string, lane: number, beat: number): Capture {
     noteIcons: ICONS,
     display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: false, colorAssist: false },
   } as unknown as RenderCtx;
-  renderToolPreview(stubCtx, c, rc);
-  return cap;
+  return { c, rc, cap };
+}
+
+/** 在指定 lane/beat 处跑一次放置态幽灵 */
+function ghostAt(tool: string, lane: number, beat: number, opt?: { slideBuffer?: SceneOpts['slideBuffer'] }): Capture {
+  const s = scene({ tool, hover: { lane, beat }, slideBuffer: opt?.slideBuffer });
+  renderToolPreview(stubCtx, s.c, s.rc);
+  return s.cap;
 }
 
 describe('幽灵形态 = 画布实绘同形', () => {
@@ -70,5 +90,63 @@ describe('幽灵形态 = 画布实绘同形', () => {
     // 默认包必带箭头；这里通过直接抹掉该字段模拟"包未提供"的分支
     const dec = ICONS.flickTopDecorator;
     expect(dec).not.toBeNull();
+  });
+});
+
+const srcOf = (cfg: unknown) => (cfg as Sprite).src;
+
+describe('Slide 工具态 hover 幽灵（issue 65④）', () => {
+  const endpoint = ICONS.slideEndpointFor(3);
+  const band = ICONS.slideBand;
+
+  it('未第一击：落点画一枚**端点款**幽灵（不是单键款、此前什么都不画）', () => {
+    const cap = ghostAt('slide', 3, 50);
+    expect(cap.renders).toHaveLength(1);
+    expect(cap.renders[0]).toMatchObject({ src: endpoint.src, x: endpoint.x, y: endpoint.y });
+  });
+
+  it('已第一击：端点幽灵 + 锚点→落点的连接带（段）实时成形', () => {
+    const cap = ghostAt('slide', 4, 52, { slideBuffer: { beat: 48, lane: 2, subBeat: 0 } });
+    expect(cap.renders).toHaveLength(2);
+    expect(srcOf(cap.renders[0])).toBe(band.src);      // 段在前（结点压在带上）
+    expect(cap.renders[1]).toMatchObject({ src: endpoint.src, x: endpoint.x, y: endpoint.y });
+  });
+
+  it('非法段不画带子：与锚点同拍（横向段 / 同位）= 第二击走取消分支 → 只画端点', () => {
+    const cap = ghostAt('slide', 4, 48, { slideBuffer: { beat: 48, lane: 2, subBeat: 0 } });
+    expect(cap.renders).toHaveLength(1);
+    expect(srcOf(cap.renders[0])).not.toBe(band.src);
+  });
+
+  it('待连接锚点 = 滑条端点精灵本身（旧青色同心圆靶标已整体删除）', () => {
+    const s = scene({ tool: 'slide', hover: null, slideBuffer: { beat: 48, lane: 2, subBeat: 0 } });
+    renderSlideBuffer(stubCtx, s.c, s.rc);
+    expect(s.cap.renders).toHaveLength(1);
+    expect(s.cap.renders[0]).toMatchObject({ src: endpoint.src, x: endpoint.x, y: endpoint.y });
+  });
+});
+
+describe('滑条外观幽灵的结点选款 = 实绘同款（issue 65①）', () => {
+  it('三结点滑条：两端端帽款、中间 among 款（旧实现三颗全画成端点=像单键）', () => {
+    const endpoint = ICONS.slideEndpointFor(3);
+    const slide = {
+      type: 'Slide',
+      connections: [
+        { beat: 48, lane: 2, subBeat: 0 },
+        { beat: 50, lane: 3, subBeat: 0 },
+        { beat: 52, lane: 4, subBeat: 0 },
+      ],
+    } as unknown as ChartNote;
+    const among = ICONS.slideAmongFor(3);
+    // 前置：默认皮肤必须真的区分中间结点与端点（否则本锁会退化成"恒成立"的假锁）
+    expect(among.x === endpoint.x && among.y === endpoint.y).toBe(false);
+    const s = scene({ tool: 'mouse', hover: null, dragGhost: [slide] });
+    renderDragGhost(stubCtx, s.c, s.rc);
+    // 2 段连接带 + 3 结点图标
+    expect(s.cap.renders).toHaveLength(5);
+    const nodes = s.cap.renders.slice(2);
+    expect(nodes[0]).toMatchObject({ x: ICONS.slideEndpointFor(2).x, y: ICONS.slideEndpointFor(2).y });
+    expect(nodes[1]).toMatchObject({ x: among.x, y: among.y, src: among.src });
+    expect(nodes[2]).toMatchObject({ x: ICONS.slideEndpointFor(4).x, y: ICONS.slideEndpointFor(4).y });
   });
 });

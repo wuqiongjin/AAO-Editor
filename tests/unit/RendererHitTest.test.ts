@@ -203,3 +203,38 @@ describe('makeCoords 薄封装', () => {
     expect(visible.map(n => n.index)).toEqual([0]);
   });
 });
+
+// issue 62：方向滑键是**一整组**（根轨 + 沿方向再占 length-1 条），命中/框选都必须认整组，
+// 否则"框到箭头端不算、按住箭头端拖不起来"，与 56 的"整组一个描边矩形"自相矛盾。
+describe('方向滑键整组命中（issue 62）', () => {
+  const dir = (type: 'LDirectional' | 'RDirectional', lane: number, length: number): ChartNote =>
+    ({ type, beat: 50, lane, subBeat: 0, length } as ChartNote);
+
+  it('点选：按住非根轨（箭头端）同样命中该键', () => {
+    const notes: ChartNote[] = [dir('RDirectional', 2, 3)]; // 占 2/3/4
+    const { deps, canvas } = makeDeps(notes);
+    for (const lane of [2, 3, 4]) {
+      const p = canvas(lane, 50);
+      expect(findItemAt(p.x, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+    }
+    // 组外一轨不命中
+    const out = canvas(5, 50);
+    expect(findItemAt(out.x, out.y, deps)).toBeNull();
+  });
+
+  it('框选：只框住最外侧本体即入选（左方向键向 -lane 展开）', () => {
+    const notes: ChartNote[] = [dir('LDirectional', 4, 3)]; // 占 4/3/2
+    const { deps, canvas } = makeDeps(notes);
+    const tip = canvas(2, 50);
+    const box = { x1: tip.x - 6, y1: tip.y - 6, x2: tip.x + 6, y2: tip.y + 6 };
+    expect(computeItemsInBox(box, deps)).toEqual([{ kind: 'note', noteIndex: 0 }]);
+  });
+
+  it('length=1 退化为单点命中（根轨即全部）', () => {
+    const notes: ChartNote[] = [dir('LDirectional', 4, 1)];
+    const { deps, canvas } = makeDeps(notes);
+    expect(findItemAt(canvas(4, 50).x, canvas(4, 50).y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+    const p = canvas(3, 50);
+    expect(findItemAt(p.x, p.y, deps)).toBeNull();
+  });
+});

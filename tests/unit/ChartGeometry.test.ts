@@ -4,6 +4,8 @@ import {
   LANES,
   LANE_WIDTH,
   TRACK_CHROME_TOTAL,
+  directionalLanes,
+  quantizeBeat,
 } from '../../src/chart/geometry/ChartGeometry';
 import type { ChartNote } from '../../src/chart/types';
 
@@ -192,5 +194,52 @@ describe('zoomAnchorScrollY 缩放锚定（起始线/首拍 BPM 线漂移修复�
   it('鼠标正压在起始线上放大：起始线原地不动（m=h 时锚点退化为端点钉住）', () => {
     const newScrollY = g.zoomAnchorScrollY(TEST_SURFACE.h, 1, chartEndY, 1.1);
     expect(canvasYOfBeat(0, newScrollY, 1.1)).toBeCloseTo(TEST_SURFACE.h, 6);
+  });
+});
+
+// issue 62：方向滑键占用轨道 = 一份共享口径（命中/框选/拖拽/描边四处同一真相）
+describe('directionalLanes / 方向键虚拟点集（issue 62）', () => {
+  it('L 向左展开、R 向右展开、length 钳到 1..3', () => {
+    expect(directionalLanes(3, 'RDirectional', 3)).toEqual([3, 4, 5]);
+    expect(directionalLanes(3, 'LDirectional', 3)).toEqual([3, 2, 1]);
+    expect(directionalLanes(3, 'RDirectional', 1)).toEqual([3]);
+    expect(directionalLanes(3, 'RDirectional', 9)).toEqual([3, 4, 5]);   // 上限 3
+    expect(directionalLanes(3, 'RDirectional', 0)).toEqual([3]);         // 下限 1
+    expect(directionalLanes(6, 'RDirectional', 2)).toEqual([6, 7]);      // 越界轨号照实返回，调用方自判
+  });
+
+  it('noteVirtualPoints 对方向键返回全部占用轨道（框选据此判定）', () => {
+    const g = new ChartGeometry(bpm120, 100, surface());
+    const pts = g.noteVirtualPoints({ type: 'LDirectional', beat: 10, lane: 4, subBeat: 0, length: 3 } as ChartNote, 1, 4);
+    expect(pts).toHaveLength(3);
+    expect(pts.map(p => p.x)).toEqual([4, 3, 2].map(lane => g.noteVirtualX(lane)));
+    expect(new Set(pts.map(p => p.y)).size).toBe(1); // 整组同一拍位（同一水平线）
+  });
+
+  it('单键仍然只有根点（不误扩）', () => {
+    const g = new ChartGeometry(bpm120, 100, surface());
+    expect(g.noteVirtualPoints({ type: 'Single', beat: 10, lane: 4, subBeat: 0 } as ChartNote, 1, 4)).toHaveLength(1);
+  });
+});
+
+describe('quantizeBeat（issue 61 的唯一量化口径）', () => {
+  it('按 beatDisplay 吸附；0/负数退化为整拍', () => {
+    expect(quantizeBeat(2.125, 8)).toBeCloseTo(2.125, 10);
+    expect(quantizeBeat(2.125, 4)).toBeCloseTo(2.25, 10);
+    expect(quantizeBeat(2.6, 1)).toBe(3);
+    expect(quantizeBeat(2.6, 0)).toBe(3);
+  });
+
+  it('laneBeatFromCanvas 同时给出量化拍与未量化拍（未量化供拖拽抓取偏移）', () => {
+    const g = new ChartGeometry(bpm120, 8, surface());
+    const viewport = { scrollX: 0, scrollY: g.chartEndVirtualY, scale: 1 };
+    const { trackBgX } = g.trackGeometry(1);
+    const cx = trackBgX + LANE_WIDTH * 2 + LANE_WIDTH / 2;
+    // 判定线上方一点点 = beat 略大于 0 且不在 1/4 网格上
+    const cy = TEST_SURFACE.h - 20;
+    const pos = g.laneBeatFromCanvas(cx, cy, viewport, 4);
+    expect(pos).not.toBeNull();
+    expect(pos!.rawBeat).toBeGreaterThan(pos!.preciseBeat - 1e-9);
+    expect(Math.abs(pos!.preciseBeat * 4 - Math.round(pos!.preciseBeat * 4))).toBeLessThan(1e-9);
   });
 });

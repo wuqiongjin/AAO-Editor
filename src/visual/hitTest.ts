@@ -2,7 +2,7 @@
 // 抽出为可单测模块，依赖 geometry + viewport + notes，与 React 组件解耦。
 import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import type { ChartGeometry, GeometryViewport } from '../chart/geometry/ChartGeometry';
-import { LANE_WIDTH } from '../chart/geometry/ChartGeometry';
+import { LANE_WIDTH, directionalLanes } from '../chart/geometry/ChartGeometry';
 import { makeCoords } from './coords';
 import type { SelectionBox } from './types';
 
@@ -82,10 +82,18 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
         }
       }
     } else if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
-      const pos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
-      const dx = pos.x - cx, dy = pos.y - cy;
-      if (dx * dx + dy * dy <= noteRadius * noteRadius) {
-        return { kind: 'note', noteIndex: i };
+      // issue 62：方向键整组都可命中（框到哪儿都能点中/拖起），与 issue 56 A4 的
+      // "选中描边 = 整组一个矩形"同口径；半径沿用单键口径（箭头挂件那几 px 不算命中区）。
+      const lanes = note.type === 'Single'
+        ? [note.lane]
+        : directionalLanes(note.lane, note.type, note.length);
+      const cy0 = c.getNoteVirtualY(note.beat, note.subBeat || 0);
+      for (const lane of lanes) {
+        const pos = c.virtualToCanvas(c.getNoteVirtualX(lane), cy0);
+        const dx = pos.x - cx, dy = pos.y - cy;
+        if (dx * dx + dy * dy <= noteRadius * noteRadius) {
+          return { kind: 'note', noteIndex: i };
+        }
       }
     }
     // BPM：不在此判定（见函数注释）——交由 findBpmLineAt 按整条线在最后判定

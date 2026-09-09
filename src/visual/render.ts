@@ -191,7 +191,11 @@ function singleIconConfig(rc: RenderCtx, note: { lane: number; beat: number; sub
   return icons.tapFor(note.lane);
 }
 
-/** 滑条结点精灵选款（端点基底 / 中间结点 + flick·skill 覆盖） */
+/** 滑条结点精灵选款（端点基底 / 中间结点 + flick·skill 覆盖）
+ * **实绘（renderSlideBody）/ 选中描边（collectSelectionOutlines）/ 幽灵（renderSlideGhost、
+ * slide 态 hover）/ 待连接锚点（renderSlideBuffer）四处共用这一份**（issue 65①）——
+ * 旧 `renderSlideGhost` 对所有结点一律取端点款，拖中间结点时"中间那颗长得像单键"，
+ * 违反 ADR-0002 §4 的既有不变式「幽灵 = 画布实绘同形」。 */
 function slideNodeIconConfig(rc: RenderCtx, conn: { lane: number; flick?: boolean; skill?: boolean }, isFirst: boolean, isLast: boolean): SpriteIconConfig {
   const icons = rc.noteIcons;
   const base = isFirst || isLast ? icons.slideEndpointFor(conn.lane) : icons.slideAmongFor(conn.lane);
@@ -551,37 +555,7 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   const icons = rc.noteIcons;
 
   for (let i = 0; i < connections.length - 1; i++) {
-    const conn1 = connections[i], conn2 = connections[i + 1];
-    const canvasPos1 = c.virtualToCanvas(c.getNoteVirtualX(conn1.lane), c.getNoteVirtualY(conn1.beat, conn1.subBeat || 0));
-    const canvasPos2 = c.virtualToCanvas(c.getNoteVirtualX(conn2.lane), c.getNoteVirtualY(conn2.beat, conn2.subBeat || 0));
-    // issue 39 #1 补修：连接带宽度与结点图标同步 × noteSize，避免调大小后带与结点脱节
-    const halfLaneWidth = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
-    const left1 = canvasPos1.x - halfLaneWidth, right1 = canvasPos1.x + halfLaneWidth;
-    const left2 = canvasPos2.x - halfLaneWidth, right2 = canvasPos2.x + halfLaneWidth;
-    const quadPoints = [[left1, canvasPos1.y], [right1, canvasPos1.y], [right2, canvasPos2.y], [left2, canvasPos2.y]];
-    const minX = Math.min(left1, right1, left2, right2);
-    const maxX = Math.max(left1, right1, left2, right2);
-    const minY = Math.min(canvasPos1.y, canvasPos2.y);
-    const maxY = Math.max(canvasPos1.y, canvasPos2.y);
-    const centerX = (minX + maxX) / 2, centerY = (minY + maxY) / 2;
-    const width = maxX - minX, height = maxY - minY;
-    const diagonalLength = Math.sqrt(width * width + height * height);
-    const slideIconSize = Math.max(diagonalLength, Math.max(width, height)) * 1.0;
-
-    ctx.save();
-    // issue 39 #2：长压线不透明度（slide 线条透明度，1 = 完全不透明）
-    ctx.globalAlpha = rc.display?.slideOpacity ?? 1;
-    ctx.beginPath();
-    ctx.moveTo(quadPoints[0][0], quadPoints[0][1]);
-    for (let j = 1; j < quadPoints.length; j++) ctx.lineTo(quadPoints[j][0], quadPoints[j][1]);
-    ctx.closePath();
-    ctx.clip();
-    rc.spriteIcon.render(ctx, {
-      ...icons.slideBand,
-      canvasX: centerX, canvasY: centerY, canvasSize: slideIconSize,
-      canvasWidth: slideIconSize, canvasHeight: height, scale: 1,
-    });
-    ctx.restore();
+    renderSegmentBand(ctx, c, rc, connections[i], connections[i + 1], rc.display?.slideOpacity ?? 1);
   }
 
   connections.forEach((conn, i) => {
@@ -635,33 +609,28 @@ export function renderSelectionBox(ctx: CanvasRenderingContext2D, rc: RenderCtx)
   ctx.setLineDash([]);
 }
 
-/** 绘制滑条缓冲区（待连接的滑条起点/终点） */
+/**
+ * 绘制待连接锚点（第一击落下的临时滑条端点）。
+ * issue 65③：锚点在语义上**就是滑条的起点端点** → 直接画与成条后同一枚端点精灵
+ * （旧实现的青色同心圆靶标整体删除，用户定案"不加待连接光环、不加透明度"）。
+ */
 export function renderSlideBuffer(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   if (!rc.slideBuffer) return;
   const { beat, lane, subBeat } = rc.slideBuffer;
   const { x, y } = c.virtualToCanvas(c.getNoteVirtualX(lane), c.getNoteVirtualY(beat, subBeat || 0));
-  const s = rc.viewport.scale;
-  ctx.beginPath();
-  ctx.arc(x, y, 15 * s, 0, 2 * Math.PI);
-  ctx.fillStyle = 'rgba(0, 229, 255, 0.12)';
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x, y, 10 * s, 0, 2 * Math.PI);
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.55)';
-  ctx.lineWidth = 2 * s;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(x, y, 5 * s, 0, 2 * Math.PI);
-  ctx.fillStyle = '#00e5ff';
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x - 1.2 * s, y - 1.2 * s, 1.6 * s, 0, 2 * Math.PI);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-  ctx.fill();
+  const icon = slideNodeIconConfig(rc, { lane }, true, true);
+  const spriteScale = rc.viewport.scale * (rc.display?.noteSize ?? 1);
+  rc.spriteIcon.render(ctx, {
+    ...icon,
+    canvasX: x, canvasY: y,
+    canvasSize: SLIDE_ICON_SIZE, canvasWidth: SLIDE_ICON_SIZE,
+    canvasHeight: SLIDE_ICON_SIZE * SLIDE_HEIGHT_SCALE,
+    scale: spriteScale,
+  });
 }
 
 /** 渲染单个精灵图标（幽灵/预览用；透明度由调用方 ctx.globalAlpha 控制） */
-function renderSpriteGhost(ctx: CanvasRenderingContext2D, rc: RenderCtx, icon: any, cx: number, cy: number, size: number, heightScale: number) {
+function renderSpriteGhost(ctx: CanvasRenderingContext2D, rc: RenderCtx, icon: SpriteIconConfig, cx: number, cy: number, size: number, heightScale: number) {
   // issue 40：主音符矩形已收紧到墨迹，ghost 也用 out 保持一致；方向滑键等无 out 用传入尺寸
   const w = icon.out?.w ?? size;
   const h = icon.out?.h ?? size * heightScale;
@@ -673,39 +642,57 @@ function renderSpriteGhost(ctx: CanvasRenderingContext2D, rc: RenderCtx, icon: a
   });
 }
 
+/**
+ * 渲染滑条的**连接带**（不含结点图标）：实绘 `renderSlideBody` 与 issue 65④ 的"段幽灵"共用同一画法。
+ * @param alpha 连接带不透明度；`undefined` = 沿用调用方的 `globalAlpha`（幽灵态由此继承 0.35/0.5）
+ */
+function renderSegmentBand(
+  ctx: CanvasRenderingContext2D,
+  c: Coords,
+  rc: RenderCtx,
+  from: { lane: number; beat: number; subBeat?: number },
+  to: { lane: number; beat: number; subBeat?: number },
+  alpha?: number,
+) {
+  const p1 = c.virtualToCanvas(c.getNoteVirtualX(from.lane), c.getNoteVirtualY(from.beat, from.subBeat || 0));
+  const p2 = c.virtualToCanvas(c.getNoteVirtualX(to.lane), c.getNoteVirtualY(to.beat, to.subBeat || 0));
+  // issue 39 #1 补修：连接带宽度与结点图标同步 × noteSize，避免调大小后带与结点脱节
+  const half = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
+  const quad = [[p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y]];
+  const minX = Math.min(p1.x - half, p2.x - half);
+  const maxX = Math.max(p1.x + half, p2.x + half);
+  const minY = Math.min(p1.y, p2.y);
+  const maxY = Math.max(p1.y, p2.y);
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const w = maxX - minX, h = maxY - minY;
+  const sz = Math.max(Math.sqrt(w * w + h * h), Math.max(w, h)) * 1.0;
+  ctx.save();
+  // issue 39 #2：长压线不透明度（slide 线条透明度，1 = 完全不透明）
+  if (alpha !== undefined) ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.moveTo(quad[0][0], quad[0][1]);
+  for (let j = 1; j < quad.length; j++) ctx.lineTo(quad[j][0], quad[j][1]);
+  ctx.closePath();
+  ctx.clip();
+  rc.spriteIcon.render(ctx, {
+    ...rc.noteIcons.slideBand,
+    canvasX: cx, canvasY: cy, canvasSize: sz, canvasWidth: sz, canvasHeight: h, scale: 1,
+  });
+  ctx.restore();
+}
+
 /** 渲染一条滑条的完整外观幽灵（连接带 + 各结点图标） */
 function renderSlideGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: { connections: SlideNote['connections'] }) {
   const conns = note.connections;
   if (conns.length < 2) return;
   for (let i = 0; i < conns.length - 1; i++) {
-    const c1 = conns[i], c2 = conns[i + 1];
-    const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
-    const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
-    const half = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
-    const quad = [[p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y]];
-    const minX = Math.min(p1.x - half, p2.x - half);
-    const maxX = Math.max(p1.x + half, p2.x + half);
-    const minY = Math.min(p1.y, p2.y);
-    const maxY = Math.max(p1.y, p2.y);
-    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-    const w = maxX - minX, h = maxY - minY;
-    const sz = Math.max(Math.sqrt(w * w + h * h), Math.max(w, h)) * 1.0;
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(quad[0][0], quad[0][1]);
-    for (let j = 1; j < quad.length; j++) ctx.lineTo(quad[j][0], quad[j][1]);
-    ctx.closePath();
-    ctx.clip();
-    rc.spriteIcon.render(ctx, {
-      ...rc.noteIcons.slideBand,
-      canvasX: cx, canvasY: cy, canvasSize: sz, canvasWidth: sz, canvasHeight: h, scale: 1,
-    });
-    ctx.restore();
+    renderSegmentBand(ctx, c, rc, conns[i], conns[i + 1]);
   }
-  conns.forEach(conn => {
+  conns.forEach((conn, i) => {
+    if (conn.hidden) return; // 与 renderSlideBody 同口径：重合衔接点不画图标（幽灵 = 实绘同形）
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
-    const icons = rc.noteIcons;
-    const icon = { ...icons.slideEndpointFor(conn.lane), ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
+    // issue 65①：端点/中间结点各取各自款式（旧实现一律端点款 → 中间结点在幽灵里像单键）
+    const icon = slideNodeIconConfig(rc, conn, i === 0, i === conns.length - 1);
     renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
   });
 }
@@ -806,6 +793,24 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
       || rc.armedTool === 'ldirectional' || rc.armedTool === 'rdirectional') {
     const ghost = ghostNoteForTool(rc.armedTool, pos.lane, pos.preciseBeat);
     if (ghost) renderNoteGhost(ctx, c, rc, ghost);
+    ctx.restore();
+    return;
+  }
+
+  // issue 65④：滑条工具态此前什么都不画 → 补两档 hover 幽灵。
+  if (rc.armedTool === 'slide') {
+    const buf = rc.slideBuffer;
+    const bufBeat = buf ? buf.beat + (buf.subBeat || 0) / rc.beatDisplay : 0;
+    // 与锚点同拍（含同轨同位与"横向段"）→ 第二击走的是取消/禁令分支，永远不成段 → 不画带子
+    if (buf && Math.abs(pos.preciseBeat - bufBeat) > 1e-6) {
+      renderSegmentBand(ctx, c, rc,
+        { lane: buf.lane, beat: buf.beat, subBeat: buf.subBeat || 0 },
+        { lane: pos.lane, beat: pos.preciseBeat, subBeat: 0 });
+    }
+    // 落点端 = 滑条端点款幽灵（第一击前只有这一枚；第一击后与带子同时出现）
+    const cpt = c.virtualToCanvas(c.getNoteVirtualX(pos.lane), c.getNoteVirtualY(pos.preciseBeat, 0));
+    renderSpriteGhost(ctx, rc, slideNodeIconConfig(rc, { lane: pos.lane }, true, true),
+      cpt.x, cpt.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
     ctx.restore();
     return;
   }
@@ -1096,9 +1101,11 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   renderHoverInfo(ctx, c, rc);
 
   if (rc.selectionBox) renderSelectionBox(ctx, rc);
-  renderSlideBuffer(ctx, c, rc);
   if (rc.dragGhost) renderDragGhost(ctx, c, rc);
   renderToolPreview(ctx, c, rc);
+  // 锚点在语义上是"已经定下的实绘端点"→ 画在滑条 hover 幽灵**之上**（issue 65③④：
+  // 否则第一击后那条 35% 透明度的段带会糊在锚点上，看起来像锚点被染色）
+  renderSlideBuffer(ctx, c, rc);
   renderStartMarker(ctx, c, rc);
 
   if (perf.enabled) perf.record(performance.now() - t0);

@@ -50,6 +50,11 @@ export class ChartProjectPersistenceMerger {
     return this.saveNow(project);
   }
 
+  /** 是否已销毁（调用方据此重建，避免把 schedule/saveNow 打在死实例上）——issue 64 */
+  get isDestroyed(): boolean {
+    return this.destroyed;
+  }
+
   /** 卸载：清 timer + 标记销毁 */
   destroy(): void {
     this.destroyed = true;

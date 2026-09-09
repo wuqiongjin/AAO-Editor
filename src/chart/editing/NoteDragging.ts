@@ -5,7 +5,59 @@
 // 键音符↔键音符 = §1.1 替换；滑条端点→键音符 = 覆盖删除（removeOverlappedNotes 同语义）。
 // 无就地变异：受影响音符构造新对象，其余复用原引用（ADR-0001 §4 结构共享）。
 import type { ChartNote, SelectionItem, SlideNote, LongNote } from '../types';
+import { directionalLanes, quantizeBeat } from '../geometry/ChartGeometry';
 import { mergeChainWithSlides } from './SlideCombination';
+
+/**
+ * 拖拽的拍位移（issue 61）：**量化对象 = 被拖对象的落点**，不是光标。
+ *
+ * 旧实现在画布侧算 `dBeat = snap(cursor_now) − snap(cursor_press)` 再把这个"光标吸附拍位差"
+ * 加到音符自己的拍位上。音符落在非当前网格（1/8 吸附放的，之后切到 1/4）时，
+ * `snap(按下点) − 音符真实拍位` 这个相位偏移被永久带进落点 → 每次位移确实是 1/4 的整数倍，
+ * 但只能在 1/8 的相位线上走，永远踩不到当前网格线。
+ *
+ * 新算法：先把抓取偏移（按下时光标相对对象中心的偏移，保住"按住哪儿拖哪儿"的手感）从当前
+ * 光标拍位里减掉，再量化到当前网格 → 落点恒在网格上；对象已在网格上时结果与旧算法完全一致。
+ *
+ * @param anchorBeat 被按住那件对象的**真实**拍位（`beat + subBeat/beatDisplay`）
+ * @param rawPressBeat 按下时光标的**未量化**拍位
+ * @param rawCurBeat 当前光标的**未量化**拍位
+ */
+export function dragDeltaBeat(input: {
+  anchorBeat: number;
+  rawPressBeat: number;
+  rawCurBeat: number;
+  beatDisplay: number;
+}): number {
+  const grab = input.rawPressBeat - input.anchorBeat;
+  const target = quantizeBeat(input.rawCurBeat - grab, input.beatDisplay);
+  return target - input.anchorBeat;
+}
+
+/**
+ * 该对象在虚拟时间轴上的**真实拍位**（含 subBeat 折算，口径与 `ChartGeometry.noteVirtualY` 一致）。
+ * 拖拽锚点用它：按住哪件对象，就以哪件对象的拍位为量化基准（issue 61）。
+ * BPM/System 不可拖 → null。
+ */
+export function itemTrueBeat(notes: readonly ChartNote[], item: SelectionItem, beatDisplay: number): number | null {
+  const n = notes[item.noteIndex];
+  if (!n) return null;
+  const bd = beatDisplay > 0 ? beatDisplay : 1;
+  if (item.kind === 'slideNode') {
+    if (n.type !== 'Slide' && n.type !== 'Long') return null;
+    const conn = (n as SlideNote).connections[item.connIndex];
+    return conn ? conn.beat + (conn.subBeat && conn.subBeat > 0 ? conn.subBeat / bd : 0) : null;
+  }
+  if (item.kind === 'slideRegion') return null;
+  if (n.type === 'Single' || n.type === 'LDirectional' || n.type === 'RDirectional') {
+    return n.beat + (n.subBeat && n.subBeat > 0 ? n.subBeat / bd : 0);
+  }
+  if (n.type === 'Slide' || n.type === 'Long') {
+    const first = (n as SlideNote).connections[0];
+    return first ? first.beat + (first.subBeat && first.subBeat > 0 ? first.subBeat / bd : 0) : null;
+  }
+  return null; // BPM / System
+}
 
 export interface DragDelta {
   /** 拍位移（已是栅格整数倍） */
@@ -106,7 +158,12 @@ export function planDragMove(
     if (isKey(n)) {
       const beat = n.beat + delta.dBeat;
       const lane = n.lane + delta.dLane;
-      if (!inLane(lane) || !inBeat(beat, n.subBeat || 0)) return fail('out-of-bounds');
+      // issue 62：方向键是整组，落点必须**所有占用轨道**都在轨道内（旧实现只校验根轨 →
+      // length=3 的右方向键能被拖到溢出轨道右缘）
+      const lanes = n.type === 'Single'
+        ? [lane]
+        : directionalLanes(lane, n.type, n.length);
+      if (!lanes.every(inLane) || !inBeat(beat, n.subBeat || 0)) return fail('out-of-bounds');
       moved.set(i, { ...n, beat, lane });
     } else if (isSlideish(n)) {
       const conns = n.connections.map((c, ci) =>

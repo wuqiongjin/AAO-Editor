@@ -45,6 +45,34 @@ export interface GeometryBounds {
 }
 
 /**
+ * 拍位吸附到当前细分网格（issue 61 的唯一量化口径）：
+ * `beatDisplay` = 一拍分几份（1/8 吸附 → 8），0/负数按 1 处理（只吸整拍）。
+ */
+export function quantizeBeat(beat: number, beatDisplay: number): number {
+  const bd = beatDisplay > 0 ? beatDisplay : 1;
+  return Math.round(beat * bd) / bd;
+}
+
+/**
+ * **一份共享的"方向滑键占用轨道"口径**（issue 62）：锚点轨 = `lane`，沿 sign 方向再占 `length-1` 条
+ * （`LDirectional` 向左、`RDirectional` 向右；`length` 钳到 1..3，与 `noteSkin.dirGroup` 同口径）。
+ * 越出轨道的轨号照实返回，由调用方各自判定：命中/框选「有就算」，拖拽越界「整组出界即非法」。
+ * 消费点：`noteVirtualPoints`（框选）/ `hitTest.findItemAt`（点选·hover·拖拽候选）/
+ * `NoteDragging`（落点越界）——四处必须同一份，否则又会出现"框不到箭头端"的分裂口径。
+ */
+export function directionalLanes(
+  lane: number,
+  type: 'LDirectional' | 'RDirectional',
+  length: number,
+): number[] {
+  const sign = type === 'LDirectional' ? -1 : 1;
+  const len = Math.min(Math.max(Math.round(length) || 1, 1), 3);
+  const out: number[] = [];
+  for (let k = 0; k < len; k++) out.push(lane + sign * k);
+  return out;
+}
+
+/**
  * 谱面画布几何：构造时预计算 BPM→虚拟Y 像素时间线（仅依赖 BPM 事件与谱面末端，与缩放/滚动无关），
  * 查询用二分缓存；缩放/滚动相关的变换由调用方传入 viewport。
  */
@@ -174,8 +202,10 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     return this.beatToVirtualY(preciseBeat, scale);
   }
 
-  /** 画布坐标 → lane/beat（用于命中与圈选）；轨道外/负拍返回 null */
-  laneBeatFromCanvas(cx: number, cy: number, viewport: GeometryViewport, beatDisplay: number): { lane: number; preciseBeat: number } | null {
+  /** 画布坐标 → lane/beat（用于命中与圈选）；轨道外/负拍返回 null。
+   *  `preciseBeat` = 吸附到当前 `beatDisplay` 网格后的拍位；`rawBeat` = **未量化**拍位
+   *  （拖拽需要它做"抓取偏移"，见 issue 61：量化对象必须是被拖对象的落点，不是光标）。 */
+  laneBeatFromCanvas(cx: number, cy: number, viewport: GeometryViewport, beatDisplay: number): { lane: number; preciseBeat: number; rawBeat: number } | null {
     const { trackBgX } = this.trackGeometry(viewport.scale);
     const es = this.effectiveScale(viewport.scale);
     const relativeX = cx - trackBgX;
@@ -183,8 +213,7 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     const virtualY = viewport.scrollY + cy / es;
     const beat = this.virtualYToBeat(virtualY, viewport.scale);
     if (lane >= 0 && lane < LANES && beat >= 0) {
-      const nearestSubBeat = Math.round(beat * beatDisplay);
-      return { lane, preciseBeat: nearestSubBeat / beatDisplay };
+      return { lane, preciseBeat: quantizeBeat(beat, beatDisplay), rawBeat: beat };
     }
     return null;
   }
@@ -227,8 +256,14 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   }
 
   noteVirtualPoints(note: ChartNote, scale: number, beatDisplay: number): GeometryPoint[] {
-    if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
+    if (note.type === 'Single') {
       return [{ x: this.noteVirtualX(note.lane), y: this.noteVirtualY(note.beat, note.subBeat || 0, scale, beatDisplay) }];
+    }
+    if (note.type === 'LDirectional' || note.type === 'RDirectional') {
+      // issue 62：方向键是**一整组**（锚点轨 + 沿方向再占 length-1 条）。旧实现只返回根点，
+      // 于是框住箭头端不算入选——与"选中/hover 描边 = 整组一个矩形"（issue 56 A4 修订）自相矛盾。
+      const y = this.noteVirtualY(note.beat, note.subBeat || 0, scale, beatDisplay);
+      return directionalLanes(note.lane, note.type, note.length).map(lane => ({ x: this.noteVirtualX(lane), y }));
     }
     if (note.type === 'Slide' || note.type === 'Long') {
       return note.connections.map((c) => ({

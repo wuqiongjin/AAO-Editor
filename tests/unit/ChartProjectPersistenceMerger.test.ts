@@ -83,4 +83,19 @@ describe('ChartProjectPersistenceMerger · 防抖 + flush', () => {
     vi.advanceTimersByTime(1000);
     expect(save).not.toHaveBeenCalled();
   });
+
+  // issue 64：调用方（useChartProjectPersistence）靠 isDestroyed 判定"这个实例还能不能用"，
+  // 绝不能再把 schedule 打在已销毁实例上（旧 hook 正是这么把落盘打死，刷新丢谱面）。
+  it('isDestroyed：新建 false / destroy 后 true（调用方据此重建）', () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const m = new ChartProjectPersistenceMerger({ debounceMs: 100, save });
+    expect(m.isDestroyed).toBe(false);
+    m.destroy();
+    expect(m.isDestroyed).toBe(true);
+    // 销毁后既 schedule 也 saveNow 都不再产生副作用
+    m.schedule(projectOf(emptyNotes));
+    void m.saveNow(projectOf(emptyNotes));
+    vi.advanceTimersByTime(1000);
+    expect(save).not.toHaveBeenCalled();
+  });
 });

@@ -1,7 +1,7 @@
 // ADR-0008 §6：指针态拖拽移动（planDragMove/draggableFromItems）。Issue 55。
 import { describe, it, expect } from 'vitest';
 import type { ChartNote, SelectionItem, SlideNote } from '../../src/chart/types';
-import { planDragMove, draggableFromItems } from '../../src/chart/editing/NoteDragging';
+import { planDragMove, draggableFromItems, dragDeltaBeat, itemTrueBeat } from '../../src/chart/editing/NoteDragging';
 
 const single = (beat: number, lane: number): ChartNote =>
   ({ type: 'Single', beat, lane, subBeat: 0 } as ChartNote);
@@ -220,5 +220,73 @@ describe('planDragMove - subBeat 单位（1/beatDisplay）', () => {
     expect(planDragMove(notes, noteSel(0), { dBeat: 0.5, dLane: 0 }, B).ok).toBe(true);
     // 右移 1 → 真实 16.25 > 16 → 越界
     expect(planDragMove(notes, noteSel(0), { dBeat: 1, dLane: 0 }, B).reason).toBe('out-of-bounds');
+  });
+});
+
+// ───────────────────────── issue 61：拖拽落点的吸附相位 ─────────────────────────
+// 旧算法 dBeat = snap(光标现在) − snap(光标按下)，把"snap(按下点) − 对象真实拍位"这个相位
+// 偏移永久带进落点：1/8 网格放的音符切到 1/4 后拖动，步长是 1/4 却只能踩在 1/8 的相位线上。
+describe('dragDeltaBeat（issue 61：量化对象 = 落点，不是光标）', () => {
+  const bd4 = 4;
+
+  it('对象已在当前网格上：与旧"光标差"算法逐点等价（不改变既有手感）', () => {
+    // 音符在 beat 2，光标也从 beat 2 起手（无抓取偏移）
+    expect(dragDeltaBeat({ anchorBeat: 2, rawPressBeat: 2, rawCurBeat: 2.6, beatDisplay: bd4 }))
+      .toBeCloseTo(2.5 - 2, 10); // snap(2.6)=2.5
+  });
+
+  it('1/8 相位上的音符切到 1/4 网格拖动 → 落点踩在 1/4 线上（旧算法踩不到）', () => {
+    const anchor = 2 + 1 / 8; // 1/8 吸附放下的：2.125，不在 1/4 网格上
+    const d = dragDeltaBeat({ anchorBeat: anchor, rawPressBeat: anchor, rawCurBeat: 3.3, beatDisplay: bd4 });
+    const landing = anchor + d;
+    expect(landing).toBeCloseTo(3.25, 10);
+    // 旧算法：snap(3.3) − snap(2.125) = 3.25 − 2.25 = 1 → 落点 3.125（1/8 相位，永远回不到 1/4 线）
+    expect(landing * bd4 % 1).toBeCloseTo(0, 10);
+  });
+
+  it('带抓取偏移起手（按住对象旁边 0.03 拍）：落点仍然精确在网格上', () => {
+    const anchor = 1 + 3 / 8;
+    const grab = 0.03;
+    const d = dragDeltaBeat({ anchorBeat: anchor, rawPressBeat: anchor + grab, rawCurBeat: 4.4 + grab, beatDisplay: bd4 });
+    expect(anchor + d).toBeCloseTo(4.5, 10); // snap(4.4, 1/4) = 4.5，抓取偏移被完整抵消
+  });
+
+  it('切回更细的网格（1/8）时以新网格量化', () => {
+    const anchor = 2;
+    const d = dragDeltaBeat({ anchorBeat: anchor, rawPressBeat: anchor, rawCurBeat: 2.31, beatDisplay: 8 });
+    expect(anchor + d).toBeCloseTo(2.25, 10);
+  });
+});
+
+describe('itemTrueBeat（issue 61：量化基准取被按住那件对象）', () => {
+  it('键音符 / 滑条结点含 subBeat 折算；slideRegion 与 BPM 不可拖 → null', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 0, subBeat: 2 } as ChartNote,
+      { type: 'BPM', beat: 2, bpm: 120 } as ChartNote,
+      slide(3, 1, 4.5, 2),
+    ];
+    expect(itemTrueBeat(notes, { kind: 'note', noteIndex: 0 }, 4)).toBeCloseTo(1.5, 10);
+    expect(itemTrueBeat(notes, { kind: 'note', noteIndex: 1 }, 4)).toBeNull();
+    expect(itemTrueBeat(notes, { kind: 'slideNode', noteIndex: 2, connIndex: 1 }, 4)).toBeCloseTo(4.5, 10);
+    expect(itemTrueBeat(notes, { kind: 'note', noteIndex: 2 }, 4)).toBeCloseTo(3, 10); // 整条 → 首结点
+    expect(itemTrueBeat(notes, { kind: 'slideRegion', noteIndex: 2, connIndex: 0 }, 4)).toBeNull();
+  });
+});
+
+// ───────────────────────── issue 62：方向滑键是"一整组" ─────────────────────────
+describe('方向滑键整组越界（issue 62）', () => {
+  const dir = (type: 'LDirectional' | 'RDirectional', beat: number, lane: number, length: number): ChartNote =>
+    ({ type, beat, lane, subBeat: 0, length } as ChartNote);
+
+  it('length=3 的右方向键：根轨还在界内、组尾溢出即非法（旧实现只判根轨 → 放得出去）', () => {
+    const notes: ChartNote[] = [dir('RDirectional', 1, 3, 3)]; // 占 3/4/5
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 1 }, B).ok).toBe(true);   // 占 4/5/6 → 合法
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 2 }, B).reason).toBe('out-of-bounds'); // 占 5/6/7
+  });
+
+  it('左方向键同理判整组（向 -1 溢出即非法）', () => {
+    const notes: ChartNote[] = [dir('LDirectional', 1, 3, 3)]; // 占 3/2/1
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -1 }, B).ok).toBe(true);  // 占 2/1/0 → 合法
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -2 }, B).reason).toBe('out-of-bounds'); // 占 1/0/-1
   });
 });
