@@ -33,8 +33,16 @@ export interface ChartCodeSlideConnection {
     skill?: boolean;
 }
 
+/**
+ * 滑条 / 长条：`"Long"` 是 `"Slide"` 的**别名**（同一结构、同一处理），不是独立类型。
+ * 依据：Bestdori 侧两者同构同 handler（vendored `lib/src/bestdori/index.ts` 的 BestdoriLongNote，
+ * `convert.ts` 的 `Long: longAndSlide / Slide: longAndSlide`）；本编辑器侧 `src/chart/types.ts`
+ * 亦注明 SlideNote 与 LongNote 结构完全等价、画布全程并列处理。
+ * 故：代码里写 `"Long"` 合法，校验与解析都按 Slide 走，归一为内部 SlideNote；
+ * 序列化方向不变（内部长条也写 `"Slide"`），往返稳定、不产生不对称。
+ */
 export interface ChartCodeSlide {
-    type: "Slide";
+    type: "Slide" | "Long";
     connections: ChartCodeSlideConnection[];
 }
 
@@ -82,7 +90,8 @@ export function convertNotesToChartCode(notes: ChartNote[]): ChartCodeNote[] {
  * 获取音符的节拍位置
  */
 function getBeatFromNote(note: ChartCodeNote): number {
-    if (note.type === "Slide") {
+    // Slide / Long 同构（"Long" 是 "Slide" 的别名），都用首结点定位
+    if ('connections' in note) {
         return note.connections[0]?.beat || 0;
     }
     return note.beat;
@@ -273,7 +282,9 @@ export function convertChartCodeToNotes(chartCode: ChartCodeNote[]): ChartNote[]
                 break;
             }
 
-            case "Slide": {
+            // "Long" 是 "Slide" 的别名：归一为内部 SlideNote（与序列化方向一致）
+            case "Slide":
+            case "Long": {
                 const slideNote: SlideNote = {
                     type: "Slide",
                     connections: codeNote.connections.map(conn => ({
@@ -293,72 +304,177 @@ export function convertChartCodeToNotes(chartCode: ChartCodeNote[]): ChartNote[]
     return notes;
 }
 
+/** 轨道取值范围（lane 共 7 道） */
+const LANE_MIN = 0;
+const LANE_MAX = 6;
+
 /**
- * 验证谱面代码格式
+ * 单条校验错误（issue 59 §1.1）：带**定位路径**，UI 一次列完。
+ * - noteIndex：出错音符在谱面代码数组中的下标；整体级错误（非某条音符）用 -1。
+ * - connIndex：滑条结点下标（仅滑条内部错误）。
  */
-export function validateChartCode(chartCode: ChartCodeNote[]): { valid: boolean; errors: string[] } {
-    const errors: string[] = [];
+export interface ValidationError {
+    noteIndex: number;
+    connIndex?: number;
+    field?: string;
+    reason: string;
+    expected?: string;
+}
+
+export interface ValidationResult {
+    valid: boolean;
+    errors: ValidationError[];
+}
+
+/**
+ * 校验期把音符当作"未知结构的原始对象"看：谱面代码来自 JSON.parse，
+ * 可能是任何东西（含脏字段），不能假设它符合 ChartCodeNote。
+ */
+type RawNote = Record<string, unknown>;
+
+/** beat 必须是有限数字 */
+function checkBeat(
+    note: RawNote, noteIndex: number, connIndex: number | undefined, label: string, errors: ValidationError[]
+): void {
+    if (typeof note.beat !== 'number' || !Number.isFinite(note.beat)) {
+        errors.push({
+            noteIndex, connIndex, field: 'beat',
+            reason: `${label} beat 必须是数字`, expected: '有限数字（如 4 或 4.5）',
+        });
+    }
+}
+
+/** lane 必须在 0-6 */
+function checkLane(
+    note: RawNote, noteIndex: number, connIndex: number | undefined, label: string, errors: ValidationError[]
+): void {
+    if (typeof note.lane !== 'number' || !Number.isFinite(note.lane) || note.lane < LANE_MIN || note.lane > LANE_MAX) {
+        errors.push({
+            noteIndex, connIndex, field: 'lane',
+            reason: `${label} lane 必须在 ${LANE_MIN}-${LANE_MAX} 范围内`, expected: `${LANE_MIN}-${LANE_MAX}`,
+        });
+    }
+}
+
+/** 非滑条类型不得残留 connections（字段集必须与 type 匹配，issue 59 §1.2） */
+function checkNoConnections(note: RawNote, noteIndex: number, label: string, errors: ValidationError[]): void {
+    if (note.connections !== undefined) {
+        errors.push({
+            noteIndex, field: 'connections',
+            reason: `${label} 不得残留 connections 字段`,
+            expected: '删除 connections（它只属于 type:"Slide"）',
+        });
+    }
+}
+
+/**
+ * 验证谱面代码格式（issue 59 §1）：**一次收集全部错误**，不首条即停。
+ * 口径：只接受"有意义的谱面代码"——不兼容 bestdori 的边界行为，非法一律报错，
+ * 由调用方决定"整份拒"（导入 / 应用）。
+ */
+export function validateChartCode(chartCode: ChartCodeNote[]): ValidationResult {
+    const errors: ValidationError[] = [];
+
+    // 整体级：连数组都不是（外部粘来的脏代码）
+    if (!Array.isArray(chartCode)) {
+        return {
+            valid: false,
+            errors: [{ noteIndex: -1, reason: '谱面代码必须是数组', expected: '[{ … }, …]' }],
+        };
+    }
 
     for (let i = 0; i < chartCode.length; i++) {
-        const note = chartCode[i];
+        const raw: unknown = chartCode[i];
 
         // 检查必需字段
+        if (raw === null || typeof raw !== 'object') {
+            errors.push({ noteIndex: i, reason: '音符必须是对象', expected: '{ "type": … }' });
+            continue;
+        }
+        const note = raw as RawNote;
         if (!note.type) {
-            errors.push(`音符 ${i}: 缺少 type 字段`);
+            errors.push({ noteIndex: i, field: 'type', reason: '缺少 type 字段', expected: 'BPM / Single / Directional / Slide / Long' });
             continue;
         }
 
         switch (note.type) {
             case "BPM":
-                if (typeof note.beat !== 'number') {
-                    errors.push(`BPM音符 ${i}: beat 必须是数字`);
-                }
-                if (typeof note.bpm !== 'number' || note.bpm <= 0) {
-                    errors.push(`BPM音符 ${i}: bpm 必须是正数`);
+                checkBeat(note, i, undefined, 'BPM音符', errors);
+                if (typeof note.bpm !== 'number' || !Number.isFinite(note.bpm) || note.bpm <= 0) {
+                    errors.push({ noteIndex: i, field: 'bpm', reason: 'BPM音符 bpm 必须是正数', expected: '> 0' });
                 }
                 break;
 
             case "Single":
-                if (typeof note.beat !== 'number') {
-                    errors.push(`单键音符 ${i}: beat 必须是数字`);
-                }
-                if (typeof note.lane !== 'number' || note.lane < 0 || note.lane > 6) {
-                    errors.push(`单键音符 ${i}: lane 必须在 0-6 范围内`);
-                }
+                checkBeat(note, i, undefined, '单键音符', errors);
+                checkLane(note, i, undefined, '单键音符', errors);
+                checkNoConnections(note, i, '单键音符', errors);
                 break;
 
             case "Directional":
-                if (typeof note.beat !== 'number') {
-                    errors.push(`方向滑键音符 ${i}: beat 必须是数字`);
-                }
-                if (typeof note.lane !== 'number' || note.lane < 0 || note.lane > 6) {
-                    errors.push(`方向滑键音符 ${i}: lane 必须在 0-6 范围内`);
-                }
-                if (!['Left', 'Right'].includes(note.direction)) {
-                    errors.push(`方向滑键音符 ${i}: direction 必须是 Left 或 Right`);
+                checkBeat(note, i, undefined, '方向滑键音符', errors);
+                checkLane(note, i, undefined, '方向滑键音符', errors);
+                if (typeof note.direction !== 'string' || !['Left', 'Right'].includes(note.direction)) {
+                    errors.push({
+                        noteIndex: i, field: 'direction',
+                        reason: '方向滑键音符 direction 必须是 Left 或 Right', expected: 'Left / Right',
+                    });
                 }
                 if (typeof note.width !== 'number' || note.width < 1 || note.width > 3) {
-                    errors.push(`方向滑键音符 ${i}: width 必须在 1-3 范围内`);
+                    errors.push({
+                        noteIndex: i, field: 'width',
+                        reason: '方向滑键音符 width 必须在 1-3 范围内', expected: '1-3',
+                    });
                 }
+                checkNoConnections(note, i, '方向滑键音符', errors);
                 break;
 
+            // Slide / Long 同构（Bestdori 一等类型，同一套规则）
             case "Slide":
-                if (!Array.isArray(note.connections) || note.connections.length < 2) {
-                    errors.push(`滑条音符 ${i}: connections 必须是至少包含2个元素的数组`);
-                } else {
-                    note.connections.forEach((conn, connIndex) => {
-                        if (typeof conn.beat !== 'number') {
-                            errors.push(`滑条音符 ${i} 连接点 ${connIndex}: beat 必须是数字`);
-                        }
-                        if (typeof conn.lane !== 'number' || conn.lane < 0 || conn.lane > 6) {
-                            errors.push(`滑条音符 ${i} 连接点 ${connIndex}: lane 必须在 0-6 范围内`);
-                        }
+            case "Long": {
+                const label = note.type === "Long" ? '长条音符' : '滑条音符';
+                const conns = note.connections;
+                if (!Array.isArray(conns)) {
+                    errors.push({
+                        noteIndex: i, field: 'connections',
+                        reason: `${label} connections 必须是数组`, expected: '至少 2 个结点',
+                    });
+                    break;
+                }
+                if (conns.length < 2) {
+                    // 0/1 个结点 = 无意义的滑条/长条：报错，不做自动退化为单键
+                    errors.push({
+                        noteIndex: i, field: 'connections',
+                        reason: `${label} connections 至少需要 2 个结点（当前 ${conns.length} 个）`,
+                        expected: '≥2 个结点；若只想留一个音符，请把整条改写成 Single（删 connections + 补 beat/lane）',
+                    });
+                    break;
+                }
+                conns.forEach((conn: RawNote, connIndex: number) => {
+                    checkBeat(conn, i, connIndex, `${label}结点`, errors);
+                    checkLane(conn, i, connIndex, `${label}结点`, errors);
+                });
+                // 首尾结点不得 hidden：端点隐形 = 无意义且画布上选不中
+                if (conns[0]?.hidden === true) {
+                    errors.push({
+                        noteIndex: i, connIndex: 0, field: 'hidden',
+                        reason: `${label}首结点不得 hidden: true`, expected: '省略 hidden 或 false',
+                    });
+                }
+                if (conns[conns.length - 1]?.hidden === true) {
+                    errors.push({
+                        noteIndex: i, connIndex: conns.length - 1, field: 'hidden',
+                        reason: `${label}尾结点不得 hidden: true`, expected: '省略 hidden 或 false',
                     });
                 }
                 break;
+            }
 
             default:
-                errors.push(`音符 ${i}: 未知的 type "${(note as any).type}"`);
+                errors.push({
+                    noteIndex: i, field: 'type',
+                    reason: `未知的 type "${String(note.type)}"`, expected: 'BPM / Single / Directional / Slide / Long',
+                });
         }
     }
 
@@ -366,6 +482,36 @@ export function validateChartCode(chartCode: ChartCodeNote[]): { valid: boolean;
         valid: errors.length === 0,
         errors
     };
+}
+
+/**
+ * 从文本直接校验（JSON 解析 + 规则校验），**不吞异常**：
+ * `parseChartCodeFromJSON` 遇到语法错误会返回 `[]`，空数组天然"零错误"，
+ * 会让真正的 JSON 语法错误被后续判定误报成"缺少第 0 拍 BPM"。文本校验必须走这里。
+ */
+export function validateChartCodeJSON(text: string): ValidationResult {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch (error) {
+        return {
+            valid: false,
+            errors: [{ noteIndex: -1, reason: 'JSON格式错误: ' + (error as Error).message }],
+        };
+    }
+    return validateChartCode(parsed as ChartCodeNote[]);
+}
+
+/**
+ * 把一条校验错误渲染成带定位路径的单行文案（供 UI 列表展示，纯函数可单测）。
+ * 形如「音符 3 › 结点 0 · hidden：滑条首结点不得 hidden: true（期望：省略 hidden 或 false）」。
+ */
+export function formatValidationError(error: ValidationError): string {
+    const path = error.noteIndex >= 0 ? `音符 ${error.noteIndex}` : '谱面代码';
+    const conn = error.connIndex !== undefined ? ` › 结点 ${error.connIndex}` : '';
+    const field = error.field ? ` · ${error.field}` : '';
+    const expected = error.expected ? `（期望：${error.expected}）` : '';
+    return `${path}${conn}${field}：${error.reason}${expected}`;
 }
 
 /**

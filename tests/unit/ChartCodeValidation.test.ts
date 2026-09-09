@@ -1,0 +1,313 @@
+// 谱面代码校验规则（issue 59 §1）：结构化错误 + 一次收集全部 + 只接受有意义的谱面代码。
+// 只测纯函数层；「导入/应用撞错 = 整份拒」用与调用方同构的闸门函数表达。
+import { describe, test, expect } from 'vitest';
+import {
+    convertNotesToChartCode,
+    convertChartCodeToNotes,
+    validateChartCode,
+    validateChartCodeJSON,
+    formatValidationError,
+    type ChartCodeNote,
+    type ValidationError,
+} from '../../src/chart/editing/ChartConverter';
+import type { ChartNote, SlideNote } from '../../src/chart/types';
+
+/** 应用 / 导入的统一闸门：撞错整份拒，不回写（与 ChartCodeEditor 的应用路径同构） */
+function applyChartCode(code: ChartCodeNote[]): { applied: boolean; notes: ChartNote[]; errors: ValidationError[] } {
+    const { valid, errors } = validateChartCode(code);
+    if (!valid) return { applied: false, notes: [], errors };
+    return { applied: true, notes: convertChartCodeToNotes(code), errors };
+}
+
+const bpm0: ChartCodeNote = { beat: 0, type: 'BPM', bpm: 120 };
+
+/** 一条合法滑条（3 结点，中间结点 hidden） */
+const goodSlide: ChartCodeNote = {
+    type: 'Slide',
+    connections: [
+        { beat: 10, lane: 2 },
+        { beat: 10.5, lane: 3, hidden: true },
+        { beat: 11, lane: 4 },
+    ],
+};
+
+describe('谱面代码校验 · 结构化错误', () => {
+    test('错误带 noteIndex / field 定位路径，且一次收集全部', () => {
+        const result = validateChartCode([
+            bpm0,
+            { beat: 4, lane: 9, type: 'Single' },
+            { beat: 'x', lane: 1, type: 'Single' },
+        ] as unknown as ChartCodeNote[]);
+
+        expect(result.valid).toBe(false);
+        expect(result.errors).toHaveLength(2);
+        expect(result.errors[0]).toMatchObject({ noteIndex: 1, field: 'lane' });
+        expect(result.errors[1]).toMatchObject({ noteIndex: 2, field: 'beat' });
+        expect(typeof result.errors[0].reason).toBe('string');
+        expect(typeof result.errors[0].expected).toBe('string');
+    });
+
+    test('formatValidationError 渲染定位路径（音符 › 结点 · 字段）', () => {
+        const text = formatValidationError({
+            noteIndex: 3, connIndex: 0, field: 'hidden',
+            reason: '滑条首结点不得 hidden: true', expected: '省略 hidden 或 false',
+        });
+        expect(text).toContain('音符 3');
+        expect(text).toContain('结点 0');
+        expect(text).toContain('hidden');
+        expect(text).toContain('滑条首结点不得 hidden: true');
+    });
+});
+
+describe('谱面代码校验 · 加严规则', () => {
+    test('Slide connections 为空数组 → 报错、含 noteIndex、不回写', () => {
+        const code = [bpm0, { type: 'Slide', connections: [] }] as ChartCodeNote[];
+        const result = validateChartCode(code);
+
+        expect(result.valid).toBe(false);
+        expect(result.errors).toHaveLength(1);
+        expect(result.errors[0].noteIndex).toBe(1);
+        expect(result.errors[0].field).toBe('connections');
+
+        const applied = applyChartCode(code);
+        expect(applied.applied).toBe(false);
+        expect(applied.notes).toHaveLength(0);
+    });
+
+    test('Slide 只剩 1 个 connection → 非法，不做自动退化为单键', () => {
+        const code = [bpm0, { type: 'Slide', connections: [{ beat: 5, lane: 2 }] }] as ChartCodeNote[];
+        const result = validateChartCode(code);
+
+        expect(result.valid).toBe(false);
+        expect(result.errors[0]).toMatchObject({ noteIndex: 1, field: 'connections' });
+        // 不静默修正：不产出单键
+        expect(applyChartCode(code).applied).toBe(false);
+    });
+
+    test('Single 不得残留 connections', () => {
+        const code = [
+            bpm0,
+            { beat: 1, lane: 0, type: 'Single', connections: [{ beat: 1, lane: 0 }, { beat: 2, lane: 1 }] },
+        ] as unknown as ChartCodeNote[];
+        const result = validateChartCode(code);
+
+        expect(result.valid).toBe(false);
+        expect(result.errors).toEqual([
+            expect.objectContaining({ noteIndex: 1, field: 'connections' }),
+        ]);
+        expect(applyChartCode(code).applied).toBe(false);
+    });
+
+    test('Single 缺 beat / lane → 逐条报错', () => {
+        const result = validateChartCode([{ type: 'Single' }] as unknown as ChartCodeNote[]);
+        expect(result.errors.map(e => e.field).sort()).toEqual(['beat', 'lane']);
+    });
+
+    test('Directional 另需 direction + width，且不得残留 connections', () => {
+        const result = validateChartCode([
+            { beat: 2, lane: 2, type: 'Directional', connections: [{ beat: 2, lane: 2 }] },
+        ] as unknown as ChartCodeNote[]);
+
+        expect(result.errors.map(e => e.field).sort()).toEqual(['connections', 'direction', 'width']);
+
+        const ok = validateChartCode([
+            { beat: 2, lane: 2, type: 'Directional', direction: 'Left', width: 2 },
+        ] as ChartCodeNote[]);
+        expect(ok.valid).toBe(true);
+    });
+
+    test('滑条首尾结点 hidden:true → 报错（各一条，带 connIndex）', () => {
+        const code = [{
+            type: 'Slide',
+            connections: [
+                { beat: 10, lane: 2, hidden: true },
+                { beat: 10.5, lane: 3 },
+                { beat: 11, lane: 4, hidden: true },
+            ],
+        }] as ChartCodeNote[];
+        const result = validateChartCode(code);
+
+        expect(result.valid).toBe(false);
+        expect(result.errors).toHaveLength(2);
+        expect(result.errors[0]).toMatchObject({ noteIndex: 0, connIndex: 0, field: 'hidden' });
+        expect(result.errors[1]).toMatchObject({ noteIndex: 0, connIndex: 2, field: 'hidden' });
+    });
+
+    test('中间结点 hidden 合法，整份通过', () => {
+        expect(validateChartCode([bpm0, goodSlide]).valid).toBe(true);
+    });
+
+    test('type:"Long" 是 Slide 的别名：合法，同一套规则（≥2 结点）', () => {
+        const long: ChartCodeNote = {
+            type: 'Long',
+            connections: [
+                { beat: 20, lane: 3 },
+                { beat: 20.5, lane: 4, hidden: true },
+                { beat: 21, lane: 5 },
+            ],
+        };
+        expect(validateChartCode([bpm0, long]).valid).toBe(true);
+
+        const oneNode = { type: 'Long', connections: [{ beat: 20, lane: 3 }] } as ChartCodeNote;
+        const result = validateChartCode([oneNode]);
+        expect(result.valid).toBe(false);
+        expect(result.errors[0]).toMatchObject({ noteIndex: 0, field: 'connections' });
+    });
+
+    test('Long 首尾结点 hidden:true 同样非法', () => {
+        const result = validateChartCode([{
+            type: 'Long',
+            connections: [
+                { beat: 20, lane: 3, hidden: true },
+                { beat: 20.5, lane: 4 },
+                { beat: 21, lane: 5, hidden: true },
+            ],
+        }] as ChartCodeNote[]);
+        expect(result.errors).toHaveLength(2);
+        expect(result.errors[0]).toMatchObject({ noteIndex: 0, connIndex: 0, field: 'hidden' });
+        expect(result.errors[1]).toMatchObject({ noteIndex: 0, connIndex: 2, field: 'hidden' });
+    });
+});
+
+describe('谱面代码 · Long 别名归一', () => {
+    test('代码里的 Long 归一为内部 SlideNote（与序列化方向一致，往返稳定）', () => {
+        const code: ChartCodeNote[] = [
+            bpm0,
+            {
+                type: 'Long',
+                connections: [
+                    { beat: 20, lane: 3 },
+                    { beat: 21, lane: 4, skill: true },
+                ],
+            },
+        ];
+        const applied = applyChartCode(code);
+        expect(applied.applied).toBe(true);
+        expect(applied.notes[1].type).toBe('Slide');
+        expect((applied.notes[1] as SlideNote).connections).toEqual([
+            { beat: 20, lane: 3 },
+            { beat: 21, lane: 4, skill: true },
+        ]);
+        // 再导出仍为 Slide，不产生 Long→Slide 的类型漂移
+        expect(convertNotesToChartCode(applied.notes).find(c => c.type === 'Slide')).toBeDefined();
+    });
+
+    test('序列化侧仍是内部 LongNote → type:"Slide"（既有定案，未改）', () => {
+        const code = convertNotesToChartCode([
+            { type: 'Long', connections: [{ beat: 20, lane: 3 }, { beat: 21, lane: 4 }] },
+        ]);
+        expect(code[0].type).toBe('Slide');
+    });
+});
+
+describe('谱面代码 · 文本校验（JSON 语法错误不得被吞）', () => {
+    test('非法 JSON → 整体级错误（noteIndex -1），不是"零错误"', () => {
+        const result = validateChartCodeJSON('[{ "type": "Single", "beat": 1, }]');
+        expect(result.valid).toBe(false);
+        expect(result.errors).toHaveLength(1);
+        expect(result.errors[0].noteIndex).toBe(-1);
+        expect(result.errors[0].reason).toContain('JSON');
+    });
+
+    test('非数组 JSON → 报错', () => {
+        const result = validateChartCodeJSON('{ "type": "Single" }');
+        expect(result.valid).toBe(false);
+        expect(result.errors[0].noteIndex).toBe(-1);
+    });
+
+    test('合法文本 → 通过；规则错误照常列出', () => {
+        expect(validateChartCodeJSON(JSON.stringify([bpm0, goodSlide])).valid).toBe(true);
+
+        const bad = validateChartCodeJSON(JSON.stringify([bpm0, { type: 'Slide', connections: [] }]));
+        expect(bad.valid).toBe(false);
+        expect(bad.errors[0]).toMatchObject({ noteIndex: 1, field: 'connections' });
+    });
+});
+
+describe('谱面代码校验 · 整份拒与合法改写', () => {
+    test('含 5 处错误的脏代码 → errors.length === 5 且整份拒', () => {
+        const dirty = [
+            bpm0,
+            { type: 'Slide', connections: [] },                                             // ① connections 空
+            { beat: 2, lane: 1, type: 'Single', connections: [{ beat: 2, lane: 1 }] },       // ② Single 残留 connections
+            { beat: 3, lane: 2, type: 'Directional', direction: 'Left', width: 2, connections: [] }, // ③ Directional 残留 connections
+            {
+                type: 'Slide',                                                              // ④⑤ 首尾 hidden
+                connections: [
+                    { beat: 10, lane: 2, hidden: true },
+                    { beat: 10.5, lane: 3 },
+                    { beat: 11, lane: 4, hidden: true },
+                ],
+            },
+        ] as unknown as ChartCodeNote[];
+
+        const result = validateChartCode(dirty);
+        expect(result.valid).toBe(false);
+        expect(result.errors).toHaveLength(5);
+        expect(result.errors.map(e => e.noteIndex)).toEqual([1, 2, 3, 4, 4]);
+
+        const applied = applyChartCode(dirty);
+        expect(applied.applied).toBe(false);
+        expect(applied.notes).toHaveLength(0);
+    });
+
+    test('整条 Slide 合法改写成 Single → 通过，回写后为单键', () => {
+        const rewritten: ChartCodeNote[] = [bpm0, { beat: 10, lane: 2, type: 'Single' }];
+
+        const result = validateChartCode(rewritten);
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+
+        const applied = applyChartCode(rewritten);
+        expect(applied.applied).toBe(true);
+        expect(applied.notes[1]).toEqual({ beat: 10, lane: 2, type: 'Single' });
+        // 原滑条已不存在
+        expect(applied.notes.some(n => n.type === 'Slide')).toBe(false);
+    });
+});
+
+describe('谱面代码校验 · 回归', () => {
+    const testNotes: ChartNote[] = [
+        { beat: 0, type: 'BPM', bpm: 120 },
+        { beat: 4, lane: 0, type: 'Single' },
+        { beat: 4, lane: 4, type: 'Single', flick: true },
+        { beat: 8, lane: 2, type: 'LDirectional', length: 2, skill: true },
+        { beat: 8, lane: 5, type: 'RDirectional', length: 1, flick: true },
+        {
+            type: 'Slide',
+            connections: [
+                { beat: 10, lane: 2, skill: true },
+                { beat: 10.25, lane: 1 },
+                { beat: 10.5, lane: 0 },
+            ],
+        },
+        {
+            type: 'Long',
+            connections: [
+                { beat: 20, lane: 3 },
+                { beat: 20.5, lane: 4, hidden: true },
+                { beat: 21, lane: 5 },
+            ],
+        },
+    ];
+
+    test('长条与滑条同构：Long 序列化为 type:"Slide"，同样要求 ≥2 结点', () => {
+        const code = convertNotesToChartCode(testNotes);
+        const longAsSlide = code.find(c => c.type === 'Slide' && c.connections[0].beat === 20);
+        expect(longAsSlide).toBeDefined();
+        expect(validateChartCode([longAsSlide as ChartCodeNote]).valid).toBe(true);
+    });
+
+    test('谱面代码往返产物（含 skill）全部通过校验', () => {
+        const code = convertNotesToChartCode(testNotes);
+        const result = validateChartCode(code);
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+    });
+
+    test('未知 type 仍然报错', () => {
+        const result = validateChartCode([{ beat: 1, lane: 0, type: 'Flick' }] as unknown as ChartCodeNote[]);
+        expect(result.valid).toBe(false);
+        expect(result.errors[0]).toMatchObject({ noteIndex: 0, field: 'type' });
+    });
+});

@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Braces, Copy, RotateCcw, RefreshCw, X } from "lucide-react";
-import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCode, convertChartCodeToNotes, hasBeat0Bpm } from '../../editing/ChartConverter';
+import { convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCodeJSON, formatValidationError, convertChartCodeToNotes, hasBeat0Bpm, type ValidationError } from '../../editing/ChartConverter';
 import { useEditing, usePlayback, useUI } from '../../../app/ProviderTree';
 import { maxNoteEndSeconds, getBpmEvents } from '../../../audio/AudioTiming';
 import {
@@ -22,6 +22,9 @@ import {
 } from '../../editing/CodeEditorOps';
 import ActionBtn from '../../../ui/ActionBtn';
 
+// 错误列表最多展示的条数，其余折叠为「共 N 处」
+const MAX_VISIBLE_ERRORS = 8;
+
 export default function ChartCodeEditor() {
     const { notes, handleNotesChange } = useEditing();
     const { canPlay, duration, setDuration } = usePlayback();
@@ -32,7 +35,8 @@ export default function ChartCodeEditor() {
     const [textHistory, setTextHistory] = useState<HistoryState<string>>(() => createHistory(""));
     const chartCode = currentHistory(textHistory);
     const [isValid, setIsValid] = useState(true);
-    const [validationErrors, setValidationErrors] = useState<string[]>([]);
+    // 校验错误列表（issue 59 §1：一次收集全部，带定位路径；展示前 N 条 + 「共 N 处」）
+    const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
     // dirty 基准：打开时（或应用后）同步的最新代码串
     const [lastAppliedCode, setLastAppliedCode] = useState("");
     // 打开/应用时的画布音符数，用于 dirty + canvas 变动的过期检测（单向同步下画布可能已变）
@@ -44,19 +48,14 @@ export default function ChartCodeEditor() {
     // 过期：有未应用草稿，且画布自上次同步后已变化（应用时需覆盖确认）
     const isStale = isDirty && notes.length !== appliedNotesCount;
 
-    // 验证谱面代码
-    const validateCode = (code: string) => {
-        try {
-            const parsed = parseChartCodeFromJSON(code);
-            const validation = validateChartCode(parsed);
-            setIsValid(validation.valid);
-            setValidationErrors(validation.errors);
-            return validation.valid;
-        } catch (error) {
-            setIsValid(false);
-            setValidationErrors(['JSON格式错误: ' + (error as Error).message]);
-            return false;
-        }
+    // 验证谱面代码：返回全部错误（空数组 = 合法）。
+    // 走 validateChartCodeJSON 而不是 parseChartCodeFromJSON——后者遇语法错误返回 []，
+    // 空数组"零错误"会让 JSON 语法错误在应用时被误报成"缺少第 0 拍 BPM"。
+    const validateCode = (code: string): ValidationError[] => {
+        const { errors } = validateChartCodeJSON(code);
+        setIsValid(errors.length === 0);
+        setValidationErrors(errors);
+        return errors;
     };
 
     // 获取默认BPM音符的保底状态
@@ -124,13 +123,12 @@ export default function ChartCodeEditor() {
 
     // 应用谱面代码：经 useEditing.handleNotesChange 走历史记录（单向「代码→画布」）
     const handleApply = () => {
-        const isValidCode = validateCode(chartCode);
+        const errors = validateCode(chartCode);
 
-        if (!isValidCode) {
-            alert('谱面代码格式错误，已回退到上次应用的状态');
-            setTextHistory(createHistory(lastAppliedCode));
-            setIsValid(true);
-            setValidationErrors([]);
+        // 撞错 = 整份拒（issue 59 §1.2）：不回写画布，也不静默修正 / 丢弃草稿——
+        // 错误全留在上方列表里，供用户对照逐条改。
+        if (errors.length > 0) {
+            alert(`谱面代码有 ${errors.length} 处错误，未应用（详见上方错误列表）`);
             return;
         }
 
@@ -347,15 +345,26 @@ export default function ChartCodeEditor() {
                             </div>
                         )}
 
-                        {/* 错误信息 */}
+                        {/* 错误信息（一次列完全部，带定位路径；超过 MAX_VISIBLE_ERRORS 条折叠为「共 N 处」） */}
                         {!isValid && validationErrors.length > 0 && (
                             <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--danger-soft)', borderBottom: '1px solid var(--danger)', color: 'var(--danger-text)' }}>
-                                <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>错误信息:</h4>
-                                <ul style={{ margin: 0, paddingLeft: 'var(--space-4)', fontSize: 'var(--text-xs)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-                                    {validationErrors.map((error, index) => (
-                                        <li key={index}>• {error}</li>
+                                <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
+                                    错误信息（共 {validationErrors.length} 处）:
+                                </h4>
+                                <ul style={{
+                                    margin: 0, paddingLeft: 'var(--space-4)', fontSize: 'var(--text-xs)',
+                                    display: 'flex', flexDirection: 'column', gap: 'var(--space-1)',
+                                    maxHeight: 132, overflowY: 'auto',
+                                }}>
+                                    {validationErrors.slice(0, MAX_VISIBLE_ERRORS).map((error, index) => (
+                                        <li key={index}>• {formatValidationError(error)}</li>
                                     ))}
                                 </ul>
+                                {validationErrors.length > MAX_VISIBLE_ERRORS && (
+                                    <div style={{ marginTop: 'var(--space-2)', fontSize: 'var(--text-xs)', opacity: 0.85 }}>
+                                        … 另有 {validationErrors.length - MAX_VISIBLE_ERRORS} 处未列出
+                                    </div>
+                                )}
                             </div>
                         )}
 
