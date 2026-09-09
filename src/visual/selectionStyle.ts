@@ -8,7 +8,7 @@
 /** 描边配色：亮面 / 暗底（真实选中外圈，替代 shadowBlur）/ 危险色（删除持工具态 hover） */
 export const SELECTION_COLORS = {
   /** 亮面：选中、hover、滑条子部分共用（浅黄） */
-  bright: '#FFE066',
+  bright: '#FFE033',
   /** 暗底：仅真实选中，画在亮面外侧一圈 */
   dark: 'rgba(0, 0, 0, 0.45)',
   /** 危险红：删除工具持工具态下的 hover（同形态换色，Q49） */
@@ -20,8 +20,10 @@ export const SELECTION_COLORS = {
  * （spriteScale = viewport.scale × noteSize）→ 描边随音符大小缩放、永远贴合外边缘（A5）。
  */
 export const SELECTION_OUTLINE = {
-  /** 亮面线宽（下限 1 屏幕 px：极小 noteSize 下仍可见） */
+  /** 选中亮面线宽（下限 1 屏幕 px：极小 noteSize 下仍可见） */
   lineWidth: 2,
+  /** hover / 危险描边线宽：比选中更粗一档（用户 2026-09-09 反馈：要与删除红明显区分） */
+  hoverLineWidth: 3,
   /** 暗底相对亮面的单侧外扩 */
   darkBand: 1.5,
   /** 圆角半径 */
@@ -32,8 +34,8 @@ export const SELECTION_OUTLINE = {
   hoverOutset: 2,
   /** 真实选中 α（暗底自身带 0.45 不透明度） */
   selectedAlpha: 1,
-  /** hover / 危险描边 α：比真实选中轻一档（Q11/Q49） */
-  hoverAlpha: 0.7,
+  /** hover / 危险描边 α：比真实选中轻一档（Q11/Q49）；α 偏淡会与危险红难辨 → 提到 0.85 */
+  hoverAlpha: 0.85,
   /** BPM 线选中/hover 的线宽：细线描边不明显 → 整条改色 + 加粗（Q45） */
   bpmLineWidth: 4,
   /** 斜段（平行四边形）外扩的 miter 上限（× 外扩量）：近水平的细段不会拉出长尖刺 */
@@ -41,9 +43,8 @@ export const SELECTION_OUTLINE = {
 } as const;
 
 /**
- * 已有幽灵预览的态不画 hover（C4）：放置族 + 粘贴 + 镜像。
- * 其余态（指针 / 删除 / 镜像以外的动作族 / BPM / 滑条）都画。
+ * ~~已有幽灵预览的态不画 hover~~ —— **已作废**（用户 2026-09-09 修正）：
+ * hover 是"光标下这个对象会被后续操作影响"的提示，**任何工具态都要画**
+ * （放置态尤其需要：落点会覆盖哪个音符）。幽灵与描边按 Q6=A 叠加（描边在 ink 外缘、幽灵在本体，
+ * 物理不重叠），不互斥。原 C4 的屏蔽名单据此删除。
  */
-export const HOVER_GHOST_TOOLS: readonly string[] = [
-  'single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'paste', 'mirror',
-];

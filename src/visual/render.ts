@@ -13,7 +13,7 @@ import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
-import { SELECTION_COLORS, SELECTION_OUTLINE, HOVER_GHOST_TOOLS } from './selectionStyle';
+import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
 import type { RenderCtx } from './types';
 import type { SpriteIconConfig } from '../ui/CanvasSpriteIcon';
@@ -170,6 +170,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
 // 形态 = 贴合 sprite ink 矩形的圆角矩形描边（双色：外侧暗底 + 内侧亮面，不用 shadowBlur）；
 // 废除旧的正圆黄圈。滑条段沿平行四边形四边描边（斜段描斜的，不退化为轴对齐包围盒）；
 // BPM 整条改浅黄 + 加粗。选中 / hover / 删除态危险色共用同一形态，仅配色与 α 分档。
+// hover 适用范围 = **任何工具态**（C4 原"幽灵态不画"已被用户 2026-09-09 推翻）。
 
 /** 描边模式：真实选中 = 暗底+亮面；hover = 亮面 α0.7；删除持工具态 hover = 危险红亮面 α0.7 */
 export type SelectionOutlineMode = 'selected' | 'hover' | 'danger';
@@ -197,12 +198,13 @@ function slideNodeIconConfig(rc: RenderCtx, conn: { lane: number; flick?: boolea
   return { ...base, ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
 }
 
-/** C4：所有态都判定 hover，但已有幽灵预览的态（放置/粘贴/镜像）不画 */
+/**
+ * C4（用户 2026-09-09 修正）：hover **在任何工具态都画**（放置/粘贴/镜像的幽灵态同样画，
+ * 与 Q6=A 的"幽灵 + 描边叠加"一致）。hidden 结点在 findItemAt 侧已跳过（A6），
+ * BPM 在下方按 Q14 不参与 hover。
+ */
 function hoverItemForRender(rc: RenderCtx): SelectionItem | null {
-  const hv = rc.hoverItem;
-  if (!hv) return null;
-  if (rc.armedTool && HOVER_GHOST_TOOLS.includes(rc.armedTool)) return null;
-  return hv;
+  return rc.hoverItem ?? null;
 }
 
 /**
@@ -377,6 +379,8 @@ export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords,
   if (outlines.length === 0) return;
   const s = rc.viewport.scale * (rc.display?.noteSize ?? 1);
   const lw = Math.max(1, SELECTION_OUTLINE.lineWidth * s);
+  // hover / 危险描边更粗一档（与删除红区分；用户 2026-09-09 反馈）
+  const hoverLw = Math.max(lw, SELECTION_OUTLINE.hoverLineWidth * s);
   const darkLw = lw + 2 * Math.max(0.5, SELECTION_OUTLINE.darkBand * s);
   const bpmLw = Math.max(2, SELECTION_OUTLINE.bpmLineWidth * s);
   const radius = SELECTION_OUTLINE.radius * s;
@@ -385,7 +389,7 @@ export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords,
   ctx.save();
   ctx.lineJoin = 'round';
   for (const o of outlines) {
-    const width = o.shape === 'line' ? bpmLw : lw;
+    const width = o.shape === 'line' ? bpmLw : (o.mode === 'selected' ? lw : hoverLw);
     const outset = o.mode === 'selected' ? selectedOutset : hoverOutset;
     // 暗底：只给真实选中（Q11：hover 只画亮面）；BPM 线无外圈。
     // 暗底画在**更外侧**的路径上（外扩 +darkBand）→ 内缘与亮面内缘齐平，暗色整圈落在音符外，不压墨迹。
@@ -764,7 +768,6 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   ctx.save();
   ctx.globalAlpha = 0.35;
 
-  // 有幽灵预览的态清单另见 selectionStyle.HOVER_GHOST_TOOLS（hover 描边在这些态下不画，C4）
   if (rc.armedTool === 'single' || rc.armedTool === 'flick' || rc.armedTool === 'skill'
       || rc.armedTool === 'ldirectional' || rc.armedTool === 'rdirectional') {
     const ghost = ghostNoteForTool(rc.armedTool, pos.lane, pos.preciseBeat);

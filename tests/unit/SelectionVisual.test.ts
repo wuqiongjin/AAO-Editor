@@ -190,8 +190,10 @@ describe('选中描边形态（issue 56 a）', () => {
     for (let i = 0; i < a.length; i++) expect(b[i]!.mode).toBe(a[i]!.mode);
   });
 
-  it('常量模块：浅黄共用一套、危险红独立（A2/C7）', () => {
-    expect(SELECTION_OUTLINE.hoverAlpha).toBeLessThan(SELECTION_OUTLINE.selectedAlpha); // hover 比真实选中轻一档（Q11）
+  it('常量模块：浅黄共用一套、危险红独立；hover 比选中粗且外扩（A2/C7 + 用户 09-09 反馈）', () => {
+    expect(SELECTION_OUTLINE.hoverAlpha).toBeLessThan(SELECTION_OUTLINE.selectedAlpha); // hover 仍比真实选中轻一档（Q11）
+    expect(SELECTION_OUTLINE.hoverAlpha).toBeGreaterThanOrEqual(0.8); // 但不能淡到与危险红难辨
+    expect(SELECTION_OUTLINE.hoverLineWidth).toBeGreaterThan(SELECTION_OUTLINE.lineWidth); // 加粗
     expect(SELECTION_OUTLINE.hoverOutset).toBeGreaterThan(0); // 与真实选中叠加时可辨
   });
 });
@@ -252,14 +254,15 @@ describe('hover 描边层级（issue 56 c）', () => {
     expect(out).toHaveLength(5); // 3 结点 + 2 段
   });
 
-  it('幽灵态（放置/粘贴/镜像）不画 hover（C4）；指针与删除态画', () => {
+  it('任何工具态都画 hover（幽灵态不再屏蔽）；仅删除态换成危险色', () => {
     const notes = [single(50)];
     const hover: SelectionItem = { kind: 'note', noteIndex: 0 };
-    for (const tool of ['single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'paste', 'mirror']) {
-      expect(outlinesOf({ notes, hover, armedTool: tool })).toHaveLength(0);
+    for (const tool of [null, 'single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'paste', 'mirror', 'bpm', 'slide']) {
+      const out = outlinesOf({ notes, hover, armedTool: tool });
+      expect(out).toHaveLength(1);
+      expect(out[0]!.mode).toBe('hover');
     }
-    expect(outlinesOf({ notes, hover, armedTool: null })).toHaveLength(1);
-    expect(outlinesOf({ notes, hover, armedTool: 'delete' })).toHaveLength(1);
+    expect(outlinesOf({ notes, hover, armedTool: 'delete' })[0]!.mode).toBe('danger');
   });
 
   it('BPM 不参与 hover（Q14=A：单击无效果 → 不给"点得动"的暗示）；删除态亦然（C5）', () => {
