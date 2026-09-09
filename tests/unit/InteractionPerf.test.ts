@@ -32,12 +32,13 @@ function makeDenseNotes(n: number, chartEndBeat: number): ChartNote[] {
 }
 
 // ---------------- stub canvas 基建 ----------------
-interface Counters { drawImage: number; sprites: number; arcs: number; }
+interface Counters { drawImage: number; sprites: number; strokes: number; }
 function makeCountingCtx(counters: Counters): CanvasRenderingContext2D {
   return new Proxy({}, {
     get(_t, prop) {
       if (prop === 'drawImage') return () => { counters.drawImage++; };
-      if (prop === 'arc') return () => { counters.arcs++; };
+      // issue 56：选中高亮由正圆黄圈改为 ink 圆角矩形描边 → 计量 stroke（叠加层绘制证据）
+      if (prop === 'stroke') return () => { counters.strokes++; };
       return () => undefined;
     },
     set() { return true; },
@@ -133,11 +134,11 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
     resetStaticLayerCache();
     __setTileCanvasFactoryForTests(() => ({
       width: 0, height: 0,
-      getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, arcs: 0 }),
+      getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, strokes: 0 }),
     }));
     __setStaticCanvasFactoryForTests(() => ({
       width: 0, height: 0,
-      getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, arcs: 0 }),
+      getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, strokes: 0 }),
     }));
   });
 
@@ -148,10 +149,10 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
     const rebuilt = { n: 0 };
     __setTileCanvasFactoryForTests(() => {
       rebuilt.n++;
-      return { width: 0, height: 0, getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, arcs: 0 }) };
+      return { width: 0, height: 0, getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, strokes: 0 }) };
     });
     const draw = (notes: ChartNote[], selected: unknown[] = EMPTY_SELECTED) => {
-      const main: Counters = { drawImage: 0, sprites: 0, arcs: 0 };
+      const main: Counters = { drawImage: 0, sprites: 0, strokes: 0 };
       drawNotesLayer(makeCountingCtx(main), makeRc(g, notes, chartEndBeat, es, scrollY, selected, main, sprites));
       return main;
     };
@@ -172,7 +173,7 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
 
     expect(rebuilt.n).toBe(builtTiles);   // F1：选择变化 0 瓦片重建
     expect(sprites.n).toBe(before);
-    expect(main.arcs).toBeGreaterThan(0); // F1：叠加层画了选中圈
+    expect(main.strokes).toBeGreaterThan(0); // F1：叠加层画了选中描边（issue 56 起为 ink 圆角矩形）
     // 切换到另一个选中音符：瓦片依旧不重绘
     const k2 = notes.findIndex((note, i) => i > 1505 && note.type === 'Single');
     draw(notes, [{ kind: 'note', noteIndex: k2 }]);
@@ -225,7 +226,7 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
 
     // BPM 音符改变 → getBpmEvents 内容变 → 组件复用判定失败会新建 geometry（F2 走全量分支）
     const g2 = new ChartGeometry([{ beat: 0, bpm: 180 }], chartEndBeat, SURFACE);
-    const main: Counters = { drawImage: 0, sprites: 0, arcs: 0 };
+    const main: Counters = { drawImage: 0, sprites: 0, strokes: 0 };
     drawNotesLayer(makeCountingCtx(main), makeRc(g2, notes, chartEndBeat, es, scrollYForCenterBeat(g2, 750, es), EMPTY_SELECTED, main, sprites));
 
     expect(rebuilt.n - builtTiles).toBeGreaterThanOrEqual(builtTiles); // 全量重建可见瓦片
@@ -235,7 +236,7 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
     const sprites = { n: 0 };
     const notes = makeDenseNotes(3000, chartEndBeat);
     const canvas = { width: 0, height: 0 };
-    const main: Counters = { drawImage: 0, sprites: 0, arcs: 0 };
+    const main: Counters = { drawImage: 0, sprites: 0, strokes: 0 };
     const ctx = makeCountingCtx(main);
     renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g, notes, chartEndBeat, es, scrollY, EMPTY_SELECTED, main, sprites));
     expect(main.drawImage).toBeGreaterThan(0);

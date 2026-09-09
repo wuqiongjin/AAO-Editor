@@ -225,6 +225,13 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它
     const chartEndVirtualY = geometry.chartEndVirtualY;
 
+    // issue 56 c)：hover 命中项 —— 只在 hoverPos 变化时重算（findItemAt 不进每帧渲染路径，C6）。
+    // noteSize 与点选/工具点击同口径，否则命中盒与视觉不符；hidden 结点由 findItemAt 侧跳过（A6）。
+    const hoverItem = useMemo(() => {
+        if (!hoverPos) return null;
+        return findItemAt(hoverPos.cx, hoverPos.cy, { geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
+    }, [hoverPos, geometry, viewport, beatDisplay, notes, display.noteSize]);
+
     // 坐标变换（薄封装，保持既有调用签名不变；内部均为 O(log BPM) 缓存查询）
     const getScaledVirtualBounds = (scale: number) => geometry.scaledVirtualBounds(scale);
     const beatToVirtualY = (beat: number) => geometry.beatToVirtualY(beat, viewport.scale);
@@ -555,6 +562,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             selectionBox,
             slideBuffer,
             hoverPos,
+            hoverItem,
             clipboard,
             markerBeat,
             markerSelected,
@@ -580,7 +588,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, armedTool, hoverPos, dragGhost, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, dragGhost, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background]);
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {

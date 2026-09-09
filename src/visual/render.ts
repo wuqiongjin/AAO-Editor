@@ -2,7 +2,7 @@
 // 从组件闭包中提出为依赖注入的纯函数。组件每次 RAF 组装 RenderCtx 调用 renderChart。
 // 本模块不含任何 React 状态；性能热路径（视口剔除/缓存/增量重绘）将来在此落地。
 import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
-import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport, type GeometryPoint } from '../chart/geometry/ChartGeometry';
+import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport } from '../chart/geometry/ChartGeometry';
 import { shiftGroupToAnchor, mirrorNote, countNotesUpToBeat } from '../chart/editing/NoteEditing';
 import { perf } from '../chart/perf';
 import { beatToSeconds, getBpmEvents } from '../audio/AudioTiming';
@@ -13,18 +13,20 @@ import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
+import { SELECTION_COLORS, SELECTION_OUTLINE, HOVER_GHOST_TOOLS } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
 import type { RenderCtx } from './types';
+import type { SpriteIconConfig } from '../ui/CanvasSpriteIcon';
 
 // 音符大小配置（与 hitTest 命中尺寸保持一致）
 export const NOTE_ICON_SIZE = 36;
 export const DIRECTIONAL_ICON_SIZE = 45;
 export const SLIDE_ICON_SIZE = 36;
 
-// 音符高度压缩配置
-const NOTE_HEIGHT_SCALE = 0.6;
-const DIRECTIONAL_HEIGHT_SCALE = 0.33;
-const SLIDE_HEIGHT_SCALE = 0.6;
+// 音符高度压缩配置（导出供选中描边 ink 矩形的单测对齐）
+export const NOTE_HEIGHT_SCALE = 0.6;
+export const DIRECTIONAL_HEIGHT_SCALE = 0.33;
+export const SLIDE_HEIGHT_SCALE = 0.6;
 
 /** 选中状态判定辅助（ADR-0001 §6：整条/结点/区域）。一次构建 Set/Map，密集音符下避免每音符 O(选择数) 扫描 */
 interface SelectionSets {
@@ -47,10 +49,6 @@ const buildSelectionSets = (rc: RenderCtx): SelectionSets => {
   return { notes, slideNodes, slideRegions };
 };
 const isNoteSelected = (sel: SelectionSets, index: number) => sel.notes.has(index);
-const isSlideNodeSelected = (sel: SelectionSets, index: number, connIndex: number) =>
-  sel.slideNodes.get(index)?.has(connIndex) ?? false;
-const isSlideRegionSelected = (sel: SelectionSets, index: number, connIndex: number) =>
-  sel.slideRegions.get(index)?.has(connIndex) ?? false;
 
 /** 临时起点标记（ADR-0004 §4）：左沟槽竖向标记线；选中时高亮 */
 export function renderStartMarker(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
@@ -168,15 +166,243 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
   ctx.globalAlpha = 1;
 }
 
-/** 点音符选中圈（黄圈）：瓦片内与叠加层共用同一实现，保证视觉逐像素一致 */
-function strokeSelectedCircle(ctx: CanvasRenderingContext2D, canvasPos: GeometryPoint, iconSize: number, scale: number) {
-  ctx.strokeStyle = 'yellow';
-  ctx.lineWidth = 3 * scale;
-  ctx.globalAlpha = 0.8;
+// ---------------- issue 56：选中态视觉（a）+ hover 层级（c） ----------------
+// 形态 = 贴合 sprite ink 矩形的圆角矩形描边（双色：外侧暗底 + 内侧亮面，不用 shadowBlur）；
+// 废除旧的正圆黄圈。滑条段沿平行四边形四边描边（斜段描斜的，不退化为轴对齐包围盒）；
+// BPM 整条改浅黄 + 加粗。选中 / hover / 删除态危险色共用同一形态，仅配色与 α 分档。
+
+/** 描边模式：真实选中 = 暗底+亮面；hover = 亮面 α0.7；删除持工具态 hover = 危险红亮面 α0.7 */
+export type SelectionOutlineMode = 'selected' | 'hover' | 'danger';
+
+/** 一条描边图形：ink 圆角矩形 / 滑条段的平行四边形 / BPM 整条横线 */
+export type SelectionOutline =
+  | { shape: 'rect'; x: number; y: number; w: number; h: number; mode: SelectionOutlineMode }
+  | { shape: 'quad'; points: [number, number][]; mode: SelectionOutlineMode }
+  | { shape: 'line'; x1: number; y1: number; x2: number; y2: number; mode: SelectionOutlineMode };
+
+/** 单键主精灵选款（与 renderNotes 同口径：描边贴合实际绘制的那枚墨迹） */
+function singleIconConfig(rc: RenderCtx, note: { lane: number; beat: number; subBeat?: number; flick?: boolean; skill?: boolean }): SpriteIconConfig {
+  const icons = rc.noteIcons;
+  if (note.flick) return icons.flickFor(note.lane);
+  if (note.skill) return icons.skillFor(note.lane);
+  // 色觉辅助（issue 39 #4）：款式会变 → ink 矩形可能随之变，描边跟着实际绘制走（配色不变，A8）
+  if (rc.display?.colorAssist && !isHalfBeatAligned(note.beat, note.subBeat || 0, rc.beatDisplay)) return icons.tapVirtualFor(note.lane);
+  return icons.tapFor(note.lane);
+}
+
+/** 滑条结点精灵选款（端点基底 / 中间结点 + flick·skill 覆盖） */
+function slideNodeIconConfig(rc: RenderCtx, conn: { lane: number; flick?: boolean; skill?: boolean }, isFirst: boolean, isLast: boolean): SpriteIconConfig {
+  const icons = rc.noteIcons;
+  const base = isFirst || isLast ? icons.slideEndpointFor(conn.lane) : icons.slideAmongFor(conn.lane);
+  return { ...base, ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
+}
+
+/** C4：所有态都判定 hover，但已有幽灵预览的态（放置/粘贴/镜像）不画 */
+function hoverItemForRender(rc: RenderCtx): SelectionItem | null {
+  const hv = rc.hoverItem;
+  if (!hv) return null;
+  if (rc.armedTool && HOVER_GHOST_TOOLS.includes(rc.armedTool)) return null;
+  return hv;
+}
+
+/**
+ * 收集本次要画的选中 / hover 描边（纯函数，供单测）：
+ * 逐音符按「选中范围 ∪ hover 子部分」决定每条描边的模式，同一图形可叠两圈（选中 + hover 外圈）。
+ */
+export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]): SelectionOutline[] {
+  const sel = buildSelectionSets(rc);
+  const hover = hoverItemForRender(rc);
+  if (sel.notes.size === 0 && sel.slideNodes.size === 0 && sel.slideRegions.size === 0 && !hover) return [];
+  // A5：描边随 noteSize 缩放（与音符本体同一 spriteScale），永远贴合外边缘
+  const ns = rc.display?.noteSize ?? 1;
+  const s = rc.viewport.scale * ns;
+  const dangerTool = rc.armedTool === 'delete';
+  const out: SelectionOutline[] = [];
+
+  for (const { note, index } of visibleNotes) {
+    const hv = hover && hover.noteIndex === index ? hover : null;
+    const whole = isNoteSelected(sel, index);
+    // Q51：删除持工具态下 hover 到某个音符 → 该轮廓整体转红（覆盖浅黄选中色）
+    const danger = dangerTool && hv !== null;
+    /** 同一图形叠圈：连续重复的模式只画一次（选中 + 危险 hover 都是红 → 一圈） */
+    const emit = (inSel: boolean, isHoverPart: boolean, make: (mode: SelectionOutlineMode) => void) => {
+      let prev: SelectionOutlineMode | null = null;
+      const push = (m: SelectionOutlineMode) => { if (m === prev) return; prev = m; make(m); };
+      if (inSel) push(danger ? 'danger' : 'selected');
+      if (isHoverPart) push(danger ? 'danger' : 'hover');
+    };
+
+    if (note.type === 'BPM') {
+      // Q45：完整框选入选 → 整条线改浅黄 + 加粗（细线描边不明显）。
+      // Q14=A：BPM 线左键单击在所有态下都无效果 → **不参与 hover 反馈**（C5 的删除态情形是同一理由），
+      // 否则"整条亮起却点不动"是误导。BPM 的三条通路 = 框选 / 右键删除 / 沟槽数字就地编辑。
+      if (!whole) continue;
+      const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
+      const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
+      out.push({ shape: 'line', x1: trackBgX, y1: y, x2: trackBgX + trackBgWidth, y2: y, mode: 'selected' });
+      continue;
+    }
+
+    if (note.type === 'Single') {
+      if (!whole && !hv) continue;
+      const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
+      const cfg = singleIconConfig(rc, note);
+      const w = (cfg.out?.w ?? NOTE_ICON_SIZE) * s;
+      const h = (cfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE) * s;
+      emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode }));
+      continue;
+    }
+
+    if (note.type === 'LDirectional' || note.type === 'RDirectional') {
+      if (!whole && !hv) continue;
+      const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
+      const len = Math.min(Math.max(note.length || 1, 1), 3);
+      const isLeft = note.type === 'LDirectional';
+      const group = rc.noteIcons.dirGroup(isLeft ? 'L' : 'R', len);
+      // 本体精灵框内左右有透明留白 → 用构建期实测墨迹（dirInk，与同时点击线同一口径）收紧到可见墨迹
+      const ink = rc.noteIcons.dirInk(isLeft ? 'L' : 'R');
+      const w = DIRECTIONAL_ICON_SIZE * (ink.w > 0 ? Math.max(0, (ink.w - ink.inkLeft - ink.inkRight) / ink.w) : 1) * s;
+      const inkCenterOffset = DIRECTIONAL_ICON_SIZE * (ink.w > 0 ? (ink.inkLeft - ink.inkRight) / 2 / ink.w : 0) * s;
+      const h = DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE * s;
+      // A4：每条本体各一个矩形（箭头不描）
+      for (const b of group.bodies) {
+        const cx = p.x + b.offsetVirtualX * rc.viewport.scale + inkCenterOffset;
+        emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: cx - w / 2, y: p.y - h / 2, w, h, mode }));
+      }
+      continue;
+    }
+
+    if (note.type === 'Slide' || note.type === 'Long') {
+      const conns = (note as SlideNote).connections;
+      if (conns.length < 2) continue;
+      const nodes = sel.slideNodes.get(index);
+      const regions = sel.slideRegions.get(index);
+      if (!whole && !nodes && !regions && !hv) continue;
+      conns.forEach((conn, ci) => {
+        if (conn.hidden) return; // A6：hidden 结点不画（findItemAt/computeItemsInBox 已跳过，选不中自然画不出）
+        const inSel = whole || nodes?.has(ci) === true;
+        const isHoverPart = hv?.kind === 'slideNode' && hv.connIndex === ci;
+        if (!inSel && !isHoverPart) return;
+        const p = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
+        const cfg = slideNodeIconConfig(rc, conn, ci === 0, ci === conns.length - 1);
+        const w = (cfg.out?.w ?? SLIDE_ICON_SIZE) * s;
+        const h = (cfg.out?.h ?? SLIDE_ICON_SIZE * SLIDE_HEIGHT_SCALE) * s;
+        emit(inSel, isHoverPart, (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode }));
+      });
+      // 段带宽与连接带同宽（× noteSize，A5）
+      const half = (LANE_WIDTH * rc.viewport.scale * ns) / 2;
+      for (let ci = 0; ci < conns.length - 1; ci++) {
+        const inSel = whole || regions?.has(ci) === true;
+        const isHoverPart = hv?.kind === 'slideRegion' && hv.connIndex === ci;
+        if (!inSel && !isHoverPart) continue;
+        const c1 = conns[ci], c2 = conns[ci + 1];
+        const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
+        const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
+        // A4：段是斜的必须描斜的 —— 沿平行四边形四边描边封口，禁止退化成轴对齐包围盒
+        const points: [number, number][] = [
+          [p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y],
+        ];
+        emit(inSel, isHoverPart, (mode) => out.push({ shape: 'quad', points, mode }));
+      }
+    }
+  }
+  return out;
+}
+
+/** 圆角矩形路径（不依赖 ctx.roundRect 的浏览器支持） */
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+/** 凸多边形等距外扩（滑条斜段用）：顶点沿相邻两边外法线的合成方向外移 */
+function offsetConvexPolygon(pts: readonly [number, number][], d: number): [number, number][] {
+  const n = pts.length;
+  if (d === 0 || n < 3) return pts.map(p => [p[0], p[1]] as [number, number]);
+  // 绕向（带符号面积）定外法线朝向：(dx,dy) 的外法线 = (dy,-dx)（正面积时）
+  let area2 = 0;
+  for (let i = 0; i < n; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % n];
+    area2 += x1 * y2 - x2 * y1;
+  }
+  const sign = area2 >= 0 ? 1 : -1;
+  const normals: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % n];
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    normals.push([(sign * dy) / len, (-sign * dx) / len]);
+  }
+  const cap = SELECTION_OUTLINE.miterLimit * Math.abs(d);
+  return pts.map((_, i) => {
+    const a = normals[(i - 1 + n) % n], b = normals[i];
+    const denom = 1 + (a[0] * b[0] + a[1] * b[1]);
+    const f = Math.abs(denom) < 1e-6 ? 0 : d / denom;
+    let mx = (a[0] + b[0]) * f, my = (a[1] + b[1]) * f;
+    // 近水平的细段（锐角）外扩会拉出长尖刺 → 按 miter 上限裁剪位移
+    const len = Math.hypot(mx, my);
+    if (len > cap) { const k = cap / len; mx *= k; my *= k; }
+    return [pts[i][0] + mx, pts[i][1] + my] as [number, number];
+  });
+}
+
+/** 按外扩量铺一条描边路径（矩形圆角、平行四边形保斜、BPM 线不扩） */
+function traceOutline(ctx: CanvasRenderingContext2D, o: SelectionOutline, outset: number, radius: number) {
   ctx.beginPath();
-  ctx.arc(canvasPos.x, canvasPos.y, iconSize / 2 + 4, 0, 2 * Math.PI);
-  ctx.stroke();
-  ctx.globalAlpha = 1.0;
+  if (o.shape === 'rect') {
+    roundRectPath(ctx, o.x - outset, o.y - outset, o.w + outset * 2, o.h + outset * 2, radius);
+  } else if (o.shape === 'quad') {
+    const pts = outset !== 0 ? offsetConvexPolygon(o.points, outset) : o.points;
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+  } else {
+    ctx.moveTo(o.x1, o.y1);
+    ctx.lineTo(o.x2, o.y2);
+  }
+}
+
+/**
+ * 选中 / hover 高亮叠加层（issue 35 F1 + issue 56）：
+ * 瓦片不含选中态，选中与 hover 一律由主画布在瓦片 blit 之上逐帧叠加 → 选择/hover 变化 0 瓦片重建。
+ * 层级（C3）：真实选中（暗底 + 亮面）> hover 亮面（α0.7）> 幽灵（0.35，由 renderToolPreview 绘制）。
+ */
+export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  const outlines = collectSelectionOutlines(c, rc, visibleNotes);
+  if (outlines.length === 0) return;
+  const s = rc.viewport.scale * (rc.display?.noteSize ?? 1);
+  const lw = Math.max(1, SELECTION_OUTLINE.lineWidth * s);
+  const darkLw = lw + 2 * Math.max(0.5, SELECTION_OUTLINE.darkBand * s);
+  const bpmLw = Math.max(2, SELECTION_OUTLINE.bpmLineWidth * s);
+  const radius = SELECTION_OUTLINE.radius * s;
+  const selectedOutset = SELECTION_OUTLINE.outset * s;
+  const hoverOutset = (SELECTION_OUTLINE.outset + SELECTION_OUTLINE.hoverOutset) * s;
+  ctx.save();
+  ctx.lineJoin = 'round';
+  for (const o of outlines) {
+    const width = o.shape === 'line' ? bpmLw : lw;
+    const outset = o.mode === 'selected' ? selectedOutset : hoverOutset;
+    // 暗底：只给真实选中（Q11：hover 只画亮面）；BPM 线无外圈。
+    // 暗底画在**更外侧**的路径上（外扩 +darkBand）→ 内缘与亮面内缘齐平，暗色整圈落在音符外，不压墨迹。
+    if (o.mode === 'selected' && o.shape !== 'line') {
+      ctx.globalAlpha = SELECTION_OUTLINE.selectedAlpha;
+      ctx.strokeStyle = SELECTION_COLORS.dark;
+      ctx.lineWidth = darkLw;
+      traceOutline(ctx, o, outset + Math.max(0.5, SELECTION_OUTLINE.darkBand * s), radius);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = o.mode === 'selected' ? SELECTION_OUTLINE.selectedAlpha : SELECTION_OUTLINE.hoverAlpha;
+    ctx.strokeStyle = o.mode === 'danger' ? SELECTION_COLORS.danger : SELECTION_COLORS.bright;
+    ctx.lineWidth = width;
+    traceOutline(ctx, o, outset, radius);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /**
@@ -220,12 +446,10 @@ export function isHalfBeatAligned(beat: number, subBeat: number, beatDisplay: nu
 
 /**
  * 绘制音符（第一层：主体；第二层：装饰器）。
- * issue 35 F1：opts.skipSelection=true 供离屏瓦片渲染（瓦片不含选中态，选中高亮由主画布叠加层绘制，
- * 选择变化不再使瓦片缓存失效）。
+ * issue 56 a)：本函数**不画任何选中/hover 描边**——一律由 renderSelectionOverlay 在叠加层绘制，
+ * 瓦片与直渲两条路径共用同一实现（issue 35 F1：选择变化 0 瓦片重建）。
  */
-export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[], opts?: { skipSelection?: boolean }) {
-  const sel = buildSelectionSets(rc);
-  const skipSelection = opts?.skipSelection === true;
+export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
   // issue 39 #1：节奏图示大小（音符占轨道比例，默认 1）。乘进视图 scale → 图标本体与
   // 组合挂件（方向滑键的装饰器 offset 同乘 scale）整体等比缩放，相对间距不变（修回归）。
   const ns = rc.display?.noteSize ?? 1;
@@ -238,17 +462,12 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
     renderSimultaneousClickLines(ctx, c, rc, visibleNotes);
   }
   // 第一层：普通音符和方向键主体
-  visibleNotes.forEach(({ note, index }) => {
-    const isSelected = isNoteSelected(sel, index);
+  visibleNotes.forEach(({ note }) => {
     if (note.type === "Single") {
       const subBeat = note.subBeat || 0;
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
-      const iconSize = NOTE_ICON_SIZE * ns * rc.viewport.scale;
-      let iconConfig = icons.tapFor(note.lane);
-      if (note.flick) iconConfig = icons.flickFor(note.lane);
-      else if (note.skill) iconConfig = icons.skillFor(note.lane);
-      // 色觉辅助（issue 39 #4）：开启后非半拍整数倍位置的普通 tap 用虚拍款式（flick/skill 不受影响）
-      else if (rc.display?.colorAssist && !isHalfBeatAligned(note.beat, subBeat, rc.beatDisplay)) iconConfig = icons.tapVirtualFor(note.lane);
+      // 选款与描边收集端共用（描边贴合实际绘制的墨迹）
+      const iconConfig = singleIconConfig(rc, note);
       rc.spriteIcon.render(ctx, {
         ...iconConfig,
         canvasX: canvasPos.x, canvasY: canvasPos.y,
@@ -258,22 +477,15 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
         canvasHeight: iconConfig.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
         scale: spriteScale, renderLayer: 'main',
       });
-      if (isSelected && !skipSelection) {
-        strokeSelectedCircle(ctx, canvasPos, iconSize, rc.viewport.scale);
-      }
     } else if (note.type === "LDirectional" || note.type === "RDirectional") {
       const subBeat = note.subBeat || 0;
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
-      const iconSize = DIRECTIONAL_ICON_SIZE * ns * rc.viewport.scale;
       const isLeft = note.type === "LDirectional";
       // issue 29：N 条覆盖轨道扁平本体 + 最外侧箭头（dirGroup 几何由墨迹推导）
       const len = Math.min(Math.max(note.length || 1, 1), 3);
       renderDirGroup(ctx, rc, icons.dirGroup(isLeft ? 'L' : 'R', len), canvasPos.x, canvasPos.y, spriteScale);
-      if (isSelected && !skipSelection) {
-        strokeSelectedCircle(ctx, canvasPos, iconSize, rc.viewport.scale);
-      }
     } else if (note.type === "Slide" || note.type === "Long") {
-      renderSlideBody(ctx, c, rc, sel, note, index, skipSelection);
+      renderSlideBody(ctx, c, rc, note);
     }
   });
 
@@ -301,8 +513,8 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   });
 }
 
-/** 渲染一条滑条/长条：连接带 + 各结点 + 选中高亮（ADR §6 整条/结点/区域）；skipSelection 供瓦片渲染跳过高亮 */
-function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, sel: SelectionSets, note: ChartNote, index: number, skipSelection?: boolean) {
+/** 渲染一条滑条/长条：连接带 + 各结点（选中/hover 高亮由叠加层绘制，见 renderSelectionOverlay） */
+function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: ChartNote) {
   const connections = (note as SlideNote).connections;
   if (connections.length < 2) return;
   // issue 39 #1：slide 结点（起止/中间）图标随节奏图示大小缩放；连接带是线条，不随。
@@ -346,14 +558,9 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   connections.forEach((conn, i) => {
     const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
     if (conn.hidden) return;
-    const isFirst = i === 0, isLast = i === connections.length - 1;
-    let iconConfig;
-    if (isFirst || isLast) {
-      // 端点 = 单键皮肤（定案），结点带 flick/skill 时换对应图（spread 覆盖 src/矩形）
-      iconConfig = { ...icons.slideEndpointFor(conn.lane), ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
-    } else {
-      iconConfig = { ...icons.slideAmongFor(conn.lane), ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
-    }
+    // 端点 = 单键皮肤（定案），结点带 flick/skill 时换对应图（spread 覆盖 src/矩形）；
+    // 选款与描边收集端共用（描边贴合实际绘制的墨迹）
+    const iconConfig = slideNodeIconConfig(rc, conn, i === 0, i === connections.length - 1);
     rc.spriteIcon.render(ctx, {
       ...iconConfig,
       canvasX: canvasPos.x, canvasY: canvasPos.y,
@@ -382,75 +589,6 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     });
   }
 
-  if (!skipSelection) drawSlideSelection(ctx, c, rc, sel, note, index);
-}
-
-/**
- * 滑条选中高亮（结点青圈 + 区域青框）：瓦片内与叠加层共用同一实现，保证视觉逐像素一致。
- * issue 55 验收反馈 #3：原"整条选中 = 黄虚线包围框"在框选组合成功后被误读为多出的辅助线
- * （组合自动把结果滑条留作选区，虚线框恰罩在新滑条上）→ 废除包围框，整条选中按
- * "所有结点 + 所有区域高亮"绘制（贴合物本体轮廓）。黄圈/青框整体视觉重做归 issue 56-a。
- */
-function drawSlideSelection(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, sel: SelectionSets, note: ChartNote, index: number) {
-  const connections = (note as SlideNote).connections;
-  const whole = isNoteSelected(sel, index);
-
-  connections.forEach((conn, ci) => {
-    if (!whole && !isSlideNodeSelected(sel, index, ci)) return;
-    const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
-    ctx.strokeStyle = '#00e5ff';
-    ctx.lineWidth = 3 * rc.viewport.scale;
-    ctx.globalAlpha = 0.9;
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, (SLIDE_ICON_SIZE / 2) * rc.viewport.scale + 6, 0, 2 * Math.PI);
-    ctx.stroke();
-    ctx.globalAlpha = 1.0;
-  });
-
-  for (let ci = 0; ci < connections.length - 1; ci++) {
-    if (!whole && !isSlideRegionSelected(sel, index, ci)) continue;
-    const c1 = connections[ci], c2 = connections[ci + 1];
-    const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
-    const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
-    // 区域高亮框与连接带同宽（× noteSize，与 renderSlideBody 一致）
-    const halfLaneWidth = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
-    ctx.strokeStyle = '#00e5ff';
-    ctx.lineWidth = 2 * rc.viewport.scale;
-    ctx.globalAlpha = 0.9;
-    ctx.beginPath();
-    ctx.moveTo(p1.x - halfLaneWidth, p1.y);
-    ctx.lineTo(p1.x + halfLaneWidth, p1.y);
-    ctx.lineTo(p2.x + halfLaneWidth, p2.y);
-    ctx.lineTo(p2.x - halfLaneWidth, p2.y);
-    ctx.closePath();
-    ctx.stroke();
-    ctx.globalAlpha = 1.0;
-  }
-}
-
-/**
- * 选中高亮叠加层（issue 35 F1）：瓦片不含选中态，选中后由主画布在瓦片 blit 之上逐帧叠加。
- * 只遍历可见音符并跳过未选中项（O(选中∩可见)），选择变化不再触发瓦片重建；
- * 复用 renderNotes 的同一套高亮绘制（strokeSelectedCircle / drawSlideSelection），视觉逐像素对齐旧实现。
- */
-export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
-  if (rc.selectedItems.length === 0) return;
-  const sel = buildSelectionSets(rc);
-  if (sel.notes.size === 0 && sel.slideNodes.size === 0 && sel.slideRegions.size === 0) return;
-  for (const { note, index } of visibleNotes) {
-    if (note.type === "Single") {
-      if (!isNoteSelected(sel, index)) continue;
-      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
-      strokeSelectedCircle(ctx, canvasPos, NOTE_ICON_SIZE * rc.viewport.scale, rc.viewport.scale);
-    } else if (note.type === "LDirectional" || note.type === "RDirectional") {
-      if (!isNoteSelected(sel, index)) continue;
-      const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
-      strokeSelectedCircle(ctx, canvasPos, DIRECTIONAL_ICON_SIZE * rc.viewport.scale, rc.viewport.scale);
-    } else if (note.type === "Slide" || note.type === "Long") {
-      if (!isNoteSelected(sel, index) && !sel.slideNodes.has(index) && !sel.slideRegions.has(index)) continue;
-      drawSlideSelection(ctx, c, rc, sel, note, index);
-    }
-  }
 }
 
 /** 绘制选择框 */
@@ -626,6 +764,7 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   ctx.save();
   ctx.globalAlpha = 0.35;
 
+  // 有幽灵预览的态清单另见 selectionStyle.HOVER_GHOST_TOOLS（hover 描边在这些态下不画，C4）
   if (rc.armedTool === 'single' || rc.armedTool === 'flick' || rc.armedTool === 'skill'
       || rc.armedTool === 'ldirectional' || rc.armedTool === 'rdirectional') {
     const ghost = ghostNoteForTool(rc.armedTool, pos.lane, pos.preciseBeat);

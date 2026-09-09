@@ -52,6 +52,11 @@ export interface RenderCtx {
   selectionBox: SelectionBox | null;
   slideBuffer: SlideBuffer | null;
   hoverPos: HoverPos | null;
+  /**
+   * 悬停命中项（issue 56 c）：由组件在 hoverPos 变化时经 findItemAt 计算注入，
+   * 渲染器不每帧跑命中测试（C6）。null/undefined = 未悬停或命中没有反馈的对象。
+   */
+  hoverItem?: SelectionItem | null;
   clipboard: ChartNote[];
   markerBeat: number | null;
   markerSelected: boolean;

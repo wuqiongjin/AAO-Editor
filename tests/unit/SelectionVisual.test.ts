@@ -1,0 +1,312 @@
+// issue 56（谱面画布音符选中状态整改）行锁测试：
+// - a) 描边形态：贴合 sprite ink 的圆角矩形 / 滑条段沿平行四边形四边（斜段描斜的，不退化为包围盒）/ BPM 整条线
+// - a) 缩放：描边随 noteSize 等比缩放；hidden 结点无任何描边
+// - c) hover 层级：hover 只画亮面（mode=hover）、删除持工具态转危险色、已选中音符被 hover 整体转红、
+//     幽灵态（放置/粘贴/镜像）不画、色觉辅助不影响（A8）
+import { describe, it, expect } from 'vitest';
+import { ChartGeometry, LANE_WIDTH } from '../../src/chart/geometry/ChartGeometry';
+import { makeCoords } from '../../src/visual/coords';
+import { collectSelectionOutlines, type SelectionOutline } from '../../src/visual/render';
+import { findItemAt, computeItemsInBox, type HitTestDeps } from '../../src/visual/hitTest';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/visual/noteSkin';
+import { SELECTION_OUTLINE } from '../../src/visual/selectionStyle';
+import { NOTE_ICON_SIZE, DIRECTIONAL_ICON_SIZE, DIRECTIONAL_HEIGHT_SCALE, NOTE_HEIGHT_SCALE } from '../../src/visual/render';
+import type { RenderCtx } from '../../src/visual/types';
+import type { ChartNote, SelectionItem } from '../../src/chart/types';
+
+const bpm120 = [{ beat: 0, bpm: 120 }];
+const SURFACE = { w: 750, h: 900 };
+const BEAT_DISPLAY = 4;
+const ICONS = buildActiveNoteIcons(normalizeNoteSkinSelection(undefined));
+
+interface Opts {
+  notes: ChartNote[];
+  select?: SelectionItem[];
+  hover?: SelectionItem | null;
+  armedTool?: string | null;
+  noteSize?: number;
+  colorAssist?: boolean;
+  scale?: number;
+}
+
+/** 收集本次描边（视口 scale=1 / scrollY=0，传入的全部音符都视为可见） */
+function outlinesOf(o: Opts): SelectionOutline[] {
+  const geometry = new ChartGeometry(bpm120, 100, SURFACE);
+  const viewport = { scrollX: 0, scrollY: 0, scale: o.scale ?? 1, virtualWidth: 0, virtualHeight: 0 };
+  const rc = {
+    geometry,
+    viewport,
+    surface: SURFACE,
+    dpr: 1,
+    beatDisplay: BEAT_DISPLAY,
+    chartEndBeat: 100,
+    notes: o.notes,
+    selectedItems: o.select ?? [],
+    selectionBox: null,
+    slideBuffer: null,
+    hoverPos: null,
+    hoverItem: o.hover ?? null,
+    clipboard: [],
+    markerBeat: null,
+    markerSelected: false,
+    armedTool: o.armedTool ?? null,
+    spriteIcon: { render: () => undefined, renderDecorator: () => undefined },
+    noteIcons: ICONS,
+    display: {
+      noteSize: o.noteSize ?? 1,
+      slideOpacity: 1,
+      simultaneousClickLines: false,
+      colorAssist: o.colorAssist ?? false,
+    },
+  } as unknown as RenderCtx;
+  const c = makeCoords(geometry, viewport, BEAT_DISPLAY, o.notes);
+  return collectSelectionOutlines(c, rc, o.notes.map((note, index) => ({ note, index })));
+}
+
+const single = (beat: number, lane = 3): ChartNote => ({ type: 'Single', lane, beat, subBeat: 0 }) as ChartNote;
+const slide = (conns: { lane: number; beat: number; hidden?: boolean }[]): ChartNote =>
+  ({ type: 'Slide', connections: conns }) as ChartNote;
+
+// ---------------- a) 形态与缩放 ----------------
+describe('选中描边形态（issue 56 a）', () => {
+  it('单键选中 = 贴合 ink 的一个圆角矩形（不再是正圆）', () => {
+    const out = outlinesOf({ notes: [single(50)], select: [{ kind: 'note', noteIndex: 0 }] });
+    expect(out).toHaveLength(1);
+    const o = out[0]!;
+    expect(o.shape).toBe('rect');
+    expect(o.mode).toBe('selected');
+    // 尺寸 = sprite ink 尺寸 × spriteScale（scale × noteSize）
+    const inkW = ICONS.tapFor(3).out?.w ?? NOTE_ICON_SIZE;
+    const inkH = ICONS.tapFor(3).out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE;
+    expect((o as { w: number }).w).toBeCloseTo(inkW, 6);
+    expect((o as { h: number }).h).toBeCloseTo(inkH, 6);
+  });
+
+  it('描边随 noteSize 缩放（A5）：三档（0.5 / 1 / 2）严格等比', () => {
+    const pick = (noteSize: number) =>
+      outlinesOf({ notes: [single(50)], select: [{ kind: 'note', noteIndex: 0 }], noteSize })[0] as { w: number; h: number };
+    const a = pick(1), half = pick(0.5), dbl = pick(2);
+    expect(half.w).toBeCloseTo(a.w * 0.5, 6);
+    expect(half.h).toBeCloseTo(a.h * 0.5, 6);
+    expect(dbl.w).toBeCloseTo(a.w * 2, 6);
+    expect(dbl.h).toBeCloseTo(a.h * 2, 6);
+  });
+
+  it('画布缩放：描边随 viewport.scale 等比（验收矩阵「画布缩放」轴）', () => {
+    const pick = (scale: number) =>
+      outlinesOf({ notes: [single(50)], select: [{ kind: 'note', noteIndex: 0 }], scale })[0] as { w: number; h: number };
+    const a = pick(1), small = pick(0.5), big = pick(2);
+    expect(small.w).toBeCloseTo(a.w * 0.5, 6);
+    expect(big.h).toBeCloseTo(a.h * 2, 6);
+  });
+
+  it('方向键 = 每条本体各一个墨迹矩形（A4：length=2 → 2 个矩形；箭头不描）', () => {
+    const note = { type: 'LDirectional', lane: 2, beat: 50, subBeat: 0, length: 2 } as ChartNote;
+    const out = outlinesOf({ notes: [note], select: [{ kind: 'note', noteIndex: 0 }] });
+    expect(out).toHaveLength(2);
+    // 本体精灵框左右有透明留白 → 描边收紧到实测墨迹（dirInk）
+    const ink = ICONS.dirInk('L');
+    const inkW = DIRECTIONAL_ICON_SIZE * ((ink.w - ink.inkLeft - ink.inkRight) / ink.w);
+    for (const o of out) {
+      expect(o.shape).toBe('rect');
+      expect((o as { w: number }).w).toBeCloseTo(inkW, 6);
+      expect((o as { h: number }).h).toBeCloseTo(DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE, 6);
+    }
+    // 两条本体按轨道间距排开
+    expect((out[1] as { x: number }).x).not.toBeCloseTo((out[0] as { x: number }).x, 3);
+  });
+
+  it('整条滑条选中 = 逐子部分并集（3 结点 → 2 rect + 2 quad... 即 3 rect + 2 quad）', () => {
+    const out = outlinesOf({
+      notes: [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12 }, { lane: 6, beat: 14 }])],
+      select: [{ kind: 'note', noteIndex: 0 }],
+    });
+    expect(out.filter(o => o.shape === 'rect')).toHaveLength(3);
+    expect(out.filter(o => o.shape === 'quad')).toHaveLength(2);
+    for (const o of out) expect(o.mode).toBe('selected');
+  });
+
+  it('斜段沿平行四边形四边描边：不是轴对齐包围盒（A4）', () => {
+    const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12 }])];
+    const out = outlinesOf({ notes, select: [{ kind: 'note', noteIndex: 0 }] });
+    const quad = out.find(o => o.shape === 'quad') as { points: [number, number][] };
+    // 平行四边形：上下边水平、左右边斜（两端 x 不同 → 四顶点不是包围盒四角）
+    const [p1, p2, p3, p4] = quad.points;
+    expect(p1[1]).toBeCloseTo(p2[1], 6);
+    expect(p3[1]).toBeCloseTo(p4[1], 6);
+    const shoelace = Math.abs(
+      quad.points.reduce((acc, p, i) => {
+        const q = quad.points[(i + 1) % quad.points.length]!;
+        return acc + (p[0] * q[1] - q[0] * p[1]);
+      }, 0) / 2,
+    );
+    const xs = quad.points.map(p => p[0]), ys = quad.points.map(p => p[1]);
+    const aabb = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+    expect(shoelace).toBeGreaterThan(0);
+    expect(shoelace).toBeLessThan(aabb); // 斜段的平行四边形面积严格小于其包围盒
+  });
+
+  it('段宽与连接带同宽（× noteSize，A5）', () => {
+    const notes = [slide([{ lane: 0, beat: 10 }, { lane: 0, beat: 14 }])];
+    const base = outlinesOf({ notes, select: [{ kind: 'note', noteIndex: 0 }] }).find(o => o.shape === 'quad') as { points: [number, number][] };
+    const big = outlinesOf({ notes, select: [{ kind: 'note', noteIndex: 0 }], noteSize: 2 }).find(o => o.shape === 'quad') as { points: [number, number][] };
+    const widthOf = (p: [number, number][]) => Math.abs(p[1]![0] - p[0]![0]);
+    expect(widthOf(base.points)).toBeCloseTo(LANE_WIDTH, 6);
+    expect(widthOf(big.points)).toBeCloseTo(LANE_WIDTH * 2, 6);
+  });
+
+  it('Long ≡ Slide：同结构产生同一套描边（A4/Q47）', () => {
+    const conns = [{ lane: 1, beat: 10 }, { lane: 4, beat: 13 }];
+    const a = outlinesOf({ notes: [slide(conns)], select: [{ kind: 'note', noteIndex: 0 }] });
+    const b = outlinesOf({
+      notes: [{ type: 'Long', connections: conns } as ChartNote],
+      select: [{ kind: 'note', noteIndex: 0 }],
+    });
+    expect(b).toEqual(a);
+  });
+
+  it('hidden 结点不画描边（A6）', () => {
+    const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12, hidden: true }, { lane: 6, beat: 14 }])];
+    const out = outlinesOf({ notes, select: [{ kind: 'note', noteIndex: 0 }] });
+    expect(out.filter(o => o.shape === 'rect')).toHaveLength(2); // 3 结点 - 1 hidden
+    expect(out.filter(o => o.shape === 'quad')).toHaveLength(2); // 段照常
+  });
+
+  it('BPM 选中 = 整条横线改色（Q45）', () => {
+    const out = outlinesOf({
+      notes: [{ type: 'BPM', beat: 40, bpm: 120 } as ChartNote],
+      select: [{ kind: 'note', noteIndex: 0 }],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.shape).toBe('line');
+    expect(out[0]!.mode).toBe('selected');
+  });
+
+  it('色觉辅助开关不改变描边（A8）', () => {
+    const notes = [single(50.25), single(51)];
+    const a = outlinesOf({ notes, select: [{ kind: 'note', noteIndex: 0 }, { kind: 'note', noteIndex: 1 }], colorAssist: false });
+    const b = outlinesOf({ notes, select: [{ kind: 'note', noteIndex: 0 }, { kind: 'note', noteIndex: 1 }], colorAssist: true });
+    expect(b).toHaveLength(a.length);
+    for (let i = 0; i < a.length; i++) expect(b[i]!.mode).toBe(a[i]!.mode);
+  });
+
+  it('常量模块：浅黄共用一套、危险红独立（A2/C7）', () => {
+    expect(SELECTION_OUTLINE.hoverAlpha).toBeLessThan(SELECTION_OUTLINE.selectedAlpha); // hover 比真实选中轻一档（Q11）
+    expect(SELECTION_OUTLINE.hoverOutset).toBeGreaterThan(0); // 与真实选中叠加时可辨
+  });
+});
+
+// ---------------- c) hover 层级 ----------------
+describe('hover 描边层级（issue 56 c）', () => {
+  it('未选中音符被 hover → 一条 hover 描边（只画亮面）', () => {
+    const out = outlinesOf({ notes: [single(50)], hover: { kind: 'note', noteIndex: 0 } });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.mode).toBe('hover');
+  });
+
+  it('删除持工具态 hover → 危险色（Q48/Q49）', () => {
+    const out = outlinesOf({ notes: [single(50)], hover: { kind: 'note', noteIndex: 0 }, armedTool: 'delete' });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.mode).toBe('danger');
+  });
+
+  it('已选中音符被删除态 hover → 整体转红、覆盖浅黄（Q51）', () => {
+    const out = outlinesOf({
+      notes: [single(50)],
+      select: [{ kind: 'note', noteIndex: 0 }],
+      hover: { kind: 'note', noteIndex: 0 },
+      armedTool: 'delete',
+    });
+    expect(out).toHaveLength(1); // 不是「选中 + hover」两圈
+    expect(out[0]!.mode).toBe('danger');
+  });
+
+  it('已选中音符被 hover（非删除态）→ 选中 + hover 两圈（可辨，Q11）', () => {
+    const out = outlinesOf({
+      notes: [single(50)],
+      select: [{ kind: 'note', noteIndex: 0 }],
+      hover: { kind: 'note', noteIndex: 0 },
+    });
+    expect(out.map(o => o.mode)).toEqual(['selected', 'hover']);
+  });
+
+  it('hover 滑条 = 命中的那个子部分（Q50）', () => {
+    const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12 }, { lane: 6, beat: 14 }])];
+    const node = outlinesOf({ notes, hover: { kind: 'slideNode', noteIndex: 0, connIndex: 1 } });
+    expect(node).toHaveLength(1);
+    expect(node[0]!.shape).toBe('rect');
+    const region = outlinesOf({ notes, hover: { kind: 'slideRegion', noteIndex: 0, connIndex: 0 } });
+    expect(region).toHaveLength(1);
+    expect(region[0]!.shape).toBe('quad');
+  });
+
+  it('删除态 hover 滑条：已选中的段与结点一起转红（Q51 覆盖整条轮廓）', () => {
+    const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12 }, { lane: 6, beat: 14 }])];
+    const out = outlinesOf({
+      notes,
+      select: [{ kind: 'note', noteIndex: 0 }],
+      hover: { kind: 'slideNode', noteIndex: 0, connIndex: 1 },
+      armedTool: 'delete',
+    });
+    expect(out.every(o => o.mode === 'danger')).toBe(true);
+    expect(out).toHaveLength(5); // 3 结点 + 2 段
+  });
+
+  it('幽灵态（放置/粘贴/镜像）不画 hover（C4）；指针与删除态画', () => {
+    const notes = [single(50)];
+    const hover: SelectionItem = { kind: 'note', noteIndex: 0 };
+    for (const tool of ['single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'paste', 'mirror']) {
+      expect(outlinesOf({ notes, hover, armedTool: tool })).toHaveLength(0);
+    }
+    expect(outlinesOf({ notes, hover, armedTool: null })).toHaveLength(1);
+    expect(outlinesOf({ notes, hover, armedTool: 'delete' })).toHaveLength(1);
+  });
+
+  it('BPM 不参与 hover（Q14=A：单击无效果 → 不给"点得动"的暗示）；删除态亦然（C5）', () => {
+    const notes = [{ type: 'BPM', beat: 40, bpm: 120 } as ChartNote];
+    expect(outlinesOf({ notes, hover: { kind: 'note', noteIndex: 0 }, armedTool: 'delete' })).toHaveLength(0);
+    expect(outlinesOf({ notes, hover: { kind: 'note', noteIndex: 0 } })).toHaveLength(0);
+  });
+
+  it('无选中、无 hover → 零描边（不进绘制路径）', () => {
+    expect(outlinesOf({ notes: [single(50)] })).toHaveLength(0);
+  });
+});
+
+// ---------------- A6：hidden 结点不可命中 ----------------
+describe('hidden 结点不可选中 / 不可 hover（A6）', () => {
+  const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12, hidden: true }, { lane: 6, beat: 14 }])];
+  const geometry = new ChartGeometry(bpm120, 100, SURFACE);
+  const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
+  const deps: HitTestDeps = { geometry, viewport, beatDisplay: BEAT_DISPLAY, notes };
+  const at = (lane: number, beat: number) =>
+    geometry.virtualToCanvas(geometry.noteVirtualX(lane), geometry.noteVirtualY(beat, 0, viewport.scale, BEAT_DISPLAY), viewport);
+
+  it('findItemAt 跳过 hidden 结点（命中落在相邻段上）', () => {
+    const p = at(3, 12);
+    const hit = findItemAt(p.x, p.y, deps);
+    expect(hit).not.toEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 1 });
+  });
+
+  it('可见结点照常命中', () => {
+    const p = at(0, 10);
+    expect(findItemAt(p.x, p.y, deps)).toEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 0 });
+  });
+
+  it('computeItemsInBox 不把 hidden 结点收进选区', () => {
+    const p1 = at(0, 10), p2 = at(6, 14);
+    const box = { x1: p1.x - 10, y1: p2.y - 10, x2: p2.x + 10, y2: p1.y + 10 };
+    const items = computeItemsInBox(box, deps);
+    expect(items).not.toContainEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 1 });
+    expect(items).toContainEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 0 });
+    expect(items).toContainEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 2 });
+  });
+
+  it('even if 选区里含 hidden 结点（脏数据），描边也不画它', () => {
+    const out = outlinesOf({
+      notes,
+      select: [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }],
+    });
+    expect(out).toHaveLength(0);
+  });
+});

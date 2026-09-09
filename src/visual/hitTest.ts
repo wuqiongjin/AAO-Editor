@@ -1,6 +1,6 @@
 // 命中测试纯函数（ADR-0003 候选 B）：把 FinalVirtualCanvas 内的 findItemAt / 圈选判定
 // 抽出为可单测模块，依赖 geometry + viewport + notes，与 React 组件解耦。
-import type { ChartNote, SelectionItem } from '../chart/types';
+import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import type { ChartGeometry, GeometryViewport } from '../chart/geometry/ChartGeometry';
 import { LANE_WIDTH } from '../chart/geometry/ChartGeometry';
 import { makeCoords } from './coords';
@@ -50,10 +50,13 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
     const note = deps.notes[i];
 
     if (note.type === "Slide" || note.type === "Long") {
-      const connections = (note as ChartNote & { connections: { lane: number; beat: number; subBeat?: number }[] }).connections;
+      // Long ≡ Slide（同构），结点字段（含 hidden）取 ConnectionNote
+      const connections = (note as SlideNote).connections;
       // 先检测是否命中结点（端点或中间结点）
       for (let ci = 0; ci < connections.length; ci++) {
         const conn = connections[ci];
+        // issue 56 A6/C1：hidden 结点不可命中（不可选中、不可 hover、无描边反馈）
+        if (conn.hidden) continue;
         const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
         const dx = pos.x - cx, dy = pos.y - cy;
         if (dx * dx + dy * dy <= slideNodeRadius * slideNodeRadius) {
@@ -112,8 +115,9 @@ export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): Selecti
 
   deps.notes.forEach((note, index) => {
     if (note.type === "Slide" || note.type === "Long") {
-      const conns = (note as ChartNote & { connections: { lane: number; beat: number; subBeat?: number }[] }).connections;
+      const conns = (note as SlideNote).connections;
       conns.forEach((conn, ci) => {
+        if (conn.hidden) return; // issue 56 A6：hidden 结点不入选区
         const x = c.getNoteVirtualX(conn.lane);
         const y = c.getNoteVirtualY(conn.beat, conn.subBeat || 0);
         if (x >= vminX && x <= vmaxX && y >= vminY && y <= vmaxY) {

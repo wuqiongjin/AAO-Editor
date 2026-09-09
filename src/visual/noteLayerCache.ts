@@ -254,8 +254,8 @@ function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
   const fakeSurface = { w: cssW, h: cssH };
   const fakeRc: RenderCtx = { ...rc, viewport: vp, surface: fakeSurface };
   const c = makeCoords(rc.geometry, vp, rc.beatDisplay, rc.notes);
-  // F1：瓦片不含选中态（选中高亮由主画布叠加层绘制，选择变化不再重建瓦片）
-  renderNotes(tctx, c, fakeRc, vis, { skipSelection: true });
+  // F1：瓦片不含选中态（选中/hover 高亮由主画布叠加层绘制，选择变化不再重建瓦片）
+  renderNotes(tctx, c, fakeRc, vis);
   const tile: Tile = { canvas, refScale: es, surfaceW: cssW, bytes: bw * bh * 4, empty: false };
   tiles.set(tileId, tile);
   evictOverBudget();
@@ -279,6 +279,8 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
     const vis = rc.geometry.visibleNotes(rc.notes, rc.viewport, rc.beatDisplay);
     renderNotes(ctx, c, rc, vis);
+    // 选中/hover 叠加层（issue 56）：直渲路径与瓦片路径共用同一描边实现
+    renderSelectionOverlay(ctx, c, rc, vis);
     perf.info({ layerMode: 'direct', visibleNotes: vis.length });
     return;
   }
@@ -333,8 +335,8 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     ctx.drawImage(t.canvas, r.x, r.y, r.w, r.h);
     blitted++;
   }
-  // F1：选中高亮叠加层（瓦片不含选中态，O(选中∩可见) 逐帧绘制，与瓦片 blit 逐像素对齐）
-  if (rc.selectedItems.length > 0) {
+  // F1：选中/hover 叠加层（瓦片不含选中态，O(选中∩可见) 逐帧绘制，与瓦片 blit 逐像素对齐）
+  if (rc.selectedItems.length > 0 || rc.hoverItem) {
     const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
     renderSelectionOverlay(ctx, c, rc, c.getVisibleNotes());
   }
