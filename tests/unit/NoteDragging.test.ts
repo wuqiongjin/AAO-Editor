@@ -273,20 +273,36 @@ describe('itemTrueBeat（issue 61：量化基准取被按住那件对象）', ()
   });
 });
 
-// ───────────────────────── issue 62：方向滑键是"一整组" ─────────────────────────
-describe('方向滑键整组越界（issue 62）', () => {
+// ───────────────────────── issue 62 + issue 66 §4b：方向滑键整组的越界口径 ─────────────────────────
+// issue 62 定"方向键是一整组"（命中/框选/描边都按组）；越界判据则经 issue 66 §4b 修订：
+// **只有根轨必须留在 0..6 内，组尾溢出合法**（与放置链路"允许 lane 6 放 length=3 右方向键"同口径）。
+// 故下面"组尾溢出"的用例由 62 的 expect(非法) 翻转为 expect(合法)，并补"根轨出界才非法"。
+describe('方向滑键整组越界（issue 62 整组 + issue 66 §4b 只判根轨）', () => {
   const dir = (type: 'LDirectional' | 'RDirectional', beat: number, lane: number, length: number): ChartNote =>
     ({ type, beat, lane, subBeat: 0, length } as ChartNote);
 
-  it('length=3 的右方向键：根轨还在界内、组尾溢出即非法（旧实现只判根轨 → 放得出去）', () => {
+  it('右方向键 length=3：根轨在界内即合法，组尾溢出轨道外也允许（§4b）', () => {
     const notes: ChartNote[] = [dir('RDirectional', 1, 3, 3)]; // 占 3/4/5
-    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 1 }, B).ok).toBe(true);   // 占 4/5/6 → 合法
-    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 2 }, B).reason).toBe('out-of-bounds'); // 占 5/6/7
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 1 }, B).ok).toBe(true);   // 根 4 → 占 4/5/6
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 2 }, B).ok).toBe(true);   // 根 5 → 组尾 7 溢出，仍合法
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 3 }, B).ok).toBe(true);   // 根 6 → 组尾 8 溢出，仍合法
   });
 
-  it('左方向键同理判整组（向 -1 溢出即非法）', () => {
+  it('右方向键：根轨本身出界才回弹（组尾不是判据）', () => {
+    const notes: ChartNote[] = [dir('RDirectional', 1, 3, 3)];
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 4 }, B).reason).toBe('out-of-bounds'); // 根 7 出界
+  });
+
+  it('左方向键 length=3：同理，向 -1 溢出合法，根轨出界才非法', () => {
     const notes: ChartNote[] = [dir('LDirectional', 1, 3, 3)]; // 占 3/2/1
-    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -1 }, B).ok).toBe(true);  // 占 2/1/0 → 合法
-    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -2 }, B).reason).toBe('out-of-bounds'); // 占 1/0/-1
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -1 }, B).ok).toBe(true);  // 根 2 → 占 2/1/0
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -2 }, B).ok).toBe(true);  // 根 1 → 组尾 -1 溢出，仍合法
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -3 }, B).ok).toBe(true);  // 根 0 → 组尾 -2 溢出，仍合法
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -4 }, B).reason).toBe('out-of-bounds'); // 根 -1 出界
+  });
+
+  it('单键仍是"自身轨道出界即非法"（只有方向键有组尾豁免）', () => {
+    const notes: ChartNote[] = [single(1, 6)];
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 1 }, B).reason).toBe('out-of-bounds'); // lane 7
   });
 });

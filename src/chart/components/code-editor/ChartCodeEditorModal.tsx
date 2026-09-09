@@ -43,7 +43,8 @@ export default function ChartCodeEditorModal({ target }: Props) {
     const { notes, handleNotesChange, selectedItems } = useEditing();
     const { canPlay, duration, setDuration } = usePlayback();
     const { beatDisplay } = useUI();
-    const { openChartCode, openNoteCode, close } = useChartCodeEditor();
+    // issue 69：面包屑改用 trail（记住的深层）+ navigate（只切视图、不动 trail）
+    const { trail, navigate, close } = useChartCodeEditor();
 
     // 代码文本真实撤销/重做：chartCode 由 textHistory 撤销栈派生（复用 History 纯模块）
     const [textHistory, setTextHistory] = useState<HistoryState<string>>(() => createHistory(""));
@@ -303,7 +304,8 @@ export default function ChartCodeEditorModal({ target }: Props) {
         }
     };
 
-    const title = isChartView ? '谱面代码编辑器' : isNodeView ? '滑条结点代码' : '音符代码';
+    // issue 69：面包屑第 2 档文案 —— trail 是滑条结点 → 其父级为"所属滑条"；trail 是整条音符 → "音符代码"
+    const crumb2Label = trail?.connIndex !== undefined ? '所属滑条' : '音符代码';
     // §2：完整代码视图在选区 ≥2 时给一行非阻断提示（「谱面代码」按钮永远展示完整谱面）
     const showSelectionHint = isChartView && selectedItems.length >= 2;
 
@@ -333,29 +335,52 @@ export default function ChartCodeEditorModal({ target }: Props) {
                     display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
                     backgroundColor: 'var(--bg)',
                 }}>
-                    {/* §6 面包屑：自左向右 = 顶层 → 当前（`完整谱面代码 › 所属滑条 › 滑条结点代码`）。
-                        只向上返回、不下钻；末项是当前视图本身，不是按钮。 */}
-                    {isChartView ? (
-                        <h3 style={{ margin: 0, marginRight: 'auto', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{title}</h3>
-                    ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', marginRight: 'auto' }}>
-                            <button onClick={openChartCode} title="返回完整谱面代码" style={crumbButtonStyle}>完整谱面代码</button>
-                            <span style={crumbSepStyle}>›</span>
-                            {isNodeView ? (
-                                <>
+                    {/* §6 面包屑：自左向右 = 顶层 → 当前（`完整谱面代码 › 所属滑条 › 滑条结点代码`），
+                        **三视图永远显示**（连完整谱面代码视图也有 —— 旧实现那里只有个 <h3> 标题）。
+                        issue 69：档位由 **trail**（记住的深层）决定，而不是由当前视图决定 ——
+                        于是从 node 一路点回 chart 后，面包屑仍保留「所属滑条 / 滑条结点代码」两档，
+                        用户能再点回去（解决"回不去了"）。
+                        · 当前层 = 加粗、不可点（用于"显示出当前在哪个层级"）
+                        · 其余档 = 可点，三层间随意切换
+                        · **不加"‹ 返回"按钮**（用户口径）：切换能力由面包屑项本身承担。 */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', marginRight: 'auto' }}>
+                        {/* 第 1 档：完整谱面代码 */}
+                        {isChartView ? (
+                            <span style={crumbCurrentStyle}>完整谱面代码</span>
+                        ) : (
+                            <button onClick={() => navigate({ kind: 'chart' })} title="完整谱面代码" style={crumbButtonStyle}>完整谱面代码</button>
+                        )}
+                        {/* 第 2 档：本次会话进过深层才有（trail） */}
+                        {trail && (
+                            <>
+                                <span style={crumbSepStyle}>›</span>
+                                {!isChartView && !isNodeView ? (
+                                    <span style={crumbCurrentStyle}>{crumb2Label}</span>
+                                ) : (
                                     <button
-                                        onClick={() => openNoteCode({ noteIndex: target.noteIndex })}
-                                        title="返回所属滑条"
+                                        onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex })}
+                                        title={crumb2Label}
                                         style={crumbButtonStyle}
-                                    >所属滑条</button>
-                                    <span style={crumbSepStyle}>›</span>
+                                    >{crumb2Label}</button>
+                                )}
+                            </>
+                        )}
+                        {/* 第 3 档：trail 是滑条结点时才有 */}
+                        {trail?.connIndex !== undefined && (
+                            <>
+                                <span style={crumbSepStyle}>›</span>
+                                {isNodeView ? (
                                     <span style={crumbCurrentStyle}>滑条结点代码</span>
-                                </>
-                            ) : (
-                                <span style={crumbCurrentStyle}>{title}</span>
-                            )}
-                        </div>
-                    )}
+                                ) : (
+                                    <button
+                                        onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex, connIndex: trail.connIndex })}
+                                        title="滑条结点代码"
+                                        style={crumbButtonStyle}
+                                    >滑条结点代码</button>
+                                )}
+                            </>
+                        )}
+                    </div>
                     <button
                         onClick={requestClose}
                         title="关闭"

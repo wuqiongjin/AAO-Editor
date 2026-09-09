@@ -240,7 +240,7 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
 
     if (note.type === 'BPM') {
       // Q45：完整框选入选 → 整条线改浅黄 + 加粗（细线描边不明显）。
-      // Q14=A：BPM 线左键单击在所有态下都无效果 → **不参与 hover 反馈**（C5 的删除态情形是同一理由），
+      // Q14=A：BPM 线左键单击在所有态下都无效果 → **不参与鼠标 hover 反馈**（C5 的删除态情形是同一理由），
       // 否则"整条亮起却点不动"是误导。BPM 的三条通路 = 框选 / 右键删除 / 沟槽数字就地编辑。
       if (!whole) continue;
       const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
@@ -255,7 +255,9 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       const cfg = singleIconConfig(rc, note);
       const w = (cfg.out?.w ?? NOTE_ICON_SIZE) * s;
       const h = (cfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE) * s;
-      emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode }));
+      // issue 66 §2：与 Slide 结点/段同口径走 **compact** —— 不外扩、不画暗底，亮面贴 ink 边。
+      // 旧的"外扩 outset + 暗底 halo"会盖住紧邻的其它音符（用户复报的"一圈遮罩"），全类型统一消除。
+      emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode, compact: true }));
       continue;
     }
 
@@ -286,7 +288,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         if (chevCx + chevHalfW > maxX) maxX = chevCx + chevHalfW;
       }
       const w = maxX - minX;
-      emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: minX, y: p.y - h / 2, w, h, mode }));
+      // issue 66 §2：方向键同样走 compact（同单键）——整组最小外接矩形不外扩、不画暗底。
+      emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: minX, y: p.y - h / 2, w, h, mode, compact: true }));
       continue;
     }
 

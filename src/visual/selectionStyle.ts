@@ -18,19 +18,26 @@ export const SELECTION_COLORS = {
 /**
  * 描边几何。单位 = **设计 px**，实际像素 = 本值 × spriteScale
  * （spriteScale = viewport.scale × noteSize）→ 描边随音符大小缩放、永远贴合外边缘（A5）。
+ *
+ * ⚠️ issue 66 §2（用户 2026-09-09 拍板）：**所有音符类型一律走 compact** =
+ * 不外扩（`outset`/`hoverOutset` 不生效）+ 不画暗底（`darkBand`/`dark` 不生效），
+ * 亮面直接贴 ink 边 —— 消除"选中 halo 盖住紧邻音符"的遮罩问题（与 Slide 结点/段同口径）。
+ * 故下面 `outset` / `hoverOutset` / `darkBand` **目前无消费点**（保留常量，
+ * 仅当某类型显式 `compact: false` 时才重新生效）；选中↔hover 的可辨性改由
+ * **线宽**（`hoverLineWidth` > `lineWidth`）+ α（0.85 vs 1）承担。
  */
 export const SELECTION_OUTLINE = {
   /** 选中亮面线宽（下限 1 屏幕 px：极小 noteSize 下仍可见） */
   lineWidth: 2,
   /** hover / 危险描边线宽：比选中更粗一档（用户 2026-09-09 反馈：要与删除红明显区分） */
   hoverLineWidth: 3,
-  /** 暗底相对亮面的单侧外扩 */
+  /** 暗底相对亮面的单侧外扩（目前无消费点：全类型 compact，见上） */
   darkBand: 1.5,
   /** 圆角半径 */
   radius: 4,
-  /** 描边相对 ink 矩形的外扩（选中/hover 基准） */
+  /** 描边相对 ink 矩形的外扩（选中/hover 基准；目前无消费点：全类型 compact，见上） */
   outset: 2,
-  /** hover / 危险描边的附加外扩：与真实选中叠加时形成外圈，两者可辨（Q11） */
+  /** hover / 危险描边的附加外扩：与真实选中叠加时形成外圈，两者可辨（Q11；目前无消费点） */
   hoverOutset: 2,
   /** 真实选中 α（暗底自身带 0.45 不透明度） */
   selectedAlpha: 1,

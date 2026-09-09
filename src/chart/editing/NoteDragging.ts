@@ -5,7 +5,7 @@
 // 键音符↔键音符 = §1.1 替换；滑条端点→键音符 = 覆盖删除（removeOverlappedNotes 同语义）。
 // 无就地变异：受影响音符构造新对象，其余复用原引用（ADR-0001 §4 结构共享）。
 import type { ChartNote, SelectionItem, SlideNote, LongNote } from '../types';
-import { directionalLanes, quantizeBeat } from '../geometry/ChartGeometry';
+import { quantizeBeat } from '../geometry/ChartGeometry';
 import { mergeChainWithSlides } from './SlideCombination';
 
 /**
@@ -158,12 +158,11 @@ export function planDragMove(
     if (isKey(n)) {
       const beat = n.beat + delta.dBeat;
       const lane = n.lane + delta.dLane;
-      // issue 62：方向键是整组，落点必须**所有占用轨道**都在轨道内（旧实现只校验根轨 →
-      // length=3 的右方向键能被拖到溢出轨道右缘）
-      const lanes = n.type === 'Single'
-        ? [lane]
-        : directionalLanes(lane, n.type, n.length);
-      if (!lanes.every(inLane) || !inBeat(beat, n.subBeat || 0)) return fail('out-of-bounds');
+      // issue 66 §4b：方向键是整组，但**只有根轨必须留在 0..6 内**——组尾溢出视觉合法
+      // （放置链路口径已经允许在 lane 6 放 length=3 的右方向键让组尾溢出右侧）；
+      // 拖拽落点保留同一口径：根轨在界内即合法，组尾越界照实落点、不回弹。
+      // 单键还是只占一根 = `lanes = [lane]`，越界即非法。
+      if (!inLane(lane) || !inBeat(beat, n.subBeat || 0)) return fail('out-of-bounds');
       moved.set(i, { ...n, beat, lane });
     } else if (isSlideish(n)) {
       const conns = n.connections.map((c, ci) =>

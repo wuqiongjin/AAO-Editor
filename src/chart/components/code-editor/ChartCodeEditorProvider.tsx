@@ -12,11 +12,26 @@ export type CodeEditorTarget = { kind: 'chart' } | ({ kind: 'note' } & NoteCodeT
 
 export interface ChartCodeEditorContextValue {
   target: CodeEditorTarget | null;
-  /** 打开完整谱面代码（永远不看选区，§2） */
+  /**
+   * issue 69：最近一次**从画布进入**的深层对象（面包屑"回得去"的依据）。
+   * null = 本次会话还没进过深层 → 面包屑只显示"完整谱面代码"一档。
+   *
+   * 为什么需要它：面包屑只能向上（chart ← note ← node），若不记住去过的深层，
+   * 用户从 node 一路点回 chart 后，画面上就没有任何能回到 note/node 的入口
+   * —— 正是用户复报的"回不去了"。
+   */
+  trail: NoteCodeTarget | null;
+  /** 打开完整谱面代码（外部入口：工具栏按钮；视为新会话 → 清空 trail） */
   openChartCode: () => void;
-  /** 打开某个音符 / 滑条结点的代码（§4 三种初值，slideRegion 由调用方回退成整条） */
+  /** 打开某个音符 / 滑条结点的代码（外部入口：画布点击 / 音符代码工具 / Ctrl+B）；记录 trail */
   openNoteCode: (target: NoteCodeTarget) => void;
-  /** 关闭弹窗 */
+  /**
+   * **面包屑内部导航**：只切当前视图，**不动 trail**。
+   * 必须用这个方法而不是 openNoteCode —— 否则从结点点"所属滑条"会把 trail 的
+   * connIndex 抹掉，用户就再也点不回那个结点了（trail 的意义正是"记住最深那次"）。
+   */
+  navigate: (target: CodeEditorTarget) => void;
+  /** 关闭弹窗（会话结束 → 一并清空 trail） */
   close: () => void;
 }
 
@@ -24,12 +39,17 @@ const ChartCodeEditorContext = createContext<ChartCodeEditorContextValue | null>
 
 export function ChartCodeEditorProvider({ children }: { children: ReactNode }) {
   const [target, setTarget] = useState<CodeEditorTarget | null>(null);
-  const openChartCode = useCallback(() => setTarget({ kind: 'chart' }), []);
-  const openNoteCode = useCallback((t: NoteCodeTarget) => setTarget({ kind: 'note', ...t }), []);
-  const close = useCallback(() => setTarget(null), []);
+  // issue 69：最近一次从画布进入的深层对象（面包屑"回得去"的依据）
+  const [trail, setTrail] = useState<NoteCodeTarget | null>(null);
+  // 外部入口 = 新会话起点：工具栏「谱面代码」按钮清空 trail，画布点音符则记录 trail
+  const openChartCode = useCallback(() => { setTrail(null); setTarget({ kind: 'chart' }); }, []);
+  const openNoteCode = useCallback((t: NoteCodeTarget) => { setTrail(t); setTarget({ kind: 'note', ...t }); }, []);
+  // 面包屑内部导航：只切视图，trail 原样保留（保住"能点回最深层"）
+  const navigate = useCallback((t: CodeEditorTarget) => setTarget(t), []);
+  const close = useCallback(() => { setTarget(null); setTrail(null); }, []);
   const value = useMemo(
-    () => ({ target, openChartCode, openNoteCode, close }),
-    [target, openChartCode, openNoteCode, close],
+    () => ({ target, trail, openChartCode, openNoteCode, navigate, close }),
+    [target, trail, openChartCode, openNoteCode, navigate, close],
   );
 
   return (

@@ -202,20 +202,34 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     return this.beatToVirtualY(preciseBeat, scale);
   }
 
-  /** 画布坐标 → lane/beat（用于命中与圈选）；轨道外/负拍返回 null。
+  /**
+   * 画布坐标 → lane/beat（用于命中与圈选）；负拍返回 null。
    *  `preciseBeat` = 吸附到当前 `beatDisplay` 网格后的拍位；`rawBeat` = **未量化**拍位
-   *  （拖拽需要它做"抓取偏移"，见 issue 61：量化对象必须是被拖对象的落点，不是光标）。 */
-  laneBeatFromCanvas(cx: number, cy: number, viewport: GeometryViewport, beatDisplay: number): { lane: number; preciseBeat: number; rawBeat: number } | null {
+   *  （拖拽需要它做"抓取偏移"，见 issue 61：量化对象必须是被拖对象的落点，不是光标）。
+   *
+   * @param allowOutsideLane 默认 false = **轨道外 lane 返回 null**（放置语义：不能往轨道外落子）。
+   *   issue 66 §4a：方向滑键的组尾本就可以合法溢出到轨道外（视觉可见、点选/框选都命中），
+   *   但拖拽起手若按在那截上，旧实现因 lane 越界返回 null → 建不了拖拽锚点 → 变成框选（拖不动）。
+   *   拖拽路径传 `true`：`lane` 允许越界（照实返回越界轨号），`beat` 范围校验**始终保留**
+   *   （不能拖到负拍 / 谱面末端之外）。越界 lane 只用于算相对位移 `dLane = cur.lane - pressLane`，
+   *   落点是否真的越界由 `planDragMove` 按"根轨在界内即合法"裁决（§4b）。
+   */
+  laneBeatFromCanvas(
+    cx: number,
+    cy: number,
+    viewport: GeometryViewport,
+    beatDisplay: number,
+    allowOutsideLane = false,
+  ): { lane: number; preciseBeat: number; rawBeat: number } | null {
     const { trackBgX } = this.trackGeometry(viewport.scale);
     const es = this.effectiveScale(viewport.scale);
     const relativeX = cx - trackBgX;
     const lane = Math.floor(relativeX / (LANE_WIDTH * es));
     const virtualY = viewport.scrollY + cy / es;
     const beat = this.virtualYToBeat(virtualY, viewport.scale);
-    if (lane >= 0 && lane < LANES && beat >= 0) {
-      return { lane, preciseBeat: quantizeBeat(beat, beatDisplay), rawBeat: beat };
-    }
-    return null;
+    if (beat < 0) return null;
+    if (!allowOutsideLane && (lane < 0 || lane >= LANES)) return null;
+    return { lane, preciseBeat: quantizeBeat(beat, beatDisplay), rawBeat: beat };
   }
 
   /** 排序索引缓存（issue 10 性能）：见 ensureNoteIndex */

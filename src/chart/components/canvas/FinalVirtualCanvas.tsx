@@ -255,12 +255,18 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const virtualYToBeat = (virtualY: number) => geometry.virtualYToBeat(virtualY, viewport.scale);
     const virtualToCanvas = (virtualX: number, virtualY: number) => geometry.virtualToCanvas(virtualX, virtualY, viewport);
     const canvasToVirtual = (canvasX: number, canvasY: number) => geometry.canvasToVirtual(canvasX, canvasY, viewport);
-    const getLaneBeatFromCanvas = (cx: number, cy: number) => geometry.laneBeatFromCanvas(cx, cy, viewport, beatDisplay);
+    const getLaneBeatFromCanvas = (cx: number, cy: number, allowOutsideLane = false) =>
+        geometry.laneBeatFromCanvas(cx, cy, viewport, beatDisplay, allowOutsideLane);
 
     /** 放置/执行的合法落点：轨道内 ∧ beat≥0 ∧ 不超谱面末端（ADR-0005 §5）；非法 → null（§1"该位置非法则无事发生"）。
-     *  `rawBeat` = 未量化拍位，只有拖拽用（issue 61），放置一律吃量化后的 `beat`。 */
-    const snapPos = (cx: number, cy: number): { beat: number; lane: number; rawBeat: number } | null => {
-        const pos = getLaneBeatFromCanvas(cx, cy);
+     *  `rawBeat` = 未量化拍位，只有拖拽用（issue 61），放置一律吃量化后的 `beat`。
+     *
+     * @param allowOutsideLane 仅**拖拽**路径传 true（issue 66 §4a）：方向滑键组尾可合法溢出到轨道外，
+     *   按在那截上也要能起拖 —— 否则 lane 越界 → null → 建不了拖拽锚点 → 手势退化成框选。
+     *   越界 lane 只参与 `dLane = cur.lane − pressLane` 的相对位移，落点是否合法由
+     *   `planDragMove` 按"根轨在界内即合法"（§4b）裁决；beat 范围校验始终保留。 */
+    const snapPos = (cx: number, cy: number, allowOutsideLane = false): { beat: number; lane: number; rawBeat: number } | null => {
+        const pos = getLaneBeatFromCanvas(cx, cy, allowOutsideLane);
         if (!pos) return null;
         if (pos.preciseBeat > chartEndBeat + 1e-6) return null;
         return { beat: pos.preciseBeat, lane: pos.lane, rawBeat: pos.rawBeat };
@@ -416,7 +422,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const source = inSelection && selectedItems.length >= 2 ? selectedItems : [hit];
         const items = draggableFromItems(notes, source);
         if (items.length === 0) return; // BPM/System/区域等非可拖对象 → 退回框选
-        const p = snapPos(cx, cy);
+        // issue 66 §4a：允许轨道外起手（方向滑键组尾溢出那截），否则 lane 越界 → 建不了锚点 → 退化成框选
+        const p = snapPos(cx, cy, true);
         if (!p) return;
         // issue 61：量化基准取**被按住那件对象**的真实拍位（按到滑条区域等不可拖条目时回退集合首件）
         const anchor = items.some(it => sameSelectionItem(it, hit)) ? hit : items[0]!;
@@ -477,7 +484,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
      *  issue 61：拍位分量改由 `dragDeltaBeat` 算——量化**对象的落点**，不是"光标吸附拍位差"。 */
     const dragDelta = (mx: number, my: number, drag = dragRef.current): DragDelta | null => {
         if (!drag) return null;
-        const cur = snapPos(mx, my);
+        // issue 66 §4a：拖拽中光标移到轨道外也能继续算位移（落点是否合法由 planDragMove 按根轨裁决）
+        const cur = snapPos(mx, my, true);
         if (!cur) return null;
         return {
             dBeat: dragDeltaBeat({

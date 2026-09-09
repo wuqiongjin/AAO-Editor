@@ -195,14 +195,17 @@ describe('选中描边形态（issue 56 a）', () => {
     expect((out[0]! as { compact?: boolean }).compact).toBe(true);
   });
 
-  it('单键/方向键矩形 ≠ compact（保持外圈 + 暗底的视觉强调）', () => {
+  // issue 66 §2（用户 2026-09-09 拍板）：单键/方向键**也**走 compact（与 Slide 结点/段同口径）——
+  // 旧的"外扩 outset + 暗底 halo"会盖住紧邻的其它音符（用户复报的"一圈遮罩"）。
+  // 本用例由 56 的「≠ compact」翻转为「= compact」，锁住"全类型统一无遮罩"这个不变量。
+  it('单键/方向键矩形 = compact（同 Slide：不外扩、无暗底，消除遮罩）', () => {
     const single = { type: 'Single', lane: 2, beat: 50, subBeat: 0 } as ChartNote;
     const sOut = outlinesOf({ notes: [single], select: [{ kind: 'note', noteIndex: 0 }] });
-    expect((sOut[0] as { compact?: boolean }).compact).toBeUndefined();
+    expect((sOut[0] as { compact?: boolean }).compact).toBe(true);
 
     const dir = { type: 'LDirectional', lane: 2, beat: 50, subBeat: 0, length: 2 } as ChartNote;
     const dOut = outlinesOf({ notes: [dir], select: [{ kind: 'note', noteIndex: 0 }] });
-    expect((dOut[0] as { compact?: boolean }).compact).toBeUndefined();
+    expect((dOut[0] as { compact?: boolean }).compact).toBe(true);
   });
 
   it('BPM 选中 = 整条横线改色（Q45）', () => {
