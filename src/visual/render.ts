@@ -177,8 +177,8 @@ export type SelectionOutlineMode = 'selected' | 'hover' | 'danger';
 
 /** 一条描边图形：ink 圆角矩形 / 滑条段的平行四边形 / BPM 整条横线 */
 export type SelectionOutline =
-  | { shape: 'rect'; x: number; y: number; w: number; h: number; mode: SelectionOutlineMode }
-  | { shape: 'quad'; points: [number, number][]; mode: SelectionOutlineMode }
+  | { shape: 'rect'; x: number; y: number; w: number; h: number; mode: SelectionOutlineMode; compact?: boolean }
+  | { shape: 'quad'; points: [number, number][]; mode: SelectionOutlineMode; compact?: boolean }
   | { shape: 'line'; x1: number; y1: number; x2: number; y2: number; mode: SelectionOutlineMode };
 
 /** 单键主精灵选款（与 renderNotes 同口径：描边贴合实际绘制的那枚墨迹） */
@@ -263,14 +263,26 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       const group = rc.noteIcons.dirGroup(isLeft ? 'L' : 'R', len);
       // 本体精灵框内左右有透明留白 → 用构建期实测墨迹（dirInk，与同时点击线同一口径）收紧到可见墨迹
       const ink = rc.noteIcons.dirInk(isLeft ? 'L' : 'R');
-      const w = DIRECTIONAL_ICON_SIZE * (ink.w > 0 ? Math.max(0, (ink.w - ink.inkLeft - ink.inkRight) / ink.w) : 1) * s;
+      const bodyW = DIRECTIONAL_ICON_SIZE * (ink.w > 0 ? Math.max(0, (ink.w - ink.inkLeft - ink.inkRight) / ink.w) : 1) * s;
       const inkCenterOffset = DIRECTIONAL_ICON_SIZE * (ink.w > 0 ? (ink.inkLeft - ink.inkRight) / 2 / ink.w : 0) * s;
       const h = DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE * s;
-      // A4：每条本体各一个矩形（箭头不描）
-      for (const b of group.bodies) {
-        const cx = p.x + b.offsetVirtualX * rc.viewport.scale + inkCenterOffset;
-        emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: cx - w / 2, y: p.y - h / 2, w, h, mode }));
+      // 方向键 = **一个整体矩形**（用户 2026-09-09）：所有本体 + 最外侧箭头 围成的最小外接矩形
+      // 原 A4「每条本体各一个矩形」改为整体 —— 多段分开的环不像一个连体滑键。
+      const bodyCenters = group.bodies.map(b => p.x + b.offsetVirtualX * rc.viewport.scale + inkCenterOffset);
+      let minX = Infinity, maxX = -Infinity;
+      for (const cx of bodyCenters) {
+        if (cx - bodyW / 2 < minX) minX = cx - bodyW / 2;
+        if (cx + bodyW / 2 > maxX) maxX = cx + bodyW / 2;
       }
+      if (group.chevron) {
+        const cv = group.chevron;
+        const chevCx = p.x + cv.offsetVirtualX * rc.viewport.scale + cv.extraDesignX * s;
+        const chevHalfW = cv.drawW * s / 2;
+        if (chevCx - chevHalfW < minX) minX = chevCx - chevHalfW;
+        if (chevCx + chevHalfW > maxX) maxX = chevCx + chevHalfW;
+      }
+      const w = maxX - minX;
+      emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: minX, y: p.y - h / 2, w, h, mode }));
       continue;
     }
 
@@ -289,7 +301,9 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         const cfg = slideNodeIconConfig(rc, conn, ci === 0, ci === conns.length - 1);
         const w = (cfg.out?.w ?? SLIDE_ICON_SIZE) * s;
         const h = (cfg.out?.h ?? SLIDE_ICON_SIZE * SLIDE_HEIGHT_SCALE) * s;
-        emit(inSel, isHoverPart, (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode }));
+        // 滑条结点紧贴连接带：选中外圈（暗底 + outset）会盖住带子造成"段被截断"的观感（用户 2026-09-09）
+        // → 结点矩形用 compact：不外扩、不画暗底，亮面贴 ink 边即可，带子自由穿过。
+        emit(inSel, isHoverPart, (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode, compact: true }));
       });
       // 段带宽与连接带同宽（× noteSize，A5）
       const half = (LANE_WIDTH * rc.viewport.scale * ns) / 2;
@@ -307,7 +321,10 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         const points: [number, number][] = [
           [p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y],
         ];
-        emit(inSel, isHoverPart, (mode) => out.push({ shape: 'quad', points, mode }));
+        // 段（连接带）的描边 = compact（用户 2026-09-09 二轮反馈）：不外扩、不画暗底，
+        // 亮面贴平行四边形边即可，避免外圈盖住带子造成"段被截断"的观感。
+        // 段与结点同款：所有"贴在带子上"的描边都用 compact 让带子自由穿过。
+        emit(inSel, isHoverPart, (mode) => out.push({ shape: 'quad', points, mode, compact: true }));
       }
     }
   }
@@ -393,10 +410,12 @@ export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords,
   ctx.lineJoin = 'round';
   for (const o of outlines) {
     const width = o.shape === 'line' ? bpmLw : (o.mode === 'selected' ? lw : hoverLw);
-    const outset = o.mode === 'selected' ? selectedOutset : hoverOutset;
-    // 暗底：只给真实选中（Q11：hover 只画亮面）；BPM 线无外圈。
+    // compact（滑条结点/段）不外扩、不画暗底：避免外圈压住紧邻的连接带
+    const compact = (o.shape === 'rect' || o.shape === 'quad') && o.compact === true;
+    const outset = compact ? 0 : (o.mode === 'selected' ? selectedOutset : hoverOutset);
+    // 暗底：只给真实选中（Q11：hover 只画亮面）；BPM 线无外圈；compact 跳过。
     // 暗底画在**更外侧**的路径上（外扩 +darkBand）→ 内缘与亮面内缘齐平，暗色整圈落在音符外，不压墨迹。
-    if (o.mode === 'selected' && o.shape !== 'line') {
+    if (o.mode === 'selected' && o.shape !== 'line' && !compact) {
       ctx.globalAlpha = SELECTION_OUTLINE.selectedAlpha;
       ctx.strokeStyle = SELECTION_COLORS.dark;
       ctx.lineWidth = darkLw;

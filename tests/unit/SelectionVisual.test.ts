@@ -100,20 +100,24 @@ describe('选中描边形态（issue 56 a）', () => {
     expect(big.h).toBeCloseTo(a.h * 2, 6);
   });
 
-  it('方向键 = 每条本体各一个墨迹矩形（A4：length=2 → 2 个矩形；箭头不描）', () => {
-    const note = { type: 'LDirectional', lane: 2, beat: 50, subBeat: 0, length: 2 } as ChartNote;
-    const out = outlinesOf({ notes: [note], select: [{ kind: 'note', noteIndex: 0 }] });
-    expect(out).toHaveLength(2);
-    // 本体精灵框左右有透明留白 → 描边收紧到实测墨迹（dirInk）
-    const ink = ICONS.dirInk('L');
-    const inkW = DIRECTIONAL_ICON_SIZE * ((ink.w - ink.inkLeft - ink.inkRight) / ink.w);
-    for (const o of out) {
+  it('方向键 = 整体一个矩形（用户 2026-09-09：覆盖所有本体 + 最外侧箭头）', () => {
+    for (const len of [1, 2, 3]) {
+      const note = { type: 'LDirectional', lane: 2, beat: 50, subBeat: 0, length: len } as ChartNote;
+      const out = outlinesOf({ notes: [note], select: [{ kind: 'note', noteIndex: 0 }] });
+      expect(out).toHaveLength(1);
+      const o = out[0]!;
       expect(o.shape).toBe('rect');
-      expect((o as { w: number }).w).toBeCloseTo(inkW, 6);
+      // 高度 = 单本体墨迹高度（与画布实绘一致）
       expect((o as { h: number }).h).toBeCloseTo(DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE, 6);
+      // 宽度 ≥ 单本体墨迹宽，length 越大宽度越大
+      const ink = ICONS.dirInk('L');
+      const singleBodyW = DIRECTIONAL_ICON_SIZE * ((ink.w - ink.inkLeft - ink.inkRight) / ink.w);
+      expect((o as { w: number }).w).toBeGreaterThan(singleBodyW * 0.9);
+      if (len >= 2) {
+        // length=2/3 至少多覆盖一格 LANE_WIDTH
+        expect((o as { w: number }).w).toBeGreaterThan(singleBodyW + 30 * 0.5);
+      }
     }
-    // 两条本体按轨道间距排开
-    expect((out[1] as { x: number }).x).not.toBeCloseTo((out[0] as { x: number }).x, 3);
   });
 
   it('整条滑条选中 = 逐子部分并集（3 结点 → 2 rect + 2 quad... 即 3 rect + 2 quad）', () => {
@@ -170,6 +174,35 @@ describe('选中描边形态（issue 56 a）', () => {
     const out = outlinesOf({ notes, select: [{ kind: 'note', noteIndex: 0 }] });
     expect(out.filter(o => o.shape === 'rect')).toHaveLength(2); // 3 结点 - 1 hidden
     expect(out.filter(o => o.shape === 'quad')).toHaveLength(2); // 段照常
+  });
+
+  it('滑条结点矩形 = compact（用户 2026-09-09：避免外圈压住连接带）', () => {
+    const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12 }, { lane: 6, beat: 14 }])];
+    const out = outlinesOf({ notes, select: [{ kind: 'note', noteIndex: 0 }] });
+    // 3 个结点的 rect + 2 个段 quad 都标 compact=true（与连接带同款的描边都贴边、不外扩）
+    const nodeRects = out.filter(o => o.shape === 'rect') as Array<{ compact?: boolean }>;
+    const regionQuads = out.filter(o => o.shape === 'quad') as Array<{ compact?: boolean }>;
+    for (const r of nodeRects) expect(r.compact).toBe(true);
+    for (const q of regionQuads) expect(q.compact).toBe(true);
+  });
+
+  it('段被框选入选后仍按选中态绘制（compact 但 mode=selected）', () => {
+    const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12 }])];
+    const out = outlinesOf({ notes, select: [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }] });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.shape).toBe('quad');
+    expect(out[0]!.mode).toBe('selected');
+    expect((out[0]! as { compact?: boolean }).compact).toBe(true);
+  });
+
+  it('单键/方向键矩形 ≠ compact（保持外圈 + 暗底的视觉强调）', () => {
+    const single = { type: 'Single', lane: 2, beat: 50, subBeat: 0 } as ChartNote;
+    const sOut = outlinesOf({ notes: [single], select: [{ kind: 'note', noteIndex: 0 }] });
+    expect((sOut[0] as { compact?: boolean }).compact).toBeUndefined();
+
+    const dir = { type: 'LDirectional', lane: 2, beat: 50, subBeat: 0, length: 2 } as ChartNote;
+    const dOut = outlinesOf({ notes: [dir], select: [{ kind: 'note', noteIndex: 0 }] });
+    expect((dOut[0] as { compact?: boolean }).compact).toBeUndefined();
   });
 
   it('BPM 选中 = 整条横线改色（Q45）', () => {
