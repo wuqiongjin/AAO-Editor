@@ -309,10 +309,13 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       const half = (LANE_WIDTH * rc.viewport.scale * ns) / 2;
       for (let ci = 0; ci < conns.length - 1; ci++) {
         const inSel = whole || regions?.has(ci) === true;
-        // 段（连接带）不是可点对象 → **只在删除工具下给 hover 反馈**（拆条语义需要"这一段会被拆"的预告）；
-        // 其余工具态段完全不参与 hover，只有真正的结点有（用户 2026-09-09）。
+        // 段（连接带）默认不是可点对象 → 只在**会对它表态的工具**下给 hover 反馈：
+        //   ① 删除工具：拆条语义需要"这一段会被拆"的预告（用户 2026-09-09）；
+        //   ② 音符代码工具：点段会打开所属滑条的代码视图（§4 回退整条），段同样是"点得动"的目标。
+        // 其余工具态段完全不参与 hover，只有真正的结点有。
         // 段被框选入选时照常按选中态绘制（inSel 分支，不受此限）。
-        const isHoverPart = dangerTool && hv?.kind === 'slideRegion' && hv.connIndex === ci;
+        const isHoverPart = (dangerTool || rc.armedTool === 'noteCode')
+            && hv?.kind === 'slideRegion' && hv.connIndex === ci;
         if (!inSel && !isHoverPart) continue;
         const c1 = conns[ci], c2 = conns[ci + 1];
         const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));

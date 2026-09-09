@@ -135,6 +135,26 @@ export function getDefaultConfig(): ShortcutConfig {
 
 const STORAGE_KEY = 'bangdream.shortcuts.v1';
 
+/**
+ * 旧存档修复（issue 59）：功能表会随版本增删，旧存档里某个功能占着的键位可能与**新功能**的默认键撞车。
+ * 撞车会让 `buildBindingIndex` 静默丢一个（后写的赢），表现为"按键跑到了别的功上"——
+ * 例如 `Ctrl+B` 原是「侧栏折叠」默认键，issue 59 起归「执行-音符代码」，
+ * 而旧存档里 `toggleSidebar` 仍是 `ctrl+b`（与"从未改过"无法区分），于是 Ctrl+B 仍然折叠侧栏。
+ *
+ * 规则：只修**默认值被后来者接管**的那一种——持久化值 == 被接管前的旧默认键时，回落到新默认。
+ * 用户真正改过的键位（≠ 旧默认）一律保留。
+ */
+const SUPERSEDED_DEFAULTS: Partial<Record<FunctionId, { old: string; current: string }>> = {
+  toggleSidebar: { old: 'ctrl+b', current: functionById('toggleSidebar').binding },
+};
+
+function repairStaleBindings(cfg: ShortcutConfig): ShortcutConfig {
+  for (const [id, rule] of Object.entries(SUPERSEDED_DEFAULTS) as [FunctionId, { old: string; current: string }][]) {
+    if (cfg[id] === rule.old) cfg[id] = rule.current;
+  }
+  return cfg;
+}
+
 /** 从 localStorage 加载配置；无或损坏则返回默认 */
 export function loadConfig(storage: Pick<Storage, 'getItem'> = localStorage): ShortcutConfig {
   const defaults = getDefaultConfig();
@@ -148,7 +168,7 @@ export function loadConfig(storage: Pick<Storage, 'getItem'> = localStorage): Sh
       if (v === null) cfg[f.id] = null; // 显式屏蔽
       else if (typeof v === 'string') cfg[f.id] = v.toLowerCase();
     }
-    return cfg;
+    return repairStaleBindings(cfg);
   } catch {
     return defaults;
   }

@@ -103,6 +103,20 @@ describe('冲突检测', () => {
     expect(cfg.switchSingle).toBeNull();
   });
 
+  // issue 59：旧存档里 toggleSidebar 仍是旧默认 ctrl+b（已被「执行-音符代码」接管）→ 必须修回 Ctrl+Shift+B
+  it('loadConfig 修复被接管的旧默认键（Ctrl+B 归还给执行-音符代码）', () => {
+    const cfg = loadConfig({ getItem: () => JSON.stringify({ toggleSidebar: 'ctrl+b' }) });
+    expect(cfg.toggleSidebar).toBe('ctrl+shift+b');
+    expect(cfg.execNoteCode).toBe('ctrl+b');
+    // 修复后不得再有撞键
+    expect(buildBindingIndex(cfg).size).toBe(Object.keys(cfg).length);
+  });
+
+  it('用户真正改过的 toggleSidebar 键位不受修复影响', () => {
+    const cfg = loadConfig({ getItem: () => JSON.stringify({ toggleSidebar: 'ctrl+alt+s' }) });
+    expect(cfg.toggleSidebar).toBe('ctrl+alt+s');
+  });
+
   it('bindingTakenByOther 返回占用方', () => {
     const cfg = getDefaultConfig();
     expect(bindingTakenByOther(cfg, 'execSingle', 'f')).toBe('switchSingle');

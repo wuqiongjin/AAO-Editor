@@ -11,7 +11,7 @@
 // 文本变换逻辑下沉到 editing/CodeEditorOps（纯函数，可单测）。
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Copy, RotateCcw, RefreshCw, X, ChevronLeft } from "lucide-react";
+import { Copy, RotateCcw, RefreshCw, X } from "lucide-react";
 import {
     convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCodeJSON,
     formatValidationError, convertChartCodeToNotes, hasBeat0Bpm,
@@ -107,35 +107,29 @@ export default function ChartCodeEditorModal({ target }: Props) {
         return chartCodeToJSON(defaultCode);
     };
 
-    // 关闭弹窗：有未应用草稿时确认（丢弃后关闭），否则直接关闭
-    const requestCloseAll = () => {
+    // 关闭弹窗：有未应用草稿时确认（丢弃后关闭），否则直接关闭。
+    // 同时就是 Esc 的语义 —— 对象视图**不再逐档退**（用户 2026-09-09 定案）：
+    // 无论停在完整代码 / 整条音符 / 滑条结点哪一级，Esc 都是直接关弹窗；
+    // 向上看走面包屑（`完整谱面代码 › 所属滑条 › 滑条结点代码`）上的按钮。
+    const requestClose = () => {
         if (isDirty && !window.confirm('谱面代码有未应用的更改，关闭将丢弃这些更改，确定关闭？')) {
             return;
         }
         close();
     };
 
-    // §6 Esc 逐档退：结点视图 → 滑条视图 → 完整代码 → 关弹窗（先到先吃、只吃一档）
-    const requestStepBack = () => {
-        if (isDirty && !window.confirm('有未应用的更改，返回上一级将丢弃这些更改，确定继续？')) return;
-        if (target.kind === 'note' && target.connIndex !== undefined) {
-            openNoteCode({ noteIndex: target.noteIndex });
-            return;
-        }
-        if (target.kind === 'note') { openChartCode(); return; }
-        close();
-    };
-
     // 弹窗打开期间接管 Esc（issue 57 bug3）：不让后面的左右侧栏折叠吃到。
     // window 捕获阶段监听、先于 useShortcutDispatch 的冒泡监听，stopPropagation 直接截断全局链路。
-    const requestStepBackRef = useRef(requestStepBack);
-    requestStepBackRef.current = requestStepBack;
+    const requestCloseRef = useRef(requestClose);
+    requestCloseRef.current = requestClose;
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
+            // 忽略长按的自动重复（连发会连吃多档）
+            if (e.repeat) return;
             e.preventDefault();
             e.stopPropagation();
-            requestStepBackRef.current();
+            requestCloseRef.current();
         };
         window.addEventListener('keydown', onKeyDown, true);
         return () => window.removeEventListener('keydown', onKeyDown, true);
@@ -320,7 +314,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
                 backgroundColor: 'rgba(0,0,0,0.4)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
-            onMouseDown={requestCloseAll}
+            onMouseDown={requestClose}
         >
             <div
                 onMouseDown={(e) => e.stopPropagation()}
@@ -339,25 +333,31 @@ export default function ChartCodeEditorModal({ target }: Props) {
                     display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
                     backgroundColor: 'var(--bg)',
                 }}>
-                    {!isChartView && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-                            {isNodeView && (
-                                <button
-                                    onClick={() => openNoteCode({ noteIndex: target.noteIndex })}
-                                    title="返回所属滑条"
-                                    style={crumbButtonStyle}
-                                ><ChevronLeft size={14} />所属滑条</button>
+                    {/* §6 面包屑：自左向右 = 顶层 → 当前（`完整谱面代码 › 所属滑条 › 滑条结点代码`）。
+                        只向上返回、不下钻；末项是当前视图本身，不是按钮。 */}
+                    {isChartView ? (
+                        <h3 style={{ margin: 0, marginRight: 'auto', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{title}</h3>
+                    ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', marginRight: 'auto' }}>
+                            <button onClick={openChartCode} title="返回完整谱面代码" style={crumbButtonStyle}>完整谱面代码</button>
+                            <span style={crumbSepStyle}>›</span>
+                            {isNodeView ? (
+                                <>
+                                    <button
+                                        onClick={() => openNoteCode({ noteIndex: target.noteIndex })}
+                                        title="返回所属滑条"
+                                        style={crumbButtonStyle}
+                                    >所属滑条</button>
+                                    <span style={crumbSepStyle}>›</span>
+                                    <span style={crumbCurrentStyle}>滑条结点代码</span>
+                                </>
+                            ) : (
+                                <span style={crumbCurrentStyle}>{title}</span>
                             )}
-                            <button
-                                onClick={openChartCode}
-                                title="返回完整谱面代码"
-                                style={crumbButtonStyle}
-                            ><ChevronLeft size={14} />完整谱面代码</button>
                         </div>
                     )}
-                    <h3 style={{ margin: 0, marginRight: 'auto', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{title}</h3>
                     <button
-                        onClick={requestCloseAll}
+                        onClick={requestClose}
                         title="关闭"
                         style={{
                             width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -454,7 +454,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
                         <span style={{ color: 'var(--warning)', fontSize: 'var(--text-xs)' }}>未保存的更改</span>
                     )}
                     <span style={{ flex: 1 }} />
-                    <ActionBtn onClick={requestCloseAll}>关闭</ActionBtn>
+                    <ActionBtn onClick={requestClose}>关闭</ActionBtn>
                 </div>
             </div>
         </div>,
@@ -470,4 +470,15 @@ const crumbButtonStyle: React.CSSProperties = {
     backgroundColor: 'transparent', color: 'var(--text-muted)',
     fontFamily: 'inherit', fontSize: 'var(--text-xs)', cursor: 'pointer',
     transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
+};
+
+/** 面包屑分隔符 */
+const crumbSepStyle: React.CSSProperties = {
+    color: 'var(--text-subtle)', fontSize: 'var(--text-xs)', userSelect: 'none',
+};
+
+/** 面包屑末项 = 当前视图（不可点） */
+const crumbCurrentStyle: React.CSSProperties = {
+    padding: '2px var(--space-2)',
+    color: 'var(--text)', fontSize: 'var(--text-xs)', fontWeight: 600,
 };
