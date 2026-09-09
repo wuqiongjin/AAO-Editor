@@ -336,7 +336,9 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     blitted++;
   }
   // F1：选中/hover 叠加层（瓦片不含选中态，O(选中∩可见) 逐帧绘制，与瓦片 blit 逐像素对齐）
-  if (rc.selectedItems.length > 0 || rc.hoverItem) {
+  // issue 67：`|| rc.selectionBox` —— 框选手势期间 selectedItems 还是空的（选区要等 mouseup）、
+  // hoverItem 也常为 null，漏了这一项会让"框选实时预览"整个不画（首版就栽在这里）。
+  if (rc.selectedItems.length > 0 || rc.hoverItem || rc.selectionBox) {
     const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
     renderSelectionOverlay(ctx, c, rc, c.getVisibleNotes());
   }

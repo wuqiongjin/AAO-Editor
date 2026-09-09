@@ -27,6 +27,8 @@ interface Opts {
   noteSize?: number;
   colorAssist?: boolean;
   scale?: number;
+  /** issue 67：框选手势进行中的矩形（画布坐标）；传了即启用"框选实时预览"描边 */
+  selectionBox?: { x1: number; y1: number; x2: number; y2: number } | null;
 }
 
 /** 收集本次描边（视口 scale=1 / scrollY=0，传入的全部音符都视为可见） */
@@ -42,7 +44,7 @@ function outlinesOf(o: Opts): SelectionOutline[] {
     chartEndBeat: 100,
     notes: o.notes,
     selectedItems: o.select ?? [],
-    selectionBox: null,
+    selectionBox: o.selectionBox ?? null,
     slideBuffer: null,
     hoverPos: null,
     hoverItem: o.hover ?? null,
@@ -366,5 +368,122 @@ describe('hidden 结点不可选中 / 不可 hover（A6）', () => {
       select: [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }],
     });
     expect(out).toHaveLength(0);
+  });
+});
+
+// ───────────────────────── issue 67：框选按住（未松手）时矩形内音符实时高亮 ─────────────────────────
+// 新特性：左键按住拖出框选矩形期间，选区还没建立（要等 mouseup），
+// 此刻框内的音符必须即时显示 hover 档描边，让用户看清"松手会选中谁"。
+describe('框选实时预览描边（issue 67）', () => {
+  const GEO = new ChartGeometry(bpm120, 100, SURFACE);
+  const VP = { scrollX: 0, scrollY: 0, scale: 1 };
+  /** lane/beat → 画布坐标（与 computeItemsInBox 同一几何） */
+  const at = (lane: number, beat: number) =>
+    GEO.virtualToCanvas(GEO.noteVirtualX(lane), GEO.noteVirtualY(beat, 0, VP.scale, BEAT_DISPLAY), VP);
+  /** 包住一段 lane×beat 区间的框（四周留 10px 余量，确保音符中心落在框内） */
+  const boxAround = (laneLo: number, beatHi: number, laneHi: number, beatLo: number) => {
+    const a = at(laneLo, beatHi), b = at(laneHi, beatLo);
+    return {
+      x1: Math.min(a.x, b.x) - 10, y1: Math.min(a.y, b.y) - 10,
+      x2: Math.max(a.x, b.x) + 10, y2: Math.max(a.y, b.y) + 10,
+    };
+  };
+
+  it('框住未选中的单键 → 即时出现 hover 描边（松手前就有反馈）', () => {
+    const out = outlinesOf({ notes: [single(50, 3)], selectionBox: boxAround(3, 51, 3, 49) });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.shape).toBe('rect');
+    expect(out[0]!.mode).toBe('hover'); // 尚未入选 → hover 档；松手后才转 selected
+  });
+
+  it('已选中的音符被框住 → 不叠第二圈 hover（仍只有一圈 selected）', () => {
+    const out = outlinesOf({
+      notes: [single(50, 3)],
+      select: [{ kind: 'note', noteIndex: 0 }],
+      selectionBox: boxAround(3, 51, 3, 49),
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.mode).toBe('selected');
+  });
+
+  it('框外的音符不产生任何预览描边', () => {
+    const out = outlinesOf({ notes: [single(50, 3)], selectionBox: boxAround(0, 12, 0, 10) });
+    expect(out).toHaveLength(0);
+  });
+
+  it('框住 BPM（满足整线覆盖判据）→ line 形态的 hover 预览', () => {
+    const { trackBgX, trackBgWidth } = GEO.trackGeometry(VP.scale);
+    const y = GEO.virtualToCanvas(0, GEO.noteVirtualY(40, 0, VP.scale, BEAT_DISPLAY), VP).y;
+    // X 必须横跨整条线（BPM 的入选判据），Y 含该线
+    const box = { x1: trackBgX - 5, y1: y - 5, x2: trackBgX + trackBgWidth + 5, y2: y + 5 };
+    const out = outlinesOf({ notes: [{ type: 'BPM', beat: 40, bpm: 120 } as ChartNote], selectionBox: box });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.shape).toBe('line');
+    expect(out[0]!.mode).toBe('hover');
+  });
+
+  it('框住滑条 → 结点与段都出预览（段的预览不受"仅删除/音符代码工具"的鼠标 hover 限制）', () => {
+    const out = outlinesOf({
+      notes: [slide([{ lane: 1, beat: 10 }, { lane: 3, beat: 12 }])],
+      selectionBox: boxAround(1, 13, 3, 9),
+    });
+    expect(out.filter(o => o.shape === 'rect').length).toBe(2); // 两个结点
+    expect(out.filter(o => o.shape === 'quad').length).toBe(1); // 一个段
+    for (const o of out) expect(o.mode).toBe('hover');
+  });
+
+  it('hidden 结点不进框选预览', () => {
+    const out = outlinesOf({
+      notes: [slide([{ lane: 1, beat: 10 }, { lane: 2, beat: 11, hidden: true }, { lane: 3, beat: 12 }])],
+      selectionBox: boxAround(1, 13, 3, 9),
+    });
+    expect(out.filter(o => o.shape === 'rect').length).toBe(2); // 中间 hidden 不画
+  });
+
+  // 删除工具态下框选 = "这些会被删"的预告 → 预览用危险红（与鼠标 hover 同款，Q49/Q51），
+  // 而不是默认的浅黄 hover。
+  it('删除工具态下框选预览 = 危险红 danger（不是浅黄 hover）', () => {
+    const out = outlinesOf({
+      notes: [single(50, 3)], armedTool: 'delete', selectionBox: boxAround(3, 51, 3, 49),
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.mode).toBe('danger');
+  });
+
+  it('删除态：已选中的音符被框住 → 整体转红（Q51 同款，覆盖浅黄选中）', () => {
+    const out = outlinesOf({
+      notes: [single(50, 3)],
+      select: [{ kind: 'note', noteIndex: 0 }],
+      armedTool: 'delete',
+      selectionBox: boxAround(3, 51, 3, 49),
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.mode).toBe('danger');
+  });
+
+  it('删除态：框住滑条 → 结点与段的预览都是 danger', () => {
+    const out = outlinesOf({
+      notes: [slide([{ lane: 1, beat: 10 }, { lane: 3, beat: 12 }])],
+      armedTool: 'delete', selectionBox: boxAround(1, 13, 3, 9),
+    });
+    expect(out.length).toBeGreaterThan(0);
+    for (const o of out) expect(o.mode).toBe('danger');
+  });
+
+  it('删除态：框住 BPM → 预览画红（区别于"鼠标 hover BPM 不画红"）', () => {
+    const { trackBgX, trackBgWidth } = GEO.trackGeometry(VP.scale);
+    const y = GEO.virtualToCanvas(0, GEO.noteVirtualY(40, 0, VP.scale, BEAT_DISPLAY), VP).y;
+    const box = { x1: trackBgX - 5, y1: y - 5, x2: trackBgX + trackBgWidth + 5, y2: y + 5 };
+    const out = outlinesOf({
+      notes: [{ type: 'BPM', beat: 40, bpm: 120 } as ChartNote],
+      armedTool: 'delete', selectionBox: box,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.mode).toBe('danger');
+  });
+
+  it('非删除工具态：框选预览仍是浅黄 hover（不受影响）', () => {
+    const out = outlinesOf({ notes: [single(50, 3)], armedTool: 'mirror', selectionBox: boxAround(3, 51, 3, 49) });
+    expect(out[0]!.mode).toBe('hover');
   });
 });

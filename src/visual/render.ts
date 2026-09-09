@@ -34,11 +34,11 @@ interface SelectionSets {
   slideNodes: Map<number, Set<number>>;
   slideRegions: Map<number, Set<number>>;
 }
-const buildSelectionSets = (rc: RenderCtx): SelectionSets => {
+const buildSets = (items: readonly SelectionItem[]): SelectionSets => {
   const notes = new Set<number>();
   const slideNodes = new Map<number, Set<number>>();
   const slideRegions = new Map<number, Set<number>>();
-  for (const it of rc.selectedItems) {
+  for (const it of items) {
     if (it.kind === 'note') notes.add(it.noteIndex);
     else if (it.kind === 'slideNode') {
       (slideNodes.get(it.noteIndex) ?? slideNodes.set(it.noteIndex, new Set()).get(it.noteIndex)!).add((it as { connIndex: number }).connIndex);
@@ -47,6 +47,23 @@ const buildSelectionSets = (rc: RenderCtx): SelectionSets => {
     }
   }
   return { notes, slideNodes, slideRegions };
+};
+const buildSelectionSets = (rc: RenderCtx): SelectionSets => buildSets(rc.selectedItems);
+
+/**
+ * issue 67：**框选预览集** —— 左键按住（未松手）期间，用 `computeItemsInBox` 实时算出
+ * "当前这个矩形会纳入哪些音符"，给**尚未真正入选**的那部分即时加 hover 描边，
+ * 让用户松手前就看清"会选中谁"（真实选区要到 mouseup 才由 `applyBoxAction` 建立）。
+ * null = 无框选手势。判据与真实框选同源（BPM 整线覆盖、hidden 跳过），不另写一套。
+ */
+const buildPreviewSets = (rc: RenderCtx): SelectionSets | null => {
+  if (!rc.selectionBox) return null;
+  return buildSets(computeItemsInBox(rc.selectionBox, {
+    geometry: rc.geometry,
+    viewport: rc.viewport,
+    beatDisplay: rc.beatDisplay,
+    notes: rc.notes,
+  }));
 };
 const isNoteSelected = (sel: SelectionSets, index: number) => sel.notes.has(index);
 
@@ -218,7 +235,9 @@ function hoverItemForRender(rc: RenderCtx): SelectionItem | null {
 export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]): SelectionOutline[] {
   const sel = buildSelectionSets(rc);
   const hover = hoverItemForRender(rc);
-  if (sel.notes.size === 0 && sel.slideNodes.size === 0 && sel.slideRegions.size === 0 && !hover) return [];
+  // issue 67：框选预览集（按住未松手期间实时算"框里有什么"），null = 无框选手势
+  const preview = buildPreviewSets(rc);
+  if (sel.notes.size === 0 && sel.slideNodes.size === 0 && sel.slideRegions.size === 0 && !hover && !preview) return [];
   // A5：描边随 noteSize 缩放（与音符本体同一 spriteScale），永远贴合外边缘
   const ns = rc.display?.noteSize ?? 1;
   const s = rc.viewport.scale * ns;
@@ -228,41 +247,67 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
   for (const { note, index } of visibleNotes) {
     const hv = hover && hover.noteIndex === index ? hover : null;
     const whole = isNoteSelected(sel, index);
+    // issue 67：本音符是否落在框选矩形内（尚未真正入选 —— 入选要等 mouseup）
+    const previewWhole = preview ? isNoteSelected(preview, index) : false;
+    const previewNodes = preview?.slideNodes.get(index);
+    const previewRegions = preview?.slideRegions.get(index);
     // Q51：删除持工具态下 hover 到某个音符 → 该轮廓整体转红（覆盖浅黄选中色）
     const danger = dangerTool && hv !== null;
-    /** 同一图形叠圈：连续重复的模式只画一次（选中 + 危险 hover 都是红 → 一圈） */
-    const emit = (inSel: boolean, isHoverPart: boolean, make: (mode: SelectionOutlineMode) => void) => {
+    /**
+     * 同一图形叠圈：连续重复的模式只画一次（选中 + 危险 hover 都是红 → 一圈）。
+     *
+     * @param inPreviewBox 该对象**被框选矩形覆盖**（**不论是否已选中**）。
+     *   删除工具态下即为"这些会被删"的预告 → 用**危险红**（`danger`），与鼠标 hover 同款
+     *   （Q49 同形态换色；Q51 已选中被框住也**整体转红**、覆盖浅黄选中色）。
+     *   注意它决定的是**颜色**，与第 2 参（决定是否**额外多画一圈**）是两回事 ——
+     *   已选中的对象被框住时不再多画一圈，但颜色照样要转红。
+     */
+    const emit = (
+      inSel: boolean,
+      isHoverPart: boolean,
+      make: (mode: SelectionOutlineMode) => void,
+      inPreviewBox = false,
+    ) => {
       let prev: SelectionOutlineMode | null = null;
       const push = (m: SelectionOutlineMode) => { if (m === prev) return; prev = m; make(m); };
-      if (inSel) push(danger ? 'danger' : 'selected');
-      if (isHoverPart) push(danger ? 'danger' : 'hover');
+      const dangerMode = danger || (dangerTool && inPreviewBox);
+      if (inSel) push(dangerMode ? 'danger' : 'selected');
+      if (isHoverPart) push(dangerMode ? 'danger' : 'hover');
     };
 
     if (note.type === 'BPM') {
       // Q45：完整框选入选 → 整条线改浅黄 + 加粗（细线描边不明显）。
       // Q14=A：BPM 线左键单击在所有态下都无效果 → **不参与鼠标 hover 反馈**（C5 的删除态情形是同一理由），
       // 否则"整条亮起却点不动"是误导。BPM 的三条通路 = 框选 / 右键删除 / 沟槽数字就地编辑。
-      if (!whole) continue;
+      // issue 67：但**框选预览**要画 —— 框选 BPM 是真有效果的（整线覆盖判据已由
+      // `computeItemsInBox` 判过），按 hover 档提示"这条线会被框进去"。
+      if (!whole && !previewWhole) continue;
       const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
       const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-      out.push({ shape: 'line', x1: trackBgX, y1: y, x2: trackBgX + trackBgWidth, y2: y, mode: 'selected' });
+      // 删除态下 BPM 的**鼠标 hover** 不画红（C5：单击无效果），但**框选预览**要画红 ——
+      // 框选 BPM 是真会入选、进而可被删的（issue 67：预览 = "这些会被删"的预告）。
+      out.push({
+        shape: 'line', x1: trackBgX, y1: y, x2: trackBgX + trackBgWidth, y2: y,
+        mode: whole ? 'selected' : (dangerTool ? 'danger' : 'hover'),
+      });
       continue;
     }
 
     if (note.type === 'Single') {
-      if (!whole && !hv) continue;
+      if (!whole && !hv && !previewWhole) continue;
       const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
       const cfg = singleIconConfig(rc, note);
       const w = (cfg.out?.w ?? NOTE_ICON_SIZE) * s;
       const h = (cfg.out?.h ?? NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE) * s;
       // issue 66 §2：与 Slide 结点/段同口径走 **compact** —— 不外扩、不画暗底，亮面贴 ink 边。
       // 旧的"外扩 outset + 暗底 halo"会盖住紧邻的其它音符（用户复报的"一圈遮罩"），全类型统一消除。
-      emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode, compact: true }));
+      // issue 67：`previewWhole && !whole` = 在框里但还没真入选 → hover 档（松手才转 selected）。
+      emit(whole, hv !== null || (previewWhole && !whole), (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode, compact: true }), previewWhole);
       continue;
     }
 
     if (note.type === 'LDirectional' || note.type === 'RDirectional') {
-      if (!whole && !hv) continue;
+      if (!whole && !hv && !previewWhole) continue;
       const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
       const len = Math.min(Math.max(note.length || 1, 1), 3);
       const isLeft = note.type === 'LDirectional';
@@ -289,7 +334,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       }
       const w = maxX - minX;
       // issue 66 §2：方向键同样走 compact（同单键）——整组最小外接矩形不外扩、不画暗底。
-      emit(whole, hv !== null, (mode) => out.push({ shape: 'rect', x: minX, y: p.y - h / 2, w, h, mode, compact: true }));
+      // issue 67：框选预览同单键（在框里未入选 → hover 档）。
+      emit(whole, hv !== null || (previewWhole && !whole), (mode) => out.push({ shape: 'rect', x: minX, y: p.y - h / 2, w, h, mode, compact: true }), previewWhole);
       continue;
     }
 
@@ -298,24 +344,32 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       if (conns.length < 2) continue;
       const nodes = sel.slideNodes.get(index);
       const regions = sel.slideRegions.get(index);
-      if (!whole && !nodes && !regions && !hv) continue;
+      if (!whole && !nodes && !regions && !hv && !previewWhole && !previewNodes && !previewRegions) continue;
       conns.forEach((conn, ci) => {
         if (conn.hidden) return; // A6：hidden 结点不画（findItemAt/computeItemsInBox 已跳过，选不中自然画不出）
         const inSel = whole || nodes?.has(ci) === true;
+        // issue 67：框选预览（整条被框住 → 所有结点；或该结点单独被框住）
+        const inPreviewBox = previewWhole || previewNodes?.has(ci) === true; // 被框住（不论选中与否）→ 决定颜色
+        const inPreview = !inSel && inPreviewBox;                            // 未选中才额外多画一圈
         const isHoverPart = hv?.kind === 'slideNode' && hv.connIndex === ci;
-        if (!inSel && !isHoverPart) return;
+        if (!inSel && !isHoverPart && !inPreview) return;
         const p = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
         const cfg = slideNodeIconConfig(rc, conn, ci === 0, ci === conns.length - 1);
         const w = (cfg.out?.w ?? SLIDE_ICON_SIZE) * s;
         const h = (cfg.out?.h ?? SLIDE_ICON_SIZE * SLIDE_HEIGHT_SCALE) * s;
         // 滑条结点紧贴连接带：选中外圈（暗底 + outset）会盖住带子造成"段被截断"的观感（用户 2026-09-09）
         // → 结点矩形用 compact：不外扩、不画暗底，亮面贴 ink 边即可，带子自由穿过。
-        emit(inSel, isHoverPart, (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode, compact: true }));
+        emit(inSel, isHoverPart || inPreview, (mode) => out.push({ shape: 'rect', x: p.x - w / 2, y: p.y - h / 2, w, h, mode, compact: true }), inPreviewBox);
       });
       // 段带宽与连接带同宽（× noteSize，A5）
       const half = (LANE_WIDTH * rc.viewport.scale * ns) / 2;
       for (let ci = 0; ci < conns.length - 1; ci++) {
         const inSel = whole || regions?.has(ci) === true;
+        // issue 67：框选预览（整条被框住 → 所有段；或该段单独被框住）。
+        // 与"鼠标 hover 仅限删除/音符代码工具"不同：框选是"即将入选"的预告，
+        // 段确实会被选入 → 一律给反馈，所见即所得。
+        const inPreviewBox = previewWhole || previewRegions?.has(ci) === true; // 被框住 → 决定颜色
+        const inPreview = !inSel && inPreviewBox;                              // 未选中才额外多画一圈
         // 段（连接带）默认不是可点对象 → 只在**会对它表态的工具**下给 hover 反馈：
         //   ① 删除工具：拆条语义需要"这一段会被拆"的预告（用户 2026-09-09）；
         //   ② 音符代码工具：点段会打开所属滑条的代码视图（§4 回退整条），段同样是"点得动"的目标。
@@ -323,7 +377,7 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         // 段被框选入选时照常按选中态绘制（inSel 分支，不受此限）。
         const isHoverPart = (dangerTool || rc.armedTool === 'noteCode')
             && hv?.kind === 'slideRegion' && hv.connIndex === ci;
-        if (!inSel && !isHoverPart) continue;
+        if (!inSel && !isHoverPart && !inPreview) continue;
         const c1 = conns[ci], c2 = conns[ci + 1];
         const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
         const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
@@ -334,7 +388,7 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         // 段（连接带）的描边 = compact（用户 2026-09-09 二轮反馈）：不外扩、不画暗底，
         // 亮面贴平行四边形边即可，避免外圈盖住带子造成"段被截断"的观感。
         // 段与结点同款：所有"贴在带子上"的描边都用 compact 让带子自由穿过。
-        emit(inSel, isHoverPart, (mode) => out.push({ shape: 'quad', points, mode, compact: true }));
+        emit(inSel, isHoverPart || inPreview, (mode) => out.push({ shape: 'quad', points, mode, compact: true }), inPreviewBox);
       }
     }
   }
