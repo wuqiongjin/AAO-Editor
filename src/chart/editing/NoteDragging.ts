@@ -252,9 +252,10 @@ export function planDragMove(
   const covered = new Set<number>();   // 被覆盖消耗的音符（notes 原下标）
   const joins: number[] = [];          // 需要走 §3 接合的拖拽滑条（notes 原下标）
   const joinedBy = new Set<number>();  // 已被认领的接合目标（防两件抢同一条）
-  // issue 76：键音符拖到滑条结点 → 交回**放置**规则（ADR-0001 §1.2）的结果谱面。
+  // issue 76：键音符拖到滑条结点 → 交回**放置**规则（ADR-0001 §1.2）。
   // 放置规则会把拖拽件本身消耗掉（技能键/滑键加标记、方向键拆条），故与"移动"是两条不同产物路径。
-  let placement: ChartNote[] | null = null;
+  // key = 被消耗的拖拽件下标；value = 落点 + 工具 id + 目标滑条下标（同一条滑条只许一次，防规则交叠）。
+  const placements = new Map<number, { beat: number; lane: number; subBeat: number; toolId: string; targetNote: number }>();
   for (const [i, plan] of plans) {
     const nn = moved.get(i)!;
     if (isKey(nn)) {
@@ -268,11 +269,17 @@ export function planDragMove(
       //   skill → 首/尾端点加 skill；flick → 尾端点加 flick；方向键 → 起/中/止结点拆条。
       //   放置规则判定为"忽略"的（单键→任意结点、滑键→非尾端点等）→ 仍回弹。
       //   仅**单件**拖拽走这条路径：组内多件同时落滑条会叠多条规则，保持回弹。
-      if (dragItems.length !== 1) return fail('collision');
-      const base = notes.filter((_, idx) => idx !== i); // 拖拽件被放置规则消耗
-      const r = handleNoteReplacement(base, nn.beat, nn.lane, nn.subBeat || 0, keyToolIdOf(nn));
-      if (!r.shouldReplace) return fail('collision');
-      placement = r.newNotes;
+      // 同一条滑条上已有另一件要走放置规则 → 回弹（两条规则会互相改变对方的目标，先不支持）
+      for (const p of placements.values()) {
+        if (p.targetNote === t.orig) return fail('collision');
+      }
+      // 先按原谱面判可行性（判定"忽略"的组合，如单键→任意结点、滑键→非尾端点，仍回弹）
+      const probe = handleNoteReplacement(notes, nn.beat, nn.lane, nn.subBeat || 0, keyToolIdOf(nn));
+      if (!probe.shouldReplace) return fail('collision');
+      placements.set(i, {
+        beat: nn.beat, lane: nn.lane, subBeat: nn.subBeat || 0,
+        toolId: keyToolIdOf(nn), targetNote: t.orig,
+      });
       continue;
     }
     const conns = (nn as SlideNote).connections;
@@ -300,8 +307,25 @@ export function planDragMove(
   }
 
   // ④ 应用：覆盖消耗 → 端点接合（级联）→ 重映射选区 / 幽灵
-  // issue 76：走放置规则的那条路径 —— 拖拽件已被消耗（不留在谱面里），故无幽灵、选区清空。
-  if (placement) return { ok: true, notes: placement, items: [], ghost: [] };
+  // issue 76：走放置规则的那条路径 —— 被放置规则吃掉的拖拽件**不落子**（从产物里移除），
+  // 其余成员照常移动；幽灵仍画全部拖拽件的落点形态（覆盖/扣入也要有幽灵）。
+  if (placements.size > 0) {
+    // 放置规则与 §3 端点接合叠加的产物未定义 → 直接回弹（两者同时发生极罕见）
+    if (joins.length > 0) return fail('collision');
+    let arr: ChartNote[] = [];
+    notes.forEach((n, i) => {
+      if (placements.has(i)) return; // 被放置规则消耗
+      if (covered.has(i)) return;    // 被覆盖消耗（§1.1）
+      arr.push(moved.get(i) || n);
+    });
+    for (const p of placements.values()) {
+      const r = handleNoteReplacement(arr, p.beat, p.lane, p.subBeat, p.toolId);
+      if (!r.shouldReplace) return fail('collision'); // 保险（③已判过）
+      arr = r.newNotes;
+    }
+    const ghost = [...plans.keys()].map(i => moved.get(i)).filter((n): n is ChartNote => !!n);
+    return { ok: true, notes: arr, items: [], ghost };
+  }
   let work: Tagged[] = notes.map((n, i) => ({ note: moved.get(i) || n, orig: i }));
   if (covered.size > 0) work = work.filter(w => !covered.has(w.orig));
   for (const orig of joins) {

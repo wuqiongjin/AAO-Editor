@@ -63,10 +63,38 @@ describe('planDragMove · 落点撞滑条结点 = 放置规则（issue 76）', (
     expect(r.reason).toBe('collision');
   });
 
-  it('限制：组内多件拖拽时任一成员落滑条 → 回弹（避免多规则交叠）', () => {
-    const notes: ChartNote[] = [skill(1, 1), skill(1, 3), slide(3, 1, 5, 3)];
-    const r = planDragMove(notes, noteSel(0, 1), { dBeat: 2, dLane: 0 }, B); // 0 → 首端点 (3,1)
+  // issue 76 二轮：组拖同样支持 —— 落滑条的成员走放置规则，其余成员照常移动
+  it('组拖（2 件）：一件落滑条端点（走放置规则）+ 一件落空位（照常移动）', () => {
+    const notes: ChartNote[] = [skill(1, 1), single(1, 5), slide(3, 1, 5, 1)];
+    const r = planDragMove(notes, noteSel(0, 1), { dBeat: 2, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes.find(n => n.type === 'Slide') as SlideNote;
+    expect(s.connections[0].skill).toBe(true);                 // 技能键扣进首端点
+    const moved = r.notes.filter(n => n.type === 'Single' && (n as any).beat === 3);
+    expect(moved).toHaveLength(1);                              // 另一件正常移到 beat 3
+    expect((moved[0] as any).lane).toBe(5);
+  });
+
+  it('组拖两件分别落**同一条**滑条的首/尾端点 → 回弹（防两条放置规则交叠）', () => {
+    // 斜滑条 [首(3,1) → 尾(5,3)]；组拖共用一个 delta(+2 拍)：
+    // A(1,1) → 首端点 (3,1)，B(3,3) → 尾端点 (5,3) —— 同一条滑条被两件认领
+    const notes: ChartNote[] = [skill(1, 1), skill(3, 3), slide(3, 1, 5, 3)];
+    const r = planDragMove(notes, noteSel(0, 1), { dBeat: 2, dLane: 0 }, B);
     expect(r.ok).toBe(false);
+  });
+
+  it('组拖两件落**同一个**落点 → 回弹（claimed 互撞，与单规则无关）', () => {
+    const notes: ChartNote[] = [skill(1, 1), skill(1, 1 + 0), slide(3, 1, 5, 1)];
+    const r = planDragMove(notes, noteSel(0, 1), { dBeat: 2, dLane: 0 }, B);
+    expect(r.ok).toBe(false);
+  });
+
+  it('覆盖落点也有**幽灵**：ghost = 被拖音符的落点形态（issue 76 二轮）', () => {
+    const notes: ChartNote[] = [skill(1, 1), slide(3, 2, 5, 2)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 2, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    expect(r.ghost).toHaveLength(1);
+    expect(r.ghost![0]).toMatchObject({ type: 'Single', beat: 3, lane: 2, skill: true });
   });
 });
 
