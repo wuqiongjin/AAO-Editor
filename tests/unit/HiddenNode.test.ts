@@ -1,0 +1,103 @@
+// issue 77：Hidden 结点的两处缺陷（跨模块，集中在一处锁）
+//   #8 拖拽占位：`planDragMove` 的占位表没跳过 hidden → 拖任何音符到 hidden 所在位置都回弹
+//   #9 拆条：hidden 被当成"段"的分界 → 一条 [A, hidden, B] 被切成两截，
+//       且切完 hidden 会留在新段的首/尾（ADR-0001 §1.2：首尾结点不得 hidden → 产出非法谱面）
+import { describe, it, expect } from 'vitest';
+import type { ChartNote, SlideNote } from '../../src/chart/types';
+import { planDragMove } from '../../src/chart/editing/NoteDragging';
+import { deleteSelection } from '../../src/chart/editing/SelectionEditing';
+import { findNoteIndexAt, handleNoteReplacement } from '../../src/chart/editing/NoteReplacementRules';
+import { convertNotesToChartCode, validateChartCode } from '../../src/chart/editing/ChartConverter';
+
+interface C { beat: number; lane: number; hidden?: boolean }
+
+const single = (beat: number, lane: number): ChartNote =>
+  ({ type: 'Single', beat, lane, subBeat: 0 } as ChartNote);
+
+const slideOf = (...cs: C[]): ChartNote => ({
+  type: 'Slide',
+  connections: cs.map(c => ({ beat: c.beat, lane: c.lane, subBeat: 0, ...(c.hidden ? { hidden: true } : {}) })),
+});
+
+const BOUNDS = { chartEndBeat: 16, beatDisplay: 4 };
+const noteSel = (noteIndex: number) => [{ kind: 'note' as const, noteIndex }];
+
+/** 谱面合法性闸门（含 beat0 BPM，与 ChartCodeValidation 同口径） */
+const validChart = (notes: readonly ChartNote[]) =>
+  validateChartCode(convertNotesToChartCode([{ type: 'BPM', beat: 0, bpm: 120 } as ChartNote, ...notes]));
+
+describe('issue 77 #8 · hidden 结点不占位（拖拽）', () => {
+  it('拖单键到 hidden 中间结点所在位置 → 允许落点，hidden 本身不受影响', () => {
+    const notes = [single(1, 2), slideOf({ beat: 3, lane: 2 }, { beat: 4, lane: 2, hidden: true }, { beat: 5, lane: 2 })];
+    // 修复前：占位表把 hidden 算作占用 → collision 回弹
+    const r = planDragMove(notes, noteSel(0), { dBeat: 3, dLane: 0 }, BOUNDS);
+    expect(r.ok).toBe(true);
+
+    const moved = r.notes.find(n => n.type === 'Single') as { beat: number; lane: number };
+    expect([moved.beat, moved.lane]).toEqual([4, 2]); // 正落在 hidden 结点处
+
+    const s = r.notes.find(n => n.type === 'Slide') as SlideNote;
+    expect(s.connections.map(c => c.hidden === true)).toEqual([false, true, false]); // hidden 仍在原位
+  });
+
+  it('回归：拖到**可见**滑条结点上仍然回弹（§6 裁决表不变）', () => {
+    const notes = [single(1, 2), slideOf({ beat: 3, lane: 2 }, { beat: 4, lane: 2 })];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 3, dLane: 0 }, BOUNDS);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('collision');
+  });
+});
+
+describe('issue 77 #9 · hidden 不参与拆条（删除 / 放置）', () => {
+  it('删除 [A, hidden, B] 的任一段 → 整条消失（不是切成两截）', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 1, hidden: true }, { beat: 3, lane: 1 })];
+    for (const connIndex of [0, 1]) { // 两个 region（A→H / H→B）都归到同一条可见段
+      const out = deleteSelection(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex }]);
+      expect(out).toEqual([]);
+    }
+  });
+
+  it('删除 [A, hidden, B, C] 的 H→B 段 → A 退化为单键 + 滑条 B→C（hidden 随段消失，不作段首）', () => {
+    const notes = [
+      slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 }, { beat: 4, lane: 4 }),
+    ];
+    const out = deleteSelection(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 1 }]);
+    expect(out).toHaveLength(2);
+    expect(out[0].type).toBe('Single');
+    expect((out[0] as { beat: number }).beat).toBe(1);
+    const s = out[1] as SlideNote;
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[3, 3], [4, 4]]);
+    expect(validChart(out).valid).toBe(true); // 修复前：残留 [hidden, B] 会被判"首结点不得 hidden"
+  });
+
+  it('移除 hidden 结点本身 → 段保持连接，产物合法', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 })];
+    const out = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
+    expect(out).toHaveLength(1);
+    expect((out[0] as SlideNote).connections.map(c => c.beat)).toEqual([1, 3]);
+    expect(validChart(out).valid).toBe(true);
+  });
+
+  it('findNoteIndexAt 跳过 hidden：hidden 所在位置 = 空位', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 })];
+    expect(findNoteIndexAt(notes, 2, 2, 0)).toBe(-1); // hidden 结点
+    expect(findNoteIndexAt(notes, 1, 1, 0)).toBe(0);  // 可见端点照常命中
+  });
+
+  it('方向键放到 hidden 结点位置 → 视为空位新增，不再以 hidden 为支点拆条', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 })];
+    const r = handleNoteReplacement(notes, 2, 2, 0, 'rdirectional');
+    expect(r.shouldReplace).toBe(true);
+    expect(r.newNotes.filter(n => n.type === 'Slide')).toHaveLength(1); // 原滑条完整保留
+    expect(r.newNotes.some(n => n.type === 'RDirectional')).toBe(true);
+    expect(validChart(r.newNotes).valid).toBe(true);
+  });
+
+  it('回归：无 hidden 的滑条拆条语义不变（4 结点删中间段 → 两段各 2 结点）', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2 }, { beat: 3, lane: 3 }, { beat: 4, lane: 4 })];
+    const out = deleteSelection(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 1 }]);
+    expect(out).toHaveLength(2);
+    expect((out[0] as SlideNote).connections.map(c => c.beat)).toEqual([1, 2]);
+    expect((out[1] as SlideNote).connections.map(c => c.beat)).toEqual([3, 4]);
+  });
+});

@@ -229,6 +229,9 @@ export function planDragMove(
       if (!anyInWindow) return;
       n.connections.forEach((c, ci) => {
         if (plan && (plan.kind === 'whole' || plan.conns.has(ci))) return;
+        // issue 77 #8：hidden 结点不占位 —— 它不可见/不可选中/不可 hover（issue 56 A6），
+        // 拖任何音符到它所在位置都应被允许（它自己也照旧留在原 connections 里）。
+        if (c.hidden) return;
         occ.set(posKey(c.beat, c.subBeat || 0, c.lane), { orig: i, isKey: false, endpoint: ci === 0 || ci === last });
       });
     }

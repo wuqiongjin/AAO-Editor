@@ -37,8 +37,11 @@ export function findNoteIndexAt(
             return n.beat === beat && n.lane === lane && (n.subBeat || 0) === sb;
         }
         if (n.type === "Slide" || n.type === "Long") {
+            // issue 77：hidden 结点**不占位**（与 hitTest / computeItemsInBox / 渲染 / 拖拽占位表同口径）
+            // —— 它不可见、不可选中、不可 hover，放置/覆盖在它所在位置 = 空位，
+            // 也不会以它为支点拆条（否则一条 [A,hidden,B] 会被切成两截）。
             return (n as SlideNote).connections.some((c: ConnectionNote) =>
-                c.beat === beat && c.lane === lane && (c.subBeat || 0) === sb
+                !c.hidden && c.beat === beat && c.lane === lane && (c.subBeat || 0) === sb
             );
         }
         return false;

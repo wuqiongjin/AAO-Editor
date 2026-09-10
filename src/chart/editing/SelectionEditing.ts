@@ -85,12 +85,18 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
  * @param nodeRemove 需移除的结点下标（跳过该结点，相邻结点保持连接）
  * @param splitAfter 需在该下标之后拆分的点（区域断开成两段）
  * 每段：>=2 结点 → 保留为滑条；==1 结点 → 按标记退化为独立音符
+ *
+ * issue 77 #9：含 hidden 结点时改走 `splitSlideHiddenAware`（hidden 对"段"透明）；
+ * 无 hidden 的滑条完全沿用下面的旧路径（既有行为与锁测不变）。
  */
 function splitSlide(
   note: SlideNote,
   nodeRemove: Set<number>,
   splitAfter: Set<number>
 ): ChartNote[] {
+  if (note.connections.some(c => c.hidden)) {
+    return splitSlideHiddenAware(note, nodeRemove, splitAfter);
+  }
   const conns = note.connections;
   const out: ChartNote[] = [];
   let seg: typeof conns = [];
@@ -109,6 +115,77 @@ function splitSlide(
 function materializeSegment(type: "Slide" | "Long", seg: SlideNote["connections"]): ChartNote {
   if (seg.length === 1) return connectionToNote(seg[0]);
   return { type, connections: seg } as SlideNote;
+}
+
+/** 可见（非 hidden）结点的真实下标序列。hidden 不参与分界（issue 77 #9）。 */
+function visibleConnIndices(conns: SlideNote["connections"]): number[] {
+  const out: number[] = [];
+  conns.forEach((c, i) => { if (!c.hidden) out.push(i); });
+  return out;
+}
+
+/**
+ * 材质化 + 合法性收口（issue 77 #9）：段首/段尾不得是 hidden（ADR-0001 §1.2），
+ * 否则会产出「首/尾结点 hidden」的非法滑条（`validateChartCode` 会报错）。
+ * 全隐藏 / 空段 → null（丢弃该段）。
+ */
+function materializeSegmentSafe(
+  type: "Slide" | "Long",
+  seg: SlideNote["connections"],
+): ChartNote | null {
+  let s = seg;
+  while (s.length > 0 && s[0].hidden) s = s.slice(1);
+  while (s.length > 0 && s[s.length - 1].hidden) s = s.slice(0, -1);
+  if (s.length === 0) return null;
+  return materializeSegment(type, s);
+}
+
+/**
+ * 含 hidden 结点的滑条拆分：hidden 对"段"**透明**（issue 77 #9）。
+ *
+ * - `[A, hidden, B]` 视作**一整段** A→B（两个 region 下标都归到同一条可见链分界）；
+ * - 只有一段（可见结点 ≤ 2）时删这段 = **删整条**（用户 2026-09-10 定案：不该被 hidden 切成两截）；
+ * - 被删段内的 hidden 随段一起消失；hidden 永不成为新段的首/尾。
+ */
+function splitSlideHiddenAware(
+  note: SlideNote,
+  nodeRemove: Set<number>,
+  splitAfter: Set<number>
+): ChartNote[] {
+  const conns = note.connections;
+  const vis = visibleConnIndices(conns);
+
+  // ① region 下标 → 可见链上的分界 j
+  const bounds = new Set<number>();
+  for (const ci of splitAfter) {
+    let v = -1;
+    for (let k = 0; k <= ci && k < conns.length; k++) if (!conns[k].hidden) v++;
+    if (v >= 0 && v <= vis.length - 2) bounds.add(v);
+  }
+  if (bounds.size > 0 && vis.length <= 2) return []; // 只有一段 → 整条删
+
+  // ② 被移除的结点 + 被删段内的 hidden；切分点 = 该段的**可见**末端
+  const dropped = new Set<number>(nodeRemove);
+  const cutAfter = new Set<number>();
+  for (const b of bounds) {
+    cutAfter.add(vis[b]);
+    for (let k = vis[b] + 1; k < vis[b + 1]; k++) dropped.add(k);
+  }
+
+  const out: ChartNote[] = [];
+  let seg: SlideNote["connections"] = [];
+  for (let i = 0; i < conns.length; i++) {
+    if (dropped.has(i)) continue;
+    seg.push(conns[i]);
+    if (cutAfter.has(i)) {
+      const m = materializeSegmentSafe(note.type, seg);
+      if (m) out.push(m);
+      seg = [];
+    }
+  }
+  const tail = materializeSegmentSafe(note.type, seg);
+  if (tail) out.push(tail);
+  return out;
 }
 
 /**

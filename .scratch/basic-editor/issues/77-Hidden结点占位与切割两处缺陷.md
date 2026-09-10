@@ -1,7 +1,7 @@
 # 77 · Hidden 结点两处缺陷：拖拽占位 / 参与切割
 
 Type: bug
-Status: open
+Status: resolved（2026-09-10 实现 + 锁测，待你在页面验收）
 Blocked by:
 
 ## 来源
@@ -46,3 +46,25 @@ hidden 中间结点被当成普通分界点；且切完后 `materializeSegment` 
 - `tests/unit/SelectionEditing.test.ts`：删 `[A,H,B]` 的任一段 = 整条消失（不是两截）；
   切分结果不含首/尾 `hidden`，并断言 `validateChartCode(新谱)` 无错（防非法产物）。
 - `tests/unit/RendererHitTest.test.ts`：hidden 两侧段命中归一为同一 `slideRegion`。
+
+## Comments
+
+- 2026-09-10 实现：
+  - #8 `NoteDragging.planDragMove` ② 占位表跳过 `c.hidden`（与 hitTest / computeItemsInBox /
+    渲染三处同口径）；hidden 结点本身照旧留在原 `connections` 里。
+  - #9 `SelectionEditing.splitSlide` 含 hidden 时改走新增的 `splitSlideHiddenAware`：
+    ① region 下标先归一到**可见链**上的分界（`[A,H,B]` 的两个 region 都归到 j=0）；
+    ② 可见结点 ≤ 2（只有一段）时删这段 = **删整条**（用户定案）；
+    ③ 被删段内的 hidden 随段消失，`materializeSegmentSafe` 再收口一次，保证任何段的首/尾都不是 hidden
+    （否则 `validateChartCode` 会判"首/尾结点不得 hidden: true"）。
+    无 hidden 的滑条**完全走旧路径**（既有行为与锁测零变动）。
+  - #9 另一半（放置/覆盖）：`NoteReplacementRules.findNoteIndexAt` 跳过 hidden 结点 ——
+    hidden 所在位置 = 空位，于是方向键不会以 hidden 为支点拆条、单键也不会被 hidden 挡住（与 #8 同口径）。
+- 锁测：新增 `tests/unit/HiddenNode.test.ts`（8 例，跨模块集中锁）：拖单键到 hidden 位置 ok +
+  hidden 仍在（回归：拖到可见结点仍回弹）／`[A,H,B]` 删任一段 = 整条消失／`[A,H,B,C]` 删 H→B 段
+  = A 单键 + B→C（附 `validateChartCode` 全谱合法断言）／移除 hidden 本身段保持连接／
+  `findNoteIndexAt` 跳过 hidden／方向键放到 hidden 位置不拆条／无 hidden 的 4 结点拆条语义不变。
+  tsc 0 / 795 测试全绿。
+- **已知边界（未改，留档）**：无 hidden 的 **2 结点**滑条删段，仍是"切成两个独立音符"
+  （ADR-0001 §1.2 的"2 结点滑条整条删除"目前只用于方向键覆盖路径）。本次只在"含 hidden 且可见结点 ≤2"
+  时按"整条删除"处理，未统一两条口径 —— 若要统一，需单独评估对既有锁测的影响。
