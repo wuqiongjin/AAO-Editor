@@ -7,20 +7,25 @@ import { slideSpans } from '../chart/editing/SlideSegments';
 import { makeCoords } from './coords';
 import type { SelectionBox } from './types';
 
-// 命中尺寸常量（与 render.ts 的渲染图标尺寸保持一致）
-const NOTE_ICON_SIZE = 36;
-const SLIDE_ICON_SIZE = 36;
-// 音符墨迹高度比例（与 render.ts 的 NOTE_HEIGHT_SCALE / SLIDE_HEIGHT_SCALE 保持一致）
-const NOTE_HEIGHT_SCALE = 0.6;
-const SLIDE_HEIGHT_SCALE = 0.6;
+// 命中尺寸常量 —— **与渲染同源**（`./noteMetrics`，issue 82）：两侧共用一份，
+// 不再各写一份硬编码副本（旧副本正是"命中盒比墨迹大一倍"的温床）。
+import {
+  NOTE_ICON_SIZE, SLIDE_ICON_SIZE,
+  NOTE_HEIGHT_SCALE, SLIDE_HEIGHT_SCALE,
+} from './noteMetrics';
 
 /**
- * issue 82：命中盒 = **音符墨迹矩形 + 极小余量**（与选中描边那个矩形同形），
- * 取代旧的「图标半宽(18) + 4」的**圆**判定。
+ * issue 82：命中盒 = **音符墨迹矩形 + 极小余量**，取代旧的「图标半宽(18) + 4」的**圆**判定。
  *
  * 旧口径半径恒为 22 设计 px，而音符墨迹是 36 × 21.6（纵向半高仅 10.8）——
  * **纵向判定范围是墨迹的 2 倍**，于是"离音符很远就亮起 hover"。
- * 余量取 2 设计 px（随 scale 缩放）：保留一点手感，但不再超过墨迹边界太多。
+ *
+ * 余量取 2 设计 px（随 `viewport.scale` 缩放）：保留一点手感，但不再明显超出墨迹。
+ * 余量**不随 noteSize 收缩**是刻意的 —— noteSize 极小时（如 0.1）墨迹只有几 px，
+ * 再按比例缩余量会点不中；固定 2px 保证一个最小可点击区。
+ *
+ * 注：选中描边矩形用的是皮肤**实测墨迹**（`render` 的 `cfg.out?.w/h`），与本常量可能差几 px，
+ * 量级一致即可 —— 描边贴的是真实精灵，命中取的是设计尺寸。
  */
 const HIT_PADDING = 2;
 
@@ -61,10 +66,44 @@ export interface HitTestDeps {
 }
 
 /**
+ * 图层优先级（issue 85 定案）：**键型音符 > 滑条结点 > 滑条段**。
+ * Slide 整条（段 + 结点）在绘制上被压到键型音符之下（`ChartGeometry.visibleNotes` 的输出顺序），
+ * 命中必须与绘制同序，否则"看着在上面的却点不到 / hover 亮的是被盖住的那个"。
+ * Slide ↔ Slide 之间按**放置先后**：后放置者在上（= 数组下标更大），由倒序遍历自然得到。
+ */
+const RANK_KEY_NOTE = 2;   // 键型音符（单键/方向键）
+const RANK_SLIDE_NODE = 1; // 滑条结点
+const RANK_SLIDE_REGION = 0; // 滑条连接带（段）
+
+function hitRank(item: SelectionItem): number {
+  if (item.kind === 'note') return RANK_KEY_NOTE;
+  if (item.kind === 'slideNode') return RANK_SLIDE_NODE;
+  return RANK_SLIDE_REGION;
+}
+
+/**
+ * **同级**候选的绘制序键（越大 = 画得越晚 = 越在上层），与 `ChartGeometry.visibleNotes` 的输出顺序同源：
+ * - 键型音符：点音符按 **beat 升序**排列（`points.sort((a,b)=>a.beat-b.beat)`，beat 已含 subBeat 折算），
+ *   同拍保持 notes 下标升序 → 序键 = 拍位。只比对"下标更大"是不够的（下标与拍位可以不同序）。
+ * - 滑条 / 长条：`spans` 按下标顺序追加 → 序键 = 下标（= 放置先后）。
+ *
+ * 两级不会互相比较：rank 不同就不会走到这里。
+ */
+function drawOrderKey(notes: readonly ChartNote[], item: SelectionItem, beatDisplay: number): number {
+  if (item.kind !== 'note') return item.noteIndex;
+  const n = notes[item.noteIndex] as { beat?: number; subBeat?: number } | undefined;
+  if (!n) return item.noteIndex;
+  const beat = n.beat ?? 0;
+  const subBeat = n.subBeat ?? 0;
+  return beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
+}
+
+/**
  * 命中测试：返回点击位置命中的选择条目（任意音符类型）。
  * - 普通音符/方向键 → {kind:'note'}
  * - 滑条结点 → {kind:'slideNode', connIndex}
  * - 滑条连接带区域 → {kind:'slideRegion', connIndex}
+ * - **重叠时按图层择优**（issue 85）：键型音符 > 滑条结点 > 滑条段；同级取**后放置者**。
  * - **BPM 线不在此判定**（issue 59）：BPM 绘制在音符层**之下**，且 56 定过「指针态单击 BPM 不选中 /
  *   BPM 不参与 hover」，故本函数跳过 BPM —— BPM 一律由 `findBpmLineAt` 按"整条线"在最后判定，
  *   自然得到"音符 / 滑条（含段）> BPM 线"的优先级。
@@ -78,7 +117,8 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
   // 连接带区域与渲染同步 × noteSize（render.renderSlideBody 的带宽已含 ns）
   const halfLaneWidth = (LANE_WIDTH * deps.viewport.scale * ns) / 2;
 
-  for (let i = 0; i < deps.notes.length; i++) {
+  /** 单个音符的命中结果（滑条内部仍是**结点优先于段**，issue 56/77 定案不变） */
+  const hitOne = (i: number): SelectionItem | null => {
     const note = deps.notes[i];
 
     if (note.type === "Slide" || note.type === "Long") {
@@ -128,8 +168,34 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
       }
     }
     // BPM：不在此判定（见函数注释）——交由 findBpmLineAt 按整条线在最后判定
+    return null;
+  };
+
+  // issue 85：**倒序**遍历 + 取图层更高者。同级取先遇到的那个（= 下标更大 = 放置更晚 = 画在上层），
+  // 与 `visibleNotes` 的绘制顺序严格一致（旧实现是"正序首个命中即返回"，与绘制顺序相反）。
+  let best: SelectionItem | null = null;
+  let bestRank = -1;
+  let bestKey = -Infinity;
+  for (let i = deps.notes.length - 1; i >= 0; i--) {
+    const hit = hitOne(i);
+    if (!hit) continue;
+    const rank = hitRank(hit);
+    if (rank > bestRank) {
+      best = hit;
+      bestRank = rank;
+      bestKey = drawOrderKey(deps.notes, hit, deps.beatDisplay);
+      continue;
+    }
+    if (rank < bestRank) continue;
+    // 同级：取绘制序更靠上者。倒序遍历下"先遇到的下标更大"，故只有序键**严格更大**才替换，
+    // 序键相等时保留先遇到的（= 后放置者，与绘制顺序一致）。
+    const key = drawOrderKey(deps.notes, hit, deps.beatDisplay);
+    if (key > bestKey) {
+      best = hit;
+      bestKey = key;
+    }
   }
-  return null;
+  return best;
 }
 
 /**

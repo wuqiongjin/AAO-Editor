@@ -298,7 +298,17 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     // 视口虚拟Y范围 → beat 窗口（virtualY 自上而下递减 ↔ beat 递增，与 noteVirtualY 精确互逆）
     const loBeat = this.virtualYToBeat(bounds.maxY, viewport.scale);
     const hiBeat = this.virtualYToBeat(bounds.minY, viewport.scale);
+    // issue 85：**先滑条/长条、后点音符** —— 输出顺序即绘制顺序（后画的在上），
+    // 故键型音符（单键/方向键）恒画在 Slide 的段与结点之上，压在连接带下的音符不再被盖住。
+    // 命中侧 `findItemAt` 用同一套图层优先级择优（键型 > 滑条结点 > 滑条段，同级取后放置者），
+    // 二者严格同序（旧实现是点音符在前 → Slide 恒盖住其它音符，且命中按正序取，与绘制相反）。
     const visible: { note: ChartNote; index: number }[] = [];
+
+    // 跨度音符（滑条/长条）：任一端点或整体区间与 beat 窗口相交即可见
+    for (const s of idx.spans) {
+      if (s.maxBeat < loBeat || s.minBeat > hiBeat) continue;
+      visible.push({ note: notes[s.index]!, index: s.index });
+    }
 
     // 点音符：二分找下界，顺序扫描到窗口上界
     const pts = idx.points;
@@ -316,11 +326,6 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
       if (x >= bounds.minX && x <= bounds.maxX) visible.push({ note, index });
     }
 
-    // 跨度音符（滑条/长条）：任一端点或整体区间与 beat 窗口相交即可见
-    for (const s of idx.spans) {
-      if (s.maxBeat < loBeat || s.minBeat > hiBeat) continue;
-      visible.push({ note: notes[s.index]!, index: s.index });
-    }
     return visible;
   }
 }

@@ -296,6 +296,78 @@ describe('方向滑键整组命中（issue 62）', () => {
   });
 });
 
+// issue 85 定案（用户 2026-09-10 拍板 = 整条 Slide 降级）：
+// ① 绘制顺序 = 滑条/长条在前、点音符在后（`ChartGeometry.visibleNotes`）→ 键型音符画在 Slide 之上；
+// ② 命中优先级 = 键型音符 > 滑条结点 > 滑条段，**同级取后放置者**（下标更大 = 画在上层）。
+describe('图层与命中优先级（issue 85）', () => {
+  const slideOf = (a: { beat: number; lane: number }, b: { beat: number; lane: number }): ChartNote =>
+    ({ type: 'Slide', connections: [a, b] });
+
+  it('单键与滑条「段」重叠 → 命中单键（修复前返回 slideRegion）', () => {
+    const notes: ChartNote[] = [
+      slideOf({ beat: 40, lane: 3 }, { beat: 44, lane: 3 }), // 先放（下标 0）
+      { type: 'Single', beat: 42, lane: 3 },                  // 后放，正压在连接带上
+    ];
+    const { deps, canvas } = makeDeps(notes);
+    expect(findItemAt(canvas(3, 42).x, canvas(3, 42).y, deps)).toEqual({ kind: 'note', noteIndex: 1 });
+  });
+
+  it('单键与滑条「结点」重叠 → 命中单键（键型 > 滑条结点）', () => {
+    const notes: ChartNote[] = [
+      slideOf({ beat: 40, lane: 3 }, { beat: 44, lane: 3 }),
+      { type: 'Single', beat: 40, lane: 3 },                  // 与首结点同位
+    ];
+    const { deps, canvas } = makeDeps(notes);
+    expect(findItemAt(canvas(3, 40).x, canvas(3, 40).y, deps)).toEqual({ kind: 'note', noteIndex: 1 });
+  });
+
+  it('滑条 ↔ 滑条重叠 → 取**后放置**那条（下标更大）', () => {
+    const notes: ChartNote[] = [
+      slideOf({ beat: 40, lane: 3 }, { beat: 44, lane: 3 }),
+      slideOf({ beat: 41, lane: 3 }, { beat: 45, lane: 3 }),
+    ];
+    const { deps, canvas } = makeDeps(notes);
+    expect(findItemAt(canvas(3, 42).x, canvas(3, 42).y, deps)).toEqual({ kind: 'slideRegion', noteIndex: 1, connIndex: 0 });
+  });
+
+  it('同条滑条内：结点仍优先于段（回归锁）', () => {
+    const notes: ChartNote[] = [slideOf({ beat: 40, lane: 3 }, { beat: 44, lane: 3 })];
+    const { deps, canvas } = makeDeps(notes);
+    expect(findItemAt(canvas(3, 40).x, canvas(3, 40).y, deps)).toEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 0 });
+  });
+
+  it('两个单键重叠 → 取后放置者（与绘制顺序同序）', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 50, lane: 3 },
+      { type: 'Single', beat: 50, lane: 4 },
+    ];
+    const { deps, canvas } = makeDeps(notes);
+    const p3 = canvas(3, 50);
+    // 两音符中心距 = 1 条轨道（30px），命中盒半宽 20 → 中间 10~20px 段是重叠区
+    expect(findItemAt(p3.x + 15, p3.y, deps)).toEqual({ kind: 'note', noteIndex: 1 });
+    expect(findItemAt(p3.x + 5, p3.y, deps)).toEqual({ kind: 'note', noteIndex: 0 }); // 不重叠区各归其位
+  });
+
+  it('visibleNotes：滑条/长条一律排在点音符之前（绘制顺序 = 键型在上）', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 42, lane: 3 },
+      slideOf({ beat: 40, lane: 3 }, { beat: 44, lane: 3 }),
+      { type: 'LDirectional', beat: 46, lane: 2, length: 2 } as ChartNote,
+    ];
+    const geometry = new ChartGeometry(bpm120, 100, TEST_SURFACE);
+    const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
+    const yOf = (b: number) => geometry.noteVirtualY(b, 0, viewport.scale, 4);
+    const ys = [yOf(38), yOf(48)];
+    const bounds = { minX: -1e6, maxX: 1e6, minY: Math.min(...ys), maxY: Math.max(...ys) };
+    const vis = geometry.visibleNotes(notes, viewport, 4, bounds);
+    const types = vis.map(v => v.note.type);
+    expect(types).toContain('Slide');
+    expect(types).toContain('Single');
+    expect(types.lastIndexOf('Slide')).toBeLessThan(types.indexOf('Single'));
+    expect(types.lastIndexOf('Slide')).toBeLessThan(types.indexOf('LDirectional'));
+  });
+});
+
 // issue 82：命中盒 = **音符墨迹矩形（36 × 21.6 设计 px）+ 2px 余量**，取代旧的
 // 「图标半宽 18 + 4 = 半径 22 的圆」—— 旧口径纵向判定是墨迹半高(10.8) 的 2 倍，
 // 离音符很远就亮起 hover。scale=1 / noteSize=1 下：半宽 20、半高 12.8。
@@ -332,15 +404,34 @@ describe('hover 命中盒 = 墨迹矩形 + 2px 余量（issue 82）', () => {
     expect(findItemAt(p.x + 19, p.y + 13, deps)).toBeNull();                              // 纵向出界
   });
 
-  it('命中盒随 noteSize 缩放（0.5 档：半高 7.4）', () => {
+  it('命中盒随 noteSize 缩放（0.5 档：半高 7.4 / 2 档：半高 23.6）', () => {
     const notes = singleAt(3, 50);
     const { deps, canvas } = makeDeps(notes);
     const p = canvas(3, 50);
+    // 缩小：半高 = 10.8 × 0.5 + 2 = 7.4
     const small = { ...deps, noteSize: 0.5 };
     expect(findItemAt(p.x, p.y - 7, small)).toEqual({ kind: 'note', noteIndex: 0 });
     expect(findItemAt(p.x, p.y - 8, small)).toBeNull();
     // 与渲染同比例：缩小后**纵向**判定同步收紧（旧口径恒 22，与 noteSize 脱钩）
     expect(findItemAt(p.x, p.y - 20, small)).toBeNull();
+    // 放大：半高 = 10.8 × 2 + 2 = 23.6
+    const big = { ...deps, noteSize: 2 };
+    expect(findItemAt(p.x, p.y - 23, big)).toEqual({ kind: 'note', noteIndex: 0 });
+    expect(findItemAt(p.x, p.y - 24, big)).toBeNull();
+  });
+
+  it('命中盒随 viewport.scale 缩放（scale 0.5：半高 6.4）', () => {
+    const notes = singleAt(3, 50);
+    const geometry = new ChartGeometry(bpm120, 100, TEST_SURFACE);
+    const viewport = { scrollX: 0, scrollY: 0, scale: 0.5 };
+    const deps: HitTestDeps = { geometry, viewport, beatDisplay: 4, notes };
+    const p = geometry.virtualToCanvas(
+      geometry.noteVirtualX(3),
+      geometry.noteVirtualY(50, 0, viewport.scale, 4),
+      viewport,
+    );
+    expect(findItemAt(p.x, p.y - 6, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+    expect(findItemAt(p.x, p.y - 7, deps)).toBeNull();
   });
 
   it('滑条结点同样用墨迹盒（纵向收紧；取远离连接带的一侧量）', () => {
