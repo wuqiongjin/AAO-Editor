@@ -632,12 +632,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     };
 
     // 右键删除滑条子段：区域（连接带）/ 端点 / 中间结点
-    const handleContextMenu = (e: React.MouseEvent) => {
-        e.preventDefault();
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+    // issue 74（跨平台）：删除动作**不在 contextmenu 里执行** —— 该事件的触发时机因平台而异
+    // （Windows = mouseup，macOS / Linux GTK = mousedown），在 mousedown 触发时"按住期间预览"的
+    // 窗口为零。故统一挪到 **mouseup**（对 Windows 而言与原来等价：contextmenu 本就在松手时触发），
+    // contextmenu 只负责屏蔽原生菜单。
+    const rightClickDelete = useCallback((mouseX: number, mouseY: number) => {
         // noteSize 必须与另三处命中（点选/工具点击/拖拽候选）一致，否则 noteSize≠1 时命中盒与视觉不符
         // issue 59：右键删除是 56 定的 BPM 三条通路之一，同样按"整条线"判（findItemAt 只认 lane 0 一点）
         const hit = findItemAt(mouseX, mouseY, hitDeps())
@@ -649,6 +648,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         applyOps(actionOnItemOps('delete', notes, hit));
         setSlideBuffer(null);
         setBpmEdit(null);
+    }, [notes, hitDeps, applyOps]);
+
+    const handleContextMenu = (e: React.MouseEvent) => {
+        e.preventDefault(); // 只屏蔽原生菜单；删除在 mouseup 执行（见 rightClickDelete）
     };
 
     // ---------------------------
@@ -704,18 +707,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         renderChart(ctx, canvas, rc);
     }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, dragGhost, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, rightButtonHeld]);
 
-    // issue 74：右键按住标志的兜底清理 —— 松手 / 窗口失焦都要清掉，
-    // 否则"红 hover"会一直卡在最后位置（删除动作本身在 contextmenu 里，不受此影响）。
-    useEffect(() => {
-        if (!rightButtonHeld) return;
-        const clear = () => setRightButtonHeld(false);
-        window.addEventListener('mouseup', clear);
-        window.addEventListener('blur', clear);
-        return () => {
-            window.removeEventListener('mouseup', clear);
-            window.removeEventListener('blur', clear);
-        };
-    }, [rightButtonHeld]);
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {
@@ -743,6 +734,25 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             y: e.clientY - rect.top,
         };
     }, []);
+
+    // issue 74：右键按住期间 —— 松手时执行删除（跨平台一致），失焦只清标志不动谱面。
+    useEffect(() => {
+        if (!rightButtonHeld) return;
+        const onUp = (e: MouseEvent) => {
+            if (e.button !== 2) return;
+            setRightButtonHeld(false);
+            const pos = cssToCanvas(e);
+            // 只在渲染面内松手才删（画布外松手 = 取消），与 §1"该位置非法则无事发生"同族
+            if (pos && isInsideSurface(surf, pos.x, pos.y)) rightClickDelete(pos.x, pos.y);
+        };
+        const onBlur = () => setRightButtonHeld(false);
+        window.addEventListener('mouseup', onUp);
+        window.addEventListener('blur', onBlur);
+        return () => {
+            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('blur', onBlur);
+        };
+    }, [rightButtonHeld, rightClickDelete, cssToCanvas, surf]);
 
     const handleWheel = useCallback((e: WheelEvent) => {
         // 只处理Ctrl+滚轮缩放，禁用普通滚动

@@ -62,3 +62,11 @@ Blocked by:
   滑条结点 + 段 / BPM 转红 / 未按右键仍浅黄回归。tsc 0 / 810 测试全绿。
 - 待你在页面确认：按住右键时是否**真的**有预览窗口 —— 若本环境 `contextmenu` 在 mousedown 即触发，
   删除会在按下瞬间完成，那时需要把删除延后到 `mouseup`（实现时实测，不再单开票）。
+- **2026-09-10 二轮（跨平台收口，不再等实测）**：用户确认本机 Windows 效果 OK，但产品要发
+  Linux/macOS —— 而这些平台的 `contextmenu` 在 **mousedown** 即触发，按住期间没有预览窗口。
+  故删除动作**从 `contextmenu` 移到 `mouseup`**（`rightClickDelete`）：
+  - `onContextMenu` 只剩 `preventDefault()`（屏蔽原生菜单）；
+  - window `mouseup`（button===2）→ 清标志 + 在渲染面内才删除（画布外松手 = 取消）；`blur` 只清标志不动谱面；
+  - 对 Windows 而言与原来**等价**（原本 contextmenu 就在松手时触发，取的也是松手位置）。
+  锁测不变（`SelectionVisual` 仍锁渲染侧）；接线部分属 DOM 时序，单测盖不到 → 需三平台各验一次：
+  ① 右键按住不松手 → 光标下对象转红；② 松手 → 删除该对象；③ 移到画布外松手 → 不删。
