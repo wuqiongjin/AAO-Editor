@@ -152,12 +152,21 @@ export function planDragMove(
   };
 
   // ① 位移后的音符 + 越界 / 邻居序校验（无就地变异）
+  // 顺带累积**落点窗口**（② 占位表的裁剪依据，见下方 ② 的正确性说明）：
+  // 只在既有类型分支里加一行标记，不为此再开一遍全谱循环。
+  let winLo = Infinity, winHi = -Infinity;
+  const markWindow = (beat: number, sub: number) => {
+    const b = sumBeat(beat, sub, beatDisplay);
+    if (b < winLo) winLo = b;
+    if (b > winHi) winHi = b;
+  };
   const moved = new Map<number, ChartNote>();
   for (const [i, plan] of plans) {
     const n = notes[i];
     if (isKey(n)) {
       const beat = n.beat + delta.dBeat;
       const lane = n.lane + delta.dLane;
+      markWindow(beat, n.subBeat || 0);
       // issue 66 §4b：方向键是整组，但**只有根轨必须留在 0..6 内**——组尾溢出视觉合法
       // （放置链路口径已经允许在 lane 6 放 length=3 的右方向键让组尾溢出右侧）；
       // 拖拽落点保留同一口径：根轨在界内即合法，组尾越界照实落点、不回弹。
@@ -169,6 +178,8 @@ export function planDragMove(
         plan.kind === 'whole' || plan.conns.has(ci)
           ? { ...c, beat: c.beat + delta.dBeat, lane: c.lane + delta.dLane }
           : { ...c });
+      // 取**全部**结点（比"仅受动结点"宽）→ 窗口仍是落点键的超集，安全
+      for (const c of conns) markWindow(c.beat, c.subBeat || 0);
       const touched = plan.kind === 'whole' ? conns.map((_, ci) => ci) : [...plan.conns];
       for (const ci of touched) {
         const c = conns[ci];
@@ -189,14 +200,33 @@ export function planDragMove(
   }
 
   // ② 未动对象占位表（被拖走的位置让出；部分拖动的滑条，其未动结点仍占位）
+  //
+  // issue 70 候选 2（实测）：原实现为**全谱**每个对象建一个 posKey 字符串 + Map.set
+  // （5000 音符 ≈ 1.25ms/次），而查询只发生在拖拽件的落点上（≤ 几十次键比较）。
+  // 本函数被**每次 mousemove** 调用算拖拽幽灵，故这是「单次交互响应成本」的最大项。
+  //
+  // 优化：先按**落点窗口**做一次纯数值预筛，只为窗口内的对象建表。
+  // 正确性：占位键 = `beat|subBeat|lane` **精确相等**才可能命中，故真实拍位落在窗口外的
+  // 对象不可能与任何落点键相等 —— 跳过它们是保守超集裁剪，不漏不误判（EPS 只放宽不收紧）。
   const occ = new Map<string, { orig: number; isKey: boolean; endpoint: boolean }>();
+  const inWindow = (beat: number, sub: number) => {
+    const b = sumBeat(beat, sub, beatDisplay);
+    return b >= winLo - EPS && b <= winHi + EPS;
+  };
   notes.forEach((n, i) => {
     const plan = plans.get(i);
     if (isKey(n)) {
       if (plan) return; // 原位置让出
+      if (!inWindow(n.beat, n.subBeat || 0)) return;
       occ.set(posKey(n.beat, n.subBeat || 0, n.lane), { orig: i, isKey: true, endpoint: false });
     } else if (isSlideish(n)) {
       const last = n.connections.length - 1;
+      // 整条都不在窗口内 → 一个键都不必建（先纯数值扫一遍，避免逐结点建键）
+      let anyInWindow = false;
+      for (const c of n.connections) {
+        if (inWindow(c.beat, c.subBeat || 0)) { anyInWindow = true; break; }
+      }
+      if (!anyInWindow) return;
       n.connections.forEach((c, ci) => {
         if (plan && (plan.kind === 'whole' || plan.conns.has(ci))) return;
         occ.set(posKey(c.beat, c.subBeat || 0, c.lane), { orig: i, isKey: false, endpoint: ci === 0 || ci === last });

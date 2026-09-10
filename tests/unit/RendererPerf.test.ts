@@ -1,8 +1,9 @@
 // issue 10 性能测试：密集音符（3000-5000）下缩放流畅性保障。
 // node 环境用 stub ctx 计量 JS 侧开销与调用次数（真实光栅化由浏览器 ?perf=1 基线覆盖）。
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChartGeometry, LANES, LANE_WIDTH } from '../../src/chart/geometry/ChartGeometry';
 import { renderChart, visibleBeatRange } from '../../src/visual/render';
+import { findItemAt } from '../../src/visual/hitTest';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/visual/noteSkin';
 import {
   drawNotesLayer, resetNoteLayerCache, tileIndexRange, tileBlitRect, posRangeOf,
@@ -10,8 +11,11 @@ import {
 } from '../../src/visual/noteLayerCache';
 import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '../../src/visual/staticLayerCache';
 import { makeCoords } from '../../src/visual/coords';
+import { planDragMove } from '../../src/chart/editing/NoteDragging';
+import { countNotesUpToBeat } from '../../src/chart/editing/NoteEditing';
+import { getBpmEvents, secondsToBeat } from '../../src/audio/AudioTiming';
 import type { RenderCtx } from '../../src/visual/types';
-import type { ChartNote } from '../../src/chart/types';
+import type { ChartNote, SelectionItem } from '../../src/chart/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 const SURFACE = { w: 750, h: 900 };
@@ -432,5 +436,118 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
     expect(staticDraws.n).toBe(0);
     expect(counters.drawImage).toBeGreaterThanOrEqual(1); // 静态层 blit
+  });
+});
+
+// ---------------------------------------------------------------------------
+// issue 70 候选 2（帧调度）：**测量**，不是改造。
+//
+// 评审报告称「一帧内 N 个 pointermove = N 次全帧重绘」「getVisibleNotes 每帧 4 次」
+// 「planDragMove 每次移动重建 5000 个 Tagged」。这些判断**从未被量化过**。
+// 本组用例只做一件事：把「单次交互操作的响应成本」量成数字，
+// 并钉住「每帧 getVisibleNotes 调用次数」这个结构性指标（可断言、不依赖机器快慢）。
+//
+// 运行：`npx vitest run tests/unit/RendererPerf.test.ts -t 候选 2`（数字打印在 stdout）。
+// ---------------------------------------------------------------------------
+describe('候选 2 测量：单次交互成本（issue 70）', () => {
+  beforeEach(() => {
+    resetNoteLayerCache();
+    resetStaticLayerCache();
+    __setTileCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
+    __setStaticCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
+  });
+
+  const chartEndBeat = 1500;
+  const MOVES = 100;
+
+  /** 一次「交互帧」的 JS 成本：视口/几何/谱面全不变，只有 hoverPos 变（= 一次 mousemove 的重绘） */
+  it('量：hover 交互帧 —— renderChart ×100 总耗时 + 每帧 getVisibleNotes 次数', () => {
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const canvas = { width: 0, height: 0 };
+    const es = 0.5;
+    const scrollY = scrollYForCenterBeat(g, 750, es);
+
+    // 首帧：构建瓦片 + 静态层（不计入交互帧成本）
+    const rc = makeRc(g, notes, chartEndBeat, es, scrollY, false, counters);
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+
+    // 最坏交互帧：hover 有值（实时显示线两侧 O(n) 读数）+ 有 hoverItem（选中描边层）+ 同时点击线开
+    const base: RenderCtx = {
+      ...rc,
+      hoverItem: { kind: 'note', noteIndex: 0 },
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true },
+    };
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, { ...base, hoverPos: { cx: 300, cy: 400 } }); // 预热
+
+    const spy = vi.spyOn(ChartGeometry.prototype, 'visibleNotes');
+    const t0 = performance.now();
+    for (let i = 0; i < MOVES; i++) {
+      renderChart(ctx, canvas as unknown as HTMLCanvasElement, { ...base, hoverPos: { cx: 300 + i, cy: 400 + i } });
+    }
+    const total = performance.now() - t0;
+    const perFrameVisibleNotesCalls = spy.mock.calls.length / MOVES;
+    spy.mockRestore();
+
+    console.log(
+      `[候选2] hover 交互帧 ×${MOVES}：总 ${total.toFixed(1)}ms，单帧 ${(total / MOVES).toFixed(2)}ms；` +
+      `每帧 getVisibleNotes ${perFrameVisibleNotesCalls} 次`,
+    );
+
+    // 结构性断言（与机器快慢无关）：改造前每帧 4 次（BPM 标线 / 同时点击线 / BPM 数值 / 选中描边），
+    // 现为 2 次（renderChart 的 coords 一份 + 瓦片层选中描边一份）。**任何回到 3+ 都视为退化**。
+    expect(perFrameVisibleNotesCalls).toBeLessThanOrEqual(2);
+    // 时间护栏：只拦数量级退化（实测 0.3ms）
+    expect(total / MOVES).toBeLessThan(16);
+  });
+
+  /** hover 命中（findItemAt）：每次 mousemove 走一次全量命中扫描 */
+  it('量：hover 命中 findItemAt ×100 总耗时', () => {
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const es = 0.5;
+    const viewport = { scrollX: 0, scrollY: scrollYForCenterBeat(g, 750, es), scale: es };
+    const deps = { geometry: g, viewport, beatDisplay: BEAT_DISPLAY, notes, noteSize: 1 };
+    findItemAt(300, 400, deps); // 预热
+
+    const t0 = performance.now();
+    for (let i = 0; i < MOVES; i++) findItemAt(300 + (i % 50), 400 + (i % 50), deps);
+    const total = performance.now() - t0;
+    console.log(`[候选2] findItemAt ×${MOVES}：总 ${total.toFixed(1)}ms，单次 ${(total / MOVES).toFixed(3)}ms`);
+    expect(total / MOVES).toBeLessThan(4);
+  });
+
+  /** 拖拽幽灵预览：每次 mousemove 调一次 planDragMove（评审称全量重建 Tagged[]） */
+  it('量：拖拽预览 planDragMove ×100 总耗时（20 件 / 5000 音符）', () => {
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const items: SelectionItem[] = [];
+    for (let i = 0; i < 20; i++) items.push({ kind: 'note', noteIndex: i * 5 });
+    const bounds = { chartEndBeat, beatDisplay: BEAT_DISPLAY };
+    planDragMove(notes, items, { dBeat: 1, dLane: 0 }, bounds); // 预热
+
+    const t0 = performance.now();
+    for (let i = 0; i < MOVES; i++) {
+      planDragMove(notes, items, { dBeat: (i % 8) + 1, dLane: 0 }, bounds);
+    }
+    const total = performance.now() - t0;
+    console.log(`[候选2] planDragMove ×${MOVES}：总 ${total.toFixed(1)}ms，单次 ${(total / MOVES).toFixed(3)}ms`);
+    // 回归护栏：改造前 1.83ms/次（占位表为全谱建 posKey 字符串），改造后 0.50ms/次。
+    // 阈值 1.2 卡在两者之间 —— 窗口裁剪一旦被回退/写坏，这条会红。
+    expect(total / MOVES).toBeLessThan(1.2);
+  });
+
+  /** 播放 HUD：playheadBeat（getBpmEvents O(n)）+ passedNoteCount（countNotesUpToBeat O(n)）每个 tick 各扫全谱 */
+  it('量：播放 HUD 每个 tick 的全谱扫描 ×100 总耗时', () => {
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const t0 = performance.now();
+    for (let i = 0; i < MOVES; i++) {
+      const beat = secondsToBeat(getBpmEvents(notes), i * 0.1);
+      countNotesUpToBeat(notes, beat);
+    }
+    const total = performance.now() - t0;
+    console.log(`[候选2] 播放 HUD tick ×${MOVES}：总 ${total.toFixed(1)}ms，单 tick ${(total / MOVES).toFixed(3)}ms`);
+    expect(total / MOVES).toBeLessThan(2);
   });
 });

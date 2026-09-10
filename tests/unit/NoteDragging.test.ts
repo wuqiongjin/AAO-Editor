@@ -212,6 +212,36 @@ describe('planDragMove 落点覆盖/接合（ADR-0008 §6 四轮修订）', () =
   });
 });
 
+// issue 70 候选 2：占位表改为「只建落点窗口内的键」（性能）。下面三条钉住**裁剪不改变裁决**：
+// 窗口由 moved 各件的**全部**结点算出，落在窗口外的对象不参与裁决，落在窗口内的照常命中。
+// 长谱（chartEndBeat 很大）是为了让"窗口算窄了"真的能被抓到——短谱里全谱都在窗口内，测不出。
+describe('planDragMove 占位表窗口裁剪（issue 70 候选 2，行为等价）', () => {
+  const FAR = { chartEndBeat: 1000, beatDisplay: 4 };
+
+  it('远处的键音符仍在窗口内：拖上去照常 §1.1 覆盖消耗', () => {
+    const notes: ChartNote[] = [single(0, 0), single(900, 0)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 900, dLane: 0 }, FAR);
+    expect(r.ok).toBe(true);
+    expect(r.notes).toEqual([single(900, 0)]); // 目标被 §1.1 消耗
+  });
+
+  it('远处的键音符在窗口外：不参与裁决（不误判碰撞）', () => {
+    const notes: ChartNote[] = [single(0, 0), single(900, 0)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 1, dLane: 0 }, FAR);
+    expect(r.ok).toBe(true);
+    expect(r.notes).toEqual([single(1, 0), single(900, 0)]);
+  });
+
+  it('窗口覆盖被拖滑条的**全部**结点：尾端点撞远处滑条头 → 照常 §3 接合', () => {
+    // 若窗口只按首个结点算（[4,4]），B 的结点 5/6 会被裁掉 → 接合丢失，退化成"擦肩而过"
+    const notes: ChartNote[] = [slide(0, 0, 1, 0), slide(5, 0, 6, 0)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 4, dLane: 0 }, FAR);
+    expect(r.ok).toBe(true);
+    expect(r.notes).toHaveLength(1);
+    expect((r.notes[0] as SlideNote).connections.map(c => c.beat)).toEqual([4, 5, 6]);
+  });
+});
+
 describe('planDragMove - subBeat 单位（1/beatDisplay）', () => {
   it('越界判定按真实拍位：subBeat 不再是"整拍小数"', () => {
     // beat 15、subBeat 1（beatDisplay=4 → 真实 15.25）
