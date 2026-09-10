@@ -29,6 +29,8 @@ interface Opts {
   scale?: number;
   /** issue 67：框选手势进行中的矩形（画布坐标）；传了即启用"框选实时预览"描边 */
   selectionBox?: { x1: number; y1: number; x2: number; y2: number } | null;
+  /** issue 74：右键按住未松手（右键 = 删除光标下的对象）→ hover 转 danger */
+  rightButtonHeld?: boolean;
 }
 
 /** 收集本次描边（视口 scale=1 / scrollY=0，传入的全部音符都视为可见） */
@@ -52,6 +54,7 @@ function outlinesOf(o: Opts): SelectionOutline[] {
     markerBeat: null,
     markerSelected: false,
     armedTool: o.armedTool ?? null,
+    rightButtonHeld: o.rightButtonHeld ?? false, // issue 74
     spriteIcon: { render: () => undefined, renderDecorator: () => undefined },
     noteIcons: ICONS,
     display: {
@@ -482,6 +485,53 @@ describe('框选实时预览描边（issue 67）', () => {
 
   it('非删除工具态：框选预览仍是浅黄 hover（不受影响）', () => {
     const out = outlinesOf({ notes: [single(50, 3)], armedTool: 'mirror', selectionBox: boxAround(3, 51, 3, 49) });
+    expect(out[0]!.mode).toBe('hover');
+  });
+});
+
+// issue 74：右键按住（未松手）时，光标下对象的 hover 从浅黄切到删除红 ——
+// 右键 = 删除该对象，按住期间就要给出"松手即删"的预览（非删除工具态同样生效）。
+describe('右键按住 → hover 转删除红（issue 74）', () => {
+  it('指针态 + 右键按住 → hover 变 danger（松开/未按 = hover）', () => {
+    const hover = { kind: 'note' as const, noteIndex: 0 };
+    const base = { notes: [single(50, 3)], hover };
+    expect(outlinesOf(base)[0]!.mode).toBe('hover');
+    expect(outlinesOf({ ...base, rightButtonHeld: true })[0]!.mode).toBe('danger');
+  });
+
+  it('任意持工具态同样生效（不只删除工具）', () => {
+    const hover = { kind: 'note' as const, noteIndex: 0 };
+    for (const armedTool of ['single', 'slide', 'mirror', 'paste'] as const) {
+      const out = outlinesOf({ notes: [single(50, 3)], hover, armedTool, rightButtonHeld: true });
+      expect(out[0]!.mode).toBe('danger');
+    }
+  });
+
+  it('hover 到滑条结点 / 段 → 都转 danger', () => {
+    const s = slide([{ lane: 1, beat: 10 }, { lane: 3, beat: 12 }]);
+    const node = outlinesOf({
+      notes: [s], hover: { kind: 'slideNode', noteIndex: 0, connIndex: 0 }, rightButtonHeld: true,
+    });
+    expect(node.some(o => o.mode === 'danger')).toBe(true);
+    const region = outlinesOf({
+      notes: [s], hover: { kind: 'slideRegion', noteIndex: 0, connIndex: 0 }, rightButtonHeld: true,
+    });
+    expect(region.some(o => o.mode === 'danger')).toBe(true);
+  });
+
+  it('BPM 线：右键按住也转红（右键能删它）', () => {
+    const out = outlinesOf({
+      notes: [{ type: 'BPM', beat: 40, bpm: 120 } as ChartNote],
+      hover: { kind: 'note', noteIndex: 0 }, rightButtonHeld: true,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.mode).toBe('danger');
+  });
+
+  it('回归：未按右键时，非删除工具态的 hover 仍是浅黄', () => {
+    const out = outlinesOf({
+      notes: [single(50, 3)], hover: { kind: 'note' as const, noteIndex: 0 }, armedTool: 'single',
+    });
     expect(out[0]!.mode).toBe('hover');
   });
 });

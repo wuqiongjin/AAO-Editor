@@ -1,7 +1,7 @@
 # 74 · 右键按住（未松手）时，光标下的音符改用删除 hover（危险红）
 
 Type: feature
-Status: open
+Status: resolved（2026-09-10 实现 + 锁测，待你在页面验收）
 Blocked by:
 
 ## 来源（用户 2026-09-10 重新澄清）
@@ -49,3 +49,16 @@ Blocked by:
 ## Comments
 
 - 2026-09-10 用户澄清诉求后重写（原稿中"平台触发时机"的提问已改为实现时的自测项）。
+- 2026-09-10 实现：
+  - `RenderCtx` 新增 `rightButtonHeld?: boolean`；`FinalVirtualCanvas` 在 `mousedown button===2` 置位，
+    用 window 的 `mouseup` / `blur` 兜底清理（松手在画布外也不会卡住红色）。
+  - `collectSelectionOutlines` 的 danger 开关改为 `rc.armedTool === 'delete' || rc.rightButtonHeld === true`
+    —— 与删除持工具态合并成一个开关，任意工具态（含指针态）右键按住即生效。
+  - BPM 分支单开一条：只认**右键按住**这一源（`rc.rightButtonHeld && hv !== null` 才画）。
+    删除工具态下 BPM 的**鼠标** hover 不画是既有定案（issue 56 C5），本票不动它 —— 因此这里没有
+    直接用合并后的 `dangerTool`（否则会顺带改掉 C5，既有锁测会红）。
+  - 删除动作仍留在 `contextmenu`，未改时机。
+- 锁测：`SelectionVisual.test.ts` 新增 5 例：指针态右键按住 → danger / 四种持工具态同样生效 /
+  滑条结点 + 段 / BPM 转红 / 未按右键仍浅黄回归。tsc 0 / 810 测试全绿。
+- 待你在页面确认：按住右键时是否**真的**有预览窗口 —— 若本环境 `contextmenu` 在 mousedown 即触发，
+  删除会在按下瞬间完成，那时需要把删除延后到 `mouseup`（实现时实测，不再单开票）。

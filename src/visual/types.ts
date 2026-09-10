@@ -62,6 +62,11 @@ export interface RenderCtx {
   markerSelected: boolean;
   /** 持工具态（ADR-0008 §1）：null = 指针态。渲染器按此分派幽灵预览（放置/粘贴/镜像） */
   armedTool: string | null;
+  /**
+   * issue 74：右键**按住未松手**（右键 = 删除光标下的对象）。
+   * 渲染器据此把 hover 描边从浅黄切到删除红（与删除持工具态同款，作"松手即删"的预览）。
+   */
+  rightButtonHeld?: boolean;
   /** 拖拽移动实时幽灵（ADR-0008 §6）：拖拽中的落点音符（覆盖原位置渲染的临时结果），null = 无拖拽 */
   dragGhost?: ChartNote[] | null;
   spriteIcon: CanvasSpriteIcon;

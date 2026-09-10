@@ -253,7 +253,10 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
   // A5：描边随 noteSize 缩放（与音符本体同一 spriteScale），永远贴合外边缘
   const ns = rc.display?.noteSize ?? 1;
   const s = rc.viewport.scale * ns;
-  const dangerTool = rc.armedTool === 'delete';
+  // issue 74：右键按住（未松手）时，光标下对象的 hover 也要用删除红 ——
+  // 右键 = 删除该对象，按住期间就该用与"删除工具"同款的 danger 反馈作预览。
+  // 与"删除持工具态"是同一形态的两种触发源，故合并成一个开关。
+  const dangerTool = rc.armedTool === 'delete' || rc.rightButtonHeld === true;
   const out: SelectionOutline[] = [];
 
   for (const { note, index } of visibleNotes) {
@@ -294,7 +297,10 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       // issue 71 修订：BPM **不再入选**，其通路只剩「右键删除 / 删除工具（单击+框选）/
       // 沟槽数字就地编辑」。故框选预览只在**删除态**画它（那时框选真会删掉它），
       // 非删除态画了却选不中 = 误导（判据见 `buildPreviewSets` + `computeBpmLinesInBox`）。
-      if (!whole && !previewWhole) continue;
+      // issue 74：右键按住时 BPM 也要给反馈 —— 右键能删它，与"鼠标 hover 不画（点了没反应）"区分开。
+      // 只认**右键按住**这一源：删除工具态下 BPM 的鼠标 hover 不画是既有定案（issue 56 C5），不动它。
+      const dangerHover = rc.rightButtonHeld === true && hv !== null;
+      if (!whole && !previewWhole && !dangerHover) continue;
       const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
       const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
       // 删除态下 BPM 的**鼠标 hover** 不画红（C5：单击无效果），但**框选预览**要画红 ——

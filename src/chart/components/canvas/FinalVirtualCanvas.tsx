@@ -208,6 +208,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const marqueeCursorRef = useRef<{ x: number; y: number } | null>(null);
     // 光标悬停位置（画布坐标），供工具态预览（放置/粘贴/镜像悬停）
     const [hoverPos, setHoverPos] = useState<{ cx: number; cy: number } | null>(null);
+    // issue 74：右键**按住未松手**（右键 = 删除光标下的对象）→ hover 描边转删除红
+    const [rightButtonHeld, setRightButtonHeld] = useState(false);
     // 临时起点标记（ADR-0004 §4）：不入谱面数据、随会话丢弃；markerSelected 与音符选择互斥
     const [markerBeat, setMarkerBeat] = useState<number | null>(null);
     const [markerSelected, setMarkerSelected] = useState(false);
@@ -471,7 +473,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     }, [viewport, geometry, surf]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
-        if (e.button !== 0) return; // 只响应左键（右键走 contextmenu）
+        if (e.button !== 0) {
+            // issue 74：右键按下（未松手）→ 光标下对象的 hover 切删除红，作"松手即删"的预览。
+            // 删除动作本身仍在 `contextmenu` 里执行，此处只置反馈标志。
+            if (e.button === 2) setRightButtonHeld(true);
+            return; // 只响应左键（右键走 contextmenu）
+        }
         const pos = cssToCanvas(e);
         if (!pos) return;
         // bug 32：起点同时存画布坐标（拖拽阈值/渲染基线）与虚拟坐标（滚动时锚定谱面时刻）
@@ -673,6 +680,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             markerBeat,
             markerSelected,
             armedTool,
+            rightButtonHeld, // issue 74：右键按住期间 hover 转 danger
             dragGhost,
             spriteIcon: spriteIcon.current,
             noteIcons,
@@ -694,7 +702,20 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, dragGhost, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, dragGhost, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, rightButtonHeld]);
+
+    // issue 74：右键按住标志的兜底清理 —— 松手 / 窗口失焦都要清掉，
+    // 否则"红 hover"会一直卡在最后位置（删除动作本身在 contextmenu 里，不受此影响）。
+    useEffect(() => {
+        if (!rightButtonHeld) return;
+        const clear = () => setRightButtonHeld(false);
+        window.addEventListener('mouseup', clear);
+        window.addEventListener('blur', clear);
+        return () => {
+            window.removeEventListener('mouseup', clear);
+            window.removeEventListener('blur', clear);
+        };
+    }, [rightButtonHeld]);
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
     useEffect(() => {
