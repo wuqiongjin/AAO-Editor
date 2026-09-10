@@ -84,6 +84,16 @@ export class PlaybackScrollModel {
     return beatToSeconds(this.geometry.bpmEvents as BpmEvent[], beat);
   }
 
+  /**
+   * 秒 → { 画布 scrollY, 滚动条 scrollTop }（issue 75：RAF 循环与 `seek()` **共用同一口径**）。
+   * 此前 `seek()` 只推画布、不同步 DOM scrollTop，两个真相源分裂（画布=B、滚动条=A），
+   * 下一次滚动事件便用陈旧的 A 位 scrollTop 反算 scrollY → 画布跳回旧位置。
+   */
+  scrollTargetForSeconds(seconds: number, maxScroll: number): ReAnchorTarget {
+    const scrollY = this.scrollYForSeconds(seconds);
+    return { scrollY, scrollTop: this.canvasScrollYToScrollTop(scrollY, maxScroll) };
+  }
+
   /** 谱面实际可滚范围（top=末端、bottom=起点，无空白）。 */
   scrollRange(): ScrollRange {
     const bottom = this.maxCanvasScrollY();

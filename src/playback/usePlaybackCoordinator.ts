@@ -96,15 +96,12 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
         stopPlayback();
         return;
       }
-      const targetScrollY = model.scrollYForSeconds(current);
-      canvas.setScrollY(targetScrollY);
       const container = scrollContainerRef.current as HTMLDivElement | null;
-      if (container) {
-        const maxScroll = container.scrollHeight - container.clientHeight;
-        const nextScrollTop = model.canvasScrollYToScrollTop(targetScrollY, maxScroll);
-        if (Math.abs(nextScrollTop - container.scrollTop) > 0.5) {
-          container.scrollTop = nextScrollTop;
-        }
+      const maxScroll = container ? container.scrollHeight - container.clientHeight : 0;
+      const { scrollY, scrollTop } = model.scrollTargetForSeconds(current, maxScroll);
+      canvas.setScrollY(scrollY);
+      if (container && Math.abs(scrollTop - container.scrollTop) > 0.5) {
+        container.scrollTop = scrollTop;
       }
       e.tick();
       playbackRafRef.current = requestAnimationFrame(loop);
@@ -134,14 +131,22 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     setCurrentSeconds(clamped);
     const canvas = canvasRef.current;
     const model = scrollModel;
+    const container = scrollContainerRef.current as HTMLDivElement | null;
     if (canvas && model) {
-      const targetY = model.scrollYForSeconds(clamped);
-      canvas.setScrollY(targetY);
+      // issue 75：滚动条 DOM scrollTop 必须与画布**同源**写入（与 RAF 循环同一口径）。
+      // 此前 seek 只推画布，滚动条停在旧位置；切页回来第一次滚动就用陈旧 scrollTop
+      // 反算 scrollY，把画布拉回旧播放位置。
+      const maxScroll = container ? container.scrollHeight - container.clientHeight : 0;
+      const { scrollY, scrollTop } = model.scrollTargetForSeconds(clamped, maxScroll);
+      canvas.setScrollY(scrollY);
+      if (container && Math.abs(scrollTop - container.scrollTop) > 0.5) {
+        container.scrollTop = scrollTop;
+      }
     }
     if (!engine.isPlaying) {
       stopPlayback();
     }
-  }, [engine, scrollModel, canvasRef, setCurrentSeconds, stopPlayback]);
+  }, [engine, scrollModel, canvasRef, scrollContainerRef, setCurrentSeconds, stopPlayback]);
 
   const jumpToMarker = useCallback(() => {
     const e = engine;

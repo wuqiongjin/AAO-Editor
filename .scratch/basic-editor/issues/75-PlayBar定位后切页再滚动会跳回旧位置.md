@@ -1,7 +1,7 @@
 # 75 · PlayBar 定位到 B 后，切页再滚动画布会跳回旧位置 A
 
 Type: bug
-Status: open
+Status: resolved（2026-09-10 实现 + 锁测，待你在页面验收）
 Blocked by:
 
 ## 来源
@@ -45,3 +45,17 @@ Blocked by:
 - **静态源码断言**（照 `EditorAudioSessionRefactor.test.ts` 惯例）：`usePlaybackCoordinator` 的 `seek`
   必须写 `scrollContainerRef.current.scrollTop`，防止回归成只推画布。
 - 手工：A → PlayBar 拖到 B → 切页 → 切回 → 滚动，停在 B 不回 A（这是 DOM 时序，单测覆盖不到）。
+
+## Comments
+
+- 2026-09-10 实现（只修主因）：`PlaybackScrollModel` 新增 `scrollTargetForSeconds(sec, maxScroll)`
+  → `{ scrollY, scrollTop }`，RAF 循环与 `seek()` 共用同一口径；
+  `seek()` 补写 `container.scrollTop`（带 0.5px 防抖守卫，与 RAF 同款）。
+  `jumpToMarker` 走的是 `startPlaybackLoop`（RAF），自动跟着受益，无需额外改。
+- 次因（`noteScrollObserved` 在 pending 重锚期跳过刷新 `anchorSeconds`）**按票内计划未动**，
+  留待主因验收后再评估。
+- 锁测：`PlaybackScrollModel.test.ts` 新增 5 例（`scrollTargetForSeconds` 同口径 / 反解一致 /
+  超界钳制 / `maxScroll<=0` 归 0）；新增 `tests/unit/PlaybackSeekScrollSync.test.ts`（6 例静态源码断言）：
+  `seek` 必须调用 `scrollTargetForSeconds` 且写 `container.scrollTop`（含 0.5 守卫），
+  RAF 循环同样保留该写入 —— 防"组件又只推画布"的回归（组件接线单测盖不到）。
+  tsc 0 / 787 测试全绿。

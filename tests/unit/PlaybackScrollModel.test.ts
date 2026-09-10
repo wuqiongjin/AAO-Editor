@@ -83,6 +83,44 @@ describe('PlaybackScrollModel · 滚动条 ↔ 画布 scrollY 映射', () => {
   });
 });
 
+describe('PlaybackScrollModel · 秒 → 滚动目标（issue 75：seek 与 RAF 同源）', () => {
+  const m = () => new PlaybackScrollModel(geom(30), 1);
+
+  it('scrollTargetForSeconds = scrollYForSeconds + canvasScrollYToScrollTop 同口径', () => {
+    const model = m();
+    const maxScroll = 1234;
+    for (const s of [0, 5, 15, 29.9, 30]) {
+      const t = model.scrollTargetForSeconds(s, maxScroll);
+      expect(t.scrollY).toBeCloseTo(model.scrollYForSeconds(s), 6);
+      expect(t.scrollTop).toBeCloseTo(model.canvasScrollYToScrollTop(model.scrollYForSeconds(s), maxScroll), 6);
+    }
+  });
+
+  it('scrollTop 落在 [0, maxScroll]，且经 scrollTopToCanvasScrollY 反解回同一 scrollY', () => {
+    const model = m();
+    const maxScroll = 4321;
+    for (const s of [0, 12.5, 30]) {
+      const t = model.scrollTargetForSeconds(s, maxScroll);
+      expect(t.scrollTop).toBeGreaterThanOrEqual(0);
+      expect(t.scrollTop).toBeLessThanOrEqual(maxScroll);
+      expect(model.scrollTopToCanvasScrollY(t.scrollTop, maxScroll)).toBeCloseTo(t.scrollY, 6);
+    }
+  });
+
+  it('越界秒钳制到两端（0s → scrollTop=maxScroll；≥末端 → 0）', () => {
+    const model = m();
+    const maxScroll = 1000;
+    expect(model.scrollTargetForSeconds(0, maxScroll).scrollTop).toBeCloseTo(maxScroll, 6);
+    expect(model.scrollTargetForSeconds(30, maxScroll).scrollTop).toBeCloseTo(0, 6);
+    expect(model.scrollTargetForSeconds(-5, maxScroll).scrollTop).toBeCloseTo(maxScroll, 6);
+    expect(model.scrollTargetForSeconds(1e9, maxScroll).scrollTop).toBeCloseTo(0, 6);
+  });
+
+  it('maxScroll<=0（内容未就绪）时 scrollTop 归 0，不产生越界写入', () => {
+    expect(m().scrollTargetForSeconds(15, 0).scrollTop).toBe(0);
+  });
+});
+
 describe('PlaybackScrollModel · 有效缩放钳制（issue 38 / ADR-0006 Q4=A）', () => {
   it('委托 ChartGeometry.effectiveScale：宽面不钳、窄面钳到容纳 7 轨', () => {
     const gWide = geom(30, { w: 750, h: 900 });
