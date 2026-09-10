@@ -9,7 +9,7 @@ import {
   batchApplyKeyType, pasteChartNotes,
 } from './NoteReplacementRules';
 import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
-import { combineSelectionIntoSlide } from './SlideCombination';
+import { combineSelectionIntoSlide, compareAbsorbable } from './SlideCombination';
 // 对象视图目标（issue 59 §4）在 NoteCodeOps 定义（回写走同一类型），转出供 op 与调用方使用
 import type { NoteCodeTarget } from './NoteCodeOps';
 export type { NoteCodeTarget };
@@ -107,9 +107,10 @@ export function slideSecondClickOps(
   const comb = handleSlideToSlideCombination(notes, [buf, point]);
   if (comb.shouldCombine) return [{ t: 'setNotes', notes: comb.newNotes }, { t: 'setSlideBuffer', point: null }, clearSel];
   const newNotes = [...comb.newNotes];
-  // 与 §4 排序规则同口径（beat → subBeat → lane），保证两击次序无关
-  const [start, end] = [buf, point].sort((a, b) =>
-    (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) || (a.lane - b.lane));
+  // 与 §4 排序规则同口径（beat → subBeat → lane），保证两击次序无关。
+  // 候选 4 归一：此前此处内联了一份与 `compareAbsorbable` 逐字相同的比较器，而 §4 锁表锁的是
+  // 后者 —— 改了排序规则这里不会红（正是 SlideCombination 注释警告的"锁表锁成死代码"）。
+  const [start, end] = [buf, point].sort(compareAbsorbable);
   // clone：start/end 来自 slideBuffer / 落点对象，直接塞进谱面会让 UI 态与历史快照共享同一可变对象
   newNotes.push({ type: 'Slide', connections: [{ ...start }, { ...end }] });
   return [{ t: 'setNotes', notes: newNotes }, { t: 'setSlideBuffer', point: null }, clearSel];

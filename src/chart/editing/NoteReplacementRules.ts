@@ -1,5 +1,5 @@
 import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LDirectionalNote, RDirectionalNote } from '../types';
-import { connectionToNote, mergeChainWithSlides } from './SlideCombination';
+import { connectionToNote, mergeChainWithSlides, compareAbsorbable } from './SlideCombination';
 import { shiftGroupToAnchor } from './NoteEditing';
 
 /**
@@ -11,6 +11,38 @@ export interface NoteReplacementResult {
     shouldReplace: boolean;
     newNotes: ChartNote[];
     message?: string;
+}
+
+/**
+ * 查找该位置（beat/lane/subBeat）上是否已有音符 —— **「这个位置上有什么」的唯一口径**。
+ * 含滑条/长条的**连接结点**（ADR-0001：结点与键型音符同位即重合）。
+ * BPM / System 不参与（覆盖规则不适用于它们，见 `pasteChartNotes` 的独立分支）。
+ *
+ * 候选 4 归一：此前 `handleNoteReplacement` 与 `pasteChartNotes` 各写了一份**逐字相同**的判定，
+ * 改一处忘另一处即口径漂移。两处共用本函数；**只抽查询，不动各自分支** ——
+ * paste 的空位要「原样保留 flick/skill/length 标记」，与 `handleNoteReplacement` 的
+ * `addNewNote` 语义不同，合并分支会改行为（handoff §5 教训 1：决策是否被复制才是判据）。
+ *
+ * @returns 命中下标；-1 = 空位
+ */
+export function findNoteIndexAt(
+    notes: readonly ChartNote[],
+    beat: number,
+    lane: number,
+    subBeat: number,
+): number {
+    const sb = subBeat || 0;
+    return notes.findIndex(n => {
+        if (n.type === "Single" || n.type === "LDirectional" || n.type === "RDirectional") {
+            return n.beat === beat && n.lane === lane && (n.subBeat || 0) === sb;
+        }
+        if (n.type === "Slide" || n.type === "Long") {
+            return (n as SlideNote).connections.some((c: ConnectionNote) =>
+                c.beat === beat && c.lane === lane && (c.subBeat || 0) === sb
+            );
+        }
+        return false;
+    });
 }
 
 /**
@@ -36,18 +68,8 @@ export function handleNoteReplacement(
         newNoteType = "Single";
     }
 
-    // 查找同一位置是否已有音符
-    const existingNoteIndex = newNotes.findIndex(note => {
-        if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
-            return note.beat === beat && note.lane === lane && (note.subBeat || 0) === (subBeat || 0);
-        } else if (note.type === "Slide" || note.type === "Long") {
-            // 检查滑条音符的连接点
-            return note.connections.some((conn: any) =>
-                conn.beat === beat && conn.lane === lane && (conn.subBeat || 0) === (subBeat || 0)
-            );
-        }
-        return false;
-    });
+    // 查找同一位置是否已有音符（候选 4 归一：与 pasteChartNotes 共用 findNoteIndexAt）
+    const existingNoteIndex = findNoteIndexAt(newNotes, beat, lane, subBeat);
 
     if (existingNoteIndex !== -1) {
         const existingNote = newNotes[existingNoteIndex];
@@ -469,8 +491,8 @@ export function handleSlideToSlideCombination(
     // 点击顺序不定 → 按 §4 排序规则归一为链 [起, 止]（beat → subBeat → lane 升序）。
     // 注意：差值必须先算完再与 0 比较——旧写法 `(a.beat-b.beat) || (…) <= 0` 受运算优先级
     // 影响，beat 差非 0 时恒按点击顺序取 [a,b]，导致先点后拍（C→B）时链反序、两侧都不接合。
-    const order = (a.beat - b.beat) || ((a.subBeat || 0) - (b.subBeat || 0)) || (a.lane - b.lane);
-    const [start, end] = order <= 0 ? [a, b] : [b, a];
+    // 候选 4 归一：改用权威 `compareAbsorbable`（与旧表达式逐字相同 → 等价）。
+    const [start, end] = compareAbsorbable(a, b) <= 0 ? [a, b] : [b, a];
 
     const newNotes = [...notes];
     // 端点覆盖替换：删除与链端点重合的键型音符（与既有行为一致）
@@ -577,18 +599,8 @@ export function pasteChartNotes(
         const lane: number = (note as { lane: number }).lane;
         const subBeat: number = (note as { subBeat?: number }).subBeat || 0;
 
-        // 查找同位置既有音符（含滑条结点）
-        const existingIndex = newNotes.findIndex(n => {
-            if (n.type === "Single" || n.type === "LDirectional" || n.type === "RDirectional") {
-                return n.beat === beat && n.lane === lane && (n.subBeat || 0) === subBeat;
-            }
-            if (n.type === "Slide" || n.type === "Long") {
-                return (n as SlideNote).connections.some(c =>
-                    c.beat === beat && c.lane === lane && (c.subBeat || 0) === subBeat
-                );
-            }
-            return false;
-        });
+        // 查找同位置既有音符（含滑条结点）（候选 4 归一：与 handleNoteReplacement 共用 findNoteIndexAt）
+        const existingIndex = findNoteIndexAt(newNotes, beat, lane, subBeat);
 
         if (existingIndex === -1) {
             // 空位：原样粘贴（保留 flick/skill/length 标记）

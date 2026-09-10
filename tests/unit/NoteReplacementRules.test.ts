@@ -5,8 +5,58 @@ import {
   deleteSlideSegment,
   keyTargetsFromItems,
   batchApplyKeyType,
+  findNoteIndexAt,
 } from '../../src/chart/editing/NoteReplacementRules';
 import type { ChartNote, SlideNote } from '../../src/chart/types';
+
+// 候选 4 归一：`findNoteIndexAt` 是「这个位置上有什么」的**唯一口径**
+// （`handleNoteReplacement` 与 `pasteChartNotes` 共用）。此前两处各写一份逐字相同的判定，
+// 改一处忘另一处即口径漂移 —— 故直接锁这个查询本身。
+describe('findNoteIndexAt（位置查询唯一口径，issue 70 候选 4）', () => {
+  const key = (beat: number, lane: number, subBeat = 0): ChartNote =>
+    ({ type: 'Single', beat, lane, subBeat });
+  const slide: SlideNote = {
+    type: 'Slide',
+    connections: [
+      { beat: 4, lane: 1, subBeat: 0 },
+      { beat: 6, lane: 3, subBeat: 2 },
+    ],
+  };
+
+  it('空位 → -1', () => {
+    expect(findNoteIndexAt([key(1, 2)], 9, 2, 0)).toBe(-1);
+  });
+
+  it('键型音符：beat/lane/subBeat 三者全等才命中（任一不同即 -1）', () => {
+    const notes: ChartNote[] = [key(1, 2, 0)];
+    expect(findNoteIndexAt(notes, 1, 2, 0)).toBe(0);
+    expect(findNoteIndexAt(notes, 1, 3, 0)).toBe(-1); // lane 不同
+    expect(findNoteIndexAt(notes, 2, 2, 0)).toBe(-1); // beat 不同
+    expect(findNoteIndexAt(notes, 1, 2, 1)).toBe(-1); // subBeat 不同
+  });
+
+  it('滑条/长条：命中其**连接结点**，不是整条包围盒', () => {
+    const notes: ChartNote[] = [slide];
+    expect(findNoteIndexAt(notes, 4, 1, 0)).toBe(0); // 首结点
+    expect(findNoteIndexAt(notes, 6, 3, 2)).toBe(0); // 尾结点（含 subBeat）
+    // 两结点之间的位置（beat 5 / lane 2）不属任何结点 → 不命中
+    expect(findNoteIndexAt(notes, 5, 2, 0)).toBe(-1);
+  });
+
+  it('subBeat 缺失按 0 归一（与两侧调用方旧写法同口径）', () => {
+    const noSub = { type: 'Single', beat: 1, lane: 2 } as unknown as ChartNote;
+    expect(findNoteIndexAt([noSub], 1, 2, 0)).toBe(0);
+    expect(findNoteIndexAt([key(1, 2, 0)], 1, 2, undefined as unknown as number)).toBe(0);
+  });
+
+  it('BPM / System 不参与（覆盖规则不适用于它们）', () => {
+    const notes = [
+      { type: 'BPM', beat: 1, bpm: 120 },
+      { type: 'System', beat: 1 },
+    ] as unknown as ChartNote[];
+    expect(findNoteIndexAt(notes, 1, 0, 0)).toBe(-1);
+  });
+});
 
 describe('handleNoteReplacement - 单键/方向键', () => {
   it('在空位放置单键音符', () => {
