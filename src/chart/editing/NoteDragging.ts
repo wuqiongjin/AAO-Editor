@@ -7,6 +7,7 @@
 import type { ChartNote, SelectionItem, SlideNote, LongNote } from '../types';
 import { quantizeBeat } from '../geometry/ChartGeometry';
 import { mergeChainWithSlides } from './SlideCombination';
+import { handleNoteReplacement } from './NoteReplacementRules';
 
 /**
  * 拖拽的拍位移（issue 61）：**量化对象 = 被拖对象的落点**，不是光标。
@@ -78,6 +79,15 @@ export interface DragMoveResult {
 }
 
 const isKey = (n: ChartNote) => n.type === 'Single' || n.type === 'LDirectional' || n.type === 'RDirectional';
+
+/**
+ * 键音符 → 放置工具的 id（issue 76）：拖拽落点撞滑条结点时，用它把"移动"改判为"放置"。
+ * 口径与 `pasteChartNotes` 完全一致（flick 标记 → 滑键、skill 标记 → 技能键，否则单键）。
+ */
+const keyToolIdOf = (n: ChartNote): string =>
+  n.type === 'Single'
+    ? (n.flick ? 'flick' : (n.skill ? 'skill' : 'single'))
+    : n.type.toLowerCase();
 const isSlideish = (n: ChartNote): n is SlideNote | LongNote => n.type === 'Slide' || n.type === 'Long';
 
 const TOTAL_LANES = 7; // 与 NoteEditing.TOTAL_LANES 一致（此处内联避免引动历史模块）
@@ -242,6 +252,9 @@ export function planDragMove(
   const covered = new Set<number>();   // 被覆盖消耗的音符（notes 原下标）
   const joins: number[] = [];          // 需要走 §3 接合的拖拽滑条（notes 原下标）
   const joinedBy = new Set<number>();  // 已被认领的接合目标（防两件抢同一条）
+  // issue 76：键音符拖到滑条结点 → 交回**放置**规则（ADR-0001 §1.2）的结果谱面。
+  // 放置规则会把拖拽件本身消耗掉（技能键/滑键加标记、方向键拆条），故与"移动"是两条不同产物路径。
+  let placement: ChartNote[] | null = null;
   for (const [i, plan] of plans) {
     const nn = moved.get(i)!;
     if (isKey(nn)) {
@@ -251,7 +264,16 @@ export function planDragMove(
       const t = occ.get(k);
       if (!t) continue;
       if (t.isKey) { covered.add(t.orig); continue; } // §1.1 替换：目标被拖拽件取代
-      return fail('collision');                        // 键 → 滑条结点：§1.2 属放置语义，移动不适用
+      // issue 76：键音符 → 滑条结点**不再一律回弹**，改由放置规则裁决（与放置同源）：
+      //   skill → 首/尾端点加 skill；flick → 尾端点加 flick；方向键 → 起/中/止结点拆条。
+      //   放置规则判定为"忽略"的（单键→任意结点、滑键→非尾端点等）→ 仍回弹。
+      //   仅**单件**拖拽走这条路径：组内多件同时落滑条会叠多条规则，保持回弹。
+      if (dragItems.length !== 1) return fail('collision');
+      const base = notes.filter((_, idx) => idx !== i); // 拖拽件被放置规则消耗
+      const r = handleNoteReplacement(base, nn.beat, nn.lane, nn.subBeat || 0, keyToolIdOf(nn));
+      if (!r.shouldReplace) return fail('collision');
+      placement = r.newNotes;
+      continue;
     }
     const conns = (nn as SlideNote).connections;
     const last = conns.length - 1;
@@ -278,6 +300,8 @@ export function planDragMove(
   }
 
   // ④ 应用：覆盖消耗 → 端点接合（级联）→ 重映射选区 / 幽灵
+  // issue 76：走放置规则的那条路径 —— 拖拽件已被消耗（不留在谱面里），故无幽灵、选区清空。
+  if (placement) return { ok: true, notes: placement, items: [], ghost: [] };
   let work: Tagged[] = notes.map((n, i) => ({ note: moved.get(i) || n, orig: i }));
   if (covered.size > 0) work = work.filter(w => !covered.has(w.orig));
   for (const orig of joins) {

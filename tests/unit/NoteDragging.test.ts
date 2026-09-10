@@ -13,6 +13,63 @@ const slide = (...flat: number[]): ChartNote => {
 const noteSel = (...idxs: number[]): SelectionItem[] => idxs.map(i => ({ kind: 'note' as const, noteIndex: i }));
 const B = { chartEndBeat: 16, beatDisplay: 4 };
 
+// issue 76：键音符拖到滑条结点上，**复用放置规则**（ADR-0001 §1.2），不再一律回弹。
+// 放置规则会把拖拽件本身消耗掉（加标记 / 拆条），故产物是"滑条被改造 + 拖拽件消失"。
+describe('planDragMove · 落点撞滑条结点 = 放置规则（issue 76）', () => {
+  const key = (type: 'Single' | 'LDirectional' | 'RDirectional', beat: number, lane: number, extra: Record<string, unknown> = {}): ChartNote =>
+    ({ type, beat, lane, subBeat: 0, ...extra } as ChartNote);
+  const skill = (beat: number, lane: number) => key('Single', beat, lane, { skill: true });
+  const flick = (beat: number, lane: number) => key('Single', beat, lane, { flick: true });
+
+  it('技能键拖到滑条**首**端点 → 端点加 skill，拖拽件被消耗（不落地）', () => {
+    const notes: ChartNote[] = [skill(1, 1), slide(3, 2, 5, 2)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 2, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes.find(n => n.type === 'Slide') as SlideNote;
+    expect(s.connections[0].skill).toBe(true);
+    expect(r.notes.some(n => n.type === 'Single')).toBe(false); // 拖拽件被消耗
+    expect(r.items).toEqual([]);                                 // 无产物可选
+  });
+
+  it('技能键拖到滑条**尾**端点 → 同样加 skill', () => {
+    const notes: ChartNote[] = [skill(1, 2), slide(3, 2, 5, 2)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 4, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes.find(n => n.type === 'Slide') as SlideNote;
+    expect(s.connections[1].skill).toBe(true);
+  });
+
+  it('滑键拖到**尾**端点 → 加 flick；拖到首/中间 → 回弹（与放置同规则）', () => {
+    const tail = planDragMove([flick(1, 2), slide(3, 2, 5, 2)], noteSel(0), { dBeat: 4, dLane: 0 }, B);
+    expect(tail.ok).toBe(true);
+    expect(((tail.notes.find(n => n.type === 'Slide')) as SlideNote).connections[1].flick).toBe(true);
+
+    const head = planDragMove([flick(1, 1), slide(3, 2, 5, 2)], noteSel(0), { dBeat: 2, dLane: 1 }, B);
+    expect(head.ok).toBe(false); // 滑键只对尾端点生效
+    expect(head.reason).toBe('collision');
+  });
+
+  it('方向滑键拖到**中间**结点 → 拆条（与放置路径同产物：两侧退化 + 中间方向键）', () => {
+    const notes: ChartNote[] = [key('LDirectional', 1, 1, { length: 1 }), slide(3, 1, 4, 1, 5, 1)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 3, dLane: 0 }, B); // 落到中间结点 (4,1)
+    expect(r.ok).toBe(true);
+    expect(r.notes.filter(n => n.type === 'Slide')).toHaveLength(0); // 原滑条被拆
+    expect(r.notes.some(n => n.type === 'LDirectional')).toBe(true);
+  });
+
+  it('回归：单键拖到任意滑条结点 → 仍回弹（放置规则 = 忽略）', () => {
+    const r = planDragMove([single(1, 2), slide(3, 2, 5, 2)], noteSel(0), { dBeat: 2, dLane: 0 }, B);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('collision');
+  });
+
+  it('限制：组内多件拖拽时任一成员落滑条 → 回弹（避免多规则交叠）', () => {
+    const notes: ChartNote[] = [skill(1, 1), skill(1, 3), slide(3, 1, 5, 3)];
+    const r = planDragMove(notes, noteSel(0, 1), { dBeat: 2, dLane: 0 }, B); // 0 → 首端点 (3,1)
+    expect(r.ok).toBe(false);
+  });
+});
+
 describe('draggableFromItems', () => {
   it('键型/整条滑条/结点可拖；BPM/System/slideRegion 不可', () => {
     const notes: ChartNote[] = [single(1, 1), { type: 'BPM', beat: 2, bpm: 120 }, slide(3, 1, 4, 2)];
