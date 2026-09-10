@@ -199,6 +199,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 圈选起点（bug 32：同时记画布坐标与虚拟坐标；滚动时用虚拟坐标锚定谱面时刻/轨道不变，行为如"长截图"）
     const selectionStartRef = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
     const selectionMovedRef = useRef(false); // 是否已发生拖拽（区分点击与圈选）
+    /** 框选进行中光标的**画布坐标**（鼠标没动时它不变）。
+     *  矩形起点按虚拟坐标锚定（bug 32），但 `selectionBox` 存的是画布坐标 —— 滚动会让它失效，
+     *  必须用它重算（见下方 `viewport` 依赖的重算 effect）。 */
+    const marqueeCursorRef = useRef<{ x: number; y: number } | null>(null);
     // 光标悬停位置（画布坐标），供工具态预览（放置/粘贴/镜像悬停）
     const [hoverPos, setHoverPos] = useState<{ cx: number; cy: number } | null>(null);
     // 临时起点标记（ADR-0004 §4）：不入谱面数据、随会话丢弃；markerSelected 与音符选择互斥
@@ -426,6 +430,24 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 卸载兜底：手势中途被卸载（切页/关闭）不留悬挂监听
     useEffect(() => detachWindowGesture, [detachWindowGesture]);
 
+    // 框选进行中滚动/缩放 → **必须重算矩形**（issue 70 修复，既有缺陷）。
+    // `selectionBox` 存的是**画布坐标**（渲染/命中都要用它），而起点按**虚拟坐标**锚定（bug 32）。
+    // 滚动不产生 mousemove，于是旧画布坐标失效：矩形钉在画布的同一像素位置，视觉上起点漂到别的拍，
+    // 直到鼠标再动才"啪"地跳回。这里用"起点虚拟坐标 + 光标画布坐标"在 viewport 变化时重算，
+    // 使矩形在滚动全程都锁在最初那个拍与轨道上。
+    useEffect(() => {
+        const start = selectionStartRef.current;
+        const cursor = marqueeCursorRef.current;
+        // 仅框选进行中（已过阈值、且不是拖拽）才重算
+        if (!start || !cursor || !selectionMovedRef.current || dragRef.current) return;
+        setSelectionBox(marqueeRect({
+            start: { vx: start.vx, vy: start.vy },
+            curCanvas: cursor,
+            deps: { geometry, viewport },
+            surface: surf,
+        }));
+    }, [viewport, geometry, surf]);
+
     const handleMouseDown = (e: React.MouseEvent) => {
         if (e.button !== 0) return; // 只响应左键（右键走 contextmenu）
         const pos = cssToCanvas(e);
@@ -434,6 +456,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const v = canvasToVirtual(pos.x, pos.y);
         selectionStartRef.current = { x: pos.x, y: pos.y, vx: v.x, vy: v.y };
         selectionMovedRef.current = false;
+        marqueeCursorRef.current = null;
         setSelectionBox(null);
         setDragGhost(null);
         dragRef.current = null;
@@ -507,6 +530,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (!canStartMarquee(armedTool)) return;
         // §2 原则2：任何持工具态都可框选（原 mouse||mirror 门控废除）
         // 矩形几何（bug 32 虚拟坐标锚定 + issue 63 钳进渲染面）在 CanvasGesture.marqueeRect
+        marqueeCursorRef.current = { x: mouseX, y: mouseY };
         setSelectionBox(marqueeRect({
             start, curCanvas: { x: mouseX, y: mouseY },
             deps: { geometry, viewport }, surface: surf,
@@ -525,6 +549,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
         selectionStartRef.current = null;
         dragRef.current = null;
+        marqueeCursorRef.current = null;
         setSelectionBox(null);
         setDragGhost(null);
         detachWindowGesture();

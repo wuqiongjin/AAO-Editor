@@ -450,6 +450,24 @@ describe('marqueeRect 框选矩形', () => {
     expect(back2.y).toBeCloseTo(back1.y, 6);
   });
 
+  it('起点的画布坐标随滚动平移 —— 这是"滚动时必须重算矩形"的前提（issue 70 既有缺陷）', () => {
+    // 用户报的缺陷：框选过程中滚动，矩形钉在画布同一像素位置，起点漂到别的拍，
+    // 直到鼠标再动（触发 handlePointerMove 重算）才跳回。
+    // 根因：selectionBox 缓存的是画布坐标（派生值），滚动后不重算即失效。
+    // 本例钉住"同一起点在不同 scrollY 下画布坐标必须不同"——正因为会变，才不能缓存。
+    const { geometry, viewport } = makeDeps(notes);
+    const v = geometry.canvasToVirtual(200, 300, viewport);
+    const base = { start: { vx: v.x, vy: v.y }, curCanvas: { x: 400, y: 500 }, surface: TEST_SURFACE };
+
+    const r1 = marqueeRect({ ...base, deps: { geometry, viewport } });
+    const scrolled = { ...viewport, scrollY: viewport.scrollY + 600 };
+    const r2 = marqueeRect({ ...base, deps: { geometry, viewport: scrolled } });
+
+    const es = geometry.effectiveScale(viewport.scale);
+    expect(r1.y1 - r2.y1).toBeCloseTo(600 * es, 6); // scrollY +600 → 起点画布 y 上移
+    expect(r2.x1).toBeCloseTo(r1.x1, 6);             // 水平不滚动 → x 不变
+  });
+
   it('issue 63：光标端钳进渲染面（光标拖出画布，矩形不越界、松手照常结算）', () => {
     const { geometry, viewport } = makeDeps(notes);
     const v = geometry.canvasToVirtual(200, 300, viewport);
