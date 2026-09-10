@@ -122,12 +122,41 @@ export function findBpmLineAt(cx: number, cy: number, deps: HitTestDeps): Select
   return null;
 }
 
+/** BPM 线是否被框"整条覆盖"（X 横跨轨道左缘→右缘 ∧ Y 含该线）—— 判据唯一实现（画布坐标） */
+function bpmLineCoveredByBox(box: SelectionBox, deps: HitTestDeps): (note: ChartNote) => boolean {
+  const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
+  const minX = Math.min(box.x1, box.x2);
+  const maxX = Math.max(box.x1, box.x2);
+  const minY = Math.min(box.y1, box.y2);
+  const maxY = Math.max(box.y1, box.y2);
+  const { trackBgX, trackBgWidth } = c.trackGeometry(deps.viewport.scale);
+  return (note: ChartNote) => {
+    if (note.type !== 'BPM') return false;
+    const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
+    return minX <= trackBgX && maxX >= trackBgX + trackBgWidth && minY <= y && maxY >= y;
+  };
+}
+
+/**
+ * 圈选中的 BPM 线 —— **仅供删除路径**（issue 71）。
+ * BPM 线不可被"选中"（见 `computeItemsInBox`），但删除工具的框选是**批量执行**而非建选区，
+ * 仍应能一次删掉被整条框住的 BPM 线（用户 2026-09-10 拍板 A）。
+ */
+export function computeBpmLinesInBox(box: SelectionBox, deps: HitTestDeps): SelectionItem[] {
+  const covered = bpmLineCoveredByBox(box, deps);
+  const out: SelectionItem[] = [];
+  deps.notes.forEach((note, index) => {
+    if (covered(note)) out.push({ kind: 'note', noteIndex: index });
+  });
+  return out;
+}
+
 /**
  * 圈选：按命中子部分选中框内音符（框到结点→结点；框到区域→区域）。
  * 普通音符框到任意虚拟点→note；滑条框到结点→slideNode、框到两端点→slideRegion。
- * **BPM 线（issue 56 Q8 / issue 59 落地）**：判据 = **X + Y 完整覆盖整条线**（横跨轨道的整段宽度都要在框内）；
- * 不接受"Y 包含即入选"，也不接受现状的"框到 lane 0 那个点即入选"。
- * 理由（56 定案）：避免复制 / 批量操作时不小心携带多余的 BPM 线。
+ * **BPM 线不入选（issue 71）**：BPM 不是音符，选中它没有意义 —— 复制/剪切/批量替换/导出选中集合
+ * 都不该带上它。它只对「删除工具（单击/框选）」与「右键删除」两条通路生效：
+ * 前者经 `computeBpmLinesInBox` 单独收集（不进选区），后者经 `findBpmLineAt`。
  */
 export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): SelectionItem[] {
   const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
@@ -164,13 +193,9 @@ export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): Selecti
         }
       }
     } else if (note.type === "BPM") {
-      // 整线覆盖判据：框必须横跨**整条线**（轨道左缘 → 右缘）且 Y 含该线；
-      // 只框到 lane 0 那一点、或只满足 Y 都不算入选。判据在**画布坐标**下做（线的宽度是画布量）。
-      const { trackBgX, trackBgWidth } = c.trackGeometry(deps.viewport.scale);
-      const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
-      if (minX <= trackBgX && maxX >= trackBgX + trackBgWidth && minY <= y && maxY >= y) {
-        result.push({ kind: 'note', noteIndex: index });
-      }
+      // issue 71：BPM 线**不入框选选区**（它不是音符，选中无意义）。
+      // 需要它的只有删除路径 —— 走 `computeBpmLinesInBox`（判据同源：整条覆盖）。
+      return;
     } else {
       const pts = deps.geometry.noteVirtualPoints(note, deps.viewport.scale, deps.beatDisplay);
       if (pts.some(p => p.x >= vminX && p.x <= vmaxX && p.y >= vminY && p.y <= vmaxY)) {

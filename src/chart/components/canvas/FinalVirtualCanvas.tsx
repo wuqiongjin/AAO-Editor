@@ -13,7 +13,7 @@ import {
 } from '../../geometry/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../../../app/ProviderTree';
 import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
-import { renderChart, findItemAt, findBpmLineAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../visual';
+import { renderChart, findItemAt, findBpmLineAt, computeItemsInBox, computeBpmLinesInBox, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth } from '../../../visual/gutterLabels';
@@ -361,12 +361,15 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     /** §2 框选矩阵（行语义在 ToolActionMatrix.boxSelectOps，逐行锁单测）：
      *  指针行 = 建立选区 + 标记互斥（本地语义），其余工具族行 = 纯调度输出 op */
     const applyBoxAction = (box: { x1: number; y1: number; x2: number; y2: number }) => {
-        const items = computeItemsInBox(box, { geometry, viewport, beatDisplay, notes });
+        const boxDeps = { geometry, viewport, beatDisplay, notes };
+        const items = computeItemsInBox(box, boxDeps);
         if (resolveBoxPlan(armedTool) === 'select') {
-            setSelectedItems(items);
+            setSelectedItems(items); // issue 71：BPM 不在其中（不进选区）
             setMarkerSelected(false); // 起点标记与音符选择互斥（ADR-0004 §4）
         } else {
-            applyOps(boxSelectOps(armedTool as MatrixTool, notes, items));
+            // issue 71 例外：删除工具的框选是批量执行 → 单独按"整条覆盖"判据收集 BPM 线（不进选区）
+            const bpmInBox = armedTool === 'delete' ? computeBpmLinesInBox(box, boxDeps) : [];
+            applyOps(boxSelectOps(armedTool as MatrixTool, notes, items, bpmInBox));
         }
     };
 

@@ -285,11 +285,28 @@ describe('§2 框选矩阵', () => {
   it('键型行：无可应用落点（框内全是 BPM）→ 无事发生', () => {
     expect(boxSelectOps('single', [bpm(1, 120)], noteSel(0))).toEqual([]);
   });
-  it('bpm 行 = 按 X+Y 完整覆盖判据入选（建立选区）；paste 行 = 无效果', () => {
-    // 判据本身在 computeItemsInBox（BPM 线须被整条框住）；此处只验证"入选 = 建成选区"
-    expect(boxSelectOps('bpm', [bpm(2, 120)], noteSel(0)))
-      .toEqual([{ t: 'setSelection', items: noteSel(0) }]);
+  it('issue 71：bpm 行 = 无效果（BPM 不进选区）；paste 行 = 无效果', () => {
+    expect(boxSelectOps('bpm', [bpm(2, 120)], noteSel(0))).toEqual([]);
     expect(boxSelectOps('paste', [single(1, 1)], noteSel(0))).toEqual([]);
+  });
+  it('issue 71：delete 行例外 —— bpmInBox 里的 BPM 线被删（不进选区）', () => {
+    const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
+    // 画布侧：items 只含音符（BPM 不在 computeItemsInBox 结果里），BPM 另由 computeBpmLinesInBox 给出
+    const ops = boxSelectOps('delete', notes, noteSel(0), noteSel(1));
+    expect(ops).toEqual([
+      { t: 'setNotes', notes: [] },
+      { t: 'setSelection', items: [] },
+    ]);
+  });
+  it('issue 71：delete 行只框住 BPM（items 为空）→ 仍删掉该 BPM 线', () => {
+    const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
+    const ops = boxSelectOps('delete', notes, [], noteSel(1));
+    expect((ops[0] as any).notes).toEqual([single(1, 1)]);
+  });
+  it('回归：delete 行不带 bpmInBox 时不碰 BPM（旧行为）', () => {
+    const notes: ChartNote[] = [single(1, 1), bpm(2, 120)];
+    const ops = boxSelectOps('delete', notes, noteSel(0));
+    expect((ops[0] as any).notes).toEqual([bpm(2, 120)]);
   });
   it('noteCode 行 = 不可框选 → 无效果（issue 59 §3：画布侧根本不启动框选，此处兜底）', () => {
     expect(boxSelectOps('noteCode', [single(1, 1), bpm(2, 120)], noteSel(0, 1))).toEqual([]);

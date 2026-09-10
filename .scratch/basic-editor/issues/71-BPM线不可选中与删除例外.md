@@ -1,7 +1,7 @@
 # 71 · BPM 线不再可被选中（仅「删除工具 / 右键」两条通路可作用）
 
 Type: grilling（语义变更，修订 ADR-0008 §2 框选矩阵 + issue 56 Q8）
-Status: open（定案已拍板 2026-09-10，待实现）
+Status: resolved（2026-09-10 实现 + 锁测，待你在页面验收）
 Blocked by:
 
 ## 来源
@@ -47,3 +47,17 @@ Blocked by:
 ## Comments
 
 - 2026-09-10 用户拍板 A（删除框选仍可删 BPM）。原「待拍板」两档中 B 档（框选也删不掉）作废。
+- 2026-09-10 实现：
+  - `hitTest`：BPM 分支从 `computeItemsInBox` 移除（判据抽成 `bpmLineCoveredByBox`，
+    新增 `computeBpmLinesInBox` 供删除路径单独收集 —— 判据同源，仍是"整条覆盖"）。
+  - `ToolActionMatrix.boxSelectOps` 新增可选入参 `bpmInBox`：bpm 行 → 无效果；
+    delete 行提前到 `items.length === 0` 之前，把 BPM 并入**删除目标集**（去重），不进选区。
+  - `FinalVirtualCanvas.applyBoxAction`：仅 `armedTool === 'delete'` 时算 `bpmInBox`；
+    指针行 `setSelectedItems(items)` 天然不含 BPM（复制/剪切/批量替换/导出也随之不再带 BPM）。
+  - 渲染预览（`buildPreviewSets`）：非删除态**不预览** BPM（画了却选不中 = 误导）；删除态仍画并转 danger。
+- 锁测：`RendererHitTest.test.ts`（BPM 不再入选 / `computeBpmLinesInBox` 四种框法 / 混排只带音符）
+  + `ToolActionMatrix.test.ts`（bpm 行无效果、delete 行删 BPM、只框 BPM 也删、不带 bpmInBox 时不碰 BPM）
+  + `SelectionVisual.test.ts`（原"框住 BPM → hover 预览"用例**反转**为"不预览"；删除态画红用例保留）。
+  tsc 0 / 800 测试全绿。
+- 实现期踩坑：新判据函数里把 `maxY >= y` 写成 `maxY <= y`，单测当场抓住（右端永远不命中）——
+  这正是"先写锁测"的价值，记此一笔提醒别省。

@@ -411,15 +411,13 @@ describe('框选实时预览描边（issue 67）', () => {
     expect(out).toHaveLength(0);
   });
 
-  it('框住 BPM（满足整线覆盖判据）→ line 形态的 hover 预览', () => {
+  // issue 71：BPM 不进选区 → 非删除态**不预览**它（画了却选不中 = 误导）
+  it('issue 71：框住 BPM（整线覆盖）→ 非删除态不产生预览描边', () => {
     const { trackBgX, trackBgWidth } = GEO.trackGeometry(VP.scale);
     const y = GEO.virtualToCanvas(0, GEO.noteVirtualY(40, 0, VP.scale, BEAT_DISPLAY), VP).y;
-    // X 必须横跨整条线（BPM 的入选判据），Y 含该线
     const box = { x1: trackBgX - 5, y1: y - 5, x2: trackBgX + trackBgWidth + 5, y2: y + 5 };
     const out = outlinesOf({ notes: [{ type: 'BPM', beat: 40, bpm: 120 } as ChartNote], selectionBox: box });
-    expect(out).toHaveLength(1);
-    expect(out[0]!.shape).toBe('line');
-    expect(out[0]!.mode).toBe('hover');
+    expect(out).toHaveLength(0);
   });
 
   it('框住滑条 → 结点与段都出预览（段的预览不受"仅删除/音符代码工具"的鼠标 hover 限制）', () => {

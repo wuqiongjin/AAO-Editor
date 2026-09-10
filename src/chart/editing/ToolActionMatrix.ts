@@ -206,8 +206,17 @@ export function clickOps(input: ClickInput): MatrixOp[] {
   return [];
 }
 
-/** §2 框选矩阵（工具族 → 松手动作）；指针行不走此函数 */
-export function boxSelectOps(tool: MatrixTool, notes: ChartNote[], items: SelectionItem[]): MatrixOp[] {
+/**
+ * §2 框选矩阵（工具族 → 松手动作）；指针行不走此函数
+ * @param bpmInBox 被框"整条覆盖"的 BPM 线（画布侧 `computeBpmLinesInBox` 单独收集）。
+ *   issue 71：BPM **不进选区**，但删除工具的框选是批量执行而非建选区 → 仍按此集合删除。
+ */
+export function boxSelectOps(
+  tool: MatrixTool,
+  notes: ChartNote[],
+  items: SelectionItem[],
+  bpmInBox: readonly SelectionItem[] = [],
+): MatrixOp[] {
   if (isKeyTool(tool)) {
     // 框内音符逐个应用 ADR-0001 替换规则；可替换换型、不可替换跳过；原则4：批量后选区保留
     const r = batchApplyKeyType(notes, keyTargetsFromItems(notes, items), tool);
@@ -217,16 +226,23 @@ export function boxSelectOps(tool: MatrixTool, notes: ChartNote[], items: Select
   }
   // §3：「音符代码」= **不可框选**（画布侧按下拖拽根本不启动框选；此处兜底为无效果）
   if (tool === 'noteCode') return [];
-  // §2 框选矩阵 BPM 格（issue 56 Q8 / issue 59 落地）：由「无效果」改为「按 X+Y 完整覆盖判据入选」
-  // —— 判据本身在 computeItemsInBox（BPM 线必须被整条框住），这里只负责把结果建成选区。
-  if (tool === 'bpm') return [{ t: 'setSelection', items }];
+  // §2 框选矩阵 BPM 格（issue 71 修订）：BPM 线**不入选**（不是音符，选中无意义），
+  // 故 BPM 工具框选 = 无效果。它对框选生效的唯一通路是下面 delete 行的 `bpmInBox`。
+  if (tool === 'bpm') return [];
   // issue 72：粘贴态在画布侧**根本不启动框选**（`canStartMarquee`），此处只是兜底无效果
   if (tool === 'paste') return [];
   if (tool === 'slide') return combineOps(notes, items); // §4 组合成滑条
-  if (items.length === 0) return [];
   if (tool === 'delete') {
-    return [{ t: 'setNotes', notes: deleteSelection(notes, items) }, { t: 'setSelection', items: [] }];
+    // issue 71 例外（用户拍板 A）：删除是"批量执行"不是建选区 → 被整条框住的 BPM 线照删。
+    // 它不进选区，故只在删除目标集合里合并一次（去重，防与 items 重复）。
+    const targets = [...items];
+    for (const b of bpmInBox) {
+      if (!targets.some(t => sameSelectionItem(t, b))) targets.push(b);
+    }
+    if (targets.length === 0) return [];
+    return [{ t: 'setNotes', notes: deleteSelection(notes, targets) }, { t: 'setSelection', items: [] }];
   }
+  if (items.length === 0) return [];
   if (tool === 'mirror') {
     // mirror：拖拽期间预览（渲染器），松手立即执行（§2"无需二次确认"）
     return [{ t: 'setSelection', items }, { t: 'setNotes', notes: mirrorSelection(notes, items) }];

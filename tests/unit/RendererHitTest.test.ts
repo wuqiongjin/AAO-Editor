@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
 import { makeCoords } from '../../src/visual/coords';
-import { findItemAt, findBpmLineAt, computeItemsInBox, pointInQuad, type HitTestDeps } from '../../src/visual/hitTest';
+import { findItemAt, findBpmLineAt, computeItemsInBox, computeBpmLinesInBox, pointInQuad, type HitTestDeps } from '../../src/visual/hitTest';
 import type { ChartNote } from '../../src/chart/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
@@ -140,28 +140,51 @@ describe('computeItemsInBox', () => {
     expect(items).toContainEqual({ kind: 'note', noteIndex: 1 });
   });
 
-  it('BPM 线：只有被**整条框住**才入选（X + Y 完整覆盖）', () => {
+  // issue 71：BPM 不是音符，选中无意义 → **任何**框选都不再把它选进选区
+  it('issue 71：BPM 线不再入选（即便被整条框住）', () => {
     const notes: ChartNote[] = [{ type: 'BPM', beat: 40, bpm: 120 }];
     const { deps } = makeDeps(notes);
     const { trackBgX, trackBgWidth } = deps.geometry.trackGeometry(1);
-    // 线的画布 y（beat 40）
     const lineY = deps.geometry.virtualToCanvas(0, deps.geometry.noteVirtualY(40, 0, 1, 4), deps.viewport).y;
 
-    // ① 完整覆盖整条线 → 入选
     const full = { x1: trackBgX - 10, y1: lineY - 5, x2: trackBgX + trackBgWidth + 10, y2: lineY + 5 };
-    expect(computeItemsInBox(full, deps)).toEqual([{ kind: 'note', noteIndex: 0 }]);
+    expect(computeItemsInBox(full, deps)).toEqual([]); // 完整覆盖也不入选
+  });
 
-    // ② 只框住 lane 0 那一点（旧行为）→ 不入选
+  it('issue 71：computeBpmLinesInBox（删除路径专用）—— 只有被**整条框住**才收集', () => {
+    const notes: ChartNote[] = [{ type: 'BPM', beat: 40, bpm: 120 }];
+    const { deps } = makeDeps(notes);
+    const { trackBgX, trackBgWidth } = deps.geometry.trackGeometry(1);
+    const lineY = deps.geometry.virtualToCanvas(0, deps.geometry.noteVirtualY(40, 0, 1, 4), deps.viewport).y;
+
+    // ① 完整覆盖整条线 → 收集
+    const full = { x1: trackBgX - 10, y1: lineY - 5, x2: trackBgX + trackBgWidth + 10, y2: lineY + 5 };
+    expect(computeBpmLinesInBox(full, deps)).toEqual([{ kind: 'note', noteIndex: 0 }]);
+
+    // ② 只框住 lane 0 那一点 → 不收集
     const lane0Only = { x1: trackBgX - 5, y1: lineY - 5, x2: trackBgX + 30, y2: lineY + 5 };
-    expect(computeItemsInBox(lane0Only, deps)).toEqual([]);
+    expect(computeBpmLinesInBox(lane0Only, deps)).toEqual([]);
 
-    // ③ Y 覆盖但 X 差一截（未盖到轨道右缘）→ 不入选
+    // ③ Y 覆盖但 X 差一截（未盖到轨道右缘）→ 不收集
     const partialX = { x1: trackBgX - 10, y1: lineY - 5, x2: trackBgX + trackBgWidth - 20, y2: lineY + 5 };
-    expect(computeItemsInBox(partialX, deps)).toEqual([]);
+    expect(computeBpmLinesInBox(partialX, deps)).toEqual([]);
 
-    // ④ X 覆盖整条但 Y 差开 → 不入选
+    // ④ X 覆盖整条但 Y 差开 → 不收集
     const offY = { x1: trackBgX - 10, y1: lineY + 20, x2: trackBgX + trackBgWidth + 10, y2: lineY + 40 };
-    expect(computeItemsInBox(offY, deps)).toEqual([]);
+    expect(computeBpmLinesInBox(offY, deps)).toEqual([]);
+  });
+
+  it('issue 71：混排谱面框选只带音符，不带 BPM 线', () => {
+    const notes: ChartNote[] = [
+      { type: 'BPM', beat: 40, bpm: 120 },
+      { type: 'Single', lane: 3, beat: 40 },
+    ];
+    const { deps } = makeDeps(notes);
+    const { trackBgX, trackBgWidth } = deps.geometry.trackGeometry(1);
+    const lineY = deps.geometry.virtualToCanvas(0, deps.geometry.noteVirtualY(40, 0, 1, 4), deps.viewport).y;
+    const full = { x1: trackBgX - 10, y1: lineY - 5, x2: trackBgX + trackBgWidth + 10, y2: lineY + 5 };
+    expect(computeItemsInBox(full, deps)).toEqual([{ kind: 'note', noteIndex: 1 }]);
+    expect(computeBpmLinesInBox(full, deps)).toEqual([{ kind: 'note', noteIndex: 0 }]);
   });
 
   it('滑条两端点在框内返回 slideRegion', () => {

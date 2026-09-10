@@ -8,7 +8,7 @@ import { perf } from '../chart/perf';
 import { beatToSeconds, getBpmEvents } from '../audio/AudioTiming';
 import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
-import { computeItemsInBox, findItemAt } from './hitTest';
+import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
@@ -58,12 +58,19 @@ const buildSelectionSets = (rc: RenderCtx): SelectionSets => buildSets(rc.select
  */
 const buildPreviewSets = (rc: RenderCtx): SelectionSets | null => {
   if (!rc.selectionBox) return null;
-  return buildSets(computeItemsInBox(rc.selectionBox, {
+  const deps = {
     geometry: rc.geometry,
     viewport: rc.viewport,
     beatDisplay: rc.beatDisplay,
     notes: rc.notes,
-  }));
+  };
+  const items = computeItemsInBox(rc.selectionBox, deps);
+  // issue 71：BPM 不进选区 → 非删除态**不预览**它（画了却选不中 = 误导）。
+  // 删除态例外：框选删除会真删掉被整条框住的 BPM 线，故仍要预告（并转危险红）。
+  const withBpm = rc.armedTool === 'delete'
+    ? [...items, ...computeBpmLinesInBox(rc.selectionBox, deps)]
+    : items;
+  return buildSets(withBpm);
 };
 const isNoteSelected = (sel: SelectionSets, index: number) => sel.notes.has(index);
 
@@ -283,9 +290,10 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
     if (note.type === 'BPM') {
       // Q45：完整框选入选 → 整条线改浅黄 + 加粗（细线描边不明显）。
       // Q14=A：BPM 线左键单击在所有态下都无效果 → **不参与鼠标 hover 反馈**（C5 的删除态情形是同一理由），
-      // 否则"整条亮起却点不动"是误导。BPM 的三条通路 = 框选 / 右键删除 / 沟槽数字就地编辑。
-      // issue 67：但**框选预览**要画 —— 框选 BPM 是真有效果的（整线覆盖判据已由
-      // `computeItemsInBox` 判过），按 hover 档提示"这条线会被框进去"。
+      // 否则"整条亮起却点不动"是误导。
+      // issue 71 修订：BPM **不再入选**，其通路只剩「右键删除 / 删除工具（单击+框选）/
+      // 沟槽数字就地编辑」。故框选预览只在**删除态**画它（那时框选真会删掉它），
+      // 非删除态画了却选不中 = 误导（判据见 `buildPreviewSets` + `computeBpmLinesInBox`）。
       if (!whole && !previewWhole) continue;
       const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
       const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
