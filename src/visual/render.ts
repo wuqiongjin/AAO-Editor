@@ -9,6 +9,7 @@ import { beatToSeconds, getBpmEvents } from '../audio/AudioTiming';
 import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
+import { slideSpans } from '../chart/editing/SlideSegments';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
@@ -382,12 +383,14 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       });
       // 段带宽与连接带同宽（× noteSize，A5）
       const half = (LANE_WIDTH * rc.viewport.scale * ns) / 2;
-      for (let ci = 0; ci < conns.length - 1; ci++) {
-        const inSel = whole || regions?.has(ci) === true;
+      // issue 77 二轮：段以**逻辑段**为单位（跨过 hidden 的整段一起亮/一起灭），
+      // 逐子块描边（斜段拼斜段），但选中/命中/预览的判据用的是同一段起点下标。
+      for (const sp of slideSpans(conns)) {
+        const inSel = whole || regions?.has(sp.start) === true;
         // issue 67：框选预览（整条被框住 → 所有段；或该段单独被框住）。
         // 与"鼠标 hover 仅限删除/音符代码工具"不同：框选是"即将入选"的预告，
         // 段确实会被选入 → 一律给反馈，所见即所得。
-        const inPreviewBox = previewWhole || previewRegions?.has(ci) === true; // 被框住 → 决定颜色
+        const inPreviewBox = previewWhole || previewRegions?.has(sp.start) === true; // 被框住 → 决定颜色
         const inPreview = !inSel && inPreviewBox;                              // 未选中才额外多画一圈
         // 段（连接带）默认不是可点对象 → 只在**会对它表态的工具**下给 hover 反馈：
         //   ① 删除工具：拆条语义需要"这一段会被拆"的预告（用户 2026-09-09）；
@@ -395,19 +398,23 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         // 其余工具态段完全不参与 hover，只有真正的结点有。
         // 段被框选入选时照常按选中态绘制（inSel 分支，不受此限）。
         const isHoverPart = (dangerTool || rc.armedTool === 'noteCode')
-            && hv?.kind === 'slideRegion' && hv.connIndex === ci;
+            && hv?.kind === 'slideRegion' && hv.connIndex === sp.start;
         if (!inSel && !isHoverPart && !inPreview) continue;
-        const c1 = conns[ci], c2 = conns[ci + 1];
-        const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
-        const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
-        // A4：段是斜的必须描斜的 —— 沿平行四边形四边描边封口，禁止退化成轴对齐包围盒
-        const points: [number, number][] = [
-          [p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y],
-        ];
-        // 段（连接带）的描边 = compact（用户 2026-09-09 二轮反馈）：不外扩、不画暗底，
-        // 亮面贴平行四边形边即可，避免外圈盖住带子造成"段被截断"的观感。
-        // 段与结点同款：所有"贴在带子上"的描边都用 compact 让带子自由穿过。
-        emit(inSel, isHoverPart || inPreview, (mode) => out.push({ shape: 'quad', points, mode, compact: true }), inPreviewBox);
+        // 该段的每个子块各描一条平行四边形（跨过 hidden 的整段 = 多条拼起来，
+        // 但共用同一 mode/判据 —— 所以整段一起亮、不会出现"只亮半段"）
+        for (let ci = sp.start; ci < sp.end; ci++) {
+          const c1 = conns[ci], c2 = conns[ci + 1];
+          const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
+          const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
+          // A4：段是斜的必须描斜的 —— 沿平行四边形四边描边封口，禁止退化成轴对齐包围盒
+          const points: [number, number][] = [
+            [p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y],
+          ];
+          // 段（连接带）的描边 = compact（用户 2026-09-09 二轮反馈）：不外扩、不画暗底，
+          // 亮面贴平行四边形边即可，避免外圈盖住带子造成"段被截断"的观感。
+          // 段与结点同款：所有"贴在带子上"的描边都用 compact 让带子自由穿过。
+          emit(inSel, isHoverPart || inPreview, (mode) => out.push({ shape: 'quad', points, mode, compact: true }), inPreviewBox);
+        }
       }
     }
   }

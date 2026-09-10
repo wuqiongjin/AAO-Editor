@@ -65,6 +65,21 @@ hidden 中间结点被当成普通分界点；且切完后 `materializeSegment` 
   = A 单键 + B→C（附 `validateChartCode` 全谱合法断言）／移除 hidden 本身段保持连接／
   `findNoteIndexAt` 跳过 hidden／方向键放到 hidden 位置不拆条／无 hidden 的 4 结点拆条语义不变。
   tsc 0 / 795 测试全绿。
+- **2026-09-10 二轮（用户复报："选中段时 hover 仍把 Slide 切成两半"，附截图）**：
+  上一轮只改了**删除/放置**的口径，命中与渲染仍按"相邻两结点的子块"算 ——
+  `[A, hidden, B]` 被拆成 A→H 与 H→B 两个 region，hover 到哪个子块就只亮哪个子块。
+  新增 `src/chart/editing/SlideSegments.ts`（`slideSpans` / `spanOfRegion` / `spanConnIndices`）
+  作为"**逻辑段**"的唯一口径（两端都是可见结点、跨过中间 hidden），四处接入：
+  - `hitTest.findItemAt`：段内任一子块命中 → 返回**段起点**下标（不再返回子块下标）；
+  - `hitTest.computeItemsInBox`：整段（含 hidden）全部结点在框内才入选，且只用段起点下标；
+  - `render.collectSelectionOutlines`：按段遍历，**逐子块各描一条平行四边形**，但选中/hover/预览
+    判据共用段起点 → 整段一起亮、一起灭（hover 不再只亮半段）；
+  - `SelectionEditing`：`copySelection` / `mirrorSelection` 对段取整段结点（含 hidden），
+    不再只取"两邻结点"（原先会漏掉段尾、把 hidden 一起复制/翻转）。
+  删条 `splitSlideHiddenAware` 无需改动（它按 visible 链归一分界，段起点下标本就可映射）。
+  锁测：`SelectionVisual`（hover 跨 hidden 的整段 → 2 条子块描边，修复前只有 1 条；无 hidden 仍 1 条）、
+  `RendererHitTest`（两个子块命中归一到段起点；整段入框只产生一条 region）、
+  `HiddenNode`（段复制含 hidden、整段镜像）。tsc 0 / 824 测试全绿。
 - **已知边界（未改，留档）**：无 hidden 的 **2 结点**滑条删段，仍是"切成两个独立音符"
   （ADR-0001 §1.2 的"2 结点滑条整条删除"目前只用于方向键覆盖路径）。本次只在"含 hidden 且可见结点 ≤2"
   时按"整条删除"处理，未统一两条口径 —— 若要统一，需单独评估对既有锁测的影响。

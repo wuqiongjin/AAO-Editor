@@ -1,5 +1,6 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../types';
 import { connectionToNote } from './SlideCombination';
+import { spanConnIndices } from './SlideSegments';
 import { mirrorNote, mirrorLane } from './NoteEditing';
 import { DEFAULT_BPM } from '../../audio/AudioTiming';
 
@@ -211,8 +212,8 @@ export function copySelection(notes: ChartNote[], items: SelectionItem[]): Chart
       for (const it of its) {
         if (it.kind === 'slideNode') covered.add(it.connIndex);
         else if (it.kind === 'slideRegion') {
-          covered.add(it.connIndex);
-          covered.add(it.connIndex + 1);
+          // issue 77 二轮：段 = **逻辑段**（跨过 hidden 的整段）→ 整段一起被覆盖/翻转
+          spanConnIndices(note.connections, it.connIndex).forEach(k => covered.add(k));
         }
       }
       if (covered.size === 0) continue;
@@ -264,8 +265,8 @@ export function mirrorSelection(notes: ChartNote[], items: SelectionItem[]): Cha
       for (const it of its) {
         if (it.kind === 'slideNode') covered.add(it.connIndex);
         else if (it.kind === 'slideRegion') {
-          covered.add(it.connIndex);
-          covered.add(it.connIndex + 1);
+          // issue 77 二轮：段 = **逻辑段**（跨过 hidden 的整段）→ 整段一起被覆盖/翻转
+          spanConnIndices(note.connections, it.connIndex).forEach(k => covered.add(k));
         }
       }
       if (covered.size === 0) continue;

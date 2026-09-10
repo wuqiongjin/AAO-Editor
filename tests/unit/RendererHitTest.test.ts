@@ -187,6 +187,40 @@ describe('computeItemsInBox', () => {
     expect(computeBpmLinesInBox(full, deps)).toEqual([{ kind: 'note', noteIndex: 0 }]);
   });
 
+  // issue 77 二轮：段 = 逻辑段（跨过 hidden 的整段），两个子块命中都归一到**段起点**
+  it('issue 77 二轮：跨 hidden 的段命中归一（子块 A→H 与 H→B 都返回同一 connIndex）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { lane: 1, beat: 10 },
+        { lane: 2, beat: 11, hidden: true },
+        { lane: 3, beat: 12 },
+      ],
+    }];
+    const { deps, canvas } = makeDeps(notes);
+    const a = canvas(1, 10), h = canvas(2, 11), b = canvas(3, 12);
+    const mid1 = { x: (a.x + h.x) / 2, y: (a.y + h.y) / 2 }; // 子块 A→H 中点
+    const mid2 = { x: (h.x + b.x) / 2, y: (h.y + b.y) / 2 }; // 子块 H→B 中点
+    expect(findItemAt(mid1.x, mid1.y, deps)).toEqual({ kind: 'slideRegion', noteIndex: 0, connIndex: 0 });
+    expect(findItemAt(mid2.x, mid2.y, deps)).toEqual({ kind: 'slideRegion', noteIndex: 0, connIndex: 0 });
+  });
+
+  it('issue 77 二轮：整段入框 → slideRegion 用段起点下标（hidden 不产生第二条 region）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { lane: 1, beat: 10 },
+        { lane: 2, beat: 11, hidden: true },
+        { lane: 3, beat: 12 },
+      ],
+    }];
+    const { deps, canvas } = makeDeps(notes);
+    const a = canvas(1, 10), b = canvas(3, 12);
+    const box = { x1: a.x - 5, y1: b.y - 5, x2: b.x + 5, y2: a.y + 5 };
+    const regions = computeItemsInBox(box, deps).filter(it => it.kind === 'slideRegion');
+    expect(regions).toEqual([{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }]);
+  });
+
   it('滑条两端点在框内返回 slideRegion', () => {
     const notes: ChartNote[] = [{
       type: 'Slide',

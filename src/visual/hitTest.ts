@@ -3,6 +3,7 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import type { ChartGeometry, GeometryViewport } from '../chart/geometry/ChartGeometry';
 import { LANE_WIDTH, directionalLanes } from '../chart/geometry/ChartGeometry';
+import { slideSpans } from '../chart/editing/SlideSegments';
 import { makeCoords } from './coords';
 import type { SelectionBox } from './types';
 
@@ -66,19 +67,23 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
           return { kind: 'slideNode', noteIndex: i, connIndex: ci };
         }
       }
-      // 再检测是否命中连接带区域（平行四边形）
-      for (let ci = 0; ci < connections.length - 1; ci++) {
-        const c1 = connections[ci], c2 = connections[ci + 1];
-        const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
-        const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
-        const quad = [
-          [p1.x - halfLaneWidth, p1.y],
-          [p1.x + halfLaneWidth, p1.y],
-          [p2.x + halfLaneWidth, p2.y],
-          [p2.x - halfLaneWidth, p2.y],
-        ];
-        if (pointInQuad(cx, cy, quad)) {
-          return { kind: 'slideRegion', noteIndex: i, connIndex: ci };
+      // 再检测是否命中连接带区域（平行四边形）。
+      // issue 77 二轮：命中单位 = **逻辑段**（跨过 hidden 的整段）—— 段内任一子块命中，
+      // 都返回该段起点下标（hidden 不切割段，hover/选中才不会被切成两半）。
+      for (const sp of slideSpans(connections)) {
+        for (let ci = sp.start; ci < sp.end; ci++) {
+          const c1 = connections[ci], c2 = connections[ci + 1];
+          const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
+          const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
+          const quad = [
+            [p1.x - halfLaneWidth, p1.y],
+            [p1.x + halfLaneWidth, p1.y],
+            [p2.x + halfLaneWidth, p2.y],
+            [p2.x - halfLaneWidth, p2.y],
+          ];
+          if (pointInQuad(cx, cy, quad)) {
+            return { kind: 'slideRegion', noteIndex: i, connIndex: sp.start };
+          }
         }
       }
     } else if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
@@ -183,14 +188,16 @@ export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): Selecti
           result.push({ kind: 'slideNode', noteIndex: index, connIndex: ci });
         }
       });
-      for (let ci = 0; ci < conns.length - 1; ci++) {
-        const c1 = conns[ci], c2 = conns[ci + 1];
-        const p1 = { x: c.getNoteVirtualX(c1.lane), y: c.getNoteVirtualY(c1.beat, c1.subBeat || 0) };
-        const p2 = { x: c.getNoteVirtualX(c2.lane), y: c.getNoteVirtualY(c2.beat, c2.subBeat || 0) };
-        if (p1.x >= vminX && p1.x <= vmaxX && p1.y >= vminY && p1.y <= vmaxY &&
-            p2.x >= vminX && p2.x <= vmaxX && p2.y >= vminY && p2.y <= vmaxY) {
-          result.push({ kind: 'slideRegion', noteIndex: index, connIndex: ci });
+      // issue 77 二轮：段按**逻辑段**入框（跨过 hidden 的整段 = 段内全部结点含 hidden 都要在框内）
+      for (const sp of slideSpans(conns)) {
+        let allIn = true;
+        for (let ci = sp.start; ci <= sp.end; ci++) {
+          const cc = conns[ci];
+          const x = c.getNoteVirtualX(cc.lane);
+          const y = c.getNoteVirtualY(cc.beat, cc.subBeat || 0);
+          if (!(x >= vminX && x <= vmaxX && y >= vminY && y <= vmaxY)) { allIn = false; break; }
         }
+        if (allIn) result.push({ kind: 'slideRegion', noteIndex: index, connIndex: sp.start });
       }
     } else if (note.type === "BPM") {
       // issue 71：BPM 线**不入框选选区**（它不是音符，选中无意义）。

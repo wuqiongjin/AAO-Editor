@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ChartNote, SlideNote } from '../../src/chart/types';
 import { planDragMove } from '../../src/chart/editing/NoteDragging';
-import { deleteSelection } from '../../src/chart/editing/SelectionEditing';
+import { deleteSelection, copySelection, mirrorSelection } from '../../src/chart/editing/SelectionEditing';
 import { findNoteIndexAt, handleNoteReplacement } from '../../src/chart/editing/NoteReplacementRules';
 import { convertNotesToChartCode, validateChartCode } from '../../src/chart/editing/ChartConverter';
 
@@ -91,6 +91,21 @@ describe('issue 77 #9 · hidden 不参与拆条（删除 / 放置）', () => {
     expect(r.newNotes.filter(n => n.type === 'Slide')).toHaveLength(1); // 原滑条完整保留
     expect(r.newNotes.some(n => n.type === 'RDirectional')).toBe(true);
     expect(validChart(r.newNotes).valid).toBe(true);
+  });
+
+  // issue 77 二轮：段 = 逻辑段（跨过 hidden 的整段）→ 复制 / 镜像都按整段处理
+  it('#9 二轮：复制「段」= 整段（含段内 hidden）；镜像「段」= 整段一起翻', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 })];
+    const items = [{ kind: 'slideRegion' as const, noteIndex: 0, connIndex: 0 }];
+
+    const clip = copySelection(notes, items);
+    expect(clip).toHaveLength(1);
+    const clipSlide = clip[0] as SlideNote;
+    expect(clipSlide.connections.map(c => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3]]); // 整段含 hidden
+    expect(clipSlide.connections[1].hidden).toBe(true);
+
+    const mirrored = mirrorSelection(notes, items) as SlideNote[];
+    expect(mirrored[0].connections.map(c => c.lane)).toEqual([5, 4, 3]); // 整段一起镜像
   });
 
   it('回归：无 hidden 的滑条拆条语义不变（4 结点删中间段 → 两段各 2 结点）', () => {

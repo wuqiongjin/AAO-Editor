@@ -433,6 +433,28 @@ describe('框选实时预览描边（issue 67）', () => {
     for (const o of out) expect(o.mode).toBe('hover');
   });
 
+  // issue 77 二轮：含 hidden 的滑条，hover/选中「段」时**整段一起亮**（hidden 不切割段）
+  it('issue 77 二轮：hover 跨 hidden 的整段 → 两条子块描边（修复前只亮半段）', () => {
+    const s = slide([{ lane: 1, beat: 10 }, { lane: 2, beat: 11, hidden: true }, { lane: 3, beat: 12 }]);
+    const out = outlinesOf({
+      notes: [s],
+      hover: { kind: 'slideRegion', noteIndex: 0, connIndex: 0 }, // 段起点（逻辑段）
+      armedTool: 'delete',
+    });
+    const quads = out.filter(o => o.shape === 'quad');
+    expect(quads).toHaveLength(2); // A→H 与 H→B 两条子块都亮
+    for (const q of quads) expect(q.mode).toBe('danger');
+  });
+
+  it('issue 77 二轮：无 hidden 的滑条行为不变（2 结点 = 1 条子块）', () => {
+    const out = outlinesOf({
+      notes: [slide([{ lane: 1, beat: 10 }, { lane: 3, beat: 12 }])],
+      hover: { kind: 'slideRegion', noteIndex: 0, connIndex: 0 },
+      armedTool: 'delete',
+    });
+    expect(out.filter(o => o.shape === 'quad')).toHaveLength(1);
+  });
+
   it('hidden 结点不进框选预览', () => {
     const out = outlinesOf({
       notes: [slide([{ lane: 1, beat: 10 }, { lane: 2, beat: 11, hidden: true }, { lane: 3, beat: 12 }])],
