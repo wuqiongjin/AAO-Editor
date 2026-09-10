@@ -51,7 +51,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, paste, deleteSelected, mirror, undo, redo, resetNotes } = editing;
   const {
-    mousePosition,
     armedTool, setArmedTool,
     scale, setScale,
     beatDisplay,
@@ -282,13 +281,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 键型执行键（Ctrl+F/G/A/S/D）改走画布 ref 的 execPlace：与单击放置共用 clickOps，
   // 从而自动获得 §2 原则 6（清选区）与 snapPos 的 chartEndBeat 越末端判定
   //（原先走 Editor.place 绕过矩阵，既不清选区、也能在谱面末端外放置）。
-  // 光标位置走 ref：mousePosition 每次 mousemove 都换新引用，若进 useCallback 依赖会让
-  // runFunction 每次移动都变身份 → useShortcutDispatch 解绑/重绑 window keydown（高频路径）。
-  const mousePosRef = useRef(mousePosition);
-  mousePosRef.current = mousePosition;
-
+  // 候选 3（issue 70）：锚点向画布**现问**，不再缓存 —— 谱面光标（beat/lane）是 px 的派生值，
+  // 此前它被算好后存进 UIProvider.mousePosition，滚动/缩放后鼠标不动就拿不到新值
+  // （粘贴与执行键落到旧的拍，用户已复现）。同上走 ref 也顺带解决了 useCallback 身份抖动。
   const pasteAtCursor = useCallback(() => {
-    const p = mousePosRef.current;
+    const p = virtualCanvasRef.current?.getCursorChartPos?.();
     if (p) paste(p);
   }, [paste]);
 

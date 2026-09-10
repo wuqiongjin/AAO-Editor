@@ -1,9 +1,10 @@
-// UIContext（ADR-0003 §7.2）：工作台 UI 状态——工具/缩放/节拍/组合态/设置弹窗/布局（面板宽与折叠）/鼠标悬停位置。
+// UIContext（ADR-0003 §7.2）：工作台 UI 状态——工具/缩放/节拍/组合态/设置弹窗/布局（面板宽与折叠）。
+// 注：鼠标悬停位置**不在此 Provider**（候选 3，2026-09-10 移出）—— 谱面光标是「画布 px × viewport」
+// 的派生值，缓存进 context state 会在滚动/缩放后落到旧拍；现由画布按 hoverPos 用时现算，
+// 并通过 ref 出口 getCursorChartPos() 提供给需要的一方。
 // 布局收纳（issue 12 / ADR-0003 L1）：面板宽度与折叠态、拖拽分隔条逻辑集中于此。
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { ChartPosition } from '../../types/chart';
-// H5 收口：mousePosition 直接复用 ChartPosition（{ beat, lane }）
-export type MousePos = ChartPosition;
+
 
 // ADR-0008 §1 工具轴（持工具态）：所有工具共驻一根互斥轴；null = 指针态（默认底态）。
 // 工具被激活称"持工具态"，与对象轴（选区，EditingContext.selectedItems）解耦。
@@ -22,8 +23,7 @@ export interface UIContextValue {
   setScale: (scale: number | ((prev: number) => number)) => void;
   beatDisplay: number;
   setBeatDisplay: (b: number) => void;
-  mousePosition: MousePos | null;
-  setMousePosition: (p: MousePos | null) => void;
+
   // 布局（ADR-0003 L1）
   leftPanelWidth: number;
   rightPanelWidth: number;
@@ -46,8 +46,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [armedTool, setArmedTool] = useState<ArmedTool | null>(null);
   const [scale, setScale] = useState(1);
   const [beatDisplay, setBeatDisplay] = useState(4);
-  // 收口：删 currentBpm 死状态（120 写死、原 Editor 即 _setCurrentBpm 形态）
-  const [mousePosition, setMousePosition] = useState<ChartPosition | null>(null);
+
 
   // 区域宽度（issue 12 / ADR-0003 L1）：默认随视口收缩（px 上限 + vw 兜底），并支持折叠/展开
   const [leftPanelWidth, setLeftPanelWidth] = useState(() => Math.min(380, Math.round(window.innerWidth * 0.30)));
@@ -88,7 +87,6 @@ export function UIProvider({ children }: { children: ReactNode }) {
     armedTool, setArmedTool,
     scale, setScale,
     beatDisplay, setBeatDisplay,
-    mousePosition, setMousePosition,
     leftPanelWidth, rightPanelWidth,
     leftCollapsed, rightCollapsed,
     isDragging, startDrag,

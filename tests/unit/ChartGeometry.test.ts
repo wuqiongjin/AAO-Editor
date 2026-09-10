@@ -15,6 +15,44 @@ const TEST_SURFACE = { w: 750, h: 900 };
 const TEST_SURFACE_W_NARROW = 200;
 const surface = (over: Partial<{ w: number; h: number }> = {}) => ({ w: over.w ?? TEST_SURFACE.w, h: over.h ?? TEST_SURFACE.h });
 
+// ---------------------------------------------------------------------------
+// issue 70 候选 3 的**前提**：谱面光标（beat/lane）是「画布 px × 当前 viewport」的派生值。
+// 同一像素在滚动/缩放后指向的是另一个拍 —— 所以这个换算的**结果不能被缓存**，
+// 否则执行键（Ctrl+B/E/F..S）与 Ctrl+V 会落在一个已经不属于该位置的拍上（用户已复现）。
+// 本组把这条前提钉住：若哪天 laneBeatFromCanvas 与 viewport 解耦，这条会红。
+// ---------------------------------------------------------------------------
+describe('laneBeatFromCanvas 对 viewport 的依赖（候选 3 前提）', () => {
+  const g = new ChartGeometry(bpm120, 400, TEST_SURFACE);
+  const viewport = (over: Partial<{ scrollY: number; scale: number }> = {}) => ({
+    scrollX: 0, scrollY: over.scrollY ?? 0, scale: over.scale ?? 0.5,
+    virtualWidth: 0, virtualHeight: 0,
+  });
+  // 轨道内某像素：第 2 轨中心、画布纵向中部
+  const cx = (() => {
+    const { trackBgX } = g.trackGeometry(0.5);
+    return trackBgX + (LANE_WIDTH * 0.5) * 2.5;
+  })();
+
+  it('同一画布 px：滚动后指向另一个拍（故不能缓存换算结果）', () => {
+    const a = g.laneBeatFromCanvas(cx, 450, viewport(), 4);
+    const b = g.laneBeatFromCanvas(cx, 450, viewport({ scrollY: 400 }), 4);
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(Math.abs(a!.preciseBeat - b!.preciseBeat)).toBeGreaterThan(1);
+  });
+
+  it('同一画布 px：缩放后指向另一个拍', () => {
+    const a = g.laneBeatFromCanvas(cx, 450, viewport(), 4);
+    const c = g.laneBeatFromCanvas(cx, 450, viewport({ scale: 1 }), 4);
+    expect(Math.abs(a!.preciseBeat - c!.preciseBeat)).toBeGreaterThan(1);
+  });
+
+  it('沟槽内（轨道外）→ null，光标不可用', () => {
+    const { trackBgX } = g.trackGeometry(0.5);
+    expect(g.laneBeatFromCanvas(trackBgX - 40, 450, viewport(), 4)).toBeNull();
+  });
+});
+
 describe('trackGeometry', () => {
   it('轨道水平居中、左右对称', () => {
     const g = new ChartGeometry(bpm120, 100, surface());

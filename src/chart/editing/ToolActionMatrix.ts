@@ -248,7 +248,8 @@ export function actionOnItemOps(tool: 'delete' | 'mirror', notes: ChartNote[], h
 export interface ExecInput {
   notes: ChartNote[];
   selectedItems: SelectionItem[];
-  /** 谱面光标（ui.mousePosition）；null = 光标不在画布 → 无事发生（§3） */
+  /** 谱面光标；null = 光标不在画布 → 无事发生（§3）。
+   *  候选 3：由调用方按当前 viewport **现算**传入，不接受缓存值（缓存会在滚动/缩放后落到旧拍）。 */
   cursor: SnapPos | null;
   slideBuffer: SlidePoint | null;
   lastBpm: number;

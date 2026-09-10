@@ -4,7 +4,7 @@ import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { planDragMove, dragDeltaBeat, type DragDelta } from '../../editing/NoteDragging';
 import {
   clickOps, boxSelectOps, execSlideOps, execBpmOps, pointerClickSelection, actionOnItemOps,
-  type MatrixOp, type MatrixTool, type SlidePoint,
+  type MatrixOp, type MatrixTool, type SlidePoint, type SnapPos,
 } from '../../editing/ToolActionMatrix';
 import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../../../audio/AudioTiming';
 import {
@@ -53,6 +53,9 @@ interface FinalVirtualCanvasProps {
 export interface FinalVirtualCanvasHandle {
   /** 应用目标 scrollY（画布跟随）：值由 PlaybackScrollModel 计算，画布内部钳制到可滚范围。 */
   setScrollY: (scrollY: number) => void;
+  /** 谱面光标（beat/lane）：**派生值，用时按当前 viewport 现算**（候选 3）。
+   *  不在画布内或在左右沟槽内 → null。Editor 的 Ctrl+V 粘贴锚点走此入口。 */
+  getCursorChartPos?: () => SnapPos | null;
   /** 起点标记（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除。 */
   getMarkerBeat?: () => number | null;
   setMarkerBeat?: (beat: number | null) => void;
@@ -119,7 +122,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         handleNotesChange,
     } = useEditing();
     // armedTool = 持工具态（ADR-0008 §1）：null = 指针底态；选区与工具解耦、常驻不清
-    const { armedTool, beatDisplay, scale, setScale, setMousePosition, mousePosition } = useUI();
+    const { armedTool, beatDisplay, scale, setScale } = useUI();
     const { setMarker: setMarkerContext, currentSeconds } = usePlayback();
     // issue 59 §2/§3：「音符代码」工具点击 → 打开该音符的代码弹窗（与「谱面代码」按钮共用同一弹窗）
     const { openNoteCode } = useChartCodeEditor();
@@ -266,6 +269,21 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const canvasToVirtual = (canvasX: number, canvasY: number) => geometry.canvasToVirtual(canvasX, canvasY, viewport);
     const getLaneBeatFromCanvas = (cx: number, cy: number, allowOutsideLane = false) =>
         geometry.laneBeatFromCanvas(cx, cy, viewport, beatDisplay, allowOutsideLane);
+
+    /**
+     * 候选 3（issue 70）：**谱面光标（beat/lane）是派生值，必须用时现算，不能缓存进 state。**
+     * 旧实现在 handlePointerMove 里把 px 换算成 beat/lane 存进 `UIProvider.mousePosition`，
+     * 而它是 `Ctrl+B/E/F..S` 执行键与 `Ctrl+V` 粘贴的落点；滚动/缩放改了 viewport 之后
+     * 鼠标不动就不会重算 —— 同一个像素此刻已指向别的拍，执行键却仍按旧值落点（用户已复现）。
+     * 与切片 4 的框选滚动漂移同族（都源于「把派生值缓存成 state」）。
+     *
+     * 真相源 = `hoverPos`（画布 px，原始输入，缓存无害）；此处即用即算，永远跟随当前 viewport。
+     */
+    const cursorChartPos = (): SnapPos | null => {
+        if (!hoverPos) return null;
+        const p = getLaneBeatFromCanvas(hoverPos.cx, hoverPos.cy);
+        return p ? { beat: p.preciseBeat, lane: p.lane } : null;
+    };
 
     /** 放置/执行的合法落点（ADR-0005 §5）：判定表已抽到 CanvasGesture.snapChartPos（issue 70，可单测）。
      *  `rawBeat` = 未量化拍位，只有拖拽用（issue 61），放置一律吃量化后的 `beat`。 */
@@ -495,13 +513,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // hover 描边 / 状态栏读数）出界一律关闭；手势本身继续。
         const inside = isInsideSurface(surf, mouseX, mouseY);
         setHoverPos(inside ? { cx: mouseX, cy: mouseY } : null);
-        // 更新状态栏鼠标位置与粘贴/执行键锚点
-        const pos = inside ? getLaneBeatFromCanvas(mouseX, mouseY) : null;
-        if (pos) {
-            setMousePosition({ beat: pos.preciseBeat, lane: pos.lane });
-        } else {
-            setMousePosition(null);
-        }
+        // 谱面光标（beat/lane）**不再**在此处预算并缓存 —— 它是 px 的派生值，
+        // 滚动/缩放后鼠标不动就算不出新值（候选 3）。改由 cursorChartPos() 用时现算，
+        // 服务于粘贴锚点与三个执行键（Ctrl+B / Ctrl+E / Ctrl+F..S）。
         if (!selectionStartRef.current) return;
         const start = selectionStartRef.current;
         // §2 原则 1：未过阈值 = 仍是单击（判定表在 CanvasGesture.hasMovedBeyondThreshold）
@@ -748,6 +762,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             });
         },
         // 起点标记访问（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除
+        getCursorChartPos: () => cursorChartPos(),
         getMarkerBeat: () => markerBeat,
         setMarkerBeat: (beat: number | null) => { setMarkerBeat(beat); },
         getMarkerSelected: () => markerSelected,
@@ -762,13 +777,13 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // ADR-0008 §3 执行键（Ctrl+` / Ctrl+E）：经 ref 进画布，与鼠标路径共用 ToolActionMatrix 调度
         execBpm: () => {
             applyOps(execBpmOps({
-                notes, selectedItems, cursor: mousePosition,
+                notes, selectedItems, cursor: cursorChartPos(),
                 slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
             }));
         },
         execSlide: () => {
             applyOps(execSlideOps({
-                notes, selectedItems, cursor: mousePosition,
+                notes, selectedItems, cursor: cursorChartPos(),
                 slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
             }));
         },
@@ -785,10 +800,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // §3 键型执行键：光标不在画布 / 越过谱面末端 → 无事发生（不落子、也不清选区）
         // 末端判据与放置路径同源（CanvasGesture.canPlaceAtCursor / isPastChartEnd）
         execPlace: (tool: MatrixTool) => {
-            if (!canPlaceAtCursor(mousePosition, chartEndBeat)) return;
+            // 用时现算（候选 3）：用缓存的 mousePosition 会落在滚动/缩放前的旧拍
+            const cursor = cursorChartPos();
+            if (!canPlaceAtCursor(cursor, chartEndBeat)) return;
             applyOps(clickOps({
                 tool, notes, hit: null,
-                pos: { beat: mousePosition.beat, lane: mousePosition.lane },
+                pos: { beat: cursor.beat, lane: cursor.lane },
                 slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
             }));
         },
@@ -953,7 +970,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                         onMouseLeave={() => {
                             // issue 54：hoverPos 一并清空，实时显示线不残留。
                             // issue 63：**不再清按下态**——手势已由 window 接管，越出画布继续。
-                            setMousePosition(null); setHoverPos(null);
+                            setHoverPos(null);
                         }}
                         style={{
                             backgroundColor: '#000000',
