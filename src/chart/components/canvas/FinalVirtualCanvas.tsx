@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import type { BpmNote, ChartNote, SelectionItem } from "../../types";
+import type { BpmNote, ChartNote } from "../../types";
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
-import { deleteSelection } from '../../editing/SelectionEditing';
-import { planDragMove, draggableFromItems, dragDeltaBeat, itemTrueBeat, type DragDelta } from '../../editing/NoteDragging';
+import { planDragMove, dragDeltaBeat, type DragDelta } from '../../editing/NoteDragging';
 import {
-  clickOps, boxSelectOps, execSlideOps, execBpmOps, pointerClickSelection,
-  sameSelectionItem, type MatrixOp, type MatrixTool, type SlidePoint,
+  clickOps, boxSelectOps, execSlideOps, execBpmOps, pointerClickSelection, actionOnItemOps,
+  type MatrixOp, type MatrixTool, type SlidePoint,
 } from '../../editing/ToolActionMatrix';
 import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../../../audio/AudioTiming';
 import {
@@ -17,9 +16,17 @@ import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import { renderChart, findItemAt, findBpmLineAt, computeItemsInBox, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, bpmLabelBox, measureGutterLabelWidth } from '../../../visual/gutterLabels';
+import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
+import {
+  snapChartPos, hitStartMarkerAt, hitBpmLabelAt,
+  resolvePressIntent, resolveReleaseIntent, resolveClickPlan,
+  isInsideSurface, hasMovedBeyondThreshold, marqueeRect,
+  canStartMarquee, resolveBoxPlan,
+  canPlaceAtCursor, resolveExecNoteCodeHit,
+  type DragAnchor,
+} from '../../editing/CanvasGesture';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
 
 interface FinalVirtualCanvasProps {
@@ -167,9 +174,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // issue 61：拍位移的量化基准 = **被拖对象的落点**，不是"光标吸附拍位差"。
     //   anchorBeat   = 被按住那件对象的真实拍位（组拖也以它为准，其余成员共用同一 delta）
     //   rawPressBeat = 按下时光标的**未量化**拍位（与 anchorBeat 的差即"抓取偏移"，保住按住哪儿拖哪儿的手感）
-    const dragRef = useRef<{
-        items: SelectionItem[]; pressLane: number; anchorBeat: number; rawPressBeat: number;
-    } | null>(null);
+    const dragRef = useRef<DragAnchor | null>(null);
     const [dragGhost, setDragGhost] = useState<ChartNote[] | null>(null);
 
     // 画布用到的全部皮肤图（issue 29：随当前音符皮肤选择动态解析），挂载/换肤即预加载，加载完触发重绘；
@@ -258,19 +263,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const getLaneBeatFromCanvas = (cx: number, cy: number, allowOutsideLane = false) =>
         geometry.laneBeatFromCanvas(cx, cy, viewport, beatDisplay, allowOutsideLane);
 
-    /** 放置/执行的合法落点：轨道内 ∧ beat≥0 ∧ 不超谱面末端（ADR-0005 §5）；非法 → null（§1"该位置非法则无事发生"）。
-     *  `rawBeat` = 未量化拍位，只有拖拽用（issue 61），放置一律吃量化后的 `beat`。
-     *
-     * @param allowOutsideLane 仅**拖拽**路径传 true（issue 66 §4a）：方向滑键组尾可合法溢出到轨道外，
-     *   按在那截上也要能起拖 —— 否则 lane 越界 → null → 建不了拖拽锚点 → 手势退化成框选。
-     *   越界 lane 只参与 `dLane = cur.lane − pressLane` 的相对位移，落点是否合法由
-     *   `planDragMove` 按"根轨在界内即合法"（§4b）裁决；beat 范围校验始终保留。 */
-    const snapPos = (cx: number, cy: number, allowOutsideLane = false): { beat: number; lane: number; rawBeat: number } | null => {
-        const pos = getLaneBeatFromCanvas(cx, cy, allowOutsideLane);
-        if (!pos) return null;
-        if (pos.preciseBeat > chartEndBeat + 1e-6) return null;
-        return { beat: pos.preciseBeat, lane: pos.lane, rawBeat: pos.rawBeat };
-    };
+    /** 放置/执行的合法落点（ADR-0005 §5）：判定表已抽到 CanvasGesture.snapChartPos（issue 70，可单测）。
+     *  `rawBeat` = 未量化拍位，只有拖拽用（issue 61），放置一律吃量化后的 `beat`。 */
+    const snapPos = (cx: number, cy: number, allowOutsideLane = false) =>
+        snapChartPos({ geometry, viewport, beatDisplay }, chartEndBeat, cx, cy, allowOutsideLane);
 
     // slideBuffer 归一化为矩阵输入（Canvas 态 subBeat 可选，矩阵 SlidePoint 必填）
     const bufferPoint: SlidePoint | null = slideBuffer
@@ -293,36 +289,20 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     /**
      * 左沟槽 BPM 数字命中（§5 手势仲裁：单击数字 = 就地编辑；返回该 BPM 的 beat）。
-     * 命中区 = **数字自身的文字盒**（bpmLabelBox），不是整条水平线——否则数字所在高度上
-     * 的沟槽双击永远被判成"数字命中"、起点标记手势放不下去（2026-09-08 修订）。
+     * 判定表已抽到 CanvasGesture.hitBpmLabelAt（issue 70，可单测）；此处只注入画布侧的文字测量。
      */
-    const hitBpmLabel = (cx: number, cy: number): number | null => {
-        const { trackBgX, trackStartX } = geometry.trackGeometry(viewport.scale);
-        if (cx >= trackBgX) return null;
-        const labelScale = display.labelScale ?? 1;
+    const hitBpmLabel = (cx: number, cy: number): number | null => hitBpmLabelAt({
+        deps: { geometry, viewport, notes },
+        labelScale: display.labelScale ?? 1,
+        surfaceH: surf.h,
         // 与绘制端共用同一套宽度判定（传画布 ctx 精确测量），避免"已隐藏但仍可点中"的隐形热区
-        const mctx = canvasRef.current?.getContext('2d') ?? null;
-        for (const n of notes) {
-            if (n.type !== 'BPM') continue;
-            const y = virtualToCanvas(0, beatToVirtualY(n.beat)).y;
-            const text = String(n.bpm);
-            const width = measureGutterLabelWidth(text, Math.round(GUTTER_LABEL_FONT_PX * labelScale), mctx);
-            const box = bpmLabelBox(trackStartX, y, text, labelScale, surf.h, width);
-            if (box.x1 < 0) continue; // 沟槽不足、绘制时整体隐藏 → 不可命中
-            if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) return n.beat;
-        }
-        return null;
-    };
+        measureWidth: (text, fontPx) =>
+            measureGutterLabelWidth(text, fontPx, canvasRef.current?.getContext('2d') ?? null),
+    }, cx, cy);
 
     // 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）
-    const hitStartMarker = (cx: number, cy: number): boolean => {
-        if (markerBeat === null) return false;
-        const { trackBgX } = geometry.trackGeometry(viewport.scale);
-        if (cx >= trackBgX) return false;
-        const markerVirtualY = beatToVirtualY(markerBeat);
-        const markerCanvasY = virtualToCanvas(0, markerVirtualY).y;
-        return Math.abs(cy - markerCanvasY) < 10 * viewport.scale;
-    };
+    const hitStartMarker = (cx: number, cy: number): boolean =>
+        hitStartMarkerAt({ geometry, viewport }, markerBeat, cx, cy);
 
     /** 矩阵 op 应用器：逐条执行 ToolActionMatrix（§2/§3 纯调度层）输出的副作用指令。
      *  一次手势内 setNotes 至多一条 = 一个可回退快照（§8） */
@@ -362,74 +342,63 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
      *  指针行 = 建立选区 + 标记互斥（本地语义），其余工具族行 = 纯调度输出 op */
     const applyBoxAction = (box: { x1: number; y1: number; x2: number; y2: number }) => {
         const items = computeItemsInBox(box, { geometry, viewport, beatDisplay, notes });
-        if (armedTool === null) {
+        if (resolveBoxPlan(armedTool) === 'select') {
             setSelectedItems(items);
             setMarkerSelected(false); // 起点标记与音符选择互斥（ADR-0004 §4）
         } else {
-            applyOps(boxSelectOps(armedTool, notes, items));
+            applyOps(boxSelectOps(armedTool as MatrixTool, notes, items));
         }
     };
 
-    /** §2 单击矩阵（未达拖拽阈值的快速起按）；坐标为虚拟锚定的按下点（bug 32） */
+    /** §2 单击矩阵（未达拖拽阈值的快速起按）；坐标为虚拟锚定的按下点（bug 32）。
+     *  "去问谁"的判定表已抽到 CanvasGesture.resolveClickPlan（issue 70，可单测）。 */
     const handleToolClick = (cx: number, cy: number, e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
-        // §5 手势仲裁：任何工具态下单击沟槽 BPM 数字 = 就地编辑（无需切回 BPM 工具）。
-        // 用"既有值"打开编辑器，与 BPM 工具点击的"lastBpm 覆盖后编辑"是两条路径（§5）
-        const labelBeat = hitBpmLabel(cx, cy);
-        if (labelBeat !== null) {
-            const n = notes.find(nt => nt.type === 'BPM' && Math.abs(nt.beat - labelBeat) < 1e-9) as BpmNote | undefined;
-            if (n) { setBpmEdit({ beat: labelBeat, value: String(n.bpm) }); return; }
-        }
-        if (armedTool === null) {
-            // 指针：标记线 / 音符选中（Shift 加选、Ctrl 整条滑条）/ 空白清空选区
-            if (hitStartMarker(cx, cy)) {
-                setSelectedItems([]);
-                setMarkerSelected(true);
-            } else {
-                selectItemAtPoint(cx, cy, e.shiftKey, e.ctrlKey || e.metaKey);
-            }
+        const plan = resolveClickPlan({
+            cx, cy, armedTool,
+            shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey,
+            deps: hitDeps(),
+            notes,
+            snap: snapPos(cx, cy),
+            bpmLabelBeat: hitBpmLabel(cx, cy),
+            onMarker: hitStartMarker(cx, cy),
+        });
+        if (plan.kind === 'editBpm') {
+            // §5：任何工具态下单击沟槽 BPM 数字 = 就地编辑（用"既有值"打开，与 BPM 工具
+            // 点击的"lastBpm 覆盖后编辑"是两条路径）
+            setBpmEdit({ beat: plan.beat, value: plan.value });
             return;
         }
-        // 动作族（删除/镜像，T/Q）与「音符代码」才需要音符命中（空白=无效果不清选区）；其余行只吃栅格落点。
-        // 复制/剪切已按 §2.1 退出工具轴（不 arm），故不在其中。
-        const needHit = armedTool === 'delete' || armedTool === 'mirror' || armedTool === 'noteCode';
-        const hit = needHit
-            ? findItemAt(cx, cy, hitDeps())
-            : null;
-        // issue 59：BPM 线在视觉上是横跨轨道的**一整条线**，画在音符层之下，而 findItemAt 完全跳过 BPM。
-        // 故对**需要对 BPM 表态的四态**（BPM / 删除 / 镜像 / 音符代码）补一条整线命中：
-        // 音符优先（findItemAt 先判），不进 hover（56 Q14：BPM 不参与 hover 反馈）。
-        // 四态缺一都会让 clickOps 里对应的矩阵行变成不可达的死分支（锁表单测也会变假绿）。
-        const needsBpmLine = armedTool === 'bpm' || armedTool === 'delete'
-            || armedTool === 'mirror' || armedTool === 'noteCode';
-        const bpmLineHit = hit === null && needsBpmLine
-            ? findBpmLineAt(cx, cy, hitDeps())
-            : null;
-        const effectiveHit = bpmLineHit ?? hit;
+        if (plan.kind === 'selectMarker') {
+            setSelectedItems([]);
+            setMarkerSelected(true);
+            return;
+        }
+        if (plan.kind === 'selectItem') {
+            // 指针：标记线 / 音符选中（Shift 加选、Ctrl 整条滑条）/ 空白清空选区
+            selectItemAtPoint(cx, cy, plan.additive, plan.ctrl);
+            return;
+        }
         applyOps(clickOps({
-            tool: armedTool, notes, hit: effectiveHit,
-            pos: snapPos(cx, cy),
+            tool: armedTool as MatrixTool, notes, hit: plan.hit,
+            pos: plan.pos,
             slideBuffer: bufferPoint,
             lastBpm: lastBpmRef.current,
             clipboard,
         }));
     };
 
-    /** §6：指针态按下音符 → 建立拖拽候选（命中 ∈ 选区且选区≥2 → 组拖，否则单拖命中项） */
-    const beginDragCandidate = (cx: number, cy: number) => {
-        const hit = findItemAt(cx, cy, hitDeps());
-        if (!hit) return;
-        const inSelection = selectedItems.some(it => sameSelectionItem(it, hit));
-        const source = inSelection && selectedItems.length >= 2 ? selectedItems : [hit];
-        const items = draggableFromItems(notes, source);
-        if (items.length === 0) return; // BPM/System/区域等非可拖对象 → 退回框选
-        // issue 66 §4a：允许轨道外起手（方向滑键组尾溢出那截），否则 lane 越界 → 建不了锚点 → 退化成框选
-        const p = snapPos(cx, cy, true);
-        if (!p) return;
-        // issue 61：量化基准取**被按住那件对象**的真实拍位（按到滑条区域等不可拖条目时回退集合首件）
-        const anchor = items.some(it => sameSelectionItem(it, hit)) ? hit : items[0]!;
-        const anchorBeat = itemTrueBeat(notes, anchor, beatDisplay);
-        if (anchorBeat === null) return;
-        dragRef.current = { items, pressLane: p.lane, anchorBeat, rawPressBeat: p.rawBeat };
+    /** §6：按下意图仲裁（拖拽 vs 框选）——判定表已抽到 CanvasGesture.resolvePressIntent（issue 70）。
+     *  指针态音符上拖拽 = 移动；**任意持工具态 Shift+按住音符 = 移动**；其余持工具态拖拽 = 框选（防误拖）。
+     *  标记线上按下不拖音符。任一步不合法 → 框选，不产生半截拖拽态。 */
+    const beginDragCandidate = (cx: number, cy: number, shiftKey: boolean) => {
+        const intent = resolvePressIntent({
+            cx, cy, armedTool, shiftKey,
+            onMarker: hitStartMarker(cx, cy),
+            deps: hitDeps(),
+            selectedItems,
+            chartEndBeat,
+        });
+        if (intent.kind === 'drag') dragRef.current = intent.anchor;
     };
 
     // ---------------- issue 63：手势期间的隐式指针捕获 ----------------
@@ -468,12 +437,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         setSelectionBox(null);
         setDragGhost(null);
         dragRef.current = null;
-        // §6（三轮修订）：指针态音符上拖拽 = 移动；**任意持工具态 Shift+按住音符 = 移动**；
-        // 其余持工具态拖拽 = 框选（防误拖）；标记线上按下不拖音符。
-        // Shift+未移动松开 = 回落到该态原本单击语义（handleMouseUp 单击路径）
-        if ((armedTool === null || e.shiftKey) && !hitStartMarker(pos.x, pos.y)) {
-            beginDragCandidate(pos.x, pos.y);
-        }
+        // Shift+未移动松开 = 回落到该态原本单击语义（handlePointerUp 单击路径）
+        beginDragCandidate(pos.x, pos.y, e.shiftKey);
         // issue 63：手势一旦开始就由 window 接管 move/up —— 越出画布不再取消手势
         attachWindowGesture();
     };
@@ -498,14 +463,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         };
     };
 
-    /** 画布坐标是否落在渲染面内（issue 63：window 接管后光标可能在画布外） */
-    const isInsideSurface = (x: number, y: number) => x >= 0 && y >= 0 && x <= surf.w && y <= surf.h;
-    /** 把画布坐标钳进渲染面（框选矩形不越出画布） */
-    const clampToSurface = (x: number, y: number) => ({
-        x: Math.min(Math.max(x, 0), surf.w),
-        y: Math.min(Math.max(y, 0), surf.h),
-    });
-
     const handlePointerMove = (e: { clientX: number; clientY: number }) => {
         const canvasPos = cssToCanvas(e);
         if (!canvasPos) return;
@@ -513,7 +470,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const mouseY = canvasPos.y;
         // issue 63：手势由 window 接管后光标可能在画布外 —— hover 系反馈（实时显示线 / 放置幽灵 /
         // hover 描边 / 状态栏读数）出界一律关闭；手势本身继续。
-        const inside = isInsideSurface(mouseX, mouseY);
+        const inside = isInsideSurface(surf, mouseX, mouseY);
         setHoverPos(inside ? { cx: mouseX, cy: mouseY } : null);
         // 更新状态栏鼠标位置与粘贴/执行键锚点
         const pos = inside ? getLaneBeatFromCanvas(mouseX, mouseY) : null;
@@ -524,9 +481,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }
         if (!selectionStartRef.current) return;
         const start = selectionStartRef.current;
-        const dx = mouseX - start.x;
-        const dy = mouseY - start.y;
-        if (Math.abs(dx) < DRAG_THRESHOLD_PX && Math.abs(dy) < DRAG_THRESHOLD_PX) return;
+        // §2 原则 1：未过阈值 = 仍是单击（判定表在 CanvasGesture.hasMovedBeyondThreshold）
+        if (!hasMovedBeyondThreshold(start, { x: mouseX, y: mouseY }, DRAG_THRESHOLD_PX)) return;
         selectionMovedRef.current = true;
         if (dragRef.current) {
             // §6 移动中：幽灵预览 = 合法落点下的移动结果；非法 → 隐藏幽灵（松手回弹）
@@ -546,36 +502,36 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }
         // issue 65②：框选一起手就放弃两击直放的临时锚点（本把手势改走 §4 组合，锚点留着是误导）
         if (slideBuffer !== null) setSlideBuffer(null);
-        // issue 59 §3：「音符代码」态**不启动框选**（而不是"框了松手无反应"）——它是唯一不改谱面的工具，
-        // 建选区对它毫无作用。Shift+按住音符 = 移动（§6 全局逃生口）不受此限（上面 dragRef 分支已先行返回）。
-        if (armedTool === 'noteCode') return;
+        // issue 59 §3：「音符代码」态不启动框选（判定表在 CanvasGesture.canStartMarquee）。
+        // Shift+按住音符 = 移动（§6 全局逃生口）不受此限（上面 dragRef 分支已先行返回）。
+        if (!canStartMarquee(armedTool)) return;
         // §2 原则2：任何持工具态都可框选（原 mouse||mirror 门控废除）
-        // bug 32：以虚拟坐标求矩（起点锚定谱面时刻/轨道），再转回画布坐标供渲染/命中——
-        // 即使拖拽过程中滚动，起点对应的拍点也不漂移（"长截图"式选区）
-        const cur = canvasToVirtual(mouseX, mouseY);
-        const p1 = virtualToCanvas(start.vx, start.vy);
-        // issue 63：光标端钳进渲染面 —— 矩形不越出画布（结算用钳后的框，所见即所得）
-        const p2c = virtualToCanvas(cur.x, cur.y);
-        const p2 = clampToSurface(p2c.x, p2c.y);
-        setSelectionBox({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+        // 矩形几何（bug 32 虚拟坐标锚定 + issue 63 钳进渲染面）在 CanvasGesture.marqueeRect
+        setSelectionBox(marqueeRect({
+            start, curCanvas: { x: mouseX, y: mouseY },
+            deps: { geometry, viewport }, surface: surf,
+        }));
     };
 
-    /** 抬手结算（issue 63）。`e = null` = window 失焦这类异常收尾：只清手势态，不触发任何动作。 */
+    /** 抬手结算（issue 63）。`e = null` = window 失焦这类异常收尾：只清手势态，不触发任何动作。
+     *  优先级表已抽到 CanvasGesture.resolveReleaseIntent（issue 70，可单测）。 */
     const handlePointerUp = (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean } | null) => {
-        if (e && e.button !== 0) return; // 非左键抬起：手势继续
         const start = selectionStartRef.current;
         const moved = selectionMovedRef.current;
         const box = selectionBox;
         const drag = dragRef.current;
+        const intent = resolveReleaseIntent({ e, start, moved, drag, box });
+        if (intent === 'continue') return; // 非左键抬起：手势继续，不动任何状态
+
         selectionStartRef.current = null;
         dragRef.current = null;
         setSelectionBox(null);
         setDragGhost(null);
         detachWindowGesture();
         if (canvasRef.current) canvasRef.current.style.cursor = '';
-        if (!start || !e || e.button !== 0) return;
+        if (intent === 'abort' || !start || !e) return;
 
-        if (moved && drag) {
+        if (intent === 'commitDrag' && drag) {
             // §6 松手提交：合法 → 单次 handleNotesChange（一个快照）+ 拖拽集合保留为选区；非法 → 回弹。
             // drag 必须传给 dragDelta：dragRef 已清（三轮修复：提交位移恒 null 的根因）
             const pos = cssToCanvas(e);
@@ -589,14 +545,16 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             }
             return;
         }
-        if (moved) {
+        if (intent === 'commitBox' && box) {
             // issue 63：画布外松手也照常结算（框选矩形已被钳在画布内）
-            if (box) applyBoxAction(box);
+            applyBoxAction(box);
             return;
         }
-        // 单击（<阈值）：bug 32 以虚拟起点反解画布坐标，滚动后仍命中原谱面位置
-        const p = virtualToCanvas(start.vx, start.vy);
-        handleToolClick(p.x, p.y, e);
+        if (intent === 'click') {
+            // 单击（<阈值）：bug 32 以虚拟起点反解画布坐标，滚动后仍命中原谱面位置
+            const p = virtualToCanvas(start.vx, start.vy);
+            handleToolClick(p.x, p.y, e);
+        }
     };
 
     // window 监听只挂一次，事件经此转发到最新一帧的闭包（本组件处理器惯例：每次渲染重建）
@@ -635,10 +593,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const hit = findItemAt(mouseX, mouseY, hitDeps())
             ?? findBpmLineAt(mouseX, mouseY, hitDeps());
         if (!hit) return;
-        // 删除后选区必须清空：原下标在 splice 后已指向别的音符（§2 原则 6 同族——谱面变更后旧选区不保留）。
-        // 同时清掉指向已消失对象的悬垂 UI 态：待连接锚点（可能正指向被删滑条的端点）与 BPM 就地编辑框。
-        handleNotesChange(deleteSelection(notes, [hit]));
-        setSelectedItems([]);
+        // issue 70：删除语义走矩阵（与「删除工具点音符」同一实现），不再直连 deleteSelection。
+        // 矩阵已负责"删除后清空选区"（原下标在 splice 后已指向别的音符，§2 原则 6 同族）；
+        // 此处只补清指向已消失对象的悬垂 UI 态：待连接锚点（可能正指向被删滑条的端点）与 BPM 就地编辑框。
+        applyOps(actionOnItemOps('delete', notes, hit));
         setSlideBuffer(null);
         setBpmEdit(null);
     };
@@ -793,17 +751,16 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 故粒度（findItemAt 数组序首个）、hidden 不可达、slideRegion 回退整条、BPM 例外全部一致。
         execNoteCode: () => {
             // 与工具单击同口径：hoverItem（音符/滑条）优先，未命中再按整条 BPM 线判（issue 59）
-            const hit = hoverItem ?? (hoverPos
-                ? findBpmLineAt(hoverPos.cx, hoverPos.cy, hitDeps())
-                : null);
+            const hit = resolveExecNoteCodeHit({ hoverItem, hoverPos, deps: hitDeps() });
             applyOps(clickOps({
                 tool: 'noteCode', notes, hit,
                 pos: null, slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
             }));
         },
         // §3 键型执行键：光标不在画布 / 越过谱面末端 → 无事发生（不落子、也不清选区）
+        // 末端判据与放置路径同源（CanvasGesture.canPlaceAtCursor / isPastChartEnd）
         execPlace: (tool: MatrixTool) => {
-            if (!mousePosition || mousePosition.beat > chartEndBeat + 1e-6) return;
+            if (!canPlaceAtCursor(mousePosition, chartEndBeat)) return;
             applyOps(clickOps({
                 tool, notes, hit: null,
                 pos: { beat: mousePosition.beat, lane: mousePosition.lane },

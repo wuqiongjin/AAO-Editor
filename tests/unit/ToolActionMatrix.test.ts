@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ChartNote, SelectionItem, SlideNote } from '../../src/chart/types';
 import {
-  pointerClickSelection, clickOps, boxSelectOps, execSlideOps, execBpmOps,
+  pointerClickSelection, clickOps, boxSelectOps, execSlideOps, execBpmOps, actionOnItemOps,
   type ClickInput, type SnapPos, type SlidePoint,
 } from '../../src/chart/editing/ToolActionMatrix';
 
@@ -419,5 +419,32 @@ describe('§3 execBpmOps（Ctrl+`）', () => {
     const base = { notes: [], selectedItems: [], slideBuffer: null, lastBpm: 120, chartEndBeat: 16 } as const;
     expect(execBpmOps({ ...base, cursor: null })).toEqual([]);
     expect(execBpmOps({ ...base, cursor: sp(17, 0) })).toEqual([]);
+  });
+});
+
+// issue 70：右键删除此前绕过矩阵直连 deleteSelection（两条实现）。
+// 现在两条通路共用 actionOnItemOps —— 本组把它钉成"等价"契约。
+describe('actionOnItemOps（删除工具点音符 ≡ 右键删除，issue 70）', () => {
+  const notes: ChartNote[] = [single(1, 2), bpm(4, 150), single(5, 3)];
+  const hit: SelectionItem = { kind: 'note', noteIndex: 0 };
+
+  it('删除单个条目：改谱面 + 清空选区（原下标 splice 后已错位）', () => {
+    expect(actionOnItemOps('delete', notes, hit)).toEqual([
+      { t: 'setNotes', notes: [bpm(4, 150), single(5, 3)] },
+      { t: 'setSelection', items: [] },
+    ]);
+  });
+
+  it('删除 BPM 线同样生效（56 定的三条通路之一）', () => {
+    const r = actionOnItemOps('delete', notes, { kind: 'note', noteIndex: 1 });
+    expect(r[0]).toMatchObject({ t: 'setNotes' });
+    expect((r[0] as { notes: ChartNote[] }).notes.map(n => n.type)).toEqual(['Single', 'Single']);
+  });
+
+  it('镜像单个条目：先建选区再改谱面（与 delete 的次序不同，不可互换）', () => {
+    expect(actionOnItemOps('mirror', notes, hit)).toEqual([
+      { t: 'setSelection', items: [hit] },
+      { t: 'setNotes', notes: [{ type: 'Single', beat: 1, lane: 4, subBeat: 0 }, bpm(4, 150), single(5, 3)] },
+    ]);
   });
 });

@@ -232,8 +232,13 @@ export function boxSelectOps(tool: MatrixTool, notes: ChartNote[], items: Select
   return []; // 其余（含 §2.1 已退出工具轴的 copy/cut 旧配置残留）→ 无效果
 }
 
-/** 动作族作用于单个条目（= 原 editToolAction 的纯函数化，Model A） */
-function actionOnItemOps(tool: 'delete' | 'mirror', notes: ChartNote[], hit: SelectionItem): MatrixOp[] {
+/**
+ * 动作族作用于单个条目（= 原 editToolAction 的纯函数化，Model A）。
+ * 导出供**右键删除**复用（issue 70）：右键此前绕过本矩阵直连 deleteSelection，
+ * 与「删除工具点音符」是同一语义的两份实现。两类调用方的差异只在于画布侧
+ * 是否额外清理悬垂 UI 态（Slide 锚点 / BPM 就地编辑框）——那是 UI 态，不进矩阵。
+ */
+export function actionOnItemOps(tool: 'delete' | 'mirror', notes: ChartNote[], hit: SelectionItem): MatrixOp[] {
   const sel: SelectionItem[] = [hit];
   if (tool === 'delete') return [{ t: 'setNotes', notes: deleteSelection(notes, sel) }, { t: 'setSelection', items: [] }];
   return [{ t: 'setSelection', items: sel }, { t: 'setNotes', notes: mirrorSelection(notes, sel) }];

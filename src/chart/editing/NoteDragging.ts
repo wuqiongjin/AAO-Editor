@@ -283,7 +283,7 @@ export function planDragMove(
  * 拖拽集合是否可作为拖拽起点（画布按下时判定，避免无意义拖拽）：
  * 过滤后存在可拖条目 = true。
  */
-export function draggableFromItems(notes: ChartNote[], items: SelectionItem[]): SelectionItem[] {
+export function draggableFromItems(notes: readonly ChartNote[], items: readonly SelectionItem[]): SelectionItem[] {
   return items.filter(it => {
     const n = notes[it.noteIndex];
     if (!n) return false;
