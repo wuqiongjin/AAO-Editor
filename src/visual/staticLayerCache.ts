@@ -28,6 +28,11 @@ let basis: {
   scale: number;
   scrollY: number;
   beatDisplay: number;
+  /** 纵向比例（issue 39 #5 / issue 70 候选 5-a）：每小节纵向高度，改了 timeline 就平移，
+   *  网格与起止线像素全变 —— 与 scale/scrollY 无关，必须独立参与失效判定。
+   *  （此前漏掉它：改完纵向比例不滚动 → 网格停留在旧比例，滚一下才重建；
+   *   与 issue 29 问题1「漏加背景字段」同族，故在此显式留注） */
+  verticalRatio: number;
   /** 轨道颜色主题（issue 53 第二轮）：网格在静态层，主题切换需重建 */
   gridStyle: GridStylePreset;
   /** 线形分层开关 / 轨道线透明度 / 文字大小系数（issue 53/51）：起止线文字与网格都在静态层 */
@@ -98,6 +103,7 @@ export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     scale: rc.viewport.scale,
     scrollY: rc.viewport.scrollY,
     beatDisplay: rc.beatDisplay,
+    verticalRatio: rc.geometry.verticalRatio,
     gridStyle: rc.display?.gridStyle ?? 'vivid',
     lineShapeTiers: rc.display?.lineShapeTiers === true,
     gridOpacity: rc.display?.gridOpacity ?? 0.8,
@@ -114,6 +120,7 @@ export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
   const hit = basis !== null &&
     basis.scale === nb.scale && basis.scrollY === nb.scrollY &&
     basis.beatDisplay === nb.beatDisplay && basis.chartEndBeat === nb.chartEndBeat &&
+    basis.verticalRatio === nb.verticalRatio &&
     basis.gridStyle === nb.gridStyle && basis.lineShapeTiers === nb.lineShapeTiers &&
     basis.gridOpacity === nb.gridOpacity && basis.labelScale === nb.labelScale &&
     basis.surfaceW === nb.surfaceW && basis.surfaceH === nb.surfaceH && basis.dpr === nb.dpr &&

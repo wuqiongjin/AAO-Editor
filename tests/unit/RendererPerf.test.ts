@@ -437,6 +437,43 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     expect(staticDraws.n).toBe(0);
     expect(counters.drawImage).toBeGreaterThanOrEqual(1); // 静态层 blit
   });
+
+  it('静态层失效键含纵向比例（issue 70 候选 5-a）：只改 verticalRatio 而 scale/scrollY 不变 → 网格必须重建', () => {
+    const notes = makeDenseNotes(200, chartEndBeat);
+    const g1 = new ChartGeometry(bpm120, chartEndBeat, SURFACE, 1);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const canvas = { width: 0, height: 0 };
+    const es = 0.5;
+    const scrollY = scrollYForCenterBeat(g1, 750, es);
+
+    const staticDraws = { n: 0 };
+    __setStaticCanvasFactoryForTests(() => ({
+      width: 0, height: 0,
+      getContext: () => new Proxy({}, {
+        get(_t, prop) {
+          if (prop === 'stroke' || prop === 'fillText') return () => { staticDraws.n++; };
+          return () => undefined;
+        },
+        set() { return true; },
+      }),
+    }));
+
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g1, notes, chartEndBeat, es, scrollY, false, counters));
+    expect(staticDraws.n).toBeGreaterThan(0); // 初帧建位图
+
+    // 只改纵向比例：surface / scale / scrollY / bpmEvents / chartEndBeat 全不变。
+    // 改前 basis 命中 → 位图停留在旧比例；而旧比例的内容确实不同（探针实测：
+    // ratio 1 / 2 的静态层绘制调用 178 vs 114 条，序列不一致）。
+    // ⚠ 本条是**失效键完整性**护栏，不是用户可见缺陷的回归测试 —— 用户在当前 UI 路径下
+    // 未复现"网格陈旧"（切到设置页改纵向比例时另有 basis 字段随之变化，把重建顺带触发了）。
+    // 与 issue 29 问题1（漏加背景字段）同族：都是"加了新渲染维度，忘了扩失效比较链"。
+    const g2 = new ChartGeometry(bpm120, chartEndBeat, SURFACE, 2);
+    expect(g2.verticalRatio).toBe(2);
+    staticDraws.n = 0;
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g2, notes, chartEndBeat, es, scrollY, false, counters));
+    expect(staticDraws.n).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
