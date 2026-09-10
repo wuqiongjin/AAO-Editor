@@ -1,6 +1,6 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../types';
 import { connectionToNote } from './SlideCombination';
-import { spanConnIndices } from './SlideSegments';
+import { spanConnIndices, spanOfRegion } from './SlideSegments';
 import { mirrorNote, mirrorLane } from './NoteEditing';
 import { DEFAULT_BPM } from '../../audio/AudioTiming';
 
@@ -58,7 +58,20 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
       set.add(it.connIndex);
       nodeRemove.set(it.noteIndex, set);
     } else {
-      // slideRegion：在该连接带处拆分（connIndex 之后断开）
+      // slideRegion（issue 80 定案）：**段内含 hidden → 只清掉段内的 hidden**，段本身保留、两端点直连；
+      // 段上无 hidden → 维持现状：在该连接带处拆分（connIndex 之后断开）。
+      // （反复点即可逐步清空：先清隐藏、再断带子。）
+      const target = notes[it.noteIndex];
+      const slide = target && isSlide(target) ? target : null;
+      const sp = slide ? spanOfRegion(slide.connections, it.connIndex) : null;
+      if (slide && sp && sp.end - sp.start > 1) {
+        const hidden = nodeRemove.get(it.noteIndex) ?? new Set<number>();
+        for (let k = sp.start + 1; k < sp.end; k++) {
+          if (slide.connections[k]?.hidden) hidden.add(k);
+        }
+        nodeRemove.set(it.noteIndex, hidden);
+        continue;
+      }
       const set = splitAfter.get(it.noteIndex) ?? new Set<number>();
       set.add(it.connIndex);
       splitAfter.set(it.noteIndex, set);

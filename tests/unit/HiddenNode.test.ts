@@ -49,25 +49,93 @@ describe('issue 77 #8 · hidden 结点不占位（拖拽）', () => {
 });
 
 describe('issue 77 #9 · hidden 不参与拆条（删除 / 放置）', () => {
-  it('删除 [A, hidden, B] 的任一段 → 整条消失（不是切成两截）', () => {
+  // issue 80 定案：**段内含 hidden → 只清掉段内的 hidden**，段本身保留、两端点直连
+  // （取代 77 #9 的"可见结点 ≤ 2 时删整条"那条口径）
+  it('删除 [A, hidden, B] 的任一段 → 只删 hidden，变成 A→B 普通 Slide', () => {
     const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 1, hidden: true }, { beat: 3, lane: 1 })];
     for (const connIndex of [0, 1]) { // 两个 region（A→H / H→B）都归到同一条可见段
       const out = deleteSelection(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex }]);
-      expect(out).toEqual([]);
+      expect(out).toHaveLength(1);
+      const s = out[0] as SlideNote;
+      expect(s.type).toBe('Slide');
+      expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[1, 1], [3, 1]]); // A→B 直连，H 已删
+      expect(s.connections.some(c => c.hidden)).toBe(false);
+      expect(validChart(out).valid).toBe(true);
     }
   });
 
-  it('删除 [A, hidden, B, C] 的 H→B 段 → A 退化为单键 + 滑条 B→C（hidden 随段消失，不作段首）', () => {
+  it('删除 [A, hidden1, hidden2, B] 的任一段 → 两个 hidden 一起删，剩下 A→B', () => {
+    const notes = [
+      slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3, hidden: true }, { beat: 4, lane: 4 }),
+    ];
+    for (const connIndex of [0, 1, 2]) {
+      const out = deleteSelection(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex }]);
+      expect(out).toHaveLength(1);
+      expect(((out[0] as SlideNote).connections).map(c => [c.beat, c.lane])).toEqual([[1, 1], [4, 4]]);
+      expect(validChart(out).valid).toBe(true);
+    }
+  });
+
+  it('删除 [A, hidden, B, C] 的 A→H→B 段 → 只删 H，变成 [A, B, C]（段保留）', () => {
     const notes = [
       slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 }, { beat: 4, lane: 4 }),
     ];
     const out = deleteSelection(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 1 }]);
+    expect(out).toHaveLength(1);
+    const s = out[0] as SlideNote;
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[1, 1], [3, 3], [4, 4]]);
+    expect(validChart(out).valid).toBe(true);
+  });
+
+  it('回归：段上**无** hidden 时仍按原拆条语义（[A, H, B, C] 删 B→C → [A,H,B] + [C]）', () => {
+    const notes = [
+      slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 }, { beat: 4, lane: 4 }),
+    ];
+    const out = deleteSelection(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 2 }]); // B→C（无 hidden）
     expect(out).toHaveLength(2);
+    const left = out[0] as SlideNote;
+    expect(left.connections.map(c => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3]]); // H 仍留在左段内部
+    expect(left.connections[1].hidden).toBe(true);
+    expect(out[1].type).toBe('Single');
+    expect(validChart(out).valid).toBe(true);
+  });
+
+  it('回归：[A, B]（无 hidden）删段 → A、B 各自退化为单键', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 3, lane: 3 })];
+    const out = deleteSelection(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }]);
+    expect(out).toHaveLength(2);
+    expect(out.map(n => n.type)).toEqual(['Single', 'Single']);
+  });
+
+  // issue 80 定案：**删结点**三例与当前一致 —— 端点 + 相连段（含段内 hidden）一起走，另一端点退化
+  it('删端点：A→H→B 删 A → B 退化为单键（H 随段消失）', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 })];
+    const out = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }]);
+    expect(out).toHaveLength(1);
     expect(out[0].type).toBe('Single');
-    expect((out[0] as { beat: number }).beat).toBe(1);
-    const s = out[1] as SlideNote;
-    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[3, 3], [4, 4]]);
-    expect(validChart(out).valid).toBe(true); // 修复前：残留 [hidden, B] 会被判"首结点不得 hidden"
+    expect((out[0] as { beat: number }).beat).toBe(3);
+    expect(validChart(out).valid).toBe(true);
+  });
+
+  it('删端点：A→H→B→C 删 A → 滑条 [B, C]（H 不作段首）', () => {
+    const notes = [
+      slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 }, { beat: 4, lane: 4 }),
+    ];
+    const out = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }]);
+    expect(out).toHaveLength(1);
+    expect(((out[0] as SlideNote).connections).map(c => [c.beat, c.lane])).toEqual([[3, 3], [4, 4]]);
+    expect(validChart(out).valid).toBe(true);
+  });
+
+  it('删中间**可见**结点：hidden 仍留在段内（不误删）', () => {
+    const notes = [
+      slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 }, { beat: 4, lane: 4 }),
+    ];
+    const out = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 2 }]); // 删 B
+    expect(out).toHaveLength(1);
+    expect(((out[0] as SlideNote).connections).map(c => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [4, 4]]);
+    expect((out[0] as SlideNote).connections[1].hidden).toBe(true);
+    expect(validChart(out).valid).toBe(true);
   });
 
   it('移除 hidden 结点本身 → 段保持连接，产物合法', () => {
