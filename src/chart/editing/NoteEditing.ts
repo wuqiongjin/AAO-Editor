@@ -5,33 +5,43 @@ export const TOTAL_LANES = 7;
 
 /**
  * 谱面音符数统计（issue 36）：与按键音事件（AudioTiming.buildKeyEvents）同一口径——
- * 滑条/长条按**非 hidden 结点数**计（两端点 + 非 hidden 中间结点，每个可击打结点各计 1），
- * 其余音符（单键/方向键/BPM/System）各计 1。
+ * 滑条/长条按**非 hidden 结点数**计（两端点 + 非 hidden 中间结点，每个可击打结点各计 1）：
+ * `A→B` = 2、`A→B→C` = 3、`A→H→C` = 2（H = hidden，不可击打）。
+ * 其余**可击打**音符（单键 / 方向键）各计 1；
+ * **BPM / System 不计入**（issue 84：它们不是音符，只是谱面标线/元信息）——
+ * 与下方 `countNotesUpToBeat` 同口径。
  */
+/** 滑条/长条的**可击打结点**（hidden 结点不可击打，不计数）——两处计数共用同一判据（issue 84） */
+const hittableConnections = (n: ChartNote): { beat: number }[] => {
+  if (n.type !== "Slide" && n.type !== "Long") return [];
+  return n.connections.filter(c => !c.hidden);
+};
+
+/** 是否计入音符数（BPM/System 不是音符：只是谱面标线/元信息，issue 84） */
+const isCountableNote = (n: ChartNote): boolean =>
+  n.type !== "BPM" && n.type !== "System";
+
 export const countChartNotes = (notes: readonly ChartNote[]): number => {
   let count = 0;
   for (const n of notes) {
     if (n.type === "Slide" || n.type === "Long") {
-      for (const c of n.connections) if (!c.hidden) count++;
-    } else {
+      count += hittableConnections(n).length;
+    } else if (isCountableNote(n)) {
       count++;
     }
   }
   return count;
 };
 
-// 音符的"起始拍"（判定线处判读：音符起手节拍是否已到达/越过判定线）
-const noteStartBeat = (n: ChartNote): number => {
-  if (n.type === "Slide" || n.type === "Long") {
-    // 滑条/长条按首结点起始拍；无结点（异常）时保守按 0 计（必然已过线）
-    return n.connections[0]?.beat ?? 0;
-  }
-  return n.beat;
-};
+// 音符的"起始拍"（判定线处判读：音符起手节拍是否已到达/越过判定线）。
+// 只服务单键/方向键 —— 滑条/长条在 issue 84 后改按**逐结点**判过线（不再用首结点代表整条）。
+const noteStartBeat = (n: ChartNote): number => (n as { beat: number }).beat;
 
 /**
- * 已到达/越过判定线的可打击音符数（issue 22 画布右下角实时统计）。
- * 口径：单键/方向键按自身起始拍，滑条/长条按首结点起始拍；BPM/System 无击打语义不计入。
+ * 已到达/越过判定线的可打击音符数（issue 22 画布右下角实时统计 / 实时显示线右沟槽读数）。
+ * 口径（issue 84 修订）：**滑条/长条按"已过线的非 hidden 结点数"逐结点计** ——
+ * 与 `countChartNotes`（总数按结点计）同口径，`A→B` 全过线时算 2 而非 1；
+ * 单键/方向键按自身起始拍；BPM/System 无击打语义不计入；hidden 结点不可击打不计入。
  * 起始拍 ≤ playheadBeat（含边界）视为"已过判定线"。
  */
 export const countNotesUpToBeat = (
@@ -44,9 +54,12 @@ export const countNotesUpToBeat = (
       case "Single":
       case "LDirectional":
       case "RDirectional":
+        if (noteStartBeat(n) <= playheadBeat) count++;
+        break;
       case "Slide":
       case "Long":
-        if (noteStartBeat(n) <= playheadBeat) count++;
+        // issue 84：每个结点各自是一击，各自按自己的拍位判"是否已过线"
+        for (const c of hittableConnections(n)) if (c.beat <= playheadBeat) count++;
         break;
       case "BPM":
       case "System":
