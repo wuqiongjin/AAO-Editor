@@ -169,6 +169,10 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
     ctx.globalAlpha = (s.alpha ?? 1) * gridOpacity;
     const dash = gridLineDash(tier, lineShapeTiers, es);
     ctx.setLineDash(dash ?? []);
+    // issue 78：虚线相位从路径起点起算，而线长 L = trackBgWidth = 210·es 恰为周期（10·es）的整数倍
+    // → 右端点正好落在"下一段 dash 的起点"，末端前 [L−gap, L) 是空档：左端贴边、右端缺一段。
+    // 左移半个 dash 长，使左右端相位相同（L ≡ 0 mod period 时两端都被 dash 覆盖到轨道边缘）。
+    ctx.lineDashOffset = dash && dash.length > 0 ? dash[0] / 2 : 0;
     for (const cand of candidates) {
       if (cand.tier !== tier) continue;
       if (tooClose(cand.y, threshold)) continue;
@@ -180,6 +184,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
     }
   }
   ctx.setLineDash([]);
+  ctx.lineDashOffset = 0; // issue 78：ctx 状态，必须复位，否则污染后续虚线（如 renderBoundLines）
   ctx.globalAlpha = 1;
 }
 

@@ -13,7 +13,7 @@ import {
   type GridStylePreset,
 } from '../../src/visual/gridStyle';
 import type { RenderCtx } from '../../src/visual/types';
-import { makeRecordingCtx } from './testHelpers';
+import { makeRecordingCtx, propValues } from './testHelpers';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 const TEST_SURFACE = { w: 750, h: 900 };
@@ -113,6 +113,28 @@ describe('renderGrid 分层绘制（issue 53）', () => {
     const nonEmpty = dashes.filter((d) => d.length > 0);
     expect(nonEmpty.length).toBeGreaterThan(0);                      // 非整拍短虚线
     expect(nonEmpty.every((d) => d[0] === 4 && d[1] === 6)).toBe(true); // 统一 [4,6]
+  });
+
+  it('issue 78：虚线两端都贴边（lineDashOffset = dash/2，左右端相位都落在 dash 内）', () => {
+    // 横线路径：moveTo(trackBgX) → lineTo(trackBgX + trackBgWidth)，长度 L = 210·es；
+    // 默认形态 [4,6]·es，周期 10·es 整除 L → 修复前右端相位为 0（= 新 dash 的起点，
+    // 于是末端前 [L−gap, L) 是空档）。偏移半个 dash 后两端相位一致，都从边缘起墨。
+    const geometry = new ChartGeometry(bpm120, 8, TEST_SURFACE);
+    const es = 1;
+    const { trackBgWidth } = geometry.trackGeometry(es);
+    const dash = gridLineDash('half', false, es)!; // [4,6]
+    const period = dash[0] + dash[1];
+
+    const calls = renderGridAt(4);
+    const offsets = propValues(calls, 'lineDashOffset') as number[];
+    const offset = offsets.find((o) => o > 0);
+    expect(offset).toBeCloseTo(dash[0] / 2, 6);
+
+    const phase = (d: number) => (d + (offset as number)) % period;
+    const EPS = 1e-3; // 只看端点邻域是否有墨（端点本身是零测点）
+    expect(phase(EPS)).toBeLessThan(dash[0]);                 // 左端贴边
+    expect(phase(trackBgWidth - EPS)).toBeLessThan(dash[0]);  // 右端贴边（修复前此处落在空档）
+    expect(offsets[offsets.length - 1]).toBe(0);              // 绘制结束复位，不污染后续虚线
   });
 
   it('线形开：出现虚线段（长/短虚线）', () => {
