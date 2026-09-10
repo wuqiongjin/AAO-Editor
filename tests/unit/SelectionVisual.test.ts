@@ -178,7 +178,8 @@ describe('选中描边形态（issue 56 a）', () => {
     const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12, hidden: true }, { lane: 6, beat: 14 }])];
     const out = outlinesOf({ notes, select: [{ kind: 'note', noteIndex: 0 }] });
     expect(out.filter(o => o.shape === 'rect')).toHaveLength(2); // 3 结点 - 1 hidden
-    expect(out.filter(o => o.shape === 'quad')).toHaveLength(2); // 段照常
+    // issue 77 三轮：跨 hidden 的整段 = **一条**闭合轮廓（不是两条子块各封一次口）
+    expect(out.filter(o => o.shape === 'quad')).toHaveLength(1);
   });
 
   it('滑条结点矩形 = compact（用户 2026-09-09：避免外圈压住连接带）', () => {
@@ -433,17 +434,36 @@ describe('框选实时预览描边（issue 67）', () => {
     for (const o of out) expect(o.mode).toBe('hover');
   });
 
-  // issue 77 二轮：含 hidden 的滑条，hover/选中「段」时**整段一起亮**（hidden 不切割段）
-  it('issue 77 二轮：hover 跨 hidden 的整段 → 两条子块描边（修复前只亮半段）', () => {
+  // issue 77 三轮：含 hidden 的滑条，横跨 hidden 的整段 = **一个封闭图形**
+  // （二轮时按子块各画一条平行四边形 → hidden 处多一道横向衔接线，用户截图复报）
+  it('issue 77 三轮：hover 跨 hidden 的整段 → 单条闭合多边形（6 顶点，拐点不封口）', () => {
     const s = slide([{ lane: 1, beat: 10 }, { lane: 2, beat: 11, hidden: true }, { lane: 3, beat: 12 }]);
     const out = outlinesOf({
       notes: [s],
       hover: { kind: 'slideRegion', noteIndex: 0, connIndex: 0 }, // 段起点（逻辑段）
       armedTool: 'delete',
     });
-    const quads = out.filter(o => o.shape === 'quad');
-    expect(quads).toHaveLength(2); // A→H 与 H→B 两条子块都亮
-    for (const q of quads) expect(q.mode).toBe('danger');
+    const quads = out.filter(o => o.shape === 'quad') as Array<{ points: [number, number][]; mode: string }>;
+    expect(quads).toHaveLength(1);                                  // 一个图形，不是两个
+    expect(quads[0]!.mode).toBe('danger');
+    const pts = quads[0]!.points;
+    expect(pts).toHaveLength(6);                                    // 3 个结点 × 两侧
+    // 顶点序 = 一侧去程（含拐点）→ 末端封口 → 另一侧回程（含拐点）→（closePath 回首端）
+    const at = (lane: number, beat: number) =>
+      GEO.virtualToCanvas(GEO.noteVirtualX(lane), GEO.noteVirtualY(beat, 0, VP.scale, BEAT_DISPLAY), VP);
+    const A = at(1, 10), H = at(2, 11), B = at(3, 12);
+    const half = LANE_WIDTH / 2;
+    const expected: [number, number][] = [
+      [A.x - half, A.y], [H.x - half, H.y], [B.x - half, B.y],
+      [B.x + half, B.y], [H.x + half, H.y], [A.x + half, A.y],
+    ];
+    expected.forEach((e, i) => {
+      expect(pts[i]![0]).toBeCloseTo(e[0], 6);
+      expect(pts[i]![1]).toBeCloseTo(e[1], 6);
+    });
+    // 拐点 H 的两侧顶点 **相邻**（pts[1] 与 pts[4] 分别在两段上）→ 该处没有横向封口边
+    expect(pts[1]![1]).toBeCloseTo(H.y, 6);
+    expect(pts[4]![1]).toBeCloseTo(H.y, 6);
   });
 
   it('issue 77 二轮：无 hidden 的滑条行为不变（2 结点 = 1 条子块）', () => {

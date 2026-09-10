@@ -400,21 +400,29 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         const isHoverPart = (dangerTool || rc.armedTool === 'noteCode')
             && hv?.kind === 'slideRegion' && hv.connIndex === sp.start;
         if (!inSel && !isHoverPart && !inPreview) continue;
-        // 该段的每个子块各描一条平行四边形（跨过 hidden 的整段 = 多条拼起来，
-        // 但共用同一 mode/判据 —— 所以整段一起亮、不会出现"只亮半段"）
-        for (let ci = sp.start; ci < sp.end; ci++) {
-          const c1 = conns[ci], c2 = conns[ci + 1];
-          const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
-          const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
-          // A4：段是斜的必须描斜的 —— 沿平行四边形四边描边封口，禁止退化成轴对齐包围盒
-          const points: [number, number][] = [
-            [p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y],
-          ];
-          // 段（连接带）的描边 = compact（用户 2026-09-09 二轮反馈）：不外扩、不画暗底，
-          // 亮面贴平行四边形边即可，避免外圈盖住带子造成"段被截断"的观感。
-          // 段与结点同款：所有"贴在带子上"的描边都用 compact 让带子自由穿过。
-          emit(inSel, isHoverPart || inPreview, (mode) => out.push({ shape: 'quad', points, mode, compact: true }), inPreviewBox);
+        // 该段的轮廓 = **一整条封闭图形**（issue 77 三轮，用户截图反馈）：
+        // 跨过 hidden 的整段是一条折线带，中间的拐点不能各自封口 —— 否则 hidden 处会多出
+        // 一道横向的"衔接线"（观感上段被切成两个图形）。两侧各串成一条折线，只有首尾封口。
+        const cents: { x: number; y: number }[] = [];
+        for (let ci = sp.start; ci <= sp.end; ci++) {
+          const cc = conns[ci];
+          cents.push(c.virtualToCanvas(c.getNoteVirtualX(cc.lane), c.getNoteVirtualY(cc.beat, cc.subBeat || 0)));
         }
+        // 单段（两端点，无 hidden）保持原顶点顺序（平行四边形：两端各一条横向封口边）
+        const points: [number, number][] = cents.length === 2
+          ? [
+            [cents[0]!.x - half, cents[0]!.y], [cents[0]!.x + half, cents[0]!.y],
+            [cents[1]!.x + half, cents[1]!.y], [cents[1]!.x - half, cents[1]!.y],
+          ]
+          : [
+            // 一侧去程（含拐点）→ 末端封口 → 另一侧回程（含拐点）
+            ...cents.map(p => [p.x - half, p.y] as [number, number]),
+            ...[...cents].reverse().map(p => [p.x + half, p.y] as [number, number]),
+          ];
+        // 段（连接带）的描边 = compact（用户 2026-09-09 二轮反馈）：不外扩、不画暗底，
+        // 亮面贴平行四边形边即可，避免外圈盖住带子造成"段被截断"的观感。
+        // 段与结点同款：所有"贴在带子上"的描边都用 compact 让带子自由穿过。
+        emit(inSel, isHoverPart || inPreview, (mode) => out.push({ shape: 'quad', points, mode, compact: true }), inPreviewBox);
       }
     }
   }
