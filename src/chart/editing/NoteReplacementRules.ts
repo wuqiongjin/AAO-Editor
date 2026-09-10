@@ -147,10 +147,42 @@ export function batchApplyKeyType(
 }
 
 /**
- * 处理滑条音符的覆盖替换规则（规则见 ADR-0001 第 1.2 节）
- * - 单键：任意滑条结点忽略
- * - 滑键：仅尾部端点加 flick；头部/中间忽略
- * - 技能键：两端都加 skill；中间忽略
+ * 滑条**端点**被键型音符覆盖 = **替换该端点的 flick/skill 标记**（issue 81 定案，
+ * 取代原「只加不清、flick 与 skill 可并存」）。与「非 Slide 音符互相覆盖」（ADR-0001 §1.1）
+ * 同口径 —— 后放的键型胜出、清掉另一个标记，故不会再出现「技能键底图 + 滑键箭头」的叠加样式：
+ * - 单键 → 清空该端点的 flick / skill（退化为普通端点）
+ * - 滑键 → 改 flick（清 skill）；**仅尾端点**（ADR-0001 §5：滑键不可作滑条起点）
+ * - 技能键 → 改 skill（清 flick）；头尾端点皆可
+ *
+ * 中间结点不参与（保持 §1.2 的「忽略」）。
+ * @returns 替换后的连接点；**null = 不合法或标记无变化** —— 调用方按"忽略"处理，
+ *          不写历史快照（否则每次空点都会产生一个无变化的可撤销步）。
+ */
+function overrideEndpointMark(
+    conn: ConnectionNote,
+    newNoteType: string,
+    isStartPoint: boolean,
+    isEndPoint: boolean,
+): ConnectionNote | null {
+    if (!isStartPoint && !isEndPoint) return null;                 // 中间结点：不参与
+    if (newNoteType === "flick" && !isEndPoint) return null;       // ADR §5：头部端点不携带 flick
+
+    const next: ConnectionNote = { ...conn };
+    delete next.flick;
+    delete next.skill;
+    if (newNoteType === "flick") next.flick = true;
+    if (newNoteType === "skill") next.skill = true;
+
+    // 标记无变化 → 视为忽略（避免无意义的历史快照）
+    if (!!next.flick === !!conn.flick && !!next.skill === !!conn.skill) return null;
+    return next;
+}
+
+/**
+ * 处理滑条音符的覆盖替换规则（规则见 ADR-0001 第 1.2 节 + issue 81 端点修订）
+ * - 单键：中间结点忽略；**端点清空 flick/skill（覆盖）**
+ * - 滑键：中间/头部忽略；**尾端点改 flick（清 skill）**
+ * - 技能键：中间忽略；**两端点改 skill（清 flick）**
  * - 方向键：中间节点拆两侧 / 端点拆端（2 结点滑条整条删除）
  */
 function handleSlideNoteReplacement(
@@ -174,33 +206,15 @@ function handleSlideNoteReplacement(
     const isStartPoint = connectionIndex === 0;
     const isEndPoint = connectionIndex === conns.length - 1;
 
-    // 单键：任意滑条结点都忽略
-    if (newNoteType === "Single") {
-        return { shouldReplace: false, newNotes, message: "忽略不处理" };
-    }
-
-    // 滑键：仅尾部端点加 flick（只加不清，flick 与 skill 可并存，见 ADR §1.2/§5）；头部/中间忽略
-    if (newNoteType === "flick") {
-        if (isEndPoint) {
-            const updated = conns.map((c, i) =>
-                i === connectionIndex ? { ...c, flick: true } : c
-            );
-            newNotes[existingNoteIndex] = { ...existingNote, connections: updated };
-            return { shouldReplace: true, newNotes, message: "尾部端点加滑键标记" };
+    // 单键 / 滑键 / 技能键：**端点**按覆盖语义替换标记（issue 81 定案），中间结点一律忽略
+    if (newNoteType === "Single" || newNoteType === "flick" || newNoteType === "skill") {
+        const replaced = overrideEndpointMark(conns[connectionIndex], newNoteType, isStartPoint, isEndPoint);
+        if (!replaced) {
+            return { shouldReplace: false, newNotes, message: "忽略不处理" };
         }
-        return { shouldReplace: false, newNotes, message: "忽略不处理" };
-    }
-
-    // 技能键：仅在点击的端点加 skill（只加不清）；中间忽略
-    if (newNoteType === "skill") {
-        if (isStartPoint || isEndPoint) {
-            const updated = conns.map((c, i) =>
-                i === connectionIndex ? { ...c, skill: true } : c
-            );
-            newNotes[existingNoteIndex] = { ...existingNote, connections: updated };
-            return { shouldReplace: true, newNotes, message: "端点加技能键标记" };
-        }
-        return { shouldReplace: false, newNotes, message: "忽略不处理" };
+        const updated = conns.map((c, i) => (i === connectionIndex ? replaced : c));
+        newNotes[existingNoteIndex] = { ...existingNote, connections: updated };
+        return { shouldReplace: true, newNotes, message: "端点标记覆盖替换" };
     }
 
     // 方向键：中间节点拆两侧 / 端点拆端

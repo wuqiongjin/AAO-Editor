@@ -8,6 +8,7 @@ import {
   findNoteIndexAt,
 } from '../../src/chart/editing/NoteReplacementRules';
 import type { ChartNote, SlideNote } from '../../src/chart/types';
+import { convertNotesToChartCode, validateChartCode } from '../../src/chart/editing/ChartConverter';
 
 // 候选 4 归一：`findNoteIndexAt` 是「这个位置上有什么」的**唯一口径**
 // （`handleNoteReplacement` 与 `pasteChartNotes` 共用）。此前两处各写一份逐字相同的判定，
@@ -92,15 +93,16 @@ describe('handleNoteReplacement - 单键/方向键', () => {
 });
 
 describe('handleNoteReplacement - 滑条结点（ADR-0001 1.2）', () => {
-  it('单键放滑条任意结点：忽略不处理', () => {
+  it('单键放滑条中间结点：忽略不处理', () => {
     const notes: ChartNote[] = [{
       type: 'Slide',
       connections: [
         { beat: 0, lane: 0 },
-        { beat: 2, lane: 2, flick: true }
+        { beat: 1, lane: 1, flick: true },
+        { beat: 2, lane: 2 }
       ]
     }];
-    const r = handleNoteReplacement(notes, 2, 2, 0, 'single');
+    const r = handleNoteReplacement(notes, 1, 1, 0, 'single');
     expect(r.shouldReplace).toBe(false);
     expect(r.newNotes).toHaveLength(1);
     expect((r.newNotes[0] as any).connections[1].flick).toBe(true);
@@ -275,6 +277,91 @@ describe('handleNoteReplacement - 滑条结点（ADR-0001 1.2）', () => {
     ]);
     const dir = r.newNotes.find(n => n.type === 'LDirectional');
     expect(dir).toEqual({ beat: 2, lane: 2, subBeat: 0, type: 'LDirectional', length: 1 });
+  });
+});
+
+// issue 81 定案（用户 2026-09-10 拍板方案 A）：键型音符放到滑条**端点** = **替换该端点的标记**
+// （与非 Slide 音符互相覆盖同口径），取代旧的「只加不清、flick 与 skill 可并存」——
+// 旧行为会让端点画成「技能键底图 + 滑键箭头」的叠加样式，且单键完全无法覆盖带标记的端点。
+describe('handleNoteReplacement - 滑条端点覆盖（issue 81）', () => {
+  type C = { beat: number; lane: number; flick?: boolean; skill?: boolean };
+  const slideOf = (...conns: C[]): ChartNote[] => [{ type: 'Slide', connections: conns }];
+  const connsOf = (r: { newNotes: ChartNote[] }) => (r.newNotes[0] as any).connections as C[];
+  const tail = { beat: 2, lane: 2 };
+  const head = { beat: 0, lane: 0 };
+
+  it('单键覆盖带 flick 的尾端点 → 清空标记（端点仍留在滑条上）', () => {
+    const r = handleNoteReplacement(slideOf(head, { ...tail, flick: true }), tail.beat, tail.lane, 0, 'single');
+    expect(r.shouldReplace).toBe(true);
+    expect(r.newNotes).toHaveLength(1);
+    const conns = connsOf(r);
+    expect(conns).toHaveLength(2);
+    expect(conns[1]).toEqual(tail);            // 位置不变、标记清空
+    expect(conns[1].flick).toBeUndefined();
+  });
+
+  it('单键覆盖带 skill 的头端点 → 清空标记', () => {
+    const r = handleNoteReplacement(slideOf({ ...head, skill: true }, tail), head.beat, head.lane, 0, 'single');
+    expect(r.shouldReplace).toBe(true);
+    expect(connsOf(r)[0]).toEqual(head);
+    expect(connsOf(r)[0].skill).toBeUndefined();
+  });
+
+  it('单键覆盖无标记端点 → 无变化即忽略（不产生无意义的历史快照）', () => {
+    const r = handleNoteReplacement(slideOf(head, tail), tail.beat, tail.lane, 0, 'single');
+    expect(r.shouldReplace).toBe(false);
+  });
+
+  it('滑键覆盖带 skill 的尾端点 → flick=true 且 skill 清空（不再叠加成"技能键+滑键箭头"）', () => {
+    const r = handleNoteReplacement(slideOf(head, { ...tail, skill: true }), tail.beat, tail.lane, 0, 'flick');
+    expect(r.shouldReplace).toBe(true);
+    const c = connsOf(r)[1];
+    expect(c.flick).toBe(true);
+    expect(c.skill).toBeUndefined();
+  });
+
+  it('技能键覆盖带 flick 的尾端点 → skill=true 且 flick 清空', () => {
+    const r = handleNoteReplacement(slideOf(head, { ...tail, flick: true }), tail.beat, tail.lane, 0, 'skill');
+    expect(r.shouldReplace).toBe(true);
+    const c = connsOf(r)[1];
+    expect(c.skill).toBe(true);
+    expect(c.flick).toBeUndefined();
+  });
+
+  it('端点已有相同标记 → 无变化即忽略', () => {
+    expect(handleNoteReplacement(slideOf(head, { ...tail, flick: true }), tail.beat, tail.lane, 0, 'flick').shouldReplace).toBe(false);
+    expect(handleNoteReplacement(slideOf({ ...head, skill: true }, tail), head.beat, head.lane, 0, 'skill').shouldReplace).toBe(false);
+  });
+
+  it('滑键覆盖头端点 → 忽略（ADR-0001 §5：滑键不可作滑条起点）', () => {
+    const r = handleNoteReplacement(slideOf(head, tail), head.beat, head.lane, 0, 'flick');
+    expect(r.shouldReplace).toBe(false);
+    expect(connsOf(r)[0].flick).toBeUndefined();
+  });
+
+  it('中间结点：单键 / 滑键 / 技能键 一律忽略（标记不动）', () => {
+    const notes = () => slideOf(head, { beat: 1, lane: 1, flick: true }, tail);
+    for (const tool of ['single', 'flick', 'skill']) {
+      const r = handleNoteReplacement(notes(), 1, 1, 0, tool);
+      expect(r.shouldReplace).toBe(false);
+      expect(connsOf(r)[1].flick).toBe(true);
+    }
+  });
+
+  it('覆盖只改标记，不动滑条结构（结点数与 beat/lane 不变）', () => {
+    const r = handleNoteReplacement(
+      slideOf(head, { beat: 1, lane: 1 }, { ...tail, skill: true }), tail.beat, tail.lane, 0, 'flick');
+    const conns = connsOf(r);
+    expect(conns.map(c => [c.beat, c.lane])).toEqual([[0, 0], [1, 1], [2, 2]]);
+  });
+
+  it('产物过谱面校验（flick 不在起点、标记可序列化）', () => {
+    const r = handleNoteReplacement(slideOf(head, { ...tail, skill: true }), tail.beat, tail.lane, 0, 'flick');
+    const code = convertNotesToChartCode([
+      { type: 'BPM', beat: 0, bpm: 120 } as ChartNote,
+      ...r.newNotes,
+    ]);
+    expect(validateChartCode(code).valid).toBe(true);
   });
 });
 
