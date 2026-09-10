@@ -220,7 +220,8 @@ export function boxSelectOps(tool: MatrixTool, notes: ChartNote[], items: Select
   // §2 框选矩阵 BPM 格（issue 56 Q8 / issue 59 落地）：由「无效果」改为「按 X+Y 完整覆盖判据入选」
   // —— 判据本身在 computeItemsInBox（BPM 线必须被整条框住），这里只负责把结果建成选区。
   if (tool === 'bpm') return [{ t: 'setSelection', items }];
-  if (tool === 'paste') return []; // 无效果（粘贴作用于位置，非选区）
+  // issue 72：粘贴态在画布侧**根本不启动框选**（`canStartMarquee`），此处只是兜底无效果
+  if (tool === 'paste') return [];
   if (tool === 'slide') return combineOps(notes, items); // §4 组合成滑条
   if (items.length === 0) return [];
   if (tool === 'delete') {

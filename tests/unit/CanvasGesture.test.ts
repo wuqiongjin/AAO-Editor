@@ -489,10 +489,15 @@ describe('resolveBoxPlan / canStartMarquee 框选矩阵去向', () => {
     }
   });
 
-  it('issue 59 §3：「音符代码」态不启动框选（不画矩形，而不是框了松手无反应）', () => {
+  it('issue 59 §3 / issue 72：「音符代码」与「粘贴」态不启动框选（不画矩形，而不是框了松手无反应）', () => {
     expect(canStartMarquee('noteCode')).toBe(false);
+    expect(canStartMarquee('paste')).toBe(false);
     expect(canStartMarquee(null)).toBe(true);
     expect(canStartMarquee('single')).toBe(true);
+    expect(canStartMarquee('slide')).toBe(true);
+    expect(canStartMarquee('delete')).toBe(true);
+    expect(canStartMarquee('mirror')).toBe(true);
+    expect(canStartMarquee('bpm')).toBe(true);
   });
 });
 

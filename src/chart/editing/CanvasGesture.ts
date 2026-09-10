@@ -281,12 +281,13 @@ export function resolveBoxPlan(armedTool: MatrixTool | null): BoxPlan {
 }
 
 /**
- * issue 59 §3：「音符代码」态**不启动框选**（按下拖拽根本不画框选矩形），
- * 而不是"框了松手无反应" —— 它是唯一不改谱面的工具，建选区对它毫无作用。
+ * 「音符代码」（issue 59 §3）与「粘贴」（issue 72）态**不启动框选**（按下拖拽根本不画框选矩形），
+ * 而不是"框了松手无反应" —— 二者都不是对既有音符/选区做功的工具：
+ * 音符代码不改谱面；粘贴作用于**位置**（把剪贴板组放到光标处），选中既有音符对它毫无意义。
  * 注意：Shift+按住音符 = 移动（§6 全局逃生口）不受此限，那条分支在拖拽侧先行返回。
  */
 export function canStartMarquee(armedTool: MatrixTool | null): boolean {
-    return armedTool !== 'noteCode';
+    return armedTool !== 'noteCode' && armedTool !== 'paste';
 }
 
 // ─────────────────────────────── 执行键（§3） ───────────────────────────────
