@@ -247,9 +247,10 @@ describe('§2 delete/mirror 单击', () => {
     expect(ops[0]).toEqual({ t: 'setSelection', items: [hit] });
     expect((ops[1] as any).notes[0].lane).toBe(5);
   });
-  it('轨道内空白 = 无效果、不清选区（§2 定案）；轨道外 = 清选区（原则 6）', () => {
+  it('issue 83：轨道内空白 / 轨道外（无命中）**一律清选区**（旧口径：只有落点非法才清）', () => {
     for (const tool of ['delete', 'mirror'] as const) {
-      expect(clickOps(input({ tool, notes, hit: null, pos: sp(4, 3) }))).toEqual([]);
+      expect(clickOps(input({ tool, notes, hit: null, pos: sp(4, 3) })))
+        .toEqual([{ t: 'setSelection', items: [] }]);
       expect(clickOps(input({ tool, notes, hit: null, pos: null })))
         .toEqual([{ t: 'setSelection', items: [] }]);
     }
@@ -262,27 +263,29 @@ describe('§2 delete/mirror 单击', () => {
 // ══════════════════ §2 单击矩阵·音符代码行（issue 59 §3/§4）══════════════════
 describe('§2 音符代码工具单击（noteCode，issue 59）', () => {
   const notes: ChartNote[] = [bpm(0, 120), single(1, 1), slide(2, 1, 3, 2, 4, 3)];
-  it('点整条音符 = 打开该音符代码（target 只有 noteIndex）', () => {
+  const clearSel = { t: 'setSelection', items: [] };
+  it('点整条音符 = 打开该音符代码（target 只有 noteIndex）+ 清选区（issue 83）', () => {
     expect(clickOps(input({ tool: 'noteCode', notes, hit: noteSel(1)[0] })))
-      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 1 } }]);
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 1 } }, clearSel]);
   });
-  it('点滑条结点 = 带 connIndex', () => {
+  it('点滑条结点 = 带 connIndex + 清选区', () => {
     const hit: SelectionItem = { kind: 'slideNode', noteIndex: 2, connIndex: 1 };
     expect(clickOps(input({ tool: 'noteCode', notes, hit })))
-      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2, connIndex: 1 } }]);
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2, connIndex: 1 } }, clearSel]);
   });
-  it('§4 点滑条区域 = 不支持 → 回退整条（不带 connIndex）', () => {
+  it('§4 点滑条区域 = 不支持 → 回退整条（不带 connIndex）+ 清选区', () => {
     const hit: SelectionItem = { kind: 'slideRegion', noteIndex: 2, connIndex: 1 };
     expect(clickOps(input({ tool: 'noteCode', notes, hit })))
-      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2 } }]);
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2 } }, clearSel]);
   });
-  it('点击已有 BPM 线 = 打开该 BPM 的代码（issue 59 定案例外）', () => {
+  it('点击已有 BPM 线 = 打开该 BPM 的代码（issue 59 定案例外）+ 清选区', () => {
     expect(clickOps(input({ tool: 'noteCode', notes, hit: noteSel(0)[0], pos: sp(0, 0) })))
-      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 0 } }]);
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 0 } }, clearSel]);
   });
-  it('点空白 = 无效果且**不清选区**（§3 + §2 原则 6 例外）', () => {
-    expect(clickOps(input({ tool: 'noteCode', notes, hit: null, pos: sp(8, 3) }))).toEqual([]);
-    expect(clickOps(input({ tool: 'noteCode', notes, hit: null, pos: null }))).toEqual([]);
+  it('issue 83：点空白 / 轨道外（无命中，含落点非法）→ 无效果但**清选区**', () => {
+    // 旧行为（§2 原则 6 例外）：noteCode 点空白不清选区 → 上一个工具留下的选中态一直挂着
+    expect(clickOps(input({ tool: 'noteCode', notes, hit: null, pos: sp(8, 3) }))).toEqual([clearSel]);
+    expect(clickOps(input({ tool: 'noteCode', notes, hit: null, pos: null }))).toEqual([clearSel]);
   });
 });
 

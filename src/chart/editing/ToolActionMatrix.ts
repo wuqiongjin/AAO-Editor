@@ -195,19 +195,23 @@ export function clickOps(input: ClickInput): MatrixOp[] {
   }
   if (tool === 'noteCode') {
     // §3「音符代码」：点音符 = 打开该音符/结点的代码（点击优先于选区，粒度沿用 findItemAt）；
-    // 点空白 = 无效果、**不清选区**（§2 原则 6 例外：它是唯一不改谱面的工具）
-    if (!hit) return [];
+    // **并清空选区**（issue 83，2026-09-11 用户重新定案：noteCode 不再是 §2 原则 6 的例外 ——
+    // 用户点了画布，注意力就已转移，上一个工具留下的选中态继续亮着是噪音；
+    // 尤其"选中 A → 切音符代码 → 点 B"时，A 的选中框还挂在那儿）。
+    // 点空白 / 轨道外（无命中）同样清选区（原则 6：与动作是否生效无关）。
+    if (!hit) return [clearSel];
     // §4：slideRegion 不支持 → 回退到整条滑条视图（target 不带 connIndex）
     const target: NoteCodeTarget = hit.kind === 'slideNode'
       ? { noteIndex: hit.noteIndex, connIndex: hit.connIndex }
       : { noteIndex: hit.noteIndex };
-    return [{ t: 'openNoteCode', target }];
+    return [{ t: 'openNoteCode', target }, clearSel];
   }
   if (isActionTool(tool)) {
     // 音符 = 选中并立即执行（Model A，ADR-0002 §3.2）；
-    // 轨道内空白 = 无效果不清选区（§2 定案，清选区用 Esc 或指针态点空白）；
-    // 轨道**外**（落点非法）= 无事发生但取消选中（原则 6）
-    if (!hit) return pos === null ? [clearSel] : [];
+    // 空白（轨道内）与轨道**外**（落点非法）**一律清选区**（issue 83，2026-09-11 扩订）：
+    // 旧口径只有"落点非法才清"，于是"点轨道内空白"成了双轨 —— 按用户口径，点了画布
+    // 注意力就已转移，与动作是否生效、落点是否合法都无关。
+    if (!hit) return [clearSel];
     return actionOnItemOps(tool, notes, hit);
   }
   return [];
