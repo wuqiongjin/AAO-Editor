@@ -140,11 +140,15 @@ export interface ClickInput {
   slideBuffer: SlidePoint | null;
   lastBpm: number;
   clipboard: ChartNote[];
+  /** 谱面末端（ADR-0005 §5）；issue 73：粘贴按**整组**校验末端，与放置同口径 */
+  chartEndBeat: number;
+  /** 子拍细分（subBeat 的单位分母）；粘贴的末端校验需要它折算真实拍位 */
+  beatDisplay: number;
 }
 
 /** §2 单击矩阵（工具族行 × 音符/空白列）；指针行不走此函数（指针行在画布侧 selectItemAtPoint） */
 export function clickOps(input: ClickInput): MatrixOp[] {
-  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard } = input;
+  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard, chartEndBeat, beatDisplay } = input;
   // §2 原则 6：**非指针态单击画布 = 新意图 → 清空选区**，与落点是否合法、动作是否生效无关
   // （含"点轨道外/谱面末端外"这种非法落点：动作按 §1 无事发生，但选中态照样取消——
   // 用户点了画布，注意力已经转移；选中态留着只是噪音）。
@@ -182,7 +186,10 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     // 持工具态**驻留**（矩阵只产出 op，不清 armedTool）→ 连续粘贴；粘贴产物成为新选区。
     if (!pos || clipboard.length === 0) return [clearSel]; // 非法落点/空剪贴板：只清选区
     // 选区 = 实际写入/改动的下标（重叠替换与拆条会让下标不连续，不能用 newStartIndex+i）
-    const { newNotes, written } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
+    const { newNotes, written, rejected } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane,
+      { chartEndBeat, beatDisplay });
+    // issue 73：整组越出谱面末端 → 拒绝整组（只清选区，不写谱面）
+    if (rejected) return [clearSel];
     const items = written.map(i => ({ kind: 'note' as const, noteIndex: i }));
     return [{ t: 'setNotes', notes: newNotes }, { t: 'setSelection', items }];
   }

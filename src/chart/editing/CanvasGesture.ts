@@ -15,6 +15,7 @@ import type { BpmNote, ChartNote, SelectionItem } from '../types';
 import type { HitTestDeps } from '../../visual/hitTest';
 import { findBpmLineAt, findItemAt } from '../../visual/hitTest';
 import { draggableFromItems, itemTrueBeat } from './NoteDragging';
+import { isPastChartEnd } from './ChartEndBounds';
 import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
 import { GUTTER_LABEL_FONT_PX, bpmLabelBox } from '../../visual/gutterLabels';
 
@@ -292,12 +293,10 @@ export function canStartMarquee(armedTool: MatrixTool | null): boolean {
 
 // ─────────────────────────────── 执行键（§3） ───────────────────────────────
 
-/** 越过谱面末端的判据（ADR-0005 §5）：放置与执行键**共用同一 epsilon**，不得各写一份 */
-export const CHART_END_EPS = 1e-6;
-
-export function isPastChartEnd(beat: number, chartEndBeat: number): boolean {
-    return beat > chartEndBeat + CHART_END_EPS;
-}
+/**
+ * 越过谱面末端的判据（ADR-0005 §5）：放置 / 执行键 / 粘贴 / 拖拽**共用同一 epsilon**，
+ * 不得各写一份 —— 唯一实现已移至 `ChartEndBounds`（本模块再导出，保持既有 import 不变）。
+ */
 
 /**
  * §3 键型执行键：光标不在画布 / 越过谱面末端 → **无事发生**
@@ -310,6 +309,8 @@ export function canPlaceAtCursor(
 ): cursor is { beat: number } {
     return cursor !== null && !isPastChartEnd(cursor.beat, chartEndBeat);
 }
+
+export { CHART_END_EPS, isPastChartEnd, groupMaxBeat } from './ChartEndBounds';
 
 /**
  * issue 59 §2（Ctrl+B 执行键）：命中口径与「音符代码」工具单击**完全一致** ——

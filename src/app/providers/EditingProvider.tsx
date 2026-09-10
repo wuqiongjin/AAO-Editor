@@ -4,7 +4,7 @@ import { createContext, useContext, useCallback, useState, type ReactNode } from
 import type { ChartNote, SelectionItem } from '../../chart/types';
 import type { ChartPosition } from '../../types/chart';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../../chart/editing/SelectionEditing';
-import { handleNoteReplacement, pasteChartNotes } from '../../chart/editing/NoteReplacementRules';
+import { handleNoteReplacement } from '../../chart/editing/NoteReplacementRules';
 import {
   createHistory, pushHistoryIfChanged, undoHistory, redoHistory, currentHistory,
   type HistoryState,
@@ -36,7 +36,6 @@ export interface EditingContextValue {
   // 编辑操作
   copy: () => void;
   cut: () => void;
-  paste: (pos: Position) => void;
   deleteSelected: () => void;
   mirror: () => void;
   place: (tool: string, pos: Position) => void;
@@ -105,14 +104,6 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     }
   }, [notes, selectedItems, handleNotesChange]);
 
-  const pasteAt = useCallback((pos: Position) => {
-    if (clipboard.length === 0) return;
-    const { newNotes, written } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane);
-    handleNotesChange(newNotes);
-    // 选区 = 实际写入/改动的下标（与画布单击路径同口径，见 ToolActionMatrix.clickOps）
-    setSelectedItems(written.map(i => ({ kind: 'note' as const, noteIndex: i })));
-  }, [notes, clipboard, handleNotesChange]);
-
   const deleteSelected = useCallback(() => {
     if (selectedItems.length > 0) {
       handleNotesChange(deleteSelection(notes, selectedItems));
@@ -137,7 +128,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     selectedItems, clipboard,
     setNotes, resetNotes, setSelectedItems, setClipboard,
     handleNotesChange, undo, redo,
-    copy, cut, paste: pasteAt, deleteSelected, mirror, place,
+    copy, cut, deleteSelected, mirror, place,
   };
 
   return <EditingContext.Provider value={value}>{children}</EditingContext.Provider>;

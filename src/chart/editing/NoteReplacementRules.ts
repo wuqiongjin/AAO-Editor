@@ -1,6 +1,7 @@
 import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LDirectionalNote, RDirectionalNote } from '../types';
 import { connectionToNote, mergeChainWithSlides, compareAbsorbable } from './SlideCombination';
 import { shiftGroupToAnchor } from './NoteEditing';
+import { isPastChartEnd, groupMaxBeat } from './ChartEndBounds';
 
 /**
  * 音符覆盖替换规则工具类
@@ -570,9 +571,17 @@ export function pasteChartNotes(
     notes: ChartNote[],
     clipboard: ChartNote[],
     anchorBeat: number,
-    anchorLane: number
-): { newNotes: ChartNote[]; newStartIndex: number; written: number[] } {
+    anchorLane: number,
+    /** 谱面末端边界（issue 73）；不传 = 不校验（仅供纯逻辑单测） */
+    bounds?: { chartEndBeat: number; beatDisplay?: number }
+): { newNotes: ChartNote[]; newStartIndex: number; written: number[]; rejected?: 'past-end' } {
     const pasted = shiftGroupToAnchor(clipboard, anchorBeat, anchorLane);
+    // issue 73：**整组**越界即拒绝（此前只校验锚点，组尾可以越出 END）。
+    // 想放下请先延长谱面长度（调音频时长）—— 用户 2026-09-10 拍板。
+    if (bounds && pasted.length > 0
+        && isPastChartEnd(groupMaxBeat(pasted, bounds.beatDisplay ?? 1), bounds.chartEndBeat)) {
+        return { newNotes: notes, newStartIndex: notes.length, written: [], rejected: 'past-end' };
+    }
     let newNotes = [...notes];
     const newStartIndex = newNotes.length;
 

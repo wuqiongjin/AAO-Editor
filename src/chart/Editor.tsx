@@ -49,7 +49,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const config = useConfig();
   const playback = usePlayback();
 
-  const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, paste, deleteSelected, mirror, undo, redo, resetNotes } = editing;
+  // issue 73：paste 已从本处移除 —— 粘贴的唯一入口是画布（工具单击 / execPaste），
+  // 避免再有一条绕过矩阵、没有末端校验的粘贴通路。
+  const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, deleteSelected, mirror, undo, redo, resetNotes } = editing;
   const {
     armedTool, setArmedTool,
     scale, setScale,
@@ -285,9 +287,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 此前它被算好后存进 UIProvider.mousePosition，滚动/缩放后鼠标不动就拿不到新值
   // （粘贴与执行键落到旧的拍，用户已复现）。同上走 ref 也顺带解决了 useCallback 身份抖动。
   const pasteAtCursor = useCallback(() => {
-    const p = virtualCanvasRef.current?.getCursorChartPos?.();
-    if (p) paste(p);
-  }, [paste]);
+    // issue 73：改走画布 execPaste —— 与粘贴工具单击共用 clickOps，自动获得
+    // "整组越出谱面末端 = 拒绝"的判定（原先的 paste() 绕过矩阵，没有末端校验）
+    virtualCanvasRef.current?.execPaste?.();
+  }, []);
 
   // 具体功能分发（ADR-0002 + ADR-0008 §3）：切换功能 = 持工具态；执行功能 = 光标处瞬时执行（不占工具态）。
   // BPM/Slide 执行键按 §3 修订语义经画布 ref 执行（就地编辑 / slideBuffer 双入口共用）。

@@ -3,6 +3,43 @@ import { pasteChartNotes } from '../../src/chart/editing/NoteReplacementRules';
 import type { ChartNote } from '../../src/chart/types';
 
 // 粘贴 = 应用 ADR-0001 覆盖规则（修复直接 concat 导致同坐标重叠音符）
+// issue 73：粘贴**整组**校验谱面末端 —— 越界即拒绝整组（想放下请先延长谱面长度）。
+// 判据与放置/执行键同源（ChartEndBounds.isPastChartEnd / groupMaxBeat）。
+describe('pasteChartNotes - 整组越出谱面末端应拒绝（issue 73）', () => {
+  const bounds = { chartEndBeat: 10, beatDisplay: 4 };
+  const twoKeys: ChartNote[] = [
+    { type: 'Single', beat: 9, lane: 1, subBeat: 0 },
+    { type: 'Single', beat: 10, lane: 1, subBeat: 0 }, // 组高 1 拍
+  ];
+
+  it('组尾恰好落在末端 → 正常粘贴', () => {
+    const r = pasteChartNotes([], twoKeys, 9, 1, bounds);
+    expect(r.rejected).toBeUndefined();
+    expect(r.newNotes).toHaveLength(2);
+  });
+
+  it('锚点在界内但**组尾**越界 → rejected，且 newNotes 与原数组同引用（不写谱）', () => {
+    const notes: ChartNote[] = [{ type: 'BPM', beat: 0, bpm: 120 }];
+    const r = pasteChartNotes(notes, twoKeys, 9.5, 1, bounds); // 组尾 10.5 > 10
+    expect(r.rejected).toBe('past-end');
+    expect(r.newNotes).toBe(notes);
+    expect(r.written).toEqual([]);
+  });
+
+  it('滑条组：任一结点越界即整组拒绝', () => {
+    const slide: ChartNote[] = [{
+      type: 'Slide',
+      connections: [{ beat: 9, lane: 1, subBeat: 0 }, { beat: 11, lane: 1, subBeat: 0 }],
+    } as ChartNote];
+    expect(pasteChartNotes([], slide, 9, 1, bounds).rejected).toBe('past-end');
+    expect(pasteChartNotes([], slide, 7, 1, bounds).rejected).toBeUndefined(); // 组尾 9 ≤ 10
+  });
+
+  it('不传 bounds = 不校验（纯逻辑单测兼容）', () => {
+    expect(pasteChartNotes([], twoKeys, 100, 1).rejected).toBeUndefined();
+  });
+});
+
 describe('pasteChartNotes - 空位粘贴', () => {
   it('空位粘贴单键：新增且无重叠', () => {
     const clipboard: ChartNote[] = [{ type: 'Single', beat: 5, lane: 1, subBeat: 0 }];

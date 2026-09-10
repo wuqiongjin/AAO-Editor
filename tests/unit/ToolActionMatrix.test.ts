@@ -22,7 +22,9 @@ const pt = (beat: number, lane: number): SlidePoint => ({ beat, lane, subBeat: 0
 /** §2 单击矩阵输入基底（各行只覆盖需要的字段） */
 const input = (patch: Partial<ClickInput>): ClickInput => ({
   tool: 'single', notes: [], hit: null, pos: null,
-  slideBuffer: null, lastBpm: 120, clipboard: [], ...patch,
+  slideBuffer: null, lastBpm: 120, clipboard: [],
+  // 默认"无末端限制"，需要校验末端的用例（issue 73）自行覆盖
+  chartEndBeat: 1e9, beatDisplay: 4, ...patch,
 });
 
 // ══════════════════ §2 指针行·单击（pointerClickSelection）══════════════════
@@ -213,6 +215,18 @@ describe('§2 paste 工具单击', () => {
       .toEqual([{ t: 'setSelection', items: [] }]);
     expect(clickOps(input({ tool: 'paste', pos: null, clipboard })))
       .toEqual([{ t: 'setSelection', items: [] }]);
+  });
+  // issue 73：粘贴与放置/执行键同口径 —— 整组越出谱面末端 = 拒绝整组（想放下请先延长谱面长度）
+  it('issue 73：整组越出谱面末端 → 拒绝整组（只清选区，不写谱面）', () => {
+    const notes: ChartNote[] = [bpm(0, 120)];
+    const group = [single(0, 0), single(1, 1)]; // 组高 1 拍
+    const base = { tool: 'paste' as const, notes, clipboard: group, chartEndBeat: 10, beatDisplay: 4 };
+    // ① 组尾恰好 = 末端 → 正常粘贴
+    const ok = clickOps(input({ ...base, pos: sp(9, 1) }));
+    expect(ok[0]?.t).toBe('setNotes');
+    // ② 锚点在界内、组尾越界 → 拒绝（只清选区）
+    const bad = clickOps(input({ ...base, pos: sp(9.5, 1) })); // 组尾 10.5 > 10
+    expect(bad).toEqual([{ t: 'setSelection', items: [] }]);
   });
 });
 

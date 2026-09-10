@@ -76,6 +76,8 @@ export interface FinalVirtualCanvasHandle {
    *（原先走 Editor 的 place() 绕过矩阵：不清选区、且能在末端外放置）。
    */
   execPlace?: (tool: MatrixTool) => void;
+  /** issue 73：Ctrl+V —— 光标处粘贴（与粘贴工具单击同源，含整组越末端的拒绝判定） */
+  execPaste?: () => void;
 }
 
 // 视口缩放配置
@@ -407,6 +409,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             slideBuffer: bufferPoint,
             lastBpm: lastBpmRef.current,
             clipboard,
+            chartEndBeat, beatDisplay, // issue 73：粘贴按整组校验谱面末端
         }));
     };
 
@@ -796,6 +799,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             applyOps(clickOps({
                 tool: 'noteCode', notes, hit,
                 pos: null, slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
+                chartEndBeat, beatDisplay,
             }));
         },
         // §3 键型执行键：光标不在画布 / 越过谱面末端 → 无事发生（不落子、也不清选区）
@@ -808,6 +812,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 tool, notes, hit: null,
                 pos: { beat: cursor.beat, lane: cursor.lane },
                 slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
+                chartEndBeat, beatDisplay,
+            }));
+        },
+        // issue 73：Ctrl+V 执行键 —— 与「粘贴」工具单击共用 clickOps 的 paste 行，
+        // 故"整组越出谱面末端 = 拒绝整组"的判定与鼠标路径同源（原先走 Editor 的 paste() 绕过了矩阵）
+        execPaste: () => {
+            const cursor = cursorChartPos();
+            if (!canPlaceAtCursor(cursor, chartEndBeat)) return;
+            applyOps(clickOps({
+                tool: 'paste', notes, hit: null,
+                pos: { beat: cursor.beat, lane: cursor.lane },
+                slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
+                chartEndBeat, beatDisplay,
             }));
         },
     }));
