@@ -15,7 +15,8 @@ export interface PlaybackContextValue {
   setDuration: (v: number) => void;
   volume: number;
   setVolume: (v: number) => void;
-  hasMarker: boolean;
+  // 注：`hasMarker` 派生字段已删（2026-09-10，issue 70 切片 9）—— 全仓无人消费，
+  // 需要判空直接用 `markerBeat !== null`，不必多一份派生 state。
   markerBeat: number | null;
   setMarker: (beat: number | null) => void;
 }
@@ -40,7 +41,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     currentSeconds, setCurrentSeconds,
     duration, setDuration,
     volume, setVolume,
-    hasMarker: markerBeat !== null,
     markerBeat,
     setMarker,
   };

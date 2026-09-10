@@ -157,11 +157,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         virtualHeight: 0, // 初始 0，由 chartEndVirtualY 驱动
     });
 
-    // 缩放双入口联动（issue 10 回归修复）：工具栏 ±0.1 / 设置面板改 ui.scale 时同步画布视口；
-    // ctrl+滚轮路径在 handleWheel 里反向回写 ui.scale（那里已比较生效值，此处不会形成循环）。
-    useEffect(() => {
-        setViewport(prev => Math.abs(prev.scale - scale) > 1e-6 ? { ...prev, scale } : prev);
-    }, [scale]);
+    // 候选 3-b：**原有一条 `useEffect([scale])` 已删除** —— 它把未钳制的 `ui.scale` 原样写进
+    // viewport.scale，而下面那条 effect 紧接着用 effectiveScale 覆盖它，结果从没机会生效（死通道）。
+    // 缩放双入口联动由下方 `[scale, geometry]` 的 effect 一处承担（工具栏 ±0.1 / 设置面板改值）。
 
     const [slideBuffer, setSlideBuffer] = useState<{ beat: number; lane: number; subBeat?: number } | null>(null);
     // 皮肤图片就绪信号：懒加载图片异步到达后 +1，触发一次重绘（否则连接带等未预热的素材会一直空白）
@@ -892,11 +890,15 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 对象，即使 effectiveScale 值未变也会多出一次渲染 + rAF 重排（resize 结算链双渲染的来源之一）。
     // 值未变时返回 prev，与上方 [scale] effect 的守卫同款。
     useEffect(() => {
-        setViewport(prev => {
-            const next = geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)));
-            return Math.abs(prev.scale - next) > 1e-9 ? { ...prev, scale: next } : prev;
-        });
-    }, [scale, geometry]);
+        const effective = geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)));
+        setViewport(prev => (Math.abs(prev.scale - effective) > 1e-9 ? { ...prev, scale: effective } : prev));
+        // 候选 3-b（2026-09-10）：`ui.scale` 是"用户请求值"，被钳制时它就与生效值分家 ——
+        // 工具栏数字虚高（显示 300%、画面停在 263%），且点「-」要先把虚高的那截消耗掉画面才动
+        // （死行程，用户已复现）。此处把生效值回写，使两者恒等 —— `:743` 的 ctrl+滚轮路径
+        // 早就这么做，工具栏按钮路径此前漏了。
+        // 幂等守卫：仅在不等时写，否则会与上面的 setViewport 形成回环。
+        if (Math.abs(effective - scale) > 1e-9) setScale(effective);
+    }, [scale, geometry, setScale]);
 
     // 通知滚动变化
     useEffect(() => {

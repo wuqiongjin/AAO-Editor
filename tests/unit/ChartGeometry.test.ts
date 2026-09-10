@@ -148,6 +148,25 @@ describe('effectiveScale 缩放钳制（ADR-0006 Q4=A）', () => {
     expect(trackBgWidth).toBeCloseTo(LANES * LANE_WIDTH * es, 6);
   });
 
+  // 候选 3-b 的**前提**：请求值（工具栏「+」的上限 3.0）可以超过 fitWidth，此时
+  // effectiveScale 把它压到 fitWidth —— 「ui.scale（请求值）≠ 生效值」这个分歧就由此而来。
+  // 末条幂等断言尤为关键：它保证画布把生效值回写进 ui.scale 后不会来回振荡。
+  it('请求值超过 fitWidth 时被压低，且与生效值不相等（候选 3-b 分歧的前提）', () => {
+    const g = new ChartGeometry(bpm120, 8, { w: 500, h: 900 }); // fitWidth ≈ 2.19 < 3
+    const requested = 3; // 与 FinalVirtualCanvas 的 MAX_SCALE / 工具栏「+」上限一致
+    const es = g.effectiveScale(requested);
+    expect(es).toBeCloseTo(500 / (LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL), 6);
+    expect(es).toBeLessThan(requested);
+  });
+
+  it('幂等：把生效值再喂回 effectiveScale 不变（回写不振荡的保证）', () => {
+    const g = new ChartGeometry(bpm120, 8, { w: 500, h: 900 });
+    const es = g.effectiveScale(3);
+    expect(g.effectiveScale(es)).toBeCloseTo(es, 12);
+    // 连喂多次仍稳定
+    expect(g.effectiveScale(g.effectiveScale(es))).toBeCloseTo(es, 12);
+  });
+
   it('外框 chrome 随缩放缩放：预留与边条绘制一致（issue 51 修订，沟槽文字距离恒定的前提）', () => {
     const g = new ChartGeometry(bpm120, 8, surface());
     for (const es of [0.5, 1, 2.5]) {
