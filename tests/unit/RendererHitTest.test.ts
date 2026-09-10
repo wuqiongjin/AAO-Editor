@@ -295,3 +295,89 @@ describe('方向滑键整组命中（issue 62）', () => {
     expect(findItemAt(p.x, p.y, deps)).toBeNull();
   });
 });
+
+// issue 82：命中盒 = **音符墨迹矩形（36 × 21.6 设计 px）+ 2px 余量**，取代旧的
+// 「图标半宽 18 + 4 = 半径 22 的圆」—— 旧口径纵向判定是墨迹半高(10.8) 的 2 倍，
+// 离音符很远就亮起 hover。scale=1 / noteSize=1 下：半宽 20、半高 12.8。
+describe('hover 命中盒 = 墨迹矩形 + 2px 余量（issue 82）', () => {
+  const singleAt = (lane: number, beat: number): ChartNote[] =>
+    [{ type: 'Single', lane, beat }];
+
+  it('纵向：墨迹外一点即不命中（修复前半径 22 会命中）', () => {
+    const notes = singleAt(3, 50);
+    const { deps, canvas } = makeDeps(notes);
+    const p = canvas(3, 50);
+    expect(findItemAt(p.x, p.y - 12, deps)).toEqual({ kind: 'note', noteIndex: 0 }); // 半高 12.8 内
+    expect(findItemAt(p.x, p.y + 12, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+    expect(findItemAt(p.x, p.y - 13, deps)).toBeNull(); // 修复前（半径 22）会命中
+    expect(findItemAt(p.x, p.y + 13, deps)).toBeNull();
+    expect(findItemAt(p.x, p.y - 21, deps)).toBeNull(); // 旧口径边界内 → 明确不再命中
+  });
+
+  it('横向：半宽 20 内命中、外不命中', () => {
+    const notes = singleAt(3, 50);
+    const { deps, canvas } = makeDeps(notes);
+    const p = canvas(3, 50);
+    expect(findItemAt(p.x + 19, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+    expect(findItemAt(p.x - 19, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+    expect(findItemAt(p.x + 21, p.y, deps)).toBeNull(); // 修复前（半径 22）会命中
+  });
+
+  it('墨迹矩形角内命中、角外不命中（矩形判定，非圆）', () => {
+    const notes = singleAt(3, 50);
+    const { deps, canvas } = makeDeps(notes);
+    const p = canvas(3, 50);
+    expect(findItemAt(p.x + 19, p.y + 12, deps)).toEqual({ kind: 'note', noteIndex: 0 }); // 角内
+    expect(findItemAt(p.x + 21, p.y + 12, deps)).toBeNull();                              // 横向出界
+    expect(findItemAt(p.x + 19, p.y + 13, deps)).toBeNull();                              // 纵向出界
+  });
+
+  it('命中盒随 noteSize 缩放（0.5 档：半高 7.4）', () => {
+    const notes = singleAt(3, 50);
+    const { deps, canvas } = makeDeps(notes);
+    const p = canvas(3, 50);
+    const small = { ...deps, noteSize: 0.5 };
+    expect(findItemAt(p.x, p.y - 7, small)).toEqual({ kind: 'note', noteIndex: 0 });
+    expect(findItemAt(p.x, p.y - 8, small)).toBeNull();
+    // 与渲染同比例：缩小后**纵向**判定同步收紧（旧口径恒 22，与 noteSize 脱钩）
+    expect(findItemAt(p.x, p.y - 20, small)).toBeNull();
+  });
+
+  it('滑条结点同样用墨迹盒（纵向收紧；取远离连接带的一侧量）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [{ beat: 40, lane: 3 }, { beat: 44, lane: 3 }],
+    }];
+    const { deps, canvas } = makeDeps(notes);
+    const head = canvas(3, 40);
+    const tail = canvas(3, 44);
+    const away = head.y < tail.y ? -1 : 1; // 连接带在另一侧，往这边量才只判结点
+    expect(findItemAt(head.x, head.y, deps)).toEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 0 });
+    expect(findItemAt(head.x, head.y + away * 12, deps)).toEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 0 });
+    expect(findItemAt(head.x, head.y + away * 13, deps)).toBeNull();
+    // 横向：半宽 20 内是结点，21 起既不是结点（连接带半宽只有 15）→ null
+    expect(findItemAt(head.x + 19, head.y, deps)).toEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 0 });
+    expect(findItemAt(head.x + 21, head.y, deps)).toBeNull();
+  });
+
+  it('滑条段（连接带）判定不变：段中部仍命中 slideRegion', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [{ beat: 40, lane: 3 }, { beat: 44, lane: 3 }],
+    }];
+    const { deps, canvas } = makeDeps(notes);
+    const mid = canvas(3, 42);
+    expect(findItemAt(mid.x, mid.y, deps)).toEqual({ kind: 'slideRegion', noteIndex: 0, connIndex: 0 });
+  });
+
+  it('issue 62 回归：方向键整组（length=3）三格仍各自命中', () => {
+    const notes: ChartNote[] = [
+      { type: 'RDirectional', beat: 50, lane: 2, subBeat: 0, length: 3 } as ChartNote,
+    ];
+    const { deps, canvas } = makeDeps(notes);
+    for (const lane of [2, 3, 4]) {
+      const p = canvas(lane, 50);
+      expect(findItemAt(p.x, p.y, deps)).toEqual({ kind: 'note', noteIndex: 0 });
+    }
+  });
+});

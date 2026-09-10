@@ -10,6 +10,33 @@ import type { SelectionBox } from './types';
 // 命中尺寸常量（与 render.ts 的渲染图标尺寸保持一致）
 const NOTE_ICON_SIZE = 36;
 const SLIDE_ICON_SIZE = 36;
+// 音符墨迹高度比例（与 render.ts 的 NOTE_HEIGHT_SCALE / SLIDE_HEIGHT_SCALE 保持一致）
+const NOTE_HEIGHT_SCALE = 0.6;
+const SLIDE_HEIGHT_SCALE = 0.6;
+
+/**
+ * issue 82：命中盒 = **音符墨迹矩形 + 极小余量**（与选中描边那个矩形同形），
+ * 取代旧的「图标半宽(18) + 4」的**圆**判定。
+ *
+ * 旧口径半径恒为 22 设计 px，而音符墨迹是 36 × 21.6（纵向半高仅 10.8）——
+ * **纵向判定范围是墨迹的 2 倍**，于是"离音符很远就亮起 hover"。
+ * 余量取 2 设计 px（随 scale 缩放）：保留一点手感，但不再超过墨迹边界太多。
+ */
+const HIT_PADDING = 2;
+
+/** 键型音符 / 滑条结点的命中盒半宽半高（画布 px） */
+function hitHalfSize(iconSize: number, heightScale: number, noteSize: number, scale: number) {
+  const s = noteSize * scale;
+  return {
+    hw: (iconSize * s) / 2 + HIT_PADDING * scale,
+    hh: (iconSize * heightScale * s) / 2 + HIT_PADDING * scale,
+  };
+}
+
+/** 点是否落在以 (cx0, cy0) 为中心、半宽 hw / 半高 hh 的墨迹矩形内（含边界） */
+function inHitBox(px: number, py: number, cx0: number, cy0: number, hw: number, hh: number): boolean {
+  return Math.abs(px - cx0) <= hw && Math.abs(py - cy0) <= hh;
+}
 
 /** 点在多边形内判定（射线法） */
 export function pointInQuad(px: number, py: number, quad: number[][]): boolean {
@@ -45,8 +72,9 @@ export interface HitTestDeps {
 export function findItemAt(cx: number, cy: number, deps: HitTestDeps): SelectionItem | null {
   const c = makeCoords(deps.geometry, deps.viewport, deps.beatDisplay, deps.notes);
   const ns = deps.noteSize ?? 1;
-  const slideNodeRadius = (SLIDE_ICON_SIZE * ns / 2) * deps.viewport.scale + 4 * deps.viewport.scale;
-  const noteRadius = (NOTE_ICON_SIZE * ns / 2) * deps.viewport.scale + 4 * deps.viewport.scale;
+  // issue 82：命中盒 = 墨迹矩形 + 2px 余量（见 HIT_PADDING 注释），取代旧的圆形半径判定
+  const slideNodeHit = hitHalfSize(SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE, ns, deps.viewport.scale);
+  const noteHit = hitHalfSize(NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE, ns, deps.viewport.scale);
   // 连接带区域与渲染同步 × noteSize（render.renderSlideBody 的带宽已含 ns）
   const halfLaneWidth = (LANE_WIDTH * deps.viewport.scale * ns) / 2;
 
@@ -62,8 +90,7 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
         // issue 56 A6/C1：hidden 结点不可命中（不可选中、不可 hover、无描边反馈）
         if (conn.hidden) continue;
         const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
-        const dx = pos.x - cx, dy = pos.y - cy;
-        if (dx * dx + dy * dy <= slideNodeRadius * slideNodeRadius) {
+        if (inHitBox(cx, cy, pos.x, pos.y, slideNodeHit.hw, slideNodeHit.hh)) {
           return { kind: 'slideNode', noteIndex: i, connIndex: ci };
         }
       }
@@ -95,8 +122,7 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
       const cy0 = c.getNoteVirtualY(note.beat, note.subBeat || 0);
       for (const lane of lanes) {
         const pos = c.virtualToCanvas(c.getNoteVirtualX(lane), cy0);
-        const dx = pos.x - cx, dy = pos.y - cy;
-        if (dx * dx + dy * dy <= noteRadius * noteRadius) {
+        if (inHitBox(cx, cy, pos.x, pos.y, noteHit.hw, noteHit.hh)) {
           return { kind: 'note', noteIndex: i };
         }
       }

@@ -19,15 +19,16 @@ import type { DirGroupVisual } from './noteSkin';
 import type { RenderCtx } from './types';
 import type { SpriteIconConfig } from '../ui/CanvasSpriteIcon';
 
-// 音符大小配置（与 hitTest 命中尺寸保持一致）
-export const NOTE_ICON_SIZE = 36;
-export const DIRECTIONAL_ICON_SIZE = 45;
-export const SLIDE_ICON_SIZE = 36;
-
-// 音符高度压缩配置（导出供选中描边 ink 矩形的单测对齐）
-export const NOTE_HEIGHT_SCALE = 0.6;
-export const DIRECTIONAL_HEIGHT_SCALE = 0.33;
-export const SLIDE_HEIGHT_SCALE = 0.6;
+// 音符大小配置 —— **唯一定义在 `./noteMetrics`**（issue 82：与 hitTest 命中尺寸同源，
+// 各写一份必然漂移）；此处 re-export 以兼容既有引用。
+import {
+  NOTE_ICON_SIZE, SLIDE_ICON_SIZE, DIRECTIONAL_ICON_SIZE,
+  NOTE_HEIGHT_SCALE, SLIDE_HEIGHT_SCALE, DIRECTIONAL_HEIGHT_SCALE,
+} from './noteMetrics';
+export {
+  NOTE_ICON_SIZE, SLIDE_ICON_SIZE, DIRECTIONAL_ICON_SIZE,
+  NOTE_HEIGHT_SCALE, SLIDE_HEIGHT_SCALE, DIRECTIONAL_HEIGHT_SCALE,
+};
 
 /** 选中状态判定辅助（ADR-0001 §6：整条/结点/区域）。一次构建 Set/Map，密集音符下避免每音符 O(选择数) 扫描 */
 interface SelectionSets {
@@ -918,7 +919,9 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
     if (rc.selectionBox) {
       drawMirrorGhosts(ctx, c, rc, computeItemsInBox(rc.selectionBox, { geometry: rc.geometry, viewport: rc.viewport, beatDisplay: rc.beatDisplay, notes: rc.notes }));
     } else {
-      const hit = findItemAt(rc.hoverPos.cx, rc.hoverPos.cy, { geometry: rc.geometry, viewport: rc.viewport, beatDisplay: rc.beatDisplay, notes: rc.notes });
+      // noteSize 必须与画布七处命中同口径（issue 82：命中盒随节奏图示大小缩放），
+      // 否则 noteSize≠1 时镜像 hover 幽灵的命中范围与实际绘制不符。
+      const hit = findItemAt(rc.hoverPos.cx, rc.hoverPos.cy, { geometry: rc.geometry, viewport: rc.viewport, beatDisplay: rc.beatDisplay, notes: rc.notes, noteSize: rc.display?.noteSize });
       if (hit) drawMirrorHoverGhost(ctx, c, rc, hit);
     }
   }
