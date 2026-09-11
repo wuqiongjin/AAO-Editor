@@ -577,3 +577,50 @@ describe('右键按住 → hover 转删除红（issue 74）', () => {
     expect(out[0]!.mode).toBe('hover');
   });
 });
+
+// ---------------- issue 89：删除持工具态 → 选区整体转 danger ----------------
+// 用户 2026-09-11：非删除工具下框选后切到删除工具，选中态应**立刻**变成删除 hover 的效果
+// （不必等鼠标悬停）；切回非删除工具恢复浅黄选中。核心 = "删除态这一状态本身"驱动颜色。
+describe('删除持工具态下选区整体转 danger（issue 89）', () => {
+  it('删除态 + 有选区 + 无 hover → 全部 danger（修复前是 selected）', () => {
+    const out = outlinesOf({
+      notes: [single(50), single(51)],
+      select: [{ kind: 'note', noteIndex: 0 }, { kind: 'note', noteIndex: 1 }],
+      armedTool: 'delete',
+    });
+    expect(out).toHaveLength(2);
+    expect(out.every(o => o.mode === 'danger')).toBe(true);
+  });
+
+  it('删除态 + 选区含滑条（结点 + 段）→ 全部 danger', () => {
+    const out = outlinesOf({
+      notes: [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12 }, { lane: 6, beat: 14 }])],
+      select: [{ kind: 'note', noteIndex: 0 }],
+      armedTool: 'delete',
+    });
+    expect(out).toHaveLength(5); // 3 结点 rect + 2 段 quad
+    expect(out.every(o => o.mode === 'danger')).toBe(true);
+  });
+
+  it('切回非删除工具 → 选区回落 selected（回归）', () => {
+    for (const tool of [null, 'single', 'mirror', 'slide', 'bpm', 'paste']) {
+      const out = outlinesOf({
+        notes: [single(50)],
+        select: [{ kind: 'note', noteIndex: 0 }],
+        armedTool: tool,
+      });
+      expect(out).toHaveLength(1);
+      expect(out[0]!.mode, `工具 ${String(tool)} 下应为 selected`).toBe('selected');
+    }
+  });
+
+  it('右键按住 + 有选区 + 无 hover → 仍 selected（只有光标下那一个转 danger，回归 issue 74）', () => {
+    const out = outlinesOf({
+      notes: [single(50)],
+      select: [{ kind: 'note', noteIndex: 0 }],
+      rightButtonHeld: true,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.mode).toBe('selected');
+  });
+});

@@ -259,6 +259,10 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
   // 右键 = 删除该对象，按住期间就该用与"删除工具"同款的 danger 反馈作预览。
   // 与"删除持工具态"是同一形态的两种触发源，故合并成一个开关。
   const dangerTool = rc.armedTool === 'delete' || rc.rightButtonHeld === true;
+  // issue 89：**删除持工具态这一状态本身**就把整个选区变成"待删预告"（切到删除工具即转红，
+  // 不必等鼠标悬停上去）。只认 armedTool 这一源 —— 右键按住（issue 74）只作用光标下那一个对象，
+  // 把整片选区染红是误导，故 `rightButtonHeld` 不参与本项。
+  const deleteToolArmed = rc.armedTool === 'delete';
   const out: SelectionOutline[] = [];
 
   for (const { note, index } of visibleNotes) {
@@ -287,7 +291,10 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
     ) => {
       let prev: SelectionOutlineMode | null = null;
       const push = (m: SelectionOutlineMode) => { if (m === prev) return; prev = m; make(m); };
-      const dangerMode = danger || (dangerTool && inPreviewBox);
+      // issue 89：删除持工具态下，**选区本身**即走 danger —— 形态与"删除 hover"同款
+      // （危险红 + hover 线宽 + hover α，见 renderSelectionOverlay 按 mode 分派），
+      // 于是"切到删除工具"= 立刻看到"点它就删"的预告；切回非删除工具自动回落 selected。
+      const dangerMode = danger || (dangerTool && inPreviewBox) || (deleteToolArmed && inSel);
       if (inSel) push(dangerMode ? 'danger' : 'selected');
       if (isHoverPart) push(dangerMode ? 'danger' : 'hover');
     };
@@ -309,7 +316,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       // 框选 BPM 是真会入选、进而可被删的（issue 67：预览 = "这些会被删"的预告）。
       out.push({
         shape: 'line', x1: trackBgX, y1: y, x2: trackBgX + trackBgWidth, y2: y,
-        mode: whole ? 'selected' : (dangerTool ? 'danger' : 'hover'),
+        // issue 89：删除持工具态下"已入选的整条线"同样是待删预告 → 与其它类型一致走 danger
+        mode: whole && !deleteToolArmed ? 'selected' : (dangerTool ? 'danger' : 'hover'),
       });
       continue;
     }
