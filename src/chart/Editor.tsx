@@ -92,6 +92,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 实时门控：展开/收起侧栏（.ws-panel width 200ms 过渡）或拖拽改宽面板期间，令测量逐帧提交，
   // 使画布缓冲始终贴合容器实时宽度——否则合并器在过渡后半段冻结提交，缓冲被 CSS 拉伸，
   // 轨道出现"瞬间偏宽再回弹"（同一根因也影响拖拽）。窗口 resize 不触发此门控，保留原节流。
+  // 面板宽度只注入**用户值**：视口夹取（防面板吃掉整个视口）已交给 CSS 的 `max-width: vw`
+  //（AppShell.css，issue 87）—— 夹取不再是 JS 计算 + 200ms width 过渡，而是瞬时生效，
+  // 所以这里不再需要在 innerWidth 变化时进实时通道。
   const isDraggingRef = useRef(isDragging);
   isDraggingRef.current = isDragging;
   const panelAnimUntilRef = useRef(0);
@@ -379,8 +382,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       <div
         className={`ws-panel ws-panel-left${leftCollapsed ? ' is-collapsed' : ''}`}
         style={{
-          // expanded 宽度由 JS 注入（用户可拖拽 leftPanelWidth），folded 宽度由 CSS 类管
-          '--ws-left-w': `${Math.min(leftPanelWidth, typeof window !== 'undefined' ? window.innerWidth * 0.3 : 9999)}px`,
+          // expanded 宽度由 JS 注入（用户可拖拽 leftPanelWidth），folded 宽度与视口夹取由 CSS 管
+          '--ws-left-w': `${leftPanelWidth}px`,
         } as React.CSSProperties}
       >
         <div className="ws-panel__body">
@@ -487,7 +490,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       <div
         className={`ws-panel ws-panel-right${rightCollapsed ? ' is-collapsed' : ''}`}
         style={{
-          '--ws-right-w': `${Math.min(rightPanelWidth, typeof window !== 'undefined' ? window.innerWidth * 0.24 : 9999)}px`,
+          '--ws-right-w': `${rightPanelWidth}px`,
         } as React.CSSProperties}
       >
         <div className="ws-panel__toggle">

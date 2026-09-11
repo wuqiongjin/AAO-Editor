@@ -2318,8 +2318,19 @@ button.skin-pill {
 }
 
 /* ---- 左侧工具栏面板 ---- */
+/*
+ * issue 87（2026-09-11 实测定位）：视口夹取改用 **max-width（vw）**，不再用 JS 的
+ * `min(用户宽度, innerWidth × 0.30)`。原因：上面 `transition: width 200ms` 会把**任何** width 变化
+ * 都拖成 200ms —— 浏览器缩放（Ctrl +/-）时夹取项突然生效，面板便"慢慢让出空间"，
+ * 画布先被视口压窄、再随面板让位长回去，用户看到的就是"画布先抢占左右栏区域、再被回弹挤回"。
+ * `max-width` **不在 transition 列表**（过渡只声明了 width）→ 视口驱动的夹取**瞬时生效、与缩放同帧**；
+ * 折叠/展开（改 width）仍照常 200ms 过渡。
+ * 取值与旧 JS 口径一致（左 0.30 / 右 0.24；vw 不含经典滚动条，与 innerWidth 有 ~滚动条宽 的差，
+ * 对"防止面板吃掉整个视口"的目的无影响）。
+ */
 .ws-panel-left {
   width: var(--ws-left-w, 240px);
+  max-width: 30vw;
   border-right: 1px solid var(--border);
 }
 
@@ -2348,6 +2359,7 @@ button.skin-pill {
 /* ---- 右侧信息面板 ---- */
 .ws-panel-right {
   width: var(--ws-right-w, 280px);
+  max-width: 24vw; /* issue 87：同上，视口夹取走 max-width，避免被 width 过渡拖慢 */
   border-left: 1px solid var(--border);
 }
 
