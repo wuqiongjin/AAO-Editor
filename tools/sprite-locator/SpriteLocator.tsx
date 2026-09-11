@@ -29,11 +29,13 @@ import {
  * - 输出 BaseSpriteIcons 注册表条目（issue 40 格式）
  */
 
+// issue 86：legacy 素材目录（./assets/skins/legacy/*）已删；预设改指向**正式皮肤包产物**
+// （scripts/build-note-skins.mjs 生成，与渲染器同源同图，避免为工具再留一份 legacy 副本）
 const SKIN_FILES: Array<{ label: string; url: string }> = [
-  { label: 'RhythmGameSprites.png', url: './assets/skins/legacy/RhythmGameSprites.png' },
-  { label: 'DirectionalFlickSprites.png', url: './assets/skins/legacy/DirectionalFlickSprites.png' },
-  { label: 'longNoteLine.png', url: './assets/skins/legacy/longNoteLine.png' },
-  { label: 'longNoteLine2.png', url: './assets/skins/legacy/longNoteLine2.png' },
+  { label: 'RhythmGameSprites.png', url: './assets/skins/skin00/RhythmGameSprites.png' },
+  { label: 'DirectionalFlickSprites.png', url: './assets/skins/directionalflickskin00/DirectionalFlickSprites.png' },
+  { label: 'longNoteLine.png', url: './assets/skins/skin00/longNoteLine.png' },
+  { label: 'longNoteLine2.png', url: './assets/skins/skin00/longNoteLine2.png' },
 ];
 
 const MIN_ZOOM = 0.05;

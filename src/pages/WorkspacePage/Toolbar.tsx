@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 import {
   Music,
   MousePointer,
@@ -6,13 +6,14 @@ import {
   Scissors,
   Clipboard,
   Trash2,
-  RotateCcw,
+  FlipHorizontal2,
   Undo,
   Redo,
   ChevronLeft,
   FileCode,
 } from "lucide-react";
-import SpriteIcon, { NoteIcons } from '../../ui/SpriteIcon';
+import NoteIconGlyph from '../../chart/rendering/NoteIconGlyph';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../visual/noteSkin';
 import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
 import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
 import type { ArmedTool } from '../../app/providers/UIProvider';
@@ -45,6 +46,12 @@ export default function Toolbar() {
   const ui = useUI();
   const { settings } = useConfig();
   const shortcutConfig = settings.shortcuts;
+  // issue 86：工具栏音符图标直接读当前音符皮肤（六条目）→ 与素材页 / 画布**同一套素材与绘制器**，
+  // 素材页换肤即时联动（旧实现走 src/ui/SpriteIcon.tsx 的 legacy 素材，既糊又不联动）
+  const noteIcons = useMemo(
+    () => buildActiveNoteIcons(normalizeNoteSkinSelection(settings.visual?.noteSkin)),
+    [settings.visual?.noteSkin],
+  );
 
   const {
     selectedItems, clipboard, canUndo, canRedo,
@@ -71,12 +78,12 @@ export default function Toolbar() {
   const tools = [
     { id: "mouse", icon: <MousePointer size={18} />, label: "鼠标" },
     { id: "bpm", icon: <Music size={18} />, label: "BPM" },
-    { id: "single", icon: <SpriteIcon {...NoteIcons.tap} size={18} />, label: "单键" },
-    { id: "flick", icon: <SpriteIcon {...NoteIcons.flick} size={18} />, label: "滑键" },
-    { id: "skill", icon: <SpriteIcon {...NoteIcons.skill} size={18} />, label: "技能" },
-    { id: "ldirectional", icon: <SpriteIcon {...NoteIcons.leftFlick} size={18} />, label: "左滑" },
-    { id: "rdirectional", icon: <SpriteIcon {...NoteIcons.rightFlick} size={18} />, label: "右滑" },
-    { id: "slide", icon: <SpriteIcon {...NoteIcons.slide} size={18} />, label: "滑条" },
+    { id: "single", icon: <NoteIconGlyph icons={noteIcons} item="tap" size={18} />, label: "单键" },
+    { id: "flick", icon: <NoteIconGlyph icons={noteIcons} item="flick" size={18} />, label: "滑键" },
+    { id: "skill", icon: <NoteIconGlyph icons={noteIcons} item="skill" size={18} />, label: "技能" },
+    { id: "ldirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirL" size={18} />, label: "左滑" },
+    { id: "rdirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirR" size={18} />, label: "右滑" },
+    { id: "slide", icon: <NoteIconGlyph icons={noteIcons} item="slide" size={18} />, label: "滑条" },
   ];
   // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）。
   // 动作类持工具态（方案 A，issue 55 三轮：删除/镜像）标签供顶部 pill 显示
@@ -168,7 +175,8 @@ export default function Toolbar() {
             {/* 删除/镜像 = 持工具态入口（方案 A）：单击进态，音符上点谁删/镜谁、框选批量；
                 再点按钮/Esc/切换工具退出。即时执行选区仍走 Delete/Ctrl+T、Ctrl+Q 执行键 */}
             <IconButton icon={<Trash2 size={16} />} label="删除" onClick={() => armOrRelease('delete')} active={armedTool === 'delete'} danger title={tooltipForCategory(toolCategory.delete)} />
-            <IconButton icon={<RotateCcw size={16} />} label="镜像" onClick={() => armOrRelease('mirror')} active={armedTool === 'mirror'} title={tooltipForCategory(toolCategory.mirror)} />
+            {/* issue 86：#2 镜像图标：原 RotateCcw（逆时针旋转 = 重置/撤销语义）→ FlipHorizontal2（左右镜像） */}
+            <IconButton icon={<FlipHorizontal2 size={16} />} label="镜像" onClick={() => armOrRelease('mirror')} active={armedTool === 'mirror'} title={tooltipForCategory(toolCategory.mirror)} />
             <IconButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title={tooltipForCategory(toolCategory.undo)} />
             <IconButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
             {/* issue 59 §2：「音符代码」= 持工具态（与删除/镜像同构），点音符即看其代码、弹窗关闭后态驻留；
