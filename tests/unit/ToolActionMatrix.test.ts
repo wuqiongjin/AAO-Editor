@@ -4,7 +4,8 @@ import { describe, it, expect } from 'vitest';
 import type { ChartNote, SelectionItem, SlideNote } from '../../src/chart/types';
 import {
   pointerClickSelection, clickOps, boxSelectOps, execSlideOps, execBpmOps, actionOnItemOps,
-  type ClickInput, type SnapPos, type SlidePoint,
+  actionOnTargetsOps, resolveActionTargets,
+  type ClickInput, type SnapPos, type SlidePoint, type MatrixTool,
 } from '../../src/chart/editing/ToolActionMatrix';
 
 const single = (beat: number, lane: number): ChartNote =>
@@ -24,7 +25,10 @@ const input = (patch: Partial<ClickInput>): ClickInput => ({
   tool: 'single', notes: [], hit: null, pos: null,
   slideBuffer: null, lastBpm: 120, clipboard: [],
   // 默认"无末端限制"，需要校验末端的用例（issue 73）自行覆盖
-  chartEndBeat: 1e9, beatDisplay: 4, ...patch,
+  chartEndBeat: 1e9, beatDisplay: 4,
+  // issue 88：默认空选区（命中在选区外 = 只作用被点那一个）；整片用例自行覆盖
+  selectedItems: [],
+  ...patch,
 });
 
 // ══════════════════ §2 指针行·单击（pointerClickSelection）══════════════════
@@ -257,6 +261,129 @@ describe('§2 delete/mirror 单击', () => {
   });
   it('执行只看命中不看位置（pos=null 也照常执行）', () => {
     expect(clickOps(input({ tool: 'delete', notes, hit, pos: null }))).not.toEqual([]);
+  });
+});
+
+// ══════════════════ issue 88：命中 ∈ 选区 → 动作作用于整片选区 ══════════════════
+// 用户 2026-09-11：框选一堆音符后切到其它工具（切工具本身不清选区，issue 83），
+// 新工具点中**选区内**的音符时，动作应作用于**整片**；点**选区外**音符仍是"清旧选区 + 只作用被点那一个"。
+// 这是 §2 原则 6「非指针态单击 = 清选区」的新例外：这一击被选区消费 → 不清（清不清由动作自身决定）。
+describe('issue 88 命中 ∈ 选区 → 整片执行', () => {
+  it('resolveActionTargets：命中 ∈ 选区取整片；否则只取命中；无命中取空', () => {
+    expect(resolveActionTargets(noteSel(1)[0], noteSel(0, 1, 2))).toEqual(noteSel(0, 1, 2));
+    expect(resolveActionTargets(noteSel(2)[0], noteSel(0, 1))).toEqual(noteSel(2));
+    expect(resolveActionTargets(null, noteSel(0))).toEqual([]);
+  });
+
+  it('delete：命中 ∈ 选区 → 整片删除 + 清选区', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(clickOps(input({ tool: 'delete', notes, hit: noteSel(0)[0], selectedItems: noteSel(0, 1) })))
+      .toEqual([
+        { t: 'setNotes', notes: [single(3, 3)] },
+        { t: 'setSelection', items: [] },
+      ]);
+  });
+
+  it('mirror：命中 ∈ 选区 → 整片镜像，选区 = 镜像产物', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2)];
+    const ops = clickOps(input({ tool: 'mirror', notes, hit: noteSel(0)[0], selectedItems: noteSel(0, 1) }));
+    expect(ops[0]).toEqual({ t: 'setSelection', items: noteSel(0, 1) });
+    expect((ops[1] as { notes: ChartNote[] }).notes.map(n => (n as { lane: number }).lane)).toEqual([5, 4]);
+  });
+
+  it('命中在选区外 → 维持 issue 83 现状（只作用被点那一个）', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    expect(clickOps(input({ tool: 'delete', notes, hit: noteSel(1)[0], selectedItems: noteSel(0) })))
+      .toEqual([
+        { t: 'setNotes', notes: [single(1, 1), single(3, 3)] },
+        { t: 'setSelection', items: [] },
+      ]);
+  });
+
+  it('右键删除（画布侧同源调用）：命中 ∈ 选区 → 整片删除', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    const hit: SelectionItem = { kind: 'note', noteIndex: 1 };
+    expect(actionOnTargetsOps('delete', notes, resolveActionTargets(hit, noteSel(0, 1))))
+      .toEqual([
+        { t: 'setNotes', notes: [single(3, 3)] },
+        { t: 'setSelection', items: [] },
+      ]);
+  });
+
+  it('键型：命中 ∈ 选区 → 整片批量换型 + 选区 remap 保留（选区外不动）', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2), single(3, 3)];
+    const ops = clickOps(input({ tool: 'flick', notes, hit: noteSel(0)[0], selectedItems: noteSel(0, 2) }));
+    expect(ops).toHaveLength(2);
+    const out = (ops[0] as { notes: ChartNote[] }).notes;
+    expect((out[0] as { flick?: boolean }).flick).toBe(true);
+    expect((out[2] as { flick?: boolean }).flick).toBe(true);
+    expect((out[1] as { flick?: boolean }).flick).toBeUndefined();
+    expect(ops[1]).toEqual({ t: 'setSelection', items: noteSel(0, 2) });
+  });
+
+  it('键型：沿用 ADR-0001 替换规则里的**方向键延长规则**（同型 length+1，到 3 回 1）', () => {
+    const dir = { type: 'LDirectional', beat: 1, lane: 1, subBeat: 0, length: 2 } as ChartNote;
+    const ops = clickOps(input({ tool: 'ldirectional', notes: [dir], hit: noteSel(0)[0], selectedItems: noteSel(0) }));
+    expect(((ops[0] as { notes: ChartNote[] }).notes[0] as { length: number }).length).toBe(3);
+
+    const dir3 = { type: 'LDirectional', beat: 1, lane: 1, subBeat: 0, length: 3 } as ChartNote;
+    const ops3 = clickOps(input({ tool: 'ldirectional', notes: [dir3], hit: noteSel(0)[0], selectedItems: noteSel(0) }));
+    expect(((ops3[0] as { notes: ChartNote[] }).notes[0] as { length: number }).length).toBe(1);
+  });
+
+  it('键型：整片无落点可应用 → 无 op（不动谱面、也不清选区）', () => {
+    const notes: ChartNote[] = [bpm(1, 120)];
+    expect(clickOps(input({ tool: 'single', notes, hit: noteSel(0)[0], selectedItems: noteSel(0), pos: sp(1, 0) })))
+      .toEqual([]);
+  });
+
+  it('slide：命中 ∈ 选区 + 来源 ≥2 → 整片组合 + 清选区 + 清临时锚点', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2)];
+    const ops = clickOps(input({ tool: 'slide', notes, hit: noteSel(0)[0], selectedItems: noteSel(0, 1) }));
+    expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
+    expect(ops[2]).toEqual({ t: 'setSlideBuffer', point: null });
+    const out = (ops[0] as { notes: ChartNote[] }).notes;
+    expect(out[out.length - 1]!.type).toBe('Slide');
+  });
+
+  it('slide：来源 <2 → 不组合，回落两击直放（挂锚点）', () => {
+    const notes: ChartNote[] = [single(1, 1)];
+    expect(clickOps(input({ tool: 'slide', notes, hit: noteSel(0)[0], selectedItems: noteSel(0), pos: sp(1, 1) })))
+      .toEqual([{ t: 'setSlideBuffer', point: pt(1, 1) }, { t: 'setSelection', items: [] }]);
+  });
+
+  it('slide：同拍横向段照常组合（不再被拦下）', () => {
+    const notes: ChartNote[] = [single(1, 1), single(1, 5)]; // 同拍不同 lane = 横向段
+    const viaClick = clickOps(input({
+      tool: 'slide', notes, hit: noteSel(0)[0], selectedItems: noteSel(0, 1), pos: sp(1, 1),
+    }));
+    expect(viaClick).toHaveLength(3);
+    expect((viaClick[0] as { notes: ChartNote[] }).notes.some(n => n.type === 'Slide')).toBe(true);
+    expect(viaClick).toEqual(boxSelectOps('slide', notes, noteSel(0, 1)));
+  });
+
+  it('两个先后顺序恒等（用户 2026-09-11 口径）：先框选再单击选区内音符 ≡ 先切工具再框选', () => {
+    const cases: Array<{ tool: MatrixTool; notes: ChartNote[] }> = [
+      { tool: 'flick', notes: [single(1, 1), single(2, 2), single(3, 3)] },
+      { tool: 'delete', notes: [single(1, 1), single(2, 2), single(3, 3)] },
+      { tool: 'mirror', notes: [single(1, 1), single(2, 2), single(3, 3)] },
+      { tool: 'slide', notes: [single(1, 1), single(1, 5)] }, // 含同拍横向：两序也必须一致
+    ];
+    for (const { tool, notes } of cases) {
+      const sel = noteSel(0, 1);
+      const viaClick = clickOps(input({ tool, notes, hit: noteSel(0)[0], selectedItems: sel, pos: sp(1, 1) }));
+      expect(viaClick, `${tool}：单击路径必须与框选同源`).toEqual(boxSelectOps(tool, notes, sel));
+      expect(viaClick.length, `${tool}：应真的产出 op`).toBeGreaterThan(0);
+    }
+  });
+
+  it('paste：命中 ∈ 选区也照旧作用于**位置**（不参与整片）', () => {
+    const notes: ChartNote[] = [single(1, 1)];
+    const ops = clickOps(input({
+      tool: 'paste', notes, hit: noteSel(0)[0], selectedItems: noteSel(0),
+      pos: sp(4, 3), clipboard: [single(0, 0)],
+    }));
+    expect((ops[0] as { notes: ChartNote[] }).notes).toHaveLength(2);
   });
 });
 

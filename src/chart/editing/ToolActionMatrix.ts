@@ -144,25 +144,35 @@ export interface ClickInput {
   chartEndBeat: number;
   /** 子拍细分（subBeat 的单位分母）；粘贴的末端校验需要它折算真实拍位 */
   beatDisplay: number;
+  /** 当前选区（issue 88）：命中项 ∈ 选区 → 动作作用于整片；否则只作用被点那一个 */
+  selectedItems: SelectionItem[];
 }
 
 /** §2 单击矩阵（工具族行 × 音符/空白列）；指针行不走此函数（指针行在画布侧 selectItemAtPoint） */
 export function clickOps(input: ClickInput): MatrixOp[] {
-  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard, chartEndBeat, beatDisplay } = input;
+  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard, chartEndBeat, beatDisplay, selectedItems } = input;
   // §2 原则 6：**非指针态单击画布 = 新意图 → 清空选区**，与落点是否合法、动作是否生效无关
   // （含"点轨道外/谱面末端外"这种非法落点：动作按 §1 无事发生，但选中态照样取消——
   // 用户点了画布，注意力已经转移；选中态留着只是噪音）。
   // 唯一保留选区的例外见原则 6：镜像/粘贴后 = 本次产物、框选批量后、拖拽后、复制后。
+  // **issue 88 追加例外**：命中项 ∈ 选区时，这一击被选区消费 → 作用于整片，且**不清**选区
+  // （清不清交给动作自身：删除清 / 镜像→选区=产物 / 键型保留 / 组合清）。
   const clearSel: MatrixOp = { t: 'setSelection', items: [] };
+  /** issue 88：命中项 ∈ 选区（`sameSelectionItem` 口径，含滑条结点/区域） */
+  const hitInSelection = hit !== null && selectedItems.some(it => sameSelectionItem(it, hit));
   // issue 56 Q14=A：点击**已有** BPM 线 = 无效果（BPM 的通路 = 完整框选 / 右键删除 / 沟槽数字就地编辑）。
   // 例外（issue 59 定案）：**删除** = 删除该线；**音符代码** = 打开该 BPM 的代码（走下方 noteCode 行，同结果）。
   // 作用域只到**非放置类**工具：键型 / Slide / 粘贴是栅格位放置，BPM 线不拦放置
   //（否则 lane 0 上恰好有 BPM 的拍就永远放不下音符）。
   if (hit && hitIsBpm(notes, hit)) {
-    if (tool === 'delete') return actionOnItemOps('delete', notes, hit);
+    if (tool === 'delete') return actionOnTargetsOps('delete', notes, resolveActionTargets(hit, selectedItems));
     if (tool === 'bpm' || tool === 'mirror') return [clearSel];
   }
   if (isKeyTool(tool)) {
+    // issue 88：命中 ∈ 选区 → **与「先切键型工具、再框选」完全同源** —— 直接复用框选矩阵的键型行
+    //（`batchApplyKeyType` → ADR-0001 替换规则，含滑条结点拆条 / 端点标记覆盖 / 方向键 length+1 到 3 回 1；
+    // 选区按结果 remap 保留）。空 op = 无事发生（不清选区），同样与框选口径一致。
+    if (hitInSelection) return boxSelectOps(tool, notes, selectedItems);
     // 键型放置：音符/空白两列同格 = 栅格位放置（ADR-0001 替换规则由 handleNoteReplacement 内部处置）
     if (!pos) return [clearSel];
     const r = handleNoteReplacement(notes, pos.beat, pos.lane, 0, tool);
@@ -174,6 +184,13 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     return [...bpmPlaceOps(notes, pos.beat, lastBpm), clearSel];
   }
   if (tool === 'slide') {
+    // issue 88（2026-09-11 用户口径修正）：命中 ∈ 选区 → **与「先切 Slide 工具、再框选」完全同源** ——
+    // 直接复用框选矩阵 slide 行的同一入口 `combineOps`（§4 组合，**同拍横向合法**，与框选组合一致）。
+    // 来源 <2 时 `combineOps` 返回空 → 回落到下面的两击直放（可组合就组合，否则当普通单击）。
+    if (hitInSelection) {
+      const ops = combineOps(notes, selectedItems);
+      if (ops.length > 0) return ops;
+    }
     // 非法位置点击 = 取消待连接锚点（issue 57 bug2 语义保留）+ 清选区
     if (!pos) return slideBuffer ? [{ t: 'setSlideBuffer', point: null }, clearSel] : [clearSel];
     const point: SlidePoint = { beat: pos.beat, lane: pos.lane, subBeat: 0 };
@@ -208,11 +225,14 @@ export function clickOps(input: ClickInput): MatrixOp[] {
   }
   if (isActionTool(tool)) {
     // 音符 = 选中并立即执行（Model A，ADR-0002 §3.2）；
+    // issue 88：命中 ∈ 选区 → **与「先切动作工具、再框选」完全同源** —— 复用框选矩阵的删除/镜像行；
+    // 命中在选区外 → 只作用被点那一个（现状）。
     // 空白（轨道内）与轨道**外**（落点非法）**一律清选区**（issue 83，2026-09-11 扩订）：
     // 旧口径只有"落点非法才清"，于是"点轨道内空白"成了双轨 —— 按用户口径，点了画布
     // 注意力就已转移，与动作是否生效、落点是否合法都无关。
     if (!hit) return [clearSel];
-    return actionOnItemOps(tool, notes, hit);
+    if (hitInSelection) return boxSelectOps(tool, notes, selectedItems);
+    return actionOnTargetsOps(tool, notes, [hit]);
   }
   return [];
 }
@@ -267,10 +287,30 @@ export function boxSelectOps(
  * 与「删除工具点音符」是同一语义的两份实现。两类调用方的差异只在于画布侧
  * 是否额外清理悬垂 UI 态（Slide 锚点 / BPM 就地编辑框）——那是 UI 态，不进矩阵。
  */
+/**
+ * issue 88：单击的**目标集合** —— 该工具的"待作用对象"。
+ * 命中项 ∈ 当前选区 → 作用于**整片选区**（用户 2026-09-11 拍板）；否则只作用于被点那一个（issue 83 现状）。
+ *
+ * 这是 §2 原则 6「非指针态单击 = 清选区」的**新例外**：这一击被选区消费 → 不清，
+ * 清不清由动作自身决定（删除清 / 镜像→ 选区 = 镜像产物 / 键型保留 / 组合清）。
+ */
+export function resolveActionTargets(
+  hit: SelectionItem | null,
+  selectedItems: readonly SelectionItem[],
+): SelectionItem[] {
+  if (!hit) return [];
+  return selectedItems.some(it => sameSelectionItem(it, hit)) ? [...selectedItems] : [hit];
+}
+
+/** 动作族作用于一组目标条目（删除 → 清选区；镜像 → 选区 = 镜像产物） */
+export function actionOnTargetsOps(tool: 'delete' | 'mirror', notes: ChartNote[], targets: SelectionItem[]): MatrixOp[] {
+  if (targets.length === 0) return [];
+  if (tool === 'delete') return [{ t: 'setNotes', notes: deleteSelection(notes, targets) }, { t: 'setSelection', items: [] }];
+  return [{ t: 'setSelection', items: targets }, { t: 'setNotes', notes: mirrorSelection(notes, targets) }];
+}
+
 export function actionOnItemOps(tool: 'delete' | 'mirror', notes: ChartNote[], hit: SelectionItem): MatrixOp[] {
-  const sel: SelectionItem[] = [hit];
-  if (tool === 'delete') return [{ t: 'setNotes', notes: deleteSelection(notes, sel) }, { t: 'setSelection', items: [] }];
-  return [{ t: 'setSelection', items: sel }, { t: 'setNotes', notes: mirrorSelection(notes, sel) }];
+  return actionOnTargetsOps(tool, notes, [hit]);
 }
 
 export interface ExecInput {

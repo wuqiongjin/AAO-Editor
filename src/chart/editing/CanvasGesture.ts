@@ -179,6 +179,16 @@ export function resolveReleaseIntent(input: {
     return 'click';
 }
 
+/**
+ * 单击路径需要"命中音符"的工具集合（issue 88 扩订）。
+ * - 动作族 + 音符代码：本来就要命中（空白 = 清选区 / 无效果）；
+ * - 键型 + Slide：新增 —— 命中项 ∈ 选区时要整片执行（批量换型 / 组合），需要先拿到命中项。
+ * BPM / 粘贴不在此列：二者作用于**位置**，与"点中了哪个音符"无关。
+ */
+const NEEDS_HIT: ReadonlySet<MatrixTool> = new Set<MatrixTool>([
+  'single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'slide', 'delete', 'mirror', 'noteCode',
+]);
+
 /** §2 单击矩阵在画布侧的四种去向（语义行仍在 ToolActionMatrix，本表只决定"去问谁"）。 */
 export type ClickPlan =
     /** §5：任何工具态下单击沟槽 BPM 数字 = 就地编辑 */
@@ -216,10 +226,11 @@ export function resolveClickPlan(input: {
         if (input.onMarker) return { kind: 'selectMarker' };
         return { kind: 'selectItem', additive: input.shiftKey, ctrl: input.ctrlKey || input.metaKey };
     }
-    // 动作族（删除/镜像）与「音符代码」才需要音符命中（空白 = 无效果不清选区）；其余行只吃栅格落点。
+    // 动作族（删除/镜像）/「音符代码」需要音符命中（空白 = 无效果不清选区）；其余行只吃栅格落点。
     // 复制/剪切已按 §2.1 退出工具轴（不 arm），故不在其中。
+    // **issue 88 扩订**：键型与 Slide 也要判"命中项 ∈ 选区 → 整片执行"，故同样需要命中。
     const tool = input.armedTool;
-    const needHit = tool === 'delete' || tool === 'mirror' || tool === 'noteCode';
+    const needHit = NEEDS_HIT.has(tool);
     const hit = needHit ? findItemAt(input.cx, input.cy, input.deps) : null;
     // issue 59：BPM 线视觉上横跨轨道、画在音符层之下，而 findItemAt 完全跳过 BPM。
     // 故对**需要对 BPM 表态的四态**补一条整线命中：音符优先（findItemAt 先判），不进 hover。

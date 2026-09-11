@@ -3,7 +3,7 @@ import type { BpmNote, ChartNote } from "../../types";
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { planDragMove, dragDeltaBeat, type DragDelta } from '../../editing/NoteDragging';
 import {
-  clickOps, boxSelectOps, execSlideOps, execBpmOps, pointerClickSelection, actionOnItemOps,
+  clickOps, boxSelectOps, execSlideOps, execBpmOps, pointerClickSelection, actionOnTargetsOps, resolveActionTargets,
   type MatrixOp, type MatrixTool, type SlidePoint, type SnapPos,
 } from '../../editing/ToolActionMatrix';
 import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../../../audio/AudioTiming';
@@ -412,6 +412,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             lastBpm: lastBpmRef.current,
             clipboard,
             chartEndBeat, beatDisplay, // issue 73：粘贴按整组校验谱面末端
+            selectedItems,              // issue 88：命中项 ∈ 选区 → 该工具动作作用于整片选区
         }));
     };
 
@@ -645,10 +646,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // issue 70：删除语义走矩阵（与「删除工具点音符」同一实现），不再直连 deleteSelection。
         // 矩阵已负责"删除后清空选区"（原下标在 splice 后已指向别的音符，§2 原则 6 同族）；
         // 此处只补清指向已消失对象的悬垂 UI 态：待连接锚点（可能正指向被删滑条的端点）与 BPM 就地编辑框。
-        applyOps(actionOnItemOps('delete', notes, hit));
+        // issue 88：命中项 ∈ 选区 → **整片删除**（用户 2026-09-11："框选情况下右键删除是作用于整体的"）；
+        // 点选区外 → 只删那一个（维持现状）。
+        applyOps(actionOnTargetsOps('delete', notes, resolveActionTargets(hit, selectedItems)));
         setSlideBuffer(null);
         setBpmEdit(null);
-    }, [notes, hitDeps, applyOps]);
+    }, [notes, hitDeps, applyOps, selectedItems]);
 
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault(); // 只屏蔽原生菜单；删除在 mouseup 执行（见 rightClickDelete）
@@ -830,7 +833,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             applyOps(clickOps({
                 tool: 'noteCode', notes, hit,
                 pos: null, slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
-                chartEndBeat, beatDisplay,
+                chartEndBeat, beatDisplay, selectedItems,
             }));
         },
         // §3 键型执行键：光标不在画布 / 越过谱面末端 → 无事发生（不落子、也不清选区）
@@ -843,7 +846,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 tool, notes, hit: null,
                 pos: { beat: cursor.beat, lane: cursor.lane },
                 slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
-                chartEndBeat, beatDisplay,
+                chartEndBeat, beatDisplay, selectedItems,
             }));
         },
         // issue 73：Ctrl+V 执行键 —— 与「粘贴」工具单击共用 clickOps 的 paste 行，
@@ -855,7 +858,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 tool: 'paste', notes, hit: null,
                 pos: { beat: cursor.beat, lane: cursor.lane },
                 slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
-                chartEndBeat, beatDisplay,
+                chartEndBeat, beatDisplay, selectedItems,
             }));
         },
     }));

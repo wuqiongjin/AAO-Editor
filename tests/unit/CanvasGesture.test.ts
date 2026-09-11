@@ -347,12 +347,19 @@ describe('resolveClickPlan 单击去向', () => {
     expect(plan({ ctrlKey: true })).toEqual({ kind: 'selectItem', additive: false, ctrl: true });
   });
 
-  it('键型工具：不吃音符命中，只吃栅格落点', () => {
+  it('键型工具：既吃音符命中（issue 88：命中 ∈ 选区 → 整片换型）也吃栅格落点', () => {
     const r = plan({ armedTool: 'flick' });
     expect(r.kind).toBe('runMatrix');
     if (r.kind !== 'runMatrix') return;
-    expect(r.hit).toBeNull();
+    expect(r.hit).toEqual({ kind: 'note', noteIndex: 2 });
     expect(r.pos).not.toBeNull();
+  });
+
+  it('Slide 工具：同样吃音符命中（issue 88：命中 ∈ 选区 → 整片组合）', () => {
+    const r = plan({ armedTool: 'slide' });
+    expect(r.kind).toBe('runMatrix');
+    if (r.kind !== 'runMatrix') return;
+    expect(r.hit).toEqual({ kind: 'note', noteIndex: 2 });
   });
 
   it('删除/镜像工具：命中音符才有效', () => {
@@ -360,6 +367,16 @@ describe('resolveClickPlan 单击去向', () => {
     expect(r.kind).toBe('runMatrix');
     if (r.kind !== 'runMatrix') return;
     expect(r.hit).toEqual({ kind: 'note', noteIndex: 2 });
+  });
+
+  it('BPM / 粘贴：不吃音符命中（作用于位置，issue 88 不扩）', () => {
+    for (const tool of ['bpm', 'paste'] as const) {
+      const r = plan({ armedTool: tool });
+      expect(r.kind).toBe('runMatrix');
+      if (r.kind !== 'runMatrix') continue;
+      expect(r.hit, `${tool} 不该吃音符命中`).toBeNull();
+      expect(r.pos).not.toBeNull();
+    }
   });
 
   it('issue 59：BPM 工具命中 BPM 整线（findItemAt 跳过 BPM，走 findBpmLineAt）', () => {
