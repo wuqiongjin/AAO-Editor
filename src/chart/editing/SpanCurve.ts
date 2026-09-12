@@ -9,9 +9,10 @@
 // 生成语义对标 Bestdori 曲线工具：段两端可见结点之间，按 `f = ceil(拍差 × precision)`
 // 细分，p = 1..f-1 逐个生成 `{ beat: 起始拍 + p/precision, lane: clamp(起 lane + lane 差 × ease(p/f)), hidden: true }`。
 // beat/lane 用十进制小数（Bestdori 同构：官方 SP 谱大量小数 lane）。
-import type { ConnectionNote, SlideNote, LongNote, SpanEasingParam, SlideSpanParams } from '../types';
+import type { ConnectionNote, SlideNote, LongNote, SpanEasingParam, SpanParam, SlideSpanParams } from '../types';
 import { slideSpans, spanOfRegion, type ConnSpan } from './SlideSegments';
-import { easing, type CurvePrecision, type EasingFamily, type EasingType } from './Easing';
+import { easing, type CurvePrecision } from './Easing';
+import { bakeTemplateParam } from './ShapeTemplates';
 
 /** 连接点真实拍位（beat 十进制 + subBeat/beatDisplay 细分；导入谱 subBeat 缺省 → beat 即真值） */
 export function connTrueBeat(conn: { beat: number; subBeat?: number }, beatDisplay: number): number {
@@ -19,6 +20,21 @@ export function connTrueBeat(conn: { beat: number; subBeat?: number }, beatDispl
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+/**
+ * 段参数 → 段内 hidden 采样点（不含两端可见端点）。三来源的统一烘焙入口：
+ * 缓动 = Penner 函数逐细分采样；模板 = 库内点列直接映射；其余（自由段）不走本函数。
+ */
+export function bakeSpanPoints(
+  from: { lane: number },
+  to: { lane: number },
+  fromBeat: number,
+  toBeat: number,
+  param: SpanParam,
+): ConnectionNote[] {
+  if (param.kind === 'template') return bakeTemplateParam(from, to, fromBeat, toBeat, param);
+  return bakeEasingPoints(from, to, fromBeat, toBeat, param);
+}
 
 /**
  * 生成段内 hidden 采样点（**不含**两端可见端点）。
@@ -45,20 +61,17 @@ export function bakeEasingPoints(
   return out;
 }
 
-/** 幽灵/预览用：按当前配置生成"若现在放置"的段连接点（端点 + 烘焙点） */
-export function previewEasedConnections(
+/** 幽灵/预览用：按段参数生成"若现在放置"的段连接点（端点 + 烘焙点）；缓动/模板两形态通吃 */
+export function previewSpanConnections(
   from: { beat: number; lane: number },
   to: { beat: number; lane: number },
-  family: EasingFamily,
-  type: EasingType,
-  precision: CurvePrecision,
+  param: SpanParam,
   beatDisplay: number,
 ): ConnectionNote[] {
   const fromBeat = connTrueBeat(from, beatDisplay);
   const toBeat = connTrueBeat(to, beatDisplay);
   if (!(toBeat > fromBeat)) return [{ ...from }, { ...to }];
-  const param: SpanEasingParam = { kind: 'easing', family, type, precision };
-  return [{ ...from }, ...bakeEasingPoints(from, to, fromBeat, toBeat, param), { ...to }];
+  return [{ ...from }, ...bakeSpanPoints(from, to, fromBeat, toBeat, param), { ...to }];
 }
 
 /** 可见结点计数（hidden 不计） */
@@ -70,7 +83,7 @@ export function countVisibleNodes(conns: ConnectionNote[]): number {
  * 参数自失效护栏（ADR-0009 §1）：可见结点数与创建时不符 → 全部参数视为不存在。
  * 一切"读参数"的路径（重投影/就地编辑/导出判断）都必须经过本函数，不得直读 `slide.spanParams`。
  */
-export function effectiveSpanParams(slide: SlideNote | LongNote): Record<number, SpanEasingParam> {
+export function effectiveSpanParams(slide: SlideNote | LongNote): Record<number, SpanParam> {
   const sp: SlideSpanParams | undefined = slide.spanParams;
   if (!sp) return {};
   if (sp.visibleCount !== countVisibleNodes(slide.connections)) return {};
@@ -83,7 +96,7 @@ export function effectiveSpanParams(slide: SlideNote | LongNote): Record<number,
  */
 export function buildChainedSlide(
   points: { beat: number; lane: number; subBeat?: number }[],
-  params: Record<number, SpanEasingParam>,
+  params: Record<number, SpanParam>,
   beatDisplay: number,
 ): SlideNote {
   const connections: ConnectionNote[] = [];
@@ -96,7 +109,7 @@ export function buildChainedSlide(
         const fromBeat = connTrueBeat(prev, beatDisplay);
         const toBeat = connTrueBeat(pt, beatDisplay);
         if (toBeat > fromBeat) {
-          connections.push(...bakeEasingPoints(prev, pt, fromBeat, toBeat, param));
+          connections.push(...bakeSpanPoints(prev, pt, fromBeat, toBeat, param));
         }
       }
     }
@@ -132,7 +145,7 @@ export function buildPenSlide(
 export function regenerateSpan(
   slide: SlideNote | LongNote,
   spanOrdinal: number,
-  param: SpanEasingParam,
+  param: SpanParam,
   beatDisplay: number,
 ): SlideNote | LongNote {
   const conns = slide.connections;
@@ -142,7 +155,7 @@ export function regenerateSpan(
   const to = conns[sp.end]!;
   const fromBeat = connTrueBeat(from, beatDisplay);
   const toBeat = connTrueBeat(to, beatDisplay);
-  const baked = toBeat > fromBeat ? bakeEasingPoints(from, to, fromBeat, toBeat, param) : [];
+  const baked = toBeat > fromBeat ? bakeSpanPoints(from, to, fromBeat, toBeat, param) : [];
   const connections = [...conns.slice(0, sp.start + 1), ...baked, ...conns.slice(sp.end)];
   const bySpan = { ...effectiveSpanParams(slide), [spanOrdinal]: param };
   return {

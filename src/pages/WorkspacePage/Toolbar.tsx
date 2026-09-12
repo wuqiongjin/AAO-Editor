@@ -16,6 +16,7 @@ import {
 import NoteIconGlyph from '../../chart/rendering/NoteIconGlyph';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../visual/noteSkin';
 import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
+import { SHAPE_TEMPLATES } from '../../chart/editing/ShapeTemplates';
 import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
 import type { ArmedTool } from '../../app/providers/UIProvider';
 import IconButton from '../../ui/IconButton';
@@ -66,6 +67,12 @@ const CURVE_PRECISION_OPTIONS = [
   { value: 32, label: "1/32" },
   { value: 64, label: "1/64" },
 ] as const;
+
+// issue 09 S4：形状模板预设（ADR-0009 §2 三来源之三；缓动弧线预设走缓动路径不入本表）
+const CURVE_TEMPLATE_OPTIONS = [
+  { value: "", label: "不用模板（缓动函数）" },
+  ...SHAPE_TEMPLATES.map((tp) => ({ value: tp.id, label: tp.label })),
+];
 
 export default function Toolbar() {
   const editing = useEditing();
@@ -185,12 +192,24 @@ export default function Toolbar() {
           </select>
         </div>
 
-        {/* issue 09 S2：曲线工具配置（仅曲线持工具态时出现；ADR-0008 §5 沿用上次值模式） */}
+        {/* issue 09 S2：曲线工具配置（仅曲线持工具态时出现；ADR-0008 §5 沿用上次值模式）。
+            S4：模板优先——选了模板后缓动族/型/精度被忽略（模板点列即采样） */}
         {armedTool === "curve" && (
           <div>
             <SectionHeader>曲线配置</SectionHeader>
             <select
+              value={curveConfig.templateId ?? ""}
+              onChange={(e) => setCurveConfig({ ...curveConfig, templateId: e.target.value || null })}
+              className="toolbar__beat-select"
+              title="形状模板（内置相对形状库）"
+            >
+              {CURVE_TEMPLATE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <select
               value={curveConfig.family}
+              disabled={curveConfig.templateId != null}
               onChange={(e) => setCurveConfig({ ...curveConfig, family: e.target.value as typeof curveConfig.family })}
               className="toolbar__beat-select"
               title="缓动族（对标 Bestdori 曲线工具 10 族）"
@@ -201,6 +220,7 @@ export default function Toolbar() {
             </select>
             <select
               value={curveConfig.type}
+              disabled={curveConfig.templateId != null}
               onChange={(e) => setCurveConfig({ ...curveConfig, type: e.target.value as typeof curveConfig.type })}
               className="toolbar__beat-select"
               title="缓动型"
@@ -211,6 +231,7 @@ export default function Toolbar() {
             </select>
             <select
               value={curveConfig.precision}
+              disabled={curveConfig.templateId != null}
               onChange={(e) => setCurveConfig({ ...curveConfig, precision: Number(e.target.value) as typeof curveConfig.precision })}
               className="toolbar__beat-select"
               title="采样精度（每拍 hidden 采样密度）"
@@ -219,7 +240,7 @@ export default function Toolbar() {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
-            <p className="toolbar__hint">两击放缓动段（链式）；空白拖动 = 画笔；点已有段 = 应用当前缓动</p>
+            <p className="toolbar__hint">两击放缓动段（链式）；空白拖动 = 画笔；点已有段 = 应用当前曲线</p>
           </div>
         )}
 

@@ -1,6 +1,6 @@
 export type NoteType = "Single" | "LDirectional" | "RDirectional" | "Slide" | "Long" | "BPM" | "System";
 
-// SP 段参数（issue 09 / ADR-0009 §1：参数随行，hidden 采样点是唯一真相）。
+// SP 段参数（issue 09 / ADR-0009 §1-§2：参数随行，hidden 采样点是唯一真相）。
 // 只存在于内部模型：谱面代码（convertSlideNote）不写、Bestdori 导入没有——
 // 谱面工程持久化存 ChartNote[]，本字段随之 JSON 往返自动保存。
 export interface SpanEasingParam {
@@ -10,6 +10,15 @@ export interface SpanEasingParam {
   precision: import('./editing/Easing').CurvePrecision;
 }
 
+/** 段参数·模板形态（issue 09 S4 / ADR-0009 §2 三来源）：记录模板 id，重生成时按库内点列重烘焙 */
+export interface SpanTemplateParam {
+  kind: 'template';
+  templateId: string;
+}
+
+/** 段参数 = 三来源中"有解析参数"的两形态；自由段 = 参数缺席（点集即形态） */
+export type SpanParam = SpanEasingParam | SpanTemplateParam;
+
 /**
  * 段参数表：按**可见结点序数**键（span k = 第 k 与 k+1 个可见结点之间，hidden 不分界）。
  * `visibleCount` = 创建/重投影时的可见结点数——**自失效护栏**：任何改动可见结点序列的操作
@@ -18,7 +27,7 @@ export interface SpanEasingParam {
  */
 export interface SlideSpanParams {
   visibleCount: number;
-  bySpan: Record<number, SpanEasingParam>;
+  bySpan: Record<number, SpanParam>;
 }
 
 export interface BaseNote {

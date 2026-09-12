@@ -11,6 +11,7 @@ import {
   type CurveConfig, type CurveDraft,
 } from '../../src/chart/editing/ToolActionMatrix';
 import { effectiveSpanParams, countVisibleNodes } from '../../src/chart/editing/SpanCurve';
+import { shapeTemplateById } from '../../src/chart/editing/ShapeTemplates';
 import { combineSelectionIntoSlide } from '../../src/chart/editing/SlideCombination';
 
 const CFG: CurveConfig = { family: 'quad', type: 'in', precision: 16 };
@@ -193,5 +194,35 @@ describe('issue 09 · curveChainClickOps 边界', () => {
     const slide = setNotes.notes[1] as SlideNote;
     expect(slide.connections.filter((c) => c.hidden)).toHaveLength(0);
     expect(slide.connections).toHaveLength(2);
+  });
+});
+
+describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
+  const TPL: CurveConfig = { family: 'sine', type: 'inOut', precision: 16, templateId: 's-curve' };
+
+  it('第二击落子 = 按模板点列烘焙，参数记 SpanTemplateParam（缓动字段被忽略）', () => {
+    const afterFirst = input({ pos: { beat: 1, lane: 2 }, curveConfig: TPL });
+    const draft = (afterFirst[0] as Extract<typeof afterFirst[0], { t: 'setCurveBuffer' }>).draft!;
+    const ops = input({ notes: [bpmAt0], pos: { beat: 3, lane: 2 }, curveDraft: draft, curveConfig: TPL });
+    const setNotes = ops.find((o) => o.t === 'setNotes') as { t: 'setNotes'; notes: ChartNote[] };
+    const slide = setNotes.notes[1] as SlideNote;
+    const hiddens = slide.connections.filter((c) => c.hidden);
+    expect(hiddens.length).toBe(shapeTemplateById('s-curve')!.points.length);
+    // S 形：off 过零两处（t=0.5 处 lane 回到弦上）；两端 off=0
+    expect(effectiveSpanParams(slide)[0]).toEqual({ kind: 'template', templateId: 's-curve' });
+  });
+
+  it('点已有段 = 应用当前模板（与缓动同一条重应用路径）', () => {
+    const target: SlideNote = { type: 'Slide', connections: [{ beat: 1, lane: 0 }, { beat: 3, lane: 0 }] };
+    const ops = input({
+      notes: [bpmAt0, target],
+      hit: { kind: 'slideRegion', noteIndex: 1, connIndex: 0 },
+      pos: { beat: 9, lane: 0 },
+      curveConfig: TPL,
+    });
+    const setNotes = ops[0] as { t: 'setNotes'; notes: ChartNote[] };
+    const edited = setNotes.notes[1] as SlideNote;
+    expect(effectiveSpanParams(edited)[0]).toEqual({ kind: 'template', templateId: 's-curve' });
+    expect(edited.connections.filter((c) => c.hidden).length).toBe(shapeTemplateById('s-curve')!.points.length);
   });
 });

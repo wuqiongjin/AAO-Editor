@@ -10,7 +10,8 @@ import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
 import { slideSpans, isSpRegion } from '../chart/editing/SlideSegments';
-import { previewEasedConnections } from '../chart/editing/SpanCurve';
+import { previewSpanConnections } from '../chart/editing/SpanCurve';
+import { spanParamFromCurveConfig } from '../chart/editing/ToolActionMatrix';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
@@ -942,10 +943,11 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
       const anchorBeat = anchor.beat + (anchor.subBeat || 0) / rc.beatDisplay;
       const cursorBeat = pos.preciseBeat;
       if (cursorBeat > anchorBeat + 1e-6) {
-        const conns = previewEasedConnections(
+        const conns = previewSpanConnections(
           { beat: anchorBeat, lane: anchor.lane },
           { beat: cursorBeat, lane: pos.lane },
-          cfg.family, cfg.type, cfg.precision, rc.beatDisplay,
+          spanParamFromCurveConfig(cfg),
+          rc.beatDisplay,
         );
         renderSlideGhost(ctx, c, rc, { connections: conns });
       }

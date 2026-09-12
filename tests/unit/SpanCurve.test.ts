@@ -2,10 +2,11 @@
 import { describe, it, expect } from 'vitest';
 import type { ConnectionNote, SlideNote } from '../../src/chart/types';
 import {
-  bakeEasingPoints, bendSpan, buildChainedSlide, buildPenSlide, effectiveSpanParams,
+  bakeEasingPoints, bakeSpanPoints, bendSpan, buildChainedSlide, buildPenSlide, effectiveSpanParams,
   regenerateSpan, remapFreeSpanHidden, reprojectSpanParams, connTrueBeat,
 } from '../../src/chart/editing/SpanCurve';
 import { convertNotesToChartCode, convertChartCodeToNotes, validateChartCode } from '../../src/chart/editing/ChartConverter';
+import { shapeTemplateById } from '../../src/chart/editing/ShapeTemplates';
 
 const param = (over: Partial<{ family: 'quad'; type: 'in'; precision: 16 }> = {}) => ({
   kind: 'easing' as const,
@@ -259,5 +260,42 @@ describe('issue 09 S3 · remapFreeSpanHidden（自由段端点跟随重映射）
   it('无 hidden 的段 → 原数组返回', () => {
     const cur: ConnectionNote[] = [{ beat: 1, lane: 0 }, { beat: 2, lane: 4 }];
     expect(remapFreeSpanHidden(cur, cur, { start: 0, end: 1 }, 4)).toBe(cur);
+  });
+});
+
+describe('issue 09 S4 · 形状模板（ADR-0009 §2 三来源之三）', () => {
+  it('bakeSpanPoints 派发：template 参数按库内点列生成 hidden 采样（beat 单调、lane = 弦 + off×2 轨）', () => {
+    const tp = shapeTemplateById('arc')!;
+    const pts = bakeSpanPoints({ lane: 0 }, { lane: 0 }, 1, 3, { kind: 'template', templateId: 'arc' });
+    expect(pts.length).toBe(tp.points.length);
+    expect(pts.every((p) => p.hidden === true)).toBe(true);
+    // 弧顶：t=0.5 → off=1 → lane = 0 + 0×0.5 + 1×2 = 2
+    const mid = pts.find((p) => Math.abs(p.beat - 2) < 1e-9)!;
+    expect(mid.lane).toBeCloseTo(2, 9);
+    // beat 单调
+    for (let i = 1; i < pts.length; i++) expect(pts[i]!.beat).toBeGreaterThan(pts[i - 1]!.beat);
+    void tp;
+  });
+
+  it('模板段 regenerateSpan：换模板 = 替换采样点并记录新 id；未知模板 id 退化为直线（不抛错）', () => {
+    const base: SlideNote = { type: 'Slide', connections: [{ beat: 1, lane: 0 }, { beat: 2, lane: 0 }] };
+    const once = regenerateSpan(base, 0, { kind: 'template', templateId: 'wave' }, 4) as SlideNote;
+    expect(once.connections.filter((c) => c.hidden).length).toBe(shapeTemplateById('wave')!.points.length);
+    expect(effectiveSpanParams(once)[0]).toEqual({ kind: 'template', templateId: 'wave' });
+    const twice = regenerateSpan(once, 0, { kind: 'easing', family: 'quad', type: 'in', precision: 16 }, 4) as SlideNote;
+    expect(twice.spanParams?.bySpan[0]).toEqual({ kind: 'easing', family: 'quad', type: 'in', precision: 16 });
+    const bad = regenerateSpan(base, 0, { kind: 'template', templateId: 'ghost-template' }, 4) as SlideNote;
+    expect(bad.connections.filter((c) => c.hidden)).toHaveLength(0);
+  });
+
+  it('模板参数同走 visibleCount 护栏（可见序列改动 → 参数消失、点集保留）', () => {
+    const once = regenerateSpan(
+      { type: 'Slide', connections: [{ beat: 1, lane: 0 }, { beat: 2, lane: 0 }] },
+      0, { kind: 'template', templateId: 's-curve' }, 4,
+    ) as SlideNote;
+    expect(Object.keys(effectiveSpanParams(once))).toEqual(['0']);
+    const tampered: SlideNote = { ...once, connections: once.connections.slice(0, -1) };
+    expect(effectiveSpanParams(tampered)).toEqual({});
+    expect(once.connections.filter((c) => c.hidden).length).toBeGreaterThan(0); // 点集是唯一真相
   });
 });

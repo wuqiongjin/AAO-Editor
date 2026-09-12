@@ -19,8 +19,9 @@ export type ActionToolId = 'delete' | 'paste' | 'mirror' | 'noteCode';
 // issue 09 S2（ADR-0009 §3）：`curve` = 曲线工具（单击链式缓动段 / 拖动画笔自由段 / 点段重应用）
 export type ArmedTool = KeyToolId | 'bpm' | 'slide' | 'curve' | ActionToolId;
 
-/** 曲线工具出厂默认（沿用上次值 = 本 Provider state 天然具备；会话内不持久化到 settings） */
-export const DEFAULT_CURVE_CONFIG: CurveConfig = { family: 'sine', type: 'inOut', precision: 16 };
+/** 曲线工具出厂默认（沿用上次值 = 本 Provider state 天然具备；会话内不持久化到 settings）。
+ *  templateId null = 用缓动函数；非空 = 形状模板优先（ADR-0009 §2） */
+export const DEFAULT_CURVE_CONFIG: CurveConfig = { family: 'sine', type: 'inOut', precision: 16, templateId: null };
 
 export interface UIContextValue {
   armedTool: ArmedTool | null;

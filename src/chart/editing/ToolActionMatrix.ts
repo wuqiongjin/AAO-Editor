@@ -3,7 +3,7 @@
 // 画布（FinalVirtualCanvas）负责几何→命中/落点/框内条目的换算，本模块只吃换算好的输入、
 // 输出副作用指令（op）序列；一次手势 = 一个 setNotes = 一个可回退快照（§8）。
 // 指针行（点选/加选/框选建选区）不在此表——它只操作选区、语义未变，留在画布选择路径。
-import type { ChartNote, SelectionItem, SlideNote, LongNote, SpanEasingParam } from '../types';
+import type { ChartNote, SelectionItem, SlideNote, LongNote, SpanParam } from '../types';
 import {
   handleNoteReplacement, handleSlideToSlideCombination, keyTargetsFromItems,
   batchApplyKeyType, pasteChartNotes,
@@ -32,17 +32,25 @@ export type MatrixTool =
 export interface SlidePoint { beat: number; lane: number; subBeat: number }
 export interface SnapPos { beat: number; lane: number }
 
-/** 曲线工具当前配置（UIProvider 持有、沿用上次值；放置与段重应用共用） */
+/** 曲线工具当前配置（UIProvider 持有、沿用上次值；放置与段重应用共用）。
+ *  `templateId` 非空 = 形状模板优先（ADR-0009 §2 三来源之三），缓动三字段被忽略 */
 export interface CurveConfig {
   family: EasingFamily;
   type: EasingType;
   precision: CurvePrecision;
+  templateId?: string | null;
 }
+
+/** 配置 → 段参数（模板优先；S4 起放置/重应用/预览三路共用，保证"所见即所得"） */
+export const spanParamFromCurveConfig = (config: CurveConfig): SpanParam =>
+  config.templateId
+    ? { kind: 'template', templateId: config.templateId }
+    : { kind: 'easing', family: config.family, type: config.type, precision: config.precision };
 
 /** 曲线工具链式草稿：可见锚点序列 + 各段参数 + 首段落地后的滑条下标（完整性检查用） */
 export interface CurveDraft {
   points: SlidePoint[];
-  params: Record<number, SpanEasingParam>;
+  params: Record<number, SpanParam>;
   /** 首段写入 notes 的下标；null = 尚未落子（第一击前的锚点态） */
   noteIndex: number | null;
 }
@@ -164,7 +172,7 @@ export function curveChainClickOps(
   beatDisplay: number,
   clearSel: MatrixOp = { t: 'setSelection', items: [] },
 ): MatrixOp[] {
-  const param: SpanEasingParam = { kind: 'easing', family: config.family, type: config.type, precision: config.precision };
+  const param = spanParamFromCurveConfig(config);
   let base = draft;
   if (base.noteIndex !== null) {
     const cur = notes[base.noteIndex];
@@ -278,7 +286,7 @@ export function clickOps(input: ClickInput): MatrixOp[] {
       if (target && (target.type === 'Slide' || target.type === 'Long')) {
         const ordinal = ordinalOfRegion((target as SlideNote | LongNote).connections, hit.connIndex);
         if (ordinal >= 0) {
-          const param: SpanEasingParam = { kind: 'easing', ...input.curveConfig };
+          const param = spanParamFromCurveConfig(input.curveConfig);
           const next = regenerateSpan(target as SlideNote | LongNote, ordinal, param, beatDisplay);
           return [{ t: 'setNotes', notes: notes.map((n, i) => (i === hit.noteIndex ? next : n)) }, clearSel];
         }
