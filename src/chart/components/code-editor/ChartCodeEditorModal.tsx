@@ -123,7 +123,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
     // 关闭弹窗：有未应用草稿时确认（丢弃后关闭），否则直接关闭。
     // 同时就是 Esc 的语义 —— 对象视图**不再逐档退**（用户 2026-09-09 定案）：
     // 无论停在完整代码 / 整条音符 / 滑条结点哪一级，Esc 都是直接关弹窗；
-    // 向上看走面包屑（`完整谱面代码 › 所属滑条 › 滑条结点代码`）上的按钮。
+    // 向上看走面包屑（`完整谱面代码 › 所属滑条 › 音符代码`）上的按钮。
     const requestClose = () => {
         if (isDirty && !window.confirm('谱面代码有未应用的更改，关闭将丢弃这些更改，确定关闭？')) {
             return;
@@ -353,10 +353,11 @@ export default function ChartCodeEditorModal({ target }: Props) {
                     backgroundColor: 'var(--bg)',
                 }}>
                         {/* §6 面包屑：自左向右 = 顶层 → 当前（issue 93 起四档：
-                            `完整谱面代码 › 所属滑条 › 子段代码 › 滑条结点代码`，单段滑条无"子段代码"档），
+                            `完整谱面代码 › 所属滑条 › 子段代码 › 音符代码`，单段滑条无"子段代码"档；
+                            issue 95：层名由视图决定、与入口无关 —— 段视图恒「子段代码」、结点视图恒「音符代码」。），
                             **永远显示**（连完整谱面代码视图也有 —— 旧实现那里只有个 <h3> 标题）。
                         issue 69：档位由 **trail**（记住的深层）决定，而不是由当前视图决定 ——
-                        于是从 node 一路点回 chart 后，面包屑仍保留「所属滑条 / 滑条结点代码」两档，
+                        于是从 node 一路点回 chart 后，面包屑仍保留「所属滑条 / 音符代码」两档，
                         用户能再点回去（解决"回不去了"）。
                         · 当前层 = 加粗、不可点（用于"显示出当前在哪个层级"）
                         · 其余档 = 可点，各层间随意切换
@@ -399,18 +400,18 @@ export default function ChartCodeEditorModal({ target }: Props) {
                                 )}
                             </>
                         )}
-                        {/* 第 4 档：trail 是滑条结点时才有 */}
+                        {/* 第 4 档：trail 是滑条结点时才有（issue 95：档名统一为「音符代码」） */}
                         {trail?.connIndex !== undefined && (
                             <>
                                 <span style={crumbSepStyle}>›</span>
                                 {isNodeView ? (
-                                    <span style={crumbCurrentStyle}>滑条结点代码</span>
+                                    <span style={crumbCurrentStyle}>音符代码</span>
                                 ) : (
                                     <button
                                         onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex, connIndex: trail.connIndex })}
-                                        title="滑条结点代码"
+                                        title="音符代码"
                                         style={crumbButtonStyle}
-                                    >滑条结点代码</button>
+                                    >音符代码</button>
                                 )}
                             </>
                         )}

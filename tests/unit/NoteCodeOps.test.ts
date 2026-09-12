@@ -328,6 +328,16 @@ describe('issue 93 · 弹窗结构断言（四档面包屑，防把子段层拆�
     });
 });
 
+describe('issue 95 · 面包屑结点档改名「音符代码」（方案甲按视图定名）', () => {
+    const root = join(__dirname, '../..');
+    const modalSrc = readFileSync(join(root, 'src/chart/components/code-editor/ChartCodeEditorModal.tsx'), 'utf-8');
+
+    test('「滑条结点代码」全面退场；四档口径 = 完整谱面代码 › 所属滑条 › 子段代码 › 音符代码', () => {
+        expect(modalSrc).not.toContain('滑条结点代码');
+        expect(modalSrc).toContain('完整谱面代码 › 所属滑条 › 子段代码 › 音符代码');
+    });
+});
+
 // ══════════════════ issue 94 · 对象视图去除外层 [] ══════════════════
 describe('issue 94 · noteViewCodeToJSON 展示序列化', () => {
     test('单条音符 = 裸对象 JSON（无外层 []，4 空格缩进）', () => {
