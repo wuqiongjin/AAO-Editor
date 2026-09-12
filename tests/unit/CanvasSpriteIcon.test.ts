@@ -2,6 +2,7 @@
 //  根因是旧第二层渲染路径错误；新增的 renderDecorator 走"主精灵已画、补一个挂件"的最小路径）。
 import { describe, it, expect, beforeAll } from 'vitest';
 import CanvasSpriteIcon, { type SpriteIconConfig } from '../../src/ui/CanvasSpriteIcon';
+import { mipLevelFor, mipDims } from '../../src/ui/canvasSpriteMips';
 
 function makeCtx(): { ctx: CanvasRenderingContext2D; drawCalls: Array<{ dx: number; dy: number; dW: number; dH: number; sx: number; sy: number; sw: number; sh: number }> } {
   const drawCalls: Array<{ dx: number; dy: number; dW: number; dH: number; sx: number; sy: number; sw: number; sh: number }> = [];
@@ -64,4 +65,42 @@ describe('CanvasSpriteIcon.renderDecorator（用户 2026-08-25 反馈：flick �
     expect(drawCalls[0].dx).toBe(200);
     expect(drawCalls[0].dy).toBe(155);
   });
+});
+// ══════════ issue 96 · mip 采样策略（画布缩放 <100% 发糊整改） ══════════
+describe('issue 96 · mipLevelFor 采样策略（canvasSpriteMips 纯函数）', () => {
+    it('放大 / 轻微缩小（ratio ≤ 2）= 用原图（级 0）', () => {
+        expect(mipLevelFor(200, 100, 200, 100)).toBe(0); // 1:1
+        expect(mipLevelFor(200, 100, 400, 200)).toBe(0); // 放大
+        expect(mipLevelFor(200, 100, 100, 50)).toBe(0);  // 2× 缩小（单步可接受）
+    });
+
+    it('大幅缩小 → 级位图后再一次 ≤2× 平滑缩放（ratio/2^L ∈ (1, 2]）', () => {
+        expect(mipLevelFor(200, 100, 25, 12.5)).toBe(2);  // ratio 8 → 级 2（8/4=2）
+        expect(mipLevelFor(2048, 1024, 36, 18)).toBe(5);  // ratio ~45.5 → 级 5（45.5/32≈1.42）
+        expect(mipLevelFor(200, 200, 17, 17)).toBe(3);    // ratio ≈11.8 → 级 3（11.8/8≈1.47）
+    });
+
+    it('非法/退化输入 → 级 0（直绘兜底）', () => {
+        expect(mipLevelFor(0, 100, 50, 50)).toBe(0);
+        expect(mipLevelFor(200, 100, 0, 0)).toBe(0);
+    });
+
+    it('mipDims：逐级减半、最小钳 1', () => {
+        expect(mipDims(200, 100, 0)).toEqual({ w: 200, h: 100 });
+        expect(mipDims(200, 100, 1)).toEqual({ w: 100, h: 50 });
+        expect(mipDims(3, 3, 5)).toEqual({ w: 1, h: 1 });
+    });
+});
+
+describe('issue 96 · drawSingle 走 mip 源（node 环境无 DOM canvas → 直绘降级不炸）', () => {
+    it('大幅缩小时 drawImage 仍被调用一次（mip 构建失败 → 原图兜底，目标矩形不变）', () => {
+        const { ctx, drawCalls } = makeCtx();
+        const sprite = new CanvasSpriteIcon();
+        sprite.render(ctx, {
+            src: 'atlas', x: 0, y: 0, w: 200, h: 200,
+            canvasX: 100, canvasY: 100, canvasSize: 36, scale: 0.5, // 目标 18px，ratio ~11 → 本应走 mip
+        });
+        expect(drawCalls).toHaveLength(1);
+        expect(drawCalls[0].dW).toBeCloseTo(18, 6);
+    });
 });

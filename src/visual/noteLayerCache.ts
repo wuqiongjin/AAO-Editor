@@ -12,8 +12,8 @@
 //   X/Y 布局均绕画布中心线性（x(es) = W/2 + es·A），故按 k = es/refScale、以「瓦片渲染时
 //   宽度」为基绕当前画布中心缩放 blit 时 X/Y 仍精确命中（仅分辨率缩放，结算后高清重建）。
 //
-// 缩放手势策略：手势期间（rc.zoomGesture）对 stale 瓦片只做按比例 blit（可能轻微模糊），
-// 手势结束（组件 250ms settle 后触发一次重渲）再以最终 es 高清重建瓦片。
+// 缩放手势策略：手势期间（rc.zoomGesture）stale 瓦片按逐帧时间预算渐进重建
+// （预算内现建、超预算才按比例 blit），250ms settle 后的重渲只兜底残余 —— 全程无"糊→清晰"的整批突替换切。
 import { renderNotes, renderSelectionOverlay } from './render';
 import { makeCoords } from './coords';
 import type { RenderCtx } from './types';
@@ -28,6 +28,9 @@ export const TILE_PX = 512;
 const MAX_CACHE_ES = 1.2;
 /** |es/refScale − 1| 超过该值视为 stale，需要（手势结束后）高清重建 */
 const STALE_TOL = 0.02;
+/** 手势帧的重建时间预算（ms）：预算内把 stale 瓦片逐帧现建（轻谱 1-2 帧内全部转新、无"糊→清晰"跳变），
+ *  超预算退回比例 blit；重谱逐帧锐化、单帧成本有界。 */
+const GESTURE_REBUILD_BUDGET_MS = 4;
 /** 瓦片总内存预算（字节，按 RGBA 4B/px 估算），超出按插入序淘汰。
  *  issue 36：96MB → 64MB（密集谱下瓦片缓存是常驻内存增量的主体；配合瓦片 dpr 上限下调） */
 const BYTES_BUDGET = 64 * 1024 * 1024;
@@ -265,8 +268,8 @@ function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
 /**
  * 绘制音符层入口（renderChart 调用，替代原先的直接 renderNotes）：
  * - es > MAX_CACHE_ES → 直接渲染（高倍下可见音符少）；
- * - 否则走瓦片缓存：miss 的瓦片同步以当前 es 渲染；stale 瓦片在手势期间仅按比例 blit，
- *   手势结束后（zoomGesture=false 的下一帧）高清重建。
+ * - 否则走瓦片缓存：miss 的瓦片同步以当前 es 渲染；stale 瓦片在手势期间按逐帧预算渐进重建
+ *   （超预算的残余先按比例 blit，settle 帧兜底收尾）。
  */
 export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
   const es = rc.viewport.scale;
@@ -318,12 +321,15 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
 
   const { posMin, posMax } = posRangeOf(rc);
   const { lo, hi } = tileIndexRange(posMin, posMax);
-  const allowRebuild = !rc.zoomGesture; // 手势期间不重建 stale 瓦片（只 blit），settle 后重建
+  // 手势帧的渐进重建预算（issue 96，见 GESTURE_REBUILD_BUDGET_MS 注释）；非手势帧不限（at-rest 恒全量重建）
+  const rebuildBudgetUntil = rc.zoomGesture ? performance.now() + GESTURE_REBUILD_BUDGET_MS : Infinity;
 
   let rebuilt = 0, blitted = 0, staleBlit = false;
   for (let id = lo; id <= hi; id++) {
     let t = tiles.get(id);
-    if (!t || (!t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL && allowRebuild)) {
+    const stale = !!t && !t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL;
+    // miss 必须现建（否则该区域空白）；stale 在预算内现建（渐进转新），超预算退回比例 blit
+    if (!t || (stale && performance.now() < rebuildBudgetUntil)) {
       t = renderTile(id, rc, es);
       rebuilt++;
     }

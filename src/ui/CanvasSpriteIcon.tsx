@@ -9,6 +9,8 @@
  * - `inkLeft/inkRight`：方向滑键等精灵框内可见墨迹相对矩形左右边的**源像素缩进**，
  *   供「同时点击连接线」等以墨迹真实边缘定位（消除连接线头与图标间的空隙，issue 40 关联 BUG）。
  */
+import { mipLevelFor, mipDims } from './canvasSpriteMips';
+
 export interface SpriteIconConfig {
     src: string;
     /** 源图内像素矩形 x（左上角） */
@@ -65,6 +67,37 @@ export interface SpriteAnchor {
 export default class CanvasSpriteIcon {
     private static imageCache: Map<string, HTMLImageElement> = new Map();
     private static loadingPromises: Map<string, Promise<HTMLImageElement>> = new Map();
+    /** issue 96：源图逐级减半位图链（[原图, 1/2, 1/4, …]，按需增量构建）。弱键随源图释放，防大图集常驻 */
+    private static mipChains: WeakMap<HTMLImageElement, CanvasImageSource[]> = new WeakMap();
+
+    /**
+     * 取第 L 级减半位图（增量构建：级 i 由级 i−1 再减半得到）。
+     * 任何失败（无 DOM / canvas 不可用 / 绘制异常）→ null，调用方原图直绘兜底（vitest node 环境即走此路）。
+     */
+    private static getMipLevelSource(img: HTMLImageElement, level: number): CanvasImageSource | null {
+        if (level <= 0 || typeof document === 'undefined') return null;
+        try {
+            let chain = CanvasSpriteIcon.mipChains.get(img);
+            if (!chain) { chain = [img]; CanvasSpriteIcon.mipChains.set(img, chain); }
+            for (let i = chain.length; i <= level; i++) {
+                const prev = chain[i - 1];
+                const pw = (prev as { width: number }).width;
+                const ph = (prev as { height: number }).height;
+                const { w, h } = mipDims(pw, ph, 1);
+                const cv = document.createElement('canvas');
+                cv.width = w; cv.height = h;
+                const cctx = cv.getContext('2d');
+                if (!cctx) return null;
+                cctx.imageSmoothingEnabled = true;
+                cctx.imageSmoothingQuality = 'high';
+                cctx.drawImage(prev, 0, 0, pw, ph, 0, 0, w, h);
+                chain.push(cv);
+            }
+            return chain[level] ?? null;
+        } catch {
+            return null;
+        }
+    }
 
     public static ensureImagesLoaded(urls: string[]): Promise<void[]> {
         const ps = urls.map(u => CanvasSpriteIcon.loadImage(u).then(() => undefined));
@@ -133,8 +166,35 @@ export default class CanvasSpriteIcon {
         const dx = Math.round(cfg.canvasX - dW / 2);
         const dy = Math.round(cfg.canvasY - dH / 2);
 
+        // issue 96：大幅缩小先取多级减半位图，把「一步大降采样」拆成「级位图 + ≤2× 平滑缩放」。
+        // 目标尺寸按 ctx 变换折算到设备像素（瓦片 tileDpr / 主画布 dpr 同口径）；
+        // 级位图构建失败（node 测试环境等）→ 原图直绘兜底，目标矩形不变。
+        let source: CanvasImageSource = img;
+        let level = 0;
         try {
-            ctx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, dx, dy, dW, dH);
+            const t = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+            const ctxScale = t ? (Math.hypot(t.a, t.b) || 1) : 1;
+            level = mipLevelFor(rect.sw, rect.sh, dW * ctxScale, dH * ctxScale);
+            if (level > 0) {
+                const mip = CanvasSpriteIcon.getMipLevelSource(img, level);
+                if (mip) source = mip;
+            }
+        } catch { /* getTransform 不可用等 → 原图直绘 */ }
+        // 源矩形按级位图 / 原图的尺寸比例折算，并钳在级位图边界内
+        const mipW = (source as { width: number }).width;
+        const mipH = (source as { height: number }).height;
+        const kx = mipW / img.width;
+        const ky = mipH / img.height;
+        const sxL = Math.max(0, Math.min(mipW, rect.sx * kx));
+        const syL = Math.max(0, Math.min(mipH, rect.sy * ky));
+        const swL = Math.max(1, Math.min(mipW - sxL, rect.sw * kx));
+        const shL = Math.max(1, Math.min(mipH - syL, rect.sh * ky));
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        try {
+            ctx.drawImage(source, sxL, syL, swL, shL, dx, dy, dW, dH);
         } catch (e) {
             console.warn('[CanvasSpriteIcon] drawImage failed', e);
         }
