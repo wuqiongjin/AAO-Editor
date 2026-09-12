@@ -2,7 +2,7 @@
 import { describe, test, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { buildNoteCode, applyNoteCode, noteCodeTargetForHit, type NoteCodeTarget } from '../../src/chart/editing/NoteCodeOps';
+import { buildNoteCode, applyNoteCode, noteCodeTargetForHit, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText, type NoteCodeTarget } from '../../src/chart/editing/NoteCodeOps';
 import type { ChartCodeNote } from '../../src/chart/editing/ChartConverter';
 import type { ChartNote, SlideNote } from '../../src/chart/types';
 
@@ -325,5 +325,99 @@ describe('issue 93 · 弹窗结构断言（四档面包屑，防把子段层拆�
         expect(modalSrc).toContain('子段代码');
         expect(modalSrc).toContain('trail?.span !== undefined');
         expect(modalSrc).toContain('isSegmentView');
+    });
+});
+
+// ══════════════════ issue 94 · 对象视图去除外层 [] ══════════════════
+describe('issue 94 · noteViewCodeToJSON 展示序列化', () => {
+    test('单条音符 = 裸对象 JSON（无外层 []，4 空格缩进）', () => {
+        const text = noteViewCodeToJSON([{ beat: 8, lane: 1, type: 'Single' }]);
+        expect(text.startsWith('{')).toBe(true);
+        expect(text.endsWith('}')).toBe(true);
+        expect(JSON.parse(text)).toEqual({ beat: 8, lane: 1, type: 'Single' });
+    });
+
+    test('Slide 段代码同样裸对象（段内 connections 数组保留，顶层不是数组）', () => {
+        const seg: ChartCodeNote[] = [{ type: 'Slide', connections: [{ beat: 8, lane: 1 }, { beat: 12, lane: 3 }] }];
+        const text = noteViewCodeToJSON(seg);
+        expect(JSON.parse(text)).toEqual(seg[0]);
+        expect(Array.isArray(JSON.parse(text))).toBe(false);
+    });
+
+    test('空数组兜底 → "null" 字符串（string 契约不破，下游 coerce 干净报错）', () => {
+        const text = noteViewCodeToJSON([]);
+        expect(typeof text).toBe('string');
+        const r = coerceNoteViewCode(text);
+        expect(r.ok).toBe(false);
+    });
+});
+
+describe('issue 94 · coerceNoteViewCode 输入容错（裸对象 / 数组都收）', () => {
+    test('裸对象 → 包成恰好 1 条', () => {
+        const r = coerceNoteViewCode('{ "beat": 8, "lane": 1, "type": "Single" }');
+        expect(r.ok).toBe(true);
+        if (r.ok) expect(r.code).toEqual([{ beat: 8, lane: 1, type: 'Single' }]);
+    });
+
+    test('单元素数组 → 原样通过（旧习惯不破）', () => {
+        const r = coerceNoteViewCode('[{ "beat": 8, "lane": 1, "type": "Single" }]');
+        expect(r.ok).toBe(true);
+        if (r.ok) expect(r.code).toEqual([{ beat: 8, lane: 1, type: 'Single' }]);
+    });
+
+    test('多元素数组 → 放行给校验/回写（条数不符由 applyNoteCode 报"恰好 1 条"）', () => {
+        const r = coerceNoteViewCode('[{ "beat": 0, "type": "BPM", "bpm": 120 }, { "beat": 1, "lane": 1, "type": "Single" }]');
+        expect(r.ok).toBe(true);
+        if (r.ok) expect(r.code).toHaveLength(2);
+    });
+
+    test('JSON 语法错误 → 不抛出，定位 noteIndex -1（弹窗当普通校验错误展示）', () => {
+        const r = coerceNoteViewCode('{ "beat": 8, ');
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.errors[0]).toMatchObject({ noteIndex: -1 });
+    });
+
+    test('数字等既非数组也非对象的输入 → 干净报错不抛异常', () => {
+        for (const text of ['42', 'null', '"x"']) {
+            const r = coerceNoteViewCode(text);
+            expect(r.ok).toBe(false);
+            if (!r.ok) expect(r.errors[0].noteIndex).toBe(-1);
+        }
+    });
+});
+
+describe('issue 94 · validateNoteViewCodeText（容错后与完整视图同一套规则）', () => {
+    test('合法裸对象 → 零错误', () => {
+        expect(validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Single" }')).toEqual([]);
+    });
+
+    test('裸对象的脏代码同样被拒（hidden 端点等 §1.2 规则不变）', () => {
+        const errors = validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Slide", "connections": [{ "beat": 8, "lane": 1 }, { "beat": 9, "lane": 2, "hidden": true }] }');
+        expect(errors.length).toBeGreaterThan(0); // 尾结点 hidden：独立 Slide 非法
+    });
+
+    test('语法错误 → 1 条定位错误（不会"零错误"放行）', () => {
+        const errors = validateNoteViewCodeText('{ "beat": 8, ');
+        expect(errors).toHaveLength(1);
+        expect(errors[0].noteIndex).toBe(-1);
+    });
+});
+
+describe('issue 94 · 弹窗接线断言（初值/校验/应用三处都走裸对象口径）', () => {
+    const root = join(__dirname, '../..');
+    const modalSrc = readFileSync(join(root, 'src/chart/components/code-editor/ChartCodeEditorModal.tsx'), 'utf-8');
+
+    test('对象视图初值与刷新走 noteViewCodeToJSON（完整视图仍 chartCodeToJSON）', () => {
+        expect(modalSrc).toContain('noteViewCodeToJSON');
+        expect(modalSrc).not.toContain('chartCodeToJSON(currentViewCode())');
+    });
+
+    test('校验与应用走 coerceNoteViewCode（裸对象可应用，不再经 parseChartCodeFromJSON）', () => {
+        expect(modalSrc).toContain('coerceNoteViewCode');
+        expect(modalSrc).toContain('validateNoteViewCodeText');
+        // 数组口径解析器只允许出现在完整视图分支（对象视图分支用 coerce 后的代码回写）
+        expect(modalSrc.split('parseChartCodeFromJSON(chartCode)')).toHaveLength(2);
+        expect(modalSrc).toContain('applyNoteCode(notes, target, coerced.code)');
+        expect(modalSrc).not.toContain('applyNoteCode(notes, target, parsedCode)');
     });
 });

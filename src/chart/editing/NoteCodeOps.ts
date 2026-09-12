@@ -6,6 +6,8 @@
 //   - 滑条结点（slideNode）       → 独立形态投影 {"beat","lane","type":"Single", hidden?, flick?, skill?}
 //   - 滑条子段（span，无 connIndex）→ 该逻辑段材质化为独立 Slide（含段内 hidden，issue 93）
 //   - slideRegion 命中 → 由 noteCodeTargetForHit 在入口处换算成 span（多段滑条）或回退整条（单段）
+// 展示（issue 94）：对象视图初值 = **裸 JSON 对象**（noteViewCodeToJSON，无外层 `[]`）；
+//   输入容错 coerceNoteViewCode：裸对象 / 数组都收，统一成数组后走既有校验与回写。
 // §5 回写：
 //   - 整条：恰好 1 条 + 合法 + 字段集与 type 匹配 → 替换原 noteIndex（整条 Slide 改写成合法 Single 亦属合法编辑）
 //   - 结点：只接受 type:"Single" → 写回该 connection 的 beat/lane/flick/skill/hidden
@@ -247,6 +249,47 @@ function applySegmentCode(
     const wholeCheck = validateChartCode(convertNotesToChartCode([newNote]));
     if (wholeCheck.errors.length > 0) return { ok: false, errors: liftErrors(wholeCheck.errors, target.noteIndex) };
     return { ok: true, notes: notes.map((n, i) => (i === target.noteIndex ? newNote : n)) };
+}
+
+/**
+ * 对象视图展示形态（issue 94）：单条音符序列化为**裸 JSON 对象**（无外层 `[]`，4 空格缩进与完整视图一致）。
+ * 调用方保证 code 恰好 1 条（`buildNoteCode` 口径：非 1 条返回 null、弹窗已关闭）；
+ * 空数组兜底序列化为 "null"（下游 coerce 会干净报错），绝不让 stringify 返回 undefined 破坏 string 契约。
+ */
+export function noteViewCodeToJSON(code: ChartCodeNote[]): string {
+    return JSON.stringify(code[0] ?? null, null, 4);
+}
+
+/**
+ * 对象视图输入容错（issue 94）：**裸对象 / 数组都接受**（旧习惯不破），统一成数组形态交给既有校验与回写；
+ * 多元素数组原样放行（条数不符由 `applyNoteCode` 的"恰好 1 条"报错）。
+ * 语法错误 / 既非数组也非对象（数字、字符串等）→ { ok:false, errors }，定位 noteIndex -1（代码级，不指向音符）。
+ */
+export function coerceNoteViewCode(
+    text: string,
+): { ok: true; code: ChartCodeNote[] } | { ok: false; errors: ValidationError[] } {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch (error) {
+        return { ok: false, errors: [{ noteIndex: -1, reason: 'JSON格式错误: ' + (error as Error).message }] };
+    }
+    if (Array.isArray(parsed)) return { ok: true, code: parsed as ChartCodeNote[] };
+    if (parsed !== null && typeof parsed === 'object') return { ok: true, code: [parsed as ChartCodeNote] };
+    return {
+        ok: false,
+        errors: [{ noteIndex: -1, reason: '对象视图需要 1 个音符对象', expected: '{"type":"Single", …} 或 [ … ]' }],
+    };
+}
+
+/**
+ * 对象视图文本校验（issue 94）：容错后走与完整代码视图同一套规则（§1.2），错误为视图内局部定位。
+ * 完整视图仍走 `validateChartCodeJSON`（按数组口径）——两口径在此分叉，弹窗按视图择一。
+ */
+export function validateNoteViewCodeText(text: string): ValidationError[] {
+    const coerced = coerceNoteViewCode(text);
+    if (!coerced.ok) return coerced.errors;
+    return validateChartCode(coerced.code).errors;
 }
 
 /**

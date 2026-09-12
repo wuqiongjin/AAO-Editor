@@ -7,6 +7,7 @@
 // issue 59 §2–§6：同一个弹窗组件承载两种视图——
 //   * 完整谱面代码视图（target.kind === 'chart'，永远不看选区）
 //   * 对象视图（target.kind === 'note'：整条音符 / 滑条结点，§4 三种初值）
+//   * issue 94：对象视图展示 = 裸 JSON 对象（无外层 `[]`）；输入容错裸对象/数组（coerceNoteViewCode）
 //   两级面包屑只向上返回（§6），Esc 逐档退：结点 → 滑条 → 完整代码 → 关弹窗。
 // 文本变换逻辑下沉到 editing/CodeEditorOps（纯函数，可单测）。
 import { useEffect, useRef, useState } from "react";
@@ -17,7 +18,7 @@ import {
     formatValidationError, convertChartCodeToNotes, hasBeat0Bpm,
     type ChartCodeNote, type ValidationError,
 } from '../../editing/ChartConverter';
-import { buildNoteCode, applyNoteCode } from '../../editing/NoteCodeOps';
+import { buildNoteCode, applyNoteCode, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText } from '../../editing/NoteCodeOps';
 import { useEditing, usePlayback, useUI } from '../../../app/ProviderTree';
 import { maxNoteEndSeconds, getBpmEvents } from '../../../audio/AudioTiming';
 import {
@@ -84,21 +85,30 @@ export default function ChartCodeEditorModal({ target }: Props) {
             ? convertNotesToChartCode(notes)
             : buildNoteCode(notes, target) ?? [];
 
+    // 当前视图的代码文本初值（issue 94：对象视图 = 裸对象 JSON，无外层 []；完整视图 = 数组）
+    const currentViewText = () => {
+        const code = currentViewCode();
+        return isChartView ? chartCodeToJSON(code) : noteViewCodeToJSON(code);
+    };
+
     // 打开 / 面包屑换档时重建草稿（单向「画布→代码」）。只依赖 target：
     // notes 变化不触发重同步（那是 isStale 的职责，由用户显式「从画布刷新」）。
     useEffect(() => {
         // 对象视图的目标已消失（谱面被改动 / System 无可展示代码）→ 直接关；
         // 完整代码视图允许空谱（`[]` 是合法起点，随后由保底 BPM 逻辑接管）。
         if (target.kind === 'note' && buildNoteCode(notes, target) === null) { close(); return; }
-        resetDraft(chartCodeToJSON(currentViewCode()));
+        resetDraft(currentViewText());
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [target]);
 
     // 验证谱面代码：返回全部错误（空数组 = 合法）。
-    // 走 validateChartCodeJSON 而不是 parseChartCodeFromJSON——后者遇语法错误返回 []，
+    // 完整视图走 validateChartCodeJSON 而不是 parseChartCodeFromJSON——后者遇语法错误返回 []，
     // 空数组"零错误"会让 JSON 语法错误在应用时被误报成"缺少第 0 拍 BPM"。
+    // 对象视图（issue 94）：先容错裸对象/数组（validateNoteViewCodeText），再走同一套规则。
     const validateCode = (code: string): ValidationError[] => {
-        const { errors } = validateChartCodeJSON(code);
+        const { errors } = isChartView
+            ? validateChartCodeJSON(code)
+            : { errors: validateNoteViewCodeText(code) };
         setIsValid(errors.length === 0);
         setValidationErrors(errors);
         return errors;
@@ -157,6 +167,13 @@ export default function ChartCodeEditorModal({ target }: Props) {
         validateCode(newCode);
     };
 
+    // 对象视图回写被拒（coerce/回写校验不过）：错误全留在上方列表，弹 alert 后停在当前视图
+    const rejectNoteApply = (errors: ValidationError[]) => {
+        setIsValid(false);
+        setValidationErrors(errors);
+        alert(`有 ${errors.length} 处错误，未应用（详见上方错误列表）`);
+    };
+
     // 应用谱面代码：经 useEditing.handleNotesChange 走历史记录（单向「代码→画布」）
     const handleApply = () => {
         const errors = validateCode(chartCode);
@@ -169,22 +186,20 @@ export default function ChartCodeEditorModal({ target }: Props) {
         }
 
         try {
-            const parsedCode = parseChartCodeFromJSON(chartCode);
-
             // 对象视图（§5）：整条 = 恰好 1 条 + 合法 + 字段集匹配 → 替换原 noteIndex；
-            //              结点 = 只接受 Single → 写回该 connection
+            //              结点 = 只接受 Single → 写回该 connection。
+            // issue 94：裸对象 / 单元素数组都接受（coerce 统一成数组后走既有回写校验）
             if (target.kind === 'note') {
-                const r = applyNoteCode(notes, target, parsedCode);
-                if (!r.ok) {
-                    setIsValid(false);
-                    setValidationErrors(r.errors);
-                    alert(`有 ${r.errors.length} 处错误，未应用（详见上方错误列表）`);
-                    return;
-                }
+                const coerced = coerceNoteViewCode(chartCode);
+                if (!coerced.ok) { rejectNoteApply(coerced.errors); return; }
+                const r = applyNoteCode(notes, target, coerced.code);
+                if (!r.ok) { rejectNoteApply(r.errors); return; }
                 handleNotesChange(r.notes);
                 close(); // 对象视图是"点谁看谁"，回写即完成
                 return;
             }
+
+            const parsedCode = parseChartCodeFromJSON(chartCode);
 
             // 强制校验：beat0 必须有 BPM 音符（保底语义，ADR-0001 谱面必须有初始 BPM）
             if (!hasBeat0Bpm(parsedCode)) {
@@ -229,7 +244,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
 
     // 用画布刷新代码（丢弃草稿，从当前画布重新生成；单向同步下画布可能已变）
     const handleRefreshFromCanvas = () => {
-        resetDraft(chartCodeToJSON(currentViewCode()));
+        resetDraft(currentViewText());
     };
 
     // 复制到剪贴板
