@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import type { ChartNote, SlideNote } from '../../src/chart/types';
 import { planDragMove } from '../../src/chart/editing/NoteDragging';
 import { deleteSelection, copySelection, mirrorSelection } from '../../src/chart/editing/SelectionEditing';
+import { isSpRegion } from '../../src/chart/editing/SlideSegments';
 import { findNoteIndexAt, handleNoteReplacement } from '../../src/chart/editing/NoteReplacementRules';
 import { convertNotesToChartCode, validateChartCode } from '../../src/chart/editing/ChartConverter';
 
@@ -247,5 +248,69 @@ describe('issue 92 · 删中间结点 → 原位转 hidden（bestdori 口径两�
     const out = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
     const s = out[0] as SlideNote;
     expect(s.connections[1]).toMatchObject({ beat: 2, lane: 2, skill: true, hidden: true });
+  });
+});
+
+describe('issue 09 S1 · SP 段材质判定（ADR-0009 §5：isSpRegion 段级口径）', () => {
+  it('[A,B] 纯直线段：非 SP', () => {
+    const conns = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2 })] as SlideNote[];
+    expect(isSpRegion((conns[0] as SlideNote).connections, 0)).toBe(false);
+  });
+
+  it('[A,H,B] 单 hidden：段内两条边都是 SP（整段同材质）', () => {
+    const conns = (slideOf(
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 2, hidden: true },
+      { beat: 3, lane: 3 },
+    ) as SlideNote).connections;
+    expect(isSpRegion(conns, 0)).toBe(true);
+    expect(isSpRegion(conns, 1)).toBe(true);
+  });
+
+  it('[A,H1,H2,B] 连续 hidden：全部边 SP', () => {
+    const conns = (slideOf(
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 2, hidden: true },
+      { beat: 3, lane: 3, hidden: true },
+      { beat: 4, lane: 4 },
+    ) as SlideNote).connections;
+    expect(isSpRegion(conns, 0)).toBe(true);
+    expect(isSpRegion(conns, 1)).toBe(true);
+    expect(isSpRegion(conns, 2)).toBe(true);
+  });
+
+  it('混合条 [A,H,B,C]：SP 段的边 true，纯直线段的边 false', () => {
+    const conns = (slideOf(
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 2, hidden: true },
+      { beat: 3, lane: 3 },
+      { beat: 4, lane: 4 },
+    ) as SlideNote).connections;
+    expect(isSpRegion(conns, 0)).toBe(true);
+    expect(isSpRegion(conns, 1)).toBe(true);
+    expect(isSpRegion(conns, 2)).toBe(false);
+  });
+
+  it('混合条 [A,B,H,C]：前段 false、后段 true', () => {
+    const conns = (slideOf(
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 2 },
+      { beat: 3, lane: 3, hidden: true },
+      { beat: 4, lane: 4 },
+    ) as SlideNote).connections;
+    expect(isSpRegion(conns, 0)).toBe(false);
+    expect(isSpRegion(conns, 1)).toBe(true);
+    expect(isSpRegion(conns, 2)).toBe(true);
+  });
+
+  it('两段各自含 hidden [A,H,B,H2,C]：全部边 true（各段独立判定）', () => {
+    const conns = (slideOf(
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 2, hidden: true },
+      { beat: 3, lane: 3 },
+      { beat: 4, lane: 4, hidden: true },
+      { beat: 5, lane: 5 },
+    ) as SlideNote).connections;
+    for (let i = 0; i < 4; i++) expect(isSpRegion(conns, i)).toBe(true);
   });
 });

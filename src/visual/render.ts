@@ -9,7 +9,7 @@ import { beatToSeconds, getBpmEvents } from '../audio/AudioTiming';
 import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
-import { slideSpans } from '../chart/editing/SlideSegments';
+import { slideSpans, isSpRegion } from '../chart/editing/SlideSegments';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
@@ -655,7 +655,9 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   const icons = rc.noteIcons;
 
   for (let i = 0; i < connections.length - 1; i++) {
-    renderSegmentBand(ctx, c, rc, connections[i], connections[i + 1], rc.display?.slideOpacity ?? 1);
+    // ADR-0009 §5：SP 材质按**段**判定——段内任一 hidden → 该段全部边用 SP 无缝带
+    const band = isSpRegion(connections, i) ? icons.slideBandSp : icons.slideBand;
+    renderSegmentBand(ctx, c, rc, connections[i], connections[i + 1], band, rc.display?.slideOpacity ?? 1);
   }
 
   connections.forEach((conn, i) => {
@@ -744,6 +746,7 @@ function renderSpriteGhost(ctx: CanvasRenderingContext2D, rc: RenderCtx, icon: S
 
 /**
  * 渲染滑条的**连接带**（不含结点图标）：实绘 `renderSlideBody` 与 issue 65④ 的"段幽灵"共用同一画法。
+ * @param band 连接带材质（普通 `slideBand` / SP 段 `slideBandSp`，ADR-0009 §5 段级判定，由调用方选择）
  * @param alpha 连接带不透明度；`undefined` = 沿用调用方的 `globalAlpha`（幽灵态由此继承 0.35/0.5）
  */
 function renderSegmentBand(
@@ -752,6 +755,7 @@ function renderSegmentBand(
   rc: RenderCtx,
   from: { lane: number; beat: number; subBeat?: number },
   to: { lane: number; beat: number; subBeat?: number },
+  band: SpriteIconConfig,
   alpha?: number,
 ) {
   const p1 = c.virtualToCanvas(c.getNoteVirtualX(from.lane), c.getNoteVirtualY(from.beat, from.subBeat || 0));
@@ -775,7 +779,7 @@ function renderSegmentBand(
   ctx.closePath();
   ctx.clip();
   rc.spriteIcon.render(ctx, {
-    ...rc.noteIcons.slideBand,
+    ...band,
     canvasX: cx, canvasY: cy, canvasSize: sz, canvasWidth: sz, canvasHeight: h, scale: 1,
   });
   ctx.restore();
@@ -786,7 +790,9 @@ function renderSlideGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCt
   const conns = note.connections;
   if (conns.length < 2) return;
   for (let i = 0; i < conns.length - 1; i++) {
-    renderSegmentBand(ctx, c, rc, conns[i], conns[i + 1]);
+    // 与实绘同口径（幽灵 = 实绘同形）：SP 段幽灵也用 SP 带
+    const band = isSpRegion(conns, i) ? rc.noteIcons.slideBandSp : rc.noteIcons.slideBand;
+    renderSegmentBand(ctx, c, rc, conns[i], conns[i + 1], band);
   }
   conns.forEach((conn, i) => {
     if (conn.hidden) return; // 与 renderSlideBody 同口径：重合衔接点不画图标（幽灵 = 实绘同形）
@@ -903,9 +909,11 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
     const bufBeat = buf ? buf.beat + (buf.subBeat || 0) / rc.beatDisplay : 0;
     // 与锚点同拍（含同轨同位与"横向段"）→ 第二击走的是取消/禁令分支，永远不成段 → 不画带子
     if (buf && Math.abs(pos.preciseBeat - bufBeat) > 1e-6) {
+      // 两击预览 = 纯直线段（无 hidden）→ 恒普通带；曲线工具的缓动预览自带动材质（issue 09 S2）
       renderSegmentBand(ctx, c, rc,
         { lane: buf.lane, beat: buf.beat, subBeat: buf.subBeat || 0 },
-        { lane: pos.lane, beat: pos.preciseBeat, subBeat: 0 });
+        { lane: pos.lane, beat: pos.preciseBeat, subBeat: 0 },
+        rc.noteIcons.slideBand);
     }
     // 落点端 = 滑条端点款幽灵（第一击前只有这一枚；第一击后与带子同时出现）
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(pos.lane), c.getNoteVirtualY(pos.preciseBeat, 0));

@@ -255,6 +255,7 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
       const preloaded = new Set(set.preloadSrcs());
       const refs: SpriteIconConfig[] = [
         set.slideBand,
+        set.slideBandSp,
         set.dirFor('L', 3),
         set.dirFor('R', 3),
         ...(set.flickTopDecorator ? [set.flickTopDecorator] : []),
@@ -278,6 +279,20 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
     // 现状钉子：默认组合的清单也含图集与连接带
     expect(icons.preloadSrcs()).toContain(skin00.atlas);
     expect(icons.preloadSrcs()).toContain(skin00.band);
+  });
+
+  it('SP 带（issue 09 S1 / ADR-0009 §5）：slideBandSp = longNoteLine2，与普通带并存且独立入预热清单', () => {
+    // 全部音符皮肤包都带 longNoteLine2（注册表 bandSp 非 null）
+    for (const pack of notePacks) {
+      expect(pack.bandSp, `${pack.id} 缺 bandSp`).not.toBeNull();
+    }
+    expect(icons.slideBandSp.src).toContain('longNoteLine2.png');
+    expect(icons.slideBand.src).toContain('longNoteLine.png');
+    expect(icons.slideBandSp.src).not.toBe(icons.slideBand.src);
+    expect(icons.preloadSrcs()).toContain(skin00.bandSp!);
+    // 矩形沿用注册表整图尺寸
+    expect(icons.slideBandSp.w).toBe(skin00.bandSpW);
+    expect(icons.slideBandSp.h).toBe(skin00.bandSpH);
   });
 
   it('跨包组合：tap 用 A 包、slide 用 A 包、dirL/dirR 用方向包（条目独立）', () => {

@@ -123,6 +123,8 @@ export interface ActiveNoteIcons {
   dirInk(type: 'L' | 'R'): { w: number; inkLeft: number; inkRight: number };
   /** 滑条连接带（整图，渲染时拉伸进连接四边形） */
   slideBand: SpriteIconConfig;
+  /** SP 段连接带（longNoteLine2 无缝变体，ADR-0009 §5：段内任一 hidden → 该段用之）；包缺失时回退 slideBand */
+  slideBandSp: SpriteIconConfig;
   slideAmongFor(lane: number): SpriteIconConfig;
   /** 滑条端点基底（= note_long 长条端帽；结点带 flick/skill 时由调用方 spread 覆盖） */
   slideEndpointFor(lane: number): SpriteIconConfig;
@@ -178,6 +180,10 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
   const skillConfig = flatRect(skillPack, skillPack.skill, 'skill');
   const longConfig = flatRect(slidePack, slidePack.long, 'long');
   const amongConfig = slidePack.slideAmong ? rectToConfig(slidePack.atlas, slidePack.slideAmong) : longConfig;
+  // SP 带（ADR-0009 §5）：longNoteLine2 无缝变体；包缺失（bandSp: null）回退普通连接带
+  const bandSpConfig: SpriteIconConfig = slidePack.bandSp != null
+    ? { src: slidePack.bandSp, x: 0, y: 0, w: slidePack.bandSpW, h: slidePack.bandSpH }
+    : { src: slidePack.band, x: 0, y: 0, w: slidePack.bandW, h: slidePack.bandH };
   const dirLConfig = flatDirRect(dirLPack, dirLPack.dirL, 'dirL');
   const dirRConfig = flatDirRect(dirRPack, dirRPack.dirR, 'dirR');
 
@@ -267,10 +273,11 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
     dirFor: (type) => (type === 'L' ? dirLConfig : dirRConfig),
     dirInk: dirInkCfg,
     slideBand: { src: slidePack.band, x: 0, y: 0, w: slidePack.bandW, h: slidePack.bandH },
+    slideBandSp: bandSpConfig,
     slideAmongFor: () => amongConfig,
     slideEndpointFor: () => longConfig,
     flickTopDecorator,
     dirGroup,
-    preloadSrcs: () => [...new Set([tapPack.atlas, flickPack.atlas, skillPack.atlas, slidePack.atlas, slidePack.band, dirLPack.atlas, dirRPack.atlas])],
+    preloadSrcs: () => [...new Set([tapPack.atlas, flickPack.atlas, skillPack.atlas, slidePack.atlas, slidePack.band, ...(slidePack.bandSp != null ? [slidePack.bandSp] : []), dirLPack.atlas, dirRPack.atlas])],
   };
 }

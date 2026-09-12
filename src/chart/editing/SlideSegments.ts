@@ -46,3 +46,13 @@ export function spanConnIndices(conns: SlideNote['connections'], ci: number): nu
   for (let i = sp.start; i <= sp.end; i++) out.push(i);
   return out;
 }
+
+/**
+ * 该 region（ci 与 ci+1 之间的连接带）所属段是否为 **SP 段**（ADR-0009 §5）：
+ * 段内任一 hidden 结点 → 整段用 SP 无缝带材质。段的中间结点必为 hidden
+ * （可见结点作分界），故 `end - start > 1` ⟺ 段内含 hidden。
+ */
+export function isSpRegion(conns: SlideNote['connections'], ci: number): boolean {
+  const sp = spanOfRegion(conns, ci);
+  return sp !== null && sp.end - sp.start > 1;
+}
