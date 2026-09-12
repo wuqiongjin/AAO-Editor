@@ -4,10 +4,12 @@
 // 落点碰撞不一律回弹，按 ADR-0001 既有规则裁决（§6 四轮修订）：滑条端点↔滑条端点 = §3 接合；
 // 键音符↔键音符 = §1.1 替换；滑条端点→键音符 = 覆盖删除（removeOverlappedNotes 同语义）。
 // 无就地变异：受影响音符构造新对象，其余复用原引用（ADR-0001 §4 结构共享）。
-import type { ChartNote, SelectionItem, SlideNote, LongNote } from '../types';
+import type { ChartNote, SelectionItem, SlideNote, LongNote, ConnectionNote } from '../types';
 import { quantizeBeat } from '../geometry/ChartGeometry';
 import { mergeChainWithSlides } from './SlideCombination';
 import { handleNoteReplacement } from './NoteReplacementRules';
+import { slideSpans } from './SlideSegments';
+import { bendSpan, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams } from './SpanCurve';
 
 /**
  * 拖拽的拍位移（issue 61）：**量化对象 = 被拖对象的落点**，不是光标。
@@ -49,7 +51,12 @@ export function itemTrueBeat(notes: readonly ChartNote[], item: SelectionItem, b
     const conn = (n as SlideNote).connections[item.connIndex];
     return conn ? conn.beat + (conn.subBeat && conn.subBeat > 0 ? conn.subBeat / bd : 0) : null;
   }
-  if (item.kind === 'slideRegion') return null;
+  if (item.kind === 'slideRegion') {
+    // issue 09 S3（ADR-0009 §4）：区域可拖 = 拉弓变形；锚拍取段起点（bend 只吃 dLane，beat 分量忽略）
+    if (n.type !== 'Slide' && n.type !== 'Long') return null;
+    const conn = (n as SlideNote).connections[item.connIndex];
+    return conn ? conn.beat + (conn.subBeat && conn.subBeat > 0 ? conn.subBeat / bd : 0) : null;
+  }
   if (n.type === 'Single' || n.type === 'LDirectional' || n.type === 'RDirectional') {
     return n.beat + (n.subBeat && n.subBeat > 0 ? n.subBeat / bd : 0);
   }
@@ -93,6 +100,14 @@ const isSlideish = (n: ChartNote): n is SlideNote | LongNote => n.type === 'Slid
 const TOTAL_LANES = 7; // 与 NoteEditing.TOTAL_LANES 一致（此处内联避免引动历史模块）
 const EPS = 1e-6;
 
+/** 从 from 朝 dir（±1）找最近的**可见**结点（issue 09 S3：hidden 不作被拖结点的移动边界） */
+function nearestVisible(conns: ConnectionNote[], from: number, dir: -1 | 1): ConnectionNote | undefined {
+  for (let k = from + dir; k >= 0 && k < conns.length; k += dir) {
+    if (!conns[k]!.hidden) return conns[k];
+  }
+  return undefined;
+}
+
 const posKey = (beat: number, subBeat: number, lane: number) => `${beat}|${subBeat}|${lane}`;
 /**
  * 真实拍位：subBeat 的单位是 **1/beatDisplay**（与 ChartGeometry.noteVirtualY、
@@ -120,14 +135,29 @@ export function planDragMove(
   notes: ChartNote[],
   items: SelectionItem[],
   delta: DragDelta,
-  /** chartEndBeat = 谱面末端；beatDisplay = 子拍细分（subBeat 的单位分母，用于真实拍位换算） */
-  bounds: { chartEndBeat: number; beatDisplay: number },
+  /** chartEndBeat = 谱面末端；beatDisplay = 子拍细分（subBeat 的单位分母，用于真实拍位换算）；
+   *  bendPrecision = 拨弯普通段时的补采样密度（issue 09 S3，缺省 1/16） */
+  bounds: { chartEndBeat: number; beatDisplay: number; bendPrecision?: 16 | 32 | 64 },
 ): DragMoveResult {
   const noChange: DragMoveResult = { ok: false, notes, items: [], reason: 'unsupported' };
   const fail = (reason: 'out-of-bounds' | 'collision' | 'unsupported'): DragMoveResult =>
     ({ ok: false, notes, items: [], reason });
   if (delta.dBeat === 0 && delta.dLane === 0) return { ok: true, notes, items };
   const beatDisplay = bounds.beatDisplay > 0 ? bounds.beatDisplay : 1;
+
+  // issue 09 S3（ADR-0009 §4）：**单独拖一个滑条段 = 拉弓变形**——lane 方向拨弯（beat 分量忽略）、
+  // 两端可见结点锚定、段内 hidden 按三角权重跟随；普通段拨弯 = 自动补采样点转化（Q10=B）；
+  // 被拨段参数清除（一动就自由化）。混合选区不 bend（region 条目按不可拖处理，其余照旧移动）。
+  if (items.length === 1 && items[0]!.kind === 'slideRegion') {
+    const it = items[0]!;
+    const n = notes[it.noteIndex];
+    if (!n || !isSlideish(n)) return noChange;
+    if (delta.dLane === 0) return { ok: true, notes, items };
+    const bent = bendSpan(n as SlideNote | LongNote, it.connIndex, delta.dLane, beatDisplay, bounds.bendPrecision ?? 16);
+    if (bent === (n as SlideNote | LongNote)) return noChange;
+    const newNotes = notes.map((x, i) => (i === it.noteIndex ? (bent as ChartNote) : x));
+    return { ok: true, notes: newNotes, items: [it], ghost: [bent as ChartNote] };
+  }
 
   // 归组：noteIndex → 拖拽方式（whole=整条移动；nodes=指定 conn 下标集合）
   type Plan = { kind: 'whole' } | { kind: 'nodes'; conns: Set<number> };
@@ -198,14 +228,38 @@ export function planDragMove(
       if (plan.kind !== 'whole') {
         for (const ci of plan.conns) {
           const c = conns[ci];
-          const prev = conns[ci - 1];
-          const next = conns[ci + 1];
-          // 结点必须严格保持在前后邻居之间（防交叉/退化段；端点只有单侧约束）
+          // issue 09 S3：邻居序校验只看**可见**邻居——段内 hidden 采样点随后会被重投影/重映射
+          // 重建，不能作为被拖可见结点的移动边界（否则缓动段端点只能在一格采样内挪动）
+          const prev = nearestVisible(conns, ci, -1);
+          const next = nearestVisible(conns, ci, +1);
+          // 结点必须严格保持在前后可见邻居之间（防交叉/退化段；端点只有单侧约束）
           if (prev && sumBeat(c.beat, c.subBeat || 0, beatDisplay) <= sumBeat(prev.beat, prev.subBeat || 0, beatDisplay) + EPS) return fail('out-of-bounds');
           if (next && sumBeat(c.beat, c.subBeat || 0, beatDisplay) >= sumBeat(next.beat, next.subBeat || 0, beatDisplay) - EPS) return fail('out-of-bounds');
         }
       }
       moved.set(i, { ...n, connections: conns });
+      // issue 09 S3（ADR-0009 §4 拖端点/结点 = 移动意图，非改形）：
+      // - 邻接被拖可见结点的**缓动段**：按原参数对新端点重烘焙（参数保留）
+      // - 邻接的**自由段**：段内 hidden 相对形态保持、整体拉伸重映射
+      // 整条移动（whole） = 平移保形，无需处理。
+      if (plan.kind === 'nodes') {
+        const prevConns = (n as SlideNote | LongNote).connections;
+        const bySpan = effectiveSpanParams(n as SlideNote | LongNote);
+        const movedVisible = [...plan.conns].filter(ci => !prevConns[ci]?.hidden);
+        if (movedVisible.length > 0) {
+          let conns2 = conns;
+          const spans = slideSpans(conns2);
+          for (let s = 0; s < spans.length; s++) {
+            const sp = spans[s]!;
+            const adjacent = movedVisible.some(ci => ci === sp.start || ci === sp.end);
+            if (!adjacent || bySpan[s]) continue;
+            conns2 = remapFreeSpanHidden(conns2, prevConns, sp, beatDisplay);
+          }
+          let m: SlideNote | LongNote = { ...(moved.get(i) as SlideNote | LongNote), connections: conns2 };
+          m = reprojectSpanParams(m, beatDisplay);
+          moved.set(i, m as ChartNote);
+        }
+      }
     }
   }
 
@@ -370,6 +424,8 @@ export function draggableFromItems(notes: readonly ChartNote[], items: readonly 
     if (!n) return false;
     if (it.kind === 'note') return isKey(n) || isSlideish(n);
     if (it.kind === 'slideNode') return isSlideish(n);
-    return false; // slideRegion 不可拖
+    // issue 09 S3（ADR-0009 §4）：slideRegion 可拖 = 拉弓变形（planDragMove 的 bend 分支处置）
+    if (it.kind === 'slideRegion') return isSlideish(n);
+    return false;
   });
 }

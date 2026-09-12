@@ -245,7 +245,7 @@ describe('resolvePressIntent 按下意图仲裁', () => {
     expect(r.anchor.items).toEqual([{ kind: 'note', noteIndex: 1 }]);
   });
 
-  it('按到滑条区域（不可拖对象）→ 框选', () => {
+  it('按到滑条区域 = 拖拽（issue 09 S3 / ADR-0009 §4 修订：区域可拖 = 拉弓变形，不再退框选）', () => {
     const slideNotes: ChartNote[] = [bpmNote(0, 120), {
       type: 'Slide', connections: [{ beat: 50, lane: 1 }, { beat: 54, lane: 4 }],
     }];
@@ -258,7 +258,8 @@ describe('resolvePressIntent 按下意图仲裁', () => {
       armedTool: null, shiftKey: false, onMarker: false,
       deps, selectedItems: [], chartEndBeat: 100,
     });
-    expect(r.kind).toBe('marquee');
+    expect(r.kind).toBe('drag');
+    if (r.kind === 'drag') expect(r.anchor.items).toEqual([{ kind: 'slideRegion', noteIndex: 1, connIndex: 0 }]);
   });
 });
 

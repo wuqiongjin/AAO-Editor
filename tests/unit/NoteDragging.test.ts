@@ -99,7 +99,7 @@ describe('planDragMove · 落点撞滑条结点 = 放置规则（issue 76）', (
 });
 
 describe('draggableFromItems', () => {
-  it('键型/整条滑条/结点可拖；BPM/System/slideRegion 不可', () => {
+  it('键型/整条滑条/结点/滑条段可拖；BPM/System 不可（issue 09 S3：slideRegion 可拖 = 拉弓变形）', () => {
     const notes: ChartNote[] = [single(1, 1), { type: 'BPM', beat: 2, bpm: 120 }, slide(3, 1, 4, 2)];
     const items: SelectionItem[] = [
       ...noteSel(0, 1, 2),
@@ -107,7 +107,7 @@ describe('draggableFromItems', () => {
       { kind: 'slideRegion', noteIndex: 2, connIndex: 0 },
     ];
     const drag = draggableFromItems(notes, items);
-    expect(drag).toEqual([...noteSel(0, 2), { kind: 'slideNode', noteIndex: 2, connIndex: 0 }]);
+    expect(drag).toEqual([...noteSel(0, 2), { kind: 'slideNode', noteIndex: 2, connIndex: 0 }, { kind: 'slideRegion', noteIndex: 2, connIndex: 0 }]);
   });
 });
 
@@ -384,7 +384,7 @@ describe('itemTrueBeat（issue 61：量化基准取被按住那件对象）', ()
     expect(itemTrueBeat(notes, { kind: 'note', noteIndex: 1 }, 4)).toBeNull();
     expect(itemTrueBeat(notes, { kind: 'slideNode', noteIndex: 2, connIndex: 1 }, 4)).toBeCloseTo(4.5, 10);
     expect(itemTrueBeat(notes, { kind: 'note', noteIndex: 2 }, 4)).toBeCloseTo(3, 10); // 整条 → 首结点
-    expect(itemTrueBeat(notes, { kind: 'slideRegion', noteIndex: 2, connIndex: 0 }, 4)).toBeNull();
+    expect(itemTrueBeat(notes, { kind: 'slideRegion', noteIndex: 2, connIndex: 0 }, 4)).toBeCloseTo(3, 10); // issue 09 S3：区域可拖，锚拍 = 段起点
   });
 });
 
@@ -419,5 +419,93 @@ describe('方向滑键整组越界（issue 62 整组 + issue 66 §4b 只判根�
   it('单键仍是"自身轨道出界即非法"（只有方向键有组尾豁免）', () => {
     const notes: ChartNote[] = [single(1, 6)];
     expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 1 }, B).reason).toBe('out-of-bounds'); // lane 7
+  });
+});
+
+describe('planDragMove · 拖带弯曲（issue 09 S3 / ADR-0009 §4）', () => {
+  const eased = (withParams = true): ChartNote => {
+    const conns = [{ beat: 1, lane: 2, subBeat: 0 }];
+    for (let p = 1; p < 16; p++) conns.push({ beat: 1 + p / 16, lane: 2, subBeat: 0, hidden: true });
+    conns.push({ beat: 2, lane: 2, subBeat: 0 });
+    return {
+      type: 'Slide',
+      connections: conns,
+      ...(withParams ? { spanParams: { visibleCount: 2, bySpan: { 0: { kind: 'easing', family: 'quad', type: 'in', precision: 16 } } } } : {}),
+    } as ChartNote;
+  };
+
+  it('单独拖段（region）= 拉弓变形：端点锚定、中点全跟、自由化清参数、beat 不动', () => {
+    const notes: ChartNote[] = [eased(true)];
+    const r = planDragMove(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }], { dBeat: 0, dLane: 2 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    expect(s.connections[0]).toMatchObject({ lane: 2 });
+    expect(s.connections.at(-1)).toMatchObject({ lane: 2 });
+    const mid = s.connections.find(c => c.hidden && Math.abs(c.beat - 1.5) < 1e-9)!;
+    expect(mid.lane).toBe(4); // t=0.5 → w=1
+    expect(s.connections.map(c => c.beat)).toEqual((notes[0] as SlideNote).connections.map(c => c.beat));
+    // 一动就自由化：参数清除（spanParams 整体消失）
+    expect(s.spanParams).toBeUndefined();
+    // 选区保留 = 该 region
+    expect(r.items).toEqual([{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }]);
+  });
+
+  it('纯 dBeat 拖段 = 无事发生（拉弓只吃 lane 分量）', () => {
+    const notes: ChartNote[] = [eased(false)];
+    const r = planDragMove(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }], { dBeat: 1, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    expect(r.notes[0]).toBe(notes[0]);
+  });
+
+  it('拨普通段 = 补采样点转化（出生即 SP 段）', () => {
+    const notes: ChartNote[] = [slide(1, 0, 2, 0)];
+    const r = planDragMove(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }], { dBeat: 0, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    expect(s.connections.filter(c => c.hidden).length).toBeGreaterThanOrEqual(8);
+    expect(s.spanParams).toBeUndefined();
+  });
+
+  it('拖端点 = 移动意图：缓动段按原参数重烘焙（hidden 全程存在、参数保留）', () => {
+    const notes: ChartNote[] = [eased(true)];
+    // 拖头端点：dBeat=+0.25（1/4 栅格）、dLane=+1
+    const r = planDragMove(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }], { dBeat: 0.25, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    expect(s.connections[0]).toMatchObject({ beat: 1.25, lane: 3 });
+    // hidden 点重烘焙后铺满新跨度（0.75 拍 × 1/16 → f=12 → 11 点）
+    const hiddens = s.connections.filter(c => c.hidden);
+    expect(hiddens.length).toBe(11);
+    expect(hiddens[0]!.beat).toBeGreaterThan(1.25);
+    // 参数保留（可见数未变）
+    expect((s.spanParams?.visibleCount)).toBe(2);
+    expect(s.spanParams?.bySpan[0]).toEqual({ kind: 'easing', family: 'quad', type: 'in', precision: 16 });
+  });
+
+  it('拖端点 = 自由段相对形态保持（拉伸重映射：hidden 仍夹在新端点之间）', () => {
+    const notes: ChartNote[] = [eased(false)];
+    const r = planDragMove(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }], { dBeat: 0.25, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    const hiddens = s.connections.filter(c => c.hidden);
+    expect(hiddens).toHaveLength(15);
+    for (const h of hiddens) {
+      expect(h.beat).toBeGreaterThan(1.25 - 1e-9);
+      expect(h.beat).toBeLessThan(2 + 1e-9);
+    }
+  });
+
+  it('混合选区（region + 其它）不 bend：region 条目按不可拖处理，其余照常移动', () => {
+    const notes: ChartNote[] = [single(1, 0), eased(false)];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'slideRegion', noteIndex: 1, connIndex: 0 }, { kind: 'note', noteIndex: 0 }],
+      { dBeat: 1, dLane: 1 },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.notes[0]).toEqual(single(2, 1));
+    // 滑条未动（bend 未触发：dBeat 分量也不应作用于段内 hidden）
+    expect(r.notes[1]).toBe(notes[1]);
   });
 });

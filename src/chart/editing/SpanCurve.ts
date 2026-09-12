@@ -10,7 +10,7 @@
 // 细分，p = 1..f-1 逐个生成 `{ beat: 起始拍 + p/precision, lane: clamp(起 lane + lane 差 × ease(p/f)), hidden: true }`。
 // beat/lane 用十进制小数（Bestdori 同构：官方 SP 谱大量小数 lane）。
 import type { ConnectionNote, SlideNote, LongNote, SpanEasingParam, SlideSpanParams } from '../types';
-import { slideSpans } from './SlideSegments';
+import { slideSpans, spanOfRegion, type ConnSpan } from './SlideSegments';
 import { easing, type CurvePrecision, type EasingFamily, type EasingType } from './Easing';
 
 /** 连接点真实拍位（beat 十进制 + subBeat/beatDisplay 细分；导入谱 subBeat 缺省 → beat 即真值） */
@@ -169,4 +169,94 @@ export function reprojectSpanParams(slide: SlideNote | LongNote, beatDisplay: nu
     result = regenerateSpan(result, ordinal, param, beatDisplay);
   }
   return result;
+}
+
+/** 三角权重：两端 0、段中 1（拉弓变形的位移分配——拨中点全跟、靠近端点少跟） */
+const bowWeight = (t: number) => 1 - Math.abs(2 * t - 1);
+
+/**
+ * 拉弓变形（issue 09 S3 / ADR-0009 §4）：拖该滑条的某段（region）= **lane 方向拨弯**——
+ * 两端可见结点锚定不动，段内 hidden 点按三角权重跟随 `dLane` 位移；beat 不动（时间单向）。
+ * **拨弯即转化（Q10=B）**：普通段（无 hidden）先按 `precision` 栅格补直线上采样点再弯，
+ * 就地成为自由段（SP 段）。
+ * **一动就自由化**：被拨段的缓动参数清除（其余段参数保留——visibleCount 不变、护栏不破）。
+ * 返回新对象；`dLane = 0` 或段不存在 → 原引用（无变化）。
+ */
+export function bendSpan(
+  slide: SlideNote | LongNote,
+  connIndex: number,
+  dLane: number,
+  beatDisplay: number,
+  precision: CurvePrecision = 16,
+): SlideNote | LongNote {
+  if (dLane === 0) return slide;
+  const conns = slide.connections;
+  const sp: ConnSpan | null = spanOfRegion(conns, connIndex);
+  if (!sp) return slide;
+  const from = conns[sp.start]!;
+  const to = conns[sp.end]!;
+  const fromBeat = connTrueBeat(from, beatDisplay);
+  const toBeat = connTrueBeat(to, beatDisplay);
+  if (!(toBeat > fromBeat)) return slide;
+
+  // 段内既有 hidden + （普通段时）新补的采样点，一起参与拉弯
+  const inserted: ConnectionNote[] = sp.end - sp.start === 1
+    ? (() => {
+        // 普通段（无 hidden）：补采样点（1/precision 栅格、直线插值）→ 一并拉弯（Q10=B 拨弯即转化）
+        const param: SpanEasingParam = { kind: 'easing', family: 'sine', type: 'inOut', precision };
+        return bakeEasingPoints(from, to, fromBeat, toBeat, param);
+      })()
+    : [];
+  const middle = [...conns.slice(sp.start + 1, sp.end), ...inserted].map((p) => {
+    const t = (connTrueBeat(p, beatDisplay) - fromBeat) / (toBeat - fromBeat);
+    const w = bowWeight(t);
+    return { ...p, lane: clamp(p.lane + dLane * w, 0, 6) };
+  });
+  const connections = [...conns.slice(0, sp.start + 1), ...middle, ...conns.slice(sp.end)];
+
+  // 一动就自由化：清除被拨段的参数（可见数不变，其余段参数保留）
+  const spanOrdinal = slideSpans(connections).findIndex(s => s.start === sp.start);
+  const bySpan = { ...effectiveSpanParams(slide) };
+  if (spanOrdinal >= 0) delete bySpan[spanOrdinal];
+  const hasParams = Object.keys(bySpan).length > 0;
+  // 注意 spanParams 必须显式覆写（undefined 也在内）：`...slide` 会把旧参数原样带回
+  return { ...slide, connections, spanParams: hasParams ? { visibleCount: countVisibleNodes(connections), bySpan } : undefined };
+}
+
+/**
+ * 自由段端点跟随重映射（ADR-0009 §4 拖端点 = 移动意图：自由段**相对形态保持**、整体拉伸）。
+ * `prevConns` = 拖拽前的连接点（提供旧端点用于求投影参数 t），`conns` = 已写新端点的连接点
+ * （会被浅拷贝后改写段内 hidden 点）。段端点在两次快照中必须同下标（拖拽不增删结点，成立）。
+ * 无 hidden 的段 → 原样返回。
+ */
+export function remapFreeSpanHidden(
+  conns: ConnectionNote[],
+  prevConns: ConnectionNote[],
+  sp: ConnSpan,
+  beatDisplay: number,
+): ConnectionNote[] {
+  const hasHidden = sp.end - sp.start > 1;
+  if (!hasHidden) return conns;
+  const oFrom = prevConns[sp.start]!;
+  const oTo = prevConns[sp.end]!;
+  const nFrom = conns[sp.start]!;
+  const nTo = conns[sp.end]!;
+  const oFromBeat = connTrueBeat(oFrom, beatDisplay);
+  const oToBeat = connTrueBeat(oTo, beatDisplay);
+  if (!(oToBeat > oFromBeat)) return conns;
+  const nFromBeat = connTrueBeat(nFrom, beatDisplay);
+  const nToBeat = connTrueBeat(nTo, beatDisplay);
+  const out = [...conns];
+  for (let i = sp.start + 1; i < sp.end; i++) {
+    const p = prevConns[i]!;
+    const t = (connTrueBeat(p, beatDisplay) - oFromBeat) / (oToBeat - oFromBeat);
+    const laneChordOld = oFrom.lane + (oTo.lane - oFrom.lane) * t;
+    const laneChordNew = nFrom.lane + (nTo.lane - nFrom.lane) * t;
+    out[i] = {
+      ...p,
+      beat: nFromBeat + (nToBeat - nFromBeat) * t,
+      lane: clamp(laneChordNew + (p.lane - laneChordOld), 0, 6),
+    };
+  }
+  return out;
 }

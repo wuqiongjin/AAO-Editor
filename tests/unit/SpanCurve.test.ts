@@ -2,8 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import type { ConnectionNote, SlideNote } from '../../src/chart/types';
 import {
-  bakeEasingPoints, buildChainedSlide, buildPenSlide, effectiveSpanParams,
-  regenerateSpan, reprojectSpanParams, connTrueBeat,
+  bakeEasingPoints, bendSpan, buildChainedSlide, buildPenSlide, effectiveSpanParams,
+  regenerateSpan, remapFreeSpanHidden, reprojectSpanParams, connTrueBeat,
 } from '../../src/chart/editing/SpanCurve';
 import { convertNotesToChartCode, convertChartCodeToNotes, validateChartCode } from '../../src/chart/editing/ChartConverter';
 
@@ -190,5 +190,74 @@ describe('issue 09 · 导出剥离与导入自由段（ADR-0009 §1 与 Bestdori
     expect(pen.connections.filter((c) => c.hidden)).toHaveLength(2);
     expect(pen.spanParams).toBeUndefined();
     expect((pen.connections[1] as ConnectionNote).hidden).toBe(true);
+  });
+});
+
+describe('issue 09 S3 · bendSpan（拉弓变形 / ADR-0009 §4）', () => {
+  const slide = buildChainedSlide([{ beat: 1, lane: 2 }, { beat: 3, lane: 2 }], { 0: param({ family: 'sine', type: 'inOut' }) }, 4);
+
+  it('两端锚定：端点 lane 不动；中点权重 1（全跟）、靠近端点少跟；beat 不动', () => {
+    const bent = bendSpan(slide, 0, 2, 4) as SlideNote;
+    expect(bent.connections[0]).toMatchObject({ lane: 2 });
+    expect(bent.connections.at(-1)).toMatchObject({ lane: 2 });
+    const mid = bent.connections.find((c) => c.hidden && Math.abs(c.beat - 2) < 1e-9)!;
+    expect(mid.lane).toBeCloseTo(4, 9); // t=0.5 → w=1 → 2+2
+    const near = bent.connections.find((c) => c.hidden && Math.abs(c.beat - 1.25) < 1e-9)!;
+    // t=0.125 → 三角权重 w=0.25 → 2+0.5=2.5
+    expect(near.lane).toBeCloseTo(2.5, 9);
+    // beat 恒不变（拉弓只动 lane）
+    expect(bent.connections.map((c) => c.beat)).toEqual(slide.connections.map((c) => c.beat));
+  });
+
+  it('一动就自由化：被拨段参数清除；其余段参数保留', () => {
+    const two = buildChainedSlide(
+      [{ beat: 1, lane: 0 }, { beat: 2, lane: 2 }, { beat: 3, lane: 4 }],
+      { 0: param(), 1: param({ family: 'sine', type: 'out' }) },
+      4,
+    );
+    // edge 16 = 第二段的第一条边（第一段 15 hidden → 段 0 覆盖 edge 0..15）
+    const bent = bendSpan(two, 16, 1, 4) as SlideNote;
+    expect(effectiveSpanParams(bent)[1]).toBeUndefined();
+    expect(effectiveSpanParams(bent)[0]).toEqual(param());
+    expect(bent.spanParams?.visibleCount).toBe(3);
+  });
+
+  it('拨普通段（无 hidden）= 自动补采样点转化（Q10=B），出生即 SP 段', () => {
+    const plain: SlideNote = { type: 'Slide', connections: [{ beat: 1, lane: 0 }, { beat: 2, lane: 0 }] };
+    const bent = bendSpan(plain, 0, 3, 4) as SlideNote;
+    expect(bent.connections.filter((c) => c.hidden).length).toBeGreaterThanOrEqual(8);
+    expect(bent.connections[0]).toMatchObject({ lane: 0 });
+    expect(bent.connections.at(-1)).toMatchObject({ lane: 0 });
+    const mid = bent.connections.find((c) => c.hidden && Math.abs(c.beat - 1.5) < 1e-9)!;
+    expect(mid.lane).toBeCloseTo(3, 9);
+    expect(bent.spanParams).toBeUndefined(); // 自由段
+  });
+
+  it('dLane=0 / 越界 edge → 原引用（无变化）', () => {
+    expect(bendSpan(slide, 0, 0, 4)).toBe(slide);
+    expect(bendSpan(slide, 32, 2, 4)).toBe(slide); // 2 拍 1/16 → 32 条 edge，32 越界
+  });
+});
+
+describe('issue 09 S3 · remapFreeSpanHidden（自由段端点跟随重映射）', () => {
+  it('hidden 点按旧端点投影 t 拉伸到新端点：弦上分量跟随 + 相对偏移保留', () => {
+    // 旧段 [A(1,0) … B(2,4)]，中点 hidden 在 beat 1.5 / lane 3（弦上 2 + 偏移 1）
+    const prev: ConnectionNote[] = [
+      { beat: 1, lane: 0 }, { beat: 1.5, lane: 3, hidden: true }, { beat: 2, lane: 4 },
+    ];
+    // 新端点 [A(1,0) … B(3,0)]：t=0.5 → beat=2；新弦中点 lane 0 + 旧偏移 1 → lane 1
+    const cur: ConnectionNote[] = [
+      { beat: 1, lane: 0 }, { beat: 1.5, lane: 3, hidden: true }, { beat: 3, lane: 0 },
+    ];
+    const out = remapFreeSpanHidden(cur, prev, { start: 0, end: 2 }, 4);
+    expect(out[1]).toMatchObject({ beat: 2, lane: 1 });
+    // 可见端点不动
+    expect(out[0]).toBe(cur[0]);
+    expect(out[2]).toBe(cur[2]);
+  });
+
+  it('无 hidden 的段 → 原数组返回', () => {
+    const cur: ConnectionNote[] = [{ beat: 1, lane: 0 }, { beat: 2, lane: 4 }];
+    expect(remapFreeSpanHidden(cur, cur, { start: 0, end: 1 }, 4)).toBe(cur);
   });
 });
