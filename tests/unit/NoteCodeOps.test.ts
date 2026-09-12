@@ -1,6 +1,8 @@
 // 对象视图（单音符 / 滑条结点）的初值投影与回写（issue 59 §4 / §5）逐条锁表。
 import { describe, test, expect } from 'vitest';
-import { buildNoteCode, applyNoteCode, type NoteCodeTarget } from '../../src/chart/editing/NoteCodeOps';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { buildNoteCode, applyNoteCode, noteCodeTargetForHit, type NoteCodeTarget } from '../../src/chart/editing/NoteCodeOps';
 import type { ChartCodeNote } from '../../src/chart/editing/ChartConverter';
 import type { ChartNote, SlideNote } from '../../src/chart/types';
 
@@ -169,5 +171,159 @@ describe('对象视图往返', () => {
             if (!r.ok) continue;
             expect(r.notes).toEqual(notes);
         }
+    });
+});
+
+// ══════════════════ issue 93 · 子段代码层 ══════════════════
+// 段 = SlideSegments 逻辑段口径（跨 hidden）；段代码 = 该段材质化为**独立 Slide**（含段内 hidden，
+// 与复制/剪贴板同口径）、绝对 beat；回写 = 段 connections 整体替换回宿主（用户 2026-09-12 拍板可编辑）。
+
+const segTarget = (noteIndex: number, start: number, end: number): NoteCodeTarget =>
+    ({ noteIndex, span: { start, end } });
+
+describe('issue 93 · buildSegmentCode 子段初值', () => {
+    // [A, H, B, C]：两段 = A→H→B（实下标 0..2）、B→C（2..3）
+    const segNotes: ChartNote[] = [bpm(0, 120), slide([
+        { beat: 4, lane: 1 },
+        { beat: 5, lane: 3, hidden: true },
+        { beat: 6, lane: 4 },
+        { beat: 8, lane: 6, flick: true },
+    ])];
+
+    test('段1（A→B，跨 hidden）= 独立 Slide 代码：绝对 beat、hidden 如实保留', () => {
+        expect(buildNoteCode(segNotes, segTarget(1, 0, 2))).toEqual([{
+            type: 'Slide',
+            connections: [
+                { beat: 4, lane: 1 },
+                { beat: 5, lane: 3, hidden: true },
+                { beat: 6, lane: 4 },
+            ],
+        }]);
+    });
+
+    test('段2（B→C）= 两结点独立 Slide，flick 保留', () => {
+        expect(buildNoteCode(segNotes, segTarget(1, 2, 3))).toEqual([{
+            type: 'Slide',
+            connections: [{ beat: 6, lane: 4 }, { beat: 8, lane: 6, flick: true }],
+        }]);
+    });
+
+    test('span + connIndex 并存 = 结点入口的 trail 形态 → 仍走结点投影（默认结点视图）', () => {
+        expect(buildNoteCode(segNotes, { noteIndex: 1, connIndex: 2, span: { start: 0, end: 2 } }))
+            .toEqual([{ beat: 6, lane: 4, type: 'Single' }]);
+    });
+
+    test('段区间失效 / 不足 2 结点 / 非滑条 → null（弹窗据此自动关闭）', () => {
+        expect(buildNoteCode(segNotes, segTarget(1, 2, 9))).toBeNull();
+        expect(buildNoteCode(segNotes, segTarget(1, 0, 0))).toBeNull();
+        expect(buildNoteCode(segNotes, segTarget(0, 0, 1))).toBeNull(); // BPM
+    });
+});
+
+describe('issue 93 · applySegmentCode 子段回写（可编辑回写）', () => {
+    const segNotes: ChartNote[] = [bpm(0, 120), slide([
+        { beat: 4, lane: 1, subBeat: 1 },
+        { beat: 5, lane: 3, subBeat: 0, hidden: true },
+        { beat: 6, lane: 4, subBeat: 2 },
+        { beat: 8, lane: 6, subBeat: 2 },
+    ])];
+
+    test('应用 = 段整体替换：段内结点改写、段外结点不动、subBeat 结点数一致时逐结点保留', () => {
+        const code: ChartCodeNote[] = [{
+            type: 'Slide',
+            connections: [{ beat: 4, lane: 2 }, { beat: 5, lane: 5, hidden: true }, { beat: 7, lane: 4, flick: true }],
+        }];
+        const r = applyNoteCode(segNotes, segTarget(1, 0, 2), code);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const s = r.notes[1] as SlideNote;
+        expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[4, 2], [5, 5], [7, 4], [8, 6]]);
+        expect(s.connections.map(c => c.hidden === true)).toEqual([false, true, false, false]);
+        expect(s.connections.map(c => c.subBeat)).toEqual([1, 0, 2, 2]); // 段内逐结点保留，段外原样
+    });
+
+    test('段内加结点：替换后宿主滑条结点数增加，新增结点 subBeat 取缺省（按位置保留仅对齐原段）', () => {
+        const code: ChartCodeNote[] = [{
+            type: 'Slide',
+            connections: [
+                { beat: 4, lane: 1 }, { beat: 5, lane: 2 }, { beat: 6, lane: 4 }, { beat: 7, lane: 5 },
+            ],
+        }];
+        const r = applyNoteCode(segNotes, segTarget(1, 0, 2), code);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const s = r.notes[1] as SlideNote;
+        expect(s.connections.map(c => c.beat)).toEqual([4, 5, 6, 7, 8]);
+        expect(s.connections.map(c => c.subBeat)).toEqual([1, 0, 2, undefined, 2]); // 前 3 位对齐原段，第 4 位新增
+    });
+
+    test('非法拒绝：条数不为 1 / 非滑条 / 段首尾 hidden / 替换后整条非法 → 整单拒绝不回写', () => {
+        const seg = segTarget(1, 0, 2);
+        expect(applyNoteCode(segNotes, seg, []).ok).toBe(false);
+        expect(applyNoteCode(segNotes, seg, [{ beat: 1, lane: 1, type: 'Single' }]).ok).toBe(false);
+        // 段首/尾 hidden：单看这段就非法（§1.2），整单拒绝
+        const badSeg: ChartCodeNote[] = [{
+            type: 'Slide',
+            connections: [{ beat: 4, lane: 1, hidden: true }, { beat: 6, lane: 4 }],
+        }];
+        expect(applyNoteCode(segNotes, seg, badSeg).ok).toBe(false);
+        // 段代码本身须是合法独立 Slide（≥2 结点）→ "把段缩成 1 结点"在段视图里无法表达，整单拒绝
+        // （要删结点请用整条视图或画布删除工具）
+        const shrink: ChartCodeNote[] = [{ type: 'Slide', connections: [{ beat: 4, lane: 1 }] }];
+        expect(applyNoteCode(segNotes, seg, shrink).ok).toBe(false);
+        // 目标段失效（越界）
+        expect(applyNoteCode(segNotes, segTarget(1, 3, 9), segTargetCode()).ok).toBe(false);
+        function segTargetCode(): ChartCodeNote[] {
+            return [{ type: 'Slide', connections: [{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }] }];
+        }
+    });
+});
+
+describe('issue 93 · noteCodeTargetForHit 命中 → target 口径', () => {
+    // [A, H, B, C] 多段 + [A, B] 单段 + [A, H, B] 单段
+    const ns: ChartNote[] = [
+        bpm(0, 120),
+        slide([{ beat: 4, lane: 1 }, { beat: 5, lane: 3, hidden: true }, { beat: 6, lane: 4 }, { beat: 8, lane: 6 }]),
+        slide([{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }]),
+        slide([{ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 }]),
+    ];
+
+    test('多段滑条：region → 默认子段视图（span，无 connIndex）', () => {
+        expect(noteCodeTargetForHit(ns, { kind: 'slideRegion', noteIndex: 1, connIndex: 0 }))
+            .toEqual({ noteIndex: 1, span: { start: 0, end: 2 } });
+        expect(noteCodeTargetForHit(ns, { kind: 'slideRegion', noteIndex: 1, connIndex: 2 }))
+            .toEqual({ noteIndex: 1, span: { start: 2, end: 3 } });
+    });
+
+    test('多段滑条：可见中间结点 = 段边界 → 取**入段**（前一可见结点 → 该结点）', () => {
+        expect(noteCodeTargetForHit(ns, { kind: 'slideNode', noteIndex: 1, connIndex: 2 }))
+            .toEqual({ noteIndex: 1, connIndex: 2, span: { start: 0, end: 2 } });
+    });
+
+    test('单段滑条（A—B / A—H—B）：region 回退整条、结点走结点视图（无 span，隐藏子段层）', () => {
+        expect(noteCodeTargetForHit(ns, { kind: 'slideRegion', noteIndex: 2, connIndex: 0 }))
+            .toEqual({ noteIndex: 2 });
+        expect(noteCodeTargetForHit(ns, { kind: 'slideRegion', noteIndex: 3, connIndex: 0 }))
+            .toEqual({ noteIndex: 3 });
+        expect(noteCodeTargetForHit(ns, { kind: 'slideNode', noteIndex: 2, connIndex: 0 }))
+            .toEqual({ noteIndex: 2, connIndex: 0 });
+    });
+
+    test('端点结点（多段滑条，issue 93 二轮）= 结点视图 + 所属段 span：首端点挂第一段、末端点挂最后一段', () => {
+        expect(noteCodeTargetForHit(ns, { kind: 'slideNode', noteIndex: 1, connIndex: 0 }))
+            .toEqual({ noteIndex: 1, connIndex: 0, span: { start: 0, end: 2 } }); // 首端点 → 第一段 A→H→B
+        expect(noteCodeTargetForHit(ns, { kind: 'slideNode', noteIndex: 1, connIndex: 3 }))
+            .toEqual({ noteIndex: 1, connIndex: 3, span: { start: 2, end: 3 } }); // 末端点 → 最后一段 B→C
+    });
+});
+
+describe('issue 93 · 弹窗结构断言（四档面包屑，防把子段层拆掉）', () => {
+    const root = join(__dirname, '../..');
+    const modalSrc = readFileSync(join(root, 'src/chart/components/code-editor/ChartCodeEditorModal.tsx'), 'utf-8');
+
+    test('面包屑含「子段代码」档，由 trail.span 决定显示；单段滑条不产生 span → 自然不出现', () => {
+        expect(modalSrc).toContain('子段代码');
+        expect(modalSrc).toContain('trail?.span !== undefined');
+        expect(modalSrc).toContain('isSegmentView');
     });
 });

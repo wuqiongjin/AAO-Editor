@@ -395,15 +395,29 @@ describe('§2 音符代码工具单击（noteCode，issue 59）', () => {
     expect(clickOps(input({ tool: 'noteCode', notes, hit: noteSel(1)[0] })))
       .toEqual([{ t: 'openNoteCode', target: { noteIndex: 1 } }, clearSel]);
   });
-  it('点滑条结点 = 带 connIndex + 清选区', () => {
+  it('issue 93：点**多段滑条**的中间结点 = 结点视图 + **入段** span（前一可见结点 → 该结点）（面包屑多一档"子段代码"）+ 清选区', () => {
     const hit: SelectionItem = { kind: 'slideNode', noteIndex: 2, connIndex: 1 };
     expect(clickOps(input({ tool: 'noteCode', notes, hit })))
-      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2, connIndex: 1 } }, clearSel]);
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2, connIndex: 1, span: { start: 0, end: 1 } } }, clearSel]);
   });
-  it('§4 点滑条区域 = 不支持 → 回退整条（不带 connIndex）+ 清选区', () => {
+  it('issue 93：点**多段滑条**的段 = 默认子段视图（target 带 span，无 connIndex）+ 清选区', () => {
     const hit: SelectionItem = { kind: 'slideRegion', noteIndex: 2, connIndex: 1 };
     expect(clickOps(input({ tool: 'noteCode', notes, hit })))
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2, span: { start: 1, end: 2 } } }, clearSel]);
+  });
+  it('issue 93：点**单段滑条**的段/结点 → 维持旧口径（region 回退整条、结点走结点视图，不出现子段层）', () => {
+    // 本文件 slide() 助手是 flat-pairs 版（表达不了 hidden），单段样例内联构造
+    const twoSeg: ChartNote[] = [
+      bpm(0, 120),
+      { type: 'Slide', connections: [{ beat: 1, lane: 1, subBeat: 0 }, { beat: 2, lane: 2, subBeat: 0, hidden: true }, { beat: 3, lane: 3, subBeat: 0 }] }, // A—H—B 单段
+      { type: 'Slide', connections: [{ beat: 4, lane: 1, subBeat: 0 }, { beat: 5, lane: 3, subBeat: 0 }] }, // A—B 单段
+    ];
+    expect(clickOps(input({ tool: 'noteCode', notes: twoSeg, hit: { kind: 'slideRegion', noteIndex: 1, connIndex: 0 } })))
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 1 } }, clearSel]);
+    expect(clickOps(input({ tool: 'noteCode', notes: twoSeg, hit: { kind: 'slideRegion', noteIndex: 2, connIndex: 0 } })))
       .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2 } }, clearSel]);
+    expect(clickOps(input({ tool: 'noteCode', notes: twoSeg, hit: { kind: 'slideNode', noteIndex: 2, connIndex: 0 } })))
+      .toEqual([{ t: 'openNoteCode', target: { noteIndex: 2, connIndex: 0 } }, clearSel]); // 端点 = 结点视图
   });
   it('点击已有 BPM 线 = 打开该 BPM 的代码（issue 59 定案例外）+ 清选区', () => {
     expect(clickOps(input({ tool: 'noteCode', notes, hit: noteSel(0)[0], pos: sp(0, 0) })))

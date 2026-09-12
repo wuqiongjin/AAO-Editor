@@ -61,6 +61,8 @@ export default function ChartCodeEditorModal({ target }: Props) {
     const isChartView = target.kind === 'chart';
     // §4：结点视图 = 滑条某个 connection 的独立形态投影
     const isNodeView = target.kind === 'note' && target.connIndex !== undefined;
+    // issue 93：子段视图 = span 且**无** connIndex（span + connIndex 并存是结点入口的 trail 形态，显示结点视图）
+    const isSegmentView = target.kind === 'note' && target.span !== undefined && target.connIndex === undefined;
 
     // dirty = 代码文本与被同步的基准不一致（派生）
     const isDirty = chartCode !== lastAppliedCode;
@@ -304,8 +306,8 @@ export default function ChartCodeEditorModal({ target }: Props) {
         }
     };
 
-    // issue 69：面包屑第 2 档文案 —— trail 是滑条结点 → 其父级为"所属滑条"；trail 是整条音符 → "音符代码"
-    const crumb2Label = trail?.connIndex !== undefined ? '所属滑条' : '音符代码';
+    // issue 69：面包屑第 2 档文案 —— trail 是滑条结点或子段 → 其父级为"所属滑条"；trail 是整条音符 → "音符代码"
+    const crumb2Label = trail?.connIndex !== undefined || trail?.span !== undefined ? '所属滑条' : '音符代码';
     // §2：完整代码视图在选区 ≥2 时给一行非阻断提示（「谱面代码」按钮永远展示完整谱面）
     const showSelectionHint = isChartView && selectedItems.length >= 2;
 
@@ -335,13 +337,14 @@ export default function ChartCodeEditorModal({ target }: Props) {
                     display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
                     backgroundColor: 'var(--bg)',
                 }}>
-                    {/* §6 面包屑：自左向右 = 顶层 → 当前（`完整谱面代码 › 所属滑条 › 滑条结点代码`），
-                        **三视图永远显示**（连完整谱面代码视图也有 —— 旧实现那里只有个 <h3> 标题）。
+                        {/* §6 面包屑：自左向右 = 顶层 → 当前（issue 93 起四档：
+                            `完整谱面代码 › 所属滑条 › 子段代码 › 滑条结点代码`，单段滑条无"子段代码"档），
+                            **永远显示**（连完整谱面代码视图也有 —— 旧实现那里只有个 <h3> 标题）。
                         issue 69：档位由 **trail**（记住的深层）决定，而不是由当前视图决定 ——
                         于是从 node 一路点回 chart 后，面包屑仍保留「所属滑条 / 滑条结点代码」两档，
                         用户能再点回去（解决"回不去了"）。
                         · 当前层 = 加粗、不可点（用于"显示出当前在哪个层级"）
-                        · 其余档 = 可点，三层间随意切换
+                        · 其余档 = 可点，各层间随意切换
                         · **不加"‹ 返回"按钮**（用户口径）：切换能力由面包屑项本身承担。 */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', marginRight: 'auto' }}>
                         {/* 第 1 档：完整谱面代码 */}
@@ -354,7 +357,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
                         {trail && (
                             <>
                                 <span style={crumbSepStyle}>›</span>
-                                {!isChartView && !isNodeView ? (
+                                {!isChartView && !isNodeView && !isSegmentView ? (
                                     <span style={crumbCurrentStyle}>{crumb2Label}</span>
                                 ) : (
                                     <button
@@ -365,7 +368,23 @@ export default function ChartCodeEditorModal({ target }: Props) {
                                 )}
                             </>
                         )}
-                        {/* 第 3 档：trail 是滑条结点时才有 */}
+                        {/* 第 3 档（issue 93）：trail 记过子段（span）才有 —— 该逻辑段序列化为独立 Slide 代码。
+                            单段滑条不产生 span（与整条层内容相同，冗余）→ 此档自然不出现。 */}
+                        {trail?.span !== undefined && (
+                            <>
+                                <span style={crumbSepStyle}>›</span>
+                                {isSegmentView ? (
+                                    <span style={crumbCurrentStyle}>子段代码</span>
+                                ) : (
+                                    <button
+                                        onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex, span: trail.span })}
+                                        title="子段代码"
+                                        style={crumbButtonStyle}
+                                    >子段代码</button>
+                                )}
+                            </>
+                        )}
+                        {/* 第 4 档：trail 是滑条结点时才有 */}
                         {trail?.connIndex !== undefined && (
                             <>
                                 <span style={crumbSepStyle}>›</span>

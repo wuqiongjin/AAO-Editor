@@ -11,8 +11,8 @@ import {
 import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
 import { combineSelectionIntoSlide, compareAbsorbable } from './SlideCombination';
 // 对象视图目标（issue 59 §4）在 NoteCodeOps 定义（回写走同一类型），转出供 op 与调用方使用
-import type { NoteCodeTarget } from './NoteCodeOps';
-export type { NoteCodeTarget };
+import { noteCodeTargetForHit, type NoteCodeTarget } from './NoteCodeOps';
+export type { NoteCodeTarget } from './NoteCodeOps';
 
 /**
  * 持工具态（与 UIProvider.ArmedTool 同构；本模块保持零 UI 依赖）。
@@ -217,11 +217,10 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     // 尤其"选中 A → 切音符代码 → 点 B"时，A 的选中框还挂在那儿）。
     // 点空白 / 轨道外（无命中）同样清选区（原则 6：与动作是否生效无关）。
     if (!hit) return [clearSel];
-    // §4：slideRegion 不支持 → 回退到整条滑条视图（target 不带 connIndex）
-    const target: NoteCodeTarget = hit.kind === 'slideNode'
-      ? { noteIndex: hit.noteIndex, connIndex: hit.connIndex }
-      : { noteIndex: hit.noteIndex };
-    return [{ t: 'openNoteCode', target }, clearSel];
+    // §4（issue 93）：多段滑条的「段」/中间结点 = 子段视图（target 带 span）——点段默认子段视图、
+    // 点中间结点默认结点视图（面包屑多一档"子段代码"可点）。单段滑条（A—B / A—H—B）维持旧口径：
+    // region 回退整条、结点走结点视图（单段的"段视图"与整条层内容相同，隐藏子段层）。端点 = 结点视图。
+    return [{ t: 'openNoteCode', target: noteCodeTargetForHit(notes, hit) }, clearSel];
   }
   if (isActionTool(tool)) {
     // 音符 = 选中并立即执行（Model A，ADR-0002 §3.2）；
