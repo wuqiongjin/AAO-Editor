@@ -4,6 +4,7 @@
 // 并通过 ref 出口 getCursorChartPos() 提供给需要的一方。
 // 布局收纳（issue 12 / ADR-0003 L1）：面板宽度与折叠态、拖拽分隔条逻辑集中于此。
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { defaultPanelWidth } from '../../chart/config/AppSettings';
 
 
 // ADR-0008 §1 工具轴（持工具态）：所有工具共驻一根互斥轴；null = 指针态（默认底态）。
@@ -48,9 +49,11 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [beatDisplay, setBeatDisplay] = useState(4);
 
 
-  // 区域宽度（issue 12 / ADR-0003 L1）：默认随视口收缩（px 上限 + vw 兜底），并支持折叠/展开
-  const [leftPanelWidth, setLeftPanelWidth] = useState(() => Math.min(380, Math.round(window.innerWidth * 0.30)));
-  const [rightPanelWidth, setRightPanelWidth] = useState(() => Math.min(300, Math.round(window.innerWidth * 0.20)));
+  // 区域宽度（issue 12 / ADR-0003 L1；issue 97 起左右同口径 = defaultPanelWidth：20vw 兜底、300px 封顶，
+  //   与 AppSettings 出厂默认一致——挂载 hydrate 会以 settings.layout 覆盖本初值，两者不得再分叉），
+  // 并支持折叠/展开
+  const [leftPanelWidth, setLeftPanelWidth] = useState(() => defaultPanelWidth(window.innerWidth));
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => defaultPanelWidth(window.innerWidth));
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [isDragging, setIsDragging] = useState<'left' | 'right' | null>(null);

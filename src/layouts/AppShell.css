@@ -2329,7 +2329,7 @@ button.skin-pill {
  * 对"防止面板吃掉整个视口"的目的无影响）。
  */
 .ws-panel-left {
-  width: var(--ws-left-w, 240px);
+  width: var(--ws-left-w, 300px); /* 兜底与右侧同宽（issue 97；JS 注入 --ws-left-w 后失效） */
   max-width: 30vw;
   border-right: 1px solid var(--border);
 }
@@ -2356,9 +2356,9 @@ button.skin-pill {
   overflow: hidden;
 }
 
-/* ---- 右侧信息面板 ---- */
+/* ---- 右侧信息面板 ----（width 兜底与左侧同口径：issue 97 左右同 300px） */
 .ws-panel-right {
-  width: var(--ws-right-w, 280px);
+  width: var(--ws-right-w, 300px);
   max-width: 24vw; /* issue 87：同上，视口夹取走 max-width，避免被 width 过渡拖慢 */
   border-left: 1px solid var(--border);
 }

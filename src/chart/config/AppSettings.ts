@@ -82,13 +82,21 @@ const STORAGE_KEY = 'bangdream.settings.v1';
 /** 谱面时长上限（秒）：30 分钟，防误输入把画布撑爆（issue 28 第 2 轮 P6） */
 export const MAX_DURATION_SECONDS = 1800;
 
+/** 工作台左右面板的默认宽度上限（issue 97：左右同口径同宽） */
+export const DEFAULT_PANEL_WIDTH = 300;
+
+/** 默认面板宽度：窄视口随 20vw 收缩，宽屏封顶 DEFAULT_PANEL_WIDTH（issue 12 / issue 97 起左右同一公式） */
+export function defaultPanelWidth(innerWidth: number): number {
+  return Math.min(DEFAULT_PANEL_WIDTH, Math.round(innerWidth * 0.20));
+}
+
 export function defaultSettings(): AppSettings {
   return {
     schemaVersion: 1,
     theme: 'system',
     layout: {
-      leftPanel: { width: 380, collapsed: false },
-      rightPanel: { width: 300, collapsed: false },
+      leftPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
+      rightPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
     },
     shortcuts: getDefaultConfig(),
     audio: { keySet: DEFAULT_ACTIVE_KEY_SOUND_SET_ID, seVolume: 1 },
