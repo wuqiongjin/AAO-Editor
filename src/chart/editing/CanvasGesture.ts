@@ -18,6 +18,7 @@ import { draggableFromItems, itemTrueBeat } from './NoteDragging';
 import { isPastChartEnd } from './ChartEndBounds';
 import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
 import { GUTTER_LABEL_FONT_PX, bpmLabelBox } from '../../visual/gutterLabels';
+import { LANE_WIDTH } from '../geometry/ChartGeometry';
 
 /** 沟槽文字宽度测量（画布侧注入：带 canvas ctx 精确测量；测试侧注入等宽估算）。 */
 export type GutterMeasure = (text: string, fontPx: number) => number;
@@ -107,11 +108,17 @@ export interface DragAnchor {
     rawPressBeat: number;
 }
 
-export type PressIntent = { kind: 'drag'; anchor: DragAnchor } | { kind: 'marquee' };
+export type PressIntent =
+    | { kind: 'drag'; anchor: DragAnchor }
+    | { kind: 'marquee' }
+    // issue 09 S2（ADR-0009 §3）：曲线工具态空白按下（无 Shift）= 画笔起手
+    | { kind: 'pen'; start: ChartPos };
 
 /**
  * §6 按下意图仲裁：这一次按下是「拖拽移动」还是「框选」。
  * 任一步不合法都退回框选（防误拖），不产生半截拖拽态。
+ * 例外（issue 09 S2）：曲线工具态无 Shift 按下 = **画笔**（落点合法即起笔，音符上也可画——
+ * 画笔不改既有音符）；Shift 交还既有仲裁（Shift+音符 = 移动逃生口不受影响）。
  */
 export function resolvePressIntent(input: {
     cx: number;
@@ -125,6 +132,12 @@ export function resolvePressIntent(input: {
     chartEndBeat: number;
 }): PressIntent {
     const marquee: PressIntent = { kind: 'marquee' };
+    // ADR-0009 §3：曲线画笔优先于拖拽/框选仲裁（无 Shift 时曲线态恒画笔）
+    if (input.armedTool === 'curve' && !input.shiftKey) {
+        if (input.onMarker) return marquee;
+        const start = snapChartPos(input.deps, input.chartEndBeat, input.cx, input.cy);
+        return start ? { kind: 'pen', start } : marquee;
+    }
     // §6（三轮修订）：指针态音符上拖拽 = 移动；**任意持工具态 Shift+按住音符 = 移动**；
     // 其余持工具态拖拽 = 框选（防误拖）。
     if (!(input.armedTool === null || input.shiftKey)) return marquee;
@@ -159,7 +172,7 @@ export function resolvePressIntent(input: {
  * - `abort`     只收手势态，不触发任何动作
  * - `commitDrag` / `commitBox` / `click` 各自消费调用方**已捕获**的快照
  */
-export type ReleaseIntent = 'continue' | 'abort' | 'commitDrag' | 'commitBox' | 'click';
+export type ReleaseIntent = 'continue' | 'abort' | 'commitDrag' | 'commitBox' | 'commitPen' | 'click';
 
 export function resolveReleaseIntent(input: {
     /** null = 失焦等异常收尾（mouseup 永远不来） */
@@ -169,11 +182,14 @@ export function resolveReleaseIntent(input: {
     moved: boolean;
     drag: DragAnchor | null;
     box: { x1: number; y1: number; x2: number; y2: number } | null;
+    /** issue 09 S2：画笔进行中（曲线工具态空白拖动） */
+    pen?: boolean;
 }): ReleaseIntent {
     if (input.e && input.e.button !== 0) return 'continue';
     if (!input.start || !input.e || input.e.button !== 0) return 'abort';
     if (input.moved) {
         if (input.drag) return 'commitDrag';
+        if (input.pen) return 'commitPen';
         return input.box ? 'commitBox' : 'abort';
     }
     return 'click';
@@ -186,7 +202,7 @@ export function resolveReleaseIntent(input: {
  * BPM / 粘贴不在此列：二者作用于**位置**，与"点中了哪个音符"无关。
  */
 const NEEDS_HIT: ReadonlySet<MatrixTool> = new Set<MatrixTool>([
-  'single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'slide', 'delete', 'mirror', 'noteCode',
+  'single', 'flick', 'skill', 'ldirectional', 'rdirectional', 'slide', 'curve', 'delete', 'mirror', 'noteCode',
 ]);
 
 /** §2 单击矩阵在画布侧的四种去向（语义行仍在 ToolActionMatrix，本表只决定"去问谁"）。 */
@@ -240,6 +256,63 @@ export function resolveClickPlan(input: {
         ? findBpmLineAt(input.cx, input.cy, input.deps)
         : null;
     return { kind: 'runMatrix', hit: bpmLineHit ?? hit, pos: input.snap };
+}
+
+// ─────────────────────────────── 画笔（issue 09 S2 / ADR-0009 §3） ───────────────────────────────
+
+/** 画笔轨迹点：beat 单调递增（真拍位十进制），lane 连续小数 0..6（自由段 lane 不吸附） */
+export interface PenPoint { beat: number; lane: number }
+
+/**
+ * 画笔光标读数：rawBeat（未量化真拍）+ **连续 lane**（音符中心 = (lane+0.5)·LANE_WIDTH，
+ * 与 `getNoteVirtualX` 同构反推）；轨道外/越过谱面末端 → null（画笔在界内采样）。
+ */
+export function penCursorAt(
+    deps: Pick<HitTestDeps, 'geometry' | 'viewport' | 'beatDisplay'>,
+    chartEndBeat: number,
+    cx: number,
+    cy: number,
+): PenPoint | null {
+    const p = snapChartPos(deps, chartEndBeat, cx, cy);
+    if (!p) return null;
+    const { trackBgX } = deps.geometry.trackGeometry(deps.viewport.scale);
+    const es = deps.geometry.effectiveScale(deps.viewport.scale);
+    const lane = clampLane((cx - trackBgX) / (LANE_WIDTH * es) - 0.5);
+    return { beat: p.rawBeat, lane };
+}
+
+const clampLane = (v: number) => Math.min(Math.max(v, 0), 6);
+
+/**
+ * 画笔采样（ADR-0009 §3「拖动画笔 = 轨迹实时采样」）：从上一采样点起按固定拍步长追加点，
+ * lane 在上一采样点与当前光标间线性插值。**beat 单调递增是数据模型硬约束**——光标回退
+ * （beat 不前进）→ 不追加（笔画"往下回头"不可表达，画布上表现为该段被忽略）。
+ */
+export function penAppendSamples(
+    last: PenPoint,
+    cursor: PenPoint,
+    stepBeat: number,
+): PenPoint[] {
+    const out: PenPoint[] = [];
+    if (!(cursor.beat > last.beat + 1e-9) || stepBeat <= 0) return out;
+    const n = Math.floor((cursor.beat - last.beat) / stepBeat + 1e-9);
+    for (let k = 1; k <= n; k++) {
+        const beat = last.beat + k * stepBeat;
+        const t = (beat - last.beat) / (cursor.beat - last.beat);
+        out.push({ beat, lane: clampLane(last.lane + (cursor.lane - last.lane) * t) });
+    }
+    return out;
+}
+
+/** 落点吸附后的拍位（松手端点用：可见端点吸附放置栅格） */
+export function penReleaseBeat(
+    deps: Pick<HitTestDeps, 'geometry' | 'viewport' | 'beatDisplay'>,
+    chartEndBeat: number,
+    cx: number,
+    cy: number,
+): number | null {
+    const p = snapChartPos(deps, chartEndBeat, cx, cy);
+    return p ? p.beat : null;
 }
 
 // ─────────────────────────────── 框选：阈值 / 矩形 / 去向 ───────────────────────────────

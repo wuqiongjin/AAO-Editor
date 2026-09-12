@@ -30,6 +30,11 @@ export function spanOfRegion(conns: SlideNote['connections'], ci: number): ConnS
   return slideSpans(conns).find(sp => ci >= sp.start && ci < sp.end) ?? null;
 }
 
+/** 某 real region 所属逻辑段的**序数**（slideSpans 数组下标 = 可见结点对序数）；无 → -1 */
+export function ordinalOfRegion(conns: SlideNote['connections'], ci: number): number {
+  return slideSpans(conns).findIndex(sp => ci >= sp.start && ci < sp.end);
+}
+
 /**
  * 该 region 覆盖的**全部** real 结点下标（含段内 hidden）；
  * 找不到所属段时回退成"两邻结点"（防御，兼容旧语义）。

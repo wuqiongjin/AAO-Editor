@@ -3,13 +3,16 @@
 // 画布（FinalVirtualCanvas）负责几何→命中/落点/框内条目的换算，本模块只吃换算好的输入、
 // 输出副作用指令（op）序列；一次手势 = 一个 setNotes = 一个可回退快照（§8）。
 // 指针行（点选/加选/框选建选区）不在此表——它只操作选区、语义未变，留在画布选择路径。
-import type { ChartNote, SelectionItem } from '../types';
+import type { ChartNote, SelectionItem, SlideNote, LongNote, SpanEasingParam } from '../types';
 import {
   handleNoteReplacement, handleSlideToSlideCombination, keyTargetsFromItems,
   batchApplyKeyType, pasteChartNotes,
 } from './NoteReplacementRules';
 import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
 import { combineSelectionIntoSlide, compareAbsorbable } from './SlideCombination';
+import { ordinalOfRegion } from './SlideSegments';
+import { buildChainedSlide, connTrueBeat, countVisibleNodes, regenerateSpan } from './SpanCurve';
+import type { CurvePrecision, EasingFamily, EasingType } from './Easing';
 // 对象视图目标（issue 59 §4）在 NoteCodeOps 定义（回写走同一类型），转出供 op 与调用方使用
 import { noteCodeTargetForHit, type NoteCodeTarget } from './NoteCodeOps';
 export type { NoteCodeTarget } from './NoteCodeOps';
@@ -22,17 +25,34 @@ export type { NoteCodeTarget } from './NoteCodeOps';
 export type MatrixTool =
   | 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirectional'
   | 'bpm' | 'slide'
+  | 'curve' // issue 09 S2（ADR-0009 §3）：曲线工具——单击链式缓动段 / 拖动画笔自由段 / 点段重应用
   | 'delete' | 'paste' | 'mirror'
   | 'noteCode'; // issue 59 §2：持工具态，点音符 = 打开该音符代码弹窗（唯一不改谱面的工具）
 
 export interface SlidePoint { beat: number; lane: number; subBeat: number }
 export interface SnapPos { beat: number; lane: number }
 
+/** 曲线工具当前配置（UIProvider 持有、沿用上次值；放置与段重应用共用） */
+export interface CurveConfig {
+  family: EasingFamily;
+  type: EasingType;
+  precision: CurvePrecision;
+}
+
+/** 曲线工具链式草稿：可见锚点序列 + 各段参数 + 首段落地后的滑条下标（完整性检查用） */
+export interface CurveDraft {
+  points: SlidePoint[];
+  params: Record<number, SpanEasingParam>;
+  /** 首段写入 notes 的下标；null = 尚未落子（第一击前的锚点态） */
+  noteIndex: number | null;
+}
+
 export type MatrixOp =
   | { t: 'setNotes'; notes: ChartNote[] }          // handleNotesChange（单快照）
   | { t: 'setSelection'; items: SelectionItem[] }  // setSelectedItems
   | { t: 'setClipboard'; notes: ChartNote[] }      // setClipboard
   | { t: 'setSlideBuffer'; point: SlidePoint | null }
+  | { t: 'setCurveBuffer'; draft: CurveDraft | null } // issue 09 S2：曲线草稿（组件侧 state，不入历史）
   | { t: 'openBpmEditor'; beat: number; value: string } // §5 就地编辑
   | { t: 'openNoteCode'; target: NoteCodeTarget };      // issue 59 §3：打开该音符/结点的代码弹窗
 
@@ -130,6 +150,51 @@ export function combineOps(notes: ChartNote[], items: SelectionItem[]): MatrixOp
   ];
 }
 
+/**
+ * §4 曲线工具链式放置（issue 09 / ADR-0009 §3）：每次合法点击 = 接一段。
+ * 草稿确定性重建（buildChainedSlide 从 points+params 全量重算），不做增量拼接；
+ * 草稿引用的滑条已不在（undo / 外部改动）→ 草稿作废，本次点击退为"第一击"。
+ * S2 口径：曲线工具不做滑条-滑条接合（共端点 = 分叉，bestdori 同为合法形态）。
+ */
+export function curveChainClickOps(
+  notes: ChartNote[],
+  draft: CurveDraft,
+  point: SlidePoint,
+  config: CurveConfig,
+  beatDisplay: number,
+  clearSel: MatrixOp = { t: 'setSelection', items: [] },
+): MatrixOp[] {
+  const param: SpanEasingParam = { kind: 'easing', family: config.family, type: config.type, precision: config.precision };
+  let base = draft;
+  if (base.noteIndex !== null) {
+    const cur = notes[base.noteIndex];
+    const ok = !!cur && (cur.type === 'Slide' || cur.type === 'Long')
+      && countVisibleNodes((cur as SlideNote | LongNote).connections) === base.points.length
+      && Math.abs(connTrueBeat((cur as SlideNote | LongNote).connections[0]!, beatDisplay) - base.points[0]!.beat) < 1e-9;
+    if (!ok) base = { points: [], params: {}, noteIndex: null };
+  }
+  const points = [...base.points, point];
+  // 重启后的空草稿：本次点击只当"第一击"（挂锚点），不落子
+  if (base.noteIndex === null && base.points.length === 0) {
+    return [{ t: 'setCurveBuffer', draft: { points, params: {}, noteIndex: null } }, clearSel];
+  }
+  const params = { ...base.params, [base.points.length - 1]: param };
+  const slide = buildChainedSlide(points, params, beatDisplay);
+  if (base.noteIndex === null) {
+    return [
+      { t: 'setNotes', notes: [...notes, slide] },
+      { t: 'setCurveBuffer', draft: { points, params, noteIndex: notes.length } },
+      clearSel,
+    ];
+  }
+  const idx = base.noteIndex;
+  return [
+    { t: 'setNotes', notes: notes.map((n, i) => (i === idx ? slide : n)) },
+    { t: 'setCurveBuffer', draft: { points, params, noteIndex: idx } },
+    clearSel,
+  ];
+}
+
 export interface ClickInput {
   tool: MatrixTool;
   notes: ChartNote[];
@@ -146,12 +211,14 @@ export interface ClickInput {
   beatDisplay: number;
   /** 当前选区（issue 88）：命中项 ∈ 选区 → 动作作用于整片；否则只作用被点那一个 */
   selectedItems: SelectionItem[];
+  /** issue 09 S2：曲线草稿与当前配置（curve 行专用；slideBuffer 与 curveDraft 互不干扰） */
+  curveDraft?: CurveDraft | null;
+  curveConfig?: CurveConfig | null;
 }
 
 /** §2 单击矩阵（工具族行 × 音符/空白列）；指针行不走此函数（指针行在画布侧 selectItemAtPoint） */
 export function clickOps(input: ClickInput): MatrixOp[] {
-  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard, chartEndBeat, beatDisplay, selectedItems } = input;
-  // §2 原则 6：**非指针态单击画布 = 新意图 → 清空选区**，与落点是否合法、动作是否生效无关
+  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard, chartEndBeat, beatDisplay, selectedItems } = input;  // §2 原则 6：**非指针态单击画布 = 新意图 → 清空选区**，与落点是否合法、动作是否生效无关
   // （含"点轨道外/谱面末端外"这种非法落点：动作按 §1 无事发生，但选中态照样取消——
   // 用户点了画布，注意力已经转移；选中态留着只是噪音）。
   // 唯一保留选区的例外见原则 6：镜像/粘贴后 = 本次产物、框选批量后、拖拽后、复制后。
@@ -197,6 +264,32 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     // 第一击（挂锚点）同样清选区：与"点轨道外清"保持一致，不留"改不改谱面"的双轨判定
     if (!slideBuffer) return [{ t: 'setSlideBuffer', point }, clearSel];
     return slideSecondClickOps(notes, slideBuffer, point, clearSel);
+  }
+  if (tool === 'curve') {
+    // issue 09 S2（ADR-0009 §3）：命中 ∈ 选区 → 与滑条工具同源（Shift 框选/单击选区内 = 整片组合）
+    if (hitInSelection) {
+      const ops = combineOps(notes, selectedItems);
+      if (ops.length > 0) return ops;
+    }
+    // 点中**段**（slideRegion）= 当前缓动配置就地重应用该段（ADR-0009 §2 三来源切换/§3 段参数就地编辑；
+    // 段内 hidden 点整体重烘焙，其它段不动）
+    if (hit && hit.kind === 'slideRegion' && input.curveConfig) {
+      const target = notes[hit.noteIndex];
+      if (target && (target.type === 'Slide' || target.type === 'Long')) {
+        const ordinal = ordinalOfRegion((target as SlideNote | LongNote).connections, hit.connIndex);
+        if (ordinal >= 0) {
+          const param: SpanEasingParam = { kind: 'easing', ...input.curveConfig };
+          const next = regenerateSpan(target as SlideNote | LongNote, ordinal, param, beatDisplay);
+          return [{ t: 'setNotes', notes: notes.map((n, i) => (i === hit.noteIndex ? next : n)) }, clearSel];
+        }
+      }
+    }
+    // 非法位置点击 = 取消曲线草稿（与滑条锚点取消同语义）+ 清选区
+    if (!pos) return input.curveDraft ? [{ t: 'setCurveBuffer', draft: null }, clearSel] : [clearSel];
+    const point: SlidePoint = { beat: pos.beat, lane: pos.lane, subBeat: 0 };
+    const draft = input.curveDraft ?? null;
+    if (!draft) return [{ t: 'setCurveBuffer', draft: { points: [point], params: {}, noteIndex: null } }, clearSel];
+    return curveChainClickOps(notes, draft, point, input.curveConfig!, beatDisplay, clearSel);
   }
   if (tool === 'paste') {
     // §2.1：粘贴作用于位置 —— 剪贴板组的包围盒左上角对齐到该落点（锚点语义归 shiftGroupToAnchor）。
@@ -262,6 +355,8 @@ export function boxSelectOps(
   // issue 72：粘贴态在画布侧**根本不启动框选**（`canStartMarquee`），此处只是兜底无效果
   if (tool === 'paste') return [];
   if (tool === 'slide') return combineOps(notes, items); // §4 组合成滑条
+  // issue 09 S2：曲线工具态框选（Shift+拖）与滑条同源 = 整片组合（空白拖已被画笔占用，ADR-0008 §2 例外）
+  if (tool === 'curve') return combineOps(notes, items);
   if (tool === 'delete') {
     // issue 71 例外（用户拍板 A）：删除是"批量执行"不是建选区 → 被整条框住的 BPM 线照删。
     // 它不进选区，故只在删除目标集合里合并一次（去重，防与 items 重复）。

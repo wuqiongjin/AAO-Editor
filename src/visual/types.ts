@@ -1,11 +1,12 @@
 // 渲染器与命中测试的共享类型（ADR-0003 候选 B）：
 // 把 FinalVirtualCanvas 的「渲染 + 命中」从组件闭包中提出为可注入依赖的纯模块，
 // 组件只保留挂载/生命周期/事件绑定，性能热路径集中于此、可独立单测。
-import type { ChartNote, SelectionItem } from '../chart/types';
+import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import type { ChartGeometry, SurfaceSize } from '../chart/geometry/ChartGeometry';
 import type CanvasSpriteIcon from '../ui/CanvasSpriteIcon';
 import type { ActiveNoteIcons } from './noteSkin';
 import type { GridStylePreset } from './gridStyle';
+import type { CurveConfig, CurveDraft } from '../chart/editing/ToolActionMatrix';
 
 /** 视口状态（虚拟尺寸 + 滚动 + 缩放） */
 export interface ViewportState {
@@ -69,6 +70,11 @@ export interface RenderCtx {
   rightButtonHeld?: boolean;
   /** 拖拽移动实时幽灵（ADR-0008 §6）：拖拽中的落点音符（覆盖原位置渲染的临时结果），null = 无拖拽 */
   dragGhost?: ChartNote[] | null;
+  /** issue 09 S2：曲线工具草稿与当前配置（renderToolPreview 的缓动段预览用） */
+  curveDraft?: CurveDraft | null;
+  curveConfig?: CurveConfig | null;
+  /** issue 09 S2：画笔进行中的草稿幽灵（松手即按此形态落子的自由段），null = 非画笔手势 */
+  penPreview?: SlideNote | null;
   spriteIcon: CanvasSpriteIcon;
   /** 音符皮肤图标集（issue 29）：由组件按 settings.visual.noteSkin 构建注入；换肤时引用变化 → 瓦片经 skinVersion 失效 */
   noteIcons: ActiveNoteIcons;

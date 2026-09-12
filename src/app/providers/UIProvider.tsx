@@ -5,6 +5,7 @@
 // 布局收纳（issue 12 / ADR-0003 L1）：面板宽度与折叠态、拖拽分隔条逻辑集中于此。
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { defaultPanelWidth } from '../../chart/config/AppSettings';
+import type { CurveConfig } from '../../chart/editing/ToolActionMatrix';
 
 
 // ADR-0008 §1 工具轴（持工具态）：所有工具共驻一根互斥轴；null = 指针态（默认底态）。
@@ -15,11 +16,18 @@ export type KeyToolId = 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirect
 // issue 59 §2/§3：「音符代码」（tool id `noteCode`）是第七个持工具态——点谁看谁、弹窗关闭后态驻留；
 // 它是唯一不改谱面的工具：不可框选（原则 2 例外）、单击不清选区（原则 6 例外）。
 export type ActionToolId = 'delete' | 'paste' | 'mirror' | 'noteCode';
-export type ArmedTool = KeyToolId | 'bpm' | 'slide' | ActionToolId;
+// issue 09 S2（ADR-0009 §3）：`curve` = 曲线工具（单击链式缓动段 / 拖动画笔自由段 / 点段重应用）
+export type ArmedTool = KeyToolId | 'bpm' | 'slide' | 'curve' | ActionToolId;
+
+/** 曲线工具出厂默认（沿用上次值 = 本 Provider state 天然具备；会话内不持久化到 settings） */
+export const DEFAULT_CURVE_CONFIG: CurveConfig = { family: 'sine', type: 'inOut', precision: 16 };
 
 export interface UIContextValue {
   armedTool: ArmedTool | null;
   setArmedTool: (t: ArmedTool | null) => void;
+  /** issue 09 S2：曲线工具配置（族/型/精度），放置与段重应用共用；沿用上次值 */
+  curveConfig: CurveConfig;
+  setCurveConfig: (c: CurveConfig) => void;
   scale: number;
   setScale: (scale: number | ((prev: number) => number)) => void;
   beatDisplay: number;
@@ -45,6 +53,7 @@ const UIContext = createContext<UIContextValue | null>(null);
 
 export function UIProvider({ children }: { children: ReactNode }) {
   const [armedTool, setArmedTool] = useState<ArmedTool | null>(null);
+  const [curveConfig, setCurveConfig] = useState<CurveConfig>(DEFAULT_CURVE_CONFIG);
   const [scale, setScale] = useState(1);
   const [beatDisplay, setBeatDisplay] = useState(4);
 
@@ -88,6 +97,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
 
   const value: UIContextValue = {
     armedTool, setArmedTool,
+    curveConfig, setCurveConfig,
     scale, setScale,
     beatDisplay, setBeatDisplay,
     leftPanelWidth, rightPanelWidth,

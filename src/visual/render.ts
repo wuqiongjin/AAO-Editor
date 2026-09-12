@@ -10,6 +10,7 @@ import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
 import { slideSpans, isSpRegion } from '../chart/editing/SlideSegments';
+import { previewEasedConnections } from '../chart/editing/SpanCurve';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
@@ -904,8 +905,7 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   }
 
   // issue 65④：滑条工具态此前什么都不画 → 补两档 hover 幽灵。
-  if (rc.armedTool === 'slide') {
-    const buf = rc.slideBuffer;
+  if (rc.armedTool === 'slide') {    const buf = rc.slideBuffer;
     const bufBeat = buf ? buf.beat + (buf.subBeat || 0) / rc.beatDisplay : 0;
     // 与锚点同拍（含同轨同位与"横向段"）→ 第二击走的是取消/禁令分支，永远不成段 → 不画带子
     if (buf && Math.abs(pos.preciseBeat - bufBeat) > 1e-6) {
@@ -919,6 +919,37 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(pos.lane), c.getNoteVirtualY(pos.preciseBeat, 0));
     renderSpriteGhost(ctx, rc, slideNodeIconConfig(rc, { lane: pos.lane }, true, true),
       cpt.x, cpt.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
+    ctx.restore();
+    return;
+  }
+
+  // issue 09 S2（ADR-0009 §3）：曲线工具预览——画笔草稿 / 最近锚点→光标的缓动段（按当前配置实时烘焙）
+  if (rc.armedTool === 'curve') {
+    // 画笔进行中：整条草稿幽灵（松手即按此形态落子；hidden 点不画图标、SP 段用 SP 带与实绘同口径）
+    if (rc.penPreview && rc.penPreview.connections.length >= 2) {
+      renderSlideGhost(ctx, c, rc, rc.penPreview);
+      ctx.restore();
+      return;
+    }
+    // 落点端点幽灵（与滑条工具同款）
+    const cpt = c.virtualToCanvas(c.getNoteVirtualX(pos.lane), c.getNoteVirtualY(pos.preciseBeat, 0));
+    renderSpriteGhost(ctx, rc, slideNodeIconConfig(rc, { lane: pos.lane }, true, true),
+      cpt.x, cpt.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
+    // live 段：最近锚点（草稿末点）→ 光标，按当前缓动配置烘焙预览（所见即成条所得）
+    const anchor = rc.curveDraft?.points.at(-1) ?? null;
+    const cfg = rc.curveConfig;
+    if (anchor && cfg) {
+      const anchorBeat = anchor.beat + (anchor.subBeat || 0) / rc.beatDisplay;
+      const cursorBeat = pos.preciseBeat;
+      if (cursorBeat > anchorBeat + 1e-6) {
+        const conns = previewEasedConnections(
+          { beat: anchorBeat, lane: anchor.lane },
+          { beat: cursorBeat, lane: pos.lane },
+          cfg.family, cfg.type, cfg.precision, rc.beatDisplay,
+        );
+        renderSlideGhost(ctx, c, rc, { connections: conns });
+      }
+    }
     ctx.restore();
     return;
   }

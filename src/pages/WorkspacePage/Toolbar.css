@@ -91,3 +91,14 @@
   border-color: var(--border-strong);
   background-color: var(--bg-hover);
 }
+
+/* ---- 曲线工具配置（issue 09 S2）：下拉组间距 + 说明文字 ---- */
+.toolbar__beat-select + .toolbar__beat-select {
+  margin-top: var(--space-2);
+}
+.toolbar__hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs, 11px);
+  line-height: 1.5;
+  color: var(--text-muted, #888);
+}

@@ -11,6 +11,7 @@ import {
   Redo,
   ChevronLeft,
   FileCode,
+  Spline,
 } from "lucide-react";
 import NoteIconGlyph from '../../chart/rendering/NoteIconGlyph';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../visual/noteSkin';
@@ -36,10 +37,35 @@ function SectionHeader({ children }: { children: ReactNode }) {
 // 工具 id → 快捷键类别（tooltip 按类别合并 切换/执行）
 const toolCategory: Record<string, string> = {
   mouse: "鼠标", bpm: "BPM", single: "单键", flick: "滑键",
-  skill: "技能", ldirectional: "左滑", rdirectional: "右滑", slide: "滑条",
+  skill: "技能", ldirectional: "左滑", rdirectional: "右滑", slide: "滑条", curve: "曲线",
   copy: "复制", cut: "剪切", paste: "粘贴", delete: "删除", mirror: "镜像",
   noteCode: "音符代码", undo: "撤销", redo: "重做",
 };
+
+/** 曲线工具配置项的选项表（issue 09 S2 / ADR-0009 §2：10 族 × 4 型 × 3 档精度） */
+const CURVE_FAMILY_OPTIONS = [
+  { value: "sine", label: "Sine 正弦" },
+  { value: "quad", label: "Quad 二次" },
+  { value: "cubic", label: "Cubic 三次" },
+  { value: "quart", label: "Quart 四次" },
+  { value: "quint", label: "Quint 五次" },
+  { value: "expo", label: "Expo 指数" },
+  { value: "circ", label: "Circ 圆弧" },
+  { value: "back", label: "Back 过冲" },
+  { value: "elastic", label: "Elastic 弹性" },
+  { value: "bounce", label: "Bounce 弹跳" },
+] as const;
+const CURVE_TYPE_OPTIONS = [
+  { value: "in", label: "In" },
+  { value: "out", label: "Out" },
+  { value: "inOut", label: "In-Out" },
+  { value: "outIn", label: "Out-In" },
+] as const;
+const CURVE_PRECISION_OPTIONS = [
+  { value: 16, label: "1/16" },
+  { value: 32, label: "1/32" },
+  { value: 64, label: "1/64" },
+] as const;
 
 export default function Toolbar() {
   const editing = useEditing();
@@ -59,6 +85,7 @@ export default function Toolbar() {
   } = editing;
   const {
     armedTool, setArmedTool, beatDisplay, setBeatDisplay,
+    curveConfig, setCurveConfig,
     toggleLeftPanel,
   } = ui;
   const canCopy = selectedItems.length > 0;
@@ -84,6 +111,8 @@ export default function Toolbar() {
     { id: "ldirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirL" size={28} />, label: "左滑" },
     { id: "rdirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirR" size={28} />, label: "右滑" },
     { id: "slide", icon: <NoteIconGlyph icons={noteIcons} item="slide" size={28} />, label: "滑条" },
+    // issue 09 S2：曲线工具（SP 绿条直接放置——单击链式 / 拖动画笔 / 点段重应用）
+    { id: "curve", icon: <Spline size={18} />, label: "曲线" },
   ];
   // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）。
   // 动作类持工具态（方案 A，issue 55 三轮：删除/镜像）标签供顶部 pill 显示
@@ -155,6 +184,44 @@ export default function Toolbar() {
             ))}
           </select>
         </div>
+
+        {/* issue 09 S2：曲线工具配置（仅曲线持工具态时出现；ADR-0008 §5 沿用上次值模式） */}
+        {armedTool === "curve" && (
+          <div>
+            <SectionHeader>曲线配置</SectionHeader>
+            <select
+              value={curveConfig.family}
+              onChange={(e) => setCurveConfig({ ...curveConfig, family: e.target.value as typeof curveConfig.family })}
+              className="toolbar__beat-select"
+              title="缓动族（对标 Bestdori 曲线工具 10 族）"
+            >
+              {CURVE_FAMILY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <select
+              value={curveConfig.type}
+              onChange={(e) => setCurveConfig({ ...curveConfig, type: e.target.value as typeof curveConfig.type })}
+              className="toolbar__beat-select"
+              title="缓动型"
+            >
+              {CURVE_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <select
+              value={curveConfig.precision}
+              onChange={(e) => setCurveConfig({ ...curveConfig, precision: Number(e.target.value) as typeof curveConfig.precision })}
+              className="toolbar__beat-select"
+              title="采样精度（每拍 hidden 采样密度）"
+            >
+              {CURVE_PRECISION_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <p className="toolbar__hint">两击放缓动段（链式）；空白拖动 = 画笔；点已有段 = 应用当前缓动</p>
+          </div>
+        )}
 
         {/* 编辑功能（对选中对象/剪贴板）：2 列网格，谱面代码铺满 */}
         <div>

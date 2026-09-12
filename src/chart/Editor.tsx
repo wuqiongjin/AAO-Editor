@@ -320,6 +320,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'execBpm': virtualCanvasRef.current?.execBpm?.(); break;
       case 'switchSlide': setArmedTool('slide'); break;
       case 'execSlide': virtualCanvasRef.current?.execSlide?.(); break;
+      // issue 09 S2（ADR-0009 §3）：曲线工具 = 仅切换（放置走链式点击/画笔手势）
+      case 'switchCurve': setArmedTool('curve'); break;
       case 'switchMouse': setArmedTool(null); break;
       case 'execCopy': copy(); break;
       // §2.1（六轮）：空剪贴板 → 粘贴态是纯空转（无预览、单击无事发生），
