@@ -271,6 +271,6 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
     slideEndpointFor: () => longConfig,
     flickTopDecorator,
     dirGroup,
-    preloadSrcs: () => [...new Set([tapPack.atlas, flickPack.atlas, skillPack.atlas, slidePack.band, dirLPack.atlas, dirRPack.atlas])],
+    preloadSrcs: () => [...new Set([tapPack.atlas, flickPack.atlas, skillPack.atlas, slidePack.atlas, slidePack.band, dirLPack.atlas, dirRPack.atlas])],
   };
 }

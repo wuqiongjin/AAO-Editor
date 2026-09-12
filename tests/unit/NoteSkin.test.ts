@@ -13,6 +13,7 @@ import {
   NOTE_SKIN_GEOMETRY,
 } from '../../src/visual/noteSkin';
 import { LANE_WIDTH } from '../../src/chart/geometry/ChartGeometry';
+import type { SpriteIconConfig } from '../../src/ui/CanvasSpriteIcon';
 import { defaultSettings, loadSettings, updateSettings } from '../../src/chart/config/AppSettings';
 
 const notePacks = NOTE_SKIN_PACKS.filter((p): p is NoteSkinPackNote => p.kind === 'note');
@@ -240,11 +241,43 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
     }
   });
 
-  it('preloadSrcs 覆盖当前选择涉及的全部图片', () => {
-    const srcs = icons.preloadSrcs();
-    expect(srcs).toContain(skin00.atlas);
-    expect(srcs).toContain(skin00.band);
-    expect(new Set(srcs).size).toBe(srcs.length);
+  it('preloadSrcs 覆盖当前选择涉及的全部图片（issue 99 跨包不变量：全部产出精灵 src ⊆ 清单）', () => {
+    // 六条目各指向不同包：默认组合全部同包时，缺预热恰好被掩盖（滑条端点曾因此切换后空白）
+    const cross = buildActiveNoteIcons(normalizeNoteSkinSelection({
+      tap: notePacks[0].id,
+      flick: notePacks[1 % notePacks.length].id,
+      skill: notePacks[2 % notePacks.length].id,
+      slide: notePacks[3 % notePacks.length].id,
+      dirL: dirPacks[0].id,
+      dirR: dirPacks[1 % dirPacks.length].id,
+    }));
+    for (const set of [icons, cross]) {
+      const preloaded = new Set(set.preloadSrcs());
+      const refs: SpriteIconConfig[] = [
+        set.slideBand,
+        set.dirFor('L', 3),
+        set.dirFor('R', 3),
+        ...(set.flickTopDecorator ? [set.flickTopDecorator] : []),
+      ];
+      for (const lane of [0, 3, 6]) {
+        refs.push(
+          set.tapFor(lane), set.tapVirtualFor(lane), set.flickFor(lane),
+          set.skillFor(lane), set.slideEndpointFor(lane), set.slideAmongFor(lane),
+        );
+      }
+      for (const type of ['L', 'R'] as const) {
+        for (const len of [1, 2, 3]) {
+          const g = set.dirGroup(type, len);
+          refs.push(...g.bodies.map((b) => b.config));
+          if (g.chevron) refs.push(g.chevron.config);
+        }
+      }
+      for (const r of refs) expect(preloaded.has(r.src), `精灵未入预热清单: ${r.src}`).toBe(true);
+      expect(new Set(set.preloadSrcs()).size).toBe(set.preloadSrcs().length);
+    }
+    // 现状钉子：默认组合的清单也含图集与连接带
+    expect(icons.preloadSrcs()).toContain(skin00.atlas);
+    expect(icons.preloadSrcs()).toContain(skin00.band);
   });
 
   it('跨包组合：tap 用 A 包、slide 用 A 包、dirL/dirR 用方向包（条目独立）', () => {
