@@ -1,0 +1,165 @@
+# Bestdori! API 实测参考（2026-09-12）
+
+> Bestdori!（https://bestdori.com/）**没有官方 API 文档**。本文全部端点于 2026-09-12 匿名实测验证（只读探测）；
+> 写操作（登录 / 上传 / 发布）未实测，流程从 Bestdori 前端 bundle 与社区 wrapper 源码交叉验证，并在 §8「待验证清单」标明。
+> 本文只记录事实，不做决策；决策见 `docs/adr/` 与 `.scratch/bestdori-integration/` 对应票。
+
+权威来源（交叉验证）：
+
+- Bestdori 前端 bundle：`/js/app.d390adb1.js`、`/js/CommunityCharts{,New,Edit}.js`（请求构造的最终权威）
+- 社区 Python wrapper [WindowsSov8forUs/bestdori-api](https://github.com/WindowsSov8forUs/bestdori-api)：端点清单 `bestdori/data/api/bestdori/api.json`
+- 社区 Go SDK [bestdori-api-go](https://pkg.go.dev/github.com/WindowsSov8forUs/bestdori-api-go)
+
+## 0. 全局事实
+
+| 事实 | 说明 |
+| --- | --- |
+| 单一域名 | API `/api/*`、游戏资源 `/assets/*`、上传文件 `/api/upload/file/*` 全部在 `https://bestdori.com` 同域（`assets.bestdori.com` 实测不可用/无响应） |
+| **无 CORS 头** | 所有端点（含 assets）响应均无 `access-control-allow-origin` → **浏览器跨域 fetch 全部被禁**。`<img>`/`<audio>` 标签引用不受 CORS 限制（但 canvas 像素读取需要） |
+| robots.txt | 不存在（返回 SPA HTML 回退页），站点未声明抓取政策 |
+| WAF | 全站 Cloudflare 前置；本调研百余次低速率请求未触发人机验证 |
+| 错误形态 | 业务错误也是 **HTTP 200** + `{"result":false,"code":"…"}`。错误码全集：`REQUEST_INVALID` / `LOGIN_REQUIRED` / `CREDENTIALS_INVALID` / `USER_INVALID` / `ALREADY_UPLOADED` / `POST_INVALID` |
+| 无 CSRF/UA 校验 | 后端不校验 User-Agent / Origin / Referer / CSRF 头（curl 裸 POST 成功；Python wrapper 亦不带任何特殊头） |
+
+## 1. 官方歌曲与官方谱面
+
+### GET `/api/songs/all.5.json`
+
+全量歌曲元数据（约 4 万字符级响应，`cache-control: max-age=60`）。键为歌曲 id：
+
+```json
+"1": {
+  "tag": "normal", "bandId": 1,
+  "jacketImage": ["yes_bang_dream", ...],
+  "musicTitle": [ja, en, zh-Hans, zh-Hant, ko, ...],
+  "publishedAt": [各服毫秒时间戳], "closedAt": [...],
+  "difficulty": {
+    "0": {"playLevel": 5}, "1": {"playLevel": 10}, "2": {"playLevel": 17},
+    "3": {"playLevel": 22},
+    "4": {"playLevel": 26, "publishedAt": [...]}
+  }
+}
+```
+
+难度编号 `0..4` = easy / normal / hard / expert / special；`difficulty` 中**出现的键即该曲已实装的难度**（special 通常带 per-server `publishedAt`）。
+
+### GET `/api/songs/{id}.json`
+
+单曲详情：`bgmId`（如 `"bgm001"`）、`bgmFile`（如 `"yes_bang_dream"`）、`tag`、`bandId`、`achievements[]`、`difficulty{}` 等。
+
+### GET `/api/charts/{songId}/{diff}.json`
+
+官方谱面代码。`diff` ∈ `easy|normal|hard|expert|special`。**返回的 JSON 数组就是本编辑器的「谱面代码」格式**（`BPM` / `System` / `Single` / `Long` / `Slide` + `connections` + `flick` / `lane 0..6` / `beat`），与 `src/chart/editing/ChartConverter.ts` 及 vendored sonolus-bandori-engine 口径一致，可直接导入：
+
+```json
+[{"type":"BPM","bpm":185,"beat":0},
+ {"type":"System","data":"bgm001.wav","beat":0},
+ {"type":"Single","lane":5,"beat":10},
+ {"type":"Long","connections":[{"lane":6,"beat":12},{"lane":6,"beat":13}]}, ...]
+```
+
+### GET `/api/songs/meta/all.{n}.json`
+
+歌曲 meta（BPM / 时长等）。实测 `all.1.json` 404、`all.2.json` 200（版本号 2）。
+
+## 2. 社区谱面（= `SELF_POST`/`chart` 分类的帖子）
+
+社区谱面在 Bestdori 里就是「帖子」（画廊 `SELF_POST`，分类 `chart`）。2026-09-12 实测总量 **47491** 张。
+
+### POST `/api/post/list`（社区谱面列表 / 搜索 / 分页）
+
+JSON body（实测约束）：
+
+| 字段 | 必填 | 约束 |
+| --- | --- | --- |
+| `search` | ✅ | 可为空串 `""`；非空时做关键字搜索 |
+| `categoryName` | ✅ | `SELF_POST` |
+| `categoryId` | ✅ | `chart` |
+| `order` | ✅ | `TIME_DESC` / `TIME_ASC` 实测可用；`LIKE_DESC` 返回 `REQUEST_INVALID` |
+| `limit` | ✅ | **10..100**（4、5 拒绝；10、20、50 通过；101 拒绝） |
+| `offset` | ✅ | 翻页偏移，缺省也拒绝 |
+
+响应：
+
+```json
+{"result": true, "count": 47491, "posts": [{
+  "id": 248468, "categoryName": "SELF_POST", "categoryId": "chart",
+  "title": "All You Wanted (GBP Edit)",
+  "song": {"type": "custom",
+           "audio": "https://bestdori.com/api/upload/file/d936…",
+           "cover": "https://bestdori.com/api/upload/file/247c…"},
+  "artists": "Michelle Branch", "diff": 3, "level": 24,
+  "content": [{"data":"Notes: 413","type":"text"}, {"type":"br"}, {"data":"Morfonica","type":"emoji"}],
+  "time": 1789214607000, "author": {"username":"…","nickname":"…","titles":null},
+  "likes": 1, "liked": false, "tags": []
+}]}
+```
+
+`song` 三种形态：`custom`（用户上传音频+封面，直链）／`bandori`（Bestdori 官方曲库，`{type,id}`）／`llsif`（LoveLive 曲库）。列表**不含谱面数据本体**，需再取详情。
+
+### GET `/api/post/details?id={id}`
+
+帖子详情，**匿名可读**。谱面帖多出 `chart` 字段 = **完整谱面代码数组**（与官方谱面、本编辑器同格式）。
+
+### 其他读端点
+
+- `GET /api/post/basic?id={id}` — 标题/作者摘要
+- `GET /api/post/tag?type=&data=&fuzzy=` — 标签搜索（返回 `tags[]` 带 count）
+- `GET /api/post/find?categoryName=&categoryId=&id=` — 帖子在画廊中的时间序位次
+
+## 3. 账号与登录（登录成功未实测）
+
+| 端点 | 说明 |
+| --- | --- |
+| `POST /api/user/login`，JSON `{username, password}` | 成功 Set-Cookie 建立会话；失败 200 + `{"result":false,"code":"CREDENTIALS_INVALID"}`（实测） |
+| `GET /api/user/me` | 当前会话用户信息 |
+| `POST /api/user/signup` `{username,password,email}` | 注册（前端 bundle 实证） |
+| `POST /api/user/logout`、`POST /api/user/password {old,new}`、`POST /api/user/reset/{request,consume}` | 会话/密码管理（前端 bundle 实证） |
+
+- **无 OAuth / API Token**：唯一授权方式就是用户名+密码换 Cookie 会话。
+- 后端不校验 CSRF（见 §0），自建客户端只需保存并回传会话 Cookie。
+- 待验证：会话 Cookie 名与有效期、多点登录行为、`/api/user/me` 匿名返回形态。
+
+## 4. 文件上传（发布谱面所需的音频 / 封面图）
+
+流程（wrapper `upload.py` 与前端 bundle 一致；**需登录会话**）：
+
+1. 本地计算文件 **SHA-1**（40 位 hex）与字节数 `size`；
+2. `POST /api/upload/prepare`，JSON `{ver: 3, hash, size}` —— 若文件已存在返回 `ALREADY_UPLOADED`（可直接复用）；
+3. `POST /api/upload`，`multipart/form-data` 字段名 `file` → 响应 `{hash}`；
+4. 轮询 `GET /api/upload/status/{hash}` 直到 `{"status":"available"}`（wrapper 最多重试 5 次）。
+
+引用 URL：`https://bestdori.com/api/upload/file/{hash}`，**匿名可下载**（实测 200，`application/octet-stream`，无 CORS 头）。音频与封面图都走同一上传通道，发布时以 URL 形态填进帖子的 `song` 字段。
+
+## 5. 发布 / 编辑社区谱面帖（未实测，前端 bundle 实证）
+
+- **发布**：`POST /api/post`，JSON body：
+  `{title, artists, diff(0..4?), level(1..35?), chart(谱面代码数组), content(富文本块数组, ≤5000 字符), categoryName:"SELF_POST", categoryId:"chart", tags[], song}`，
+  `song` = `{type:"custom", audio:"https://bestdori.com/api/upload/file/{hash}", cover:"…"}` 或 `{type:"bandori", id}`。响应返回新帖 id。需登录。
+- **编辑**：`POST /api/post/edit` `{id, diff, level, rating, warningViolence, warningDeath, warningNonCon, warningUnderage, tags}`。
+- **点赞**：`POST /api/post/like` `{id, value}`。评论即回复帖（`categoryName:"POST_COMMENT"`，如 `categoryId=父帖id`）。
+
+## 6. 资源 URL 模式（官方曲库素材）
+
+| 资源 | 模式 | 实测 |
+| --- | --- | --- |
+| 官方完整音频 | `/assets/{server}/sound/bgm{bgmId:03d}_rip/bgm{bgmId:03d}.mp3`（`bgmId` 取自 `/api/songs/{id}.json`；server = jp/en/tw/kr/cn） | song 1 → `bgm001`，200，audio/mpeg，约 4 MB（完整曲，非预览） |
+| 专辑封面 | `/assets/{server}/musicjacket/musicjacket{bucket}_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket{bucket}-{jacketImage}-jacket.png`（`jacketImage` 取自 `all.5.json`） | song 1（`yes_bang_dream`）：`musicjacket10` → 200（97KB，正确封面）；`musicjacket00` → 200 但 14KB（非该封面）。**bucket 求值规则待确认**（假设 `ceil(id/10)*10`，实现时抽查） |
+
+注意：社区谱面若 `song.type="bandori"`，播放同样依赖上述官方音频端点。
+
+## 7. 速率与合规边界
+
+- Bestdori 无公开的 API 限流文档；社区有 429 rate limit 讨论（2021）。本次调研百余次请求未触发 429 → **客户端仍应低速率 + 本地缓存**，不做整站爬取。
+- 版权边界：游戏内素材（谱面、音频、封面、皮肤）版权归 © BanG Dream! Project（Craft Egg / Bushiroad）；Bestdori 本身是粉丝站；**社区谱面的音频/封面是普通用户上传的第三方内容**，版权风险高于官方素材。
+- 本仓库既有约定：`docs/resource/bestdori/README.md`「归档仅本地研究、不得再分发或商用」；ADR-0003 §12.4「素材运行时接入需另行评审授权边界」。
+
+## 8. 待验证清单（实现期用真实账号/规模实测）
+
+1. 登录成功后的会话 Cookie 名、有效期、多端登录行为。
+2. 发布帖 `diff` / `level` 的合法取值域（示例 `diff:3, level:24`；前端 `userChartDiff`/`userChartLevel`）。
+3. 发布帖 `content` 富文本块完整语法（`text` / `br` / `emoji` …）与 5000 字符上限的计量方式。
+4. `order` 全部合法值（`LIKE_DESC` 无效，是否还有 `LIKE_ASC` 等）。
+5. musicjacket bucket 求值规则（§6）。
+6. 429 限流的实际阈值与封禁形态。
+7. `song.type="bandori"` 社区谱面在站内播放用的音频是否为完整曲（影响我们浏览功能的音频体验与流量）。
