@@ -163,8 +163,10 @@ export default class CanvasSpriteIcon {
         const sX = cfg.overallScale ?? 1;
         const dW = (cfg.canvasW) * (cfg.scaleX ?? 1) * sX;
         const dH = (cfg.canvasH) * (cfg.scaleY ?? 1) * sX;
-        const dx = Math.round(cfg.canvasX - dW / 2);
-        const dy = Math.round(cfg.canvasY - dH / 2);
+        // issue 98：绘制位置不做整像素对齐——音符锚点为浮点且随缩放连续变化，
+        // 取整会使缩放/滚动时图标位置逐帧重掷 ±0.5px（相对网格跳动）。
+        const dx = cfg.canvasX - dW / 2;
+        const dy = cfg.canvasY - dH / 2;
 
         // issue 96：大幅缩小先取多级减半位图，把「一步大降采样」拆成「级位图 + ≤2× 平滑缩放」。
         // 目标尺寸按 ctx 变换折算到设备像素（瓦片 tileDpr / 主画布 dpr 同口径）；

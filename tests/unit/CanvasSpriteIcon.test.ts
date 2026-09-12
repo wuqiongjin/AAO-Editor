@@ -47,10 +47,10 @@ describe('CanvasSpriteIcon.renderDecorator（用户 2026-08-25 反馈：flick �
     expect(call.dW).toBeCloseTo(100, 6);
     expect(call.dH).toBeCloseTo(60, 6);
     // canvasX + offsetX*scale = 200 + 0*2 = 200
-    // drawImage 是 dx = Math.round(canvasX - dW/2) = Math.round(200 - 50) = 150
+    // issue 98：绘制位置不做整像素对齐，dx = canvasX - dW/2 = 200 - 50 = 150
     expect(call.dx).toBe(150);
     // canvasY + offsetY*scale = 200 + (-10)*2 = 180
-    // dy = Math.round(180 - dH/2) = Math.round(180 - 30) = 150
+    // dy = canvasY + offsetY*scale - dH/2 = 180 - 30 = 150
     expect(call.dy).toBe(150);
   });
 

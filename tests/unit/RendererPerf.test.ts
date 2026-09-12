@@ -270,6 +270,90 @@ describe('noteLayerCache 瓦片数学', () => {
     expect(lo * TILE_PX).toBeLessThanOrEqual(posMax);
     expect((hi + 1) * TILE_PX).toBeGreaterThanOrEqual(posMin);
   });
+
+  it('issue 98：瓦片 transform 按「位图实际尺寸/css 尺寸」绘制（css 跨距恰填满整数量化位图，消除 round 压缩）', () => {
+    const chartEndBeat = 100;
+    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    // es=0.8 → 瓦片 css 高 = TILE_PX·es = 409.6（非整数）；tileDpr = min(dpr=1, 1.5) = 1
+    // → 位图高 round(409.6) = 410。修复前 transform 恒 tileDpr=1 → 内容只画到 409.6 行，
+    // blit 拉伸 410 行 → 距瓦片顶边线性行进最大 ±0.4px 的压缩（每 es 重掷 → 缩放手势期音符跳动）。
+    const es = 0.8;
+    const notes: ChartNote[] = [{ type: 'Single', lane: 3, beat: 50, subBeat: 0 } as ChartNote];
+    const transforms: { sx: number; sy: number; bw: number; bh: number }[] = [];
+    resetNoteLayerCache();
+    __setTileCanvasFactoryForTests(() => {
+      const bitmap = { width: 0, height: 0 };
+      const ctx = new Proxy({}, {
+        get(_t, prop) {
+          if (prop === 'setTransform') {
+            return (sx: number, _skx: number, _sky: number, sy: number) => {
+              transforms.push({ sx, sy, bw: bitmap.width, bh: bitmap.height });
+            };
+          }
+          return () => undefined;
+        },
+        set() { return true; },
+      });
+      return {
+        get width() { return bitmap.width; },
+        set width(v: number) { bitmap.width = v; },
+        get height() { return bitmap.height; },
+        set height(v: number) { bitmap.height = v; },
+        getContext: () => ctx,
+      };
+    });
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    drawNotesLayer(makeCountingCtx(counters), makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 50, es), false, counters));
+
+    expect(transforms.length).toBeGreaterThan(0); // 确实渲染了瓦片
+    const tileDpr = 1; // rc.dpr = 1
+    for (const tr of transforms) {
+      expect(tr.bw).toBe(Math.round(SURFACE.w * tileDpr));
+      expect(tr.bh).toBe(Math.round(TILE_PX * es * tileDpr)); // 410：整数量化位图高
+      // 核心不变量：transform 把 css 跨距【恰好】映射到整数位图（修复前 sy=tileDpr → sy·cssH=409.6 ≠ 410）
+      expect(tr.sx * SURFACE.w).toBeCloseTo(tr.bw, 6);
+      expect(tr.sy * (TILE_PX * es)).toBeCloseTo(tr.bh, 6);
+    }
+    // blit 目标高与位图 css 高恒等（瓦片接缝数学不动，issue 10/36 不变量保持）
+    const anchorY = (g.chartEndVirtualY - scrollYForCenterBeat(g, 50, es)) * es + SURFACE.h;
+    const r = tileBlitRect(0, es, es, anchorY, SURFACE.w);
+    expect(r.h).toBe(TILE_PX * es);
+    expect(r.h * (transforms[0].sy)).toBeCloseTo(transforms[0].bh, 6);
+
+    // X 轴同锁：dpr=1.5 + 非整宽（751·1.5 = 1126.5 → bw=1127）时 sx 也必须按实际位图尺寸取
+    const g2 = new ChartGeometry(bpm120, chartEndBeat, { w: 751, h: 900 });
+    const transforms2: { sx: number; sy: number; bw: number; bh: number }[] = [];
+    resetNoteLayerCache();
+    __setTileCanvasFactoryForTests(() => {
+      const bitmap = { width: 0, height: 0 };
+      const ctx = new Proxy({}, {
+        get(_t, prop) {
+          if (prop === 'setTransform') {
+            return (sx: number, _skx: number, _sky: number, sy: number) => {
+              transforms2.push({ sx, sy, bw: bitmap.width, bh: bitmap.height });
+            };
+          }
+          return () => undefined;
+        },
+        set() { return true; },
+      });
+      return {
+        get width() { return bitmap.width; },
+        set width(v: number) { bitmap.width = v; },
+        get height() { return bitmap.height; },
+        set height(v: number) { bitmap.height = v; },
+        getContext: () => ctx,
+      };
+    });
+    const rc2 = { ...makeRc(g2, notes, chartEndBeat, es, scrollYForCenterBeat(g2, 50, es), false, counters, { w: 751, h: 900 }), dpr: 1.5 };
+    drawNotesLayer(makeCountingCtx(counters), rc2);
+    expect(transforms2.length).toBeGreaterThan(0);
+    for (const tr of transforms2) {
+      expect(tr.bw).toBe(Math.round(751 * 1.5)); // 1127：round(1126.5)——X 跨距非整
+      expect(tr.sx * 751).toBeCloseTo(tr.bw, 6); // 修复前 sx=1.5 → 1126.5 ≠ 1127
+      expect(tr.sy * (TILE_PX * es)).toBeCloseTo(tr.bh, 6);
+    }
+  });
 });
 
 describe('端到端缩放性能（stub canvas，5000 音符）', () => {

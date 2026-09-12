@@ -246,7 +246,11 @@ function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
   canvas.width = bw;
   canvas.height = bh;
   const tctx = canvas.getContext('2d');
-  tctx.setTransform(tileDpr, 0, 0, tileDpr, 0, 0);
+  // issue 98：transform 按「位图实际尺寸 / css 尺寸」取，而非恒 tileDpr——
+  // round(css·tileDpr) 与 css·tileDpr 的整数量化差若留在画面上，会以「距瓦片顶边线性增长」的
+  // 压缩形式呈现（≤±0.5/tileDpr px，每个 es 重掷 → 快速缩放时音符相对网格瞬态跳动 ≤1px）。
+  // 按实际比例绘制后内容恰好填满整数位图，blit（目标高 = cssH）逐像素精确，瓦片接缝数学不动。
+  tctx.setTransform(bw / cssW, 0, 0, bh / cssH, 0, 0);
   // issue 40（渲染质量）：瓦片承载音符精灵，与主画布同一平滑策略（显式置 true，与默认一致不改观感）。
   // 瓦片 dpr 权衡（issue 36 定 1.5 + 本 issue 复核）：瓦片只有精灵、无文字，1.5 dpr 高分屏几乎不可辨，
   // 相对 2.0 内存 -44%、重建填充快 ~44%（密集谱放置延迟受益）；主画布仍按完整 dpr。若要更清晰需同步

@@ -11,7 +11,7 @@ import PlayBar from '../playback/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
 import { countChartNotes } from '../chart/editing/NoteEditing';
 import { useSurfaceSize } from '../chart/layout/useSurfaceSize';
-import { useScrollModel } from '../playback/useScrollModel';
+import { isProgrammaticScrollEcho, useScrollModel } from '../playback/useScrollModel';
 import { useAudioBridge } from '../audio/useAudioBridge';
 import { usePlaybackCoordinator } from '../playback/usePlaybackCoordinator';
 import { useChartProjectPersistence } from '../chart/project/useChartProjectPersistence';
@@ -87,6 +87,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const virtualCanvasRef = useRef<FinalVirtualCanvasHandle>(null);
   // 虚拟高度（由 FinalVirtualCanvas onScrollChange 喂入，Editor 经 effect 写到 .virtual-content）
   const [virtualHeight, setVirtualHeight] = useState(0);
+  // issue 98：程序化 scrollTop 写入的期望值登记（见 isProgrammaticScrollEcho）。
+  const programmaticScrollTopRef = useRef<number | null>(null);
 
   // === 会话流 1：渲染面测量（候选 2 拆出，issue 36 / 38 不变量保留） ===
   // 实时门控：展开/收起侧栏（.ws-panel width 200ms 过渡）或拖拽改宽面板期间，令测量逐帧提交，
@@ -229,6 +231,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       if (Math.abs(targetScrollTop - scrollContainer.scrollTop) > 0.5) {
         scrollContainer.scrollTop = targetScrollTop;
       }
+      // 无论是否实际写入都登记期望值：浏览器可能把写入值取整存储，回声事件据此识别并吞掉
+      programmaticScrollTopRef.current = targetScrollTop;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtualHeight]);
@@ -246,6 +250,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     if (!target) return;
     canvas.setScrollY(target.scrollY);
     container.scrollTop = target.scrollTop;
+    programmaticScrollTopRef.current = target.scrollTop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtualHeight, chartEndKey]);
 
@@ -253,6 +258,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const handleScrollbarChange = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.target as HTMLDivElement;
     const scrollTop = target.scrollTop;
+    // issue 98：程序化写入的回声事件吞掉，不反算回 scrollY（保持缩放期 scrollY 恒定）
+    if (isProgrammaticScrollEcho(scrollTop, programmaticScrollTopRef.current)) return;
     const maxScroll = target.scrollHeight - target.clientHeight;
     if (maxScroll <= 0 || !virtualCanvasRef.current) return;
     if (playbackCoord.isPlaying) return;

@@ -33,6 +33,16 @@ export interface UseScrollModelReturn {
   consumePendingReAnchor: (maxScroll: number) => ReAnchorTarget | null;
 }
 
+/**
+ * issue 98：程序化 scrollTop 写入的回声识别。浏览器按设备像素取整滚动偏移，程序化写入
+ * （缩放/重锚的比例位回写）产生的 scroll 事件携带值与写入值最多差 ±0.5px——这类回声若反算回
+ * scrollY，缩放期 scrollY 每档被重掷 ±0.5 virtual px，破坏「缩放期 scrollY 恒定」不变量
+ * （判定线处秒数随之跳变）。容差 ±1px；无登记（null）= 非程序化写入，照常处理。
+ */
+export function isProgrammaticScrollEcho(scrollTop: number, expected: number | null): boolean {
+  return expected !== null && Math.abs(scrollTop - expected) <= 1;
+}
+
 export function useScrollModel(opts: UseScrollModelOptions): UseScrollModelReturn {
   const { notes, ctxDuration, surface, scale, verticalRatio } = opts;
 
