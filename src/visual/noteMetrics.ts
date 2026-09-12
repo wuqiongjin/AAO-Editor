@@ -18,3 +18,15 @@ export const DIRECTIONAL_ICON_SIZE = 45;
 export const NOTE_HEIGHT_SCALE = 0.6;
 export const SLIDE_HEIGHT_SCALE = 0.6;
 export const DIRECTIONAL_HEIGHT_SCALE = 0.33;
+
+/**
+ * 滑条连接带宽度（虚拟单位）—— 真实画布 renderSegmentBand 的带宽口径（= 轨道宽 `ChartGeometry.LANE_WIDTH`）。
+ * 本模块保持零 import（渲染/命中两侧共用），故以常量镜像 + 本注释锚定：改轨宽须同步此值。
+ */
+export const SLIDE_BAND_WIDTH = 30;
+
+/**
+ * 滑条构图 band:结点 宽度比（真实画布口径 30:36）—— issue 91 起，素材页滑条预览与工具栏滑条字形
+ * 共用本比例，禁止再各写一套（此前素材页 1.8×、工具栏 2×、画布 1.2× 三处失衡）。
+ */
+export const SLIDE_BAND_TO_NODE_RATIO = SLIDE_BAND_WIDTH / SLIDE_ICON_SIZE;

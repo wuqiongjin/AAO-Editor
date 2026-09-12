@@ -17,6 +17,8 @@ import {
   type NoteSkinItemId,
   type NoteSkinSelection,
 } from '../../visual/noteSkin';
+// 单格画布尺寸与 Slide 列布局几何在 `./noteSkinPreviewLayout`（纯模块；react-refresh 规则要求组件文件只导出组件）
+import { PREVIEW_CELL_W, PREVIEW_CELL_H, computeSlideColLayout, SLIDE_PREVIEW_NODE_SCALE } from './noteSkinPreviewLayout';
 
 interface ColMeta {
   item: NoteSkinItemId;
@@ -34,35 +36,6 @@ const COLS: ColMeta[] = [
 ];
 
 const NOTE_SKIN_ITEM_IDS_FOR_LABEL = ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide'] as const;
-
-/** 单格预览画布尺寸（CSS 同步；用 viewBox 概念，浏览器按 width 100% 缩放） */
-export const PREVIEW_CELL_W = 140;
-export const PREVIEW_CELL_H = 88;
-
-/** Slide 列的预览布局（导出供测试）。竖向：上端点(起点) + 中间结点 + 下端点(终点) + 连接带。 */
-export interface SlideColLayout {
-  cx: number;
-  cy: number;
-  topY: number;
-  midY: number;
-  bottomY: number;
-  bandW: number;
-  bandH: number;
-}
-export function computeSlideColLayout(W: number, H: number): SlideColLayout {
-  const cx = W * 0.5;
-  const cy = H * 0.5;
-  const half = Math.min(H * 0.36, 30);
-  return {
-    cx,
-    cy,
-    topY: cy - half,
-    midY: cy,
-    bottomY: cy + half,
-    bandW: 22,
-    bandH: half * 2,
-  };
-}
 
 /** 单格预览绘制（按 entry 类型） */
 function drawPreviewSprite(
@@ -123,17 +96,17 @@ function drawPreviewSprite(
     sprite.render(ctx, {
       ...icons.slideEndpointFor(3),
       canvasX: layout.cx, canvasY: layout.topY, canvasSize: 36,
-      canvasWidth: 36, canvasHeight: 21.6, scale: 1.1, renderLayer: 'main',
+      canvasWidth: 36, canvasHeight: 21.6, scale: SLIDE_PREVIEW_NODE_SCALE, renderLayer: 'main',
     });
     sprite.render(ctx, {
       ...icons.slideAmongFor(3),
       canvasX: layout.cx, canvasY: layout.midY, canvasSize: 36,
-      canvasWidth: 36, canvasHeight: 21.6, scale: 1.1, renderLayer: 'main',
+      canvasWidth: 36, canvasHeight: 21.6, scale: SLIDE_PREVIEW_NODE_SCALE, renderLayer: 'main',
     });
     sprite.render(ctx, {
       ...icons.slideEndpointFor(3),
       canvasX: layout.cx, canvasY: layout.bottomY, canvasSize: 36,
-      canvasWidth: 36, canvasHeight: 21.6, scale: 1.1, renderLayer: 'main',
+      canvasWidth: 36, canvasHeight: 21.6, scale: SLIDE_PREVIEW_NODE_SCALE, renderLayer: 'main',
     });
   }
 }

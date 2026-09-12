@@ -3,7 +3,7 @@
 // 这里只测单列的几何纯函数 computeSlideColLayout（slide 列特殊：竖向连接带 + 上下端点 + 中间结点）。
 // 不变量：竖向、端点上下、bandH > bandW。
 import { describe, it, expect } from 'vitest';
-import { computeSlideColLayout, PREVIEW_CELL_W, PREVIEW_CELL_H } from '../../src/chart/rendering/NoteSkinPreview';
+import { computeSlideColLayout, PREVIEW_CELL_W, PREVIEW_CELL_H } from '../../src/chart/rendering/noteSkinPreviewLayout';
 
 describe('音符皮肤预览：Slide 列布局（切片 3，2026-08-25 Q13=A）', () => {
   it('Slide 列应当竖向：连接带高 > 宽，端点在 y 方向分离', () => {

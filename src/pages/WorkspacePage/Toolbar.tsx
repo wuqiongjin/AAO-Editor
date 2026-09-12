@@ -78,12 +78,12 @@ export default function Toolbar() {
   const tools = [
     { id: "mouse", icon: <MousePointer size={18} />, label: "鼠标" },
     { id: "bpm", icon: <Music size={18} />, label: "BPM" },
-    { id: "single", icon: <NoteIconGlyph icons={noteIcons} item="tap" size={18} />, label: "单键" },
-    { id: "flick", icon: <NoteIconGlyph icons={noteIcons} item="flick" size={18} />, label: "滑键" },
-    { id: "skill", icon: <NoteIconGlyph icons={noteIcons} item="skill" size={18} />, label: "技能" },
-    { id: "ldirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirL" size={18} />, label: "左滑" },
-    { id: "rdirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirR" size={18} />, label: "右滑" },
-    { id: "slide", icon: <NoteIconGlyph icons={noteIcons} item="slide" size={18} />, label: "滑条" },
+    { id: "single", icon: <NoteIconGlyph icons={noteIcons} item="tap" size={28} />, label: "单键" },
+    { id: "flick", icon: <NoteIconGlyph icons={noteIcons} item="flick" size={28} />, label: "滑键" },
+    { id: "skill", icon: <NoteIconGlyph icons={noteIcons} item="skill" size={28} />, label: "技能" },
+    { id: "ldirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirL" size={28} />, label: "左滑" },
+    { id: "rdirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirR" size={28} />, label: "右滑" },
+    { id: "slide", icon: <NoteIconGlyph icons={noteIcons} item="slide" size={28} />, label: "滑条" },
   ];
   // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）。
   // 动作类持工具态（方案 A，issue 55 三轮：删除/镜像）标签供顶部 pill 显示

@@ -3,12 +3,17 @@
 //    （`ui/SpriteIcon.tsx` 的 `NoteIcons` + `public/assets/skins/legacy/*`）必须彻底消失（防无意复活）。
 //    图标是 canvas 位图，单测拿不到像素；"是否读皮肤选择 / legacy 是否清干净"是**结构事实**，
 //    静态源码断言最稳（照 `EditorAudioSessionRefactor.test.ts` 惯例）。
-// 2) **18px 字形构图**：用假精灵记录绘制盒，锁"不空绘 + 全部落在按钮方框内"（用 node 环境即可跑）。
+// 2) **28px 字形构图**（issue 91：18→24→28px）：用假精灵记录绘制盒，锁"不空绘 + 全部落在字形盒内"。
 //    真实像素与换肤联动由票内手工验收清单补（本沙箱无 Playwright）。
+// issue 91 锁测：滑条构图统一 —— 工具栏滑条字形与素材页滑条预览的 band:结点宽度都锁真实画布口径
+// 30:36（共享 `SLIDE_BAND_TO_NODE_RATIO`），修"素材页中间结点超带宽 1.8× / 工具栏 2× / 画布 1.2× 三处失衡"。
+// issue 91：方向键按整组墨迹中心居中（与上方单键对称构图对齐）；滑条只画"段"（连接带，不画端点音符）。
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
-import { drawNoteGlyph } from '../../src/chart/rendering/noteGlyph';
+import { DIR_BODY_BOOST, drawNoteGlyph, glyphBox, slideGlyphGeometry } from '../../src/chart/rendering/noteGlyph';
+import { computeSlideColLayout, SLIDE_PREVIEW_NODE_SCALE } from '../../src/chart/rendering/noteSkinPreviewLayout';
+import { SLIDE_BAND_TO_NODE_RATIO } from '../../src/visual/noteMetrics';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection, type NoteSkinItemId } from '../../src/visual/noteSkin';
 
 const ROOT = join(__dirname, '../..');
@@ -92,42 +97,119 @@ function recordDraws(item: NoteSkinItemId, size: number): DrawnBox[] {
       });
     },
   };
-  drawNoteGlyph({} as CanvasRenderingContext2D, sprite as never, ICONS, item, size);
+  const box = glyphBox(ICONS, item, size);
+  drawNoteGlyph({} as CanvasRenderingContext2D, sprite as never, ICONS, item, box.w, box.h);
   return drawn;
 }
 
 const ICONS = buildActiveNoteIcons(normalizeNoteSkinSelection(undefined));
 
-describe('issue 86 · 18px 字形构图（不空绘、不越出按钮方框）', () => {
-  const SIZE = 18;
+describe('issue 86/91 · 28px 字形构图（不空绘、不越出字形盒）', () => {
+  const SIZE = 28;
   const ITEMS: NoteSkinItemId[] = ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide'];
 
   for (const item of ITEMS) {
-    it(`${item}：至少画一枚精灵，且绘制盒落在 ${SIZE}px 方框内`, () => {
+    it(`${item}：至少画一枚精灵，且绘制盒落在字形盒内`, () => {
       const drawn = recordDraws(item, SIZE);
+      const box = glyphBox(ICONS, item, SIZE);
       expect(drawn.length).toBeGreaterThan(0);
       for (const d of drawn) {
         expect(d.cx - d.w / 2, `${item} 左越界`).toBeGreaterThanOrEqual(0);
-        expect(d.cx + d.w / 2, `${item} 右越界`).toBeLessThanOrEqual(SIZE);
+        expect(d.cx + d.w / 2, `${item} 右越界`).toBeLessThanOrEqual(box.w);
         expect(d.cy - d.h / 2, `${item} 上越界`).toBeGreaterThanOrEqual(0);
-        expect(d.cy + d.h / 2, `${item} 下越界`).toBeLessThanOrEqual(SIZE);
+        expect(d.cy + d.h / 2, `${item} 下越界`).toBeLessThanOrEqual(box.h);
       }
     });
   }
 
-  it('方向键 = 本体 + 最外侧箭头两枚；滑条 = 连接带 + 上下端点三枚', () => {
+  it('方向键 = 本体 + 最外侧箭头两枚；滑条 = 仅连接带一枚（不画端点音符）', () => {
     expect(recordDraws('dirL', SIZE)).toHaveLength(2);
     expect(recordDraws('dirR', SIZE)).toHaveLength(2);
-    expect(recordDraws('slide', SIZE)).toHaveLength(3);
+    expect(recordDraws('slide', SIZE)).toHaveLength(1);
     expect(recordDraws('tap', SIZE)).toHaveLength(1);
   });
 
   it('换皮肤后尺寸约束仍成立（几何全部来自 ActiveNoteIcons，不写死坐标）', () => {
     for (const item of ITEMS) {
-      const drawn = recordDraws(item, 24);
+      const drawn = recordDraws(item, 32);
+      const box = glyphBox(ICONS, item, 32);
       for (const d of drawn) {
-        expect(d.cx + d.w / 2).toBeLessThanOrEqual(24);
+        expect(d.cx + d.w / 2).toBeLessThanOrEqual(box.w);
       }
     }
+  });
+});
+
+describe('issue 91 · 方向键盒与本体尺寸（28px）', () => {
+  const SIZE = 28;
+
+  it('字形盒：非方向键 = size 方框；方向键加宽承担箭头（盒宽 > size、高 = size）', () => {
+    expect(glyphBox(ICONS, 'tap', SIZE)).toEqual({ w: SIZE, h: SIZE });
+    for (const dir of ['dirL', 'dirR'] as const) {
+      const box = glyphBox(ICONS, dir, SIZE);
+      expect(box.w, dir).toBeGreaterThan(SIZE);
+      expect(box.h, dir).toBe(SIZE);
+    }
+  });
+
+  it('方向键本体绘制宽 = 单键本体 × DIR_BODY_BOOST（比其它音符显大一点）', () => {
+    const tapW = Math.max(...recordDraws('tap', SIZE).map(d => d.w));
+    for (const dir of ['dirL', 'dirR'] as const) {
+      const bodyW = Math.max(...recordDraws(dir, SIZE).map(d => d.w));
+      expect(Math.abs(bodyW - tapW * DIR_BODY_BOOST), dir).toBeLessThan(1);
+    }
+  });
+});
+
+describe('issue 91 · 方向键墨迹居中 + 滑条只画"段"', () => {
+  const SIZE = 28;
+
+  it('方向键按整组墨迹中心居中：L 本体右移、R 本体左移（与上方单键的对称构图对齐）', () => {
+    for (const [dir, side] of [['dirL', 1], ['dirR', -1]] as const) {
+      const box = glyphBox(ICONS, dir, SIZE);
+      const body = recordDraws(dir, SIZE).reduce((a, b) => (b.w > a.w ? b : a)); // 本体 = 较宽的一枚
+      expect(Math.sign(body.cx - box.w / 2), `${dir} 本体应向${side > 0 ? '右' : '左'}偏`).toBe(side);
+    }
+  });
+
+  it('滑条只画连接带一枚（不画起止端点音符，仅展示"段"）', () => {
+    expect(recordDraws('slide', SIZE)).toHaveLength(1);
+  });
+});
+
+describe('issue 91 · 工具栏 28px + 滑条构图统一（band:结点 = 30:36）', () => {
+  it('六个音符工具项的 NoteIconGlyph 全部 size={28}', () => {
+    for (const item of ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide']) {
+      const line = toolbarSrc.split('\n').find((l) => l.includes(`item="${item}"`)) ?? '';
+      expect(line, item).toContain('size={28}');
+    }
+  });
+
+  it('工具栏滑条字形（只画"段"）：band 纵向铺满，宽 = 键型本体宽 × 30/36', () => {
+    for (const size of [18, 28, 32]) {
+      const g = slideGlyphGeometry(size);
+      expect(g.bandH, `size=${size}`).toBe(size - 2);
+      expect(g.bandW, `size=${size}`).toBeCloseTo((size - 2) * SLIDE_BAND_TO_NODE_RATIO, 6);
+    }
+  });
+
+  it('素材页滑条预览：band 宽 = 预览结点宽（36×1.1）× 30/36，不再写死 22', () => {
+    const layout = computeSlideColLayout(140, 88);
+    expect(layout.bandW).toBeCloseTo(36 * SLIDE_PREVIEW_NODE_SCALE * SLIDE_BAND_TO_NODE_RATIO, 6);
+    expect(layout.bandW).not.toBe(22);
+  });
+
+  it('两处构图引用同一份比例常量（防再次各写一套）', () => {
+    expect(stripComments(read('src/chart/rendering/noteGlyph.ts'))).toContain('SLIDE_BAND_TO_NODE_RATIO');
+    expect(stripComments(read('src/chart/rendering/noteSkinPreviewLayout.ts'))).toContain('SLIDE_BAND_TO_NODE_RATIO');
+  });
+});
+
+describe('issue 91 · 字形画布固定超采样（防放大发糊）', () => {
+  it('backing 分辨率与运行时 dpr 解耦：固定 3× 超采样（浏览器缩放不重绘也不再糊）', () => {
+    const src = stripComments(read('src/chart/rendering/NoteIconGlyph.tsx'));
+    expect(src).toContain('BACKING_SCALE');
+    expect(src).not.toContain('window.devicePixelRatio');
+    expect(src).toContain("imageSmoothingQuality = 'high'");
   });
 });
