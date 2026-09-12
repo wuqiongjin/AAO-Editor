@@ -761,21 +761,16 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 只处理Ctrl+滚轮缩放，禁用普通滚动
         if (e.ctrlKey) {
             e.preventDefault();
-            const pos = cssToCanvas(e);
-            if (!pos) return;
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * zoomFactor));
             const effNewScale = geometry.effectiveScale(newScale);
-            // 缩放锚定鼠标下的谱面位置：必须锚 pos 空间（缩放不变量）而非 virtualY
-            // （virtualY 原点 C(es)=chartEndVirtualY+surf.h/es 随缩放变化，保 virtualY 会让整幅内容
-            // 每 tick 平移 surf.h·(k−1) px，端点处再被钳制拉回——起始线/首拍 BPM 线"漂移后回弹"根因）。
-            // 返回值已钳制到 [0, chartEndVirtualY]，与 setScrollY 同一可滚范围。
-            const newScrollY = geometry.zoomAnchorScrollY(pos.y, viewport.scale, viewport.scrollY, newScale);
+            // 缩放锚定判定线（issue 90）：scrollY 保持不变——底边（判定线）处的谱面位置缩放时原地不动，
+            // 与工具栏 ±/百分比缩放（只 setScale）完全同口径。不再以光标为锚：光标锚曾使 scrollY 随缩放
+            // 大幅变化（∝ 光标到判定线的距离），放大了「滚动条回写在缩放提交窗口内用陈旧值覆写」的回弹竞态
+            // （越靠上部越明显、判定线处恒为 0）。
             setViewport(prev => ({
                 ...prev,
-                scale: effNewScale, // 视图 scale 恒等于 effectiveScale（ADR-0006 Q4=A）
-                scrollX: 0,
-                scrollY: newScrollY
+                scale: effNewScale // 视图 scale 恒等于 effectiveScale（ADR-0006 Q4=A）
             }));
             // 回写工具栏缩放数字（issue 10 回归修复）：ui.scale 与 viewport.scale 保持同一生效值
             setScale(effNewScale);
@@ -785,7 +780,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             zoomSettleTimerRef.current = window.setTimeout(() => setRenderTick(t => t + 1), 250);
         }
         // 普通滚轮滚动由父容器处理，不在这里处理
-    }, [geometry, viewport, cssToCanvas, setScale]);
+    }, [geometry, viewport, setScale]);
 
     // 暴露方法给父组件（候选 1 收窄 + ADR-0008 执行键入口；factory 每次渲染重建 → 闭包恒新）
     useImperativeHandle(ref, () => ({

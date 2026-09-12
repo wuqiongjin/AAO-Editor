@@ -162,22 +162,6 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     };
   }
 
-  /**
-   * Ctrl+滚轮缩放锚定（纯逻辑，供单测）：保持鼠标下的谱面位置不动，返回新 scrollY（已钳制到可滚范围）。
-   * 锚必须落在 pos 空间（BPM 时间线像素，缩放不变量）：pos = C(es) − virtualY，C(es) = chartEndVirtualY + surface.h/es。
-   * 不能直接保 virtualY 不动——其原点 C(es) 本身随缩放变化，会让整幅内容每 tick 平移 surface.h·(k−1) px，
-   * 且在滚动端点处越界后被钳制拉回：即"起始线/首拍 BPM 线缩放时漂移后回弹"的根因。
-   */
-  zoomAnchorScrollY(mouseCanvasY: number, oldScale: number, oldScrollY: number, newScale: number): number {
-    const es1 = this.effectiveScale(oldScale);
-    const es2 = this.effectiveScale(newScale);
-    const virtualMouseY = mouseCanvasY / es1 + oldScrollY;
-    const posMouse = this.chartEndVirtualY + this.surface.h / es1 - virtualMouseY;
-    const raw = this.chartEndVirtualY + this.surface.h / es2 - posMouse - mouseCanvasY / es2;
-    // 与 imperative setScrollY 的钳制一致：scrollY ∈ [minY, maxY − 视口高] = [0, chartEndVirtualY]
-    return Math.max(0, Math.min(this.chartEndVirtualY, raw));
-  }
-
   /** 视口可见范围（虚拟坐标，含外扩 padding） */
   viewportBounds(viewport: GeometryViewport): GeometryBounds {
     const es = this.effectiveScale(viewport.scale);

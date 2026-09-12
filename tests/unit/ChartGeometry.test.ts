@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync, statSync } from 'fs';
+import { join } from 'path';
 import {
   ChartGeometry,
   LANES,
@@ -203,54 +205,40 @@ describe('visibleNotes 视口剔除', () => {
     });
 });
 
-describe('zoomAnchorScrollY 缩放锚定（起始线/首拍 BPM 线漂移修复）', () => {
-  const g = new ChartGeometry(bpm120, 40, surface());
-  const chartEndY = g.chartEndVirtualY;
+// ---------------------------------------------------------------------------
+// issue 90：滚轮缩放锚定改为**判定线（画布底边）**—— scrollY 缩放期间保持不变，
+// 与工具栏 ±/百分比缩放（只 setScale）完全同口径。旧「以光标为锚」的 zoomAnchorScrollY 已删除：
+// 锚点使 scrollY 随缩放变化 ∝（光标Y − 画布高），放大了「滚动条回写在缩放提交窗口内用陈旧值覆写」
+// 的回弹竞态（越靠上部越明显、判定线处恒为 0）。
+// 锚点数学随函数删除，纯单测无处可锁 → 本组做**结构断言**（照 EditorAudioSessionRefactor.test.ts
+// 惯例防回归）；DOM 时序（滚动条回写竞态）单测覆盖不到 → Playwright/手工验收
+// （照 scripts/measure-browser-zoom.mjs 口径，脚本不入库）。
+// ---------------------------------------------------------------------------
+describe('issue 90 · 滚轮缩放锚定判定线（结构断言）', () => {
+  const root = join(__dirname, '../..');
+  const canvasSrc = readFileSync(join(root, 'src/chart/components/canvas/FinalVirtualCanvas.tsx'), 'utf-8');
+  // wheel handler 源片段（从 useCallback 起到依赖数组）
+  const wheelHandler = canvasSrc.match(/const handleWheel = useCallback\([\s\S]*?\}, \[geometry/)?.[0] ?? '';
 
-  // 与渲染同一套画布 Y 公式：canvasY(beat) = (beatToVirtualY(beat, es) − scrollY) · es
-  const canvasYOfBeat = (beat: number, scrollY: number, es: number) =>
-    (g.beatToVirtualY(beat, es) - scrollY) * es;
-
-  it('放大/缩小后鼠标下的拍点画布位置不变（锚定不变量，pos 空间）', () => {
-    const mouseCanvasY = TEST_SURFACE.h / 2;
-    for (const es1 of [0.5, 1, 1.5]) {
-      // 取滚动范围中段，避免端点钳制介入
-      const scrollY = chartEndY / 2;
-      const beatUnderMouse = g.virtualYToBeat(scrollY + mouseCanvasY / es1, es1);
-      for (const k of [1.1, 0.9, 1.5, 1 / 1.5]) {
-        const newScrollY = g.zoomAnchorScrollY(mouseCanvasY, es1, scrollY, es1 * k);
-        expect(canvasYOfBeat(beatUnderMouse, newScrollY, es1 * k)).toBeCloseTo(mouseCanvasY, 6);
-      }
-    }
+  it('zoomAnchorScrollY 全库零引用（光标锚机制整体删除）', () => {
+    // 全库口径（票面要求）：递归扫 src/ 全部 ts/tsx（防任何角落悄悄复留调用）
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        if (name === 'node_modules') return [];
+        const full = join(dir, name);
+        return statSync(full).isDirectory() ? walk(full) : (/\.(ts|tsx)$/.test(name) ? [full] : []);
+      });
+    const offenders = walk(join(root, 'src'))
+      .filter((f) => readFileSync(f, 'utf-8').includes('zoomAnchorScrollY'))
+      .map((f) => f.replace(root + '/', ''));
+    expect(offenders).toEqual([]);
   });
 
-  it('scale 不变的缩放请求返回原 scrollY', () => {
-    const scrollY = chartEndY / 2;
-    expect(g.zoomAnchorScrollY(400, 1, scrollY, 1)).toBeCloseTo(scrollY, 6);
-  });
-
-  it('谱面起点放大不越界（回归：旧数学 scrollY 超过 chartEndVirtualY 后被钳制拉回）', () => {
-    // 滚到谱面最底端（判定线处 beat 0，起始线/首拍 BPM 线所在），鼠标在画布中部放大
-    const mouseCanvasY = TEST_SURFACE.h / 2;
-    const newScrollY = g.zoomAnchorScrollY(mouseCanvasY, 1, chartEndY, 1.1);
-    expect(newScrollY).toBeLessThanOrEqual(chartEndY);
-    expect(newScrollY).toBeGreaterThanOrEqual(0);
-    // 锚定未被钳制破坏：鼠标下的拍点仍留在原画布位置
-    const beatUnderMouse = g.virtualYToBeat(chartEndY + mouseCanvasY, 1);
-    expect(canvasYOfBeat(beatUnderMouse, newScrollY, 1.1)).toBeCloseTo(mouseCanvasY, 6);
-  });
-
-  it('端点钳制：谱面起点缩小钉在起点（起始线不越出判定线），谱面末端放大钉在末端', () => {
-    const mouseCanvasY = TEST_SURFACE.h / 2;
-    // 起点缩小：raw scrollY > chartEndVirtualY → 钳回，起始线保持贴判定线
-    expect(g.zoomAnchorScrollY(mouseCanvasY, 1, chartEndY, 0.9)).toBe(chartEndY);
-    // 末端放大：raw scrollY < 0 → 钳回 0，结束线保持可见
-    expect(g.zoomAnchorScrollY(mouseCanvasY, 1, 0, 1.1)).toBe(0);
-  });
-
-  it('鼠标正压在起始线上放大：起始线原地不动（m=h 时锚点退化为端点钉住）', () => {
-    const newScrollY = g.zoomAnchorScrollY(TEST_SURFACE.h, 1, chartEndY, 1.1);
-    expect(canvasYOfBeat(0, newScrollY, 1.1)).toBeCloseTo(TEST_SURFACE.h, 6);
+  it('滚轮缩放只改 scale：setViewport 展开 prev 且不再提交 scrollY 字段（scrollY 恒等缩放前）', () => {
+    expect(wheelHandler).not.toBe('');
+    expect(wheelHandler).toContain('...prev');
+    // 一旦 handler 里重新出现 scrollY 提交（锚点机制回潮），此断言变红
+    expect(wheelHandler).not.toMatch(/scrollY\s*:/);
   });
 });
 
