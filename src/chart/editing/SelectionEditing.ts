@@ -27,8 +27,10 @@ const groupByNote = (items: SelectionItem[]): Map<number, SelectionItem[]> => {
 /**
  * 删除选择条目（ADR-0001 §6.2）
  * - kind 'note' → 删除整条音符
- * - kind 'slideRegion' → 拆滑条（在该区域处拆成两段，两端结点保留为新端点）
- * - kind 'slideNode' → 移除该结点（剩余单结点时退化为独立音符）
+ * - kind 'slideRegion' → 拆滑条（在该区域处拆成两段，两端结点保留为新端点）；
+ *   段内含 hidden → 只清段内 hidden（issue 80）
+ * - kind 'slideNode' → 删**中间可见**结点 = **原位转 hidden**（issue 92，bestdori 口径两段式删除的第一步：
+ *   再对含 hidden 的段删一次才真正移除，用户不写代码即可创造 hidden）；删端点 = 移除端点（issue 80 口径）
  * 同一滑条内多个子部分删除会合并处理。
  *
  * **例外（issue 59 / ADR-0001 保底）**：beat 0 的 BPM 线**不可删除** —— 谱面必须有初始 BPM，
@@ -41,22 +43,37 @@ export function deleteSelection(notes: ChartNote[], items: SelectionItem[]): Cha
 
 /**
  * 从 notes 中移除指定选择条目，重建数组（无就地变异）
- * 滑条的处理：收集需移除的结点（slideNode）与需拆分的区域（slideRegion），
- * 然后按统一算法拆分——跳过被移除结点（相邻结点保持连接），
- * 在拆分点之后断开成新的滑条段。
+ * 滑条的处理：收集需移除的结点（slideNode 端点 / 段内 hidden 清理）、需原位转 hidden 的
+ * 中间可见结点（issue 92）与需拆分的区域（slideRegion），然后按统一算法拆分——
+ * 跳过被移除结点（相邻结点保持连接），在拆分点之后断开成新的滑条段。
  */
 function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[] {
   const fullRemove = new Set<number>(); // 整条删除的 noteIndex
   const nodeRemove = new Map<number, Set<number>>(); // noteIndex -> 需移除的 connIndex 集合
+  const nodeToHidden = new Map<number, Set<number>>(); // noteIndex -> 需原位转 hidden 的 connIndex 集合（issue 92）
   const splitAfter = new Map<number, Set<number>>(); // noteIndex -> 需在该 connIndex 之后拆分的集合（区域）
 
   for (const it of items) {
     if (it.kind === 'note') {
       fullRemove.add(it.noteIndex);
     } else if (it.kind === 'slideNode') {
-      const set = nodeRemove.get(it.noteIndex) ?? new Set<number>();
-      set.add(it.connIndex);
-      nodeRemove.set(it.noteIndex, set);
+      // issue 92（bestdori 口径）：删**中间可见**结点 = 原位转 hidden（保留 beat/lane/标记，仅设 hidden）；
+      // 端点结点与已 hidden 的结点维持移除口径（hidden 不可命中，此分支只为纯函数层的直接调用兜底）。
+      const target = notes[it.noteIndex];
+      const slide = target && isSlide(target) ? target : null;
+      const isMiddleVisible = slide !== null
+        && it.connIndex > 0
+        && it.connIndex < slide.connections.length - 1
+        && !slide.connections[it.connIndex]?.hidden;
+      if (isMiddleVisible) {
+        const set = nodeToHidden.get(it.noteIndex) ?? new Set<number>();
+        set.add(it.connIndex);
+        nodeToHidden.set(it.noteIndex, set);
+      } else {
+        const set = nodeRemove.get(it.noteIndex) ?? new Set<number>();
+        set.add(it.connIndex);
+        nodeRemove.set(it.noteIndex, set);
+      }
     } else {
       // slideRegion（issue 80 定案）：**段内含 hidden → 只清掉段内的 hidden**，段本身保留、两端点直连；
       // 段上无 hidden → 维持现状：在该连接带处拆分（connIndex 之后断开）。
@@ -85,8 +102,14 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
       if (note.type === 'BPM' && note.beat === 0) result.push({ ...note, bpm: DEFAULT_BPM });
       return;
     }
-    if (isSlide(note) && (nodeRemove.has(i) || splitAfter.has(i))) {
-      result.push(...splitSlide(note, nodeRemove.get(i) ?? new Set(), splitAfter.get(i) ?? new Set()));
+    if (isSlide(note) && (nodeRemove.has(i) || splitAfter.has(i) || nodeToHidden.has(i))) {
+      // issue 92：先对副本原位转 hidden（仅设 hidden:true，其余字段不动），再走统一拆分算法——
+      // 转 hidden 后滑条自然落入既有 hidden 口径（hidden 对段透明、删段清 hidden、段首尾收口）。
+      const toHide = nodeToHidden.get(i);
+      const slide2 = toHide
+        ? { ...note, connections: note.connections.map((c, k) => (toHide.has(k) ? { ...c, hidden: true } : c)) }
+        : note;
+      result.push(...splitSlide(slide2, nodeRemove.get(i) ?? new Set(), splitAfter.get(i) ?? new Set()));
       return;
     }
     result.push(note);

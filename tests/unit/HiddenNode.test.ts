@@ -127,14 +127,15 @@ describe('issue 77 #9 · hidden 不参与拆条（删除 / 放置）', () => {
     expect(validChart(out).valid).toBe(true);
   });
 
-  it('删中间**可见**结点：hidden 仍留在段内（不误删）', () => {
+  it('删中间**可见**结点 → 原位转 hidden（issue 92 定案；既有 hidden 不误删）', () => {
     const notes = [
       slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2, hidden: true }, { beat: 3, lane: 3 }, { beat: 4, lane: 4 }),
     ];
     const out = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 2 }]); // 删 B
     expect(out).toHaveLength(1);
-    expect(((out[0] as SlideNote).connections).map(c => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [4, 4]]);
-    expect((out[0] as SlideNote).connections[1].hidden).toBe(true);
+    const s = out[0] as SlideNote;
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3], [4, 4]]); // 结点一个不少
+    expect(s.connections.map(c => c.hidden === true)).toEqual([false, true, true, false]); // A 可见，旧 H 保留，B 原位转 hidden，C 可见
     expect(validChart(out).valid).toBe(true);
   });
 
@@ -182,5 +183,69 @@ describe('issue 77 #9 · hidden 不参与拆条（删除 / 放置）', () => {
     expect(out).toHaveLength(2);
     expect((out[0] as SlideNote).connections.map(c => c.beat)).toEqual([1, 2]);
     expect((out[1] as SlideNote).connections.map(c => c.beat)).toEqual([3, 4]);
+  });
+});
+
+// issue 92（用户 2026-09-12 拍板，bestdori 口径）：删 Slide **中间可见**结点 = 原位转 hidden
+// （两段式删除的第一步；第二步"删含 hidden 的段 → 清 hidden"是 issue 80 半边，已锁在上方）。
+describe('issue 92 · 删中间结点 → 原位转 hidden（bestdori 口径两段式删除）', () => {
+  it('[A,B,C] 删中间 B → [A,H(B),C]：位置保留、仅设 hidden', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2 }, { beat: 3, lane: 3 })];
+    const out = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
+    expect(out).toHaveLength(1);
+    const s = out[0] as SlideNote;
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[1, 1], [2, 2], [3, 3]]);
+    expect(s.connections[1].hidden).toBe(true);
+    expect(validChart(out).valid).toBe(true);
+  });
+
+  it('[A,B,C,D] 批量删中间 B、C → 两个 hidden（框选批量同口径）', () => {
+    const notes = [
+      slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2 }, { beat: 3, lane: 3 }, { beat: 4, lane: 4 }),
+    ];
+    const out = deleteSelection(notes, [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 },
+      { kind: 'slideNode', noteIndex: 0, connIndex: 2 },
+    ]);
+    expect(out).toHaveLength(1);
+    const s = out[0] as SlideNote;
+    expect(s.connections.map(c => c.hidden === true)).toEqual([false, true, true, false]);
+    expect(validChart(out).valid).toBe(true);
+  });
+
+  it('两段式全流程：先删中间结点（→hidden），再删该段 → hidden 真正被清掉、两端直连', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2 }, { beat: 3, lane: 3 })];
+    const step1 = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
+    expect((step1[0] as SlideNote).connections[1].hidden).toBe(true);
+    const step2 = deleteSelection(step1, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }]);
+    expect(step2).toHaveLength(1);
+    const s = step2[0] as SlideNote;
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[1, 1], [3, 3]]);
+    expect(s.connections.some(c => c.hidden)).toBe(false);
+    expect(validChart(step2).valid).toBe(true);
+  });
+
+  it('[A,B] 无中间结点：删任一端仍走端点路径（退化单键，不变）', () => {
+    const notes = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2 })];
+    const out = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }]);
+    expect(out).toHaveLength(1);
+    expect(out[0].type).toBe('Single');
+    expect((out[0] as { beat: number }).beat).toBe(2);
+    expect(validChart(out).valid).toBe(true);
+  });
+
+  it('undo 友好：hidden 化产物与原滑条逐字段可比（flick/skill 标记原样保留）', () => {
+    // slideOf 助手只映射 beat/lane/hidden，带标记的用例直接内联构造
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 1, lane: 1, subBeat: 0, flick: true },
+        { beat: 2, lane: 2, subBeat: 0, skill: true },
+        { beat: 3, lane: 3, subBeat: 0 },
+      ],
+    }];
+    const out = deleteSelection(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
+    const s = out[0] as SlideNote;
+    expect(s.connections[1]).toMatchObject({ beat: 2, lane: 2, skill: true, hidden: true });
   });
 });

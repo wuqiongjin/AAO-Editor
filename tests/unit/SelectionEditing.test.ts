@@ -72,12 +72,13 @@ describe('deleteSelection', () => {
     expect(out[2].type).toBe('Single');
   });
 
-  it('删中间结点：仅移除该结点，其余保持连接', () => {
+  it('删中间结点 → 原位转 hidden（issue 92 定案，bestdori 口径；位置与标记保留）', () => {
     const out = deleteSelection([slide()], [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
     expect(out).toHaveLength(1);
     const s = out[0] as any;
-    expect(s.connections).toHaveLength(3);
-    expect(s.connections.map((c: { beat: number }) => c.beat)).toEqual([0, 2, 3]);
+    expect(s.connections).toHaveLength(4); // 结点一个不少
+    expect(s.connections.map((c: { beat: number }) => c.beat)).toEqual([0, 1, 2, 3]);
+    expect(s.connections[1].hidden).toBe(true); // 原位转 hidden
   });
 
   it('删端点（剩 2 结点）：另一端退化为独立音符', () => {
@@ -160,10 +161,11 @@ describe('cutSelection', () => {
     expect((out.newNotes[1] as any).connections.map((c: { beat: number }) => c.beat)).toEqual([1, 2, 3]);
   });
 
-  it('剪切单个结点：移除该结点', () => {
+  it('剪切单个中间结点 = 复制该结点 + 原位转 hidden（剪切 = 复制 + §6.2 删除，issue 92 定案）', () => {
     const out = cutSelection([slide()], [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
     expect(out.newNotes[0] as any).toBeDefined();
-    expect((out.newNotes[0] as any).connections.map((c: any) => c.beat)).toEqual([0, 2, 3]);
+    expect((out.newNotes[0] as any).connections.map((c: any) => c.beat)).toEqual([0, 1, 2, 3]);
+    expect((out.newNotes[0] as any).connections[1].hidden).toBe(true);
   });
 });
 
