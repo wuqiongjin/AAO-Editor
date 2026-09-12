@@ -35,7 +35,7 @@ export const EASING_TYPES: readonly EasingType[] = ['in', 'out', 'inOut', 'outIn
 /** 采样精度三档（用户口径对标 Bestdori curvePrecision）：每拍 1/16、1/32、1/64 */
 export type CurvePrecision = 16 | 32 | 64;
 
-export const CURSE_PRECISIONS: readonly CurvePrecision[] = [16, 32, 64];
+export const CURVE_PRECISIONS: readonly CurvePrecision[] = [16, 32, 64];
 
 /** 标准easeOutBounce（bundle bounce 基函数的补形，也供锁测对照） */
 export function easeOutBounce(t: number): number {
@@ -93,6 +93,16 @@ export function easing(family: EasingFamily, type: EasingType): (p: number) => n
     TABLE.set(key, f);
   }
   return f;
+}
+
+/** 型翻转（ADR-0009 §4 镜像：解析段 In↔Out 翻转 = 真镜像，族不变） */
+export function flipEasingType(type: EasingType): EasingType {
+  switch (type) {
+    case 'in': return 'out';
+    case 'out': return 'in';
+    case 'inOut': return 'outIn';
+    case 'outIn': return 'inOut';
+  }
 }
 
 /** 单调非递减的族（back/elastic/bounce 有过冲/震荡，不参与此不变量锁测） */

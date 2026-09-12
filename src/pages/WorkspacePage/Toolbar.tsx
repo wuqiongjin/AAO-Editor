@@ -17,6 +17,7 @@ import NoteIconGlyph from '../../chart/rendering/NoteIconGlyph';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../visual/noteSkin';
 import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
 import { SHAPE_TEMPLATES } from '../../chart/editing/ShapeTemplates';
+import { EASING_FAMILIES, EASING_TYPES, CURVE_PRECISIONS } from '../../chart/editing/Easing';
 import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
 import type { ArmedTool } from '../../app/providers/UIProvider';
 import IconButton from '../../ui/IconButton';
@@ -43,30 +44,15 @@ const toolCategory: Record<string, string> = {
   noteCode: "音符代码", undo: "撤销", redo: "重做",
 };
 
-/** 曲线工具配置项的选项表（issue 09 S2 / ADR-0009 §2：10 族 × 4 型 × 3 档精度） */
-const CURVE_FAMILY_OPTIONS = [
-  { value: "sine", label: "Sine 正弦" },
-  { value: "quad", label: "Quad 二次" },
-  { value: "cubic", label: "Cubic 三次" },
-  { value: "quart", label: "Quart 四次" },
-  { value: "quint", label: "Quint 五次" },
-  { value: "expo", label: "Expo 指数" },
-  { value: "circ", label: "Circ 圆弧" },
-  { value: "back", label: "Back 过冲" },
-  { value: "elastic", label: "Elastic 弹性" },
-  { value: "bounce", label: "Bounce 弹跳" },
-] as const;
-const CURVE_TYPE_OPTIONS = [
-  { value: "in", label: "In" },
-  { value: "out", label: "Out" },
-  { value: "inOut", label: "In-Out" },
-  { value: "outIn", label: "Out-In" },
-] as const;
-const CURVE_PRECISION_OPTIONS = [
-  { value: 16, label: "1/16" },
-  { value: 32, label: "1/32" },
-  { value: 64, label: "1/64" },
-] as const;
+/** 曲线工具配置项的选项表（issue 09 S2 / ADR-0009 §2：从 Easing.ts 常量派生，增族不漂移） */
+const FAMILY_ZH: Record<string, string> = {
+  sine: "正弦", quad: "二次", cubic: "三次", quart: "四次", quint: "五次",
+  expo: "指数", circ: "圆弧", back: "过冲", elastic: "弹性", bounce: "弹跳",
+};
+const TYPE_ZH: Record<string, string> = { in: "In", out: "Out", inOut: "In-Out", outIn: "Out-In" };
+const CURVE_FAMILY_OPTIONS = EASING_FAMILIES.map((f) => ({ value: f, label: `${f} ${FAMILY_ZH[f] ?? ""}` }));
+const CURVE_TYPE_OPTIONS = EASING_TYPES.map((t) => ({ value: t, label: TYPE_ZH[t] ?? t }));
+const CURVE_PRECISION_OPTIONS = CURVE_PRECISIONS.map((p) => ({ value: p, label: `1/${p}` }));
 
 // issue 09 S4：形状模板预设（ADR-0009 §2 三来源之三；缓动弧线预设走缓动路径不入本表）
 const CURVE_TEMPLATE_OPTIONS = [

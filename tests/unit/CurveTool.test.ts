@@ -12,6 +12,8 @@ import {
 } from '../../src/chart/editing/ToolActionMatrix';
 import { effectiveSpanParams, countVisibleNodes } from '../../src/chart/editing/SpanCurve';
 import { shapeTemplateById } from '../../src/chart/editing/ShapeTemplates';
+import { mirrorNote } from '../../src/chart/editing/NoteEditing';
+import { mirrorLane } from '../../src/chart/editing/NoteEditing';
 import { combineSelectionIntoSlide } from '../../src/chart/editing/SlideCombination';
 
 const CFG: CurveConfig = { family: 'quad', type: 'in', precision: 16 };
@@ -224,5 +226,59 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
     const edited = setNotes.notes[1] as SlideNote;
     expect(effectiveSpanParams(edited)[0]).toEqual({ kind: 'template', templateId: 's-curve' });
     expect(edited.connections.filter((c) => c.hidden).length).toBe(shapeTemplateById('s-curve')!.points.length);
+  });
+});
+
+describe('issue 09 S3 补 · 画笔仅空白起手（ADR-0009 §3 口径）', () => {
+  it('按在音符/段上（无 Shift）→ 框选仲裁，不进画笔（点击语义归单击路径）', () => {
+    const bpm120 = [{ beat: 0, bpm: 120 }];
+    const geometry = new ChartGeometry(bpm120, 100, { w: 750, h: 900 });
+    const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
+    const notes: ChartNote[] = [{ type: 'Single', beat: 2, lane: 3, subBeat: 0 }];
+    const p = geometry.virtualToCanvas(
+      geometry.noteVirtualX(3),
+      geometry.noteVirtualY(2, 0, viewport.scale, 4),
+      viewport,
+    );
+    const intent = resolvePressIntent({
+      cx: p.x, cy: p.y, armedTool: 'curve', shiftKey: false, onMarker: false,
+      deps: { geometry, viewport, beatDisplay: 4, notes },
+      selectedItems: [], chartEndBeat: 100,
+    });
+    expect(intent.kind).toBe('marquee');
+  });
+});
+
+describe('issue 09 S3 补 · 镜像 = 解析段缓动型翻转（ADR-0009 §4 真镜像）', () => {
+  it('In↔Out / In-Out↔Out-In（族不变）；模板段与无参数段不动', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 1, lane: 0, subBeat: 0 },
+        { beat: 2, lane: 6, subBeat: 0, hidden: true },
+        { beat: 3, lane: 3, subBeat: 0 },
+      ],
+      spanParams: {
+        visibleCount: 2,
+        bySpan: {
+          0: { kind: 'easing', family: 'quad', type: 'in', precision: 16 },
+          1: { kind: 'easing', family: 'sine', type: 'outIn', precision: 32 },
+        },
+      },
+    }];
+    const out = mirrorNote(notes[0]!) as SlideNote;
+    // 点集镜像
+    expect(out.connections.every(c => c.lane === mirrorLane((notes[0] as SlideNote).connections.find(x => x.beat === c.beat)!.lane))).toBe(true);
+    // 参数型翻转、族/精度不变
+    expect(out.spanParams?.bySpan[0]).toEqual({ kind: 'easing', family: 'quad', type: 'out', precision: 16 });
+    expect(out.spanParams?.bySpan[1]).toEqual({ kind: 'easing', family: 'sine', type: 'inOut', precision: 32 });
+    // 模板段原样
+    const withTpl: ChartNote[] = [{
+      type: 'Slide',
+      connections: [{ beat: 1, lane: 0, subBeat: 0 }, { beat: 2, lane: 6, subBeat: 0 }],
+      spanParams: { visibleCount: 2, bySpan: { 0: { kind: 'template', templateId: 's-curve' } } },
+    }];
+    const out2 = mirrorNote(withTpl[0]!) as SlideNote;
+    expect(out2.spanParams?.bySpan[0]).toEqual({ kind: 'template', templateId: 's-curve' });
   });
 });

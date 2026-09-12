@@ -215,9 +215,18 @@ export function bendSpan(
   // 段内既有 hidden + （普通段时）新补的采样点，一起参与拉弯
   const inserted: ConnectionNote[] = sp.end - sp.start === 1
     ? (() => {
-        // 普通段（无 hidden）：补采样点（1/precision 栅格、直线插值）→ 一并拉弯（Q10=B 拨弯即转化）
-        const param: SpanEasingParam = { kind: 'easing', family: 'sine', type: 'inOut', precision };
-        return bakeEasingPoints(from, to, fromBeat, toBeat, param);
+        // 普通段（无 hidden）：在**原直线弦**上按 1/precision 栅格补采样点 → 一并拉弯（Q10=B 拨弯即转化；
+        // 线性插值，不引入任何缓动形状——弯出来的形 = 位移场本身）
+        const f = Math.max(1, Math.ceil((toBeat - fromBeat) * precision - 1e-9));
+        const out: ConnectionNote[] = [];
+        for (let p = 1; p < f; p++) {
+          out.push({
+            beat: fromBeat + p / precision,
+            lane: clamp(from.lane + (to.lane - from.lane) * (p / f), 0, 6),
+            hidden: true,
+          });
+        }
+        return out;
       })()
     : [];
   const middle = [...conns.slice(sp.start + 1, sp.end), ...inserted].map((p) => {

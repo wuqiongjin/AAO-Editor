@@ -226,7 +226,8 @@ export interface ClickInput {
 
 /** §2 单击矩阵（工具族行 × 音符/空白列）；指针行不走此函数（指针行在画布侧 selectItemAtPoint） */
 export function clickOps(input: ClickInput): MatrixOp[] {
-  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard, chartEndBeat, beatDisplay, selectedItems } = input;  // §2 原则 6：**非指针态单击画布 = 新意图 → 清空选区**，与落点是否合法、动作是否生效无关
+  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard, chartEndBeat, beatDisplay, selectedItems } = input;
+  // §2 原则 6：**非指针态单击画布 = 新意图 → 清空选区**，与落点是否合法、动作是否生效无关
   // （含"点轨道外/谱面末端外"这种非法落点：动作按 §1 无事发生，但选中态照样取消——
   // 用户点了画布，注意力已经转移；选中态留着只是噪音）。
   // 唯一保留选区的例外见原则 6：镜像/粘贴后 = 本次产物、框选批量后、拖拽后、复制后。

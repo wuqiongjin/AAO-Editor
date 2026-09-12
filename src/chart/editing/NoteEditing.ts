@@ -1,4 +1,5 @@
 import type { ChartNote } from '../types';
+import { flipEasingType } from './Easing';
 
 // 轨道总数（与 FinalVirtualCanvas 的 LANES 保持一致）
 export const TOTAL_LANES = 7;
@@ -72,7 +73,10 @@ export const countNotesUpToBeat = (
 // 轨道镜像（唯一实现，三处调用点收敛于此——NoteEditing/SelectionEditing/NoteInfoPanel）
 export const mirrorLane = (lane: number) => TOTAL_LANES - 1 - lane;
 
-// 对单个音符做左右镜像：lane 翻转 + 方向键 L↔R 翻转 + 滑条端点 lane 同步；BPM/System 不参与
+// 对单个音符做左右镜像：lane 翻转 + 方向键 L↔R 翻转 + 滑条端点 lane 同步；BPM/System 不参与。
+// issue 09 S3（ADR-0009 §4）：SP 解析段同步做缓动**型翻转**（In↔Out / In-Out↔Out-In，族不变）——
+// 点集镜像后只有翻转的型才能重烘焙出同一形状（否则拖端点重投影会把形状"弹回"未镜像态）；
+// 模板段点列左右对称翻转天然成立、自由段无参数，均不动。
 export const mirrorNote = (n: ChartNote): ChartNote => {
   switch (n.type) {
     case "Single":
@@ -82,8 +86,19 @@ export const mirrorNote = (n: ChartNote): ChartNote => {
     case "RDirectional":
       return { ...n, lane: mirrorLane(n.lane), type: "LDirectional" };
     case "Slide":
-    case "Long":
-      return { ...n, connections: n.connections.map(c => ({ ...c, lane: mirrorLane(c.lane) })) };
+    case "Long": {
+      const sp = n.spanParams;
+      const bySpan = sp
+        ? Object.fromEntries(Object.entries(sp.bySpan).map(([k, p]) => [
+            k, p.kind === 'easing' ? { ...p, type: flipEasingType(p.type) } : p,
+          ]))
+        : undefined;
+      return {
+        ...n,
+        connections: n.connections.map(c => ({ ...c, lane: mirrorLane(c.lane) })),
+        ...(bySpan ? { spanParams: { ...sp!, bySpan } } : {}),
+      };
+    }
     case "BPM":
     case "System":
       return n;

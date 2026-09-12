@@ -117,8 +117,8 @@ export type PressIntent =
 /**
  * §6 按下意图仲裁：这一次按下是「拖拽移动」还是「框选」。
  * 任一步不合法都退回框选（防误拖），不产生半截拖拽态。
- * 例外（issue 09 S2）：曲线工具态无 Shift 按下 = **画笔**（落点合法即起笔，音符上也可画——
- * 画笔不改既有音符）；Shift 交还既有仲裁（Shift+音符 = 移动逃生口不受影响）。
+ * 例外（issue 09 S2）：曲线工具态**空白**无 Shift 按下 = **画笔**（按在音符/段上不画笔，
+ * 交还框选仲裁——点击语义归单击路径）；Shift 交还既有仲裁（Shift+音符 = 移动逃生口不受影响）。
  */
 export function resolvePressIntent(input: {
     cx: number;
@@ -132,9 +132,11 @@ export function resolvePressIntent(input: {
     chartEndBeat: number;
 }): PressIntent {
     const marquee: PressIntent = { kind: 'marquee' };
-    // ADR-0009 §3：曲线画笔优先于拖拽/框选仲裁（无 Shift 时曲线态恒画笔）
+    // ADR-0009 §3：曲线工具态**空白**按下（无 Shift）= 画笔起手；按在音符/段上 → 交还既有仲裁
+    // （该组合最终落框选——单击路径的"点段重应用/锚点放置"归 clickOps，不在手势侧做功）
     if (input.armedTool === 'curve' && !input.shiftKey) {
         if (input.onMarker) return marquee;
+        if (findItemAt(input.cx, input.cy, input.deps)) return marquee;
         const start = snapChartPos(input.deps, input.chartEndBeat, input.cx, input.cy);
         return start ? { kind: 'pen', start } : marquee;
     }

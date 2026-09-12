@@ -906,7 +906,8 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   }
 
   // issue 65④：滑条工具态此前什么都不画 → 补两档 hover 幽灵。
-  if (rc.armedTool === 'slide') {    const buf = rc.slideBuffer;
+  if (rc.armedTool === 'slide') {
+    const buf = rc.slideBuffer;
     const bufBeat = buf ? buf.beat + (buf.subBeat || 0) / rc.beatDisplay : 0;
     // 与锚点同拍（含同轨同位与"横向段"）→ 第二击走的是取消/禁令分支，永远不成段 → 不画带子
     if (buf && Math.abs(pos.preciseBeat - bufBeat) > 1e-6) {

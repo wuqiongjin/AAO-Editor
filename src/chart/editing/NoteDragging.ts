@@ -10,6 +10,7 @@ import { mergeChainWithSlides } from './SlideCombination';
 import { handleNoteReplacement } from './NoteReplacementRules';
 import { slideSpans } from './SlideSegments';
 import { bendSpan, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams } from './SpanCurve';
+import type { CurvePrecision } from './Easing';
 
 /**
  * 拖拽的拍位移（issue 61）：**量化对象 = 被拖对象的落点**，不是光标。
@@ -137,7 +138,7 @@ export function planDragMove(
   delta: DragDelta,
   /** chartEndBeat = 谱面末端；beatDisplay = 子拍细分（subBeat 的单位分母，用于真实拍位换算）；
    *  bendPrecision = 拨弯普通段时的补采样密度（issue 09 S3，缺省 1/16） */
-  bounds: { chartEndBeat: number; beatDisplay: number; bendPrecision?: 16 | 32 | 64 },
+  bounds: { chartEndBeat: number; beatDisplay: number; bendPrecision?: CurvePrecision },
 ): DragMoveResult {
   const noChange: DragMoveResult = { ok: false, notes, items: [], reason: 'unsupported' };
   const fail = (reason: 'out-of-bounds' | 'collision' | 'unsupported'): DragMoveResult =>
