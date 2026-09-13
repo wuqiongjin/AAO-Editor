@@ -75,6 +75,8 @@ export interface RenderCtx {
   curveConfig?: CurveConfig | null;
   /** issue 09 S2：画笔进行中的草稿幽灵（松手即按此形态落子的自由段），null = 非画笔手势 */
   penPreview?: SlideNote | null;
+  /** issue 09 验收反馈 #6：画笔手势进行中（按下~松手）——端点幽灵让位给画笔光标，起手首采样前也不显示 */
+  penActive?: boolean;
   spriteIcon: CanvasSpriteIcon;
   /** 音符皮肤图标集（issue 29）：由组件按 settings.visual.noteSkin 构建注入；换肤时引用变化 → 瓦片经 skinVersion 失效 */
   noteIcons: ActiveNoteIcons;

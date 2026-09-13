@@ -20,8 +20,9 @@ export type ActionToolId = 'delete' | 'paste' | 'mirror' | 'noteCode';
 export type ArmedTool = KeyToolId | 'bpm' | 'slide' | 'curve' | ActionToolId;
 
 /** 曲线工具出厂默认（沿用上次值 = 本 Provider state 天然具备；会话内不持久化到 settings）。
- *  templateId null = 用缓动函数；非空 = 形状模板优先（ADR-0009 §2） */
-export const DEFAULT_CURVE_CONFIG: CurveConfig = { family: 'sine', type: 'inOut', precision: 16, templateId: null };
+ *  templateId null = 用缓动函数；非空 = 形状模板优先（ADR-0009 §2）；
+ *  smooth = 画笔 lane 平滑开关（验收反馈 #5，默认关） */
+export const DEFAULT_CURVE_CONFIG: CurveConfig = { family: 'sine', type: 'inOut', precision: 16, templateId: null, smooth: false };
 
 export interface UIContextValue {
   armedTool: ArmedTool | null;

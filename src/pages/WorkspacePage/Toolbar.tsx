@@ -226,7 +226,17 @@ export default function Toolbar() {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
-            <p className="toolbar__hint">两击放缓动段（链式）；空白拖动 = 画笔；点已有段 = 应用当前曲线</p>
+            {/* 验收反馈 #5：画笔圆滑开关（默认关）——只作用画笔自由段，缓动/模板段不参与 */}
+            <label className="toolbar__hint" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+              title="画笔落子与预览时对轨迹做圆滑处理（拍位与端点保持不变）">
+              <input
+                type="checkbox"
+                checked={curveConfig.smooth === true}
+                onChange={(e) => setCurveConfig({ ...curveConfig, smooth: e.target.checked })}
+              />
+              画笔圆滑
+            </label>
+            <p className="toolbar__hint">空白：两击=直放缓动段 / 拖动=画笔（可倒画）；点已有段 = 应用当前曲线</p>
           </div>
         )}
 

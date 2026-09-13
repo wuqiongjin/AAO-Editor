@@ -495,6 +495,46 @@ describe('planDragMove · 拖带弯曲（issue 09 S3 / ADR-0009 §4）', () => {
     }
   });
 
+  it('验收 #4：拖**上端点**向下（跨度变短 → 重烘焙删采样点）不崩溃、落点正确、选区下标重映射', () => {
+    const notes: ChartNote[] = [eased(true)];
+    const lastIdx = (notes[0] as SlideNote).connections.length - 1; // = 16
+    const r = planDragMove(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: lastIdx }], { dBeat: -0.25, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    // 0.75 拍 × 1/16 → f=12 → 11 hidden + 2 visible = 13 点：旧下标 16 已越界
+    expect(s.connections.length).toBe(13);
+    expect(s.connections.at(-1)).toMatchObject({ beat: 1.75 });
+    // 选区条目指向重烘焙后的新下标（而非越界的 16）
+    expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 12 }]);
+  });
+
+  it('验收 #4：拖上端点向上（跨度变长 → 重烘焙增采样点）同样按新下标裁决与回写', () => {
+    const notes: ChartNote[] = [eased(true)];
+    const r = planDragMove(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 16 }], { dBeat: 0.5, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    expect(s.connections.at(-1)).toMatchObject({ beat: 2.5 });
+    expect(r.items[0]).toMatchObject({ connIndex: s.connections.length - 1 });
+  });
+
+  it('验收 #4：下端点向下拖（远离上端点）不受重烘焙影响，下标保持', () => {
+    const notes: ChartNote[] = [eased(true)];
+    const r = planDragMove(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }], { dBeat: -0.25, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as SlideNote).connections[0]).toMatchObject({ beat: 0.75 });
+    expect(r.items[0]).toMatchObject({ connIndex: 0 });
+  });
+
+  it('验收 #4：自由段（无参数）拖上端点向下 = 拉伸重映射，不增删点、下标稳定', () => {
+    const notes: ChartNote[] = [eased(false)];
+    const r = planDragMove(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 16 }], { dBeat: -0.25, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    expect(s.connections.length).toBe(17); // 重映射不改点数
+    expect(s.connections.at(-1)).toMatchObject({ beat: 1.75 });
+    expect(r.items[0]).toMatchObject({ connIndex: 16 });
+  });
+
   it('混合选区（region + 其它）不 bend：region 条目按不可拖处理，其余照常移动', () => {
     const notes: ChartNote[] = [single(1, 0), eased(false)];
     const r = planDragMove(

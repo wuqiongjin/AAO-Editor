@@ -13,8 +13,10 @@ export type FunctionId =
   | 'switchRDirectional' | 'execRDirectional'
   | 'switchBpm' | 'execBpm'
   | 'switchSlide' | 'execSlide'
-  // issue 09 S2（ADR-0009 §3）：曲线工具 = 仅切换键（无执行键——放置是链式/画笔手势，无"光标处立即执行"语义）
-  | 'switchCurve'
+  // issue 09 S2（ADR-0009 §3）：曲线工具。验收反馈 #9 起补执行键（Shift+W）：选区=组合+全部段应用 /
+  // 光标在段=重应用 / 空白=挂锚点续段（按光标分发，对齐 execSlide 双语义先例）。
+  // 默认键不用 Ctrl+W——浏览器保留键（关标签、preventDefault 拦不住）。
+  | 'switchCurve' | 'execCurve'
   // ADR-0008 §2.1（六轮）：复制/剪切**不占工具轴**（不 arm）——连续复制无意义、连续剪切有误删风险，
   // 二者必须有选区，只保留 execCopy / execCut 作用于选区。故无 switchCopy / switchCut。
   | 'execCopy'
@@ -53,7 +55,10 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'execBpm',            label: '执行-BPM',    category: 'BPM', binding: 'ctrl+`' },
   { id: 'switchSlide',        label: '切换-滑条',   category: '滑条', binding: 'e' },
   { id: 'execSlide',          label: '执行-滑条',   category: '滑条', binding: 'ctrl+e' },
-  { id: 'switchCurve',        label: '切换-曲线',   category: '曲线', binding: 'c' },
+  // 验收反馈 #9：曲线默认键从 C 换 W——C 与 Ctrl+C（复制）一指之差易误切工具；
+  // 执行键取 Shift+W（同字母+修饰键家族；Shift 无浏览器保留冲突，Alt+W 双手别扭）
+  { id: 'switchCurve',        label: '切换-曲线',   category: '曲线', binding: 'w' },
+  { id: 'execCurve',          label: '执行-曲线',   category: '曲线', binding: 'shift+w' },
   { id: 'execCopy',           label: '执行-复制',   category: '复制', binding: 'ctrl+c' },
   { id: 'switchPaste',        label: '切换-粘贴',   category: '粘贴', binding: 'v' },
   { id: 'execPaste',          label: '执行-粘贴',   category: '粘贴', binding: 'ctrl+v' },
@@ -149,6 +154,8 @@ const STORAGE_KEY = 'bangdream.shortcuts.v1';
  */
 const SUPERSEDED_DEFAULTS: Partial<Record<FunctionId, { old: string; current: string }>> = {
   toggleSidebar: { old: 'ctrl+b', current: functionById('toggleSidebar').binding },
+  // issue 09 验收反馈 #9：曲线切换键 C → W（执行键 Shift+W 为新增项，不涉及旧存档）
+  switchCurve: { old: 'c', current: functionById('switchCurve').binding },
 };
 
 function repairStaleBindings(cfg: ShortcutConfig): ShortcutConfig {

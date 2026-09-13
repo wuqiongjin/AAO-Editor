@@ -4,6 +4,7 @@ import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import type { ChartGeometry, GeometryViewport } from '../chart/geometry/ChartGeometry';
 import { LANE_WIDTH, directionalLanes } from '../chart/geometry/ChartGeometry';
 import { slideSpans } from '../chart/editing/SlideSegments';
+import { bandPolygonAt } from './slideBandGeometry';
 import { makeCoords } from './coords';
 import type { SelectionBox } from './types';
 
@@ -137,18 +138,13 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
       // 再检测是否命中连接带区域（平行四边形）。
       // issue 77 二轮：命中单位 = **逻辑段**（跨过 hidden 的整段）—— 段内任一子块命中，
       // 都返回该段起点下标（hidden 不切割段，hover/选中才不会被切成两半）。
+      // 横截面口径 = `slideBandGeometry` 车道横向（与带体实绘、选中/hover 描边同源，issue 09 验收反馈六轮）。
       for (const sp of slideSpans(connections)) {
         for (let ci = sp.start; ci < sp.end; ci++) {
           const c1 = connections[ci], c2 = connections[ci + 1];
           const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
           const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
-          const quad = [
-            [p1.x - halfLaneWidth, p1.y],
-            [p1.x + halfLaneWidth, p1.y],
-            [p2.x + halfLaneWidth, p2.y],
-            [p2.x - halfLaneWidth, p2.y],
-          ];
-          if (pointInQuad(cx, cy, quad)) {
+          if (pointInQuad(cx, cy, bandPolygonAt([p1, p2], halfLaneWidth))) {
             return { kind: 'slideRegion', noteIndex: i, connIndex: sp.start };
           }
         }

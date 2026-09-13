@@ -4,8 +4,8 @@ import {
   bindingTakenByOther, loadConfig, formatKey, categoryShortcuts, functionMode,
 } from '../../src/chart/config/ShortcutConfig';
 
-const keyEvent = (key: string, ctrl = false): KeyboardEvent =>
-  ({ key, ctrlKey: ctrl, metaKey: false } as KeyboardEvent);
+const keyEvent = (key: string, ctrl = false, shift = false): KeyboardEvent =>
+  ({ key, ctrlKey: ctrl, metaKey: false, shiftKey: shift } as KeyboardEvent);
 
 describe('ShortcutConfig 默认配置', () => {
   it('每功能恰好一个键', () => {
@@ -39,6 +39,22 @@ describe('ShortcutConfig 默认配置', () => {
     expect(cfg.toggleSidebar).toBe('ctrl+shift+b');
     // 一键一功能：新键位不与既有功能相撞
     expect(buildBindingIndex(cfg).size).toBe(Object.keys(cfg).length);
+  });
+
+  // issue 09 验收反馈 #9：曲线切换 C→W（C 与 Ctrl+C 一指之差易误切）、新增执行键 Shift+W
+  // （不用 Ctrl+W：浏览器保留键 = 关标签，preventDefault 拦不住）
+  it('曲线工具 = 切换 W / 执行 Shift+W，且不与任何功能相撞', () => {
+    const cfg = getDefaultConfig();
+    expect(cfg.switchCurve).toBe('w');
+    expect(cfg.execCurve).toBe('shift+w');
+    expect(buildBindingIndex(cfg).size).toBe(Object.keys(cfg).length);
+    expect(resolveAction(keyEvent('w'), cfg)).toBe('switchCurve');
+    expect(resolveAction(keyEvent('w', false, true), cfg)).toBe('execCurve');
+  });
+
+  it('loadConfig 修复曲线切换旧默认键（旧存档 c 回落为 w）', () => {
+    const cfg = loadConfig({ getItem: () => JSON.stringify({ switchCurve: 'c' }) });
+    expect(cfg.switchCurve).toBe('w');
   });
 });
 

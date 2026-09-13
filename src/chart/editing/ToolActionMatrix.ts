@@ -3,15 +3,18 @@
 // 画布（FinalVirtualCanvas）负责几何→命中/落点/框内条目的换算，本模块只吃换算好的输入、
 // 输出副作用指令（op）序列；一次手势 = 一个 setNotes = 一个可回退快照（§8）。
 // 指针行（点选/加选/框选建选区）不在此表——它只操作选区、语义未变，留在画布选择路径。
-import type { ChartNote, SelectionItem, SlideNote, LongNote, SpanParam } from '../types';
+import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LongNote, SpanParam } from '../types';
 import {
   handleNoteReplacement, handleSlideToSlideCombination, keyTargetsFromItems,
-  batchApplyKeyType, pasteChartNotes,
+  batchApplyKeyType, pasteChartNotes, removeOverlappedNotes,
 } from './NoteReplacementRules';
 import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
-import { combineSelectionIntoSlide, compareAbsorbable } from './SlideCombination';
-import { ordinalOfRegion } from './SlideSegments';
-import { buildChainedSlide, connTrueBeat, countVisibleNodes, regenerateSpan } from './SpanCurve';
+import { combineSelectionIntoSlide, compareAbsorbable, mergeChainWithSlides } from './SlideCombination';
+import { ordinalOfRegion, slideSpans } from './SlideSegments';
+import {
+  applyParamToAllSpans, bakeSpanPoints, connTrueBeat,
+  countVisibleNodes, effectiveSpanParams, regenerateSpan,
+} from './SpanCurve';
 import type { CurvePrecision, EasingFamily, EasingType } from './Easing';
 // 对象视图目标（issue 59 §4）在 NoteCodeOps 定义（回写走同一类型），转出供 op 与调用方使用
 import { noteCodeTargetForHit, type NoteCodeTarget } from './NoteCodeOps';
@@ -33,12 +36,14 @@ export interface SlidePoint { beat: number; lane: number; subBeat: number }
 export interface SnapPos { beat: number; lane: number }
 
 /** 曲线工具当前配置（UIProvider 持有、沿用上次值；放置与段重应用共用）。
- *  `templateId` 非空 = 形状模板优先（ADR-0009 §2 三来源之三），缓动三字段被忽略 */
+ *  `templateId` 非空 = 形状模板优先（ADR-0009 §2 三来源之三），缓动三字段被忽略；
+ *  `smooth` = 画笔落子/预览的 lane 平滑开关（验收反馈 #5，默认关；只作用画笔自由段） */
 export interface CurveConfig {
   family: EasingFamily;
   type: EasingType;
   precision: CurvePrecision;
   templateId?: string | null;
+  smooth?: boolean;
 }
 
 /** 配置 → 段参数（模板优先；S4 起放置/重应用/预览三路共用，保证"所见即所得"） */
@@ -158,11 +163,111 @@ export function combineOps(notes: ChartNote[], items: SelectionItem[]): MatrixOp
   ];
 }
 
+/** 段端点签名（真拍位 + lane）——合并产物中按签名找回被消耗滑条的段参数（序数会平移，签名不会） */
+const spanSig = (a: { beat: number; lane: number; subBeat?: number }, b: { beat: number; lane: number; subBeat?: number }, beatDisplay: number) =>
+  `${connTrueBeat(a, beatDisplay)},${a.lane}|${connTrueBeat(b, beatDisplay)},${b.lane}`;
+
+const sameGridPos = (a: { beat: number; lane: number; subBeat?: number }, b: { beat: number; lane: number; subBeat?: number }) =>
+  a.beat === b.beat && a.lane === b.lane && (a.subBeat || 0) === (b.subBeat || 0);
+
 /**
- * §4 曲线工具链式放置（issue 09 / ADR-0009 §3）：每次合法点击 = 接一段。
- * 草稿确定性重建（buildChainedSlide 从 points+params 全量重算），不做增量拼接；
- * 草稿引用的滑条已不在（undo / 外部改动）→ 草稿作废，本次点击退为"第一击"。
- * S2 口径：曲线工具不做滑条-滑条接合（共端点 = 分叉，bestdori 同为合法形态）。
+ * **带组合的滑条落子**（issue 09 三/四轮，两击直放与画笔落子共用）：复用普通滑条的
+ * `removeOverlappedNotes`（端点覆盖键型音符）+ `mergeChainWithSlides`（链端与既有滑条头/尾
+ * 相接 = 合并，双向级联）；链自身的可见端点为 [start, end]，`hidden` 为调用方预烘焙的段内
+ * 采样点（两击 = 缓动/模板烘焙；画笔 = 轨迹采样，可倒序反转后传入）；`param` = 新段参数
+ * （画笔自由段传 null）。被消耗滑条的既有段参数按**段端点签名**找回（合并后序数平移不影响
+ * 签名匹配），找不到签名的段退化为自由段。端点不相接任何滑条 = 独立新滑条（重叠位置合法）。
+ * @returns 落子后的完整音符数组（合并结果写回首条被消耗滑条原下标，与普通两击路径同口径）
+ */
+export function placeSpanWithCombination(
+  notes: ChartNote[],
+  start: { beat: number; lane: number; subBeat?: number },
+  end: { beat: number; lane: number; subBeat?: number },
+  hidden: ConnectionNote[],
+  param: SpanParam | null,
+  beatDisplay: number,
+): ChartNote[] {
+  const work = [...notes];
+  removeOverlappedNotes(work, start);
+  removeOverlappedNotes(work, end);
+  const merged = mergeChainWithSlides(work, [
+    { beat: start.beat, lane: start.lane, subBeat: start.subBeat || 0 },
+    { beat: end.beat, lane: end.lane, subBeat: end.subBeat || 0 },
+  ]);
+
+  if (merged.consumed.length === 0) {
+    // 独立新滑条：可见 [start, end] + 段内采样
+    const connections: ConnectionNote[] = [
+      { beat: start.beat, lane: start.lane, subBeat: start.subBeat || 0 },
+      ...hidden,
+      { beat: end.beat, lane: end.lane, subBeat: end.subBeat || 0 },
+    ];
+    const slide: SlideNote = {
+      type: 'Slide',
+      connections,
+      ...(param ? { spanParams: { visibleCount: 2, bySpan: { 0: param } } } : {}),
+    } as SlideNote;
+    return [...work, slide];
+  }
+
+  // 合并产物：找回链段位置插入采样点，并按签名重建段参数
+  const conns = merged.connections;
+  let at = -1;
+  for (let i = 0; i + 1 < conns.length; i++) {
+    if (sameGridPos(conns[i]!, start) && sameGridPos(conns[i + 1]!, end)) { at = i; break; }
+  }
+  const finalConns = at >= 0
+    ? [...conns.slice(0, at + 1), ...hidden, ...conns.slice(at + 1)]
+    : conns; // 防御：找不到链段位置时保组合成立（新段退化为直线）
+  const consumedSet = new Set(merged.consumed);
+  const sigParams = new Map<string, SpanParam>();
+  for (const idx of merged.consumed) {
+    const s = work[idx];
+    if (!s || (s.type !== 'Slide' && s.type !== 'Long')) continue;
+    const bySpan = effectiveSpanParams(s as SlideNote | LongNote);
+    const cs = (s as SlideNote | LongNote).connections;
+    slideSpans(cs).forEach((sp, i) => {
+      const p = bySpan[i];
+      if (p) sigParams.set(spanSig(cs[sp.start]!, cs[sp.end]!, beatDisplay), p);
+    });
+  }
+  const bySpan: Record<number, SpanParam> = {};
+  let last: ConnectionNote | null = null;
+  let ordinal = 0;
+  let chainOrdinal = -1;
+  for (const cn of finalConns) {
+    if (cn.hidden) continue;
+    if (last !== null) {
+      const carried = sigParams.get(spanSig(last, cn, beatDisplay));
+      if (carried) bySpan[ordinal] = carried;
+      if (sameGridPos(last, start) && sameGridPos(cn, end)) chainOrdinal = ordinal;
+      ordinal++;
+    }
+    last = cn;
+  }
+  if (param && chainOrdinal >= 0) bySpan[chainOrdinal] = param;
+  const hasParams = Object.keys(bySpan).length > 0;
+  const slide: SlideNote = {
+    type: merged.type,
+    connections: finalConns,
+    ...(hasParams ? { spanParams: { visibleCount: countVisibleNodes(finalConns), bySpan } } : {}),
+  } as SlideNote;
+  const result: ChartNote[] = [];
+  work.forEach((n, i) => {
+    if (consumedSet.has(i)) {
+      if (i === Math.min(...merged.consumed)) result.push(slide);
+      return;
+    }
+    result.push(n);
+  });
+  return result;
+}
+
+/**
+ * §4 曲线工具两击直放（issue 09 / ADR-0009 §3；2026-09-13 三轮修订）：
+ * 第一击 = 挂锚点；第二击 = 落子并清草稿（不残留"可连续放置"UI 态）。
+ * 组合规则与落子本体都在 `placeSpanWithCombination`（与画笔落子共用）；此处只负责：
+ * 点击次序无关（`compareAbsorbable` 排序）、新段按当前缓动/模板烘焙、同拍位取消（对标滑条两击）。
  */
 export function curveChainClickOps(
   notes: ChartNote[],
@@ -173,34 +278,92 @@ export function curveChainClickOps(
   clearSel: MatrixOp = { t: 'setSelection', items: [] },
 ): MatrixOp[] {
   const param = spanParamFromCurveConfig(config);
-  let base = draft;
-  if (base.noteIndex !== null) {
-    const cur = notes[base.noteIndex];
-    const ok = !!cur && (cur.type === 'Slide' || cur.type === 'Long')
-      && countVisibleNodes((cur as SlideNote | LongNote).connections) === base.points.length
-      && Math.abs(connTrueBeat((cur as SlideNote | LongNote).connections[0]!, beatDisplay) - base.points[0]!.beat) < 1e-9;
-    if (!ok) base = { points: [], params: {}, noteIndex: null };
+  // 空草稿（防御）→ 本次点击只当"第一击"（挂锚点）
+  if (draft.points.length === 0) {
+    return [{ t: 'setCurveBuffer', draft: { points: [point], params: {}, noteIndex: null } }, clearSel];
   }
-  const points = [...base.points, point];
-  // 重启后的空草稿：本次点击只当"第一击"（挂锚点），不落子
-  if (base.noteIndex === null && base.points.length === 0) {
-    return [{ t: 'setCurveBuffer', draft: { points, params: {}, noteIndex: null } }, clearSel];
+  const anchor = draft.points[0]!;
+  // 与锚点同拍位 → 取消草稿（对标滑条两击"同位 = 取消锚点"）
+  if (samePos(anchor, point)) {
+    return [{ t: 'setCurveBuffer', draft: null }, clearSel];
   }
-  const params = { ...base.params, [base.points.length - 1]: param };
-  const slide = buildChainedSlide(points, params, beatDisplay);
-  if (base.noteIndex === null) {
-    return [
-      { t: 'setNotes', notes: [...notes, slide] },
-      { t: 'setCurveBuffer', draft: { points, params, noteIndex: notes.length } },
-      clearSel,
-    ];
-  }
-  const idx = base.noteIndex;
+  const [start, end] = compareAbsorbable(anchor, point) <= 0 ? [anchor, point] : [point, anchor];
+  const fromBeat = connTrueBeat(start, beatDisplay);
+  const toBeat = connTrueBeat(end, beatDisplay);
+  const baked = toBeat > fromBeat ? bakeSpanPoints(start, end, fromBeat, toBeat, param) : [];
   return [
-    { t: 'setNotes', notes: notes.map((n, i) => (i === idx ? slide : n)) },
-    { t: 'setCurveBuffer', draft: { points, params, noteIndex: idx } },
+    { t: 'setNotes', notes: placeSpanWithCombination(notes, start, end, baked, param, beatDisplay) },
+    { t: 'setCurveBuffer', draft: null },
     clearSel,
   ];
+}
+
+/**
+ * §4 曲线工具框选/执行键选区档（issue 09 验收反馈 #7 拍板）：**组合 + 全部段应用**——
+ * 先走滑条组合（`combineSelectionIntoSlide`，与滑条工具框选同源），再对**被框涉及的每条滑条**
+ * （组合产物写在被消耗滑条的最小下标，必属其中）的**每个逻辑段**应用当前曲线配置
+ * （含覆盖既有缓动段参数的代价——用户知情拍板）。组合不成立时退化为纯批量应用
+ * （框内已有滑条仍被施加配置），二者都未发生 = 无事发生。
+ */
+export function curveBoxOps(
+  notes: ChartNote[],
+  items: SelectionItem[],
+  config: CurveConfig,
+  beatDisplay: number,
+  clearSel: MatrixOp = { t: 'setSelection', items: [] },
+): MatrixOp[] {
+  if (items.length === 0) return [];
+  const param = spanParamFromCurveConfig(config);
+  const comb = combineSelectionIntoSlide(notes, items);
+  let newNotes = comb.shouldCombine ? comb.newNotes : notes;
+  let changed = comb.shouldCombine;
+  // 应用目标 = 组合**产物**滑条 + 被框涉及的既有滑条（原 notes 下标；组合产物写在被消耗
+  // 滑条的最小下标时也必属其中，二者取并集去重即可）
+  const targetIdx = new Set<number>(items
+    .map((it) => it.noteIndex)
+    .filter((idx) => {
+      const n = notes[idx];
+      return !!n && (n.type === 'Slide' || n.type === 'Long');
+    }));
+  if (comb.shouldCombine && comb.slideIndex !== undefined) targetIdx.add(comb.slideIndex);
+  for (const idx of targetIdx) {
+    const n = newNotes[idx];
+    if (!n || (n.type !== 'Slide' && n.type !== 'Long')) continue;
+    const next = applyParamToAllSpans(n as SlideNote | LongNote, param, beatDisplay);
+    if (next !== n) {
+      newNotes = newNotes.map((x, i) => (i === idx ? next : x));
+      changed = true;
+    }
+  }
+  if (!changed) return [];
+  return [{ t: 'setNotes', notes: newNotes }, clearSel];
+}
+
+/**
+ * §3 执行-曲线（Shift+W，验收反馈 #9）：执行键语义按光标分发（对齐 Ctrl+E 双语义先例）——
+ * 选区 ≥2 → 组合 + 全部段应用（与框选同源 `curveBoxOps`）；否则光标不在画布/越末端 → 无事发生；
+ * 否则与曲线工具**单击**完全同源（`clickOps` curve 行）：hover 在段上 = 重应用当前配置、
+ * 空白/音符上 = 挂锚点/续段（与单击共用 curveDraft）。
+ */
+export function execCurveOps(input: ExecInput & {
+  beatDisplay: number;
+  curveDraft?: CurveDraft | null;
+  curveConfig?: CurveConfig | null;
+  /** 光标处命中（= hoverItem；与「执行-音符代码」同口径，用时现算） */
+  hit: SelectionItem | null;
+  clipboard: ChartNote[];
+}): MatrixOp[] {
+  const { notes, selectedItems, cursor, chartEndBeat, beatDisplay, curveDraft, curveConfig, hit } = input;
+  if (selectedItems.length >= 2 && curveConfig) {
+    return curveBoxOps(notes, selectedItems, curveConfig, beatDisplay);
+  }
+  if (!cursor || !curveConfig || cursor.beat > chartEndBeat + 1e-6) return [];
+  return clickOps({
+    tool: 'curve', notes, hit,
+    pos: { beat: cursor.beat, lane: cursor.lane },
+    slideBuffer: null, lastBpm: input.lastBpm, clipboard: input.clipboard,
+    chartEndBeat, beatDisplay, selectedItems, curveDraft, curveConfig,
+  });
 }
 
 export interface ClickInput {
@@ -342,12 +505,15 @@ export function clickOps(input: ClickInput): MatrixOp[] {
  * §2 框选矩阵（工具族 → 松手动作）；指针行不走此函数
  * @param bpmInBox 被框"整条覆盖"的 BPM 线（画布侧 `computeBpmLinesInBox` 单独收集）。
  *   issue 71：BPM **不进选区**，但删除工具的框选是批量执行而非建选区 → 仍按此集合删除。
+ * @param curveConfig 曲线工具配置（验收反馈 #7：curve 行 = 组合 + 全部段应用，需要它派生参数）
  */
 export function boxSelectOps(
   tool: MatrixTool,
   notes: ChartNote[],
   items: SelectionItem[],
   bpmInBox: readonly SelectionItem[] = [],
+  curveConfig?: CurveConfig | null,
+  beatDisplay?: number,
 ): MatrixOp[] {
   if (isKeyTool(tool)) {
     // 框内音符逐个应用 ADR-0001 替换规则；可替换换型、不可替换跳过；原则4：批量后选区保留
@@ -364,8 +530,12 @@ export function boxSelectOps(
   // issue 72：粘贴态在画布侧**根本不启动框选**（`canStartMarquee`），此处只是兜底无效果
   if (tool === 'paste') return [];
   if (tool === 'slide') return combineOps(notes, items); // §4 组合成滑条
-  // issue 09 S2：曲线工具态框选（Shift+拖）与滑条同源 = 整片组合（空白拖已被画笔占用，ADR-0008 §2 例外）
-  if (tool === 'curve') return combineOps(notes, items);
+  // issue 09 验收反馈 #7：曲线工具态框选（Shift+拖）= 组合 + 全部段应用当前曲线配置
+  // （配置/beatDisplay 缺席时兜底退回纯组合，与 S2 口径一致）
+  if (tool === 'curve') {
+    if (curveConfig && beatDisplay !== undefined) return curveBoxOps(notes, items, curveConfig, beatDisplay);
+    return combineOps(notes, items);
+  }
   if (tool === 'delete') {
     // issue 71 例外（用户拍板 A）：删除是"批量执行"不是建选区 → 被整条框住的 BPM 线照删。
     // 它不进选区，故只在删除目标集合里合并一次（去重，防与 items 重复）。

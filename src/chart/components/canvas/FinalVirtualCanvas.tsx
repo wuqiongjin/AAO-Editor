@@ -3,7 +3,8 @@ import type { BpmNote, ChartNote, SlideNote } from "../../types";
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { planDragMove, dragDeltaBeat, type DragDelta } from '../../editing/NoteDragging';
 import {
-  clickOps, boxSelectOps, execSlideOps, execBpmOps, pointerClickSelection, actionOnTargetsOps, resolveActionTargets,
+  clickOps, boxSelectOps, execSlideOps, execBpmOps, execCurveOps, pointerClickSelection, actionOnTargetsOps, resolveActionTargets,
+  placeSpanWithCombination,
   type MatrixOp, type MatrixTool, type SlidePoint, type SnapPos,
   type CurveDraft,
 } from '../../editing/ToolActionMatrix';
@@ -31,6 +32,24 @@ import {
   type DragAnchor,
 } from '../../editing/CanvasGesture';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
+import { smoothPenLanes } from '../../editing/SpanCurve';
+
+/** 画笔光标（验收反馈 #6）：内联 data-uri SVG（铅笔、笔尖为热点），免新增资源文件与加载时序 */
+const PEN_CURSOR = `url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%3E%3Cpath%20d='M3%2021%20L5.5%2014.5%20L17%203%20L21%207%20L9.5%2018.5%20Z'%20fill='%23ffe082'%20stroke='%23333'%20stroke-width='1.5'%20stroke-linejoin='round'/%3E%3Cpath%20d='M3%2021%20L5.5%2014.5%20L9.5%2018.5%20Z'%20fill='%23333'/%3E%3C/svg%3E") 3 21, crosshair`;
+
+/** 画笔视觉激活的按住时长（验收反馈 #6：单击不该闪画笔态，长按才算"作画中"） */
+const PEN_HOLD_MS = 200;
+
+/** 画笔平滑开关打开时：对 [起笔, …采样, 落笔] 整体平滑 lane，端点（起笔/落笔）保持原值 */
+const smoothedPenSamples = (
+  start: { beat: number; lane: number },
+  samples: { beat: number; lane: number }[],
+  end: { beat: number; lane: number },
+  smooth: boolean,
+): { beat: number; lane: number }[] => {
+  if (!smooth || samples.length < 2) return samples;
+  return smoothPenLanes([start, ...samples, end]).slice(1, -1);
+};
 
 interface FinalVirtualCanvasProps {
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
@@ -71,6 +90,9 @@ export interface FinalVirtualCanvasHandle {
   execBpm?: () => void;
   /** Ctrl+E（§3）：有选区 → §4 组合成滑条；无选区 → 光标处放临时端点（与鼠标两击共用 slideBuffer） */
   execSlide?: () => void;
+  /** Shift+W（验收反馈 #9）：执行-曲线——选区≥2 = 组合+全部段应用；否则与曲线工具单击同源
+   *  （hover 在段上=重应用当前配置 / 空白=挂锚点续段，与单击共用 curveDraft） */
+  execCurve?: () => void;
   /** issue 59 §2：Ctrl+B —— 打开**光标处**音符的代码（不切工具的快捷版）；光标不在音符上 = 无事发生 */
   execNoteCode?: () => void;
   /**
@@ -185,9 +207,23 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // issue 09 S2（ADR-0009 §3）：曲线工具链式草稿（与 slideBuffer 同属组件侧 UI 态，不入历史；
     // 草稿引用的滑条被 undo 掉时由 curveChainClickOps 的完整性检查自愈）
     const [curveDraft, setCurveDraft] = useState<CurveDraft | null>(null);
-    // 画笔进行中：采样进 ref（高频），预览幽灵进 state（驱动渲染）
-    const penRef = useRef<{ start: SlidePoint; samples: { beat: number; lane: number }[]; last: { beat: number; lane: number } } | null>(null);
+    // 画笔进行中：采样进 ref（高频），预览幽灵进 state（驱动渲染）。
+    // dir = 采样方向锁（0=未定；1=正向/-1=倒向，验收反馈 #4：首拍移动方向锁定，中途回头不采样）
+    const penRef = useRef<{ start: SlidePoint; samples: { beat: number; lane: number }[]; last: { beat: number; lane: number }; dir: 0 | 1 | -1 } | null>(null);
     const [penPreview, setPenPreview] = useState<SlideNote | null>(null);
+    // 验收反馈 #6：画笔视觉进行中（按住超时或移动过阈值后）——渲染层借此让位端点幽灵 + 画笔光标
+    const [penActive, setPenActive] = useState(false);
+    const penHoldTimerRef = useRef<number | null>(null);
+    /** 画笔视觉激活（光标 + 端点幽灵让位）；只在按下持续或开始拖动画时发生，单击永不触发 */
+    const activatePenVisual = () => {
+        if (penHoldTimerRef.current !== null) { window.clearTimeout(penHoldTimerRef.current); penHoldTimerRef.current = null; }
+        setPenActive(true);
+        if (canvasRef.current) canvasRef.current.style.cursor = PEN_CURSOR;
+    };
+    const cancelPenVisual = () => {
+        if (penHoldTimerRef.current !== null) { window.clearTimeout(penHoldTimerRef.current); penHoldTimerRef.current = null; }
+        setPenActive(false);
+    };
 
     // 画布用到的全部皮肤图（issue 29：随当前音符皮肤选择动态解析），挂载/换肤即预加载，加载完触发重绘；
     // 单图失败不阻断（按缺图渲染，drawSingle 每帧重试加载），无论成败都 bump skinVersion 全量失效瓦片
@@ -383,7 +419,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         } else {
             // issue 71 例外：删除工具的框选是批量执行 → 单独按"整条覆盖"判据收集 BPM 线（不进选区）
             const bpmInBox = armedTool === 'delete' ? computeBpmLinesInBox(box, boxDeps) : [];
-            applyOps(boxSelectOps(armedTool as MatrixTool, notes, items, bpmInBox));
+            // 验收反馈 #7：曲线工具框选 = 组合 + 全部段应用当前曲线配置（配置经 boxSelectOps 进矩阵）
+            applyOps(boxSelectOps(armedTool as MatrixTool, notes, items, bpmInBox, curveConfig, beatDisplay));
         }
     };
 
@@ -439,15 +476,23 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             chartEndBeat,
         });
         if (intent.kind === 'drag') dragRef.current = intent.anchor;
-        // issue 09 S2：画笔起手（曲线工具态空白按下）——一次只允许一条进行中的曲线，起笔先撤链式草稿
+        // issue 09 S2：画笔起手（曲线工具态空白按下）。验收反馈 #2 修复：**不再清链式草稿**——
+        // 起手即清会把第二次单击挂好的锚点在按下瞬间抹掉（松手 click 读到空草稿 → 永远只挂锚点、
+        // 接不成段）；锚点与画笔共存，草稿在画笔**真正落子（commitPen）成功后**才清。
+        // 验收反馈 #6 二轮修复：按下瞬间**不激活**画笔视觉（光标/幽灵）——快速单击不该闪画笔态；
+        // 激活时机 = 按住超过笔势时长、或移动越过拖拽阈值（见 handlePointerMove pen 分支）。
         if (intent.kind === 'pen') {
+            // 验收反馈 #3：绘制起手 = 开始做新内容 → 旧选区即刻清空（与单击放置路径的
+            // clearSel 同口径；链式草稿是独立状态，不受影响）。
+            if (selectedItems.length > 0) setSelectedItems([]);
             penRef.current = {
                 start: { beat: intent.start.beat, lane: intent.start.lane, subBeat: 0 },
                 samples: [],
                 last: { beat: intent.start.beat, lane: intent.start.lane },
+                dir: 0,
             };
             setPenPreview(null);
-            if (curveDraft) setCurveDraft(null);
+            penHoldTimerRef.current = window.setTimeout(() => activatePenVisual(), PEN_HOLD_MS);
         }
     };
 
@@ -473,8 +518,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         window.removeEventListener('mouseup', onWindowUp);
         window.removeEventListener('blur', onWindowBlur);
     }, [onWindowMove, onWindowUp, onWindowBlur]);
-    // 卸载兜底：手势中途被卸载（切页/关闭）不留悬挂监听
+    // 卸载兜底：手势中途被卸载（切页/关闭）不留悬挂监听；画笔按住计时器同理
     useEffect(() => detachWindowGesture, [detachWindowGesture]);
+    useEffect(() => () => {
+        if (penHoldTimerRef.current !== null) window.clearTimeout(penHoldTimerRef.current);
+    }, []);
 
     // 框选进行中滚动/缩放 → **必须重算矩形**（issue 70 修复，既有缺陷）。
     // `selectionBox` 存的是**画布坐标**（渲染/命中都要用它），而起点按**虚拟坐标**锚定（bug 32）。
@@ -570,17 +618,33 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             }
             return;
         }
-        // issue 09 S2：画笔进行中 → 轨迹采样（按下仲裁已排除框选；光标回退拍不追加=时间单向硬约束）
+        // issue 09 S2：画笔进行中 → 轨迹采样（按下仲裁已排除框选）。
+        // 验收反馈 #6：越过拖拽阈值开始拖画才激活画笔视觉（快速单击永不闪画笔态）。
+        // 验收反馈 #5：平滑开关打开时 live 预览与落子同一平滑管线（所见即所得）。
+        // 验收反馈 #4：方向在首采样锁定；倒向笔画预览按"将成条"的升序形态画。
         if (penRef.current) {
+            if (!penActive) activatePenVisual();
             const cur = penCursorAt({ geometry, viewport, beatDisplay }, chartEndBeat, mouseX, mouseY);
             if (cur) {
                 const pen = penRef.current;
                 const step = 1 / curveConfig.precision;
-                for (const s of penAppendSamples(pen.last, cur, step)) {
+                const { samples: appended, dir } = penAppendSamples(pen.last, cur, step, pen.dir);
+                pen.dir = dir;
+                for (const s of appended) {
                     pen.samples.push(s);
                     pen.last = s;
                 }
-                setPenPreview(buildPenSlide(pen.start, pen.samples, pen.samples.at(-1) ?? pen.start));
+                const last = pen.samples.at(-1) ?? pen.start;
+                const preview = pen.dir < 0
+                    ? (() => {
+                        const low = { beat: cur.beat, lane: cur.lane };
+                        const high = { beat: pen.start.beat, lane: pen.start.lane };
+                        return buildPenSlide(low,
+                            smoothedPenSamples(low, [...pen.samples].reverse(), high, curveConfig.smooth === true), high);
+                    })()
+                    : buildPenSlide(pen.start,
+                        smoothedPenSamples(pen.start, pen.samples, last, curveConfig.smooth === true), last);
+                setPenPreview(preview);
             }
             return;
         }
@@ -616,18 +680,41 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         setSelectionBox(null);
         setDragGhost(null);
         setPenPreview(null);
+        cancelPenVisual();
         detachWindowGesture();
         if (canvasRef.current) canvasRef.current.style.cursor = '';
         if (intent === 'abort' || !start || !e) return;
 
         if (intent === 'commitPen' && pen) {
-            // issue 09 S2（ADR-0009 §3）：画笔落子——松手端点吸附放置栅格且必须晚于起笔（时间单向）；
-            // 采样点截到端点之前，一次 handleNotesChange = 一个可回退快照
+            // issue 09 S2（ADR-0009 §3）：画笔落子——端点吸附放置栅格；采样点截到端点之前，
+            // 一次 handleNotesChange = 一个可回退快照。
+            // 验收反馈 #5：平滑开关打开 → lane 序列移动平均（端点/beat 栅格保持）；
+            // 验收反馈 #2：画笔**真正落子成功**才清链式草稿（画完一笔 = 上一锚点作废）；
+            // 验收反馈 #4：**倒画**（松手拍位早于起笔且方向锁为倒向）→ 采样反转为升序，
+            // 形态不变、端点互换（低拍端 = 松手点）；正倒向之外（无拍位净位移）不落子。
+            // 验收反馈 #4 补：落子走 `placeSpanWithCombination`（与两击直放共用）——
+            // 端点与既有滑条头/尾相接 = 自动组合（长按绘制同样自动接段）。
             const pos = cssToCanvas(e);
             const release = pos ? snapPos(pos.x, pos.y) : null;
-            if (release && release.beat > pen.start.beat + 1e-9) {
-                const samples = pen.samples.filter((s) => s.beat < release.beat - 1e-9);
-                handleNotesChange([...notes, buildPenSlide(pen.start, samples, { beat: release.beat, lane: release.lane })]);
+            if (release) {
+                const fwd = release.beat > pen.start.beat + 1e-9;
+                const bwd = !fwd && pen.dir < 0 && release.beat < pen.start.beat - 1e-9;
+                const toHidden = (pts: { beat: number; lane: number }[]) =>
+                    pts.map((s) => ({ beat: s.beat, lane: s.lane, hidden: true as const }));
+                if (fwd) {
+                    const endPt = { beat: release.beat, lane: release.lane };
+                    const samples = toHidden(smoothedPenSamples(pen.start,
+                        pen.samples.filter((s) => s.beat < release.beat - 1e-9), endPt, curveConfig.smooth === true));
+                    handleNotesChange(placeSpanWithCombination(notes, pen.start, endPt, samples, null, beatDisplay));
+                    if (curveDraft) setCurveDraft(null);
+                } else if (bwd) {
+                    const startPt = { beat: release.beat, lane: release.lane };
+                    const endPt = { beat: pen.start.beat, lane: pen.start.lane };
+                    const samples = toHidden(smoothedPenSamples(startPt,
+                        pen.samples.filter((s) => s.beat > release.beat + 1e-9).reverse(), endPt, curveConfig.smooth === true));
+                    handleNotesChange(placeSpanWithCombination(notes, startPt, endPt, samples, null, beatDisplay));
+                    if (curveDraft) setCurveDraft(null);
+                }
             }
             return;
         }
@@ -740,6 +827,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             dragGhost,
             curveDraft, curveConfig, // issue 09 S2：曲线工具预览
             penPreview,
+            penActive, // 验收反馈 #6：画笔手势中 → 端点幽灵让位画笔光标
             spriteIcon: spriteIcon.current,
             noteIcons,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
@@ -760,7 +848,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, dragGhost, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, rightButtonHeld, curveDraft, curveConfig, penPreview]);
+    }, [notes, selectedItems, viewport, selectionBox, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, dragGhost, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, rightButtonHeld, curveDraft, curveConfig, penPreview, penActive]);
 
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
@@ -871,6 +959,16 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             applyOps(execSlideOps({
                 notes, selectedItems, cursor: cursorChartPos(),
                 slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
+            }));
+        },
+        // 验收反馈 #9（Shift+W）：执行-曲线，语义分发在 execCurveOps（矩阵层，可单测）。
+        // hit 用 hoverItem 现取（与「执行-音符代码」同口径）——光标悬停在段上 = 重应用而非锚点。
+        execCurve: () => {
+            applyOps(execCurveOps({
+                notes, selectedItems, cursor: cursorChartPos(), chartEndBeat, beatDisplay,
+                slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, clipboard,
+                curveDraft, curveConfig,
+                hit: hoverItem,
             }));
         },
         // issue 59 §2：Ctrl+B = 打开光标处音符的代码。与「音符代码」工具单击共用 clickOps，

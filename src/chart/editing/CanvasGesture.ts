@@ -117,8 +117,10 @@ export type PressIntent =
 /**
  * §6 按下意图仲裁：这一次按下是「拖拽移动」还是「框选」。
  * 任一步不合法都退回框选（防误拖），不产生半截拖拽态。
- * 例外（issue 09 S2）：曲线工具态**空白**无 Shift 按下 = **画笔**（按在音符/段上不画笔，
- * 交还框选仲裁——点击语义归单击路径）；Shift 交还既有仲裁（Shift+音符 = 移动逃生口不受影响）。
+ * 例外（issue 09 S2；2026-09-13 三轮扩订）：曲线工具态无 Shift 按下 = **画笔起手（任意位置）**——
+ * 起点可落在已有音符/段上（重叠绘制，用户拍板对标"长按绘制起点可重叠"）；单击语义不受影响
+ * （松手未过阈值仍走 clickOps：点段=重应用 / 点结点=挂锚点）；Shift 交还既有仲裁
+ * （Shift+音符 = 移动逃生口、Shift+拖 = 框选，均不受影响）。
  */
 export function resolvePressIntent(input: {
     cx: number;
@@ -132,11 +134,9 @@ export function resolvePressIntent(input: {
     chartEndBeat: number;
 }): PressIntent {
     const marquee: PressIntent = { kind: 'marquee' };
-    // ADR-0009 §3：曲线工具态**空白**按下（无 Shift）= 画笔起手；按在音符/段上 → 交还既有仲裁
-    // （该组合最终落框选——单击路径的"点段重应用/锚点放置"归 clickOps，不在手势侧做功）
+    // ADR-0009 §3：曲线工具态无 Shift 按下 = 画笔起手（合法落点即起，不要求空白）
     if (input.armedTool === 'curve' && !input.shiftKey) {
         if (input.onMarker) return marquee;
-        if (findItemAt(input.cx, input.cy, input.deps)) return marquee;
         const start = snapChartPos(input.deps, input.chartEndBeat, input.cx, input.cy);
         return start ? { kind: 'pen', start } : marquee;
     }
@@ -287,23 +287,33 @@ const clampLane = (v: number) => Math.min(Math.max(v, 0), 6);
 
 /**
  * 画笔采样（ADR-0009 §3「拖动画笔 = 轨迹实时采样」）：从上一采样点起按固定拍步长追加点，
- * lane 在上一采样点与当前光标间线性插值。**beat 单调递增是数据模型硬约束**——光标回退
- * （beat 不前进）→ 不追加（笔画"往下回头"不可表达，画布上表现为该段被忽略）。
+ * lane 在上一采样点与当前光标间线性插值。**采样序列 beat 严格单调是数据模型硬约束**——
+ * 验收反馈 #4：方向在**第一次真正落采样**时锁定（`dir` 0=未定 → ±1），此后中途回头不追加
+ * （"往回描"不可表达）；倒向笔画产出**降序**采样，落子时反转为升序段（形态不变、端点互换）。
  */
 export function penAppendSamples(
     last: PenPoint,
     cursor: PenPoint,
     stepBeat: number,
-): PenPoint[] {
+    dir: 0 | 1 | -1,
+): { samples: PenPoint[]; dir: 1 | -1 } {
+    const delta = cursor.beat - last.beat;
+    if (stepBeat <= 0 || Math.abs(delta) <= 1e-9) {
+        return { samples: [], dir: dir === 0 ? 1 : (dir as 1 | -1) };
+    }
+    const locked: 1 | -1 = dir !== 0 ? dir : delta > 0 ? 1 : -1;
+    if (dir !== 0 && (delta > 0 ? 1 : -1) !== dir) return { samples: [], dir: dir as 1 | -1 };
+    const n = Math.floor(Math.abs(delta) / stepBeat + 1e-9);
     const out: PenPoint[] = [];
-    if (!(cursor.beat > last.beat + 1e-9) || stepBeat <= 0) return out;
-    const n = Math.floor((cursor.beat - last.beat) / stepBeat + 1e-9);
     for (let k = 1; k <= n; k++) {
-        const beat = last.beat + k * stepBeat;
-        const t = (beat - last.beat) / (cursor.beat - last.beat);
+        const beat = last.beat + locked * k * stepBeat;
+        const t = (beat - last.beat) / delta;
         out.push({ beat, lane: clampLane(last.lane + (cursor.lane - last.lane) * t) });
     }
-    return out;
+    // 第一步采样落地才锁方向——此前的小幅抖动不主导整笔方向
+    if (out.length === 0) return { samples: [], dir: dir as 1 | -1 };
+    return { samples: out, dir: locked };
+    return { samples: out, dir: locked };
 }
 
 /** 落点吸附后的拍位（松手端点用：可见端点吸附放置栅格） */

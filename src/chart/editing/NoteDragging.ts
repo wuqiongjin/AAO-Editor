@@ -109,6 +109,25 @@ function nearestVisible(conns: ConnectionNote[], from: number, dir: -1 | 1): Con
   return undefined;
 }
 
+/**
+ * 重烘焙（拖端点 → `reprojectSpanParams`）只增删段内 **hidden** 点 → 可见结点的**序数**不变、
+ * 下标会变。落点裁决与选区回写必须先把旧下标按可见序数映射到新数组（issue 09 验收反馈 #4：
+ * 向下拖端点 = 跨度变短 = 数组变短 → 旧下标 `conns[16]` 直接 undefined 崩溃，整个拖拽手势被杀死；
+ * 向上拖 = 变长 → 检查错位的 hidden 点；提交后选区 connIndex 同样失效）。
+ */
+function remapVisibleIndex(conns: ConnectionNote[], origConns: ConnectionNote[], ci: number): number {
+  if (conns[ci] && !conns[ci]!.hidden) return ci; // 未被重烘焙挪动（同数组 / 整条平移）
+  let ord = 0;
+  for (let k = 0; k < ci; k++) if (!origConns[k]!.hidden) ord++;
+  let seen = 0;
+  for (let k = 0; k < conns.length; k++) {
+    if (conns[k]!.hidden) continue;
+    if (seen === ord) return k;
+    seen++;
+  }
+  return ci; // 不应发生（可见结点不会因重烘焙消失）；兜底返回原值
+}
+
 const posKey = (beat: number, subBeat: number, lane: number) => `${beat}|${subBeat}|${lane}`;
 /**
  * 真实拍位：subBeat 的单位是 **1/beatDisplay**（与 ChartGeometry.noteVirtualY、
@@ -163,6 +182,8 @@ export function planDragMove(
   // 归组：noteIndex → 拖拽方式（whole=整条移动；nodes=指定 conn 下标集合）
   type Plan = { kind: 'whole' } | { kind: 'nodes'; conns: Set<number> };
   const plans = new Map<number, Plan>();
+  // 验收反馈 #4：拖端点触发重烘焙 → 可见结点下标平移；noteIndex → (原 conn 下标 → 新下标)
+  const connIdxRemap = new Map<number, Map<number, number>>();
   let hasDraggable = false;
   for (const it of items) {
     const n = notes[it.noteIndex];
@@ -259,6 +280,14 @@ export function planDragMove(
           let m: SlideNote | LongNote = { ...(moved.get(i) as SlideNote | LongNote), connections: conns2 };
           m = reprojectSpanParams(m, beatDisplay);
           moved.set(i, m as ChartNote);
+          // 验收反馈 #4：重烘焙增删 hidden → 被拖可见结点的下标可能整体平移。
+          // ② 的占位表按**原下标**让位（不能动 plan.conns），故下标换算单独记账：
+          // ③ 落点裁决按新数组取被拖结点，④ 选区回写换成新 connIndex。
+          if (m.connections !== conns) {
+            const map = new Map<number, number>();
+            for (const ci of plan.conns) map.set(ci, remapVisibleIndex(m.connections, conns, ci));
+            connIdxRemap.set(i, map);
+          }
         }
       }
     }
@@ -339,7 +368,10 @@ export function planDragMove(
     }
     const conns = (nn as SlideNote).connections;
     const last = conns.length - 1;
-    const touched = plan.kind === 'whole' ? conns.map((_, ci) => ci) : [...plan.conns];
+    const remap = connIdxRemap.get(i);
+    const touched = plan.kind === 'whole'
+      ? conns.map((_, ci) => ci)
+      : [...plan.conns].map(ci => remap?.get(ci) ?? ci); // 验收反馈 #4：重烘焙后按新下标取被拖结点
     for (const ci of touched) {
       const c = conns[ci];
       const k = posKey(c.beat, c.subBeat || 0, c.lane);
@@ -409,8 +441,14 @@ export function planDragMove(
   const newNotes = work.map(w => w.note);
   const idxOf = new Map<number, number>();
   work.forEach((w, k) => idxOf.set(w.orig, k));
-  const newItems = dragItems.map(it =>
-    ({ ...it, noteIndex: idxOf.get(it.noteIndex) ?? it.noteIndex }) as SelectionItem);
+  const newItems = dragItems.map(it => {
+    const re = connIdxRemap.get(it.noteIndex);
+    return {
+      ...it,
+      noteIndex: idxOf.get(it.noteIndex) ?? it.noteIndex,
+      ...(re && 'connIndex' in it && re.has(it.connIndex) ? { connIndex: re.get(it.connIndex)! } : {}),
+    } as SelectionItem;
+  });
   const ghost = [...new Set(newItems.map(it => it.noteIndex))].map(k => newNotes[k]);
   return { ok: true, notes: newNotes, items: newItems, ghost };
 }

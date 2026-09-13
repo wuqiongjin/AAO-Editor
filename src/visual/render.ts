@@ -10,6 +10,7 @@ import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
 import { slideSpans, isSpRegion } from '../chart/editing/SlideSegments';
+import { bandRails, bandPolygonAt, splitBandAtFolds } from './slideBandGeometry';
 import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/ToolActionMatrix';
 import { drawNotesLayer } from './noteLayerCache';
@@ -419,17 +420,8 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
           const cc = conns[ci];
           cents.push(c.virtualToCanvas(c.getNoteVirtualX(cc.lane), c.getNoteVirtualY(cc.beat, cc.subBeat || 0)));
         }
-        // 单段（两端点，无 hidden）保持原顶点顺序（平行四边形：两端各一条横向封口边）
-        const points: [number, number][] = cents.length === 2
-          ? [
-            [cents[0]!.x - half, cents[0]!.y], [cents[0]!.x + half, cents[0]!.y],
-            [cents[1]!.x + half, cents[1]!.y], [cents[1]!.x - half, cents[1]!.y],
-          ]
-          : [
-            // 一侧去程（含拐点）→ 末端封口 → 另一侧回程（含拐点）
-            ...cents.map(p => [p.x - half, p.y] as [number, number]),
-            ...[...cents].reverse().map(p => [p.x + half, p.y] as [number, number]),
-          ];
+        // 横截面口径与带体实绘 / 命中区同源（`slideBandGeometry`，issue 09 验收反馈六轮）
+        const points = bandPolygonAt(cents, half);
         // 段（连接带）的描边 = compact（用户 2026-09-09 二轮反馈）：不外扩、不画暗底，
         // 亮面贴平行四边形边即可，避免外圈盖住带子造成"段被截断"的观感。
         // 段与结点同款：所有"贴在带子上"的描边都用 compact 让带子自由穿过。
@@ -656,11 +648,8 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   const spriteScale = rc.viewport.scale * (rc.display?.noteSize ?? 1);
   const icons = rc.noteIcons;
 
-  for (let i = 0; i < connections.length - 1; i++) {
-    // ADR-0009 §5：SP 材质按**段**判定——段内任一 hidden → 该段全部边用 SP 无缝带
-    const band = isSpRegion(connections, i) ? icons.slideBandSp : icons.slideBand;
-    renderSegmentBand(ctx, c, rc, connections[i], connections[i + 1], band, rc.display?.slideOpacity ?? 1);
-  }
+  // 带体几何/材质见 renderSpanBands：逻辑段分组 + 车道横向截面（与 hover 轮廓、命中区同一套几何）
+  renderSpanBands(ctx, c, rc, connections, rc.display?.slideOpacity ?? 1);
 
   connections.forEach((conn, i) => {
     const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
@@ -747,10 +736,50 @@ function renderSpriteGhost(ctx: CanvasRenderingContext2D, rc: RenderCtx, icon: S
 }
 
 /**
- * 渲染滑条的**连接带**（不含结点图标）：实绘 `renderSlideBody` 与 issue 65④ 的"段幽灵"共用同一画法。
+ * 连接带的**单车道横截面平行四边形**贴图画法。三处共用：单 region 段实绘（`renderSpanBands`）、
+ * issue 65④ 段幽灵、滑条工具两击 live 预览（`renderSegmentBand`）——幽灵 = 实绘同形（ADR-0002 §4）。
+ *
+ * **横截面口径 = 车道横向**（`p.x ± half`，issue 09 验收反馈六轮，用户以"选中 hover 轮廓"为预期口径拍板）：
+ * 与 hover 轮廓（`collectSelectionOutlines`）、命中区（`hitTest.findItemAt`）**同一套几何**，于是
+ * 带体的端点封口 = 过结点中心的**水平线段**（宽 2·half = 30·s < 端点图标墨迹宽 36·s）→ 整条封口藏在
+ * 端点图标底下，带子观感为"穿进图标里"。四/五轮的**垂直法线**口径把端点封口转成斜线，其纵向伸出量
+ * half·cosθ 在 θ < 44° 时超过图标墨迹半高 10.8·s → 一头戳出菱形、另一头留出楔形背景缺口（用户图1的台阶）。
+ *
+ * **贴图映射 = 平行四边形剪切**（不是旋转）：贴图 X（横截面：左右两条亮绿描边 + 中间光泽剖面）→ 世界横向，
+ * 恰好铺到平行四边形两条斜边上（亮边沿带子两侧，三轮质感定案不变）；贴图 Y（沿带方向；普通带"两端实
+ * 中间虚"纵向渐变，SP 带沿长度恒定 = seamless）→ 世界段向。旋转映射会把亮边甩到斜边之外（带角缺色）故弃用；
+ * 剪切把单位矩形精确铺成该平行四边形，连 clip 都不需要。
  * @param band 连接带材质（普通 `slideBand` / SP 段 `slideBandSp`，ADR-0009 §5 段级判定，由调用方选择）
  * @param alpha 连接带不透明度；`undefined` = 沿用调用方的 `globalAlpha`（幽灵态由此继承 0.35/0.5）
  */
+function drawBandQuad(
+  ctx: CanvasRenderingContext2D,
+  rc: RenderCtx,
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  half: number,
+  band: SpriteIconConfig,
+  alpha?: number,
+) {
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const len = Math.hypot(dx, dy);
+  // 退化零长（同位结点）与纯横向（同拍段）不画：横向口径下其平行四边形面积为 0，与命中区同判据
+  // （hitTest 的 quad 同样退化 → 点不中）→ 所见 = 所点。
+  if (len < 0.5 || Math.abs(dy) < 0.5) return;
+  ctx.save();
+  // issue 39 #2：长压线不透明度（slide 线条透明度，1 = 完全不透明）
+  if (alpha !== undefined) ctx.globalAlpha = alpha;
+  ctx.transform(1, 0, dx / len, dy / len, p1.x, p1.y);
+  rc.spriteIcon.render(ctx, {
+    ...band,
+    canvasX: 0, canvasY: len / 2,
+    canvasSize: len, canvasWidth: 2 * half, canvasHeight: len,
+    scale: 1,
+  });
+  ctx.restore();
+}
+
+/** 两击预览入口（虚拟坐标 → 画布坐标）：成条后的实绘走 `renderSpanBands`，两者同一 `drawBandQuad` 画法 */
 function renderSegmentBand(
   ctx: CanvasRenderingContext2D,
   c: Coords,
@@ -764,26 +793,179 @@ function renderSegmentBand(
   const p2 = c.virtualToCanvas(c.getNoteVirtualX(to.lane), c.getNoteVirtualY(to.beat, to.subBeat || 0));
   // issue 39 #1 补修：连接带宽度与结点图标同步 × noteSize，避免调大小后带与结点脱节
   const half = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
-  const quad = [[p1.x - half, p1.y], [p1.x + half, p1.y], [p2.x + half, p2.y], [p2.x - half, p2.y]];
-  const minX = Math.min(p1.x - half, p2.x - half);
-  const maxX = Math.max(p1.x + half, p2.x + half);
-  const minY = Math.min(p1.y, p2.y);
-  const maxY = Math.max(p1.y, p2.y);
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  const w = maxX - minX, h = maxY - minY;
-  const sz = Math.max(Math.sqrt(w * w + h * h), Math.max(w, h)) * 1.0;
+  drawBandQuad(ctx, rc, p1, p2, half, band, alpha);
+}
+
+/**
+ * 按逻辑段渲染连接带（材质选择 = ADR-0009 §5 段级判定；几何口径 = 六轮统一的**车道横向截面**）。
+ * - **单 region 段**（无 hidden，普通滑条）：`drawBandQuad` 剪切贴图，一段铺满，无拼接。
+ * - **含 hidden 的段**（SP 段/画笔/导入）：`renderSpBandStrip` 程序化条带——颜色与横截面剖面从带贴图
+ *   运行时采样，整段一条连续路径画成（零接缝；四轮实测"半透明贴图逐段 clip"必有抗锯齿缝）。
+ * 两类共用同一横截面口径 ⇒ ① 带体轮廓与 hover 轮廓 / 命中区逐顶点重合（所见 = 所点）；② 相邻逻辑段在
+ * 共享可见结点上天然连续（两端都是过结点的水平封口，同宽同位）——五轮为消除"段间台阶"引入的
+ * **跨段共享角平分线法线整套作废删除**，台阶的根源（各段独立法线）不复存在；③ 端点/中间结点的封口
+ * 落在图标墨迹内 → 与端点的衔接由图标遮住。
+ * SP 条带中心线仍做渲染期 Catmull-Rom 细分（只动绘制不动数据；烘焙采样够密，与轮廓偏差亚像素级）。
+ */
+export function renderSpanBands(
+  ctx: CanvasRenderingContext2D,
+  c: Coords,
+  rc: RenderCtx,
+  connections: SlideNote['connections'],
+  alpha?: number,
+) {
+  const half = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
+  const spans = slideSpans(connections);
+  if (spans.length === 0) return;
+  for (const sp of spans) {
+    const pts: { x: number; y: number }[] = [];
+    for (let i = sp.start; i <= sp.end; i++) {
+      const cn = connections[i]!;
+      pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
+    }
+    const band = isSpRegion(connections, sp.start) ? rc.noteIcons.slideBandSp : rc.noteIcons.slideBand;
+    if (sp.end - sp.start > 1) {
+      renderSpBandStrip(ctx, pts, half, band, alpha);
+    } else {
+      drawBandQuad(ctx, rc, pts[0]!, pts[1]!, half, band, alpha);
+    }
+  }
+}
+
+/**
+ * SP 条带剖面（从带贴图横截面采样；src → 参数缓存）：center→edge 17 点不透明度 + 体色。
+ * 剖面即贴图本来的设计（skin00：中心 0.38 → 亮缘 ~0.9 → 最外 1px 软边），渲染时按采样分层
+ * **横向**环形复现（横截面口径见 `slideBandGeometry`），不再手工近似。
+ */
+interface BandStripStyle {
+  color: string;
+  profile: number[];
+}
+const STRIP_STYLE_FRACS = Array.from({ length: 17 }, (_, i) => i / 16);
+const STRIP_STYLE_CACHE = new Map<string, BandStripStyle>();
+/** skin00/longNoteLine2 像素实测兜底（采样未就绪/失败时使用；其余皮肤采样后自动覆盖） */
+const STRIP_STYLE_DEFAULT: BandStripStyle = {
+  color: '#4be371',
+  profile: [0.38, 0.38, 0.39, 0.40, 0.41, 0.43, 0.45, 0.48, 0.52, 0.56, 0.61, 0.67, 0.74, 0.82, 0.89, 0.62, 0.25],
+};
+
+function bandStripStyle(band: SpriteIconConfig): BandStripStyle {
+  const cached = STRIP_STYLE_CACHE.get(band.src);
+  if (cached) return cached;
+  if (typeof Image === 'undefined') return STRIP_STYLE_DEFAULT; // 无 DOM（node 单测/SSR）→ 实测常量兜底剖面
+  const sample = (img: HTMLImageElement) => {
+    try {
+      const w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) return;
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const cx = cv.getContext('2d');
+      if (!cx) return;
+      cx.drawImage(img, 0, 0);
+      const d = cx.getImageData(0, 0, w, h).data;
+      const colAvg = (x: number) => {
+        const xx = Math.max(0, Math.min(w - 1, x));
+        let s = 0;
+        for (let y = 0; y < h; y++) s += d[(y * w + xx) * 4 + 3];
+        return s / h / 255;
+      };
+      const midX = w >> 1;
+      const midRow = Math.floor(h / 2) * w;
+      const r = d[(midRow + midX) * 4];
+      const g = d[(midRow + midX) * 4 + 1];
+      const b = d[(midRow + midX) * 4 + 2];
+      const profile = STRIP_STYLE_FRACS.map((f) => {
+        const off = Math.round(f * (w / 2 - 1));
+        return (colAvg(midX - off) + colAvg(midX + off)) / 2;
+      });
+      STRIP_STYLE_CACHE.set(band.src, { color: `rgb(${r},${g},${b})`, profile });
+    } catch { /* 采样失败保持兜底/上次值 */ }
+  };
+  const img = new Image();
+  img.src = band.src;
+  if (img.complete && img.naturalWidth > 0) {
+    sample(img);
+    return STRIP_STYLE_CACHE.get(band.src) ?? STRIP_STYLE_DEFAULT;
+  }
+  img.decode?.().then(() => sample(img)).catch(() => undefined);
+  return STRIP_STYLE_DEFAULT;
+}
+
+/**
+ * SP 段程序化条带：以中心线折线为骨架，按贴图采样剖面逐层画**横向**环形（中心体色 → 亮缘 → 最外软边）。
+ * 每层整段一条连续路径 → 数学上无接缝；剖面来自贴图采样，视觉与贴图设计一致。
+ *
+ * 横截面口径 = **车道横向偏移**（六轮统一，与 `drawBandQuad` / hover 轮廓 / 命中区同一套几何）：
+ * 第 i 层 = 中心线整体左右移 ±half·frac。端点封口因此是过结点的水平线（藏在端点图标墨迹内），
+ * 相邻逻辑段在共享结点上天然同宽同位 → 不再需要五轮的跨段角平分线法线。
+ * 填充走**非零环绕**（内孔反向绕）而非 evenodd：强曲率笔画里条带可能自交，evenodd 会把自交区误判成洞。
+ */
+function renderSpBandStrip(
+  ctx: CanvasRenderingContext2D,
+  pts: { x: number; y: number }[],
+  half: number,
+  band: SpriteIconConfig,
+  alpha?: number,
+) {
+  // 回折（导入谱拍位倒退）切成单调段逐段画：单段路径不自叠 → 环带抵消不可能；
+  // 两臂重叠处 = 两次 source-over 合成 → 更亮（用户接受"叠亮"），不再出现黑线洞。
+  const runs = splitBandAtFolds(pts);
+  if (runs.length > 1) {
+    for (const run of runs) renderSpBandStripCore(ctx, run, half, band, alpha);
+    return;
+  }
+  renderSpBandStripCore(ctx, runs[0]!, half, band, alpha);
+}
+
+function renderSpBandStripCore(
+  ctx: CanvasRenderingContext2D,
+  pts: { x: number; y: number }[],
+  half: number,
+  band: SpriteIconConfig,
+  alpha?: number,
+) {
+  const st = bandStripStyle(band);
+  const base = alpha ?? 1;
+  /** 描一条轨道折线（轨道由 `bandRails` 按车道横向口径给出）；reverse = 逆序遍历（构成反向绕 = 内孔） */
+  const traceRail = (rail: { x: number; y: number }[], moveTo: boolean, reverse = false) => {
+    const n = rail.length;
+    for (let k = 0; k < n; k++) {
+      const p = rail[reverse ? n - 1 - k : k]!;
+      if (moveTo && k === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+  };
+  /** 实心条带（半宽 = half × frac）：左轨正序 → 右轨逆序 */
+  const stripPath = (frac: number) => {
+    const { left, right } = bandRails(pts, half * frac);
+    ctx.beginPath();
+    traceRail(left, true);
+    traceRail(right, false, true);
+    ctx.closePath();
+  };
+  /** 环带（内孔反向绕，非零环绕下留洞） */
+  const ringPath = (innerFrac: number, outerFrac: number) => {
+    stripPath(outerFrac);
+    const { left, right } = bandRails(pts, half * innerFrac);
+    traceRail(right, true);
+    traceRail(left, false, true);
+    ctx.closePath();
+  };
   ctx.save();
-  // issue 39 #2：长压线不透明度（slide 线条透明度，1 = 完全不透明）
-  if (alpha !== undefined) ctx.globalAlpha = alpha;
-  ctx.beginPath();
-  ctx.moveTo(quad[0][0], quad[0][1]);
-  for (let j = 1; j < quad.length; j++) ctx.lineTo(quad[j][0], quad[j][1]);
-  ctx.closePath();
-  ctx.clip();
-  rc.spriteIcon.render(ctx, {
-    ...band,
-    canvasX: cx, canvasY: cy, canvasSize: sz, canvasWidth: sz, canvasHeight: h, scale: 1,
-  });
+  ctx.fillStyle = st.color;
+  ctx.lineJoin = 'round';
+  for (let i = 0; i + 1 < st.profile.length; i++) {
+    const a = ((st.profile[i]! + st.profile[i + 1]!) / 2) * base;
+    if (a <= 0.004) continue;
+    ctx.globalAlpha = a;
+    if (i === 0) {
+      stripPath(st.profile.length === 2 ? 1 : STRIP_STYLE_FRACS[1]!);
+      ctx.fill();
+    } else {
+      ringPath(STRIP_STYLE_FRACS[i]!, STRIP_STYLE_FRACS[i + 1]!);
+      ctx.fill();
+    }
+  }
   ctx.restore();
 }
 
@@ -791,11 +973,8 @@ function renderSegmentBand(
 function renderSlideGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: { connections: SlideNote['connections'] }) {
   const conns = note.connections;
   if (conns.length < 2) return;
-  for (let i = 0; i < conns.length - 1; i++) {
-    // 与实绘同口径（幽灵 = 实绘同形）：SP 段幽灵也用 SP 带
-    const band = isSpRegion(conns, i) ? rc.noteIcons.slideBandSp : rc.noteIcons.slideBand;
-    renderSegmentBand(ctx, c, rc, conns[i], conns[i + 1], band);
-  }
+  // 与实绘同口径（幽灵 = 实绘同形）：同一个 renderSpanBands（逻辑段分组 + SP 材质 + 车道横向截面）
+  renderSpanBands(ctx, c, rc, conns);
   conns.forEach((conn, i) => {
     if (conn.hidden) return; // 与 renderSlideBody 同口径：重合衔接点不画图标（幽灵 = 实绘同形）
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
@@ -927,9 +1106,12 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
 
   // issue 09 S2（ADR-0009 §3）：曲线工具预览——画笔草稿 / 最近锚点→光标的缓动段（按当前配置实时烘焙）
   if (rc.armedTool === 'curve') {
-    // 画笔进行中：整条草稿幽灵（松手即按此形态落子；hidden 点不画图标、SP 段用 SP 带与实绘同口径）
-    if (rc.penPreview && rc.penPreview.connections.length >= 2) {
-      renderSlideGhost(ctx, c, rc, rc.penPreview);
+    // 画笔进行中（验收反馈 #6）：端点幽灵让位给画笔光标（起手到首采样前也不显示），
+    // 已有采样则画整条草稿幽灵（松手即按此形态落子；hidden 点不画图标、SP 段用 SP 带与实绘同口径）
+    if (rc.penActive) {
+      if (rc.penPreview && rc.penPreview.connections.length >= 2) {
+        renderSlideGhost(ctx, c, rc, rc.penPreview);
+      }
       ctx.restore();
       return;
     }
@@ -937,19 +1119,24 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(pos.lane), c.getNoteVirtualY(pos.preciseBeat, 0));
     renderSpriteGhost(ctx, rc, slideNodeIconConfig(rc, { lane: pos.lane }, true, true),
       cpt.x, cpt.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
-    // live 段：最近锚点（草稿末点）→ 光标，按当前缓动配置烘焙预览（所见即成条所得）
+    // live 段：最近锚点（草稿末点）→ 光标，按当前缓动配置烘焙预览（所见即成条所得）。
+    // 倒向（光标早于锚点）仅首段合法（两点排序后成条，验收反馈 #4）→ 预览按排序后的正向段画；
+    // 链式第 3 击起倒退会被取消，倒向不画预览（画了也是放不出来的形态）。
     const anchor = rc.curveDraft?.points.at(-1) ?? null;
     const cfg = rc.curveConfig;
     if (anchor && cfg) {
       const anchorBeat = anchor.beat + (anchor.subBeat || 0) / rc.beatDisplay;
       const cursorBeat = pos.preciseBeat;
-      if (cursorBeat > anchorBeat + 1e-6) {
-        const conns = previewSpanConnections(
-          { beat: anchorBeat, lane: anchor.lane },
-          { beat: cursorBeat, lane: pos.lane },
-          spanParamFromCurveConfig(cfg),
-          rc.beatDisplay,
-        );
+      const forward = cursorBeat > anchorBeat + 1e-6;
+      const backwardLegal = (rc.curveDraft?.points.length ?? 0) <= 1;
+      if (forward || (backwardLegal && cursorBeat < anchorBeat - 1e-6)) {
+        const from = forward
+          ? { beat: anchorBeat, lane: anchor.lane }
+          : { beat: cursorBeat, lane: pos.lane };
+        const to = forward
+          ? { beat: cursorBeat, lane: pos.lane }
+          : { beat: anchorBeat, lane: anchor.lane };
+        const conns = previewSpanConnections(from, to, spanParamFromCurveConfig(cfg), rc.beatDisplay);
         renderSlideGhost(ctx, c, rc, { connections: conns });
       }
     }
