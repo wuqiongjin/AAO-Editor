@@ -54,6 +54,26 @@ export function snapChartPos(
     return { beat: pos.preciseBeat, lane: pos.lane, rawBeat: pos.rawBeat };
 }
 
+/**
+ * 越界冻结策略（issue 09 验收反馈九轮，**手势预览的唯一口径**）：
+ *
+ * 光标移出轨道（轨外 lane / 越过谱面末端 / 移出画布）时，**进行中的手势**（有已确认锚点、
+ * 拖拽中、画笔中）的预览应**冻结在最后合法落点**、保持可见，而不是整条消失——消失会让用户
+ * 以为"画丢了"（八轮 #2 的画笔即此病）。反之，**纯 hover**（未起手、无锚点）越界 → null，
+ * 幽灵隐藏，作为"这里不能放"的诚实信号（不能让用户以为空白处也能落子）。
+ *
+ * 三侧共用此函数：① 画笔草稿（组件冻结采样、`renderToolPreview` 越界仍画）② 链式/两击放置的
+ * live 预览 ③ 拖拽幽灵。未来若要改成"钳到边缘跟随"等其它口径，**只改这一处**。
+ */
+export function freezeGestureCursor<T>(
+    live: T | null,
+    frozen: T | null,
+    gestureActive: boolean,
+): T | null {
+    if (live !== null) return live;
+    return gestureActive ? frozen : null;
+}
+
 /** 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）。 */
 export function hitStartMarkerAt(
     deps: GeometryView,
@@ -325,6 +345,52 @@ export function penReleaseBeat(
 ): number | null {
     const p = snapChartPos(deps, chartEndBeat, cx, cy);
     return p ? p.beat : null;
+}
+
+/**
+ * 画笔越界交点（issue 09 十轮，Q1）：从界内画布点 `inside` 沿**画布直线**（= 两次 mousemove
+ * 之间画笔的真实路径）走到界外画布点 `outside`，二分求"仍在轨道内部的最远画布点"及其合法读数。
+ *
+ * 快甩出轨道时，最后一次**界内**事件采样落在边界之前一截（离散采样的固有滞后），笔画看起来
+ * "停在半路"。这里把那条被 `penCursorAt` 判为 null 而整段丢弃的连线补到真实交点：
+ * - **终点**由解析求交得出，不再敏感于 mousemove 事件密度（一次事件甩过头也停在墙根）；
+ * - **界内中途弦的曲率**仍是直线近似（画布直线），与既有采样同口径，非本次消除对象。
+ *
+ * 合法性**只认注入的 `oracle`**（组件传 `penCursorAt`）——轨道边界 / 负拍 / 越谱末的单一真相仍是
+ * `snapChartPos → laneBeatFromCanvas`，本函数不另立几何，改判定只需改 `oracle` 一处。
+ *
+ * @returns `inside` 非法 / `outside` 其实合法（未越界）→ null（交回正常路径）；否则返回交点
+ *   画布坐标 + 该处合法 `PenPoint`（lane 已 `clampLane`、beat 未量化真拍，与 `penCursorAt` 同型）。
+ */
+export function penExitCrossing(
+    oracle: (cx: number, cy: number) => PenPoint | null,
+    inside: { x: number; y: number },
+    outside: { x: number; y: number },
+    iterations = 24,
+): { x: number; y: number; point: PenPoint } | null {
+    const start = oracle(inside.x, inside.y);
+    if (!start) return null; // 连"界内锚点"都非法 → 无从求交，交回原逻辑
+    if (oracle(outside.x, outside.y)) return null; // 其实没越界
+    let lo = 0;
+    let hi = 1; // lo 恒合法、hi 恒非法（合法域为凸矩形 → 单一交点）
+    let bestX = inside.x;
+    let bestY = inside.y;
+    let best = start;
+    for (let i = 0; i < iterations; i++) {
+        const t = (lo + hi) / 2;
+        const cx = inside.x + (outside.x - inside.x) * t;
+        const cy = inside.y + (outside.y - inside.y) * t;
+        const p = oracle(cx, cy);
+        if (p) {
+            lo = t;
+            bestX = cx;
+            bestY = cy;
+            best = p;
+        } else {
+            hi = t;
+        }
+    }
+    return { x: bestX, y: bestY, point: best };
 }
 
 // ─────────────────────────────── 框选：阈值 / 矩形 / 去向 ───────────────────────────────

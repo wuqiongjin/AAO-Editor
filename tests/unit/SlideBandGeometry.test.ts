@@ -1,20 +1,23 @@
 /**
- * issue 09 验收反馈六轮锁测：滑条连接带**横截面口径的单一真相**（`slideBandGeometry` = 车道横向 ±half，
- * 端点封口 = 过结点中心的水平线段）。
+ * issue 09 六轮~八轮锁测：滑条连接带**横截面口径的单一真相**（`slideBandGeometry` = 车道横向 ±half，
+ * 端点封口 = 过结点中心的水平线段）+ **八轮 SP 带体扫描线光栅**（发虚/黑条纹回归）。
  *
  * 钉住的不变量（回归史）：
  * - 实绘 / 选中 hover 描边 / 命中三侧同源。四轮-五轮把实绘单独改成**垂直法线**（法向等宽），
- *   另两侧仍是横向 → 端点封口变斜线，纵向伸出 `half·cosθ` 戳出端点图标墨迹（用户截图的台阶/豁口），
- *   且"亮起的轮廓"与"画出的带子"不是同一个形状。
- * - 相邻逻辑段在共享结点上必须产生**同一条**封口线段（跨段无台阶，靠口径一致性而非角平分线法线）。
- * - 封口宽 = 车道宽 < 端点图标墨迹宽 → 带子看起来"穿进端点里"。
+ *   另两侧仍是横向 → 端点封口变斜线，戳出端点图标墨迹（用户截图的台阶/豁口）。
+ * - 相邻逻辑段在共享结点上必须产生**同一条**封口线段（跨段无台阶）。
+ * - 封口宽 = 车道宽 < 端点图标墨迹宽 → 带子"穿进端点里"。
+ * - **八轮 #1**：SP 带体横截面 α 是 `|x−cx(y)|/half` 的**连续插值函数**（扫描线光栅，每像素至多
+ *   一笔）。七轮及以前的"16 层半透明同心环带逐层 fill"在每条层边界留下暗发丝线（半透明两笔
+ *   覆盖同一像素的合成亏缺 ≈ ¼a²），放大 = 成排黑色条纹、常态 = 发虚——中心→亮缘任何内部像素
+ *   都不得比邻域更暗（下方"无暗缝"用例锁死）。回折两臂 = 像素内 screen 合成 → 叠亮不相消。
  */
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry, LANE_WIDTH } from '../../src/chart/geometry/ChartGeometry';
 import { makeCoords } from '../../src/visual/coords';
 import { collectSelectionOutlines, renderSpanBands } from '../../src/visual/render';
 import { findItemAt } from '../../src/visual/hitTest';
-import { bandPolygon, bandPolygonAt, splitBandAtFolds } from '../../src/visual/slideBandGeometry';
+import { bandPolygon, bandPolygonAt, bandRunAtY, rasterBandRuns, sampleProfileAt, splitBandAtFolds, type BandRaster } from '../../src/visual/slideBandGeometry';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/visual/noteSkin';
 import { SLIDE_ICON_SIZE } from '../../src/visual/noteMetrics';
 import type { RenderCtx } from '../../src/visual/types';
@@ -94,68 +97,164 @@ function recorder() {
   return { ctx, paths, draws, corners, spriteIcon };
 }
 
-/** 结点行上（y === node.y）所有顶点的 x 范围 = 该端点封口线段 */
-function capAt(paths: [number, number][][], node: Pt): { x0: number; x1: number } | null {
+// ───────────────────────── 光栅小工具（sx=sy=1 → 设备像素 = 画布像素） ─────────────────────────
+
+const FLAT_PROFILE = [0.2, 0.4, 0.6, 0.8, 1.0]; // 中心→边缘单调，便于断言连续形状
+function raster(pts: Pt[], half: number, profile = FLAT_PROFILE, base = 1): BandRaster | null {
+  return rasterBandRuns({
+    runs: splitBandAtFolds(pts), half, profile, rgb: [0, 255, 0],
+    sx: 1, sy: 1, baseAlpha: base,
+  });
+}
+const alphaAt = (r: BandRaster, x: number, y: number): number => {
+  const i = Math.round(x) - r.bxDev;
+  const j = Math.round(y) - r.byDev;
+  if (i < 0 || j < 0 || i >= r.bw || j >= r.bh) return 0;
+  return r.data[(j * r.bw + i) * 4 + 3]! / 255;
+};
+/** 一行内非零像素的最左/最右列（画布 x）；整行空 → null */
+function rowExtent(r: BandRaster, y: number): { x0: number; x1: number } | null {
   let x0 = Infinity, x1 = -Infinity;
-  for (const p of paths) {
-    for (const [x, y] of p) {
-      if (Math.abs(y - node.y) > 1e-6) continue;
-      x0 = Math.min(x0, x); x1 = Math.max(x1, x);
-    }
+  for (let i = 0; i < r.bw; i++) {
+    if (r.data[(Math.round(y) - r.byDev) * r.bw * 4 + i * 4 + 3] === 0) continue;
+    x0 = Math.min(x0, i + r.bxDev); x1 = Math.max(x1, i + r.bxDev);
   }
-  return x1 > x0 ? { x0, x1 } : null;
+  return x1 >= x0 ? { x0, x1 } : null;
 }
 
-const SP_CONNS: Conn[] = [
-  { lane: 0, beat: 10 },
-  { lane: 1, beat: 10.5, hidden: true },
-  { lane: 2, beat: 11, hidden: true },
-  { lane: 3, beat: 11.5 },
-];
-
-describe('滑条带体横截面口径（issue 09 六轮：实绘 = 描边 = 命中）', () => {
-  it('SP 段实绘：每条填充路径在两端结点行上都闭合为水平封口（封口不会转成斜线）', () => {
-    const note = { type: 'Slide', connections: SP_CONNS } as ChartNote;
-    const { c, rc, cents } = harness([note]);
-    const rec = recorder();
-    const rc2 = { ...rc, spriteIcon: rec.spriteIcon } as RenderCtx;
-    renderSpanBands(rec.ctx, c, rc2, (note as SlideNote).connections, 1);
-    expect(rec.paths.length).toBeGreaterThan(0);
-    const [p0, pLast] = [cents(SP_CONNS)[0]!, cents(SP_CONNS)[3]!];
-    for (const p of rec.paths) {
-      // 子路径首尾顶点同处起点结点行 → closePath 的封口是水平线
-      expect(p[0]![1]).toBeCloseTo(p0.y, 6);
-      expect(p[p.length - 1]![1]).toBeCloseTo(p0.y, 6);
+describe('SP 带体扫描线光栅（issue 09 八轮 #1：发虚/黑条纹回归）', () => {
+  it('直线竖直带：每一行范围恒等于 cx±half（横截面口径不变）', () => {
+    const pts = [0, 10, 20, 30, 40].map((y) => ({ x: 100, y }));
+    const r = raster(pts, 15)!;
+    expect(r).not.toBeNull();
+    for (const y of [5, 15, 25]) {
+      const ext = rowExtent(r, y)!;
+      expect(ext.x0).toBeGreaterThanOrEqual(100 - 15 - 1);
+      expect(ext.x1).toBeLessThanOrEqual(100 + 15 + 1);
+      // 半宽外恒空（所见 = 所点的范围口径）
+      expect(alphaAt(r, ext.x0 - 2, y)).toBe(0);
+      expect(alphaAt(r, ext.x1 + 2, y)).toBe(0);
     }
-    // 两端封口都在结点行内、不越过车道列
-    const capA = capAt(rec.paths, p0)!;
-    const capB = capAt(rec.paths, pLast)!;
-    expect(capA.x0).toBeCloseTo(p0.x - HALF, 6);
-    expect(capA.x1).toBeCloseTo(p0.x + HALF, 6);
-    expect(capB.x0).toBeCloseTo(pLast.x - HALF, 6);
-    expect(capB.x1).toBeCloseTo(pLast.x + HALF, 6);
   });
 
-  it('SP 段实绘 = 共享口径多边形（与 hover 描边/命中同一 bandPolygon，取最宽层）', () => {
-    const note = { type: 'Slide', connections: SP_CONNS } as ChartNote;
-    const { c, rc, cents } = harness([note]);
-    const rec = recorder();
-    renderSpanBands(rec.ctx, c, { ...rc, spriteIcon: rec.spriteIcon } as RenderCtx, (note as SlideNote).connections, 1);
-    // 最宽层的左右 extremes 必须逐端点等于 bandRails(pts, half)（细分只加内部点，不改两端结点）
-    const centsEnds = cents(SP_CONNS);
-    const poly = bandPolygon([centsEnds[0]!, centsEnds[3]!], HALF);
-    const widest = rec.paths.reduce((a, b) => (b.length > a.length ? b : a));
-    const xs = widest.map((p) => p[0]);
-    const polyXs = poly.map((p) => p.x);
-    expect(Math.min(...xs)).toBeGreaterThanOrEqual(Math.min(...polyXs) - 1e-6);
-    expect(Math.max(...xs)).toBeLessThanOrEqual(Math.max(...polyXs) + 1e-6);
-    // 逐层等比收窄：所有顶点的 x 相对中心线的偏移 ≤ half
-    for (const p of rec.paths) {
-      for (const [x, y] of p) {
-        const onRow = centsEnds.find((q) => Math.abs(q.y - y) < 1e-6);
-        if (onRow) expect(Math.abs(x - onRow.x)).toBeLessThanOrEqual(HALF + 1e-6);
+  it('无暗缝（关键回归）：中心→亮缘剖面单调不减，任何内部像素不比两侧更暗', () => {
+    // 七轮"16 层半透明环带逐层 fill"在每条层边界留下 ¼a² 级暗发丝线（放大 = 黑色条纹）；
+    // 连续插值 + 每像素至多一笔 → 剖面就是 profile 本身。
+    const pts = [0, 12, 25, 40].map((y) => ({ x: 100, y }));
+    const r = raster(pts, 15)!;
+    const y = 20;
+    const alphas: number[] = [];
+    for (let x = 100; x <= 115; x++) alphas.push(alphaAt(r, x, y));
+    for (let k = 1; k < alphas.length - 1; k++) {
+      // 允许边缘 1px 覆盖衰减出现在最外列；此前一律不减
+      if (alphas[k]! > 0 && alphas[k]! < alphas[k - 1]! - 1e-6) {
+        expect(k).toBeGreaterThanOrEqual(alphas.length - 2);
       }
     }
+    // 数值层面 = profile 连续插值（中心 0.2 → 缘 1.0，边缘 1px 覆盖衰减在最末列）
+    expect(alphaAt(r, 100, y)).toBeCloseTo(0.2, 1);
+    expect(alphaAt(r, 113, y)).toBeGreaterThan(alphaAt(r, 104, y));
+    expect(alphaAt(r, 113, y)).toBeGreaterThan(0.85);
+    expect(alphaAt(r, 115, y)).toBe(0); // 半宽之外不越界
+  });
+
+  it('弯曲带逐行中心 = 折线线性插值（与描边/命中 bandPolygon 顶点同源，不做渲染期平滑）', () => {
+    const pts = [{ x: 100, y: 0 }, { x: 110, y: 20 }, { x: 100, y: 40 }];
+    const r = raster(pts, 8)!;
+    // y=10 → cx=105；y=30 → cx=105（对称弯）
+    expect(alphaAt(r, 105, 10)).toBeGreaterThan(0);
+    expect(alphaAt(r, 105 - 8 - 2, 10)).toBe(0);
+    expect(alphaAt(r, 105 + 8 + 2, 10)).toBe(0);
+    // bandRunAtY 线性插值与光栅一致
+    expect(bandRunAtY(pts, 10)).toBeCloseTo(105, 6);
+    expect(bandRunAtY(pts, 20)).toBeCloseTo(110, 6);
+    // 半开行归属：终点行不算（[lo,hi)）
+    expect(bandRunAtY(pts, 40)).toBeNull();
+  });
+
+  it('回折两臂：逐行各自命中 + 重叠像素 screen 叠亮（不相消成洞）', () => {
+    const pts = [{ x: 100, y: 0 }, { x: 100, y: 30 }, { x: 104, y: 10 }]; // 下→上→下（beat 回退）
+    const runs = splitBandAtFolds(pts);
+    expect(runs.length).toBe(2);
+    const r = raster(pts, 6)!;
+    // 行 y=15：两臂中心都在 x≈100~102 附近 → 该处非零（旧环带构造在此相消出洞）
+    expect(alphaAt(r, 100, 15)).toBeGreaterThan(0);
+    // 单臂 vs 双臂：折返重叠区 alpha ≥ 任一臂单独光栅（screen 合成只会更亮）
+    const onlyA = raster(runs[0]!, 6)!;
+    const solo = alphaAt(onlyA, 100, 15);
+    expect(alphaAt(r, 100, 15)).toBeGreaterThanOrEqual(solo);
+    expect(alphaAt(r, 100, 15)).toBeLessThanOrEqual(1);
+  });
+
+  it('baseAlpha（slideOpacity）逐像素线性生效', () => {
+    const pts = [0, 20, 40].map((y) => ({ x: 50, y }));
+    const a1 = alphaAt(raster(pts, 10, FLAT_PROFILE, 1)!, 50, 20);
+    const a2 = alphaAt(raster(pts, 10, FLAT_PROFILE, 0.5)!, 50, 20);
+    expect(a2).toBeCloseTo(a1 * 0.5, 2);
+  });
+
+  it('sampleProfileAt：端点恒等 + 单调段内插值不越界', () => {
+    expect(sampleProfileAt([0.2, 0.4, 0.6], 0)).toBeCloseTo(0.2, 6);
+    expect(sampleProfileAt([0.2, 0.4, 0.6], 1)).toBeCloseTo(0.6, 6);
+    expect(sampleProfileAt([0.2, 0.4, 0.6], 0.5)).toBeCloseTo(0.4, 6);
+    expect(sampleProfileAt([0.2, 0.4, 0.6], 1.7)).toBeCloseTo(0.6, 6); // 越界钳到边缘
+    const skin00 = [0.38, 0.38, 0.39, 0.40, 0.41, 0.43, 0.45, 0.48, 0.52, 0.56, 0.61, 0.67, 0.74, 0.82, 0.89, 0.62, 0.25];
+    let prev = 0;
+    for (let k = 0; k <= 14; k++) { // 中心→亮缘（frac 0..0.875）必须不减 = 无暗缝
+      const a = sampleProfileAt(skin00, k / 16);
+      expect(a).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = a;
+    }
+  });
+});
+
+describe('滑条带体横截面口径（issue 09 六轮：实绘 = 描边 = 命中）', () => {
+  const SP_CONNS: Conn[] = [
+    { lane: 0, beat: 10 },
+    { lane: 1, beat: 10.5, hidden: true },
+    { lane: 2, beat: 11, hidden: true },
+    { lane: 3, beat: 11.5 },
+  ];
+
+  it('SP 段带体首末行封口 = 端点结点行上的水平线段 cx±half（端点藏在图标墨迹下）', () => {
+    const note = { type: 'Slide', connections: SP_CONNS } as ChartNote;
+    const { c, cents } = harness([note]);
+    const pts = cents(SP_CONNS);
+    const r = raster(pts, HALF)!;
+    // 画布 Y 随拍位递减（越新的拍在越上方）：首连接（beat 10）是 max-Y 端点，末连接是 min-Y。
+    // 封口行 = 过端点的水平 cx±half；行覆盖口径 [lo,hi)（终点行归端点图标墨迹）。
+    const ys = pts.map((p) => p.y);
+    const yLo = Math.min(...ys), yHi = Math.max(...ys);
+    const pTop = pts.find((p) => p.y === yLo)!, pBot = pts.find((p) => p.y === yHi)!;
+    const run = splitBandAtFolds(pts)[0]!;
+    // 上端（min-Y 端点）内侧首行：封口水平 = 行区间恒 cx±half，不斜伸
+    const rowY = Math.round(yLo) + 1;
+    const firstRow = rowExtent(r, rowY)!;
+    expect(firstRow).not.toBeNull();
+    const cxTop = bandRunAtY(run, rowY + 0.5)!;
+    expect(cxTop).not.toBeNull();
+    expect(firstRow.x0).toBeGreaterThanOrEqual(Math.floor(cxTop - HALF) - 1);
+    expect(firstRow.x1).toBeLessThanOrEqual(Math.ceil(cxTop + HALF) + 1);
+    // 越过任一端点 → 空（封口不外溢成斜线）
+    expect(alphaAt(r, pTop.x, yLo - 3)).toBe(0);
+    expect(alphaAt(r, pBot.x, yHi + 3)).toBe(0);
+  });
+
+  it('SP 段带体与 hover 描边同范围（逐行 bandPolygon 区间，不超出不缺口）', () => {
+    const note = { type: 'Slide', connections: SP_CONNS } as ChartNote;
+    const { c, cents } = harness([note]);
+    const pts = cents(SP_CONNS);
+    const r = raster(pts, HALF)!;
+    for (let y = Math.ceil(pts[0]!.y); y < Math.floor(pts[3]!.y); y++) {
+      // 与描边同一折线的行中心（bandRunAtY 单调用 = bandPolygonAt 逐顶点的行视图）
+      const run = splitBandAtFolds(pts)[0]!;
+      const cx = bandRunAtY(run, y + 0.5);
+      if (cx === null) { expect(rowExtent(r, y)).toBeNull(); continue; }
+      const ext = rowExtent(r, y)!;
+      expect(ext.x0).toBeGreaterThanOrEqual(Math.floor(cx - HALF) - 1);
+      expect(ext.x1).toBeLessThanOrEqual(Math.ceil(cx + HALF) + 1);
+    }
+    void c;
   });
 
   it('普通滑条单段实绘：剪切贴图铺满的平行四边形 === bandPolygon（不再旋转映射）', () => {
@@ -171,8 +270,7 @@ describe('滑条带体横截面口径（issue 09 六轮：实绘 = 描边 = 命�
     expect(got.slice().sort()).toEqual(want.slice().sort());
   });
 
-  it('相邻逻辑段在共享结点上封口重合 = 跨段天然连续（无需角平分线法线）', () => {
-    // A→B 缓动段（含 hidden）+ B→C 普通段：两段共用结点 B
+  it('相邻逻辑段在共享结点上封口重合 = 跨段天然连续（SP 光栅行区间 === 普通段平行四边形端行）', () => {
     const conns: Conn[] = [
       { lane: 0, beat: 10 },
       { lane: 1, beat: 10.5, hidden: true },
@@ -182,20 +280,27 @@ describe('滑条带体横截面口径（issue 09 六轮：实绘 = 描边 = 命�
     const note = { type: 'Slide', connections: conns } as ChartNote;
     const { c, rc, cents } = harness([note]);
     const b = cents(conns)[2]!;
-    const recA = recorder();
-    renderSpanBands(recA.ctx, c, { ...rc, spriteIcon: recA.spriteIcon } as RenderCtx,
-      [{ ...conns[0]! }, { ...conns[1]! }, { ...conns[2]! }] as never, 1);
+    // SP 段（前三个点）：b（beat 11）是最新拍 = min-Y 上端点。行覆盖 [b.y, p10.y] 且含 b 行，
+    // 取 b 内侧一行（round(b.y)+1）的右缘，与下方普通段（B→C）四边形在 B 端行的两角对比。
+    const spPts = [cents(conns)[0]!, cents(conns)[1]!, b];
+    const r = raster(spPts, HALF)!;
+    const extAtB = rowExtent(r, Math.round(b.y) + 1);
+    expect(extAtB).not.toBeNull();
+    // 普通段（B→C）贴图四边形的 B 端行 = bandPolygon 两角（B 端封口宽恰为车道宽）
     const recB = recorder();
     renderSpanBands(recB.ctx, c, { ...rc, spriteIcon: recB.spriteIcon } as RenderCtx,
-      [{ ...conns[2]! }, { ...conns[3]! }] as never, 1);
-    const capA = capAt(recA.paths, b)!;          // SP 段在 B 的封口（路径末端）
-    const cornersB = recB.corners(recB.draws[0]!) // 普通段在 B 的封口 = 平行四边形一端
+      [conns[2]!, conns[3]!] as never, 1);
+    const cornersB = recB.corners(recB.draws[0]!)
       .filter(([x, y]) => Math.abs(y - b.y) < 1e-6)
       .map(([x]) => x);
-    const capB = { x0: Math.min(...cornersB), x1: Math.max(...cornersB) };
-    expect(capA.x0).toBeCloseTo(capB.x0, 6);
-    expect(capA.x1).toBeCloseTo(capB.x1, 6);
-    expect(capB.x1 - capB.x0).toBeCloseTo(LANE_WIDTH, 6);
+    expect(cornersB.length).toBe(2);
+    // SP 光栅在 B 端行内的半宽 = HALF（±1px：行范围按非零**列中心**计，天然比连续边缘窄半像素）；
+    // 封口中心 ≈ b.x（与普通段 B 端两角中点重合）→ 跨段共享同一条水平封口线
+    const halfWidth = (extAtB!.x1 - extAtB!.x0) / 2;
+    expect(halfWidth).toBeGreaterThanOrEqual(HALF - 1);
+    expect(halfWidth).toBeLessThanOrEqual(HALF + 1);
+    expect(extAtB!.x0).toBeLessThanOrEqual(Math.min(...cornersB) + 2);
+    expect(extAtB!.x1).toBeGreaterThanOrEqual(Math.max(...cornersB) - 2);
   });
 
   it('封口宽 = 车道宽 < 端点图标墨迹宽 → 带子藏在端点图标下', () => {
@@ -211,14 +316,12 @@ describe('滑条带体横截面口径（issue 09 六轮：实绘 = 描边 = 命�
     expect(out).toHaveLength(1);
     const quad = (out[0] as unknown as { points: [number, number][] }).points;
     expect(quad).toEqual(bandPolygonAt(cents(SP_CONNS), HALF));
-    // 命中区同口径：段中部（远离任何结点）在车道列内 → 命中该段；越过左右轨 → 不命中
     const cs = cents(SP_CONNS);
     const mid = { x: (cs[0]!.x + cs[1]!.x) / 2, y: (cs[0]!.y + cs[1]!.y) / 2 };
     const deps = { geometry: rc.geometry, viewport: VIEWPORT, beatDisplay: BEAT_DISPLAY, notes: [note] };
     expect(findItemAt(mid.x + HALF - 1, mid.y, deps as never)?.kind).toBe('slideRegion');
     expect(findItemAt(mid.x - HALF - 2, mid.y, deps as never)?.kind).not.toBe('slideRegion');
     expect(findItemAt(mid.x + HALF + 2, mid.y, deps as never)?.kind).not.toBe('slideRegion');
-    // 端点封口整段落在端点图标的命中盒内（结点优先于段）→ 封口必然被图标盖住
     expect(findItemAt(cs[0]!.x + HALF - 1, cs[0]!.y, deps as never)?.kind).toBe('slideNode');
     expect(findItemAt(cs[0]!.x - HALF + 1, cs[0]!.y, deps as never)?.kind).toBe('slideNode');
   });
@@ -260,62 +363,5 @@ describe('回折切分 splitBandAtFolds（issue 09 验收反馈 #1：自叠环�
   it('水平抖动（dy=0 段）不改变方向锁、不产生多余切分', () => {
     const pts = [P(0, 0), P(1, 0), P(2, 10), P(3, 10), P(4, 20)];
     expect(splitBandAtFolds(pts)).toEqual([pts]);
-  });
-});
-
-describe('连接带实绘与描边/命中同顶点（issue 09 验收反馈 #2：SP 带体不再超出 hover 轮廓）', () => {
-  it('SP 段实绘最外环 = bandPolygonAt(cents) 逐顶点相等（实绘不再做渲染期细分平滑）', () => {
-    const note = { type: 'Slide', connections: SP_CONNS } as ChartNote;
-    const { rc, cents } = harness([note]);
-    const rec = recorder();
-    rc.spriteIcon = rec.spriteIcon as RenderCtx['spriteIcon'];
-    renderSpanBands(rec.ctx, makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, [note]), rc, SP_CONNS as never);
-    const expected = bandPolygonAt(cents(SP_CONNS), HALF).map(([x, y]) => [x, y] as [number, number]);
-    // 最外软环（最后几层 fill 之一）必须与描边多边形**逐顶点相等**；
-    // 细分平滑存在时拱出弦线 → 必不相等。
-    const match = rec.paths.some((p) =>
-      p.length >= expected.length &&
-      expected.every(([x, y], i) => p[i] && Math.abs(p[i]![0] - x) < 1e-6 && Math.abs(p[i]![1] - y) < 1e-6));
-    expect(match).toBe(true);
-  });
-});
-
-describe('回折（拍位倒退）SP 段带体（issue 09 验收反馈 #1：重叠处黑线）', () => {
-  // 画布 y ∝ 拍位：dy 变号 = 时间轴回折 → 带体自叠
-  const FOLD: Conn[] = [
-    { lane: 2, beat: 10 },
-    { lane: 3, beat: 11, hidden: true },
-    { lane: 4, beat: 12, hidden: true },
-    { lane: 3, beat: 11.5, hidden: true },  // 折返（beat 倒退，导入谱合法）
-    { lane: 2, beat: 11 },
-  ];
-
-  it('dy 变号的段被拆成多条独立环带路径（单次 fill 内不自叠 → 无环绕抵消黑线）', () => {
-    const note = { type: 'Slide', connections: FOLD } as ChartNote;
-    const { c, rc } = harness([note]);
-    const rec = recorder();
-    rc.spriteIcon = rec.spriteIcon as RenderCtx['spriteIcon'];
-    renderSpanBands(rec.ctx, c, rc, FOLD as never);
-    expect(rec.paths.length).toBeGreaterThan(0);
-    // 每条记录的路径 = 单条 run 的环带：其顶点 y 序列不回折
-    for (const p of rec.paths) {
-      const ds = p.slice(1).map((pt, i) => Math.sign(pt[1] - p[i]![1])).filter((v) => v !== 0);
-      expect(new Set(ds).size).toBeLessThanOrEqual(2); // 外轨正序 + 内轨逆序（同段）→ 至多两向
-    }
-  });
-
-  it('拆条带生效：回折段 fill 路径数 > 同首段单调路径（run 独立环带）', () => {
-    const mono = FOLD.slice(0, 4); // 同前 4 点但去掉折返 → 单一 run
-    const mNote = { type: 'Slide', connections: mono } as ChartNote;
-    const recM = recorder();
-    const { c: cm, rc: rcm } = harness([mNote]);
-    rcm.spriteIcon = recM.spriteIcon as RenderCtx['spriteIcon'];
-    renderSpanBands(recM.ctx, cm, rcm, mono as never);
-    const fNote = { type: 'Slide', connections: FOLD } as ChartNote;
-    const recF = recorder();
-    const { c: cf, rc: rcf } = harness([fNote]);
-    rcf.spriteIcon = recF.spriteIcon as RenderCtx['spriteIcon'];
-    renderSpanBands(recF.ctx, cf, rcf, FOLD as never);
-    expect(recF.paths.length).toBeGreaterThan(recM.paths.length);
   });
 });

@@ -11,8 +11,9 @@ import {
   resolvePressIntent, resolveReleaseIntent, resolveClickPlan,
   isInsideSurface, clampToSurface, hasMovedBeyondThreshold, marqueeRect,
   canStartMarquee, resolveBoxPlan,
-  isPastChartEnd, canPlaceAtCursor, resolveExecNoteCodeHit,
-  type GutterMeasure,
+  isPastChartEnd, canPlaceAtCursor, resolveExecNoteCodeHit, freezeGestureCursor,
+  penExitCrossing, penCursorAt,
+  type GutterMeasure, type PenPoint,
 } from '../../src/chart/editing/CanvasGesture';
 import type { ChartNote, SelectionItem } from '../../src/chart/types';
 
@@ -552,5 +553,95 @@ describe('执行键判据', () => {
 
     // 光标不在画布 → 无命中
     expect(resolveExecNoteCodeHit({ hoverItem: null, hoverPos: null, deps })).toBeNull();
+  });
+});
+
+// ─────────── 越界冻结策略（issue 09 验收反馈九轮 #2：手势预览的唯一口径）───────────
+describe('freezeGestureCursor 越界冻结', () => {
+  const LIVE = { lane: 3, preciseBeat: 20 };
+  const FROZEN = { lane: 2, preciseBeat: 18 };
+
+  it('光标合法 → 用 live（无论手势是否进行中）', () => {
+    expect(freezeGestureCursor(LIVE, FROZEN, true)).toBe(LIVE);
+    expect(freezeGestureCursor(LIVE, FROZEN, false)).toBe(LIVE);
+  });
+
+  it('越界 + 有进行中锚点（画笔/拖拽/已挂首击）→ 冻结到最后合法落点（预览保持可见）', () => {
+    expect(freezeGestureCursor(null, FROZEN, true)).toBe(FROZEN);
+  });
+
+  it('越界 + 纯 hover（无锚点、未起手）→ null（幽灵隐藏 = "这里不能放"的诚实信号）', () => {
+    expect(freezeGestureCursor(null, FROZEN, false)).toBeNull();
+  });
+
+  it('越界 + 有锚点但从未有过合法落点（frozen=null）→ null（不画幽灵，避免凭空落点）', () => {
+    expect(freezeGestureCursor(null, null, true)).toBeNull();
+  });
+
+  it('泛型：可承载任意预览形态（画笔采样数组 / 拖拽落点集），口径与坐标无关', () => {
+    const samples = [{ beat: 10, lane: 1 }];
+    expect(freezeGestureCursor(samples, samples, true)).toBe(samples);
+    expect(freezeGestureCursor<number[]>(null, [1, 2], true)).toEqual([1, 2]);
+    expect(freezeGestureCursor<number[]>(null, [1, 2], false)).toBeNull();
+  });
+});
+
+// ─────────── 画笔越界交点（issue 09 十轮 Q1：快甩出轨道笔画停在真实交点，非半路采样点）───────────
+describe('penExitCrossing 越界弦求交', () => {
+  it('合成 oracle：一维 x<100 合法 → 从界内 50 到界外 200 停在贴边 100 前', () => {
+    const oracle = (cx: number): PenPoint | null => (cx < 100 ? { beat: 0, lane: 0 } : null);
+    const hit = penExitCrossing(oracle, { x: 50, y: 0 }, { x: 200, y: 0 });
+    expect(hit).not.toBeNull();
+    expect(hit!.x).toBeGreaterThan(99.9);
+    expect(hit!.x).toBeLessThan(100);
+  });
+
+  it('inside 非法（连界内锚点都没有）→ null（交回原逻辑，不臆造交点）', () => {
+    const oracle = (cx: number): PenPoint | null => (cx >= 100 ? { beat: 0, lane: 0 } : null);
+    expect(penExitCrossing(oracle, { x: 50, y: 0 }, { x: 200, y: 0 })).toBeNull();
+  });
+
+  it('outside 其实合法（并未越界）→ null（正常路径处理）', () => {
+    const oracle = (): PenPoint => ({ beat: 0, lane: 0 });
+    expect(penExitCrossing(oracle, { x: 50, y: 0 }, { x: 200, y: 0 })).toBeNull();
+  });
+
+  it('真实 penCursorAt 口径：水平甩出右边界 → 停在轨道右墙根、lane 钳到最右 6、beat 不变', () => {
+    const { deps, at } = makeDeps([], 100);
+    const chartEndBeat = 100;
+    const oracle = (cx: number, cy: number) => penCursorAt(deps, chartEndBeat, cx, cy);
+    const inside = at(3, 10); // 界内：3 轨、拍 10（合法）
+    const outside = { x: inside.x + 1000, y: inside.y }; // 向右甩出轨道（越界 lane）
+    expect(oracle(inside.x, inside.y)).not.toBeNull();
+    expect(oracle(outside.x, outside.y)).toBeNull();
+
+    const hit = penExitCrossing(oracle, inside, outside);
+    expect(hit).not.toBeNull();
+    // 交点落回合法位（松手据此落子）
+    expect(oracle(hit!.x, hit!.y)).not.toBeNull();
+    // 交点在 inside→outside 方向上、未越过 outside
+    expect(hit!.x).toBeGreaterThan(inside.x);
+    expect(hit!.x).toBeLessThan(outside.x);
+    // 关键：笔画补到"墙根"而非停在最后采样点——交点已越过最右轨中心（6 轨）
+    expect(hit!.x).toBeGreaterThan(at(6, 10).x);
+    // lane 钳到最右合法轨；水平移动 → beat 不变（真拍 10）
+    expect(hit!.point.lane).toBe(6);
+    expect(hit!.point.beat).toBeCloseTo(10, 1);
+  });
+
+  it('终点不敏感于越界幅度/事件密度：轻甩过头 vs 猛甩很远 → 交点几乎同一墙根', () => {
+    const { deps, at } = makeDeps([], 100);
+    const chartEndBeat = 100;
+    const oracle = (cx: number, cy: number) => penCursorAt(deps, chartEndBeat, cx, cy);
+    const inside = at(3, 10);
+    // 同一起手，两条不同"甩出距离"（模拟不同速度/密度的一次性越界事件）
+    const mild = penExitCrossing(oracle, inside, { x: inside.x + 120, y: inside.y })!;
+    const wild = penExitCrossing(oracle, inside, { x: inside.x + 5000, y: inside.y })!;
+    expect(mild).not.toBeNull();
+    expect(wild).not.toBeNull();
+    // 二者交点差应远小于甩出距离差（≈ 同一轨道右墙根，与越界多远无关）
+    expect(Math.abs(mild.x - wild.x)).toBeLessThan(2);
+    expect(mild.point.lane).toBe(6);
+    expect(wild.point.lane).toBe(6);
   });
 });

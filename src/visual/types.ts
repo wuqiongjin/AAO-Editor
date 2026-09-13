@@ -75,6 +75,12 @@ export interface RenderCtx {
   curveConfig?: CurveConfig | null;
   /** issue 09 S2：画笔进行中的草稿幽灵（松手即按此形态落子的自由段），null = 非画笔手势 */
   penPreview?: SlideNote | null;
+  /**
+   * issue 09 验收反馈九轮 #2：**最后一个合法落点**（lane + 吸附拍位）。放置/链式预览在
+   * 光标越出轨道时冻结到它（见 `freezeGestureCursor`），仅在**有进行中锚点**（滑条首击 /
+   * 曲线链草稿已挂点）时启用；纯 hover 无锚点 → 预览照旧隐藏（"这里不能放"的诚实信号）。
+   */
+  frozenCursor?: { lane: number; preciseBeat: number } | null;
   /** issue 09 验收反馈 #6：画笔手势进行中（按下~松手）——端点幽灵让位给画笔光标，起手首采样前也不显示 */
   penActive?: boolean;
   spriteIcon: CanvasSpriteIcon;

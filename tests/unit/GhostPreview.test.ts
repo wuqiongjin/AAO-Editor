@@ -126,6 +126,39 @@ describe('Slide 工具态 hover 幽灵（issue 65④）', () => {
   });
 });
 
+describe('越界冻结的放置/链式 live 预览（issue 09 九轮 #2：freezeGestureCursor 消费侧）', () => {
+  const band = ICONS.slideBand;
+  /** 有进行中锚点（首击已落）+ 光标越界（无 hoverPos）→ live 段冻结到最后合法落点，不整条消失 */
+  it('滑条首击后光标移出轨道 → 带子 + 落点端点仍可见（冻结在 frozenCursor）', () => {
+    const s = scene({ tool: 'slide', hover: null, slideBuffer: { beat: 48, lane: 2, subBeat: 0 } });
+    s.rc.frozenCursor = { lane: 4, preciseBeat: 52 };
+    renderToolPreview(stubCtx, s.c, s.rc);
+    // 与界内两击同款：段（带子）在前 + 端点幽灵 → 冻结后仍是 2 个精灵，证明预览未消失
+    expect(s.cap.renders).toHaveLength(2);
+    expect(srcOf(s.cap.renders[0])).toBe(band.src);
+  });
+
+  it('纯 hover（无锚点）+ 光标越界 → 什么都不画（"这里不能放"的诚实信号，不冻结）', () => {
+    const s = scene({ tool: 'slide', hover: null }); // slideBuffer=null，无锚点
+    s.rc.frozenCursor = { lane: 4, preciseBeat: 52 }; // 即便有历史 frozen 也不该用
+    renderToolPreview(stubCtx, s.c, s.rc);
+    expect(s.cap.renders).toHaveLength(0);
+  });
+
+  it('界内 hover → 用 live 落点（frozen 不参与；与冻结用例对照）', () => {
+    const s = scene({ tool: 'slide', hover: { lane: 4, beat: 52 }, slideBuffer: { beat: 48, lane: 2, subBeat: 0 } });
+    s.rc.frozenCursor = { lane: 0, preciseBeat: 90 }; // 故意放个不同值，验证被 live 覆盖
+    renderToolPreview(stubCtx, s.c, s.rc);
+    expect(s.cap.renders).toHaveLength(2); // 带子 + 端点（走 live (4,52) 段，非 frozen (0,90)）
+    expect(srcOf(s.cap.renders[0])).toBe(band.src);
+    // 对照：把 frozen 挪走、hover 不变 → 预览完全一致，证明界内渲染不读 frozen
+    const s2 = scene({ tool: 'slide', hover: { lane: 4, beat: 52 }, slideBuffer: { beat: 48, lane: 2, subBeat: 0 } });
+    s2.rc.frozenCursor = null;
+    renderToolPreview(stubCtx, s2.c, s2.rc);
+    expect(s2.cap.renders.map((r) => JSON.stringify(r))).toEqual(s.cap.renders.map((r) => JSON.stringify(r)));
+  });
+});
+
 describe('滑条外观幽灵的结点选款 = 实绘同款（issue 65①）', () => {
   it('三结点滑条：两端端帽款、中间 among 款（旧实现三颗全画成端点=像单键）', () => {
     const endpoint = ICONS.slideEndpointFor(3);

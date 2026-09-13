@@ -10,7 +10,8 @@ import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
 import { slideSpans, isSpRegion } from '../chart/editing/SlideSegments';
-import { bandRails, bandPolygonAt, splitBandAtFolds } from './slideBandGeometry';
+import { freezeGestureCursor } from '../chart/editing/CanvasGesture';
+import { bandPolygonAt, rasterBandRuns, splitBandAtFolds } from './slideBandGeometry';
 import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/ToolActionMatrix';
 import { drawNotesLayer } from './noteLayerCache';
@@ -799,13 +800,15 @@ function renderSegmentBand(
 /**
  * 按逻辑段渲染连接带（材质选择 = ADR-0009 §5 段级判定；几何口径 = 六轮统一的**车道横向截面**）。
  * - **单 region 段**（无 hidden，普通滑条）：`drawBandQuad` 剪切贴图，一段铺满，无拼接。
- * - **含 hidden 的段**（SP 段/画笔/导入）：`renderSpBandStrip` 程序化条带——颜色与横截面剖面从带贴图
- *   运行时采样，整段一条连续路径画成（零接缝；四轮实测"半透明贴图逐段 clip"必有抗锯齿缝）。
+ * - **含 hidden 的段**（SP 段/画笔/导入）：`renderSpBandStrip` **扫描线光栅化**（八轮 #1）——
+ *   横截面 α 是 `|x−cx(y)|/half` 的连续函数，逐设备像素写入离屏缓冲后 1:1 贴回；每像素至多一次
+ *   写入（自叠在像素内合成）→ 数学上零接缝。此前"16 层半透明同心环带逐层 fill"的画法在任何
+ *   相邻层边界必留一道暗发丝线（半透明两笔覆盖同一像素的固有亏缺），放大=黑条纹、常态=发虚。
  * 两类共用同一横截面口径 ⇒ ① 带体轮廓与 hover 轮廓 / 命中区逐顶点重合（所见 = 所点）；② 相邻逻辑段在
  * 共享可见结点上天然连续（两端都是过结点的水平封口，同宽同位）——五轮为消除"段间台阶"引入的
  * **跨段共享角平分线法线整套作废删除**，台阶的根源（各段独立法线）不复存在；③ 端点/中间结点的封口
- * 落在图标墨迹内 → 与端点的衔接由图标遮住。
- * SP 条带中心线仍做渲染期 Catmull-Rom 细分（只动绘制不动数据；烘焙采样够密，与轮廓偏差亚像素级）。
+ * 落在图标墨迹内 → 与端点的衔接由图标遮住。带体贴合采样折线（七轮定案：实绘/描边/命中**顶点同源**，
+ * 不做渲染期平滑）。
  */
 export function renderSpanBands(
   ctx: CanvasRenderingContext2D,
@@ -833,12 +836,15 @@ export function renderSpanBands(
 }
 
 /**
- * SP 条带剖面（从带贴图横截面采样；src → 参数缓存）：center→edge 17 点不透明度 + 体色。
- * 剖面即贴图本来的设计（skin00：中心 0.38 → 亮缘 ~0.9 → 最外 1px 软边），渲染时按采样分层
- * **横向**环形复现（横截面口径见 `slideBandGeometry`），不再手工近似。
+ * SP 带剖面（从带贴图横截面采样；src → 参数缓存）：center→edge 17 点不透明度 + 体色。
+ * 剖面即贴图本来的设计（skin00：中心 0.38 → 亮缘 ~0.9 → 最外 1px 软边），由
+ * `rasterBandRuns` 按连续插值逐像素复现（八轮 #1，环带分层画法作废），横截面口径见
+ * `slideBandGeometry`；不再手工近似。
  */
 interface BandStripStyle {
   color: string;
+  /** 体色 RGB（光栅化写像素用，免每帧解析 color） */
+  rgb: readonly [number, number, number];
   profile: number[];
 }
 const STRIP_STYLE_FRACS = Array.from({ length: 17 }, (_, i) => i / 16);
@@ -846,6 +852,7 @@ const STRIP_STYLE_CACHE = new Map<string, BandStripStyle>();
 /** skin00/longNoteLine2 像素实测兜底（采样未就绪/失败时使用；其余皮肤采样后自动覆盖） */
 const STRIP_STYLE_DEFAULT: BandStripStyle = {
   color: '#4be371',
+  rgb: [0x4b, 0xe3, 0x71],
   profile: [0.38, 0.38, 0.39, 0.40, 0.41, 0.43, 0.45, 0.48, 0.52, 0.56, 0.61, 0.67, 0.74, 0.82, 0.89, 0.62, 0.25],
 };
 
@@ -871,14 +878,18 @@ function bandStripStyle(band: SpriteIconConfig): BandStripStyle {
       };
       const midX = w >> 1;
       const midRow = Math.floor(h / 2) * w;
-      const r = d[(midRow + midX) * 4];
-      const g = d[(midRow + midX) * 4 + 1];
-      const b = d[(midRow + midX) * 4 + 2];
+      let r = d[(midRow + midX) * 4]!;
+      let g = d[(midRow + midX) * 4 + 1]!;
+      let b = d[(midRow + midX) * 4 + 2]!;
+      if (colAvg(midX) < 0.01) { // 中心不透明（部分皮肤贴图如此）→ 体色取亮缘列
+        const bright = midX + Math.round(0.875 * (w / 2 - 1));
+        r = d[(midRow + bright) * 4]!; g = d[(midRow + bright) * 4 + 1]!; b = d[(midRow + bright) * 4 + 2]!;
+      }
       const profile = STRIP_STYLE_FRACS.map((f) => {
         const off = Math.round(f * (w / 2 - 1));
         return (colAvg(midX - off) + colAvg(midX + off)) / 2;
       });
-      STRIP_STYLE_CACHE.set(band.src, { color: `rgb(${r},${g},${b})`, profile });
+      STRIP_STYLE_CACHE.set(band.src, { color: `rgb(${r},${g},${b})`, rgb: [r, g, b], profile });
     } catch { /* 采样失败保持兜底/上次值 */ }
   };
   const img = new Image();
@@ -892,13 +903,19 @@ function bandStripStyle(band: SpriteIconConfig): BandStripStyle {
 }
 
 /**
- * SP 段程序化条带：以中心线折线为骨架，按贴图采样剖面逐层画**横向**环形（中心体色 → 亮缘 → 最外软边）。
- * 每层整段一条连续路径 → 数学上无接缝；剖面来自贴图采样，视觉与贴图设计一致。
+ * SP 段条带 = **扫描线光栅 + 离屏 1:1 贴回**（`rasterBandRuns`，issue 09 验收反馈八轮 #1）。
  *
- * 横截面口径 = **车道横向偏移**（六轮统一，与 `drawBandQuad` / hover 轮廓 / 命中区同一套几何）：
- * 第 i 层 = 中心线整体左右移 ±half·frac。端点封口因此是过结点的水平线（藏在端点图标墨迹内），
- * 相邻逻辑段在共享结点上天然同宽同位 → 不再需要五轮的跨段角平分线法线。
- * 填充走**非零环绕**（内孔反向绕）而非 evenodd：强曲率笔画里条带可能自交，evenodd 会把自交区误判成洞。
+ * 七轮及以前 = 16 层半透明同心环带逐层 `fill()`：相邻层共享边界被两侧各覆盖约一半，
+ * `1−(1−½a₁)(1−½a₂)` 低于任一侧目标 α → 每条边界一道暗发丝线（默认带宽下缝距 ~0.8 CSS px
+ * 整体混叠 = "发虚"；曲率拉伸到 1px 级 = 放大可见的"黑色条纹"）。半透明多笔叠涂数学上
+ * 无法两全（重叠=亮缝、相接=暗缝），故改为**每像素至多一笔**：横截面 α 作为 `|x−cx(y)|/half`
+ * 的连续插值函数逐设备像素写入离屏缓冲（自叠臂在像素内 screen 合成 = 保持七轮"叠亮"口径），
+ * 再按当前变换缩放 1:1 贴回（不重采样）。几何不变量（车道横向 ±half、端点水平封口、回折切分、
+ * 顶点同源不细分）全部由纯函数 `rasterBandRuns` 承载并锁测。
+ *
+ * 亮度口径与七轮逐层 `globalAlpha=a` 一致：**不吃调用方 globalAlpha**（幽灵 0.35 只作用于
+ * 结点图标与普通带贴图，SP 带体保持剖面本体亮度，slideOpacity 经 alpha 参数生效）。
+ * node 环境（单测/SSR）无 DOM/变换 → 静默跳过；离屏画布模块级复用，尺寸只增不减。
  */
 function renderSpBandStrip(
   ctx: CanvasRenderingContext2D,
@@ -907,66 +924,35 @@ function renderSpBandStrip(
   band: SpriteIconConfig,
   alpha?: number,
 ) {
-  // 回折（导入谱拍位倒退）切成单调段逐段画：单段路径不自叠 → 环带抵消不可能；
-  // 两臂重叠处 = 两次 source-over 合成 → 更亮（用户接受"叠亮"），不再出现黑线洞。
+  if (typeof document === "undefined" || typeof ctx.getTransform !== "function") return;
+  const st = bandStripStyle(band);
+  const t = ctx.getTransform();
+  const sx = t.a, sy = t.d;
+  if (!sx || !sy) return;
+  // 回折（导入谱拍位倒退）切成 y 单调 run：逐行光栅天然处理自叠（同像素两臂 screen 合成 = 叠亮）
   const runs = splitBandAtFolds(pts);
-  if (runs.length > 1) {
-    for (const run of runs) renderSpBandStripCore(ctx, run, half, band, alpha);
-    return;
-  }
-  renderSpBandStripCore(ctx, runs[0]!, half, band, alpha);
+  const raster = rasterBandRuns({ runs, half, profile: st.profile, rgb: st.rgb, sx, sy, baseAlpha: alpha ?? 1 });
+  if (!raster) return;
+  const off = ensureRasterScratch(raster.bw, raster.bh);
+  const octx = off.getContext("2d");
+  if (!octx) return;
+  octx.clearRect(0, 0, raster.bw, raster.bh);
+  const img = octx.createImageData(raster.bw, raster.bh);
+  img.data.set(raster.data);
+  octx.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0); // 贴回按设备像素 1:1，横截面已在正确分辨率烘焙
+  ctx.globalAlpha = 1;
+  ctx.drawImage(off, 0, 0, raster.bw, raster.bh, raster.bxDev, raster.byDev, raster.bw, raster.bh);
+  ctx.restore();
 }
 
-function renderSpBandStripCore(
-  ctx: CanvasRenderingContext2D,
-  pts: { x: number; y: number }[],
-  half: number,
-  band: SpriteIconConfig,
-  alpha?: number,
-) {
-  const st = bandStripStyle(band);
-  const base = alpha ?? 1;
-  /** 描一条轨道折线（轨道由 `bandRails` 按车道横向口径给出）；reverse = 逆序遍历（构成反向绕 = 内孔） */
-  const traceRail = (rail: { x: number; y: number }[], moveTo: boolean, reverse = false) => {
-    const n = rail.length;
-    for (let k = 0; k < n; k++) {
-      const p = rail[reverse ? n - 1 - k : k]!;
-      if (moveTo && k === 0) ctx.moveTo(p.x, p.y);
-      else ctx.lineTo(p.x, p.y);
-    }
-  };
-  /** 实心条带（半宽 = half × frac）：左轨正序 → 右轨逆序 */
-  const stripPath = (frac: number) => {
-    const { left, right } = bandRails(pts, half * frac);
-    ctx.beginPath();
-    traceRail(left, true);
-    traceRail(right, false, true);
-    ctx.closePath();
-  };
-  /** 环带（内孔反向绕，非零环绕下留洞） */
-  const ringPath = (innerFrac: number, outerFrac: number) => {
-    stripPath(outerFrac);
-    const { left, right } = bandRails(pts, half * innerFrac);
-    traceRail(right, true);
-    traceRail(left, false, true);
-    ctx.closePath();
-  };
-  ctx.save();
-  ctx.fillStyle = st.color;
-  ctx.lineJoin = 'round';
-  for (let i = 0; i + 1 < st.profile.length; i++) {
-    const a = ((st.profile[i]! + st.profile[i + 1]!) / 2) * base;
-    if (a <= 0.004) continue;
-    ctx.globalAlpha = a;
-    if (i === 0) {
-      stripPath(st.profile.length === 2 ? 1 : STRIP_STYLE_FRACS[1]!);
-      ctx.fill();
-    } else {
-      ringPath(STRIP_STYLE_FRACS[i]!, STRIP_STYLE_FRACS[i + 1]!);
-      ctx.fill();
-    }
-  }
-  ctx.restore();
+let rasterScratch: HTMLCanvasElement | null = null;
+function ensureRasterScratch(w: number, h: number): HTMLCanvasElement {
+  if (!rasterScratch) rasterScratch = document.createElement("canvas");
+  if (rasterScratch.width < w) rasterScratch.width = w;
+  if (rasterScratch.height < h) rasterScratch.height = h;
+  return rasterScratch;
 }
 
 /** 渲染一条滑条的完整外观幽灵（连接带 + 各结点图标） */
@@ -1069,8 +1055,35 @@ function drawMirrorHoverGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: Rend
 
 /** 工具态预览：光标/框选处绘制低透明度结果幽灵（ADR-0002 §4） */
 export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
-  if (!rc.hoverPos) return;
-  const pos = c.getLaneBeatFromCanvas(rc.hoverPos.cx, rc.hoverPos.cy);
+  // issue 09 验收反馈八轮 #2：**画笔草稿幽灵不依赖光标落点合法性**。
+  // penPreview = 起手以来捕获的采样（光标越界时按既定口径冻结在界内最后位置），
+  // 必须始终可见——旧实现把整支预览层放在"光标落点合法"闸门之后，光标一出轨道
+  // （轨外/越过谱末端/移出画布）pos=null 直接 return → 已画部分整体消失、回来才恢复（视觉断裂）。
+  // 依赖光标坐标的"落点端点幽灵 / live 缓动段"仍在闸门之后走。
+  if (rc.armedTool === 'curve' && rc.penActive) {
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    if (rc.penPreview && rc.penPreview.connections.length >= 2) {
+      renderSlideGhost(ctx, c, rc, rc.penPreview);
+    }
+    ctx.restore();
+    return;
+  }
+
+  // livePos 合法与否都继续：越界时若有进行中锚点，冻结到最后合法位（见下）。
+  const livePos = rc.hoverPos ? c.getLaneBeatFromCanvas(rc.hoverPos.cx, rc.hoverPos.cy) : null;
+  // issue 09 验收反馈九轮 #2：光标越出轨道（轨外 lane / 越过谱末端 / 移出画布）时，**有进行中
+  // 锚点**（滑条首击 / 曲线链草稿已挂点）→ 落点冻结到最后一个合法位，放置/链式 live 预览保持成形，
+  // 不再整条消失；纯 hover 无锚点 → pos=null 照旧隐藏（"这里不能放"的诚实信号）。与画笔同一口径，
+  // 共用 freezeGestureCursor。
+  const anchored =
+    (rc.armedTool === 'slide' && rc.slideBuffer !== null) ||
+    (rc.armedTool === 'curve' && (rc.curveDraft?.points.length ?? 0) > 0);
+  const pos = freezeGestureCursor(
+    livePos,
+    rc.frozenCursor ? { lane: rc.frozenCursor.lane, preciseBeat: rc.frozenCursor.preciseBeat } : null,
+    anchored,
+  );
   if (!pos) return;
 
   ctx.save();
@@ -1104,17 +1117,9 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
     return;
   }
 
-  // issue 09 S2（ADR-0009 §3）：曲线工具预览——画笔草稿 / 最近锚点→光标的缓动段（按当前配置实时烘焙）
+  // issue 09 S2（ADR-0009 §3）：曲线工具预览——最近锚点→光标的缓动段（按当前配置实时烘焙）。
+  // 画笔进行中已在函数入口提前返回（八轮 #2：不依赖光标落点合法），此处只处理非画笔态。
   if (rc.armedTool === 'curve') {
-    // 画笔进行中（验收反馈 #6）：端点幽灵让位给画笔光标（起手到首采样前也不显示），
-    // 已有采样则画整条草稿幽灵（松手即按此形态落子；hidden 点不画图标、SP 段用 SP 带与实绘同口径）
-    if (rc.penActive) {
-      if (rc.penPreview && rc.penPreview.connections.length >= 2) {
-        renderSlideGhost(ctx, c, rc, rc.penPreview);
-      }
-      ctx.restore();
-      return;
-    }
     // 落点端点幽灵（与滑条工具同款）
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(pos.lane), c.getNoteVirtualY(pos.preciseBeat, 0));
     renderSpriteGhost(ctx, rc, slideNodeIconConfig(rc, { lane: pos.lane }, true, true),
@@ -1155,7 +1160,7 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   if (rc.armedTool === 'mirror') {
     if (rc.selectionBox) {
       drawMirrorGhosts(ctx, c, rc, computeItemsInBox(rc.selectionBox, { geometry: rc.geometry, viewport: rc.viewport, beatDisplay: rc.beatDisplay, notes: rc.notes }));
-    } else {
+    } else if (rc.hoverPos) {
       // noteSize 必须与画布七处命中同口径（issue 82：命中盒随节奏图示大小缩放），
       // 否则 noteSize≠1 时镜像 hover 幽灵的命中范围与实际绘制不符。
       const hit = findItemAt(rc.hoverPos.cx, rc.hoverPos.cy, { geometry: rc.geometry, viewport: rc.viewport, beatDisplay: rc.beatDisplay, notes: rc.notes, noteSize: rc.display?.noteSize });

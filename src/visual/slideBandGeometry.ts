@@ -90,3 +90,122 @@ export function splitBandAtFolds(pts: readonly BandPoint[]): BandPoint[][] {
   runs.push(pts.slice(start));
   return runs;
 }
+
+// ───────────────────────── 扫描线光栅化（issue 09 验收反馈八轮 #1） ─────────────────────────
+//
+// 七轮前的环带分层画法 = 16 条半透明同心环带逐层 `fill()`——相邻层共享边界的像素被两侧各覆盖
+// 约一半，source-over 合成 `1−(1−½a₁)(1−½a₂)` **低于任一侧目标 alpha** → 每条环带边界必留一道
+// 暗发丝线；直线带亚像素间隔整体混叠 = "发虚"，曲率处缝距拉伸到 1px 级 = 逐条可见的"黑色条纹"
+// （dpr4 实测：直线带内部亮脊旁暗约 30/255，弯曲带沿长度出现成排暗谷）。加层只会加缝。
+//
+// 本画法把横截面当**连续函数**按设备像素行扫描直接写出：每行中心 `cx(y)`（折线线性插值，
+// 与路径画法的公共顶点逐点一致），像素 α = `sampleProfileAt(|x−cx|/half)` × 1px 边缘覆盖 × 基 α；
+// 每像素至多一次写入（自叠多臂在**像素内**做 screen 合成 `1−(1−a₁)(1−a₂)`，等价 source-over
+// 叠亮口径、七轮定案不变）→ 数学上不存在"两笔覆盖一个像素"→ 零暗缝，任意曲率/斜率都连续。
+// 产物是纯 RGBA 缓冲（无 DOM 依赖，可单测），render.ts 只负责贴到主画布/瓦片。
+
+/** 归一化横截面 α 采样：`profile` 为等距 frac 0..1（中心→边缘）上的 α 序列，线性插值。 */
+export function sampleProfileAt(profile: readonly number[], absF: number): number {
+  const n = profile.length - 1;
+  if (n <= 0) return profile[0] ?? 0;
+  const f = Math.min(Math.abs(absF), 1);
+  const x = f * n;
+  const i = Math.min(Math.floor(x), n - 1);
+  const t = x - i;
+  return profile[i]! * (1 - t) + profile[i + 1]! * t;
+}
+
+/**
+ * y 单调 run 在画布行 `yCss` 上的中心线 x；行不在 run 的 [首末 y 区间) 内 → null。
+ * 行归属口径 = `[lo, hi)`（半开）：相邻 run 共享的回折点行只归后一个 run 一次，
+ * 带体两端终点行不计（该半行本就落在端点图标墨迹下）。
+ */
+export function bandRunAtY(run: readonly BandPoint[], yCss: number): number | null {
+  for (let i = 0; i + 1 < run.length; i++) {
+    const a = run[i]!, b = run[i + 1]!;
+    if (a.y === b.y) continue; // 同拍点对行无贡献（面积 0，与 drawBandQuad 同判据）
+    const lo = Math.min(a.y, b.y), hi = Math.max(a.y, b.y);
+    if (yCss >= lo && yCss < hi) {
+      const t = (yCss - a.y) / (b.y - a.y);
+      return a.x + (b.x - a.x) * t;
+    }
+  }
+  return null;
+}
+
+export interface BandRasterInput {
+  /** `splitBandAtFolds` 的产物（每条 y 单调） */
+  runs: readonly (readonly BandPoint[])[];
+  /** 带半宽（CSS px，车道横向口径） */
+  half: number;
+  /** 中心→边缘等距 α 剖面（`bandStripStyle` 的 profile） */
+  profile: readonly number[];
+  /** 体色 RGB（0..255，非预乘） */
+  rgb: readonly [number, number, number];
+  /** 设备像素 / CSS 像素（来自主上下文的变换，保证 1:1 无重采样） */
+  sx: number;
+  sy: number;
+  /** 基 α（slideOpacity）；幽灵亮度口径由调用方处理 */
+  baseAlpha: number;
+}
+
+export interface BandRaster {
+  /** 位图左上角（设备像素，主画布当前变换空间） */
+  bxDev: number;
+  byDev: number;
+  bw: number;
+  bh: number;
+  /** RGBA（非预乘）缓冲，bw·bh·4 */
+  data: Uint8ClampedArray;
+}
+
+/**
+ * 扫描线光栅化整个带体（多 run 自叠区在像素内 screen 合成 = 叠亮）。
+ * 空输入 / 非法缩放 → null（调用方不画）。
+ */
+export function rasterBandRuns(input: BandRasterInput): BandRaster | null {
+  const { runs, half, profile, rgb, sx, sy, baseAlpha } = input;
+  if (runs.length === 0 || sx <= 0 || sy <= 0 || half <= 0) return null;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const run of runs) {
+    for (const p of run) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  if (!Number.isFinite(minX) || maxX - minX < 1e-9 && maxY - minY < 1e-9) return null;
+  const padCss = 2; // 边缘 1px AA 余量
+  const bxDev = Math.floor((minX - half - padCss) * sx);
+  const byDev = Math.floor((minY - padCss) * sy);
+  const bw = Math.max(1, Math.ceil((maxX + half + padCss) * sx) - bxDev);
+  const bh = Math.max(1, Math.ceil((maxY + padCss) * sy) - byDev);
+  if (bw * bh === 0) return null;
+  const data = new Uint8ClampedArray(bw * bh * 4);
+  const [rC, gC, bC] = rgb;
+  for (const run of runs) {
+    for (let j = 0; j < bh; j++) {
+      const yCss = (byDev + j + 0.5) / sy;
+      const cx = bandRunAtY(run, yCss);
+      if (cx === null) continue;
+      const leftDev = (cx - half) * sx - bxDev;   // 位图局部设备坐标
+      const rightDev = (cx + half) * sx - bxDev;
+      const i0 = Math.max(0, Math.floor(leftDev));
+      const i1 = Math.min(bw - 1, Math.ceil(rightDev));
+      for (let i = i0; i <= i1; i++) {
+        const ic = i + 0.5;
+        const cov = Math.min(Math.max(Math.min(ic - leftDev, rightDev - ic), 0), 1);
+        if (cov <= 0) continue;
+        const xCss = (bxDev + ic) / sx;
+        const a = Math.min(Math.max(sampleProfileAt(profile, (xCss - cx) / half) * cov * baseAlpha, 0), 1);
+        if (a <= 0) continue;
+        const p = (j * bw + i) * 4;
+        data[p] = rC; data[p + 1] = gC; data[p + 2] = bC;
+        // 像素内 screen 合成（同色不预乘）：重叠臂 = 叠亮，等价两次 source-over
+        data[p + 3] = Math.round(255 * (1 - (1 - data[p + 3]! / 255) * (1 - a)));
+      }
+    }
+  }
+  return { bxDev, byDev, bw, bh, data };
+}

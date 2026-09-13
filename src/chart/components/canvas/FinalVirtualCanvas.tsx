@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import type { BpmNote, ChartNote, SlideNote } from "../../types";
+import type { BpmNote, ChartNote, SelectionItem, SlideNote } from "../../types";
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { planDragMove, dragDeltaBeat, type DragDelta } from '../../editing/NoteDragging';
 import {
@@ -28,7 +28,7 @@ import {
   isInsideSurface, hasMovedBeyondThreshold, marqueeRect,
   canStartMarquee, resolveBoxPlan,
   canPlaceAtCursor, resolveExecNoteCodeHit,
-  penCursorAt, penAppendSamples,
+  penCursorAt, penAppendSamples, penExitCrossing,
   type DragAnchor,
 } from '../../editing/CanvasGesture';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
@@ -204,12 +204,16 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     //   rawPressBeat = 按下时光标的**未量化**拍位（与 anchorBeat 的差即"抓取偏移"，保住按住哪儿拖哪儿的手感）
     const dragRef = useRef<DragAnchor | null>(null);
     const [dragGhost, setDragGhost] = useState<ChartNote[] | null>(null);
+    // issue 09 验收反馈九轮 #2：拖拽期间最后一个**合法落点**的裁决结果（notes/items）。光标越界或
+    // 落到非法点时冻结到此，松手若此刻非法 → 提交这份冻结结果（所见即所得，与画笔 lastValid 同口径）。
+    const dragFrozenRef = useRef<{ notes: ChartNote[]; items: SelectionItem[] } | null>(null);
     // issue 09 S2（ADR-0009 §3）：曲线工具链式草稿（与 slideBuffer 同属组件侧 UI 态，不入历史；
     // 草稿引用的滑条被 undo 掉时由 curveChainClickOps 的完整性检查自愈）
     const [curveDraft, setCurveDraft] = useState<CurveDraft | null>(null);
     // 画笔进行中：采样进 ref（高频），预览幽灵进 state（驱动渲染）。
     // dir = 采样方向锁（0=未定；1=正向/-1=倒向，验收反馈 #4：首拍移动方向锁定，中途回头不采样）
-    const penRef = useRef<{ start: SlidePoint; samples: { beat: number; lane: number }[]; last: { beat: number; lane: number }; dir: 0 | 1 | -1 } | null>(null);
+    // lastValid = 界内最后一个**画布光标位**（八轮 #2：越界松手 = 以它为端点落子，所见即所得）
+    const penRef = useRef<{ start: SlidePoint; samples: { beat: number; lane: number }[]; last: { beat: number; lane: number }; dir: 0 | 1 | -1; lastValid: { x: number; y: number }; exitFrozen: boolean } | null>(null);
     const [penPreview, setPenPreview] = useState<SlideNote | null>(null);
     // 验收反馈 #6：画笔视觉进行中（按住超时或移动过阈值后）——渲染层借此让位端点幽灵 + 画笔光标
     const [penActive, setPenActive] = useState(false);
@@ -253,6 +257,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const marqueeCursorRef = useRef<{ x: number; y: number } | null>(null);
     // 光标悬停位置（画布坐标），供工具态预览（放置/粘贴/镜像悬停）
     const [hoverPos, setHoverPos] = useState<{ cx: number; cy: number } | null>(null);
+    // issue 09 验收反馈九轮 #2：最后一个**合法落点**（lane + 吸附拍位）。有进行中锚点（滑条首击 /
+    // 曲线链草稿已挂点）且当前光标越界时，放置/链式 live 预览冻结到它——与画笔草稿同一口径
+    // （共用 `freezeGestureCursor`）。纯 hover 无锚点不使用它（越界照旧隐藏幽灵）。
+    const frozenCursorRef = useRef<{ lane: number; preciseBeat: number } | null>(null);
     // issue 74：右键**按住未松手**（右键 = 删除光标下的对象）→ hover 描边转删除红
     const [rightButtonHeld, setRightButtonHeld] = useState(false);
     // 临时起点标记（ADR-0004 §4）：不入谱面数据、随会话丢弃；markerSelected 与音符选择互斥
@@ -475,7 +483,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             selectedItems,
             chartEndBeat,
         });
-        if (intent.kind === 'drag') dragRef.current = intent.anchor;
+        if (intent.kind === 'drag') { dragRef.current = intent.anchor; dragFrozenRef.current = null; }
         // issue 09 S2：画笔起手（曲线工具态空白按下）。验收反馈 #2 修复：**不再清链式草稿**——
         // 起手即清会把第二次单击挂好的锚点在按下瞬间抹掉（松手 click 读到空草稿 → 永远只挂锚点、
         // 接不成段）；锚点与画笔共存，草稿在画笔**真正落子（commitPen）成功后**才清。
@@ -490,6 +498,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 samples: [],
                 last: { beat: intent.start.beat, lane: intent.start.lane },
                 dir: 0,
+                lastValid: { x: cx, y: cy }, // 起手点必然界内（resolvePressIntent 已判合法落点）
+                exitFrozen: false, // 十轮 Q1：越界交点只在"界内→界外"那一帧求一次，界外期间不再前移
             };
             setPenPreview(null);
             penHoldTimerRef.current = window.setTimeout(() => activatePenVisual(), PEN_HOLD_MS);
@@ -594,6 +604,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // hover 描边 / 状态栏读数）出界一律关闭；手势本身继续。
         const inside = isInsideSurface(surf, mouseX, mouseY);
         setHoverPos(inside ? { cx: mouseX, cy: mouseY } : null);
+        // issue 09 验收反馈九轮 #2：记录最后一个**合法落点**（与放置预览同一换算口径
+        // `getLaneBeatFromCanvas`）→ 有锚点时光标越界可冻结预览到它。纯记录，不驱动渲染分支。
+        if (inside) {
+            const lp = getLaneBeatFromCanvas(mouseX, mouseY);
+            if (lp) frozenCursorRef.current = { lane: lp.lane, preciseBeat: lp.preciseBeat };
+        }
         // 谱面光标（beat/lane）**不再**在此处预算并缓存 —— 它是 px 的派生值，
         // 滚动/缩放后鼠标不动就算不出新值（候选 3）。改由 cursorChartPos() 用时现算，
         // 服务于粘贴锚点与三个执行键（Ctrl+B / Ctrl+E / Ctrl+F..S）。
@@ -603,18 +619,20 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (!hasMovedBeyondThreshold(start, { x: mouseX, y: mouseY }, DRAG_THRESHOLD_PX)) return;
         selectionMovedRef.current = true;
         if (dragRef.current) {
-            // §6 移动中：幽灵预览 = 合法落点下的移动结果；非法 → 隐藏幽灵（松手回弹）
+            // §6 移动中：幽灵预览 = 合法落点下的移动结果。
             // 光标反馈（三轮修订，用户验收反馈 #4）：拖拽进行中 = grabbing
             if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
-            // 坐标**不钳**：画布外 = 落点非法（ADR-0008 §1"该位置非法则无事发生"）→ 幽灵消失、松手回弹
+            // issue 09 验收反馈九轮 #2（freeze_all，与画笔/放置同一口径）：拖拽 = 有进行中锚点的
+            // 手势，**幽灵在手势期间永不消失**——光标越界（轨道外 / 越过谱末端 / 移出画布）或落到
+            // 非法落点（碰撞 / 越界）时冻结在最后合法落点，而不是回弹隐藏（用户反馈的"东西突然没了"）。
+            // 真正能否落子由松手提交（commitDrag）按 planDragMove 裁决（越界/碰撞 = 回弹，口径不变）。
             const d = dragDelta(mouseX, mouseY);
-            if (!d || (d.dBeat === 0 && d.dLane === 0)) { setDragGhost(null); return; }
-            const r = planDragMove(notes, dragRef.current.items, d, { chartEndBeat, beatDisplay });
-            if (r.ok) {
-                // 幽灵 = 落点裁决后的受影响音符（覆盖/接合会增删元素，故由矩阵显式给出）
-                setDragGhost(r.ghost ?? []);
-            } else {
-                setDragGhost(null);
+            if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
+                const r = planDragMove(notes, dragRef.current.items, d, { chartEndBeat, beatDisplay });
+                if (r.ok) {
+                    setDragGhost(r.ghost ?? notes); // 非法落点 → 保持上一帧合法幽灵（冻结）
+                    dragFrozenRef.current = { notes: r.notes, items: r.items }; // 越界松手的回退落子
+                }
             }
             return;
         }
@@ -624,11 +642,27 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 验收反馈 #4：方向在首采样锁定；倒向笔画预览按"将成条"的升序形态画。
         if (penRef.current) {
             if (!penActive) activatePenVisual();
-            const cur = penCursorAt({ geometry, viewport, beatDisplay }, chartEndBeat, mouseX, mouseY);
-            if (cur) {
-                const pen = penRef.current;
-                const step = 1 / curveConfig.precision;
-                const { samples: appended, dir } = penAppendSamples(pen.last, cur, step, pen.dir);
+            const pen = penRef.current;
+            const step = 1 / curveConfig.precision;
+            const oracle = (cx: number, cy: number) => penCursorAt({ geometry, viewport, beatDisplay }, chartEndBeat, cx, cy);
+            // 十轮 Q1：目标点 = 界内光标；若本帧越界且上一帧还在界内，则把"上一界内画布位 → 当前
+            // 界外光标"这条画布直线与轨道内部求交，笔画补到交点后冻结（exitFrozen 挡住后续界外帧，
+            // 不再沿边界前移）。这样**终点**由几何交点决定、脱离对 mousemove 密度的依赖。
+            const cur = oracle(mouseX, mouseY);
+            let target = cur;
+            if (target) {
+                pen.exitFrozen = false;
+                pen.lastValid = { x: mouseX, y: mouseY }; // 八轮 #2：越界松手时的回退落子位置
+            } else if (!pen.exitFrozen) {
+                const hit = penExitCrossing(oracle, pen.lastValid, { x: mouseX, y: mouseY });
+                if (hit) {
+                    pen.exitFrozen = true;
+                    target = hit.point;
+                    pen.lastValid = { x: hit.x, y: hit.y }; // 交点即合法位：越界松手据此落子（所见即所得）
+                }
+            }
+            if (target) {
+                const { samples: appended, dir } = penAppendSamples(pen.last, target, step, pen.dir);
                 pen.dir = dir;
                 for (const s of appended) {
                     pen.samples.push(s);
@@ -637,7 +671,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 const last = pen.samples.at(-1) ?? pen.start;
                 const preview = pen.dir < 0
                     ? (() => {
-                        const low = { beat: cur.beat, lane: cur.lane };
+                        const low = { beat: target.beat, lane: target.lane };
                         const high = { beat: pen.start.beat, lane: pen.start.lane };
                         return buildPenSlide(low,
                             smoothedPenSamples(low, [...pen.samples].reverse(), high, curveConfig.smooth === true), high);
@@ -695,7 +729,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             // 验收反馈 #4 补：落子走 `placeSpanWithCombination`（与两击直放共用）——
             // 端点与既有滑条头/尾相接 = 自动组合（长按绘制同样自动接段）。
             const pos = cssToCanvas(e);
-            const release = pos ? snapPos(pos.x, pos.y) : null;
+            let release = pos ? snapPos(pos.x, pos.y) : null;
+            // 验收反馈八轮 #2：松手时光标越界（轨道外 / 越过谱末端 / 移出画布）→ 回退到**界内
+            // 最后一个光标位**吸附落子。幽灵冻结可见 + 松手照常结算 = 所见即所得，与框选
+            // "画布外松手也照常结算"（issue 63）同口径；若连一个界内位都没有（起手即非法）才不落子。
+            if (!release) release = snapPos(pen.lastValid.x, pen.lastValid.y);
             if (release) {
                 const fwd = release.beat > pen.start.beat + 1e-9;
                 const bwd = !fwd && pen.dir < 0 && release.beat < pen.start.beat - 1e-9;
@@ -724,13 +762,20 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             // drag 必须传给 dragDelta：dragRef 已清（三轮修复：提交位移恒 null 的根因）
             const pos = cssToCanvas(e);
             const d = pos ? dragDelta(pos.x, pos.y, drag) : null;
-            if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
+            if (!d && dragFrozenRef.current) {
+                // issue 09 验收反馈九轮 #2：松手时光标越出轨道（越界/移出画布 → dragDelta 无值）→
+                // 提交拖拽期间冻结的最后合法落点（所见即所得，与画笔越界松手提交 lastValid 同口径）。
+                handleNotesChange(dragFrozenRef.current.notes);
+                setSelectedItems(dragFrozenRef.current.items);
+            } else if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
                 const r = planDragMove(notes, drag.items, d, { chartEndBeat, beatDisplay });
                 if (r.ok) {
                     handleNotesChange(r.notes);
                     setSelectedItems(r.items);
                 }
+                // r.ok===false（碰撞等界内非法落点）→ 回弹（口径不变，非轨道越界）
             }
+            dragFrozenRef.current = null;
             return;
         }
         if (intent === 'commitBox' && box) {
@@ -818,6 +863,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             selectionBox,
             slideBuffer,
             hoverPos,
+            frozenCursor: frozenCursorRef.current,
             hoverItem,
             clipboard,
             markerBeat,
