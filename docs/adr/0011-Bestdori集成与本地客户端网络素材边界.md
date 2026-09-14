@@ -1,4 +1,4 @@
-# ADR-0009: Bestdori 集成与本地客户端网络/素材边界
+# ADR-0011: Bestdori 集成与本地客户端网络/素材边界
 
 - **状态**：Accepted（定案于 Bestdori API 调研对齐，2026-09-12）
 - **背景**：产品需要与 Bestdori 平台互通——浏览其已上传的全部谱面（官方 + 社区）、未来将自制谱面上传发布。前置调研（`.scratch/bestdori-integration/issues/01`，实测报告 `docs/bestdori-api.md`）确认：Bestdori 无官方 API 文档与授权体系（无 OAuth，仅账密换 Cookie 会话）；**所有端点无 CORS 头**，浏览器跨域 fetch 不可行；官方谱面代码与本编辑器格式一致可直接导入。经与用户对齐确定产品形态与集成边界。**本次仅定案方向，不实现。**
