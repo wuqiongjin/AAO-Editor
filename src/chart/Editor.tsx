@@ -461,7 +461,16 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           overflowX: 'hidden',
           backgroundColor: 'var(--canvas-bg)',
           position: 'relative'
-        }} onScroll={handleScrollbarChange}>
+        }} onScroll={handleScrollbarChange}
+          // issue 110：Shift+滚轮被浏览器映射为**横向**滚动 → 容器 `overflowX:hidden` 直接吃掉
+          // （用户报的"按住拖拽时滚轮滚不动"的真因）。检测到横向分量占优时按同等量级转回纵向。
+          // 平台未做横向映射（deltaY 仍占优）时原生纵向滚动已生效，不重复处理。
+          onWheel={(e) => {
+            if (!e.shiftKey) return;
+            if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+            const el = chartAreaRef.current;
+            if (el) el.scrollTop += e.deltaX;
+          }}>
           <div className="virtual-content" style={{
             position: 'absolute',
             top: 0,

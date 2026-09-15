@@ -208,6 +208,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     //   rawPressBeat = 按下时光标的**未量化**拍位（与 anchorBeat 的差即"抓取偏移"，保住按住哪儿拖哪儿的手感）
     const dragRef = useRef<DragAnchor | null>(null);
     const [dragGhost, setDragGhost] = useState<ChartNote[] | null>(null);
+    // issue 110：拖拽进行中最后一次 mousemove 的**画布坐标**。滚动/缩放不产生 mousemove，
+    // 而落点是"当前光标 + 按下锚"的派生值 —— 视口变了必须用它重算，否则幽灵停在旧拍、
+    // 松手却按新 scrollY/scale 结算（所见 ≠ 所得）。与框选的 marqueeCursorRef 同款职责。
+    const dragCursorRef = useRef<{ x: number; y: number } | null>(null);
     // issue 109（ADR-0008 §7 五档链）：Esc 取消进行中手势后，到 mouseup 前**全部短路**——
     // 否则"被取消的这一笔"会在后续 mousemove 里被当成另一次手势（画笔 → 框选等）。松手只清标志。
     const gestureCancelledRef = useRef(false);
@@ -548,15 +552,31 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 使矩形在滚动全程都锁在最初那个拍与轨道上。
     useEffect(() => {
         const start = selectionStartRef.current;
+        if (!start || !selectionMovedRef.current) return;
         const cursor = marqueeCursorRef.current;
         // 仅框选进行中（已过阈值、且不是拖拽）才重算
-        if (!start || !cursor || !selectionMovedRef.current || dragRef.current) return;
-        setSelectionBox(marqueeRect({
-            start: { vx: start.vx, vy: start.vy },
-            curCanvas: cursor,
-            deps: { geometry, viewport },
-            surface: surf,
-        }));
+        if (cursor && !dragRef.current) {
+            setSelectionBox(marqueeRect({
+                start: { vx: start.vx, vy: start.vy },
+                curCanvas: cursor,
+                deps: { geometry, viewport },
+                surface: surf,
+            }));
+            return;
+        }
+        // issue 110：**拖拽同样要重算** —— 落点 = 当前光标 + 按下锚的派生值，滚动/缩放后光标没动
+        // 但拍位变了。不重算 → 幽灵停在旧拍、松手按新 scrollY/scale 结算（所见 ≠ 所得）。
+        // 越界（dragDelta 为 null）时保持已冻结的最后一帧（dragFrozenRef），不额外处理。
+        const drag = dragRef.current;
+        const dc = dragCursorRef.current;
+        if (!drag || !dc) return;
+        const d = dragDelta(dc.x, dc.y, drag);
+        if (!d || (d.dBeat === 0 && d.dLane === 0)) return;
+        const r = planDragMove(notes, drag.items, d, { chartEndBeat, beatDisplay });
+        if (r.ok) {
+            setDragGhost(r.ghost ?? notes);
+            dragFrozenRef.current = { notes: r.notes, items: r.items };
+        }
     }, [viewport, geometry, surf]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -577,6 +597,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         setSelectionBox(null);
         setDragGhost(null);
         dragRef.current = null;
+        dragCursorRef.current = null;
         // Shift+未移动松开 = 回落到该态原本单击语义（handlePointerUp 单击路径）
         beginDragCandidate(pos.x, pos.y, e.shiftKey);
         // issue 63：手势一旦开始就由 window 接管 move/up —— 越出画布不再取消手势
@@ -630,6 +651,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (!hasMovedBeyondThreshold(start, { x: mouseX, y: mouseY }, DRAG_THRESHOLD_PX)) return;
         selectionMovedRef.current = true;
         if (dragRef.current) {
+            dragCursorRef.current = { x: mouseX, y: mouseY }; // issue 110：供视口变化后重算落点
             // §6 移动中：幽灵预览 = 合法落点下的移动结果。
             // 光标反馈（三轮修订，用户验收反馈 #4）：拖拽进行中 = grabbing
             if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
@@ -1012,6 +1034,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             gestureCancelledRef.current = true;
             penRef.current = null;
             dragRef.current = null;
+            dragCursorRef.current = null;
             dragFrozenRef.current = null;
             selectionStartRef.current = null;
             selectionMovedRef.current = false;
