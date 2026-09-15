@@ -55,6 +55,11 @@ const smoothedPenSamples = (
 interface FinalVirtualCanvasProps {
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
   onScrollChange?: (scrollY: number, virtualHeight: number) => void;
+  /**
+   * issue 110：**滚动宿主**（Editor 的 `overflow:auto` 容器）。Shift+滚轮被浏览器映射为横向滚动，
+   * 而容器 `overflowX:hidden` 会把它吃掉 → 画布在这里把它转回纵向。画布自己滚不动（它不是滚动容器）。
+   */
+  scrollHostRef?: React.RefObject<HTMLDivElement | null>;
   /** 谱面长度（秒，ADR-0005 §1）：显式、与音符无关；有音频=音频时长，无音频=持久化值(默认30s) */
   chartEndSeconds: number;
   /**
@@ -133,6 +138,7 @@ const bpmEventsContentEqual = (a: readonly BpmEvent[], b: readonly BpmEvent[]) =
  */
 const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanvasProps>(({
     onScrollChange,
+    scrollHostRef,
     chartEndSeconds,
     surface,
     active,
@@ -978,9 +984,20 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     }, [rightButtonHeld, rightClickDelete, cssToCanvas, surf]);
 
     const handleWheel = useCallback((e: WheelEvent) => {
-        // 只处理 Ctrl+滚轮缩放；普通滚动交给父容器（原生）。
-        // issue 110：**Shift+滚轮**由父容器的 onWheel 处理（把浏览器映射出的横向分量转回纵向）——
-        // 修在那里是因为容器 `overflowX:'hidden'` 才是"横向被吃掉"的那一层，画布拿不到容器引用。
+        // issue 110：**Shift+滚轮 = 纵向滚动**（浏览器把它映射成横向 → 被容器的 overflowX:hidden 吃掉）。
+        // 放在画布这里处理，是因为本监听器是 passive:false —— 能 preventDefault 掉原生横向滚动，
+        // 于是"转回纵向"不会与原生滚动叠加成双倍；滚动量取 |deltaX| / |deltaY| 的较大者（跨平台：
+        // 有些平台做横向映射、有些保留 deltaY），统一归一到纵向。
+        if (e.shiftKey) {
+            const host = scrollHostRef?.current;
+            if (!host) return;
+            const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            if (delta === 0) return;
+            e.preventDefault();
+            host.scrollTop += delta;
+            return;
+        }
+        // Ctrl+滚轮 = 缩放；普通滚动交给父容器（原生）
         if (e.ctrlKey) {
             e.preventDefault();
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
