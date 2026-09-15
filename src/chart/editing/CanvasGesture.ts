@@ -306,16 +306,22 @@ export function penCursorAt(
 const clampLane = (v: number) => Math.min(Math.max(v, 0), 6);
 
 /**
- * 画笔采样（ADR-0009 §3「拖动画笔 = 轨迹实时采样」）：从上一采样点起按固定拍步长追加点，
- * lane 在上一采样点与当前光标间线性插值。**采样序列 beat 严格单调是数据模型硬约束**——
- * 验收反馈 #4：方向在**第一次真正落采样**时锁定（`dir` 0=未定 → ±1），此后中途回头不追加
- * （"往回描"不可表达）；倒向笔画产出**降序**采样，落子时反转为升序段（形态不变、端点互换）。
+ * 画笔采样（ADR-0009 §3「拖动画笔 = 轨迹实时采样」/ §7「画笔禁止回头」，issue 106 定案）：
+ * 从上一采样点起按固定拍步长追加点，lane 在上一采样点与当前光标间线性插值。
+ * **采样序列 beat 严格单调是数据模型硬约束**：
+ * - 方向在**第一次真正落采样**时锁定（`dir` 0=未定 → ±1）；此后**回头不追加**（"往回描"不产出点）；
+ * - 倒向笔画（从高拍向低拍）产出**降序**采样，落子时由 `resolvePenStroke` 反转为升序段；
+ * - **回头不改变产出**：笔迹形态由 `resolvePenStroke` 按"锁定方向上最靠前者"裁决，光标回退期间
+ *   本函数返回空数组、`pen.last` 不动（旧文「恢复同向时从折返点续采」已废止）；
+ * - `maxBeatsThisFrame`（可选，来自 `penMaxBeatsForCanvasDy`）：**跨折返带边界**时不插值补点，
+ *   只把当前光标接为下一个采样点——那段 beat 跳过了画布 y 上根本不存在的区间（ADR-0010 附录 B）。
  */
 export function penAppendSamples(
     last: PenPoint,
     cursor: PenPoint,
     stepBeat: number,
     dir: 0 | 1 | -1,
+    maxBeatsThisFrame = Number.POSITIVE_INFINITY,
 ): { samples: PenPoint[]; dir: 1 | -1 } {
     const delta = cursor.beat - last.beat;
     if (stepBeat <= 0 || Math.abs(delta) <= 1e-9) {
@@ -323,6 +329,13 @@ export function penAppendSamples(
     }
     const locked: 1 | -1 = dir !== 0 ? dir : delta > 0 ? 1 : -1;
     if (dir !== 0 && (delta > 0 ? 1 : -1) !== dir) return { samples: [], dir: dir as 1 | -1 };
+    // 跨层跳变步：不补中间点（issue 106 修法 6）——补的话画布上会凭空多出一段手没画过的尖峰。
+    // 判据要带上一个 step 的余量：`delta` 是"距上一个已落采样点"的位移（慢速绘制时它天然带
+    // 最多一个 step 的滞后），而 `maxBeatsThisFrame` 只覆盖"本帧的 Δ 画布 y"——不加余量会把
+    // 慢速绘制误判成跨层（那样每帧接一个 off-grid 点，采样栅格就废了）。
+    if (Math.abs(delta) > maxBeatsThisFrame + stepBeat) {
+        return { samples: [{ beat: cursor.beat, lane: clampLane(cursor.lane) }], dir: locked };
+    }
     const n = Math.floor(Math.abs(delta) / stepBeat + 1e-9);
     const out: PenPoint[] = [];
     for (let k = 1; k <= n; k++) {
@@ -333,7 +346,62 @@ export function penAppendSamples(
     // 第一步采样落地才锁方向——此前的小幅抖动不主导整笔方向
     if (out.length === 0) return { samples: [], dir: dir as 1 | -1 };
     return { samples: out, dir: locked };
-    return { samples: out, dir: locked };
+}
+
+/**
+ * 画笔跨层判据（issue 106 修法 6 定）：把"本帧画布 Δy"换算成"在光标所在层最多能跨多少拍"。
+ * 折返带边界处拍号会跳 2~4 拍，而两端画布位置几乎同一个 y → `|Δbeat|` 远超该上限；
+ * 快速甩笔的 Δy 同样大、上限也大 → 不会被误判成跨层（那种情况的插值补点合法且必要）。
+ * `slack` 吸收离散采样与跨 BPM 段的斜率变化（3 足以容下同帧内 2.5 倍以内的 BPM 变化）。
+ */
+export function penMaxBeatsForCanvasDy(
+    deps: Pick<HitTestDeps, 'geometry' | 'viewport'>,
+    beat: number,
+    canvasDy: number,
+    slack = 3,
+): number {
+    const segments = deps.geometry.timeline.segments;
+    if (segments.length === 0) return Number.POSITIVE_INFINITY; // 无 BPM 事件 → 无从判定，不拦
+    // 直接取所在 BPM 段的**每拍画布像素**（倒流段 perBeat 为负，取模即其量值）——
+    // 不用探针差分：探针正好跨段边界时会取到两段的混合斜率甚至约 0（漏判）。
+    let seg = segments[0]!;
+    for (const s of segments) {
+        if (s.beatStart <= beat) seg = s;
+        else break;
+    }
+    const es = deps.geometry.effectiveScale(deps.viewport.scale);
+    const pxPerBeat = Math.max(1e-6, Math.abs(seg.perBeat) * es);
+    return (Math.abs(canvasDy) / pxPerBeat) * slack;
+}
+
+/**
+ * 画笔落子裁决（issue 106 定案「回头不改变产出」）：
+ * 笔迹 = 起点 → 终点，终点取「松手吸附拍位」与「锁定方向上最远采样点」中**更靠前者**——
+ * 因此回头（手退回来）既不缩短也不延长产出；画过头只能 undo 重画，或落子后用指针拖端点。
+ * 返回统一**升序**的 `{ from, middles, to }`（`buildPenSlide` 口径），倒向笔画端点互换；
+ * 拍位无净位移（同拍）→ null（不落子）。纯函数，不改入参。
+ */
+export function resolvePenStroke(
+    start: PenPoint,
+    samples: readonly PenPoint[],
+    dir: 0 | 1 | -1,
+    release: PenPoint,
+): { from: PenPoint; to: PenPoint; middles: PenPoint[] } | null {
+    const eps = 1e-9;
+    const last = samples.length > 0 ? samples[samples.length - 1] : null;
+    const forward = dir !== 0 ? dir > 0 : release.beat >= start.beat;
+    const far: PenPoint = !last
+        ? release
+        : forward
+            ? (release.beat > last.beat ? release : last)
+            : (release.beat < last.beat ? release : last);
+    const lo: PenPoint = forward ? { beat: start.beat, lane: start.lane } : far;
+    const hi: PenPoint = forward ? far : { beat: start.beat, lane: start.lane };
+    if (hi.beat - lo.beat <= eps) return null;
+    const middles = samples
+        .filter((s) => s.beat > lo.beat + eps && s.beat < hi.beat - eps)
+        .sort((a, b) => a.beat - b.beat);
+    return { from: lo, to: hi, middles };
 }
 
 /** 落点吸附后的拍位（松手端点用：可见端点吸附放置栅格） */

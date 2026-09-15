@@ -29,6 +29,7 @@ import {
   canStartMarquee, resolveBoxPlan,
   canPlaceAtCursor, resolveExecNoteCodeHit,
   penCursorAt, penAppendSamples, penExitCrossing,
+  penMaxBeatsForCanvasDy, resolvePenStroke,
   type DragAnchor,
 } from '../../editing/CanvasGesture';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
@@ -645,6 +646,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             const pen = penRef.current;
             const step = 1 / curveConfig.precision;
             const oracle = (cx: number, cy: number) => penCursorAt({ geometry, viewport, beatDisplay }, chartEndBeat, cx, cy);
+            // issue 106 修法 6：本帧 Δ 画布 y 在光标所在层最多能跨多少拍——跨折返带边界时拍号会跳，
+            // 判为跨层则只接当前光标、跳过补点（快速甩笔的 Δy 同样大、上限也大，不会被误判）。
+            const prevCanvasY = pen.lastValid.y;
             // 十轮 Q1：目标点 = 界内光标；若本帧越界且上一帧还在界内，则把"上一界内画布位 → 当前
             // 界外光标"这条画布直线与轨道内部求交，笔画补到交点后冻结（exitFrozen 挡住后续界外帧，
             // 不再沿边界前移）。这样**终点**由几何交点决定、脱离对 mousemove 密度的依赖。
@@ -662,23 +666,24 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 }
             }
             if (target) {
-                const { samples: appended, dir } = penAppendSamples(pen.last, target, step, pen.dir);
+                const maxBeats = penMaxBeatsForCanvasDy(
+                    { geometry, viewport }, target.beat, Math.abs(mouseY - prevCanvasY));
+                const { samples: appended, dir } = penAppendSamples(pen.last, target, step, pen.dir, maxBeats);
                 pen.dir = dir;
                 for (const s of appended) {
                     pen.samples.push(s);
                     pen.last = s;
                 }
-                const last = pen.samples.at(-1) ?? pen.start;
-                const preview = pen.dir < 0
-                    ? (() => {
-                        const low = { beat: target.beat, lane: target.lane };
-                        const high = { beat: pen.start.beat, lane: pen.start.lane };
-                        return buildPenSlide(low,
-                            smoothedPenSamples(low, [...pen.samples].reverse(), high, curveConfig.smooth === true), high);
-                    })()
-                    : buildPenSlide(pen.start,
-                        smoothedPenSamples(pen.start, pen.samples, last, curveConfig.smooth === true), last);
-                setPenPreview(preview);
+                // issue 106 定案（预览 = 落子）：统一为「起点 → 锁定方向上最靠前者」，回头期间冻结在
+                // 最远点、任何情况下都不画出折返（旧 bwd 分支拿实时光标当端点，回头期间会预览出折返）。
+                const far = pen.samples.at(-1);
+                const stroke = far
+                    ? resolvePenStroke(pen.start, pen.samples, pen.dir, { beat: far.beat, lane: far.lane })
+                    : null;
+                setPenPreview(stroke
+                    ? buildPenSlide(stroke.from,
+                        smoothedPenSamples(stroke.from, stroke.middles, stroke.to, curveConfig.smooth === true), stroke.to)
+                    : null);
             }
             return;
         }
@@ -720,12 +725,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (intent === 'abort' || !start || !e) return;
 
         if (intent === 'commitPen' && pen) {
-            // issue 09 S2（ADR-0009 §3）：画笔落子——端点吸附放置栅格；采样点截到端点之前，
-            // 一次 handleNotesChange = 一个可回退快照。
+            // issue 09 S2（ADR-0009 §3）+ issue 106 定案：画笔落子 = **起点 → 锁定方向上最靠前者**
+            // （`resolvePenStroke` 单一裁决）。旧实现的两分支（按"松手点 vs 起点"分 fwd/bwd + 按松手
+            // 拍位截断采样）已删：上→下松手越过起点会漏出非单调点序，而"回退缩短"与预览也不一致。
             // 验收反馈 #5：平滑开关打开 → lane 序列移动平均（端点/beat 栅格保持）；
             // 验收反馈 #2：画笔**真正落子成功**才清链式草稿（画完一笔 = 上一锚点作废）；
-            // 验收反馈 #4：**倒画**（松手拍位早于起笔且方向锁为倒向）→ 采样反转为升序，
-            // 形态不变、端点互换（低拍端 = 松手点）；正倒向之外（无拍位净位移）不落子。
+            // 验收反馈 #4：**倒画**（从高拍向低拍）由 resolvePenStroke 端点互换承载，形态不变。
             // 验收反馈 #4 补：落子走 `placeSpanWithCombination`（与两击直放共用）——
             // 端点与既有滑条头/尾相接 = 自动组合（长按绘制同样自动接段）。
             const pos = cssToCanvas(e);
@@ -735,22 +740,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             // "画布外松手也照常结算"（issue 63）同口径；若连一个界内位都没有（起手即非法）才不落子。
             if (!release) release = snapPos(pen.lastValid.x, pen.lastValid.y);
             if (release) {
-                const fwd = release.beat > pen.start.beat + 1e-9;
-                const bwd = !fwd && pen.dir < 0 && release.beat < pen.start.beat - 1e-9;
-                const toHidden = (pts: { beat: number; lane: number }[]) =>
-                    pts.map((s) => ({ beat: s.beat, lane: s.lane, hidden: true as const }));
-                if (fwd) {
-                    const endPt = { beat: release.beat, lane: release.lane };
-                    const samples = toHidden(smoothedPenSamples(pen.start,
-                        pen.samples.filter((s) => s.beat < release.beat - 1e-9), endPt, curveConfig.smooth === true));
-                    handleNotesChange(placeSpanWithCombination(notes, pen.start, endPt, samples, null, beatDisplay));
-                    if (curveDraft) setCurveDraft(null);
-                } else if (bwd) {
-                    const startPt = { beat: release.beat, lane: release.lane };
-                    const endPt = { beat: pen.start.beat, lane: pen.start.lane };
-                    const samples = toHidden(smoothedPenSamples(startPt,
-                        pen.samples.filter((s) => s.beat > release.beat + 1e-9).reverse(), endPt, curveConfig.smooth === true));
-                    handleNotesChange(placeSpanWithCombination(notes, startPt, endPt, samples, null, beatDisplay));
+                const stroke = resolvePenStroke(pen.start, pen.samples, pen.dir,
+                    { beat: release.beat, lane: release.lane });
+                if (stroke) {
+                    const samples = smoothedPenSamples(stroke.from, stroke.middles, stroke.to, curveConfig.smooth === true)
+                        .map((s) => ({ beat: s.beat, lane: s.lane, hidden: true as const }));
+                    handleNotesChange(placeSpanWithCombination(notes, stroke.from, stroke.to, samples, null, beatDisplay));
                     if (curveDraft) setCurveDraft(null);
                 }
             }

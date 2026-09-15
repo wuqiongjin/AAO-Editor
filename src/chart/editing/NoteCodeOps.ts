@@ -37,7 +37,7 @@ export interface NoteCodeTarget {
 /**
  * 结点投影形态：type 恒 "Single" —— connection 上没有 direction / width，
  * 端点不可能被投影成 Directional（§4 投影规则：如实映射，不按位置臆断）。
- * hidden 只在中间结点出现（首尾结点按 §1.2 本就不得 hidden）。
+ * hidden 可出现在任意结点（issue 106 起首尾 hidden 不再被校验拦；画布显示投影会掐掉首尾 hidden）。
  */
 export type ChartCodeNodeProjection = ChartCodeSingle & { hidden?: boolean };
 
@@ -149,16 +149,8 @@ export function applyNoteCode(
                 expected: 'Single',
             });
         }
-        // §1.2「首尾 connection 不得 hidden」在**单条投影**上无从判定（独立的 Single 看不出自己是端点），
-        // 必须在此显式补判——否则用户可在首/尾结点写上 hidden:true，回写后整份谱面被完整视图判非法。
-        const isEnd = target.connIndex === 0 || target.connIndex === note.connections.length - 1;
-        if (isEnd && c.hidden === true) {
-            return fail({
-                noteIndex: target.noteIndex, connIndex: target.connIndex, field: 'hidden',
-                reason: '滑条首/尾结点不得 hidden: true',
-                expected: '省略 hidden 或 false',
-            });
-        }
+        // issue 106：首/尾结点写 hidden 不再拒（外部数据按实机口径处置——画布投影掐首尾 hidden、
+        // 可见 1 → 按单键显示、可见 0 → 画布无效果）。数据照原样回写，不做静默修正。
         // 只写 beat/lane/flick/skill/hidden；subBeat 代码侧无从表达，保留原值（不静默改位置）
         const next: ConnectionNote = {
             ...conn,
@@ -207,7 +199,8 @@ export function applyNoteCode(
 /**
  * 子段回写（issue 93 §5）：解析后的段 connections **整体替换**回宿主滑条对应区间（splice），
  * 段外结点不动；段两端是与相邻段的衔接点，被改 beat/lane 时相邻段自然跟随（同一条滑条）。
- * 校验同完整代码视图口径（§1.2）：段代码本身合法 + 替换后的**整条滑条**仍合法（≥2 结点、首/尾不得 hidden）。
+ * 校验同完整代码视图口径（issue 106 起：段代码本身合法 + 替换后的**整条滑条**仍合法；
+ * 可见结点不足与首尾 hidden 不再拦，见 `displaySlide`）。
  * subBeat 代码侧无从表达：新段结点数与原段一致时逐结点保留原值，新增结点取缺省（同结点视图口径）。
  */
 function applySegmentCode(
@@ -245,7 +238,7 @@ function applySegmentCode(
         ...note,
         connections: [...note.connections.slice(0, start), ...merged, ...note.connections.slice(end + 1)],
     };
-    // 替换后的整条滑条仍须合法（≥2 结点、首/尾不得 hidden 等，§1.2 同口径）
+    // 替换后的整条滑条仍须通过校验（issue 106 起可见结点不足 / 首尾 hidden 不再拦）
     const wholeCheck = validateChartCode(convertNotesToChartCode([newNote]));
     if (wholeCheck.errors.length > 0) return { ok: false, errors: liftErrors(wholeCheck.errors, target.noteIndex) };
     return { ok: true, notes: notes.map((n, i) => (i === target.noteIndex ? newNote : n)) };

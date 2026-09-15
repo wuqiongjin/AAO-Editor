@@ -80,10 +80,11 @@ describe('§5 applyNoteCode 整条音符', () => {
         if (!two.ok) expect(two.errors[0].noteIndex).toBe(-1);
     });
 
-    test('非法代码（Slide 只有 1 个结点）→ 报错不回写，不静默退化', () => {
+    test('Slide 只有 1 个结点 → 允许回写（issue 106：不拒、也不静默退化，画布按单键形态显示）', () => {
         const r = applyNoteCode(notes, whole(1), [{ type: 'Slide', connections: [{ beat: 1, lane: 1 }] }]);
-        expect(r.ok).toBe(false);
-        if (!r.ok) expect(r.errors[0]).toMatchObject({ noteIndex: 1, field: 'connections' });
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        expect((r.notes[1] as SlideNote).connections).toHaveLength(1);
     });
 
     test('改动会丢掉第 0 拍 BPM → 报错不回写（ADR-0001 保底）', () => {
@@ -138,11 +139,12 @@ describe('§5 applyNoteCode 滑条结点', () => {
         if (!r.ok) expect(r.errors[0]).toMatchObject({ noteIndex: 2, connIndex: 1, field: 'lane' });
     });
 
-    test('§1.2 首/尾结点写 hidden:true → 报错不回写（否则整份谱面此后被完整视图判非法）', () => {
+    test('首/尾结点写 hidden:true → 允许回写（issue 106：不再由代码视图拦，画布投影掐首尾 hidden）', () => {
         for (const ci of [0, 2]) {
             const r = applyNoteCode(notes, node(2, ci), [{ beat: 5, lane: 3, type: 'Single', hidden: true }]);
-            expect(r.ok).toBe(false);
-            if (!r.ok) expect(r.errors[0]).toMatchObject({ noteIndex: 2, connIndex: ci, field: 'hidden' });
+            expect(r.ok).toBe(true);
+            if (!r.ok) continue;
+            expect((r.notes[2] as SlideNote).connections[ci].hidden).toBe(true);
         }
     });
 
@@ -257,20 +259,18 @@ describe('issue 93 · applySegmentCode 子段回写（可编辑回写）', () =>
         expect(s.connections.map(c => c.subBeat)).toEqual([1, 0, 2, undefined, 2]); // 前 3 位对齐原段，第 4 位新增
     });
 
-    test('非法拒绝：条数不为 1 / 非滑条 / 段首尾 hidden / 替换后整条非法 → 整单拒绝不回写', () => {
+    test('非法拒绝：条数不为 1 / 非滑条 / 目标段失效 → 整单拒绝不回写（隐藏端点与 1 结点不再拒）', () => {
         const seg = segTarget(1, 0, 2);
         expect(applyNoteCode(segNotes, seg, []).ok).toBe(false);
         expect(applyNoteCode(segNotes, seg, [{ beat: 1, lane: 1, type: 'Single' }]).ok).toBe(false);
-        // 段首/尾 hidden：单看这段就非法（§1.2），整单拒绝
+        // issue 106：段首 / 尾 hidden 与"缩成 1 结点"都不再拒（可见结点不足交画布投影处置，数据原样）
         const badSeg: ChartCodeNote[] = [{
             type: 'Slide',
             connections: [{ beat: 4, lane: 1, hidden: true }, { beat: 6, lane: 4 }],
         }];
-        expect(applyNoteCode(segNotes, seg, badSeg).ok).toBe(false);
-        // 段代码本身须是合法独立 Slide（≥2 结点）→ "把段缩成 1 结点"在段视图里无法表达，整单拒绝
-        // （要删结点请用整条视图或画布删除工具）
+        expect(applyNoteCode(segNotes, seg, badSeg).ok).toBe(true);
         const shrink: ChartCodeNote[] = [{ type: 'Slide', connections: [{ beat: 4, lane: 1 }] }];
-        expect(applyNoteCode(segNotes, seg, shrink).ok).toBe(false);
+        expect(applyNoteCode(segNotes, seg, shrink).ok).toBe(true);
         // 目标段失效（越界）
         expect(applyNoteCode(segNotes, segTarget(1, 3, 9), segTargetCode()).ok).toBe(false);
         function segTargetCode(): ChartCodeNote[] {
@@ -401,9 +401,12 @@ describe('issue 94 · validateNoteViewCodeText（容错后与完整视图同一�
         expect(validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Single" }')).toEqual([]);
     });
 
-    test('裸对象的脏代码同样被拒（hidden 端点等 §1.2 规则不变）', () => {
-        const errors = validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Slide", "connections": [{ "beat": 8, "lane": 1 }, { "beat": 9, "lane": 2, "hidden": true }] }');
-        expect(errors.length).toBeGreaterThan(0); // 尾结点 hidden：独立 Slide 非法
+    test('裸对象的脏代码同样被拒（lane 越界等硬规则不变；hidden 端点已不拦）', () => {
+        const errors = validateNoteViewCodeText('{ "beat": 8, "lane": 9, "type": "Single" }');
+        expect(errors.length).toBeGreaterThan(0); // lane 越界：硬规则
+        // issue 106：尾结点 hidden 不再算脏代码
+        expect(validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Slide", "connections": [{ "beat": 8, "lane": 1 }, { "beat": 9, "lane": 2, "hidden": true }] }'))
+            .toEqual([]);
     });
 
     test('语法错误 → 1 条定位错误（不会"零错误"放行）', () => {

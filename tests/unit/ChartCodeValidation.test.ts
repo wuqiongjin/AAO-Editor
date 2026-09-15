@@ -60,28 +60,28 @@ describe('谱面代码校验 · 结构化错误', () => {
 });
 
 describe('谱面代码校验 · 加严规则', () => {
-    test('Slide connections 为空数组 → 报错、含 noteIndex、不回写', () => {
+    test('Slide connections 为空数组 → 不再拒（issue 106：可见 0 个 → 画布上没有任何效果，数据原样）', () => {
         const code = [bpm0, { type: 'Slide', connections: [] }] as ChartCodeNote[];
         const result = validateChartCode(code);
 
-        expect(result.valid).toBe(false);
-        expect(result.errors).toHaveLength(1);
-        expect(result.errors[0].noteIndex).toBe(1);
-        expect(result.errors[0].field).toBe('connections');
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
 
         const applied = applyChartCode(code);
-        expect(applied.applied).toBe(false);
-        expect(applied.notes).toHaveLength(0);
+        expect(applied.applied).toBe(true);
+        expect(applied.notes[1]).toEqual({ type: 'Slide', connections: [] });
     });
 
-    test('Slide 只剩 1 个 connection → 非法，不做自动退化为单键', () => {
+    test('Slide 只剩 1 个 connection → 不再拒（issue 106：交画布按可见结点处置，不静默改数据）', () => {
         const code = [bpm0, { type: 'Slide', connections: [{ beat: 5, lane: 2 }] }] as ChartCodeNote[];
         const result = validateChartCode(code);
 
-        expect(result.valid).toBe(false);
-        expect(result.errors[0]).toMatchObject({ noteIndex: 1, field: 'connections' });
-        // 不静默修正：不产出单键
-        expect(applyChartCode(code).applied).toBe(false);
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+        // 原样应用：不静默修正（不变单键、也不补结点）
+        const applied = applyChartCode(code);
+        expect(applied.applied).toBe(true);
+        expect(applied.notes[1]).toEqual({ type: 'Slide', connections: [{ beat: 5, lane: 2 }] });
     });
 
     test('Single 不得残留 connections', () => {
@@ -116,7 +116,7 @@ describe('谱面代码校验 · 加严规则', () => {
         expect(ok.valid).toBe(true);
     });
 
-    test('滑条首尾结点 hidden:true → 报错（各一条，带 connIndex）', () => {
+    test('滑条首尾结点 hidden:true → 不再拒（issue 106：交画布显示投影处置，数据原样）', () => {
         const code = [{
             type: 'Slide',
             connections: [
@@ -127,17 +127,15 @@ describe('谱面代码校验 · 加严规则', () => {
         }] as ChartCodeNote[];
         const result = validateChartCode(code);
 
-        expect(result.valid).toBe(false);
-        expect(result.errors).toHaveLength(2);
-        expect(result.errors[0]).toMatchObject({ noteIndex: 0, connIndex: 0, field: 'hidden' });
-        expect(result.errors[1]).toMatchObject({ noteIndex: 0, connIndex: 2, field: 'hidden' });
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
     });
 
     test('中间结点 hidden 合法，整份通过', () => {
         expect(validateChartCode([bpm0, goodSlide]).valid).toBe(true);
     });
 
-    test('type:"Long" 是 Slide 的别名：合法，同一套规则（≥2 结点）', () => {
+    test('type:"Long" 是 Slide 的别名：合法，同一套规则（结点数不再设下限）', () => {
         const long: ChartCodeNote = {
             type: 'Long',
             connections: [
@@ -148,13 +146,12 @@ describe('谱面代码校验 · 加严规则', () => {
         };
         expect(validateChartCode([bpm0, long]).valid).toBe(true);
 
+        // issue 106：1 个结点也不拒——实机按可见结点退化，我们画布按单键形态显示（数据原样）
         const oneNode = { type: 'Long', connections: [{ beat: 20, lane: 3 }] } as ChartCodeNote;
-        const result = validateChartCode([oneNode]);
-        expect(result.valid).toBe(false);
-        expect(result.errors[0]).toMatchObject({ noteIndex: 0, field: 'connections' });
+        expect(validateChartCode([oneNode]).valid).toBe(true);
     });
 
-    test('Long 首尾结点 hidden:true 同样非法', () => {
+    test('Long 首尾结点 hidden:true 同样不再拒（与 Slide 同规则）', () => {
         const result = validateChartCode([{
             type: 'Long',
             connections: [
@@ -163,9 +160,8 @@ describe('谱面代码校验 · 加严规则', () => {
                 { beat: 21, lane: 5, hidden: true },
             ],
         }] as ChartCodeNote[]);
-        expect(result.errors).toHaveLength(2);
-        expect(result.errors[0]).toMatchObject({ noteIndex: 0, connIndex: 0, field: 'hidden' });
-        expect(result.errors[1]).toMatchObject({ noteIndex: 0, connIndex: 2, field: 'hidden' });
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
     });
 });
 
@@ -218,21 +214,22 @@ describe('谱面代码 · 文本校验（JSON 语法错误不得被吞）', () =
     test('合法文本 → 通过；规则错误照常列出', () => {
         expect(validateChartCodeJSON(JSON.stringify([bpm0, goodSlide])).valid).toBe(true);
 
-        const bad = validateChartCodeJSON(JSON.stringify([bpm0, { type: 'Slide', connections: [] }]));
+        // issue 106 起"空 connections / 可见结点不足"不再算规则错误 → 拿仍然非法的残留 connections 举例
+        const bad = validateChartCodeJSON(JSON.stringify([bpm0, { beat: 1, lane: 1, type: 'Single', connections: [] }]));
         expect(bad.valid).toBe(false);
         expect(bad.errors[0]).toMatchObject({ noteIndex: 1, field: 'connections' });
     });
 });
 
 describe('谱面代码校验 · 整份拒与合法改写', () => {
-    test('含 5 处错误的脏代码 → errors.length === 5 且整份拒', () => {
+    test('脏代码（残留 connections）→ errors.length === 2 且整份拒；空 connections 与首尾 hidden 已不拒', () => {
         const dirty = [
             bpm0,
-            { type: 'Slide', connections: [] },                                             // ① connections 空
-            { beat: 2, lane: 1, type: 'Single', connections: [{ beat: 2, lane: 1 }] },       // ② Single 残留 connections
-            { beat: 3, lane: 2, type: 'Directional', direction: 'Left', width: 2, connections: [] }, // ③ Directional 残留 connections
+            { type: 'Slide', connections: [] },                                             // 空 connections：合法（画布上无效果）
+            { beat: 2, lane: 1, type: 'Single', connections: [{ beat: 2, lane: 1 }] },       // ① Single 残留 connections
+            { beat: 3, lane: 2, type: 'Directional', direction: 'Left', width: 2, connections: [] }, // ② Directional 残留 connections
             {
-                type: 'Slide',                                                              // ④⑤ 首尾 hidden
+                type: 'Slide',                                                              // 首尾 hidden：issue 106 起不再拒
                 connections: [
                     { beat: 10, lane: 2, hidden: true },
                     { beat: 10.5, lane: 3 },
@@ -243,8 +240,8 @@ describe('谱面代码校验 · 整份拒与合法改写', () => {
 
         const result = validateChartCode(dirty);
         expect(result.valid).toBe(false);
-        expect(result.errors).toHaveLength(5);
-        expect(result.errors.map(e => e.noteIndex)).toEqual([1, 2, 3, 4, 4]);
+        expect(result.errors).toHaveLength(2);
+        expect(result.errors.map(e => e.noteIndex)).toEqual([2, 3]);
 
         const applied = applyChartCode(dirty);
         expect(applied.applied).toBe(false);
@@ -291,7 +288,7 @@ describe('谱面代码校验 · 回归', () => {
         },
     ];
 
-    test('长条与滑条同构：Long 序列化为 type:"Slide"，同样要求 ≥2 结点', () => {
+    test('长条与滑条同构：Long 序列化为 type:"Slide"，同一套规则（结点数不再设下限）', () => {
         const code = convertNotesToChartCode(testNotes);
         const longAsSlide = code.find(c => c.type === 'Slide' && c.connections[0].beat === 20);
         expect(longAsSlide).toBeDefined();

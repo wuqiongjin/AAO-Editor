@@ -12,7 +12,8 @@ export interface ConnSpan {
 
 /**
  * 一条滑条的逻辑段：两端都是可见结点，中间可以跨过若干 hidden 结点。
- * 可见结点 < 2（理论上不会出现，首尾不得 hidden）→ 无段。
+ * 可见结点 < 2 → 无段（issue 106 起这种"退化滑条"允许从外部进来：
+ * 可见 1 个按单键款画、可见 0 个画布上没有任何效果，见 `visibleEnds` / `displayConnections`）。
  */
 export function slideSpans(conns: SlideNote['connections']): ConnSpan[] {
   const out: ConnSpan[] = [];
@@ -23,6 +24,70 @@ export function slideSpans(conns: SlideNote['connections']): ConnSpan[] {
     last = i;
   });
   return out;
+}
+
+/**
+ * **显示投影**（ADR-0009 §2.2 / issue 106 定案）：把一条滑条的 connections 投影成"画布上看到的顺序"。
+ *
+ * 实机口径 = 按 beat **稳定排序** + **掐掉首尾 hidden**（带子沿时间轴单向铺开、永不回头；
+ * 排序后落到首 / 尾之外的结点等于被裁掉，图1 那种"看起来被忽略"就是这么来的）。
+ * 外部进来的**非单调点序**靠这一层被"看见为实机所见"，而**数据一字不动**——
+ * 代码弹窗、导出、段参数、拖带、删结点、`planDragMove` 一律仍按原数组序。
+ *
+ * 返回 `{ conns, src }`：`conns` = 投影后的点序列（元素是原对象引用），`src[i]` = 该点对应的
+ * **原数组下标**。选区 / 命中身份 / 段起点判据一律仍用原下标（`slideSpans(conns)` 得到的下标
+ * 是**投影序**，取身份要经 `src` 换算）。
+ *
+ * 实绘（`renderSpanBands`）、选中·hover 描边（`collectSelectionOutlines`）、命中（`slideRegion`）
+ * 三处必须共用它——旁路另写一份连线顺序 = 画的/亮的/点的不是同一条带子。
+ * 合法滑条（点序单调 + 首尾可见，绝大多数）走恒等快路径：不排序、不重排。
+ */
+/** 恒等判定（热路径用）：点序单调且首尾可见 → 显示序 = 原数组序，渲染可直接用原数组（零分配）。 */
+export function isDisplayIdentity(conns: SlideNote['connections']): boolean {
+  for (let i = 1; i < conns.length; i++) {
+    if (conns[i]!.beat < conns[i - 1]!.beat) return false;
+  }
+  const n = conns.length;
+  return n === 0 || (!conns[0]!.hidden && !conns[n - 1]!.hidden);
+}
+
+export function displayConnections(conns: SlideNote['connections']): {
+  conns: SlideNote['connections'];
+  src: number[];
+} {
+  const n = conns.length;
+  if (isDisplayIdentity(conns)) {
+    return { conns, src: conns.map((_, i) => i) };
+  }
+  // 稳定排序：同 beat 保持原数组顺序（与实机 repair() 的 sort 同口径）
+  const src = conns.map((_, i) => i).sort((a, b) => (conns[a]!.beat - conns[b]!.beat) || (a - b));
+  let lo = 0;
+  let hi = n - 1;
+  while (lo <= hi && conns[src[lo]!]!.hidden) lo++;
+  while (hi >= lo && conns[src[hi]!]!.hidden) hi--;
+  const kept = lo > hi ? [] : src.slice(lo, hi + 1);
+  return { conns: kept.map((i) => conns[i]!), src: kept };
+}
+
+/**
+ * 首 / 尾**可见**结点的原下标（无可见结点 → first = last = -1）。
+ *
+ * 端点款图标的判据（`renderSlideBody` / 选中描边 / 幽灵三处共用）：首尾"不得 hidden"原本由校验兜住，
+ * issue 106 起外部数据不再整份拒收 → 判据必须按"可见"而不是"数组下标 0 / 末位"；
+ * **只剩 1 个可见结点**（退化滑条）时 first === last → 该结点按单键（端点）款画，与实机同形。
+ */
+export function visibleEnds(conns: SlideNote['connections']): { first: number; last: number } {
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < conns.length; i++) {
+    const conn = conns[i]!;
+    if (conn.hidden) continue;
+    // 端点 = beat 最小 / 最大者（与 `displayConnections` 投影后的首尾同源；非单调点序下
+    // 数组序的首尾未必是画布上的两端 → 带子的真端点会被画成中间款）
+    if (first < 0 || conn.beat < conns[first]!.beat) first = i;
+    if (last < 0 || conn.beat > conns[last]!.beat) last = i;
+  }
+  return { first, last };
 }
 
 /** 某个 real region 下标（i 与 i+1 之间的连接带）所属的**逻辑段**；无 → null */

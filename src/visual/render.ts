@@ -9,7 +9,7 @@ import { beatToSeconds, getBpmEvents } from '../audio/AudioTiming';
 import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
-import { slideSpans, isSpRegion } from '../chart/editing/SlideSegments';
+import { slideSpans, isSpRegion, displayConnections, isDisplayIdentity, visibleEnds } from '../chart/editing/SlideSegments';
 import { freezeGestureCursor } from '../chart/editing/CanvasGesture';
 import { bandPolygonAt, rasterBandRuns, splitBandAtFolds } from './slideBandGeometry';
 import { previewSpanConnections } from '../chart/editing/SpanCurve';
@@ -374,7 +374,10 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
 
     if (note.type === 'Slide' || note.type === 'Long') {
       const conns = (note as SlideNote).connections;
-      if (conns.length < 2) continue;
+      // issue 106：端点款判据按**可见**结点（不再是下标 0 / 末位）——首尾 hidden 的外部数据不再被拒收，
+      // 且"只剩 1 个可见结点"的退化滑条按单键（端点）款画（实机同形）；全 hidden → 无可画。
+      const ends = visibleEnds(conns);
+      if (ends.first < 0) continue;
       const nodes = sel.slideNodes.get(index);
       const regions = sel.slideRegions.get(index);
       if (!whole && !nodes && !regions && !hv && !previewWhole && !previewNodes && !previewRegions) continue;
@@ -387,7 +390,7 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         const isHoverPart = hv?.kind === 'slideNode' && hv.connIndex === ci;
         if (!inSel && !isHoverPart && !inPreview) return;
         const p = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
-        const cfg = slideNodeIconConfig(rc, conn, ci === 0, ci === conns.length - 1);
+        const cfg = slideNodeIconConfig(rc, conn, ci === ends.first, ci === ends.last);
         const w = (cfg.out?.w ?? SLIDE_ICON_SIZE) * s;
         const h = (cfg.out?.h ?? SLIDE_ICON_SIZE * SLIDE_HEIGHT_SCALE) * s;
         // 滑条结点紧贴连接带：选中外圈（暗底 + outset）会盖住带子造成"段被截断"的观感（用户 2026-09-09）
@@ -398,12 +401,16 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       const half = (LANE_WIDTH * rc.viewport.scale * ns) / 2;
       // issue 77 二轮：段以**逻辑段**为单位（跨过 hidden 的整段一起亮/一起灭），
       // 逐子块描边（斜段拼斜段），但选中/命中/预览的判据用的是同一段起点下标。
-      for (const sp of slideSpans(conns)) {
-        const inSel = whole || regions?.has(sp.start) === true;
+      // issue 106：段的取点走**显示投影**（与实绘 / 命中同源），但选中/hover 的身份仍用**原数组下标**
+      // （`view.src` 换算）——否则非单调点序的滑条会"亮的那段不是画的那段"。
+      const view = displayConnections(conns);
+      for (const sp of slideSpans(view.conns)) {
+        const realStart = view.src[sp.start]!;
+        const inSel = whole || regions?.has(realStart) === true;
         // issue 67：框选预览（整条被框住 → 所有段；或该段单独被框住）。
         // 与"鼠标 hover 仅限删除/音符代码工具"不同：框选是"即将入选"的预告，
         // 段确实会被选入 → 一律给反馈，所见即所得。
-        const inPreviewBox = previewWhole || previewRegions?.has(sp.start) === true; // 被框住 → 决定颜色
+        const inPreviewBox = previewWhole || previewRegions?.has(realStart) === true; // 被框住 → 决定颜色
         const inPreview = !inSel && inPreviewBox;                              // 未选中才额外多画一圈
         // 段（连接带）默认不是可点对象 → 只在**会对它表态的工具**下给 hover 反馈：
         //   ① 删除工具：拆条语义需要"这一段会被拆"的预告（用户 2026-09-09）；
@@ -411,14 +418,14 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         // 其余工具态段完全不参与 hover，只有真正的结点有。
         // 段被框选入选时照常按选中态绘制（inSel 分支，不受此限）。
         const isHoverPart = (dangerTool || rc.armedTool === 'noteCode')
-            && hv?.kind === 'slideRegion' && hv.connIndex === sp.start;
+            && hv?.kind === 'slideRegion' && hv.connIndex === realStart;
         if (!inSel && !isHoverPart && !inPreview) continue;
         // 该段的轮廓 = **一整条封闭图形**（issue 77 三轮，用户截图反馈）：
         // 跨过 hidden 的整段是一条折线带，中间的拐点不能各自封口 —— 否则 hidden 处会多出
         // 一道横向的"衔接线"（观感上段被切成两个图形）。两侧各串成一条折线，只有首尾封口。
         const cents: { x: number; y: number }[] = [];
         for (let ci = sp.start; ci <= sp.end; ci++) {
-          const cc = conns[ci];
+          const cc = view.conns[ci]!;
           cents.push(c.virtualToCanvas(c.getNoteVirtualX(cc.lane), c.getNoteVirtualY(cc.beat, cc.subBeat || 0)));
         }
         // 横截面口径与带体实绘 / 命中区同源（`slideBandGeometry`，issue 09 验收反馈六轮）
@@ -644,7 +651,10 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
 /** 渲染一条滑条/长条：连接带 + 各结点（选中/hover 高亮由叠加层绘制，见 renderSelectionOverlay） */
 function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: ChartNote) {
   const connections = (note as SlideNote).connections;
-  if (connections.length < 2) return;
+  // issue 106：可见结点 < 2 不再被校验拒收 → 这里按"有无可见结点"收口：全 hidden 时画布上没有任何效果；
+  // 只剩 1 个可见结点时它按端点（= 单键皮肤）款画（`visibleEnds` 里 first === last）。
+  const ends = visibleEnds(connections);
+  if (ends.first < 0) return;
   // issue 39 #1：slide 结点（起止/中间）图标随节奏图示大小缩放；连接带是线条，不随。
   const spriteScale = rc.viewport.scale * (rc.display?.noteSize ?? 1);
   const icons = rc.noteIcons;
@@ -657,7 +667,7 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     if (conn.hidden) return;
     // 端点 = 单键皮肤（定案），结点带 flick/skill 时换对应图（spread 覆盖 src/矩形）；
     // 选款与描边收集端共用（描边贴合实际绘制的墨迹）
-    const iconConfig = slideNodeIconConfig(rc, conn, i === 0, i === connections.length - 1);
+    const iconConfig = slideNodeIconConfig(rc, conn, i === ends.first, i === ends.last);
     rc.spriteIcon.render(ctx, {
       ...iconConfig,
       canvasX: canvasPos.x, canvasY: canvasPos.y,
@@ -818,15 +828,18 @@ export function renderSpanBands(
   alpha?: number,
 ) {
   const half = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
-  const spans = slideSpans(connections);
+  // issue 106：画布按实机口径做**显示投影**（稳定排序 + 掐首尾 hidden，数据一字不动）——
+  // 实绘 / 描边 / 命中三处共用它，非单调点序在画布上只表现为横向折线，永不画出回头弯。
+  const dconns = isDisplayIdentity(connections) ? connections : displayConnections(connections).conns;
+  const spans = slideSpans(dconns);
   if (spans.length === 0) return;
   for (const sp of spans) {
     const pts: { x: number; y: number }[] = [];
     for (let i = sp.start; i <= sp.end; i++) {
-      const cn = connections[i]!;
+      const cn = dconns[i]!;
       pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
     }
-    const band = isSpRegion(connections, sp.start) ? rc.noteIcons.slideBandSp : rc.noteIcons.slideBand;
+    const band = isSpRegion(dconns, sp.start) ? rc.noteIcons.slideBandSp : rc.noteIcons.slideBand;
     if (sp.end - sp.start > 1) {
       renderSpBandStrip(ctx, pts, half, band, alpha);
     } else {
@@ -958,14 +971,15 @@ function ensureRasterScratch(w: number, h: number): HTMLCanvasElement {
 /** 渲染一条滑条的完整外观幽灵（连接带 + 各结点图标） */
 function renderSlideGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: { connections: SlideNote['connections'] }) {
   const conns = note.connections;
-  if (conns.length < 2) return;
+  const ends = visibleEnds(conns);
+  if (ends.first < 0) return; // issue 106：全 hidden → 幽灵也无（幽灵 = 实绘同形）
   // 与实绘同口径（幽灵 = 实绘同形）：同一个 renderSpanBands（逻辑段分组 + SP 材质 + 车道横向截面）
   renderSpanBands(ctx, c, rc, conns);
   conns.forEach((conn, i) => {
     if (conn.hidden) return; // 与 renderSlideBody 同口径：重合衔接点不画图标（幽灵 = 实绘同形）
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
     // issue 65①：端点/中间结点各取各自款式（旧实现一律端点款 → 中间结点在幽灵里像单键）
-    const icon = slideNodeIconConfig(rc, conn, i === 0, i === conns.length - 1);
+    const icon = slideNodeIconConfig(rc, conn, i === ends.first, i === ends.last);
     renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE);
   });
 }
@@ -1360,11 +1374,16 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
       });
     } else if (note.type === 'Slide' || note.type === 'Long') {
       const conns = (note as SlideNote).connections;
-      if (conns.length < 2) continue;
-      // 起止结点参与（中间结点 = slide 中间节点，不参与）
-      const first = conns[0], last = conns[conns.length - 1];
-      if (!first.hidden) push(key(first.beat, first.subBeat), first.lane, first.beat, first.subBeat, null);
-      if (!last.hidden) push(key(last.beat, last.subBeat), last.lane, last.beat, last.subBeat, null);
+      // 起止结点参与（中间结点 = slide 中间节点，不参与）；issue 106：走**显示投影**，
+      // 两端 = 投影后的首尾（首尾 hidden 的外部数据不再被拒收，可见结点不足时也就是画布上的两端）
+      // ——与实绘 / 描边 / 命中同源，别再按数组下标 0 / 末位另判一份。
+      const dconns = displayConnections(conns).conns;
+      if (dconns.length === 0) continue;
+      const first = dconns[0]!, last = dconns[dconns.length - 1]!;
+      push(key(first.beat, first.subBeat), first.lane, first.beat, first.subBeat, null);
+      if (dconns.length > 1) {
+        push(key(last.beat, last.subBeat), last.lane, last.beat, last.subBeat, null);
+      }
     }
   }
 

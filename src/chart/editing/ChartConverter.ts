@@ -369,8 +369,10 @@ function checkNoConnections(note: RawNote, noteIndex: number, label: string, err
 
 /**
  * 验证谱面代码格式（issue 59 §1）：**一次收集全部错误**，不首条即停。
- * 口径：只接受"有意义的谱面代码"——不兼容 bestdori 的边界行为，非法一律报错，
- * 由调用方决定"整份拒"（导入 / 应用）。
+ * 口径：只拦"无意义 / 无法解释"的输入（类型缺字段、beat / lane 非法、BPM 非法等），
+ * 由调用方决定"整份拒"（导入 / 应用）。**滑条可见结点不足（< 2）与首尾 hidden 不在此拦**——
+ * issue 106 定案：这类外部数据按实机口径处置（画布 `displaySlide` 投影掐首尾 hidden；
+ * 可见 1 个 → 按单键形态显示；可见 0 个 → 画布上没有任何效果），数据原样保留。
  */
 export function validateChartCode(chartCode: ChartCodeNote[]): ValidationResult {
     const errors: ValidationError[] = [];
@@ -437,16 +439,7 @@ export function validateChartCode(chartCode: ChartCodeNote[]): ValidationResult 
                 if (!Array.isArray(conns)) {
                     errors.push({
                         noteIndex: i, field: 'connections',
-                        reason: `${label} connections 必须是数组`, expected: '至少 2 个结点',
-                    });
-                    break;
-                }
-                if (conns.length < 2) {
-                    // 0/1 个结点 = 无意义的滑条/长条：报错，不做自动退化为单键
-                    errors.push({
-                        noteIndex: i, field: 'connections',
-                        reason: `${label} connections 至少需要 2 个结点（当前 ${conns.length} 个）`,
-                        expected: '≥2 个结点；若只想留一个音符，请把整条改写成 Single（删 connections + 补 beat/lane）',
+                        reason: `${label} connections 必须是数组`, expected: '[{ beat, lane }, …]',
                     });
                     break;
                 }
@@ -454,19 +447,10 @@ export function validateChartCode(chartCode: ChartCodeNote[]): ValidationResult 
                     checkBeat(conn, i, connIndex, `${label}结点`, errors);
                     checkLane(conn, i, connIndex, `${label}结点`, errors);
                 });
-                // 首尾结点不得 hidden：端点隐形 = 无意义且画布上选不中
-                if (conns[0]?.hidden === true) {
-                    errors.push({
-                        noteIndex: i, connIndex: 0, field: 'hidden',
-                        reason: `${label}首结点不得 hidden: true`, expected: '省略 hidden 或 false',
-                    });
-                }
-                if (conns[conns.length - 1]?.hidden === true) {
-                    errors.push({
-                        noteIndex: i, connIndex: conns.length - 1, field: 'hidden',
-                        reason: `${label}尾结点不得 hidden: true`, expected: '省略 hidden 或 false',
-                    });
-                }
+                // issue 106 定案：**可见结点不足 / 首尾 hidden 不再拒收**——外部数据按实机口径处置：
+                // 画布显示投影掐掉首尾 hidden（数据原样保留）、可见 1 个 → 按单键形态显示、
+                // 可见 0 个 → 画布上没有任何效果（实机也不会把它从代码里删掉）。
+                // 我们自己仍产不出这种数据（删结点转 hidden / 拆条 / 组合 / 烘焙 / 画笔均保可见 ≥2）。
                 break;
             }
 
@@ -504,7 +488,7 @@ export function validateChartCodeJSON(text: string): ValidationResult {
 
 /**
  * 把一条校验错误渲染成带定位路径的单行文案（供 UI 列表展示，纯函数可单测）。
- * 形如「音符 3 › 结点 0 · hidden：滑条首结点不得 hidden: true（期望：省略 hidden 或 false）」。
+ * 形如「音符 3 › 结点 0 · lane：滑条结点 lane 必须在 0-6 范围内（期望：0-6）」。
  */
 export function formatValidationError(error: ValidationError): string {
     const path = error.noteIndex >= 0 ? `音符 ${error.noteIndex}` : '谱面代码';

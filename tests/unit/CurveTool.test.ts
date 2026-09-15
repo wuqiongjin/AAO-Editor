@@ -5,6 +5,7 @@ import type { ChartNote, SlideNote } from '../../src/chart/types';
 import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
 import {
   resolvePressIntent, resolveReleaseIntent, penAppendSamples,
+  penMaxBeatsForCanvasDy, resolvePenStroke,
 } from '../../src/chart/editing/CanvasGesture';
 import {
   clickOps, boxSelectOps, curveChainClickOps, execCurveOps, placeSpanWithCombination,
@@ -94,6 +95,79 @@ describe('issue 09 · 画笔采样（beat 单调 = 数据模型硬约束；方�
     const { samples: out } = penAppendSamples({ beat: 0, lane: 5 }, { beat: 1, lane: 9 }, 0.5, 0);
     expect(out.every((p) => p.lane >= 0 && p.lane <= 6)).toBe(true);
     expect(out.at(-1)!.lane).toBe(6);
+  });
+});
+
+describe('issue 106 · 画笔禁止回头（回头不追加 / 回头不改变产出 / 跨层不补点）', () => {
+  it('落子终点取「松手吸附拍位」与「最远采样点」中更靠前者 —— 回头不缩短产出', () => {
+    const samples = [{ beat: 2.5, lane: 0.2 }, { beat: 3, lane: 0.4 }];
+    // 画到 3 拍后手回退到 2.6 拍再松手 → 终点仍是 3（产出不受回头影响）
+    expect(resolvePenStroke({ beat: 2, lane: 0 }, samples, 1, { beat: 2.6, lane: 0.9 }))
+      .toEqual({
+        from: { beat: 2, lane: 0 },
+        to: { beat: 3, lane: 0.4 },
+        middles: [{ beat: 2.5, lane: 0.2 }],
+      });
+    // 未回头：松手吸附拍位即终点（放置栅格口径不变）
+    expect(resolvePenStroke({ beat: 2, lane: 0 }, samples, 1, { beat: 3.5, lane: 1 })!.to)
+      .toEqual({ beat: 3.5, lane: 1 });
+  });
+
+  it('上→下 松手越过起点：不再落出非单调点序（旧 fwd 分支漏洞）', () => {
+    // 从 5 拍向下画到 3 拍（采样降序），手越过起点回到 6 拍后松手
+    const s = resolvePenStroke({ beat: 5, lane: 0 },
+      [{ beat: 4.5, lane: 0.3 }, { beat: 3, lane: 0.6 }], -1, { beat: 6, lane: 2 });
+    expect(s).not.toBeNull();
+    expect(s!.from).toEqual({ beat: 3, lane: 0.6 });   // 低拍端
+    expect(s!.to).toEqual({ beat: 5, lane: 0 });       // 高拍端 = 起点
+    expect(s!.middles.map((p) => p.beat)).toEqual([4.5]); // 越过起点的松手点不参与
+    // 产出 beat 恒单调（升序）
+    expect(s!.middles.every((p) => p.beat > s!.from.beat && p.beat < s!.to.beat)).toBe(true);
+  });
+
+  it('下→上 松手落在起点之下：按最远点落子（旧实现整笔作废）', () => {
+    const s = resolvePenStroke({ beat: 2, lane: 0 },
+      [{ beat: 2.5, lane: 0.3 }, { beat: 3, lane: 0.6 }], 1, { beat: 1.5, lane: 2 });
+    expect(s).toEqual({
+      from: { beat: 2, lane: 0 },
+      to: { beat: 3, lane: 0.6 },
+      middles: [{ beat: 2.5, lane: 0.3 }],
+    });
+  });
+
+  it('倒画端点互换、中间采样统一升序；同拍（无净位移）→ 不落子', () => {
+    expect(resolvePenStroke({ beat: 5, lane: 0 },
+      [{ beat: 4.5, lane: 0.3 }, { beat: 4, lane: 0.6 }], -1, { beat: 4.2, lane: 1 }))
+      .toEqual({
+        from: { beat: 4, lane: 0.6 },
+        to: { beat: 5, lane: 0 },
+        middles: [{ beat: 4.5, lane: 0.3 }],
+      });
+    expect(resolvePenStroke({ beat: 2, lane: 0 }, [], 0, { beat: 2, lane: 3 })).toBeNull();
+    // 纯函数：不改入参
+    const samples = [{ beat: 2.5, lane: 0.2 }, { beat: 3, lane: 0.4 }];
+    resolvePenStroke({ beat: 2, lane: 0 }, samples, 1, { beat: 3.5, lane: 1 });
+    expect(samples).toEqual([{ beat: 2.5, lane: 0.2 }, { beat: 3, lane: 0.4 }]);
+  });
+
+  it('跨层跳变步：|Δbeat| 超出「本帧 Δy 上限」→ 只接当前光标、不插值补点', () => {
+    // 常规帧：Δy 与 Δbeat 自洽（1 拍 ≈ 220px）→ 照常按拍栅格插值
+    expect(penAppendSamples({ beat: 3.49, lane: 0 }, { beat: 4.5, lane: 0 }, 0.5, 1, 1.2)
+      .samples.map((p) => p.beat)).toEqual([3.99, 4.49]);
+    // 跨层帧：拍号跳 3 拍而 Δy 上限只有 0.5 拍 → 只接当前光标（不补 48 个手没画过的点）
+    expect(penAppendSamples({ beat: 3.49, lane: 2 }, { beat: 6.5, lane: 2 }, 0.0625, 1, 0.5))
+      .toEqual({ samples: [{ beat: 6.5, lane: 2 }], dir: 1 });
+  });
+
+  it('跨层判据（penMaxBeatsForCanvasDy）：折返带边界跳号被识别，正常移动不误判', () => {
+    // ADR-0010 附录 B 最小复现：120 → -120（beat 5）→ 120（beat 6.5）
+    const geometry = new ChartGeometry(
+      [{ beat: 0, bpm: 120 }, { beat: 5, bpm: -120 }, { beat: 6.5, bpm: 120 }], 16, { w: 750, h: 900 });
+    const deps = { geometry, viewport: { scrollX: 0, scrollY: 0, scale: 1 } };
+    // 跨层：两端几乎同一个 y（Δy = 2px）却跳了 3 拍 → 上限远小于 3
+    expect(penMaxBeatsForCanvasDy(deps, 6.5, 2)).toBeLessThan(0.1);
+    // 正常：1 拍 ≈ 220 画布 px → 同样 y 位移的上限必须容得下 1 拍（不误判成跨层）
+    expect(penMaxBeatsForCanvasDy(deps, 3.5, 220)).toBeGreaterThan(1);
   });
 });
 
