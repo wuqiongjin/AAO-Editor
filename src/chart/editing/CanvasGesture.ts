@@ -555,3 +555,37 @@ export function resolveExecNoteCodeHit(input: {
     return input.hoverItem
         ?? (input.hoverPos ? findBpmLineAt(input.hoverPos.cx, input.hoverPos.cy, input.deps) : null);
 }
+/** Esc 五档链的**唯一裁决处**（ADR-0008 §7 / issue 109）：一次只吐一档，先到先吃。 */
+export type EscapeTarget = 'gesture' | 'anchor' | 'selection' | 'tool' | null;
+
+/**
+ * Esc 依序消费：① 弹窗（capture 层自消费，不进本函数）→ ② **进行中手势** → ③ 锚点 →
+ * ④ 选区 → ⑤ 持工具态。
+ *
+ * - **进行中手势（active gesture）** = 画笔 / 拖拽移动（含拖带捏形）/ 框选矩形 / 右键删除预览。
+ *   只要它在，锚点、选区、工具态**一律不动** —— 一次 Esc 只取消一层。
+ * - 取消手势后**保持工具态与选区**（Esc = 撤销这次操作，不是退出工具），并作废到 mouseup
+ *   （期间 move/up 短路，否则"被取消的这一笔"会变成另一次手势，见 issue 109 症状 2）。
+ */
+export function resolveEscapeTarget(snap: {
+    /** 画笔进行中 */
+    pen: boolean;
+    /** 拖拽移动 / 拖带捏形进行中 */
+    drag: boolean;
+    /** 按下后未抬起（含框选矩形进行中 / 单击起手） */
+    box: boolean;
+    /** 右键按住的删除预览中 */
+    rightHeld: boolean;
+    /** 有待连接滑条锚点或曲线链式草稿 */
+    anchor: boolean;
+    /** 有选区或起点标记选中 */
+    selection: boolean;
+    /** 有持工具态 */
+    tool: boolean;
+}): EscapeTarget {
+    if (snap.pen || snap.drag || snap.box || snap.rightHeld) return 'gesture';
+    if (snap.anchor) return 'anchor';
+    if (snap.selection) return 'selection';
+    if (snap.tool) return 'tool';
+    return null;
+}

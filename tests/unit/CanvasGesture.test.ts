@@ -12,7 +12,7 @@ import {
   isInsideSurface, clampToSurface, hasMovedBeyondThreshold, marqueeRect,
   canStartMarquee, resolveBoxPlan,
   isPastChartEnd, canPlaceAtCursor, resolveExecNoteCodeHit, freezeGestureCursor,
-  penExitCrossing, penCursorAt,
+  penExitCrossing, penCursorAt, resolveEscapeTarget,
   type GutterMeasure, type PenPoint,
 } from '../../src/chart/editing/CanvasGesture';
 import type { ChartNote, SelectionItem } from '../../src/chart/types';
@@ -643,5 +643,40 @@ describe('penExitCrossing 越界弦求交', () => {
     expect(Math.abs(mild.x - wild.x)).toBeLessThan(2);
     expect(mild.point.lane).toBe(6);
     expect(wild.point.lane).toBe(6);
+  });
+});
+
+describe('issue 109 · resolveEscapeTarget（Esc 五档链 / ADR-0008 §7）', () => {
+  const snap = (o: Partial<Parameters<typeof resolveEscapeTarget>[0]> = {}) => ({
+    pen: false, drag: false, box: false, rightHeld: false,
+    anchor: false, selection: false, tool: false, ...o,
+  });
+
+  it('进行中手势四选一 → gesture（画笔 / 拖拽 / 框选按下 / 右键删除预览）', () => {
+    expect(resolveEscapeTarget(snap({ pen: true }))).toBe('gesture');
+    expect(resolveEscapeTarget(snap({ drag: true }))).toBe('gesture');
+    expect(resolveEscapeTarget(snap({ box: true }))).toBe('gesture');
+    expect(resolveEscapeTarget(snap({ rightHeld: true }))).toBe('gesture');
+  });
+
+  it('一次只吐一档：手势优先于锚点 / 选区 / 工具态（后者留给下一次 Esc）', () => {
+    expect(resolveEscapeTarget(snap({ pen: true, anchor: true, selection: true, tool: true }))).toBe('gesture');
+    expect(resolveEscapeTarget(snap({ drag: true, selection: true, tool: true }))).toBe('gesture');
+  });
+
+  it('无手势 + 有锚点 → anchor', () => {
+    expect(resolveEscapeTarget(snap({ anchor: true, selection: true, tool: true }))).toBe('anchor');
+  });
+
+  it('无手势无锚点 + 有选区 → selection', () => {
+    expect(resolveEscapeTarget(snap({ selection: true, tool: true }))).toBe('selection');
+  });
+
+  it('三者皆无 + 有持工具态 → tool', () => {
+    expect(resolveEscapeTarget(snap({ tool: true }))).toBe('tool');
+  });
+
+  it('全无 → null（Esc 无事发生）', () => {
+    expect(resolveEscapeTarget(snap())).toBeNull();
   });
 });

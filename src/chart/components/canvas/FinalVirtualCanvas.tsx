@@ -29,7 +29,7 @@ import {
   canStartMarquee, resolveBoxPlan,
   canPlaceAtCursor, resolveExecNoteCodeHit,
   penCursorAt, penAppendSamples, penExitCrossing,
-  penMaxBeatsForCanvasDy, resolvePenStroke,
+  penMaxBeatsForCanvasDy, resolvePenStroke, resolveEscapeTarget,
   type DragAnchor,
 } from '../../editing/CanvasGesture';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
@@ -85,7 +85,10 @@ export interface FinalVirtualCanvasHandle {
   getMarkerSelected?: () => boolean;
   setMarkerSelected?: (sel: boolean) => void;
   clearMarker?: () => void;
-  /** Esc 优先级链（ADR-0008 §7 第②档）：若有待连接滑条锚点则取消并返回 true——Editor 据此决定是否继续落档 */
+  /** Esc 优先级链（ADR-0008 §7 第②档，issue 109）：若有**进行中手势**（画笔/拖拽/框选/右键删除预览）
+   *  则取消它并返回 true——Editor 据此决定是否继续落档。取消后保持工具态与选区 */
+  cancelActiveGesture?: () => boolean;
+  /** Esc 优先级链（ADR-0008 §7 第③档）：若有待连接滑条锚点/曲线草稿则取消并返回 true——Editor 据此决定是否继续落档 */
   cancelPendingSlide?: () => boolean;
   /** Ctrl+`（§3）：光标处放置 BPM 线（默认值沿用上次的值）→ 打开 §5 就地编辑；光标不在画布 = 无事发生 */
   execBpm?: () => void;
@@ -205,6 +208,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     //   rawPressBeat = 按下时光标的**未量化**拍位（与 anchorBeat 的差即"抓取偏移"，保住按住哪儿拖哪儿的手感）
     const dragRef = useRef<DragAnchor | null>(null);
     const [dragGhost, setDragGhost] = useState<ChartNote[] | null>(null);
+    // issue 109（ADR-0008 §7 五档链）：Esc 取消进行中手势后，到 mouseup 前**全部短路**——
+    // 否则"被取消的这一笔"会在后续 mousemove 里被当成另一次手势（画笔 → 框选等）。松手只清标志。
+    const gestureCancelledRef = useRef(false);
     // issue 09 验收反馈九轮 #2：拖拽期间最后一个**合法落点**的裁决结果（notes/items）。光标越界或
     // 落到非法点时冻结到此，松手若此刻非法 → 提交这份冻结结果（所见即所得，与画笔 lastValid 同口径）。
     const dragFrozenRef = useRef<{ notes: ChartNote[]; items: SelectionItem[] } | null>(null);
@@ -562,6 +568,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }
         const pos = cssToCanvas(e);
         if (!pos) return;
+        gestureCancelledRef.current = false; // 新起手（兜底：上一次若异常未清）
         // bug 32：起点同时存画布坐标（拖拽阈值/渲染基线）与虚拟坐标（滚动时锚定谱面时刻）
         const v = canvasToVirtual(pos.x, pos.y);
         selectionStartRef.current = { x: pos.x, y: pos.y, vx: v.x, vy: v.y };
@@ -599,6 +606,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     };
 
     const handlePointerMove = (e: { clientX: number; clientY: number }) => {
+        if (gestureCancelledRef.current) return; // issue 109：Esc 取消后到松手前，move 全程短路
         const canvasPos = cssToCanvas(e);
         if (!canvasPos) return;
         const mouseX = canvasPos.x;
@@ -706,6 +714,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     /** 抬手结算（issue 63）。`e = null` = window 失焦这类异常收尾：只清手势态，不触发任何动作。
      *  优先级表已抽到 CanvasGesture.resolveReleaseIntent（issue 70，可单测）。 */
     const handlePointerUp = (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean } | null) => {
+        // issue 109：Esc 取消过的手势，松手只清标志 —— 不提交、不起新手势、不改选区
+        if (gestureCancelledRef.current) {
+            gestureCancelledRef.current = false;
+            return;
+        }
         const start = selectionStartRef.current;
         const moved = selectionMovedRef.current;
         const box = selectionBox;
@@ -984,7 +997,35 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         getMarkerSelected: () => markerSelected,
         setMarkerSelected: (sel: boolean) => setMarkerSelected(sel),
         clearMarker: () => { setMarkerBeat(null); setMarkerSelected(false); },
-        // Esc 四档链第②档（ADR-0008 §7）：有待连接滑条锚点/曲线草稿才消费本次 Esc（返回值供 Editor 决定是否落档）
+        // Esc 五档链第②档（ADR-0008 §7 / issue 109）：有**进行中手势**（画笔 / 拖拽 / 拖带捏形 /
+        // 框选矩形 / 右键删除预览）→ 取消它。裁决走 CanvasGesture.resolveEscapeTarget（单一真相）。
+        // 取消后：工具态与选区**都保留**（Esc = 撤销这次操作，不是退出工具），并作废到 mouseup。
+        cancelActiveGesture: () => {
+            const target = resolveEscapeTarget({
+                pen: penRef.current !== null,
+                drag: dragRef.current !== null,
+                box: selectionStartRef.current !== null,
+                rightHeld: rightButtonHeld,
+                anchor: false, selection: false, tool: false, // 本档只判手势，其余档由 Editor 依序消费
+            });
+            if (target !== 'gesture') return false;
+            gestureCancelledRef.current = true;
+            penRef.current = null;
+            dragRef.current = null;
+            dragFrozenRef.current = null;
+            selectionStartRef.current = null;
+            selectionMovedRef.current = false;
+            marqueeCursorRef.current = null;
+            setPenPreview(null);
+            setDragGhost(null);
+            setSelectionBox(null);
+            setRightButtonHeld(false);
+            cancelPenVisual(); // 内含 penHoldTimerRef 清理（否则 PEN_HOLD_MS 后仍会闪一次画笔视觉）
+            if (canvasRef.current) canvasRef.current.style.cursor = '';
+            detachWindowGesture();
+            return true;
+        },
+        // Esc 五档链第③档（ADR-0008 §7）：有待连接滑条锚点/曲线草稿才消费本次 Esc（返回值供 Editor 决定是否落档）
         cancelPendingSlide: () => {
             if (slideBuffer === null && curveDraft === null) return false;
             setSlideBuffer(null);
