@@ -223,12 +223,49 @@ export function reprojectSpanParams(slide: SlideNote | LongNote, beatDisplay: nu
   return result;
 }
 
-/** 三角权重：两端 0、段中 1（拉弓变形的位移分配——拨中点全跟、靠近端点少跟） */
-const bowWeight = (t: number) => 1 - Math.abs(2 * t - 1);
+/** 抓取点归一化位置的兜底下限（防止 `t_grab` 落在 0/1 时分段线性除零） */
+const GRAB_EPS = 1e-6;
 
 /**
- * 拉弓变形（issue 09 S3 / ADR-0009 §4）：拖该滑条的某段（region）= **lane 方向拨弯**——
- * 两端可见结点锚定不动，段内 hidden 点按三角权重跟随 `dLane` 位移；beat 不动（时间单向）。
+ * **捏形**权重（issue 108 / ADR-0009 §4 修订，**取代**原"拉弓变形"）：
+ * 峰值在**抓取点** `grabT`、两端归零、分段线性——左 `w = t/g`、右 `w = (1−t)/(1−g)`。
+ * `grabT = 0.5` 时与旧三角权重（`1−|2t−1|`）**逐点相同**：拉弓 = 抓中点的特例。
+ */
+export const pinchWeight = (t: number, grabT: number): number => {
+  const g = clamp(grabT, GRAB_EPS, 1 - GRAB_EPS);
+  return t <= g ? Math.max(0, t) / g : Math.max(0, 1 - t) / (1 - g);
+};
+
+/**
+ * 抓取点的归一化位置：段内**拍位距 `grabBeat` 最近**的采样点（按下即锁定，整个拖拽期间不变）。
+ * `grabBeat` 缺省（旧调用路径）或段内无采样点 → `0.5`（= 旧拉弓行为）。
+ */
+function grabRatioOf(
+  middle: readonly ConnectionNote[],
+  fromBeat: number,
+  toBeat: number,
+  grabBeat: number | undefined,
+  beatDisplay: number,
+): number {
+  if (middle.length === 0 || grabBeat === undefined || !(toBeat > fromBeat)) return 0.5;
+  let best = Infinity;
+  let bestT = 0.5;
+  for (const p of middle) {
+    const b = connTrueBeat(p, beatDisplay);
+    const d = Math.abs(b - grabBeat);
+    if (d < best) {
+      best = d;
+      bestT = (b - fromBeat) / (toBeat - fromBeat);
+    }
+  }
+  return clamp(bestT, GRAB_EPS, 1 - GRAB_EPS);
+}
+
+/**
+ * 捏形（issue 09 S3 / ADR-0009 §4，**2026-09-16 由"拉弓变形"改为"捏形"**）：
+ * 拖该滑条的某段（region）= **lane 方向拨弯**——两端可见结点锚定不动，段内 hidden 点按
+ * **以抓取点为峰值的分段线性权重**跟随 `dLane` 位移；beat 不动（时间单向）。
+ * `grabBeat` = 按下时锁定的抓取点拍位（缺省 = 段中点 = 旧拉弓）。
  * **拨弯即转化（Q10=B）**：普通段（无 hidden）先按 `precision` 栅格补直线上采样点再弯，
  * 就地成为自由段（SP 段）。
  * **一动就自由化**：被拨段的缓动参数清除（其余段参数保留——visibleCount 不变、护栏不破）。
@@ -240,6 +277,8 @@ export function bendSpan(
   dLane: number,
   beatDisplay: number,
   precision: CurvePrecision = 16,
+  /** 按下时锁定的抓取点拍位（未量化）。缺省 = 段中点（旧拉弓行为） */
+  grabBeat?: number,
 ): SlideNote | LongNote {
   if (dLane === 0) return slide;
   const conns = slide.connections;
@@ -251,7 +290,7 @@ export function bendSpan(
   const toBeat = connTrueBeat(to, beatDisplay);
   if (!(toBeat > fromBeat)) return slide;
 
-  // 段内既有 hidden + （普通段时）新补的采样点，一起参与拉弯
+  // 段内既有 hidden + （普通段时）新补的采样点，一起参与捏形
   const inserted: ConnectionNote[] = sp.end - sp.start === 1
     ? (() => {
         // 普通段（无 hidden）：在**原直线弦**上按 1/precision 栅格补采样点 → 一并拉弯（Q10=B 拨弯即转化；
@@ -268,9 +307,11 @@ export function bendSpan(
         return out;
       })()
     : [];
-  const middle = [...conns.slice(sp.start + 1, sp.end), ...inserted].map((p) => {
+  const mid = [...conns.slice(sp.start + 1, sp.end), ...inserted];
+  const grabT = grabRatioOf(mid, fromBeat, toBeat, grabBeat, beatDisplay);
+  const middle = mid.map((p) => {
     const t = (connTrueBeat(p, beatDisplay) - fromBeat) / (toBeat - fromBeat);
-    const w = bowWeight(t);
+    const w = pinchWeight(t, grabT);
     return { ...p, lane: clamp(p.lane + dLane * w, 0, 6) };
   });
   const connections = [...conns.slice(0, sp.start + 1), ...middle, ...conns.slice(sp.end)];

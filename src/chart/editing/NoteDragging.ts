@@ -53,7 +53,7 @@ export function itemTrueBeat(notes: readonly ChartNote[], item: SelectionItem, b
     return conn ? conn.beat + (conn.subBeat && conn.subBeat > 0 ? conn.subBeat / bd : 0) : null;
   }
   if (item.kind === 'slideRegion') {
-    // issue 09 S3（ADR-0009 §4）：区域可拖 = 拉弓变形；锚拍取段起点（bend 只吃 dLane，beat 分量忽略）
+    // issue 09 S3（ADR-0009 §4；issue 108 拉弓 → 捏形）：区域可拖 = 捏形；锚拍取段起点（bend 只吃 dLane，beat 分量忽略）
     if (n.type !== 'Slide' && n.type !== 'Long') return null;
     const conn = (n as SlideNote).connections[item.connIndex];
     return conn ? conn.beat + (conn.subBeat && conn.subBeat > 0 ? conn.subBeat / bd : 0) : null;
@@ -73,6 +73,11 @@ export interface DragDelta {
   dBeat: number;
   /** 轨道位移（整数） */
   dLane: number;
+  /**
+   * 按下时光标的**未量化**拍位（issue 108：拖带捏形的**抓取点**，按下即锁定）。
+   * 只被"拖段（slideRegion）"消费；缺省 = 段中点（旧拉弓行为）。
+   */
+  grabBeat?: number;
 }
 
 export interface DragMoveResult {
@@ -165,15 +170,16 @@ export function planDragMove(
   if (delta.dBeat === 0 && delta.dLane === 0) return { ok: true, notes, items };
   const beatDisplay = bounds.beatDisplay > 0 ? bounds.beatDisplay : 1;
 
-  // issue 09 S3（ADR-0009 §4）：**单独拖一个滑条段 = 拉弓变形**——lane 方向拨弯（beat 分量忽略）、
-  // 两端可见结点锚定、段内 hidden 按三角权重跟随；普通段拨弯 = 自动补采样点转化（Q10=B）；
-  // 被拨段参数清除（一动就自由化）。混合选区不 bend（region 条目按不可拖处理，其余照旧移动）。
+  // issue 09 S3（ADR-0009 §4；**issue 108 改"拉弓变形"为"捏形"**）：**单独拖一个滑条段 = 捏形**——
+  // lane 方向拨弯（beat 分量忽略）、两端可见结点锚定、段内 hidden 按**以抓取点为峰值的分段线性
+  // 权重**跟随（抓取点 = delta.grabBeat，按下锁定；缺省 = 段中点 = 旧拉弓）；普通段拨弯 = 自动补
+  // 采样点转化（Q10=B）；被拨段参数清除（一动就自由化）。混合选区不 bend（region 条目按不可拖处理）。
   if (items.length === 1 && items[0]!.kind === 'slideRegion') {
     const it = items[0]!;
     const n = notes[it.noteIndex];
     if (!n || !isSlideish(n)) return noChange;
     if (delta.dLane === 0) return { ok: true, notes, items };
-    const bent = bendSpan(n as SlideNote | LongNote, it.connIndex, delta.dLane, beatDisplay, bounds.bendPrecision ?? 16);
+    const bent = bendSpan(n as SlideNote | LongNote, it.connIndex, delta.dLane, beatDisplay, bounds.bendPrecision ?? 16, delta.grabBeat);
     if (bent === (n as SlideNote | LongNote)) return noChange;
     const newNotes = notes.map((x, i) => (i === it.noteIndex ? (bent as ChartNote) : x));
     return { ok: true, notes: newNotes, items: [it], ghost: [bent as ChartNote] };
@@ -463,7 +469,7 @@ export function draggableFromItems(notes: readonly ChartNote[], items: readonly 
     if (!n) return false;
     if (it.kind === 'note') return isKey(n) || isSlideish(n);
     if (it.kind === 'slideNode') return isSlideish(n);
-    // issue 09 S3（ADR-0009 §4）：slideRegion 可拖 = 拉弓变形（planDragMove 的 bend 分支处置）
+    // issue 09 S3（ADR-0009 §4；issue 108 拉弓 → 捏形）：slideRegion 可拖 = 捏形（planDragMove 的 bend 分支处置）
     if (it.kind === 'slideRegion') return isSlideish(n);
     return false;
   });

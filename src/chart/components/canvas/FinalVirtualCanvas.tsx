@@ -593,6 +593,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 beatDisplay,
             }),
             dLane: cur.lane - drag.pressLane,
+            // issue 108：抓取点 = 按下时的未量化拍位（拖带捏形的位移场峰值，按下即锁定）
+            grabBeat: drag.rawPressBeat,
         };
     };
 

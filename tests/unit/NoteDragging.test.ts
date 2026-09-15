@@ -457,6 +457,32 @@ describe('planDragMove · 拖带弯曲（issue 09 S3 / ADR-0009 §4）', () => {
     expect(r.notes[0]).toBe(notes[0]);
   });
 
+  it('拖段带 grabBeat = 捏形（issue 108）：峰值在抓取点、两端锚定、beat 不动', () => {
+    const notes: ChartNote[] = [eased(false)];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }],
+      { dBeat: 0, dLane: 2, grabBeat: 1.25 },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    const at = (b: number) => s.connections.find(c => Math.abs(c.beat - b) < 1e-9)!.lane;
+    expect(at(1.25)).toBeCloseTo(4, 9);                    // 抓取点 w=1 → 2+2
+    expect(at(1.5)).toBeCloseTo(2 + 2 * (0.5 / 0.75), 9);  // 右侧更缓
+    expect(s.connections[0]!.lane).toBe(2);                // 端点锚定
+    expect(s.connections.at(-1)!.lane).toBe(2);
+    expect(s.connections.map(c => c.beat)).toEqual((notes[0] as SlideNote).connections.map(c => c.beat));
+  });
+
+  it('拖段不传 grabBeat = 抓中点（旧拉弓行为，回归）', () => {
+    const notes: ChartNote[] = [eased(false)];
+    const r = planDragMove(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }], { dBeat: 0, dLane: 2 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    expect(s.connections.find(c => Math.abs(c.beat - 1.5) < 1e-9)!.lane).toBe(4);
+  });
+
   it('拨普通段 = 补采样点转化（出生即 SP 段）', () => {
     const notes: ChartNote[] = [slide(1, 0, 2, 0)];
     const r = planDragMove(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }], { dBeat: 0, dLane: 1 }, B);

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import type { ConnectionNote, SlideNote } from '../../src/chart/types';
 import {
   bakeEasingPoints, bakeSpanPoints, bendSpan, buildChainedSlide, buildPenSlide, effectiveSpanParams,
-  regenerateSpan, remapFreeSpanHidden, reprojectSpanParams, connTrueBeat,
+  regenerateSpan, remapFreeSpanHidden, reprojectSpanParams, connTrueBeat, pinchWeight,
 } from '../../src/chart/editing/SpanCurve';
 import { convertNotesToChartCode, convertChartCodeToNotes, validateChartCode } from '../../src/chart/editing/ChartConverter';
 import { shapeTemplateById } from '../../src/chart/editing/ShapeTemplates';
@@ -237,6 +237,78 @@ describe('issue 09 S3 · bendSpan（拉弓变形 / ADR-0009 §4）', () => {
   it('dLane=0 / 越界 edge → 原引用（无变化）', () => {
     expect(bendSpan(slide, 0, 0, 4)).toBe(slide);
     expect(bendSpan(slide, 32, 2, 4)).toBe(slide); // 2 拍 1/16 → 32 条 edge，32 越界
+  });
+});
+
+describe('issue 108 · 捏形（位移场峰值 = 抓取点 / ADR-0009 §4）', () => {
+  /** 段 1→2，15 个 hidden（1/16 栅格），全程 lane 2 */
+  const span = (): SlideNote => {
+    const conns: ConnectionNote[] = [{ beat: 1, lane: 2, subBeat: 0 }];
+    for (let p = 1; p < 16; p++) conns.push({ beat: 1 + p / 16, lane: 2, subBeat: 0, hidden: true });
+    conns.push({ beat: 2, lane: 2, subBeat: 0 });
+    return { type: 'Slide', connections: conns } as SlideNote;
+  };
+  const laneAt = (s: SlideNote, beat: number) =>
+    s.connections.find((c) => Math.abs(c.beat - beat) < 1e-9)!.lane;
+
+  it('pinchWeight：grabT=0.5 与旧三角权重逐点相同（拉弓 = 抓中点的特例）', () => {
+    for (const t of [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]) {
+      expect(pinchWeight(t, 0.5)).toBeCloseTo(1 - Math.abs(2 * t - 1), 12);
+    }
+  });
+
+  it('pinchWeight：grabT=0.25 → 两端 0、峰值 1、左陡右缓', () => {
+    expect(pinchWeight(0, 0.25)).toBeCloseTo(0, 12);
+    expect(pinchWeight(1, 0.25)).toBeCloseTo(0, 12);
+    expect(pinchWeight(0.25, 0.25)).toBeCloseTo(1, 12);
+    expect(pinchWeight(0.125, 0.25)).toBeCloseTo(0.5, 12);        // 左：t/g
+    expect(pinchWeight(0.625, 0.25)).toBeCloseTo(0.5, 12);        // 右：(1-t)/(1-g)
+    // 左陡右缓：距抓取点同为 0.125 的两侧不对称（左 0.5 < 右 0.8333）
+    expect(pinchWeight(0.375, 0.25)).toBeCloseTo(0.625 / 0.75, 12);
+  });
+
+  it('pinchWeight：grabT 落在 0/1 边界不产生 NaN / Infinity', () => {
+    for (const g of [0, 1]) {
+      for (const t of [0, 0.5, 1]) {
+        expect(Number.isFinite(pinchWeight(t, g))).toBe(true);
+      }
+    }
+  });
+
+  it('抓中点 = 旧行为（不传 grabBeat 与传中点拍位结果一致）', () => {
+    const a = bendSpan(span(), 0, 2, 4) as SlideNote;
+    const b = bendSpan(span(), 0, 2, 4, 16, 1.5) as SlideNote;
+    expect(b.connections.map((c) => c.lane)).toEqual(a.connections.map((c) => c.lane));
+  });
+
+  it('抓非中点：峰值落在抓取点（lane 增量 = dLane）、两端锚定、beat 不动', () => {
+    const s = bendSpan(span(), 0, 2, 4, 16, 1.25) as SlideNote; // 最近采样点 beat 1.25 → t=0.25
+    expect(laneAt(s, 1.25)).toBeCloseTo(4, 9);                  // w=1 → 2+2
+    expect(laneAt(s, 1.5)).toBeCloseTo(2 + 2 * (0.5 / 0.75), 9);
+    expect(s.connections[0]!.lane).toBe(2);                     // 端点锚定
+    expect(s.connections.at(-1)!.lane).toBe(2);
+    expect(s.connections.map((c) => c.beat)).toEqual(span().connections.map((c) => c.beat));
+  });
+
+  it('抓取点吸附到最近采样点（拍位距离，1/16 栅格内）', () => {
+    const s = bendSpan(span(), 0, 2, 4, 16, 1.26) as SlideNote; // 最近 = 1.25
+    expect(laneAt(s, 1.25)).toBeCloseTo(4, 9);
+  });
+
+  it('grabBeat 落在段外 → 钳到最近端点侧采样点，无 NaN', () => {
+    const s = bendSpan(span(), 0, 2, 4, 16, 0.2) as SlideNote;
+    expect(s.connections.every((c) => Number.isFinite(c.lane))).toBe(true);
+    expect(s.connections[0]!.lane).toBe(2);
+    expect(s.connections.at(-1)!.lane).toBe(2);
+  });
+
+  it('普通段（无 hidden）抓非中点：补 1/16 点后峰值仍在抓取点', () => {
+    const plain = { type: 'Slide', connections: [{ beat: 1, lane: 0 }, { beat: 2, lane: 0 }] } as SlideNote;
+    const s = bendSpan(plain, 0, 3, 4, 16, 1.25) as SlideNote;
+    expect(laneAt(s, 1.25)).toBeCloseTo(3, 9);
+    expect(laneAt(s, 1.5)).toBeCloseTo(3 * (0.5 / 0.75), 9);
+    expect(s.connections[0]!.lane).toBe(0);
+    expect(s.connections.at(-1)!.lane).toBe(0);
   });
 });
 
