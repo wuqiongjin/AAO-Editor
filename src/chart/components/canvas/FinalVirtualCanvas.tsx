@@ -627,7 +627,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     };
 
     const handlePointerMove = (e: { clientX: number; clientY: number }) => {
-        if (gestureCancelledRef.current) return; // issue 109：Esc 取消后到松手前，move 全程短路
         const canvasPos = cssToCanvas(e);
         if (!canvasPos) return;
         const mouseX = canvasPos.x;
@@ -646,6 +645,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 滚动/缩放后鼠标不动就算不出新值（候选 3）。改由 cursorChartPos() 用时现算，
         // 服务于粘贴锚点与三个执行键（Ctrl+B / Ctrl+E / Ctrl+F..S）。
         if (!selectionStartRef.current) return;
+        // issue 109：Esc 取消过的手势不再驱动。**短路必须在 hover 反馈更新之后** —— 写在函数顶部
+        // 会把实时显示线 / 放置幽灵 / hover 描边一起冻住（取消态要活到下一次按下才清，于是"卡住"）。
+        if (gestureCancelledRef.current) return;
         const start = selectionStartRef.current;
         // §2 原则 1：未过阈值 = 仍是单击（判定表在 CanvasGesture.hasMovedBeyondThreshold）
         if (!hasMovedBeyondThreshold(start, { x: mouseX, y: mouseY }, DRAG_THRESHOLD_PX)) return;
