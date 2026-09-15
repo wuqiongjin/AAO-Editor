@@ -1,5 +1,5 @@
 Type: bug
-Status: **已实现（定案 2026-09-16；commit `d62f0d6` + 评审修正；`tsc` 0 / 全量 1108 测绿）**；**待页面验收**。注：本票 Type=bug 但**锁测里的 Playwright 实测无法执行**——仓内无 e2e 基建（playwright 未安装、`scripts/verify-*.mjs` 已不存在），全部改为手工验收清单
+Status: **resolved（用户 2026-09-16 页面实测通过）** —— 实现 = commit `d62f0d6` + 评审修正 `981877d` + **返工 `12e8db3`**；`tsc` 0 / 全量 1108 测绿。注：本票 Type=bug 但**锁测里的 Playwright 实测无法执行**——仓内无 e2e 基建（playwright 未安装、`scripts/verify-*.mjs` 已不存在），最终以用户手工验收结案
 
 ## 来源
 
@@ -39,3 +39,9 @@ issue 09 验收收口后追加需求 #3（2026-09-15 用户提出）："shift �
 - **越界冻结**：沿用既有 `dragFrozenRef`（九轮机制），effect 在 `dragDelta` 为 null 时保持已冻结帧 —— 与 `freezeGestureCursor` **同口径**，未另调该函数。
 - **`/code-review` 已知未修**：`deltaMode`（Firefox 行模式）未折算（与既有 wheel 处理一致）；`el.scrollTop +=` 绕过 `setScrollY` 的边界钳制（容器自身会 clamp，行为等价）。
 - 验证：`tsc` 0 / **1108 测全绿**；**无 e2e 基建**（playwright 未安装、`scripts/verify-*.mjs` 已不存在）→ 全部改为手工验收清单。
+
+### 返工（2026-09-16 用户复测：Shift+拖拽时滚轮**仍然完全无效**）
+
+- **第一版为什么无效**：Shift+滚轮放在 **Editor 容器的 React `onWheel`** 上（且只在"横向分量占优"时才动手）。用户实测无效果。**真因未定位到点**（未做浏览器实测，只有用户反馈）——候选：React 对 wheel 走 passive 委托、无法阻止原生行为，且"仅横向占优"判据在部分平台恒不成立；两条叠加导致"什么都不做"。**教训**：wheel 这类需要 `preventDefault` 的原生行为，只能挂在既有的 `addEventListener('wheel', h, { passive: false })` 上（画布），不要开第二处 React 合成监听。
+- **第二版（commit `12e8db3`）**：改回画布 `handleWheel`（唯一且 `passive:false`）→ 能 `preventDefault` 掉被映射的原生横向滚动，故"转纵向"不会与原生叠加成**双倍**；滚动量取 `|deltaX|` / `|deltaY|` 的**较大者**（跨平台归一）；宿主容器经新增 prop `scrollHostRef` 传入（画布不是滚动容器，滚不动自己）；容器侧 `onWheel` 删除。
+- **用户实测通过** → 本票 `resolved`。
