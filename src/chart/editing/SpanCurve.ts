@@ -307,9 +307,11 @@ export function bendSpan(
         return out;
       })()
     : [];
-  const mid = [...conns.slice(sp.start + 1, sp.end), ...inserted];
-  const grabT = grabRatioOf(mid, fromBeat, toBeat, grabBeat, beatDisplay);
-  const middle = mid.map((p) => {
+  const sampled = [...conns.slice(sp.start + 1, sp.end), ...inserted];
+  // 段内一个采样点都没有（段极短 → 补点也是 0）→ 无从捏形：返回原引用，不制造"无变化的 undo 步"
+  if (sampled.length === 0) return slide;
+  const grabT = grabRatioOf(sampled, fromBeat, toBeat, grabBeat, beatDisplay);
+  const middle = sampled.map((p) => {
     const t = (connTrueBeat(p, beatDisplay) - fromBeat) / (toBeat - fromBeat);
     const w = pinchWeight(t, grabT);
     return { ...p, lane: clamp(p.lane + dLane * w, 0, 6) };

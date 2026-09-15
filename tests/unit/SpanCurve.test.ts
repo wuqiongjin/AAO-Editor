@@ -310,6 +310,12 @@ describe('issue 108 · 捏形（位移场峰值 = 抓取点 / ADR-0009 §4）', 
     expect(s.connections[0]!.lane).toBe(0);
     expect(s.connections.at(-1)!.lane).toBe(0);
   });
+
+  it('段极短（补不出采样点）→ 原引用：不制造"无变化的 undo 步"', () => {
+    // 跨度 1/32 拍 × precision 16 → f = 1 → 补 0 个点
+    const tiny = { type: 'Slide', connections: [{ beat: 1, lane: 0 }, { beat: 1 + 1 / 32, lane: 0 }] } as SlideNote;
+    expect(bendSpan(tiny, 0, 2, 4)).toBe(tiny);
+  });
 });
 
 describe('issue 09 S3 · remapFreeSpanHidden（自由段端点跟随重映射）', () => {

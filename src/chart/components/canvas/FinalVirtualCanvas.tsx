@@ -580,6 +580,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     }, [viewport, geometry, surf]);
 
     const handleMouseDown = (e: React.MouseEvent) => {
+        gestureCancelledRef.current = false; // issue 109：新起手（含右键分支；取消态只活到下一次按下）
         if (e.button !== 0) {
             // issue 74：右键按下（未松手）→ 光标下对象的 hover 切删除红，作"松手即删"的预览。
             // 删除动作本身仍在 `contextmenu` 里执行，此处只置反馈标志。
@@ -588,7 +589,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }
         const pos = cssToCanvas(e);
         if (!pos) return;
-        gestureCancelledRef.current = false; // 新起手（兜底：上一次若异常未清）
         // bug 32：起点同时存画布坐标（拖拽阈值/渲染基线）与虚拟坐标（滚动时锚定谱面时刻）
         const v = canvasToVirtual(pos.x, pos.y);
         selectionStartRef.current = { x: pos.x, y: pos.y, vx: v.x, vy: v.y };
@@ -976,7 +976,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     }, [rightButtonHeld, rightClickDelete, cssToCanvas, surf]);
 
     const handleWheel = useCallback((e: WheelEvent) => {
-        // 只处理Ctrl+滚轮缩放，禁用普通滚动
+        // 只处理 Ctrl+滚轮缩放；普通滚动交给父容器（原生）。
+        // issue 110：**Shift+滚轮**由父容器的 onWheel 处理（把浏览器映射出的横向分量转回纵向）——
+        // 修在那里是因为容器 `overflowX:'hidden'` 才是"横向被吃掉"的那一层，画布拿不到容器引用。
         if (e.ctrlKey) {
             e.preventDefault();
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;

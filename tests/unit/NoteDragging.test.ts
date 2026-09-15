@@ -483,6 +483,16 @@ describe('planDragMove · 拖带弯曲（issue 09 S3 / ADR-0009 §4）', () => {
     expect(s.connections.find(c => Math.abs(c.beat - 1.5) < 1e-9)!.lane).toBe(4);
   });
 
+  it('捏形无状态：同一原始 notes + 同一 delta（含 grabBeat）重复裁决结果恒定（按下锁定、不累加）', () => {
+    const notes: ChartNote[] = [eased(false)];
+    const sel: SelectionItem[] = [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }];
+    const d = { dBeat: 0, dLane: 2, grabBeat: 1.25 };
+    const a = planDragMove(notes, sel, d, B).notes[0] as SlideNote;
+    const b = planDragMove(notes, sel, d, B).notes[0] as SlideNote; // 从同一原始 notes 重算
+    expect(b.connections.map(c => c.lane)).toEqual(a.connections.map(c => c.lane));
+    expect(b.connections.map(c => c.beat)).toEqual(a.connections.map(c => c.beat));
+  });
+
   it('拨普通段 = 补采样点转化（出生即 SP 段）', () => {
     const notes: ChartNote[] = [slide(1, 0, 2, 0)];
     const r = planDragMove(notes, [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }], { dBeat: 0, dLane: 1 }, B);

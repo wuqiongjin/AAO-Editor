@@ -1,5 +1,5 @@
 Type: bug
-Status: open（定案 2026-09-16；实现未开工）
+Status: **已实现（定案 2026-09-16；commit `d62f0d6` + 评审修正；`tsc` 0 / 全量 1108 测绿）**；**待页面验收**。注：本票 Type=bug 但**锁测里的 Playwright 实测无法执行**——仓内无 e2e 基建（playwright 未安装、`scripts/verify-*.mjs` 已不存在），全部改为手工验收清单
 
 ## 来源
 
@@ -31,3 +31,11 @@ issue 09 验收收口后追加需求 #3（2026-09-15 用户提出）："shift �
   3. **Shift+滚轮**（无拖拽）→ 画布纵向滚动生效（修复前无反应）；
   4. 拖拽中滚到谱面末端外 → 幽灵冻结在最后合法落点、松手提交该值、`pageerror=0`。
 - **手工验收**：普通滚轮 / Shift+滚轮 / Ctrl+滚轮三种在拖拽中与空闲态下行为一致且无卡顿。
+
+### 实现与评审记录（2026-09-16）
+
+- **已实现**（commit `d62f0d6`，2 文件 +40/−8）：视口重算 effect 从"仅框选"扩展到拖拽（新增 `dragCursorRef` 记录最后一次 mousemove 的画布坐标）；滚动容器 `onWheel` 处理 Shift+滚轮。
+- **实现位置与票「修法 3」的偏差（确认更优）**：票写"在 `handleWheel` 里取 `|deltaX|` 与 `|deltaY|` 的较大者"，实现改到**容器** `onWheel`，判据为「**仅当横向分量占优**才转纵向」——① 画布拿不到容器引用，而吃掉横向的正是容器那层 `overflowX:hidden`；② 若按"较大者"无条件处理，在**未做横向映射**的平台（deltaY 仍占优）会与原生纵向滚动叠加成**双倍滚动**。画布 `handleWheel` 注释已同步指向容器（避免两处口径分叉，`issue 108` 落点 5 的同款教训）。
+- **越界冻结**：沿用既有 `dragFrozenRef`（九轮机制），effect 在 `dragDelta` 为 null 时保持已冻结帧 —— 与 `freezeGestureCursor` **同口径**，未另调该函数。
+- **`/code-review` 已知未修**：`deltaMode`（Firefox 行模式）未折算（与既有 wheel 处理一致）；`el.scrollTop +=` 绕过 `setScrollY` 的边界钳制（容器自身会 clamp，行为等价）。
+- 验证：`tsc` 0 / **1108 测全绿**；**无 e2e 基建**（playwright 未安装、`scripts/verify-*.mjs` 已不存在）→ 全部改为手工验收清单。
