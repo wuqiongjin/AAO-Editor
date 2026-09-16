@@ -29,7 +29,7 @@ import {
   canStartMarquee, resolveBoxPlan,
   canPlaceAtCursor, resolveExecNoteCodeHit,
   penCursorAt, penAppendSamples, penExitCrossing,
-  penMaxBeatsForCanvasDy, resolvePenStroke, resolveEscapeTarget,
+  penMaxBeatsForCanvasDy, resolvePenStroke, finalizePenStrokeCommit, resolveEscapeTarget,
   type DragAnchor,
 } from '../../editing/CanvasGesture';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
@@ -580,7 +580,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (!d || (d.dBeat === 0 && d.dLane === 0)) return;
         const r = planDragMove(notes, drag.items, d, { chartEndBeat, beatDisplay });
         if (r.ok) {
-            setDragGhost(r.ghost ?? notes);
+            const ghost = r.ghost;
+            setDragGhost(
+                d.dBeat === 0 && d.dLane === 0 || !ghost || ghost.length === 0 ? null : ghost,
+            );
             dragFrozenRef.current = { notes: r.notes, items: r.items };
         }
     }, [viewport, geometry, surf]);
@@ -671,7 +674,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
                 const r = planDragMove(notes, dragRef.current.items, d, { chartEndBeat, beatDisplay });
                 if (r.ok) {
-                    setDragGhost(r.ghost ?? notes); // 非法落点 → 保持上一帧合法幽灵（冻结）
+                    const ghost = r.ghost;
+                    setDragGhost(
+                        d.dBeat === 0 && d.dLane === 0 || !ghost || ghost.length === 0 ? null : ghost,
+                    );
                     dragFrozenRef.current = { notes: r.notes, items: r.items }; // 越界松手的回退落子
                 }
             }
@@ -785,8 +791,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             // "画布外松手也照常结算"（issue 63）同口径；若连一个界内位都没有（起手即非法）才不落子。
             if (!release) release = snapPos(pen.lastValid.x, pen.lastValid.y);
             if (release) {
-                const stroke = resolvePenStroke(pen.start, pen.samples, pen.dir,
+                const raw = resolvePenStroke(pen.start, pen.samples, pen.dir,
                     { beat: release.beat, lane: release.lane });
+                const stroke = raw ? finalizePenStrokeCommit(pen.start, raw, beatDisplay) : null;
                 if (stroke) {
                     const samples = smoothedPenSamples(stroke.from, stroke.middles, stroke.to, curveConfig.smooth === true)
                         .map((s) => ({ beat: s.beat, lane: s.lane, hidden: true as const }));

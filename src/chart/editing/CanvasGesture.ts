@@ -404,6 +404,38 @@ export function resolvePenStroke(
     return { from: lo, to: hi, middles };
 }
 
+/**
+ * 画笔松手落子专用（issue 112 方案 B）：在 `resolvePenStroke` 轨迹上施加半格门槛、网格吸附与终点整轨。
+ * 实时预览不走此函数，避免终点量化导致预览「跳格」。
+ */
+export function finalizePenStrokeCommit(
+    start: PenPoint,
+    stroke: { from: PenPoint; to: PenPoint; middles: PenPoint[] },
+    beatDisplay: number,
+): { from: PenPoint; to: PenPoint; middles: PenPoint[] } | null {
+    const eps = 1e-9;
+    const grid = beatDisplay > 0 ? beatDisplay : 1;
+    const halfGrid = 0.5 / grid;
+    const gridStep = 1 / grid;
+    const forward = Math.abs(stroke.from.beat - start.beat) < eps
+        && Math.abs(stroke.from.lane - start.lane) < eps;
+    const far = forward ? stroke.to : stroke.from;
+    const dist = Math.abs(far.beat - start.beat);
+    if (dist < halfGrid - eps) return null;
+    let endBeat = Math.round(far.beat * grid) / grid;
+    endBeat = forward
+        ? Math.max(endBeat, start.beat + gridStep)
+        : Math.min(endBeat, start.beat - gridStep);
+    const end: PenPoint = { beat: endBeat, lane: clampLane(Math.round(far.lane)) };
+    const lo: PenPoint = forward ? stroke.from : end;
+    const hi: PenPoint = forward ? end : stroke.to;
+    if (hi.beat - lo.beat <= eps) return null;
+    const middles = stroke.middles
+        .filter((s) => s.beat > lo.beat + eps && s.beat < hi.beat - eps)
+        .sort((a, b) => a.beat - b.beat);
+    return { from: lo, to: hi, middles };
+}
+
 /** 落点吸附后的拍位（松手端点用：可见端点吸附放置栅格） */
 export function penReleaseBeat(
     deps: Pick<HitTestDeps, 'geometry' | 'viewport' | 'beatDisplay'>,

@@ -5,8 +5,20 @@ import type { ChartNote, SlideNote } from '../../src/chart/types';
 import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
 import {
   resolvePressIntent, resolveReleaseIntent, penAppendSamples,
-  penMaxBeatsForCanvasDy, resolvePenStroke,
+  penMaxBeatsForCanvasDy, resolvePenStroke, finalizePenStrokeCommit,
 } from '../../src/chart/editing/CanvasGesture';
+
+/** issue 112：松手落子 = 轨迹裁决 + 网格吸附（预览不走此路径） */
+function commitPenStroke(
+  start: { beat: number; lane: number },
+  samples: { beat: number; lane: number }[],
+  dir: 0 | 1 | -1,
+  release: { beat: number; lane: number },
+  beatDisplay: number,
+) {
+  const raw = resolvePenStroke(start, samples, dir, release);
+  return raw ? finalizePenStrokeCommit(start, raw, beatDisplay) : null;
+}
 import {
   clickOps, boxSelectOps, curveChainClickOps, execCurveOps, placeSpanWithCombination,
   type CurveConfig, type CurveDraft,
@@ -168,6 +180,29 @@ describe('issue 106 · 画笔禁止回头（回头不追加 / 回头不改变产
     expect(penMaxBeatsForCanvasDy(deps, 6.5, 2)).toBeLessThan(0.1);
     // 正常：1 拍 ≈ 220 画布 px → 同样 y 位移的上限必须容得下 1 拍（不误判成跨层）
     expect(penMaxBeatsForCanvasDy(deps, 3.5, 220)).toBeGreaterThan(1);
+  });
+});
+
+describe('issue 112 · 松手落子方案 B（预览仍走 resolvePenStroke，不经网格量化）', () => {
+  it('半格门槛 / 保底吸附 / beatDisplay 联动 / 终点整轨', () => {
+    const start = { beat: 2, lane: 0 };
+    // 预览：未过半格仍有轨迹（不落子规则不作用于预览）
+    expect(resolvePenStroke(start, [], 1, { beat: 2.1, lane: 0 })).not.toBeNull();
+    // 松手：位移 0.1 拍 < 半格 0.125 → 取消
+    expect(commitPenStroke(start, [], 1, { beat: 2.1, lane: 0 }, 4)).toBeNull();
+    const s = commitPenStroke(start, [], 1, { beat: 2.15, lane: 2.7 }, 4);
+    expect(s).not.toBeNull();
+    expect(s!.to.beat).toBe(2.25);
+    expect(s!.to.beat).toBe(start.beat + 0.25);
+    expect(s!.to.lane).toBe(3);
+    for (const bd of [1, 2, 4, 8, 16] as const) {
+      const half = 0.5 / bd;
+      const step = 1 / bd;
+      expect(commitPenStroke({ beat: 1, lane: 0 }, [], 1, { beat: 1 + half - 0.02, lane: 0 }, bd)).toBeNull();
+      const ok = commitPenStroke({ beat: 1, lane: 0 }, [], 1, { beat: 1 + half + 0.02, lane: 0 }, bd);
+      expect(ok!.to.beat).toBeCloseTo(1 + step, 12);
+    }
+    expect(commitPenStroke({ beat: 1, lane: 0 }, [], 1, { beat: 1.6, lane: 0 }, 1)!.to.beat).toBe(2);
   });
 });
 

@@ -167,7 +167,7 @@ export function planDragMove(
   const noChange: DragMoveResult = { ok: false, notes, items: [], reason: 'unsupported' };
   const fail = (reason: 'out-of-bounds' | 'collision' | 'unsupported'): DragMoveResult =>
     ({ ok: false, notes, items: [], reason });
-  if (delta.dBeat === 0 && delta.dLane === 0) return { ok: true, notes, items };
+  if (delta.dBeat === 0 && delta.dLane === 0) return { ok: true, notes, items, ghost: undefined };
   const beatDisplay = bounds.beatDisplay > 0 ? bounds.beatDisplay : 1;
 
   // issue 09 S3（ADR-0009 §4；**issue 108 改"拉弓变形"为"捏形"**）：**单独拖一个滑条段 = 捏形**——
@@ -178,7 +178,7 @@ export function planDragMove(
     const it = items[0]!;
     const n = notes[it.noteIndex];
     if (!n || !isSlideish(n)) return noChange;
-    if (delta.dLane === 0) return { ok: true, notes, items };
+    if (delta.dLane === 0) return { ok: true, notes, items, ghost: undefined };
     const bent = bendSpan(n as SlideNote | LongNote, it.connIndex, delta.dLane, beatDisplay, bounds.bendPrecision ?? 16, delta.grabBeat);
     if (bent === (n as SlideNote | LongNote)) return noChange;
     const newNotes = notes.map((x, i) => (i === it.noteIndex ? (bent as ChartNote) : x));

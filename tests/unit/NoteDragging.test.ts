@@ -186,6 +186,24 @@ describe('planDragMove（ADR-0008 §6）', () => {
     expect(r.notes).toBe(notes);
   });
 
+  it('issue 111 · 位移为 0 或捏形无 lane 位移时 ghost 为空（禁止全谱幽灵）', () => {
+    const notes: ChartNote[] = [single(1, 1)];
+    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 0 }, B).ghost).toBeUndefined();
+    const slideNote: ChartNote = {
+      type: 'Slide',
+      connections: [{ beat: 1, lane: 0 }, { beat: 2, lane: 0, hidden: true }, { beat: 3, lane: 0 }],
+    };
+    const r = planDragMove(
+      [slideNote],
+      [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }],
+      { dBeat: 0.5, dLane: 0 },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.ghost).toBeUndefined();
+    expect(r.ghost?.length ?? 0).toBe(0);
+  });
+
   it('拖拽集合含不可拖条目（BPM）→ 忽略之只拖可拖部分', () => {
     const notes: ChartNote[] = [single(1, 1), { type: 'BPM', beat: 2, bpm: 120 }];
     const r = planDragMove(notes, noteSel(0, 1), { dBeat: 1, dLane: 0 }, B);
