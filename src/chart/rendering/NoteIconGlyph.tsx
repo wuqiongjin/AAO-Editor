@@ -3,8 +3,8 @@
 // 方向键的字形盒按"本体与键型等大 × DIR_BODY_BOOST"加宽，其余条目为 size × size 方框。
 import { useEffect, useRef } from 'react';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
-import type { ActiveNoteIcons, NoteSkinItemId } from '../../visual/noteSkin';
-import { drawNoteGlyph, glyphBox } from './noteGlyph';
+import type { ActiveNoteIcons } from '../../visual/noteSkin';
+import { drawNoteGlyph, glyphBox, type ToolGlyphItem } from './noteGlyph';
 
 /** 画布内部固定超采样倍率：与运行时 dpr 解耦（dpr 随浏览器缩放变化且不触发本组件重绘，
  *  跟随 dpr 会在缩放后留下低清位图被拉伸）；固定 3× 后任意 ≤300% 缩放都从同一高清 backing 采样。 */
@@ -20,7 +20,7 @@ export default function NoteIconGlyph({
   size = 18,
 }: {
   icons: ActiveNoteIcons;
-  item: NoteSkinItemId;
+  item: ToolGlyphItem;
   size?: number;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);

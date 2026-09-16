@@ -33,24 +33,12 @@ import {
   type DragAnchor,
 } from '../../editing/CanvasGesture';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
-import { smoothPenLanes } from '../../editing/SpanCurve';
 
 /** 画笔光标（验收反馈 #6）：内联 data-uri SVG（铅笔、笔尖为热点），免新增资源文件与加载时序 */
 const PEN_CURSOR = `url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='24'%20height='24'%3E%3Cpath%20d='M3%2021%20L5.5%2014.5%20L17%203%20L21%207%20L9.5%2018.5%20Z'%20fill='%23ffe082'%20stroke='%23333'%20stroke-width='1.5'%20stroke-linejoin='round'/%3E%3Cpath%20d='M3%2021%20L5.5%2014.5%20L9.5%2018.5%20Z'%20fill='%23333'/%3E%3C/svg%3E") 3 21, crosshair`;
 
 /** 画笔视觉激活的按住时长（验收反馈 #6：单击不该闪画笔态，长按才算"作画中"） */
 const PEN_HOLD_MS = 200;
-
-/** 画笔平滑开关打开时：对 [起笔, …采样, 落笔] 整体平滑 lane，端点（起笔/落笔）保持原值 */
-const smoothedPenSamples = (
-  start: { beat: number; lane: number },
-  samples: { beat: number; lane: number }[],
-  end: { beat: number; lane: number },
-  smooth: boolean,
-): { beat: number; lane: number }[] => {
-  if (!smooth || samples.length < 2) return samples;
-  return smoothPenLanes([start, ...samples, end]).slice(1, -1);
-};
 
 interface FinalVirtualCanvasProps {
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
@@ -726,10 +714,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 const stroke = far
                     ? resolvePenStroke(pen.start, pen.samples, pen.dir, { beat: far.beat, lane: far.lane })
                     : null;
-                setPenPreview(stroke
-                    ? buildPenSlide(stroke.from,
-                        smoothedPenSamples(stroke.from, stroke.middles, stroke.to, curveConfig.smooth === true), stroke.to)
-                    : null);
+                setPenPreview(stroke ? buildPenSlide(stroke.from, stroke.middles, stroke.to) : null);
             }
             return;
         }
@@ -795,8 +780,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                     { beat: release.beat, lane: release.lane });
                 const stroke = raw ? finalizePenStrokeCommit(pen.start, raw, beatDisplay) : null;
                 if (stroke) {
-                    const samples = smoothedPenSamples(stroke.from, stroke.middles, stroke.to, curveConfig.smooth === true)
-                        .map((s) => ({ beat: s.beat, lane: s.lane, hidden: true as const }));
+                    const samples = stroke.middles.map((s) => ({ beat: s.beat, lane: s.lane, hidden: true as const }));
                     handleNotesChange(placeSpanWithCombination(notes, stroke.from, stroke.to, samples, null, beatDisplay));
                     if (curveDraft) setCurveDraft(null);
                 }

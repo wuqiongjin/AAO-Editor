@@ -11,7 +11,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
-import { DIR_BODY_BOOST, drawNoteGlyph, glyphBox, slideGlyphGeometry } from '../../src/chart/rendering/noteGlyph';
+import {
+  DIR_BODY_BOOST, drawNoteGlyph, glyphBox, slideGlyphGeometry,
+  curveGlyphGeometry, curveGlyphSway, CURVE_BAND_WIDTH_RATIO, type ToolGlyphItem,
+} from '../../src/chart/rendering/noteGlyph';
 import { computeSlideColLayout, SLIDE_PREVIEW_NODE_SCALE } from '../../src/chart/rendering/noteSkinPreviewLayout';
 import { SLIDE_BAND_TO_NODE_RATIO } from '../../src/visual/noteMetrics';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection, type NoteSkinItemId } from '../../src/visual/noteSkin';
@@ -58,6 +61,13 @@ describe('issue 86 · 工具栏音符图标接入音符皮肤域', () => {
     }
   });
 
+  // issue 114：曲线工具原本是唯一用 lucide `Spline` 的图标（与"画 SP 绿条"的语义也不符）
+  it('曲线工具图标改用皮肤字形（lucide Spline 退场）', () => {
+    const line = toolbarSrc.split('\n').find((l) => l.includes('item="curve"')) ?? '';
+    expect(line, '工具栏 curve 项应走 NoteIconGlyph').toContain('NoteIconGlyph');
+    expect(toolbarSrc).not.toMatch(/\bSpline\b/);
+  });
+
   it('镜像工具改用 FlipHorizontal2（原 RotateCcw 语义不符）', () => {
     expect(toolbarSrc).not.toContain('RotateCcw');
     const mirrorLine = toolbarSrc.split('\n').find((l) => l.includes('label="镜像"')) ?? '';
@@ -84,7 +94,7 @@ describe('issue 86 · legacy 残留清理', () => {
 
 /** 假精灵：只记录绘制盒（设计 px），不碰 canvas —— 这里要锁的是"画在哪、多大" */
 interface DrawnBox { cx: number; cy: number; w: number; h: number }
-function recordDraws(item: NoteSkinItemId, size: number): DrawnBox[] {
+function recordDraws(item: ToolGlyphItem, size: number): DrawnBox[] {
   const drawn: DrawnBox[] = [];
   const sprite = {
     render: (_ctx: unknown, props: { canvasX: number; canvasY: number; canvasSize: number; canvasWidth?: number; canvasHeight?: number; scale?: number }) => {
@@ -177,9 +187,66 @@ describe('issue 91 · 方向键墨迹居中 + 滑条只画"段"', () => {
   });
 });
 
+describe('issue 114 · 曲线工具图标 = 一段弯的 SP 带（无端点）', () => {
+  const SIZE = 28;
+
+  it('逐行铺带：画多行而非一枚整块，且行宽恒等于带宽（横截面完整、不拉伸）', () => {
+    const rows = recordDraws('curve', SIZE);
+    // 一枚整块 = 1 行 —— 那就跟滑条图标没区别了，弯腰看不出来
+    expect(rows.length).toBeGreaterThan(8);
+    const g = curveGlyphGeometry(SIZE);
+    for (const r of rows) expect(r.w, '每行宽度 = 带宽').toBeCloseTo(g.bandW, 6);
+  });
+
+  it('只画带、不画端点：没有任何一行的高度接近字形盒（端点音符至少要 1/3 盒高）', () => {
+    const rows = recordDraws('curve', SIZE);
+    const box = glyphBox(ICONS, 'curve', SIZE);
+    expect(box).toEqual({ w: SIZE, h: SIZE });
+    for (const r of rows) expect(r.h, '行高远小于端点音符').toBeLessThan(box.h / 3);
+  });
+
+  it('确实在弯：行的横向中心随 S 形摆动，摆幅 = 带宽收缩腾出的余量', () => {
+    const rows = recordDraws('curve', SIZE);
+    const g = curveGlyphGeometry(SIZE);
+    const xs = rows.map((r) => r.cx);
+    const span = Math.max(...xs) - Math.min(...xs);
+    expect(span, '应有可见摆幅').toBeGreaterThan(2);
+    expect(span, '摆幅 = 2×amplitude').toBeCloseTo(2 * g.amplitude, 1);
+    expect(Math.abs(curveGlyphSway(0))).toBeLessThan(1e-9);
+    expect(Math.abs(curveGlyphSway(1))).toBeLessThan(1e-9);
+  });
+
+  it('全部落在字形盒内（含摆幅，不越界）', () => {
+    for (const size of [18, 28, 32]) {
+      const box = glyphBox(ICONS, 'curve', size);
+      for (const d of recordDraws('curve', size)) {
+        expect(d.cx - d.w / 2, `size=${size} 左越界`).toBeGreaterThanOrEqual(0);
+        expect(d.cx + d.w / 2, `size=${size} 右越界`).toBeLessThanOrEqual(box.w);
+        expect(d.cy - d.h / 2, `size=${size} 上越界`).toBeGreaterThanOrEqual(0);
+        expect(d.cy + d.h / 2, `size=${size} 下越界`).toBeLessThanOrEqual(box.h);
+      }
+    }
+  });
+
+  it('带宽 = 滑条带宽 × 收缩系数，且 带宽 + 2×摆幅 = 横向可用区（摆幅吃满余量）', () => {
+    for (const size of [18, 28, 32]) {
+      const g = curveGlyphGeometry(size);
+      const slide = slideGlyphGeometry(size);
+      expect(g.bandW).toBeCloseTo(slide.bandW * CURVE_BAND_WIDTH_RATIO, 6);
+      expect(g.bandH).toBe(size - 2);
+      expect(g.bandW + 2 * g.amplitude).toBeCloseTo(size - 2, 6);
+    }
+  });
+
+  it('材质取 SP 带 slideBandSp（与画布 SP 段同源；包缺该素材时 noteSkin 已回退普通带）', () => {
+    const glyphGeom = stripComments(read('src/chart/rendering/noteGlyph.ts'));
+    expect(glyphGeom).toContain('icons.slideBandSp');
+  });
+});
+
 describe('issue 91 · 工具栏 28px + 滑条构图统一（band:结点 = 30:36）', () => {
-  it('六个音符工具项的 NoteIconGlyph 全部 size={28}', () => {
-    for (const item of ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide']) {
+  it('六个音符工具项 + 曲线工具的 NoteIconGlyph 全部 size={28}', () => {
+    for (const item of ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide', 'curve']) {
       const line = toolbarSrc.split('\n').find((l) => l.includes(`item="${item}"`)) ?? '';
       expect(line, item).toContain('size={28}');
     }

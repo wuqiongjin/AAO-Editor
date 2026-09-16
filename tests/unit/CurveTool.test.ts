@@ -23,7 +23,7 @@ import {
   clickOps, boxSelectOps, curveChainClickOps, execCurveOps, placeSpanWithCombination,
   type CurveConfig, type CurveDraft,
 } from '../../src/chart/editing/ToolActionMatrix';
-import { effectiveSpanParams, countVisibleNodes, smoothPenLanes } from '../../src/chart/editing/SpanCurve';
+import { effectiveSpanParams, countVisibleNodes } from '../../src/chart/editing/SpanCurve';
 import { shapeTemplateById } from '../../src/chart/editing/ShapeTemplates';
 import { mirrorNote } from '../../src/chart/editing/NoteEditing';
 import { mirrorLane } from '../../src/chart/editing/NoteEditing';
@@ -592,42 +592,6 @@ describe('issue 09 验收 #9 · 执行-曲线（execCurveOps，Shift+W）', () =
       notes: [bpmAt0], selectedItems: [], cursor: null, chartEndBeat: 16, beatDisplay: 4,
       lastBpm: 120, clipboard: [], curveDraft: null, curveConfig: CFG, hit: null,
     })).toEqual([]);
-  });
-});
-
-describe('issue 09 验收 #5 · 画笔平滑（smoothPenLanes）', () => {
-  it('beat 栅格与首尾端点保持不动，只动中间 lane', () => {
-    const pts = [
-      { beat: 1, lane: 0 }, { beat: 1.25, lane: 6 }, { beat: 1.5, lane: 0 }, { beat: 1.75, lane: 6 }, { beat: 2, lane: 0 },
-    ];
-    const out = smoothPenLanes(pts);
-    expect(out.map((p) => p.beat)).toEqual(pts.map((p) => p.beat));
-    expect(out[0]!.lane).toBe(0);
-    expect(out.at(-1)!.lane).toBe(0);
-  });
-
-  it('锯齿被抹平：平滑后中间点的极值向邻域收敛（|lane| 变小）', () => {
-    const pts = [
-      { beat: 1, lane: 0 }, { beat: 1.25, lane: 6 }, { beat: 1.5, lane: 0 }, { beat: 1.75, lane: 6 }, { beat: 2, lane: 0 },
-    ];
-    const out = smoothPenLanes(pts);
-    expect(Math.abs(out[1]!.lane)).toBeLessThan(6);
-    expect(Math.abs(out[2]!.lane)).toBeGreaterThan(0);
-  });
-
-  it('直线轨迹平滑后不变（平滑不引入形变）', () => {
-    const pts = [
-      { beat: 1, lane: 0 }, { beat: 1.25, lane: 1.5 }, { beat: 1.5, lane: 3 }, { beat: 1.75, lane: 4.5 }, { beat: 2, lane: 6 },
-    ];
-    const out = smoothPenLanes(pts);
-    out.forEach((p, i) => expect(p.lane).toBeCloseTo(pts[i]!.lane, 12));
-  });
-
-  it('lane 钳制 0..6；点数 <3 原样返回', () => {
-    const pts = [{ beat: 1, lane: 0 }, { beat: 1.5, lane: 9 }, { beat: 2, lane: 0 }];
-    const out = smoothPenLanes(pts);
-    expect(out[1]!.lane).toBeLessThanOrEqual(6);
-    expect(smoothPenLanes([{ beat: 1, lane: 2 }])).toHaveLength(1);
   });
 });
 

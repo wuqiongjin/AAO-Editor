@@ -4,6 +4,7 @@
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
 import { loadSettings, saveSettings, updateSettings, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
 import { getDefaultConfig, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
+import type { CurveConfig } from '../../chart/editing/ToolActionMatrix';
 
 export interface ConfigContextValue {
   settings: AppSettings;
@@ -21,6 +22,8 @@ export interface ConfigContextValue {
   /** 谱面背景皮肤（issue 29 Q4 + 修订）：字段级写回 settings.visual.backgroundSkin（enabled/opacity/fit/scope）；
    *  图片本体经 utils/backgroundSkin.ts 存取，本方法只管配置位 */
   setBackgroundSkin: (patch: { enabled?: boolean; opacity?: number; fit?: 'cover' | 'contain'; scope?: 'outsideTrack' | 'fullCanvas' }) => void;
+  /** 曲线工具配置（issue 114）：整份写回 settings.curve 并持久化（跨会话沿用上次值） */
+  setCurveConfig: (config: CurveConfig) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
   setAllSettings: (next: AppSettings) => void;
 }
@@ -105,6 +108,16 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // 曲线工具配置（issue 114）：与皮肤/键音同范式——字段级写回、立即生效并持久化。
+  // 引用必须稳定：UIProvider 的 setCurveConfig 依赖它做写透（deps 变化会让工具栏每次渲染换新回调）。
+  const setCurveConfig = useCallback((config: CurveConfig) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { curve: config });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
   const setAllSettings = useCallback((next: AppSettings) => {
     saveSettings(next);
     setSettings(next);
@@ -113,7 +126,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

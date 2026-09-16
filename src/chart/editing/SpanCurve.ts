@@ -139,28 +139,6 @@ export function buildPenSlide(
 }
 
 /**
- * 画笔轨迹平滑（issue 09 验收反馈 #5，`CurveConfig.smooth` 开关）：对 **lane 序列**做 6 趟
- * 加权移动平均 `[1,2,1]/4`，**beat 栅格与首尾端点保持不动**（数据模型硬约束：beat 单调、
- * 落子端点吸附放置栅格）。6 趟 ≈ σ≈1.7 采样的高斯核：手抖（1-2 采样波长）强阻尼、
- * 整体形状（≥4 采样波长的特征）保留——2 趟用户实测无感，故加强。
- * 只作用画笔自由段——缓动/模板段本来就是解析形状，不参与。
- */
-export function smoothPenLanes(
-  points: { beat: number; lane: number }[],
-): { beat: number; lane: number }[] {
-  if (points.length < 3) return points;
-  let lanes = points.map((p) => p.lane);
-  for (let pass = 0; pass < 6; pass++) {
-    const next = [...lanes];
-    for (let i = 1; i < lanes.length - 1; i++) {
-      next[i] = (lanes[i - 1]! + 2 * lanes[i]! + lanes[i + 1]!) / 4;
-    }
-    lanes = next;
-  }
-  return points.map((p, i) => ({ ...p, lane: clamp(lanes[i]!, 0, 6) }));
-}
-
-/**
  * 对滑条**每个逻辑段**应用同一参数（issue 09 验收反馈 #7：曲线工具框选 = 组合 + 全部段应用）。
  * 逐段 `regenerateSpan`（段内 hidden 重烘焙、参数覆盖写入）；无段的滑条原样返回。
  */

@@ -9,6 +9,7 @@ import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutCon
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../audio/KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../visual/gen/noteSkinRegistry.gen';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../visual/gridStyle';
+import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/ToolActionMatrix';
 
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */
 export const DEFAULT_BACKGROUND_OPACITY = 0.55;
@@ -65,6 +66,12 @@ export interface AppSettings {
       scope?: BackgroundScope;
     };
   };
+  /**
+   * 曲线工具配置（issue 114 定案：全局一份、跨会话沿用上次值，**不随谱面工程走**——
+   * 它是"我的习惯"而非谱面属性）。additive 字段，不 bump schemaVersion；
+   * 缺段/脏值经 `normalizeCurveConfig` 归一化回落。
+   */
+  curve: CurveConfig;
 }
 
 /** 音符皮肤六条目（与 renderer/noteSkin.ts 的 NoteSkinItemId 一致；此处独立声明避免 utils→renderer 运行时依赖） */
@@ -113,6 +120,7 @@ export function defaultSettings(): AppSettings {
       labelScale: 1,
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
+    curve: { ...DEFAULT_CURVE_CONFIG },
   };
 }
 
@@ -185,6 +193,7 @@ function mergeSettings(parsed: unknown): AppSettings {
       labelScale: clamp(display.labelScale, 0.5, 3, defaults.display.labelScale),
     },
     visual: { noteSkin, backgroundSkin },
+    curve: normalizeCurveConfig(obj.curve),
   };
 }
 
@@ -242,6 +251,7 @@ export function updateSettings(
     audio: Partial<AppSettings['audio']>;
     display: Partial<AppSettings['display']>;
     visual: Partial<AppSettings['visual']>;
+    curve?: CurveConfig;
   }>,
 ): AppSettings {
   return {
@@ -252,5 +262,6 @@ export function updateSettings(
     audio: { ...prev.audio, ...(patch.audio ?? {}) },
     display: { ...prev.display, ...(patch.display ?? {}) },
     visual: { ...prev.visual, ...(patch.visual ?? {}) },
+    curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
   };
 }

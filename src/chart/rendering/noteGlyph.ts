@@ -42,6 +42,66 @@ export function slideGlyphGeometry(size: number): { bandW: number; bandH: number
   return { bandW: usable * SLIDE_BAND_TO_NODE_RATIO, bandH: usable };
 }
 
+/**
+ * 工具栏可画的字形项 = 音符皮肤六条目 **+ 曲线工具**（issue 114）。
+ * `'curve'` **不是皮肤条目**（`NoteSkinItemId` 六条目定义不动）——它只是借用 SP 带材质
+ * `slideBandSp`（`longNoteLine2`）画一条弯带的**工具图标**。
+ */
+export type ToolGlyphItem = NoteSkinItemId | 'curve';
+
+/**
+ * 曲线字形：带宽相对滑条带宽的收缩系数（issue 114 调参）。
+ * 收缩腾出的横向余量即为 S 形摆幅——不收缩的话 28px 下带宽就吃满方框，弯了也看不出来。
+ */
+export const CURVE_BAND_WIDTH_RATIO = 0.62;
+
+/** 曲线字形绘制几何（设计 px）：纵向铺满字形盒，带宽 × 摆幅恰好占满横向可用区 */
+export function curveGlyphGeometry(size: number): { bandW: number; bandH: number; amplitude: number } {
+  const usable = size - 2;
+  const bandW = usable * SLIDE_BAND_TO_NODE_RATIO * CURVE_BAND_WIDTH_RATIO;
+  return { bandW, bandH: usable, amplitude: Math.max(0, (usable - bandW) / 2) };
+}
+
+/** 曲线字形中心线（S 形）：一个完整正弦周期，两端回到中线（t = 纵向进度 0..1 → 横向偏移 -1..1） */
+export function curveGlyphSway(t: number): number {
+  return Math.sin(2 * Math.PI * t);
+}
+
+/**
+ * 画曲线字形：**只画一段弯的 SP 带，不画端点**（issue 114 定案）。
+ * 材质取 `slideBandSp`（与画布 SP 段同源，换肤联动；包缺该素材时 noteSkin 已回退普通带）。
+ * 逐行铺带：每一行横向取素材的完整横截面（暗心 + 亮缘），纵向只占一行 → 得到沿中心线弯曲的带子。
+ */
+export function drawCurveGlyph(
+  ctx: CanvasRenderingContext2D,
+  sprite: CanvasSpriteIcon,
+  icons: ActiveNoteIcons,
+  w: number,
+  h: number,
+): void {
+  const size = Math.min(w, h);
+  const { bandW, bandH, amplitude } = curveGlyphGeometry(size);
+  const cx = w / 2;
+  const top = h / 2 - bandH / 2;
+  const rows = Math.max(8, Math.round(bandH));
+  const rowH = bandH / rows;
+  const band = icons.slideBandSp;
+  for (let i = 0; i < rows; i++) {
+    const t = (i + 0.5) / rows;
+    sprite.render(ctx, {
+      ...band,
+      canvasX: cx + curveGlyphSway(t) * amplitude,
+      canvasY: top + (i + 0.5) * rowH,
+      canvasSize: bandW,
+      canvasWidth: bandW,
+      // 行高多留 0.5px：相邻行轻微交叠，消除缩绘留下的 1px 接缝（同色叠合无痕）
+      canvasHeight: rowH + 0.5,
+      scale: 1,
+      renderLayer: 'main',
+    });
+  }
+}
+
 /** 方向键整组横向半宽（设计 px）：len=1 时 offsetVirtualX=0，只剩箭头中线外推 + 箭头半宽，本体半宽兜底 */
 function dirGroupHalfW(icons: ActiveNoteIcons, item: 'dirL' | 'dirR'): number {
   const chevron = icons.dirGroup(item === 'dirL' ? 'L' : 'R', 1).chevron;
@@ -54,7 +114,7 @@ function dirGroupHalfW(icons: ActiveNoteIcons, item: 'dirL' | 'dirR'): number {
  * 需要的宽度由盒子承担 —— W = 整组设计宽 × bodyScale + 两侧各 1px 呼吸，H 与方框同高；
  * 其余条目 = size × size 方框。
  */
-export function glyphBox(icons: ActiveNoteIcons, item: NoteSkinItemId, size: number): { w: number; h: number } {
+export function glyphBox(icons: ActiveNoteIcons, item: ToolGlyphItem, size: number): { w: number; h: number } {
   if (item !== 'dirL' && item !== 'dirR') return { w: size, h: size };
   const halfW = dirGroupHalfW(icons, item);
   const bodyScale = ((size - 2) * DIR_BODY_BOOST) / DIR_W;
@@ -68,13 +128,19 @@ export function drawNoteGlyph(
   ctx: CanvasRenderingContext2D,
   sprite: CanvasSpriteIcon,
   icons: ActiveNoteIcons,
-  item: NoteSkinItemId,
+  item: ToolGlyphItem,
   w: number,
   h: number,
 ): void {
   const cx = w / 2;
   const cy = h / 2;
   const usable = Math.min(w, h) - 2; // 边缘各留 1px 呼吸
+
+  // issue 114：曲线工具图标 = 一段弯的 SP 带（无端点），与其余键型图标同为皮肤材质
+  if (item === 'curve') {
+    drawCurveGlyph(ctx, sprite, icons, w, h);
+    return;
+  }
 
   if (item === 'tap' || item === 'skill' || item === 'flick') {
     const icon = item === 'tap' ? icons.tapFor(3) : item === 'skill' ? icons.skillFor(3) : icons.flickFor(3);

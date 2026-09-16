@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from "react";
+import { useMemo } from "react";
 import {
   Music,
   MousePointer,
@@ -11,30 +11,22 @@ import {
   Redo,
   ChevronLeft,
   FileCode,
-  Spline,
 } from "lucide-react";
 import NoteIconGlyph from '../../chart/rendering/NoteIconGlyph';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../visual/noteSkin';
 import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
-import { SHAPE_TEMPLATES } from '../../chart/editing/ShapeTemplates';
-import { EASING_FAMILIES, EASING_TYPES, CURVE_PRECISIONS } from '../../chart/editing/Easing';
 import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
 import type { ArmedTool } from '../../app/providers/UIProvider';
 import IconButton from '../../ui/IconButton';
 import ChartCodeEditor from '../../chart/components/code-editor/ChartCodeEditor';
+import SectionHeader from './ToolbarSection';
+import CurveConfigPanel from './CurveConfigPanel';
 import './Toolbar.css';
 
 // 工作台左侧工具栏（issue 22 + issue 28 + issue 49 阶段 3 迁出）：
 //   - 折叠按钮 + 标题 + 当前工具 pill（顶栏）
 //   - 3 段工具区：键型工具（3 列）/ 节拍吸附 / 编辑功能（2 列）
 //   - 谱面代码（issue 37）入口按钮跨 2 列
-
-/** 区块标题（统一样式：小号大写灰字） */
-function SectionHeader({ children }: { children: ReactNode }) {
-  return (
-    <h3 className="toolbar__section-header">{children}</h3>
-  );
-}
 
 // 工具 id → 快捷键类别（tooltip 按类别合并 切换/执行）
 const toolCategory: Record<string, string> = {
@@ -44,21 +36,7 @@ const toolCategory: Record<string, string> = {
   noteCode: "音符代码", undo: "撤销", redo: "重做",
 };
 
-/** 曲线工具配置项的选项表（issue 09 S2 / ADR-0009 §2：从 Easing.ts 常量派生，增族不漂移） */
-const FAMILY_ZH: Record<string, string> = {
-  sine: "正弦", quad: "二次", cubic: "三次", quart: "四次", quint: "五次",
-  expo: "指数", circ: "圆弧", back: "过冲", elastic: "弹性", bounce: "弹跳",
-};
-const TYPE_ZH: Record<string, string> = { in: "In", out: "Out", inOut: "In-Out", outIn: "Out-In" };
-const CURVE_FAMILY_OPTIONS = EASING_FAMILIES.map((f) => ({ value: f, label: `${f} ${FAMILY_ZH[f] ?? ""}` }));
-const CURVE_TYPE_OPTIONS = EASING_TYPES.map((t) => ({ value: t, label: TYPE_ZH[t] ?? t }));
-const CURVE_PRECISION_OPTIONS = CURVE_PRECISIONS.map((p) => ({ value: p, label: `1/${p}` }));
-
-// issue 09 S4：形状模板预设（ADR-0009 §2 三来源之三；缓动弧线预设走缓动路径不入本表）
-const CURVE_TEMPLATE_OPTIONS = [
-  { value: "", label: "不用模板（缓动函数）" },
-  ...SHAPE_TEMPLATES.map((tp) => ({ value: tp.id, label: tp.label })),
-];
+// 曲线工具配置项的选项表已随面板抽到 `CurveConfigPanel.tsx`（issue 114）。
 
 export default function Toolbar() {
   const editing = useEditing();
@@ -105,7 +83,8 @@ export default function Toolbar() {
     { id: "rdirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirR" size={28} />, label: "右滑" },
     { id: "slide", icon: <NoteIconGlyph icons={noteIcons} item="slide" size={28} />, label: "滑条" },
     // issue 09 S2：曲线工具（SP 绿条直接放置——单击链式 / 拖动画笔 / 点段重应用）
-    { id: "curve", icon: <Spline size={18} />, label: "曲线" },
+    // issue 114：图标改用真实 SP 带材质的一段弯带（与其余键型图标同为皮肤字形、size 28）
+    { id: "curve", icon: <NoteIconGlyph icons={noteIcons} item="curve" size={28} />, label: "曲线" },
   ];
   // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）。
   // 动作类持工具态（方案 A，issue 55 三轮：删除/镜像）标签供顶部 pill 显示
@@ -178,66 +157,10 @@ export default function Toolbar() {
           </select>
         </div>
 
-        {/* issue 09 S2：曲线工具配置（仅曲线持工具态时出现；ADR-0008 §5 沿用上次值模式）。
-            S4：模板优先——选了模板后缓动族/型/精度被忽略（模板点列即采样） */}
+        {/* issue 09 S2：曲线工具配置（仅曲线持工具态时出现）。
+            issue 114：面板抽到 CurveConfigPanel（表驱动）；配置持久化于 settings.curve、跨会话沿用 */}
         {armedTool === "curve" && (
-          <div>
-            <SectionHeader>曲线配置</SectionHeader>
-            <select
-              value={curveConfig.templateId ?? ""}
-              onChange={(e) => setCurveConfig({ ...curveConfig, templateId: e.target.value || null })}
-              className="toolbar__beat-select"
-              title="形状模板（内置相对形状库）"
-            >
-              {CURVE_TEMPLATE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <select
-              value={curveConfig.family}
-              disabled={curveConfig.templateId != null}
-              onChange={(e) => setCurveConfig({ ...curveConfig, family: e.target.value as typeof curveConfig.family })}
-              className="toolbar__beat-select"
-              title="缓动族（对标 Bestdori 曲线工具 10 族）"
-            >
-              {CURVE_FAMILY_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <select
-              value={curveConfig.type}
-              disabled={curveConfig.templateId != null}
-              onChange={(e) => setCurveConfig({ ...curveConfig, type: e.target.value as typeof curveConfig.type })}
-              className="toolbar__beat-select"
-              title="缓动型"
-            >
-              {CURVE_TYPE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <select
-              value={curveConfig.precision}
-              disabled={curveConfig.templateId != null}
-              onChange={(e) => setCurveConfig({ ...curveConfig, precision: Number(e.target.value) as typeof curveConfig.precision })}
-              className="toolbar__beat-select"
-              title="采样精度（每拍 hidden 采样密度）"
-            >
-              {CURVE_PRECISION_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            {/* 验收反馈 #5：画笔圆滑开关（默认关）——只作用画笔自由段，缓动/模板段不参与 */}
-            <label className="toolbar__hint" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
-              title="画笔落子与预览时对轨迹做圆滑处理（拍位与端点保持不变）">
-              <input
-                type="checkbox"
-                checked={curveConfig.smooth === true}
-                onChange={(e) => setCurveConfig({ ...curveConfig, smooth: e.target.checked })}
-              />
-              画笔圆滑
-            </label>
-            <p className="toolbar__hint">空白：两击=直放缓动段 / 拖动=画笔（可倒画）；点已有段 = 应用当前曲线</p>
-          </div>
+          <CurveConfigPanel config={curveConfig} onChange={setCurveConfig} />
         )}
 
         {/* 编辑功能（对选中对象/剪贴板）：2 列网格，谱面代码铺满 */}

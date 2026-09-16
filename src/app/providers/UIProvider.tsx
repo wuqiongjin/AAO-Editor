@@ -6,6 +6,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { defaultPanelWidth } from '../../chart/config/AppSettings';
 import type { CurveConfig } from '../../chart/editing/ToolActionMatrix';
+import { useConfig } from './ConfigProvider';
 
 
 // ADR-0008 §1 工具轴（持工具态）：所有工具共驻一根互斥轴；null = 指针态（默认底态）。
@@ -18,11 +19,6 @@ export type KeyToolId = 'single' | 'flick' | 'skill' | 'ldirectional' | 'rdirect
 export type ActionToolId = 'delete' | 'paste' | 'mirror' | 'noteCode';
 // issue 09 S2（ADR-0009 §3）：`curve` = 曲线工具（单击链式缓动段 / 拖动画笔自由段 / 点段重应用）
 export type ArmedTool = KeyToolId | 'bpm' | 'slide' | 'curve' | ActionToolId;
-
-/** 曲线工具出厂默认（沿用上次值 = 本 Provider state 天然具备；会话内不持久化到 settings）。
- *  templateId null = 用缓动函数；非空 = 形状模板优先（ADR-0009 §2）；
- *  smooth = 画笔 lane 平滑开关（验收反馈 #5，默认关） */
-export const DEFAULT_CURVE_CONFIG: CurveConfig = { family: 'sine', type: 'inOut', precision: 16, templateId: null, smooth: false };
 
 export interface UIContextValue {
   armedTool: ArmedTool | null;
@@ -54,8 +50,13 @@ export interface UIContextValue {
 const UIContext = createContext<UIContextValue | null>(null);
 
 export function UIProvider({ children }: { children: ReactNode }) {
+  // issue 114：曲线配置持久化于 settings.curve（全局一份、跨会话沿用），**单一真相在 ConfigContext**。
+  // 本 Provider 不另存副本：否则「设置导入」走 ConfigContext 的 `setAllSettings` 整体替换 settings 后，
+  // 这里的副本不会跟着变——工具栏面板与画笔采样步长（`step = 1 / curveConfig.precision`）会继续用旧值。
+  // 也正因如此不需要布局那套"挂载 hydrate + 回写"双 effect（布局初值依赖 window 尺寸才要挂载后覆盖）。
+  const { settings, setCurveConfig: persistCurveConfig } = useConfig();
+  const curveConfig = settings.curve;
   const [armedTool, setArmedTool] = useState<ArmedTool | null>(null);
-  const [curveConfig, setCurveConfig] = useState<CurveConfig>(DEFAULT_CURVE_CONFIG);
   const [scale, setScale] = useState(1);
   const [beatDisplay, setBeatDisplay] = useState(4);
 
@@ -99,7 +100,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
 
   const value: UIContextValue = {
     armedTool, setArmedTool,
-    curveConfig, setCurveConfig,
+    curveConfig, setCurveConfig: persistCurveConfig,
     scale, setScale,
     beatDisplay, setBeatDisplay,
     leftPanelWidth, rightPanelWidth,

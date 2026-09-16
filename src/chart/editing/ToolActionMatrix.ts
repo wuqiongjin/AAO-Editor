@@ -15,7 +15,8 @@ import {
   applyParamToAllSpans, bakeSpanPoints, connTrueBeat,
   countVisibleNodes, effectiveSpanParams, regenerateSpan,
 } from './SpanCurve';
-import type { CurvePrecision, EasingFamily, EasingType } from './Easing';
+import { CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES, type CurvePrecision, type EasingFamily, type EasingType } from './Easing';
+import { shapeTemplateById } from './ShapeTemplates';
 // 对象视图目标（issue 59 §4）在 NoteCodeOps 定义（回写走同一类型），转出供 op 与调用方使用
 import { noteCodeTargetForHit, type NoteCodeTarget } from './NoteCodeOps';
 export type { NoteCodeTarget } from './NoteCodeOps';
@@ -35,15 +36,44 @@ export type MatrixTool =
 export interface SlidePoint { beat: number; lane: number; subBeat: number }
 export interface SnapPos { beat: number; lane: number }
 
-/** 曲线工具当前配置（UIProvider 持有、沿用上次值；放置与段重应用共用）。
- *  `templateId` 非空 = 形状模板优先（ADR-0009 §2 三来源之三），缓动三字段被忽略；
- *  `smooth` = 画笔落子/预览的 lane 平滑开关（验收反馈 #5，默认关；只作用画笔自由段） */
+/** 曲线工具当前配置（issue 114 起持久化于 `settings.curve`，全局一份、跨会话沿用；放置与段重应用共用）。
+ *  `templateId` 非空 = 形状模板优先（ADR-0009 §2 三来源之三），缓动三字段被忽略。 */
 export interface CurveConfig {
   family: EasingFamily;
   type: EasingType;
   precision: CurvePrecision;
   templateId?: string | null;
-  smooth?: boolean;
+}
+
+/**
+ * 曲线工具出厂默认（issue 114 定案：默认缓动型由 `inOut` 改为 `in`）。
+ * 与 `normalizeCurveConfig` 同放在本文件——`AppSettings` 需要它做持久化归一化，
+ * 而本模块不依赖任何 Provider（放 UIProvider 会造成 AppSettings ↔ Provider 循环依赖）。
+ */
+export const DEFAULT_CURVE_CONFIG: CurveConfig = {
+  family: 'sine',
+  type: 'in',
+  precision: 16,
+  templateId: null,
+};
+
+/**
+ * 持久化归一化（白名单校验 + 缺字段回落）：老设置文件没有 `curve` 段、或存了已下线的模板 id
+ * / 非法枚举时，一律回落到出厂默认的那一项，绝不把脏值带进运行时。
+ */
+export function normalizeCurveConfig(raw: unknown): CurveConfig {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const d = DEFAULT_CURVE_CONFIG;
+  const family = (EASING_FAMILIES as readonly string[]).includes(o.family as string)
+    ? (o.family as EasingFamily) : d.family;
+  const type = (EASING_TYPES as readonly string[]).includes(o.type as string)
+    ? (o.type as EasingType) : d.type;
+  const precision = (CURVE_PRECISIONS as readonly number[]).includes(o.precision as number)
+    ? (o.precision as CurvePrecision) : d.precision;
+  // 模板 id 必须能解析到现存模板，否则回落"不使用模板"（模板库改名/删项后老设置仍可读）
+  const templateId = typeof o.templateId === 'string' && shapeTemplateById(o.templateId)
+    ? o.templateId : null;
+  return { family, type, precision, templateId };
 }
 
 /** 配置 → 段参数（模板优先；S4 起放置/重应用/预览三路共用，保证"所见即所得"） */

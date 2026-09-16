@@ -37,6 +37,31 @@ export type CurvePrecision = 16 | 32 | 64;
 
 export const CURVE_PRECISIONS: readonly CurvePrecision[] = [16, 32, 64];
 
+/**
+ * 族 / 型的**展示名**（issue 114 定案）：英文 id 首字母大写 + 全角括号包中文。
+ * 与 `EASING_FAMILIES` / `EASING_TYPES` 收在同一文件（加族必补此表，防漂移）；
+ * 未来多语言只需替换这两张表，不碰 UI。
+ */
+export const EASING_FAMILY_LABELS: Record<EasingFamily, string> = {
+  sine: 'Sine（正弦）',
+  quad: 'Quad（二次）',
+  cubic: 'Cubic（三次）',
+  quart: 'Quart（四次）',
+  quint: 'Quint（五次）',
+  expo: 'Expo（指数）',
+  circ: 'Circ（圆弧）',
+  back: 'Back（过冲）',
+  elastic: 'Elastic（弹性）',
+  bounce: 'Bounce（弹跳）',
+};
+
+export const EASING_TYPE_LABELS: Record<EasingType, string> = {
+  in: 'In（缓入）',
+  out: 'Out（缓出）',
+  inOut: 'In-Out（缓入缓出）',
+  outIn: 'Out-In（缓出缓入）',
+};
+
 /** 标准easeOutBounce（bundle bounce 基函数的补形，也供锁测对照） */
 export function easeOutBounce(t: number): number {
   const n1 = 7.5625;
