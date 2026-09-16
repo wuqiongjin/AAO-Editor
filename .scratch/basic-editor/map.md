@@ -104,6 +104,7 @@
   - [110 拖拽中滚轮与 Shift+滚轮](./issues/110-拖拽中滚轮与Shift滚轮.md)（bug，**resolved（用户实测通过）**；`d62f0d6`+`12e8db3`）——**定了什么** = 拖拽中**允许**滚动/缩放，但必须把框选那条「视口变化时重算」effect 扩展到拖拽（现 `|| dragRef.current` 显式跳过 → 幽灵不重算、松手按新 scrollY 结算 = 所见≠所得）；越界按 `freezeGestureCursor` 冻结最后合法落点；**Shift+滚轮全局按纵向处理**（现被浏览器映射为横向、容器 `overflowX:hidden` 吃掉 = 用户报的"滚不动"真因）。不做边缘 auto-scroll。
   - [111 拖拽归位全谱音符幽灵覆写](./issues/111-拖拽归位全谱音符幽灵覆写.md)（bug，open）——**改成什么** = 拖动位移归零（回到原位）或无有效位移时幽灵置 `null`，清除 `setDragGhost(r.ghost ?? notes)` 将全谱当幽灵覆写的致盲高亮缺陷。
   - [112 SP 画笔终点网格吸附与最小跨度](./issues/112-SP画笔终点网格吸附与最小跨度.md)（grilling，open）——**定了什么（待拍板）** = 网格中间松手误退回未量化采样点缺陷修复；拍板画笔落点吸附与「绝不吸附回起点拍线」的最小跨度保底语义。
+- **113 画布手势会话深模块（2026-09-16 `improve-codebase-architecture` 评审候选 2，用户 grill 拍板 Q1–Q15；`Type: chore`）** —— [113](./issues/113-画布手势会话深模块.md)：**改成什么** = 把「进行中手势」的生命周期与 16 份状态从 `FinalVirtualCanvas` 抽成有状态深模块 `src/chart/editing/GestureSession.ts`（issue 70 只抽走判定表，108~112 五票与两次返工全落在剩下的编排层；70 的收益评估已证伪）；**边界** = 只收生命周期 / 状态所有权 / window 事件绑定 / 视口变化重算，判定表（`CanvasGesture` / `NoteDragging` / `ToolActionMatrix`）一行不动，起点标记与 BPM 编辑不搬；5 个渲染镜像 state 改由 snapshot 出口（`renderCanvas` 依赖 5 → 1）；迁移三刀、19 条不变量、新增手势序列单测。**排期不抢 103 → 104 → 105 关键路径**（104 修法 8 动同一片拖拽代码）。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
