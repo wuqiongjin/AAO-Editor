@@ -34,7 +34,7 @@ type Conn = { lane: number; beat: number; subBeat?: number; hidden?: boolean };
 type Pt = { x: number; y: number };
 
 function harness(notes: ChartNote[]) {
-  const geometry = new ChartGeometry(BPM, 100, SURFACE);
+  const geometry = new ChartGeometry(BPM, { endBeat: 100 } , SURFACE);
   const c = makeCoords(geometry, VIEWPORT, BEAT_DISPLAY, notes);
   const rc = {
     geometry,

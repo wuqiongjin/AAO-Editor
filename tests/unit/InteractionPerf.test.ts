@@ -126,7 +126,7 @@ describe('diffNotes 结构共享 diff', () => {
 describe('noteLayerCache 增量失效（3000 音符）', () => {
   const chartEndBeat = 1500;
   const es = 0.5;
-  const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+  const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
   const scrollY = scrollYForCenterBeat(g, 750, es);
 
   beforeEach(() => {
@@ -225,7 +225,7 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
     const builtTiles = rebuilt.n;
 
     // BPM 音符改变 → getBpmEvents 内容变 → 组件复用判定失败会新建 geometry（F2 走全量分支）
-    const g2 = new ChartGeometry([{ beat: 0, bpm: 180 }], chartEndBeat, SURFACE);
+    const g2 = new ChartGeometry([{ beat: 0, bpm: 180 }], { endBeat: chartEndBeat } , SURFACE);
     const main: Counters = { drawImage: 0, sprites: 0, strokes: 0 };
     drawNotesLayer(makeCountingCtx(main), makeRc(g2, notes, chartEndBeat, es, scrollYForCenterBeat(g2, 750, es), EMPTY_SELECTED, main, sprites));
 

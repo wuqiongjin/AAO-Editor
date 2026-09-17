@@ -5,7 +5,6 @@ import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport } from '../chart/geometry/ChartGeometry';
 import { shiftGroupToAnchor, mirrorNote, countNotesUpToBeat } from '../chart/editing/NoteEditing';
 import { perf } from '../chart/perf';
-import { beatToSeconds, getBpmEvents } from '../audio/AudioTiming';
 import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
@@ -106,14 +105,23 @@ export function renderStartMarker(ctx: CanvasRenderingContext2D, c: Coords, rc: 
 }
 
 /**
- * 视口可见拍范围（issue 10 性能，纯函数供单测）：
- * 由视口虚拟Y边界反解 beat 窗口（含半拍余量），网格只迭代该窗口而非 [0, chartEndBeat] 全量。
+ * 视口可见**拍区间集合**（issue 10 性能 + issue 104 修法 4，纯函数供单测）：
+ * 由视口**布局坐标**边界正向求出每个 BPM 段内落进窗口的拍区间，网格只迭代这些区间
+ * 而非 [0, chartEndBeat] 全量。倒流区里同一 y 会被多个拍经过 → **多段区间**（旧实现反解成
+ * 单个 beat 窗口，折返带上"该画的没画"）；单调谱面下退化为单个区间，与旧口径等价。
  */
-export function visibleBeatRange(geometry: ChartGeometry, viewport: GeometryViewport, chartEndBeat: number): { min: number; max: number } {
-  const b = geometry.viewportBounds(viewport);
-  const lo = geometry.virtualYToBeat(b.maxY, viewport.scale);
-  const hi = geometry.virtualYToBeat(b.minY, viewport.scale);
-  return { min: Math.max(0, Math.floor(lo - 0.5)), max: Math.min(chartEndBeat, Math.ceil(hi + 0.5)) };
+export function visibleBeatRanges(
+  geometry: ChartGeometry,
+  viewport: GeometryViewport,
+  chartEndBeat: number,
+): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  for (const r of geometry.visibleBeatRanges(viewport)) {
+    const start = Math.max(0, r.start);
+    const end = Math.min(chartEndBeat, r.end);
+    if (end >= start) out.push({ start, end });
+  }
+  return out;
 }
 
 /** 绘制网格（轨道竖线 + 节拍/子节拍横线）。只迭代可见拍范围；极小间距时按像素间距抽稀。 */
@@ -148,7 +156,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
   // 层级靠**颜色**区分（主题亮度沿层级递减、下限远离黑）；形态阶梯改为可选开关
   // lineShapeTiers（默认关 = 全实线），开启后叠加线形阶梯。透明度恒 1（避免暗上加暗跌近黑）。
   // 抽稀按层级从高到低进行：与任一已绘制线过近的候选被跳过（优先保留高层级）。
-  const { min: beatFrom, max: beatTo } = visibleBeatRange(rc.geometry, rc.viewport, rc.chartEndBeat);
+  const ranges = visibleBeatRanges(rc.geometry, rc.viewport, rc.chartEndBeat);
   const es = rc.viewport.scale;
   const style = GRID_STYLES[normalizeGridStyle(rc.display?.gridStyle)];
   const lineShapeTiers = rc.display?.lineShapeTiers === true;
@@ -156,15 +164,20 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
 
   interface GridCandidate { y: number; tier: GridTier }
   const candidates: GridCandidate[] = [];
-  for (let beat = beatFrom; beat <= beatTo; beat++) {
-    const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
-    if (y >= 0 && y <= rc.surface.h) candidates.push({ y, tier: 'beat' });
-    for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
-      const preciseBeat = beat + subBeat / rc.beatDisplay;
-      if (preciseBeat > rc.chartEndBeat + 1e-6) continue;
-      const subY = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat)).y;
-      if (subY < 0 || subY > rc.surface.h) continue;
-      candidates.push({ y: subY, tier: gridTierOf(subBeat, rc.beatDisplay) });
+  // issue 104 修法 4：按**布局坐标派生的拍区间**逐段枚举（每段内 pos 单调、区间连续）；
+  // 每个候选独立求 y，不做任何"pos 随 beat 递增"的假设。
+  for (const range of ranges) {
+    for (let beat = Math.floor(range.start + 1e-9); beat <= range.end + 1e-9; beat++) {
+      if (beat < 0 || beat > rc.chartEndBeat + 1e-6) continue;
+      const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
+      if (y >= 0 && y <= rc.surface.h) candidates.push({ y, tier: 'beat' });
+      for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
+        const preciseBeat = beat + subBeat / rc.beatDisplay;
+        if (preciseBeat > rc.chartEndBeat + 1e-6) continue;
+        const subY = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat)).y;
+        if (subY < 0 || subY > rc.surface.h) continue;
+        candidates.push({ y: subY, tier: gridTierOf(subBeat, rc.beatDisplay) });
+      }
     }
   }
 
@@ -1317,9 +1330,12 @@ export function renderHoverInfo(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   if (!rc.hoverPos) return;
   const { trackStartX, totalTrackWidth } = c.trackGeometry(rc.viewport.scale);
   const labelScale = rc.display?.labelScale ?? 1;
-  const beat = c.virtualYToBeat(c.canvasToVirtual(rc.hoverPos.cx, rc.hoverPos.cy).y);
-  const seconds = beatToSeconds(getBpmEvents(rc.notes), beat);
-  const count = countNotesUpToBeat(rc.notes, beat);
+  const virtualY = c.canvasToVirtual(rc.hoverPos.cx, rc.hoverPos.cy).y;
+  // issue 104 修法 3：秒读数走布局轴**直读**（倒流区里「y → 拍」多值，经 beat 往返会取到错层的拍，
+  // 读数在折返带上会跳）。已过音符数仍按拍口径（最大 beat 解所在层），与播放 HUD 的
+  // countNotesUpToBeat 同源——这是拍域定义，本票不改。
+  const seconds = c.virtualYToSeconds(virtualY);
+  const count = countNotesUpToBeat(rc.notes, c.virtualYToBeat(virtualY));
   ctx.save();
   ctx.font = HOVER_INFO_FONT(labelScale);
   ctx.fillStyle = HOVER_INFO_COLOR;

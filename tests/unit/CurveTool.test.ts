@@ -42,7 +42,7 @@ const input = (over: Partial<Parameters<typeof clickOps>[0]>) => clickOps({
 describe('issue 09 · 按下仲裁：曲线工具态 = 画笔优先（ADR-0008 §2 例外的手势侧）', () => {
   const bpm120 = [{ beat: 0, bpm: 120 }];
   const TEST_SURFACE = { w: 750, h: 900 };
-  const geometry = new ChartGeometry(bpm120, 100, TEST_SURFACE);
+  const geometry = new ChartGeometry(bpm120, { endBeat: 100 } , TEST_SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
   const at = (lane: number, beat: number) =>
     geometry.virtualToCanvas(
@@ -174,7 +174,7 @@ describe('issue 106 · 画笔禁止回头（回头不追加 / 回头不改变产
   it('跨层判据（penMaxBeatsForCanvasDy）：折返带边界跳号被识别，正常移动不误判', () => {
     // ADR-0010 附录 B 最小复现：120 → -120（beat 5）→ 120（beat 6.5）
     const geometry = new ChartGeometry(
-      [{ beat: 0, bpm: 120 }, { beat: 5, bpm: -120 }, { beat: 6.5, bpm: 120 }], 16, { w: 750, h: 900 });
+      [{ beat: 0, bpm: 120 }, { beat: 5, bpm: -120 }, { beat: 6.5, bpm: 120 }], { endBeat: 16 } , { w: 750, h: 900 });
     const deps = { geometry, viewport: { scrollX: 0, scrollY: 0, scale: 1 } };
     // 跨层：两端几乎同一个 y（Δy = 2px）却跳了 3 拍 → 上限远小于 3
     expect(penMaxBeatsForCanvasDy(deps, 6.5, 2)).toBeLessThan(0.1);
@@ -354,7 +354,7 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
 describe('issue 09 三轮 · 画笔起手任意位置（重叠绘制起点）', () => {
   it('按在音符/段上（无 Shift）= 画笔起手（重叠绘制起点可重叠；单击语义归 click 路径）', () => {
     const bpm120 = [{ beat: 0, bpm: 120 }];
-    const geometry = new ChartGeometry(bpm120, 100, { w: 750, h: 900 });
+    const geometry = new ChartGeometry(bpm120, { endBeat: 100 } , { w: 750, h: 900 });
     const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
     const notes: ChartNote[] = [{ type: 'Single', beat: 2, lane: 3, subBeat: 0 }];
     const p = geometry.virtualToCanvas(

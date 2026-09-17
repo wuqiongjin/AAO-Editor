@@ -71,7 +71,9 @@ const tiles = new Map<number, Tile>();
  */
 let basis: {
   notes: readonly ChartNote[]; bpmEvents: readonly BpmTimelineEvent[];
-  chartEndBeat: number; beatDisplay: number; dpr: number; skinVersion: number;
+  /** issue 104：瓦片位图活在**布局坐标空间**，其原点 = chartEndVirtualY（画布高度由秒直出），
+   *  故失效依据按它比较，而不是按派生出来的 chartEndBeat */
+  chartEndVirtualY: number; beatDisplay: number; dpr: number; skinVersion: number;
   /** issue 39：节奏图示大小 / 长压线不透明度烘进音符瓦片，变化时需全量失效 */
   noteSize: number; slideOpacity: number;
   /** issue 39 #4：色觉辅助改变 tap 款式（实拍/虚拍位图），变化时需全量失效 */
@@ -168,20 +170,18 @@ export function diffNotes(oldNotes: readonly ChartNote[], newNotes: readonly Cha
  */
 function invalidateTilesForBeatRange(minBeat: number, maxBeat: number, rc: RenderCtx) {
   const es = rc.viewport.scale;
-  const cEs = rc.geometry.chartEndVirtualY + rc.surface.h / es;
-  const posAtLowBeat = cEs - rc.geometry.beatToVirtualY(Math.max(0, minBeat), es);  // 低拍 → pos 小
-  const posAtHighBeat = cEs - rc.geometry.beatToVirtualY(Math.max(0, maxBeat), es); // 高拍 → pos 大
+  // issue 104 修法 4：拍区间 → 布局坐标区间走时间轴的**正向分段线性极值**
+  // （`positionRangeOfBeats`：折返的峰值也在区间内），不再端到端相减——倒流区里 pos 非单调，
+  // 两端相减会漏掉折返段覆盖到的瓦片（复现 issue 36 那个"陈旧瓦片"的 bug 形态）。
+  const { min, max } = rc.geometry.timeline.positionRangeOfBeats(Math.max(0, minBeat), Math.max(0, maxBeat));
   const margin = (VIEWPORT_PADDING + 48) / es;
-  const { lo, hi } = tileIndexRange(posAtLowBeat - margin, posAtHighBeat + margin);
+  const { lo, hi } = tileIndexRange(min - margin, max + margin);
   for (let id = lo; id <= hi; id++) tiles.delete(id);
 }
 
-/** pos 空间可见范围：pos = C(es) − virtualY（viewportBounds 已含 VIEWPORT_PADDING 外扩） */
+/** pos 空间可见范围（单一提供者 = ChartGeometry.posRange；viewportBounds 已含 VIEWPORT_PADDING 外扩） */
 export function posRangeOf(rc: RenderCtx): { posMin: number; posMax: number } {
-  const es = rc.viewport.scale;
-  const cEs = rc.geometry.chartEndVirtualY + rc.surface.h / es;
-  const b = rc.geometry.viewportBounds(rc.viewport);
-  return { posMin: cEs - b.maxY, posMax: cEs - b.minY };
+  return rc.geometry.posRange(rc.viewport);
 }
 
 /** [posMin, posMax] 覆盖的瓦片序号闭区间 */
@@ -295,7 +295,7 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
   const nb = {
     notes: rc.notes,
     bpmEvents: rc.geometry.bpmEvents,
-    chartEndBeat: rc.geometry.chartEndBeat,
+    chartEndVirtualY: rc.geometry.chartEndVirtualY,
     beatDisplay: rc.beatDisplay, dpr: rc.dpr,
     skinVersion: rc.skinVersion ?? 0,
     noteSize: rc.display?.noteSize ?? 1,
@@ -304,7 +304,7 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     verticalRatio: rc.geometry.verticalRatio,
   };
   if (
-    !basis || basis.chartEndBeat !== nb.chartEndBeat || basis.beatDisplay !== nb.beatDisplay ||
+    !basis || basis.chartEndVirtualY !== nb.chartEndVirtualY || basis.beatDisplay !== nb.beatDisplay ||
     basis.dpr !== nb.dpr || basis.skinVersion !== nb.skinVersion ||
     basis.noteSize !== nb.noteSize || basis.slideOpacity !== nb.slideOpacity ||
     basis.colorAssist !== nb.colorAssist ||

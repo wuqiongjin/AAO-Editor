@@ -6,7 +6,7 @@ import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../chart/comp
 import NoteInfoPanel from '../chart/components/side-panel/NoteInfoPanel';
 import IconButton from '../ui/IconButton';
 import { type FunctionId } from '../chart/config/ShortcutConfig';
-import { getBpmEvents, secondsToBeat } from '../audio/AudioTiming';
+import { getBpmEvents, secondsSolutionsOf, DEFAULT_BPM } from '../audio/AudioTiming';
 import PlayBar from '../playback/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
 import { countChartNotes } from '../chart/editing/NoteEditing';
@@ -71,12 +71,13 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   } = playback;
 
   // 当前播放头所在区间的 BPM（顶栏实时区）
+  // issue 104 修法 7：按**当前秒所在的时间轴区间**取，不先反查拍——倒流区里同一秒落在多个段上，
+  // 取解口径 = 最大 beat 解所在段（ADR-0010 结论 5，与制谱器编辑器逐操作等价）。
   const currentRegionBpm = useMemo(() => {
     const events = getBpmEvents(notes);
-    const beat = secondsToBeat(events, playheadSeconds);
-    let bpm = 120;
-    for (const e of events) if (e.beat <= beat) bpm = e.bpm;
-    return bpm;
+    const sols = secondsSolutionsOf(events, playheadSeconds);
+    const segmentIndex = sols.length > 0 ? sols[sols.length - 1].segmentIndex : 0;
+    return events[segmentIndex]?.bpm ?? DEFAULT_BPM;
   }, [notes, playheadSeconds]);
 
   // 音符数统计（issue 36）

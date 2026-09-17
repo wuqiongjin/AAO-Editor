@@ -40,7 +40,7 @@ describe('renderHoverLine / renderHoverInfo（issue 54）', () => {
   ];
 
   function makeRc(hover: { cx: number; cy: number } | null) {
-    const geometry = new ChartGeometry(bpm120, 8, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 } , TEST_SURFACE);
     const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 }; // 底部：beat0 在画布底边
     const c = makeCoords(geometry, viewport, 4, notes);
     const rc = { geometry, viewport, surface: TEST_SURFACE, chartEndBeat: 8, notes, hoverPos: hover } as unknown as RenderCtx;

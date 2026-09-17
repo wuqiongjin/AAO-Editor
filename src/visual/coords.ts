@@ -6,6 +6,9 @@ import type { ChartNote } from '../chart/types';
 export interface Coords {
   trackGeometry: (scale: number) => ReturnType<ChartGeometry['trackGeometry']>;
   beatToVirtualY: (beat: number) => number;
+  /** 虚拟Y → 秒（布局轴直读，issue 104 修法 3：hover 读数用它，倒流区里不经"拍"） */
+  virtualYToSeconds: (virtualY: number) => number;
+  /** 虚拟Y → beat = **最大 beat 解**（需要拍时的默认取解口径；多值处不可当作唯一真值） */
   virtualYToBeat: (virtualY: number) => number;
   virtualToCanvas: (x: number, y: number) => GeometryPoint;
   canvasToVirtual: (x: number, y: number) => GeometryPoint;
@@ -31,6 +34,7 @@ export function makeCoords(geometry: ChartGeometry, viewport: GeometryViewport, 
   return {
     trackGeometry: (s) => (s === scale ? cachedTrackGeometry : geometry.trackGeometry(s)),
     beatToVirtualY: (beat) => geometry.beatToVirtualY(beat, scale),
+    virtualYToSeconds: (y) => geometry.virtualYToSeconds(y, scale),
     virtualYToBeat: (y) => geometry.virtualYToBeat(y, scale),
     virtualToCanvas: (x, y) => {
       const es = geometry.effectiveScale(scale);

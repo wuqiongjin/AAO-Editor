@@ -2,7 +2,7 @@
 // node 环境用 stub ctx 计量 JS 侧开销与调用次数（真实光栅化由浏览器 ?perf=1 基线覆盖）。
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChartGeometry, LANES, LANE_WIDTH } from '../../src/chart/geometry/ChartGeometry';
-import { renderChart, visibleBeatRange } from '../../src/visual/render';
+import { renderChart, visibleBeatRanges } from '../../src/visual/render';
 import { findItemAt } from '../../src/visual/hitTest';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../src/visual/noteSkin';
 import {
@@ -125,33 +125,35 @@ function scrollYForCenterBeat(g: ChartGeometry, beat: number, es: number): numbe
 }
 
 // ---------------- 测试 ----------------
-describe('visibleBeatRange（网格只迭代可见拍）', () => {
+describe('visibleBeatRanges（网格只迭代可见拍区间，issue 104 修法 4）', () => {
   it('长谱面（2000 拍）窄视口只返回窗口内拍数，与谱面总长无关', () => {
-    const g = new ChartGeometry(bpm120, 2000, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: 2000 } , SURFACE);
     const es = 1;
     const scrollY = scrollYForCenterBeat(g, 1000, es);
     const viewport = { scrollX: 0, scrollY, scale: es };
-    const r = visibleBeatRange(g, viewport, 2000);
-    // 视口高 900px + padding 400px ≈ 1300px ≈ 6 拍 + 余量；绝不应接近 2000
-    expect(r.max - r.min).toBeLessThanOrEqual(12);
-    expect(r.min).toBeLessThanOrEqual(1000);
-    expect(r.max).toBeGreaterThanOrEqual(1000);
-    expect(r.min).toBeGreaterThanOrEqual(0);
-    expect(r.max).toBeLessThanOrEqual(2000);
+    const rs = visibleBeatRanges(g, viewport, 2000);
+    // 单调谱面 → 单区间；视口高 900px + padding 400px ≈ 1300px ≈ 6 拍 + 余量，绝不应接近 2000
+    expect(rs).toHaveLength(1);
+    const [r] = rs;
+    expect(r.end - r.start).toBeLessThanOrEqual(12);
+    expect(r.start).toBeLessThanOrEqual(1000);
+    expect(r.end).toBeGreaterThanOrEqual(1000);
+    expect(r.start).toBeGreaterThanOrEqual(0);
+    expect(r.end).toBeLessThanOrEqual(2000);
   });
 
   it('谱面末端与起点处钳制到 [0, chartEndBeat]', () => {
-    const g = new ChartGeometry(bpm120, 50, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: 50 } , SURFACE);
     // scrollY=0 → 视口在谱面末端（虚拟Y顶部 = 大 beat 端），不越界
     const top = { scrollX: 0, scrollY: 0, scale: 1 };
-    const rt = visibleBeatRange(g, top, 50);
-    expect(rt.max).toBe(50);
-    expect(rt.min).toBeGreaterThanOrEqual(0);
+    const rt = visibleBeatRanges(g, top, 50);
+    expect(Math.max(...rt.map(r => r.end))).toBe(50);
+    expect(Math.min(...rt.map(r => r.start))).toBeGreaterThanOrEqual(0);
     // 滚到最大（判定线压 beat 0）→ 不出现负 beat
     const bottom = { scrollX: 0, scrollY: Math.max(0, g.totalVirtualHeight(1) - SURFACE.h), scale: 1 };
-    const rb = visibleBeatRange(g, bottom, 50);
-    expect(rb.min).toBe(0);
-    expect(rb.max).toBeLessThanOrEqual(50);
+    const rb = visibleBeatRanges(g, bottom, 50);
+    expect(Math.min(...rb.map(r => r.start))).toBe(0);
+    expect(Math.max(...rb.map(r => r.end))).toBeLessThanOrEqual(50);
   });
 });
 
@@ -159,7 +161,7 @@ describe('visibleNotes 二分剔除（排序索引）', () => {
   it('5000 音符多视口下与旧版 O(n) 全量扫描结果一致', () => {
     const chartEndBeat = 1500;
     const notes = makeDenseNotes(5000, chartEndBeat);
-    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     for (const es of [0.2, 0.5, 1]) {
       const total = g.totalVirtualHeight(es);
       for (const frac of [0.1, 0.35, 0.5, 0.75, 0.95]) {
@@ -175,7 +177,7 @@ describe('visibleNotes 二分剔除（排序索引）', () => {
   it('索引只构建一次：同 notes 重复查询为 O(log n + 可见数)（时间护栏）', () => {
     const chartEndBeat = 1500;
     const notes = makeDenseNotes(5000, chartEndBeat);
-    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     g.visibleNotes(notes, { scrollX: 0, scrollY: 0, scale: 0.5 }, BEAT_DISPLAY); // 预热索引
     const t0 = performance.now();
     for (let i = 0; i < 200; i++) {
@@ -195,7 +197,7 @@ describe('noteLayerCache 瓦片数学', () => {
 
   it('blit 矩形把 lane 中心与音符 Y 精确映射到主画布坐标（k=1 与 k≠1 均精确）', () => {
     const chartEndBeat = 100;
-    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     for (const [es, refScale] of [[0.8, 0.8], [0.9, 0.6]] as const) {
       const scrollY = scrollYForCenterBeat(g, 50, es);
       const viewport = { scrollX: 0, scrollY, scale: es };
@@ -229,9 +231,9 @@ describe('noteLayerCache 瓦片数学', () => {
   it('surface 宽高变化后 blit 仍精确（issue 36 F3a：按渲染时宽度缩放、绕当前宽度居中）', () => {
     const chartEndBeat = 100;
     // 瓦片在 (w=750, h=900) 下以 refScale 渲染；结算后画布变为 (w=1000, h=1100)
-    const gOld = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const gOld = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const surfaceNew = { w: 1000, h: 1100 };
-    const gNew = new ChartGeometry(bpm120, chartEndBeat, surfaceNew);
+    const gNew = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , surfaceNew);
     for (const [es, refScale] of [[0.7, 0.7], [0.9, 0.6]] as const) {
       const scrollY = scrollYForCenterBeat(gOld, 50, es);
       const viewport = { scrollX: 0, scrollY, scale: es };
@@ -260,7 +262,7 @@ describe('noteLayerCache 瓦片数学', () => {
   });
 
   it('posRangeOf 覆盖视口 pos 区间', () => {
-    const g = new ChartGeometry(bpm120, 100, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: 100 } , SURFACE);
     const es = 0.8;
     const scrollY = scrollYForCenterBeat(g, 50, es);
     const rc = makeRc(g, [], 100, es, scrollY, false, { drawImage: 0, spriteRenders: 0 });
@@ -273,7 +275,7 @@ describe('noteLayerCache 瓦片数学', () => {
 
   it('issue 98：瓦片 transform 按「位图实际尺寸/css 尺寸」绘制（css 跨距恰填满整数量化位图，消除 round 压缩）', () => {
     const chartEndBeat = 100;
-    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     // es=0.8 → 瓦片 css 高 = TILE_PX·es = 409.6（非整数）；tileDpr = min(dpr=1, 1.5) = 1
     // → 位图高 round(409.6) = 410。修复前 transform 恒 tileDpr=1 → 内容只画到 409.6 行，
     // blit 拉伸 410 行 → 距瓦片顶边线性行进最大 ±0.4px 的压缩（每 es 重掷 → 缩放手势期音符跳动）。
@@ -321,7 +323,7 @@ describe('noteLayerCache 瓦片数学', () => {
     expect(r.h * (transforms[0].sy)).toBeCloseTo(transforms[0].bh, 6);
 
     // X 轴同锁：dpr=1.5 + 非整宽（751·1.5 = 1126.5 → bw=1127）时 sx 也必须按实际位图尺寸取
-    const g2 = new ChartGeometry(bpm120, chartEndBeat, { w: 751, h: 900 });
+    const g2 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , { w: 751, h: 900 });
     const transforms2: { sx: number; sy: number; bw: number; bh: number }[] = [];
     resetNoteLayerCache();
     __setTileCanvasFactoryForTests(() => {
@@ -374,7 +376,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
 
   it('缩放手势帧渐进重建（预算内逐帧转新）、帧开销 60fps 预算内、settle 无集中跳变', () => {
     const notes = makeDenseNotes(5000, chartEndBeat);
-    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const mainCounters: Counters = { drawImage: 0, spriteRenders: 0 };
     const mainCtx = makeCountingCtx(mainCounters);
     const mainCanvas = { width: 0, height: 0 };
@@ -430,7 +432,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
 
   it('zoom-out 手势（窗口扩张）帧耗时仍受控；高倍直渲模式可用', () => {
     const notes = makeDenseNotes(5000, chartEndBeat);
-    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
     const canvas = { width: 0, height: 0 };
@@ -457,7 +459,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
 
   it('drawNotesLayer 对外可独立调用（直渲分支）', () => {
     const notes = makeDenseNotes(100, 50);
-    const geometry = new ChartGeometry(bpm120, 50, SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 50 } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
     const rc = makeRc(geometry, notes, 50, 1.5, 100, false, counters);
@@ -467,7 +469,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
 
   it('surface 宽高变化（窗口缩放结算）后瓦片零重建（issue 36 F3a）', () => {
     const notes = makeDenseNotes(3000, chartEndBeat);
-    const g1 = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g1 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
     const canvas = { width: 0, height: 0 };
@@ -482,7 +484,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     // 窗口缩放结算：宽度变大、高度变小（可见集为子集 → 已建瓦片应全部续用），
     // geometry 实例随之重建（时间线内容相同）
     const surface2 = { w: 1000, h: 800 };
-    const g2 = new ChartGeometry(bpm120, chartEndBeat, surface2);
+    const g2 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , surface2);
     const scrollY2 = g2.beatToVirtualY(750, es) - surface2.h / (2 * es); // 同拍居中（pos 空间与 surface 无关 → 同批瓦片命中）
     rc = makeRc(g2, notes, chartEndBeat, es, scrollY2, false, counters, surface2);
     renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
@@ -493,7 +495,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
 
   it('静态层离屏缓存（issue 36 F2）：交互帧不重绘网格（仅 blit）', () => {
     const notes = makeDenseNotes(1000, chartEndBeat);
-    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
     const canvas = { width: 0, height: 0 };
@@ -530,7 +532,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
 
   it('静态层失效键含纵向比例（issue 70 候选 5-a）：只改 verticalRatio 而 scale/scrollY 不变 → 网格必须重建', () => {
     const notes = makeDenseNotes(200, chartEndBeat);
-    const g1 = new ChartGeometry(bpm120, chartEndBeat, SURFACE, 1);
+    const g1 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE, 1);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
     const canvas = { width: 0, height: 0 };
@@ -558,7 +560,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     // ⚠ 本条是**失效键完整性**护栏，不是用户可见缺陷的回归测试 —— 用户在当前 UI 路径下
     // 未复现"网格陈旧"（切到设置页改纵向比例时另有 basis 字段随之变化，把重建顺带触发了）。
     // 与 issue 29 问题1（漏加背景字段）同族：都是"加了新渲染维度，忘了扩失效比较链"。
-    const g2 = new ChartGeometry(bpm120, chartEndBeat, SURFACE, 2);
+    const g2 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE, 2);
     expect(g2.verticalRatio).toBe(2);
     staticDraws.n = 0;
     renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g2, notes, chartEndBeat, es, scrollY, false, counters));
@@ -590,7 +592,7 @@ describe('候选 2 测量：单次交互成本（issue 70）', () => {
   /** 一次「交互帧」的 JS 成本：视口/几何/谱面全不变，只有 hoverPos 变（= 一次 mousemove 的重绘） */
   it('量：hover 交互帧 —— renderChart ×100 总耗时 + 每帧 getVisibleNotes 次数', () => {
     const notes = makeDenseNotes(5000, chartEndBeat);
-    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
     const canvas = { width: 0, height: 0 };
@@ -633,7 +635,7 @@ describe('候选 2 测量：单次交互成本（issue 70）', () => {
   /** hover 命中（findItemAt）：每次 mousemove 走一次全量命中扫描 */
   it('量：hover 命中 findItemAt ×100 总耗时', () => {
     const notes = makeDenseNotes(5000, chartEndBeat);
-    const g = new ChartGeometry(bpm120, chartEndBeat, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const es = 0.5;
     const viewport = { scrollX: 0, scrollY: scrollYForCenterBeat(g, 750, es), scale: es };
     const deps = { geometry: g, viewport, beatDisplay: BEAT_DISPLAY, notes, noteSize: 1 };

@@ -23,7 +23,7 @@ const BEAT_DISPLAY = 4;
 
 /** scale=1 / scrollY=0 的视图；画布坐标 == 虚拟坐标（x 含 trackBgX 偏移） */
 function makeDeps(notes: ChartNote[], chartEndBeat = 100) {
-  const geometry = new ChartGeometry(bpm120, chartEndBeat, TEST_SURFACE);
+  const geometry = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , TEST_SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
   const deps: HitTestDeps = { geometry, viewport, beatDisplay: BEAT_DISPLAY, notes };
   /** (lane, beat) → 画布坐标 */
@@ -120,7 +120,7 @@ describe('hitBpmLabelAt BPM 数字文字盒', () => {
   /** 把 beat 20 滚到画面中央：屏外 BPM 的盒子会被 bpmLabelBox 钳到边界而互相重叠，
    *  那样的视口测不出"选中哪一条"。 */
   function makeBpmDeps() {
-    const geometry = new ChartGeometry(bpm120, 100, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 100 } , TEST_SURFACE);
     const scrollY = geometry.beatToVirtualY(20, 1) - TEST_SURFACE.h / 2;
     const viewport = { scrollX: 0, scrollY, scale: 1 };
     const deps: HitTestDeps = { geometry, viewport, beatDisplay: BEAT_DISPLAY, notes };
@@ -244,6 +244,32 @@ describe('resolvePressIntent 按下意图仲裁', () => {
     expect(r.kind).toBe('drag');
     if (r.kind !== 'drag') return;
     expect(r.anchor.items).toEqual([{ kind: 'note', noteIndex: 1 }]);
+  });
+
+  // issue 104 修法 8（ADR-0010 结论 5）：拖拽的 Δy→Δ拍 换算锚定**被拖元素自己所在的层**
+  it('倒流区按到 L2 的音符 → layerSegment = 1，且按下拍位按该层换算（不是最大解那层）', () => {
+    // 120 → -240(beat 5) → 120(beat 6.5)：折返带内同一 y 有三层，最大解层是 L3
+    const fold = [{ beat: 0, bpm: 120 }, { beat: 5, bpm: -240 }, { beat: 6.5, bpm: 120 }];
+    const foldNotes: ChartNote[] = [bpmNote(0, 120), single(2, 5.75)];
+    const geometry = new ChartGeometry(fold, { seconds: 2.5 }, TEST_SURFACE);
+    const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
+    const deps: HitTestDeps = { geometry, viewport, beatDisplay: BEAT_DISPLAY, notes: foldNotes };
+    const p = geometry.virtualToCanvas(
+      geometry.noteVirtualX(2),
+      geometry.noteVirtualY(5.75, 0, 1, BEAT_DISPLAY),
+      viewport,
+    );
+    const r = resolvePressIntent({
+      cx: p.x, cy: p.y, armedTool: null, shiftKey: false, onMarker: false,
+      deps, selectedItems: [], chartEndBeat: geometry.chartEndBeat,
+    });
+    expect(r.kind).toBe('drag');
+    if (r.kind !== 'drag') return;
+    expect(r.anchor.anchorBeat).toBeCloseTo(5.75, 6);
+    expect(r.anchor.layerSegment).toBe(1);              // 倒流区段（L2）
+    expect(r.anchor.rawPressBeat).toBeCloseTo(5.75, 6); // 层内换算 = 音符自身拍位
+    // 反向哨兵：同一画布点的**最大 beat 解**在 L3（6.875），取错层会让拖拽位移按别的斜率走
+    expect(geometry.layerBeatFromCanvas(p.y, viewport, 2)).toBeCloseTo(6.875, 6);
   });
 
   it('按到滑条区域 = 拖拽（issue 09 S3 / ADR-0009 §4 修订：区域可拖 = 拉弓变形，不再退框选）', () => {

@@ -24,7 +24,9 @@ let cacheCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
  *  bg = 背景皮肤（issue 29 Q4）：生效标志 + revision，开/关/换图任一变化即重建） */
 let basis: {
   bpmEvents: readonly BpmTimelineEvent[];
-  chartEndBeat: number;
+  /** issue 104：静态层（网格/起止线）的 y 由 chartEndVirtualY 定锚（画布高度 = 秒 × 像素密度），
+   *  故失效依据按它比较（chartEndBeat 只是它的派生值） */
+  chartEndVirtualY: number;
   scale: number;
   scrollY: number;
   beatDisplay: number;
@@ -99,7 +101,7 @@ export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
   const bgScope: 'outsideTrack' | 'fullCanvas' = bg?.scope === 'fullCanvas' ? 'fullCanvas' : 'outsideTrack';
   const nb = {
     bpmEvents: rc.geometry.bpmEvents,
-    chartEndBeat: rc.geometry.chartEndBeat,
+    chartEndVirtualY: rc.geometry.chartEndVirtualY,
     scale: rc.viewport.scale,
     scrollY: rc.viewport.scrollY,
     beatDisplay: rc.beatDisplay,
@@ -119,7 +121,7 @@ export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
   };
   const hit = basis !== null &&
     basis.scale === nb.scale && basis.scrollY === nb.scrollY &&
-    basis.beatDisplay === nb.beatDisplay && basis.chartEndBeat === nb.chartEndBeat &&
+    basis.beatDisplay === nb.beatDisplay && basis.chartEndVirtualY === nb.chartEndVirtualY &&
     basis.verticalRatio === nb.verticalRatio &&
     basis.gridStyle === nb.gridStyle && basis.lineShapeTiers === nb.lineShapeTiers &&
     basis.gridOpacity === nb.gridOpacity && basis.labelScale === nb.labelScale &&

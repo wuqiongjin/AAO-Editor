@@ -6,14 +6,34 @@ import { describe, it, expect } from 'vitest';
 import { PlaybackScrollModel } from '../../src/playback/PlaybackScrollModel';
 import { ChartGeometry } from '../../src/chart/geometry/ChartGeometry';
 import {
-  chartLengthToEndBeat, secondsToBeat, beatToSeconds, type BpmEvent,
+  secondsToBeat, beatToSeconds, type BpmEvent,
 } from '../../src/audio/AudioTiming';
 
 const bpm120: BpmEvent[] = [{ beat: 0, bpm: 120 }];
-// 120bpm：每拍 0.5s、每拍 220px（BEAT_HEIGHT）。30s → 60 拍 → chartEndVirtualY 13200。
+// 120bpm：每拍 0.5s、每拍 220px（BEAT_HEIGHT）。30s → chartEndVirtualY 13200。
+// issue 104：几何一律按**谱面长度（秒）**构造（画布高度由秒直出，不再在调用点反查拍）。
 
 const geom = (durationSeconds: number, surface = { w: 750, h: 900 }) =>
-  new ChartGeometry(bpm120, chartLengthToEndBeat(bpm120, durationSeconds), surface);
+  new ChartGeometry(bpm120, { seconds: durationSeconds }, surface);
+
+describe('PlaybackScrollModel · 倒流区（issue 104 修法 5：秒 ↔ scrollY 纯线性）', () => {
+  // 120 → -120(beat 5) → 120(beat 6.5)：折返带 t ∈ [1.75, 2.5] 内同一 y 有三层
+  const fold: BpmEvent[] = [{ beat: 0, bpm: 120 }, { beat: 5, bpm: -120 }, { beat: 6.5, bpm: 120 }];
+  const g = new ChartGeometry(fold, { seconds: 2.5 }, { w: 750, h: 900 });
+  const m = new PlaybackScrollModel(g, 1);
+
+  it('画布高度 = 谱面长度(秒) × 像素密度（与 bpm / 倒流区无关）', () => {
+    expect(g.virtualPxPerSecond).toBeCloseTo(2 * 220, 6); // 2·BEAT_HEIGHT·verticalRatio
+    expect(g.chartEndVirtualY).toBeCloseTo(2.5 * 440, 6);
+  });
+
+  it('scrollY = chartEndVirtualY − 秒 × 像素密度；区内往返严格互逆（不经"秒 → 拍"）', () => {
+    for (const s of [0, 0.5, 1.75, 2.125, 2.3, 2.5]) {
+      expect(m.scrollYForSeconds(s)).toBeCloseTo(g.chartEndVirtualY - s * g.virtualPxPerSecond, 6);
+      expect(m.secondsForScrollY(m.scrollYForSeconds(s))).toBeCloseTo(s, 6);
+    }
+  });
+});
 
 describe('PlaybackScrollModel · seconds ↔ scrollY（判定线=画布底边）', () => {
   it('scrollYForSeconds / secondsForScrollY 区间内互逆', () => {

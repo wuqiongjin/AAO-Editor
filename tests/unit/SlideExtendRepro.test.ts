@@ -59,7 +59,7 @@ beforeEach(() => {
 
 describe('slide 自下向上连接扩展 → 瓦片失效', () => {
   it('合并扩展后，覆盖新端点拍区间的瓦片必须重建（canvas 换新）', () => {
-    const g = new ChartGeometry(bpm120, CHART_END_BEAT, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: CHART_END_BEAT } , SURFACE);
     // 初始：一条 Slide[20,30]（数组末尾），加一个 Single 在 beat 40（会被 removeOverlappedNotes 删掉）
     const slide: ChartNote = {
       type: 'Slide',
@@ -99,7 +99,7 @@ describe('slide 自下向上连接扩展 → 瓦片失效', () => {
   });
 
   it('链式连续扩展：三段合并后整条可见范围内的瓦片无陈旧', () => {
-    const g = new ChartGeometry(bpm120, CHART_END_BEAT, SURFACE);
+    const g = new ChartGeometry(bpm120, { endBeat: CHART_END_BEAT } , SURFACE);
     const mkSlide = (b1: number, b2: number): ChartNote => ({
       type: 'Slide',
       connections: [{ beat: b1, lane: 2, subBeat: 0 }, { beat: b2, lane: 2, subBeat: 0 }],

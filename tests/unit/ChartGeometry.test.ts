@@ -24,7 +24,7 @@ const surface = (over: Partial<{ w: number; h: number }> = {}) => ({ w: over.w ?
 // 本组把这条前提钉住：若哪天 laneBeatFromCanvas 与 viewport 解耦，这条会红。
 // ---------------------------------------------------------------------------
 describe('laneBeatFromCanvas 对 viewport 的依赖（候选 3 前提）', () => {
-  const g = new ChartGeometry(bpm120, 400, TEST_SURFACE);
+  const g = new ChartGeometry(bpm120, { endBeat: 400 } , TEST_SURFACE);
   const viewport = (over: Partial<{ scrollY: number; scale: number }> = {}) => ({
     scrollX: 0, scrollY: over.scrollY ?? 0, scale: over.scale ?? 0.5,
     virtualWidth: 0, virtualHeight: 0,
@@ -57,7 +57,7 @@ describe('laneBeatFromCanvas 对 viewport 的依赖（候选 3 前提）', () =>
 
 describe('trackGeometry', () => {
   it('轨道水平居中、左右对称', () => {
-    const g = new ChartGeometry(bpm120, 100, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 100 } , surface());
     const { totalTrackWidth, trackStartX, trackBgX, trackBgWidth } = g.trackGeometry(1);
     expect(totalTrackWidth).toBe(LANES * LANE_WIDTH + TRACK_CHROME_TOTAL * 2);
     expect(trackStartX).toBe((TEST_SURFACE.w - totalTrackWidth) / 2);
@@ -68,7 +68,7 @@ describe('trackGeometry', () => {
 
 describe('坐标换算', () => {
   it('beatToVirtualY 自下而上：beat 0 落在判定线（画布底边）处', () => {
-    const g = new ChartGeometry(bpm120, 8, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , surface());
     // chartEndVirtualY = 8拍 * 220px = 1760；总高 = 1760 + 渲染面高/scale（判定线=渲染面底边，ADR-0006 §2）
     expect(g.chartEndVirtualY).toBe(8 * 220);
     const total = g.totalVirtualHeight(1);
@@ -79,20 +79,20 @@ describe('坐标换算', () => {
   });
 
   it('渲染面尺寸变化时总高随渲染面高自适应（ADR-0006 §1）', () => {
-    const g = new ChartGeometry(bpm120, 8, { w: 400, h: 600 });
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , { w: 400, h: 600 });
     expect(g.totalVirtualHeight(1)).toBe(1760 + 600);
     expect(g.beatToVirtualY(8, 1)).toBe(600); // 判定线 = 渲染面底边
   });
 
   it('virtualYToBeat 与 beatToVirtualY 互逆', () => {
-    const g = new ChartGeometry(bpm120, 8, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , surface());
     for (const beat of [0, 1, 3.5, 8]) {
       expect(g.virtualYToBeat(g.beatToVirtualY(beat, 1), 1)).toBeCloseTo(beat, 6);
     }
   });
 
   it('virtualToCanvas / canvasToVirtual 互逆', () => {
-    const g = new ChartGeometry(bpm120, 8, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , surface());
     const viewport = { scrollX: 0, scrollY: 100, scale: 1.5 };
     const v = { x: 15, y: 500 };
     const c = g.virtualToCanvas(v.x, v.y, viewport);
@@ -102,7 +102,7 @@ describe('坐标换算', () => {
   });
 
   it('noteVirtualY 计入 subBeat 折算', () => {
-    const g = new ChartGeometry(bpm120, 8, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , surface());
     const beatDisplay = 4;
     const y0 = g.noteVirtualY(0, 0, 1, beatDisplay);
     const y1 = g.noteVirtualY(0, 2, 1, beatDisplay); // 0.5 拍
@@ -113,7 +113,7 @@ describe('坐标换算', () => {
 
 describe('laneBeatFromCanvas', () => {
   it('轨道内命中返回 lane 与吸附后的精确拍', () => {
-    const g = new ChartGeometry(bpm120, 8, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , surface());
     // 滚到底（scrollY=chartEndVirtualY）使判定线处为 beat 0
     const viewport = { scrollX: 0, scrollY: g.chartEndVirtualY, scale: 1 };
     const { trackBgX } = g.trackGeometry(1);
@@ -126,7 +126,7 @@ describe('laneBeatFromCanvas', () => {
   });
 
   it('轨道外返回 null', () => {
-    const g = new ChartGeometry(bpm120, 8, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , surface());
     const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
     expect(g.laneBeatFromCanvas(-5, 10, viewport, 4)).toBeNull();
   });
@@ -134,12 +134,12 @@ describe('laneBeatFromCanvas', () => {
 
 describe('effectiveScale 缩放钳制（ADR-0006 Q4=A）', () => {
   it('宽渲染面下不钳制：effectiveScale = 用户 scale', () => {
-    const g = new ChartGeometry(bpm120, 8, { w: 750, h: 900 });
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , { w: 750, h: 900 });
     expect(g.effectiveScale(1)).toBe(1);
   });
 
   it('窄渲染面下钳制到恰好容纳 7 轨（不变形、不裁剪）', () => {
-    const g = new ChartGeometry(bpm120, 8, { w: 200, h: 500 });
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , { w: 200, h: 500 });
     const es = g.effectiveScale(1);
     const { trackBgWidth, trackStartX, totalTrackWidth } = g.trackGeometry(1);
     // 轨道完全容纳于渲染面宽内
@@ -154,7 +154,7 @@ describe('effectiveScale 缩放钳制（ADR-0006 Q4=A）', () => {
   // effectiveScale 把它压到 fitWidth —— 「ui.scale（请求值）≠ 生效值」这个分歧就由此而来。
   // 末条幂等断言尤为关键：它保证画布把生效值回写进 ui.scale 后不会来回振荡。
   it('请求值超过 fitWidth 时被压低，且与生效值不相等（候选 3-b 分歧的前提）', () => {
-    const g = new ChartGeometry(bpm120, 8, { w: 500, h: 900 }); // fitWidth ≈ 2.19 < 3
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , { w: 500, h: 900 }); // fitWidth ≈ 2.19 < 3
     const requested = 3; // 与 FinalVirtualCanvas 的 MAX_SCALE / 工具栏「+」上限一致
     const es = g.effectiveScale(requested);
     expect(es).toBeCloseTo(500 / (LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL), 6);
@@ -162,7 +162,7 @@ describe('effectiveScale 缩放钳制（ADR-0006 Q4=A）', () => {
   });
 
   it('幂等：把生效值再喂回 effectiveScale 不变（回写不振荡的保证）', () => {
-    const g = new ChartGeometry(bpm120, 8, { w: 500, h: 900 });
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , { w: 500, h: 900 });
     const es = g.effectiveScale(3);
     expect(g.effectiveScale(es)).toBeCloseTo(es, 12);
     // 连喂多次仍稳定
@@ -170,7 +170,7 @@ describe('effectiveScale 缩放钳制（ADR-0006 Q4=A）', () => {
   });
 
   it('外框 chrome 随缩放缩放：预留与边条绘制一致（issue 51 修订，沟槽文字距离恒定的前提）', () => {
-    const g = new ChartGeometry(bpm120, 8, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , surface());
     for (const es of [0.5, 1, 2.5]) {
       const { trackStartX, trackBgX, totalTrackWidth } = g.trackGeometry(es);
       expect(trackBgX - trackStartX).toBeCloseTo(TRACK_CHROME_TOTAL * es, 6);
@@ -187,7 +187,7 @@ describe('visibleNotes 视口剔除', () => {
   const beatOf = (n: { note: ChartNote }) => (n.note as { beat: number }).beat;
 
     it('只返回视口内的音符', () => {
-      const g = new ChartGeometry(bpm120, 100, surface());
+      const g = new ChartGeometry(bpm120, { endBeat: 100 } , surface());
       const notes = [ch(0), ch(50), ch(100)];
       // beat0→y=22840(顶)、beat50→y=11840、beat100→y=840(判定线)；scrollY=0 视口 y∈[0,1100]
       const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
@@ -196,7 +196,7 @@ describe('visibleNotes 视口剔除', () => {
     });
 
     it('滚动后可见集变化', () => {
-      const g = new ChartGeometry(bpm120, 100, surface());
+      const g = new ChartGeometry(bpm120, { endBeat: 100 } , surface());
       const notes = [ch(0), ch(50), ch(100)];
       // scrollY=11000 → 视口 y∈[10800,12100]，命中 beat50(y=11840)
       const viewport = { scrollX: 0, scrollY: 11000, scale: 1 };
@@ -254,7 +254,7 @@ describe('directionalLanes / 方向键虚拟点集（issue 62）', () => {
   });
 
   it('noteVirtualPoints 对方向键返回全部占用轨道（框选据此判定）', () => {
-    const g = new ChartGeometry(bpm120, 100, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 100 } , surface());
     const pts = g.noteVirtualPoints({ type: 'LDirectional', beat: 10, lane: 4, subBeat: 0, length: 3 } as ChartNote, 1, 4);
     expect(pts).toHaveLength(3);
     expect(pts.map(p => p.x)).toEqual([4, 3, 2].map(lane => g.noteVirtualX(lane)));
@@ -262,7 +262,7 @@ describe('directionalLanes / 方向键虚拟点集（issue 62）', () => {
   });
 
   it('单键仍然只有根点（不误扩）', () => {
-    const g = new ChartGeometry(bpm120, 100, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 100 } , surface());
     expect(g.noteVirtualPoints({ type: 'Single', beat: 10, lane: 4, subBeat: 0 } as ChartNote, 1, 4)).toHaveLength(1);
   });
 });
@@ -276,7 +276,7 @@ describe('quantizeBeat（issue 61 的唯一量化口径）', () => {
   });
 
   it('laneBeatFromCanvas 同时给出量化拍与未量化拍（未量化供拖拽抓取偏移）', () => {
-    const g = new ChartGeometry(bpm120, 8, surface());
+    const g = new ChartGeometry(bpm120, { endBeat: 8 } , surface());
     const viewport = { scrollX: 0, scrollY: g.chartEndVirtualY, scale: 1 };
     const { trackBgX } = g.trackGeometry(1);
     const cx = trackBgX + LANE_WIDTH * 2 + LANE_WIDTH / 2;

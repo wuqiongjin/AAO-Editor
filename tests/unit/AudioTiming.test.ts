@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  getBpmEvents, beatToSeconds, secondsToBeat, buildKeyEvents, chartLengthToEndBeat, maxNoteEndSeconds,
+  getBpmEvents, beatToSeconds, secondsToBeat, secondsSolutionsOf, buildKeyEvents, maxNoteEndSeconds,
   EMPTY_CHART_DURATION_SECONDS, DEFAULT_BPM,
   type BpmEvent,
 } from '../../src/audio/AudioTiming';
@@ -157,25 +157,34 @@ describe('buildKeyEvents', () => {
   });
 });
 
-describe('chartLengthToEndBeat', () => {
+describe('secondsToBeat（谱面末端拍 = 谱面长度(秒) 的最大 beat 解，ADR-0005 + ADR-0010 结论 5）', () => {
   const bpm120: BpmEvent[] = [{ beat: 0, bpm: 120 }];
 
-  it('谱面末端 beat = 谱面长度(秒) 经 BPM 换算，与音符无关（ADR-0005）', () => {
+  it('单调谱面：谱面末端 beat 与音符无关', () => {
     // 30s @120bpm → 60 拍
-    expect(chartLengthToEndBeat(bpm120, 30)).toBeCloseTo(60);
+    expect(secondsToBeat(bpm120, 30)).toBeCloseTo(60);
     // 60s @120bpm → 120 拍
-    expect(chartLengthToEndBeat(bpm120, 60)).toBeCloseTo(120);
+    expect(secondsToBeat(bpm120, 60)).toBeCloseTo(120);
   });
 
   it('BPM 变化时按事件分段换算（时间锚定，不因音符变化）', () => {
     const events: BpmEvent[] = [{ beat: 0, bpm: 120 }, { beat: 30, bpm: 240 }];
     // 20s：前 15s(30拍@120) + 后 5s(20拍@240) → 50 拍
-    expect(chartLengthToEndBeat(events, 20)).toBeCloseTo(50);
+    expect(secondsToBeat(events, 20)).toBeCloseTo(50);
   });
 
   it('空谱（无音符）同样按谱面长度换算，不塌缩到个位数拍', () => {
     // 无音频默认 30s @120 → 60 拍，而非旧版"空谱仅 8 拍/1 拍"
-    expect(chartLengthToEndBeat(bpm120, EMPTY_CHART_DURATION_SECONDS)).toBeCloseTo(60);
+    expect(secondsToBeat(bpm120, EMPTY_CHART_DURATION_SECONDS)).toBeCloseTo(60);
+  });
+
+  it('倒流区：同一秒多解 → secondsToBeat 取最大 beat 解，secondsSolutionsOf 列全（ADR-0010 附录 B）', () => {
+    // 120 → -120(beat 5) → 120(beat 6.5)：t(3.5)=t(6.5)=1.75s，t(5)=2.5s
+    const events: BpmEvent[] = [{ beat: 0, bpm: 120 }, { beat: 5, bpm: -120 }, { beat: 6.5, bpm: 120 }];
+    expect(secondsToBeat(events, 1.75)).toBeCloseTo(6.5, 6); // 不是 3.5（最小解）
+    const sols = secondsSolutionsOf(events, 1.75);
+    expect(sols.map(s => s.beat)).toEqual([expect.closeTo(3.5, 6), expect.closeTo(6.5, 6)]);
+    expect(sols.map(s => s.segmentIndex)).toEqual([0, 2]); // 层 = 段序号（1 号段是倒流区、不含此秒）
   });
 });
 
@@ -206,6 +215,23 @@ describe('maxNoteEndSeconds', () => {
 
   it('空谱返回 0', () => {
     expect(maxNoteEndSeconds([], 4, bpm120)).toBe(0);
+  });
+
+  it('倒流区：取**全谱最大秒**，而不是"最大 beat 的秒"（issue 104 修法 6）', () => {
+    // 120 → -240(beat 5) → 120(beat 6.5)：t(5)=2.5s 反而大于 t(6.5)=2.125s（回程）
+    const events: BpmEvent[] = [{ beat: 0, bpm: 120 }, { beat: 5, bpm: -240 }, { beat: 6.5, bpm: 120 }];
+    const notes: ChartNote[] = [
+      { type: 'Single', lane: 0, beat: 5, subBeat: 0 },   // 最大秒所在
+      { type: 'Single', lane: 1, beat: 6.5, subBeat: 0 }, // 最大 beat 所在（秒更小）
+    ];
+    expect(beatToSeconds(events, 6.5)).toBeCloseTo(2.125, 6); // 反向哨兵：只取最大 beat 会漏掉 2.5
+    expect(maxNoteEndSeconds(notes, 4, events)).toBeCloseTo(2.5, 6);
+    // 滑条取**全部结点**的秒（倒流区里末端点未必是最后位置点）
+    const slide: ChartNote[] = [{
+      type: 'Slide',
+      connections: [{ beat: 6.5, lane: 0 }, { beat: 5, lane: 3 }],
+    }];
+    expect(maxNoteEndSeconds(slide, 4, events)).toBeCloseTo(2.5, 6);
   });
 });
 

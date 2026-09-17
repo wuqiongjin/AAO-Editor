@@ -94,7 +94,7 @@ describe('颜色主题（issue 53 第二轮）', () => {
 
 describe('renderGrid 分层绘制（issue 53）', () => {
   function renderGridAt(beatDisplay: number, opts: { gridStyle?: GridStylePreset; lineShapeTiers?: boolean } = {}) {
-    const geometry = new ChartGeometry(bpm120, 8, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 } , TEST_SURFACE);
     const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 };
     const c = makeCoords(geometry, viewport, beatDisplay, []);
     const rc = {
@@ -119,7 +119,7 @@ describe('renderGrid 分层绘制（issue 53）', () => {
     // 横线路径：moveTo(trackBgX) → lineTo(trackBgX + trackBgWidth)，长度 L = 210·es；
     // 默认形态 [4,6]·es，周期 10·es 整除 L → 修复前右端相位为 0（= 新 dash 的起点，
     // 于是末端前 [L−gap, L) 是空档）。偏移半个 dash 后两端相位一致，都从边缘起墨。
-    const geometry = new ChartGeometry(bpm120, 8, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 } , TEST_SURFACE);
     const es = 1;
     const { trackBgWidth } = geometry.trackGeometry(es);
     const dash = gridLineDash('half', false, es)!; // [4,6]
@@ -157,7 +157,7 @@ describe('renderGrid 分层绘制（issue 53）', () => {
 
   it('轨道线透明度：globalAlpha = 分层 alpha × gridOpacity（第三轮补）', () => {
     const renderAt = (gridOpacity?: number) => {
-      const geometry = new ChartGeometry(bpm120, 8, TEST_SURFACE);
+      const geometry = new ChartGeometry(bpm120, { endBeat: 8 } , TEST_SURFACE);
       const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 };
       const c = makeCoords(geometry, viewport, 4, []);
       const rc = {
@@ -178,7 +178,7 @@ describe('renderGrid 分层绘制（issue 53）', () => {
 
   it('抽稀与层级叠加：远缩放下高层级优先保留，低层级让位（issue 53 验收）', () => {
     // scale=0.1 + scrollY 进入谱面中部：拍距 22px、1/16 距 1.375px——子拍候选大量落入高层级 5px 邻域
-    const geometry = new ChartGeometry(bpm120, 100, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 100 } , TEST_SURFACE);
     const viewport = { scrollX: 0, scrollY: 21000, scale: 0.1 };
     const c = makeCoords(geometry, viewport, 16, []);
     const rc = {

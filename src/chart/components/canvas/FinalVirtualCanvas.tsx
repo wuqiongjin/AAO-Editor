@@ -9,7 +9,7 @@ import {
   type CurveDraft,
 } from '../../editing/ToolActionMatrix';
 import { buildPenSlide } from '../../editing/SpanCurve';
-import { getBpmEvents, secondsToBeat, chartLengthToEndBeat, type BpmEvent } from '../../../audio/AudioTiming';
+import { getBpmEvents, secondsToBeat, type BpmEvent } from '../../../audio/AudioTiming';
 import {
   ChartGeometry, LANES, LANE_WIDTH,
   TRACK_CHROME_TOTAL, type SurfaceSize,
@@ -246,12 +246,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         return () => { cancelled = true; };
     }, [noteIcons]);
 
-    // 谱面末端 beat（ADR-0005 §1/§7）：由显式谱面长度(秒) 经 BPM 事件换算得出，与音符无关、无尾量。
-    // 空谱/无音频也用谱面长度（默认 30s）换算，不再有 FLOOR_BEATS 兜底。
-    const chartEndBeat = useMemo(
-        () => chartLengthToEndBeat(getBpmEvents(notes), chartEndSeconds),
-        [notes, chartEndSeconds],
-    );
     const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
     // 圈选起点（bug 32：同时记画布坐标与虚拟坐标；滚动时用虚拟坐标锚定谱面时刻/轨道不变，行为如"长截图"）
     const selectionStartRef = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
@@ -292,18 +286,22 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const prev = geometryRef.current;
         if (
             prev &&
-            prev.chartEndBeat === chartEndBeat &&
+            prev.chartLengthSeconds === chartEndSeconds &&
             prev.surface.w === surf.w && prev.surface.h === surf.h &&
             prev.verticalRatio === verticalRatio &&
             bpmEventsContentEqual(prev.bpmEvents, bpmEvents)
         ) {
             return prev;
         }
-        const next = new ChartGeometry(bpmEvents, chartEndBeat, surf, verticalRatio);
+        // issue 104 修法 1（Q2 归一）：端点由**谱面长度（秒）**直出——两处同式 chartEndBeat 反查
+        // （此处与 useScrollModel）已收敛进构造函数；chartEndBeat 由 geometry 派生，不再各自反查。
+        const next = new ChartGeometry(bpmEvents, { seconds: chartEndSeconds }, surf, verticalRatio);
         geometryRef.current = next;
         return next;
         // issue 39 #5：纵向比例变化 → 重建 geometry（改变每小节纵向高度）
-    }, [notes, chartEndBeat, surf, verticalRatio]);
+    }, [notes, chartEndSeconds, surf, verticalRatio]);
+    // 谱面末端 beat：由 geometry 派生的**最大 beat 解**（网格枚举 / 放置边界 / 缓存键用它）
+    const chartEndBeat = geometry.chartEndBeat;
     // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它
     const chartEndVirtualY = geometry.chartEndVirtualY;
 
@@ -615,11 +613,14 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // issue 66 §4a：拖拽中光标移到轨道外也能继续算位移（落点是否合法由 planDragMove 按根轨裁决）
         const cur = snapPos(mx, my, true);
         if (!cur) return null;
+        // issue 104 修法 8（ADR-0010 结论 5）：Δy→Δ拍 用**被拖元素所在层**的斜率换算，
+        // 而不是光标处的最大 beat 解——倒流区里各层"每拍像素"不同，取错层会"拖一格跳两拍"。
+        const rawCurBeat = geometry.layerBeatFromCanvas(my, viewport, drag.layerSegment);
         return {
             dBeat: dragDeltaBeat({
                 anchorBeat: drag.anchorBeat,
                 rawPressBeat: drag.rawPressBeat,
-                rawCurBeat: cur.rawBeat,
+                rawCurBeat,
                 beatDisplay,
             }),
             dLane: cur.lane - drag.pressLane,

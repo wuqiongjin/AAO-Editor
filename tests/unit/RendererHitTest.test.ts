@@ -10,7 +10,7 @@ const TEST_SURFACE = { w: 750, h: 900 };
 
 /** 构造一个 scale=1、scrollY=0 的视图，画布坐标 == 虚拟坐标（x 含 trackBgX 偏移） */
 function makeDeps(notes: ChartNote[], chartEndBeat = 100): { deps: HitTestDeps; viewport: { scrollX: number; scrollY: number; scale: number }; canvas: (lane: number, beat: number, subBeat?: number) => { x: number; y: number } } {
-  const geometry = new ChartGeometry(bpm120, chartEndBeat, TEST_SURFACE);
+  const geometry = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , TEST_SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
   const beatDisplay = 4;
   const canvas = (lane: number, beat: number, subBeat = 0) =>
@@ -354,7 +354,7 @@ describe('图层与命中优先级（issue 85）', () => {
       slideOf({ beat: 40, lane: 3 }, { beat: 44, lane: 3 }),
       { type: 'LDirectional', beat: 46, lane: 2, length: 2 } as ChartNote,
     ];
-    const geometry = new ChartGeometry(bpm120, 100, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 100 } , TEST_SURFACE);
     const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
     const yOf = (b: number) => geometry.noteVirtualY(b, 0, viewport.scale, 4);
     const ys = [yOf(38), yOf(48)];
@@ -422,7 +422,7 @@ describe('hover 命中盒 = 墨迹矩形 + 2px 余量（issue 82）', () => {
 
   it('命中盒随 viewport.scale 缩放（scale 0.5：半高 6.4）', () => {
     const notes = singleAt(3, 50);
-    const geometry = new ChartGeometry(bpm120, 100, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 100 } , TEST_SURFACE);
     const viewport = { scrollX: 0, scrollY: 0, scale: 0.5 };
     const deps: HitTestDeps = { geometry, viewport, beatDisplay: 4, notes };
     const p = geometry.virtualToCanvas(

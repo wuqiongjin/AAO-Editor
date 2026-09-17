@@ -12,18 +12,17 @@
 //   - Editor 只把本模块的结果【应用到 DOM】（scrollTop）与【让画布跟随】（setScrollY）；
 //   - FinalVirtualCanvas 的 imperative handle 收窄到 setScrollY + 起点标记（无秒↔scrollY 数学）。
 //
-// 坐标系不变量（ADR-0004 §1 + ADR-0006 §2，实现映射自原 FinalVirtualCanvas ref 方法，逐条等价）：
+// 坐标系不变量（ADR-0004 §1 + ADR-0006 §2 + ADR-0010 结论 3/4）：
 //   判定线 = 画布【底边】= 虚拟 Y surface.h/scale（渲染面底边）。
 //   scrollY ∈ [0, chartEndVirtualY]：
 //     scrollY = 0            → 判定线处 = 谱面末端（最顶端）
 //     scrollY = chartEndY    → 判定线处 = beat 0（最底端）
-//   原画布 getScrollYForPlaybackSeconds：beatToVirtualY(beat) - surf.h/scale，钳制到同一区间。
-//   原画布 getPlaybackSecondsForScrollY：virtualYToBeat(scrollY + surf.h/scale) → beatToSeconds。
-//   两者经 geometry 的 timeline 严格互逆（BpmTimeline 分段线性，positionOfBeat/beatOfPosition 对偶）。
+//   **issue 104 修法 5：秒 ↔ scrollY 改为纯线性**（`scrollY = chartEndVirtualY − 秒 × 像素密度`），
+//   不再借道「秒 → 拍 → 像素」——倒流区里「秒 → 拍」多值，借道必然取到错层的拍（滚动会跳）。
+//   像素密度 = `geometry.virtualPxPerSecond`（与 bpm 无关的常数），故两条映射严格互逆。
 //
 // 纯逻辑：只依赖注入的 ChartGeometry + 用户缩放 scale，node 环境可单测。
 import type { ChartGeometry } from '../chart/geometry/ChartGeometry';
-import { secondsToBeat, beatToSeconds, type BpmEvent } from '../audio/AudioTiming';
 
 export interface ReAnchorTarget {
   /** 画布虚拟 scrollY（判定线处=锚点秒）。 */
@@ -70,18 +69,16 @@ export class PlaybackScrollModel {
 
   /** 判定线=画布底边：scrollY=0 时判定线在末端，scrollY=chartEndY 时判定线在 beat0。 */
   scrollYForSeconds(seconds: number): number {
-    const beat = secondsToBeat(this.geometry.bpmEvents as BpmEvent[], seconds);
-    const raw = this.geometry.chartEndVirtualY - this.geometry.timeline.positionOfBeat(beat);
+    const raw = this.geometry.chartEndVirtualY - seconds * this.geometry.virtualPxPerSecond;
     return clamp(raw, 0, this.maxCanvasScrollY());
   }
 
-  /** scrollY → 判定线处秒数（与 scrollYForSeconds 互逆）。 */
+  /** scrollY → 判定线处秒数（与 scrollYForSeconds 互逆，纯线性）。 */
   secondsForScrollY(scrollY: number): number {
     const clamped = clamp(scrollY, 0, this.maxCanvasScrollY());
-    // 判定线虚拟 Y = scrollY + surface.h/scale（画布底边）
-    const judgeLineVirtualY = clamped + this.geometry.surface.h / this.effectiveScale();
-    const beat = this.geometry.virtualYToBeat(judgeLineVirtualY, this.scale);
-    return beatToSeconds(this.geometry.bpmEvents as BpmEvent[], beat);
+    const density = this.geometry.virtualPxPerSecond;
+    if (!(density > 0)) return 0; // 退化几何（纵向比例 0）→ 不给 NaN/Infinity
+    return (this.geometry.chartEndVirtualY - clamped) / density;
   }
 
   /**

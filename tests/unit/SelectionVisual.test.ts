@@ -35,7 +35,7 @@ interface Opts {
 
 /** 收集本次描边（视口 scale=1 / scrollY=0，传入的全部音符都视为可见） */
 function outlinesOf(o: Opts): SelectionOutline[] {
-  const geometry = new ChartGeometry(bpm120, 100, SURFACE);
+  const geometry = new ChartGeometry(bpm120, { endBeat: 100 } , SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: o.scale ?? 1, virtualWidth: 0, virtualHeight: 0 };
   const rc = {
     geometry,
@@ -340,7 +340,7 @@ describe('hover 描边层级（issue 56 c）', () => {
 // ---------------- A6：hidden 结点不可命中 ----------------
 describe('hidden 结点不可选中 / 不可 hover（A6）', () => {
   const notes = [slide([{ lane: 0, beat: 10 }, { lane: 3, beat: 12, hidden: true }, { lane: 6, beat: 14 }])];
-  const geometry = new ChartGeometry(bpm120, 100, SURFACE);
+  const geometry = new ChartGeometry(bpm120, { endBeat: 100 } , SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: 1 };
   const deps: HitTestDeps = { geometry, viewport, beatDisplay: BEAT_DISPLAY, notes };
   const at = (lane: number, beat: number) =>
@@ -379,7 +379,7 @@ describe('hidden 结点不可选中 / 不可 hover（A6）', () => {
 // 新特性：左键按住拖出框选矩形期间，选区还没建立（要等 mouseup），
 // 此刻框内的音符必须即时显示 hover 档描边，让用户看清"松手会选中谁"。
 describe('框选实时预览描边（issue 67）', () => {
-  const GEO = new ChartGeometry(bpm120, 100, SURFACE);
+  const GEO = new ChartGeometry(bpm120, { endBeat: 100 } , SURFACE);
   const VP = { scrollX: 0, scrollY: 0, scale: 1 };
   /** lane/beat → 画布坐标（与 computeItemsInBox 同一几何） */
   const at = (lane: number, beat: number) =>

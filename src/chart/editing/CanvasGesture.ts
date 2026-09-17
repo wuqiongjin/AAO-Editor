@@ -126,6 +126,13 @@ export interface DragAnchor {
     pressLane: number;
     anchorBeat: number;
     rawPressBeat: number;
+    /**
+     * 被拖元素所在的**层**（BPM 段序号，issue 104 修法 8 / ADR-0010 结论 5）：
+     * 拖拽的 Δy→Δ拍 换算锚定这一层——倒流区里各层的"每拍像素"不同，
+     * 取光标处的最大解层会让位移按别的层的斜率换算（拖 1 格跳 2 拍）。
+     * `rawPressBeat` 与后续 `rawCurBeat` 都按本层换算，二者同层才可比。
+     */
+    layerSegment: number;
 }
 
 export type PressIntent =
@@ -182,9 +189,14 @@ export function resolvePressIntent(input: {
     const anchorBeat = itemTrueBeat(input.deps.notes, anchor, input.deps.beatDisplay);
     if (anchorBeat === null) return marquee;
 
+    // issue 104 修法 8：Δy→Δ拍 锚定**被拖元素所在的层**（BPM 段序号）——按下点的未量化拍位
+    // 也按该层换算，与拖拽中的换算同层（倒流区里「同一个 y」各层的拍不同，跨层相减会算错位移）
+    const layerSegment = input.deps.geometry.timeline.segmentIndexAtBeat(anchorBeat);
+    const rawPressBeat = input.deps.geometry.layerBeatFromCanvas(input.cy, input.deps.viewport, layerSegment);
+
     return {
         kind: 'drag',
-        anchor: { items, pressLane: p.lane, anchorBeat, rawPressBeat: p.rawBeat },
+        anchor: { items, pressLane: p.lane, anchorBeat, rawPressBeat, layerSegment },
     };
 }
 

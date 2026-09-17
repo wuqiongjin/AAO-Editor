@@ -29,7 +29,7 @@ interface SceneOpts {
 
 /** 搭一个最小渲染上下文并捕获 spriteIcon 的 render / renderDecorator 调用 */
 function scene(opts: SceneOpts) {
-  const geometry = new ChartGeometry(bpm120, 100, SURFACE);
+  const geometry = new ChartGeometry(bpm120, { endBeat: 100 } , SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale: 1, virtualWidth: 0, virtualHeight: 0 };
   const notes: ChartNote[] = opts.notes ?? [];
   const c = makeCoords(geometry, viewport, BEAT_DISPLAY, notes);

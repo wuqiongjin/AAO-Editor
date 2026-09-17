@@ -10,7 +10,7 @@ const TEST_SURFACE = { w: 750, h: 900 };
 const chartEndBeat = 3; // 3 拍 = 660px < 画布高 900px：起始/结束两线可同屏（scrollY=700 时分别位于 y≈860 / y≈200）
 
 function renderBoundLinesAt(scrollY: number) {
-  const geometry = new ChartGeometry(bpm120, chartEndBeat, TEST_SURFACE);
+  const geometry = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , TEST_SURFACE);
   const viewport = { scrollX: 0, scrollY, scale: 1 };
   const c = makeCoords(geometry, viewport, 4, []);
   const rc = { geometry, viewport, surface: TEST_SURFACE, chartEndBeat } as unknown as RenderCtx;
@@ -33,7 +33,7 @@ describe('renderBoundLines（issue 52 整改）', () => {
   });
 
   it('线只画轨道两侧沟槽段（不覆盖轨道内，第三轮修订）', () => {
-    const geometry = new ChartGeometry(bpm120, chartEndBeat, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , TEST_SURFACE);
     const { trackStartX, totalTrackWidth } = geometry.trackGeometry(1);
     const rightOuter = trackStartX + totalTrackWidth;
     const moveTos = calls.filter(([k]) => k === 'moveTo');

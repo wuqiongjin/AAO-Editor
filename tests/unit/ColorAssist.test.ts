@@ -118,7 +118,7 @@ describe('AppSettings.display.colorAssist（issue 39 #4）', () => {
 
 // ---- renderNotes 接线：色觉辅助开关 → tap 选款（stub spriteIcon 捕获绘制配置，仿 RendererPerf 模式） ----
 
-const geom = new ChartGeometry([{ beat: 0, bpm: 120 }], 8, { w: 750, h: 900 });
+const geom = new ChartGeometry([{ beat: 0, bpm: 120 }], { endBeat: 8 } , { w: 750, h: 900 });
 const stubCtx = new Proxy({}, { get: () => () => undefined, set: () => true }) as unknown as CanvasRenderingContext2D;
 
 /** 用给定音符序列 + colorAssist 渲染一遍，返回 spriteIcon.render 收到的前几个 {src,x,y,w,h} */

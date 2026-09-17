@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { PlaybackScrollModel, type ReAnchorTarget } from './PlaybackScrollModel';
 import { ChartGeometry } from '../chart/geometry/ChartGeometry';
-import { getBpmEvents, chartLengthToEndBeat } from '../audio/AudioTiming';
+import { getBpmEvents } from '../audio/AudioTiming';
 import type { ChartNote } from '../chart/types';
 import type { SurfaceSize } from '../chart/geometry/ChartGeometry';
 
@@ -51,16 +51,18 @@ export function useScrollModel(opts: UseScrollModelOptions): UseScrollModelRetur
   if (scrollModelRef.current == null) {
     // issue 50：占位 ChartGeometry，surface 用 200×240 fallback（与下方 scrollGeometry fallback 对齐）；
     // 立即被下方 useMemo 出的 scrollGeometry 覆盖。
-    scrollModelRef.current = new PlaybackScrollModel(new ChartGeometry([], 0, { w: 200, h: 240 }), scale);
+    scrollModelRef.current = new PlaybackScrollModel(new ChartGeometry([], { seconds: 0 }, { w: 200, h: 240 }), scale);
   }
   const scrollModel = scrollModelRef.current;
 
   // 几何：notes/duration/surface/verticalRatio 任一变化都重建并 configure
   // issue 50（Q26 b）：surface null 时用 200×240 fallback，保证 ChartGeometry 必传有效 surface
+  // issue 104（Q2 归一）：端点一律由**谱面长度（秒）**直出（ADR-0005 §1），
+  // 不再在调用点各自反查末端拍（画布与滚动模型两处同式重复计算已收敛进构造函数）。
   const scrollGeometry = useMemo(
     () => new ChartGeometry(
       getBpmEvents(notes),
-      chartLengthToEndBeat(getBpmEvents(notes), ctxDuration),
+      { seconds: ctxDuration },
       surface ?? { w: 200, h: 240 },
       verticalRatio,
     ),

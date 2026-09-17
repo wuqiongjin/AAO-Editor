@@ -18,7 +18,7 @@ const bpm120 = [{ beat: 0, bpm: 120 }];
 const TEST_SURFACE = { w: 750, h: 900 };
 
 function makeCoordsAt(scale: number) {
-  const geometry = new ChartGeometry(bpm120, 40, TEST_SURFACE);
+  const geometry = new ChartGeometry(bpm120, { endBeat: 40 } , TEST_SURFACE);
   const viewport = { scrollX: 0, scrollY: 0, scale };
   return { c: makeCoords(geometry, viewport, 4, []), geometry, viewport };
 }
@@ -105,7 +105,7 @@ describe('clampGutterLabelY / drawGutterLabel（issue 51：文字都在谱面范
 describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () => {
   function renderBpmAt(scrollY: number, beat = 0) {
     const bpmNote = { type: 'BPM', beat, bpm: 120 } as never;
-    const geometry = new ChartGeometry(bpm120, 8, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 } , TEST_SURFACE);
     const viewport = { scrollX: 0, scrollY, scale: 1 };
     const c = makeCoords(geometry, viewport, 4, [bpmNote]);
     const rc = {
@@ -129,7 +129,7 @@ describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () =
   });
 
   it('起始线贴底边（scrollY=chartEnd）：数值钳制在画布内（不再堆叠/裁剪）', () => {
-    const geometry = new ChartGeometry(bpm120, 8, TEST_SURFACE);
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 } , TEST_SURFACE);
     const calls = renderBpmAt(geometry.chartEndVirtualY);
     const fills = fillTexts(calls);
     expect(fills.length).toBe(1);

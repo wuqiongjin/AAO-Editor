@@ -4,7 +4,7 @@
 //
 // 坐标系（issue 11）：虚拟坐标（X 原点=轨道内容左缘，Y 自下而上、beat 0 在判定线）↔ 画布坐标。
 import type { ChartNote } from '../types';
-import { BpmTimeline, type BpmTimelineEvent } from './BpmTimeline';
+import { BpmTimeline, type BpmBeatSolution, type BpmTimelineEvent } from './BpmTimeline';
 
 export const LANES = 7;
 export const BEAT_HEIGHT = 220; // 基准节拍高度
@@ -43,6 +43,15 @@ export interface GeometryBounds {
   minY: number;
   maxY: number;
 }
+
+/**
+ * 谱面末端（= 画布高度）的两种声明轴（issue 104 修法 1）：
+ * - `{ seconds }` = **应用侧唯一口径**（ADR-0005 谱面长度第一性是秒）：画布高度 = 秒 × 像素密度，
+ *   **不经任何反查**（倒流区里「秒 → 拍」多值，只有秒域是唯一的）；拍域末端由**最大 beat 解**派生。
+ * - `{ endBeat }` = 拍域声明（测试/工具用）：高度 = `positionOfBeat(endBeat)`（正向映射），
+ *   拍域末端就是给的这一拍——倒流区内它未必是"该高度的最大解"，这正是调用方声明的原意。
+ */
+export type ChartLengthSpec = { seconds: number } | { endBeat: number };
 
 /**
  * 拍位吸附到当前细分网格（issue 61 的唯一量化口径）：
@@ -85,16 +94,45 @@ export class ChartGeometry {
   readonly timeline: BpmTimeline;
   /** 谱面末端的真实 BPM 像素高度 */
   readonly chartEndVirtualY: number;
+  /** 谱面长度（秒）——画布高度的第一性来源（ADR-0005）；也是"末端是否变化"的身份（缓存/重建判定用） */
+  readonly chartLengthSeconds: number;
   /** 纵向比例（issue 39 #5）：每小节纵向高度的标量，0.5..2.0；默认 1 */
   readonly verticalRatio: number;
+  /**
+   * 布局坐标的像素密度（虚拟 px / 秒，issue 104 修法 1/5）：
+   * `perBeat ÷ 每拍秒数 = BEAT_HEIGHT·verticalRatio·(120/bpm) ÷ (60/bpm) = 2·BEAT_HEIGHT·verticalRatio`
+   * ——**与 bpm 无关**（倒流区里也一样），故「秒 ↔ 布局坐标」是同一个常数的线性映射，
+   * 画布高度、hover 秒读数、播放滚动全部直接用它，不经过任何反查。
+   */
+  readonly virtualPxPerSecond: number;
 
-  constructor(bpmEvents: readonly BpmTimelineEvent[], chartEndBeat: number, surface: SurfaceSize, verticalRatio = 1) {
+  constructor(
+    bpmEvents: readonly BpmTimelineEvent[],
+    chartLength: ChartLengthSpec,
+    surface: SurfaceSize,
+    verticalRatio = 1,
+  ) {
     this.bpmEvents = bpmEvents;
-    this.chartEndBeat = chartEndBeat;
     this.surface = surface;
     this.verticalRatio = verticalRatio;
+    this.virtualPxPerSecond = 2 * BEAT_HEIGHT * verticalRatio;
     this.timeline = new BpmTimeline(bpmEvents, (bpm) => (BEAT_HEIGHT * verticalRatio * 120) / bpm);
-    this.chartEndVirtualY = this.timeline.positionOfBeat(chartEndBeat);
+    if ('seconds' in chartLength) {
+      // 谱面长度（秒）第一性：高度 = 秒 × 像素密度，不经 secondsToBeat（ADR-0010 结论 4）
+      this.chartLengthSeconds = chartLength.seconds;
+      this.chartEndVirtualY = chartLength.seconds * this.virtualPxPerSecond;
+      const end = this.timeline.maxBeatSolutionOf(this.chartEndVirtualY);
+      this.chartEndBeat = end.beat;
+    } else {
+      this.chartEndVirtualY = this.timeline.positionOfBeat(chartLength.endBeat);
+      this.chartEndBeat = chartLength.endBeat;
+      this.chartLengthSeconds = this.chartEndVirtualY / this.virtualPxPerSecond;
+    }
+  }
+
+  /** 布局坐标基线上的"画布顶部"常量：C(es) = chartEndVirtualY + surface.h / es（见 noteLayerCache 注释） */
+  private baseline(scale: number): number {
+    return this.chartEndVirtualY + this.surface.h / this.effectiveScale(scale);
   }
 
 /**
@@ -132,14 +170,63 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     return this.chartEndVirtualY + this.surface.h / this.effectiveScale(scale);
   }
 
-  /** beat → 虚拟Y（自下而上翻转：beat 0 在判定线=渲染面底边） */
-  beatToVirtualY(beat: number, scale: number): number {
-    return this.chartEndVirtualY + this.surface.h / this.effectiveScale(scale) - this.timeline.positionOfBeat(beat);
+  /** 布局坐标（pos）→ 虚拟Y（自下而上翻转：pos 0 = 谱面起点，在判判定线=渲染面底边的上方） */
+  virtualYOfPos(pos: number, scale: number): number {
+    return this.baseline(scale) - pos;
   }
 
-  /** 虚拟Y → beat（与 beatToVirtualY 互逆） */
+  /** 虚拟Y → 布局坐标（pos = 谱面起点起算的秒 × 像素密度；**线性直读，不经 BPM 反查**） */
+  posOfVirtualY(virtualY: number, scale: number): number {
+    return this.baseline(scale) - virtualY;
+  }
+
+  /** beat → 虚拟Y（自下而上翻转：beat 0 在判定线=渲染面底边） */
+  beatToVirtualY(beat: number, scale: number): number {
+    return this.virtualYOfPos(this.timeline.positionOfBeat(beat), scale);
+  }
+
+  /**
+   * 虚拟Y → **秒**（issue 104 修法 3）：布局轴直读。判定线处 / hover 读数一律用它——
+   * 倒流区里「y → 拍」多值，但「y → 秒」恒单值（时间轴是布局轴本身）。
+   */
+  virtualYToSeconds(virtualY: number, scale: number): number {
+    return this.posOfVirtualY(virtualY, scale) / this.virtualPxPerSecond;
+  }
+
+  /**
+   * 虚拟Y → **全部拍解**（各层各一个，ADR-0010 结论 5）。需要"拍"的地方必须显式选解：
+   * 空白处新增取 `maxBeatSolutionOf`（= `virtualYToBeat`），拖拽锚定被拖元素的层（`layerBeatFromCanvas`）。
+   */
+  virtualYSolutions(virtualY: number, scale: number): BpmBeatSolution[] {
+    return this.timeline.beatSolutionsOf(this.posOfVirtualY(virtualY, scale));
+  }
+
+  /** 虚拟Y → beat：**最大 beat 解**（无更具体上下文时的默认取解口径，见 virtualYSolutions） */
   virtualYToBeat(virtualY: number, scale: number): number {
-    return this.timeline.beatOfPosition(this.chartEndVirtualY + this.surface.h / this.effectiveScale(scale) - virtualY);
+    return this.timeline.maxBeatSolutionOf(this.posOfVirtualY(virtualY, scale)).beat;
+  }
+
+  /** 画布 Y → **指定层（BPM 段）内**的拍位：拖拽的 Δy→Δ拍 锚定被拖元素自己所在的层（ADR-0010 结论 5） */
+  layerBeatFromCanvas(cy: number, viewport: GeometryViewport, layerSegment: number): number {
+    const es = this.effectiveScale(viewport.scale);
+    return this.timeline.beatInSegment(layerSegment, this.posOfVirtualY(viewport.scrollY + cy / es, viewport.scale));
+  }
+
+  /** 布局坐标范围 ↔ 视口边界（issue 104 修法 4：剔除一律按元素的布局坐标，不再从 beat 反推） */
+  posRangeOfBounds(bounds: GeometryBounds, scale: number): { posMin: number; posMax: number } {
+    const c = this.baseline(scale);
+    return { posMin: c - bounds.maxY, posMax: c - bounds.minY };
+  }
+
+  /** 当前视口的布局坐标范围（viewportBounds 已含 VIEWPORT_PADDING 外扩） */
+  posRange(viewport: GeometryViewport): { posMin: number; posMax: number } {
+    return this.posRangeOfBounds(this.viewportBounds(viewport), viewport.scale);
+  }
+
+  /** 视口布局坐标范围覆盖的**可见拍区间集合**（网格/子节拍枚举用；倒流区里是多段） */
+  visibleBeatRanges(viewport: GeometryViewport): { start: number; end: number }[] {
+    const { posMin, posMax } = this.posRange(viewport);
+    return this.timeline.beatRangesForPositionRange(posMin, posMax);
   }
 
   /** 虚拟坐标 → 画布坐标（CSS 像素） */
@@ -188,6 +275,8 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
 
   /**
    * 画布坐标 → lane/beat（用于命中与圈选）；负拍返回 null。
+   * 倒流区里「y → 拍」多值：此处取 **最大 beat 解**（ADR-0010 结论 5，与制谱器编辑器逐操作等价），
+   * 即"空白处新增/光标读数"的默认口径；拖拽的层内换算走 `layerBeatFromCanvas`。
    *  `preciseBeat` = 吸附到当前 `beatDisplay` 网格后的拍位；`rawBeat` = **未量化**拍位
    *  （拖拽需要它做"抓取偏移"，见 issue 61：量化对象必须是被拖对象的落点，不是光标）。
    *
@@ -216,21 +305,25 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     return { lane, preciseBeat: quantizeBeat(beat, beatDisplay), rawBeat: beat };
   }
 
-  /** 排序索引缓存（issue 10 性能）：见 ensureNoteIndex */
+  /**
+   * 排序索引缓存（issue 10 性能；issue 104 改按**布局坐标**索引）：见 ensureNoteIndex。
+   * 索引键必须是布局坐标（pos）而不是拍：倒流区里 pos 随 beat 非单调，按 beat 二分求不出
+   * 可见集（折返带上"该画的没画"）。pos 对每件元素是单值/区间，剔除仍可二分。
+   */
   private noteIndex: {
     notes: readonly ChartNote[];
     beatDisplay: number;
-    points: { beat: number; index: number }[];
-    spans: { index: number; minBeat: number; maxBeat: number }[];
+    points: { pos: number; index: number }[];
+    spans: { index: number; posMin: number; posMax: number }[];
   } | null = null;
 
-  /** 构建音符排序索引（O(n log n)，按 notes 引用 + beatDisplay 缓存）；视口剔除由此降为 O(log n + 可见数) */
+  /** 构建音符排序索引（O(n log n)，按 notes 引用 + beatDisplay 缓存）；视口剔除由此降为 O(log n + 可见数） */
   private ensureNoteIndex(notes: readonly ChartNote[], beatDisplay: number) {
     if (this.noteIndex && this.noteIndex.notes === notes && this.noteIndex.beatDisplay === beatDisplay) {
       return this.noteIndex;
     }
-    const points: { beat: number; index: number }[] = [];
-    const spans: { index: number; minBeat: number; maxBeat: number }[] = [];
+    const points: { pos: number; index: number }[] = [];
+    const spans: { index: number; posMin: number; posMax: number }[] = [];
     notes.forEach((note, index) => {
       if (note.type === 'Slide' || note.type === 'Long') {
         let minBeat = Infinity, maxBeat = -Infinity;
@@ -240,15 +333,18 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
           if (b < minBeat) minBeat = b;
           if (b > maxBeat) maxBeat = b;
         }
-        spans.push({ index, minBeat, maxBeat });
+        // 区间极值走时间轴的**正向**分段线性求值（折返的峰值也在区间内，pos 区间是精确覆盖）
+        const r = this.timeline.positionRangeOfBeats(minBeat, maxBeat);
+        spans.push({ index, posMin: r.min, posMax: r.max });
       } else if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
         const sb = note.subBeat || 0;
-        points.push({ beat: note.beat + (sb > 0 ? sb / beatDisplay : 0), index });
+        points.push({ pos: this.timeline.positionOfBeat(note.beat + (sb > 0 ? sb / beatDisplay : 0)), index });
       } else if (note.type === 'BPM') {
-        points.push({ beat: note.beat, index });
+        points.push({ pos: this.timeline.positionOfBeat(note.beat), index });
       }
     });
-    points.sort((a, b) => a.beat - b.beat);
+    // 同 pos 保持原序（稳定）：绘制顺序的确定性不依赖引擎实现
+    points.sort((a, b) => (a.pos - b.pos) || (a.index - b.index));
     this.noteIndex = { notes, beatDisplay, points, spans };
     return this.noteIndex;
   }
@@ -275,33 +371,33 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     return [];
   }
 
-  /** 视口剔除：只返回可见区域内的音符（含 index 供选中/编辑用）。点音符走排序索引二分，滑条走区间扫描。 */
+  /** 视口剔除：只返回可见区域内的音符（含 index 供选中/编辑用）。点音符走 pos 排序索引二分，滑条走区间扫描。 */
   visibleNotes(notes: readonly ChartNote[], viewport: GeometryViewport, beatDisplay: number, boundsOverride?: GeometryBounds): { note: ChartNote; index: number }[] {
     const idx = this.ensureNoteIndex(notes, beatDisplay);
     const bounds = boundsOverride ?? this.viewportBounds(viewport);
-    // 视口虚拟Y范围 → beat 窗口（virtualY 自上而下递减 ↔ beat 递增，与 noteVirtualY 精确互逆）
-    const loBeat = this.virtualYToBeat(bounds.maxY, viewport.scale);
-    const hiBeat = this.virtualYToBeat(bounds.minY, viewport.scale);
+    // 视口虚拟Y范围 → **布局坐标**窗口（issue 104 修法 4：正向直读，不经"秒 → 拍"反查）。
+    // 倒流区里同一 pos 会被多个拍经过，用 beat 窗口剔除必然漏画折返带上那一层。
+    const { posMin, posMax } = this.posRangeOfBounds(bounds, viewport.scale);
     // issue 85：**先滑条/长条、后点音符** —— 输出顺序即绘制顺序（后画的在上），
     // 故键型音符（单键/方向键）恒画在 Slide 的段与结点之上，压在连接带下的音符不再被盖住。
     // 命中侧 `findItemAt` 用同一套图层优先级择优（键型 > 滑条结点 > 滑条段，同级取后放置者），
     // 二者严格同序（旧实现是点音符在前 → Slide 恒盖住其它音符，且命中按正序取，与绘制相反）。
     const visible: { note: ChartNote; index: number }[] = [];
 
-    // 跨度音符（滑条/长条）：任一端点或整体区间与 beat 窗口相交即可见
+    // 跨度音符（滑条/长条）：pos 区间与窗口相交即可见
     for (const s of idx.spans) {
-      if (s.maxBeat < loBeat || s.minBeat > hiBeat) continue;
+      if (s.posMax < posMin || s.posMin > posMax) continue;
       visible.push({ note: notes[s.index]!, index: s.index });
     }
 
-    // 点音符：二分找下界，顺序扫描到窗口上界
+    // 点音符：按 pos 二分找下界，顺序扫描到窗口上界
     const pts = idx.points;
     let lo = 0, hi = pts.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (pts[mid].beat < loBeat) lo = mid + 1; else hi = mid;
+      if (pts[mid].pos < posMin) lo = mid + 1; else hi = mid;
     }
-    for (let i = lo; i < pts.length && pts[i].beat <= hiBeat; i++) {
+    for (let i = lo; i < pts.length && pts[i].pos <= posMax; i++) {
       const { index } = pts[i];
       const note = notes[index]!;
       // X 校验保持与旧实现一致（轨道水平不滚动，恒在界内；BPM 无 lane 也按 lane0 校验）

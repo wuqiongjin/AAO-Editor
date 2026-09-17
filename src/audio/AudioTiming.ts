@@ -3,7 +3,7 @@
 // 避免 FinalCanvas 与 AudioEngine 各自实现导致时间轴漂移。
 import type { ChartNote } from '../chart/types';
 import type { KeySoundKind } from './KeySound';
-import { BpmTimeline, type BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
+import { BpmTimeline, type BpmBeatSolution, type BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
 
 export interface BpmEvent extends BpmTimelineEvent {}
 
@@ -37,9 +37,14 @@ export function beatToSeconds(events: BpmEvent[], beat: number): number {
   return secondsTimeline(events).positionOfBeat(beat);
 }
 
-/** 秒 → beat（含分数段）；与 beatToSeconds 互逆 */
+/** 秒 → beat：**最大 beat 解**（倒流区里同一秒有多解的默认口径，ADR-0010 结论 5） */
 export function secondsToBeat(events: BpmEvent[], seconds: number): number {
-  return secondsTimeline(events).beatOfPosition(seconds);
+  return secondsTimeline(events).maxBeatSolutionOf(seconds).beat;
+}
+
+/** 秒 → **全部 beat 解**（含所属 BPM 段序号）：需要按层行事时用（ADR-0010 结论 5） */
+export function secondsSolutionsOf(events: BpmEvent[], seconds: number): BpmBeatSolution[] {
+  return secondsTimeline(events).beatSolutionsOf(seconds);
 }
 
 /** 按键音事件：每个"会出声"的音符（普通/方向/滑条结点）平铺为音频秒，按时间升序 */
@@ -56,50 +61,35 @@ export interface KeySoundEvent {
 export const EMPTY_CHART_DURATION_SECONDS = 30;
 
 /**
- * 谱面末端 beat（ADR-0005 §1/§7）：谱面长度是显式、秒域、与音符无关的属性；
- * 画布/网格/滚动的末端由「谱面长度(秒) 经 BPM 事件换算」得出，不再由音符推算，也不加尾量。
- */
-export function chartLengthToEndBeat(bpmEvents: BpmEvent[], durationSeconds: number): number {
-  return secondsToBeat(bpmEvents, durationSeconds);
-}
-
-/** 某音符最后一个位置点的精确 beat（含滑条结点）；滑条无结点返回 -Infinity */
-function noteEndBeat(note: ChartNote, beatDisplay: number): number {
-  const precise = (beat: number, subBeat?: number) => beat + (subBeat ?? 0) / beatDisplay;
-  switch (note.type) {
-    case 'Single':
-    case 'LDirectional':
-    case 'RDirectional':
-      return precise(note.beat, note.subBeat);
-    case 'Slide':
-    case 'Long':
-      return note.connections.reduce(
-        (max, c) => Math.max(max, precise(c.beat, c.subBeat)),
-        -Infinity,
-      );
-    case 'BPM':
-    case 'System':
-      return note.beat;
-  }
-}
-
-/** 全谱最大精确 beat（含滑条结点）；空谱返回 -Infinity */
-function maxNoteBeat(notes: ChartNote[], beatDisplay: number): number {
-  let maxBeat = -Infinity;
-  for (const note of notes) {
-    maxBeat = Math.max(maxBeat, noteEndBeat(note, beatDisplay));
-  }
-  return maxBeat;
-}
-
-/**
  * 谱面代码最后音符的结束时间（秒，ADR-0005 §4.5）：无音频导入谱面代码时，
  * 若代码比当前谱面长度更长，用此值延长谱面长度到代码结尾。不含尾量。
+ *
+ * issue 104 修法 6：改为**全谱最大秒**（逐个元素位置点正向求值取 max），
+ * 而不是旧口径的"最大 beat 的秒"——倒流区里后者的最大 beat 可能落在折返的**回程**上，
+ * 其秒反而更小，会漏掉真正的末端（谱面被截短）。
  */
 export function maxNoteEndSeconds(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): number {
-  const m = maxNoteBeat(notes, beatDisplay);
-  if (!isFinite(m)) return 0;
-  return beatToSeconds(bpmEvents, m);
+  const bd = beatDisplay > 0 ? beatDisplay : 1;
+  const at = (beat: number, subBeat?: number) => beatToSeconds(bpmEvents, beat + (subBeat ?? 0) / bd);
+  let max = -Infinity;
+  for (const note of notes) {
+    switch (note.type) {
+      case 'Single':
+      case 'LDirectional':
+      case 'RDirectional':
+        max = Math.max(max, at(note.beat, note.subBeat));
+        break;
+      case 'Slide':
+      case 'Long':
+        for (const c of note.connections) max = Math.max(max, at(c.beat, c.subBeat));
+        break;
+      default:
+        // BPM / System：位置本身也算内容末端（与旧口径一致）
+        max = Math.max(max, at(note.beat));
+        break;
+    }
+  }
+  return isFinite(max) ? max : 0;
 }
 
 export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): KeySoundEvent[] {
