@@ -86,6 +86,32 @@ export function gridThemeBpmColor(preset: GridStylePreset): string {
 }
 
 /**
+ * **倒流区（`bpm < 0`）BPM 数值文字颜色**（ADR-0010 结论 11 / issue 105 修法 1）——
+ * 倒流区**唯一**的视觉标识（不做区域底纹）：正/负成对、随主题走。
+ *
+ * 取色规则 = **该主题主色的对侧（补色）**，统一收在品红/紫一带：与 START 青 `#53b8c9` / END 橙
+ * `#d97b5a` / 选中黄 `#FFE033` / 危险红 `#FF5A5A` 四个语义色都不同相；主题层级色里唯一同带的
+ * 是 vivid 的 1/16 灰粉 `#d67f9f`，本组饱和度更高（S≈100% vs 41%）故可辨。
+ * 黑底（`#000000`）上 luma ≥ 178（`GridStyle.test.ts` 以 170 为下限留余量）——与正值
+ * （主题 beat 色）并排一眼可辨，又不喧宾夺主。
+ * 冷色主题（cyan）配暖品红、暖色主题（amber）配冷紫、无彩/近无彩主色的（mono / vivid 的主色是
+ * 白）配品红或紫。
+ *
+ * 作用域（票面口径）：**只作用于数值文字**——BPM 横线仍走 `gridThemeBpmColor`。
+ */
+export const GRID_BPM_NEGATIVE_COLORS: Record<GridStylePreset, string> = {
+  mono: '#f0a3d4',
+  amber: '#c2aaff',
+  cyan: '#ff9abd',
+  vivid: '#e79dff',
+};
+
+/** 倒流区 BPM 数值取色（负值分支的唯一实现；正值走 `gridThemeBpmColor`） */
+export function gridBpmNegativeColor(preset: GridStylePreset): string {
+  return GRID_BPM_NEGATIVE_COLORS[preset];
+}
+
+/**
  * beat 内细分位置 → 层级（纯函数，供单测）：分数 = subIndex/beatDisplay 约分后按分母定层。
  * 分母 2 → half、4 → quarter、8 → eighth、≥16 → sixteenth（beatDisplay ∈ {2,4,8,16} 封顶 16）。
  */

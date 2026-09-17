@@ -5,6 +5,8 @@ import { renderGrid } from '../../src/visual/render';
 import {
   GRID_STYLES,
   GRID_TIER_ORDER,
+  GRID_BPM_NEGATIVE_COLORS,
+  gridBpmNegativeColor,
   gridLineDash,
   gridThemeBpmColor,
   gridTierOf,
@@ -88,6 +90,36 @@ describe('颜色主题（issue 53 第二轮）', () => {
   it('BPM 标线跟随主题主色（beat 层色）', () => {
     for (const p of ['mono', 'amber', 'cyan', 'vivid'] as const) {
       expect(gridThemeBpmColor(p)).toBe(GRID_STYLES[p].beat.color);
+    }
+  });
+});
+
+// ─────────────── 倒流区（负值 BPM）数值取色：issue 105 修法 1 / ADR-0010 结论 11 ───────────────
+describe('倒流区 BPM 数值取色（issue 105：正/负成对随主题走）', () => {
+  const PRESETS = ['mono', 'amber', 'cyan', 'vivid'] as const;
+  /** 画布既有**语义色**：START 青 / END 橙 / 选中黄 / 危险红（负值色不得侵占）。
+   *  主题层级色里唯一同色带的 vivid 1/16 灰粉 `#d67f9f` 不算语义色——本组饱和度明显更高
+   *  （见 `gridStyle.ts` 取色说明），靠"一眼可辨"而非互斥取值。 */
+  const RESERVED = ['#53b8c9', '#d97b5a', '#ffe033', '#ff5a5a'];
+
+  it('四主题都有负值色，且与同主题正值（beat 层色）不同色', () => {
+    for (const p of PRESETS) {
+      const neg = gridBpmNegativeColor(p);
+      expect(neg).toBe(GRID_BPM_NEGATIVE_COLORS[p]);
+      expect(neg).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(neg.toLowerCase()).not.toBe(GRID_STYLES[p].beat.color.toLowerCase());
+    }
+  });
+
+  it('黑底（#000000）上足够亮（luma ≥ 170），且四主题取值互不相同', () => {
+    const all = PRESETS.map((p) => gridBpmNegativeColor(p));
+    for (const hex of all) expect(luma(hex)).toBeGreaterThanOrEqual(170);
+    expect(new Set(all.map((h) => h.toLowerCase())).size).toBe(4);
+  });
+
+  it('不侵占画布既有语义色（START/END/选中/危险）', () => {
+    for (const p of PRESETS) {
+      expect(RESERVED).not.toContain(gridBpmNegativeColor(p).toLowerCase());
     }
   });
 });

@@ -18,7 +18,7 @@ import { spanParamFromCurveConfig } from '../chart/editing/ToolActionMatrix';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
-import { GRID_STYLES, GRID_TIER_ORDER, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
+import { GRID_STYLES, GRID_TIER_ORDER, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
 import type { RenderCtx } from './types';
@@ -1242,7 +1242,12 @@ export function renderBpmLines(ctx: CanvasRenderingContext2D, c: Coords, rc: Ren
  * （"都在谱面范围内"）。由 renderChart 编排在沟槽层（音符之上，沟槽内无音符）。
  */
 export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
-  const color = gridThemeBpmColor(normalizeGridStyle(rc.display?.gridStyle));
+  const preset = normalizeGridStyle(rc.display?.gridStyle);
+  const positiveColor = gridThemeBpmColor(preset);
+  // issue 105 修法 1：**负值（倒流区）数值换色** —— 倒流区唯一的视觉标识（不做区域底纹）。
+  // 作用域 = 只作用于数值文字，BPM 横线仍走主题主色（票面口径；见 gridStyle 的取色说明）。
+  // 折返带里正/负事件在画布上常常同位（同一 y 逆序排列），数值色是区分两者的唯一线索。
+  const negativeColor = gridBpmNegativeColor(preset);
   const labelScale = rc.display?.labelScale ?? 1;
   for (const { note } of visibleNotes) {
     if (note.type !== "BPM") continue;
@@ -1252,7 +1257,8 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
       layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale),
       rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
     );
-    drawGutterLabel(ctx, layout, String((note as ChartNote & { bpm: number }).bpm), color);
+    const bpm = (note as ChartNote & { bpm: number }).bpm;
+    drawGutterLabel(ctx, layout, String(bpm), bpm < 0 ? negativeColor : positiveColor);
   }
 }
 
