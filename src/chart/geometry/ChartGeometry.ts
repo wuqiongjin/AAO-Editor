@@ -4,7 +4,8 @@
 //
 // 坐标系（issue 11）：虚拟坐标（X 原点=轨道内容左缘，Y 自下而上、beat 0 在判定线）↔ 画布坐标。
 import type { ChartNote } from '../types';
-import { BpmTimeline, type BpmBeatSolution, type BpmTimelineEvent } from './BpmTimeline';
+import { trueBeat } from '../editing/ChartEndBounds';
+import { BpmTimeline, type BpmBeatRange, type BpmBeatSolution, type BpmTimelineEvent } from './BpmTimeline';
 
 export const LANES = 7;
 export const BEAT_HEIGHT = 220; // 基准节拍高度
@@ -224,7 +225,7 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   }
 
   /** 视口布局坐标范围覆盖的**可见拍区间集合**（网格/子节拍枚举用；倒流区里是多段） */
-  visibleBeatRanges(viewport: GeometryViewport): { start: number; end: number }[] {
+  visibleBeatRanges(viewport: GeometryViewport): BpmBeatRange[] {
     const { posMin, posMax } = this.posRange(viewport);
     return this.timeline.beatRangesForPositionRange(posMin, posMax);
   }
@@ -328,8 +329,7 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
       if (note.type === 'Slide' || note.type === 'Long') {
         let minBeat = Infinity, maxBeat = -Infinity;
         for (const cn of note.connections) {
-          const sb = cn.subBeat || 0;
-          const b = cn.beat + (sb > 0 ? sb / beatDisplay : 0);
+          const b = trueBeat(cn.beat, cn.subBeat, beatDisplay);
           if (b < minBeat) minBeat = b;
           if (b > maxBeat) maxBeat = b;
         }
@@ -337,8 +337,7 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
         const r = this.timeline.positionRangeOfBeats(minBeat, maxBeat);
         spans.push({ index, posMin: r.min, posMax: r.max });
       } else if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
-        const sb = note.subBeat || 0;
-        points.push({ pos: this.timeline.positionOfBeat(note.beat + (sb > 0 ? sb / beatDisplay : 0)), index });
+        points.push({ pos: this.timeline.positionOfBeat(trueBeat(note.beat, note.subBeat, beatDisplay)), index });
       } else if (note.type === 'BPM') {
         points.push({ pos: this.timeline.positionOfBeat(note.beat), index });
       }

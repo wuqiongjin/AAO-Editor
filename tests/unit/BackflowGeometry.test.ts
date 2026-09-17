@@ -175,4 +175,17 @@ describe('issue 104 · 反查单一所有者（静态源码断言）', () => {
     expect(render).toContain('geometry.visibleBeatRanges(viewport)');
     expect(render).not.toContain('virtualYToBeat(b.maxY');
   });
+
+  it('层接口是取「所在段每拍值」的唯一入口（调用点不再翻 timeline.segments）', () => {
+    const gesture = read('src/chart/editing/CanvasGesture.ts');
+    expect(gesture).not.toContain('timeline.segments');
+    expect(gesture).toContain('perBeatOfSegment(timeline.segmentIndexAtBeat(beat))');
+  });
+
+  it('网格末端判据共用 ChartEndBounds 的 epsilon（不另写一份）', () => {
+    const render = read('src/visual/render.ts');
+    expect(render).toContain('isPastChartEnd(beat, rc.chartEndBeat)');
+    expect(render).toContain('isPastChartEnd(preciseBeat, rc.chartEndBeat)');
+    expect(render).not.toContain('rc.chartEndBeat + 1e-6');
+  });
 });

@@ -10,8 +10,8 @@ export function isPastChartEnd(beat: number, chartEndBeat: number): boolean {
   return beat > chartEndBeat + CHART_END_EPS;
 }
 
-/** 子拍的真实拍位：subBeat 的单位是 **1/beatDisplay**（与 ChartGeometry 同口径）。 */
-const trueBeat = (beat: number, subBeat: number | undefined, beatDisplay: number) =>
+/** 子拍的真实拍位（**唯一实现**）：subBeat 的单位是 1/beatDisplay（与 ChartGeometry 同口径）。 */
+export const trueBeat = (beat: number, subBeat: number | undefined, beatDisplay: number) =>
   beat + (subBeat && subBeat > 0 ? subBeat / beatDisplay : 0);
 
 /**

@@ -4,6 +4,7 @@
 import type { ChartNote } from '../chart/types';
 import type { KeySoundKind } from './KeySound';
 import { BpmTimeline, type BpmBeatSolution, type BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
+import { trueBeat } from '../chart/editing/ChartEndBounds';
 
 export interface BpmEvent extends BpmTimelineEvent {}
 
@@ -47,6 +48,14 @@ export function secondsSolutionsOf(events: BpmEvent[], seconds: number): BpmBeat
   return secondsTimeline(events).beatSolutionsOf(seconds);
 }
 
+/**
+ * 该秒**属于哪一段**（BPM 段序号，倒流区里取**最大 beat 解**所在段）——「按秒取区间」的唯一实现
+ * （拍号显示 / 实时 BPM 区等）：调用点不要自己从解集里"取末项"，那是取解规则的第二份实现。
+ */
+export function secondsSegmentIndex(events: BpmEvent[], seconds: number): number {
+  return secondsTimeline(events).maxBeatSolutionOf(seconds).segmentIndex;
+}
+
 /** 按键音事件：每个"会出声"的音符（普通/方向/滑条结点）平铺为音频秒，按时间升序 */
 export interface KeySoundEvent {
   time: number;
@@ -70,7 +79,7 @@ export const EMPTY_CHART_DURATION_SECONDS = 30;
  */
 export function maxNoteEndSeconds(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): number {
   const bd = beatDisplay > 0 ? beatDisplay : 1;
-  const at = (beat: number, subBeat?: number) => beatToSeconds(bpmEvents, beat + (subBeat ?? 0) / bd);
+  const at = (beat: number, subBeat?: number) => beatToSeconds(bpmEvents, trueBeat(beat, subBeat, bd));
   let max = -Infinity;
   for (const note of notes) {
     switch (note.type) {

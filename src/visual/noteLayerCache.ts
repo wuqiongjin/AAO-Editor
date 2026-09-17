@@ -162,11 +162,9 @@ export function diffNotes(oldNotes: readonly ChartNote[], newNotes: readonly Cha
  * 删除覆盖 [minBeat, maxBeat] 的瓦片。外扩余量 = 瓦片渲染时的 VIEWPORT_PADDING
  * （跨瓦片音符会在相邻瓦片重复绘制）+ 音符半高/选中圈，保证所有画过这些音符的瓦片都被失效。
  *
- * issue 36 修复：pos = cEs − virtualY(beat) = positionOfBeat(beat)，随 beat **递增**
- * （旧注释“pos 随 beat 递减”有误，那是 virtualY 的方向）。旧实现把低拍端算出的较小 pos
- * 命名为 posMax、高拍端较大 pos 命名为 posMin，传给 tileIndexRange 时区间端点顺序颠倒 →
- * 跨多拍区间的变更（滑条/长条创建与合并）只失效区间一端的 1 块瓦片，其余瓦片滞留陈旧，
- * 表现为“Slide 后半截渲染不出来，缩放或附近放置音符后才出现”。
+ * issue 36 修复：区间端点顺序（低拍 → 小 pos）曾颠倒，跨多拍变更只失效一端 → "Slide 后半截
+ * 渲染不出来"。**issue 104 更正**：pos = positionOfBeat(beat) **不再随 beat 单调**（倒流区回退），
+ * 故不再由两端相减求范围，改走 `positionRangeOfBeats`（分段线性正向极值，把折返的回落点一并纳入）。
  */
 function invalidateTilesForBeatRange(minBeat: number, maxBeat: number, rc: RenderCtx) {
   const es = rc.viewport.scale;

@@ -21,6 +21,12 @@ export interface BpmBeatSolution {
   segmentIndex: number;
 }
 
+/** 拍区间（半开 `[start, end]` 的闭区间形式；枚举用） */
+export interface BpmBeatRange {
+  start: number;
+  end: number;
+}
+
 interface BpmSegment {
   /** 本段起始拍 */
   beatStart: number;
@@ -60,23 +66,16 @@ export class BpmTimeline {
     this.segments = segments;
   }
 
-  /** beat → 值：二分定位所在 BPM 段并线性插值 */
+  /** 段（层）数；0 = 无 BPM 事件 */
+  get segmentCount(): number {
+    return this.segments.length;
+  }
+
+  /** beat → 值：定位所在 BPM 段（与 segmentIndexAtBeat 同一份二分）并线性插值 */
   positionOfBeat(beat: number): number {
     const segs = this.segments;
     if (segs.length === 0) return 0;
-    let lo = 0;
-    let hi = segs.length - 1;
-    let idx = 0;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (beat < segs[mid].beatStart) {
-        hi = mid - 1;
-      } else {
-        idx = mid;
-        lo = mid + 1;
-      }
-    }
-    const seg = segs[idx];
+    const seg = segs[this.segmentIndexAtBeat(beat)];
     return seg.offsetStart + (beat - seg.beatStart) * seg.perBeat;
   }
 
@@ -192,11 +191,11 @@ export class BpmTimeline {
    * 用于"网格只迭代可见拍"：单调谱面 = 单个区间；倒流区 = 多个区间（折返处同一 y 会被走过多次）。
    * 区间为**半开** `[start, end)`（末段以 +Infinity 收尾）——恰在段界的整拍只归后一段，避免重复画线。
    */
-  beatRangesForPositionRange(posMin: number, posMax: number): { start: number; end: number }[] {
+  beatRangesForPositionRange(posMin: number, posMax: number): BpmBeatRange[] {
     const lo = Math.min(posMin, posMax);
     const hi = Math.max(posMin, posMax);
     const segs = this.segments;
-    const out: { start: number; end: number }[] = [];
+    const out: BpmBeatRange[] = [];
     for (let i = 0; i < segs.length; i++) {
       const seg = segs[i];
       if (!isUsablePerBeat(seg.perBeat)) continue;

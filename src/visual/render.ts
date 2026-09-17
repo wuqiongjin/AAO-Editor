@@ -3,6 +3,8 @@
 // 本模块不含任何 React 状态；性能热路径（视口剔除/缓存/增量重绘）将来在此落地。
 import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport } from '../chart/geometry/ChartGeometry';
+import type { BpmBeatRange } from '../chart/geometry/BpmTimeline';
+import { isPastChartEnd, trueBeat } from '../chart/editing/ChartEndBounds';
 import { shiftGroupToAnchor, mirrorNote, countNotesUpToBeat } from '../chart/editing/NoteEditing';
 import { perf } from '../chart/perf';
 import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
@@ -114,8 +116,8 @@ export function visibleBeatRanges(
   geometry: ChartGeometry,
   viewport: GeometryViewport,
   chartEndBeat: number,
-): { start: number; end: number }[] {
-  const out: { start: number; end: number }[] = [];
+): BpmBeatRange[] {
+  const out: BpmBeatRange[] = [];
   for (const r of geometry.visibleBeatRanges(viewport)) {
     const start = Math.max(0, r.start);
     const end = Math.min(chartEndBeat, r.end);
@@ -168,12 +170,13 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
   // 每个候选独立求 y，不做任何"pos 随 beat 递增"的假设。
   for (const range of ranges) {
     for (let beat = Math.floor(range.start + 1e-9); beat <= range.end + 1e-9; beat++) {
-      if (beat < 0 || beat > rc.chartEndBeat + 1e-6) continue;
+      // 末端判据共用 CHART_END_EPS（ChartEndBounds 单一实现，ADR-0005 §5），不另写 epsilon
+      if (beat < 0 || isPastChartEnd(beat, rc.chartEndBeat)) continue;
       const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
       if (y >= 0 && y <= rc.surface.h) candidates.push({ y, tier: 'beat' });
       for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
-        const preciseBeat = beat + subBeat / rc.beatDisplay;
-        if (preciseBeat > rc.chartEndBeat + 1e-6) continue;
+        const preciseBeat = trueBeat(beat, subBeat, rc.beatDisplay);
+        if (isPastChartEnd(preciseBeat, rc.chartEndBeat)) continue;
         const subY = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat)).y;
         if (subY < 0 || subY > rc.surface.h) continue;
         candidates.push({ y: subY, tier: gridTierOf(subBeat, rc.beatDisplay) });

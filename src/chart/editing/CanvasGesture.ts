@@ -372,17 +372,15 @@ export function penMaxBeatsForCanvasDy(
     canvasDy: number,
     slack = 3,
 ): number {
-    const segments = deps.geometry.timeline.segments;
-    if (segments.length === 0) return Number.POSITIVE_INFINITY; // 无 BPM 事件 → 无从判定，不拦
-    // 直接取所在 BPM 段的**每拍画布像素**（倒流区 perBeat 为负，取模即其量值）——
-    // 不用探针差分：探针正好跨段边界时会取到两段的混合斜率甚至约 0（漏判）。
-    let seg = segments[0]!;
-    for (const s of segments) {
-        if (s.beatStart <= beat) seg = s;
-        else break;
-    }
-    const es = deps.geometry.effectiveScale(deps.viewport.scale);
-    const pxPerBeat = Math.max(1e-6, Math.abs(seg.perBeat) * es);
+    const timeline = deps.geometry.timeline;
+    if (timeline.segmentCount === 0) return Number.POSITIVE_INFINITY; // 无 BPM 事件 → 无从判定，不拦
+    // 所在段的**每拍画布像素**取时间轴的层接口（issue 104：`.segments` 不再被调用点直接翻找）；
+    // 倒流区 perBeat 为负，取模即其量值。不用探针差分：探针正好跨段边界时会取到两段的混合斜率
+    // 甚至约 0（漏判）。
+    const pxPerBeat = Math.max(
+        1e-6,
+        Math.abs(timeline.perBeatOfSegment(timeline.segmentIndexAtBeat(beat))) * deps.geometry.effectiveScale(deps.viewport.scale),
+    );
     return (Math.abs(canvasDy) / pxPerBeat) * slack;
 }
 
