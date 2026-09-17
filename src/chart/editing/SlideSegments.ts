@@ -26,11 +26,27 @@ export function slideSpans(conns: SlideNote['connections']): ConnSpan[] {
   return out;
 }
 
+/** 恒等判定（热路径用）：点序单调 + 首尾可见 → 显示序 = 原数组序（零分配）。 */
+export function isDisplayIdentity(conns: SlideNote['connections']): boolean {
+  for (let i = 1; i < conns.length; i++) {
+    if (conns[i]!.beat < conns[i - 1]!.beat) return false;
+  }
+  const n = conns.length;
+  if (n > 0 && (conns[0]!.hidden || conns[n - 1]!.hidden)) return false;
+  return true;
+}
+
 /**
- * **显示投影**（ADR-0009 §2.2 / issue 106 定案）：把一条滑条的 connections 投影成"画布上看到的顺序"。
+ * **显示投影**（ADR-0009 §2.2 / issue 106 定案；同拍组走序见 issue 115）：把一条滑条的 connections
+ * 投影成"画布上看到的顺序"。两步：
  *
- * 实机口径 = 按 beat **稳定排序** + **掐掉首尾 hidden**（带子沿时间轴单向铺开、永不回头；
- * 排序后落到首 / 尾之外的结点等于被裁掉，图1 那种"看起来被忽略"就是这么来的）。
+ * 1. 按 beat **稳定排序**；
+ * 2. **掐掉首尾 hidden**（排序后落到首 / 尾之外的结点等于被裁掉，图1 那种"看起来被忽略"就是这么来的）。
+ *
+ * 只此两步 = 实机 `repair()`（vendored `sonolus-bandori-engine` convert.ts L315-356）。
+ * **同拍组（beat 全等的一串结点）一律保持数组序**：排序稳定，同拍内不换位；作者的点序就是带体的
+ * 走序（同拍对退化为零高度横跳，横移落在哪一端由数组序决定），走序不可从代码重建。
+ *
  * 外部进来的**非单调点序**靠这一层被"看见为实机所见"，而**数据一字不动**——
  * 代码弹窗、导出、段参数、拖带、删结点、`planDragMove` 一律仍按原数组序。
  *
@@ -42,15 +58,6 @@ export function slideSpans(conns: SlideNote['connections']): ConnSpan[] {
  * 三处必须共用它——旁路另写一份连线顺序 = 画的/亮的/点的不是同一条带子。
  * 合法滑条（点序单调 + 首尾可见，绝大多数）走恒等快路径：不排序、不重排。
  */
-/** 恒等判定（热路径用）：点序单调且首尾可见 → 显示序 = 原数组序，渲染可直接用原数组（零分配）。 */
-export function isDisplayIdentity(conns: SlideNote['connections']): boolean {
-  for (let i = 1; i < conns.length; i++) {
-    if (conns[i]!.beat < conns[i - 1]!.beat) return false;
-  }
-  const n = conns.length;
-  return n === 0 || (!conns[0]!.hidden && !conns[n - 1]!.hidden);
-}
-
 export function displayConnections(conns: SlideNote['connections']): {
   conns: SlideNote['connections'];
   src: number[];
@@ -59,7 +66,7 @@ export function displayConnections(conns: SlideNote['connections']): {
   if (isDisplayIdentity(conns)) {
     return { conns, src: conns.map((_, i) => i) };
   }
-  // 稳定排序：同 beat 保持原数组顺序（与实机 repair() 的 sort 同口径）
+  // 稳定排序：同 beat 保持原数组顺序（= 作者点序，走序不可重建）
   const src = conns.map((_, i) => i).sort((a, b) => (conns[a]!.beat - conns[b]!.beat) || (a - b));
   let lo = 0;
   let hi = n - 1;

@@ -1,8 +1,9 @@
 // issue 106 · 非单调点序的**显示投影**（ADR-0009 §2.2，实机口径）：稳定排序 + 掐首尾 hidden。
+// issue 115 · 同拍组的**数组序原样保留**（实机 repair() 只做上述两步，不重建走序）。
 // 数据一字不动（代码弹窗/导出/编辑仍按原数组序），投影只服务"画布上看到的顺序"。
 import { describe, it, expect } from 'vitest';
 import type { ConnectionNote } from '../../src/chart/types';
-import { displayConnections, slideSpans, visibleEnds } from '../../src/chart/editing/SlideSegments';
+import { displayConnections, isDisplayIdentity, slideSpans, visibleEnds } from '../../src/chart/editing/SlideSegments';
 
 const c = (beat: number, lane: number, hidden = false): ConnectionNote =>
   hidden ? { beat, lane, hidden: true } : { beat, lane };
@@ -68,5 +69,40 @@ describe('issue 106 · 显示投影 displayConnections（稳定排序 + 掐首�
     const r = displayConnections(conns);
     expect(JSON.parse(JSON.stringify(conns))).toEqual(snapshot);
     expect(r.conns[0]).toBe(conns[1]);
+  });
+});
+
+// issue 115 · 同拍组**保持数组序**（作者点序 = 带体走序）：
+// 作者点序 = 带体走序；稳定排序在同拍内不换位，同拍对退化为零高度横跳，横移发生在哪一端由数组序决定。
+describe('issue 115 · 同拍组保持数组序（走序不可重建）', () => {
+  it('抖动段（beat 8→10 每步 `6,4`）原样保留 → 走恒等快路径', () => {
+    const conns: ConnectionNote[] = [
+      c(8, 6), c(8, 4), c(8.125, 6), c(8.125, 4), c(8.25, 6), c(8.25, 4),
+    ];
+    expect(isDisplayIdentity(conns)).toBe(true);
+    expect(displayConnections(conns).conns).toBe(conns);
+  });
+
+  it('阶梯段（beat 16→18 的 `3,5 / 5,3` 交替）原样保留 → 竖条交替，不被改成斜带', () => {
+    const conns: ConnectionNote[] = [
+      c(16, 3), c(16.25, 3), c(16.25, 5), c(16.5, 5), c(16.5, 3), c(16.75, 3), c(16.75, 5),
+    ];
+    const r = displayConnections(conns);
+    expect(r.conns.map((p) => `${p.beat}/${p.lane}`)).toEqual([
+      '16/3', '16.25/3', '16.25/5', '16.5/5', '16.5/3', '16.75/3', '16.75/5',
+    ]);
+    expect(r.src).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it('3+ 结点的同拍组同样原样保留（`0,4,2` 不被规范成 `0,2,4`）', () => {
+    const conns: ConnectionNote[] = [c(13, 0), c(13, 4), c(13, 2)];
+    expect(displayConnections(conns).src).toEqual([0, 1, 2]);
+  });
+
+  it('非单调点序下，同拍组的数组序同样保留（排序稳定之后不再重排）', () => {
+    const conns: ConnectionNote[] = [c(3, 6), c(2, 6), c(3, 4)];
+    const r = displayConnections(conns);
+    expect(r.conns.map((p) => `${p.beat}/${p.lane}`)).toEqual(['2/6', '3/6', '3/4']);
+    expect(r.src).toEqual([1, 0, 2]);
   });
 });
