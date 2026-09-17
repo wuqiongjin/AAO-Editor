@@ -74,16 +74,18 @@ export function splitBandAtFolds(pts: readonly BandPoint[]): BandPoint[][] {
   const sign = (v: number) => (v > 1e-9 ? 1 : v < -1e-9 ? -1 : 0);
   const runs: BandPoint[][] = [];
   let start = 0;
-  let cur = 0;
-  for (let i = 1; i + 1 < n; i++) {
-    const d = sign(pts[i]!.y - pts[i - 1]!.y);
-    if (d === 0) continue;
-    cur = cur === 0 ? d : cur;
-    const nd = sign(pts[i + 1]!.y - pts[i]!.y);
-    if (nd !== 0 && nd !== cur) {
-      runs.push(pts.slice(start, i + 1));
-      start = i;
-      cur = nd;
+  // 当前 run 的行进方向：**只记非零 dy 的符号**。横跳段（Δy = 0，如倒流区同拍换轨）对方向透明——
+  // 否则"横跳之后再反向"会被判成没变方向，run 里就会塞进多条同高的平行臂，而 `bandRunAtY`
+  // 每行只取第一条命中的臂 → 其余臂被静默丢弃（issue 116）。
+  let dir = 0;
+  for (let i = 1; i < n; i++) {
+    const s = sign(pts[i]!.y - pts[i - 1]!.y);
+    if (s === 0) continue;
+    if (dir === 0) dir = s;
+    else if (s !== dir) {
+      runs.push(pts.slice(start, i)); // 折返点 pts[i-1] 由下一 run 共享 → 无缝
+      start = i - 1;
+      dir = s;
     }
   }
   if (runs.length === 0) return [pts.slice()];

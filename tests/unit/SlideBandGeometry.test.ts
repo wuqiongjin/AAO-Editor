@@ -186,6 +186,36 @@ describe('SP 带体扫描线光栅（issue 09 八轮 #1：发虚/黑条纹回归
     expect(alphaAt(r, 100, 15)).toBeLessThanOrEqual(1);
   });
 
+  // issue 116 · 倒流区：同一段时间被来回扫（BPM 翻转），每换一次轨就有一次 Δy = 0 的横跳，
+  // 横跳之后立刻反向 —— 切分必须按**非零 dy** 判，否则多条同高平行臂会落在同一个 run 里，
+  // 而 `bandRunAtY` 每行只取第一条命中的臂 → 其余臂被静默丢弃（官方画面是 4 根竖条）。
+  it('issue 116 · 倒流区「横跳 + 反向」：run 仍按非零 dy 切分，同高的四条平行臂不漏画', () => {
+    const Y = (t: number) => t * 20; // 画布 y 由时间给（示意尺度）
+    const pts: Pt[] = [
+      { x: 120, y: Y(12.8) }, { x: 120, y: Y(4.8) }, { x: 120, y: Y(12.8) }, // lane 6：下→上
+      { x: 80, y: Y(12.8) },                                                 // 横跳到 lane 4（Δy = 0）
+      { x: 80, y: Y(4.8) }, { x: 80, y: Y(12.8) },                           // lane 4：下→上
+      { x: 40, y: Y(12.8) },                                                 // 横跳到 lane 2
+      { x: 40, y: Y(4.8) }, { x: 40, y: Y(12.8) },
+      { x: 0, y: Y(12.8) },                                                  // 横跳到 lane 0
+      { x: 0, y: Y(4.8) }, { x: 0, y: Y(12.8) },
+    ];
+    const runs = splitBandAtFolds(pts);
+    // ① 每个 run 必须 y 单调（非严格：允许 Δy = 0 的横跳段）—— 这是"每行只取一条臂"的前提
+    expect(runs.length).toBeGreaterThan(2);
+    for (const run of runs) {
+      const ys = run.map((p) => p.y);
+      const up = ys.every((v, i) => i === 0 || v >= ys[i - 1]!);
+      const down = ys.every((v, i) => i === 0 || v <= ys[i - 1]!);
+      expect(up || down).toBe(true);
+    }
+    // ② 同一行上 lane 6/4/2/0 四条臂都要画出来
+    const r = raster(pts, 6)!;
+    const row = Y(8);
+    const arms = [120, 80, 40, 0].filter((x) => alphaAt(r, x, row) > 0);
+    expect(arms).toEqual([120, 80, 40, 0]);
+  });
+
   it('baseAlpha（slideOpacity）逐像素线性生效', () => {
     const pts = [0, 20, 40].map((y) => ({ x: 50, y }));
     const a1 = alphaAt(raster(pts, 10, FLAT_PROFILE, 1)!, 50, 20);
