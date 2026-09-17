@@ -82,6 +82,13 @@ describe('issue 103 · BPM 校验边界（ADR-0010 结论 7）', () => {
         expect(validateChartCode([bpm(0, -120)], { fragment: true }).valid).toBe(false);
     });
 
+    test('两条规则不重复报同一条：全谱唯一一条 BPM 且在 beat 0 为负 → 只报一次', () => {
+        const result = validateChartCode([bpm(0, -120)]);
+        expect(result.valid).toBe(false);
+        expect(result.errors).toHaveLength(1);
+        expect(result.errors[0].reason).toContain('第 0 拍');
+    });
+
     test('末条 BPM 事件为负 → 拒（谱面以负 BPM 收尾会让制谱器崩溃）', () => {
         // 中间负、末尾正 → 合法
         expect(validateChartCode([bpm(0, 120), bpm(4, -120), bpm(6, 120)]).valid).toBe(true);

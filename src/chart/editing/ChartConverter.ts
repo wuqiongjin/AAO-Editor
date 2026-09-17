@@ -404,9 +404,13 @@ function checkBackflowBoundaries(
     // 只对"本身合法的数值"判边界：0 / 非有限数 / 非数字已由逐条检查报过，不重复报
     const isNegNumber = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v < 0;
 
+    // ②不再报①已报过的同一条：全谱只有一条 BPM 且它在 beat 0 为负时，"beat 0 负值"已经
+    // 说清了毛病（同一条音符列两条同源错误＝噪音），此时跳过②。
+    const beatZeroFlagged = new Set<number>();
     for (const i of bpmIndices) {
         const note = at(i);
         if (note.beat === 0 && isNegNumber(note.bpm)) {
+            beatZeroFlagged.add(i);
             errors.push({
                 noteIndex: i, field: 'bpm',
                 reason: '第 0 拍的 BPM 不得为负数（全谱秒坐标会 ≤ 0）',
@@ -425,7 +429,7 @@ function checkBackflowBoundaries(
         if ((beatOf(i) as number) >= (beatOf(last) as number)) last = i;
     }
     const lastBpm = at(last).bpm;
-    if (isNegNumber(lastBpm)) {
+    if (isNegNumber(lastBpm) && !beatZeroFlagged.has(last)) {
         errors.push({
             noteIndex: last, field: 'bpm',
             reason: '末条 BPM 事件不得为负数（谱面以负 BPM 收尾会让制谱器崩溃）',
