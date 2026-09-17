@@ -208,8 +208,8 @@ describe('Chart Converter', () => {
     });
 
     test('validateChartCode should catch errors', () => {
+        // issue 103：原首条 `bpm: -1` 已从"非法样例"移出（ADR-0010 起负 BPM 是合法语义，见下）
         const invalidChartCode = [
-            { beat: 0, type: "BPM", bpm: -1 }, // Invalid BPM
             { beat: 4, lane: 10, type: "Single" }, // Invalid lane
             { beat: 8, lane: 2, type: "Directional", direction: "Up", width: 1 }, // Invalid direction
             { beat: 12, lane: 3, type: "Directional", direction: "Left", width: 5 }, // Invalid width
@@ -219,6 +219,55 @@ describe('Chart Converter', () => {
 
         expect(validation.valid).toBe(false);
         expect(validation.errors.length).toBeGreaterThan(0);
+    });
+
+    // issue 103 / ADR-0010 结论 1：负 BPM = 倒流区，是一等语义，不再拒
+    test('validateChartCode 放行负 BPM（倒流区：正 → 负 → 正）', () => {
+        const code = [
+            { beat: 0, type: "BPM", bpm: 120 },
+            { beat: 4, type: "BPM", bpm: -120 },
+            { beat: 5.5, type: "BPM", bpm: 120 },
+        ] as ChartCodeNote[];
+
+        expect(validateChartCode(code)).toEqual({ valid: true, errors: [] });
+    });
+
+    // ADR-0010 结论 9：负值原样写出、不取绝对值、不 clamp、不归一化；同拍多条全保留
+    test('负 BPM 往返保真：符号原样、同拍多条不合并', () => {
+        const notes: ChartNote[] = [
+            { beat: 0, type: "BPM", bpm: 225 },
+            { beat: 4, type: "BPM", bpm: -225 },
+            { beat: 4, type: "BPM", bpm: -0.5 },
+            { beat: 6, type: "BPM", bpm: 120 },
+            { beat: 6, lane: 2, type: "Single" },
+        ];
+
+        const code = convertNotesToChartCode(notes);
+        expect(code.filter(n => n.type === "BPM")).toEqual([
+            { beat: 0, type: "BPM", bpm: 225 },
+            { beat: 4, type: "BPM", bpm: -225 },
+            { beat: 4, type: "BPM", bpm: -0.5 },
+            { beat: 6, type: "BPM", bpm: 120 },
+        ]);
+        // 逐元素相等：导出的代码再导入再导出，与第一次导出完全相同
+        expect(convertNotesToChartCode(convertChartCodeToNotes(code))).toEqual(code);
+    });
+
+    // ADR-0010 结论 9：导出排序为**稳定排序**（同 beat 保持输入顺序，否则导入→导出凭空产生 diff）
+    test('导出按 beat 排序且同 beat 保持输入顺序（稳定排序不变序）', () => {
+        const notes: ChartNote[] = [
+            { beat: 4, type: "BPM", bpm: -60 },
+            { beat: 4, type: "BPM", bpm: 60 },
+            { beat: 1, type: "BPM", bpm: 120 },
+            { beat: 4, lane: 0, type: "Single" },
+        ];
+
+        expect(convertNotesToChartCode(notes)).toEqual([
+            { beat: 1, type: "BPM", bpm: 120 },
+            { beat: 4, type: "BPM", bpm: -60 },
+            { beat: 4, type: "BPM", bpm: 60 },
+            { beat: 4, lane: 0, type: "Single" },
+        ]);
     });
 
     test('hasBeat0Bpm 判定第 0 拍 BPM 保底', () => {

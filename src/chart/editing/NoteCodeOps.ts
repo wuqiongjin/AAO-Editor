@@ -136,7 +136,8 @@ export function applyNoteCode(
         }
         // 规则与完整代码视图同源（§1.2）：脏代码同样被拒。
         // 校验按"对象视图里的 1 条代码"定位（noteIndex 0），此处抬升为谱面内的真实下标，避免 UI 报"音符 0"。
-        const { errors } = validateChartCode(code);
+        // issue 103：对象视图 = **片段**（只看得到这 1 条），跳过依赖整份谱面上下文的边界规则。
+        const { errors } = validateChartCode(code, { fragment: true });
         if (errors.length > 0) {
             return { ok: false, errors: liftErrors(errors, target.noteIndex, target.connIndex) };
         }
@@ -172,8 +173,8 @@ export function applyNoteCode(
             expected: '1 条音符对象',
         });
     }
-    // 同上：校验定位从"对象视图的 1 条代码"抬升为谱面内真实下标
-    const { errors } = validateChartCode(code);
+    // 同上：校验定位从"对象视图的 1 条代码"抬升为谱面内真实下标；片段口径见上方
+    const { errors } = validateChartCode(code, { fragment: true });
     if (errors.length > 0) {
         return {
             ok: false,
@@ -225,8 +226,9 @@ function applySegmentCode(
             expected: '1 条 {"type":"Slide","connections":[…]}',
         });
     }
-    // 段代码合法性（与完整代码视图同源）：脏代码同样被拒；错误定位抬升为谱面内真实下标
-    const segCheck = validateChartCode(code);
+    // 段代码合法性（与完整代码视图同源）：脏代码同样被拒；错误定位抬升为谱面内真实下标。
+    // issue 103：片段口径（只看到这一条滑条）。
+    const segCheck = validateChartCode(code, { fragment: true });
     if (segCheck.errors.length > 0) return { ok: false, errors: liftErrors(segCheck.errors, target.noteIndex) };
     const [segCode] = convertChartCodeToNotes(code);
     if (!segCode || !isSlide(segCode)) {
@@ -238,8 +240,8 @@ function applySegmentCode(
         ...note,
         connections: [...note.connections.slice(0, start), ...merged, ...note.connections.slice(end + 1)],
     };
-    // 替换后的整条滑条仍须通过校验（issue 106 起可见结点不足 / 首尾 hidden 不再拦）
-    const wholeCheck = validateChartCode(convertNotesToChartCode([newNote]));
+    // 替换后的整条滑条仍须通过校验（issue 106 起可见结点不足 / 首尾 hidden 不再拦；issue 103：片段口径）
+    const wholeCheck = validateChartCode(convertNotesToChartCode([newNote]), { fragment: true });
     if (wholeCheck.errors.length > 0) return { ok: false, errors: liftErrors(wholeCheck.errors, target.noteIndex) };
     return { ok: true, notes: notes.map((n, i) => (i === target.noteIndex ? newNote : n)) };
 }
@@ -278,11 +280,13 @@ export function coerceNoteViewCode(
 /**
  * 对象视图文本校验（issue 94）：容错后走与完整代码视图同一套规则（§1.2），错误为视图内局部定位。
  * 完整视图仍走 `validateChartCodeJSON`（按数组口径）——两口径在此分叉，弹窗按视图择一。
+ * issue 103：对象视图按**片段**校验（`fragment`）——「末条 BPM 必须为正」是整份谱面级规则，
+ * 在这里会把"把中途某条 BPM 改成负值"误判成末条（ADR-0010 结论 8 要求编辑器内能创建负值）。
  */
 export function validateNoteViewCodeText(text: string): ValidationError[] {
     const coerced = coerceNoteViewCode(text);
     if (!coerced.ok) return coerced.errors;
-    return validateChartCode(coerced.code).errors;
+    return validateChartCode(coerced.code, { fragment: true }).errors;
 }
 
 /**

@@ -78,12 +78,16 @@ export function convertNotesToChartCode(notes: ChartNote[]): ChartCodeNote[] {
         }
     }
 
-    // 按节拍时间排序
-    return chartCode.sort((a, b) => {
-        const beatA = getBeatFromNote(a);
-        const beatB = getBeatFromNote(b);
-        return beatA - beatB;
-    });
+    // 按节拍时间排序。**稳定排序**（ADR-0010 结论 9）：同 beat 保持输入顺序，
+    // 否则「导入 → 导出」会凭空产生 diff（同拍多条 BPM 换位）。
+    // 显式带下标兜底，不依赖引擎 Array#sort 的稳定性实现。
+    return chartCode
+        .map((note, index) => ({ note, index }))
+        .sort((a, b) => {
+            const diff = getBeatFromNote(a.note) - getBeatFromNote(b.note);
+            return diff !== 0 ? diff : a.index - b.index;
+        })
+        .map(entry => entry.note);
 }
 
 /**
@@ -327,6 +331,15 @@ export interface ValidationResult {
 }
 
 /**
+ * 校验作用域（issue 103）。默认 = **整份谱面**（导入 / 应用 / 完整代码视图）。
+ * `fragment` = 单音符 / 滑条结点 / 子段三类**对象视图**：弹窗里只看得到这一小段代码，
+ * 依赖整份谱面上下文的规则会误判（详见 `checkBackflowBoundaries`）。
+ */
+export interface ValidateChartCodeOptions {
+    fragment?: boolean;
+}
+
+/**
  * 校验期把音符当作"未知结构的原始对象"看：谱面代码来自 JSON.parse，
  * 可能是任何东西（含脏字段），不能假设它符合 ChartCodeNote。
  */
@@ -368,13 +381,73 @@ function checkNoConnections(note: RawNote, noteIndex: number, label: string, err
 }
 
 /**
+ * 倒流区边界（ADR-0010 结论 7，比 Bestdori 严的两条）——这两条都依赖**整份谱面**上下文：
+ * ① `beat 0` 处的 BPM 不得为负（会让全谱秒坐标 ≤ 0，无意义输入）；
+ * ② 最后一条 BPM 事件必须为正（谱面以负 BPM 收尾会让制谱器内存溢出崩溃）。
+ * 「最后一条」= 按 beat 稳定排序后的最后一条（同 beat 取数组序最后一条），与导出排序同口径。
+ * `fragment`（对象视图）跳过②：视图里任何一条 BPM 都"看起来是末条"，
+ * 会把「把中途某条 BPM 改成负值」误判成末条负值（ADR-0010 结论 8 要求编辑器内能创建负值）。
+ * ①在片段里照样成立——beat 0 就是 beat 0。
+ */
+function checkBackflowBoundaries(
+    chartCode: ChartCodeNote[], errors: ValidationError[], fragment: boolean,
+): void {
+    // 与逐条检查同口径：这里看到的也可能是脏对象（JSON.parse 来的），一律按 RawNote 读
+    const at = (i: number): RawNote => chartCode[i] as unknown as RawNote;
+    const bpmIndices: number[] = [];
+    for (let i = 0; i < chartCode.length; i++) {
+        const raw: unknown = chartCode[i];
+        if (raw !== null && typeof raw === 'object' && (raw as RawNote).type === 'BPM') bpmIndices.push(i);
+    }
+    if (bpmIndices.length === 0) return;
+
+    // 只对"本身合法的数值"判边界：0 / 非有限数 / 非数字已由逐条检查报过，不重复报
+    const isNegNumber = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v < 0;
+
+    for (const i of bpmIndices) {
+        const note = at(i);
+        if (note.beat === 0 && isNegNumber(note.bpm)) {
+            errors.push({
+                noteIndex: i, field: 'bpm',
+                reason: '第 0 拍的 BPM 不得为负数（全谱秒坐标会 ≤ 0）',
+                expected: '> 0',
+            });
+        }
+    }
+    if (fragment) return;
+
+    // beat 非法的条目已在逐条检查里报过，这里不再追加边界错误
+    const beatOf = (i: number): unknown => at(i).beat;
+    const usable = bpmIndices.filter(i => typeof beatOf(i) === 'number' && Number.isFinite(beatOf(i)));
+    if (usable.length === 0) return;
+    let last = usable[0]!;
+    for (const i of usable) {
+        if ((beatOf(i) as number) >= (beatOf(last) as number)) last = i;
+    }
+    const lastBpm = at(last).bpm;
+    if (isNegNumber(lastBpm)) {
+        errors.push({
+            noteIndex: last, field: 'bpm',
+            reason: '末条 BPM 事件不得为负数（谱面以负 BPM 收尾会让制谱器崩溃）',
+            expected: '> 0（倒流区之后必须回到正 BPM）',
+        });
+    }
+}
+
+/**
  * 验证谱面代码格式（issue 59 §1）：**一次收集全部错误**，不首条即停。
  * 口径：只拦"无意义 / 无法解释"的输入（类型缺字段、beat / lane 非法、BPM 非法等），
  * 由调用方决定"整份拒"（导入 / 应用）。**滑条可见结点不足（< 2）与首尾 hidden 不在此拦**——
  * issue 106 定案：这类外部数据按实机口径处置（画布 `displaySlide` 投影掐首尾 hidden；
  * 可见 1 个 → 按单键形态显示；可见 0 个 → 画布上没有任何效果），数据原样保留。
+ *
+ * BPM 边界（ADR-0010 结论 7，issue 103）：`bpm < 0` **放行**（倒流区是一等语义）；
+ * 仍拒 `0`（含 `-0`）与非有限数；另加两条整份谱面级规则，见 `checkBackflowBoundaries`。
  */
-export function validateChartCode(chartCode: ChartCodeNote[]): ValidationResult {
+export function validateChartCode(
+    chartCode: ChartCodeNote[],
+    options: ValidateChartCodeOptions = {},
+): ValidationResult {
     const errors: ValidationError[] = [];
 
     // 整体级：连数组都不是（外部粘来的脏代码）
@@ -402,8 +475,20 @@ export function validateChartCode(chartCode: ChartCodeNote[]): ValidationResult 
         switch (note.type) {
             case "BPM":
                 checkBeat(note, i, undefined, 'BPM音符', errors);
-                if (typeof note.bpm !== 'number' || !Number.isFinite(note.bpm) || note.bpm <= 0) {
-                    errors.push({ noteIndex: i, field: 'bpm', reason: 'BPM音符 bpm 必须是正数', expected: '> 0' });
+                // ADR-0010 结论 1/7：放行负值（倒流区语义），只拦"无意义"的 0 与非有限数。
+                // 两类文案分流——"不是有限数"与"是 0"的毛病不同，UI 错误列表要能一眼分清。
+                if (typeof note.bpm !== 'number' || !Number.isFinite(note.bpm)) {
+                    errors.push({
+                        noteIndex: i, field: 'bpm',
+                        reason: 'BPM音符 bpm 必须是有限数字',
+                        expected: '非 0 的有限数字（可为负）',
+                    });
+                } else if (note.bpm === 0) {
+                    errors.push({
+                        noteIndex: i, field: 'bpm',
+                        reason: 'BPM音符 bpm 不得为 0',
+                        expected: '非 0 的有限数字（可为负）',
+                    });
                 }
                 break;
 
@@ -461,6 +546,9 @@ export function validateChartCode(chartCode: ChartCodeNote[]): ValidationResult 
                 });
         }
     }
+
+    // 整份谱面级的倒流区边界（放行负 BPM 之后才可能触发；见 checkBackflowBoundaries）
+    checkBackflowBoundaries(chartCode, errors, options.fragment === true);
 
     return {
         valid: errors.length === 0,

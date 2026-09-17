@@ -400,13 +400,18 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }
     };
 
-    /** §5：提交就地编辑（Enter / 失焦）。无效数值 = 取消编辑（保留放置时已应用的值） */
+    /**
+     * §5：提交就地编辑（Enter / 失焦）。无效数值 = 取消编辑（保留放置时已应用的值）。
+     * ADR-0010 结论 8（issue 103）：**接受负整数**——编辑器内可创建倒流区。
+     * `parseInt` 口径不变：只取十进制整数部分、截断小数（"12.7" → 12、"-12.7" → -12、
+     * "-225" → -225）；`0` / `-0` / 非数字（NaN，如空串、"abc"）一律视为无效、取消编辑。
+     */
     const commitBpmEdit = () => {
         if (!bpmEdit) return;
         const v = parseInt(bpmEdit.value, 10);
         const beat = bpmEdit.beat;
         setBpmEdit(null);
-        if (Number.isNaN(v) || v <= 0) return;
+        if (Number.isNaN(v) || v === 0) return;
         const idx = notes.findIndex(n => n.type === 'BPM' && Math.abs(n.beat - beat) < 1e-9);
         if (idx < 0) return; // 标记已不在（undo 等）→ 放弃
         const cur = notes[idx] as BpmNote;

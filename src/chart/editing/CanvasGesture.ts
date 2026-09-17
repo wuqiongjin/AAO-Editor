@@ -362,7 +362,7 @@ export function penMaxBeatsForCanvasDy(
 ): number {
     const segments = deps.geometry.timeline.segments;
     if (segments.length === 0) return Number.POSITIVE_INFINITY; // 无 BPM 事件 → 无从判定，不拦
-    // 直接取所在 BPM 段的**每拍画布像素**（倒流段 perBeat 为负，取模即其量值）——
+    // 直接取所在 BPM 段的**每拍画布像素**（倒流区 perBeat 为负，取模即其量值）——
     // 不用探针差分：探针正好跨段边界时会取到两段的混合斜率甚至约 0（漏判）。
     let seg = segments[0]!;
     for (const s of segments) {

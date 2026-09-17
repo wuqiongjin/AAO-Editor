@@ -98,6 +98,19 @@ describe('§5 applyNoteCode 整条音符', () => {
         const r = applyNoteCode(ns, whole(0), [{ beat: 1, lane: 5, type: 'Single' }]);
         expect(r.ok).toBe(true);
     });
+
+    // issue 103 / ADR-0010 结论 8：对象视图按**片段**校验（跳过"末条 BPM 必须为正"），
+    // 否则"把中途某条 BPM 改成负值"会被误判成末条负值，堵死"用代码创建倒流区"的路。
+    test('把中途 BPM 改成负值 → 允许回写（片段口径）；beat 0 的 BPM 改成负值 → 拒', () => {
+        const ns: ChartNote[] = [bpm(0, 120), bpm(4, 120), bpm(8, 120)];
+        const mid = applyNoteCode(ns, whole(1), [{ beat: 4, type: 'BPM', bpm: -225 }]);
+        expect(mid.ok).toBe(true);
+        if (mid.ok) expect(mid.notes[1]).toEqual({ type: 'BPM', beat: 4, bpm: -225 });
+
+        const head = applyNoteCode(ns, whole(0), [{ beat: 0, type: 'BPM', bpm: -120 }]);
+        expect(head.ok).toBe(false);
+        if (!head.ok) expect(head.errors[0].reason).toContain('第 0 拍');
+    });
 });
 
 // ══════════════════ §5 回写·结点 ══════════════════
