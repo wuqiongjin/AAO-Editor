@@ -12,7 +12,7 @@
 // 文本变换逻辑下沉到 editing/CodeEditorOps（纯函数，可单测）。
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Copy, RotateCcw, RefreshCw, X } from "lucide-react";
+import { Copy, Download, RotateCcw, RefreshCw, X } from "lucide-react";
 import {
     convertNotesToChartCode, chartCodeToJSON, parseChartCodeFromJSON, validateChartCodeJSON,
     formatValidationError, convertChartCodeToNotes, hasBeat0Bpm,
@@ -31,6 +31,7 @@ import {
 } from '../../editing/CodeEditorOps';
 import ActionBtn from '../../../ui/ActionBtn';
 import { useChartCodeEditor, type CodeEditorTarget } from './ChartCodeEditorProvider';
+import { exportChartCodeSaveAs } from '../../project/exportChartCode';
 
 // 错误列表最多展示的条数，其余折叠为「共 N 处」
 const MAX_VISIBLE_ERRORS = 8;
@@ -254,6 +255,15 @@ export default function ChartCodeEditorModal({ target }: Props) {
             alert('谱面代码已复制到剪贴板');
         } catch (error) {
             alert('复制失败: ' + (error as Error).message);
+        }
+    };
+
+    // issue 118：另存为当前画布谱面（忽略弹窗草稿）
+    const handleSaveAs = async () => {
+        try {
+            await exportChartCodeSaveAs(notes);
+        } catch (error) {
+            alert('导出失败: ' + (error as Error).message);
         }
     };
 
@@ -510,6 +520,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
                     {/* 「重置」= 回到保底 BPM 谱面，只对完整代码视图有意义 */}
                     {isChartView && <ActionBtn onClick={handleReset}><RotateCcw size={16} />重置</ActionBtn>}
                     <ActionBtn onClick={handleCopy}><Copy size={16} />复制</ActionBtn>
+                    <ActionBtn onClick={handleSaveAs}><Download size={16} />另存为</ActionBtn>
                     {isDirty && (
                         <span style={{ color: 'var(--warning)', fontSize: 'var(--text-xs)' }}>未保存的更改</span>
                     )}

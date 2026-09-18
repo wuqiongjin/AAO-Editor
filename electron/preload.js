@@ -11,4 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         get: (id) => ipcRenderer.invoke('project:get', id),
         put: (payload) => ipcRenderer.invoke('project:put', payload),
     },
+    // issue 118：谱面代码另存为。每次弹出系统保存对话框，不记路径。
+    chartCodeExport: {
+        saveAs: (payload) => ipcRenderer.invoke('chartCode:saveAs', payload),
+    },
 });

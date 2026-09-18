@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
@@ -103,6 +103,36 @@ function registerProjectStoreIpc() {
     });
 }
 registerProjectStoreIpc();
+
+// ---------------------------------------------------------------------------
+// 谱面代码另存为（issue 118）：每次 dialog，不记路径。
+// defaultPath 只用 basename，渲染侧即使传入带目录的 suggestedName 也无法写进记忆。
+// ---------------------------------------------------------------------------
+function registerChartCodeExportIpc() {
+    ipcMain.handle('chartCode:saveAs', async (event, payload) => {
+        const json = payload && payload.json;
+        if (typeof json !== 'string') {
+            throw new Error('chartCode:saveAs 需要 json 字符串');
+        }
+        const rawName = payload && payload.suggestedName;
+        const suggestedName =
+            typeof rawName === 'string' && rawName.length > 0
+                ? path.basename(rawName)
+                : 'chart.json';
+        const win = BrowserWindow.fromWebContents(event.sender);
+        const result = await dialog.showSaveDialog(win ?? undefined, {
+            title: '导出谱面代码',
+            defaultPath: suggestedName,
+            filters: [{ name: 'JSON', extensions: ['json'] }],
+        });
+        if (result.canceled || !result.filePath) {
+            return { cancelled: true };
+        }
+        await fs.promises.writeFile(result.filePath, json, 'utf8');
+        return { cancelled: false };
+    });
+}
+registerChartCodeExportIpc();
 
 function createWindow() {
     // 创建浏览器窗口
