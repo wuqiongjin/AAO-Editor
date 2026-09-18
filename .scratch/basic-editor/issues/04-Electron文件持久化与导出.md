@@ -21,3 +21,7 @@ research 子代理确认现状 + 推荐：
 - **导出产物**：MVP 只导出 `chartCodeToJSON(chartCode)` 的 JSON 字符串（音频另行选择）；后续可扩展 ZIP（JSON + audio）。
 
 **含义**：文件 I/O 是干净的"加 IPC 通道"工作，复用 `ChartConverter` 的序列化即可，无架构阻碍。
+
+## Comments
+
+- 2026-09-18：谱面代码「每次另存为、不记路径」的实现票 = [118](./118-谱面代码导出另存为.md)。本票正文不改写、不合入。Electron 工程自动库改根 = [117](./117-Electron数据根目录.md)，与本票 dialog 导出不是同一条产品线。

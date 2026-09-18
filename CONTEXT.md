@@ -100,6 +100,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 切换（switch） | 裸键（如 `F`），用于**切换持工具态** |
 | 执行（exec） | `Ctrl+组合`（如 `Ctrl+F`），用于**立即执行**该具体功能（作用于当前选区/光标/历史/播放） |
 | 类别（category） | 展示分组，把某类别的「切换/执行」合并成一行 tooltip |
+| 索引筛选 | 快捷键页侧边索引上的粗桶（全部 / 系统 / 音符工具 / 编辑工具 / 播放 / 其它），用于筛表；**不是**类别 |
 | 预览 | 持工具态下、未执行时，光标悬停/框选显示的低透明度**真实图标**幽灵 |
 
 > 规则细节：交互模型见 [ADR-0008 工具交互机制](./docs/adr/0008-工具交互机制.md)（取代 ADR-0002 §3）；覆盖/滑条规则见 [ADR-0001](./docs/adr/0001-音符覆盖与滑条规则.md)。
@@ -116,7 +117,9 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 布局预设 | Layout preset | 把当前 面板宽度/折叠态/缩放 存成的**命名快照**，可恢复；只存布局信息、不含谱面数据 |
 | 设计令牌 | Design token | CSS variables 体系（颜色/间距/圆角/字号/阴影），主题与皮肤的取值来源 |
 | 主题 | Theme | 亮/暗内置两套 + 注册机制；**谱面画布始终深色**，主题只作用于面板/工具栏/弹窗等 chrome |
-| 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出 |
+| 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出。**不含**窗体状态、**不含**数据根路径 |
+| 窗体状态 | Window chrome state | 这台机器上 OS 窗体的宽、高、是否最大化；主进程文件持久化。_Avoid_: 塞进设置对象 / 导出配置 |
+| 数据根 | Data root | Electron 上用户可选的自动落盘根目录（其下为谱面工程与背景皮肤图文件）。浏览器无此概念（仍 IndexedDB）。_Avoid_: 把「导出谱面代码」的另存路径叫数据根 |
 | 上下文分域 | Context domains | 状态管理组织：`EditingContext`（音符/历史/选择）、`UIContext`（面板/缩放）、`ConfigContext`（设置）；`Editor` 只负责组装 |
 
 ## 应用页面壳（ADR-0007）
@@ -133,7 +136,8 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 侧边分组 | Sidebar group | `<AppPageShell.SidebarGroup title>`——带不可点的分组标题；用于"应用设置 / 功能设置"等场景 |
 | 侧边项 | Sidebar item | `<AppPageShell.SidebarItem icon label>`——`icon` 为 `React.ComponentType`（lucide），size 17 由模板写死；激活态见上 |
 | 内容模式 | Content mode | `<AppPageShell.Body mode>`——`"default"`（整页滚） / `"fill"`（整页不动 + 内部子元素自身滚）；显式 prop，默认 `default` |
-| 几何自适应 | Adaptive geometry | sidebar 宽 = `clamp(140px, 12.5%, 200px)`；body 宽 = 锚点 920（主内容区 ≤1440 恒定）+ >1440 按 0.3/px 线性增长 + 整体 +12px（`--aps-body-bump`）；左边距 L=51 / 右边距 R=32；4 页 body 左缘严格相同 = L + sidebar 宽 + 24（`__slot` 占位槽对齐，不论有无 sidebar）；不传 prop，模板自管（issue 44 第四轮流体几何） |
+| 几何自适应 | Adaptive geometry | sidebar 宽 = `clamp(140px, 12.5%, 200px)`；body 宽 = 锚点 920（主内容区 ≤1440 恒定）+ >1440 按 0.3/px 线性增长 + 整体 +12px（`--aps-body-bump`）；左边距 L=51 / 右边距 R=32；4 页 body 左缘严格相同 = L + sidebar 宽 + 24（`__slot` 占位槽对齐，不论有无 sidebar）；不传 prop，模板自管（issue 44 第四轮流体几何）。**待 issue 120 替换公式**（外侧间隙可变 + 正文 1:1 至 `B_max`） |
+| 外侧间隙 | Outer gutter | 内容壳内、侧栏/正文这一行到壳左右缘的空档（不含应用导航）。变窄时先减间隙，变宽时正文先 1:1；左侧有上限，超出只加右侧（issue 120） |
 
 ## 播放与预览（ADR-0004）
 

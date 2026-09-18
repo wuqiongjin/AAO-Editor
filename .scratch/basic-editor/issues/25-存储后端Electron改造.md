@@ -43,3 +43,7 @@ Blocked by:
   2. 导入音频后改音符，观察 `audio.bin` mtime 不变（防抖保存命中 keep）；
   3. 清除音频后 `audio.bin` 消失；
   4. 本改动前旧版产生的 IndexedDB 数据，在首次打开新版时静默出现在 `userData/projects/default/`（原 IDB 数据保留不动）。
+
+## Comments
+
+- 2026-09-18：[117](./117-Electron数据根目录.md) **部分推翻**本票「不新增设置项」——用户可改 **数据根**（其下仍是 `projects/<id>/` 布局）；按环境自动选文件/IDB 后端这一条仍成立。本票不改写、不合入。
