@@ -56,8 +56,8 @@ export interface AppSettings {
   /** 素材域（issue 29 音符皮肤）：六条目 → 皮肤包 id。包合法性由 renderer/noteSkin.ts 归一化（缺省/非法回退默认包） */
   visual: {
     noteSkin: Partial<NoteSkinSelectionRaw>;
-    /** 谱面背景皮肤（issue 29 Q4 最小模型，2026-08-27 定案；同日用户实机反馈修订加 opacity）。图片本体存 IndexedDB
-     *  （utils/backgroundSkin.ts），此处仅存引用状态；enabled=true 但图不存在时按无背景渲染（静默降级），
+    /** 谱面背景皮肤（issue 29 Q4 最小模型，2026-08-27 定案；同日用户实机反馈修订加 opacity）。图片本体不在设置对象
+     *  （浏览器 IndexedDB / Electron 数据根文件），此处仅存引用状态；enabled=true 但图不存在时按无背景渲染（静默降级），
      *  additive 不 bump schemaVersion。opacity 0..1：图片不透明度，越低画布原始黑底占比越多，默认 DEFAULT_BACKGROUND_OPACITY */
     backgroundSkin?: {
       enabled: boolean;

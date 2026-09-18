@@ -1,10 +1,10 @@
 // 谱面工程持久化（ADR-0005 §2/§6，issue 25 存储后端 Electron 改造）：
 // 谱面工程 = { 代码(notes) + 谱面时长(durationSeconds) + 音频(Blob 引用) }。
 // 后端策略（issue 25 grill 定案）：**按环境自动切换**——Electron 环境（存在 window.electronAPI.projectStore）
-// 用 userData 文件后端（主进程读写磁盘文件），浏览器环境用 IndexedDB；不新增设置项。
+// 用数据根文件后端（主进程读写磁盘；默认 userData/data，issue 117 可改根），浏览器环境用 IndexedDB。
 // 旧数据迁移（grill 定案）：Electron 下首次读取若文件后端无数据，自动把 IndexedDB 里的谱面工程
 // 静默迁入文件后端；IndexedDB 原数据保留作备份，不删除。
-// 文件布局（userData/projects/<id>/）：
+// 文件布局（<数据根>/projects/<id>/，默认数据根 = userData/data）：
 //   project.json = { schemaVersion, durationSeconds, notes, audioName?, audioPresent }
 //   audio.bin    = 音频原始字节（与 JSON 分离，仅在字节变化时重写，避免每次防抖保存重写大音频）
 // 本模块接口抽象化；未来多谱面（issue 26）只是加条目 + 列表 UI，不改存储结构。

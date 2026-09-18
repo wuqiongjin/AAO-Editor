@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Check, Download, Info, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Download, FolderOpen, FolderSearch, Info, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
 import EmptyState from '../ui/EmptyState';
 import { useConfig } from '../app/ProviderTree';
@@ -20,6 +20,17 @@ const QUALITY_OPTIONS: Array<{ value: AppSettings['display']['imageQuality']; la
   { value: 'standard', label: '标准' },
   { value: 'hd', label: '高清' },
 ];
+
+interface DataRootBridge {
+  get(): Promise<{ path: string }>;
+  change(): Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>;
+  claim(): Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>;
+}
+
+function getDataRootBridge(): DataRootBridge | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return (window as unknown as { electronAPI?: { dataRoot?: DataRootBridge } }).electronAPI?.dataRoot;
+}
 
 const GRID_STYLE_OPTIONS: Array<{ value: AppSettings['display']['gridStyle']; label: string }> = [
   { value: 'mono', label: '灰阶' },
@@ -97,6 +108,46 @@ export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState<'canvas' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dataRootApi = getDataRootBridge();
+  const [dataRootPath, setDataRootPath] = useState<string | null>(null);
+  const [dataRootError, setDataRootError] = useState<string | null>(null);
+  const [dataRootBusy, setDataRootBusy] = useState(false);
+
+  useEffect(() => {
+    if (!dataRootApi) return;
+    let cancelled = false;
+    dataRootApi.get().then((r) => {
+      if (!cancelled) setDataRootPath(r.path);
+    }).catch(() => {
+      if (!cancelled) setDataRootError('无法读取当前保存位置');
+    });
+    return () => { cancelled = true; };
+  }, [dataRootApi]);
+
+  const applyDataRootResult = async (
+    run: () => Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>,
+    failMessage: string,
+  ) => {
+    if (!dataRootApi || dataRootBusy) return;
+    setDataRootBusy(true);
+    setDataRootError(null);
+    try {
+      const r = await run();
+      if (r.cancelled) return;
+      if (!r.ok) {
+        setDataRootError(r.message || failMessage);
+        return;
+      }
+      setDataRootPath(r.path);
+    } catch {
+      setDataRootError(failMessage);
+    } finally {
+      setDataRootBusy(false);
+    }
+  };
+
+  const handleChangeDataRoot = () => void applyDataRootResult(() => dataRootApi!.change(), '更改保存位置失败');
+  const handleClaimDataRoot = () => void applyDataRootResult(() => dataRootApi!.claim(), '无法使用该文件夹');
 
   const resetCanvasDefaults = () => setDisplay(defaultSettings().display);
 
@@ -279,19 +330,54 @@ export default function SettingsPage() {
             <>
               <div className="settings-heading">
                 <h2>配置数据</h2>
-                <p>导入或导出主题、布局、音频偏好、画布显示与快捷键。谱面工程不在此范围。</p>
+                <p>谱面保存位置，以及主题与快捷键的导入导出。</p>
               </div>
-              <div className="data-actions">
-                <button className="button-secondary" type="button" onClick={handleExport}>
-                  <Download size={16} />导出全部配置
-                </button>
-                <button className="button-secondary" type="button" onClick={() => fileRef.current?.click()}>
-                  <Upload size={16} />导入配置
-                </button>
-                <input
-                  ref={fileRef} type="file" accept="application/json" style={{ display: 'none' }}
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ''; }}
-                />
+              {dataRootApi && (
+                <>
+                  <div className="settings-row">
+                    <div className="settings-row__text">
+                      <strong>谱面与资源</strong>
+                      <span>{dataRootPath ?? '读取中…'}</span>
+                    </div>
+                    <span className="inline-actions">
+                      <button
+                        className="button-secondary"
+                        type="button"
+                        disabled={dataRootBusy}
+                        onClick={handleChangeDataRoot}
+                      >
+                        <FolderOpen size={15} />更改保存位置
+                      </button>
+                      <button
+                        className="button-secondary"
+                        type="button"
+                        disabled={dataRootBusy}
+                        onClick={handleClaimDataRoot}
+                      >
+                        <FolderSearch size={15} />使用已有数据文件夹
+                      </button>
+                    </span>
+                  </div>
+                  {dataRootError && <div className="shortcut-error">{dataRootError}</div>}
+                </>
+              )}
+              <div className="settings-row">
+                <div className="settings-row__text">
+                  <strong>偏好设置</strong>
+                  <span>主题、布局、快捷键与画布显示。</span>
+                </div>
+                <span className="inline-actions">
+                  <button className="button-secondary" type="button" onClick={handleExport}>
+                    <Download size={16} />导出设置
+                  </button>
+                  <button className="button-secondary" type="button" onClick={() => fileRef.current?.click()}>
+                    <Upload size={16} />导入设置
+                  </button>
+                  <input
+                    ref={fileRef} type="file" accept="application/json" style={{ display: 'none' }}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ''; }}
+                  />
+                </span>
               </div>
               {importError && <div className="shortcut-error">{importError}</div>}
             </>

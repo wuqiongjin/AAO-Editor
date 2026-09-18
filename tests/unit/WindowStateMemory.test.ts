@@ -8,7 +8,6 @@ import {
   DEFAULT_WINDOW_WIDTH,
   MIN_WINDOW_HEIGHT,
   MIN_WINDOW_WIDTH,
-  WINDOW_STATE_FILENAME,
   browserWindowCreateOptions,
   defaultWindowState,
   loadWindowStateSync,
@@ -16,8 +15,8 @@ import {
   parseWindowStateJson,
   saveWindowStateSync,
   serializeWindowState,
-  windowStateFilePath,
 } from '../../electron/windowState.cjs';
+import { APP_STATE_FILENAME, appStateFilePath } from '../../electron/appState.cjs';
 
 const ROOT = join(__dirname, '../..');
 const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf-8');
@@ -80,9 +79,9 @@ describe('issue 119 · 纯函数 normalize / 序列化', () => {
 });
 
 describe('issue 119 · 磁盘路径与 I/O', () => {
-  it('windowStateFilePath 落在 userData/window-state.json', () => {
-    expect(WINDOW_STATE_FILENAME).toBe('window-state.json');
-    expect(windowStateFilePath('/tmp/user')).toBe(pathJoin('/tmp/user', 'window-state.json'));
+  it('窗体状态落在 userData/app-state.json 的 window 字段', () => {
+    expect(APP_STATE_FILENAME).toBe('app-state.json');
+    expect(appStateFilePath('/tmp/user')).toBe(pathJoin('/tmp/user', 'app-state.json'));
   });
 
   it('saveWindowStateSync + loadWindowStateSync 往返', () => {

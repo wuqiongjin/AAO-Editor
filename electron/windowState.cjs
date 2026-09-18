@@ -1,11 +1,9 @@
-const path = require('path');
-const fs = require('fs');
+const { patchAppStateSync, readAppStateRawSync } = require('./appState.cjs');
 
 const DEFAULT_WINDOW_WIDTH = 1260;
 const DEFAULT_WINDOW_HEIGHT = 800;
 const MIN_WINDOW_WIDTH = 800;
 const MIN_WINDOW_HEIGHT = 600;
-const WINDOW_STATE_FILENAME = 'window-state.json';
 
 function defaultWindowState() {
     return {
@@ -52,26 +50,19 @@ function serializeWindowState(state) {
     });
 }
 
-function windowStateFilePath(userDataPath) {
-    return path.join(userDataPath, WINDOW_STATE_FILENAME);
-}
-
 function loadWindowStateSync(userDataPath) {
-    const filePath = windowStateFilePath(userDataPath);
-    try {
-        const text = fs.readFileSync(filePath, 'utf8');
-        return parseWindowStateJson(text);
-    } catch {
-        return defaultWindowState();
-    }
+    return normalizeWindowState(readAppStateRawSync(userDataPath).window);
 }
 
 function saveWindowStateSync(userDataPath, state) {
-    const filePath = windowStateFilePath(userDataPath);
-    const payload = serializeWindowState(state);
-    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    fs.writeFileSync(tmpPath, payload, 'utf8');
-    fs.renameSync(tmpPath, filePath);
+    const n = normalizeWindowState(state);
+    patchAppStateSync(userDataPath, {
+        window: {
+            width: n.width,
+            height: n.height,
+            isMaximized: n.isMaximized,
+        },
+    });
 }
 
 async function saveWindowState(userDataPath, state) {
@@ -102,12 +93,10 @@ module.exports = {
     DEFAULT_WINDOW_HEIGHT,
     MIN_WINDOW_WIDTH,
     MIN_WINDOW_HEIGHT,
-    WINDOW_STATE_FILENAME,
     defaultWindowState,
     normalizeWindowState,
     parseWindowStateJson,
     serializeWindowState,
-    windowStateFilePath,
     loadWindowStateSync,
     saveWindowState,
     saveWindowStateSync,

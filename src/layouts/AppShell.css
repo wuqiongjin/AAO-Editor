@@ -1930,7 +1930,9 @@ button.skin-pill {
 /* 行内动作组（恢复默认「确认/取消」双按钮） */
 .inline-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .data-actions {

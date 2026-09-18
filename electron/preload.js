@@ -15,4 +15,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     chartCodeExport: {
         saveAs: (payload) => ipcRenderer.invoke('chartCode:saveAs', payload),
     },
+    // issue 117：数据根（不进设置对象）。change = 搬家；claim = 认领已有根。
+    dataRoot: {
+        get: () => ipcRenderer.invoke('dataRoot:get'),
+        change: () => ipcRenderer.invoke('dataRoot:change'),
+        claim: () => ipcRenderer.invoke('dataRoot:claim'),
+    },
+    backgroundSkin: {
+        get: () => ipcRenderer.invoke('backgroundSkin:get'),
+        put: (bytes) => ipcRenderer.invoke('backgroundSkin:put', bytes),
+        clear: () => ipcRenderer.invoke('backgroundSkin:clear'),
+    },
 });

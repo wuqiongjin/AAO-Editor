@@ -10,9 +10,17 @@ const {
     snapshotFromBrowserWindow,
     browserWindowCreateOptions,
 } = require('./windowState.cjs');
+const {
+    claimDataRoot,
+    loadDataRootSync,
+    moveDataRoot,
+    projectDir: projectDirAtRoot,
+    backgroundSkinPath,
+} = require('./dataRoot.cjs');
 
 // ---------------------------------------------------------------------------
-// 谱面工程文件后端（issue 25）：userData/projects/<id>/{project.json, audio.bin}
+// 谱面工程文件后端（issue 25 + 117）：<数据根>/projects/<id>/{project.json, audio.bin}
+// 默认数据根 = userData/data；当前根记在 userData/app-state.json。
 // 设计要点：
 // - project.json 与 audio.bin 分离：音频仅在字节变化时写入（audioIntent='set'），
 //   防抖保存（~800ms/次）不会反复重写大音频；
@@ -20,21 +28,16 @@ const {
 // - 工程目录名经严格白名单校验，杜绝路径穿越。
 // ---------------------------------------------------------------------------
 
-/** 工程存储根目录：<userData>/projects */
-function projectsRootDir() {
-    return path.join(app.getPath('userData'), 'projects');
+function userDataDir() {
+    return app.getPath('userData');
 }
 
-/** 工程 id 白名单校验：字母开头，仅字母数字 . _ -，≤64 位；非法即抛错 */
-function safeProjectId(id) {
-    if (typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) {
-        throw new Error(`非法的谱面工程 id: ${JSON.stringify(id)}`);
-    }
-    return id;
+function currentDataRoot() {
+    return loadDataRootSync(userDataDir());
 }
 
 function projectDir(id) {
-    return path.join(projectsRootDir(), safeProjectId(id));
+    return projectDirAtRoot(currentDataRoot(), id);
 }
 
 async function writeFileAtomic(filePath, data) {
@@ -113,6 +116,92 @@ function registerProjectStoreIpc() {
 registerProjectStoreIpc();
 
 // ---------------------------------------------------------------------------
+// 数据根（issue 117）：只读当前路径；搬家与认领分开，失败不切根。
+// ---------------------------------------------------------------------------
+function registerDataRootIpc() {
+    ipcMain.handle('dataRoot:get', async () => ({ path: currentDataRoot() }));
+
+    ipcMain.handle('dataRoot:change', async (event) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        const result = await dialog.showOpenDialog(win ?? undefined, {
+            title: '选择新的保存位置（空文件夹将直接作为保存目录；否则保存到其下的当前文件夹名）',
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        if (result.canceled || !result.filePaths || !result.filePaths[0]) {
+            return { ok: true, cancelled: true, path: currentDataRoot() };
+        }
+        const moved = await moveDataRoot({
+            userData: userDataDir(),
+            fromRoot: currentDataRoot(),
+            toRoot: result.filePaths[0],
+        });
+        if (!moved.ok) {
+            return {
+                ok: false,
+                cancelled: false,
+                path: currentDataRoot(),
+                message: moved.message || '搬家失败，仍使用原来的保存位置',
+            };
+        }
+        return { ok: true, cancelled: false, path: currentDataRoot() };
+    });
+
+    ipcMain.handle('dataRoot:claim', async (event) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        const result = await dialog.showOpenDialog(win ?? undefined, {
+            title: '使用已有数据文件夹',
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        if (result.canceled || !result.filePaths || !result.filePaths[0]) {
+            return { ok: true, cancelled: true, path: currentDataRoot() };
+        }
+        const claimed = await claimDataRoot({
+            userData: userDataDir(),
+            toRoot: result.filePaths[0],
+        });
+        if (!claimed.ok) {
+            return {
+                ok: false,
+                cancelled: false,
+                path: currentDataRoot(),
+                message: claimed.message || '无法使用该文件夹',
+            };
+        }
+        return { ok: true, cancelled: false, path: currentDataRoot() };
+    });
+}
+registerDataRootIpc();
+
+// ---------------------------------------------------------------------------
+// 背景皮肤文件（issue 117）：<数据根>/assets/background-skin.bin
+// ---------------------------------------------------------------------------
+function registerBackgroundSkinIpc() {
+    ipcMain.handle('backgroundSkin:get', async () => {
+        try {
+            return await fs.promises.readFile(backgroundSkinPath(currentDataRoot()));
+        } catch {
+            return null;
+        }
+    });
+
+    ipcMain.handle('backgroundSkin:put', async (_event, bytes) => {
+        if (!(bytes instanceof Uint8Array)) {
+            throw new Error('backgroundSkin:put 需要字节');
+        }
+        const filePath = backgroundSkinPath(currentDataRoot());
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+        await writeFileAtomic(filePath, Buffer.from(bytes));
+        return true;
+    });
+
+    ipcMain.handle('backgroundSkin:clear', async () => {
+        await fs.promises.rm(backgroundSkinPath(currentDataRoot()), { force: true });
+        return true;
+    });
+}
+registerBackgroundSkinIpc();
+
+// ---------------------------------------------------------------------------
 // 谱面代码另存为（issue 118）：每次 dialog，不记路径。
 // defaultPath 只用 basename，渲染侧即使传入带目录的 suggestedName 也无法写进记忆。
 // ---------------------------------------------------------------------------
@@ -143,7 +232,7 @@ function registerChartCodeExportIpc() {
 registerChartCodeExportIpc();
 
 // ---------------------------------------------------------------------------
-// 主窗体几何记忆（issue 119）：userData/window-state.json，仅宽高 + 是否最大化。
+// 主窗体几何记忆（issue 119 / 117）：userData/app-state.json 的 window 字段。
 // 不进 settings / 导出配置；不记位置（多屏）。
 // ---------------------------------------------------------------------------
 

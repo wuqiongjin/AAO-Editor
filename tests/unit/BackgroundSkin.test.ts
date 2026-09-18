@@ -4,7 +4,7 @@
 //   3) settings.visual.backgroundSkin 开关位的归一化与 updateSettings 合并行为。
 import { describe, it, expect } from 'vitest';
 import { computeBackgroundDrawRect, normalizeBackgroundOpacity } from '../../src/visual/staticLayerCache';
-import { BackgroundSkinStore, backgroundSkinStore } from '../../src/chart/rendering/backgroundSkin';
+import { BackgroundSkinStore, backgroundSkinStore, createElectronBackgroundPersist } from '../../src/chart/rendering/backgroundSkin';
 import {
   defaultSettings, loadSettings, updateSettings,
   DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE,
@@ -200,6 +200,42 @@ describe('BackgroundSkinStore（最小模型三原语）', () => {
     const off = backgroundSkinStore.subscribe(listener);
     off();
     expect(typeof backgroundSkinStore.getSnapshot().revision).toBe('number');
+  });
+});
+
+describe('issue 117 · Electron 背景图文件 persist（桥注入）', () => {
+  it('文件已有字节则不读 IndexedDB', async () => {
+    const persist = createElectronBackgroundPersist(
+      {
+        get: async () => new Uint8Array([9, 8]),
+        put: async () => { throw new Error('must not put'); },
+        clear: async () => {},
+      },
+      { load: async () => new Blob(['idb']) },
+    );
+    const blob = await persist.load();
+    expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(new Uint8Array([9, 8]));
+  });
+
+  it('文件为空时从旧存储迁入一次，绝不覆盖已有文件', async () => {
+    let disk: Uint8Array | null = null;
+    const puts: Uint8Array[] = [];
+    const persist = createElectronBackgroundPersist(
+      {
+        get: async () => disk,
+        put: async (bytes) => {
+          puts.push(bytes);
+          disk = bytes;
+        },
+        clear: async () => { disk = null; },
+      },
+      { load: async () => new Blob([new Uint8Array([1, 2, 3])]) },
+    );
+    const first = await persist.load();
+    expect(Array.from(new Uint8Array(await first!.arrayBuffer()))).toEqual([1, 2, 3]);
+    expect(puts).toHaveLength(1);
+    await persist.load();
+    expect(puts).toHaveLength(1);
   });
 });
 

@@ -109,9 +109,9 @@
 - **115 Slide 带体「同拍结点」连线口径（`Type: grilling`，已实现 + 锁测，待用户页面验收）** —— [115](./issues/115-Slide同拍结点连线口径.md)：**定案** = 显示投影只两步（按 beat 稳定排序 + 掐首尾 hidden = 实机 `repair()`），**同拍组的组内走序一律保持数组序**——作者点序即带体走序，走序不可从代码重建；数据一字不动。像素取证工具 `scripts/verify-slide-band-order.mjs`。
 - **116 倒流区「多臂同高」带体漏画（`Type: grilling`，已实现 + 锁测，待用户页面验收）** —— [116](./issues/116-倒流区多臂带体漏画.md)：BPM 翻转使同一段时间被来回扫，滑条换轨处先有 Δy=0 的横跳、随后反向 ⇒ `splitBandAtFolds` 漏判（横跳段直接 `continue`、方向不更新）→ run 不 y 单调，而 `bandRunAtY` 每行只取第一条命中的臂 → lane 4/2/0 的臂被静默丢弃（官方是 4 根竖条）。修法 = 按**非零 dy** 的符号变化切分（横跳对方向透明）。
 - **117–123（2026-09-18 `/grill-with-docs` 桌面打磨，不合入旧票）**
-  - [117 Electron 数据根](./issues/117-Electron数据根目录.md)（grilling，open）——**定了什么** = 只选一个数据根（Electron）；下挂工程与背景图；改根搬家；浏览器无路径 UI。部分推翻 25「不新增设置项」。
+  - [117 Electron 数据根](./issues/117-Electron数据根目录.md)（grilling，**resolved（实现 + 锁测；Electron 改根/认领手工验收仍待）**）——**定了什么** = 数据根默认 `userData/data`（`projects/`+`assets/`）；本机状态一份 `app-state.json`；搬家与认领分开；设置页「配置数据」下谱面与资源仅 Electron、偏好设置两边都有。部分推翻 25「不新增设置项」。
   - [118 谱面代码导出另存为](./issues/118-谱面代码导出另存为.md)（feature，**resolved（实现 + 锁测）**）——**改成什么** = 每次 dialog 写出谱面代码 JSON，不记路径。
-  - [119 窗体宽高与最大化记忆](./issues/119-窗体宽高与最大化记忆.md)（feature，**resolved（实现 + 锁测）**）——**改成什么** = 主进程 `userData/window-state.json` 记宽高+最大化，不进设置对象。
+  - [119 窗体宽高与最大化记忆](./issues/119-窗体宽高与最大化记忆.md)（feature，**resolved（实现 + 锁测）**）——**改成什么** = 主进程记宽高+最大化，不进设置对象；载体随 117 折进 `userData/app-state.json` 的 `window` 字段。
   - [120 内容页外侧间隙与正文封顶](./issues/120-内容页外侧间隙与正文封顶.md)（grilling，resolved）——**定了什么** = 窄先吃间隙(min 16)、宽正文 1:1 到 1440、L_max=96 可调后只加右；侧栏 clamp 不变。
   - [121 快捷键页索引筛选](./issues/121-快捷键页索引筛选.md)（grilling，resolved）——**定了什么** = 真侧栏粗桶筛选（≠ 类别）；切页进表归系统；搜索∩桶；不持久化。验收补：多键并排不换行；空桶≠搜索空；恢复默认跟当前桶；换桶表体 stagger。
   - [122 多语言字符串盘点](./issues/122-多语言硬编码字符串盘点.md)（research，open）——盘点中文与「能否不做 i18n 框架」；**不**拍翻不翻 114。

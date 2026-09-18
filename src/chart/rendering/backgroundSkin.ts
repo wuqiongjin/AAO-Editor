@@ -1,6 +1,7 @@
 // 谱面背景皮肤数据层（issue 29 Q4 最小模型，2026-08-27 grill 定案）：
 //   最小模型 = 1 张图（本地单张上传）+ 启用开关（settings.visual.backgroundSkin.enabled，ConfigContext 写）
-//   + 清除。图片本体存 IndexedDB（Blob），本模块负责 存取 / 解码 / 订阅通知；
+//   + 清除。图片本体：浏览器 IndexedDB；Electron 为数据根下固定文件（issue 117），
+//     本模块负责 存取 / 解码 / 订阅通知；
 //   settings 只存开关位，图丢失时静默降级为无背景。
 //
 // 渲染接线：FinalVirtualCanvas 经 useBackgroundSkin 订阅快照，
@@ -96,8 +97,58 @@ async function defaultDecode(blob: Blob) {
   return { source: bmp as unknown, width: bmp.width, height: bmp.height };
 }
 
+/** preload 注入的背景图文件桥（electronAPI.backgroundSkin） */
+export interface BackgroundSkinFileBridge {
+  get(): Promise<Uint8Array | null>;
+  put(bytes: Uint8Array): Promise<unknown>;
+  clear(): Promise<unknown>;
+}
+
+function getElectronBackgroundBridge(): BackgroundSkinFileBridge | null {
+  if (typeof window === 'undefined') return null;
+  const api = (window as unknown as { electronAPI?: { backgroundSkin?: BackgroundSkinFileBridge } }).electronAPI;
+  return api?.backgroundSkin ?? null;
+}
+
+/** Electron：文件优先；文件空时从 IndexedDB 静默迁入一次（原库保留作备份） */
+export function createElectronBackgroundPersist(
+  bridge: BackgroundSkinFileBridge,
+  legacy: { load(): Promise<Blob | null> } = defaultPersist(),
+): BackgroundSkinPorts['persist'] {
+  let migrated = false;
+  return {
+    async load(): Promise<Blob | null> {
+      const bytes = await bridge.get();
+      if (bytes && bytes.byteLength > 0) return new Blob([bytes]);
+      if (migrated) return null;
+      migrated = true;
+      try {
+        const old = await legacy.load();
+        if (old) {
+          await bridge.put(new Uint8Array(await old.arrayBuffer()));
+          return old;
+        }
+      } catch {
+        // 迁移来源异常：按无图
+      }
+      return null;
+    },
+    async save(blob: Blob): Promise<void> {
+      await bridge.put(new Uint8Array(await blob.arrayBuffer()));
+    },
+    async clear(): Promise<void> {
+      await bridge.clear();
+    },
+  };
+}
+
+function resolveDefaultPersist(): BackgroundSkinPorts['persist'] {
+  const bridge = getElectronBackgroundBridge();
+  return bridge ? createElectronBackgroundPersist(bridge) : defaultPersist();
+}
+
 const defaultPorts = (): BackgroundSkinPorts => ({
-  persist: defaultPersist(),
+  persist: resolveDefaultPersist(),
   decode: defaultDecode,
   createUrl: (blob) => {
     if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') return URL.createObjectURL(blob);

@@ -118,8 +118,8 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 设计令牌 | Design token | CSS variables 体系（颜色/间距/圆角/字号/阴影），主题与皮肤的取值来源 |
 | 主题 | Theme | 亮/暗内置两套 + 注册机制；**谱面画布始终深色**，主题只作用于面板/工具栏/弹窗等 chrome |
 | 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出。**不含**窗体状态、**不含**数据根路径 |
-| 窗体状态 | Window chrome state | 这台机器上 OS 窗体的宽、高、是否最大化；主进程文件持久化。_Avoid_: 塞进设置对象 / 导出配置 |
-| 数据根 | Data root | Electron 上用户可选的自动落盘根目录（其下为谱面工程与背景皮肤图文件）。浏览器无此概念（仍 IndexedDB）。_Avoid_: 把「导出谱面代码」的另存路径叫数据根 |
+| 窗体状态 | Window chrome state | 这台机器上 OS 窗体的宽、高、是否最大化；与数据根路径同写 `userData/app-state.json`。_Avoid_: 塞进设置对象 / 导出配置；不要再为这类本机状态单开 json |
+| 数据根 | Data root | Electron 上用户可选的自动落盘根目录（默认 `userData/data`，其下固定 `projects/` 与 `assets/`）。当前路径记在 `userData/app-state.json`。浏览器无此概念（仍 IndexedDB）。_Avoid_: 把「导出谱面代码」的另存路径叫数据根；不要把数据根叫 `projects` |
 | 上下文分域 | Context domains | 状态管理组织：`EditingContext`（音符/历史/选择）、`UIContext`（面板/缩放）、`ConfigContext`（设置）；`Editor` 只负责组装 |
 
 ## 应用页面壳（ADR-0007）
@@ -185,7 +185,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 皮肤条目 | Note skin item | 六条目：单键 `tap` / 滑键 `flick` / 技能键 `skill` / 左方向 `dirL` / 右方向 `dirR` / 滑条 `slide`；slide 管三件套 = `longNoteLine` + `longNoteLine2` + `note_slide_among` |
 | 整包预设 | Skin preset | 官方同名配对（skin0N + directionalflickskin0N）一键写入六条目；写入后各条目仍可独立覆盖 |
 | per-lane | per-lane sprite | 官方精灵按轨道一张（透视观感差异）；方向键 length=N = N 条覆盖轨道各贴本轨图；滑条端点复用单键皮肤 |
-| 谱面背景皮肤 | Chart background skin | 谱面画布的可选背景图层（画布固定深色主题不变）；**最小模型已实现**（Q4 + 同日三轮修订）：1 张本地图片（IndexedDB `bangdream.assets`）+ 启用开关 + 清除；**可调不透明度**（默认 55%）/ **填充方式**（铺满裁剪 cover / 完整显示 contain）/ **显示范围**（仅轨道外 outsideTrack 默认，不覆盖轨道本身 / 全画布 fullCanvas）；渲染进静态层；回工作台激活即补帧重绘 |
+| 谱面背景皮肤 | Chart background skin | 谱面画布的可选背景图层（画布固定深色主题不变）；**最小模型已实现**（Q4 + 同日三轮修订）：1 张本地图片（浏览器 IndexedDB `bangdream.assets`；Electron 为数据根下 `assets/background-skin.bin`）+ 启用开关 + 清除；**可调不透明度**（默认 55%）/ **填充方式**（铺满裁剪 cover / 完整显示 contain）/ **显示范围**（仅轨道外 outsideTrack 默认，不覆盖轨道本身 / 全画布 fullCanvas）；渲染进静态层；回工作台激活即补帧重绘 |
 
 > 规则细节：皮肤与音符类型的完整映射、资源接入边界见 `.scratch/basic-editor/issues/29-素材页面-键音素材包与皮肤.md` 定案记录；归档使用边界见 `docs/resource/bestdori/README.md`。
 
