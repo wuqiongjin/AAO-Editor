@@ -107,7 +107,7 @@ registerProjectStoreIpc();
 function createWindow() {
     // 创建浏览器窗口
     const mainWindow = new BrowserWindow({
-        width: 1200,
+        width: 1260,
         height: 800,
         minWidth: 800,
         minHeight: 600,
@@ -150,6 +150,7 @@ function createWindow() {
 
 // 当Electron完成初始化并准备创建浏览器窗口时调用此方法
 app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
     createWindow();
 
     // 在macOS上，当点击dock图标并且没有其他窗口打开时，
@@ -168,65 +169,4 @@ app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
         app.quit();
     }
-});
-
-// 设置应用菜单
-app.whenReady().then(() => {
-    const template = [
-        {
-            label: '文件',
-            submenu: [
-                {
-                    label: '新建',
-                    accelerator: 'CmdOrCtrl+N',
-                    click: () => {
-                        // 这里可以添加新建功能
-                    }
-                },
-                {
-                    label: '打开',
-                    accelerator: 'CmdOrCtrl+O',
-                    click: () => {
-                        // 这里可以添加打开功能
-                    }
-                },
-                { type: 'separator' },
-                {
-                    label: '退出',
-                    accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Ctrl+Q',
-                    click: () => {
-                        app.quit();
-                    }
-                }
-            ]
-        },
-        {
-            label: '编辑',
-            submenu: [
-                { label: '撤销', accelerator: 'CmdOrCtrl+Z', role: 'undo' },
-                { label: '重做', accelerator: 'Shift+CmdOrCtrl+Z', role: 'redo' },
-                { type: 'separator' },
-                { label: '剪切', accelerator: 'CmdOrCtrl+X', role: 'cut' },
-                { label: '复制', accelerator: 'CmdOrCtrl+C', role: 'copy' },
-                { label: '粘贴', accelerator: 'CmdOrCtrl+V', role: 'paste' }
-            ]
-        },
-        {
-            label: '视图',
-            submenu: [
-                { label: '重新加载', accelerator: 'CmdOrCtrl+R', role: 'reload' },
-                { label: '强制重新加载', accelerator: 'CmdOrCtrl+Shift+R', role: 'forceReload' },
-                { label: '开发者工具', accelerator: process.platform === 'darwin' ? 'Alt+Cmd+I' : 'Ctrl+Shift+I', role: 'toggleDevTools' },
-                { type: 'separator' },
-                { label: '实际大小', accelerator: 'CmdOrCtrl+0', role: 'resetZoom' },
-                { label: '放大', accelerator: 'CmdOrCtrl+Plus', role: 'zoomIn' },
-                { label: '缩小', accelerator: 'CmdOrCtrl+-', role: 'zoomOut' },
-                { type: 'separator' },
-                { label: '全屏', accelerator: process.platform === 'darwin' ? 'Ctrl+Cmd+F' : 'F11', role: 'togglefullscreen' }
-            ]
-        }
-    ];
-
-    const menu = Menu.buildFromTemplate(template);
-    Menu.setApplicationMenu(menu);
 });
