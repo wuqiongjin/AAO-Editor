@@ -2,6 +2,14 @@ const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
+const {
+    MIN_WINDOW_WIDTH,
+    MIN_WINDOW_HEIGHT,
+    loadWindowStateSync,
+    saveWindowStateSync,
+    snapshotFromBrowserWindow,
+    browserWindowCreateOptions,
+} = require('./windowState.cjs');
 
 // ---------------------------------------------------------------------------
 // 谱面工程文件后端（issue 25）：userData/projects/<id>/{project.json, audio.bin}
@@ -134,13 +142,23 @@ function registerChartCodeExportIpc() {
 }
 registerChartCodeExportIpc();
 
+// ---------------------------------------------------------------------------
+// 主窗体几何记忆（issue 119）：userData/window-state.json，仅宽高 + 是否最大化。
+// 不进 settings / 导出配置；不记位置（多屏）。
+// ---------------------------------------------------------------------------
+
 function createWindow() {
+    const minWidth = MIN_WINDOW_WIDTH;
+    const minHeight = MIN_WINDOW_HEIGHT;
+    const saved = loadWindowStateSync(app.getPath('userData'));
+    const { width, height } = browserWindowCreateOptions(saved, { minWidth, minHeight });
+
     // 创建浏览器窗口
     const mainWindow = new BrowserWindow({
-        width: 1260,
-        height: 800,
-        minWidth: 800,
-        minHeight: 600,
+        width,
+        height,
+        minWidth,
+        minHeight,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -164,7 +182,14 @@ function createWindow() {
 
     // 窗口准备好后显示
     mainWindow.once('ready-to-show', () => {
+        if (saved.isMaximized) {
+            mainWindow.maximize();
+        }
         mainWindow.show();
+    });
+
+    mainWindow.on('close', () => {
+        saveWindowStateSync(app.getPath('userData'), snapshotFromBrowserWindow(mainWindow));
     });
 
     // 当窗口被关闭时
