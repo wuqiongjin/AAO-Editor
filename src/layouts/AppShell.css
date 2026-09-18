@@ -211,7 +211,7 @@
   pointer-events: none;
   min-width: 0;
   min-height: 0;
-  transition: opacity 150ms var(--ease);
+  transition: opacity 130ms var(--ease);
 }
 
 .app-page.is-active {
@@ -636,6 +636,11 @@
   border: 1px solid var(--border);
   background: var(--bg-inset);
   color: var(--text);
+}
+
+.button-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 /* ---- 素材页（issue 29）：键音素材包（卡片）+ 皮肤（占位） ---- */
@@ -1990,18 +1995,27 @@ button.skin-pill {
   flex-direction: column;
 }
 
+.shortcut-table-body {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  /* 按行高撑开，滚动交给 .shortcut-table；clip 只挡住进场 translateY，避免装得下时闪条 */
+  overflow: clip;
+}
+
 .shortcut-row {
   display: grid;
   min-height: 52px;
-  grid-template-columns: 90px minmax(160px, 1fr) minmax(120px, 1fr) 32px 54px;
+  grid-template-columns: 90px minmax(140px, 1fr) minmax(220px, 1.4fr) 32px 54px;
   align-items: center;
   gap: 12px;
-  padding: 0 16px;
+  padding: 8px 16px;
+  overflow: visible;
   border-bottom: 1px solid var(--border-faint);
   font-size: 11px;
 }
 
-.shortcut-row:last-child {
+.shortcut-table-body .shortcut-row:last-child {
   border-bottom: 0;
 }
 
@@ -2053,12 +2067,13 @@ button.skin-pill {
   opacity: 0.2;
 }
 
-/* 系统级快捷键：一个功能可能支持多个可替换快捷键，各自独立键块并排 */
+/* 系统级快捷键：多套等价组合并排一排，不换行（换行会被 52px 行高裁切） */
 .sys-keybindings {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 /* 组合键之间的加号分隔符：独立于键块，淡色小字 */
@@ -2217,9 +2232,9 @@ button.skin-pill {
   }
 
   .shortcut-row {
-    grid-template-columns: 62px minmax(120px, 1fr) minmax(90px, 1fr) 26px 42px;
+    grid-template-columns: 62px minmax(100px, 1fr) minmax(160px, 1.3fr) 26px 42px;
     gap: 8px;
-    padding: 0 12px;
+    padding: 8px 12px;
   }
 }
 

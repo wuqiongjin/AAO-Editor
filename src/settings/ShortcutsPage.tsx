@@ -1,27 +1,31 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Pencil, RotateCcw, Search, SearchX } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import { AppWindow, Ellipsis, Inbox, List, Music2, Pencil, Play, RotateCcw, Search, SearchX, SquarePen } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
 import EmptyState from '../ui/EmptyState';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, setCapturingShortcut, type FunctionId,
 } from '../chart/config/ShortcutConfig';
+import {
+  INDEX_FILTERS, PAGE_SWITCH_ROWS, type IndexFilterId,
+  filterFunctions, filterPageSwitchRows, shortcutTableEmptyKind, restoreDefaultsInFilter,
+} from './shortcutIndexFilter';
 import { useConfig } from '../app/ProviderTree';
 
-// 快捷键页（issue 28 Q14 + issue 44 内容壳迁移）：
-//   - 接入 <AppPageShell>：不写 Sidebar（无页内子类别），Body 走 mode="fill" width="default"（表格自身滚）；
-//   - 页顶只读信息区列出应用级快捷键（切页，不可编辑），便于发现；
-//   - 下方平铺搜索表：搜索 / 点击键位编辑 / 启用·禁用 / 恢复默认；
-//   - 导入/导出统一收敛到「设置 → 配置数据」，本页不再提供。
+// 快捷键页（issue 28 + issue 44 + issue 121）：
+//   - 侧栏「索引筛选」粗桶筛表（≠ ADR-0002 tooltip 类别）；默认「全部」，不写入设置对象；
+//   - 切页五行进表、归系统、不可改键（无页头重复只读区）；
+//   - 搜索 ∩ 当前桶；空结果走 EmptyState；
+//   - Body 走 mode="fill"（表格自身滚）；导入/导出在「设置 → 配置数据」。
 
-// 应用级快捷键（切页，硬绑定不可编辑）
-const APP_SHORTCUTS: Array<{ label: string; combo: string }> = [
-  { label: '切换到工作台', combo: 'Ctrl/⌘+Shift+1' },
-  { label: '切换到音频', combo: 'Ctrl/⌘+Shift+2' },
-  { label: '切换到素材', combo: 'Ctrl/⌘+Shift+3' },
-  { label: '切换到快捷键', combo: 'Ctrl/⌘+Shift+4' },
-  { label: '切换到设置', combo: 'Ctrl/⌘+Shift+5' },
-];
+const INDEX_FILTER_ICONS: Record<IndexFilterId, ComponentType<{ size?: number }>> = {
+  all: List,
+  system: AppWindow,
+  noteTools: Music2,
+  editTools: SquarePen,
+  playback: Play,
+  other: Ellipsis,
+};
 
 /**
  * 把可能含「/」备选的组合串展开为一条条完整快捷键。
@@ -118,24 +122,32 @@ export default function ShortcutsPage() {
   const { settings, setShortcutConfig } = useConfig();
   const config = settings.shortcuts;
   const [query, setQuery] = useState('');
+  const [indexFilter, setIndexFilter] = useState<IndexFilterId>('all');
   const [error, setError] = useState<{ id: FunctionId; msg: string } | null>(null);
   const [editingId, setEditingId] = useState<FunctionId | null>(null);
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return FUNCTIONS;
-    return FUNCTIONS.filter(f =>
-      f.label.toLowerCase().includes(q) || f.category.toLowerCase().includes(q) ||
-      (config[f.id] != null && config[f.id]!.toLowerCase().includes(q))
-    );
-  }, [query, config]);
+  const visible = useMemo(
+    () => filterFunctions(FUNCTIONS, indexFilter, query, config),
+    [indexFilter, query, config],
+  );
 
-  // 应用级（切页）快捷键：仅展示、只读，不参与配置/编辑；随搜索过滤
-  const visibleApp = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return APP_SHORTCUTS;
-    return APP_SHORTCUTS.filter(s => s.label.toLowerCase().includes(q) || s.combo.toLowerCase().includes(q));
-  }, [query]);
+  // 切页：只读进表、归系统；搜索 ∩ 当前桶
+  const visiblePageSwitch = useMemo(
+    () => filterPageSwitchRows(PAGE_SWITCH_ROWS, indexFilter, query),
+    [indexFilter, query],
+  );
+
+  const emptyKind = useMemo(() => {
+    const bucketHits =
+      filterFunctions(FUNCTIONS, indexFilter, '', config).length +
+      filterPageSwitchRows(PAGE_SWITCH_ROWS, indexFilter, '').length;
+    return shortcutTableEmptyKind(bucketHits, visible.length + visiblePageSwitch.length);
+  }, [indexFilter, config, visible.length, visiblePageSwitch.length]);
+
+  const restorableCount = useMemo(
+    () => filterFunctions(FUNCTIONS, indexFilter, '', config).length,
+    [indexFilter, config],
+  );
 
   const commit = (id: FunctionId, binding: string) => {
     const next = { ...config };
@@ -160,8 +172,20 @@ export default function ShortcutsPage() {
       <AppPageShell.Header
         eyebrow="输入与效率"
         title="快捷键"
-        description="搜索功能，点击键位后直接录入新的组合键。冲突会在保存前提示。"
+        description="用侧栏筛选或搜索功能，点击键位后直接录入新的组合键。冲突会在保存前提示。"
       />
+
+      <AppPageShell.Sidebar ariaLabel="索引筛选">
+        {INDEX_FILTERS.map((item) => (
+          <AppPageShell.SidebarItem
+            key={item.id}
+            icon={INDEX_FILTER_ICONS[item.id]}
+            label={item.label}
+            active={indexFilter === item.id}
+            onClick={() => setIndexFilter(item.id)}
+          />
+        ))}
+      </AppPageShell.Sidebar>
 
       <AppPageShell.Body mode="fill">
 
@@ -169,7 +193,16 @@ export default function ShortcutsPage() {
         {/* 删掉 settings-heading（与 page header "快捷键" 重复），改在 toolbar 上加 padding-top 让搜索框与卡片间距与其它页一致 */}
         <div className="shortcut-toolbar">
           <label className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索功能或按键" /></label>
-          <button className="button-secondary" type="button" onClick={() => { setError(null); setShortcutConfig(getDefaultConfig()); }}><RotateCcw size={15} />恢复默认</button>
+          <button
+            className="button-secondary"
+            type="button"
+            disabled={restorableCount === 0}
+            title={indexFilter === 'all' ? '恢复全部快捷键为出厂默认' : '仅重置当前索引中的可改快捷键'}
+            onClick={() => {
+              setError(null);
+              setShortcutConfig(restoreDefaultsInFilter(config, indexFilter));
+            }}
+          ><RotateCcw size={15} />恢复默认</button>
         </div>
 
         {error && <div className="shortcut-error">{error.msg}</div>}
@@ -179,8 +212,10 @@ export default function ShortcutsPage() {
             <span>类别</span><span>功能</span><span>快捷键</span><span>修改</span><span>启用</span>
           </div>
 
+          {/* 换桶才重挂，复用其它页 app-stagger；搜索只滤行、不重播。工具栏不在此。 */}
+          <div key={indexFilter} className="shortcut-table-body app-stagger">
           {/* 应用级（切页）快捷键：只读展示，固定绑定、不支持自定义/启用/修改 */}
-          {visibleApp.map((s) => (
+          {visiblePageSwitch.map((s) => (
             <div className="shortcut-row is-system" role="row" key={s.label}>
               <span className="shortcut-group">系统</span>
               <strong>{s.label}</strong>
@@ -249,7 +284,18 @@ export default function ShortcutsPage() {
               </div>
             );
           })}
-          {visible.length === 0 && visibleApp.length === 0 && (
+          {emptyKind === 'empty-bucket' && (
+            <EmptyState
+              icon={Inbox}
+              title="这个分类暂无快捷键"
+              description="尚未归入此索引的新功能会出现在这里。"
+              primaryAction={{
+                label: '查看全部',
+                onClick: () => { setQuery(''); setIndexFilter('all'); },
+              }}
+            />
+          )}
+          {emptyKind === 'empty-search' && (
             <EmptyState
               icon={SearchX}
               title="没有匹配的功能"
@@ -260,6 +306,7 @@ export default function ShortcutsPage() {
               }}
             />
           )}
+          </div>
         </div>
       </section>
 

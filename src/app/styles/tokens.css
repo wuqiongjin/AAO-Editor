@@ -221,8 +221,8 @@ button, input, select, textarea {
 
 /* ============================================================
    动效（issue 49 阶段 4：切页动效 + 进入动效）
-   - 切页交叉淡入：150ms（快于内容进入 200ms，让页面"换"的感觉先于内容"出现"）
-   - 卡片/列表进入：staggered（Y 轴 8px + opacity，每项 40ms 间隔）
+   - 切页交叉淡入：130ms（快于内容进入 170ms，让页面"换"的感觉先于内容"出现"）
+   - 卡片/列表进入：staggered（Y 轴 8px + opacity，每项 34ms 间隔；相对首版 200/40 约短 15%）
    - hover：200ms ease-out（按钮/卡片/导航统一样式）
    - active：100ms scale(0.98)
    - 全部受全局 prefers-reduced-motion 兜底（位于本文件 §滚动条下方）
@@ -238,25 +238,32 @@ button, input, select, textarea {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* 进入动效工具类：直系子元素按 nth-child 递增 40ms 延迟，
-  最大覆盖到第 10 项（再往后与第 10 项同延迟，避免长列表动画延迟堆积） */
+/* 进入动效工具类：直系子元素按 nth-child 递增 34ms 延迟，
+  最大覆盖到第 10 项（再往后与第 10 项同延迟，避免长列表动画延迟堆积）。 */
 .app-stagger > * {
-  animation: app-stagger-enter var(--dur) var(--ease) both;
+  animation: app-stagger-enter 170ms var(--ease) both;
 }
 .app-stagger > *:nth-child(1)  { animation-delay: 0ms;   }
-.app-stagger > *:nth-child(2)  { animation-delay: 40ms;  }
-.app-stagger > *:nth-child(3)  { animation-delay: 80ms;  }
-.app-stagger > *:nth-child(4)  { animation-delay: 120ms; }
-.app-stagger > *:nth-child(5)  { animation-delay: 160ms; }
-.app-stagger > *:nth-child(6)  { animation-delay: 200ms; }
-.app-stagger > *:nth-child(7)  { animation-delay: 240ms; }
-.app-stagger > *:nth-child(8)  { animation-delay: 280ms; }
-.app-stagger > *:nth-child(9)  { animation-delay: 320ms; }
-.app-stagger > *:nth-child(n+10) { animation-delay: 360ms; }
+.app-stagger > *:nth-child(2)  { animation-delay: 34ms;  }
+.app-stagger > *:nth-child(3)  { animation-delay: 68ms;  }
+.app-stagger > *:nth-child(4)  { animation-delay: 102ms; }
+.app-stagger > *:nth-child(5)  { animation-delay: 136ms; }
+.app-stagger > *:nth-child(6)  { animation-delay: 170ms; }
+.app-stagger > *:nth-child(7)  { animation-delay: 204ms; }
+.app-stagger > *:nth-child(8)  { animation-delay: 238ms; }
+.app-stagger > *:nth-child(9)  { animation-delay: 272ms; }
+.app-stagger > *:nth-child(n+10) { animation-delay: 306ms; }
+
+/* 卡片内 clip 进场位移；不要写在 .app-stagger 自身——body/表体若既是 stagger 又是滚动容器会被裁掉真滚动条 */
+.settings-detail.app-stagger,
+.assets-panel.app-stagger,
+.audio-detail.app-stagger {
+  overflow: clip;
+}
 
 /* 单元素进入：纯 fade（不带 Y 轴位移，给页面/卡片顶层用） */
 .app-fade-in {
-  animation: app-page-fade-in 150ms var(--ease) both;
+  animation: app-page-fade-in 130ms var(--ease) both;
 }
 
 /* ---- 可访问性：减少动效全局兜底（issue 49 阶段 1 #10）
@@ -267,7 +274,7 @@ button, input, select, textarea {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     /* delay 同样清零：stagger 的 both 填充让 delay 期间处于 opacity:0 的 from 态，
-       只清 duration 不清 delay 的话，内容仍会空白最长 360ms */
+       只清 duration 不清 delay 的话，内容仍会空白最长 306ms */
     animation-delay: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

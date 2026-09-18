@@ -65,7 +65,7 @@
   margin-bottom: var(--space-8);
 }
 
-/* 无 sidebar 页（快捷键）：__main 用 .app-page-shell__slot 占位槽预留 sidebar 位，
+/* 无 sidebar 页：__main 用 .app-page-shell__slot 占位槽预留 sidebar 位，
    body 左缘跟其它 3 页严格一致；占位槽与 __head 同几何，header/body 像素级对齐 */
 
 /* main 整块：sidebar + gap + body，fluid 铺满 main 视口（L/R 内边距） */

@@ -81,8 +81,9 @@ type BodyProps = {
 const BodyContext = createContext<{ mode: ContentMode }>({ mode: 'default' });
 
 function Body({ mode = 'default', children }: BodyProps) {
-  // 默认加 app-stagger：body 直系子元素按 40ms 间隔阶梯式进入
-  const classes = ['app-page-shell__body', 'app-stagger'];
+  // 不在滚动容器（body）上挂 app-stagger：直系子元素 translateY 会把 overflow-y:auto
+  // 顶出一条瞬时滚动条。进入动画由页内卡片自己的 .app-stagger 承担。
+  const classes = ['app-page-shell__body'];
   if (mode === 'fill') classes.push('is-fill');
 
   return (
@@ -114,7 +115,7 @@ function AppPageShellRoot({ children }: AppPageShellProps) {
     else if (type === Body) bodyNode = child;
   });
 
-  // 无 sidebar 的页（快捷键）：__main 用 .__slot 占位槽预留 sidebar 位，与 __head 同几何对齐
+  // 无 sidebar 的页：__main 用 .__slot 占位槽预留 sidebar 位，与 __head 同几何对齐
   const hasSidebar = sidebar !== null;
 
   return (
