@@ -127,7 +127,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 术语 | 英文 | 说明 |
 | --- | --- | --- |
 | 应用壳 | App shell | `src/pages/AppShell.tsx`——5 页注册 + 保活挂载 + 切页快捷键 + 可折叠应用导航；issue 28 闭环；不在内容壳 ADR 范围 |
-| 内容壳 | Content shell | `src/components/layout/AppPageShell.tsx`——4 个非工作台页共用的"页面头 + 紧贴 body 边的侧边索引 + 内容模式 + 自适应几何"模板；compound component 形态（namespace）；ADR-0007 范围 |
+| 内容壳 | Content shell | `src/layouts/AppPageShell.tsx`——4 个非工作台页共用的"页面头 + 紧贴 body 边的侧边索引 + 内容模式 + 自适应几何"模板；compound component 形态（namespace）；ADR-0007 范围 |
 | 应用页面 | Application page | 应用壳中的单例功能目的地；当前范围为工作台、音频、素材、快捷键、设置（issue 28 §ADR-0003 既有定义） |
 | 内容页 | Content page | 接入内容壳的应用页面；**工作台不接入**（内部布局专属，issue 28 P1+P2）；当前范围 = 音频、素材、快捷键、设置 |
 | 工作台页 | Workspace page | **不接入内容壳**的应用页面（内部布局专属 + 黑盒接入应用壳，Editor 仅传 `active` 表面契约） |
@@ -136,7 +136,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 侧边分组 | Sidebar group | `<AppPageShell.SidebarGroup title>`——带不可点的分组标题；用于"应用设置 / 功能设置"等场景 |
 | 侧边项 | Sidebar item | `<AppPageShell.SidebarItem icon label>`——`icon` 为 `React.ComponentType`（lucide），size 17 由模板写死；激活态见上 |
 | 内容模式 | Content mode | `<AppPageShell.Body mode>`——`"default"`（整页滚） / `"fill"`（整页不动 + 内部子元素自身滚）；显式 prop，默认 `default` |
-| 几何自适应 | Adaptive geometry | sidebar 宽 = `clamp(140px, 12.5%, 200px)`；body 宽 = 锚点 920（主内容区 ≤1440 恒定）+ >1440 按 0.3/px 线性增长 + 整体 +12px（`--aps-body-bump`）；左边距 L=51 / 右边距 R=32；4 页 body 左缘严格相同 = L + sidebar 宽 + 24（`__slot` 占位槽对齐，不论有无 sidebar）；不传 prop，模板自管（issue 44 第四轮流体几何）。**待 issue 120 替换公式**（外侧间隙可变 + 正文 1:1 至 `B_max`） |
+| 几何自适应 | Adaptive geometry | 内容壳 `W` = 窗宽 − 导航。`L + 侧栏 + gap(24) + 正文 + R = W`。侧栏 `clamp(140px, 12.5%×W, 200px)`；默认窗正文 920、L=51；窄则先减外侧间隙至 16 再减正文；宽则间隙冻结、正文至 `B_max=1440`，再涨间隙，`L_max`（`--aps-inset-l-max`，出厂 96）后只加 R。720px 侧栏改顶栏。不传 prop，`layoutContentShell` + 模板自管（ADR-0007 §5 / issue 120） |
 | 外侧间隙 | Outer gutter | 内容壳内、侧栏/正文这一行到壳左右缘的空档（不含应用导航）。变窄时先减间隙，变宽时正文先 1:1；左侧有上限，超出只加右侧（issue 120） |
 
 ## 播放与预览（ADR-0004）

@@ -1,5 +1,27 @@
-import { Children, createContext, isValidElement, type ComponentType, type ReactNode } from 'react';
+import { Children, createContext, isValidElement, useLayoutEffect, useRef, type ComponentType, type ReactNode } from 'react';
+import { CONTENT_SHELL_INSET_L_MAX, layoutContentShell } from './contentShellGeometry';
 import './AppPageShell.css';
+
+const CONTENT_SHELL_NARROW_MQ = '(max-width: 720px)';
+
+function applyContentShellGeometry(el: HTMLElement) {
+  if (window.matchMedia(CONTENT_SHELL_NARROW_MQ).matches) {
+    el.style.removeProperty('--aps-inset-l');
+    el.style.removeProperty('--aps-inset-r');
+    el.style.removeProperty('--aps-sidebar-w');
+    el.style.removeProperty('--aps-body-w');
+    return;
+  }
+  const W = el.clientWidth;
+  if (W <= 0) return;
+  const parsed = parseFloat(getComputedStyle(el).getPropertyValue('--aps-inset-l-max'));
+  const L_max = Number.isFinite(parsed) ? parsed : CONTENT_SHELL_INSET_L_MAX;
+  const g = layoutContentShell(W, L_max);
+  el.style.setProperty('--aps-inset-l', `${g.L}px`);
+  el.style.setProperty('--aps-inset-r', `${g.R}px`);
+  el.style.setProperty('--aps-sidebar-w', `${g.sidebar}px`);
+  el.style.setProperty('--aps-body-w', `${g.body}px`);
+}
 
 // 应用页面壳 / 内容壳（ADR-0007）：4 个非工作台页共用模板（Header + Sidebar + Body）。
 // 用法示例：
@@ -102,6 +124,7 @@ type AppPageShellProps = { children: ReactNode };
  * 几何详见 AppPageShell.css 头部注释。
  */
 function AppPageShellRoot({ children }: AppPageShellProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   let header: ReactNode = null;
   let sidebar: ReactNode = null;
   let bodyNode: ReactNode = null;
@@ -115,11 +138,27 @@ function AppPageShellRoot({ children }: AppPageShellProps) {
     else if (type === Body) bodyNode = child;
   });
 
-  // 无 sidebar 的页：__main 用 .__slot 占位槽预留 sidebar 位，与 __head 同几何对齐
+  // 无 sidebar 的页：__main 用 .__slot 占位槽预留侧栏位（当前四页都有真侧栏；槽留给未来无索引页）
   const hasSidebar = sidebar !== null;
+
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const apply = () => applyContentShellGeometry(el);
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    const mq = window.matchMedia(CONTENT_SHELL_NARROW_MQ);
+    mq.addEventListener('change', apply);
+    apply();
+    return () => {
+      ro.disconnect();
+      mq.removeEventListener('change', apply);
+    };
+  }, []);
 
   return (
     <div
+      ref={rootRef}
       className="app-page-shell"
       data-has-sidebar={hasSidebar ? 'true' : 'false'}
     >
@@ -130,9 +169,7 @@ function AppPageShellRoot({ children }: AppPageShellProps) {
         {header}
       </div>
       <div className="app-page-shell__main">
-        {/* 无 sidebar 页：用同款占位槽（flex 子元素）预留 sidebar 位，
-            与 __head 的占位槽几何完全同构 —— 两者的 12.5% 都相对同一父块内宽解析，
-            像素级对齐（避免 padding 百分比相对包含块宽度解析造成的偏移）。 */}
+        {/* 无 sidebar 页：用同款占位槽预留侧栏位，与 __head 占位槽同宽（现为计算后的 px）。 */}
         {!hasSidebar && <span aria-hidden="true" className="app-page-shell__slot" />}
         {sidebar}
         {bodyNode}
