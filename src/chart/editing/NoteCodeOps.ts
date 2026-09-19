@@ -14,6 +14,7 @@
 //   - 子段（issue 93）：恰好 1 条合法 Slide → 段 connections 整体替换回宿主滑条（段代码/整条双重校验）
 //   - 非法一律报错 + 不回写，不静默修正、不静默忽略
 import type { ChartNote, ConnectionNote, SelectionItem } from '../types';
+import { t } from '../../i18n';
 import { isSlide } from './SelectionEditing';
 import { slideSpans, spanOfRegion } from './SlideSegments';
 import {
@@ -111,7 +112,7 @@ export function applyNoteCode(
 ): NoteCodeApplyResult {
     const note = notes[target.noteIndex];
     if (!note) {
-        return fail({ noteIndex: target.noteIndex, reason: '目标音符已不存在（谱面可能已被改动）' });
+        return fail({ noteIndex: target.noteIndex, reason: t('noteCode.targetGone') });
     }
 
     // 子段视图回写（issue 93，用户拍板"可编辑回写"）：把编辑后的段整体替换回宿主滑条
@@ -121,17 +122,17 @@ export function applyNoteCode(
 
     if (target.connIndex !== undefined) {
         if (!isSlide(note)) {
-            return fail({ noteIndex: target.noteIndex, reason: '该音符不是滑条/长条，没有结点可回写' });
+            return fail({ noteIndex: target.noteIndex, reason: t('noteCode.notSlide') });
         }
         const conn = note.connections[target.connIndex];
         if (!conn) {
-            return fail({ noteIndex: target.noteIndex, connIndex: target.connIndex, reason: '目标结点已不存在' });
+            return fail({ noteIndex: target.noteIndex, connIndex: target.connIndex, reason: t('noteCode.nodeGone') });
         }
         if (code.length !== 1) {
             return fail({
                 noteIndex: -1,
-                reason: `结点视图只接受恰好 1 条音符（当前 ${code.length} 条）`,
-                expected: '1 条 {"type":"Single", …}',
+                reason: t('noteCode.nodeCount', { count: code.length }),
+                expected: t('noteCode.nodeCountExpected'),
             });
         }
         // 规则与完整代码视图同源（§1.2）：脏代码同样被拒。
@@ -146,7 +147,7 @@ export function applyNoteCode(
         if (c.type !== 'Single') {
             return fail({
                 noteIndex: target.noteIndex, connIndex: target.connIndex, field: 'type',
-                reason: `结点视图只接受 type:"Single"（当前 "${c.type}"）`,
+                reason: t('noteCode.nodeType', { type: c.type }),
                 expected: 'Single',
             });
         }
@@ -169,8 +170,8 @@ export function applyNoteCode(
     if (code.length !== 1) {
         return fail({
             noteIndex: -1,
-            reason: `音符视图只接受恰好 1 条音符（当前 ${code.length} 条）`,
-            expected: '1 条音符对象',
+            reason: t('noteCode.noteCount', { count: code.length }),
+            expected: t('noteCode.noteCountExpected'),
         });
     }
     // 同上：校验定位从"对象视图的 1 条代码"抬升为谱面内真实下标；片段口径见上方
@@ -183,15 +184,15 @@ export function applyNoteCode(
     }
     const [converted] = convertChartCodeToNotes(code);
     if (!converted) {
-        return fail({ noteIndex: target.noteIndex, reason: '该代码无法转换为音符' });
+        return fail({ noteIndex: target.noteIndex, reason: t('noteCode.convertFail') });
     }
     const newNotes = notes.map((n, i) => (i === target.noteIndex ? converted : n));
     // ADR-0001 保底：单音符编辑也不得把谱面拖进"无初始 BPM"的非法态（原本就没有则不追究）
     if (hasBeat0BpmNote(notes) && !hasBeat0BpmNote(newNotes)) {
         return fail({
             noteIndex: target.noteIndex, field: 'beat',
-            reason: '改动会让谱面失去第 0 拍的 BPM 音符',
-            expected: '保留一条第 0 拍的 BPM 音符（ADR-0001 保底语义）',
+            reason: t('noteCode.lostBpm0'),
+            expected: t('noteCode.lostBpm0Expected'),
         });
     }
     return { ok: true, notes: newNotes };
@@ -211,19 +212,19 @@ function applySegmentCode(
 ): NoteCodeApplyResult {
     const note = notes[target.noteIndex];
     if (!note || !isSlide(note)) {
-        return fail({ noteIndex: target.noteIndex, reason: '目标音符已不存在或不是滑条（谱面可能已被改动）' });
+        return fail({ noteIndex: target.noteIndex, reason: t('noteCode.targetNotSlide') });
     }
     const span = target.span;
-    if (!span) return fail({ noteIndex: target.noteIndex, reason: '子段目标缺失 span' });
+    if (!span) return fail({ noteIndex: target.noteIndex, reason: t('noteCode.missingSpan') });
     const { start, end } = span;
     if (start < 0 || end < start || end >= note.connections.length) {
-        return fail({ noteIndex: target.noteIndex, reason: '目标段已不存在（谱面可能已被改动）' });
+        return fail({ noteIndex: target.noteIndex, reason: t('noteCode.spanGone') });
     }
     if (code.length !== 1 || !('connections' in code[0])) {
         return fail({
             noteIndex: -1,
-            reason: `子段视图只接受恰好 1 条滑条（当前 ${code.length} 条）`,
-            expected: '1 条 {"type":"Slide","connections":[…]}',
+            reason: t('noteCode.segmentCount', { count: code.length }),
+            expected: t('noteCode.segmentCountExpected'),
         });
     }
     // 段代码合法性（与完整代码视图同源）：脏代码同样被拒；错误定位抬升为谱面内真实下标。
@@ -232,7 +233,7 @@ function applySegmentCode(
     if (segCheck.errors.length > 0) return { ok: false, errors: liftErrors(segCheck.errors, target.noteIndex) };
     const [segCode] = convertChartCodeToNotes(code);
     if (!segCode || !isSlide(segCode)) {
-        return fail({ noteIndex: target.noteIndex, reason: '该代码无法转换为滑条段' });
+        return fail({ noteIndex: target.noteIndex, reason: t('noteCode.segmentConvertFail') });
     }
     const origSeg = note.connections.slice(start, end + 1);
     const merged: ConnectionNote[] = segCode.connections.map((c, i) => ({ ...c, subBeat: origSeg[i]?.subBeat }));
@@ -267,13 +268,13 @@ export function coerceNoteViewCode(
     try {
         parsed = JSON.parse(text);
     } catch (error) {
-        return { ok: false, errors: [{ noteIndex: -1, reason: 'JSON格式错误: ' + (error as Error).message }] };
+        return { ok: false, errors: [{ noteIndex: -1, reason: t('validate.jsonError', { message: (error as Error).message }) }] };
     }
     if (Array.isArray(parsed)) return { ok: true, code: parsed as ChartCodeNote[] };
     if (parsed !== null && typeof parsed === 'object') return { ok: true, code: [parsed as ChartCodeNote] };
     return {
         ok: false,
-        errors: [{ noteIndex: -1, reason: '对象视图需要 1 个音符对象', expected: '{"type":"Single", …} 或 [ … ]' }],
+        errors: [{ noteIndex: -1, reason: t('noteCode.objectViewNeedOne'), expected: t('noteCode.objectViewExpected') }],
     };
 }
 

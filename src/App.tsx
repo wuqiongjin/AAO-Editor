@@ -4,6 +4,8 @@ import AppShell from "./layouts/AppShell";
 import { ProviderTree, useConfig } from "./app/ProviderTree";
 import { useApplyTheme } from './app/styles/theme';
 import { useApplyChromeTypography } from './app/styles/chromeTypography';
+import { useApplyUiLanguage } from './i18n/useApplyUiLanguage';
+import { t } from './i18n';
 
 const PageShellPrototype = lazy(() => import('./prototypes/PageShellPrototype'));
 
@@ -12,6 +14,7 @@ function ThemeSync() {
   const { settings } = useConfig();
   useApplyTheme(settings.theme);
   useApplyChromeTypography(settings);
+  useApplyUiLanguage(settings.uiLanguage);
   return null;
 }
 
@@ -28,7 +31,7 @@ function App() {
   const isPageShellPrototype = new URLSearchParams(window.location.search).get('prototype') === 'page-shell';
   if (isPageShellPrototype) {
     return (
-      <Suspense fallback={<div style={{ padding: 24 }}>正在载入布局原型…</div>}>
+      <Suspense fallback={<div style={{ padding: 24 }}>{t('prototype.loading')}</div>}>
         <PageShellPrototype />
       </Suspense>
     );

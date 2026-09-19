@@ -20,6 +20,8 @@
 // 契约：每个组合 easing(family, type) 满足 f(0)=0、f(1)=1（边界精确）；
 // 定义域 0..1 之外不保证（调用方钳制进度）。
 
+import { t } from '../../i18n';
+
 export type EasingFamily =
   | 'sine' | 'quad' | 'cubic' | 'quart' | 'quint'
   | 'expo' | 'circ' | 'back' | 'elastic' | 'bounce';
@@ -43,23 +45,23 @@ export const CURVE_PRECISIONS: readonly CurvePrecision[] = [16, 32, 64];
  * 未来多语言只需替换这两张表，不碰 UI。
  */
 export const EASING_FAMILY_LABELS: Record<EasingFamily, string> = {
-  sine: 'Sine（正弦）',
-  quad: 'Quad（二次）',
-  cubic: 'Cubic（三次）',
-  quart: 'Quart（四次）',
-  quint: 'Quint（五次）',
-  expo: 'Expo（指数）',
-  circ: 'Circ（圆弧）',
-  back: 'Back（过冲）',
-  elastic: 'Elastic（弹性）',
-  bounce: 'Bounce（弹跳）',
+  sine: t('easing.family.sine'),
+  quad: t('easing.family.quad'),
+  cubic: t('easing.family.cubic'),
+  quart: t('easing.family.quart'),
+  quint: t('easing.family.quint'),
+  expo: t('easing.family.expo'),
+  circ: t('easing.family.circ'),
+  back: t('easing.family.back'),
+  elastic: t('easing.family.elastic'),
+  bounce: t('easing.family.bounce'),
 };
 
 export const EASING_TYPE_LABELS: Record<EasingType, string> = {
-  in: 'In（缓入）',
-  out: 'Out（缓出）',
-  inOut: 'In-Out（缓入缓出）',
-  outIn: 'Out-In（缓出缓入）',
+  in: t('easing.type.in'),
+  out: t('easing.type.out'),
+  inOut: t('easing.type.inOut'),
+  outIn: t('easing.type.outIn'),
 };
 
 /** 标准easeOutBounce（bundle bounce 基函数的补形，也供锁测对照） */

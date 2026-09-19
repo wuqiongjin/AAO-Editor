@@ -4,6 +4,7 @@
 import { useEditing } from '../../../app/ProviderTree';
 import { selectionNoteIndices } from '../../editing/SelectionEditing';
 import ActionBtn from '../../../ui/ActionBtn';
+import { t, tPlural } from '../../../i18n';
 
 export default function NoteInfoPanel() {
     const { notes, selectedItems, deleteSelected, mirror } = useEditing();
@@ -28,14 +29,14 @@ export default function NoteInfoPanel() {
                 borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden',
             }}>
                 <div style={{ padding: 'var(--space-3) var(--space-4)', borderBottom: '1px solid var(--border)' }}>
-                    <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>音符信息</h3>
+                    <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 600 }}>{t('noteInfo.title')}</h3>
                 </div>
 
                 <div style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                     {/* 选中音符数量 */}
                     <div>
                         <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                            已选中 {selectedNotes.length} 个音符
+                            {tPlural('noteInfo.selected', selectedNotes.length)}
                         </span>
                     </div>
 
@@ -45,11 +46,11 @@ export default function NoteInfoPanel() {
                             onClick={handleDeleteSelected}
                             disabled={selectedNotes.length === 0}
                             variant="danger"
-                        >删除选中</ActionBtn>
+                        >{t('noteInfo.delete')}</ActionBtn>
                         <ActionBtn
                             onClick={handleMirrorSelected}
                             disabled={selectedNotes.length === 0}
-                        >镜像选中</ActionBtn>
+                        >{t('noteInfo.mirror')}</ActionBtn>
                     </div>
                 </div>
 
@@ -67,31 +68,31 @@ export default function NoteInfoPanel() {
                                     boxShadow: 'var(--shadow-sm)',
                                 }}>
                                     <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>
-                                        {note.type === "Single" && "单键音符"}
-                                        {note.type === "Slide" && "滑条音符"}
-                                        {note.type === "BPM" && "BPM标记"}
+                                        {note.type === "Single" && t('noteInfo.single')}
+                                        {note.type === "Slide" && t('noteInfo.slide')}
+                                        {note.type === "BPM" && t('noteInfo.bpm')}
                                     </div>
                                     {note.type === "Single" && (
                                         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)', fontVariantNumeric: 'tabular-nums' }}>
-                                            <div>轨道: {note.lane}</div>
-                                            <div>节拍: {note.beat}</div>
-                                            {note.flick && <div style={{ color: 'var(--danger-text)' }}>滑键</div>}
+                                            <div>{t('noteInfo.lane', { lane: note.lane })}</div>
+                                            <div>{t('noteInfo.beat', { beat: note.beat })}</div>
+                                            {note.flick && <div style={{ color: 'var(--danger-text)' }}>{t('noteInfo.flick')}</div>}
                                         </div>
                                     )}
                                     {note.type === "Slide" && (
                                         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)', fontVariantNumeric: 'tabular-nums' }}>
-                                            <div>连接点: {note.connections.length}</div>
+                                            <div>{t('noteInfo.connections', { count: note.connections.length })}</div>
                                             {note.connections.map((conn, i) => (
                                                 <div key={i}>
-                                                    点{i + 1}: 轨道{conn.lane}, 节拍{conn.beat}
+                                                    {t('noteInfo.point', { n: i + 1, lane: conn.lane, beat: conn.beat })}
                                                 </div>
                                             ))}
                                         </div>
                                     )}
                                     {note.type === "BPM" && (
                                         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)', fontVariantNumeric: 'tabular-nums' }}>
-                                            <div>节拍: {note.beat}</div>
-                                            <div>BPM: {note.bpm}</div>
+                                            <div>{t('noteInfo.beat', { beat: note.beat })}</div>
+                                            <div>{t('noteInfo.bpmValue', { bpm: note.bpm })}</div>
                                         </div>
                                     )}
                                 </div>
@@ -99,7 +100,7 @@ export default function NoteInfoPanel() {
                         </div>
                     ) : (
                         <div style={{ color: 'var(--text-subtle)', textAlign: 'center', padding: 'var(--space-8) 0', fontSize: 'var(--text-sm)' }}>
-                            未选中音符
+                            {t('noteInfo.empty')}
                         </div>
                     )}
                 </div>

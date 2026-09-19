@@ -1,39 +1,40 @@
 // 快捷键页「索引筛选」粗桶（issue 121）。
 // 与 ADR-0002 的 category（tooltip 细分组：单键 / 复制 / …）分名、分表，禁止混用。
+import { t, type MessageKey } from '../i18n';
 import { FUNCTIONS, getDefaultConfig, type FunctionDef, type ShortcutConfig } from '../chart/config/ShortcutConfig';
 
 export type IndexFilterId = 'all' | 'system' | 'noteTools' | 'editTools' | 'playback' | 'other';
 
-export const INDEX_FILTERS: ReadonlyArray<{ id: IndexFilterId; label: string }> = [
-  { id: 'all', label: '全部' },
-  { id: 'system', label: '系统' },
-  { id: 'noteTools', label: '音符工具' },
-  { id: 'editTools', label: '编辑工具' },
-  { id: 'playback', label: '播放' },
-  { id: 'other', label: '其它' },
+export const INDEX_FILTERS: ReadonlyArray<{ id: IndexFilterId; label: MessageKey }> = [
+  { id: 'all', label: 'indexFilter.all' },
+  { id: 'system', label: 'indexFilter.system' },
+  { id: 'noteTools', label: 'indexFilter.noteTools' },
+  { id: 'editTools', label: 'indexFilter.editTools' },
+  { id: 'playback', label: 'indexFilter.playback' },
+  { id: 'other', label: 'indexFilter.other' },
 ];
 
 /** tooltip 类别 → 粗桶。未入表的新类别落「其它」。 */
 const CATEGORY_TO_BUCKET: Readonly<Record<string, Exclude<IndexFilterId, 'all' | 'other'>>> = {
-  布局: 'system',
-  鼠标: 'noteTools',
-  BPM: 'noteTools',
-  单键: 'noteTools',
-  滑键: 'noteTools',
-  技能: 'noteTools',
-  左滑: 'noteTools',
-  右滑: 'noteTools',
-  滑条: 'noteTools',
-  曲线: 'noteTools',
-  复制: 'editTools',
-  粘贴: 'editTools',
-  剪切: 'editTools',
-  删除: 'editTools',
-  镜像: 'editTools',
-  音符代码: 'editTools',
-  撤销: 'editTools',
-  重做: 'editTools',
-  播放: 'playback',
+  layout: 'system',
+  mouse: 'noteTools',
+  bpm: 'noteTools',
+  single: 'noteTools',
+  flick: 'noteTools',
+  skill: 'noteTools',
+  ldirectional: 'noteTools',
+  rdirectional: 'noteTools',
+  slide: 'noteTools',
+  curve: 'noteTools',
+  copy: 'editTools',
+  paste: 'editTools',
+  cut: 'editTools',
+  delete: 'editTools',
+  mirror: 'editTools',
+  noteCode: 'editTools',
+  undo: 'editTools',
+  redo: 'editTools',
+  play: 'playback',
 };
 
 export function bucketForCategory(category: string): Exclude<IndexFilterId, 'all'> {
@@ -41,12 +42,12 @@ export function bucketForCategory(category: string): Exclude<IndexFilterId, 'all
 }
 
 /** 切页五行：进表、只读、归系统。不进 FunctionId 注册表。 */
-export const PAGE_SWITCH_ROWS: ReadonlyArray<{ label: string; combo: string; bucket: 'system' }> = [
-  { label: '切换到工作台', combo: 'Ctrl/⌘+Shift+1', bucket: 'system' },
-  { label: '切换到音频', combo: 'Ctrl/⌘+Shift+2', bucket: 'system' },
-  { label: '切换到素材', combo: 'Ctrl/⌘+Shift+3', bucket: 'system' },
-  { label: '切换到快捷键', combo: 'Ctrl/⌘+Shift+4', bucket: 'system' },
-  { label: '切换到设置', combo: 'Ctrl/⌘+Shift+5', bucket: 'system' },
+export const PAGE_SWITCH_ROWS: ReadonlyArray<{ label: MessageKey; combo: string; bucket: 'system' }> = [
+  { label: 'pageSwitch.workspace', combo: 'Ctrl/⌘+Shift+1', bucket: 'system' },
+  { label: 'pageSwitch.audio', combo: 'Ctrl/⌘+Shift+2', bucket: 'system' },
+  { label: 'pageSwitch.assets', combo: 'Ctrl/⌘+Shift+3', bucket: 'system' },
+  { label: 'pageSwitch.shortcuts', combo: 'Ctrl/⌘+Shift+4', bucket: 'system' },
+  { label: 'pageSwitch.settings', combo: 'Ctrl/⌘+Shift+5', bucket: 'system' },
 ];
 
 function matchesSearch(haystacks: Array<string | null | undefined>, q: string): boolean {
@@ -63,7 +64,7 @@ export function filterFunctions(
   const q = query.trim().toLowerCase();
   return fns.filter((f) => {
     if (filter !== 'all' && bucketForCategory(f.category) !== filter) return false;
-    return matchesSearch([f.label, f.category, config[f.id]], q);
+    return matchesSearch([t(f.label as MessageKey), t(`tool.cat.${f.category}` as MessageKey), config[f.id]], q);
   });
 }
 
@@ -75,7 +76,7 @@ export function filterPageSwitchRows(
   const q = query.trim().toLowerCase();
   return rows.filter((row) => {
     if (filter !== 'all' && row.bucket !== filter) return false;
-    return matchesSearch([row.label, row.combo], q);
+    return matchesSearch([t(row.label), row.combo], q);
   });
 }
 

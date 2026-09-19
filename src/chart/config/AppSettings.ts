@@ -10,6 +10,7 @@ import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../aud
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../visual/gen/noteSkinRegistry.gen';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../visual/gridStyle';
 import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/ToolActionMatrix';
+import { detectOsLanguageTag, resolveUiLanguage, type UiLanguage } from '../../i18n/resolveUiLanguage';
 
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */
 export const DEFAULT_BACKGROUND_OPACITY = 0.55;
@@ -41,6 +42,8 @@ export function normalizeUiFontStack(raw: unknown, fallback: UiFontStackId = 'ge
 export interface AppSettings {
   schemaVersion: 1;
   theme: 'light' | 'dark' | 'system';
+  /** 界面语言（issue 128）。additive，不 bump schemaVersion；不进谱面工程 */
+  uiLanguage: UiLanguage;
   /** chrome 字号相对出厂 `--text-*` 的比例（issue 124）：0.7..1.5 步长 0.1，默认 1。additive，不 bump schemaVersion */
   uiTypeScale: number;
   /** chrome 无衬线字体档（issue 124）。additive，不 bump schemaVersion */
@@ -118,10 +121,11 @@ export function defaultPanelWidth(innerWidth: number): number {
   return Math.min(DEFAULT_PANEL_WIDTH, Math.round(innerWidth * 0.20));
 }
 
-export function defaultSettings(): AppSettings {
+export function defaultSettings(osLanguage: string = detectOsLanguageTag()): AppSettings {
   return {
     schemaVersion: 1,
     theme: 'system',
+    uiLanguage: resolveUiLanguage(undefined, osLanguage),
     uiTypeScale: 1,
     uiFontStack: 'geist',
     layout: {
@@ -148,8 +152,8 @@ export function defaultSettings(): AppSettings {
 }
 
 /** 字段级合并：从 parsed 读到的有效字段覆盖 defaults，未提供的字段保持默认；保持结构稳定。 */
-function mergeSettings(parsed: unknown): AppSettings {
-  const defaults = defaultSettings();
+function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
+  const defaults = defaultSettings(osLanguage);
   const obj = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
   const audio = (obj.audio && typeof obj.audio === 'object' ? obj.audio : {}) as Record<string, unknown>;
   const layout = (obj.layout && typeof obj.layout === 'object' ? obj.layout : {}) as Record<string, unknown>;
@@ -186,6 +190,7 @@ function mergeSettings(parsed: unknown): AppSettings {
   return {
     schemaVersion: 1,
     theme: obj.theme === 'light' || obj.theme === 'dark' || obj.theme === 'system' ? obj.theme : defaults.theme,
+    uiLanguage: resolveUiLanguage(obj.uiLanguage, osLanguage),
     uiTypeScale: normalizeUiTypeScale(obj.uiTypeScale, defaults.uiTypeScale),
     uiFontStack: normalizeUiFontStack(obj.uiFontStack, defaults.uiFontStack),
     layout: {
@@ -222,11 +227,14 @@ function mergeSettings(parsed: unknown): AppSettings {
   };
 }
 
-export function loadSettings(storage: Pick<Storage, 'getItem'> = localStorage): AppSettings {
+export function loadSettings(
+  storage: Pick<Storage, 'getItem'> = localStorage,
+  osLanguage: string = detectOsLanguageTag(),
+): AppSettings {
   try {
     const raw = storage.getItem(STORAGE_KEY);
     if (raw) {
-      const merged = mergeSettings(JSON.parse(raw));
+      const merged = mergeSettings(JSON.parse(raw), osLanguage);
       // 新版 settings 暂未存 shortcuts 段时，从旧 key 补齐；并存时旧 key 不再被读
       if (!('shortcuts' in (JSON.parse(raw) as Record<string, unknown>))) {
         merged.shortcuts = loadConfig(storage);
@@ -252,12 +260,12 @@ export function loadSettings(storage: Pick<Storage, 'getItem'> = localStorage): 
       }
     } catch { /* ignore */ }
     return {
-      ...defaultSettings(),
+      ...defaultSettings(osLanguage),
       shortcuts: legacyShortcuts,
-      audio: { ...defaultSettings().audio, keySet: audioKeySet && isKnownKeySoundSetId(audioKeySet) ? audioKeySet : DEFAULT_ACTIVE_KEY_SOUND_SET_ID },
+      audio: { ...defaultSettings(osLanguage).audio, keySet: audioKeySet && isKnownKeySoundSetId(audioKeySet) ? audioKeySet : DEFAULT_ACTIVE_KEY_SOUND_SET_ID },
     };
   } catch {
-    return defaultSettings();
+    return defaultSettings(osLanguage);
   }
 }
 
@@ -271,6 +279,7 @@ export function updateSettings(
   prev: AppSettings,
   patch: Partial<{
     theme: AppSettings['theme'];
+    uiLanguage: UiLanguage;
     uiTypeScale: number;
     uiFontStack: UiFontStackId;
     layout: AppSettings['layout'];
@@ -284,6 +293,7 @@ export function updateSettings(
   return {
     schemaVersion: 1,
     theme: patch.theme ?? prev.theme,
+    uiLanguage: patch.uiLanguage ?? prev.uiLanguage,
     uiTypeScale: patch.uiTypeScale !== undefined ? normalizeUiTypeScale(patch.uiTypeScale, prev.uiTypeScale) : prev.uiTypeScale,
     uiFontStack: patch.uiFontStack !== undefined ? normalizeUiFontStack(patch.uiFontStack, prev.uiFontStack) : prev.uiFontStack,
     layout: patch.layout ?? prev.layout,

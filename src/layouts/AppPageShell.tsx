@@ -1,5 +1,6 @@
 import { Children, createContext, isValidElement, useLayoutEffect, useRef, type ComponentType, type ReactNode } from 'react';
 import { CONTENT_SHELL_INSET_L_MAX, layoutContentShell } from './contentShellGeometry';
+import { t } from '../i18n';
 import './AppPageShell.css';
 
 const CONTENT_SHELL_NARROW_MQ = '(max-width: 720px)';
@@ -51,7 +52,7 @@ type SidebarProps = { children: ReactNode; ariaLabel?: string };
 
 function Sidebar({ children, ariaLabel }: SidebarProps) {
   return (
-    <aside className="app-page-shell__sidebar" aria-label={ariaLabel ?? '次级索引'}>
+    <aside className="app-page-shell__sidebar" aria-label={ariaLabel ?? t('page.sidebarFallbackAria')}>
       {children}
     </aside>
   );

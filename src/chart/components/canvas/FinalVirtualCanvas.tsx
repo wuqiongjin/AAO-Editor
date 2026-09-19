@@ -22,6 +22,7 @@ import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
+import { t } from '../../../i18n';
 import {
   snapChartPos, hitStartMarkerAt, hitBpmLabelAt,
   resolvePressIntent, resolveReleaseIntent, resolveClickPlan,
@@ -1369,7 +1370,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                     textShadow: '0 1px 2px rgba(0,0,0,0.8)',
                 }}>
                     <span>{formatTimePrecise(currentSeconds)}</span>
-                    <span title="已过判定线的音符数">♪ {passedNoteCount}</span>
+                    <span title={t('canvas.passedNotes')}>♪ {passedNoteCount}</span>
                 </div>
             </div>
         </div>

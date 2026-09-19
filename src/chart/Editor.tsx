@@ -17,6 +17,7 @@ import { usePlaybackCoordinator } from '../playback/usePlaybackCoordinator';
 import { useChartProjectPersistence } from '../chart/project/useChartProjectPersistence';
 import { useLayoutPersistence } from '../chart/layout/useLayoutPersistence';
 import { useShortcutDispatch } from '../chart/config/useShortcutDispatch';
+import { t } from '../i18n';
 
 interface EditorProps {
   /** issue 28 页面壳表面契约（Q16）：false 时暂停播放并抑制全局输入 */
@@ -411,7 +412,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           data-side="left"
         />
         <div className="ws-panel__toggle">
-          <IconButton width="auto" icon={<PanelRightOpen size={16} />} title="展开左侧工具栏" onClick={toggleLeftPanel} />
+          <IconButton width="auto" icon={<PanelRightOpen size={16} />} title={t('toolbar.expandLeft')} onClick={toggleLeftPanel} />
         </div>
       </div>
 
@@ -428,7 +429,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           gap: 'var(--space-3)',
           flexShrink: 0
         }}>
-          <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text)' }}>谱面画布</span>
+          <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text)' }}>{t('editor.canvas')}</span>
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
             <span style={{
@@ -439,17 +440,17 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             </span>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <IconButton width="auto" size="sm" icon={<ZoomOut size={14} />} title="缩小" onClick={() => setScale(prev => Math.max(prev - 0.1, 0.1))} />
+              <IconButton width="auto" size="sm" icon={<ZoomOut size={14} />} title={t('editor.zoomOut')} onClick={() => setScale(prev => Math.max(prev - 0.1, 0.1))} />
               <span
                 onDoubleClick={() => setScale(1)}
-                title="双击复原 100%"
+                title={t('editor.zoomReset')}
                 style={{
                   fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
                   fontVariantNumeric: 'tabular-nums', minWidth: 40, textAlign: 'center',
                   cursor: 'pointer', userSelect: 'none',
                 }}
               >{Math.round(scale * 100)}%</span>
-              <IconButton width="auto" size="sm" icon={<ZoomIn size={14} />} title="放大" onClick={() => setScale(prev => Math.min(prev + 0.1, 3))} />
+              <IconButton width="auto" size="sm" icon={<ZoomIn size={14} />} title={t('editor.zoomIn')} onClick={() => setScale(prev => Math.min(prev + 0.1, 3))} />
             </div>
           </div>
         </div>
@@ -509,22 +510,22 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         } as React.CSSProperties}
       >
         <div className="ws-panel__toggle">
-          <IconButton width="auto" icon={<PanelLeftOpen size={16} />} title="展开右侧面板" onClick={toggleRightPanel} />
+          <IconButton width="auto" icon={<PanelLeftOpen size={16} />} title={t('editor.expandRight')} onClick={toggleRightPanel} />
         </div>
         <div className="ws-panel__body">
           <div className="ws-panel__body-header">
-            <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>音符</span>
-            <span title="音符总数" style={{
+            <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{t('editor.notes')}</span>
+            <span title={t('editor.noteCount')} style={{
               backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)',
               borderRadius: 'var(--radius-sm)', padding: '0 var(--space-2)',
               fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums', color: 'var(--text)',
             }}>{noteCount}</span>
             {selectedItems.length > 0 && (
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-text)' }}>已选 {selectedItems.length}</span>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-text)' }}>{t('editor.selectedCount', { count: selectedItems.length })}</span>
             )}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-              <IconButton width="auto" size="sm" danger icon={<Trash2 size={14} />} title="删除选中" onClick={deleteSelectedNotes} />
-              <IconButton width="auto" size="sm" icon={<ChevronRight size={14} />} title="收起右侧面板" onClick={toggleRightPanel} />
+              <IconButton width="auto" size="sm" danger icon={<Trash2 size={14} />} title={t('editor.deleteSelected')} onClick={deleteSelectedNotes} />
+              <IconButton width="auto" size="sm" icon={<ChevronRight size={14} />} title={t('editor.collapseRight')} onClick={toggleRightPanel} />
             </div>
           </div>
           <div className="ws-panel__body-scroll">
@@ -532,8 +533,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           </div>
           <div className={`ws-panel__body-footer ${markerBeat !== null ? 'has-marker' : ''}`}>
             {markerBeat !== null
-              ? `起点标记 @ ${markerBeat.toFixed(2)} 拍`
-              : '双击左沟槽设置起点标记'}
+              ? t('editor.markerSet', { beat: markerBeat.toFixed(2) })
+              : t('editor.markerHint')}
           </div>
         </div>
         <div

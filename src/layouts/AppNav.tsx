@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
+import { t, type MessageKey } from '../i18n';
 import { ChevronsLeft, ChevronsRight, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
 
 // 应用级导航（issue 28）：跨页持久、可折叠（默认折叠）。
@@ -6,12 +7,12 @@ import { ChevronsLeft, ChevronsRight, Keyboard, LayoutDashboard, Layers, Music2,
 // 展开/折叠只控制标签是否显示，不额外占用一列（画布宽度不受影响）。
 export type PageId = 'workspace' | 'audio' | 'settings' | 'shortcuts' | 'assets';
 
-const NAV_ITEMS: Array<{ id: PageId; label: string; shortcut: string; icon: typeof LayoutDashboard }> = [
-  { id: 'workspace', label: '工作台', shortcut: '⇧⌘1', icon: LayoutDashboard },
-  { id: 'audio', label: '音频', shortcut: '⇧⌘2', icon: Music2 },
-  { id: 'assets', label: '素材', shortcut: '⇧⌘3', icon: Layers },
-  { id: 'shortcuts', label: '快捷键', shortcut: '⇧⌘4', icon: Keyboard },
-  { id: 'settings', label: '设置', shortcut: '⇧⌘5', icon: Settings2 },
+const NAV_ITEMS: Array<{ id: PageId; labelKey: MessageKey; shortcut: string; icon: typeof LayoutDashboard }> = [
+  { id: 'workspace', labelKey: 'nav.workspace', shortcut: '⇧⌘1', icon: LayoutDashboard },
+  { id: 'audio', labelKey: 'nav.audio', shortcut: '⇧⌘2', icon: Music2 },
+  { id: 'assets', labelKey: 'nav.assets', shortcut: '⇧⌘3', icon: Layers },
+  { id: 'shortcuts', labelKey: 'nav.shortcuts', shortcut: '⇧⌘4', icon: Keyboard },
+  { id: 'settings', labelKey: 'nav.settings', shortcut: '⇧⌘5', icon: Settings2 },
 ];
 
 interface AppNavValue {
@@ -37,9 +38,11 @@ export function AppNav() {
   const { activePage, setActivePage, navCollapsed, setNavCollapsed } = useAppNav();
   return (
     <>
-      <div className="app-mark" aria-label="BanG Dream 谱面编辑器">BD</div>
+      <div className="app-mark" aria-label={t('app.markAria')}>BD</div>
       <nav className="app-nav-items">
-        {NAV_ITEMS.map(({ id, label, shortcut, icon: Icon }) => (
+        {NAV_ITEMS.map(({ id, labelKey, shortcut, icon: Icon }) => {
+          const label = t(labelKey);
+          return (
           <button
             key={id}
             className={`app-nav-item${activePage === id ? ' is-active' : ''}`}
@@ -52,13 +55,14 @@ export function AppNav() {
             <span>{label}</span>
             <kbd>{shortcut}</kbd>
           </button>
-        ))}
+          );
+        })}
       </nav>
       <button
         className="app-nav-toggle"
         type="button"
         onClick={() => setNavCollapsed((v) => !v)}
-        title={navCollapsed ? '展开应用导航' : '折叠应用导航'}
+        title={navCollapsed ? t('nav.expand') : t('nav.collapse')}
         aria-expanded={!navCollapsed}
       >
         {navCollapsed ? <ChevronsRight size={18} strokeWidth={1.8} /> : <ChevronsLeft size={18} strokeWidth={1.8} />}

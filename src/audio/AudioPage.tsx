@@ -5,16 +5,17 @@ import EmptyState from '../ui/EmptyState';
 import { useAudioSession } from '../app/providers/AudioSessionProvider';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../chart/config/AppSettings';
 import { KEY_SOUND_SETS, type KeySoundKind } from './KeySound';
-import { KEY_SOUND_KINDS, KEY_SOUND_KIND_META } from './KeySoundMeta';
+import { KEY_SOUND_KINDS } from './KeySoundMeta';
+import { t, type MessageKey } from '../i18n';
 
 // 音频页：直接调音频会话深模块（useAudioSession），3 个 section（音频素材/键音素材包/SE 音量）。
 
 type AudioSection = 'audio' | 'keysound' | 'se';
 
-const AUDIO_SECTIONS: { id: AudioSection; label: string; icon: typeof Music2 }[] = [
-  { id: 'audio', label: '音频素材', icon: Music2 },
-  { id: 'keysound', label: '键音素材包', icon: Volume2 },
-  { id: 'se', label: '节奏图示 SE 音量', icon: SlidersHorizontal },
+const AUDIO_SECTIONS: { id: AudioSection; labelKey: MessageKey; icon: typeof Music2 }[] = [
+  { id: 'audio', labelKey: 'audio.section.audio', icon: Music2 },
+  { id: 'keysound', labelKey: 'audio.section.keysound', icon: Volume2 },
+  { id: 'se', labelKey: 'audio.section.se', icon: SlidersHorizontal },
 ];
 
 export default function AudioPage() {
@@ -22,17 +23,17 @@ export default function AudioPage() {
   return (
     <AppPageShell>
       <AppPageShell.Header
-        eyebrow="当前谱面工程"
-        title="音频与键音"
-        description="管理工程音频、键音素材包与节奏图示 SE 音量。"
+        eyebrow={t('audio.header.eyebrow')}
+        title={t('audio.header.title')}
+        description={t('audio.header.description')}
       />
 
-      <AppPageShell.Sidebar ariaLabel="音频域次级索引">
+      <AppPageShell.Sidebar ariaLabel={t('audio.sidebar.aria')}>
         {AUDIO_SECTIONS.map((s) => (
           <AppPageShell.SidebarItem
             key={s.id}
             icon={s.icon}
-            label={s.label}
+            label={t(s.labelKey)}
             active={section === s.id}
             onClick={() => setSection(s.id)}
           />
@@ -75,8 +76,8 @@ function AudioSection() {
   return (
     <>
       <div className="settings-heading">
-        <h2>音频素材</h2>
-        <p>支持常见浏览器可解码格式。</p>
+        <h2>{t('audio.section.audio')}</h2>
+        <p>{t('audio.formats')}</p>
       </div>
 
       {/* file input 无条件挂载（两分支共用一个 ref，避免各挂一份） */}
@@ -94,30 +95,30 @@ function AudioSection() {
           <span className="audio-file-icon"><Music2 size={22} /></span>
           <div className="audio-file-info">
             <strong>{audioName}</strong>
-            <span>已加载 · 谱面时长锁定为音频时长</span>
+            <span>{t('audio.loaded')}</span>
           </div>
           <div className="audio-file-actions">
             {/* 更换/清除按钮（primary / danger variant） */}
             <button type="button" className="action-btn action-btn--primary" onClick={pickFile}>
-              <Upload size={16} />更换音频
+              <Upload size={16} />{t('audio.replace')}
             </button>
             <button
               type="button"
               className="action-btn action-btn--danger"
               onClick={() => session.clearAudio()}
-              title="清除后需重新导入"
+              title={t('audio.clearTitle')}
             >
-              清除
+              {t('audio.clear')}
             </button>
           </div>
         </div>
       ) : (
         <EmptyState
           icon={FileAudio}
-          title="尚未导入音频"
-          description="无音频也可编辑预览；导入后谱面时长跟随音频。"
+          title={t('audio.emptyTitle')}
+          description={t('audio.emptyDescription')}
           primaryAction={{
-            label: '导入音频',
+            label: t('audio.import'),
             onClick: pickFile,
             icon: Upload,
           }}
@@ -129,8 +130,8 @@ function AudioSection() {
         <div className="audio-duration-head">
           <Clock3 size={18} />
           <div>
-            <strong>谱面时长</strong>
-            <span>{canPlay ? '由当前音频锁定' : '无音频时可手动修改'}</span>
+            <strong>{t('audio.duration')}</strong>
+            <span>{canPlay ? t('audio.duration.locked') : t('audio.duration.manual')}</span>
           </div>
         </div>
         <div className="duration-field">
@@ -145,23 +146,23 @@ function AudioSection() {
               if (!isNaN(v) && v > 0) session.setChartDuration(Math.min(v, MAX_DURATION_SECONDS));
             }}
           />
-          <span>秒</span>
+          <span>{t('audio.seconds')}</span>
         </div>
       </div>
 
       {canPlay && (
-        <div className="flow-note"><Check size={15} />清除音频后需重新导入。</div>
+        <div className="flow-note"><Check size={15} />{t('audio.clearNote')}</div>
       )}
 
       {error && (
         <div className="error-banner" role="alert">
           <AlertTriangle size={18} />
           <div>
-            <strong>音频解码失败</strong>
+            <strong>{t('audio.decodeFail')}</strong>
             <p style={{ margin: 0 }}>{error}</p>
             <div className="error-actions">
-              <button type="button" onClick={pickFile}>重新选择音频</button>
-              <button type="button" onClick={() => session.dismissError()}>知道了</button>
+              <button type="button" onClick={pickFile}>{t('audio.retry')}</button>
+              <button type="button" onClick={() => session.dismissError()}>{t('audio.dismiss')}</button>
             </div>
           </div>
         </div>
@@ -189,8 +190,8 @@ function KeySoundSection() {
   return (
     <>
       <div className="settings-heading">
-        <h2>键音素材包</h2>
-        <p>按击打样式播放键音；▶ 试听各包，切换立即保存。</p>
+        <h2>{t('audio.section.keysound')}</h2>
+        <p>{t('audio.keysound.intro')}</p>
       </div>
 
       <div className="asset-set-grid asset-set-grid-3">
@@ -205,11 +206,11 @@ function KeySoundSection() {
               </div>
               <div className="asset-set-body">
                 <div className="asset-set-head">
-                  <strong>{set.label}</strong>
+                  <strong>{t(`keysound.pack.${set.id}` as MessageKey)}</strong>
                   {/* 使用中 = is-active pill，未使用 = 可点击 pill */}
                   {active ? (
-                    <span className="skin-pill is-active" aria-label="正在使用">
-                      <Check size={12} />使用中
+                    <span className="skin-pill is-active" aria-label={t('audio.inUseAria')}>
+                      <Check size={12} />{t('audio.inUse')}
                     </span>
                   ) : (
                     <button
@@ -217,27 +218,28 @@ function KeySoundSection() {
                       className="skin-pill"
                       onClick={() => session.setKeySetId(set.id)}
                     >
-                      使用此包
+                      {t('audio.usePack')}
                     </button>
                   )}
                 </div>
                 <ul className="asset-samples">
                   {KEY_SOUND_KINDS.map((kind) => {
-                    const meta = KEY_SOUND_KIND_META[kind];
+                    const kindLabel = t(`keysound.${kind}` as MessageKey);
+                    const kindHint = t(`keysound.${kind}.hint` as MessageKey);
                     return (
-                      <li key={kind} title={meta.hint}>
+                      <li key={kind} title={kindHint}>
                         <span className="asset-sample-dot" />
-                        <span>{meta.label}</span>
+                        <span>{kindLabel}</span>
                         {kind === 'directional' ? (
                           // 方向键按组合长度 1..3 分档：逐档试听
-                          <span className="asset-sample-tiers" aria-label="方向键分档试听">
+                          <span className="asset-sample-tiers" aria-label={t('audio.dirPreviewAria')}>
                             {[1, 2, 3].map((tier) => (
                               <button
                                 key={tier}
                                 type="button"
                                 className="asset-sample-play"
                                 disabled={previewing !== null}
-                                aria-label={`试听方向键 ${tier} 连`}
+                                aria-label={t('audio.dirPreviewBtn', { tier })}
                                 onClick={() => preview(set.id, 'directional', tier)}
                               >
                                 <Play size={11} />{tier}
@@ -249,7 +251,7 @@ function KeySoundSection() {
                             type="button"
                             className="asset-sample-play"
                             disabled={previewing !== null}
-                            aria-label={`试听${meta.label}`}
+                            aria-label={t('audio.previewKind', { label: kindLabel })}
                             onClick={() => preview(set.id, kind)}
                           >
                             <Play size={11} />
@@ -265,7 +267,7 @@ function KeySoundSection() {
         })}
       </div>
 
-      <div className="flow-note"><Check size={15} />切换后立即对后续播放生效；当前播放中的按键音将在暂停/重播后使用新素材。试听音量跟随 SE 音量设置。</div>
+      <div className="flow-note"><Check size={15} />{t('audio.keysound.note')}</div>
     </>
   );
 }
@@ -279,20 +281,20 @@ function SeVolumeSection() {
   return (
     <>
       <div className="settings-heading">
-        <h2>节奏图示 SE 音量</h2>
-        <p>键音音量，不影响 BGM。</p>
+        <h2>{t('audio.section.se')}</h2>
+        <p>{t('audio.se.intro')}</p>
       </div>
 
       <div className="settings-row">
         <div className="settings-row__text">
-          <strong>SE 音量</strong>
-          <span>0%（静音）— 100%（默认）</span>
+          <strong>{t('audio.seVolume')}</strong>
+          <span>{t('audio.seVolume.hint')}</span>
         </div>
         <div className="slider-control">
           <input
             type="range" min={0} max={100} step={5} value={seVolumePercent}
             onChange={(e) => session.setSeVolume(Number(e.target.value) / 100)}
-            aria-label="节奏图示 SE 音量"
+            aria-label={t('audio.section.se')}
           />
           <span className="slider-value">{seVolumePercent}%</span>
         </div>
@@ -300,14 +302,14 @@ function SeVolumeSection() {
 
       <div className="settings-row">
         <div className="settings-row__text">
-          <strong>恢复默认</strong>
-          <span>将 SE 音量恢复为出厂默认（100%），不影响键音素材包选择</span>
+          <strong>{t('audio.seReset')}</strong>
+          <span>{t('audio.seReset.hint')}</span>
         </div>
         <button
           className="button-secondary" type="button"
           onClick={() => session.setSeVolume(defaultSettings().audio.seVolume)}
         >
-          恢复默认
+          {t('audio.seReset')}
         </button>
       </div>
     </>

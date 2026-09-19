@@ -40,7 +40,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 单键 | Single | 普通单点音符 |
 | 滑键 | Flick | 带 `flick` 标记的单键 |
 | 技能键 | Skill | 带 `skill` 标记的单键 |
-| 方向键 | Directional | `LDirectional` / `RDirectional`，带 `length`（1..3） |
+| 方向键 | Directional | JSON `LDirectional` / `RDirectional`，带 `length`（1..3）。界面英语展示为 **Left Directional Flick** / **Right Directional Flick**，不要写成光秃的 Left/Right |
 | 滑条 | Slide | 由多个**结点**（connections）组成的连线 |
 | 长条 | Long | 由多个 connections 组成（与滑条同构） |
 | BPM 线 / System | BPM / System | 非击打类元素 |
@@ -117,10 +117,11 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 布局预设 | Layout preset | 把当前 面板宽度/折叠态/缩放 存成的**命名快照**，可恢复；只存布局信息、不含谱面数据 |
 | 设计令牌 | Design token | CSS variables 体系（颜色/间距/圆角/字号/阴影），主题与皮肤的取值来源 |
 | 主题 | Theme | 亮/暗内置两套 + 注册机制；**谱面画布始终深色**，主题只作用于面板/工具栏/弹窗等 chrome。Electron 上 **窗体标题栏** 另跟系统/nativeTheme（issue 126），不是页面 CSS |
-| 外观 | Appearance | 设置页「应用设置」栏：chrome 观感（**主题** + **界面字体栈** + **界面字号**）。未来 chrome 皮肤也放这栏，不另开。_Avoid_: 把素材域的音符/背景皮肤叫外观 |
+| 外观 | Appearance | 设置页「应用设置」栏：chrome 观感（**主题** + **界面语言** + **界面字体栈** + **界面字号**）。未来 chrome 皮肤也放这栏，不另开。_Avoid_: 把素材域的音符/背景皮肤叫外观 |
+| 界面语言 | UI language | 用户可见文案的语言。设置项在**外观**；写入设置对象（导入导出覆盖此项，与主题相同）、运行时切换；**不进谱面工程**。出货 locale 本期 **`zh-CN` + `en`**。无已存值时跟 OS：`zh-CN`/`zh-Hans`/`zh`→`zh-CN`；`en*`→`en`；**`zh-TW`/`zh-HK`/`zh-Hant` 在繁中出货前暂用 `zh-CN`**；其余→`en`。缺某句译文回退 `zh-CN`。日语、繁体中文后续各加一份字典。手搓 locale JSON，不引进 i18next。画布 START/END、时间码、BPM 缩写、谱面 JSON 字段名、应用名、开发者日志不翻译。方向键英语全称 **Left/Right Directional Flick**；键型格只显示图标；顶栏当前工具等窄处短名 `Left`/`Right`；快捷键表与 tooltip 用全称。_Avoid_: 按语言打两份安装包；跟界面字体栈绑死自动换族；RTL 布局；用光秃 Left/Right 当方向键全称 |
 | 界面字体栈 | UI font stack | chrome 无衬线预设（Geist 出厂 / 微软雅黑 / Noto·思源 CJK）；每档是回退链不是单文件。**不打包** CJK；中文界面三档可以几乎看不出差。**不**随界面语言自动切换；做多语言也不会自动让三档变明显。等宽 `--font-mono` 不随此切换。_Avoid_: 本机字体枚举、按 locale 自动换字体、档旁预览样张 |
 | 界面字号 | UI type scale | chrome 正文相对出厂 `--text-*` 的比例 **70%–150%**（步长 10%，默认 100%）。设置行标题出厂 `--text-sm`、说明 `--text-2xs`（与滑杆正交）。不改画布 `labelScale`，不改内容壳几何常数、不行高跟字号走 |
-| 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, uiTypeScale, uiFontStack, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出。**不含**窗体状态、**不含**数据根路径 |
+| 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, uiLanguage, uiTypeScale, uiFontStack, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出。**不含**窗体状态、**不含**数据根路径 |
 | 窗体状态 | Window chrome state | 这台机器上 OS 窗体的宽、高、是否最大化；与数据根路径同写 `userData/app-state.json`。_Avoid_: 塞进设置对象 / 导出配置；不要再为这类本机状态单开 json |
 | 窗体标题栏 | Window title bar | Electron **系统绘制**的 OS 标题栏与缩小/最大化/关闭。颜色跟主题；不是内容壳 **页面头**。_Avoid_: 把 OS 白条叫页面头 / 标题栏控件 |
 | 数据根 | Data root | Electron 上用户可选的自动落盘根目录（默认 `userData/data`，其下固定 `projects/` 与 `assets/`）。当前路径记在 `userData/app-state.json`。浏览器无此概念（仍 IndexedDB）。_Avoid_: 把「导出谱面代码」的另存路径叫数据根；不要把数据根叫 `projects` |

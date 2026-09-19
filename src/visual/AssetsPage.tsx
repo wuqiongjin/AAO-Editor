@@ -11,15 +11,16 @@ import NoteSkinPreview from '../chart/rendering/NoteSkinPreview';
 import { backgroundSkinStore } from '../chart/rendering/backgroundSkin';
 import { useBackgroundSkin } from '../chart/rendering/useBackgroundSkin';
 import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../chart/config/AppSettings';
+import { t, type MessageKey } from '../i18n';
 
 // 视觉素材页（导航第 3 项）：音符皮肤（整包预设 + 条目独立覆盖）+ 背景皮肤（单图上传/隐藏/清除）。
 
 type AssetCategory = 'noteskin' | 'background';
 
 // 资产类别 → lucide 图标映射（issue 44 侧边项用图标，替代原"页内顶部 2 tab"）
-const ASSET_CATEGORIES: { id: AssetCategory; label: string; icon: typeof Music2 }[] = [
-  { id: 'noteskin', label: '音符皮肤', icon: Music2 },
-  { id: 'background', label: '背景皮肤', icon: ImagePlus },
+const ASSET_CATEGORIES: { id: AssetCategory; labelKey: MessageKey; icon: typeof Music2 }[] = [
+  { id: 'noteskin', labelKey: 'assets.noteskin', icon: Music2 },
+  { id: 'background', labelKey: 'assets.background', icon: ImagePlus },
 ];
 
 export default function AssetsPage() {
@@ -28,17 +29,17 @@ export default function AssetsPage() {
   return (
     <AppPageShell>
       <AppPageShell.Header
-        eyebrow="应用素材"
-        title="视觉素材"
-        description="音符与背景皮肤；键音包在音频页。切换立即生效并自动保存。"
+        eyebrow={t('assets.header.eyebrow')}
+        title={t('assets.header.title')}
+        description={t('assets.header.description')}
       />
 
-      <AppPageShell.Sidebar ariaLabel="素材类别">
+      <AppPageShell.Sidebar ariaLabel={t('assets.sidebar.aria')}>
         {ASSET_CATEGORIES.map((cat) => (
           <AppPageShell.SidebarItem
             key={cat.id}
             icon={cat.icon}
-            label={cat.label}
+            label={t(cat.labelKey)}
             active={category === cat.id}
             onClick={() => setCategory(cat.id)}
           />
@@ -77,11 +78,11 @@ function NoteSkinPanel() {
     && (pairedDir === null || (selection.dirL === pairedDir && selection.dirR === pairedDir));
 
   return (
-    <section className="assets-panel app-stagger" aria-label="音符皮肤">
+    <section className="assets-panel app-stagger" aria-label={t('assets.noteskin')}>
       {/* 删掉"音符皮肤"标题（与 AppPageShell.Header 重复），{notePacks.length} 移到整包预设右侧 */}
       <div className="section-heading">
         <div>
-          <h2 className="visually-hidden">音符皮肤</h2>
+          <h2 className="visually-hidden">{t('assets.noteskin')}</h2>
         </div>
       </div>
 
@@ -90,8 +91,8 @@ function NoteSkinPanel() {
         <div className="skin-section">
           <h3 className="skin-section-title">
             <Wand2 size={16} />
-            <span className="skin-section-title__label">整包预设</span>
-            <span className="skin-section-title__count state-label">{notePacks.length} 个</span>
+            <span className="skin-section-title__label">{t('assets.preset')}</span>
+            <span className="skin-section-title__count state-label">{t('assets.presetCount', { count: notePacks.length })}</span>
           </h3>
           <div className="skin-preset-list">
             {notePacks.map((pack) => {
@@ -113,8 +114,8 @@ function NoteSkinPanel() {
                       <strong>{pack.label}</strong>
                       {/* 整包预设用 .skin-pill（与键音素材包统一规格）*/}
                       {active ? (
-                        <span className="skin-pill is-active" aria-label="整包正在使用">
-                          <Check size={12} />整包使用中
+                        <span className="skin-pill is-active" aria-label={t('assets.presetInUseAria')}>
+                          <Check size={12} />{t('assets.presetInUse')}
                         </span>
                       ) : (
                         <button
@@ -122,7 +123,7 @@ function NoteSkinPanel() {
                           className="skin-pill"
                           onClick={() => applyPreset(pack.id, pack.pairedDir)}
                         >
-                          应用整包
+                          {t('assets.applyPreset')}
                         </button>
                       )}
                     </div>
@@ -165,11 +166,11 @@ function BackgroundPanel() {
     if (!file) return;
     setError(null);
     if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
-      setError('仅支持 PNG / JPEG / WebP 格式图片');
+      setError(t('assets.bg.typeError'));
       return;
     }
     if (file.size > BG_MAX_FILE_BYTES) {
-      setError('图片过大（上限 20MB），请压缩后重试');
+      setError(t('assets.bg.sizeError'));
       return;
     }
     setBusy(true);
@@ -179,7 +180,7 @@ function BackgroundPanel() {
       setBackgroundSkin({ enabled: true });
     } catch (e) {
       console.error('[AssetsPage] 背景图保存失败:', e);
-      setError('背景图保存失败，请重试');
+      setError(t('assets.bg.saveError'));
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -194,14 +195,14 @@ function BackgroundPanel() {
       setBackgroundSkin({ enabled: false });
     } catch (e) {
       console.error('[AssetsPage] 背景图清除失败:', e);
-      setError('清除失败，请重试');
+      setError(t('assets.bg.clearError'));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <section className="assets-panel app-stagger" aria-label="背景皮肤">
+    <section className="assets-panel app-stagger" aria-label={t('assets.background')}>
       {/* 删除 section-heading（h2 "谱面背景皮肤" 与 AppPageShell.Header 重复；state-label 与上传卡内 EmptyState/asset-set 状态重复）。
           assets-panel 直接装 2 个 surface-section 子卡：上传卡 + 设置卡。 */}
 
@@ -226,14 +227,14 @@ function BackgroundPanel() {
           <div className="bg-upload-main">
             <div className="bg-upload-head">
               <div className="bg-upload-title">
-                <strong>自定义背景图</strong>
+                <strong>{t('assets.bg.custom')}</strong>
                 {snap.status === 'ready' && enabled && (
-                  <span className="state-pill success" aria-label="背景正在使用">
-                    <Check size={13} /> 使用中
+                  <span className="state-pill success" aria-label={t('assets.bg.inUseAria')}>
+                    <Check size={13} /> {t('assets.bg.visible')}
                   </span>
                 )}
                 {snap.status === 'ready' && !enabled && (
-                  <span className="state-pill warning">已隐藏</span>
+                  <span className="state-pill warning">{t('assets.bg.hidden')}</span>
                 )}
               </div>
               <div className="bg-upload-actions">
@@ -243,7 +244,7 @@ function BackgroundPanel() {
                   disabled={busy}
                   onClick={() => fileRef.current?.click()}
                 >
-                  <Upload size={14} />更换
+                  <Upload size={14} />{t('assets.bg.replace')}
                 </button>
                 {enabled ? (
                   <button
@@ -252,7 +253,7 @@ function BackgroundPanel() {
                     disabled={busy}
                     onClick={() => setBackgroundSkin({ enabled: false })}
                   >
-                    <EyeOff size={14} />隐藏
+                    <EyeOff size={14} />{t('assets.bg.hide')}
                   </button>
                 ) : (
                   <button
@@ -261,7 +262,7 @@ function BackgroundPanel() {
                     disabled={busy}
                     onClick={() => setBackgroundSkin({ enabled: true })}
                   >
-                    <Eye size={14} />启用
+                    <Eye size={14} />{t('assets.bg.enable')}
                   </button>
                 )}
                 <button
@@ -270,7 +271,7 @@ function BackgroundPanel() {
                   disabled={busy}
                   onClick={() => void handleClear()}
                 >
-                  <Trash2 size={14} />清除
+                  <Trash2 size={14} />{t('assets.bg.clear')}
                 </button>
               </div>
             </div>
@@ -279,7 +280,7 @@ function BackgroundPanel() {
               <span className="field-help is-error">{error}</span>
             ) : (
               <span className="field-help">
-                显示范围、填充与不透明度在下方卡片调整；仅存本机，不上传服务器。
+                {t('assets.bg.help')}
               </span>
             )}
           </div>
@@ -287,10 +288,10 @@ function BackgroundPanel() {
       ) : (
         <EmptyState
           icon={ImageOff}
-          title="未设置背景"
-          description="上传 PNG / JPEG / WebP（≤20MB），仅存本机。"
+          title={t('assets.bg.emptyTitle')}
+          description={t('assets.bg.emptyDescription')}
           primaryAction={{
-            label: '上传图片',
+            label: t('assets.bg.upload'),
             onClick: () => fileRef.current?.click(),
             icon: Upload,
             disabled: busy || snap.status !== 'ready',
@@ -307,57 +308,57 @@ function BackgroundPanel() {
         {/* 显示范围 */}
         <div className="settings-row">
           <div className="settings-row__text">
-            <strong>显示范围</strong>
-            <span>仅轨道外 = 背景只出现在轨道两侧空白区，轨道区域保持原始深色，完全不影响作谱；全画布 = 沉浸式铺满（轨道区压暗）。</span>
+            <strong>{t('assets.bg.scope')}</strong>
+            <span>{t('assets.bg.scope.hint')}</span>
           </div>
           <select
             className="select-control"
             value={bg?.scope ?? DEFAULT_BACKGROUND_SCOPE}
             disabled={!image || !enabled || busy}
             onChange={(e) => setBackgroundSkin({ scope: e.target.value as 'outsideTrack' | 'fullCanvas' })}
-            aria-label="背景显示范围"
+            aria-label={t('assets.bg.scope')}
           >
-            <option value="outsideTrack">仅轨道外</option>
-            <option value="fullCanvas">全画布</option>
+            <option value="outsideTrack">{t('assets.bg.scope.outsideTrack')}</option>
+            <option value="fullCanvas">{t('assets.bg.scope.fullCanvas')}</option>
           </select>
         </div>
 
         {/* 填充方式 */}
         <div className="settings-row">
           <div className="settings-row__text">
-            <strong>填充方式</strong>
-            <span>铺满裁剪 = 等比放大盖满画布、超出裁剪；完整显示 = 等比缩放到放得下、不足处留黑边（不裁剪）。</span>
+            <strong>{t('assets.bg.fit')}</strong>
+            <span>{t('assets.bg.fit.hint')}</span>
           </div>
           <select
             className="select-control"
             value={bg?.fit ?? DEFAULT_BACKGROUND_FIT}
             disabled={!image || !enabled || busy}
             onChange={(e) => setBackgroundSkin({ fit: e.target.value as 'cover' | 'contain' })}
-            aria-label="背景填充方式"
+            aria-label={t('assets.bg.fit')}
           >
-            <option value="cover">铺满裁剪</option>
-            <option value="contain">完整显示</option>
+            <option value="cover">{t('assets.bg.fit.cover')}</option>
+            <option value="contain">{t('assets.bg.fit.contain')}</option>
           </select>
         </div>
 
         {/* 不透明度 */}
         <div className="settings-row">
           <div className="settings-row__text">
-            <strong>背景不透明度</strong>
-            <span>图片越透明，画布原始黑色背景占比越多。0%（纯黑）— 100%（原图全亮），默认 55%。</span>
+            <strong>{t('assets.bg.opacity')}</strong>
+            <span>{t('assets.bg.opacity.hint')}</span>
           </div>
           <div className="slider-control">
             <input
               type="range" min={0} max={100} step={5} value={opacityPct}
               disabled={!image || !enabled || busy}
               onChange={(e) => setBackgroundSkin({ opacity: Number(e.target.value) / 100 })}
-              aria-label="背景图不透明度"
+              aria-label={t('assets.bg.opacity')}
             />
             <span className="slider-value">{opacityPct}%</span>
           </div>
         </div>
 
-        <div className="flow-note"><Check size={15} />启用后立即在画布生效；「隐藏」保留图片、一键恢复，「清除」彻底删除。</div>
+        <div className="flow-note"><Check size={15} />{t('assets.bg.note')}</div>
       </section>
     </section>
   );

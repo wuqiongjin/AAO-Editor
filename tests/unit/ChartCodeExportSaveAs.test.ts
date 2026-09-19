@@ -30,7 +30,7 @@ describe('issue 118 · 导出文本来自画布 notes', () => {
 
 describe('issue 118 · 弹窗接线', () => {
   it('底部有「另存为」，载荷走 exportChartCodeSaveAs(notes) 而不是 textarea 草稿', () => {
-    expect(modalSrc).toContain('另存为');
+    expect(modalSrc).toContain("t('chartCode.saveAs')");
     expect(modalSrc).toMatch(/exportChartCodeSaveAs\(\s*notes\s*\)/);
     expect(modalSrc).not.toMatch(/exportChartCodeSaveAs\(\s*chartCode\s*\)/);
   });

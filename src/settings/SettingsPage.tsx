@@ -5,26 +5,27 @@ import EmptyState from '../ui/EmptyState';
 import { useConfig } from '../app/ProviderTree';
 import { defaultSettings, loadSettings } from '../chart/config/AppSettings';
 import type { AppSettings } from '../chart/config/AppSettings';
+import { t, type MessageKey } from '../i18n';
 
 // 设置页：接入 AppPageShell（Sidebar 分组导航 + Body 设置详情），修改立即生效并持久化。
 type Section = 'appearance' | 'layout' | 'data' | 'canvas';
 
-const THEME_OPTIONS: Array<{ value: AppSettings['theme']; label: string; swatch: string }> = [
-  { value: 'light', label: '亮色', swatch: 'light' },
-  { value: 'dark', label: '暗色', swatch: 'dark' },
-  { value: 'system', label: '跟随系统', swatch: 'system' },
+const THEME_OPTIONS: Array<{ value: AppSettings['theme']; labelKey: MessageKey; swatch: string }> = [
+  { value: 'light', labelKey: 'settings.theme.light', swatch: 'light' },
+  { value: 'dark', labelKey: 'settings.theme.dark', swatch: 'dark' },
+  { value: 'system', labelKey: 'settings.theme.system', swatch: 'system' },
 ];
 
-const UI_FONT_STACK_OPTIONS: Array<{ value: AppSettings['uiFontStack']; label: string }> = [
-  { value: 'geist', label: 'Geist' },
-  { value: 'yahei', label: '微软雅黑' },
-  { value: 'noto', label: 'Noto / 思源黑体' },
+const UI_FONT_STACK_OPTIONS: Array<{ value: AppSettings['uiFontStack']; labelKey: MessageKey }> = [
+  { value: 'geist', labelKey: 'settings.uiFont.geist' },
+  { value: 'yahei', labelKey: 'settings.uiFont.yahei' },
+  { value: 'noto', labelKey: 'settings.uiFont.noto' },
 ];
 
-const QUALITY_OPTIONS: Array<{ value: AppSettings['display']['imageQuality']; label: string }> = [
-  { value: 'smooth', label: '流畅' },
-  { value: 'standard', label: '标准' },
-  { value: 'hd', label: '高清' },
+const QUALITY_OPTIONS: Array<{ value: AppSettings['display']['imageQuality']; labelKey: MessageKey }> = [
+  { value: 'smooth', labelKey: 'settings.imageQuality.smooth' },
+  { value: 'standard', labelKey: 'settings.imageQuality.standard' },
+  { value: 'hd', labelKey: 'settings.imageQuality.hd' },
 ];
 
 interface DataRootBridge {
@@ -38,11 +39,11 @@ function getDataRootBridge(): DataRootBridge | undefined {
   return (window as unknown as { electronAPI?: { dataRoot?: DataRootBridge } }).electronAPI?.dataRoot;
 }
 
-const GRID_STYLE_OPTIONS: Array<{ value: AppSettings['display']['gridStyle']; label: string }> = [
-  { value: 'mono', label: '灰阶' },
-  { value: 'amber', label: '琥珀' },
-  { value: 'cyan', label: '青蓝' },
-  { value: 'vivid', label: '多彩' },
+const GRID_STYLE_OPTIONS: Array<{ value: AppSettings['display']['gridStyle']; labelKey: MessageKey }> = [
+  { value: 'mono', labelKey: 'settings.gridStyle.mono' },
+  { value: 'amber', labelKey: 'settings.gridStyle.amber' },
+  { value: 'cyan', labelKey: 'settings.gridStyle.cyan' },
+  { value: 'vivid', labelKey: 'settings.gridStyle.vivid' },
 ];
 
 /** 行内滑块行：百分比参数（值以比例存储，UI 以 % 显示） */
@@ -76,16 +77,16 @@ function ResetRow({ label, hint, confirming, onConfirm, onToggle }: {
     <div className="settings-row">
       <div className="settings-row__text">
         <strong>{label}</strong>
-        <span>{confirming ? `确定恢复？${hint}` : hint}</span>
+        <span>{confirming ? t('settings.reset.confirm', { hint }) : hint}</span>
       </div>
       {confirming ? (
         <span className="inline-actions">
-          <button className="button-secondary" type="button" onClick={onConfirm}>确认恢复</button>
-          <button className="button-secondary" type="button" onClick={onToggle}>取消</button>
+          <button className="button-secondary" type="button" onClick={onConfirm}>{t('settings.reset.confirmBtn')}</button>
+          <button className="button-secondary" type="button" onClick={onToggle}>{t('settings.reset.cancel')}</button>
         </span>
       ) : (
         <button className="button-secondary" type="button" onClick={onToggle}>
-          <RotateCcw size={15} />恢复默认
+          <RotateCcw size={15} />{t('settings.reset')}
         </button>
       )}
     </div>
@@ -109,7 +110,7 @@ function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: st
 }
 
 export default function SettingsPage() {
-  const { settings, setTheme, setUiTypeScale, setUiFontStack, setDisplay, setAllSettings } = useConfig();
+  const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setDisplay, setAllSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState<'canvas' | null>(null);
@@ -125,7 +126,7 @@ export default function SettingsPage() {
     dataRootApi.get().then((r) => {
       if (!cancelled) setDataRootPath(r.path);
     }).catch(() => {
-      if (!cancelled) setDataRootError('无法读取当前保存位置');
+      if (!cancelled) setDataRootError(t('settings.dataRoot.readFail'));
     });
     return () => { cancelled = true; };
   }, [dataRootApi]);
@@ -152,8 +153,8 @@ export default function SettingsPage() {
     }
   };
 
-  const handleChangeDataRoot = () => void applyDataRootResult(() => dataRootApi!.change(), '更改保存位置失败');
-  const handleClaimDataRoot = () => void applyDataRootResult(() => dataRootApi!.claim(), '无法使用该文件夹');
+  const handleChangeDataRoot = () => void applyDataRootResult(() => dataRootApi!.change(), t('settings.dataRoot.changeFail'));
+  const handleClaimDataRoot = () => void applyDataRootResult(() => dataRootApi!.claim(), t('settings.dataRoot.claimFail'));
 
   const resetCanvasDefaults = () => setDisplay(defaultSettings().display);
 
@@ -177,7 +178,7 @@ export default function SettingsPage() {
         setAllSettings(merged);
         setImportError(null);
       } catch {
-        setImportError('导入失败：配置文件格式不正确。');
+        setImportError(t('settings.importFail'));
       }
     };
     reader.readAsText(file);
@@ -186,19 +187,19 @@ export default function SettingsPage() {
   return (
     <AppPageShell>
       <AppPageShell.Header
-        eyebrow="应用设置"
-        title="设置"
-        description="修改立即生效并自动保存。高风险操作会单独确认。"
+        eyebrow={t('settings.header.eyebrow')}
+        title={t('settings.header.title')}
+        description={t('settings.header.description')}
       />
 
-      <AppPageShell.Sidebar ariaLabel="设置分类">
-        <AppPageShell.SidebarGroup title="应用设置">
-          <AppPageShell.SidebarItem icon={MonitorCog} label="外观" active={section === 'appearance'} onClick={() => setSection('appearance')} />
-          <AppPageShell.SidebarItem icon={SlidersHorizontal} label="布局" active={section === 'layout'} onClick={() => setSection('layout')} />
-          <AppPageShell.SidebarItem icon={Download} label="配置数据" active={section === 'data'} onClick={() => setSection('data')} />
+      <AppPageShell.Sidebar ariaLabel={t('settings.sidebar.aria')}>
+        <AppPageShell.SidebarGroup title={t('settings.group.app')}>
+          <AppPageShell.SidebarItem icon={MonitorCog} label={t('settings.section.appearance')} active={section === 'appearance'} onClick={() => setSection('appearance')} />
+          <AppPageShell.SidebarItem icon={SlidersHorizontal} label={t('settings.section.layout')} active={section === 'layout'} onClick={() => setSection('layout')} />
+          <AppPageShell.SidebarItem icon={Download} label={t('settings.section.data')} active={section === 'data'} onClick={() => setSection('data')} />
         </AppPageShell.SidebarGroup>
-        <AppPageShell.SidebarGroup title="功能设置">
-          <AppPageShell.SidebarItem icon={Eye} label="画布显示" active={section === 'canvas'} onClick={() => setSection('canvas')} />
+        <AppPageShell.SidebarGroup title={t('settings.group.feature')}>
+          <AppPageShell.SidebarItem icon={Eye} label={t('settings.section.canvas')} active={section === 'canvas'} onClick={() => setSection('canvas')} />
         </AppPageShell.SidebarGroup>
       </AppPageShell.Sidebar>
 
@@ -207,8 +208,8 @@ export default function SettingsPage() {
           {section === 'appearance' && (
             <>
               <div className="settings-heading">
-                <h2>外观</h2>
-                <p>主题、界面字体与字号只影响编辑器界面（导航、设置等），不影响谱面画布。</p>
+                <h2>{t('settings.section.appearance')}</h2>
+                <p>{t('settings.appearance.intro')}</p>
               </div>
               <div className="theme-options">
                 {THEME_OPTIONS.map((opt) => {
@@ -221,30 +222,45 @@ export default function SettingsPage() {
                       onClick={() => setTheme(opt.value)}
                     >
                       <span className={`theme-preview ${opt.swatch}`}><i /><i /><i /></span>
-                      <span>{opt.label}</span>
+                      <span>{t(opt.labelKey)}</span>
                       <span className="radio-mark">{active && <Check size={13} />}</span>
                     </button>
                   );
                 })}
               </div>
+              <div className="settings-row">
+                <div className="settings-row__text">
+                  <strong>{t('settings.uiLanguage')}</strong>
+                  <span>{t('settings.uiLanguage.hint')}</span>
+                </div>
+                <select
+                  className="select-control"
+                  value={settings.uiLanguage}
+                  onChange={(e) => setUiLanguage(e.target.value as AppSettings['uiLanguage'])}
+                  aria-label={t('settings.uiLanguage')}
+                >
+                  <option value="zh-CN">{t('settings.uiLanguage.zh-CN')}</option>
+                  <option value="en">{t('settings.uiLanguage.en')}</option>
+                </select>
+              </div>
               <PercentSliderRow
-                label="界面字号" hint="导航、设置、弹窗等编辑器界面文字相对出厂的比例（70%–150%）"
+                label={t('settings.uiTypeScale')} hint={t('settings.uiTypeScale.hint')}
                 value={settings.uiTypeScale} min={70} max={150} step={10}
                 onChange={(v) => setUiTypeScale(v)}
               />
               <div className="settings-row">
                 <div className="settings-row__text">
-                  <strong>界面字体</strong>
-                  <span>无衬线回退链；不随界面语言自动切换。等宽字体不换族。</span>
+                  <strong>{t('settings.uiFont')}</strong>
+                  <span>{t('settings.uiFont.hint')}</span>
                 </div>
                 <select
                   className="select-control"
                   value={settings.uiFontStack}
                   onChange={(e) => setUiFontStack(e.target.value as AppSettings['uiFontStack'])}
-                  aria-label="界面字体"
+                  aria-label={t('settings.uiFont')}
                 >
                   {UI_FONT_STACK_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
                   ))}
                 </select>
               </div>
@@ -254,14 +270,13 @@ export default function SettingsPage() {
           {section === 'layout' && (
             <>
               <div className="settings-heading">
-                <h2>布局</h2>
-                <p>面板开合、宽度与画布缩放均在工作台操作。</p>
+                <h2>{t('settings.section.layout')}</h2>
+                <p>{t('settings.layout.intro')}</p>
               </div>
-              {/* layout 段无可配置控件，用 EmptyState 作说明区 */}
               <EmptyState
                 icon={Info}
-                title="布局在工作台内调整"
-                description="拖拽或点击标题旁按钮收放工具/属性面板；左侧导航可折为图标栏；画布 Ctrl+滚轮缩放。"
+                title={t('settings.layout.emptyTitle')}
+                description={t('settings.layout.emptyDescription')}
               />
             </>
           )}
@@ -269,83 +284,83 @@ export default function SettingsPage() {
           {section === 'canvas' && (
             <>
               <div className="settings-heading">
-                <h2>画布显示</h2>
-                <p>音符、轨道与标线的画布呈现，改后立即生效。</p>
+                <h2>{t('settings.section.canvas')}</h2>
+                <p>{t('settings.canvas.intro')}</p>
               </div>
               <PercentSliderRow
-                label="节奏图示大小" hint="音符占轨道的大小（相对所在轨道宽度）"
+                label={t('settings.noteSize')} hint={t('settings.noteSize.hint')}
                 value={settings.display.noteSize} min={10} max={200} step={10}
                 onChange={(v) => setDisplay({ noteSize: v })}
               />
               <PercentSliderRow
-                label="长压线不透明度" hint="滑条（Slide）线条的不透明度，调低则变淡"
+                label={t('settings.slideOpacity')} hint={t('settings.slideOpacity.hint')}
                 value={settings.display.slideOpacity} min={10} max={100} step={10}
                 onChange={(v) => setDisplay({ slideOpacity: v })}
               />
               <ToggleRow
-                label="同时点击线" hint="同节拍的同水平线音符之间显示连接线"
+                label={t('settings.simultaneousClickLines')} hint={t('settings.simultaneousClickLines.hint')}
                 checked={settings.display.simultaneousClickLines}
                 onChange={(v) => setDisplay({ simultaneousClickLines: v })}
               />
               <ToggleRow
-                label="色觉辅助" hint="非半拍整数倍位置的单键显示为虚拍款式，用形态区分细分节奏（实/虚拍）"
+                label={t('settings.colorAssist')} hint={t('settings.colorAssist.hint')}
                 checked={settings.display.colorAssist}
                 onChange={(v) => setDisplay({ colorAssist: v })}
               />
               <PercentSliderRow
-                label="纵向比例" hint="每小节的纵向高度（与整体缩放正交并存）"
+                label={t('settings.verticalRatio')} hint={t('settings.verticalRatio.hint')}
                 value={settings.display.verticalRatio} min={50} max={200} step={10}
                 onChange={(v) => setDisplay({ verticalRatio: v })}
               />
               <div className="settings-row">
                 <div className="settings-row__text">
-                  <strong>图像品质</strong>
-                  <span>画布渲染精度档位；标准为默认行为</span>
+                  <strong>{t('settings.imageQuality')}</strong>
+                  <span>{t('settings.imageQuality.hint')}</span>
                 </div>
                 <select
                   className="select-control"
                   value={settings.display.imageQuality}
                   onChange={(e) => setDisplay({ imageQuality: e.target.value as AppSettings['display']['imageQuality'] })}
-                  aria-label="图像品质"
+                  aria-label={t('settings.imageQuality')}
                 >
                   {QUALITY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
                   ))}
                 </select>
               </div>
               <div className="settings-row">
                 <div className="settings-row__text">
-                  <strong>轨道颜色</strong>
-                  <span>网格线层级配色：整拍最亮眼，逐级变暗（黑底上保持可辨）</span>
+                  <strong>{t('settings.gridStyle')}</strong>
+                  <span>{t('settings.gridStyle.hint')}</span>
                 </div>
                 <select
                   className="select-control"
                   value={settings.display.gridStyle}
                   onChange={(e) => setDisplay({ gridStyle: e.target.value as AppSettings['display']['gridStyle'] })}
-                  aria-label="轨道颜色"
+                  aria-label={t('settings.gridStyle')}
                 >
                   {GRID_STYLE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
                   ))}
                 </select>
               </div>
               <ToggleRow
-                label="线形分层" hint="开启后按层级叠加线形（整拍实线、1/2 长虚线、1/4 短虚线、更细为点线）；关闭时整拍实线、非整拍短虚线"
+                label={t('settings.lineShapeTiers')} hint={t('settings.lineShapeTiers.hint')}
                 checked={settings.display.lineShapeTiers}
                 onChange={(v) => setDisplay({ lineShapeTiers: v })}
               />
               <PercentSliderRow
-                label="轨道线透明度" hint="网格线（节拍线/子节拍线）的整体不透明度"
+                label={t('settings.gridOpacity')} hint={t('settings.gridOpacity.hint')}
                 value={settings.display.gridOpacity} min={10} max={100} step={10}
                 onChange={(v) => setDisplay({ gridOpacity: v })}
               />
               <PercentSliderRow
-                label="文字大小" hint="谱面标线文字（BPM 数值 / START / END）与实时读数的缩放"
+                label={t('settings.labelScale')} hint={t('settings.labelScale.hint')}
                 value={settings.display.labelScale} min={50} max={300} step={10}
                 onChange={(v) => setDisplay({ labelScale: v })}
               />
               <ResetRow
-                label="恢复默认" hint="将本组（画布显示）全部参数恢复为出厂默认，不影响其它设置"
+                label={t('settings.reset')} hint={t('settings.reset.hint')}
                 confirming={resetConfirm === 'canvas'}
                 onToggle={() => setResetConfirm(resetConfirm === 'canvas' ? null : 'canvas')}
                 onConfirm={() => { resetCanvasDefaults(); setResetConfirm(null); }}
@@ -356,15 +371,15 @@ export default function SettingsPage() {
           {section === 'data' && (
             <>
               <div className="settings-heading">
-                <h2>配置数据</h2>
-                <p>谱面与资源的保存位置，以及主题、快捷键等配置的导入导出。</p>
+                <h2>{t('settings.section.data')}</h2>
+                <p>{t('settings.data.intro')}</p>
               </div>
               {dataRootApi && (
                 <>
                   <div className="settings-row">
                     <div className="settings-row__text">
-                      <strong>谱面与资源</strong>
-                      <span>{dataRootPath ?? '读取中…'}</span>
+                      <strong>{t('settings.dataRoot')}</strong>
+                      <span>{dataRootPath ?? t('settings.dataRoot.reading')}</span>
                     </div>
                     <span className="inline-actions">
                       <button
@@ -373,7 +388,7 @@ export default function SettingsPage() {
                         disabled={dataRootBusy}
                         onClick={handleChangeDataRoot}
                       >
-                        <FolderOpen size={15} />更改保存位置
+                        <FolderOpen size={15} />{t('settings.dataRoot.change')}
                       </button>
                       <button
                         className="button-secondary"
@@ -381,7 +396,7 @@ export default function SettingsPage() {
                         disabled={dataRootBusy}
                         onClick={handleClaimDataRoot}
                       >
-                        <FolderSearch size={15} />使用已有数据文件夹
+                        <FolderSearch size={15} />{t('settings.dataRoot.claim')}
                       </button>
                     </span>
                   </div>
@@ -390,15 +405,15 @@ export default function SettingsPage() {
               )}
               <div className="settings-row">
                 <div className="settings-row__text">
-                  <strong>偏好设置</strong>
-                  <span>主题、界面字体与字号、布局、快捷键与画布显示。</span>
+                  <strong>{t('settings.prefs')}</strong>
+                  <span>{t('settings.prefs.hint')}</span>
                 </div>
                 <span className="inline-actions">
                   <button className="button-secondary" type="button" onClick={handleExport}>
-                    <Download size={16} />导出设置
+                    <Download size={16} />{t('settings.export')}
                   </button>
                   <button className="button-secondary" type="button" onClick={() => fileRef.current?.click()}>
-                    <Upload size={16} />导入设置
+                    <Upload size={16} />{t('settings.import')}
                   </button>
                   <input
                     ref={fileRef} type="file" accept="application/json" style={{ display: 'none' }}
@@ -414,3 +429,4 @@ export default function SettingsPage() {
     </AppPageShell>
   );
 }
+

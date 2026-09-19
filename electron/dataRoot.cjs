@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { patchAppStateSync, readAppStateRawSync } = require('./appState.cjs');
+const { t } = require('./i18n.cjs');
 
 const DATA_DIRNAME = 'data';
 const PROJECTS_DIRNAME = 'projects';
@@ -127,7 +128,7 @@ async function moveDataRoot(opts) {
         return {
             ok: false,
             code: 'dest-inside-source',
-            message: '不能把数据根改到当前保存位置的内部或其父目录',
+            message: t('electron.destInside'),
         };
     }
     if (!(await dirEmptyOrMissing(toRoot))) {
@@ -135,7 +136,7 @@ async function moveDataRoot(opts) {
         return {
             ok: false,
             code: 'dest-occupied',
-            message: `目标位置已有「${leaf}」文件夹且非空，请换一个位置或改用「使用已有数据文件夹」`,
+            message: t('electron.destOccupied', { leaf }),
         };
     }
 
@@ -150,7 +151,7 @@ async function moveDataRoot(opts) {
         return {
             ok: false,
             code: 'copy-failed',
-            message: '搬家失败，仍使用原来的保存位置',
+            message: t('electron.moveFail'),
             error: err,
         };
     }

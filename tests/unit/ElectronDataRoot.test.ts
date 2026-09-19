@@ -326,16 +326,15 @@ describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () =>
   it('设置页导出仍是 settings 对象；搬家与认领在 electronAPI 门控之后', () => {
     const settingsPageSrc = stripComments(read('src/settings/SettingsPage.tsx'));
     expect(settingsPageSrc).toMatch(/JSON\.stringify\(settings/);
-    expect(settingsPageSrc).toMatch(/导出设置/);
-    expect(settingsPageSrc).toMatch(/导入设置/);
-    expect(settingsPageSrc).toMatch(/谱面与资源的保存位置，以及主题、快捷键等配置的导入导出。/);
-    expect(settingsPageSrc).toMatch(/谱面与资源/);
-    expect(settingsPageSrc).toMatch(/偏好设置/);
-    expect(settingsPageSrc).toMatch(/主题、界面字体与字号、布局、快捷键与画布显示。/);
+    expect(settingsPageSrc).toMatch(/settings\.export/);
+    expect(settingsPageSrc).toMatch(/settings\.import/);
+    expect(settingsPageSrc).toMatch(/settings\.data\.intro/);
+    expect(settingsPageSrc).toMatch(/settings\.dataRoot/);
+    expect(settingsPageSrc).toMatch(/settings\.prefs/);
     expect(settingsPageSrc).not.toMatch(/不含/);
-    expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*谱面与资源/);
-    expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*更改保存位置/);
-    expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*使用已有数据文件夹/);
+    expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot/);
+    expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot\.change/);
+    expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot\.claim/);
     expect(settingsPageSrc).not.toMatch(/JSON\.stringify\([^)]*dataRoot/);
     expect(settingsPageSrc).not.toMatch(/导出全部配置/);
   });

@@ -53,6 +53,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "src/i18n/messages/**/*",
       "!node_modules/**/*"
     ],
     "mac": {

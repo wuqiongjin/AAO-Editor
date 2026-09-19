@@ -1,4 +1,5 @@
 import type { ChartNote, SingleNote, LDirectionalNote, RDirectionalNote, SlideNote, BpmNote } from '../types';
+import { t } from '../../i18n';
 
 // 谱面代码类型定义
 export interface ChartCodeBPM {
@@ -352,7 +353,7 @@ function checkBeat(
     if (typeof note.beat !== 'number' || !Number.isFinite(note.beat)) {
         errors.push({
             noteIndex, connIndex, field: 'beat',
-            reason: `${label} beat 必须是数字`, expected: '有限数字（如 4 或 4.5）',
+            reason: t('validate.beatMustBeNumber', { label }), expected: t('validate.expectedFiniteBeat'),
         });
     }
 }
@@ -364,7 +365,7 @@ function checkLane(
     if (typeof note.lane !== 'number' || !Number.isFinite(note.lane) || note.lane < LANE_MIN || note.lane > LANE_MAX) {
         errors.push({
             noteIndex, connIndex, field: 'lane',
-            reason: `${label} lane 必须在 ${LANE_MIN}-${LANE_MAX} 范围内`, expected: `${LANE_MIN}-${LANE_MAX}`,
+            reason: t('validate.laneRange', { label, min: LANE_MIN, max: LANE_MAX }), expected: `${LANE_MIN}-${LANE_MAX}`,
         });
     }
 }
@@ -374,8 +375,8 @@ function checkNoConnections(note: RawNote, noteIndex: number, label: string, err
     if (note.connections !== undefined) {
         errors.push({
             noteIndex, field: 'connections',
-            reason: `${label} 不得残留 connections 字段`,
-            expected: '删除 connections（它只属于 type:"Slide"）',
+            reason: t('validate.noConnections', { label }),
+            expected: t('validate.noConnectionsExpected'),
         });
     }
 }
@@ -413,7 +414,7 @@ function checkBackflowBoundaries(
             beatZeroFlagged.add(i);
             errors.push({
                 noteIndex: i, field: 'bpm',
-                reason: '第 0 拍的 BPM 不得为负数（全谱秒坐标会 ≤ 0）',
+                reason: t('validate.bpm0Negative'),
                 expected: '> 0',
             });
         }
@@ -432,8 +433,8 @@ function checkBackflowBoundaries(
     if (isNegNumber(lastBpm) && !beatZeroFlagged.has(last)) {
         errors.push({
             noteIndex: last, field: 'bpm',
-            reason: '末条 BPM 事件不得为负数（谱面以负 BPM 收尾会让制谱器崩溃）',
-            expected: '> 0（倒流区之后必须回到正 BPM）',
+            reason: t('validate.lastBpmNegative'),
+            expected: t('validate.lastBpmExpected'),
         });
     }
 }
@@ -458,7 +459,7 @@ export function validateChartCode(
     if (!Array.isArray(chartCode)) {
         return {
             valid: false,
-            errors: [{ noteIndex: -1, reason: '谱面代码必须是数组', expected: '[{ … }, …]' }],
+            errors: [{ noteIndex: -1, reason: t('validate.mustBeArray'), expected: t('validate.mustBeArrayExpected') }],
         };
     }
 
@@ -467,74 +468,72 @@ export function validateChartCode(
 
         // 检查必需字段
         if (raw === null || typeof raw !== 'object') {
-            errors.push({ noteIndex: i, reason: '音符必须是对象', expected: '{ "type": … }' });
+            errors.push({ noteIndex: i, reason: t('validate.noteMustBeObject'), expected: t('validate.noteMustBeObjectExpected') });
             continue;
         }
         const note = raw as RawNote;
         if (!note.type) {
-            errors.push({ noteIndex: i, field: 'type', reason: '缺少 type 字段', expected: 'BPM / Single / Directional / Slide / Long' });
+            errors.push({ noteIndex: i, field: 'type', reason: t('validate.missingType'), expected: t('validate.typeExpected') });
             continue;
         }
 
         switch (note.type) {
             case "BPM":
-                checkBeat(note, i, undefined, 'BPM音符', errors);
-                // ADR-0010 结论 1/7：放行负值（倒流区语义），只拦"无意义"的 0 与非有限数。
-                // 两类文案分流——"不是有限数"与"是 0"的毛病不同，UI 错误列表要能一眼分清。
+                checkBeat(note, i, undefined, t('validate.label.bpm'), errors);
                 if (typeof note.bpm !== 'number' || !Number.isFinite(note.bpm)) {
                     errors.push({
                         noteIndex: i, field: 'bpm',
-                        reason: 'BPM音符 bpm 必须是有限数字',
-                        expected: '非 0 的有限数字（可为负）',
+                        reason: t('validate.bpmNotFinite'),
+                        expected: t('validate.bpmExpected'),
                     });
                 } else if (note.bpm === 0) {
                     errors.push({
                         noteIndex: i, field: 'bpm',
-                        reason: 'BPM音符 bpm 不得为 0',
-                        expected: '非 0 的有限数字（可为负）',
+                        reason: t('validate.bpmNotZero'),
+                        expected: t('validate.bpmExpected'),
                     });
                 }
                 break;
 
             case "Single":
-                checkBeat(note, i, undefined, '单键音符', errors);
-                checkLane(note, i, undefined, '单键音符', errors);
-                checkNoConnections(note, i, '单键音符', errors);
+                checkBeat(note, i, undefined, t('validate.label.single'), errors);
+                checkLane(note, i, undefined, t('validate.label.single'), errors);
+                checkNoConnections(note, i, t('validate.label.single'), errors);
                 break;
 
             case "Directional":
-                checkBeat(note, i, undefined, '方向滑键音符', errors);
-                checkLane(note, i, undefined, '方向滑键音符', errors);
+                checkBeat(note, i, undefined, t('validate.label.directional'), errors);
+                checkLane(note, i, undefined, t('validate.label.directional'), errors);
                 if (typeof note.direction !== 'string' || !['Left', 'Right'].includes(note.direction)) {
                     errors.push({
                         noteIndex: i, field: 'direction',
-                        reason: '方向滑键音符 direction 必须是 Left 或 Right', expected: 'Left / Right',
+                        reason: t('validate.dirInvalid'), expected: t('validate.dirExpected'),
                     });
                 }
                 if (typeof note.width !== 'number' || note.width < 1 || note.width > 3) {
                     errors.push({
                         noteIndex: i, field: 'width',
-                        reason: '方向滑键音符 width 必须在 1-3 范围内', expected: '1-3',
+                        reason: t('validate.widthRange'), expected: t('validate.widthExpected'),
                     });
                 }
-                checkNoConnections(note, i, '方向滑键音符', errors);
+                checkNoConnections(note, i, t('validate.label.directional'), errors);
                 break;
 
             // Slide / Long 同构（Bestdori 一等类型，同一套规则）
             case "Slide":
             case "Long": {
-                const label = note.type === "Long" ? '长条音符' : '滑条音符';
+                const label = note.type === "Long" ? t('validate.label.long') : t('validate.label.slide');
                 const conns = note.connections;
                 if (!Array.isArray(conns)) {
                     errors.push({
                         noteIndex: i, field: 'connections',
-                        reason: `${label} connections 必须是数组`, expected: '[{ beat, lane }, …]',
+                        reason: t('validate.connectionsArray', { label }), expected: t('validate.connectionsExpected'),
                     });
                     break;
                 }
                 conns.forEach((conn: RawNote, connIndex: number) => {
-                    checkBeat(conn, i, connIndex, `${label}结点`, errors);
-                    checkLane(conn, i, connIndex, `${label}结点`, errors);
+                    checkBeat(conn, i, connIndex, t('validate.label.node', { label }), errors);
+                    checkLane(conn, i, connIndex, t('validate.label.node', { label }), errors);
                 });
                 // issue 106 定案：**可见结点不足 / 首尾 hidden 不再拒收**——外部数据按实机口径处置：
                 // 画布显示投影掐掉首尾 hidden（数据原样保留）、可见 1 个 → 按单键形态显示、
@@ -546,7 +545,7 @@ export function validateChartCode(
             default:
                 errors.push({
                     noteIndex: i, field: 'type',
-                    reason: `未知的 type "${String(note.type)}"`, expected: 'BPM / Single / Directional / Slide / Long',
+                    reason: t('validate.unknownType', { type: String(note.type) }), expected: t('validate.typeExpected'),
                 });
         }
     }
@@ -572,7 +571,7 @@ export function validateChartCodeJSON(text: string): ValidationResult {
     } catch (error) {
         return {
             valid: false,
-            errors: [{ noteIndex: -1, reason: 'JSON格式错误: ' + (error as Error).message }],
+            errors: [{ noteIndex: -1, reason: t('validate.jsonError', { message: (error as Error).message }) }],
         };
     }
     return validateChartCode(parsed as ChartCodeNote[]);
@@ -583,11 +582,11 @@ export function validateChartCodeJSON(text: string): ValidationResult {
  * 形如「音符 3 › 结点 0 · lane：滑条结点 lane 必须在 0-6 范围内（期望：0-6）」。
  */
 export function formatValidationError(error: ValidationError): string {
-    const path = error.noteIndex >= 0 ? `音符 ${error.noteIndex}` : '谱面代码';
-    const conn = error.connIndex !== undefined ? ` › 结点 ${error.connIndex}` : '';
-    const field = error.field ? ` · ${error.field}` : '';
-    const expected = error.expected ? `（期望：${error.expected}）` : '';
-    return `${path}${conn}${field}：${error.reason}${expected}`;
+    const path = error.noteIndex >= 0 ? t('validate.formatNote', { index: error.noteIndex }) : t('validate.formatChart');
+    const conn = error.connIndex !== undefined ? t('validate.formatConn', { index: error.connIndex }) : '';
+    const field = error.field ? t('validate.formatField', { field: error.field }) : '';
+    const expected = error.expected ? t('validate.formatExpected', { expected: error.expected }) : '';
+    return t('validate.formatLine', { path, conn, field, reason: error.reason, expected });
 }
 
 /**

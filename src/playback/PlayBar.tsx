@@ -3,6 +3,7 @@ import { Volume2, VolumeX, Play, Pause } from "lucide-react";
 import { formatKey } from '../chart/config/ShortcutConfig';
 import { formatTimePrecise, formatTimeWhole, parseTimeInput } from '../chart/geometry/TimeFormat';
 import { usePlayback, useConfig } from '../app/ProviderTree';
+import { t } from '../i18n';
 import './PlayBar.css';
 
 // 工作台底部播放条（issue 22 + issue 49 阶段 3 迁出 inline）。
@@ -82,7 +83,7 @@ export default function PlayBar({
       {/* 播放/暂停 */}
       <button
         onClick={onTogglePlay}
-        title={`播放/暂停（${formatKey(shortcutConfig.play)}）`}
+        title={t('play.toggle', { key: formatKey(shortcutConfig.play) })}
         className="play-bar__play-btn"
       >
         {isPlaying ? <Pause size={15} /> : <Play size={15} />}
@@ -99,13 +100,13 @@ export default function PlayBar({
             onBlur={commitTime}
             onKeyDown={onTimeKeyDown}
             inputMode="decimal"
-            title="输入 mm:ss 或 mm:ss.s 后回车（最大谱面长度，秒）"
+            title={t('play.timeInput')}
             className="play-bar__time-input"
           />
         ) : (
           <span
             onDoubleClick={beginEditTime}
-            title={canPlay ? undefined : '双击编辑时间定位'}
+            title={canPlay ? undefined : t('play.editTime')}
             className={`play-bar__time-current${canPlay ? '' : ' is-editable'}`}
           >{formatTimePrecise(currentSeconds)}</span>
         )}
@@ -118,11 +119,11 @@ export default function PlayBar({
       <div
         ref={trackRef}
         role="slider"
-        aria-label="播放进度"
+        aria-label={t('play.progress')}
         aria-valuemin={0}
         aria-valuemax={Math.round(duration)}
         aria-valuenow={Math.round(currentSeconds)}
-        title="点击/拖动定位播放位置"
+        title={t('play.seek')}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
@@ -147,7 +148,7 @@ export default function PlayBar({
       </div>
 
       {/* 音量 */}
-      <label className="play-bar__volume" title="音量">
+      <label className="play-bar__volume" title={t('play.volume')}>
         {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
         <input
           type="range"

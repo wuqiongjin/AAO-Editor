@@ -70,7 +70,7 @@ describe('issue 86 · 工具栏音符图标接入音符皮肤域', () => {
 
   it('镜像工具改用 FlipHorizontal2（原 RotateCcw 语义不符）', () => {
     expect(toolbarSrc).not.toContain('RotateCcw');
-    const mirrorLine = toolbarSrc.split('\n').find((l) => l.includes('label="镜像"')) ?? '';
+    const mirrorLine = toolbarSrc.split('\n').find((l) => l.includes("t('tool.mirror')") && l.includes('armOrRelease')) ?? '';
     expect(mirrorLine).toContain('FlipHorizontal2');
   });
 });

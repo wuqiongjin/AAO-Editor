@@ -13,6 +13,7 @@ import {
   shortcutTableEmptyKind,
   restoreDefaultsInFilter,
 } from '../../src/settings/shortcutIndexFilter';
+import { t } from '../../src/i18n';
 import { defaultSettings } from '../../src/chart/config/AppSettings';
 
 const ROOT = join(__dirname, '../..');
@@ -40,12 +41,12 @@ describe('issue 121 · 索引筛选桶归属', () => {
   it('类别 → 粗桶对照表与定案一致（布局=系统，播放=播放）', () => {
     // 期望值来自 issue 121 定案表，不从 CATEGORY_TO_BUCKET 抄
     const expected: Record<string, 'system' | 'noteTools' | 'editTools' | 'playback'> = {
-      布局: 'system',
-      鼠标: 'noteTools', BPM: 'noteTools', 单键: 'noteTools', 滑键: 'noteTools',
-      技能: 'noteTools', 左滑: 'noteTools', 右滑: 'noteTools', 滑条: 'noteTools', 曲线: 'noteTools',
-      复制: 'editTools', 粘贴: 'editTools', 剪切: 'editTools', 删除: 'editTools',
-      镜像: 'editTools', 音符代码: 'editTools', 撤销: 'editTools', 重做: 'editTools',
-      播放: 'playback',
+      layout: 'system',
+      mouse: 'noteTools', bpm: 'noteTools', single: 'noteTools', flick: 'noteTools',
+      skill: 'noteTools', ldirectional: 'noteTools', rdirectional: 'noteTools', slide: 'noteTools', curve: 'noteTools',
+      copy: 'editTools', paste: 'editTools', cut: 'editTools', delete: 'editTools',
+      mirror: 'editTools', noteCode: 'editTools', undo: 'editTools', redo: 'editTools',
+      play: 'playback',
     };
     for (const f of FUNCTIONS) {
       expect(bucketForCategory(f.category), f.id).toBe(expected[f.category]);
@@ -53,10 +54,10 @@ describe('issue 121 · 索引筛选桶归属', () => {
   });
 
   it('索引筛选标签是粗桶名，不含 ADR 类别细分组', () => {
-    expect(INDEX_FILTERS.map((f) => f.label)).toEqual([
+    expect(INDEX_FILTERS.map((f) => t(f.label))).toEqual([
       '全部', '系统', '音符工具', '编辑工具', '播放', '其它',
     ]);
-    const labels = INDEX_FILTERS.map((f) => f.label).join(' ');
+    const labels = INDEX_FILTERS.map((f) => t(f.label)).join(' ');
     expect(labels).not.toMatch(/单键|复制|布局/);
   });
 });
@@ -122,7 +123,7 @@ describe('issue 121 · 筛选不写入设置对象', () => {
     expect(src).toContain('AppPageShell.Sidebar');
     expect(src).toContain('empty-bucket');
     expect(src).toContain('empty-search');
-    expect(src).toContain('此分类下暂无快捷键');
+    expect(src).toContain('shortcuts.emptyBucket');
     expect(src).toContain('restoreDefaultsInFilter');
     expect(src).toMatch(/key=\{indexFilter\}/);
     expect(src).toContain('shortcut-table-body');

@@ -11,6 +11,7 @@ import {
   filterFunctions, filterPageSwitchRows, shortcutTableEmptyKind, restoreDefaultsInFilter,
 } from './shortcutIndexFilter';
 import { useConfig } from '../app/ProviderTree';
+import { t, type MessageKey } from '../i18n';
 
 // 快捷键页（issue 28 + issue 44 + issue 121）：
 //   - 侧栏「索引筛选」粗桶筛表（≠ ADR-0002 tooltip 类别）；默认「全部」，不写入设置对象；
@@ -111,8 +112,8 @@ function ShortcutRecorder({ id, onCommit, onCancel }: {
         <div className="shortcut-recorder__keys">
           {draft ? formatKey(draft) : '…'}
         </div>
-        <div className="shortcut-recorder__hint">先按所需的组合键，再按 enter 键。</div>
-        <div className="shortcut-recorder__meta">{functionById(id).label}　·　Enter 确认 · Esc 取消</div>
+        <div className="shortcut-recorder__hint">{t('shortcuts.recorder.hint')}</div>
+        <div className="shortcut-recorder__meta">{t('shortcuts.recorder.meta', { label: t(functionById(id).label as MessageKey) })}</div>
       </div>
     </div>
   );
@@ -159,7 +160,7 @@ export default function ShortcutsPage() {
     const next = { ...config };
     const conflict = setFunctionBinding(next, id, binding);
     if (conflict) {
-      setError({ id, msg: `键位 "${formatKey(binding)}" 已被功能「${functionById(conflict).label}」占用` });
+      setError({ id, msg: t('shortcuts.conflict', { key: formatKey(binding), label: t(functionById(conflict).label as MessageKey) }) });
       return;
     }
     setError(null);
@@ -176,17 +177,17 @@ export default function ShortcutsPage() {
   return (
     <AppPageShell>
       <AppPageShell.Header
-        eyebrow="输入与效率"
-        title="快捷键"
-        description="侧栏索引筛选或搜索功能，点击键位录入；冲突保存前提示。"
+        eyebrow={t('shortcuts.header.eyebrow')}
+        title={t('shortcuts.header.title')}
+        description={t('shortcuts.header.description')}
       />
 
-      <AppPageShell.Sidebar ariaLabel="索引筛选">
+      <AppPageShell.Sidebar ariaLabel={t('shortcuts.sidebar.aria')}>
         {INDEX_FILTERS.map((item) => (
           <AppPageShell.SidebarItem
             key={item.id}
             icon={INDEX_FILTER_ICONS[item.id]}
-            label={item.label}
+            label={t(item.label)}
             active={indexFilter === item.id}
             onClick={() => setIndexFilter(item.id)}
           />
@@ -198,24 +199,24 @@ export default function ShortcutsPage() {
         <section className="shortcut-surface surface-section app-stagger">
         {/* 删掉 settings-heading（与 page header "快捷键" 重复），改在 toolbar 上加 padding-top 让搜索框与卡片间距与其它页一致 */}
         <div className="shortcut-toolbar">
-          <label className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索功能或按键" /></label>
+          <label className="search-field"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('shortcuts.search')} /></label>
           <button
             className="button-secondary"
             type="button"
             disabled={restorableCount === 0}
-            title={indexFilter === 'all' ? '恢复全部快捷键为出厂默认' : '仅重置当前索引中的可改快捷键'}
+            title={indexFilter === 'all' ? t('shortcuts.resetAll') : t('shortcuts.resetBucket')}
             onClick={() => {
               setError(null);
               setShortcutConfig(restoreDefaultsInFilter(config, indexFilter));
             }}
-          ><RotateCcw size={15} />恢复默认</button>
+          ><RotateCcw size={15} />{t('shortcuts.reset')}</button>
         </div>
 
         {error && <div className="shortcut-error">{error.msg}</div>}
 
-        <div ref={shortcutTableRef} className="shortcut-table" role="table" aria-label="快捷键列表">
+        <div ref={shortcutTableRef} className="shortcut-table" role="table" aria-label={t('shortcuts.tableAria')}>
           <div className="shortcut-row shortcut-head" role="row">
-            <span>类别</span><span>功能</span><span>快捷键</span><span>修改</span><span>启用</span>
+            <span>{t('shortcuts.col.category')}</span><span>{t('shortcuts.col.function')}</span><span>{t('shortcuts.col.key')}</span><span>{t('shortcuts.col.edit')}</span><span>{t('shortcuts.col.enable')}</span>
           </div>
 
           {/* 换桶才重挂，复用其它页 app-stagger；搜索只滤行、不重播。工具栏不在此。 */}
@@ -223,12 +224,12 @@ export default function ShortcutsPage() {
           {/* 应用级（切页）快捷键：只读展示，固定绑定、不支持自定义/启用/修改 */}
           {visiblePageSwitch.map((s) => (
             <div className="shortcut-row is-system" role="row" key={s.label}>
-              <span className="shortcut-group">系统</span>
-              <strong>{s.label}</strong>
+              <span className="shortcut-group">{t('shortcuts.system')}</span>
+              <strong>{t(s.label)}</strong>
               {/* 每个可替换的快捷键各成一个独立键块（如 Ctrl+Shift+1 与 ⌘+Shift+1），并排在同一行 */}
               <div className="sys-keybindings">
                 {expandCombo(s.combo).map((parts, i) => (
-                  <span className="key-binding is-disabled" key={i} title={`${s.label} · 固定绑定，不支持修改`}>
+                  <span className="key-binding is-disabled" key={i} title={t('shortcuts.fixedTitle', { label: t(s.label) })}>
                     <KeyChips parts={parts} />
                   </span>
                 ))}
@@ -251,14 +252,14 @@ export default function ShortcutsPage() {
                   setEditingId(f.id);
                 }}
               >
-                <span className="shortcut-group">{f.category}</span>
-                <strong>{f.label}</strong>
+                <span className="shortcut-group">{t(`tool.cat.${f.category}` as MessageKey)}</span>
+                <strong>{t(f.label as MessageKey)}</strong>
                 {bound ? (
                   <button
                     className="key-binding"
                     type="button"
                     onClick={() => setEditingId(f.id)}
-                    title="点击修改快捷键"
+                    title={t('shortcuts.clickToEdit')}
                     style={error?.id === f.id ? { borderColor: 'var(--danger)', color: 'var(--danger-text)' } : undefined}
                   >
                     {formatKey(config[f.id] as string).split('+').map((part, k) => (
@@ -269,21 +270,21 @@ export default function ShortcutsPage() {
                     ))}
                   </button>
                 ) : (
-                  <span className="key-binding is-disabled">已屏蔽</span>
+                  <span className="key-binding is-disabled">{t('shortcuts.blocked')}</span>
                 )}
                 <button
                   className="edit-binding"
                   type="button"
                   disabled={!bound}
                   onClick={() => bound && setEditingId(f.id)}
-                  title={bound ? '修改快捷键' : '已屏蔽，先启用才能修改'}
-                  aria-label={`修改${f.label}的快捷键`}
+                  title={bound ? t('shortcuts.edit') : t('shortcuts.editDisabled')}
+                  aria-label={t('shortcuts.editAria', { label: t(f.label as MessageKey) })}
                 ><Pencil size={14} /></button>
                 <label style={{ display: 'flex', justifyContent: 'center' }}>
                   <button
                     className={`switch compact${bound ? ' is-on' : ''}`}
                     type="button"
-                    aria-label={`${bound ? '禁用' : '启用'}${f.label}`}
+                    aria-label={bound ? t('shortcuts.disableAria', { label: t(f.label as MessageKey) }) : t('shortcuts.enableAria', { label: t(f.label as MessageKey) })}
                     onClick={() => setEnabled(f.id, !bound)}
                   ><span /></button>
                 </label>
@@ -293,9 +294,9 @@ export default function ShortcutsPage() {
           {emptyKind === 'empty-bucket' && (
             <EmptyState
               icon={Inbox}
-              title="此分类下暂无快捷键"
+              title={t('shortcuts.emptyBucket')}
               primaryAction={{
-                label: '查看全部',
+                label: t('shortcuts.viewAll'),
                 onClick: () => { setQuery(''); setIndexFilter('all'); },
               }}
             />
@@ -303,10 +304,10 @@ export default function ShortcutsPage() {
           {emptyKind === 'empty-search' && (
             <EmptyState
               icon={SearchX}
-              title="没有匹配的功能"
-              description="换关键词或清除搜索框。"
+              title={t('shortcuts.emptySearch')}
+              description={t('shortcuts.emptySearchHint')}
               primaryAction={{
-                label: '清除搜索',
+                label: t('shortcuts.clearSearch'),
                 onClick: () => setQuery(''),
               }}
             />

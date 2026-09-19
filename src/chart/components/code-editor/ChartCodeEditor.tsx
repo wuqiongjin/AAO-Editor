@@ -3,6 +3,7 @@
 // 与「音符代码」工具的入口各司其职：本按钮不进工具轴、不看选区；选区 ≥2 时弹窗顶部给一行提示。
 import { Braces } from "lucide-react";
 import { useChartCodeEditor } from './ChartCodeEditorProvider';
+import { t } from '../../../i18n';
 
 export default function ChartCodeEditor() {
     const { openChartCode } = useChartCodeEditor();
@@ -10,7 +11,7 @@ export default function ChartCodeEditor() {
     return (
         <button
             onClick={openChartCode}
-            title="打开完整谱面代码（始终展示整份谱面，与选区无关）"
+            title={t('chartCode.open')}
             style={{
                 width: '100%',
                 display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
@@ -27,7 +28,7 @@ export default function ChartCodeEditor() {
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
         >
             <span style={{ display: 'flex', flexShrink: 0 }}><Braces size={20} /></span>
-            <span>谱面代码</span>
+            <span>{t('tool.chartCode')}</span>
         </button>
     );
 }

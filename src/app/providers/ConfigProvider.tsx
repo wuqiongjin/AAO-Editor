@@ -5,12 +5,14 @@ import { createContext, useContext, useCallback, useState, type ReactNode } from
 import { loadSettings, saveSettings, updateSettings, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
 import { getDefaultConfig, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/ToolActionMatrix';
+import { setActiveUiLanguage } from '../../i18n';
 
 export interface ConfigContextValue {
   settings: AppSettings;
   setShortcutConfig: (next: ShortcutConfig) => void;
   setKeySetId: (id: string) => void;
   setTheme: (theme: AppSettings['theme']) => void;
+  setUiLanguage: (uiLanguage: AppSettings['uiLanguage']) => void;
   /** chrome 字号比例（issue 124）：0.7..1.5 步长 0.1 */
   setUiTypeScale: (uiTypeScale: number) => void;
   /** chrome 无衬线字体档（issue 124） */
@@ -35,7 +37,11 @@ export interface ConfigContextValue {
 const ConfigContext = createContext<ConfigContextValue | null>(null);
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const loaded = loadSettings();
+    setActiveUiLanguage(loaded.uiLanguage);
+    return loaded;
+  });
 
   const setShortcutConfig = useCallback((next: ShortcutConfig) => {
     setSettings(prev => {
@@ -56,6 +62,15 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback((theme: AppSettings['theme']) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { theme });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
+  const setUiLanguage = useCallback((uiLanguage: AppSettings['uiLanguage']) => {
+    setActiveUiLanguage(uiLanguage);
+    setSettings(prev => {
+      const merged = updateSettings(prev, { uiLanguage });
       saveSettings(merged);
       return merged;
     });
@@ -139,6 +154,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setAllSettings = useCallback((next: AppSettings) => {
+    setActiveUiLanguage(next.uiLanguage);
     saveSettings(next);
     setSettings(next);
   }, []);
@@ -146,7 +162,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

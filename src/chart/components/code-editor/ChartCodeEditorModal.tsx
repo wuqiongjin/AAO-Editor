@@ -20,6 +20,7 @@ import {
 } from '../../editing/ChartConverter';
 import { buildNoteCode, applyNoteCode, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText } from '../../editing/NoteCodeOps';
 import { useEditing, usePlayback, useUI } from '../../../app/ProviderTree';
+import { t, tPlural } from '../../../i18n';
 import { maxNoteEndSeconds, getBpmEvents } from '../../../audio/AudioTiming';
 import {
     createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
@@ -126,7 +127,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
     // 无论停在完整代码 / 整条音符 / 滑条结点哪一级，Esc 都是直接关弹窗；
     // 向上看走面包屑（`完整谱面代码 › 所属滑条 › 音符代码`）上的按钮。
     const requestClose = () => {
-        if (isDirty && !window.confirm('谱面代码有未应用的更改，关闭将丢弃这些更改，确定关闭？')) {
+        if (isDirty && !window.confirm(t('chartCode.confirmClose'))) {
             return;
         }
         close();
@@ -172,7 +173,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
     const rejectNoteApply = (errors: ValidationError[]) => {
         setIsValid(false);
         setValidationErrors(errors);
-        alert(`有 ${errors.length} 处错误，未应用（详见上方错误列表）`);
+        alert(tPlural('chartCode.alertErrors', errors.length));
     };
 
     // 应用谱面代码：经 useEditing.handleNotesChange 走历史记录（单向「代码→画布」）
@@ -182,7 +183,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
         // 撞错 = 整份拒（issue 59 §1.2）：不回写画布，也不静默修正 / 丢弃草稿——
         // 错误全留在上方列表里，供用户对照逐条改。
         if (errors.length > 0) {
-            alert(`谱面代码有 ${errors.length} 处错误，未应用（详见上方错误列表）`);
+            alert(tPlural('chartCode.alertErrorsApply', errors.length));
             return;
         }
 
@@ -204,13 +205,13 @@ export default function ChartCodeEditorModal({ target }: Props) {
 
             // 强制校验：beat0 必须有 BPM 音符（保底语义，ADR-0001 谱面必须有初始 BPM）
             if (!hasBeat0Bpm(parsedCode)) {
-                alert('谱面必须包含第 0 拍的 BPM 音符，无法应用');
+                alert(t('chartCode.needBpm0'));
                 return;
             }
             // 覆盖风险确认：画布已在草稿之后被改动
             if (isStale) {
                 const delta = Math.abs(notes.length - appliedNotesCount);
-                if (!window.confirm(`应用将覆盖画布上的 ${delta} 个音符改动，确定应用？`)) {
+                if (!window.confirm(t('chartCode.confirmOverwrite', { count: delta }))) {
                     return;
                 }
             }
@@ -226,9 +227,9 @@ export default function ChartCodeEditorModal({ target }: Props) {
             setLastAppliedCode(chartCode);
             setAppliedNotesCount(newNotes.length);
             setTextHistory(createHistory(chartCode));
-            alert('谱面代码已成功应用到编辑器');
+            alert(t('chartCode.applyOk'));
         } catch (error) {
-            alert('应用谱面代码失败，已回退到上次应用的状态: ' + (error as Error).message);
+            alert(t('chartCode.applyFail', { message: (error as Error).message }));
             setTextHistory(createHistory(lastAppliedCode));
             setIsValid(true);
             setValidationErrors([]);
@@ -252,9 +253,9 @@ export default function ChartCodeEditorModal({ target }: Props) {
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(chartCode);
-            alert('谱面代码已复制到剪贴板');
+            alert(t('chartCode.copyOk'));
         } catch (error) {
-            alert('复制失败: ' + (error as Error).message);
+            alert(t('chartCode.copyFail', { message: (error as Error).message }));
         }
     };
 
@@ -263,7 +264,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
         try {
             await exportChartCodeSaveAs(notes);
         } catch (error) {
-            alert('导出失败: ' + (error as Error).message);
+            alert(t('chartCode.exportFail', { message: (error as Error).message }));
         }
     };
 
@@ -332,7 +333,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
     };
 
     // issue 69：面包屑第 2 档文案 —— trail 是滑条结点或子段 → 其父级为"所属滑条"；trail 是整条音符 → "音符代码"
-    const crumb2Label = trail?.connIndex !== undefined || trail?.span !== undefined ? '所属滑条' : '音符代码';
+    const crumb2Label = trail?.connIndex !== undefined || trail?.span !== undefined ? t('chartCode.slideParent') : t('chartCode.note');
     // §2：完整代码视图在选区 ≥2 时给一行非阻断提示（「谱面代码」按钮永远展示完整谱面）
     const showSelectionHint = isChartView && selectedItems.length >= 2;
 
@@ -375,9 +376,9 @@ export default function ChartCodeEditorModal({ target }: Props) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', marginRight: 'auto' }}>
                         {/* 第 1 档：完整谱面代码 */}
                         {isChartView ? (
-                            <span style={crumbCurrentStyle}>完整谱面代码</span>
+                            <span style={crumbCurrentStyle}>{t('chartCode.full')}</span>
                         ) : (
-                            <button onClick={() => navigate({ kind: 'chart' })} title="完整谱面代码" style={crumbButtonStyle}>完整谱面代码</button>
+                            <button onClick={() => navigate({ kind: 'chart' })} title={t('chartCode.full')} style={crumbButtonStyle}>{t('chartCode.full')}</button>
                         )}
                         {/* 第 2 档：本次会话进过深层才有（trail） */}
                         {trail && (
@@ -400,13 +401,13 @@ export default function ChartCodeEditorModal({ target }: Props) {
                             <>
                                 <span style={crumbSepStyle}>›</span>
                                 {isSegmentView ? (
-                                    <span style={crumbCurrentStyle}>子段代码</span>
+                                    <span style={crumbCurrentStyle}>{t('chartCode.segment')}</span>
                                 ) : (
                                     <button
                                         onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex, span: trail.span })}
-                                        title="子段代码"
+                                        title={t('chartCode.segment')}
                                         style={crumbButtonStyle}
-                                    >子段代码</button>
+                                    >{t('chartCode.segment')}</button>
                                 )}
                             </>
                         )}
@@ -415,20 +416,20 @@ export default function ChartCodeEditorModal({ target }: Props) {
                             <>
                                 <span style={crumbSepStyle}>›</span>
                                 {isNodeView ? (
-                                    <span style={crumbCurrentStyle}>音符代码</span>
+                                    <span style={crumbCurrentStyle}>{t('chartCode.note')}</span>
                                 ) : (
                                     <button
                                         onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex, connIndex: trail.connIndex })}
-                                        title="音符代码"
+                                        title={t('chartCode.note')}
                                         style={crumbButtonStyle}
-                                    >音符代码</button>
+                                    >{t('chartCode.note')}</button>
                                 )}
                             </>
                         )}
                     </div>
                     <button
                         onClick={requestClose}
-                        title="关闭"
+                        title={t('chartCode.close')}
                         style={{
                             width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
                             border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
@@ -449,7 +450,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
                         borderBottom: '1px solid var(--border)', color: 'var(--accent-text)',
                         fontSize: 'var(--text-xs)',
                     }}>
-                        已选 {selectedItems.length} 个音符，代码视图展示完整谱面；复制选中片段请用『复制为谱面代码』
+                        {t('chartCode.selectionHint', { count: selectedItems.length })}
                     </div>
                 )}
 
@@ -461,9 +462,9 @@ export default function ChartCodeEditorModal({ target }: Props) {
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)',
                     }}>
                         <span style={{ fontSize: 'var(--text-xs)' }}>
-                            代码已过期（画布已更新 {Math.abs(notes.length - appliedNotesCount)} 个音符），应用将覆盖画布改动。
+                            {t('chartCode.stale', { count: Math.abs(notes.length - appliedNotesCount) })}
                         </span>
-                        <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={14} />用画布刷新代码</ActionBtn>
+                        <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={14} />{t('chartCode.refreshCanvas')}</ActionBtn>
                     </div>
                 )}
 
@@ -471,7 +472,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
                 {!isValid && validationErrors.length > 0 && (
                     <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--danger-soft)', borderBottom: '1px solid var(--danger)', color: 'var(--danger-text)' }}>
                         <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                            错误信息（共 {validationErrors.length} 处）:
+                            {t('chartCode.errorsTitle', { count: validationErrors.length })}
                         </h4>
                         <ul style={{
                             margin: 0, paddingLeft: 'var(--space-4)', fontSize: 'var(--text-xs)',
@@ -484,7 +485,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
                         </ul>
                         {validationErrors.length > MAX_VISIBLE_ERRORS && (
                             <div style={{ marginTop: 'var(--space-2)', fontSize: 'var(--text-xs)', opacity: 0.85 }}>
-                                … 另有 {validationErrors.length - MAX_VISIBLE_ERRORS} 处未列出
+                                {t('chartCode.errorsMore', { count: validationErrors.length - MAX_VISIBLE_ERRORS })}
                             </div>
                         )}
                     </div>
@@ -498,7 +499,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
                         onChange={handleCodeChange}
                         onKeyDown={handleKeyDown}
                         spellCheck={false}
-                        placeholder="谱面代码将在这里显示..."
+                        placeholder={t('chartCode.placeholder')}
                         style={{
                             width: '100%', height: '100%', minHeight: 0, boxSizing: 'border-box', resize: 'none',
                             padding: 'var(--space-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
@@ -515,17 +516,16 @@ export default function ChartCodeEditorModal({ target }: Props) {
                     padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--border)',
                     backgroundColor: 'var(--bg-inset)', display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center',
                 }}>
-                    <ActionBtn onClick={handleApply} disabled={!isValid} variant="primary">应用更改</ActionBtn>
-                    <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={16} />从画布刷新</ActionBtn>
-                    {/* 「重置」= 回到保底 BPM 谱面，只对完整代码视图有意义 */}
-                    {isChartView && <ActionBtn onClick={handleReset}><RotateCcw size={16} />重置</ActionBtn>}
-                    <ActionBtn onClick={handleCopy}><Copy size={16} />复制</ActionBtn>
-                    <ActionBtn onClick={handleSaveAs}><Download size={16} />另存为</ActionBtn>
+                    <ActionBtn onClick={handleApply} disabled={!isValid} variant="primary">{t('chartCode.apply')}</ActionBtn>
+                    <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={16} />{t('chartCode.refresh')}</ActionBtn>
+                    {isChartView && <ActionBtn onClick={handleReset}><RotateCcw size={16} />{t('chartCode.reset')}</ActionBtn>}
+                    <ActionBtn onClick={handleCopy}><Copy size={16} />{t('chartCode.copy')}</ActionBtn>
+                    <ActionBtn onClick={handleSaveAs}><Download size={16} />{t('chartCode.saveAs')}</ActionBtn>
                     {isDirty && (
-                        <span style={{ color: 'var(--warning)', fontSize: 'var(--text-xs)' }}>未保存的更改</span>
+                        <span style={{ color: 'var(--warning)', fontSize: 'var(--text-xs)' }}>{t('chartCode.dirty')}</span>
                     )}
                     <span style={{ flex: 1 }} />
-                    <ActionBtn onClick={requestClose}>关闭</ActionBtn>
+                    <ActionBtn onClick={requestClose}>{t('chartCode.close')}</ActionBtn>
                 </div>
             </div>
         </div>,

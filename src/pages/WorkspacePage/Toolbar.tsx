@@ -21,6 +21,7 @@ import IconButton from '../../ui/IconButton';
 import ChartCodeEditor from '../../chart/components/code-editor/ChartCodeEditor';
 import SectionHeader from './ToolbarSection';
 import CurveConfigPanel from './CurveConfigPanel';
+import { t, type MessageKey } from '../../i18n';
 import './Toolbar.css';
 
 // 工作台左侧工具栏（issue 22 + issue 28 + issue 49 阶段 3 迁出）：
@@ -30,10 +31,10 @@ import './Toolbar.css';
 
 // 工具 id → 快捷键类别（tooltip 按类别合并 切换/执行）
 const toolCategory: Record<string, string> = {
-  mouse: "鼠标", bpm: "BPM", single: "单键", flick: "滑键",
-  skill: "技能", ldirectional: "左滑", rdirectional: "右滑", slide: "滑条", curve: "曲线",
-  copy: "复制", cut: "剪切", paste: "粘贴", delete: "删除", mirror: "镜像",
-  noteCode: "音符代码", undo: "撤销", redo: "重做",
+  mouse: "mouse", bpm: "bpm", single: "single", flick: "flick",
+  skill: "skill", ldirectional: "ldirectional", rdirectional: "rdirectional", slide: "slide", curve: "curve",
+  copy: "copy", cut: "cut", paste: "paste", delete: "delete", mirror: "mirror",
+  noteCode: "noteCode", undo: "undo", redo: "redo",
 };
 
 // 曲线工具配置项的选项表已随面板抽到 `CurveConfigPanel.tsx`（issue 114）。
@@ -69,29 +70,28 @@ export default function Toolbar() {
 
   // 工具 tooltip：合并 切换/执行 两类快捷键
   const tooltipForCategory = (cat: string): string => {
+    const catLabel = t(`tool.cat.${cat}` as MessageKey);
     const lines = categoryShortcuts(shortcutConfig, cat);
-    return lines.length > 0 ? [`${cat}（${lines.map(l => l.mode + ' ' + l.key).join(' / ')}）`].join('\n') : cat;
+    return lines.length > 0 ? t('toolbar.tooltip', { cat: catLabel, lines: lines.map(l => l.mode + ' ' + l.key).join(' / ') }) : catLabel;
   };
 
   const tools = [
-    { id: "mouse", icon: <MousePointer size={18} />, label: "鼠标" },
-    { id: "bpm", icon: <Music size={18} />, label: "BPM" },
-    { id: "single", icon: <NoteIconGlyph icons={noteIcons} item="tap" size={28} />, label: "单键" },
-    { id: "flick", icon: <NoteIconGlyph icons={noteIcons} item="flick" size={28} />, label: "滑键" },
-    { id: "skill", icon: <NoteIconGlyph icons={noteIcons} item="skill" size={28} />, label: "技能" },
-    { id: "ldirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirL" size={28} />, label: "左滑" },
-    { id: "rdirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirR" size={28} />, label: "右滑" },
-    { id: "slide", icon: <NoteIconGlyph icons={noteIcons} item="slide" size={28} />, label: "滑条" },
-    // issue 09 S2：曲线工具（SP 绿条直接放置——单击链式 / 拖动画笔 / 点段重应用）
-    // issue 114：图标改用真实 SP 带材质的一段弯带（与其余键型图标同为皮肤字形、size 28）
-    { id: "curve", icon: <NoteIconGlyph icons={noteIcons} item="curve" size={28} />, label: "曲线" },
+    { id: "mouse", icon: <MousePointer size={18} />, labelKey: "tool.mouse" as MessageKey },
+    { id: "bpm", icon: <Music size={18} />, labelKey: "tool.bpm" as MessageKey },
+    { id: "single", icon: <NoteIconGlyph icons={noteIcons} item="tap" size={28} />, labelKey: "tool.single" as MessageKey },
+    { id: "flick", icon: <NoteIconGlyph icons={noteIcons} item="flick" size={28} />, labelKey: "tool.flick" as MessageKey },
+    { id: "skill", icon: <NoteIconGlyph icons={noteIcons} item="skill" size={28} />, labelKey: "tool.skill" as MessageKey },
+    { id: "ldirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirL" size={28} />, labelKey: "tool.dirL.short" as MessageKey },
+    { id: "rdirectional", icon: <NoteIconGlyph icons={noteIcons} item="dirR" size={28} />, labelKey: "tool.dirR.short" as MessageKey },
+    { id: "slide", icon: <NoteIconGlyph icons={noteIcons} item="slide" size={28} />, labelKey: "tool.slide" as MessageKey },
+    { id: "curve", icon: <NoteIconGlyph icons={noteIcons} item="curve" size={28} />, labelKey: "tool.curve" as MessageKey },
   ];
-  // 持工具态（ADR-0008 §1）：null = 指针底态（工具条首位 "鼠标" 即高亮项）。
-  // 动作类持工具态（方案 A，issue 55 三轮：删除/镜像）标签供顶部 pill 显示
-  const armLabels: Record<string, string> = { delete: '删除', mirror: '镜像', paste: '粘贴', noteCode: '音符代码' };
+  const armLabels: Record<string, MessageKey> = { delete: 'tool.delete', mirror: 'tool.mirror', paste: 'tool.paste', noteCode: 'tool.noteCode' };
   const currentToolLabel = armedTool === null
-    ? '指针'
-    : (tools.find(t => t.id === armedTool)?.label ?? armLabels[armedTool] ?? armedTool);
+    ? t('tool.pointer')
+    : (armedTool === 'ldirectional' ? t('tool.dirL.short')
+      : armedTool === 'rdirectional' ? t('tool.dirR.short')
+      : (tools.find(t0 => t0.id === armedTool) ? t(tools.find(t0 => t0.id === armedTool)!.labelKey) : (armLabels[armedTool] ? t(armLabels[armedTool]) : armedTool)));
   const armOrRelease = (id: string) => {
     if (id === 'mouse') { setArmedTool(null); return; }
     // 退出三出口之一（§2 原则 3）：点击当前高亮工具 = 落回指针
@@ -115,11 +115,11 @@ export default function Toolbar() {
       <div className="toolbar__head">
         <IconButton
           onClick={toggleLeftPanel}
-          title="收起左侧工具栏"
+          title={t('toolbar.collapseLeft')}
           width="auto"
           icon={<ChevronLeft size={14} />}
         />
-        <span className="toolbar__title">工具栏</span>
+        <span className="toolbar__title">{t('toolbar.title')}</span>
         <span className="toolbar__current-tool">{currentToolLabel}</span>
       </div>
 
@@ -127,7 +127,7 @@ export default function Toolbar() {
       <div className="toolbar__body">
         {/* 主工具：键型选择（紧凑 3 列网格，选中态 + 完整 tooltip） */}
         <div>
-          <SectionHeader>键型工具</SectionHeader>
+          <SectionHeader>{t('toolbar.noteTools')}</SectionHeader>
           <div className="toolbar__grid toolbar__grid--3">
             {tools.map((tool) => (
               <IconButton
@@ -143,7 +143,7 @@ export default function Toolbar() {
 
         {/* 节拍吸附 */}
         <div>
-          <SectionHeader>节拍吸附</SectionHeader>
+          <SectionHeader>{t('toolbar.beatSnap')}</SectionHeader>
           <select
             value={beatDisplay}
             onChange={(e) => setBeatDisplay(Number(e.target.value))}
@@ -165,35 +165,35 @@ export default function Toolbar() {
 
         {/* 编辑功能（对选中对象/剪贴板）：2 列网格，谱面代码铺满 */}
         <div>
-          <SectionHeader>编辑</SectionHeader>
+          <SectionHeader>{t('toolbar.edit')}</SectionHeader>
           <div className="toolbar__grid toolbar__grid--2">
-            <IconButton icon={<Copy size={16} />} label="复制" onClick={copy} disabled={!canCopy} title={tooltipForCategory(toolCategory.copy)} />
-            <IconButton icon={<Scissors size={16} />} label="剪切" onClick={cut} disabled={!canCopy} title={tooltipForCategory(toolCategory.cut)} />
+            <IconButton icon={<Copy size={16} />} label={t('tool.copy')} onClick={copy} disabled={!canCopy} title={tooltipForCategory(toolCategory.copy)} />
+            <IconButton icon={<Scissors size={16} />} label={t('tool.cut')} onClick={cut} disabled={!canCopy} title={tooltipForCategory(toolCategory.cut)} />
             {/* 粘贴 = 持工具态 arm/释放（§2.1 六轮）：与 v 键归位，悬停预览 + 单击粘贴并驻留（连续粘贴）；
                 空剪贴板 → 置灰（进态无意义）+ tooltip 说明；v 键同步不进态 */}
             <IconButton
                 icon={<Clipboard size={16} />}
-                label="粘贴"
+                label={t('tool.paste')}
                 onClick={() => armOrRelease('paste')}
                 active={armedTool === 'paste'}
                 disabled={!canPaste}
-                title={canPaste ? tooltipForCategory(toolCategory.paste) : '粘贴（剪贴板为空，先 Ctrl+C 复制）'}
+                title={canPaste ? tooltipForCategory(toolCategory.paste) : t('toolbar.pasteEmpty')}
             />
             {/* 删除/镜像 = 持工具态入口（方案 A）：单击进态，音符上点谁删/镜谁、框选批量；
                 再点按钮/Esc/切换工具退出。即时执行选区仍走 Delete/Ctrl+T、Ctrl+Q 执行键 */}
-            <IconButton icon={<Trash2 size={16} />} label="删除" onClick={() => armOrRelease('delete')} active={armedTool === 'delete'} danger title={tooltipForCategory(toolCategory.delete)} />
+            <IconButton icon={<Trash2 size={16} />} label={t('tool.delete')} onClick={() => armOrRelease('delete')} active={armedTool === 'delete'} danger title={tooltipForCategory(toolCategory.delete)} />
             {/* issue 86：#2 镜像图标：原 RotateCcw（逆时针旋转 = 重置/撤销语义）→ FlipHorizontal2（左右镜像） */}
-            <IconButton icon={<FlipHorizontal2 size={16} />} label="镜像" onClick={() => armOrRelease('mirror')} active={armedTool === 'mirror'} title={tooltipForCategory(toolCategory.mirror)} />
-            <IconButton icon={<Undo size={16} />} label="撤销" onClick={undo} disabled={!canUndo} title={tooltipForCategory(toolCategory.undo)} />
-            <IconButton icon={<Redo size={16} />} label="还原" onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
+            <IconButton icon={<FlipHorizontal2 size={16} />} label={t('tool.mirror')} onClick={() => armOrRelease('mirror')} active={armedTool === 'mirror'} title={tooltipForCategory(toolCategory.mirror)} />
+            <IconButton icon={<Undo size={16} />} label={t('tool.undo')} onClick={undo} disabled={!canUndo} title={tooltipForCategory(toolCategory.undo)} />
+            <IconButton icon={<Redo size={16} />} label={t('tool.redo')} onClick={redo} disabled={!canRedo} title={tooltipForCategory(toolCategory.redo)} />
             {/* issue 59 §2：「音符代码」= 持工具态（与删除/镜像同构），点音符即看其代码、弹窗关闭后态驻留；
                 Ctrl+B = 看光标处音符的代码（不切工具）。与下面的「谱面代码」（永远完整谱面）各司其职 */}
             <IconButton
                 icon={<FileCode size={16} />}
-                label="音符代码"
+                label={t('tool.noteCode')}
                 onClick={() => armOrRelease('noteCode')}
                 active={armedTool === 'noteCode'}
-                title={`${tooltipForCategory(toolCategory.noteCode)}\n点音符查看其代码；Ctrl+B 看光标处音符`}
+                title={t('toolbar.noteCodeHint', { tooltip: tooltipForCategory(toolCategory.noteCode) })}
             />
             {/* issue 37：谱面代码改按需弹窗——入口按钮（点击才打开弹窗，常驻无代码同步成本），跨 2 列 */}
             <div className="toolbar__grid-full">

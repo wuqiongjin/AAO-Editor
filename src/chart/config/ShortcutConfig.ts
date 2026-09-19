@@ -5,6 +5,8 @@
 // - 不给「音符类型/操作类型」整类绑定，而是给「具体功能」绑定。如「切换-单键」与「执行-单键」是两个独立功能。
 // - 每个具体功能恰好绑定 1 个键（"1 功能 1 键"），不再支持一功能多键。
 
+import { t } from '../../i18n';
+
 export type FunctionId =
   | 'switchSingle' | 'execSingle'
   | 'switchFlick' | 'execFlick'
@@ -41,43 +43,38 @@ export interface FunctionDef {
 }
 
 export const FUNCTIONS: FunctionDef[] = [
-  { id: 'switchSingle',       label: '切换-单键',   category: '单键', binding: 'f' },
-  { id: 'execSingle',         label: '执行-单键',   category: '单键', binding: 'ctrl+f' },
-  { id: 'switchFlick',        label: '切换-滑键',   category: '滑键', binding: 'g' },
-  { id: 'execFlick',          label: '执行-滑键',   category: '滑键', binding: 'ctrl+g' },
-  { id: 'switchSkill',        label: '切换-技能',   category: '技能', binding: 'a' },
-  { id: 'execSkill',          label: '执行-技能',   category: '技能', binding: 'ctrl+a' },
-  { id: 'switchLDirectional', label: '切换-左滑',   category: '左滑', binding: 's' },
-  { id: 'execLDirectional',   label: '执行-左滑',   category: '左滑', binding: 'ctrl+s' },
-  { id: 'switchRDirectional', label: '切换-右滑',   category: '右滑', binding: 'd' },
-  { id: 'execRDirectional',   label: '执行-右滑',   category: '右滑', binding: 'ctrl+d' },
-  { id: 'switchBpm',          label: '切换-BPM',    category: 'BPM', binding: '`' },
-  { id: 'execBpm',            label: '执行-BPM',    category: 'BPM', binding: 'ctrl+`' },
-  { id: 'switchSlide',        label: '切换-滑条',   category: '滑条', binding: 'e' },
-  { id: 'execSlide',          label: '执行-滑条',   category: '滑条', binding: 'ctrl+e' },
-  // 验收反馈 #9：曲线默认键从 C 换 W——C 与 Ctrl+C（复制）一指之差易误切工具；
-  // 执行键取 Shift+W（同字母+修饰键家族；Shift 无浏览器保留冲突，Alt+W 双手别扭）
-  { id: 'switchCurve',        label: '切换-曲线',   category: '曲线', binding: 'w' },
-  { id: 'execCurve',          label: '执行-曲线',   category: '曲线', binding: 'shift+w' },
-  { id: 'execCopy',           label: '执行-复制',   category: '复制', binding: 'ctrl+c' },
-  { id: 'switchPaste',        label: '切换-粘贴',   category: '粘贴', binding: 'v' },
-  { id: 'execPaste',          label: '执行-粘贴',   category: '粘贴', binding: 'ctrl+v' },
-  { id: 'execCut',            label: '执行-剪切',   category: '剪切', binding: 'ctrl+x' },
-  { id: 'switchDelete',       label: '切换-删除',   category: '删除', binding: 't' },
-  { id: 'execDelete',         label: '执行-删除',   category: '删除', binding: 'ctrl+t' },
-  { id: 'switchMirror',       label: '切换-镜像',   category: '镜像', binding: 'q' },
-  { id: 'execMirror',         label: '执行-镜像',   category: '镜像', binding: 'ctrl+q' },
-  { id: 'switchNoteCode',     label: '切换-音符代码', category: '音符代码', binding: 'b' },
-  // §2：执行键 = 打开**光标处**音符的代码（不切工具）
-  { id: 'execNoteCode',       label: '执行-音符代码', category: '音符代码', binding: 'ctrl+b' },
-  { id: 'switchMouse',        label: '切换-鼠标',   category: '鼠标', binding: 'r' },
-  // ADR-0008 §7：侧栏折叠从 Esc 摘除，进注册表成可自定义功能；语义 = 左右两侧面板折叠/展开 toggle。
-  // issue 59 §2：让出 Ctrl+B 给「执行-音符代码」→ 改 Ctrl+Shift+B
-  { id: 'toggleSidebar',      label: '侧栏折叠/展开', category: '布局', binding: 'ctrl+shift+b' },
-  { id: 'undo',               label: '撤销',        category: '撤销', binding: 'ctrl+z' },
-  { id: 'redo',               label: '重做',        category: '重做', binding: 'ctrl+y' },
-  { id: 'play',               label: '播放/暂停',   category: '播放', binding: ' ' },
-  { id: 'jumpToMarker',       label: '回到起点标记', category: '播放', binding: 'ctrl+ ' },
+  { id: 'switchSingle',       label: 'shortcut.fn.switchSingle',       category: 'single', binding: 'f' },
+  { id: 'execSingle',         label: 'shortcut.fn.execSingle',         category: 'single', binding: 'ctrl+f' },
+  { id: 'switchFlick',        label: 'shortcut.fn.switchFlick',        category: 'flick', binding: 'g' },
+  { id: 'execFlick',          label: 'shortcut.fn.execFlick',          category: 'flick', binding: 'ctrl+g' },
+  { id: 'switchSkill',        label: 'shortcut.fn.switchSkill',        category: 'skill', binding: 'a' },
+  { id: 'execSkill',          label: 'shortcut.fn.execSkill',          category: 'skill', binding: 'ctrl+a' },
+  { id: 'switchLDirectional', label: 'shortcut.fn.switchLDirectional', category: 'ldirectional', binding: 's' },
+  { id: 'execLDirectional',   label: 'shortcut.fn.execLDirectional',   category: 'ldirectional', binding: 'ctrl+s' },
+  { id: 'switchRDirectional', label: 'shortcut.fn.switchRDirectional', category: 'rdirectional', binding: 'd' },
+  { id: 'execRDirectional',   label: 'shortcut.fn.execRDirectional',   category: 'rdirectional', binding: 'ctrl+d' },
+  { id: 'switchBpm',          label: 'shortcut.fn.switchBpm',          category: 'bpm', binding: '`' },
+  { id: 'execBpm',            label: 'shortcut.fn.execBpm',            category: 'bpm', binding: 'ctrl+`' },
+  { id: 'switchSlide',        label: 'shortcut.fn.switchSlide',        category: 'slide', binding: 'e' },
+  { id: 'execSlide',          label: 'shortcut.fn.execSlide',          category: 'slide', binding: 'ctrl+e' },
+  { id: 'switchCurve',        label: 'shortcut.fn.switchCurve',        category: 'curve', binding: 'w' },
+  { id: 'execCurve',          label: 'shortcut.fn.execCurve',          category: 'curve', binding: 'shift+w' },
+  { id: 'execCopy',           label: 'shortcut.fn.execCopy',           category: 'copy', binding: 'ctrl+c' },
+  { id: 'switchPaste',        label: 'shortcut.fn.switchPaste',        category: 'paste', binding: 'v' },
+  { id: 'execPaste',          label: 'shortcut.fn.execPaste',          category: 'paste', binding: 'ctrl+v' },
+  { id: 'execCut',            label: 'shortcut.fn.execCut',            category: 'cut', binding: 'ctrl+x' },
+  { id: 'switchDelete',       label: 'shortcut.fn.switchDelete',       category: 'delete', binding: 't' },
+  { id: 'execDelete',         label: 'shortcut.fn.execDelete',         category: 'delete', binding: 'ctrl+t' },
+  { id: 'switchMirror',       label: 'shortcut.fn.switchMirror',       category: 'mirror', binding: 'q' },
+  { id: 'execMirror',         label: 'shortcut.fn.execMirror',         category: 'mirror', binding: 'ctrl+q' },
+  { id: 'switchNoteCode',     label: 'shortcut.fn.switchNoteCode',     category: 'noteCode', binding: 'b' },
+  { id: 'execNoteCode',       label: 'shortcut.fn.execNoteCode',       category: 'noteCode', binding: 'ctrl+b' },
+  { id: 'switchMouse',        label: 'shortcut.fn.switchMouse',        category: 'mouse', binding: 'r' },
+  { id: 'toggleSidebar',      label: 'shortcut.fn.toggleSidebar',      category: 'layout', binding: 'ctrl+shift+b' },
+  { id: 'undo',               label: 'shortcut.fn.undo',               category: 'undo', binding: 'ctrl+z' },
+  { id: 'redo',               label: 'shortcut.fn.redo',               category: 'redo', binding: 'ctrl+y' },
+  { id: 'play',               label: 'shortcut.fn.play',               category: 'play', binding: ' ' },
+  { id: 'jumpToMarker',       label: 'shortcut.fn.jumpToMarker',       category: 'play', binding: 'ctrl+ ' },
 ];
 
 export const functionById = (id: FunctionId): FunctionDef =>
@@ -111,7 +108,7 @@ export const categoryShortcuts = (cfg: ShortcutConfig, cat: string): { mode: str
       const b = cfg[f.id];
       if (!b) return null; // 已屏蔽（未绑定）的功能不出现在 tooltip
       return {
-        mode: functionMode(f.id) === 'switch' ? '切换' : '执行',
+        mode: functionMode(f.id) === 'switch' ? t('shortcut.mode.switch') : t('shortcut.mode.exec'),
         key: formatKey(b),
       };
     })

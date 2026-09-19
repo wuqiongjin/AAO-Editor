@@ -19,20 +19,20 @@ import {
 } from '../../visual/noteSkin';
 // 单格画布尺寸与 Slide 列布局几何在 `./noteSkinPreviewLayout`（纯模块；react-refresh 规则要求组件文件只导出组件）
 import { PREVIEW_CELL_W, PREVIEW_CELL_H, computeSlideColLayout, SLIDE_PREVIEW_NODE_SCALE } from './noteSkinPreviewLayout';
+import { getActiveUiLanguage, t, tPlural, type MessageKey } from '../../i18n';
 
 interface ColMeta {
   item: NoteSkinItemId;
-  label: string;
-  hint: string;
+  labelKey: MessageKey;
 }
 
 const COLS: ColMeta[] = [
-  { item: 'tap', label: '单键', hint: '普通单点' },
-  { item: 'flick', label: '滑键', hint: '带 flick' },
-  { item: 'skill', label: '技能键', hint: '带 skill' },
-  { item: 'dirL', label: '左方向', hint: '向左方向' },
-  { item: 'dirR', label: '右方向', hint: '向右方向' },
-  { item: 'slide', label: '滑条', hint: '连接带+端点' },
+  { item: 'tap', labelKey: 'skin.tap' },
+  { item: 'flick', labelKey: 'skin.flick' },
+  { item: 'skill', labelKey: 'skin.skill' },
+  { item: 'dirL', labelKey: 'skin.dirL' },
+  { item: 'dirR', labelKey: 'skin.dirR' },
+  { item: 'slide', labelKey: 'skin.slide' },
 ];
 
 const NOTE_SKIN_ITEM_IDS_FOR_LABEL = ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide'] as const;
@@ -118,7 +118,7 @@ function drawPreviewSprite(
  * 不暴露"方向 vs 普通"这种底层包分类——按条目覆盖区按 eligibility 自动分流即可。
  * 同编号方向 vs 普通包用户视角下是 1 套皮肤，故命中只要 note id + 配对方向 id 共同一致。
  */
-function summarizeSelection(selection: NoteSkinSelection): { title: string; subtitle: string } {
+function summarizeSelection(selection: NoteSkinSelection): { title: string; subtitle: string; customized: boolean } {
   const packs = listNoteSkinPacks();
   const notePacks = packs.filter((p) => p.kind === 'note');
   // 6 条目完全 = 某 note 整包 + 配对方向包 → 命中该整包预设
@@ -128,14 +128,18 @@ function summarizeSelection(selection: NoteSkinSelection): { title: string; subt
     return true;
   }) ?? null;
   if (matched) {
-    return { title: matched.label, subtitle: '整包应用' };
+    return { title: matched.label, subtitle: t('assets.preview.presetApplied'), customized: false };
   }
   // 未命中：vs 默认偏离的条目数
   const defaults = DEFAULT_NOTE_SKIN_SELECTION;
   const overriddenCount = (NOTE_SKIN_ITEM_IDS_FOR_LABEL as readonly NoteSkinItemId[]).filter(
     (k) => selection[k] !== defaults[k],
   ).length;
-  return { title: '已自定义', subtitle: `${overriddenCount} 项被调整` };
+  return {
+    title: t('assets.preview.custom'),
+    subtitle: tPlural('assets.preview.overridden', overriddenCount),
+    customized: true,
+  };
 }
 
 export default function NoteSkinPreview({
@@ -145,7 +149,8 @@ export default function NoteSkinPreview({
   selection: NoteSkinSelection;
   onChange: (item: NoteSkinItemId, packId: string) => void;
 }) {
-  const summary = useMemo(() => summarizeSelection(selection), [selection]);
+  const lang = getActiveUiLanguage();
+  const summary = useMemo(() => summarizeSelection(selection), [selection, lang]);
   const canvasRefs = useRef<Record<NoteSkinItemId, HTMLCanvasElement | null>>({
     tap: null, flick: null, skill: null, dirL: null, dirR: null, slide: null,
   });
@@ -179,18 +184,19 @@ export default function NoteSkinPreview({
   }, [selection]);
 
   return (
-    <div className="skin-live-preview" aria-label="音符皮肤·6 列预览与选择">
+    <div className="skin-live-preview" aria-label={t('assets.preview.aria')}>
       <div className="skin-live-preview-head">
-        <span className="skin-live-preview-eyebrow">当前组合</span>
+        <span className="skin-live-preview-eyebrow">{t('assets.preview.current')}</span>
         <strong className="skin-live-preview-title">{summary.title}</strong>
-        <span className={`skin-live-preview-subtitle${summary.title === '已自定义' ? ' is-modified' : ''}`}>{summary.subtitle}</span>
-        <span className="skin-live-preview-meta">{COLS.length} 类音符 · 实时预览</span>
+        <span className={`skin-live-preview-subtitle${summary.customized ? ' is-modified' : ''}`}>{summary.subtitle}</span>
+        <span className="skin-live-preview-meta">{t('assets.preview.meta', { count: COLS.length })}</span>
       </div>
       <div className="skin-col-grid" role="grid">
         {COLS.map((col) => {
           const eligible = col.item === 'dirL' || col.item === 'dirR' ? 'directional' : 'note';
           const packs = listNoteSkinPacks().filter((p) => p.kind === eligible);
           const currentId = selection[col.item];
+          const colLabel = t(col.labelKey);
           return (
             <div key={col.item} className="skin-col" role="row">
               <div className="skin-col-preview">
@@ -199,11 +205,11 @@ export default function NoteSkinPreview({
                   width={PREVIEW_CELL_W}
                   height={PREVIEW_CELL_H}
                   className="skin-col-canvas"
-                  aria-label={`${col.label}预览`}
+                  aria-label={t('assets.preview.itemAria', { label: colLabel })}
                 />
-                <span className="skin-col-label">{col.label}</span>
+                <span className="skin-col-label">{colLabel}</span>
               </div>
-              <div className="skin-col-picker" role="radiogroup" aria-label={`${col.label}皮肤`}>
+              <div className="skin-col-picker" role="radiogroup" aria-label={t('assets.preview.skinAria', { label: colLabel })}>
                 {packs.map((p) => {
                   const selected = p.id === currentId;
                   return (
@@ -218,7 +224,7 @@ export default function NoteSkinPreview({
                     >
                       <span className="skin-pill-label">{p.label}</span>
                       {selected && (
-                        <span className="skin-pill-mark" aria-label="当前选择">
+                        <span className="skin-pill-mark" aria-label={t('assets.preview.currentChoice')}>
                           <Check size={10} />
                         </span>
                       )}

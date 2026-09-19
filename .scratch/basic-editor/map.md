@@ -121,6 +121,7 @@
   - [125 内容页文字描述精简](./issues/125-内容页文字描述精简.md)（grilling，resolved）——**定了什么** = 四页页面头 + 分区/空态定稿表已落地；122 可开工。
   - [126 Electron 窗体 chrome](./issues/126-Electron窗体chrome暗色与caption-hover.md)（bug，resolved）——**定了什么** = `nativeTheme` + `backgroundColor` 跟 settings.theme；Win blur/focus 试修 hover，仍可能为已知限制。
   - [127 快捷键换索引滚动不重置](./issues/127-快捷键换索引滚动不重置.md)（bug，open）——**改成什么** = 换索引筛选时 `.shortcut-table` 回顶；搜索不重置。
+  - [128 界面语言 zh-CN 与英语](./issues/128-界面语言zh-CN与英语.md)（grilling，resolved）——**定了什么** = 手搓字典、外观运行时切换 `uiLanguage`；本期 `zh-CN`+`en`（日语/繁中后加）；OS 中文变体繁中出货前暂用简体；缺句回退中文；方向键英语 Left/Right Directional Flick。**不**拍 i18next / RTL。依赖 122。已实现：`t()` + `settings.uiLanguage` + Electron 对话框跟当前语言。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

@@ -167,7 +167,7 @@ describe('展示辅助', () => {
   });
 
   it('categoryShortcuts 合并 切换/执行', () => {
-    const lines = categoryShortcuts(getDefaultConfig(), '单键');
+    const lines = categoryShortcuts(getDefaultConfig(), 'single');
     expect(lines).toContainEqual({ mode: '切换', key: 'F' });
     expect(lines).toContainEqual({ mode: '执行', key: 'Ctrl+F' });
   });

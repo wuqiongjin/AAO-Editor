@@ -110,7 +110,7 @@ describe('issue 114 · 曲线配置面板（展开序 / 措辞 / 表驱动）', 
   });
 
   it('模板下拉的"不选模板"项 = 「不使用模板」——不提缓动函数（用户看不懂）', () => {
-    expect(panelSrc).toContain("label: '不使用模板'");
+    expect(panelSrc).toContain("t('curve.noTemplate')");
     expect(panelSrc).not.toContain('缓动函数');
     expect(panelSrc).not.toContain('不用模板');
   });

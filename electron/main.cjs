@@ -25,6 +25,7 @@ const {
     projectDir: projectDirAtRoot,
     backgroundSkinPath,
 } = require('./dataRoot.cjs');
+const { t, setActiveUiLanguage } = require('./i18n.cjs');
 
 // ---------------------------------------------------------------------------
 // 谱面工程文件后端（issue 25 + 117）：<数据根>/projects/<id>/{project.json, audio.bin}
@@ -132,7 +133,7 @@ function registerDataRootIpc() {
     ipcMain.handle('dataRoot:change', async (event) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         const result = await dialog.showOpenDialog(win ?? undefined, {
-            title: '选择新的保存位置（空文件夹将直接作为保存目录；否则保存到其下的当前文件夹名）',
+            title: t('electron.changeDataRoot'),
             properties: ['openDirectory', 'createDirectory'],
         });
         if (result.canceled || !result.filePaths || !result.filePaths[0]) {
@@ -148,7 +149,7 @@ function registerDataRootIpc() {
                 ok: false,
                 cancelled: false,
                 path: currentDataRoot(),
-                message: moved.message || '搬家失败，仍使用原来的保存位置',
+                message: moved.message || t('electron.moveFail'),
             };
         }
         return { ok: true, cancelled: false, path: currentDataRoot() };
@@ -157,7 +158,7 @@ function registerDataRootIpc() {
     ipcMain.handle('dataRoot:claim', async (event) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         const result = await dialog.showOpenDialog(win ?? undefined, {
-            title: '使用已有数据文件夹',
+            title: t('electron.claimDataRoot'),
             properties: ['openDirectory', 'createDirectory'],
         });
         if (result.canceled || !result.filePaths || !result.filePaths[0]) {
@@ -172,7 +173,7 @@ function registerDataRootIpc() {
                 ok: false,
                 cancelled: false,
                 path: currentDataRoot(),
-                message: claimed.message || '无法使用该文件夹',
+                message: claimed.message || t('electron.claimFail'),
             };
         }
         return { ok: true, cancelled: false, path: currentDataRoot() };
@@ -226,7 +227,7 @@ function registerChartCodeExportIpc() {
                 : 'chart.json';
         const win = BrowserWindow.fromWebContents(event.sender);
         const result = await dialog.showSaveDialog(win ?? undefined, {
-            title: '导出谱面代码',
+            title: t('electron.exportChart'),
             defaultPath: suggestedName,
             filters: [{ name: 'JSON', extensions: ['json'] }],
         });
@@ -262,6 +263,14 @@ function registerWindowChromeIpc() {
     });
 }
 registerWindowChromeIpc();
+
+function registerI18nIpc() {
+    ipcMain.handle('i18n:setLanguage', async (_event, locale) => {
+        setActiveUiLanguage(locale);
+        return true;
+    });
+}
+registerI18nIpc();
 
 // ---------------------------------------------------------------------------
 // 主窗体几何记忆（issue 119 / 117）：userData/app-state.json 的 window 字段。

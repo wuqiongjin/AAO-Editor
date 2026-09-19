@@ -30,4 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     windowChrome: {
         sync: (payload) => ipcRenderer.invoke('windowChrome:sync', payload),
     },
+    i18n: {
+        setLanguage: (locale) => ipcRenderer.invoke('i18n:setLanguage', locale),
+    },
 });

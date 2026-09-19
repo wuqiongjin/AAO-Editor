@@ -2,23 +2,29 @@ import { useEffect, useState } from 'react';
 import { AppNavProvider, AppNav, type PageId } from './AppNav';
 import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
 import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
+import { useConfig } from '../app/ProviderTree';
+import { t } from '../i18n';
 import './AppShell.css';
 
 // 应用壳：五页注册 + 保活隐藏暂停 + 切页快捷键 + 可折叠导航（默认折叠）。
 // - 导航列常驻，工作台左面板只含工具栏。
 // - 路由层归 src/pages/PageRegistry.tsx。
 
-const NAV_ITEMS: Array<{ id: PageId; label: string; shortcut: string }> = [
-  { id: 'workspace', label: '工作台', shortcut: '⇧⌘1' },
-  { id: 'audio', label: '音频', shortcut: '⇧⌘2' },
-  { id: 'assets', label: '素材', shortcut: '⇧⌘3' },
-  { id: 'shortcuts', label: '快捷键', shortcut: '⇧⌘4' },
-  { id: 'settings', label: '设置', shortcut: '⇧⌘5' },
+const NAV_ITEMS: Array<{ id: PageId; shortcut: string }> = [
+  { id: 'workspace', shortcut: '⇧⌘1' },
+  { id: 'audio', shortcut: '⇧⌘2' },
+  { id: 'assets', shortcut: '⇧⌘3' },
+  { id: 'shortcuts', shortcut: '⇧⌘4' },
+  { id: 'settings', shortcut: '⇧⌘5' },
 ];
 
 const PAGE_IDS = Object.keys(PAGE_REGISTRY) as PageId[];
 
 export default function AppShell() {
+  const { settings } = useConfig();
+  // 订阅 uiLanguage：壳层（导航、保活页）多数只调 t()、不读 Config。
+  // 不订阅时切语言不会重渲，要等用户自己换页才换文案。
+  void settings.uiLanguage;
   const [activePage, setActivePage] = useState<PageId>('workspace');
   const [navCollapsed, setNavCollapsed] = useState(true);
 
@@ -43,7 +49,7 @@ export default function AppShell() {
   return (
     <AppNavProvider value={navValue}>
       <div className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}`}>
-        <aside className="app-nav" aria-label="应用页面导航">
+        <aside className="app-nav" aria-label={t('nav.aria')}>
           <AppNav />
         </aside>
 

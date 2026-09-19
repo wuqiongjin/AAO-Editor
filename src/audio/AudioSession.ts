@@ -21,6 +21,7 @@
 import { AudioEngine } from './AudioEngine';
 import { keySoundSetEntryById, type KeySoundKind } from './KeySound';
 import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
+import { t } from '../i18n';
 
 /** 音频会话的不可变快照（外部读取用） */
 export interface AudioSessionSnapshot {
@@ -175,7 +176,7 @@ export class AudioSession {
         // 失败：保持无音频态 + 错误信息
         this._audioName = null;
         this._audioBlob = null;
-        this._audioError = err instanceof Error && err.message ? err.message : '该文件无法解码为音频，请更换文件后重试。';
+        this._audioError = err instanceof Error && err.message ? err.message : t('audio.decodeFallback');
         this.emit();
       });
   }
