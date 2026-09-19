@@ -125,6 +125,12 @@ export default function ShortcutsPage() {
   const [indexFilter, setIndexFilter] = useState<IndexFilterId>('all');
   const [error, setError] = useState<{ id: FunctionId; msg: string } | null>(null);
   const [editingId, setEditingId] = useState<FunctionId | null>(null);
+  const shortcutTableRef = useRef<HTMLDivElement>(null);
+
+  // issue 127：换桶重挂表体，但滚动容器仍是 .shortcut-table → 须显式回顶；搜索只滤行、保持 scrollTop。
+  useEffect(() => {
+    shortcutTableRef.current?.scrollTo({ top: 0 });
+  }, [indexFilter]);
 
   const visible = useMemo(
     () => filterFunctions(FUNCTIONS, indexFilter, query, config),
@@ -207,7 +213,7 @@ export default function ShortcutsPage() {
 
         {error && <div className="shortcut-error">{error.msg}</div>}
 
-        <div className="shortcut-table" role="table" aria-label="快捷键列表">
+        <div ref={shortcutTableRef} className="shortcut-table" role="table" aria-label="快捷键列表">
           <div className="shortcut-row shortcut-head" role="row">
             <span>类别</span><span>功能</span><span>快捷键</span><span>修改</span><span>启用</span>
           </div>

@@ -143,3 +143,14 @@ describe('issue 121 · 筛选不写入设置对象', () => {
     expect(css).toMatch(/\.app-page-shell__body\.is-fill\s+\.shortcut-table\s*\{[^}]*overflow-y:\s*auto/);
   });
 });
+
+describe('issue 127 · 换索引筛滚动回顶', () => {
+  it('indexFilter 变化时 .shortcut-table 滚回顶；搜索 query 变化不重置', () => {
+    const src = stripComments(read('src/settings/ShortcutsPage.tsx'));
+    expect(src).toMatch(/ref=\{shortcutTableRef\}[^>]*className="shortcut-table"|className="shortcut-table"[^>]*ref=\{shortcutTableRef\}/);
+    expect(src).toMatch(/shortcutTableRef\.current\?\.scrollTo\(\{\s*top:\s*0\s*\}\)/);
+    expect(src).toMatch(/\},\s*\[indexFilter\]\)/);
+    expect(src).not.toMatch(/\},\s*\[indexFilter,\s*query\]\)/);
+    expect(src).not.toMatch(/\},\s*\[query\]\)/);
+  });
+});
