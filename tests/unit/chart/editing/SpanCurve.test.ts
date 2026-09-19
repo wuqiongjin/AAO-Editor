@@ -1,6 +1,6 @@
 // issue 09 S2 / ADR-0009 §1-§2：段曲线生成器锁测（烘焙语义 / 护栏 / 重投影 / 导出剥离）。
 import { describe, it, expect } from 'vitest';
-import type { ConnectionNote, SlideNote } from '@/src/chart/types';
+import type { ConnectionNote, SlideNote, SpanEasingParam } from '@/src/chart/types';
 import {
   bakeEasingPoints, bakeSpanPoints, bendSpan, buildChainedSlide, buildPenSlide, effectiveSpanParams,
   regenerateSpan, remapFreeSpanHidden, reprojectSpanParams, connTrueBeat, pinchWeight,
@@ -8,8 +8,8 @@ import {
 import { convertNotesToChartCode, convertChartCodeToNotes, validateChartCode } from '@/src/chart/editing/ChartConverter';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
 
-const param = (over: Partial<{ family: 'quad'; type: 'in'; precision: 16 }> = {}) => ({
-  kind: 'easing' as const,
+const param = (over: Partial<SpanEasingParam> = {}): SpanEasingParam => ({
+  kind: 'easing',
   family: over.family ?? 'quad',
   type: over.type ?? 'in',
   precision: over.precision ?? 16,

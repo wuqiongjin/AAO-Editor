@@ -33,7 +33,7 @@ function makeDenseNotes(n: number, chartEndBeat: number): ChartNote[] {
 }
 
 // ---------------- stub canvas 基建 ----------------
-interface Counters { drawImage: number; sprites: number; stroke: number; }
+type Counters = { drawImage: number; sprites: number; stroke: number };
 const EMPTY_SELECTED: never[] = [];
 const EMPTY_CLIPBOARD: never[] = [];
 // 音符皮肤图标集（issue 29）：默认选择构建一次共享（纯数据，不含 DOM）

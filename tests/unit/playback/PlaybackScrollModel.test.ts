@@ -145,9 +145,11 @@ describe('PlaybackScrollModel · 有效缩放钳制（issue 38 / ADR-0006 Q4=A�
   it('委托 ChartGeometry.effectiveScale：宽面不钳、窄面钳到容纳 7 轨', () => {
     const gWide = geom(30, { w: 750, h: 900 });
     const gNarrow = geom(30, { w: 200, h: 500 });
-    expect(new PlaybackScrollModel(gWide, 1).effectiveScale(1)).toBe(1);
+    // PlaybackScrollModel.effectiveScale() 是 0 参（内部拿 this.scale 问 geometry）；
+    // 1 参的是 ChartGeometry.effectiveScale(scale)。别给模型传参——传了会被静默忽略。
+    expect(new PlaybackScrollModel(gWide, 1).effectiveScale()).toBe(1);
     const mNarrow = new PlaybackScrollModel(gNarrow, 1);
-    expect(mNarrow.effectiveScale(1)).toBeCloseTo(gNarrow.effectiveScale(1), 6);
+    expect(mNarrow.effectiveScale()).toBeCloseTo(gNarrow.effectiveScale(1), 6);
   });
 });
 
