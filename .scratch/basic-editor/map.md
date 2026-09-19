@@ -122,6 +122,7 @@
   - [126 Electron 窗体 chrome](./issues/126-Electron窗体chrome暗色与caption-hover.md)（bug，resolved）——**定了什么** = `nativeTheme` + `backgroundColor` 跟 settings.theme；Win blur/focus 试修 hover，仍可能为已知限制。
   - [127 快捷键换索引滚动不重置](./issues/127-快捷键换索引滚动不重置.md)（bug，open）——**改成什么** = 换索引筛选时 `.shortcut-table` 回顶；搜索不重置。
   - [128 界面语言 zh-CN 与英语](./issues/128-界面语言zh-CN与英语.md)（grilling，resolved）——**定了什么** = 手搓字典、外观运行时切换 `uiLanguage`；本期 `zh-CN`+`en`（日语/繁中后加）；OS 中文变体繁中出货前暂用简体；缺句回退中文；方向键英语 Left/Right Directional Flick。**不**拍 i18next / RTL。依赖 122。已实现：`t()` + `settings.uiLanguage` + Electron 对话框跟当前语言。
+- **129 tests 目录按领域与类型分层（`Type: chore`，resolved）** —— [129](./issues/129-tests目录按领域与类型分层.md)：**改成什么** = `tests/` 按「领域镜像 `src/`」+「测试类型」两维分层（`unit` / `platform` / `perf` / `static` + `support`）；引用一律走仓库根别名 `@/`；共享替身收进 `tests/support/`。顺带收口 `npm run lint`（124 error → 0 error）。**欠账** = tests 不做类型门禁（有意不做，票内有触发条件）；派生待办 = `applyNoteCode` 公开签名未表达投影形态，建议单开票。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
