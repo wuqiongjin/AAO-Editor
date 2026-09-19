@@ -1,7 +1,7 @@
 # 126 · Electron 窗体 chrome：暗色标题栏与 caption hover 粘滞
 
 Type: bug
-Status: open
+Status: resolved
 Blocked by: —
 
 ## 来源
@@ -28,3 +28,13 @@ Blocked by: —
 
 - 单测盖不住 OS chrome。静态：主题变化有主进程入口（禁止只改 CSS 假装修了标题栏）。
 - 手工 Win：暗色标题栏底/字对比；反复划过三键再移开，高亮应消失。macOS/Linux：暗色时系统栏不刺眼即可，不验收 Win 式三键。
+
+## Answer
+
+- `electron/windowChrome.cjs`：`nativeTheme.themeSource` + `BrowserWindow.backgroundColor`（`#f6f7f9` / `#15181d` 对齐 tokens `--bg`）；Win 上 `blur`/`focus` 同色 `setBackgroundColor` 试缓解 caption hover 粘滞。
+- `windowChrome:sync` IPC + `preload` + `useApplyTheme` 推送 `settings.theme`（含 `system`）；`nativeTheme.on('updated')` 在 system 模式下跟 OS。
+- 仍 `titleBarStyle: 'default'`，无 overlay / 自绘。Win caption hover 若仍偶发粘住 → **已知限制**（需另开 grilling 才自绘）。
+
+## Comments
+
+- 2026-09-19 实现：`tests/unit/ElectronWindowChrome.test.ts`；全量 vitest 3 失败为既有 SlideFlick / RendererPerf 阈值，与本票无关。

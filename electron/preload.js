@@ -26,4 +26,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         put: (bytes) => ipcRenderer.invoke('backgroundSkin:put', bytes),
         clear: () => ipcRenderer.invoke('backgroundSkin:clear'),
     },
+    // issue 126：窗体 OS 标题栏跟 settings.theme（nativeTheme / backgroundColor）。
+    windowChrome: {
+        sync: (payload) => ipcRenderer.invoke('windowChrome:sync', payload),
+    },
 });

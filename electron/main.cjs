@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
@@ -10,6 +10,14 @@ const {
     snapshotFromBrowserWindow,
     browserWindowCreateOptions,
 } = require('./windowState.cjs');
+const {
+    normalizeAppTheme,
+    resolvedAppearance,
+    chromeBackgroundFor,
+    applyNativeThemeSource,
+    applyBrowserWindowChrome,
+    attachWin32CaptionHoverMitigation,
+} = require('./windowChrome.cjs');
 const {
     claimDataRoot,
     loadDataRootSync,
@@ -232,6 +240,30 @@ function registerChartCodeExportIpc() {
 registerChartCodeExportIpc();
 
 // ---------------------------------------------------------------------------
+// 窗体 OS chrome 与 settings.theme（issue 126）：nativeTheme + backgroundColor；
+// 渲染进程经 windowChrome:sync 推送 light/dark/system。
+// ---------------------------------------------------------------------------
+
+/** @type {'light' | 'dark' | 'system'} */
+let currentAppTheme = 'system';
+
+function syncAllWindowsChrome() {
+    applyNativeThemeSource(currentAppTheme, nativeTheme);
+    for (const win of BrowserWindow.getAllWindows()) {
+        applyBrowserWindowChrome(win, currentAppTheme, nativeTheme);
+    }
+}
+
+function registerWindowChromeIpc() {
+    ipcMain.handle('windowChrome:sync', async (_event, payload) => {
+        currentAppTheme = normalizeAppTheme(payload && payload.theme);
+        syncAllWindowsChrome();
+        return true;
+    });
+}
+registerWindowChromeIpc();
+
+// ---------------------------------------------------------------------------
 // 主窗体几何记忆（issue 119 / 117）：userData/app-state.json 的 window 字段。
 // 不进 settings / 导出配置；不记位置（多屏）。
 // ---------------------------------------------------------------------------
@@ -241,6 +273,7 @@ function createWindow() {
     const minHeight = MIN_WINDOW_HEIGHT;
     const saved = loadWindowStateSync(app.getPath('userData'));
     const { width, height } = browserWindowCreateOptions(saved, { minWidth, minHeight });
+    const initialAppearance = resolvedAppearance(currentAppTheme, nativeTheme.shouldUseDarkColors);
 
     // 创建浏览器窗口
     const mainWindow = new BrowserWindow({
@@ -256,8 +289,14 @@ function createWindow() {
         },
         icon: path.join(__dirname, '../public/vite.svg'), // 应用图标
         titleBarStyle: 'default',
+        backgroundColor: chromeBackgroundFor(initialAppearance),
         show: false // 先不显示，等加载完成后再显示
     });
+
+    attachWin32CaptionHoverMitigation(mainWindow, () =>
+        chromeBackgroundFor(resolvedAppearance(currentAppTheme, nativeTheme.shouldUseDarkColors)),
+    );
+    applyBrowserWindowChrome(mainWindow, currentAppTheme, nativeTheme);
 
     // 加载应用
     if (isDev) {
@@ -295,6 +334,11 @@ function createWindow() {
 // 当Electron完成初始化并准备创建浏览器窗口时调用此方法
 app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+    nativeTheme.on('updated', () => {
+        if (currentAppTheme === 'system') {
+            syncAllWindowsChrome();
+        }
+    });
     createWindow();
 
     // 在macOS上，当点击dock图标并且没有其他窗口打开时，

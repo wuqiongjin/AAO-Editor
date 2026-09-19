@@ -119,7 +119,7 @@
 - **124–127（2026-09-19 `/grill-with-docs` 外观/文案/窗体 chrome/快捷键滚动）**
   - [124 外观界面字体与字号](./issues/124-外观界面字体与字号.md)（grilling，open）——**定了什么** = chrome 字号 80–120%/10%；三档字体栈（Geist / 雅黑 / Noto·思源 CJK），不按语言自动切、不打包 CJK；等宽不换族、字号可跟比例。
   - [125 内容页文字描述精简](./issues/125-内容页文字描述精简.md)（grilling，open）——**定了什么** = 页面头 + 分区/空态；同一票先拟稿验收再改字符串；挡住 122。
-  - [126 Electron 窗体 chrome](./issues/126-Electron窗体chrome暗色与caption-hover.md)（bug，open）——**改成什么** = 系统标题栏跟暗色；Win caption hover 粘滞按原生路径试修，不自绘按钮。
+  - [126 Electron 窗体 chrome](./issues/126-Electron窗体chrome暗色与caption-hover.md)（bug，resolved）——**定了什么** = `nativeTheme` + `backgroundColor` 跟 settings.theme；Win blur/focus 试修 hover，仍可能为已知限制。
   - [127 快捷键换索引滚动不重置](./issues/127-快捷键换索引滚动不重置.md)（bug，open）——**改成什么** = 换索引筛选时 `.shortcut-table` 回顶；搜索不重置。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 

@@ -3,6 +3,15 @@
 import { useEffect } from 'react';
 import type { AppSettings } from '../../chart/config/AppSettings';
 
+function syncElectronWindowChrome(theme: AppSettings['theme']): void {
+  const sync = (
+    window as unknown as {
+      electronAPI?: { windowChrome?: { sync: (payload: { theme: AppSettings['theme'] }) => void } };
+    }
+  ).electronAPI?.windowChrome?.sync;
+  sync?.({ theme });
+}
+
 export function resolveTheme(theme: AppSettings['theme']): 'light' | 'dark' {
   if (theme === 'system') {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -15,6 +24,7 @@ export function useApplyTheme(theme: AppSettings['theme']): void {
   useEffect(() => {
     const apply = () => {
       document.documentElement.dataset.theme = resolveTheme(theme);
+      syncElectronWindowChrome(theme);
     };
     apply();
     // system 模式下跟随系统偏好实时切换
