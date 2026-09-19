@@ -24,7 +24,7 @@ export default function AudioPage() {
       <AppPageShell.Header
         eyebrow="当前谱面工程"
         title="音频与键音"
-        description="管理谱面工程使用的音频素材、键音素材包与节奏图示 SE 音量。键音与音源同域（设置对象 audio 段）。"
+        description="管理工程音频、键音素材包与节奏图示 SE 音量。"
       />
 
       <AppPageShell.Sidebar ariaLabel="音频域次级索引">
@@ -76,7 +76,7 @@ function AudioSection() {
     <>
       <div className="settings-heading">
         <h2>音频素材</h2>
-        <p>支持浏览器可解码的常见音频格式；导入后谱面时长将跟随音频长度。</p>
+        <p>支持常见浏览器可解码格式。</p>
       </div>
 
       {/* file input 无条件挂载（两分支共用一个 ref，避免各挂一份） */}
@@ -115,7 +115,7 @@ function AudioSection() {
         <EmptyState
           icon={FileAudio}
           title="尚未导入音频"
-          description="无音频模式可正常编辑和预览谱面；导入后谱面时长将自动跟随音频长度。"
+          description="无音频也可编辑预览；导入后谱面时长跟随音频。"
           primaryAction={{
             label: '导入音频',
             onClick: pickFile,
@@ -190,7 +190,7 @@ function KeySoundSection() {
     <>
       <div className="settings-heading">
         <h2>键音素材包</h2>
-        <p>播放时按击打样式（单键 / 滑键 / 技能键 / 滑条 / 方向键）触发对应音效。点击 ▶ 可试听该包对应音效（无需切换）；激活项写 <code>settings.audio.keySet</code>，立即生效并持久化。</p>
+        <p>按击打样式播放键音；▶ 试听各包，切换立即保存。</p>
       </div>
 
       <div className="asset-set-grid asset-set-grid-3">
@@ -280,7 +280,7 @@ function SeVolumeSection() {
     <>
       <div className="settings-heading">
         <h2>节奏图示 SE 音量</h2>
-        <p>键音（音符击打音效）的独立音量，<strong>不影响 BGM</strong>。原 issue 39 #7，本轮迁入音频域。</p>
+        <p>键音音量，不影响 BGM。</p>
       </div>
 
       <div className="settings-row">

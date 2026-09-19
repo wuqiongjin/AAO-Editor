@@ -178,7 +178,7 @@ export default function ShortcutsPage() {
       <AppPageShell.Header
         eyebrow="输入与效率"
         title="快捷键"
-        description="用侧栏筛选或搜索功能，点击键位后直接录入新的组合键。冲突会在保存前提示。"
+        description="侧栏索引筛选或搜索功能，点击键位录入；冲突保存前提示。"
       />
 
       <AppPageShell.Sidebar ariaLabel="索引筛选">
@@ -293,8 +293,7 @@ export default function ShortcutsPage() {
           {emptyKind === 'empty-bucket' && (
             <EmptyState
               icon={Inbox}
-              title="这个分类暂无快捷键"
-              description="尚未归入此索引的新功能会出现在这里。"
+              title="此分类下暂无快捷键"
               primaryAction={{
                 label: '查看全部',
                 onClick: () => { setQuery(''); setIndexFilter('all'); },
@@ -305,7 +304,7 @@ export default function ShortcutsPage() {
             <EmptyState
               icon={SearchX}
               title="没有匹配的功能"
-              description="尝试其他关键词，或清除搜索框后查看全部快捷键。"
+              description="换关键词或清除搜索框。"
               primaryAction={{
                 label: '清除搜索',
                 onClick: () => setQuery(''),

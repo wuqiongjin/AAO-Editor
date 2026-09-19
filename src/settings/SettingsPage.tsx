@@ -188,7 +188,7 @@ export default function SettingsPage() {
       <AppPageShell.Header
         eyebrow="应用设置"
         title="设置"
-        description="修改立即生效并自动保存。导入与恢复默认属于高风险操作，会在执行前单独确认。"
+        description="修改立即生效并自动保存。高风险操作会单独确认。"
       />
 
       <AppPageShell.Sidebar ariaLabel="设置分类">
@@ -208,7 +208,7 @@ export default function SettingsPage() {
             <>
               <div className="settings-heading">
                 <h2>外观</h2>
-                <p>主题、界面字体与字号只作用于应用 chrome；谱面画布始终深色，标线文字大小在「画布显示」里单独调。</p>
+                <p>主题、界面字体与字号只影响编辑器界面（导航、设置等），不影响谱面画布。</p>
               </div>
               <div className="theme-options">
                 {THEME_OPTIONS.map((opt) => {
@@ -228,7 +228,7 @@ export default function SettingsPage() {
                 })}
               </div>
               <PercentSliderRow
-                label="界面字号" hint="导航、设置、弹窗等 chrome 文字相对出厂的比例（70%–150%）"
+                label="界面字号" hint="导航、设置、弹窗等编辑器界面文字相对出厂的比例（70%–150%）"
                 value={settings.uiTypeScale} min={70} max={150} step={10}
                 onChange={(v) => setUiTypeScale(v)}
               />
@@ -255,13 +255,13 @@ export default function SettingsPage() {
             <>
               <div className="settings-heading">
                 <h2>布局</h2>
-                <p>面板开合、宽度与画布缩放的说明。</p>
+                <p>面板开合、宽度与画布缩放均在工作台操作。</p>
               </div>
               {/* layout 段无可配置控件，用 EmptyState 作说明区 */}
               <EmptyState
                 icon={Info}
                 title="布局在工作台内调整"
-                description="工具 / 属性面板可拖拽或点击标题旁的收起按钮；应用导航可在左侧折叠为图标栏；画布缩放按住 Ctrl 滚动鼠标滚轮。"
+                description="拖拽或点击标题旁按钮收放工具/属性面板；左侧导航可折为图标栏；画布 Ctrl+滚轮缩放。"
               />
             </>
           )}
@@ -270,7 +270,7 @@ export default function SettingsPage() {
             <>
               <div className="settings-heading">
                 <h2>画布显示</h2>
-                <p>谱面画布上音符与判定线的呈现参数，修改即对画布生效。</p>
+                <p>音符、轨道与标线的画布呈现，改后立即生效。</p>
               </div>
               <PercentSliderRow
                 label="节奏图示大小" hint="音符占轨道的大小（相对所在轨道宽度）"
@@ -357,7 +357,7 @@ export default function SettingsPage() {
             <>
               <div className="settings-heading">
                 <h2>配置数据</h2>
-                <p>谱面保存位置，以及主题与快捷键的导入导出。</p>
+                <p>谱面与资源的保存位置，以及主题、快捷键等配置的导入导出。</p>
               </div>
               {dataRootApi && (
                 <>

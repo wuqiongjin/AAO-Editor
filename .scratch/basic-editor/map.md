@@ -118,7 +118,7 @@
   - [123 Electron 内存生产包基线](./issues/123-Electron内存生产包基线.md)（research，open）——关 DevTools 量 RSS/GPU；不预挂渲染瓦片嫌疑。
 - **124–127（2026-09-19 `/grill-with-docs` 外观/文案/窗体 chrome/快捷键滚动）**
   - [124 外观界面字体与字号](./issues/124-外观界面字体与字号.md)（grilling，resolved）——**定了什么** = 字号 70–150%/10% 接到 chrome 正文 token；设置行出厂标题 `--text-sm` / 说明 `--text-2xs`；三档不打包、中文可无差；**不**放档旁样张；留在外观。回炉已实现。
-  - [125 内容页文字描述精简](./issues/125-内容页文字描述精简.md)（grilling，open）——**定了什么** = 页面头 + 分区/空态；同一票先拟稿验收再改字符串；挡住 122。
+  - [125 内容页文字描述精简](./issues/125-内容页文字描述精简.md)（grilling，resolved）——**定了什么** = 四页页面头 + 分区/空态定稿表已落地；122 可开工。
   - [126 Electron 窗体 chrome](./issues/126-Electron窗体chrome暗色与caption-hover.md)（bug，resolved）——**定了什么** = `nativeTheme` + `backgroundColor` 跟 settings.theme；Win blur/focus 试修 hover，仍可能为已知限制。
   - [127 快捷键换索引滚动不重置](./issues/127-快捷键换索引滚动不重置.md)（bug，open）——**改成什么** = 换索引筛选时 `.shortcut-table` 回顶；搜索不重置。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。

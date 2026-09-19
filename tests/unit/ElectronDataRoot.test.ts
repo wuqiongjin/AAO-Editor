@@ -328,7 +328,7 @@ describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () =>
     expect(settingsPageSrc).toMatch(/JSON\.stringify\(settings/);
     expect(settingsPageSrc).toMatch(/导出设置/);
     expect(settingsPageSrc).toMatch(/导入设置/);
-    expect(settingsPageSrc).toMatch(/谱面保存位置，以及主题与快捷键的导入导出。/);
+    expect(settingsPageSrc).toMatch(/谱面与资源的保存位置，以及主题、快捷键等配置的导入导出。/);
     expect(settingsPageSrc).toMatch(/谱面与资源/);
     expect(settingsPageSrc).toMatch(/偏好设置/);
     expect(settingsPageSrc).toMatch(/主题、界面字体与字号、布局、快捷键与画布显示。/);

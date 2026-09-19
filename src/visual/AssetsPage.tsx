@@ -30,7 +30,7 @@ export default function AssetsPage() {
       <AppPageShell.Header
         eyebrow="应用素材"
         title="视觉素材"
-        description="管理谱面编辑使用的视觉素材包（音符皮肤、背景皮肤）。键音素材包已迁至音频页。切换立即生效并自动保存。"
+        description="音符与背景皮肤；键音包在音频页。切换立即生效并自动保存。"
       />
 
       <AppPageShell.Sidebar ariaLabel="素材类别">
@@ -218,23 +218,25 @@ function BackgroundPanel() {
         onChange={(e) => void handleFile(e.target.files?.[0])}
       />
       {image ? (
-        <div className={`asset-set skin-preset bg-asset-set${enabled ? ' is-active' : ''}`}>
+        <div className={`bg-upload-card${enabled ? ' is-active' : ''}`}>
           <div className={`bg-preview${!enabled ? ' is-off' : ''}`} aria-hidden="true">
             <img src={image.url} alt="" />
           </div>
 
-          <div className="asset-set-body">
-            <div className="asset-set-head">
-              <strong>自定义背景图</strong>
-              {snap.status === 'ready' && enabled && (
-                <span className="state-pill success" aria-label="背景正在使用">
-                  <Check size={13} /> 使用中
-                </span>
-              )}
-              {snap.status === 'ready' && !enabled && (
-                <span className="state-pill warning">已隐藏</span>
-              )}
-              <span className="inline-actions">
+          <div className="bg-upload-main">
+            <div className="bg-upload-head">
+              <div className="bg-upload-title">
+                <strong>自定义背景图</strong>
+                {snap.status === 'ready' && enabled && (
+                  <span className="state-pill success" aria-label="背景正在使用">
+                    <Check size={13} /> 使用中
+                  </span>
+                )}
+                {snap.status === 'ready' && !enabled && (
+                  <span className="state-pill warning">已隐藏</span>
+                )}
+              </div>
+              <div className="bg-upload-actions">
                 <button
                   type="button"
                   className="button-secondary"
@@ -270,15 +272,14 @@ function BackgroundPanel() {
                 >
                   <Trash2 size={14} />清除
                 </button>
-              </span>
+              </div>
             </div>
 
             {error ? (
               <span className="field-help is-error">{error}</span>
             ) : (
               <span className="field-help">
-                给谱面画布设置一张背景图（PNG / JPEG / WebP，≤20MB）。画布固定深色主题不变，背景图为其上可选层；
-                自动铺满并压暗以保证音符可读。仅存本机，不上传服务器，随编辑器配置持久保存。
+                显示范围、填充与不透明度在下方卡片调整；仅存本机，不上传服务器。
               </span>
             )}
           </div>
@@ -287,7 +288,7 @@ function BackgroundPanel() {
         <EmptyState
           icon={ImageOff}
           title="未设置背景"
-          description="为谱面画布上传一张背景图（PNG / JPEG / WebP，≤20MB）。仅存本机，不上传服务器。"
+          description="上传 PNG / JPEG / WebP（≤20MB），仅存本机。"
           primaryAction={{
             label: '上传图片',
             onClick: () => fileRef.current?.click(),

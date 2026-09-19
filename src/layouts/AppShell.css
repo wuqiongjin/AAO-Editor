@@ -842,6 +842,86 @@
 .bg-card {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/* 背景已上传：左预览 + 右元信息（勿复用 .skin-preset 横向 flex，窄列会把按钮挤成竖排） */
+.bg-upload-card {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
+}
+
+.bg-upload-card:hover {
+  border-color: var(--border-strong);
+}
+
+.bg-upload-card.is-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent), var(--shadow-md);
+}
+
+.bg-upload-card .bg-preview {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  margin: 0;
+}
+
+.bg-upload-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bg-upload-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 12px;
+}
+
+.bg-upload-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bg-upload-title strong {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 720;
+}
+
+.bg-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.bg-upload-main .field-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  line-height: 1.45;
+}
+
+@media (max-width: 720px) {
+  .bg-upload-card {
+    grid-template-columns: 1fr;
+  }
+}
 .visually-hidden-input {
   /* 无障碍：视觉隐藏的文件输入（label/按钮触发 click） */
   position: absolute;

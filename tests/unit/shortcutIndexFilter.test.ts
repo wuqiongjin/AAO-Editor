@@ -122,7 +122,7 @@ describe('issue 121 · 筛选不写入设置对象', () => {
     expect(src).toContain('AppPageShell.Sidebar');
     expect(src).toContain('empty-bucket');
     expect(src).toContain('empty-search');
-    expect(src).toContain('这个分类暂无快捷键');
+    expect(src).toContain('此分类下暂无快捷键');
     expect(src).toContain('restoreDefaultsInFilter');
     expect(src).toMatch(/key=\{indexFilter\}/);
     expect(src).toContain('shortcut-table-body');
