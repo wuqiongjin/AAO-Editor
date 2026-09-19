@@ -23,7 +23,7 @@ Bestdori **没有 OAuth / API Token**，唯一授权方式是「用户名 + 密�
 ## 实现落点
 
 - 凭据红线（随 ADR-0011 §3）：密码不落盘（会话结束即弃）；仅持久化会话 Cookie（Electron 安全存储/加密）；提供登出清除。
-- 上传链路按 `docs/bestdori-api.md` §4–5 实现（prepare → multipart → status 轮询 → `POST /api/post`）；发布速率自控。
+- 上传链路按 `docs/research/bestdori-api.md` §4–5 实现（prepare → multipart → status 轮询 → `POST /api/post`）；发布速率自控。
 - 静态演示版不提供本能力（ADR-0011 §1）。
 - 实现前先按 §8 待验证清单实测登录成功形态（真实账号）。
 

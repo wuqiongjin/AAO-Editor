@@ -12,7 +12,7 @@ Blocked by:
 
 ## Answer（结论）
 
-完整实测报告：**`docs/bestdori-api.md`**（版本化，端点均于 2026-09-12 实测）。要点：
+完整实测报告：**`docs/research/bestdori-api.md`**（版本化，端点均于 2026-09-12 实测）。要点：
 
 - **a）脚本不是合规风险点，素材再分发才是。** 现状是 dev 期一次性脚本（低并发 3、自报 UA、断点重跑，`scripts/fetch-bestdori-skins.mjs`）拉归档到本地 `docs/resource/bestdori/`（gitignore），运行时零外域请求。产品公开要拍板的是「捆绑素材（仓库内 1.9MB 皮肤 + 244KB 键音）是否随公开版分发」→ 拆 `issues/02`。
 - **b）端点全齐，浏览器直连不可行（无 CORS）。** 官方谱面 `GET /api/charts/{songId}/{diff}.json` 返回的就是本编辑器谱面代码格式；社区谱面 = `SELF_POST/chart` 帖子（`POST /api/post/list` 分页搜索 + `GET /api/post/details?id=` 匿名取完整 chart 数组），存量 47491 张。**所有 Bestdori 端点无 CORS 头** → web 版必须经代理 → 拆 `issues/03`。

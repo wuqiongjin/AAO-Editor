@@ -2,13 +2,13 @@
 /**
  * fetch-bestdori-chart.mjs —— 按帖子 ID 拉取 Bestdori 社区谱面，只输出谱面代码本体。
  *
- * 端点：GET https://bestdori.com/api/post/details?id=<id>（匿名可读，见 docs/bestdori-api.md §4）
+ * 端点：GET https://bestdori.com/api/post/details?id=<id>（匿名可读，见 docs/research/bestdori-api.md §4）
  * 谱面代码在响应的 post.chart 字段里，即 BestdoriChart（对象数组）。
  *
  * 设计约束：
  *  - stdout **只有**谱面代码的 JSON，不含任何日志，可直接管道给 jq / 重定向落盘；
  *  - 日志、错误、进度一律写 stderr；
- *  - 业务错误也是 HTTP 200 + result:false（docs/bestdori-api.md §5），必须校验 result 字段。
+ *  - 业务错误也是 HTTP 200 + result:false（docs/research/bestdori-api.md §5），必须校验 result 字段。
  *
  * 用法：
  *   node scripts/fetch-bestdori-chart.mjs <id> [-o <file>] [--indent <n>] [--compact]

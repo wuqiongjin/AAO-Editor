@@ -2,6 +2,8 @@
 
 Issues and specs for this repo live as markdown files in `.scratch/`.
 
+调研产出（端点实测、方案成本对照、复算脚本）放 `docs/research/`，不要堆进 `issues/`。票内只留结论与指向该目录的链接。
+
 ## Conventions
 
 - One feature per directory: `.scratch/<feature-slug>/`
