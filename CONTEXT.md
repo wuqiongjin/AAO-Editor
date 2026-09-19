@@ -116,9 +116,12 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 工程文档标签 | Project document tab | 未来位于工作台内部、对应一份可重复打开谱面工程的文档标签；其创建、关闭、切换与隔离语义属于 issue 26，不与应用页面混为同一层 Tab |
 | 布局预设 | Layout preset | 把当前 面板宽度/折叠态/缩放 存成的**命名快照**，可恢复；只存布局信息、不含谱面数据 |
 | 设计令牌 | Design token | CSS variables 体系（颜色/间距/圆角/字号/阴影），主题与皮肤的取值来源 |
-| 主题 | Theme | 亮/暗内置两套 + 注册机制；**谱面画布始终深色**，主题只作用于面板/工具栏/弹窗等 chrome |
+| 主题 | Theme | 亮/暗内置两套 + 注册机制；**谱面画布始终深色**，主题只作用于面板/工具栏/弹窗等 chrome。Electron 上 **窗体标题栏** 另跟系统/nativeTheme（issue 126），不是页面 CSS |
+| 界面字体栈 | UI font stack | chrome 无衬线预设（Geist 出厂 / 微软雅黑 / Noto·思源 CJK）；每档是回退链不是单文件。**不**随界面语言自动切换。等宽 `--font-mono` 不随此切换。_Avoid_: 本机字体枚举、按 locale 自动换字体 |
+| 界面字号 | UI type scale | chrome 字号相对出厂 `--text-*` 的比例 80%–120%（步长 10%）。不改画布 `labelScale`，不改内容壳几何常数 |
 | 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出。**不含**窗体状态、**不含**数据根路径 |
 | 窗体状态 | Window chrome state | 这台机器上 OS 窗体的宽、高、是否最大化；与数据根路径同写 `userData/app-state.json`。_Avoid_: 塞进设置对象 / 导出配置；不要再为这类本机状态单开 json |
+| 窗体标题栏 | Window title bar | Electron **系统绘制**的 OS 标题栏与缩小/最大化/关闭。颜色跟主题；不是内容壳 **页面头**。_Avoid_: 把 OS 白条叫页面头 / 标题栏控件 |
 | 数据根 | Data root | Electron 上用户可选的自动落盘根目录（默认 `userData/data`，其下固定 `projects/` 与 `assets/`）。当前路径记在 `userData/app-state.json`。浏览器无此概念（仍 IndexedDB）。_Avoid_: 把「导出谱面代码」的另存路径叫数据根；不要把数据根叫 `projects` |
 | 上下文分域 | Context domains | 状态管理组织：`EditingContext`（音符/历史/选择）、`UIContext`（面板/缩放）、`ConfigContext`（设置）；`Editor` 只负责组装 |
 
@@ -131,7 +134,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 应用页面 | Application page | 应用壳中的单例功能目的地；当前范围为工作台、音频、素材、快捷键、设置（issue 28 §ADR-0003 既有定义） |
 | 内容页 | Content page | 接入内容壳的应用页面；**工作台不接入**（内部布局专属，issue 28 P1+P2）；当前范围 = 音频、素材、快捷键、设置 |
 | 工作台页 | Workspace page | **不接入内容壳**的应用页面（内部布局专属 + 黑盒接入应用壳，Editor 仅传 `active` 表面契约） |
-| 页面头 | Page header | 内容壳 `<AppPageShell.Header eyebrow title description />`；沿用 `.page-intro` class，CSS 不动；4 页沿用现状字符串，文案语义统一后续单开 issue |
+| 页面头 | Page header | 内容壳 `<AppPageShell.Header eyebrow title description />`；沿用 `.page-intro` class，CSS 不动；各页 description 与分区/空态说明的精简见 issue 125 |
 | 侧边索引 | Sidebar | 内容壳 `<AppPageShell.Sidebar>`——**独立于正文外**（不占正文空间，与"压在正文内"语义对立）；可空、可分组；激活态统一为"主色软底 + 主色文字 + 弱描边" |
 | 侧边分组 | Sidebar group | `<AppPageShell.SidebarGroup title>`——带不可点的分组标题；用于"应用设置 / 功能设置"等场景 |
 | 侧边项 | Sidebar item | `<AppPageShell.SidebarItem icon label>`——`icon` 为 `React.ComponentType`（lucide），size 17 由模板写死；激活态见上 |

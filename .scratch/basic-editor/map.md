@@ -114,8 +114,13 @@
   - [119 窗体宽高与最大化记忆](./issues/119-窗体宽高与最大化记忆.md)（feature，**resolved（实现 + 锁测）**）——**改成什么** = 主进程记宽高+最大化，不进设置对象；载体随 117 折进 `userData/app-state.json` 的 `window` 字段。
   - [120 内容页外侧间隙与正文封顶](./issues/120-内容页外侧间隙与正文封顶.md)（grilling，resolved）——**定了什么** = 窄先吃间隙(min 16)、宽正文 1:1 到 1440、L_max=96 可调后只加右；侧栏 clamp 不变。
   - [121 快捷键页索引筛选](./issues/121-快捷键页索引筛选.md)（grilling，resolved）——**定了什么** = 真侧栏粗桶筛选（≠ 类别）；切页进表归系统；搜索∩桶；不持久化。验收补：多键并排不换行；空桶≠搜索空；恢复默认跟当前桶；换桶表体 stagger。
-  - [122 多语言字符串盘点](./issues/122-多语言硬编码字符串盘点.md)（research，open）——盘点中文与「能否不做 i18n 框架」；**不**拍翻不翻 114。
+  - [122 多语言字符串盘点](./issues/122-多语言硬编码字符串盘点.md)（research，open）——盘点中文与「能否不做 i18n 框架」；**不**拍翻不翻 114。**Blocked by 125**（文案落地后再盘）。
   - [123 Electron 内存生产包基线](./issues/123-Electron内存生产包基线.md)（research，open）——关 DevTools 量 RSS/GPU；不预挂渲染瓦片嫌疑。
+- **124–127（2026-09-19 `/grill-with-docs` 外观/文案/窗体 chrome/快捷键滚动）**
+  - [124 外观界面字体与字号](./issues/124-外观界面字体与字号.md)（grilling，open）——**定了什么** = chrome 字号 80–120%/10%；三档字体栈（Geist / 雅黑 / Noto·思源 CJK），不按语言自动切、不打包 CJK；等宽不换族、字号可跟比例。
+  - [125 内容页文字描述精简](./issues/125-内容页文字描述精简.md)（grilling，open）——**定了什么** = 页面头 + 分区/空态；同一票先拟稿验收再改字符串；挡住 122。
+  - [126 Electron 窗体 chrome](./issues/126-Electron窗体chrome暗色与caption-hover.md)（bug，open）——**改成什么** = 系统标题栏跟暗色；Win caption hover 粘滞按原生路径试修，不自绘按钮。
+  - [127 快捷键换索引滚动不重置](./issues/127-快捷键换索引滚动不重置.md)（bug，open）——**改成什么** = 换索引筛选时 `.shortcut-table` 回顶；搜索不重置。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
