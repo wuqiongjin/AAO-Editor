@@ -29,7 +29,7 @@ export function makeCoords(geometry: ChartGeometry, viewport: GeometryViewport, 
   // issue 70 候选 2（实测）：renderChart 一帧内取可见集 4 次（BPM 标线 / 同时点击线 /
   // BPM 数值 / 选中描边），每次都新建数组并线性扫描全部 span。Coords 的生命周期 = 一帧
   // （渲染与命中各自现造），故在此惰性缓存一次即可——**不跨帧、不失效**，语义完全不变。
-  // 实测单帧 0.31ms → 见 tests/unit/RendererPerf.test.ts「候选 2 测量」组。
+  // 实测单帧 0.31ms → 见 tests/perf/RendererPerf.test.ts「候选 2 测量」组。
   let cachedVisibleNotes: { note: ChartNote; index: number }[] | null = null;
   return {
     trackGeometry: (s) => (s === scale ? cachedTrackGeometry : geometry.trackGeometry(s)),

@@ -247,7 +247,7 @@ export function convertChartCodeToNotes(chartCode: ChartCodeNote[]): ChartNote[]
                 });
                 break;
 
-            case "Single":
+            case "Single": {
                 const singleNote: SingleNote = {
                     beat: codeNote.beat,
                     lane: codeNote.lane,
@@ -261,27 +261,28 @@ export function convertChartCodeToNotes(chartCode: ChartCodeNote[]): ChartNote[]
                 }
                 notes.push(singleNote);
                 break;
+            }
 
             case "Directional": {
-                const directionalNote = codeNote.direction === "Left"
+                const directionalNote: LDirectionalNote | RDirectionalNote = codeNote.direction === "Left"
                     ? {
                         beat: codeNote.beat,
                         lane: codeNote.lane,
-                        type: "LDirectional" as const,
+                        type: "LDirectional",
                         length: codeNote.width
                     }
                     : {
                         beat: codeNote.beat,
                         lane: codeNote.lane,
-                        type: "RDirectional" as const,
+                        type: "RDirectional",
                         length: codeNote.width
                     };
 
                 if (codeNote.flick) {
-                    (directionalNote as any).flick = true;
+                    directionalNote.flick = true;
                 }
                 if (codeNote.skill) {
-                    (directionalNote as any).skill = true;
+                    directionalNote.skill = true;
                 }
                 notes.push(directionalNote);
                 break;

@@ -51,8 +51,11 @@ let basis: {
   bgScope: 'outsideTrack' | 'fullCanvas';
 } | null = null;
 
-/** 离屏位图工厂：浏览器用 canvas，测试可注入假实现 */
+/** 离屏位图工厂：浏览器用 canvas，测试可注入假实现。
+ *  注入点刻意不收窄类型——测试侧的假位图只需形状兼容（见 tests/support/canvas.ts）。 */
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试注入点：假位图只需结构兼容 */
 let createStaticCanvas: () => any = () => document.createElement('canvas');
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
 export function __setStaticCanvasFactoryForTests(factory: () => any) {
   createStaticCanvas = factory;
 }
@@ -132,11 +135,11 @@ export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     bpmEventsEqual(basis.bpmEvents, nb.bpmEvents);
   if (!hit) {
     if (!cacheCanvas) cacheCanvas = createStaticCanvas();
-    const bitmap: any = cacheCanvas;
+    const bitmap = cacheCanvas as HTMLCanvasElement;
     const bw = Math.round(nb.surfaceW * nb.dpr), bh = Math.round(nb.surfaceH * nb.dpr);
     if (bitmap.width !== bw) bitmap.width = bw;
     if (bitmap.height !== bh) bitmap.height = bh;
-    const cctx: CanvasRenderingContext2D = bitmap.getContext('2d');
+    const cctx = bitmap.getContext('2d')!;
     cctx.setTransform(nb.dpr, 0, 0, nb.dpr, 0, 0);
     cctx.clearRect(0, 0, nb.surfaceW, nb.surfaceH);
     cctx.fillStyle = '#000000';

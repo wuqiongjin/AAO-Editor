@@ -50,8 +50,11 @@ interface Tile {
   empty: boolean;
 }
 
-/** 瓦片位图工厂：浏览器用 canvas，测试可注入假实现 */
+/** 瓦片位图工厂：浏览器用 canvas，测试可注入假实现。
+ *  注入点刻意不收窄类型——测试侧的假位图只需形状兼容（见 tests/support/canvas.ts）。 */
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试注入点：假位图只需结构兼容 */
 let createTileCanvas: () => any = () => document.createElement('canvas');
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
 export function __setTileCanvasFactoryForTests(factory: () => any) {
   createTileCanvas = factory;
 }

@@ -1,5 +1,5 @@
 // ADR-0008 §2 统一交互语义矩阵 + §3 执行键语义 的纯调度层（逐行锁表见
-// tests/unit/ToolActionMatrix.test.ts——矩阵任何一行变动必须先改 ADR-0008 再改此表）。
+// tests/unit/chart/editing/ToolActionMatrix.test.ts——矩阵任何一行变动必须先改 ADR-0008 再改此表）。
 // 画布（FinalVirtualCanvas）负责几何→命中/落点/框内条目的换算，本模块只吃换算好的输入、
 // 输出副作用指令（op）序列；一次手势 = 一个 setNotes = 一个可回退快照（§8）。
 // 指针行（点选/加选/框选建选区）不在此表——它只操作选区、语义未变，留在画布选择路径。

@@ -6,7 +6,7 @@ import type { KeySoundKind } from './KeySound';
 import { BpmTimeline, type BpmBeatSolution, type BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
 import { trueBeat } from '../chart/editing/ChartEndBounds';
 
-export interface BpmEvent extends BpmTimelineEvent {}
+export type BpmEvent = BpmTimelineEvent;
 
 export const DEFAULT_BPM = 120;
 
