@@ -21,9 +21,30 @@ export const DEFAULT_BACKGROUND_SCOPE = 'outsideTrack' as const;
 export type BackgroundFit = typeof DEFAULT_BACKGROUND_FIT | 'contain';
 export type BackgroundScope = typeof DEFAULT_BACKGROUND_SCOPE | 'fullCanvas';
 
+/** chrome 无衬线预设（issue 124）：每档是回退链，不随界面语言自动切 */
+export type UiFontStackId = 'geist' | 'yahei' | 'noto';
+
+const UI_TYPE_SCALE_MIN = 0.7;
+const UI_TYPE_SCALE_MAX = 1.5;
+const UI_FONT_STACK_IDS: readonly UiFontStackId[] = ['geist', 'yahei', 'noto'];
+
+export function normalizeUiTypeScale(raw: unknown, fallback = 1): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
+  const snapped = Math.round(raw * 10) / 10;
+  return Math.min(UI_TYPE_SCALE_MAX, Math.max(UI_TYPE_SCALE_MIN, snapped));
+}
+
+export function normalizeUiFontStack(raw: unknown, fallback: UiFontStackId = 'geist'): UiFontStackId {
+  return (UI_FONT_STACK_IDS as readonly string[]).includes(raw as string) ? (raw as UiFontStackId) : fallback;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   theme: 'light' | 'dark' | 'system';
+  /** chrome 字号相对出厂 `--text-*` 的比例（issue 124）：0.7..1.5 步长 0.1，默认 1。additive，不 bump schemaVersion */
+  uiTypeScale: number;
+  /** chrome 无衬线字体档（issue 124）。additive，不 bump schemaVersion */
+  uiFontStack: UiFontStackId;
   layout: {
     leftPanel: { width: number; collapsed: boolean };
     rightPanel: { width: number; collapsed: boolean };
@@ -101,6 +122,8 @@ export function defaultSettings(): AppSettings {
   return {
     schemaVersion: 1,
     theme: 'system',
+    uiTypeScale: 1,
+    uiFontStack: 'geist',
     layout: {
       leftPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
       rightPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
@@ -163,6 +186,8 @@ function mergeSettings(parsed: unknown): AppSettings {
   return {
     schemaVersion: 1,
     theme: obj.theme === 'light' || obj.theme === 'dark' || obj.theme === 'system' ? obj.theme : defaults.theme,
+    uiTypeScale: normalizeUiTypeScale(obj.uiTypeScale, defaults.uiTypeScale),
+    uiFontStack: normalizeUiFontStack(obj.uiFontStack, defaults.uiFontStack),
     layout: {
       leftPanel: {
         width: typeof leftPanel.width === 'number' && leftPanel.width > 0 ? leftPanel.width : defaults.layout.leftPanel.width,
@@ -246,6 +271,8 @@ export function updateSettings(
   prev: AppSettings,
   patch: Partial<{
     theme: AppSettings['theme'];
+    uiTypeScale: number;
+    uiFontStack: UiFontStackId;
     layout: AppSettings['layout'];
     shortcuts: AppSettings['shortcuts'];
     audio: Partial<AppSettings['audio']>;
@@ -257,6 +284,8 @@ export function updateSettings(
   return {
     schemaVersion: 1,
     theme: patch.theme ?? prev.theme,
+    uiTypeScale: patch.uiTypeScale !== undefined ? normalizeUiTypeScale(patch.uiTypeScale, prev.uiTypeScale) : prev.uiTypeScale,
+    uiFontStack: patch.uiFontStack !== undefined ? normalizeUiFontStack(patch.uiFontStack, prev.uiFontStack) : prev.uiFontStack,
     layout: patch.layout ?? prev.layout,
     shortcuts: patch.shortcuts ?? prev.shortcuts,
     audio: { ...prev.audio, ...(patch.audio ?? {}) },

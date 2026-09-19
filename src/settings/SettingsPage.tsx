@@ -15,6 +15,12 @@ const THEME_OPTIONS: Array<{ value: AppSettings['theme']; label: string; swatch:
   { value: 'system', label: '跟随系统', swatch: 'system' },
 ];
 
+const UI_FONT_STACK_OPTIONS: Array<{ value: AppSettings['uiFontStack']; label: string }> = [
+  { value: 'geist', label: 'Geist' },
+  { value: 'yahei', label: '微软雅黑' },
+  { value: 'noto', label: 'Noto / 思源黑体' },
+];
+
 const QUALITY_OPTIONS: Array<{ value: AppSettings['display']['imageQuality']; label: string }> = [
   { value: 'smooth', label: '流畅' },
   { value: 'standard', label: '标准' },
@@ -103,7 +109,7 @@ function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: st
 }
 
 export default function SettingsPage() {
-  const { settings, setTheme, setDisplay, setAllSettings } = useConfig();
+  const { settings, setTheme, setUiTypeScale, setUiFontStack, setDisplay, setAllSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState<'canvas' | null>(null);
@@ -202,7 +208,7 @@ export default function SettingsPage() {
             <>
               <div className="settings-heading">
                 <h2>外观</h2>
-                <p>选择应用 chrome 的显示主题；谱面画布始终保持深色。</p>
+                <p>主题、界面字体与字号只作用于应用 chrome；谱面画布始终深色，标线文字大小在「画布显示」里单独调。</p>
               </div>
               <div className="theme-options">
                 {THEME_OPTIONS.map((opt) => {
@@ -220,6 +226,27 @@ export default function SettingsPage() {
                     </button>
                   );
                 })}
+              </div>
+              <PercentSliderRow
+                label="界面字号" hint="导航、设置、弹窗等 chrome 文字相对出厂的比例（70%–150%）"
+                value={settings.uiTypeScale} min={70} max={150} step={10}
+                onChange={(v) => setUiTypeScale(v)}
+              />
+              <div className="settings-row">
+                <div className="settings-row__text">
+                  <strong>界面字体</strong>
+                  <span>无衬线回退链；不随界面语言自动切换。等宽字体不换族。</span>
+                </div>
+                <select
+                  className="select-control"
+                  value={settings.uiFontStack}
+                  onChange={(e) => setUiFontStack(e.target.value as AppSettings['uiFontStack'])}
+                  aria-label="界面字体"
+                >
+                  {UI_FONT_STACK_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
             </>
           )}
@@ -364,7 +391,7 @@ export default function SettingsPage() {
               <div className="settings-row">
                 <div className="settings-row__text">
                   <strong>偏好设置</strong>
-                  <span>主题、布局、快捷键与画布显示。</span>
+                  <span>主题、界面字体与字号、布局、快捷键与画布显示。</span>
                 </div>
                 <span className="inline-actions">
                   <button className="button-secondary" type="button" onClick={handleExport}>

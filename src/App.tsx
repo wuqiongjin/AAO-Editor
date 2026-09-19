@@ -3,6 +3,7 @@ import './app/styles/App.css'
 import AppShell from "./layouts/AppShell";
 import { ProviderTree, useConfig } from "./app/ProviderTree";
 import { useApplyTheme } from './app/styles/theme';
+import { useApplyChromeTypography } from './app/styles/chromeTypography';
 
 const PageShellPrototype = lazy(() => import('./prototypes/PageShellPrototype'));
 
@@ -10,6 +11,7 @@ const PageShellPrototype = lazy(() => import('./prototypes/PageShellPrototype'))
 function ThemeSync() {
   const { settings } = useConfig();
   useApplyTheme(settings.theme);
+  useApplyChromeTypography(settings);
   return null;
 }
 

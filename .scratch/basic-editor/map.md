@@ -117,7 +117,7 @@
   - [122 多语言字符串盘点](./issues/122-多语言硬编码字符串盘点.md)（research，open）——盘点中文与「能否不做 i18n 框架」；**不**拍翻不翻 114。**Blocked by 125**（文案落地后再盘）。
   - [123 Electron 内存生产包基线](./issues/123-Electron内存生产包基线.md)（research，open）——关 DevTools 量 RSS/GPU；不预挂渲染瓦片嫌疑。
 - **124–127（2026-09-19 `/grill-with-docs` 外观/文案/窗体 chrome/快捷键滚动）**
-  - [124 外观界面字体与字号](./issues/124-外观界面字体与字号.md)（grilling，open）——**定了什么** = chrome 字号 80–120%/10%；三档字体栈（Geist / 雅黑 / Noto·思源 CJK），不按语言自动切、不打包 CJK；等宽不换族、字号可跟比例。
+  - [124 外观界面字体与字号](./issues/124-外观界面字体与字号.md)（grilling，resolved）——**定了什么** = 字号 70–150%/10% 接到 chrome 正文 token；设置行出厂标题 `--text-sm` / 说明 `--text-2xs`；三档不打包、中文可无差；**不**放档旁样张；留在外观。回炉已实现。
   - [125 内容页文字描述精简](./issues/125-内容页文字描述精简.md)（grilling，open）——**定了什么** = 页面头 + 分区/空态；同一票先拟稿验收再改字符串；挡住 122。
   - [126 Electron 窗体 chrome](./issues/126-Electron窗体chrome暗色与caption-hover.md)（bug，resolved）——**定了什么** = `nativeTheme` + `backgroundColor` 跟 settings.theme；Win blur/focus 试修 hover，仍可能为已知限制。
   - [127 快捷键换索引滚动不重置](./issues/127-快捷键换索引滚动不重置.md)（bug，open）——**改成什么** = 换索引筛选时 `.shortcut-table` 回顶；搜索不重置。

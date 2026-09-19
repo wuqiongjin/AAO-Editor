@@ -59,7 +59,7 @@
   border-radius: 9px;
   background: var(--text);
   color: var(--bg-elevated);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 800;
   letter-spacing: -0.04em;
 }
@@ -108,7 +108,7 @@
 .app-nav-item kbd {
   color: var(--text-subtle);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: calc(9px * var(--ui-type-scale));
   font-weight: 500;
 }
 
@@ -247,7 +247,7 @@
 }
 
 .page-content.is-fill .page-intro h2 {
-  font-size: 20px;
+  font-size: var(--text-xl);
 }
 
 .page-content.is-fill .page-intro p {
@@ -293,7 +293,7 @@
   display: block;
   margin-bottom: 7px;
   color: var(--accent-text);
-  font-size: 10px;
+  font-size: calc(10px * var(--ui-type-scale));
   font-weight: 750;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -302,7 +302,7 @@
 .page-intro h2 {
   margin: 0;
   color: var(--text);
-  font-size: 25px;
+  font-size: calc(25px * var(--ui-type-scale));
   font-weight: 740;
   letter-spacing: -0.035em;
   line-height: 1.15;
@@ -312,7 +312,7 @@
   max-width: 58ch;
   margin: 8px 0 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.6;
 }
 
@@ -419,7 +419,7 @@
 .audio-side h2,
 .settings-heading h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 720;
 }
 
@@ -428,7 +428,7 @@
 .settings-heading p {
   margin: 4px 0 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   line-height: 1.5;
 }
 
@@ -1658,7 +1658,7 @@ button.skin-pill {
   cursor: pointer;
   padding: 0 10px;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .settings-index button:hover {
@@ -1701,7 +1701,7 @@ button.skin-pill {
   cursor: pointer;
   padding: 8px;
   text-align: left;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .theme-option.is-active {
@@ -1813,13 +1813,13 @@ button.skin-pill {
 
 .settings-row strong,
 .danger-row strong {
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .settings-row span,
 .danger-row span {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .switch {
@@ -1864,7 +1864,7 @@ button.skin-pill {
 }
 .settings-index-title {
   padding: 0 10px 4px;
-  font-size: 10px;
+  font-size: calc(10px * var(--ui-type-scale));
   letter-spacing: 0.05em;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -1907,7 +1907,7 @@ button.skin-pill {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 /* 下拉选择（图像品质三档，issue 39 追加问题：替换丑的分段按钮） */
@@ -1918,7 +1918,7 @@ button.skin-pill {
   background: var(--bg-inset);
   color: var(--text);
   padding: 0 10px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   cursor: pointer;
 }
 .select-control:focus {

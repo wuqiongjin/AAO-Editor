@@ -11,6 +11,10 @@ export interface ConfigContextValue {
   setShortcutConfig: (next: ShortcutConfig) => void;
   setKeySetId: (id: string) => void;
   setTheme: (theme: AppSettings['theme']) => void;
+  /** chrome 字号比例（issue 124）：0.7..1.5 步长 0.1 */
+  setUiTypeScale: (uiTypeScale: number) => void;
+  /** chrome 无衬线字体档（issue 124） */
+  setUiFontStack: (uiFontStack: AppSettings['uiFontStack']) => void;
   /** 布局（面板宽/折叠，ADR-0003 §6）：字段级写回并持久化 */
   setLayout: (layout: AppSettings['layout']) => void;
   /** 画布显示参数（issue 39 功能设置·画布显示）：字段级写回并持久化 */
@@ -52,6 +56,22 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback((theme: AppSettings['theme']) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { theme });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
+  const setUiTypeScale = useCallback((uiTypeScale: number) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { uiTypeScale });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
+  const setUiFontStack = useCallback((uiFontStack: AppSettings['uiFontStack']) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { uiFontStack });
       saveSettings(merged);
       return merged;
     });
@@ -126,7 +146,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

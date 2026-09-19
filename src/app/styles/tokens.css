@@ -70,13 +70,14 @@
   --radius-lg: 14px;
   --radius-full: 999px;
 
-  /* ---- 字号 ---- */
-  --text-2xs: 11px;
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-base: 14px;
-  --text-lg: 16px;
-  --text-xl: 20px;
+  /* ---- 字号（issue 124：只乘 chrome 比例，不改间距/壳几何） ---- */
+  --ui-type-scale: 1;
+  --text-2xs: calc(11px * var(--ui-type-scale));
+  --text-xs: calc(12px * var(--ui-type-scale));
+  --text-sm: calc(13px * var(--ui-type-scale));
+  --text-base: calc(14px * var(--ui-type-scale));
+  --text-lg: calc(16px * var(--ui-type-scale));
+  --text-xl: calc(20px * var(--ui-type-scale));
 
   /* ---- 字体（issue 49 阶段 1：替换 Inter → Geist） ---- */
   --font-sans: "Geist Variable", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
