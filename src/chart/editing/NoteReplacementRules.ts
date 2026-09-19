@@ -50,12 +50,28 @@ export function findNoteIndexAt(
 }
 
 /**
+ * 键音符 → 放置工具的 id（issue 76）：落点撞滑条结点时，用它把"移动 / 粘贴"改判为"放置"。
+ * 口径：flick 标记 → 滑键、skill 标记 → 技能键，否则单键；方向键 → "ldirectional" / "rdirectional"。
+ *
+ * issue 130：**拖拽与粘贴两条路径共用这一份** —— 此前 `NoteDragging` 与 `pasteChartNotes` 各写一份
+ * 逐字相同的映射，而两份现在都喂同一个 `source` 入参，漂移一次就分裂一次。
+ */
+export function keyToolIdOf(n: ChartNote): string {
+    return n.type === 'Single'
+        ? (n.flick ? 'flick' : (n.skill ? 'skill' : 'single'))
+        : n.type.toLowerCase();
+}
+
+/**
  * 处理音符覆盖替换规则
  * @param notes 当前所有音符
  * @param beat 目标位置beat
  * @param lane 目标位置lane
  * @param subBeat 目标位置subBeat
  * @param newNoteType 新音符类型
+ * @param source 来源键音符（拖动 = 被拖件 / 粘贴 = 剪贴板件）。**只有滑条结点拆条分支用它**：
+ *                issue 130 移动口径 —— 拆出的独立方向键继承它的 `length` / `flick` / `skill`；
+ *                不传（工具点击）= 放置口径，产物恒 `length=1`、无标记。
  * @returns 替换结果
  */
 export function handleNoteReplacement(
@@ -63,7 +79,8 @@ export function handleNoteReplacement(
     beat: number,
     lane: number,
     subBeat: number,
-    newNoteType: string
+    newNoteType: string,
+    source?: ChartNote,
 ): NoteReplacementResult {
     const newNotes = [...notes];
 
@@ -80,7 +97,7 @@ export function handleNoteReplacement(
 
         // 处理滑条音符的覆盖替换规则
         if (existingNote.type === "Slide" || existingNote.type === "Long") {
-            return handleSlideNoteReplacement(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType);
+            return handleSlideNoteReplacement(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType, source);
         } else {
             // 处理单键音符和方向键的覆盖替换规则
             return handleSingleAndDirectionalReplacement(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType);
@@ -191,7 +208,8 @@ function handleSlideNoteReplacement(
     beat: number,
     lane: number,
     subBeat: number,
-    newNoteType: string
+    newNoteType: string,
+    source?: ChartNote,
 ): NoteReplacementResult {
     const existingNote = newNotes[existingNoteIndex] as SlideNote;
     const conns = existingNote.connections;
@@ -219,7 +237,7 @@ function handleSlideNoteReplacement(
 
     // 方向键：中间节点拆两侧 / 端点拆端
     if (newNoteType === "ldirectional" || newNoteType === "rdirectional") {
-        return splitSlideAtNode(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType, connectionIndex);
+        return splitSlideAtNode(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType, connectionIndex, source);
     }
 
     return { shouldReplace: false, newNotes, message: "未知的音符类型组合" };
@@ -271,6 +289,9 @@ export function deleteSlideSegment(
 /**
  * 方向键放置到滑条结点上的拆条逻辑（ADR-0001 1.2.1 中间拆两侧 / 1.2.2 端点拆端）
  * @param connectionIndex 被放置方向键的结点下标
+ * @param source 来源方向键（拖动 = 被拖件 / 粘贴 = 剪贴板件）。issue 130：拆出的独立方向键
+ *               **继承它的 length / flick / skill**（移动口径：拖过去的东西原样落地）；
+ *               不传（工具点击）→ 恒 length=1、无标记（放置口径，ADR §1.1 一致）。
  */
 function splitSlideAtNode(
     newNotes: ChartNote[],
@@ -279,13 +300,24 @@ function splitSlideAtNode(
     lane: number,
     subBeat: number,
     newNoteType: string,
-    connectionIndex: number
+    connectionIndex: number,
+    source?: ChartNote,
 ): NoteReplacementResult {
     const existingNote = newNotes[existingNoteIndex] as SlideNote;
     const conns = existingNote.connections;
     const slideType = (existingNote.type as string) === "Long" ? "Long" : "Slide";
     const directionalType = (newNoteType === "ldirectional" ? "LDirectional" : "RDirectional") as "LDirectional" | "RDirectional";
-    const independentNote = { beat, lane, subBeat, type: directionalType, length: 1 };
+    const srcDir = source && (source.type === "LDirectional" || source.type === "RDirectional") ? source : null;
+    const independentNote = {
+        beat,
+        lane,
+        subBeat,
+        type: directionalType,
+        // `?? 1`：来源件缺 length（畸形数据）时兜底，不产出 length=undefined 的方向键
+        length: srcDir?.length ?? 1,
+        ...(srcDir?.flick ? { flick: true } : {}),
+        ...(srcDir?.skill ? { skill: true } : {}),
+    };
 
     // 移除原滑条（不就地变异原对象，改用构造的新片段）
     newNotes.splice(existingNoteIndex, 1);
@@ -635,22 +667,11 @@ export function pasteChartNotes(
         }
 
         // 有既有音符：应用覆盖替换规则（ADR §1）
-        const tool = note.type === "Single"
-            ? (note.flick ? "flick" : (note.skill ? "skill" : "single"))
-            : note.type.toLowerCase(); // "ldirectional" | "rdirectional"
-        const result = handleNoteReplacement(newNotes, beat, lane, subBeat, tool);
+        const tool = keyToolIdOf(note); // 与拖拽路径同一份映射（issue 130）
+        // issue 130：来源件 = 剪贴板音符本身 —— 拆条产物继承它的 length / flick / skill，
+        // 与拖拽路径同一份实现（此前粘贴侧有一段事后 findIndex 回填，拖拽侧没有，故两口径分裂）
+        const result = handleNoteReplacement(newNotes, beat, lane, subBeat, tool, note);
         if (result.shouldReplace) newNotes = result.newNotes;
-
-        // 方向键：覆盖/拆条产生的新方向键保持粘贴件的 length（若 >1）
-        if ((note.type === "LDirectional" || note.type === "RDirectional") && note.length > 1) {
-            const idx = newNotes.findIndex(n =>
-                n.type === note.type && n.beat === beat && n.lane === lane && (n.subBeat || 0) === subBeat
-            );
-            const existing = idx !== -1 ? newNotes[idx] : null;
-            if (existing && (existing.type === "LDirectional" || existing.type === "RDirectional") && existing.length === 1) {
-                newNotes[idx] = { ...existing, length: note.length };
-            }
-        }
     }
 
     // 实际写入/改动的下标：新数组里引用不在原数组中的那些（新增或替换产生的新对象，含拆条产物）

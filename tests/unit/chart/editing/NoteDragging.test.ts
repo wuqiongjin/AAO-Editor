@@ -98,6 +98,73 @@ describe('planDragMove · 落点撞滑条结点 = 放置规则（issue 76）', (
   });
 });
 
+// issue 130：拖动 = 移动口径 —— 被拖方向键落到滑条结点触发拆条时，
+// 拆出的独立方向键**继承被拖件的 length / flick / skill**（不再被压成 length=1）。
+describe('planDragMove · 拖方向键到滑条结点保留自身属性（issue 130）', () => {
+  const dir = (beat: number, lane: number, extra: Record<string, unknown>): ChartNote =>
+    ({ type: 'LDirectional', beat, lane, subBeat: 0, ...extra } as ChartNote);
+
+  it('拖 length=3 到**中间**结点 → 拆成两条滑条 + 独立方向键 length=3', () => {
+    const notes: ChartNote[] = [dir(1, 1, { length: 3 }), slide(2, 1, 3, 1, 4, 1, 5, 1, 6, 1)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 3, dLane: 0 }, B); // 落到中间结点 (4,1)
+    expect(r.ok).toBe(true);
+    expect(r.notes.filter(n => n.type === 'Slide')).toHaveLength(2); // 两侧各成一条（ADR §1.2.1）
+    expect(r.notes.filter(n => n.type === 'Single')).toHaveLength(0); // 无结点退化
+    const d = r.notes.find(n => n.type === 'LDirectional') as any;
+    expect(d).toMatchObject({ beat: 4, lane: 1, length: 3 });
+  });
+
+  it('拖 length=2 到**首**端点 → 拆条产物 length=2', () => {
+    const notes: ChartNote[] = [dir(1, 2, { length: 2 }), slide(3, 2, 5, 2)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 2, dLane: 0 }, B); // 落到首端点 (3,2)
+    expect(r.ok).toBe(true);
+    const d = r.notes.find(n => n.type === 'LDirectional') as any;
+    expect(d).toMatchObject({ beat: 3, lane: 2, length: 2 });
+  });
+
+  it('拖 length=2 到**尾**端点 → 拆条产物 length=2', () => {
+    const notes: ChartNote[] = [dir(1, 2, { length: 2 }), slide(3, 2, 5, 2)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 4, dLane: 0 }, B); // 落到尾端点 (5,2)
+    expect(r.ok).toBe(true);
+    const d = r.notes.find(n => n.type === 'LDirectional') as any;
+    expect(d).toMatchObject({ beat: 5, lane: 2, length: 2 });
+  });
+
+  it('拖带 flick 的方向键 → 拆条产物保留 flick', () => {
+    const notes: ChartNote[] = [dir(1, 1, { length: 2, flick: true }), slide(3, 1, 4, 1, 5, 1)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 3, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const d = r.notes.find(n => n.type === 'LDirectional') as any;
+    expect(d).toMatchObject({ length: 2, flick: true });
+  });
+
+  it('回归：拖 length=1 的方向键 → 产物仍 length=1（issue 76 既有用例口径）', () => {
+    const notes: ChartNote[] = [dir(1, 1, { length: 1 }), slide(3, 1, 4, 1, 5, 1)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 3, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const d = r.notes.find(n => n.type === 'LDirectional') as any;
+    expect(d).toMatchObject({ length: 1 });
+  });
+
+  // 定案 1 的护栏：拖动**不**触发 ADR §1.1 的 length+1／归 1 —— 被拖件原样落地，
+  // 目标只负责让位。此前这条语义零覆盖（既有用例拖的是 Single↔Single）。
+  it('拖 length=1 的方向键到 length=2 的同类型方向键上 → 仍 1（不叠加）', () => {
+    const notes: ChartNote[] = [dir(1, 1, { length: 1 }), dir(4, 1, { length: 2 })];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 3, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    expect(r.notes).toHaveLength(1); // 目标被覆盖消耗
+    expect(r.notes[0]).toMatchObject({ type: 'LDirectional', beat: 4, length: 1 });
+  });
+
+  it('拖 length=2 的方向键到 length=1 的同类型方向键上 → 仍 2（不被目标改写）', () => {
+    const notes: ChartNote[] = [dir(1, 1, { length: 2 }), dir(4, 1, { length: 1 })];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 3, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]).toMatchObject({ type: 'LDirectional', beat: 4, length: 2 });
+  });
+});
+
 describe('draggableFromItems', () => {
   it('键型/整条滑条/结点/滑条段可拖；BPM/System 不可（issue 09 S3：slideRegion 可拖 = 拉弓变形）', () => {
     const notes: ChartNote[] = [single(1, 1), { type: 'BPM', beat: 2, bpm: 120 }, slide(3, 1, 4, 2)];

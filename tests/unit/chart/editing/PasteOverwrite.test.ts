@@ -81,6 +81,16 @@ describe('pasteChartNotes - 普通音符覆盖', () => {
     expect(r.newNotes).toHaveLength(1);
     expect(r.newNotes[0]).toMatchObject({ type: 'LDirectional', length: 2 });
   });
+
+  // issue 130：删掉「方向键 length>1 事后回填」那段后，粘贴到单键按 ADR §1.1 = 替换为 length=1
+  // （此前那段回填顺带把这个落点也保成了 2，与 §1.1 不符，且无测试看守）
+  it('粘贴 length=2 方向键到既有单键：按 ADR §1.1 替换为 length=1', () => {
+    const notes: ChartNote[] = [{ type: 'Single', beat: 5, lane: 1, subBeat: 0 }];
+    const clipboard: ChartNote[] = [{ type: 'LDirectional', beat: 5, lane: 1, subBeat: 0, length: 2 }];
+    const r = pasteChartNotes(notes, clipboard, 5, 1);
+    expect(r.newNotes).toHaveLength(1);
+    expect(r.newNotes[0]).toMatchObject({ type: 'LDirectional', length: 1 });
+  });
 });
 
 describe('pasteChartNotes - 滑条结点覆盖（ADR §1.2）', () => {
@@ -133,6 +143,29 @@ describe('pasteChartNotes - 滑条结点覆盖（ADR §1.2）', () => {
     expect(r.newNotes.filter(n => n.type === 'Slide')).toHaveLength(2);
     expect(r.newNotes.filter(n => n.type === 'LDirectional')).toHaveLength(1);
     expect(r.newNotes.filter(n => n.type === 'Single')).toHaveLength(0);
+  });
+
+  // issue 130：拖 / 粘贴两条路径合成一份 —— 拆条产物继承来源方向键的 length / flick / skill
+  it('粘贴 length=3 方向键到滑条中间结点：拆条产物保留 length=3', () => {
+    const longSlide: ChartNote = {
+      type: 'Slide',
+      connections: [
+        { beat: 1, lane: 0, subBeat: 0 },
+        { beat: 2, lane: 0, subBeat: 0 },
+        { beat: 3, lane: 0, subBeat: 0 }
+      ]
+    };
+    const clipboard: ChartNote[] = [{ type: 'LDirectional', beat: 2, lane: 0, subBeat: 0, length: 3 }];
+    const r = pasteChartNotes([longSlide], clipboard, 2, 0);
+    expect(r.newNotes.find(n => n.type === 'LDirectional')).toMatchObject({ beat: 2, lane: 0, length: 3 });
+  });
+
+  it('粘贴带 skill 的方向键到滑条中间结点：拆条产物保留 skill', () => {
+    const clipboard: ChartNote[] = [
+      { type: 'LDirectional', beat: 2, lane: 0, subBeat: 0, length: 2, skill: true }
+    ];
+    const r = pasteChartNotes([slide], clipboard, 2, 0);
+    expect(r.newNotes.find(n => n.type === 'LDirectional')).toMatchObject({ length: 2, skill: true });
   });
 });
 

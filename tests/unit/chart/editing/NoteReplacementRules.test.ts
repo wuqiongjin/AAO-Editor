@@ -280,6 +280,55 @@ describe('handleNoteReplacement - 滑条结点（ADR-0001 1.2）', () => {
   });
 });
 
+// issue 130：拆条产出的独立方向键 = **继承来源方向键**的 length / flick / skill（移动口径）。
+// 工具点击没有来源件 → 恒 length=1、无标记（与上面各条回归一致）。
+describe('handleNoteReplacement - 拆条产物继承来源方向键（issue 130）', () => {
+  const slide5 = (): ChartNote[] => [{
+    type: 'Slide',
+    connections: [
+      { beat: 0, lane: 0 },
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 2 },
+      { beat: 3, lane: 3 },
+      { beat: 4, lane: 4 },
+    ],
+  }];
+  const src = (length: number, extra: { flick?: boolean; skill?: boolean } = {}): ChartNote =>
+    ({ type: 'LDirectional', beat: 9, lane: 9, subBeat: 0, length, ...extra } as ChartNote);
+
+  it('来源 length=3 → 中间结点拆条产物 length=3（不再归 1）', () => {
+    const r = handleNoteReplacement(slide5(), 2, 2, 0, 'ldirectional', src(3));
+    expect(r.shouldReplace).toBe(true);
+    expect(r.newNotes.find(n => n.type === 'LDirectional'))
+      .toEqual({ beat: 2, lane: 2, subBeat: 0, type: 'LDirectional', length: 3 });
+  });
+
+  it('来源 length=2 带 flick → 产物 length=2 且带 flick', () => {
+    const r = handleNoteReplacement(slide5(), 2, 2, 0, 'ldirectional', src(2, { flick: true }));
+    expect(r.newNotes.find(n => n.type === 'LDirectional'))
+      .toMatchObject({ length: 2, flick: true });
+  });
+
+  it('来源 length=3 带 skill → 产物 length=3 且带 skill', () => {
+    const r = handleNoteReplacement(slide5(), 2, 2, 0, 'ldirectional', src(3, { skill: true }));
+    expect(r.newNotes.find(n => n.type === 'LDirectional'))
+      .toMatchObject({ length: 3, skill: true });
+  });
+
+  it('端点拆端同样继承（2 结点滑条，ADR 1.2.2）', () => {
+    const notes: ChartNote[] = [{ type: 'Slide', connections: [{ beat: 0, lane: 0 }, { beat: 2, lane: 2 }] }];
+    const r = handleNoteReplacement(notes, 2, 2, 0, 'ldirectional', src(3));
+    expect(r.newNotes.find(n => n.type === 'LDirectional'))
+      .toEqual({ beat: 2, lane: 2, subBeat: 0, type: 'LDirectional', length: 3 });
+  });
+
+  it('回归：工具点击（不传来源件）→ 产物仍 length=1 且无标记', () => {
+    const r = handleNoteReplacement(slide5(), 2, 2, 0, 'ldirectional');
+    expect(r.newNotes.find(n => n.type === 'LDirectional'))
+      .toEqual({ beat: 2, lane: 2, subBeat: 0, type: 'LDirectional', length: 1 });
+  });
+});
+
 // issue 81 定案（用户 2026-09-10 拍板方案 A）：键型音符放到滑条**端点** = **替换该端点的标记**
 // （与非 Slide 音符互相覆盖同口径），取代旧的「只加不清、flick 与 skill 可并存」——
 // 旧行为会让端点画成「技能键底图 + 滑键箭头」的叠加样式，且单键完全无法覆盖带标记的端点。

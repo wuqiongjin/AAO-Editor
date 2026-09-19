@@ -7,7 +7,7 @@
 import type { ChartNote, SelectionItem, SlideNote, LongNote, ConnectionNote } from '../types';
 import { quantizeBeat } from '../geometry/ChartGeometry';
 import { mergeChainWithSlides } from './SlideCombination';
-import { handleNoteReplacement } from './NoteReplacementRules';
+import { handleNoteReplacement, keyToolIdOf } from './NoteReplacementRules';
 import { slideSpans } from './SlideSegments';
 import { bendSpan, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams } from './SpanCurve';
 import type { CurvePrecision } from './Easing';
@@ -93,14 +93,7 @@ export interface DragMoveResult {
 
 const isKey = (n: ChartNote) => n.type === 'Single' || n.type === 'LDirectional' || n.type === 'RDirectional';
 
-/**
- * 键音符 → 放置工具的 id（issue 76）：拖拽落点撞滑条结点时，用它把"移动"改判为"放置"。
- * 口径与 `pasteChartNotes` 完全一致（flick 标记 → 滑键、skill 标记 → 技能键，否则单键）。
- */
-const keyToolIdOf = (n: ChartNote): string =>
-  n.type === 'Single'
-    ? (n.flick ? 'flick' : (n.skill ? 'skill' : 'single'))
-    : n.type.toLowerCase();
+// keyToolIdOf 已迁至 NoteReplacementRules（issue 130：拖拽与粘贴共用同一份「音符 → 工具 id」映射）
 const isSlideish = (n: ChartNote): n is SlideNote | LongNote => n.type === 'Slide' || n.type === 'Long';
 
 const TOTAL_LANES = 7; // 与 NoteEditing.TOTAL_LANES 一致（此处内联避免引动历史模块）
@@ -345,7 +338,9 @@ export function planDragMove(
   // issue 76：键音符拖到滑条结点 → 交回**放置**规则（ADR-0001 §1.2）。
   // 放置规则会把拖拽件本身消耗掉（技能键/滑键加标记、方向键拆条），故与"移动"是两条不同产物路径。
   // key = 被消耗的拖拽件下标；value = 落点 + 工具 id + 目标滑条下标（同一条滑条只许一次，防规则交叠）。
-  const placements = new Map<number, { beat: number; lane: number; subBeat: number; toolId: string; targetNote: number }>();
+  // src：被拖的键音符本体（issue 130 移动口径）—— 走放置规则时由它提供 length / flick / skill；
+  // 工具 id 不再另存一份，一律由 `keyToolIdOf(src)` 现算（与粘贴路径同一份映射）。
+  const placements = new Map<number, { beat: number; lane: number; subBeat: number; targetNote: number; src: ChartNote }>();
   for (const [i, plan] of plans) {
     const nn = moved.get(i)!;
     if (isKey(nn)) {
@@ -364,11 +359,11 @@ export function planDragMove(
         if (p.targetNote === t.orig) return fail('collision');
       }
       // 先按原谱面判可行性（判定"忽略"的组合，如单键→任意结点、滑键→非尾端点，仍回弹）
-      const probe = handleNoteReplacement(notes, nn.beat, nn.lane, nn.subBeat || 0, keyToolIdOf(nn));
+      const probe = handleNoteReplacement(notes, nn.beat, nn.lane, nn.subBeat || 0, keyToolIdOf(nn), nn);
       if (!probe.shouldReplace) return fail('collision');
       placements.set(i, {
         beat: nn.beat, lane: nn.lane, subBeat: nn.subBeat || 0,
-        toolId: keyToolIdOf(nn), targetNote: t.orig,
+        targetNote: t.orig, src: nn,
       });
       continue;
     }
@@ -412,7 +407,7 @@ export function planDragMove(
       arr.push(moved.get(i) || n);
     });
     for (const p of placements.values()) {
-      const r = handleNoteReplacement(arr, p.beat, p.lane, p.subBeat, p.toolId);
+      const r = handleNoteReplacement(arr, p.beat, p.lane, p.subBeat, keyToolIdOf(p.src), p.src);
       if (!r.shouldReplace) return fail('collision'); // 保险（③已判过）
       arr = r.newNotes;
     }
