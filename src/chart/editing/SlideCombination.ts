@@ -2,7 +2,7 @@
 // 与两击直放并存：Slide 工具态框选（或"已有选区 + Ctrl+E"）把框内音符与滑条结点吸入成一条滑条。
 // 组合与 ADR-0001 §1.2 覆盖/替换规则无关——框内任何键型一律吸入；滑条按结点级吸入，宿主未覆盖段拆条保留（§4 三轮修订）。
 // 排序 = beat+subBeat 升序、同拍按 lane 升序；同拍横向段在此路径合法（zigzag 样例即由此重现）。
-// 形态归一表（connectionFromAbsorbedNote）与排序规则由单测逐行锁表（tests/unit/SlideCombination.test.ts），
+// 形态归一表（connectionFromAbsorbedNote）与排序规则由单测逐行锁表（tests/unit/chart/editing/SlideCombination.test.ts），
 // 未来变动走 ADR-0008 流程后改本表。
 import type {
   ChartNote, SelectionItem, SlideNote, ConnectionNote,

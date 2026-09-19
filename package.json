@@ -12,6 +12,7 @@
     "build:release": "vite build --mode release",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:types": "tsc -p tsconfig.test.json",
     "lint": "eslint .",
     "preview": "vite preview",
     "electron": "electron .",

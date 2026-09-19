@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "incremental": true,
+    "allowJs": true,
+    "types": ["vite/client", "vitest/globals", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
+    // 测试为了造边界场景常留一些"暂时没用到"的构造参数，
+    // 交给 eslint 的 no-unused-vars 管即可，这里不重复报错
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["tests", "src", "tools"]
+}
