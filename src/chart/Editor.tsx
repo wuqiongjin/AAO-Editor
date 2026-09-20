@@ -191,15 +191,15 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // === 会话流 5：布局持久化（issue 22 §6 / ADR-0003 §6） ===
   useLayoutPersistence({ settings, ui, setLayout });
 
-  // 谱面/BPM 变化时同步按键音事件（issue 36：编辑中防抖 300ms；播放中即时）
+  // 谱面/BPM 变化时同步按键音事件（issue 36：编辑中防抖 300ms；播放中改谱即时）。
+  // issue 101：不把 isPlaying 放进 deps——开播翻转本身不得同步跑全谱 getBpmEvents+buildKeyEvents。
+  const keysPlayingRef = useRef(playbackCoord.isPlaying);
+  keysPlayingRef.current = playbackCoord.isPlaying;
   useEffect(() => {
-    if (playbackCoord.isPlaying) {
-      engine?.setChart(notes, beatDisplay);
-      return;
-    }
-    const t = window.setTimeout(() => engine?.setChart(notes, beatDisplay), 300);
+    const delay = keysPlayingRef.current ? 0 : 300;
+    const t = window.setTimeout(() => engine?.setChart(notes, beatDisplay), delay);
     return () => window.clearTimeout(t);
-  }, [notes, beatDisplay, engine, playbackCoord.isPlaying]);
+  }, [notes, beatDisplay, engine]);
 
   // 画布 onScrollChange：写虚拟高度 + 喂滚动模型做锚点观察（SKIP 保护由模型内处理）
   // lastCanvasScrollYRef：画布侧最新 scrollY，供 virtualHeight 落地后重写滚动条比例位（见下方 effect）

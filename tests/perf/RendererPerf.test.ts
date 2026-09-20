@@ -82,7 +82,17 @@ const EMPTY_CLIPBOARD: never[] = [];
 // 音符皮肤图标集（issue 29）：默认选择构建一次共享（纯数据，不含 DOM）
 const SHARED_NOTE_ICONS = buildActiveNoteIcons(normalizeNoteSkinSelection(undefined));
 
-function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: number, es: number, scrollY: number, zoomGesture: boolean, counters: Counters, surface: { w: number; h: number } = SURFACE): RenderCtx {
+function makeRc(
+  geometry: ChartGeometry,
+  notes: ChartNote[],
+  chartEndBeat: number,
+  es: number,
+  scrollY: number,
+  zoomGesture: boolean,
+  counters: Counters,
+  surface: { w: number; h: number } = SURFACE,
+  extra: { playing?: boolean; skinVersion?: number } = {},
+): RenderCtx {
   return {
     geometry,
     viewport: { scrollX: 0, scrollY, scale: es, virtualWidth: 0, virtualHeight: 0 },
@@ -102,6 +112,8 @@ function makeRc(geometry: ChartGeometry, notes: ChartNote[], chartEndBeat: numbe
     spriteIcon: { render: () => { counters.spriteRenders++; }, renderDecorator: () => undefined } as unknown as RenderCtx['spriteIcon'],
     noteIcons: SHARED_NOTE_ICONS,
     zoomGesture,
+    playing: extra.playing,
+    skinVersion: extra.skinVersion,
   };
 }
 
@@ -608,5 +620,51 @@ describe('候选 2 测量：单次交互成本（issue 70）', () => {
     const total = performance.now() - t0;
     console.log(`[候选2] 播放 HUD tick ×${MOVES}：总 ${total.toFixed(1)}ms，单 tick ${(total / MOVES).toFixed(3)}ms`);
     expect(total / MOVES).toBeLessThan(2);
+  });
+});
+
+describe('issue 101 · 换肤全量失效后的播放滚动帧', () => {
+  beforeEach(() => {
+    resetNoteLayerCache();
+    resetStaticLayerCache();
+    vi.restoreAllMocks();
+  });
+
+  it('瓦片缓存全量失效后，播放帧每帧 renderTile 次数受帧预算约束', () => {
+    const chartEndBeat = 1500;
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const es = 0.4;
+    const scrollY = scrollYForCenterBeat(g, 750, es);
+
+    let tileCreates = 0;
+    __setTileCanvasFactoryForTests(() => {
+      tileCreates++;
+      return makeCanvasStub({ drawImage: 0, spriteRenders: 0 });
+    });
+
+    drawNotesLayer(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters));
+    const restCreates = tileCreates;
+    expect(restCreates).toBeGreaterThan(2);
+
+    let now = 10_000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    tileCreates = 0;
+    __setTileCanvasFactoryForTests(() => {
+      tileCreates++;
+      now += 5;
+      return makeCanvasStub({ drawImage: 0, spriteRenders: 0 });
+    });
+
+    drawNotesLayer(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters, SURFACE, {
+      playing: true,
+      skinVersion: 1,
+    }));
+
+    expect(tileCreates).toBeGreaterThan(0);
+    expect(tileCreates).toBeLessThan(restCreates);
+    expect(tileCreates).toBeLessThanOrEqual(1);
   });
 });

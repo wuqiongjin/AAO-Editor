@@ -88,6 +88,8 @@ export interface RenderCtx {
   noteIcons: ActiveNoteIcons;
   /** 缩放手势进行中（issue 10）：true 时离屏瓦片只按比例 blit 不重建，手势结束再高清重渲 */
   zoomGesture?: boolean;
+  /** 播放滚动中（issue 101）：与手势帧一样套重建时间预算，miss 瓦片按预算渐进出 */
+  playing?: boolean;
   /** 皮肤图片就绪版本（issue 10）：图片异步加载完成后 +1，避免瓦片缓存命中未出图的旧帧 */
   skinVersion?: number;
   /** 画布显示参数（issue 39 功能设置·画布显示）：由组件从 settings 读取注入，null = 用默认行为 */

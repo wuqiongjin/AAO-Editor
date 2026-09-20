@@ -59,6 +59,8 @@ interface FinalVirtualCanvasProps {
 export interface FinalVirtualCanvasHandle {
   /** 应用目标 scrollY（画布跟随）：值由 PlaybackScrollModel 计算，画布内部钳制到可滚范围。 */
   setScrollY: (scrollY: number) => void;
+  /** issue 101：播放 RAF 启动/停止时同步打标，避免首帧仍走无预算的静止重建。 */
+  setPlaybackActive?: (active: boolean) => void;
   /** 起点标记（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除。 */
   getMarkerBeat?: () => number | null;
   getMarkerSelected?: () => boolean;
@@ -132,7 +134,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     } = useEditing();
     // armedTool = 持工具态（ADR-0008 §1）：null = 指针底态；选区与工具解耦、常驻不清
     const { armedTool, beatDisplay, scale, setScale, curveConfig } = useUI();
-    const { setMarker: setMarkerContext, currentSeconds } = usePlayback();
+    const { setMarker: setMarkerContext, currentSeconds, isPlaying } = usePlayback();
     // issue 59 §2/§3：「音符代码」工具点击 → 打开该音符的代码弹窗（与「谱面代码」按钮共用同一弹窗）
     const { openNoteCode } = useChartCodeEditor();
     // issue 39 功能设置·画布显示：纵向比例进 geometry（重建），其余渲染参数经 RenderCtx 注入渲染器
@@ -177,6 +179,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const [renderTick, setRenderTick] = useState(0);
     const zoomGestureUntilRef = useRef(0);
     const zoomSettleTimerRef = useRef<number | undefined>(undefined);
+    const playbackActiveRef = useRef(false);
     // ADR-0008 §5：BPM 就地编辑（无模态打断）。默认值 = 上一次放置所设的值（初始 120）
     const lastBpmRef = useRef(120);
     const [bpmEdit, setBpmEdit] = useState<{ beat: number; value: string } | null>(null);
@@ -497,6 +500,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             spriteIcon: spriteIcon.current,
             noteIcons,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
+            playing: isPlaying || playbackActiveRef.current, // issue 101：播放滚动帧套瓦片重建预算（ref 覆盖 React 首帧竞态）
             skinVersion,
             // issue 39：画布显示参数（节奏图示大小/长压线不透明度/同时点击线）
             // issue 51/53 第二轮：轨道颜色主题 + 线形分层开关 + 文字大小系数（进静态层渲染参数）
@@ -514,7 +518,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig]);
+    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying]);
 
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
@@ -614,6 +618,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 };
             });
         },
+        setPlaybackActive: (active: boolean) => { playbackActiveRef.current = active; },
         // 起点标记访问（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除
         getMarkerBeat: () => markerBeat,
         getMarkerSelected: () => markerSelected,

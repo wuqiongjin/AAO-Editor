@@ -43,8 +43,6 @@ export class AudioEngine {
   private sampleCache = new Map<string, AudioBuffer>();
   /** 进行中的采样加载（去重并发，避免重复 fetch/decode） */
   private sampleLoads = new Map<string, Promise<AudioBuffer>>();
-  /** 素材包 chunk 下载 + 采样解码就绪 Promise（play() 前 await，保证首拍就走真实采样，避免振荡器兜底） */
-  private keySetReady: Promise<void> = Promise.resolve();
   /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
   private schedTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -74,14 +72,14 @@ export class AudioEngine {
   }
 
   /**
-   * 切换激活素材包（issue 29）：动态 import 本包差异采样 chunk → 解码全部采样；
-   * play() 前 await 该就绪 Promise。加载完成/失败前 keySet 为 null，playTick 走振荡器兜底。
+   * 切换激活素材包（issue 29）：动态 import 本包差异采样 chunk → 解码全部采样。
+   * 进入工作台 / 切包时即预热；play() 不再 await（issue 101）。加载完成前 keySet 为 null，playTick 走振荡器兜底。
    * 快速连点切换包安全：只有最后一次切换的结果会挂载（id 竞态判定）。
    */
   setKeySetId(id: string): void {
     this.keySetId = id;
     this.keySet = null;
-    this.keySetReady = (async () => {
+    void (async () => {
       const set = await loadKeySoundSet(id);
       if (this.keySetId !== id) return; // 加载途中又切了包：丢弃过期结果
       this.keySet = set;
@@ -185,9 +183,6 @@ export class AudioEngine {
         /* 提案：自动播放策略拒绝时静默（仍可编辑） */
       }
     }
-    // 确保素材包采样已就绪再开播：避免首拍采样未命中而走振荡器兜底，
-    // 造成 tap 音不像真实采样、方向键"叠声"（振荡器兜底声）。chunk 小、仅首次耗时。
-    await this.keySetReady;
     this.stopCurrent();
     if (this.buffer) {
       const src = ctx.createBufferSource();

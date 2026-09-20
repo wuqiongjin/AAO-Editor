@@ -71,19 +71,21 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     isPlayingRef.current = false;
     setIsPlayingState(false);
     scrollModel?.setPlaying(false);
+    canvasRef.current?.setPlaybackActive?.(false);
     if (playbackRafRef.current !== undefined) {
       cancelAnimationFrame(playbackRafRef.current);
       playbackRafRef.current = undefined;
     }
     engine?.pause();
     setIsPlaying(false);
-  }, [engine, scrollModel, setIsPlaying]);
+  }, [engine, scrollModel, setIsPlaying, canvasRef]);
 
   const startPlaybackLoop = useCallback(() => {
     if (playbackRafRef.current !== undefined) cancelAnimationFrame(playbackRafRef.current);
     isPlayingRef.current = true;
     setIsPlayingState(true);
     scrollModel?.setPlaying(true);
+    canvasRef.current?.setPlaybackActive?.(true);
     const loop = () => {
       if (!isPlayingRef.current) return;
       const e = engine;
