@@ -2,12 +2,14 @@ import { describe, test, expect } from 'vitest';
 import {
     convertNotesToChartCode,
     convertChartCodeToNotes,
-    chartCodeToJSON,
+    chartCodeToCompactJSON,
+    normalizeChartCodeText,
     parseChartCodeFromJSON,
     validateChartCode,
     hasBeat0Bpm
 } from '@/src/chart/editing/ChartConverter';
 import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
+import { chartCodeExportText } from '@/src/chart/project/exportChartCode';
 import type { ChartNote } from '@/src/chart/types';
 
 describe('Chart Converter', () => {
@@ -191,9 +193,9 @@ describe('Chart Converter', () => {
         expect(longNote).toBeDefined();
     });
 
-    test('chartCodeToJSON and parseChartCodeFromJSON should work correctly', () => {
+    test('chartCodeToCompactJSON and parseChartCodeFromJSON should work correctly', () => {
         const chartCode = convertNotesToChartCode(testNotes);
-        const jsonString = chartCodeToJSON(chartCode);
+        const jsonString = chartCodeToCompactJSON(chartCode);
         const parsedCode = parseChartCodeFromJSON(jsonString);
 
         expect(parsedCode).toEqual(chartCode);
@@ -274,5 +276,58 @@ describe('Chart Converter', () => {
         expect(hasBeat0Bpm([{ beat: 0, type: 'BPM', bpm: 120 }])).toBe(true);
         expect(hasBeat0Bpm([{ beat: 4, type: 'Single', lane: 0 }] as ChartCodeNote[])).toBe(false);
         expect(hasBeat0Bpm([{ beat: 0, type: 'Single', lane: 0 }] as ChartCodeNote[])).toBe(false);
+    });
+});
+
+// issue 102 方案 A：弹窗显示文本 = **每条音符一行**（行数才是 textarea 排版成本的主导项，
+// 4 空格缩进下 5000 音符 = 49,507 行 vs 每条一行 5,003 行，首次布局 289ms → 30ms）。
+// 弹窗显示 / 复制 / 另存为 / 粘贴重排，全部走这一个形态。
+describe('issue 102 · 谱面代码文本形态（每条音符一行）', () => {
+    const code: ChartCodeNote[] = [
+        { beat: 0, type: 'BPM', bpm: 120 },
+        { beat: 4, lane: 2, type: 'Single', flick: true },
+        { type: 'Slide', connections: [{ beat: 8, lane: 1 }, { beat: 8.5, lane: 2, hidden: true }, { beat: 9, lane: 3 }] },
+    ];
+
+    test('每条音符恰好一行（行数 = 音符数 + 2 个括号行）', () => {
+        const text = chartCodeToCompactJSON(code);
+        const lines = text.split('\n');
+        expect(lines.length).toBe(code.length + 2);
+        expect(lines[0]).toBe('[');
+        expect(lines[1]).toBe('{"beat":0,"type":"BPM","bpm":120},');
+        expect(lines[lines.length - 1]).toBe(']');
+    });
+
+    test('滑条整条一行（含 hidden 结点），不展开成多行', () => {
+        expect(chartCodeToCompactJSON([code[2]!]).split('\n').length).toBe(3);
+    });
+
+    test('与缩进形态语义等价：parse 回来完全一样（解析不认空白）', () => {
+        expect(parseChartCodeFromJSON(chartCodeToCompactJSON(code))).toEqual(code);
+        expect(parseChartCodeFromJSON(JSON.stringify(code, null, 4))).toEqual(code);
+    });
+
+    test('空谱面仍是合法 `[]`（不是 `[\n\n]`）', () => {
+        expect(chartCodeToCompactJSON([])).toBe('[]');
+        expect(parseChartCodeFromJSON(chartCodeToCompactJSON([]))).toEqual([]);
+    });
+
+    test('不含缩进（另存为与显示同一份文本，issue 102 覆盖 issue 118 的 4 空格口径）', () => {
+        expect(chartCodeToCompactJSON(code)).not.toContain('\n    ');
+        expect(chartCodeExportText([])).toBe('[]');
+    });
+
+    test('粘贴重排：4 空格代码 → 每条一行（行数回到音符数量级）', () => {
+        const pretty = JSON.stringify(code, null, 4); // 缩进形态 17 行
+        const compact = normalizeChartCodeText(pretty); // 5 行
+        expect(compact.split('\n').length).toBe(code.length + 2);
+        expect(JSON.parse(compact)).toEqual(code);
+    });
+
+    test('粘贴重排只敢动"合法数组"：非法 / 非数组一律原样返回（不改写用户粘的东西）', () => {
+        expect(normalizeChartCodeText('[{ "beat": 1,')).toBe('[{ "beat": 1,');          // 语法错误
+        expect(normalizeChartCodeText('{ "beat": 1, "lane": 0, "type": "Single" }'))
+            .toBe('{ "beat": 1, "lane": 0, "type": "Single" }');                       // 单个对象
+        expect(normalizeChartCodeText('[]')).toBe('[]');                               // 空数组
     });
 });

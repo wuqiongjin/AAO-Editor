@@ -392,6 +392,7 @@
   "chartCode.errorsTitle": "Errors ({{count}}):",
   "chartCode.errorsMore": "… {{count}} more not listed",
   "chartCode.placeholder": "Chart code appears here…",
+  "chartCode.generating": "Preparing chart code…",
   "chartCode.apply": "Apply",
   "chartCode.refresh": "Reload from canvas",
   "chartCode.reset": "Reset",

@@ -213,10 +213,35 @@ function convertSlideNote(note: SlideNote): ChartCodeSlide {
 
 
 /**
- * 将谱面代码转换为JSON字符串
+ * 谱面代码 → JSON 文本（**唯一的**序列化形态，issue 102 方案 A）：**每条音符一行**。
+ * 弹窗显示、复制、另存为、粘贴重排都走它。
+ *
+ * 为什么不是缩进排版：大文本框的排版成本由**行数**主导，不是字节数（把缩进从 4 降到 2、
+ * 体积小了但行数不变 —— 几乎没收益，这就是行数说了算的证据）。每条一行让行数回到音符数量级。
+ *
+ * 解析侧完全不受影响（JSON 不认空白），也接近 Bestdori 自己的谱面代码风格。
+ * 行数预算由 `tests/perf/ChartCodeScale.test.ts` 看守（改回缩进形态会红）。
  */
-export function chartCodeToJSON(chartCode: ChartCodeNote[]): string {
-    return JSON.stringify(chartCode, null, 4);
+export function chartCodeToCompactJSON(chartCode: ChartCodeNote[]): string {
+    if (chartCode.length === 0) return '[]';
+    return `[\n${chartCode.map(note => JSON.stringify(note)).join(',\n')}\n]`;
+}
+
+/**
+ * 把一段文本重排成显示形态（每条一行）—— **只敢在"它本来就是合法谱面代码数组"时动手**。
+ *
+ * 用途：粘贴。外部代码多半是 4 空格缩进（5000 音符 = 30,007 行），原样落进 textarea 会让
+ * 这次粘贴卡 ~200ms、并且之后每输入一个字都按那个行数付费；重排后 5,003 行 ≈ 53ms。
+ * 解析失败 / 不是数组（半成品、非法代码、粘的是单个对象）→ **原样返回**，绝不擅自改写用户粘进来的东西。
+ */
+export function normalizeChartCodeText(text: string): string {
+    try {
+        const parsed: unknown = JSON.parse(text);
+        if (!Array.isArray(parsed)) return text;
+        return chartCodeToCompactJSON(parsed as ChartCodeNote[]);
+    } catch {
+        return text;
+    }
 }
 
 /**

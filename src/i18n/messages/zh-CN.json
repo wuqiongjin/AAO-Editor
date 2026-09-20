@@ -403,6 +403,7 @@
   "chartCode.errorsTitle": "错误信息（共 {{count}} 处）:",
   "chartCode.errorsMore": "… 另有 {{count}} 处未列出",
   "chartCode.placeholder": "谱面代码将在这里显示...",
+  "chartCode.generating": "正在准备谱面代码...",
   "chartCode.apply": "应用更改",
   "chartCode.refresh": "从画布刷新",
   "chartCode.reset": "重置",

@@ -1,16 +1,34 @@
 // issue 118：谱面代码另存为。每次选路径写出 JSON，不记目录。
 // Electron → dialog.showSaveDialog；浏览器 → a[download]。
-import { convertNotesToChartCode, chartCodeToJSON } from '../editing/ChartConverter';
+// issue 102：① 落盘形态与弹窗显示一致（每条音符一行，方便下次导入/粘贴时不卡）；
+//           ② 对象视图（音符代码工具 / 面包屑深层）只存**当前这一层**的代码。
+import { convertNotesToChartCode, chartCodeToCompactJSON } from '../editing/ChartConverter';
+import { buildNoteCode, noteViewCodeToJSON, type NoteCodeTarget } from '../editing/NoteCodeOps';
 import type { ChartNote } from '../types';
 
 export const CHART_CODE_EXPORT_FILENAME = 'chart.json';
+/** 对象视图另存为的推荐名（带音符下标，连续存多条不会互相覆盖） */
+export function noteCodeExportFilename(target: NoteCodeTarget): string {
+  return target.connIndex !== undefined
+    ? `note-${target.noteIndex}-${target.connIndex}.json`
+    : `note-${target.noteIndex}.json`;
+}
 
 export interface ChartCodeExportBridge {
   saveAs(payload: { json: string; suggestedName: string }): Promise<{ cancelled: boolean }>;
 }
 
 export function chartCodeExportText(notes: ChartNote[]): string {
-  return chartCodeToJSON(convertNotesToChartCode(notes));
+  return chartCodeToCompactJSON(convertNotesToChartCode(notes));
+}
+
+/**
+ * 对象视图的导出文本：只含当前层的那一小段（整条音符 / 滑条子段 / 滑条结点）。
+ * `null` = 目标已不存在（谱面被改动把它抹了）——调用方静默返回，弹窗随后也会自己关掉。
+ */
+export function noteCodeExportText(notes: readonly ChartNote[], target: NoteCodeTarget): string | null {
+  const code = buildNoteCode(notes, target);
+  return code ? noteViewCodeToJSON(code) : null;
 }
 
 function getExportBridge(): ChartCodeExportBridge | null {
@@ -29,13 +47,21 @@ function downloadJson(filename: string, text: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** 每次另存为当前画布谱面代码。取消对话框视为成功静默返回。 */
-export async function exportChartCodeSaveAs(notes: ChartNote[]): Promise<void> {
-  const json = chartCodeExportText(notes);
+/**
+ * 另存为：
+ * - 完整谱面视图（`target` 缺省）→ 整份谱面代码；
+ * - 对象视图（传 `target`）→ 只存这一层（随面包屑档位变化：整条 / 子段 / 结点）。
+ * 一律**按画布**生成文本（issue 118 定案：不导出未应用的草稿）。
+ * 取消对话框视为成功静默返回。
+ */
+export async function exportChartCodeSaveAs(notes: ChartNote[], target?: NoteCodeTarget): Promise<void> {
+  const json = target ? noteCodeExportText(notes, target) : chartCodeExportText(notes);
+  if (json === null) return; // 目标已被画布改动抹掉
+  const suggestedName = target ? noteCodeExportFilename(target) : CHART_CODE_EXPORT_FILENAME;
   const bridge = getExportBridge();
   if (bridge) {
-    await bridge.saveAs({ json, suggestedName: CHART_CODE_EXPORT_FILENAME });
+    await bridge.saveAs({ json, suggestedName });
     return;
   }
-  downloadJson(CHART_CODE_EXPORT_FILENAME, json);
+  downloadJson(suggestedName, json);
 }
