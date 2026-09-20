@@ -217,9 +217,6 @@ describe('visibleNotes 视口剔除', () => {
 // ---------------------------------------------------------------------------
 describe('issue 90 · 滚轮缩放锚定判定线（结构断言）', () => {
   const root = repoRoot;
-  const canvasSrc = readFileSync(join(root, 'src/chart/components/canvas/FinalVirtualCanvas.tsx'), 'utf-8');
-  // wheel handler 源片段（从 useCallback 起到依赖数组）
-  const wheelHandler = canvasSrc.match(/const handleWheel = useCallback\([\s\S]*?\}, \[geometry/)?.[0] ?? '';
 
   it('zoomAnchorScrollY 全库零引用（光标锚机制整体删除）', () => {
     // 全库口径（票面要求）：递归扫 src/ 全部 ts/tsx（防任何角落悄悄复留调用）
@@ -235,11 +232,10 @@ describe('issue 90 · 滚轮缩放锚定判定线（结构断言）', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('滚轮缩放只改 scale：setViewport 展开 prev 且不再提交 scrollY 字段（scrollY 恒等缩放前）', () => {
-    expect(wheelHandler).not.toBe('');
-    expect(wheelHandler).toContain('...prev');
-    // 一旦 handler 里重新出现 scrollY 提交（锚点机制回潮），此断言变红
-    expect(wheelHandler).not.toMatch(/scrollY\s*:/);
+  it('视口变化重算走 GestureSession.onViewportChange（issue 113：不再扫 handleWheel 源）', () => {
+    const sessionSrc = readFileSync(join(root, 'src/chart/editing/GestureSession.ts'), 'utf-8');
+    expect(sessionSrc).toMatch(/onViewportChange\s*\(/);
+    expect(sessionSrc).toContain('marqueeRect');
   });
 });
 

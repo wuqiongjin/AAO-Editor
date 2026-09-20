@@ -158,8 +158,8 @@ describe('issue 104 · 反查单一所有者（静态源码断言）', () => {
   });
 
   it('拖拽的 Δy→Δ拍 走 layerBeatFromCanvas(…, drag.layerSegment)（不是最大解那一层）', () => {
-    const canvas = readSource('src/chart/components/canvas/FinalVirtualCanvas.tsx');
-    expect(canvas).toContain('geometry.layerBeatFromCanvas(my, viewport, drag.layerSegment)');
+    const session = readSource('src/chart/editing/GestureSession.ts');
+    expect(session).toContain('layerBeatFromCanvas(my, w.viewport, drag.layerSegment)');
     const gesture = readSource('src/chart/editing/CanvasGesture.ts');
     expect(gesture).toContain('segmentIndexAtBeat(anchorBeat)');
     expect(gesture).toContain('layerBeatFromCanvas(input.cy, input.deps.viewport, layerSegment)');
