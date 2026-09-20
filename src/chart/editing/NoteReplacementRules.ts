@@ -243,48 +243,6 @@ function handleSlideNoteReplacement(
     return { shouldReplace: false, newNotes, message: "未知的音符类型组合" };
 }
 
-/**
- * 将单个滑条连接点退化为独立音符（ADR-0001 1.2.2：2 结点滑条端点被覆盖时另一端点退化）
- * 依据连接点的标记：skill → 技能键、flick → 滑键、无标记 → 普通单键
- */
-
-
-/**
- * 删除滑条子段（ADR-0001 §6 独立 feature + 用户定案 2026-08-08）
- * - connIndex === null → 删除整个滑条区域（连接带），效果等同右键删除整条滑条
- * - connIndex 指向中间结点 → 仅移除该结点，其余结点保持连接（不拆滑条）
- * - connIndex 指向端点 → 移除端点，相邻中间结点升级为新端点；仅剩 1 结点时该结点按其标记退化为独立音符
- * @returns 新的 notes 数组（无就地变异，可被历史快照深拷贝逐步撤销）
- */
-export function deleteSlideSegment(
-    notes: ChartNote[],
-    noteIndex: number,
-    connIndex: number | null
-): ChartNote[] {
-    const newNotes = [...notes];
-    const note = newNotes[noteIndex];
-    if (!note || (note.type !== "Slide" && note.type !== "Long")) return newNotes;
-
-    const conns = (note as SlideNote).connections;
-
-    // 删除整个滑条区域
-    if (connIndex === null) {
-        newNotes.splice(noteIndex, 1);
-        return newNotes;
-    }
-
-    // 删除单个结点（端点或中间结点），其它结点保持连接
-    const newConns = conns.filter((_, i) => i !== connIndex);
-
-    if (newConns.length === 1) {
-        // 仅剩 1 结点 → 按其标记退化为独立音符（ADR 1.2.2 退化规则）
-        newNotes.splice(noteIndex, 1);
-        newNotes.push(connectionToNote(newConns[0]));
-    } else {
-        newNotes[noteIndex] = { ...note, connections: newConns };
-    }
-    return newNotes;
-}
 
 /**
  * 方向键放置到滑条结点上的拆条逻辑（ADR-0001 1.2.1 中间拆两侧 / 1.2.2 端点拆端）

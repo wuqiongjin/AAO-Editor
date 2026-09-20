@@ -125,6 +125,7 @@
   - [128 界面语言 zh-CN 与英语](./issues/128-界面语言zh-CN与英语.md)（grilling，resolved）——**定了什么** = 手搓字典、外观运行时切换 `uiLanguage`；本期 `zh-CN`+`en`（日语/繁中后加）；OS 中文变体繁中出货前暂用简体；缺句回退中文；方向键英语 Left/Right Directional Flick。**不**拍 i18next / RTL。依赖 122。已实现：`t()` + `settings.uiLanguage` + Electron 对话框跟当前语言。
 - **129 tests 目录按领域与类型分层（`Type: chore`，resolved）** —— [129](./issues/129-tests目录按领域与类型分层.md)：**改成什么** = `tests/` 按「领域镜像 `src/`」+「测试类型」两维分层（`unit` / `platform` / `perf` / `static` + `support`）；引用一律走仓库根别名 `@/`；共享替身收进 `tests/support/`。顺带收口 `npm run lint`（124 error → 0 error）。**欠账** = tests 不做类型门禁（有意不做，票内有触发条件）；派生待办 = `applyNoteCode` 公开签名未表达投影形态，建议单开票。
 - **130（2026-09-19 `/grill-with-docs` 拖动覆盖语义）** —— [130 拖动方向键覆盖的 length 与标记归属](./issues/130-拖动方向键覆盖的length与标记归属.md)（grilling，resolved 2026-09-20）—— **定了什么** = 拖动 = **移动口径**，方向键 `length` 随被拖件走（键↔键不叠加，增宽归工具点击）；拖 / 粘贴到滑条结点拆条的产物继承来源件 `length` + `flick`/`skill`，两条路径合成一份；多轨重叠仍按锚点轨判（不改）。
+- **131 写回路径死代码（2026-09-16 评审候选 4；`Type: chore`，resolved 2026-09-20）** —— [131](./issues/131-写回路径死代码与覆盖入口.md)：**改成什么** = 删生产零引用的 `deleteSlideSegment`，ADR-0001 §6 映射改指 `SelectionEditing`；不做写回神模块；对象视图仍不走覆盖。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
