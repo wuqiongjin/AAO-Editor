@@ -127,6 +127,7 @@
 - **129 tests 目录按领域与类型分层（`Type: chore`，resolved）** —— [129](./issues/129-tests目录按领域与类型分层.md)：**改成什么** = `tests/` 按「领域镜像 `src/`」+「测试类型」两维分层（`unit` / `platform` / `perf` / `static` + `support`）；引用一律走仓库根别名 `@/`；共享替身收进 `tests/support/`。顺带收口 `npm run lint`（124 error → 0 error）。**欠账** = tests 不做类型门禁（有意不做，票内有触发条件）；派生待办 = `applyNoteCode` 公开签名未表达投影形态，建议单开票。
 - **130（2026-09-19 `/grill-with-docs` 拖动覆盖语义）** —— [130 拖动方向键覆盖的 length 与标记归属](./issues/130-拖动方向键覆盖的length与标记归属.md)（grilling，resolved 2026-09-20）—— **定了什么** = 拖动 = **移动口径**，方向键 `length` 随被拖件走（键↔键不叠加，增宽归工具点击）；拖 / 粘贴到滑条结点拆条的产物继承来源件 `length` + `flick`/`skill`，两条路径合成一份；多轨重叠仍按锚点轨判（不改）。
 - **131 写回路径死代码（2026-09-16 评审候选 4；`Type: chore`，resolved 2026-09-20）** —— [131](./issues/131-写回路径死代码与覆盖入口.md)：**改成什么** = 删生产零引用的 `deleteSlideSegment`，ADR-0001 §6 映射改指 `SelectionEditing`；不做写回神模块；对象视图仍不走覆盖。
+- **132 撤销栈内存无上限（文本 + notes 两处；issue 102 派生，2026-09-21 立票，未开工）** —— [132](./issues/132-撤销栈内存无上限.md)：**改成什么** = 给 `History` 加可选容量上限（两处各定 N；文本栈或改存增量 patch）—— 文本栈每输入一个字压一份整份代码（5000 音符 ~364KB/份、1w ~735KB/份），notes 栈每步压整份音符指针数组（5000 ~40KB/步，靠结构共享便宜一个数量级但同样只增不减）。语义取舍（撤销深度 / 复杂度）→ 动手前先 grill。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
