@@ -273,7 +273,7 @@ function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
 /**
  * 绘制音符层入口（renderChart 调用，替代原先的直接 renderNotes）：
  * - es > MAX_CACHE_ES → 直接渲染（高倍下可见音符少）；
- * - 否则走瓦片缓存：miss 的瓦片同步以当前 es 渲染；stale 瓦片在手势期间按逐帧预算渐进重建
+ * - 否则走瓦片缓存：miss 的瓦片以当前 es 渲染（播放帧受时间预算，issue 101）；stale 瓦片在手势/播放期间按逐帧预算渐进重建
  *   （超预算的残余先按比例 blit，settle 帧兜底收尾）。
  */
 export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
@@ -326,15 +326,21 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
 
   const { posMin, posMax } = posRangeOf(rc);
   const { lo, hi } = tileIndexRange(posMin, posMax);
-  // 手势帧的渐进重建预算（issue 96，见 GESTURE_REBUILD_BUDGET_MS 注释）；非手势帧不限（at-rest 恒全量重建）
-  const rebuildBudgetUntil = rc.zoomGesture ? performance.now() + GESTURE_REBUILD_BUDGET_MS : Infinity;
+  // 手势帧 / 播放帧套渐进重建预算（issue 96 + 101）；静止帧不限（没有后续 RAF 补齐空白）
+  const budgetedFrame = !!(rc.zoomGesture || rc.playing);
+  const rebuildBudgetUntil = budgetedFrame ? performance.now() + GESTURE_REBUILD_BUDGET_MS : Infinity;
 
   let rebuilt = 0, blitted = 0, staleBlit = false;
   for (let id = lo; id <= hi; id++) {
     let t = tiles.get(id);
     const stale = !!t && !t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL;
-    // miss 必须现建（否则该区域空白）；stale 在预算内现建（渐进转新），超预算退回比例 blit
-    if (!t || (stale && performance.now() < rebuildBudgetUntil)) {
+    if (!t) {
+      // 静止/手势：miss 必须现建（issue 96，否则空白且手势只 blit 旧图、静止没有下一帧）。
+      // 播放：miss 也走预算（issue 101，换肤全量失效后开播不在一帧内重建全部可见瓦片）。
+      if (rc.playing && performance.now() >= rebuildBudgetUntil) continue;
+      t = renderTile(id, rc, es);
+      rebuilt++;
+    } else if (stale && performance.now() < rebuildBudgetUntil) {
       t = renderTile(id, rc, es);
       rebuilt++;
     }
