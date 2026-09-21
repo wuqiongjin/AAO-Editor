@@ -572,6 +572,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * zoomFactor));
             const effNewScale = geometry.effectiveScale(newScale);
+            // issue 144：钳住不动就别改数字 —— 否则窄画布上「想放大」会把工具栏的 100% 打成 88%
+            // （画面其实没变，只是被 fitWidth 钳住），数字掉了但什么也没发生。
+            if (Math.abs(effNewScale - viewport.scale) < 1e-9) return;
             // 缩放锚定判定线（issue 90）：scrollY 保持不变——底边（判定线）处的谱面位置缩放时原地不动，
             // 与工具栏 ±/百分比缩放（只 setScale）完全同口径。不再以光标为锚：光标锚曾使 scrollY 随缩放
             // 大幅变化（∝ 光标到判定线的距离），放大了「滚动条回写在缩放提交窗口内用陈旧值覆写」的回弹竞态
@@ -787,7 +790,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // （死行程，用户已复现）。此处把生效值回写，使两者恒等 —— `:743` 的 ctrl+滚轮路径
         // 早就这么做，工具栏按钮路径此前漏了。
         // 幂等守卫：仅在不等时写，否则会与上面的 setViewport 形成回环。
-        if (Math.abs(effective - scale) > 1e-9) setScale(effective);
+        // issue 144：只回写「画布装得下 1×（fitScale ≥ 1）、只是请求值被更细的上限钳住」的那一种
+        // （这是 2026-09-10 修「显示 300% 画面停在 263% + 点 − 有死行程」要保的行为）。
+        // 画布**连 1× 都装不下**（fitScale < 1，窄窗/高系统缩放）时**不回写** ——
+        // 那不是用户的缩放意图，是窗口太窄；数字保持用户请求值（默认 100%），否则一打开就显示 88%。
+        if (Math.abs(effective - scale) > 1e-9 && geometry.fitScale() >= 1) setScale(effective);
     }, [scale, geometry, setScale]);
 
     // 通知滚动变化

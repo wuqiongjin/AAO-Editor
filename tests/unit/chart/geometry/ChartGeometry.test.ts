@@ -182,6 +182,31 @@ describe('effectiveScale 缩放钳制（ADR-0006 Q4=A）', () => {
   });
 });
 
+// issue 144：工具栏数字「默认 100%」的判据靠 `fitScale` 区分两种钳制 ——
+// ① 画布连 1× 都装不下（fitScale < 1，窄窗/高系统缩放）→ 数字保持用户请求值（100%），不回写生效值；
+// ② 画布装得下（fitScale ≥ 1）但请求值更高 → 仍回写（保住 2026-09-10 修的「300% vs 263% 死行程」）。
+describe('fitScale：区分「装不下 1×」与「请求值被上限钳住」（issue 144）', () => {
+  it('fitScale = 恰好铺满渲染面宽的那个缩放', () => {
+    const g = new ChartGeometry(bpm120, { endBeat: 8 }, surface());
+    expect(g.fitScale()).toBeCloseTo(TEST_SURFACE.w / (LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL), 12);
+    expect(g.fitScale()).toBeGreaterThan(1);
+  });
+
+  it('窄渲染面：fitScale < 1（用户的 88% 场景），effectiveScale 仍钳到 fitScale', () => {
+    const g = new ChartGeometry(bpm120, { endBeat: 8 }, { w: TEST_SURFACE_W_NARROW, h: 500 });
+    expect(g.fitScale()).toBeCloseTo(TEST_SURFACE_W_NARROW / (LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL), 12);
+    expect(g.fitScale()).toBeLessThan(1);
+    expect(g.effectiveScale(1)).toBeCloseTo(g.fitScale(), 12);
+  });
+
+  it('effectiveScale 的钳制口径不随本票改变（回归）', () => {
+    const gWide = new ChartGeometry(bpm120, { endBeat: 8 }, { w: 500, h: 900 });
+    expect(gWide.fitScale()).toBeGreaterThan(1);
+    expect(gWide.effectiveScale(3)).toBeCloseTo(gWide.fitScale(), 12);
+    expect(gWide.effectiveScale(1)).toBe(1);
+  });
+});
+
 describe('visibleNotes 视口剔除', () => {
   const ch = (beat: number) => ({ type: 'Single' as const, lane: 0, beat, subBeat: 0 });
 

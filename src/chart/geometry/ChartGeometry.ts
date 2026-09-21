@@ -141,9 +141,16 @@ export class ChartGeometry {
  * 保证 7 轨水平居中时始终完整可见、不变形；渲染面过窄时自动收缩。
  * 外框 chrome 随缩放缩放（issue 51 修订：与 renderGrid 的边条绘制一致），fitWidth 分母含 chrome。
  */
+/**
+ * 「轨道刚好铺满渲染面宽」的缩放系数（issue 144）：`fitWidth`。
+ * 供调用方区分**两种钳制** —— 画布连 1× 都装不下（`fitWidth < 1`）与「画布装得下、只是请求值更高」。
+ */
+fitScale(): number {
+  return this.surface.w / (LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL);
+}
+
 effectiveScale(scale: number): number {
-  const fitWidth = this.surface.w / (LANES * LANE_WIDTH + 2 * TRACK_CHROME_TOTAL);
-  return Math.max(MIN_SCALE, Math.min(scale, fitWidth));
+  return Math.max(MIN_SCALE, Math.min(scale, this.fitScale()));
 }
 
 /** 轨道水平居中几何（唯一实现；trackBgX = 轨道内容左缘 = 虚拟X原点，见 issue 11）。
