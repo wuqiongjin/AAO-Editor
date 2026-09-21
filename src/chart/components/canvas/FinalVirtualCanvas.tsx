@@ -2,10 +2,10 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, for
 import type { BpmNote } from "../../types";
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import {
-  clickOps, execSlideOps, execBpmOps, execCurveOps,
+  clickOps, execSlideOps, execBpmOps,
   type MatrixOp, type MatrixTool, type SlidePoint, type SnapPos,
-  type CurveDraft,
 } from '../../editing/ToolActionMatrix';
+import { execCurveOps, type CurveDraft } from '../../editing/CurveTool';
 import {
   GestureSession, type GestureOp, type GestureResult, type GestureSessionHost,
 } from '../../editing/GestureSession';
@@ -624,7 +624,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
             }));
         },
-        // 验收反馈 #9（Shift+W）：执行-曲线，语义分发在 execCurveOps（矩阵层，可单测）。
+        // 验收反馈 #9（Shift+W）：执行-曲线，语义分发在 execCurveOps（CurveTool，可单测）。
         // hit 用 hoverItem 现取（与「执行-音符代码」同口径）——光标悬停在段上 = 重应用而非锚点。
         execCurve: () => {
             applyOps(execCurveOps({

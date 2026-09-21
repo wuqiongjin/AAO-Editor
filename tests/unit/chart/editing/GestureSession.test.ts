@@ -10,7 +10,7 @@ import {
   type GestureWorld,
   type GestureEndInput,
 } from '@/src/chart/editing/GestureSession';
-import { DEFAULT_CURVE_CONFIG } from '@/src/chart/editing/ToolActionMatrix';
+import { DEFAULT_CURVE_CONFIG } from '@/src/chart/editing/CurveTool';
 import type { ChartNote } from '@/src/chart/types';
 import type { ViewportState } from '@/src/visual/types';
 

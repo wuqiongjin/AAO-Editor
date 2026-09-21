@@ -13,13 +13,11 @@ import {
   clickOps,
   pointerClickSelection,
   resolveActionTargets,
-  placeSpanWithCombination,
-  type CurveConfig,
-  type CurveDraft,
   type MatrixOp,
   type MatrixTool,
   type SlidePoint,
 } from './ToolActionMatrix';
+import { placeSpanWithCombination, type CurveConfig, type CurveDraft } from './CurveTool';
 import { buildPenSlide } from './SpanCurve';
 import {
   snapChartPos,

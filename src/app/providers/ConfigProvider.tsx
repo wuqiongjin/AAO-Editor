@@ -4,7 +4,7 @@
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
 import { loadSettings, saveSettings, updateSettings, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
 import { getDefaultConfig, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
-import type { CurveConfig } from '../../chart/editing/ToolActionMatrix';
+import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
 
 export interface ConfigContextValue {

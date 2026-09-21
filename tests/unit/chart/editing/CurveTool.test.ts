@@ -1,6 +1,9 @@
 // issue 09 S2 / ADR-0009 §3：曲线工具锁测——按下仲裁（画笔优先）、画笔采样（beat 单调硬约束）、
 // 单击矩阵 curve 行（链式放置 / 草稿完整性 / 点段重应用 / 框选同源组合）。
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { repoRoot } from '@/tests/support/source';
 import type { ChartNote, SlideNote } from '@/src/chart/types';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import {
@@ -19,10 +22,11 @@ function commitPenStroke(
   const raw = resolvePenStroke(start, samples, dir, release);
   return raw ? finalizePenStrokeCommit(start, raw, beatDisplay) : null;
 }
+import { clickOps, boxSelectOps } from '@/src/chart/editing/ToolActionMatrix';
 import {
-  clickOps, boxSelectOps, curveChainClickOps, execCurveOps, placeSpanWithCombination,
+  curveChainClickOps, execCurveOps, placeSpanWithCombination,
   type CurveConfig, type CurveDraft,
-} from '@/src/chart/editing/ToolActionMatrix';
+} from '@/src/chart/editing/CurveTool';
 import { effectiveSpanParams, countVisibleNodes } from '@/src/chart/editing/SpanCurve';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
 import { mirrorNote } from '@/src/chart/editing/NoteEditing';
@@ -654,5 +658,29 @@ describe('issue 09 四轮 · 画笔落子自动组合（placeSpanWithCombination
       [{ beat: 4.5, lane: 0.5, hidden: true }], null, 4,
     );
     expect(result.filter((n) => n.type === 'Slide')).toHaveLength(2);
+  });
+});
+
+describe('issue 136 · 曲线放置接缝在 CurveTool，矩阵只调度', () => {
+  it('矩阵不再 export 曲线放置实现；SpanCurve 仍拥有烘焙', () => {
+    const matrix = readFileSync(join(repoRoot, 'src/chart/editing/ToolActionMatrix.ts'), 'utf-8');
+    const curveTool = readFileSync(join(repoRoot, 'src/chart/editing/CurveTool.ts'), 'utf-8');
+    const spanCurve = readFileSync(join(repoRoot, 'src/chart/editing/SpanCurve.ts'), 'utf-8');
+    for (const name of [
+      'placeSpanWithCombination',
+      'curveChainClickOps',
+      'curveBoxOps',
+      'execCurveOps',
+      'normalizeCurveConfig',
+    ]) {
+      expect(matrix, name).not.toMatch(new RegExp(`export function ${name}`));
+      expect(curveTool, name).toMatch(new RegExp(`export function ${name}`));
+    }
+    expect(matrix).not.toMatch(/export const DEFAULT_CURVE_CONFIG/);
+    expect(matrix).not.toMatch(/export const spanParamFromCurveConfig/);
+    expect(curveTool).toMatch(/export const DEFAULT_CURVE_CONFIG/);
+    expect(curveTool).toMatch(/export const spanParamFromCurveConfig/);
+    expect(matrix).toMatch(/if \(tool === 'curve'\)/);
+    expect(spanCurve).toMatch(/export function bakeSpanPoints/);
   });
 });

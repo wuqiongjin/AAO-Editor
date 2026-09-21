@@ -14,7 +14,7 @@ import { isSpRegion, displayConnections, visibleEnds, projectedSlideSpans } from
 import { freezeGestureCursor } from '../chart/editing/CanvasGesture';
 import { bandPolygonAt, rasterBandRuns, splitBandAtFolds } from './slideBandGeometry';
 import { previewSpanConnections } from '../chart/editing/SpanCurve';
-import { spanParamFromCurveConfig } from '../chart/editing/ToolActionMatrix';
+import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';

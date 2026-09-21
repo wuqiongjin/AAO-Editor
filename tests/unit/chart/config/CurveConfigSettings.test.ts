@@ -11,7 +11,7 @@ import { join } from 'path';
 import {
   defaultSettings, loadSettings, saveSettings, updateSettings, type AppSettings,
 } from '@/src/chart/config/AppSettings';
-import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig } from '@/src/chart/editing/ToolActionMatrix';
+import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig } from '@/src/chart/editing/CurveTool';
 import { EASING_FAMILY_LABELS, EASING_TYPE_LABELS, CURVE_PRECISIONS } from '@/src/chart/editing/Easing';
 import { repoRoot, stripComments, readSource } from '@/tests/support/source';
 import { settingsMemStorage as memStorage } from '@/tests/support/storage';
@@ -146,7 +146,7 @@ describe('issue 114 · 画笔圆滑彻底退场（防复活）', () => {
   });
 
   it('CurveConfig 类型不再有 smooth 字段', () => {
-    const src = stripComments(readSource('src/chart/editing/ToolActionMatrix.ts'));
+    const src = stripComments(readSource('src/chart/editing/CurveTool.ts'));
     expect(src).not.toMatch(/^\s*smooth\??[:(]/m);
   });
 });

@@ -5,7 +5,7 @@
 // 布局收纳（issue 12 / ADR-0003 L1）：面板宽度与折叠态、拖拽分隔条逻辑集中于此。
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { defaultPanelWidth } from '../../chart/config/AppSettings';
-import type { CurveConfig } from '../../chart/editing/ToolActionMatrix';
+import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { useConfig } from './ConfigProvider';
 
 

@@ -9,7 +9,7 @@ import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutCon
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../audio/KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../visual/gen/noteSkinRegistry.gen';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../visual/gridStyle';
-import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/ToolActionMatrix';
+import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/CurveTool';
 import { detectOsLanguageTag, resolveUiLanguage, type UiLanguage } from '../../i18n/resolveUiLanguage';
 
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */

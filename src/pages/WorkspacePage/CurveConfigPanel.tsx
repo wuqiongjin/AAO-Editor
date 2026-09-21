@@ -5,7 +5,7 @@ import {
   type CurvePrecision, type EasingFamily, type EasingType,
 } from '../../chart/editing/Easing';
 import { SHAPE_TEMPLATES } from '../../chart/editing/ShapeTemplates';
-import type { CurveConfig } from '../../chart/editing/ToolActionMatrix';
+import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { t, type MessageKey } from '../../i18n';
 
 const NO_TEMPLATE_VALUE = '';

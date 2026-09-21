@@ -6,7 +6,7 @@ import type { ChartGeometry, SurfaceSize } from '../chart/geometry/ChartGeometry
 import type CanvasSpriteIcon from '../ui/CanvasSpriteIcon';
 import type { ActiveNoteIcons } from './noteSkin';
 import type { GridStylePreset } from './gridStyle';
-import type { CurveConfig, CurveDraft } from '../chart/editing/ToolActionMatrix';
+import type { CurveConfig, CurveDraft } from '../chart/editing/CurveTool';
 
 /** 视口状态（虚拟尺寸 + 滚动 + 缩放） */
 export interface ViewportState {
