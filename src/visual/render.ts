@@ -239,8 +239,14 @@ export type SelectionOutline =
   | { shape: 'quad'; points: [number, number][]; mode: SelectionOutlineMode; compact?: boolean }
   | { shape: 'line'; x1: number; y1: number; x2: number; y2: number; mode: SelectionOutlineMode };
 
-/** 单键主精灵选款（与 renderNotes 同口径：描边贴合实际绘制的那枚墨迹） */
-function singleIconConfig(rc: RenderCtx, note: { lane: number; beat: number; subBeat?: number; flick?: boolean; skill?: boolean }): SpriteIconConfig {
+/**
+ * 单键主精灵选款（与 renderNotes 同口径：描边贴合实际绘制的那枚墨迹）。
+ * **标记优先级**：flick > skill > tapVirtual > tap —— issue 147 定案：只有**不带 flick 的单键**
+ * 才会变成技能键款式，滑键自身带 `skill` 仍是滑键。幽灵预览（`renderNoteGhost`）也走这里，
+ * 保证「幽灵 = 画布实绘同形」（ADR-0002 §4）。
+ * 导出仅为可测（与 `slideNodeIconConfig` 同款）。
+ */
+export function singleIconConfig(rc: RenderCtx, note: { lane: number; beat: number; subBeat?: number; flick?: boolean; skill?: boolean }): SpriteIconConfig {
   const icons = rc.noteIcons;
   if (note.flick) return icons.flickFor(note.lane);
   if (note.skill) return icons.skillFor(note.lane);
@@ -262,7 +268,12 @@ export function slideNodeIconConfig(rc: RenderCtx, conn: { lane: number; flick?:
   // issue 145 #3：flick/skill 只有**端点**才渲染（中间结点一律按普通中间结点画）。
   // 数据仍允许带这些标记（谱面代码可改、导出原样），只是画布不表现 —— 实机也不表现。
   if (!isEndpoint) return base;
-  return { ...base, ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
+  // issue 147：端点同时带 flick + skill 时按**与单键同一份优先级**（flick 胜出）。
+  // 此前这里 skill 在 spread 顺序上盖住 flick，与 `singleIconConfig` 相反 —— 两端点出现
+  // 「技能键底图」而单键出现「滑键 + 箭头」，同一份标记在两种音符上表现不一致。
+  if (conn.flick) return { ...base, ...icons.flickFor(conn.lane) };
+  if (conn.skill) return { ...base, ...icons.skillFor(conn.lane) };
+  return base;
 }
 
 /**
@@ -1038,11 +1049,9 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   const icons = rc.noteIcons;
   if (note.type === "Single") {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
-    let icon = icons.tapFor(note.lane);
-    if (note.flick) icon = icons.flickFor(note.lane);
-    else if (note.skill) icon = icons.skillFor(note.lane);
-    // 色觉辅助（issue 39 #4）：与 renderNotes 同口径，幽灵预览同步显示虚拍款
-    else if (rc.display?.colorAssist && !isHalfBeatAligned(note.beat, note.subBeat || 0, rc.beatDisplay)) icon = icons.tapVirtualFor(note.lane);
+    // issue 147：选款并入 `singleIconConfig`（含色觉辅助的虚拍款），与实绘共用一份优先级，
+    // 不再在这里重写一遍标记链（重写过一次就已经漂过一次的方向）。
+    const icon = singleIconConfig(rc, note);
     renderSpriteGhost(ctx, rc, icon, cpt.x, cpt.y, NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE);
     // 滑键幽灵此前只有本体、缺顶部箭头（与画布实绘不一致）→ 补挂件，锚点口径同 renderNotes 的第二层
     if (note.flick && icons.flickTopDecorator) {
