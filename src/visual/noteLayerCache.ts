@@ -24,8 +24,8 @@ import { perf } from '../chart/perf';
 
 /** 瓦片的 pos 空间高度（timeline 像素） */
 export const TILE_PX = 512;
-/** 高倍直渲阈值：es 超过它时可见音符很少，直接渲染比维护瓦片更省（也封顶瓦片内存） */
-const MAX_CACHE_ES = 1.2;
+/** 超过此 es 才直渲。工具栏上限 300%（es=3）；倒流 SP 扫描线在直渲下每帧都付（issue 140），故阈值盖住 UI 最大缩放。 */
+const MAX_CACHE_ES = 3;
 /** |es/refScale − 1| 超过该值视为 stale，需要（手势结束后）高清重建 */
 const STALE_TOL = 0.02;
 /** 手势帧的重建时间预算（ms）：预算内把 stale 瓦片逐帧现建（轻谱 1-2 帧内全部转新、无"糊→清晰"跳变），
@@ -61,6 +61,44 @@ export function __setTileCanvasFactoryForTests(factory: () => any) {
 
 const tiles = new Map<number, Tile>();
 
+/** 播放帧 miss / 预取下一格：paint 后再建，避免同步光栅打进 present。 */
+const playTileQueue: number[] = [];
+let playTileSnap: { rc: RenderCtx; es: number } | null = null;
+let playTileTimer: ReturnType<typeof setTimeout> | null = null;
+
+function drainOnePlayingTile() {
+  const snap = playTileSnap;
+  const id = playTileQueue.shift();
+  if (id === undefined || !snap) return;
+  if (!tiles.has(id)) renderTile(id, snap.rc, snap.es);
+}
+
+function schedulePlayTileDrain() {
+  if (playTileTimer !== null || playTileQueue.length === 0) return;
+  playTileTimer = setTimeout(() => {
+    playTileTimer = null;
+    drainOnePlayingTile();
+    schedulePlayTileDrain();
+  }, 0);
+}
+
+function enqueuePlayingTiles(ids: number[], rc: RenderCtx, es: number) {
+  playTileSnap = { rc, es };
+  for (const id of ids) {
+    if (id < 0 || tiles.has(id)) continue;
+    if (!playTileQueue.includes(id)) playTileQueue.push(id);
+  }
+  schedulePlayTileDrain();
+}
+
+export function __flushPlayingTileQueueForTests() {
+  if (playTileTimer !== null) {
+    clearTimeout(playTileTimer);
+    playTileTimer = null;
+  }
+  while (playTileQueue.length > 0) drainOnePlayingTile();
+}
+
 /**
  * 缓存失效依据（issue 35 + issue 36 F3a）：
  * - selectedItems 不再参与失效（F1：选中高亮移出瓦片，由主画布叠加层逐帧绘制）；
@@ -88,6 +126,19 @@ let basis: {
 export function resetNoteLayerCache() {
   tiles.clear();
   basis = null;
+  lastNoteLayerStats = { layerMode: 'tiles', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0 };
+  playTileQueue.length = 0;
+  playTileSnap = null;
+  if (playTileTimer !== null) {
+    clearTimeout(playTileTimer);
+    playTileTimer = null;
+  }
+}
+
+/** 最近一次 drawNotesLayer 的瓦片账（测试用） */
+let lastNoteLayerStats = { layerMode: 'tiles' as 'tiles' | 'direct', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0 };
+export function __getLastNoteLayerStats() {
+  return lastNoteLayerStats;
 }
 
 /** BPM 事件表内容相等（事件数通常 ≤ 个位数）：surface 变化时组件会重建 geometry 实例，
@@ -211,6 +262,37 @@ export function tileBlitRect(tileId: number, es: number, refScale: number, ancho
   };
 }
 
+/**
+ * 把瓦片 dest 矩形裁到视口再映射到位图源矩形（issue 140）。
+ * 高倍下 cssH = TILE_PX·es 可超过视口一倍多；整张 blit 会把屏外像素也送去缩放。
+ */
+export function clipTileDrawRect(
+  dest: { x: number; y: number; w: number; h: number },
+  viewW: number,
+  viewH: number,
+  bitmapW: number,
+  bitmapH: number,
+): { sx: number; sy: number; sw: number; sh: number; dx: number; dy: number; dw: number; dh: number } | null {
+  if (dest.w <= 0 || dest.h <= 0 || bitmapW <= 0 || bitmapH <= 0) return null;
+  const dx0 = Math.max(0, dest.x);
+  const dy0 = Math.max(0, dest.y);
+  const dx1 = Math.min(viewW, dest.x + dest.w);
+  const dy1 = Math.min(viewH, dest.y + dest.h);
+  const dw = dx1 - dx0;
+  const dh = dy1 - dy0;
+  if (dw <= 0 || dh <= 0) return null;
+  return {
+    sx: (dx0 - dest.x) / dest.w * bitmapW,
+    sy: (dy0 - dest.y) / dest.h * bitmapH,
+    sw: dw / dest.w * bitmapW,
+    sh: dh / dest.h * bitmapH,
+    dx: dx0,
+    dy: dy0,
+    dw,
+    dh,
+  };
+}
+
 function evictOverBudget() {
   let total = 0;
   for (const t of tiles.values()) total += t.bytes;
@@ -272,14 +354,14 @@ function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
 
 /**
  * 绘制音符层入口（renderChart 调用，替代原先的直接 renderNotes）：
- * - es > MAX_CACHE_ES → 直接渲染（高倍下可见音符少）；
+ * - es > MAX_CACHE_ES → 直接渲染（仅高于工具栏最大缩放；issue 140 起 300% 仍走瓦片）；
  * - 否则走瓦片缓存：miss 的瓦片以当前 es 渲染（播放帧受时间预算，issue 101）；stale 瓦片在手势/播放期间按逐帧预算渐进重建
  *   （超预算的残余先按比例 blit，settle 帧兜底收尾）。
  */
 export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
   const es = rc.viewport.scale;
   if (es > MAX_CACHE_ES) {
-    // issue 36：高倍直渲时释放全部瓦片位图（常驻可达数十 MB；缩回瓦片模式时会全量重建）
+    // 高于 UI 最大缩放才直渲并丢掉瓦片（缩回瓦片模式时会全量重建）
     if (tiles.size > 0) {
       tiles.clear();
       basis = null;
@@ -289,6 +371,7 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     renderNotes(ctx, c, rc, vis);
     // 选中/hover 叠加层（issue 56）：直渲路径与瓦片路径共用同一描边实现
     renderSelectionOverlay(ctx, c, rc, vis);
+    lastNoteLayerStats = { layerMode: 'direct', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0 };
     perf.info({ layerMode: 'direct', visibleNotes: vis.length });
     return;
   }
@@ -326,21 +409,22 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
 
   const { posMin, posMax } = posRangeOf(rc);
   const { lo, hi } = tileIndexRange(posMin, posMax);
-  // 手势帧 / 播放帧套渐进重建预算（issue 96 + 101）；静止帧不限（没有后续 RAF 补齐空白）
-  const budgetedFrame = !!(rc.zoomGesture || rc.playing);
-  const rebuildBudgetUntil = budgetedFrame ? performance.now() + GESTURE_REBUILD_BUDGET_MS : Infinity;
+  const rebuildBudgetUntil = rc.zoomGesture ? performance.now() + GESTURE_REBUILD_BUDGET_MS : Infinity;
 
-  let rebuilt = 0, blitted = 0, staleBlit = false;
+  let rebuilt = 0, blitted = 0, staleBlit = false, blitCssPx = 0;
+  const prevSmooth = ctx.imageSmoothingEnabled;
+  const prevQuality = ctx.imageSmoothingQuality;
+  // 瓦片里精灵已烘焙；播放 1:1 CSS 仍会因 tile dpr 1.5 vs 主画布 dpr 被放大，关掉高阶滤波减填充。
+  ctx.imageSmoothingEnabled = false;
   for (let id = lo; id <= hi; id++) {
     let t = tiles.get(id);
     const stale = !!t && !t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL;
     if (!t) {
-      // 静止/手势：miss 必须现建（issue 96，否则空白且手势只 blit 旧图、静止没有下一帧）。
-      // 播放：miss 也走预算（issue 101，换肤全量失效后开播不在一帧内重建全部可见瓦片）。
-      if (rc.playing && performance.now() >= rebuildBudgetUntil) continue;
+      // 播放 miss 进队列；手势/静止仍同步现建。
+      if (rc.playing) continue;
       t = renderTile(id, rc, es);
       rebuilt++;
-    } else if (stale && performance.now() < rebuildBudgetUntil) {
+    } else if (stale && !rc.playing && performance.now() < rebuildBudgetUntil) {
       t = renderTile(id, rc, es);
       rebuilt++;
     }
@@ -348,9 +432,18 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     if (Math.abs(es / t.refScale - 1) > STALE_TOL) staleBlit = true;
     const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
     const r = tileBlitRect(id, es, t.refScale, anchorY, rc.surface.w, t.surfaceW);
-    if (r.y > rc.surface.h || r.y + r.h < 0) continue; // 屏外瓦片（padding 外扩可能引入）
-    ctx.drawImage(t.canvas, r.x, r.y, r.w, r.h);
+    const clipped = clipTileDrawRect(r, rc.surface.w, rc.surface.h, t.canvas.width, t.canvas.height);
+    if (!clipped) continue;
+    ctx.drawImage(t.canvas, clipped.sx, clipped.sy, clipped.sw, clipped.sh, clipped.dx, clipped.dy, clipped.dw, clipped.dh);
     blitted++;
+    blitCssPx += clipped.dw * clipped.dh;
+  }
+  ctx.imageSmoothingEnabled = prevSmooth;
+  ctx.imageSmoothingQuality = prevQuality;
+  if (rc.playing) {
+    const prefetch: number[] = [];
+    for (let id = lo; id <= hi + 1; id++) prefetch.push(id);
+    enqueuePlayingTiles(prefetch, rc, es);
   }
   // F1：选中/hover 叠加层（瓦片不含选中态，O(选中∩可见) 逐帧绘制，与瓦片 blit 逐像素对齐）
   // issue 67：`|| rc.selectionBox` —— 框选手势期间 selectedItems 还是空的（选区要等 mouseup）、
@@ -359,5 +452,6 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
     renderSelectionOverlay(ctx, c, rc, c.getVisibleNotes());
   }
-  perf.info({ layerMode: 'tiles', tiles: tiles.size, blitted, rebuilt, staleBlit });
+  lastNoteLayerStats = { layerMode: 'tiles', rebuilt, blitted, lo, hi, blitCssPx };
+  perf.info({ layerMode: 'tiles', tiles: tiles.size, blitted, rebuilt, staleBlit, blitCssPx });
 }

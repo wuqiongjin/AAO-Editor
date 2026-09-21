@@ -1493,11 +1493,8 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   // 实时显示线（issue 54）：鼠标 Y 水平线，画在音符层之下
   renderHoverLine(ctx, c, rc);
 
-  // 同时点击线（issue 39 #3）：画在音符层之下，音符图标覆盖其中点连线
-  if (rc.display?.simultaneousClickLines) {
-    renderSimultaneousClickLines(ctx, c, rc, c.getVisibleNotes());
-  }
-  // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片，不逐音符重绘
+  // 同时点击线只在 renderNotes 内画（进瓦片）。
+  // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片
   drawNotesLayer(ctx, rc);
   // BPM 数值（issue 51）：沟槽层，基于可见集（二分剔除，O(log n + 可见数)）
   const visibleNotes = c.getVisibleNotes();

@@ -388,7 +388,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     expect(mainCounters.spriteRenders).toBe(spritesAfterSettle);
   });
 
-  it('zoom-out 手势（窗口扩张）帧耗时仍受控；高倍直渲模式可用', () => {
+  it('zoom-out 手势（窗口扩张）帧耗时仍受控；es=1.5 仍走瓦片可绘', () => {
     const notes = makeDenseNotes(5000, chartEndBeat);
     const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
@@ -407,7 +407,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
       expect(performance.now() - t0).toBeLessThan(40);
     }
 
-    // es > MAX_CACHE_ES → 直渲模式：正常绘制可见音符
+    // es=1.5（issue 140：低于工具栏 300% 上限）仍走瓦片：spriteIcon 会计入绘制
     resetNoteLayerCache();
     counters.spriteRenders = 0;
     rc = makeRc(g, notes, chartEndBeat, 1.5, scrollYForCenterBeat(g, 750, 1.5), false, counters);
@@ -415,7 +415,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     expect(counters.spriteRenders).toBeGreaterThan(0);
   });
 
-  it('drawNotesLayer 对外可独立调用（直渲分支）', () => {
+  it('drawNotesLayer 对外可独立调用（高倍瓦片）', () => {
     const notes = makeDenseNotes(100, 50);
     const geometry = new ChartGeometry(bpm120, { endBeat: 50 } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
