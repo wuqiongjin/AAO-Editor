@@ -195,6 +195,19 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   }
 
   /**
+   * 秒 → **最大 beat 解**（issue 134 / ADR-0010 结论 5）：布局轴 pos = 秒 × virtualPxPerSecond，
+   * 与 `virtualYToBeat` 同取解口径；HUD 不再旁路 `AudioTiming.secondsToBeat`。
+   */
+  beatOfSeconds(seconds: number): number {
+    return this.timeline.maxBeatSolutionOf(seconds * this.virtualPxPerSecond).beat;
+  }
+
+  /** 秒 → 最大 beat 解所在 BPM 段序号（顶栏当前区间 BPM 与 beatOfSeconds 同解） */
+  segmentIndexOfSeconds(seconds: number): number {
+    return this.timeline.maxBeatSolutionOf(seconds * this.virtualPxPerSecond).segmentIndex;
+  }
+
+  /**
    * 虚拟Y → **全部拍解**（各层各一个，ADR-0010 结论 5）。需要"拍"的地方必须显式选解：
    * 空白处新增取 `maxBeatSolutionOf`（= `virtualYToBeat`），拖拽锚定被拖元素的层（`layerBeatFromCanvas`）。
    */

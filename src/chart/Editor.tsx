@@ -6,11 +6,12 @@ import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../chart/comp
 import NoteInfoPanel from '../chart/components/side-panel/NoteInfoPanel';
 import IconButton from '../ui/IconButton';
 import { type FunctionId } from '../chart/config/ShortcutConfig';
-import { getBpmEvents, secondsSegmentIndex, DEFAULT_BPM } from '../audio/AudioTiming';
+import { DEFAULT_BPM } from '../audio/AudioTiming';
 import PlayBar from '../playback/PlayBar';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
 import { countChartNotes } from '../chart/editing/NoteEditing';
 import { useSurfaceSize } from '../chart/layout/useSurfaceSize';
+import { useChartSpace } from '../chart/geometry/ChartSpace';
 import { isProgrammaticScrollEcho, useScrollModel } from '../playback/useScrollModel';
 import { useAudioBridge } from '../audio/useAudioBridge';
 import { usePlaybackCoordinator } from '../playback/usePlaybackCoordinator';
@@ -71,15 +72,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     markerBeat,
   } = playback;
 
-  // 当前播放头所在区间的 BPM（顶栏实时区）
-  // issue 104 修法 7：按**当前秒所在的时间轴区间**取，不先反查拍——倒流区里同一秒落在多个段上，
-  // 取解口径 = 最大 beat 解所在段（ADR-0010 结论 5，与制谱器编辑器逐操作等价）；
-  // 「这一秒属于哪一段」由 AudioTiming 单一提供（`secondsSegmentIndex`），调用点不自己取末项。
-  const currentRegionBpm = useMemo(() => {
-    const events = getBpmEvents(notes);
-    return events[secondsSegmentIndex(events, playheadSeconds)]?.bpm ?? DEFAULT_BPM;
-  }, [notes, playheadSeconds]);
-
   // 音符数统计（issue 36）
   const noteCount = useMemo(() => countChartNotes(notes), [notes]);
 
@@ -110,9 +102,21 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   );
   const surface = useSurfaceSize(chartAreaRef, { live: surfaceLive });
 
+  // === issue 134：布局轴几何唯一生命周期（画布 + 滚动模型 bind 同一引用） ===
+  const { geometry, chartEndKey } = useChartSpace({
+    notes, ctxDuration, surface, verticalRatio: settings.display.verticalRatio,
+  });
+
+  // 当前播放头所在区间的 BPM（顶栏实时区）
+  // issue 134：与 HUD playheadBeat 同 geometry；最大 beat 解所在段（ADR-0010 结论 5）
+  const currentRegionBpm = useMemo(() => {
+    const events = geometry.bpmEvents;
+    return events[geometry.segmentIndexOfSeconds(playheadSeconds)]?.bpm ?? DEFAULT_BPM;
+  }, [geometry, playheadSeconds]);
+
   // === 会话流 2：滚动模型（候选 1 拆出；候选 2 再做生命周期封装） ===
-  const { scrollModel, chartEndKey, consumePendingReAnchor } = useScrollModel({
-    notes, ctxDuration, surface, scale, verticalRatio: settings.display.verticalRatio,
+  const { scrollModel, consumePendingReAnchor } = useScrollModel({
+    geometry, scale, chartEndKey,
   });
 
   // === 音频会话深模块（架构深化评审候选 3 收口） ===
@@ -489,7 +493,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
               ref={virtualCanvasRef}
               scrollHostRef={chartAreaRef}
               onScrollChange={handleVirtualScrollChange}
-              chartEndSeconds={ctxDuration}
+              geometry={geometry}
               surface={surface}
               active={active}
             />

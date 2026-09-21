@@ -46,13 +46,11 @@ describe('Editor.tsx · 候选 3 收口（音频域 ref 环消解）', () => {
   });
 
   it('chartEndKey 仅作重锚 effect 依赖使用（缩放锚定修复后的唯一消费者）', () => {
-    // 候选 1 收口时 chartEndKey 曾无外部消费者；缩放"漂移后回弹"修复（待重锚需在
-    // chartEndKey 变化的同一提交内消费，防止宽度-only 变化的标记潜伏到缩放时发作）后，
-    // Editor 重新消费它，但仅允许出现在 useScrollModel 解构与重锚 effect 依赖中。
     const codeOnly = editorSrc.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
     const uses = codeOnly.match(/chartEndKey/g) ?? [];
-    expect(uses.length).toBe(2); // 解构 1 处 + effect 依赖数组 1 处
-    expect(codeOnly).toMatch(/\{\s*scrollModel,\s*chartEndKey,\s*consumePendingReAnchor\s*\}/);
+    expect(uses.length).toBe(3); // useChartSpace 解构 + useScrollModel 注入 + effect 依赖
+    expect(codeOnly).toMatch(/\{\s*geometry,\s*chartEndKey\s*\}\s*=\s*useChartSpace/);
+    expect(codeOnly).toMatch(/geometry,\s*scale,\s*chartEndKey/);
     expect(codeOnly).toMatch(/\},\s*\[virtualHeight,\s*chartEndKey\]\)/);
   });
 

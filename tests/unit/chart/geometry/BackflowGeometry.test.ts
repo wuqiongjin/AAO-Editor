@@ -61,6 +61,15 @@ describe('issue 104 · 秒读数走布局轴直读（修法 3）', () => {
     expect(g.virtualYToSeconds(VIEWPORT.scrollY + SURFACE.h, 1)).toBeCloseTo(2.5 - 0, 6);
   });
 
+  it('beatOfSeconds 取最大 beat 解（HUD 与 virtualYToBeat 同口径，不经 AudioTiming）', () => {
+    const g = geo();
+    // t=2.3s 三层：4.6 / 5.8 / 6.85 → 最大 6.85
+    expect(g.beatOfSeconds(2.3)).toBeCloseTo(6.85, 6);
+    expect(g.segmentIndexOfSeconds(2.3)).toBe(2);
+    const y = g.virtualYOfPos(2.3 * g.virtualPxPerSecond, 1);
+    expect(g.beatOfSeconds(2.3)).toBeCloseTo(g.virtualYToBeat(y, 1), 6);
+  });
+
   it('virtualYSolutions 列出各层；virtualYToBeat 取最大解（空白新增口径）', () => {
     const g = geo();
     const y = g.virtualYOfPos(2.3 * g.virtualPxPerSecond, 1); // pos 1012 → t=2.3s
@@ -146,13 +155,13 @@ describe('issue 104 · 曲线工具两击直放预览按折返几何显示（修
 
 describe('issue 104 · 反查单一所有者（静态源码断言）', () => {
 
-  it('应用侧几何一律按**秒**构造（不得再有拍域末端声明混进 src/）', () => {
+  it('应用侧几何只在 ChartSpace 按秒构造（画布 / 滚动不再各 new）', () => {
+    const space = readSource('src/chart/geometry/ChartSpace.ts');
     const canvas = readSource('src/chart/components/canvas/FinalVirtualCanvas.tsx');
-    expect(canvas).toContain('new ChartGeometry(bpmEvents, { seconds: chartEndSeconds }, surf, verticalRatio)');
     const scroll = readSource('src/playback/useScrollModel.ts');
-    expect(scroll).toContain('{ seconds: ctxDuration }');
-    expect(scroll).toContain('new ChartGeometry([], { seconds: 0 }, { w: 200, h: 240 })');
-    // 两处（画布 / 滚动模型）不再各自反查端点拍——endBeat 声明只留给测试与工具
+    expect(space).toContain('new ChartGeometry(bpmEvents, { seconds: chartLengthSeconds }');
+    expect(canvas).not.toMatch(/new ChartGeometry\s*\(/);
+    expect(scroll).not.toMatch(/new ChartGeometry\s*\(/);
     expect(canvas).not.toContain('chartLengthToEndBeat');
     expect(scroll).not.toContain('chartLengthToEndBeat');
   });

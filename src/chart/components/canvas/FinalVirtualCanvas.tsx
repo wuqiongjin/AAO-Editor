@@ -9,10 +9,9 @@ import {
 import {
   GestureSession, type GestureOp, type GestureResult, type GestureSessionHost,
 } from '../../editing/GestureSession';
-import { getBpmEvents, secondsToBeat, type BpmEvent } from '../../../audio/AudioTiming';
 import {
-  ChartGeometry, LANES, LANE_WIDTH,
-  TRACK_CHROME_TOTAL, type SurfaceSize,
+  LANES, LANE_WIDTH,
+  TRACK_CHROME_TOTAL, type ChartGeometry, type SurfaceSize,
 } from '../../geometry/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../../../app/ProviderTree';
 import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
@@ -38,8 +37,8 @@ interface FinalVirtualCanvasProps {
    * 而容器 `overflowX:hidden` 会把它吃掉 → 画布在这里把它转回纵向。画布自己滚不动（它不是滚动容器）。
    */
   scrollHostRef?: React.RefObject<HTMLDivElement | null>;
-  /** 谱面长度（秒，ADR-0005 §1）：显式、与音符无关；有音频=音频时长，无音频=持久化值(默认30s) */
-  chartEndSeconds: number;
+  /** issue 134：与 useScrollModel 同一份布局轴几何（Editor 经 useChartSpace 注入） */
+  geometry: ChartGeometry;
   /**
    * 渲染面尺寸（CSS 像素，ADR-0006 §1）：由 Editor 经 ResizeObserver 提供；缓冲 = surface × dpr
    * issue 50（Q8 a / Q24 a）：null = RO 尚未回调（mount 后 0~16ms），
@@ -95,12 +94,7 @@ const MAX_SCALE = 3.0;
 const MIN_SCALE = 0.1;
 
 // 拖拽判定阈值（ADR-0008 §2 原则 1）：按下移动 ≥4px = 拖拽；<4px 快速起按 = 单击
-/** BPM 事件表内容相等（issue 35 F2：内容未变时 geometry 复用旧实例，事件数通常 ≤ 个位数） */
-const bpmEventsContentEqual = (a: readonly BpmEvent[], b: readonly BpmEvent[]) =>
-    a === b || (a.length === b.length && a.every((e, i) => e.beat === b[i].beat && e.bpm === b[i].bpm));
-
-/**
- * FinalVirtualCanvas（ADR-0003 候选 B 收口 + ADR-0008 交互重构）：
+/** FinalVirtualCanvas（ADR-0003 候选 B 收口 + ADR-0008 交互重构）：
  * 渲染/命中/坐标全部收敛到 src/visual 纯模块；批量编辑语义收敛到 src/chart/editing 纯模块
  * （NoteReplacementRules/SelectionEditing/SlideCombination/NoteDragging，均有行锁单测）。
  * 本组件只保留：挂载/canvas 生命周期/皮肤加载、按下-拖拽-抬起输入状态机、视图状态(viewport)、
@@ -113,7 +107,7 @@ const bpmEventsContentEqual = (a: readonly BpmEvent[], b: readonly BpmEvent[]) =
 const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanvasProps>(({
     onScrollChange,
     scrollHostRef,
-    chartEndSeconds,
+    geometry,
     surface,
     active,
 }, ref) => {
@@ -225,35 +219,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const [gestureSnap, setGestureSnap] = useState(() => session.getSnapshot());
     useEffect(() => session.subscribe(setGestureSnap), [session]);
 
-    // ---------------------------
-    // 谱面几何（ADR-0003 候选 B/C）：BPM→虚拟Y 走缓存时间线，坐标/剔除/命中统一由 ChartGeometry 提供
-    // issue 35 F2：BPM 事件内容/谱长/渲染面未变时复用旧实例——否则每次编辑普通音符都新建实例，
-    // geometry 引用变化本身就会触发瓦片缓存全量失效（密集音符下放置/选择卡顿的根因之一）。
-    // ---------------------------
-    const geometryRef = useRef<ChartGeometry | null>(null);
-    const verticalRatio = display.verticalRatio;
-    const geometry = useMemo(() => {
-        const bpmEvents = getBpmEvents(notes);
-        const prev = geometryRef.current;
-        if (
-            prev &&
-            prev.chartLengthSeconds === chartEndSeconds &&
-            prev.surface.w === surf.w && prev.surface.h === surf.h &&
-            prev.verticalRatio === verticalRatio &&
-            bpmEventsContentEqual(prev.bpmEvents, bpmEvents)
-        ) {
-            return prev;
-        }
-        // issue 104 修法 1（Q2 归一）：端点由**谱面长度（秒）**直出——两处同式 chartEndBeat 反查
-        // （此处与 useScrollModel）已收敛进构造函数；chartEndBeat 由 geometry 派生，不再各自反查。
-        const next = new ChartGeometry(bpmEvents, { seconds: chartEndSeconds }, surf, verticalRatio);
-        geometryRef.current = next;
-        return next;
-        // issue 39 #5：纵向比例变化 → 重建 geometry（改变每小节纵向高度）
-    }, [notes, chartEndSeconds, surf, verticalRatio]);
-    // 谱面末端 beat：由 geometry 派生的**最大 beat 解**（网格枚举 / 放置边界 / 缓存键用它）
+    // issue 134：geometry 由 Editor useChartSpace 注入（与 PlaybackScrollModel 同引用）
     const chartEndBeat = geometry.chartEndBeat;
-    // 谱面末端的【真实 BPM 像素高度】（ADR-0004 §3 修订）：总高/坐标基准都用它
     const chartEndVirtualY = geometry.chartEndVirtualY;
 
     /**
@@ -799,8 +766,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 画布实时信息叠加（issue 22）：判定线处精确时间（左下）+ 已过判定线音符数（右下）。
     // 判定线 = 画布底边，故叠加层贴 bottom 置于其上；pointerEvents:none 不干扰画布交互。
     const playheadBeat = useMemo(
-        () => secondsToBeat(getBpmEvents(notes), currentSeconds),
-        [notes, currentSeconds],
+        () => geometry.beatOfSeconds(currentSeconds),
+        [geometry, currentSeconds],
     );
     const passedNoteCount = useMemo(
         () => countNotesUpToBeat(notes, playheadBeat),
