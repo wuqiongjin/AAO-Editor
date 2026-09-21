@@ -16,7 +16,7 @@
 import type { ChartNote, ConnectionNote, SelectionItem } from '../types';
 import { t } from '../../i18n';
 import { isSlide } from './SelectionEditing';
-import { slideSpans, spanOfRegion } from './SlideSegments';
+import { slideSpans, regionIdentity } from './SlideSegments';
 import {
     convertNotesToChartCode, convertChartCodeToNotes, validateChartCode, hasBeat0BpmNote,
     type ChartCodeNote, type ChartCodeSingle, type ValidationError,
@@ -310,7 +310,7 @@ export function noteCodeTargetForHit(notes: readonly ChartNote[], hit: Selection
     const spans = slideSpans(note.connections);
     if (spans.length < 2) return hit.kind === 'slideNode' ? asNode() : asWhole();
     if (hit.kind === 'slideRegion') {
-        const sp = spanOfRegion(note.connections, hit.connIndex);
+        const sp = regionIdentity(note.connections, hit.connIndex)?.span;
         return sp ? { noteIndex: hit.noteIndex, span: { start: sp.start, end: sp.end } } : asWhole();
     }
     // 结点的"所属段"口径（issue 93）：

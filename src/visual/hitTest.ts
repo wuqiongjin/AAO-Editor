@@ -3,7 +3,7 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import type { ChartGeometry, GeometryViewport } from '../chart/geometry/ChartGeometry';
 import { LANE_WIDTH, directionalLanes } from '../chart/geometry/ChartGeometry';
-import { slideSpans, displayConnections } from '../chart/editing/SlideSegments';
+import { projectedSlideSpans } from '../chart/editing/SlideSegments';
 import { bandPolygonAt } from './slideBandGeometry';
 import { makeCoords } from './coords';
 import type { SelectionBox } from './types';
@@ -139,15 +139,14 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
       // issue 77 二轮：命中单位 = **逻辑段**（跨过 hidden 的整段）—— 段内任一子块命中，
       // 都返回该段起点下标（hidden 不切割段，hover/选中才不会被切成两半）。
       // 横截面口径 = `slideBandGeometry` 车道横向（与带体实绘、选中/hover 描边同源，issue 09 验收反馈六轮）。
-      const view = displayConnections(connections);
-      for (const sp of slideSpans(view.conns)) {
+      const proj = projectedSlideSpans(connections);
+      for (const sp of proj.regions) {
         for (let ci = sp.start; ci < sp.end; ci++) {
-          const c1 = view.conns[ci]!, c2 = view.conns[ci + 1]!;
+          const c1 = proj.conns[ci]!, c2 = proj.conns[ci + 1]!;
           const p1 = c.virtualToCanvas(c.getNoteVirtualX(c1.lane), c.getNoteVirtualY(c1.beat, c1.subBeat || 0));
           const p2 = c.virtualToCanvas(c.getNoteVirtualX(c2.lane), c.getNoteVirtualY(c2.beat, c2.subBeat || 0));
           if (pointInQuad(cx, cy, bandPolygonAt([p1, p2], halfLaneWidth))) {
-            // 身份仍是**原数组下标**（段的显示序起点经 `view.src` 换算，与描边/选中同源）
-            return { kind: 'slideRegion', noteIndex: i, connIndex: view.src[sp.start]! };
+            return { kind: 'slideRegion', noteIndex: i, connIndex: sp.connIndex };
           }
         }
       }
@@ -281,16 +280,16 @@ export function computeItemsInBox(box: SelectionBox, deps: HitTestDeps): Selecti
       // issue 77 二轮：段按**逻辑段**入框（跨过 hidden 的整段 = 段内全部结点含 hidden 都要在框内）
       // issue 106：取点走**显示投影**、段身份仍用**原下标**（与 findItemAt / 选中描边同源，
       // 否则非单调滑条上"框到的段"与"点中的段"不是同一个 SelectionItem）
-      const view = displayConnections(conns);
-      for (const sp of slideSpans(view.conns)) {
+      const proj = projectedSlideSpans(conns);
+      for (const sp of proj.regions) {
         let allIn = true;
         for (let ci = sp.start; ci <= sp.end; ci++) {
-          const cc = view.conns[ci]!;
+          const cc = proj.conns[ci]!;
           const x = c.getNoteVirtualX(cc.lane);
           const y = c.getNoteVirtualY(cc.beat, cc.subBeat || 0);
           if (!(x >= vminX && x <= vmaxX && y >= vminY && y <= vmaxY)) { allIn = false; break; }
         }
-        if (allIn) result.push({ kind: 'slideRegion', noteIndex: index, connIndex: view.src[sp.start]! });
+        if (allIn) result.push({ kind: 'slideRegion', noteIndex: index, connIndex: sp.connIndex });
       }
     } else if (note.type === "BPM") {
       // issue 71：BPM 线**不入框选选区**（它不是音符，选中无意义）。

@@ -10,7 +10,7 @@ import { perf } from '../chart/perf';
 import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
-import { slideSpans, isSpRegion, displayConnections, isDisplayIdentity, visibleEnds } from '../chart/editing/SlideSegments';
+import { isSpRegion, displayConnections, visibleEnds, projectedSlideSpans } from '../chart/editing/SlideSegments';
 import { freezeGestureCursor } from '../chart/editing/CanvasGesture';
 import { bandPolygonAt, rasterBandRuns, splitBandAtFolds } from './slideBandGeometry';
 import { previewSpanConnections } from '../chart/editing/SpanCurve';
@@ -419,9 +419,9 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       // 逐子块描边（斜段拼斜段），但选中/命中/预览的判据用的是同一段起点下标。
       // issue 106：段的取点走**显示投影**（与实绘 / 命中同源），但选中/hover 的身份仍用**原数组下标**
       // （`view.src` 换算）——否则非单调点序的滑条会"亮的那段不是画的那段"。
-      const view = displayConnections(conns);
-      for (const sp of slideSpans(view.conns)) {
-        const realStart = view.src[sp.start]!;
+      const proj = projectedSlideSpans(conns);
+      for (const sp of proj.regions) {
+        const realStart = sp.connIndex;
         const inSel = whole || regions?.has(realStart) === true;
         // issue 67：框选预览（整条被框住 → 所有段；或该段单独被框住）。
         // 与"鼠标 hover 仅限删除/音符代码工具"不同：框选是"即将入选"的预告，
@@ -441,7 +441,7 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
         // 一道横向的"衔接线"（观感上段被切成两个图形）。两侧各串成一条折线，只有首尾封口。
         const cents: { x: number; y: number }[] = [];
         for (let ci = sp.start; ci <= sp.end; ci++) {
-          const cc = view.conns[ci]!;
+          const cc = proj.conns[ci]!;
           cents.push(c.virtualToCanvas(c.getNoteVirtualX(cc.lane), c.getNoteVirtualY(cc.beat, cc.subBeat || 0)));
         }
         // 横截面口径与带体实绘 / 命中区同源（`slideBandGeometry`，issue 09 验收反馈六轮）
@@ -846,8 +846,9 @@ export function renderSpanBands(
   const half = (LANE_WIDTH * rc.viewport.scale * (rc.display?.noteSize ?? 1)) / 2;
   // issue 106：画布按实机口径做**显示投影**（稳定排序 + 掐首尾 hidden，数据一字不动）——
   // 实绘 / 描边 / 命中三处共用它，非单调点序在画布上只表现为横向折线，永不画出回头弯。
-  const dconns = isDisplayIdentity(connections) ? connections : displayConnections(connections).conns;
-  const spans = slideSpans(dconns);
+  const proj = projectedSlideSpans(connections);
+  const dconns = proj.conns;
+  const spans = proj.regions;
   if (spans.length === 0) return;
   for (const sp of spans) {
     const pts: { x: number; y: number }[] = [];

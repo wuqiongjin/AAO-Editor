@@ -10,7 +10,7 @@
 // 细分，p = 1..f-1 逐个生成 `{ beat: 起始拍 + p/precision, lane: clamp(起 lane + lane 差 × ease(p/f)), hidden: true }`。
 // beat/lane 用十进制小数（Bestdori 同构：官方 SP 谱大量小数 lane）。
 import type { ConnectionNote, SlideNote, LongNote, SpanEasingParam, SpanParam, SlideSpanParams } from '../types';
-import { slideSpans, spanOfRegion, type ConnSpan } from './SlideSegments';
+import { slideSpans, regionIdentity, type ConnSpan } from './SlideSegments';
 import { easing, type CurvePrecision } from './Easing';
 import { bakeTemplateParam } from './ShapeTemplates';
 
@@ -260,8 +260,9 @@ export function bendSpan(
 ): SlideNote | LongNote {
   if (dLane === 0) return slide;
   const conns = slide.connections;
-  const sp: ConnSpan | null = spanOfRegion(conns, connIndex);
-  if (!sp) return slide;
+  const id = regionIdentity(conns, connIndex);
+  if (!id) return slide;
+  const sp = id.span;
   const from = conns[sp.start]!;
   const to = conns[sp.end]!;
   const fromBeat = connTrueBeat(from, beatDisplay);
@@ -297,7 +298,7 @@ export function bendSpan(
   const connections = [...conns.slice(0, sp.start + 1), ...middle, ...conns.slice(sp.end)];
 
   // 一动就自由化：清除被拨段的参数（可见数不变，其余段参数保留）
-  const spanOrdinal = slideSpans(connections).findIndex(s => s.start === sp.start);
+  const spanOrdinal = id.ordinal;
   const bySpan = { ...effectiveSpanParams(slide) };
   if (spanOrdinal >= 0) delete bySpan[spanOrdinal];
   const hasParams = Object.keys(bySpan).length > 0;

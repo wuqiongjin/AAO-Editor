@@ -1,6 +1,6 @@
 import type { ChartNote, SelectionItem, SlideNote } from '../types';
 import { connectionToNote } from './SlideCombination';
-import { spanConnIndices, spanOfRegion } from './SlideSegments';
+import { spanConnIndices, regionIdentity } from './SlideSegments';
 import { mirrorNote, mirrorLane } from './NoteEditing';
 import { DEFAULT_BPM } from '../../audio/AudioTiming';
 
@@ -80,7 +80,7 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
       // （反复点即可逐步清空：先清隐藏、再断带子。）
       const target = notes[it.noteIndex];
       const slide = target && isSlide(target) ? target : null;
-      const sp = slide ? spanOfRegion(slide.connections, it.connIndex) : null;
+      const sp = slide ? regionIdentity(slide.connections, it.connIndex)?.span ?? null : null;
       if (slide && sp && sp.end - sp.start > 1) {
         const hidden = nodeRemove.get(it.noteIndex) ?? new Set<number>();
         for (let k = sp.start + 1; k < sp.end; k++) {

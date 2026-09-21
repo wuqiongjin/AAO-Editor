@@ -28,6 +28,7 @@ import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
 import { mirrorNote } from '@/src/chart/editing/NoteEditing';
 import { mirrorLane } from '@/src/chart/editing/NoteEditing';
 import { combineSelectionIntoSlide } from '@/src/chart/editing/SlideCombination';
+import { projectedSlideSpans, regionIdentity } from '@/src/chart/editing/SlideSegments';
 
 const CFG: CurveConfig = { family: 'quad', type: 'in', precision: 16 };
 
@@ -293,6 +294,24 @@ describe('issue 09 · 单击矩阵 curve 行（链式放置）', () => {
     expect(edited.connections.filter((c) => c.hidden)).toHaveLength(15);
     expect(effectiveSpanParams(edited)[0]).toEqual({ kind: 'easing', ...CFG });
     expect(ops[1]).toEqual({ t: 'setSelection', items: [] });
+  });
+
+  it('点中段走 regionIdentity：非单调导入谱仍按作者轴序数重应用（显示起点下标 ≠ 序数）', () => {
+    const target: SlideNote = {
+      type: 'Slide',
+      connections: [{ beat: 3, lane: 6 }, { beat: 2, lane: 6 }, { beat: 3, lane: 4 }],
+    };
+    const hitIndex = projectedSlideSpans(target.connections).regions[0]!.connIndex;
+    expect(hitIndex).toBe(1);
+    expect(regionIdentity(target.connections, hitIndex)?.ordinal).toBe(1);
+    const ops = input({
+      notes: [bpmAt0, target],
+      hit: { kind: 'slideRegion', noteIndex: 1, connIndex: hitIndex },
+      pos: { beat: 9, lane: 0 },
+    });
+    const edited = (ops[0] as { t: 'setNotes'; notes: ChartNote[] }).notes[1] as SlideNote;
+    expect(effectiveSpanParams(edited)[1]).toEqual({ kind: 'easing', ...CFG });
+    expect(effectiveSpanParams(edited)[0]).toBeUndefined();
   });
 
   it('框选（Shift+拖）= 与滑条同源组合', () => {

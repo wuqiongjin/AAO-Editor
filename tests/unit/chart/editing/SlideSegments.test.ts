@@ -3,7 +3,10 @@
 // 数据一字不动（代码弹窗/导出/编辑仍按原数组序），投影只服务"画布上看到的顺序"。
 import { describe, it, expect } from 'vitest';
 import type { ConnectionNote } from '@/src/chart/types';
-import { displayConnections, isDisplayIdentity, slideSpans, visibleEnds } from '@/src/chart/editing/SlideSegments';
+import {
+  displayConnections, isDisplayIdentity, slideSpans, visibleEnds,
+  projectedSlideSpans, regionIdentity,
+} from '@/src/chart/editing/SlideSegments';
 
 const c = (beat: number, lane: number, hidden = false): ConnectionNote =>
   hidden ? { beat, lane, hidden: true } : { beat, lane };
@@ -104,5 +107,31 @@ describe('issue 115 · 同拍组保持数组序（走序不可重建）', () => 
     const r = displayConnections(conns);
     expect(r.conns.map((p) => `${p.beat}/${p.lane}`)).toEqual(['2/6', '3/6', '3/4']);
     expect(r.src).toEqual([1, 0, 2]);
+  });
+});
+
+describe('段身份 · projectedSlideSpans / regionIdentity', () => {
+  it('单调滑条：显示段起点原下标 = 作者轴逻辑段起点（1:1）', () => {
+    const conns: ConnectionNote[] = [c(1, 0), c(1.5, 2, true), c(2, 3), c(3, 6)];
+    const proj = projectedSlideSpans(conns);
+    expect(proj.regions).toEqual([
+      { start: 0, end: 2, connIndex: 0 },
+      { start: 2, end: 3, connIndex: 2 },
+    ]);
+    expect(regionIdentity(conns, 0)).toEqual({ span: { start: 0, end: 2 }, ordinal: 0 });
+    expect(regionIdentity(conns, 1)).toEqual({ span: { start: 0, end: 2 }, ordinal: 0 });
+    expect(regionIdentity(conns, 2)).toEqual({ span: { start: 2, end: 3 }, ordinal: 1 });
+    expect(regionIdentity(conns, proj.regions[0]!.connIndex)?.ordinal).toBe(0);
+    expect(regionIdentity(conns, proj.regions[1]!.connIndex)?.ordinal).toBe(1);
+  });
+
+  it('非单调：命中身份仍是显示段起点原下标；编辑身份仍是作者轴 ordinalOfRegion（既有映射）', () => {
+    // 作者轴：3/6 → 2/6 → 3/4；显示投影：2/6 → 3/6 → 3/4（src [1, 0, 2]）
+    const conns: ConnectionNote[] = [c(3, 6), c(2, 6), c(3, 4)];
+    const proj = projectedSlideSpans(conns);
+    expect(proj.regions.map((r) => r.connIndex)).toEqual([1, 0]);
+    expect(regionIdentity(conns, 1)).toEqual({ span: { start: 1, end: 2 }, ordinal: 1 });
+    expect(regionIdentity(conns, 0)).toEqual({ span: { start: 0, end: 1 }, ordinal: 0 });
+    expect(regionIdentity(conns, 99)).toBeNull();
   });
 });

@@ -51,12 +51,8 @@ export function isDisplayIdentity(conns: SlideNote['connections']): boolean {
  * 代码弹窗、导出、段参数、拖带、删结点、`planDragMove` 一律仍按原数组序。
  *
  * 返回 `{ conns, src }`：`conns` = 投影后的点序列（元素是原对象引用），`src[i]` = 该点对应的
- * **原数组下标**。选区 / 命中身份 / 段起点判据一律仍用原下标（`slideSpans(conns)` 得到的下标
- * 是**投影序**，取身份要经 `src` 换算）。
- *
- * 实绘（`renderSpanBands`）、选中·hover 描边（`collectSelectionOutlines`）、命中（`slideRegion`）
- * 三处必须共用它——旁路另写一份连线顺序 = 画的/亮的/点的不是同一条带子。
- * 合法滑条（点序单调 + 首尾可见，绝大多数）走恒等快路径：不排序、不重排。
+ * **原数组下标**。画布上的段列表走 `projectedSlideSpans`（投影 + 段 + 身份一次完成）；
+ * 不要在命中/描边/实绘里各写一份 `slideSpans(view.conns)` + `src[start]`。
  */
 export function displayConnections(conns: SlideNote['connections']): {
   conns: SlideNote['connections'];
@@ -97,14 +93,60 @@ export function visibleEnds(conns: SlideNote['connections']): { first: number; l
   return { first, last };
 }
 
+export interface DisplaySlideRegion extends ConnSpan {
+  /** 选区 / 命中身份 = 显示段起点的**原数组**下标（与 `view.src[sp.start]` 同口径） */
+  connIndex: number;
+}
+
+export interface ProjectedSlideSpans {
+  conns: SlideNote['connections'];
+  src: number[];
+  regions: DisplaySlideRegion[];
+}
+
+/**
+ * 画布上的段列表：取点走显示投影，每段身份仍是原下标。
+ * 命中 / 框选 / 选中描边共用，禁止各写一份 `displayConnections` + `slideSpans` + `src[start]`。
+ */
+export function projectedSlideSpans(conns: SlideNote['connections']): ProjectedSlideSpans {
+  const view = displayConnections(conns);
+  const regions: DisplaySlideRegion[] = slideSpans(view.conns).map((sp) => ({
+    start: sp.start,
+    end: sp.end,
+    connIndex: view.src[sp.start]!,
+  }));
+  return { conns: view.conns, src: view.src, regions };
+}
+
+export interface RegionIdentity {
+  /** 作者轴逻辑段（`slideSpans(原数组)`） */
+  span: ConnSpan;
+  /** 段参数 / 烘焙 / 捏形用的可见结点对序数 */
+  ordinal: number;
+}
+
+/**
+ * `slideRegion.connIndex` → 作者轴段身份（编辑侧；ADR-0009：数据层仍按数组序）。
+ * 口径与旧 `spanOfRegion` / `ordinalOfRegion` 相同。
+ */
+export function regionIdentity(
+  conns: SlideNote['connections'],
+  connIndex: number,
+): RegionIdentity | null {
+  const spans = slideSpans(conns);
+  const ordinal = spans.findIndex((sp) => connIndex >= sp.start && connIndex < sp.end);
+  if (ordinal < 0) return null;
+  return { span: spans[ordinal]!, ordinal };
+}
+
 /** 某个 real region 下标（i 与 i+1 之间的连接带）所属的**逻辑段**；无 → null */
 export function spanOfRegion(conns: SlideNote['connections'], ci: number): ConnSpan | null {
-  return slideSpans(conns).find(sp => ci >= sp.start && ci < sp.end) ?? null;
+  return regionIdentity(conns, ci)?.span ?? null;
 }
 
 /** 某 real region 所属逻辑段的**序数**（slideSpans 数组下标 = 可见结点对序数）；无 → -1 */
 export function ordinalOfRegion(conns: SlideNote['connections'], ci: number): number {
-  return slideSpans(conns).findIndex(sp => ci >= sp.start && ci < sp.end);
+  return regionIdentity(conns, ci)?.ordinal ?? -1;
 }
 
 /**

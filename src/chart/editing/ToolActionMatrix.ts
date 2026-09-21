@@ -10,7 +10,7 @@ import {
 } from './NoteReplacementRules';
 import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
 import { combineSelectionIntoSlide, compareAbsorbable, mergeChainWithSlides } from './SlideCombination';
-import { ordinalOfRegion, slideSpans } from './SlideSegments';
+import { slideSpans, regionIdentity } from './SlideSegments';
 import {
   applyParamToAllSpans, bakeSpanPoints, connTrueBeat,
   countVisibleNodes, effectiveSpanParams, regenerateSpan,
@@ -478,10 +478,10 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     if (hit && hit.kind === 'slideRegion' && input.curveConfig) {
       const target = notes[hit.noteIndex];
       if (target && (target.type === 'Slide' || target.type === 'Long')) {
-        const ordinal = ordinalOfRegion((target as SlideNote | LongNote).connections, hit.connIndex);
-        if (ordinal >= 0) {
+        const id = regionIdentity((target as SlideNote | LongNote).connections, hit.connIndex);
+        if (id) {
           const param = spanParamFromCurveConfig(input.curveConfig);
-          const next = regenerateSpan(target as SlideNote | LongNote, ordinal, param, beatDisplay);
+          const next = regenerateSpan(target as SlideNote | LongNote, id.ordinal, param, beatDisplay);
           return [{ t: 'setNotes', notes: notes.map((n, i) => (i === hit.noteIndex ? next : n)) }, clearSel];
         }
       }
