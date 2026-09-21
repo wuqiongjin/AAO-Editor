@@ -339,6 +339,23 @@ describe('GestureSession · Esc ②档（不变量 13 / 19）', () => {
     const s = new GestureSession(host);
     s.bindWorld(world);
     expect(s.cancel().consumed).toBe(false);
+    expect(s.escapeGestureFlags()).toEqual({
+      pen: false, drag: false, box: false, rightHeld: false,
+    });
+  });
+
+  it('按下未抬起时 escapeGestureFlags.box 为真，cancel 仍只消费手势', () => {
+    const notes = [bpmNote(0, 120), single(2, 50)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    press(s, at(2, 50), virt);
+    expect(s.escapeGestureFlags().box).toBe(true);
+    expect(s.cancel().consumed).toBe(true);
+    expect(s.escapeGestureFlags()).toEqual({
+      pen: false, drag: false, box: false, rightHeld: false,
+    });
   });
 });
 

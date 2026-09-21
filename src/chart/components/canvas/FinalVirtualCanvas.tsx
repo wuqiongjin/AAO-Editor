@@ -65,10 +65,17 @@ export interface FinalVirtualCanvasHandle {
   getMarkerSelected?: () => boolean;
   setMarkerSelected?: (sel: boolean) => void;
   clearMarker?: () => void;
-  /** Esc 优先级链（ADR-0008 §7 第②档，issue 109）：若有**进行中手势**（画笔/拖拽/框选/右键删除预览）
-   *  则取消它并返回 true——Editor 据此决定是否继续落档。取消后保持工具态与选区 */
+  /** Esc 快照（issue 135）：手势四旗 + 锚点；选区 / 持工具态由 Editor 填进 resolveEscapeTarget。 */
+  getEscapeFlags?: () => {
+    pen: boolean;
+    drag: boolean;
+    box: boolean;
+    rightHeld: boolean;
+    anchor: boolean;
+  };
+  /** Esc 第②档执行器：有进行中手势则取消并返回 true（政策在 resolveEscapeTarget）。 */
   cancelActiveGesture?: () => boolean;
-  /** Esc 优先级链（ADR-0008 §7 第③档）：若有待连接滑条锚点/曲线草稿则取消并返回 true——Editor 据此决定是否继续落档 */
+  /** Esc 第③档执行器：有待连接滑条锚点/曲线草稿则取消并返回 true。 */
   cancelPendingSlide?: () => boolean;
   /** Ctrl+`（§3）：光标处放置 BPM 线（默认值沿用上次的值）→ 打开 §5 就地编辑；光标不在画布 = 无事发生 */
   execBpm?: () => void;
@@ -591,9 +598,13 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         getMarkerSelected: () => markerSelected,
         setMarkerSelected: (sel: boolean) => setMarkerSelected(sel),
         clearMarker: () => { setMarkerBeat(null); setMarkerSelected(false); },
-        // Esc 五档链第②档（ADR-0008 §7 / issue 109）：问内核是否有进行中手势。
+        getEscapeFlags: () => ({
+            ...session.escapeGestureFlags(),
+            anchor: slideBuffer !== null || curveDraft !== null,
+        }),
+        // Esc 第②档执行（ADR-0008 §7）
         cancelActiveGesture: () => session.cancel().consumed === true,
-        // Esc 五档链第③档（ADR-0008 §7）：有待连接滑条锚点/曲线草稿才消费本次 Esc（返回值供 Editor 决定是否落档）
+        // Esc 第③档执行（ADR-0008 §7）
         cancelPendingSlide: () => {
             if (slideBuffer === null && curveDraft === null) return false;
             setSlideBuffer(null);

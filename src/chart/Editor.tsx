@@ -18,6 +18,7 @@ import { usePlaybackCoordinator } from '../playback/usePlaybackCoordinator';
 import { useChartProjectPersistence } from '../chart/project/useChartProjectPersistence';
 import { useLayoutPersistence } from '../chart/layout/useLayoutPersistence';
 import { useShortcutDispatch } from '../chart/config/useShortcutDispatch';
+import { resolveEscapeTarget } from './editing/CanvasGesture';
 import { t } from '../i18n';
 
 interface EditorProps {
@@ -369,24 +370,27 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     shortcutConfig,
     active,
     runFunction,
-    // Esc 五档链（ADR-0008 §7，先到先吃、只吃一档）：
-    //   ① 弹窗自消费关闭（现状，capture 层）——不会走到这里；BPM 就地编辑输入框同理自消费；
-    //   ② **取消进行中手势**（画笔 / 拖拽 / 拖带捏形 / 框选矩形 / 右键删除预览——issue 109）；
-    //   ③ 取消 Slide 临时端点锚 / 曲线链式草稿；
-    //   ④ 清空选区（含起点标记选中）；
-    //   ⑤ 持工具态落回指针。
-    // 第②档由画布单点执行（手势 ref 都在画布内），且取消后**保持工具态与选区**——
-    // Esc = 撤销这次操作，不是退出工具。侧栏折叠已从此链摘除 → 独立功能 toggleSidebar
-    // （issue 59 §2 起默认键为 Ctrl+Shift+B，Ctrl+B 让给「执行-音符代码」）。
+    // Esc 五档链（ADR-0008 §7 / issue 135）：① 弹窗 capture 自消费；②–⑤ 由
+    // resolveEscapeTarget 唯一裁决，此处只消费一档并执行。② 取消后保持工具态与选区。
+    // 侧栏折叠已从此链摘除 → toggleSidebar（issue 59 §2：Ctrl+Shift+B）。
     onEscape: useCallback(() => {
-      if (virtualCanvasRef.current?.cancelActiveGesture?.()) return;
-      if (virtualCanvasRef.current?.cancelPendingSlide?.()) return;
-      if (selectedItems.length > 0 || virtualCanvasRef.current?.getMarkerSelected?.()) {
+      const canvas = virtualCanvasRef.current;
+      const flags = canvas?.getEscapeFlags?.() ?? {
+        pen: false, drag: false, box: false, rightHeld: false, anchor: false,
+      };
+      const target = resolveEscapeTarget({
+        ...flags,
+        selection: selectedItems.length > 0 || canvas?.getMarkerSelected?.() === true,
+        tool: armedTool !== null,
+      });
+      if (target === 'gesture') { canvas?.cancelActiveGesture?.(); return; }
+      if (target === 'anchor') { canvas?.cancelPendingSlide?.(); return; }
+      if (target === 'selection') {
         setSelectedItems([]);
-        virtualCanvasRef.current?.setMarkerSelected?.(false);
+        canvas?.setMarkerSelected?.(false);
         return;
       }
-      if (armedTool !== null) setArmedTool(null);
+      if (target === 'tool') setArmedTool(null);
     }, [selectedItems, armedTool, setSelectedItems, setArmedTool]),
   });
 

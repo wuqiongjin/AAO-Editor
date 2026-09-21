@@ -36,7 +36,6 @@ import {
   penMaxBeatsForCanvasDy,
   resolvePenStroke,
   finalizePenStrokeCommit,
-  resolveEscapeTarget,
   type DragAnchor,
 } from './CanvasGesture';
 
@@ -179,6 +178,16 @@ export class GestureSession {
     return this.snap;
   }
 
+  /** Esc 快照的手势四旗（②档）；③–⑤ 由 Editor 另填，本会话不伪造。 */
+  escapeGestureFlags(): { pen: boolean; drag: boolean; box: boolean; rightHeld: boolean } {
+    return {
+      pen: this.pen !== null,
+      drag: this.drag !== null,
+      box: this.start !== null,
+      rightHeld: this.snap.rightButtonHeld,
+    };
+  }
+
   /** 左键已按下、window 正在接管手势 */
   isPressed(): boolean {
     return this.start !== null;
@@ -304,16 +313,8 @@ export class GestureSession {
   }
 
   cancel(): GestureResult {
-    const target = resolveEscapeTarget({
-      pen: this.pen !== null,
-      drag: this.drag !== null,
-      box: this.start !== null,
-      rightHeld: this.snap.rightButtonHeld,
-      anchor: false,
-      selection: false,
-      tool: false,
-    });
-    if (target !== 'gesture') return { ...this.result(), consumed: false };
+    const g = this.escapeGestureFlags();
+    if (!g.pen && !g.drag && !g.box && !g.rightHeld) return { ...this.result(), consumed: false };
     this.cancelled = true;
     this.pen = null;
     this.drag = null;
