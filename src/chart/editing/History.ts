@@ -16,10 +16,17 @@ export function createHistory<T>(initial: T): HistoryState<T> {
   return { stack: [initial], index: 0 };
 }
 
-/** 压入新快照，截断 index 之后的 redo 分支；返回新状态（纯函数，不就地变异） */
-export function pushHistory<T>(state: HistoryState<T>, item: T): HistoryState<T> {
+/** 谱面代码弹窗文本栈：每键一份整串，上限宜小（issue 132） */
+export const TEXT_HISTORY_CAP = 50;
+/** notes 栈：结构共享，上限可更大（issue 132） */
+export const NOTES_HISTORY_CAP = 200;
+
+/** 压入新快照，截断 index 之后的 redo 分支；返回新状态（纯函数，不就地变异）。
+ *  `cap` 为正时限制 stack.length（含当前快照），超出丢最旧。 */
+export function pushHistory<T>(state: HistoryState<T>, item: T, cap?: number): HistoryState<T> {
   const stack = [...state.stack.slice(0, state.index + 1), item];
-  return { stack, index: stack.length - 1 };
+  const capped = cap && cap > 0 ? stack.slice(-cap) : stack;
+  return { stack: capped, index: capped.length - 1 };
 }
 
 /**
@@ -31,8 +38,9 @@ export function pushHistoryIfChanged<T>(
   state: HistoryState<T>,
   item: T,
   equals: (a: T, b: T) => boolean = Object.is,
+  cap?: number,
 ): HistoryState<T> {
-  return equals(currentHistory(state), item) ? state : pushHistory(state, item);
+  return equals(currentHistory(state), item) ? state : pushHistory(state, item, cap);
 }
 
 export const canUndo = <T,>(state: HistoryState<T>): boolean => state.index > 0;

@@ -25,8 +25,8 @@ import { useEditing, usePlayback, useUI } from '../../../app/ProviderTree';
 import { t, tPlural } from '../../../i18n';
 import { maxNoteEndSeconds, getBpmEvents } from '../../../audio/AudioTiming';
 import {
-    createHistory, pushHistory, undoHistory, redoHistory, currentHistory,
-    type HistoryState,
+    createHistory, pushHistoryIfChanged, undoHistory, redoHistory, currentHistory,
+    TEXT_HISTORY_CAP, type HistoryState,
 } from '../../editing/History';
 import {
     insertTab, insertNewlineIndent, cutRange, pasteAt,
@@ -240,7 +240,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
         }
 
         // 压入撤销栈（真实文本撤销/重做）
-        setTextHistory(prev => pushHistory(prev, newCode));
+        setTextHistory(prev => pushHistoryIfChanged(prev, newCode, Object.is, TEXT_HISTORY_CAP));
         // issue 102：只验证格式，不自动回退；且**不敲一个字就校验一次** ——
         // 全量 parse + 逐条校验等到静默 250ms 后跑一次（连打只留最后一次）。
         // 「应用」会即时结算（`handleApply` 里 cancel + 同步验证），不受防抖影响。
@@ -362,7 +362,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
             ta.selectionStart = next.start;
             ta.selectionEnd = next.end;
         }
-        setTextHistory(prev => pushHistory(prev, next.value));
+        setTextHistory(prev => pushHistoryIfChanged(prev, next.value, Object.is, TEXT_HISTORY_CAP));
         // 这些变换不走 onChange，得自己排一次校验（仍走防抖）
         validationTask.schedule(() => validateCode(next.value));
     };

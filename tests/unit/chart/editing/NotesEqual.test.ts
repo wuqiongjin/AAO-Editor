@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import type { ChartNote } from '@/src/chart/types';
 import { noteEqual, notesEqual } from '@/src/chart/editing/NotesEqual';
 import {
-  createHistory, pushHistory, pushHistoryIfChanged, currentHistory, canRedo, undoHistory,
+  createHistory, pushHistory, pushHistoryIfChanged, currentHistory, canRedo, undoHistory, redoHistory,
 } from '@/src/chart/editing/History';
 import { handleNoteReplacement } from '@/src/chart/editing/NoteReplacementRules';
 
@@ -103,5 +103,25 @@ describe('notesEqual + pushHistoryIfChanged（历史去重）', () => {
     // 撤销 1 次 → 该音符真正消失
     const undone = undoHistory(h)!;
     expect(currentHistory(undone)).toEqual([bpm0]);
+  });
+
+  it('超出 cap 后撤销/重做仍对齐，去重不被 cap 破坏', () => {
+    const cap = 3;
+    let h = createHistory<ChartNote[]>([bpm0]);
+    h = pushHistoryIfChanged(h, [bpm0, single(1, 0)], notesEqual, cap);
+    h = pushHistoryIfChanged(h, [bpm0, single(1, 0)], notesEqual, cap);
+    h = pushHistoryIfChanged(h, [bpm0, single(2, 0)], notesEqual, cap);
+    h = pushHistoryIfChanged(h, [bpm0, single(3, 0)], notesEqual, cap);
+    expect(h.stack).toHaveLength(3);
+    const u1 = undoHistory(h)!;
+    const u2 = undoHistory(u1)!;
+    expect(currentHistory(u1)).toEqual([bpm0, single(2, 0)]);
+    expect(currentHistory(u2)).toEqual([bpm0, single(1, 0)]);
+    expect(undoHistory(u2)).toBeNull();
+    const r1 = redoHistory(u2)!;
+    const r2 = redoHistory(r1)!;
+    expect(currentHistory(r1)).toEqual([bpm0, single(2, 0)]);
+    expect(currentHistory(r2)).toEqual([bpm0, single(3, 0)]);
+    expect(canRedo(r2)).toBe(false);
   });
 });
