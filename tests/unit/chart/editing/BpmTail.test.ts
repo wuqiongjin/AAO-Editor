@@ -2,8 +2,8 @@
 // 判据必须与导入校验 `checkBackflowBoundaries` ② 同口径（按 beat 稳定排序的最后一条），
 // 否则会出现「画布上没警示、导入却被拒」的分歧。
 import { describe, it, expect } from 'vitest';
+import * as BpmTailModule from '@/src/chart/editing/BpmTail';
 import { indexOfTrailingNegativeBpm } from '@/src/chart/editing/BpmTail';
-import { bpmLabelText, BPM_TAIL_WARNING_MARK } from '@/src/visual/gutterLabels';
 import type { ChartNote } from '@/src/chart/types';
 
 const bpm = (beat: number, v: number): ChartNote => ({ type: 'BPM', beat, bpm: v });
@@ -47,14 +47,12 @@ describe('indexOfTrailingNegativeBpm', () => {
   });
 });
 
-describe('bpmLabelText', () => {
-  it('末条负 BPM 附警示后缀；其余原样（含小数，issue 143）', () => {
-    expect(bpmLabelText(-120, true)).toBe(`-120${BPM_TAIL_WARNING_MARK}`);
-    expect(bpmLabelText(-120, false)).toBe('-120');
-    expect(bpmLabelText(128.5, false)).toBe('128.5');
-  });
-
-  it('后缀是 ASCII（等宽字体栈不依赖 emoji/符号字形）', () => {
-    expect(/^[\x20-\x7E]+$/.test(BPM_TAIL_WARNING_MARK)).toBe(true);
+// 用户 2026-09-22：末条负 BPM **只变红、不加后缀** —— 沟槽数值文字恒为 `String(bpm)`（含小数，issue 143）。
+// 这条锁的是「不要再加回后缀」；绘制侧的取色与跳过见 GutterLabels.test.ts。
+describe('末条负 BPM 的文字不加后缀', () => {
+  it('判定只出下标，文字层不再有警示标记导出', () => {
+    const mod = BpmTailModule as Record<string, unknown>;
+    expect(mod['bpmLabelText']).toBeUndefined();
+    expect(mod['BPM_TAIL_WARNING_MARK']).toBeUndefined();
   });
 });

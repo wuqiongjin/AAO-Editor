@@ -97,6 +97,13 @@ export interface RenderCtx {
   /** 谱面背景皮肤（issue 29 Q4 最小模型）：enabled×解码就绪时由组件注入；进静态层（cover 铺满 + 不透明度合成），
    *  revision / opacity 变化经 staticLayerCache basis 失效重建。null/undefined = 无背景 */
   background?: RenderBackgroundImage | null;
+  /**
+   * issue 143 补修（2026-09-22）：**正在就地编辑的 BPM 的拍位**（ADR-0008 §5 的输入框打开时）。
+   * 该拍的沟槽数值**不画** —— 输入框是 HTML 覆盖层、宽度只按当前输入值算，
+   * 画布上那条旧数值（尤其带小数时更长）会从输入框旁边露出来，看着像"小数残留"。
+   * null/undefined = 无就地编辑。
+   */
+  bpmEditBeat?: number | null;
 }
 
 /** 背景皮肤渲染输入：source = 已解码位图（utils/backgroundSkin.ts 解码产物）；opacity/fit/scope 由 settings 提供 */

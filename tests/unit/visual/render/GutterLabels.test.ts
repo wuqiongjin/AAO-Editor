@@ -134,18 +134,22 @@ describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () =
   });
 });
 describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', () => {
-  // 定案：编辑器不拦（数据保真），只在**那条 BPM 自己身上**标出来 —— 警示色 + `!` 后缀，
-  // 且与「倒流区负值」（只换倒流色、无后缀）区分开。
+  // 定案：编辑器不拦（数据保真），只在**那条 BPM 自己身上**标出来 —— **只把数值变红**（用户 2026-09-22：
+  // 不加后缀），与「倒流区负值」（只换倒流色）区分开。
   const SURFACE = { w: 750, h: 900 };
   const bpmNote = (beat: number, v: number) => ({ type: 'BPM', beat, bpm: v } as never);
 
-  function renderLabels(notes: ChartNote[], visible: { note: ChartNote; index: number }[]) {
+  function renderLabels(
+    notes: ChartNote[],
+    visible: { note: ChartNote; index: number }[],
+    bpmEditBeat: number | null = null,
+  ) {
     const geometry = new ChartGeometry([{ beat: 0, bpm: 120 }], { endBeat: 40 }, SURFACE);
     // 让 beat 8 那条线落在画布中部（y≈300）：scrollY = 该拍的虚拟 Y − 300
     const viewport = { scrollX: 0, scrollY: geometry.beatToVirtualY(8, 1) - 300, scale: 1 };
     const c = makeCoords(geometry, viewport, 4, notes);
     const rc = {
-      geometry, viewport, surface: SURFACE, chartEndBeat: 40, beatDisplay: 4, notes,
+      geometry, viewport, surface: SURFACE, chartEndBeat: 40, beatDisplay: 4, notes, bpmEditBeat,
       display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1 },
     } as unknown as import('@/src/visual/types').RenderCtx;
     const { proxy, calls } = makeRecordingCtx();
@@ -153,17 +157,28 @@ describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', (
     return calls;
   }
 
-  it('末条为负 → 数值文字带 `!` 且用警示色（不是倒流色）', () => {
+  it('末条为负 → 数值变警示色（不是倒流色）', () => {
     const notes = [bpmNote(0, 120), bpmNote(8, -120)];
     const calls = renderLabels(notes, [{ note: notes[1]!, index: 1 }]);
     const fills = fillTexts(calls);
     expect(fills.length).toBe(1);
-    expect(fills[0]![1][0]).toBe('-120 !');
+    // 用户 2026-09-22 定案：**只变红，不加后缀** —— 文字仍是原样的 '-120'
+    expect(fills[0]![1][0]).toBe('-120');
     expect(propValues(calls, 'fillStyle')).toContain(BPM_TAIL_WARNING_COLOR);
     expect(propValues(calls, 'fillStyle')).not.toContain(gridBpmNegativeColor('vivid'));
   });
 
-  it('倒流区内的**非末条**负值 → 仍只换倒流色、无 `!`（回归，不放松）', () => {
+  // issue 143 补修：输入框是 HTML 覆盖层、宽度只按当前输入值算，画布上那条旧数值
+  // （带小数时更长）会从框边露出来 → 编辑期间该拍的数值不画。
+  it('就地编辑中（bpmEditBeat = 该拍）→ 数值不画，让位给输入框', () => {
+    const notes = [bpmNote(0, 120), bpmNote(8, 128.5)];
+    const visible = [{ note: notes[1]!, index: 1 }];
+    expect(fillTexts(renderLabels(notes, visible, 8))).toHaveLength(0);          // 编辑中：不画
+    expect(fillTexts(renderLabels(notes, visible)).map((f) => f[1][0])).toEqual(['128.5']); // 非编辑：照旧
+    expect(fillTexts(renderLabels(notes, visible, 0)).map((f) => f[1][0])).toEqual(['128.5']); // 编辑别的拍：照旧
+  });
+
+  it('倒流区内的**非末条**负值 → 仍只换倒流色（回归，不放松）', () => {
     const notes = [bpmNote(0, 120), bpmNote(8, -120), bpmNote(12, 120)];
     const calls = renderLabels(notes, [{ note: notes[1]!, index: 1 }]);
     const fills = fillTexts(calls);

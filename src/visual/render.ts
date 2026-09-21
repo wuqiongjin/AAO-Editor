@@ -18,7 +18,7 @@ import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
-import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, bpmLabelText, GUTTER_LABEL_FONT_PX } from './gutterLabels';
+import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
@@ -1289,6 +1289,9 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   const labelScale = rc.display?.labelScale ?? 1;
   for (const { note, index } of visibleNotes) {
     if (note.type !== "BPM") continue;
+    // issue 143 补修：就地编辑中 → 让位给 HTML 输入框（否则旧数值从框边露出，带小数时尤其明显）
+    if (rc.bpmEditBeat !== null && rc.bpmEditBeat !== undefined
+        && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) continue;
     const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
     if (y < -50 || y > rc.surface.h + 50) continue;
     const layout = clampGutterLabelY(
@@ -1296,8 +1299,8 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
       rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
     );
     const bpm = (note as ChartNote & { bpm: number }).bpm;
-    const isTail = index === tailIdx;
-    drawGutterLabel(ctx, layout, bpmLabelText(bpm, isTail), isTail ? BPM_TAIL_WARNING_COLOR : (bpm < 0 ? negativeColor : positiveColor));
+    // issue 142：末条负 BPM 只**换色**（不加后缀 —— 用户 2026-09-22 定案：颜色变红即可）
+    drawGutterLabel(ctx, layout, String(bpm), index === tailIdx ? BPM_TAIL_WARNING_COLOR : (bpm < 0 ? negativeColor : positiveColor));
   }
 }
 

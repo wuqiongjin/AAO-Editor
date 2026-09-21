@@ -475,6 +475,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             markerBeat,
             markerSelected,
             armedTool,
+            // issue 143 补修：就地编辑中的那条 BPM 不画沟槽数值（让位给下面的 HTML 输入框）
+            bpmEditBeat: bpmEdit?.beat ?? null,
             rightButtonHeld: gestureSnap.rightButtonHeld,
             dragGhost: gestureSnap.dragGhost,
             curveDraft, curveConfig, // issue 09 S2：曲线工具预览
@@ -501,7 +503,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying]);
+    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit]);
     renderCanvasRef.current = renderCanvas;
 
 

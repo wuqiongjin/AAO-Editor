@@ -15,10 +15,9 @@ import type { BpmNote, ChartNote, SelectionItem } from '../types';
 import type { HitTestDeps } from '../../visual/hitTest';
 import { findBpmLineAt, findItemAt } from '../../visual/hitTest';
 import { draggableFromItems, itemTrueBeat } from './NoteDragging';
-import { indexOfTrailingNegativeBpm } from './BpmTail';
 import { isPastChartEnd } from './ChartEndBounds';
 import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
-import { GUTTER_LABEL_FONT_PX, bpmLabelBox, bpmLabelText } from '../../visual/gutterLabels';
+import { GUTTER_LABEL_FONT_PX, bpmLabelBox } from '../../visual/gutterLabels';
 import { LANE_WIDTH } from '../geometry/ChartGeometry';
 
 /** 沟槽文字宽度测量（画布侧注入：带 canvas ctx 精确测量；测试侧注入等宽估算）。 */
@@ -110,21 +109,15 @@ export function hitBpmLabelAt(
     const { trackBgX, trackStartX } = geometry.trackGeometry(viewport.scale);
     if (cx >= trackBgX) return null;
     const fontPx = Math.round(GUTTER_LABEL_FONT_PX * input.labelScale);
-    // issue 142：与绘制端同一串文字（末条负 BPM 带 `!` 后缀），否则命中盒比画出来的窄一截
-    const tailIdx = indexOfTrailingNegativeBpm(notes);
-    let hit: number | null = null;
-    notes.forEach((n, i) => {
-        if (n.type !== 'BPM') return;
+    for (const n of notes) {
+        if (n.type !== 'BPM') continue;
         const y = geometry.virtualToCanvas(0, geometry.beatToVirtualY(n.beat, viewport.scale), viewport).y;
-        const text = bpmLabelText((n as BpmNote).bpm, i === tailIdx);
+        const text = String((n as BpmNote).bpm);
         const box = bpmLabelBox(trackStartX, y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
-        if (box.x1 < 0) return;
-        if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
-            hit = n.beat;
-            return;
-        }
-    });
-    return hit;
+        if (box.x1 < 0) continue;
+        if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) return n.beat;
+    }
+    return null;
 }
 
 /** §6 拖拽锚点快照（按下时的状态，提交时必须用它而不是已清空的 ref——issue 55 三轮修复）。 */
