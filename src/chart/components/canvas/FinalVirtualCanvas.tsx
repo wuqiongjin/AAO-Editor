@@ -181,6 +181,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const zoomGestureUntilRef = useRef(0);
     const zoomSettleTimerRef = useRef<number | undefined>(undefined);
     const playbackActiveRef = useRef(false);
+    const scrollYRef = useRef(0);
+    const renderCanvasRef = useRef<() => void>(() => {});
     // ADR-0008 §5：BPM 就地编辑（无模态打断）。默认值 = 上一次放置所设的值（初始 120）
     const lastBpmRef = useRef(120);
     const [bpmEdit, setBpmEdit] = useState<{ beat: number; value: string } | null>(null);
@@ -229,13 +231,15 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // issue 134：geometry 由 Editor useChartSpace 注入（与 PlaybackScrollModel 同引用）
     const chartEndBeat = geometry.chartEndBeat;
     const chartEndVirtualY = geometry.chartEndVirtualY;
+    if (!playbackActiveRef.current) scrollYRef.current = viewport.scrollY;
+    const liveViewport = (): ViewportState => ({ ...viewport, scrollY: scrollYRef.current });
 
     /**
      * 命中测试依赖（几何 / 视口 / 谱面 / noteSize）。
      * 七处调用（hover、点选、工具点击、拖拽候选、右键删除、BPM 整线、Ctrl+B）必须**同口径**，
      * 否则 noteSize≠1 时命中盒与视觉不符 —— 收敛成一处，避免逐个手写时漂移。
      */
-    const hitDeps = () => ({ geometry, viewport, beatDisplay, notes, noteSize: display.noteSize });
+    const hitDeps = () => ({ geometry, viewport: liveViewport(), beatDisplay, notes, noteSize: display.noteSize });
 
     // issue 56 c)：hover 命中项 —— 只在 hoverPos 变化时重算（findItemAt 不进每帧渲染路径，C6）。
     // noteSize 与点选/工具点击同口径，否则命中盒与视觉不符；hidden 结点由 findItemAt 侧跳过（A6）。
@@ -248,10 +252,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const getScaledVirtualBounds = (scale: number) => geometry.scaledVirtualBounds(scale);
     const beatToVirtualY = (beat: number) => geometry.beatToVirtualY(beat, viewport.scale);
     const virtualYToBeat = (virtualY: number) => geometry.virtualYToBeat(virtualY, viewport.scale);
-    const virtualToCanvas = (virtualX: number, virtualY: number) => geometry.virtualToCanvas(virtualX, virtualY, viewport);
-    const canvasToVirtual = (canvasX: number, canvasY: number) => geometry.canvasToVirtual(canvasX, canvasY, viewport);
+    const virtualToCanvas = (virtualX: number, virtualY: number) => geometry.virtualToCanvas(virtualX, virtualY, liveViewport());
+    const canvasToVirtual = (canvasX: number, canvasY: number) => geometry.canvasToVirtual(canvasX, canvasY, liveViewport());
     const getLaneBeatFromCanvas = (cx: number, cy: number, allowOutsideLane = false) =>
-        geometry.laneBeatFromCanvas(cx, cy, viewport, beatDisplay, allowOutsideLane);
+        geometry.laneBeatFromCanvas(cx, cy, liveViewport(), beatDisplay, allowOutsideLane);
 
     /**
      * 候选 3（issue 70）：**谱面光标（beat/lane）是派生值，必须用时现算，不能缓存进 state。**
@@ -291,7 +295,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (r.ops.length > 0) applyOps(r.ops);
     };
     const hitBpmLabel = (cx: number, cy: number): number | null => hitBpmLabelAt({
-        deps: { geometry, viewport, notes },
+        deps: { geometry, viewport: liveViewport(), notes },
         labelScale: display.labelScale ?? 1,
         surfaceH: surf.h,
         // 与绘制端共用同一套宽度判定（传画布 ctx 精确测量），避免"已隐藏但仍可点中"的隐形热区
@@ -301,7 +305,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     // 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）
     const hitStartMarker = (cx: number, cy: number): boolean =>
-        hitStartMarkerAt({ geometry, viewport }, markerBeat, cx, cy);
+        hitStartMarkerAt({ geometry, viewport: liveViewport() }, markerBeat, cx, cy);
 
     /**
      * §5：提交就地编辑（Enter / 失焦）。无效数值 = 取消编辑（保留放置时已应用的值）。
@@ -413,7 +417,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const { trackBgX } = geometry.trackGeometry(viewport.scale);
         if (pos.x >= trackBgX) return;
         if (hitBpmLabel(pos.x, pos.y) !== null) return;
-        const virtualY = viewport.scrollY + pos.y / viewport.scale;
+        const virtualY = scrollYRef.current + pos.y / viewport.scale;
         const beat = virtualYToBeat(virtualY);
         if (hitStartMarker(pos.x, pos.y)) {
             setMarkerBeat(null);
@@ -438,10 +442,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
+        const vp = liveViewport();
 
         const rc: RenderCtx = {
             geometry,
-            viewport,
+            viewport: vp,
             surface: surf,
             // issue 39 #6：图像品质 → 画布 dpr 上限（流畅 1x / 标准 2.5x / 高清 3x）
             // issue 40：标准从 2 提到 2.5（缩小采样比更小 → 音符边缘更锐利、杂色更轻，
@@ -457,7 +462,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             frozenCursor: lastLegalPxRef.current
                 ? (() => {
                     const p = lastLegalPxRef.current!;
-                    const lp = geometry.laneBeatFromCanvas(p.x, p.y, viewport, beatDisplay);
+                    const lp = geometry.laneBeatFromCanvas(p.x, p.y, vp, beatDisplay);
                     return lp ? { lane: lp.lane, preciseBeat: lp.preciseBeat } : null;
                 })()
                 : null,
@@ -493,6 +498,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         };
         renderChart(ctx, canvas, rc);
     }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying]);
+    renderCanvasRef.current = renderCanvas;
 
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
@@ -583,16 +589,29 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 暴露方法给父组件（候选 1 收窄 + ADR-0008 执行键入口；factory 每次渲染重建 → 闭包恒新）
     useImperativeHandle(ref, () => ({
         setScrollY: (scrollY: number) => {
+            const scaledBounds = getScaledVirtualBounds(viewport.scale);
+            const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / viewport.scale, scrollY));
+            scrollYRef.current = newScrollY;
+            if (playbackActiveRef.current) {
+                renderCanvasRef.current();
+                return;
+            }
             setViewport(prev => {
-                const scaledBounds = getScaledVirtualBounds(prev.scale);
-                const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / prev.scale, scrollY));
-                return {
-                    ...prev,
-                    scrollY: newScrollY
-                };
+                const bounds = getScaledVirtualBounds(prev.scale);
+                const clamped = Math.max(bounds.minY, Math.min(bounds.maxY - surf.h / prev.scale, scrollY));
+                return Math.abs(prev.scrollY - clamped) < 1e-9 ? prev : { ...prev, scrollY: clamped };
             });
         },
-        setPlaybackActive: (active: boolean) => { playbackActiveRef.current = active; },
+        setPlaybackActive: (active: boolean) => {
+            playbackActiveRef.current = active;
+            if (!active) {
+                setViewport(prev => (
+                    Math.abs(prev.scrollY - scrollYRef.current) < 1e-9
+                        ? prev
+                        : { ...prev, scrollY: scrollYRef.current }
+                ));
+            }
+        },
         // 起点标记访问（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳 / Delete 删除
         getMarkerBeat: () => markerBeat,
         getMarkerSelected: () => markerSelected,

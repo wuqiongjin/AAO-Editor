@@ -1,43 +1,26 @@
-// 静态层离屏缓存（issue 36 F2 / RC-B）：
+// 静态层离屏缓存（issue 36 F2 / issue 139）：
 //
-// 背景/轨道底色/网格（轨道竖线+边框+节拍横线）/谱面起止线只依赖
-// (geometry, viewport.scale, scrollY, beatDisplay, chartEndBeat, surface, dpr)，
-// 与 notes/选择/悬停/工具预览无关。此前 renderChart 每次交互帧（悬停预览、
-// 选择框拖拽、放置后重渲……）都全量重绘这些静态元素，构成密集谱下的固定
-// 帧成本地板。缓存到单张离屏画布后：
-// - 交互帧（最常见）：basis 命中 → 仅 1 次 drawImage blit；
-// - 滚动/缩放帧：basis 未命中 → 重建一次 + blit（与旧全量重绘同阶）。
-//
-// 位图复用单张 canvas，仅在缓冲尺寸变化时重分配（对齐 renderChart 主画布策略）。
-// 判定线/起点标记/BPM 标注/工具预览等动态或与音符相关的层不进此缓存。
-import { renderGrid, renderBoundLines } from './render';
+// 拆两层（播放滚动不得每帧 renderGrid）：
+// - 屏幕层：黑底 / 背景 / 轨道底 / 竖线 —— 与 scrollY 无关；
+// - pos 条带：横网格 + 起止线 —— 按 scrollY 窗口 blit，滚出条带才重建。
+// 交互帧（scrollY 也不变）：两层都 blit。倒流多段拍区间仍走 visibleBeatRanges（104/105）。
+import { renderTrackChrome, renderGridBeatLines, renderBoundLines } from './render';
 import { makeCoords } from './coords';
 import { DEFAULT_BACKGROUND_OPACITY } from '../chart/config/AppSettings';
 import type { RenderCtx } from './types';
 import type { BpmTimelineEvent } from '../chart/geometry/BpmTimeline';
 import type { GridStylePreset } from './gridStyle';
 
-let cacheCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+let screenCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+let stripCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 
-/** 失效依据：任一变化才重建位图（bpmEvents 按内容比较——geometry 实例在 surface
- *  变化时会被组件重建，但时间线内容未变时静态层像素与旧位图完全一致，可续用；
- *  bg = 背景皮肤（issue 29 Q4）：生效标志 + revision，开/关/换图任一变化即重建） */
-let basis: {
+type ScreenBasis = {
   bpmEvents: readonly BpmTimelineEvent[];
-  /** issue 104：静态层（网格/起止线）的 y 由 chartEndVirtualY 定锚（画布高度 = 秒 × 像素密度），
-   *  故失效依据按它比较（chartEndBeat 只是它的派生值） */
   chartEndVirtualY: number;
   scale: number;
-  scrollY: number;
   beatDisplay: number;
-  /** 纵向比例（issue 39 #5 / issue 70 候选 5-a）：每小节纵向高度，改了 timeline 就平移，
-   *  网格与起止线像素全变 —— 与 scale/scrollY 无关，必须独立参与失效判定。
-   *  （此前漏掉它：改完纵向比例不滚动 → 网格停留在旧比例，滚一下才重建；
-   *   与 issue 29 问题1「漏加背景字段」同族，故在此显式留注） */
   verticalRatio: number;
-  /** 轨道颜色主题（issue 53 第二轮）：网格在静态层，主题切换需重建 */
   gridStyle: GridStylePreset;
-  /** 线形分层开关 / 轨道线透明度 / 文字大小系数（issue 53/51）：起止线文字与网格都在静态层 */
   lineShapeTiers: boolean;
   gridOpacity: number;
   labelScale: number;
@@ -49,10 +32,11 @@ let basis: {
   bgOpacity: number;
   bgFit: 'cover' | 'contain';
   bgScope: 'outsideTrack' | 'fullCanvas';
-} | null = null;
+};
 
-/** 离屏位图工厂：浏览器用 canvas，测试可注入假实现。
- *  注入点刻意不收窄类型——测试侧的假位图只需形状兼容（见 tests/support/canvas.ts）。 */
+let screenBasis: ScreenBasis | null = null;
+let stripMeta: { originScrollY: number; padCss: number; stripH: number } | null = null;
+
 /* eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试注入点：假位图只需结构兼容 */
 let createStaticCanvas: () => any = () => document.createElement('canvas');
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
@@ -61,8 +45,10 @@ export function __setStaticCanvasFactoryForTests(factory: () => any) {
 }
 
 export function resetStaticLayerCache() {
-  cacheCanvas = null;
-  basis = null;
+  screenCanvas = null;
+  stripCanvas = null;
+  screenBasis = null;
+  stripMeta = null;
 }
 
 const bpmEventsEqual = (a: readonly BpmTimelineEvent[], b: readonly BpmTimelineEvent[]) =>
@@ -87,26 +73,16 @@ export function normalizeBackgroundOpacity(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : DEFAULT_BACKGROUND_OPACITY;
 }
 
-/** 未启用/无图时的轨道底色与启用背景时的轨道再压暗色 */
 const TRACK_BG_COLOR = '#00000A';
 const TRACK_BG_OVER_IMAGE = 'rgba(0, 0, 10, 0.45)';
 
-/**
- * 绘制静态层入口（renderChart 调用，替代原先的 清屏+背景+轨道底+网格+起止线 直绘）。
- * 输出与旧直恒等：黑底 →（背景皮肤层:cover 铺满 + 按 opacity 以图片自身 alpha 合成，黑色占比 = 1-opacity）
- * → 轨道底色（启用背景时半透明压暗）→ 网格 → 起止线，绘制进离屏位图后 blit 到主画布。
- */
-export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
+function collectScreenBasis(rc: RenderCtx): ScreenBasis {
   const bg = rc.background ?? null;
   const bgActive = !!(bg && bg.source && bg.width > 0 && bg.height > 0);
-  const bgOpacity = normalizeBackgroundOpacity(bg?.opacity);
-  const bgFit: 'cover' | 'contain' = bg?.fit === 'contain' ? 'contain' : 'cover';
-  const bgScope: 'outsideTrack' | 'fullCanvas' = bg?.scope === 'fullCanvas' ? 'fullCanvas' : 'outsideTrack';
-  const nb = {
+  return {
     bpmEvents: rc.geometry.bpmEvents,
     chartEndVirtualY: rc.geometry.chartEndVirtualY,
     scale: rc.viewport.scale,
-    scrollY: rc.viewport.scrollY,
     beatDisplay: rc.beatDisplay,
     verticalRatio: rc.geometry.verticalRatio,
     gridStyle: rc.display?.gridStyle ?? 'vivid',
@@ -118,54 +94,114 @@ export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     dpr: rc.dpr,
     bgActive,
     bgRevision: bg?.revision ?? -1,
-    bgOpacity,
-    bgFit,
-    bgScope,
+    bgOpacity: normalizeBackgroundOpacity(bg?.opacity),
+    bgFit: bg?.fit === 'contain' ? 'contain' : 'cover',
+    bgScope: bg?.scope === 'fullCanvas' ? 'fullCanvas' : 'outsideTrack',
   };
-  const hit = basis !== null &&
-    basis.scale === nb.scale && basis.scrollY === nb.scrollY &&
-    basis.beatDisplay === nb.beatDisplay && basis.chartEndVirtualY === nb.chartEndVirtualY &&
-    basis.verticalRatio === nb.verticalRatio &&
-    basis.gridStyle === nb.gridStyle && basis.lineShapeTiers === nb.lineShapeTiers &&
-    basis.gridOpacity === nb.gridOpacity && basis.labelScale === nb.labelScale &&
-    basis.surfaceW === nb.surfaceW && basis.surfaceH === nb.surfaceH && basis.dpr === nb.dpr &&
-    // 背景皮肤五要素参与失效判定（issue 29 问题1根因：此前漏加背景字段，换图/调参被缓存命中吞掉，滚一下才重建）
-    basis.bgActive === nb.bgActive && basis.bgRevision === nb.bgRevision && basis.bgOpacity === nb.bgOpacity &&
-    basis.bgFit === nb.bgFit && basis.bgScope === nb.bgScope &&
-    bpmEventsEqual(basis.bpmEvents, nb.bpmEvents);
-  if (!hit) {
-    if (!cacheCanvas) cacheCanvas = createStaticCanvas();
-    const bitmap = cacheCanvas as HTMLCanvasElement;
-    const bw = Math.round(nb.surfaceW * nb.dpr), bh = Math.round(nb.surfaceH * nb.dpr);
-    if (bitmap.width !== bw) bitmap.width = bw;
-    if (bitmap.height !== bh) bitmap.height = bh;
-    const cctx = bitmap.getContext('2d')!;
-    cctx.setTransform(nb.dpr, 0, 0, nb.dpr, 0, 0);
-    cctx.clearRect(0, 0, nb.surfaceW, nb.surfaceH);
-    cctx.fillStyle = '#000000';
-    cctx.fillRect(0, 0, nb.surfaceW, nb.surfaceH);
-    const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
-    const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-    if (nb.bgActive && bg) {
-      // 背景皮肤层（issue 29 Q4 + 扩展配置 2026-08-27）：按 fit 等比缩放居中，opacity 以图片自身 alpha
-      // 合成于黑底之上（0 = 纯黑，1 = 原图全亮；黑色占比 = 1-opacity）。
-      // scope 决定轨道区处理：
-      //   outsideTrack（默认）= 轨道区重涂不透明原始底色，背景只出现在左右沟槽 —— 完全不影响作谱（用户 grill 定案）；
-      //   fullCanvas = 轨道区半透明压暗保留纵深（原全画布行为）。
-      const { dx, dy, dw, dh } = computeBackgroundDrawRect(nb.surfaceW, nb.surfaceH, bg.width, bg.height, bgFit);
-      cctx.globalAlpha = bgOpacity;
-      cctx.drawImage(bg.source as CanvasImageSource, dx, dy, dw, dh);
-      cctx.globalAlpha = 1; // 立即还原，后续轨道底色/网格必须不透明绘制
-      cctx.fillStyle = bgScope === 'outsideTrack' ? TRACK_BG_COLOR : TRACK_BG_OVER_IMAGE;
-      cctx.fillRect(trackBgX, 0, trackBgWidth, nb.surfaceH);
-    } else {
-      cctx.fillStyle = TRACK_BG_COLOR;
-      cctx.fillRect(trackBgX, 0, trackBgWidth, nb.surfaceH);
-    }
-    renderGrid(cctx, c, rc);
-    renderBoundLines(cctx, c, rc);
-    basis = nb;
+}
+
+function screenHit(a: ScreenBasis, b: ScreenBasis): boolean {
+  return a.scale === b.scale &&
+    a.beatDisplay === b.beatDisplay && a.chartEndVirtualY === b.chartEndVirtualY &&
+    a.verticalRatio === b.verticalRatio &&
+    a.gridStyle === b.gridStyle && a.lineShapeTiers === b.lineShapeTiers &&
+    a.gridOpacity === b.gridOpacity && a.labelScale === b.labelScale &&
+    a.surfaceW === b.surfaceW && a.surfaceH === b.surfaceH && a.dpr === b.dpr &&
+    a.bgActive === b.bgActive && a.bgRevision === b.bgRevision && a.bgOpacity === b.bgOpacity &&
+    a.bgFit === b.bgFit && a.bgScope === b.bgScope &&
+    bpmEventsEqual(a.bpmEvents, b.bpmEvents);
+}
+
+function ensureBitmap(
+  existing: HTMLCanvasElement | OffscreenCanvas | null,
+  cssW: number, cssH: number, dpr: number,
+): HTMLCanvasElement {
+  const bitmap = (existing ?? createStaticCanvas()) as HTMLCanvasElement;
+  const bw = Math.round(cssW * dpr), bh = Math.round(cssH * dpr);
+  if (bitmap.width !== bw) bitmap.width = bw;
+  if (bitmap.height !== bh) bitmap.height = bh;
+  return bitmap;
+}
+
+function stripPadCss(surfaceH: number): number {
+  return Math.max(256, Math.round(surfaceH * 0.5));
+}
+
+function paintScreen(rc: RenderCtx, nb: ScreenBasis) {
+  screenCanvas = ensureBitmap(screenCanvas, nb.surfaceW, nb.surfaceH, nb.dpr);
+  const cctx = (screenCanvas as HTMLCanvasElement).getContext('2d')!;
+  cctx.setTransform(nb.dpr, 0, 0, nb.dpr, 0, 0);
+  cctx.clearRect(0, 0, nb.surfaceW, nb.surfaceH);
+  cctx.fillStyle = '#000000';
+  cctx.fillRect(0, 0, nb.surfaceW, nb.surfaceH);
+  const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
+  const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
+  const bg = rc.background ?? null;
+  if (nb.bgActive && bg) {
+    const { dx, dy, dw, dh } = computeBackgroundDrawRect(nb.surfaceW, nb.surfaceH, bg.width, bg.height, nb.bgFit);
+    cctx.globalAlpha = nb.bgOpacity;
+    cctx.drawImage(bg.source as CanvasImageSource, dx, dy, dw, dh);
+    cctx.globalAlpha = 1;
+    cctx.fillStyle = nb.bgScope === 'outsideTrack' ? TRACK_BG_COLOR : TRACK_BG_OVER_IMAGE;
+    cctx.fillRect(trackBgX, 0, trackBgWidth, nb.surfaceH);
+  } else {
+    cctx.fillStyle = TRACK_BG_COLOR;
+    cctx.fillRect(trackBgX, 0, trackBgWidth, nb.surfaceH);
   }
-  // basis 命中时 cacheCanvas 必非空（不变量：basis 与 cacheCanvas 同生共死）
-  ctx.drawImage(cacheCanvas!, 0, 0, rc.surface.w, rc.surface.h);
+  renderTrackChrome(cctx, c, rc);
+  screenBasis = nb;
+}
+
+function paintStrip(rc: RenderCtx, originScrollY: number, padCss: number) {
+  const es = rc.viewport.scale;
+  const stripH = rc.surface.h + 2 * padCss;
+  const stripVp = { ...rc.viewport, scrollY: originScrollY - padCss / es };
+  const stripRc: RenderCtx = { ...rc, viewport: stripVp, surface: { w: rc.surface.w, h: stripH } };
+  stripCanvas = ensureBitmap(stripCanvas, rc.surface.w, stripH, rc.dpr);
+  const cctx = (stripCanvas as HTMLCanvasElement).getContext('2d')!;
+  cctx.setTransform(rc.dpr, 0, 0, rc.dpr, 0, 0);
+  cctx.clearRect(0, 0, rc.surface.w, stripH);
+  const c = makeCoords(rc.geometry, stripVp, rc.beatDisplay, rc.notes);
+  renderGridBeatLines(cctx, c, stripRc);
+  renderBoundLines(cctx, c, stripRc);
+  stripMeta = { originScrollY, padCss, stripH };
+}
+
+/**
+ * 绘制静态层入口（renderChart 调用）。
+ * 屏幕层 + pos 条带窗口 blit：播放中只变 scrollY 时不跑 renderGrid。
+ */
+export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
+  const nb = collectScreenBasis(rc);
+  const screenOk = screenBasis !== null && screenHit(screenBasis, nb);
+  if (!screenOk) {
+    paintScreen(rc, nb);
+    stripMeta = null;
+  }
+
+  const es = rc.viewport.scale;
+  const padCss = stripPadCss(nb.surfaceH);
+  const sy = rc.viewport.scrollY;
+  let srcYCss = 0;
+  const stripOk = stripMeta !== null && screenOk &&
+    stripMeta.padCss === padCss &&
+    Math.abs(stripMeta.stripH - (nb.surfaceH + 2 * padCss)) < 1e-6;
+  if (stripOk && stripMeta) {
+    srcYCss = (sy - stripMeta.originScrollY) * es + stripMeta.padCss;
+    const inWindow = srcYCss >= 0 && srcYCss + nb.surfaceH <= stripMeta.stripH;
+    if (!inWindow) {
+      paintStrip(rc, sy, padCss);
+      srcYCss = padCss;
+    }
+  } else {
+    paintStrip(rc, sy, padCss);
+    srcYCss = padCss;
+  }
+
+  ctx.drawImage(screenCanvas!, 0, 0, rc.surface.w, rc.surface.h);
+  const srcWPx = Math.round(nb.surfaceW * nb.dpr);
+  const srcHPx = Math.round(nb.surfaceH * nb.dpr);
+  const maxSrcY = Math.max(0, (stripCanvas as HTMLCanvasElement).height - srcHPx);
+  const srcYPx = Math.min(Math.max(0, Math.round(srcYCss * nb.dpr)), maxSrcY);
+  ctx.drawImage(stripCanvas!, 0, srcYPx, srcWPx, srcHPx, 0, 0, rc.surface.w, rc.surface.h);
 }

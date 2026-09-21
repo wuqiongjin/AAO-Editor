@@ -179,7 +179,7 @@ describe('issue 104 · 反查单一所有者（静态源码断言）', () => {
     expect(cache).toContain('positionRangeOfBeats');
     expect(cache).not.toContain('cEs - rc.geometry.beatToVirtualY');
     const render = readSource('src/visual/render.ts');
-    expect(render).toContain('geometry.visibleBeatRanges(viewport)');
+    expect(render).toContain('geometry.visibleBeatRanges(viewport, viewHeightCss)');
     expect(render).not.toContain('virtualYToBeat(b.maxY');
   });
 

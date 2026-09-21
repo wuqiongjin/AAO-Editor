@@ -1,0 +1,171 @@
+// issue 139 播放帧基线（测量，不是改造）。
+// node stub 没有 GPU 光栅：数字是 JS 调用次数 + renderChart 墙钟。真 60fps 仍靠页面。
+// 150030.json 不入库（同 issue 138）；仓库根没有该文件时本文件 skip。
+import { describe, it, expect, beforeEach } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
+import { renderChart, visibleBeatRanges } from '@/src/visual/render';
+import { drawStaticLayer, resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/visual/staticLayerCache';
+import { resetNoteLayerCache, __setTileCanvasFactoryForTests } from '@/src/visual/noteLayerCache';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/visual/noteSkin';
+import { convertChartCodeToNotes, parseChartCodeFromJSON } from '@/src/chart/editing/ChartConverter';
+import { getBpmEvents, maxNoteEndSeconds } from '@/src/audio/AudioTiming';
+import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
+import { countNotesUpToBeat } from '@/src/chart/editing/NoteEditing';
+import { makeCountingCtx, makeCanvasStub, makeTallyingCanvasStub } from '@/tests/support/canvas';
+import type { RenderCtx } from '@/src/visual/types';
+import type { ChartNote } from '@/src/chart/types';
+
+const CHART_PATH = join(dirname(fileURLToPath(import.meta.url)), '../../150030.json');
+const SURFACE = { w: 750, h: 900 };
+const BEAT_DISPLAY = 4; // UIProvider 默认
+const EMPTY_SELECTED: never[] = [];
+const EMPTY_CLIPBOARD: never[] = [];
+const SHARED_NOTE_ICONS = buildActiveNoteIcons(normalizeNoteSkinSelection(undefined));
+const haveChart = existsSync(CHART_PATH);
+
+function loadChart(): ChartNote[] {
+  return convertChartCodeToNotes(parseChartCodeFromJSON(readFileSync(CHART_PATH, 'utf8')));
+}
+
+function makeRc(
+  geometry: ChartGeometry,
+  notes: ChartNote[],
+  scrollY: number,
+  dpr: number,
+): RenderCtx {
+  const es = geometry.effectiveScale(1);
+  return {
+    geometry,
+    viewport: { scrollX: 0, scrollY, scale: es, virtualWidth: 0, virtualHeight: 0 },
+    surface: SURFACE,
+    dpr,
+    beatDisplay: BEAT_DISPLAY,
+    chartEndBeat: geometry.chartEndBeat,
+    notes,
+    selectedItems: EMPTY_SELECTED,
+    selectionBox: null,
+    slideBuffer: null,
+    hoverPos: null,
+    clipboard: EMPTY_CLIPBOARD,
+    markerBeat: null,
+    markerSelected: false,
+    armedTool: null,
+    spriteIcon: { render: () => undefined, renderDecorator: () => undefined } as unknown as RenderCtx['spriteIcon'],
+    noteIcons: SHARED_NOTE_ICONS,
+    playing: true,
+  };
+}
+
+describe.skipIf(!haveChart)('issue 139 · 播放帧基线（150030）', () => {
+  beforeEach(() => {
+    resetStaticLayerCache();
+    resetNoteLayerCache();
+  });
+
+    it('仅 scrollY 变：静态层不每帧重建；同 scrollY 第二次命中', () => {
+    const notes = loadChart();
+    const bpm = getBpmEvents(notes);
+    const duration = maxNoteEndSeconds(notes, BEAT_DISPLAY, bpm);
+    const g = new ChartGeometry(bpm, { seconds: duration }, SURFACE, 1);
+    const es = g.effectiveScale(1);
+    const model = new PlaybackScrollModel(g, es);
+    const rangesAt5 = visibleBeatRanges(g, { scrollX: 0, scrollY: model.scrollYForSeconds(5), scale: es }, g.chartEndBeat);
+
+    const staticDraws = { n: 0 };
+    __setStaticCanvasFactoryForTests(() =>
+      makeTallyingCanvasStub(() => { staticDraws.n++; }, ['stroke', 'fillText']));
+    __setTileCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
+
+    const ctx = makeCountingCtx({ drawImage: 0 });
+    const canvas = { width: 0, height: 0 };
+    const frames = 60;
+    const t0 = 4.8;
+    const dt = 1 / 60;
+    const dpr = 2.5;
+    const bitmapPx = Math.round(SURFACE.w * dpr) * Math.round(SURFACE.h * dpr);
+
+    // 热身一帧（瓦片/几何索引）后再计播放窗，避免把首帧建缓存算进滚动地板
+    renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g, notes, model.scrollYForSeconds(t0), dpr));
+    resetStaticLayerCache();
+    staticDraws.n = 0;
+
+    const staticOnlyMs: number[] = [];
+    let rebuildFrames = 0;
+    for (let i = 0; i < frames; i++) {
+      const sy = model.scrollYForSeconds(t0 + i * dt);
+      const before = staticDraws.n;
+      const tStatic = performance.now();
+      drawStaticLayer(ctx, makeRc(g, notes, sy, dpr));
+      staticOnlyMs.push(performance.now() - tStatic);
+      if (staticDraws.n > before) rebuildFrames++;
+    }
+
+    resetStaticLayerCache();
+    staticDraws.n = 0;
+    const frameMs: number[] = [];
+    let fullRebuilds = 0;
+    for (let i = 0; i < frames; i++) {
+      const before = staticDraws.n;
+      const tStart = performance.now();
+      renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g, notes, model.scrollYForSeconds(t0 + i * dt), dpr));
+      frameMs.push(performance.now() - tStart);
+      if (staticDraws.n > before) fullRebuilds++;
+    }
+
+    const sameSy = model.scrollYForSeconds(5);
+    resetStaticLayerCache();
+    staticDraws.n = 0;
+    drawStaticLayer(ctx, makeRc(g, notes, sameSy, dpr));
+    const firstAtSame = staticDraws.n;
+    staticDraws.n = 0;
+    drawStaticLayer(ctx, makeRc(g, notes, sameSy, dpr));
+    const secondAtSame = staticDraws.n;
+
+    const hudT0 = performance.now();
+    for (let i = 0; i < frames; i++) {
+      const sec = t0 + i * dt;
+      countNotesUpToBeat(notes, g.beatOfSeconds(sec));
+    }
+    const hudMs = (performance.now() - hudT0) / frames;
+
+    const stats = (xs: number[]) => {
+      const sorted = [...xs].sort((a, b) => a - b);
+      return {
+        avg: Number((xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(3)),
+        p95: Number(sorted[Math.floor(sorted.length * 0.95)]!.toFixed(3)),
+        max: Number(Math.max(...xs).toFixed(3)),
+      };
+    };
+
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify({
+      tag: 'issue139-baseline',
+      notes: notes.length,
+      duration: Number(duration.toFixed(3)),
+      chartEndBeat: g.chartEndBeat,
+      effectiveScale: es,
+      foldRangesAt5s: rangesAt5.length,
+      staticBitmapCssPx: `${SURFACE.w}x${SURFACE.h}`,
+      staticBitmapDevicePx: bitmapPx,
+      playbackFrames: frames,
+      staticRebuildFrames: rebuildFrames,
+      fullRenderStaticRebuilds: fullRebuilds,
+      sameScrollY: { firstDraws: firstAtSame, secondDraws: secondAtSame },
+      drawStaticLayerJsMs: stats(staticOnlyMs),
+      renderChartJsMs: stats(frameMs),
+      hudCountNotesMsPerTick: Number(hudMs.toFixed(4)),
+      budget60HzMs: 16.7,
+      note: 'node stub 无 GPU：devicePx 是每帧 miss 时会清/重画的缓冲面积，墙钟偏低估',
+    }));
+
+    expect(firstAtSame).toBeGreaterThan(0);
+    expect(secondAtSame).toBe(0);
+    // 修前：60/60 重建（上面 JSON 的 staticRebuildFrames）。修后这条会掉下来；
+    // 锁测 1（仅 scrollY 变不得 renderGrid）另加，不把「每帧 miss」焊死在本文件。
+    expect(rebuildFrames).toBeLessThan(frames);
+    expect(fullRebuilds).toBeLessThan(frames);
+  });
+});

@@ -18,6 +18,9 @@ import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
 import type { ChartNote } from '../chart/types';
 import type { FinalVirtualCanvasHandle } from '../chart/components/canvas/FinalVirtualCanvas';
 
+/** 播放 HUD（时间码 / 进度条 / 画布叠加）写入 React 的周期。约 12.5Hz，票面 10–15Hz。 */
+export const PLAYBACK_HUD_PERIOD_MS = 80;
+
 export interface UsePlaybackCoordinatorOptions {
   /** 引擎单例（Editor 持有） */
   engine: AudioEngine | null;
@@ -60,6 +63,7 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
   const [isPlaying, setIsPlayingState] = useState(false);
   const playbackRafRef = useRef<number | undefined>(undefined);
   const isPlayingRef = useRef(false);
+  const lastHudAtRef = useRef(0);
   // ctxDuration 走 ref：RAF 循环不依赖 React state 重新创建
   const durationRef = useRef(ctxDuration);
   durationRef.current = ctxDuration;
@@ -77,8 +81,9 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
       playbackRafRef.current = undefined;
     }
     engine?.pause();
+    if (engine) setCurrentSeconds(engine.getSeconds());
     setIsPlaying(false);
-  }, [engine, scrollModel, setIsPlaying, canvasRef]);
+  }, [engine, scrollModel, setIsPlaying, setCurrentSeconds, canvasRef]);
 
   const startPlaybackLoop = useCallback(() => {
     if (playbackRafRef.current !== undefined) cancelAnimationFrame(playbackRafRef.current);
@@ -86,6 +91,7 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     setIsPlayingState(true);
     scrollModel?.setPlaying(true);
     canvasRef.current?.setPlaybackActive?.(true);
+    lastHudAtRef.current = 0;
     const loop = () => {
       if (!isPlayingRef.current) return;
       const e = engine;
@@ -93,8 +99,13 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
       const model = scrollModel;
       if (!e || !canvas || !model) return;
       const current = e.getSeconds();
-      setCurrentSeconds(current);
+      const now = performance.now();
+      if (now - lastHudAtRef.current >= PLAYBACK_HUD_PERIOD_MS) {
+        lastHudAtRef.current = now;
+        setCurrentSeconds(current);
+      }
       if (current >= durationRef.current) {
+        setCurrentSeconds(current);
         stopPlayback();
         return;
       }

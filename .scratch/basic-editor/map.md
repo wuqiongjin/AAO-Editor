@@ -134,6 +134,7 @@
 - **136 曲线工具深模块（2026-09-21 评审候选 5；`Type: chore`）** —— [136](./issues/136-曲线工具深模块.md)：**改成什么** = 放置/配置/草稿进 `CurveTool.ts`；矩阵只调度；不搬 `SpanCurve` 烘焙。
 - **137 曲线点选区内组合刷缓动（`Type: bug`）** —— [137](./issues/137-曲线点选区内组合刷缓动.md)：**改成什么** = 点选区内 = 曲线框选行（组合 + 刷缓动）；命中选区内不启画笔。
 - **138 倒流区 SP 带播放光栅卡顿（`Type: chore`，2026-09-21 定案）** —— [138](./issues/138-倒流区SP带播放光栅卡顿.md)：**改成什么** = `rasterBandRuns` 裁到 clip/瓦片行、run 只扫自己的 y；可见集仍整条相交，只光栅相交的 run/行。不退分层 fill、不做 hidden LOD。默认缩放播放同样中招（瓦片 miss 同步光栅整条）。
+- **139 播放帧稳定 60fps（`Type: chore`，2026-09-21 定案）** —— [139](./issues/139-播放帧稳定60fps.md)：**改成什么** = 验收 = 60Hz **稳 60**（不追 120、不代码封顶；高刷新允许自然跟 vsync）；静态层 = 屏幕层 + pos 条带、播放中不每帧 `renderGrid`；播放 RAF 只 imperative 画布，HUD（PlayBar+画布叠加）降频写 React。dpr 降档仅作 1+2 仍不够时的后手。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

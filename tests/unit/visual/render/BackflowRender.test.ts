@@ -246,7 +246,7 @@ describe('issue 105 · 渲染口径（静态源码断言）', () => {
   });
 
   it('网格枚举由布局坐标派生（visibleBeatRanges），逐拍独立求 y（无单调假定）', () => {
-    expect(renderSrc).toContain('for (const r of geometry.visibleBeatRanges(viewport))');
+    expect(renderSrc).toContain('for (const r of geometry.visibleBeatRanges(viewport, viewHeightCss))');
     expect(renderSrc).toContain('const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y');
   });
 });

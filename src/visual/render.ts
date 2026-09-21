@@ -116,9 +116,10 @@ export function visibleBeatRanges(
   geometry: ChartGeometry,
   viewport: GeometryViewport,
   chartEndBeat: number,
+  viewHeightCss?: number,
 ): BpmBeatRange[] {
   const out: BpmBeatRange[] = [];
-  for (const r of geometry.visibleBeatRanges(viewport)) {
+  for (const r of geometry.visibleBeatRanges(viewport, viewHeightCss)) {
     const start = Math.max(0, r.start);
     const end = Math.min(chartEndBeat, r.end);
     if (end >= start) out.push({ start, end });
@@ -126,9 +127,9 @@ export function visibleBeatRanges(
   return out;
 }
 
-/** 绘制网格（轨道竖线 + 节拍/子节拍横线）。只迭代可见拍范围；极小间距时按像素间距抽稀。 */
-export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
-  const { trackBgX, trackBgWidth, trackStartX } = c.trackGeometry(rc.viewport.scale);
+/** 轨道竖线 + 左右边条（屏幕空间，不随 scrollY）。 */
+export function renderTrackChrome(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  const { trackStartX } = c.trackGeometry(rc.viewport.scale);
 
   for (let lane = 0; lane <= LANES; lane++) {
     const x = trackStartX + TRACK_CHROME_TOTAL * rc.viewport.scale + lane * LANE_WIDTH * rc.viewport.scale;
@@ -153,12 +154,12 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
       ctx.stroke();
     }
   }
+}
 
-  // 网格横线（issue 53 分层样式，第二轮修订）：分母分层（整拍 > 1/2 > 1/4 > 1/8 > 1/16），
-  // 层级靠**颜色**区分（主题亮度沿层级递减、下限远离黑）；形态阶梯改为可选开关
-  // lineShapeTiers（默认关 = 全实线），开启后叠加线形阶梯。透明度恒 1（避免暗上加暗跌近黑）。
-  // 抽稀按层级从高到低进行：与任一已绘制线过近的候选被跳过（优先保留高层级）。
-  const ranges = visibleBeatRanges(rc.geometry, rc.viewport, rc.chartEndBeat);
+/** 节拍/子节拍横线。`rc.surface.h` 与 `viewport.scrollY` 决定枚举窗与 clip（pos 条带可加高）。 */
+export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
+  const ranges = visibleBeatRanges(rc.geometry, rc.viewport, rc.chartEndBeat, rc.surface.h);
   const es = rc.viewport.scale;
   const style = GRID_STYLES[normalizeGridStyle(rc.display?.gridStyle)];
   const lineShapeTiers = rc.display?.lineShapeTiers === true;
@@ -170,7 +171,6 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
   // 每个候选独立求 y，不做任何"pos 随 beat 递增"的假设。
   for (const range of ranges) {
     for (let beat = Math.floor(range.start + 1e-9); beat <= range.end + 1e-9; beat++) {
-      // 末端判据共用 CHART_END_EPS（ChartEndBounds 单一实现，ADR-0005 §5），不另写 epsilon
       if (beat < 0 || isPastChartEnd(beat, rc.chartEndBeat)) continue;
       const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
       if (y >= 0 && y <= rc.surface.h) candidates.push({ y, tier: 'beat' });
@@ -192,7 +192,7 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
 
   for (const tier of GRID_TIER_ORDER) {
     const s = style[tier];
-    const threshold = tier === 'beat' ? 2 : 5; // 抽稀阈值：拍线保持旧 2px 密度，子拍线 5px
+    const threshold = tier === 'beat' ? 2 : 5;
     ctx.strokeStyle = s.color;
     ctx.lineWidth = tier === 'beat' ? Math.max(2, s.width * es) : Math.max(0.5, s.width * es);
     ctx.globalAlpha = (s.alpha ?? 1) * gridOpacity;
@@ -215,6 +215,12 @@ export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderC
   ctx.setLineDash([]);
   ctx.lineDashOffset = 0; // issue 78：ctx 状态，必须复位，否则污染后续虚线（如 renderBoundLines）
   ctx.globalAlpha = 1;
+}
+
+/** 绘制网格（轨道竖线 + 节拍/子节拍横线）。只迭代可见拍范围；极小间距时按像素间距抽稀。 */
+export function renderGrid(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  renderTrackChrome(ctx, c, rc);
+  renderGridBeatLines(ctx, c, rc);
 }
 
 // ---------------- issue 56：选中态视觉（a）+ hover 层级（c） ----------------
@@ -1457,8 +1463,7 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
  * 设置画布尺寸 → 静态层 blit（离屏缓存，issue 36 F2）→ 音符（离屏瓦片层）→ BPM → 选择框 → 滑条缓冲 → 工具预览 → 判定线 → 起点标记。
  * 不持有任何 React 状态；虚拟高度同步等副作用由组件自行处理。
  * issue 10：缓冲尺寸仅在变化时重设（每帧重设会强制重分配像素缓冲并清空画布状态）；
- * issue 36 F2：清屏/背景/轨道底/网格/起止线收敛进 staticLayerCache——交互帧只 blit，
- * 滚动/缩放帧重建一次（与旧直绘同阶），消除密集谱下每帧全量重绘静态层的固定地板成本。
+ * issue 36 F2 / 139：屏幕层 + pos 条带 blit；仅 scrollY 变不重建网格。
  */
 export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, rc: RenderCtx) {
   // issue 50（Q24 a + Q8 a 延伸）：surface 未就绪时（null）不渲染——

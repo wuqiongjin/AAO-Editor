@@ -238,8 +238,9 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   }
 
   /** 视口布局坐标范围覆盖的**可见拍区间集合**（网格/子节拍枚举用；倒流区里是多段） */
-  visibleBeatRanges(viewport: GeometryViewport): BpmBeatRange[] {
-    const { posMin, posMax } = this.posRange(viewport);
+  visibleBeatRanges(viewport: GeometryViewport, viewHeightCss?: number): BpmBeatRange[] {
+    const bounds = this.viewportBounds(viewport, viewHeightCss ?? this.surface.h);
+    const { posMin, posMax } = this.posRangeOfBounds(bounds, viewport.scale);
     return this.timeline.beatRangesForPositionRange(posMin, posMax);
   }
 
@@ -263,16 +264,19 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     };
   }
 
-  /** 视口可见范围（虚拟坐标，含外扩 padding） */
-  viewportBounds(viewport: GeometryViewport): GeometryBounds {
+  /** 视口可见范围（虚拟坐标，含外扩 padding）。
+   *  `viewHeightCss` 默认 `surface.h`；静态层 pos 条带用更高的绘制面枚举拍区间（issue 139），
+   *  **不改** geometry.surface.h（否则 baseline / beat→virtualY 会整体平移）。 */
+  viewportBounds(viewport: GeometryViewport, viewHeightCss: number = this.surface.h): GeometryBounds {
     const es = this.effectiveScale(viewport.scale);
     const padding = VIEWPORT_PADDING / es;
     const sb = this.scaledVirtualBounds(viewport.scale);
+    const h = viewHeightCss > 0 ? viewHeightCss : this.surface.h;
     return {
       minX: Math.max(sb.minX, viewport.scrollX - padding),
       maxX: Math.min(sb.maxX, viewport.scrollX + this.surface.w / es + padding),
       minY: Math.max(sb.minY, viewport.scrollY - padding),
-      maxY: Math.min(sb.maxY, viewport.scrollY + this.surface.h / es + padding),
+      maxY: Math.min(sb.maxY, viewport.scrollY + h / es + padding),
     };
   }
 
