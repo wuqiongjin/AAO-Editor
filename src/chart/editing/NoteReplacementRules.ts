@@ -63,17 +63,43 @@ export function keyToolIdOf(n: ChartNote): string {
 }
 
 /**
- * 处理音符覆盖替换规则
- * @param notes 当前所有音符
- * @param beat 目标位置beat
- * @param lane 目标位置lane
- * @param subBeat 目标位置subBeat
- * @param newNoteType 新音符类型
- * @param source 来源键音符（拖动 = 被拖件 / 粘贴 = 剪贴板件）。**只有滑条结点拆条分支用它**：
- *                issue 130 移动口径 —— 拆出的独立方向键继承它的 `length` / `flick` / `skill`；
- *                不传（工具点击）= 放置口径，产物恒 `length=1`、无标记。
- * @returns 替换结果
+ * 单落点覆盖意图（issue 133）：点击 / 拖动键→滑条结点 / 粘贴重叠 丢同一份。
+ * `source` 仅拆条分支使用（issue 130）；不传 = 工具点击，产物恒 `length=1`、无标记。
  */
+export interface PlacementIntent {
+    beat: number;
+    lane: number;
+    subBeat: number;
+    tool: string;
+    source?: ChartNote;
+}
+
+/**
+ * ADR-0001 覆盖的公开入口。调用方只报意图，本模块答 notes。
+ */
+export function applyPlacement(notes: ChartNote[], intent: PlacementIntent): NoteReplacementResult {
+    const newNotes = [...notes];
+    let newNoteType = intent.tool;
+    const { beat, lane, subBeat, source } = intent;
+
+    // 统一 tool：单键工具 id 为小写 "single"，模块内部与音符类型一致用 "Single"
+    if (newNoteType === "single") {
+        newNoteType = "Single";
+    }
+
+    const existingNoteIndex = findNoteIndexAt(newNotes, beat, lane, subBeat);
+
+    if (existingNoteIndex !== -1) {
+        const existingNote = newNotes[existingNoteIndex];
+        if (existingNote.type === "Slide" || existingNote.type === "Long") {
+            return handleSlideNoteReplacement(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType, source);
+        }
+        return handleSingleAndDirectionalReplacement(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType);
+    }
+    return addNewNote(newNotes, beat, lane, subBeat, newNoteType);
+}
+
+/** @deprecated 行为测薄包装；生产调用点走 `applyPlacement`（issue 133） */
 export function handleNoteReplacement(
     notes: ChartNote[],
     beat: number,
@@ -82,30 +108,7 @@ export function handleNoteReplacement(
     newNoteType: string,
     source?: ChartNote,
 ): NoteReplacementResult {
-    const newNotes = [...notes];
-
-    // 统一 newNoteType：单键工具 id 为小写 "single"，模块内部与音符类型一致用 "Single"
-    if (newNoteType === "single") {
-        newNoteType = "Single";
-    }
-
-    // 查找同一位置是否已有音符（候选 4 归一：与 pasteChartNotes 共用 findNoteIndexAt）
-    const existingNoteIndex = findNoteIndexAt(newNotes, beat, lane, subBeat);
-
-    if (existingNoteIndex !== -1) {
-        const existingNote = newNotes[existingNoteIndex];
-
-        // 处理滑条音符的覆盖替换规则
-        if (existingNote.type === "Slide" || existingNote.type === "Long") {
-            return handleSlideNoteReplacement(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType, source);
-        } else {
-            // 处理单键音符和方向键的覆盖替换规则
-            return handleSingleAndDirectionalReplacement(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType);
-        }
-    } else {
-        // 没有现有音符，直接添加新音符
-        return addNewNote(newNotes, beat, lane, subBeat, newNoteType);
-    }
+    return applyPlacement(notes, { beat, lane, subBeat, tool: newNoteType, source });
 }
 
 /** 键型批量应用的落点目标（ADR-0008 §2 框选矩阵：框内逐个位置应用替换规则） */
@@ -141,7 +144,7 @@ export function keyTargetsFromItems(notes: ChartNote[], items: SelectionItem[]):
 
 /**
  * 键型批量应用（ADR-0008 §2 框选矩阵 / §8"框选批量应用 = 一个可回退快照"）：
- * 对每个落点顺序应用 handleNoteReplacement（后一个基于前一个结果，位置互异故次序无关）。
+ * 对每个落点顺序应用 applyPlacement（后一个基于前一个结果，位置互异故次序无关）。
  * 无任何落点生效时返回原数组引用（调用方据此跳过写历史）。
  */
 export function batchApplyKeyType(
@@ -152,7 +155,7 @@ export function batchApplyKeyType(
     let cur = notes;
     let changed = false;
     for (const t of targets) {
-        const r = handleNoteReplacement(cur, t.beat, t.lane, t.subBeat, tool);
+        const r = applyPlacement(cur, { beat: t.beat, lane: t.lane, subBeat: t.subBeat, tool });
         if (r.shouldReplace) {
             cur = r.newNotes;
             changed = true;
@@ -628,7 +631,7 @@ export function pasteChartNotes(
         const tool = keyToolIdOf(note); // 与拖拽路径同一份映射（issue 130）
         // issue 130：来源件 = 剪贴板音符本身 —— 拆条产物继承它的 length / flick / skill，
         // 与拖拽路径同一份实现（此前粘贴侧有一段事后 findIndex 回填，拖拽侧没有，故两口径分裂）
-        const result = handleNoteReplacement(newNotes, beat, lane, subBeat, tool, note);
+        const result = applyPlacement(newNotes, { beat, lane, subBeat, tool, source: note });
         if (result.shouldReplace) newNotes = result.newNotes;
     }
 

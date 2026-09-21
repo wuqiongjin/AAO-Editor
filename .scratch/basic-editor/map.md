@@ -128,6 +128,7 @@
 - **130（2026-09-19 `/grill-with-docs` 拖动覆盖语义）** —— [130 拖动方向键覆盖的 length 与标记归属](./issues/130-拖动方向键覆盖的length与标记归属.md)（grilling，resolved 2026-09-20）—— **定了什么** = 拖动 = **移动口径**，方向键 `length` 随被拖件走（键↔键不叠加，增宽归工具点击）；拖 / 粘贴到滑条结点拆条的产物继承来源件 `length` + `flick`/`skill`，两条路径合成一份；多轨重叠仍按锚点轨判（不改）。
 - **131 写回路径死代码（2026-09-16 评审候选 4；`Type: chore`，resolved 2026-09-20）** —— [131](./issues/131-写回路径死代码与覆盖入口.md)：**改成什么** = 删生产零引用的 `deleteSlideSegment`，ADR-0001 §6 映射改指 `SelectionEditing`；不做写回神模块；对象视图仍不走覆盖。
 - **132 撤销栈内存无上限（文本 + notes 两处；issue 102 派生，2026-09-21 立票，resolved）** —— [132](./issues/132-撤销栈内存无上限.md)：**定了什么** = ① 可选 `cap`（`stack.length`，超出丢最旧）；文本 50 张、notes 200 张；文本栈顺手 `pushHistoryIfChanged`（字符串 `Object.is`）。不做增量 patch / notes diff。
+- **133 覆盖落点同一接缝（2026-09-21 评审候选 2；`Type: chore`）** —— [133](./issues/133-覆盖落点同一接缝.md)：**改成什么** = 覆盖入口 `applyPlacement(intent)`；拖动占用表仍留 `NoteDragging`、只删 probe；删死路 `place()`。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

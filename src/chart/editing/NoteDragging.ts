@@ -7,7 +7,7 @@
 import type { ChartNote, SelectionItem, SlideNote, LongNote, ConnectionNote } from '../types';
 import { quantizeBeat } from '../geometry/ChartGeometry';
 import { mergeChainWithSlides } from './SlideCombination';
-import { handleNoteReplacement, keyToolIdOf } from './NoteReplacementRules';
+import { applyPlacement, keyToolIdOf } from './NoteReplacementRules';
 import { slideSpans } from './SlideSegments';
 import { bendSpan, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams } from './SpanCurve';
 import type { CurvePrecision } from './Easing';
@@ -358,9 +358,7 @@ export function planDragMove(
       for (const p of placements.values()) {
         if (p.targetNote === t.orig) return fail('collision');
       }
-      // 先按原谱面判可行性（判定"忽略"的组合，如单键→任意结点、滑键→非尾端点，仍回弹）
-      const probe = handleNoteReplacement(notes, nn.beat, nn.lane, nn.subBeat || 0, keyToolIdOf(nn), nn);
-      if (!probe.shouldReplace) return fail('collision');
+      // 可行性交给应用阶段的 applyPlacement（ADR-0001「忽略」→ collision）；此处只报意图
       placements.set(i, {
         beat: nn.beat, lane: nn.lane, subBeat: nn.subBeat || 0,
         targetNote: t.orig, src: nn,
@@ -407,8 +405,11 @@ export function planDragMove(
       arr.push(moved.get(i) || n);
     });
     for (const p of placements.values()) {
-      const r = handleNoteReplacement(arr, p.beat, p.lane, p.subBeat, keyToolIdOf(p.src), p.src);
-      if (!r.shouldReplace) return fail('collision'); // 保险（③已判过）
+      const r = applyPlacement(arr, {
+        beat: p.beat, lane: p.lane, subBeat: p.subBeat,
+        tool: keyToolIdOf(p.src), source: p.src,
+      });
+      if (!r.shouldReplace) return fail('collision');
       arr = r.newNotes;
     }
     const ghost = [...plans.keys()].map(i => moved.get(i)).filter((n): n is ChartNote => !!n);

@@ -5,7 +5,7 @@
 // 指针行（点选/加选/框选建选区）不在此表——它只操作选区、语义未变，留在画布选择路径。
 import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LongNote, SpanParam } from '../types';
 import {
-  handleNoteReplacement, handleSlideToSlideCombination, keyTargetsFromItems,
+  applyPlacement, handleSlideToSlideCombination, keyTargetsFromItems,
   batchApplyKeyType, pasteChartNotes, removeOverlappedNotes,
 } from './NoteReplacementRules';
 import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
@@ -442,9 +442,9 @@ export function clickOps(input: ClickInput): MatrixOp[] {
     //（`batchApplyKeyType` → ADR-0001 替换规则，含滑条结点拆条 / 端点标记覆盖 / 方向键 length+1 到 3 回 1；
     // 选区按结果 remap 保留）。空 op = 无事发生（不清选区），同样与框选口径一致。
     if (hitInSelection) return boxSelectOps(tool, notes, selectedItems);
-    // 键型放置：音符/空白两列同格 = 栅格位放置（ADR-0001 替换规则由 handleNoteReplacement 内部处置）
+    // 键型放置：音符/空白两列同格 = 栅格位放置（ADR-0001 由 applyPlacement 处置）
     if (!pos) return [clearSel];
-    const r = handleNoteReplacement(notes, pos.beat, pos.lane, 0, tool);
+    const r = applyPlacement(notes, { beat: pos.beat, lane: pos.lane, subBeat: 0, tool });
     return r.shouldReplace ? [{ t: 'setNotes', notes: r.newNotes }, clearSel] : [clearSel];
   }
   if (tool === 'bpm') {

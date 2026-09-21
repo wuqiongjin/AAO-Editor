@@ -1,10 +1,9 @@
 // EditingContext（ADR-0003 §7.1）：谱面数据与编辑——notes / history / selection / clipboard，
-// 以及编辑操作（复制/剪切/粘贴/删除/镜像/放置/编辑工具态）。粘贴/放置需要坐标，由调用方以参数传入（解耦鼠标位置）。
+// 以及编辑操作（复制/剪切/粘贴/删除/镜像/编辑工具态）。放置走 ToolActionMatrix.clickOps。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
 import type { ChartNote, SelectionItem } from '../../chart/types';
 import type { ChartPosition } from '../../types/chart';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../../chart/editing/SelectionEditing';
-import { handleNoteReplacement } from '../../chart/editing/NoteReplacementRules';
 import {
   createHistory, pushHistoryIfChanged, undoHistory, redoHistory, currentHistory,
   NOTES_HISTORY_CAP, type HistoryState,
@@ -38,7 +37,6 @@ export interface EditingContextValue {
   cut: () => void;
   deleteSelected: () => void;
   mirror: () => void;
-  place: (tool: string, pos: Position) => void;
 }
 
 const EditingContext = createContext<EditingContextValue | null>(null);
@@ -116,11 +114,6 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     handleNotesChange(mirrorSelection(notes, selectedItems));
   }, [notes, selectedItems, handleNotesChange]);
 
-  const place = useCallback((tool: string, pos: Position) => {
-    const result = handleNoteReplacement(notes, pos.beat, pos.lane, 0, tool);
-    if (result.shouldReplace) handleNotesChange(result.newNotes);
-  }, [notes, handleNotesChange]);
-
   const value: EditingContextValue = {
     notes, history, historyIndex,
     canUndo: historyIndex > 0,
@@ -128,7 +121,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     selectedItems, clipboard,
     setNotes, resetNotes, setSelectedItems, setClipboard,
     handleNotesChange, undo, redo,
-    copy, cut, deleteSelected, mirror, place,
+    copy, cut, deleteSelected, mirror,
   };
 
   return <EditingContext.Provider value={value}>{children}</EditingContext.Provider>;
