@@ -136,6 +136,11 @@
 - **138 倒流区 SP 带播放光栅卡顿（`Type: chore`，2026-09-21 定案）** —— [138](./issues/138-倒流区SP带播放光栅卡顿.md)：**改成什么** = `rasterBandRuns` 裁到 clip/瓦片行、run 只扫自己的 y；可见集仍整条相交，只光栅相交的 run/行。不退分层 fill、不做 hidden LOD。默认缩放播放同样中招（瓦片 miss 同步光栅整条）。
 - **139 播放帧稳定 60fps（`Type: chore`，2026-09-21 定案）** —— [139](./issues/139-播放帧稳定60fps.md)：**改成什么** = 验收 = 60Hz **稳 60**（不追 120、不代码封顶；高刷新允许自然跟 vsync）；静态层 = 屏幕层 + pos 条带、播放中不每帧 `renderGrid`；播放 RAF 只 imperative 画布，HUD（PlayBar+画布叠加）降频写 React。dpr 降档仅作 1+2 仍不够时的后手。
 - **140 高缩放倒流区 SP 带播放掉帧（`Type: chore`，2026-09-21 定案）** —— [140](./issues/140-高缩放倒流区SP带播放掉帧.md)：**改成什么** = `MAX_CACHE_ES=3` 是 30→56–59 的那刀；播放 RAF 不同步建瓦片。dpr 上限撤回。
+- **141 框选触发阈值（`Type: grilling`，2026-09-21 用户报；open）** —— [141](./issues/141-框选触发阈值与放置单击.md)：**待拍板** = 现阈值 `DRAG_THRESHOLD_PX = 4`（单轴 4px）吃掉「放置音符」那一击；候选 = 统一抬高 / **拖拽 4px + 框选 8~10px 分意图** / 空框回落成单击。
+- **142 末条 BPM 为负的处置（`Type: grilling`，2026-09-21 用户问；open）** —— [142](./issues/142-末条BPM为负的处置.md)：**待拍板** = 编辑器能随手产出「以负 BPM 收尾」的谱（零提示），但导入侧整份拒收 ⇒ 能产不能吃；导出即 Bestdori OOM 谱。候选 = 放行+提示 / 拒绝落末条负值 / 自动补正 BPM 回正 / 导出时警告。
+- **143 BPM 支持小数（`Type: grilling`，2026-09-21 用户报；open）** —— [143](./issues/143-BPM支持小数.md)：**待拍板** = 就地编辑 `parseInt` 截断小数（12.7→12），而导入/导出两侧本来就放行小数 ⇒ 手工输入静默改写数据；候选 = `parseFloat` 全收 / 限定位数，含是否抽 `parseBpmInput` 纯函数以便单测。定案后改 ADR-0010 结论 8。
+- **144 画布默认缩放显示 88%（`Type: grilling`，2026-09-21 用户报；open）** —— [144](./issues/144-画布默认缩放显示88%.md)：**待拍板** = 数字被 `effectiveScale` 的 fitWidth 钳制回写成 88%（`w/228`）；「调成 100%」指**只改显示**（不动几何，仅超 MAX_SCALE 才回写）还是**画面真的按 100% 铺**（= 翻转 ADR-0006 §1 Q4=A）。
+- **145 2026-09-21 验收缺陷批次（`Type: bug`，open）** —— [145](./issues/145-2026-09-21验收缺陷批次.md)：**改成什么** = ① 负值不进 `lastBpm`（沿用最近正值，初始 120）；② 导入谱面代码自动延长的谱面时长要走 `session.setChartDuration`（现只写 PlaybackContext，音频页数字不跟着变且会被反向覆盖）；③ Slide **中间结点**的 `flick`/`skill` **不渲染**（数据保留、导出原样），端点承载标记不变。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
