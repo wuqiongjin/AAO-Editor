@@ -44,6 +44,11 @@ export const PEN_CURSOR = `url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3
 export const PEN_HOLD_MS = 200;
 
 const DRAG_THRESHOLD_PX = 4;
+/**
+ * 框选阈值（issue 141）：拖拽移动仍是 4px（要跟手），**框选抬到 8px**。
+ * 4px 时持工具态放音符手一抖就越线，松手走 commitBox → 那一击的放置被吃掉（框内有音符时还会变成批量换型）。
+ */
+const MARQUEE_THRESHOLD_PX = 8;
 
 export type GestureOp =
   | MatrixOp
@@ -221,7 +226,10 @@ export class GestureSession {
     this.pointerPx = { x: input.x, y: input.y };
     if (!this.start) return this.result();
     if (this.cancelled) return this.result();
-    if (!hasMovedBeyondThreshold(this.start, { x: input.x, y: input.y }, DRAG_THRESHOLD_PX)) {
+    // issue 141：阈值按**按下意图**分档 —— 拖拽 / 画笔 4px（要跟手），框选 8px（防手抖吃掉放置那一击）。
+    // `pen` 在 `beginDragCandidate` 里按下即置位，故此处能据此分档（不用等到画笔视觉激活）。
+    const threshold = this.drag || this.pen ? DRAG_THRESHOLD_PX : MARQUEE_THRESHOLD_PX;
+    if (!hasMovedBeyondThreshold(this.start, { x: input.x, y: input.y }, threshold)) {
       return this.result();
     }
     this.moved = true;

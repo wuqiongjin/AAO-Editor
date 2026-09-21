@@ -187,7 +187,7 @@ describe('GestureSession · 单击通路（不变量 1）', () => {
   });
 });
 
-describe('GestureSession · 4px 阈值（不变量 6）', () => {
+describe('GestureSession · 拖拽阈值 4px（不变量 6）', () => {
   it('位移 <4px 仍走单击，不进入拖拽', () => {
     const notes = [bpmNote(0, 120), single(2, 50)];
     const { world, at, virt } = worldOf(notes);
@@ -201,6 +201,59 @@ describe('GestureSession · 4px 阈值（不变量 6）', () => {
     const r = s.end(up({ x: p.x + 3, y: p.y }));
     expect(r.ops).toContainEqual({ t: 'setSelection', items: [{ kind: 'note', noteIndex: 1 }] });
     expect(r.ops.some((op) => op.t === 'setNotes')).toBe(false);
+  });
+});
+
+// issue 141：阈值按「按下意图」分档 —— 拖拽/画笔 4px（跟手），框选 8px。
+// 4px 时持工具态放音符手一抖就越线 → 松手走 commitBox，那一击的放置被吃掉（用户报的手感问题）。
+describe('GestureSession · 框选阈值 8px（issue 141）', () => {
+  it('持键型工具空白按下、位移 5px 松手 → 仍按**按下点**放置音符（不是框选）', () => {
+    const notes = [bpmNote(0, 120)];
+    const { world, at, virt } = worldOf(notes, { armedTool: 'single' });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p = at(3, 60);
+    press(s, p, virt);
+    s.move({ x: p.x + 5, y: p.y });
+    expect(s.getSnapshot().selectionBox).toBeNull();
+    const r = s.end(up({ x: p.x + 5, y: p.y }));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    // 落点必须仍是**按下点** at(3, 60) —— 不是松手位置，也不是被框选吃掉
+    const placed = setNotes.notes.find((n) => n.type === 'Single' && n.lane === 3) as { beat: number } | undefined;
+    expect(placed?.beat).toBe(60);
+    expect(setNotes.notes.filter((n) => n.type === 'Single')).toHaveLength(1);
+  });
+
+  it('位移 8px → 进入框选，且不再放置音符', () => {
+    const notes = [bpmNote(0, 120)];
+    const { world, at, virt } = worldOf(notes, { armedTool: 'single' });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p = at(3, 60);
+    press(s, p, virt);
+    s.move({ x: p.x + 8, y: p.y });
+    expect(s.getSnapshot().selectionBox).not.toBeNull();
+    const r = s.end(up({ x: p.x + 8, y: p.y }));
+    expect(r.ops.some((op) => op.t === 'setNotes')).toBe(false);
+  });
+
+  it('指针态按住音符 → 仍 4px 起手（拖拽不被框选阈值拖迟钝）', () => {
+    const notes = [bpmNote(0, 120), single(2, 50)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p = at(2, 50);
+    press(s, p, virt);
+    s.move({ x: p.x + 5, y: p.y });
+    // 5px 已被拖拽通路消费 → 走拖拽（有幽灵），不是框选
+    expect(s.getSnapshot().selectionBox).toBeNull();
+    expect(s.getSnapshot().dragGhost).toBeNull(); // 位移未跨拍 → 幽灵为空，但意图已是拖拽
+    s.end(up({ x: p.x + 5, y: p.y }));
   });
 });
 

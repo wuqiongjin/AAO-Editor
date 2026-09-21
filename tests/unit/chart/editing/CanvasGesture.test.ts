@@ -451,7 +451,7 @@ describe('测试前提：轨道几何常量', () => {
 
 // ─────────────────────────── 框选：阈值 / 渲染面 / 矩形几何（§2 原则 1） ───────────────────────────
 describe('框选阈值与渲染面钳制', () => {
-  const T = 4; // DRAG_THRESHOLD_PX
+  const T = 4; // DRAG_THRESHOLD_PX（拖拽 / 画笔）
   const start = { x: 100, y: 100 };
 
   it('§2 原则 1：位移 < 阈值 → 仍是单击', () => {
@@ -461,6 +461,18 @@ describe('框选阈值与渲染面钳制', () => {
   it('§2 原则 1：任一轴达到阈值即算拖拽（不需两轴同时）', () => {
     expect(hasMovedBeyondThreshold(start, { x: 104, y: 100 }, T)).toBe(true);
     expect(hasMovedBeyondThreshold(start, { x: 100, y: 96 }, T)).toBe(true);
+  });
+
+  // issue 141：框选阈值抬到 8px（拖拽仍 4px）。判定函数本身不变，变的是调用方传的阈值 ——
+  // 故这里把两档的边界各锁一遍，防止有人把常量改回去而测试还绿。
+  it('issue 141：框选阈值 8px 的边界（7px 不算、8px 算）', () => {
+    const M = 8; // MARQUEE_THRESHOLD_PX
+    expect(hasMovedBeyondThreshold(start, { x: 107, y: 100 }, M)).toBe(false);
+    expect(hasMovedBeyondThreshold(start, { x: 108, y: 100 }, M)).toBe(true);
+    expect(hasMovedBeyondThreshold(start, { x: 100, y: 92 }, M)).toBe(true);
+    // 同一段位移在两档阈值下结论相反 —— 这正是用户报的那一击
+    expect(hasMovedBeyondThreshold(start, { x: 105, y: 100 }, M)).toBe(false);
+    expect(hasMovedBeyondThreshold(start, { x: 105, y: 100 }, T)).toBe(true);
   });
 
   it('isInsideSurface 边界含等号（0 与 w/h 都算在内）', () => {
