@@ -12,7 +12,7 @@ import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
 import { isSpRegion, displayConnections, visibleEnds, projectedSlideSpans } from '../chart/editing/SlideSegments';
 import { freezeGestureCursor } from '../chart/editing/CanvasGesture';
-import { bandPolygonAt, rasterBandRuns, splitBandAtFolds } from './slideBandGeometry';
+import { bandPolygonAt, rasterBandRuns, splitBandAtFolds, type BandRasterClipCss } from './slideBandGeometry';
 import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { drawNotesLayer } from './noteLayerCache';
@@ -932,6 +932,24 @@ function bandStripStyle(band: SpriteIconConfig): BandStripStyle {
   return STRIP_STYLE_DEFAULT;
 }
 
+/** 当前画布在 CSS 空间的可见矩形（逆变换；无位图尺寸则不裁，走整条 bbox）。issue 138 */
+function canvasClipCss(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+): BandRasterClipCss | undefined {
+  const cv = ctx.canvas;
+  if (!cv || !cv.width || !cv.height) return undefined;
+  return {
+    minX: (0 - tx) / sx,
+    maxX: (cv.width - tx) / sx,
+    minY: (0 - ty) / sy,
+    maxY: (cv.height - ty) / sy,
+  };
+}
+
 /**
  * SP 段条带 = **扫描线光栅 + 离屏 1:1 贴回**（`rasterBandRuns`，issue 09 验收反馈八轮 #1）。
  *
@@ -961,7 +979,8 @@ function renderSpBandStrip(
   if (!sx || !sy) return;
   // 回折（导入谱拍位倒退）切成 y 单调 run：逐行光栅天然处理自叠（同像素两臂 screen 合成 = 叠亮）
   const runs = splitBandAtFolds(pts);
-  const raster = rasterBandRuns({ runs, half, profile: st.profile, rgb: st.rgb, sx, sy, baseAlpha: alpha ?? 1 });
+  const clipCss = canvasClipCss(ctx, sx, sy, t.e, t.f);
+  const raster = rasterBandRuns({ runs, half, profile: st.profile, rgb: st.rgb, sx, sy, baseAlpha: alpha ?? 1, clipCss });
   if (!raster) return;
   const off = ensureRasterScratch(raster.bw, raster.bh);
   const octx = off.getContext("2d");

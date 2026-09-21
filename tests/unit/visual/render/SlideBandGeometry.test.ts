@@ -216,6 +216,40 @@ describe('SP 带体扫描线光栅（issue 09 八轮 #1：发虚/黑条纹回归
     expect(arms).toEqual([120, 80, 40, 0]);
   });
 
+  // issue 138 · SP 扫描线必须裁到 clip，否则倒流长条按整条 bbox 光栅（瓦片 768px vs 五千 px）。
+  it('issue 138 · clip 后位图高度不超过 clip 窗（含 2px AA 余量）', () => {
+    const pts = [{ x: 80, y: 0 }, { x: 80, y: 400 }];
+    const r = rasterBandRuns({
+      runs: splitBandAtFolds(pts), half: 10, profile: FLAT_PROFILE, rgb: [0, 255, 0],
+      sx: 1, sy: 1, baseAlpha: 1,
+      clipCss: { minX: 0, minY: 0, maxX: 200, maxY: 20 },
+    })!;
+    expect(r.bh).toBeLessThanOrEqual(20 + 4 + 2); // clip 高 + padCss×2 + 量化
+    expect(alphaAt(r, 80, 10)).toBeGreaterThan(0);
+    expect(r.data.length).toBe(r.bw * r.bh * 4);
+  });
+
+  it('issue 138 · clip 窗外的折返臂不占位图；窗内四臂仍在', () => {
+    const Y = (t: number) => t * 20;
+    const pts: Pt[] = [
+      { x: 120, y: Y(12.8) }, { x: 120, y: Y(4.8) }, { x: 120, y: Y(12.8) },
+      { x: 80, y: Y(12.8) },
+      { x: 80, y: Y(4.8) }, { x: 80, y: Y(12.8) },
+      { x: 40, y: Y(12.8) },
+      { x: 40, y: Y(4.8) }, { x: 40, y: Y(12.8) },
+      { x: 0, y: Y(12.8) },
+      { x: 0, y: Y(4.8) }, { x: 0, y: Y(12.8) },
+    ];
+    const row = Y(8);
+    const r = rasterBandRuns({
+      runs: splitBandAtFolds(pts), half: 6, profile: FLAT_PROFILE, rgb: [0, 255, 0],
+      sx: 1, sy: 1, baseAlpha: 1,
+      clipCss: { minX: -20, minY: row - 8, maxX: 140, maxY: row + 8 },
+    })!;
+    expect(r.bh).toBeLessThanOrEqual(16 + 4 + 2);
+    expect([120, 80, 40, 0].filter((x) => alphaAt(r, x, row) > 0)).toEqual([120, 80, 40, 0]);
+  });
+
   it('baseAlpha（slideOpacity）逐像素线性生效', () => {
     const pts = [0, 20, 40].map((y) => ({ x: 50, y }));
     const a1 = alphaAt(raster(pts, 10, FLAT_PROFILE, 1)!, 50, 20);

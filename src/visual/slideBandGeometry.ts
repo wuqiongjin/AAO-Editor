@@ -135,6 +135,14 @@ export function bandRunAtY(run: readonly BandPoint[], yCss: number): number | nu
   return null;
 }
 
+/** 扫描线裁剪窗（CSS 画布坐标）。与瓦片/主画布可见矩形对齐；省略 = 整条带 bbox（单测画质路径）。 */
+export interface BandRasterClipCss {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
 export interface BandRasterInput {
   /** `splitBandAtFolds` 的产物（每条 y 单调） */
   runs: readonly (readonly BandPoint[])[];
@@ -149,6 +157,8 @@ export interface BandRasterInput {
   sy: number;
   /** 基 α（slideOpacity）；幽灵亮度口径由调用方处理 */
   baseAlpha: number;
+  /** issue 138：只光栅与该窗相交的行/臂；倒流长条不得按整条 bbox 分配位图 */
+  clipCss?: BandRasterClipCss;
 }
 
 export interface BandRaster {
@@ -163,10 +173,11 @@ export interface BandRaster {
 
 /**
  * 扫描线光栅化整个带体（多 run 自叠区在像素内 screen 合成 = 叠亮）。
- * 空输入 / 非法缩放 → null（调用方不画）。
+ * 空输入 / 非法缩放 / 与 clip 不相交 → null（调用方不画）。
+ * issue 138：clipCss 把位图裁到可见窗；每个 run 只扫自己的 y 区间。
  */
 export function rasterBandRuns(input: BandRasterInput): BandRaster | null {
-  const { runs, half, profile, rgb, sx, sy, baseAlpha } = input;
+  const { runs, half, profile, rgb, sx, sy, baseAlpha, clipCss } = input;
   if (runs.length === 0 || sx <= 0 || sy <= 0 || half <= 0) return null;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (const run of runs) {
@@ -179,19 +190,40 @@ export function rasterBandRuns(input: BandRasterInput): BandRaster | null {
   }
   if (!Number.isFinite(minX) || maxX - minX < 1e-9 && maxY - minY < 1e-9) return null;
   const padCss = 2; // 边缘 1px AA 余量
-  const bxDev = Math.floor((minX - half - padCss) * sx);
-  const byDev = Math.floor((minY - padCss) * sy);
-  const bw = Math.max(1, Math.ceil((maxX + half + padCss) * sx) - bxDev);
-  const bh = Math.max(1, Math.ceil((maxY + padCss) * sy) - byDev);
+  let boxMinX = minX - half - padCss;
+  let boxMaxX = maxX + half + padCss;
+  let boxMinY = minY - padCss;
+  let boxMaxY = maxY + padCss;
+  if (clipCss) {
+    boxMinX = Math.max(boxMinX, clipCss.minX - padCss);
+    boxMaxX = Math.min(boxMaxX, clipCss.maxX + padCss);
+    boxMinY = Math.max(boxMinY, clipCss.minY - padCss);
+    boxMaxY = Math.min(boxMaxY, clipCss.maxY + padCss);
+    if (boxMaxX <= boxMinX || boxMaxY <= boxMinY) return null;
+  }
+  const bxDev = Math.floor(boxMinX * sx);
+  const byDev = Math.floor(boxMinY * sy);
+  const bw = Math.max(1, Math.ceil(boxMaxX * sx) - bxDev);
+  const bh = Math.max(1, Math.ceil(boxMaxY * sy) - byDev);
   if (bw * bh === 0) return null;
   const data = new Uint8ClampedArray(bw * bh * 4);
   const [rC, gC, bC] = rgb;
+  const yLoCss = byDev / sy;
+  const yHiCss = (byDev + bh) / sy;
   for (const run of runs) {
-    for (let j = 0; j < bh; j++) {
+    let runMinY = Infinity, runMaxY = -Infinity;
+    for (const p of run) {
+      if (p.y < runMinY) runMinY = p.y;
+      if (p.y > runMaxY) runMaxY = p.y;
+    }
+    if (runMaxY < yLoCss || runMinY > yHiCss) continue;
+    const j0 = Math.max(0, Math.floor(runMinY * sy - byDev));
+    const j1 = Math.min(bh, Math.ceil(runMaxY * sy - byDev));
+    for (let j = j0; j < j1; j++) {
       const yCss = (byDev + j + 0.5) / sy;
       const cx = bandRunAtY(run, yCss);
       if (cx === null) continue;
-      const leftDev = (cx - half) * sx - bxDev;   // 位图局部设备坐标
+      const leftDev = (cx - half) * sx - bxDev;
       const rightDev = (cx + half) * sx - bxDev;
       const i0 = Math.max(0, Math.floor(leftDev));
       const i1 = Math.min(bw - 1, Math.ceil(rightDev));
@@ -204,7 +236,6 @@ export function rasterBandRuns(input: BandRasterInput): BandRaster | null {
         if (a <= 0) continue;
         const p = (j * bw + i) * 4;
         data[p] = rC; data[p + 1] = gC; data[p + 2] = bC;
-        // 像素内 screen 合成（同色不预乘）：重叠臂 = 叠亮，等价两次 source-over
         data[p + 3] = Math.round(255 * (1 - (1 - data[p + 3]! / 255) * (1 - a)));
       }
     }

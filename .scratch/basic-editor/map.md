@@ -133,6 +133,7 @@
 - **135 Esc 五档链唯一裁决（2026-09-21 评审候选 4；`Type: chore`）** —— [135](./issues/135-Esc五档链唯一裁决.md)：**改成什么** = Editor 问 `resolveEscapeTarget` 再执行一档；`cancel` 不伪造 ③–⑤；③ 仍 `cancelPendingSlide`。
 - **136 曲线工具深模块（2026-09-21 评审候选 5；`Type: chore`）** —— [136](./issues/136-曲线工具深模块.md)：**改成什么** = 放置/配置/草稿进 `CurveTool.ts`；矩阵只调度；不搬 `SpanCurve` 烘焙。
 - **137 曲线点选区内组合刷缓动（`Type: bug`）** —— [137](./issues/137-曲线点选区内组合刷缓动.md)：**改成什么** = 点选区内 = 曲线框选行（组合 + 刷缓动）；命中选区内不启画笔。
+- **138 倒流区 SP 带播放光栅卡顿（`Type: chore`，2026-09-21 定案）** —— [138](./issues/138-倒流区SP带播放光栅卡顿.md)：**改成什么** = `rasterBandRuns` 裁到 clip/瓦片行、run 只扫自己的 y；可见集仍整条相交，只光栅相交的 run/行。不退分层 fill、不做 hidden LOD。默认缩放播放同样中招（瓦片 miss 同步光栅整条）。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
