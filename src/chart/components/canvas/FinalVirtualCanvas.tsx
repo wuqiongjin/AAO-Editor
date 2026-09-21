@@ -322,9 +322,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (v === null) return;
         const idx = notes.findIndex(n => n.type === 'BPM' && Math.abs(n.beat - beat) < 1e-9);
         if (idx < 0) return; // 标记已不在（undo 等）→ 放弃
+        // issue 145 #1：负值不进「上次值」—— 沿用最近一次正值（初始 120）。
+        // 否则下次点 BPM 工具默认就是负数，一次手抖即误造倒流区。
+        // 与「这条 BPM 有没有被改动」无关：用户明确输入了 v，它就是新的「上次值」。
+        if (v > 0) lastBpmRef.current = v;
         const cur = notes[idx] as BpmNote;
         if (cur.bpm !== v) {
-            lastBpmRef.current = v;
             handleNotesChange(notes.map((n, i) => i === idx ? { ...cur, bpm: v } : n));
         }
     };

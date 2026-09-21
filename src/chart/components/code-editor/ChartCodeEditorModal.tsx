@@ -21,7 +21,7 @@ import {
     type ValidationError,
 } from '../../editing/ChartConverter';
 import { buildNoteCode, applyNoteCode, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText } from '../../editing/NoteCodeOps';
-import { useEditing, usePlayback, useUI } from '../../../app/ProviderTree';
+import { useEditing, usePlayback, useUI, useAudioSession } from '../../../app/ProviderTree';
 import { t, tPlural } from '../../../i18n';
 import { maxNoteEndSeconds, getBpmEvents } from '../../../audio/AudioTiming';
 import {
@@ -57,7 +57,10 @@ interface Props {
 
 export default function ChartCodeEditorModal({ target }: Props) {
     const { notes, handleNotesChange, selectedItems } = useEditing();
-    const { canPlay, duration, setDuration } = usePlayback();
+    const { canPlay } = usePlayback();
+    // issue 145 #2：谱面时长的单一真相源是 AudioSession，播放条的 duration 只是它的同步下游。
+    // 读/写都走 session，否则音频页的数字与这里的判断基准会各说一套。
+    const [audioSnap, session] = useAudioSession();
     const { beatDisplay } = useUI();
     // issue 69：面包屑改用 trail（记住的深层）+ navigate（只切视图、不动 trail）
     const { trail, navigate, close } = useChartCodeEditor();
@@ -300,8 +303,10 @@ export default function ChartCodeEditorModal({ target }: Props) {
             // ADR-0005 §4.5：无音频导入谱面代码时，若代码比当前谱面长度更长，自动延长谱面长度到代码最后音符结束时间
             if (!canPlay) {
                 const endSeconds = maxNoteEndSeconds(newNotes, beatDisplay, getBpmEvents(newNotes));
-                if (endSeconds > duration) {
-                    setDuration(endSeconds);
+                // issue 145 #2：谱面时长的单一真相源是 AudioSession（`useAudioBridge` 单向 session → PlaybackContext）。
+                // 此前只写 PlaybackContext → 音频页「谱面时长」不跟着变，且 session 下次 emit 会把旧值反向覆盖回来。
+                if (endSeconds > audioSnap.chartDuration) {
+                    session.setChartDuration(endSeconds);
                 }
             }
             setLastAppliedCode(chartCode);

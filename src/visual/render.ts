@@ -253,9 +253,14 @@ function singleIconConfig(rc: RenderCtx, note: { lane: number; beat: number; sub
  * slide 态 hover）/ 待连接锚点（renderSlideBuffer）四处共用这一份**（issue 65①）——
  * 旧 `renderSlideGhost` 对所有结点一律取端点款，拖中间结点时"中间那颗长得像单键"，
  * 违反 ADR-0002 §4 的既有不变式「幽灵 = 画布实绘同形」。 */
-function slideNodeIconConfig(rc: RenderCtx, conn: { lane: number; flick?: boolean; skill?: boolean }, isFirst: boolean, isLast: boolean): SpriteIconConfig {
+/** 导出仅为可测（与 `computeBackgroundDrawRect` 同款）：实绘/描边/幽灵/待连接锚点四处共用它。 */
+export function slideNodeIconConfig(rc: RenderCtx, conn: { lane: number; flick?: boolean; skill?: boolean }, isFirst: boolean, isLast: boolean): SpriteIconConfig {
   const icons = rc.noteIcons;
-  const base = isFirst || isLast ? icons.slideEndpointFor(conn.lane) : icons.slideAmongFor(conn.lane);
+  const isEndpoint = isFirst || isLast;
+  const base = isEndpoint ? icons.slideEndpointFor(conn.lane) : icons.slideAmongFor(conn.lane);
+  // issue 145 #3：flick/skill 只有**端点**才渲染（中间结点一律按普通中间结点画）。
+  // 数据仍允许带这些标记（谱面代码可改、导出原样），只是画布不表现 —— 实机也不表现。
+  if (!isEndpoint) return base;
   return { ...base, ...(conn.flick ? icons.flickFor(conn.lane) : {}), ...(conn.skill ? icons.skillFor(conn.lane) : {}) };
 }
 
@@ -706,8 +711,9 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   // connection 画不出墨迹箭头,与 Single flick 视觉不一致。
   const dec = icons.flickTopDecorator;
   if (dec) {
-    connections.forEach((conn) => {
-      if (!conn.flick) return;
+    connections.forEach((conn, i) => {
+      // issue 145 #3：与主精灵同口径 —— 中间结点的 flick 不画箭头（只端点补）
+      if (!conn.flick || !(i === ends.first || i === ends.last)) return;
       const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
       const flickCfg = icons.flickFor(conn.lane);
       rc.spriteIcon.renderDecorator(ctx, {

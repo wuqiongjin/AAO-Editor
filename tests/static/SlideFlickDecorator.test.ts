@@ -24,11 +24,22 @@ describe('renderSlideBody flick 装饰箭头', () => {
     // 抽取包含 renderDecorator 的一段(到下一个空行/右括号/分号)
     const decCall = body.match(/spriteIcon\.renderDecorator\s*\([^)]*\)/);
     expect(decCall).toBeTruthy();
-    // 找这个调用上方的 if (conn.flick) 守卫
+    // 找这个调用上方的 if (!conn.flick …) 守卫
     const before = body.slice(0, decCall!.index!);
-    // 守卫在调用之前不太远的距离（200 字符内）出现,避免误判跨函数匹配
+    // 守卫在调用之前不太远的距离（300 字符内）出现,避免误判跨函数匹配
     const recent = before.slice(-300);
-    expect(recent, 'renderDecorator 调用应被 if (conn.flick) 守卫').toMatch(/if\s*\(\s*!?\s*conn\.flick\s*\)/);
+    expect(recent, 'renderDecorator 调用应被 if (!conn.flick …) 守卫').toMatch(/if\s*\(\s*!\s*conn\.flick\b/);
+  });
+
+  it('装饰箭头只给**端点**补（issue 145 #3：中间结点的 flick 不画箭头）', () => {
+    const m = src.match(/function\s+renderSlideBody[\s\S]*?\n\}\n/);
+    const body = m![0];
+    const decCall = body.match(/spriteIcon\.renderDecorator\s*\(/);
+    expect(decCall).toBeTruthy();
+    const recent = body.slice(0, decCall!.index!).slice(-300);
+    // 与 slideNodeIconConfig 同口径：守卫里必须出现端点判定（ends.first / ends.last）
+    expect(recent, 'renderDecorator 守卫应含端点判定').toMatch(/ends\.first/);
+    expect(recent, 'renderDecorator 守卫应含端点判定').toMatch(/ends\.last/);
   });
 
   it('renderSlideBody 内应使用 icons.flickTopDecorator 作为装饰器源', () => {
