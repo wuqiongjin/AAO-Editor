@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { makeCoords } from '@/src/visual/coords';
-import { renderBpmLabels } from '@/src/visual/render';
+import { renderBpmLabels, BPM_TAIL_WARNING_COLOR } from '@/src/visual/render';
+import { gridBpmNegativeColor } from '@/src/visual/gridStyle';
+import type { ChartNote } from '@/src/chart/types';
 import {
   layoutGutterLabel,
   clampGutterLabelY,
@@ -131,6 +133,46 @@ describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () =
     expect(y).toBeLessThanOrEqual(TEST_SURFACE.h - GUTTER_LABEL_FONT_PX / 2);
   });
 });
+describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', () => {
+  // 定案：编辑器不拦（数据保真），只在**那条 BPM 自己身上**标出来 —— 警示色 + `!` 后缀，
+  // 且与「倒流区负值」（只换倒流色、无后缀）区分开。
+  const SURFACE = { w: 750, h: 900 };
+  const bpmNote = (beat: number, v: number) => ({ type: 'BPM', beat, bpm: v } as never);
+
+  function renderLabels(notes: ChartNote[], visible: { note: ChartNote; index: number }[]) {
+    const geometry = new ChartGeometry([{ beat: 0, bpm: 120 }], { endBeat: 40 }, SURFACE);
+    // 让 beat 8 那条线落在画布中部（y≈300）：scrollY = 该拍的虚拟 Y − 300
+    const viewport = { scrollX: 0, scrollY: geometry.beatToVirtualY(8, 1) - 300, scale: 1 };
+    const c = makeCoords(geometry, viewport, 4, notes);
+    const rc = {
+      geometry, viewport, surface: SURFACE, chartEndBeat: 40, beatDisplay: 4, notes,
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1 },
+    } as unknown as import('@/src/visual/types').RenderCtx;
+    const { proxy, calls } = makeRecordingCtx();
+    renderBpmLabels(proxy, c, rc, visible);
+    return calls;
+  }
+
+  it('末条为负 → 数值文字带 `!` 且用警示色（不是倒流色）', () => {
+    const notes = [bpmNote(0, 120), bpmNote(8, -120)];
+    const calls = renderLabels(notes, [{ note: notes[1]!, index: 1 }]);
+    const fills = fillTexts(calls);
+    expect(fills.length).toBe(1);
+    expect(fills[0]![1][0]).toBe('-120 !');
+    expect(propValues(calls, 'fillStyle')).toContain(BPM_TAIL_WARNING_COLOR);
+    expect(propValues(calls, 'fillStyle')).not.toContain(gridBpmNegativeColor('vivid'));
+  });
+
+  it('倒流区内的**非末条**负值 → 仍只换倒流色、无 `!`（回归，不放松）', () => {
+    const notes = [bpmNote(0, 120), bpmNote(8, -120), bpmNote(12, 120)];
+    const calls = renderLabels(notes, [{ note: notes[1]!, index: 1 }]);
+    const fills = fillTexts(calls);
+    expect(fills[0]![1][0]).toBe('-120');
+    expect(propValues(calls, 'fillStyle')).toContain(gridBpmNegativeColor('vivid'));
+    expect(propValues(calls, 'fillStyle')).not.toContain(BPM_TAIL_WARNING_COLOR);
+  });
+});
+
 describe('bpmLabelBox：BPM 数字命中盒（2026-09-08 修订：不再整条水平线都命中）', () => {
   const TRACK_START_X = 300;
   const LINE_Y = 400;

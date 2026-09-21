@@ -5,6 +5,7 @@ import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport } from '../chart/geometry/ChartGeometry';
 import type { BpmBeatRange } from '../chart/geometry/BpmTimeline';
 import { isPastChartEnd, trueBeat } from '../chart/editing/ChartEndBounds';
+import { indexOfTrailingNegativeBpm } from '../chart/editing/BpmTail';
 import { shiftGroupToAnchor, mirrorNote, countNotesUpToBeat } from '../chart/editing/NoteEditing';
 import { perf } from '../chart/perf';
 import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
@@ -17,7 +18,7 @@ import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
-import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
+import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, bpmLabelText, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
@@ -1254,12 +1255,14 @@ export function renderDragGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
  */
 export function renderBpmLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
   const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-  const color = gridThemeBpmColor(normalizeGridStyle(rc.display?.gridStyle));
-  for (const { note } of visibleNotes) {
+  const presetColor = gridThemeBpmColor(normalizeGridStyle(rc.display?.gridStyle));
+  // issue 142：末条 BPM 为负（导出后 Bestdori 打不开）→ 那条线一并改警示色，与数值文字同口径。
+  const tailIdx = indexOfTrailingNegativeBpm(rc.notes);
+  for (const { note, index } of visibleNotes) {
     if (note.type !== "BPM") continue;
     const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
     if (y < -50 || y > rc.surface.h + 50) continue;
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = index === tailIdx ? BPM_TAIL_WARNING_COLOR : presetColor;
     ctx.lineWidth = 2.5 * rc.viewport.scale;
     ctx.beginPath();
     ctx.moveTo(trackBgX, y);
@@ -1280,8 +1283,11 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   // 作用域 = 只作用于数值文字，BPM 横线仍走主题主色（票面口径；见 gridStyle 的取色说明）。
   // 折返带里正/负事件在画布上常常同位（同一 y 逆序排列），数值色是区分两者的唯一线索。
   const negativeColor = gridBpmNegativeColor(preset);
+  // issue 142：末条 BPM 为负（导出后 Bestdori 打不开）→ 数值改**警示色**并附 `!`，
+  // 与「倒流区负值」（只换倒流色、无后缀）区分开 —— 两者语义不同：后者是合法写法，前者是打不开的谱。
+  const tailIdx = indexOfTrailingNegativeBpm(rc.notes);
   const labelScale = rc.display?.labelScale ?? 1;
-  for (const { note } of visibleNotes) {
+  for (const { note, index } of visibleNotes) {
     if (note.type !== "BPM") continue;
     const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
     if (y < -50 || y > rc.surface.h + 50) continue;
@@ -1290,9 +1296,16 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
       rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
     );
     const bpm = (note as ChartNote & { bpm: number }).bpm;
-    drawGutterLabel(ctx, layout, String(bpm), bpm < 0 ? negativeColor : positiveColor);
+    const isTail = index === tailIdx;
+    drawGutterLabel(ctx, layout, bpmLabelText(bpm, isTail), isTail ? BPM_TAIL_WARNING_COLOR : (bpm < 0 ? negativeColor : positiveColor));
   }
 }
+
+/**
+ * **末条 BPM 为负**的警示色（issue 142）：与倒流色（品红/紫，合法写法）区分开——
+ * 这条 = 「导出后 Bestdori 打不开」，故取危险红（与 START 青 / END 橙 / 选中黄 / 倒流紫 都不同相）。
+ */
+export const BPM_TAIL_WARNING_COLOR = '#FF5A5A';
 
 /** 起始线/结束线配色（issue 52 grill 定案：低饱和主题色三线三色，文字同色系更亮一档） */
 export const START_LINE_COLOR = '#53b8c9';

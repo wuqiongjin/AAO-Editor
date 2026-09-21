@@ -122,6 +122,20 @@ export function clampGutterLabelY(layout: GutterLabelLayout, surfaceH: number, f
 }
 
 /**
+ * 就地警示后缀（挂在 BPM 数值之后；issue 142 —— 末条 BPM 为负，导出后 Bestdori 打不开）。
+ * 用 ASCII `!` 而非 `⚠`：沟槽文字走等宽字体栈，emoji/符号字形在部分平台会掉成方框。
+ */
+export const BPM_TAIL_WARNING_MARK = ' !';
+
+/**
+ * BPM 沟槽数值文字 —— **绘制与命中盒共用同一串**，宽度判定才不会错位
+ * （`bpmLabelBox` 按这串文字量宽度；命中判定见 `hitBpmLabelAt`）。
+ */
+export function bpmLabelText(bpm: number, isTrailingNegative: boolean): string {
+  return isTrailingNegative ? `${bpm}${BPM_TAIL_WARNING_MARK}` : String(bpm);
+}
+
+/**
  * BPM 数值文字盒（§5 手势仲裁修订 2026-09-08）：**只认数字自身的横向范围**，
  * 不再把整条水平线都判成命中（否则左沟槽双击/单击在数字所在高度上永远吃不掉起点标记手势）。
  * 与 §5 就地编辑输入框同款宽度估算（等宽字体 0.62em + 8px 内边距，最少 2 字宽），

@@ -62,7 +62,9 @@ describe('issue 105 修法 1 · 负值 BPM 数值换色（倒流区唯一视觉�
   it('正/负事件并排：正值走主题主色、负值走该主题的倒流色；文字保留负号（原样）', () => {
     const positive = bpmNote(5, 120);   // pos 1100 → 画布 y 200
     const negative = bpmNote(6.5, -240); // pos 935 → 画布 y 365
-    const { c, rc } = makeRig([positive, negative]);
+    // 末条必须为正（合法倒流区）—— 否则命中 issue 142 的「以负 BPM 收尾」警示色，本组测的就不是倒流色了
+    const back = bpmNote(8, 120);
+    const { c, rc } = makeRig([positive, negative, back]);
     const { proxy, calls } = makeRecordingCtx();
     renderBpmLabels(proxy, c, rc, [{ note: positive, index: 0 }, { note: negative, index: 1 }]);
     expect(labeledFills(calls)).toEqual([
@@ -74,11 +76,12 @@ describe('issue 105 修法 1 · 负值 BPM 数值换色（倒流区唯一视觉�
 
   it('负值色随主题走（每个主题都取自己的倒流色，不是写死的品红）', () => {
     const negative = bpmNote(6.5, -240);
+    const back = bpmNote(8, 120); // 末条为正（合法倒流区），避免落进 issue 142 的警示分支
     for (const gridStyle of ['mono', 'amber', 'cyan', 'vivid'] as const) {
-      const { geometry, viewport, c } = makeRig([negative]);
+      const { geometry, viewport, c } = makeRig([negative, back]);
       const rc = {
         geometry, viewport, surface: SURFACE, chartEndBeat: geometry.chartEndBeat, beatDisplay: BEAT_DISPLAY,
-        notes: [negative],
+        notes: [negative, back],
         display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1, gridStyle },
       } as unknown as RenderCtx;
       const { proxy, calls } = makeRecordingCtx();
