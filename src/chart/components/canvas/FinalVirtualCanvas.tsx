@@ -21,6 +21,7 @@ import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
+import { parseBpmInput } from '../../editing/BpmInput';
 import { t } from '../../../i18n';
 import {
   hitStartMarkerAt, hitBpmLabelAt,
@@ -309,16 +310,16 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     /**
      * §5：提交就地编辑（Enter / 失焦）。无效数值 = 取消编辑（保留放置时已应用的值）。
-     * ADR-0010 结论 8（issue 103）：**接受负整数**——编辑器内可创建倒流区。
-     * `parseInt` 口径不变：只取十进制整数部分、截断小数（"12.7" → 12、"-12.7" → -12、
-     * "-225" → -225）；`0` / `-0` / 非数字（NaN，如空串、"abc"）一律视为无效、取消编辑。
+     * ADR-0010 结论 8（issue 143 扩订）：**接受负值与小数**——编辑器内可创建倒流区，
+     * 且 Bestdori 的 bpm 本就是任意有限数（导入/导出两侧一直原样放行）。
+     * `0` / `-0` / 非数字 / 非有限数一律视为无效、取消编辑（口径见 `parseBpmInput`）。
      */
     const commitBpmEdit = () => {
         if (!bpmEdit) return;
-        const v = parseInt(bpmEdit.value, 10);
+        const v = parseBpmInput(bpmEdit.value);
         const beat = bpmEdit.beat;
         setBpmEdit(null);
-        if (Number.isNaN(v) || v === 0) return;
+        if (v === null) return;
         const idx = notes.findIndex(n => n.type === 'BPM' && Math.abs(n.beat - beat) < 1e-9);
         if (idx < 0) return; // 标记已不在（undo 等）→ 放弃
         const cur = notes[idx] as BpmNote;

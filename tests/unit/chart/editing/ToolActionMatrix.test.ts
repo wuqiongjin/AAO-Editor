@@ -116,6 +116,16 @@ describe('§2 BPM 工具单击', () => {
     expect(clickOps(input({ tool: 'bpm', pos: null }))).toEqual([{ t: 'setSelection', items: [] }]);
   });
 
+  // issue 143：lastBpm 是**数值**（可带小数），就地编辑框的初值不得被 `String()` 之外的东西改写
+  it('issue 143：lastBpm = 128.5 → 落 128.5 且编辑框初值为 "128.5"（不截断）', () => {
+    const ops = clickOps(input({ tool: 'bpm', pos: sp(4, 0), lastBpm: 128.5 }));
+    expect(ops).toEqual([
+      { t: 'setNotes', notes: [bpm(4, 128.5)] },
+      { t: 'openBpmEditor', beat: 4, value: '128.5' },
+      { t: 'setSelection', items: [] },
+    ]);
+  });
+
   // issue 56 Q14=A（issue 59 落地）：点击**已有** BPM 线 = 无效果；删除 / 音符代码 是两个例外
   it('点击已有 BPM 线 = 无效果（动作不生效，但按 §2 原则 6 清选区）', () => {
     const notes: ChartNote[] = [bpm(4, 120)];

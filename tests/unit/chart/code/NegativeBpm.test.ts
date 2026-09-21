@@ -43,9 +43,12 @@ describe('issue 103 · 就地编辑入口 commitBpmEdit（静态源码断言）'
         'utf-8',
     );
 
-    test('接受负整数：旧拒法 `v <= 0` 已改为 `v === 0`（仍拒 0 / -0 / NaN）', () => {
-        expect(canvasSrc).toMatch(/Number\.isNaN\(v\)\s*\|\|\s*v\s*===\s*0/);
+    // issue 143 扩订 ADR-0010 结论 8：接受**负值与小数**（不再 `parseInt` 截断）。
+    // 解析口径已抽到 `parseBpmInput`（单测见 BpmInput.test.ts）；此处只钉「组件不再有旧拒法」。
+    test('接受负值与小数：解析委托 parseBpmInput，旧拒法 `v <= 0` / `Number.isNaN(v)` 已不在组件内', () => {
+        expect(canvasSrc).toMatch(/parseBpmInput\(bpmEdit\.value\)/);
         expect(canvasSrc).not.toMatch(/Number\.isNaN\(v\)\s*\|\|\s*v\s*<=\s*0/);
+        expect(canvasSrc).not.toMatch(/parseInt\(bpmEdit\.value/);
     });
 });
 
