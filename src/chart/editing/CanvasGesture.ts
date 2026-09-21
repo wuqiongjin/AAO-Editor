@@ -145,9 +145,9 @@ export type PressIntent =
  * §6 按下意图仲裁：这一次按下是「拖拽移动」还是「框选」。
  * 任一步不合法都退回框选（防误拖），不产生半截拖拽态。
  * 例外（issue 09 S2；2026-09-13 三轮扩订）：曲线工具态无 Shift 按下 = **画笔起手（任意位置）**——
- * 起点可落在已有音符/段上（重叠绘制，用户拍板对标"长按绘制起点可重叠"）；单击语义不受影响
- * （松手未过阈值仍走 clickOps：点段=重应用 / 点结点=挂锚点）；Shift 交还既有仲裁
- * （Shift+音符 = 移动逃生口、Shift+拖 = 框选，均不受影响）。
+ * 起点可落在已有音符/段上（重叠绘制）；**命中 ∈ 当前选区除外**（issue 137：不启画笔，松手未拖走
+ * clickOps 整片组合 + 刷缓动，与 Slide / 曲线 Shift+框选对齐）。单击点选区外仍挂锚点/点段重应用。
+ * Shift 交还既有仲裁（Shift+音符 = 移动逃生口、Shift+拖 = 框选）。
  */
 export function resolvePressIntent(input: {
     cx: number;
@@ -161,9 +161,11 @@ export function resolvePressIntent(input: {
     chartEndBeat: number;
 }): PressIntent {
     const marquee: PressIntent = { kind: 'marquee' };
-    // ADR-0009 §3：曲线工具态无 Shift 按下 = 画笔起手（合法落点即起，不要求空白）
+    // ADR-0009 §3：曲线工具态无 Shift 按下 = 画笔起手（合法落点即起）；选区内命中让给单击整片
     if (input.armedTool === 'curve' && !input.shiftKey) {
         if (input.onMarker) return marquee;
+        const hit = findItemAt(input.cx, input.cy, input.deps);
+        if (hit && input.selectedItems.some(it => sameSelectionItem(it, hit))) return marquee;
         const start = snapChartPos(input.deps, input.chartEndBeat, input.cx, input.cy);
         return start ? { kind: 'pen', start } : marquee;
     }

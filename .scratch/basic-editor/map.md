@@ -131,7 +131,8 @@
 - **133 覆盖落点同一接缝（2026-09-21 评审候选 2；`Type: chore`）** —— [133](./issues/133-覆盖落点同一接缝.md)：**改成什么** = 覆盖入口 `applyPlacement(intent)`；拖动占用表仍留 `NoteDragging`、只删 probe；删死路 `place()`。
 - **134 一份 ChartGeometry 生命周期（2026-09-21 评审候选 3；`Type: chore`）** —— [134](./issues/134-一份ChartGeometry生命周期.md)：**改成什么** = Editor `useChartSpace` 拥有几何；scroll / 画布 bind 同一引用；HUD 读 `beatOfSeconds`，不旁路 `secondsToBeat`。
 - **135 Esc 五档链唯一裁决（2026-09-21 评审候选 4；`Type: chore`）** —— [135](./issues/135-Esc五档链唯一裁决.md)：**改成什么** = Editor 问 `resolveEscapeTarget` 再执行一档；`cancel` 不伪造 ③–⑤；③ 仍 `cancelPendingSlide`。
-- **136 曲线工具深模块（2026-09-21 评审候选 5；`Type: chore`）** —— [136](./issues/136-曲线工具深模块.md)：**改成什么** = 放置/配置/草稿进 `CurveTool.ts`；矩阵只调度；不搬 `SpanCurve` 烘焙；单击选区内 vs 框选差异冻结。
+- **136 曲线工具深模块（2026-09-21 评审候选 5；`Type: chore`）** —— [136](./issues/136-曲线工具深模块.md)：**改成什么** = 放置/配置/草稿进 `CurveTool.ts`；矩阵只调度；不搬 `SpanCurve` 烘焙。
+- **137 曲线点选区内组合刷缓动（`Type: bug`）** —— [137](./issues/137-曲线点选区内组合刷缓动.md)：**改成什么** = 点选区内 = 曲线框选行（组合 + 刷缓动）；命中选区内不启画笔。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

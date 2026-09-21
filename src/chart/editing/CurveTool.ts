@@ -1,6 +1,6 @@
 // 曲线工具深模块（issue 136 / ADR-0009 §3）：配置、草稿、两击/框选/执行键/点段重应用、带组合落子。
 // 烘焙仍在 SpanCurve（hidden 采样点是唯一真相）。矩阵只调度持工具态行。
-// 单击选区内走 combineOps、框选/执行键选区≥2 走 curveBoxOps——差异冻结，不在本票对齐 issue 88。
+// 单击选区内走曲线框选行（组合 + 刷缓动）；框选/执行键选区≥2 同 `curveBoxOps`。
 import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LongNote, SpanParam } from '../types';
 import { removeOverlappedNotes } from './NoteReplacementRules';
 import { combineSelectionIntoSlide, compareAbsorbable, mergeChainWithSlides } from './SlideCombination';
@@ -246,7 +246,7 @@ export function curveBoxOps(
   return [{ t: 'setNotes', notes: newNotes }, clearSel];
 }
 
-/** ADR-0008 单击矩阵曲线行本体（含冻结的「选区内 → 只组合」）。 */
+/** ADR-0008 单击矩阵曲线行本体（命中 ∈ 选区 = 框选行）。 */
 export function curveToolClickOps(
   input: {
     notes: ChartNote[];
@@ -262,7 +262,9 @@ export function curveToolClickOps(
   const { notes, hit, pos, selectedItems, beatDisplay } = input;
   const hitInSelection = hit !== null && selectedItems.some(it => sameSelectionItem(it, hit));
   if (hitInSelection) {
-    const ops = combineOps(notes, selectedItems);
+    const ops = input.curveConfig
+      ? curveBoxOps(notes, selectedItems, input.curveConfig, beatDisplay)
+      : combineOps(notes, selectedItems);
     if (ops.length > 0) return ops;
   }
   if (hit && hit.kind === 'slideRegion' && input.curveConfig) {

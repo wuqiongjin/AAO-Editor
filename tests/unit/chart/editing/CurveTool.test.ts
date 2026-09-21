@@ -59,8 +59,22 @@ describe('issue 09 · 按下仲裁：曲线工具态 = 画笔优先（ADR-0008 �
 
   it('无 Shift 按下 = 画笔起手（合法落点，音符上也可画）', () => {
     const p = at(3, 2);
-    const intent = resolvePressIntent({ ...base, cx: p.x, cy: p.y, armedTool: 'curve', deps: { geometry, viewport, beatDisplay: 4, notes: [] } });
+    const intent = resolvePressIntent({ ...base, cx: p.x, cy: p.y, armedTool: 'curve', deps: { geometry, viewport, beatDisplay: 4, notes: [] }, selectedItems: [] });
     expect(intent.kind).toBe('pen');
+  });
+
+  it('无 Shift 但命中 ∈ 选区 → 不启画笔（留给单击整片组合）', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 2, lane: 3, subBeat: 0 },
+      { type: 'Single', beat: 3, lane: 4, subBeat: 0 },
+    ];
+    const p = at(3, 2);
+    const intent = resolvePressIntent({
+      ...base, cx: p.x, cy: p.y, armedTool: 'curve',
+      deps: { geometry, viewport, beatDisplay: 4, notes },
+      selectedItems: [{ kind: 'note', noteIndex: 0 }, { kind: 'note', noteIndex: 1 }],
+    });
+    expect(intent.kind).toBe('marquee');
   });
 
   it('Shift 按下交还既有仲裁：音符上 = 拖拽（移动逃生口不受影响）', () => {

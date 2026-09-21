@@ -1,6 +1,7 @@
 // ADR-0008 §2 统一交互语义矩阵 + §3 执行键语义 的逐行锁表（矩阵唯一事实源 = ToolActionMatrix.ts）。
 // ⚠ 任何一行改动必须先修订 docs/adr/0008-工具交互机制.md，再同步本表（ADR-0008 §8 收口约定）。
 import { describe, it, expect } from 'vitest';
+import { DEFAULT_CURVE_CONFIG } from '@/src/chart/editing/CurveTool';
 import type { ChartNote, SelectionItem, SlideNote } from '@/src/chart/types';
 import {
   pointerClickSelection, clickOps, boxSelectOps, execSlideOps, execBpmOps, actionOnItemOps,
@@ -375,6 +376,18 @@ describe('issue 88 命中 ∈ 选区 → 整片执行', () => {
       expect(viaClick, `${tool}：单击路径必须与框选同源`).toEqual(boxSelectOps(tool, notes, sel));
       expect(viaClick.length, `${tool}：应真的产出 op`).toBeGreaterThan(0);
     }
+  });
+
+  it('curve：命中 ∈ 选区 → 与 Shift+框选同源（组合 + 刷当前缓动）', () => {
+    const notes: ChartNote[] = [single(1, 1), single(2, 2)];
+    const sel = noteSel(0, 1);
+    const viaClick = clickOps(input({
+      tool: 'curve', notes, hit: noteSel(0)[0], selectedItems: sel, pos: sp(1, 1),
+      curveConfig: DEFAULT_CURVE_CONFIG,
+    }));
+    expect(viaClick).toEqual(boxSelectOps('curve', notes, sel, [], DEFAULT_CURVE_CONFIG, 4));
+    expect(viaClick.some((o) => o.t === 'setNotes')).toBe(true);
+    expect(viaClick.some((o) => o.t === 'setCurveBuffer')).toBe(false);
   });
 
   it('paste：命中 ∈ 选区也照旧作用于**位置**（不参与整片）', () => {

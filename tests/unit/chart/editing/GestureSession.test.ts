@@ -397,3 +397,27 @@ describe('GestureSession · 画笔编排', () => {
     expect(s.getSnapshot().penActive).toBe(false);
   });
 });
+
+describe('GestureSession · 曲线点选区内', () => {
+  it('选区 ≥2 单击选区内音符 → 组合+刷缓动，不挂锚点、不清选区于按下', () => {
+    const notes = [bpmNote(0, 120), single(1, 1), single(2, 2)];
+    const { world, at, virt } = worldOf(notes, {
+      armedTool: 'curve',
+      selectedItems: [{ kind: 'note', noteIndex: 1 }, { kind: 'note', noteIndex: 2 }],
+    });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p = at(1, 1);
+    const down = press(s, p, virt);
+    expect(down.ops.some((op) => op.t === 'setSelection')).toBe(false);
+    const r = s.end(up(p));
+    expect(r.ops.some((op) => op.t === 'setCurveBuffer')).toBe(false);
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    const slide = setNotes.notes.find((n) => n.type === 'Slide') as Extract<ChartNote, { type: 'Slide' }> | undefined;
+    expect(slide).toBeTruthy();
+    expect(slide!.spanParams?.bySpan[0]).toMatchObject({ kind: 'easing', family: 'sine', type: 'in' });
+  });
+});
