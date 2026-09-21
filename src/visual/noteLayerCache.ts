@@ -48,6 +48,9 @@ interface Tile {
   surfaceW: number;
   bytes: number;
   empty: boolean;
+  /** issue 146：内容已被音符变更作废（旧位图不代表当前 notes）。位图留着当过渡帧，
+   *  重建产出的是没有本标记的新 Tile（`renderTile` 整块替换）。 */
+  dirty?: boolean;
 }
 
 /** 瓦片位图工厂：浏览器用 canvas，测试可注入假实现。
@@ -70,7 +73,10 @@ function drainOnePlayingTile() {
   const snap = playTileSnap;
   const id = playTileQueue.shift();
   if (id === undefined || !snap) return;
-  if (!tiles.has(id)) renderTile(id, snap.rc, snap.es);
+  const cur = tiles.get(id);
+  // issue 146：不再是「只有没建过的才补」——打脏的也要换下来，否则旧音符一直挂着。
+  if (cur && !cur.dirty) return;
+  renderTile(id, snap.rc, snap.es);
 }
 
 function schedulePlayTileDrain() {
@@ -85,7 +91,10 @@ function schedulePlayTileDrain() {
 function enqueuePlayingTiles(ids: number[], rc: RenderCtx, es: number) {
   playTileSnap = { rc, es };
   for (const id of ids) {
-    if (id < 0 || tiles.has(id)) continue;
+    if (id < 0) continue;
+    // issue 146：存在但未打脏的才跳过；打脏的要进队列换下来。
+    const cur = tiles.get(id);
+    if (cur && !cur.dirty) continue;
     if (!playTileQueue.includes(id)) playTileQueue.push(id);
   }
   schedulePlayTileDrain();
@@ -228,7 +237,20 @@ function invalidateTilesForBeatRange(minBeat: number, maxBeat: number, rc: Rende
   const { min, max } = rc.geometry.timeline.positionRangeOfBeats(Math.max(0, minBeat), Math.max(0, maxBeat));
   const margin = (VIEWPORT_PADDING + 48) / es;
   const { lo, hi } = tileIndexRange(min - margin, max + margin);
-  for (let id = lo; id <= hi; id++) tiles.delete(id);
+  // issue 146：**打脏而不是 `tiles.delete`**。播放帧的瓦片 miss 偏偏不做同步光栅
+  // （本文件下方 `drawNotesLayer` 的 playing 分支 —— 见 `e289e8e` defer play-time raster），
+  // 删除就等于「接下来若干帧这块瓦片没有任何像素」；而 margin = (VIEWPORT_PADDING+48)/es ≈ 248
+  // pos px 常常覆盖全部可见内容瓦片 → 用户看到的是**整屏音符消失一瞬**，任何编辑动作都触发。
+  // 打脏后本帧仍 blit 上一版位图（内容不新但连续），队列异步重建完换下。
+  for (let id = lo; id <= hi; id++) {
+    const t = tiles.get(id);
+    if (t) t.dirty = true;
+  }
+}
+
+/** issue 146：变更收敛不到拍区间（undo/redo 整份换引用等）—— 与上面同口径，全部打脏而非清空 */
+function markAllTilesDirty() {
+  for (const t of tiles.values()) t.dirty = true;
 }
 
 /** pos 空间可见范围（单一提供者 = ChartGeometry.posRange；viewportBounds 已含 VIEWPORT_PADDING 外扩） */
@@ -402,7 +424,7 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
   } else if (basis.notes !== nb.notes) {
     // F3：notes 引用变化 → 结构共享 diff，仅失效覆盖变更拍区间的瓦片
     const diff = diffNotes(basis.notes, rc.notes, rc.beatDisplay);
-    if (diff.kind === 'full') tiles.clear();
+    if (diff.kind === 'full') markAllTilesDirty();                                     // issue 146：不清空
     else if (diff.kind === 'range') invalidateTilesForBeatRange(diff.minBeat, diff.maxBeat, rc);
     basis = nb;
   }
@@ -421,12 +443,17 @@ export function drawNotesLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     const stale = !!t && !t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL;
     if (!t) {
       // 播放 miss 进队列；手势/静止仍同步现建。
+      // 完全没建过的瓦片没有旧位图可过渡 → 播放期那一帧确实没像素（保持现状，见 issue 101 起始口）。
       if (rc.playing) continue;
       t = renderTile(id, rc, es);
       rebuilt++;
-    } else if (stale && !rc.playing && performance.now() < rebuildBudgetUntil) {
-      t = renderTile(id, rc, es);
-      rebuilt++;
+    } else if (t.dirty || (stale && !rc.playing && performance.now() < rebuildBudgetUntil)) {
+      // issue 146：打脏的瓦片——静止/手势期同步重建（改了就立刻看得见，与旧行为一致）；
+      // 播放期让位给队列（`enqueuePlayingTiles` 已把它排进去），本帧 blit 旧位图过渡、不留下空白帧。
+      if (!rc.playing) {
+        t = renderTile(id, rc, es);
+        rebuilt++;
+      }
     }
     if (t.empty || !t.canvas) continue;
     if (Math.abs(es / t.refScale - 1) > STALE_TOL) staleBlit = true;
