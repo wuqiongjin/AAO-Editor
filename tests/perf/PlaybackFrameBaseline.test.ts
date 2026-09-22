@@ -1,34 +1,28 @@
 // issue 139 播放帧基线（测量，不是改造）。
 // node stub 没有 GPU 光栅：数字是 JS 调用次数 + renderChart 墙钟。真 60fps 仍靠页面。
-// 150030.json 不入库（同 issue 138）；仓库根没有该文件时本文件 skip。
+// 谱面 = tests/support/perfBackflowPlayback 合成 fixture（ADR 附录 A 时间轴 + 倒流窗 SP）。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { renderChart, visibleBeatRanges } from '@/src/visual/render';
 import { drawStaticLayer, resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/visual/staticLayerCache';
 import { resetNoteLayerCache, __setTileCanvasFactoryForTests } from '@/src/visual/noteLayerCache';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/visual/noteSkin';
-import { convertChartCodeToNotes, parseChartCodeFromJSON } from '@/src/chart/editing/ChartConverter';
 import { getBpmEvents, maxNoteEndSeconds } from '@/src/audio/AudioTiming';
 import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
 import { countNotesUpToBeat } from '@/src/chart/editing/NoteEditing';
 import { makeCountingCtx, makeCanvasStub, makeTallyingCanvasStub } from '@/tests/support/canvas';
 import type { RenderCtx } from '@/src/visual/types';
 import type { ChartNote } from '@/src/chart/types';
+import {
+  PERF_PLAYBACK_BEAT_DISPLAY, PERF_PLAYBACK_DPR, PERF_PLAYBACK_SURFACE,
+  buildBackflowPlaybackNotes,
+} from '@/tests/support/perfBackflowPlayback';
 
-const CHART_PATH = join(dirname(fileURLToPath(import.meta.url)), '../../150030.json');
-const SURFACE = { w: 750, h: 900 };
-const BEAT_DISPLAY = 4; // UIProvider 默认
+const SURFACE = PERF_PLAYBACK_SURFACE;
+const BEAT_DISPLAY = PERF_PLAYBACK_BEAT_DISPLAY;
 const EMPTY_SELECTED: never[] = [];
 const EMPTY_CLIPBOARD: never[] = [];
 const SHARED_NOTE_ICONS = buildActiveNoteIcons(normalizeNoteSkinSelection(undefined));
-const haveChart = existsSync(CHART_PATH);
-
-function loadChart(): ChartNote[] {
-  return convertChartCodeToNotes(parseChartCodeFromJSON(readFileSync(CHART_PATH, 'utf8')));
-}
 
 function makeRc(
   geometry: ChartGeometry,
@@ -59,14 +53,14 @@ function makeRc(
   };
 }
 
-describe.skipIf(!haveChart)('issue 139 · 播放帧基线（150030）', () => {
+describe('issue 139 · 播放帧基线（合成倒流 perf 谱）', () => {
   beforeEach(() => {
     resetStaticLayerCache();
     resetNoteLayerCache();
   });
 
-    it('仅 scrollY 变：静态层不每帧重建；同 scrollY 第二次命中', () => {
-    const notes = loadChart();
+  it('仅 scrollY 变：静态层不每帧重建；同 scrollY 第二次命中', () => {
+    const notes = buildBackflowPlaybackNotes();
     const bpm = getBpmEvents(notes);
     const duration = maxNoteEndSeconds(notes, BEAT_DISPLAY, bpm);
     const g = new ChartGeometry(bpm, { seconds: duration }, SURFACE, 1);
@@ -84,10 +78,9 @@ describe.skipIf(!haveChart)('issue 139 · 播放帧基线（150030）', () => {
     const frames = 60;
     const t0 = 4.8;
     const dt = 1 / 60;
-    const dpr = 2.5;
+    const dpr = PERF_PLAYBACK_DPR;
     const bitmapPx = Math.round(SURFACE.w * dpr) * Math.round(SURFACE.h * dpr);
 
-    // 热身一帧（瓦片/几何索引）后再计播放窗，避免把首帧建缓存算进滚动地板
     renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g, notes, model.scrollYForSeconds(t0), dpr));
     resetStaticLayerCache();
     staticDraws.n = 0;
@@ -163,8 +156,6 @@ describe.skipIf(!haveChart)('issue 139 · 播放帧基线（150030）', () => {
 
     expect(firstAtSame).toBeGreaterThan(0);
     expect(secondAtSame).toBe(0);
-    // 修前：60/60 重建（上面 JSON 的 staticRebuildFrames）。修后这条会掉下来；
-    // 锁测 1（仅 scrollY 变不得 renderGrid）另加，不把「每帧 miss」焊死在本文件。
     expect(rebuildFrames).toBeLessThan(frames);
     expect(fullRebuilds).toBeLessThan(frames);
   });

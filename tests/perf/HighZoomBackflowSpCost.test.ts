@@ -1,40 +1,30 @@
-// issue 140：高倍倒流 SP 扫描线仍贵；播放热身只 blit。150030.json 不入库。
+// issue 140：高倍倒流 SP 扫描线仍贵；播放热身只 blit。谱面 = tests/support/perfBackflowPlayback 合成 fixture。
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { ChartGeometry, LANE_WIDTH } from '@/src/chart/geometry/ChartGeometry';
 import { makeCoords } from '@/src/visual/coords';
 import { rasterBandRuns, splitBandAtFolds } from '@/src/visual/slideBandGeometry';
 import { isSpRegion, projectedSlideSpans } from '@/src/chart/editing/SlideSegments';
-import { convertChartCodeToNotes, parseChartCodeFromJSON } from '@/src/chart/editing/ChartConverter';
-import { getBpmEvents, maxNoteEndSeconds } from '@/src/audio/AudioTiming';
 import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
-import { TILE_PX, clipTileDrawRect, resetNoteLayerCache, __setTileCanvasFactoryForTests, __getLastNoteLayerStats, __flushPlayingTileQueueForTests, posRangeOf, tileIndexRange, tileBlitRect } from '@/src/visual/noteLayerCache';
+import {
+  TILE_PX, clipTileDrawRect, resetNoteLayerCache, __setTileCanvasFactoryForTests, __getLastNoteLayerStats,
+  __flushPlayingTileQueueForTests, posRangeOf, tileIndexRange, tileBlitRect,
+} from '@/src/visual/noteLayerCache';
 import { makeCountingCtx, makeCanvasStub } from '@/tests/support/canvas';
 import { renderChart } from '@/src/visual/render';
 import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/visual/staticLayerCache';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/visual/noteSkin';
 import type { RenderCtx } from '@/src/visual/types';
 import type { ChartNote, SlideNote } from '@/src/chart/types';
+import {
+  BACKFLOW_RASTER_PROFILE, BACKFLOW_RASTER_RGB, PERF_PLAYBACK_BEAT_DISPLAY, PERF_PLAYBACK_DPR,
+  PERF_PLAYBACK_SURFACE, buildBackflowPlaybackNotes, geometryForBackflowPlayback,
+} from '@/tests/support/perfBackflowPlayback';
 
-const CHART_PATH = join(dirname(fileURLToPath(import.meta.url)), '../../150030.json');
-const SURFACE = { w: 750, h: 900 };
-const BEAT_DISPLAY = 4;
-const DPR = 2.5;
-const PROFILE = [0.38, 0.38, 0.39, 0.40, 0.41, 0.43, 0.45, 0.48, 0.52, 0.56, 0.61, 0.67, 0.74, 0.82, 0.89, 0.62, 0.25];
-const RGB = [0x4b, 0xe3, 0x71] as const;
-const haveChart = existsSync(CHART_PATH);
-
-function loadChart(): ChartNote[] {
-  return convertChartCodeToNotes(parseChartCodeFromJSON(readFileSync(CHART_PATH, 'utf8')));
-}
-
-function geometryFor(notes: ChartNote[], userScale: number): ChartGeometry {
-  const bpm = getBpmEvents(notes);
-  const duration = maxNoteEndSeconds(notes, BEAT_DISPLAY, bpm);
-  return new ChartGeometry(bpm, { seconds: duration }, SURFACE, userScale);
-}
+const SURFACE = PERF_PLAYBACK_SURFACE;
+const BEAT_DISPLAY = PERF_PLAYBACK_BEAT_DISPLAY;
+const DPR = PERF_PLAYBACK_DPR;
+const PROFILE = BACKFLOW_RASTER_PROFILE;
+const RGB = BACKFLOW_RASTER_RGB;
 
 type RasterJob = { runs: { x: number; y: number }[][]; half: number; pts: number };
 
@@ -84,11 +74,12 @@ function rasterJobs(
   return { ms: performance.now() - t0, px };
 }
 
-describe.skipIf(!haveChart)('issue 140 · 高倍倒流 SP 成本', () => {
+describe('issue 140 · 高倍倒流 SP 成本', () => {
+  const notes = buildBackflowPlaybackNotes();
+
   it('es=3 折返扫描线比非折返贵、比 es=1 像素多', () => {
-    const notes = loadChart();
-    const g1 = geometryFor(notes, 1);
-    const g3 = geometryFor(notes, 3);
+    const g1 = geometryForBackflowPlayback(notes, 1);
+    const g3 = geometryForBackflowPlayback(notes, 3);
     const viewClip = { minX: 0, minY: 0, maxX: SURFACE.w, maxY: SURFACE.h };
 
     const measure = (g: ChartGeometry, scale: number, seconds: number) => {
@@ -108,8 +99,7 @@ describe.skipIf(!haveChart)('issue 140 · 高倍倒流 SP 成本', () => {
   });
 
   it('es=3 折返播放热身后 rebuilt=0，裁切 blit 面积 ≤ 视口 × 瓦片张数', () => {
-    const notes = loadChart();
-    const g = geometryFor(notes, 3);
+    const g = geometryForBackflowPlayback(notes, 3);
     const es = g.effectiveScale(3);
     const model = new PlaybackScrollModel(g, es);
     resetNoteLayerCache();
