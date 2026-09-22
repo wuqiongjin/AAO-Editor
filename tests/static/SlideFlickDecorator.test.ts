@@ -9,15 +9,19 @@
 import { describe, it, expect } from 'vitest';
 import { readSource } from '@/tests/support/source';
 
+/** 仓库 render.ts 为 CRLF；断言用 LF 再抽函数体，避免 \n}\n 匹配失败 */
+function renderSlideBodySource(src: string): string {
+  const norm = src.replace(/\r\n/g, '\n');
+  const m = norm.match(/function\s+renderSlideBody[\s\S]*?\n\}\n/);
+  expect(m, 'render.ts 应存在 renderSlideBody 函数').toBeTruthy();
+  return m![0];
+}
+
 describe('renderSlideBody flick 装饰箭头', () => {
   const src = readSource('src/visual/render.ts');
 
   it('renderSlideBody 体内应存在对 conn.flick 的 renderDecorator 调用', () => {
-    // 抽出 renderSlideBody 函数体（从签名到下一个 export/function 之前）
-    const m = src.match(/function\s+renderSlideBody[\s\S]*?\n\}\n/);
-    expect(m, 'render.ts 应存在 renderSlideBody 函数').toBeTruthy();
-    const body = m![0];
-
+    const body = renderSlideBodySource(src);
     // 1) 必须出现 renderDecorator 调用
     expect(body).toMatch(/spriteIcon\.renderDecorator\s*\(/);
     // 2) 这个调用必须在 conn.flick 分支内(不能无条件调,否则会把装饰箭头糊在所有端点)
@@ -32,8 +36,7 @@ describe('renderSlideBody flick 装饰箭头', () => {
   });
 
   it('装饰箭头只给**端点**补（issue 145 #3：中间结点的 flick 不画箭头）', () => {
-    const m = src.match(/function\s+renderSlideBody[\s\S]*?\n\}\n/);
-    const body = m![0];
+    const body = renderSlideBodySource(src);
     const decCall = body.match(/spriteIcon\.renderDecorator\s*\(/);
     expect(decCall).toBeTruthy();
     const recent = body.slice(0, decCall!.index!).slice(-300);
@@ -43,9 +46,7 @@ describe('renderSlideBody flick 装饰箭头', () => {
   });
 
   it('renderSlideBody 内应使用 icons.flickTopDecorator 作为装饰器源', () => {
-    const m = src.match(/function\s+renderSlideBody[\s\S]*?\n\}\n/);
-    expect(m).toBeTruthy();
-    const body = m![0];
+    const body = renderSlideBodySource(src);
     // 守卫外应先把 icons.flickTopDecorator 取出来,函数内再传给 renderDecorator
     expect(body).toMatch(/flickTopDecorator/);
   });

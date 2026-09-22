@@ -7,7 +7,7 @@ import { findItemAt } from '@/src/visual/hitTest';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/visual/noteSkin';
 import {
   drawNotesLayer, resetNoteLayerCache, tileIndexRange, tileBlitRect, posRangeOf,
-  TILE_PX, __setTileCanvasFactoryForTests,
+  TILE_PX, __setTileCanvasFactoryForTests, __flushPlayingTileQueueForTests, __getLastNoteLayerStats,
 } from '@/src/visual/noteLayerCache';
 import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/visual/staticLayerCache';
 import { makeCoords } from '@/src/visual/coords';
@@ -630,7 +630,7 @@ describe('issue 101 · 换肤全量失效后的播放滚动帧', () => {
     vi.restoreAllMocks();
   });
 
-  it('瓦片缓存全量失效后，播放帧每帧 renderTile 次数受帧预算约束', () => {
+  it('换肤全量失效后播放帧不同步光栅，miss 瓦片进队列再渐进建', () => {
     const chartEndBeat = 1500;
     const notes = makeDenseNotes(5000, chartEndBeat);
     const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
@@ -663,8 +663,11 @@ describe('issue 101 · 换肤全量失效后的播放滚动帧', () => {
       skinVersion: 1,
     }));
 
+    // issue 140：播放 RAF 不进同步 renderTile（issue 101 意图 = 不在滚动帧付整屏光栅）
+    expect(tileCreates).toBe(0);
+    expect(__getLastNoteLayerStats().rebuilt).toBe(0);
+
+    __flushPlayingTileQueueForTests();
     expect(tileCreates).toBeGreaterThan(0);
-    expect(tileCreates).toBeLessThan(restCreates);
-    expect(tileCreates).toBeLessThanOrEqual(1);
   });
 });
