@@ -111,11 +111,12 @@
 /* ---- SidebarItem（4 页统一视觉密度）---- */
 .app-page-shell__sidebar-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   min-height: 34px;
-  padding: 0 12px;
+  padding: 7px 12px;
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
@@ -141,16 +142,32 @@
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: var(--accent-soft);
   color: var(--accent-text);
-  font-weight: 650;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
-/* 选中态图标轻微缩放（主导航不缩放是刻意的：避免"工作台"常选图标偏大破坏列一致性） */
 .app-page-shell__sidebar-item svg {
-  transition: transform var(--dur) var(--ease);
+  flex-shrink: 0;
+  margin-top: 1px;
+  opacity: 0.75;
 }
+
 .app-page-shell__sidebar-item.is-active svg {
-  transform: scale(1.08);
+  opacity: 1;
+}
+
+.app-page-shell__sidebar-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+/* 选中态：字重与未选相同（A）；B = 假粗 text-shadow，不占排版宽度 */
+.app-page-shell__sidebar-item.is-active .app-page-shell__sidebar-item-label {
+  color: var(--accent-text);
+  text-shadow:
+    0.025em 0 0 currentColor,
+    -0.025em 0 0 currentColor;
 }
 
 .app-page-shell__sidebar-item:focus-visible {

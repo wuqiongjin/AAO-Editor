@@ -144,6 +144,8 @@
 - **146 播放中放置音符全谱闪烁**（[146](./issues/146-播放中放置音符全谱闪烁.md)）—— **resolved（2026-09-22 实现 + 锁测 + 用户页面验收通过）**：用户确认 = 「整屏音符消失一瞬」且**任何编辑**都触发。探针实测：改一个音符 blitted 2→**0**、整份换引用 tiles→0，根因 = 播放帧瓦片 miss 不同步补（`e289e8e`），而失效余量 `(VIEWPORT_PADDING+48)/es ≈ ±248 pos px` 常盖掉全部可见内容瓦片。**改成什么** = 失效改为**打脏 + 保留旧位图**，本帧 blit 过渡、队列异步换下；静止/手势期仍同步重建；播放 present 帧仍不付光栅。**遗留**：`RendererPerf` 的「issue 101 换肤全量失效」用例在动手前已红（issue 101/140 口径漂移），待另行拍板。
 - **147 滑键带 skill 不该变技能键样式**（[147](./issues/147-滑键携带skill的样式口径.md)）—— **resolved（2026-09-22 实现 + 锁测 + 用户页面验收通过）**：用户 Q1=①+④，口径 =「音符同时带 flick+skill 时**一律 flick 胜出**」，数据沿用 145 #3 保留原样。**改成什么** = `slideNodeIconConfig` 端点覆盖顺序改 flick 先（此前 skill 盖 flick，与单键相反 —— 真偏差点），幽灵预览的重复判链并入 `singleIconConfig`（① 现状已符合，本次只锁死不许漂）。锁测 9 例，回退源码实测端点那条 1 红。
 - **148 播放 perf 锁测合成 fixture 重构**（[148](./issues/148-播放perf锁测合成fixture重构.md)，`Type: chore`，**resolved 2026-09-22**）—— **改成什么** = `perfBackflowPlayback.ts` 合成谱 + 共享 fold 几何；`PlaybackFrameBaseline` / `HighZoomBackflowSpCost` 不再 skip；`150030.json` 仅本地 fetch 对照、gitignore。
+- **149 2026-09-22 验收缺陷批次**（[149](./issues/149-2026-09-22验收缺陷批次.md)，`Type: bug`，resolved）—— **改成什么** = pill「使用中」；侧栏换行一致+选中 accent/600；右栏删多选详情；皮肤预览无 N 项统计；`pack.*` 统一键音/皮肤「使用此包」。
+- **150 快捷键恢复默认与搜索交集**（[150](./issues/150-快捷键恢复默认与搜索交集.md)，`Type: grilling`，resolved）—— **定了什么** = 有搜索词时恢复默认只跟可见可改行（B）。
 
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 

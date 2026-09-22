@@ -151,10 +151,19 @@ export default function ShortcutsPage() {
     return shortcutTableEmptyKind(bucketHits, visible.length + visiblePageSwitch.length);
   }, [indexFilter, config, visible.length, visiblePageSwitch.length]);
 
+  const searchActive = query.trim().length > 0;
+
   const restorableCount = useMemo(
-    () => filterFunctions(FUNCTIONS, indexFilter, '', config).length,
-    [indexFilter, config],
+    () => (searchActive
+      ? visible.length
+      : filterFunctions(FUNCTIONS, indexFilter, '', config).length),
+    [searchActive, visible.length, indexFilter, config],
   );
+
+  const resetTitle = useMemo(() => {
+    if (searchActive) return t('shortcuts.resetSearch');
+    return indexFilter === 'all' ? t('shortcuts.resetAll') : t('shortcuts.resetBucket');
+  }, [searchActive, indexFilter]);
 
   const commit = (id: FunctionId, binding: string) => {
     const next = { ...config };
@@ -204,10 +213,11 @@ export default function ShortcutsPage() {
             className="button-secondary"
             type="button"
             disabled={restorableCount === 0}
-            title={indexFilter === 'all' ? t('shortcuts.resetAll') : t('shortcuts.resetBucket')}
+            title={resetTitle}
             onClick={() => {
               setError(null);
-              setShortcutConfig(restoreDefaultsInFilter(config, indexFilter));
+              const onlyIds = searchActive ? visible.map((f) => f.id) : undefined;
+              setShortcutConfig(restoreDefaultsInFilter(config, indexFilter, FUNCTIONS, getDefaultConfig(), onlyIds));
             }}
           ><RotateCcw size={15} />{t('shortcuts.reset')}</button>
         </div>

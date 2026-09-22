@@ -209,8 +209,8 @@ function KeySoundSection() {
                   <strong>{t(`keysound.pack.${set.id}` as MessageKey)}</strong>
                   {/* 使用中 = is-active pill，未使用 = 可点击 pill */}
                   {active ? (
-                    <span className="skin-pill is-active" aria-label={t('audio.inUseAria')}>
-                      <Check size={12} />{t('audio.inUse')}
+                    <span className="skin-pill is-active" aria-label={t('pack.inUseAria')}>
+                      <Check size={12} />{t('pack.inUse')}
                     </span>
                   ) : (
                     <button
@@ -218,7 +218,7 @@ function KeySoundSection() {
                       className="skin-pill"
                       onClick={() => session.setKeySetId(set.id)}
                     >
-                      {t('audio.usePack')}
+                      {t('pack.useThis')}
                     </button>
                   )}
                 </div>

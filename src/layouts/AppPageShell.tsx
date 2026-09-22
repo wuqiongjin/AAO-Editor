@@ -87,7 +87,7 @@ function SidebarItem({ icon: Icon, label, active, onClick }: SidebarItemProps) {
       onClick={onClick}
     >
       <Icon size={17} />
-      <span>{label}</span>
+      <span className="app-page-shell__sidebar-item-label">{label}</span>
     </button>
   );
 }

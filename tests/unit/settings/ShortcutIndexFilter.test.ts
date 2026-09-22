@@ -102,6 +102,26 @@ describe('issue 121 · 恢复默认跟当前桶', () => {
     expect(next.play).toBe(' ');
     expect(next.switchSingle).toBeNull();
   });
+
+  it('issue 150 · 有搜索交集时只重置 onlyIds 中的项', () => {
+    const dirty = getDefaultConfig();
+    dirty.copy = 'x';
+    dirty.paste = 'y';
+    dirty.cut = 'z';
+    const next = restoreDefaultsInFilter(dirty, 'editTools', FUNCTIONS, getDefaultConfig(), ['copy']);
+    expect(next.copy).toBe(getDefaultConfig().copy);
+    expect(next.paste).toBe('y');
+    expect(next.cut).toBe('z');
+  });
+
+  it('issue 150 · onlyIds + 全部桶不整表恢复', () => {
+    const dirty = getDefaultConfig();
+    dirty.play = 'p';
+    dirty.copy = 'x';
+    const next = restoreDefaultsInFilter(dirty, 'all', FUNCTIONS, getDefaultConfig(), ['copy']);
+    expect(next.copy).toBe(getDefaultConfig().copy);
+    expect(next.play).toBe('p');
+  });
 });
 
 describe('issue 121 · 筛选不写入设置对象', () => {

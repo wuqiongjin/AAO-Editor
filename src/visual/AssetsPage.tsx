@@ -114,8 +114,8 @@ function NoteSkinPanel() {
                       <strong>{pack.label}</strong>
                       {/* 整包预设用 .skin-pill（与键音素材包统一规格）*/}
                       {active ? (
-                        <span className="skin-pill is-active" aria-label={t('assets.presetInUseAria')}>
-                          <Check size={12} />{t('assets.presetInUse')}
+                        <span className="skin-pill is-active" aria-label={t('pack.inUseAria')}>
+                          <Check size={12} />{t('pack.inUse')}
                         </span>
                       ) : (
                         <button
@@ -123,7 +123,7 @@ function NoteSkinPanel() {
                           className="skin-pill"
                           onClick={() => applyPreset(pack.id, pack.pairedDir)}
                         >
-                          {t('assets.applyPreset')}
+                          {t('pack.useThis')}
                         </button>
                       )}
                     </div>

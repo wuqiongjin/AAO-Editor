@@ -1,7 +1,7 @@
 // 快捷键页「索引筛选」粗桶（issue 121）。
 // 与 ADR-0002 的 category（tooltip 细分组：单键 / 复制 / …）分名、分表，禁止混用。
 import { t, type MessageKey } from '../i18n';
-import { FUNCTIONS, getDefaultConfig, type FunctionDef, type ShortcutConfig } from '../chart/config/ShortcutConfig';
+import { FUNCTIONS, getDefaultConfig, type FunctionDef, type FunctionId, type ShortcutConfig } from '../chart/config/ShortcutConfig';
 
 export type IndexFilterId = 'all' | 'system' | 'noteTools' | 'editTools' | 'playback' | 'other';
 
@@ -92,6 +92,7 @@ export function shortcutTableEmptyKind(
 
 /**
  * 「恢复默认」跟当前索引筛选：全部 = 整表出厂；其它桶只重置该桶可改 FunctionId。
+ * issue 150：非空 onlyIds（搜索可见可改行）时只重置该集合，仍走桶外卸占用逻辑。
  * 切页五行不在配置里。若桶外功能占着本桶出厂键，先卸掉以免一键两功能。
  */
 export function restoreDefaultsInFilter(
@@ -99,9 +100,13 @@ export function restoreDefaultsInFilter(
   filter: IndexFilterId,
   fns: readonly FunctionDef[] = FUNCTIONS,
   defaults: ShortcutConfig = getDefaultConfig(),
+  onlyIds?: Iterable<FunctionId>,
 ): ShortcutConfig {
-  if (filter === 'all') return { ...defaults };
-  const ids = new Set(
+  const scoped = onlyIds ? new Set(onlyIds) : null;
+  if (!scoped) {
+    if (filter === 'all') return { ...defaults };
+  }
+  const ids = scoped ?? new Set(
     fns.filter((f) => bucketForCategory(f.category) === filter).map((f) => f.id),
   );
   if (ids.size === 0) return { ...cfg };

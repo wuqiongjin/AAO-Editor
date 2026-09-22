@@ -13,13 +13,12 @@ import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import {
   buildActiveNoteIcons,
   listNoteSkinPacks,
-  DEFAULT_NOTE_SKIN_SELECTION,
   type NoteSkinItemId,
   type NoteSkinSelection,
 } from '../../visual/noteSkin';
 // 单格画布尺寸与 Slide 列布局几何在 `./noteSkinPreviewLayout`（纯模块；react-refresh 规则要求组件文件只导出组件）
 import { PREVIEW_CELL_W, PREVIEW_CELL_H, computeSlideColLayout, SLIDE_PREVIEW_NODE_SCALE } from './noteSkinPreviewLayout';
-import { getActiveUiLanguage, t, tPlural, type MessageKey } from '../../i18n';
+import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
 
 interface ColMeta {
   item: NoteSkinItemId;
@@ -34,8 +33,6 @@ const COLS: ColMeta[] = [
   { item: 'dirR', labelKey: 'skin.dirR' },
   { item: 'slide', labelKey: 'skin.slide' },
 ];
-
-const NOTE_SKIN_ITEM_IDS_FOR_LABEL = ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide'] as const;
 
 /** 单格预览绘制（按 entry 类型） */
 function drawPreviewSprite(
@@ -114,11 +111,11 @@ function drawPreviewSprite(
 /** 解析"当前组合"为面向用户的简短摘要。
  * 用户视角 = 1 套皮肤（可能带微调）：
  *   - 6 条目完全命中某个整包预设（皮肤名）→ 标题=该整包名，副标="整包应用"
- *   - 否则 = "已自定义" → 标题="已自定义"，副标="N 项被调整"
+ *   - 否则 → 标题="已自定义"（不统计偏离条目数，issue 149）
  * 不暴露"方向 vs 普通"这种底层包分类——按条目覆盖区按 eligibility 自动分流即可。
  * 同编号方向 vs 普通包用户视角下是 1 套皮肤，故命中只要 note id + 配对方向 id 共同一致。
  */
-function summarizeSelection(selection: NoteSkinSelection): { title: string; subtitle: string; customized: boolean } {
+function summarizeSelection(selection: NoteSkinSelection): { title: string; subtitle: string } {
   const packs = listNoteSkinPacks();
   const notePacks = packs.filter((p) => p.kind === 'note');
   // 6 条目完全 = 某 note 整包 + 配对方向包 → 命中该整包预设
@@ -128,18 +125,9 @@ function summarizeSelection(selection: NoteSkinSelection): { title: string; subt
     return true;
   }) ?? null;
   if (matched) {
-    return { title: matched.label, subtitle: t('assets.preview.presetApplied'), customized: false };
+    return { title: matched.label, subtitle: t('pack.presetActive') };
   }
-  // 未命中：vs 默认偏离的条目数
-  const defaults = DEFAULT_NOTE_SKIN_SELECTION;
-  const overriddenCount = (NOTE_SKIN_ITEM_IDS_FOR_LABEL as readonly NoteSkinItemId[]).filter(
-    (k) => selection[k] !== defaults[k],
-  ).length;
-  return {
-    title: t('assets.preview.custom'),
-    subtitle: tPlural('assets.preview.overridden', overriddenCount),
-    customized: true,
-  };
+  return { title: t('assets.preview.custom'), subtitle: '' };
 }
 
 export default function NoteSkinPreview({
@@ -188,7 +176,9 @@ export default function NoteSkinPreview({
       <div className="skin-live-preview-head">
         <span className="skin-live-preview-eyebrow">{t('assets.preview.current')}</span>
         <strong className="skin-live-preview-title">{summary.title}</strong>
-        <span className={`skin-live-preview-subtitle${summary.customized ? ' is-modified' : ''}`}>{summary.subtitle}</span>
+        {summary.subtitle ? (
+          <span className="skin-live-preview-subtitle">{summary.subtitle}</span>
+        ) : null}
         <span className="skin-live-preview-meta">{t('assets.preview.meta', { count: COLS.length })}</span>
       </div>
       <div className="skin-col-grid" role="grid">
