@@ -2,7 +2,7 @@
 
 Type: grilling
 Label: wayfinder:grilling
-Status: open
+Status: resolved
 Blocked by: 02
 
 ## Question
@@ -19,3 +19,11 @@ Blocked by: 02
 落到谱面时，这条 BPM 的 beat 仍用现有时间轴把范围起点的秒换算到作者轴。这一步是编辑器里已有的换算，不是识别器的输出。
 
 推荐：这一版只写范围开头那一条常速 BPM。变速分段不进入当前的 BPM 自动识别。
+
+## Answer
+
+定案（用户 2026-09-23）：识别器的产物是一个正的常速 BPM，不写出变速位置。
+
+智能制谱不在生成时把这个数写成 BPM 线。它成为 AI 提案开头那条暂定 BPM 的初值。提案在接受前，音符和暂定 BPM 都在播放时钟的秒上；接受时才折成作者轴上的 beat 并写入谱面代码。术语见 `CONTEXT.md` 的「暂定 BPM / AI 提案 / 接受」。
+
+单独暴露给用户的交互不在本票，见 [06 · BPM 自动识别独立模块](./06-BPM自动识别独立模块.md)。
