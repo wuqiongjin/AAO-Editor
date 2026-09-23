@@ -16,7 +16,36 @@
 | 脚本 | 对象 | 搜索 | 拉取谱面 | 音频（`--audio`） |
 | --- | --- | --- | --- | --- |
 | `fetch-bestdori-official.mjs` | 曲库 `songId` + 难度 | `--search <曲名>` | `GET /api/charts/...` | 官方 BGM |
-| `fetch-bestdori-community.mjs` | 社区帖 `postId` | `--search <关键字>` | `GET /api/post/details` | custom / bandori |
+| `fetch-bestdori-community.mjs` | 社区帖 `postId` | `--search` / `--username` | `GET /api/post/details` | custom / bandori |
+| `fetch-chart-corpus.mjs` | 批量语料（官方+社区混合） | `--username` / 全库抽样 | 批量 `post/details` / `charts` | — |
+
+按谱师取谱（`post/list` 的 `username` 字段，未文档化，实测见
+[bestdori-api.md §2.1](../docs/research/bestdori-api.md)）：
+
+```bash
+# 只列清单（postId / 难度 / level / 时间）
+node scripts/fetch-bestdori-community.mjs --username Envy09 --limit all
+node scripts/fetch-bestdori-community.mjs --username Envy09 --search GYARI --json
+
+# 等级 / 难度过滤（客户端过滤：Bestdori 无服务端字段，见 bestdori-api.md §2.2）
+node scripts/fetch-bestdori-community.mjs --username Envy09 --min-level 30 --diff special
+node scripts/fetch-bestdori-community.mjs --min-level 39 --limit 5 --scan-limit 600
+
+# 批量下载谱面本体：--download-dir 显式开启（并发 + 磁盘缓存 + index.json）
+node scripts/fetch-bestdori-community.mjs --username Envy09 --limit all \
+  --download-dir .cache/charts-Envy09
+```
+
+**批量抓取的分工**：并发池、磁盘缓存、`index.json` manifest 只实现一份，在
+`lib/bestdori-cache.mjs`，两个入口共用（不做「超过 N 张自动切换」的隐式行为）：
+
+| 入口 | 负责 | 适合 |
+| --- | --- | --- |
+| `fetch-bestdori-community.mjs --download-dir` | 把**当前列表结果**下载下来 | 「把这个谱师的谱全抓了」 |
+| `fetch-chart-corpus.mjs` | **枚举目标**（官方难度过滤 / 社区分层抽样）+ 下载 | 压力测试语料、跨官方+社区的大批量采样 |
+
+缓存语义：谱面本体发布后不可再编辑（`/api/post/edit` 的 body 无 `chart` 字段），按字节缓存安全；
+但 level / diff / rating / tags / likes 可被作者事后修改，缓存里这些是抓取时刻的快照，要最新用 `--refresh`。
 
 示例：
 

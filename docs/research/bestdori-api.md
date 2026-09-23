@@ -76,8 +76,9 @@ JSON body（实测约束）：
 | `categoryName` | ✅ | `SELF_POST` |
 | `categoryId` | ✅ | `chart` |
 | `order` | ✅ | `TIME_DESC` / `TIME_ASC` 实测可用；`LIKE_DESC` 返回 `REQUEST_INVALID` |
-| `limit` | ✅ | **10..100**（4、5 拒绝；10、20、50 通过；101 拒绝） |
+| `limit` | ✅ | **10..50**（2026-09-23 复测：9 拒、10 过、50 过、51/60/75/100 拒；本文 2026-09-12 初版记的「100 通过」已失效，按 50 实现） |
 | `offset` | ✅ | 翻页偏移，缺省也拒绝 |
+| `username` | ❌ | **未文档化字段，2026-09-23 实测可用**：按谱师账号名过滤，见 §2.1 |
 
 响应：
 
@@ -96,6 +97,39 @@ JSON body（实测约束）：
 ```
 
 `song` 三种形态：`custom`（用户上传音频+封面，直链）／`bandori`（Bestdori 官方曲库，`{type,id}`）／`llsif`（LoveLive 曲库）。列表**不含谱面数据本体**，需再取详情。
+
+### §2.1 按谱师列出作品：`username` 字段（2026-09-23 实测）
+
+`post/list` 的 body 额外接受 `username`（前端 bundle 未走这个参数，Python/Go wrapper 也未收录；由本仓库实测发现）。实测结果：
+
+| 验证项 | 结果 |
+| --- | --- |
+| 过滤生效 | `{"search":"","username":"Envy09",...}` → `count: 421`，返回项 `author.username` 全为 `Envy09` |
+| `count` 语义 | 是**过滤后**的总数（不是全站 47607），可直接用来判断翻页终点 |
+| 分页 | ✅ `offset` 在过滤结果内偏移；`offset=415,limit=10` → 剩 6 条正常收尾；`limit` 仍是 10..100 |
+| 大小写 | ✅ 不敏感（`nanako77` / `NANAKO77` 都命中 `Nanako77` 的 9 条） |
+| 与 `search` 组合 | ✅ AND 语义（`username=Envy09` + `search=GYARI` → 3 条） |
+| 传昵称 | ❌ `nickname`（如 `瓦彩蛇`）不命中，非 ASCII 会被拒（`REQUEST_INVALID`）——只能用账号名 |
+| 字段名写 `author` | ❌ `REQUEST_INVALID`，必须是 `username` |
+
+取某谱师全部作品 = `search:""` + `username` 翻页到 `count`，再按 `postId` 逐个取 `post/details`。
+
+### §2.2 等级 / 难度只能在客户端过滤（2026-09-24 实测）
+
+`post/list` **没有任何服务端等级或难度过滤字段**。探测方式是「未知字段会被拒」——body 里多传一个不认识的键就返回 `REQUEST_INVALID`，所以拒绝即等于字段不存在。实测全被拒：
+
+| 探测字段 | 结果 |
+| --- | --- |
+| `level` / `minLevel` / `maxLevel` / `levelMin` / `levels` / `minLv` / `maxLv` / `diffLevel` | `REQUEST_INVALID` |
+| `diff` / `difficulty` | `REQUEST_INVALID` |
+| `rating` / `tags` | `REQUEST_INVALID` |
+| `order` = `LEVEL_DESC` / `LEVEL_ASC` / `DIFF_DESC` / `LIKE_ASC` / `RANDOM` | `REQUEST_INVALID`（只有 `TIME_DESC` / `TIME_ASC` 可用） |
+| `GET /api/post/tag?type=level&data=28` | `{"result":true,"tags":[]}`（tag 只有 text 类型，不存等级） |
+| 对照：`limit=50` 基线 | `count=47608`，返回项 level 3–35、diff 1–4 |
+
+合法字段只有：`search` / `categoryName` / `categoryId` / `order` / `limit` / `offset` / `username`（§2.1）。
+
+所以等级筛选必须在客户端按 `post.level` / `post.diff` 过滤，且要**一直翻页**直到凑够条数（带 `username` 时作品总数有限，过滤是精确的；全库场景则可能需要扫很多页，需设扫描上限）。
 
 ### GET `/api/post/details?id={id}`
 
@@ -136,7 +170,7 @@ JSON body（实测约束）：
 - **发布**：`POST /api/post`，JSON body：
   `{title, artists, diff(0..4?), level(1..35?), chart(谱面代码数组), content(富文本块数组, ≤5000 字符), categoryName:"SELF_POST", categoryId:"chart", tags[], song}`，
   `song` = `{type:"custom", audio:"https://bestdori.com/api/upload/file/{hash}", cover:"…"}` 或 `{type:"bandori", id}`。响应返回新帖 id。需登录。
-- **编辑**：`POST /api/post/edit` `{id, diff, level, rating, warningViolence, warningDeath, warningNonCon, warningUnderage, tags}`。
+- **编辑**：`POST /api/post/edit` `{id, diff, level, rating, warningViolence, warningDeath, warningNonCon, warningUnderage, tags}`。**body 里没有 `chart` → 谱面本体发布后不可再改**，只有 diff / level / rating / 警告标记 / tags 能事后修改。这决定了本地缓存语义：谱面字节可安全缓存，元数据只是抓取时刻的快照。
 - **点赞**：`POST /api/post/like` `{id, value}`。评论即回复帖（`categoryName:"POST_COMMENT"`，如 `categoryId=父帖id`）。
 
 ## 6. 资源 URL 模式（官方曲库素材）
@@ -154,6 +188,7 @@ JSON body（实测约束）：
 
 - 官方：`node scripts/fetch-bestdori-official.mjs --search <曲名>` → `node scripts/fetch-bestdori-official.mjs <songId> <diff> [-o chart.json] [--audio]`
 - 社区：`node scripts/fetch-bestdori-community.mjs --search <关键字>` → `node scripts/fetch-bestdori-community.mjs <postId> [-o chart.json] [--audio]`
+- 按谱师：`node scripts/fetch-bestdori-community.mjs --username <账号名> --limit all` 列清单；加 `--download-dir <dir>` 批量下载（并发 + 磁盘缓存 + `index.json`，实现在 `scripts/lib/bestdori-cache.mjs`，与 `fetch-chart-corpus.mjs` 共用）
 
 ## 7. 速率与合规边界
 

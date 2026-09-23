@@ -21,6 +21,36 @@ export function die(msg, code = 1) {
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * 固定并发跑 worker。单个 item 抛错不中断其余（错误落到 item.error），
+ * 供批量抓取复用（见 lib/bestdori-cache.mjs）。
+ *
+ * @param {any[]} items 每项需带 label 字段用于报错
+ * @param {number} concurrency
+ * @param {(item: any) => Promise<void>} worker
+ */
+export async function runPool(items, concurrency, worker) {
+  let cursor = 0;
+  let done = 0;
+  const width = Math.max(1, Math.min(concurrency, items.length || 1));
+  const workers = Array.from({ length: width }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      const item = items[index];
+      try {
+        await worker(item);
+      } catch (error) {
+        item.error = error?.message ?? String(error);
+        log(`  ✗ ${item.label ?? item.sourceId}: ${item.error}`);
+      }
+      done++;
+      if (done % 50 === 0) log(`  进度 ${done}/${items.length}`);
+    }
+  });
+  await Promise.all(workers);
+}
+
+/**
  * @param {string} url
  * @param {{
  *   accept?: string;
@@ -76,13 +106,29 @@ export async function fetchWithRetry(url, opts = {}) {
 }
 
 /**
+ * 取原始响应文本（**不解析**），批量抓取要按字节落盘时用这个。
+ *
+ * @param {string} url
+ * @param {Parameters<typeof fetchWithRetry>[1] & { fatal?: boolean }} [opts]
+ *   fatal=false 时改为 throw（批量抓取里单张失败不该中断整批）
+ */
+export async function fetchText(url, opts) {
+  const { fatal = true, ...fetchOpts } = opts ?? {};
+  const res = await fetchWithRetry(url, fetchOpts);
+  if (!res.ok) {
+    const msg = `HTTP ${res.status}: ${url}`;
+    if (fatal) die(msg);
+    throw new Error(msg);
+  }
+  return res.text();
+}
+
+/**
  * @param {string} url
  * @param {Parameters<typeof fetchWithRetry>[1]} [opts]
  */
 export async function fetchJson(url, opts) {
-  const res = await fetchWithRetry(url, opts);
-  if (!res.ok) die(`HTTP ${res.status}: ${url}`);
-  const text = await res.text();
+  const text = await fetchText(url, opts);
   try {
     return JSON.parse(text);
   } catch {

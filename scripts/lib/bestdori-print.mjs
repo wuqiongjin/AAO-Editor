@@ -1,3 +1,5 @@
+import { describeFilter } from './bestdori-community.mjs';
+
 /** @param {string} s @param {number} max */
 function clip(s, max) {
   const t = String(s ?? '');
@@ -6,8 +8,13 @@ function clip(s, max) {
 }
 
 export function printCommunitySearchTable(data) {
-  const { query, total, results } = data;
-  process.stderr.write(`社区谱搜索「${query}」：共 ${total} 条命中，显示 ${results.length} 条\n\n`);
+  const { query, username, filter, total, scanned, truncated, results } = data;
+  const scope = username ? `谱师「${username}」` : `关键字「${query}」`;
+  const filterText = describeFilter(filter);
+  const scannedText = filterText ? `，筛自 ${scanned} 条${truncated ? '（扫描已达上限）' : ''}` : '';
+  process.stderr.write(
+    `社区谱（${scope}${filterText ? ` · ${filterText}` : ''}）：共 ${total} 条命中，显示 ${results.length} 条${scannedText}\n\n`,
+  );
   const header = [
     'postId',
     'title',
