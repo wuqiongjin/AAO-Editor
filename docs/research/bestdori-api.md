@@ -148,6 +148,13 @@ JSON body（实测约束）：
 
 注意：社区谱面若 `song.type="bandori"`，播放同样依赖上述官方音频端点。
 
+### 本仓库 CLI（开发期拉取）
+
+官方与社区**分两个入口**（id 语义不同），共用 `scripts/lib/bestdori-*.mjs`；说明见 `scripts/README.md`。
+
+- 官方：`node scripts/fetch-bestdori-official.mjs --search <曲名>` → `node scripts/fetch-bestdori-official.mjs <songId> <diff> [-o chart.json] [--audio]`
+- 社区：`node scripts/fetch-bestdori-community.mjs --search <关键字>` → `node scripts/fetch-bestdori-community.mjs <postId> [-o chart.json] [--audio]`
+
 ## 7. 速率与合规边界
 
 - Bestdori 无公开的 API 限流文档；社区有 429 rate limit 讨论（2021）。本次调研百余次请求未触发 429 → **客户端仍应低速率 + 本地缓存**，不做整站爬取。

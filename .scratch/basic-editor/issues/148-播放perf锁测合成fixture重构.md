@@ -6,7 +6,7 @@ Blocked by: —
 
 ## 来源
 
-默认 `npm run test` 会 **skip 3 条** `tests/perf/` 用例：两份文件在仓库根找不到可选的本地谱面 JSON 时整组 `describe.skipIf`。CI 与多数开发者环境因此**锁不住** issue 138/139/140 里约定的播放帧 / 高倍倒流 SP 成本基线；真谱对照仍依赖每人自备文件或 `scripts/fetch-bestdori-chart.mjs`，与「测试应离线、默认可重复」不一致。
+默认 `npm run test` 会 **skip 3 条** `tests/perf/` 用例：两份文件在仓库根找不到可选的本地谱面 JSON 时整组 `describe.skipIf`。CI 与多数开发者环境因此**锁不住** issue 138/139/140 里约定的播放帧 / 高倍倒流 SP 成本基线；真谱对照仍依赖每人自备文件或 `scripts/fetch-bestdori-community.mjs`，与「测试应离线、默认可重复」不一致。
 
 ## 症状
 
