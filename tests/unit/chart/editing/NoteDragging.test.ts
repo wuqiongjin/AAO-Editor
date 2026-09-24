@@ -679,8 +679,30 @@ describe('planDragMove · 拖带弯曲（issue 09 S3 / ADR-0009 §4）', () => {
   });
 });
 
-describe('issue 153 · hidden 越界 lane 整条拖', () => {
-  it('可见端点夹进 0..6，hidden 可仍越界', () => {
+describe('planDragMove · 整组刚体贴墙（与粘贴同口径）', () => {
+  it('多选贴墙：靠墙的停、里面的不继续走，相对 lane 不变', () => {
+    const notes: ChartNote[] = [single(1, 0), single(2, 2)];
+    const r = planDragMove(notes, noteSel(0, 1), { dBeat: 0, dLane: -3 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as { lane: number }).lane).toBe(0);
+    expect((r.notes[1] as { lane: number }).lane).toBe(2);
+  });
+
+  it('整条滑条贴墙：可见包围盒卡住，不夹扁两端', () => {
+    const notes: ChartNote[] = [slide(1, 0, 3, 2)];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -1 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as SlideNote).connections.map(c => c.lane)).toEqual([0, 2]);
+  });
+
+  it('只拖一个结点仍可单独夹轨（改形是结点编辑，不是整组平移）', () => {
+    const notes: ChartNote[] = [slide(1, 0, 3, 2)];
+    const r = planDragMove(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }], { dBeat: 0, dLane: -4 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as SlideNote).connections.map(c => c.lane)).toEqual([0, 0]);
+  });
+
+  it('整条滑条贴墙：hidden 越界相对位置不变', () => {
     const notes: ChartNote[] = [{
       type: 'Slide',
       connections: [
@@ -692,8 +714,34 @@ describe('issue 153 · hidden 越界 lane 整条拖', () => {
     const r = planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -1 }, { chartEndBeat: 16, beatDisplay: 4 });
     expect(r.ok).toBe(true);
     const s = r.notes[0] as SlideNote;
-    expect(s.connections[0]!.lane).toBe(0);
-    expect(s.connections[1]!.lane).toBe(-1.5);
-    expect(s.connections[2]!.lane).toBe(0);
+    expect(s.connections.map(c => c.lane)).toEqual([0, -0.5, 1]);
+  });
+
+  it('可见包围盒比 7 轨更宽：横向拖整组回弹，不把轨内顶出去', () => {
+    const notes: ChartNote[] = [single(1, -1), single(2, 6)];
+    const r = planDragMove(notes, noteSel(0, 1), { dBeat: 0, dLane: 1 }, B);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('out-of-bounds');
+    expect(r.notes).toBe(notes);
+    expect((notes[0] as { lane: number }).lane).toBe(-1);
+    expect((notes[1] as { lane: number }).lane).toBe(6);
+  });
+
+  it('可见包围盒能放进 0..6：整组刚体滑进合法区', () => {
+    const notes: ChartNote[] = [single(1, -1), single(2, 5)];
+    const r = planDragMove(notes, noteSel(0, 1), { dBeat: 0, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as { lane: number }).lane).toBe(0);
+    expect((r.notes[1] as { lane: number }).lane).toBe(6);
+  });
+
+  it('放不进时纯纵向拖仍可走', () => {
+    const notes: ChartNote[] = [single(1, -1), single(2, 6)];
+    const r = planDragMove(notes, noteSel(0, 1), { dBeat: 1, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as { beat: number; lane: number }).beat).toBe(2);
+    expect((r.notes[1] as { beat: number; lane: number }).beat).toBe(3);
+    expect((r.notes[0] as { lane: number }).lane).toBe(-1);
+    expect((r.notes[1] as { lane: number }).lane).toBe(6);
   });
 });

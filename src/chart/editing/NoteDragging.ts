@@ -207,11 +207,37 @@ export function planDragMove(
 
   const dragItems = items.filter(it => plans.has(it.noteIndex));
 
-  const clampLane = (lane: number) => Math.min(TOTAL_LANES - 1, Math.max(0, lane));
   const inBeat = (beat: number, sub: number) => {
     const b = sumBeat(beat, sub, beatDisplay);
     return b >= -EPS && b <= bounds.chartEndBeat + EPS;
   };
+
+  // 整组 / 整条滑条与粘贴同口径：可见包围盒共用一个 dLane，贴墙刚体停下，不夹扁相对位置。
+  // 只拖部分结点时包围盒 = 那些可见结点，允许单独改形。hidden / 负 beat 不进包围盒，随组平移可继续越界。
+  const movedVisibleLanes = (n: ChartNote, plan: Plan): number[] => {
+    if (isKey(n)) return [n.lane];
+    if (!isSlideish(n)) return [];
+    const idxs = plan.kind === 'whole' ? n.connections.map((_, ci) => ci) : [...plan.conns];
+    return idxs
+      .map(ci => n.connections[ci])
+      .filter((c): c is ConnectionNote => !!c && !isCanvasHiddenConn(c))
+      .map(c => c.lane);
+  };
+  let visMin = Infinity, visMax = -Infinity;
+  for (const [i, plan] of plans) {
+    for (const lane of movedVisibleLanes(notes[i]!, plan)) {
+      if (lane < visMin) visMin = lane;
+      if (lane > visMax) visMax = lane;
+    }
+  }
+  // 可见包围盒放不进 0..6（宽 > 7 轨）时不能为了救一侧把另一侧顶出去 → 横向位移整组回弹。
+  // 仍允许纯纵向拖（dLane=0）。能放进时才按粘贴公式把整组刚体滑进合法区。
+  const cannotFit = visMin !== Infinity && visMax - visMin > TOTAL_LANES - 1 + EPS;
+  if (cannotFit && delta.dLane !== 0) return fail('out-of-bounds');
+  const dLane = visMin === Infinity || cannotFit
+    ? delta.dLane
+    : Math.max(-visMin, Math.min(TOTAL_LANES - 1 - visMax, delta.dLane));
+  if (delta.dBeat === 0 && dLane === 0) return { ok: true, notes, items, ghost: undefined };
 
   // ① 位移后的音符 + 越界 / 邻居序校验（无就地变异）
   // 顺带累积**落点窗口**（② 占位表的裁剪依据，见下方 ② 的正确性说明）：
@@ -227,14 +253,14 @@ export function planDragMove(
     const n = notes[i];
     if (isKey(n)) {
       const beat = n.beat + delta.dBeat;
-      const lane = clampLane(n.lane + delta.dLane);
+      const lane = n.lane + dLane;
       markWindow(beat, n.subBeat || 0);
       if (!inBeat(beat, n.subBeat || 0)) return fail('out-of-bounds');
       moved.set(i, { ...n, beat, lane });
     } else if (isSlideish(n)) {
       const conns = n.connections.map((c, ci) => {
         if (!(plan.kind === 'whole' || plan.conns.has(ci))) return { ...c };
-        const nextLane = isCanvasHiddenConn(c) ? c.lane + delta.dLane : clampLane(c.lane + delta.dLane);
+        const nextLane = c.lane + dLane;
         return { ...c, beat: c.beat + delta.dBeat, lane: nextLane };
       });
       // 取**全部**结点（比"仅受动结点"宽）→ 窗口仍是落点键的超集，安全
