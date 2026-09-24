@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import type { ChartNote, SlideNote } from '@/src/chart/types';
 import { planDragMove } from '@/src/chart/editing/NoteDragging';
 import { deleteSelection, copySelection, mirrorSelection } from '@/src/chart/editing/SelectionEditing';
-import { isSpRegion } from '@/src/chart/editing/SlideSegments';
+import { isSpRegion, slideUsesSpBand, displayConnections } from '@/src/chart/editing/SlideSegments';
 import { findNoteIndexAt, handleNoteReplacement } from '@/src/chart/editing/NoteReplacementRules';
 import { convertNotesToChartCode, validateChartCode } from '@/src/chart/editing/ChartConverter';
 
@@ -17,6 +17,11 @@ const single = (beat: number, lane: number): ChartNote =>
 
 const slideOf = (...cs: C[]): ChartNote => ({
   type: 'Slide',
+  connections: cs.map(c => ({ beat: c.beat, lane: c.lane, subBeat: 0, ...(c.hidden ? { hidden: true } : {}) })),
+});
+
+const longOf = (...cs: C[]): ChartNote => ({
+  type: 'Long',
   connections: cs.map(c => ({ beat: c.beat, lane: c.lane, subBeat: 0, ...(c.hidden ? { hidden: true } : {}) })),
 });
 
@@ -251,13 +256,13 @@ describe('issue 92 · 删中间结点 → 原位转 hidden（bestdori 口径两�
   });
 });
 
-describe('issue 09 S1 · SP 段材质判定（ADR-0009 §5：isSpRegion 段级口径）', () => {
+describe('issue 157 · SP 材质整条传染（ADR-0009 §5：isSpRegion 整条级）', () => {
   it('[A,B] 纯直线段：非 SP', () => {
-    const conns = [slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2 })] as SlideNote[];
-    expect(isSpRegion((conns[0] as SlideNote).connections, 0)).toBe(false);
+    const conns = (slideOf({ beat: 1, lane: 1 }, { beat: 2, lane: 2 }) as SlideNote).connections;
+    expect(isSpRegion(conns, 0)).toBe(false);
   });
 
-  it('[A,H,B] 单 hidden：段内两条边都是 SP（整段同材质）', () => {
+  it('[A,H,B] 单 hidden：全部边 SP', () => {
     const conns = (slideOf(
       { beat: 1, lane: 1 },
       { beat: 2, lane: 2, hidden: true },
@@ -279,7 +284,7 @@ describe('issue 09 S1 · SP 段材质判定（ADR-0009 §5：isSpRegion 段级�
     expect(isSpRegion(conns, 2)).toBe(true);
   });
 
-  it('混合条 [A,H,B,C]：SP 段的边 true，纯直线段的边 false', () => {
+  it('混合条 [A,H,B,C]：含 hidden 后纯直段也是 SP', () => {
     const conns = (slideOf(
       { beat: 1, lane: 1 },
       { beat: 2, lane: 2, hidden: true },
@@ -288,22 +293,33 @@ describe('issue 09 S1 · SP 段材质判定（ADR-0009 §5：isSpRegion 段级�
     ) as SlideNote).connections;
     expect(isSpRegion(conns, 0)).toBe(true);
     expect(isSpRegion(conns, 1)).toBe(true);
-    expect(isSpRegion(conns, 2)).toBe(false);
+    expect(isSpRegion(conns, 2)).toBe(true);
   });
 
-  it('混合条 [A,B,H,C]：前段 false、后段 true', () => {
+  it('混合条 [A,B,H,C]：前段直段也是 SP', () => {
     const conns = (slideOf(
       { beat: 1, lane: 1 },
       { beat: 2, lane: 2 },
       { beat: 3, lane: 3, hidden: true },
       { beat: 4, lane: 4 },
     ) as SlideNote).connections;
-    expect(isSpRegion(conns, 0)).toBe(false);
+    expect(isSpRegion(conns, 0)).toBe(true);
     expect(isSpRegion(conns, 1)).toBe(true);
     expect(isSpRegion(conns, 2)).toBe(true);
   });
 
-  it('两段各自含 hidden [A,H,B,H2,C]：全部边 true（各段独立判定）', () => {
+  it('夹心 [A,B,H,C,D]：两端直段都是 SP', () => {
+    const conns = (slideOf(
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 2 },
+      { beat: 3, lane: 3, hidden: true },
+      { beat: 4, lane: 4 },
+      { beat: 5, lane: 5 },
+    ) as SlideNote).connections;
+    for (let i = 0; i < 4; i++) expect(isSpRegion(conns, i)).toBe(true);
+  });
+
+  it('两段各自含 hidden [A,H,B,H2,C]：全部边 true', () => {
     const conns = (slideOf(
       { beat: 1, lane: 1 },
       { beat: 2, lane: 2, hidden: true },
@@ -312,5 +328,55 @@ describe('issue 09 S1 · SP 段材质判定（ADR-0009 §5：isSpRegion 段级�
       { beat: 5, lane: 5 },
     ) as SlideNote).connections;
     for (let i = 0; i < 4; i++) expect(isSpRegion(conns, i)).toBe(true);
+  });
+
+  it('Official-786 同拍多轨最小例：开头直段也是 SP', () => {
+    const conns = (slideOf(
+      { beat: 240, lane: 4 },
+      { beat: 240, lane: 5 },
+      { beat: 240, lane: 6 },
+      { beat: 240.5, lane: 4 },
+      { beat: 240.5, lane: 5 },
+      { beat: 240.5, lane: 6 },
+      { beat: 241.5, lane: 1, hidden: true },
+      { beat: 241.5, lane: 2, hidden: true },
+      { beat: 241.5, lane: 0, hidden: true },
+      { beat: 242.5, lane: 4 },
+    ) as SlideNote).connections;
+    for (let i = 0; i < conns.length - 1; i++) expect(isSpRegion(conns, i)).toBe(true);
+  });
+
+  it('Long 混合条与 Slide 同款整条传染', () => {
+    const conns = (longOf(
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 1 },
+      { beat: 3, lane: 1, hidden: true },
+      { beat: 4, lane: 1 },
+    ) as SlideNote).connections;
+    expect(isSpRegion(conns, 0)).toBe(true);
+    expect(isSpRegion(conns, 2)).toBe(true);
+  });
+
+  it('邻条无 hidden：不被另一条 SP 传染', () => {
+    const sp = (slideOf(
+      { beat: 1, lane: 1 },
+      { beat: 2, lane: 1, hidden: true },
+      { beat: 3, lane: 1 },
+    ) as SlideNote).connections;
+    const neighbor = (slideOf({ beat: 1, lane: 2 }, { beat: 3, lane: 2 }) as SlideNote).connections;
+    expect(isSpRegion(sp, 0)).toBe(true);
+    expect(isSpRegion(neighbor, 0)).toBe(false);
+  });
+
+  it('材质看源 connections：掐首尾 hidden 后投影里没有 hidden 仍传染', () => {
+    const conns = (slideOf(
+      { beat: 1, lane: 1, hidden: true },
+      { beat: 2, lane: 1 },
+      { beat: 3, lane: 2 },
+    ) as SlideNote).connections;
+    expect(slideUsesSpBand(conns)).toBe(true);
+    const proj = displayConnections(conns);
+    expect(proj.conns.some(c => c.hidden === true)).toBe(false);
+    expect(slideUsesSpBand(proj.conns)).toBe(false);
   });
 });

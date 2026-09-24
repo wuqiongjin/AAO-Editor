@@ -168,11 +168,16 @@ export function spanConnIndices(conns: SlideNote['connections'], ci: number): nu
 }
 
 /**
- * 该 region（ci 与 ci+1 之间的连接带）所属段是否为 **SP 段**（ADR-0009 §5）：
- * 段内任一 hidden 结点 → 整段用 SP 无缝带材质。段的中间结点必为 hidden
- * （可见结点作分界），故 `end - start > 1` ⟺ 段内含 hidden。
+ * 同条 Slide/Long 是否用 SP 无缝带（ADR-0009 §5 / issue 157）：任一结点 `hidden` → 整条传染。
+ * 必须看**源 connections**，不要看掐过首尾 hidden 的显示投影。
+ */
+export function slideUsesSpBand(conns: SlideNote['connections']): boolean {
+  return conns.some(c => c.hidden === true);
+}
+
+/**
+ * 该 region（ci 与 ci+1 之间的连接带）是否用 SP 材质：region 合法且整条传染为 SP。
  */
 export function isSpRegion(conns: SlideNote['connections'], ci: number): boolean {
-  const sp = spanOfRegion(conns, ci);
-  return sp !== null && sp.end - sp.start > 1;
+  return spanOfRegion(conns, ci) !== null && slideUsesSpBand(conns);
 }

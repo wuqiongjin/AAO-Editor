@@ -152,6 +152,7 @@
 - **154 官方与社区谱面兼容性压力测试**（[154](./issues/154-官方与社区谱面兼容性压力测试.md)，`Type: research`，resolved）—— **结论** = 794 张 SPECIAL 闸门盘点 + System/Long/charge 生命周期已 grill 收口。报告 `docs/research/chart-compatibility-stress-test.md`。
 - **155 Bestdori 制谱器谱面读写口径**（[155](./issues/155-Bestdori制谱器谱面读写口径.md)，`Type: research`，resolved）—— 未知/无 `type` 在 Apply `sanitizeAll` 丢；持久化不二次丢；已知 type 多余键保留；发帖不自动清洗。→ [bestdori-chart-editor-io.md](../../docs/research/bestdori-chart-editor-io.md)
 - **156 Apply 闸门与 Bestdori 上传清洗**（[156](./issues/156-Apply闸门与Bestdori上传清洗定案.md)，`Type: grilling`，resolved）—— Apply 硬拒顶层未知/无 `type`（`System` 除外）；Bestdori 上传自动 `sanitizeAll`，不对用户拦 System/charge。
+- **157 SP 滑条材质整条传染**（[157](./issues/157-SP滑条材质整条传染.md)，`Type: bug`，resolved，**用户页面验收通过**）—— **改成什么** = 同条 Slide/Long 源 connections 任一 hidden → 全部子段 SP 材质；邻条不传染。作废 ADR-0009 §5 段级。复现 Official-786 @ 1:19.94。
 
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 

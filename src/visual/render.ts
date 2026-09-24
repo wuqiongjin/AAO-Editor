@@ -11,7 +11,7 @@ import { perf } from '../chart/perf';
 import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest';
-import { isSpRegion, displayConnections, visibleEnds, projectedSlideSpans } from '../chart/editing/SlideSegments';
+import { slideUsesSpBand, displayConnections, visibleEnds, projectedSlideSpans } from '../chart/editing/SlideSegments';
 import { freezeGestureCursor } from '../chart/editing/CanvasGesture';
 import { bandPolygonAt, rasterBandRuns, splitBandAtFolds, type BandRasterClipCss } from './slideBandGeometry';
 import { previewSpanConnections } from '../chart/editing/SpanCurve';
@@ -803,7 +803,7 @@ function renderSpriteGhost(ctx: CanvasRenderingContext2D, rc: RenderCtx, icon: S
  * 恰好铺到平行四边形两条斜边上（亮边沿带子两侧，三轮质感定案不变）；贴图 Y（沿带方向；普通带"两端实
  * 中间虚"纵向渐变，SP 带沿长度恒定 = seamless）→ 世界段向。旋转映射会把亮边甩到斜边之外（带角缺色）故弃用；
  * 剪切把单位矩形精确铺成该平行四边形，连 clip 都不需要。
- * @param band 连接带材质（普通 `slideBand` / SP 段 `slideBandSp`，ADR-0009 §5 段级判定，由调用方选择）
+ * @param band 连接带材质（普通 `slideBand` / SP `slideBandSp`，ADR-0009 §5 整条传染，由调用方选择）
  * @param alpha 连接带不透明度；`undefined` = 沿用调用方的 `globalAlpha`（幽灵态由此继承 0.35/0.5）
  */
 function drawBandQuad(
@@ -851,7 +851,7 @@ function renderSegmentBand(
 }
 
 /**
- * 按逻辑段渲染连接带（材质选择 = ADR-0009 §5 段级判定；几何口径 = 六轮统一的**车道横向截面**）。
+ * 按逻辑段渲染连接带（材质选择 = ADR-0009 §5 整条传染；几何口径 = 六轮统一的**车道横向截面**）。
  * - **单 region 段**（无 hidden，普通滑条）：`drawBandQuad` 剪切贴图，一段铺满，无拼接。
  * - **含 hidden 的段**（SP 段/画笔/导入）：`renderSpBandStrip` **扫描线光栅化**（八轮 #1）——
  *   横截面 α 是 `|x−cx(y)|/half` 的连续函数，逐设备像素写入离屏缓冲后 1:1 贴回；每像素至多一次
@@ -877,13 +877,13 @@ export function renderSpanBands(
   const dconns = proj.conns;
   const spans = proj.regions;
   if (spans.length === 0) return;
+  const band = slideUsesSpBand(connections) ? rc.noteIcons.slideBandSp : rc.noteIcons.slideBand;
   for (const sp of spans) {
     const pts: { x: number; y: number }[] = [];
     for (let i = sp.start; i <= sp.end; i++) {
       const cn = dconns[i]!;
       pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
     }
-    const band = isSpRegion(dconns, sp.start) ? rc.noteIcons.slideBandSp : rc.noteIcons.slideBand;
     if (sp.end - sp.start > 1) {
       renderSpBandStrip(ctx, pts, half, band, alpha);
     } else {
