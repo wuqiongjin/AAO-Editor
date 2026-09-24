@@ -18,6 +18,7 @@
 | `fetch-bestdori-official.mjs` | 曲库 `songId` + 难度 | `--search <曲名>` | `GET /api/charts/...` | 官方 BGM |
 | `fetch-bestdori-community.mjs` | 社区帖 `postId` | `--search` / `--username` | `GET /api/post/details` | custom / bandori |
 | `fetch-stress-test-charts.mjs` | **issue 154 固定语料** → `docs/resource/StressTestChart/` | 内置谱师列表 | 官方 SPECIAL 全量 + 社区按谱师分目录（仅 chart 数组） | — |
+| `replay-bestdori-chart-editor-io.mjs` | **issue 155** 官网制谱器 Apply/Copy/持久化逻辑重放 | — | 对照 `CommunityChartsNew` 内 `sanitizeAll` | — |
 
 按谱师取谱（`post/list` 的 `username` 字段，未文档化，实测见
 [bestdori-api.md §2.1](../docs/research/bestdori-api.md)）：

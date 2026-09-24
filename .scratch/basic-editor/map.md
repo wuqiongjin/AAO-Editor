@@ -150,6 +150,8 @@
 - **152 Ctrl+Space 回跳标记视觉表达**（[152](./issues/152-CtrlSpace回跳标记视觉表达.md)，`Type: feature`，open）—— **改成什么** = 左沟槽横线 + 明确的回跳/播放图标 + Ctrl+Space tooltip，不画贯穿谱面的长线。
 - **153 宽松谱面代码兼容与画布投影**（[153](./issues/153-宽松谱面代码兼容与画布投影.md)，`Type: grilling`，实现口径已收口、待确认后开 P0）—— **定了什么** = 源数据与画布投影；System opaque；charge 保真；Long 无端不改名；Apply 硬拒绝 ≠ 有限非法；工程=源文本；`beat<0` 不画不键音但计 combo；width>3 用 3 档键音、同向点击归 1；软告警归 107。权威 ADR-0014。
 - **154 官方与社区谱面兼容性压力测试**（[154](./issues/154-官方与社区谱面兼容性压力测试.md)，`Type: research`，resolved）—— **结论** = 794 张 SPECIAL 闸门盘点 + System/Long/charge 生命周期已 grill 收口。报告 `docs/research/chart-compatibility-stress-test.md`。
+- **155 Bestdori 制谱器谱面读写口径**（[155](./issues/155-Bestdori制谱器谱面读写口径.md)，`Type: research`，resolved）—— 未知/无 `type` 在 Apply `sanitizeAll` 丢；持久化不二次丢；已知 type 多余键保留；发帖不自动清洗。→ [bestdori-chart-editor-io.md](../../docs/research/bestdori-chart-editor-io.md)
+- **156 Apply 闸门与 Bestdori 上传清洗**（[156](./issues/156-Apply闸门与Bestdori上传清洗定案.md)，`Type: grilling`，resolved）—— Apply 硬拒顶层未知/无 `type`（`System` 除外）；Bestdori 上传自动 `sanitizeAll`，不对用户拦 System/charge。
 
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
