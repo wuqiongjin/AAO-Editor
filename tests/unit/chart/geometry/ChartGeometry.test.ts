@@ -266,12 +266,13 @@ describe('issue 90 · 滚轮缩放锚定判定线（结构断言）', () => {
 
 // issue 62：方向滑键占用轨道 = 一份共享口径（命中/框选/拖拽/描边四处同一真相）
 describe('directionalLanes / 方向键虚拟点集（issue 62）', () => {
-  it('L 向左展开、R 向右展开、length 钳到 1..3', () => {
+  it('L 向左展开、R 向右展开、本体数 ceil(width)（ADR-0014）', () => {
     expect(directionalLanes(3, 'RDirectional', 3)).toEqual([3, 4, 5]);
     expect(directionalLanes(3, 'LDirectional', 3)).toEqual([3, 2, 1]);
     expect(directionalLanes(3, 'RDirectional', 1)).toEqual([3]);
-    expect(directionalLanes(3, 'RDirectional', 9)).toEqual([3, 4, 5]);   // 上限 3
-    expect(directionalLanes(3, 'RDirectional', 0)).toEqual([3]);         // 下限 1
+    expect(directionalLanes(3, 'RDirectional', 4.25)).toEqual([3, 4, 5, 6, 7]);
+    expect(directionalLanes(3, 'RDirectional', 9)).toHaveLength(9);
+    expect(directionalLanes(3, 'RDirectional', 0)).toEqual([]);
     expect(directionalLanes(6, 'RDirectional', 2)).toEqual([6, 7]);      // 越界轨号照实返回，调用方自判
   });
 

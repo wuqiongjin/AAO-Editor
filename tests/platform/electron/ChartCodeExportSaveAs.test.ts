@@ -57,9 +57,15 @@ describe('issue 118 · 弹窗接线', () => {
   });
 
   it('范围随档位切换：完整视图存整份、对象视图只存当前这一层', () => {
-    expect(modalSrc).toMatch(/exportChartCodeSaveAs\(\s*notes\s*,\s*isChartView \? undefined : target\s*\)/);
+    expect(modalSrc).toMatch(/exportChartCodeSaveAs\(\s*notes\s*,\s*isChartView \? undefined : target/);
+  });
+
+  it('渲染侧另存为在完整视图且 pristine 时传入 appliedChartCodeText', () => {
+    expect(modalSrc).toMatch(/isChartView && chartCodePristine \? appliedChartCodeText/);
+    expect(exportSrc).toMatch(/function chartCodeExportText\([\s\S]*appliedText/);
   });
 });
+
 
 describe('issue 118 · Electron 每次 dialog、不记路径', () => {
   it('preload 暴露 chartCodeExport.saveAs', () => {

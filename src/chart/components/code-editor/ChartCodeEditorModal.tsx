@@ -56,7 +56,7 @@ interface Props {
 }
 
 export default function ChartCodeEditorModal({ target }: Props) {
-    const { notes, handleNotesChange, selectedItems } = useEditing();
+    const { notes, handleNotesChange, selectedItems, chartCodePristine, appliedChartCodeText, rememberAppliedChartCode } = useEditing();
     const { canPlay } = usePlayback();
     // issue 145 #2：谱面时长的单一真相源是 AudioSession，播放条的 duration 只是它的同步下游。
     // 读/写都走 session，否则音频页的数字与这里的判断基准会各说一套。
@@ -300,6 +300,7 @@ export default function ChartCodeEditorModal({ target }: Props) {
             }
             const newNotes = convertChartCodeToNotes(parsedCode);
             handleNotesChange(newNotes);
+            rememberAppliedChartCode(chartCode);
             // ADR-0005 §4.5：无音频导入谱面代码时，若代码比当前谱面长度更长，自动延长谱面长度到代码最后音符结束时间
             if (!canPlay) {
                 const endSeconds = maxNoteEndSeconds(newNotes, beatDisplay, getBpmEvents(newNotes));
@@ -351,7 +352,11 @@ export default function ChartCodeEditorModal({ target }: Props) {
     // 范围随**当前档位**走 —— 完整谱面视图存整份，对象视图只存这一层（整条 / 子段 / 结点）。
     const handleSaveAs = async () => {
         try {
-            await exportChartCodeSaveAs(notes, isChartView ? undefined : target);
+            await exportChartCodeSaveAs(
+                notes,
+                isChartView ? undefined : target,
+                isChartView && chartCodePristine ? appliedChartCodeText : undefined,
+            );
         } catch (error) {
             alert(t('chartCode.exportFail', { message: (error as Error).message }));
         }

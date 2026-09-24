@@ -65,8 +65,8 @@ export function quantizeBeat(beat: number, beatDisplay: number): number {
 
 /**
  * **一份共享的"方向滑键占用轨道"口径**（issue 62）：锚点轨 = `lane`，沿 sign 方向再占 `length-1` 条
- * （`LDirectional` 向左、`RDirectional` 向右；`length` 钳到 1..3，与 `noteSkin.dirGroup` 同口径）。
- * 越出轨道的轨号照实返回，由调用方各自判定：命中/框选「有就算」，拖拽越界「整组出界即非法」。
+ * （`LDirectional` 向左、`RDirectional` 向右；`length>0` 时本体数 `ceil(length)`，与 `noteSkin.dirGroup` 同口径）。
+ * 越出轨道的轨号照实返回，由调用方各自判定：命中/框选「有就算」；拖拽把根轨夹进 `0..6`。
  * 消费点：`noteVirtualPoints`（框选）/ `hitTest.findItemAt`（点选·hover·拖拽候选）/
  * `NoteDragging`（落点越界）——四处必须同一份，否则又会出现"框不到箭头端"的分裂口径。
  */
@@ -76,7 +76,7 @@ export function directionalLanes(
   length: number,
 ): number[] {
   const sign = type === 'LDirectional' ? -1 : 1;
-  const len = Math.min(Math.max(Math.round(length) || 1, 1), 3);
+  const len = length > 0 ? Math.ceil(length) : 0;
   const out: number[] = [];
   for (let k = 0; k < len; k++) out.push(lane + sign * k);
   return out;
@@ -361,6 +361,7 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
         const r = this.timeline.positionRangeOfBeats(minBeat, maxBeat);
         spans.push({ index, posMin: r.min, posMax: r.max });
       } else if (note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional') {
+        if (note.beat < 0) return;
         points.push({ pos: this.timeline.positionOfBeat(trueBeat(note.beat, note.subBeat, beatDisplay)), index });
       } else if (note.type === 'BPM') {
         points.push({ pos: this.timeline.positionOfBeat(note.beat), index });
@@ -423,10 +424,7 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     for (let i = lo; i < pts.length && pts[i].pos <= posMax; i++) {
       const { index } = pts[i];
       const note = notes[index]!;
-      // X 校验保持与旧实现一致（轨道水平不滚动，恒在界内；BPM 无 lane 也按 lane0 校验）
-      const lane = note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional' ? note.lane : 0;
-      const x = this.noteVirtualX(lane);
-      if (x >= bounds.minX && x <= bounds.maxX) visible.push({ note, index });
+      visible.push({ note, index });
     }
 
     return visible;

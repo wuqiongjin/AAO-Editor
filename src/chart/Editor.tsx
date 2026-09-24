@@ -54,7 +54,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // issue 73：paste 已从本处移除 —— 粘贴的唯一入口是画布（工具单击 / execPaste），
   // 避免再有一条绕过矩阵、没有末端校验的粘贴通路。
-  const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, deleteSelected, mirror, undo, redo, resetNotes } = editing;
+  const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, deleteSelected, mirror, undo, redo, resetNotes, appliedChartCodeText, chartCodePristine } = editing;
   const {
     armedTool, setArmedTool,
     scale, setScale,
@@ -164,7 +164,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 挂载恢复（ADR-0005 §6）：通过 onRestore 把 project 灌入 Editor。
   // 定义在持久化 hook 之前——持久化 hook 拿它当 onRestore 回调。
   const handleProjectRestore = useCallback(async (project: import('../chart/project/ChartProject').ChartProject) => {
-    if (project.notes.length > 0) resetNotes(project.notes);
+    if (project.notes.length > 0) {
+      resetNotes(project.notes, {
+        text: project.appliedChartCodeText ?? null,
+        pristine: project.chartCodePristine === true,
+      });
+    }
     if (project.durationSeconds > 0 && engine?.duration == null) {
       setCtxDuration(project.durationSeconds);
     }
@@ -183,6 +188,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     durationSeconds: ctxDuration,
     audioName: audioForPersist.audioName,
     audioBlob: audioForPersist.audioBlob,
+    appliedChartCodeText,
+    chartCodePristine,
     onRestore: handleProjectRestore,
   });
   // 把 saveNow 一次性注入到 session（导入/清除后自动调）。

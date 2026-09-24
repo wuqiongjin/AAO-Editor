@@ -2,6 +2,7 @@
 // [A, hidden, B] 是一整段 A→B（不是 A→hidden 与 hidden→B 两段）——
 // 命中 / 框选 / 渲染描边 / 复制镜像 / 删除 全部按本模块的 span 口径，避免各处各写一份。
 import type { SlideNote } from '../types';
+import { isCanvasHiddenConn } from './NoteEditing';
 
 export interface ConnSpan {
   /** 段起点（**可见**结点）的 real 下标 */
@@ -19,7 +20,7 @@ export function slideSpans(conns: SlideNote['connections']): ConnSpan[] {
   const out: ConnSpan[] = [];
   let last: number | null = null;
   conns.forEach((c, i) => {
-    if (c.hidden) return; // hidden 不作分界
+    if (isCanvasHiddenConn(c)) return;
     if (last !== null) out.push({ start: last, end: i });
     last = i;
   });
@@ -32,7 +33,7 @@ export function isDisplayIdentity(conns: SlideNote['connections']): boolean {
     if (conns[i]!.beat < conns[i - 1]!.beat) return false;
   }
   const n = conns.length;
-  if (n > 0 && (conns[0]!.hidden || conns[n - 1]!.hidden)) return false;
+  if (n > 0 && (isCanvasHiddenConn(conns[0]!) || isCanvasHiddenConn(conns[n - 1]!))) return false;
   return true;
 }
 
@@ -66,8 +67,8 @@ export function displayConnections(conns: SlideNote['connections']): {
   const src = conns.map((_, i) => i).sort((a, b) => (conns[a]!.beat - conns[b]!.beat) || (a - b));
   let lo = 0;
   let hi = n - 1;
-  while (lo <= hi && conns[src[lo]!]!.hidden) lo++;
-  while (hi >= lo && conns[src[hi]!]!.hidden) hi--;
+  while (lo <= hi && isCanvasHiddenConn(conns[src[lo]!]!)) lo++;
+  while (hi >= lo && isCanvasHiddenConn(conns[src[hi]!]!)) hi--;
   const kept = lo > hi ? [] : src.slice(lo, hi + 1);
   return { conns: kept.map((i) => conns[i]!), src: kept };
 }
@@ -84,7 +85,7 @@ export function visibleEnds(conns: SlideNote['connections']): { first: number; l
   let last = -1;
   for (let i = 0; i < conns.length; i++) {
     const conn = conns[i]!;
-    if (conn.hidden) continue;
+    if (isCanvasHiddenConn(conn)) continue;
     // 端点 = beat 最小 / 最大者（与 `displayConnections` 投影后的首尾同源；非单调点序下
     // 数组序的首尾未必是画布上的两端 → 带子的真端点会被画成中间款）
     if (first < 0 || conn.beat < conns[first]!.beat) first = i;

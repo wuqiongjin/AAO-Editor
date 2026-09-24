@@ -46,12 +46,13 @@ describe('§4 buildNoteCode 初值', () => {
         expect(buildNoteCode(ns, node(0, 2))).toEqual([{ beat: 3, lane: 6, type: 'Single', flick: true }]);
     });
 
-    test('目标不存在 / System / 非滑条给结点下标 → null', () => {
+    test('目标不存在 / 非滑条给结点下标 → null；System 整条可投影', () => {
         expect(buildNoteCode(notes, whole(99))).toBeNull();
         expect(buildNoteCode(notes, node(99, 0))).toBeNull();
         expect(buildNoteCode(notes, node(1, 0))).toBeNull(); // 单键不是滑条
         expect(buildNoteCode(notes, node(2, 9))).toBeNull(); // 结点越界
-        expect(buildNoteCode([{ type: 'System', beat: 0, data: 'x' }], whole(0))).toBeNull();
+        expect(buildNoteCode([{ type: 'System', beat: 0, data: 'x' }], whole(0)))
+            .toEqual([{ beat: 0, type: 'System', data: 'x' }]);
     });
 });
 
@@ -147,10 +148,11 @@ describe('§5 applyNoteCode 滑条结点', () => {
         expect(conn.skill).toBeUndefined();
     });
 
-    test('非法 lane → 报错不回写（错误定位抬升为谱面内真实下标 + 结点下标）', () => {
+    test('有限越界 lane 可回写（ADR-0014）', () => {
         const r = applyNoteCode(notes, node(2, 1), [{ beat: 5, lane: 9, type: 'Single' }]);
-        expect(r.ok).toBe(false);
-        if (!r.ok) expect(r.errors[0]).toMatchObject({ noteIndex: 2, connIndex: 1, field: 'lane' });
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        expect((r.notes[2] as SlideNote).connections[1].lane).toBe(9);
     });
 
     test('首/尾结点写 hidden:true → 允许回写（issue 106：不再由代码视图拦，画布投影掐首尾 hidden）', () => {
@@ -415,10 +417,8 @@ describe('issue 94 · validateNoteViewCodeText（容错后与完整视图同一�
         expect(validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Single" }')).toEqual([]);
     });
 
-    test('裸对象的脏代码同样被拒（lane 越界等硬规则不变；hidden 端点已不拦）', () => {
-        const errors = validateNoteViewCodeText('{ "beat": 8, "lane": 9, "type": "Single" }');
-        expect(errors.length).toBeGreaterThan(0); // lane 越界：硬规则
-        // issue 106：尾结点 hidden 不再算脏代码
+    test('裸对象：有限越界 lane 放行；hidden 端点不拦', () => {
+        expect(validateNoteViewCodeText('{ "beat": 8, "lane": 9, "type": "Single" }')).toEqual([]);
         expect(validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Slide", "connections": [{ "beat": 8, "lane": 1 }, { "beat": 9, "lane": 2, "hidden": true }] }'))
             .toEqual([]);
     });

@@ -1,6 +1,6 @@
 import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LDirectionalNote, RDirectionalNote } from '../types';
 import { connectionToNote, mergeChainWithSlides, compareAbsorbable } from './SlideCombination';
-import { shiftGroupToAnchor } from './NoteEditing';
+import { isCanvasHiddenConn, shiftGroupToAnchor } from './NoteEditing';
 import { isPastChartEnd, groupMaxBeat } from './ChartEndBounds';
 
 /**
@@ -424,10 +424,12 @@ function handleSingleAndDirectionalReplacement(
                 // 同类型，组合处理（issue 35 F6：构造新对象，不得在位变异共享引用——
                 // 否则结构共享历史撤销后长度不回退，且瓦片增量失效 diff 失效）
                 if (directionalNote.length < 3) {
-                    newNotes[existingNoteIndex] = { ...directionalNote, length: directionalNote.length + 1 };
+                    const { source: _s, charge: _c, ...rest } = directionalNote;
+                    newNotes[existingNoteIndex] = { ...rest, length: directionalNote.length + 1 };
                     return { shouldReplace: true, newNotes, message: "方向键长度+1" };
                 } else {
-                    newNotes[existingNoteIndex] = { ...directionalNote, length: 1 };
+                    const { source: _s, charge: _c, ...rest } = directionalNote;
+                    newNotes[existingNoteIndex] = { ...rest, length: 1 };
                     return { shouldReplace: true, newNotes, message: "方向键长度重置为1" };
                 }
             } else {
@@ -563,6 +565,26 @@ export function removeOverlappedNotes(
     }
 }
 
+const PASTE_LANE_MIN = 0;
+const PASTE_LANE_MAX = 6;
+const clampPasteLane = (lane: number) => Math.min(PASTE_LANE_MAX, Math.max(PASTE_LANE_MIN, lane));
+
+/** 粘贴落点必须合法轨；hidden / 负 beat 结点保持相对越界（ADR-0014） */
+function legalizePasteLanes(n: ChartNote): ChartNote {
+    if (n.type === 'Single' || n.type === 'LDirectional' || n.type === 'RDirectional') {
+        return { ...n, lane: clampPasteLane(n.lane) };
+    }
+    if (n.type === 'Slide' || n.type === 'Long') {
+        return {
+            ...n,
+            connections: n.connections.map(c =>
+                isCanvasHiddenConn(c) ? c : { ...c, lane: clampPasteLane(c.lane) },
+            ),
+        };
+    }
+    return n;
+}
+
 /**
  * 粘贴剪贴板音符组，遵守 ADR-0001 覆盖规则（修复直接 concat 导致同坐标重叠音符）
  * - 空位 → 原样粘贴（保留 flick/skill/subBeat/方向键 length 等字段）
@@ -582,7 +604,7 @@ export function pasteChartNotes(
     /** 谱面末端边界（issue 73）；不传 = 不校验（仅供纯逻辑单测） */
     bounds?: { chartEndBeat: number; beatDisplay?: number }
 ): { newNotes: ChartNote[]; newStartIndex: number; written: number[]; rejected?: 'past-end' } {
-    const pasted = shiftGroupToAnchor(clipboard, anchorBeat, anchorLane);
+    const pasted = shiftGroupToAnchor(clipboard, anchorBeat, anchorLane).map(legalizePasteLanes);
     // issue 73：**整组**越界即拒绝（此前只校验锚点，组尾可以越出 END）。
     // 想放下请先延长谱面长度（调音频时长）—— 用户 2026-09-10 拍板。
     if (bounds && pasted.length > 0
@@ -602,8 +624,8 @@ export function pasteChartNotes(
             continue;
         }
 
-        // BPM/System：覆盖规则不适用；同位置直接替换，否则新增
-        if (note.type === "BPM" || note.type === "System") {
+        // BPM/System/Opaque：覆盖规则不适用；同位置直接替换，否则新增
+        if (note.type === "BPM" || note.type === "System" || note.type === "Opaque") {
             const idx = newNotes.findIndex(n => n.type === note.type && n.beat === note.beat);
             if (idx !== -1) {
                 newNotes[idx] = structuredClone(note);

@@ -148,10 +148,10 @@ describe('Chart Converter', () => {
             ]
         });
 
-        // Check Long note (converted to Slide)
-        const longNote = chartCode.find(n => n.type === "Slide" && n.connections[0].beat === 20);
+        // Check Long 身份保留
+        const longNote = chartCode.find(n => n.type === "Long");
         expect(longNote).toEqual({
-            type: "Slide",
+            type: "Long",
             connections: [
                 { beat: 20, lane: 3 },
                 { beat: 20.5, lane: 4, hidden: true },
@@ -188,8 +188,7 @@ describe('Chart Converter', () => {
         const slideNote = convertedNotes.find(n => n.type === "Slide");
         expect(slideNote).toBeDefined();
 
-        // Check Long note (converted to Slide)
-        const longNote = convertedNotes.find(n => n.type === "Slide" && n.connections[0].beat === 20);
+        const longNote = convertedNotes.find(n => n.type === "Long");
         expect(longNote).toBeDefined();
     });
 
@@ -210,11 +209,10 @@ describe('Chart Converter', () => {
     });
 
     test('validateChartCode should catch errors', () => {
-        // issue 103：原首条 `bpm: -1` 已从"非法样例"移出（ADR-0010 起负 BPM 是合法语义，见下）
         const invalidChartCode = [
-            { beat: 4, lane: 10, type: "Single" }, // Invalid lane
-            { beat: 8, lane: 2, type: "Directional", direction: "Up", width: 1 }, // Invalid direction
-            { beat: 12, lane: 3, type: "Directional", direction: "Left", width: 5 }, // Invalid width
+            { beat: 4, type: "Single" }, // 缺 lane
+            { beat: 8, lane: 2, type: "Directional", width: 1 }, // 缺 direction
+            { beat: 0, type: "BPM", bpm: 0 },
         ] as unknown as ChartCodeNote[];
 
         const validation = validateChartCode(invalidChartCode);

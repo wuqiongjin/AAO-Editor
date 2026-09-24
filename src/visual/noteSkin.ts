@@ -227,9 +227,9 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
   const dirGroup = (type: 'L' | 'R', length: number): DirGroupVisual => {
     const pack = type === 'L' ? dirLPack : dirRPack;
     const sign = type === 'L' ? -1 : 1;
-    const len = Math.min(Math.max(Math.round(length) || 1, 1), 3);
+    const bodyCount = length > 0 ? Math.ceil(length) : 0;
     const config = type === 'L' ? dirLConfig : dirRConfig;
-    const bodies = Array.from({ length: len }, (_, k) => ({
+    const bodies = Array.from({ length: bodyCount }, (_, k) => ({
       config,
       offsetVirtualX: sign * k * LANE_WIDTH,
     }));
@@ -253,7 +253,7 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
         const arrowCenterX = sign * (NOTE_SKIN_GEOMETRY.DIR_BODY_HALF_W - NOTE_SKIN_GEOMETRY.DIR_CHEVRON_INTO_BODY);
         chevron = {
           config: rectToConfig(pack.atlas, topRect),
-          offsetVirtualX: sign * (len - 1) * LANE_WIDTH,
+          offsetVirtualX: sign * (length - 1) * LANE_WIDTH,
           extraDesignX: arrowCenterX - (inkCenterXF - 0.5) * drawW,
           drawW,
           drawH,

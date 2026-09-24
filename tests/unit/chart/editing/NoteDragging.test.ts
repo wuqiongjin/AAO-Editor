@@ -198,9 +198,11 @@ describe('planDragMove（ADR-0008 §6）', () => {
     expect(r.notes).toBe(notes);
   });
 
-  it('越过 lane 边界 / 谱面末端 → 回弹（out-of-bounds）', () => {
+  it('越过 lane 边界夹进 0..6；谱面末端仍回弹（ADR-0014）', () => {
     const notes: ChartNote[] = [single(1, 0)];
-    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -1 }, B).reason).toBe('out-of-bounds');
+    const clamped = planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -1 }, B);
+    expect(clamped.ok).toBe(true);
+    expect((clamped.notes[0] as { lane: number }).lane).toBe(0);
     expect(planDragMove(notes, noteSel(0), { dBeat: 16, dLane: 0 }, B).reason).toBe('out-of-bounds');
   });
 
@@ -364,12 +366,12 @@ describe('planDragMove 落点覆盖/接合（ADR-0008 §6 四轮修订）', () =
       .toEqual([[1, 1], [3, 3], [4, 4], [5, 5]]);
   });
 
-  it('接合保型：被拖件为 Long → 结果 Long', () => {
+  it('接合是形态变化：被拖 Long 并入后变为 Slide', () => {
     const long = { type: 'Long', connections: [{ beat: 1, lane: 1, subBeat: 0 }, { beat: 2, lane: 2, subBeat: 0 }] } as ChartNote;
     const notes: ChartNote[] = [long, slide(4, 4, 5, 5)];
     const r = planDragMove(notes, [{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }], { dBeat: 2, dLane: 2 }, B);
     expect(r.ok).toBe(true);
-    expect(r.notes[0].type).toBe('Long');
+    expect(r.notes[0].type).toBe('Slide');
   });
 
   it('无就地变异：入参数组与未动音符引用不变', () => {
@@ -488,22 +490,28 @@ describe('方向滑键整组越界（issue 62 整组 + issue 66 §4b 只判根�
     expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 3 }, B).ok).toBe(true);   // 根 6 → 组尾 8 溢出，仍合法
   });
 
-  it('右方向键：根轨本身出界才回弹（组尾不是判据）', () => {
+  it('右方向键：根轨出界夹进 0..6，不回弹', () => {
     const notes: ChartNote[] = [dir('RDirectional', 1, 3, 3)];
-    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 4 }, B).reason).toBe('out-of-bounds'); // 根 7 出界
+    const r = planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 4 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as { lane: number }).lane).toBe(6);
   });
 
-  it('左方向键 length=3：同理，向 -1 溢出合法，根轨出界才非法', () => {
+  it('左方向键 length=3：向 -1 溢出合法，根轨出界夹进 0', () => {
     const notes: ChartNote[] = [dir('LDirectional', 1, 3, 3)]; // 占 3/2/1
     expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -1 }, B).ok).toBe(true);  // 根 2 → 占 2/1/0
     expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -2 }, B).ok).toBe(true);  // 根 1 → 组尾 -1 溢出，仍合法
     expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -3 }, B).ok).toBe(true);  // 根 0 → 组尾 -2 溢出，仍合法
-    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -4 }, B).reason).toBe('out-of-bounds'); // 根 -1 出界
+    const r = planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -4 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as { lane: number }).lane).toBe(0);
   });
 
-  it('单键仍是"自身轨道出界即非法"（只有方向键有组尾豁免）', () => {
+  it('单键根轨出界夹进 0..6（ADR-0014 拖拽归合法轨）', () => {
     const notes: ChartNote[] = [single(1, 6)];
-    expect(planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 1 }, B).reason).toBe('out-of-bounds'); // lane 7
+    const r = planDragMove(notes, noteSel(0), { dBeat: 0, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as { lane: number }).lane).toBe(6);
   });
 });
 
@@ -668,5 +676,24 @@ describe('planDragMove · 拖带弯曲（issue 09 S3 / ADR-0009 §4）', () => {
     expect(r.notes[0]).toEqual(single(2, 1));
     // 滑条未动（bend 未触发：dBeat 分量也不应作用于段内 hidden）
     expect(r.notes[1]).toBe(notes[1]);
+  });
+});
+
+describe('issue 153 · hidden 越界 lane 整条拖', () => {
+  it('可见端点夹进 0..6，hidden 可仍越界', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 1, lane: 0, subBeat: 0 },
+        { beat: 2, lane: -0.5, hidden: true, subBeat: 0 },
+        { beat: 3, lane: 1, subBeat: 0 },
+      ],
+    }];
+    const r = planDragMove(notes, noteSel(0), { dBeat: 0, dLane: -1 }, { chartEndBeat: 16, beatDisplay: 4 });
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    expect(s.connections[0]!.lane).toBe(0);
+    expect(s.connections[1]!.lane).toBe(-1.5);
+    expect(s.connections[2]!.lane).toBe(0);
   });
 });

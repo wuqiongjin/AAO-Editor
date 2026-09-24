@@ -22,6 +22,8 @@ export interface UseChartProjectPersistenceOptions {
   /** 当前音频文件元数据（无音频为 null） */
   audioName: string | null;
   audioBlob: Blob | null;
+  appliedChartCodeText?: string | null;
+  chartCodePristine?: boolean;
   /** 防抖落盘的延迟（默认 800ms，ADR-0005 §6） */
   debounceMs?: number;
   /** 注入存储后端（默认 new ChartProjectStore()）——测试可注入假实现 */
@@ -38,6 +40,7 @@ export interface UseChartProjectPersistenceReturn {
 export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptions): UseChartProjectPersistenceReturn {
   const {
     notes, durationSeconds, audioName, audioBlob,
+    appliedChartCodeText, chartCodePristine,
     debounceMs = 800, store: storeOpt, onRestore,
   } = opts;
 
@@ -76,10 +79,17 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   const audioBlobRef = useRef(audioBlob);
   audioBlobRef.current = audioBlob;
 
+  const appliedTextRef = useRef(appliedChartCodeText);
+  appliedTextRef.current = appliedChartCodeText;
+  const pristineRef = useRef(chartCodePristine);
+  pristineRef.current = chartCodePristine;
+
   const buildProject = useCallback((): ChartProject => ({
     id: DEFAULT_PROJECT_ID,
     durationSeconds: durationRef.current,
     notes: notesRef.current,
+    appliedChartCodeText: appliedTextRef.current ?? null,
+    chartCodePristine: pristineRef.current === true,
     ...(audioNameRef.current ? { audioName: audioNameRef.current } : {}),
     ...(audioBlobRef.current ? { audioBlob: audioBlobRef.current } : {}),
   }), []);
@@ -126,10 +136,8 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     // 恢复未落地 → 这次是"初始空谱面"，回写会把已存工程覆盖掉（见 restoreSettledRef 注释）
     if (!restoreSettledRef.current) return;
     ensureMerger().schedule(buildProject());
-    // audioName/audioBlob 必须进依赖：导入音频不改 notes，且 AudioSession 的 persistNow
-    // 在 emit 之前调用（那时 ref 还是旧的 null），只有靠这里再排一次才能真正带上音频落盘
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, durationSeconds, audioName, audioBlob, debounceMs]);
+  }, [notes, durationSeconds, audioName, audioBlob, appliedChartCodeText, chartCodePristine, debounceMs]);
 
   // 页面隐藏 / 卸载前结算（issue 64 方案 B）：刷新、关标签、切到后台都会触发，
   // 把"编辑完立刻刷新"那 800ms 的窗口收掉。

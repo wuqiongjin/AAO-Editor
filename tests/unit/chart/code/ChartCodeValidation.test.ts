@@ -40,9 +40,8 @@ describe('谱面代码校验 · 结构化错误', () => {
         ] as unknown as ChartCodeNote[]);
 
         expect(result.valid).toBe(false);
-        expect(result.errors).toHaveLength(2);
-        expect(result.errors[0]).toMatchObject({ noteIndex: 1, field: 'lane' });
-        expect(result.errors[1]).toMatchObject({ noteIndex: 2, field: 'beat' });
+        expect(result.errors).toHaveLength(1);
+        expect(result.errors[0]).toMatchObject({ noteIndex: 2, field: 'beat' });
         expect(typeof result.errors[0].reason).toBe('string');
         expect(typeof result.errors[0].expected).toBe('string');
     });
@@ -165,8 +164,8 @@ describe('谱面代码校验 · 加严规则', () => {
     });
 });
 
-describe('谱面代码 · Long 别名归一', () => {
-    test('代码里的 Long 归一为内部 SlideNote（与序列化方向一致，往返稳定）', () => {
+describe('谱面代码 · Long 身份保留（ADR-0014）', () => {
+    test('代码里的 Long 内部仍是 Long，导出仍写 Long', () => {
         const code: ChartCodeNote[] = [
             bpm0,
             {
@@ -179,20 +178,20 @@ describe('谱面代码 · Long 别名归一', () => {
         ];
         const applied = applyChartCode(code);
         expect(applied.applied).toBe(true);
-        expect(applied.notes[1].type).toBe('Slide');
+        expect(applied.notes[1].type).toBe('Long');
         expect((applied.notes[1] as SlideNote).connections).toEqual([
             { beat: 20, lane: 3 },
             { beat: 21, lane: 4, skill: true },
         ]);
-        // 再导出仍为 Slide，不产生 Long→Slide 的类型漂移
-        expect(convertNotesToChartCode(applied.notes).find(c => c.type === 'Slide')).toBeDefined();
+        expect(convertNotesToChartCode(applied.notes).some(c => c.type === 'Long')).toBe(true);
+        expect(convertNotesToChartCode(applied.notes).some(c => c.type === 'Slide')).toBe(false);
     });
 
-    test('序列化侧仍是内部 LongNote → type:"Slide"（既有定案，未改）', () => {
+    test('内部 LongNote 导出 type:"Long"', () => {
         const code = convertNotesToChartCode([
             { type: 'Long', connections: [{ beat: 20, lane: 3 }, { beat: 21, lane: 4 }] },
         ]);
-        expect(code[0].type).toBe('Slide');
+        expect(code[0].type).toBe('Long');
     });
 });
 
@@ -288,11 +287,11 @@ describe('谱面代码校验 · 回归', () => {
         },
     ];
 
-    test('长条与滑条同构：Long 序列化为 type:"Slide"，同一套规则（结点数不再设下限）', () => {
+    test('长条与滑条同构投影，但 Long 导出仍写 Long', () => {
         const code = convertNotesToChartCode(testNotes);
-        const longAsSlide = code.find(c => c.type === 'Slide' && c.connections[0].beat === 20);
-        expect(longAsSlide).toBeDefined();
-        expect(validateChartCode([longAsSlide as ChartCodeNote]).valid).toBe(true);
+        const longNote = code.find(c => c.type === 'Long' && (c as { connections: { beat: number }[] }).connections[0].beat === 20);
+        expect(longNote).toBeDefined();
+        expect(validateChartCode([longNote as ChartCodeNote]).valid).toBe(true);
     });
 
     test('谱面代码往返产物（含 skill）全部通过校验', () => {
@@ -302,9 +301,11 @@ describe('谱面代码校验 · 回归', () => {
         expect(result.errors).toHaveLength(0);
     });
 
-    test('未知 type 仍然报错', () => {
+    test('未知 type 不整份拒（opaque，ADR-0014）', () => {
         const result = validateChartCode([{ beat: 1, lane: 0, type: 'Flick' }] as unknown as ChartCodeNote[]);
-        expect(result.valid).toBe(false);
-        expect(result.errors[0]).toMatchObject({ noteIndex: 0, field: 'type' });
+        expect(result.valid).toBe(true);
+        const applied = applyChartCode([{ beat: 1, lane: 0, type: 'Flick' }] as unknown as ChartCodeNote[]);
+        expect(applied.applied).toBe(true);
+        expect(applied.notes[0].type).toBe('Opaque');
     });
 });

@@ -24,11 +24,14 @@ export interface EditingContextValue {
   // 基础 setter
   setNotes: (notes: ChartNote[]) => void;
   /** 重置整个谱面（ADR-0005 §6：加载持久化工程时干净恢复，不产生撤销记录） */
-  resetNotes: (notes: ChartNote[]) => void;
+  resetNotes: (notes: ChartNote[], applied?: { text: string | null; pristine: boolean }) => void;
   setSelectedItems: (items: SelectionItem[]) => void;
   setClipboard: (c: ChartNote[]) => void;
   // 带历史记录的变更入口
   handleNotesChange: (newNotes: ChartNote[]) => void;
+  appliedChartCodeText: string | null;
+  chartCodePristine: boolean;
+  rememberAppliedChartCode: (text: string) => void;
   // 历史
   undo: () => void;
   redo: () => void;
@@ -64,27 +67,40 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     setHistoryState(prev => pushHistoryIfChanged(prev, newNotes, notesEqual, NOTES_HISTORY_CAP));
   }, []);
 
+  const [appliedChartCodeText, setAppliedChartCodeText] = useState<string | null>(null);
+  const [chartCodePristine, setChartCodePristine] = useState(false);
+
+  const rememberAppliedChartCode = useCallback((text: string) => {
+    setAppliedChartCodeText(text);
+    setChartCodePristine(true);
+  }, []);
+
   const handleNotesChange = useCallback((newNotes: ChartNote[]) => {
+    setChartCodePristine(false);
     addToHistory(newNotes);
   }, [addToHistory]);
 
   const setNotes = useCallback((n: ChartNote[]) => {
+    setChartCodePristine(false);
     setHistoryState(prev => pushHistoryIfChanged(prev, n, notesEqual, NOTES_HISTORY_CAP));
   }, []);
 
-  const resetNotes = useCallback((n: ChartNote[]) => {
-    // 空谱回保底（ADR-0001：谱面必须有初始 BPM）
+  const resetNotes = useCallback((n: ChartNote[], applied?: { text: string | null; pristine: boolean }) => {
     const notesToUse = n.length > 0 ? n : [{ beat: 0, type: "BPM", bpm: 120 } as ChartNote];
     setHistoryState(createHistory(notesToUse));
     setSelectedItems([]);
+    setAppliedChartCodeText(applied?.text ?? null);
+    setChartCodePristine(applied?.pristine === true);
   }, []);
 
   const undo = useCallback(() => {
+    setChartCodePristine(false);
     setHistoryState(prev => undoHistory(prev) ?? prev);
     setSelectedItems([]);
   }, []);
 
   const redo = useCallback(() => {
+    setChartCodePristine(false);
     setHistoryState(prev => redoHistory(prev) ?? prev);
     setSelectedItems([]);
   }, []);
@@ -122,6 +138,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     setNotes, resetNotes, setSelectedItems, setClipboard,
     handleNotesChange, undo, redo,
     copy, cut, deleteSelected, mirror,
+    appliedChartCodeText, chartCodePristine, rememberAppliedChartCode,
   };
 
   return <EditingContext.Provider value={value}>{children}</EditingContext.Provider>;

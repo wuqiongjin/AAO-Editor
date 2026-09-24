@@ -183,19 +183,14 @@ export function combineSelectionIntoSlide(
   // 残留重建（五轮修订 = 无拆条）：来源（键音符 + 被触碰滑条）本体消耗，其余原样保留（结构共享）
   const consumedNow = new Set<number>([...keyIdxs, ...slideIdxs]);
   const rest: ChartNote[] = [];
-  const restOrig: number[] = []; // rest 下标 → notes 原下标
   for (let i = 0; i < notes.length; i++) {
     if (consumedNow.has(i)) continue;
     rest.push(notes[i]);
-    restOrig.push(i);
   }
   // 与未被触碰的既有滑条仍走 §3 接合（链端点重合 → 级联合并）
   const merged = mergeChainWithSlides(rest, conns);
   const mergedSet = new Set(merged.consumed);
-  const hasLong = [
-    ...slideIdxs, ...merged.consumed.map(k => restOrig[k]),
-  ].some(i => notes[i]?.type === 'Long');
-  const type = merged.type === 'Long' || hasLong ? 'Long' as const : 'Slide' as const;
+  const type = 'Slide' as const;
   const newNotes = [
     ...rest.filter((_, k) => !mergedSet.has(k)),
     { type, connections: merged.connections } as SlideNote,
@@ -241,7 +236,6 @@ export function mergeChainWithSlides(
       if (sameConn(tail, out[0])) {
         const pathway: ConnectionNote = { beat: tail.beat, lane: tail.lane, subBeat: tail.subBeat || 0, hidden: false };
         out = [...cs.slice(0, -1), pathway, ...out.slice(1)];
-        if (n.type === 'Long') type = 'Long';
         consumed.push(pool[i].idx);
         pool.splice(i, 1);
         merged = true;
@@ -250,7 +244,6 @@ export function mergeChainWithSlides(
       if (sameConn(head, out[out.length - 1])) {
         const pathway: ConnectionNote = { beat: head.beat, lane: head.lane, subBeat: head.subBeat || 0, hidden: false };
         out = [...out.slice(0, -1), pathway, ...cs.slice(1)];
-        if (n.type === 'Long') type = 'Long';
         consumed.push(pool[i].idx);
         pool.splice(i, 1);
         merged = true;

@@ -9,6 +9,7 @@ import { quantizeBeat } from '../geometry/ChartGeometry';
 import { mergeChainWithSlides } from './SlideCombination';
 import { applyPlacement, keyToolIdOf } from './NoteReplacementRules';
 import { slideSpans } from './SlideSegments';
+import { isCanvasHiddenConn } from './NoteEditing';
 import { bendSpan, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams } from './SpanCurve';
 import type { CurvePrecision } from './Easing';
 
@@ -206,7 +207,7 @@ export function planDragMove(
 
   const dragItems = items.filter(it => plans.has(it.noteIndex));
 
-  const inLane = (lane: number) => lane >= 0 && lane < TOTAL_LANES;
+  const clampLane = (lane: number) => Math.min(TOTAL_LANES - 1, Math.max(0, lane));
   const inBeat = (beat: number, sub: number) => {
     const b = sumBeat(beat, sub, beatDisplay);
     return b >= -EPS && b <= bounds.chartEndBeat + EPS;
@@ -226,25 +227,27 @@ export function planDragMove(
     const n = notes[i];
     if (isKey(n)) {
       const beat = n.beat + delta.dBeat;
-      const lane = n.lane + delta.dLane;
+      const lane = clampLane(n.lane + delta.dLane);
       markWindow(beat, n.subBeat || 0);
-      // issue 66 §4b：方向键是整组，但**只有根轨必须留在 0..6 内**——组尾溢出视觉合法
-      // （放置链路口径已经允许在 lane 6 放 length=3 的右方向键让组尾溢出右侧）；
-      // 拖拽落点保留同一口径：根轨在界内即合法，组尾越界照实落点、不回弹。
-      // 单键还是只占一根 = `lanes = [lane]`，越界即非法。
-      if (!inLane(lane) || !inBeat(beat, n.subBeat || 0)) return fail('out-of-bounds');
+      if (!inBeat(beat, n.subBeat || 0)) return fail('out-of-bounds');
       moved.set(i, { ...n, beat, lane });
     } else if (isSlideish(n)) {
-      const conns = n.connections.map((c, ci) =>
-        plan.kind === 'whole' || plan.conns.has(ci)
-          ? { ...c, beat: c.beat + delta.dBeat, lane: c.lane + delta.dLane }
-          : { ...c });
+      const conns = n.connections.map((c, ci) => {
+        if (!(plan.kind === 'whole' || plan.conns.has(ci))) return { ...c };
+        const nextLane = isCanvasHiddenConn(c) ? c.lane + delta.dLane : clampLane(c.lane + delta.dLane);
+        return { ...c, beat: c.beat + delta.dBeat, lane: nextLane };
+      });
       // 取**全部**结点（比"仅受动结点"宽）→ 窗口仍是落点键的超集，安全
       for (const c of conns) markWindow(c.beat, c.subBeat || 0);
       const touched = plan.kind === 'whole' ? conns.map((_, ci) => ci) : [...plan.conns];
       for (const ci of touched) {
         const c = conns[ci];
-        if (!inLane(c.lane) || !inBeat(c.beat, c.subBeat || 0)) return fail('out-of-bounds');
+        const orig = n.connections[ci]!;
+        if (isCanvasHiddenConn(orig)) {
+          if (!inBeat(c.beat, c.subBeat || 0)) return fail('out-of-bounds');
+          continue;
+        }
+        if (!inBeat(c.beat, c.subBeat || 0)) return fail('out-of-bounds');
       }
       if (plan.kind !== 'whole') {
         for (const ci of plan.conns) {
@@ -420,12 +423,11 @@ export function planDragMove(
   for (const orig of joins) {
     const pos = work.findIndex(w => w.orig === orig);
     if (pos < 0) continue;
-    const dragType = work[pos].note.type;
     const chain = (work[pos].note as SlideNote).connections.map(c => ({ ...c }));
     // 排除自身：链端点与自身端点天然相等，不排除会自合并
     const merged = mergeChainWithSlides(work.map(w => w.note), chain, [pos]);
     if (merged.consumed.length === 0) continue;
-    const type: 'Slide' | 'Long' = merged.type === 'Long' || dragType === 'Long' ? 'Long' : 'Slide';
+    const type: 'Slide' | 'Long' = 'Slide';
     const consumedSet = new Set(merged.consumed);
     const out: Tagged[] = [];
     work.forEach((w, k) => {

@@ -148,7 +148,7 @@
 - **150 快捷键恢复默认与搜索交集**（[150](./issues/150-快捷键恢复默认与搜索交集.md)，`Type: grilling`，resolved）—— **定了什么** = 有搜索词时恢复默认只跟可见可改行（B）。
 - **151 起始线与结束线文字调整**（[151](./issues/151-起始线与结束线文字调整.md)，`Type: feature`，open）—— **改成什么** = 删除 START 文字，保留起始线；END 文字保留并置于结束线下方。
 - **152 Ctrl+Space 回跳标记视觉表达**（[152](./issues/152-CtrlSpace回跳标记视觉表达.md)，`Type: feature`，open）—— **改成什么** = 左沟槽横线 + 明确的回跳/播放图标 + Ctrl+Space tooltip，不画贯穿谱面的长线。
-- **153 宽松谱面代码兼容与画布投影**（[153](./issues/153-宽松谱面代码兼容与画布投影.md)，`Type: grilling`，语义 resolved、实现待排期）—— **定了什么** = 源数据与画布投影分离；System opaque；charge 源字段保真；Long 不放置、画布按 Slide、无端不改名，形态变化才降为 Slide；beat<0 投影到 0；上传清洗另票。权威 ADR-0014。
+- **153 宽松谱面代码兼容与画布投影**（[153](./issues/153-宽松谱面代码兼容与画布投影.md)，`Type: grilling`，实现口径已收口、待确认后开 P0）—— **定了什么** = 源数据与画布投影；System opaque；charge 保真；Long 无端不改名；Apply 硬拒绝 ≠ 有限非法；工程=源文本；`beat<0` 不画不键音但计 combo；width>3 用 3 档键音、同向点击归 1；软告警归 107。权威 ADR-0014。
 - **154 官方与社区谱面兼容性压力测试**（[154](./issues/154-官方与社区谱面兼容性压力测试.md)，`Type: research`，resolved）—— **结论** = 794 张 SPECIAL 闸门盘点 + System/Long/charge 生命周期已 grill 收口。报告 `docs/research/chart-compatibility-stress-test.md`。
 
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。

@@ -86,15 +86,20 @@ export function maxNoteEndSeconds(notes: ChartNote[], beatDisplay: number, bpmEv
       case 'Single':
       case 'LDirectional':
       case 'RDirectional':
+        if (note.beat < 0) break;
         max = Math.max(max, at(note.beat, note.subBeat));
         break;
       case 'Slide':
       case 'Long':
-        for (const c of note.connections) max = Math.max(max, at(c.beat, c.subBeat));
+        for (const c of note.connections) {
+          if (c.beat < 0) continue;
+          max = Math.max(max, at(c.beat, c.subBeat));
+        }
+        break;
+      case 'BPM':
+        max = Math.max(max, at(note.beat));
         break;
       default:
-        // BPM / System：位置本身也算内容末端（与旧口径一致）
-        max = Math.max(max, at(note.beat));
         break;
     }
   }
@@ -110,19 +115,20 @@ export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvent
   for (const note of notes) {
     switch (note.type) {
       case 'Single':
+        if (note.beat < 0) break;
         push(note.beat, note.lane, note.flick ? 'flick' : note.skill ? 'skill' : 'tap', note.subBeat);
         break;
       case 'LDirectional':
-      case 'RDirectional':
-        // 方向键：击打样式 directional，按组合长度(1..3)分档音效（issue 18）
-        push(note.beat, note.lane, 'directional', note.subBeat, note.length);
+      case 'RDirectional': {
+        if (note.beat < 0) break;
+        const tier = Math.min(3, Math.max(1, note.length > 3 ? 3 : note.length));
+        push(note.beat, note.lane, 'directional', note.subBeat, tier);
         break;
+      }
       case 'Slide':
       case 'Long':
         for (const conn of note.connections) {
-          // hidden 结点不显示、也不应发声（SP 绿条/新型滑条中间隐藏点）
-          if (conn.hidden) continue;
-          // 结点按键音跟随其击打样式：flick 结点发声效、skill 结点发技能音、普通结点发 slide 音
+          if (conn.hidden || conn.beat < 0) continue;
           const kind: KeySoundEvent['kind'] = conn.flick ? 'flick' : conn.skill ? 'skill' : 'slide';
           push(conn.beat, conn.lane, kind, conn.subBeat);
         }

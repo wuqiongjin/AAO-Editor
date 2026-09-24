@@ -1,5 +1,10 @@
-import type { ChartNote } from '../types';
+import type { ChartNote, ConnectionNote } from '../types';
 import { flipEasingType } from './Easing';
+
+/** 画布上当 hidden：标记 hidden，或负 beat（ADR-0014：不画不键音，仍计 combo） */
+export function isCanvasHiddenConn(c: Pick<ConnectionNote, 'hidden' | 'beat'>): boolean {
+  return !!c.hidden || c.beat < 0;
+}
 
 // 轨道总数（与 FinalVirtualCanvas 的 LANES 保持一致）
 export const TOTAL_LANES = 7;
@@ -20,7 +25,7 @@ const hittableConnections = (n: ChartNote): { beat: number }[] => {
 
 /** 是否计入音符数（BPM/System 不是音符：只是谱面标线/元信息，issue 84） */
 const isCountableNote = (n: ChartNote): boolean =>
-  n.type !== "BPM" && n.type !== "System";
+  n.type !== "BPM" && n.type !== "System" && n.type !== "Opaque";
 
 export const countChartNotes = (notes: readonly ChartNote[]): number => {
   let count = 0;
@@ -64,6 +69,7 @@ export const countNotesUpToBeat = (
         break;
       case "BPM":
       case "System":
+      case "Opaque":
         break;
     }
   }
@@ -101,6 +107,7 @@ export const mirrorNote = (n: ChartNote): ChartNote => {
     }
     case "BPM":
     case "System":
+    case "Opaque":
       return n;
   }
 };
@@ -114,7 +121,7 @@ export const mirrorNotes = (notes: ChartNote[], selected: number[]): ChartNote[]
  * **BPM / System 不参与锚点计算**：它们没有 lane，参与 min 会污染组的左上角（把整组推远/推偏）；
  * 它们只随最终的 beat 位移平移（见 shiftNote）。
  */
-const isLaned = (n: ChartNote) => n.type !== "BPM" && n.type !== "System";
+const isLaned = (n: ChartNote) => n.type !== "BPM" && n.type !== "System" && n.type !== "Opaque";
 /** 真实拍位：subBeat 单位是 1/beatDisplay（与 ChartGeometry.noteVirtualY 同口径） */
 const trueBeat = (beat: number, subBeat: number | undefined, beatDisplay: number) =>
   beat + ((subBeat || 0) > 0 ? (subBeat as number) / beatDisplay : 0);
@@ -122,14 +129,16 @@ const noteMinBeat = (n: ChartNote, beatDisplay: number) =>
   (n.type === "Slide" || n.type === "Long")
     ? Math.min(...n.connections.map(c => trueBeat(c.beat, c.subBeat, beatDisplay)))
     : trueBeat(n.beat, (n as { subBeat?: number }).subBeat, beatDisplay);
-const noteMinLane = (n: ChartNote) =>
-  (n.type === "Slide" || n.type === "Long")
-    ? Math.min(...n.connections.map(c => c.lane))
-    : (n as { lane: number }).lane; // 已由 isLaned 过滤掉 BPM/System
-const noteMaxLane = (n: ChartNote) =>
-  (n.type === "Slide" || n.type === "Long")
-    ? Math.max(...n.connections.map(c => c.lane))
-    : (n as { lane: number }).lane;
+const noteMinLane = (n: ChartNote) => {
+  if (n.type !== "Slide" && n.type !== "Long") return (n as { lane: number }).lane;
+  const vis = n.connections.filter(c => !isCanvasHiddenConn(c));
+  return Math.min(...(vis.length > 0 ? vis : n.connections).map(c => c.lane));
+};
+const noteMaxLane = (n: ChartNote) => {
+  if (n.type !== "Slide" && n.type !== "Long") return (n as { lane: number }).lane;
+  const vis = n.connections.filter(c => !isCanvasHiddenConn(c));
+  return Math.max(...(vis.length > 0 ? vis : n.connections).map(c => c.lane));
+};
 
 const groupMinBeat = (clip: ChartNote[], beatDisplay: number) => {
   const laned = clip.filter(isLaned);
@@ -147,7 +156,7 @@ const groupMaxLane = (clip: ChartNote[]) => {
 };
 
 const shiftNote = (n: ChartNote, dBeat: number, dLane: number): ChartNote => {
-  if (n.type === "BPM" || n.type === "System") {
+  if (n.type === "BPM" || n.type === "System" || n.type === "Opaque") {
     return { ...n, beat: n.beat + dBeat };
   }
   if (n.type === "Slide" || n.type === "Long") {

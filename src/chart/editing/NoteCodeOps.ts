@@ -80,7 +80,7 @@ export function buildNoteCode(notes: readonly ChartNote[], target: NoteCodeTarge
         return [projection];
     }
 
-    // 整条：走权威序列化（System 不产生代码 → 空数组 = 无对象视图）
+    // 整条：走权威序列化（System / Opaque 各一条）
     const code = convertNotesToChartCode([note]);
     return code.length === 1 ? code : null;
 }

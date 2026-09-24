@@ -1,4 +1,7 @@
-export type NoteType = "Single" | "LDirectional" | "RDirectional" | "Slide" | "Long" | "BPM" | "System";
+export type NoteType = "Single" | "LDirectional" | "RDirectional" | "Slide" | "Long" | "BPM" | "System" | "Opaque";
+
+/** 谱面代码原始对象；一对一编辑时导出 overlay，形态变化丢弃 */
+export type ChartSourceObject = Record<string, unknown>;
 
 // SP 段参数（issue 09 / ADR-0009 §1-§2：参数随行，hidden 采样点是唯一真相）。
 // 只存在于内部模型：谱面代码（convertSlideNote）不写、Bestdori 导入没有——
@@ -35,6 +38,8 @@ export interface BaseNote {
   lane: number;
   subBeat?: number; // 子节拍位置，0表示在节拍线上
   type: NoteType;
+  source?: ChartSourceObject;
+  charge?: boolean;
 }
 
 export interface SingleNote extends BaseNote {
@@ -63,6 +68,7 @@ export interface SlideNote {
   connections: ConnectionNote[];
   /** SP 段参数（ADR-0009 §1 参数随行）；缺省 = 全部段为普通点集段（含自由段） */
   spanParams?: SlideSpanParams;
+  source?: ChartSourceObject;
 }
 
 export interface LongNote {
@@ -70,6 +76,7 @@ export interface LongNote {
   connections: ConnectionNote[];
   /** 同 SlideNote（Long 与 Slide 同构，SP 段能力同款适用） */
   spanParams?: SlideSpanParams;
+  source?: ChartSourceObject;
 }
 
 export interface ConnectionNote {
@@ -79,21 +86,33 @@ export interface ConnectionNote {
   hidden?: boolean; // 隐藏连接点（用于滑条中间点）
   flick?: boolean; // 连接点是否带flick
   skill?: boolean; // 技能音符标记
+  charge?: boolean;
+  source?: ChartSourceObject;
 }
 
 export interface BpmNote {
   type: "BPM";
   beat: number;
   bpm: number;
+  source?: ChartSourceObject;
 }
 
 export interface SystemNote {
   type: "System";
   beat: number;
   data: string; // 系统数据
+  source?: ChartSourceObject;
 }
 
-export type ChartNote = SingleNote | LDirectionalNote | RDirectionalNote | SlideNote | LongNote | BpmNote | SystemNote;
+/** 未知 type：不渲染不计数不播放，导出写回原 JSON 对象 */
+export interface OpaqueNote {
+  type: "Opaque";
+  sourceType: string;
+  beat: number;
+  source: ChartSourceObject;
+}
+
+export type ChartNote = SingleNote | LDirectionalNote | RDirectionalNote | SlideNote | LongNote | BpmNote | SystemNote | OpaqueNote;
 
 // 选择条目（ADR-0001 §6）：滑条可分区域/端点/中间结点独立选中与编辑
 export type SelectionItem =

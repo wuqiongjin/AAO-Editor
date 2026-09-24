@@ -216,3 +216,25 @@ describe('pasteChartNotes - written（本次实际写入下标，2026-09-08 评�
     expect(r.newNotes.filter(n => n.type === 'LDirectional')).toHaveLength(1);
   });
 });
+
+describe('pasteChartNotes · ADR-0014 粘贴合法化 lane', () => {
+  it('键音符粘贴到越界目标时夹进 0..6', () => {
+    const clipboard: ChartNote[] = [{ type: 'Single', beat: 1, lane: 0, subBeat: 0 }];
+    const r = pasteChartNotes([], clipboard, 1, -2);
+    expect((r.newNotes[0] as { lane: number }).lane).toBe(0);
+  });
+
+  it('滑条可见端点夹轨，hidden 保持相对越界', () => {
+    const clipboard: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 1, lane: 0, subBeat: 0 },
+        { beat: 2, lane: -0.5, hidden: true, subBeat: 0 },
+        { beat: 3, lane: 1, subBeat: 0 },
+      ],
+    }];
+    const r = pasteChartNotes([], clipboard, 1, -1);
+    const s = r.newNotes[0] as { connections: { lane: number }[] };
+    expect(s.connections.map(c => c.lane)).toEqual([0, -0.5, 1]);
+  });
+});

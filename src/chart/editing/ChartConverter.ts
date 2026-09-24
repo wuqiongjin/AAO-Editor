@@ -1,4 +1,4 @@
-import type { ChartNote, SingleNote, LDirectionalNote, RDirectionalNote, SlideNote, BpmNote } from '../types';
+import type { ChartNote, SingleNote, LDirectionalNote, RDirectionalNote, SlideNote, LongNote, SystemNote, OpaqueNote, ConnectionNote, ChartSourceObject } from '../types';
 import { t } from '../../i18n';
 
 // 谱面代码类型定义
@@ -14,16 +14,20 @@ export interface ChartCodeSingle {
     type: "Single";
     flick?: boolean;
     skill?: boolean;
+    charge?: boolean;
+    [key: string]: unknown;
 }
 
 export interface ChartCodeDirectional {
     beat: number;
     lane: number;
     type: "Directional";
-    direction: "Left" | "Right";
+    direction: string;
     width: number;
     flick?: boolean;
     skill?: boolean;
+    charge?: boolean;
+    [key: string]: unknown;
 }
 
 export interface ChartCodeSlideConnection {
@@ -32,22 +36,69 @@ export interface ChartCodeSlideConnection {
     hidden?: boolean;
     flick?: boolean;
     skill?: boolean;
+    charge?: boolean;
+    [key: string]: unknown;
 }
 
 /**
- * 滑条 / 长条：`"Long"` 是 `"Slide"` 的**别名**（同一结构、同一处理），不是独立类型。
- * 依据：Bestdori 侧两者同构同 handler（vendored `lib/src/bestdori/index.ts` 的 BestdoriLongNote，
- * `convert.ts` 的 `Long: longAndSlide / Slide: longAndSlide`）；本编辑器侧 `src/chart/types.ts`
- * 亦注明 SlideNote 与 LongNote 结构完全等价、画布全程并列处理。
- * 故：代码里写 `"Long"` 合法，校验与解析都按 Slide 走，归一为内部 SlideNote；
- * 序列化方向不变（内部长条也写 `"Slide"`），往返稳定、不产生不对称。
+ * 滑条 / 长条：源 `type` 保持 `"Long"` 或 `"Slide"`（ADR-0014）；画布同构。
  */
 export interface ChartCodeSlide {
     type: "Slide" | "Long";
     connections: ChartCodeSlideConnection[];
+    [key: string]: unknown;
 }
 
-export type ChartCodeNote = ChartCodeBPM | ChartCodeSingle | ChartCodeDirectional | ChartCodeSlide;
+export interface ChartCodeSystem {
+    beat: number;
+    type: "System";
+    data?: string;
+    [key: string]: unknown;
+}
+
+export type ChartCodeNote = ChartCodeBPM | ChartCodeSingle | ChartCodeDirectional | ChartCodeSlide | ChartCodeSystem | Record<string, unknown>;
+
+type RawNote = Record<string, unknown>;
+
+function sourceIfExtra(raw: object, known: readonly string[]): ChartSourceObject | undefined {
+    const keys = Object.keys(raw);
+    return keys.some(k => !known.includes(k)) ? asSource(raw) : undefined;
+}
+
+const KNOWN_BPM = ['beat', 'type', 'bpm'] as const;
+const KNOWN_SINGLE = ['beat', 'lane', 'type', 'flick', 'skill', 'charge'] as const;
+const KNOWN_DIR = ['beat', 'lane', 'type', 'direction', 'width', 'flick', 'skill', 'charge'] as const;
+const KNOWN_SLIDE = ['type', 'connections'] as const;
+const KNOWN_SYS = ['beat', 'type', 'data'] as const;
+const KNOWN_CONN = ['beat', 'lane', 'hidden', 'flick', 'skill', 'charge'] as const;
+
+function asSource(obj: object): ChartSourceObject {
+    return obj as ChartSourceObject;
+}
+
+function overlaySource(source: ChartSourceObject | undefined, mapped: Record<string, unknown>): Record<string, unknown> {
+    return source ? { ...source, ...mapped } : mapped;
+}
+
+function connToCode(conn: ConnectionNote): ChartCodeSlideConnection {
+    const mapped: ChartCodeSlideConnection = { beat: conn.beat, lane: conn.lane };
+    if (conn.hidden) mapped.hidden = true;
+    if (conn.flick) mapped.flick = true;
+    if (conn.skill) mapped.skill = true;
+    if (conn.charge) mapped.charge = true;
+    return overlaySource(conn.source, mapped) as ChartCodeSlideConnection;
+}
+
+function connFromCode(conn: ChartCodeSlideConnection): ConnectionNote {
+    const n: ConnectionNote = { beat: conn.beat, lane: conn.lane };
+    const src = sourceIfExtra(conn, KNOWN_CONN);
+    if (src) n.source = src;
+    if (conn.hidden) n.hidden = true;
+    if (conn.flick) n.flick = true;
+    if (conn.skill) n.skill = true;
+    if (conn.charge) n.charge = true;
+    return n;
+}
 
 /**
  * 将谱面音符的编辑操作转换为谱面代码
@@ -58,30 +109,58 @@ export function convertNotesToChartCode(notes: ChartNote[]): ChartCodeNote[] {
     for (const note of notes) {
         switch (note.type) {
             case "BPM":
-                chartCode.push(convertBpmNote(note as BpmNote));
+                chartCode.push(overlaySource(note.source, {
+                    beat: note.beat, type: "BPM", bpm: note.bpm,
+                }) as unknown as ChartCodeBPM);
                 break;
-            case "Single":
-                chartCode.push(convertSingleNote(note as SingleNote));
+            case "Single": {
+                const mapped: Record<string, unknown> = {
+                    beat: note.beat, lane: note.lane, type: "Single",
+                };
+                if (note.flick) mapped.flick = true;
+                if (note.skill) mapped.skill = true;
+                if (note.charge) mapped.charge = true;
+                chartCode.push(overlaySource(note.source, mapped));
                 break;
+            }
             case "LDirectional":
-                chartCode.push(convertLDirectionalNote(note as LDirectionalNote));
+            case "RDirectional": {
+                const mapped: Record<string, unknown> = {
+                    beat: note.beat,
+                    lane: note.lane,
+                    type: "Directional",
+                    direction: note.type === "LDirectional" ? "Left" : "Right",
+                    width: note.length,
+                };
+                if (note.source && typeof note.source.direction === 'string' && note.source.direction !== 'Left') {
+                    mapped.direction = note.source.direction;
+                }
+                if (note.flick) mapped.flick = true;
+                if (note.skill) mapped.skill = true;
+                if (note.charge) mapped.charge = true;
+                chartCode.push(overlaySource(note.source, mapped));
                 break;
-            case "RDirectional":
-                chartCode.push(convertRDirectionalNote(note as RDirectionalNote));
-                break;
+            }
             case "Slide":
-            case "Long":
-                chartCode.push(convertSlideNote(note as SlideNote));
+            case "Long": {
+                const mapped: Record<string, unknown> = {
+                    type: note.type,
+                    connections: note.connections.map(connToCode),
+                };
+                chartCode.push(overlaySource(note.source, mapped));
                 break;
+            }
             case "System":
-                // 系统音符暂不转换
+                chartCode.push(overlaySource(note.source, {
+                    beat: note.beat, type: "System", data: note.data,
+                }));
+                break;
+            case "Opaque":
+                chartCode.push({ ...note.source });
                 break;
         }
     }
 
-    // 按节拍时间排序。**稳定排序**（ADR-0010 结论 9）：同 beat 保持输入顺序，
-    // 否则「导入 → 导出」会凭空产生 diff（同拍多条 BPM 换位）。
-    // 显式带下标兜底，不依赖引擎 Array#sort 的稳定性实现。
     return chartCode
         .map((note, index) => ({ note, index }))
         .sort((a, b) => {
@@ -95,120 +174,13 @@ export function convertNotesToChartCode(notes: ChartNote[]): ChartCodeNote[] {
  * 获取音符的节拍位置
  */
 function getBeatFromNote(note: ChartCodeNote): number {
-    // Slide / Long 同构（"Long" 是 "Slide" 的别名），都用首结点定位
-    if ('connections' in note) {
-        return note.connections[0]?.beat || 0;
+    if (note && typeof note === 'object' && 'connections' in note) {
+        const conns = (note as ChartCodeSlide).connections;
+        if (Array.isArray(conns) && typeof conns[0]?.beat === 'number') return conns[0].beat;
+        return 0;
     }
-    return note.beat;
-}
-
-/**
- * 转换BPM音符
- */
-function convertBpmNote(note: BpmNote): ChartCodeBPM {
-    return {
-        beat: note.beat,
-        type: "BPM",
-        bpm: note.bpm
-    };
-}
-
-/**
- * 转换单键音符
- */
-function convertSingleNote(note: SingleNote): ChartCodeSingle {
-    const result: ChartCodeSingle = {
-        beat: note.beat,
-        lane: note.lane,
-        type: "Single"
-    };
-
-    if (note.flick) {
-        result.flick = true;
-    }
-
-    if (note.skill) {
-        result.skill = true;
-    }
-
-    return result;
-}
-
-/**
- * 转换左方向滑键音符
- */
-function convertLDirectionalNote(note: LDirectionalNote): ChartCodeDirectional {
-    const result: ChartCodeDirectional = {
-        beat: note.beat,
-        lane: note.lane,
-        type: "Directional",
-        direction: "Left",
-        width: note.length
-    };
-
-    if (note.flick) {
-        result.flick = true;
-    }
-
-    if (note.skill) {
-        result.skill = true;
-    }
-
-    return result;
-}
-
-/**
- * 转换右方向滑键音符
- */
-function convertRDirectionalNote(note: RDirectionalNote): ChartCodeDirectional {
-    const result: ChartCodeDirectional = {
-        beat: note.beat,
-        lane: note.lane,
-        type: "Directional",
-        direction: "Right",
-        width: note.length
-    };
-
-    if (note.flick) {
-        result.flick = true;
-    }
-
-    if (note.skill) {
-        result.skill = true;
-    }
-
-    return result;
-}
-
-/**
- * 转换滑条音符
- */
-function convertSlideNote(note: SlideNote): ChartCodeSlide {
-    const connections: ChartCodeSlideConnection[] = note.connections.map(conn => {
-        const result: ChartCodeSlideConnection = {
-            beat: conn.beat,
-            lane: conn.lane
-        };
-
-        if (conn.hidden) {
-            result.hidden = true;
-        }
-
-        if (conn.flick) {
-            result.flick = true;
-        }
-
-        if (conn.skill) {
-            result.skill = true;
-        }
-
-        return result;
-    });
-
-    return {
-        type: "Slide",
-        connections
-    };
+    const b = (note as { beat?: unknown }).beat;
+    return typeof b === 'number' && Number.isFinite(b) ? b : 0;
 }
 
 
@@ -263,70 +235,85 @@ export function convertChartCodeToNotes(chartCode: ChartCodeNote[]): ChartNote[]
     const notes: ChartNote[] = [];
 
     for (const codeNote of chartCode) {
-        switch (codeNote.type) {
+        const raw = codeNote as RawNote;
+        switch (raw.type) {
             case "BPM":
+                const src = sourceIfExtra(raw, KNOWN_BPM);
                 notes.push({
-                    beat: codeNote.beat,
+                    beat: (codeNote as ChartCodeBPM).beat,
                     type: "BPM",
-                    bpm: codeNote.bpm
+                    bpm: (codeNote as ChartCodeBPM).bpm,
+                    ...(src ? { source: src } : {}),
                 });
                 break;
 
             case "Single": {
+                const c = codeNote as ChartCodeSingle;
                 const singleNote: SingleNote = {
-                    beat: codeNote.beat,
-                    lane: codeNote.lane,
-                    type: "Single"
+                    beat: c.beat,
+                    lane: c.lane,
+                    type: "Single",
                 };
-                if (codeNote.flick) {
-                    singleNote.flick = true;
-                }
-                if (codeNote.skill) {
-                    singleNote.skill = true;
-                }
+                const extra = sourceIfExtra(raw, KNOWN_SINGLE);
+                if (extra) singleNote.source = extra;
+                if (c.flick) singleNote.flick = true;
+                if (c.skill) singleNote.skill = true;
+                if (c.charge) singleNote.charge = true;
                 notes.push(singleNote);
                 break;
             }
 
             case "Directional": {
-                const directionalNote: LDirectionalNote | RDirectionalNote = codeNote.direction === "Left"
-                    ? {
-                        beat: codeNote.beat,
-                        lane: codeNote.lane,
-                        type: "LDirectional",
-                        length: codeNote.width
-                    }
-                    : {
-                        beat: codeNote.beat,
-                        lane: codeNote.lane,
-                        type: "RDirectional",
-                        length: codeNote.width
-                    };
-
-                if (codeNote.flick) {
-                    directionalNote.flick = true;
-                }
-                if (codeNote.skill) {
-                    directionalNote.skill = true;
-                }
+                const c = codeNote as ChartCodeDirectional;
+                const isLeft = c.direction === "Left";
+                const directionalNote: LDirectionalNote | RDirectionalNote = isLeft
+                    ? { beat: c.beat, lane: c.lane, type: "LDirectional", length: c.width }
+                    : { beat: c.beat, lane: c.lane, type: "RDirectional", length: c.width };
+                const extra = sourceIfExtra(raw, KNOWN_DIR);
+                if (extra) directionalNote.source = extra;
+                else if (!isLeft) directionalNote.source = asSource(raw);
+                if (c.flick) directionalNote.flick = true;
+                if (c.skill) directionalNote.skill = true;
+                if (c.charge) directionalNote.charge = true;
                 notes.push(directionalNote);
                 break;
             }
 
-            // "Long" 是 "Slide" 的别名：归一为内部 SlideNote（与序列化方向一致）
             case "Slide":
             case "Long": {
-                const slideNote: SlideNote = {
-                    type: "Slide",
-                    connections: codeNote.connections.map(conn => ({
-                        beat: conn.beat,
-                        lane: conn.lane,
-                        hidden: conn.hidden,
-                        flick: conn.flick,
-                        skill: conn.skill
-                    }))
+                const c = codeNote as ChartCodeSlide;
+                const slide: SlideNote | LongNote = {
+                    type: raw.type === "Long" ? "Long" : "Slide",
+                    connections: (c.connections ?? []).map(connFromCode),
                 };
-                notes.push(slideNote);
+                const extra = sourceIfExtra(raw, KNOWN_SLIDE);
+                if (extra) slide.source = extra;
+                notes.push(slide);
+                break;
+            }
+
+            case "System": {
+                const c = codeNote as ChartCodeSystem;
+                const sys: SystemNote = {
+                    type: "System",
+                    beat: typeof c.beat === 'number' ? c.beat : 0,
+                    data: typeof c.data === 'string' ? c.data : '',
+                };
+                const extra = sourceIfExtra(raw, KNOWN_SYS);
+                if (extra) sys.source = extra;
+                notes.push(sys);
+                break;
+            }
+
+            default: {
+                const beat = typeof raw.beat === 'number' && Number.isFinite(raw.beat) ? raw.beat : 0;
+                const opaque: OpaqueNote = {
+                    type: "Opaque",
+                    sourceType: String(raw.type ?? ''),
+                    beat,
+                    source: asSource(raw),
+                };
+                notes.push(opaque);
                 break;
             }
         }
@@ -366,12 +353,6 @@ export interface ValidateChartCodeOptions {
     fragment?: boolean;
 }
 
-/**
- * 校验期把音符当作"未知结构的原始对象"看：谱面代码来自 JSON.parse，
- * 可能是任何东西（含脏字段），不能假设它符合 ChartCodeNote。
- */
-type RawNote = Record<string, unknown>;
-
 /** beat 必须是有限数字 */
 function checkBeat(
     note: RawNote, noteIndex: number, connIndex: number | undefined, label: string, errors: ValidationError[]
@@ -384,14 +365,14 @@ function checkBeat(
     }
 }
 
-/** lane 必须在 0-6 */
+/** lane 必须是有限数字（可越界，ADR-0014） */
 function checkLane(
     note: RawNote, noteIndex: number, connIndex: number | undefined, label: string, errors: ValidationError[]
 ): void {
-    if (typeof note.lane !== 'number' || !Number.isFinite(note.lane) || note.lane < LANE_MIN || note.lane > LANE_MAX) {
+    if (typeof note.lane !== 'number' || !Number.isFinite(note.lane)) {
         errors.push({
             noteIndex, connIndex, field: 'lane',
-            reason: t('validate.laneRange', { label, min: LANE_MIN, max: LANE_MAX }), expected: `${LANE_MIN}-${LANE_MAX}`,
+            reason: t('validate.laneRange', { label, min: LANE_MIN, max: LANE_MAX }), expected: t('validate.expectedFiniteBeat'),
         });
     }
 }
@@ -530,13 +511,13 @@ export function validateChartCode(
             case "Directional":
                 checkBeat(note, i, undefined, t('validate.label.directional'), errors);
                 checkLane(note, i, undefined, t('validate.label.directional'), errors);
-                if (typeof note.direction !== 'string' || !['Left', 'Right'].includes(note.direction)) {
+                if (typeof note.direction !== 'string') {
                     errors.push({
                         noteIndex: i, field: 'direction',
                         reason: t('validate.dirInvalid'), expected: t('validate.dirExpected'),
                     });
                 }
-                if (typeof note.width !== 'number' || note.width < 1 || note.width > 3) {
+                if (typeof note.width !== 'number' || !Number.isFinite(note.width)) {
                     errors.push({
                         noteIndex: i, field: 'width',
                         reason: t('validate.widthRange'), expected: t('validate.widthExpected'),
@@ -568,11 +549,18 @@ export function validateChartCode(
                 break;
             }
 
+            case "System":
+                if (note.beat !== undefined && (typeof note.beat !== 'number' || !Number.isFinite(note.beat))) {
+                    errors.push({
+                        noteIndex: i, field: 'beat',
+                        reason: t('validate.beatMustBeNumber', { label: 'System' }), expected: t('validate.expectedFiniteBeat'),
+                    });
+                }
+                break;
+
             default:
-                errors.push({
-                    noteIndex: i, field: 'type',
-                    reason: t('validate.unknownType', { type: String(note.type) }), expected: t('validate.typeExpected'),
-                });
+                // 未知 type / opaque：整份放行（ADR-0014）
+                break;
         }
     }
 

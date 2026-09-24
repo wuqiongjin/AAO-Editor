@@ -190,8 +190,12 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
     expect(g1.bodies).toHaveLength(1);
     expect(g1.chevron!.offsetVirtualX).toBe(0);
     expect(g1.chevron!.extraDesignX).toBeGreaterThan(0);
-    // len 超界钳制到 3
-    expect(icons.dirGroup('L', 9).bodies).toHaveLength(3);
+    // ADR-0014：width 无上限，本体数 = ceil(width)
+    expect(icons.dirGroup('L', 9).bodies).toHaveLength(9);
+    expect(icons.dirGroup('R', 4.25).bodies).toHaveLength(5);
+    expect(icons.dirGroup('R', 4.25).chevron!.offsetVirtualX).toBeCloseTo(3.25 * LANE_WIDTH, 8);
+    expect(icons.dirGroup('R', 0.25).bodies).toHaveLength(1);
+    expect(icons.dirGroup('L', 0).bodies).toHaveLength(0);
   });
 
   it('dirGroup：方向键装饰箭头与本体部分重叠（用户 2026-08-25 第 2/3 轮反馈，参照图2 穿越观感）', () => {

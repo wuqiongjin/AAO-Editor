@@ -381,7 +381,7 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
     if (note.type === 'LDirectional' || note.type === 'RDirectional') {
       if (!whole && !hv && !previewWhole) continue;
       const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
-      const len = Math.min(Math.max(note.length || 1, 1), 3);
+      const len = note.length;
       const isLeft = note.type === 'LDirectional';
       const group = rc.noteIcons.dirGroup(isLeft ? 'L' : 'R', len);
       // 本体精灵框内左右有透明留白 → 用构建期实测墨迹（dirInk，与同时点击线同一口径）收紧到可见墨迹
@@ -637,6 +637,9 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   }
   // 第一层：普通音符和方向键主体
   visibleNotes.forEach(({ note }) => {
+    if ((note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") && note.beat < 0) {
+      return;
+    }
     if (note.type === "Single") {
       const subBeat = note.subBeat || 0;
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
@@ -656,7 +659,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
       const isLeft = note.type === "LDirectional";
       // issue 29：N 条覆盖轨道扁平本体 + 最外侧箭头（dirGroup 几何由墨迹推导）
-      const len = Math.min(Math.max(note.length || 1, 1), 3);
+      const len = note.length;
       renderDirGroup(ctx, rc, icons.dirGroup(isLeft ? 'L' : 'R', len), canvasPos.x, canvasPos.y, spriteScale);
     } else if (note.type === "Slide" || note.type === "Long") {
       renderSlideBody(ctx, c, rc, note);
@@ -1066,7 +1069,7 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
     // issue 29：与 renderNotes 同构（扁平本体 ×N + 外侧箭头）
     const isLeft = note.type === "LDirectional";
-    const len = Math.min(Math.max(note.length || 1, 1), 3);
+    const len = note.length;
     renderDirGroup(ctx, rc, icons.dirGroup(isLeft ? 'L' : 'R', len), cpt.x, cpt.y, rc.viewport.scale);
   } else if (note.type === "Slide" || note.type === "Long") {
     renderSlideGhost(ctx, c, rc, note);

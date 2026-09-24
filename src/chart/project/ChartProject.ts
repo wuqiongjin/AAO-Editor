@@ -18,6 +18,9 @@ export interface ChartProject {
   durationSeconds: number;
   /** 谱面代码（notes 数组，经 convertNotesToChartCode 可还原为代码文本） */
   notes: ChartNote[];
+  /** 无画布编辑时另存为用的已应用源文本（ADR-0014 §5） */
+  appliedChartCodeText?: string | null;
+  chartCodePristine?: boolean;
   audioName?: string;
   audioBlob?: Blob;
 }
@@ -28,6 +31,8 @@ export interface ProjectRecordDoc {
   durationSeconds: number;
   notes: ChartNote[];
   audioName: string | null;
+  appliedChartCodeText?: string | null;
+  chartCodePristine?: boolean;
   /** 磁盘上是否存在 audio.bin（get 据此决定是否读音频字节） */
   audioPresent: boolean;
 }
@@ -175,6 +180,8 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
       id,
       durationSeconds: doc.durationSeconds,
       notes: doc.notes ?? [],
+      ...(doc.appliedChartCodeText != null ? { appliedChartCodeText: doc.appliedChartCodeText } : {}),
+      ...(doc.chartCodePristine != null ? { chartCodePristine: doc.chartCodePristine } : {}),
       ...(doc.audioName != null ? { audioName: doc.audioName } : {}),
       ...(audioBlob ? { audioBlob } : {}),
     };
@@ -209,6 +216,8 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
           // IPC 结构化克隆不接受含函数/符号的对象；JSON 往返保证纯数据（与导出语义一致）
           notes: JSON.parse(JSON.stringify(project.notes)) as ChartNote[],
           audioName: project.audioName ?? null,
+          appliedChartCodeText: project.appliedChartCodeText ?? null,
+          chartCodePristine: project.chartCodePristine === true,
           audioIntent,
         },
         ...(audioBytes != null ? { audio: audioBytes } : {}),

@@ -299,10 +299,10 @@ describe('滑条吸入（ADR-0008 §4 修订 2026-09-07 · 验收反馈 #2）', 
     expect(combineSelectionIntoSlide(notes, slideNodes(0, 3)).shouldCombine).toBe(false);
   });
 
-  it('吸入 Long → 结果 Long；吸入 Slide → Slide', () => {
+  it('吸入 Long 也重建为 Slide（形态变化，ADR-0014）', () => {
     const notes: ChartNote[] = [flaggedSlide([{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }], 'Long'), slide(3, 3, 4, 4)];
     const r = combineSelectionIntoSlide(notes, [...slideNodes(0, 2), ...slideNodes(1, 2)]);
-    expect((r.newNotes[0] as SlideNote).type).toBe('Long');
+    expect((r.newNotes[0] as SlideNote).type).toBe('Slide');
   });
 
   it('未框到的滑条结构共享；被触碰滑条整条入链（§4 五轮修订 = 无拆条）', () => {
@@ -403,7 +403,7 @@ describe('滑条吸入（ADR-0008 §4 修订 2026-09-07 · 验收反馈 #2）', 
     ]);
     expect(r.shouldCombine).toBe(true);
     expect(r.newNotes).toHaveLength(1);
-    expect(r.newNotes[r.slideIndex!].type).toBe('Long'); // 被触碰 Long → 组合结果保型
+    expect(r.newNotes[r.slideIndex!].type).toBe('Slide'); // 组合是形态变化 → Slide
     expect(((r.newNotes[0] as SlideNote).connections).map(c => [c.beat, c.lane]))
       .toEqual([[1, 1], [2, 2], [3, 3], [4, 4], [9, 9]]);
   });

@@ -18,7 +18,8 @@ export interface ChartCodeExportBridge {
   saveAs(payload: { json: string; suggestedName: string }): Promise<{ cancelled: boolean }>;
 }
 
-export function chartCodeExportText(notes: ChartNote[]): string {
+export function chartCodeExportText(notes: ChartNote[], appliedText?: string | null): string {
+  if (appliedText != null && appliedText !== '') return appliedText;
   return chartCodeToCompactJSON(convertNotesToChartCode(notes));
 }
 
@@ -54,8 +55,12 @@ function downloadJson(filename: string, text: string): void {
  * 一律**按画布**生成文本（issue 118 定案：不导出未应用的草稿）。
  * 取消对话框视为成功静默返回。
  */
-export async function exportChartCodeSaveAs(notes: ChartNote[], target?: NoteCodeTarget): Promise<void> {
-  const json = target ? noteCodeExportText(notes, target) : chartCodeExportText(notes);
+export async function exportChartCodeSaveAs(
+  notes: ChartNote[],
+  target?: NoteCodeTarget,
+  appliedText?: string | null,
+): Promise<void> {
+  const json = target ? noteCodeExportText(notes, target) : chartCodeExportText(notes, appliedText);
   if (json === null) return; // 目标已被画布改动抹掉
   const suggestedName = target ? noteCodeExportFilename(target) : CHART_CODE_EXPORT_FILENAME;
   const bridge = getExportBridge();

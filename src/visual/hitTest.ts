@@ -121,6 +121,7 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
   /** 单个音符的命中结果（滑条内部仍是**结点优先于段**，issue 56/77 定案不变） */
   const hitOne = (i: number): SelectionItem | null => {
     const note = deps.notes[i];
+    if (note.type === "BPM" || note.type === "System" || note.type === "Opaque") return null;
 
     if (note.type === "Slide" || note.type === "Long") {
       // Long ≡ Slide（同构），结点字段（含 hidden）取 ConnectionNote
@@ -129,7 +130,7 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
       for (let ci = 0; ci < connections.length; ci++) {
         const conn = connections[ci];
         // issue 56 A6/C1：hidden 结点不可命中（不可选中、不可 hover、无描边反馈）
-        if (conn.hidden) continue;
+        if (conn.hidden || conn.beat < 0) continue;
         const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
         if (inHitBox(cx, cy, pos.x, pos.y, slideNodeHit.hw, slideNodeHit.hh)) {
           return { kind: 'slideNode', noteIndex: i, connIndex: ci };
@@ -151,6 +152,7 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
         }
       }
     } else if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
+      if (note.beat < 0) return null;
       // issue 62：方向键整组都可命中（框到哪儿都能点中/拖起），与 issue 56 A4 的
       // "选中描边 = 整组一个矩形"同口径；半径沿用单键口径（箭头挂件那几 px 不算命中区）。
       const lanes = note.type === 'Single'

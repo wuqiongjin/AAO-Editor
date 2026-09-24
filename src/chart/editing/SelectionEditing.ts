@@ -149,9 +149,9 @@ function splitSlide(
   return out;
 }
 
-function materializeSegment(type: "Slide" | "Long", seg: SlideNote["connections"]): ChartNote {
+function materializeSegment(_type: "Slide" | "Long", seg: SlideNote["connections"]): ChartNote {
   if (seg.length === 1) return connectionToNote(seg[0]);
-  return { type, connections: seg } as SlideNote;
+  return { type: "Slide", connections: seg };
 }
 
 /** 可见（非 hidden）结点的真实下标序列。hidden 不参与分界（issue 77 #9）。 */
@@ -261,7 +261,7 @@ export function copySelection(notes: ChartNote[], items: SelectionItem[]): Chart
         const min = Math.min(...covered);
         const max = Math.max(...covered);
         const conns = note.connections.slice(min, max + 1).map(c => ({ ...c }));
-        out.push({ type: note.type, connections: conns } as SlideNote);
+        out.push({ type: 'Slide', connections: conns } as SlideNote);
       }
     } else {
       // 非滑条音符：仅 kind 'note' 有效
@@ -376,7 +376,7 @@ export function remapSelection(oldNotes: ChartNote[], items: SelectionItem[], ne
       }
       continue;
     }
-    if (old.type === 'BPM' || old.type === 'System') {
+    if (old.type === 'BPM' || old.type === 'System' || old.type === 'Opaque') {
       const i = newNotes.findIndex(n => n.type === old.type && n.beat === old.beat);
       if (i !== -1) out.push({ kind: 'note', noteIndex: i });
       continue;

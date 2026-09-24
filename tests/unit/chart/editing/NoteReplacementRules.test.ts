@@ -89,6 +89,17 @@ describe('handleNoteReplacement - 单键/方向键', () => {
     const r = handleNoteReplacement(notes, 1, 2, 0, 'ldirectional');
     expect(r.newNotes).toEqual([{ type: 'LDirectional', beat: 1, lane: 2, subBeat: 0, length: 1 }]);
   });
+
+  it('导入 width=7 再同向点击视为 3 后归 1，并丢掉 source', () => {
+    const notes: ChartNote[] = [{
+      type: 'LDirectional', beat: 1, lane: 2, subBeat: 0, length: 7,
+      source: { charge: true }, charge: true,
+    }];
+    const r = handleNoteReplacement(notes, 1, 2, 0, 'ldirectional');
+    expect(r.newNotes[0]).toMatchObject({ type: 'LDirectional', length: 1 });
+    expect((r.newNotes[0] as { source?: unknown; charge?: boolean }).source).toBeUndefined();
+    expect((r.newNotes[0] as { source?: unknown; charge?: boolean }).charge).toBeUndefined();
+  });
 });
 
 describe('handleNoteReplacement - 滑条结点（ADR-0001 1.2）', () => {

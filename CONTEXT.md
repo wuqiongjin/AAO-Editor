@@ -20,7 +20,10 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 谱面代码 | Chart code | Bestdori 风格 JSON 数组；它有保真的**源数据**，并可投影成编辑器内部的可理解谱面 |
 | 谱面代码源数据 | Chart code source | 应用后的 JSON 对象与字段和值的保真集合；未知字段、未知 `type` 和符合既有放行边界的有限非法值不因解析或导出自动丢失 |
 | 画布投影 | Canvas projection | 从谱面代码源数据得到的可渲染/可编辑视图；投影失败不删除源数据，无法理解的 `type` 保留为 opaque 条目 |
-| beat / subBeat | beat / subBeat | **作者轴**坐标；subBeat 为细分，未设置时视为 `0`。经 BPM 事件带符号换算为时间轴（秒）——含倒流区时二者方向相反，勿称 beat 为「时间」；源数据的负 beat 可投影到 beat 0 |
+| Apply 硬拒绝 | Hard reject | 整份谱面代码不能写入画布：JSON 非法、根不是数组、已知 `type` 缺必填结构、数值非有限、`bpm = 0`、倒流区硬边界（beat 0 负 BPM / 末条负 BPM）。不模仿 Bestdori「缺 lane 仍计数 / 缺 connections 画布全黑」。_Avoid_: 把 System、有限越界 lane、`charge`、width>3 当硬拒绝 |
+| 有限非法值 | Finite out-of-range | 已知字段的**有限**数字越出本编辑器放置范围（如 lane 出 `0..6`、Directional `width` 任意有限且 `>3` 或 `<1`）；进入源数据并按 ADR-0014 投影。_Avoid_: 与 NaN/Infinity/缺字段混称；把 width 上限定死在 7 |
+| beat / subBeat | beat / subBeat | **作者轴**坐标；subBeat 为细分，未设置时视为 `0`。经 BPM 事件带符号换算为时间轴（秒）——含倒流区时二者方向相反，勿称 beat 为「时间」 |
+| 负 beat 击打物 | Negative-beat hittable | 源 `beat < 0` 的可击打音符或滑条非 hidden 结点：不渲染、不键音、不进画布选区，计入 combo（开播即已过线）；只能在谱面代码里改。_Avoid_: 投影到 beat 0、与 opaque/System 混称（System 不计 combo） |
 | lane | lane | 编辑器合法新落点为 `0..6`（共 7 道）；源数据中的有限 lane 可越界并投影到轨道外 |
 
 ## 时间轴与倒流区（ADR-0010）
@@ -46,7 +49,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 滑条 | Slide | 由多个**结点**（connections）组成的连线 |
 | 长条 | Long | 谱面代码 `type:"Long"` 的滑条。画布按滑条投影；本编辑器不提供放置 Long。一对一移动/复制/镜像后若仍是两点且 beat 有序，源 `type` 保持 `"Long"`（换 lane 的斜两点仍算）。加结点、拆条、合并、弯/SP、变成单键等形态变化重建为 Slide。符合直 hold 的 Slide 不自动改成 Long。_Avoid_: 与滑条「同构故导出可改名」、放置 Long 工具 |
 | BPM 线 | BPM | 作者轴上的 BPM 事件；可击打谱面的时间换算来源 |
-| System | System | **opaque 条目**：非击打、不渲染、不计数、不播放、不进画布选区；源数据整对象保留。官方谱里 `data` 为 BGM 文件名或 `cmd_fever_*`（fever 时段指令）。只能在谱面代码里改或删。_Avoid_: 与 BPM 混称、当成可画的非击打物 |
+| System | System | **opaque 条目**：非击打、不渲染、不计数、不播放、不进画布选区；源数据整对象保留。官方谱里 `data` 为 BGM 文件名或 `cmd_fever_*`（fever 时段指令）。完整谱面代码与对象视图都可以改成/改写 System。_Avoid_: 与 BPM 混称、当成可画的非击打物 |
 | Fever | Fever | 官方实机的额外分数加成时段：`cmd_fever_ready` 后靠 **charge 音符**攒进度，`cmd_fever_start` 开启、`cmd_fever_end` 结束。Sonolus 与本编辑器均不实现。_Avoid_: 当作本编辑器功能 |
 | Charge | charge | 音符或滑条结点上的可选源字段 `charge: true`；官方实机用于累积 fever。本编辑器无 UI、不影响命中/覆盖；源数据保真，仅未来 Bestdori 社区上传时剥掉该键。_Avoid_: 当成独立音符类型、Apply 时删除 |
 
