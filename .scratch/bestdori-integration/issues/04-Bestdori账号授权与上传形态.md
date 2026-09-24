@@ -27,6 +27,11 @@ Bestdori **没有 OAuth / API Token**，唯一授权方式是「用户名 + 密�
 - 静态演示版不提供本能力（ADR-0011 §1）。
 - 实现前先按 §8 待验证清单实测登录成功形态（真实账号）。
 
+## Comments
+
+- 2026-09-24：用户再次询问「能否在软件内上传到 Bestdori」。结论未变（API 齐备、无官方文档、无 OAuth、无 CORS）。当日对照现行 `CommunityChartsNew.b534f9a9.js` 再核了 `onPublish` 字段与默认 `diff=3/level=20`、正文 5000 字、谱面发布后不可改；细节写入 `docs/research/bestdori-api.md` §9。实现仍未开工（Electron 网络 IPC 尚未落地）。不另开调研票。
+- 2026-09-24：用测试账号完成写路径实测（登录 Cookie 名 `token`、Bandori 渠道发帖、官方 JSON 须丢掉 System/`charge`、无删帖接口）。完整记录：`docs/research/bestdori-community-upload.md`。
+
 ## 锁测
 
 决策票：实现票需补「密码不落盘」锁测（登录后本地持久化目录中不出现明文密码的静态/运行时断言）。

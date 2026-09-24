@@ -1,7 +1,7 @@
 # Bestdori! API 实测参考（2026-09-12）
 
-> Bestdori!（https://bestdori.com/）**没有官方 API 文档**。本文全部端点于 2026-09-12 匿名实测验证（只读探测）；
-> 写操作（登录 / 上传 / 发布）未实测，流程从 Bestdori 前端 bundle 与社区 wrapper 源码交叉验证，并在 §8「待验证清单」标明。
+> Bestdori!（https://bestdori.com/）**没有官方 API 文档**。本文端点于 2026-09-12 起匿名实测（只读为主）。
+> **写路径（登录 / 发帖 / 删帖）2026-09-24 已实测**，完整结论见 [bestdori-community-upload.md](./bestdori-community-upload.md)；本文 §3–5 / §9 只留摘要。
 > 本文只记录事实，不做决策；决策见 `docs/adr/` 与 `.scratch/bestdori-integration/` 对应票。
 
 权威来源（交叉验证）：
@@ -141,7 +141,7 @@ JSON body（实测约束）：
 - `GET /api/post/tag?type=&data=&fuzzy=` — 标签搜索（返回 `tags[]` 带 count）
 - `GET /api/post/find?categoryName=&categoryId=&id=` — 帖子在画廊中的时间序位次
 
-## 3. 账号与登录（登录成功未实测）
+## 3. 账号与登录
 
 | 端点 | 说明 |
 | --- | --- |
@@ -152,7 +152,7 @@ JSON body（实测约束）：
 
 - **无 OAuth / API Token**：唯一授权方式就是用户名+密码换 Cookie 会话。
 - 后端不校验 CSRF（见 §0），自建客户端只需保存并回传会话 Cookie。
-- 待验证：会话 Cookie 名与有效期、多点登录行为、`/api/user/me` 匿名返回形态。
+- 2026-09-24 写路径实测：成功 Cookie 名是 **`token`**；`GET /api/user/me` 登录后返回 `{result, username, nickname, titles, email, messageCount}`。有效期 / 多点登录仍未测。详见 [bestdori-community-upload.md](./bestdori-community-upload.md) §2。
 
 ## 4. 文件上传（发布谱面所需的音频 / 封面图）
 
@@ -165,13 +165,14 @@ JSON body（实测约束）：
 
 引用 URL：`https://bestdori.com/api/upload/file/{hash}`，**匿名可下载**（实测 200，`application/octet-stream`，无 CORS 头）。音频与封面图都走同一上传通道，发布时以 URL 形态填进帖子的 `song` 字段。
 
-## 5. 发布 / 编辑社区谱面帖（未实测，前端 bundle 实证）
+## 5. 发布 / 编辑社区谱面帖
 
 - **发布**：`POST /api/post`，JSON body：
   `{title, artists, diff(0..4?), level(1..35?), chart(谱面代码数组), content(富文本块数组, ≤5000 字符), categoryName:"SELF_POST", categoryId:"chart", tags[], song}`，
   `song` = `{type:"custom", audio:"https://bestdori.com/api/upload/file/{hash}", cover:"…"}` 或 `{type:"bandori", id}`。响应返回新帖 id。需登录。
 - **编辑**：`POST /api/post/edit` `{id, diff, level, rating, warningViolence, warningDeath, warningNonCon, warningUnderage, tags}`。**body 里没有 `chart` → 谱面本体发布后不可再改**，只有 diff / level / rating / 警告标记 / tags 能事后修改。这决定了本地缓存语义：谱面字节可安全缓存，元数据只是抓取时刻的快照。
 - **点赞**：`POST /api/post/like` `{id, value}`。评论即回复帖（`categoryName:"POST_COMMENT"`，如 `categoryId=父帖id`）。
+- **无删除 / 隐藏**：`/api/post/delete|hide|remove|unpublish|archive` 均为 HTTP 404。写路径细节、谱面 `sanitizeAll`、实测帖 id 见 [bestdori-community-upload.md](./bestdori-community-upload.md)。
 
 ## 6. 资源 URL 模式（官方曲库素材）
 
@@ -198,10 +199,52 @@ JSON body（实测约束）：
 
 ## 8. 待验证清单（实现期用真实账号/规模实测）
 
-1. 登录成功后的会话 Cookie 名、有效期、多端登录行为。
-2. 发布帖 `diff` / `level` 的合法取值域（示例 `diff:3, level:24`；前端 `userChartDiff`/`userChartLevel`）。
+1. ~~登录成功后的会话 Cookie 名~~（2026-09-24：名是 `token`）。有效期、多端登录行为仍未测。
+2. 发布帖 `diff` / `level` 的合法取值域（已确认 `diff:0` + `level:1` 可通过；`level` 0/36 拒。全值域未扫完）。
 3. 发布帖 `content` 富文本块完整语法（`text` / `br` / `emoji` …）与 5000 字符上限的计量方式。
 4. `order` 全部合法值（`LIKE_DESC` 无效，是否还有 `LIKE_ASC` 等）。
 5. musicjacket bucket 求值规则（§6）。
 6. 429 限流的实际阈值与封禁形态。
 7. `song.type="bandori"` 社区谱面在站内播放用的音频是否为完整曲（影响我们浏览功能的音频体验与流量）。
+
+## 9. 2026-09-24 前端再核（发布 payload）
+
+写路径实测与发帖记录已独立成文：**[bestdori-community-upload.md](./bestdori-community-upload.md)**。本节只保留 bundle 对照。
+
+站点仍无官方 API 文档。当日 `https://bestdori.com/community/charts/new` 对应 bundle 仍是 `CommunityChartsNew.b534f9a9.js` + `app.d390adb1.js`（与 2026-09-12 调研同一 `app` hash）。
+
+发布按钮 `onPublish` 的前端校验与请求（未登录会跳转登录页）：
+
+| 校验 | 条件 | 错误码 |
+| --- | --- | --- |
+| 标题 | `userChartTitle` 非空 | `TITLE_INVALID` |
+| 歌曲 | `userChartSong` 非空 | `SONG_INVALID` |
+| 演唱者 | `userChartArtists` 非空 | `ARTISTS_INVALID` |
+| 描述 | `userChartBody` 非空 | `POST_EMPTY` |
+| 描述长度 | `userChartBody.length > 5000` | `POST_INVALID`（文案：Post too long） |
+| 谱面 | `userChart` 数组非空 | `CHART_INVALID` |
+| 临时文件 | body / song 仍指向未转正的临时上传 | `TEMPORARY_FILE` |
+| 未登录 | 无 `this.user` | 路由到 `profile-account?t=login` |
+
+通过后调用 `POST /api/post`（Vuex `socialPostPost`），body 字段：
+
+```json
+{
+  "title": "…",
+  "song": { "type": "custom|bandori|llsif", "audio": "…", "cover": "…", "id": 123 },
+  "artists": "…",
+  "diff": 3,
+  "level": 20,
+  "chart": [ /* 谱面代码数组 */ ],
+  "content": [ /* 由正文解析出的富文本块 */ ],
+  "categoryName": "SELF_POST",
+  "categoryId": "chart",
+  "tags": []
+}
+```
+
+前端默认值：`diff = 3`（Expert）、`level = 20`。歌曲选择器三种：Custom（推荐自传封面/音频）、BanG Dream 官方曲（`type:bandori` + 曲 id）、LLSIF 曲库。Custom 也可填外链 URL，但文案建议上传到 Bestdori（外链需允许 CORS 才能在站内播放）。
+
+`POST /api/post/edit` 在 `app.js` 里仍只有 `id, diff, level, rating, warningViolence, warningDeath, warningNonCon, warningUnderage, tags`——**没有 `chart` / `title` / `song` / `content`**，与 §5 一致：谱面本体发布后不能改。
+
+限流文案（前端 i18n，阈值未测）：`Too many posts, please try again later` / `Too many uploads, please try again later`。
