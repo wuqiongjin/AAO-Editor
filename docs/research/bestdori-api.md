@@ -188,7 +188,7 @@ JSON body（实测约束）：
 
 - 官方：`node scripts/fetch-bestdori-official.mjs --search <曲名>` → `node scripts/fetch-bestdori-official.mjs <songId> <diff> [-o chart.json] [--audio]`
 - 社区：`node scripts/fetch-bestdori-community.mjs --search <关键字>` → `node scripts/fetch-bestdori-community.mjs <postId> [-o chart.json] [--audio]`
-- 按谱师：`node scripts/fetch-bestdori-community.mjs --username <账号名> --limit all` 列清单；加 `--download-dir <dir>` 批量下载（并发 + 磁盘缓存 + `index.json`，实现在 `scripts/lib/bestdori-cache.mjs`，与 `fetch-chart-corpus.mjs` 共用）
+- 按谱师：`node scripts/fetch-bestdori-community.mjs --username <账号名> --limit all` 列清单；加 `--download-dir <dir>` 批量下载（并发 + 磁盘缓存 + `index.json`，实现在 `scripts/lib/bestdori-cache.mjs`）。issue 154 固定语料：`node scripts/fetch-stress-test-charts.mjs` → `docs/resource/StressTestChart/`
 
 ## 7. 速率与合规边界
 

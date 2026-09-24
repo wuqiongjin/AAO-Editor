@@ -44,14 +44,17 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 技能键 | Skill | 带 `skill` 标记的单键 |
 | 方向键 | Directional | JSON `type:"Directional"` 搭配 `direction` 与 `width`；源数据 width 可为有限越界/小数值，具体投影见 ADR-0014。界面英语展示为 **Left Directional Flick** / **Right Directional Flick**，不要写成光秃的 Left/Right |
 | 滑条 | Slide | 由多个**结点**（connections）组成的连线 |
-| 长条 | Long | 由多个 connections 组成（与滑条同构） |
-| BPM 线 / System | BPM / System | 非击打类元素 |
+| 长条 | Long | 谱面代码 `type:"Long"` 的滑条。画布按滑条投影；本编辑器不提供放置 Long。一对一移动/复制/镜像后若仍是两点且 beat 有序，源 `type` 保持 `"Long"`（换 lane 的斜两点仍算）。加结点、拆条、合并、弯/SP、变成单键等形态变化重建为 Slide。符合直 hold 的 Slide 不自动改成 Long。_Avoid_: 与滑条「同构故导出可改名」、放置 Long 工具 |
+| BPM 线 | BPM | 作者轴上的 BPM 事件；可击打谱面的时间换算来源 |
+| System | System | **opaque 条目**：非击打、不渲染、不计数、不播放、不进画布选区；源数据整对象保留。官方谱里 `data` 为 BGM 文件名或 `cmd_fever_*`（fever 时段指令）。只能在谱面代码里改或删。_Avoid_: 与 BPM 混称、当成可画的非击打物 |
+| Fever | Fever | 官方实机的额外分数加成时段：`cmd_fever_ready` 后靠 **charge 音符**攒进度，`cmd_fever_start` 开启、`cmd_fever_end` 结束。Sonolus 与本编辑器均不实现。_Avoid_: 当作本编辑器功能 |
+| Charge | charge | 音符或滑条结点上的可选源字段 `charge: true`；官方实机用于累积 fever。本编辑器无 UI、不影响命中/覆盖；源数据保真，仅未来 Bestdori 社区上传时剥掉该键。_Avoid_: 当成独立音符类型、Apply 时删除 |
 
 ## 滑条相关（重点）
 
 | 术语 | 英文 | 说明 |
 | --- | --- | --- |
-| 滑条结点 | Node / connection | 滑条的一个连接点，含 beat/lane/subBeat 及可选 `flick`/`skill` 标记 |
+| 滑条结点 | Node / connection | 滑条的一个连接点，含 beat/lane/subBeat 及可选 `flick`/`skill`/`charge` 标记 |
 | 端点 | Endpoint | 滑条的**头部**（`e0`）与**尾部**（`eN`）结点 |
 | 中间节点 | Middle node / pathway | 滑条两端点之间的途经结点（`m1..m_{N-1}`），亦称"途径结点" |
 | 覆盖 | Overwrite | 把音符放置到已有音符/结点所在位置的处理 |

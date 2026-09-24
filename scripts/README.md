@@ -17,7 +17,7 @@
 | --- | --- | --- | --- | --- |
 | `fetch-bestdori-official.mjs` | 曲库 `songId` + 难度 | `--search <曲名>` | `GET /api/charts/...` | 官方 BGM |
 | `fetch-bestdori-community.mjs` | 社区帖 `postId` | `--search` / `--username` | `GET /api/post/details` | custom / bandori |
-| `fetch-chart-corpus.mjs` | 批量语料（官方+社区混合） | `--username` / 全库抽样 | 批量 `post/details` / `charts` | — |
+| `fetch-stress-test-charts.mjs` | **issue 154 固定语料** → `docs/resource/StressTestChart/` | 内置谱师列表 | 官方 SPECIAL 全量 + 社区按谱师分目录（仅 chart 数组） | — |
 
 按谱师取谱（`post/list` 的 `username` 字段，未文档化，实测见
 [bestdori-api.md §2.1](../docs/research/bestdori-api.md)）：
@@ -36,13 +36,8 @@ node scripts/fetch-bestdori-community.mjs --username Envy09 --limit all \
   --download-dir .cache/charts-Envy09
 ```
 
-**批量抓取的分工**：并发池、磁盘缓存、`index.json` manifest 只实现一份，在
-`lib/bestdori-cache.mjs`，两个入口共用（不做「超过 N 张自动切换」的隐式行为）：
-
-| 入口 | 负责 | 适合 |
-| --- | --- | --- |
-| `fetch-bestdori-community.mjs --download-dir` | 把**当前列表结果**下载下来 | 「把这个谱师的谱全抓了」 |
-| `fetch-chart-corpus.mjs` | **枚举目标**（官方难度过滤 / 社区分层抽样）+ 下载 | 压力测试语料、跨官方+社区的大批量采样 |
+**批量抓取**：并发池、磁盘缓存、`index.json` manifest 在 `lib/bestdori-cache.mjs`。
+`fetch-bestdori-community.mjs --download-dir` 下载当前列表结果；issue 154 大批量固定语料用 `fetch-stress-test-charts.mjs`。
 
 缓存语义：谱面本体发布后不可再编辑（`/api/post/edit` 的 body 无 `chart` 字段），按字节缓存安全；
 但 level / diff / rating / tags / likes 可被作者事后修改，缓存里这些是抓取时刻的快照，要最新用 `--refresh`。

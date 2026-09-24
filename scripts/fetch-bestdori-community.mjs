@@ -4,7 +4,7 @@
  *
  * 列表：POST /api/post/list（见 docs/research/bestdori-api.md §2）
  * 拉取：GET /api/post/details?id=<postId>
- * 批量：走 lib/bestdori-cache.mjs（与 fetch-chart-corpus.mjs 同一份并发 + 磁盘缓存实现）
+ * 批量：走 lib/bestdori-cache.mjs（与 fetch-stress-test-charts.mjs 共用并发 + 磁盘缓存）
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -61,7 +61,7 @@ const HELP = `用法:
 # 批量下载：把列表里的谱面全部抓下来
 node scripts/fetch-bestdori-community.mjs --username Envy09 --limit all --download-dir .cache/charts-Envy09
 
---download-dir 与 fetch-chart-corpus.mjs 共用 lib/bestdori-cache.mjs：
+--download-dir 与 fetch-stress-test-charts.mjs 共用 lib/bestdori-cache.mjs：
 并发 + 磁盘缓存（命中即跳过）+ index.json（含 SHA-256）。
 谱面本体发布后不可改，可安全缓存；level / diff / likes 会变，需最新时用 --refresh。`;
 

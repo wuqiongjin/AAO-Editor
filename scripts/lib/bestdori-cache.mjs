@@ -1,8 +1,7 @@
 /**
  * 批量抓取共用：磁盘缓存 + 并发池 + manifest（index.json）。
  *
- * 抽取自 fetch-chart-corpus.mjs，供它和 fetch-bestdori-community.mjs 的
- * `--download-dir` 复用 —— 两处曾是同一套逻辑的两份拷贝。
+ * 供 fetch-bestdori-community.mjs 的 `--download-dir` 与 fetch-stress-test-charts.mjs 复用。
  *
  * 缓存语义（重要）：
  * - 谱面**本体**发布后不可再编辑（/api/post/edit 的 body 没有 chart 字段），所以按字节缓存是安全的；
@@ -74,13 +73,25 @@ async function fetchChartText(target) {
  * }} opts
  */
 export async function downloadCharts(targets, opts) {
-  const { outDir, concurrency = 6, refresh = false, throttleMs = 80 } = opts;
-  await mkdir(path.join(outDir, 'raw'), { recursive: true });
+  const {
+    outDir,
+    concurrency = 6,
+    refresh = false,
+    throttleMs = 80,
+    getDestPath,
+    communityChartOnly = false,
+  } = opts;
+  if (!getDestPath) {
+    await mkdir(path.join(outDir, 'raw'), { recursive: true });
+  }
 
   await runPool(targets, concurrency, async (target) => {
     target.label = `${target.kind}/${target.sourceId}/${target.diff || '-'}`;
-    target.relPath = targetRelPath(target);
-    const dest = path.join(outDir, target.relPath);
+    const dest = getDestPath
+      ? getDestPath(outDir, target)
+      : path.join(outDir, targetRelPath(target));
+    target.relPath = path.relative(outDir, dest);
+    await mkdir(path.dirname(dest), { recursive: true });
     if (!refresh) {
       const cached = await readCached(dest);
       if (cached) {
@@ -90,8 +101,17 @@ export async function downloadCharts(targets, opts) {
         return;
       }
     }
-    const { text } = await fetchChartText(target);
-    const buf = Buffer.from(text, 'utf8');
+    let buf;
+    if (target.kind === 'community' && communityChartOnly) {
+      const payload = await fetchCommunityPostPayload(target.sourceId, { fatal: false });
+      if (!payload?.post?.chart) {
+        throw new Error('响应缺少 post.chart');
+      }
+      buf = Buffer.from(`${JSON.stringify(payload.post.chart, null, 2)}\n`, 'utf8');
+    } else {
+      const { text } = await fetchChartText(target);
+      buf = Buffer.from(text, 'utf8');
+    }
     await writeFile(dest, buf);
     target.bytes = buf.length;
     target.sha256 = sha256(buf);

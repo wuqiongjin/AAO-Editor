@@ -110,7 +110,7 @@ function normalizeLimit(limit) {
 
 /**
  * POST /api/post/list 单页原语：返回**原始** posts（不做摘要），offset 由调用方控制。
- * 所有 post/list 请求都走这里（搜索 CLI、按谱师列出、corpus 分层抽样）。
+ * 所有 post/list 请求都走这里（搜索 CLI、按谱师列出、stress 语料枚举）。
  *
  * @param {{
  *   search?: string;
