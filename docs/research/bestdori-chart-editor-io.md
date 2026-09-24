@@ -120,10 +120,13 @@ flowchart LR
 
 ```bash
 node scripts/replay-bestdori-chart-editor-io.mjs
-node scripts/replay-bestdori-chart-editor-io.mjs --official-413
 ```
 
-### 5.1 官方 `413_SP` 最小对照（`docs/resource/StressTestChart/Official/413_SP.json`）
+上传清洗单测（内联官谱味切片）：`tests/unit/upload/bestdori/sanitizeChart.test.ts`。
+
+### 5.1 官方全谱对照（本地语料，不进库）
+
+issue 154 语料 `docs/resource/StressTestChart/` **不提交仓库**；需本地 `node scripts/fetch-stress-test-charts.mjs` 后，方可对 `Official/413_SP.json` 做一次性对照。155 当时实测（官网 Apply 语义）：
 
 | 指标 | API | Apply 后 |
 | --- | ---: | ---: |
@@ -132,7 +135,7 @@ node scripts/replay-bestdori-chart-editor-io.mjs --official-413
 | 含 `charge` 键 | 30 | 0 |
 | `Long` | 18 | 18 |
 
-Apply 后 Copy / 持久化与上表一致（脚本：`copyMatchesApply` / `persistMatchesApply` 恒真）。
+CI / 克隆仓库锁上述单测；全量 413 属可选本地复验。
 
 ---
 

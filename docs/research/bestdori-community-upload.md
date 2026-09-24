@@ -90,7 +90,7 @@ Custom 上传三步（本次未重测文件上传，沿用 bestdori-api.md §4�
 
 社区 API 与此一致：带 `System` 或任何 `charge` 键 → `POST_INVALID`，**不建帖**。
 
-实测材料：`docs/resource/StressTestChart/Official/413_SP.json`
+实测材料：本地 issue 154 语料 `docs/resource/StressTestChart/Official/413_SP.json`（**不进库**；需 `fetch-stress-test-charts.mjs`）。CI 锁 `tests/unit/upload/bestdori/sanitizeChart.test.ts` 内联切片。
 
 
 |                                | 对象数 | 结果                                                          |

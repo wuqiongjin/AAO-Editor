@@ -301,11 +301,11 @@ describe('谱面代码校验 · 回归', () => {
         expect(result.errors).toHaveLength(0);
     });
 
-    test('未知 type 不整份拒（opaque，ADR-0014）', () => {
+    test('未知 type 整份拒（156 grill）', () => {
         const result = validateChartCode([{ beat: 1, lane: 0, type: 'Flick' }] as unknown as ChartCodeNote[]);
-        expect(result.valid).toBe(true);
+        expect(result.valid).toBe(false);
+        expect(result.errors[0]?.field).toBe('type');
         const applied = applyChartCode([{ beat: 1, lane: 0, type: 'Flick' }] as unknown as ChartCodeNote[]);
-        expect(applied.applied).toBe(true);
-        expect(applied.notes[0].type).toBe('Opaque');
+        expect(applied.applied).toBe(false);
     });
 });

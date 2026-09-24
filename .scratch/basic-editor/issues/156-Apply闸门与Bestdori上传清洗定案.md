@@ -44,3 +44,4 @@ Blocked by: —
 ## Comments
 
 - 2026-09-24：用户确认「拒绝优于静默丢」；上传自动清洗、不上传前校验拦 System/charge。
+- 2026-09-24：实现 — `validateChartCode` 未知 type 硬拒；`src/upload/bestdori/sanitizeChart.ts`（上传管道待用）。

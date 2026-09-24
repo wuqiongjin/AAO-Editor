@@ -559,7 +559,12 @@ export function validateChartCode(
                 break;
 
             default:
-                // 未知 type / opaque：整份放行（ADR-0014）
+                errors.push({
+                    noteIndex: i,
+                    field: 'type',
+                    reason: t('validate.unknownType', { type: String(note.type) }),
+                    expected: t('validate.typeExpected'),
+                });
                 break;
         }
     }

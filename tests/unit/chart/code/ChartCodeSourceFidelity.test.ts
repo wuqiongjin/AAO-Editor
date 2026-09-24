@@ -5,7 +5,7 @@ import {
     validateChartCode,
     validateChartCodeJSON,
 } from '@/src/chart/editing/ChartConverter';
-import type { ChartNote, LongNote, OpaqueNote, SingleNote, SystemNote } from '@/src/chart/types';
+import type { ChartNote, LongNote, SingleNote, SystemNote } from '@/src/chart/types';
 import { countChartNotes, countNotesUpToBeat } from '@/src/chart/editing/NoteEditing';
 import { buildKeyEvents, getBpmEvents } from '@/src/audio/AudioTiming';
 import { chartCodeExportText } from '@/src/chart/project/exportChartCode';
@@ -40,15 +40,14 @@ describe('issue 153 · Apply 硬拒绝 vs 有限非法', () => {
         expect(slide.connections.map(c => c.lane)).toEqual([2, -0.5, 6.5, 4]);
     });
 
-    test('未知 type 不整份拒，导出仍是原对象', () => {
-        const code = [bpm0, { beat: 3, type: 'Mystery', foo: 1 }];
-        expect(validateChartCode(code as never).valid).toBe(true);
-        const notes = convertChartCodeToNotes(code as never);
-        const opaque = notes.find(n => n.type === 'Opaque') as OpaqueNote;
-        expect(opaque.sourceType).toBe('Mystery');
-        expect(convertNotesToChartCode(notes).find(n => (n as { type: string }).type === 'Mystery')).toEqual({
-            beat: 3, type: 'Mystery', foo: 1,
-        });
+    test('未知 type / 无 type 整份硬拒（156 grill）', () => {
+        const mystery = validateChartCode([bpm0, { beat: 3, type: 'Mystery', foo: 1 }] as never);
+        expect(mystery.valid).toBe(false);
+        expect(mystery.errors.some(e => e.noteIndex === 1 && e.field === 'type')).toBe(true);
+
+        const noType = validateChartCode([bpm0, { beat: 1, lane: 0 }] as never);
+        expect(noType.valid).toBe(false);
+        expect(noType.errors.some(e => e.noteIndex === 1 && e.field === 'type')).toBe(true);
     });
 
     test('Single 缺 lane / Slide 缺 connections 仍硬拒绝', () => {
