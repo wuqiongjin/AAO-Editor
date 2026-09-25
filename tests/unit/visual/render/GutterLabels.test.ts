@@ -406,6 +406,37 @@ describe('layoutBpmGutter · 同位组摘要（issue 159 定案 2）', () => {
     expect(pair[1]!.y).toBeCloseTo(Math.max(...raw), 6);
   });
 
+  it('beat 0 展开叠：所有数字整盒在画布内，只往线上方错开', () => {
+    const notes = [
+      { type: 'BPM' as const, beat: 0, bpm: 172 },
+      { type: 'BPM' as const, beat: 0, bpm: 162 },
+    ];
+    const geometry = new ChartGeometry(
+      notes.map((n) => ({ beat: n.beat, bpm: n.bpm })),
+      { endBeat: 8 },
+      TEST_SURFACE,
+    );
+    const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, 1);
+    const key = bpmCoincidentKey(virtualYOf(0));
+    const lineCanvasYOf = (beat: number) => geometry.virtualToCanvas(
+      0, virtualYOf(beat), { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 },
+    ).y;
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, FONT_PX, key);
+    expect(layout.numerals).toHaveLength(2);
+    const half = FONT_PX / 2;
+    const h = TEST_SURFACE.h;
+    const lineY = lineCanvasYOf(0);
+    const anchors = layout.numerals
+      .map((n) => bpmLabelAnchorY(n.beat, n.y, FONT_PX, h))
+      .sort((a, b) => a - b);
+    expect(anchors[1]! - anchors[0]!).toBeGreaterThanOrEqual(FONT_PX);
+    for (const y of anchors) {
+      expect(y - half).toBeGreaterThanOrEqual(-1e-9);
+      expect(y + half).toBeLessThanOrEqual(h + 1e-9);
+    }
+    expect(Math.max(...anchors)).toBeCloseTo(lineY - half, 6);
+  });
+
   it('展开 y 与 layoutBpmLabelYs 一致；有盒相交则不折，全部离开才折', () => {
     const fontPx = FONT_PX;
     const surfaceH = 100;

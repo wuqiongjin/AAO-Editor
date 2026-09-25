@@ -211,7 +211,11 @@ export function layoutBpmLabelYs(
   for (const members of groups.values()) {
     members.sort((a, b) => items[a]!.beat - items[b]!.beat || a - b);
     const center = members.reduce((s, i) => s + items[i]!.lineCanvasY, 0) / members.length;
-    const start = center - ((members.length - 1) * fontPx) / 2;
+    const minBeat = Math.min(...members.map((i) => items[i]!.beat));
+    // beat 0 组贴判定线：最低一枚中心落在线上（再经 bpmLabelAnchorY 上移半个字高后整盒在画布内），其余只往上排。
+    const start = minBeat === 0
+      ? center - (members.length - 1) * fontPx
+      : center - ((members.length - 1) * fontPx) / 2;
     members.forEach((idx, k) => {
       ys[idx] = start + k * fontPx;
     });
