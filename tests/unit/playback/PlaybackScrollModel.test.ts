@@ -101,6 +101,16 @@ describe('PlaybackScrollModel · 滚动条 ↔ 画布 scrollY 映射', () => {
     expect(m.scrollTopToCanvasScrollY(5, 0)).toBe(0);
     expect(m.canvasScrollYToScrollTop(100, 0)).toBe(0);
   });
+
+  it('滚动条末 1px（max 与 max−1）映射到 chartEnd，与 seek(0) 同口径', () => {
+    const m = new PlaybackScrollModel(geom(30), 1);
+    const maxScroll = 7440;
+    const end = m.maxCanvasScrollY();
+    expect(m.scrollTopToCanvasScrollY(maxScroll, maxScroll)).toBe(end);
+    expect(m.scrollTopToCanvasScrollY(maxScroll - 1, maxScroll)).toBe(end);
+    expect(m.scrollTopToCanvasScrollY(maxScroll - 2, maxScroll)).toBeLessThan(end);
+    expect(m.scrollTargetForSeconds(0, maxScroll).scrollY).toBe(end);
+  });
 });
 
 describe('PlaybackScrollModel · 秒 → 滚动目标（issue 75：seek 与 RAF 同源）', () => {

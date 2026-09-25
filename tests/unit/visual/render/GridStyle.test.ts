@@ -255,4 +255,37 @@ describe('renderGrid 分层绘制（issue 53）', () => {
     // 抽稀确实发生：绘制数远小于候选数（~41 整拍 + ~41×15 子拍）
     expect(strokes.length).toBeLessThan(0.5 * (expectedBeats.length + expectedBeats.length * 15));
   });
+
+  it('滚到底：多种缩放下 beat 0 整拍线整段在画布内（不贴底边裁没）', () => {
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 }, TEST_SURFACE);
+    for (const scale of [0.5, 0.7, 0.88, 1, 1.1, 1.25, 1.5, 1.7, 2, 2.5]) {
+      const es = geometry.effectiveScale(scale);
+      const viewport = { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: es };
+      const c = makeCoords(geometry, viewport, 4, []);
+      const rc = {
+        geometry, viewport, surface: TEST_SURFACE, chartEndBeat: 8, beatDisplay: 4,
+        display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true },
+      } as unknown as RenderCtx;
+      const { proxy, calls } = makeRecordingCtx();
+      renderGrid(proxy, c, rc);
+      const { trackBgX } = geometry.trackGeometry(es);
+      const ys: number[] = [];
+      let pendingX: number | null = null;
+      let pendingY: number | null = null;
+      let width = 0;
+      for (const [k, args] of calls) {
+        if (k === 'lineWidth') width = args[0] as number;
+        else if (k === 'moveTo') { pendingX = args[0] as number; pendingY = args[1] as number; }
+        else if (k === 'stroke' && pendingY !== null && pendingX === trackBgX && width >= 2) {
+          ys.push(pendingY);
+          pendingX = null;
+          pendingY = null;
+        }
+      }
+      expect(ys.length, `scale=${es}`).toBeGreaterThan(0);
+      const bottom = Math.max(...ys);
+      expect(bottom, `scale=${es}`).toBeLessThanOrEqual(TEST_SURFACE.h - 1);
+      expect(bottom, `scale=${es}`).toBeGreaterThan(TEST_SURFACE.h - 8);
+    }
+  });
 });

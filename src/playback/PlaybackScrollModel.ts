@@ -106,6 +106,7 @@ export class PlaybackScrollModel {
   scrollTopToCanvasScrollY(scrollTop: number, maxScroll: number): number {
     if (maxScroll <= 0) return 0;
     const { top, bottom } = this.scrollRange();
+    if (scrollTop >= maxScroll - 1) return bottom; // 末 1px 与 seek(0) 同为 chartEnd
     const span = Math.max(1, bottom - top);
     const ratio = clamp(scrollTop / maxScroll, 0, 1);
     return top + ratio * span;

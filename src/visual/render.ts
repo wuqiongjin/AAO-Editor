@@ -18,7 +18,7 @@ import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
-import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelY, bpmGutterYIntersectsCanvas, GUTTER_LABEL_FONT_PX } from './gutterLabels';
+import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelY, bpmGutterYIntersectsCanvas, bpmLabelAnchorY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
@@ -158,6 +158,13 @@ export function renderTrackChrome(ctx: CanvasRenderingContext2D, c: Coords, rc: 
   }
 }
 
+/** 节拍横线贴画布顶/底时收到线宽内侧，避免判定线处整拍被裁没。 */
+function snapStrokeY(y: number, surfaceH: number, lineWidth: number): number | null {
+  const half = Math.max(lineWidth, 1) / 2;
+  if (y < -half || y > surfaceH + half) return null;
+  return Math.min(Math.max(y, half), surfaceH - half);
+}
+
 /** 节拍/子节拍横线。`rc.surface.h` 与 `viewport.scrollY` 决定枚举窗与 clip（pos 条带可加高）。 */
 export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
@@ -175,12 +182,12 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
     for (let beat = Math.floor(range.start + 1e-9); beat <= range.end + 1e-9; beat++) {
       if (beat < 0 || isPastChartEnd(beat, rc.chartEndBeat)) continue;
       const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
-      if (y >= 0 && y <= rc.surface.h) candidates.push({ y, tier: 'beat' });
+      if (y >= -8 && y <= rc.surface.h + 8) candidates.push({ y, tier: 'beat' });
       for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
         const preciseBeat = trueBeat(beat, subBeat, rc.beatDisplay);
         if (isPastChartEnd(preciseBeat, rc.chartEndBeat)) continue;
         const subY = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat)).y;
-        if (subY < 0 || subY > rc.surface.h) continue;
+        if (subY < -8 || subY > rc.surface.h + 8) continue;
         candidates.push({ y: subY, tier: gridTierOf(subBeat, rc.beatDisplay) });
       }
     }
@@ -195,8 +202,9 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
   for (const tier of GRID_TIER_ORDER) {
     const s = style[tier];
     const threshold = tier === 'beat' ? 2 : 5;
+    const lw = tier === 'beat' ? Math.max(2, s.width * es) : Math.max(0.5, s.width * es);
     ctx.strokeStyle = s.color;
-    ctx.lineWidth = tier === 'beat' ? Math.max(2, s.width * es) : Math.max(0.5, s.width * es);
+    ctx.lineWidth = lw;
     ctx.globalAlpha = (s.alpha ?? 1) * gridOpacity;
     const dash = gridLineDash(tier, lineShapeTiers, es);
     ctx.setLineDash(dash ?? []);
@@ -206,12 +214,14 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
     ctx.lineDashOffset = dash && dash.length > 0 ? dash[0] / 2 : 0;
     for (const cand of candidates) {
       if (cand.tier !== tier) continue;
-      if (tooClose(cand.y, threshold)) continue;
+      const y = snapStrokeY(cand.y, rc.surface.h, lw);
+      if (y == null) continue;
+      if (tooClose(y, threshold)) continue;
       ctx.beginPath();
-      ctx.moveTo(trackBgX, cand.y);
-      ctx.lineTo(trackBgX + trackBgWidth, cand.y);
+      ctx.moveTo(trackBgX, y);
+      ctx.lineTo(trackBgX + trackBgWidth, y);
       ctx.stroke();
-      drawn.push(cand.y);
+      drawn.push(y);
     }
   }
   ctx.setLineDash([]);
@@ -1326,8 +1336,10 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   ctx.rect(0, 0, rc.surface.w, rc.surface.h);
   ctx.clip();
   for (const sum of layoutModel.summaries) {
-    if (!bpmGutterYIntersectsCanvas(sum.lineCanvasY, fontPx, rc.surface.h)) continue;
-    const gl = layoutGutterLabel(c, rc.viewport.scale, sum.lineCanvasY, 'centered', 'bpm', labelScale);
+    const minBeat = Math.min(...sum.memberIndexes.map((i) => rc.notes[i]?.beat ?? Infinity));
+    const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, rc.surface.h);
+    if (!bpmGutterYIntersectsCanvas(y, fontPx, rc.surface.h)) continue;
+    const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale);
     drawBpmSummary(ctx, gl, sum.tokens, (bpm) => {
       const warning = sum.memberIndexes.some((i) => {
         const n = rc.notes[i];
@@ -1341,8 +1353,9 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
     if (!note || note.type !== 'BPM') continue;
     if (rc.bpmEditBeat !== null && rc.bpmEditBeat !== undefined
         && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) continue;
-    if (!bpmGutterYIntersectsCanvas(num.y, fontPx, rc.surface.h)) continue;
-    const gl = layoutGutterLabel(c, rc.viewport.scale, num.y, 'centered', 'bpm', labelScale);
+    const y = bpmLabelAnchorY(note.beat, num.y, fontPx, rc.surface.h);
+    if (!bpmGutterYIntersectsCanvas(y, fontPx, rc.surface.h)) continue;
+    const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale);
     const bpm = (note as ChartNote & { bpm: number }).bpm;
     drawGutterLabel(ctx, gl, String(bpm), colorOf(bpm, num.noteIndex));
   }

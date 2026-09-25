@@ -128,6 +128,15 @@ export function bpmExpandedNumeralsOnCanvas(ys: readonly number[], fontPx: numbe
   return ys.some((y) => bpmGutterYIntersectsCanvas(y, fontPx, surfaceH));
 }
 
+/**
+ * beat 0 数字中心在线上方半个字高：贴判定线时整盒在画布内，滚动时与线 1:1 钉住并裁切。
+ * 不能按画布底边钳 y（字会停在底边、线自己走）。其它拍仍居中于线。
+ */
+export function bpmLabelAnchorY(beat: number, y: number, fontPx: number, _surfaceH: number): number {
+  if (beat !== 0) return y;
+  return y - fontPx / 2;
+}
+
 /** 同位组摘要：各 `值 [n]` 自带颜色，右对齐到内带锚点。 */
 export function drawBpmSummary(
   ctx: CanvasRenderingContext2D,

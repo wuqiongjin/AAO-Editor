@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { isProgrammaticScrollEcho } from '@/src/playback/useScrollModel';
+import { isProgrammaticScrollEcho, registerScrollEcho, SCROLL_ECHO_TTL_MS } from '@/src/playback/useScrollModel';
 import { repoRoot } from '@/tests/support/source';
 
 describe('issue 98 · 程序化滚动写入的回声识别（isProgrammaticScrollEcho）', () => {
@@ -26,6 +26,13 @@ describe('issue 98 · 程序化滚动写入的回声识别（isProgrammaticScrol
     expect(isProgrammaticScrollEcho(3000, 5000)).toBe(false);
     expect(isProgrammaticScrollEcho(5000, null)).toBe(false);     // 无程序化写入登记
   });
+
+  it('TTL 过后同一 scrollTop 不再当回声（滚动条事后滚回开头必须反算）', () => {
+    const gate = registerScrollEcho(5000, 0);
+    expect(isProgrammaticScrollEcho(5000, gate, 0)).toBe(true);
+    expect(isProgrammaticScrollEcho(5000, gate, SCROLL_ECHO_TTL_MS)).toBe(true);
+    expect(isProgrammaticScrollEcho(5000, gate, SCROLL_ECHO_TTL_MS + 1)).toBe(false);
+  });
 });
 
 describe('issue 98 · Editor 接线静态断言（防重构复活回声反算）', () => {
@@ -41,8 +48,8 @@ describe('issue 98 · Editor 接线静态断言（防重构复活回声反算）
   });
 
   it('两处程序化 scrollTop 写入都登记期望值（缩放比例位回写 + 重锚）', () => {
-    expect(editorSrc).toMatch(/programmaticScrollTopRef\.current = targetScrollTop/);
-    expect(editorSrc).toMatch(/programmaticScrollTopRef\.current = target\.scrollTop/);
+    expect(editorSrc).toMatch(/programmaticScrollTopRef\.current = registerScrollEcho\(targetScrollTop\)/);
+    expect(editorSrc).toMatch(/programmaticScrollTopRef\.current = registerScrollEcho\(target\.scrollTop\)/);
   });
 });
 

@@ -18,7 +18,7 @@ import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import { renderChart, findItemAt, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas } from '../../../visual/gutterLabels';
+import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { parseBpmInput } from '../../editing/BpmInput';
@@ -835,7 +835,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             expandedBpmGroupKey,
         );
         const num = gutter.numerals.find((n) => Math.abs(n.beat - bpmEdit.beat) < 1e-9);
-        const lineY = num?.y ?? virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y;
+        const lineY = bpmLabelAnchorY(
+            bpmEdit.beat,
+            num?.y ?? virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y,
+            fontPx,
+            surf.h,
+        );
         bpmInputBox = { left: Math.max(0, rightEdge - width), top: lineY - fontPx / 2 - 3, width, height: fontPx + 6, fontPx };
     }
 

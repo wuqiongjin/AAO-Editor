@@ -13,6 +13,7 @@ import {
   bpmExpandedNumeralsOnCanvas,
   bpmCoincidentKey,
   clampGutterLabelY,
+  bpmLabelAnchorY,
   drawGutterLabel,
   boundLabelGapPx,
   bpmLabelBox,
@@ -131,12 +132,47 @@ describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () =
     expect(propValues(calls, 'textBaseline')).toContain('middle');
   });
 
-  it('起始线贴底边（scrollY=chartEnd）：数值钉在判定线 y，不钳进画布内', () => {
+  it('beat 0 相对线固定上移半个字高（贴线可读、滚动钉线不钳底边）', () => {
+    const h = 900;
+    const fontPx = GUTTER_LABEL_FONT_PX;
+    const half = fontPx / 2;
+    expect(bpmLabelAnchorY(0, h, fontPx, h)).toBe(h - half);
+    expect(bpmLabelAnchorY(0, h + 1e-13, fontPx, h)).toBeCloseTo(h + 1e-13 - half, 9);
+    expect(bpmLabelAnchorY(0, h + 0.4, fontPx, h)).toBeCloseTo(h + 0.4 - half, 6);
+    expect(bpmLabelAnchorY(0, h + 0.6, fontPx, h)).toBeCloseTo(h + 0.6 - half, 6);
+    expect(bpmLabelAnchorY(0, h + 8, fontPx, h)).toBeCloseTo(h + 8 - half, 6);
+    expect(bpmLabelAnchorY(0, h - 5, fontPx, h)).toBe(h - 5 - half);
+    expect(bpmLabelAnchorY(4, h, fontPx, h)).toBe(h);
+  });
+
+  it('beat 0 线已离开判定线：字 y 增量等于线 y 增量（不自己滑）', () => {
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 }, TEST_SURFACE);
+    const yOf = (scrollY: number) => {
+      const viewport = { scrollX: 0, scrollY, scale: 1 };
+      const c = makeCoords(geometry, viewport, 4, [{ type: 'BPM', beat: 0, bpm: 120 } as never]);
+      return c.virtualToCanvas(0, c.getNoteVirtualY(0)).y;
+    };
+    const a = geometry.chartEndVirtualY - 4;
+    const b = geometry.chartEndVirtualY - 8;
+    expect(yOf(a)).toBeGreaterThan(TEST_SURFACE.h + 0.5);
+    expect(yOf(b)).toBeGreaterThan(TEST_SURFACE.h + 0.5);
+    const fillsA = fillTexts(renderBpmAt(a, 0));
+    const fillsB = fillTexts(renderBpmAt(b, 0));
+    expect(fillsA.length).toBe(1);
+    expect(fillsB.length).toBe(1);
+    expect(fillsA[0][1][2] - fillsB[0][1][2]).toBeCloseTo(yOf(a) - yOf(b), 6);
+  });
+
+  it('beat 0 在判定线：数字整盒在画布内（不骑底边裁一半）', () => {
     const geometry = new ChartGeometry(bpm120, { endBeat: 8 } , TEST_SURFACE);
     const calls = renderBpmAt(geometry.chartEndVirtualY);
     const fills = fillTexts(calls);
     expect(fills.length).toBe(1);
-    expect(fills[0][1][2]).toBe(TEST_SURFACE.h);
+    const y = fills[0][1][2] as number;
+    const half = GUTTER_LABEL_FONT_PX / 2;
+    expect(y).toBe(TEST_SURFACE.h - half);
+    expect(y - half).toBeGreaterThanOrEqual(0);
+    expect(y + half).toBeLessThanOrEqual(TEST_SURFACE.h);
   });
 
   it('滚动时字 y 增量等于线 y 增量（不贴边漂移）', () => {

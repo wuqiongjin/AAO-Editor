@@ -17,7 +17,7 @@ import { findBpmLineAt, findItemAt } from '../../visual/hitTest';
 import { draggableFromItems, itemTrueBeat } from './NoteDragging';
 import { isPastChartEnd } from './ChartEndBounds';
 import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
-import { GUTTER_LABEL_FONT_PX, bpmLabelBox, layoutBpmGutter } from '../../visual/gutterLabels';
+import { GUTTER_LABEL_FONT_PX, bpmLabelBox, layoutBpmGutter, bpmLabelAnchorY } from '../../visual/gutterLabels';
 import { LANE_WIDTH } from '../geometry/ChartGeometry';
 
 /** 沟槽文字宽度测量（画布侧注入：带 canvas ctx 精确测量；测试侧注入等宽估算）。 */
@@ -129,10 +129,11 @@ export function hitBpmGutterAt(
     let bestLabel: { beat: number; groupKey: number | null; dist: number } | null = null;
     for (const num of layout.numerals) {
         const text = String(num.bpm);
-        const box = bpmLabelBox(trackStartX, num.y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
+        const y = bpmLabelAnchorY(num.beat, num.y, fontPx, input.surfaceH);
+        const box = bpmLabelBox(trackStartX, y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
         if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
-            const dist = Math.abs(cy - num.y);
+            const dist = Math.abs(cy - y);
             if (!bestLabel || dist < bestLabel.dist) {
                 bestLabel = { beat: num.beat, groupKey: num.groupKey, dist };
             }
@@ -140,7 +141,9 @@ export function hitBpmGutterAt(
     }
     if (bestLabel) return { kind: 'label', beat: bestLabel.beat, groupKey: bestLabel.groupKey };
     for (const sum of layout.summaries) {
-        const box = bpmLabelBox(trackStartX, sum.lineCanvasY, sum.fullText, input.labelScale, input.surfaceH, input.measureWidth(sum.fullText, fontPx));
+        const minBeat = Math.min(...sum.memberIndexes.map((i) => notes[i]?.beat ?? Infinity));
+        const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, input.surfaceH);
+        const box = bpmLabelBox(trackStartX, y, sum.fullText, input.labelScale, input.surfaceH, input.measureWidth(sum.fullText, fontPx));
         if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
             return { kind: 'summary', groupKey: sum.key };
@@ -151,7 +154,7 @@ export function hitBpmGutterAt(
         if (expandedNums.length >= 2) {
             const boxes = expandedNums.map((num) => {
                 const text = String(num.bpm);
-                return bpmLabelBox(trackStartX, num.y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
+                return bpmLabelBox(trackStartX, bpmLabelAnchorY(num.beat, num.y, fontPx, input.surfaceH), text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
             }).filter((b) => b.x1 >= 0 && b.y1 < b.y2);
             if (boxes.length === 0) return null;
             const x1 = Math.min(...boxes.map((b) => b.x1));
