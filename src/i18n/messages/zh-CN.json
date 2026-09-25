@@ -68,7 +68,7 @@
   "settings.gridOpacity": "轨道线透明度",
   "settings.gridOpacity.hint": "网格线（节拍线/子节拍线）的整体不透明度",
   "settings.labelScale": "文字大小",
-  "settings.labelScale.hint": "谱面标线文字（BPM 数值 / START / END）与实时读数的缩放",
+  "settings.labelScale.hint": "谱面标线文字（BPM 数值 / END）与实时读数的缩放",
   "settings.reset": "恢复默认",
   "settings.reset.hint": "将本组（画布显示）全部参数恢复为出厂默认，不影响其它设置",
   "settings.reset.confirm": "确定恢复？{{hint}}",

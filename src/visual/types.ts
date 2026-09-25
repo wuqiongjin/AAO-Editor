@@ -139,6 +139,6 @@ export interface RenderDisplayOptions {
   lineShapeTiers?: boolean;
   /** 轨道线透明度系数（issue 53 第三轮补）：0.1..1，与主题分层 alpha 相乘；缺省 1 */
   gridOpacity?: number;
-  /** 谱面文字大小系数（issue 51 第二轮 Q1=A）：0.5..3，作用于 BPM 数值/START/END/实时信息 */
+  /** 谱面文字大小系数（issue 51 第二轮 Q1=A）：0.5..3，作用于 BPM 数值/END/实时信息 */
   labelScale?: number;
 }

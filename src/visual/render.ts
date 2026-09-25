@@ -1368,24 +1368,21 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
  */
 export const BPM_TAIL_WARNING_COLOR = '#FF5A5A';
 
-/** 起始线/结束线配色（issue 52 grill 定案：低饱和主题色三线三色，文字同色系更亮一档） */
+/** 起始线/结束线配色（issue 52：低饱和青蓝 / 暖橙；END 文字同色系更亮一档） */
 export const START_LINE_COLOR = '#53b8c9';
-export const START_TEXT_COLOR = '#7fd4e5';
 export const END_LINE_COLOR = '#d97b5a';
 export const END_TEXT_COLOR = '#f0a07e';
 
 /**
- * 谱面起始线 / 结束线（issue 52 + 第二/三/四轮修订）：
- * - 线 = 低饱和青蓝 / 暖橙虚线，**只画轨道两侧沟槽段**（第三轮：覆盖轨道内太影响观感）；
- * - 文字 = START / END：**外带锚定**（动态间距，远离 BPM 数值内带——第二轮 Q2=A），
- *   纵向**居中骑线**（第四轮：与 BPM 数值同位对齐，替代最初的"上/下"定位），
- *   钳制在画布内；字号 = 21px × labelScale。
+ * 谱面起始线 / 结束线（issue 52 线样式 + issue 151 文字）：
+ * - 线 = 低饱和青蓝 / 暖橙虚线，**只画轨道两侧沟槽段**；
+ * - 起始线不画字；结束线 `END` 在线下方、外带锚定，文字盒钳制在画布内。
  */
 export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   const labelScale = rc.display?.labelScale ?? 1;
-  const draw = (beat: number, lineColor: string, textColor: string, label: string) => {
+  const drawLine = (beat: number, lineColor: string): number | null => {
     const canvasY = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
-    if (canvasY < -24 || canvasY > rc.surface.h + 24) return;
+    if (canvasY < -24 || canvasY > rc.surface.h + 24) return null;
     const { trackStartX, totalTrackWidth } = c.trackGeometry(rc.viewport.scale);
     ctx.save();
     ctx.strokeStyle = lineColor;
@@ -1399,14 +1396,16 @@ export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: R
     ctx.lineTo(rc.surface.w, canvasY);
     ctx.stroke();
     ctx.restore();
-    const layout = clampGutterLabelY(
-      layoutGutterLabel(c, rc.viewport.scale, canvasY, 'centered', 'bound', labelScale),
-      rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
-    );
-    drawGutterLabel(ctx, layout, label, textColor);
+    return canvasY;
   };
-  draw(0, START_LINE_COLOR, START_TEXT_COLOR, 'START');
-  draw(rc.chartEndBeat, END_LINE_COLOR, END_TEXT_COLOR, 'END');
+  drawLine(0, START_LINE_COLOR);
+  const endY = drawLine(rc.chartEndBeat, END_LINE_COLOR);
+  if (endY == null) return;
+  const layout = clampGutterLabelY(
+    layoutGutterLabel(c, rc.viewport.scale, endY, 'below', 'bound', labelScale),
+    rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
+  );
+  drawGutterLabel(ctx, layout, 'END', END_TEXT_COLOR);
 }
 
 /** 实时显示线线色（issue 54：中性白半透明细线，不占用主题色——主题色留给常显装饰） */
@@ -1438,7 +1437,7 @@ export function renderHoverLine(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
 /**
  * 实时显示线两侧沟槽信息（issue 54）：左 = 分内时间 `SS.ss`（00.00–59.99 循环），
  * 右 = 已过音符数 `♪ N`（与判定线计数同口径 countNotesUpToBeat：含恰好在线上的音符、
- * 滑条算 1 条、BPM/System 不计）。由 renderChart 编排在常显装饰文字（BPM 数值/START/END）
+ * 滑条算 1 条、BPM/System 不计）。由 renderChart 编排在常显装饰文字（BPM 数值/END）
  * **之上**——临时浮动信息优先于常显装饰。
  */
 export function renderHoverInfo(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {

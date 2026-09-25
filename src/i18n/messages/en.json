@@ -66,7 +66,7 @@
   "settings.gridOpacity": "Grid opacity",
   "settings.gridOpacity.hint": "Overall opacity of beat and subdivision grid lines",
   "settings.labelScale": "Label size",
-  "settings.labelScale.hint": "Scale of canvas labels (BPM numbers / START / END) and live readouts",
+  "settings.labelScale.hint": "Scale of canvas labels (BPM numbers / END) and live readouts",
   "settings.reset": "Reset to defaults",
   "settings.reset.hint": "Reset this group (canvas display) to factory values. Other settings stay.",
   "settings.reset.confirm": "Reset this group? {{hint}}",
