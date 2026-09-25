@@ -98,7 +98,7 @@ describe('hitStartMarkerAt 起点标记命中', () => {
     expect(hitStartMarkerAt(deps, 20, trackBgX - 10, y)).toBe(true);
   });
 
-  it('偏离标记线 > 10×scale → false', () => {
+  it('偏离标记线超过 10px → false', () => {
     const { geometry, viewport, deps } = makeDeps(notes);
     const { trackBgX } = geometry.trackGeometry(1);
     const y = geometry.virtualToCanvas(0, geometry.beatToVirtualY(20, 1), viewport).y;
@@ -424,8 +424,9 @@ describe('resolveClickPlan 单击去向', () => {
     expect(plan({ armedTool: 'single', bpmLabelBeat: 99 })).not.toMatchObject({ kind: 'editBpm' });
   });
 
-  it('指针态点中起点标记 → selectMarker', () => {
-    expect(plan({ onMarker: true })).toEqual({ kind: 'selectMarker' });
+  it('单击起点标记不导航、不改变选区（不受持工具态影响）', () => {
+    expect(plan({ onMarker: true })).toEqual({ kind: 'ignoreMarker' });
+    expect(plan({ onMarker: true, armedTool: 'single' })).toEqual({ kind: 'ignoreMarker' });
   });
 
   it('指针态：Shift = 加选、Ctrl/Cmd = 整条滑条', () => {

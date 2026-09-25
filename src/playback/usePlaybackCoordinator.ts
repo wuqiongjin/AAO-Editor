@@ -7,7 +7,6 @@
 //   - RAF 循环：每帧 engine.getSeconds() → 画布 setScrollY + 滚动条 scrollTop（按 PlaybackScrollModel 互映）
 //   - seek：clamp 到 [0, duration]、engine.seek + setCurrentSeconds + 画布跟随
 //   - jumpToMarker：mark→beat→sec 转换 + 启动播放
-//   - deleteMarkerIfSelected：标记选中态与音符选择互斥，Delete 优先删标记
 //   - isPlaying 时完全锁定滚动条（onScroll 已在 Editor 侧判 isPlayingRef）
 //   - 卸载自动 stopPlayback（防止挂载在其他页时仍在跑 RAF）
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -47,7 +46,6 @@ export interface UsePlaybackCoordinatorReturn {
   togglePlay: () => void;
   seek: (sec: number) => void;
   jumpToMarker: () => void;
-  deleteMarkerIfSelected: () => boolean;
   /** 编辑时长（无音频时手动调整，issue 22 §4 / ADR-0005 §4） */
   changeDuration: (sec: number) => void;
   /** 手动停止（页面失活时） */
@@ -177,13 +175,6 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     }
   }, [engine, canvasRef, startPlaybackLoop, setIsPlaying]);
 
-  const deleteMarkerIfSelected = useCallback((): boolean => {
-    const canvas = canvasRef.current;
-    if (!canvas?.getMarkerSelected?.()) return false;
-    canvas.clearMarker?.();
-    return true;
-  }, [canvasRef]);
-
   const changeDuration = useCallback((sec: number) => {
     if (!(sec > 0)) return;
     const clamped = Math.min(sec, MAX_DURATION_SECONDS); // issue 28 P6 上限 30 分钟
@@ -199,7 +190,6 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     togglePlay,
     seek,
     jumpToMarker,
-    deleteMarkerIfSelected,
     changeDuration,
     stopPlayback,
   };

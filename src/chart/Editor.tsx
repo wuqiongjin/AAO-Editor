@@ -6,8 +6,9 @@ import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../chart/comp
 import NoteInfoPanel from '../chart/components/side-panel/NoteInfoPanel';
 import IconButton from '../ui/IconButton';
 import { type FunctionId } from '../chart/config/ShortcutConfig';
-import { DEFAULT_BPM } from '../audio/AudioTiming';
+import { DEFAULT_BPM, beatToSeconds, getBpmEvents } from '../audio/AudioTiming';
 import PlayBar from '../playback/PlayBar';
+import PlaybackMarkerCard from '../playback/PlaybackMarkerCard';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
 import { countChartNotes } from '../chart/editing/NoteEditing';
 import { useSurfaceSize } from '../chart/layout/useSurfaceSize';
@@ -107,6 +108,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const { geometry, chartEndKey } = useChartSpace({
     notes, ctxDuration, surface, verticalRatio: settings.display.verticalRatio,
   });
+  const markerSeconds = useMemo(() => {
+    if (markerBeat === null) return null;
+    return Math.max(0, beatToSeconds(getBpmEvents(notes), markerBeat));
+  }, [markerBeat, notes]);
 
   // 当前播放头所在区间的 BPM（顶栏实时区）
   // issue 134：与 HUD playheadBeat 同 geometry；最大 beat 解所在段（ADR-0010 结论 5）
@@ -159,7 +164,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setIsPlaying,
     notes,
   });
-  const { togglePlay, seek, jumpToMarker, deleteMarkerIfSelected, stopPlayback } = playbackCoord;
+  const { togglePlay, seek, jumpToMarker, stopPlayback } = playbackCoord;
 
   // 挂载恢复（ADR-0005 §6）：通过 onRestore 把 project 灌入 Editor。
   // 定义在持久化 hook 之前——持久化 hook 拿它当 onRestore 回调。
@@ -296,11 +301,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     if (!active) stopPlayback();
   }, [active, stopPlayback]);
 
-  // 删除选中（含起点标记优先）
+  // 删除选中的音符；播放起点通过双击旗标删除，不属于音符选区。
   const deleteSelectedNotes = useCallback(() => {
-    if (deleteMarkerIfSelected()) return;
     deleteSelected();
-  }, [deleteMarkerIfSelected, deleteSelected]);
+  }, [deleteSelected]);
 
   // 在当前光标位置立即粘贴（ADR-0002 §2.1）。
   // 键型执行键（Ctrl+F/G/A/S/D）改走画布 ref 的 execPlace：与单击放置共用 clickOps，
@@ -387,14 +391,13 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       };
       const target = resolveEscapeTarget({
         ...flags,
-        selection: selectedItems.length > 0 || canvas?.getMarkerSelected?.() === true,
+        selection: selectedItems.length > 0,
         tool: armedTool !== null,
       });
       if (target === 'gesture') { canvas?.cancelActiveGesture?.(); return; }
       if (target === 'anchor') { canvas?.cancelPendingSlide?.(); return; }
       if (target === 'selection') {
         setSelectedItems([]);
-        canvas?.setMarkerSelected?.(false);
         return;
       }
       if (target === 'tool') setArmedTool(null);
@@ -546,11 +549,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           <div className="ws-panel__body-scroll">
             <NoteInfoPanel />
           </div>
-          <div className={`ws-panel__body-footer ${markerBeat !== null ? 'has-marker' : ''}`}>
-            {markerBeat !== null
-              ? t('editor.markerSet', { beat: markerBeat.toFixed(2) })
-              : t('editor.markerHint')}
-          </div>
+          <PlaybackMarkerCard
+            seconds={markerSeconds}
+            shortcut={shortcutConfig.jumpToMarker}
+            onJump={jumpToMarker}
+          />
         </div>
         <div
           onMouseDown={(e) => { e.preventDefault(); startDrag('right'); }}

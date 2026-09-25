@@ -50,7 +50,6 @@ function harness(notes: ChartNote[]) {
     hoverItem: null,
     clipboard: [],
     markerBeat: null,
-    markerSelected: false,
     armedTool: null,
     rightButtonHeld: false,
     spriteIcon: { render: () => undefined, renderDecorator: () => undefined },

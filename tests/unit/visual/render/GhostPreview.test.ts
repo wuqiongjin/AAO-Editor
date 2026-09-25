@@ -53,7 +53,6 @@ function scene(opts: SceneOpts) {
     hoverItem: null,
     clipboard: [],
     markerBeat: null,
-    markerSelected: false,
     dragGhost: opts.dragGhost ?? null,
     armedTool: opts.tool ?? 'mouse',
     spriteIcon: {

@@ -28,7 +28,6 @@ function makeRc(g: ChartGeometry, scrollY: number): RenderCtx {
     hoverPos: null,
     clipboard: [],
     markerBeat: null,
-    markerSelected: false,
     armedTool: null,
   } as unknown as RenderCtx;
 }

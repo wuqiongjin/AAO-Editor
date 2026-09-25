@@ -60,7 +60,8 @@ export interface RenderCtx {
   hoverItem?: SelectionItem | null;
   clipboard: ChartNote[];
   markerBeat: number | null;
-  markerSelected: boolean;
+  /** 播放起点旗标悬停态：只影响画布亮度，不进入音符选区。 */
+  markerHovered?: boolean;
   /** 持工具态（ADR-0008 §1）：null = 指针态。渲染器按此分派幽灵预览（放置/粘贴/镜像） */
   armedTool: string | null;
   /**

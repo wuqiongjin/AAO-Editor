@@ -83,28 +83,25 @@ const buildPreviewSets = (rc: RenderCtx): SelectionSets | null => {
 };
 const isNoteSelected = (sel: SelectionSets, index: number) => sel.notes.has(index);
 
-/** 临时起点标记（ADR-0004 §4）：左沟槽竖向标记线；选中时高亮 */
+export const START_MARKER_COLOR = '#55d6d0';
+export const START_MARKER_HOVER_COLOR = '#b8fffa';
+
+/** 播放起点标记（ADR-0004 §4 / issue 152）：Canvas 只绘制定位横线，旗帜由共享 SVG 叠加。 */
 export function renderStartMarker(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   if (rc.markerBeat === null) return;
-  const { trackBgX } = c.trackGeometry(rc.viewport.scale);
+  const { trackStartX } = c.trackGeometry(rc.viewport.scale);
   const markerCanvasY = c.virtualToCanvas(0, c.beatToVirtualY(rc.markerBeat)).y;
   if (markerCanvasY < -20 || markerCanvasY > rc.surface.h + 20) return;
-  const color = rc.markerSelected ? '#ffd166' : '#9ca3af';
+  const color = rc.markerHovered ? START_MARKER_HOVER_COLOR : START_MARKER_COLOR;
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.lineWidth = 3 * rc.viewport.scale;
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(0, markerCanvasY);
-  ctx.lineTo(trackBgX, markerCanvasY);
+  // 只到轨道外壳外沿；不要把标记线画进轨道 chrome 或轨道内容。
+  ctx.lineTo(trackStartX, markerCanvasY);
   ctx.stroke();
-  // 左侧小旗标
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(0, markerCanvasY);
-  ctx.lineTo(14 * rc.viewport.scale, markerCanvasY - 7 * rc.viewport.scale);
-  ctx.lineTo(14 * rc.viewport.scale, markerCanvasY + 7 * rc.viewport.scale);
-  ctx.closePath();
-  ctx.fill();
   ctx.restore();
 }
 

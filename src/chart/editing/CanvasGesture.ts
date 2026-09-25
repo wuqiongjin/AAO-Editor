@@ -86,7 +86,7 @@ export function hitStartMarkerAt(
     if (cx >= trackBgX) return false;
     const markerVirtualY = deps.geometry.beatToVirtualY(markerBeat, deps.viewport.scale);
     const markerCanvasY = deps.geometry.virtualToCanvas(0, markerVirtualY, deps.viewport).y;
-    return Math.abs(cy - markerCanvasY) < 10 * deps.viewport.scale;
+    return Math.abs(cy - markerCanvasY) < 10;
 }
 
 /**
@@ -312,8 +312,8 @@ export type ClickPlan =
     /** issue 159 定案 2：点摘要 → 展开，不进编辑 */
     | { kind: 'expandBpmSummary'; groupKey: number }
     | { kind: 'keepBpmExpansion' }
-    /** 指针态点中起点标记线：选中标记、清空音符选区（ADR-0004 §4 互斥） */
-    | { kind: 'selectMarker' }
+    /** 点中起点标记线：保持画布状态；播放起点不进入音符选区 */
+    | { kind: 'ignoreMarker' }
     /** 指针态：选中该目标（Shift 加选 / Ctrl 整条滑条）/ 空白清空 */
     | { kind: 'selectItem'; additive: boolean; ctrl: boolean }
     /** 交给语义矩阵：`hit` 已按"音符优先 → BPM 整线"的次序归一 */
@@ -346,8 +346,9 @@ export function resolveClickPlan(input: {
         ) as BpmNote | undefined;
         if (n) return { kind: 'editBpm', beat, value: String(n.bpm) };
     }
+    // 播放起点标记只接受双击删除；单击不导航、不放置，也不改变音符选区。
+    if (input.onMarker) return { kind: 'ignoreMarker' };
     if (input.armedTool === null) {
-        if (input.onMarker) return { kind: 'selectMarker' };
         return { kind: 'selectItem', additive: input.shiftKey, ctrl: input.ctrlKey || input.metaKey };
     }
     // 动作族（删除/镜像）/「音符代码」需要音符命中（空白 = 无效果不清选区）；其余行只吃栅格落点。

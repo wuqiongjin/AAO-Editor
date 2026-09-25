@@ -325,7 +325,7 @@
   "shortcut.fn.undo": "撤销",
   "shortcut.fn.redo": "重做",
   "shortcut.fn.play": "播放/暂停",
-  "shortcut.fn.jumpToMarker": "回到起点标记",
+  "shortcut.fn.jumpToMarker": "回到播放起点",
 
   "curve.title": "曲线配置",
   "curve.family": "缓动族",
@@ -370,8 +370,12 @@
   "editor.noteCount": "音符总数",
   "editor.selectedCount": "已选 {{count}}",
   "editor.deleteSelected": "删除选中",
-  "editor.markerSet": "起点标记 @ {{beat}} 拍",
-  "editor.markerHint": "双击左沟槽设置起点标记",
+  "editor.markerSet": "播放起点 @ {{seconds}} 秒",
+  "editor.markerHint": "双击轨道左侧空白区域，设置播放起点",
+  "editor.markerJumpTooltip": "跳转到播放起点并播放 · 快捷键：{{key}}",
+  "editor.markerJumpAria": "跳转到播放起点并播放",
+  "editor.markerDeleteAria": "播放起点，双击删除",
+  "editor.markerShortcutUnset": "未设置",
   "canvas.passedNotes": "已过判定线的音符数",
 
   "noteInfo.title": "音符信息",

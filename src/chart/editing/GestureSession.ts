@@ -54,7 +54,6 @@ const MARQUEE_THRESHOLD_PX = 8;
 
 export type GestureOp =
   | MatrixOp
-  | { t: 'setMarkerSelected'; selected: boolean }
   | { t: 'closeBpmEditor' }
   | { t: 'setBpmExpansion'; key: number | null };
 
@@ -591,10 +590,7 @@ export class GestureSession {
     };
     const items = computeItemsInBox(box, boxDeps);
     if (resolveBoxPlan(w.armedTool) === 'select') {
-      return [
-        { t: 'setSelection', items },
-        { t: 'setMarkerSelected', selected: false },
-      ];
+      return [{ t: 'setSelection', items }];
     }
     const bpmInBox = w.armedTool === 'delete' ? computeBpmLinesInBox(box, boxDeps) : [];
     return boxSelectOps(w.armedTool as MatrixTool, w.notes, items, bpmInBox, w.curveConfig, w.beatDisplay);
@@ -624,17 +620,12 @@ export class GestureSession {
       ops.push({ t: 'openBpmEditor', beat: plan.beat, value: plan.value });
       return ops;
     }
-    if (plan.kind === 'selectMarker') {
-      return [
-        ...ops,
-        { t: 'setSelection', items: [] },
-        { t: 'setMarkerSelected', selected: true },
-      ];
+    if (plan.kind === 'ignoreMarker') {
+      return ops;
     }
     if (plan.kind === 'selectItem') {
       return [
         ...ops,
-        { t: 'setMarkerSelected', selected: false },
         { t: 'setSelection', items: pointerClickSelection(w.selectedItems, findItemAt(cx, cy, this.hitDeps()), plan.additive, plan.ctrl) },
       ];
     }

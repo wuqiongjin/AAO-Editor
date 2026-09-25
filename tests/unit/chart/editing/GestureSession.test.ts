@@ -157,10 +157,7 @@ describe('GestureSession · 单击通路（不变量 1）', () => {
     const p = at(5, 10);
     press(s, p, virt);
     const r = s.end(up(p));
-    expect(r.ops).toEqual([
-      { t: 'setMarkerSelected', selected: false },
-      { t: 'setSelection', items: [] },
-    ]);
+    expect(r.ops).toEqual([{ t: 'setSelection', items: [] }]);
   });
 
   it('指针态点音符 → 选中该音符', () => {
@@ -172,8 +169,19 @@ describe('GestureSession · 单击通路（不变量 1）', () => {
     const p = at(2, 50);
     press(s, p, virt);
     const r = s.end(up(p));
-    expect(r.ops).toContainEqual({ t: 'setMarkerSelected', selected: false });
     expect(r.ops).toContainEqual({ t: 'setSelection', items: [{ kind: 'note', noteIndex: 1 }] });
+  });
+
+  it('单击播放起点标记 → 不执行动作、不建立音符选区', () => {
+    const notes = [bpmNote(0, 120), single(2, 50)];
+    const { world, at, virt } = worldOf(notes, { hitStartMarker: () => true });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p = at(5, 10);
+    press(s, p, virt);
+    const r = s.end(up(p));
+    expect(r.ops).toEqual([]);
   });
 
   it('键型工具单击空白 → 放置该键并清选区', () => {
@@ -300,7 +308,6 @@ describe('GestureSession · 框选通路（不变量 5 / 18）', () => {
     s.move(b);
     expect(s.getSnapshot().selectionBox).not.toBeNull();
     const r = s.end(up(b));
-    expect(r.ops).toContainEqual({ t: 'setMarkerSelected', selected: false });
     const sel = r.ops.find((op) => op.t === 'setSelection');
     expect(sel).toEqual({ t: 'setSelection', items: [{ kind: 'note', noteIndex: 1 }] });
   });

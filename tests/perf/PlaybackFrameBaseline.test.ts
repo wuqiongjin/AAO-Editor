@@ -45,7 +45,6 @@ function makeRc(
     hoverPos: null,
     clipboard: EMPTY_CLIPBOARD,
     markerBeat: null,
-    markerSelected: false,
     armedTool: null,
     spriteIcon: { render: () => undefined, renderDecorator: () => undefined } as unknown as RenderCtx['spriteIcon'],
     noteIcons: SHARED_NOTE_ICONS,

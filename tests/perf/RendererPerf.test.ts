@@ -107,7 +107,6 @@ function makeRc(
     hoverPos: null,
     clipboard: EMPTY_CLIPBOARD,
     markerBeat: null,
-    markerSelected: false,
     armedTool: null,
     spriteIcon: { render: () => { counters.spriteRenders++; }, renderDecorator: () => undefined } as unknown as RenderCtx['spriteIcon'],
     noteIcons: SHARED_NOTE_ICONS,
