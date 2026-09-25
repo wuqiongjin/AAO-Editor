@@ -18,13 +18,13 @@ import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import { renderChart, findItemAt, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, bpmLabelYByNoteIndex } from '../../../visual/gutterLabels';
+import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpansionOffscreen } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { parseBpmInput } from '../../editing/BpmInput';
 import { t } from '../../../i18n';
 import {
-  hitStartMarkerAt, hitBpmLabelAt,
+  hitStartMarkerAt, hitBpmGutterAt,
   isInsideSurface,
   canPlaceAtCursor, resolveExecNoteCodeHit,
 } from '../../editing/CanvasGesture';
@@ -187,6 +187,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // ADR-0008 §5：BPM 就地编辑（无模态打断）。默认值 = 上一次放置所设的值（初始 120）
     const lastBpmRef = useRef(120);
     const [bpmEdit, setBpmEdit] = useState<{ beat: number; value: string } | null>(null);
+    const [expandedBpmGroupKey, setExpandedBpmGroupKey] = useState<number | null>(null);
     // issue 09 S2（ADR-0009 §3）：曲线工具链式草稿（与 slideBuffer 同属组件侧 UI 态，不入历史）
     const [curveDraft, setCurveDraft] = useState<CurveDraft | null>(null);
 
@@ -285,7 +286,13 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             else if (op.t === 'setClipboard') setClipboard(op.notes);
             else if (op.t === 'setSlideBuffer') setSlideBuffer(op.point);
             else if (op.t === 'setCurveBuffer') setCurveDraft(op.draft);
-            else if (op.t === 'openBpmEditor') setBpmEdit({ beat: op.beat, value: op.value });
+            else if (op.t === 'openBpmEditor') {
+                setBpmEdit({ beat: op.beat, value: op.value });
+                const key = bpmCoincidentKey(beatToVirtualY(op.beat));
+                const n = notes.filter((nt) => nt.type === 'BPM' && bpmCoincidentKey(beatToVirtualY(nt.beat)) === key).length;
+                if (n >= 2) setExpandedBpmGroupKey(key);
+            }
+            else if (op.t === 'setBpmExpansion') setExpandedBpmGroupKey(op.key);
             else if (op.t === 'openNoteCode') openNoteCode(op.target);
             else if (op.t === 'setMarkerSelected') setMarkerSelected(op.selected);
             else if (op.t === 'closeBpmEditor') setBpmEdit(null);
@@ -295,13 +302,13 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const applyGesture = (r: GestureResult) => {
         if (r.ops.length > 0) applyOps(r.ops);
     };
-    const hitBpmLabel = (cx: number, cy: number): number | null => hitBpmLabelAt({
+    const hitBpmGutter = (cx: number, cy: number) => hitBpmGutterAt({
         deps: { geometry, viewport: liveViewport(), notes },
         labelScale: display.labelScale ?? 1,
         surfaceH: surf.h,
-        // 与绘制端共用同一套宽度判定（传画布 ctx 精确测量），避免"已隐藏但仍可点中"的隐形热区
         measureWidth: (text, fontPx) =>
             measureGutterLabelWidth(text, fontPx, canvasRef.current?.getContext('2d') ?? null),
+        expandedGroupKey: expandedBpmGroupKey,
     }, cx, cy);
 
     // 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）
@@ -342,7 +349,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         geometry, viewport, surface: surf, clipboard,
         slideBuffer: bufferPoint, curveDraft, curveConfig,
         lastBpm: lastBpmRef.current, noteSize: display.noteSize,
-        hitStartMarker, hitBpmLabel,
+        hitStartMarker, hitBpmGutter, expandedBpmGroupKey,
     });
 
     // ---------------- issue 63：手势期间的隐式指针捕获 ----------------
@@ -420,7 +427,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         if (!pos) return;
         const { trackBgX } = geometry.trackGeometry(viewport.scale);
         if (pos.x >= trackBgX) return;
-        if (hitBpmLabel(pos.x, pos.y) !== null) return;
+        if (hitBpmGutter(pos.x, pos.y) !== null) return;
         const virtualY = scrollYRef.current + pos.y / viewport.scale;
         const beat = virtualYToBeat(virtualY);
         if (hitStartMarker(pos.x, pos.y)) {
@@ -477,6 +484,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             armedTool,
             // issue 143 补修：就地编辑中的那条 BPM 不画沟槽数值（让位给下面的 HTML 输入框）
             bpmEditBeat: bpmEdit?.beat ?? null,
+            expandedBpmGroupKey,
             rightButtonHeld: gestureSnap.rightButtonHeld,
             dragGhost: gestureSnap.dragGhost,
             curveDraft, curveConfig, // issue 09 S2：曲线工具预览
@@ -503,8 +511,17 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit]);
+    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerBeat, markerSelected, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
     renderCanvasRef.current = renderCanvas;
+
+    useEffect(() => {
+        if (expandedBpmGroupKey === null) return;
+        const fontPx = Math.round(GUTTER_LABEL_FONT_PX * (display.labelScale ?? 1));
+        const member = notes.find((n) => n.type === 'BPM' && bpmCoincidentKey(beatToVirtualY(n.beat)) === expandedBpmGroupKey);
+        if (!member) { setExpandedBpmGroupKey(null); return; }
+        const lineY = virtualToCanvas(0, beatToVirtualY(member.beat)).y;
+        if (bpmExpansionOffscreen(lineY, surf.h, fontPx)) setExpandedBpmGroupKey(null);
+    }, [expandedBpmGroupKey, notes, viewport, surf.h, display.labelScale, beatToVirtualY, virtualToCanvas]);
 
 
     // 虚拟高度同步（原 renderCanvas 内副作用，现移出为纯状态同步）
@@ -808,15 +825,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const { trackStartX } = geometry.trackGeometry(viewport.scale);
         const rightEdge = trackStartX - BPM_LABEL_GAP_PX;
         const width = Math.max((bpmEdit.value.length || 3) * fontPx * 0.62 + 8, fontPx * 2);
-        const yByNoteIndex = bpmLabelYByNoteIndex(
+        const gutter = layoutBpmGutter(
             notes,
             (beat) => virtualToCanvas(0, beatToVirtualY(beat)).y,
+            beatToVirtualY,
             fontPx,
+            surf.h,
+            expandedBpmGroupKey,
         );
-        const idx = notes.findIndex((n) => n.type === 'BPM' && Math.abs(n.beat - bpmEdit.beat) < 1e-9);
-        const lineY = (idx >= 0 ? yByNoteIndex.get(idx) : undefined)
-            ?? virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y;
-        const centerY = Math.min(Math.max(lineY, fontPx / 2), surf.h - fontPx / 2);
+        const num = gutter.numerals.find((n) => Math.abs(n.beat - bpmEdit.beat) < 1e-9);
+        const lineY = num?.y ?? virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y;
+        const centerY = num?.groupKey != null
+            ? lineY
+            : Math.min(Math.max(lineY, fontPx / 2), surf.h - fontPx / 2);
         bpmInputBox = { left: Math.max(0, rightEdge - width), top: centerY - fontPx / 2 - 3, width, height: fontPx + 6, fontPx };
     }
 

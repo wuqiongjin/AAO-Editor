@@ -104,6 +104,8 @@ export interface RenderCtx {
    * null/undefined = 无就地编辑。
    */
   bpmEditBeat?: number | null;
+  /** issue 159 定案 2：手风琴展开的同位组键（虚拟 Y）；null = 全折摘要 */
+  expandedBpmGroupKey?: number | null;
 }
 
 /** 背景皮肤渲染输入：source = 已解码位图（utils/backgroundSkin.ts 解码产物）；opacity/fit/scope 由 settings 提供 */

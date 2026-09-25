@@ -112,6 +112,32 @@ export function drawGutterLabel(ctx: CanvasRenderingContext2D, layout: GutterLab
   return true;
 }
 
+/** 同位组摘要：各 `值 [n]` 自带颜色，右对齐到内带锚点。 */
+export function drawBpmSummary(
+  ctx: CanvasRenderingContext2D,
+  layout: GutterLabelLayout,
+  tokens: readonly BpmSummaryToken[],
+  colorOf: (bpm: number) => string,
+): boolean {
+  const full = bpmSummaryFullText(tokens);
+  const fontPx = layout.fontPx ?? GUTTER_LABEL_FONT_PX;
+  const total = measureGutterLabelWidth(full, fontPx, ctx);
+  if (layout.x - total < 0) return false;
+  ctx.save();
+  ctx.font = layout.font;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = layout.textBaseline;
+  let x = layout.x - total;
+  tokens.forEach((tok, i) => {
+    const piece = i === 0 ? tok.text : `, ${tok.text}`;
+    ctx.fillStyle = colorOf(tok.bpm);
+    ctx.fillText(piece, x, layout.y);
+    x += measureGutterLabelWidth(piece, fontPx, ctx);
+  });
+  ctx.restore();
+  return true;
+}
+
 /** 文字盒纵向钳制（纯函数）：把 layout.y 钳入画布，保证文字盒完整可见（"都在谱面范围内"） */
 export function clampGutterLabelY(layout: GutterLabelLayout, surfaceH: number, fontPx: number): GutterLabelLayout {
   const half = fontPx / 2;
@@ -168,21 +194,145 @@ export function layoutBpmLabelYs(
   return ys;
 }
 
-/** 全谱 BPM 的错开 y，键 = `notes` 下标。绘制 / 命中 / 就地编辑框共用。 */
-export function bpmLabelYByNoteIndex(
-  notes: ReadonlyArray<{ type: string; beat: number }>,
+/** 同位组键：虚拟 Y 量化。滚动只改画布 y，键不变。 */
+export function bpmCoincidentKey(virtualY: number): number {
+  return Math.round(virtualY * 1e4) / 1e4;
+}
+
+export interface BpmSummaryToken {
+  bpm: number;
+  count: number;
+  /** 形如 `184` 或 `184 [2]`（次数 ≥2 才带括号） */
+  text: string;
+}
+
+/** 同位组摘要词：带符号值按组内最小 beat 升序；次数 ≥2 才写 `[n]`。分隔 = `, `。 */
+export function bpmSummaryTokens(members: ReadonlyArray<{ beat: number; bpm: number }>): BpmSummaryToken[] {
+  const byVal = new Map<number, { count: number; minBeat: number }>();
+  for (const m of members) {
+    const cur = byVal.get(m.bpm);
+    if (!cur) byVal.set(m.bpm, { count: 1, minBeat: m.beat });
+    else {
+      cur.count += 1;
+      if (m.beat < cur.minBeat) cur.minBeat = m.beat;
+    }
+  }
+  return [...byVal.entries()]
+    .sort((a, b) => a[1].minBeat - b[1].minBeat || a[0] - b[0])
+    .map(([bpm, v]) => ({
+      bpm,
+      count: v.count,
+      text: v.count <= 1 ? String(bpm) : `${bpm} [${v.count}]`,
+    }));
+}
+
+export function bpmSummaryFullText(tokens: readonly BpmSummaryToken[]): string {
+  return tokens.map((t) => t.text).join(', ');
+}
+
+/** 展开叠整组平移进画布（间距/序不变）。栈比画布高时优先保证顶缘可见。 */
+export function shiftStackIntoCanvas(ys: readonly number[], fontPx: number, surfaceH: number): number[] {
+  if (ys.length === 0) return [];
+  const half = fontPx / 2;
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  let dy = 0;
+  if (minY < half) dy = half - minY;
+  if (maxY + dy > surfaceH - half) dy = surfaceH - half - maxY;
+  if (minY + dy < half) dy = half - minY;
+  return ys.map((y) => y + dy);
+}
+
+/** 共用线 y 滚出画布外 2×字号才折回摘要。 */
+export function bpmExpansionOffscreen(lineCanvasY: number, surfaceH: number, fontPx: number): boolean {
+  const buf = 2 * fontPx;
+  return lineCanvasY < -buf || lineCanvasY > surfaceH + buf;
+}
+
+export interface BpmGutterSummary {
+  key: number;
+  lineCanvasY: number;
+  tokens: BpmSummaryToken[];
+  fullText: string;
+  memberIndexes: number[];
+}
+
+export interface BpmGutterNumeral {
+  noteIndex: number;
+  beat: number;
+  bpm: number;
+  y: number;
+  /** 展开中的同位组键；未折组 / 单条为 null */
+  groupKey: number | null;
+}
+
+export interface BpmGutterLayout {
+  summaries: BpmGutterSummary[];
+  numerals: BpmGutterNumeral[];
+}
+
+/**
+ * 沟槽 BPM 显示模型（issue 159 定案 2）：线 y 相同且 ≥2 条 → 摘要（展开组除外）；
+ * 其余走 159 盒相交错开；展开组整叠平移进画布，不逐颗 clamp。
+ */
+export function layoutBpmGutter(
+  notes: ReadonlyArray<{ type: string; beat: number; bpm?: number }>,
   lineCanvasYOf: (beat: number) => number,
+  virtualYOf: (beat: number) => number,
   fontPx: number,
-): Map<number, number> {
-  const items: { beat: number; lineCanvasY: number }[] = [];
-  const idxs: number[] = [];
-  notes.forEach((n, i) => {
+  surfaceH: number,
+  expandedKey: number | null,
+): BpmGutterLayout {
+  const slots: { noteIndex: number; beat: number; bpm: number; lineCanvasY: number; key: number }[] = [];
+  notes.forEach((n, noteIndex) => {
     if (n.type !== 'BPM') return;
-    items.push({ beat: n.beat, lineCanvasY: lineCanvasYOf(n.beat) });
-    idxs.push(i);
+    const bpm = n.bpm ?? 0;
+    slots.push({
+      noteIndex, beat: n.beat, bpm,
+      lineCanvasY: lineCanvasYOf(n.beat),
+      key: bpmCoincidentKey(virtualYOf(n.beat)),
+    });
   });
-  const ys = layoutBpmLabelYs(items, fontPx);
-  return new Map(idxs.map((i, k) => [i, ys[k]!]));
+  const byKey = new Map<number, typeof slots>();
+  for (const s of slots) {
+    const g = byKey.get(s.key);
+    if (g) g.push(s);
+    else byKey.set(s.key, [s]);
+  }
+  const summaries: BpmGutterSummary[] = [];
+  const staggerItems: { beat: number; lineCanvasY: number; noteIndex: number; bpm: number }[] = [];
+  const expandedSlots: typeof slots = [];
+  for (const [key, members] of byKey) {
+    if (members.length >= 2 && key !== expandedKey) {
+      const tokens = bpmSummaryTokens(members);
+      summaries.push({
+        key,
+        lineCanvasY: members[0]!.lineCanvasY,
+        tokens,
+        fullText: bpmSummaryFullText(tokens),
+        memberIndexes: members.map((m) => m.noteIndex),
+      });
+    } else if (members.length >= 2 && key === expandedKey) {
+      expandedSlots.push(...members);
+    } else {
+      for (const m of members) staggerItems.push(m);
+    }
+  }
+  const numerals: BpmGutterNumeral[] = [];
+  const staggerYs = layoutBpmLabelYs(staggerItems, fontPx);
+  staggerItems.forEach((it, i) => {
+    numerals.push({ noteIndex: it.noteIndex, beat: it.beat, bpm: it.bpm, y: staggerYs[i]!, groupKey: null });
+  });
+  if (expandedSlots.length > 0) {
+    expandedSlots.sort((a, b) => a.beat - b.beat || a.noteIndex - b.noteIndex);
+    const raw = layoutBpmLabelYs(expandedSlots, fontPx);
+    const shifted = shiftStackIntoCanvas(raw, fontPx, surfaceH);
+    const key = expandedSlots[0]!.key;
+    expandedSlots.forEach((it, i) => {
+      numerals.push({ noteIndex: it.noteIndex, beat: it.beat, bpm: it.bpm, y: shifted[i]!, groupKey: key });
+    });
+  }
+  return { summaries, numerals };
 }
 
 /**

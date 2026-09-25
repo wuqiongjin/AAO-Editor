@@ -5,9 +5,9 @@
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry, LANES, LANE_WIDTH, TRACK_CHROME_TOTAL } from '@/src/chart/geometry/ChartGeometry';
 import type { HitTestDeps } from '@/src/visual/hitTest';
-import { bpmLabelBox, layoutBpmLabelYs, GUTTER_LABEL_FONT_PX } from '@/src/visual/gutterLabels';
+import { bpmLabelBox, layoutBpmGutter, bpmCoincidentKey, GUTTER_LABEL_FONT_PX } from '@/src/visual/gutterLabels';
 import {
-  snapChartPos, hitStartMarkerAt, hitBpmLabelAt,
+  snapChartPos, hitStartMarkerAt, hitBpmLabelAt, hitBpmGutterAt, nextBpmGutterAction,
   resolvePressIntent, resolveReleaseIntent, resolveClickPlan,
   isInsideSurface, clampToSurface, hasMovedBeyondThreshold, marqueeRect,
   canStartMarquee, resolveBoxPlan,
@@ -163,7 +163,7 @@ describe('hitBpmLabelAt BPM 数字文字盒', () => {
     expect(hit((box.x1 + box.x2) / 2, (box.y1 + box.y2) / 2 + 60)).toBeNull();
   });
 
-  it('issue 159：撞 y 的两枚数字点上盒得较小 beat、点下盒得较大 beat', () => {
+  it('定案 2：折叠时点摘要不进编辑；展开后点上盒 beat 3、下盒 beat 5；组内缝保持展开', () => {
     const sample = [
       bpmNote(0, 120),
       bpmNote(3, -178),
@@ -183,14 +183,31 @@ describe('hitBpmLabelAt BPM 数字文字盒', () => {
     const { trackStartX } = geometry.trackGeometry(1);
     const lineYOf = (beat: number) =>
       geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, 1), viewport).y;
-    const items = timeline.map((e) => ({ beat: e.beat, lineCanvasY: lineYOf(e.beat) }));
-    const ys = layoutBpmLabelYs(items, GUTTER_LABEL_FONT_PX);
-    const box3 = bpmLabelBox(trackStartX, ys[1]!, '-178', 1, TEST_SURFACE.h, flat('-178', 21));
-    const box5 = bpmLabelBox(trackStartX, ys[3]!, '178', 1, TEST_SURFACE.h, flat('178', 21));
-    const hit = (cx: number, cy: number) =>
-      hitBpmLabelAt({ deps, labelScale: 1, surfaceH: TEST_SURFACE.h, measureWidth: flat }, cx, cy);
-    expect(hit((box3.x1 + box3.x2) / 2, (box3.y1 + box3.y2) / 2)).toBe(3);
-    expect(hit((box5.x1 + box5.x2) / 2, (box5.y1 + box5.y2) / 2)).toBe(5);
+    const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, 1);
+    const fontPx = GUTTER_LABEL_FONT_PX;
+    const key = bpmCoincidentKey(virtualYOf(3));
+    const gutterIn = {
+      deps, labelScale: 1, surfaceH: TEST_SURFACE.h, measureWidth: flat, expandedGroupKey: null as number | null,
+    };
+    const sumText = '-178, 178';
+    const sumBox = bpmLabelBox(trackStartX, lineYOf(3), sumText, 1, TEST_SURFACE.h, flat(sumText, 21));
+    const collapsed = hitBpmGutterAt(gutterIn, (sumBox.x1 + sumBox.x2) / 2, (sumBox.y1 + sumBox.y2) / 2);
+    expect(collapsed).toEqual({ kind: 'summary', groupKey: key });
+    expect(nextBpmGutterAction(collapsed)).toEqual({ expandedKey: key, editBeat: null });
+    expect(hitBpmLabelAt(gutterIn, (sumBox.x1 + sumBox.x2) / 2, (sumBox.y1 + sumBox.y2) / 2)).toBeNull();
+
+    gutterIn.expandedGroupKey = key;
+    const layout = layoutBpmGutter(sample, lineYOf, virtualYOf, fontPx, TEST_SURFACE.h, key);
+    const n3 = layout.numerals.find((n) => n.beat === 3)!;
+    const n5 = layout.numerals.find((n) => n.beat === 5)!;
+    const box3 = bpmLabelBox(trackStartX, n3.y, '-178', 1, TEST_SURFACE.h, flat('-178', 21));
+    const box5 = bpmLabelBox(trackStartX, n5.y, '178', 1, TEST_SURFACE.h, flat('178', 21));
+    expect(hitBpmLabelAt(gutterIn, (box3.x1 + box3.x2) / 2, (box3.y1 + box3.y2) / 2)).toBe(3);
+    expect(hitBpmLabelAt(gutterIn, (box5.x1 + box5.x2) / 2, (box5.y1 + box5.y2) / 2)).toBe(5);
+    const midHit = hitBpmGutterAt(gutterIn, (box3.x1 + box3.x2) / 2, (n3.y + n5.y) / 2);
+    expect(midHit?.kind).toBe('label');
+    expect(nextBpmGutterAction(midHit).expandedKey).toBe(key);
+    expect(nextBpmGutterAction(null)).toEqual({ expandedKey: null, editBeat: null });
   });
 });
 
@@ -389,6 +406,18 @@ describe('resolveClickPlan 单击去向', () => {
     expect(plan({ armedTool: 'single', bpmLabelBeat: 20 })).toEqual({
       kind: 'editBpm', beat: 20, value: '150',
     });
+  });
+
+  it('定案 2：点摘要 → expandBpmSummary，不进编辑', () => {
+    const { deps } = makeDeps(notes);
+    const p = deps.geometry.virtualToCanvas(0, deps.geometry.beatToVirtualY(20, 1), { scrollX: 0, scrollY: 0, scale: 1 });
+    const r = resolveClickPlan({
+      cx: p.x, cy: p.y, armedTool: 'single', shiftKey: false, ctrlKey: false, metaKey: false,
+      deps, notes, snap: null,
+      bpmGutterHit: { kind: 'summary', groupKey: 12.5 },
+      onMarker: false,
+    });
+    expect(r).toEqual({ kind: 'expandBpmSummary', groupKey: 12.5 });
   });
 
   it('§5：数字命中但 BPM 已不在谱面（undo）→ 回落，不进编辑', () => {

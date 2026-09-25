@@ -91,7 +91,8 @@ function worldOf(
     lastBpm: 120,
     noteSize: 1,
     hitStartMarker: () => false,
-    hitBpmLabel: () => null,
+    hitBpmGutter: () => null,
+    expandedBpmGroupKey: null,
     ...extra,
   };
   return { world, at, virt };

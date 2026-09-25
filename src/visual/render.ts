@@ -18,7 +18,7 @@ import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
-import { drawGutterLabel, layoutGutterLabel, bpmLabelYByNoteIndex, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
+import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
@@ -1287,7 +1287,7 @@ export function renderBpmLines(ctx: CanvasRenderingContext2D, c: Coords, rc: Ren
 /**
  * 渲染 BPM 数值（issue 51 + 第二轮修订）：仅数值（不带 "BPM" 前缀），内带锚定
  * （贴轨道左外缘 8px）、默认垂直居中于线；撞 y 时纵向错开（issue 159）。
- * 字号 = 21px × labelScale；越出画布时钳制（"都在谱面范围内"）。
+ * 字号 = 21px × labelScale。同位组（线 y 相同）折成摘要；展开后整叠平移进画布。
  * 由 renderChart 编排在沟槽层（音符之上，沟槽内无音符）。
  */
 export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
@@ -1302,26 +1302,47 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   const tailIdx = indexOfTrailingNegativeBpm(rc.notes);
   const labelScale = rc.display?.labelScale ?? 1;
   const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
-  // issue 159：全谱 BPM 一起聚类（含屏外同位伙伴），绘制与命中同一套 y。
-  const yByNoteIndex = bpmLabelYByNoteIndex(
+  const expandedKey = rc.expandedBpmGroupKey ?? null;
+  const layoutModel = layoutBpmGutter(
     rc.notes,
     (beat) => c.virtualToCanvas(0, c.getNoteVirtualY(beat)).y,
+    (beat) => c.getNoteVirtualY(beat),
     fontPx,
+    rc.surface.h,
+    expandedKey,
   );
-  for (const { note, index } of visibleNotes) {
-    if (note.type !== "BPM") continue;
-    // issue 143 补修：就地编辑中 → 让位给 HTML 输入框（否则旧数值从框边露出，带小数时尤其明显）
-    if (rc.bpmEditBeat !== null && rc.bpmEditBeat !== undefined
-        && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) continue;
-    const y = yByNoteIndex.get(index) ?? c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
-    if (y < -50 || y > rc.surface.h + 50) continue;
-    const layout = clampGutterLabelY(
-      layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale),
+  const vis = new Set(visibleNotes.map((v) => v.index));
+  const colorOf = (bpm: number, noteIndex?: number) =>
+    noteIndex === tailIdx ? BPM_TAIL_WARNING_COLOR : (bpm < 0 ? negativeColor : positiveColor);
+  for (const sum of layoutModel.summaries) {
+    if (!sum.memberIndexes.some((i) => vis.has(i))) continue;
+    if (sum.lineCanvasY < -50 || sum.lineCanvasY > rc.surface.h + 50) continue;
+    const gl = clampGutterLabelY(
+      layoutGutterLabel(c, rc.viewport.scale, sum.lineCanvasY, 'centered', 'bpm', labelScale),
       rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
     );
+    drawBpmSummary(ctx, gl, sum.tokens, (bpm) => {
+      const warning = sum.memberIndexes.some((i) => {
+        const n = rc.notes[i];
+        return i === tailIdx && n && n.type === 'BPM' && (n as ChartNote & { bpm: number }).bpm === bpm;
+      });
+      return warning ? BPM_TAIL_WARNING_COLOR : (bpm < 0 ? negativeColor : positiveColor);
+    });
+  }
+  for (const num of layoutModel.numerals) {
+    if (!vis.has(num.noteIndex)) continue;
+    const note = rc.notes[num.noteIndex];
+    if (!note || note.type !== 'BPM') continue;
+    if (rc.bpmEditBeat !== null && rc.bpmEditBeat !== undefined
+        && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) continue;
+    const y = num.y;
+    if (y < -50 || y > rc.surface.h + 50) continue;
+    let gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale);
+    if (num.groupKey === null) {
+      gl = clampGutterLabelY(gl, rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale);
+    }
     const bpm = (note as ChartNote & { bpm: number }).bpm;
-    // issue 142：末条负 BPM 只**换色**（不加后缀 —— 用户 2026-09-22 定案：颜色变红即可）
-    drawGutterLabel(ctx, layout, String(bpm), index === tailIdx ? BPM_TAIL_WARNING_COLOR : (bpm < 0 ? negativeColor : positiveColor));
+    drawGutterLabel(ctx, gl, String(bpm), colorOf(bpm, num.noteIndex));
   }
 }
 

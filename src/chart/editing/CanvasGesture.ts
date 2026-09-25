@@ -17,7 +17,7 @@ import { findBpmLineAt, findItemAt } from '../../visual/hitTest';
 import { draggableFromItems, itemTrueBeat } from './NoteDragging';
 import { isPastChartEnd } from './ChartEndBounds';
 import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
-import { GUTTER_LABEL_FONT_PX, bpmLabelBox, bpmLabelYByNoteIndex } from '../../visual/gutterLabels';
+import { GUTTER_LABEL_FONT_PX, bpmLabelBox, layoutBpmGutter } from '../../visual/gutterLabels';
 import { LANE_WIDTH } from '../geometry/ChartGeometry';
 
 /** 沟槽文字宽度测量（画布侧注入：带 canvas ctx 精确测量；测试侧注入等宽估算）。 */
@@ -90,48 +90,94 @@ export function hitStartMarkerAt(
 }
 
 /**
- * §5 手势仲裁：左沟槽 BPM 数字命中（返回该 BPM 的 beat）。
- * 命中区 = **数字自身的文字盒**（`bpmLabelBox`），不是整条水平线——否则该高度上左沟槽的
- * 双击永远被判为"数字命中"、起点标记手势放不下去（2026-09-08 修订）。
- * 沟槽宽度不足、绘制时整体隐藏（`box.x1 < 0`）的数字同样不可命中。
+ * §5 手势仲裁：左沟槽 BPM（摘要 / 真数字 / 展开组内缝）。
+ * 命中区仍不是整条水平线（否则该高度上双击放不下起点标记）。
  */
+export type BpmGutterHit =
+    | { kind: 'summary'; groupKey: number }
+    | { kind: 'label'; beat: number; groupKey: number | null }
+    | { kind: 'expandedGap'; groupKey: number };
+
+export function nextBpmGutterAction(
+    hit: BpmGutterHit | null,
+): { expandedKey: number | null; editBeat: number | null } {
+    if (hit === null) return { expandedKey: null, editBeat: null };
+    if (hit.kind === 'summary') return { expandedKey: hit.groupKey, editBeat: null };
+    if (hit.kind === 'expandedGap') return { expandedKey: hit.groupKey, editBeat: null };
+    return { expandedKey: hit.groupKey, editBeat: hit.beat };
+}
+
+export function hitBpmGutterAt(
+    input: {
+        deps: Pick<HitTestDeps, 'geometry' | 'viewport' | 'notes'>;
+        labelScale: number;
+        surfaceH: number;
+        measureWidth: GutterMeasure;
+        expandedGroupKey: number | null;
+    },
+    cx: number,
+    cy: number,
+): BpmGutterHit | null {
+    const { geometry, viewport, notes } = input.deps;
+    const { trackBgX, trackStartX } = geometry.trackGeometry(viewport.scale);
+    if (cx >= trackBgX) return null;
+    const fontPx = Math.round(GUTTER_LABEL_FONT_PX * input.labelScale);
+    const lineCanvasYOf = (beat: number) =>
+        geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, viewport.scale), viewport).y;
+    const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, viewport.scale);
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, fontPx, input.surfaceH, input.expandedGroupKey);
+    let bestLabel: { beat: number; groupKey: number | null; dist: number } | null = null;
+    for (const num of layout.numerals) {
+        const text = String(num.bpm);
+        const box = bpmLabelBox(trackStartX, num.y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
+        if (box.x1 < 0) continue;
+        if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
+            const dist = Math.abs(cy - num.y);
+            if (!bestLabel || dist < bestLabel.dist) {
+                bestLabel = { beat: num.beat, groupKey: num.groupKey, dist };
+            }
+        }
+    }
+    if (bestLabel) return { kind: 'label', beat: bestLabel.beat, groupKey: bestLabel.groupKey };
+    for (const sum of layout.summaries) {
+        const box = bpmLabelBox(trackStartX, sum.lineCanvasY, sum.fullText, input.labelScale, input.surfaceH, input.measureWidth(sum.fullText, fontPx));
+        if (box.x1 < 0) continue;
+        if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
+            return { kind: 'summary', groupKey: sum.key };
+        }
+    }
+    if (input.expandedGroupKey !== null) {
+        const expandedNums = layout.numerals.filter((n) => n.groupKey === input.expandedGroupKey);
+        if (expandedNums.length >= 2) {
+            const boxes = expandedNums.map((num) => {
+                const text = String(num.bpm);
+                return bpmLabelBox(trackStartX, num.y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
+            });
+            const x1 = Math.min(...boxes.map((b) => b.x1));
+            const x2 = Math.max(...boxes.map((b) => b.x2));
+            const y1 = Math.min(...boxes.map((b) => b.y1));
+            const y2 = Math.max(...boxes.map((b) => b.y2));
+            if (x1 >= 0 && cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2) {
+                return { kind: 'expandedGap', groupKey: input.expandedGroupKey };
+            }
+        }
+    }
+    return null;
+}
+
 export function hitBpmLabelAt(
     input: {
         deps: Pick<HitTestDeps, 'geometry' | 'viewport' | 'notes'>;
         labelScale: number;
         surfaceH: number;
         measureWidth: GutterMeasure;
+        expandedGroupKey?: number | null;
     },
     cx: number,
     cy: number,
 ): number | null {
-    const { geometry, viewport, notes } = input.deps;
-    const { trackBgX, trackStartX } = geometry.trackGeometry(viewport.scale);
-    if (cx >= trackBgX) return null;
-    const fontPx = Math.round(GUTTER_LABEL_FONT_PX * input.labelScale);
-    const yByNoteIndex = bpmLabelYByNoteIndex(
-        notes,
-        (beat) => geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, viewport.scale), viewport).y,
-        fontPx,
-    );
-    let bestBeat: number | null = null;
-    let bestDist = Infinity;
-    notes.forEach((n, index) => {
-        if (n.type !== 'BPM') return;
-        const y = yByNoteIndex.get(index);
-        if (y === undefined) return;
-        const text = String((n as BpmNote).bpm);
-        const box = bpmLabelBox(trackStartX, y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
-        if (box.x1 < 0) return;
-        if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
-            const dist = Math.abs(cy - y);
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestBeat = n.beat;
-            }
-        }
-    });
-    return bestBeat;
+    const hit = hitBpmGutterAt({ ...input, expandedGroupKey: input.expandedGroupKey ?? null }, cx, cy);
+    return hit?.kind === 'label' ? hit.beat : null;
 }
 
 /** §6 拖拽锚点快照（按下时的状态，提交时必须用它而不是已清空的 ref——issue 55 三轮修复）。 */
@@ -259,6 +305,9 @@ const NEEDS_HIT: ReadonlySet<MatrixTool> = new Set<MatrixTool>([
 export type ClickPlan =
     /** §5：任何工具态下单击沟槽 BPM 数字 = 就地编辑 */
     | { kind: 'editBpm'; beat: number; value: string }
+    /** issue 159 定案 2：点摘要 → 展开，不进编辑 */
+    | { kind: 'expandBpmSummary'; groupKey: number }
+    | { kind: 'keepBpmExpansion' }
     /** 指针态点中起点标记线：选中标记、清空音符选区（ADR-0004 §4 互斥） */
     | { kind: 'selectMarker' }
     /** 指针态：选中该目标（Shift 加选 / Ctrl 整条滑条）/ 空白清空 */
@@ -277,12 +326,17 @@ export function resolveClickPlan(input: {
     notes: readonly ChartNote[];
     /** snapChartPos(cx, cy) 的结果（放置口径：轨道外非法） */
     snap: ChartPos | null;
-    /** hitBpmLabelAt 的结果；命中但 BPM 已不在谱面（undo）时回落 */
-    bpmLabelBeat: number | null;
+    bpmGutterHit?: BpmGutterHit | null;
+    bpmLabelBeat?: number | null;
     onMarker: boolean;
 }): ClickPlan {
-    if (input.bpmLabelBeat !== null) {
-        const beat = input.bpmLabelBeat;
+    const gutterHit = input.bpmGutterHit !== undefined
+        ? input.bpmGutterHit
+        : (input.bpmLabelBeat != null ? { kind: 'label' as const, beat: input.bpmLabelBeat, groupKey: null } : null);
+    if (gutterHit?.kind === 'summary') return { kind: 'expandBpmSummary', groupKey: gutterHit.groupKey };
+    if (gutterHit?.kind === 'expandedGap') return { kind: 'keepBpmExpansion' };
+    if (gutterHit?.kind === 'label') {
+        const beat = gutterHit.beat;
         const n = input.notes.find(
             nt => nt.type === 'BPM' && Math.abs(nt.beat - beat) < 1e-9,
         ) as BpmNote | undefined;

@@ -34,7 +34,9 @@ import {
   penMaxBeatsForCanvasDy,
   resolvePenStroke,
   finalizePenStrokeCommit,
+  nextBpmGutterAction,
   type DragAnchor,
+  type BpmGutterHit,
 } from './CanvasGesture';
 
 /** 画笔光标（验收反馈 #6）：内联 data-uri SVG（铅笔、笔尖为热点） */
@@ -53,7 +55,8 @@ const MARQUEE_THRESHOLD_PX = 8;
 export type GestureOp =
   | MatrixOp
   | { t: 'setMarkerSelected'; selected: boolean }
-  | { t: 'closeBpmEditor' };
+  | { t: 'closeBpmEditor' }
+  | { t: 'setBpmExpansion'; key: number | null };
 
 export interface GestureSnapshot {
   dragGhost: ChartNote[] | null;
@@ -87,7 +90,8 @@ export interface GestureWorld {
   lastBpm: number;
   noteSize: number;
   hitStartMarker: (cx: number, cy: number) => boolean;
-  hitBpmLabel: (cx: number, cy: number) => number | null;
+  hitBpmGutter: (cx: number, cy: number) => BpmGutterHit | null;
+  expandedBpmGroupKey: number | null;
 }
 
 export interface GestureBeginInput {
@@ -598,44 +602,59 @@ export class GestureSession {
 
   private clickAt(cx: number, cy: number, e: GestureEndInput): GestureOp[] {
     const w = this.requireWorld();
+    const gutterHit = w.hitBpmGutter(cx, cy);
+    const expansion = nextBpmGutterAction(gutterHit);
     const plan = resolveClickPlan({
       cx, cy, armedTool: w.armedTool,
       shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey,
       deps: this.hitDeps(),
       notes: w.notes,
       snap: this.snapPos(cx, cy),
-      bpmLabelBeat: w.hitBpmLabel(cx, cy),
+      bpmGutterHit: gutterHit,
       onMarker: w.hitStartMarker(cx, cy),
     });
+    const ops: GestureOp[] = [];
+    if (expansion.expandedKey !== w.expandedBpmGroupKey) {
+      ops.push({ t: 'setBpmExpansion', key: expansion.expandedKey });
+    }
+    if (plan.kind === 'expandBpmSummary' || plan.kind === 'keepBpmExpansion') {
+      return ops;
+    }
     if (plan.kind === 'editBpm') {
-      return [{ t: 'openBpmEditor', beat: plan.beat, value: plan.value }];
+      ops.push({ t: 'openBpmEditor', beat: plan.beat, value: plan.value });
+      return ops;
     }
     if (plan.kind === 'selectMarker') {
       return [
+        ...ops,
         { t: 'setSelection', items: [] },
         { t: 'setMarkerSelected', selected: true },
       ];
     }
     if (plan.kind === 'selectItem') {
       return [
+        ...ops,
         { t: 'setMarkerSelected', selected: false },
         { t: 'setSelection', items: pointerClickSelection(w.selectedItems, findItemAt(cx, cy, this.hitDeps()), plan.additive, plan.ctrl) },
       ];
     }
-    return clickOps({
-      tool: w.armedTool as MatrixTool,
-      notes: w.notes,
-      hit: plan.hit,
-      pos: plan.pos,
-      slideBuffer: w.slideBuffer,
-      lastBpm: w.lastBpm,
-      clipboard: w.clipboard,
-      chartEndBeat: w.chartEndBeat,
-      beatDisplay: w.beatDisplay,
-      selectedItems: w.selectedItems,
-      curveDraft: w.curveDraft,
-      curveConfig: w.curveConfig,
-    });
+    return [
+      ...ops,
+      ...clickOps({
+        tool: w.armedTool as MatrixTool,
+        notes: w.notes,
+        hit: plan.hit,
+        pos: plan.pos,
+        slideBuffer: w.slideBuffer,
+        lastBpm: w.lastBpm,
+        clipboard: w.clipboard,
+        chartEndBeat: w.chartEndBeat,
+        beatDisplay: w.beatDisplay,
+        selectedItems: w.selectedItems,
+        curveDraft: w.curveDraft,
+        curveConfig: w.curveConfig,
+      }),
+    ];
   }
 
   private dragDelta(mx: number, my: number, drag: DragAnchor | null): DragDelta | null {

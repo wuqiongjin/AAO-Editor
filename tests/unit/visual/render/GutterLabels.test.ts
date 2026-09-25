@@ -7,6 +7,12 @@ import type { ChartNote } from '@/src/chart/types';
 import {
   layoutGutterLabel,
   layoutBpmLabelYs,
+  layoutBpmGutter,
+  bpmSummaryTokens,
+  bpmSummaryFullText,
+  shiftStackIntoCanvas,
+  bpmExpansionOffscreen,
+  bpmCoincidentKey,
   clampGutterLabelY,
   drawGutterLabel,
   boundLabelGapPx,
@@ -201,10 +207,9 @@ describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', (
     renderBpmLabels(proxy, c, rc, sample.map((note, index) => ({ note, index })));
     const fills = fillTexts(calls);
     const texts = fills.map((f) => String(f[1][0]));
-    expect(texts).toEqual(['-178', '178', '178']);
-    const yNeg = fills[0]![1][2] as number;
-    const yBeat5 = fills[2]![1][2] as number;
-    expect(Math.abs(yBeat5 - yNeg)).toBeGreaterThanOrEqual(GUTTER_LABEL_FONT_PX);
+    expect(texts.some((t) => String(t).includes('-178'))).toBe(true);
+    expect(texts.some((t) => String(t) === '178' || String(t).includes(', 178'))).toBe(true);
+    expect(texts).toContain('178');
   });
 
   it('倒流区内的**非末条**负值 → 仍只换倒流色（回归，不放松）', () => {
@@ -268,6 +273,68 @@ describe('layoutBpmLabelYs · 沟槽 BPM 数值撞 y 纵向错开（issue 159）
     const b5 = bpmLabelBox(trackStartX, ys[3]!, '178');
     expect((b3.y1 + b3.y2) / 2).toBeCloseTo(ys[1]!, 6);
     expect((b5.y1 + b5.y2) / 2).toBeCloseTo(ys[3]!, 6);
+  });
+});
+
+describe('layoutBpmGutter · 同位组摘要（issue 159 定案 2）', () => {
+  const SAMPLE_BPM = [
+    { beat: 0, bpm: 120 },
+    { beat: 3, bpm: -178 },
+    { beat: 4, bpm: 178 },
+    { beat: 5, bpm: 178 },
+  ];
+  const FONT_PX = GUTTER_LABEL_FONT_PX;
+
+  it('摘要文案：带符号值按最小 beat 升序，次数为 1 也写 [n]', () => {
+    expect(bpmSummaryFullText(bpmSummaryTokens([
+      { beat: 3, bpm: -178 },
+      { beat: 5, bpm: 178 },
+    ]))).toBe('-178, 178');
+    expect(bpmSummaryFullText(bpmSummaryTokens([
+      { beat: 1, bpm: 184 },
+      { beat: 2, bpm: -184 },
+      { beat: 3, bpm: 184 },
+    ]))).toBe('184 [2], -184');
+  });
+
+  it('票面样例：beat 3 与 5 折成一颗摘要；beat 0、4 仍是数字；近距不等 y 不进摘要', () => {
+    const notes = SAMPLE_BPM.map((e) => ({ type: 'BPM' as const, ...e }));
+    const geometry = new ChartGeometry(SAMPLE_BPM, { endBeat: 16 }, TEST_SURFACE);
+    const scrollY = geometry.beatToVirtualY(3, 1) - 400;
+    const viewport = { scrollX: 0, scrollY, scale: 1 };
+    const lineCanvasYOf = (beat: number) =>
+      geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, 1), viewport).y;
+    const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, 1);
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, FONT_PX, TEST_SURFACE.h, null);
+    expect(layout.summaries).toHaveLength(1);
+    expect(layout.summaries[0]!.fullText).toBe('-178, 178');
+    expect(layout.numerals.map((n) => n.bpm).sort((a, b) => a - b)).toEqual([120, 178]);
+    expect(lineCanvasYOf(3)).toBeCloseTo(lineCanvasYOf(5), 6);
+    expect(lineCanvasYOf(4)).not.toBeCloseTo(lineCanvasYOf(3), 0);
+  });
+
+  it('展开同位组：两枚数字间距 ≥ 字号，贴底整叠仍在画布内', () => {
+    const notes = SAMPLE_BPM.map((e) => ({ type: 'BPM' as const, ...e }));
+    const geometry = new ChartGeometry(SAMPLE_BPM, { endBeat: 16 }, TEST_SURFACE);
+    const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, 1);
+    const key = bpmCoincidentKey(virtualYOf(3));
+    const lineCanvasYOf = (beat: number) => geometry.virtualToCanvas(
+      0, virtualYOf(beat), { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 },
+    ).y;
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, FONT_PX, TEST_SURFACE.h, key);
+    expect(layout.summaries).toHaveLength(0);
+    const pair = layout.numerals.filter((n) => n.beat === 3 || n.beat === 5).sort((a, b) => a.y - b.y);
+    expect(pair).toHaveLength(2);
+    expect(pair[1]!.y - pair[0]!.y).toBeGreaterThanOrEqual(FONT_PX);
+    expect(Math.min(...pair.map((p) => p.y))).toBeGreaterThanOrEqual(FONT_PX / 2);
+    expect(Math.max(...pair.map((p) => p.y))).toBeLessThanOrEqual(TEST_SURFACE.h - FONT_PX / 2);
+  });
+
+  it('整组平移不逐颗压回同一 y；滚出 2×字号才算离屏', () => {
+    expect(shiftStackIntoCanvas([2, 2 + FONT_PX], FONT_PX, 900)).toEqual([FONT_PX / 2, FONT_PX / 2 + FONT_PX]);
+    expect(bpmExpansionOffscreen(400, 900, FONT_PX)).toBe(false);
+    expect(bpmExpansionOffscreen(-FONT_PX, 900, FONT_PX)).toBe(false);
+    expect(bpmExpansionOffscreen(-2 * FONT_PX - 1, 900, FONT_PX)).toBe(true);
   });
 });
 
