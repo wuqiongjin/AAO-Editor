@@ -197,7 +197,7 @@ describe('hitBpmLabelAt BPM 数字文字盒', () => {
     expect(hitBpmLabelAt(gutterIn, (sumBox.x1 + sumBox.x2) / 2, (sumBox.y1 + sumBox.y2) / 2)).toBeNull();
 
     gutterIn.expandedGroupKey = key;
-    const layout = layoutBpmGutter(sample, lineYOf, virtualYOf, fontPx, TEST_SURFACE.h, key);
+    const layout = layoutBpmGutter(sample, lineYOf, virtualYOf, fontPx, key);
     const n3 = layout.numerals.find((n) => n.beat === 3)!;
     const n5 = layout.numerals.find((n) => n.beat === 5)!;
     const box3 = bpmLabelBox(trackStartX, n3.y, '-178', 1, TEST_SURFACE.h, flat('-178', 21));

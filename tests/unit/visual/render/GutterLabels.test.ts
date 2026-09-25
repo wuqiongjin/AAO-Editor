@@ -10,8 +10,7 @@ import {
   layoutBpmGutter,
   bpmSummaryTokens,
   bpmSummaryFullText,
-  shiftStackIntoCanvas,
-  bpmExpansionOffscreen,
+  bpmExpandedNumeralsOnCanvas,
   bpmCoincidentKey,
   clampGutterLabelY,
   drawGutterLabel,
@@ -22,6 +21,7 @@ import {
   GUTTER_LABEL_LINE_GAP_PX,
 } from '@/src/visual/gutterLabels';
 import { makeRecordingCtx, propValues, fillTexts } from '@/tests/support/canvas';
+import { readStripped } from '@/tests/support/source';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 const TEST_SURFACE = { w: 750, h: 900 };
@@ -116,7 +116,7 @@ describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () =
       notes: [bpmNote], display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1 },
     } as unknown as import('@/src/visual/types').RenderCtx;
     const { proxy, calls } = makeRecordingCtx();
-    renderBpmLabels(proxy, c, rc, [{ note: bpmNote, index: 0 }]);
+    renderBpmLabels(proxy, c, rc);
     return calls;
   }
 
@@ -131,13 +131,54 @@ describe('renderBpmLabels（issue 51 第二轮：恒定居中 + 钳制）', () =
     expect(propValues(calls, 'textBaseline')).toContain('middle');
   });
 
-  it('起始线贴底边（scrollY=chartEnd）：数值钳制在画布内（不再堆叠/裁剪）', () => {
+  it('起始线贴底边（scrollY=chartEnd）：数值钉在判定线 y，不钳进画布内', () => {
     const geometry = new ChartGeometry(bpm120, { endBeat: 8 } , TEST_SURFACE);
     const calls = renderBpmAt(geometry.chartEndVirtualY);
     const fills = fillTexts(calls);
     expect(fills.length).toBe(1);
-    const y = fills[0][1][2];
-    expect(y).toBeLessThanOrEqual(TEST_SURFACE.h - GUTTER_LABEL_FONT_PX / 2);
+    expect(fills[0][1][2]).toBe(TEST_SURFACE.h);
+  });
+
+  it('滚动时字 y 增量等于线 y 增量（不贴边漂移）', () => {
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 }, TEST_SURFACE);
+    const yOf = (scrollY: number) => {
+      const viewport = { scrollX: 0, scrollY, scale: 1 };
+      const c = makeCoords(geometry, viewport, 4, [{ type: 'BPM', beat: 4, bpm: 120 } as never]);
+      return c.virtualToCanvas(0, c.getNoteVirtualY(4)).y;
+    };
+    const a = 1000;
+    const b = 1040;
+    const fillsA = fillTexts(renderBpmAt(a, 4));
+    const fillsB = fillTexts(renderBpmAt(b, 4));
+    expect(fillsA[0][1][2] - fillsB[0][1][2]).toBeCloseTo(yOf(a) - yOf(b), 6);
+  });
+
+  it('墨迹盒完全出画布后无 fillText', () => {
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 }, TEST_SURFACE);
+    const yOf = (scrollY: number) => {
+      const viewport = { scrollX: 0, scrollY, scale: 1 };
+      const c = makeCoords(geometry, viewport, 4, [{ type: 'BPM', beat: 4, bpm: 120 } as never]);
+      return c.virtualToCanvas(0, c.getNoteVirtualY(4)).y;
+    };
+    const yMid = yOf(1380);
+    const target = TEST_SURFACE.h + GUTTER_LABEL_FONT_PX;
+    const scrollY = 1380 + (yMid - target);
+    expect(yOf(scrollY)).toBeCloseTo(target, 6);
+    expect(fillTexts(renderBpmAt(scrollY, 4))).toHaveLength(0);
+  });
+
+  it('visibleNotes 参数已删除：只凭 notes 绘制', () => {
+    const bpmNote = { type: 'BPM', beat: 4, bpm: 120 } as never;
+    const geometry = new ChartGeometry(bpm120, { endBeat: 8 }, TEST_SURFACE);
+    const viewport = { scrollX: 0, scrollY: 1380, scale: 1 };
+    const c = makeCoords(geometry, viewport, 4, [bpmNote]);
+    const rc = {
+      geometry, viewport, surface: TEST_SURFACE, chartEndBeat: 8, beatDisplay: 4,
+      notes: [bpmNote], display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1 },
+    } as unknown as import('@/src/visual/types').RenderCtx;
+    const { proxy, calls } = makeRecordingCtx();
+    renderBpmLabels(proxy, c, rc);
+    expect(fillTexts(calls).map(([, args]) => args[0])).toEqual(['120']);
   });
 });
 describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', () => {
@@ -148,7 +189,6 @@ describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', (
 
   function renderLabels(
     notes: ChartNote[],
-    visible: { note: ChartNote; index: number }[],
     bpmEditBeat: number | null = null,
   ) {
     const geometry = new ChartGeometry([{ beat: 0, bpm: 120 }], { endBeat: 40 }, SURFACE);
@@ -160,17 +200,15 @@ describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', (
       display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1 },
     } as unknown as import('@/src/visual/types').RenderCtx;
     const { proxy, calls } = makeRecordingCtx();
-    renderBpmLabels(proxy, c, rc, visible);
+    renderBpmLabels(proxy, c, rc);
     return calls;
   }
 
   it('末条为负 → 数值变警示色（不是倒流色）', () => {
     const notes = [bpmNote(0, 120), bpmNote(8, -120)];
-    const calls = renderLabels(notes, [{ note: notes[1]!, index: 1 }]);
+    const calls = renderLabels(notes);
     const fills = fillTexts(calls);
-    expect(fills.length).toBe(1);
-    // 用户 2026-09-22 定案：**只变红，不加后缀** —— 文字仍是原样的 '-120'
-    expect(fills[0]![1][0]).toBe('-120');
+    expect(fills.map((f) => f[1][0])).toContain('-120');
     expect(propValues(calls, 'fillStyle')).toContain(BPM_TAIL_WARNING_COLOR);
     expect(propValues(calls, 'fillStyle')).not.toContain(gridBpmNegativeColor('vivid'));
   });
@@ -179,10 +217,9 @@ describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', (
   // （带小数时更长）会从框边露出来 → 编辑期间该拍的数值不画。
   it('就地编辑中（bpmEditBeat = 该拍）→ 数值不画，让位给输入框', () => {
     const notes = [bpmNote(0, 120), bpmNote(8, 128.5)];
-    const visible = [{ note: notes[1]!, index: 1 }];
-    expect(fillTexts(renderLabels(notes, visible, 8))).toHaveLength(0);          // 编辑中：不画
-    expect(fillTexts(renderLabels(notes, visible)).map((f) => f[1][0])).toEqual(['128.5']); // 非编辑：照旧
-    expect(fillTexts(renderLabels(notes, visible, 0)).map((f) => f[1][0])).toEqual(['128.5']); // 编辑别的拍：照旧
+    expect(fillTexts(renderLabels(notes, 8)).filter((f) => f[1][0] === '128.5')).toHaveLength(0);
+    expect(fillTexts(renderLabels(notes)).map((f) => f[1][0])).toContain('128.5');
+    expect(fillTexts(renderLabels(notes, 0)).map((f) => f[1][0])).toContain('128.5');
   });
 
   it('撞 y 的两条 BPM 数值画在不同 y（issue 159）', () => {
@@ -204,7 +241,7 @@ describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', (
       display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1 },
     } as unknown as import('@/src/visual/types').RenderCtx;
     const { proxy, calls } = makeRecordingCtx();
-    renderBpmLabels(proxy, c, rc, sample.map((note, index) => ({ note, index })));
+    renderBpmLabels(proxy, c, rc);
     const fills = fillTexts(calls);
     const texts = fills.map((f) => String(f[1][0]));
     expect(texts.some((t) => String(t).includes('-178'))).toBe(true);
@@ -214,9 +251,8 @@ describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', (
 
   it('倒流区内的**非末条**负值 → 仍只换倒流色（回归，不放松）', () => {
     const notes = [bpmNote(0, 120), bpmNote(8, -120), bpmNote(12, 120)];
-    const calls = renderLabels(notes, [{ note: notes[1]!, index: 1 }]);
-    const fills = fillTexts(calls);
-    expect(fills[0]![1][0]).toBe('-120');
+    const calls = renderLabels(notes);
+    expect(fillTexts(calls).map((f) => f[1][0])).toContain('-120');
     expect(propValues(calls, 'fillStyle')).toContain(gridBpmNegativeColor('vivid'));
     expect(propValues(calls, 'fillStyle')).not.toContain(BPM_TAIL_WARNING_COLOR);
   });
@@ -305,7 +341,7 @@ describe('layoutBpmGutter · 同位组摘要（issue 159 定案 2）', () => {
     const lineCanvasYOf = (beat: number) =>
       geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, 1), viewport).y;
     const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, 1);
-    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, FONT_PX, TEST_SURFACE.h, null);
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, FONT_PX, null);
     expect(layout.summaries).toHaveLength(1);
     expect(layout.summaries[0]!.fullText).toBe('-178, 178');
     expect(layout.numerals.map((n) => n.bpm).sort((a, b) => a - b)).toEqual([120, 178]);
@@ -313,7 +349,7 @@ describe('layoutBpmGutter · 同位组摘要（issue 159 定案 2）', () => {
     expect(lineCanvasYOf(4)).not.toBeCloseTo(lineCanvasYOf(3), 0);
   });
 
-  it('展开同位组：两枚数字间距 ≥ 字号，贴底整叠仍在画布内', () => {
+  it('展开同位组：两枚数字间距 ≥ 字号，贴底不整叠平移（钉线错开）', () => {
     const notes = SAMPLE_BPM.map((e) => ({ type: 'BPM' as const, ...e }));
     const geometry = new ChartGeometry(SAMPLE_BPM, { endBeat: 16 }, TEST_SURFACE);
     const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, 1);
@@ -321,20 +357,32 @@ describe('layoutBpmGutter · 同位组摘要（issue 159 定案 2）', () => {
     const lineCanvasYOf = (beat: number) => geometry.virtualToCanvas(
       0, virtualYOf(beat), { scrollX: 0, scrollY: geometry.chartEndVirtualY, scale: 1 },
     ).y;
-    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, FONT_PX, TEST_SURFACE.h, key);
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, FONT_PX, key);
     expect(layout.summaries).toHaveLength(0);
     const pair = layout.numerals.filter((n) => n.beat === 3 || n.beat === 5).sort((a, b) => a.y - b.y);
     expect(pair).toHaveLength(2);
     expect(pair[1]!.y - pair[0]!.y).toBeGreaterThanOrEqual(FONT_PX);
-    expect(Math.min(...pair.map((p) => p.y))).toBeGreaterThanOrEqual(FONT_PX / 2);
-    expect(Math.max(...pair.map((p) => p.y))).toBeLessThanOrEqual(TEST_SURFACE.h - FONT_PX / 2);
+    const raw = layoutBpmLabelYs(
+      [{ beat: 3, lineCanvasY: lineCanvasYOf(3) }, { beat: 5, lineCanvasY: lineCanvasYOf(5) }],
+      FONT_PX,
+    );
+    expect(pair[0]!.y).toBeCloseTo(Math.min(...raw), 6);
+    expect(pair[1]!.y).toBeCloseTo(Math.max(...raw), 6);
   });
 
-  it('整组平移不逐颗压回同一 y；滚出 2×字号才算离屏', () => {
-    expect(shiftStackIntoCanvas([2, 2 + FONT_PX], FONT_PX, 900)).toEqual([FONT_PX / 2, FONT_PX / 2 + FONT_PX]);
-    expect(bpmExpansionOffscreen(400, 900, FONT_PX)).toBe(false);
-    expect(bpmExpansionOffscreen(-FONT_PX, 900, FONT_PX)).toBe(false);
-    expect(bpmExpansionOffscreen(-2 * FONT_PX - 1, 900, FONT_PX)).toBe(true);
+  it('展开 y 与 layoutBpmLabelYs 一致；有盒相交则不折，全部离开才折', () => {
+    const fontPx = FONT_PX;
+    const surfaceH = 100;
+    const n = 20;
+    const center = 120;
+    const start = center - ((n - 1) * fontPx) / 2;
+    const tall = Array.from({ length: n }, (_, i) => start + i * fontPx);
+    expect(bpmExpandedNumeralsOnCanvas(tall, fontPx, surfaceH)).toBe(true);
+    expect(bpmExpandedNumeralsOnCanvas(tall.map((y) => y + 800), fontPx, surfaceH)).toBe(false);
+    expect(bpmExpandedNumeralsOnCanvas([400], fontPx, 900)).toBe(true);
+    const lineY = surfaceH + 2 * fontPx + 1;
+    const fromLine = Array.from({ length: n }, (_, i) => lineY - ((n - 1) * fontPx) / 2 + i * fontPx);
+    expect(bpmExpandedNumeralsOnCanvas(fromLine, fontPx, surfaceH)).toBe(true);
   });
 });
 
@@ -360,16 +408,31 @@ describe('bpmLabelBox：BPM 数字命中盒（2026-09-08 修订：不再整条�
     expect((b3.y1 + b3.y2) / 2).toBe(LINE_Y);
   });
 
-  it('顶/底缘沿用钳制：命中区随被推回的文字同步', () => {
+  it('顶/底缘裁切可见盒：半交可点，完全出画不可点', () => {
     const box = bpmLabelBox(TRACK_START_X, 2, '120', 1, 900);
-    expect(box.y1).toBeGreaterThanOrEqual(0);
+    expect(box.y1).toBe(0);
+    expect(box.y2).toBeGreaterThan(box.y1);
     const bottom = bpmLabelBox(TRACK_START_X, 899, '120', 1, 900);
     expect(bottom.y2).toBeLessThanOrEqual(900);
+    expect(bottom.y1).toBeLessThan(bottom.y2);
+    const gone = bpmLabelBox(TRACK_START_X, -80, '120', 1, 900);
+    expect(gone.y1).toBeGreaterThanOrEqual(gone.y2);
   });
 
   it('沟槽宽度不足（盒左缘越出画布）→ 调用方据此判不可命中', () => {
     // 与 drawGutterLabel 的隐藏条件同口径：x1 < 0
     expect(bpmLabelBox(10, LINE_Y, '120').x1).toBeLessThan(0);
     expect(bpmLabelBox(TRACK_START_X, LINE_Y, '120').x1).toBeGreaterThan(0);
+  });
+});
+
+describe('renderBpmLabels · issue 161 画布裁切接线', () => {
+  it('函数体内 clip，且不对 BPM 走 clampGutterLabelY', () => {
+    const src = readStripped('src/visual/render.ts');
+    const start = src.indexOf('export function renderBpmLabels');
+    const next = src.indexOf('export function', start + 'export function renderBpmLabels'.length);
+    const body = src.slice(start, next);
+    expect(body).toMatch(/ctx\.clip\(\)/);
+    expect(body).not.toMatch(/clampGutterLabelY/);
   });
 });

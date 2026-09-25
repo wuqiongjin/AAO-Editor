@@ -18,7 +18,7 @@ import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
-import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
+import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelY, bpmGutterYIntersectsCanvas, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
@@ -1296,10 +1296,10 @@ export function renderBpmLines(ctx: CanvasRenderingContext2D, c: Coords, rc: Ren
 /**
  * 渲染 BPM 数值（issue 51 + 第二轮修订）：仅数值（不带 "BPM" 前缀），内带锚定
  * （贴轨道左外缘 8px）、默认垂直居中于线；撞 y 时纵向错开（issue 159）。
- * 字号 = 21px × labelScale。同位组（线 y 相同）折成摘要；展开后整叠平移进画布。
+ * 字号 = 21px × labelScale。同位组（线 y 相同）折成摘要；展开后钉线错开、画布裁切。
  * 由 renderChart 编排在沟槽层（音符之上，沟槽内无音符）。
  */
-export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   const preset = normalizeGridStyle(rc.display?.gridStyle);
   const positiveColor = gridThemeBpmColor(preset);
   // issue 105 修法 1：**负值（倒流区）数值换色** —— 倒流区唯一的视觉标识（不做区域底纹）。
@@ -1317,19 +1317,17 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
     (beat) => c.virtualToCanvas(0, c.getNoteVirtualY(beat)).y,
     (beat) => c.getNoteVirtualY(beat),
     fontPx,
-    rc.surface.h,
     expandedKey,
   );
-  const vis = new Set(visibleNotes.map((v) => v.index));
   const colorOf = (bpm: number, noteIndex?: number) =>
     noteIndex === tailIdx ? BPM_TAIL_WARNING_COLOR : (bpm < 0 ? negativeColor : positiveColor);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, rc.surface.w, rc.surface.h);
+  ctx.clip();
   for (const sum of layoutModel.summaries) {
-    if (!sum.memberIndexes.some((i) => vis.has(i))) continue;
-    if (sum.lineCanvasY < -50 || sum.lineCanvasY > rc.surface.h + 50) continue;
-    const gl = clampGutterLabelY(
-      layoutGutterLabel(c, rc.viewport.scale, sum.lineCanvasY, 'centered', 'bpm', labelScale),
-      rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
-    );
+    if (!bpmGutterYIntersectsCanvas(sum.lineCanvasY, fontPx, rc.surface.h)) continue;
+    const gl = layoutGutterLabel(c, rc.viewport.scale, sum.lineCanvasY, 'centered', 'bpm', labelScale);
     drawBpmSummary(ctx, gl, sum.tokens, (bpm) => {
       const warning = sum.memberIndexes.some((i) => {
         const n = rc.notes[i];
@@ -1339,20 +1337,16 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
     });
   }
   for (const num of layoutModel.numerals) {
-    if (!vis.has(num.noteIndex)) continue;
     const note = rc.notes[num.noteIndex];
     if (!note || note.type !== 'BPM') continue;
     if (rc.bpmEditBeat !== null && rc.bpmEditBeat !== undefined
         && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) continue;
-    const y = num.y;
-    if (y < -50 || y > rc.surface.h + 50) continue;
-    let gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale);
-    if (num.groupKey === null) {
-      gl = clampGutterLabelY(gl, rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale);
-    }
+    if (!bpmGutterYIntersectsCanvas(num.y, fontPx, rc.surface.h)) continue;
+    const gl = layoutGutterLabel(c, rc.viewport.scale, num.y, 'centered', 'bpm', labelScale);
     const bpm = (note as ChartNote & { bpm: number }).bpm;
     drawGutterLabel(ctx, gl, String(bpm), colorOf(bpm, num.noteIndex));
   }
+  ctx.restore();
 }
 
 /**
@@ -1569,9 +1563,8 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   // 同时点击线只在 renderNotes 内画（进瓦片）。
   // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片
   drawNotesLayer(ctx, rc);
-  // BPM 数值（issue 51）：沟槽层，基于可见集（二分剔除，O(log n + 可见数)）
-  const visibleNotes = c.getVisibleNotes();
-  renderBpmLabels(ctx, c, rc, visibleNotes);
+  // BPM 数值（issue 51 / 161）：沟槽层，全量布局 + 画布裁切（不按可见集漏画展开叠）
+  renderBpmLabels(ctx, c, rc);
   // 实时信息文字（issue 54）：两侧沟槽，画在常显装饰文字之上
   renderHoverInfo(ctx, c, rc);
 

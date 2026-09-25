@@ -112,6 +112,22 @@ export function drawGutterLabel(ctx: CanvasRenderingContext2D, layout: GutterLab
   return true;
 }
 
+/** 与 bpmLabelBox 纵向半高相同（字号一半 + 4px 命中容差）。 */
+export function bpmGutterHitHalf(fontPx: number): number {
+  return fontPx / 2 + 4;
+}
+
+/** 沟槽 BPM 墨迹盒是否与画布纵向相交（半截算相交；不含命中 +4 容差）。 */
+export function bpmGutterYIntersectsCanvas(y: number, fontPx: number, surfaceH: number): boolean {
+  const half = fontPx / 2;
+  return y + half > 0 && y - half < surfaceH;
+}
+
+/** 展开叠仍有真数字落在画布上（含半截）→ 滚动不折回摘要。 */
+export function bpmExpandedNumeralsOnCanvas(ys: readonly number[], fontPx: number, surfaceH: number): boolean {
+  return ys.some((y) => bpmGutterYIntersectsCanvas(y, fontPx, surfaceH));
+}
+
 /** 同位组摘要：各 `值 [n]` 自带颜色，右对齐到内带锚点。 */
 export function drawBpmSummary(
   ctx: CanvasRenderingContext2D,
@@ -230,25 +246,6 @@ export function bpmSummaryFullText(tokens: readonly BpmSummaryToken[]): string {
   return tokens.map((t) => t.text).join(', ');
 }
 
-/** 展开叠整组平移进画布（间距/序不变）。栈比画布高时优先保证顶缘可见。 */
-export function shiftStackIntoCanvas(ys: readonly number[], fontPx: number, surfaceH: number): number[] {
-  if (ys.length === 0) return [];
-  const half = fontPx / 2;
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  let dy = 0;
-  if (minY < half) dy = half - minY;
-  if (maxY + dy > surfaceH - half) dy = surfaceH - half - maxY;
-  if (minY + dy < half) dy = half - minY;
-  return ys.map((y) => y + dy);
-}
-
-/** 共用线 y 滚出画布外 2×字号才折回摘要。 */
-export function bpmExpansionOffscreen(lineCanvasY: number, surfaceH: number, fontPx: number): boolean {
-  const buf = 2 * fontPx;
-  return lineCanvasY < -buf || lineCanvasY > surfaceH + buf;
-}
-
 export interface BpmGutterSummary {
   key: number;
   lineCanvasY: number;
@@ -272,20 +269,19 @@ export interface BpmGutterLayout {
 }
 
 /**
- * 沟槽 BPM 显示模型（issue 159 定案 2）：线 y 相同且 ≥2 条 → 摘要（展开组除外）；
- * 其余走 159 盒相交错开；展开组整叠平移进画布，不逐颗 clamp。
+ * 沟槽 BPM 显示模型（issue 159 定案 2 + issue 161）：线 y 相同且 ≥2 条 → 摘要（展开组除外）；
+ * 其余走 159 盒相交错开；展开组钉线错开、不平移进画布（出界靠绘制裁切）。
  */
 export function layoutBpmGutter(
-  notes: ReadonlyArray<{ type: string; beat: number; bpm?: number }>,
+  notes: ReadonlyArray<{ type: string; beat?: number; bpm?: number }>,
   lineCanvasYOf: (beat: number) => number,
   virtualYOf: (beat: number) => number,
   fontPx: number,
-  surfaceH: number,
   expandedKey: number | null,
 ): BpmGutterLayout {
   const slots: { noteIndex: number; beat: number; bpm: number; lineCanvasY: number; key: number }[] = [];
   notes.forEach((n, noteIndex) => {
-    if (n.type !== 'BPM') return;
+    if (n.type !== 'BPM' || n.beat === undefined) return;
     const bpm = n.bpm ?? 0;
     slots.push({
       noteIndex, beat: n.beat, bpm,
@@ -326,10 +322,9 @@ export function layoutBpmGutter(
   if (expandedSlots.length > 0) {
     expandedSlots.sort((a, b) => a.beat - b.beat || a.noteIndex - b.noteIndex);
     const raw = layoutBpmLabelYs(expandedSlots, fontPx);
-    const shifted = shiftStackIntoCanvas(raw, fontPx, surfaceH);
     const key = expandedSlots[0]!.key;
     expandedSlots.forEach((it, i) => {
-      numerals.push({ noteIndex: it.noteIndex, beat: it.beat, bpm: it.bpm, y: shifted[i]!, groupKey: key });
+      numerals.push({ noteIndex: it.noteIndex, beat: it.beat, bpm: it.bpm, y: raw[i]!, groupKey: key });
     });
   }
   return { summaries, numerals };
@@ -340,7 +335,7 @@ export function layoutBpmGutter(
  * 不再把整条水平线都判成命中（否则左沟槽双击/单击在数字所在高度上永远吃不掉起点标记手势）。
  * 与 §5 就地编辑输入框同款宽度估算（等宽字体 0.62em + 8px 内边距，最少 2 字宽），
  * 右缘 = 内带锚点（轨道左外缘 − BPM_LABEL_GAP_PX）+ 少量容差；纵向与绘制同款居中 + 容差，
- * 并沿用 clampGutterLabelY 的钳制（画布顶/底缘文字被推回时命中区同步）。
+ * 纵向钉在 lineCanvasY；传入 surfaceH 时命中盒与画布求交（半截可点，完全出画 y1≥y2）。
  * 纯函数（不依赖 canvas 测量），供命中判定与单测共用。
  */
 export function bpmLabelBox(
@@ -355,11 +350,12 @@ export function bpmLabelBox(
   const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
   const right = trackStartX - BPM_LABEL_GAP_PX;
   const width = (textWidth ?? measureGutterLabelWidth(text, fontPx)) + 8;
-  const y = surfaceH === undefined
-    ? lineCanvasY
-    : Math.min(Math.max(lineCanvasY, fontPx / 2), Math.max(surfaceH - fontPx / 2, fontPx / 2));
-  const half = fontPx / 2 + 4;
-  const y1 = Math.max(y - half, 0);
-  const y2 = surfaceH === undefined ? y + half : Math.min(y + half, surfaceH);
+  const half = bpmGutterHitHalf(fontPx);
+  let y1 = lineCanvasY - half;
+  let y2 = lineCanvasY + half;
+  if (surfaceH !== undefined) {
+    y1 = Math.max(y1, 0);
+    y2 = Math.min(y2, surfaceH);
+  }
   return { x1: right - width, x2: right + 4, y1, y2 };
 }

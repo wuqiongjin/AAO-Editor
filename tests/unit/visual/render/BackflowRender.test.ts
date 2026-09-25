@@ -66,12 +66,12 @@ describe('issue 105 修法 1 · 负值 BPM 数值换色（倒流区唯一视觉�
     const back = bpmNote(8, 120);
     const { c, rc } = makeRig([positive, negative, back]);
     const { proxy, calls } = makeRecordingCtx();
-    renderBpmLabels(proxy, c, rc, [{ note: positive, index: 0 }, { note: negative, index: 1 }]);
-    expect(labeledFills(calls)).toEqual([
-      { text: '120', color: gridThemeBpmColor('vivid') },
+    renderBpmLabels(proxy, c, rc);
+    const fills = labeledFills(calls);
+    expect(fills.filter((f) => f.text === '-240')).toEqual([
       { text: '-240', color: gridBpmNegativeColor('vivid') },
     ]);
-    expect(fillTexts(calls).length).toBe(2);
+    expect(fills.some((f) => f.text === '120' && f.color === gridThemeBpmColor('vivid'))).toBe(true);
   });
 
   it('负值色随主题走（每个主题都取自己的倒流色，不是写死的品红）', () => {
@@ -85,8 +85,8 @@ describe('issue 105 修法 1 · 负值 BPM 数值换色（倒流区唯一视觉�
         display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1, gridStyle },
       } as unknown as RenderCtx;
       const { proxy, calls } = makeRecordingCtx();
-      renderBpmLabels(proxy, c, rc, [{ note: negative, index: 0 }]);
-      expect(labeledFills(calls)[0]!.color).toBe(gridBpmNegativeColor(gridStyle));
+      renderBpmLabels(proxy, c, rc);
+      expect(labeledFills(calls).find((f) => f.text === '-240')!.color).toBe(gridBpmNegativeColor(gridStyle));
     }
   });
 

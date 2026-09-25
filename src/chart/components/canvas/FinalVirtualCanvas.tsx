@@ -18,7 +18,7 @@ import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import { renderChart, findItemAt, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpansionOffscreen } from '../../../visual/gutterLabels';
+import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { parseBpmInput } from '../../editing/BpmInput';
@@ -519,8 +519,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const fontPx = Math.round(GUTTER_LABEL_FONT_PX * (display.labelScale ?? 1));
         const member = notes.find((n) => n.type === 'BPM' && bpmCoincidentKey(beatToVirtualY(n.beat)) === expandedBpmGroupKey);
         if (!member) { setExpandedBpmGroupKey(null); return; }
-        const lineY = virtualToCanvas(0, beatToVirtualY(member.beat)).y;
-        if (bpmExpansionOffscreen(lineY, surf.h, fontPx)) setExpandedBpmGroupKey(null);
+        const lineCanvasYOf = (beat: number) => virtualToCanvas(0, beatToVirtualY(beat)).y;
+        const layout = layoutBpmGutter(notes, lineCanvasYOf, beatToVirtualY, fontPx, expandedBpmGroupKey);
+        const ys = layout.numerals.filter((n) => n.groupKey === expandedBpmGroupKey).map((n) => n.y);
+        if (!bpmExpandedNumeralsOnCanvas(ys, fontPx, surf.h)) setExpandedBpmGroupKey(null);
     }, [expandedBpmGroupKey, notes, viewport, surf.h, display.labelScale, beatToVirtualY, virtualToCanvas]);
 
 
@@ -818,7 +820,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     );
 
     // ADR-0008 §5：BPM 就地编辑输入框定位——覆盖在沟槽数字上（与 layoutGutterLabel 同款锚定：
-    // 右缘 = 轨道左外缘 − 8px；纵向跟错开后的数字走，再钳进画布）
+    // 右缘 = 轨道左外缘 − 8px；纵向跟错开后的数字走，钉线不钳进画布）
     let bpmInputBox: { left: number; top: number; width: number; height: number; fontPx: number } | null = null;
     if (bpmEdit) {
         const fontPx = Math.round(GUTTER_LABEL_FONT_PX * (display.labelScale ?? 1));
@@ -830,15 +832,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             (beat) => virtualToCanvas(0, beatToVirtualY(beat)).y,
             beatToVirtualY,
             fontPx,
-            surf.h,
             expandedBpmGroupKey,
         );
         const num = gutter.numerals.find((n) => Math.abs(n.beat - bpmEdit.beat) < 1e-9);
         const lineY = num?.y ?? virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y;
-        const centerY = num?.groupKey != null
-            ? lineY
-            : Math.min(Math.max(lineY, fontPx / 2), surf.h - fontPx / 2);
-        bpmInputBox = { left: Math.max(0, rightEdge - width), top: centerY - fontPx / 2 - 3, width, height: fontPx + 6, fontPx };
+        bpmInputBox = { left: Math.max(0, rightEdge - width), top: lineY - fontPx / 2 - 3, width, height: fontPx + 6, fontPx };
     }
 
     // issue 50（Q24 a）：surface 为 null 时不渲染（chartArea 还未就绪；保护所有依赖 surface 的几何/绘制）

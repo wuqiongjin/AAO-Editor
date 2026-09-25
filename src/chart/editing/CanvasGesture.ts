@@ -125,12 +125,12 @@ export function hitBpmGutterAt(
     const lineCanvasYOf = (beat: number) =>
         geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, viewport.scale), viewport).y;
     const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, viewport.scale);
-    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, fontPx, input.surfaceH, input.expandedGroupKey);
+    const layout = layoutBpmGutter(notes, lineCanvasYOf, virtualYOf, fontPx, input.expandedGroupKey);
     let bestLabel: { beat: number; groupKey: number | null; dist: number } | null = null;
     for (const num of layout.numerals) {
         const text = String(num.bpm);
         const box = bpmLabelBox(trackStartX, num.y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
-        if (box.x1 < 0) continue;
+        if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
             const dist = Math.abs(cy - num.y);
             if (!bestLabel || dist < bestLabel.dist) {
@@ -141,7 +141,7 @@ export function hitBpmGutterAt(
     if (bestLabel) return { kind: 'label', beat: bestLabel.beat, groupKey: bestLabel.groupKey };
     for (const sum of layout.summaries) {
         const box = bpmLabelBox(trackStartX, sum.lineCanvasY, sum.fullText, input.labelScale, input.surfaceH, input.measureWidth(sum.fullText, fontPx));
-        if (box.x1 < 0) continue;
+        if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
             return { kind: 'summary', groupKey: sum.key };
         }
@@ -152,7 +152,8 @@ export function hitBpmGutterAt(
             const boxes = expandedNums.map((num) => {
                 const text = String(num.bpm);
                 return bpmLabelBox(trackStartX, num.y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
-            });
+            }).filter((b) => b.x1 >= 0 && b.y1 < b.y2);
+            if (boxes.length === 0) return null;
             const x1 = Math.min(...boxes.map((b) => b.x1));
             const x2 = Math.max(...boxes.map((b) => b.x2));
             const y1 = Math.min(...boxes.map((b) => b.y1));
