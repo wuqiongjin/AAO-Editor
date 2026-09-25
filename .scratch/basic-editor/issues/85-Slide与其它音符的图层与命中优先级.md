@@ -69,3 +69,5 @@ Blocked by:
 
 `tests/unit/RendererPerf.test.ts` / `ChartGeometry.test.ts`：补一条「`visibleNotes` 输出里
 滑条一律排在点音符之前」的顺序断言（防止后续改回）。
+
+- 2026-09-25：键型 > 滑条、段↔段后放置者在上 **仍有效**。「整条（段+结点）原子按放置序叠」被 [issue 160](./160-Slide端点画在所有段之上.md) 取代：全谱段先于全谱可见结点。

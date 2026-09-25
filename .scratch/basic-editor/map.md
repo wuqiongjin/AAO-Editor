@@ -153,6 +153,9 @@
 - **155 Bestdori 制谱器谱面读写口径**（[155](./issues/155-Bestdori制谱器谱面读写口径.md)，`Type: research`，resolved）—— 未知/无 `type` 在 Apply `sanitizeAll` 丢；持久化不二次丢；已知 type 多余键保留；发帖不自动清洗。→ [bestdori-chart-editor-io.md](../../docs/research/bestdori-chart-editor-io.md)
 - **156 Apply 闸门与 Bestdori 上传清洗**（[156](./issues/156-Apply闸门与Bestdori上传清洗定案.md)，`Type: grilling`，resolved）—— Apply 硬拒顶层未知/无 `type`（`System` 除外）；Bestdori 上传自动 `sanitizeAll`，不对用户拦 System/charge。
 - **157 SP 滑条材质整条传染**（[157](./issues/157-SP滑条材质整条传染.md)，`Type: bug`，resolved，**用户页面验收通过**）—— **改成什么** = 同条 Slide/Long 源 connections 任一 hidden → 全部子段 SP 材质；邻条不传染。作废 ADR-0009 §5 段级。复现 Official-786 @ 1:19.94。
+- **158 右键框选后立即删除**（[158](./issues/158-右键框选后立即删除.md)，`Type: grilling`，open）—— **定了什么** = 右键未过 8px 仍点删（含 88）；过阈值 = 删除工具框选（含 BPM、任意持工具态、框内危险预览），松手即删。
+- **159 倒流区撞 y 的 BPM 数值错开**（[159](./issues/159-倒流区撞y的BPM数值错开.md)，`Type: grilling`，open）—— **定了什么** = 只错开沟槽数字（横线仍可同位）；文字盒相交成组、beat 升序纵向错开、命中跟字。重开 105 压字边界。
+- **160 Slide 端点画在所有段之上**（[160](./issues/160-Slide端点画在所有段之上.md)，`Type: grilling`，open）—— **定了什么** = 先画全谱段、再画全谱可见结点；段↔段 / 结点↔结点仍后放置者在上；键型仍最高。修订 85「整条原子叠」。
 
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
