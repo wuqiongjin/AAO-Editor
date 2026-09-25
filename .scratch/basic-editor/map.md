@@ -147,7 +147,7 @@
 - **149 2026-09-22 验收缺陷批次**（[149](./issues/149-2026-09-22验收缺陷批次.md)，`Type: bug`，resolved）—— **改成什么** = pill「使用中」；侧栏换行一致+选中 accent/600；右栏删多选详情；皮肤预览无 N 项统计；`pack.*` 统一键音/皮肤「使用此包」。
 - **150 快捷键恢复默认与搜索交集**（[150](./issues/150-快捷键恢复默认与搜索交集.md)，`Type: grilling`，resolved）—— **定了什么** = 有搜索词时恢复默认只跟可见可改行（B）。
 - **151 起始线与结束线文字调整**（[151](./issues/151-起始线与结束线文字调整.md)，`Type: feature`，**resolved**）—— **改成什么** = 删除 START 文字，保留起始线；END 文字保留并置于结束线下方。
-- **152 Ctrl+Space 回跳标记视觉表达**（[152](./issues/152-CtrlSpace回跳标记视觉表达.md)，`Type: feature`，resolved）—— **改成什么** = 右侧同款缩小 SVG 旗帜点击回跳并播放；画布旗帜双击删除；渐变发光 `J` + 横线；tooltip 动态显示当前回跳快捷键。
+- **152 Ctrl+Space 回跳标记视觉表达**（[152](./issues/152-CtrlSpace回跳标记视觉表达.md)，`Type: feature`，resolved）—— **改成什么** = 右侧同款缩小 SVG 旗帜点击回跳并播放；画布旗帜双击删除；渐变发光 `J` + 横线；tooltip 动态显示当前回跳快捷键。**四轮定案（2026-09-25）：起点改存「秒」（时间轴锚定，不跟拍），只在 END 线之前可放；回跳复用 `seek()`。**
 - **153 宽松谱面代码兼容与画布投影**（[153](./issues/153-宽松谱面代码兼容与画布投影.md)，`Type: grilling`，实现口径已收口、待确认后开 P0）—— **定了什么** = 源数据与画布投影；System opaque；charge 保真；Long 无端不改名；Apply 硬拒绝 ≠ 有限非法；工程=源文本；`beat<0` 不画不键音但计 combo；width>3 用 3 档键音、同向点击归 1；软告警归 107。权威 ADR-0014。
 - **154 官方与社区谱面兼容性压力测试**（[154](./issues/154-官方与社区谱面兼容性压力测试.md)，`Type: research`，resolved）—— **结论** = 794 张 SPECIAL 闸门盘点 + System/Long/charge 生命周期已 grill 收口。报告 `docs/research/chart-compatibility-stress-test.md`。
 - **155 Bestdori 制谱器谱面读写口径**（[155](./issues/155-Bestdori制谱器谱面读写口径.md)，`Type: research`，resolved）—— 未知/无 `type` 在 Apply `sanitizeAll` 丢；持久化不二次丢；已知 type 多余键保留；发帖不自动清洗。→ [bestdori-chart-editor-io.md](../../docs/research/bestdori-chart-editor-io.md)

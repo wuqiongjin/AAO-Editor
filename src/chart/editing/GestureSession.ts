@@ -88,7 +88,7 @@ export interface GestureWorld {
   curveConfig: CurveConfig;
   lastBpm: number;
   noteSize: number;
-  hitStartMarker: (cx: number, cy: number) => boolean;
+  hitPlaybackMarker: (cx: number, cy: number) => boolean;
   hitBpmGutter: (cx: number, cy: number) => BpmGutterHit | null;
   expandedBpmGroupKey: number | null;
 }
@@ -474,7 +474,7 @@ export class GestureSession {
     const w = this.requireWorld();
     const intent = resolvePressIntent({
       cx, cy, armedTool: w.armedTool, shiftKey,
-      onMarker: w.hitStartMarker(cx, cy),
+      onMarker: w.hitPlaybackMarker(cx, cy),
       deps: this.hitDeps(),
       selectedItems: w.selectedItems,
       chartEndBeat: w.chartEndBeat,
@@ -607,7 +607,7 @@ export class GestureSession {
       notes: w.notes,
       snap: this.snapPos(cx, cy),
       bpmGutterHit: gutterHit,
-      onMarker: w.hitStartMarker(cx, cy),
+      onMarker: w.hitPlaybackMarker(cx, cy),
     });
     const ops: GestureOp[] = [];
     if (expansion.expandedKey !== w.expandedBpmGroupKey) {

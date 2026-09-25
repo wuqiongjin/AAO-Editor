@@ -49,7 +49,7 @@ function harness(notes: ChartNote[]) {
     hoverPos: null,
     hoverItem: null,
     clipboard: [],
-    markerBeat: null,
+    markerSeconds: null,
     armedTool: null,
     rightButtonHeld: false,
     spriteIcon: { render: () => undefined, renderDecorator: () => undefined },

@@ -6,7 +6,7 @@ import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../chart/comp
 import NoteInfoPanel from '../chart/components/side-panel/NoteInfoPanel';
 import IconButton from '../ui/IconButton';
 import { type FunctionId } from '../chart/config/ShortcutConfig';
-import { DEFAULT_BPM, beatToSeconds, getBpmEvents } from '../audio/AudioTiming';
+import { DEFAULT_BPM } from '../audio/AudioTiming';
 import PlayBar from '../playback/PlayBar';
 import PlaybackMarkerCard from '../playback/PlaybackMarkerCard';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
@@ -71,7 +71,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     duration: ctxDuration, setDuration: setCtxDuration,
     setVolume: setCtxVolume,
     currentSeconds: playheadSeconds,
-    markerBeat,
+    markerSeconds,
   } = playback;
 
   // 音符数统计（issue 36）
@@ -108,11 +108,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const { geometry, chartEndKey } = useChartSpace({
     notes, ctxDuration, surface, verticalRatio: settings.display.verticalRatio,
   });
-  const markerSeconds = useMemo(() => {
-    if (markerBeat === null) return null;
-    return Math.max(0, beatToSeconds(getBpmEvents(notes), markerBeat));
-  }, [markerBeat, notes]);
-
   // 当前播放头所在区间的 BPM（顶栏实时区）
   // issue 134：与 HUD playheadBeat 同 geometry；最大 beat 解所在段（ADR-0010 结论 5）
   const currentRegionBpm = useMemo(() => {
@@ -162,7 +157,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setCtxDuration,
     setCurrentSeconds,
     setIsPlaying,
-    notes,
   });
   const { togglePlay, seek, jumpToMarker, stopPlayback } = playbackCoord;
 

@@ -52,7 +52,7 @@ function scene(opts: SceneOpts) {
     hoverPos: at && opts.hover !== null ? { cx: at.x, cy: at.y } : null,
     hoverItem: null,
     clipboard: [],
-    markerBeat: null,
+    markerSeconds: null,
     dragGhost: opts.dragGhost ?? null,
     armedTool: opts.tool ?? 'mouse',
     spriteIcon: {

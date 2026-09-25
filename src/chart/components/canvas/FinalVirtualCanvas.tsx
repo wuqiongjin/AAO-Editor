@@ -17,7 +17,7 @@ import { useEditing, useUI, usePlayback, useConfig } from '../../../app/Provider
 import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import { renderChart, findItemAt, type RenderCtx, type ViewportState } from '../../../visual';
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
-import { playbackMarkerLayout } from '../../../visual/playbackMarker';
+import { PLAYBACK_MARKER_LAYOUT, PLAYBACK_MARKER_CLIP_PATH } from '../../../visual/playbackMarker';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../visual/gutterLabels';
@@ -26,7 +26,7 @@ import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { parseBpmInput } from '../../editing/BpmInput';
 import { t } from '../../../i18n';
 import {
-  hitStartMarkerAt, hitBpmGutterAt,
+  hitPlaybackMarkerAt, hitBpmGutterAt,
   isInsideSurface,
   canPlaceAtCursor, resolveExecNoteCodeHit,
 } from '../../editing/CanvasGesture';
@@ -63,8 +63,8 @@ export interface FinalVirtualCanvasHandle {
   setScrollY: (scrollY: number) => void;
   /** issue 101：播放 RAF 启动/停止时同步打标，避免首帧仍走无预算的静止重建。 */
   setPlaybackActive?: (active: boolean) => void;
-  /** 起点标记（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳。 */
-  getMarkerBeat?: () => number | null;
+  /** 播放起点（ADR-0004 §4）：Editor 经此做回跳。**秒**（时间轴锚定，issue 152）。 */
+  getMarkerSeconds?: () => number | null;
   /** Esc 快照（issue 135）：手势四旗 + 锚点；选区 / 持工具态由 Editor 填进 resolveEscapeTarget。 */
   getEscapeFlags?: () => {
     pen: boolean;
@@ -205,17 +205,22 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const [hoverPos, setHoverPos] = useState<{ cx: number; cy: number } | null>(null);
     // Q5：最后一个合法**画布 px**；frozenCursor 用时按当前 viewport 现算（不再缓存 beat/lane）
     const lastLegalPxRef = useRef<{ x: number; y: number } | null>(null);
-    // 临时起点标记（ADR-0004 §4）：不入谱面数据、随会话丢弃；它不是音符选区的一部分
-    const [markerBeat, setMarkerBeat] = useState<number | null>(null);
-    const [markerHovered, setMarkerHovered] = useState(false);
+    // 播放起点（ADR-0004 §4 / issue 152）：不入谱面数据、随会话丢弃；它不是音符选区的一部分。
+    // **时间轴锚定**：存秒不存拍——布局轴就是秒，存拍会在放置（y→拍 多值）与显示/回跳两端各绕一次 BPM。
+    const [markerSeconds, setMarkerSeconds] = useState<number | null>(null);
+    // hover 有两个来源：旗帜 DOM 本体 + 标记线附近的命中带（Q12：只认旗帜时几乎发现不了）。
+    // 两者是**或**关系——否则鼠标在旗帜顶端（离横线 >10px）会被线的判定判成未悬停，来回抖。
+    const [markerDomHovered, setMarkerDomHovered] = useState(false);
+    const [markerLineHovered, setMarkerLineHovered] = useState(false);
+    const markerHovered = markerDomHovered || markerLineHovered;
     const markerVisualRef = useRef<HTMLDivElement>(null);
     const markerHitRef = useRef<HTMLDivElement>(null);
     const markerAriaLabel = t('editor.markerDeleteAria');
 
     // 起点标记状态同步到 PlaybackContext，供右侧状态卡片和快捷键读取
     useEffect(() => {
-        setMarkerContext(markerBeat);
-    }, [markerBeat, setMarkerContext]);
+        setMarkerContext(markerSeconds);
+    }, [markerSeconds, setMarkerContext]);
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const spriteIcon = useRef<CanvasSpriteIcon>(new CanvasSpriteIcon());
@@ -255,7 +260,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 坐标变换（薄封装，保持既有调用签名不变；内部均为 O(log BPM) 缓存查询）
     const getScaledVirtualBounds = (scale: number) => geometry.scaledVirtualBounds(scale);
     const beatToVirtualY = (beat: number) => geometry.beatToVirtualY(beat, viewport.scale);
-    const virtualYToBeat = (virtualY: number) => geometry.virtualYToBeat(virtualY, viewport.scale);
+    // 播放起点已改为时间轴锚定（issue 152）：放置走 `geometry.virtualYToSeconds` 直读布局轴，
+    // 不再需要「y → 拍」的最大 beat 解取解，故此处不再派生 virtualYToBeat。
     const virtualToCanvas = (virtualX: number, virtualY: number) => geometry.virtualToCanvas(virtualX, virtualY, liveViewport());
     const canvasToVirtual = (canvasX: number, canvasY: number) => geometry.canvasToVirtual(canvasX, canvasY, liveViewport());
     const getLaneBeatFromCanvas = (cx: number, cy: number, allowOutsideLane = false) =>
@@ -312,9 +318,9 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         expandedGroupKey: expandedBpmGroupKey,
     }, cx, cy);
 
-    // 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）
-    const hitStartMarker = (cx: number, cy: number): boolean =>
-        hitStartMarkerAt({ geometry, viewport: liveViewport() }, markerBeat, cx, cy);
+    // 左沟槽命中播放起点标记线（ADR-0004 §4；与音符命中路径无关；与绘制同界）
+    const hitPlaybackMarker = (cx: number, cy: number): boolean =>
+        hitPlaybackMarkerAt({ geometry, viewport: liveViewport() }, markerSeconds, cx, cy);
 
     /**
      * §5：提交就地编辑（Enter / 失焦）。无效数值 = 取消编辑（保留放置时已应用的值）。
@@ -350,7 +356,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         geometry, viewport, surface: surf, clipboard,
         slideBuffer: bufferPoint, curveDraft, curveConfig,
         lastBpm: lastBpmRef.current, noteSize: display.noteSize,
-        hitStartMarker, hitBpmGutter, expandedBpmGroupKey,
+        hitPlaybackMarker, hitBpmGutter, expandedBpmGroupKey,
     });
 
     // ---------------- issue 63：手势期间的隐式指针捕获 ----------------
@@ -407,6 +413,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const canvasPos = cssToCanvas(e);
         if (!canvasPos) return;
         syncHover(canvasPos.x, canvasPos.y);
+        // Q12：标记线附近的命中带也点亮 hover（与删除双击同一范围，所见即所点）
+        setMarkerLineHovered(hitPlaybackMarker(canvasPos.x, canvasPos.y));
         applyGesture(session.move({ x: canvasPos.x, y: canvasPos.y }));
     };
 
@@ -429,17 +437,22 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const { trackBgX } = geometry.trackGeometry(viewport.scale);
         if (pos.x >= trackBgX) return;
         if (hitBpmGutter(pos.x, pos.y) !== null) return;
-        const virtualY = scrollYRef.current + pos.y / viewport.scale;
-        const beat = virtualYToBeat(virtualY);
-        if (hitStartMarker(pos.x, pos.y)) {
-            setMarkerBeat(null);
-            setMarkerHovered(false);
+        if (hitPlaybackMarker(pos.x, pos.y)) {
+            setMarkerSeconds(null);
+            setMarkerDomHovered(false);
+            setMarkerLineHovered(false);
             return;
         }
-        const snapped = Math.round(beat * beatDisplay) / beatDisplay;
+        // 起点是时间轴锚定：y → 秒 是布局轴直读（倒流区里也恒单值），不再绕 beat 取解。
+        const virtualY = scrollYRef.current + pos.y / viewport.scale;
+        const seconds = geometry.virtualYToSeconds(virtualY, viewport.scale);
+        // 只允许放在 [0, 谱面长度]（END 线）之内；越界=不放置，不静默夹取
+        // （夹取会让用户以为标记落在了点击处）。
+        if (!Number.isFinite(seconds) || seconds < 0 || seconds > geometry.chartLengthSeconds) return;
         setSelectedItems([]);
-        setMarkerHovered(false);
-        setMarkerBeat(snapped);
+        setMarkerDomHovered(false);
+        setMarkerLineHovered(false);
+        setMarkerSeconds(seconds);
     };
 
     const handleContextMenu = (e: React.MouseEvent) => {
@@ -455,35 +468,22 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         const vp = liveViewport();
-        const markerCanvasY = markerBeat === null
+        const markerCanvasY = markerSeconds === null
             ? null
-            : geometry.virtualToCanvas(0, geometry.beatToVirtualY(markerBeat, vp.scale), vp).y;
+            : geometry.virtualToCanvas(0, geometry.secondsToVirtualY(markerSeconds, vp.scale), vp).y;
         if (markerVisualRef.current || markerHitRef.current) {
-            const marker = playbackMarkerLayout();
             const markerVisible = markerCanvasY !== null
                 && markerCanvasY >= -24
                 && markerCanvasY <= surf.h + 24;
             const markerDisplay = markerVisible ? 'block' : 'none';
             const markerTransform = markerCanvasY === null
                 ? ''
-                : `translateY(${markerCanvasY - marker.poleBottom}px)`;
+                : `translateY(${markerCanvasY - PLAYBACK_MARKER_LAYOUT.poleBottom}px)`;
+            // 尺寸与 clip-path 是常量，已在 JSX 里声明式写死；逐帧只改 display/transform
             for (const markerLayer of [markerVisualRef.current, markerHitRef.current]) {
                 if (!markerLayer) continue;
                 markerLayer.style.display = markerDisplay;
-                markerLayer.style.width = `${marker.width}px`;
-                markerLayer.style.height = `${marker.height}px`;
                 markerLayer.style.transform = markerTransform;
-            }
-            if (markerHitRef.current) {
-                markerHitRef.current.style.clipPath = `polygon(
-                ${marker.poleLeft}px ${marker.flagTop}px,
-                ${marker.poleRight}px ${marker.flagTop}px,
-                ${marker.flagTip}px ${marker.flagMiddle}px,
-                ${marker.poleRight}px ${marker.flagBottom}px,
-                ${marker.poleRight}px ${marker.poleBottom}px,
-                ${marker.poleLeft}px ${marker.poleBottom}px,
-                ${marker.poleLeft}px ${marker.flagBottom}px
-            )`;
             }
         }
 
@@ -511,7 +511,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 : null,
             hoverItem,
             clipboard,
-            markerBeat,
+            markerSeconds,
             markerHovered,
             armedTool,
             // issue 143 补修：就地编辑中的那条 BPM 不画沟槽数值（让位给下面的 HTML 输入框）
@@ -543,7 +543,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         renderChart(ctx, canvas, rc);
-    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerBeat, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
+    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
     renderCanvasRef.current = renderCanvas;
 
     useEffect(() => {
@@ -655,8 +655,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 ));
             }
         },
-        // 起点标记访问（ADR-0004 §4）：Editor 经此做 Ctrl+空格 回跳
-        getMarkerBeat: () => markerBeat,
+        // 起点标记访问（ADR-0004 §4）：Editor 经此做回跳
+        getMarkerSeconds: () => markerSeconds,
         getEscapeFlags: () => ({
             ...session.escapeGestureFlags(),
             anchor: slideBuffer !== null || curveDraft !== null,
@@ -936,8 +936,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                             zIndex: 10 // 确保Canvas在最上层（输入框在其上另设 z）
                         }}
                     />
-                    {markerBeat !== null && (
-                        <Fragment key={markerBeat}>
+                    {markerSeconds !== null && (
+                        <Fragment key="playback-marker">
                             <div
                                 ref={markerVisualRef}
                                 aria-hidden="true"
@@ -946,7 +946,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                                     top: 0,
                                     left: 0,
                                     display: 'none',
-                                    height: 0,
+                                    width: PLAYBACK_MARKER_LAYOUT.width,
+                                    height: PLAYBACK_MARKER_LAYOUT.height,
                                     pointerEvents: 'none',
                                     userSelect: 'none',
                                     zIndex: 24,
@@ -961,6 +962,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                                         width: '100%',
                                         height: '100%',
                                         userSelect: 'none',
+                                        // Q12：hover 必须作用在旗帜本体上（原来只改 Canvas 横线，几乎看不出来）
+                                        filter: markerHovered
+                                            ? 'brightness(1.35) drop-shadow(0 0 5px rgba(120, 255, 246, 0.95))'
+                                            : 'none',
+                                        transition: 'filter 90ms linear',
                                     }}
                                 />
                             </div>
@@ -972,17 +978,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                                 onDoubleClick={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    setMarkerBeat(null);
+                                    setMarkerSeconds(null);
                                 }}
-                                onMouseEnter={() => setMarkerHovered(true)}
-                                onMouseLeave={() => setMarkerHovered(false)}
+                                onMouseEnter={() => setMarkerDomHovered(true)}
+                                onMouseLeave={() => setMarkerDomHovered(false)}
                                 style={{
                                     position: 'absolute',
                                     top: 0,
                                     left: 0,
                                     display: 'none',
-                                    height: 0,
-                                    clipPath: 'none',
+                                    width: PLAYBACK_MARKER_LAYOUT.width,
+                                    height: PLAYBACK_MARKER_LAYOUT.height,
+                                    clipPath: PLAYBACK_MARKER_CLIP_PATH,
+                                    cursor: 'pointer',
                                     pointerEvents: 'auto',
                                     userSelect: 'none',
                                     zIndex: 25,

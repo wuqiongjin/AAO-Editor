@@ -202,6 +202,14 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   }
 
   /**
+   * 秒 → 虚拟Y（`virtualYToSeconds` 的逆，同样**不经 BPM 反查**）。
+   * issue 152：播放起点是**时间轴锚定**元素（存秒不存拍），落点只走这一条路。
+   */
+  secondsToVirtualY(seconds: number, scale: number): number {
+    return this.virtualYOfPos(seconds * this.virtualPxPerSecond, scale);
+  }
+
+  /**
    * 秒 → **最大 beat 解**（issue 134 / ADR-0010 结论 5）：布局轴 pos = 秒 × virtualPxPerSecond，
    * 与 `virtualYToBeat` 同取解口径；HUD 不再旁路 `AudioTiming.secondsToBeat`。
    */

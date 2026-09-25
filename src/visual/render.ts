@@ -83,20 +83,27 @@ const buildPreviewSets = (rc: RenderCtx): SelectionSets | null => {
 };
 const isNoteSelected = (sel: SelectionSets, index: number) => sel.notes.has(index);
 
-export const START_MARKER_COLOR = '#55d6d0';
-export const START_MARKER_HOVER_COLOR = '#b8fffa';
+export const PLAYBACK_MARKER_COLOR = '#55d6d0';
+/** 悬停色刻意拉到近白（issue 152 二轮：原来的 #b8fffa 与常态色几乎分不出）。 */
+export const PLAYBACK_MARKER_HOVER_COLOR = '#eafffd';
+/** 悬停时线宽也加一档，配合旗帜本体的 filter 提亮，让 hover 可发现。 */
+const PLAYBACK_MARKER_LINE_WIDTH = 2;
+const PLAYBACK_MARKER_HOVER_LINE_WIDTH = 3;
 
-/** 播放起点标记（ADR-0004 §4 / issue 152）：Canvas 只绘制定位横线，旗帜由共享 SVG 叠加。 */
-export function renderStartMarker(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
-  if (rc.markerBeat === null) return;
+/**
+ * 播放起点（ADR-0004 §4 / issue 152）：Canvas 只绘制定位横线，旗帜由共享 SVG 叠加。
+ * 起点是**时间轴锚定**：`markerSeconds` 直读布局轴，不经 BPM 换算。
+ */
+export function renderPlaybackMarker(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  if (rc.markerSeconds === null) return;
   const { trackStartX } = c.trackGeometry(rc.viewport.scale);
-  const markerCanvasY = c.virtualToCanvas(0, c.beatToVirtualY(rc.markerBeat)).y;
+  const markerCanvasY = c.virtualToCanvas(0, c.secondsToVirtualY(rc.markerSeconds)).y;
   if (markerCanvasY < -20 || markerCanvasY > rc.surface.h + 20) return;
-  const color = rc.markerHovered ? START_MARKER_HOVER_COLOR : START_MARKER_COLOR;
+  const color = rc.markerHovered ? PLAYBACK_MARKER_HOVER_COLOR : PLAYBACK_MARKER_COLOR;
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineCap = 'round';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = rc.markerHovered ? PLAYBACK_MARKER_HOVER_LINE_WIDTH : PLAYBACK_MARKER_LINE_WIDTH;
   ctx.beginPath();
   ctx.moveTo(0, markerCanvasY);
   // 只到轨道外壳外沿；不要把标记线画进轨道 chrome 或轨道内容。
@@ -1583,7 +1590,7 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   // 锚点在语义上是"已经定下的实绘端点"→ 画在滑条 hover 幽灵**之上**（issue 65③④：
   // 否则第一击后那条 35% 透明度的段带会糊在锚点上，看起来像锚点被染色）
   renderSlideBuffer(ctx, c, rc);
-  renderStartMarker(ctx, c, rc);
+  renderPlaybackMarker(ctx, c, rc);
 
   if (perf.enabled) perf.record(performance.now() - t0);
 }

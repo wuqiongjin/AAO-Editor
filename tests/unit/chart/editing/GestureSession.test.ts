@@ -90,7 +90,7 @@ function worldOf(
     curveConfig: DEFAULT_CURVE_CONFIG,
     lastBpm: 120,
     noteSize: 1,
-    hitStartMarker: () => false,
+    hitPlaybackMarker: () => false,
     hitBpmGutter: () => null,
     expandedBpmGroupKey: null,
     ...extra,
@@ -174,7 +174,7 @@ describe('GestureSession · 单击通路（不变量 1）', () => {
 
   it('单击播放起点标记 → 不执行动作、不建立音符选区', () => {
     const notes = [bpmNote(0, 120), single(2, 50)];
-    const { world, at, virt } = worldOf(notes, { hitStartMarker: () => true });
+    const { world, at, virt } = worldOf(notes, { hitPlaybackMarker: () => true });
     const { host } = makeHost();
     const s = new GestureSession(host);
     s.bindWorld(world);

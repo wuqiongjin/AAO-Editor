@@ -27,7 +27,7 @@ function makeRc(g: ChartGeometry, scrollY: number): RenderCtx {
     slideBuffer: null,
     hoverPos: null,
     clipboard: [],
-    markerBeat: null,
+    markerSeconds: null,
     armedTool: null,
   } as unknown as RenderCtx;
 }

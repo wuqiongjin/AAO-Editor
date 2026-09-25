@@ -362,7 +362,7 @@
   "editor.noteCount": "Note count",
   "editor.selectedCount": "{{count}} selected",
   "editor.deleteSelected": "Delete selected",
-  "editor.markerSet": "Playback start @ {{seconds}} s",
+  "editor.markerSet": "Playback start @ {{time}}",
   "editor.markerHint": "Double-click the blank area on the left side of the track to set the playback start point",
   "editor.markerJumpTooltip": "Jump to playback start and play · Shortcut: {{key}}",
   "editor.markerJumpAria": "Jump to playback start and play",

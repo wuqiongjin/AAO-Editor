@@ -120,7 +120,7 @@ describe('issue 140 · 高倍倒流 SP 成本', () => {
       slideBuffer: null,
       hoverPos: null,
       clipboard: [],
-      markerBeat: null,
+      markerSeconds: null,
       armedTool: null,
       spriteIcon: { render: () => undefined, renderDecorator: () => undefined } as unknown as RenderCtx['spriteIcon'],
       noteIcons: icons,

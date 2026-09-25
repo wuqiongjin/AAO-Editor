@@ -2537,10 +2537,9 @@ button.skin-pill {
   outline-offset: 2px;
 }
 
+/* 尺寸由组件从 playbackMarker.ts 的常数注入（真源唯一）；这里只管盒模型与命中 */
 .playback-marker-card__button img {
   display: block;
-  width: 28px;
-  height: 30px;
   object-fit: contain;
   pointer-events: none;
 }

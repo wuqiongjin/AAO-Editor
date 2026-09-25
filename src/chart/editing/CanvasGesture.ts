@@ -4,7 +4,7 @@
 //   按下 → 走「拖拽」还是「框选」       resolvePressIntent
 //   松开 → 提交拖拽/框选/单击/作废      resolveReleaseIntent
 //   单击 → 就地编辑/选标记/选音符/交矩阵 resolveClickPlan
-//   换算   snapChartPos / hitStartMarkerAt / hitBpmLabelAt
+//   换算   snapChartPos / hitPlaybackMarkerAt / hitBpmLabelAt
 //
 // issue 61 / 63 / 65② / 66 的缺陷全部落在这几张表里——它们是"操作逻辑"真正的 bug 面，
 // 而在此之前没有一个测试能碰它们（编排层原样内联在 1048 行的组件里）。
@@ -19,6 +19,7 @@ import { isPastChartEnd } from './ChartEndBounds';
 import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
 import { GUTTER_LABEL_FONT_PX, bpmLabelBox, layoutBpmGutter, bpmLabelAnchorY } from '../../visual/gutterLabels';
 import { LANE_WIDTH } from '../geometry/ChartGeometry';
+import { PLAYBACK_MARKER_HIT_TOLERANCE_PX } from '../../visual/playbackMarker';
 
 /** 沟槽文字宽度测量（画布侧注入：带 canvas ctx 精确测量；测试侧注入等宽估算）。 */
 export type GutterMeasure = (text: string, fontPx: number) => number;
@@ -74,19 +75,23 @@ export function freezeGestureCursor<T>(
     return gestureActive ? frozen : null;
 }
 
-/** 左沟槽命中起点标记线（ADR-0004 §4；与音符命中路径无关）。 */
-export function hitStartMarkerAt(
+/**
+ * 左沟槽命中播放起点标记线（ADR-0004 §4；与音符命中路径无关）。
+ * issue 152：起点存**秒**（时间轴锚定），此处直读布局轴，不经 BPM 换算。
+ * 命中范围与绘制范围同界（都止于 `trackStartX`）——所见即所点，轨道装饰带不再误命中。
+ */
+export function hitPlaybackMarkerAt(
     deps: GeometryView,
-    markerBeat: number | null,
+    markerSeconds: number | null,
     cx: number,
     cy: number,
 ): boolean {
-    if (markerBeat === null) return false;
-    const { trackBgX } = deps.geometry.trackGeometry(deps.viewport.scale);
-    if (cx >= trackBgX) return false;
-    const markerVirtualY = deps.geometry.beatToVirtualY(markerBeat, deps.viewport.scale);
+    if (markerSeconds === null) return false;
+    const { trackStartX } = deps.geometry.trackGeometry(deps.viewport.scale);
+    if (cx >= trackStartX) return false;
+    const markerVirtualY = deps.geometry.secondsToVirtualY(markerSeconds, deps.viewport.scale);
     const markerCanvasY = deps.geometry.virtualToCanvas(0, markerVirtualY, deps.viewport).y;
-    return Math.abs(cy - markerCanvasY) < 10;
+    return Math.abs(cy - markerCanvasY) < PLAYBACK_MARKER_HIT_TOLERANCE_PX;
 }
 
 /**

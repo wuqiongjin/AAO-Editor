@@ -16,9 +16,10 @@ export interface PlaybackContextValue {
   volume: number;
   setVolume: (v: number) => void;
   // 注：`hasMarker` 派生字段已删（2026-09-10，issue 70 切片 9）—— 全仓无人消费，
-  // 需要判空直接用 `markerBeat !== null`，不必多一份派生 state。
-  markerBeat: number | null;
-  setMarker: (beat: number | null) => void;
+  // 需要判空直接用 `markerSeconds !== null`，不必多一份派生 state。
+  // issue 152：起点是**时间轴锚定**，单位就是秒（不是拍，也不再需要拍→秒换算）。
+  markerSeconds: number | null;
+  setMarker: (seconds: number | null) => void;
 }
 
 const PlaybackContext = createContext<PlaybackContextValue | null>(null);
@@ -29,10 +30,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [currentSeconds, setCurrentSeconds] = useState(0);
   const [duration, setDuration] = useState(30);
   const [volume, setVolume] = useState(0.8);
-  const [markerBeat, setMarkerBeatState] = useState<number | null>(null);
+  const [markerSeconds, setMarkerSecondsState] = useState<number | null>(null);
 
-  const setMarker = (beat: number | null) => {
-    setMarkerBeatState(beat);
+  const setMarker = (seconds: number | null) => {
+    setMarkerSecondsState(seconds);
   };
 
   const value: PlaybackContextValue = {
@@ -41,7 +42,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     currentSeconds, setCurrentSeconds,
     duration, setDuration,
     volume, setVolume,
-    markerBeat,
+    markerSeconds,
     setMarker,
   };
   return <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>;

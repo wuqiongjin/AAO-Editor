@@ -8,6 +8,8 @@ export interface Coords {
   beatToVirtualY: (beat: number) => number;
   /** 虚拟Y → 秒（布局轴直读，issue 104 修法 3：hover 读数用它，倒流区里不经"拍"） */
   virtualYToSeconds: (virtualY: number) => number;
+  /** 秒 → 虚拟Y：播放起点等**时间锚定**元素的落点（issue 152：起点存秒，不经拍） */
+  secondsToVirtualY: (seconds: number) => number;
   /** 虚拟Y → beat = **最大 beat 解**（需要拍时的默认取解口径；多值处不可当作唯一真值） */
   virtualYToBeat: (virtualY: number) => number;
   virtualToCanvas: (x: number, y: number) => GeometryPoint;
@@ -35,6 +37,7 @@ export function makeCoords(geometry: ChartGeometry, viewport: GeometryViewport, 
     trackGeometry: (s) => (s === scale ? cachedTrackGeometry : geometry.trackGeometry(s)),
     beatToVirtualY: (beat) => geometry.beatToVirtualY(beat, scale),
     virtualYToSeconds: (y) => geometry.virtualYToSeconds(y, scale),
+    secondsToVirtualY: (seconds) => geometry.secondsToVirtualY(seconds, scale),
     virtualYToBeat: (y) => geometry.virtualYToBeat(y, scale),
     virtualToCanvas: (x, y) => {
       const es = geometry.effectiveScale(scale);

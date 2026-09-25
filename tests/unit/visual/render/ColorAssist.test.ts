@@ -139,7 +139,7 @@ function captureTaps(notes: ChartNote[], colorAssist: boolean) {
     slideBuffer: null,
     hoverPos: null,
     clipboard: [],
-    markerBeat: null,
+    markerSeconds: null,
     armedTool: null,
     spriteIcon: {
       render: (_c: unknown, cfg: { src: string; x: number; y: number; w: number; h: number }) => calls.push(cfg),

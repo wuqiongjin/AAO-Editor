@@ -7,7 +7,7 @@ import { ChartGeometry, LANES, LANE_WIDTH, TRACK_CHROME_TOTAL } from '@/src/char
 import type { HitTestDeps } from '@/src/visual/hitTest';
 import { bpmLabelBox, layoutBpmGutter, bpmCoincidentKey, GUTTER_LABEL_FONT_PX } from '@/src/visual/gutterLabels';
 import {
-  snapChartPos, hitStartMarkerAt, hitBpmLabelAt, hitBpmGutterAt, nextBpmGutterAction,
+  snapChartPos, hitPlaybackMarkerAt, hitBpmLabelAt, hitBpmGutterAt, nextBpmGutterAction,
   resolvePressIntent, resolveReleaseIntent, resolveClickPlan,
   isInsideSurface, clampToSurface, hasMovedBeyondThreshold, marqueeRect,
   canStartMarquee, resolveBoxPlan,
@@ -81,35 +81,60 @@ describe('snapChartPos 落点合法性', () => {
   });
 });
 
-// ─────────────────────────── hitStartMarkerAt：起点标记（ADR-0004 §4） ───────────────────────────
-describe('hitStartMarkerAt 起点标记命中', () => {
+// ───────────────── hitPlaybackMarkerAt：播放起点标记（ADR-0004 §4 / issue 152） ─────────────────
+describe('hitPlaybackMarkerAt 播放起点命中', () => {
   const notes: ChartNote[] = [bpmNote(0, 120)];
+  /** 起点是**时间轴锚定**（存秒）：BPM 120 下 beat 20 = 10 秒。 */
+  const MARKER_SECONDS = 10;
+  const markerCanvasY = (g: ChartGeometry, viewport: { scrollX: number; scrollY: number; scale: number }) =>
+    g.virtualToCanvas(0, g.secondsToVirtualY(MARKER_SECONDS, viewport.scale), viewport).y;
 
   it('未设标记 → 恒 false', () => {
     const { deps, at } = makeDeps(notes);
     const p = at(2, 50);
-    expect(hitStartMarkerAt(deps, null, p.x, p.y)).toBe(false);
+    expect(hitPlaybackMarkerAt(deps, null, p.x, p.y)).toBe(false);
   });
 
   it('标记线上（左沟槽）→ true', () => {
     const { geometry, viewport, deps } = makeDeps(notes);
-    const { trackBgX } = geometry.trackGeometry(1);
-    const y = geometry.virtualToCanvas(0, geometry.beatToVirtualY(20, 1), viewport).y;
-    expect(hitStartMarkerAt(deps, 20, trackBgX - 10, y)).toBe(true);
+    const { trackStartX } = geometry.trackGeometry(1);
+    expect(hitPlaybackMarkerAt(deps, MARKER_SECONDS, trackStartX - 10, markerCanvasY(geometry, viewport))).toBe(true);
   });
 
-  it('偏离标记线超过 10px → false', () => {
+  it('偏离标记线超过容差 → false', () => {
     const { geometry, viewport, deps } = makeDeps(notes);
-    const { trackBgX } = geometry.trackGeometry(1);
-    const y = geometry.virtualToCanvas(0, geometry.beatToVirtualY(20, 1), viewport).y;
-    expect(hitStartMarkerAt(deps, 20, trackBgX - 10, y + 40)).toBe(false);
+    const { trackStartX } = geometry.trackGeometry(1);
+    const y = markerCanvasY(geometry, viewport);
+    expect(hitPlaybackMarkerAt(deps, MARKER_SECONDS, trackStartX - 10, y + 40)).toBe(false);
   });
 
-  it('轨道内（cx >= trackBgX）→ false（标记只活在左沟槽）', () => {
+  it('容差是**固定屏幕像素**（不随画布缩放）', () => {
     const { geometry, viewport, deps } = makeDeps(notes);
-    const { trackBgX } = geometry.trackGeometry(1);
-    const y = geometry.virtualToCanvas(0, geometry.beatToVirtualY(20, 1), viewport).y;
-    expect(hitStartMarkerAt(deps, 20, trackBgX + 20, y)).toBe(false);
+    const { trackStartX } = geometry.trackGeometry(1);
+    const y = markerCanvasY(geometry, viewport);
+    expect(hitPlaybackMarkerAt(deps, MARKER_SECONDS, trackStartX - 10, y + 9)).toBe(true);
+    expect(hitPlaybackMarkerAt(deps, MARKER_SECONDS, trackStartX - 10, y + 11)).toBe(false);
+    // 换个缩放档位，容差仍是同一批像素（沟槽宽度随缩放变，故按档位取 trackStartX）
+    const zoomed = { ...viewport, scale: 2 };
+    const zoomedDeps = { ...deps, viewport: zoomed };
+    const { trackStartX: zoomedGutterX } = geometry.trackGeometry(zoomed.scale);
+    const zoomedY = markerCanvasY(geometry, zoomed);
+    expect(hitPlaybackMarkerAt(zoomedDeps, MARKER_SECONDS, zoomedGutterX - 10, zoomedY + 9)).toBe(true);
+    expect(hitPlaybackMarkerAt(zoomedDeps, MARKER_SECONDS, zoomedGutterX - 10, zoomedY + 11)).toBe(false);
+  });
+
+  it('轨道内（cx >= trackStartX）→ false（标记只活在左沟槽）', () => {
+    const { geometry, viewport, deps } = makeDeps(notes);
+    const { trackStartX } = geometry.trackGeometry(1);
+    expect(hitPlaybackMarkerAt(deps, MARKER_SECONDS, trackStartX + 20, markerCanvasY(geometry, viewport))).toBe(false);
+  });
+
+  it('轨道外壳装饰带（trackStartX ≤ cx < trackBgX）→ false（命中与绘制同界，issue 152 三轮）', () => {
+    const { geometry, viewport, deps } = makeDeps(notes);
+    const { trackStartX, trackBgX } = geometry.trackGeometry(1);
+    expect(trackStartX).toBeLessThan(trackBgX); // 前提：装饰带确有宽度，否则本例无意义
+    const y = markerCanvasY(geometry, viewport);
+    expect(hitPlaybackMarkerAt(deps, MARKER_SECONDS, (trackStartX + trackBgX) / 2, y)).toBe(false);
   });
 });
 

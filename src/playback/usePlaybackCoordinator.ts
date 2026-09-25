@@ -6,15 +6,13 @@
 //   - togglePlay：若已播则 stop；否则从 0 seek 后 engine.play() + 启动 RAF
 //   - RAF 循环：每帧 engine.getSeconds() → 画布 setScrollY + 滚动条 scrollTop（按 PlaybackScrollModel 互映）
 //   - seek：clamp 到 [0, duration]、engine.seek + setCurrentSeconds + 画布跟随
-//   - jumpToMarker：mark→beat→sec 转换 + 启动播放
+//   - jumpToMarker：起点存**秒**（issue 152），直接 seek + 启动播放，不再做拍→秒换算
 //   - isPlaying 时完全锁定滚动条（onScroll 已在 Editor 侧判 isPlayingRef）
 //   - 卸载自动 stopPlayback（防止挂载在其他页时仍在跑 RAF）
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AudioEngine } from '../audio/AudioEngine';
 import type { PlaybackScrollModel } from './PlaybackScrollModel';
-import { getBpmEvents, beatToSeconds } from '../audio/AudioTiming';
 import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
-import type { ChartNote } from '../chart/types';
 import type { FinalVirtualCanvasHandle } from '../chart/components/canvas/FinalVirtualCanvas';
 
 /** 播放 HUD（时间码 / 进度条 / 画布叠加）写入 React 的周期。约 12.5Hz，票面 10–15Hz。 */
@@ -37,8 +35,6 @@ export interface UsePlaybackCoordinatorOptions {
   setCurrentSeconds: (sec: number) => void;
   /** 播放状态（写回 PlaybackContext） */
   setIsPlaying: (v: boolean) => void;
-  /** 当前 notes（jumpToMarker 用 BPM 换算） */
-  notes: ChartNote[];
 }
 
 export interface UsePlaybackCoordinatorReturn {
@@ -55,7 +51,7 @@ export interface UsePlaybackCoordinatorReturn {
 export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): UsePlaybackCoordinatorReturn {
   const {
     engine, scrollModel, scrollContainerRef, canvasRef,
-    ctxDuration, setCtxDuration, setCurrentSeconds, setIsPlaying, notes,
+    ctxDuration, setCtxDuration, setCurrentSeconds, setIsPlaying,
   } = opts;
 
   const [isPlaying, setIsPlayingState] = useState(false);
@@ -65,9 +61,6 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
   // ctxDuration 走 ref：RAF 循环不依赖 React state 重新创建
   const durationRef = useRef(ctxDuration);
   durationRef.current = ctxDuration;
-  // notes 走 ref：jumpToMarker 不需要闭包过期
-  const notesRef = useRef(notes);
-  notesRef.current = notes;
 
   const stopPlayback = useCallback(() => {
     isPlayingRef.current = false;
@@ -120,6 +113,15 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     playbackRafRef.current = requestAnimationFrame(loop);
   }, [engine, scrollModel, canvasRef, scrollContainerRef, setCurrentSeconds, stopPlayback]);
 
+  /** 启动播放的唯一入口（issue 152：togglePlay 与 jumpToMarker 共用，不再各写一份 play().then）。 */
+  const startPlayback = useCallback(() => {
+    if (!engine || engine.isPlaying) return;
+    void engine.play().then(() => {
+      setIsPlaying(true);
+      startPlaybackLoop();
+    });
+  }, [engine, startPlaybackLoop, setIsPlaying]);
+
   const togglePlay = useCallback(() => {
     if (!engine) return;
     if (engine.isPlaying) {
@@ -129,11 +131,8 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     if (engine.getSeconds() >= durationRef.current) {
       engine.seek(0);
     }
-    void engine.play().then(() => {
-      setIsPlaying(true);
-      startPlaybackLoop();
-    });
-  }, [engine, startPlaybackLoop, stopPlayback, setIsPlaying]);
+    startPlayback();
+  }, [engine, startPlayback, stopPlayback]);
 
   const seek = useCallback((sec: number) => {
     if (!engine) return;
@@ -159,21 +158,17 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     }
   }, [engine, scrollModel, canvasRef, scrollContainerRef, setCurrentSeconds, stopPlayback]);
 
+  /**
+   * 回跳播放起点（ADR-0004 §4 / issue 152）：起点是**秒**，直接交给 `seek` ——
+   * 因此继承它的 duration 夹取与 issue 75 的「滚动条 scrollTop 与画布同源写入」，
+   * 不再自己 seek + 另起一份播放启动（旧实现回跳后滚动条不跟画布）。
+   */
   const jumpToMarker = useCallback(() => {
-    const e = engine;
-    const canvas = canvasRef.current;
-    if (!e || !canvas) return;
-    const beat = canvas.getMarkerBeat?.();
-    if (beat == null) return;
-    const secs = beatToSeconds(getBpmEvents(notesRef.current), beat);
-    e.seek(secs);
-    if (!e.isPlaying) {
-      void e.play().then(() => {
-        setIsPlaying(true);
-        startPlaybackLoop();
-      });
-    }
-  }, [engine, canvasRef, startPlaybackLoop, setIsPlaying]);
+    const seconds = canvasRef.current?.getMarkerSeconds?.();
+    if (seconds == null) return;
+    seek(seconds);
+    startPlayback();
+  }, [canvasRef, seek, startPlayback]);
 
   const changeDuration = useCallback((sec: number) => {
     if (!(sec > 0)) return;

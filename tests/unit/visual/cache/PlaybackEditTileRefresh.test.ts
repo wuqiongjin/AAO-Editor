@@ -63,7 +63,7 @@ function makeRc(g: ChartGeometry, notes: ChartNote[], scrollY: number, playing: 
     slideBuffer: null,
     hoverPos: null,
     clipboard: [],
-    markerBeat: null,
+    markerSeconds: null,
     armedTool: null,
     spriteIcon: { render: () => undefined, renderDecorator: () => undefined } as unknown as RenderCtx['spriteIcon'],
     noteIcons: buildActiveNoteIcons(normalizeNoteSkinSelection(undefined)),

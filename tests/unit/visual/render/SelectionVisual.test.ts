@@ -51,7 +51,7 @@ function outlinesOf(o: Opts): SelectionOutline[] {
     hoverPos: null,
     hoverItem: o.hover ?? null,
     clipboard: [],
-    markerBeat: null,
+    markerSeconds: null,
     armedTool: o.armedTool ?? null,
     rightButtonHeld: o.rightButtonHeld ?? false, // issue 74
     spriteIcon: { render: () => undefined, renderDecorator: () => undefined },

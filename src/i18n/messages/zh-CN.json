@@ -370,7 +370,7 @@
   "editor.noteCount": "音符总数",
   "editor.selectedCount": "已选 {{count}}",
   "editor.deleteSelected": "删除选中",
-  "editor.markerSet": "播放起点 @ {{seconds}} 秒",
+  "editor.markerSet": "播放起点 @ {{time}}",
   "editor.markerHint": "双击轨道左侧空白区域，设置播放起点",
   "editor.markerJumpTooltip": "跳转到播放起点并播放 · 快捷键：{{key}}",
   "editor.markerJumpAria": "跳转到播放起点并播放",
