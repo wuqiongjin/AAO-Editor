@@ -435,7 +435,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     };
 
     const handleContextMenu = (e: React.MouseEvent) => {
-        e.preventDefault(); // 只屏蔽原生菜单；删除在 mouseup 执行（见 rightButtonHeld effect）
+        e.preventDefault(); // 只屏蔽原生菜单；删除在 window mouseup → session.end
     };
 
     // ---------------------------
@@ -534,25 +534,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         };
     }, []);
 
-    // issue 74：右键按住期间 —— 松手时执行删除（跨平台一致），失焦只清标志不动谱面。
-    useEffect(() => {
-        if (!gestureSnap.rightButtonHeld) return;
-        const onUp = (e: MouseEvent) => {
-            if (e.button !== 2) return;
-            const pos = cssToCanvas(e);
-            applyGesture(session.rightUp(pos ? {
-                x: pos.x, y: pos.y, button: 2,
-                shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey,
-            } : null));
-        };
-        const onBlur = () => applyGesture(session.rightUp(null));
-        window.addEventListener('mouseup', onUp);
-        window.addEventListener('blur', onBlur);
-        return () => {
-            window.removeEventListener('mouseup', onUp);
-            window.removeEventListener('blur', onBlur);
-        };
-    }, [gestureSnap.rightButtonHeld, cssToCanvas]);
+    // issue 158：右键 begin 已 attachWindow，松手走 session.end（有框=框删 / 无框=点删）。
+    // 不再另挂一套 mouseup，避免与 window 手势双提交。
 
     const handleWheel = useCallback((e: WheelEvent) => {
         // issue 110：**Shift+滚轮 = 纵向滚动**（浏览器把它映射成横向 → 被容器的 overflowX:hidden 吃掉）。

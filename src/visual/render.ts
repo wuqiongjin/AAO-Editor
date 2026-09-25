@@ -75,7 +75,8 @@ const buildPreviewSets = (rc: RenderCtx): SelectionSets | null => {
   const items = computeItemsInBox(rc.selectionBox, deps);
   // issue 71：BPM 不进选区 → 非删除态**不预览**它（画了却选不中 = 误导）。
   // 删除态例外：框选删除会真删掉被整条框住的 BPM 线，故仍要预告（并转危险红）。
-  const withBpm = rc.armedTool === 'delete'
+  // issue 158：右键过阈值后的框 = 删除工具框选，同样要预告 BPM。
+  const withBpm = rc.armedTool === 'delete' || rc.rightButtonHeld === true
     ? [...items, ...computeBpmLinesInBox(rc.selectionBox, deps)]
     : items;
   return buildSets(withBpm);

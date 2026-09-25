@@ -578,6 +578,51 @@ describe('右键按住 → hover 转删除红（issue 74）', () => {
   });
 });
 
+// issue 158：右键拖过阈值后框选预览走删除工具框选同一套（框内全红，含 BPM）。
+describe('右键框选预览转 danger（issue 158）', () => {
+  const GEO = new ChartGeometry(bpm120, { endBeat: 100 } , SURFACE);
+  const VP = { scrollX: 0, scrollY: 0, scale: 1 };
+  const at = (lane: number, beat: number) =>
+    GEO.virtualToCanvas(GEO.noteVirtualX(lane), GEO.noteVirtualY(beat, 0, VP.scale, BEAT_DISPLAY), VP);
+  const boxAround = (laneLo: number, beatHi: number, laneHi: number, beatLo: number) => {
+    const a = at(laneLo, beatHi), b = at(laneHi, beatLo);
+    return {
+      x1: Math.min(a.x, b.x) - 10, y1: Math.min(a.y, b.y) - 10,
+      x2: Math.max(a.x, b.x) + 10, y2: Math.max(a.y, b.y) + 10,
+    };
+  };
+
+  it('rightButtonHeld + selectionBox → 框内 danger（含 BPM）', () => {
+    const noteOut = outlinesOf({
+      notes: [single(50, 3)],
+      rightButtonHeld: true,
+      selectionBox: boxAround(3, 51, 3, 49),
+    });
+    expect(noteOut).toHaveLength(1);
+    expect(noteOut[0]!.mode).toBe('danger');
+
+    const { trackBgX, trackBgWidth } = GEO.trackGeometry(VP.scale);
+    const y = GEO.virtualToCanvas(0, GEO.noteVirtualY(40, 0, VP.scale, BEAT_DISPLAY), VP).y;
+    const bpmBox = { x1: trackBgX - 5, y1: y - 5, x2: trackBgX + trackBgWidth + 5, y2: y + 5 };
+    const bpmOut = outlinesOf({
+      notes: [{ type: 'BPM', beat: 40, bpm: 120 } as ChartNote],
+      rightButtonHeld: true,
+      selectionBox: bpmBox,
+    });
+    expect(bpmOut).toHaveLength(1);
+    expect(bpmOut[0]!.mode).toBe('danger');
+  });
+
+  it('仅 rightButtonHeld 无框 → 仍只红 hover', () => {
+    const hover = { kind: 'note' as const, noteIndex: 0 };
+    const held = outlinesOf({ notes: [single(50, 3)], hover, rightButtonHeld: true });
+    expect(held).toHaveLength(1);
+    expect(held[0]!.mode).toBe('danger');
+    const noHover = outlinesOf({ notes: [single(50, 3)], rightButtonHeld: true });
+    expect(noHover).toHaveLength(0);
+  });
+});
+
 // ---------------- issue 89：删除持工具态 → 选区整体转 danger ----------------
 // 用户 2026-09-11：非删除工具下框选后切到删除工具，选中态应**立刻**变成删除 hover 的效果
 // （不必等鼠标悬停）；切回非删除工具恢复浅黄选中。核心 = "删除态这一状态本身"驱动颜色。

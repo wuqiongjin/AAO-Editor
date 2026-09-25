@@ -203,10 +203,26 @@ export class GestureSession {
 
   begin(input: GestureBeginInput): GestureResult {
     this.cancelled = false;
+    if (input.button === 2) {
+      // issue 158：右键也记按下点 + 接管 window，才能过 8px 起框；不启拖拽。
+      this.clearPenTimer();
+      this.start = { x: input.x, y: input.y, vx: input.vx, vy: input.vy };
+      this.moved = false;
+      this.pointerPx = { x: input.x, y: input.y };
+      this.drag = null;
+      this.dragFrozen = null;
+      this.pen = null;
+      this.patchSnap({
+        rightButtonHeld: true,
+        selectionBox: null,
+        dragGhost: null,
+        penPreview: null,
+        penActive: false,
+      });
+      this.host.attachWindow();
+      return this.result();
+    }
     if (input.button !== 0) {
-      if (input.button === 2) {
-        this.patchSnap({ rightButtonHeld: true });
-      }
       return this.result();
     }
     this.clearPenTimer();
@@ -224,8 +240,9 @@ export class GestureSession {
   move(input: GestureMoveInput): GestureResult {
     const w = this.requireWorld();
     this.pointerPx = { x: input.x, y: input.y };
-    if (!this.start) return this.result();
     if (this.cancelled) return this.result();
+    if (this.snap.rightButtonHeld) return this.moveRightMarquee(input);
+    if (!this.start) return this.result();
     // issue 141：阈值按**按下意图**分档 —— 拖拽 / 画笔 4px（要跟手），框选 8px（防手抖吃掉放置那一击）。
     // `pen` 在 `beginDragCandidate` 里按下即置位，故此处能据此分档（不用等到画笔视觉激活）。
     const threshold = this.drag || this.pen ? DRAG_THRESHOLD_PX : MARQUEE_THRESHOLD_PX;
@@ -276,8 +293,9 @@ export class GestureSession {
       this.cancelled = false;
       return this.result();
     }
-    if (this.snap.rightButtonHeld && (!e || e.button === 2)) {
-      return this.commitRightUp(e);
+    if (this.snap.rightButtonHeld) {
+      if (!e || e.button === 2) return this.commitRightUp(e);
+      return this.result();
     }
     const start = this.start;
     const moved = this.moved;
@@ -395,15 +413,32 @@ export class GestureSession {
     return this.result();
   }
 
-  rightUp(e: GestureEndInput | null): GestureResult {
-    return this.commitRightUp(e);
-  }
-
   private commitRightUp(e: GestureEndInput | null): GestureResult {
-    this.patchSnap({ rightButtonHeld: false });
+    const box = this.snap.selectionBox;
+    this.start = null;
+    this.moved = false;
+    this.pointerPx = null;
+    this.host.setCursor('');
+    this.patchSnap({
+      rightButtonHeld: false,
+      selectionBox: null,
+      cursorStyle: '',
+    });
+    this.host.detachWindow();
     if (!e) return this.result();
-    const w = this.requireWorld();
     if (!this.insideSurface(e.x, e.y)) return this.result();
+    const w = this.requireWorld();
+    if (box) {
+      const boxDeps = {
+        geometry: w.geometry,
+        viewport: w.viewport,
+        beatDisplay: w.beatDisplay,
+        notes: w.notes,
+      };
+      const items = computeItemsInBox(box, boxDeps);
+      const bpmInBox = computeBpmLinesInBox(box, boxDeps);
+      return this.result(boxSelectOps('delete', w.notes, items, bpmInBox, w.curveConfig, w.beatDisplay));
+    }
     const hit = findItemAt(e.x, e.y, this.hitDeps()) ?? findBpmLineAt(e.x, e.y, this.hitDeps());
     if (!hit) return this.result();
     return this.result([
@@ -411,6 +446,25 @@ export class GestureSession {
       { t: 'setSlideBuffer', point: null },
       { t: 'closeBpmEditor' },
     ]);
+  }
+
+  /** 右键框选：过 8px 起框；不走 canStartMarquee（粘贴/音符代码左键例外不套右键）。 */
+  private moveRightMarquee(input: GestureMoveInput): GestureResult {
+    if (!this.start) return this.result();
+    if (!hasMovedBeyondThreshold(this.start, { x: input.x, y: input.y }, MARQUEE_THRESHOLD_PX)) {
+      return this.result();
+    }
+    this.moved = true;
+    const w = this.requireWorld();
+    this.patchSnap({
+      selectionBox: marqueeRect({
+        start: this.start,
+        curCanvas: { x: input.x, y: input.y },
+        deps: { geometry: w.geometry, viewport: w.viewport },
+        surface: w.surface,
+      }),
+    });
+    return this.result();
   }
 
   private beginDragCandidate(cx: number, cy: number, shiftKey: boolean): GestureOp[] {

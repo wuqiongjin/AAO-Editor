@@ -11,6 +11,8 @@ import {
   type GestureEndInput,
 } from '@/src/chart/editing/GestureSession';
 import { DEFAULT_CURVE_CONFIG } from '@/src/chart/editing/CurveTool';
+import { actionOnTargetsOps, resolveActionTargets } from '@/src/chart/editing/ToolActionMatrix';
+import { findItemAt } from '@/src/visual/hitTest';
 import type { ChartNote } from '@/src/chart/types';
 import type { ViewportState } from '@/src/visual/types';
 
@@ -94,6 +96,9 @@ function worldOf(
   };
   return { world, at, virt };
 }
+
+/** 画布坐标里的拍位 y 远大于视口 900px；右键 insideSurface 用这份渲染面。 */
+const TALL_SURFACE = { w: 750, h: 40_000 };
 
 function press(session: GestureSession, p: { x: number; y: number }, virt: (cx: number, cy: number) => { x: number; y: number }, extra: Partial<{ button: number; shiftKey: boolean }> = {}) {
   const v = virt(p.x, p.y);
@@ -472,5 +477,110 @@ describe('GestureSession · 曲线点选区内', () => {
     const slide = setNotes.notes.find((n) => n.type === 'Slide') as Extract<ChartNote, { type: 'Slide' }> | undefined;
     expect(slide).toBeTruthy();
     expect(slide!.spanParams?.bySpan[0]).toMatchObject({ kind: 'easing', family: 'sine', type: 'in' });
+  });
+});
+
+// issue 158：右键未过 8px = 点删；过阈值 = 删除工具框选（任意持工具态，含粘贴）。
+describe('GestureSession · 右键双模态（issue 158）', () => {
+  it('位移 7px 松手 → 点删（actionOnTargetsOps delete），不起框', () => {
+    const notes = [bpmNote(0, 120), single(2, 50)];
+    const { world, at, virt } = worldOf(notes, { surface: TALL_SURFACE });
+    const { host, attachWindow } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p = at(2, 50);
+    press(s, p, virt, { button: 2 });
+    expect(attachWindow).toHaveBeenCalled();
+    expect(s.getSnapshot().rightButtonHeld).toBe(true);
+    s.move({ x: p.x + 7, y: p.y });
+    expect(s.getSnapshot().selectionBox).toBeNull();
+    const r = s.end(up({ x: p.x + 7, y: p.y }, { button: 2 }));
+    const hit = findItemAt(p.x + 7, p.y, {
+      geometry: world.geometry, viewport: world.viewport,
+      beatDisplay: world.beatDisplay, notes, noteSize: world.noteSize,
+    });
+    expect(hit).toBeTruthy();
+    expect(r.ops).toEqual([
+      ...actionOnTargetsOps('delete', notes, resolveActionTargets(hit, [])),
+      { t: 'setSlideBuffer', point: null },
+      { t: 'closeBpmEditor' },
+    ]);
+    expect(s.getSnapshot().rightButtonHeld).toBe(false);
+  });
+
+  it('位移 8px → setNotes 删框内且 setSelection []', () => {
+    const notes = [bpmNote(0, 120), single(2, 50)];
+    const { world, at, virt } = worldOf(notes, { surface: TALL_SURFACE });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p = at(2, 50);
+    press(s, p, virt, { button: 2 });
+    s.move({ x: p.x + 8, y: p.y });
+    expect(s.getSnapshot().selectionBox).not.toBeNull();
+    const r = s.end(up({ x: p.x + 8, y: p.y }, { button: 2 }));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    expect(setNotes.notes.some((n) => n.type === 'Single')).toBe(false);
+    expect(r.ops).toContainEqual({ t: 'setSelection', items: [] });
+    expect(s.getSnapshot().selectionBox).toBeNull();
+  });
+
+  it('框住 BPM 横线（整轨覆盖）→ BPM 进删除集', () => {
+    const notes = [bpmNote(0, 120), bpmNote(40, 180)];
+    const { world, virt } = worldOf(notes, { surface: TALL_SURFACE });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const { trackBgX, trackBgWidth } = world.geometry.trackGeometry(world.viewport.scale);
+    const y = world.geometry.virtualToCanvas(
+      0, world.geometry.noteVirtualY(40, 0, world.viewport.scale, BEAT_DISPLAY), world.viewport,
+    ).y;
+    const a = { x: trackBgX - 5, y: y - 20 };
+    const b = { x: trackBgX + trackBgWidth + 5, y: y + 20 };
+    press(s, a, virt, { button: 2 });
+    s.move(b);
+    expect(s.getSnapshot().selectionBox).not.toBeNull();
+    const r = s.end(up(b, { button: 2 }));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    expect(setNotes.notes.filter((n) => n.type === 'BPM')).toEqual([bpmNote(0, 120)]);
+  });
+
+  it('粘贴态同样能右键框删', () => {
+    const notes = [bpmNote(0, 120), single(2, 50)];
+    const { world, at, virt } = worldOf(notes, { armedTool: 'paste', surface: TALL_SURFACE });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const a = at(1, 48);
+    const b = at(4, 52);
+    press(s, a, virt, { button: 2 });
+    s.move(b);
+    expect(s.getSnapshot().selectionBox).not.toBeNull();
+    const r = s.end(up(b, { button: 2 }));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    expect(setNotes.notes.some((n) => n.type === 'Single')).toBe(false);
+  });
+
+  it('音符代码态同样能右键框删', () => {
+    const notes = [bpmNote(0, 120), single(2, 50)];
+    const { world, at, virt } = worldOf(notes, { armedTool: 'noteCode', surface: TALL_SURFACE });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p = at(2, 50);
+    press(s, p, virt, { button: 2 });
+    s.move({ x: p.x + 8, y: p.y });
+    expect(s.getSnapshot().selectionBox).not.toBeNull();
+    const r = s.end(up({ x: p.x + 8, y: p.y }, { button: 2 }));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    expect(setNotes.notes.some((n) => n.type === 'Single')).toBe(false);
   });
 });
