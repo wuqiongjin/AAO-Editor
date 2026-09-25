@@ -18,7 +18,7 @@ import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import { renderChart, findItemAt, type RenderCtx, type ViewportState } from '../../../visual';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
 import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth } from '../../../visual/gutterLabels';
+import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, bpmLabelYByNoteIndex } from '../../../visual/gutterLabels';
 import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { parseBpmInput } from '../../editing/BpmInput';
@@ -801,14 +801,21 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     );
 
     // ADR-0008 §5：BPM 就地编辑输入框定位——覆盖在沟槽数字上（与 layoutGutterLabel 同款锚定：
-    // 右缘 = 轨道左外缘 − 8px，垂直居中于 BPM 线、钳进画布）
+    // 右缘 = 轨道左外缘 − 8px；纵向跟错开后的数字走，再钳进画布）
     let bpmInputBox: { left: number; top: number; width: number; height: number; fontPx: number } | null = null;
     if (bpmEdit) {
         const fontPx = Math.round(GUTTER_LABEL_FONT_PX * (display.labelScale ?? 1));
         const { trackStartX } = geometry.trackGeometry(viewport.scale);
         const rightEdge = trackStartX - BPM_LABEL_GAP_PX;
         const width = Math.max((bpmEdit.value.length || 3) * fontPx * 0.62 + 8, fontPx * 2);
-        const lineY = virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y;
+        const yByNoteIndex = bpmLabelYByNoteIndex(
+            notes,
+            (beat) => virtualToCanvas(0, beatToVirtualY(beat)).y,
+            fontPx,
+        );
+        const idx = notes.findIndex((n) => n.type === 'BPM' && Math.abs(n.beat - bpmEdit.beat) < 1e-9);
+        const lineY = (idx >= 0 ? yByNoteIndex.get(idx) : undefined)
+            ?? virtualToCanvas(0, beatToVirtualY(bpmEdit.beat)).y;
         const centerY = Math.min(Math.max(lineY, fontPx / 2), surf.h - fontPx / 2);
         bpmInputBox = { left: Math.max(0, rightEdge - width), top: centerY - fontPx / 2 - 3, width, height: fontPx + 6, fontPx };
     }

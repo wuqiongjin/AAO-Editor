@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry, LANES, LANE_WIDTH, TRACK_CHROME_TOTAL } from '@/src/chart/geometry/ChartGeometry';
 import type { HitTestDeps } from '@/src/visual/hitTest';
-import { bpmLabelBox } from '@/src/visual/gutterLabels';
+import { bpmLabelBox, layoutBpmLabelYs, GUTTER_LABEL_FONT_PX } from '@/src/visual/gutterLabels';
 import {
   snapChartPos, hitStartMarkerAt, hitBpmLabelAt,
   resolvePressIntent, resolveReleaseIntent, resolveClickPlan,
@@ -161,6 +161,36 @@ describe('hitBpmLabelAt BPM 数字文字盒', () => {
     const { boxOf, hit } = makeBpmDeps();
     const box = boxOf(20);
     expect(hit((box.x1 + box.x2) / 2, (box.y1 + box.y2) / 2 + 60)).toBeNull();
+  });
+
+  it('issue 159：撞 y 的两枚数字点上盒得较小 beat、点下盒得较大 beat', () => {
+    const sample = [
+      bpmNote(0, 120),
+      bpmNote(3, -178),
+      bpmNote(4, 178),
+      bpmNote(5, 178),
+    ];
+    const timeline = [
+      { beat: 0, bpm: 120 },
+      { beat: 3, bpm: -178 },
+      { beat: 4, bpm: 178 },
+      { beat: 5, bpm: 178 },
+    ];
+    const geometry = new ChartGeometry(timeline, { endBeat: 16 }, TEST_SURFACE);
+    const scrollY = geometry.beatToVirtualY(3, 1) - TEST_SURFACE.h / 2;
+    const viewport = { scrollX: 0, scrollY, scale: 1 };
+    const deps: HitTestDeps = { geometry, viewport, beatDisplay: BEAT_DISPLAY, notes: sample };
+    const { trackStartX } = geometry.trackGeometry(1);
+    const lineYOf = (beat: number) =>
+      geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, 1), viewport).y;
+    const items = timeline.map((e) => ({ beat: e.beat, lineCanvasY: lineYOf(e.beat) }));
+    const ys = layoutBpmLabelYs(items, GUTTER_LABEL_FONT_PX);
+    const box3 = bpmLabelBox(trackStartX, ys[1]!, '-178', 1, TEST_SURFACE.h, flat('-178', 21));
+    const box5 = bpmLabelBox(trackStartX, ys[3]!, '178', 1, TEST_SURFACE.h, flat('178', 21));
+    const hit = (cx: number, cy: number) =>
+      hitBpmLabelAt({ deps, labelScale: 1, surfaceH: TEST_SURFACE.h, measureWidth: flat }, cx, cy);
+    expect(hit((box3.x1 + box3.x2) / 2, (box3.y1 + box3.y2) / 2)).toBe(3);
+    expect(hit((box5.x1 + box5.x2) / 2, (box5.y1 + box5.y2) / 2)).toBe(5);
   });
 });
 

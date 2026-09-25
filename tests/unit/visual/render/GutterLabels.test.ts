@@ -6,6 +6,7 @@ import { gridBpmNegativeColor } from '@/src/visual/gridStyle';
 import type { ChartNote } from '@/src/chart/types';
 import {
   layoutGutterLabel,
+  layoutBpmLabelYs,
   clampGutterLabelY,
   drawGutterLabel,
   boundLabelGapPx,
@@ -178,6 +179,34 @@ describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', (
     expect(fillTexts(renderLabels(notes, visible, 0)).map((f) => f[1][0])).toEqual(['128.5']); // 编辑别的拍：照旧
   });
 
+  it('撞 y 的两条 BPM 数值画在不同 y（issue 159）', () => {
+    const sample = [
+      { type: 'BPM', beat: 0, bpm: 120 },
+      { type: 'BPM', beat: 3, bpm: -178 },
+      { type: 'BPM', beat: 4, bpm: 178 },
+      { type: 'BPM', beat: 5, bpm: 178 },
+    ] as ChartNote[];
+    const geometry = new ChartGeometry(
+      [{ beat: 0, bpm: 120 }, { beat: 3, bpm: -178 }, { beat: 4, bpm: 178 }, { beat: 5, bpm: 178 }],
+      { endBeat: 16 },
+      SURFACE,
+    );
+    const viewport = { scrollX: 0, scrollY: geometry.beatToVirtualY(3, 1) - 300, scale: 1 };
+    const c = makeCoords(geometry, viewport, 4, sample);
+    const rc = {
+      geometry, viewport, surface: SURFACE, chartEndBeat: 16, beatDisplay: 4, notes: sample,
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, labelScale: 1 },
+    } as unknown as import('@/src/visual/types').RenderCtx;
+    const { proxy, calls } = makeRecordingCtx();
+    renderBpmLabels(proxy, c, rc, sample.map((note, index) => ({ note, index })));
+    const fills = fillTexts(calls);
+    const texts = fills.map((f) => String(f[1][0]));
+    expect(texts).toEqual(['-178', '178', '178']);
+    const yNeg = fills[0]![1][2] as number;
+    const yBeat5 = fills[2]![1][2] as number;
+    expect(Math.abs(yBeat5 - yNeg)).toBeGreaterThanOrEqual(GUTTER_LABEL_FONT_PX);
+  });
+
   it('倒流区内的**非末条**负值 → 仍只换倒流色（回归，不放松）', () => {
     const notes = [bpmNote(0, 120), bpmNote(8, -120), bpmNote(12, 120)];
     const calls = renderLabels(notes, [{ note: notes[1]!, index: 1 }]);
@@ -185,6 +214,60 @@ describe('renderBpmLabels · 末条 BPM 为负的就地警示（issue 142）', (
     expect(fills[0]![1][0]).toBe('-120');
     expect(propValues(calls, 'fillStyle')).toContain(gridBpmNegativeColor('vivid'));
     expect(propValues(calls, 'fillStyle')).not.toContain(BPM_TAIL_WARNING_COLOR);
+  });
+});
+
+describe('layoutBpmLabelYs · 沟槽 BPM 数值撞 y 纵向错开（issue 159）', () => {
+  // 用户样例：beat 3 与 beat 5 时间轴秒数相同 → 沟槽数字原本画在同一 y。
+  const SAMPLE_BPM = [
+    { beat: 0, bpm: 120 },
+    { beat: 3, bpm: -178 },
+    { beat: 4, bpm: 178 },
+    { beat: 5, bpm: 178 },
+  ];
+  const FONT_PX = GUTTER_LABEL_FONT_PX;
+
+  function sampleLineYs(scrollY: number) {
+    const geometry = new ChartGeometry(SAMPLE_BPM, { endBeat: 16 }, TEST_SURFACE);
+    const viewport = { scrollX: 0, scrollY, scale: 1 };
+    const lineYOf = (beat: number) =>
+      geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, 1), viewport).y;
+    const items = SAMPLE_BPM.map((e) => ({ beat: e.beat, lineCanvasY: lineYOf(e.beat) }));
+    return { geometry, lineYOf, items, ys: layoutBpmLabelYs(items, FONT_PX) };
+  }
+
+  it('beat 3/−178 与 beat 5/178：layout.y 间距 ≥ 字号、组中心仍在共用线 y、文字盒不再相交', () => {
+    const geometry = new ChartGeometry(SAMPLE_BPM, { endBeat: 16 }, TEST_SURFACE);
+    const scrollY = geometry.beatToVirtualY(3, 1) - 400;
+    const { lineYOf, ys } = sampleLineYs(scrollY);
+    expect(lineYOf(3)).toBeCloseTo(lineYOf(5), 6);
+    const y3 = ys[1]!;
+    const y5 = ys[3]!;
+    expect(Math.abs(y5 - y3)).toBeGreaterThanOrEqual(FONT_PX);
+    expect((y3 + y5) / 2).toBeCloseTo(lineYOf(3), 6);
+    const boxH = FONT_PX;
+    expect(Math.abs(y5 - y3)).toBeGreaterThanOrEqual(boxH); // 中心距 ≥ 盒高 → 盒不相交
+    expect(Math.min(y3, y5) + boxH / 2).toBeLessThanOrEqual(Math.max(y3, y5) - boxH / 2 + 1e-9);
+    expect(y3).toBeLessThan(y5); // beat 升序：较小 beat 在画布上方
+  });
+
+  it('不撞 y 的 BPM（beat 0、beat 4）仍居中于各自的线', () => {
+    const geometry = new ChartGeometry(SAMPLE_BPM, { endBeat: 16 }, TEST_SURFACE);
+    const scrollY = geometry.beatToVirtualY(3, 1) - 400;
+    const { lineYOf, ys } = sampleLineYs(scrollY);
+    expect(ys[0]).toBeCloseTo(lineYOf(0), 6);
+    expect(ys[2]).toBeCloseTo(lineYOf(4), 6);
+  });
+
+  it('bpmLabelBox 与 layout 同 y', () => {
+    const geometry = new ChartGeometry(SAMPLE_BPM, { endBeat: 16 }, TEST_SURFACE);
+    const scrollY = geometry.beatToVirtualY(3, 1) - 400;
+    const { ys } = sampleLineYs(scrollY);
+    const trackStartX = 300;
+    const b3 = bpmLabelBox(trackStartX, ys[1]!, '-178');
+    const b5 = bpmLabelBox(trackStartX, ys[3]!, '178');
+    expect((b3.y1 + b3.y2) / 2).toBeCloseTo(ys[1]!, 6);
+    expect((b5.y1 + b5.y2) / 2).toBeCloseTo(ys[3]!, 6);
   });
 });
 

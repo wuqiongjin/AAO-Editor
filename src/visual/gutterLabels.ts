@@ -1,7 +1,7 @@
 // 外侧装饰文字系统（issue 51 grill 定案 2026-09-06；同日第二轮修订）：
 // 贴轨道外缘、恒定 CSS 像素间距与字号的画布标注文字体系。
-// 双带制（第二轮 Q2=A）：BPM 数值贴轨道（内带），START/END 远离轨道（外带）——水平分带互不抢占，
-// BPM 数值在端点处恒定居中（不再让位/堆叠）。
+// 双带制（第二轮 Q2=A）：BPM 数值贴轨道（内带），START/END 远离轨道（外带）——水平分带互不抢占。
+// 与端点文字不再互相让位；同沟槽内撞 y 的 BPM 数值按 issue 159 纵向错开。
 // 字号（第二轮 Q1=A）：基准 14px × settings.display.labelScale（50%..300%），缩放中恒定。
 // 实时显示线两侧信息（issue 54）是"实时信息文字"另一类样式（11px 基准、等宽、中性白），
 // 不走本模块字号，只复用沟槽锚定思想。
@@ -119,6 +119,70 @@ export function clampGutterLabelY(layout: GutterLabelLayout, surfaceH: number, f
   else if (layout.textBaseline === 'top') layout.y = Math.min(Math.max(layout.y, 0), surfaceH - fontPx);
   else layout.y = Math.min(Math.max(layout.y, fontPx), surfaceH); // bottom / alphabetic：基线最低=画布底缘
   return layout;
+}
+
+/**
+ * 沟槽 BPM 数值纵向错开（issue 159）：文字盒在画布 y 上相交的收成一组，
+ * 组内按 beat 升序错开、间距 = 字号，组中心仍对准各成员线 y 的均值。
+ * 绘制与命中共用；横线几何不走这里。
+ */
+export function layoutBpmLabelYs(
+  items: ReadonlyArray<{ beat: number; lineCanvasY: number }>,
+  fontPx: number,
+): number[] {
+  const n = items.length;
+  const ys = items.map((it) => it.lineCanvasY);
+  if (n <= 1) return ys;
+  const half = fontPx / 2;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (a: number): number => (parent[a] === a ? a : (parent[a] = find(parent[a]!)));
+  const unite = (a: number, b: number) => {
+    const pa = find(a);
+    const pb = find(b);
+    if (pa !== pb) parent[pa] = pb;
+  };
+  for (let i = 0; i < n; i++) {
+    const a1 = items[i]!.lineCanvasY - half;
+    const a2 = items[i]!.lineCanvasY + half;
+    for (let j = i + 1; j < n; j++) {
+      const b1 = items[j]!.lineCanvasY - half;
+      const b2 = items[j]!.lineCanvasY + half;
+      if (a1 < b2 && a2 > b1) unite(i, j);
+    }
+  }
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    const g = groups.get(root);
+    if (g) g.push(i);
+    else groups.set(root, [i]);
+  }
+  for (const members of groups.values()) {
+    members.sort((a, b) => items[a]!.beat - items[b]!.beat || a - b);
+    const center = members.reduce((s, i) => s + items[i]!.lineCanvasY, 0) / members.length;
+    const start = center - ((members.length - 1) * fontPx) / 2;
+    members.forEach((idx, k) => {
+      ys[idx] = start + k * fontPx;
+    });
+  }
+  return ys;
+}
+
+/** 全谱 BPM 的错开 y，键 = `notes` 下标。绘制 / 命中 / 就地编辑框共用。 */
+export function bpmLabelYByNoteIndex(
+  notes: ReadonlyArray<{ type: string; beat: number }>,
+  lineCanvasYOf: (beat: number) => number,
+  fontPx: number,
+): Map<number, number> {
+  const items: { beat: number; lineCanvasY: number }[] = [];
+  const idxs: number[] = [];
+  notes.forEach((n, i) => {
+    if (n.type !== 'BPM') return;
+    items.push({ beat: n.beat, lineCanvasY: lineCanvasYOf(n.beat) });
+    idxs.push(i);
+  });
+  const ys = layoutBpmLabelYs(items, fontPx);
+  return new Map(idxs.map((i, k) => [i, ys[k]!]));
 }
 
 /**

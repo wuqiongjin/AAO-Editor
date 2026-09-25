@@ -1,7 +1,7 @@
 # 159 · 倒流区撞 y 的 BPM 数值纵向错开
 
 Type: grilling（重开 issue 105「压字不做避让」；落地 = feature）
-Status: open（2026-09-25 已拍板，待实现）
+Status: resolved（2026-09-25 实现 + 锁测）
 Blocked by: —
 
 ## 来源
@@ -55,3 +55,18 @@ grill：Q2=B / Q7=A。
 ## Comments
 
 - 2026-09-25 grill：Q2=B 重开 105 压字边界；Q7=A 相交文字盒成组、纵向错开、beat 升序、命中跟字。
+
+## Answer
+
+沟槽 BPM 数值撞 y 时按文字盒相交聚类、组内 beat 升序纵向错开（间距 = 字号），绘制 / 命中 / 就地编辑框共用 `layoutBpmLabelYs`。横线不改。锁测在 `GutterLabels.test.ts` 与 `CanvasGesture.test.ts`（样例 beat 3/−178 与 beat 5/178）。
+
+已知不扩：`hitBpmLabelAt` 仍返回 beat（同拍多条点到后仍按 beat 找第一条，与既有就地编辑身份一致）；画布顶底 `clampGutterLabelY` 仍可能把错开对重新挤到一起。
+
+### 2026-09-25 实现
+
+- `src/visual/gutterLabels.ts`：`layoutBpmLabelYs` + `bpmLabelYByNoteIndex`
+- `renderBpmLabels` / `hitBpmLabelAt` / 输入框定位走同一套 y
+- issue 105 压字边界已指向本票
+- `tsc` 改动文件无新错；全量 1483 测绿
+
+页面验收：导入票面 JSON，左沟槽应能同时读到 −178 与 178。

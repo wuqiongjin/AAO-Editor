@@ -18,7 +18,7 @@ import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
-import { drawGutterLabel, layoutGutterLabel, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
+import { drawGutterLabel, layoutGutterLabel, bpmLabelYByNoteIndex, clampGutterLabelY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
@@ -1286,8 +1286,9 @@ export function renderBpmLines(ctx: CanvasRenderingContext2D, c: Coords, rc: Ren
 
 /**
  * 渲染 BPM 数值（issue 51 + 第二轮修订）：仅数值（不带 "BPM" 前缀），内带锚定
- * （贴轨道左外缘 8px）、垂直居中于线、字号 = 14px × labelScale；越出画布时钳制
- * （"都在谱面范围内"）。由 renderChart 编排在沟槽层（音符之上，沟槽内无音符）。
+ * （贴轨道左外缘 8px）、默认垂直居中于线；撞 y 时纵向错开（issue 159）。
+ * 字号 = 21px × labelScale；越出画布时钳制（"都在谱面范围内"）。
+ * 由 renderChart 编排在沟槽层（音符之上，沟槽内无音符）。
  */
 export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
   const preset = normalizeGridStyle(rc.display?.gridStyle);
@@ -1300,12 +1301,19 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   // 与「倒流区负值」（只换倒流色、无后缀）区分开 —— 两者语义不同：后者是合法写法，前者是打不开的谱。
   const tailIdx = indexOfTrailingNegativeBpm(rc.notes);
   const labelScale = rc.display?.labelScale ?? 1;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  // issue 159：全谱 BPM 一起聚类（含屏外同位伙伴），绘制与命中同一套 y。
+  const yByNoteIndex = bpmLabelYByNoteIndex(
+    rc.notes,
+    (beat) => c.virtualToCanvas(0, c.getNoteVirtualY(beat)).y,
+    fontPx,
+  );
   for (const { note, index } of visibleNotes) {
     if (note.type !== "BPM") continue;
     // issue 143 补修：就地编辑中 → 让位给 HTML 输入框（否则旧数值从框边露出，带小数时尤其明显）
     if (rc.bpmEditBeat !== null && rc.bpmEditBeat !== undefined
         && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) continue;
-    const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
+    const y = yByNoteIndex.get(index) ?? c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
     if (y < -50 || y > rc.surface.h + 50) continue;
     const layout = clampGutterLabelY(
       layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale),
