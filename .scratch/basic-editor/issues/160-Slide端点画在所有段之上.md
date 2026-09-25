@@ -1,7 +1,7 @@
 # 160 · Slide 端点（及可见结点）画在所有段之上
 
 Type: grilling（修订 issue 85「整条滑条按放置序叠」；落地 = feature）
-Status: open（2026-09-25 已拍板，待实现）
+Status: resolved
 Blocked by: —
 
 ## 来源
@@ -46,3 +46,8 @@ grill：Q3=B。
 ## Comments
 
 - 2026-09-25 grill：Q3=B；用户问性能 → 绘制次数不变，仅拆循环。
+- 2026-09-25 实现：`renderNotes` 拆全谱 `renderSpanBands` → `renderSlideBody`（结点 + flick）→ 键型；命中 rank 未改，加先放端点 vs 后放段回归锁。`tsc -b` 既有 ChartNote.beat 噪音未动；vitest 1491 全绿。页面验收仍待：交叉 Slide 先放头/尾露在后放带上。
+
+## Answer
+
+全谱段先画、全谱可见结点（含 flick 挂件）后画；键型仍在滑条之上。issue 85「整条原子叠」已在该票末注明被本票取代。

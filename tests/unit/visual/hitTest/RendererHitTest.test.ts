@@ -296,9 +296,7 @@ describe('方向滑键整组命中（issue 62）', () => {
   });
 });
 
-// issue 85 定案（用户 2026-09-10 拍板 = 整条 Slide 降级）：
-// ① 绘制顺序 = 滑条/长条在前、点音符在后（`ChartGeometry.visibleNotes`）→ 键型音符画在 Slide 之上；
-// ② 命中优先级 = 键型音符 > 滑条结点 > 滑条段，**同级取后放置者**（下标更大 = 画在上层）。
+// issue 85 / 160：键型 > 滑条结点 > 滑条段；同级后放置者。绘制上全谱段先于全谱结点。
 describe('图层与命中优先级（issue 85）', () => {
   const slideOf = (a: { beat: number; lane: number }, b: { beat: number; lane: number }): ChartNote =>
     ({ type: 'Slide', connections: [a, b] });
@@ -328,6 +326,16 @@ describe('图层与命中优先级（issue 85）', () => {
     ];
     const { deps, canvas } = makeDeps(notes);
     expect(findItemAt(canvas(3, 42).x, canvas(3, 42).y, deps)).toEqual({ kind: 'slideRegion', noteIndex: 1, connIndex: 0 });
+  });
+
+  // issue 160：绘制上后放段盖住先放端点，命中仍是 slideNode > slideRegion（先放端点点得中）
+  it('issue 160：后放滑条的段压在先放端点上 → 仍命中先放 slideNode', () => {
+    const notes: ChartNote[] = [
+      slideOf({ beat: 40, lane: 3 }, { beat: 44, lane: 3 }), // 先放：端点在 beat 40
+      slideOf({ beat: 38, lane: 3 }, { beat: 42, lane: 3 }), // 后放：段穿过 beat 40
+    ];
+    const { deps, canvas } = makeDeps(notes);
+    expect(findItemAt(canvas(3, 40).x, canvas(3, 40).y, deps)).toEqual({ kind: 'slideNode', noteIndex: 0, connIndex: 0 });
   });
 
   it('同条滑条内：结点仍优先于段（回归锁）', () => {

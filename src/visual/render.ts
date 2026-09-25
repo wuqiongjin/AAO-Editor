@@ -636,7 +636,21 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   if (rc.display?.simultaneousClickLines) {
     renderSimultaneousClickLines(ctx, c, rc, visibleNotes);
   }
-  // 第一层：普通音符和方向键主体
+  // issue 160：滑条两轮 — 先全谱段（后放置者在上），再全谱可见结点 + flick 挂件。
+  // 不再一条 renderSlideBody 原子画完，否则后放滑条的段会盖住先放端点。
+  visibleNotes.forEach(({ note }) => {
+    if (note.type !== "Slide" && note.type !== "Long") return;
+    const connections = (note as SlideNote).connections;
+    if (visibleEnds(connections).first < 0) return;
+    renderSpanBands(ctx, c, rc, connections, rc.display?.slideOpacity ?? 1);
+  });
+  visibleNotes.forEach(({ note }) => {
+    if (note.type === "Slide" || note.type === "Long") {
+      renderSlideBody(ctx, c, rc, note);
+    }
+  });
+
+  // 键型在全体滑条之上（issue 85 ①）
   visibleNotes.forEach(({ note }) => {
     if ((note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") && note.beat < 0) {
       return;
@@ -662,8 +676,6 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       // issue 29：N 条覆盖轨道扁平本体 + 最外侧箭头（dirGroup 几何由墨迹推导）
       const len = note.length;
       renderDirGroup(ctx, rc, icons.dirGroup(isLeft ? 'L' : 'R', len), canvasPos.x, canvasPos.y, spriteScale);
-    } else if (note.type === "Slide" || note.type === "Long") {
-      renderSlideBody(ctx, c, rc, note);
     }
   });
 
@@ -691,7 +703,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   });
 }
 
-/** 渲染一条滑条/长条：连接带 + 各结点（选中/hover 高亮由叠加层绘制，见 renderSelectionOverlay） */
+/** 渲染一条滑条/长条的可见结点 + flick 挂件（段由 renderNotes 全谱先画，issue 160） */
 function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: ChartNote) {
   const connections = (note as SlideNote).connections;
   // issue 106：可见结点 < 2 不再被校验拒收 → 这里按"有无可见结点"收口：全 hidden 时画布上没有任何效果；
@@ -701,9 +713,6 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   // issue 39 #1：slide 结点（起止/中间）图标随节奏图示大小缩放；连接带是线条，不随。
   const spriteScale = rc.viewport.scale * (rc.display?.noteSize ?? 1);
   const icons = rc.noteIcons;
-
-  // 带体几何/材质见 renderSpanBands：逻辑段分组 + 车道横向截面（与 hover 轮廓、命中区同一套几何）
-  renderSpanBands(ctx, c, rc, connections, rc.display?.slideOpacity ?? 1);
 
   connections.forEach((conn, i) => {
     const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));

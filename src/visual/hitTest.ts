@@ -67,10 +67,9 @@ export interface HitTestDeps {
 }
 
 /**
- * 图层优先级（issue 85 定案）：**键型音符 > 滑条结点 > 滑条段**。
- * Slide 整条（段 + 结点）在绘制上被压到键型音符之下（`ChartGeometry.visibleNotes` 的输出顺序），
- * 命中必须与绘制同序，否则"看着在上面的却点不到 / hover 亮的是被盖住的那个"。
- * Slide ↔ Slide 之间按**放置先后**：后放置者在上（= 数组下标更大），由倒序遍历自然得到。
+ * 图层优先级（issue 85 / 160）：**键型音符 > 滑条结点 > 滑条段**。
+ * 绘制：全谱段 → 全谱可见结点 → 键型（`visibleNotes` 仍滑条组在前）。命中 rank 与此同序；
+ * 同级后放置者在上（= 数组下标更大）。先放端点 vs 后放段 → 点到端点。
  */
 const RANK_KEY_NOTE = 2;   // 键型音符（单键/方向键）
 const RANK_SLIDE_NODE = 1; // 滑条结点
@@ -115,7 +114,7 @@ export function findItemAt(cx: number, cy: number, deps: HitTestDeps): Selection
   // issue 82：命中盒 = 墨迹矩形 + 2px 余量（见 HIT_PADDING 注释），取代旧的圆形半径判定
   const slideNodeHit = hitHalfSize(SLIDE_ICON_SIZE, SLIDE_HEIGHT_SCALE, ns, deps.viewport.scale);
   const noteHit = hitHalfSize(NOTE_ICON_SIZE, NOTE_HEIGHT_SCALE, ns, deps.viewport.scale);
-  // 连接带区域与渲染同步 × noteSize（render.renderSlideBody 的带宽已含 ns）
+  // 连接带区域与渲染同步 × noteSize（renderSpanBands 的带宽已含 ns）
   const halfLaneWidth = (LANE_WIDTH * deps.viewport.scale * ns) / 2;
 
   /** 单个音符的命中结果（滑条内部仍是**结点优先于段**，issue 56/77 定案不变） */
