@@ -1,16 +1,9 @@
 // 谱面信息对话框（chart-projects 04 / 05）：新增可贴谱面代码（Apply 闸门在调用方）；已上传只读。
 import { useState } from 'react';
 import type { ChartDifficulty, ChartProject, ProjectChart } from '../chart/project/ChartProject';
-import { DIFF_NAMES, projectDisplayName } from '../chart/project/projectCatalog';
+import { DIFF_NAMES } from '../chart/project/projectCatalog';
 import { t } from '../i18n';
-
-function untitled(): string {
-  return t('projects.untitled');
-}
-
-function displayName(project: { name: string | null }): string {
-  return projectDisplayName(project.name, untitled());
-}
+import { displayProjectName } from './projectUi';
 
 function parseLevel(raw: string): number | null {
   const trimmed = raw.trim();
@@ -49,8 +42,8 @@ export function ChartInfoDialog({
         {locked && <p className="pp-muted">{t('projects.uploadedReadonly')}</p>}
         <label className="pp-field">
           <span>{t('projects.chartName')}</span>
-          <input value={title} placeholder={displayName(project)} disabled={locked} onChange={(e) => setTitle(e.target.value)} />
-          <small>{t('projects.chartNameHint', { name: displayName(project) })}</small>
+          <input value={title} placeholder={displayProjectName(project)} disabled={locked} onChange={(e) => setTitle(e.target.value)} />
+          <small>{t('projects.chartNameHint', { name: displayProjectName(project) })}</small>
         </label>
         <div className="pp-field-row">
           <label className="pp-field">

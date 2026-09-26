@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Check, ChevronDown, Circle, Copy, FolderPlus, Lock, MoreHorizontal, Music2, Pencil, Play, Plus, Trash2, Upload,
+  ChevronDown, Copy, FolderPlus, Lock, MoreHorizontal, Music2, Pencil, Play, Plus, Trash2,
 } from 'lucide-react';
 import { useAppNav } from '../layouts/AppNav';
 import { useCurrentProject } from '../app/providers/CurrentProjectProvider';
@@ -21,7 +21,6 @@ import {
   duplicateChartInProject,
   duplicateProject,
   projectCoverHue,
-  projectDisplayName,
   sortProjectsByLastOpened,
   toggleChartCompleted,
   updateChartInfo,
@@ -32,21 +31,19 @@ import { countChartNotes } from '../chart/editing/NoteEditing';
 import { formatValidationError } from '../chart/editing/ChartConverter';
 import { t } from '../i18n';
 import { ChartInfoDialog } from './ChartInfoDialog';
+import {
+  ChartStatusIcon,
+  displayProjectName,
+  ProjectMenuItem,
+  untitledProjectLabel,
+} from './projectUi';
 import './ProjectsPage.css';
 
 const H = 3600_000;
 const D = 24 * H;
 
-function untitled(): string {
-  return t('projects.untitled');
-}
-
-function displayName(project: { name: string | null }): string {
-  return projectDisplayName(project.name, untitled());
-}
-
 function effectiveTitle(project: { name: string | null }, chart: { title: string | null }): string {
-  return chartEffectiveTitle(project.name, chart.title, untitled());
+  return chartEffectiveTitle(project.name, chart.title, untitledProjectLabel());
 }
 
 function relTime(at: number, now = Date.now()): string {
@@ -116,16 +113,9 @@ function Cover({ project, size }: { project: ChartProject; size: number }) {
   );
 }
 
-function StatusIcon({ chart, size = 12 }: { chart: ProjectChart; size?: number }) {
-  const s = chartStatus(chart);
-  if (s === 'uploaded') return <Upload size={size} className="pp-st pp-st--uploaded" />;
-  if (s === 'completed') return <Check size={size} className="pp-st pp-st--completed" />;
-  return <Circle size={size - 2} className="pp-st pp-st--unfinished" />;
-}
-
 function StatusBadge({ chart }: { chart: ProjectChart }) {
   const s = chartStatus(chart);
-  return <span className={`pp-badge pp-badge--${s}`}><StatusIcon chart={chart} size={11} />{statusLabel(chart)}</span>;
+  return <span className={`pp-badge pp-badge--${s}`}><ChartStatusIcon chart={chart} size={11} />{statusLabel(chart)}</span>;
 }
 
 function Menu({ trigger, children }: { trigger: ReactNode; children: ReactNode }) {
@@ -152,16 +142,6 @@ function Menu({ trigger, children }: { trigger: ReactNode; children: ReactNode }
         document.body,
       )}
     </span>
-  );
-}
-
-function MenuItem({ icon, label, onClick, danger, disabled }: {
-  icon: ReactNode; label: string; onClick?: () => void; danger?: boolean; disabled?: boolean;
-}) {
-  return (
-    <button type="button" className={`pp-menu__item${danger ? ' is-danger' : ''}`} disabled={disabled} onClick={onClick}>
-      {icon}<span>{label}</span>
-    </button>
   );
 }
 
@@ -199,7 +179,7 @@ function NewProjectDialog({
             <span>{t('projects.copyWhich')}</span>
             <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
               {projects.map((p) => (
-                <option key={p.id} value={p.id}>{t('projects.copyCharts', { name: displayName(p), count: p.charts.length })}</option>
+                <option key={p.id} value={p.id}>{t('projects.copyCharts', { name: displayProjectName(p), count: p.charts.length })}</option>
               ))}
             </select>
             <small>{t('projects.copyHint')}</small>
@@ -207,7 +187,7 @@ function NewProjectDialog({
         ) : (
           <>
             <div className="pp-field-row">
-              <label className="pp-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitled()} onChange={(e) => setName(e.target.value)} /></label>
+              <label className="pp-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
               <label className="pp-field"><span>{t('projects.artist')}</span><input value={artist} placeholder={t('projects.artistLater')} onChange={(e) => setArtist(e.target.value)} /></label>
             </div>
             <label className="pp-field">
@@ -253,7 +233,7 @@ function EditInfoDialog({ project, onClose, onSave }: {
       <div className="pp-dialog" onMouseDown={(e) => e.stopPropagation()}>
         <h3>{t('projects.editTitle')}</h3>
         <div className="pp-field-row">
-          <label className="pp-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitled()} onChange={(e) => setName(e.target.value)} /></label>
+          <label className="pp-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
           <label className="pp-field"><span>{t('projects.artist')}</span><input value={artist} onChange={(e) => setArtist(e.target.value)} /></label>
         </div>
         <label className="pp-field">
@@ -350,7 +330,7 @@ export default function ProjectsPage() {
   const confirmDelete = useCallback(async (p: ChartProject) => {
     const uploaded = p.charts.filter((c) => c.upload).length;
     const extra = uploaded ? `\n${t('projects.confirmDeleteUploaded', { count: uploaded })}` : '';
-    if (!window.confirm(`${t('projects.confirmDelete', { name: displayName(p), charts: p.charts.length })}${extra}`)) return;
+    if (!window.confirm(`${t('projects.confirmDelete', { name: displayProjectName(p), charts: p.charts.length })}${extra}`)) return;
     await flushPersist();
     const wasCurrent = projectId === p.id;
     await store.delete(p.id);
@@ -386,7 +366,7 @@ export default function ProjectsPage() {
       id: newProjectId(),
       chartIds: src.charts.map(() => newChartId()),
       now,
-    }, untitled());
+    }, untitledProjectLabel());
     await store.save(copy);
     notifyCatalogChanged();
     setNewSource(null);
@@ -454,17 +434,17 @@ export default function ProjectsPage() {
         <Plus size={15} />{t('projects.newProject')}
       </button>
       <Menu trigger={<button type="button" className="pp-btn pp-btn--primary pp-split__caret"><ChevronDown size={15} /></button>}>
-        <MenuItem icon={<FolderPlus size={14} />} label={t('projects.newBlank')} onClick={() => setNewSource('blank')} />
-        <MenuItem icon={<Copy size={14} />} label={t('projects.newCopy')} onClick={() => setNewSource('copy')} disabled={list.length === 0} />
+        <ProjectMenuItem icon={<FolderPlus size={14} />} label={t('projects.newBlank')} onClick={() => setNewSource('blank')} />
+        <ProjectMenuItem icon={<Copy size={14} />} label={t('projects.newCopy')} onClick={() => setNewSource('copy')} disabled={list.length === 0} />
       </Menu>
     </span>
   );
 
   const projectMenu = (p: ChartProject) => (
     <Menu trigger={<button type="button" className="pp-icon-btn" title={t('projects.more')}><MoreHorizontal size={16} /></button>}>
-      <MenuItem icon={<Pencil size={14} />} label={t('projects.editInfo')} onClick={() => setEditing(p)} />
-      <MenuItem icon={<Copy size={14} />} label={t('projects.duplicate')} onClick={() => void copyProject(p.id)} />
-      <MenuItem icon={<Trash2 size={14} />} label={t('projects.delete')} danger onClick={() => void confirmDelete(p)} />
+      <ProjectMenuItem icon={<Pencil size={14} />} label={t('projects.editInfo')} onClick={() => setEditing(p)} />
+      <ProjectMenuItem icon={<Copy size={14} />} label={t('projects.duplicate')} onClick={() => void copyProject(p.id)} />
+      <ProjectMenuItem icon={<Trash2 size={14} />} label={t('projects.delete')} danger onClick={() => void confirmDelete(p)} />
     </Menu>
   );
 
@@ -502,7 +482,7 @@ export default function ProjectsPage() {
                   <Cover project={p} size={36} />
                   <span className="pc-item__text">
                     <b className={p.name ? '' : 'pp-muted'}>
-                      {displayName(p)}
+                      {displayProjectName(p)}
                       {p.id === projectId && <em className="pp-current-tag">{t('projects.current')}</em>}
                     </b>
                     <small className="pp-muted">{t('projects.doneRatio', { done, n, time: relTime(p.lastOpened) })}</small>
@@ -516,7 +496,7 @@ export default function ProjectsPage() {
             <header className="pc-detail__head">
               <Cover project={sel} size={96} />
               <div>
-                <h2 className={sel.name ? '' : 'pp-muted'}>{displayName(sel)}</h2>
+                <h2 className={sel.name ? '' : 'pp-muted'}>{displayProjectName(sel)}</h2>
                 <p className="pp-muted">{sel.artist ?? t('projects.artistMissing')} · {sourceLabel(sel.source)}</p>
                 <p className="pp-muted">
                   <Music2 size={12} /> {sel.audioName ?? t('projects.noAudio')} · {formatDuration(sel.durationSeconds)}
@@ -562,7 +542,7 @@ export default function ProjectsPage() {
                           type="button"
                           className="pp-icon-btn"
                           title={t('projects.duplicateChart')}
-                          onClick={() => void mutate(sel.id, (p) => duplicateChartInProject(p, c.id, { chartId: newChartId(), now: Date.now() }, untitled()))}
+                          onClick={() => void mutate(sel.id, (p) => duplicateChartInProject(p, c.id, { chartId: newChartId(), now: Date.now() }, untitledProjectLabel()))}
                         >
                           <Copy size={14} />
                         </button>
@@ -646,7 +626,7 @@ function ProjectStartView({
           <div className="pb-hero__body">
             <span className="pp-eyebrow">{t('projects.resume')}</span>
             <h2>
-              {displayName(resume)}
+              {displayProjectName(resume)}
               <button type="button" className="pb-hero__detail" onClick={() => onDetail(resume.id)}>{t('projects.detailLink')}</button>
             </h2>
             <p className="pp-muted">{resume.artist ?? t('projects.artistMissing')} · {t('projects.lastOpened', { time: relTime(resume.lastOpened) })}</p>
@@ -654,7 +634,7 @@ function ProjectStartView({
               {resume.charts.map((c) => (
                 <button key={c.id} type="button" className="pb-chart-btn" onClick={() => onOpen(resume.id, c.id)}>
                   <span className="pp-pill__diff" style={{ background: DIFF_COLORS[c.diff] }}>{DIFF_SHORT[c.diff]}</span>
-                  {effectiveTitle(resume, c) !== displayName(resume) && <span>{c.title}</span>}
+                  {effectiveTitle(resume, c) !== displayProjectName(resume) && <span>{c.title}</span>}
                   <StatusBadge chart={c} />
                 </button>
               ))}
@@ -693,7 +673,7 @@ function ProjectStartView({
                   <Play size={16} />
                 </button>
               </div>
-              <b className={p.name ? '' : 'pp-muted'}>{displayName(p)}</b>
+              <b className={p.name ? '' : 'pp-muted'}>{displayProjectName(p)}</b>
               <small className="pp-muted">{p.artist ?? '—'} · {relTime(p.lastOpened)}</small>
               <span className="pb-card__dots">
                 {p.charts.map((c) => (

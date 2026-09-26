@@ -137,19 +137,3 @@
 .pc-uploads li { display: flex; align-items: center; gap: 8px; }
 .pc-uploads a { color: var(--accent-text); }
 .pp-pill__diff { display: inline-grid; place-items: center; min-width: 22px; height: 16px; padding: 0 4px; border-radius: var(--radius-full); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
-
-.cs-b { display: flex; align-items: center; gap: 8px; min-width: 0; height: 100%; flex: 1; font-size: var(--text-sm); overflow: visible; }
-.cs-crumb { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; max-width: 200px; height: 26px; padding: 0 8px; border: none; border-radius: var(--radius-sm); background: none; color: var(--text); font-size: var(--text-sm); font-weight: 600; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cs-crumb:hover { background: var(--bg-hover); }
-.cs-readonly { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 8px; border-radius: var(--radius-full); background: var(--warning-soft); color: var(--warning-text); font-size: var(--text-xs); white-space: nowrap; }
-.cs-readonly button { height: 18px; padding: 0 8px; border: none; border-radius: var(--radius-full); background: var(--warning-text); color: var(--bg); font-size: var(--text-2xs); cursor: pointer; }
-.cs-b__current { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; height: 28px; padding: 0 8px 0 4px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-elevated); color: var(--text); font-size: var(--text-sm); cursor: pointer; white-space: nowrap; }
-.cs-b__current:hover { border-color: var(--border-strong); }
-.cs-b__panel { min-width: 340px; max-width: min(440px, calc(100vw - 24px)); }
-.cs-b__label { padding: 6px 10px 4px; font-size: var(--text-2xs); color: var(--text-subtle); text-transform: uppercase; letter-spacing: .06em; }
-.cs-b__row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: none; border-radius: var(--radius-sm); background: none; color: var(--text); text-align: left; cursor: pointer; }
-.cs-b__row:hover { background: var(--bg-hover); }
-.cs-b__row.is-active { background: var(--accent-soft); }
-.cs-b__title { display: flex; flex-direction: column; flex: 1; min-width: 0; font-size: var(--text-sm); }
-.cs-b__title small { font-size: var(--text-2xs); }
-.cs-b__sep { height: 1px; margin: 4px 6px; background: var(--border-faint); }
