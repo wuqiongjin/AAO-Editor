@@ -86,6 +86,8 @@ export interface ProjectGetWire {
 export interface ProjectListItem {
   id: string;
   doc: ProjectRecordDoc;
+  /** 封面墙用；音频不进 list */
+  cover?: Uint8Array | null;
 }
 
 /** preload 注入的桥（electronAPI.projectStore） */
@@ -153,20 +155,6 @@ export function projectFromDoc(
     coverName: doc.coverName ?? null,
     ...(audioBlob ? { audioBlob } : {}),
     ...(coverBlob ? { coverBlob } : {}),
-  };
-}
-
-function projectWithoutBlobs(project: ChartProject): ChartProject {
-  return {
-    id: project.id,
-    name: project.name,
-    artist: project.artist,
-    source: project.source,
-    durationSeconds: project.durationSeconds,
-    lastOpened: project.lastOpened,
-    charts: project.charts,
-    audioName: project.audioName,
-    coverName: project.coverName,
   };
 }
 
@@ -284,7 +272,10 @@ export class IndexedDbProjectBackend implements ChartProjectBackend {
       const req = tx.objectStore(STORE).getAll();
       req.onsuccess = () => {
         const rows = (req.result as unknown[]).map(fromStored).filter((p): p is ChartProject => p != null);
-        resolve(rows.map(projectWithoutBlobs));
+        resolve(rows.map((p) => {
+          const { audioBlob: _audio, ...rest } = p;
+          return rest;
+        }));
       };
       req.onerror = () => reject(req.error);
     });
@@ -370,7 +361,7 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
     const items = await this.bridge.list();
     return items
       .filter((item) => isCurrentProjectSchema(item.doc))
-      .map((item) => projectFromDoc(item.id, item.doc, null, null));
+      .map((item) => projectFromDoc(item.id, item.doc, null, item.cover ?? null));
   }
 
   async delete(id: string): Promise<void> {
@@ -392,17 +383,25 @@ function autoDetectBackend(): ChartProjectBackend {
 
 export class ChartProjectStore {
   private backend: ChartProjectBackend;
+  private lastOpenedFloor = new Map<string, number>();
 
   constructor(backend: ChartProjectBackend = autoDetectBackend()) {
     this.backend = backend;
   }
 
-  get(id: string): Promise<ChartProject | null> {
-    return this.backend.get(id);
+  async get(id: string): Promise<ChartProject | null> {
+    const project = await this.backend.get(id);
+    if (project) {
+      this.lastOpenedFloor.set(id, Math.max(this.lastOpenedFloor.get(id) ?? 0, project.lastOpened));
+    }
+    return project;
   }
 
   save(project: ChartProject): Promise<void> {
-    return this.backend.save(project);
+    const floor = this.lastOpenedFloor.get(project.id) ?? 0;
+    const lastOpened = Math.max(floor, project.lastOpened);
+    this.lastOpenedFloor.set(project.id, lastOpened);
+    return this.backend.save(lastOpened === project.lastOpened ? project : { ...project, lastOpened });
   }
 
   list(): Promise<ChartProject[]> {
@@ -410,6 +409,7 @@ export class ChartProjectStore {
   }
 
   delete(id: string): Promise<void> {
+    this.lastOpenedFloor.delete(id);
     return this.backend.delete(id);
   }
 }

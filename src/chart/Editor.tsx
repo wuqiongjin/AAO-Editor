@@ -164,7 +164,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setIsPlaying,
   });
   const { togglePlay, seek, jumpToMarker, stopPlayback } = playbackCoord;
-  const { projectId, chartId } = useCurrentProject();
+  const { projectId, chartId, store, catalogEpoch, registerPersistFlush } = useCurrentProject();
 
   // 当前工程恢复（ADR-0015 §3）：切工程时整份编辑态换成新工程，剪贴板由 resetNotes 保留。
   const handleProjectRestore = useCallback(async (
@@ -197,6 +197,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const persistence = useChartProjectPersistence({
     projectId,
     chartId,
+    catalogEpoch,
+    store,
     notes,
     durationSeconds: ctxDuration,
     audioName: audioForPersist.audioName,
@@ -205,13 +207,14 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     chartCodePristine,
     onRestore: handleProjectRestore,
   });
-  // 把 saveNow 一次性注入到 session（导入/清除后自动调）。
-  // 依赖 saveNow 函数本身（hook 返回的函数引用稳定），不依赖整个 persistence 对象。
-  // 用 useCallback 让闭包只依赖 saveNow 本身（与 deps 对齐）。
   const persistNow = useCallback(() => persistence.saveNow(), [persistence]);
   useEffect(() => {
     audioSession.setPersistNow(persistNow);
   }, [audioSession, persistNow]);
+  useEffect(() => {
+    registerPersistFlush(persistNow);
+    return () => registerPersistFlush(null);
+  }, [persistNow, registerPersistFlush]);
 
   // === 会话流 5：布局持久化（issue 22 §6 / ADR-0003 §6） ===
   useLayoutPersistence({ settings, ui, setLayout });

@@ -14,6 +14,8 @@ export interface UseChartProjectPersistenceOptions {
   projectId: string | null;
   /** 当前谱面 id；null 时取工程第一张 */
   chartId: string | null;
+  /** 工程目录改了当前工程（新增谱面等）时递增；同 id 下只重载不 flush，避免把目录写入冲掉 */
+  catalogEpoch?: number;
   /** 当前 notes（编辑中） */
   notes: ChartNote[];
   /** 当前谱面时长（秒） */
@@ -38,7 +40,7 @@ export interface UseChartProjectPersistenceReturn {
 
 export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptions): UseChartProjectPersistenceReturn {
   const {
-    projectId, chartId,
+    projectId, chartId, catalogEpoch = 0,
     notes, durationSeconds, audioName, audioBlob,
     appliedChartCodeText, chartCodePristine,
     debounceMs = 800, store: storeOpt, onRestore,
@@ -80,10 +82,15 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   const projectRef = useRef<ChartProject | null>(null);
   const boundProjectIdRef = useRef<string | null>(null);
   const boundChartIdRef = useRef<string | null>(null);
+  const boundEpochRef = useRef(0);
   const restoreSettledRef = useRef(true);
   const loadGenRef = useRef(0);
 
-  if (projectId !== boundProjectIdRef.current || chartId !== boundChartIdRef.current) {
+  if (
+    projectId !== boundProjectIdRef.current
+    || chartId !== boundChartIdRef.current
+    || catalogEpoch !== boundEpochRef.current
+  ) {
     restoreSettledRef.current = false;
   }
 
@@ -122,14 +129,24 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   useEffect(() => {
     const wantedProject = projectId;
     const wantedChart = chartId;
-    if (wantedProject === boundProjectIdRef.current && wantedChart === boundChartIdRef.current) return;
+    const wantedEpoch = catalogEpoch;
+    const prevProject = boundProjectIdRef.current;
+    const prevChart = boundChartIdRef.current;
+    const prevEpoch = boundEpochRef.current;
+    const epochChanged = wantedEpoch !== prevEpoch;
+    const sameBinding = wantedProject === prevProject && wantedChart === prevChart;
+    if (sameBinding && !epochChanged) return;
     restoreSettledRef.current = false;
     const gen = ++loadGenRef.current;
 
     void (async () => {
-      const prev = buildProject();
-      if (prev != null && boundProjectIdRef.current != null) {
-        await ensureMerger().flush(prev).catch(() => { /* 静默 */ });
+      // 卸当前工程（删除后 reset）不再 flush，避免把刚删的记录写回去。调用方若要保留编辑应先 flushPersist。
+      // 目录写入后的 epoch 递增只重载，也不 flush，避免用过期 charts[] 盖掉新增谱面。
+      if (wantedProject != null && !epochChanged && prevProject != null) {
+        const prev = buildProject();
+        if (prev != null) {
+          await ensureMerger().flush(prev).catch(() => { /* 静默 */ });
+        }
       }
       if (gen !== loadGenRef.current) return;
 
@@ -137,6 +154,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
         projectRef.current = null;
         boundProjectIdRef.current = null;
         boundChartIdRef.current = null;
+        boundEpochRef.current = wantedEpoch;
         restoreSettledRef.current = true;
         return;
       }
@@ -157,20 +175,25 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       if (!loaded) {
         boundProjectIdRef.current = wantedProject;
         boundChartIdRef.current = wantedChart;
+        boundEpochRef.current = wantedEpoch;
         restoreSettledRef.current = true;
         return;
       }
 
-      const restoreAudio = wantedProject !== boundProjectIdRef.current;
       const chart = pickCurrentChart(loaded, wantedChart);
+      const projectChanged = loaded.id !== prevProject;
+      const chartChanged = chart.id !== prevChart;
       projectRef.current = loaded;
       boundProjectIdRef.current = loaded.id;
       boundChartIdRef.current = chart.id;
-      await onRestoreRef.current(loaded, chart, { restoreAudio });
+      boundEpochRef.current = wantedEpoch;
+      if (projectChanged || chartChanged) {
+        await onRestoreRef.current(loaded, chart, { restoreAudio: projectChanged && !epochChanged });
+      }
       if (gen !== loadGenRef.current) return;
       restoreSettledRef.current = true;
     })();
-  }, [projectId, chartId, buildProject, ensureMerger]);
+  }, [projectId, chartId, catalogEpoch, buildProject, ensureMerger]);
 
   useEffect(() => {
     if (!restoreSettledRef.current) return;

@@ -50,4 +50,10 @@ describe('PAGE_NAV · 应用壳接线', () => {
     expect(src).toMatch(/projects:\s*ProjectsPage/);
     expect(src).not.toMatch(/isProjectsPrototype/);
   });
+
+  it('工程管理页不再把原型挂成默认入口', () => {
+    const src = readStripped('src/pages/ProjectsPage.tsx');
+    expect(src).not.toMatch(/isProjectsPrototype/);
+    expect(src).not.toMatch(/ProjectsPrototype/);
+  });
 });

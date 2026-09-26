@@ -7,17 +7,30 @@ import { CurrentProjectSession } from '../../chart/project/CurrentProjectSession
 export interface CurrentProjectContextValue {
   projectId: string | null;
   chartId: string | null;
+  store: ChartProjectStore;
+  catalogEpoch: number;
   ensure: () => Promise<{ project: ChartProject; chart: ProjectChart; created: boolean }>;
   open: (projectId: string, chartId?: string) => Promise<{ project: ChartProject; chart: ProjectChart }>;
+  reset: () => void;
+  notifyCatalogChanged: () => void;
+  registerPersistFlush: (fn: (() => Promise<void>) | null) => void;
+  flushPersist: () => Promise<void>;
 }
 
 const CurrentProjectContext = createContext<CurrentProjectContextValue | null>(null);
 
+let sharedStore: ChartProjectStore | null = null;
 let sharedSession: CurrentProjectSession | null = null;
 
-function sessionFor(store?: ChartProjectStore): CurrentProjectSession {
-  if (store) return new CurrentProjectSession(store);
-  if (!sharedSession) sharedSession = new CurrentProjectSession(new ChartProjectStore());
+function storeFor(store?: ChartProjectStore): ChartProjectStore {
+  if (store) return store;
+  if (!sharedStore) sharedStore = new ChartProjectStore();
+  return sharedStore;
+}
+
+function sessionFor(store: ChartProjectStore, injected?: ChartProjectStore): CurrentProjectSession {
+  if (injected) return new CurrentProjectSession(store);
+  if (!sharedSession) sharedSession = new CurrentProjectSession(store);
   return sharedSession;
 }
 
@@ -28,12 +41,16 @@ export function CurrentProjectProvider({
   children: ReactNode;
   store?: ChartProjectStore;
 }) {
+  const storeRef = useRef<ChartProjectStore | null>(null);
+  if (storeRef.current == null) storeRef.current = storeFor(store);
   const sessionRef = useRef<CurrentProjectSession | null>(null);
   if (sessionRef.current == null) {
-    sessionRef.current = sessionFor(store);
+    sessionRef.current = sessionFor(storeRef.current, store);
   }
+  const persistFlushRef = useRef<() => Promise<void>>(async () => {});
   const [projectId, setProjectId] = useState<string | null>(() => sessionRef.current!.projectId);
   const [chartId, setChartId] = useState<string | null>(() => sessionRef.current!.chartId);
+  const [catalogEpoch, setCatalogEpoch] = useState(0);
 
   const ensure = useCallback(async () => {
     const result = await sessionRef.current!.ensure();
@@ -49,9 +66,36 @@ export function CurrentProjectProvider({
     return result;
   }, []);
 
+  const reset = useCallback(() => {
+    sessionRef.current!.reset();
+    setProjectId(null);
+    setChartId(null);
+  }, []);
+
+  const notifyCatalogChanged = useCallback(() => {
+    setCatalogEpoch((n) => n + 1);
+  }, []);
+
+  const registerPersistFlush = useCallback((fn: (() => Promise<void>) | null) => {
+    persistFlushRef.current = fn ?? (async () => {});
+  }, []);
+
+  const flushPersist = useCallback(() => persistFlushRef.current(), []);
+
   const value = useMemo(
-    () => ({ projectId, chartId, ensure, open }),
-    [projectId, chartId, ensure, open],
+    () => ({
+      projectId,
+      chartId,
+      store: storeRef.current!,
+      catalogEpoch,
+      ensure,
+      open,
+      reset,
+      notifyCatalogChanged,
+      registerPersistFlush,
+      flushPersist,
+    }),
+    [projectId, chartId, catalogEpoch, ensure, open, reset, notifyCatalogChanged, registerPersistFlush, flushPersist],
   );
   return <CurrentProjectContext.Provider value={value}>{children}</CurrentProjectContext.Provider>;
 }

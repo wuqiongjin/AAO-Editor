@@ -103,4 +103,10 @@ export class CurrentProjectSession {
     this._chartId = chart.id;
     return { project, chart };
   }
+
+  /** 删除当前工程后卸会话；进工作台会再 ensure。 */
+  reset(): void {
+    this._projectId = null;
+    this._chartId = null;
+  }
 }

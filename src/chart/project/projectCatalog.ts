@@ -1,0 +1,234 @@
+// 工程目录操作（chart-projects 04）：纯函数，页面与工作台共用。
+// 新建 / 复制工程 / 新增谱面（Apply 闸门）/ 谱面列表展示名。
+import {
+  convertChartCodeToNotes,
+  hasBeat0Bpm,
+  validateChartCodeJSON,
+  type ValidationError,
+} from '../editing/ChartConverter';
+import type { ChartDifficulty, ChartProject, ProjectChart, SongSource } from './ChartProject';
+import { createUnnamedProject, emptyChartNotes } from './workspaceProject';
+import { t } from '../../i18n';
+
+export const DIFF_NAMES = ['Easy', 'Normal', 'Hard', 'Expert', 'Special'] as const;
+export const DIFF_SHORT = ['EZ', 'NM', 'HD', 'EX', 'SP'] as const;
+export const DIFF_COLORS = ['#3b82f6', '#22a35a', '#d4a106', '#e5484d', '#d9468f'] as const;
+
+const DEFAULT_UNTITLED = '未命名工程';
+
+export function projectDisplayName(name: string | null | undefined, untitled: string): string {
+  const trimmed = name?.trim();
+  return trimmed ? trimmed : untitled;
+}
+
+export function chartEffectiveTitle(
+  projectName: string | null | undefined,
+  chartTitle: string | null | undefined,
+  untitled: string,
+): string {
+  const title = chartTitle?.trim();
+  return title ? title : projectDisplayName(projectName, untitled);
+}
+
+export function sortProjectsByLastOpened<T extends { lastOpened: number }>(projects: readonly T[]): T[] {
+  return [...projects].sort((a, b) => b.lastOpened - a.lastOpened);
+}
+
+/** 封面墙无图时的占位色相：由工程 id 稳定派生，不入库。 */
+export function projectCoverHue(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 33 + id.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+export function createBlankProject(opts: {
+  id: string;
+  chartId: string;
+  now: number;
+  name?: string;
+  artist?: string;
+  diff?: ChartDifficulty;
+}): ChartProject {
+  const project = createUnnamedProject({ id: opts.id, chartId: opts.chartId, now: opts.now });
+  const diff = opts.diff ?? 3;
+  return {
+    ...project,
+    name: opts.name?.trim() || null,
+    artist: opts.artist?.trim() || null,
+    charts: [{ ...project.charts[0], diff }],
+  };
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+export function duplicateProject(
+  src: ChartProject,
+  ids: { id: string; chartIds: string[]; now: number },
+  untitled: string = DEFAULT_UNTITLED,
+): ChartProject {
+  const charts = src.charts.map((chart, i) => ({
+    ...chart,
+    id: ids.chartIds[i] ?? chart.id,
+    notes: cloneJson(chart.notes),
+    completed: false,
+    upload: null,
+    lastModified: ids.now,
+  }));
+  return {
+    ...src,
+    id: ids.id,
+    name: `${projectDisplayName(src.name, untitled)}（副本）`,
+    lastOpened: ids.now,
+    charts,
+  };
+}
+
+export type AddChartInput = {
+  title: string | null;
+  diff: ChartDifficulty;
+  level: number | null;
+  codeText: string;
+};
+
+export type AddChartResult =
+  | { ok: true; project: ChartProject; chart: ProjectChart }
+  | { ok: false; errors: ValidationError[] };
+
+export function addChartToProject(
+  project: ChartProject,
+  input: AddChartInput,
+  ids: { chartId: string; now: number },
+): AddChartResult {
+  const trimmed = input.codeText.trim();
+  let notes = emptyChartNotes();
+  let appliedChartCodeText: string | null = null;
+  let chartCodePristine = false;
+
+  if (trimmed) {
+    const check = validateChartCodeJSON(trimmed);
+    if (!check.valid) return { ok: false, errors: check.errors };
+    const parsed = JSON.parse(trimmed) as Parameters<typeof convertChartCodeToNotes>[0];
+    if (!hasBeat0Bpm(parsed)) {
+      return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.needBpm0') }] };
+    }
+    notes = convertChartCodeToNotes(parsed);
+    appliedChartCodeText = trimmed;
+    chartCodePristine = true;
+  }
+
+  const chart: ProjectChart = {
+    id: ids.chartId,
+    notes,
+    title: input.title?.trim() || null,
+    diff: input.diff,
+    level: input.level,
+    completed: false,
+    upload: null,
+    lastModified: ids.now,
+    appliedChartCodeText,
+    chartCodePristine,
+  };
+  return { ok: true, project: { ...project, charts: [...project.charts, chart] }, chart };
+}
+
+/** 复制谱面默认名：原显示名 +「（副本）」，重名则（副本 2）… */
+export function uniqueCopyTitle(base: string, taken: string[]): string {
+  const stem = base.replace(/（副本(?: \d+)?）$/, '') || base;
+  const used = new Set(taken);
+  const first = `${stem}（副本）`;
+  if (!used.has(first)) return first;
+  for (let n = 2; ; n++) {
+    const next = `${stem}（副本 ${n}）`;
+    if (!used.has(next)) return next;
+  }
+}
+
+export function duplicateChartInProject(
+  project: ChartProject,
+  chartId: string,
+  ids: { chartId: string; now: number },
+  untitled: string,
+): ChartProject | null {
+  const index = project.charts.findIndex((c) => c.id === chartId);
+  if (index < 0) return null;
+  const src = project.charts[index];
+  const taken = project.charts.map((c) => chartEffectiveTitle(project.name, c.title, untitled));
+  const copy: ProjectChart = {
+    ...src,
+    id: ids.chartId,
+    notes: cloneJson(src.notes),
+    title: uniqueCopyTitle(chartEffectiveTitle(project.name, src.title, untitled), taken),
+    completed: false,
+    upload: null,
+    lastModified: ids.now,
+  };
+  return {
+    ...project,
+    charts: [...project.charts.slice(0, index + 1), copy, ...project.charts.slice(index + 1)],
+  };
+}
+
+export function deleteChartFromProject(
+  project: ChartProject,
+  chartId: string,
+): { ok: true; project: ChartProject } | { ok: false; reason: 'last' | 'missing' } {
+  if (project.charts.length <= 1) return { ok: false, reason: 'last' };
+  if (!project.charts.some((c) => c.id === chartId)) return { ok: false, reason: 'missing' };
+  return { ok: true, project: { ...project, charts: project.charts.filter((c) => c.id !== chartId) } };
+}
+
+export function toggleChartCompleted(project: ChartProject, chartId: string, now: number): ChartProject {
+  return {
+    ...project,
+    charts: project.charts.map((c) => (
+      c.id === chartId && !c.upload
+        ? { ...c, completed: !c.completed, lastModified: now }
+        : c
+    )),
+  };
+}
+
+export function updateChartInfo(
+  project: ChartProject,
+  chartId: string,
+  patch: { title: string | null; diff: ChartDifficulty; level: number | null },
+  now: number,
+): ChartProject {
+  return {
+    ...project,
+    charts: project.charts.map((c) => (
+      c.id === chartId && !c.upload
+        ? { ...c, title: patch.title?.trim() || null, diff: patch.diff, level: patch.level, lastModified: now }
+        : c
+    )),
+  };
+}
+
+export function updateProjectInfo(
+  project: ChartProject,
+  patch: {
+    name: string | null;
+    artist: string | null;
+    source: SongSource;
+    coverName?: string | null;
+    coverBlob?: Blob;
+    clearCover?: boolean;
+  },
+): ChartProject {
+  const next: ChartProject = {
+    ...project,
+    name: patch.name?.trim() || null,
+    artist: patch.artist?.trim() || null,
+    source: patch.source,
+  };
+  if (patch.clearCover) {
+    next.coverName = null;
+    delete next.coverBlob;
+  } else if (patch.coverBlob) {
+    next.coverName = patch.coverName ?? project.coverName;
+    next.coverBlob = patch.coverBlob;
+  }
+  return next;
+}

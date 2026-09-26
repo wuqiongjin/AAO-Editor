@@ -108,9 +108,11 @@ async function listProjects(dataRoot) {
         } catch {
             continue;
         }
-        const doc = await readProjectJson(path.join(projectsDir(dataRoot), ent.name));
+        const dir = path.join(projectsDir(dataRoot), ent.name);
+        const doc = await readProjectJson(dir);
         if (!isCurrentDoc(doc)) continue;
-        out.push({ id: ent.name, doc });
+        const cover = await readBinIfPresent(dir, 'cover.bin', doc.coverPresent);
+        out.push({ id: ent.name, doc, cover });
     }
     return out;
 }

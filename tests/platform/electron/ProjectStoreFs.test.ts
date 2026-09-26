@@ -63,9 +63,14 @@ describe('electron/projectStore · 真文件往返', () => {
 
       const listed = await listProjects(root);
       expect(listed.map((p: { id: string }) => p.id).sort()).toEqual(['pA', 'pB']);
-      const listedA = listed.find((p: { id: string }) => p.id === 'pA');
+      const listedA = listed.find((p: { id: string }) => p.id === 'pA') as {
+        id: string;
+        doc: { audioPresent: boolean; coverPresent: boolean };
+        cover?: Uint8Array | null;
+      };
       expect(listedA?.doc.audioPresent).toBe(true);
       expect(listedA?.doc.coverPresent).toBe(true);
+      expect(Buffer.from(listedA.cover ?? [])).toEqual(Buffer.from([9, 9, 9]));
 
       const got = await getProject(root, 'pA');
       if (!got) throw new Error('expected pA');
@@ -77,6 +82,8 @@ describe('electron/projectStore · 真文件往返', () => {
 
       await deleteProject(root, 'pA');
       expect(existsSync(join(root, 'projects', 'pA'))).toBe(false);
+      expect(existsSync(join(root, 'projects', 'pA', 'audio.bin'))).toBe(false);
+      expect(existsSync(join(root, 'projects', 'pA', 'cover.bin'))).toBe(false);
       expect((await listProjects(root)).map((p: { id: string }) => p.id)).toEqual(['pB']);
     } finally {
       rmSync(root, { recursive: true, force: true });

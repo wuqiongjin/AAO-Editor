@@ -54,7 +54,11 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
   });
 
   const list = vi.fn(async () =>
-    [...disk.entries()].map(([id, row]) => ({ id, doc: row.doc as unknown as ProjectGetWire['doc'] })),
+    [...disk.entries()].map(([id, row]) => ({
+      id,
+      doc: row.doc as unknown as ProjectGetWire['doc'],
+      cover: row.cover,
+    })),
   );
 
   const deleteProject = vi.fn(async (id: string) => {
