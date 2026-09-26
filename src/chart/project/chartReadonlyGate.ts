@@ -24,6 +24,48 @@ export type ChartReadOp =
 
 export type ChartOp = ChartEditOp | ChartReadOp;
 
+/** 触发谱面编辑的快捷键/菜单功能 ID 集合（用于集中拦截） */
+export const CHART_EDIT_FUNCTIONS = new Set([
+  'execSingle',
+  'execFlick',
+  'execSkill',
+  'execLDirectional',
+  'execRDirectional',
+  'execBpm',
+  'execSlide',
+  'execCurve',
+  'execPaste',
+  'execDelete',
+  'execCut',
+  'execMirror',
+  'undo',
+  'redo',
+] as const);
+
+export type ChartEditFunctionId = typeof CHART_EDIT_FUNCTIONS extends Set<infer T> ? T : never;
+
+/** 判断指定功能分发 ID 是否属于谱面修改类操作 */
+export function isChartEditFunction(fn: string): boolean {
+  return CHART_EDIT_FUNCTIONS.has(fn as any);
+}
+
+export interface ReadonlyGateHandler {
+  isReadOnly: () => boolean;
+  onReject?: () => void;
+}
+
+/** 包装只读拦截检查执行器：只读时触发 onReject 并返回 undefined，否则放行执行 */
+export function withReadonlyGate<T>(
+  gate: ReadonlyGateHandler | null | undefined,
+  action: () => T,
+): T | undefined {
+  if (gate?.isReadOnly()) {
+    gate.onReject?.();
+    return undefined;
+  }
+  return action();
+}
+
 export function isChartUploaded(chart: { upload: ChartUploadRecord | null }): boolean {
   return chartStatus({ completed: false, upload: chart.upload }) === 'uploaded';
 }

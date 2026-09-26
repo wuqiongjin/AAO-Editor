@@ -22,7 +22,7 @@ import { useChartProjectPersistence } from '../chart/project/useChartProjectPers
 import { useLayoutPersistence } from '../chart/layout/useLayoutPersistence';
 import { useShortcutDispatch } from '../chart/config/useShortcutDispatch';
 import { resolveEscapeTarget } from './editing/CanvasGesture';
-import { isChartReadonly } from './project/chartReadonlyGate';
+import { isChartReadonly, isChartEditFunction } from './project/chartReadonlyGate';
 import { isProjectAudioLocked } from './project/workspaceProject';
 import { duplicateChartInProject } from './project/projectCatalog';
 import { newChartId } from './project/ChartProject';
@@ -211,12 +211,18 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     const readonly = isChartReadonly(chart);
     setIsReadOnly(readonly);
     const audioLocked = isProjectAudioLocked(project);
-    audioSession.setAudioLocked(audioLocked);
     resetNotes(chart.notes, {
       text: chart.appliedChartCodeText ?? null,
       pristine: chart.chartCodePristine === true,
     });
-    if (!opts.restoreAudio) return;
+    if (project.durationSeconds > 0) {
+      audioSession.setChartDuration(project.durationSeconds);
+      setCtxDuration(project.durationSeconds);
+    }
+    if (!opts.restoreAudio) {
+      audioSession.setAudioLocked(audioLocked);
+      return;
+    }
     stopPlayback();
     setCurrentSeconds(0);
     setMarker(null);
@@ -226,10 +232,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       durationSeconds: project.durationSeconds,
       audioLocked,
     });
-    if (project.durationSeconds > 0) {
-      audioSession.setChartDuration(project.durationSeconds);
-      setCtxDuration(project.durationSeconds);
-    }
+    audioSession.setAudioLocked(audioLocked);
   }, [resetNotes, setCtxDuration, audioSession, stopPlayback, setCurrentSeconds, setMarker]);
 
   // === 会话流 6：持久化（当前工程恢复 + 防抖 800ms 落盘） ===
@@ -382,25 +385,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 具体功能分发（ADR-0002 + ADR-0008 §3）：切换功能 = 持工具态；执行功能 = 光标处瞬时执行（不占工具态）。
   // BPM/Slide 执行键按 §3 修订语义经画布 ref 执行（就地编辑 / slideBuffer 双入口共用）。
   const runFunction = useCallback((fn: FunctionId) => {
-    if (isReadOnly) {
-      switch (fn) {
-        case 'execSingle':
-        case 'execFlick':
-        case 'execSkill':
-        case 'execLDirectional':
-        case 'execRDirectional':
-        case 'execBpm':
-        case 'execSlide':
-        case 'execCurve':
-        case 'execPaste':
-        case 'execDelete':
-        case 'execCut':
-        case 'execMirror':
-        case 'undo':
-        case 'redo':
-          triggerReadonlyPrompt();
-          return;
-      }
+    if (isReadOnly && isChartEditFunction(fn)) {
+      triggerReadonlyPrompt();
+      return;
     }
     switch (fn) {
       case 'switchSingle': setArmedTool('single'); break;

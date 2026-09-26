@@ -60,6 +60,7 @@ function shallowEqual(a: AudioSessionSnapshot, b: AudioSessionSnapshot): boolean
     a.audioDuration === b.audioDuration &&
     a.hasAudio === b.hasAudio &&
     a.keySetId === b.keySetId &&
-    a.seVolume === b.seVolume
+    a.seVolume === b.seVolume &&
+    a.audioLocked === b.audioLocked
   );
 }

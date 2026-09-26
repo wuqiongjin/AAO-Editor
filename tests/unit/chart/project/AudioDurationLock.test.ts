@@ -135,6 +135,31 @@ describe('AudioSession · 音频与时长锁闸门', () => {
     await Promise.resolve();
     expect(session.getSnapshot().audioName).toBe('new_song.mp3');
   });
+
+  it('hydrateFromProject 在工程锁定时仍能正常注入工程时长与锁状态', () => {
+    const session = createAudioSession({
+      keySetId: 'default',
+      seVolume: 1,
+      chartDuration: 30,
+      engineFactory: mockFactory,
+    });
+
+    session.hydrateFromProject({
+      audioName: 'locked_song.mp3',
+      audioBlob: new Blob(['audio']),
+      durationSeconds: 145,
+      audioLocked: true,
+    });
+
+    expect(session.isAudioLocked).toBe(true);
+    expect(session.getSnapshot().audioLocked).toBe(true);
+    expect(session.getSnapshot().chartDuration).toBe(145);
+    expect(session.getSnapshot().audioName).toBe('locked_song.mp3');
+
+    // 随后尝试二次修改时长被拦截
+    session.setChartDuration(200);
+    expect(session.getSnapshot().chartDuration).toBe(145);
+  });
 });
 
 describe('工程记录持久化锁 · isProjectAudioLocked 聚合与防篡改', () => {

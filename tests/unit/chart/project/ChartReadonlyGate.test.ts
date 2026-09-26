@@ -4,8 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   checkChartEditAllowed,
   executeWithReadonlyGate,
+  isChartEditFunction,
   isChartReadonly,
   isChartUploaded,
+  withReadonlyGate,
   type ChartEditOp,
   type ChartReadOp,
 } from '@/src/chart/project/chartReadonlyGate';
@@ -129,5 +131,55 @@ describe('chartReadonlyGate · 选中与复制仍可用', () => {
     expect(copyResult.ok).toBe(true);
     expect(copyResult.result).toEqual([{ beat: 4, lane: 2, type: 'Single' }]);
     expect(chart.notes).toHaveLength(3); // 源数据不变
+  });
+});
+
+describe('chartReadonlyGate · isChartEditFunction 与 withReadonlyGate', () => {
+  it('isChartEditFunction 准确区分编辑类与非编辑类功能 ID', () => {
+    // 编辑类：放置/编辑/剪切板/撤销重做
+    expect(isChartEditFunction('execSingle')).toBe(true);
+    expect(isChartEditFunction('execFlick')).toBe(true);
+    expect(isChartEditFunction('execSkill')).toBe(true);
+    expect(isChartEditFunction('execLDirectional')).toBe(true);
+    expect(isChartEditFunction('execRDirectional')).toBe(true);
+    expect(isChartEditFunction('execBpm')).toBe(true);
+    expect(isChartEditFunction('execSlide')).toBe(true);
+    expect(isChartEditFunction('execCurve')).toBe(true);
+    expect(isChartEditFunction('execPaste')).toBe(true);
+    expect(isChartEditFunction('execDelete')).toBe(true);
+    expect(isChartEditFunction('execCut')).toBe(true);
+    expect(isChartEditFunction('execMirror')).toBe(true);
+    expect(isChartEditFunction('undo')).toBe(true);
+    expect(isChartEditFunction('redo')).toBe(true);
+
+    // 非编辑类：切换工具态、复制、播放、侧栏折叠等
+    expect(isChartEditFunction('switchSingle')).toBe(false);
+    expect(isChartEditFunction('switchMouse')).toBe(false);
+    expect(isChartEditFunction('execCopy')).toBe(false);
+    expect(isChartEditFunction('play')).toBe(false);
+    expect(isChartEditFunction('jumpToMarker')).toBe(false);
+    expect(isChartEditFunction('toggleSidebar')).toBe(false);
+  });
+
+  it('withReadonlyGate: 只读时触发 onReject 且不执行 action', () => {
+    const onReject = vi.fn();
+    const action = vi.fn(() => 42);
+
+    const result = withReadonlyGate({ isReadOnly: () => true, onReject }, action);
+
+    expect(result).toBeUndefined();
+    expect(onReject).toHaveBeenCalledOnce();
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('withReadonlyGate: 非只读时放行并返回 action 结果', () => {
+    const onReject = vi.fn();
+    const action = vi.fn(() => 42);
+
+    const result = withReadonlyGate({ isReadOnly: () => false, onReject }, action);
+
+    expect(result).toBe(42);
+    expect(onReject).not.toHaveBeenCalled();
+    expect(action).toHaveBeenCalledOnce();
   });
 });

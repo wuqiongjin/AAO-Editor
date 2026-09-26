@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Volume2, VolumeX, Play, Pause } from "lucide-react";
+import { Volume2, VolumeX, Play, Pause, Lock } from "lucide-react";
 import { formatKey } from '../chart/config/ShortcutConfig';
 import { formatTimePrecise, formatTimeWhole, parseTimeInput } from '../chart/geometry/TimeFormat';
-import { usePlayback, useConfig } from '../app/ProviderTree';
+import { usePlayback, useConfig, useAudioSession } from '../app/ProviderTree';
 import { t } from '../i18n';
 import './PlayBar.css';
 
@@ -25,6 +25,8 @@ export default function PlayBar({
     isPlaying, canPlay, currentSeconds, duration,
     volume,
   } = usePlayback();
+  const [audioSnap] = useAudioSession();
+  const audioLocked = audioSnap.audioLocked;
   const { settings } = useConfig();
   const shortcutConfig = settings.shortcuts;
 
@@ -110,8 +112,18 @@ export default function PlayBar({
             className={`play-bar__time-current${canPlay ? '' : ' is-editable'}`}
           >{formatTimePrecise(currentSeconds)}</span>
         )}
-        <span className="play-bar__time-total">
+        <span
+          className="play-bar__time-total"
+          title={audioLocked ? t('audio.lockedPrompt') : undefined}
+        >
           / {formatTimeWhole(duration)}
+          {audioLocked && (
+            <Lock
+              size={11}
+              style={{ marginLeft: 4, verticalAlign: -1, opacity: 0.7 }}
+              aria-label={t('audio.lockedPrompt')}
+            />
+          )}
         </span>
       </span>
 
