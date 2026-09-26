@@ -53,9 +53,11 @@ const IDLE_TIMEOUT_MS = 300;
 interface Props {
     /** 当前视图目标（由 provider 持有，面包屑导航会换 target） */
     target: CodeEditorTarget;
+    readOnly?: boolean;
+    onReadonlyReject?: () => void;
 }
 
-export default function ChartCodeEditorModal({ target }: Props) {
+export default function ChartCodeEditorModal({ target, readOnly, onReadonlyReject }: Props) {
     const { notes, handleNotesChange, selectedItems, chartCodePristine, appliedChartCodeText, rememberAppliedChartCode } = useEditing();
     const { canPlay } = usePlayback();
     // issue 145 #2：谱面时长的单一真相源是 AudioSession，播放条的 duration 只是它的同步下游。
@@ -259,6 +261,10 @@ export default function ChartCodeEditorModal({ target }: Props) {
 
     // 应用谱面代码：经 useEditing.handleNotesChange 走历史记录（单向「代码→画布」）
     const handleApply = () => {
+        if (readOnly) {
+            onReadonlyReject?.();
+            return;
+        }
         // 应用必须拿**当下**的结论：撤掉防抖里那次待跑的校验（跑的话也只是覆盖同样的结论）
         validationTask.cancel();
         const errors = validateCode(chartCode);

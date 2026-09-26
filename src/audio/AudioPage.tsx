@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { AlertTriangle, Check, Clock3, FileAudio, Music2, Play, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
+import { AlertTriangle, Check, Clock3, FileAudio, Lock, Music2, Play, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
 import EmptyState from '../ui/EmptyState';
 import { useAudioSession } from '../app/providers/AudioSessionProvider';
@@ -71,7 +71,11 @@ function AudioSection() {
   const audioName = snap.audioName;
   const canPlay = audioName !== null;
   const error = snap.audioError;
-  const pickFile = () => fileRef.current?.click();
+  const audioLocked = snap.audioLocked;
+  const pickFile = () => {
+    if (audioLocked) return;
+    fileRef.current?.click();
+  };
 
   return (
     <>
@@ -80,13 +84,25 @@ function AudioSection() {
         <p>{t('audio.formats')}</p>
       </div>
 
+      {audioLocked && (
+        <div className="audio-locked-banner" role="alert">
+          <Lock size={15} />
+          <span>{t('audio.lockedPrompt')}</span>
+        </div>
+      )}
+
       {/* file input 无条件挂载（两分支共用一个 ref，避免各挂一份） */}
       <input
         ref={fileRef}
         type="file"
         accept="audio/*"
         className="visually-hidden-input"
-        onChange={(e) => { if (e.target.files && e.target.files[0]) session.importAudio(e.target.files[0]); e.target.value = ''; }}
+        onChange={(e) => {
+          if (!audioLocked && e.target.files && e.target.files[0]) {
+            session.importAudio(e.target.files[0]);
+          }
+          e.target.value = '';
+        }}
       />
 
       {/* 空态：未导入音频时用 EmptyState 引导 */}
@@ -99,14 +115,21 @@ function AudioSection() {
           </div>
           <div className="audio-file-actions">
             {/* 更换/清除按钮（primary / danger variant） */}
-            <button type="button" className="action-btn action-btn--primary" onClick={pickFile}>
+            <button
+              type="button"
+              className="action-btn action-btn--primary"
+              disabled={audioLocked}
+              title={audioLocked ? t('audio.lockedPrompt') : undefined}
+              onClick={pickFile}
+            >
               <Upload size={16} />{t('audio.replace')}
             </button>
             <button
               type="button"
               className="action-btn action-btn--danger"
-              onClick={() => session.clearAudio()}
-              title={t('audio.clearTitle')}
+              disabled={audioLocked}
+              title={audioLocked ? t('audio.lockedPrompt') : t('audio.clearTitle')}
+              onClick={() => { if (!audioLocked) session.clearAudio(); }}
             >
               {t('audio.clear')}
             </button>
@@ -117,7 +140,7 @@ function AudioSection() {
           icon={FileAudio}
           title={t('audio.emptyTitle')}
           description={t('audio.emptyDescription')}
-          primaryAction={{
+          primaryAction={audioLocked ? undefined : {
             label: t('audio.import'),
             onClick: pickFile,
             icon: Upload,
@@ -131,7 +154,7 @@ function AudioSection() {
           <Clock3 size={18} />
           <div>
             <strong>{t('audio.duration')}</strong>
-            <span>{canPlay ? t('audio.duration.locked') : t('audio.duration.manual')}</span>
+            <span>{audioLocked ? t('audio.duration.projectLocked') : (canPlay ? t('audio.duration.locked') : t('audio.duration.manual'))}</span>
           </div>
         </div>
         <div className="duration-field">
@@ -140,8 +163,9 @@ function AudioSection() {
             min={1}
             max={MAX_DURATION_SECONDS}
             value={Math.round(snap.chartDuration)}
-            readOnly={canPlay}
+            readOnly={audioLocked || canPlay}
             onChange={(e) => {
+              if (audioLocked) return;
               const v = parseFloat(e.target.value);
               if (!isNaN(v) && v > 0) session.setChartDuration(Math.min(v, MAX_DURATION_SECONDS));
             }}

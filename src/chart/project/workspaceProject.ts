@@ -34,6 +34,12 @@ export function isProjectUnfinished(project: { charts: ChartStatusFields[] }): b
   return project.charts.some((c) => chartStatus(c) === 'unfinished');
 }
 
+/** 工程里只要有一张已上传谱面，共享的音频与谱面时长锁定（ADR-0015 §4） */
+export function isProjectAudioLocked(project: { charts: ChartStatusFields[] }): boolean {
+  return project.charts.some((c) => chartStatus(c) === 'uploaded');
+}
+
+
 export function decideWorkspaceProject(
   projects: readonly ProjectPickFields[],
 ): WorkspaceProjectDecision {

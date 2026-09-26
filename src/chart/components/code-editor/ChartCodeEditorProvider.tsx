@@ -37,7 +37,15 @@ export interface ChartCodeEditorContextValue {
 
 const ChartCodeEditorContext = createContext<ChartCodeEditorContextValue | null>(null);
 
-export function ChartCodeEditorProvider({ children }: { children: ReactNode }) {
+export function ChartCodeEditorProvider({
+  children,
+  readOnly,
+  onReadonlyReject,
+}: {
+  children: ReactNode;
+  readOnly?: boolean;
+  onReadonlyReject?: () => void;
+}) {
   const [target, setTarget] = useState<CodeEditorTarget | null>(null);
   // issue 69：最近一次从画布进入的深层对象（面包屑"回得去"的依据）
   const [trail, setTrail] = useState<NoteCodeTarget | null>(null);
@@ -55,7 +63,7 @@ export function ChartCodeEditorProvider({ children }: { children: ReactNode }) {
   return (
     <ChartCodeEditorContext.Provider value={value}>
       {children}
-      {target && <ChartCodeEditorModal target={target} />}
+      {target && <ChartCodeEditorModal target={target} readOnly={readOnly} onReadonlyReject={onReadonlyReject} />}
     </ChartCodeEditorContext.Provider>
   );
 }

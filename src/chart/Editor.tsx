@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, ZoomIn, ZoomOut, Lock, Copy, X } from 'lucide-react';
 import Toolbar from '../pages/WorkspacePage/Toolbar';
 import ChartSwitcher from '../pages/WorkspacePage/ChartSwitcher';
 import { ChartCodeEditorProvider } from '../chart/components/code-editor/ChartCodeEditorProvider';
@@ -21,6 +22,11 @@ import { useChartProjectPersistence } from '../chart/project/useChartProjectPers
 import { useLayoutPersistence } from '../chart/layout/useLayoutPersistence';
 import { useShortcutDispatch } from '../chart/config/useShortcutDispatch';
 import { resolveEscapeTarget } from './editing/CanvasGesture';
+import { isChartReadonly } from './project/chartReadonlyGate';
+import { isProjectAudioLocked } from './project/workspaceProject';
+import { duplicateChartInProject } from './project/projectCatalog';
+import { newChartId } from './project/ChartProject';
+import { untitledProjectLabel } from '../pages/projectUi';
 import { t } from '../i18n';
 
 interface EditorProps {
@@ -161,7 +167,40 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setIsPlaying,
   });
   const { togglePlay, seek, jumpToMarker, stopPlayback } = playbackCoord;
-  const { projectId, chartId, store, catalogEpoch, registerPersistFlush } = useCurrentProject();
+  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, open, notifyCatalogChanged } = useCurrentProject();
+
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [showReadonlyToast, setShowReadonlyToast] = useState(false);
+  const readonlyTimerRef = useRef<number | null>(null);
+
+  const triggerReadonlyPrompt = useCallback(() => {
+    setShowReadonlyToast(true);
+    if (readonlyTimerRef.current) window.clearTimeout(readonlyTimerRef.current);
+    readonlyTimerRef.current = window.setTimeout(() => setShowReadonlyToast(false), 6000);
+  }, []);
+
+  const handleCopyCurrentChart = useCallback(async () => {
+    if (!projectId || !chartId || !store) return;
+    const project = await store.get(projectId);
+    if (!project) return;
+    const copyId = newChartId();
+    const next = duplicateChartInProject(project, chartId, { chartId: copyId, now: Date.now() }, untitledProjectLabel());
+    if (!next) return;
+    await store.save(next);
+    notifyCatalogChanged();
+    setShowReadonlyToast(false);
+    await open(projectId, copyId);
+  }, [projectId, chartId, store, notifyCatalogChanged, open]);
+
+  const isReadOnlyRef = useRef(isReadOnly);
+  isReadOnlyRef.current = isReadOnly;
+  useEffect(() => {
+    editing.setReadonlyGate?.({
+      isReadOnly: () => isReadOnlyRef.current,
+      onReject: triggerReadonlyPrompt,
+    });
+    return () => editing.setReadonlyGate?.(null);
+  }, [editing, triggerReadonlyPrompt]);
 
   // 当前工程恢复（ADR-0015 §3）：切工程时整份编辑态换成新工程，剪贴板由 resetNotes 保留。
   const handleProjectRestore = useCallback(async (
@@ -169,6 +208,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     chart: import('../chart/project/ChartProject').ProjectChart,
     opts: { restoreAudio: boolean },
   ) => {
+    const readonly = isChartReadonly(chart);
+    setIsReadOnly(readonly);
+    const audioLocked = isProjectAudioLocked(project);
+    audioSession.setAudioLocked(audioLocked);
     resetNotes(chart.notes, {
       text: chart.appliedChartCodeText ?? null,
       pristine: chart.chartCodePristine === true,
@@ -181,6 +224,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       audioName: project.audioName,
       audioBlob: project.audioBlob,
       durationSeconds: project.durationSeconds,
+      audioLocked,
     });
     if (project.durationSeconds > 0) {
       audioSession.setChartDuration(project.durationSeconds);
@@ -311,8 +355,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // 删除选中的音符；播放起点通过双击旗标删除，不属于音符选区。
   const deleteSelectedNotes = useCallback(() => {
+    if (isReadOnly) {
+      triggerReadonlyPrompt();
+      return;
+    }
     deleteSelected();
-  }, [deleteSelected]);
+  }, [isReadOnly, triggerReadonlyPrompt, deleteSelected]);
 
   // 在当前光标位置立即粘贴（ADR-0002 §2.1）。
   // 键型执行键（Ctrl+F/G/A/S/D）改走画布 ref 的 execPlace：与单击放置共用 clickOps，
@@ -322,14 +370,38 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 此前它被算好后存进 UIProvider.mousePosition，滚动/缩放后鼠标不动就拿不到新值
   // （粘贴与执行键落到旧的拍，用户已复现）。同上走 ref 也顺带解决了 useCallback 身份抖动。
   const pasteAtCursor = useCallback(() => {
+    if (isReadOnly) {
+      triggerReadonlyPrompt();
+      return;
+    }
     // issue 73：改走画布 execPaste —— 与粘贴工具单击共用 clickOps，自动获得
     // "整组越出谱面末端 = 拒绝"的判定（原先的 paste() 绕过矩阵，没有末端校验）
     virtualCanvasRef.current?.execPaste?.();
-  }, []);
+  }, [isReadOnly, triggerReadonlyPrompt]);
 
   // 具体功能分发（ADR-0002 + ADR-0008 §3）：切换功能 = 持工具态；执行功能 = 光标处瞬时执行（不占工具态）。
   // BPM/Slide 执行键按 §3 修订语义经画布 ref 执行（就地编辑 / slideBuffer 双入口共用）。
   const runFunction = useCallback((fn: FunctionId) => {
+    if (isReadOnly) {
+      switch (fn) {
+        case 'execSingle':
+        case 'execFlick':
+        case 'execSkill':
+        case 'execLDirectional':
+        case 'execRDirectional':
+        case 'execBpm':
+        case 'execSlide':
+        case 'execCurve':
+        case 'execPaste':
+        case 'execDelete':
+        case 'execCut':
+        case 'execMirror':
+        case 'undo':
+        case 'redo':
+          triggerReadonlyPrompt();
+          return;
+      }
+    }
     switch (fn) {
       case 'switchSingle': setArmedTool('single'); break;
       case 'execSingle': virtualCanvasRef.current?.execPlace?.('single'); break;
@@ -381,7 +453,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         break;
       }
     }
-  }, [setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, togglePlay, jumpToMarker,
+  }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, togglePlay, jumpToMarker,
       leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
@@ -417,7 +489,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   return (
     // issue 59 §2：弹窗打开态提到 Editor ——「谱面代码」按钮（工具栏）与「音符代码」工具（画布）
     // 共用同一个弹窗组件，故 target 必须挂在两者共同的祖先上。
-    <ChartCodeEditorProvider key={projectId ?? 'none'}>
+    <ChartCodeEditorProvider key={projectId ?? 'none'} readOnly={isReadOnly} onReadonlyReject={triggerReadonlyPrompt}>
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
       {/* 左侧工具栏列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}
       <div
@@ -518,6 +590,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
               geometry={geometry}
               surface={surface}
               active={active}
+              readOnly={isReadOnly}
+              onReadonlyReject={triggerReadonlyPrompt}
             />
           </div>
         </div>
@@ -570,6 +644,29 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         />
       </div>
     </div>
+    {showReadonlyToast && createPortal(
+      <div className="readonly-toast" role="alert">
+        <Lock size={14} className="readonly-toast__icon" />
+        <span className="readonly-toast__text">{t('workspace.readonlyPrompt')}</span>
+        <button
+          type="button"
+          className="readonly-toast__copy-btn"
+          onClick={() => void handleCopyCurrentChart()}
+        >
+          <Copy size={12} />
+          {t('workspace.readonlyCopyBtn')}
+        </button>
+        <button
+          type="button"
+          className="readonly-toast__close-btn"
+          onClick={() => setShowReadonlyToast(false)}
+          aria-label={t('chartCode.close')}
+        >
+          <X size={14} />
+        </button>
+      </div>,
+      document.body,
+    )}
     </ChartCodeEditorProvider>
   );
 };

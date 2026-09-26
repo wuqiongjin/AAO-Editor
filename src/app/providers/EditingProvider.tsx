@@ -13,6 +13,11 @@ import { applyProjectSwitch } from '../../chart/project/workspaceProject';
 // H5 收口：所有位置参数统一为 ChartPosition（{ beat, lane }）
 export type Position = ChartPosition;
 
+export interface ReadonlyGateHandler {
+  isReadOnly: () => boolean;
+  onReject: () => void;
+}
+
 export interface EditingContextValue {
   // 数据
   notes: ChartNote[];
@@ -41,6 +46,8 @@ export interface EditingContextValue {
   cut: () => void;
   deleteSelected: () => void;
   mirror: () => void;
+  // 只读闸门注册
+  setReadonlyGate?: (gate: ReadonlyGateHandler | null) => void;
 }
 
 const EditingContext = createContext<EditingContextValue | null>(null);
@@ -72,6 +79,10 @@ export function EditingProvider({ children }: { children: ReactNode }) {
 
   const [appliedChartCodeText, setAppliedChartCodeText] = useState<string | null>(null);
   const [chartCodePristine, setChartCodePristine] = useState(false);
+  const readonlyGateRef = useRef<ReadonlyGateHandler | null>(null);
+  const setReadonlyGate = useCallback((gate: ReadonlyGateHandler | null) => {
+    readonlyGateRef.current = gate;
+  }, []);
 
   const rememberAppliedChartCode = useCallback((text: string) => {
     setAppliedChartCodeText(text);
@@ -79,11 +90,19 @@ export function EditingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handleNotesChange = useCallback((newNotes: ChartNote[]) => {
+    if (readonlyGateRef.current?.isReadOnly()) {
+      readonlyGateRef.current.onReject();
+      return;
+    }
     setChartCodePristine(false);
     addToHistory(newNotes);
   }, [addToHistory]);
 
   const setNotes = useCallback((n: ChartNote[]) => {
+    if (readonlyGateRef.current?.isReadOnly()) {
+      readonlyGateRef.current.onReject();
+      return;
+    }
     setChartCodePristine(false);
     setHistoryState(prev => pushHistoryIfChanged(prev, n, notesEqual, NOTES_HISTORY_CAP));
   }, []);
@@ -97,12 +116,20 @@ export function EditingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const undo = useCallback(() => {
+    if (readonlyGateRef.current?.isReadOnly()) {
+      readonlyGateRef.current.onReject();
+      return;
+    }
     setChartCodePristine(false);
     setHistoryState(prev => undoHistory(prev) ?? prev);
     setSelectedItems([]);
   }, []);
 
   const redo = useCallback(() => {
+    if (readonlyGateRef.current?.isReadOnly()) {
+      readonlyGateRef.current.onReject();
+      return;
+    }
     setChartCodePristine(false);
     setHistoryState(prev => redoHistory(prev) ?? prev);
     setSelectedItems([]);
@@ -114,6 +141,10 @@ export function EditingProvider({ children }: { children: ReactNode }) {
 
   const cut = useCallback(() => {
     if (selectedItems.length > 0) {
+      if (readonlyGateRef.current?.isReadOnly()) {
+        readonlyGateRef.current.onReject();
+        return;
+      }
       const { clipboard: cb, newNotes } = cutSelection(notes, selectedItems);
       setClipboard(cb);
       handleNotesChange(newNotes);
@@ -123,6 +154,10 @@ export function EditingProvider({ children }: { children: ReactNode }) {
 
   const deleteSelected = useCallback(() => {
     if (selectedItems.length > 0) {
+      if (readonlyGateRef.current?.isReadOnly()) {
+        readonlyGateRef.current.onReject();
+        return;
+      }
       handleNotesChange(deleteSelection(notes, selectedItems));
       setSelectedItems([]);
     }
@@ -130,6 +165,10 @@ export function EditingProvider({ children }: { children: ReactNode }) {
 
   const mirror = useCallback(() => {
     if (selectedItems.length === 0) return;
+    if (readonlyGateRef.current?.isReadOnly()) {
+      readonlyGateRef.current.onReject();
+      return;
+    }
     handleNotesChange(mirrorSelection(notes, selectedItems));
   }, [notes, selectedItems, handleNotesChange]);
 
@@ -142,6 +181,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     handleNotesChange, undo, redo,
     copy, cut, deleteSelected, mirror,
     appliedChartCodeText, chartCodePristine, rememberAppliedChartCode,
+    setReadonlyGate,
   };
 
   return <EditingContext.Provider value={value}>{children}</EditingContext.Provider>;

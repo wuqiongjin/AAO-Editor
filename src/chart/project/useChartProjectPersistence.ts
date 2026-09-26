@@ -2,11 +2,10 @@
 // 谱面工程持久化 = 当前工程恢复 + 编辑防抖落盘（IndexedDB / Electron 数据根门面）。
 //
 // 当前工程由 CurrentProjectSession 决定；本 hook 在 projectId 变化时先 flush 旧工程，
-// 再加载新工程。恢复未落地前不得回写（issue 64：空谱面覆盖已存工程）。
 import { useCallback, useEffect, useRef } from 'react';
 import { ChartProjectStore, type ChartProject, type ProjectChart } from './ChartProject';
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
-import { pickCurrentChart } from './workspaceProject';
+import { isProjectAudioLocked, pickCurrentChart } from './workspaceProject';
 import type { ChartNote } from '../types';
 
 export interface UseChartProjectPersistenceOptions {
@@ -103,22 +102,25 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     const audio = audioBlobRef.current ?? undefined;
     const targetId = boundChartIdRef.current;
     const hasTarget = targetId != null && prev.charts.some((c) => c.id === targetId);
+    const audioLocked = isProjectAudioLocked(prev);
     const charts = prev.charts.length > 0
       ? prev.charts.map((c, i) => {
         const isCurrent = hasTarget ? c.id === targetId : i === 0;
-        return isCurrent
-          ? { ...c, notes: notesRef.current, lastModified: now, appliedChartCodeText: applied, chartCodePristine: pristine }
-          : c;
+        if (!isCurrent) return c;
+        if (c.upload) return c; // 已上传谱面只读：不可被改写
+        return { ...c, notes: notesRef.current, lastModified: now, appliedChartCodeText: applied, chartCodePristine: pristine };
       })
       : prev.charts;
     const next: ChartProject = {
       ...prev,
-      durationSeconds: durationRef.current,
+      durationSeconds: audioLocked ? prev.durationSeconds : durationRef.current,
       charts,
-      audioName: audioNameRef.current,
-      ...(audio ? { audioBlob: audio } : {}),
+      audioName: audioLocked ? prev.audioName : audioNameRef.current,
+      ...(audioLocked
+        ? (prev.audioBlob ? { audioBlob: prev.audioBlob } : {})
+        : (audio ? { audioBlob: audio } : {})),
     };
-    if (!audio) delete next.audioBlob;
+    if (!audioLocked && !audio) delete next.audioBlob;
     projectRef.current = next;
     return next;
   }, []);

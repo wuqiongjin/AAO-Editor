@@ -1,4 +1,4 @@
-import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
+import type { ChartCodeNote } from '../../chart/editing/ChartConverter';
 
 /** Bestdori 社区 POST `chart` 白名单（官网 `sanitizeAll`，见 docs/research/bestdori-chart-editor-io.md） */
 const UPLOAD_CHART_TYPES = new Set(['Single', 'Directional', 'Slide', 'Long', 'BPM']);

@@ -146,7 +146,10 @@ export function hitBpmGutterAt(
     }
     if (bestLabel) return { kind: 'label', beat: bestLabel.beat, groupKey: bestLabel.groupKey };
     for (const sum of layout.summaries) {
-        const minBeat = Math.min(...sum.memberIndexes.map((i) => notes[i]?.beat ?? Infinity));
+        const minBeat = Math.min(...sum.memberIndexes.map((i) => {
+            const n = notes[i];
+            return n && 'beat' in n ? n.beat : Infinity;
+        }));
         const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, input.surfaceH);
         const box = bpmLabelBox(trackStartX, y, sum.fullText, input.labelScale, input.surfaceH, input.measureWidth(sum.fullText, fontPx));
         if (box.x1 < 0 || box.y1 >= box.y2) continue;

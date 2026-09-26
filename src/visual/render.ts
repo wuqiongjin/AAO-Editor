@@ -1338,7 +1338,10 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   ctx.rect(0, 0, rc.surface.w, rc.surface.h);
   ctx.clip();
   for (const sum of layoutModel.summaries) {
-    const minBeat = Math.min(...sum.memberIndexes.map((i) => rc.notes[i]?.beat ?? Infinity));
+    const minBeat = Math.min(...sum.memberIndexes.map((i) => {
+      const n = rc.notes[i];
+      return n && 'beat' in n ? n.beat : Infinity;
+    }));
     const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, rc.surface.h);
     if (!bpmGutterYIntersectsCanvas(y, fontPx, rc.surface.h)) continue;
     const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale);

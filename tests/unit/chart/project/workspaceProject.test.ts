@@ -5,8 +5,11 @@ import { copySelection } from '@/src/chart/editing/SelectionEditing';
 import { pasteChartNotes } from '@/src/chart/editing/NoteReplacementRules';
 import {
   applyProjectSwitch,
+  chartStatus,
   createUnnamedProject,
   decideWorkspaceProject,
+  isProjectAudioLocked,
+  isProjectUnfinished,
 } from '@/src/chart/project/workspaceProject';
 import type { ChartNote } from '@/src/chart/types';
 import { readStripped } from '@/tests/support/source';
@@ -64,6 +67,51 @@ describe('decideWorkspaceProject · 进工作台选工程', () => {
       { id: unnamed.id, lastOpened: unnamed.lastOpened, charts: unnamed.charts },
     ];
     expect(decideWorkspaceProject(listed)).toEqual({ action: 'open', projectId: 'pEmpty1' });
+  });
+});
+
+describe('chartStatus · 状态派生三态与优先级', () => {
+  it('无上传记录且未标完成 → unfinished（未完成）', () => {
+    expect(chartStatus({ completed: false, upload: null })).toBe('unfinished');
+  });
+
+  it('无上传记录但标了完成 → completed（已完成）', () => {
+    expect(chartStatus({ completed: true, upload: null })).toBe('completed');
+  });
+
+  it('有上传记录且未标完成 → uploaded（已上传）', () => {
+    expect(chartStatus({ completed: false, upload: { postId: 100, at: 1_700_000_000 } })).toBe('uploaded');
+  });
+
+  it('有上传记录且标了完成 → uploaded（已上传优先于已完成）', () => {
+    expect(chartStatus({ completed: true, upload: { postId: 100, at: 1_700_000_000 } })).toBe('uploaded');
+  });
+});
+
+describe('isProjectUnfinished / isProjectAudioLocked · 工程级聚合', () => {
+  it('工程未完成 = 至少一张谱面未完成', () => {
+    // 全未完成
+    expect(isProjectUnfinished({ charts: [chart(), chart()] })).toBe(true);
+    // 一张未完成，一张已完成
+    expect(isProjectUnfinished({ charts: [chart(), chart({ completed: true })] })).toBe(true);
+    // 一张未完成，一张已上传
+    expect(isProjectUnfinished({ charts: [chart(), chart({ upload: { postId: 1, at: 1 } })] })).toBe(true);
+    // 全已完成
+    expect(isProjectUnfinished({ charts: [chart({ completed: true }), chart({ completed: true })] })).toBe(false);
+    // 全已上传
+    expect(isProjectUnfinished({ charts: [chart({ upload: { postId: 1, at: 1 } })] })).toBe(false);
+    // 一张已完成，一张已上传（无未完成）
+    expect(isProjectUnfinished({ charts: [chart({ completed: true }), chart({ upload: { postId: 1, at: 1 } })] })).toBe(false);
+  });
+
+  it('工程里只要有一张已上传谱面，共享音频与时长锁定', () => {
+    // 无谱面或全是未上传
+    expect(isProjectAudioLocked({ charts: [] })).toBe(false);
+    expect(isProjectAudioLocked({ charts: [chart(), chart({ completed: true })] })).toBe(false);
+    // 包含一张已上传谱面
+    expect(isProjectAudioLocked({ charts: [chart(), chart({ upload: { postId: 1, at: 1 } })] })).toBe(true);
+    // 全是已上传
+    expect(isProjectAudioLocked({ charts: [chart({ upload: { postId: 1, at: 1 } })] })).toBe(true);
   });
 });
 

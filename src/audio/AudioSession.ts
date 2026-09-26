@@ -39,6 +39,8 @@ export interface AudioSessionSnapshot {
   keySetId: string;
   /** 节奏图示 SE 音量（0..1，settings.audio.seVolume） */
   seVolume: number;
+  /** 共享音频与时长是否锁定（工程含已上传谱面时锁定，ADR-0015 §4） */
+  audioLocked: boolean;
 }
 
 /** 引擎工厂（local-substitutable：测试可注入假引擎） */
@@ -71,6 +73,7 @@ export class AudioSession {
   private _audioError: string | null = null;
   private _chartDuration: number;
   private _audioBlob: Blob | null = null;
+  private _audioLocked = false;
   private _keySetId: string;
   private _seVolume: number;
   private _volume: number; // 主音量（与 SE 音量分离；唯一真相源 = 本字段；engine 是镜像）
@@ -80,6 +83,17 @@ export class AudioSession {
   // 设置持久化钩子：键音/SE 音量变更时调用，外部把变更写回 ConfigContext → localStorage
   private persistKeySet: (id: string) => void = () => {};
   private persistSeVolume: (v: number) => void = () => {};
+
+  /** 共享音频与谱面时长锁定态（工程含已上传谱面时锁定，ADR-0015 §4） */
+  get isAudioLocked(): boolean {
+    return this._audioLocked;
+  }
+
+  setAudioLocked(locked: boolean): void {
+    if (this._audioLocked === locked) return;
+    this._audioLocked = locked;
+    this.emit();
+  }
 
   // 订阅者列表
   private listeners = new Set<AudioSessionListener>();
@@ -156,6 +170,7 @@ export class AudioSession {
    * 异步（engine.load 异步解码）；多次快速调用时仅最后一次结果生效（inFlightToken）。
    */
   importAudio(file: File): void {
+    if (this._audioLocked) return;
     this._audioError = null;
     const token = ++this.inFlightToken;
     this.engine.load(file)
@@ -189,7 +204,9 @@ export class AudioSession {
     audioName: string | null;
     audioBlob?: Blob;
     durationSeconds: number;
+    audioLocked?: boolean;
   }): void {
+    if (opts.audioLocked != null) this._audioLocked = opts.audioLocked;
     const token = ++this.inFlightToken;
     this._audioError = null;
     const duration = clampFinite(opts.durationSeconds, 0.1, MAX_DURATION_SECONDS, 30);
@@ -224,6 +241,7 @@ export class AudioSession {
 
   /** 清除音频：引擎复位 → 时长保留当前值 → 触发持久化 → 通知订阅者 */
   clearAudio(): void {
+    if (this._audioLocked) return;
     // 打断任何 in-flight import
     this.inFlightToken++;
     this.engine.clear();
@@ -249,6 +267,7 @@ export class AudioSession {
    * 拒绝 <=0 / NaN / Infinity；接受值 clamp 到 [0.1, MAX_DURATION_SECONDS]。
    */
   setChartDuration(sec: number): void {
+    if (this._audioLocked) return;
     if (!Number.isFinite(sec) || sec <= 0) return;
     const clamped = Math.min(sec, MAX_DURATION_SECONDS);
     if (this._chartDuration === clamped) return;
@@ -347,6 +366,7 @@ export class AudioSession {
       hasAudio: this._audioName !== null,
       keySetId: this._keySetId,
       seVolume: this._seVolume,
+      audioLocked: this._audioLocked,
     };
   }
 

@@ -51,6 +51,8 @@ interface FinalVirtualCanvasProps {
   /** 工作台激活态（issue 28 表面契约透传）：false→true（回到工作台）时强制补一帧——
    *  保活隐藏期间背景皮肤的换图/开关/透明度变化不经过任何画布交互路径（issue 29 用户反馈2），激活即重绘保证所见为最新 */
   active?: boolean;
+  readOnly?: boolean;
+  onReadonlyReject?: () => void;
 }
 
 /**
@@ -117,6 +119,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     geometry,
     surface,
     active,
+    readOnly,
+    onReadonlyReject,
 }, ref) => {
     // issue 50（Q6 a 修正语义）：画布 == background（尺寸 = chartArea 实测 surf，CSS 不再写 100%），几何坐标系用 chartArea 真实尺寸。
     // 之前的 min 维度算法（canvasW=min(parentW, floor(parentH*5/6))）导致左右 letterbox——父级比画布宽时
@@ -296,12 +300,34 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     const applyOps = (ops: ReadonlyArray<MatrixOp | GestureOp>) => {
         for (const op of ops) {
-            if (op.t === 'setNotes') handleNotesChange(op.notes);
+            if (op.t === 'setNotes') {
+                if (readOnly) {
+                    onReadonlyReject?.();
+                    return;
+                }
+                handleNotesChange(op.notes);
+            }
             else if (op.t === 'setSelection') setSelectedItems(op.items);
             else if (op.t === 'setClipboard') setClipboard(op.notes);
-            else if (op.t === 'setSlideBuffer') setSlideBuffer(op.point);
-            else if (op.t === 'setCurveBuffer') setCurveDraft(op.draft);
+            else if (op.t === 'setSlideBuffer') {
+                if (readOnly && op.point !== null) {
+                    onReadonlyReject?.();
+                    return;
+                }
+                setSlideBuffer(op.point);
+            }
+            else if (op.t === 'setCurveBuffer') {
+                if (readOnly && op.draft !== null) {
+                    onReadonlyReject?.();
+                    return;
+                }
+                setCurveDraft(op.draft);
+            }
             else if (op.t === 'openBpmEditor') {
+                if (readOnly) {
+                    onReadonlyReject?.();
+                    return;
+                }
                 setBpmEdit({ beat: op.beat, value: op.value });
                 const key = bpmCoincidentKey(beatToVirtualY(op.beat));
                 const n = notes.filter((nt) => nt.type === 'BPM' && bpmCoincidentKey(beatToVirtualY(nt.beat)) === key).length;
@@ -337,6 +363,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
      */
     const commitBpmEdit = () => {
         if (!bpmEdit) return;
+        if (readOnly) {
+            setBpmEdit(null);
+            onReadonlyReject?.();
+            return;
+        }
         const v = parseBpmInput(bpmEdit.value);
         const beat = bpmEdit.beat;
         setBpmEdit(null);
@@ -679,12 +710,14 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         },
         // ADR-0008 §3 执行键（Ctrl+` / Ctrl+E）：经 ref 进画布，与鼠标路径共用 ToolActionMatrix 调度
         execBpm: () => {
+            if (readOnly) { onReadonlyReject?.(); return; }
             applyOps(execBpmOps({
                 notes, selectedItems, cursor: cursorChartPos(),
                 slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
             }));
         },
         execSlide: () => {
+            if (readOnly) { onReadonlyReject?.(); return; }
             applyOps(execSlideOps({
                 notes, selectedItems, cursor: cursorChartPos(),
                 slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, chartEndBeat,
@@ -693,6 +726,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 验收反馈 #9（Shift+W）：执行-曲线，语义分发在 execCurveOps（CurveTool，可单测）。
         // hit 用 hoverItem 现取（与「执行-音符代码」同口径）——光标悬停在段上 = 重应用而非锚点。
         execCurve: () => {
+            if (readOnly) { onReadonlyReject?.(); return; }
             applyOps(execCurveOps({
                 notes, selectedItems, cursor: cursorChartPos(), chartEndBeat, beatDisplay,
                 slideBuffer: bufferPoint, lastBpm: lastBpmRef.current, clipboard,
@@ -714,6 +748,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // §3 键型执行键：光标不在画布 / 越过谱面末端 → 无事发生（不落子、也不清选区）
         // 末端判据与放置路径同源（CanvasGesture.canPlaceAtCursor / isPastChartEnd）
         execPlace: (tool: MatrixTool) => {
+            if (readOnly) { onReadonlyReject?.(); return; }
             // 用时现算（候选 3）：用缓存的 mousePosition 会落在滚动/缩放前的旧拍
             const cursor = cursorChartPos();
             if (!canPlaceAtCursor(cursor, chartEndBeat)) return;
@@ -727,6 +762,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // issue 73：Ctrl+V 执行键 —— 与「粘贴」工具单击共用 clickOps 的 paste 行，
         // 故"整组越出谱面末端 = 拒绝整组"的判定与鼠标路径同源（原先走 Editor 的 paste() 绕过了矩阵）
         execPaste: () => {
+            if (readOnly) { onReadonlyReject?.(); return; }
             const cursor = cursorChartPos();
             if (!canPlaceAtCursor(cursor, chartEndBeat)) return;
             applyOps(clickOps({
