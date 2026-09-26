@@ -167,10 +167,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 挂载恢复（ADR-0005 §6）：通过 onRestore 把 project 灌入 Editor。
   // 定义在持久化 hook 之前——持久化 hook 拿它当 onRestore 回调。
   const handleProjectRestore = useCallback(async (project: import('../chart/project/ChartProject').ChartProject) => {
-    if (project.notes.length > 0) {
-      resetNotes(project.notes, {
-        text: project.appliedChartCodeText ?? null,
-        pristine: project.chartCodePristine === true,
+    const chart = project.charts[0];
+    if (chart && chart.notes.length > 0) {
+      resetNotes(chart.notes, {
+        text: chart.appliedChartCodeText ?? null,
+        pristine: chart.chartCodePristine === true,
       });
     }
     if (project.durationSeconds > 0 && engine?.duration == null) {

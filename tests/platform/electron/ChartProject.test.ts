@@ -1,124 +1,150 @@
-// issue 25 存储后端 Electron 改造：文件后端纯逻辑单测（node 环境，桥/旧数据源可注入）。
-// 覆盖：保存意图判定（set/keep/cleared）、JSON 规范化、失败回滚、重建缓存、
-// 首启静默迁移幂等性、工程 id 双保险校验、门面委托。
+// 歌曲级工程存储：多工程读写 / 列表 / 删除往返；封面与音频 set/keep/cleared；无 issue 25 迁移。
 import { describe, expect, it, vi } from 'vitest';
 import {
   ChartProjectStore,
-  DEFAULT_PROJECT_ID,
   ElectronFileProjectBackend,
   IndexedDbProjectBackend,
+  PROJECT_SCHEMA_VERSION,
 } from '@/src/chart/project/ChartProject';
-import type {
-  ChartProject,
-  ElectronProjectBridge,
-  ProjectGetWire,
-  ProjectPutWire,
-} from '@/src/chart/project/ChartProject';
+import type { ChartProject, ProjectChart } from '@/src/chart/project/ChartProject';
 import type { ChartNote } from '@/src/chart/types';
+import { makeMemoryProjectBridge } from '@/tests/support/memoryProjectBridge';
+import { readStripped } from '@/tests/support/source';
 
 const note = { beat: 4, lane: 3, type: 'Single' } as ChartNote;
-
-/** 可观测的假 IPC 桥：记录 put 载荷，get 返回可预设的磁盘态 */
-function makeBridge(initial: ProjectGetWire | null = null) {
-  const puts: ProjectPutWire[] = [];
-  let disk: ProjectGetWire | null = initial;
-  const get = vi.fn(async (): Promise<ProjectGetWire | null> => disk);
-  const put = vi.fn(async (p: ProjectPutWire) => {
-    puts.push(p);
-    // 最小保真：仅维护「是否有音频」供后续 get；音符本身不入桩
-    disk = {
-      doc: { ...p.doc, audioPresent: p.doc.audioIntent === 'set' },
-      audio: p.doc.audioIntent === 'set' ? (p.audio ?? null) : disk?.audio ?? null,
-    };
-  });
-  const bridge: ElectronProjectBridge = { get, put };
-  return { bridge, get, put, puts };
-}
 
 function blobOf(bytes: number[]): Blob {
   return new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
 }
 
+function chart(overrides: Partial<ProjectChart> = {}): ProjectChart {
+  return {
+    id: 'c1',
+    notes: [note],
+    title: null,
+    diff: 3,
+    level: null,
+    completed: false,
+    upload: null,
+    lastModified: 1,
+    appliedChartCodeText: null,
+    chartCodePristine: false,
+    ...overrides,
+  };
+}
+
 function makeProject(overrides: Partial<ChartProject> = {}): ChartProject {
-  return { id: DEFAULT_PROJECT_ID, durationSeconds: 30, notes: [note], ...overrides };
+  return {
+    id: 'pSong1',
+    name: null,
+    artist: null,
+    source: { type: 'custom' },
+    durationSeconds: 30,
+    lastOpened: 1,
+    charts: [chart()],
+    audioName: null,
+    coverName: null,
+    ...overrides,
+  };
 }
 
 describe('ElectronFileProjectBackend · 保存意图', () => {
-  it('新音频走 set，携带完整字节并 JSON 规范化 notes（剔除 undefined 属性）', async () => {
-    const t = makeBridge();
+  it('新音频/封面走 set，携带完整字节并 JSON 规范化 notes（剔除 undefined 属性）', async () => {
+    const t = makeMemoryProjectBridge();
     const b = new ElectronFileProjectBackend(t.bridge);
     const dirty = [{ ...note, subBeat: undefined }] as unknown as ChartNote[];
-    await b.save(makeProject({ notes: dirty, audioName: 'a.wav', audioBlob: blobOf([1, 2, 3]) }));
+    await b.save(makeProject({
+      charts: [chart({ notes: dirty })],
+      audioName: 'a.wav',
+      audioBlob: blobOf([1, 2, 3]),
+      coverName: 'c.png',
+      coverBlob: blobOf([9]),
+    }));
 
     expect(t.puts).toHaveLength(1);
     const p = t.puts[0];
-    expect(p.id).toBe(DEFAULT_PROJECT_ID);
-    expect(p.doc.schemaVersion).toBe(1);
+    expect(p.id).toBe('pSong1');
+    expect(p.doc.schemaVersion).toBe(PROJECT_SCHEMA_VERSION);
     expect(p.doc.audioIntent).toBe('set');
+    expect(p.doc.coverIntent).toBe('set');
     expect(p.doc.audioName).toBe('a.wav');
+    expect(p.doc.coverName).toBe('c.png');
     expect(Array.from(p.audio!)).toEqual([1, 2, 3]);
-    expect('subBeat' in p.doc.notes[0]).toBe(false); // JSON 往返剔除 undefined 键
+    expect(Array.from(p.cover!)).toEqual([9]);
+    expect('subBeat' in p.doc.charts[0].notes[0]).toBe(false);
   });
 
-  it('同一 Blob 实例重复保存走 keep，不重传字节（防抖保存不重写大音频）', async () => {
-    const t = makeBridge();
+  it('同一 Blob 实例重复保存走 keep，不重传字节', async () => {
+    const t = makeMemoryProjectBridge();
     const b = new ElectronFileProjectBackend(t.bridge);
     const shared = blobOf([7]);
-    const proj = makeProject({ audioBlob: shared, audioName: 'x.ogg' });
-    await b.save({ ...proj }); // set
-    await b.save({ ...proj, durationSeconds: 42 }); // 音频同一实例
-    await b.save(proj); // 原对象
+    const cover = blobOf([3]);
+    const proj = makeProject({ audioBlob: shared, audioName: 'x.ogg', coverBlob: cover, coverName: 'c.jpg' });
+    await b.save({ ...proj });
+    await b.save({ ...proj, durationSeconds: 42 });
+    await b.save(proj);
 
     expect(t.puts.map((p) => p.doc.audioIntent)).toEqual(['set', 'keep', 'keep']);
+    expect(t.puts.map((p) => p.doc.coverIntent)).toEqual(['set', 'keep', 'keep']);
     expect(t.puts[1].audio).toBeUndefined();
-    expect(t.puts[1].doc.durationSeconds).toBe(42); // keep 的那次带新时长
-    expect(t.puts[2].doc.durationSeconds).toBe(30); // 原对象那次
+    expect(t.puts[1].cover).toBeUndefined();
+    expect(t.puts[1].doc.durationSeconds).toBe(42);
   });
 
-  it('无音频保存走 cleared', async () => {
-    const t = makeBridge();
+  it('无音频无封面保存走 cleared', async () => {
+    const t = makeMemoryProjectBridge();
     const b = new ElectronFileProjectBackend(t.bridge);
-    await b.save(makeProject()); // 无 audioBlob
+    await b.save(makeProject());
     expect(t.puts[0].doc.audioIntent).toBe('cleared');
+    expect(t.puts[0].doc.coverIntent).toBe('cleared');
     expect(t.puts[0].audio).toBeUndefined();
+    expect(t.puts[0].cover).toBeUndefined();
   });
 
-  it('put 失败回滚音频缓存：下次保存重新补发字节（重试自愈）', async () => {
-    const t = makeBridge();
+  it('put 失败回滚音频/封面缓存：下次保存重新补发字节', async () => {
+    const t = makeMemoryProjectBridge();
     let failNext = false;
-    t.put.mockImplementation(async (p: ProjectPutWire) => {
+    t.put.mockImplementation(async (p) => {
       if (failNext) throw new Error('ipc down');
       t.puts.push(p);
     });
     const b = new ElectronFileProjectBackend(t.bridge);
 
     const first = blobOf([1]);
-    await b.save(makeProject({ audioBlob: first })); // 成功，缓存 = first
+    await b.save(makeProject({ audioBlob: first }));
     failNext = true;
-    const second = blobOf([2, 2]); // 换了新音频
+    const second = blobOf([2, 2]);
     await expect(b.save(makeProject({ audioBlob: second }))).rejects.toThrow('ipc down');
     failNext = false;
-    await b.save(makeProject({ audioBlob: second })); // 缓存已回滚到 first ⇒ 应重发 set
+    await b.save(makeProject({ audioBlob: second }));
     expect(t.puts[t.puts.length - 1].doc.audioIntent).toBe('set');
   });
 });
 
-describe('ElectronFileProjectBackend · 读取与迁移', () => {
+describe('ElectronFileProjectBackend · 读取与多工程', () => {
   it('get 重建工程并缓存音频身份：紧随的保存命中 keep', async () => {
-    const t = makeBridge({
+    const t = makeMemoryProjectBridge();
+    await t.bridge.put({
+      id: 'pSong1',
       doc: {
-        schemaVersion: 1,
+        schemaVersion: PROJECT_SCHEMA_VERSION,
+        name: null,
+        artist: null,
+        source: { type: 'custom' },
         durationSeconds: 61.5,
-        notes: [note],
+        lastOpened: 9,
+        charts: [chart()],
         audioName: 'song.mp3',
-        audioPresent: true,
+        coverName: null,
+        audioIntent: 'set',
+        coverIntent: 'cleared',
       },
       audio: new Uint8Array([9, 9]),
     });
     const b = new ElectronFileProjectBackend(t.bridge);
-    const restored = await b.get();
+    const restored = await b.get('pSong1');
     expect(restored).toMatchObject({
-      id: DEFAULT_PROJECT_ID,
+      id: 'pSong1',
       durationSeconds: 61.5,
       audioName: 'song.mp3',
     });
@@ -126,70 +152,71 @@ describe('ElectronFileProjectBackend · 读取与迁移', () => {
     await expect(restored!.audioBlob!.arrayBuffer()).resolves.toHaveProperty('byteLength', 2);
 
     await b.save(restored!);
-    expect(t.puts[0].doc.audioIntent).toBe('keep'); // 不重传恢复来的音频
+    expect(t.puts[t.puts.length - 1].doc.audioIntent).toBe('keep');
   });
 
   it('doc 为空 / 磁盘无数据返回 null', async () => {
-    const b = new ElectronFileProjectBackend(makeBridge(null).bridge);
-    await expect(b.get()).resolves.toBeNull();
+    const b = new ElectronFileProjectBackend(makeMemoryProjectBridge().bridge);
+    await expect(b.get('pMissing1')).resolves.toBeNull();
   });
 
-  it('首启静默迁移：文件侧为空时从旧存储迁入（含字节），每进程至多一次，绝不覆盖已有文件数据', async () => {
-    const empty = makeBridge(null);
-    const legacy = vi.fn(async () => makeProject({ audioBlob: blobOf([5]), audioName: 'old.wav' }));
-    const b = new ElectronFileProjectBackend(empty.bridge, legacy);
+  it('多工程读写 / 列表 / 删除往返', async () => {
+    const t = makeMemoryProjectBridge();
+    const b = new ElectronFileProjectBackend(t.bridge);
+    const a = makeProject({ id: 'pA', name: 'A', lastOpened: 10 });
+    const c = makeProject({ id: 'pC', name: 'C', lastOpened: 30, charts: [chart({ id: 'c2', diff: 4 })] });
+    await b.save(a);
+    await b.save(c);
 
-    await b.get(); // 触发迁移：put(set) 落入文件侧；此时 get 已错过但下一击可见
-    await b.get();
+    const listed = await b.list();
+    expect(listed.map((p) => p.id).sort()).toEqual(['pA', 'pC']);
+    expect(listed.find((p) => p.id === 'pC')?.charts[0].diff).toBe(4);
+    expect(listed.every((p) => p.audioBlob == null && p.coverBlob == null)).toBe(true);
 
-    expect(empty.put).toHaveBeenCalledTimes(1);
-    expect(empty.puts[0].doc.audioIntent).toBe('set');
-    expect(legacy).toHaveBeenCalledTimes(1); // 幂等：第二次 get 不再迁
-
-    // 文件侧已有数据：legacy 完全不被触碰
-    const populated = makeBridge({
-      doc: { schemaVersion: 1, durationSeconds: 9, notes: [], audioName: null, audioPresent: false },
-      audio: null,
-    });
-    const legacy2 = vi.fn(async () => null);
-    await new ElectronFileProjectBackend(populated.bridge, legacy2).get();
-    expect(legacy2).not.toHaveBeenCalled();
-  });
-
-  it('迁移来源异常时静默跳过，不影响正常读写路径', async () => {
-    const t = makeBridge(null);
-    const legacy = vi.fn(async () => {
-      throw new Error('no idb');
-    });
-    const b = new ElectronFileProjectBackend(t.bridge, legacy);
-    await expect(b.get()).resolves.toBeNull();
-    expect(t.put).not.toHaveBeenCalled();
+    await expect(b.get('pA')).resolves.toMatchObject({ name: 'A', lastOpened: 10 });
+    await b.delete('pA');
+    expect((await b.list()).map((p) => p.id)).toEqual(['pC']);
+    await expect(b.get('pA')).resolves.toBeNull();
+    await expect(b.get('pC')).resolves.toMatchObject({ name: 'C' });
   });
 });
 
 describe('安全与门面', () => {
   it('非法工程 id 在渲染侧即拒绝（双保险，主进程另有白名单）', async () => {
-    const t = makeBridge();
+    const t = makeMemoryProjectBridge();
     const b = new ElectronFileProjectBackend(t.bridge);
     await expect(b.get('../evil')).rejects.toThrow('非法的谱面工程 id');
     await expect(b.save(makeProject({ id: '.hidden' }))).rejects.toThrow('非法的谱面工程 id');
-    expect(t.put).not.toHaveBeenCalled();
+    await expect(b.delete('..')).rejects.toThrow('非法的谱面工程 id');
+    expect(t.puts).toHaveLength(0);
   });
 
-  it('门面委托所选后端并透传默认 id；无参构造在 node 环境安全落到 IndexedDB 后端', async () => {
+  it('门面委托所选后端；无参构造在 node 环境安全落到 IndexedDB 后端', async () => {
     const backend = {
       get: vi.fn(async () => null),
       save: vi.fn(async () => {}),
+      list: vi.fn(async () => []),
+      delete: vi.fn(async () => {}),
     };
     const store = new ChartProjectStore(backend);
-    await store.save(makeProject());
-    await store.get();
-    expect(backend.save).toHaveBeenCalledWith(makeProject());
-    expect(backend.get).toHaveBeenCalledWith(DEFAULT_PROJECT_ID);
+    const proj = makeProject();
+    await store.save(proj);
+    await store.get('pSong1');
+    await store.list();
+    await store.delete('pSong1');
+    expect(backend.save).toHaveBeenCalledWith(proj);
+    expect(backend.get).toHaveBeenCalledWith('pSong1');
+    expect(backend.list).toHaveBeenCalled();
+    expect(backend.delete).toHaveBeenCalledWith('pSong1');
 
-    // 无参构造：window 不存在 ⇒ 自动 IndexedDB 后端；构造本身不得抛错（openDb 惰性）
     expect(new ChartProjectStore()).toBeInstanceOf(ChartProjectStore);
-    // 导出面完整性：原实现类仍在公开 API 上
     expect(new IndexedDbProjectBackend()).toBeDefined();
+  });
+
+  it('源码不再含 IndexedDB→文件迁移', () => {
+    const src = readStripped('src/chart/project/ChartProject.ts');
+    expect(src).not.toMatch(/ensureMigratedOnce/);
+    expect(src).not.toMatch(/legacyRead/);
+    expect(readStripped('electron/main.cjs')).not.toMatch(/首启迁移/);
   });
 });

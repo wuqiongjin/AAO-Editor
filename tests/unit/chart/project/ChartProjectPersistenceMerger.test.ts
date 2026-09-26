@@ -7,7 +7,26 @@ import type { ChartNote } from '@/src/chart/types';
 
 const emptyNotes: ChartNote[] = [];
 const projectOf = (notes: ChartNote[], durationSeconds = 30): ChartProject => ({
-  id: 'default', durationSeconds, notes,
+  id: 'pTest1',
+  name: null,
+  artist: null,
+  source: { type: 'custom' },
+  durationSeconds,
+  lastOpened: 0,
+  charts: [{
+    id: 'c1',
+    notes,
+    title: null,
+    diff: 3,
+    level: null,
+    completed: false,
+    upload: null,
+    lastModified: 0,
+    appliedChartCodeText: null,
+    chartCodePristine: false,
+  }],
+  audioName: null,
+  coverName: null,
 });
 
 describe('ChartProjectPersistenceMerger · 防抖 + flush', () => {
@@ -35,7 +54,7 @@ describe('ChartProjectPersistenceMerger · 防抖 + flush', () => {
     vi.advanceTimersByTime(800);
     expect(save).toHaveBeenCalledTimes(1);
     // 第二次落盘应包含最后一次 schedule 的项目
-    expect(save.mock.calls[0][0].notes.length).toBe(1);
+    expect(save.mock.calls[0][0].charts[0].notes.length).toBe(1);
     m.destroy();
   });
 

@@ -4,12 +4,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
     platform: process.platform,
     versions: process.versions,
-    // 谱面工程文件后端（issue 25）：渲染进程经此桥把工程数据落到 userData 文件。
-    // get 返回 { doc, audio(Uint8Array) | null } 或 null（无数据）；
-    // put 载荷见 src/utils/ChartProject.ts 的 ProjectPutWire。
+    // 谱面工程文件后端：渲染进程经此桥把工程数据落到数据根文件。
+    // get 返回 { doc, audio, cover } 或 null（无数据 / 旧 schema）；put 见 ChartProject.ts。
     projectStore: {
         get: (id) => ipcRenderer.invoke('project:get', id),
         put: (payload) => ipcRenderer.invoke('project:put', payload),
+        list: () => ipcRenderer.invoke('project:list'),
+        delete: (id) => ipcRenderer.invoke('project:delete', id),
     },
     // issue 118：谱面代码另存为。每次弹出系统保存对话框，不记路径。
     chartCodeExport: {

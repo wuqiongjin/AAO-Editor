@@ -1,79 +1,208 @@
-// 谱面工程持久化（ADR-0005 §2/§6，issue 25 存储后端 Electron 改造）：
-// 谱面工程 = { 代码(notes) + 谱面时长(durationSeconds) + 音频(Blob 引用) }。
-// 后端策略（issue 25 grill 定案）：**按环境自动切换**——Electron 环境（存在 window.electronAPI.projectStore）
-// 用数据根文件后端（主进程读写磁盘；默认 userData/data，issue 117 可改根），浏览器环境用 IndexedDB。
-// 旧数据迁移（grill 定案）：Electron 下首次读取若文件后端无数据，自动把 IndexedDB 里的谱面工程
-// 静默迁入文件后端；IndexedDB 原数据保留作备份，不删除。
-// 文件布局（<数据根>/projects/<id>/，默认数据根 = userData/data）：
-//   project.json = { schemaVersion, durationSeconds, notes, audioName?, audioPresent }
-//   audio.bin    = 音频原始字节（与 JSON 分离，仅在字节变化时重写，避免每次防抖保存重写大音频）
-// 本模块接口抽象化；未来多谱面（issue 26）只是加条目 + 列表 UI，不改存储结构。
+// 谱面工程持久化（ADR-0005 §6 / ADR-0015 §1、§5）：
+// 谱面工程 = 工程信息 + 音频 + 封面 + 谱面时长 + 1..n 张谱面。
+// 后端按环境自动切换：Electron 走数据根文件，浏览器走 IndexedDB。
+// 未发布：schemaVersion 保持 1。旧 default（顶层 notes、无 charts）不读、不删；无 IndexedDB→文件迁移。
+// 文件布局（<数据根>/projects/<id>/）：
+//   project.json = { schemaVersion, 工程信息, durationSeconds, lastOpened, charts, audioName, coverName, audioPresent, coverPresent }
+//   audio.bin / cover.bin = 与 JSON 分离的字节（仅在 set 时重写）
 import type { ChartNote } from '../types';
 
-export const DEFAULT_PROJECT_ID = 'default';
+export const PROJECT_SCHEMA_VERSION = 1 as const;
+
+/** 03 接入当前工程前，工作台只读写这一份工程。不用 `default`，以免覆盖旧「一份 notes」记录。 */
+export const WORKSPACE_PROJECT_ID = 'workspace';
+
+export type ChartDifficulty = 0 | 1 | 2 | 3 | 4;
+
+export type SongSource =
+  | { type: 'custom' }
+  | { type: 'bandori'; id: number }
+  | { type: 'llsif'; id: number };
+
+export interface ChartUploadRecord {
+  postId: number;
+  at: number;
+}
+
+export interface ProjectChart {
+  id: string;
+  /** 谱面代码源数据（ADR-0014 保真：未知字段随 JSON 往返保留） */
+  notes: ChartNote[];
+  title: string | null;
+  diff: ChartDifficulty;
+  level: number | null;
+  completed: boolean;
+  upload: ChartUploadRecord | null;
+  lastModified: number;
+  appliedChartCodeText: string | null;
+  chartCodePristine: boolean;
+}
 
 export interface ChartProject {
   id: string;
-  /** 谱面时长（秒）：ADR-0005 §4 显式字段，有音频=音频时长，无音频=持久化值(默认30s) */
+  name: string | null;
+  artist: string | null;
+  source: SongSource;
   durationSeconds: number;
-  /** 谱面代码（notes 数组，经 convertNotesToChartCode 可还原为代码文本） */
-  notes: ChartNote[];
-  /** 无画布编辑时另存为用的已应用源文本（ADR-0014 §5） */
-  appliedChartCodeText?: string | null;
-  chartCodePristine?: boolean;
-  audioName?: string;
+  lastOpened: number;
+  charts: ProjectChart[];
+  audioName: string | null;
   audioBlob?: Blob;
+  coverName: string | null;
+  coverBlob?: Blob;
 }
 
-/** project.json 的持久化文档结构（不含音频字节本体） */
 export interface ProjectRecordDoc {
-  schemaVersion: 1;
+  schemaVersion: typeof PROJECT_SCHEMA_VERSION;
+  name: string | null;
+  artist: string | null;
+  source: SongSource;
   durationSeconds: number;
-  notes: ChartNote[];
+  lastOpened: number;
+  charts: ProjectChart[];
   audioName: string | null;
-  appliedChartCodeText?: string | null;
-  chartCodePristine?: boolean;
-  /** 磁盘上是否存在 audio.bin（get 据此决定是否读音频字节） */
+  coverName: string | null;
   audioPresent: boolean;
+  coverPresent: boolean;
 }
+
+export type BinaryIntent = 'set' | 'keep' | 'cleared';
 
 /** 渲染进程 → 主进程 put 载荷 */
 export interface ProjectPutWire {
   id: string;
-  doc: Omit<ProjectRecordDoc, 'audioPresent'> & {
-    /**
-     * 本次保存对音频的意图：
-     * - 'set'     音频有变化，audio 字段携带完整字节，主进程写入/替换 audio.bin；
-     * - 'keep'    音频未变（Blob 对象同一实例），主进程不动磁盘上的 audio.bin；
-     * - 'cleared' 用户清除了音频，主进程删除 audio.bin。
-     */
-    audioIntent: 'set' | 'keep' | 'cleared';
+  doc: Omit<ProjectRecordDoc, 'audioPresent' | 'coverPresent'> & {
+    audioIntent: BinaryIntent;
+    coverIntent: BinaryIntent;
   };
-  /** audioIntent='set' 时的音频原始字节 */
   audio?: Uint8Array;
+  cover?: Uint8Array;
 }
 
-/** 主进程 → 渲染进程 get 返回（null = 无数据） */
+/** 主进程 → 渲染进程 get 返回（null = 无数据 / 旧 schema） */
 export interface ProjectGetWire {
   doc: ProjectRecordDoc;
-  /** audio.bin 字节（Buffer 经结构化克隆到渲染侧为 Uint8Array）；doc.audioPresent=false 时为 null */
   audio: Uint8Array | null;
+  cover: Uint8Array | null;
+}
+
+export interface ProjectListItem {
+  id: string;
+  doc: ProjectRecordDoc;
 }
 
 /** preload 注入的桥（electronAPI.projectStore） */
 export interface ElectronProjectBridge {
   get(id: string): Promise<ProjectGetWire | null>;
   put(payload: ProjectPutWire): Promise<unknown>;
+  list(): Promise<ProjectListItem[]>;
+  delete(id: string): Promise<unknown>;
 }
 
-/** 存储后端统一接口（IndexedDB 与 Electron userData 文件后端皆实现之） */
 export interface ChartProjectBackend {
   get(id: string): Promise<ChartProject | null>;
   save(project: ChartProject): Promise<void>;
+  list(): Promise<ChartProject[]>;
+  delete(id: string): Promise<void>;
+}
+
+export function newChartId(): string {
+  return `c${crypto.randomUUID().replace(/-/g, '')}`;
+}
+
+export function isCurrentProjectSchema(record: unknown): boolean {
+  if (typeof record !== 'object' || record === null) return false;
+  const doc = record as { schemaVersion?: unknown; charts?: unknown };
+  // 未发布所以不 bump 版本；靠 charts[] 把旧「一份 notes」记录挡在外面。
+  return doc.schemaVersion === PROJECT_SCHEMA_VERSION && Array.isArray(doc.charts);
+}
+
+/** 空位可写；当前文档可覆盖；旧「一份 notes」记录必须原样留下。 */
+export function canReplaceStoredProject(existing: unknown): boolean {
+  if (existing == null) return true;
+  return isCurrentProjectSchema(existing);
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function blobFromBytes(bytes: Uint8Array | null | undefined): Blob | undefined {
+  if (!bytes || bytes.byteLength === 0) return undefined;
+  return new Blob([new Uint8Array(bytes)]);
+}
+
+export function projectFromDoc(
+  id: string,
+  doc: ProjectRecordDoc,
+  audio: Uint8Array | null,
+  cover: Uint8Array | null,
+): ChartProject {
+  const audioBlob = blobFromBytes(audio);
+  const coverBlob = blobFromBytes(cover);
+  return {
+    id,
+    name: doc.name ?? null,
+    artist: doc.artist ?? null,
+    source: doc.source ?? { type: 'custom' },
+    durationSeconds: doc.durationSeconds,
+    lastOpened: doc.lastOpened,
+    charts: doc.charts ?? [],
+    audioName: doc.audioName ?? null,
+    coverName: doc.coverName ?? null,
+    ...(audioBlob ? { audioBlob } : {}),
+    ...(coverBlob ? { coverBlob } : {}),
+  };
+}
+
+function projectWithoutBlobs(project: ChartProject): ChartProject {
+  return {
+    id: project.id,
+    name: project.name,
+    artist: project.artist,
+    source: project.source,
+    durationSeconds: project.durationSeconds,
+    lastOpened: project.lastOpened,
+    charts: project.charts,
+    audioName: project.audioName,
+    coverName: project.coverName,
+  };
+}
+
+function toPutDoc(project: ChartProject, audioIntent: BinaryIntent, coverIntent: BinaryIntent): ProjectPutWire['doc'] {
+  return {
+    schemaVersion: PROJECT_SCHEMA_VERSION,
+    name: project.name,
+    artist: project.artist,
+    source: project.source,
+    durationSeconds: project.durationSeconds,
+    lastOpened: project.lastOpened,
+    charts: cloneJson(project.charts),
+    audioName: project.audioName,
+    coverName: project.coverName,
+    audioIntent,
+    coverIntent,
+  };
+}
+
+async function blobIntent(
+  blob: Blob | undefined,
+  lastWritten: Blob | null,
+): Promise<{ intent: BinaryIntent; bytes?: Uint8Array; next: Blob | null }> {
+  if (blob == null) return { intent: 'cleared', next: null };
+  if (blob === lastWritten) return { intent: 'keep', next: lastWritten };
+  return { intent: 'set', bytes: new Uint8Array(await blob.arrayBuffer()), next: blob };
+}
+
+/** 工程 id 合法性（与主进程安全校验同口径的双保险）：字母开头，仅字母数字 . _ -，≤64 位 */
+function assertValidProjectId(id: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) {
+    throw new Error(`非法的谱面工程 id: ${JSON.stringify(id)}`);
+  }
 }
 
 /* ------------------------------------------------------------------ */
-/* IndexedDB 后端（原 issue 23 实现整体平移，行为不变）                  */
+/* IndexedDB 后端                                                       */
 /* ------------------------------------------------------------------ */
 
 const DB_NAME = 'bangdream.chartproject';
@@ -94,6 +223,26 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+type StoredProject = ChartProject & { schemaVersion: typeof PROJECT_SCHEMA_VERSION };
+
+function fromStored(record: unknown): ChartProject | null {
+  if (!isCurrentProjectSchema(record)) return null;
+  const stored = record as StoredProject;
+  return {
+    id: stored.id,
+    name: stored.name,
+    artist: stored.artist,
+    source: stored.source,
+    durationSeconds: stored.durationSeconds,
+    lastOpened: stored.lastOpened,
+    charts: stored.charts,
+    audioName: stored.audioName,
+    coverName: stored.coverName,
+    ...(stored.audioBlob ? { audioBlob: stored.audioBlob } : {}),
+    ...(stored.coverBlob ? { coverBlob: stored.coverBlob } : {}),
+  };
+}
+
 export class IndexedDbProjectBackend implements ChartProjectBackend {
   private dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -102,29 +251,70 @@ export class IndexedDbProjectBackend implements ChartProjectBackend {
     return this.dbPromise;
   }
 
-  async get(id: string = DEFAULT_PROJECT_ID): Promise<ChartProject | null> {
+  async get(id: string): Promise<ChartProject | null> {
     const db = await this.db();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readonly');
       const req = tx.objectStore(STORE).get(id);
-      req.onsuccess = () => resolve((req.result as ChartProject | undefined) ?? null);
+      req.onsuccess = () => resolve(fromStored(req.result));
       req.onerror = () => reject(req.error);
     });
   }
 
   async save(project: ChartProject): Promise<void> {
     const db = await this.db();
+    const existing = await this.rawGet(db, project.id);
+    if (!canReplaceStoredProject(existing)) {
+      throw new Error(`拒绝覆盖旧 schema 工程: ${JSON.stringify(project.id)}`);
+    }
+    const record: StoredProject = { ...project, schemaVersion: PROJECT_SCHEMA_VERSION };
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).put(project);
+      tx.objectStore(STORE).put(record);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async list(): Promise<ChartProject[]> {
+    const db = await this.db();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).getAll();
+      req.onsuccess = () => {
+        const rows = (req.result as unknown[]).map(fromStored).filter((p): p is ChartProject => p != null);
+        resolve(rows.map(projectWithoutBlobs));
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await this.db();
+    const existing = await this.rawGet(db, id);
+    if (!canReplaceStoredProject(existing)) {
+      throw new Error(`拒绝删除旧 schema 工程: ${JSON.stringify(id)}`);
+    }
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  private rawGet(db: IDBDatabase, id: string): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(id);
+      req.onsuccess = () => resolve(req.result ?? null);
+      req.onerror = () => reject(req.error);
     });
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* Electron userData 文件后端（issue 25）                               */
+/* Electron 文件后端                                                    */
 /* ------------------------------------------------------------------ */
 
 function getElectronProjectBridge(): ElectronProjectBridge | null {
@@ -133,131 +323,65 @@ function getElectronProjectBridge(): ElectronProjectBridge | null {
   return api?.projectStore ?? null;
 }
 
-/** 工程 id 合法性（与主进程安全校验同口径的双保险）：字母开头，仅字母数字 . _ -，≤64 位 */
-function assertValidProjectId(id: string): void {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) {
-    throw new Error(`非法的谱面工程 id: ${JSON.stringify(id)}`);
-  }
-}
-
-/**
- * Electron userData 文件后端。
- *
- * 音频重写规避：编辑防抖保存每次都会带全量工程记录（含音频引用）；这里按「Blob 对象同一实例」
- * 判定音频未变（音频只在 importAudio/clearAudio 时产生新对象），未变时向主进程声明 'keep'，
- * 避免 ~40MB 音频每 800ms 重写一次。首启迁移/重启后首次保存会各自补发一次音频字节，属预期一次性成本。
- */
 export class ElectronFileProjectBackend implements ChartProjectBackend {
-  /** 最近一次确认落盘的音频实例；身份相同 ⇒ 下次保存走 'keep' */
-  private lastWrittenAudio: Blob | null = null;
-  private migrated = false;
-
-  /** 桥接与旧数据来源（显式字段：erasableSyntaxOnly 禁用参数属性写法） */
+  /** 按工程记住上次落盘的 Blob 身份；相同 ⇒ keep，避免防抖保存重传大文件 */
+  private lastWrittenAudio = new Map<string, Blob | null>();
+  private lastWrittenCover = new Map<string, Blob | null>();
   private bridge: ElectronProjectBridge;
-  /** 首启迁移的旧数据来源；默认读 IndexedDB（Electron 内同样可用）。测试可注入假实现 */
-  private legacyRead: (id: string) => Promise<ChartProject | null>;
 
-  constructor(
-    bridge: ElectronProjectBridge,
-    legacyRead: (id: string) => Promise<ChartProject | null> = () =>
-      new IndexedDbProjectBackend().get(),
-  ) {
+  constructor(bridge: ElectronProjectBridge) {
     this.bridge = bridge;
-    this.legacyRead = legacyRead;
   }
 
-  async get(id: string = DEFAULT_PROJECT_ID): Promise<ChartProject | null> {
+  async get(id: string): Promise<ChartProject | null> {
     assertValidProjectId(id);
-    await this.ensureMigratedOnce(id);
     const wire = await this.bridge.get(id);
-    if (!wire || !wire.doc) return null;
-    const doc = wire.doc;
-    let audioBlob: Blob | undefined;
-    if (wire.audio && wire.audio.byteLength > 0) {
-      audioBlob = new Blob([new Uint8Array(wire.audio)]);
-    }
-    const project: ChartProject = {
-      id,
-      durationSeconds: doc.durationSeconds,
-      notes: doc.notes ?? [],
-      ...(doc.appliedChartCodeText != null ? { appliedChartCodeText: doc.appliedChartCodeText } : {}),
-      ...(doc.chartCodePristine != null ? { chartCodePristine: doc.chartCodePristine } : {}),
-      ...(doc.audioName != null ? { audioName: doc.audioName } : {}),
-      ...(audioBlob ? { audioBlob } : {}),
-    };
-    // 记住重建出的音频实例：恢复后的自动保存将命中 'keep'，不会重复传字节
-    this.lastWrittenAudio = audioBlob ?? null;
+    if (!wire?.doc || !isCurrentProjectSchema(wire.doc)) return null;
+    const project = projectFromDoc(id, wire.doc, wire.audio, wire.cover);
+    this.lastWrittenAudio.set(id, project.audioBlob ?? null);
+    this.lastWrittenCover.set(id, project.coverBlob ?? null);
     return project;
   }
 
   async save(project: ChartProject): Promise<void> {
     assertValidProjectId(project.id);
-    // 文档化快照以便失败回滚时恢复状态
-    const prevAudioRef = this.lastWrittenAudio;
-    let audioIntent: 'set' | 'keep' | 'cleared';
-    let audioBytes: Uint8Array | undefined;
-    const blob = project.audioBlob ?? null;
-    if (blob == null) {
-      audioIntent = 'cleared';
-      this.lastWrittenAudio = null;
-    } else if (blob === prevAudioRef) {
-      audioIntent = 'keep';
-    } else {
-      audioBytes = new Uint8Array(await blob.arrayBuffer());
-      audioIntent = 'set';
-      this.lastWrittenAudio = blob;
-    }
+    const prevAudio = this.lastWrittenAudio.get(project.id) ?? null;
+    const prevCover = this.lastWrittenCover.get(project.id) ?? null;
+    const audio = await blobIntent(project.audioBlob, prevAudio);
+    const cover = await blobIntent(project.coverBlob, prevCover);
+    this.lastWrittenAudio.set(project.id, audio.next);
+    this.lastWrittenCover.set(project.id, cover.next);
     try {
       await this.bridge.put({
         id: project.id,
-        doc: {
-          schemaVersion: 1,
-          durationSeconds: project.durationSeconds,
-          // IPC 结构化克隆不接受含函数/符号的对象；JSON 往返保证纯数据（与导出语义一致）
-          notes: JSON.parse(JSON.stringify(project.notes)) as ChartNote[],
-          audioName: project.audioName ?? null,
-          appliedChartCodeText: project.appliedChartCodeText ?? null,
-          chartCodePristine: project.chartCodePristine === true,
-          audioIntent,
-        },
-        ...(audioBytes != null ? { audio: audioBytes } : {}),
+        doc: toPutDoc(project, audio.intent, cover.intent),
+        ...(audio.bytes != null ? { audio: audio.bytes } : {}),
+        ...(cover.bytes != null ? { cover: cover.bytes } : {}),
       });
     } catch (err) {
-      // 写入失败：还原缓存，让下次重试重新判定并补发音频字节
-      this.lastWrittenAudio = prevAudioRef;
+      this.lastWrittenAudio.set(project.id, prevAudio);
+      this.lastWrittenCover.set(project.id, prevCover);
       throw err;
     }
   }
 
-  /**
-   * 首启静默迁移（grill 定案）：文件后端为空且 IndexedDB 有旧工程时迁入。
-   * IndexedDB 原数据永久保留作备份；先查文件再决定是否迁，天然幂等、绝不覆盖已有文件数据。
-   */
-  private async ensureMigratedOnce(id: string): Promise<void> {
-    if (this.migrated) return;
-    this.migrated = true; // 无论结果如何本进程内只尝试一次，失败随下次保存自愈
-    let existing: ProjectGetWire | null = null;
-    try {
-      existing = await this.bridge.get(id);
-    } catch {
-      return; // 文件后端不可用：交给本次 get 正常报错，不做迁移
-    }
-    if (existing && existing.doc) return; // 已有文件数据：不迁移
-    let legacy: ChartProject | null = null;
-    try {
-      legacy = await this.legacyRead(id);
-    } catch {
-      return; // 无旧数据或 IDB 异常：静默跳过（全新安装的正常路径）
-    }
-    if (legacy && (legacy.notes.length > 0 || legacy.audioBlob || legacy.durationSeconds > 0)) {
-      await this.save({ ...legacy, id }); // 走完整 set 流程携带音频字节
-      this.lastWrittenAudio = legacy.audioBlob ?? null; // 紧接着的常规保存应命中 'keep'
-    }
+  async list(): Promise<ChartProject[]> {
+    const items = await this.bridge.list();
+    return items
+      .filter((item) => isCurrentProjectSchema(item.doc))
+      .map((item) => projectFromDoc(item.id, item.doc, null, null));
+  }
+
+  async delete(id: string): Promise<void> {
+    assertValidProjectId(id);
+    await this.bridge.delete(id);
+    this.lastWrittenAudio.delete(id);
+    this.lastWrittenCover.delete(id);
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* 门面：保持既有 API（Editor 无需改动），内部委托所选后端               */
+/* 门面                                                                 */
 /* ------------------------------------------------------------------ */
 
 function autoDetectBackend(): ChartProjectBackend {
@@ -265,7 +389,6 @@ function autoDetectBackend(): ChartProjectBackend {
   return bridge ? new ElectronFileProjectBackend(bridge) : new IndexedDbProjectBackend();
 }
 
-/** 谱面工程存储门面。默认按环境自动选择后端；测试可显式注入 backend。 */
 export class ChartProjectStore {
   private backend: ChartProjectBackend;
 
@@ -273,11 +396,19 @@ export class ChartProjectStore {
     this.backend = backend;
   }
 
-  get(id: string = DEFAULT_PROJECT_ID): Promise<ChartProject | null> {
+  get(id: string): Promise<ChartProject | null> {
     return this.backend.get(id);
   }
 
   save(project: ChartProject): Promise<void> {
     return this.backend.save(project);
+  }
+
+  list(): Promise<ChartProject[]> {
+    return this.backend.list();
+  }
+
+  delete(id: string): Promise<void> {
+    return this.backend.delete(id);
   }
 }

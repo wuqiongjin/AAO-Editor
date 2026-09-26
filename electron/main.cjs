@@ -22,19 +22,20 @@ const {
     claimDataRoot,
     loadDataRootSync,
     moveDataRoot,
-    projectDir: projectDirAtRoot,
     backgroundSkinPath,
 } = require('./dataRoot.cjs');
+const {
+    getProject,
+    putProject,
+    listProjects,
+    deleteProject,
+} = require('./projectStore.cjs');
 const { t, setActiveUiLanguage } = require('./i18n.cjs');
 
 // ---------------------------------------------------------------------------
-// 谱面工程文件后端（issue 25 + 117）：<数据根>/projects/<id>/{project.json, audio.bin}
+// 谱面工程文件后端（ADR-0015）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
 // 默认数据根 = userData/data；当前根记在 userData/app-state.json。
-// 设计要点：
-// - project.json 与 audio.bin 分离：音频仅在字节变化时写入（audioIntent='set'），
-//   防抖保存（~800ms/次）不会反复重写大音频；
-// - 写入一律「临时文件 + rename」原子替换，进程中断不留半截 JSON；
-// - 工程目录名经严格白名单校验，杜绝路径穿越。
+// 旧「一份 notes」工程不读、不删。封面/音频与 JSON 分离，仅 intent=set 时重写字节。
 // ---------------------------------------------------------------------------
 
 function userDataDir() {
@@ -45,82 +46,17 @@ function currentDataRoot() {
     return loadDataRootSync(userDataDir());
 }
 
-function projectDir(id) {
-    return projectDirAtRoot(currentDataRoot(), id);
-}
-
 async function writeFileAtomic(filePath, data) {
     const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
     await fs.promises.writeFile(tmpPath, data);
     await fs.promises.rename(tmpPath, filePath);
 }
 
-async function fileExists(filePath) {
-    try {
-        await fs.promises.access(filePath);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
 function registerProjectStoreIpc() {
-    ipcMain.handle('project:get', async (_event, rawId) => {
-        const dir = projectDir(rawId);
-        let raw;
-        try {
-            raw = await fs.promises.readFile(path.join(dir, 'project.json'), 'utf8');
-        } catch {
-            return null; // 无工程文件 = 尚无数据（含首启迁移前的状态）
-        }
-        let doc;
-        try {
-            doc = JSON.parse(raw);
-        } catch (err) {
-            console.warn('[project-store] project.json 解析失败，按空数据处理:', err);
-            return null;
-        }
-        let audio = null;
-        if (doc && doc.audioPresent) {
-            try {
-                // Buffer 结构化克隆到渲染侧为 Uint8Array，可直接包 Blob
-                audio = await fs.promises.readFile(path.join(dir, 'audio.bin'));
-            } catch (err) {
-                console.warn('[project-store] audio.bin 缺失，按无音频返回:', err);
-            }
-        }
-        return { doc, audio };
-    });
-
-    ipcMain.handle('project:put', async (_event, payload) => {
-        const { id, doc, audio } = payload || {};
-        const dir = projectDir(id);
-        await fs.promises.mkdir(dir, { recursive: true });
-
-        const audioBinPath = path.join(dir, 'audio.bin');
-        if (doc.audioIntent === 'cleared') {
-            await fs.promises.rm(audioBinPath, { force: true });
-        } else if (doc.audioIntent === 'set') {
-            if (!(audio instanceof Uint8Array)) {
-                throw new Error('project:put audioIntent=set 但缺少音频字节');
-            }
-            // 不比较内容直接重写：'set' 只在音频真实变化（导入/迁移）时发生，频率极低
-            await writeFileAtomic(audioBinPath, Buffer.from(audio));
-        } // 'keep'：不动磁盘上的 audio.bin
-
-        const { audioIntent: _intent, ...docRest } = doc;
-        const durableDoc = {
-            ...docRest,
-            audioPresent:
-                doc.audioIntent === 'set'
-                    ? true
-                    : doc.audioIntent === 'keep'
-                      ? await fileExists(audioBinPath)
-                      : false,
-        };
-        await writeFileAtomic(path.join(dir, 'project.json'), JSON.stringify(durableDoc));
-        return true;
-    });
+    ipcMain.handle('project:get', (_event, rawId) => getProject(currentDataRoot(), rawId));
+    ipcMain.handle('project:put', (_event, payload) => putProject(currentDataRoot(), payload));
+    ipcMain.handle('project:list', () => listProjects(currentDataRoot()));
+    ipcMain.handle('project:delete', (_event, rawId) => deleteProject(currentDataRoot(), rawId));
 }
 registerProjectStoreIpc();
 
