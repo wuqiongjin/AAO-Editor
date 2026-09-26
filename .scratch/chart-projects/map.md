@@ -18,19 +18,19 @@
 - [02 歌曲级工程存储模型](./issues/02-歌曲级工程存储模型.md)：`schemaVersion` 保持 1（未发布不 bump）；一工程多谱面 + 封面分离存字节；list/get/save/delete；旧 `default`（无 `charts[]`）不读不删。
 - [03 启动落点与当前工程](./issues/03-启动落点与当前工程规则.md)：启动落工程管理页 `⇧⌘0`；当前工程 `ensure/open`；进工作台 = 最近未完成 / 否则新建未命名 Expert；切工程换编辑态、剪贴板不清。
 - [04 工程管理页](./issues/04-工程管理页.md) UI：**工程启动台（B）+ 工程详情（C）**；新建 = 空白 / 复制 / Bestdori，不含从谱面代码（Q25）；音频走音频页、封面走工程信息（Q26）。用户 2026-09-26 接受原型。落地：`ProjectsPage` 为默认入口，原型不再劫持该页。
-- [05 工作台谱面切换](./issues/05-工作台谱面切换与复制谱面.md) UI：面包屑下拉；新增谱面可可选贴 JSON。用户 2026-09-26 接受原型。
+- [05 工作台谱面切换](./issues/05-工作台谱面切换与复制谱面.md) UI：面包屑下拉；新增谱面可可选贴 JSON。用户 2026-09-26 接受原型。落地：顶栏 `ChartSwitcher`，原型目录已删。
 
 ## Frontier
 
-- [05 工作台谱面切换与复制谱面](./issues/05-工作台谱面切换与复制谱面.md) — open，03 已 resolved，可按原型 B 做。
-- 06 仍被 05 阻塞；07 被 bestdori-integration 的网络 IPC 实现阻塞。
+- [06 谱面状态与已上传只读](./issues/06-谱面状态与已上传只读.md) — 05 已 resolved，可做（上传记录可先手工注入）。
+- 07 被 bestdori-integration 的网络 IPC 实现阻塞。
 
 路线（2026-09-26 规划）：
 
-1. ~~并行：02 存储模型 ‖ UI prototype~~ 原型已接受（`?prototype=projects`，dev only；04/05 重写前保留作活规格）。
+1. ~~并行：02 存储模型 ‖ UI prototype~~ 原型已接受并随 04/05 落地删除。
 2. ~~**02 歌曲级工程存储模型**~~（resolved）。
 3. ~~**03 启动落点与当前工程**~~（resolved）：`CurrentProjectSession` + persistence 按当前工程 flush/load，切工程不再走固定 `workspace` id。
-4. ~~并行：04 工程管理页（按原型 D）~~（resolved）‖ 05 谱面切换与复制谱面（按原型 B）。05 落地后再删工作台 `?prototype=projects` 切换器挂载。
+4. ~~并行：04 工程管理页（按原型 D）‖ 05 谱面切换与复制谱面（按原型 B）~~（resolved）。
 5. 06 谱面状态与已上传只读（上传记录先手工注入测试）。
 6. 本地图外：bestdori-integration 网络 IPC → 上传实现（写入上传记录）；解阻 07。basic-editor 164 片段收藏随时可独立 grill。
 

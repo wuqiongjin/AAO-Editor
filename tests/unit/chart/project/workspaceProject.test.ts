@@ -1,6 +1,8 @@
 // chart-projects 03：进工作台时的选工程规则（纯函数）+ 切工程时的编辑态补丁。
 import { describe, expect, it } from 'vitest';
 import { canUndo, currentHistory } from '@/src/chart/editing/History';
+import { copySelection } from '@/src/chart/editing/SelectionEditing';
+import { pasteChartNotes } from '@/src/chart/editing/NoteReplacementRules';
 import {
   applyProjectSwitch,
   createUnnamedProject,
@@ -94,5 +96,39 @@ describe('applyProjectSwitch · 切工程编辑态', () => {
   it('切工程时谱面代码弹窗随当前工程卸载', () => {
     const src = readStripped('src/chart/Editor.tsx');
     expect(src).toMatch(/ChartCodeEditorProvider key=\{projectId/);
+  });
+
+  it('切谱面与切工程走同一条 resetNotes：剪贴板不清、历史不串', () => {
+    const src = readStripped('src/chart/Editor.tsx');
+    const restore = src.slice(src.indexOf('handleProjectRestore'));
+    expect(restore.slice(0, restore.indexOf('}, ['))).toMatch(/resetNotes\(chart\.notes/);
+    expect(src).not.toMatch(/isProjectsPrototype/);
+    expect(src).toMatch(/ChartSwitcher/);
+  });
+});
+
+describe('跨谱面复制粘贴 · Expert → Hard', () => {
+  it('Expert 选中复制后切到 Hard，剪贴板仍在且可贴入', () => {
+    const expert: ChartNote[] = [
+      { type: 'BPM', beat: 0, bpm: 120 },
+      { type: 'Single', beat: 4, lane: 2 },
+    ];
+    const hard: ChartNote[] = [
+      { type: 'BPM', beat: 0, bpm: 150 },
+    ];
+    const clipboard = copySelection(expert, [{ kind: 'note', noteIndex: 1 }]);
+    expect(clipboard).toEqual([{ type: 'Single', beat: 4, lane: 2 }]);
+
+    const switched = applyProjectSwitch({ notes: hard, clipboard });
+    expect(switched.clipboard).toBe(clipboard);
+    expect(canUndo(switched.history)).toBe(false);
+    expect(currentHistory(switched.history)).toEqual(hard);
+
+    const pasted = pasteChartNotes(currentHistory(switched.history), switched.clipboard, 8, 3);
+    expect(pasted.rejected).toBeUndefined();
+    expect(pasted.newNotes).toEqual([
+      { type: 'BPM', beat: 0, bpm: 150 },
+      { type: 'Single', beat: 8, lane: 3 },
+    ]);
   });
 });

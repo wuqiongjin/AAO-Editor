@@ -1,5 +1,5 @@
-// 工程目录操作（chart-projects 04）：纯函数，页面与工作台共用。
-// 新建 / 复制工程 / 新增谱面（Apply 闸门）/ 谱面列表展示名。
+// 工程目录操作（chart-projects 04 / 05）：纯函数，页面与工作台共用。
+// 新建 / 复制工程 / 新增谱面（Apply 闸门）/ 复制谱面 / 切换器标签文案。
 import {
   convertChartCodeToNotes,
   hasBeat0Bpm,
@@ -28,6 +28,17 @@ export function chartEffectiveTitle(
 ): string {
   const title = chartTitle?.trim();
   return title ? title : projectDisplayName(projectName, untitled);
+}
+
+/** 工作台切换器当前谱面那段：空名或等于工程名称时只显示难度。 */
+export function chartSwitchLabel(
+  projectName: string | null | undefined,
+  chart: { title: string | null; diff: ChartDifficulty },
+): string {
+  const title = chart.title?.trim() ?? '';
+  const name = projectName?.trim() ?? '';
+  if (title && title !== name) return `${DIFF_NAMES[chart.diff]} · ${title}`;
+  return DIFF_NAMES[chart.diff];
 }
 
 export function sortProjectsByLastOpened<T extends { lastOpened: number }>(projects: readonly T[]): T[] {

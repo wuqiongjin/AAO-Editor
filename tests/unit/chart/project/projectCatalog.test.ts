@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { convertNotesToChartCode } from '@/src/chart/editing/ChartConverter';
 import {
   addChartToProject,
+  chartSwitchLabel,
   createBlankProject,
+  deleteChartFromProject,
+  duplicateChartInProject,
   duplicateProject,
   projectDisplayName,
   sortProjectsByLastOpened,
@@ -92,6 +95,93 @@ describe('addChartToProject · 谱面代码 Apply 闸门', () => {
     }, { chartId: 'cBad', now: 9 });
     expect(result.ok).toBe(false);
     expect(src.charts).toHaveLength(1);
+  });
+});
+
+describe('chartSwitchLabel · 工作台切换器当前谱面那段', () => {
+  it('名称为空或等于工程名称时只显示难度；不同则「难度 · 名称」', () => {
+    expect(chartSwitchLabel('FIRE BIRD', { title: null, diff: 3 })).toBe('Expert');
+    expect(chartSwitchLabel('FIRE BIRD', { title: '  ', diff: 3 })).toBe('Expert');
+    expect(chartSwitchLabel('FIRE BIRD', { title: 'FIRE BIRD', diff: 3 })).toBe('Expert');
+    expect(chartSwitchLabel('FIRE BIRD', { title: '  FIRE BIRD  ', diff: 3 })).toBe('Expert');
+    expect(chartSwitchLabel('FIRE BIRD', { title: '练习版', diff: 3 })).toBe('Expert · 练习版');
+  });
+
+  it('同难度两张：空名只显示难度，另一张带自己的名称', () => {
+    expect(chartSwitchLabel('FIRE BIRD', { title: null, diff: 3 })).toBe('Expert');
+    expect(chartSwitchLabel('FIRE BIRD', { title: 'FIRE BIRD 练习版', diff: 3 })).toBe('Expert · FIRE BIRD 练习版');
+  });
+});
+
+describe('duplicateChartInProject · 同工程复制谱面', () => {
+  it('源数据逐字段相等（名称除外）、状态清空、新 id、名称 = 原显示名（副本）', () => {
+    const notes: ChartNote[] = [
+      { beat: 0, type: 'BPM', bpm: 160 },
+      { beat: 4, lane: 2, type: 'Single', charge: true, foo: 'keep' } as ChartNote,
+    ];
+    const src = createBlankProject({ id: 'pSong1', chartId: 'cEx1', now: 10, name: 'FIRE BIRD', diff: 3 });
+    src.charts[0] = {
+      ...src.charts[0],
+      notes,
+      title: null,
+      level: 27,
+      completed: true,
+      upload: { postId: 254301, at: 3 },
+      lastModified: 10,
+      appliedChartCodeText: '[{"beat":0,"type":"BPM","bpm":160}]',
+      chartCodePristine: true,
+    };
+
+    const next = duplicateChartInProject(src, 'cEx1', { chartId: 'cCopy1', now: 99 }, untitled);
+    expect(next).not.toBeNull();
+    if (!next) return;
+    expect(src.charts).toHaveLength(1);
+    expect(next.charts).toHaveLength(2);
+    const copy = next.charts[1];
+    expect(copy.id).toBe('cCopy1');
+    expect(copy.id).not.toBe(src.charts[0].id);
+    expect(copy.title).toBe('FIRE BIRD（副本）');
+    expect(copy.diff).toBe(3);
+    expect(copy.level).toBe(27);
+    expect(copy.completed).toBe(false);
+    expect(copy.upload).toBeNull();
+    expect(copy.lastModified).toBe(99);
+    expect(copy.appliedChartCodeText).toBe(src.charts[0].appliedChartCodeText);
+    expect(copy.chartCodePristine).toBe(true);
+    expect(copy.notes).toEqual(notes);
+    expect(copy.notes).not.toBe(notes);
+    expect(src.charts[0].completed).toBe(true);
+    expect(src.charts[0].upload).toEqual({ postId: 254301, at: 3 });
+    expect(src.charts[0].title).toBeNull();
+  });
+
+  it('已有同名则（副本 2）；自定义名称用原显示名', () => {
+    const src = createBlankProject({ id: 'pSong1', chartId: 'cEx1', now: 10, name: 'FIRE BIRD', diff: 3 });
+    src.charts[0] = { ...src.charts[0], title: '练习版' };
+    const once = duplicateChartInProject(src, 'cEx1', { chartId: 'cCopy1', now: 11 }, untitled)!;
+    expect(once.charts[1].title).toBe('练习版（副本）');
+    const twice = duplicateChartInProject(once, 'cEx1', { chartId: 'cCopy2', now: 12 }, untitled)!;
+    expect(twice.charts.map((c) => c.title)).toEqual(['练习版', '练习版（副本 2）', '练习版（副本）']);
+  });
+});
+
+describe('deleteChartFromProject · 至少一张谱面', () => {
+  it('删最后一张被拒，工程不变', () => {
+    const src = createUnnamedProject({ id: 'pSong1', chartId: 'cEx1', now: 1 });
+    const result = deleteChartFromProject(src, 'cEx1');
+    expect(result).toEqual({ ok: false, reason: 'last' });
+    expect(src.charts).toHaveLength(1);
+  });
+
+  it('两张里删一张留下另一张', () => {
+    const src = createUnnamedProject({ id: 'pSong1', chartId: 'cEx1', now: 1 });
+    const added = addChartToProject(src, { title: null, diff: 2, level: null, codeText: '' }, { chartId: 'cHd1', now: 2 });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    const result = deleteChartFromProject(added.project, 'cEx1');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.project.charts.map((c) => c.id)).toEqual(['cHd1']);
   });
 });
 
