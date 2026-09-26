@@ -141,6 +141,7 @@
   "pack.inUse": "使用中",
   "pack.inUseAria": "正在使用",
   "pack.presetActive": "已使用整包预设",
+  "assets.presetThumb.applyAria": "使用此包：{{label}}",
 
   "assets.header.eyebrow": "应用素材",
   "assets.header.title": "视觉素材",

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Check, Eye, EyeOff, ImageOff, ImagePlus, Music2, Sparkles, Trash2, Upload, Wand2 } from 'lucide-react';
+import { Check, Eye, EyeOff, ImageOff, ImagePlus, Music2, Trash2, Upload, Wand2 } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
 import EmptyState from '../ui/EmptyState';
 import { useConfig } from '../app/ProviderTree';
@@ -8,6 +8,7 @@ import {
   normalizeNoteSkinSelection,
 } from './noteSkin';
 import NoteSkinPreview from '../chart/rendering/NoteSkinPreview';
+import NoteSkinPresetThumbnail from '../chart/rendering/NoteSkinPresetThumbnail';
 import { backgroundSkinStore } from '../chart/rendering/backgroundSkin';
 import { useBackgroundSkin } from '../chart/rendering/useBackgroundSkin';
 import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../chart/config/AppSettings';
@@ -106,13 +107,14 @@ function NoteSkinPanel() {
                     active ? 'is-active' : '',
                   ].filter(Boolean).join(' ')}
                 >
-                  <div className="asset-set-visual" aria-hidden="true">
-                    <Sparkles size={20} />
-                  </div>
+                  <NoteSkinPresetThumbnail
+                    pack={pack}
+                    active={active}
+                    onApply={() => applyPreset(pack.id, pack.pairedDir)}
+                  />
                   <div className="asset-set-body">
                     <div className="asset-set-head">
                       <strong>{pack.label}</strong>
-                      {/* 整包预设用 .skin-pill（与键音素材包统一规格）*/}
                       {active ? (
                         <span className="skin-pill is-active" aria-label={t('pack.inUseAria')}>
                           <Check size={12} />{t('pack.inUse')}
@@ -127,7 +129,6 @@ function NoteSkinPanel() {
                         </button>
                       )}
                     </div>
-                    {/* 整包预设 = 1 套皮肤 = 同时覆盖 6 类音符；不向用户暴露"方向键配对"这种实现细节 */}
                   </div>
                 </div>
               );
