@@ -52,12 +52,19 @@ export function CurrentProjectProvider({
   const [chartId, setChartId] = useState<string | null>(() => sessionRef.current!.chartId);
   const [catalogEpoch, setCatalogEpoch] = useState(0);
 
+  const notifyCatalogChanged = useCallback(() => {
+    setCatalogEpoch((n) => n + 1);
+  }, []);
+
   const ensure = useCallback(async () => {
     const result = await sessionRef.current!.ensure();
     setProjectId(result.project.id);
     setChartId(result.chart.id);
+    // issue 10：新建未命名工程也要通知目录。ProjectsPage 是保活挂载、只在 catalogEpoch
+    // 变化时 reload；单纯 open 已有工程不通知（否则每次进工作台都白拉一次列表）。
+    if (result.created) notifyCatalogChanged();
     return result;
-  }, []);
+  }, [notifyCatalogChanged]);
 
   const open = useCallback(async (nextProjectId: string, nextChartId?: string) => {
     const result = await sessionRef.current!.open(nextProjectId, nextChartId);
@@ -70,10 +77,6 @@ export function CurrentProjectProvider({
     sessionRef.current!.reset();
     setProjectId(null);
     setChartId(null);
-  }, []);
-
-  const notifyCatalogChanged = useCallback(() => {
-    setCatalogEpoch((n) => n + 1);
   }, []);
 
   const registerPersistFlush = useCallback((fn: (() => Promise<void>) | null) => {
