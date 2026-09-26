@@ -1,6 +1,6 @@
 // EditingContext（ADR-0003 §7.1）：谱面数据与编辑——notes / history / selection / clipboard，
 // 以及编辑操作（复制/剪切/粘贴/删除/镜像/编辑工具态）。放置走 ToolActionMatrix.clickOps。
-import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useRef, useState, type ReactNode } from 'react';
 import type { ChartNote, SelectionItem } from '../../chart/types';
 import type { ChartPosition } from '../../types/chart';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../../chart/editing/SelectionEditing';
@@ -9,6 +9,7 @@ import {
   NOTES_HISTORY_CAP, type HistoryState,
 } from '../../chart/editing/History';
 import { notesEqual } from '../../chart/editing/NotesEqual';
+import { applyProjectSwitch } from '../../chart/project/workspaceProject';
 // H5 收口：所有位置参数统一为 ChartPosition（{ beat, lane }）
 export type Position = ChartPosition;
 
@@ -47,6 +48,8 @@ const EditingContext = createContext<EditingContextValue | null>(null);
 export function EditingProvider({ children }: { children: ReactNode }) {
   const [selectedItems, setSelectedItems] = useState<SelectionItem[]>([]);
   const [clipboard, setClipboard] = useState<ChartNote[]>([]);
+  const clipboardRef = useRef(clipboard);
+  clipboardRef.current = clipboard;
   // 历史记录（ADR-0001）：谱面 notes 以历史栈为单一真相源（ADR-0003 候选 D 收口）。
   // 快照用结构共享（编辑函数均不可变，未改动音符复用原引用），不做全量 structuredClone。
   // H1 收口：history + historyIndex 合并为单一原子状态，updater 保持纯函数（无 React StrictMode 副作用）。
@@ -86,9 +89,9 @@ export function EditingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetNotes = useCallback((n: ChartNote[], applied?: { text: string | null; pristine: boolean }) => {
-    const notesToUse = n.length > 0 ? n : [{ beat: 0, type: "BPM", bpm: 120 } as ChartNote];
-    setHistoryState(createHistory(notesToUse));
-    setSelectedItems([]);
+    const next = applyProjectSwitch({ notes: n, clipboard: clipboardRef.current });
+    setHistoryState(next.history);
+    setSelectedItems(next.selectedItems);
     setAppliedChartCodeText(applied?.text ?? null);
     setChartCodePristine(applied?.pristine === true);
   }, []);

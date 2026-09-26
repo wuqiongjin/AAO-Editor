@@ -9,7 +9,7 @@ import { type FunctionId } from '../chart/config/ShortcutConfig';
 import { DEFAULT_BPM } from '../audio/AudioTiming';
 import PlayBar from '../playback/PlayBar';
 import PlaybackMarkerCard from '../playback/PlaybackMarkerCard';
-import { useEditing, useUI, useConfig, usePlayback, useAudioSession } from '../app/ProviderTree';
+import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../app/ProviderTree';
 import { countChartNotes } from '../chart/editing/NoteEditing';
 import { useSurfaceSize } from '../chart/layout/useSurfaceSize';
 import { useChartSpace } from '../chart/geometry/ChartSpace';
@@ -76,6 +76,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setVolume: setCtxVolume,
     currentSeconds: playheadSeconds,
     markerSeconds,
+    setMarker,
   } = playback;
 
   // 音符数统计（issue 36）
@@ -163,33 +164,39 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setIsPlaying,
   });
   const { togglePlay, seek, jumpToMarker, stopPlayback } = playbackCoord;
+  const { projectId, chartId } = useCurrentProject();
 
-  // 挂载恢复（ADR-0005 §6）：通过 onRestore 把 project 灌入 Editor。
-  // 定义在持久化 hook 之前——持久化 hook 拿它当 onRestore 回调。
-  const handleProjectRestore = useCallback(async (project: import('../chart/project/ChartProject').ChartProject) => {
-    const chart = project.charts[0];
-    if (chart && chart.notes.length > 0) {
-      resetNotes(chart.notes, {
-        text: chart.appliedChartCodeText ?? null,
-        pristine: chart.chartCodePristine === true,
-      });
-    }
-    if (project.durationSeconds > 0 && engine?.duration == null) {
+  // 当前工程恢复（ADR-0015 §3）：切工程时整份编辑态换成新工程，剪贴板由 resetNotes 保留。
+  const handleProjectRestore = useCallback(async (
+    project: import('../chart/project/ChartProject').ChartProject,
+    chart: import('../chart/project/ChartProject').ProjectChart,
+    opts: { restoreAudio: boolean },
+  ) => {
+    resetNotes(chart.notes, {
+      text: chart.appliedChartCodeText ?? null,
+      pristine: chart.chartCodePristine === true,
+    });
+    if (!opts.restoreAudio) return;
+    stopPlayback();
+    setCurrentSeconds(0);
+    setMarker(null);
+    audioSession.hydrateFromProject({
+      audioName: project.audioName,
+      audioBlob: project.audioBlob,
+      durationSeconds: project.durationSeconds,
+    });
+    if (project.durationSeconds > 0) {
       audioSession.setChartDuration(project.durationSeconds);
-      // 同拍写回 PlaybackContext：桥的 subscribe→setState 要等下一帧，落盘 durationRef 不能先用 30。
       setCtxDuration(project.durationSeconds);
     }
-    if (project.audioBlob && project.audioName) {
-      // 走 importAudio 路径（统一行为：含引擎 load + 时长同步 + persist 触发）
-      const file = new File([project.audioBlob], project.audioName);
-      audioSession.importAudio(file);
-    }
-  }, [resetNotes, setCtxDuration, engine, audioSession]);
+  }, [resetNotes, setCtxDuration, audioSession, stopPlayback, setCurrentSeconds, setMarker]);
 
-  // === 会话流 6：持久化（挂载恢复 + 防抖 800ms 落盘） ===
+  // === 会话流 6：持久化（当前工程恢复 + 防抖 800ms 落盘） ===
   // 收口点：不再有 audioMetaRef / persistRef ref 环——audioForPersist 是稳定对象，
   // 持久化 hook 的 saveNow 直接注入到 session.setPersistNow。
   const persistence = useChartProjectPersistence({
+    projectId,
+    chartId,
     notes,
     durationSeconds: ctxDuration,
     audioName: audioForPersist.audioName,
@@ -410,7 +417,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   return (
     // issue 59 §2：弹窗打开态提到 Editor ——「谱面代码」按钮（工具栏）与「音符代码」工具（画布）
     // 共用同一个弹窗组件，故 target 必须挂在两者共同的祖先上。
-    <ChartCodeEditorProvider>
+    <ChartCodeEditorProvider key={projectId ?? 'none'}>
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
       {/* 左侧工具栏列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}
       <div

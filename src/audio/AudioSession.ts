@@ -181,6 +181,47 @@ export class AudioSession {
       });
   }
 
+  /**
+   * 切工程时整体替换音频会话：同步写入 blob/时长，解码异步。
+   * 不触发 persistNow——由工程加载路径在恢复结算后统一落盘，以免空会话写进新工程。
+   */
+  hydrateFromProject(opts: {
+    audioName: string | null;
+    audioBlob?: Blob;
+    durationSeconds: number;
+  }): void {
+    const token = ++this.inFlightToken;
+    this._audioError = null;
+    const duration = clampFinite(opts.durationSeconds, 0.1, MAX_DURATION_SECONDS, 30);
+    if (!opts.audioName || !opts.audioBlob) {
+      this.engine.clear();
+      this._audioName = null;
+      this._audioBlob = null;
+      this._chartDuration = duration;
+      this.emit();
+      return;
+    }
+    this._audioName = opts.audioName;
+    this._audioBlob = opts.audioBlob;
+    this._chartDuration = duration;
+    this.emit();
+    const file = opts.audioBlob instanceof File
+      ? opts.audioBlob
+      : new File([opts.audioBlob], opts.audioName);
+    this.engine.load(file)
+      .then(() => {
+        if (token !== this.inFlightToken) return;
+        const ad = this.engine.duration;
+        if (ad != null) this._chartDuration = clampFinite(ad, 0.1, MAX_DURATION_SECONDS, 30);
+        this.emit();
+      })
+      .catch((err: unknown) => {
+        if (token !== this.inFlightToken) return;
+        this._audioError = err instanceof Error && err.message ? err.message : t('audio.decodeFallback');
+        this.emit();
+      });
+  }
+
   /** 清除音频：引擎复位 → 时长保留当前值 → 触发持久化 → 通知订阅者 */
   clearAudio(): void {
     // 打断任何 in-flight import

@@ -6,18 +6,17 @@
 import { lazy, Suspense, type ComponentType } from 'react';
 import type { PageId } from '../layouts/AppNav';
 
-// 5 个路由目的地全部走 lazy 装入。Suspense fallback 写在这里，AppShell 不用管。
+// 路由目的地全部走 lazy 装入。Suspense fallback 写在这里，AppShell 不用管。
+const ProjectsPage = lazy(() => import('./ProjectsPage'));
 const Editor = lazy(() => import('../chart/Editor'));
 const AudioPage = lazy(() => import('../audio/AudioPage'));
 const AssetsPage = lazy(() => import('../visual/AssetsPage'));
 const SettingsPage = lazy(() => import('../settings/SettingsPage'));
 const ShortcutsPage = lazy(() => import('../settings/ShortcutsPage'));
-// PROTOTYPE：chart-projects 04 UI 原型，AppShell 只在 ?prototype=projects 下挂载
-const ProjectsPrototype = lazy(() => import('../prototypes/projects/ProjectsPrototype'));
 
 /** 路由页组件 — 全部 lazy 装入，AppShell 仅持引用。 */
 export const PAGE_REGISTRY: Record<PageId, ComponentType<{ active?: boolean }>> = {
-  projects: ProjectsPrototype,
+  projects: ProjectsPage,
   workspace: Editor,
   audio: AudioPage,
   assets: AssetsPage,

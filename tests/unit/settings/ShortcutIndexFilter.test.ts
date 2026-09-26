@@ -1,5 +1,5 @@
 // issue 121 锁测：快捷键页侧栏「索引筛选」是粗桶（≠ ADR-0002 tooltip 类别），
-// 切页五行进表归系统；搜索 ∩ 当前桶；筛选态不写入 AppSettings。
+// 切页六行进表归系统；搜索 ∩ 当前桶；筛选态不写入 AppSettings。
 import { describe, it, expect } from 'vitest';
 import { FUNCTIONS, getDefaultConfig } from '@/src/chart/config/ShortcutConfig';
 import {
@@ -17,8 +17,8 @@ import { stripComments, readSource } from '@/tests/support/source';
 
 
 describe('issue 121 · 索引筛选桶归属', () => {
-  it('切页五行恰好 5 条，且都归系统', () => {
-    expect(PAGE_SWITCH_ROWS).toHaveLength(5);
+  it('切页六行恰好 6 条，且都归系统', () => {
+    expect(PAGE_SWITCH_ROWS).toHaveLength(6);
     expect(PAGE_SWITCH_ROWS.every((row) => row.bucket === 'system')).toBe(true);
   });
 

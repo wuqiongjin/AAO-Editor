@@ -48,4 +48,9 @@ describe('useChartProjectPersistence · 落盘实例生命周期（issue 64）',
   it('音频字段进自动保存依赖（导入音频不改 notes，只靠它会永远不落盘）', () => {
     expect(codeOnly).toMatch(/audioName, audioBlob/);
   });
+
+  it('读写当前工程 id，不再写死单一 workspace 工程', () => {
+    expect(codeOnly).toMatch(/projectId/);
+    expect(codeOnly).not.toMatch(/WORKSPACE_PROJECT_ID|'workspace'/);
+  });
 });

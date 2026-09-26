@@ -167,6 +167,35 @@ describe('AudioSession · importAudio / clearAudio / dismissError', () => {
     expect(persist).toHaveBeenCalledTimes(1);
   });
 
+  it('hydrateFromProject 无音频：同步清空、改时长、不 persist', () => {
+    const { fake, factory } = makeFactory();
+    const s = new AudioSession({ engineFactory: factory, keySetId: 'skin00', seVolume: 1, chartDuration: 12 });
+    const persist = vi.fn();
+    s.setPersistNow(persist);
+    s.hydrateFromProject({ audioName: null, durationSeconds: 45 });
+    expect(fake.clearCalls).toBe(1);
+    expect(s.getSnapshot().audioName).toBeNull();
+    expect(s.getSnapshot().chartDuration).toBe(45);
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('hydrateFromProject 有音频：同步写入 blob、不 persist', async () => {
+    const { fake, factory } = makeFactory();
+    const s = new AudioSession({ engineFactory: factory, keySetId: 'skin00', seVolume: 1 });
+    const persist = vi.fn();
+    s.setPersistNow(persist);
+    const blob = new Blob([new Uint8Array([1, 2, 3])]);
+    s.hydrateFromProject({ audioName: 'a.mp3', audioBlob: blob, durationSeconds: 200 });
+    expect(s.getSnapshot().audioName).toBe('a.mp3');
+    expect(s.getAudioBlob()).toBe(blob);
+    expect(s.getSnapshot().chartDuration).toBe(200);
+    expect(persist).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fake.loadCalls).toHaveLength(1);
+    expect(s.getSnapshot().chartDuration).toBe(12.5);
+    expect(persist).not.toHaveBeenCalled();
+  });
+
   it('dismissError：仅在 audioError 非空时清空，emit 一次', async () => {
     const failFactory = (): AudioEngine => {
       const f = new FakeAudioEngine();

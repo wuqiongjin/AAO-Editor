@@ -1,20 +1,19 @@
-// useChartProjectPersistence（候选 2 / 架构深化评审候选 2 / ADR-0005 §6）：
-// 谱面工程持久化 = 挂载恢复 + 编辑防抖落盘（IndexedDB / Electron userData 门面）。
+// useChartProjectPersistence（候选 2 / 架构深化评审候选 2 / ADR-0005 §6 / chart-projects 03）：
+// 谱面工程持久化 = 当前工程恢复 + 编辑防抖落盘（IndexedDB / Electron 数据根门面）。
 //
-// chart-projects 02：UI 仍只操作一个工程。读写固定 id `workspace`（非 `default`），
-// 以免覆盖旧「一份 notes」记录；当前工程规则由 03 接入。
+// 当前工程由 CurrentProjectSession 决定；本 hook 在 projectId 变化时先 flush 旧工程，
+// 再加载新工程。恢复未落地前不得回写（issue 64：空谱面覆盖已存工程）。
 import { useCallback, useEffect, useRef } from 'react';
-import {
-  ChartProjectStore,
-  WORKSPACE_PROJECT_ID,
-  newChartId,
-  type ChartProject,
-  type ProjectChart,
-} from './ChartProject';
+import { ChartProjectStore, type ChartProject, type ProjectChart } from './ChartProject';
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
+import { pickCurrentChart } from './workspaceProject';
 import type { ChartNote } from '../types';
 
 export interface UseChartProjectPersistenceOptions {
+  /** 当前工程 id；null = 尚未 ensure，不读写 */
+  projectId: string | null;
+  /** 当前谱面 id；null 时取工程第一张 */
+  chartId: string | null;
   /** 当前 notes（编辑中） */
   notes: ChartNote[];
   /** 当前谱面时长（秒） */
@@ -28,8 +27,8 @@ export interface UseChartProjectPersistenceOptions {
   debounceMs?: number;
   /** 注入存储后端（默认 new ChartProjectStore()）——测试可注入假实现 */
   store?: ChartProjectStore;
-  /** 挂载恢复回调：把 notes / 时长 / 音频 / canPlay 灌入调用方（Editor） */
-  onRestore: (project: ChartProject) => void | Promise<void>;
+  /** 挂载/切工程恢复回调：把 notes / 时长 / 音频灌入调用方（Editor） */
+  onRestore: (project: ChartProject, chart: ProjectChart, opts: { restoreAudio: boolean }) => void | Promise<void>;
 }
 
 export interface UseChartProjectPersistenceReturn {
@@ -37,23 +36,9 @@ export interface UseChartProjectPersistenceReturn {
   saveNow: () => Promise<void>;
 }
 
-function defaultChart(notes: ChartNote[], now: number, applied: string | null, pristine: boolean): ProjectChart {
-  return {
-    id: newChartId(),
-    notes,
-    title: null,
-    diff: 3, // 03 新建未命名工程也是 Expert；此处只为单工程 shim 提供合法难度
-    level: null,
-    completed: false,
-    upload: null,
-    lastModified: now,
-    appliedChartCodeText: applied,
-    chartCodePristine: pristine,
-  };
-}
-
 export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptions): UseChartProjectPersistenceReturn {
   const {
+    projectId, chartId,
     notes, durationSeconds, audioName, audioBlob,
     appliedChartCodeText, chartCodePristine,
     debounceMs = 800, store: storeOpt, onRestore,
@@ -93,36 +78,32 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   pristineRef.current = chartCodePristine;
 
   const projectRef = useRef<ChartProject | null>(null);
+  const boundProjectIdRef = useRef<string | null>(null);
+  const boundChartIdRef = useRef<string | null>(null);
+  const restoreSettledRef = useRef(true);
+  const loadGenRef = useRef(0);
 
-  const buildProject = useCallback((): ChartProject => {
+  if (projectId !== boundProjectIdRef.current || chartId !== boundChartIdRef.current) {
+    restoreSettledRef.current = false;
+  }
+
+  const buildProject = useCallback((): ChartProject | null => {
+    const prev = projectRef.current;
+    if (prev == null) return null;
     const now = Date.now();
     const applied = appliedTextRef.current ?? null;
     const pristine = pristineRef.current === true;
     const audio = audioBlobRef.current ?? undefined;
-    const prev = projectRef.current;
-    if (prev == null) {
-      const created: ChartProject = {
-        id: WORKSPACE_PROJECT_ID,
-        name: null,
-        artist: null,
-        source: { type: 'custom' },
-        durationSeconds: durationRef.current,
-        lastOpened: now,
-        charts: [defaultChart(notesRef.current, now, applied, pristine)],
-        audioName: audioNameRef.current,
-        coverName: null,
-        ...(audio ? { audioBlob: audio } : {}),
-      };
-      projectRef.current = created;
-      return created;
-    }
+    const targetId = boundChartIdRef.current;
+    const hasTarget = targetId != null && prev.charts.some((c) => c.id === targetId);
     const charts = prev.charts.length > 0
-      ? prev.charts.map((c, i) => (
-        i === 0
+      ? prev.charts.map((c, i) => {
+        const isCurrent = hasTarget ? c.id === targetId : i === 0;
+        return isCurrent
           ? { ...c, notes: notesRef.current, lastModified: now, appliedChartCodeText: applied, chartCodePristine: pristine }
-          : c
-      ))
-      : [defaultChart(notesRef.current, now, applied, pristine)];
+          : c;
+      })
+      : prev.charts;
     const next: ChartProject = {
       ...prev,
       durationSeconds: durationRef.current,
@@ -138,35 +119,76 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   const onRestoreRef = useRef(onRestore);
   onRestoreRef.current = onRestore;
 
-  const restoredRef = useRef(false);
-  const restoreSettledRef = useRef(false);
   useEffect(() => {
-    if (restoredRef.current) return;
-    restoredRef.current = true;
-    const store = storeRef.current;
-    if (!store) { restoreSettledRef.current = true; return; }
-    store.get(WORKSPACE_PROJECT_ID).then((project) => {
-      if (!project) return;
-      projectRef.current = project;
-      void onRestoreRef.current(project);
-    }).catch((err: unknown) => {
-      console.warn('[chart-project] 谱面工程读取失败，按空谱面继续:', err);
-    }).finally(() => {
+    const wantedProject = projectId;
+    const wantedChart = chartId;
+    if (wantedProject === boundProjectIdRef.current && wantedChart === boundChartIdRef.current) return;
+    restoreSettledRef.current = false;
+    const gen = ++loadGenRef.current;
+
+    void (async () => {
+      const prev = buildProject();
+      if (prev != null && boundProjectIdRef.current != null) {
+        await ensureMerger().flush(prev).catch(() => { /* 静默 */ });
+      }
+      if (gen !== loadGenRef.current) return;
+
+      if (wantedProject == null) {
+        projectRef.current = null;
+        boundProjectIdRef.current = null;
+        boundChartIdRef.current = null;
+        restoreSettledRef.current = true;
+        return;
+      }
+
+      const store = storeRef.current;
+      if (!store) {
+        restoreSettledRef.current = true;
+        return;
+      }
+
+      let loaded: ChartProject | null = null;
+      try {
+        loaded = await store.get(wantedProject);
+      } catch (err: unknown) {
+        console.warn('[chart-project] 谱面工程读取失败，按空谱面继续:', err);
+      }
+      if (gen !== loadGenRef.current) return;
+      if (!loaded) {
+        boundProjectIdRef.current = wantedProject;
+        boundChartIdRef.current = wantedChart;
+        restoreSettledRef.current = true;
+        return;
+      }
+
+      const restoreAudio = wantedProject !== boundProjectIdRef.current;
+      const chart = pickCurrentChart(loaded, wantedChart);
+      projectRef.current = loaded;
+      boundProjectIdRef.current = loaded.id;
+      boundChartIdRef.current = chart.id;
+      await onRestoreRef.current(loaded, chart, { restoreAudio });
+      if (gen !== loadGenRef.current) return;
       restoreSettledRef.current = true;
-    });
-  }, []);
+    })();
+  }, [projectId, chartId, buildProject, ensureMerger]);
 
   useEffect(() => {
     if (!restoreSettledRef.current) return;
-    ensureMerger().schedule(buildProject());
+    if (projectId !== boundProjectIdRef.current) return;
+    if (chartId !== boundChartIdRef.current && chartId != null) return;
+    const next = buildProject();
+    if (!next) return;
+    ensureMerger().schedule(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, durationSeconds, audioName, audioBlob, appliedChartCodeText, chartCodePristine, debounceMs]);
+  }, [notes, durationSeconds, audioName, audioBlob, appliedChartCodeText, chartCodePristine, debounceMs, projectId, chartId]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const flushNow = () => {
       if (!restoreSettledRef.current) return;
-      void ensureMerger().flush(buildProject()).catch(() => { /* 静默 */ });
+      const next = buildProject();
+      if (!next) return;
+      void ensureMerger().flush(next).catch(() => { /* 静默 */ });
     };
     const onVisibility = () => { if (document.visibilityState === 'hidden') flushNow(); };
     document.addEventListener('visibilitychange', onVisibility);
@@ -179,6 +201,11 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   }, []);
 
   return {
-    saveNow: () => ensureMerger().saveNow(buildProject()),
+    saveNow: () => {
+      if (!restoreSettledRef.current) return Promise.resolve();
+      const next = buildProject();
+      if (!next) return Promise.resolve();
+      return ensureMerger().saveNow(next);
+    },
   };
 }

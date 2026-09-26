@@ -9,9 +9,6 @@ import type { ChartNote } from '../types';
 
 export const PROJECT_SCHEMA_VERSION = 1 as const;
 
-/** 03 接入当前工程前，工作台只读写这一份工程。不用 `default`，以免覆盖旧「一份 notes」记录。 */
-export const WORKSPACE_PROJECT_ID = 'workspace';
-
 export type ChartDifficulty = 0 | 1 | 2 | 3 | 4;
 
 export type SongSource =
@@ -108,6 +105,10 @@ export interface ChartProjectBackend {
 
 export function newChartId(): string {
   return `c${crypto.randomUUID().replace(/-/g, '')}`;
+}
+
+export function newProjectId(): string {
+  return `p${crypto.randomUUID().replace(/-/g, '')}`;
 }
 
 export function isCurrentProjectSchema(record: unknown): boolean {

@@ -41,8 +41,9 @@ export function bucketForCategory(category: string): Exclude<IndexFilterId, 'all
   return CATEGORY_TO_BUCKET[category] ?? 'other';
 }
 
-/** 切页五行：进表、只读、归系统。不进 FunctionId 注册表。 */
+/** 切页六行：进表、只读、归系统。不进 FunctionId 注册表。 */
 export const PAGE_SWITCH_ROWS: ReadonlyArray<{ label: MessageKey; combo: string; bucket: 'system' }> = [
+  { label: 'pageSwitch.projects', combo: 'Ctrl/⌘+Shift+0', bucket: 'system' },
   { label: 'pageSwitch.workspace', combo: 'Ctrl/⌘+Shift+1', bucket: 'system' },
   { label: 'pageSwitch.audio', combo: 'Ctrl/⌘+Shift+2', bucket: 'system' },
   { label: 'pageSwitch.assets', combo: 'Ctrl/⌘+Shift+3', bucket: 'system' },
@@ -93,7 +94,7 @@ export function shortcutTableEmptyKind(
 /**
  * 「恢复默认」跟当前索引筛选：全部 = 整表出厂；其它桶只重置该桶可改 FunctionId。
  * issue 150：非空 onlyIds（搜索可见可改行）时只重置该集合，仍走桶外卸占用逻辑。
- * 切页五行不在配置里。若桶外功能占着本桶出厂键，先卸掉以免一键两功能。
+ * 切页六行不在配置里。若桶外功能占着本桶出厂键，先卸掉以免一键两功能。
  */
 export function restoreDefaultsInFilter(
   cfg: ShortcutConfig,
