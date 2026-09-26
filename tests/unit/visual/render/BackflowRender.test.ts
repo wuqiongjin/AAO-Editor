@@ -17,9 +17,9 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { makeCoords } from '@/src/visual/coords';
-import { renderBpmLabels, renderBpmLines, renderBoundLines, renderGrid, END_TEXT_COLOR } from '@/src/visual/render';
+import { renderBpmLabels, renderBpmLines, renderBoundLines, renderGrid, END_TEXT_COLOR, BPM_TAIL_WARNING_COLOR } from '@/src/visual/render';
 import { rasterBandRuns, splitBandAtFolds, type BandRaster, type BandPoint } from '@/src/visual/slideBandGeometry';
-import { gridBpmNegativeColor, gridThemeBpmColor } from '@/src/visual/gridStyle';
+import { gridBpmLineColor, gridBpmNegativeColor, gridThemeBpmColor } from '@/src/visual/gridStyle';
 import type { BpmTimelineEvent } from '@/src/chart/geometry/BpmTimeline';
 import type { ChartNote } from '@/src/chart/types';
 import type { RenderCtx } from '@/src/visual/types';
@@ -90,18 +90,29 @@ describe('issue 105 修法 1 · 负值 BPM 数值换色（倒流区唯一视觉�
     }
   });
 
-  it('换色**不扩到 BPM 横线**（票面口径）：横线仍按主题主色画，位置 = 各自布局坐标', () => {
+  it('换色**不扩到 BPM 横线**：正/负横线同走专用线色（不是整拍白），位置 = 各自布局坐标', () => {
     const onDescending = bpmNote(6, -240); // 回程层 pos 990 → y 310
     const onAscending = bpmNote(7, 120);   // 再向上层 pos 1045 → y 255
     const { c, rc } = makeRig([onDescending, onAscending]);
     const { proxy, calls } = makeRecordingCtx();
     renderBpmLines(proxy, c, rc, [{ note: onDescending, index: 0 }, { note: onAscending, index: 1 }]);
     const strokes = calls.filter(([k]) => k === 'strokeStyle').map(([, v]) => v[0]);
-    expect(strokes).toEqual([gridThemeBpmColor('vivid'), gridThemeBpmColor('vivid')]);
+    expect(strokes).toEqual([gridBpmLineColor('vivid'), gridBpmLineColor('vivid')]);
     const ys = calls.filter(([k]) => k === 'moveTo').map(([, v]) => v[1] as number);
     expect(ys).toEqual([310, 255]);
     // 同一折返带上"回程层的线"在画布上比"再向上层的线"更低（y 更大）——逆序排列是保真，不是故障
     expect(ys[0]).toBeGreaterThan(ys[1]!);
+  });
+
+  it('末条非法负 BPM 横线仍警示色（issue 163 / 142）', () => {
+    const head = bpmNote(0, 120);
+    const tail = bpmNote(5, -240);
+    const notes = [head, tail];
+    const { c, rc } = makeRig(notes);
+    const { proxy, calls } = makeRecordingCtx();
+    renderBpmLines(proxy, c, rc, notes.map((note, index) => ({ note, index })));
+    const strokes = calls.filter(([k]) => k === 'strokeStyle').map(([, v]) => v[0]);
+    expect(strokes).toContain(BPM_TAIL_WARNING_COLOR);
   });
 });
 

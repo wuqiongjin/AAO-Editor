@@ -4,7 +4,7 @@
 // - **形态阶梯改为可选开关（默认关）**：关闭时全部实线、仅靠颜色分层；开启后叠加
 //   实线→长虚线→短虚线→点线→细点线的线形阶梯（LINE_SHAPE_LADDER，跨主题共享）。
 // - 旧"经典/高对比/柔和"三预设删除，改为 4 个**颜色主题**（灰阶/琥珀/青蓝/多彩）。
-// - BPM 标线颜色跟随主题主色（beat 层色，第二轮 Q5=B）。
+// - BPM 数值跟随主题主色（beat 层色）；轨道内横线走 `gridBpmLineColor`（issue 163）。
 
 export type GridStylePreset = 'mono' | 'amber' | 'cyan' | 'vivid';
 
@@ -80,9 +80,24 @@ export function normalizeGridStyle(v: unknown): GridStylePreset {
     : DEFAULT_GRID_STYLE;
 }
 
-/** 主题主色 = beat 层色（issue 53 第二轮 Q5=B：BPM 标线跟随主题） */
+/** 主题主色 = beat 层色（BPM **数值** 正值；横线见 `gridBpmLineColor`，issue 163） */
 export function gridThemeBpmColor(preset: GridStylePreset): string {
   return GRID_STYLES[preset].beat.color;
+}
+
+/**
+ * 轨道内 BPM 横线色（issue 163）：各主题专用弱紫/蓝紫，不跟整拍白、不用灰、不进网格五档。
+ * 正/负横线同色；倒流靠沟槽数字。末条非法负 BPM 仍走警示色（render 侧）。
+ */
+export const GRID_BPM_LINE_COLORS: Record<GridStylePreset, string> = {
+  vivid: '#6e65a8',
+  mono: '#7a72b5',
+  amber: '#5a6a9e',
+  cyan: '#8a5a9a',
+};
+
+export function gridBpmLineColor(preset: GridStylePreset): string {
+  return GRID_BPM_LINE_COLORS[preset];
 }
 
 /**
@@ -97,7 +112,7 @@ export function gridThemeBpmColor(preset: GridStylePreset): string {
  * 冷色主题（cyan）配暖品红、暖色主题（amber）配冷紫、无彩/近无彩主色的（mono / vivid 的主色是
  * 白）配品红或紫。
  *
- * 作用域（票面口径）：**只作用于数值文字**——BPM 横线仍走 `gridThemeBpmColor`。
+ * 作用域（票面口径）：**只作用于数值文字**——BPM 横线走 `gridBpmLineColor`（issue 163）。
  */
 export const GRID_BPM_NEGATIVE_COLORS: Record<GridStylePreset, string> = {
   mono: '#f0a3d4',

@@ -1,7 +1,7 @@
 # 163 · BPM 横线弱化（不跟整拍白）+ 删除工具 hover
 
 Type: grilling
-Status: claimed
+Status: resolved
 Blocked by: —
 
 重开：issue 51 第二轮 Q5=B（BPM 标线 = 主题整拍色）、issue 56 C5（删除态 BPM 不 hover）。网格 / 节拍线 / BPM 数值配色不在本票。
@@ -59,3 +59,4 @@ beat 0 删除仍是重置为 120：hover 同样给危险色。音符代码点线
 ## Comments
 
 - 2026-09-26 grill 存档：Q3 补充「别靠纯白横线认 BPM」；Q6 否灰（网格已偏灰）；Q9 纠正「不能选中」；Q10=B 修 56 C5 与 71 的合同打架。
+- 2026-09-26 已实现：`gridBpmLineColor` + 细线 α0.5；删除/右键 hover 走 `findBpmLineAt`；末条非法负横线仍警示。

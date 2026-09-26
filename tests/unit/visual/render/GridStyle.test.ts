@@ -9,6 +9,8 @@ import {
   gridBpmNegativeColor,
   gridLineDash,
   gridThemeBpmColor,
+  gridBpmLineColor,
+  GRID_BPM_LINE_COLORS,
   gridTierOf,
   normalizeGridStyle,
   DEFAULT_GRID_STYLE,
@@ -87,9 +89,25 @@ describe('颜色主题（issue 53 第二轮）', () => {
     expect(gridLineDash('sixteenth', true, 1)).toEqual([1, 4]);
   });
 
-  it('BPM 标线跟随主题主色（beat 层色）', () => {
+  it('BPM 数值跟随主题主色（beat 层色）；横线另走专用色（issue 163）', () => {
     for (const p of ['mono', 'amber', 'cyan', 'vivid'] as const) {
       expect(gridThemeBpmColor(p)).toBe(GRID_STYLES[p].beat.color);
+    }
+  });
+});
+
+describe('BPM 横线专用色（issue 163）', () => {
+  const PRESETS = ['mono', 'amber', 'cyan', 'vivid'] as const;
+
+  it('四主题取值即票面口径，且不等于整拍色、倒流数字色', () => {
+    expect(gridBpmLineColor('vivid')).toBe('#6e65a8');
+    expect(gridBpmLineColor('mono')).toBe('#7a72b5');
+    expect(gridBpmLineColor('amber')).toBe('#5a6a9e');
+    expect(gridBpmLineColor('cyan')).toBe('#8a5a9a');
+    for (const p of PRESETS) {
+      expect(gridBpmLineColor(p)).toBe(GRID_BPM_LINE_COLORS[p]);
+      expect(gridBpmLineColor(p).toLowerCase()).not.toBe(GRID_STYLES[p].beat.color.toLowerCase());
+      expect(gridBpmLineColor(p).toLowerCase()).not.toBe(GRID_BPM_NEGATIVE_COLORS[p].toLowerCase());
     }
   });
 });

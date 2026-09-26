@@ -29,8 +29,8 @@ export interface UsePlaybackCoordinatorOptions {
   canvasRef: React.RefObject<FinalVirtualCanvasHandle | null>;
   /** 当前谱面时长（秒） */
   ctxDuration: number;
-  /** 设置谱面时长 */
-  setCtxDuration: (sec: number) => void;
+  /** 改谱面时长（无音频；走 AudioSession，PlaybackContext 由桥同步） */
+  setChartDuration: (sec: number) => void;
   /** 当前播放头秒数（写回 PlaybackContext） */
   setCurrentSeconds: (sec: number) => void;
   /** 播放状态（写回 PlaybackContext） */
@@ -51,7 +51,7 @@ export interface UsePlaybackCoordinatorReturn {
 export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): UsePlaybackCoordinatorReturn {
   const {
     engine, scrollModel, scrollContainerRef, canvasRef,
-    ctxDuration, setCtxDuration, setCurrentSeconds, setIsPlaying,
+    ctxDuration, setChartDuration, setCurrentSeconds, setIsPlaying,
   } = opts;
 
   const [isPlaying, setIsPlayingState] = useState(false);
@@ -173,9 +173,9 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
   const changeDuration = useCallback((sec: number) => {
     if (!(sec > 0)) return;
     const clamped = Math.min(sec, MAX_DURATION_SECONDS); // issue 28 P6 上限 30 分钟
-    setCtxDuration(clamped);
+    setChartDuration(clamped);
     durationRef.current = clamped;
-  }, [setCtxDuration]);
+  }, [setChartDuration]);
 
   // 卸载自动停播放（防止页面失活但 hook 仍存活时 RAF 漏跑）
   useEffect(() => () => { stopPlayback(); }, [stopPlayback]);

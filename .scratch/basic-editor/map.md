@@ -157,8 +157,8 @@
 - **159 倒流区撞 y 的 BPM 数值错开**（[159](./issues/159-倒流区撞y的BPM数值错开.md)，`Type: grilling`，resolved）—— **定了什么** = 只错开沟槽数字；线 y 相同才折摘要（`, ` 分隔，≥2 才 `[n]`）；手风琴展开后再点才编辑。**已实现**（2026-09-25，含定案 2）。
 - **160 Slide 端点画在所有段之上**（[160](./issues/160-Slide端点画在所有段之上.md)，`Type: grilling`，resolved）—— **定了什么** = 先画全谱段、再画全谱可见结点；段↔段 / 结点↔结点仍后放置者在上；键型仍最高。修订 85「整条原子叠」。**已实现**（2026-09-25）。
 - **161 BPM 数值随线裁切不贴边漂移**（[161](./issues/161-BPM数值随线裁切不贴边漂移.md)，`Type: grilling`，resolved，**用户验收通过**）—— **定了什么** = BPM 钉线+顶底 clip，不钳/不整叠平移；盒全部离开才折摘要。验收补：beat 0 字相对线恒定上移半个字高；滚动条末 1px 与 seek(0) 同口径；scrollTop 回声仅 TTL 内有效。START/END 仍钳。取代 159 定案 2 第 7–8 条。
-- **162 无音频恢复谱面时长音频页仍默认 30s**（[162](./issues/162-无音频恢复谱面时长音频页仍默认30s.md)，`Type: bug`，open）—— **改成什么** = 无音频恢复/改时长一律走 `AudioSession.setChartDuration`；音频页与工作台同一条谱面时长，不再只灌 PlaybackContext。
-- **163 BPM 横线弱化与删除 hover**（[163](./issues/163-BPM横线弱化与删除hover.md)，`Type: grilling`，open）—— **定了什么** = 只改轨道内 BPM 横线：专用弱紫/蓝紫、细于整拍、正负同色；数字仍跟主题；末条非法负仍警示。不可选中；删除工具命中给危险色（重开 51 Q5=B 与 56 C5）。网格不动。
+- **162 无音频恢复谱面时长音频页仍默认 30s**（[162](./issues/162-无音频恢复谱面时长音频页仍默认30s.md)，`Type: bug`，resolved）—— **改成什么** = 无音频恢复/改时长一律走 `AudioSession.setChartDuration`；音频页与工作台同一条谱面时长，不再只灌 PlaybackContext。**已实现**（2026-09-26）。
+- **163 BPM 横线弱化与删除 hover**（[163](./issues/163-BPM横线弱化与删除hover.md)，`Type: grilling`，resolved）—— **定了什么** = 只改轨道内 BPM 横线：专用弱紫/蓝紫、细于整拍、正负同色；数字仍跟主题；末条非法负仍警示。不可选中；删除工具命中给危险色（重开 51 Q5=B 与 56 C5）。网格不动。**已实现**（2026-09-26）。
 
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 

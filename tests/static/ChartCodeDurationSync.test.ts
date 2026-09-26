@@ -6,6 +6,21 @@ import { readStripped } from '@/tests/support/source';
 
 const MODAL = 'src/chart/components/code-editor/ChartCodeEditorModal.tsx';
 
+describe('issue 162 · 无音频谱面时长只走 session', () => {
+  const editor = readStripped('src/chart/Editor.tsx');
+  const coordinator = readStripped('src/playback/usePlaybackCoordinator.ts');
+
+  it('恢复工程时无音频灌的是 session.setChartDuration，不是只写 PlaybackContext', () => {
+    expect(editor).toMatch(/audioSession\.setChartDuration\s*\(\s*project\.durationSeconds\s*\)/);
+  });
+
+  it('changeDuration 调 setChartDuration，不再直接 setCtxDuration', () => {
+    const body = coordinator.slice(coordinator.indexOf('const changeDuration'));
+    expect(body).toMatch(/setChartDuration\s*\(/);
+    expect(body).not.toMatch(/setCtxDuration\s*\(/);
+  });
+});
+
 describe('谱面代码弹窗 · 谱面时长走 session', () => {
   const src = readStripped(MODAL);
 

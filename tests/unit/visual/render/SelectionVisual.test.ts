@@ -325,10 +325,14 @@ describe('hover 描边层级（issue 56 c）', () => {
     expect(outlinesOf({ notes, hover, armedTool: 'delete' })[0]!.mode).toBe('danger');
   });
 
-  it('BPM 不参与 hover（Q14=A：单击无效果 → 不给"点得动"的暗示）；删除态亦然（C5）', () => {
+  it('BPM：普通工具仍无 hover；删除工具命中给危险色（issue 163，重开 56 C5）', () => {
     const notes = [{ type: 'BPM', beat: 40, bpm: 120 } as ChartNote];
-    expect(outlinesOf({ notes, hover: { kind: 'note', noteIndex: 0 }, armedTool: 'delete' })).toHaveLength(0);
-    expect(outlinesOf({ notes, hover: { kind: 'note', noteIndex: 0 } })).toHaveLength(0);
+    const hover = { kind: 'note' as const, noteIndex: 0 };
+    expect(outlinesOf({ notes, hover })).toHaveLength(0);
+    expect(outlinesOf({ notes, hover, armedTool: 'bpm' })).toHaveLength(0);
+    const del = outlinesOf({ notes, hover, armedTool: 'delete' });
+    expect(del).toHaveLength(1);
+    expect(del[0]!.mode).toBe('danger');
   });
 
   it('无选中、无 hover → 零描边（不进绘制路径）', () => {

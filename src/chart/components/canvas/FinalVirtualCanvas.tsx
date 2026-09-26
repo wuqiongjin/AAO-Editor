@@ -15,7 +15,7 @@ import {
 } from '../../geometry/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../../../app/ProviderTree';
 import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
-import { renderChart, findItemAt, type RenderCtx, type ViewportState } from '../../../visual';
+import { renderChart, findItemAt, findBpmLineAt, type RenderCtx, type ViewportState } from '../../../visual';
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
 import { PLAYBACK_MARKER_LAYOUT, PLAYBACK_MARKER_CLIP_PATH } from '../../../visual/playbackMarker';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
@@ -254,8 +254,15 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // noteSize 与点选/工具点击同口径，否则命中盒与视觉不符；hidden 结点由 findItemAt 侧跳过（A6）。
     const hoverItem = useMemo(() => {
         if (!hoverPos) return null;
-        return findItemAt(hoverPos.cx, hoverPos.cy, hitDeps());
-    }, [hoverPos, geometry, viewport, beatDisplay, notes, display.noteSize]);
+        const deps = hitDeps();
+        const hit = findItemAt(hoverPos.cx, hoverPos.cy, deps);
+        if (hit) return hit;
+        // issue 163 / 74：删除工具与右键按住需要 BPM 进 hover，描边才能画危险色。
+        if (armedTool === 'delete' || gestureSnap.rightButtonHeld) {
+            return findBpmLineAt(hoverPos.cx, hoverPos.cy, deps);
+        }
+        return null;
+    }, [hoverPos, geometry, viewport, beatDisplay, notes, display.noteSize, armedTool, gestureSnap.rightButtonHeld]);
 
     // 坐标变换（薄封装，保持既有调用签名不变；内部均为 O(log BPM) 缓存查询）
     const getScaledVirtualBounds = (scale: number) => geometry.scaledVirtualBounds(scale);

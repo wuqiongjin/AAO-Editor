@@ -19,7 +19,7 @@ import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { drawNotesLayer } from './noteLayerCache';
 import { drawStaticLayer } from './staticLayerCache';
 import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelY, bpmGutterYIntersectsCanvas, bpmLabelAnchorY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
-import { GRID_STYLES, GRID_TIER_ORDER, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
+import { GRID_STYLES, GRID_TIER_ORDER, gridBpmLineColor, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './noteSkin';
 import type { RenderCtx } from './types';
@@ -294,7 +294,7 @@ export function slideNodeIconConfig(rc: RenderCtx, conn: { lane: number; flick?:
 /**
  * C4（用户 2026-09-09 修正）：hover **在任何工具态都画**（放置/粘贴/镜像的幽灵态同样画，
  * 与 Q6=A 的"幽灵 + 描边叠加"一致）。hidden 结点在 findItemAt 侧已跳过（A6），
- * BPM 在下方按 Q14 不参与 hover。
+ * BPM 在下方按 Q14：普通工具不参与 hover；删除 / 右键按住除外（issue 163 / 74）。
  */
 function hoverItemForRender(rc: RenderCtx): SelectionItem | null {
   return rc.hoverItem ?? null;
@@ -358,20 +358,13 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
     };
 
     if (note.type === 'BPM') {
-      // Q45：完整框选入选 → 整条线改浅黄 + 加粗（细线描边不明显）。
-      // Q14=A：BPM 线左键单击在所有态下都无效果 → **不参与鼠标 hover 反馈**（C5 的删除态情形是同一理由），
-      // 否则"整条亮起却点不动"是误导。
-      // issue 71 修订：BPM **不再入选**，其通路只剩「右键删除 / 删除工具（单击+框选）/
-      // 沟槽数字就地编辑」。故框选预览只在**删除态**画它（那时框选真会删掉它），
-      // 非删除态画了却选不中 = 误导（判据见 `buildPreviewSets` + `computeBpmLinesInBox`）。
-      // issue 74：右键按住时 BPM 也要给反馈 —— 右键能删它，与"鼠标 hover 不画（点了没反应）"区分开。
-      // 只认**右键按住**这一源：删除工具态下 BPM 的鼠标 hover 不画是既有定案（issue 56 C5），不动它。
-      const dangerHover = rc.rightButtonHeld === true && hv !== null;
-      if (!whole && !previewWhole && !dangerHover) continue;
+      // issue 71：BPM 不进选区。框选预览只在删除态画（框选真会删）。
+      // issue 74 / 163：右键按住或删除工具命中 → 危险色。普通工具仍无 hover。
+      const bpmActHover = hv !== null && (rc.rightButtonHeld === true || deleteToolArmed);
+      if (!whole && !previewWhole && !bpmActHover) continue;
       const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
       const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-      // 删除态下 BPM 的**鼠标 hover** 不画红（C5：单击无效果），但**框选预览**要画红 ——
-      // 框选 BPM 是真会入选、进而可被删的（issue 67：预览 = "这些会被删"的预告）。
+      // 框选预览仍转红（issue 67 / 71：删除框选真会删 BPM）。
       out.push({
         shape: 'line', x1: trackBgX, y1: y, x2: trackBgX + trackBgWidth, y2: y,
         // issue 89：删除持工具态下"已入选的整条线"同样是待删预告 → 与其它类型一致走 danger
@@ -1284,27 +1277,32 @@ export function renderDragGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
 }
 
 /**
- * 渲染 BPM 标线（issue 51 + 第二轮修订）：低饱和主题色实线（跟随轨道颜色主题主色，Q5=B），
+ * 渲染 BPM 标线（issue 163）：专用弱紫/蓝紫实线，细于整拍、α 0.5；末条非法负值警示色。
  * 横跨轨道宽度。**由 renderChart 编排在音符层之下**（用户反馈：BPM 线不得覆盖音符，
  * 与轨道线同层语义）；数值文字由 renderBpmLabels 在沟槽层绘制。
  * issue 10：基于可见集而非全量 notes.filter（省 O(n) 扫描与数组分配）。
  */
 export function renderBpmLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
   const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-  const presetColor = gridThemeBpmColor(normalizeGridStyle(rc.display?.gridStyle));
+  const lineColor = gridBpmLineColor(normalizeGridStyle(rc.display?.gridStyle));
+  const es = rc.viewport.scale;
+  const lw = Math.max(1, es);
   // issue 142：末条 BPM 为负（导出后 Bestdori 打不开）→ 那条线一并改警示色，与数值文字同口径。
   const tailIdx = indexOfTrailingNegativeBpm(rc.notes);
   for (const { note, index } of visibleNotes) {
     if (note.type !== "BPM") continue;
     const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
     if (y < -50 || y > rc.surface.h + 50) continue;
-    ctx.strokeStyle = index === tailIdx ? BPM_TAIL_WARNING_COLOR : presetColor;
-    ctx.lineWidth = 2.5 * rc.viewport.scale;
+    const warning = index === tailIdx;
+    ctx.strokeStyle = warning ? BPM_TAIL_WARNING_COLOR : lineColor;
+    ctx.lineWidth = lw;
+    ctx.globalAlpha = warning ? 1 : 0.5;
     ctx.beginPath();
     ctx.moveTo(trackBgX, y);
     ctx.lineTo(trackBgX + trackBgWidth, y);
     ctx.stroke();
   }
+  ctx.globalAlpha = 1;
 }
 
 /**
@@ -1317,7 +1315,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   const preset = normalizeGridStyle(rc.display?.gridStyle);
   const positiveColor = gridThemeBpmColor(preset);
   // issue 105 修法 1：**负值（倒流区）数值换色** —— 倒流区唯一的视觉标识（不做区域底纹）。
-  // 作用域 = 只作用于数值文字，BPM 横线仍走主题主色（票面口径；见 gridStyle 的取色说明）。
+  // 作用域 = 只作用于数值文字；横线走 `gridBpmLineColor`（issue 163）。
   // 折返带里正/负事件在画布上常常同位（同一 y 逆序排列），数值色是区分两者的唯一线索。
   const negativeColor = gridBpmNegativeColor(preset);
   // issue 142：末条 BPM 为负（导出后 Bestdori 打不开）→ 数值改**警示色**并附 `!`，

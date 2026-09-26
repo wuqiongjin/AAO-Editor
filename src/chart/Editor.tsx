@@ -154,7 +154,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     scrollContainerRef: chartAreaRef,
     canvasRef: virtualCanvasRef,
     ctxDuration,
-    setCtxDuration,
+    setChartDuration: (sec) => audioSession.setChartDuration(sec),
     setCurrentSeconds,
     setIsPlaying,
   });
@@ -170,6 +170,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       });
     }
     if (project.durationSeconds > 0 && engine?.duration == null) {
+      audioSession.setChartDuration(project.durationSeconds);
+      // 同拍写回 PlaybackContext：桥的 subscribe→setState 要等下一帧，落盘 durationRef 不能先用 30。
       setCtxDuration(project.durationSeconds);
     }
     if (project.audioBlob && project.audioName) {
