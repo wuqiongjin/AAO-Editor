@@ -61,7 +61,7 @@
 - [显式谱面长度与谱面工程持久化（ADR-0005 定案）](./issues/23-显式谱面长度与谱面工程持久化.md) — **grill-with-docs 定案**（`docs/adr/0005-显式谱面长度与谱面工程持久化.md` + CONTEXT.md 术语）：谱面长度改**显式、秒域、与音符解耦**（有音频=音频时长/无音频默认30s 可改），取代 ADR-0004 §3"谱面末端=最大音符beat+1拍尾量"的推算语义，修复 bug 9/10/11；引入**谱面工程 Chart project** = { 代码 + 谱面时长 + 音频 Blob }，IndexedDB 键值表持久化（预留多谱面 id），编辑自动防抖保存；超出谱面长度放置=禁止；打开画布定位 beat 0。**待实现（issue 23 为载体）。**
 - [导入谱面代码后滚动条定位错误（issue 24）](./issues/24-导入谱面代码后滚动条定位错误.md) — bug：导入/应用谱面代码后滚动条跳到结尾，期望按秒数保持原位置。独立跟踪。
 - [存储后端 Electron 改造（issue 25）](./issues/25-存储后端Electron改造.md) — 未来跟踪：谱面工程持久化本期用 IndexedDB（接口抽象化），未来切 Electron `userData` 后端（接 issue 04 IPC）。待后续 grill/实现。
-- [多谱面工作区（issue 26）](./issues/26-多谱面工作区.md) — 未来跟踪：多谱面工程列表/切换/隔离；基于 ADR-0005 已预留的"id→工程"键值表，不改存储结构。待后续单独 grill。
+- [多谱面工作区（issue 26）](./issues/26-多谱面工作区.md) — 未来跟踪：多谱面工程列表/切换/隔离；基于 ADR-0005 已预留的"id→工程"键值表，不改存储结构。待后续单独 grill。→ **resolved（2026-09-26）**：由 [chart-projects](../chart-projects/map.md) effort 取代，决策见 ADR-0015。
 - [取消前置上传页与独立音频面板（issue 27）](./issues/27-取消前置上传页与独立音频面板.md) — **grill-with-docs 定案并实现**（修订 ADR-0003 §2 + CONTEXT 术语）：删 `SongUploader` 前置页 + `inEditor`/`onBack` 状态机，`App → Editor` 直达工作台；新增独立音频面板页面（`AudioPanel.tsx`，顶栏"音频"进入，承载导入/换/清除 + 无音频时长编辑）；`page: 'workspace' | 'audio'` 最简页面切换底层为 issue 28 铺路。时长语义沿 ADR-0005 §4 单一字段（清除音频→回无音频态可编辑；重载→音频时长覆盖）。tsc/build 全绿、137 测试通过、浏览器验证入口直达 + 面板切换 + 时长持久化一致。
 - [多页面管理/页面 Tab 架构（issue 28）](./issues/28-多页面管理-页面Tab架构.md) — 未来跟踪：完整页面 Tab 架构（工作台/音频/设置/快捷键/多工作区 等页面切换，避免单页堆砌）；基于 issue 27 的最简 Tab 底层扩展，与 issue 22（布局整改）、26（多谱面工作区）协同。待后续单独 grill。
 - [10 密集音符性能优化](./issues/10-密集音符性能优化.md) — **已实现并实测达标**：①视口裁剪——`ChartGeometry` 排序索引 + 二分 `visibleNotes`（O(n)→O(log n+可见数)），`renderGrid` 只遍历 `visibleBeatRange`；②缩放离屏瓦片缓存——新增 `src/renderer/noteLayerCache.ts`，手势期（240ms 窗口）只按比例 blit 旧瓦片、settle 250ms 后高清重渲，超大量级回退直渲；③history 轻量化已由 issue 21 候选 D 落地。测试：`RendererPerf.test.ts` 二分结果与旧 O(n) 扫描全对齐，全套 161 测试通过；浏览器 `?perf=1` 实测 5000 音符 40 帧连续缩放 **avg≈0.49ms / max≈2.8ms**（60fps 预算 16.7ms），`layerMode='tiles'`。
@@ -159,6 +159,7 @@
 - **161 BPM 数值随线裁切不贴边漂移**（[161](./issues/161-BPM数值随线裁切不贴边漂移.md)，`Type: grilling`，resolved，**用户验收通过**）—— **定了什么** = BPM 钉线+顶底 clip，不钳/不整叠平移；盒全部离开才折摘要。验收补：beat 0 字相对线恒定上移半个字高；滚动条末 1px 与 seek(0) 同口径；scrollTop 回声仅 TTL 内有效。START/END 仍钳。取代 159 定案 2 第 7–8 条。
 - **162 无音频恢复谱面时长音频页仍默认 30s**（[162](./issues/162-无音频恢复谱面时长音频页仍默认30s.md)，`Type: bug`，resolved）—— **改成什么** = 无音频恢复/改时长一律走 `AudioSession.setChartDuration`；音频页与工作台同一条谱面时长，不再只灌 PlaybackContext。**已实现**（2026-09-26）。
 - **163 BPM 横线弱化与删除 hover**（[163](./issues/163-BPM横线弱化与删除hover.md)，`Type: grilling`，resolved）—— **定了什么** = 只改轨道内 BPM 横线：专用弱紫/蓝紫、细于整拍、正负同色；数字仍跟主题；末条非法负仍警示。不可选中；删除工具命中给危险色（重开 51 Q5=B 与 56 C5）。网格不动。**已实现**（2026-09-26）。
+- **164 片段收藏**（[164](./issues/164-片段收藏.md)，`Type: grilling`，open）—— 用户收藏音符配置、在任何可编辑谱面画布粘贴；术语定为「片段」（不叫「配置」）；与剪贴板并存。存什么、存哪、怎么收藏与粘贴待 grill。
 
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 

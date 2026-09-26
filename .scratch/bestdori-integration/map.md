@@ -20,3 +20,4 @@
 - 实现期必测：Cookie TTL / 多端登录、Custom 上传、LLSIF 发帖、429 阈值 → `docs/research/bestdori-api.md` §8；写路径已测部分见 `docs/research/bestdori-community-upload.md`。
 - 浏览功能数据边界（官方音频/封面外链与缓存）留实现票设计，结合 05 结论。
 - 决策已收敛：落地实现时按 ADR-0011 开实现票（网络 IPC 面 → 谱面浏览 → 登录/上传，三期递进）。
+- 上传入口与上传记录在 [chart-projects](../chart-projects/map.md)（ADR-0015 §4：每张谱面至多上传一次、已上传只读）；上传实现票要写入该记录。[chart-projects 07 从 Bestdori 新建工程](../chart-projects/issues/07-从Bestdori新建工程.md) 被网络 IPC 实现票阻塞。
