@@ -12,9 +12,12 @@ const AudioPage = lazy(() => import('../audio/AudioPage'));
 const AssetsPage = lazy(() => import('../visual/AssetsPage'));
 const SettingsPage = lazy(() => import('../settings/SettingsPage'));
 const ShortcutsPage = lazy(() => import('../settings/ShortcutsPage'));
+// PROTOTYPE：chart-projects 04 UI 原型，AppShell 只在 ?prototype=projects 下挂载
+const ProjectsPrototype = lazy(() => import('../prototypes/projects/ProjectsPrototype'));
 
 /** 路由页组件 — 全部 lazy 装入，AppShell 仅持引用。 */
 export const PAGE_REGISTRY: Record<PageId, ComponentType<{ active?: boolean }>> = {
+  projects: ProjectsPrototype,
   workspace: Editor,
   audio: AudioPage,
   assets: AssetsPage,

@@ -4,6 +4,7 @@ import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
 import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
 import { useConfig } from '../app/ProviderTree';
 import { t } from '../i18n';
+import { isProjectsPrototype } from '../prototypes/projects/projectsPrototypeStore';
 import './AppShell.css';
 
 // 应用壳：五页注册 + 保活隐藏暂停 + 切页快捷键 + 可折叠导航（默认折叠）。
@@ -18,14 +19,15 @@ const NAV_ITEMS: Array<{ id: PageId; shortcut: string }> = [
   { id: 'settings', shortcut: '⇧⌘5' },
 ];
 
-const PAGE_IDS = Object.keys(PAGE_REGISTRY) as PageId[];
+// PROTOTYPE：'projects' 页只在 ?prototype=projects 下挂载，且作为启动落点（chart-projects 04 UI 原型）
+const PAGE_IDS = (Object.keys(PAGE_REGISTRY) as PageId[]).filter(id => id !== 'projects' || isProjectsPrototype());
 
 export default function AppShell() {
   const { settings } = useConfig();
   // 订阅 uiLanguage：壳层（导航、保活页）多数只调 t()、不读 Config。
   // 不订阅时切语言不会重渲，要等用户自己换页才换文案。
   void settings.uiLanguage;
-  const [activePage, setActivePage] = useState<PageId>('workspace');
+  const [activePage, setActivePage] = useState<PageId>(() => (isProjectsPrototype() ? 'projects' : 'workspace'));
   const [navCollapsed, setNavCollapsed] = useState(true);
 
   // 应用级切页快捷键：Ctrl/⌘+Shift+1..5（工作台=1）。
@@ -34,6 +36,7 @@ export default function AppShell() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
       if (isCapturingShortcut()) return;
+      if (e.key === '0' && isProjectsPrototype()) { e.preventDefault(); setActivePage('projects'); return; }
       const index = Number(e.key) - 1;
       const next = NAV_ITEMS[index];
       if (!next) return;

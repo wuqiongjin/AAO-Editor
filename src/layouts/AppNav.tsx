@@ -1,13 +1,16 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { t, type MessageKey } from '../i18n';
-import { ChevronsLeft, ChevronsRight, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, FolderOpen, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
+import { isProjectsPrototype } from '../prototypes/projects/projectsPrototypeStore';
 
 // 应用级导航（issue 28）：跨页持久、可折叠（默认折叠）。
 // 工作台页：与左侧工具面板合成同一左列（顶部导航、下方工具）；非工作台页：独立左列导航栏。
 // 展开/折叠只控制标签是否显示，不额外占用一列（画布宽度不受影响）。
-export type PageId = 'workspace' | 'audio' | 'settings' | 'shortcuts' | 'assets';
+export type PageId = 'projects' | 'workspace' | 'audio' | 'settings' | 'shortcuts' | 'assets';
 
-const NAV_ITEMS: Array<{ id: PageId; labelKey: MessageKey; shortcut: string; icon: typeof LayoutDashboard }> = [
+// PROTOTYPE：'projects' 目前只在 ?prototype=projects 下出现（chart-projects 04 UI 原型）
+const NAV_ITEMS: Array<{ id: PageId; labelKey?: MessageKey; label?: string; shortcut: string; icon: typeof LayoutDashboard }> = [
+  { id: 'projects', label: '工程', shortcut: '⇧⌘0', icon: FolderOpen },
   { id: 'workspace', labelKey: 'nav.workspace', shortcut: '⇧⌘1', icon: LayoutDashboard },
   { id: 'audio', labelKey: 'nav.audio', shortcut: '⇧⌘2', icon: Music2 },
   { id: 'assets', labelKey: 'nav.assets', shortcut: '⇧⌘3', icon: Layers },
@@ -40,8 +43,8 @@ export function AppNav() {
     <>
       <div className="app-mark" aria-label={t('app.markAria')}>BD</div>
       <nav className="app-nav-items">
-        {NAV_ITEMS.map(({ id, labelKey, shortcut, icon: Icon }) => {
-          const label = t(labelKey);
+        {NAV_ITEMS.filter(i => i.id !== 'projects' || isProjectsPrototype()).map(({ id, labelKey, label: rawLabel, shortcut, icon: Icon }) => {
+          const label = rawLabel ?? t(labelKey!);
           return (
           <button
             key={id}

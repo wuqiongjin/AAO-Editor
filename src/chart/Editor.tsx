@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
 import Toolbar from '../pages/WorkspacePage/Toolbar';
 import { ChartCodeEditorProvider } from '../chart/components/code-editor/ChartCodeEditorProvider';
@@ -21,6 +21,10 @@ import { useLayoutPersistence } from '../chart/layout/useLayoutPersistence';
 import { useShortcutDispatch } from '../chart/config/useShortcutDispatch';
 import { resolveEscapeTarget } from './editing/CanvasGesture';
 import { t } from '../i18n';
+import { isProjectsPrototype } from '../prototypes/projects/projectsPrototypeStore';
+
+// PROTOTYPE：chart-projects 05 谱面切换器 UI 原型，只在 ?prototype=projects 下替换顶栏标题
+const ChartSwitcherPrototype = lazy(() => import('../prototypes/projects/ChartSwitcherPrototype'));
 
 interface EditorProps {
   /** issue 28 页面壳表面契约（Q16）：false 时暂停播放并抑制全局输入 */
@@ -443,7 +447,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           gap: 'var(--space-3)',
           flexShrink: 0
         }}>
-          <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text)' }}>{t('editor.canvas')}</span>
+          {isProjectsPrototype()
+            ? <Suspense fallback={null}><ChartSwitcherPrototype active={active} /></Suspense>
+            : <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text)' }}>{t('editor.canvas')}</span>}
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
             <span style={{
