@@ -30,7 +30,7 @@ export default defineConfig([
     // 测试专用豁免：node 环境下没有 DOM / Canvas / Storage，测试替身大量依赖
     // `as unknown as X` 与结构性 any（假 2d context、假位图、强穿透的类型断言）。
     // 收窄类型只会让替身更难写，这里放开 any；其余规则照常生效。
-    files: ['tests/**/*.ts'],
+    files: ['tests/**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
     },

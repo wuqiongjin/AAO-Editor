@@ -16,6 +16,6 @@ export default defineConfig({
     environment: 'node',
     // support/ 只放测试基建（无 .test.ts），不参与收集；
     // 新增大类目录（如 tests/e2e）需在此显式登记才会进入默认全量跑。
-    include: ['tests/{unit,platform,static,perf}/**/*.test.ts'],
+    include: ['tests/{unit,platform,static,perf}/**/*.test.ts', 'tests/dom/**/*.test.{ts,tsx}'],
   },
 });

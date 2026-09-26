@@ -13,7 +13,11 @@ tests/
 │   ├── canvas.ts       假 2d context（记录型 / 计数型）与假离屏位图
 │   ├── source.ts       静态源码断言工具：repoRoot / readSource / stripComments
 │   ├── storage.ts      内存版 Storage（只认 bangdream.settings.v1）
+│   ├── providers.tsx   组件测试的 Provider 替身（当前工程 / 音频会话默认上下文）
 │   └── fs.ts           临时目录
+│
+├── dom/                组件测试（RTL + jsdom），子目录镜像 src/ 的领域
+│   └── Smoke.test.tsx  基建冒烟（issue 08）
 │
 ├── unit/               纯函数单测，子目录镜像 src/ 的领域
 │   ├── audio/          src/audio
@@ -48,11 +52,13 @@ tests/
 | 类型 | 什么时候用 | 例子 |
 | --- | --- | --- |
 | `unit/` | 被测对象是纯函数 / 可注入依赖的类，node 环境能直接跑 | `visual/render/GridStyle.test.ts` |
+| `dom/` | 被测对象是 React 组件 / 页面行为：渲染 + 按 role/text 查询 + 断言行为 | `dom/Smoke.test.tsx` |
 | `platform/` | 结论只在某个平台上成立（Electron 数据根、浏览器 dpr） | `platform/electron/ElectronDataRoot.test.ts` |
 | `perf/` | 关心"画了多少次、重建了几块"，不关心画成什么样 | `perf/RendererPerf.test.ts` |
 | `static/` | 结论是**接线事实**（preload 必须暴露某 IPC、某文件不得出现 localStorage），组件无法脱离 DOM 单测 | `static/EditorAudioSessionRefactor.test.ts` |
 
 `static/` 是本仓应对"没有 React/DOM 测试基建"的过渡手段，能写成真单测的不要放这里。
+页面行为优先写 `dom/`（issue 08 起基建已具备），`static/` 只留给**接线事实**。
 
 ## 命名约定
 
@@ -79,17 +85,35 @@ import { repoRoot } from '@/tests/support/source';
 
 ## 环境
 
-- `environment: 'node'`。没有 jsdom / happy-dom 依赖，也没有 `setupFiles`。
-- 目前没有任何测试真的访问 `window` / `document` / `AudioContext`；
+- **默认 `environment: 'node'`**，没有全局 `setupFiles`。绝大多数测试不碰 DOM。
+- `dom/` 的测试是例外，靠**文件头 docblock** 单独开 jsdom：
+
+  ```tsx
+  // @vitest-environment jsdom
+  ```
+
+  不要全局改成 jsdom —— 会拖慢其余上百个 node 环境文件。jsdom 只装为 devDependency。
+- `dom/` 之外仍然没有测试访问 `window` / `document` / `AudioContext`；
   渲染类测试靠 `support/canvas.ts` 的假 2d context + 生产代码留的注入点
   （`__setTileCanvasFactoryForTests` 等）。
-- 若将来要引入真实 DOM 渲染测试，需要新增 jsdom 依赖，并给那部分测试单独配 `environment`，
-  不要全局改成 jsdom。
+- `dom/` 的测试按需 `import '@testing-library/jest-dom/vitest'` 拿 `toBeInTheDocument()` 等匹配器；
+  不设全局 setupFiles，免得每个 node 环境文件都白跑一遍。
+- RTL 的自动 cleanup 依赖全局 `afterEach`（`globals: true` 已开），**不要**手动关掉 globals。
+
+### 写 `dom/` 测试的约定
+
+1. 只按 **role / text** 查询（`getByRole` / `getByText`），不按 class / DOM 结构；
+   断言**行为**（点了会怎样、状态怎么变），不断言实现细节。
+2. 需要上下文时用 `support/providers.tsx` 的 `renderWithProviders` / `TestProviders`；
+   它只补「当前工程 + 音频会话」两个默认值（内存后端 + 假引擎），
+   其余 Provider（Config / UI / Editing…）在测试里按需自己套，基建不替业务做决定。
+3. **jsdom 没有布局引擎**：尺寸、对齐、溢出、层叠、动画等视觉结论不得用 DOM 测试兜底，
+   仍走截图 / Playwright 实测 / 人工门票。
 
 ## 常用命令
 
 ```bash
-npm test              # vitest run（unit + platform + static + perf）
+npm test              # vitest run（unit + platform + static + perf + dom）
 npm run test:watch
 npm run test:types    # 仅类型检查 tests/（当前有存量报错，见下）
 npx vitest run tests/unit/chart/editing   # 只跑某个领域

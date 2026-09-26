@@ -4,5 +4,5 @@
   // solution 风格、不收 tests，所以必须在 tests/ 里放一份。
   // 类型检查的权威配置仍是根上的 tsconfig.test.json（npm run test:types）。
   "extends": "../tsconfig.test.json",
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts", "**/*.tsx"]
 }
