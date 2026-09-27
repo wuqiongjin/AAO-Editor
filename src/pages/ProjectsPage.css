@@ -83,6 +83,9 @@
 .pb-chart-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-elevated); color: var(--text); font-size: var(--text-xs); cursor: pointer; }
 .pb-chart-btn:hover { border-color: var(--accent); }
 .pb-hero__go { align-self: center; }
+/* 引导横幅（issue 09）：占 hero 位；120px 图块对齐封面尺寸，保证与有工程时等高不塌陷 */
+.pb-hero--guide { min-height: 168px; }
+.pb-guide-art { flex-shrink: 0; display: grid; place-items: center; width: 120px; height: 120px; border-radius: var(--radius-md); background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--bg))); color: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
 .pb-h { margin: 0 0 12px; font-size: var(--text-sm); font-weight: 600; }
 .pb-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .pb-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elevated); color: var(--text); text-align: left; cursor: pointer; }

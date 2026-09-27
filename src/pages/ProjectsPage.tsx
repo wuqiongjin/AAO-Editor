@@ -30,6 +30,7 @@ import { chartStatus, isProjectUnfinished } from '../chart/project/workspaceProj
 import { countChartNotes } from '../chart/editing/NoteEditing';
 import { formatValidationError } from '../chart/editing/ChartConverter';
 import { t } from '../i18n';
+import EmptyState from '../ui/EmptyState';
 import { ChartInfoDialog } from './ChartInfoDialog';
 import {
   ChartStatusIcon,
@@ -374,7 +375,9 @@ export default function ProjectsPage() {
   }, [flushPersist, store, notifyCatalogChanged, reload]);
 
   const list = projects;
-  const resume = list.find(isProjectUnfinished);
+  // issue 09：有工程（哪怕全已完成）横幅常显——无未完成工程时兜底最近打开的一个；
+  // 横幅内容跟随选中卡片是 issue 14 的活，这里不重复做。
+  const resume = list.find(isProjectUnfinished) ?? list[0];
 
   const dialogs = (
     <>
@@ -607,6 +610,21 @@ export default function ProjectsPage() {
   );
 }
 
+// 引导横幅（issue 09）：0 工程时占住 hero 节点——与有工程时的 hero 同位置、同尺寸
+// （24px 内边距 + 120px 图块），页面视觉不塌陷。主行动在下方网格区的 EmptyState。
+function GuideBanner() {
+  return (
+    <section className="pb-hero pb-hero--guide">
+      <div className="pb-guide-art" aria-hidden="true"><Music2 size={44} /></div>
+      <div className="pb-hero__body">
+        <span className="pp-eyebrow">{t('projects.guide.eyebrow')}</span>
+        <h2>{t('projects.guide.title')}</h2>
+        <p className="pp-muted">{t('projects.guide.description')}</p>
+      </div>
+    </section>
+  );
+}
+
 function ProjectStartView({
   list, resume, currentId, onDetail, onOpen, onNew, projectMenu,
 }: {
@@ -618,9 +636,11 @@ function ProjectStartView({
   onNew: (src: NewSource) => void;
   projectMenu: (p: ChartProject) => ReactNode;
 }) {
+  const isEmpty = list.length === 0;
   return (
     <div className="pb-page">
-      {resume && (
+      {isEmpty && <GuideBanner />}
+      {!isEmpty && resume && (
         <section className="pb-hero">
           <Cover project={resume} size={120} />
           <div className="pb-hero__body">
@@ -658,6 +678,18 @@ function ProjectStartView({
       </section>
       <section>
         <h3 className="pb-h">{t('projects.allProjects')} <span className="pp-muted">{list.length}</span></h3>
+        {isEmpty ? (
+          <EmptyState
+            icon={Music2}
+            title={t('projects.empty.title')}
+            description={t('projects.empty.description')}
+            primaryAction={{
+              label: t('projects.empty.createFirst'),
+              onClick: () => onNew('blank'),
+              icon: FolderPlus,
+            }}
+          />
+        ) : (
         <div className="pb-grid">
           {list.map((p) => (
             <div key={p.id} className={`pb-card${p.id === currentId ? ' is-current' : ''}`} onClick={() => onDetail(p.id)}>
@@ -690,6 +722,7 @@ function ProjectStartView({
             </div>
           ))}
         </div>
+        )}
       </section>
     </div>
   );
