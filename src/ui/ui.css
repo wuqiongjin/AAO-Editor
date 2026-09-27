@@ -200,3 +200,144 @@
   align-items: center;
   flex-shrink: 0;
 }
+
+/* ============================================================
+   CoverField（src/ui/CoverField.tsx）
+   未上传 = 可点/可拖的虚线方块；已上传 = 方块缩略图 + 更换/清除。
+   不做裁剪、不校验比例 —— 一律 object-fit: cover。
+   ============================================================ */
+.cover-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cover-field__label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* 空态与已上传同为方块：切换状态时弹窗不跳版 */
+.cover-field__drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 100%;
+  max-width: 200px;
+  aspect-ratio: 1 / 1;
+  min-height: 96px;
+  padding: var(--space-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-inset);
+  color: var(--text-muted);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.cover-field__drop:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.cover-field__drop:active {
+  transform: scale(0.99);
+}
+
+.cover-field__drop.is-dragging {
+  background-color: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.cover-field__icon {
+  display: inline-flex;
+  color: var(--text-subtle);
+  margin-bottom: var(--space-1);
+}
+
+.cover-field__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cover-field__hint {
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+}
+
+.cover-field__preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  max-width: 200px;
+}
+
+.cover-field__thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-inset);
+  flex-shrink: 0;
+}
+
+/* 动作区：两枚等宽小按钮平分图宽 */
+.cover-field__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.cover-field__actions > .cover-field__btn {
+  flex: 1;
+  justify-content: center;
+}
+
+/* 与弹窗里其它小按钮（.pp-btn--sm）同规格：26px 高、text-xs */
+.cover-field__btn {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-inset);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.cover-field__btn:hover {
+  background-color: var(--bg-hover);
+}
+
+.cover-field__btn:active {
+  transform: scale(0.98);
+}
+
+/* 清除：红字点到为止，hover 才泛红底（清除在保存前可逆，不是真删除） */
+.cover-field__btn.is-danger {
+  color: var(--danger-text);
+}
+
+.cover-field__btn.is-danger:hover {
+  background-color: var(--danger-soft);
+}

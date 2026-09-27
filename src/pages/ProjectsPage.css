@@ -67,6 +67,14 @@
 .pp-tabs { display: flex; gap: 4px; padding: 3px; border-radius: var(--radius-md); background: var(--bg-inset); }
 .pp-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; border: none; border-radius: var(--radius-sm); background: none; color: var(--text-muted); font-size: var(--text-xs); cursor: pointer; }
 .pp-tabs button.is-active { background: var(--bg-elevated); color: var(--text); box-shadow: var(--shadow-sm); }
+/* 编辑工程信息：左封面方块区 / 右文字字段 */
+.pp-edit-grid { display: grid; grid-template-columns: 160px 1fr; gap: var(--space-4); align-items: start; }
+.pp-edit-fields { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* 对话框被压到很窄（小窗 / 92vw）时右栏挤不下两个并排字段，退回单栏 */
+@media (max-width: 420px) {
+  .pp-edit-grid { grid-template-columns: 1fr; }
+}
+
 .pp-field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; font-size: var(--text-xs); color: var(--text-muted); }
 .pp-field input, .pp-field select, .pp-field textarea { height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg); color: var(--text); font-size: var(--text-sm); }
 .pp-field textarea { height: auto; padding: 8px 10px; font-family: var(--font-mono); resize: vertical; }

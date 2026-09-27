@@ -30,6 +30,7 @@ import { chartStatus } from '../chart/project/workspaceProject';
 import { countChartNotes } from '../chart/editing/NoteEditing';
 import { formatValidationError } from '../chart/editing/ChartConverter';
 import { t } from '../i18n';
+import CoverField, { useCoverUrl, type CoverValue } from '../ui/CoverField';
 import EmptyState from '../ui/EmptyState';
 import { ChartInfoDialog } from './ChartInfoDialog';
 import {
@@ -77,21 +78,6 @@ function parseSource(type: string, idText: string): SongSource {
   if (type === 'bandori' && Number.isFinite(id)) return { type: 'bandori', id };
   if (type === 'llsif' && Number.isFinite(id)) return { type: 'llsif', id };
   return { type: 'custom' };
-}
-
-function useCoverUrl(blob?: Blob): string | null {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    // 空 Blob 画不出图（建出来的 objectURL 只会是一张破图），视为「无封面」回退占位色。
-    if (!blob || blob.size === 0) {
-      setUrl(null);
-      return;
-    }
-    const next = URL.createObjectURL(blob);
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
-  }, [blob]);
-  return url;
 }
 
 function Cover({ project, size }: { project: ChartProject; size: number }) {
@@ -228,49 +214,44 @@ function EditInfoDialog({ project, onClose, onSave }: {
   const [artist, setArtist] = useState(project.artist ?? '');
   const [sourceType, setSourceType] = useState(project.source.type);
   const [sourceId, setSourceId] = useState(project.source.type === 'custom' ? '' : String(project.source.id));
-  const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [clearCover, setClearCover] = useState(false);
-  const preview = useCoverUrl(clearCover ? undefined : (coverFile ?? project.coverBlob));
+  // 封面三态：null 沿用既有 / File 新选 / 'clear' 清除（保存时按此推导 patch 出参）
+  const [cover, setCover] = useState<CoverValue>(null);
+  // 只管既有封面的 URL：新选的 File 由 CoverField 自己开，同一张图不建两次 objectURL。
+  const existingPreview = useCoverUrl(project.coverBlob);
 
   return (
     <div className="pp-dialog__scrim" onMouseDown={onClose}>
-      <div className="pp-dialog" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="pp-dialog pp-dialog--edit" onMouseDown={(e) => e.stopPropagation()}>
         <h3>{t('projects.editTitle')}</h3>
-        <div className="pp-field-row">
-          <label className="pp-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
-          <label className="pp-field"><span>{t('projects.artist')}</span><input value={artist} onChange={(e) => setArtist(e.target.value)} /></label>
-        </div>
-        <label className="pp-field">
-          <span>{t('projects.source')}</span>
-          <select value={sourceType} onChange={(e) => setSourceType(e.target.value as SongSource['type'])}>
-            <option value="custom">{t('projects.sourceCustom')}</option>
-            <option value="bandori">{t('projects.sourceBandori')}</option>
-            <option value="llsif">{t('projects.sourceLlsif')}</option>
-          </select>
-        </label>
-        {sourceType !== 'custom' && (
-          <label className="pp-field">
-            <span>{t('projects.sourceId')}</span>
-            <input value={sourceId} inputMode="numeric" onChange={(e) => setSourceId(e.target.value)} />
-          </label>
-        )}
-        <label className="pp-field">
-          <span>{t('projects.cover')}</span>
-          {preview && <img src={preview} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8 }} />}
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              setCoverFile(e.target.files?.[0] ?? null);
-              setClearCover(false);
-            }}
+        {/* 封面在左：它是工程在启动台的门面，不该缩成字段流里的一小块 */}
+        <div className="pp-edit-grid">
+          <CoverField
+            label={t('projects.cover')}
+            value={cover}
+            previewUrl={existingPreview}
+            onChange={setCover}
           />
-          {(project.coverBlob || coverFile) && !clearCover && (
-            <button type="button" className="pp-btn pp-btn--sm" onClick={() => { setCoverFile(null); setClearCover(true); }}>
-              {t('projects.coverClear')}
-            </button>
-          )}
-        </label>
+          <div className="pp-edit-fields">
+            <div className="pp-field-row">
+              <label className="pp-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
+              <label className="pp-field"><span>{t('projects.artist')}</span><input value={artist} onChange={(e) => setArtist(e.target.value)} /></label>
+            </div>
+            <label className="pp-field">
+              <span>{t('projects.source')}</span>
+              <select value={sourceType} onChange={(e) => setSourceType(e.target.value as SongSource['type'])}>
+                <option value="custom">{t('projects.sourceCustom')}</option>
+                <option value="bandori">{t('projects.sourceBandori')}</option>
+                <option value="llsif">{t('projects.sourceLlsif')}</option>
+              </select>
+            </label>
+            {sourceType !== 'custom' && (
+              <label className="pp-field">
+                <span>{t('projects.sourceId')}</span>
+                <input value={sourceId} inputMode="numeric" onChange={(e) => setSourceId(e.target.value)} />
+              </label>
+            )}
+          </div>
+        </div>
         <small className="pp-muted">{t('projects.coverHint')}</small>
         <div className="pp-dialog__actions">
           <button type="button" className="pp-btn" onClick={onClose}>{t('projects.cancel')}</button>
@@ -281,9 +262,9 @@ function EditInfoDialog({ project, onClose, onSave }: {
               name,
               artist,
               source: parseSource(sourceType, sourceId),
-              coverName: coverFile ? coverFile.name : undefined,
-              coverBlob: coverFile ?? undefined,
-              clearCover,
+              coverName: cover instanceof File ? cover.name : undefined,
+              coverBlob: cover instanceof File ? cover : undefined,
+              clearCover: cover === 'clear',
             })}
           >
             {t('projects.save')}
