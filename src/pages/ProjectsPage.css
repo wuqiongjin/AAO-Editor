@@ -100,6 +100,9 @@
 .pb-card__cover { position: relative; margin-bottom: 4px; border-radius: var(--radius-md); transition: transform var(--dur-fast) var(--ease); }
 .pb-card:hover .pb-card__cover { transform: translateY(-2px); }
 .pb-card.is-current .pb-card__cover { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 浏览焦点（issue 14）：方向键选中的卡片整卡框定，与 is-current（当前工程封面描边）区分 */
+.pb-card.is-selected { border-radius: var(--radius-md); outline: 2px solid var(--accent); outline-offset: 5px; }
+.pb-card.is-selected .pb-card__play { opacity: 1; transform: none; }
 .pb-card__menu { position: absolute; top: 6px; right: 6px; border-radius: var(--radius-sm); background: rgba(0,0,0,.35); }
 .pb-card__menu .pp-icon-btn { color: #fff; }
 .pb-card__play { position: absolute; right: 8px; bottom: 8px; display: grid; place-items: center; width: 36px; height: 36px; border: none; border-radius: 50%; background: var(--accent-btn); color: var(--accent-btn-text); box-shadow: var(--shadow-md); cursor: pointer; opacity: 0; transform: translateY(4px); transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }

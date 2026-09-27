@@ -26,7 +26,7 @@ import {
   updateChartInfo,
   updateProjectInfo,
 } from '../chart/project/projectCatalog';
-import { chartStatus, isProjectUnfinished } from '../chart/project/workspaceProject';
+import { chartStatus } from '../chart/project/workspaceProject';
 import { countChartNotes } from '../chart/editing/NoteEditing';
 import { formatValidationError } from '../chart/editing/ChartConverter';
 import { t } from '../i18n';
@@ -38,6 +38,7 @@ import {
   ProjectMenuItem,
   untitledProjectLabel,
 } from './projectUi';
+import { moveGridSelection } from './projectGridSelection';
 import './ProjectsPage.css';
 
 const H = 3600_000;
@@ -375,9 +376,8 @@ export default function ProjectsPage() {
   }, [flushPersist, store, notifyCatalogChanged, reload]);
 
   const list = projects;
-  // issue 09：有工程（哪怕全已完成）横幅常显——无未完成工程时兜底最近打开的一个；
-  // 横幅内容跟随选中卡片是 issue 14 的活，这里不重复做。
-  const resume = list.find(isProjectUnfinished) ?? list[0];
+  // issue 09：有工程（哪怕全已完成）横幅常显；issue 14：横幅内容由 ProjectStartView 的
+  // selectedId 驱动（默认选中第一个卡片 = 最近打开，Q11），resume 兜底不再参与。
 
   const dialogs = (
     <>
@@ -456,7 +456,7 @@ export default function ProjectsPage() {
     if (!sel) {
       return (
         <div className="pm-root">
-          <ProjectStartView list={list} resume={resume} currentId={projectId} onDetail={setDetailId} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
+          <ProjectStartView list={list} currentId={projectId} onDetail={setDetailId} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
           {dialogs}
         </div>
       );
@@ -604,7 +604,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="pm-root">
-      <ProjectStartView list={list} resume={resume} currentId={projectId} onDetail={setDetailId} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
+      <ProjectStartView list={list} currentId={projectId} onDetail={setDetailId} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
       {dialogs}
     </div>
   );
@@ -626,41 +626,112 @@ function GuideBanner() {
 }
 
 function ProjectStartView({
-  list, resume, currentId, onDetail, onOpen, onNew, projectMenu,
+  list, currentId, onDetail, onOpen, onNew, projectMenu,
 }: {
   list: ChartProject[];
-  resume?: ChartProject;
   currentId: string | null;
   onDetail: (id: string) => void;
   onOpen: (id: string, chartId?: string) => void;
   onNew: (src: NewSource) => void;
   projectMenu: (p: ChartProject) => ReactNode;
 }) {
+  const { activePage } = useAppNav();
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [columns, setColumns] = useState(1);
   const isEmpty = list.length === 0;
+
+  // 浏览焦点（issue 14）：不等于「当前工程」，is-current 角标继续单独标识。
+  // 默认选中 = 第一个卡片 = 最近打开（Q11）；列表变化后失效（工程被删等）→ 自愈回第一个。
+  useEffect(() => {
+    setSelectedId((id) => (id !== null && list.some((p) => p.id === id) ? id : list[0]?.id ?? null));
+  }, [list]);
+
+  // 列数按容器实际折行实测：首行卡片数即列数。ResizeObserver 覆盖窗口 resize 与导航展开折叠；
+  // 失活页只是 opacity:0，布局仍可测，无需等激活。
+  useEffect(() => {
+    const measure = () => {
+      const cards = gridRef.current?.querySelectorAll<HTMLElement>('.pb-card');
+      if (!cards || cards.length === 0) return;
+      const top = cards[0].offsetTop;
+      let count = 1;
+      while (count < cards.length && cards[count].offsetTop === top) count += 1;
+      setColumns(count);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    if (gridRef.current) observer.observe(gridRef.current);
+    return () => observer.disconnect();
+  }, [list.length]);
+
+  // 方向键导航：仅工程管理页为当前页、焦点不在输入框、弹窗/卡片菜单未开时响应（issue 14 定案 1）。
+  useEffect(() => {
+    if (activePage !== 'projects') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const key = e.key;
+      const isArrow = key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
+      if (!isArrow && key !== 'Enter') return;
+      if (list.length === 0) return;
+      // 弹窗（新建 / 编辑工程 / 谱面信息）与卡片菜单都挂 scrim，开着就不响应
+      if (document.querySelector('.pp-dialog__scrim, .pp-menu__scrim')) return;
+      // 焦点在输入框时放行原生行为（与 useShortcutDispatch 同口径）
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+      if (isArrow) {
+        const next = moveGridSelection(list, selectedId, key, columns);
+        if (next === selectedId) return; // 边界停在原地：不吞键，放行 .pb-page 原生滚页
+        e.preventDefault();
+        setSelectedId(next);
+        return;
+      }
+      // Enter 打开选中工程详情；焦点在按钮 / 链接等可激活元素上时交给浏览器原生行为
+      if (tag === 'BUTTON' || tag === 'A' || (target instanceof HTMLElement && target.hasAttribute('tabindex'))) return;
+      if (selectedId) {
+        e.preventDefault();
+        onDetail(selectedId);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activePage, list, columns, selectedId, onDetail]);
+
+  // 选中卡片自动滚入视口（定案 5；布局行为 jsdom 测不了 → 人工验收）
+  useEffect(() => {
+    if (!selectedId) return;
+    gridRef.current?.querySelectorAll<HTMLElement>('.pb-card').forEach((card) => {
+      if (card.dataset.projectId === selectedId) card.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    });
+  }, [selectedId]);
+
+  // hero 是选中卡片的投影；首帧 selectedId 尚未同步时回退第一个卡片，横幅不闪空
+  const selected = list.find((p) => p.id === selectedId) ?? list[0];
   return (
     <div className="pb-page">
       {isEmpty && <GuideBanner />}
-      {!isEmpty && resume && (
+      {!isEmpty && selected && (
         <section className="pb-hero">
-          <Cover project={resume} size={120} />
+          <Cover project={selected} size={120} />
           <div className="pb-hero__body">
             <span className="pp-eyebrow">{t('projects.resume')}</span>
             <h2>
-              {displayProjectName(resume)}
-              <button type="button" className="pb-hero__detail" onClick={() => onDetail(resume.id)}>{t('projects.detailLink')}</button>
+              {displayProjectName(selected)}
+              <button type="button" className="pb-hero__detail" onClick={() => onDetail(selected.id)}>{t('projects.detailLink')}</button>
             </h2>
-            <p className="pp-muted">{resume.artist ?? t('projects.artistMissing')} · {t('projects.lastOpened', { time: relTime(resume.lastOpened) })}</p>
+            <p className="pp-muted">{selected.artist ?? t('projects.artistMissing')} · {t('projects.lastOpened', { time: relTime(selected.lastOpened) })}</p>
             <div className="pb-hero__charts">
-              {resume.charts.map((c) => (
-                <button key={c.id} type="button" className="pb-chart-btn" onClick={() => onOpen(resume.id, c.id)}>
+              {selected.charts.map((c) => (
+                <button key={c.id} type="button" className="pb-chart-btn" onClick={() => onOpen(selected.id, c.id)}>
                   <span className="pp-pill__diff" style={{ background: DIFF_COLORS[c.diff] }}>{DIFF_SHORT[c.diff]}</span>
-                  {effectiveTitle(resume, c) !== displayProjectName(resume) && <span>{c.title}</span>}
+                  {effectiveTitle(selected, c) !== displayProjectName(selected) && <span>{c.title}</span>}
                   <StatusBadge chart={c} />
                 </button>
               ))}
             </div>
           </div>
-          <button type="button" className="pp-btn pp-btn--primary pp-btn--lg pb-hero__go" onClick={() => onOpen(resume.id)}>
+          <button type="button" className="pp-btn pp-btn--primary pp-btn--lg pb-hero__go" onClick={() => onOpen(selected.id)}>
             <Play size={16} />{t('projects.enterWorkspace')}
           </button>
         </section>
@@ -690,9 +761,15 @@ function ProjectStartView({
             }}
           />
         ) : (
-        <div className="pb-grid">
+        <div className="pb-grid" ref={gridRef}>
           {list.map((p) => (
-            <div key={p.id} className={`pb-card${p.id === currentId ? ' is-current' : ''}`} onClick={() => onDetail(p.id)}>
+            <div
+              key={p.id}
+              data-project-id={p.id}
+              className={`pb-card${p.id === currentId ? ' is-current' : ''}${p.id === selectedId ? ' is-selected' : ''}`}
+              onClick={() => onDetail(p.id)}
+              onDoubleClick={() => onDetail(p.id)}
+            >
               <div className="pb-card__cover">
                 <Cover project={p} size={172} />
                 <span className="pb-card__menu" onClick={(e) => e.stopPropagation()}>{projectMenu(p)}</span>
