@@ -6,13 +6,14 @@ import './ui.css';
  *  与 IconButton 共用同一交互系统，issue 49 阶段 1 #3。 */
 export default function ActionBtn({ children, onClick, disabled, variant, autoFocus }: {
   children: ReactNode; onClick: () => void; disabled?: boolean;
-  variant?: 'primary' | 'danger';
+  variant?: 'primary' | 'danger' | 'danger-solid';
   /** 挂载即得焦点：确认弹窗的确认键靠它，键盘用户不必先 Tab 过去 */
   autoFocus?: boolean;
 }) {
   const classes = ['action-btn'];
   if (variant === 'primary') classes.push('action-btn--primary');
   else if (variant === 'danger') classes.push('action-btn--danger');
+  else if (variant === 'danger-solid') classes.push('action-btn--danger-solid');
 
   return (
     <button

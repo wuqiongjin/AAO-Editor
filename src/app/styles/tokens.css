@@ -42,6 +42,14 @@
   --accent-btn-active: #053d57;      /* 主按钮 active（最深一档） */
   --accent-btn-text: #ffffff;        /* 主按钮文字（白，亮+暗主题都用白——亮底要深才看清） */
 
+  /* ---- 不可逆动作按钮专用色（与 accent-btn 对称：深档底 + 白字，确保 WCAG AA） ----
+     分寸：不可逆（删除 / 覆盖 / 丢弃）= 实底红；可逆（清除封面等）继续用 danger-soft + danger-text。
+     --danger 本体是亮红，白字压不住（3.9:1），所以这里另起一组深档，不要拿 --danger 顶上。 */
+  --danger-btn: #b42318;
+  --danger-btn-hover: #9a1d14;
+  --danger-btn-active: #7f1710;
+  --danger-btn-text: #ffffff;
+
   /* ---- 语义色 ---- */
   --danger: #e5484d;
   --danger-soft: #fde3e3;
@@ -138,6 +146,12 @@
   --accent-btn-hover: #075985;
   --accent-btn-active: #0c4a6e;
   --accent-btn-text: #ffffff;
+
+  /* 不可逆动作按钮（暗主题：亮一档红，白字仍过 AA 4.5:1） */
+  --danger-btn: #d93a3e;
+  --danger-btn-hover: #b92a2e;
+  --danger-btn-active: #96212a;
+  --danger-btn-text: #ffffff;
 
   --danger: #f4716f;
   --danger-soft: rgba(244, 113, 111, 0.14);

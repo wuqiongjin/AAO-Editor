@@ -100,8 +100,9 @@ describe('issue 13 · 工程删除走自绘确认弹窗', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '删除工程' }));
 
-    const dialog = await screen.findByRole('alertdialog', { name: '删除工程' });
-    expect(dialog).toHaveTextContent(/删除工程「甲工程」/);
+    // 标题负责问（带对象名），正文只说后果 —— 两行各司其职（issue 16 文案定案）
+    const dialog = await screen.findByRole('alertdialog', { name: '删除工程「甲工程」？' });
+    expect(dialog).toHaveTextContent('注意：音频、封面和 2 张谱面都会删除。');
     expect(window.confirm).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: '删除' }));
@@ -115,7 +116,7 @@ describe('issue 13 · 工程删除走自绘确认弹窗', () => {
     renderPage();
     await openMenuOfFirstCard();
     fireEvent.click(screen.getByRole('button', { name: '删除工程' }));
-    await screen.findByRole('alertdialog', { name: '删除工程' });
+    await screen.findByRole('alertdialog', { name: '删除工程「甲工程」？' });
 
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
 
@@ -132,7 +133,7 @@ describe('issue 13 · 工程删除走自绘确认弹窗', () => {
 
     fireEvent.click(deleteChartButtons[0]);
 
-    await screen.findByRole('alertdialog', { name: '删除谱面' });
+    await screen.findByRole('alertdialog', { name: '删除这张谱面？' });
     expect(window.confirm).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: '删除' }));

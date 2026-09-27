@@ -77,7 +77,7 @@ export default function ConfirmDialog({
         <p className="confirm-dialog__message" id={messageId}>{message}</p>
         <div className="confirm-dialog__actions">
           <ActionBtn onClick={onCancel}>{t('ui.cancel')}</ActionBtn>
-          <ActionBtn variant="danger" autoFocus onClick={onConfirm}>{confirmLabel}</ActionBtn>
+          <ActionBtn variant="danger-solid" autoFocus onClick={onConfirm}>{confirmLabel}</ActionBtn>
         </div>
       </div>
     </div>,

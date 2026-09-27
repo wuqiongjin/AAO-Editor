@@ -138,11 +138,11 @@ function Menu({ trigger, children }: { trigger: ReactNode; children: ReactNode }
 
 type NewSource = 'blank' | 'copy';
 
-/** 删除工程的确认正文：已上传的谱面要单独带一句（删工程不影响已发的帖子）。 */
-function deleteProjectMessage(p: ChartProject): string {
+/** 删除工程的后果行（标题负责问，这里只说会连带删掉什么）。 */
+function deleteProjectNotice(p: ChartProject): string {
   const uploaded = p.charts.filter((c) => c.upload).length;
   const extra = uploaded ? `\n${t('projects.confirmDeleteUploaded', { count: uploaded })}` : '';
-  return `${t('projects.confirmDelete', { name: displayProjectName(p), charts: p.charts.length })}${extra}`;
+  return `${t('projects.confirmDelete', { charts: p.charts.length })}${extra}`;
 }
 
 function NewProjectDialog({
@@ -405,8 +405,8 @@ export default function ProjectsPage() {
       )}
       {askDelete && (
         <ConfirmDialog
-          title={t('projects.delete')}
-          message={deleteProjectMessage(askDelete)}
+          title={t('projects.confirmDeleteTitle', { name: displayProjectName(askDelete) })}
+          message={deleteProjectNotice(askDelete)}
           confirmLabel={t('ui.delete')}
           onConfirm={() => {
             const target = askDelete;
@@ -418,8 +418,8 @@ export default function ProjectsPage() {
       )}
       {askDeleteChart && (
         <ConfirmDialog
-          title={t('projects.deleteChart')}
-          message={t('projects.deleteChartConfirm')}
+          title={t('projects.deleteChartConfirm')}
+          message={t('projects.deleteChartNotice')}
           confirmLabel={t('ui.delete')}
           onConfirm={() => {
             const { project, chart } = askDeleteChart;

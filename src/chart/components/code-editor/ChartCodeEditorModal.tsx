@@ -695,8 +695,8 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
             )}
             {askOverwrite && (
                 <ConfirmDialog
-                    title={t('chartCode.confirmOverwriteTitle')}
-                    message={t('chartCode.confirmOverwrite', { count: askOverwrite.delta })}
+                    title={t('chartCode.confirmOverwriteTitle', { count: askOverwrite.delta })}
+                    message={t('chartCode.confirmOverwrite')}
                     confirmLabel={t('ui.overwrite')}
                     onConfirm={() => {
                         const pending = askOverwrite;
