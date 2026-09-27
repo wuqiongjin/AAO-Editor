@@ -18,7 +18,7 @@ import {
     convertNotesToChartCode, chartCodeToCompactJSON, normalizeChartCodeText,
     parseChartCodeFromJSON, validateChartCodeJSON,
     formatValidationError, convertChartCodeToNotes, hasBeat0Bpm,
-    type ValidationError,
+    type ValidationError, type ChartCodeNote,
 } from '../../editing/ChartConverter';
 import { buildNoteCode, applyNoteCode, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText } from '../../editing/NoteCodeOps';
 import { useEditing, usePlayback, useUI, useAudioSession } from '../../../app/ProviderTree';
@@ -35,6 +35,7 @@ import {
 import { createDebouncedTask } from '../../editing/DebouncedTask';
 import { scheduleIdle } from '../../editing/IdleSchedule';
 import ActionBtn from '../../../ui/ActionBtn';
+import ConfirmDialog from '../../../ui/ConfirmDialog';
 import { useChartCodeEditor, type CodeEditorTarget } from './ChartCodeEditorProvider';
 import { exportChartCodeSaveAs } from '../../project/exportChartCode';
 import type { ChartNote } from '../../types';
@@ -80,6 +81,9 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
     // issue 102：文本尚未填充的空壳期（序列化 + stringify 还没跑完）。
     // true 期间右上角 / 应用按钮 / dirty 一律按"还没内容"处理，不把 loading 当成"草稿为空"。
     const [generating, setGenerating] = useState(true);
+    // 两处确认改成「先问后做」：弹窗等用户点键，待办先存在这里，确认了才往下走
+    const [askClose, setAskClose] = useState(false);
+    const [askOverwrite, setAskOverwrite] = useState<{ delta: number; code: ChartCodeNote[]; text: string } | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     // issue 102：输入校验的防抖体（打字停手后才跑）。组件不禁 SSR，构造走惰性 useState（不每次渲染重建）。
     const [validationTask] = useState(() => createDebouncedTask(VALIDATE_DEBOUNCE_MS));
@@ -206,8 +210,12 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
     // 同时就是 Esc 的语义 —— 对象视图**不再逐档退**（用户 2026-09-09 定案）：
     // 无论停在完整代码 / 整条音符 / 滑条结点哪一级，Esc 都是直接关弹窗；
     // 向上看走面包屑（`完整谱面代码 › 所属滑条 › 音符代码`）上的按钮。
+    // 确认弹窗已经开着的话，这次触发（Esc / 点遮罩）归弹窗自己：
+    // 不再问第二次，也不能顺势把本弹窗关掉（草稿还没处置）。
     const requestClose = () => {
-        if (isDirty && !window.confirm(t('chartCode.confirmClose'))) {
+        if (askClose || askOverwrite) return;
+        if (isDirty) {
+            setAskClose(true);
             return;
         }
         close();
@@ -259,6 +267,41 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         alert(tPlural('chartCode.alertErrors', errors.length));
     };
 
+    /** 应用失败的统一出口：回滚文本 + 清掉错误列表，两条入口（直接应用 / 确认后应用）共用 */
+    const failApply = (error: unknown) => {
+        alert(t('chartCode.applyFail', { message: (error as Error).message }));
+        setTextHistory(createHistory(lastAppliedCode));
+        setIsValid(true);
+        setValidationErrors([]);
+    };
+
+    /**
+     * 回写画布这一步：覆盖是「问完才做」的，所以直接应用与确认后应用两条入口
+     * 都得走同一个出口 —— 成功与失败两种收尾都在这一个函数里。
+     */
+    const commitApply = (parsedCode: ChartCodeNote[], text: string) => {
+        try {
+            const newNotes = convertChartCodeToNotes(parsedCode);
+            handleNotesChange(newNotes);
+            rememberAppliedChartCode(text);
+            // ADR-0005 §4.5：无音频导入谱面代码时，若代码比当前谱面长度更长，自动延长谱面长度到代码最后音符结束时间
+            if (!canPlay) {
+                const endSeconds = maxNoteEndSeconds(newNotes, beatDisplay, getBpmEvents(newNotes));
+                // issue 145 #2：谱面时长的单一真相源是 AudioSession（`useAudioBridge` 单向 session → PlaybackContext）。
+                // 此前只写 PlaybackContext → 音频页「谱面时长」不跟着变，且 session 下次 emit 会把旧值反向覆盖回来。
+                if (endSeconds > audioSnap.chartDuration) {
+                    session.setChartDuration(endSeconds);
+                }
+            }
+            setLastAppliedCode(text);
+            setAppliedNotesCount(newNotes.length);
+            setTextHistory(createHistory(text));
+            alert(t('chartCode.applyOk'));
+        } catch (error) {
+            failApply(error);
+        }
+    };
+
     // 应用谱面代码：经 useEditing.handleNotesChange 走历史记录（单向「代码→画布」）
     const handleApply = () => {
         if (readOnly) {
@@ -297,34 +340,18 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                 alert(t('chartCode.needBpm0'));
                 return;
             }
-            // 覆盖风险确认：画布已在草稿之后被改动
+            // 覆盖风险确认：画布已在草稿之后被改动，覆盖是有损操作 —— 问完才回写
             if (isStale) {
-                const delta = Math.abs(notes.length - appliedNotesCount);
-                if (!window.confirm(t('chartCode.confirmOverwrite', { count: delta }))) {
-                    return;
-                }
+                setAskOverwrite({
+                    delta: Math.abs(notes.length - appliedNotesCount),
+                    code: parsedCode,
+                    text: chartCode,
+                });
+                return;
             }
-            const newNotes = convertChartCodeToNotes(parsedCode);
-            handleNotesChange(newNotes);
-            rememberAppliedChartCode(chartCode);
-            // ADR-0005 §4.5：无音频导入谱面代码时，若代码比当前谱面长度更长，自动延长谱面长度到代码最后音符结束时间
-            if (!canPlay) {
-                const endSeconds = maxNoteEndSeconds(newNotes, beatDisplay, getBpmEvents(newNotes));
-                // issue 145 #2：谱面时长的单一真相源是 AudioSession（`useAudioBridge` 单向 session → PlaybackContext）。
-                // 此前只写 PlaybackContext → 音频页「谱面时长」不跟着变，且 session 下次 emit 会把旧值反向覆盖回来。
-                if (endSeconds > audioSnap.chartDuration) {
-                    session.setChartDuration(endSeconds);
-                }
-            }
-            setLastAppliedCode(chartCode);
-            setAppliedNotesCount(newNotes.length);
-            setTextHistory(createHistory(chartCode));
-            alert(t('chartCode.applyOk'));
+            commitApply(parsedCode, chartCode);
         } catch (error) {
-            alert(t('chartCode.applyFail', { message: (error as Error).message }));
-            setTextHistory(createHistory(lastAppliedCode));
-            setIsValid(true);
-            setValidationErrors([]);
+            failApply(error);
         }
     };
 
@@ -654,6 +681,31 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                     <ActionBtn onClick={requestClose}>{t('chartCode.close')}</ActionBtn>
                 </div>
             </div>
+            {/* 两处确认弹窗（丢弃草稿 / 覆盖应用）：它们各自 portal 到 body，
+                DOM 上是本弹窗的兄弟、层高也更高；JSX 写在这里只为少一层缩进。
+                Esc / 点遮罩先归它们 —— requestClose 见它们开着就自己让路（issue 13）。 */}
+            {askClose && (
+                <ConfirmDialog
+                    title={t('chartCode.confirmCloseTitle')}
+                    message={t('chartCode.confirmClose')}
+                    confirmLabel={t('ui.discard')}
+                    onConfirm={() => { setAskClose(false); close(); }}
+                    onCancel={() => setAskClose(false)}
+                />
+            )}
+            {askOverwrite && (
+                <ConfirmDialog
+                    title={t('chartCode.confirmOverwriteTitle')}
+                    message={t('chartCode.confirmOverwrite', { count: askOverwrite.delta })}
+                    confirmLabel={t('ui.overwrite')}
+                    onConfirm={() => {
+                        const pending = askOverwrite;
+                        setAskOverwrite(null);
+                        commitApply(pending.code, pending.text);
+                    }}
+                    onCancel={() => setAskOverwrite(null)}
+                />
+            )}
         </div>,
         document.body,
     );

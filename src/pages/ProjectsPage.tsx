@@ -31,6 +31,7 @@ import { countChartNotes } from '../chart/editing/NoteEditing';
 import { formatValidationError } from '../chart/editing/ChartConverter';
 import { t } from '../i18n';
 import CoverField, { useCoverUrl, type CoverValue } from '../ui/CoverField';
+import ConfirmDialog from '../ui/ConfirmDialog';
 import EmptyState from '../ui/EmptyState';
 import { ChartInfoDialog } from './ChartInfoDialog';
 import {
@@ -136,6 +137,13 @@ function Menu({ trigger, children }: { trigger: ReactNode; children: ReactNode }
 }
 
 type NewSource = 'blank' | 'copy';
+
+/** 删除工程的确认正文：已上传的谱面要单独带一句（删工程不影响已发的帖子）。 */
+function deleteProjectMessage(p: ChartProject): string {
+  const uploaded = p.charts.filter((c) => c.upload).length;
+  const extra = uploaded ? `\n${t('projects.confirmDeleteUploaded', { count: uploaded })}` : '';
+  return `${t('projects.confirmDelete', { name: displayProjectName(p), charts: p.charts.length })}${extra}`;
+}
 
 function NewProjectDialog({
   initialSource, projects, onClose, onCreate, onCopy,
@@ -285,6 +293,9 @@ export default function ProjectsPage() {
   const [newSource, setNewSource] = useState<NewSource | null>(null);
   const [editing, setEditing] = useState<ChartProject | null>(null);
   const [chartForm, setChartForm] = useState<{ project: ChartProject; chart: ProjectChart | null } | null>(null);
+  // 删除要等用户点头（弹窗是异步的）：待确认的目标先存下，确认键按了才动手
+  const [askDelete, setAskDelete] = useState<ChartProject | null>(null);
+  const [askDeleteChart, setAskDeleteChart] = useState<{ project: ChartProject; chart: ProjectChart } | null>(null);
 
   const reload = useCallback(async () => {
     const listed = sortProjectsByLastOpened(await store.list());
@@ -312,10 +323,8 @@ export default function ProjectsPage() {
     setActivePage('workspace');
   }, [flushPersist, open, notifyCatalogChanged, setActivePage]);
 
-  const confirmDelete = useCallback(async (p: ChartProject) => {
-    const uploaded = p.charts.filter((c) => c.upload).length;
-    const extra = uploaded ? `\n${t('projects.confirmDeleteUploaded', { count: uploaded })}` : '';
-    if (!window.confirm(`${t('projects.confirmDelete', { name: displayProjectName(p), charts: p.charts.length })}${extra}`)) return;
+  // 删除工程本体：确认那一步在弹窗里，走到这里就是真的删
+  const deleteProject = useCallback(async (p: ChartProject) => {
     await flushPersist();
     const wasCurrent = projectId === p.id;
     await store.delete(p.id);
@@ -323,6 +332,17 @@ export default function ProjectsPage() {
     notifyCatalogChanged();
     await reload();
   }, [flushPersist, projectId, store, reset, notifyCatalogChanged, reload]);
+
+  const deleteChart = useCallback(async (project: ChartProject, chart: ProjectChart) => {
+    await mutate(project.id, (p) => {
+      const result = deleteChartFromProject(p, chart.id);
+      if (!result.ok) {
+        window.alert(t('projects.deleteLastChart'));
+        return null;
+      }
+      return result.project;
+    });
+  }, [mutate]);
 
   const createBlank = useCallback(async (input: { name: string; artist: string; diff: ChartDifficulty }) => {
     await flushPersist();
@@ -383,6 +403,32 @@ export default function ProjectsPage() {
           }}
         />
       )}
+      {askDelete && (
+        <ConfirmDialog
+          title={t('projects.delete')}
+          message={deleteProjectMessage(askDelete)}
+          confirmLabel={t('ui.delete')}
+          onConfirm={() => {
+            const target = askDelete;
+            setAskDelete(null);
+            void deleteProject(target);
+          }}
+          onCancel={() => setAskDelete(null)}
+        />
+      )}
+      {askDeleteChart && (
+        <ConfirmDialog
+          title={t('projects.deleteChart')}
+          message={t('projects.deleteChartConfirm')}
+          confirmLabel={t('ui.delete')}
+          onConfirm={() => {
+            const { project, chart } = askDeleteChart;
+            setAskDeleteChart(null);
+            void deleteChart(project, chart);
+          }}
+          onCancel={() => setAskDeleteChart(null)}
+        />
+      )}
       {chartForm && (
         <ChartInfoDialog
           project={chartForm.project}
@@ -430,7 +476,7 @@ export default function ProjectsPage() {
     <Menu trigger={<button type="button" className="pp-icon-btn" title={t('projects.more')}><MoreHorizontal size={16} /></button>}>
       <ProjectMenuItem icon={<Pencil size={14} />} label={t('projects.editInfo')} onClick={() => setEditing(p)} />
       <ProjectMenuItem icon={<Copy size={14} />} label={t('projects.duplicate')} onClick={() => void copyProject(p.id)} />
-      <ProjectMenuItem icon={<Trash2 size={14} />} label={t('projects.delete')} danger onClick={() => void confirmDelete(p)} />
+      <ProjectMenuItem icon={<Trash2 size={14} />} label={t('projects.delete')} danger onClick={() => setAskDelete(p)} />
     </Menu>
   );
 
@@ -495,7 +541,7 @@ export default function ProjectsPage() {
                 </button>
                 <button type="button" className="pp-btn" onClick={() => setEditing(sel)}><Pencil size={14} />{t('projects.editInfo')}</button>
                 <button type="button" className="pp-btn" onClick={() => void copyProject(sel.id)}><Copy size={14} />{t('projects.duplicate')}</button>
-                <button type="button" className="pp-icon-btn is-danger" title={t('projects.delete')} onClick={() => void confirmDelete(sel)}><Trash2 size={15} /></button>
+                <button type="button" className="pp-icon-btn is-danger" title={t('projects.delete')} onClick={() => setAskDelete(sel)}><Trash2 size={15} /></button>
               </div>
             </header>
             <section>
@@ -536,17 +582,7 @@ export default function ProjectsPage() {
                           type="button"
                           className="pp-icon-btn is-danger"
                           title={t('projects.deleteChart')}
-                          onClick={() => {
-                            if (!window.confirm(t('projects.deleteChartConfirm'))) return;
-                            void mutate(sel.id, (p) => {
-                              const result = deleteChartFromProject(p, c.id);
-                              if (!result.ok) {
-                                window.alert(t('projects.deleteLastChart'));
-                                return null;
-                              }
-                              return result.project;
-                            });
-                          }}
+                          onClick={() => setAskDeleteChart({ project: sel, chart: c })}
                         >
                           <Trash2 size={14} />
                         </button>
@@ -657,8 +693,8 @@ function ProjectStartView({
       const isArrow = key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
       if (!isArrow && key !== 'Enter') return;
       if (list.length === 0) return;
-      // 弹窗（新建 / 编辑工程 / 谱面信息）与卡片菜单都挂 scrim，开着就不响应
-      if (document.querySelector('.pp-dialog__scrim, .pp-menu__scrim')) return;
+      // 弹窗（新建 / 编辑工程 / 谱面信息 / 删除确认）与卡片菜单都挂 scrim，开着就不响应
+      if (document.querySelector('.pp-dialog__scrim, .pp-menu__scrim, .confirm-dialog__scrim')) return;
       // 焦点在输入框时放行原生行为（与 useShortcutDispatch 同口径）
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;

@@ -154,6 +154,56 @@
 }
 
 /* ============================================================
+   ConfirmDialog（src/ui/ConfirmDialog.tsx）
+   自绘确认弹窗：scrim + 面板 + 标题/正文 + 取消 / 危险确认。
+   层高比 --z-modal 再高一档 —— 它会开在别的弹窗（谱面代码弹窗）之上。
+   ============================================================ */
+.confirm-dialog__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background-color: rgba(0, 0, 0, 0.45);
+}
+
+.confirm-dialog {
+  width: min(420px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.confirm-dialog__title {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* pre-line：正文里的 \n 是"另起一句"（删除工程的已上传提示） */
+.confirm-dialog__message {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+  white-space: pre-line;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* ============================================================
    EmptyState：三段式空态（图标 + 标题 + 描述 + 可选按钮组）
    ============================================================ */
 .empty-state {

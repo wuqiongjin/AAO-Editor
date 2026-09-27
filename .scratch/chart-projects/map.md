@@ -23,6 +23,7 @@
 - [09 工程管理页空状态与引导横幅](./issues/09-工程管理页空状态与引导横幅.md)：定了 0 工程时横幅位放引导横幅（同 hero 尺寸）、网格区用 EmptyState；有工程时横幅常显。
 - [10 未命名工程不同步](./issues/10-自动创建的未命名工程不同步.md)：定了 ensure 新建时须 notifyCatalogChanged；Q9 规则（最近未完成优先 / 否则新建未命名 / 下次仍进它）用纯函数单测锁住。
 - [12 编辑信息封面上传改版](./issues/12-编辑信息封面上传改版.md)：封面字段抽成 `src/ui/CoverField.tsx` 自绘上传区；编辑弹窗改**左封面（160px 方块）/ 右表单**分栏，封面升为弹窗主角；更换/清除为等宽 26px 描边小按钮贴图下；原生 input 藏 `visually-hidden-input`，patch 出参不变。
+- [13 删除/覆盖确认统一为自定义确认弹窗](./issues/13-删除确认换自定义弹窗.md)：新建 `src/ui/ConfirmDialog.tsx`（Esc / 点遮罩 / 焦点落确认键 / Tab 内循环 / `aria-modal`），替换全部 4 处 `window.confirm`；`window.alert` 不动（另开票）。例外清单为空，`tests/static/NoWindowConfirm.test.ts` 是防回潮总闸。
 - [14 卡片网格键盘导航与横幅跟随](./issues/14-卡片网格键盘导航与横幅跟随.md)：定了方向键操控卡片网格（非横幅）、横幅是选中投影、选中≠当前工程、排序沿用 `lastOpened` 不新增 `updatedAt`。
 - [15 音频归属谱面工程](./issues/15-音频归属谱面工程.md)：**改口径**——音频唯一入口收到工程详情，音频页只留键音包/SE 音量；推翻 02/04 里「音频走音频页」的旧判定，实现时同步修订 CONTEXT.md 与 ADR-0015 §1。
 
