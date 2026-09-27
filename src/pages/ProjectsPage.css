@@ -99,7 +99,10 @@
 .pb-card small { font-size: var(--text-xs); }
 .pb-card__cover { position: relative; margin-bottom: 4px; border-radius: var(--radius-md); transition: transform var(--dur-fast) var(--ease); }
 .pb-card:hover .pb-card__cover { transform: translateY(-2px); }
-.pb-card.is-current .pb-card__cover { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 当前工程角标（issue 14 评审后改版）：封面左上角小标签，替代原封面描边——
+   描边与方向键选中框（.pb-card.is-selected 整卡描边）同为强调色，第一眼分不清谁是谁。
+   右上角被 ⋯ 菜单占位，故放左上角；实底配色保证压在任意封面/图片上可读。 */
+.pb-card__current { position: absolute; top: 6px; left: 6px; padding: 1px 6px; border-radius: var(--radius-full); background: var(--accent-btn); color: var(--accent-btn-text); font-size: var(--text-2xs); font-weight: 600; font-style: normal; }
 /* 浏览焦点（issue 14）：方向键选中的卡片整卡框定，与 is-current（当前工程封面描边）区分 */
 .pb-card.is-selected { border-radius: var(--radius-md); outline: 2px solid var(--accent); outline-offset: 5px; }
 .pb-card.is-selected .pb-card__play { opacity: 1; transform: none; }

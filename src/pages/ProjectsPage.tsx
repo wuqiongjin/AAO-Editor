@@ -772,6 +772,7 @@ function ProjectStartView({
             >
               <div className="pb-card__cover">
                 <Cover project={p} size={172} />
+                {p.id === currentId && <em className="pb-card__current">{t('projects.current')}</em>}
                 <span className="pb-card__menu" onClick={(e) => e.stopPropagation()}>{projectMenu(p)}</span>
                 <button
                   type="button"
