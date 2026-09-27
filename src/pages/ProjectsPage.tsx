@@ -82,7 +82,8 @@ function parseSource(type: string, idText: string): SongSource {
 function useCoverUrl(blob?: Blob): string | null {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
-    if (!blob) {
+    // 空 Blob 画不出图（建出来的 objectURL 只会是一张破图），视为「无封面」回退占位色。
+    if (!blob || blob.size === 0) {
       setUrl(null);
       return;
     }
@@ -104,10 +105,11 @@ function Cover({ project, size }: { project: ChartProject; size: number }) {
         width: size,
         height: size,
         fontSize: size * 0.42,
-        background: url
-          ? undefined
+        // 只用 backgroundImage 长手，绝不混用 background 简写：React 按对象键序逐个赋值，
+        // 简写先落地的渐变会被紧随其后的空 backgroundImage 整条抹掉，封面就成了空白（issue 11）。
+        backgroundImage: url
+          ? `url(${url})`
           : `linear-gradient(135deg, hsl(${hue} 70% 55%), hsl(${(hue + 40) % 360} 65% 35%))`,
-        backgroundImage: url ? `url(${url})` : undefined,
       }}
     >
       {url ? null : (ch ? ch.toUpperCase() : <Music2 size={size * 0.42} />)}
