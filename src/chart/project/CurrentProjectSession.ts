@@ -1,5 +1,7 @@
-// 当前工程会话（chart-projects 03）：ensure / open 对存储的命令。
+// 当前工程会话（chart-projects 03 / 20）：ensure / open 对存储的命令。
 // React 层只订阅 projectId / chartId；真正读写走 ChartProjectStore。
+// issue 20：当前工程跨刷新存活 —— 构造时从本机指针恢复 `{ projectId, chartId }`，
+// 每次 open / ensure / 新建后写回，reset（删当前工程）清掉。
 import {
   ChartProjectStore,
   newChartId,
@@ -7,6 +9,12 @@ import {
   type ChartProject,
   type ProjectChart,
 } from './ChartProject';
+import {
+  clearCurrentProjectPointer,
+  loadCurrentProjectPointer,
+  saveCurrentProjectPointer,
+  type PointerStorage,
+} from './currentProjectPointer';
 import {
   createUnnamedProject,
   decideWorkspaceProject,
@@ -35,10 +43,28 @@ export class CurrentProjectSession {
   }> | null = null;
   private readonly store: ChartProjectStore;
   private readonly clock: CurrentProjectClock;
+  /** 当前工程指针的落盘位；`undefined` = 用默认 localStorage，`null` = 显式禁用（测试用） */
+  private readonly pointerStorage: PointerStorage | null | undefined;
 
-  constructor(store: ChartProjectStore, clock: CurrentProjectClock = defaultClock) {
+  constructor(
+    store: ChartProjectStore,
+    clock: CurrentProjectClock = defaultClock,
+    pointerStorage?: PointerStorage | null,
+  ) {
     this.store = store;
     this.clock = clock;
+    this.pointerStorage = pointerStorage;
+    // 恢复上次会话：工程是否还在，等第一次 ensure / open 向存储核对（构造是同步的）
+    const restored = loadCurrentProjectPointer(pointerStorage);
+    if (restored) {
+      this._projectId = restored.projectId;
+      this._chartId = restored.chartId;
+    }
+  }
+
+  private persistPointer(): void {
+    if (!this._projectId) return;
+    saveCurrentProjectPointer({ projectId: this._projectId, chartId: this._chartId }, this.pointerStorage);
   }
 
   get projectId(): string | null {
@@ -66,10 +92,13 @@ export class CurrentProjectSession {
       if (existing) {
         const chart = pickCurrentChart(existing, this._chartId);
         this._chartId = chart.id;
+        this.persistPointer();
         return { project: existing, chart, created: false };
       }
+      // 恢复的工程已不存在（被删 / 换了机器）→ 清指针，回落既有规则
       this._projectId = null;
       this._chartId = null;
+      clearCurrentProjectPointer(this.pointerStorage);
     }
     const listed = await this.store.list();
     const decision = decideWorkspaceProject(listed);
@@ -86,6 +115,7 @@ export class CurrentProjectSession {
     const chart = pickCurrentChart(project);
     this._projectId = project.id;
     this._chartId = chart.id;
+    this.persistPointer();
     return { project, chart, created: true };
   }
 
@@ -101,12 +131,14 @@ export class CurrentProjectSession {
     const chart = pickCurrentChart(project, chartId);
     this._projectId = project.id;
     this._chartId = chart.id;
+    this.persistPointer();
     return { project, chart };
   }
 
-  /** 删除当前工程后卸会话；进工作台会再 ensure。 */
+  /** 删除当前工程后卸会话；进工作台会再 ensure。指针一并清掉（issue 20）。 */
   reset(): void {
     this._projectId = null;
     this._chartId = null;
+    clearCurrentProjectPointer(this.pointerStorage);
   }
 }
