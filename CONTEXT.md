@@ -133,6 +133,8 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 布局预设 | Layout preset | 把当前 面板宽度/折叠态/缩放 存成的**命名快照**，可恢复；只存布局信息、不含谱面数据 |
 | 设计令牌 | Design token | CSS variables 体系（颜色/间距/圆角/字号/阴影），主题与皮肤的取值来源 |
 | 主题 | Theme | 亮/暗内置两套 + 注册机制；**谱面画布始终深色**，主题只作用于面板/工具栏/弹窗等 chrome。Electron 上 **窗体标题栏** 另跟系统/nativeTheme（issue 126），不是页面 CSS |
+| 弹窗壳 | Dialog shell | 全站唯一的模态弹窗壳（`src/ui/Dialog`，issue 16）：scrim + 面板 + **头 / 体 / 底栏三段**；头尾是 `--bg-inset` **色带**，**色带自己就是分界**（不再加 hairline），面板 `overflow: hidden` 把色带裁进圆角；尺寸三档 `sm` 440（确认）/ `md` 560（表单）/ `lg` 920×640（谱面代码）；Esc 关闭、Tab 只在弹窗内循环、关掉焦点还给入口。新弹窗一律走它 —— 再长第二个壳就是把本票的因重犯一遍（`tests/static/DialogTokenWiring.test.ts` 扫全仓）。_Avoid_: 自绘 scrim / 面板内联样式；在头尾色带之外再加一条分隔线；给弹窗写硬编码色值（含遮罩） |
+| 危险键分寸 | Danger action | **不可逆动作（删除 / 覆盖 / 丢弃）= 实底红**（`--danger-btn` 一组，白字过 WCAG AA）；**可逆动作（清除封面等）= 红字点到为止**（`--danger-soft` + `--danger-text`）。_Avoid_: 拿 `--danger` 本体当实底（亮色 `#e5484d` 白字只有 3.9:1）；让红底常驻在可逆动作上 |
 | 外观 | Appearance | 设置页「应用设置」栏：chrome 观感（**主题** + **界面语言** + **界面字体栈** + **界面字号**）。未来 chrome 皮肤也放这栏，不另开。_Avoid_: 把素材域的音符/背景皮肤叫外观 |
 | 界面语言 | UI language | 用户可见文案的语言。设置项在**外观**；写入设置对象（导入导出覆盖此项，与主题相同）、运行时切换；**不进谱面工程**。出货 locale 本期 **`zh-CN` + `en`**。无已存值时跟 OS：`zh-CN`/`zh-Hans`/`zh`→`zh-CN`；`en*`→`en`；**`zh-TW`/`zh-HK`/`zh-Hant` 在繁中出货前暂用 `zh-CN`**；其余→`en`。缺某句译文回退 `zh-CN`。日语、繁体中文后续各加一份字典。手搓 locale JSON，不引进 i18next。画布 END、时间码、BPM 缩写、谱面 JSON 字段名、应用名、开发者日志不翻译。方向键英语全称 **Left/Right Directional Flick**；键型格只显示图标；顶栏当前工具等窄处短名 `Left`/`Right`；快捷键表与 tooltip 用全称。_Avoid_: 按语言打两份安装包；跟界面字体栈绑死自动换族；RTL 布局；用光秃 Left/Right 当方向键全称 |
 | 界面字体栈 | UI font stack | chrome 无衬线预设（Geist 出厂 / 微软雅黑 / Noto·思源 CJK）；每档是回退链不是单文件。**不打包** CJK；中文界面三档可以几乎看不出差。**不**随界面语言自动切换；做多语言也不会自动让三档变明显。等宽 `--font-mono` 不随此切换。_Avoid_: 本机字体枚举、按 locale 自动换字体、档旁预览样张 |

@@ -30,8 +30,10 @@ import { chartStatus } from '../chart/project/workspaceProject';
 import { countChartNotes } from '../chart/editing/NoteEditing';
 import { formatValidationError } from '../chart/editing/ChartConverter';
 import { t } from '../i18n';
+import ActionBtn from '../ui/ActionBtn';
 import CoverField, { useCoverUrl, type CoverValue } from '../ui/CoverField';
 import ConfirmDialog from '../ui/ConfirmDialog';
+import Dialog from '../ui/Dialog';
 import EmptyState from '../ui/EmptyState';
 import { ChartInfoDialog } from './ChartInfoDialog';
 import {
@@ -161,55 +163,56 @@ function NewProjectDialog({
   const [copyFrom, setCopyFrom] = useState(projects[0]?.id ?? '');
 
   return (
-    <div className="pp-dialog__scrim" onMouseDown={onClose}>
-      <div className="pp-dialog" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>{t('projects.newDialogTitle')}</h3>
-        <div className="pp-tabs">
-          <button type="button" className={source === 'blank' ? 'is-active' : ''} onClick={() => setSource('blank')}>
-            <FolderPlus size={14} />{t('projects.newBlank')}
-          </button>
-          <button type="button" className={source === 'copy' ? 'is-active' : ''} onClick={() => setSource('copy')} disabled={projects.length === 0}>
-            <Copy size={14} />{t('projects.newCopy')}
-          </button>
-        </div>
-        {source === 'copy' ? (
-          <label className="pp-field">
-            <span>{t('projects.copyWhich')}</span>
-            <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{t('projects.copyCharts', { name: displayProjectName(p), count: p.charts.length })}</option>
-              ))}
-            </select>
-            <small>{t('projects.copyHint')}</small>
-          </label>
-        ) : (
-          <>
-            <div className="pp-field-row">
-              <label className="pp-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
-              <label className="pp-field"><span>{t('projects.artist')}</span><input value={artist} placeholder={t('projects.artistLater')} onChange={(e) => setArtist(e.target.value)} /></label>
-            </div>
-            <label className="pp-field">
-              <span>{t('projects.firstDiff')}</span>
-              <select value={diff} onChange={(e) => setDiff(Number(e.target.value) as ChartDifficulty)}>
-                {DIFF_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
-              </select>
-            </label>
-            <small className="pp-muted">{t('projects.newHint')}</small>
-          </>
-        )}
-        <div className="pp-dialog__actions">
-          <button type="button" className="pp-btn" onClick={onClose}>{t('projects.cancel')}</button>
-          <button
-            type="button"
-            className="pp-btn pp-btn--primary"
+    <Dialog
+      title={t('projects.newDialogTitle')}
+      hint={t('projects.newHint')}
+      onClose={onClose}
+      footer={(
+        <>
+          <ActionBtn onClick={onClose}>{t('projects.cancel')}</ActionBtn>
+          <ActionBtn
+            variant="primary"
             disabled={source === 'copy' && !copyFrom}
             onClick={() => (source === 'copy' ? onCopy(copyFrom) : onCreate({ name, artist, diff }))}
           >
             {source === 'copy' ? t('projects.copyAction') : t('projects.createOpen')}
-          </button>
-        </div>
+          </ActionBtn>
+        </>
+      )}
+    >
+      <div className="dialog-tabs">
+        <button type="button" className={source === 'blank' ? 'is-active' : ''} onClick={() => setSource('blank')}>
+          <FolderPlus size={14} />{t('projects.newBlank')}
+        </button>
+        <button type="button" className={source === 'copy' ? 'is-active' : ''} onClick={() => setSource('copy')} disabled={projects.length === 0}>
+          <Copy size={14} />{t('projects.newCopy')}
+        </button>
       </div>
-    </div>
+      {source === 'copy' ? (
+        <label className="dialog-field">
+          <span>{t('projects.copyWhich')}</span>
+          <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{t('projects.copyCharts', { name: displayProjectName(p), count: p.charts.length })}</option>
+            ))}
+          </select>
+          <small>{t('projects.copyHint')}</small>
+        </label>
+      ) : (
+        <>
+          <div className="dialog-field-row">
+            <label className="dialog-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
+            <label className="dialog-field"><span>{t('projects.artist')}</span><input value={artist} placeholder={t('projects.artistLater')} onChange={(e) => setArtist(e.target.value)} /></label>
+          </div>
+          <label className="dialog-field">
+            <span>{t('projects.firstDiff')}</span>
+            <select value={diff} onChange={(e) => setDiff(Number(e.target.value) as ChartDifficulty)}>
+              {DIFF_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
+            </select>
+          </label>
+        </>
+      )}
+    </Dialog>
   );
 }
 
@@ -228,44 +231,15 @@ function EditInfoDialog({ project, onClose, onSave }: {
   const existingPreview = useCoverUrl(project.coverBlob);
 
   return (
-    <div className="pp-dialog__scrim" onMouseDown={onClose}>
-      <div className="pp-dialog pp-dialog--edit" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>{t('projects.editTitle')}</h3>
-        {/* 封面在左：它是工程在启动台的门面，不该缩成字段流里的一小块 */}
-        <div className="pp-edit-grid">
-          <CoverField
-            label={t('projects.cover')}
-            value={cover}
-            previewUrl={existingPreview}
-            onChange={setCover}
-          />
-          <div className="pp-edit-fields">
-            <div className="pp-field-row">
-              <label className="pp-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
-              <label className="pp-field"><span>{t('projects.artist')}</span><input value={artist} onChange={(e) => setArtist(e.target.value)} /></label>
-            </div>
-            <label className="pp-field">
-              <span>{t('projects.source')}</span>
-              <select value={sourceType} onChange={(e) => setSourceType(e.target.value as SongSource['type'])}>
-                <option value="custom">{t('projects.sourceCustom')}</option>
-                <option value="bandori">{t('projects.sourceBandori')}</option>
-                <option value="llsif">{t('projects.sourceLlsif')}</option>
-              </select>
-            </label>
-            {sourceType !== 'custom' && (
-              <label className="pp-field">
-                <span>{t('projects.sourceId')}</span>
-                <input value={sourceId} inputMode="numeric" onChange={(e) => setSourceId(e.target.value)} />
-              </label>
-            )}
-          </div>
-        </div>
-        <small className="pp-muted">{t('projects.coverHint')}</small>
-        <div className="pp-dialog__actions">
-          <button type="button" className="pp-btn" onClick={onClose}>{t('projects.cancel')}</button>
-          <button
-            type="button"
-            className="pp-btn pp-btn--primary"
+    <Dialog
+      title={t('projects.editTitle')}
+      hint={t('projects.coverHint')}
+      onClose={onClose}
+      footer={(
+        <>
+          <ActionBtn onClick={onClose}>{t('projects.cancel')}</ActionBtn>
+          <ActionBtn
+            variant="primary"
             onClick={() => onSave({
               name,
               artist,
@@ -276,10 +250,40 @@ function EditInfoDialog({ project, onClose, onSave }: {
             })}
           >
             {t('projects.save')}
-          </button>
+          </ActionBtn>
+        </>
+      )}
+    >
+      {/* 封面在左：它是工程在启动台的门面，不该缩成字段流里的一小块 */}
+      <div className="dialog-edit-grid">
+        <CoverField
+          label={t('projects.cover')}
+          value={cover}
+          previewUrl={existingPreview}
+          onChange={setCover}
+        />
+        <div className="dialog-edit-fields">
+          <div className="dialog-field-row">
+            <label className="dialog-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
+            <label className="dialog-field"><span>{t('projects.artist')}</span><input value={artist} onChange={(e) => setArtist(e.target.value)} /></label>
+          </div>
+          <label className="dialog-field">
+            <span>{t('projects.source')}</span>
+            <select value={sourceType} onChange={(e) => setSourceType(e.target.value as SongSource['type'])}>
+              <option value="custom">{t('projects.sourceCustom')}</option>
+              <option value="bandori">{t('projects.sourceBandori')}</option>
+              <option value="llsif">{t('projects.sourceLlsif')}</option>
+            </select>
+          </label>
+          {sourceType !== 'custom' && (
+            <label className="dialog-field">
+              <span>{t('projects.sourceId')}</span>
+              <input value={sourceId} inputMode="numeric" onChange={(e) => setSourceId(e.target.value)} />
+            </label>
+          )}
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -693,8 +697,9 @@ function ProjectStartView({
       const isArrow = key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
       if (!isArrow && key !== 'Enter') return;
       if (list.length === 0) return;
-      // 弹窗（新建 / 编辑工程 / 谱面信息 / 删除确认）与卡片菜单都挂 scrim，开着就不响应
-      if (document.querySelector('.pp-dialog__scrim, .pp-menu__scrim, .confirm-dialog__scrim')) return;
+      // 弹窗（新建 / 编辑工程 / 谱面信息 / 删除确认 —— 都走通用壳 .dialog__scrim）与卡片菜单
+      // 都挂 scrim，开着就不响应
+      if (document.querySelector('.dialog__scrim, .pp-menu__scrim')) return;
       // 焦点在输入框时放行原生行为（与 useShortcutDispatch 同口径）
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;

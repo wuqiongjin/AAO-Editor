@@ -28,6 +28,7 @@ function Root() {
 }
 
 function App() {
+  // issue 16 的弹窗壳原型（?prototype=dialog-shell）已随定案（C · 色带）落进 ui/Dialog 后删除
   const isPageShellPrototype = new URLSearchParams(window.location.search).get('prototype') === 'page-shell';
   if (isPageShellPrototype) {
     return (

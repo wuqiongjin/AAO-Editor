@@ -1,0 +1,133 @@
+/* ============================================================
+   谱面代码弹窗的内容样式（issue 16：从组件里的内联 style 迁出）
+   壳（遮罩 / 面板 / 色带三段 / 动效 / Esc / 焦点）在 ui/Dialog —— 这里只管壳里的内容：
+   面包屑行 / 提示条 / 错误列表 / 代码框 / 工具栏上的脏标。
+   色值一律走 token（硬编码那几条是 issue 13 的遗留，见 tests/static/DialogTokenWiring.test.ts）。
+   ============================================================ */
+
+/* ---- 头部：面包屑 + 关闭（壳的 head 槽） ---- */
+.chart-code-modal__crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+/* 可点的中间档：与头部同基调的轻量文字按钮 */
+.chart-code-modal__crumb-btn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.chart-code-modal__crumb-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 分隔符 */
+.chart-code-modal__crumb-sep {
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  user-select: none;
+}
+
+/* 末项 = 当前视图（不可点） */
+.chart-code-modal__crumb-current {
+  padding: 2px var(--space-2);
+  color: var(--text);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.chart-code-modal__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.chart-code-modal__close:hover {
+  background-color: var(--bg-hover);
+  color: var(--text);
+}
+
+/* ---- 体：提示条 / 错误列表 / 代码框 ---- */
+.chart-code-modal__banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+.chart-code-modal__banner--accent { background-color: var(--accent-soft); color: var(--accent-text); }
+.chart-code-modal__banner--warn { background-color: var(--warning-soft); color: var(--warning-text); }
+
+.chart-code-modal__errors {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background-color: var(--danger-soft);
+  color: var(--danger-text);
+}
+.chart-code-modal__errors h4 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.chart-code-modal__errors ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--text-xs);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 132px;
+  overflow-y: auto;
+}
+.chart-code-modal__errors-more {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  opacity: 0.85;
+}
+
+.chart-code-modal__editor {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-inset);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  tab-size: 4;
+  outline: none;
+  transition: border-color var(--dur) var(--ease);
+}
+
+/* 工具栏上的「未保存的更改」 */
+.chart-code-modal__dirty {
+  color: var(--warning-text);
+  font-size: var(--text-xs);
+}

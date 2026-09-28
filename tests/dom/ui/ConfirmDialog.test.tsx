@@ -24,9 +24,9 @@ function renderDialog() {
   return { onConfirm, onCancel };
 }
 
-/** 遮罩：弹窗的宿主节点，点它 = 取消 */
+/** 遮罩：弹窗的宿主节点（通用壳 ui/Dialog 的），点它 = 取消 */
 function scrim(): HTMLElement {
-  const el = document.querySelector('.confirm-dialog__scrim');
+  const el = document.querySelector('.dialog__scrim');
   if (!el) throw new Error('找不到遮罩');
   return el as HTMLElement;
 }

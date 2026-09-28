@@ -42,7 +42,8 @@
 .action-btn {
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm);
-  background-color: var(--bg-inset);
+  /* 中性键底色可被上下文改（弹窗底栏是 --bg-inset 色带，同色填充会糊在带子上） */
+  background-color: var(--action-btn-bg, var(--bg-inset));
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -168,47 +169,81 @@
 }
 
 /* ============================================================
-   ConfirmDialog（src/ui/ConfirmDialog.tsx）
-   自绘确认弹窗：scrim + 面板 + 问句标题 / 注意行正文 + 分隔线底栏 + 取消 / 实底红确认。
-   层高比 --z-modal 再高一档 —— 它会开在别的弹窗（谱面代码弹窗）之上。
-   规格（宽 / 圆角 / 标题字号 / 遮罩）与 .pp-dialog 对齐：两个壳是同一张脸
-   （前缀统一等 .pp-dialog 迁到同一壳时一起做，见 issue 16）。
+   Dialog 通用壳（src/ui/Dialog.tsx，issue 16）
+   全站弹窗共用的一张脸：scrim + panel + head / body / foot 三段。
+   视觉定案 C（2026-09-28）：头尾都是 --bg-inset 色带，**色带自己就是分界**，不加 hairline；
+   面板 overflow: hidden 把色带裁进圆角里 —— 不裁的话头尾的矩形底会盖掉圆角（方角 bug）。
+   尺寸三档：确认 sm 440 / 表单 md 560 / 谱面代码 lg 920×640。
+   动效：遮罩 120ms 渐显、面板 120ms 渐入 + 6px 上浮；reduce-motion 下只出现、不做位移。
    ============================================================ */
-.confirm-dialog__scrim {
+.dialog__scrim {
   position: fixed;
   inset: 0;
-  z-index: calc(var(--z-modal) + 1);
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-4);
   background-color: var(--overlay-bg);
-  animation: confirm-scrim-in var(--dur-fast) var(--ease) both;
+  animation: dialog-scrim-in var(--dur-fast) var(--ease) both;
 }
 
-.confirm-dialog {
-  width: min(440px, 92vw);
+/* 确认弹窗会开在别的弹窗（谱面代码弹窗）之上，层高再高一档 */
+.dialog__scrim--raised {
+  z-index: calc(var(--z-modal) + 1);
+}
+
+.dialog {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: 20px;
+  /* 色带裁进圆角；顺带保证长内容不越过面板边界 */
+  overflow: hidden;
+  max-height: 86vh;
   background-color: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  animation: confirm-dialog-in var(--dur-fast) var(--ease) both;
+  animation: dialog-in var(--dur-fast) var(--ease) both;
 }
+.dialog--sm { width: min(440px, 92vw); }
+.dialog--md { width: min(560px, 92vw); }
+.dialog--lg { width: min(920px, 92vw); height: min(640px, 86vh); }
 
-.confirm-dialog__title {
+/* ---- 头：标题 + 一行说明（色带） ---- */
+.dialog__head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-4) var(--space-5);
+  background-color: var(--bg-inset);
+}
+.dialog__title {
   margin: 0;
   font-size: var(--text-lg);
   font-weight: 600;
   line-height: 1.4;
   color: var(--text);
 }
+.dialog__hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
 
-/* pre-line：正文里的 \n 是"另起一句"（删除工程的已上传提示是第二行） */
-.confirm-dialog__message {
+/* ---- 体：唯一滚动区 ---- */
+.dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+}
+
+/* 正文注意行：里面的 \n 是"另起一句"（删除工程要多带一行已上传提示） */
+.dialog__message {
   margin: 0;
   font-size: var(--text-sm);
   line-height: 1.75;
@@ -216,29 +251,78 @@
   white-space: pre-line;
 }
 
-/* 底栏与正文分开：动作区不是正文的续行，是"该你决定了" */
-.confirm-dialog__actions {
+/* ---- 底：动作区（色带）。带上不加 hairline：色带的边界就是分界 ---- */
+.dialog__foot {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
-  padding-top: 14px;
-  border-top: 1px solid var(--border-faint);
+  padding: var(--space-3) var(--space-5);
+  background-color: var(--bg-inset);
+  /* 中性键与带子同色会糊在一起 —— 这一带里改用面板底色浮起来 */
+  --action-btn-bg: var(--bg-elevated);
+}
+/* 工具条形态（谱面代码底栏）：动作从左边起，右侧收在关闭键上 */
+.dialog__foot--start {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.dialog__spacer { flex: 1; }
+
+/* ---- 表单内容 primitive：字段 / 并排字段 / 分段 tab / 封面两栏 ---- */
+.dialog-field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; font-size: var(--text-xs); color: var(--text-muted); }
+.dialog-field input, .dialog-field select, .dialog-field textarea {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+.dialog-field textarea { height: auto; padding: 8px 10px; font-family: var(--font-mono); resize: vertical; }
+.dialog-field small { color: var(--text-subtle); line-height: 1.6; }
+.dialog-field-row { display: flex; gap: 12px; }
+
+.dialog-tabs { display: flex; gap: 4px; padding: 3px; border-radius: var(--radius-md); background-color: var(--bg-inset); }
+.dialog-tabs button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.dialog-tabs button.is-active { background-color: var(--bg-elevated); color: var(--text); box-shadow: var(--shadow-sm); }
+
+/* 编辑工程信息：左封面方块区 / 右文字字段 */
+.dialog-edit-grid { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.dialog-edit-fields { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* 弹窗被压到很窄（小窗 / 92vw）时右栏挤不下两个并排字段，退回单栏 */
+@media (max-width: 420px) {
+  .dialog-edit-grid { grid-template-columns: 1fr; }
 }
 
-@keyframes confirm-dialog-in {
+@keyframes dialog-in {
   from { opacity: 0; transform: translateY(6px) scale(0.98); }
   to { opacity: 1; transform: none; }
 }
 
-@keyframes confirm-scrim-in {
+@keyframes dialog-scrim-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 /* 系统层面要求减少动效时，弹窗只出现、不做位移 */
 @media (prefers-reduced-motion: reduce) {
-  .confirm-dialog,
-  .confirm-dialog__scrim {
+  .dialog,
+  .dialog__scrim {
     animation: none;
   }
 }

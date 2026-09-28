@@ -12,7 +12,6 @@
 // issue 102：打开、以及在代码框里输入，都不再同步跑全量重活（详见下方两段式填充 / 输入校验防抖 / 非受控 textarea）。
 // 文本变换逻辑下沉到 editing/CodeEditorOps（纯函数，可单测）。
 import { useEffect, useRef, useState, startTransition } from "react";
-import { createPortal } from "react-dom";
 import { Copy, Download, RotateCcw, RefreshCw, X } from "lucide-react";
 import {
     convertNotesToChartCode, chartCodeToCompactJSON, normalizeChartCodeText,
@@ -36,9 +35,11 @@ import { createDebouncedTask } from '../../editing/DebouncedTask';
 import { scheduleIdle } from '../../editing/IdleSchedule';
 import ActionBtn from '../../../ui/ActionBtn';
 import ConfirmDialog from '../../../ui/ConfirmDialog';
+import Dialog from '../../../ui/Dialog';
 import { useChartCodeEditor, type CodeEditorTarget } from './ChartCodeEditorProvider';
 import { exportChartCodeSaveAs } from '../../project/exportChartCode';
 import type { ChartNote } from '../../types';
+import './ChartCodeEditorModal.css';
 
 // 错误列表最多展示的条数，其余折叠为「共 N 处」
 const MAX_VISIBLE_ERRORS = 8;
@@ -221,22 +222,9 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         close();
     };
 
-    // 弹窗打开期间接管 Esc（issue 57 bug3）：不让后面的左右侧栏折叠吃到。
-    // window 捕获阶段监听、先于 useShortcutDispatch 的冒泡监听，stopPropagation 直接截断全局链路。
-    const requestCloseRef = useRef(requestClose);
-    requestCloseRef.current = requestClose;
-    useEffect(() => {
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key !== 'Escape') return;
-            // 忽略长按的自动重复（连发会连吃多档）
-            if (e.repeat) return;
-            e.preventDefault();
-            e.stopPropagation();
-            requestCloseRef.current();
-        };
-        window.addEventListener('keydown', onKeyDown, true);
-        return () => window.removeEventListener('keydown', onKeyDown, true);
-    }, []);
+    // 弹窗打开期间接管 Esc（issue 57 bug3）：不让后面的左右侧栏折叠吃到 ——
+    // issue 16 起这段收进通用壳（ui/Dialog）：壳同样在 window 捕获阶段监听 + stopPropagation，
+    // 先于 useShortcutDispatch 的冒泡监听截断全局链路，这里只管把 onClose 递给壳。
 
     // 处理代码变化：压入撤销栈；空代码（仅完整视图）回到保底状态
     const handleCodeChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -485,205 +473,148 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
     // §2：完整代码视图在选区 ≥2 时给一行非阻断提示（「谱面代码」按钮永远展示完整谱面）
     const showSelectionHint = isChartView && selectedItems.length >= 2;
 
-    return createPortal(
-        <div
-            style={{
-                position: 'fixed', inset: 0, zIndex: 'var(--z-modal)',
-                backgroundColor: 'rgba(0,0,0,0.4)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-            onMouseDown={requestClose}
-        >
-            <div
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                    width: 'min(920px, 92vw)', height: 'min(640px, 86vh)',
-                    backgroundColor: 'var(--bg-elevated)',
-                    border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
-                    boxShadow: 'var(--shadow-lg)',
-                    display: 'flex', flexDirection: 'column', overflow: 'hidden',
-                }}
+    // 头部：两级面包屑（§6 只向上返回）+ 关闭。走通用壳的 head 槽 ——
+    // 色带、内边距、aria 标签都由壳给（issue 16：这里原来是一整套内联样式）。
+    const dialogHead = (
+        <div className="chart-code-modal__crumbs">
+            {/* §6 面包屑：自左向右 = 顶层 → 当前（issue 93 起四档：
+                `完整谱面代码 › 所属滑条 › 子段代码 › 音符代码`，单段滑条无"子段代码"档；
+                issue 95：层名由视图决定、与入口无关 —— 段视图恒「子段代码」、结点视图恒「音符代码」。），
+                **永远显示**（连完整谱面代码视图也有 —— 旧实现那里只有个 <h3> 标题）。
+            issue 69：档位由 **trail**（记住的深层）决定，而不是由当前视图决定 ——
+            于是从 node 一路点回 chart 后，面包屑仍保留「所属滑条 / 音符代码」两档，
+            用户能再点回去（解决"回不去了"）。
+            · 当前层 = 加粗、不可点（用于"显示出当前在哪个层级"）
+            · 其余档 = 可点，各层间随意切换
+            · **不加"‹ 返回"按钮**（用户口径）：切换能力由面包屑项本身承担。 */}
+            {/* 第 1 档：完整谱面代码 */}
+            {isChartView ? (
+                <span className="chart-code-modal__crumb-current">{t('chartCode.full')}</span>
+            ) : (
+                <button className="chart-code-modal__crumb-btn" onClick={() => navigate({ kind: 'chart' })} title={t('chartCode.full')}>{t('chartCode.full')}</button>
+            )}
+            {/* 第 2 档：本次会话进过深层才有（trail） */}
+            {trail && (
+                <>
+                    <span className="chart-code-modal__crumb-sep">›</span>
+                    {!isChartView && !isNodeView && !isSegmentView ? (
+                        <span className="chart-code-modal__crumb-current">{crumb2Label}</span>
+                    ) : (
+                        <button
+                            className="chart-code-modal__crumb-btn"
+                            onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex })}
+                            title={crumb2Label}
+                        >{crumb2Label}</button>
+                    )}
+                </>
+            )}
+            {/* 第 3 档（issue 93）：trail 记过子段（span）才有 —— 该逻辑段序列化为独立 Slide 代码。
+                单段滑条不产生 span（与整条层内容相同，冗余）→ 此档自然不出现。 */}
+            {trail?.span !== undefined && (
+                <>
+                    <span className="chart-code-modal__crumb-sep">›</span>
+                    {isSegmentView ? (
+                        <span className="chart-code-modal__crumb-current">{t('chartCode.segment')}</span>
+                    ) : (
+                        <button
+                            className="chart-code-modal__crumb-btn"
+                            onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex, span: trail.span })}
+                            title={t('chartCode.segment')}
+                        >{t('chartCode.segment')}</button>
+                    )}
+                </>
+            )}
+            {/* 第 4 档：trail 是滑条结点时才有（issue 95：档名统一为「音符代码」） */}
+            {trail?.connIndex !== undefined && (
+                <>
+                    <span className="chart-code-modal__crumb-sep">›</span>
+                    {isNodeView ? (
+                        <span className="chart-code-modal__crumb-current">{t('chartCode.note')}</span>
+                    ) : (
+                        <button
+                            className="chart-code-modal__crumb-btn"
+                            onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex, connIndex: trail.connIndex })}
+                            title={t('chartCode.note')}
+                        >{t('chartCode.note')}</button>
+                    )}
+                </>
+            )}
+            <button className="chart-code-modal__close" onClick={requestClose} title={t('chartCode.close')}>
+                <X size={18} />
+            </button>
+        </div>
+    );
+
+    return (
+        <>
+            <Dialog
+                size="lg"
+                head={dialogHead}
+                onClose={requestClose}
+                footerAlign="start"
+                footer={(
+                    <>
+                        {/* 空壳期不可应用：那时 chartCode 还是空串，应用会把谱面清空 */}
+                        <ActionBtn onClick={handleApply} disabled={!isValid || generating} variant="primary">{t('chartCode.apply')}</ActionBtn>
+                        <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={16} />{t('chartCode.refresh')}</ActionBtn>
+                        {/* 空壳期：复制会把空串当内容写进剪贴板、重置会被随后填充覆盖 —— 都先禁用 */}
+                        {isChartView && <ActionBtn onClick={handleReset} disabled={generating}><RotateCcw size={16} />{t('chartCode.reset')}</ActionBtn>}
+                        <ActionBtn onClick={handleCopy} disabled={generating}><Copy size={16} />{t('chartCode.copy')}</ActionBtn>
+                        <ActionBtn onClick={handleSaveAs}><Download size={16} />{t('chartCode.saveAs')}</ActionBtn>
+                        {isDirty && <span className="chart-code-modal__dirty">{t('chartCode.dirty')}</span>}
+                        <span className="dialog__spacer" />
+                        <ActionBtn onClick={requestClose}>{t('chartCode.close')}</ActionBtn>
+                    </>
+                )}
             >
-                {/* 头部：标题 + 两级面包屑（§6 只向上返回）+ 关闭 */}
-                <div style={{
-                    padding: 'var(--space-3) var(--space-4)', borderBottom: '1px solid var(--border)',
-                    display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
-                    backgroundColor: 'var(--bg)',
-                }}>
-                        {/* §6 面包屑：自左向右 = 顶层 → 当前（issue 93 起四档：
-                            `完整谱面代码 › 所属滑条 › 子段代码 › 音符代码`，单段滑条无"子段代码"档；
-                            issue 95：层名由视图决定、与入口无关 —— 段视图恒「子段代码」、结点视图恒「音符代码」。），
-                            **永远显示**（连完整谱面代码视图也有 —— 旧实现那里只有个 <h3> 标题）。
-                        issue 69：档位由 **trail**（记住的深层）决定，而不是由当前视图决定 ——
-                        于是从 node 一路点回 chart 后，面包屑仍保留「所属滑条 / 音符代码」两档，
-                        用户能再点回去（解决"回不去了"）。
-                        · 当前层 = 加粗、不可点（用于"显示出当前在哪个层级"）
-                        · 其余档 = 可点，各层间随意切换
-                        · **不加"‹ 返回"按钮**（用户口径）：切换能力由面包屑项本身承担。 */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', marginRight: 'auto' }}>
-                        {/* 第 1 档：完整谱面代码 */}
-                        {isChartView ? (
-                            <span style={crumbCurrentStyle}>{t('chartCode.full')}</span>
-                        ) : (
-                            <button onClick={() => navigate({ kind: 'chart' })} title={t('chartCode.full')} style={crumbButtonStyle}>{t('chartCode.full')}</button>
-                        )}
-                        {/* 第 2 档：本次会话进过深层才有（trail） */}
-                        {trail && (
-                            <>
-                                <span style={crumbSepStyle}>›</span>
-                                {!isChartView && !isNodeView && !isSegmentView ? (
-                                    <span style={crumbCurrentStyle}>{crumb2Label}</span>
-                                ) : (
-                                    <button
-                                        onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex })}
-                                        title={crumb2Label}
-                                        style={crumbButtonStyle}
-                                    >{crumb2Label}</button>
-                                )}
-                            </>
-                        )}
-                        {/* 第 3 档（issue 93）：trail 记过子段（span）才有 —— 该逻辑段序列化为独立 Slide 代码。
-                            单段滑条不产生 span（与整条层内容相同，冗余）→ 此档自然不出现。 */}
-                        {trail?.span !== undefined && (
-                            <>
-                                <span style={crumbSepStyle}>›</span>
-                                {isSegmentView ? (
-                                    <span style={crumbCurrentStyle}>{t('chartCode.segment')}</span>
-                                ) : (
-                                    <button
-                                        onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex, span: trail.span })}
-                                        title={t('chartCode.segment')}
-                                        style={crumbButtonStyle}
-                                    >{t('chartCode.segment')}</button>
-                                )}
-                            </>
-                        )}
-                        {/* 第 4 档：trail 是滑条结点时才有（issue 95：档名统一为「音符代码」） */}
-                        {trail?.connIndex !== undefined && (
-                            <>
-                                <span style={crumbSepStyle}>›</span>
-                                {isNodeView ? (
-                                    <span style={crumbCurrentStyle}>{t('chartCode.note')}</span>
-                                ) : (
-                                    <button
-                                        onClick={() => navigate({ kind: 'note', noteIndex: trail.noteIndex, connIndex: trail.connIndex })}
-                                        title={t('chartCode.note')}
-                                        style={crumbButtonStyle}
-                                    >{t('chartCode.note')}</button>
-                                )}
-                            </>
-                        )}
-                    </div>
-                    <button
-                        onClick={requestClose}
-                        title={t('chartCode.close')}
-                        style={{
-                            width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-                            backgroundColor: 'transparent', color: 'var(--text-muted)',
-                            transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
-                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                    >
-                        <X size={18} />
-                    </button>
-                </div>
 
                 {/* 多选提示行（§2）：非阻断，仅说明本视图展示的是完整谱面 */}
                 {showSelectionHint && (
-                    <div style={{
-                        padding: 'var(--space-2) var(--space-4)', backgroundColor: 'var(--accent-soft)',
-                        borderBottom: '1px solid var(--border)', color: 'var(--accent-text)',
-                        fontSize: 'var(--text-xs)',
-                    }}>
+                    <div className="chart-code-modal__banner chart-code-modal__banner--accent">
                         {t('chartCode.selectionHint', { count: selectedItems.length })}
                     </div>
                 )}
 
                 {/* 过期提示：草稿未应用 + 画布已变动 */}
                 {isStale && (
-                    <div style={{
-                        padding: 'var(--space-3)', backgroundColor: 'var(--warning-soft)',
-                        borderBottom: '1px solid var(--warning)', color: 'var(--warning)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)',
-                    }}>
-                        <span style={{ fontSize: 'var(--text-xs)' }}>
-                            {t('chartCode.stale', { count: Math.abs(notes.length - appliedNotesCount) })}
-                        </span>
+                    <div className="chart-code-modal__banner chart-code-modal__banner--warn">
+                        <span>{t('chartCode.stale', { count: Math.abs(notes.length - appliedNotesCount) })}</span>
                         <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={14} />{t('chartCode.refreshCanvas')}</ActionBtn>
                     </div>
                 )}
 
                 {/* 错误信息（一次列完全部，带定位路径；超过 MAX_VISIBLE_ERRORS 条折叠为「共 N 处」） */}
                 {!isValid && validationErrors.length > 0 && (
-                    <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--danger-soft)', borderBottom: '1px solid var(--danger)', color: 'var(--danger-text)' }}>
-                        <h4 style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>
-                            {t('chartCode.errorsTitle', { count: validationErrors.length })}
-                        </h4>
-                        <ul style={{
-                            margin: 0, paddingLeft: 'var(--space-4)', fontSize: 'var(--text-xs)',
-                            display: 'flex', flexDirection: 'column', gap: 'var(--space-1)',
-                            maxHeight: 132, overflowY: 'auto',
-                        }}>
+                    <div className="chart-code-modal__errors">
+                        <h4>{t('chartCode.errorsTitle', { count: validationErrors.length })}</h4>
+                        <ul>
                             {validationErrors.slice(0, MAX_VISIBLE_ERRORS).map((error, index) => (
                                 <li key={index}>• {formatValidationError(error)}</li>
                             ))}
                         </ul>
                         {validationErrors.length > MAX_VISIBLE_ERRORS && (
-                            <div style={{ marginTop: 'var(--space-2)', fontSize: 'var(--text-xs)', opacity: 0.85 }}>
+                            <div className="chart-code-modal__errors-more">
                                 {t('chartCode.errorsMore', { count: validationErrors.length - MAX_VISIBLE_ERRORS })}
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* 代码编辑器 */}
-                <div style={{ flex: 1, padding: 'var(--space-3)', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                    {/* issue 102：**非受控**（不传 value）——文本由 DOM 自己持有，
-                        只在 React 侧文本与 DOM 不一致时由上面的 effect 写一次，详见该 effect 注释。 */}
-                    <textarea
-                        ref={textareaRef}
-                        onChange={handleCodeChange}
-                        onKeyDown={handleKeyDown}
-                        // 空壳期只读：此时文本还没生成，用户打进去的字会被随后填充覆盖
-                        readOnly={generating}
-                        spellCheck={false}
-                        placeholder={generating ? t('chartCode.generating') : t('chartCode.placeholder')}
-                        style={{
-                            width: '100%', height: '100%', minHeight: 0, boxSizing: 'border-box', resize: 'none',
-                            padding: 'var(--space-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                            backgroundColor: 'var(--bg-inset)', color: 'var(--text)',
-                            fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', lineHeight: 1.6,
-                            tabSize: 4, outline: 'none',
-                            transition: 'border-color var(--dur) var(--ease)',
-                        }}
-                    />
-                </div>
-
-                {/* 工具栏 */}
-                <div style={{
-                    padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--border)',
-                    backgroundColor: 'var(--bg-inset)', display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center',
-                }}>
-                    {/* 空壳期不可应用：那时 chartCode 还是空串，应用会把谱面清空 */}
-                    <ActionBtn onClick={handleApply} disabled={!isValid || generating} variant="primary">{t('chartCode.apply')}</ActionBtn>
-                    <ActionBtn onClick={handleRefreshFromCanvas}><RefreshCw size={16} />{t('chartCode.refresh')}</ActionBtn>
-                    {/* 空壳期：复制会把空串当内容写进剪贴板、重置会被随后填充覆盖 —— 都先禁用 */}
-                    {isChartView && <ActionBtn onClick={handleReset} disabled={generating}><RotateCcw size={16} />{t('chartCode.reset')}</ActionBtn>}
-                    <ActionBtn onClick={handleCopy} disabled={generating}><Copy size={16} />{t('chartCode.copy')}</ActionBtn>
-                    <ActionBtn onClick={handleSaveAs}><Download size={16} />{t('chartCode.saveAs')}</ActionBtn>
-                    {isDirty && (
-                        <span style={{ color: 'var(--warning)', fontSize: 'var(--text-xs)' }}>{t('chartCode.dirty')}</span>
-                    )}
-                    <span style={{ flex: 1 }} />
-                    <ActionBtn onClick={requestClose}>{t('chartCode.close')}</ActionBtn>
-                </div>
-            </div>
-            {/* 两处确认弹窗（丢弃草稿 / 覆盖应用）：它们各自 portal 到 body，
-                DOM 上是本弹窗的兄弟、层高也更高；JSX 写在这里只为少一层缩进。
-                Esc / 点遮罩先归它们 —— requestClose 见它们开着就自己让路（issue 13）。 */}
+                {/* issue 102：**非受控**（不传 value）——文本由 DOM 自己持有，
+                    只在 React 侧文本与 DOM 不一致时由上面的 effect 写一次，详见该 effect 注释。 */}
+                <textarea
+                    ref={textareaRef}
+                    className="chart-code-modal__editor"
+                    onChange={handleCodeChange}
+                    onKeyDown={handleKeyDown}
+                    // 空壳期只读：此时文本还没生成，用户打进去的字会被随后填充覆盖
+                    readOnly={generating}
+                    spellCheck={false}
+                    placeholder={generating ? t('chartCode.generating') : t('chartCode.placeholder')}
+                />
+            </Dialog>
+            {/* 两处确认弹窗（丢弃草稿 / 覆盖应用）：各自 portal 到 body，DOM 上是本弹窗的兄弟、
+                层高也更高（壳的 raised）。Esc / 点遮罩先归它们 —— requestClose 见它们开着就自己让路（issue 13）。 */}
             {askClose && (
                 <ConfirmDialog
                     title={t('chartCode.confirmCloseTitle')}
@@ -706,28 +637,6 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                     onCancel={() => setAskOverwrite(null)}
                 />
             )}
-        </div>,
-        document.body,
+        </>
     );
 }
-
-/** 面包屑按钮样式（与头部同基调的轻量文字按钮） */
-const crumbButtonStyle: React.CSSProperties = {
-    display: 'flex', alignItems: 'center', gap: 2,
-    padding: '2px var(--space-2)',
-    border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-    backgroundColor: 'transparent', color: 'var(--text-muted)',
-    fontFamily: 'inherit', fontSize: 'var(--text-xs)', cursor: 'pointer',
-    transition: 'background-color var(--dur) var(--ease), color var(--dur) var(--ease)',
-};
-
-/** 面包屑分隔符 */
-const crumbSepStyle: React.CSSProperties = {
-    color: 'var(--text-subtle)', fontSize: 'var(--text-xs)', userSelect: 'none',
-};
-
-/** 面包屑末项 = 当前视图（不可点） */
-const crumbCurrentStyle: React.CSSProperties = {
-    padding: '2px var(--space-2)',
-    color: 'var(--text)', fontSize: 'var(--text-xs)', fontWeight: 600,
-};

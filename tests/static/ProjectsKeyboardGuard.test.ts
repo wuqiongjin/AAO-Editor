@@ -19,6 +19,7 @@ describe('chart-projects 14: 工程网格键盘监听守卫装配', () => {
   });
 
   it('弹窗与卡片菜单打开（scrim 存在）时不响应方向键', () => {
-    expect(src).toMatch(/document\.querySelector\('\.pp-dialog__scrim, \.pp-menu__scrim, \.confirm-dialog__scrim'\)\) return;/);
+    // issue 16 起弹窗只剩一个壳（.dialog__scrim 覆盖新建 / 编辑工程 / 谱面信息 / 删除确认）
+    expect(src).toMatch(/document\.querySelector\('\.dialog__scrim, \.pp-menu__scrim'\)\) return;/);
   });
 });

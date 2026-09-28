@@ -1,8 +1,11 @@
 // 谱面信息对话框（chart-projects 04 / 05）：新增可贴谱面代码（Apply 闸门在调用方）；已上传只读。
+// 壳走 ui/Dialog（通用弹窗壳）—— 与新建 / 编辑工程信息、删除确认同一张脸（issue 16）。
 import { useState } from 'react';
 import type { ChartDifficulty, ChartProject, ProjectChart } from '../chart/project/ChartProject';
 import { DIFF_NAMES } from '../chart/project/projectCatalog';
 import { t } from '../i18n';
+import ActionBtn from '../ui/ActionBtn';
+import Dialog from '../ui/Dialog';
 import { displayProjectName } from './projectUi';
 
 function parseLevel(raw: string): number | null {
@@ -36,39 +39,43 @@ export function ChartInfoDialog({
     onAdd({ title: title.trim() || null, diff, level: parsed, codeText: code });
   };
   return (
-    <div className="pp-dialog__scrim" onMouseDown={onClose}>
-      <div className="pp-dialog" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>{chart ? t('projects.editChartTitle') : t('projects.newChartTitle')}</h3>
-        {locked && <p className="pp-muted">{t('projects.uploadedReadonly')}</p>}
-        <label className="pp-field">
-          <span>{t('projects.chartName')}</span>
-          <input value={title} placeholder={displayProjectName(project)} disabled={locked} onChange={(e) => setTitle(e.target.value)} />
-          <small>{t('projects.chartNameHint', { name: displayProjectName(project) })}</small>
+    <Dialog
+      title={chart ? t('projects.editChartTitle') : t('projects.newChartTitle')}
+      onClose={onClose}
+      footer={(
+        <>
+          <ActionBtn onClick={onClose}>{t('projects.cancel')}</ActionBtn>
+          {!locked && (
+            <ActionBtn variant="primary" onClick={save}>{chart ? t('projects.save') : t('projects.add')}</ActionBtn>
+          )}
+        </>
+      )}
+    >
+      {locked && <p className="dialog__message">{t('projects.uploadedReadonly')}</p>}
+      <label className="dialog-field">
+        <span>{t('projects.chartName')}</span>
+        <input value={title} placeholder={displayProjectName(project)} disabled={locked} onChange={(e) => setTitle(e.target.value)} />
+        <small>{t('projects.chartNameHint', { name: displayProjectName(project) })}</small>
+      </label>
+      <div className="dialog-field-row">
+        <label className="dialog-field">
+          <span>{t('projects.diff')}</span>
+          <select value={diff} disabled={locked} onChange={(e) => setDiff(Number(e.target.value) as ChartDifficulty)}>
+            {DIFF_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
+          </select>
         </label>
-        <div className="pp-field-row">
-          <label className="pp-field">
-            <span>{t('projects.diff')}</span>
-            <select value={diff} disabled={locked} onChange={(e) => setDiff(Number(e.target.value) as ChartDifficulty)}>
-              {DIFF_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
-            </select>
-          </label>
-          <label className="pp-field">
-            <span>{t('projects.level')}</span>
-            <input value={level} placeholder={t('projects.levelLater')} disabled={locked} inputMode="numeric" onChange={(e) => setLevel(e.target.value)} />
-          </label>
-        </div>
-        {!chart && (
-          <label className="pp-field">
-            <span>{t('projects.chartCode')}</span>
-            <textarea rows={4} value={code} placeholder={t('projects.chartCodePlaceholder')} onChange={(e) => setCode(e.target.value)} />
-            <small>{t('projects.chartCodeHint')}</small>
-          </label>
-        )}
-        <div className="pp-dialog__actions">
-          <button type="button" className="pp-btn" onClick={onClose}>{t('projects.cancel')}</button>
-          {!locked && <button type="button" className="pp-btn pp-btn--primary" onClick={save}>{chart ? t('projects.save') : t('projects.add')}</button>}
-        </div>
+        <label className="dialog-field">
+          <span>{t('projects.level')}</span>
+          <input value={level} placeholder={t('projects.levelLater')} disabled={locked} inputMode="numeric" onChange={(e) => setLevel(e.target.value)} />
+        </label>
       </div>
-    </div>
+      {!chart && (
+        <label className="dialog-field">
+          <span>{t('projects.chartCode')}</span>
+          <textarea rows={4} value={code} placeholder={t('projects.chartCodePlaceholder')} onChange={(e) => setCode(e.target.value)} />
+          <small>{t('projects.chartCodeHint')}</small>
+        </label>
+      )}
+    </Dialog>
   );
 }
