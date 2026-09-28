@@ -29,3 +29,7 @@ docs/resource/bestdori/*/
 # Bestdori 归档生成产物（完整清单走 release，不入 git；仓库仅留 .example 样本）
 docs/resource/bestdori/manifest.json
 docs/resource/bestdori/failures.json
+
+# 调试 / 验收截图与原型视觉存档：临时文件，仅本地留存，不入库
+shots/
+*-screenshots/

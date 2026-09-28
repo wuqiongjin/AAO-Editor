@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ChevronDown, Copy, FolderPlus, Lock, MoreHorizontal, Music2, Pencil, Play, Plus, Trash2,
+  ChevronDown, Copy, FolderPlus, Lock, MoreHorizontal, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2,
 } from 'lucide-react';
 import { useAppNav } from '../layouts/AppNav';
 import { useConfig } from '../app/ProviderTree';
@@ -41,6 +41,7 @@ import { ChartInfoDialog, parseLevel } from './ChartInfoDialog';
 import {
   ChartStatusIcon,
   displayProjectName,
+  lockedChartLabels,
   ProjectMenuItem,
   untitledProjectLabel,
 } from './projectUi';
@@ -653,7 +654,21 @@ export default function ProjectsPage() {
                 <p className="pp-muted">{sel.artist ?? t('projects.artistMissing')} · {sourceLabel(sel.source)}</p>
                 <p className="pp-muted">
                   <Music2 size={12} /> {sel.audioName ?? t('projects.noAudio')} · {formatDuration(sel.durationSeconds)}
-                  {locked && <span className="pp-lock-note"><Lock size={11} />{t('projects.audioLocked')}</span>}
+                  {locked && (
+                    <span className="pp-lock-note">
+                      <Lock size={11} />{t('projects.audioLockedNamed', { charts: lockedChartLabels(sel.name, uploads) })}
+                    </span>
+                  )}
+                  {/* 音频在这里只读展示，管理入口只有音频页（票 15 定案 2）——这枚 chip 是带
+                      **作用域**跳过去的：音频页作用到这个工程，当前工程不被切走（票 22 / §6）。 */}
+                  <button
+                    type="button"
+                    className="pc-audio-jump"
+                    title={t('audio.jumpManageTitle')}
+                    onClick={() => setActivePage('audio', { scope: { projectId: sel.id } })}
+                  >
+                    <SlidersHorizontal size={12} />{t('audio.jumpManage')}
+                  </button>
                 </p>
               </div>
               <div className="pc-detail__actions">

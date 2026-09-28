@@ -30,6 +30,13 @@ export interface UseChartProjectPersistenceOptions {
   store?: ChartProjectStore;
   /** 挂载/切工程恢复回调：把 notes / 时长 / 音频灌入调用方（Editor） */
   onRestore: (project: ChartProject, chart: ProjectChart, opts: { restoreAudio: boolean }) => void | Promise<void>;
+  /**
+   * 记录侧音频被别的写路径改掉（音频页按作用域直接写工程记录，票 15 定案 8）时的回调。
+   *
+   * 只重新对齐音频，不碰谱面编辑态：这条路径上没有"新谱面"，走 onRestore 会连 resetNotes
+   * 一起做掉——那会清空撤销历史，用户只是换了个音频却丢了编辑历史。
+   */
+  onRecordAudioChanged?: (project: ChartProject) => void;
 }
 
 export interface UseChartProjectPersistenceReturn {
@@ -127,6 +134,8 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
 
   const onRestoreRef = useRef(onRestore);
   onRestoreRef.current = onRestore;
+  const onRecordAudioChangedRef = useRef(opts.onRecordAudioChanged);
+  onRecordAudioChangedRef.current = opts.onRecordAudioChanged;
 
   useEffect(() => {
     const wantedProject = projectId;
@@ -185,12 +194,29 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       const chart = pickCurrentChart(loaded, wantedChart);
       const projectChanged = loaded.id !== prevProject;
       const chartChanged = chart.id !== prevChart;
+      // 票 15 定案 8 的不变量：记录里的音频与手上这份（= 会话快照）不一致 → 必须重新对齐。
+      // 少它的后果就是症状 a：epoch 单独递增时 projectChanged / chartChanged 都是假，既不 flush
+      // 也不 onRestore，会话里就一直留着上一个工程的音频。
+      const audioMismatch = loaded.audioName !== audioNameRef.current;
+      // 时长：只在**无音频**时按记录对齐（有音频时长度由音频决定，跟着音频一起 hydrate 过来）。
+      // 留 0.5s 容差——离线探针与播放引擎对同一文件的秒数可能有极小差异，不设容差会退化
+      // 成"每次目录刷新都重新对齐一次"，顺带把播放停掉。
+      const durationMismatch = loaded.audioName == null
+        && Math.abs(loaded.durationSeconds - durationRef.current) > 0.5;
+      const recordChanged = audioMismatch || durationMismatch;
       projectRef.current = loaded;
       boundProjectIdRef.current = loaded.id;
       boundChartIdRef.current = chart.id;
       boundEpochRef.current = wantedEpoch;
-      if (projectChanged || chartChanged) {
-        await onRestoreRef.current(loaded, chart, { restoreAudio: projectChanged && !epochChanged });
+      const switching = projectChanged || chartChanged;
+      const restoreAudio = (projectChanged && !epochChanged) || audioMismatch;
+      if (switching) {
+        await onRestoreRef.current(loaded, chart, { restoreAudio });
+      }
+      // 走 onRecordAudioChanged 的只有"onRestore 没替我们对齐音频"的那些情形；
+      // 否则同一个文件会被解码两次（onRestore 一次、这里再一次）。
+      if (recordChanged && !(switching && restoreAudio)) {
+        onRecordAudioChangedRef.current?.(loaded);
       }
       if (gen !== loadGenRef.current) return;
       restoreSettledRef.current = true;

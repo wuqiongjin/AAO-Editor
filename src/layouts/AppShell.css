@@ -1861,6 +1861,21 @@ button.skin-pill {
   border-bottom: 1px solid var(--border-faint);
 }
 
+/* 区块头带作用域条（票 22 定案 5）：作用域住区块头右侧，不做页级横条——
+   横条是两端对齐 + 中间 flex:1，只有"一格身份 + 一个入口"时中间必然空一大片。
+   不抬 z-index：作用域浮层走 portal 挂 body（见 ui/ScopePicker.tsx 的注释），
+   这里的 stacking context 困不住它。 */
+.settings-heading--scoped {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-heading--scoped .settings-heading__text {
+  min-width: 0;
+}
+
 .theme-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 180px));

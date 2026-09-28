@@ -50,10 +50,15 @@ describe('chart-projects 06: 只读闸门与音频锁静态装配锁测', () => 
 
   it('AudioPage: 音频锁定提示横幅与禁用替换/清除/改时长', () => {
     const src = readStripped('src/audio/AudioPage.tsx');
-    expect(src).toMatch(/audioLocked/);
+    // 锁定态现在来自工程记录（projectAudio 的读路径）而不是会话快照（票 15 定案 8）
+    expect(src).toMatch(/const locked = view\.locked;/);
     expect(src).toMatch(/audio-locked-banner/);
+    // 横幅点名是哪几张已上传谱面（票 15 定案 6），不是一句"已锁定"
+    expect(src).toMatch(/projects\.audioLockedNamed/);
+    expect(src).toMatch(/lockedChartLabels/);
     expect(src).toMatch(/audio\.lockedPrompt/);
-    expect(src).toMatch(/readOnly=\{audioLocked \|\| canPlay\}/);
+    expect(src).toMatch(/disabled=\{locked\}/);
+    expect(src).toMatch(/readOnly=\{locked \|\| hasAudio\}/);
   });
 
   it('useChartProjectPersistence: 已上传谱面与锁定工程防抖落盘防篡改', () => {

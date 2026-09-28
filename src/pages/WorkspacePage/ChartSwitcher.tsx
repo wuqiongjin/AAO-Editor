@@ -1,7 +1,7 @@
 // 工作台谱面切换器（chart-projects 05 / ADR-0015）：面包屑下拉「工程名称 / 当前谱面 ▾」。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, Copy, FolderOpen, Lock, Pencil, Plus } from 'lucide-react';
+import { Check, ChevronDown, Copy, FolderOpen, Lock, Music2, Pencil, Plus } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import { newChartId, type ChartProject, type ProjectChart } from '../../chart/project/ChartProject';
@@ -150,6 +150,9 @@ export default function ChartSwitcher() {
             />
             <ProjectMenuItem icon={<Pencil size={14} />} label={t('workspace.switcher.editCurrent')} onClick={() => { setChartInfo({ chart: cur }); setOpenMenu(false); }} />
             <ProjectMenuItem icon={<Plus size={14} />} label={t('projects.addChart')} onClick={() => { setChartInfo({ chart: null }); setOpenMenu(false); }} />
+            {/* 音频管理入口（票 15 定案 5）：不带作用域 = 去当前工程的音频页（与左栏「音频」同义），
+                留在这里是因为"我要管这个工程的音频"这个念头发生在工作台里。 */}
+            <ProjectMenuItem icon={<Music2 size={14} />} label={t('workspace.switcher.manageAudio')} onClick={() => { setOpenMenu(false); setActivePage('audio'); }} />
             <ProjectMenuItem icon={<FolderOpen size={14} />} label={t('workspace.switcher.back')} onClick={() => { setOpenMenu(false); setActivePage('projects'); }} />
           </div>
         </>,

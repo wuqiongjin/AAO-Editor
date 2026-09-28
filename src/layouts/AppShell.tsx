@@ -1,31 +1,61 @@
-import { useEffect, useState } from 'react';
-import { AppNavProvider, AppNav, type PageId } from './AppNav';
-import ToastHost from '../ui/Toast';
+import { useCallback, useEffect, useState } from 'react';
+import { AppNavProvider, AppNav, type AppNavValue, type PageId } from './AppNav';
+import ToastHost, { showToast } from '../ui/Toast';
 import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
 import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
 import { useConfig } from '../app/ProviderTree';
 import { t } from '../i18n';
 import { DEFAULT_PAGE_ID, PAGE_NAV } from './pageNav';
 import { useCurrentProject } from '../app/providers/CurrentProjectProvider';
+import type { PageScope } from './pageScope';
 import './AppShell.css';
 
 // 应用壳：六页注册 + 保活隐藏暂停 + 切页快捷键 + 可折叠导航（默认折叠）。
 // - 导航列常驻，工作台左面板只含工具栏。
 // - 路由层归 src/pages/PageRegistry.tsx。
-// - 工程管理页是启动落点（ADR-0015 §2）；进工作台/音频页时确保当前工程。
+// - 工程管理页是启动落点（ADR-0015 §2）；进工作台时确保当前工程。
 
 const PAGE_IDS = Object.keys(PAGE_REGISTRY) as PageId[];
 
-const NEEDS_CURRENT_PROJECT: ReadonlySet<PageId> = new Set(['workspace', 'audio']);
+// 进页面即"确保当前工程"的范围（issue 20 / ADR-0015 §3）：只剩工作台。
+// 音频页出列是因为它可以被**作用域**指向别的工程（票 22），此时它不需要当前工程；
+// 它无当前工程时给空态，不因进页面而新建工程（票 15 定案 4）。
+const NEEDS_CURRENT_PROJECT: ReadonlySet<PageId> = new Set(['workspace']);
 
 export default function AppShell() {
   const { settings } = useConfig();
   // 订阅 uiLanguage：壳层（导航、保活页）多数只调 t()、不读 Config。
   // 不订阅时切语言不会重渲，要等用户自己换页才换文案。
   void settings.uiLanguage;
-  const [activePage, setActivePage] = useState<PageId>(() => DEFAULT_PAGE_ID);
+  const [activePage, setActivePageState] = useState<PageId>(() => DEFAULT_PAGE_ID);
+  const [pageScope, setPageScope] = useState<PageScope | null>(null);
   const [navCollapsed, setNavCollapsed] = useState(true);
-  const { ensure } = useCurrentProject();
+  const { ensure, store, catalogEpoch } = useCurrentProject();
+
+  // 切页 = 同时决定这一页的作用域（票 22 定案 2）。两个 state 一起批，页面看到的是同一帧的新值。
+  const setActivePage = useCallback<AppNavValue['setActivePage']>((page, request) => {
+    setPageScope(request?.scope ?? null);
+    setActivePageState(page);
+  }, []);
+
+  // 作用域指向的工程被删 → 回落当前工程 + 一条提示（票 22 定案 9）。
+  // 收敛点：不另立"工程不存在"的中间态——清掉作用域就等于回到当前工程；当前工程也没有时
+  // 由页面自己的空态兜住。"无作用域"与"作用域失效"因此是同一个态。
+  useEffect(() => {
+    if (!pageScope) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const still = await store.get(pageScope.projectId);
+        if (cancelled || still) return;
+        setPageScope(null);
+        showToast(t('scope.gone'), 'warn');
+      } catch {
+        // 读取失败不当作"被删"：一次读错不该静默改掉页面的作用对象
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pageScope, catalogEpoch, store]);
 
   // 应用级切页快捷键：Ctrl/⌘+Shift+0（工程）与 1..5。
   // 记录快捷键弹窗打开时（isCapturingShortcut）放行，避免误切页。
@@ -40,14 +70,14 @@ export default function AppShell() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [setActivePage]);
 
   useEffect(() => {
     if (!NEEDS_CURRENT_PROJECT.has(activePage)) return;
     void ensure();
   }, [activePage, ensure]);
 
-  const navValue = { activePage, setActivePage, navCollapsed, setNavCollapsed };
+  const navValue = { activePage, setActivePage, pageScope, navCollapsed, setNavCollapsed };
 
   return (
     <AppNavProvider value={navValue}>

@@ -1,14 +1,25 @@
-import { useRef, useState } from 'react';
-import { AlertTriangle, Check, Clock3, FileAudio, Lock, Music2, Play, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
+// 音频页：**工程音频的唯一管理入口**（票 15 定案 2）。
+// 作用对象 = 页面作用域 ?? 当前工程（票 22 / ADR-0015 §6）——区块头右侧的作用域条说清"我在管谁"，
+// 改的永远是作用对象那条工程记录，当前工程不会被切走。
+//
+// 写路径不直连 AudioSession（票 15 定案 8）：session 手里握着全站唯一那个共享 AudioEngine
+// （工作台解码后的那份），借它 load 别的工程会顶掉工作台那份。四个动作都走 projectAudio 接缝。
+import { useCallback, useRef, useState } from 'react';
+import { AlertTriangle, Check, Clock3, FileAudio, FolderOpen, Lock, Music2, Play, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
 import AppPageShell from '../layouts/AppPageShell';
 import EmptyState from '../ui/EmptyState';
+import ScopePicker from '../ui/ScopePicker';
+import { useAppNav } from '../layouts/AppNav';
 import { useAudioSession } from '../app/providers/AudioSessionProvider';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../chart/config/AppSettings';
 import { KEY_SOUND_SETS, type KeySoundKind } from './KeySound';
 import { KEY_SOUND_KINDS } from './KeySoundMeta';
+import { useAudioScope } from './useAudioScope';
+import {
+  clearProjectAudio, importProjectAudio, setProjectAudioDuration, type ProjectAudioWriteResult,
+} from './projectAudio';
+import { lockedChartLabels } from '../pages/projectUi';
 import { t, type MessageKey } from '../i18n';
-
-// 音频页：直接调音频会话深模块（useAudioSession），3 个 section（音频素材/键音素材包/SE 音量）。
 
 type AudioSection = 'audio' | 'keysound' | 'se';
 
@@ -18,7 +29,7 @@ const AUDIO_SECTIONS: { id: AudioSection; labelKey: MessageKey; icon: typeof Mus
   { id: 'se', labelKey: 'audio.section.se', icon: SlidersHorizontal },
 ];
 
-export default function AudioPage() {
+export default function AudioPage({ active = true }: { active?: boolean }) {
   const [section, setSection] = useState<AudioSection>('audio');
   return (
     <AppPageShell>
@@ -44,7 +55,7 @@ export default function AudioPage() {
         {/* 3 段独立 surface-section 卡片（app-stagger 阶梯进入动画） */}
         {section === 'audio' && (
           <section className="surface-section audio-detail app-stagger">
-            <AudioSection />
+            <AudioSection active={active} />
           </section>
         )}
         {section === 'keysound' && (
@@ -64,30 +75,103 @@ export default function AudioPage() {
 
 // ---------------- 音频素材（含谱面时长） ----------------
 
-function AudioSection() {
-  const [snap, session] = useAudioSession();
+function AudioSection({ active }: { active: boolean }) {
+  const { setActivePage } = useAppNav();
+  const { scopeId, currentId, view, options, loading, deps } = useAudioScope(active);
   const fileRef = useRef<HTMLInputElement>(null);
+  // 解码失败时留住那个文件，好让"重新选择"能直接重试同一份
+  const [failed, setFailed] = useState<File | null>(null);
 
-  const audioName = snap.audioName;
-  const canPlay = audioName !== null;
-  const error = snap.audioError;
-  const audioLocked = snap.audioLocked;
-  const pickFile = () => {
-    if (audioLocked) return;
-    fileRef.current?.click();
+  // 选作用域 = 带作用域重新激活本页（票 22 定案 2）。选中的就是当前工程时写 null 而不是
+  // { projectId: currentId }：语义上"没有显式作用域"，两者解析出的作用对象相同但更干净。
+  const pickScope = useCallback((projectId: string) => {
+    setActivePage('audio', { scope: projectId === currentId ? null : { projectId } });
+  }, [setActivePage, currentId]);
+
+  const pickFile = () => { fileRef.current?.click(); };
+
+  /**
+   * 写失败的后半段：解码失败 → 错误横幅；记录已经没了 → 交回壳层那条失效检查
+   * （它负责清作用域 + 提示，别在这里再写一份）。'locked' 正常操作到不了（按钮已禁用），
+   * 真到了也不提示——锁定横幅就在旁边，用户看得见原因。
+   */
+  const settle = useCallback((result: ProjectAudioWriteResult, file?: File) => {
+    if (result.ok) { setFailed(null); return; }
+    if (result.reason === 'decode') setFailed(file ?? null);
+    if (result.reason === 'missing') deps.notifyCatalogChanged();
+  }, [deps]);
+
+  const importFile = useCallback((file: File) => {
+    if (scopeId == null) return;
+    void importProjectAudio(deps, scopeId, file)
+      .then((result) => settle(result, file))
+      .catch(() => settle({ ok: false, reason: 'decode' }, file));
+  }, [deps, scopeId, settle]);
+
+  const changeDuration = (seconds: number) => {
+    if (scopeId == null) return;
+    void setProjectAudioDuration(deps, scopeId, seconds).catch(() => { /* 静默：值没变 */ });
   };
 
-  return (
-    <>
-      <div className="settings-heading">
+  // 作用域在选项里的那一条：有它才说得出"我在管谁"。名字取**选项**（与作用域无关的那份
+  // 全量列表）而不是 `view.name`——换作用域时视图还在路上，靠 view 会让作用域条断档一个
+  // tick，而"此刻作用于谁"正是这条要一直说的事。作用域指向的工程已被删时这里自然是 null，
+  // 于是走到下面的空态（票 22 定案 9：收敛成"无作用域"同一个态）。
+  const scopeOption = scopeId == null ? null : options.find((o) => o.id === scopeId) ?? null;
+
+  const heading = (
+    <div className={`settings-heading${scopeOption ? ' settings-heading--scoped' : ''}`}>
+      <div className="settings-heading__text">
         <h2>{t('audio.section.audio')}</h2>
         <p>{t('audio.formats')}</p>
       </div>
+      {scopeOption && scopeId != null && (
+        <ScopePicker
+          scopeId={scopeId}
+          currentId={currentId}
+          scopeName={scopeOption.name}
+          options={options}
+          onPick={pickScope}
+        />
+      )}
+    </div>
+  );
 
-      {audioLocked && (
+  // 没有作用对象（没有当前工程，或作用域失效后当前工程也没有）→ 空态。
+  // 不在这里 ensure：进音频页不该顺手新建/打开工程（票 15 定案 4，旧行为是个 foot-gun）。
+  if (scopeId == null || (!loading && view == null)) {
+    return (
+      <>
+        {heading}
+        <EmptyState
+          icon={FolderOpen}
+          title={t('audio.noProjectTitle')}
+          description={t('audio.noProjectDescription')}
+          primaryAction={{
+            label: t('audio.goProjects'),
+            onClick: () => setActivePage('projects'),
+            icon: FolderOpen,
+          }}
+        />
+      </>
+    );
+  }
+
+  // 视图还在路上：只出区块头（作用域条照旧在），正文等读回来。宁可变空一个 tick，
+  // 也不把上一个作用对象的数据（音频名 / 时长 / 锁）配到新作用对象的名字底下。
+  if (view == null) return heading;
+
+  const locked = view.locked;
+  const hasAudio = view.hasAudio;
+
+  return (
+    <>
+      {heading}
+
+      {locked && (
         <div className="audio-locked-banner" role="alert">
           <Lock size={15} />
-          <span>{t('audio.lockedPrompt')}</span>
+          <span>{t('projects.audioLockedNamed', { charts: lockedChartLabels(view.name, view.lockedBy) })}</span>
         </div>
       )}
 
@@ -98,19 +182,18 @@ function AudioSection() {
         accept="audio/*"
         className="visually-hidden-input"
         onChange={(e) => {
-          if (!audioLocked && e.target.files && e.target.files[0]) {
-            session.importAudio(e.target.files[0]);
-          }
+          const file = e.target.files?.[0];
+          if (!locked && file) importFile(file);
           e.target.value = '';
         }}
       />
 
       {/* 空态：未导入音频时用 EmptyState 引导 */}
-      {canPlay ? (
+      {hasAudio ? (
         <div className="audio-file">
           <span className="audio-file-icon"><Music2 size={22} /></span>
           <div className="audio-file-info">
-            <strong>{audioName}</strong>
+            <strong>{view.audioName}</strong>
             <span>{t('audio.loaded')}</span>
           </div>
           <div className="audio-file-actions">
@@ -118,8 +201,8 @@ function AudioSection() {
             <button
               type="button"
               className="action-btn action-btn--primary"
-              disabled={audioLocked}
-              title={audioLocked ? t('audio.lockedPrompt') : undefined}
+              disabled={locked}
+              title={locked ? t('audio.lockedPrompt') : undefined}
               onClick={pickFile}
             >
               <Upload size={16} />{t('audio.replace')}
@@ -127,9 +210,9 @@ function AudioSection() {
             <button
               type="button"
               className="action-btn action-btn--danger"
-              disabled={audioLocked}
-              title={audioLocked ? t('audio.lockedPrompt') : t('audio.clearTitle')}
-              onClick={() => { if (!audioLocked) session.clearAudio(); }}
+              disabled={locked}
+              title={locked ? t('audio.lockedPrompt') : t('audio.clearTitle')}
+              onClick={() => { if (!locked && scopeId != null) void clearProjectAudio(deps, scopeId).then(settle); }}
             >
               {t('audio.clear')}
             </button>
@@ -140,7 +223,7 @@ function AudioSection() {
           icon={FileAudio}
           title={t('audio.emptyTitle')}
           description={t('audio.emptyDescription')}
-          primaryAction={audioLocked ? undefined : {
+          primaryAction={locked ? undefined : {
             label: t('audio.import'),
             onClick: pickFile,
             icon: Upload,
@@ -154,7 +237,7 @@ function AudioSection() {
           <Clock3 size={18} />
           <div>
             <strong>{t('audio.duration')}</strong>
-            <span>{audioLocked ? t('audio.duration.projectLocked') : (canPlay ? t('audio.duration.locked') : t('audio.duration.manual'))}</span>
+            <span>{locked ? t('audio.duration.projectLocked') : (hasAudio ? t('audio.duration.locked') : t('audio.duration.manual'))}</span>
           </div>
         </div>
         <div className="duration-field">
@@ -162,31 +245,31 @@ function AudioSection() {
             type="number"
             min={1}
             max={MAX_DURATION_SECONDS}
-            value={Math.round(snap.chartDuration)}
-            readOnly={audioLocked || canPlay}
+            value={Math.round(view.durationSeconds)}
+            readOnly={locked || hasAudio}
             onChange={(e) => {
-              if (audioLocked) return;
+              if (locked) return;
               const v = parseFloat(e.target.value);
-              if (!isNaN(v) && v > 0) session.setChartDuration(Math.min(v, MAX_DURATION_SECONDS));
+              if (!isNaN(v) && v > 0) changeDuration(Math.min(v, MAX_DURATION_SECONDS));
             }}
           />
           <span>{t('audio.seconds')}</span>
         </div>
       </div>
 
-      {canPlay && (
+      {hasAudio && (
         <div className="flow-note"><Check size={15} />{t('audio.clearNote')}</div>
       )}
 
-      {error && (
+      {failed && (
         <div className="error-banner" role="alert">
           <AlertTriangle size={18} />
           <div>
             <strong>{t('audio.decodeFail')}</strong>
-            <p style={{ margin: 0 }}>{error}</p>
+            <p style={{ margin: 0 }}>{failed.name}</p>
             <div className="error-actions">
               <button type="button" onClick={pickFile}>{t('audio.retry')}</button>
-              <button type="button" onClick={() => session.dismissError()}>{t('audio.dismiss')}</button>
+              <button type="button" onClick={() => setFailed(null)}>{t('audio.dismiss')}</button>
             </div>
           </div>
         </div>

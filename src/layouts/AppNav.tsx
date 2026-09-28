@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { t, type MessageKey } from '../i18n';
 import { ChevronsLeft, ChevronsRight, FolderOpen, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
 import { PAGE_NAV } from './pageNav';
+import type { PageScope } from './pageScope';
 
 // 应用级导航（issue 28）：跨页持久、可折叠（默认折叠）。
 // 工作台页：与左侧工具面板合成同一左列（顶部导航、下方工具）；非工作台页：独立左列导航栏。
@@ -17,9 +18,16 @@ const NAV_META: Record<PageId, { labelKey: MessageKey; icon: typeof LayoutDashbo
   settings: { labelKey: 'nav.settings', icon: Settings2 },
 };
 
-interface AppNavValue {
+export interface AppNavValue {
   activePage: PageId;
-  setActivePage: (p: PageId) => void;
+  /**
+   * 切页，并决定这一页的作用域（票 22 定案 2）：
+   * - 不带 request（左栏入口 / 切页快捷键）= 先清作用域再激活，语义就是"去当前工程的这一页"；
+   * - 带 `scope` = 先写作用域再激活（工程管理页那种"带作用域跳转"）。
+   */
+  setActivePage: (p: PageId, request?: { scope?: PageScope | null }) => void;
+  /** 当前页面的作用域；null = 没有（页面按当前工程行事） */
+  pageScope: PageScope | null;
   navCollapsed: boolean;
   setNavCollapsed: (v: boolean | ((prev: boolean) => boolean)) => void;
 }

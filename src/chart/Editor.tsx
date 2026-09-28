@@ -235,6 +235,25 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     audioSession.setAudioLocked(audioLocked);
   }, [resetNotes, setCtxDuration, audioSession, stopPlayback, setCurrentSeconds, setMarker]);
 
+  // 记录侧音频变更（票 15 定案 8 的不变量）：音频页按作用域直接写了当前工程记录的音频，
+  // 而这条路上没有新谱面——所以只把音频重新对齐，不走 handleProjectRestore（它会 resetNotes，
+  // 换个音频不该顺手清掉撤销历史）。hydrateFromProject 在无音频时会清空引擎，
+  // 「无音频工程 → 引擎必清空」这半条也在里面。
+  const handleRecordAudioChanged = useCallback((
+    project: import('../chart/project/ChartProject').ChartProject,
+  ) => {
+    stopPlayback();
+    setCurrentSeconds(0);
+    setMarker(null);
+    if (project.durationSeconds > 0) setCtxDuration(project.durationSeconds);
+    audioSession.hydrateFromProject({
+      audioName: project.audioName,
+      audioBlob: project.audioBlob,
+      durationSeconds: project.durationSeconds,
+      audioLocked: isProjectAudioLocked(project),
+    });
+  }, [audioSession, stopPlayback, setCurrentSeconds, setMarker, setCtxDuration]);
+
   // === 会话流 6：持久化（当前工程恢复 + 防抖 800ms 落盘） ===
   // 收口点：不再有 audioMetaRef / persistRef ref 环——audioForPersist 是稳定对象，
   // 持久化 hook 的 saveNow 直接注入到 session.setPersistNow。
@@ -250,6 +269,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     appliedChartCodeText,
     chartCodePristine,
     onRestore: handleProjectRestore,
+    onRecordAudioChanged: handleRecordAudioChanged,
   });
   const persistNow = useCallback(() => persistence.saveNow(), [persistence]);
   useEffect(() => {
