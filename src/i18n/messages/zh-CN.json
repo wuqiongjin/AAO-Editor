@@ -49,6 +49,8 @@
   "projects.home": "← 主页",
   "projects.editInfo": "编辑工程信息",
   "projects.duplicate": "复制工程",
+  "projects.copySuffix": "（副本）",
+  "projects.copySuffixN": "（副本 {{n}}）",
   "projects.delete": "删除工程",
   "projects.charts": "谱面",
   "projects.uploads": "上传记录",

@@ -14,6 +14,7 @@ import {
 } from '@/src/chart/project/projectCatalog';
 import { createUnnamedProject } from '@/src/chart/project/workspaceProject';
 import type { ChartNote } from '@/src/chart/types';
+import { setActiveUiLanguage } from '@/src/i18n';
 
 const untitled = '未命名工程';
 
@@ -163,6 +164,14 @@ describe('duplicateChartInProject · 同工程复制谱面', () => {
     const twice = duplicateChartInProject(once, 'cEx1', { chartId: 'cCopy2', now: 12 }, untitled)!;
     expect(twice.charts.map((c) => c.title)).toEqual(['练习版', '练习版（副本 2）', '练习版（副本）']);
   });
+
+  it('复制谱面副本：叠加「（副本）（副本）」，不剥旧后缀（issue 19 #6 修订）', () => {
+    const src = createBlankProject({ id: 'pSong1', chartId: 'cEx1', now: 10, name: 'FIRE BIRD', diff: 3 });
+    src.charts[0] = { ...src.charts[0], title: '练习版' };
+    const once = duplicateChartInProject(src, 'cEx1', { chartId: 'cCopy1', now: 11 }, untitled)!;
+    const copyOfCopy = duplicateChartInProject(once, 'cCopy1', { chartId: 'cCopy2', now: 12 }, untitled)!;
+    expect(copyOfCopy.charts.map((c) => c.title)).toEqual(['练习版', '练习版（副本）', '练习版（副本）（副本）']);
+  });
 });
 
 describe('duplicateProject · 副本命名（issue 19 #6）', () => {
@@ -177,11 +186,18 @@ describe('duplicateProject · 副本命名（issue 19 #6）', () => {
     expect(second.name).toBe('FIRE BIRD（副本 2）');
   });
 
-  it('复制副本：剥掉旧「（副本…）」后缀再编号，不叠成（副本）（副本）', () => {
+  it('复制副本：叠加「（副本）（副本）」，不剥旧后缀（2026-09-28 修订）', () => {
     const copyOfCopy = duplicateProject(named('FIRE BIRD（副本）'), {
       id: 'p3', chartIds: ['c3'], now: 3,
     }, untitled, ['FIRE BIRD', 'FIRE BIRD（副本）']);
-    expect(copyOfCopy.name).toBe('FIRE BIRD（副本 2）');
+    expect(copyOfCopy.name).toBe('FIRE BIRD（副本）（副本）');
+  });
+
+  it('复制副本重名：只在叠加后的标记内递增 →（副本）（副本 2）', () => {
+    const copy = duplicateProject(named('FIRE BIRD（副本）'), {
+      id: 'p3', chartIds: ['c3'], now: 3,
+    }, untitled, ['FIRE BIRD（副本）', 'FIRE BIRD（副本）（副本）']);
+    expect(copy.name).toBe('FIRE BIRD（副本）（副本 2）');
   });
 
   it('未命名工程按显示名编号；不给 taken 时保持（副本）', () => {
@@ -191,6 +207,38 @@ describe('duplicateProject · 副本命名（issue 19 #6）', () => {
     expect(anon.name).toBe('未命名工程（副本）');
     const bare = duplicateProject(named('FIRE BIRD'), { id: 'p4', chartIds: ['c4'], now: 4 });
     expect(bare.name).toBe('FIRE BIRD（副本）');
+  });
+
+  it('未命名工程的副本再复制：叠加为「未命名工程（副本）（副本）」（用户报障原例）', () => {
+    const copyOfCopy = duplicateProject(named('未命名工程（副本）'), {
+      id: 'pC', chartIds: ['cC'], now: 5,
+    }, untitled, [untitled, '未命名工程（副本）']);
+    expect(copyOfCopy.name).toBe('未命名工程（副本）（副本）');
+  });
+
+  it('标记随界面语言：en →「 (Copy)」/「 (Copy 2)」半角；工程与谱面共用（2026-09-28 拍板）', () => {
+    setActiveUiLanguage('en');
+    try {
+      const copy = duplicateProject(named('FIRE BIRD'), {
+        id: 'pEn', chartIds: ['cEn'], now: 6,
+      }, 'Untitled project', ['FIRE BIRD']);
+      expect(copy.name).toBe('FIRE BIRD (Copy)');
+      const numbered = duplicateProject(named('FIRE BIRD'), {
+        id: 'pEn2', chartIds: ['cEn2'], now: 7,
+      }, 'Untitled project', ['FIRE BIRD', 'FIRE BIRD (Copy)']);
+      expect(numbered.name).toBe('FIRE BIRD (Copy 2)');
+      const anon = duplicateProject(createUnnamedProject({ id: 'pAnonEn', chartId: 'cAnonEn', now: 8 }), {
+        id: 'pAnonEn2', chartIds: ['cAnonEn2'], now: 9,
+      }, 'Untitled project', ['Untitled project']);
+      expect(anon.name).toBe('Untitled project (Copy)');
+      const chartCopy = duplicateChartInProject(
+        createBlankProject({ id: 'pSongEn', chartId: 'cEn0', now: 10, name: 'FIRE BIRD', diff: 3 }),
+        'cEn0', { chartId: 'cEnCopy', now: 11 }, 'Untitled project',
+      )!;
+      expect(chartCopy.charts[1].title).toBe('FIRE BIRD (Copy)');
+    } finally {
+      setActiveUiLanguage('zh-CN');
+    }
   });
 });
 

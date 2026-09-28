@@ -48,6 +48,8 @@
   "projects.home": "← Home",
   "projects.editInfo": "Edit project info",
   "projects.duplicate": "Duplicate project",
+  "projects.copySuffix": " (Copy)",
+  "projects.copySuffixN": " (Copy {{n}})",
   "projects.delete": "Delete project",
   "projects.charts": "Charts",
   "projects.uploads": "Upload history",

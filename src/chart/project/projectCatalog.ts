@@ -146,14 +146,15 @@ export function addChartToProject(
   return { ok: true, project: { ...project, charts: [...project.charts, chart] }, chart };
 }
 
-/** 复制工程 / 复制谱面共用：原显示名 +「（副本）」，重名则（副本 2）… */
+/** 复制工程 / 复制谱面共用：原显示名 + 副本标记，重名则标记内递增「（副本 2）」「(Copy 2)」…。
+ * 标记随界面语言（zh「（副本）」全角 / en " (Copy)" 半角，2026-09-28 拍板），复制时定格。
+ * 不复解析名内旧标记：副本的副本直接叠加标记，不剥后缀重编号（issue 19 #6 推翻 2026-09-28）。 */
 export function uniqueCopyTitle(base: string, taken: readonly string[]): string {
-  const stem = base.replace(/（副本(?: \d+)?）$/, '') || base;
   const used = new Set(taken);
-  const first = `${stem}（副本）`;
+  const first = `${base}${t('projects.copySuffix')}`;
   if (!used.has(first)) return first;
   for (let n = 2; ; n++) {
-    const next = `${stem}（副本 ${n}）`;
+    const next = `${base}${t('projects.copySuffixN', { n })}`;
     if (!used.has(next)) return next;
   }
 }
