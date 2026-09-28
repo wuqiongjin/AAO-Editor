@@ -328,6 +328,70 @@
 }
 
 /* ============================================================
+   Toast（src/ui/Toast.tsx，issue 17）
+   替掉 window.alert 的全局轻提示：顶部居中、可手动关；四档语气 = 浅底 + 语气色文字，
+   与弹窗里的提示条同一套语言。层高在弹窗之上 —— 代码弹窗里的提示要压在它自己头上。
+   ============================================================ */
+.toast {
+  position: fixed;
+  top: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: calc(var(--z-modal) + 10);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(560px, 92vw);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  animation: toast-in var(--dur) var(--ease) both;
+}
+
+/* 语气底色 = 语气色 14% 混面板底色（**不透明**）：浮条压在页面/画布上，
+   直接拿 --*-soft 当底会透出背后的东西（暗色主题下那几档 soft 本身就是半透明）。 */
+.toast--info { background-color: color-mix(in srgb, var(--accent) 14%, var(--bg-elevated)); color: var(--accent-text); }
+.toast--success { background-color: color-mix(in srgb, var(--success) 14%, var(--bg-elevated)); color: var(--success); }
+.toast--warn { background-color: color-mix(in srgb, var(--warning) 14%, var(--bg-elevated)); color: var(--warning-text); }
+.toast--danger { background-color: color-mix(in srgb, var(--danger) 14%, var(--bg-elevated)); color: var(--danger-text); }
+
+/* 关掉按钮自己也要跟着语气色，别在浅底上戳出一个中性灰块 */
+.toast__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-full);
+  background-color: transparent;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+.toast__close:hover {
+  opacity: 1;
+  background-color: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* 系统层面要求减少动效时，提示只出现、不做位移 */
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+
+/* ============================================================
    EmptyState：三段式空态（图标 + 标题 + 描述 + 可选按钮组）
    ============================================================ */
 .empty-state {

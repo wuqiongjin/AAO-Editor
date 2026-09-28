@@ -15,6 +15,7 @@
   "ui.delete": "Delete",
   "ui.discard": "Discard",
   "ui.overwrite": "Overwrite",
+  "ui.dismiss": "Dismiss",
   "prototype.loading": "Loading layout prototype…",
   "projects.header.eyebrow": "Project manager",
   "projects.header.title": "Project manager",

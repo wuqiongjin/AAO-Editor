@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AppNavProvider, AppNav, type PageId } from './AppNav';
+import ToastHost from '../ui/Toast';
 import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
 import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
 import { useConfig } from '../app/ProviderTree';
@@ -51,6 +52,8 @@ export default function AppShell() {
   return (
     <AppNavProvider value={navValue}>
       <div className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}`}>
+        {/* 全局轻提示的宿主（issue 17）：挂一次，portal 到 body，层高在弹窗之上 */}
+        <ToastHost />
         <aside className="app-nav" aria-label={t('nav.aria')}>
           <AppNav />
         </aside>

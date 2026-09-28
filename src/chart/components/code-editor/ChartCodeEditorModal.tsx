@@ -36,6 +36,7 @@ import { scheduleIdle } from '../../editing/IdleSchedule';
 import ActionBtn from '../../../ui/ActionBtn';
 import ConfirmDialog from '../../../ui/ConfirmDialog';
 import Dialog from '../../../ui/Dialog';
+import { showToast } from '../../../ui/Toast';
 import { useChartCodeEditor, type CodeEditorTarget } from './ChartCodeEditorProvider';
 import { exportChartCodeSaveAs } from '../../project/exportChartCode';
 import type { ChartNote } from '../../types';
@@ -248,16 +249,16 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         validationTask.schedule(() => validateCode(newCode));
     };
 
-    // 对象视图回写被拒（coerce/回写校验不过）：错误全留在上方列表，弹 alert 后停在当前视图
+    // 对象视图回写被拒（coerce/回写校验不过）：错误全留在上方列表，提示一条后停在当前视图
     const rejectNoteApply = (errors: ValidationError[]) => {
         setIsValid(false);
         setValidationErrors(errors);
-        alert(tPlural('chartCode.alertErrors', errors.length));
+        showToast(tPlural('chartCode.alertErrors', errors.length), 'danger');
     };
 
     /** 应用失败的统一出口：回滚文本 + 清掉错误列表，两条入口（直接应用 / 确认后应用）共用 */
     const failApply = (error: unknown) => {
-        alert(t('chartCode.applyFail', { message: (error as Error).message }));
+        showToast(t('chartCode.applyFail', { message: (error as Error).message }), 'danger');
         setTextHistory(createHistory(lastAppliedCode));
         setIsValid(true);
         setValidationErrors([]);
@@ -284,7 +285,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
             setLastAppliedCode(text);
             setAppliedNotesCount(newNotes.length);
             setTextHistory(createHistory(text));
-            alert(t('chartCode.applyOk'));
+            showToast(t('chartCode.applyOk'), 'success');
         } catch (error) {
             failApply(error);
         }
@@ -303,7 +304,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         // 撞错 = 整份拒（issue 59 §1.2）：不回写画布，也不静默修正 / 丢弃草稿——
         // 错误全留在上方列表里，供用户对照逐条改。
         if (errors.length > 0) {
-            alert(tPlural('chartCode.alertErrorsApply', errors.length));
+            showToast(tPlural('chartCode.alertErrorsApply', errors.length), 'danger');
             return;
         }
 
@@ -325,7 +326,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
 
             // 强制校验：beat0 必须有 BPM 音符（保底语义，ADR-0001 谱面必须有初始 BPM）
             if (!hasBeat0Bpm(parsedCode)) {
-                alert(t('chartCode.needBpm0'));
+                showToast(t('chartCode.needBpm0'), 'danger');
                 return;
             }
             // 覆盖风险确认：画布已在草稿之后被改动，覆盖是有损操作 —— 问完才回写
@@ -363,9 +364,9 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(chartCode);
-            alert(t('chartCode.copyOk'));
+            showToast(t('chartCode.copyOk'), 'success');
         } catch (error) {
-            alert(t('chartCode.copyFail', { message: (error as Error).message }));
+            showToast(t('chartCode.copyFail', { message: (error as Error).message }), 'danger');
         }
     };
 
@@ -379,7 +380,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                 isChartView && chartCodePristine ? appliedChartCodeText : undefined,
             );
         } catch (error) {
-            alert(t('chartCode.exportFail', { message: (error as Error).message }));
+            showToast(t('chartCode.exportFail', { message: (error as Error).message }), 'danger');
         }
     };
 

@@ -20,6 +20,7 @@ import { chartStatus, pickCurrentChart } from '../../chart/project/workspaceProj
 import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { formatValidationError, type ValidationError } from '../../chart/editing/ChartConverter';
 import { t } from '../../i18n';
+import { showToast } from '../../ui/Toast';
 import { ChartInfoDialog } from '../ChartInfoDialog';
 import {
   ChartStatusIcon,
@@ -179,7 +180,7 @@ export default function ChartSwitcher() {
               }, id);
               if (applyErrors) {
                 const err = applyErrors[0];
-                window.alert(t('projects.applyFail', { message: err ? formatValidationError(err) : 'invalid' }));
+                showToast(t('projects.applyFail', { message: err ? formatValidationError(err) : 'invalid' }), 'danger');
                 return;
               }
               if (next) setChartInfo(null);

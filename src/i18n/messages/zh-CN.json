@@ -16,6 +16,7 @@
   "ui.delete": "删除",
   "ui.discard": "丢弃",
   "ui.overwrite": "覆盖",
+  "ui.dismiss": "关闭提示",
   "prototype.loading": "正在载入布局原型…",
   "projects.header.eyebrow": "工程管理",
   "projects.header.title": "工程管理",

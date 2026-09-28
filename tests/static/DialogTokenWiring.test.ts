@@ -17,12 +17,13 @@ const projectsPage = readStripped('src/pages/ProjectsPage.tsx');
 const chartInfoDialog = readStripped('src/pages/ChartInfoDialog.tsx');
 const codeModal = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.tsx');
 const codeModalCss = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.css');
+const toast = readStripped('src/ui/Toast.tsx');
 
 /** hex 色值或 rgb/rgba() —— 样式里出现任何一个都说明色值绕过 token 了 */
 const HARD_CODED_COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
 
 /**
- * 参与「零硬编码色值」的弹窗文件：壳 + 壳的样式 + 五个弹窗的内容。
+ * 参与「零硬编码色值」的文件：弹窗壳 + 壳的样式 + 五个弹窗的内容 + 轻提示（issue 17，同一族）。
  * 不含 ProjectsPage.css —— 弹窗规则已从它搬进 ui.css，它剩下的硬编码色值
  * （启动台封面角标之类的 #fff）是另一笔历史账，不在本票范围。
  */
@@ -30,6 +31,7 @@ const DIALOG_SOURCES: [string, string][] = [
   ['ui/Dialog.tsx', shell],
   ['ui/ui.css', uiCss],
   ['ui/ConfirmDialog.tsx', confirmDialog],
+  ['ui/Toast.tsx', toast],
   ['pages/ProjectsPage.tsx', projectsPage],
   ['pages/ChartInfoDialog.tsx', chartInfoDialog],
   ['chart/.../ChartCodeEditorModal.tsx', codeModal],

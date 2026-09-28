@@ -35,6 +35,7 @@ import CoverField, { useCoverUrl, type CoverValue } from '../ui/CoverField';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import Dialog from '../ui/Dialog';
 import EmptyState from '../ui/EmptyState';
+import { showToast } from '../ui/Toast';
 import { ChartInfoDialog } from './ChartInfoDialog';
 import {
   ChartStatusIcon,
@@ -341,7 +342,7 @@ export default function ProjectsPage() {
     await mutate(project.id, (p) => {
       const result = deleteChartFromProject(p, chart.id);
       if (!result.ok) {
-        window.alert(t('projects.deleteLastChart'));
+        showToast(t('projects.deleteLastChart'), 'warn');
         return null;
       }
       return result.project;
@@ -446,7 +447,7 @@ export default function ProjectsPage() {
               const result = addChartToProject(loaded, input, { chartId: newChartId(), now: Date.now() });
               if (!result.ok) {
                 const err = result.errors[0];
-                window.alert(t('projects.applyFail', { message: err ? formatValidationError(err) : 'invalid' }));
+                showToast(t('projects.applyFail', { message: err ? formatValidationError(err) : 'invalid' }), 'danger');
                 return;
               }
               await store.save(result.project);
