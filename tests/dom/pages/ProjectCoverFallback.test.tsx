@@ -10,7 +10,7 @@
 // 而 `el.style.backgroundImage` 长手在两边一致（都变成 ''），故用它作判据。
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import ProjectsPage from '@/src/pages/ProjectsPage';
@@ -74,12 +74,12 @@ function makeProject(id: string, name: string, coverBlob?: Blob): ChartProject {
   };
 }
 
-function renderHub(projects: ChartProject[]) {
+function renderHub(projects: ChartProject[], opts: { cloneBlobsOnRead?: boolean } = {}) {
   return renderWithProviders(
     <ConfigProvider>
       <AppNavProvider value={navValue}><ProjectsPage /></AppNavProvider>
     </ConfigProvider>,
-    { store: new ChartProjectStore(makeMemoryProjectBackend(projects)) },
+    { store: new ChartProjectStore(makeMemoryProjectBackend(projects, opts)) },
   );
 }
 
@@ -155,6 +155,28 @@ describe('issue 11 · 无封面工程的封面背景色', () => {
       expect(c.style.backgroundImage).toContain('linear-gradient');
       expect(c.style.backgroundImage).not.toContain('url(');
     }
+  });
+
+  it('编辑操作后所有封面 URL 不变（chart-projects 21：reload 不许换 Blob 身份）', async () => {
+    const blob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
+    // cloneBlobsOnRead 复现真后端的读回语义：每次 list() 都是新 Blob 对象
+    renderHub([makeProject('pCover', 'Has Cover', blob)], { cloneBlobsOnRead: true });
+    await screen.findByText('继续创作');
+    await waitFor(() => expect(created).toHaveLength(1));
+    const url = created[0].url;
+
+    // 进详情，再从难度徽标改一次难度：mutate → reload 是"一编辑全封面闪"的触发路径
+    fireEvent.click(document.querySelector('.pb-card') as HTMLElement);
+    await screen.findByRole('heading', { name: 'Has Cover' });
+    fireEvent.click(screen.getAllByTitle('点击改难度 / 等级')[0]);
+    const panel = await screen.findByRole('dialog', { name: '点击改难度 / 等级' });
+    fireEvent.click(within(panel).getByTitle('Hard'));
+
+    // 等编辑真的落库（数据变了）之后再断言封面：同一 URL、没有新建
+    await waitFor(() => expect(document.querySelector('.pc-chart__diff')).toHaveTextContent('Hard'));
+    for (const c of covers()) expect(c.style.backgroundImage).toBe(`url("${url}")`);
+    expect(created).toHaveLength(1);
+    expect(revoked).toHaveLength(0);
   });
 
   it('网格卡封面走流式档（宽 100%），hero 封面保持固定尺寸（issue 19 #5）', async () => {

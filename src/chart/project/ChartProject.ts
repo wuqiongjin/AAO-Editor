@@ -384,6 +384,19 @@ function autoDetectBackend(): ChartProjectBackend {
 export class ChartProjectStore {
   private backend: ChartProjectBackend;
   private lastOpenedFloor = new Map<string, number>();
+  /**
+   * 本会话内每个工程"当前生效"的封面 Blob 实例（chart-projects 21）。
+   *
+   * 封面 objectURL 缓存按 **Blob 身份** 命中（issue 19 #3：进详情不闪），但两个后端每次读回都会
+   * 给出**新的 Blob 对象**（IndexedDB `getAll()` 反序列化 / Electron `blobFromBytes`）——
+   * 不顶回来的话，每次 mutate → reload → `list()` 后所有封面缓存全部未命中：重新 createObjectURL
+   * 再重新解码，表现为"一编辑所有封面闪一下"。
+   *
+   * 尺寸不变即认为字节没变、沿用同一实例；尺寸变了（用户换了封面）以新读到的为准并更新记忆。
+   * 已知盲区：别的进程/窗口把封面换成"同名同尺寸的另一张图"时本会话察觉不到（要等重启）；
+   * 本应用自己换封面走 `save()`，会即时更新记忆，不影响。
+   */
+  private coverInstances = new Map<string, Blob>();
 
   constructor(backend: ChartProjectBackend = autoDetectBackend()) {
     this.backend = backend;
@@ -393,6 +406,7 @@ export class ChartProjectStore {
     const project = await this.backend.get(id);
     if (project) {
       this.lastOpenedFloor.set(id, Math.max(this.lastOpenedFloor.get(id) ?? 0, project.lastOpened));
+      return this.stabilizeCover(project);
     }
     return project;
   }
@@ -401,15 +415,33 @@ export class ChartProjectStore {
     const floor = this.lastOpenedFloor.get(project.id) ?? 0;
     const lastOpened = Math.max(floor, project.lastOpened);
     this.lastOpenedFloor.set(project.id, lastOpened);
-    return this.backend.save(lastOpened === project.lastOpened ? project : { ...project, lastOpened });
+    const stable = this.stabilizeCover(project);
+    return this.backend.save(lastOpened === stable.lastOpened ? stable : { ...stable, lastOpened });
   }
 
-  list(): Promise<ChartProject[]> {
-    return this.backend.list();
+  async list(): Promise<ChartProject[]> {
+    const listed = await this.backend.list();
+    return listed.map((project) => this.stabilizeCover(project));
   }
 
   delete(id: string): Promise<void> {
     this.lastOpenedFloor.delete(id);
+    this.coverInstances.delete(id);
     return this.backend.delete(id);
+  }
+
+  /** 读/写路径共用的封面实例稳定化：返回的工程一定带着"本会话认得的那个"封面 Blob 实例。 */
+  private stabilizeCover(project: ChartProject): ChartProject {
+    const fresh = project.coverBlob;
+    if (!fresh || fresh.size === 0) {
+      this.coverInstances.delete(project.id);
+      return project;
+    }
+    const known = this.coverInstances.get(project.id);
+    if (!known || known.size !== fresh.size) {
+      this.coverInstances.set(project.id, fresh);
+      return project;
+    }
+    return known === fresh ? project : { ...project, coverBlob: known };
   }
 }

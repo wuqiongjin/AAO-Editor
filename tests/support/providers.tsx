@@ -18,15 +18,32 @@ import { AudioSessionProvider } from '@/src/app/providers/AudioSessionProvider';
 /** 内存版工程后端：读写都落在 Map 上，不落盘、不碰 IndexedDB。 */
 export type MemoryProjectBackend = ChartProjectBackend & { disk: Map<string, ChartProject> };
 
-export function makeMemoryProjectBackend(projects: ChartProject[] = []): MemoryProjectBackend {
+/**
+ * `cloneBlobsOnRead`：每次读回都新建 Blob 对象，近似 IndexedDB `getAll()` 反序列化 /
+ * Electron `blobFromBytes` 的真实语义（chart-projects 21 的复现条件——封面 URL 按 Blob 身份缓存，
+ * 身份一换就重解码、全封面闪）。默认关：多数测试不关心 Blob 身份，按引用存最省事。
+ */
+export function makeMemoryProjectBackend(
+  projects: ChartProject[] = [],
+  opts: { cloneBlobsOnRead?: boolean } = {},
+): MemoryProjectBackend {
   const disk = new Map<string, ChartProject>(projects.map((p) => [p.id, p]));
+  const read = (p: ChartProject | undefined): ChartProject | null => {
+    if (!p) return null;
+    if (!opts.cloneBlobsOnRead) return p;
+    return {
+      ...p,
+      ...(p.audioBlob ? { audioBlob: new Blob([p.audioBlob], { type: p.audioBlob.type }) } : {}),
+      ...(p.coverBlob ? { coverBlob: new Blob([p.coverBlob], { type: p.coverBlob.type }) } : {}),
+    };
+  };
   return {
     disk,
-    get: async (id) => disk.get(id) ?? null,
+    get: async (id) => read(disk.get(id)),
     save: async (project) => {
       disk.set(project.id, project);
     },
-    list: async () => [...disk.values()],
+    list: async () => [...disk.values()].map((p) => read(p)!),
     delete: async (id) => {
       disk.delete(id);
     },
