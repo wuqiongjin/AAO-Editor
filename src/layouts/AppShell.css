@@ -607,6 +607,10 @@
   font-weight: 500;
 }
 
+/* 复制键走主按钮那一对（--accent-btn 深档 + 白字）：
+   原来写的是 `color: var(--accent-contrast)` —— 这个 token 根本不存在（tokens.css 里没有），
+   于是文字色落到继承的 --text：亮色 5.0:1 还能看，暗色变成浅字压浅青（1.8:1）读不出来。
+   也不能简单改白字：白字压在亮/暗两档 --accent 上只有 3.0:1 / 2.1:1，都过不了 AA。 */
 .readonly-toast__copy-btn {
   display: inline-flex;
   align-items: center;
@@ -615,8 +619,8 @@
   padding: 0 10px;
   border: none;
   border-radius: var(--radius-full);
-  background: var(--accent);
-  color: var(--accent-contrast);
+  background: var(--accent-btn);
+  color: var(--accent-btn-text);
   font-size: var(--text-xs);
   font-weight: 600;
   cursor: pointer;
@@ -624,7 +628,7 @@
 }
 
 .readonly-toast__copy-btn:hover {
-  background: var(--accent-hover);
+  background: var(--accent-btn-hover);
 }
 
 .readonly-toast__close-btn {
