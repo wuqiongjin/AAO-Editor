@@ -6,6 +6,7 @@
 // - 旧 bangdream.shortcuts.v1 仍可读（一次性回填到新 settings.shortcuts），不再写入。
 // - 旧版 schema（仅有 {schemaVersion, audio.keySet}）已包含 audio 段，load 时按字段合并。
 import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutConfig';
+import { normalizeProjectSortKey, type ProjectSortKey } from '../project/projectSort';
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../audio/KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../visual/gen/noteSkinRegistry.gen';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../visual/gridStyle';
@@ -96,6 +97,11 @@ export interface AppSettings {
    * 缺段/脏值经 `normalizeCurveConfig` 归一化回落。
    */
   curve: CurveConfig;
+  /**
+   * 工程启动台排序（issue 19 #4 定案：跨会话沿用上次选法，随配置导入导出走）。
+   * additive 字段，不 bump schemaVersion；键白名单与比较器在 `project/projectSort.ts`。
+   */
+  projects: { sort: ProjectSortKey };
 }
 
 /** 音符皮肤六条目（与 renderer/noteSkin.ts 的 NoteSkinItemId 一致；此处独立声明避免 utils→renderer 运行时依赖） */
@@ -148,6 +154,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
+    projects: { sort: 'lastOpened' },
   };
 }
 
@@ -160,6 +167,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   const leftPanel = (layout.leftPanel && typeof layout.leftPanel === 'object' ? layout.leftPanel : {}) as Record<string, unknown>;
   const rightPanel = (layout.rightPanel && typeof layout.rightPanel === 'object' ? layout.rightPanel : {}) as Record<string, unknown>;
   const display = (obj.display && typeof obj.display === 'object' ? obj.display : {}) as Record<string, unknown>;
+  const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, unknown>;
   const visual = (obj.visual && typeof obj.visual === 'object' ? obj.visual : {}) as Record<string, unknown>;
   const rawNoteSkin = (visual.noteSkin && typeof visual.noteSkin === 'object' ? visual.noteSkin : {}) as Record<string, unknown>;
   // 音符皮肤：仅保留六条目的字符串值；包 id 合法性由 renderer/noteSkin.ts 在读取时归一化
@@ -224,6 +232,8 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
+    // 工程启动台排序（issue 19 #4）：白名单外 / 缺字段 → 默认最近打开
+    projects: { sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort) },
   };
 }
 
@@ -288,6 +298,7 @@ export function updateSettings(
     display: Partial<AppSettings['display']>;
     visual: Partial<AppSettings['visual']>;
     curve?: CurveConfig;
+    projects?: Partial<AppSettings['projects']>;
   }>,
 ): AppSettings {
   return {
@@ -302,5 +313,6 @@ export function updateSettings(
     display: { ...prev.display, ...(patch.display ?? {}) },
     visual: { ...prev.visual, ...(patch.visual ?? {}) },
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
+    projects: { ...prev.projects, ...(patch.projects ?? {}) },
   };
 }

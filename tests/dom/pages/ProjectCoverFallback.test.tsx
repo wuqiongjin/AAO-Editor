@@ -10,13 +10,15 @@
 // 而 `el.style.backgroundImage` 长手在两边一致（都变成 ''），故用它作判据。
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
+import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import ProjectsPage from '@/src/pages/ProjectsPage';
 import {
   ChartProjectStore, type ChartProject, type ProjectChart,
 } from '@/src/chart/project/ChartProject';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
+import { seedZhSettings } from '@/tests/support/storage';
 
 const AT = 1_700_000_000_000;
 
@@ -32,6 +34,7 @@ let created: { blob: Blob; url: string }[] = [];
 let revoked: string[] = [];
 
 beforeEach(() => {
+  seedZhSettings();
   created = [];
   revoked = [];
   let seq = 0;
@@ -73,7 +76,9 @@ function makeProject(id: string, name: string, coverBlob?: Blob): ChartProject {
 
 function renderHub(projects: ChartProject[]) {
   return renderWithProviders(
-    <AppNavProvider value={navValue}><ProjectsPage /></AppNavProvider>,
+    <ConfigProvider>
+      <AppNavProvider value={navValue}><ProjectsPage /></AppNavProvider>
+    </ConfigProvider>,
     { store: new ChartProjectStore(makeMemoryProjectBackend(projects)) },
   );
 }
@@ -105,18 +110,36 @@ describe('issue 11 · 无封面工程的封面背景色', () => {
     }
   });
 
-  it('有 coverBlob：backgroundImage 用该 Blob 的 objectURL，不发渐变', async () => {
+  it('有 coverBlob：同一 Blob 只建一个 objectURL，所有封面实例复用，不发渐变', async () => {
     const blob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
     renderHub([makeProject('pCover', 'Has Cover', blob)]);
     await screen.findByText('继续创作');
 
-    // 每个 Cover 实例各自持有一份 objectURL（同一 Blob 也会被建多次）
-    await waitFor(() => expect(created.length).toBe(covers().length));
-    expect(created.every((entry) => entry.blob === blob)).toBe(true);
+    // issue 19 #3：同一 Blob 的 hero + 卡片实例共享同一 URL（不再"每挂载建一份"）
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0].blob).toBe(blob);
     await waitFor(() => {
-      for (const c of covers()) expect(c.style.backgroundImage).toMatch(/^url\("blob:probe\/\d+"\)$/);
+      for (const c of covers()) expect(c.style.backgroundImage).toBe(`url("${created[0].url}")`);
     });
     for (const c of covers()) expect(c.style.backgroundImage).not.toContain('linear-gradient');
+  });
+
+  it('进详情：封面复用同一 URL，不新建、不落回占位（issue 19 #3 的"闪一下"回归网）', async () => {
+    const blob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
+    renderHub([makeProject('pCover', 'Has Cover', blob)]);
+    await screen.findByText('继续创作');
+    await waitFor(() => expect(created).toHaveLength(1));
+    const url = created[0].url;
+
+    // 进详情：hub 整棵卸载、详情新挂载，同一 Blob 的封面必须仍用旧 URL（浏览器可复用已解码图）
+    fireEvent.click(document.querySelector('.pb-card') as HTMLElement);
+    await waitFor(() => {
+      const all = covers();
+      expect(all.length).toBeGreaterThan(0);
+      for (const c of all) expect(c.style.backgroundImage).toBe(`url("${url}")`);
+    });
+    expect(created).toHaveLength(1);
+    expect(revoked).toHaveLength(0);
   });
 
   it('空 Blob（0 字节）：回退渐变，且根本不建 objectURL —— 直接锁住本 bug', async () => {
@@ -132,6 +155,19 @@ describe('issue 11 · 无封面工程的封面背景色', () => {
       expect(c.style.backgroundImage).toContain('linear-gradient');
       expect(c.style.backgroundImage).not.toContain('url(');
     }
+  });
+
+  it('网格卡封面走流式档（宽 100%），hero 封面保持固定尺寸（issue 19 #5）', async () => {
+    renderHub([makeProject('pFluid', 'Fluid')]);
+    await screen.findByText('继续创作');
+
+    const cardCover = document.querySelector('.pb-card .pp-cover') as HTMLElement;
+    expect(cardCover).toHaveClass('pp-cover--fluid');
+    expect(cardCover.style.width).toBe('100%');
+
+    const heroCover = document.querySelector('.pb-hero .pp-cover') as HTMLElement;
+    expect(heroCover).not.toHaveClass('pp-cover--fluid');
+    expect(heroCover.style.width).toBe('120px');
   });
 
   it('封面不允许再出现 background 简写（简写 + 空长手会把渐变整条抹掉）', async () => {

@@ -165,6 +165,35 @@ describe('duplicateChartInProject · 同工程复制谱面', () => {
   });
 });
 
+describe('duplicateProject · 副本命名（issue 19 #6）', () => {
+  const named = (name: string) => createBlankProject({ id: `p-${name}`, chartId: `c-${name}`, now: 10, name });
+
+  it('重名递增：同源复制两次 →（副本）/（副本 2）', () => {
+    const first = duplicateProject(named('FIRE BIRD'), { id: 'p1', chartIds: ['c1'], now: 1 }, untitled, ['FIRE BIRD']);
+    expect(first.name).toBe('FIRE BIRD（副本）');
+    const second = duplicateProject(named('FIRE BIRD'), {
+      id: 'p2', chartIds: ['c2'], now: 2,
+    }, untitled, ['FIRE BIRD', 'FIRE BIRD（副本）']);
+    expect(second.name).toBe('FIRE BIRD（副本 2）');
+  });
+
+  it('复制副本：剥掉旧「（副本…）」后缀再编号，不叠成（副本）（副本）', () => {
+    const copyOfCopy = duplicateProject(named('FIRE BIRD（副本）'), {
+      id: 'p3', chartIds: ['c3'], now: 3,
+    }, untitled, ['FIRE BIRD', 'FIRE BIRD（副本）']);
+    expect(copyOfCopy.name).toBe('FIRE BIRD（副本 2）');
+  });
+
+  it('未命名工程按显示名编号；不给 taken 时保持（副本）', () => {
+    const anon = duplicateProject(createUnnamedProject({ id: 'pA', chartId: 'cA', now: 1 }), {
+      id: 'pB', chartIds: ['cB'], now: 2,
+    }, untitled, [untitled]);
+    expect(anon.name).toBe('未命名工程（副本）');
+    const bare = duplicateProject(named('FIRE BIRD'), { id: 'p4', chartIds: ['c4'], now: 4 });
+    expect(bare.name).toBe('FIRE BIRD（副本）');
+  });
+});
+
 describe('deleteChartFromProject · 至少一张谱面', () => {
   it('删最后一张被拒，工程不变', () => {
     const src = createUnnamedProject({ id: 'pSong1', chartId: 'cEx1', now: 1 });

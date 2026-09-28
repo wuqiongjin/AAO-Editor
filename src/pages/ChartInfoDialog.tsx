@@ -8,7 +8,8 @@ import ActionBtn from '../ui/ActionBtn';
 import Dialog from '../ui/Dialog';
 import { displayProjectName } from './projectUi';
 
-function parseLevel(raw: string): number | null {
+/** 等级输入解析（空 → null；非有限数 → null）。难度/等级徽标就地编辑与弹窗共用。 */
+export function parseLevel(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const n = Number(trimmed);

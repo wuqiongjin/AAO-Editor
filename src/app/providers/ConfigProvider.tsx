@@ -30,6 +30,8 @@ export interface ConfigContextValue {
   setBackgroundSkin: (patch: { enabled?: boolean; opacity?: number; fit?: 'cover' | 'contain'; scope?: 'outsideTrack' | 'fullCanvas' }) => void;
   /** 曲线工具配置（issue 114）：整份写回 settings.curve 并持久化（跨会话沿用上次值） */
   setCurveConfig: (config: CurveConfig) => void;
+  /** 工程启动台排序（issue 19 #4）：字段级写回 settings.projects.sort 并持久化 */
+  setProjectSort: (sort: AppSettings['projects']['sort']) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
   setAllSettings: (next: AppSettings) => void;
 }
@@ -153,6 +155,15 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // 启动台排序（issue 19 #4）：与皮肤/键音同范式——字段级写回、立即生效并持久化
+  const setProjectSort = useCallback((sort: AppSettings['projects']['sort']) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { projects: { sort } });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
   const setAllSettings = useCallback((next: AppSettings) => {
     setActiveUiLanguage(next.uiLanguage);
     saveSettings(next);
@@ -162,7 +173,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

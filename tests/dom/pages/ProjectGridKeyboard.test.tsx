@@ -4,14 +4,20 @@
 // 选中态以 .pb-grid 圈定 + is-selected class 锁结构（同 issue 09 的节点归属断言口径）。
 // 列数实测（offsetTop）与自动滚入视口是布局行为，jsdom 无布局引擎 → 人工门票（见票）。
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
+import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import ProjectsPage from '@/src/pages/ProjectsPage';
 import {
   ChartProjectStore, type ChartProject, type ProjectChart,
 } from '@/src/chart/project/ChartProject';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
+import { seedZhSettings } from '@/tests/support/storage';
+
+beforeEach(() => {
+  seedZhSettings();
+});
 
 const AT = 1_700_000_000_000;
 
@@ -60,9 +66,11 @@ const PROJECTS = [
 
 function renderStartView(nav = navValue) {
   return renderWithProviders(
-    <AppNavProvider value={nav}>
-      <ProjectsPage />
-    </AppNavProvider>,
+    <ConfigProvider>
+      <AppNavProvider value={nav}>
+        <ProjectsPage />
+      </AppNavProvider>
+    </ConfigProvider>,
     { store: new ChartProjectStore(makeMemoryProjectBackend(PROJECTS)) },
   );
 }
@@ -76,11 +84,14 @@ function cardOf(name: string): HTMLElement {
 
 const pressKey = (key: string) => fireEvent.keyDown(window, { key });
 
-/** 渲染并等待默认选中（第一个卡片）就位——hero 标题由渲染兜底先出，is-selected 随自愈 effect 提交 */
+/** 渲染并等待默认选中（最近打开）就位——hero 标题由渲染兜底先出，is-selected 随自愈 effect 提交 */
 async function renderAndSelectFirst(nav = navValue) {
   renderStartView(nav);
   await screen.findByRole('heading', { name: /最近工程/ });
   await waitFor(() => expect(cardOf('最近工程')).toHaveClass('is-selected'));
+  // 再让出一次宏任务：is-selected 现在由渲染期投影给出，可能先于「列数实测」那次 effect 提交，
+  // 直接按键会读到"列数=1"的旧监听闭包（issue 19 #4 改选中口径后暴露；jsdom 无布局，列数只能实测）
+  await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 0); }); });
 }
 
 describe('issue 14 · 工程卡片网格方向键导航与横幅跟随', () => {

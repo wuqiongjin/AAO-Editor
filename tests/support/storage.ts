@@ -27,3 +27,12 @@ export function settingsStorageOf(settings: unknown): Pick<Storage, 'getItem'> {
     getItem: (k: string) => (k === SETTINGS_KEY ? JSON.stringify(settings) : null),
   };
 }
+
+/**
+ * jsdom 里给真实 localStorage 播种设置：需要 ConfigProvider 的 DOM 测试必须先调它。
+ * 不播种时界面语言按 navigator（jsdom 是 en-US）解析成 `en`，中文断言会整片挂掉；
+ * `patch` 覆盖顶层字段（如 `{ projects: { sort: 'chartCount' } }`）。
+ */
+export function seedZhSettings(patch: Record<string, unknown> = {}, storage: Storage = localStorage): void {
+  storage.setItem(SETTINGS_KEY, JSON.stringify({ schemaVersion: 1, uiLanguage: 'zh-CN', ...patch }));
+}

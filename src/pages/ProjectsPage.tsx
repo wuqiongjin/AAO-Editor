@@ -1,11 +1,12 @@
 // 工程管理页（chart-projects 04 / ADR-0015 §2）：一层两个视图。
 // 默认工程启动台；点封面进工程详情。保活挂载，⇧⌘0 回来停在离开前那一层。
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronDown, Copy, FolderPlus, Lock, MoreHorizontal, Music2, Pencil, Play, Plus, Trash2,
 } from 'lucide-react';
 import { useAppNav } from '../layouts/AppNav';
+import { useConfig } from '../app/ProviderTree';
 import { useCurrentProject } from '../app/providers/CurrentProjectProvider';
 import {
   newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ProjectChart, type SongSource,
@@ -21,11 +22,11 @@ import {
   duplicateChartInProject,
   duplicateProject,
   projectCoverHue,
-  sortProjectsByLastOpened,
   toggleChartCompleted,
   updateChartInfo,
   updateProjectInfo,
 } from '../chart/project/projectCatalog';
+import { mostRecentlyOpenedId, PROJECT_SORT_KEYS, sortProjects, type ProjectSortKey } from '../chart/project/projectSort';
 import { chartStatus } from '../chart/project/workspaceProject';
 import { countChartNotes } from '../chart/editing/NoteEditing';
 import { formatValidationError } from '../chart/editing/ChartConverter';
@@ -36,7 +37,7 @@ import ConfirmDialog from '../ui/ConfirmDialog';
 import Dialog from '../ui/Dialog';
 import EmptyState from '../ui/EmptyState';
 import { showToast } from '../ui/Toast';
-import { ChartInfoDialog } from './ChartInfoDialog';
+import { ChartInfoDialog, parseLevel } from './ChartInfoDialog';
 import {
   ChartStatusIcon,
   displayProjectName,
@@ -84,16 +85,17 @@ function parseSource(type: string, idText: string): SongSource {
   return { type: 'custom' };
 }
 
-function Cover({ project, size }: { project: ChartProject; size: number }) {
+function Cover({ project, size, fluid = false }: { project: ChartProject; size: number; fluid?: boolean }) {
   const url = useCoverUrl(project.coverBlob);
   const hue = projectCoverHue(project.id);
   const ch = project.name?.trim()[0];
   return (
     <div
-      className="pp-cover"
+      className={`pp-cover${fluid ? ' pp-cover--fluid' : ''}`}
       style={{
-        width: size,
-        height: size,
+        // 流式档（issue 19 #5）：宽随列走、高由 aspect-ratio 撑；字号仍按名义 size 派生
+        width: fluid ? '100%' : size,
+        height: fluid ? undefined : size,
         fontSize: size * 0.42,
         // 只用 backgroundImage 长手，绝不混用 background 简写：React 按对象键序逐个赋值，
         // 简写先落地的渐变会被紧随其后的空 backgroundImage 整条抹掉，封面就成了空白（issue 11）。
@@ -110,6 +112,98 @@ function Cover({ project, size }: { project: ChartProject; size: number }) {
 function StatusBadge({ chart }: { chart: ProjectChart }) {
   const s = chartStatus(chart);
   return <span className={`pp-badge pp-badge--${s}`}><ChartStatusIcon chart={chart} size={11} />{statusLabel(chart)}</span>;
+}
+
+/**
+ * 难度+等级徽标（issue 19 #2）：点开就地小浮层直接改，不再绕道行尾铅笔。
+ * - 点难度色块 = 即时提交；等级输入 Enter / 失焦提交（照 ADR-0008 §5 就地编辑口径）。
+ * - 已上传谱面只读：点击只给 toast（复用 `projects.uploadedReadonly`），不弹浮层。
+ * - 浮层照卡片菜单的 portal + scrim 范式定位，Esc / 点外部关闭。
+ */
+function DiffLevelBadge({ chart, uploaded, onCommit }: {
+  chart: ProjectChart;
+  uploaded: boolean;
+  onCommit: (patch: { diff: ChartDifficulty; level: number | null }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [level, setLevel] = useState('');
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const cancelledRef = useRef(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  const openPopover = () => {
+    if (uploaded) {
+      showToast(t('projects.uploadedReadonly'), 'warn');
+      return;
+    }
+    setLevel(chart.level != null ? String(chart.level) : '');
+    cancelledRef.current = false;
+    if (wrapRef.current) {
+      const r = wrapRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 6, left: r.left });
+    }
+    setOpen(true);
+  };
+
+  const commitLevel = () => {
+    const parsed = parseLevel(level);
+    if (parsed !== chart.level) onCommit({ diff: chart.diff, level: parsed });
+  };
+
+  return (
+    <span className="pc-diff" ref={wrapRef}>
+      <button
+        type="button"
+        className="pc-chart__diff"
+        style={{ background: DIFF_COLORS[chart.diff] }}
+        title={t('projects.diffLevelEdit')}
+        aria-haspopup="dialog"
+        onClick={(e) => { e.stopPropagation(); openPopover(); }}
+      >
+        {DIFF_NAMES[chart.diff]}<b>{chart.level ?? '–'}</b>
+      </button>
+      {open && createPortal(
+        <>
+          <span className="pp-menu__scrim" onClick={() => setOpen(false)} />
+          <div className="pc-diff__panel is-portaled" style={{ top: pos.top, left: pos.left }} role="dialog" aria-label={t('projects.diffLevelEdit')}>
+            <span className="pc-diff__row">
+              {DIFF_NAMES.map((name, i) => (
+                <button
+                  key={name}
+                  type="button"
+                  className={`pc-diff__chip${i === chart.diff ? ' is-active' : ''}`}
+                  style={{ background: DIFF_COLORS[i] }}
+                  title={name}
+                  onClick={() => onCommit({ diff: i as ChartDifficulty, level: chart.level })}
+                >
+                  {DIFF_SHORT[i]}
+                </button>
+              ))}
+            </span>
+            <label className="pc-diff__level">
+              <span>{t('projects.level')}</span>
+              <input
+                value={level}
+                inputMode="numeric"
+                autoFocus
+                onChange={(e) => setLevel(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter = 提交并收起（blur 会再触发一次提交，靠 parsed !== chart.level 去重）
+                  if (e.key === 'Enter') { e.currentTarget.blur(); setOpen(false); return; }
+                  if (e.key === 'Escape') { cancelledRef.current = true; setOpen(false); }
+                }}
+                onBlur={() => {
+                  if (cancelledRef.current) { cancelledRef.current = false; return; }
+                  commitLevel();
+                }}
+              />
+            </label>
+          </div>
+        </>,
+        document.body,
+      )}
+    </span>
+  );
 }
 
 function Menu({ trigger, children }: { trigger: ReactNode; children: ReactNode }) {
@@ -290,9 +384,12 @@ function EditInfoDialog({ project, onClose, onSave }: {
 
 export default function ProjectsPage() {
   const { setActivePage } = useAppNav();
+  const { settings, setProjectSort } = useConfig();
   const {
     projectId, store, catalogEpoch, open, reset, notifyCatalogChanged, flushPersist,
   } = useCurrentProject();
+  // 启动台排序（issue 19 #4）：跨会话沿用，改一次写回设置对象
+  const sortKey = settings.projects.sort;
   const [projects, setProjects] = useState<ChartProject[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [newSource, setNewSource] = useState<NewSource | null>(null);
@@ -301,11 +398,24 @@ export default function ProjectsPage() {
   // 删除要等用户点头（弹窗是异步的）：待确认的目标先存下，确认键按了才动手
   const [askDelete, setAskDelete] = useState<ChartProject | null>(null);
   const [askDeleteChart, setAskDeleteChart] = useState<{ project: ChartProject; chart: ProjectChart } | null>(null);
+  // 视图切换方向（issue 19 #1）：进详情从右滑入、回主页从左滑入；详情内换工程不重放动画（见视图包裹层 key）
+  const [navDir, setNavDir] = useState<'forward' | 'back'>('forward');
+
+  const goDetail = useCallback((id: string) => {
+    setNavDir('forward');
+    setDetailId(id);
+  }, []);
+
+  const goHome = useCallback(() => {
+    setNavDir('back');
+    setDetailId(null);
+  }, []);
 
   const reload = useCallback(async () => {
-    const listed = sortProjectsByLastOpened(await store.list());
+    // 落盘原序入库；展示序在下面按当前排序设置算（issue 19 #4）
+    const listed = await store.list();
     setProjects(listed);
-    setDetailId((id) => (id && !listed.some((p) => p.id === id) ? (listed[0]?.id ?? null) : id));
+    setDetailId((id) => (id && !listed.some((p) => p.id === id) ? mostRecentlyOpenedId(listed) : id));
   }, [store]);
 
   useEffect(() => { void reload(); }, [reload, catalogEpoch]);
@@ -372,20 +482,23 @@ export default function ProjectsPage() {
     const src = await store.get(fromId);
     if (!src) return;
     const now = Date.now();
+    // 副本编号要看全部现有工程名（issue 19 #6）：以存储为准，避免弹窗开着时列表已经变了
+    const taken = (await store.list()).map((p) => displayProjectName(p));
     const copy = duplicateProject(src, {
       id: newProjectId(),
       chartIds: src.charts.map(() => newChartId()),
       now,
-    }, untitledProjectLabel());
+    }, untitledProjectLabel(), taken);
     await store.save(copy);
     notifyCatalogChanged();
     setNewSource(null);
     await reload();
   }, [flushPersist, store, notifyCatalogChanged, reload]);
 
-  const list = projects;
+  // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）
+  const list = useMemo(() => sortProjects(projects, sortKey, untitledProjectLabel()), [projects, sortKey]);
   // issue 09：有工程（哪怕全已完成）横幅常显；issue 14：横幅内容由 ProjectStartView 的
-  // selectedId 驱动（默认选中第一个卡片 = 最近打开，Q11），resume 兜底不再参与。
+  // selectedId 驱动（默认选中 = 最近打开，Q11），resume 兜底不再参与。
 
   const dialogs = (
     <>
@@ -490,7 +603,9 @@ export default function ProjectsPage() {
     if (!sel) {
       return (
         <div className="pm-root">
-          <ProjectStartView list={list} currentId={projectId} onDetail={setDetailId} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
+          <div key="hub" className={`pm-view pm-view--${navDir}`}>
+            <ProjectStartView list={list} currentId={projectId} sort={sortKey} onSort={setProjectSort} onDetail={goDetail} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
+          </div>
           {dialogs}
         </div>
       );
@@ -499,10 +614,11 @@ export default function ProjectsPage() {
     const locked = uploads.length > 0;
     return (
       <div className="pm-root">
+        <div key="detail" className={`pm-view pm-view--${navDir}`}>
         <div className="pc-page">
           <aside className="pc-list">
             <div className="pc-list__head">
-              <button type="button" className="pp-btn pp-btn--sm" onClick={() => setDetailId(null)}>{t('projects.home')}</button>
+              <button type="button" className="pp-btn pp-btn--sm" onClick={goHome}>{t('projects.home')}</button>
               {newButton}
             </div>
             {list.map((p) => {
@@ -513,7 +629,7 @@ export default function ProjectsPage() {
                   key={p.id}
                   type="button"
                   className={`pc-item${p.id === sel.id ? ' is-selected' : ''}`}
-                  onClick={() => setDetailId(p.id)}
+                  onClick={() => goDetail(p.id)}
                   onDoubleClick={() => void openWorkspace(p.id)}
                 >
                   <Cover project={p} size={36} />
@@ -556,7 +672,13 @@ export default function ProjectsPage() {
                   const up = chartStatus(c) === 'uploaded';
                   return (
                     <div key={c.id} className="pc-chart">
-                      <span className="pc-chart__diff" style={{ background: DIFF_COLORS[c.diff] }}>{DIFF_NAMES[c.diff]}<b>{c.level ?? '–'}</b></span>
+                      <DiffLevelBadge
+                        chart={c}
+                        uploaded={up}
+                        onCommit={(patch) => void mutate(sel.id, (p) => updateChartInfo(p, c.id, {
+                          title: c.title, diff: patch.diff, level: patch.level,
+                        }, Date.now()))}
+                      />
                       <span className="pc-chart__title">
                         <b>{effectiveTitle(sel, c)}</b>
                         <small className="pp-muted">{t('projects.notesMeta', { count: countChartNotes(c.notes), time: relTime(c.lastModified) })}</small>
@@ -621,6 +743,7 @@ export default function ProjectsPage() {
             </section>
           </main>
         </div>
+        </div>
         {dialogs}
       </div>
     );
@@ -628,7 +751,9 @@ export default function ProjectsPage() {
 
   return (
     <div className="pm-root">
-      <ProjectStartView list={list} currentId={projectId} onDetail={setDetailId} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
+      <div key="hub" className={`pm-view pm-view--${navDir}`}>
+        <ProjectStartView list={list} currentId={projectId} sort={sortKey} onSort={setProjectSort} onDetail={goDetail} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
+      </div>
       {dialogs}
     </div>
   );
@@ -650,10 +775,12 @@ function GuideBanner() {
 }
 
 function ProjectStartView({
-  list, currentId, onDetail, onOpen, onNew, projectMenu,
+  list, currentId, sort, onSort, onDetail, onOpen, onNew, projectMenu,
 }: {
   list: ChartProject[];
   currentId: string | null;
+  sort: ProjectSortKey;
+  onSort: (key: ProjectSortKey) => void;
   onDetail: (id: string) => void;
   onOpen: (id: string, chartId?: string) => void;
   onNew: (src: NewSource) => void;
@@ -666,10 +793,15 @@ function ProjectStartView({
   const isEmpty = list.length === 0;
 
   // 浏览焦点（issue 14）：不等于「当前工程」，is-current 角标继续单独标识。
-  // 默认选中 = 第一个卡片 = 最近打开（Q11）；列表变化后失效（工程被删等）→ 自愈回第一个。
+  // 默认选中 = 最近打开（Q11），与显示排序无关（issue 19 #4：排序可选后「第一个卡片」不再等于它）；
+  // 选中失效（工程被删等）时先按默认口径**投影**（hero 与高亮首帧就不闪），再由 effect 固化回 state。
+  const defaultSelectedId = mostRecentlyOpenedId(list);
+  const effectiveSelectedId = selectedId !== null && list.some((p) => p.id === selectedId)
+    ? selectedId
+    : defaultSelectedId;
   useEffect(() => {
-    setSelectedId((id) => (id !== null && list.some((p) => p.id === id) ? id : list[0]?.id ?? null));
-  }, [list]);
+    if (effectiveSelectedId !== selectedId) setSelectedId(effectiveSelectedId);
+  }, [effectiveSelectedId, selectedId]);
 
   // 列数按容器实际折行实测：首行卡片数即列数。ResizeObserver 覆盖窗口 resize 与导航展开折叠；
   // 失活页只是 opacity:0，布局仍可测，无需等激活。
@@ -706,33 +838,33 @@ function ProjectStartView({
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
       if (isArrow) {
-        const next = moveGridSelection(list, selectedId, key, columns);
-        if (next === selectedId) return; // 边界停在原地：不吞键，放行 .pb-page 原生滚页
+        const next = moveGridSelection(list, effectiveSelectedId, key, columns);
+        if (next === effectiveSelectedId) return; // 边界停在原地：不吞键，放行 .pb-page 原生滚页
         e.preventDefault();
         setSelectedId(next);
         return;
       }
       // Enter 打开选中工程详情；焦点在按钮 / 链接等可激活元素上时交给浏览器原生行为
       if (tag === 'BUTTON' || tag === 'A' || (target instanceof HTMLElement && target.hasAttribute('tabindex'))) return;
-      if (selectedId) {
+      if (effectiveSelectedId) {
         e.preventDefault();
-        onDetail(selectedId);
+        onDetail(effectiveSelectedId);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activePage, list, columns, selectedId, onDetail]);
+  }, [activePage, list, columns, effectiveSelectedId, onDetail]);
 
   // 选中卡片自动滚入视口（定案 5；布局行为 jsdom 测不了 → 人工验收）
   useEffect(() => {
-    if (!selectedId) return;
+    if (!effectiveSelectedId) return;
     gridRef.current?.querySelectorAll<HTMLElement>('.pb-card').forEach((card) => {
-      if (card.dataset.projectId === selectedId) card.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+      if (card.dataset.projectId === effectiveSelectedId) card.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
     });
-  }, [selectedId]);
+  }, [effectiveSelectedId]);
 
-  // hero 是选中卡片的投影；首帧 selectedId 尚未同步时回退第一个卡片，横幅不闪空
-  const selected = list.find((p) => p.id === selectedId) ?? list[0];
+  // hero 是选中卡片的投影（选中失效时 = 最近打开，横幅不闪空）
+  const selected = list.find((p) => p.id === effectiveSelectedId) ?? list[0];
   return (
     <div className="pb-page">
       {isEmpty && <GuideBanner />}
@@ -773,7 +905,19 @@ function ProjectStartView({
         </div>
       </section>
       <section>
-        <h3 className="pb-h">{t('projects.allProjects')} <span className="pp-muted">{list.length}</span></h3>
+        <div className="pb-h-row">
+          <h3 className="pb-h">{t('projects.allProjects')} <span className="pp-muted">{list.length}</span></h3>
+          {!isEmpty && (
+            <label className="pb-sort">
+              <span className="pp-muted">{t('projects.sortBy')}</span>
+              <select value={sort} onChange={(e) => onSort(e.target.value as ProjectSortKey)}>
+                {PROJECT_SORT_KEYS.map((key) => (
+                  <option key={key} value={key}>{t(`projects.sort.${key}` as 'projects.sort.lastOpened')}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
         {isEmpty ? (
           <EmptyState
             icon={Music2}
@@ -791,12 +935,12 @@ function ProjectStartView({
             <div
               key={p.id}
               data-project-id={p.id}
-              className={`pb-card${p.id === currentId ? ' is-current' : ''}${p.id === selectedId ? ' is-selected' : ''}`}
+              className={`pb-card${p.id === currentId ? ' is-current' : ''}${p.id === effectiveSelectedId ? ' is-selected' : ''}`}
               onClick={() => onDetail(p.id)}
               onDoubleClick={() => onDetail(p.id)}
             >
               <div className="pb-card__cover">
-                <Cover project={p} size={172} />
+                <Cover project={p} size={172} fluid />
                 {p.id === currentId && <em className="pb-card__current">{t('projects.current')}</em>}
                 <span className="pb-card__menu" onClick={(e) => e.stopPropagation()}>{projectMenu(p)}</span>
                 <button

@@ -4,14 +4,20 @@
 // 有工程（哪怕全已完成）→ hero 仍渲染（防「横幅没了」回归）。
 // 视觉几何（占位等高）jsdom 测不了 → 人工门票：0 工程 vs 1 工程并列截图对比 hero 区高度一致。
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen } from '@testing-library/react';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
+import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import ProjectsPage from '@/src/pages/ProjectsPage';
 import {
   ChartProjectStore, type ChartProject, type ProjectChart,
 } from '@/src/chart/project/ChartProject';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
+import { seedZhSettings } from '@/tests/support/storage';
+
+beforeEach(() => {
+  seedZhSettings();
+});
 
 const AT = 1_700_000_000_000;
 
@@ -53,9 +59,11 @@ function makeProject(id: string, charts: ProjectChart[]): ChartProject {
 
 function renderStartView(projects: ChartProject[]) {
   return renderWithProviders(
-    <AppNavProvider value={navValue}>
-      <ProjectsPage />
-    </AppNavProvider>,
+    <ConfigProvider>
+      <AppNavProvider value={navValue}>
+        <ProjectsPage />
+      </AppNavProvider>
+    </ConfigProvider>,
     { store: new ChartProjectStore(makeMemoryProjectBackend(projects)) },
   );
 }

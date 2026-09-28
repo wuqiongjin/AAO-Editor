@@ -78,6 +78,8 @@ export function duplicateProject(
   src: ChartProject,
   ids: { id: string; chartIds: string[]; now: number },
   untitled: string = DEFAULT_UNTITLED,
+  /** 现有工程显示名：重名时递增「（副本 2）…」（与复制谱面同口径，issue 19 #6） */
+  taken: readonly string[] = [],
 ): ChartProject {
   const charts = src.charts.map((chart, i) => ({
     ...chart,
@@ -90,7 +92,7 @@ export function duplicateProject(
   return {
     ...src,
     id: ids.id,
-    name: `${projectDisplayName(src.name, untitled)}（副本）`,
+    name: uniqueCopyTitle(projectDisplayName(src.name, untitled), taken),
     lastOpened: ids.now,
     charts,
   };
@@ -144,8 +146,8 @@ export function addChartToProject(
   return { ok: true, project: { ...project, charts: [...project.charts, chart] }, chart };
 }
 
-/** 复制谱面默认名：原显示名 +「（副本）」，重名则（副本 2）… */
-export function uniqueCopyTitle(base: string, taken: string[]): string {
+/** 复制工程 / 复制谱面共用：原显示名 +「（副本）」，重名则（副本 2）… */
+export function uniqueCopyTitle(base: string, taken: readonly string[]): string {
   const stem = base.replace(/（副本(?: \d+)?）$/, '') || base;
   const used = new Set(taken);
   const first = `${stem}（副本）`;

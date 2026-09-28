@@ -57,11 +57,13 @@ describe('issue 17 · 原生提示弹窗清零', () => {
     expect(codeModal).toMatch(/showToast\(t\('chartCode\.needBpm0'\), 'danger'\)/);
   });
 
-  it('工程页两处（删最后一张谱面 / 新增谱面被拒）与工作台切换器一处同样接了 showToast', () => {
-    expect(toastCalls(projectsPage)).toBe(2);
+  it('工程页三处（删最后一张 / 新增被拒 / 已上传徽标只读）与工作台切换器一处同样接了 showToast', () => {
+    expect(toastCalls(projectsPage)).toBe(3);
     expect(toastCalls(chartSwitcher)).toBe(1);
     // 「不能删最后一张」是拦住动作，不是出错 —— 走 warn 不走 danger
     expect(projectsPage).toMatch(/showToast\(t\('projects\.deleteLastChart'\), 'warn'\)/);
+    // 已上传谱面的难度/等级徽标点击（issue 19 #2）：只读拦截同样走 warn，文案复用既有键
+    expect(projectsPage).toMatch(/showToast\(t\('projects\.uploadedReadonly'\), 'warn'\)/);
   });
 
   it('宿主在应用壳里挂了恰好一次（挂零处 = 提示发出去没人接）', () => {

@@ -6,6 +6,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
+import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import ProjectsPage from '@/src/pages/ProjectsPage';
 import {
   ChartProjectStore, type ChartProject, type ProjectChart,
@@ -13,6 +14,7 @@ import {
 import {
   makeMemoryProjectBackend, renderWithProviders, type MemoryProjectBackend,
 } from '@/tests/support/providers';
+import { seedZhSettings } from '@/tests/support/storage';
 
 const AT = 1_700_000_000_000;
 
@@ -61,6 +63,7 @@ const PROJECTS = [
 let backend: MemoryProjectBackend;
 
 beforeEach(() => {
+  seedZhSettings();
   backend = makeMemoryProjectBackend(PROJECTS.map((p) => ({ ...p, charts: [...p.charts] })));
   vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
@@ -72,9 +75,11 @@ afterEach(() => {
 function renderPage() {
   const store = new ChartProjectStore(backend);
   renderWithProviders(
-    <AppNavProvider value={navValue}>
-      <ProjectsPage />
-    </AppNavProvider>,
+    <ConfigProvider>
+      <AppNavProvider value={navValue}>
+        <ProjectsPage />
+      </AppNavProvider>
+    </ConfigProvider>,
     { store },
   );
   return store;

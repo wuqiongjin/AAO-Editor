@@ -8,6 +8,22 @@
   color: var(--text);
 }
 
+/* 主页 ↔ 详情切换动效（issue 19 #1）：只做进入动画（不延迟旧视图卸载，避免两阶段卸载的复杂度）。
+   方向感：下钻（进详情）从右进、返回（回主页）从左进；170ms 与页面级进入动效同档。
+   末帧必须 `transform: none` —— 残留 transform 会给视图内部 sticky/fixed 建新的包含块。
+   写成普通 CSS animation，全局 prefers-reduced-motion 兜底（tokens.css）自动清零。 */
+.pm-view { height: 100%; }
+.pm-view--forward { animation: pm-view-in-forward 170ms var(--ease) both; }
+.pm-view--back { animation: pm-view-in-back 170ms var(--ease) both; }
+@keyframes pm-view-in-forward {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pm-view-in-back {
+  from { opacity: 0; transform: translateX(-18px); }
+  to { opacity: 1; transform: none; }
+}
+
 .pp-muted { color: var(--text-muted); }
 .pp-eyebrow { font-size: var(--text-2xs); letter-spacing: .08em; text-transform: uppercase; color: var(--accent-text); font-weight: 600; }
 .pp-current-tag { font-style: normal; font-size: var(--text-2xs); margin-left: 6px; padding: 1px 6px; border-radius: var(--radius-full); background: var(--accent-soft); color: var(--accent-text); }
@@ -24,6 +40,8 @@
   background-size: cover;
   background-position: center;
 }
+/* 流式档（issue 19 #5）：网格卡封面随列宽拉伸，保持 1:1（字号仍按名义 172 派生） */
+.pp-cover--fluid { aspect-ratio: 1 / 1; }
 
 .pp-st--uploaded { color: var(--accent); }
 .pp-st--completed { color: var(--success); }
@@ -78,13 +96,20 @@
 .pb-hero--guide { min-height: 168px; }
 .pb-guide-art { flex-shrink: 0; display: grid; place-items: center; width: 120px; height: 120px; border-radius: var(--radius-md); background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--bg))); color: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
 .pb-h { margin: 0 0 12px; font-size: var(--text-sm); font-weight: 600; }
+/* 「全部工程」标题行（issue 19 #4）：标题 + 右侧排序选择 */
+.pb-h-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.pb-h-row .pb-h { margin-bottom: 0; }
+.pb-sort { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); }
+.pb-sort select { height: 26px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); color: var(--text); font-size: var(--text-xs); }
 .pb-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .pb-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elevated); color: var(--text); text-align: left; cursor: pointer; }
 .pb-tile svg { color: var(--accent); }
 .pb-tile small { color: var(--text-muted); font-size: var(--text-xs); }
 .pb-tile:hover:not(:disabled) { border-color: var(--accent); box-shadow: var(--shadow-sm); }
 .pb-tile:disabled { opacity: .55; cursor: not-allowed; }
-.pb-grid { display: grid; grid-template-columns: repeat(auto-fill, 172px); gap: 20px 18px; }
+/* 流式轨道（issue 19 #5）：固定 172px 轨道会把一行凑不满的余量全留在右侧；
+   minmax 让每列平分余量、末列贴右缘，封面走 .pp-cover--fluid 等比例放大。 */
+.pb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 20px 18px; }
 .pb-card { display: flex; flex-direction: column; gap: 4px; cursor: pointer; font-size: var(--text-sm); }
 .pb-card b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pb-card small { font-size: var(--text-xs); }
@@ -128,7 +153,17 @@
 .pc-charts { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elevated); }
 .pc-chart { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 10px 14px; border-top: 1px solid var(--border-faint); font-size: var(--text-sm); }
 .pc-chart:first-child { border-top: none; }
-.pc-chart__diff { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 8px; border-radius: var(--radius-sm); color: #fff; font-size: var(--text-xs); font-weight: 600; }
+.pc-chart__diff { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 100px; padding: 4px 8px; border: none; border-radius: var(--radius-sm); color: #fff; font-size: var(--text-xs); font-weight: 600; font-family: inherit; cursor: pointer; }
+.pc-chart__diff:hover { filter: brightness(1.08); }
+/* 难度+等级就地编辑浮层（issue 19 #2） */
+.pc-diff { display: inline-flex; }
+.pc-diff__panel { display: flex; flex-direction: column; gap: 10px; min-width: 208px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-elevated); box-shadow: var(--shadow-lg); }
+.pc-diff__panel.is-portaled { position: fixed; z-index: 10000; }
+.pc-diff__row { display: flex; gap: 6px; }
+.pc-diff__chip { flex: 1; height: 24px; border: 2px solid transparent; border-radius: var(--radius-sm); color: #fff; font-size: var(--text-2xs); font-weight: 700; font-family: inherit; cursor: pointer; }
+.pc-diff__chip.is-active { border-color: var(--text); }
+.pc-diff__level { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); }
+.pc-diff__level input { width: 72px; height: 26px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: var(--text-xs); }
 .pc-chart__title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pc-chart__title small { font-size: var(--text-xs); }
 .pc-chart__actions { display: flex; align-items: center; gap: 4px; }
