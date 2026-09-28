@@ -2,7 +2,7 @@
 // 承载：theme / layout / shortcuts / audio，按字段写回（updateSettings）。
 // Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
-import { loadSettings, saveSettings, updateSettings, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
+import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
 import { getDefaultConfig, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
@@ -32,6 +32,8 @@ export interface ConfigContextValue {
   setCurveConfig: (config: CurveConfig) => void;
   /** 工程启动台排序（issue 19 #4）：字段级写回 settings.projects.sort 并持久化 */
   setProjectSort: (sort: AppSettings['projects']['sort']) => void;
+  /** 工程详情页左栏宽度（issue 23 #2）：已夹取到 PROJECT_LIST_WIDTH 区间 */
+  setProjectListWidth: (width: number) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
   setAllSettings: (next: AppSettings) => void;
 }
@@ -164,6 +166,19 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // 工程详情页左栏宽度（issue 23 #2）：只改 layout.projectList，不整对象覆写 ——
+  // setLayout 会带上 leftPanel/rightPanel 的**旧值**，而那两个归工作台的 UIContext 管，
+  // 从这里整写会把工作台刚拖的宽度打回去。
+  const setProjectListWidth = useCallback((width: number) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, {
+        layout: { ...prev.layout, projectList: { width: clampProjectListWidth(width) } },
+      });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
   const setAllSettings = useCallback((next: AppSettings) => {
     setActiveUiLanguage(next.uiLanguage);
     saveSettings(next);
@@ -173,7 +188,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setProjectListWidth, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

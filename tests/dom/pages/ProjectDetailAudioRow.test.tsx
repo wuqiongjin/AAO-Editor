@@ -120,7 +120,7 @@ describe('票 15 · 工程详情音频行（只读展示 + 带作用域跳转）
   it('「设置音频」chip 带 scope 跳到音频页（不切当前工程）', async () => {
     const chip = await renderDetail('甲工程');
 
-    expect(chip).toHaveAttribute('title', '到音频页设置这个工程的音频（不切换当前工程）');
+    expect(chip).toHaveAttribute('title', '前往音频页设置此工程的音频（不切换当前工程）');
     fireEvent.click(chip);
 
     expect(setActivePage).toHaveBeenCalledWith('audio', { scope: { projectId: 'p1' } });

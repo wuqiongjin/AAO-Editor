@@ -37,9 +37,12 @@ export function useLayoutPersistence(opts: UseLayoutPersistenceOptions): void {
   }, []);
 
   // hydrate 后回写 settings.layout
+  // issue 23 #2：layout 段里还有 projectList（工程详情页左栏），不归工作台管；
+  // 这里必须把它原样带上，否则进一次工作台就会把详情页拖出来的宽度打回默认。
   useEffect(() => {
     if (!layoutHydrated) return;
     setLayout({
+      ...settings.layout,
       leftPanel: { width: leftPanelWidth, collapsed: leftCollapsed },
       rightPanel: { width: rightPanelWidth, collapsed: rightCollapsed },
     });

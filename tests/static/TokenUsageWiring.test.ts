@@ -5,15 +5,19 @@
 // 亮色下看着还行（5.0:1），暗色下变成浅字压浅青（1.8:1）读不出来，藏了大半年没人发现。
 // 死引用不会报错、不会进 lint，只能靠这条闸。
 //
-// 「有定义」三处都算：
+// 「有定义」四处都算：
 //   1. CSS 里的声明 `--x: …`（tokens.css 与各局部样式文件）
 //   2. 内联 style 里的键 `'--x': …`（如 --c / --ws-left-w 由组件注入）
 //   3. `setProperty('--x', …)`
-// 带兜底的 `var(--x, fallback)` 不豁免：兜底只是掩盖，token 该定义还得定义。
+//   4. 布局调参旋钮：只活在 CSS 兜底里、没有 JS 侧定义的 `var(--x, fallback)` ——
+//      在 `tests/static/tokenAllowlist.ts` 登记。这类名字不落字面量，闸看不见它的"定义"，
+//      只能靠白名单放行；代价是**兜底值必须写**（没有兜底时名字写错就等于静默失效）。
+// 除第 4 类外，带兜底的 `var(--x, fallback)` **不豁免**：兜底只是掩盖，token 该定义还得定义。
 import { readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readStripped, repoRoot } from '@/tests/support/source';
+import { PARAMETERIZED_TOKENS } from './tokenAllowlist';
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -53,12 +57,30 @@ for (const rel of files) {
 
 /** 用到了但全仓没有定义的 token —— 这些声明整条失效 */
 const deadTokens = [...used.entries()]
-  .filter(([name]) => !defined.has(name))
+  .filter(([name]) => !defined.has(name) && !PARAMETERIZED_TOKENS.includes(name))
   .map(([name, where]) => `${name} (${[...where].join(', ')})`);
 
+/** 参数化 token 在使用处必须带兜底值：名字不在 src 落字面量，兜底是它唯一的自解释 */
+const parameterizedWithoutFallback = [...used.entries()]
+  .filter(([name]) => PARAMETERIZED_TOKENS.includes(name))
+  .filter(([name]) => {
+    const sources = [...used.get(name)!].map((rel) => readStripped(rel));
+    return !sources.some((src) => new RegExp(`var\\(\\s*${name}\\s*,`).test(src));
+  })
+  .map(([name]) => name);
+
 describe('设计令牌 · 用到的都必须有定义', () => {
-  it('src 里没有引用了未定义 token 的地方', () => {
+  it('src 里没有引用了未定义 token 的地方（参数化 token 白名单除外）', () => {
     expect(deadTokens).toEqual([]);
+  });
+
+  it('参数化 token 在使用处都带了兜底值', () => {
+    expect(parameterizedWithoutFallback).toEqual([]);
+  });
+
+  it('白名单里没有已死的条目（定义进了 src 就该从白名单删掉）', () => {
+    const stale = PARAMETERIZED_TOKENS.filter((name) => defined.has(name));
+    expect(stale).toEqual([]);
   });
 
   it('扫描自己没扫空（免得路径一改就静默放行）', () => {

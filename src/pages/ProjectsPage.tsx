@@ -46,6 +46,7 @@ import {
   untitledProjectLabel,
 } from './projectUi';
 import { moveGridSelection } from './projectGridSelection';
+import ProjectListSplit from './ProjectListSplit';
 import './ProjectsPage.css';
 
 const H = 3600_000;
@@ -384,8 +385,8 @@ function EditInfoDialog({ project, onClose, onSave }: {
 }
 
 export default function ProjectsPage() {
-  const { setActivePage } = useAppNav();
-  const { settings, setProjectSort } = useConfig();
+  const { activePage, setActivePage } = useAppNav();
+  const { settings, setProjectSort, setProjectListWidth } = useConfig();
   const {
     projectId, store, catalogEpoch, open, reset, notifyCatalogChanged, flushPersist,
   } = useCurrentProject();
@@ -432,12 +433,21 @@ export default function ProjectsPage() {
     await reload();
   }, [flushPersist, store, notifyCatalogChanged, reload]);
 
-  const openWorkspace = useCallback(async (id: string, chartId?: string) => {
+  // 「改写当前工程」与「进入工作台」是两件事（ADR-0015 §3 补充 / issue 23 #1）：
+  // 前者是状态、后者是跳页。拆开是因为创建 / 复制工程都要改当前工程，却都不该把人
+  // 推进工作台（空白新建的谱面连歌曲、难度、封面都没填）。
+  // 静态断言（tests/static/WorkspaceEntrySingle.test.ts）：`setActivePage('workspace')`
+  // 全仓只允许出现在 enterWorkspace 一处 —— 别再把它和 setCurrent 绑回一起。
+  const setCurrent = useCallback(async (id: string, chartId?: string) => {
     await flushPersist();
     await open(id, chartId);
     notifyCatalogChanged();
+  }, [flushPersist, open, notifyCatalogChanged]);
+
+  const enterWorkspace = useCallback(async (id: string, chartId?: string) => {
+    await setCurrent(id, chartId);
     setActivePage('workspace');
-  }, [flushPersist, open, notifyCatalogChanged, setActivePage]);
+  }, [setCurrent, setActivePage]);
 
   // 删除工程本体：确认那一步在弹窗里，走到这里就是真的删
   const deleteProject = useCallback(async (p: ChartProject) => {
@@ -460,6 +470,12 @@ export default function ProjectsPage() {
     });
   }, [mutate]);
 
+  // 创建 / 复制工程的统一落点（issue 23 #1/#3）：留在工程详情页、把新工程设为当前工程、
+  // 视图切到它，都不跳工作台。视图切换直接改 detailId 而不走 goDetail —— goDetail 会置
+  // navDir='forward' 播一次滑入，而"详情内换工程"本就不该重放动画（票 19 #1 的锁测）。
+  const goDetailKeepAnimation = useCallback((id: string) => {
+    setDetailId(id);
+  }, []);
   const createBlank = useCallback(async (input: { name: string; artist: string; diff: ChartDifficulty }) => {
     await flushPersist();
     const now = Date.now();
@@ -474,9 +490,9 @@ export default function ProjectsPage() {
     await store.save(project);
     notifyCatalogChanged();
     setNewSource(null);
-    await open(project.id, project.charts[0].id);
-    setActivePage('workspace');
-  }, [flushPersist, store, notifyCatalogChanged, open, setActivePage]);
+    goDetailKeepAnimation(project.id);
+    await setCurrent(project.id, project.charts[0].id);
+  }, [flushPersist, store, notifyCatalogChanged, goDetailKeepAnimation, setCurrent]);
 
   const copyProject = useCallback(async (fromId: string) => {
     await flushPersist();
@@ -493,11 +509,56 @@ export default function ProjectsPage() {
     await store.save(copy);
     notifyCatalogChanged();
     setNewSource(null);
+    goDetailKeepAnimation(copy.id);
+    // 与创建同口径：切视图 + 改当前工程都做，但不跳工作台。
+    // reload() 只为让左栏出现副本 —— 少了它副本会静默出现在下次刷新后。
     await reload();
-  }, [flushPersist, store, notifyCatalogChanged, reload]);
+    await setCurrent(copy.id, copy.charts[0]?.id);
+  }, [flushPersist, store, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
   // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）
   const list = useMemo(() => sortProjects(projects, sortKey, untitledProjectLabel()), [projects, sortKey]);
+
+  // 详情页左栏 ↑↓ 翻看（issue 23 #4，2026-09-28 修订）。口径：
+  //   - **只翻看**（只切 `detailId`），**永不碰当前工程** —— "把 ↑↓ 接到当前工程上"
+  //     是「当前工程怎么切换」的交互模型问题，归票 24，不在这里顺手加。
+  //   - Enter / 双击仍 = 进工作台（enterWorkspace），与 hub 一致。
+  //   - 导航顺序必须用**展示序 `list`**（sortProjects 排过的），不是 store 原始序 `projects`：
+  //     左栏渲染的是 `list`，用 `projects` 去找相邻项会算错邻居 —— 表现为"切到一个工程后
+  //     就没法继续移动/来回横跳"（2026-09-28 用户报「↑↓ 行为非常诡异」的根因）。
+  //   - `wrap: true` 首尾循环（用户 2026-09-28 拍板）：走到底再按同方向绕回另一端。
+  //   - 只响应 ↑↓；←→ 在单列列表里无意义，直接忽略（不吞键）。
+  //   - 守卫照抄 hub 那份（仅 activePage=projects / 弹窗或菜单开着不响应 / 输入框放行）。
+  //   - 本 effect 只在详情视图挂载（detailId 非空才渲染这条分支），与 hub 那份天然互斥。
+  //   - 必须声明在 `list` 之后（依赖它；提到前面会 TDZ 报错）。
+  useEffect(() => {
+    if (activePage !== 'projects' || !detailId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const key = e.key;
+      if (key !== 'ArrowUp' && key !== 'ArrowDown') return;
+      if (list.length === 0) return;
+      if (document.querySelector('.dialog__scrim, .pp-menu__scrim')) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+      const next = moveGridSelection(list, detailId, key, 1, { wrap: true });
+      if (!next || next === detailId) return;
+      e.preventDefault();
+      setDetailId(next);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activePage, detailId, list]);
+
+  // 详情页左栏选中项自动滚入视口（issue 23 Q12/Q13）——与 hub 那份同参数。
+  // 索引必须与渲染序（`list`）对齐：左栏渲染的是 `list.map(...)`，用 `projects` 会错位。
+  useEffect(() => {
+    if (!detailId) return;
+    document.querySelectorAll<HTMLElement>('.pc-item').forEach((item, i) => {
+      if (list[i]?.id === detailId) item.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    });
+  }, [detailId, list]);
   // issue 09：有工程（哪怕全已完成）横幅常显；issue 14：横幅内容由 ProjectStartView 的
   // selectedId 驱动（默认选中 = 最近打开，Q11），resume 兜底不再参与。
 
@@ -605,7 +666,7 @@ export default function ProjectsPage() {
       return (
         <div className="pm-root">
           <div key="hub" className={`pm-view pm-view--${navDir}`}>
-            <ProjectStartView list={list} currentId={projectId} sort={sortKey} onSort={setProjectSort} onDetail={goDetail} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
+            <ProjectStartView list={list} currentId={projectId} sort={sortKey} onSort={setProjectSort} onDetail={goDetail} onOpen={enterWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
           </div>
           {dialogs}
         </div>
@@ -616,7 +677,7 @@ export default function ProjectsPage() {
     return (
       <div className="pm-root">
         <div key="detail" className={`pm-view pm-view--${navDir}`}>
-        <div className="pc-page">
+        <div className="pc-page" style={{ '--pc-list-w': `${settings.layout.projectList.width}px` } as CSSProperties}>
           <aside className="pc-list">
             <div className="pc-list__head">
               <button type="button" className="pp-btn pp-btn--sm" onClick={goHome}>{t('projects.home')}</button>
@@ -631,7 +692,7 @@ export default function ProjectsPage() {
                   type="button"
                   className={`pc-item${p.id === sel.id ? ' is-selected' : ''}`}
                   onClick={() => goDetail(p.id)}
-                  onDoubleClick={() => void openWorkspace(p.id)}
+                  onDoubleClick={() => void enterWorkspace(p.id)}
                 >
                   <Cover project={p} size={36} />
                   <span className="pc-item__text">
@@ -646,10 +707,11 @@ export default function ProjectsPage() {
               );
             })}
           </aside>
+          <ProjectListSplit width={settings.layout.projectList.width} onChange={setProjectListWidth} />
           <main className="pc-detail">
             <header className="pc-detail__head">
               <Cover project={sel} size={96} />
-              <div>
+              <div className="pc-detail__body">
                 <h2 className={sel.name ? '' : 'pp-muted'}>{displayProjectName(sel)}</h2>
                 <p className="pp-muted">{sel.artist ?? t('projects.artistMissing')} · {sourceLabel(sel.source)}</p>
                 <p className="pp-muted">
@@ -671,8 +733,11 @@ export default function ProjectsPage() {
                   </button>
                 </p>
               </div>
+              {/* 动作组**一行**：主行动「在工作台打开」在最左，其后编辑 / 复制 / 删除，整体贴右缘。
+                  保持原有一行的排列（用户 2026-09-28 二轮："这个东西就应该固定在一个位置"，
+                  指位置稳定而不是拆成两行——稳定性改由 CSS 的**固定高度锚**保证，见 `.pc-detail__actions`）。 */}
               <div className="pc-detail__actions">
-                <button type="button" className="pp-btn pp-btn--primary" onClick={() => void openWorkspace(sel.id)}>
+                <button type="button" className="pp-btn pp-btn--primary" onClick={() => void enterWorkspace(sel.id)}>
                   <Play size={14} />{t('projects.openInWorkspace')}
                 </button>
                 <button type="button" className="pp-btn" onClick={() => setEditing(sel)}><Pencil size={14} />{t('projects.editInfo')}</button>
@@ -700,7 +765,7 @@ export default function ProjectsPage() {
                       </span>
                       <StatusBadge chart={c} />
                       <span className="pc-chart__actions">
-                        <button type="button" className="pp-btn pp-btn--sm" onClick={() => void openWorkspace(sel.id, c.id)}>
+                        <button type="button" className="pp-btn pp-btn--sm" onClick={() => void enterWorkspace(sel.id, c.id)}>
                           <Play size={12} />{t('projects.open')}
                         </button>
                         <button
@@ -767,7 +832,7 @@ export default function ProjectsPage() {
   return (
     <div className="pm-root">
       <div key="hub" className={`pm-view pm-view--${navDir}`}>
-        <ProjectStartView list={list} currentId={projectId} sort={sortKey} onSort={setProjectSort} onDetail={goDetail} onOpen={openWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
+        <ProjectStartView list={list} currentId={projectId} sort={sortKey} onSort={setProjectSort} onDetail={goDetail} onOpen={enterWorkspace} onNew={setNewSource} projectMenu={projectMenu} />
       </div>
       {dialogs}
     </div>

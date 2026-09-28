@@ -99,6 +99,8 @@
   line-height: 16px;
   vertical-align: 1px;
   cursor: pointer;
+  /* 不可断行的 pill：它是被压到极窄后逐字换行（竖排单字）才显得像 bug（issue 23 #4 截图） */
+  white-space: nowrap;
 }
 .pc-audio-jump:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
 
@@ -153,8 +155,16 @@
 .pb-dot--completed { background: color-mix(in srgb, var(--c) 18%, transparent); color: var(--c); }
 .pb-dot--uploaded { background: var(--c); color: #fff; }
 
-.pc-page { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: 100%; }
-.pc-list { display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg-elevated); overflow-y: auto; }
+/* 左栏宽度由 settings.layout.projectList.width 经内联 --pc-list-w 喂进来（issue 23 #2）。
+   兜底值与 PROJECT_LIST_WIDTH.default 的同源由静态断言看守（ProjectDetailHeadLayout.test.ts）；
+   夹取只在 JS 侧（clampProjectListWidth），这里不写第二套 min/max。分隔条自己占一列（6px）。 */
+.pc-page { display: grid; grid-template-columns: var(--pc-list-w, 300px) 6px minmax(0, 1fr); height: 100%; }
+.pc-list { display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg-elevated); overflow-y: auto; min-width: 0; }
+/* 分隔条（issue 23 #2）：命中区 6px、贴左栏右缘；hover/拖动中给 accent。
+   形状照工作台的 .ws-panel__resizer，但实现独立（见 ProjectListSplit.tsx 的文件头说明）。 */
+.pc-split { position: relative; cursor: col-resize; touch-action: none; }
+.pc-split::before { content: ''; position: absolute; inset: 0 2px; background: transparent; transition: background var(--dur-fast) var(--ease); }
+.pc-split:hover::before, .pc-split.is-dragging::before { background: var(--accent); }
 .pc-list__head { display: flex; align-items: center; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--border-faint); position: sticky; top: 0; background: var(--bg-elevated); z-index: 2; }
 .pc-item { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: none; background: none; color: var(--text); text-align: left; cursor: pointer; font-size: var(--text-sm); }
 .pc-item:hover { background: var(--bg-hover); }
@@ -164,15 +174,69 @@
 .pc-item__text small { font-size: var(--text-xs); }
 .pc-item__bar { position: absolute; left: 60px; right: 14px; bottom: 4px; height: 2px; border-radius: 2px; background: var(--border-faint); }
 .pc-item__bar span { display: block; height: 100%; border-radius: 2px; background: var(--success); }
-.pc-detail { overflow-y: auto; padding: 28px 36px 120px; display: flex; flex-direction: column; gap: 28px; }
-.pc-detail__head { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
-.pc-detail__head h2 { margin: 0 0 4px; font-size: var(--text-xl); }
-.pc-detail__head p { margin: 2px 0; font-size: var(--text-sm); display: flex; align-items: center; gap: 4px; }
-.pc-detail__actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+/* .pc-detail 同时充当**局部容器**（container-type: inline-size）：头部怎么排只看
+   "详情栏自己有多宽"，与窗口大小、左栏宽度都脱钩 —— 左栏是可拖拽的，窗口宽不等于详情栏宽，
+   用 viewport media query 会把这件事判错。 */
+.pc-detail { container-type: inline-size; overflow-y: auto; padding: 28px 36px 120px; display: flex; flex-direction: column; gap: 28px; }
+/* 头部（issue 23 #4，2026-09-28 三轮修订）：封面 / 文字块 / 按钮组 三段，宽栏**恒一行**。
+   宽栏这一行本身不折行，文字块负责收缩（标题省略号），按钮组贴右缘、**恒一行**。
+   按钮组的 y **锚在封面（96px 恒定）上**，不锚在文字块上：副信息行长短不一会把整行撑高，
+   若让按钮组跟着整行中线走就会下移 —— 所以给按钮组显式高度（见下 `.pc-detail__actions`）。
+   **详情栏不够宽时整体改上下两段**（见文末 `@container`）：按钮组落到文字下方的独立一行。
+   判据是**容器宽度**，不是文字长度 —— 同一详情栏宽度下，无论工程名/音频名多长，按钮布局都一样。 */
+.pc-detail__head { display: flex; gap: 20px; align-items: flex-start; }
+/* 封面是这一行的**高度基准**：96px 恒定，动作组按它的高度定中线（见 `.pc-detail__actions`）。 */
+/* 工程名过长时省略号收尾（不再靠折行消化）。副信息行（歌手/来源/音频）保持折行——
+   它们是小字元信息，折行只影响自己那一行的高度，不会把动作组推走（动作组高度已钉死）。 */
+.pc-detail__head h2 { margin: 0 0 4px; font-size: var(--text-xl); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-detail__head p { margin: 2px 0; font-size: var(--text-sm); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+/* 文字块：吃掉剩余宽度（`flex: 1 1 0` 才能缩到任意窄），`min-width: 0` 是省略号生效的前提。
+   用显式类名 `.pc-detail__body` 而不是 `.pc-detail__head > div`（也不是 `> div:not(.pp-cover)`）——
+   头部里一共有三个直系 <div>：封面、文字块、**按钮组**。选择器一宽就会：
+   ① 套到封面上 → 覆盖内联 width:96px，正方形拉成矩形（用户截图）；
+   ② 套到按钮组上 → 覆盖它的 flex 声明，按钮组被当成可伸缩项，反而被文字块挤扁。
+   `min-width: 140px` 是**可读下限**：再窄就会把"歌手 · 来源"压成一字一行（曾实测 900px 竖排）。 */
+.pc-detail__body { flex: 1 1 0; min-width: 140px; }
+/* 动作组（issue 23 #4，2026-09-28 三轮修订）：贴右缘、垂直居中于封面中线。
+   排列保持原样 —— 主行动「在工作台打开」在最左，其后编辑 / 复制 / 删除，**恒一行**。
+   这里**不写 `flex-wrap`**：折行判据必须是"容器宽度"而不是"内容宽度"——
+   一旦允许组内折行，按钮分组就会随工程名/音频名长短而变，同一窗口下不同工程长得不一样
+   （用户 2026-09-28 重申："相同尺寸窗口下，不管文字多长，按钮布局要一样"）。
+   宽度不够时改由文末 `@container` 把整组**移到文字下方独占一行**。
+
+   y 的稳定靠 `height: 96px`（= 封面高）+ `align-self: flex-start`，**不是** `align-self: center`：
+   行高由三者最高者决定 —— 封面恒 96px，但文字块会因音频名折行而超过 96px，
+   一旦行高被撑到 >96，`align-self: center` 就以"整行中线"为基准，按钮跟着下移
+   （实测 1000px 下 Henceforth / 超长名工程 y 在 43/60/44 之间抖）。给动作组**显式高度**
+   后它的自身高度与内容无关，`align-self: flex-start` 再让它贴行顶 —— 行顶即封面顶，
+   于是动作组的中线恒等于封面中线（行顶 + 48），与文字块高度彻底解耦。 */
+.pc-detail__actions {
+  margin-left: auto;
+  display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+  height: 96px;
+  align-self: flex-start;
+  flex: 0 0 auto;
+}
+/* 详情栏窄于 ~760px（= 封面 96 + 20 + 文字下限 140 + 20 + 按钮组一行 ~408 + 左右内边距 72 的量级）时，
+   头部整体改**上下两段**：上段 = 封面 + 文字块，下段 = 按钮组（占满整行、左对齐）。
+   按钮**仍恒一行**（窄栏一行放不下四个按钮的情况在 760px 量级不会发生；真到极窄再交给浏览器横向滚动）。
+   判据是容器宽度 → 同一详情栏宽度下按钮布局与文字长度无关。 */
+@container (max-width: 760px) {
+  .pc-detail__head { flex-wrap: wrap; }
+  /* 上段高度**钉死**为封面高（96px），文字块裁掉溢出：唯有如此，
+     下段按钮组的 y 才会是常数 —— 否则音频名一折行就把按钮组往下推，
+     又回到"切工程按钮乱动"的老问题。三条文字各自单行省略号，96px 足够容纳。 */
+  .pc-detail__body { flex: 1 1 180px; height: 96px; overflow: hidden; }
+  .pc-detail__head p { flex-wrap: nowrap; overflow: hidden; }
+  .pc-detail__actions { height: auto; width: 100%; margin-left: 0; justify-content: flex-start; }
+}
 .pc-charts { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-elevated); }
-.pc-chart { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 10px 14px; border-top: 1px solid var(--border-faint); font-size: var(--text-sm); }
+/* 谱面行：难度 / 标题 / 状态 / 动作 四段，**恒一行**。
+   grid 的 `auto` 轨道在内容不肯缩时只会撑破容器（原实现把标题挤成一字一行、760px 溢出横向滚动条）。
+   这里同头部口径：不折行，标题列收缩成省略号，动作组固定贴行右缘。 */
+.pc-chart { display: flex; align-items: center; gap: 6px 14px; padding: 10px 14px; border-top: 1px solid var(--border-faint); font-size: var(--text-sm); }
 .pc-chart:first-child { border-top: none; }
-.pc-chart__diff { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 100px; padding: 4px 8px; border: none; border-radius: var(--radius-sm); color: #fff; font-size: var(--text-xs); font-weight: 600; font-family: inherit; cursor: pointer; }
+.pc-chart__diff { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 100px; padding: 4px 8px; border: none; border-radius: var(--radius-sm); color: #fff; font-size: var(--text-xs); font-weight: 600; font-family: inherit; cursor: pointer; }
 .pc-chart__diff:hover { filter: brightness(1.08); }
 /* 难度+等级就地编辑浮层（issue 19 #2） */
 .pc-diff { display: inline-flex; }
@@ -183,9 +247,19 @@
 .pc-diff__chip.is-active { border-color: var(--text); }
 .pc-diff__level { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); }
 .pc-diff__level input { width: 72px; height: 26px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: var(--text-xs); }
-.pc-chart__title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pc-chart__title small { font-size: var(--text-xs); }
-.pc-chart__actions { display: flex; align-items: center; gap: 4px; }
+/* 标题列吃掉剩余宽度并可缩到任意窄（`min-width: 0` 是省略号的前提），
+   于是动作组的位置不受标题长度影响 —— 每个谱面条目的按钮都在同一个 x 上。 */
+.pc-chart__title { display: flex; flex-direction: column; gap: 2px; flex: 1 1 0; min-width: 0; }
+.pc-chart__title b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-chart__title small { font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 动作组（issue 23 #4）：宽度由内容决定（`flex:0 0 auto`），恒与标题同行、贴行右缘。
+   不折行、不设 flex-basis/min-width：任何下限都会让它在**还宽敞时**就抢占整行，
+   把一行条目变成两行（用户截图里两行条目就是这么来的），也让按钮位置随内容浮动。 */
+.pc-chart__actions {
+  display: flex; align-items: center; gap: 4px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
 .pc-add { display: flex; gap: 8px; margin-top: 16px; }
 .pc-uploads { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: var(--text-sm); }
 .pc-uploads li { display: flex; align-items: center; gap: 8px; }

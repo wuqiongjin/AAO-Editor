@@ -2,8 +2,11 @@
 // 口径（定案 2 / 用户 2026-09-27 拍板）：
 //   - ←/→ 只在同一视觉行内 ±1 列，到行首/行尾停住，不跨行绕接；
 //   - ↑/↓ 跨行同列上下，到网格边界停住（末行残列下方无卡片即停）；
-//   - 不循环；0 个工程无事可做；1 个工程不移动；
+//   - 默认不循环；0 个工程无事可做；1 个工程不移动；
 //   - currentId 为空 / 不在列表（越界或已删除）→ 回退第一个卡片。
+//
+// `wrap`（issue 23 #4 修订 / 用户 2026-09-28 拍板）：详情页左栏（columns=1）要**首尾循环**；
+// 启动台网格不开循环。做成显式开关，两种口径不混在默认值里。
 import { describe, expect, it } from 'vitest';
 import { moveGridSelection } from '@/src/pages/projectGridSelection';
 
@@ -73,5 +76,37 @@ describe('chart-projects 14: moveGridSelection 二维位移', () => {
     expect(moveGridSelection(items, 'p1', 'ArrowDown', 0)).toBe('p2');
     expect(moveGridSelection(items, 'p1', 'ArrowDown', Number.NaN)).toBe('p2');
     expect(moveGridSelection(items, 'p1', 'ArrowDown', -2)).toBe('p2');
+  });
+});
+
+describe('issue 23 #4: moveGridSelection 的 wrap（列表视图首尾循环）', () => {
+  it('单列列表：↓ 到底绕回首项、↑ 到首绕回末项', () => {
+    const list = grid(3);
+    expect(moveGridSelection(list, 'p1', 'ArrowDown', 1, { wrap: true })).toBe('p2');
+    expect(moveGridSelection(list, 'p3', 'ArrowDown', 1, { wrap: true })).toBe('p1');
+    expect(moveGridSelection(list, 'p1', 'ArrowUp', 1, { wrap: true })).toBe('p3');
+    expect(moveGridSelection(list, 'p2', 'ArrowUp', 1, { wrap: true })).toBe('p1');
+  });
+
+  it('默认（不传 wrap）仍是到边界停住 —— 启动台网格口径不变', () => {
+    const list = grid(3);
+    expect(moveGridSelection(list, 'p3', 'ArrowDown', 1)).toBe('p3');
+    expect(moveGridSelection(list, 'p1', 'ArrowUp', 1)).toBe('p1');
+  });
+
+  it('wrap + 多列：越界回绕取模（不因负索引崩）', () => {
+    const items = grid(7); // 3 列，索引 0..6
+    // p1 是索引 0，↑ 得 target=-3 → ((-3)%7+7)%7 = 4 → p5
+    expect(moveGridSelection(items, 'p1', 'ArrowUp', 3, { wrap: true })).toBe('p5');
+    // p6 是索引 5，↓ 得 target=8 → (8%7+7)%7 = 1 → p2
+    expect(moveGridSelection(items, 'p6', 'ArrowDown', 3, { wrap: true })).toBe('p2');
+  });
+
+  it('单元素 + wrap：不移动（length>1 才回绕）', () => {
+    expect(moveGridSelection(grid(1), 'p1', 'ArrowDown', 1, { wrap: true })).toBe('p1');
+  });
+
+  it('wrap 不改动"未知 currentId 回退首项"的既有行为', () => {
+    expect(moveGridSelection(grid(3), 'ghost', 'ArrowDown', 1, { wrap: true })).toBe('p1');
   });
 });

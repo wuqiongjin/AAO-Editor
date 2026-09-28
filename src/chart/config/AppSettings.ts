@@ -52,6 +52,12 @@ export interface AppSettings {
   layout: {
     leftPanel: { width: number; collapsed: boolean };
     rightPanel: { width: number; collapsed: boolean };
+    /**
+     * 工程详情页左栏（工程列表）宽度，issue 23 #2。additive，不 bump schemaVersion。
+     * 与 leftPanel/rightPanel（工作台面板）是**两套独立的分栏**：工作台那套绑 UIProvider +
+     * 内联 CSS 变量、夹取随视口；这一套是 CSS Grid、夹取为绝对区间（见 PROJECT_LIST_WIDTH）。
+     */
+    projectList: { width: number };
   };
   shortcuts: ShortcutConfig;
   audio: { keySet: string; /** 节奏图示 SE 音量（键音独立音量，0..1，0=静音），issue 39 #7 */ seVolume: number };
@@ -122,6 +128,20 @@ export const MAX_DURATION_SECONDS = 1800;
 /** 工作台左右面板的默认宽度上限（issue 97：左右同口径同宽） */
 export const DEFAULT_PANEL_WIDTH = 300;
 
+/**
+ * 工程详情页左栏（工程列表）宽度的绝对区间，issue 23 #2。
+ * 与工作台面板刻意不同口径：那边是可无限压缩的工具/属性面板（夹取随视口 20vw / 50vw），
+ * 这边是导航列表、内容宽度固定，所以上下都封死，窄窗口也不该被压到不可用。
+ */
+export const PROJECT_LIST_WIDTH = { min: 220, max: 420, default: 300 } as const;
+
+/** 详情页左栏宽度的归一化：非有限值 / 越界一律落到区间内（拖拽与导入共用同一把尺） */
+export function clampProjectListWidth(value: unknown): number {
+  const { min, max, default: dft } = PROJECT_LIST_WIDTH;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return dft;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
 /** 默认面板宽度：窄视口随 20vw 收缩，宽屏封顶 DEFAULT_PANEL_WIDTH（issue 12 / issue 97 起左右同一公式） */
 export function defaultPanelWidth(innerWidth: number): number {
   return Math.min(DEFAULT_PANEL_WIDTH, Math.round(innerWidth * 0.20));
@@ -137,6 +157,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     layout: {
       leftPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
       rightPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
+      projectList: { width: PROJECT_LIST_WIDTH.default },
     },
     shortcuts: getDefaultConfig(),
     audio: { keySet: DEFAULT_ACTIVE_KEY_SOUND_SET_ID, seVolume: 1 },
@@ -166,6 +187,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   const layout = (obj.layout && typeof obj.layout === 'object' ? obj.layout : {}) as Record<string, unknown>;
   const leftPanel = (layout.leftPanel && typeof layout.leftPanel === 'object' ? layout.leftPanel : {}) as Record<string, unknown>;
   const rightPanel = (layout.rightPanel && typeof layout.rightPanel === 'object' ? layout.rightPanel : {}) as Record<string, unknown>;
+  const projectList = (layout.projectList && typeof layout.projectList === 'object' ? layout.projectList : {}) as Record<string, unknown>;
   const display = (obj.display && typeof obj.display === 'object' ? obj.display : {}) as Record<string, unknown>;
   const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, unknown>;
   const visual = (obj.visual && typeof obj.visual === 'object' ? obj.visual : {}) as Record<string, unknown>;
@@ -210,6 +232,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
         width: typeof rightPanel.width === 'number' && rightPanel.width > 0 ? rightPanel.width : defaults.layout.rightPanel.width,
         collapsed: typeof rightPanel.collapsed === 'boolean' ? rightPanel.collapsed : defaults.layout.rightPanel.collapsed,
       },
+      projectList: { width: clampProjectListWidth(projectList.width) },
     },
     // 段内合并：若新 settings 里没有 shortcuts，则沿用 defaults 整体；之后由调用方尝试从旧 key 补齐
     shortcuts: defaults.shortcuts,
