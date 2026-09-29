@@ -6,20 +6,20 @@
 // （工作台解码后的那份），借它 load 别的工程会顶掉工作台那份。四个动作都走 projectAudio 接缝。
 import { useCallback, useRef, useState } from 'react';
 import { AlertTriangle, Check, Clock3, FileAudio, FolderOpen, Lock, Music2, Play, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
-import AppPageShell from '../layouts/AppPageShell';
-import EmptyState from '../ui/EmptyState';
-import ScopePicker from '../ui/ScopePicker';
-import { useAppNav } from '../layouts/AppNav';
-import { useAudioSession } from '../app/providers/AudioSessionProvider';
-import { MAX_DURATION_SECONDS, defaultSettings } from '../chart/config/AppSettings';
-import { KEY_SOUND_SETS, type KeySoundKind } from './KeySound';
-import { KEY_SOUND_KINDS } from './KeySoundMeta';
-import { useAudioScope } from './useAudioScope';
+import AppPageShell from '../../layouts/AppPageShell';
+import EmptyState from '../../ui/EmptyState';
+import ScopePicker from '../../ui/ScopePicker';
+import { useAppNav } from '../../layouts/AppNav';
+import { useAudioSession } from '../../app/providers/AudioSessionProvider';
+import { MAX_DURATION_SECONDS, defaultSettings } from '../../chart/config/AppSettings';
+import { KEY_SOUND_SETS, type KeySoundKind } from '../../audio/KeySound';
+import { KEY_SOUND_KINDS } from '../../audio/KeySoundMeta';
+import { useAudioScope } from '../../audio/useAudioScope';
 import {
   clearProjectAudio, importProjectAudio, setProjectAudioDuration, type ProjectAudioWriteResult,
-} from './projectAudio';
-import { lockedChartLabels } from '../project/ui/projectUi';
-import { t, type MessageKey } from '../i18n';
+} from '../../audio/projectAudio';
+import { lockedChartLabels } from '../../project/ui/projectUi';
+import { t, type MessageKey } from '../../i18n';
 
 type AudioSection = 'audio' | 'keysound' | 'se';
 

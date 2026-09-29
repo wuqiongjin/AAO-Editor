@@ -37,7 +37,7 @@ describe('chart-projects 06: 只读闸门与音频锁静态装配锁测', () => 
   });
 
   it('Editor: 接入只读态、注入 FinalVirtualCanvas 与 ChartCodeEditorProvider、挂载提示浮条与复制按钮', () => {
-    const src = readStripped('src/chart/Editor.tsx');
+    const src = readStripped('src/pages/workspace/WorkspacePage.tsx');
     expect(src).toMatch(/isChartReadonly/);
     expect(src).toMatch(/isProjectAudioLocked/);
     expect(src).toMatch(/setReadonlyGate/);
@@ -49,7 +49,7 @@ describe('chart-projects 06: 只读闸门与音频锁静态装配锁测', () => 
   });
 
   it('AudioPage: 音频锁定提示横幅与禁用替换/清除/改时长', () => {
-    const src = readStripped('src/audio/AudioPage.tsx');
+    const src = readStripped('src/pages/audio/AudioPage.tsx');
     // 锁定态现在来自工程记录（projectAudio 的读路径）而不是会话快照（票 15 定案 8）
     expect(src).toMatch(/const locked = view\.locked;/);
     expect(src).toMatch(/audio-locked-banner/);

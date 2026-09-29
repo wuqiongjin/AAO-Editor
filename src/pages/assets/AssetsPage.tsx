@@ -1,18 +1,18 @@
 import { useMemo, useRef, useState } from 'react';
 import { Check, Eye, EyeOff, ImageOff, ImagePlus, Music2, Trash2, Upload, Wand2 } from 'lucide-react';
-import AppPageShell from '../layouts/AppPageShell';
-import EmptyState from '../ui/EmptyState';
-import { useConfig } from '../app/ProviderTree';
+import AppPageShell from '../../layouts/AppPageShell';
+import EmptyState from '../../ui/EmptyState';
+import { useConfig } from '../../app/ProviderTree';
 import {
   listNoteSkinPacks,
   normalizeNoteSkinSelection,
-} from './noteSkin';
-import NoteSkinPreview from '../chart/rendering/NoteSkinPreview';
-import NoteSkinPresetThumbnail from '../chart/rendering/NoteSkinPresetThumbnail';
-import { backgroundSkinStore } from '../chart/rendering/backgroundSkin';
-import { useBackgroundSkin } from '../chart/rendering/useBackgroundSkin';
-import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../chart/config/AppSettings';
-import { t, type MessageKey } from '../i18n';
+} from '../../visual/noteSkin';
+import NoteSkinPreview from '../../chart/rendering/NoteSkinPreview';
+import NoteSkinPresetThumbnail from '../../chart/rendering/NoteSkinPresetThumbnail';
+import { backgroundSkinStore } from '../../chart/rendering/backgroundSkin';
+import { useBackgroundSkin } from '../../chart/rendering/useBackgroundSkin';
+import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../../chart/config/AppSettings';
+import { t, type MessageKey } from '../../i18n';
 
 // 视觉素材页（导航第 3 项）：音符皮肤（整包预设 + 条目独立覆盖）+ 背景皮肤（单图上传/隐藏/清除）。
 

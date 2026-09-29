@@ -109,7 +109,7 @@ describe('issue 124 · 设置行接到 token', () => {
   });
 
   it('外观滑杆 70–150；不放档旁样张', () => {
-    const src = stripComments(readSource('src/settings/SettingsPage.tsx'));
+    const src = stripComments(readSource('src/pages/settings/SettingsPage.tsx'));
     expect(src).not.toContain('Aa 设置 Settings');
     expect(src).not.toContain('ui-font-preview');
     expect(src).toMatch(/uiTypeScale[\s\S]{0,200}min=\{70\}/);

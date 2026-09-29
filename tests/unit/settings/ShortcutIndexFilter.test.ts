@@ -134,7 +134,7 @@ describe('issue 121 · 筛选不写入设置对象', () => {
   });
 
   it('ShortcutsPage 用 useState 持筛选，不调 setSettings 写桶', () => {
-    const src = stripComments(readSource('src/settings/ShortcutsPage.tsx'));
+    const src = stripComments(readSource('src/pages/settings/ShortcutsPage.tsx'));
     expect(src).toMatch(/useState.*IndexFilterId|useState<IndexFilterId>/);
     expect(src).toContain('AppPageShell.Sidebar');
     expect(src).toContain('empty-bucket');
@@ -163,7 +163,7 @@ describe('issue 121 · 筛选不写入设置对象', () => {
 
 describe('issue 127 · 换索引筛滚动回顶', () => {
   it('indexFilter 变化时 .shortcut-table 滚回顶；搜索 query 变化不重置', () => {
-    const src = stripComments(readSource('src/settings/ShortcutsPage.tsx'));
+    const src = stripComments(readSource('src/pages/settings/ShortcutsPage.tsx'));
     expect(src).toMatch(/ref=\{shortcutTableRef\}[^>]*className="shortcut-table"|className="shortcut-table"[^>]*ref=\{shortcutTableRef\}/);
     expect(src).toMatch(/shortcutTableRef\.current\?\.scrollTo\(\{\s*top:\s*0\s*\}\)/);
     expect(src).toMatch(/\},\s*\[indexFilter\]\)/);

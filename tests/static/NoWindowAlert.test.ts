@@ -37,7 +37,7 @@ const codeModal = readStripped('src/chart/components/code-editor/ChartCodeEditor
 const projectsPage = readStripped('src/pages/projects/ProjectsPage.tsx');
 // 已上传谱面徽标只读的拦截随小件下沉到 ProjectBits（原在 ProjectsPage 内）
 const projectBits = readStripped('src/pages/projects/components/ProjectBits.tsx');
-const chartSwitcher = readStripped('src/pages/WorkspacePage/ChartSwitcher.tsx');
+const chartSwitcher = readStripped('src/pages/workspace/ChartSwitcher.tsx');
 const shell = readStripped('src/layouts/AppShell.tsx');
 
 /** 一个文件里 showToast 的接线数量（数出调用点，防止哪天又被换回原生） */

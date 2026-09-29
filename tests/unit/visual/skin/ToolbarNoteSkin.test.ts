@@ -22,7 +22,7 @@ import { repoRoot, stripComments, readSource } from '@/tests/support/source';
 
 /** 去注释后再断言：注释里会解释性地提到 legacy / SpriteIcon / 素材路径等旧名 */
 
-const toolbarSrc = stripComments(readSource('src/pages/WorkspacePage/Toolbar.tsx'));
+const toolbarSrc = stripComments(readSource('src/pages/workspace/Toolbar.tsx'));
 const glyphSrc = stripComments(readSource('src/chart/rendering/NoteIconGlyph.tsx'));
 
 /** 递归收集目录下的 .ts / .tsx 文件（跳过 node_modules） */

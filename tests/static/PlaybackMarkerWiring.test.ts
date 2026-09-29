@@ -12,7 +12,7 @@ const strip = (s: string) => s.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\
 const canvas = strip(read('src/chart/components/canvas/FinalVirtualCanvas.tsx'));
 const card = strip(read('src/playback/PlaybackMarkerCard.tsx'));
 const coordinator = strip(read('src/playback/usePlaybackCoordinator.ts'));
-const editor = strip(read('src/chart/Editor.tsx'));
+const editor = strip(read('src/pages/workspace/WorkspacePage.tsx'));
 
 const SVG_SPEC = 'assets/playback-marker/flag.svg';
 

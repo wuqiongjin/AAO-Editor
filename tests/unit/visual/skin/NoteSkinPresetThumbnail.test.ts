@@ -99,7 +99,7 @@ describe('整包预设缩略：格内精灵缩小居中', () => {
 });
 
 describe('整包预设缩略：静态接线', () => {
-  const assetsSrc = readStripped('src/visual/AssetsPage.tsx');
+  const assetsSrc = readStripped('src/pages/assets/AssetsPage.tsx');
   const previewSrc = readStripped('src/chart/rendering/NoteSkinPreview.tsx');
   const cssSrc = readStripped('src/layouts/AppShell.css');
 

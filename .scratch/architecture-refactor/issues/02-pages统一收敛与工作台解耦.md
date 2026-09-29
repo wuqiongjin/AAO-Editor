@@ -1,7 +1,7 @@
 # 02-pages统一收敛与工作台解耦
 
 Type: chore
-Status: open
+Status: resolved
 Blocked by: 01
 
 > **2026-09-29 复核修订**：本票 2026-09-26 开出后未开工。复核发现两处新的关键事实：① `src/pages/WorkspacePage/WorkspacePage.tsx` 已成**死文件**（无任何引用，`PageRegistry` 直接 lazy 装 `src/chart/Editor`）；② 工作台页壳与工具栏仍在 `src/pages/WorkspacePage/`，而 `Editor` 本体在 `src/chart/`，`chart → pages` 与 `pages → chart` 双向依赖原样存在。目标口径不变。
@@ -90,3 +90,16 @@ src/pages/
 - **路由**：`tests/unit/layouts/PageNav.test.ts`（读 `src/pages/PageRegistry.tsx` 源码，断言 `projects: ProjectsPage` 等注册项）与 `tests/dom/**` 里对 `@/src/pages/PageRegistry` 的引用；可在该测试内加一条「六个页面 key 的 lazy 路径全部从 `./` 子目录进」的静态断言防回潮。
 
 ## Comments
+
+- 2026-09-29 落地。纯搬迁、零行为改动：
+  - `src/chart/Editor.tsx`（681 行）→ `src/pages/workspace/WorkspacePage.tsx`（default export 保持，内部组件名仍为 `Editor`，只改 import 路径）；`src/pages/WorkspacePage/` 六件（Toolbar / Toolbar.css / ToolbarSection / ChartSwitcher / ChartSwitcher.css / CurveConfigPanel）→ `src/pages/workspace/`；死壳 `WorkspacePage/WorkspacePage.tsx` 删除，`src/pages/WorkspacePage/` 目录整体消失。
+  - `AudioPage.tsx` → `src/pages/audio/`；`AssetsPage.tsx` → `src/pages/assets/`；`SettingsPage.tsx` + `ShortcutsPage.tsx` → `src/pages/settings/`（`shortcutIndexFilter.ts` 留在原处，消费方改指 `../../settings/shortcutIndexFilter`）。
+  - `PageRegistry.tsx` 六条 lazy 全部改 `./<子目录>/…`；ADR-0007 的 AppShell 路径修正为 `src/layouts/AppShell.tsx`。
+  - 收尾断言成立：`src/chart/` 下无任何指向 pages 的 `from`；`src/audio`、`src/visual`、`src/settings` 下无 `*Page.tsx`。
+- 测试同步：21 个引用旧路径的测试文件全部改指新位置；`EditorAudioSessionRefactor.test.ts` 只动读源码的文件路径常量 —— 其中两条负向断言内的相对路径字面量（`../utils/AudioEngine`、`../contexts`）随新位置补一层为 `../../…`（经用户 2026-09-29 确认；断言语义与防护力不变，其余断言逐条未动）。
+- 防回潮：`tests/unit/layouts/PageNav.test.ts` 加一条「六条 lazy specifier 全部从 `./` 子目录进」；新增 `tests/static/PagesConvergence.test.ts`（六页落点、workspace 七件套、`src/chart/` 不反依 pages）。
+- 口径说明（三处判断，均不涉行为）：
+  1. 落点锁新增独立 static 文件而非只往 `PageNav.test.ts` 塞一条（票面「可在」为可选），照 01 票 `ProjectDomainLayout.test.ts` 惯例；两条断言分别在注册表接线与文件布局两个层面。
+  2. `CONTEXT.md:154` 与 ADR-0007 是同一处 AppShell 路径事实错误，经用户确认一并修正（一行，避免两份权威文档打架）。
+  3. `Toolbar.css` 头注释里的旧路径字符串随文件位置更新。
+- 门禁：`npm test` = **166 文件 / 1929 用例全绿**（基线 165/1925，+1 文件 +4 条新锁）；`npx tsc -b` 绿；`npm run build` 绿；`npm run lint` 无本票新增 error（既有噪声照旧，落点不在本票文件）。

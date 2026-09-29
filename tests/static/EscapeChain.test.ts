@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { readStripped } from '@/tests/support/source';
 
-const editor = readStripped('src/chart/Editor.tsx');
+const editor = readStripped('src/pages/workspace/WorkspacePage.tsx');
 const session = readStripped('src/chart/editing/GestureSession.ts');
 const canvas = readStripped('src/chart/components/canvas/FinalVirtualCanvas.tsx');
 

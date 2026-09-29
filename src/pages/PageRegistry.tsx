@@ -8,11 +8,11 @@ import type { PageId } from '../layouts/AppNav';
 
 // 路由目的地全部走 lazy 装入。Suspense fallback 写在这里，AppShell 不用管。
 const ProjectsPage = lazy(() => import('./projects/ProjectsPage'));
-const Editor = lazy(() => import('../chart/Editor'));
-const AudioPage = lazy(() => import('../audio/AudioPage'));
-const AssetsPage = lazy(() => import('../visual/AssetsPage'));
-const SettingsPage = lazy(() => import('../settings/SettingsPage'));
-const ShortcutsPage = lazy(() => import('../settings/ShortcutsPage'));
+const Editor = lazy(() => import('./workspace/WorkspacePage'));
+const AudioPage = lazy(() => import('./audio/AudioPage'));
+const AssetsPage = lazy(() => import('./assets/AssetsPage'));
+const SettingsPage = lazy(() => import('./settings/SettingsPage'));
+const ShortcutsPage = lazy(() => import('./settings/ShortcutsPage'));
 
 /** 路由页组件 — 全部 lazy 装入，AppShell 仅持引用。 */
 export const PAGE_REGISTRY: Record<PageId, ComponentType<{ active?: boolean }>> = {

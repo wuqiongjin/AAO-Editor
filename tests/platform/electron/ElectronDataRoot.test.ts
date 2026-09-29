@@ -318,7 +318,7 @@ describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () =>
   });
 
   it('设置页导出仍是 settings 对象；搬家与认领在 electronAPI 门控之后', () => {
-    const settingsPageSrc = stripComments(readSource('src/settings/SettingsPage.tsx'));
+    const settingsPageSrc = stripComments(readSource('src/pages/settings/SettingsPage.tsx'));
     expect(settingsPageSrc).toMatch(/JSON\.stringify\(settings/);
     expect(settingsPageSrc).toMatch(/settings\.export/);
     expect(settingsPageSrc).toMatch(/settings\.import/);

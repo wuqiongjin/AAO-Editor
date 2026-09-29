@@ -11,7 +11,7 @@ import '@testing-library/jest-dom/vitest';
 import { useMemo, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
-import AudioPage from '@/src/audio/AudioPage';
+import AudioPage from '@/src/pages/audio/AudioPage';
 import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import type { PageScope } from '@/src/layouts/pageScope';
 import {

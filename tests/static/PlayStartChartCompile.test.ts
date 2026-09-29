@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { readStripped } from '@/tests/support/source';
 
-const editorSrc = readStripped('src/chart/Editor.tsx');
+const editorSrc = readStripped('src/pages/workspace/WorkspacePage.tsx');
 
 describe('Editor setChart · issue 101 编译移出开播帧', () => {
   it('isPlaying 翻 true 时不在同一 effect 同步 setChart', () => {

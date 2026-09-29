@@ -7,7 +7,7 @@ import { readStripped } from '@/tests/support/source';
 const MODAL = 'src/chart/components/code-editor/ChartCodeEditorModal.tsx';
 
 describe('issue 162 · 无音频谱面时长只走 session', () => {
-  const editor = readStripped('src/chart/Editor.tsx');
+  const editor = readStripped('src/pages/workspace/WorkspacePage.tsx');
   const coordinator = readStripped('src/playback/usePlaybackCoordinator.ts');
 
   it('恢复工程时无音频灌的是 session.setChartDuration，不是只写 PlaybackContext', () => {

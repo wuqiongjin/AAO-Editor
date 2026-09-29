@@ -36,7 +36,7 @@ describe('issue 98 · 程序化滚动写入的回声识别（isProgrammaticScrol
 });
 
 describe('issue 98 · Editor 接线静态断言（防重构复活回声反算）', () => {
-  const editorSrc = readFileSync(join(repoRoot, 'src/chart/Editor.tsx'), 'utf-8');
+  const editorSrc = readFileSync(join(repoRoot, 'src/pages/workspace/WorkspacePage.tsx'), 'utf-8');
 
   it('handleScrollbarChange 在反算 scrollY 前吞掉程序化写入的回声', () => {
     // 回声检查必须先于 maxScroll 反算（否则取整值已进入 scrollY）

@@ -1,17 +1,17 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { AppWindow, Ellipsis, Inbox, List, Music2, Pencil, Play, RotateCcw, Search, SearchX, SquarePen } from 'lucide-react';
-import AppPageShell from '../layouts/AppPageShell';
-import EmptyState from '../ui/EmptyState';
+import AppPageShell from '../../layouts/AppPageShell';
+import EmptyState from '../../ui/EmptyState';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, setCapturingShortcut, type FunctionId,
-} from '../chart/config/ShortcutConfig';
+} from '../../chart/config/ShortcutConfig';
 import {
   INDEX_FILTERS, PAGE_SWITCH_ROWS, type IndexFilterId,
   filterFunctions, filterPageSwitchRows, shortcutTableEmptyKind, restoreDefaultsInFilter,
-} from './shortcutIndexFilter';
-import { useConfig } from '../app/ProviderTree';
-import { t, type MessageKey } from '../i18n';
+} from '../../settings/shortcutIndexFilter';
+import { useConfig } from '../../app/ProviderTree';
+import { t, type MessageKey } from '../../i18n';
 
 // 快捷键页（issue 28 + issue 44 + issue 121）：
 //   - 侧栏「索引筛选」粗桶筛表（≠ ADR-0002 tooltip 类别）；默认「全部」，不写入设置对象；

@@ -43,14 +43,14 @@ describe('票 15 · 音频管理的唯一面与唯一写路径', () => {
   });
 
   it('工作台也只能跳过去（菜单项），不在工作台里改音频', () => {
-    const src = readStripped('src/pages/WorkspacePage/ChartSwitcher.tsx');
+    const src = readStripped('src/pages/workspace/ChartSwitcher.tsx');
     const hit = AUDIO_WRITES.filter((name) => src.includes(name));
     expect(hit).toEqual([]);
     expect(src).toMatch(/setActivePage\('audio'\)/);
   });
 
   it('音频页的三个动作全部走 projectAudio 接缝，不直连会话', () => {
-    const src = readStripped('src/audio/AudioPage.tsx');
+    const src = readStripped('src/pages/audio/AudioPage.tsx');
     expect(src).toMatch(/importProjectAudio\(deps, scopeId/);
     expect(src).toMatch(/clearProjectAudio\(deps, scopeId/);
     expect(src).toMatch(/setProjectAudioDuration\(deps, scopeId/);
@@ -61,7 +61,7 @@ describe('票 15 · 音频管理的唯一面与唯一写路径', () => {
   });
 
   it('音频的读路径也不来自会话快照，来自作用域的那条工程记录', () => {
-    const src = readStripped('src/audio/AudioPage.tsx');
+    const src = readStripped('src/pages/audio/AudioPage.tsx');
     expect(src).toMatch(/useAudioScope/);
     expect(src).toMatch(/const locked = view\.locked;/);
     expect(src).not.toMatch(/snap\.audioName/);

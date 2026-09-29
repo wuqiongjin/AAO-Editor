@@ -51,6 +51,19 @@ describe('PAGE_NAV · 应用壳接线', () => {
     expect(src).not.toMatch(/isProjectsPrototype/);
   });
 
+  it('PageRegistry 六条 lazy 全部从 ./ 子目录装入（architecture-refactor 02 落点锁）', () => {
+    const src = readStripped('src/pages/PageRegistry.tsx');
+    const paths = [...src.matchAll(/lazy\(\(\)\s*=>\s*import\('([^']+)'\)\)/g)].map((m) => m[1]);
+    expect(paths).toEqual([
+      './projects/ProjectsPage',
+      './workspace/WorkspacePage',
+      './audio/AudioPage',
+      './assets/AssetsPage',
+      './settings/SettingsPage',
+      './settings/ShortcutsPage',
+    ]);
+  });
+
   it('工程管理页不再把原型挂成默认入口', () => {
     const src = readStripped('src/pages/projects/ProjectsPage.tsx');
     expect(src).not.toMatch(/isProjectsPrototype/);

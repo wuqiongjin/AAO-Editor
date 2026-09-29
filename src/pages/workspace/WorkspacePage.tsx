@@ -1,33 +1,33 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, ZoomIn, ZoomOut, Lock, Copy, X } from 'lucide-react';
-import Toolbar from '../pages/WorkspacePage/Toolbar';
-import ChartSwitcher from '../pages/WorkspacePage/ChartSwitcher';
-import { ChartCodeEditorProvider } from '../chart/components/code-editor/ChartCodeEditorProvider';
-import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../chart/components/canvas/FinalVirtualCanvas';
-import NoteInfoPanel from '../chart/components/side-panel/NoteInfoPanel';
-import IconButton from '../ui/IconButton';
-import { type FunctionId } from '../chart/config/ShortcutConfig';
-import { DEFAULT_BPM } from '../audio/AudioTiming';
-import PlayBar from '../playback/PlayBar';
-import PlaybackMarkerCard from '../playback/PlaybackMarkerCard';
-import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../app/ProviderTree';
-import { countChartNotes } from '../chart/editing/NoteEditing';
-import { useSurfaceSize } from '../chart/layout/useSurfaceSize';
-import { useChartSpace } from '../chart/geometry/ChartSpace';
-import { isProgrammaticScrollEcho, registerScrollEcho, useScrollModel, type ProgrammaticScrollEcho } from '../playback/useScrollModel';
-import { useAudioBridge } from '../audio/useAudioBridge';
-import { usePlaybackCoordinator } from '../playback/usePlaybackCoordinator';
-import { useChartProjectPersistence } from '../project/useChartProjectPersistence';
-import { useLayoutPersistence } from '../chart/layout/useLayoutPersistence';
-import { useShortcutDispatch } from '../chart/config/useShortcutDispatch';
-import { resolveEscapeTarget } from './editing/CanvasGesture';
-import { isChartReadonly, isChartEditFunction } from '../project/chartReadonlyGate';
-import { isProjectAudioLocked } from '../project/workspaceProject';
-import { duplicateChartInProject } from '../project/projectCatalog';
-import { newChartId } from '../project/ChartProject';
-import { untitledProjectLabel } from '../project/ui/projectUi';
-import { t } from '../i18n';
+import Toolbar from './Toolbar';
+import ChartSwitcher from './ChartSwitcher';
+import { ChartCodeEditorProvider } from '../../chart/components/code-editor/ChartCodeEditorProvider';
+import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
+import NoteInfoPanel from '../../chart/components/side-panel/NoteInfoPanel';
+import IconButton from '../../ui/IconButton';
+import { type FunctionId } from '../../chart/config/ShortcutConfig';
+import { DEFAULT_BPM } from '../../audio/AudioTiming';
+import PlayBar from '../../playback/PlayBar';
+import PlaybackMarkerCard from '../../playback/PlaybackMarkerCard';
+import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
+import { countChartNotes } from '../../chart/editing/NoteEditing';
+import { useSurfaceSize } from '../../chart/layout/useSurfaceSize';
+import { useChartSpace } from '../../chart/geometry/ChartSpace';
+import { isProgrammaticScrollEcho, registerScrollEcho, useScrollModel, type ProgrammaticScrollEcho } from '../../playback/useScrollModel';
+import { useAudioBridge } from '../../audio/useAudioBridge';
+import { usePlaybackCoordinator } from '../../playback/usePlaybackCoordinator';
+import { useChartProjectPersistence } from '../../project/useChartProjectPersistence';
+import { useLayoutPersistence } from '../../chart/layout/useLayoutPersistence';
+import { useShortcutDispatch } from '../../chart/config/useShortcutDispatch';
+import { resolveEscapeTarget } from '../../chart/editing/CanvasGesture';
+import { isChartReadonly, isChartEditFunction } from '../../project/chartReadonlyGate';
+import { isProjectAudioLocked } from '../../project/workspaceProject';
+import { duplicateChartInProject } from '../../project/projectCatalog';
+import { newChartId } from '../../project/ChartProject';
+import { untitledProjectLabel } from '../../project/ui/projectUi';
+import { t } from '../../i18n';
 
 interface EditorProps {
   /** issue 28 页面壳表面契约（Q16）：false 时暂停播放并抑制全局输入 */
@@ -204,8 +204,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // 当前工程恢复（ADR-0015 §3）：切工程时整份编辑态换成新工程，剪贴板由 resetNotes 保留。
   const handleProjectRestore = useCallback(async (
-    project: import('../project/ChartProject').ChartProject,
-    chart: import('../project/ChartProject').ProjectChart,
+    project: import('../../project/ChartProject').ChartProject,
+    chart: import('../../project/ChartProject').ProjectChart,
     opts: { restoreAudio: boolean },
   ) => {
     const readonly = isChartReadonly(chart);
@@ -240,7 +240,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 换个音频不该顺手清掉撤销历史）。hydrateFromProject 在无音频时会清空引擎，
   // 「无音频工程 → 引擎必清空」这半条也在里面。
   const handleRecordAudioChanged = useCallback((
-    project: import('../project/ChartProject').ChartProject,
+    project: import('../../project/ChartProject').ChartProject,
   ) => {
     stopPlayback();
     setCurrentSeconds(0);

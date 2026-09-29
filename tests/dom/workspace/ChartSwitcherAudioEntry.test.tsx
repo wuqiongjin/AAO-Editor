@@ -6,7 +6,7 @@
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen } from '@testing-library/react';
-import ChartSwitcher from '@/src/pages/WorkspacePage/ChartSwitcher';
+import ChartSwitcher from '@/src/pages/workspace/ChartSwitcher';
 import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import {
   useCurrentProject,

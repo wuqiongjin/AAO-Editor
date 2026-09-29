@@ -151,7 +151,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 
 | 术语 | 英文 | 说明 |
 | --- | --- | --- |
-| 应用壳 | App shell | `src/pages/AppShell.tsx`——5 页注册 + 保活挂载 + 切页快捷键 + 可折叠应用导航；issue 28 闭环；不在内容壳 ADR 范围 |
+| 应用壳 | App shell | `src/layouts/AppShell.tsx`——5 页注册 + 保活挂载 + 切页快捷键 + 可折叠应用导航；issue 28 闭环；不在内容壳 ADR 范围 |
 | 内容壳 | Content shell | `src/layouts/AppPageShell.tsx`——4 个非工作台页共用的"页面头 + 紧贴 body 边的侧边索引 + 内容模式 + 自适应几何"模板；compound component 形态（namespace）；ADR-0007 范围 |
 | 应用页面 | Application page | 应用壳中的单例功能目的地；当前范围为工作台、音频、素材、快捷键、设置（issue 28 §ADR-0003 既有定义）；ADR-0015 起新增**工程管理页**并排第一（`⇧⌘0`） |
 | 内容页 | Content page | 接入内容壳的应用页面；**工作台不接入**（内部布局专属，issue 28 P1+P2）；当前范围 = 音频、素材、快捷键、设置 |

@@ -6,7 +6,7 @@ import { join } from 'path';
 import { repoRoot } from '@/tests/support/source';
 
 const editorSrc = readFileSync(
-  join(repoRoot, 'src/chart/Editor.tsx'),
+  join(repoRoot, 'src/pages/workspace/WorkspacePage.tsx'),
   'utf-8',
 );
 
@@ -33,7 +33,8 @@ describe('Editor.tsx · 候选 3 收口（音频域 ref 环消解）', () => {
   });
 
   it('不再单独 import AudioEngine（仅由 session 透出）', () => {
-    expect(editorSrc).not.toMatch(/import\s+\{[^}]*AudioEngine[^}]*\}\s+from\s+['"]\.\.\/utils\/AudioEngine['"]/);
+    // 路径字面量随 WorkspacePage 移到 src/pages/workspace/ 补一层（architecture-refactor 02，语义未动）
+    expect(editorSrc).not.toMatch(/import\s+\{[^}]*AudioEngine[^}]*\}\s+from\s+['"]\.\.\/\.\.\/utils\/AudioEngine['"]/);
   });
 
   it('走 useAudioSession 取音频会话', () => {
@@ -86,7 +87,7 @@ describe('App.tsx · 候选 3 收口（音频会话 Provider 挂载）', () => {
 
 describe('AudioPage.tsx · 候选 3 收口（直读 useAudioSession）', () => {
   const audioPageSrc = readFileSync(
-    join(repoRoot, 'src/audio/AudioPage.tsx'),
+    join(repoRoot, 'src/pages/audio/AudioPage.tsx'),
     'utf-8',
   );
 
@@ -104,7 +105,7 @@ describe('AudioPage.tsx · 候选 3 收口（直读 useAudioSession）', () => {
       .replace(/<p>[\s\S]*?<\/p>/g, ''); // 去掉 <p>...</p> 段落
     expect(codeOnly).not.toMatch(/settings\.audio\.keySet/);
     expect(codeOnly).not.toMatch(/settings\.audio\.seVolume/);
-    // 显式不 import useConfig
-    expect(codeOnly).not.toMatch(/import\s*\{[^}]*\buseConfig\b[^}]*\}\s*from\s*['"]\.\.\/contexts['"]/);
+    // 显式不 import useConfig（路径字面量随 AudioPage 移到 src/pages/audio/ 补一层，语义未动）
+    expect(codeOnly).not.toMatch(/import\s*\{[^}]*\buseConfig\b[^}]*\}\s*from\s*['"]\.\.\/\.\.\/contexts['"]/);
   });
 });

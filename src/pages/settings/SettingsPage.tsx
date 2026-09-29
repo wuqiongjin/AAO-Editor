@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Download, FolderOpen, FolderSearch, Info, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
-import AppPageShell from '../layouts/AppPageShell';
-import EmptyState from '../ui/EmptyState';
-import { useConfig } from '../app/ProviderTree';
-import { defaultSettings, loadSettings } from '../chart/config/AppSettings';
-import type { AppSettings } from '../chart/config/AppSettings';
-import { t, type MessageKey } from '../i18n';
+import AppPageShell from '../../layouts/AppPageShell';
+import EmptyState from '../../ui/EmptyState';
+import { useConfig } from '../../app/ProviderTree';
+import { defaultSettings, loadSettings } from '../../chart/config/AppSettings';
+import type { AppSettings } from '../../chart/config/AppSettings';
+import { t, type MessageKey } from '../../i18n';
 
 // 设置页：接入 AppPageShell（Sidebar 分组导航 + Body 设置详情），修改立即生效并持久化。
 type Section = 'appearance' | 'layout' | 'data' | 'canvas';

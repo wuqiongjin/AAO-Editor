@@ -5,7 +5,7 @@ import { readStripped } from '@/tests/support/source';
 const space = readStripped('src/chart/geometry/ChartSpace.ts');
 const canvas = readStripped('src/chart/components/canvas/FinalVirtualCanvas.tsx');
 const scroll = readStripped('src/playback/useScrollModel.ts');
-const editor = readStripped('src/chart/Editor.tsx');
+const editor = readStripped('src/pages/workspace/WorkspacePage.tsx');
 
 describe('一份 ChartGeometry 生命周期（issue 134）', () => {
   it('应用侧秒域几何只在 ChartSpace 构造', () => {

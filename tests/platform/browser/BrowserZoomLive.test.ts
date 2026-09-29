@@ -64,7 +64,7 @@ describe('issue 87 · 浏览器缩放探针（dpr 变化 → 实时窗口期）'
 describe('issue 87 · 接线结构断言（防把缩放信号拆掉）', () => {
   const root = repoRoot;
   const surfaceSrc = readFileSync(join(root, 'src/chart/layout/useSurfaceSize.ts'), 'utf-8');
-  const editorSrc = readFileSync(join(root, 'src/chart/Editor.tsx'), 'utf-8');
+  const editorSrc = readFileSync(join(root, 'src/pages/workspace/WorkspacePage.tsx'), 'utf-8');
 
   it('useSurfaceSize 把缩放探针并入 merger 的 live 探针', () => {
     expect(surfaceSrc).toContain('createZoomLiveTracker');

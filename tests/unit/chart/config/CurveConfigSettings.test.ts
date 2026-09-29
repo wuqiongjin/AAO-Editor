@@ -16,8 +16,8 @@ import { EASING_FAMILY_LABELS, EASING_TYPE_LABELS, CURVE_PRECISIONS } from '@/sr
 import { repoRoot, stripComments, readSource } from '@/tests/support/source';
 import { settingsMemStorage as memStorage } from '@/tests/support/storage';
 
-const panelSrc = stripComments(readSource('src/pages/WorkspacePage/CurveConfigPanel.tsx'));
-const toolbarSrc = stripComments(readSource('src/pages/WorkspacePage/Toolbar.tsx'));
+const panelSrc = stripComments(readSource('src/pages/workspace/CurveConfigPanel.tsx'));
+const toolbarSrc = stripComments(readSource('src/pages/workspace/Toolbar.tsx'));
 
 /** 只认 v1 设置键的假 storage（其余 key 一律 null → 快捷键走出厂默认，不干扰本票断言） */
 function walkTs(dir: string): string[] {

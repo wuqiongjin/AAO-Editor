@@ -22,7 +22,7 @@ import { stripComments, readSource } from '@/tests/support/source';
 
 const mainSrc = stripComments(readSource('electron/main.cjs'));
 const settingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));
-const settingsPageSrc = stripComments(readSource('src/settings/SettingsPage.tsx'));
+const settingsPageSrc = stripComments(readSource('src/pages/settings/SettingsPage.tsx'));
 
 describe('issue 119 · 纯函数 normalize / 序列化', () => {
   it('缺省 → 1260×800、未最大化', () => {

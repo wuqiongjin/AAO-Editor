@@ -142,12 +142,12 @@ describe('applyProjectSwitch · 切工程编辑态', () => {
   });
 
   it('切工程时谱面代码弹窗随当前工程卸载', () => {
-    const src = readStripped('src/chart/Editor.tsx');
+    const src = readStripped('src/pages/workspace/WorkspacePage.tsx');
     expect(src).toMatch(/ChartCodeEditorProvider key=\{projectId/);
   });
 
   it('切谱面与切工程走同一条 resetNotes：剪贴板不清、历史不串', () => {
-    const src = readStripped('src/chart/Editor.tsx');
+    const src = readStripped('src/pages/workspace/WorkspacePage.tsx');
     const restore = src.slice(src.indexOf('handleProjectRestore'));
     expect(restore.slice(0, restore.indexOf('}, ['))).toMatch(/resetNotes\(chart\.notes/);
     expect(src).not.toMatch(/isProjectsPrototype/);
