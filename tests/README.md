@@ -27,9 +27,11 @@ tests/
 │   │   ├── editing/    编辑操作纯函数（最大的一组）
 │   │   ├── geometry/   ChartGeometry / BpmTimeline
 │   │   ├── layout/     SurfaceSizeMerger 等布局
-│   │   └── project/    工程持久化
+│   │   └── ...
 │   ├── layouts/        src/layouts 外壳几何
+│   ├── pages/          src/pages 页内纯函数（如工程网格方向键）
 │   ├── playback/       播放条 / 滚动模型
+│   ├── project/        src/project 工程域（持久化 / 目录 / 会话 / 只读闸门…）
 │   ├── settings/       快捷键配置与索引筛选
 │   ├── tools/          tools/ 下的独立脚本（sprite-locator）
 │   ├── ui/             src/ui 通用组件

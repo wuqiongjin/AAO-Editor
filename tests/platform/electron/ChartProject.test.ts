@@ -5,8 +5,8 @@ import {
   ElectronFileProjectBackend,
   IndexedDbProjectBackend,
   PROJECT_SCHEMA_VERSION,
-} from '@/src/chart/project/ChartProject';
-import type { ChartProject, ProjectChart } from '@/src/chart/project/ChartProject';
+} from '@/src/project/ChartProject';
+import type { ChartProject, ProjectChart } from '@/src/project/ChartProject';
 import type { ChartNote } from '@/src/chart/types';
 import { makeMemoryProjectBridge } from '@/tests/support/memoryProjectBridge';
 import { readStripped } from '@/tests/support/source';
@@ -248,7 +248,7 @@ describe('安全与门面', () => {
   });
 
   it('源码不再含 IndexedDB→文件迁移', () => {
-    const src = readStripped('src/chart/project/ChartProject.ts');
+    const src = readStripped('src/project/ChartProject.ts');
     expect(src).not.toMatch(/ensureMigratedOnce/);
     expect(src).not.toMatch(/legacyRead/);
     expect(readStripped('electron/main.cjs')).not.toMatch(/首启迁移/);

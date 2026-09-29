@@ -3,7 +3,7 @@
 // 任何编辑入口（放置、拖动、删除、粘贴、谱面代码 Apply 等）都拒绝，
 // 且谱面源数据不变；并提示「已上传的谱面不能修改，复制这张谱面来改？」附复制按钮。
 import type { ChartUploadRecord } from './ChartProject';
-import type { ChartNote } from '../types';
+import type { ChartNote } from '../chart/types';
 import { chartStatus } from './workspaceProject';
 
 export type ChartEditOp =

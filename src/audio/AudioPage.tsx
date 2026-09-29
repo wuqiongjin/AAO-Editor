@@ -18,7 +18,7 @@ import { useAudioScope } from './useAudioScope';
 import {
   clearProjectAudio, importProjectAudio, setProjectAudioDuration, type ProjectAudioWriteResult,
 } from './projectAudio';
-import { lockedChartLabels } from '../pages/projectUi';
+import { lockedChartLabels } from '../project/ui/projectUi';
 import { t, type MessageKey } from '../i18n';
 
 type AudioSection = 'audio' | 'keysound' | 'se';

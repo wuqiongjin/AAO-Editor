@@ -1,15 +1,15 @@
 // chart-projects 03 / 20：当前工程会话。ensure 按选工程规则落盘；open 切工程并刷新 lastOpened；
 // issue 20 起当前工程跨刷新存活（指针注入内存实现，测试不碰真 localStorage）。
 import { describe, expect, it } from 'vitest';
-import { ChartProjectStore, type ChartProject, type ChartProjectBackend } from '@/src/chart/project/ChartProject';
-import { CurrentProjectSession } from '@/src/chart/project/CurrentProjectSession';
+import { ChartProjectStore, type ChartProject, type ChartProjectBackend } from '@/src/project/ChartProject';
+import { CurrentProjectSession } from '@/src/project/CurrentProjectSession';
 import {
   CURRENT_PROJECT_POINTER_KEY,
   loadCurrentProjectPointer,
   saveCurrentProjectPointer,
   type PointerStorage,
-} from '@/src/chart/project/currentProjectPointer';
-import { createUnnamedProject } from '@/src/chart/project/workspaceProject';
+} from '@/src/project/currentProjectPointer';
+import { createUnnamedProject } from '@/src/project/workspaceProject';
 import type { ChartNote } from '@/src/chart/types';
 
 /** 内存版指针存储。 */

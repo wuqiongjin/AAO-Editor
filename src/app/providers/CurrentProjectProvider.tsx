@@ -1,8 +1,8 @@
 // CurrentProjectProvider（chart-projects 03 / ADR-0015 §3）：
 // 会话内唯一当前工程 + 当前谱面。进工作台/音频页时 ensure；切工程走 open。
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChartProjectStore, type ChartProject, type ProjectChart } from '../../chart/project/ChartProject';
-import { CurrentProjectSession } from '../../chart/project/CurrentProjectSession';
+import { ChartProjectStore, type ChartProject, type ProjectChart } from '../../project/ChartProject';
+import { CurrentProjectSession } from '../../project/CurrentProjectSession';
 
 export interface CurrentProjectContextValue {
   projectId: string | null;

@@ -8,7 +8,7 @@
 // 抽公共抽象的收益（约 30 行）抵不上把详情页拖进工作台 UI 状态的代价 —— 详见 issue 23
 // 的「被否决方案」。等出现第三个可拖拽分栏再抽。
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { clampProjectListWidth, PROJECT_LIST_WIDTH } from '../chart/config/AppSettings';
+import { clampProjectListWidth, PROJECT_LIST_WIDTH } from '../../chart/config/AppSettings';
 
 export interface ProjectListSplitProps {
   /** 当前宽度（来自 settings.layout.projectList.width，已夹取） */

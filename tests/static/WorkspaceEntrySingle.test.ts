@@ -42,11 +42,11 @@ describe('issue 23 #1 · 进入工作台只有一个入口', () => {
     // 必须按**次数**断言，不能只按"哪些文件出现过"——同一文件里多写一处正是
     // 本票要防的回潮形态（创建路径被偷偷加回跳页），按文件去重会漏掉它。
     expect(total).toBe(1);
-    expect([...hits.keys()]).toEqual(['src/pages/ProjectsPage.tsx']);
+    expect([...hits.keys()]).toEqual(['src/pages/projects/ProjectsPage.tsx']);
   });
 
   it('那一处是 enterWorkspace，且 setCurrent 不跳页', () => {
-    const src = readStripped('src/pages/ProjectsPage.tsx');
+    const src = readStripped('src/pages/projects/ProjectsPage.tsx');
 
     // enterWorkspace = setCurrent + setActivePage（跳页那一个）
     const enter = src.match(/const\s+enterWorkspace\s*=\s*useCallback\(([\s\S]*?)\n\s*\}\s*,\s*\[/);

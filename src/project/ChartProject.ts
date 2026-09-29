@@ -5,7 +5,7 @@
 // 文件布局（<数据根>/projects/<id>/）：
 //   project.json = { schemaVersion, 工程信息, durationSeconds, lastOpened, charts, audioName, coverName, audioPresent, coverPresent }
 //   audio.bin / cover.bin = 与 JSON 分离的字节（仅在 set 时重写）
-import type { ChartNote } from '../types';
+import type { ChartNote } from '../chart/types';
 
 export const PROJECT_SCHEMA_VERSION = 1 as const;
 

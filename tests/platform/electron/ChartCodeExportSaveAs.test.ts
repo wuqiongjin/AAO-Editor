@@ -7,13 +7,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   chartCodeExportText, noteCodeExportText, noteCodeExportFilename,
-} from '@/src/chart/project/exportChartCode';
+} from '@/src/project/exportChartCode';
 import type { ChartNote } from '@/src/chart/types';
 import { stripComments, readSource } from '@/tests/support/source';
 
 
 const modalSrc = stripComments(readSource('src/chart/components/code-editor/ChartCodeEditorModal.tsx'));
-const exportSrc = stripComments(readSource('src/chart/project/exportChartCode.ts'));
+const exportSrc = stripComments(readSource('src/project/exportChartCode.ts'));
 const mainSrc = stripComments(readSource('electron/main.cjs'));
 const preloadSrc = stripComments(readSource('electron/preload.js'));
 const settingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));

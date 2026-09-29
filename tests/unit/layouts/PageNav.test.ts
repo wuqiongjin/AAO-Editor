@@ -52,7 +52,7 @@ describe('PAGE_NAV · 应用壳接线', () => {
   });
 
   it('工程管理页不再把原型挂成默认入口', () => {
-    const src = readStripped('src/pages/ProjectsPage.tsx');
+    const src = readStripped('src/pages/projects/ProjectsPage.tsx');
     expect(src).not.toMatch(/isProjectsPrototype/);
     expect(src).not.toMatch(/ProjectsPrototype/);
   });

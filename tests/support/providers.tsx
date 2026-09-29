@@ -11,7 +11,7 @@ import { useMemo, type ReactElement, type ReactNode } from 'react';
 import { render, type RenderOptions, type RenderResult } from '@testing-library/react';
 import { AudioSession, createAudioSession } from '@/src/audio/AudioSession';
 import type { AudioEngine } from '@/src/audio/AudioEngine';
-import { ChartProjectStore, type ChartProject, type ChartProjectBackend } from '@/src/chart/project/ChartProject';
+import { ChartProjectStore, type ChartProject, type ChartProjectBackend } from '@/src/project/ChartProject';
 import { CurrentProjectProvider } from '@/src/app/providers/CurrentProjectProvider';
 import { AudioSessionProvider } from '@/src/app/providers/AudioSessionProvider';
 

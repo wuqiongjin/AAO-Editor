@@ -1,11 +1,11 @@
 // 谱面信息对话框（chart-projects 04 / 05）：新增可贴谱面代码（Apply 闸门在调用方）；已上传只读。
 // 壳走 ui/Dialog（通用弹窗壳）—— 与新建 / 编辑工程信息、删除确认同一张脸（issue 16）。
 import { useState } from 'react';
-import type { ChartDifficulty, ChartProject, ProjectChart } from '../chart/project/ChartProject';
-import { DIFF_NAMES } from '../chart/project/projectCatalog';
-import { t } from '../i18n';
-import ActionBtn from '../ui/ActionBtn';
-import Dialog from '../ui/Dialog';
+import type { ChartDifficulty, ChartProject, ProjectChart } from '../ChartProject';
+import { DIFF_NAMES } from '../projectCatalog';
+import { t } from '../../i18n';
+import ActionBtn from '../../ui/ActionBtn';
+import Dialog from '../../ui/Dialog';
 import { displayProjectName } from './projectUi';
 
 /** 等级输入解析（空 → null；非有限数 → null）。难度/等级徽标就地编辑与弹窗共用。 */

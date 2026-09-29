@@ -29,7 +29,7 @@ import { describe, expect, it } from 'vitest';
 import { readSource } from '@/tests/support/source';
 import { PROJECT_LIST_WIDTH } from '@/src/chart/config/AppSettings';
 
-const css = readSource('src/pages/ProjectsPage.css');
+const css = readSource('src/pages/projects/ProjectsPage.css');
 
 describe('issue 23 #4 · 详情页头部布局的接线', () => {
   it('详情栏是查询容器（判据走容器宽度，不走窗口宽度）', () => {

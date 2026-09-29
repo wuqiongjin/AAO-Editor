@@ -5,10 +5,10 @@ import {
   hasBeat0Bpm,
   validateChartCodeJSON,
   type ValidationError,
-} from '../editing/ChartConverter';
+} from '../chart/editing/ChartConverter';
 import type { ChartDifficulty, ChartProject, ProjectChart, SongSource } from './ChartProject';
 import { createUnnamedProject, emptyChartNotes } from './workspaceProject';
-import { t } from '../../i18n';
+import { t } from '../i18n';
 
 export const DIFF_NAMES = ['Easy', 'Normal', 'Hard', 'Expert', 'Special'] as const;
 export const DIFF_SHORT = ['EZ', 'NM', 'HD', 'EX', 'SP'] as const;

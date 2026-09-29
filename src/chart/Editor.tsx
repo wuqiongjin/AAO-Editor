@@ -18,15 +18,15 @@ import { useChartSpace } from '../chart/geometry/ChartSpace';
 import { isProgrammaticScrollEcho, registerScrollEcho, useScrollModel, type ProgrammaticScrollEcho } from '../playback/useScrollModel';
 import { useAudioBridge } from '../audio/useAudioBridge';
 import { usePlaybackCoordinator } from '../playback/usePlaybackCoordinator';
-import { useChartProjectPersistence } from '../chart/project/useChartProjectPersistence';
+import { useChartProjectPersistence } from '../project/useChartProjectPersistence';
 import { useLayoutPersistence } from '../chart/layout/useLayoutPersistence';
 import { useShortcutDispatch } from '../chart/config/useShortcutDispatch';
 import { resolveEscapeTarget } from './editing/CanvasGesture';
-import { isChartReadonly, isChartEditFunction } from './project/chartReadonlyGate';
-import { isProjectAudioLocked } from './project/workspaceProject';
-import { duplicateChartInProject } from './project/projectCatalog';
-import { newChartId } from './project/ChartProject';
-import { untitledProjectLabel } from '../pages/projectUi';
+import { isChartReadonly, isChartEditFunction } from '../project/chartReadonlyGate';
+import { isProjectAudioLocked } from '../project/workspaceProject';
+import { duplicateChartInProject } from '../project/projectCatalog';
+import { newChartId } from '../project/ChartProject';
+import { untitledProjectLabel } from '../project/ui/projectUi';
 import { t } from '../i18n';
 
 interface EditorProps {
@@ -204,8 +204,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // 当前工程恢复（ADR-0015 §3）：切工程时整份编辑态换成新工程，剪贴板由 resetNotes 保留。
   const handleProjectRestore = useCallback(async (
-    project: import('../chart/project/ChartProject').ChartProject,
-    chart: import('../chart/project/ChartProject').ProjectChart,
+    project: import('../project/ChartProject').ChartProject,
+    chart: import('../project/ChartProject').ProjectChart,
     opts: { restoreAudio: boolean },
   ) => {
     const readonly = isChartReadonly(chart);
@@ -240,7 +240,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 换个音频不该顺手清掉撤销历史）。hydrateFromProject 在无音频时会清空引擎，
   // 「无音频工程 → 引擎必清空」这半条也在里面。
   const handleRecordAudioChanged = useCallback((
-    project: import('../chart/project/ChartProject').ChartProject,
+    project: import('../project/ChartProject').ChartProject,
   ) => {
     stopPlayback();
     setCurrentSeconds(0);

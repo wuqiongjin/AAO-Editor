@@ -6,9 +6,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
-import ProjectsPage from '@/src/pages/ProjectsPage';
+import ProjectsPage from '@/src/pages/projects/ProjectsPage';
 import ToastHost from '@/src/ui/Toast';
-import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/chart/project/ChartProject';
+import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/project/ChartProject';
 import {
   makeMemoryProjectBackend, renderWithProviders, type MemoryProjectBackend,
 } from '@/tests/support/providers';

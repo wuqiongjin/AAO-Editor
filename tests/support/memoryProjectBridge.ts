@@ -4,7 +4,7 @@ import type {
   ElectronProjectBridge,
   ProjectGetWire,
   ProjectPutWire,
-} from '@/src/chart/project/ChartProject';
+} from '@/src/project/ChartProject';
 
 export type MemoryDiskRecord = {
   doc: Record<string, unknown>;

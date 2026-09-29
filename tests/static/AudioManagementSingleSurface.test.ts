@@ -22,12 +22,24 @@ const AUDIO_WRITES = [
 ];
 
 describe('票 15 · 音频管理的唯一面与唯一写路径', () => {
+  /** 工程管理页整页 = 页面 + 两个视图组件（architecture-refactor 01 拆解后） */
+  const PROJECT_PAGE_FILES = [
+    'src/pages/projects/ProjectsPage.tsx',
+    'src/pages/projects/components/ProjectDetail.tsx',
+    'src/pages/projects/components/ProjectHub.tsx',
+  ];
+
   it('工程管理页只跳转、不管理：不出现任何音频写动作', () => {
-    const src = readStripped('src/pages/ProjectsPage.tsx');
-    const hit = AUDIO_WRITES.filter((name) => src.includes(name));
-    expect(hit).toEqual([]);
-    // 只剩"带作用域跳过去"这一个音频相关动作
-    expect(src).toMatch(/setActivePage\('audio', \{ scope: \{ projectId: sel\.id \} \}\)/);
+    for (const rel of PROJECT_PAGE_FILES) {
+      const src = readStripped(rel);
+      const hit = AUDIO_WRITES.filter((name) => src.includes(name));
+      expect(hit, `${rel} 里出现了音频写动作`).toEqual([]);
+    }
+    // 只剩"带作用域跳过去"这一个音频相关动作：作用域对象仍由页面构造，详情视图只负责触发
+    expect(readStripped('src/pages/projects/ProjectsPage.tsx'))
+      .toMatch(/setActivePage\('audio', \{ scope: \{ projectId: sel\.id \} \}\)/);
+    expect(readStripped('src/pages/projects/components/ProjectDetail.tsx'))
+      .toMatch(/onClick=\{onOpenAudio\}/);
   });
 
   it('工作台也只能跳过去（菜单项），不在工作台里改音频', () => {

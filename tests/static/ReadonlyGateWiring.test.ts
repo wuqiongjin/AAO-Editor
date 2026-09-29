@@ -62,7 +62,7 @@ describe('chart-projects 06: 只读闸门与音频锁静态装配锁测', () => 
   });
 
   it('useChartProjectPersistence: 已上传谱面与锁定工程防抖落盘防篡改', () => {
-    const src = readStripped('src/chart/project/useChartProjectPersistence.ts');
+    const src = readStripped('src/project/useChartProjectPersistence.ts');
     expect(src).toMatch(/if \(c\.upload\) return c;/);
     expect(src).toMatch(/isProjectAudioLocked\(prev\)/);
   });

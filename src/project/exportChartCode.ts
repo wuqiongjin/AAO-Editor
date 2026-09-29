@@ -2,9 +2,9 @@
 // Electron → dialog.showSaveDialog；浏览器 → a[download]。
 // issue 102：① 落盘形态与弹窗显示一致（每条音符一行，方便下次导入/粘贴时不卡）；
 //           ② 对象视图（音符代码工具 / 面包屑深层）只存**当前这一层**的代码。
-import { convertNotesToChartCode, chartCodeToCompactJSON } from '../editing/ChartConverter';
-import { buildNoteCode, noteViewCodeToJSON, type NoteCodeTarget } from '../editing/NoteCodeOps';
-import type { ChartNote } from '../types';
+import { convertNotesToChartCode, chartCodeToCompactJSON } from '../chart/editing/ChartConverter';
+import { buildNoteCode, noteViewCodeToJSON, type NoteCodeTarget } from '../chart/editing/NoteCodeOps';
+import type { ChartNote } from '../chart/types';
 
 export const CHART_CODE_EXPORT_FILENAME = 'chart.json';
 /** 对象视图另存为的推荐名（带音符下标，连续存多条不会互相覆盖） */

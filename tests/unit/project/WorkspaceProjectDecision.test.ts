@@ -12,7 +12,7 @@ import {
   createUnnamedProject,
   decideWorkspaceProject,
   type ProjectPickFields,
-} from '@/src/chart/project/workspaceProject';
+} from '@/src/project/workspaceProject';
 
 type ChartState = 'unfinished' | 'completed' | 'uploaded';
 

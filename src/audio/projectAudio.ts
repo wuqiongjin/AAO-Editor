@@ -6,8 +6,8 @@
 // 「当前 / 非当前」的差别只剩一条——**目标是当前工程时要先把在飞的编辑落盘**。
 //
 // 锁（ADR-0015 §4）：UI 禁用是第一道，这里再挡一次——纵深防御，别让"按钮忘了 disable"变成能写。
-import type { ChartDifficulty, ChartProject, ChartProjectStore } from '../chart/project/ChartProject';
-import { isProjectAudioLocked } from '../chart/project/workspaceProject';
+import type { ChartDifficulty, ChartProject, ChartProjectStore } from '../project/ChartProject';
+import { isProjectAudioLocked } from '../project/workspaceProject';
 import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
 import { probeAudioDuration, type AudioBytesDecoder } from './probeAudioDuration';
 

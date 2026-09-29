@@ -4,8 +4,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createAudioSession, type AudioEngineFactory } from '@/src/audio/AudioSession';
 import { AudioEngine } from '@/src/audio/AudioEngine';
-import { isProjectAudioLocked } from '@/src/chart/project/workspaceProject';
-import type { ChartProject, ProjectChart } from '@/src/chart/project/ChartProject';
+import { isProjectAudioLocked } from '@/src/project/workspaceProject';
+import type { ChartProject, ProjectChart } from '@/src/project/ChartProject';
 import type { ChartNote } from '@/src/chart/types';
 
 function makeMockEngine(): AudioEngine {

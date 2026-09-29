@@ -5,12 +5,12 @@
 import '@testing-library/jest-dom/vitest';
 import { describe, expect, it } from 'vitest';
 import { act, screen } from '@testing-library/react';
-import { ChartProjectStore } from '@/src/chart/project/ChartProject';
+import { ChartProjectStore } from '@/src/project/ChartProject';
 import {
   useCurrentProject,
   type CurrentProjectContextValue,
 } from '@/src/app/providers/CurrentProjectProvider';
-import { createUnnamedProject } from '@/src/chart/project/workspaceProject';
+import { createUnnamedProject } from '@/src/project/workspaceProject';
 import {
   makeMemoryProjectBackend,
   renderWithProviders,

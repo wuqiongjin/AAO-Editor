@@ -2,7 +2,7 @@
 // 色相一旦算出 NaN / Infinity，整条 `hsl()` 就是非法值，浏览器会把 background 声明整条丢掉
 // —— 与 issue 11 的症状（封面一片空白）无法从外部区分。这里锁住取值域。
 import { describe, expect, it } from 'vitest';
-import { projectCoverHue } from '@/src/chart/project/projectCatalog';
+import { projectCoverHue } from '@/src/project/projectCatalog';
 
 const IDS = [
   '',                                   // 极端：空 id

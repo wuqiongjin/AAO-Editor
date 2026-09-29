@@ -1,10 +1,10 @@
 // 工程管理页与工作台共用的轻量 UI 碎片（状态图标、菜单项、展示名）。
 import type { ReactNode } from 'react';
 import { Check, Circle, Upload } from 'lucide-react';
-import type { ChartDifficulty, ProjectChart } from '../chart/project/ChartProject';
-import { chartEffectiveTitle, DIFF_NAMES, projectDisplayName } from '../chart/project/projectCatalog';
-import { chartStatus } from '../chart/project/workspaceProject';
-import { t } from '../i18n';
+import type { ChartDifficulty, ProjectChart } from '../ChartProject';
+import { chartEffectiveTitle, DIFF_NAMES, projectDisplayName } from '../projectCatalog';
+import { chartStatus } from '../workspaceProject';
+import { t } from '../../i18n';
 
 export function untitledProjectLabel(): string {
   return t('projects.untitled');

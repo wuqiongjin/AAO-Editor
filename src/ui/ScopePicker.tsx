@@ -13,11 +13,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, FolderOpen, Lock, Search } from 'lucide-react';
 import { t } from '../i18n';
-import { displayProjectName } from '../pages/projectUi';
+import { displayProjectName } from '../project/ui/projectUi';
 // 浮层复用菜单壳（`.pp-menu__scrim` / `.pp-menu__panel.is-portaled`）。它目前定义在
 // ProjectsPage.css 里，所以显式 import 进来——照 ChartSwitcher 的做法，别指望"反正工程管理页
 // 一定先挂载"。把菜单壳摘进 ui.css 才是正解，属另一次清理。
-import '../pages/ProjectsPage.css';
+import '../pages/projects/ProjectsPage.css';
 import './ui.css';
 
 /** 切换器列表里的一项：只需身份 + 音频摘要 + 锁（不放封面——这条是"选作用域"，不是"挑作品"） */

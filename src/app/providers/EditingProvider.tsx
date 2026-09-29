@@ -9,7 +9,7 @@ import {
   NOTES_HISTORY_CAP, type HistoryState,
 } from '../../chart/editing/History';
 import { notesEqual } from '../../chart/editing/NotesEqual';
-import { applyProjectSwitch } from '../../chart/project/workspaceProject';
+import { applyProjectSwitch } from '../../project/workspaceProject';
 // H5 收口：所有位置参数统一为 ChartPosition（{ beat, lane }）
 export type Position = ChartPosition;
 

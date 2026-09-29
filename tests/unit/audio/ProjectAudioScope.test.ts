@@ -10,8 +10,8 @@ import {
   ChartProjectStore,
   type ChartProject,
   type ChartProjectBackend,
-} from '@/src/chart/project/ChartProject';
-import { createUnnamedProject } from '@/src/chart/project/workspaceProject';
+} from '@/src/project/ChartProject';
+import { createUnnamedProject } from '@/src/project/workspaceProject';
 import { MAX_DURATION_SECONDS } from '@/src/chart/config/AppSettings';
 import {
   clearProjectAudio,

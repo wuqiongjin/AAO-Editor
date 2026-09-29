@@ -10,7 +10,7 @@ import {
   type ChartProject,
   type ChartProjectBackend,
   type ProjectChart,
-} from '@/src/chart/project/ChartProject';
+} from '@/src/project/ChartProject';
 
 /** 每次读回都新建 Blob 对象 —— 与 IndexedDB / 文件后端的反序列化语义一致（这正是复现条件）。 */
 class ChurningBackend implements ChartProjectBackend {

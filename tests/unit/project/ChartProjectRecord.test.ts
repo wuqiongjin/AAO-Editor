@@ -5,8 +5,8 @@ import {
   ElectronFileProjectBackend,
   PROJECT_SCHEMA_VERSION,
   canReplaceStoredProject,
-} from '@/src/chart/project/ChartProject';
-import type { ChartProject, ProjectChart } from '@/src/chart/project/ChartProject';
+} from '@/src/project/ChartProject';
+import type { ChartProject, ProjectChart } from '@/src/project/ChartProject';
 import type { ChartNote } from '@/src/chart/types';
 import { makeMemoryProjectBridge } from '@/tests/support/memoryProjectBridge';
 

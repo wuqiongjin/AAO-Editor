@@ -18,8 +18,8 @@ import {
   useCurrentProject,
   type CurrentProjectContextValue,
 } from '@/src/app/providers/CurrentProjectProvider';
-import { ChartProjectStore, type ChartProject } from '@/src/chart/project/ChartProject';
-import { createUnnamedProject } from '@/src/chart/project/workspaceProject';
+import { ChartProjectStore, type ChartProject } from '@/src/project/ChartProject';
+import { createUnnamedProject } from '@/src/project/workspaceProject';
 import { makeMemoryProjectBackend, renderWithProviders, type MemoryProjectBackend } from '@/tests/support/providers';
 import { stubPageShellEnv } from '@/tests/support/domEnv';
 

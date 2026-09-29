@@ -8,9 +8,9 @@
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act, screen } from '@testing-library/react';
-import { ChartProjectStore, type ChartProject } from '@/src/chart/project/ChartProject';
-import { createUnnamedProject, isProjectAudioLocked } from '@/src/chart/project/workspaceProject';
-import { useChartProjectPersistence } from '@/src/chart/project/useChartProjectPersistence';
+import { ChartProjectStore, type ChartProject } from '@/src/project/ChartProject';
+import { createUnnamedProject, isProjectAudioLocked } from '@/src/project/workspaceProject';
+import { useChartProjectPersistence } from '@/src/project/useChartProjectPersistence';
 import {
   useCurrentProject,
   type CurrentProjectContextValue,

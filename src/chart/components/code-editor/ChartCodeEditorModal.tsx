@@ -38,7 +38,7 @@ import ConfirmDialog from '../../../ui/ConfirmDialog';
 import Dialog from '../../../ui/Dialog';
 import { showToast } from '../../../ui/Toast';
 import { useChartCodeEditor, type CodeEditorTarget } from './ChartCodeEditorProvider';
-import { exportChartCodeSaveAs } from '../../project/exportChartCode';
+import { exportChartCodeSaveAs } from '../../../project/exportChartCode';
 import type { ChartNote } from '../../types';
 import './ChartCodeEditorModal.css';
 

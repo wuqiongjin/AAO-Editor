@@ -8,7 +8,7 @@ import { join } from 'path';
 import { repoRoot } from '@/tests/support/source';
 
 const hookSrc = readFileSync(
-  join(repoRoot, 'src/chart/project/useChartProjectPersistence.ts'),
+  join(repoRoot, 'src/project/useChartProjectPersistence.ts'),
   'utf-8',
 );
 const codeOnly = hookSrc.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');

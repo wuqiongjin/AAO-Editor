@@ -11,8 +11,8 @@ import {
   duplicateProject,
   projectDisplayName,
   sortProjectsByLastOpened,
-} from '@/src/chart/project/projectCatalog';
-import { createUnnamedProject } from '@/src/chart/project/workspaceProject';
+} from '@/src/project/projectCatalog';
+import { createUnnamedProject } from '@/src/project/workspaceProject';
 import type { ChartNote } from '@/src/chart/types';
 import { setActiveUiLanguage } from '@/src/i18n';
 

@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
-import ProjectsPage from '@/src/pages/ProjectsPage';
-import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/chart/project/ChartProject';
+import ProjectsPage from '@/src/pages/projects/ProjectsPage';
+import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/project/ChartProject';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 

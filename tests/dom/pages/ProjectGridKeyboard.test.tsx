@@ -8,10 +8,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
-import ProjectsPage from '@/src/pages/ProjectsPage';
+import ProjectsPage from '@/src/pages/projects/ProjectsPage';
 import {
   ChartProjectStore, type ChartProject, type ProjectChart,
-} from '@/src/chart/project/ChartProject';
+} from '@/src/project/ChartProject';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
 import { seedZhSettings } from '@/tests/support/storage';
 

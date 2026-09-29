@@ -6,8 +6,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppNav } from '../layouts/AppNav';
 import { useCurrentProject } from '../app/providers/CurrentProjectProvider';
 import { resolveScopedProjectId } from '../layouts/pageScope';
-import { sortProjectsByLastOpened } from '../chart/project/projectCatalog';
-import { isProjectAudioLocked } from '../chart/project/workspaceProject';
+import { sortProjectsByLastOpened } from '../project/projectCatalog';
+import { isProjectAudioLocked } from '../project/workspaceProject';
 import type { ScopeOption } from '../ui/ScopePicker';
 import { readProjectAudio, type ProjectAudioDeps, type ProjectAudioView } from './projectAudio';
 

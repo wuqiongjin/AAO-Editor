@@ -34,7 +34,9 @@ const offenders = files.filter((rel) => NATIVE_DIALOG.test(readStripped(rel)));
 const toast = readStripped('src/ui/Toast.tsx');
 const uiCss = readStripped('src/ui/ui.css');
 const codeModal = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.tsx');
-const projectsPage = readStripped('src/pages/ProjectsPage.tsx');
+const projectsPage = readStripped('src/pages/projects/ProjectsPage.tsx');
+// 已上传谱面徽标只读的拦截随小件下沉到 ProjectBits（原在 ProjectsPage 内）
+const projectBits = readStripped('src/pages/projects/components/ProjectBits.tsx');
 const chartSwitcher = readStripped('src/pages/WorkspacePage/ChartSwitcher.tsx');
 const shell = readStripped('src/layouts/AppShell.tsx');
 
@@ -58,12 +60,14 @@ describe('issue 17 · 原生提示弹窗清零', () => {
   });
 
   it('工程页三处（删最后一张 / 新增被拒 / 已上传徽标只读）与工作台切换器一处同样接了 showToast', () => {
-    expect(toastCalls(projectsPage)).toBe(3);
+    // 页面两处：删最后一张、新增谱面被拒；页内小件一处：已上传徽标只读
+    expect(toastCalls(projectsPage)).toBe(2);
+    expect(toastCalls(projectBits)).toBe(1);
     expect(toastCalls(chartSwitcher)).toBe(1);
     // 「不能删最后一张」是拦住动作，不是出错 —— 走 warn 不走 danger
     expect(projectsPage).toMatch(/showToast\(t\('projects\.deleteLastChart'\), 'warn'\)/);
     // 已上传谱面的难度/等级徽标点击（issue 19 #2）：只读拦截同样走 warn，文案复用既有键
-    expect(projectsPage).toMatch(/showToast\(t\('projects\.uploadedReadonly'\), 'warn'\)/);
+    expect(projectBits).toMatch(/showToast\(t\('projects\.uploadedReadonly'\), 'warn'\)/);
   });
 
   it('宿主在应用壳里挂了恰好一次（挂零处 = 提示发出去没人接）', () => {

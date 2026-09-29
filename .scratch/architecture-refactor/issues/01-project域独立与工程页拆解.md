@@ -1,7 +1,7 @@
 # 01-project域独立与工程页拆解
 
 Type: chore
-Status: open
+Status: resolved
 
 > **2026-09-29 复核修订**：本票 2026-09-26 开出后未开工；期间 `chart-projects` 连续落地，原票的路径清单 / 行数 / 组件名已过时。本版按当前仓库重写「现状核对 / 目标结构 / 重构落点 / 锁测要求」；**目标口径不变**（工程域升顶层 + 工程页拆解 + 跨页 UI 下沉），仍是纯搬迁、不改任何行为。
 
@@ -114,3 +114,20 @@ src/pages/projects/               ← 工程管理页的家
 - **防回潮**：拆完后 `src/pages/projects/ProjectsPage.tsx` 行数应显著下降；`src/chart/` 下不得再出现 `project/` 目录、`src/pages/` 根部不得再出现工程资产（可在 `WorkspaceEntrySingle.test.ts` 同款 static 扫描里顺带断言，实现者自定）。
 
 ## Comments
+
+- 2026-09-29 落地。三块搬迁全部完成，未拆任何内部结构、未改任何行为：
+  - `src/chart/project/`（10 文件）→ `src/project/`；目录内对外部的相对 import 改指 `../chart/*`、`../audio/*`、`../i18n`（**仅路径**）。
+  - `ChartInfoDialog.tsx`（含 `parseLevel`）、`projectUi.tsx` → `src/project/ui/`；消费方 `ui/ScopePicker`、`audio/AudioPage`、`chart/Editor`、`pages/WorkspacePage/ChartSwitcher` 改指新位置。
+  - 工程页收进 `src/pages/projects/`：`ProjectsPage.tsx` **1056 → 361 行**（只留双视图调度 / state / handlers / 弹窗编排），其余拆为 `projectFormat.ts`（7 个纯函数）、`components/ProjectHub.tsx`（ProjectStartView + GuideBanner）、`components/ProjectDetail.tsx`（detail 分支整块，props 显式：`sel/list/currentId/listWidth/newButton/onHome/onSelect/onOpen/onEdit/onCopy/onDelete/onChartForm/onDeleteChart/onOpenAudio/mutate`）、`components/ProjectDialogs.tsx`（两个表单弹窗 + `NewSource`）、`components/ProjectBits.tsx`（Cover / StatusBadge / DiffLevelBadge / Menu）。
+  - 测试目录：`tests/unit/chart/project/` 12 文件 → `tests/unit/project/`；全仓 `@/src/chart/project/*` → `@/src/project/*`、`@/src/pages/ProjectsPage` → `@/src/pages/projects/ProjectsPage`（36 + 12 + 1 文件）。
+- **口径说明（三处判断，均不涉行为）**：
+  1. `ProjectStartView` 组件名保留（文件按票面叫 `ProjectHub.tsx`）—— 改名不在"纯搬迁"口径内；`ProjectDetail` 因原为匿名内联块，按文件名取名。
+  2. `updateChartInfo(p, {title: c.title, diff, level}, …)` 的 `title: c.title` 原样保留（票面禁改行为，未顺手清理）。
+  3. 音频跳转的作用域对象仍在页面侧构造（`setActivePage('audio', { scope: { projectId: sel.id } })` 留在 `ProjectsPage.tsx`），详情视图只收 `onOpenAudio()` —— 保住 `AudioManagementSingleSurface` 那条字面量断言。
+  4. `uploads` / `locked` 没有当 props 传（票面括号里列了），改由 `ProjectDetail` 从 `sel` 内部派生 —— 两者都是 `sel.charts` 的纯函数，传进来会让同一事实有第二份来源。
+  5. `tests/README.md` 的 `unit/` 目录树同步更新（`chart/project/` → 顶层 `project/`，补 `pages/`）—— 唯一被本票改到的非代码文档。
+- **static 锁测随文件归属重指**（不放松断言）：`ProjectsViewTransition`（`onClick={goHome}` → 详情侧 `onClick={onHome}` + `onHome={goHome}` 两处）/ `ProjectsGridFluid`（172+120 在 hub、96 在 detail）/ `ProjectsKeyboardGuard`（hub 网格与页面详情左栏**两份**守卫同时锁）/ `NoWindowAlert`（工程页 3 处 = 页面 2 + ProjectBits 1）/ `AudioManagementSingleSurface`（扫 `src/pages/projects/` 三个文件）/ `DialogTokenWiring`（新增 ProjectDialogs / ProjectBits 进零硬编码色值名单）/ `EditInfoDialogNoRawInput`（指向 ProjectDialogs）。
+- **防回潮新增** `tests/static/ProjectDomainLayout.test.ts`（4 条）：`src/chart/` 下不得再有 `project/`、跨页 UI 必须在 `src/project/ui/`、`src/pages/` 根部不得再散落工程资产、页面主组件 < 500 行。
+- **门禁**：`npm test` = **165 文件 / 1925 用例全绿**（基线 164/1919，+1 文件 +4 条新锁 +2 条 `it.each` 名单条目）；`npx tsc -b` 绿；`npm run build` 绿。
+- **本机既有噪声（非本票引入，未处置）**：① `tests/perf/RendererPerf.test.ts` 在全量并行下偶发红（单跑 20 条全绿，基线首跑即红）；② `npx eslint` 在 `src/project/ChartProject.ts:276`（`_audio` 未用）与 `src/project/chartReadonlyGate.ts:49`（`as any`）有 2 处 error —— 逐行核对为 HEAD 旧路径下的同一份代码，随搬迁原样保留，清理属另一笔账。
+- 未开工期间的在飞风险已核：`chart-projects` 06/24 无在飞改动（工作区干净）。

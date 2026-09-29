@@ -7,7 +7,7 @@ import {
   loadCurrentProjectPointer,
   saveCurrentProjectPointer,
   type PointerStorage,
-} from '@/src/chart/project/currentProjectPointer';
+} from '@/src/project/currentProjectPointer';
 
 function memStorage(seed?: string): PointerStorage & { raw: () => string | null } {
   let data: string | null = seed ?? null;

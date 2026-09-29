@@ -8,8 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
-import ProjectsPage from '@/src/pages/ProjectsPage';
-import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/chart/project/ChartProject';
+import ProjectsPage from '@/src/pages/projects/ProjectsPage';
+import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/project/ChartProject';
 import {
   useCurrentProject,
   type CurrentProjectContextValue,

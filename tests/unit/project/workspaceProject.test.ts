@@ -10,7 +10,7 @@ import {
   decideWorkspaceProject,
   isProjectAudioLocked,
   isProjectUnfinished,
-} from '@/src/chart/project/workspaceProject';
+} from '@/src/project/workspaceProject';
 import type { ChartNote } from '@/src/chart/types';
 import { readStripped } from '@/tests/support/source';
 

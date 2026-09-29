@@ -12,7 +12,7 @@ import {
   useCurrentProject,
   type CurrentProjectContextValue,
 } from '@/src/app/providers/CurrentProjectProvider';
-import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/chart/project/ChartProject';
+import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/project/ChartProject';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
 
 const AT = 1_700_000_000_000;

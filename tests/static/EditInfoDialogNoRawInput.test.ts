@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { readStripped } from '@/tests/support/source';
 
-const PAGE = readStripped('src/pages/ProjectsPage.tsx');
+const PAGE = readStripped('src/pages/projects/components/ProjectDialogs.tsx');
 const FIELD = readStripped('src/ui/CoverField.tsx');
 
 describe('chart-projects 12: 编辑工程信息封面字段改为自绘上传区', () => {
@@ -16,7 +16,7 @@ describe('chart-projects 12: 编辑工程信息封面字段改为自绘上传区
 
   it('封面字段走 CoverField 自绘组件（原生 input 已下沉到 ui 组件）', () => {
     expect(PAGE).toMatch(/<CoverField\b/);
-    expect(PAGE).toMatch(/from '\.\.\/ui\/CoverField'/);
+    expect(PAGE).toMatch(/from '\.\.\/\.\.\/\.\.\/ui\/CoverField'/);
   });
 
   it('CoverField 里唯一那份原生 input 是视觉隐藏的（沿用音频页做法）', () => {

@@ -44,8 +44,8 @@ vi.mock('@/src/pages/PageRegistry', async () => {
 
 import AppShell from '@/src/layouts/AppShell';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
-import { ChartProjectStore } from '@/src/chart/project/ChartProject';
-import { createUnnamedProject } from '@/src/chart/project/workspaceProject';
+import { ChartProjectStore } from '@/src/project/ChartProject';
+import { createUnnamedProject } from '@/src/project/workspaceProject';
 import {
   makeMemoryProjectBackend,
   renderWithProviders,

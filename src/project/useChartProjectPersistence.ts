@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { ChartProjectStore, type ChartProject, type ProjectChart } from './ChartProject';
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
 import { isProjectAudioLocked, pickCurrentChart } from './workspaceProject';
-import type { ChartNote } from '../types';
+import type { ChartNote } from '../chart/types';
 
 export interface UseChartProjectPersistenceOptions {
   /** 当前工程 id；null = 尚未 ensure，不读写 */

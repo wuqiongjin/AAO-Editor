@@ -13,8 +13,10 @@ import { readStripped, repoRoot } from '@/tests/support/source';
 const shell = readStripped('src/ui/Dialog.tsx');
 const uiCss = readStripped('src/ui/ui.css');
 const confirmDialog = readStripped('src/ui/ConfirmDialog.tsx');
-const projectsPage = readStripped('src/pages/ProjectsPage.tsx');
-const chartInfoDialog = readStripped('src/pages/ChartInfoDialog.tsx');
+const projectsPage = readStripped('src/pages/projects/ProjectsPage.tsx');
+const projectDialogs = readStripped('src/pages/projects/components/ProjectDialogs.tsx');
+const projectBits = readStripped('src/pages/projects/components/ProjectBits.tsx');
+const chartInfoDialog = readStripped('src/project/ui/ChartInfoDialog.tsx');
 const codeModal = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.tsx');
 const codeModalCss = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.css');
 const toast = readStripped('src/ui/Toast.tsx');
@@ -26,14 +28,18 @@ const HARD_CODED_COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
  * 参与「零硬编码色值」的文件：弹窗壳 + 壳的样式 + 五个弹窗的内容 + 轻提示（issue 17，同一族）。
  * 不含 ProjectsPage.css —— 弹窗规则已从它搬进 ui.css，它剩下的硬编码色值
  * （启动台封面角标之类的 #fff）是另一笔历史账，不在本票范围。
+ * 弹窗内容随 architecture-refactor 01 拆解分住三处：页面（编排）/ ProjectDialogs（两个表单弹窗）/
+ * ProjectBits（卡片菜单与难度徽标浮层 —— 原也在 ProjectsPage 里，一并纳入扫描）。
  */
 const DIALOG_SOURCES: [string, string][] = [
   ['ui/Dialog.tsx', shell],
   ['ui/ui.css', uiCss],
   ['ui/ConfirmDialog.tsx', confirmDialog],
   ['ui/Toast.tsx', toast],
-  ['pages/ProjectsPage.tsx', projectsPage],
-  ['pages/ChartInfoDialog.tsx', chartInfoDialog],
+  ['pages/projects/ProjectsPage.tsx', projectsPage],
+  ['pages/projects/components/ProjectDialogs.tsx', projectDialogs],
+  ['pages/projects/components/ProjectBits.tsx', projectBits],
+  ['project/ui/ChartInfoDialog.tsx', chartInfoDialog],
   ['chart/.../ChartCodeEditorModal.tsx', codeModal],
   ['chart/.../ChartCodeEditorModal.css', codeModalCss],
 ];

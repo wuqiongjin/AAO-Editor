@@ -26,7 +26,7 @@ const files = sourceFiles(join(repoRoot, 'src'));
 const offenders = files.filter((rel) => /window\s*\.\s*confirm\s*\(/.test(readStripped(rel)));
 
 /** 四处调用点各自的接线：确认弹窗必须出现在这些文件里 */
-const projectsPage = readStripped('src/pages/ProjectsPage.tsx');
+const projectsPage = readStripped('src/pages/projects/ProjectsPage.tsx');
 const codeModal = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.tsx');
 
 describe('issue 13 · 原生 window.confirm 清零', () => {

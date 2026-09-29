@@ -5,7 +5,7 @@ import {
   normalizeProjectSortKey,
   projectLastModified,
   sortProjects,
-} from '@/src/chart/project/projectSort';
+} from '@/src/project/projectSort';
 
 const untitled = '未命名工程';
 

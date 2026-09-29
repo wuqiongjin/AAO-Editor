@@ -7,7 +7,7 @@ import { lazy, Suspense, type ComponentType } from 'react';
 import type { PageId } from '../layouts/AppNav';
 
 // 路由目的地全部走 lazy 装入。Suspense fallback 写在这里，AppShell 不用管。
-const ProjectsPage = lazy(() => import('./ProjectsPage'));
+const ProjectsPage = lazy(() => import('./projects/ProjectsPage'));
 const Editor = lazy(() => import('../chart/Editor'));
 const AudioPage = lazy(() => import('../audio/AudioPage'));
 const AssetsPage = lazy(() => import('../visual/AssetsPage'));

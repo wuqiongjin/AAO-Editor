@@ -8,7 +8,7 @@
 // `wrap`（issue 23 #4 修订 / 用户 2026-09-28 拍板）：详情页左栏（columns=1）要**首尾循环**；
 // 启动台网格不开循环。做成显式开关，两种口径不混在默认值里。
 import { describe, expect, it } from 'vitest';
-import { moveGridSelection } from '@/src/pages/projectGridSelection';
+import { moveGridSelection } from '@/src/pages/projects/projectGridSelection';
 
 function grid(n: number): { id: string }[] {
   return Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}` }));

@@ -1,9 +1,9 @@
 // 当前工程规则（ADR-0015 §3 / chart-projects 03）：
 // 进工作台时选最近打开的未完成工程；没有则新建未命名工程（一张 Expert / diff=3）。
 // 切工程时编辑态整体换成新工程，剪贴板不清空。
-import { EMPTY_CHART_DURATION_SECONDS, DEFAULT_BPM } from '../../audio/AudioTiming';
-import { createHistory, type HistoryState } from '../editing/History';
-import type { ChartNote, SelectionItem } from '../types';
+import { EMPTY_CHART_DURATION_SECONDS, DEFAULT_BPM } from '../audio/AudioTiming';
+import { createHistory, type HistoryState } from '../chart/editing/History';
+import type { ChartNote, SelectionItem } from '../chart/types';
 import type { ChartProject, ChartUploadRecord, ProjectChart } from './ChartProject';
 
 export type ChartStatus = 'unfinished' | 'completed' | 'uploaded';

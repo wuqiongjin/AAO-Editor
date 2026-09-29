@@ -8,7 +8,7 @@ import {
 import type { ChartNote, LongNote, SingleNote, SystemNote } from '@/src/chart/types';
 import { countChartNotes, countNotesUpToBeat } from '@/src/chart/editing/NoteEditing';
 import { buildKeyEvents, getBpmEvents } from '@/src/audio/AudioTiming';
-import { chartCodeExportText } from '@/src/chart/project/exportChartCode';
+import { chartCodeExportText } from '@/src/project/exportChartCode';
 import { directionalLanes } from '@/src/chart/geometry/ChartGeometry';
 
 const bpm0 = { beat: 0, type: 'BPM', bpm: 120 };

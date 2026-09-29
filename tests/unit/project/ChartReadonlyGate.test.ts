@@ -10,9 +10,9 @@ import {
   withReadonlyGate,
   type ChartEditOp,
   type ChartReadOp,
-} from '@/src/chart/project/chartReadonlyGate';
+} from '@/src/project/chartReadonlyGate';
 import type { ChartNote, SelectionItem } from '@/src/chart/types';
-import type { ChartUploadRecord } from '@/src/chart/project/ChartProject';
+import type { ChartUploadRecord } from '@/src/project/ChartProject';
 import { copySelection } from '@/src/chart/editing/SelectionEditing';
 
 const initialNotes: ChartNote[] = [

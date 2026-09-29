@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Copy, FolderOpen, Lock, Music2, Pencil, Plus } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
-import { newChartId, type ChartProject, type ProjectChart } from '../../chart/project/ChartProject';
+import { newChartId, type ChartProject, type ProjectChart } from '../../project/ChartProject';
 import {
   addChartToProject,
   chartEffectiveTitle,
@@ -15,20 +15,20 @@ import {
   duplicateChartInProject,
   toggleChartCompleted,
   updateChartInfo,
-} from '../../chart/project/projectCatalog';
-import { chartStatus, pickCurrentChart } from '../../chart/project/workspaceProject';
+} from '../../project/projectCatalog';
+import { chartStatus, pickCurrentChart } from '../../project/workspaceProject';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { formatValidationError, type ValidationError } from '../../chart/editing/ChartConverter';
 import { t } from '../../i18n';
 import { showToast } from '../../ui/Toast';
-import { ChartInfoDialog } from '../ChartInfoDialog';
+import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
 import {
   ChartStatusIcon,
   displayProjectName,
   ProjectMenuItem,
   untitledProjectLabel,
-} from '../projectUi';
-import '../ProjectsPage.css';
+} from '../../project/ui/projectUi';
+import '../projects/ProjectsPage.css';
 import './ChartSwitcher.css';
 
 export default function ChartSwitcher() {
