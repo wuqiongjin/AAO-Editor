@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { repoRoot } from '@/tests/support/source';
+import { readStripped, repoRoot } from '@/tests/support/source';
 
 const editorSrc = readFileSync(
   join(repoRoot, 'src/pages/workspace/WorkspacePage.tsx'),
@@ -48,11 +48,7 @@ describe('Editor.tsx · 候选 3 收口（音频域 ref 环消解）', () => {
 
   it('chartEndKey 仅作重锚 effect 依赖使用（缩放锚定修复后的唯一消费者）', () => {
     // architecture-refactor/09（候选 4）：重锚装配搬进谱面视口会话，断言随宿主改锚（内容逐条不变）。
-    const viewSessionSrc = readFileSync(
-      join(repoRoot, 'src/playback/useChartViewSession.ts'),
-      'utf-8',
-    );
-    const codeOnly = viewSessionSrc.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const codeOnly = readStripped('src/playback/useChartViewSession.ts');
     const uses = codeOnly.match(/chartEndKey/g) ?? [];
     expect(uses.length).toBe(3); // useChartSpace 解构 + useScrollModel 注入 + effect 依赖
     expect(codeOnly).toMatch(/\{\s*geometry,\s*chartEndKey\s*\}\s*=\s*useChartSpace/);

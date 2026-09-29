@@ -21,7 +21,7 @@ import { useChartSpace } from '../chart/geometry/ChartSpace';
 import { useSurfaceSize } from '../chart/layout/useSurfaceSize';
 import type { AudioEngine } from '../audio/AudioEngine';
 import type { FinalVirtualCanvasHandle } from '../chart/components/canvas/FinalVirtualCanvas';
-import { usePlaybackCoordinator } from './usePlaybackCoordinator';
+import { usePlaybackCoordinator, type UsePlaybackCoordinatorReturn } from './usePlaybackCoordinator';
 import type { PlaybackScrollModel } from './PlaybackScrollModel';
 import {
   isProgrammaticScrollEcho, registerScrollEcho, useScrollModel, type ProgrammaticScrollEcho,
@@ -52,7 +52,8 @@ export interface UseChartViewSessionOptions {
   onChartDurationChange?: (sec: number) => void;
 }
 
-export interface ChartViewSession {
+/** 会话的对外面：视口四件 + 两个 DOM 直连 handler，播放面沿用协调器的（不逐字重抄一份）。 */
+export interface ChartViewSession extends UsePlaybackCoordinatorReturn {
   /** 渲染面尺寸（null = ResizeObserver 尚未回调） */
   surface: SurfaceSize | null;
   /** 与画布 / 滚动模型同一份布局轴几何（issue 134） */
@@ -65,13 +66,6 @@ export interface ChartViewSession {
   onCanvasScrollChange: (scrollY: number, height: number) => void;
   /** 滚动宿主 onScroll 直连（回声识别 → 画布跟随 → seek） */
   onScrollbarScroll: (e: UIEvent<HTMLDivElement>) => void;
-  /** 播放面（原 usePlaybackCoordinator 直出） */
-  isPlaying: boolean;
-  togglePlay: () => void;
-  seek: (sec: number) => void;
-  jumpToMarker: () => void;
-  changeDuration: (sec: number) => void;
-  stopPlayback: () => void;
 }
 
 export function useChartViewSession(opts: UseChartViewSessionOptions): ChartViewSession {
