@@ -14,6 +14,7 @@ import { seedZhSettings } from '@/tests/support/storage';
 const navValue = {
   activePage: 'projects' as PageId,
   setActivePage: () => {},
+  pageScope: null,
   navCollapsed: true,
   setNavCollapsed: () => {},
 };

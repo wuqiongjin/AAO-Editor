@@ -25,6 +25,7 @@ const AT = 1_700_000_000_000;
 const navValue = {
   activePage: 'projects' as PageId,
   setActivePage: () => {},
+  pageScope: null,
   navCollapsed: true,
   setNavCollapsed: () => {},
 };

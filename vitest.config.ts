@@ -14,6 +14,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // Node 25 的 Web Storage 全局会盖掉 jsdom 的 `localStorage`（详情见该文件注释），
+    // 全局 setup 里补回；node 环境的测试不受影响（内部按 `window` 存在与否分流）。
+    setupFiles: ['tests/support/jsdomStorage.ts'],
     // support/ 只放测试基建（无 .test.ts），不参与收集；
     // 新增大类目录（如 tests/e2e）需在此显式登记才会进入默认全量跑。
     include: ['tests/{unit,platform,static,perf}/**/*.test.ts', 'tests/dom/**/*.test.{ts,tsx}'],

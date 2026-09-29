@@ -160,7 +160,6 @@
 - **162 无音频恢复谱面时长音频页仍默认 30s**（[162](./issues/162-无音频恢复谱面时长音频页仍默认30s.md)，`Type: bug`，resolved）—— **改成什么** = 无音频恢复/改时长一律走 `AudioSession.setChartDuration`；音频页与工作台同一条谱面时长，不再只灌 PlaybackContext。**已实现**（2026-09-26）。
 - **163 BPM 横线弱化与删除 hover**（[163](./issues/163-BPM横线弱化与删除hover.md)，`Type: grilling`，resolved）—— **定了什么** = 只改轨道内 BPM 横线：专用弱紫/蓝紫、细于整拍、正负同色；数字仍跟主题；末条非法负仍警示。不可选中；删除工具命中给危险色（重开 51 Q5=B 与 56 C5）。网格不动。**已实现**（2026-09-26）。
 - **164 片段收藏**（[164](./issues/164-片段收藏.md)，`Type: grilling`，open）—— 用户收藏音符配置、在任何可编辑谱面画布粘贴；术语定为「片段」（不叫「配置」）；与剪贴板并存。存什么、存哪、怎么收藏与粘贴待 grill。
-
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
