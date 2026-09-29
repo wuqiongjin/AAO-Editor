@@ -8,7 +8,7 @@ import {
 import type { ChartNote, LongNote, SingleNote, SystemNote } from '@/src/chart/types';
 import { countChartNotes, countNotesUpToBeat } from '@/src/chart/editing/NoteEditing';
 import { buildKeyEvents, getBpmEvents } from '@/src/audio/AudioTiming';
-import { chartCodeExportText } from '@/src/project/exportChartCode';
+import { chartCodeExportText } from '@/src/chart/editing/ChartConverter';
 import { directionalLanes } from '@/src/chart/geometry/ChartGeometry';
 
 const bpm0 = { beat: 0, type: 'BPM', bpm: 120 };
@@ -136,7 +136,7 @@ describe('issue 153 · combo / 键音 / 导出原文', () => {
     test('另存为在 pristine 时用已应用原文', () => {
         const notes: ChartNote[] = [{ type: 'BPM', beat: 0, bpm: 120 }];
         const raw = '[\n  {"beat":0,"type":"BPM","bpm":120}\n]';
-        expect(chartCodeExportText(notes, raw)).toBe(raw);
+        expect(chartCodeExportText(notes, { text: raw, pristine: true })).toBe(raw);
         expect(chartCodeExportText(notes)).toBe('[\n{"beat":0,"type":"BPM","bpm":120}\n]');
     });
 

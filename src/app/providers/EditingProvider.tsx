@@ -4,11 +4,12 @@ import { createContext, useContext, useCallback, useRef, useState, type ReactNod
 import type { ChartNote, SelectionItem } from '../../chart/types';
 import type { ChartPosition } from '../../types/chart';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../../chart/editing/SelectionEditing';
+import { currentHistory } from '../../chart/editing/History';
 import {
-  createHistory, pushHistoryIfChanged, undoHistory, redoHistory, currentHistory,
-  NOTES_HISTORY_CAP, type HistoryState,
-} from '../../chart/editing/History';
-import { notesEqual } from '../../chart/editing/NotesEqual';
+  createChartEditingState, commitNotes, undoNotes, redoNotes,
+  applyChartCode, resetChartEditingState, type ChartEditingState,
+} from '../../chart/editing/ChartEditingState';
+import type { ChartCodeFidelity } from '../../chart/editing/ChartConverter';
 import { applyProjectSwitch } from '../../project/workspaceProject';
 // H5 收口：所有位置参数统一为 ChartPosition（{ beat, lane }）
 export type Position = ChartPosition;
@@ -30,14 +31,15 @@ export interface EditingContextValue {
   // 基础 setter
   setNotes: (notes: ChartNote[]) => void;
   /** 重置整个谱面（ADR-0005 §6：加载持久化工程时干净恢复，不产生撤销记录） */
-  resetNotes: (notes: ChartNote[], applied?: { text: string | null; pristine: boolean }) => void;
+  resetNotes: (notes: ChartNote[], fidelity?: ChartCodeFidelity) => void;
   setSelectedItems: (items: SelectionItem[]) => void;
   setClipboard: (c: ChartNote[]) => void;
   // 带历史记录的变更入口
   handleNotesChange: (newNotes: ChartNote[]) => void;
-  appliedChartCodeText: string | null;
-  chartCodePristine: boolean;
-  rememberAppliedChartCode: (text: string) => void;
+  /** 谱面代码保真（源文本 + pristine）：与 notes 同一个 state 字段，只能整份读（05 收口） */
+  chartCodeFidelity: ChartCodeFidelity;
+  /** Apply 成功：回写画布 + 置保真（两者同一次 setState，不会只成一半） */
+  applyChartCodeToCanvas: (notes: ChartNote[], text: string) => void;
   // 历史
   undo: () => void;
   redo: () => void;
@@ -57,36 +59,35 @@ export function EditingProvider({ children }: { children: ReactNode }) {
   const [clipboard, setClipboard] = useState<ChartNote[]>([]);
   const clipboardRef = useRef(clipboard);
   clipboardRef.current = clipboard;
-  // 历史记录（ADR-0001）：谱面 notes 以历史栈为单一真相源（ADR-0003 候选 D 收口）。
-  // 快照用结构共享（编辑函数均不可变，未改动音符复用原引用），不做全量 structuredClone。
+  // 编辑态（ADR-0001 / ADR-0003 候选 D 收口）：**一个 state 对象**装两样东西 ——
+  //   · history：谱面 notes 以历史栈为单一真相源（快照结构共享，编辑函数均不可变，不做全量 structuredClone）；
+  //   · fidelity：谱面代码保真（源文本 + pristine）。
+  // 合成一个对象是为了让「改音符即作废 pristine」成为**同一次写**：任何改 notes 的路径都绕不过
+  // chart/editing/ChartEditingState 的转移函数（05 票）。
   // H1 收口：history + historyIndex 合并为单一原子状态，updater 保持纯函数（无 React StrictMode 副作用）。
   // 初始谱面（ADR-0001 谱面必须有初始 BPM）：空谱默认含第0拍120bpm，而非空数组。
   // 这样初次打开即渲染 BPM 线 / 代码编辑器显示初始 BPM，无需重置才有。
   const initialNotes: ChartNote[] = [{ beat: 0, type: "BPM", bpm: 120 }];
-  const [historyState, setHistoryState] = useState<HistoryState<ChartNote[]>>(() =>
-    createHistory<ChartNote[]>(initialNotes),
+  const [editingState, setEditingState] = useState<ChartEditingState>(() =>
+    createChartEditingState(initialNotes),
   );
-  const history = historyState.stack;
-  const historyIndex = historyState.index;
+  const history = editingState.history.stack;
+  const historyIndex = editingState.history.index;
   // 当前谱面 = 历史栈 index 指向的快照
-  const notes = currentHistory(historyState);
-
-  const addToHistory = useCallback((newNotes: ChartNote[]) => {
-    // 历史去重（issue 57 bug4）：与当前快照语义相等的无操作编辑（如重复放置同一音符）
-    // 不占栈位——否则 Ctrl+Z 需按同样多次才退得掉第一次的真实改动。
-    setHistoryState(prev => pushHistoryIfChanged(prev, newNotes, notesEqual, NOTES_HISTORY_CAP));
-  }, []);
-
-  const [appliedChartCodeText, setAppliedChartCodeText] = useState<string | null>(null);
-  const [chartCodePristine, setChartCodePristine] = useState(false);
+  const notes = currentHistory(editingState.history);
+  const chartCodeFidelity = editingState.fidelity;
   const readonlyGateRef = useRef<ReadonlyGateHandler | null>(null);
   const setReadonlyGate = useCallback((gate: ReadonlyGateHandler | null) => {
     readonlyGateRef.current = gate;
   }, []);
 
-  const rememberAppliedChartCode = useCallback((text: string) => {
-    setAppliedChartCodeText(text);
-    setChartCodePristine(true);
+  // Apply 成功：回写画布 + 置保真**一次完成**（唯一的置位点；撤销 / 重做都不还原它）
+  const applyChartCodeToCanvas = useCallback((newNotes: ChartNote[], text: string) => {
+    if (readonlyGateRef.current?.isReadOnly()) {
+      readonlyGateRef.current.onReject();
+      return;
+    }
+    setEditingState(prev => applyChartCode(prev, newNotes, text));
   }, []);
 
   const handleNotesChange = useCallback((newNotes: ChartNote[]) => {
@@ -94,25 +95,21 @@ export function EditingProvider({ children }: { children: ReactNode }) {
       readonlyGateRef.current.onReject();
       return;
     }
-    setChartCodePristine(false);
-    addToHistory(newNotes);
-  }, [addToHistory]);
+    setEditingState(prev => commitNotes(prev, newNotes));
+  }, []);
 
   const setNotes = useCallback((n: ChartNote[]) => {
     if (readonlyGateRef.current?.isReadOnly()) {
       readonlyGateRef.current.onReject();
       return;
     }
-    setChartCodePristine(false);
-    setHistoryState(prev => pushHistoryIfChanged(prev, n, notesEqual, NOTES_HISTORY_CAP));
+    setEditingState(prev => commitNotes(prev, n));
   }, []);
 
-  const resetNotes = useCallback((n: ChartNote[], applied?: { text: string | null; pristine: boolean }) => {
+  const resetNotes = useCallback((n: ChartNote[], fidelity?: ChartCodeFidelity) => {
     const next = applyProjectSwitch({ notes: n, clipboard: clipboardRef.current });
-    setHistoryState(next.history);
+    setEditingState(resetChartEditingState(next.history, fidelity));
     setSelectedItems(next.selectedItems);
-    setAppliedChartCodeText(applied?.text ?? null);
-    setChartCodePristine(applied?.pristine === true);
   }, []);
 
   const undo = useCallback(() => {
@@ -120,8 +117,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
       readonlyGateRef.current.onReject();
       return;
     }
-    setChartCodePristine(false);
-    setHistoryState(prev => undoHistory(prev) ?? prev);
+    setEditingState(undoNotes);
     setSelectedItems([]);
   }, []);
 
@@ -130,8 +126,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
       readonlyGateRef.current.onReject();
       return;
     }
-    setChartCodePristine(false);
-    setHistoryState(prev => redoHistory(prev) ?? prev);
+    setEditingState(redoNotes);
     setSelectedItems([]);
   }, []);
 
@@ -180,7 +175,7 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     setNotes, resetNotes, setSelectedItems, setClipboard,
     handleNotesChange, undo, redo,
     copy, cut, deleteSelected, mirror,
-    appliedChartCodeText, chartCodePristine, rememberAppliedChartCode,
+    chartCodeFidelity, applyChartCodeToCanvas,
     setReadonlyGate,
   };
 

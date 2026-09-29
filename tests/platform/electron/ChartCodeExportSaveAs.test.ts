@@ -1,13 +1,12 @@
 // issue 118：谱面代码「每次另存为、不记路径」。
 // issue 102：落盘形态改「每条音符一行」+ 对象视图只导出当前一层。
-// 序列化格式由 ChartConverter 既有单测看守；本文件锁
-//   ① 导出文本 = 画布 notes 经 convertNotesToChartCode 的权威 JSON（不是弹窗草稿）
+// 05：整份的导出文本由保真判定入口给（保真 pristine → 源文本原文，否则画布投影），弹窗不再自己做判断。
+// 序列化格式与「哪份文本」由 ChartConverter / ChartCodeTextEntries 单测看守；本文件锁
+//   ① 弹窗把保真整份交给导出 gate（不是弹窗草稿、也不再自己判 pristine）
 //   ② 弹窗接线、Electron dialog、浏览器 a[download]
 //   ③ 不记住导出目录（设置对象 / 主进程都不养路径）
 import { describe, it, expect } from 'vitest';
-import {
-  chartCodeExportText, noteCodeExportText, noteCodeExportFilename,
-} from '@/src/project/exportChartCode';
+import { noteCodeExportText, noteCodeExportFilename } from '@/src/project/exportChartCode';
 import type { ChartNote } from '@/src/chart/types';
 import { stripComments, readSource } from '@/tests/support/source';
 
@@ -19,13 +18,9 @@ const preloadSrc = stripComments(readSource('electron/preload.js'));
 const settingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));
 
 describe('issue 118 · 导出文本来自画布 notes', () => {
-  // issue 102：落盘形态改为「每条音符一行」（与弹窗显示一致），覆盖 issue 118 当初的 4 空格口径 ——
-  // 理由：下次导入 / 粘贴这份文件时，行数少一个数量级，编辑不卡。
-  it('已知 BPM 谱面 → 每条音符一行（与弹窗显示同一份文本，不是 4 空格）', () => {
-    const notes: ChartNote[] = [{ type: 'BPM', beat: 0, bpm: 120 }];
-    expect(chartCodeExportText(notes)).toBe('[\n{"beat":0,"type":"BPM","bpm":120}\n]');
-  });
-
+  // issue 102：整份落盘形态 = 与弹窗显示同一份「每条音符一行」紧凑文本（覆盖 issue 118 的 4 空格口径）。
+  // 05 起「发哪份文本」由保真判定入口决定（保真 → 源文本原文，否则画布投影），
+  // 这条口径的矩阵归 tests/unit/chart/code/ChartCodeTextEntries.test.ts；这里只剩接线与对象视图那一层。
   it('对象视图（音符代码工具）→ 只导出这一层（裸对象 JSON）', () => {
     const notes: ChartNote[] = [
       { type: 'BPM', beat: 0, bpm: 120 },
@@ -60,9 +55,16 @@ describe('issue 118 · 弹窗接线', () => {
     expect(modalSrc).toMatch(/exportChartCodeSaveAs\(\s*notes\s*,\s*isChartView \? undefined : target/);
   });
 
-  it('渲染侧另存为在完整视图且 pristine 时传入 appliedChartCodeText', () => {
-    expect(modalSrc).toMatch(/isChartView && chartCodePristine \? appliedChartCodeText/);
-    expect(exportSrc).toMatch(/function chartCodeExportText\([\s\S]*appliedText/);
+  it('05：完整视图把保真整份交给导出 gate，由保真判定入口决定发哪份文本', () => {
+    // 弹窗自己不再做 pristine 判断（旧接线：isChartView && chartCodePristine ? appliedChartCodeText : undefined）
+    expect(modalSrc).toMatch(
+      /exportChartCodeSaveAs\(\s*notes\s*,\s*isChartView \? undefined : target\s*,\s*chartCodeFidelity,?\s*\)/,
+    );
+    expect(modalSrc).not.toMatch(/chartCodePristine|appliedChartCodeText/);
+    // 导出侧只委托入口，自己不再拼序列化
+    expect(exportSrc).toMatch(/chartCodeExportText\(\s*notes\s*,\s*fidelity\s*\)/);
+    expect(exportSrc).not.toContain('convertNotesToChartCode');
+    expect(exportSrc).not.toContain('chartCodeToCompactJSON');
   });
 });
 

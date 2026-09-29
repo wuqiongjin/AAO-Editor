@@ -200,6 +200,49 @@ export function chartCodeToCompactJSON(chartCode: ChartCodeNote[]): string {
 }
 
 /**
+ * 谱面代码保真（CONTEXT「谱面代码源数据」）：Apply 成功留下的**源文本** + 一个 pristine 标志。
+ * 两者是一个整体 —— 只有 pristine（且仍留着源文本）时，导出才发原文，见 `chartCodeExportText`。
+ *
+ * 类型放 chart 域（与序列化同一 module）：工程记录继续用 `appliedChartCodeText` / `chartCodePristine`
+ * 两个扁平字段，映射在编辑态边界做，不引入 `chart → project` 反向依赖。
+ */
+export interface ChartCodeFidelity {
+    /** Apply 留下的源文本（未经画布往返的原文）；从未 Apply 过为 null */
+    text: string | null;
+    /** 源文本是否仍是画布的来源：任何改动画布音符的操作（含撤销 / 重做）作废它，且不还原 */
+    pristine: boolean;
+}
+
+/** 未保真（新谱面 / 从未 Apply）：保真的初始值（冻结，防止被就地改写） */
+export const EMPTY_CHART_CODE_FIDELITY: Readonly<ChartCodeFidelity> = Object.freeze({
+    text: null,
+    pristine: false,
+});
+
+/**
+ * **投影文本**（画布 → 文本）：画布音符序列化成紧凑 JSON。弹窗显示、以及未保真时的导出回退都走它。
+ * 仓库里 `convertNotesToChartCode` + `chartCodeToCompactJSON` 的组合只允许出现在这里（05 收口）。
+ */
+export function chartCodeProjectionText(notes: ChartNote[]): string {
+    return chartCodeToCompactJSON(convertNotesToChartCode(notes));
+}
+
+/**
+ * **导出文本**（文本 → 文件/上传）：保真 pristine 且有源文本时**原文返回**（未知字段与原始排版一并保留），
+ * 否则回退画布投影。
+ *
+ * 口径只活在**这里**：弹窗显示的是投影，另存为（以及将来 Bestdori 上传）走本入口，
+ * 未 Apply 的草稿自然发不出去（`fidelity` 缺省 = 未保真 = 投影）。
+ */
+export function chartCodeExportText(
+    notes: ChartNote[],
+    fidelity: ChartCodeFidelity | null = EMPTY_CHART_CODE_FIDELITY,
+): string {
+    if (fidelity?.pristine && fidelity.text != null && fidelity.text !== '') return fidelity.text;
+    return chartCodeProjectionText(notes);
+}
+
+/**
  * 把一段文本重排成显示形态（每条一行）—— **只敢在"它本来就是合法谱面代码数组"时动手**。
  *
  * 用途：粘贴。外部代码多半是 4 空格缩进（5000 音符 = 30,007 行），原样落进 textarea 会让

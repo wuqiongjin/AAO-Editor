@@ -3,13 +3,13 @@ import {
     convertNotesToChartCode,
     convertChartCodeToNotes,
     chartCodeToCompactJSON,
+    chartCodeExportText,
     normalizeChartCodeText,
     parseCodeText,
     validateChartCode,
     hasBeat0Bpm
 } from '@/src/chart/editing/ChartConverter';
 import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
-import { chartCodeExportText } from '@/src/project/exportChartCode';
 import type { ChartNote } from '@/src/chart/types';
 
 describe('Chart Converter', () => {

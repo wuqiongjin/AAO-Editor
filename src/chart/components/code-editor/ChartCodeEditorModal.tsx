@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState, startTransition } from "react";
 import { Copy, Download, RotateCcw, RefreshCw, X } from "lucide-react";
 import {
-    convertNotesToChartCode, chartCodeToCompactJSON, normalizeChartCodeText,
+    chartCodeProjectionText, normalizeChartCodeText,
     parseCodeText,
     formatValidationError, convertChartCodeToNotes, hasBeat0Bpm,
     type ValidationError, type ChartCodeNote,
@@ -61,7 +61,7 @@ interface Props {
 }
 
 export default function ChartCodeEditorModal({ target, readOnly, onReadonlyReject }: Props) {
-    const { notes, handleNotesChange, selectedItems, chartCodePristine, appliedChartCodeText, rememberAppliedChartCode } = useEditing();
+    const { notes, handleNotesChange, selectedItems, chartCodeFidelity, applyChartCodeToCanvas } = useEditing();
     const { canPlay } = usePlayback();
     // issue 145 #2：谱面时长的单一真相源是 AudioSession，播放条的 duration 只是它的同步下游。
     // 读/写都走 session，否则音频页的数字与这里的判断基准会各说一套。
@@ -125,12 +125,11 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
      * 画布**显式入参**而非取闭包 —— 同上：调用点在空闲回调里，必须拿那一刻的最新画布。
      */
     const currentViewText = (snapshot: ChartNote[]): string => {
-        const code = target.kind === 'chart'
-            ? convertNotesToChartCode(snapshot)
-            : buildNoteCode(snapshot, target) ?? [];
-        // 完整视图走「每条音符一行」：行数才是大文本框排版成本的主导项（见 ChartConverter 注释）；
-        // 对象视图只有一条音符，继续用可读缩进。
-        return isChartView ? chartCodeToCompactJSON(code) : noteViewCodeToJSON(code);
+        // 完整视图：**投影文本**（05 收口后的唯一实现，弹窗不再自己拼序列化；每条音符一行，
+        // 行数才是大文本框排版成本的主导项）；对象视图只有一条音符，继续用可读缩进。
+        if (isChartView) return chartCodeProjectionText(snapshot);
+        const code = buildNoteCode(snapshot, target) ?? [];
+        return noteViewCodeToJSON(code);
     };
 
     /**
@@ -203,10 +202,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
     };
 
     // 获取默认BPM音符的保底状态（仅完整代码视图有意义）
-    const getDefaultBPMCode = () => {
-        const defaultCode = convertNotesToChartCode([{ beat: 0, type: "BPM", bpm: 120 }]);
-        return chartCodeToCompactJSON(defaultCode);
-    };
+    const getDefaultBPMCode = () => chartCodeProjectionText([{ beat: 0, type: "BPM", bpm: 120 }]);
 
     // 关闭弹窗：有未应用草稿时确认（丢弃后关闭），否则直接关闭。
     // 同时就是 Esc 的语义 —— 对象视图**不再逐档退**（用户 2026-09-09 定案）：
@@ -271,8 +267,8 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
     const commitApply = (parsedCode: ChartCodeNote[], text: string) => {
         try {
             const newNotes = convertChartCodeToNotes(parsedCode);
-            handleNotesChange(newNotes);
-            rememberAppliedChartCode(text);
+            // 回写画布与置保真一次完成（两者同一次 setState）：不会出现"画布没变、保真却是真"
+            applyChartCodeToCanvas(newNotes, text);
             // ADR-0005 §4.5：无音频导入谱面代码时，若代码比当前谱面长度更长，自动延长谱面长度到代码最后音符结束时间
             if (!canPlay) {
                 const endSeconds = maxNoteEndSeconds(newNotes, beatDisplay, getBpmEvents(newNotes));
@@ -368,14 +364,15 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         }
     };
 
-    // 另存为：一律**按画布**生成（不导出未应用的草稿）；
+    // 另存为：发哪份文本由**保真判定入口**决定（保真 pristine → 源文本原文，否则画布投影；
+    // 未应用的草稿自然发不出去，issue 118 定案）。弹窗自己不再做 pristine 判断。
     // 范围随**当前档位**走 —— 完整谱面视图存整份，对象视图只存这一层（整条 / 子段 / 结点）。
     const handleSaveAs = async () => {
         try {
             await exportChartCodeSaveAs(
                 notes,
                 isChartView ? undefined : target,
-                isChartView && chartCodePristine ? appliedChartCodeText : undefined,
+                chartCodeFidelity,
             );
         } catch (error) {
             showToast(t('chartCode.exportFail', { message: (error as Error).message }), 'danger');

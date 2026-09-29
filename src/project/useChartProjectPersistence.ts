@@ -7,6 +7,7 @@ import { ChartProjectStore, type ChartProject, type ProjectChart } from './Chart
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
 import { isProjectAudioLocked, pickCurrentChart } from './workspaceProject';
 import type { ChartNote } from '../chart/types';
+import type { ChartCodeFidelity } from '../chart/editing/ChartConverter';
 
 export interface UseChartProjectPersistenceOptions {
   /** 当前工程 id；null = 尚未 ensure，不读写 */
@@ -22,8 +23,8 @@ export interface UseChartProjectPersistenceOptions {
   /** 当前音频文件元数据（无音频为 null） */
   audioName: string | null;
   audioBlob: Blob | null;
-  appliedChartCodeText?: string | null;
-  chartCodePristine?: boolean;
+  /** 谱面代码保真（源文本 + pristine）：与 notes 同源，落盘时映射到记录的两个扁平字段 */
+  chartCodeFidelity?: ChartCodeFidelity;
   /** 防抖落盘的延迟（默认 800ms，ADR-0005 §6） */
   debounceMs?: number;
   /** 注入存储后端（默认 new ChartProjectStore()）——测试可注入假实现 */
@@ -48,7 +49,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   const {
     projectId, chartId, catalogEpoch = 0,
     notes, durationSeconds, audioName, audioBlob,
-    appliedChartCodeText, chartCodePristine,
+    chartCodeFidelity,
     debounceMs = 800, store: storeOpt, onRestore,
   } = opts;
 
@@ -80,10 +81,8 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   const audioBlobRef = useRef(audioBlob);
   audioBlobRef.current = audioBlob;
 
-  const appliedTextRef = useRef(appliedChartCodeText);
-  appliedTextRef.current = appliedChartCodeText;
-  const pristineRef = useRef(chartCodePristine);
-  pristineRef.current = chartCodePristine;
+  const fidelityRef = useRef(chartCodeFidelity);
+  fidelityRef.current = chartCodeFidelity;
 
   const projectRef = useRef<ChartProject | null>(null);
   const boundProjectIdRef = useRef<string | null>(null);
@@ -104,8 +103,8 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     const prev = projectRef.current;
     if (prev == null) return null;
     const now = Date.now();
-    const applied = appliedTextRef.current ?? null;
-    const pristine = pristineRef.current === true;
+    // 保真（编辑态的**一个**字段）在这里映射回记录的两个扁平字段 —— 记录形状不变
+    const fidelity = fidelityRef.current;
     const audio = audioBlobRef.current ?? undefined;
     const targetId = boundChartIdRef.current;
     const hasTarget = targetId != null && prev.charts.some((c) => c.id === targetId);
@@ -115,7 +114,13 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
         const isCurrent = hasTarget ? c.id === targetId : i === 0;
         if (!isCurrent) return c;
         if (c.upload) return c; // 已上传谱面只读：不可被改写
-        return { ...c, notes: notesRef.current, lastModified: now, appliedChartCodeText: applied, chartCodePristine: pristine };
+        return {
+          ...c,
+          notes: notesRef.current,
+          lastModified: now,
+          appliedChartCodeText: fidelity?.text ?? null,
+          chartCodePristine: fidelity?.pristine === true,
+        };
       })
       : prev.charts;
     const next: ChartProject = {
@@ -231,7 +236,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     if (!next) return;
     ensureMerger().schedule(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, durationSeconds, audioName, audioBlob, appliedChartCodeText, chartCodePristine, debounceMs, projectId, chartId]);
+  }, [notes, durationSeconds, audioName, audioBlob, chartCodeFidelity, debounceMs, projectId, chartId]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;

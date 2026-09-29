@@ -2,7 +2,9 @@
 // Electron → dialog.showSaveDialog；浏览器 → a[download]。
 // issue 102：① 落盘形态与弹窗显示一致（每条音符一行，方便下次导入/粘贴时不卡）；
 //           ② 对象视图（音符代码工具 / 面包屑深层）只存**当前这一层**的代码。
-import { convertNotesToChartCode, chartCodeToCompactJSON } from '../chart/editing/ChartConverter';
+// 05：整份的「发哪份文本」交给 ChartConverter.chartCodeExportText（保真 pristine → 源文本原文，
+//     否则画布投影）；本模块只剩「另存为」这个动作与对象视图那一层。
+import { chartCodeExportText, EMPTY_CHART_CODE_FIDELITY, type ChartCodeFidelity } from '../chart/editing/ChartConverter';
 import { buildNoteCode, noteViewCodeToJSON, type NoteCodeTarget } from '../chart/editing/NoteCodeOps';
 import type { ChartNote } from '../chart/types';
 
@@ -16,11 +18,6 @@ export function noteCodeExportFilename(target: NoteCodeTarget): string {
 
 export interface ChartCodeExportBridge {
   saveAs(payload: { json: string; suggestedName: string }): Promise<{ cancelled: boolean }>;
-}
-
-export function chartCodeExportText(notes: ChartNote[], appliedText?: string | null): string {
-  if (appliedText != null && appliedText !== '') return appliedText;
-  return chartCodeToCompactJSON(convertNotesToChartCode(notes));
 }
 
 /**
@@ -50,17 +47,17 @@ function downloadJson(filename: string, text: string): void {
 
 /**
  * 另存为：
- * - 完整谱面视图（`target` 缺省）→ 整份谱面代码；
+ * - 完整谱面视图（`target` 缺省）→ 整份谱面代码，文本由保真判定入口给（见 `chartCodeExportText`）；
  * - 对象视图（传 `target`）→ 只存这一层（随面包屑档位变化：整条 / 子段 / 结点）。
- * 一律**按画布**生成文本（issue 118 定案：不导出未应用的草稿）。
+ * 一律**不导出弹窗里未应用的草稿**（issue 118 定案）。
  * 取消对话框视为成功静默返回。
  */
 export async function exportChartCodeSaveAs(
   notes: ChartNote[],
   target?: NoteCodeTarget,
-  appliedText?: string | null,
+  fidelity: ChartCodeFidelity | null = EMPTY_CHART_CODE_FIDELITY,
 ): Promise<void> {
-  const json = target ? noteCodeExportText(notes, target) : chartCodeExportText(notes, appliedText);
+  const json = target ? noteCodeExportText(notes, target) : chartCodeExportText(notes, fidelity);
   if (json === null) return; // 目标已被画布改动抹掉
   const suggestedName = target ? noteCodeExportFilename(target) : CHART_CODE_EXPORT_FILENAME;
   const bridge = getExportBridge();

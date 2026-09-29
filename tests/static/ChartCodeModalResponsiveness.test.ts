@@ -29,9 +29,12 @@ describe('谱面代码弹窗 · 打开两段式（不得同步跑全量序列化
     expect(code).toMatch(/idleCancelRef\.current\?\.\(\)/);
   });
 
-  it('完整视图显示走「每条音符一行」的紧凑序列化（行数 = 排版成本的主导项）', () => {
+  it('完整视图显示走投影文本入口（每条音符一行 = 排版成本的主导项；弹窗不再自己拼序列化）', () => {
     // 4 空格缩进下 5000 音符 = 49,507 行；每条一行 = 5,003 行（首次布局 289ms → 30ms）
-    expect(code).toMatch(/chartCodeToCompactJSON\(/);
+    expect(code).toMatch(/chartCodeProjectionText\(/);
+    // 05 收口：序列化只有 ChartConverter 这一个口，弹窗里不再有第二份组合
+    expect(code).not.toMatch(/convertNotesToChartCode\(/);
+    expect(code).not.toMatch(/chartCodeToCompactJSON\(/);
     // 弹窗内不许再出现缩进序列化（另存为也已统一成这份紧凑文本，issue 102 覆盖 issue 118 口径）
     expect(code).not.toMatch(/null,\s*4/);
   });

@@ -62,7 +62,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // issue 73：paste 已从本处移除 —— 粘贴的唯一入口是画布（工具单击 / execPaste），
   // 避免再有一条绕过矩阵、没有末端校验的粘贴通路。
-  const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, deleteSelected, mirror, undo, redo, resetNotes, appliedChartCodeText, chartCodePristine } = editing;
+  const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, deleteSelected, mirror, undo, redo, resetNotes, chartCodeFidelity } = editing;
   const {
     armedTool, setArmedTool,
     scale, setScale,
@@ -212,6 +212,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setIsReadOnly(readonly);
     const audioLocked = isProjectAudioLocked(project);
     resetNotes(chart.notes, {
+      // 记录的两个扁平字段 → 编辑态的保真字段（映射在边界做，记录形状不变）
       text: chart.appliedChartCodeText ?? null,
       pristine: chart.chartCodePristine === true,
     });
@@ -266,8 +267,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     durationSeconds: ctxDuration,
     audioName: audioForPersist.audioName,
     audioBlob: audioForPersist.audioBlob,
-    appliedChartCodeText,
-    chartCodePristine,
+    chartCodeFidelity,
     onRestore: handleProjectRestore,
     onRecordAudioChanged: handleRecordAudioChanged,
   });

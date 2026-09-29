@@ -40,7 +40,7 @@
 - [02 pages统一收敛与工作台解耦](./issues/02-pages统一收敛与工作台解耦.md) — 已解决（2026-09-29 落地；六页收进 `src/pages/` 子目录、工作台装配进 `src/pages/workspace/`、chart 不再反依 pages）
 - [03 渲染层收敛为rendering](./issues/03-渲染层收敛为rendering.md) — 已解决（2026-09-29 落地；visual + chart/rendering → src/rendering，25 件四桶归位）
 - [04 谱面代码解析侧收口](./issues/04-谱面代码解析侧收口.md) — 已解决（2026-09-29 落地：`ChartConverter` 出唯一入口 `parseCodeText` + 解析原语 `parseCodeRaw`（全文件唯一一处 `JSON.parse`），删 `validateChartCodeJSON` / `parseChartCodeFromJSON`，三处二次 parse 全消；05 票 Blocked by 已解除）
-- [05 谱面代码文本生成与保真收口](./issues/05-谱面代码文本生成与保真收口.md) — 待领（04 已解决，Blocked by 已解除；候选 1 后半：一份序列化器两个入口 + 保真并入原子 state + 迁移被顶红的静态断言）
+- [05 谱面代码文本生成与保真收口](./issues/05-谱面代码文本生成与保真收口.md) — 已解决（2026-09-29 落地：序列化出一份两个具名入口 `chartCodeProjectionText` / `chartCodeExportText`；保真并入编辑态单一 state 字段 + `ChartEditingState` 一个 commit 作废点；弹窗 / 另存为 / 落盘 / 恢复四处改走新入口。候选 1「谱面代码只从一个口进出」收口完成）
 - 【第二轮其余候选 · 未开票】候选 2「工程记录只有一份映射与一条写入口」（dir 1+3，Strong）· 候选 3「一帧只有一个构建者，缓存有主」（dir 2，Strong；与候选 4 同一次 grill）· 候选 4「谱面视口会话从页面里搬出来」（dir 2+3，Worth exploring）· 候选 5「音频：解码结果与谱面时长各只有一份」（dir 4+3，Worth exploring）· 候选 6「桥接探测收成一个平台接缝」（dir 1，Speculative；调用方是 Bestdori 网络面，届时再领）
 
 ## Fog
