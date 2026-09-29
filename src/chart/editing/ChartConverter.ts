@@ -207,25 +207,9 @@ export function chartCodeToCompactJSON(chartCode: ChartCodeNote[]): string {
  * 解析失败 / 不是数组（半成品、非法代码、粘的是单个对象）→ **原样返回**，绝不擅自改写用户粘进来的东西。
  */
 export function normalizeChartCodeText(text: string): string {
-    try {
-        const parsed: unknown = JSON.parse(text);
-        if (!Array.isArray(parsed)) return text;
-        return chartCodeToCompactJSON(parsed as ChartCodeNote[]);
-    } catch {
-        return text;
-    }
-}
-
-/**
- * 从JSON字符串解析谱面代码
- */
-export function parseChartCodeFromJSON(jsonString: string): ChartCodeNote[] {
-    try {
-        return JSON.parse(jsonString);
-    } catch (error) {
-        console.error('解析谱面代码JSON失败:', error);
-        return [];
-    }
+    const { value, errors } = parseCodeRaw(text);
+    if (errors.length > 0 || !Array.isArray(value)) return text;
+    return chartCodeToCompactJSON(value as ChartCodeNote[]);
 }
 
 /**
@@ -579,21 +563,49 @@ export function validateChartCode(
 }
 
 /**
- * 从文本直接校验（JSON 解析 + 规则校验），**不吞异常**：
- * `parseChartCodeFromJSON` 遇到语法错误会返回 `[]`，空数组天然"零错误"，
- * 会让真正的 JSON 语法错误被后续判定误报成"缺少第 0 拍 BPM"。文本校验必须走这里。
+ * **解析原语**：文本 → 尚未定型的 JSON 值。本文件（也就全仓）**唯一一处**对谱面代码文本的 `JSON.parse`
+ * —— `parseCodeText` / `normalizeChartCodeText` / 对象视图的 `coerceNoteViewCode` 都基于它。
+ * 只负责 JSON 层（语法错误 → `errors`，noteIndex -1）；**结构校验不在这里**：各调用方按自己的口径做
+ * （整份谱面 `validateChartCode`、对象视图片段口径 + 裸对象容错）。
  */
-export function validateChartCodeJSON(text: string): ValidationResult {
-    let parsed: unknown;
+export interface ParseCodeRawResult {
+    /** JSON.parse 的结果；语法错误时为 null。可能是数组 / 对象 / 标量，调用方自行判定 */
+    value: unknown;
+    /** 语法错误（文案 `validate.jsonError`）；成功时为空数组 */
+    errors: ValidationError[];
+}
+
+export function parseCodeRaw(text: string): ParseCodeRawResult {
     try {
-        parsed = JSON.parse(text);
+        return { value: JSON.parse(text), errors: [] };
     } catch (error) {
         return {
-            valid: false,
+            value: null,
             errors: [{ noteIndex: -1, reason: t('validate.jsonError', { message: (error as Error).message }) }],
         };
     }
-    return validateChartCode(parsed as ChartCodeNote[]);
+}
+
+/**
+ * **文本 → 已校验 code 的唯一入口**（04 票）：内部 `JSON.parse` **一次**，解析出的数组**不再丢**
+ * —— 要画布音符的调用方直接把 `code` 交给 `convertChartCodeToNotes`，不必自己再 parse 一遍
+ * （二次 parse 正是历史上「JSON 语法错误被误报成缺第 0 拍 BPM」的来源）。
+ *
+ * 结构校验照旧走 `validateChartCode`（**一次收全部错误**），由调用方决定「errors 非空即拒」。
+ * 返回值是判别联合：`ok === false` 时 `code` 恒为 null，成功的 code 一定是数组，不必再校验一次。
+ * **校验与转换分离**：只要错误列表的路径（弹窗 250ms 防抖）不付 `convertChartCodeToNotes` 的成本。
+ */
+export type ParseCodeTextResult =
+    | { ok: true; code: ChartCodeNote[]; errors: ValidationError[] }
+    | { ok: false; code: null; errors: ValidationError[] };
+
+export function parseCodeText(text: string): ParseCodeTextResult {
+    const raw = parseCodeRaw(text);
+    if (raw.errors.length > 0) return { ok: false, code: null, errors: raw.errors };
+    // 根不是数组 → validateChartCode 自己报整体级错误（`validate.mustBeArray`）
+    const { errors } = validateChartCode(raw.value as ChartCodeNote[]);
+    if (errors.length > 0) return { ok: false, code: null, errors };
+    return { ok: true, code: raw.value as ChartCodeNote[], errors };
 }
 
 /**

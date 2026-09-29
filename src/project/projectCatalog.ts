@@ -3,7 +3,7 @@
 import {
   convertChartCodeToNotes,
   hasBeat0Bpm,
-  validateChartCodeJSON,
+  parseCodeText,
   type ValidationError,
 } from '../chart/editing/ChartConverter';
 import type { ChartDifficulty, ChartProject, ProjectChart, SongSource } from './ChartProject';
@@ -120,13 +120,13 @@ export function addChartToProject(
   let chartCodePristine = false;
 
   if (trimmed) {
-    const check = validateChartCodeJSON(trimmed);
-    if (!check.valid) return { ok: false, errors: check.errors };
-    const parsed = JSON.parse(trimmed) as Parameters<typeof convertChartCodeToNotes>[0];
-    if (!hasBeat0Bpm(parsed)) {
+    // 一次解析同时给出 code 与全部错误（不再「先 parse 校验、再 parse 取数组」）
+    const parsed = parseCodeText(trimmed);
+    if (!parsed.ok) return { ok: false, errors: parsed.errors };
+    if (!hasBeat0Bpm(parsed.code)) {
       return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.needBpm0') }] };
     }
-    notes = convertChartCodeToNotes(parsed);
+    notes = convertChartCodeToNotes(parsed.code);
     appliedChartCodeText = trimmed;
     chartCodePristine = true;
   }

@@ -18,7 +18,7 @@ import { t } from '../../i18n';
 import { isSlide } from './SelectionEditing';
 import { slideSpans, regionIdentity } from './SlideSegments';
 import {
-    convertNotesToChartCode, convertChartCodeToNotes, validateChartCode, hasBeat0BpmNote,
+    convertNotesToChartCode, convertChartCodeToNotes, validateChartCode, hasBeat0BpmNote, parseCodeRaw,
     type ChartCodeNote, type ChartCodeSingle, type ValidationError,
 } from './ChartConverter';
 
@@ -264,14 +264,12 @@ export function noteViewCodeToJSON(code: ChartCodeNote[]): string {
 export function coerceNoteViewCode(
     text: string,
 ): { ok: true; code: ChartCodeNote[] } | { ok: false; errors: ValidationError[] } {
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(text);
-    } catch (error) {
-        return { ok: false, errors: [{ noteIndex: -1, reason: t('validate.jsonError', { message: (error as Error).message }) }] };
-    }
-    if (Array.isArray(parsed)) return { ok: true, code: parsed as ChartCodeNote[] };
-    if (parsed !== null && typeof parsed === 'object') return { ok: true, code: [parsed as ChartCodeNote] };
+    // 解析走 ChartConverter 的原语（全仓唯一一处谱面代码文本的 parse）；
+    // 容错（裸对象 → 包成单元素数组）**留在这里**——裸对象不该悄悄成为整份谱面入口也接受的形态。
+    const { value, errors } = parseCodeRaw(text);
+    if (errors.length > 0) return { ok: false, errors };
+    if (Array.isArray(value)) return { ok: true, code: value as ChartCodeNote[] };
+    if (value !== null && typeof value === 'object') return { ok: true, code: [value as ChartCodeNote] };
     return {
         ok: false,
         errors: [{ noteIndex: -1, reason: t('noteCode.objectViewNeedOne'), expected: t('noteCode.objectViewExpected') }],
@@ -280,7 +278,7 @@ export function coerceNoteViewCode(
 
 /**
  * 对象视图文本校验（issue 94）：容错后走与完整代码视图同一套规则（§1.2），错误为视图内局部定位。
- * 完整视图仍走 `validateChartCodeJSON`（按数组口径）——两口径在此分叉，弹窗按视图择一。
+ * 完整视图走 `parseCodeText`（按数组口径）——两口径在此分叉，弹窗按视图择一。
  * issue 103：对象视图按**片段**校验（`fragment`）——「末条 BPM 必须为正」是整份谱面级规则，
  * 在这里会把"把中途某条 BPM 改成负值"误判成末条（ADR-0010 结论 8 要求编辑器内能创建负值）。
  */

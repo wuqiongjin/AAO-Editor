@@ -16,7 +16,8 @@ import {
   convertChartCodeToNotes,
   convertNotesToChartCode,
   hasBeat0Bpm,
-  validateChartCodeJSON,
+  parseCodeRaw,
+  validateChartCode,
   type ChartCodeNote,
 } from '../src/chart/editing/ChartConverter';
 
@@ -332,37 +333,40 @@ async function analyzeFile(rel: string): Promise<FileStats> {
   const stats = emptyStats(rel, buf.length, sha256);
   const text = buf.toString('utf8');
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-    stats.jsonOk = true;
-  } catch (error) {
-    stats.jsonError = (error as Error).message;
-    const result = validateChartCodeJSON(text);
-    stats.validateOk = result.valid;
-    stats.errorCount = result.errors.length;
+  // 同一份文本**只解析一次**：JSON 层结论（jsonOk / jsonError）、结构校验
+  // （validateOk / errorCount / 错误样本）与后面 hasBeat0Bpm / 转换保真要用的 code，都出自这一次 parse。
+  //
+  // 这里刻意走**解析原语**而不是整份入口 `parseCodeText`：盘点脚本要区分「JSON 语法错」与
+  // 「根不是数组」（后者要留 `jsonError = 'not-array'` 且 jsonOk 仍为 true），入口把这两种
+  // 都塌成 `{ code: null, errors }`，区分不出来。任何**不要**这份区分的调用方都应走入口。
+  const { value, errors: jsonErrors } = parseCodeRaw(text);
+  if (jsonErrors.length > 0) {
+    stats.jsonError = jsonErrors[0]?.reason;
+    stats.validateOk = false;
+    stats.errorCount = jsonErrors.length;
     return stats;
   }
+  stats.jsonOk = true;
 
-  if (!Array.isArray(parsed)) {
+  const check = validateChartCode(value as ChartCodeNote[]);
+  if (!Array.isArray(value)) {
     stats.jsonError = 'not-array';
-    const result = validateChartCodeJSON(text);
-    stats.validateOk = result.valid;
-    stats.errorCount = result.errors.length;
+    stats.validateOk = check.valid;
+    stats.errorCount = check.errors.length;
     return stats;
   }
+  const code = value as ChartCodeNote[];
 
-  stats.objectCount = parsed.length;
-  for (const item of parsed) {
+  stats.objectCount = code.length;
+  for (const item of code) {
     if (item && typeof item === 'object') analyzeObject(item as Record<string, unknown>, stats);
   }
   stats.unknownTypes = [...new Set(stats.unknownTypes)];
   stats.unknownFields = [...new Set(stats.unknownFields)];
 
-  const result = validateChartCodeJSON(text);
-  stats.validateOk = result.valid;
-  stats.errorCount = result.errors.length;
-  for (const err of result.errors) {
+  stats.validateOk = check.valid;
+  stats.errorCount = check.errors.length;
+  for (const err of check.errors) {
     bump(stats.errorFields, err.field ?? err.reason);
     if (stats.errorSamples.length < 3) {
       stats.errorSamples.push({
@@ -374,7 +378,6 @@ async function analyzeFile(rel: string): Promise<FileStats> {
     }
   }
 
-  const code = parsed as ChartCodeNote[];
   stats.hasBeat0Bpm = hasBeat0Bpm(code);
 
   try {

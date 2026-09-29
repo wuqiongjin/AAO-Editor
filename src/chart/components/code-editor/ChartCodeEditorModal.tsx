@@ -15,7 +15,7 @@ import { useEffect, useRef, useState, startTransition } from "react";
 import { Copy, Download, RotateCcw, RefreshCw, X } from "lucide-react";
 import {
     convertNotesToChartCode, chartCodeToCompactJSON, normalizeChartCodeText,
-    parseChartCodeFromJSON, validateChartCodeJSON,
+    parseCodeText,
     formatValidationError, convertChartCodeToNotes, hasBeat0Bpm,
     type ValidationError, type ChartCodeNote,
 } from '../../editing/ChartConverter';
@@ -189,17 +189,17 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         ta.value = chartCode;
     }, [chartCode]);
 
-    // 验证谱面代码：返回全部错误（空数组 = 合法）。
-    // 完整视图走 validateChartCodeJSON 而不是 parseChartCodeFromJSON——后者遇语法错误返回 []，
-    // 空数组"零错误"会让 JSON 语法错误在应用时被误报成"缺少第 0 拍 BPM"。
-    // 对象视图（issue 94）：先容错裸对象/数组（validateNoteViewCodeText），再走同一套规则。
-    const validateCode = (code: string): ValidationError[] => {
-        const { errors } = isChartView
-            ? validateChartCodeJSON(code)
-            : { errors: validateNoteViewCodeText(code) };
-        setIsValid(errors.length === 0);
-        setValidationErrors(errors);
-        return errors;
+    // 验证谱面代码：返回全部错误（空数组 = 合法），完整视图顺带给出**这一次**解析出的 code。
+    // 完整视图走 parseCodeText（文本 → 已校验 code 的唯一入口）：内部只 parse 一次，
+    // 「应用」直接复用它的 code 回写画布，不二次 parse。
+    // 对象视图（issue 94）：走 validateNoteViewCodeText（裸对象 / 片段口径），回写前才容错。
+    const validateCode = (code: string): { code: ChartCodeNote[] | null; errors: ValidationError[] } => {
+        const result: { code: ChartCodeNote[] | null; errors: ValidationError[] } = isChartView
+            ? parseCodeText(code)
+            : { code: null, errors: validateNoteViewCodeText(code) };
+        setIsValid(result.errors.length === 0);
+        setValidationErrors(result.errors);
+        return result;
     };
 
     // 获取默认BPM音符的保底状态（仅完整代码视图有意义）
@@ -299,7 +299,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         }
         // 应用必须拿**当下**的结论：撤掉防抖里那次待跑的校验（跑的话也只是覆盖同样的结论）
         validationTask.cancel();
-        const errors = validateCode(chartCode);
+        const { code: parsedCode, errors } = validateCode(chartCode);
 
         // 撞错 = 整份拒（issue 59 §1.2）：不回写画布，也不静默修正 / 丢弃草稿——
         // 错误全留在上方列表里，供用户对照逐条改。
@@ -322,10 +322,8 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                 return;
             }
 
-            const parsedCode = parseChartCodeFromJSON(chartCode);
-
             // 强制校验：beat0 必须有 BPM 音符（保底语义，ADR-0001 谱面必须有初始 BPM）
-            if (!hasBeat0Bpm(parsedCode)) {
+            if (!parsedCode || !hasBeat0Bpm(parsedCode)) {
                 showToast(t('chartCode.needBpm0'), 'danger');
                 return;
             }
