@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AudioEngine } from '../audio/AudioEngine';
 import type { PlaybackScrollModel } from './PlaybackScrollModel';
-import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
+import { clampChartDuration } from '../audio/chartDuration';
 import type { FinalVirtualCanvasHandle } from '../chart/components/canvas/FinalVirtualCanvas';
 
 /** 播放 HUD（时间码 / 进度条 / 画布叠加）写入 React 的周期。约 12.5Hz，票面 10–15Hz。 */
@@ -172,7 +172,7 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
 
   const changeDuration = useCallback((sec: number) => {
     if (!(sec > 0)) return;
-    const clamped = Math.min(sec, MAX_DURATION_SECONDS); // issue 28 P6 上限 30 分钟
+    const clamped = clampChartDuration(sec); // 默认 / 上下界 / 夹取的唯一口径（issue 28 P6 上限 30 分钟）
     setChartDuration(clamped);
     durationRef.current = clamped;
   }, [setChartDuration]);

@@ -267,6 +267,13 @@ describe('AudioSession · 时长', () => {
     expect(s.getSnapshot().chartDuration).toBe(1800); // MAX
   });
 
+  it('setChartDuration：(0, 0.1) 区间取统一口径的下界 0.1（architecture-refactor/10）', () => {
+    const { factory } = makeFactory();
+    const s = new AudioSession({ engineFactory: factory, keySetId: 'skin01', seVolume: 1 });
+    s.setChartDuration(0.05);
+    expect(s.getSnapshot().chartDuration).toBe(0.1);
+  });
+
   it('setChartDuration：相同值不 emit', () => {
     const { factory } = makeFactory();
     const s = new AudioSession({ engineFactory: factory, keySetId: 'skin01', seVolume: 1 });

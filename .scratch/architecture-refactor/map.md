@@ -48,7 +48,8 @@
 - [07 工程id白名单非字符串漏判](./issues/07-工程id白名单非字符串漏判.md) — 已解决（2026-09-29，随 06 同批落地：渲染侧补 `typeof` 兜底，与主进程 `safeProjectId` 判决逐条对齐；跨进程语料锁看守）
 - [08 渲染帧构建者与缓存有主](./issues/08-渲染帧构建者与缓存有主.md) — 已解决（2026-09-29 落地：新增 `src/rendering/RenderTarget.ts`（surface/dpr + 两层离屏缓存实例的所有者、`renderFrame` 一次调用出帧）与 `src/rendering/rasterScale.ts`（`resolveCanvasDpr` / `bufferSizeFor` 唯一处）；两层缓存改 `createStaticLayerCache()` / `createNoteLayerCache()` 实例，模块级单例删除；`renderChart(target, view)` 签名收紧 + 唯一装配处 `frameFor(target, view)`；工作台画布成为 target 之一（只组装 view）。行为零变化，复审后补：出口闭环、注释对齐、blit 尺寸收口、锁测补强；门禁 179 文件 / 2008 用例 + `tsc -b` + `build` 全绿。候选 3「一帧只有一个构建者，缓存有主」收口完成）
 - [09 谱面视口会话从页面里搬出来](./issues/09-谱面视口会话从页面里搬出来.md) — 已解决（2026-09-29 落地：视口装配收进 `src/playback/useChartViewSession.ts`，页面只消费会话；+ dom 行为锁 + 全仓唯一调用点锁。候选 4 收口完成，待用户页面验收）
-- 【第二轮其余候选 · 未开票】候选 5「音频：解码结果与谱面时长各只有一份」（dir 4+3，Worth exploring）· 候选 6「桥接探测收成一个平台接缝」（dir 1，Speculative；调用方是 Bestdori 网络面，届时再领）
+- [10 谱面时长语义收一处](./issues/10-谱面时长语义收一处.md) — 已解决（2026-09-29 落地：默认 30 与夹取收进 `src/audio/chartDuration.ts`，五处默认 + 五处夹取改走它；候选 5 的「时长那一半」收口完成）
+- 【第二轮其余候选 · 未开票】候选 5 的剩下一半「解码结果交出 AudioBuffer」（dir 4；调用方是 `ai-enhancement` 的 onset / BPM 票，两者 `Status: open`，届时再领）· 候选 6「桥接探测收成一个平台接缝」（dir 1，Speculative；调用方是 Bestdori 网络面，届时再领）
 
 ## Fog
 

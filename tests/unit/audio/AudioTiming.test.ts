@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   getBpmEvents, beatToSeconds, secondsToBeat, secondsSolutionsOf, buildKeyEvents, maxNoteEndSeconds,
-  EMPTY_CHART_DURATION_SECONDS, DEFAULT_BPM,
+  DEFAULT_BPM,
   type BpmEvent,
 } from '@/src/audio/AudioTiming';
+// 空谱 / 无音频默认谱面长度已归 chartDuration（architecture-refactor/10）
+import { DEFAULT_CHART_DURATION_SECONDS } from '@/src/audio/chartDuration';
 import type { ChartNote } from '@/src/chart/types';
 
 describe('getBpmEvents', () => {
@@ -175,7 +177,7 @@ describe('secondsToBeat（谱面末端拍 = 谱面长度(秒) 的最大 beat 解
 
   it('空谱（无音符）同样按谱面长度换算，不塌缩到个位数拍', () => {
     // 无音频默认 30s @120 → 60 拍，而非旧版"空谱仅 8 拍/1 拍"
-    expect(secondsToBeat(bpm120, EMPTY_CHART_DURATION_SECONDS)).toBeCloseTo(60);
+    expect(secondsToBeat(bpm120, DEFAULT_CHART_DURATION_SECONDS)).toBeCloseTo(60);
   });
 
   it('倒流区：同一秒多解 → secondsToBeat 取最大 beat 解，secondsSolutionsOf 列全（ADR-0010 附录 B）', () => {
@@ -235,8 +237,3 @@ describe('maxNoteEndSeconds', () => {
   });
 });
 
-describe('EMPTY_CHART_DURATION_SECONDS', () => {
-  it('空谱默认时长 30s', () => {
-    expect(EMPTY_CHART_DURATION_SECONDS).toBe(30);
-  });
-});

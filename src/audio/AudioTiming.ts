@@ -66,9 +66,6 @@ export interface KeySoundEvent {
   tier?: number;
 }
 
-/** 空谱兜底时长（秒，ADR-0005 §4：无音频时默认谱面长度，可手动改并持久化） */
-export const EMPTY_CHART_DURATION_SECONDS = 30;
-
 /**
  * 谱面代码最后音符的结束时间（秒，ADR-0005 §4.5）：无音频导入谱面代码时，
  * 若代码比当前谱面长度更长，用此值延长谱面长度到代码结尾。不含尾量。

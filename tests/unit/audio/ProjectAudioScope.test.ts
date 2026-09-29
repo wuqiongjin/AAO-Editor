@@ -227,6 +227,10 @@ describe('票 15 · 工程音频接缝写路径', () => {
     await setProjectAudioDuration(deps, 'pWithAudio', 120);
     expect(disk.get('pWithAudio')!.durationSeconds).toBe(30);
 
+    // architecture-refactor/10：(0, 0.1) 区间在记录写路径上同样取统一口径的下界
+    await setProjectAudioDuration(deps, 'pNoAudio', 0.05);
+    expect(disk.get('pNoAudio')!.durationSeconds).toBe(0.1);
+
     expect(await setProjectAudioDuration(deps, 'pNoAudio', Number.NaN)).toEqual({
       ok: false, reason: 'invalid',
     });

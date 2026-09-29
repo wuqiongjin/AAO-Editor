@@ -9,7 +9,7 @@
 import type { ChartDifficulty, ChartProject, ChartProjectStore } from '../project/ChartProject';
 import { mutateProject } from '../project/ChartProjectRecord';
 import { isProjectAudioLocked } from '../project/workspaceProject';
-import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
+import { clampChartDuration } from './chartDuration';
 import { probeAudioDuration, type AudioBytesDecoder } from './probeAudioDuration';
 
 /** 锁定原因（点名的已上传谱面）：横幅文案要能说清"为什么锁" */
@@ -51,10 +51,6 @@ export interface ProjectAudioDeps {
   notifyCatalogChanged: () => void;
   /** 求时长；默认一次性离线探针，测试可注入 */
   probeDuration?: (file: Blob, decode?: AudioBytesDecoder) => Promise<number>;
-}
-
-function clampDuration(seconds: number): number {
-  return Math.min(MAX_DURATION_SECONDS, Math.max(0.1, seconds));
 }
 
 function lockSourcesOf(project: ChartProject): ProjectAudioLockSource[] {
@@ -147,7 +143,7 @@ export async function importProjectAudio(
         audioName: file.name,
         audioBlob: file,
         // 有音频 = 音频时长（ADR-0005 §4 / 票 15 定案 1）
-        durationSeconds: clampDuration(duration),
+        durationSeconds: clampChartDuration(duration),
       },
     };
   });
@@ -175,7 +171,7 @@ export async function setProjectAudioDuration(
   if (!Number.isFinite(seconds) || seconds <= 0) return { ok: false, reason: 'invalid' };
   return mutateWritable(deps, projectId, (project) => {
     if (project.audioName != null) return { outcome: 'skip' };
-    const clamped = clampDuration(seconds);
+    const clamped = clampChartDuration(seconds);
     if (project.durationSeconds === clamped) return { outcome: 'skip' };
     return { outcome: 'write', next: { ...project, durationSeconds: clamped } };
   });

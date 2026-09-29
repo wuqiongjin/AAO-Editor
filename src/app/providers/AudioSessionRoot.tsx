@@ -10,6 +10,7 @@
 import { useMemo, useEffect, type ReactNode } from 'react';
 import { useConfig } from './ConfigProvider';
 import { createAudioSession } from '../../audio/AudioSession';
+import { DEFAULT_CHART_DURATION_SECONDS } from '../../audio/chartDuration';
 import { AudioSessionProvider } from './AudioSessionProvider';
 
 export function AudioSessionRoot({ children }: { children: ReactNode }) {
@@ -19,7 +20,7 @@ export function AudioSessionRoot({ children }: { children: ReactNode }) {
       createAudioSession({
         keySetId: settings.audio.keySet,
         seVolume: settings.audio.seVolume,
-        chartDuration: 30,
+        chartDuration: DEFAULT_CHART_DURATION_SECONDS,
       }),
     // session 单例：只创建一次；后续 settings 变化走 useEffect 同步
     // eslint-disable-next-line react-hooks/exhaustive-deps

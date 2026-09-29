@@ -3,6 +3,7 @@
 // 在 Toolbar、PlayBar 之间共享——避免 Editor 反复作为 prop relay。
 // Editor 仍是播放编排者（RAF 循环、音频解码、键音切换），本 Context 仅承载状态与最薄的 setter。
 import { createContext, useContext, useState, type ReactNode } from 'react';
+import { DEFAULT_CHART_DURATION_SECONDS } from '../../audio/chartDuration';
 
 export interface PlaybackContextValue {
   isPlaying: boolean;
@@ -28,7 +29,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [canPlay, setCanPlay] = useState(false);
   const [currentSeconds, setCurrentSeconds] = useState(0);
-  const [duration, setDuration] = useState(30);
+  const [duration, setDuration] = useState(DEFAULT_CHART_DURATION_SECONDS);
   const [volume, setVolume] = useState(0.8);
   const [markerSeconds, setMarkerSecondsState] = useState<number | null>(null);
 

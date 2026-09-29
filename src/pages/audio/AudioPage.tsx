@@ -12,6 +12,7 @@ import ScopePicker from '../../ui/ScopePicker';
 import { useAppNav } from '../../layouts/AppNav';
 import { useAudioSession } from '../../app/providers/AudioSessionProvider';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../../chart/config/AppSettings';
+import { clampChartDuration } from '../../audio/chartDuration';
 import { KEY_SOUND_SETS, type KeySoundKind } from '../../audio/KeySound';
 import { KEY_SOUND_KINDS } from '../../audio/KeySoundMeta';
 import { useAudioScope } from '../../audio/useAudioScope';
@@ -250,7 +251,7 @@ function AudioSection({ active }: { active: boolean }) {
             onChange={(e) => {
               if (locked) return;
               const v = parseFloat(e.target.value);
-              if (!isNaN(v) && v > 0) changeDuration(Math.min(v, MAX_DURATION_SECONDS));
+              if (!isNaN(v) && v > 0) changeDuration(clampChartDuration(v));
             }}
           />
           <span>{t('audio.seconds')}</span>

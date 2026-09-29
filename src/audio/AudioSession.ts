@@ -17,10 +17,10 @@
 //   - audioName 必与 engine.duration 是否非空 一致（导入成功 = audioName !== null && engine.duration != null）
 //   - 错误状态独占：audioError 非空时 audioName 必为 null（导入失败回退到无音频）
 //   - importAudio 在飞行中被新调用打断时，旧调用的回调被丢弃（inFlightToken 单调递增）
-//   - chartDuration 不超过 MAX_DURATION_SECONDS（issue 28 P6 上限 30 分钟）
+//   - chartDuration 经 clampChartDuration（默认 / 上下界 / 夹取的唯一口径，architecture-refactor/10）
 import { AudioEngine } from './AudioEngine';
 import { keySoundSetEntryById, type KeySoundKind } from './KeySound';
-import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
+import { clampChartDuration, DEFAULT_CHART_DURATION_SECONDS } from './chartDuration';
 import { t } from '../i18n';
 
 /** 音频会话的不可变快照（外部读取用） */
@@ -52,7 +52,8 @@ const defaultFactory: AudioEngineFactory = () => new AudioEngine();
 /** 监听器签名：snapshot 变化时回调 */
 export type AudioSessionListener = (snapshot: AudioSessionSnapshot) => void;
 
-/** 数值合法性辅助：拒绝 NaN / Infinity；clamp 到 [lo, hi] */
+/** 数值合法性辅助：拒绝 NaN / Infinity；clamp 到 [lo, hi]。
+ *  只服务 [0,1] 的音量 / SE 口径 —— **谱面时长不要用它**，时长口径在 `./chartDuration`。 */
 function clampFinite(v: number, lo: number, hi: number, fallback: number): number {
   if (!Number.isFinite(v)) return fallback;
   return Math.min(hi, Math.max(lo, v));
@@ -118,7 +119,7 @@ export class AudioSession {
     // 历史持久化 id（'placeholder'/'bangdream' 等）归一化回落到默认包（issue 29 删占位包）
     this._keySetId = keySoundSetEntryById(opts.keySetId).id;
     this._seVolume = clampFinite(opts.seVolume, 0, 1, 1);
-    this._chartDuration = clampFinite(opts.chartDuration ?? 30, 0.1, MAX_DURATION_SECONDS, 30);
+    this._chartDuration = clampChartDuration(opts.chartDuration ?? DEFAULT_CHART_DURATION_SECONDS);
     this._volume = clampFinite(opts.volume ?? 0.8, 0, 1, 0.8);
 
     // 构造时把初始音量/SE 音量/素材挂到引擎
@@ -180,9 +181,9 @@ export class AudioSession {
         this._audioName = file.name;
         this._audioBlob = file;
         // bug 34：换音频时无论 canPlay 是否已 true 都直接按新音频时长刷新谱面时长
-        // 同时 clamp 到 MAX_DURATION_SECONDS（issue 28 P6 上限 30 分钟）
+        // 夹取按统一口径（clampChartDuration：下界 0.1、上限 MAX_DURATION_SECONDS = issue 28 P6 的 30 分钟）
         const ad = this.engine.duration;
-        if (ad != null) this._chartDuration = clampFinite(ad, 0.1, MAX_DURATION_SECONDS, 30);
+        if (ad != null) this._chartDuration = clampChartDuration(ad);
         void this.persistNow();
         this.emit();
       })
@@ -209,7 +210,7 @@ export class AudioSession {
     if (opts.audioLocked != null) this._audioLocked = opts.audioLocked;
     const token = ++this.inFlightToken;
     this._audioError = null;
-    const duration = clampFinite(opts.durationSeconds, 0.1, MAX_DURATION_SECONDS, 30);
+    const duration = clampChartDuration(opts.durationSeconds);
     if (!opts.audioName || !opts.audioBlob) {
       this.engine.clear();
       this._audioName = null;
@@ -229,7 +230,7 @@ export class AudioSession {
       .then(() => {
         if (token !== this.inFlightToken) return;
         const ad = this.engine.duration;
-        if (ad != null) this._chartDuration = clampFinite(ad, 0.1, MAX_DURATION_SECONDS, 30);
+        if (ad != null) this._chartDuration = clampChartDuration(ad);
         this.emit();
       })
       .catch((err: unknown) => {
@@ -264,12 +265,12 @@ export class AudioSession {
   /**
    * 手动改谱面时长（无音频时，issue 22 §4 / ADR-0005 §4）。
    * 有音频时由 importAudio 自动跟随音频时长，外部不应再调用本方法。
-   * 拒绝 <=0 / NaN / Infinity；接受值 clamp 到 [0.1, MAX_DURATION_SECONDS]。
+   * 拒绝 <=0 / NaN / Infinity；接受值经 clampChartDuration（口径唯一处）。
    */
   setChartDuration(sec: number): void {
     if (this._audioLocked) return;
     if (!Number.isFinite(sec) || sec <= 0) return;
-    const clamped = Math.min(sec, MAX_DURATION_SECONDS);
+    const clamped = clampChartDuration(sec);
     if (this._chartDuration === clamped) return;
     this._chartDuration = clamped;
     this.emit();
