@@ -5,7 +5,7 @@ import {
     convertNotesToChartCode,
     convertChartCodeToNotes,
     validateChartCode,
-    validateChartCodeJSON,
+    parseCodeText,
     formatValidationError,
     type ChartCodeNote,
     type ValidationError,
@@ -197,25 +197,27 @@ describe('谱面代码 · Long 身份保留（ADR-0014）', () => {
 
 describe('谱面代码 · 文本校验（JSON 语法错误不得被吞）', () => {
     test('非法 JSON → 整体级错误（noteIndex -1），不是"零错误"', () => {
-        const result = validateChartCodeJSON('[{ "type": "Single", "beat": 1, }]');
-        expect(result.valid).toBe(false);
+        const result = parseCodeText('[{ "type": "Single", "beat": 1, }]');
+        expect(result.ok).toBe(false);
+        expect(result.code).toBeNull();
         expect(result.errors).toHaveLength(1);
         expect(result.errors[0].noteIndex).toBe(-1);
         expect(result.errors[0].reason).toContain('JSON');
     });
 
     test('非数组 JSON → 报错', () => {
-        const result = validateChartCodeJSON('{ "type": "Single" }');
-        expect(result.valid).toBe(false);
+        const result = parseCodeText('{ "type": "Single" }');
+        expect(result.ok).toBe(false);
+        expect(result.code).toBeNull();
         expect(result.errors[0].noteIndex).toBe(-1);
     });
 
     test('合法文本 → 通过；规则错误照常列出', () => {
-        expect(validateChartCodeJSON(JSON.stringify([bpm0, goodSlide])).valid).toBe(true);
+        expect(parseCodeText(JSON.stringify([bpm0, goodSlide])).errors).toEqual([]);
 
         // issue 106 起"空 connections / 可见结点不足"不再算规则错误 → 拿仍然非法的残留 connections 举例
-        const bad = validateChartCodeJSON(JSON.stringify([bpm0, { beat: 1, lane: 1, type: 'Single', connections: [] }]));
-        expect(bad.valid).toBe(false);
+        const bad = parseCodeText(JSON.stringify([bpm0, { beat: 1, lane: 1, type: 'Single', connections: [] }]));
+        expect(bad.ok).toBe(false);
         expect(bad.errors[0]).toMatchObject({ noteIndex: 1, field: 'connections' });
     });
 });

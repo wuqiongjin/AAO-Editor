@@ -18,7 +18,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 谱面 | Chart | 整份可编辑的音符集合（`ChartNote[]`）；在谱面工程里，一张谱面另带谱面名称、难度、等级与谱面状态 |
 | 音符 | Note | 谱面中的基本元素，见下方各类型 |
 | 谱面代码 | Chart code | Bestdori 风格 JSON 数组；它有保真的**源数据**，并可投影成编辑器内部的可理解谱面 |
-| 谱面代码源数据 | Chart code source | Apply 后的 JSON 对象与字段和值的保真集合；未知字段与符合既有放行边界的有限非法值不因工程保存或导出自动丢失；顶层仅允许 ADR-0014 白名单 `type`（含 opaque 的 `System`） |
+| 谱面代码源数据 | Chart code source | Apply 后的 JSON 对象与字段和值的保真集合；未知字段与符合既有放行边界的有限非法值不因工程保存或导出自动丢失；顶层仅允许 ADR-0014 白名单 `type`（含 opaque 的 `System`）。编辑器以**源文本 + 一个 pristine 标志**承载这份保真：Apply 成功即留存源文本并置位；**任何改动画布音符的操作（含撤销 / 重做）令标志作废**，且撤销**不还原**它（标志是当前值，不进历史快照）；另存为在标志有效时发源文本原文，否则发画布投影 |
 | 画布投影 | Canvas projection | 从谱面代码源数据得到的可渲染/可编辑视图；投影失败不删除源数据，无法理解的 `type` 保留为 opaque 条目 |
 | Apply 硬拒绝 | Hard reject | 整份谱面代码不能写入画布：JSON 非法、根不是数组、顶层无 `type` 或 `type` 不在白名单（`Single`/`Directional`/`Slide`/`Long`/`BPM`/`System`）、已知 `type` 缺必填结构、数值非有限、`bpm = 0`、倒流区硬边界。报错明示下标，不静默丢弃。_Avoid_: 因 `System`/`charge`/有限越界 lane 拒 Apply；上传时对用户拦 System/charge（上传应自动 sanitize） |
 | 有限非法值 | Finite out-of-range | 已知字段的**有限**数字越出本编辑器放置范围（如 lane 出 `0..6`、Directional `width` 任意有限且 `>3` 或 `<1`）；进入源数据并按 ADR-0014 投影。_Avoid_: 与 NaN/Infinity/缺字段混称；把 width 上限定死在 7 |

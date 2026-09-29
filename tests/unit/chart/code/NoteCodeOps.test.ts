@@ -439,12 +439,11 @@ describe('issue 94 · 弹窗接线断言（初值/校验/应用三处都走裸�
         expect(modalSrc).not.toContain('chartCodeToJSON(currentViewCode())');
     });
 
-    test('校验与应用走 coerceNoteViewCode（裸对象可应用，不再经 parseChartCodeFromJSON）', () => {
+    test('校验与应用走 coerceNoteViewCode（裸对象可应用；完整视图回写用校验那一次的解析结果）', () => {
         expect(modalSrc).toContain('coerceNoteViewCode');
         expect(modalSrc).toContain('validateNoteViewCodeText');
-        // 数组口径解析器只允许出现在完整视图分支（对象视图分支用 coerce 后的代码回写）
-        expect(modalSrc.split('parseChartCodeFromJSON(chartCode)')).toHaveLength(2);
         expect(modalSrc).toContain('applyNoteCode(notes, target, coerced.code)');
         expect(modalSrc).not.toContain('applyNoteCode(notes, target, parsedCode)');
+        // 「同一份文本只解析一次」的接线事实由 tests/static/ChartCodeParseOnce.test.ts 统一锁，此处不重复
     });
 });

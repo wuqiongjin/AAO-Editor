@@ -3,7 +3,7 @@ import {
     convertChartCodeToNotes,
     convertNotesToChartCode,
     validateChartCode,
-    validateChartCodeJSON,
+    parseCodeText,
 } from '@/src/chart/editing/ChartConverter';
 import type { ChartNote, LongNote, SingleNote, SystemNote } from '@/src/chart/types';
 import { countChartNotes, countNotesUpToBeat } from '@/src/chart/editing/NoteEditing';
@@ -61,8 +61,8 @@ describe('issue 153 · Apply 硬拒绝 vs 有限非法', () => {
             bpm0,
             { beat: 1, lane: 2, type: 'Directional', direction: 'Other', width: 7 },
         ] as never).valid).toBe(true);
-        expect(validateChartCodeJSON('not-json').valid).toBe(false);
-        expect(validateChartCodeJSON('[}').valid).toBe(false);
+        expect(parseCodeText('not-json').errors.length).toBeGreaterThan(0);
+        expect(parseCodeText('[}').errors.length).toBeGreaterThan(0);
     });
 });
 

@@ -4,7 +4,7 @@ import {
     convertChartCodeToNotes,
     chartCodeToCompactJSON,
     normalizeChartCodeText,
-    parseChartCodeFromJSON,
+    parseCodeText,
     validateChartCode,
     hasBeat0Bpm
 } from '@/src/chart/editing/ChartConverter';
@@ -192,12 +192,13 @@ describe('Chart Converter', () => {
         expect(longNote).toBeDefined();
     });
 
-    test('chartCodeToCompactJSON and parseChartCodeFromJSON should work correctly', () => {
+    test('chartCodeToCompactJSON and parseCodeText should work correctly', () => {
         const chartCode = convertNotesToChartCode(testNotes);
         const jsonString = chartCodeToCompactJSON(chartCode);
-        const parsedCode = parseChartCodeFromJSON(jsonString);
+        const parsed = parseCodeText(jsonString);
 
-        expect(parsedCode).toEqual(chartCode);
+        expect(parsed.errors).toEqual([]);
+        expect(parsed.code).toEqual(chartCode);
     });
 
     test('validateChartCode should validate correctly', () => {
@@ -301,13 +302,13 @@ describe('issue 102 · 谱面代码文本形态（每条音符一行）', () => 
     });
 
     test('与缩进形态语义等价：parse 回来完全一样（解析不认空白）', () => {
-        expect(parseChartCodeFromJSON(chartCodeToCompactJSON(code))).toEqual(code);
-        expect(parseChartCodeFromJSON(JSON.stringify(code, null, 4))).toEqual(code);
+        expect(parseCodeText(chartCodeToCompactJSON(code)).code).toEqual(code);
+        expect(parseCodeText(JSON.stringify(code, null, 4)).code).toEqual(code);
     });
 
     test('空谱面仍是合法 `[]`（不是 `[\n\n]`）', () => {
         expect(chartCodeToCompactJSON([])).toBe('[]');
-        expect(parseChartCodeFromJSON(chartCodeToCompactJSON([]))).toEqual([]);
+        expect(parseCodeText(chartCodeToCompactJSON([])).code).toEqual([]);
     });
 
     test('不含缩进（另存为与显示同一份文本，issue 102 覆盖 issue 118 的 4 空格口径）', () => {

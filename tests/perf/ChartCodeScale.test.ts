@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   convertNotesToChartCode,
   chartCodeToCompactJSON,
-  validateChartCodeJSON,
+  parseCodeText,
 } from '@/src/chart/editing/ChartConverter';
 import type { ChartNote } from '@/src/chart/types';
 
@@ -73,14 +73,14 @@ describe('谱面代码 · 大谱面预算（5000 音符）', () => {
   });
 
   it('全量 parse + 逐条校验在 120ms 内', () => {
-    expect(timeIt(() => validateChartCodeJSON(bigJson))).toBeLessThan(120);
+    expect(timeIt(() => parseCodeText(bigJson))).toBeLessThan(120);
   });
 
   it('规模 10 倍 → 耗时同量级增长（抓 O(n²) 退化）', () => {
     const small = makeChart(SMALL);
     const smallJson = chartCodeToCompactJSON(convertNotesToChartCode(small));
-    const smallMs = timeIt(() => validateChartCodeJSON(smallJson));
-    const bigMs = timeIt(() => validateChartCodeJSON(bigJson));
+    const smallMs = timeIt(() => parseCodeText(smallJson));
+    const bigMs = timeIt(() => parseCodeText(bigJson));
     // 线性 = 10x；平方 = 100x。留到 25x 足够宽松又足以抓住平方退化。
     expect(bigMs).toBeLessThan(Math.max(20, smallMs * 25));
   });
