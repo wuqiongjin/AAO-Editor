@@ -283,6 +283,7 @@
   "pack.inUse": "In use",
   "pack.inUseAria": "Currently in use",
   "pack.presetActive": "Preset active",
+  "assets.presetThumb.applyAria": "Use this pack: {{label}}",
 
   "assets.header.eyebrow": "App Assets",
   "assets.header.title": "Visual Assets",

@@ -17,7 +17,8 @@ import {
   type NoteSkinSelection,
 } from '../../visual/noteSkin';
 // 单格画布尺寸与 Slide 列布局几何在 `./noteSkinPreviewLayout`（纯模块；react-refresh 规则要求组件文件只导出组件）
-import { PREVIEW_CELL_W, PREVIEW_CELL_H, computeSlideColLayout, SLIDE_PREVIEW_NODE_SCALE } from './noteSkinPreviewLayout';
+import { PREVIEW_CELL_W, PREVIEW_CELL_H } from './noteSkinPreviewLayout';
+import { drawPreviewSprite } from './noteSkinPreviewDraw';
 import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
 
 interface ColMeta {
@@ -33,80 +34,6 @@ const COLS: ColMeta[] = [
   { item: 'dirR', labelKey: 'skin.dirR' },
   { item: 'slide', labelKey: 'skin.slide' },
 ];
-
-/** 单格预览绘制（按 entry 类型） */
-function drawPreviewSprite(
-  ctx: CanvasRenderingContext2D,
-  sprite: CanvasSpriteIcon,
-  icons: ReturnType<typeof buildActiveNoteIcons>,
-  item: NoteSkinItemId,
-  W: number,
-  H: number,
-) {
-  const cx = W * 0.5;
-  const cy = H * 0.5;
-  if (item === 'tap' || item === 'skill') {
-    const S = 1.6;
-    sprite.render(ctx, {
-      ...(item === 'tap' ? icons.tapFor(3) : icons.skillFor(3)),
-      canvasX: cx, canvasY: cy, canvasSize: 36,
-      canvasWidth: 36, canvasHeight: 21.6, scale: S, renderLayer: 'all',
-    });
-    return;
-  }
-  if (item === 'flick') {
-    const S = 1.6;
-    sprite.render(ctx, {
-      ...icons.flickFor(3),
-      decorators: icons.flickTopDecorator ? [icons.flickTopDecorator] : [],
-      canvasX: cx, canvasY: cy, canvasSize: 36,
-      canvasWidth: 36, canvasHeight: 21.6, scale: S, renderLayer: 'all',
-    });
-    return;
-  }
-  if (item === 'dirL' || item === 'dirR') {
-    const type: 'L' | 'R' = item === 'dirL' ? 'L' : 'R';
-    const S_DIR = 1.5;
-    const group = icons.dirGroup(type, 1);
-    sprite.render(ctx, {
-      ...group.bodies[0].config,
-      canvasX: cx, canvasY: cy, canvasSize: 45,
-      canvasWidth: 45, canvasHeight: 45 * 0.33, scale: S_DIR, renderLayer: 'all',
-    });
-    const cv = group.chevron;
-    if (cv) {
-      sprite.render(ctx, {
-        ...cv.config,
-        canvasX: cx + (cv.offsetVirtualX + cv.extraDesignX) * S_DIR, canvasY: cy, canvasSize: 45,
-        canvasWidth: cv.drawW, canvasHeight: cv.drawH, scale: S_DIR, renderLayer: 'all',
-      });
-    }
-    return;
-  }
-  if (item === 'slide') {
-    const layout = computeSlideColLayout(W, H);
-    sprite.render(ctx, {
-      ...icons.slideBand,
-      canvasX: layout.cx, canvasY: (layout.topY + layout.bottomY) / 2, canvasSize: Math.max(layout.bandW, layout.bandH),
-      canvasWidth: layout.bandW, canvasHeight: layout.bandH, scale: 1, renderLayer: 'main',
-    });
-    sprite.render(ctx, {
-      ...icons.slideEndpointFor(3),
-      canvasX: layout.cx, canvasY: layout.topY, canvasSize: 36,
-      canvasWidth: 36, canvasHeight: 21.6, scale: SLIDE_PREVIEW_NODE_SCALE, renderLayer: 'main',
-    });
-    sprite.render(ctx, {
-      ...icons.slideAmongFor(3),
-      canvasX: layout.cx, canvasY: layout.midY, canvasSize: 36,
-      canvasWidth: 36, canvasHeight: 21.6, scale: SLIDE_PREVIEW_NODE_SCALE, renderLayer: 'main',
-    });
-    sprite.render(ctx, {
-      ...icons.slideEndpointFor(3),
-      canvasX: layout.cx, canvasY: layout.bottomY, canvasSize: 36,
-      canvasWidth: 36, canvasHeight: 21.6, scale: SLIDE_PREVIEW_NODE_SCALE, renderLayer: 'main',
-    });
-  }
-}
 
 /** 解析"当前组合"为面向用户的简短摘要。
  * 用户视角 = 1 套皮肤（可能带微调）：
