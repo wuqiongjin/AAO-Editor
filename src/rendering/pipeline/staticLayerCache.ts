@@ -1,18 +1,19 @@
-// 静态层离屏缓存（issue 36 F2 / issue 139）：
+// 静态层离屏缓存（issue 36 F2 / issue 139 / 候选 3）：
 //
 // 拆两层（播放滚动不得每帧 renderGrid）：
 // - 屏幕层：黑底 / 背景 / 轨道底 / 竖线 —— 与 scrollY 无关；
 // - pos 条带：横网格 + 起止线 —— 按 scrollY 窗口 blit，滚出条带才重建。
 // 交互帧（scrollY 也不变）：两层都 blit。倒流多段拍区间仍走 visibleBeatRanges（104/105）。
+//
+// 候选 3（缓存有主）：本缓存是**实例**（`createStaticLayerCache`），不再是模块级可变单例 ——
+// 工作台画布与离屏导出 / 未来预览各持一份，互不顶掉（见 `../RenderTarget`）。
 import { renderTrackChrome, renderGridBeatLines, renderBoundLines } from '../render';
 import { makeCoords } from '../coords';
+import { bufferSizeFor } from '../rasterScale';
 import { DEFAULT_BACKGROUND_OPACITY } from '../../chart/config/AppSettings';
 import type { RenderCtx } from '../types';
 import type { BpmTimelineEvent } from '../../chart/geometry/BpmTimeline';
 import type { GridStylePreset } from '../gridStyle';
-
-let screenCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
-let stripCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 
 type ScreenBasis = {
   bpmEvents: readonly BpmTimelineEvent[];
@@ -34,21 +35,14 @@ type ScreenBasis = {
   bgScope: 'outsideTrack' | 'fullCanvas';
 };
 
-let screenBasis: ScreenBasis | null = null;
-let stripMeta: { originScrollY: number; padCss: number; stripH: number } | null = null;
-
-/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试注入点：假位图只需结构兼容 */
-let createStaticCanvas: () => any = () => document.createElement('canvas');
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
-export function __setStaticCanvasFactoryForTests(factory: () => any) {
-  createStaticCanvas = factory;
-}
-
-export function resetStaticLayerCache() {
-  screenCanvas = null;
-  stripCanvas = null;
-  screenBasis = null;
-  stripMeta = null;
+export interface StaticLayerCache {
+  /** 绘制静态层（renderChart 调用）：屏幕层 + pos 条带窗口 blit。 */
+  draw(ctx: CanvasRenderingContext2D, rc: RenderCtx): void;
+  /** 丢弃两层位图与失效依据（重放 / 测试用）。 */
+  reset(): void;
+  /** 测试注入点：假位图只需结构兼容 */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
+  __setCanvasFactoryForTests(factory: () => any): void;
 }
 
 const bpmEventsEqual = (a: readonly BpmTimelineEvent[], b: readonly BpmTimelineEvent[]) =>
@@ -112,96 +106,128 @@ function screenHit(a: ScreenBasis, b: ScreenBasis): boolean {
     bpmEventsEqual(a.bpmEvents, b.bpmEvents);
 }
 
-function ensureBitmap(
-  existing: HTMLCanvasElement | OffscreenCanvas | null,
-  cssW: number, cssH: number, dpr: number,
-): HTMLCanvasElement {
-  const bitmap = (existing ?? createStaticCanvas()) as HTMLCanvasElement;
-  const bw = Math.round(cssW * dpr), bh = Math.round(cssH * dpr);
-  if (bitmap.width !== bw) bitmap.width = bw;
-  if (bitmap.height !== bh) bitmap.height = bh;
-  return bitmap;
+/** 默认位图工厂（实例可注入替身）。 */
+function createStaticCanvasDefault() {
+  return document.createElement('canvas');
 }
 
 function stripPadCss(surfaceH: number): number {
   return Math.max(256, Math.round(surfaceH * 0.5));
 }
 
-function paintScreen(rc: RenderCtx, nb: ScreenBasis) {
-  screenCanvas = ensureBitmap(screenCanvas, nb.surfaceW, nb.surfaceH, nb.dpr);
-  const cctx = (screenCanvas as HTMLCanvasElement).getContext('2d')!;
-  cctx.setTransform(nb.dpr, 0, 0, nb.dpr, 0, 0);
-  cctx.clearRect(0, 0, nb.surfaceW, nb.surfaceH);
-  cctx.fillStyle = '#000000';
-  cctx.fillRect(0, 0, nb.surfaceW, nb.surfaceH);
-  const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
-  const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
-  const bg = rc.background ?? null;
-  if (nb.bgActive && bg) {
-    const { dx, dy, dw, dh } = computeBackgroundDrawRect(nb.surfaceW, nb.surfaceH, bg.width, bg.height, nb.bgFit);
-    cctx.globalAlpha = nb.bgOpacity;
-    cctx.drawImage(bg.source as CanvasImageSource, dx, dy, dw, dh);
-    cctx.globalAlpha = 1;
-    cctx.fillStyle = nb.bgScope === 'outsideTrack' ? TRACK_BG_COLOR : TRACK_BG_OVER_IMAGE;
-    cctx.fillRect(trackBgX, 0, trackBgWidth, nb.surfaceH);
-  } else {
-    cctx.fillStyle = TRACK_BG_COLOR;
-    cctx.fillRect(trackBgX, 0, trackBgWidth, nb.surfaceH);
-  }
-  renderTrackChrome(cctx, c, rc);
-  screenBasis = nb;
-}
-
-function paintStrip(rc: RenderCtx, originScrollY: number, padCss: number) {
-  const es = rc.viewport.scale;
-  const stripH = rc.surface.h + 2 * padCss;
-  const stripVp = { ...rc.viewport, scrollY: originScrollY - padCss / es };
-  const stripRc: RenderCtx = { ...rc, viewport: stripVp, surface: { w: rc.surface.w, h: stripH } };
-  stripCanvas = ensureBitmap(stripCanvas, rc.surface.w, stripH, rc.dpr);
-  const cctx = (stripCanvas as HTMLCanvasElement).getContext('2d')!;
-  cctx.setTransform(rc.dpr, 0, 0, rc.dpr, 0, 0);
-  cctx.clearRect(0, 0, rc.surface.w, stripH);
-  const c = makeCoords(rc.geometry, stripVp, rc.beatDisplay, rc.notes);
-  renderGridBeatLines(cctx, c, stripRc);
-  renderBoundLines(cctx, c, stripRc);
-  stripMeta = { originScrollY, padCss, stripH };
-}
-
 /**
- * 绘制静态层入口（renderChart 调用）。
- * 屏幕层 + pos 条带窗口 blit：播放中只变 scrollY 时不跑 renderGrid。
+ * 创建一个静态层缓存实例（候选 3）：状态（两层位图 + 失效依据）全在实例内，
+ * 不与其它渲染目标共享 —— 见 `../RenderTarget`。
  */
-export function drawStaticLayer(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
-  const nb = collectScreenBasis(rc);
-  const screenOk = screenBasis !== null && screenHit(screenBasis, nb);
-  if (!screenOk) {
-    paintScreen(rc, nb);
-    stripMeta = null;
+export function createStaticLayerCache(): StaticLayerCache {
+  let screenCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+  let stripCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+  let screenBasis: ScreenBasis | null = null;
+  let stripMeta: { originScrollY: number; padCss: number; stripH: number } | null = null;
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试注入点：假位图只需结构兼容 */
+  let createStaticCanvas: () => any = createStaticCanvasDefault;
+
+  function ensureBitmap(
+    existing: HTMLCanvasElement | OffscreenCanvas | null,
+    cssW: number, cssH: number, dpr: number,
+  ): HTMLCanvasElement {
+    // buffer = css × dpr（ADR-0006 §1），尺寸口径走 rasterScale 唯一处
+    const { w: bw, h: bh } = bufferSizeFor({ w: cssW, h: cssH }, dpr);
+    const bitmap = (existing ?? createStaticCanvas()) as HTMLCanvasElement;
+    if (bitmap.width !== bw) bitmap.width = bw;
+    if (bitmap.height !== bh) bitmap.height = bh;
+    return bitmap;
   }
 
-  const es = rc.viewport.scale;
-  const padCss = stripPadCss(nb.surfaceH);
-  const sy = rc.viewport.scrollY;
-  let srcYCss = 0;
-  const stripOk = stripMeta !== null && screenOk &&
-    stripMeta.padCss === padCss &&
-    Math.abs(stripMeta.stripH - (nb.surfaceH + 2 * padCss)) < 1e-6;
-  if (stripOk && stripMeta) {
-    srcYCss = (sy - stripMeta.originScrollY) * es + stripMeta.padCss;
-    const inWindow = srcYCss >= 0 && srcYCss + nb.surfaceH <= stripMeta.stripH;
-    if (!inWindow) {
+  function paintScreen(rc: RenderCtx, nb: ScreenBasis) {
+    screenCanvas = ensureBitmap(screenCanvas, nb.surfaceW, nb.surfaceH, nb.dpr);
+    const cctx = (screenCanvas as HTMLCanvasElement).getContext('2d')!;
+    cctx.setTransform(nb.dpr, 0, 0, nb.dpr, 0, 0);
+    cctx.clearRect(0, 0, nb.surfaceW, nb.surfaceH);
+    cctx.fillStyle = '#000000';
+    cctx.fillRect(0, 0, nb.surfaceW, nb.surfaceH);
+    const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
+    const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
+    const bg = rc.background ?? null;
+    if (nb.bgActive && bg) {
+      const { dx, dy, dw, dh } = computeBackgroundDrawRect(nb.surfaceW, nb.surfaceH, bg.width, bg.height, nb.bgFit);
+      cctx.globalAlpha = nb.bgOpacity;
+      cctx.drawImage(bg.source as CanvasImageSource, dx, dy, dw, dh);
+      cctx.globalAlpha = 1;
+      cctx.fillStyle = nb.bgScope === 'outsideTrack' ? TRACK_BG_COLOR : TRACK_BG_OVER_IMAGE;
+      cctx.fillRect(trackBgX, 0, trackBgWidth, nb.surfaceH);
+    } else {
+      cctx.fillStyle = TRACK_BG_COLOR;
+      cctx.fillRect(trackBgX, 0, trackBgWidth, nb.surfaceH);
+    }
+    renderTrackChrome(cctx, c, rc);
+    screenBasis = nb;
+  }
+
+  function paintStrip(rc: RenderCtx, originScrollY: number, padCss: number) {
+    const es = rc.viewport.scale;
+    const stripH = rc.surface.h + 2 * padCss;
+    const stripVp = { ...rc.viewport, scrollY: originScrollY - padCss / es };
+    const stripRc: RenderCtx = { ...rc, viewport: stripVp, surface: { w: rc.surface.w, h: stripH } };
+    stripCanvas = ensureBitmap(stripCanvas, rc.surface.w, stripH, rc.dpr);
+    const cctx = (stripCanvas as HTMLCanvasElement).getContext('2d')!;
+    cctx.setTransform(rc.dpr, 0, 0, rc.dpr, 0, 0);
+    cctx.clearRect(0, 0, rc.surface.w, stripH);
+    const c = makeCoords(rc.geometry, stripVp, rc.beatDisplay, rc.notes);
+    renderGridBeatLines(cctx, c, stripRc);
+    renderBoundLines(cctx, c, stripRc);
+    stripMeta = { originScrollY, padCss, stripH };
+  }
+
+  /**
+   * 绘制静态层入口（renderChart 调用）。
+   * 屏幕层 + pos 条带窗口 blit：播放中只变 scrollY 时不跑 renderGrid。
+   */
+  function draw(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
+    const nb = collectScreenBasis(rc);
+    const screenOk = screenBasis !== null && screenHit(screenBasis, nb);
+    if (!screenOk) {
+      paintScreen(rc, nb);
+      stripMeta = null;
+    }
+
+    const es = rc.viewport.scale;
+    const padCss = stripPadCss(nb.surfaceH);
+    const sy = rc.viewport.scrollY;
+    let srcYCss = 0;
+    const stripOk = stripMeta !== null && screenOk &&
+      stripMeta.padCss === padCss &&
+      Math.abs(stripMeta.stripH - (nb.surfaceH + 2 * padCss)) < 1e-6;
+    if (stripOk && stripMeta) {
+      srcYCss = (sy - stripMeta.originScrollY) * es + stripMeta.padCss;
+      const inWindow = srcYCss >= 0 && srcYCss + nb.surfaceH <= stripMeta.stripH;
+      if (!inWindow) {
+        paintStrip(rc, sy, padCss);
+        srcYCss = padCss;
+      }
+    } else {
       paintStrip(rc, sy, padCss);
       srcYCss = padCss;
     }
-  } else {
-    paintStrip(rc, sy, padCss);
-    srcYCss = padCss;
+
+    ctx.drawImage(screenCanvas!, 0, 0, rc.surface.w, rc.surface.h);
+    // blit 源矩形取位图整数尺寸（与 ensureBitmap 同一口径：bufferSizeFor）
+    const { w: srcWPx, h: srcHPx } = bufferSizeFor({ w: nb.surfaceW, h: nb.surfaceH }, nb.dpr);
+    const maxSrcY = Math.max(0, (stripCanvas as HTMLCanvasElement).height - srcHPx);
+    const srcYPx = Math.min(Math.max(0, Math.round(srcYCss * nb.dpr)), maxSrcY);
+    ctx.drawImage(stripCanvas!, 0, srcYPx, srcWPx, srcHPx, 0, 0, rc.surface.w, rc.surface.h);
   }
 
-  ctx.drawImage(screenCanvas!, 0, 0, rc.surface.w, rc.surface.h);
-  const srcWPx = Math.round(nb.surfaceW * nb.dpr);
-  const srcHPx = Math.round(nb.surfaceH * nb.dpr);
-  const maxSrcY = Math.max(0, (stripCanvas as HTMLCanvasElement).height - srcHPx);
-  const srcYPx = Math.min(Math.max(0, Math.round(srcYCss * nb.dpr)), maxSrcY);
-  ctx.drawImage(stripCanvas!, 0, srcYPx, srcWPx, srcHPx, 0, 0, rc.surface.w, rc.surface.h);
+  function reset() {
+    screenCanvas = null;
+    stripCanvas = null;
+    screenBasis = null;
+    stripMeta = null;
+  }
+
+  function __setCanvasFactoryForTests(factory: () => unknown) {
+    createStaticCanvas = factory;
+  }
+
+  return { draw, reset, __setCanvasFactoryForTests };
 }

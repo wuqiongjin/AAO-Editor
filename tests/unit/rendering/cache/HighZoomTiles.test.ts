@@ -1,7 +1,7 @@
 // issue 140：工具栏 300%（es=3）仍走 pos 瓦片；播放热身后只 blit，不每帧直渲扫描线。
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
-import { drawNotesLayer, resetNoteLayerCache, __setTileCanvasFactoryForTests, __getTilesForTests, __flushPlayingTileQueueForTests, __getLastNoteLayerStats, clipTileDrawRect } from '@/src/rendering/pipeline/noteLayerCache';
+import { createNoteLayerCache, clipTileDrawRect, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
 import type { RenderCtx } from '@/src/rendering/types';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import type { ChartNote } from '@/src/chart/types';
@@ -38,11 +38,13 @@ function makeRc(g: ChartGeometry, scrollY: number, playing: boolean): RenderCtx 
 }
 
 describe('issue 140 · 高倍仍走瓦片', () => {
+  // 候选 3：缓存有主——每个用例一份实例（模块级单例已删除）
+  let cache: NoteLayerCache;
   let canvases = 0;
   beforeEach(() => {
-    resetNoteLayerCache();
+    cache = createNoteLayerCache();
     canvases = 0;
-    __setTileCanvasFactoryForTests(() => {
+    cache.__setCanvasFactoryForTests(() => {
       canvases++;
       return { width: 0, height: 0, getContext: () => makeNoopCtx() };
     });
@@ -51,16 +53,16 @@ describe('issue 140 · 高倍仍走瓦片', () => {
   it('es=3 播放：当帧不建瓦片，flush 后热身；随后滚动帧不再新建位图', () => {
     const g = new ChartGeometry(bpm120, { endBeat: 40 }, SURFACE);
     const y0 = g.beatToVirtualY(8, ES) - SURFACE.h / (2 * ES);
-    drawNotesLayer(makeNoopCtx(), makeRc(g, y0, true));
-    expect(__getTilesForTests().size).toBe(0);
-    expect(__getLastNoteLayerStats().rebuilt).toBe(0);
-    __flushPlayingTileQueueForTests();
-    expect(__getTilesForTests().size).toBeGreaterThan(0);
+    cache.draw(makeNoopCtx(), makeRc(g, y0, true));
+    expect(cache.__getTilesForTests().size).toBe(0);
+    expect(cache.__getLastNoteLayerStats().rebuilt).toBe(0);
+    cache.__flushPlayingTileQueueForTests();
+    expect(cache.__getTilesForTests().size).toBeGreaterThan(0);
     const afterWarm = canvases;
     expect(afterWarm).toBeGreaterThan(0);
 
     for (let i = 1; i <= 8; i++) {
-      drawNotesLayer(makeNoopCtx(), makeRc(g, y0 + i * 4, true));
+      cache.draw(makeNoopCtx(), makeRc(g, y0 + i * 4, true));
     }
     expect(canvases).toBe(afterWarm);
   });

@@ -97,7 +97,8 @@ import { repoRoot } from '@/tests/support/source';
   不要全局改成 jsdom —— 会拖慢其余上百个 node 环境文件。jsdom 只装为 devDependency。
 - `dom/` 之外仍然没有测试访问 `window` / `document` / `AudioContext`；
   渲染类测试靠 `support/canvas.ts` 的假 2d context + 生产代码留的注入点
-  （`__setTileCanvasFactoryForTests` 等）。
+  （08 票起缓存有主：`createNoteLayerCache()` / `createStaticLayerCache()` 实例上的
+  `__setCanvasFactoryForTests`，不再是模块级注入）。
 - `dom/` 的测试按需 `import '@testing-library/jest-dom/vitest'` 拿 `toBeInTheDocument()` 等匹配器；
   不设全局 setupFiles，免得每个 node 环境文件都白跑一遍。
 - RTL 的自动 cleanup 依赖全局 `afterEach`（`globals: true` 已开），**不要**手动关掉 globals。

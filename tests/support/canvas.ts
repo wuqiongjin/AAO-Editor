@@ -53,7 +53,7 @@ export function makeCountingCtx(
   }) as unknown as CanvasRenderingContext2D;
 }
 
-/** 假离屏位图：喂给 `__setTileCanvasFactoryForTests` / `__setStaticCanvasFactoryForTests` */
+/** 假离屏位图：喂给两层缓存的 `__setCanvasFactoryForTests`（`createNoteLayerCache` / `createStaticLayerCache` 实例上） */
 export function makeCanvasStub(
   counters: Record<string, number>,
   watched: string[] = ['drawImage'],

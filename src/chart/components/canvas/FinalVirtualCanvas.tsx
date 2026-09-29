@@ -15,11 +15,13 @@ import {
 } from '../../geometry/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../../../app/ProviderTree';
 import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
-import { renderChart, findItemAt, findBpmLineAt, type RenderCtx, type ViewportState } from '../../../rendering';
+import {
+  createRenderTarget, resolveCanvasDpr, normalizeBackgroundOpacity, findItemAt, findBpmLineAt,
+  type FrameView, type RenderTarget, type ViewportState,
+} from '../../../rendering';
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
 import { PLAYBACK_MARKER_LAYOUT, PLAYBACK_MARKER_CLIP_PATH } from '../../../rendering/playbackMarker';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rendering/skin/noteSkin';
-import { normalizeBackgroundOpacity } from '../../../rendering/pipeline/staticLayerCache';
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../rendering/gutterLabels';
 import { useBackgroundSkin } from '../../../rendering/skin/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
@@ -187,6 +189,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const playbackActiveRef = useRef(false);
     const scrollYRef = useRef(0);
     const renderCanvasRef = useRef<() => void>(() => {});
+    // 渲染目标（候选 3）：本画布的 surface / dpr / 两层离屏缓存的所有者；surface 或画质变化只 configure，不重建
+    const targetRef = useRef<RenderTarget | null>(null);
     // ADR-0008 §5：BPM 就地编辑（无模态打断）。默认值 = 上一次放置所设的值（初始 120）
     const lastBpmRef = useRef(120);
     const [bpmEdit, setBpmEdit] = useState<{ beat: number; value: string } | null>(null);
@@ -498,13 +502,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     };
 
     // ---------------------------
-    // 渲染：薄层只组装 RenderCtx 并调用 renderChart（ADR-0003 候选 B）
+    // 渲染：薄层只组装 view 并交给 target 出帧（ADR-0003 候选 B + 候选 3）
     // ---------------------------
     const renderCanvas = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
         const vp = liveViewport();
         const markerCanvasY = markerSeconds === null
             ? null
@@ -525,14 +527,21 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             }
         }
 
-        const rc: RenderCtx = {
+        // 渲染目标（候选 3）：surface / dpr / 两层离屏缓存全归 target；
+        // dpr 策略走渲染域唯一处 resolveCanvasDpr（issue 39 #6 / issue 40 的 1/2.5/3 原样保留）。
+        // surface（容器尺寸）或画质变化只 configure，缓存续用/失效由各层既有 basis 决定。
+        const dpr = resolveCanvasDpr(display.imageQuality);
+        let target = targetRef.current;
+        if (!target || target.canvas !== canvas) {
+            target = createRenderTarget({ canvas, surface: surf, dpr });
+            targetRef.current = target;
+        } else {
+            target.configure({ surface: surf, dpr });
+        }
+
+        const view: FrameView = {
             geometry,
             viewport: vp,
-            surface: surf,
-            // issue 39 #6：图像品质 → 画布 dpr 上限（流畅 1x / 标准 2.5x / 高清 3x）
-            // issue 40：标准从 2 提到 2.5（缩小采样比更小 → 音符边缘更锐利、杂色更轻，
-            // 代价是增加约 56% 画布像素/显存与重绘成本；主画布按完整 dpr，瓦片另有 TILE_DPR_CAP）
-            dpr: Math.min(window.devicePixelRatio || 1, display.imageQuality === 'smooth' ? 1 : display.imageQuality === 'hd' ? 3 : 2.5),
             beatDisplay,
             chartEndBeat,
             notes,
@@ -580,7 +589,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             // 背景皮肤（issue 29 Q4）：进静态层绘制
             background,
         };
-        renderChart(ctx, canvas, rc);
+        target.renderFrame(view);
     }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
     renderCanvasRef.current = renderCanvas;
 

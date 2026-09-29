@@ -1,7 +1,7 @@
 // issue 36 复现：连续 Slide 自下向上连接扩展时，后半截渲染缺失（瓦片未失效？）
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
-import { drawNotesLayer, resetNoteLayerCache, __setTileCanvasFactoryForTests, __getTilesForTests, TILE_PX } from '@/src/rendering/pipeline/noteLayerCache';
+import { createNoteLayerCache, TILE_PX, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
 import { handleSlideToSlideCombination } from '@/src/chart/editing/NoteReplacementRules';
 import type { RenderCtx } from '@/src/rendering/types';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
@@ -44,10 +44,12 @@ function scrollYCenterBeat(g: ChartGeometry, beat: number): number {
 }
 
 let canvasSeq = 0;
+// 候选 3：缓存有主——每个用例一份实例（模块级单例已删除）
+let cache: NoteLayerCache;
 beforeEach(() => {
-  resetNoteLayerCache();
+  cache = createNoteLayerCache();
   canvasSeq = 0;
-  __setTileCanvasFactoryForTests(() => ({ id: ++canvasSeq, width: 0, height: 0, getContext: () => makeCtx() }));
+  cache.__setCanvasFactoryForTests(() => ({ id: ++canvasSeq, width: 0, height: 0, getContext: () => makeCtx() }));
 });
 
 describe('slide 自下向上连接扩展 → 瓦片失效', () => {
@@ -63,8 +65,8 @@ describe('slide 自下向上连接扩展 → 瓦片失效', () => {
 
     // 视口中心 beat 35（能看到扩展后半截）
     const scrollY = scrollYCenterBeat(g, 35);
-    drawNotesLayer(makeCtx(), makeRc(g, notes, scrollY));
-    const before = new Map(__getTilesForTests());
+    cache.draw(makeCtx(), makeRc(g, notes, scrollY));
+    const before = new Map(cache.__getTilesForTests());
 
     // 自下向上扩展：点击 30（既有终点）→ 40
     const comb = handleSlideToSlideCombination(notes, [{ beat: 30, lane: 3, subBeat: 0 }, { beat: 40, lane: 3, subBeat: 0 }]);
@@ -74,8 +76,8 @@ describe('slide 自下向上连接扩展 → 瓦片失效', () => {
     expect(merged.connections.map(c => c.beat)).toEqual([20, 30, 40]);
     expect(comb.newNotes).toHaveLength(2);
 
-    drawNotesLayer(makeCtx(), makeRc(g, comb.newNotes, scrollY));
-    const after = __getTilesForTests();
+    cache.draw(makeCtx(), makeRc(g, comb.newNotes, scrollY));
+    const after = cache.__getTilesForTests();
 
     // 覆盖 pos[20*220, 40*220]（外扩一个瓦片余量）内的所有瓦片都应被重建（canvas 身份变化或新建）
     const lo = Math.floor((20 * POS_PER_BEAT - TILE_PX) / TILE_PX);
@@ -109,7 +111,7 @@ describe('slide 自下向上连接扩展 → 瓦片失效', () => {
     notes = comb.newNotes;
 
     const scrollY = scrollYCenterBeat(g, 25);
-    drawNotesLayer(makeCtx(), makeRc(g, notes, scrollY));
+    cache.draw(makeCtx(), makeRc(g, notes, scrollY));
 
     // 第四段 [40,50]（视口中心 25 时 pos 8800..11000 不可见；把视口移到 45 再画一帧 → 滚动进入）
     comb = handleSlideToSlideCombination(notes, [{ beat: 40, lane: 2, subBeat: 0 }, { beat: 50, lane: 2, subBeat: 0 }]);
@@ -117,8 +119,8 @@ describe('slide 自下向上连接扩展 → 瓦片失效', () => {
     notes = comb.newNotes;
 
     const scrollY2 = scrollYCenterBeat(g, 50);
-    drawNotesLayer(makeCtx(), makeRc(g, notes, scrollY2));
-    const after = __getTilesForTests();
+    cache.draw(makeCtx(), makeRc(g, notes, scrollY2));
+    const after = cache.__getTilesForTests();
     // 新端点 50（pos 11000）所在瓦片必须是本帧新建的（滚动新入视野 + 失效）
     const tile50 = Math.floor((50 * POS_PER_BEAT) / TILE_PX);
     expect(after.has(tile50)).toBe(true);

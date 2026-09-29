@@ -1,11 +1,10 @@
 // issue 139 播放帧基线（测量，不是改造）。
 // node stub 没有 GPU 光栅：数字是 JS 调用次数 + renderChart 墙钟。真 60fps 仍靠页面。
 // 谱面 = tests/support/perfBackflowPlayback 合成 fixture（ADR 附录 A 时间轴 + 倒流窗 SP）。
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { renderChart, visibleBeatRanges } from '@/src/rendering/render';
-import { drawStaticLayer, resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/rendering/pipeline/staticLayerCache';
-import { resetNoteLayerCache, __setTileCanvasFactoryForTests } from '@/src/rendering/pipeline/noteLayerCache';
+import { createRenderTarget } from '@/src/rendering/RenderTarget';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import { getBpmEvents, maxNoteEndSeconds } from '@/src/audio/AudioTiming';
 import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
@@ -53,11 +52,7 @@ function makeRc(
 }
 
 describe('issue 139 · 播放帧基线（合成倒流 perf 谱）', () => {
-  beforeEach(() => {
-    resetStaticLayerCache();
-    resetNoteLayerCache();
-  });
-
+  // 候选 3：缓存有主——单个用例一份 target 实例（模块级单例已删除）
   it('仅 scrollY 变：静态层不每帧重建；同 scrollY 第二次命中', () => {
     const notes = buildBackflowPlaybackNotes();
     const bpm = getBpmEvents(notes);
@@ -68,20 +63,25 @@ describe('issue 139 · 播放帧基线（合成倒流 perf 谱）', () => {
     const rangesAt5 = visibleBeatRanges(g, { scrollX: 0, scrollY: model.scrollYForSeconds(5), scale: es }, g.chartEndBeat);
 
     const staticDraws = { n: 0 };
-    __setStaticCanvasFactoryForTests(() =>
-      makeTallyingCanvasStub(() => { staticDraws.n++; }, ['stroke', 'fillText']));
-    __setTileCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
 
     const ctx = makeCountingCtx({ drawImage: 0 });
-    const canvas = { width: 0, height: 0 };
+    const dpr = PERF_PLAYBACK_DPR;
+    const target = createRenderTarget({
+      canvas: { width: 0, height: 0, getContext: () => ctx } as unknown as HTMLCanvasElement,
+      surface: SURFACE,
+      dpr,
+    });
+    target.staticLayer.__setCanvasFactoryForTests(() =>
+      makeTallyingCanvasStub(() => { staticDraws.n++; }, ['stroke', 'fillText']));
+    target.noteLayer.__setCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
+
     const frames = 60;
     const t0 = 4.8;
     const dt = 1 / 60;
-    const dpr = PERF_PLAYBACK_DPR;
     const bitmapPx = Math.round(SURFACE.w * dpr) * Math.round(SURFACE.h * dpr);
 
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g, notes, model.scrollYForSeconds(t0), dpr));
-    resetStaticLayerCache();
+    renderChart(target, makeRc(g, notes, model.scrollYForSeconds(t0), dpr));
+    target.staticLayer.reset();
     staticDraws.n = 0;
 
     const staticOnlyMs: number[] = [];
@@ -90,30 +90,30 @@ describe('issue 139 · 播放帧基线（合成倒流 perf 谱）', () => {
       const sy = model.scrollYForSeconds(t0 + i * dt);
       const before = staticDraws.n;
       const tStatic = performance.now();
-      drawStaticLayer(ctx, makeRc(g, notes, sy, dpr));
+      target.staticLayer.draw(ctx, makeRc(g, notes, sy, dpr));
       staticOnlyMs.push(performance.now() - tStatic);
       if (staticDraws.n > before) rebuildFrames++;
     }
 
-    resetStaticLayerCache();
+    target.staticLayer.reset();
     staticDraws.n = 0;
     const frameMs: number[] = [];
     let fullRebuilds = 0;
     for (let i = 0; i < frames; i++) {
       const before = staticDraws.n;
       const tStart = performance.now();
-      renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g, notes, model.scrollYForSeconds(t0 + i * dt), dpr));
+      renderChart(target, makeRc(g, notes, model.scrollYForSeconds(t0 + i * dt), dpr));
       frameMs.push(performance.now() - tStart);
       if (staticDraws.n > before) fullRebuilds++;
     }
 
     const sameSy = model.scrollYForSeconds(5);
-    resetStaticLayerCache();
+    target.staticLayer.reset();
     staticDraws.n = 0;
-    drawStaticLayer(ctx, makeRc(g, notes, sameSy, dpr));
+    target.staticLayer.draw(ctx, makeRc(g, notes, sameSy, dpr));
     const firstAtSame = staticDraws.n;
     staticDraws.n = 0;
-    drawStaticLayer(ctx, makeRc(g, notes, sameSy, dpr));
+    target.staticLayer.draw(ctx, makeRc(g, notes, sameSy, dpr));
     const secondAtSame = staticDraws.n;
 
     const hudT0 = performance.now();

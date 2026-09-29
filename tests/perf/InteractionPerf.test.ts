@@ -6,10 +6,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { renderChart } from '@/src/rendering/render';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
-import {
-  drawNotesLayer, resetNoteLayerCache, diffNotes, __setTileCanvasFactoryForTests,
-} from '@/src/rendering/pipeline/noteLayerCache';
-import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/rendering/pipeline/staticLayerCache';
+import { createNoteLayerCache, diffNotes, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
+import { createRenderTarget } from '@/src/rendering/RenderTarget';
 import { handleNoteReplacement, handleSlideToSlideCombination } from '@/src/chart/editing/NoteReplacementRules';
 import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
@@ -117,14 +115,11 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
   const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
   const scrollY = scrollYForCenterBeat(g, 750, es);
 
+  // 候选 3：缓存有主——每用例一份实例（模块级单例已删除）
+  let cache: NoteLayerCache;
   beforeEach(() => {
-    resetNoteLayerCache();
-    resetStaticLayerCache();
-    __setTileCanvasFactoryForTests(() => ({
-      width: 0, height: 0,
-      getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, stroke: 0 }, ['drawImage', 'stroke']),
-    }));
-    __setStaticCanvasFactoryForTests(() => ({
+    cache = createNoteLayerCache();
+    cache.__setCanvasFactoryForTests(() => ({
       width: 0, height: 0,
       getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, stroke: 0 }, ['drawImage', 'stroke']),
     }));
@@ -135,13 +130,13 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
   const mkDraw = () => {
     const sprites = { n: 0 };
     const rebuilt = { n: 0 };
-    __setTileCanvasFactoryForTests(() => {
+    cache.__setCanvasFactoryForTests(() => {
       rebuilt.n++;
       return { width: 0, height: 0, getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, stroke: 0 }, ['drawImage', 'stroke']) };
     });
     const draw = (notes: ChartNote[], selected: unknown[] = EMPTY_SELECTED) => {
       const main: Counters = { drawImage: 0, sprites: 0, stroke: 0 };
-      drawNotesLayer(makeCountingCtx(main, ['drawImage', 'stroke']), makeRc(g, notes, chartEndBeat, es, scrollY, selected, main, sprites));
+      cache.draw(makeCountingCtx(main, ['drawImage', 'stroke']), makeRc(g, notes, chartEndBeat, es, scrollY, selected, main, sprites));
       return main;
     };
     return { sprites, rebuilt, draw };
@@ -215,7 +210,7 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
     // BPM 音符改变 → getBpmEvents 内容变 → 组件复用判定失败会新建 geometry（F2 走全量分支）
     const g2 = new ChartGeometry([{ beat: 0, bpm: 180 }], { endBeat: chartEndBeat } , SURFACE);
     const main: Counters = { drawImage: 0, sprites: 0, stroke: 0 };
-    drawNotesLayer(makeCountingCtx(main, ['drawImage', 'stroke']), makeRc(g2, notes, chartEndBeat, es, scrollYForCenterBeat(g2, 750, es), EMPTY_SELECTED, main, sprites));
+    cache.draw(makeCountingCtx(main, ['drawImage', 'stroke']), makeRc(g2, notes, chartEndBeat, es, scrollYForCenterBeat(g2, 750, es), EMPTY_SELECTED, main, sprites));
 
     expect(rebuilt.n - builtTiles).toBeGreaterThanOrEqual(builtTiles); // 全量重建可见瓦片
   });
@@ -223,17 +218,29 @@ describe('noteLayerCache 增量失效（3000 音符）', () => {
   it('renderChart 全链路：编辑后一帧仍正常 blit 瓦片（无回归）', () => {
     const sprites = { n: 0 };
     const notes = makeDenseNotes(3000, chartEndBeat);
-    const canvas = { width: 0, height: 0 };
     const main: Counters = { drawImage: 0, sprites: 0, stroke: 0 };
     const ctx = makeCountingCtx(main, ['drawImage', 'stroke']);
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g, notes, chartEndBeat, es, scrollY, EMPTY_SELECTED, main, sprites));
+    const target = createRenderTarget({
+      canvas: { width: 0, height: 0, getContext: () => ctx } as unknown as HTMLCanvasElement,
+      surface: SURFACE,
+      dpr: 1,
+    });
+    target.noteLayer.__setCanvasFactoryForTests(() => ({
+      width: 0, height: 0,
+      getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, stroke: 0 }, ['drawImage', 'stroke']),
+    }));
+    target.staticLayer.__setCanvasFactoryForTests(() => ({
+      width: 0, height: 0,
+      getContext: () => makeCountingCtx({ drawImage: 0, sprites: 0, stroke: 0 }, ['drawImage', 'stroke']),
+    }));
+    renderChart(target, makeRc(g, notes, chartEndBeat, es, scrollY, EMPTY_SELECTED, main, sprites));
     expect(main.drawImage).toBeGreaterThan(0);
 
     const k = notes.findIndex((note, i) => i > 1400 && note.type === 'Single');
     const edited = [...notes];
     edited[k] = { ...edited[k]!, flick: true } as ChartNote;
     main.drawImage = 0;
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g, edited, chartEndBeat, es, scrollY, EMPTY_SELECTED, main, sprites));
+    renderChart(target, makeRc(g, edited, chartEndBeat, es, scrollY, EMPTY_SELECTED, main, sprites));
     expect(main.drawImage).toBeGreaterThan(0); // 可见瓦片照常 blit
   });
 });

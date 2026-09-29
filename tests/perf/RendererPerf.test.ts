@@ -5,11 +5,8 @@ import { ChartGeometry, LANES } from '@/src/chart/geometry/ChartGeometry';
 import { renderChart, visibleBeatRanges } from '@/src/rendering/render';
 import { findItemAt } from '@/src/rendering/hitTest/hitTest';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
-import {
-  drawNotesLayer, resetNoteLayerCache, tileIndexRange, tileBlitRect, posRangeOf,
-  TILE_PX, __setTileCanvasFactoryForTests, __flushPlayingTileQueueForTests, __getLastNoteLayerStats,
-} from '@/src/rendering/pipeline/noteLayerCache';
-import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/rendering/pipeline/staticLayerCache';
+import { createNoteLayerCache, tileIndexRange, tileBlitRect, posRangeOf, TILE_PX } from '@/src/rendering/pipeline/noteLayerCache';
+import { createRenderTarget, type RenderTarget } from '@/src/rendering/RenderTarget';
 import { makeCoords } from '@/src/rendering/coords';
 import { planDragMove } from '@/src/chart/editing/NoteDragging';
 import { countNotesUpToBeat } from '@/src/chart/editing/NoteEditing';
@@ -119,6 +116,23 @@ function makeRc(
 /** 保持指定 beat 位于画布中心的 scrollY（模拟以鼠标为锚的缩放） */
 function scrollYForCenterBeat(g: ChartGeometry, beat: number, es: number): number {
   return g.beatToVirtualY(beat, es) - SURFACE.h / (2 * es);
+}
+
+/** 渲染目标替身（候选 3）：主画布 getContext 恒返回给定 ctx；surface/dpr/两层缓存全归 target。 */
+function makeTarget(ctx: CanvasRenderingContext2D, surface: { w: number; h: number } = SURFACE, dpr = 1): RenderTarget {
+  return createRenderTarget({
+    canvas: { width: 0, height: 0, getContext: () => ctx } as unknown as HTMLCanvasElement,
+    surface,
+    dpr,
+  });
+}
+
+/** 端到端帧渲染用 target：两层缓存注入假位图工厂（每用例一份实例，替代原模块级单例 + 工厂注入） */
+function makeFrameTarget(ctx: CanvasRenderingContext2D, surface: { w: number; h: number } = SURFACE, dpr = 1): RenderTarget {
+  const target = makeTarget(ctx, surface, dpr);
+  target.noteLayer.__setCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
+  target.staticLayer.__setCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
+  return target;
 }
 
 // ---------------- 测试 ----------------
@@ -279,10 +293,10 @@ describe('noteLayerCache 瓦片数学', () => {
     const es = 0.8;
     const notes: ChartNote[] = [{ type: 'Single', lane: 3, beat: 50, subBeat: 0 } as ChartNote];
     const transforms: { sx: number; sy: number; bw: number; bh: number }[] = [];
-    resetNoteLayerCache();
-    __setTileCanvasFactoryForTests(() => makeTransformRecordingTile((t) => transforms.push(t)));
+    const noteLayer = createNoteLayerCache();
+    noteLayer.__setCanvasFactoryForTests(() => makeTransformRecordingTile((t) => transforms.push(t)));
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
-    drawNotesLayer(makeCountingCtx(counters), makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 50, es), false, counters));
+    noteLayer.draw(makeCountingCtx(counters), makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 50, es), false, counters));
 
     expect(transforms.length).toBeGreaterThan(0); // 确实渲染了瓦片
     const tileDpr = 1; // rc.dpr = 1
@@ -302,10 +316,10 @@ describe('noteLayerCache 瓦片数学', () => {
     // X 轴同锁：dpr=1.5 + 非整宽（751·1.5 = 1126.5 → bw=1127）时 sx 也必须按实际位图尺寸取
     const g2 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , { w: 751, h: 900 });
     const transforms2: { sx: number; sy: number; bw: number; bh: number }[] = [];
-    resetNoteLayerCache();
-    __setTileCanvasFactoryForTests(() => makeTransformRecordingTile((t) => transforms2.push(t)));
+    const noteLayer2 = createNoteLayerCache();
+    noteLayer2.__setCanvasFactoryForTests(() => makeTransformRecordingTile((t) => transforms2.push(t)));
     const rc2 = { ...makeRc(g2, notes, chartEndBeat, es, scrollYForCenterBeat(g2, 50, es), false, counters, { w: 751, h: 900 }), dpr: 1.5 };
-    drawNotesLayer(makeCountingCtx(counters), rc2);
+    noteLayer2.draw(makeCountingCtx(counters), rc2);
     expect(transforms2.length).toBeGreaterThan(0);
     for (const tr of transforms2) {
       expect(tr.bw).toBe(Math.round(751 * 1.5)); // 1127：round(1126.5)——X 跨距非整
@@ -316,19 +330,7 @@ describe('noteLayerCache 瓦片数学', () => {
 });
 
 describe('端到端缩放性能（stub canvas，5000 音符）', () => {
-  beforeEach(() => {
-    resetNoteLayerCache();
-    resetStaticLayerCache();
-    __setTileCanvasFactoryForTests(() => {
-      const counters = { drawImage: 0, spriteRenders: 0 };
-      return makeCanvasStub(counters);
-    });
-    __setStaticCanvasFactoryForTests(() => {
-      const counters = { drawImage: 0, spriteRenders: 0 };
-      return makeCanvasStub(counters);
-    });
-  });
-
+  // 候选 3：缓存有主——每用例一份 target 实例（模块级单例与工厂注入已删除）
   const chartEndBeat = 1500;
 
   it('缩放手势帧渐进重建（预算内逐帧转新）、帧开销 60fps 预算内、settle 无集中跳变', () => {
@@ -336,13 +338,13 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const mainCounters: Counters = { drawImage: 0, spriteRenders: 0 };
     const mainCtx = makeCountingCtx(mainCounters);
-    const mainCanvas = { width: 0, height: 0 };
+    const target = makeFrameTarget(mainCtx, SURFACE);
 
     // 初帧（zoomGesture=false）：同步构建可见瓦片
     let es = 0.4;
     let rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), false, mainCounters);
     const tBuild0 = performance.now();
-    renderChart(mainCtx, mainCanvas as unknown as HTMLCanvasElement, rc);
+    renderChart(target, rc);
     const buildMs = performance.now() - tBuild0;
     expect(buildMs).toBeLessThan(500); // 一次性构建（≈一次直渲成本）
     const spritesAfterBuild = mainCounters.spriteRenders;
@@ -357,7 +359,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
       mainCounters.drawImage = 0;
       rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), true, mainCounters);
       const t0 = performance.now();
-      renderChart(mainCtx, mainCanvas as unknown as HTMLCanvasElement, rc);
+      renderChart(target, rc);
       frameTimes.push(performance.now() - t0);
       // 核心断言：手势帧在时间预算内渐进重建 stale 瓦片（精灵逐帧转新），
       // 帧成本有界由下面的 avg/max 与 drawImage 上限共同看守
@@ -376,14 +378,14 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     mainCounters.spriteRenders = 0;
     rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), false, mainCounters);
     const tSettle0 = performance.now();
-    renderChart(mainCtx, mainCanvas as unknown as HTMLCanvasElement, rc);
+    renderChart(target, rc);
     expect(performance.now() - tSettle0).toBeLessThan(500);
     expect(mainCounters.spriteRenders).toBe(0);
 
     // settle 后同 es 再来一帧手势：瓦片已新鲜 → 依然零重绘
     const spritesAfterSettle = mainCounters.spriteRenders;
     rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), true, mainCounters);
-    renderChart(mainCtx, mainCanvas as unknown as HTMLCanvasElement, rc);
+    renderChart(target, rc);
     expect(mainCounters.spriteRenders).toBe(spritesAfterSettle);
   });
 
@@ -392,35 +394,35 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
-    const canvas = { width: 0, height: 0 };
+    const target = makeFrameTarget(ctx, SURFACE);
 
     let es = 0.94;
     let rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), false, counters);
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc); // 初始构建
+    renderChart(target, rc); // 初始构建
 
     for (let k = 1; k <= 9; k++) {
       es = 0.94 * Math.pow(0.9, k);
       rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), true, counters);
       const t0 = performance.now();
-      renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+      renderChart(target, rc);
       expect(performance.now() - t0).toBeLessThan(100);
     }
 
     // es=1.5（issue 140：低于工具栏 300% 上限）仍走瓦片：spriteIcon 会计入绘制
-    resetNoteLayerCache();
+    target.noteLayer.reset();
     counters.spriteRenders = 0;
     rc = makeRc(g, notes, chartEndBeat, 1.5, scrollYForCenterBeat(g, 750, 1.5), false, counters);
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    renderChart(target, rc);
     expect(counters.spriteRenders).toBeGreaterThan(0);
   });
 
-  it('drawNotesLayer 对外可独立调用（高倍瓦片）', () => {
+  it('音符层缓存对外可独立调用（高倍瓦片）', () => {
     const notes = makeDenseNotes(100, 50);
     const geometry = new ChartGeometry(bpm120, { endBeat: 50 } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
     const rc = makeRc(geometry, notes, 50, 1.5, 100, false, counters);
-    drawNotesLayer(ctx, rc);
+    makeFrameTarget(ctx, SURFACE).noteLayer.draw(ctx, rc);
     expect(counters.spriteRenders).toBeGreaterThan(0);
   });
 
@@ -429,12 +431,12 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     const g1 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
-    const canvas = { width: 0, height: 0 };
+    const target = makeFrameTarget(ctx, SURFACE);
     const es = 0.5;
 
     // 初帧：以 (750×900) 构建可见瓦片
     let rc = makeRc(g1, notes, chartEndBeat, es, scrollYForCenterBeat(g1, 750, es), false, counters);
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    renderChart(target, rc);
     const spritesAfterBuild = counters.spriteRenders;
     expect(spritesAfterBuild).toBeGreaterThan(0);
 
@@ -444,7 +446,8 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     const g2 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , surface2);
     const scrollY2 = g2.beatToVirtualY(750, es) - surface2.h / (2 * es); // 同拍居中（pos 空间与 surface 无关 → 同批瓦片命中）
     rc = makeRc(g2, notes, chartEndBeat, es, scrollY2, false, counters, surface2);
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    target.configure({ surface: surface2 }); // 候选 3：surface 归 target，原地更新（缓存续用）
+    renderChart(target, rc);
     // 核心断言：零音符重绘（瓦片续用，纯 blit）；静态层重建不计 sprite
     expect(counters.spriteRenders).toBe(spritesAfterBuild);
     expect(counters.drawImage).toBeGreaterThan(0);
@@ -455,26 +458,26 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
-    const canvas = { width: 0, height: 0 };
+    const target = makeFrameTarget(ctx, SURFACE);
     const es = 0.5;
     const scrollY = scrollYForCenterBeat(g, 750, es);
 
     // 计量【静态位图 ctx】的绘制调用（网格/起止线的 stroke/fillText 只发生在重建时；
     // 主画布上的判定线/BPM 线是每帧动态层，不进静态缓存，不能用主 ctx 计数）
     const staticDraws = { n: 0 };
-    __setStaticCanvasFactoryForTests(() =>
+    target.staticLayer.__setCanvasFactoryForTests(() =>
       makeTallyingCanvasStub(() => { staticDraws.n++; }, ['stroke', 'fillText']));
 
     // 初帧：静态层重建（网格 stroke/fillText > 0）
     let rc = makeRc(g, notes, chartEndBeat, es, scrollY, false, counters);
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    renderChart(target, rc);
     expect(staticDraws.n).toBeGreaterThan(0);
 
     // 交互帧（仅 hoverPos 变化，视口/几何/时间线不变）：静态层命中 → 位图零绘制，主画布仅 blit
     rc = { ...rc, hoverPos: { cx: 300, cy: 400 } };
     staticDraws.n = 0;
     counters.drawImage = 0;
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    renderChart(target, rc);
     expect(staticDraws.n).toBe(0);
     expect(counters.drawImage).toBeGreaterThanOrEqual(1); // 静态层 blit
   });
@@ -484,15 +487,15 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     const g1 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE, 1);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
-    const canvas = { width: 0, height: 0 };
+    const target = makeFrameTarget(ctx, SURFACE);
     const es = 0.5;
     const scrollY = scrollYForCenterBeat(g1, 750, es);
 
     const staticDraws = { n: 0 };
-    __setStaticCanvasFactoryForTests(() =>
+    target.staticLayer.__setCanvasFactoryForTests(() =>
       makeTallyingCanvasStub(() => { staticDraws.n++; }, ['stroke', 'fillText']));
 
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g1, notes, chartEndBeat, es, scrollY, false, counters));
+    renderChart(target, makeRc(g1, notes, chartEndBeat, es, scrollY, false, counters));
     expect(staticDraws.n).toBeGreaterThan(0); // 初帧建位图
 
     // 只改纵向比例：surface / scale / scrollY / bpmEvents / chartEndBeat 全不变。
@@ -504,7 +507,7 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     const g2 = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE, 2);
     expect(g2.verticalRatio).toBe(2);
     staticDraws.n = 0;
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(g2, notes, chartEndBeat, es, scrollY, false, counters));
+    renderChart(target, makeRc(g2, notes, chartEndBeat, es, scrollY, false, counters));
     expect(staticDraws.n).toBeGreaterThan(0);
   });
 });
@@ -520,13 +523,6 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
 // 运行：`npx vitest run tests/perf/RendererPerf.test.ts -t 候选 2`（数字打印在 stdout）。
 // ---------------------------------------------------------------------------
 describe('候选 2 测量：单次交互成本（issue 70）', () => {
-  beforeEach(() => {
-    resetNoteLayerCache();
-    resetStaticLayerCache();
-    __setTileCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
-    __setStaticCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
-  });
-
   const chartEndBeat = 1500;
   const MOVES = 100;
 
@@ -536,13 +532,13 @@ describe('候选 2 测量：单次交互成本（issue 70）', () => {
     const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat } , SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
-    const canvas = { width: 0, height: 0 };
+    const target = makeFrameTarget(ctx, SURFACE);
     const es = 0.5;
     const scrollY = scrollYForCenterBeat(g, 750, es);
 
     // 首帧：构建瓦片 + 静态层（不计入交互帧成本）
     const rc = makeRc(g, notes, chartEndBeat, es, scrollY, false, counters);
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, rc);
+    renderChart(target, rc);
 
     // 最坏交互帧：hover 有值（实时显示线两侧 O(n) 读数）+ 有 hoverItem（选中描边层）+ 同时点击线开
     const base: RenderCtx = {
@@ -550,12 +546,12 @@ describe('候选 2 测量：单次交互成本（issue 70）', () => {
       hoverItem: { kind: 'note', noteIndex: 0 },
       display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true },
     };
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, { ...base, hoverPos: { cx: 300, cy: 400 } }); // 预热
+    renderChart(target, { ...base, hoverPos: { cx: 300, cy: 400 } }); // 预热
 
     const spy = vi.spyOn(ChartGeometry.prototype, 'visibleNotes');
     const t0 = performance.now();
     for (let i = 0; i < MOVES; i++) {
-      renderChart(ctx, canvas as unknown as HTMLCanvasElement, { ...base, hoverPos: { cx: 300 + i, cy: 400 + i } });
+      renderChart(target, { ...base, hoverPos: { cx: 300 + i, cy: 400 + i } });
     }
     const total = performance.now() - t0;
     const perFrameVisibleNotesCalls = spy.mock.calls.length / MOVES;
@@ -625,50 +621,46 @@ describe('候选 2 测量：单次交互成本（issue 70）', () => {
 });
 
 describe('issue 101 · 换肤全量失效后的播放滚动帧', () => {
-  beforeEach(() => {
-    resetNoteLayerCache();
-    resetStaticLayerCache();
-    vi.restoreAllMocks();
-  });
-
   it('换肤全量失效后播放帧不同步光栅，miss 瓦片进队列再渐进建', () => {
+    vi.restoreAllMocks();
     const chartEndBeat = 1500;
     const notes = makeDenseNotes(5000, chartEndBeat);
     const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
+    const noteLayer = createNoteLayerCache();
     const es = 0.4;
     const scrollY = scrollYForCenterBeat(g, 750, es);
 
     let tileCreates = 0;
-    __setTileCanvasFactoryForTests(() => {
+    noteLayer.__setCanvasFactoryForTests(() => {
       tileCreates++;
       return makeCanvasStub({ drawImage: 0, spriteRenders: 0 });
     });
 
-    drawNotesLayer(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters));
+    noteLayer.draw(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters));
     const restCreates = tileCreates;
     expect(restCreates).toBeGreaterThan(2);
 
     let now = 10_000;
     vi.spyOn(performance, 'now').mockImplementation(() => now);
     tileCreates = 0;
-    __setTileCanvasFactoryForTests(() => {
+    noteLayer.__setCanvasFactoryForTests(() => {
       tileCreates++;
       now += 5;
       return makeCanvasStub({ drawImage: 0, spriteRenders: 0 });
     });
 
-    drawNotesLayer(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters, SURFACE, {
+    noteLayer.draw(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters, SURFACE, {
       playing: true,
       skinVersion: 1,
     }));
 
     // issue 140：播放 RAF 不进同步 renderTile（issue 101 意图 = 不在滚动帧付整屏光栅）
     expect(tileCreates).toBe(0);
-    expect(__getLastNoteLayerStats().rebuilt).toBe(0);
+    expect(noteLayer.__getLastNoteLayerStats().rebuilt).toBe(0);
 
-    __flushPlayingTileQueueForTests();
+    noteLayer.__flushPlayingTileQueueForTests();
     expect(tileCreates).toBeGreaterThan(0);
   });
 });

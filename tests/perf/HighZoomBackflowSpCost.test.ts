@@ -6,12 +6,11 @@ import { rasterBandRuns, splitBandAtFolds } from '@/src/rendering/slideBandGeome
 import { isSpRegion, projectedSlideSpans } from '@/src/chart/editing/SlideSegments';
 import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
 import {
-  TILE_PX, clipTileDrawRect, resetNoteLayerCache, __setTileCanvasFactoryForTests, __getLastNoteLayerStats,
-  __flushPlayingTileQueueForTests, posRangeOf, tileIndexRange, tileBlitRect,
+  TILE_PX, clipTileDrawRect, posRangeOf, tileIndexRange, tileBlitRect,
 } from '@/src/rendering/pipeline/noteLayerCache';
 import { makeCountingCtx, makeCanvasStub } from '@/tests/support/canvas';
 import { renderChart } from '@/src/rendering/render';
-import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/rendering/pipeline/staticLayerCache';
+import { createRenderTarget } from '@/src/rendering/RenderTarget';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote, SlideNote } from '@/src/chart/types';
@@ -102,10 +101,6 @@ describe('issue 140 · 高倍倒流 SP 成本', () => {
     const g = geometryForBackflowPlayback(notes, 3);
     const es = g.effectiveScale(3);
     const model = new PlaybackScrollModel(g, es);
-    resetNoteLayerCache();
-    resetStaticLayerCache();
-    __setTileCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
-    __setStaticCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
     const icons = buildActiveNoteIcons(normalizeNoteSkinSelection(undefined));
     const makeRc = (scrollY: number): RenderCtx => ({
       geometry: g,
@@ -127,15 +122,21 @@ describe('issue 140 · 高倍倒流 SP 成本', () => {
       playing: true,
     });
     const ctx = makeCountingCtx({ drawImage: 0 });
-    const canvas = { width: 0, height: 0 };
+    const target = createRenderTarget({
+      canvas: { width: 0, height: 0, getContext: () => ctx } as unknown as HTMLCanvasElement,
+      surface: SURFACE,
+      dpr: DPR,
+    });
+    target.noteLayer.__setCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
+    target.staticLayer.__setCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
     const t0 = 4.8;
-    renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(model.scrollYForSeconds(t0)));
-    __flushPlayingTileQueueForTests();
+    renderChart(target, makeRc(model.scrollYForSeconds(t0)));
+    target.noteLayer.__flushPlayingTileQueueForTests();
     let rebuildSum = 0;
     let maxBlit = 0;
     for (let i = 1; i <= 30; i++) {
-      renderChart(ctx, canvas as unknown as HTMLCanvasElement, makeRc(model.scrollYForSeconds(t0 + i / 60)));
-      const st = __getLastNoteLayerStats();
+      renderChart(target, makeRc(model.scrollYForSeconds(t0 + i / 60)));
+      const st = target.noteLayer.__getLastNoteLayerStats();
       rebuildSum += st.rebuilt;
       maxBlit = Math.max(maxBlit, st.blitCssPx);
     }

@@ -56,8 +56,10 @@ function resolveSpec(spec: string, file: string): string | null {
 describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点', () => {
   it('两个旧渲染目录整体消失，25 件按 primitives/pipeline/skin/hitTest 四方归位且不再分桶', () => {
     expect(srcFiles.filter(isOldPath)).toEqual([]);
-    // 顶层只留票面点名的 9 个散文件 + 四个桶 —— 多一个目录（再分桶）即红
+    // 顶层只留票面点名的散文件 + 四个桶 —— 多一个目录（再分桶）即红。
+    // 08 票（候选 3）按同一形态补 RenderTarget.ts（帧构建者 + 缓存所有者）与 rasterScale.ts（dpr/尺寸解析）
     expect(entries('src/rendering')).toEqual([
+      'RenderTarget.ts',
       'coords.ts',
       'gridStyle.ts',
       'gutterLabels.ts',
@@ -66,6 +68,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
       'pipeline',
       'playbackMarker.ts',
       'primitives',
+      'rasterScale.ts',
       'render.ts',
       'selectionStyle.ts',
       'skin',
@@ -130,7 +133,8 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
   it('单测目录镜像 src/rendering（四子目录保留结构），注册表生成路径跟着搬（写丢即红）', () => {
     expect(entries('tests/unit')).toContain('rendering');
     expect(entries('tests/unit')).not.toContain('visual');
-    expect(entries('tests/unit/rendering')).toEqual(['cache', 'hitTest', 'render', 'skin']);
+    // 08 票补 FrameBuilder.test.ts（帧构建者 + dpr/尺寸解析）到域根
+    expect(entries('tests/unit/rendering')).toEqual(['FrameBuilder.test.ts', 'cache', 'hitTest', 'render', 'skin']);
     // 生成脚本与产物位置必须一致，否则下一次 node scripts/build-note-skins.mjs 会写丢
     expect(readSource('scripts/build-note-skins.mjs')).toContain(
       "const REGISTRY_OUT = 'src/rendering/skin/gen/noteSkinRegistry.gen.ts';"

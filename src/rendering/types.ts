@@ -37,14 +37,16 @@ export interface HoverPos {
 
 /**
  * 渲染上下文：一次绘制所需的全部输入，显式依赖注入，避免组件闭包捕获。
- * 组件每次 RAF 组装该对象传给 renderChart；本对象不持有任何可变状态。
+ * 候选 3：组件每次 RAF 组装 `FrameView`（画什么），`RenderTarget` 补上它拥有的 surface/dpr
+ * 组成完整帧（`frameFor(target, view)`）；本对象不持有任何可变状态。
  */
 export interface RenderCtx {
   geometry: ChartGeometry;
   viewport: ViewportState;
-  /** 渲染面尺寸（CSS 像素），ADR-0006 §1：随容器变化 */
+  /** 渲染面尺寸（CSS 像素），ADR-0006 §1：随容器变化；候选 3 起由 RenderTarget 拥有 */
   surface: SurfaceSize;
-  /** 设备像素比（上限 2），ADR-0006 §1：buffer = surface × dpr */
+  /** 设备像素比：buffer = surface × dpr（ADR-0006 §1）；取值策略的唯一实现处 = `./rasterScale` 的
+   *  `resolveCanvasDpr`（issue 39 #6 / issue 40 定案：流畅 1× / 标准 2.5× / 高清 3×，上限 devicePixelRatio） */
   dpr: number;
   beatDisplay: number;
   chartEndBeat: number;
@@ -112,6 +114,12 @@ export interface RenderCtx {
   /** issue 159 定案 2：手风琴展开的同位组键（虚拟 Y）；null = 全折摘要 */
   expandedBpmGroupKey?: number | null;
 }
+
+/**
+ * 帧构建输入（候选 3）：一次绘制「画什么」的全部输入 —— `RenderCtx` 去掉渲染目标
+ * （`RenderTarget`）拥有的 `surface` / `dpr`。`frameFor(target, view)` 把它补成完整帧。
+ */
+export type FrameView = Omit<RenderCtx, 'surface' | 'dpr'>;
 
 /** 背景皮肤渲染输入：source = 已解码位图（utils/backgroundSkin.ts 解码产物）；opacity/fit/scope 由 settings 提供 */
 export interface RenderBackgroundImage {

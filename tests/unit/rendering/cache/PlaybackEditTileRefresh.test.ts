@@ -7,10 +7,7 @@
 // 定案：失效改为「打脏 + 保留旧位图」，本帧 blit 上一版过渡，队列重建完自然换下。
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
-import {
-  drawNotesLayer, resetNoteLayerCache, __setTileCanvasFactoryForTests,
-  __getTilesForTests, __getLastNoteLayerStats, __flushPlayingTileQueueForTests,
-} from '@/src/rendering/pipeline/noteLayerCache';
+import { createNoteLayerCache, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
 import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
 import { makeNoopCtx } from '@/tests/support/canvas';
@@ -72,28 +69,30 @@ function makeRc(g: ChartGeometry, notes: ChartNote[], scrollY: number, playing: 
 }
 
 /** 可见区间内第一块被打脏的瓦片（失效区域有可能不包含最边上那块） */
-function firstDirtyTileId(): number {
-  const { lo, hi } = __getLastNoteLayerStats();
-  const map = __getTilesForTests();
+function firstDirtyTileId(cache: NoteLayerCache): number {
+  const { lo, hi } = cache.__getLastNoteLayerStats();
+  const map = cache.__getTilesForTests();
   for (let id = lo; id <= hi; id++) if (map.get(id)?.dirty) return id;
   throw new Error(`可见区间 [${lo}, ${hi}] 内没有打脏的瓦片`);
 }
 
 /** 热身到播放稳态，返回稳态那一帧的瓦片账 */
-function warmToSteady(g: ChartGeometry, notes: ChartNote[], y0: number) {
-  drawNotesLayer(CTX, makeRc(g, notes, y0, false));
-  __flushPlayingTileQueueForTests();
-  for (let i = 1; i <= 3; i++) drawNotesLayer(CTX, makeRc(g, notes, y0 + i, true));
-  __flushPlayingTileQueueForTests();
-  return __getLastNoteLayerStats();
+function warmToSteady(cache: NoteLayerCache, g: ChartGeometry, notes: ChartNote[], y0: number) {
+  cache.draw(CTX, makeRc(g, notes, y0, false));
+  cache.__flushPlayingTileQueueForTests();
+  for (let i = 1; i <= 3; i++) cache.draw(CTX, makeRc(g, notes, y0 + i, true));
+  cache.__flushPlayingTileQueueForTests();
+  return cache.__getLastNoteLayerStats();
 }
 
 describe('issue 146 · 播放中编辑谱面不出现空白帧', () => {
+  // 候选 3：缓存有主——每个用例一份实例（模块级单例已删除）
+  let cache: NoteLayerCache;
   let bitmaps = 0;
   beforeEach(() => {
-    resetNoteLayerCache();
+    cache = createNoteLayerCache();
     bitmaps = 0;
-    __setTileCanvasFactoryForTests(() => {
+    cache.__setCanvasFactoryForTests(() => {
       bitmaps++;
       return { width: 0, height: 0, getContext: () => makeNoopCtx() };
     });
@@ -103,11 +102,11 @@ describe('issue 146 · 播放中编辑谱面不出现空白帧', () => {
     const notes = makeNotes();
     const g = geometry();
     const y0 = centerScrollY(g);
-    const baseline = warmToSteady(g, notes, y0);
+    const baseline = warmToSteady(cache, g, notes, y0);
     expect(baseline.blitted).toBeGreaterThan(0);
 
-    drawNotesLayer(CTX, makeRc(g, replaceNote(notes, 100), y0 + 4, true));
-    const st = __getLastNoteLayerStats();
+    cache.draw(CTX, makeRc(g, replaceNote(notes, 100), y0 + 4, true));
+    const st = cache.__getLastNoteLayerStats();
     // 修复前：blitted 掉到 0 —— 整屏音符那一帧都没有像素。
     expect(st.blitted).toBe(baseline.blitted);
     expect(st.blitCssPx).toBe(baseline.blitCssPx);
@@ -119,10 +118,10 @@ describe('issue 146 · 播放中编辑谱面不出现空白帧', () => {
     const notes = makeNotes();
     const g = geometry();
     const y0 = centerScrollY(g);
-    const baseline = warmToSteady(g, notes, y0);
+    const baseline = warmToSteady(cache, g, notes, y0);
 
-    drawNotesLayer(CTX, makeRc(g, replaceAllNotes(notes), y0 + 4, true));
-    const st = __getLastNoteLayerStats();
+    cache.draw(CTX, makeRc(g, replaceAllNotes(notes), y0 + 4, true));
+    const st = cache.__getLastNoteLayerStats();
     expect(st.blitted).toBe(baseline.blitted);
     expect(st.rebuilt).toBe(0);
   });
@@ -131,23 +130,23 @@ describe('issue 146 · 播放中编辑谱面不出现空白帧', () => {
     const notes = makeNotes();
     const g = geometry();
     const y0 = centerScrollY(g);
-    warmToSteady(g, notes, y0);
+    warmToSteady(cache, g, notes, y0);
     const edited = replaceNote(notes, 100);
-    drawNotesLayer(CTX, makeRc(g, edited, y0 + 4, true));
+    cache.draw(CTX, makeRc(g, edited, y0 + 4, true));
 
-    const id = firstDirtyTileId();
-    const before = __getTilesForTests().get(id);
+    const id = firstDirtyTileId(cache);
+    const before = cache.__getTilesForTests().get(id);
     expect(before?.dirty).toBe(true);
 
-    __flushPlayingTileQueueForTests();
-    const after = __getTilesForTests().get(id);
+    cache.__flushPlayingTileQueueForTests();
+    const after = cache.__getTilesForTests().get(id);
     expect(after).not.toBe(before);
     expect(after?.dirty).toBeFalsy();
 
     // 之后连续播放帧 notes 引用不变 → 不再打脏、也不再建位图（与改前稳态同开销）
     const settled = bitmaps;
-    for (let i = 5; i <= 9; i++) drawNotesLayer(CTX, makeRc(g, edited, y0 + i, true));
-    __flushPlayingTileQueueForTests();
+    for (let i = 5; i <= 9; i++) cache.draw(CTX, makeRc(g, edited, y0 + i, true));
+    cache.__flushPlayingTileQueueForTests();
     expect(bitmaps).toBe(settled);
   });
 
@@ -155,12 +154,12 @@ describe('issue 146 · 播放中编辑谱面不出现空白帧', () => {
     const notes = makeNotes();
     const g = geometry();
     const y0 = centerScrollY(g);
-    drawNotesLayer(CTX, makeRc(g, notes, y0, false));
-    __flushPlayingTileQueueForTests();
-    const baseline = __getLastNoteLayerStats();
+    cache.draw(CTX, makeRc(g, notes, y0, false));
+    cache.__flushPlayingTileQueueForTests();
+    const baseline = cache.__getLastNoteLayerStats();
 
-    drawNotesLayer(CTX, makeRc(g, replaceNote(notes, 100), y0, false));
-    const st = __getLastNoteLayerStats();
+    cache.draw(CTX, makeRc(g, replaceNote(notes, 100), y0, false));
+    const st = cache.__getLastNoteLayerStats();
     expect(st.rebuilt).toBeGreaterThan(0);
     expect(st.blitted).toBe(baseline.blitted);
   });
@@ -169,13 +168,13 @@ describe('issue 146 · 播放中编辑谱面不出现空白帧', () => {
     const notes = makeNotes();
     const g = geometry();
     const y0 = centerScrollY(g);
-    warmToSteady(g, notes, y0);
+    warmToSteady(cache, g, notes, y0);
     const edited = replaceNote(notes, 100);
-    drawNotesLayer(CTX, makeRc(g, edited, y0 + 4, true));
-    const id = firstDirtyTileId();
+    cache.draw(CTX, makeRc(g, edited, y0 + 4, true));
+    const id = firstDirtyTileId(cache);
 
-    drawNotesLayer(CTX, makeRc(g, edited, y0 + 4, false));
-    expect(__getTilesForTests().get(id)?.dirty).toBeFalsy();
-    expect(__getLastNoteLayerStats().rebuilt).toBeGreaterThan(0);
+    cache.draw(CTX, makeRc(g, edited, y0 + 4, false));
+    expect(cache.__getTilesForTests().get(id)?.dirty).toBeFalsy();
+    expect(cache.__getLastNoteLayerStats().rebuilt).toBeGreaterThan(0);
   });
 });

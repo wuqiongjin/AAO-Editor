@@ -1,5 +1,6 @@
-// 谱面渲染纯模块（ADR-0003 候选 B）：把 FinalVirtualCanvas 的 15 个 render* 函数
-// 从组件闭包中提出为依赖注入的纯函数。组件每次 RAF 组装 RenderCtx 调用 renderChart。
+// 谱面渲染纯模块（ADR-0003 候选 B + 候选 3）：把 FinalVirtualCanvas 的 15 个 render* 函数
+// 从组件闭包中提出为依赖注入的纯函数。组件每次 RAF 组装 view，`frameFor(target, view)`
+// 装配成帧、`renderChart(target, view)` 一次调用出帧。
 // 本模块不含任何 React 状态；性能热路径（视口剔除/缓存/增量重绘）将来在此落地。
 import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
 import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport } from '../chart/geometry/ChartGeometry';
@@ -16,13 +17,13 @@ import { freezeGestureCursor } from '../chart/editing/CanvasGesture';
 import { bandPolygonAt, rasterBandRuns, splitBandAtFolds, type BandRasterClipCss } from './slideBandGeometry';
 import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
-import { drawNotesLayer } from './pipeline/noteLayerCache';
-import { drawStaticLayer } from './pipeline/staticLayerCache';
+import { bufferSizeFor } from './rasterScale';
+import type { RenderTarget } from './RenderTarget';
 import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelY, bpmGutterYIntersectsCanvas, bpmLabelAnchorY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridBpmLineColor, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './skin/noteSkin';
-import type { RenderCtx } from './types';
+import type { FrameView, RenderCtx } from './types';
 import type { SpriteIconConfig } from '../ui/CanvasSpriteIcon';
 
 // 音符大小配置 —— **唯一定义在 `./primitives/noteMetrics`**（issue 82：与 hitTest 命中尺寸同源，
@@ -1543,22 +1544,35 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
 }
 
 /**
- * 单次全量绘制编排（ADR-0003 候选 B 的组件薄层入口）：
+ * 帧构建（候选 3「一帧只有一个构建者」的唯一装配处）：
+ * target 注入它拥有的 surface/dpr，view（画什么）其余字段逐条透传 —— 不深拷贝、不支持手搓的 surface/dpr。
+ */
+export function frameFor(target: RenderTarget, view: FrameView): RenderCtx {
+  return { ...view, surface: target.surface, dpr: target.dpr };
+}
+
+/**
+ * 单次全量绘制编排（ADR-0003 候选 B 的组件薄层入口 / 候选 3 收进 RenderTarget）：
  * 设置画布尺寸 → 静态层 blit（离屏缓存，issue 36 F2）→ 音符（离屏瓦片层）→ BPM → 选择框 → 滑条缓冲 → 工具预览 → 判定线 → 起点标记。
  * 不持有任何 React 状态；虚拟高度同步等副作用由组件自行处理。
  * issue 10：缓冲尺寸仅在变化时重设（每帧重设会强制重分配像素缓冲并清空画布状态）；
  * issue 36 F2 / 139：屏幕层 + pos 条带 blit；仅 scrollY 变不重建网格。
+ *
+ * 候选 3：画布 / surface / dpr / 两层缓存全归 target —— 本函数只收 target + view（帧由 `frameFor` 装配），
+ * 不再接收裸 ctx/canvas，也不再读调用方给的 surface/dpr。
  */
-export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, rc: RenderCtx) {
-  // issue 50（Q24 a + Q8 a 延伸）：surface 未就绪时（null）不渲染——
-  // 保护所有依赖 surface 的绘制（几何/缓冲/像素坐标）
-  if (!rc.surface) return;
+export function renderChart(target: RenderTarget, view: FrameView) {
+  // 画布不可用（无 2d 上下文）时不渲染——保护所有依赖 surface 的绘制（几何/缓冲/像素坐标）
+  const ctx = target.context();
+  if (!ctx) return;
   const t0 = perf.enabled ? performance.now() : 0;
-  // buffer = surface × dpr（ADR-0006 §1）；此后绘制/命中均用 CSS 像素坐标
-  const bw = Math.round(rc.surface.w * rc.dpr), bh = Math.round(rc.surface.h * rc.dpr);
+  const frame: RenderCtx = frameFor(target, view);
+  // buffer = surface × dpr（ADR-0006 §1，尺寸口径走 rasterScale 唯一处）；此后绘制/命中均用 CSS 像素坐标
+  const canvas = target.canvas;
+  const { w: bw, h: bh } = bufferSizeFor(target.surface, target.dpr);
   if (canvas.width !== bw) canvas.width = bw;
   if (canvas.height !== bh) canvas.height = bh;
-  ctx.setTransform(rc.dpr, 0, 0, rc.dpr, 0, 0);
+  ctx.setTransform(target.dpr, 0, 0, target.dpr, 0, 0);
 
   // issue 40（渲染质量）：统一/声明精灵图平滑策略——源图缩到音符尺寸用**双线性平滑**缩放
   // （能保留边缘层次，优于 DOM 版的 'pixelated' 硬边；'pixelated' 仅用于工具栏等小 UI 图标的
@@ -1568,30 +1582,30 @@ export function renderChart(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEle
   ctx.imageSmoothingQuality = 'high';
 
   // 静态层（黑底+轨道底+网格+起止线，含整幅清屏）离屏缓存 blit（issue 36 F2）
-  drawStaticLayer(ctx, rc);
+  target.staticLayer.draw(ctx, frame);
 
-  const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
+  const c = makeCoords(frame.geometry, frame.viewport, frame.beatDisplay, frame.notes);
 
   // BPM 标线（issue 51 + 用户反馈）：在音符层**之下**（与轨道线同层语义，不覆盖音符）
-  renderBpmLines(ctx, c, rc, c.getVisibleNotes());
+  renderBpmLines(ctx, c, frame, c.getVisibleNotes());
   // 实时显示线（issue 54）：鼠标 Y 水平线，画在音符层之下
-  renderHoverLine(ctx, c, rc);
+  renderHoverLine(ctx, c, frame);
 
   // 同时点击线只在 renderNotes 内画（进瓦片）。
   // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片
-  drawNotesLayer(ctx, rc);
+  target.noteLayer.draw(ctx, frame);
   // BPM 数值（issue 51 / 161）：沟槽层，全量布局 + 画布裁切（不按可见集漏画展开叠）
-  renderBpmLabels(ctx, c, rc);
+  renderBpmLabels(ctx, c, frame);
   // 实时信息文字（issue 54）：两侧沟槽，画在常显装饰文字之上
-  renderHoverInfo(ctx, c, rc);
+  renderHoverInfo(ctx, c, frame);
 
-  if (rc.selectionBox) renderSelectionBox(ctx, rc);
-  if (rc.dragGhost) renderDragGhost(ctx, c, rc);
-  renderToolPreview(ctx, c, rc);
+  if (frame.selectionBox) renderSelectionBox(ctx, frame);
+  if (frame.dragGhost) renderDragGhost(ctx, c, frame);
+  renderToolPreview(ctx, c, frame);
   // 锚点在语义上是"已经定下的实绘端点"→ 画在滑条 hover 幽灵**之上**（issue 65③④：
   // 否则第一击后那条 35% 透明度的段带会糊在锚点上，看起来像锚点被染色）
-  renderSlideBuffer(ctx, c, rc);
-  renderPlaybackMarker(ctx, c, rc);
+  renderSlideBuffer(ctx, c, frame);
+  renderPlaybackMarker(ctx, c, frame);
 
   if (perf.enabled) perf.record(performance.now() - t0);
 }

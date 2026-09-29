@@ -1,7 +1,7 @@
 // issue 139 锁测 1：仅 scrollY 变不得再跑网格重建；倒流折返带横线仍在（104/105）。
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
-import { drawStaticLayer, resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/rendering/pipeline/staticLayerCache';
+import { createStaticLayerCache, type StaticLayerCache } from '@/src/rendering/pipeline/staticLayerCache';
 import { renderGrid } from '@/src/rendering/render';
 import { makeCoords } from '@/src/rendering/coords';
 import { makeCountingCtx, makeTallyingCanvasStub, makeRecordingCtx } from '@/tests/support/canvas';
@@ -33,21 +33,23 @@ function makeRc(g: ChartGeometry, scrollY: number): RenderCtx {
 }
 
 describe('issue 139 · 静态层随 scrollY blit', () => {
+  // 候选 3：缓存有主——每个用例一份实例（模块级单例已删除）
+  let cache: StaticLayerCache;
   beforeEach(() => {
-    resetStaticLayerCache();
+    cache = createStaticLayerCache();
   });
 
-  it('仅 scrollY 变时第二次 drawStaticLayer 不再 stroke/fillText（修前会跑 renderGrid）', () => {
+  it('仅 scrollY 变时第二次 draw 不再 stroke/fillText（修前会跑 renderGrid）', () => {
     const g = new ChartGeometry(bpm120, { endBeat: 64 }, SURFACE);
     const staticDraws = { n: 0 };
-    __setStaticCanvasFactoryForTests(() =>
+    cache.__setCanvasFactoryForTests(() =>
       makeTallyingCanvasStub(() => { staticDraws.n++; }, ['stroke', 'fillText']));
     const ctx = makeCountingCtx({ drawImage: 0 });
     const sy = g.beatToVirtualY(8, 1) - SURFACE.h / 2;
-    drawStaticLayer(ctx, makeRc(g, sy));
+    cache.draw(ctx, makeRc(g, sy));
     expect(staticDraws.n).toBeGreaterThan(0);
     staticDraws.n = 0;
-    drawStaticLayer(ctx, makeRc(g, sy + 12));
+    cache.draw(ctx, makeRc(g, sy + 12));
     expect(staticDraws.n).toBe(0);
   });
 
