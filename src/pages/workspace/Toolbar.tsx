@@ -12,8 +12,8 @@ import {
   ChevronLeft,
   FileCode,
 } from "lucide-react";
-import NoteIconGlyph from '../../chart/rendering/NoteIconGlyph';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../visual/noteSkin';
+import NoteIconGlyph from '../../rendering/primitives/NoteIconGlyph';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
 import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
 import type { ArmedTool } from '../../app/providers/UIProvider';

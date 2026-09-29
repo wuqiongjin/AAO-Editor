@@ -1,8 +1,8 @@
 // issue 138 性能锁：倒流 SP 带按 clip/瓦片行光栅，像素不得按整条 bbox 膨胀。
 // 几何：8 个 fold run、布局高约 8s×440px 量级，裁到一块 TILE_PX 瓦片（见 perfBackflowPlayback）。
 import { describe, it, expect } from 'vitest';
-import { rasterBandRuns, splitBandAtFolds } from '@/src/visual/slideBandGeometry';
-import { TILE_PX } from '@/src/visual/noteLayerCache';
+import { rasterBandRuns, splitBandAtFolds } from '@/src/rendering/slideBandGeometry';
+import { TILE_PX } from '@/src/rendering/pipeline/noteLayerCache';
 import {
   BACKFLOW_RASTER_PROFILE, BACKFLOW_RASTER_RGB, backflowFoldCanvasPoints,
 } from '@/tests/support/perfBackflowPlayback';

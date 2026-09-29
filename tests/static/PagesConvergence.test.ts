@@ -32,8 +32,9 @@ describe('architecture-refactor 02 · pages 收敛与 chart 解耦的落点', ()
     expect(files).toContain('src/pages/assets/AssetsPage.tsx');
     expect(files).toContain('src/pages/settings/SettingsPage.tsx');
     expect(files).toContain('src/pages/settings/ShortcutsPage.tsx');
-    // src/audio、src/visual、src/settings 只留引擎 / 皮肤 / 配置，不许再长出页面
-    const strays = files.filter((f) => /^src\/(audio|visual|settings)\/[^/]*Page\.tsx$/.test(f));
+    // src/audio、src/rendering、src/settings 只留引擎 / 皮肤 / 配置，不许再长出页面
+    // （03 票把 src/visual 并成 src/rendering 后，此处守卫对象随之改名）
+    const strays = files.filter((f) => /^src\/(audio|rendering|settings)\/[^/]*Page\.tsx$/.test(f));
     expect(strays).toEqual([]);
   });
 

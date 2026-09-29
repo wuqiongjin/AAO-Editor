@@ -210,7 +210,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 术语 | 英文 | 说明 |
 | --- | --- | --- |
 | 视觉素材页 | Visual assets page | 应用级页面（导航第 3 项 `⇧⌘3`）；原「素材页」收窄为视觉素材；页内**类别子 tab**：音符皮肤 / 背景皮肤，一次看一个类别，可扩展 |
-| 音符皮肤 | Note skin | 音符外观素材包；注册表由 `scripts/build-note-skins.mjs` 从 Bestdori 归档解析 `.sprites` 官方坐标生成（`src/renderer/noteSkinRegistry.gen.ts`，产物入库） |
+| 音符皮肤 | Note skin | 音符外观素材包；注册表由 `scripts/build-note-skins.mjs` 从 Bestdori 归档解析 `.sprites` 官方坐标生成（`src/rendering/skin/gen/noteSkinRegistry.gen.ts`，产物入库） |
 | 皮肤条目 | Note skin item | 六条目：单键 `tap` / 滑键 `flick` / 技能键 `skill` / 左方向 `dirL` / 右方向 `dirR` / 滑条 `slide`；slide 管三件套 = `longNoteLine` + `longNoteLine2` + `note_slide_among` |
 | 整包预设 | Skin preset | 官方同名配对（skin0N + directionalflickskin0N）一键写入六条目；写入后各条目仍可独立覆盖 |
 | 整包预设缩略 | Skin preset thumbnail | 整包预设卡上展示**该预设会写入**的音符皮肤样貌的图，与当前六条目组合无关。_Avoid_: 封面（工程信息里的曲目图） |

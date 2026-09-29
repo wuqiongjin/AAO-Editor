@@ -1,19 +1,19 @@
 // issue 140：高倍倒流 SP 扫描线仍贵；播放热身只 blit。谱面 = tests/support/perfBackflowPlayback 合成 fixture。
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry, LANE_WIDTH } from '@/src/chart/geometry/ChartGeometry';
-import { makeCoords } from '@/src/visual/coords';
-import { rasterBandRuns, splitBandAtFolds } from '@/src/visual/slideBandGeometry';
+import { makeCoords } from '@/src/rendering/coords';
+import { rasterBandRuns, splitBandAtFolds } from '@/src/rendering/slideBandGeometry';
 import { isSpRegion, projectedSlideSpans } from '@/src/chart/editing/SlideSegments';
 import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
 import {
   TILE_PX, clipTileDrawRect, resetNoteLayerCache, __setTileCanvasFactoryForTests, __getLastNoteLayerStats,
   __flushPlayingTileQueueForTests, posRangeOf, tileIndexRange, tileBlitRect,
-} from '@/src/visual/noteLayerCache';
+} from '@/src/rendering/pipeline/noteLayerCache';
 import { makeCountingCtx, makeCanvasStub } from '@/tests/support/canvas';
-import { renderChart } from '@/src/visual/render';
-import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/visual/staticLayerCache';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/visual/noteSkin';
-import type { RenderCtx } from '@/src/visual/types';
+import { renderChart } from '@/src/rendering/render';
+import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/rendering/pipeline/staticLayerCache';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
+import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote, SlideNote } from '@/src/chart/types';
 import {
   BACKFLOW_RASTER_PROFILE, BACKFLOW_RASTER_RGB, PERF_PLAYBACK_BEAT_DISPLAY, PERF_PLAYBACK_DPR,

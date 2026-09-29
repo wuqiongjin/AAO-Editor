@@ -6,11 +6,11 @@ import { useConfig } from '../../app/ProviderTree';
 import {
   listNoteSkinPacks,
   normalizeNoteSkinSelection,
-} from '../../visual/noteSkin';
-import NoteSkinPreview from '../../chart/rendering/NoteSkinPreview';
-import NoteSkinPresetThumbnail from '../../chart/rendering/NoteSkinPresetThumbnail';
-import { backgroundSkinStore } from '../../chart/rendering/backgroundSkin';
-import { useBackgroundSkin } from '../../chart/rendering/useBackgroundSkin';
+} from '../../rendering/skin/noteSkin';
+import NoteSkinPreview from '../../rendering/skin/NoteSkinPreview';
+import NoteSkinPresetThumbnail from '../../rendering/skin/NoteSkinPresetThumbnail';
+import { backgroundSkinStore } from '../../rendering/skin/backgroundSkin';
+import { useBackgroundSkin } from '../../rendering/skin/useBackgroundSkin';
 import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../../chart/config/AppSettings';
 import { t, type MessageKey } from '../../i18n';
 

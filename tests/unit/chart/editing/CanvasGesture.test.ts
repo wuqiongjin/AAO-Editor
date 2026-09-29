@@ -4,8 +4,8 @@
 // 语义权威 = ADR-0008。改这里任何一条 = 改 ADR-0008，必须先改文档再改本表。
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry, LANES, LANE_WIDTH, TRACK_CHROME_TOTAL } from '@/src/chart/geometry/ChartGeometry';
-import type { HitTestDeps } from '@/src/visual/hitTest';
-import { bpmLabelBox, layoutBpmGutter, bpmCoincidentKey, GUTTER_LABEL_FONT_PX } from '@/src/visual/gutterLabels';
+import type { HitTestDeps } from '@/src/rendering/hitTest/hitTest';
+import { bpmLabelBox, layoutBpmGutter, bpmCoincidentKey, GUTTER_LABEL_FONT_PX } from '@/src/rendering/gutterLabels';
 import {
   snapChartPos, hitPlaybackMarkerAt, hitBpmLabelAt, hitBpmGutterAt, nextBpmGutterAction,
   resolvePressIntent, resolveReleaseIntent, resolveClickPlan,

@@ -3,7 +3,7 @@
 // - 从 docs/resource/bestdori 归档（gitignore，仅研究用）把**选定**皮肤包的 PNG 拷入
 //   `public/assets/skins/<packId>/`（产物入库，离线零配置）；
 // - 解析包内 `.sprites`（Unity 序列化 JSON，含每张精灵的官方 m_Name/m_Rect），
-//   生成 `src/visual/gen/noteSkinRegistry.gen.ts`（入库，运行时唯一皮肤数据源）；
+//   生成 `src/rendering/skin/gen/noteSkinRegistry.gen.ts`（入库，运行时唯一皮肤数据源）；
 // - 归档目录本身不进 git、不进运行时，版权边界（docs/resource/bestdori/README.md）不破。
 //
 // 用法：
@@ -25,7 +25,7 @@ const CHECK_ONLY = process.argv.includes('--check');
 const ARCHIVE_ROOT = 'docs/resource/bestdori';
 const SERVER = 'jp';
 const PUBLIC_ROOT = 'public/assets/skins';
-const REGISTRY_OUT = 'src/visual/gen/noteSkinRegistry.gen.ts';
+const REGISTRY_OUT = 'src/rendering/skin/gen/noteSkinRegistry.gen.ts';
 const OVERRIDES_FILE = 'scripts/note-skin-overrides.json';
 
 // ---- 内置清单（issue 29 2026-08-24 grill 定案 Q5：先 skin00 + directionalflickskin00 打通管线，

@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { readStripped } from '@/tests/support/source';
 
-const renderSrc = readStripped('src/visual/render.ts');
+const renderSrc = readStripped('src/rendering/render.ts');
 
 describe('renderSpBandStrip · issue 138 clip 接线', () => {
   it('rasterBandRuns 调用带 clipCss（来自当前画布变换）', () => {

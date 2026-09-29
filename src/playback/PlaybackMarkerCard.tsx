@@ -1,7 +1,7 @@
 import playbackMarkerSvgUrl from '../assets/playback-marker/flag.svg?url';
 import { formatKey } from '../chart/config/ShortcutConfig';
 import { formatTimePrecise } from '../chart/geometry/TimeFormat';
-import { PLAYBACK_MARKER_CARD_WIDTH, PLAYBACK_MARKER_CARD_HEIGHT } from '../visual/playbackMarker';
+import { PLAYBACK_MARKER_CARD_WIDTH, PLAYBACK_MARKER_CARD_HEIGHT } from '../rendering/playbackMarker';
 import { t } from '../i18n';
 
 interface PlaybackMarkerCardProps {

@@ -18,7 +18,7 @@ function renderSlideBodySource(src: string): string {
 }
 
 describe('renderSlideBody flick 装饰箭头', () => {
-  const src = readSource('src/visual/render.ts');
+  const src = readSource('src/rendering/render.ts');
 
   it('renderSlideBody 体内应存在对 conn.flick 的 renderDecorator 调用', () => {
     const body = renderSlideBodySource(src);

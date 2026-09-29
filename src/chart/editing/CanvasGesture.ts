@@ -12,14 +12,14 @@
 // 语义权威 = ADR-0008。本模块**不发明语义**，只把组件内的判定顺序锁成可断言的形式，
 // 让后续"整改画布操作"有回归网（issue 70）。改这里的任何一条 = 改 ADR-0008。
 import type { BpmNote, ChartNote, SelectionItem } from '../types';
-import type { HitTestDeps } from '../../visual/hitTest';
-import { findBpmLineAt, findItemAt } from '../../visual/hitTest';
+import type { HitTestDeps } from '../../rendering/hitTest/hitTest';
+import { findBpmLineAt, findItemAt } from '../../rendering/hitTest/hitTest';
 import { draggableFromItems, itemTrueBeat } from './NoteDragging';
 import { isPastChartEnd } from './ChartEndBounds';
 import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
-import { GUTTER_LABEL_FONT_PX, bpmLabelBox, layoutBpmGutter, bpmLabelAnchorY } from '../../visual/gutterLabels';
+import { GUTTER_LABEL_FONT_PX, bpmLabelBox, layoutBpmGutter, bpmLabelAnchorY } from '../../rendering/gutterLabels';
 import { LANE_WIDTH } from '../geometry/ChartGeometry';
-import { PLAYBACK_MARKER_HIT_TOLERANCE_PX } from '../../visual/playbackMarker';
+import { PLAYBACK_MARKER_HIT_TOLERANCE_PX } from '../../rendering/playbackMarker';
 
 /** 沟槽文字宽度测量（画布侧注入：带 canvas ctx 精确测量；测试侧注入等宽估算）。 */
 export type GutterMeasure = (text: string, fontPx: number) => number;

@@ -2,19 +2,19 @@
 // node 环境用 stub ctx 计量 JS 侧开销与调用次数（真实光栅化由浏览器 ?perf=1 基线覆盖）。
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChartGeometry, LANES } from '@/src/chart/geometry/ChartGeometry';
-import { renderChart, visibleBeatRanges } from '@/src/visual/render';
-import { findItemAt } from '@/src/visual/hitTest';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/visual/noteSkin';
+import { renderChart, visibleBeatRanges } from '@/src/rendering/render';
+import { findItemAt } from '@/src/rendering/hitTest/hitTest';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import {
   drawNotesLayer, resetNoteLayerCache, tileIndexRange, tileBlitRect, posRangeOf,
   TILE_PX, __setTileCanvasFactoryForTests, __flushPlayingTileQueueForTests, __getLastNoteLayerStats,
-} from '@/src/visual/noteLayerCache';
-import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/visual/staticLayerCache';
-import { makeCoords } from '@/src/visual/coords';
+} from '@/src/rendering/pipeline/noteLayerCache';
+import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/rendering/pipeline/staticLayerCache';
+import { makeCoords } from '@/src/rendering/coords';
 import { planDragMove } from '@/src/chart/editing/NoteDragging';
 import { countNotesUpToBeat } from '@/src/chart/editing/NoteEditing';
 import { getBpmEvents, secondsToBeat } from '@/src/audio/AudioTiming';
-import type { RenderCtx } from '@/src/visual/types';
+import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote, SelectionItem } from '@/src/chart/types';
 import { makeCountingCtx, makeCanvasStub, makeTallyingCanvasStub, makeTransformRecordingTile } from '@/tests/support/canvas';
 

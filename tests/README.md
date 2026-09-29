@@ -35,7 +35,7 @@ tests/
 │   ├── settings/       快捷键配置与索引筛选
 │   ├── tools/          tools/ 下的独立脚本（sprite-locator）
 │   ├── ui/             src/ui 通用组件
-│   └── visual/
+│   └── rendering/       ← src/rendering（03 票由 visual/ 更名）
 │       ├── cache/      瓦片 / 静态层缓存
 │       ├── hitTest/    命中测试
 │       ├── render/     render* 绘制纯函数
@@ -53,7 +53,7 @@ tests/
 
 | 类型 | 什么时候用 | 例子 |
 | --- | --- | --- |
-| `unit/` | 被测对象是纯函数 / 可注入依赖的类，node 环境能直接跑 | `visual/render/GridStyle.test.ts` |
+| `unit/` | 被测对象是纯函数 / 可注入依赖的类，node 环境能直接跑 | `rendering/render/GridStyle.test.ts` |
 | `dom/` | 被测对象是 React 组件 / 页面行为：渲染 + 按 role/text 查询 + 断言行为 | `dom/Smoke.test.tsx` |
 | `platform/` | 结论只在某个平台上成立（Electron 数据根、浏览器 dpr） | `platform/electron/ElectronDataRoot.test.ts` |
 | `perf/` | 关心"画了多少次、重建了几块"，不关心画成什么样 | `perf/RendererPerf.test.ts` |
@@ -74,7 +74,7 @@ tests/
 一律用仓库根别名，**不要用相对路径**：
 
 ```ts
-import { renderChart } from '@/src/visual/render';
+import { renderChart } from '@/src/rendering/render';
 import { loadWindowStateSync } from '@/electron/windowState.cjs';
 import { repoRoot } from '@/tests/support/source';
 ```

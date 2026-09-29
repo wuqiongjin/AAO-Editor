@@ -8,8 +8,8 @@
 import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutConfig';
 import { normalizeProjectSortKey, type ProjectSortKey } from '../../project/projectSort';
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../audio/KeySound';
-import { NOTE_SKIN_DEFAULT_SELECTION } from '../../visual/gen/noteSkinRegistry.gen';
-import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../visual/gridStyle';
+import { NOTE_SKIN_DEFAULT_SELECTION } from '../../rendering/skin/gen/noteSkinRegistry.gen';
+import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/CurveTool';
 import { detectOsLanguageTag, resolveUiLanguage, type UiLanguage } from '../../i18n/resolveUiLanguage';
 
@@ -69,13 +69,13 @@ export interface AppSettings {
     slideOpacity: number;
     /** 同时点击线开关（同节拍音符连接线），issue 39 #3 */
     simultaneousClickLines: boolean;
-    /** 色觉辅助开关（tap 实/虚拍款式），issue 39 #4：非半拍整数倍位置的单键渲染为虚拍款（判定见 visual/render.ts isHalfBeatAligned） */
+    /** 色觉辅助开关（tap 实/虚拍款式），issue 39 #4：非半拍整数倍位置的单键渲染为虚拍款（判定见 rendering/render.ts isHalfBeatAligned） */
     colorAssist: boolean;
     /** 纵向比例（每小节纵向高度），0.5..2.0，与画布整体缩放正交，issue 39 #5 */
     verticalRatio: number;
     /** 图像品质（三档），issue 39 #6 */
     imageQuality: 'smooth' | 'standard' | 'hd';
-    /** 轨道颜色主题（issue 53 第二轮）：网格线层级配色；类型与白名单单一来源 visual/gridStyle.ts */
+    /** 轨道颜色主题（issue 53 第二轮）：网格线层级配色；类型与白名单单一来源 rendering/gridStyle.ts */
     gridStyle: GridStylePreset;
     /** 线形分层开关（issue 53 第二轮 Q3=A）：默认关（全实线，仅颜色分层） */
     lineShapeTiers: boolean;

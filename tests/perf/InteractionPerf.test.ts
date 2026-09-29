@@ -4,14 +4,14 @@
 // - F6 NoteReplacementRules 不可变：旧数组对象/连接点数组不被在位变异（History 结构共享 + F3 diff 前提）
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
-import { renderChart } from '@/src/visual/render';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/visual/noteSkin';
+import { renderChart } from '@/src/rendering/render';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import {
   drawNotesLayer, resetNoteLayerCache, diffNotes, __setTileCanvasFactoryForTests,
-} from '@/src/visual/noteLayerCache';
-import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/visual/staticLayerCache';
+} from '@/src/rendering/pipeline/noteLayerCache';
+import { resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/rendering/pipeline/staticLayerCache';
 import { handleNoteReplacement, handleSlideToSlideCombination } from '@/src/chart/editing/NoteReplacementRules';
-import type { RenderCtx } from '@/src/visual/types';
+import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
 import { makeCountingCtx } from '@/tests/support/canvas';
 

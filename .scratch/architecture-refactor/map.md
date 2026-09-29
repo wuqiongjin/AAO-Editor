@@ -28,13 +28,14 @@
 - [2026-09-29 口径补丁]：票内类型门禁由不存在的 `npm run typecheck` 改为 `npx tsc -b`；04 票收窄为 preview 一域（upload 段移出，随 `bestdori-integration` 实现票）。
 - [2026-09-29 01 落地]：工程域升顶层 `src/project/`（跨页 UI 进 `src/project/ui/`），工程页拆进 `src/pages/projects/`（主组件 1056→361 行）；新增 `tests/static/ProjectDomainLayout.test.ts` 锁落点。门禁 `npm test` 165 文件 / 1925 用例 + `npx tsc -b` 全绿。02 票的 Blocked by 已解除。
 - [2026-09-29 02 落地]：`src/pages/` 收拢为唯一视图装配层（`workspace/` `audio/` `assets/` `settings/` `projects/` 子目录）；工作台页壳（原 `src/chart/Editor.tsx` + `src/pages/WorkspacePage/*`）迁入 `src/pages/workspace/` 并删死壳，`chart → pages` 与 `pages → chart` 双向依赖同时消解；新增 `tests/static/PagesConvergence.test.ts` 锁落点。门禁 `npm test` 166 文件 / 1929 用例 + `npx tsc -b` + `npm run build` 全绿。03 票 Blocked by 已解除。
+- [2026-09-29 03 落地]：`src/visual/` + `src/chart/rendering/` 共 25 件合流为顶层 `src/rendering/`（顶层散文件 + `primitives/` / `pipeline/` / `skin/` / `hitTest/` 四桶），两个旧目录消失；引用单向到「渲染 → chart 数据/几何」，白名单外只留 `ui/CanvasSpriteIcon` 与 `i18n` 两个既有叶子依赖；`tests/unit/visual/` → `tests/unit/rendering/`，生成脚本 `REGISTRY_OUT` 同步；新增 `tests/static/RenderingConvergence.test.ts` 锁落点。04 票 Blocked by 已解除。
 
 ## Frontier
 
 - [01 project域独立与工程页拆解](./issues/01-project域独立与工程页拆解.md) — 已解决（2026-09-29 落地；工程域升 `src/project/`、UI 下沉 `src/project/ui/`、ProjectsPage 1056→361 行）
 - [02 pages统一收敛与工作台解耦](./issues/02-pages统一收敛与工作台解耦.md) — 已解决（2026-09-29 落地；六页收进 `src/pages/` 子目录、工作台装配进 `src/pages/workspace/`、chart 不再反依 pages）
-- [03 渲染层收敛为rendering](./issues/03-渲染层收敛为rendering.md) — Blocked by: 02
-- [04 preview扩展骨架](./issues/04-preview扩展骨架.md) — Blocked by: 03；视频段另待定案（见 Fog）
+- [03 渲染层收敛为rendering](./issues/03-渲染层收敛为rendering.md) — 已解决（2026-09-29 落地；visual + chart/rendering → src/rendering，25 件四桶归位）
+- [04 preview扩展骨架](./issues/04-preview扩展骨架.md) — 已解除封锁（03 已落地）；视频段另待定案（见 Fog）
 
 ## Fog
 

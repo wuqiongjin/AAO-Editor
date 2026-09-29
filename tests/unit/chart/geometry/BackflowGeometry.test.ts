@@ -175,10 +175,10 @@ describe('issue 104 · 反查单一所有者（静态源码断言）', () => {
   });
 
   it('瓦片失效与网格枚举都走时间轴的布局坐标提供者，不再自行内联端点换算', () => {
-    const cache = readSource('src/visual/noteLayerCache.ts');
+    const cache = readSource('src/rendering/pipeline/noteLayerCache.ts');
     expect(cache).toContain('positionRangeOfBeats');
     expect(cache).not.toContain('cEs - rc.geometry.beatToVirtualY');
-    const render = readSource('src/visual/render.ts');
+    const render = readSource('src/rendering/render.ts');
     expect(render).toContain('geometry.visibleBeatRanges(viewport, viewHeightCss)');
     expect(render).not.toContain('virtualYToBeat(b.maxY');
   });
@@ -190,7 +190,7 @@ describe('issue 104 · 反查单一所有者（静态源码断言）', () => {
   });
 
   it('网格末端判据共用 ChartEndBounds 的 epsilon（不另写一份）', () => {
-    const render = readSource('src/visual/render.ts');
+    const render = readSource('src/rendering/render.ts');
     expect(render).toContain('isPastChartEnd(beat, rc.chartEndBeat)');
     expect(render).toContain('isPastChartEnd(preciseBeat, rc.chartEndBeat)');
     expect(render).not.toContain('rc.chartEndBeat + 1e-6');

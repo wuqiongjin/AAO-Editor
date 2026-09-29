@@ -3,15 +3,15 @@
 // 谱面 = tests/support/perfBackflowPlayback 合成 fixture（ADR 附录 A 时间轴 + 倒流窗 SP）。
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
-import { renderChart, visibleBeatRanges } from '@/src/visual/render';
-import { drawStaticLayer, resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/visual/staticLayerCache';
-import { resetNoteLayerCache, __setTileCanvasFactoryForTests } from '@/src/visual/noteLayerCache';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/visual/noteSkin';
+import { renderChart, visibleBeatRanges } from '@/src/rendering/render';
+import { drawStaticLayer, resetStaticLayerCache, __setStaticCanvasFactoryForTests } from '@/src/rendering/pipeline/staticLayerCache';
+import { resetNoteLayerCache, __setTileCanvasFactoryForTests } from '@/src/rendering/pipeline/noteLayerCache';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import { getBpmEvents, maxNoteEndSeconds } from '@/src/audio/AudioTiming';
 import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
 import { countNotesUpToBeat } from '@/src/chart/editing/NoteEditing';
 import { makeCountingCtx, makeCanvasStub, makeTallyingCanvasStub } from '@/tests/support/canvas';
-import type { RenderCtx } from '@/src/visual/types';
+import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
 import {
   PERF_PLAYBACK_BEAT_DISPLAY, PERF_PLAYBACK_DPR, PERF_PLAYBACK_SURFACE,

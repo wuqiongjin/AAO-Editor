@@ -9,7 +9,7 @@ function renderNotesSource(src: string): string {
 }
 
 describe('issue 160 · 滑条段全谱先于结点', () => {
-  const src = readStripped('src/visual/render.ts');
+  const src = readStripped('src/rendering/render.ts');
 
   it('renderNotes 内所有 renderSpanBands 出现在 renderSlideBody 之前', () => {
     const body = renderNotesSource(src);

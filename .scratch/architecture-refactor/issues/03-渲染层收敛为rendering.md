@@ -1,7 +1,7 @@
 # 03-渲染层收敛为rendering
 
 Type: chore
-Status: open
+Status: resolved
 Blocked by: 02
 
 > **2026-09-29 复核修订**：本票 2026-09-26 开出后未开工。期间 `src/chart/rendering/` 新增了皮肤预设缩略图一族（票 42），`src/visual/` 与 `src/chart/rendering/` 的互相 import 比出票时更密。本版重写文件清单与锁测；**并下调目标 2 的野心**：本票只做搬运与单向化，"提炼纯函数式绘制基元"改为按需延后（见「范围修正」）。
@@ -96,3 +96,18 @@ src/rendering/
 - **生成物看守**：`tests/unit/visual/skin/NoteSkin.test.ts` 一族依赖 `gen/noteSkinRegistry.gen`——迁移后跑一次 `node scripts/build-note-skins.mjs` 确认生成路径与新位置一致、`git diff` 无内容变化。
 
 ## Comments
+
+- 2026-09-29 落地。纯搬迁、零行为改动：
+  - `src/visual/`（16 件，含 `gen/` 与其中 `.gitignore`）+ `src/chart/rendering/`（9 件）共 25 件 → `src/rendering/`：顶层 9 件保持散文件（`index` / `render` / `types` / `coords` / `gridStyle` / `gutterLabels` / `playbackMarker` / `selectionStyle` / `slideBandGeometry`），`primitives/`（noteGlyph · NoteIconGlyph · noteMetrics）、`pipeline/`（staticLayerCache · noteLayerCache）、`skin/`（noteSkin · gen/ · backgroundSkin · useBackgroundSkin · NoteSkinPreview · noteSkinPreviewDraw · noteSkinPreviewLayout · NoteSkinPresetThumbnail · noteSkinPresetThumbnail）、`hitTest/`（hitTest）四处归位；两个旧目录连名字消失。
+  - 口径确认（用户 2026-09-29）：① `hitTest/` 内文件名不改（`hitTest/hitTest.ts`）——票面只要求进 `hitTest/` 桶，保住仓库「index.ts = 出口 barrel」惯例；② 收尾断言的依赖白名单 = `src/chart/**` + `src/ui/CanvasSpriteIcon` + `src/i18n`（后两者是搬迁前就有的叶子依赖，本票零行为改动，反转留给后续特性票）；③ ADR 与 CONTEXT.md 的旧路径一并修正。
+  - 全仓引用改写：生产侧 7 文件 23 处 specifier（`FinalVirtualCanvas` / `AppSettings` / `CanvasGesture` / `GestureSession` / `Toolbar` / `AssetsPage` / `PlaybackMarkerCard`）；`src/chart/` 内三处旧路径注释（`FinalVirtualCanvas` 一处、`AppSettings` 两处）同步。
+  - 测试：`tests/unit/visual/**`（27 文件，`cache` / `hitTest` / `render` / `skin` 四子目录）整目录 → `tests/unit/rendering/**`；`tests/README.md` 目录树与引用示例同步；38 个读源码 / import 旧路径的测试文件改指新位置（只动路径常量，断言语义逐条未动）；`tests/static/PagesConvergence.test.ts` 的 `src/visual` 负向正则随守卫对象改名成 `src/rendering`（02 票的防回潮意图不变）。
+  - 脚本：`scripts/build-note-skins.mjs` 的 `REGISTRY_OUT` 与头部注释、未跟踪的本地测量脚本 `scripts/measure-note-bounce.mjs` 的两行注释，全部改指新位置。
+  - 防回潮：新增 `tests/static/RenderingConvergence.test.ts`（4 条：25 件落点齐全 / 旧路径 import 绝迹 / 渲染层依赖白名单 / 单测目录镜像 + `REGISTRY_OUT` 与产物一致）。
+  - 门禁：`npm test` = **167 文件 / 1933 用例全绿**（基线 166 / 1929，+1 文件 +4 条新锁）；`npx tsc -b` 绿；`npm run build` 绿；`npm run lint` 12 个 error 全为既有噪声（逐条核对，无一落本票改动行）。
+  - 生成物看守的替代证据：本机 `docs/resource/bestdori/` 只剩 README 与示例清单（精灵归档未随仓库分发），`node scripts/build-note-skins.mjs` 改前改后都跑不起来 —— 改跑失败即退出、不会写盘；注册表文件与 HEAD 旧路径 blob **字节一致**（sha256 `7930d2367ee9f3…`），落点锁另断言 `REGISTRY_OUT` 与产物路径一致。
+  - 迁移手法：先用一次性脚本按「旧位置解析 specifier → 新位置产出 specifier」全仓改写（脚本跑完即删），再补跑一类脚本没覆盖的：**文件自身下沉一层时，指向未搬迁目标（`src/chart`、`src/ui`）的相对路径要补一层 `../`**（`hitTest` / `pipeline`×2 / `skin/noteSkin` 四处，12 个 specifier）。
+  - `src/rendering/` 与 `src/chart/` 之间仍有双向引用（`render` 吃 `chart/editing`，`chart/editing|config|components` 吃渲染基元）——票面目标 2 要的是**两个渲染目录合流 + 单向化到「渲染 → chart 数据/几何」**，未要求消除 chart 侧对渲染基元的消费，本票未动。
+  - 测试侧子目录名按票面「`cache/` `hitTest/` `render/` `skin/` 保留结构」原样保留，故 src 侧 `pipeline/` 在测试侧仍叫 `cache/`（测试按行为分组）；`primitives/` 没有同名测试目录是正常的——字形与尺寸用例本就在 `render/`、`skin/` 名下。落点锁已把「四子目录保留」锁住。
+  - 双轴评审（Standards / Spec）后的锁测收口四处：① 第一例补 `skin/gen/.gitignore`（25 件口径）并按「顶层 + 四桶」逐项精确清单断言（多一个桶即红）；② 旧路径检查从「只扫 src 的文本正则」升级为 **specifier 解析**并覆盖 src + tests + scripts，兼容旧 barrel 写法（`'…/visual'` 无尾斜杠）而不再有误报面；③ 依赖白名单从整片 `src/chart/**` 收窄到 `chart/{types,perf}` + `chart/{geometry,editing,config}/`——**不含 `chart/components` 的画布 React 组件**（渲染层反依 UI 组件层即红）；④ 补 `tests/unit/rendering` 四子目录断言。评审另指出的 `sourceFiles()` 八处复制、`render.ts` 的 `noteMetrics` re-export 转发，都是迁移前既有形态，不在本票范围。
+

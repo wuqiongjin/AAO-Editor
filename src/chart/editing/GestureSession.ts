@@ -3,9 +3,9 @@
 // React 层通过 subscribe(snapshot) 拿五个渲染镜像，通过 begin/move/end/cancel 拿 ops。
 import type { ChartNote, SelectionItem, SlideNote } from '../types';
 import type { ChartGeometry, SurfaceSize } from '../geometry/ChartGeometry';
-import type { HitTestDeps } from '../../visual/hitTest';
-import { computeBpmLinesInBox, computeItemsInBox, findBpmLineAt, findItemAt } from '../../visual/hitTest';
-import type { ViewportState, SelectionBox } from '../../visual/types';
+import type { HitTestDeps } from '../../rendering/hitTest/hitTest';
+import { computeBpmLinesInBox, computeItemsInBox, findBpmLineAt, findItemAt } from '../../rendering/hitTest/hitTest';
+import type { ViewportState, SelectionBox } from '../../rendering/types';
 import { planDragMove, dragDeltaBeat, type DragDelta } from './NoteDragging';
 import {
   actionOnTargetsOps,

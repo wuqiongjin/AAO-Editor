@@ -12,9 +12,9 @@ import {
 } from '@/src/chart/editing/GestureSession';
 import { DEFAULT_CURVE_CONFIG } from '@/src/chart/editing/CurveTool';
 import { actionOnTargetsOps, resolveActionTargets } from '@/src/chart/editing/ToolActionMatrix';
-import { findItemAt } from '@/src/visual/hitTest';
+import { findItemAt } from '@/src/rendering/hitTest/hitTest';
 import type { ChartNote } from '@/src/chart/types';
-import type { ViewportState } from '@/src/visual/types';
+import type { ViewportState } from '@/src/rendering/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
 const SURFACE = { w: 750, h: 900 };

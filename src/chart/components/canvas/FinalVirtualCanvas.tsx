@@ -15,13 +15,13 @@ import {
 } from '../../geometry/ChartGeometry';
 import { useEditing, useUI, usePlayback, useConfig } from '../../../app/ProviderTree';
 import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
-import { renderChart, findItemAt, findBpmLineAt, type RenderCtx, type ViewportState } from '../../../visual';
+import { renderChart, findItemAt, findBpmLineAt, type RenderCtx, type ViewportState } from '../../../rendering';
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
-import { PLAYBACK_MARKER_LAYOUT, PLAYBACK_MARKER_CLIP_PATH } from '../../../visual/playbackMarker';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../visual/noteSkin';
-import { normalizeBackgroundOpacity } from '../../../visual/staticLayerCache';
-import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../visual/gutterLabels';
-import { useBackgroundSkin } from '../../rendering/useBackgroundSkin';
+import { PLAYBACK_MARKER_LAYOUT, PLAYBACK_MARKER_CLIP_PATH } from '../../../rendering/playbackMarker';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rendering/skin/noteSkin';
+import { normalizeBackgroundOpacity } from '../../../rendering/pipeline/staticLayerCache';
+import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../rendering/gutterLabels';
+import { useBackgroundSkin } from '../../../rendering/skin/useBackgroundSkin';
 import { countNotesUpToBeat } from '../../editing/NoteEditing';
 import { parseBpmInput } from '../../editing/BpmInput';
 import { t } from '../../../i18n';
@@ -104,7 +104,7 @@ const MIN_SCALE = 0.1;
 
 // 拖拽判定阈值（ADR-0008 §2 原则 1）：按下移动 ≥4px = 拖拽；<4px 快速起按 = 单击
 /** FinalVirtualCanvas（ADR-0003 候选 B 收口 + ADR-0008 交互重构）：
- * 渲染/命中/坐标全部收敛到 src/visual 纯模块；批量编辑语义收敛到 src/chart/editing 纯模块
+ * 渲染/命中/坐标全部收敛到 src/rendering 纯模块；批量编辑语义收敛到 src/chart/editing 纯模块
  * （NoteReplacementRules/SelectionEditing/SlideCombination/NoteDragging，均有行锁单测）。
  * 本组件只保留：挂载/canvas 生命周期/皮肤加载、按下-拖拽-抬起输入状态机、视图状态(viewport)、
  * BPM 就地编辑输入框（§5）、imperative 方法。
