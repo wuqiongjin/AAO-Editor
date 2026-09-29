@@ -32,6 +32,7 @@
 - [2026-09-29 02 落地]：`src/pages/` 收拢为唯一视图装配层（`workspace/` `audio/` `assets/` `settings/` `projects/` 子目录）；工作台页壳（原 `src/chart/Editor.tsx` + `src/pages/WorkspacePage/*`）迁入 `src/pages/workspace/` 并删死壳，`chart → pages` 与 `pages → chart` 双向依赖同时消解；新增 `tests/static/PagesConvergence.test.ts` 锁落点。门禁 `npm test` 166 文件 / 1929 用例 + `npx tsc -b` + `npm run build` 全绿。03 票 Blocked by 已解除。
 - [2026-09-29 03 落地]：`src/visual/` + `src/chart/rendering/` 共 25 件合流为顶层 `src/rendering/`（顶层散文件 + `primitives/` / `pipeline/` / `skin/` / `hitTest/` 四桶），两个旧目录消失；引用单向到「渲染 → chart 数据/几何」，白名单外只留 `ui/CanvasSpriteIcon` 与 `i18n` 两个既有叶子依赖；`tests/unit/visual/` → `tests/unit/rendering/`，生成脚本 `REGISTRY_OUT` 同步；新增 `tests/static/RenderingConvergence.test.ts` 锁落点。
 - [2026-09-29 第二轮开幕]：一次架构评审（`improve-codebase-architecture`）产出 6 个深化候选，全部服务四个既定方向的地基（Bestdori 集成 → 谱面预览 → 谱面工程完善 → AI 增强）。用户定案：**未来所有架构评审整改一律落本 effort**，编号从 04 续。本轮先领候选 1「谱面代码只从一个口进出」，拆 04 / 05 两票**顺次执行**（同摸 `ChartConverter.ts`，不并行）。
+- [2026-09-29 06 落地（候选 2）]：`ChartProjectRecord.ts` = 记录形状 + 一份字段表（`RECORD_FIELDS` 两个方向，`satisfies` 看守，字段集从 `ChartProject` 派生）+ 唯一写入口 `mutateProject`；五处整记录读-改-写（ProjectsPage ×2 / ChartSwitcher / projectAudio / WorkspacePage 复制谱面）+ `CurrentProjectSession.open` 全部改走它，次序约束从注解变成代码，并有 `tests/static/ProjectWriteEntryWiring.test.ts` 防回潮。存储形状零迁移（wire 仍带 present、IDB 仍内联 Blob）。跨进程双份实现不改走共享模块（无构建通道），由 `ProjectRecordCrossProcess.test.ts` 同口径锁守。门禁 176 文件 / 1994 用例 + `tsc -b` + `build` 全绿。候选 3 起可领。
 - [2026-09-29 候选 1 grill 定案]：① module = `src/chart/editing/ChartConverter.ts` **原地换接口**，不搬文件、命名沿用 CONTEXT 既有词；② 新入口 `parseCodeText(text) → { code, errors }`：**一次 parse** + 结构校验，**校验与转换分离**（要 notes 的调用方自己 `convertChartCodeToNotes`），删 `validateChartCodeJSON` 与 `parseChartCodeFromJSON`；③ 保真（`text` + `pristine`）收成 state 的一个字段、与 notes **同一次 `setState`** 写（原子、无法绕过）、**不进快照栈**——撤销 / 重做照旧作废但不还原旧值（当前值语义，与今天一致）；④ 对象视图只共享解析原语，空文本保底与 `hasBeat0Bpm` 策略留调用方；⑤ Bestdori 清洗**不接线**（调用方是上传票，现在接就是按猜测设计，照 03 票 YAGNI 先例）；⑥ 允许改写被顶红的静态断言，但同票必须补等价行为锁测。
 
 ## Frontier
@@ -41,7 +42,9 @@
 - [03 渲染层收敛为rendering](./issues/03-渲染层收敛为rendering.md) — 已解决（2026-09-29 落地；visual + chart/rendering → src/rendering，25 件四桶归位）
 - [04 谱面代码解析侧收口](./issues/04-谱面代码解析侧收口.md) — 已解决（2026-09-29 落地：`ChartConverter` 出唯一入口 `parseCodeText` + 解析原语 `parseCodeRaw`（全文件唯一一处 `JSON.parse`），删 `validateChartCodeJSON` / `parseChartCodeFromJSON`，三处二次 parse 全消；05 票 Blocked by 已解除）
 - [05 谱面代码文本生成与保真收口](./issues/05-谱面代码文本生成与保真收口.md) — 已解决（2026-09-29 落地：序列化出一份两个具名入口 `chartCodeProjectionText` / `chartCodeExportText`；保真并入编辑态单一 state 字段 + `ChartEditingState` 一个 commit 作废点；弹窗 / 另存为 / 落盘 / 恢复四处改走新入口。候选 1「谱面代码只从一个口进出」收口完成）
-- 【第二轮其余候选 · 未开票】候选 2「工程记录只有一份映射与一条写入口」（dir 1+3，Strong）· 候选 3「一帧只有一个构建者，缓存有主」（dir 2，Strong；与候选 4 同一次 grill）· 候选 4「谱面视口会话从页面里搬出来」（dir 2+3，Worth exploring）· 候选 5「音频：解码结果与谱面时长各只有一份」（dir 4+3，Worth exploring）· 候选 6「桥接探测收成一个平台接缝」（dir 1，Speculative；调用方是 Bestdori 网络面，届时再领）
+- [06 工程记录单映射与单写入口](./issues/06-工程记录单映射与单写入口.md) — 已解决（2026-09-29 落地：新增 `src/project/ChartProjectRecord.ts` 拥有记录形状与一份字段表映射（wire / IndexedDB 两表示共用），唯一写入口 `mutateProject`（flush → get → fn → save → notify）收编五处读-改-写 + 会话 open；跨进程闸门改用同口径锁测防漂移。复审后补：字段表编译期看守、接线锁。候选 2「工程记录只有一份映射与一条写入口」收口完成）
+- [07 工程id白名单非字符串漏判](./issues/07-工程id白名单非字符串漏判.md) — 已解决（2026-09-29，随 06 同批落地：渲染侧补 `typeof` 兜底，与主进程 `safeProjectId` 判决逐条对齐；跨进程语料锁看守）
+- 【第二轮其余候选 · 未开票】候选 3「一帧只有一个构建者，缓存有主」（dir 2，Strong；与候选 4 同一次 grill）· 候选 4「谱面视口会话从页面里搬出来」（dir 2+3，Worth exploring）· 候选 5「音频：解码结果与谱面时长各只有一份」（dir 4+3，Worth exploring）· 候选 6「桥接探测收成一个平台接缝」（dir 1，Speculative；调用方是 Bestdori 网络面，届时再领）
 
 ## Fog
 

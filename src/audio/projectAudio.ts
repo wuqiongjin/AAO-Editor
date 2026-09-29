@@ -7,6 +7,7 @@
 //
 // 锁（ADR-0015 §4）：UI 禁用是第一道，这里再挡一次——纵深防御，别让"按钮忘了 disable"变成能写。
 import type { ChartDifficulty, ChartProject, ChartProjectStore } from '../project/ChartProject';
+import { mutateProject } from '../project/ChartProjectRecord';
 import { isProjectAudioLocked } from '../project/workspaceProject';
 import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
 import { probeAudioDuration, type AudioBytesDecoder } from './probeAudioDuration';
@@ -80,28 +81,49 @@ export async function readProjectAudio(
   };
 }
 
+/** 一次可写读-改-写里「改成什么」：写、跳过（当前值已在位）、解码失败（整笔不写）。 */
+type ChangeOutcome =
+  | { outcome: 'write'; next: ChartProject }
+  | { outcome: 'skip' }
+  | { outcome: 'decode-failed' };
+
 /**
- * 读一条**可写**的记录：落盘在飞编辑（仅当前工程）→ 读 → 存在性 / 锁判定。
- * 单独成一步是为了让 `importProjectAudio` 能在**解码之前**先把锁判掉——探针是这条路径上
- * 最贵的一步，锁定的工程不该为它付一次解码（ADR-0015 §4 的第二道闸要在第一道上就拦住）。
+ * 一条**可写**的读-改-写：次序（flush → get → fn → save → notify）由 `mutateProject` 统一拥有，
+ * 锁判定与解码留在本文件（音频语义）。
+ *
+ * 次序的两条约束原样保留：
+ * - 目标是当前工程时先落盘在飞编辑（否则整条记录覆写会盖掉工作台正在编辑的内容）；
+ * - 锁判定在**解码之前**（探针是这条路径上最贵的一步，ADR-0015 §4 的第二道闸要在第一道上就拦住）。
  */
-async function loadWritable(
+async function mutateWritable(
   deps: ProjectAudioDeps,
   projectId: string,
-): Promise<{ ok: true; project: ChartProject } | { ok: false; reason: 'locked' | 'missing' }> {
-  if (deps.currentProjectId === projectId) {
-    await deps.flushPersist?.();
-  }
-  const project = await deps.store.get(projectId);
-  if (!project) return { ok: false, reason: 'missing' };
-  if (isProjectAudioLocked(project)) return { ok: false, reason: 'locked' };
-  return { ok: true, project };
-}
-
-/** 落盘 + 通知目录（详情行刷新 / 当前工程的会话重新对齐都靠它）。 */
-async function commit(deps: ProjectAudioDeps, next: ChartProject): Promise<ProjectAudioWriteResult> {
-  await deps.store.save(next);
-  deps.notifyCatalogChanged();
+  change: (project: ChartProject) => Promise<ChangeOutcome> | ChangeOutcome,
+): Promise<ProjectAudioWriteResult> {
+  // 不落盘时的失败原因（锁 / 解码）只有本文件懂，挂在 fn 的取消路径上带出来。
+  let aborted: ProjectAudioWriteResult | null = null;
+  const result = await mutateProject(
+    {
+      store: deps.store,
+      ...(deps.currentProjectId === projectId && deps.flushPersist ? { flush: deps.flushPersist } : {}),
+      notify: deps.notifyCatalogChanged,
+    },
+    projectId,
+    async (project) => {
+      if (isProjectAudioLocked(project)) {
+        aborted = { ok: false, reason: 'locked' };
+        return null;
+      }
+      const outcome = await change(project);
+      if (outcome.outcome === 'decode-failed') {
+        aborted = { ok: false, reason: 'decode' };
+        return null;
+      }
+      return outcome.outcome === 'write' ? outcome.next : null;
+    },
+  );
+  if (aborted != null) return aborted;
+  if (result.status === 'missing') return { ok: false, reason: 'missing' };
   return { ok: true };
 }
 
@@ -111,20 +133,23 @@ export async function importProjectAudio(
   projectId: string,
   file: File,
 ): Promise<ProjectAudioWriteResult> {
-  const loaded = await loadWritable(deps, projectId);
-  if (!loaded.ok) return loaded;
-  let duration: number;
-  try {
-    duration = await (deps.probeDuration ?? probeAudioDuration)(file);
-  } catch {
-    return { ok: false, reason: 'decode' };
-  }
-  return commit(deps, {
-    ...loaded.project,
-    audioName: file.name,
-    audioBlob: file,
-    // 有音频 = 音频时长（ADR-0005 §4 / 票 15 定案 1）
-    durationSeconds: clampDuration(duration),
+  return mutateWritable(deps, projectId, async (project) => {
+    let duration: number;
+    try {
+      duration = await (deps.probeDuration ?? probeAudioDuration)(file);
+    } catch {
+      return { outcome: 'decode-failed' };
+    }
+    return {
+      outcome: 'write',
+      next: {
+        ...project,
+        audioName: file.name,
+        audioBlob: file,
+        // 有音频 = 音频时长（ADR-0005 §4 / 票 15 定案 1）
+        durationSeconds: clampDuration(duration),
+      },
+    };
   });
 }
 
@@ -133,12 +158,12 @@ export async function clearProjectAudio(
   deps: ProjectAudioDeps,
   projectId: string,
 ): Promise<ProjectAudioWriteResult> {
-  const loaded = await loadWritable(deps, projectId);
-  if (!loaded.ok) return loaded;
-  if (loaded.project.audioName == null && loaded.project.audioBlob == null) return { ok: true };
-  const next: ChartProject = { ...loaded.project, audioName: null };
-  delete next.audioBlob;
-  return commit(deps, next);
+  return mutateWritable(deps, projectId, (project) => {
+    if (project.audioName == null && project.audioBlob == null) return { outcome: 'skip' };
+    const next: ChartProject = { ...project, audioName: null };
+    delete next.audioBlob;
+    return { outcome: 'write', next };
+  });
 }
 
 /** 手改谱面时长（只在无音频时有意义：有音频时时长跟随音频，与 session 的口径一致） */
@@ -148,10 +173,10 @@ export async function setProjectAudioDuration(
   seconds: number,
 ): Promise<ProjectAudioWriteResult> {
   if (!Number.isFinite(seconds) || seconds <= 0) return { ok: false, reason: 'invalid' };
-  const loaded = await loadWritable(deps, projectId);
-  if (!loaded.ok) return loaded;
-  if (loaded.project.audioName != null) return { ok: true };
-  const clamped = clampDuration(seconds);
-  if (loaded.project.durationSeconds === clamped) return { ok: true };
-  return commit(deps, { ...loaded.project, durationSeconds: clamped });
+  return mutateWritable(deps, projectId, (project) => {
+    if (project.audioName != null) return { outcome: 'skip' };
+    const clamped = clampDuration(seconds);
+    if (project.durationSeconds === clamped) return { outcome: 'skip' };
+    return { outcome: 'write', next: { ...project, durationSeconds: clamped } };
+  });
 }

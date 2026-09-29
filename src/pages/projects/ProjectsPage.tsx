@@ -9,6 +9,7 @@ import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import {
   newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ProjectChart,
 } from '../../project/ChartProject';
+import { mutateProject } from '../../project/ChartProjectRecord';
 import {
   addChartToProject,
   createBlankProject,
@@ -70,15 +71,15 @@ export default function ProjectsPage() {
 
   useEffect(() => { void reload(); }, [reload, catalogEpoch]);
 
+  // 整记录读-改-写走唯一写入口（次序：flush → get → fn → save → notify）；
+  // reload 是本页自己的下一步，不属记录模块。
   const mutate = useCallback(async (id: string, fn: (p: ChartProject) => ChartProject | null) => {
-    await flushPersist();
-    const loaded = await store.get(id);
-    if (!loaded) return;
-    const next = fn(loaded);
-    if (!next) return;
-    await store.save(next);
-    notifyCatalogChanged();
-    await reload();
+    const result = await mutateProject(
+      { store, flush: flushPersist, notify: notifyCatalogChanged },
+      id,
+      fn,
+    );
+    if (result.status === 'saved') await reload();
   }, [flushPersist, store, notifyCatalogChanged, reload]);
 
   // 「改写当前工程」与「进入工作台」是两件事（ADR-0015 §3 补充 / issue 23 #1）：
@@ -264,19 +265,23 @@ export default function ProjectsPage() {
           onClose={() => setChartForm(null)}
           onAdd={(input) => {
             void (async () => {
-              await flushPersist();
-              const loaded = await store.get(chartForm.project.id);
-              if (!loaded) return;
-              const result = addChartToProject(loaded, input, { chartId: newChartId(), now: Date.now() });
-              if (!result.ok) {
-                const err = result.errors[0];
-                showToast(t('projects.applyFail', { message: err ? formatValidationError(err) : 'invalid' }), 'danger');
-                return;
+              const result = await mutateProject(
+                { store, flush: flushPersist, notify: notifyCatalogChanged },
+                chartForm.project.id,
+                (loaded) => {
+                  const applied = addChartToProject(loaded, input, { chartId: newChartId(), now: Date.now() });
+                  if (!applied.ok) {
+                    const err = applied.errors[0];
+                    showToast(t('projects.applyFail', { message: err ? formatValidationError(err) : 'invalid' }), 'danger');
+                    return null;
+                  }
+                  return applied.project;
+                },
+              );
+              if (result.status === 'saved') {
+                setChartForm(null);
+                await reload();
               }
-              await store.save(result.project);
-              notifyCatalogChanged();
-              setChartForm(null);
-              await reload();
             })();
           }}
           onUpdate={(patch) => {

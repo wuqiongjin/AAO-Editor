@@ -5,6 +5,7 @@ import { Check, ChevronDown, Copy, FolderOpen, Lock, Music2, Pencil, Plus } from
 import { useAppNav } from '../../layouts/AppNav';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import { newChartId, type ChartProject, type ProjectChart } from '../../project/ChartProject';
+import { mutateProject } from '../../project/ChartProjectRecord';
 import {
   addChartToProject,
   chartEffectiveTitle,
@@ -54,21 +55,22 @@ export default function ChartSwitcher() {
     return () => { cancelled = true; };
   }, [projectId, chartId, catalogEpoch, store]);
 
+  // 整记录读-改-写走唯一写入口（次序：flush → get → fn → save → notify）；
+  // setProject / open 是本组件自己的下一步。
   const mutate = useCallback(async (
     fn: (p: ChartProject) => ChartProject | null,
     thenChartId?: string,
   ): Promise<ChartProject | null> => {
     if (!projectId) return null;
-    await flushPersist();
-    const loaded = await store.get(projectId);
-    if (!loaded) return null;
-    const next = fn(loaded);
-    if (!next) return null;
-    await store.save(next);
-    notifyCatalogChanged();
-    setProject(next);
+    const result = await mutateProject(
+      { store, flush: flushPersist, notify: notifyCatalogChanged },
+      projectId,
+      fn,
+    );
+    if (result.status !== 'saved') return null;
+    setProject(result.project);
     if (thenChartId) await open(projectId, thenChartId);
-    return next;
+    return result.project;
   }, [projectId, flushPersist, store, notifyCatalogChanged, open]);
 
   const selectChart = useCallback(async (id: string) => {

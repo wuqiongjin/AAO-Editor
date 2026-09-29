@@ -25,6 +25,7 @@ import { resolveEscapeTarget } from '../../chart/editing/CanvasGesture';
 import { isChartReadonly, isChartEditFunction } from '../../project/chartReadonlyGate';
 import { isProjectAudioLocked } from '../../project/workspaceProject';
 import { duplicateChartInProject } from '../../project/projectCatalog';
+import { mutateProject } from '../../project/ChartProjectRecord';
 import { newChartId } from '../../project/ChartProject';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t } from '../../i18n';
@@ -181,13 +182,15 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   const handleCopyCurrentChart = useCallback(async () => {
     if (!projectId || !chartId || !store) return;
-    const project = await store.get(projectId);
-    if (!project) return;
     const copyId = newChartId();
-    const next = duplicateChartInProject(project, chartId, { chartId: copyId, now: Date.now() }, untitledProjectLabel());
-    if (!next) return;
-    await store.save(next);
-    notifyCatalogChanged();
+    // 整记录读-改-写走唯一写入口。这条路径今天不 flush 在飞编辑（已上传谱面只读、本来就没有在飞编辑），
+    // 本票只换入口，不改它的 flush 口径。
+    const result = await mutateProject(
+      { store, notify: notifyCatalogChanged },
+      projectId,
+      (project) => duplicateChartInProject(project, chartId, { chartId: copyId, now: Date.now() }, untitledProjectLabel()),
+    );
+    if (result.status !== 'saved') return;
     setShowReadonlyToast(false);
     await open(projectId, copyId);
   }, [projectId, chartId, store, notifyCatalogChanged, open]);

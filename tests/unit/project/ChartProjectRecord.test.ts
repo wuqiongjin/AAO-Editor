@@ -1,12 +1,9 @@
 // issue 02：工程记录往返。多谱面 / 同难度两张 / 谱面名称为空 / 有无封面音频；
 // 未知字段按 ADR-0014 保留；旧「一份 notes」记录读回当不存在且不删磁盘记录。
 import { describe, expect, it } from 'vitest';
-import {
-  ElectronFileProjectBackend,
-  PROJECT_SCHEMA_VERSION,
-  canReplaceStoredProject,
-} from '@/src/project/ChartProject';
+import { ElectronFileProjectBackend } from '@/src/project/ChartProject';
 import type { ChartProject, ProjectChart } from '@/src/project/ChartProject';
+import { PROJECT_SCHEMA_VERSION, canReplaceStoredProject } from '@/src/project/ChartProjectRecord';
 import type { ChartNote } from '@/src/chart/types';
 import { makeMemoryProjectBridge } from '@/tests/support/memoryProjectBridge';
 

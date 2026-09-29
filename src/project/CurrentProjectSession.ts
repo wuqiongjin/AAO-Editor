@@ -9,6 +9,7 @@ import {
   type ChartProject,
   type ProjectChart,
 } from './ChartProject';
+import { mutateProject } from './ChartProjectRecord';
 import {
   clearCurrentProjectPointer,
   loadCurrentProjectPointer,
@@ -123,11 +124,12 @@ export class CurrentProjectSession {
     projectId: string,
     chartId?: string,
   ): Promise<{ project: ChartProject; chart: ProjectChart }> {
-    const loaded = await this.store.get(projectId);
-    if (!loaded) throw new Error(`谱面工程不存在: ${JSON.stringify(projectId)}`);
+    // get → 改 lastOpened → save 属记录侧整记录读-改-写，走唯一写入口（06 票）；
+    // 会话自身的指针写入仍在下面 persistPointer。
     const now = this.clock.now();
-    const project: ChartProject = { ...loaded, lastOpened: now };
-    await this.store.save(project);
+    const result = await mutateProject({ store: this.store }, projectId, (loaded) => ({ ...loaded, lastOpened: now }));
+    if (result.status !== 'saved') throw new Error(`谱面工程不存在: ${JSON.stringify(projectId)}`);
+    const project: ChartProject = result.project;
     const chart = pickCurrentChart(project, chartId);
     this._projectId = project.id;
     this._chartId = chart.id;

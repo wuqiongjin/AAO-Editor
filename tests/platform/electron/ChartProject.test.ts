@@ -4,9 +4,9 @@ import {
   ChartProjectStore,
   ElectronFileProjectBackend,
   IndexedDbProjectBackend,
-  PROJECT_SCHEMA_VERSION,
 } from '@/src/project/ChartProject';
 import type { ChartProject, ProjectChart } from '@/src/project/ChartProject';
+import { PROJECT_SCHEMA_VERSION } from '@/src/project/ChartProjectRecord';
 import type { ChartNote } from '@/src/chart/types';
 import { makeMemoryProjectBridge } from '@/tests/support/memoryProjectBridge';
 import { readStripped } from '@/tests/support/source';
