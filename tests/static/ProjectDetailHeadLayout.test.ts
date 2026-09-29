@@ -137,6 +137,32 @@ describe('issue 23 #4 · 谱面行布局的接线', () => {
   });
 });
 
+// 同一病症的第三处（issue 25，用户 2026-09-29 报障）：**行高跟着字体回落走**。
+// `line-height: normal` 的行盒高度取"这一行实际命中的字体"的度量 —— 同一个字体栈下，
+// 拉丁命中 Geist（--text-sm 13px → 17px 行盒），中文回落 Microsoft YaHei（13px → 18px 行盒），
+// 同字号差 1px。名字行（谱面标题 / 工程名）是行内最高项，于是**名字带不带中文**决定：
+// 谱面行 56/57、列表盒 115/116、左栏工程行 57/58、其后区块 y 371/372（headless 实测，zh-CN + 出厂字体栈）。
+// 与 issue 23 #4 同源：**布局判据不许依赖文字内容** —— 那边是宽度，这边是高度。
+// 行高只跟字号走：unitless 随 --ui-type-scale 缩放，写 px 反而会在字号档被钉死。
+describe('issue 25 · 名字行的行高不跟字体回落走', () => {
+  const NAMES = ['\\.pc-chart__title b', '\\.pc-chart__title small', '\\.pc-item__text b', '\\.pc-item__text small'];
+
+  it('谱面行 + 左栏工程行的名字两行都由同一条规则钉显式行高', () => {
+    const rule = css.match(/\.pc-chart__title b,[\s\S]*?\.pc-item__text small\s*\{([^}]*)\}/);
+    expect(rule, '名字行的行高规则不见了（line-height 回到了 normal）').toBeTruthy();
+    for (const sel of NAMES) expect(rule![0], `${sel} 没进这条规则`).toMatch(new RegExp(sel));
+    expect(rule![1]).toMatch(/line-height:\s*1\.3\b/);
+  });
+
+  it('名字行没有任何一条声明退回 line-height: normal（那正是本票的因）', () => {
+    for (const sel of NAMES) {
+      const blocks = [...css.matchAll(new RegExp(`${sel}\\s*\\{([^}]*)\\}`, 'g'))];
+      expect(blocks.length, `${sel} 一条声明都没有`).toBeGreaterThan(0);
+      for (const b of blocks) expect(b[1], `${sel} 把行高交回给字体度量了`).not.toMatch(/line-height:\s*normal/);
+    }
+  });
+});
+
 describe('issue 23 #2 · 详情页左栏分栏的接线', () => {
   it('三列网格：列表宽走内联 --pc-list-w，分隔条自己占 6px 一列', () => {
     const block = css.match(/\.pc-page\s*\{([^}]*)\}/s);
