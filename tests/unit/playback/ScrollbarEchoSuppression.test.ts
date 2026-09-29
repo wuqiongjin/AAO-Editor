@@ -35,12 +35,14 @@ describe('issue 98 · 程序化滚动写入的回声识别（isProgrammaticScrol
   });
 });
 
-describe('issue 98 · Editor 接线静态断言（防重构复活回声反算）', () => {
-  const editorSrc = readFileSync(join(repoRoot, 'src/pages/workspace/WorkspacePage.tsx'), 'utf-8');
+describe('issue 98 · 谱面视口会话接线静态断言（防重构复活回声反算）', () => {
+  // architecture-refactor/09（候选 4）：滚动条 onScroll 与回声登记搬进谱面视口会话，断言随宿主改锚；
+  // 断言语义逐条不变（回声检查位置 + 两处登记）。
+  const sessionSrc = readFileSync(join(repoRoot, 'src/playback/useChartViewSession.ts'), 'utf-8');
 
-  it('handleScrollbarChange 在反算 scrollY 前吞掉程序化写入的回声', () => {
+  it('onScrollbarScroll 在反算 scrollY 前吞掉程序化写入的回声', () => {
     // 回声检查必须先于 maxScroll 反算（否则取整值已进入 scrollY）
-    const handler = editorSrc.slice(editorSrc.indexOf('const handleScrollbarChange'));
+    const handler = sessionSrc.slice(sessionSrc.indexOf('const onScrollbarScroll'));
     const echoAt = handler.indexOf('isProgrammaticScrollEcho(scrollTop');
     const maxScrollAt = handler.indexOf('target.scrollHeight - target.clientHeight');
     expect(echoAt).toBeGreaterThan(-1);
@@ -48,8 +50,8 @@ describe('issue 98 · Editor 接线静态断言（防重构复活回声反算）
   });
 
   it('两处程序化 scrollTop 写入都登记期望值（缩放比例位回写 + 重锚）', () => {
-    expect(editorSrc).toMatch(/programmaticScrollTopRef\.current = registerScrollEcho\(targetScrollTop\)/);
-    expect(editorSrc).toMatch(/programmaticScrollTopRef\.current = registerScrollEcho\(target\.scrollTop\)/);
+    expect(sessionSrc).toMatch(/programmaticScrollTopRef\.current = registerScrollEcho\(targetScrollTop\)/);
+    expect(sessionSrc).toMatch(/programmaticScrollTopRef\.current = registerScrollEcho\(target\.scrollTop\)/);
   });
 });
 

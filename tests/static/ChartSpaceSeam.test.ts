@@ -6,6 +6,8 @@ const space = readStripped('src/chart/geometry/ChartSpace.ts');
 const canvas = readStripped('src/chart/components/canvas/FinalVirtualCanvas.tsx');
 const scroll = readStripped('src/playback/useScrollModel.ts');
 const editor = readStripped('src/pages/workspace/WorkspacePage.tsx');
+// architecture-refactor/09（候选 4）：useChartSpace 的装配搬进谱面视口会话，断言随宿主改锚；语义未动。
+const viewSession = readStripped('src/playback/useChartViewSession.ts');
 
 describe('一份 ChartGeometry 生命周期（issue 134）', () => {
   it('应用侧秒域几何只在 ChartSpace 构造', () => {
@@ -15,8 +17,8 @@ describe('一份 ChartGeometry 生命周期（issue 134）', () => {
     expect(scroll).not.toMatch(/new ChartGeometry\s*\(/);
   });
 
-  it('Editor 组装 useChartSpace，scroll 与画布 bind 同一 geometry', () => {
-    expect(editor).toMatch(/useChartSpace\s*\(/);
+  it('谱面视口会话组装 useChartSpace，scroll 与画布 bind 同一 geometry', () => {
+    expect(viewSession).toMatch(/useChartSpace\s*\(/);
     expect(editor).toMatch(/<FinalVirtualCanvas[\s\S]*geometry=\{geometry\}/);
     expect(scroll).toMatch(/configure\s*\(\s*geometry/);
   });

@@ -13,11 +13,8 @@ import PlayBar from '../../playback/PlayBar';
 import PlaybackMarkerCard from '../../playback/PlaybackMarkerCard';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
-import { useSurfaceSize } from '../../chart/layout/useSurfaceSize';
-import { useChartSpace } from '../../chart/geometry/ChartSpace';
-import { isProgrammaticScrollEcho, registerScrollEcho, useScrollModel, type ProgrammaticScrollEcho } from '../../playback/useScrollModel';
 import { useAudioBridge } from '../../audio/useAudioBridge';
-import { usePlaybackCoordinator } from '../../playback/usePlaybackCoordinator';
+import { useChartViewSession } from '../../playback/useChartViewSession';
 import { useChartProjectPersistence } from '../../project/useChartProjectPersistence';
 import { useLayoutPersistence } from '../../chart/layout/useLayoutPersistence';
 import { useShortcutDispatch } from '../../chart/config/useShortcutDispatch';
@@ -43,16 +40,14 @@ interface EditorProps {
 const PANEL_TRANSITION_GUARD_MS = 320;
 
 /**
- * Editor（架构深化评审候选 2 收口 + ADR-0003 §7）：只保留【组装】职责。
- * 把 6 种会话流全部拆到聚焦 hook（src/utils/use*.ts）：
- *   - 渲染面测量 → useSurfaceSize
- *   - 滚动模型   → useScrollModel
- *   - 音频桥接   → useAudioBridge
- *   - 播放协调   → usePlaybackCoordinator
- *   - 持久化     → useChartProjectPersistence
- *   - 布局持久化 → useLayoutPersistence
- *   - 快捷键     → useShortcutDispatch
- * 子组件按域直读 hooks；此处只剩：消费四域、串联 7 个 hook、布局 JSX。
+ * Editor（架构深化评审候选 2 收口 + 候选 4 收口 + ADR-0003 §7）：只保留【布局 + 分发】职责。
+ * 谱面视口装配（渲染面 / 几何 / 滚动重锚 / 播放 RAF）收进 useChartViewSession（候选 4）：
+ *   - 谱面视口会话 → useChartViewSession
+ *   - 音频桥接     → useAudioBridge
+ *   - 持久化       → useChartProjectPersistence
+ *   - 布局持久化   → useLayoutPersistence
+ *   - 快捷键       → useShortcutDispatch
+ * 子组件按域直读 hooks；此处只剩：消费四域、串联视口会话与聚焦 hook、布局 JSX。
  */
 const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 四域消费（子组件已按域直读，此处仅取 Editor 串联所需）
@@ -86,16 +81,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 音符数统计（issue 36）
   const noteCount = useMemo(() => countChartNotes(notes), [notes]);
 
-  // 谱面画布容器 ref（候选 2：作为多个会话流的统一锚点）
+  // 谱面画布容器 + 画布句柄 ref（候选 4：会话的 DOM 锚点，页面只负责挂到 JSX / 传进会话）
   const chartAreaRef = useRef<HTMLDivElement>(null);
   const virtualCanvasRef = useRef<FinalVirtualCanvasHandle>(null);
-  // 虚拟高度（由 FinalVirtualCanvas onScrollChange 喂入，Editor 经 effect 写到 .virtual-content）
-  const [virtualHeight, setVirtualHeight] = useState(0);
-  // issue 98：程序化 scrollTop 写入的期望值登记（见 isProgrammaticScrollEcho）。
-  const programmaticScrollTopRef = useRef<ProgrammaticScrollEcho | null>(null);
 
-  // === 会话流 1：渲染面测量（候选 2 拆出，issue 36 / 38 不变量保留） ===
-  // 实时门控：展开/收起侧栏（.ws-panel width 200ms 过渡）或拖拽改宽面板期间，令测量逐帧提交，
+  // 渲染面测量实时门控（候选 2 语义原样保留，由会话经 live 注入 useSurfaceSize）：
+  // 展开/收起侧栏（.ws-panel width 200ms 过渡）或拖拽改宽面板期间，令测量逐帧提交，
   // 使画布缓冲始终贴合容器实时宽度——否则合并器在过渡后半段冻结提交，缓冲被 CSS 拉伸，
   // 轨道出现"瞬间偏宽再回弹"（同一根因也影响拖拽）。窗口 resize 不触发此门控，保留原节流。
   // 面板宽度只注入**用户值**：视口夹取（防面板吃掉整个视口）已交给 CSS 的 `max-width: vw`
@@ -111,23 +102,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     () => isDraggingRef.current !== null || performance.now() < panelAnimUntilRef.current,
     [],
   );
-  const surface = useSurfaceSize(chartAreaRef, { live: surfaceLive });
-
-  // === issue 134：布局轴几何唯一生命周期（画布 + 滚动模型 bind 同一引用） ===
-  const { geometry, chartEndKey } = useChartSpace({
-    notes, ctxDuration, surface, verticalRatio: settings.display.verticalRatio,
-  });
-  // 当前播放头所在区间的 BPM（顶栏实时区）
-  // issue 134：与 HUD playheadBeat 同 geometry；最大 beat 解所在段（ADR-0010 结论 5）
-  const currentRegionBpm = useMemo(() => {
-    const events = geometry.bpmEvents;
-    return events[geometry.segmentIndexOfSeconds(playheadSeconds)]?.bpm ?? DEFAULT_BPM;
-  }, [geometry, playheadSeconds]);
-
-  // === 会话流 2：滚动模型（候选 1 拆出；候选 2 再做生命周期封装） ===
-  const { scrollModel, consumePendingReAnchor } = useScrollModel({
-    geometry, scale, chartEndKey,
-  });
 
   // === 音频会话深模块（架构深化评审候选 3 收口） ===
   // session 是单一接缝：拥有 engine + 音频文件 + 时长 + keySet + seVolume + persist 钩子。
@@ -135,6 +109,33 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const [audioSnap, audioSession] = useAudioSession();
   // 引擎：session 单例，跨页面保活期间不重建
   const engine = audioSession.getEngine();
+
+  // === 谱面视口会话（架构深化评审候选 4 收口） ===
+  // 渲染面 / 几何 / 滚动重锚 / 播放 RAF 收进 src/playback/useChartViewSession.ts —— 工作台与
+  // 将来的预览页 consume 同一 interface。播放头秒数与播放状态仍写回 PlaybackContext（唯一真相源），
+  // 会话不持第二份（见会话头注）。
+  const setSessionChartDuration = useCallback((sec: number) => audioSession.setChartDuration(sec), [audioSession]);
+  const viewSession = useChartViewSession({
+    containerRef: chartAreaRef,
+    canvasRef: virtualCanvasRef,
+    notes,
+    chartDuration: ctxDuration,
+    verticalRatio: settings.display.verticalRatio,
+    scale,
+    engine,
+    live: surfaceLive,
+    onSecondsChange: setCurrentSeconds,
+    onPlayingChange: setIsPlaying,
+    onChartDurationChange: setSessionChartDuration,
+  });
+  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker, stopPlayback } = viewSession;
+
+  // 当前播放头所在区间的 BPM（顶栏实时区）
+  // issue 134：与 HUD playheadBeat 同 geometry；最大 beat 解所在段（ADR-0010 结论 5）
+  const currentRegionBpm = useMemo(() => {
+    const events = geometry.bpmEvents;
+    return events[geometry.segmentIndexOfSeconds(playheadSeconds)]?.bpm ?? DEFAULT_BPM;
+  }, [geometry, playheadSeconds]);
 
   // === 会话流 3：音频桥接（订阅 session 变化，副作用单向写回 PlaybackContext） ===
   // 单一稳定回调：避免 useAudioBridge 内部 useEffect 因新引用反复触发
@@ -156,18 +157,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     [audioSnap.audioName, audioSession],
   );
 
-  // === 会话流 4：播放协调（RAF + togglePlay/seek/jumpToMarker） ===
-  const playbackCoord = usePlaybackCoordinator({
-    engine,
-    scrollModel,
-    scrollContainerRef: chartAreaRef,
-    canvasRef: virtualCanvasRef,
-    ctxDuration,
-    setChartDuration: (sec) => audioSession.setChartDuration(sec),
-    setCurrentSeconds,
-    setIsPlaying,
-  });
-  const { togglePlay, seek, jumpToMarker, stopPlayback } = playbackCoord;
   const { projectId, chartId, store, catalogEpoch, registerPersistFlush, open, notifyCatalogChanged } = useCurrentProject();
 
   const [isReadOnly, setIsReadOnly] = useState(false);
@@ -288,84 +277,17 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // 谱面/BPM 变化时同步按键音事件（issue 36：编辑中防抖 300ms；播放中改谱即时）。
   // issue 101：不把 isPlaying 放进 deps——开播翻转本身不得同步跑全谱 getBpmEvents+buildKeyEvents。
-  const keysPlayingRef = useRef(playbackCoord.isPlaying);
-  keysPlayingRef.current = playbackCoord.isPlaying;
+  const keysPlayingRef = useRef(isPlaying);
+  keysPlayingRef.current = isPlaying;
   useEffect(() => {
     const delay = keysPlayingRef.current ? 0 : 300;
     const t = window.setTimeout(() => engine?.setChart(notes, beatDisplay), delay);
     return () => window.clearTimeout(t);
   }, [notes, beatDisplay, engine]);
 
-  // 画布 onScrollChange：写虚拟高度 + 喂滚动模型做锚点观察（SKIP 保护由模型内处理）
-  // lastCanvasScrollYRef：画布侧最新 scrollY，供 virtualHeight 落地后重写滚动条比例位（见下方 effect）
-  const lastCanvasScrollYRef = useRef(0);
-  const handleVirtualScrollChange = useCallback((scrollY: number, height: number) => {
-    lastCanvasScrollYRef.current = scrollY;
-    setVirtualHeight(height);
-    scrollModel.noteScrollObserved(scrollY);
-  }, [scrollModel]);
-
-  // 设置虚拟内容高度 + 首次置底（初始滚动 = beat0/起点）
-  const initialScrollDone = useRef(false);
-  useEffect(() => {
-    const scrollContainer = chartAreaRef.current;
-    if (!scrollContainer || virtualHeight <= 0) return;
-    const contentElement = scrollContainer.querySelector('.virtual-content') as HTMLElement;
-    if (!contentElement) return;
-    contentElement.style.height = `${virtualHeight}px`;
-    if (!initialScrollDone.current) {
-      scrollContainer.scrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-      initialScrollDone.current = true;
-      scrollModel.markInitialized();
-    } else {
-      // 缩放（Ctrl+滚轮/工具栏）/谱长/渲染面变化都会改变 scrollHeight：旧 scrollTop 与新滚动范围
-      // 不再对应同一谱面位置——若越界，浏览器会钳制 scrollTop 并触发 scroll 事件，把画布 scrollY
-      // 拉回端点（"起始线/首拍 BPM 线缩放漂移后回弹"的次生通路）。这里在高度落地后按画布 scrollY
-      // 重写滚动条比例位（与播放 RAF 同款 0.5px 守卫）；滚动条来源的滚动不经过此分支（高度不变）。
-      const maxScroll = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-      const targetScrollTop = scrollModel.canvasScrollYToScrollTop(lastCanvasScrollYRef.current, maxScroll);
-      if (Math.abs(targetScrollTop - scrollContainer.scrollTop) > 0.5) {
-        scrollContainer.scrollTop = targetScrollTop;
-      }
-      // 无论是否实际写入都登记期望值：浏览器可能把写入值取整存储，回声事件据此识别并吞掉
-      programmaticScrollTopRef.current = registerScrollEcho(targetScrollTop);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [virtualHeight]);
-
-  // virtualHeight 就绪后消费待重锚项（候选 1 不变量：谱面末端变化后按秒重锚，判定线处秒数稳定）。
-  // 依赖须含 chartEndKey：仅宽度类 surface 变化（不改 virtualHeight）也会置位待重锚，若只在
-  // virtualHeight 变化时消费，标记会潜伏到下一次缩放才发作，把鼠标锚定的视图强拉回锚点秒
-  //（宽度-only 变化时重锚为恒等操作，此处消费是无害 no-op）。
-  useEffect(() => {
-    const canvas = virtualCanvasRef.current;
-    const container = chartAreaRef.current;
-    if (!canvas || !container) return;
-    const maxScroll = container.scrollHeight - container.clientHeight;
-    const target = consumePendingReAnchor(maxScroll);
-    if (!target) return;
-    canvas.setScrollY(target.scrollY);
-    container.scrollTop = target.scrollTop;
-    programmaticScrollTopRef.current = registerScrollEcho(target.scrollTop);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [virtualHeight, chartEndKey]);
-
-  // 滚动条 onScroll：唯一滚动来源；播放中锁定避免双向反馈自锁（ADR-0004 §1 修订）
-  const handleScrollbarChange = (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLDivElement;
-    const scrollTop = target.scrollTop;
-    // issue 98：程序化 scrollTop 回声（±1px）在 TTL 内吞掉；过期后同一位置当手滚。
-    if (isProgrammaticScrollEcho(scrollTop, programmaticScrollTopRef.current)) return;
-    const maxScroll = target.scrollHeight - target.clientHeight;
-    if (maxScroll <= 0 || !virtualCanvasRef.current) return;
-    if (playbackCoord.isPlaying) return;
-    const canvasScrollY = scrollModel.scrollTopToCanvasScrollY(scrollTop, maxScroll);
-    virtualCanvasRef.current.setScrollY(canvasScrollY);
-    const seconds = scrollModel.secondsForScrollY(canvasScrollY);
-    scrollModel.noteScrollObserved(canvasScrollY);
-    engine?.seek(seconds);
-    setCurrentSeconds(seconds);
-  };
+  // 画布 onScrollChange / `.virtual-content` 高度写入 / 首次置底 / 比例位回写 / 按秒重锚 /
+  // 滚动条回声识别 —— 全部收进谱面视口会话（候选 4，src/playback/useChartViewSession.ts）；
+  // 页面只把会话的 onCanvasScrollChange / onScrollbarScroll / virtualHeight 接进下方 JSX。
 
   // 播放条：音量（架构深化评审候选 3：主音量由 session.setVolume 转发，避免绕过 session；
   // PlaybackContext.volume 仍为 UI 状态，由 setCtxVolume 维护；session 是底层真相源）
@@ -494,7 +416,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     }, [selectedItems, armedTool, setSelectedItems, setArmedTool]),
   });
 
-  // Editor 不消费 dismissError（音频页已直接调 session）；chartEndKey 已用于重锚 effect 依赖
+  // Editor 不消费 dismissError（音频页已直接调 session）；chartEndKey 归谱面视口会话内部消费（候选 4）
 
   return (
     // issue 59 §2：弹窗打开态提到 Editor ——「谱面代码」按钮（工具栏）与「音符代码」工具（画布）
@@ -570,7 +492,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           overflowX: 'hidden',
           backgroundColor: 'var(--canvas-bg)',
           position: 'relative'
-        }} onScroll={handleScrollbarChange}>
+        }} onScroll={viewSession.onScrollbarScroll}>
           <div className="virtual-content" style={{
             position: 'absolute',
             top: 0,
@@ -596,7 +518,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             <FinalVirtualCanvas
               ref={virtualCanvasRef}
               scrollHostRef={chartAreaRef}
-              onScrollChange={handleVirtualScrollChange}
+              onScrollChange={viewSession.onCanvasScrollChange}
               geometry={geometry}
               surface={surface}
               active={active}
