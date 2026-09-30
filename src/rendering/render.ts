@@ -9,7 +9,7 @@ import { isPastChartEnd, trueBeat } from '../chart/editing/ChartEndBounds';
 import { indexOfTrailingNegativeBpm } from '../chart/editing/BpmTail';
 import { shiftGroupToAnchor, mirrorNote, countNotesUpToBeat } from '../chart/editing/NoteEditing';
 import { perf } from '../chart/perf';
-import { formatInMinuteTime } from '../chart/geometry/TimeFormat';
+import { formatInMinuteTime, formatTimeCompact } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
 import { computeItemsInBox, computeBpmLinesInBox, findItemAt } from './hitTest/hitTest';
 import { slideUsesSpBand, displayConnections, visibleEnds, projectedSlideSpans } from '../chart/editing/SlideSegments';
@@ -19,8 +19,8 @@ import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { bufferSizeFor } from './rasterScale';
 import type { RenderTarget } from './RenderTarget';
-import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelY, bpmGutterYIntersectsCanvas, bpmLabelAnchorY, GUTTER_LABEL_FONT_PX } from './gutterLabels';
-import { GRID_STYLES, GRID_TIER_ORDER, gridBpmLineColor, gridBpmNegativeColor, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
+import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelX, clampGutterLabelY, bpmGutterYIntersectsCanvas, bpmLabelAnchorY, measureGutterLabelWidth, GUTTER_LABEL_FONT_PX } from './gutterLabels';
+import { GRID_STYLES, GRID_TIER_ORDER, gridBpmLineColor, gridBpmNegativeColor, gridDivisionOf, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './skin/noteSkin';
 import type { FrameView, RenderCtx } from './types';
@@ -178,9 +178,11 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
   const style = GRID_STYLES[normalizeGridStyle(rc.display?.gridStyle)];
   const lineShapeTiers = rc.display?.lineShapeTiers === true;
   const gridOpacity = rc.display?.gridOpacity ?? 1; // 轨道线透明度（第三轮补，用户可调）
-  // chart-preview 03 预览显示档：'none' 不画横网格；'beats' 只画整拍线（子拍候选根本不生成）
+  // 网格细节档（chart-preview 03 起 / 08 扩成"画到第几级细分"）：'off' 不画横网格；
+  // 数字 N = 只画约分分母 ≤ N 的线（1 = 只整拍线）；'all' = 按 beatDisplay 全量（编辑器现状）
   const gridDetail = rc.display?.gridDetail ?? 'all';
-  if (gridDetail === 'none') return;
+  if (gridDetail === 'off') return;
+  const maxDivision = gridDetail === 'all' ? Infinity : gridDetail;
 
   interface GridCandidate { y: number; tier: GridTier }
   const candidates: GridCandidate[] = [];
@@ -191,8 +193,9 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
       if (beat < 0 || isPastChartEnd(beat, rc.chartEndBeat)) continue;
       const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
       if (y >= -8 && y <= rc.surface.h + 8) candidates.push({ y, tier: 'beat' });
-      if (gridDetail === 'beats') continue;
+      if (maxDivision <= 1) continue;
       for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
+        if (gridDivisionOf(subBeat, rc.beatDisplay) > maxDivision) continue;
         const preciseBeat = trueBeat(beat, subBeat, rc.beatDisplay);
         if (isPastChartEnd(preciseBeat, rc.chartEndBeat)) continue;
         const subY = c.virtualToCanvas(0, c.beatToVirtualY(preciseBeat)).y;
@@ -1375,6 +1378,61 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   ctx.restore();
 }
 
+/** 时间刻度配色（chart-preview 08「Time 标记」）：中性灰，比 BPM 数值弱一档（读谱参考，不是谱面信息） */
+const TIME_MARK_COLOR = 'rgba(203, 213, 224, 0.7)';
+/** 时间刻度贴轨道左缘的长度（CSS px） */
+const TIME_MARK_TICK_PX = 4;
+/** 刻度枚举上限（可见秒区间 ÷ 间隔的理论值远小于它；防脏 interval 把循环拖死） */
+const TIME_MARK_MAX = 400;
+
+/**
+ * 沟槽时间刻度（chart-preview 08「Time 标记」，照 Bestdori 的 `chartTime`）：
+ * 每 N 秒（1 / 2 / 5 / 10）在**轨道左侧沟槽**画一枚贴轨道左缘的短刻度线 + 时间文字（`0:25` / `1:05`）。
+ * - 落点走**秒 → 布局轴**（`secondsToVirtualY`）而不是"秒 → 拍 → 布局轴"：倒流区里拍多解、秒单值（ADR-0010）；
+ * - 锚定与字号沿用沟槽文字那套（右对齐到轨道左外缘 − 8px、`21px × labelScale`），
+ *   但标签盒越出画布左缘时**钳制**而不是隐藏（`clampGutterLabelX`）——预览面板沟槽只有 ~30px；
+ * - 由 renderChart 编排在沟槽层（与 BPM 数值同带，后画的 BPM 数值盖在上面）。
+ */
+export function renderTimeMarks(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  const interval = rc.display?.timeMarks ?? 0;
+  if (!Number.isFinite(interval) || interval <= 0) return;
+  const es = rc.viewport.scale;
+  const labelScale = rc.display?.labelScale ?? 1;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  const { trackStartX } = c.trackGeometry(es);
+  // 可见秒区间：画布底 = 时间更早、画布顶 = 更晚（y → 秒恒单值且单调）；上下各留一屏外余量
+  const margin = fontPx + 16;
+  const secBottom = c.virtualYToSeconds(c.canvasToVirtual(0, rc.surface.h + margin).y);
+  const secTop = c.virtualYToSeconds(c.canvasToVirtual(0, -margin).y);
+  const lo = Math.min(secBottom, secTop);
+  const hi = Math.max(secBottom, secTop);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, rc.surface.w, rc.surface.h);
+  ctx.clip();
+  ctx.fillStyle = TIME_MARK_COLOR;
+  ctx.strokeStyle = TIME_MARK_COLOR;
+  ctx.lineWidth = 1;
+  let count = 0;
+  for (let seconds = Math.ceil(lo / interval - 1e-9) * interval; seconds <= hi + 1e-9; seconds += interval) {
+    if (count++ >= TIME_MARK_MAX) break;
+    const y = c.virtualToCanvas(0, c.secondsToVirtualY(seconds)).y;
+    if (y < -fontPx || y > rc.surface.h + fontPx) continue;
+    ctx.beginPath();
+    ctx.moveTo(trackStartX - TIME_MARK_TICK_PX, y);
+    ctx.lineTo(trackStartX - 1, y);
+    ctx.stroke();
+    const text = formatTimeCompact(seconds);
+    const layout = clampGutterLabelX(
+      layoutGutterLabel(c, es, y, 'centered', 'bpm', labelScale),
+      measureGutterLabelWidth(text, fontPx, ctx),
+    );
+    drawGutterLabel(ctx, layout, text, TIME_MARK_COLOR);
+  }
+  ctx.restore();
+}
+
 /**
  * **末条 BPM 为负**的警示色（issue 142）：与倒流色（品红/紫，合法写法）区分开——
  * 这条 = 「导出后 Bestdori 打不开」，故取危险红（与 START 青 / END 橙 / 选中黄 / 倒流紫 都不同相）。
@@ -1637,6 +1695,8 @@ export function renderChart(target: RenderTarget, view: FrameView) {
   // 同时点击线只在 renderNotes 内画（进瓦片）。
   // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片
   target.noteLayer.draw(ctx, frame);
+  // 时间刻度（chart-preview 08「Time 标记」）：沟槽层，先画（BPM 数值盖在它上面）
+  renderTimeMarks(ctx, c, frame);
   // BPM 数值（issue 51 / 161）：沟槽层，全量布局 + 画布裁切（不按可见集漏画展开叠）
   renderBpmLabels(ctx, c, frame);
   // 实时信息文字（issue 54）：两侧沟槽，画在常显装饰文字之上

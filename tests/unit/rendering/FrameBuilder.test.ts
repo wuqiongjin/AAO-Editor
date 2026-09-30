@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { createRenderTarget, type RenderTarget } from '@/src/rendering/RenderTarget';
 import { frameFor } from '@/src/rendering/render';
-import { resolveCanvasDpr, bufferSizeFor } from '@/src/rendering/rasterScale';
+import { resolveCanvasDpr, bufferSizeFor, imageQualityDensity } from '@/src/rendering/rasterScale';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import { makeCanvasStub, makeRecordingCtx, makeTallyingCanvasStub } from '@/tests/support/canvas';
 import type { FrameView } from '@/src/rendering/types';
@@ -124,6 +124,16 @@ describe('08 · dpr / 缓冲尺寸解析唯一处（rasterScale）', () => {
     // 缺省 / 非法档 = 标准（与组件原口径一致：非 smooth/hd 一律 2.5）
     expect(resolveCanvasDpr(undefined, 3)).toBe(2.5);
     expect(resolveCanvasDpr('unknown', 3)).toBe(2.5);
+  });
+
+  it('imageQualityDensity：档位表只有一处（画布当上限、预览面板当目标密度都用它）', () => {
+    expect(imageQualityDensity('smooth')).toBe(1);
+    expect(imageQualityDensity('standard')).toBe(2.5);
+    expect(imageQualityDensity('hd')).toBe(3);
+    expect(imageQualityDensity(undefined)).toBe(2.5);   // 缺省 / 非法 = 标准
+    expect(imageQualityDensity('unknown')).toBe(2.5);
+    // resolveCanvasDpr 就是它的 min 形态（同一张表，不再各写一份）
+    expect(resolveCanvasDpr('hd', 2)).toBe(Math.min(2, imageQualityDensity('hd')));
   });
 
   it('bufferSizeFor：round(css × dpr)（非整宽量化口径：751×1.5 → 1127）', () => {

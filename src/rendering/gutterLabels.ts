@@ -112,6 +112,17 @@ export function drawGutterLabel(ctx: CanvasRenderingContext2D, layout: GutterLab
   return true;
 }
 
+/**
+ * 沟槽标线文字的**横向钳制**：文字盒越出画布左缘时整体右移，而不是像 `drawGutterLabel` 那样隐藏。
+ * `drawGutterLabel` 的"放不下就隐藏"是给**编辑器**定的（那里沟槽够宽，溢出说明布局有问题）；
+ * 预览面板的沟槽只有 ~30px（13 车道宽里轨道占 7），隐藏等于开关没效果，故"必看"的读数
+ * （chart-preview 08 的 Time 标记）走钳制——与实时读数盒 `clampHoverInfoX` 同一取舍。
+ */
+export function clampGutterLabelX(layout: GutterLabelLayout, textWidth: number, minX = 2): GutterLabelLayout {
+  const x = layout.x - textWidth < minX ? textWidth + minX : layout.x;
+  return x === layout.x ? layout : { ...layout, x };
+}
+
 /** 与 bpmLabelBox 纵向半高相同（字号一半 + 4px 命中容差）。 */
 export function bpmGutterHitHalf(fontPx: number): number {
   return fontPx / 2 + 4;

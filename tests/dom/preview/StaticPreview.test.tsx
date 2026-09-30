@@ -247,6 +247,39 @@ describe('chart-preview 03 · 面板懒绘制与记账', () => {
   });
 });
 
+describe('chart-preview 03 · 清晰度：面板位图密度（2026-09-30 验收回修「画面有点糊」）', () => {
+  /** 一块面板的位图缓冲宽 —— 密度档位的直接读数（面板宽 130 @zoom 1） */
+  function panelBuffer(imageQuality: 'smooth' | 'standard' | 'hd'): { w: number; h: number } {
+    const s = session({
+      real: true,
+      props: { scene: { ...BASE_PROPS.scene, settingsDisplay: { ...SETTINGS_DISPLAY, imageQuality } } },
+    });
+    s.sync();
+    const canvas = s.panel(0).querySelector('canvas')!;
+    return { w: canvas.width, h: canvas.height };
+  }
+
+  it('设备像素比 1 的屏也拿到超采样余量：密度 = max(设备像素比, 画质档密度)', () => {
+    // jsdom 的 devicePixelRatio 恒为 1 —— 正是「画布那套 min(devicePixelRatio, 档位) 没有余量」的形态
+    expect(window.devicePixelRatio).toBe(1);
+
+    expect(panelBuffer('standard')).toEqual({ w: Math.round(PANEL_W * 2.5), h: Math.round(PANEL_H * 2.5) });
+    expect(panelBuffer('hd')).toEqual({ w: PANEL_W * 3, h: PANEL_H * 3 });        // 最高档 = 绝对清晰
+    expect(panelBuffer('smooth')).toEqual({ w: PANEL_W, h: PANEL_H });            // 流畅档照旧 1×（作者的选择）
+  });
+
+  it('设备像素比高于档位时按设备来（面板位图不欠采样）', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 3 });
+    try {
+      expect(panelBuffer('standard')).toEqual({ w: PANEL_W * 3, h: PANEL_H * 3 });
+      expect(panelBuffer('smooth')).toEqual({ w: PANEL_W * 3, h: PANEL_H * 3 });
+    } finally {
+      if (original) Object.defineProperty(window, 'devicePixelRatio', original);
+    }
+  });
+});
+
 describe('chart-preview 03 · 滚轮：横滚与缩放（2026-09-30 验收）', () => {
   const wheel = (host: HTMLElement, init: WheelEventInit) => {
     const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, ...init });

@@ -50,6 +50,16 @@ describe('chart-preview 03 · 面板模型：一个旋钮', () => {
     expect(layoutOf({ zoom: 0.5 }).panelW).toBeCloseTo(65, 6);
   });
 
+  it('面板宽取整（2026-09-30 验收回修「画面有点糊」）：位图缓冲恒为整数，面板不再落在半像素上', () => {
+    for (const zoom of [0.3, 0.35, 0.75, 1, 1.05, 1.55, 2.35, 2.95, 3]) {
+      const es = esForZoom(zoom);
+      const w = panelWidthForEs(es);
+      expect(Number.isInteger(w)).toBe(true);
+      expect(Math.abs(w - PANEL_W_PER_ES * es)).toBeLessThanOrEqual(0.5);   // 取整只挪半个像素以内
+      expect(layoutOf({ zoom }).panelW).toBe(w);
+    }
+  });
+
   it('缩放连续可调，但夹在 30%..300%（滑杆与滚轮共用 normalizePreviewZoom）', () => {
     expect(PREVIEW_ZOOM_RANGE).toMatchObject({ min: 0.3, max: 3 });
     expect(normalizePreviewZoom(1.37)).toBeCloseTo(1.37, 6);

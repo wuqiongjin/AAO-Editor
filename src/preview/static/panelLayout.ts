@@ -24,9 +24,13 @@ export const PANEL_LANES = 13;
 /** 面板宽 / es = 13 × 30 = 390 虚拟 px */
 export const PANEL_W_PER_ES = PANEL_LANES * LANE_WIDTH;
 
-/** 面板宽（CSS px）由缩放推出 —— 不再有独立的「面板宽」参数 */
+/**
+ * 面板宽（CSS px）由缩放推出 —— 不再有独立的「面板宽」参数。
+ * **取整**：位图缓冲恒是整数（`round(css × dpr)`），面板宽/左缘取整后 1:1 命中，
+ * 不再出现"面板落在半像素上再被重采样"的糊（2026-09-30 验收回修）。
+ */
 export function panelWidthForEs(es: number): number {
-  return PANEL_W_PER_ES * es;
+  return Math.round(PANEL_W_PER_ES * es);
 }
 
 /** 缩放下限（与 `ChartGeometry` 的 MIN_SCALE 同值）：面板档下 fitScale 恒不触发（228es < 390es） */

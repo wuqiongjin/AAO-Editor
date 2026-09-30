@@ -6,7 +6,7 @@
 // 代价：相邻面板的 pos 条带会互相顶掉（每面板重建一次网格条带）—— 一次性出图，可接受。
 //
 // 面板里画的**就是**编辑器那套渲染（`renderChart` / `RenderTarget`）：不新写第二种画笔（ADR-0016 §2）。
-import { createRenderTarget, bufferSizeFor, type FrameView, type HoverPos, type RenderDisplayOptions } from '../../rendering';
+import { createRenderTarget, bufferSizeFor, imageQualityDensity, type FrameView, type HoverPos, type RenderDisplayOptions } from '../../rendering';
 import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL } from '../../chart/geometry/ChartGeometry';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import type { ChartNote, SelectionItem } from '../../chart/types';
@@ -75,6 +75,23 @@ export interface PanelPainter {
 const EMPTY_NOTES: ChartNote[] = [];
 const EMPTY_SELECTION: SelectionItem[] = [];
 
+/**
+ * 面板位图密度（2026-09-30 验收回修「画面有点糊」）。
+ *
+ * 与画布同一张档位表（`imageQualityDensity`：流畅 1× / 标准 2.5× / 高清 3×），但**用法相反**：
+ * 画布是 `min(设备像素比, 档位)` —— 1× 屏上一点超采样余量都没有，而面板把整条轨道缩到 1/3
+ * （`es = 1/3`），格线本来就是亚像素宽、音符只有十来像素，没有余量就是糊。
+ * 预览面板是**静态位图**（出一次图，不像画布那样逐帧重建），于是把档位当**目标密度**、设备像素比当**下限**：
+ * 流畅 = 原生密度（不超采样，省内存）/ 标准 ≥ 2.5× / 高清 ≥ 3×（最高档绝对清晰）。
+ * 代价：面板位图内存按密度² 走（3 分钟谱 标准档 ≈78MB），淘汰口径见 map 的待办。
+ */
+export function resolvePanelDpr(
+  imageQuality: string | undefined,
+  devicePixelRatio: number = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+): number {
+  return Math.max(devicePixelRatio || 1, imageQualityDensity(imageQuality));
+}
+
 const defaultCreateCanvas = (): HTMLCanvasElement => document.createElement('canvas');
 
 export function createPanelPainter(params: PanelPainterParams): PanelPainter {
@@ -118,6 +135,9 @@ export function createPanelPainter(params: PanelPainterParams): PanelPainter {
       noteIcons,
       skinVersion: params.skinVersion,
       display,
+      // 瓦片密度跟面板密度走：瓦片 dpr 缺省被卡在 1.5，而面板（预览 = 面板位图密度、导出 = 固定 2）
+      // 更高 —— 上采样恰好糊在"面板里最抢眼的元素"（音符）上，见 resolvePanelDpr
+      tileDprCap: dpr,
       // 背景皮肤不进预览面板（chart-preview 03）：它是 chrome 侧的装饰，在 130px 面板里反而盖住轨道；
       // 面板只承载"轨道 + 网格 + 音符"（与 Bestdori 静态预览同取舍）。
     };

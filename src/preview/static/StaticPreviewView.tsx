@@ -8,10 +8,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { formatTimePrecise } from '../../chart/geometry/TimeFormat';
 import { t } from '../../i18n';
-import { displayOptionsFromSettings, resolveCanvasDpr } from '../../rendering';
+import { displayOptionsFromSettings } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
-import { DEFAULT_PREVIEW_PROFILE, resolvePreviewDisplay, type PreviewDisplayProfile } from './displayProfile';
+import type { PreviewSettings } from '../../chart/config/AppSettings';
+import { DEFAULT_PREVIEW_MARKERS, resolvePreviewDisplay } from './displayProfile';
 import {
   MIN_PANEL_H,
   esForZoom,
@@ -22,6 +23,7 @@ import {
 } from './panelLayout';
 import {
   createPanelPainter,
+  resolvePanelDpr,
   type PanelPainter,
   type PanelPainterFactory,
   type PanelSceneInput,
@@ -36,8 +38,8 @@ export interface StaticPreviewViewProps {
    * （见 panelLayout：「一个旋钮」）。面板高跟容器高（Bestdori 语义）。
    */
   zoom: number;
-  /** 预览显示档（默认精简，见 displayProfile.ts） */
-  profile?: PreviewDisplayProfile;
+  /** 预览标注（默认 = 精简档，见 displayProfile.ts）：来自 `settings.preview` */
+  markers?: PreviewSettings;
   /** 预览区内 Ctrl/⌘+滚轮调缩放时回传新值（不传 = 该手势不接管，交给浏览器） */
   onZoom?: (zoom: number) => void;
   painterFactory?: PanelPainterFactory;
@@ -48,7 +50,7 @@ const panelIndexes = (count: number): number[] => Array.from({ length: count }, 
 export default function StaticPreviewView({
   scene,
   zoom,
-  profile = DEFAULT_PREVIEW_PROFILE,
+  markers = DEFAULT_PREVIEW_MARKERS,
   onZoom,
   painterFactory,
 }: StaticPreviewViewProps) {
@@ -76,7 +78,9 @@ export default function StaticPreviewView({
     return () => { cancelled = true; };
   }, [noteIcons]);
 
-  const dpr = resolveCanvasDpr(settingsDisplay.imageQuality);
+  // 面板位图密度（2026-09-30 验收回修「画面有点糊」）：画质档当**目标密度**、设备像素比当下限，
+  // 见 panelPainter 的 resolvePanelDpr —— 1× 屏上画布那套 min(设备像素比, 档位) 一点超采样余量都没有
+  const dpr = resolvePanelDpr(settingsDisplay.imageQuality);
   // 面板高 = 容器高（ADR-0016 §1.1 + Bestdori 语义：窗口矮 → 面板矮 → 每面板秒数少 → 面板数多）；
   // 未测量（0）时按下限兜底，免得 `panelH / es` 退化（此时也不出图，见下方出图 effect）
   const panelH = Math.max(MIN_PANEL_H, Math.round(hostSize.h));
@@ -86,8 +90,8 @@ export default function StaticPreviewView({
     [notes, chartDuration, verticalRatio, panelH, zoom],
   );
   const display = useMemo(
-    () => resolvePreviewDisplay(displayOptionsFromSettings(settingsDisplay), profile),
-    [settingsDisplay, profile],
+    () => resolvePreviewDisplay(displayOptionsFromSettings(settingsDisplay), markers),
+    [settingsDisplay, markers],
   );
 
   const makePainter = painterFactory ?? createPanelPainter;
@@ -169,7 +173,11 @@ export default function StaticPreviewView({
     if (canvas.width !== painter.bufferW) canvas.width = painter.bufferW;
     if (canvas.height !== painter.bufferH) canvas.height = painter.bufferH;
     const ctx = canvas.getContext('2d');
-    if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // transform 按「位图实际尺寸 / CSS 尺寸」取，而不是恒 dpr（照瓦片的 issue 98 口径）：
+    // round(面板宽 × dpr) 的整数量化差若留在画面上，就是"每档缩放都带一点重采样"
+    if (ctx) {
+      ctx.setTransform(painter.bufferW / painter.panelW, 0, 0, painter.bufferH / painter.panelH, 0, 0);
+    }
     const hovering = hoverRef.current;
     painter.blitInto(
       panelIndex,
@@ -179,7 +187,7 @@ export default function StaticPreviewView({
       hovering?.panel === panelIndex ? { cx: 0, cy: hovering.cy } : null,
     );
     paintedRef.current.set(panelIndex, painter);
-  }, [painter, dpr]);
+  }, [painter]);
 
   useLayoutEffect(() => {
     // 容器还没测出来（高 0）先不出图：那几张位图既看不见、又会被真实尺寸的画家整批顶掉

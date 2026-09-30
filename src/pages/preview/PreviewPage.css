@@ -203,6 +203,109 @@
   font-size: var(--text-2xs);
 }
 
+/* ---- 「显示」面板（标注 + 画布共享 + 音符皮肤；chart-preview 08） ----
+   浮层壳复用菜单壳（`.pp-menu__panel.is-portaled`，与 ScopePicker / 谱面切换器同一套，见 PreviewDisplayPanel.tsx），
+   这里只补内容版式：控件本身仍是设置页那套 `.slider-control` / `.switch` / `.select-control`。 */
+.pdp {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.pdp__trigger {
+  display: inline-flex;
+}
+
+.pdp__panel {
+  width: 320px;
+  max-height: min(72vh, 640px);
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.pdp__group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pdp__group + .pdp__group {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.pdp__group-title {
+  margin: 0;
+  padding: 4px 8px 6px;
+  color: var(--text-muted);
+  font-size: calc(10px * var(--ui-type-scale));
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.pdp__group-hint {
+  margin: 0;
+  padding: 0 8px 5px;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+}
+
+.pdp__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.pdp__row:hover {
+  background: var(--bg-hover);
+}
+
+.pdp__row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pdp__row-text strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.pdp__row-text span {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  line-height: 1.45;
+}
+
+/* 面板里的滑杆比设置页窄一档（设置页那套 min-width 220px 会把 320px 的浮层撑破） */
+.pdp__panel .slider-control {
+  flex: 0 0 148px;
+  min-width: 0;
+  gap: 6px;
+}
+
+.pdp__panel .slider-control input[type='range'] {
+  width: 96px;
+  min-width: 0;
+}
+
+.pdp__panel .slider-control .slider-value {
+  width: 38px;
+  flex: 0 0 38px;
+  font-size: var(--text-2xs);
+}
+
+.pdp__panel .select-control {
+  min-height: 28px;
+  max-width: 132px;
+}
+
 /* ---- 舞台 ----
    两种形态的画面（03 静态面板折行 / 05 仿真场）画在这里。
    面积极限让给画面本身：这里只给一个"舞台轮廓"，不预设内部布局。 */

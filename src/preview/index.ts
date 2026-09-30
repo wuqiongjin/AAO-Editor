@@ -21,13 +21,11 @@ export type {
   PanelLayout,
   PanelPainterFactory,
   PanelSceneInput,
-  PreviewDisplayProfile,
-  PreviewGridDetail,
   SheetExportOutcome,
   SheetExportRequest,
   SheetPlan,
   SheetRendered,
   StaticPreviewViewProps,
 } from './static';
-export { DEFAULT_PREVIEW_PROFILE } from './static';
+export { DEFAULT_PREVIEW_MARKERS } from './static';
 export type { VideoPreviewRequest } from './video';

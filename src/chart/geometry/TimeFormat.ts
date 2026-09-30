@@ -30,6 +30,15 @@ export function formatInMinuteTime(seconds: number): string {
 }
 
 /**
+ * 紧凑时间码（chart-preview 08「Time 标记」的沟槽刻度）：**分钟不补零** —— `0:25` / `1:05` / `12:30`。
+ * 与 `formatTimeWhole`（`00:25`）只差一位，但沟槽只有 ~30px 宽，少一位就多一分放得下的机会。
+ */
+export function formatTimeCompact(seconds: number): string {
+  const s = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+}
+
+/**
  * 解析时间输入（播放条时间码双击编辑，issue 22）：接受 mm:ss / mm:ss.s（也容忍秒带小数）。
  * 返回秒数；无法解析返回 null。
  */

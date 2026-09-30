@@ -48,6 +48,12 @@ export interface RenderCtx {
   /** 设备像素比：buffer = surface × dpr（ADR-0006 §1）；取值策略的唯一实现处 = `./rasterScale` 的
    *  `resolveCanvasDpr`（issue 39 #6 / issue 40 定案：流畅 1× / 标准 2.5× / 高清 3×，上限 devicePixelRatio） */
   dpr: number;
+  /**
+   * 音符瓦片位图 dpr 上限：瓦片 dpr = `min(dpr, 本值)`。缺省 = `noteLayerCache` 的 1.5（编辑器现状）。
+   * 预览面板把它抬到**面板位图密度**——瓦片 dpr 低于画布 dpr 时音符会被上采样（1/3 缩放下
+   * 音符只有十来像素，上采样直接糊），面板里最抢眼的元素恰恰是音符。
+   */
+  tileDprCap?: number;
   beatDisplay: number;
   chartEndBeat: number;
   notes: ChartNote[];
@@ -155,13 +161,22 @@ export interface RenderDisplayOptions {
   /** 谱面文字大小系数（issue 51 第二轮 Q1=A）：0.5..3，作用于 BPM 数值/END/实时信息 */
   labelScale?: number;
   /**
-   * 网格**横线**细节档（chart-preview 03 预览显示档）：`'all'` 全量（缺省 = 编辑器现状）/
-   * `'beats'` 只画整拍线 / `'none'` 不画横网格。轨道竖线属于轨道本身，不在本档内
-   * （预览面板里竖线是读谱基准：130px 宽的轨道要能看出 7 条道）。
+   * 网格**横线**细节档：画到第几级细分。取值 = 该拍内约分分母的上限
+   * （`gridDivisionOf`：`1` = 只整拍线、`4` = 到十六分音符中的 1/4，依此类推）；
+   * `'all'` = 按 `beatDisplay` 全量（缺省 = 编辑器现状）/ `'off'` = 不画横网格。
+   * 轨道竖线属于轨道本身，不在本档内（预览面板里竖线是读谱基准：130px 宽的轨道要能看出 7 条道）。
    */
-  gridDetail?: 'all' | 'beats' | 'none';
+  gridDetail?: 'all' | 'off' | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16;
   /** 沟槽常显文字（BPM 数值/摘要、END 文字）开关：`false` = 不画（预览精简档）；缺省 = 画 */
   gutterLabels?: boolean;
   /** 起止线（START/END 线与 END 文字）开关：`false` = 不画（预览精简档）；缺省 = 画 */
   boundLines?: boolean;
+  /**
+   * 沟槽时间刻度间隔（秒）：`0` / 缺省 = 不画（chart-preview 08「Time 标记」）。
+   * 刻度画在轨道左侧沟槽、与 BPM 数值同带（右对齐锚定、越出画布左缘时横向钳制）。
+   */
+  timeMarks?: number;
 }
+
+/** 网格细节档（`RenderDisplayOptions.gridDetail` 的取值；静态层失效依据与预览档共用本类型） */
+export type GridDetail = NonNullable<RenderDisplayOptions['gridDetail']>;

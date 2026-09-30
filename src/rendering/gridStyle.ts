@@ -127,13 +127,22 @@ export function gridBpmNegativeColor(preset: GridStylePreset): string {
 }
 
 /**
- * beat 内细分位置 → 层级（纯函数，供单测）：分数 = subIndex/beatDisplay 约分后按分母定层。
- * 分母 2 → half、4 → quarter、8 → eighth、≥16 → sixteenth（beatDisplay ∈ {2,4,8,16} 封顶 16）。
+ * beat 内细分位置 → **约分分母**（纯函数，供单测与「网格画到第几级细分」共用）：
+ * 分数 = `subIndex / beatDisplay` 约分后的分母 —— 1/4 拍 → 4、1/2 拍 → 2、1/3 拍 → 3。
+ * 分母就是这条线"是几分音符"，与层级（样式）分开：`gridTierOf` 是它的样式映射。
  */
-export function gridTierOf(subIndex: number, beatDisplay: number): GridTier {
+export function gridDivisionOf(subIndex: number, beatDisplay: number): number {
   let a = subIndex, b = beatDisplay;
   while (b !== 0) { const t = a % b; a = b; b = t; }
-  const denom = beatDisplay / a;
+  return a === 0 ? 1 : beatDisplay / a;
+}
+
+/**
+ * beat 内细分位置 → 层级（纯函数，供单测）：分数 = subIndex/beatDisplay 约分后按分母定层。
+ * 分母 2 → half、4 → quarter、8 → eighth、其余（3/6/12… 与 ≥16）→ sixteenth。
+ */
+export function gridTierOf(subIndex: number, beatDisplay: number): GridTier {
+  const denom = gridDivisionOf(subIndex, beatDisplay);
   if (denom <= 2) return 'half';
   if (denom === 4) return 'quarter';
   if (denom === 8) return 'eighth';

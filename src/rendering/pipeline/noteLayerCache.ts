@@ -44,6 +44,13 @@ const MAX_TILES = 64;
  *  相比 2.0 内存 -44%、瓦片重建填充也快 ~44%（密集谱下放置延迟同步受益）；主画布仍按完整 dpr。 */
 const TILE_DPR_CAP = 1.5;
 
+/**
+ * 本帧的瓦片位图 dpr = `min(帧 dpr, 上限)`。上限可按帧注入（`rc.tileDprCap`）：
+ * 预览面板把瓦片密度抬到面板密度（面板是静态位图，一次性出图，不怕内存），
+ * 否则 面板 dpr / 1.5 倍的上采样会精准糊在音符上。缺省仍 = 编辑器现状 1.5。
+ */
+const tileDprOf = (rc: RenderCtx): number => Math.min(rc.dpr, rc.tileDprCap ?? TILE_DPR_CAP);
+
 interface Tile {
   canvas: HTMLCanvasElement | OffscreenCanvas | null;
   refScale: number;
@@ -245,7 +252,9 @@ export function createNoteLayerCache(): NoteLayerCache {
     notes: readonly ChartNote[]; bpmEvents: readonly BpmTimelineEvent[];
     /** issue 104：瓦片位图活在**布局坐标空间**，其原点 = chartEndVirtualY（画布高度由秒直出），
      *  故失效依据按它比较，而不是按派生出来的 chartEndBeat */
-    chartEndVirtualY: number; beatDisplay: number; dpr: number; skinVersion: number;
+    chartEndVirtualY: number; beatDisplay: number;
+   /** 瓦片位图密度（= `tileDprOf(rc)`）：与帧 dpr 分开记 —— 只有上限被注入（面板密度）时也得全量重建 */
+   tileDpr: number; skinVersion: number;
     /** issue 39：节奏图示大小 / 长压线不透明度烘进音符瓦片，变化时需全量失效 */
     noteSize: number; slideOpacity: number;
     /** issue 39 #4：色觉辅助改变 tap 款式（实拍/虚拍位图），变化时需全量失效 */
@@ -361,8 +370,9 @@ export function createNoteLayerCache(): NoteLayerCache {
     // 位图与主画布同宽（cssW = rc.surface.w），无需左右外扩（装饰器/选中圈均在 surface 内）
     const cssW = rc.surface.w;
     const canvas = createTileCanvas();
-    // issue 36：瓦片 dpr 上限 1.5（内存与重建成本同时下降；主画布 blit 时按 CSS 尺寸 1:1 绘制）
-    const tileDpr = Math.min(rc.dpr, TILE_DPR_CAP);
+    // issue 36：瓦片 dpr 上限 1.5（内存与重建成本同时下降；主画布 blit 时按 CSS 尺寸 1:1 绘制）；
+    // chart-preview 03 验收回修起上限可按帧注入（预览 = 面板密度，见 tileDprOf）
+    const tileDpr = tileDprOf(rc);
     // buffer = css × dpr，尺寸口径走 rasterScale 唯一处
     const { w: bw, h: bh } = bufferSizeFor({ w: cssW, h: cssH }, tileDpr);
     canvas.width = bw;
@@ -419,7 +429,7 @@ export function createNoteLayerCache(): NoteLayerCache {
       notes: rc.notes,
       bpmEvents: rc.geometry.bpmEvents,
       chartEndVirtualY: rc.geometry.chartEndVirtualY,
-      beatDisplay: rc.beatDisplay, dpr: rc.dpr,
+      beatDisplay: rc.beatDisplay, tileDpr: tileDprOf(rc),
       skinVersion: rc.skinVersion ?? 0,
       noteSize: rc.display?.noteSize ?? 1,
       slideOpacity: rc.display?.slideOpacity ?? 1,
@@ -428,13 +438,13 @@ export function createNoteLayerCache(): NoteLayerCache {
     };
     if (
       !basis || basis.chartEndVirtualY !== nb.chartEndVirtualY || basis.beatDisplay !== nb.beatDisplay ||
-      basis.dpr !== nb.dpr || basis.skinVersion !== nb.skinVersion ||
+      basis.tileDpr !== nb.tileDpr || basis.skinVersion !== nb.skinVersion ||
       basis.noteSize !== nb.noteSize || basis.slideOpacity !== nb.slideOpacity ||
       basis.colorAssist !== nb.colorAssist ||
       basis.verticalRatio !== nb.verticalRatio ||
       !bpmEventsEqual(basis.bpmEvents, nb.bpmEvents)
     ) {
-      // 时间线内容/节拍显示/dpr/皮肤/音符大小/长压线不透明度/纵向比例变化 → pos 空间或位图语义变化，全量失效。
+      // 时间线内容/节拍显示/瓦片密度/皮肤/音符大小/长压线不透明度/纵向比例变化 → pos 空间或位图语义变化，全量失效。
       // 注意：surface 宽高与 geometry 实例不在失效依据内（issue 36 F3a，见 basis 注释）。
       tiles.clear();
       basis = nb;

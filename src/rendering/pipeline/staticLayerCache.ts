@@ -11,7 +11,7 @@ import { renderTrackChrome, renderGridBeatLines, renderBoundLines } from '../ren
 import { makeCoords } from '../coords';
 import { bufferSizeFor } from '../rasterScale';
 import { DEFAULT_BACKGROUND_OPACITY } from '../../chart/config/AppSettings';
-import type { RenderCtx } from '../types';
+import type { GridDetail, RenderCtx } from '../types';
 import type { BpmTimelineEvent } from '../../chart/geometry/BpmTimeline';
 import type { GridStylePreset } from '../gridStyle';
 
@@ -25,8 +25,8 @@ type ScreenBasis = {
   lineShapeTiers: boolean;
   gridOpacity: number;
   labelScale: number;
-  /** chart-preview 03 预览显示档：条带里画着横网格与起止线，这两档必须进失效依据 */
-  gridDetail: 'all' | 'beats' | 'none';
+  /** chart-preview 03 / 08 预览显示档：条带里画着横网格与起止线，这两档必须进失效依据 */
+  gridDetail: GridDetail;
   boundLines: boolean;
   surfaceW: number;
   surfaceH: number;

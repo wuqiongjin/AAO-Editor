@@ -108,7 +108,35 @@ export interface AppSettings {
    * additive 字段，不 bump schemaVersion；键白名单与比较器在 `project/projectSort.ts`。
    */
   projects: { sort: ProjectSortKey };
+  /**
+   * 预览标注（chart-preview 08 定案 2026-09-30）：预览页的「看谱方式」，跨会话记住。
+   * 与 `display`（画布通性设置）刻意分开：这几项只有预览面板画，编辑器画布没有对应装饰，
+   * 所以不走 `display`，也不进 ADR-0016 §2 的「预览显示档」（那是叠加在 display 之上的一层）。
+   * additive 字段，不 bump schemaVersion。
+   */
+  preview: PreviewSettings;
 }
+
+/** 预览标注设置（= `settings.preview`；预览面板的叠加项由它推出） */
+export interface PreviewSettings {
+  /** BPM 标记：沟槽常显的 BPM 数值 / 同位组摘要 */
+  bpmMarks: boolean;
+  /** Time 标记：沟槽时间刻度的间隔；`'off'` = 不画 */
+  timeMarks: PreviewTimeMarkInterval;
+  /** Beat 标记：横网格画到第几级细分（约分分母 ≤ N）；`'off'` = 不画横网格 */
+  beatMarks: PreviewBeatMarkDivision;
+}
+
+/** Time 标记间隔（秒）——照 Bestdori 的 `chartTime`：off / 1s / 2s / 5s / 10s（chart-preview 08） */
+export type PreviewTimeMarkInterval = 'off' | 1 | 2 | 5 | 10;
+/** Beat 标记细分档 —— 照 Bestdori 的 `chartBeat`：off / 1/1 / 1/2 / 1/3 / 1/4 / 1/6（chart-preview 08） */
+export type PreviewBeatMarkDivision = 'off' | 1 | 2 | 3 | 4 | 6;
+/** 预览标注白名单（归一化与 UI 选项共用同一份，免得两处各列一遍） */
+export const PREVIEW_TIME_MARK_INTERVALS: readonly PreviewTimeMarkInterval[] = ['off', 1, 2, 5, 10];
+export const PREVIEW_BEAT_MARK_DIVISIONS: readonly PreviewBeatMarkDivision[] = ['off', 1, 2, 3, 4, 6];
+/** 预览标注默认档 = 票 03 的「精简档」观感（只整拍线 / 无沟槽文字 / 无时间刻度）：
+ *  settings 默认值与宽图导出的**固定档**共用这一份，免得两处各写一遍。 */
+export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = { bpmMarks: false, timeMarks: 'off', beatMarks: 1 };
 
 /** 音符皮肤六条目（与 renderer/noteSkin.ts 的 NoteSkinItemId 一致；此处独立声明避免 utils→renderer 运行时依赖） */
 export interface NoteSkinSelectionRaw {
@@ -176,6 +204,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
     projects: { sort: 'lastOpened' },
+    preview: { ...DEFAULT_PREVIEW_SETTINGS },
   };
 }
 
@@ -189,6 +218,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   const rightPanel = (layout.rightPanel && typeof layout.rightPanel === 'object' ? layout.rightPanel : {}) as Record<string, unknown>;
   const projectList = (layout.projectList && typeof layout.projectList === 'object' ? layout.projectList : {}) as Record<string, unknown>;
   const display = (obj.display && typeof obj.display === 'object' ? obj.display : {}) as Record<string, unknown>;
+  const preview = (obj.preview && typeof obj.preview === 'object' ? obj.preview : {}) as Record<string, unknown>;
   const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, unknown>;
   const visual = (obj.visual && typeof obj.visual === 'object' ? obj.visual : {}) as Record<string, unknown>;
   const rawNoteSkin = (visual.noteSkin && typeof visual.noteSkin === 'object' ? visual.noteSkin : {}) as Record<string, unknown>;
@@ -257,6 +287,16 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     curve: normalizeCurveConfig(obj.curve),
     // 工程启动台排序（issue 19 #4）：白名单外 / 缺字段 → 默认最近打开
     projects: { sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort) },
+    // 预览标注（chart-preview 08）：枚举白名单归一化，缺字段 → 默认精简档
+    preview: {
+      bpmMarks: typeof preview.bpmMarks === 'boolean' ? preview.bpmMarks : defaults.preview.bpmMarks,
+      timeMarks: (PREVIEW_TIME_MARK_INTERVALS as readonly unknown[]).includes(preview.timeMarks)
+        ? preview.timeMarks as PreviewTimeMarkInterval
+        : defaults.preview.timeMarks,
+      beatMarks: (PREVIEW_BEAT_MARK_DIVISIONS as readonly unknown[]).includes(preview.beatMarks)
+        ? preview.beatMarks as PreviewBeatMarkDivision
+        : defaults.preview.beatMarks,
+    },
   };
 }
 
@@ -322,6 +362,7 @@ export function updateSettings(
     visual: Partial<AppSettings['visual']>;
     curve?: CurveConfig;
     projects?: Partial<AppSettings['projects']>;
+    preview?: Partial<AppSettings['preview']>;
   }>,
 ): AppSettings {
   return {
@@ -337,5 +378,6 @@ export function updateSettings(
     visual: { ...prev.visual, ...(patch.visual ?? {}) },
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
     projects: { ...prev.projects, ...(patch.projects ?? {}) },
+    preview: { ...prev.preview, ...(patch.preview ?? {}) },
   };
 }

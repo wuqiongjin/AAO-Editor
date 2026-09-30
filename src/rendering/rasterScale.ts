@@ -10,16 +10,26 @@
 import type { SurfaceSize } from '../chart/geometry/ChartGeometry';
 
 /**
+ * 画质档 → 渲染密度（issue 39 #6 / issue 40 定案）：流畅 1× / 标准 2.5× / 高清 3×（缺省 / 非法 = 标准）。
+ * 两个方向各取所需，取值只有这一处：
+ * - 工作台画布把它当**上限**（`resolveCanvasDpr` = min(设备像素比, 它)）；
+ * - 预览面板把它当**目标密度**（`preview/static/panelPainter` 的 `resolvePanelDpr` = max(设备像素比, 它)）——
+ *   面板是静态位图，1× 屏上那套 min() 一点超采样余量都没有。
+ */
+export function imageQualityDensity(imageQuality: string | undefined): number {
+  return imageQuality === 'smooth' ? 1 : imageQuality === 'hd' ? 3 : 2.5;
+}
+
+/**
  * 画布 dpr 策略（issue 39 #6 / issue 40）：
- * - 流畅 `smooth` → 上限 1；标准（含缺省/非法档）→ 2.5；高清 `hd` → 3；
+ * - 流畅 `smooth` → 上限 1；标准（含缺省/非法档）→ 2.5；高清 `hd` → 3（见 `imageQualityDensity`）；
  * - 再与设备像素比取 min（`devicePixelRatio` 缺省 1，与组件原口径一致）。
  */
 export function resolveCanvasDpr(
   imageQuality: string | undefined,
   devicePixelRatio: number = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
 ): number {
-  const limit = imageQuality === 'smooth' ? 1 : imageQuality === 'hd' ? 3 : 2.5;
-  return Math.min(devicePixelRatio, limit);
+  return Math.min(devicePixelRatio, imageQualityDensity(imageQuality));
 }
 
 /** 位图缓冲尺寸（整数）：buffer = CSS 尺寸 × dpr（ADR-0006 §1）。 */

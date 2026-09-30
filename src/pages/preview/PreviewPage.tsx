@@ -13,13 +13,11 @@ import { showToast } from '../../ui/Toast';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig, useUI } from '../../app/ProviderTree';
 import {
-  DEFAULT_PREVIEW_PROFILE,
   DEFAULT_PREVIEW_ZOOM,
   StaticPreviewView,
   exportSheetAs,
   planSheet,
   type PanelSceneInput,
-  type PreviewDisplayProfile,
   type PreviewMode,
 } from '../../preview';
 import { chartEffectiveTitle, DIFF_SHORT } from '../../project/projectCatalog';
@@ -43,9 +41,10 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   const [mode, setMode] = useState<PreviewMode>('static');
   const { scopeId, currentId, project, options, loading, chartId, pickChart } = usePreviewScope(active);
 
-  // 静态预览的看谱档（页面内 state，不落设置）：缩放 / 叠加项 / 全屏 / 导出进行中
+  // 静态预览的看谱档：缩放 / 全屏是"这一屏怎么看"（页面内 state，不落设置）；
+  // 叠加项（BPM / 时间 / 节拍线）落 `settings.preview`、画布共享项落 `settings.display`
+  // —— 两者都由「显示」面板直接读写，本页只把 `settings.preview` 转交给画面（chart-preview 08 定案）。
   const [zoom, setZoom] = useState<number>(DEFAULT_PREVIEW_ZOOM);
-  const [profile, setProfile] = useState<PreviewDisplayProfile>(DEFAULT_PREVIEW_PROFILE);
   const [exporting, setExporting] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -173,8 +172,6 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 <PreviewStaticToolbar
                   zoom={zoom}
                   onZoom={setZoom}
-                  profile={profile}
-                  onProfile={setProfile}
                   exporting={exporting}
                   onExport={() => void handleExport()}
                   exportPlan={exportPlan}
@@ -200,14 +197,12 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
             >
               {mode === 'static' && scene ? (
                 <>
-                  <StaticPreviewView scene={scene} zoom={zoom} profile={profile} onZoom={setZoom} />
+                  <StaticPreviewView scene={scene} zoom={zoom} markers={settings.preview} onZoom={setZoom} />
                   {fullscreen && (
                     <div className="preview-fs">
                       <PreviewStaticToolbar
                         zoom={zoom}
                         onZoom={setZoom}
-                        profile={profile}
-                        onProfile={setProfile}
                         exporting={exporting}
                         onExport={() => void handleExport()}
                         exportPlan={exportPlan}

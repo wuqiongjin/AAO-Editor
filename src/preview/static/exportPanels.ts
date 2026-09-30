@@ -9,7 +9,7 @@
 import { bufferSizeFor, displayOptionsFromSettings } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
-import { DEFAULT_PREVIEW_PROFILE, resolvePreviewDisplay } from './displayProfile';
+import { DEFAULT_PREVIEW_MARKERS, resolvePreviewDisplay } from './displayProfile';
 import {
   esForZoom,
   makePanelLayout,
@@ -110,8 +110,8 @@ export async function renderSheet(req: SheetExportRequest): Promise<SheetRenderO
   const painter = createPanelPainter({
     layout,
     scene,
-    // 固定精简显示档（不跟预览开关走）+ 作者画布设置的其余字段
-    display: resolvePreviewDisplay(displayOptionsFromSettings(scene.settingsDisplay), DEFAULT_PREVIEW_PROFILE),
+    // 固定精简标注档（不跟预览开关走）+ 作者画布设置的其余字段
+    display: resolvePreviewDisplay(displayOptionsFromSettings(scene.settingsDisplay), DEFAULT_PREVIEW_MARKERS),
     noteIcons,
     spriteIcon: new CanvasSpriteIcon(),
     dpr: plan.dpr,

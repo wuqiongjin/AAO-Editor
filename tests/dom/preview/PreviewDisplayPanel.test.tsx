@@ -1,0 +1,163 @@
+// @vitest-environment jsdom
+// chart-preview 08：预览页「显示」面板的行为锁（2026-09-30 用户定案）。
+//
+// 三组口径各锁一条：
+//   1. 标注（BPM / 时间 / 节拍线）落 `settings.preview` —— 跨会话记住，且**不动**画布显示；
+//   2. 画布共享项直接写 `settings.display` —— 与设置页「画布显示」是同一份设置（改了双方生效），
+//      所以这里断言的是"落盘里的那一份"而不是面板内的副本；
+//   3. 浮层交互照站内菜单壳：Esc 关并把焦点还给触发钮、点遮罩关。
+//
+// 按结构取节点一处：`.pp-menu__scrim`（"点面板外"只有遮罩能表达，照 ScopePicker.test.tsx）。
+//
+// 控件文案**复用设置页那套**（节奏图示大小 / 同时点击线 / 图像品质 / 轨道颜色…）：面板是同一份设置的
+// 第二个入口，两处名字必须一样（面板不另起一套词汇）。
+import '@testing-library/jest-dom/vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
+import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
+import PreviewDisplayPanel from '@/src/pages/preview/PreviewDisplayPanel';
+import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '@/src/rendering/skin/noteSkin';
+import { defaultSettings } from '@/src/chart/config/AppSettings';
+import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
+
+interface StoredSettings {
+  display: Record<string, unknown>;
+  preview: Record<string, unknown>;
+}
+
+function setup() {
+  seedZhSettings();
+  const setActivePage = vi.fn();
+  const nav: AppNavValue = {
+    activePage: 'preview', setActivePage, pageScope: null,
+    navCollapsed: false, setNavCollapsed: vi.fn(),
+  };
+  render(
+    <AppNavProvider value={nav}>
+      <ConfigProvider>
+        <PreviewDisplayPanel />
+      </ConfigProvider>
+    </AppNavProvider>,
+  );
+  fireEvent.click(trigger());
+  return { setActivePage };
+}
+
+const trigger = () => screen.getByRole('button', { name: '显示' });
+const panel = () => screen.getByRole('dialog', { name: '静态预览的显示设置' });
+const scrim = () => document.querySelector('.pp-menu__scrim') as HTMLElement;
+/** 落盘的那份设置（ConfigProvider 每次改动都整份写回同一 key） */
+const stored = (): StoredSettings => JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as StoredSettings;
+const bpmSwitch = () => within(panel()).getByRole('switch', { name: 'BPM 标记' });
+const dualSwitch = () => within(panel()).getByRole('switch', { name: '同时点击线' });
+const timeSelect = () => within(panel()).getByRole('combobox', { name: '时间标记' });
+const beatSelect = () => within(panel()).getByRole('combobox', { name: '节拍线' });
+
+describe('chart-preview 08 · 面板打开与默认档', () => {
+  it('点「显示」弹出面板：标注 / 画布 / 皮肤三组都在', () => {
+    setup();
+    expect(panel()).toBeInTheDocument();
+    expect(within(panel()).getByText('标注（预览）')).toBeInTheDocument();
+    expect(within(panel()).getByText('画布（与工作台共通）')).toBeInTheDocument();
+    expect(within(panel()).getByText('音符皮肤')).toBeInTheDocument();
+  });
+
+  it('默认 = 精简档：BPM 标记关、时间标记关闭、节拍线 1/1（与票 03 的观感一致）', () => {
+    setup();
+    expect(bpmSwitch()).toHaveAttribute('aria-checked', 'false');
+    expect(timeSelect()).toHaveValue('off');
+    expect(beatSelect()).toHaveValue('1');
+  });
+
+  it('皮肤组显示当前整包名（六条目命中某个整包；不是整包时显示"已自定义"）', () => {
+    setup();
+
+    // 期望名从注册表算（不抄字面量）：与素材页"整包预设"同一判定口径。
+    // 默认选择就是某个整包 → 面板显示的是它的 label，而不是"已自定义"。
+    const expected = noteSkinPresetLabel(normalizeNoteSkinSelection(undefined));
+    expect(expected).toBeTruthy();
+    expect(within(panel()).getByText(expected!)).toBeInTheDocument();
+    expect(within(panel()).queryByText('已自定义')).toBeNull();
+  });
+});
+
+describe('chart-preview 08 · 标注项落 settings.preview', () => {
+  it('三个档位各写各的，且不碰画布显示那段', () => {
+    setup();
+
+    fireEvent.click(bpmSwitch());
+    expect(bpmSwitch()).toHaveAttribute('aria-checked', 'true');
+    expect(stored().preview.bpmMarks).toBe(true);
+
+    fireEvent.change(timeSelect(), { target: { value: '5' } });
+    expect(stored().preview.timeMarks).toBe(5);
+
+    fireEvent.change(beatSelect(), { target: { value: '4' } });
+    expect(stored().preview.beatMarks).toBe(4);
+
+    expect(stored().preview).toEqual({ bpmMarks: true, timeMarks: 5, beatMarks: 4 });
+    // 画布那段一个字段都没被动过（写回的是整份设置，值是默认档）
+    expect(stored().display).toEqual(defaultSettings().display);
+  });
+});
+
+describe('chart-preview 08 · 画布共享项落 settings.display（与设置页同一份）', () => {
+  it('同时点击线 / 图像品质 / 音符大小都写进 display，且不碰标注那段', () => {
+    setup();
+
+    fireEvent.click(dualSwitch());
+    expect(dualSwitch()).toHaveAttribute('aria-checked', 'false');
+    expect(stored().display.simultaneousClickLines).toBe(false);
+
+    fireEvent.change(within(panel()).getByRole('combobox', { name: '图像品质' }), { target: { value: 'hd' } });
+    expect(stored().display.imageQuality).toBe('hd');
+
+    fireEvent.change(within(panel()).getByRole('slider', { name: '节奏图示大小' }), { target: { value: '150' } });
+    expect(stored().display.noteSize).toBeCloseTo(1.5, 6);
+
+    // 标注那段一个字段都没被动过
+    expect(stored().preview).toEqual(defaultSettings().preview);
+  });
+
+  it('面板读的是同一份设置：外部（设置页）改过之后打开面板能看到当前值', () => {
+    seedZhSettings({ display: { noteSize: 0.5, simultaneousClickLines: false, imageQuality: 'hd' } });
+    const setActivePage = vi.fn();
+    render(
+      <AppNavProvider value={{ activePage: 'preview', setActivePage, pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
+        <ConfigProvider><PreviewDisplayPanel /></ConfigProvider>
+      </AppNavProvider>,
+    );
+    fireEvent.click(trigger());
+
+    expect(within(panel()).getByRole('slider', { name: '节奏图示大小' })).toHaveValue('50');
+    expect(dualSwitch()).toHaveAttribute('aria-checked', 'false');
+    expect(within(panel()).getByRole('combobox', { name: '图像品质' })).toHaveValue('hd');
+    // 没在种子里的项读的是 settings.display 的默认值（面板不自己造一套默认）
+    expect(within(panel()).getByRole('combobox', { name: '轨道颜色' })).toHaveValue(defaultSettings().display.gridStyle);
+  });
+});
+
+describe('chart-preview 08 · 浮层交互与皮肤入口', () => {
+  it('Esc 关面板并把焦点还给触发钮', () => {
+    setup();
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(trigger()).toHaveFocus();
+  });
+
+  it('点面板外（遮罩）关闭', () => {
+    setup();
+    fireEvent.click(scrim());
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('「去素材页」关掉面板并切到素材页', () => {
+    const { setActivePage } = setup();
+    fireEvent.click(within(panel()).getByRole('button', { name: '去素材页' }));
+
+    expect(setActivePage).toHaveBeenCalledWith('assets');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});

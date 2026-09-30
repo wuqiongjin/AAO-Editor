@@ -1,33 +1,20 @@
-// 静态预览的工具栏控件（chart-preview 03；二轮修订 2026-09-30）：
-// 连续缩放滑杆 + 网格档 + 沟槽文字 + 全屏 + 导出宽图。
+// 静态预览的工具栏控件（chart-preview 03；08 起显示档搬进「显示」面板）：
+// 连续缩放滑杆 + 显示面板（标注 / 画布共享 / 音符皮肤）+ 全屏 + 导出。
 //
 // 一个旋钮：缩放决定轨道宽（面板宽 = 13 车道宽）、音符大小、每面板秒数；面板高跟容器高（Bestdori 语义）。
 // 缩放**连续可调**（滑杆；预览区内 Ctrl/⌘+滚轮同款，见 StaticPreviewView 的滚轮监听），不再只给几档。
+// 叠加项（BPM / 时间 / 节拍线）与画布共享项都在 `PreviewDisplayPanel` 里（同一排控件：页面工具栏与全屏浮层各一份）。
 // 控件形式照全站：滑杆复用 `.slider-control` / `.slider-value`（设置页同一套），其余走 `IconButton`。
-import { Grid3x3, ImageDown, Maximize2, Minimize2, Type } from 'lucide-react';
+import { ImageDown, Maximize2, Minimize2 } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
-import { t, type MessageKey } from '../../i18n';
-import {
-  PREVIEW_ZOOM_RANGE,
-  type PreviewDisplayProfile,
-  type PreviewGridDetail,
-  type SheetPlan,
-} from '../../preview';
+import { t } from '../../i18n';
+import { PREVIEW_ZOOM_RANGE, type SheetPlan } from '../../preview';
+import PreviewDisplayPanel from './PreviewDisplayPanel';
 import './PreviewPage.css';
-
-/** 网格细节档的循环次序（图标钮点一下走下一档） */
-const GRID_CYCLE: PreviewGridDetail[] = ['beats', 'all', 'none'];
-const GRID_LABEL_KEY: Record<PreviewGridDetail, MessageKey> = {
-  beats: 'preview.static.gridDetail.beats',
-  all: 'preview.static.gridDetail.all',
-  none: 'preview.static.gridDetail.none',
-};
 
 export interface PreviewStaticToolbarProps {
   zoom: number;
   onZoom: (zoom: number) => void;
-  profile: PreviewDisplayProfile;
-  onProfile: (profile: PreviewDisplayProfile) => void;
   exporting: boolean;
   onExport: () => void;
   /**
@@ -43,16 +30,12 @@ export interface PreviewStaticToolbarProps {
 export default function PreviewStaticToolbar({
   zoom,
   onZoom,
-  profile,
-  onProfile,
   exporting,
   onExport,
   exportPlan,
   fullscreen,
   onToggleFullscreen,
 }: PreviewStaticToolbarProps) {
-  const gridIndex = GRID_CYCLE.indexOf(profile.gridDetail);
-  const gridNext = GRID_CYCLE[(gridIndex + 1) % GRID_CYCLE.length]!;
   const exportTitle = exportPlan == null
     ? t('preview.static.export')
     : exportPlan.ok
@@ -78,26 +61,7 @@ export default function PreviewStaticToolbar({
         </div>
       </div>
 
-      <IconButton
-        width="auto"
-        size="sm"
-        icon={<Grid3x3 size={15} />}
-        label={t(GRID_LABEL_KEY[profile.gridDetail])}
-        title={t('preview.static.gridDetail.cycle', {
-          current: t(GRID_LABEL_KEY[profile.gridDetail]),
-          next: t(GRID_LABEL_KEY[gridNext]),
-        })}
-        active={profile.gridDetail !== 'beats'}
-        onClick={() => onProfile({ ...profile, gridDetail: gridNext })}
-      />
-      <IconButton
-        width="auto"
-        size="sm"
-        icon={<Type size={15} />}
-        title={t('preview.static.gutterLabels')}
-        active={profile.gutterLabels}
-        onClick={() => onProfile({ ...profile, gutterLabels: !profile.gutterLabels })}
-      />
+      <PreviewDisplayPanel />
 
       <IconButton
         width="auto"

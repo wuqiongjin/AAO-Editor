@@ -3,7 +3,7 @@
 // 面板里画的**就是**编辑器那套渲染（`src/rendering`），本域不新写第二种画笔：
 //   - `panelLayout`   面板模型的排布数学（一个缩放旋钮 / 面板数 / 窗口 / 可见区间 / 指针→秒 / 宽图与上限）
 //   - `panelPainter`  一份共享离屏 target 逐面板代画（`renderChart` / `RenderTarget`）
-//   - `displayProfile` 预览显示档（默认精简：只整拍线 / 无沟槽文字 / 无起止线）
+//   - `displayProfile` 预览显示档（`settings.preview` 的三个标注档 → `RenderDisplayOptions` 覆盖）
 //   - `StaticPreviewView` 画面（横向滚动 + 懒绘制 + 记账 + hover）
 //   - `exportPanels`  宽图导出（固定档出图 + 落盘）
 //   - `saveBinary`    二进制另存通道（Electron 桥 / 浏览器降级；07 的视频导出复用）
@@ -42,11 +42,9 @@ export {
   type PanelSceneInput,
 } from './panelPainter';
 export {
-  DEFAULT_PREVIEW_PROFILE,
+  DEFAULT_PREVIEW_MARKERS,
   PREVIEW_LABEL_SCALE,
   resolvePreviewDisplay,
-  type PreviewDisplayProfile,
-  type PreviewGridDetail,
 } from './displayProfile';
 export { default as StaticPreviewView, type StaticPreviewViewProps } from './StaticPreviewView';
 export {
