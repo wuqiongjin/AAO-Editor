@@ -8,15 +8,17 @@
 //   - `exportPanels`  宽图导出（固定档出图 + 落盘）
 //   - `saveBinary`    二进制另存通道（Electron 桥 / 浏览器降级；07 的视频导出复用）
 export {
+  DEFAULT_PREVIEW_ZOOM,
   MIN_PANEL_H,
   PANEL_LANES,
   PANEL_W_PER_ES,
   PREVIEW_ES_STANDARD,
-  PREVIEW_ZOOM_STEPS,
+  PREVIEW_ZOOM_RANGE,
   SHEET_LIMITS,
   esForZoom,
   makePanelGeometry,
   makePanelLayout,
+  normalizePreviewZoom,
   panelPointerAt,
   panelPosRange,
   panelScrollY,
@@ -26,7 +28,6 @@ export {
   visiblePanelRange,
   type PanelLayout,
   type PanelLayoutInput,
-  type PreviewZoom,
   type SheetLimits,
   type SheetPlan,
   type SheetPlanFail,

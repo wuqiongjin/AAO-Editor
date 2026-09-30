@@ -36,44 +36,55 @@
   min-width: 0;
 }
 
-/* 缩放：分段档（全站第一个分段件；样式照 icon-btn / scope-picker 那一套 token） */
+/* 缩放：连续滑杆（滑杆本体复用设置页那套 .slider-control / .slider-value） */
 .preview-zoom {
   display: inline-flex;
   align-items: center;
-  padding: 2px;
+  gap: 6px;
+}
+
+.preview-zoom__label {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.preview-zoom__slider {
+  min-width: 0;
+  gap: 6px;
+}
+
+.preview-zoom__slider input[type='range'] {
+  width: 120px;
+  min-width: 0;
+}
+
+.preview-zoom__slider .slider-value {
+  width: 38px;
+  flex: 0 0 38px;
+  font-size: var(--text-2xs);
+}
+
+/* ---- 全屏预览 ----
+   舞台整体进全屏：底色压成画布色、四周不留空，工具栏那排控件搬进右上角（全屏下照样能缩放 / 导出）。 */
+.preview-stage:fullscreen {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--canvas-bg);
+}
+
+.preview-fs {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
   background: var(--bg-elevated);
-}
-
-.preview-zoom__item {
-  min-width: 46px;
-  padding: 3px 8px;
-  border: none;
-  border-radius: var(--radius-full);
-  background: none;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-
-.preview-zoom__item:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.preview-zoom__item.is-active {
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-weight: 650;
-}
-
-.preview-zoom__item:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
+  box-shadow: var(--shadow-md);
 }
 
 /* ---- 谱面切换器（作用对象工程的谱面；换掉只改本页在看哪张） ---- */
@@ -196,6 +207,7 @@
    两种形态的画面（03 静态面板折行 / 05 仿真场）画在这里。
    面积极限让给画面本身：这里只给一个"舞台轮廓"，不预设内部布局。 */
 .preview-stage {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   align-items: center;

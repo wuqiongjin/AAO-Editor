@@ -6,10 +6,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ChartNote } from '@/src/chart/types';
 import {
+  DEFAULT_PREVIEW_ZOOM,
   PANEL_W_PER_ES,
-  PREVIEW_ZOOM_STEPS,
+  PREVIEW_ZOOM_RANGE,
   esForZoom,
   makePanelLayout,
+  normalizePreviewZoom,
   panelPointerAt,
   panelPosRange,
   panelScrollY,
@@ -48,8 +50,15 @@ describe('chart-preview 03 · 面板模型：一个旋钮', () => {
     expect(layoutOf({ zoom: 0.5 }).panelW).toBeCloseTo(65, 6);
   });
 
-  it('缩放档 = 50% / 100% / 150% / 200%，标准档每面板 ≈3.66 秒（537 高，Bestdori 同档）', () => {
-    expect([...PREVIEW_ZOOM_STEPS]).toEqual([0.5, 1, 1.5, 2]);
+  it('缩放连续可调，但夹在 30%..300%（滑杆与滚轮共用 normalizePreviewZoom）', () => {
+    expect(PREVIEW_ZOOM_RANGE).toMatchObject({ min: 0.3, max: 3 });
+    expect(normalizePreviewZoom(1.37)).toBeCloseTo(1.37, 6);
+    expect(normalizePreviewZoom(9)).toBe(PREVIEW_ZOOM_RANGE.max);
+    expect(normalizePreviewZoom(0.01)).toBe(PREVIEW_ZOOM_RANGE.min);
+    expect(normalizePreviewZoom(Number.POSITIVE_INFINITY)).toBe(DEFAULT_PREVIEW_ZOOM);
+  });
+
+  it('标准档每面板 ≈3.66 秒（537 高，Bestdori 同档）', () => {
     const standard = layoutOf({ panelH: 537, zoom: 1 });
     expect(standard.secondsPerPanel).toBeCloseTo(537 / (PX_PER_SECOND / 3), 6);
     expect(standard.secondsPerPanel).toBeGreaterThan(3.5);

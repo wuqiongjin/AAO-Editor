@@ -4,13 +4,15 @@
 // 页面装配在 `src/pages/preview/`；本域**不得** import pages/（单向依赖：preview → rendering/chart/audio/playback）。
 export type { PreviewMode, PreviewTarget } from './types';
 export {
+  DEFAULT_PREVIEW_ZOOM,
   EXPORT_PANEL_H,
   PREVIEW_ES_STANDARD,
-  PREVIEW_ZOOM_STEPS,
+  PREVIEW_ZOOM_RANGE,
   StaticPreviewView,
   esForZoom,
   exportSheetAs,
   makePanelLayout,
+  normalizePreviewZoom,
   panelWidthForEs,
   planSheet,
   renderSheet,
@@ -21,7 +23,6 @@ export type {
   PanelSceneInput,
   PreviewDisplayProfile,
   PreviewGridDetail,
-  PreviewZoom,
   SheetExportOutcome,
   SheetExportRequest,
   SheetPlan,

@@ -124,11 +124,36 @@ describe('chart-preview 03 · 预览页消费静态形态', () => {
     expect(page).not.toMatch(/panelH\s*:/);
   });
 
-  it('原生 select / checkbox 不是预览工具栏的形态（分段档 + 图标钮）', () => {
+  it('原生 select / checkbox 不是预览工具栏的形态（滑杆 + 图标钮）', () => {
     expect(toolbarSrc).not.toMatch(/<select/);
     expect(toolbarSrc).not.toMatch(/type="checkbox"/);
-    expect(toolbarSrc).toMatch(/PREVIEW_ZOOM_STEPS/);
+    expect(toolbarSrc).toMatch(/type="range"/);
+    expect(toolbarSrc).toMatch(/PREVIEW_ZOOM_RANGE/);
     expect(toolbarSrc).toMatch(/IconButton/);
+  });
+
+  it('「起止线」开关已撤（130px 面板里那两条虚线读不出信息）', () => {
+    // 显示档仍把 boundLines 定为精简（不画），但工具栏不再给用户这个开关
+    expect(toolbarSrc).not.toMatch(/boundLines/);
+    const profileSrc = readStripped('src/preview/static/displayProfile.ts');
+    expect(profileSrc).toMatch(/boundLines:\s*false/);
+  });
+
+  it('全屏预览：舞台进全屏 + 全屏后控件搬进预览区（仍可缩放）', () => {
+    const page = readStripped('src/pages/preview/PreviewPage.tsx');
+    expect(page).toMatch(/requestFullscreen/);
+    expect(page).toMatch(/fullscreenchange/);
+    expect(page).toMatch(/preview-fs/);
+    // 全屏与否都不能少掉这排控件（页面工具栏一份、全屏浮层一份，同一个组件）
+    expect(page.match(/<PreviewStaticToolbar/g)?.length).toBe(2);
+  });
+
+  it('滚轮接缝：预览区内拦下默认行为（横滚 + Ctrl/⌘ 缩放），缩放不改整页', () => {
+    const viewSrcStripped = readStripped('src/preview/static/StaticPreviewView.tsx');
+    expect(viewSrcStripped).toMatch(/addEventListener\(\s*'wheel'/);
+    expect(viewSrcStripped).toMatch(/passive:\s*false/);
+    expect(viewSrcStripped).toMatch(/preventDefault\(\)/);
+    expect(viewSrcStripped).toMatch(/ctrlKey \|\| event\.metaKey/);
   });
 
   it('原型壳已撤（不再有独立预览原型入口）', () => {

@@ -17,10 +17,14 @@ import { formatInMinuteTime } from '@/src/chart/geometry/TimeFormat';
 import StaticPreviewView, { type StaticPreviewViewProps } from '@/src/preview/static/StaticPreviewView';
 import type { PanelPainter, PanelPainterParams } from '@/src/preview/static/panelPainter';
 import {
+  DEFAULT_PREVIEW_ZOOM,
+  PREVIEW_ZOOM_RANGE,
   esForZoom,
   makePanelLayout,
+  normalizePreviewZoom,
   panelPointerAt,
   panelScrollY,
+  panelWidthForEs,
 } from '@/src/preview/static/panelLayout';
 import { makeRecordingCtx, type RecordedCall } from '@/tests/support/canvas';
 
@@ -118,13 +122,14 @@ const PANEL_RECT = {
 } as DOMRect;
 
 /** 一次挂载会话：出图记录 + 稳定的出图器工厂（rerender 不该因此换代重画）；`real` = 用真渲染 */
-function session(opts: { width?: number; real?: boolean } = {}) {
+function session(opts: { width?: number; height?: number; real?: boolean; props?: Partial<StaticPreviewViewProps> } = {}) {
   const calls: PaintCall[] = [];
   const painterFactory = makeRecordingFactory(calls);
   const build = (props: Partial<StaticPreviewViewProps>): ReactElement => (
     <StaticPreviewView
       {...BASE_PROPS}
       {...(opts.real ? {} : { painterFactory })}
+      {...opts.props}
       {...props}
     />
   );
@@ -132,7 +137,7 @@ function session(opts: { width?: number; real?: boolean } = {}) {
   const host = view.container.firstElementChild as HTMLDivElement;
   const width = opts.width ?? PANEL_W * 4 - 1;
   let scrollLeft = 0;
-  let height = PANEL_H;
+  let height = opts.height ?? PANEL_H;
   Object.defineProperty(host, 'clientWidth', { configurable: true, get: () => width });
   Object.defineProperty(host, 'clientHeight', { configurable: true, get: () => height });
   Object.defineProperty(host, 'scrollLeft', {
@@ -239,6 +244,56 @@ describe('chart-preview 03 · 面板懒绘制与记账', () => {
     expect(shorter.panelCount).toBe(expectedLayout().panelCount * 2);
     // 面板尺寸进几何 → 新画家 → 可见面板重出（位图缓冲也跟着换）
     expect(s.calls.slice(4).map((c) => c.panel)).toEqual([0, 1, 2, 3]);
+  });
+});
+
+describe('chart-preview 03 · 滚轮：横滚与缩放（2026-09-30 验收）', () => {
+  const wheel = (host: HTMLElement, init: WheelEventInit) => {
+    const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, ...init });
+    act(() => { fireEvent(host, event); });
+    return event;
+  };
+
+  it('光滚轮 = 横向滚动（纵向滚轮也映射成横滚），并拦掉默认滚动', () => {
+    const s = session();
+    s.sync();
+
+    const down = wheel(s.host, { deltaY: 200 });
+    expect(down.defaultPrevented).toBe(true);
+    expect(s.host.scrollLeft).toBe(200);
+    // 可见区间跟着滚：滚到 200 px → 可见 [floor(200/130), floor(719/130)] = 1..5
+    expect(s.calls.map((c) => c.panel)).toEqual([0, 1, 2, 3, 4, 5]);
+
+    const up = wheel(s.host, { deltaY: -200 });
+    expect(up.defaultPrevented).toBe(true);
+    expect(s.host.scrollLeft).toBe(0);
+  });
+
+  it('Ctrl/⌘+滚轮 = 缩放这一屏（拦掉整页缩放），并把指针下的那一格钉住', () => {
+    const onZoom = vi.fn();
+    const s = session({ props: { onZoom } });
+    s.sync();
+    s.scrollTo(PANEL_W * 10);   // 先滚到中段，免得锚点落在 0 处被钳掉
+
+    const event = wheel(s.host, { deltaY: -100, ctrlKey: true, clientX: 100 });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onZoom).toHaveBeenCalledTimes(1);
+    const nextZoom = onZoom.mock.calls[0]![0] as number;
+    expect(nextZoom).toBeGreaterThan(1);
+
+    // 指针下那一格（带小数）在缩放前后落在同一屏位置：scrollLeft 按同一套面板数学重算
+    const offsetX = 100;
+    const panelAt = (PANEL_W * 10 + offsetX) / PANEL_W;
+    const expectedScrollLeft = panelAt * panelWidthForEs(esForZoom(nextZoom)) - offsetX;
+    expect(s.host.scrollLeft).toBeCloseTo(expectedScrollLeft, 0);
+  });
+
+  it('滑杆给的值也走同一把尺：连续可调、两端夹在区间内', () => {
+    expect(normalizePreviewZoom(1.23)).toBeCloseTo(1.23, 6);
+    expect(normalizePreviewZoom(99)).toBe(PREVIEW_ZOOM_RANGE.max);
+    expect(normalizePreviewZoom(0)).toBe(PREVIEW_ZOOM_RANGE.min);
+    expect(normalizePreviewZoom(Number.NaN)).toBe(DEFAULT_PREVIEW_ZOOM);
   });
 });
 

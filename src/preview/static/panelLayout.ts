@@ -32,9 +32,23 @@ export function panelWidthForEs(es: number): number {
 /** 缩放下限（与 `ChartGeometry` 的 MIN_SCALE 同值）：面板档下 fitScale 恒不触发（228es < 390es） */
 const MIN_PANEL_ES = 0.1;
 
-/** 缩放档（分段选择；1 = 标准档） */
-export const PREVIEW_ZOOM_STEPS = [0.5, 1, 1.5, 2] as const;
-export type PreviewZoom = (typeof PREVIEW_ZOOM_STEPS)[number];
+/**
+ * 缩放区间（**连续可调**：滑杆 + 预览区内 Ctrl/⌘+滚轮；1 = 标准档 → 面板 130 CSS px 宽）。
+ * 下限 30% 时面板 39 px 宽（轨道 21 px）、上限 300% 时面板 390 px 宽：两端都还在"看得出是谱面"的范围里。
+ */
+export const PREVIEW_ZOOM_RANGE = { min: 0.3, max: 3, step: 0.05 } as const;
+/** 默认缩放档（100%） */
+export const DEFAULT_PREVIEW_ZOOM = 1;
+
+/**
+ * 归一化缩放值：夹进区间 + 取到百分位（滑杆按 `step` 走档、滚轮给连续值，两者共用这一把尺）。
+ * 百分位量化是防浮点噪声（0.30000000000000004），不是限制档位 —— 缩放是连续可调的。
+ */
+export function normalizePreviewZoom(zoom: number): number {
+  const { min, max } = PREVIEW_ZOOM_RANGE;
+  if (!Number.isFinite(zoom)) return DEFAULT_PREVIEW_ZOOM;
+  return Math.round(Math.min(max, Math.max(min, zoom)) * 100) / 100;
+}
 
 /**
  * 标准缩放的 es：面板 130 CSS px 宽（390 × 1/3）。

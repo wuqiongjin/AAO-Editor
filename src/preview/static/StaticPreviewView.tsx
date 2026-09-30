@@ -12,7 +12,14 @@ import { displayOptionsFromSettings, resolveCanvasDpr } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import { DEFAULT_PREVIEW_PROFILE, resolvePreviewDisplay, type PreviewDisplayProfile } from './displayProfile';
-import { MIN_PANEL_H, esForZoom, makePanelLayout, visiblePanelRange } from './panelLayout';
+import {
+  MIN_PANEL_H,
+  esForZoom,
+  makePanelLayout,
+  normalizePreviewZoom,
+  panelWidthForEs,
+  visiblePanelRange,
+} from './panelLayout';
 import {
   createPanelPainter,
   type PanelPainter,
@@ -25,12 +32,14 @@ export interface StaticPreviewViewProps {
   /** 要画的谱面（含细分档与作者画布设置）：与导出共用同一份字段定义 */
   scene: PanelSceneInput;
   /**
-   * 缩放档（1 = 标准档）：**唯一旋钮** —— 轨道宽 / 音符大小 / 每面板秒数 / 面板宽全由它推出
+   * 缩放（1 = 标准档）：**唯一旋钮** —— 轨道宽 / 音符大小 / 每面板秒数 / 面板宽全由它推出
    * （见 panelLayout：「一个旋钮」）。面板高跟容器高（Bestdori 语义）。
    */
   zoom: number;
   /** 预览显示档（默认精简，见 displayProfile.ts） */
   profile?: PreviewDisplayProfile;
+  /** 预览区内 Ctrl/⌘+滚轮调缩放时回传新值（不传 = 该手势不接管，交给浏览器） */
+  onZoom?: (zoom: number) => void;
   painterFactory?: PanelPainterFactory;
 }
 
@@ -40,6 +49,7 @@ export default function StaticPreviewView({
   scene,
   zoom,
   profile = DEFAULT_PREVIEW_PROFILE,
+  onZoom,
   painterFactory,
 }: StaticPreviewViewProps) {
   const { notes, chartDuration, verticalRatio, settingsDisplay, noteSkin } = scene;
@@ -110,6 +120,39 @@ export default function StaticPreviewView({
     window.addEventListener('resize', syncFromHost);
     return () => window.removeEventListener('resize', syncFromHost);
   }, [syncFromHost]);
+
+  // ---------------- 滚轮（原生监听：要 preventDefault，React 的 onWheel 拦不住） ----------------
+  // 这一屏是横向胶片带，所以：
+  // - 光滚轮 = 横向滚动（纵向滚轮也映射成横滚，不必先够到 Shift）；
+  // - Ctrl/⌘+滚轮 = 缩放这一屏（面板宽/密度一起变），并**把指针下的那一格钉住**；
+  //   顺带拦掉浏览器整页缩放——用户要缩的是谱面，不是页面（2026-09-30 验收）。
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        if (!onZoom) return;
+        event.preventDefault();
+        const stepPerEvent = Math.min(0.08, Math.max(0.01, Math.abs(event.deltaY) / 200));
+        const next = normalizePreviewZoom(zoom + (event.deltaY < 0 ? stepPerEvent : -stepPerEvent));
+        if (next === zoom) return;
+        // 锚点：指针下的那一格（带小数）在缩放前后落在同一屏位置
+        const offsetX = event.clientX - host.getBoundingClientRect().left;
+        const panelAt = (host.scrollLeft + offsetX) / layout.panelW;
+        const nextPanelW = panelWidthForEs(esForZoom(next));
+        host.scrollLeft = Math.max(0, panelAt * nextPanelW - offsetX);
+        onZoom(next);
+        return;
+      }
+      const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+      if (delta === 0) return;
+      event.preventDefault();
+      host.scrollLeft += delta;
+      syncFromHost();
+    };
+    host.addEventListener('wheel', onWheel, { passive: false });
+    return () => host.removeEventListener('wheel', onWheel);
+  }, [onZoom, zoom, layout, syncFromHost]);
 
   // ---------------- 出图（懒绘制 + 记账） ----------------
   const paintPanel = useCallback((panelIndex: number) => {

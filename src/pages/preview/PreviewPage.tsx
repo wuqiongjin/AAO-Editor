@@ -4,7 +4,7 @@
 // 静态形态的画面与控件来自 `src/preview/static`（面板折行 + 显示档 + 宽图导出）；
 // 动态形态（05 仿真场）接同一行工具栏与同一块舞台。
 // 本页不 ensure 当前工程：没有作用对象就空态，不因此新建 / 打开工程（与音频页同口径，§4）。
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clapperboard, FolderOpen, Images } from 'lucide-react';
 import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
@@ -14,6 +14,7 @@ import { useAppNav } from '../../layouts/AppNav';
 import { useConfig, useUI } from '../../app/ProviderTree';
 import {
   DEFAULT_PREVIEW_PROFILE,
+  DEFAULT_PREVIEW_ZOOM,
   StaticPreviewView,
   exportSheetAs,
   planSheet,
@@ -42,10 +43,30 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   const [mode, setMode] = useState<PreviewMode>('static');
   const { scopeId, currentId, project, options, loading, chartId, pickChart } = usePreviewScope(active);
 
-  // 静态预览的看谱档（页面内 state，不落设置）：缩放 / 叠加项 / 导出进行中
-  const [zoom, setZoom] = useState<number>(1);
+  // 静态预览的看谱档（页面内 state，不落设置）：缩放 / 叠加项 / 全屏 / 导出进行中
+  const [zoom, setZoom] = useState<number>(DEFAULT_PREVIEW_ZOOM);
   const [profile, setProfile] = useState<PreviewDisplayProfile>(DEFAULT_PREVIEW_PROFILE);
   const [exporting, setExporting] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+
+  // 全屏预览：整块舞台进全屏，这排控件跟着搬进预览区（全屏下照样能缩放 / 切叠加项 / 导出）。
+  // Esc 由浏览器负责退出，`fullscreenchange` 是唯一真相（也管住从别处退出时的状态同步）。
+  useEffect(() => {
+    const onFullscreenChange = () => setFullscreen(document.fullscreenElement === stageRef.current);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.().catch(() => undefined);
+      return;
+    }
+    void stage.requestFullscreen?.().catch(() => undefined);
+  }, []);
 
   // 选作用域 = 带作用域重新激活本页（票 22 定案 2）。选中的就是当前工程时写 null 而不是
   // { projectId: currentId }：语义上"没有显式作用域"，解析出的作用对象相同但更干净（照音频页）。
@@ -147,7 +168,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 右 = 这一页作用于哪个工程。作用域条放这里而不是侧栏（2026-09-30 用户验收）。 */}
             <div className="preview-toolbar">
               <PreviewChartSwitcher project={project} chartId={chartId} onPick={pickChart} />
-              {mode === 'static' && (
+              {/* 全屏时这排控件搬进预览区（见下方 .preview-fs），这里就不重复一份 */}
+              {mode === 'static' && !fullscreen && (
                 <PreviewStaticToolbar
                   zoom={zoom}
                   onZoom={setZoom}
@@ -156,6 +178,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                   exporting={exporting}
                   onExport={() => void handleExport()}
                   exportPlan={exportPlan}
+                  fullscreen={fullscreen}
+                  onToggleFullscreen={toggleFullscreen}
                 />
               )}
               {scopeOption && scopeId != null && (
@@ -170,11 +194,29 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
             </div>
             {/* 舞台：两种形态的画面（03 静态 / 05 仿真场）。画面未接时不静默空白。 */}
             <div
+              ref={stageRef}
               className={`preview-stage${mode === 'static' && scene ? ' is-filled' : ''}`}
               data-mode={mode}
             >
               {mode === 'static' && scene ? (
-                <StaticPreviewView scene={scene} zoom={zoom} profile={profile} />
+                <>
+                  <StaticPreviewView scene={scene} zoom={zoom} profile={profile} onZoom={setZoom} />
+                  {fullscreen && (
+                    <div className="preview-fs">
+                      <PreviewStaticToolbar
+                        zoom={zoom}
+                        onZoom={setZoom}
+                        profile={profile}
+                        onProfile={setProfile}
+                        exporting={exporting}
+                        onExport={() => void handleExport()}
+                        exportPlan={exportPlan}
+                        fullscreen={fullscreen}
+                        onToggleFullscreen={toggleFullscreen}
+                      />
+                    </div>
+                  )}
+                </>
               ) : (
                 <p className="preview-stage__pending">
                   {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.pending')}

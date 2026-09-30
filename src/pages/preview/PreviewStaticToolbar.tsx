@@ -1,13 +1,14 @@
-// 静态预览的工具栏控件（chart-preview 03）：缩放分段档 + 三个叠加项图标钮 + 导出宽图。
+// 静态预览的工具栏控件（chart-preview 03；二轮修订 2026-09-30）：
+// 连续缩放滑杆 + 网格档 + 沟槽文字 + 全屏 + 导出宽图。
 //
-// 一个旋钮：缩放档同时决定轨道宽（面板宽 = 13 车道宽）、音符大小、每面板秒数 —— 缩放↑ 轨道变宽、
-// 每面板时间缩短、面板数变多（横向滑条自然出现）。面板高跟容器高（Bestdori 语义）。
-// 控件形式照 2026-09-30 二轮定案：缩放 = 分段档，叠加项 = 带 tooltip 的图标钮（全站 IconButton）。
-import { Grid3x3, ImageDown, Ruler, Type } from 'lucide-react';
+// 一个旋钮：缩放决定轨道宽（面板宽 = 13 车道宽）、音符大小、每面板秒数；面板高跟容器高（Bestdori 语义）。
+// 缩放**连续可调**（滑杆；预览区内 Ctrl/⌘+滚轮同款，见 StaticPreviewView 的滚轮监听），不再只给几档。
+// 控件形式照全站：滑杆复用 `.slider-control` / `.slider-value`（设置页同一套），其余走 `IconButton`。
+import { Grid3x3, ImageDown, Maximize2, Minimize2, Type } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
 import { t, type MessageKey } from '../../i18n';
 import {
-  PREVIEW_ZOOM_STEPS,
+  PREVIEW_ZOOM_RANGE,
   type PreviewDisplayProfile,
   type PreviewGridDetail,
   type SheetPlan,
@@ -34,6 +35,9 @@ export interface PreviewStaticToolbarProps {
    * null = 这一屏还没有可导出的谱面。按钮**不因超限而变灰**：点了会说清原因（票面：给方案，不画爆）。
    */
   exportPlan: SheetPlan | null;
+  /** 全屏预览（全屏下这排控件跟着搬进预览区，仍可缩放） */
+  fullscreen: boolean;
+  onToggleFullscreen: () => void;
 }
 
 export default function PreviewStaticToolbar({
@@ -44,6 +48,8 @@ export default function PreviewStaticToolbar({
   exporting,
   onExport,
   exportPlan,
+  fullscreen,
+  onToggleFullscreen,
 }: PreviewStaticToolbarProps) {
   const gridIndex = GRID_CYCLE.indexOf(profile.gridDetail);
   const gridNext = GRID_CYCLE[(gridIndex + 1) % GRID_CYCLE.length]!;
@@ -55,19 +61,21 @@ export default function PreviewStaticToolbar({
 
   return (
     <div className="preview-static">
-      <div className="preview-zoom" role="group" aria-label={t('preview.static.zoom')}>
-        {PREVIEW_ZOOM_STEPS.map((step) => (
-          <button
-            key={step}
-            type="button"
-            className={`preview-zoom__item${step === zoom ? ' is-active' : ''}`}
-            aria-pressed={step === zoom}
-            title={t('preview.static.zoomOption', { percent: Math.round(step * 100) })}
-            onClick={() => onZoom(step)}
-          >
-            {Math.round(step * 100)}%
-          </button>
-        ))}
+      <div className="preview-zoom">
+        <span className="preview-zoom__label">{t('preview.static.zoom')}</span>
+        <div className="slider-control preview-zoom__slider">
+          <input
+            type="range"
+            min={Math.round(PREVIEW_ZOOM_RANGE.min * 100)}
+            max={Math.round(PREVIEW_ZOOM_RANGE.max * 100)}
+            step={Math.round(PREVIEW_ZOOM_RANGE.step * 100)}
+            value={Math.round(zoom * 100)}
+            aria-label={t('preview.static.zoom')}
+            title={t('preview.static.zoomHint')}
+            onChange={(e) => onZoom(Number(e.target.value) / 100)}
+          />
+          <span className="slider-value">{Math.round(zoom * 100)}%</span>
+        </div>
       </div>
 
       <IconButton
@@ -90,13 +98,15 @@ export default function PreviewStaticToolbar({
         active={profile.gutterLabels}
         onClick={() => onProfile({ ...profile, gutterLabels: !profile.gutterLabels })}
       />
+
       <IconButton
         width="auto"
         size="sm"
-        icon={<Ruler size={15} />}
-        title={t('preview.static.boundLines')}
-        active={profile.boundLines}
-        onClick={() => onProfile({ ...profile, boundLines: !profile.boundLines })}
+        icon={fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+        label={fullscreen ? t('preview.static.fullscreenExit') : t('preview.static.fullscreen')}
+        title={fullscreen ? t('preview.static.fullscreenExit') : t('preview.static.fullscreenHint')}
+        active={fullscreen}
+        onClick={onToggleFullscreen}
       />
 
       <IconButton
