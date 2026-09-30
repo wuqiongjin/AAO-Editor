@@ -79,6 +79,35 @@ export const countNotesUpToBeat = (
 // 轨道镜像（唯一实现，三处调用点收敛于此——NoteEditing/SelectionEditing/NoteInfoPanel）
 export const mirrorLane = (lane: number) => TOTAL_LANES - 1 - lane;
 
+/**
+ * combo 计数单位的**有序落点**（chart-preview 08 的「Combo 标记」用）：与 `countNotesUpToBeat`
+ * 同一枚举（单键/方向键各 1；滑条/长条按**每个非 hidden 结点**各 1；BPM/System/Opaque 不计），
+ * 返回按拍升序的**精确拍**（含 subBeat 折算，用于刻度落点 —— 读数按起始拍、刻度按音符实际位置）。
+ */
+export const comboNodePreciseBeats = (
+  notes: readonly ChartNote[],
+  beatDisplay: number,
+): number[] => {
+  const sub = (b: number, sb?: number) => b + (sb && sb > 0 ? sb / beatDisplay : 0);
+  const out: number[] = [];
+  for (const n of notes) {
+    switch (n.type) {
+      case "Single":
+      case "LDirectional":
+      case "RDirectional":
+        out.push(sub(noteStartBeat(n), (n as { subBeat?: number }).subBeat));
+        break;
+      case "Slide":
+      case "Long":
+        for (const c of hittableConnections(n)) out.push(sub(c.beat, (c as { subBeat?: number }).subBeat));
+        break;
+      default:
+        break;
+    }
+  }
+  return out.sort((a, b) => a - b);
+};
+
 // 对单个音符做左右镜像：lane 翻转 + 方向键 L↔R 翻转 + 滑条端点 lane 同步；BPM/System 不参与。
 // issue 09 S3（ADR-0009 §4）：SP 解析段同步做缓动**型翻转**（In↔Out / In-Out↔Out-In，族不变）——
 // 点集镜像后只有翻转的型才能重烘焙出同一形状（否则拖端点重投影会把形状"弹回"未镜像态）；

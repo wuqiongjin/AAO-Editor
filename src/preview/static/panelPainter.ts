@@ -135,9 +135,9 @@ export function createPanelPainter(params: PanelPainterParams): PanelPainter {
       noteIcons,
       skinVersion: params.skinVersion,
       display,
-      // 瓦片密度跟面板密度走：瓦片 dpr 缺省被卡在 1.5，而面板（预览 = 面板位图密度、导出 = 固定 2）
-      // 更高 —— 上采样恰好糊在"面板里最抢眼的元素"（音符）上，见 resolvePanelDpr
-      tileDprCap: dpr,
+      // 音符层直渲（2026-09-30 二轮验收「音符边缘非常诡异」）：面板是一次性出图，没有交互帧要省，
+      // 走瓦片只会白付"重建 + 最近邻 blit"（后者密度不整除时会在音符内部留下硬缝）
+      directNotes: true,
       // 背景皮肤不进预览面板（chart-preview 03）：它是 chrome 侧的装饰，在 130px 面板里反而盖住轨道；
       // 面板只承载"轨道 + 网格 + 音符"（与 Bestdori 静态预览同取舍）。
     };

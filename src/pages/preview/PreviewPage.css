@@ -27,7 +27,28 @@
   padding-bottom: 10px;
 }
 
-/* ---- 静态预览控件组（缩放分段档 + 叠加项图标钮 + 导出宽图） ---- */
+/* 右簇：显示控件 + 作用域条（左簇是"在看哪张谱面"）。控件那排给一个 pill 容器，
+   与全屏浮层（.preview-fs）同一形态——它是"作用于这一屏"的一组，视觉上该是一个整体。 */
+.preview-toolbar__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.preview-toolbar__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+}
+
+/* ---- 静态预览控件组（缩放 + 显示设置 + 全屏 + 导出） ---- */
 .preview-static {
   display: inline-flex;
   flex-wrap: wrap;
@@ -242,14 +263,6 @@
   font-weight: 750;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-}
-
-.pdp__group-hint {
-  margin: 0;
-  padding: 0 8px 5px;
-  color: var(--text-muted);
-  font-size: var(--text-2xs);
-  line-height: 1.5;
 }
 
 .pdp__row {

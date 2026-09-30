@@ -123,6 +123,42 @@ export function clampGutterLabelX(layout: GutterLabelLayout, textWidth: number, 
   return x === layout.x ? layout : { ...layout, x };
 }
 
+/**
+ * **右沟槽**标线文字的锚定布局（与 `layoutGutterLabel` 左右对称）：左对齐到「轨道右外缘 + 间距」、
+ * 纵向居中于线。Combo 标记（chart-preview 08）用它 —— 照 Bestdori 把 combo 数字写在轨道右侧。
+ */
+export function layoutGutterLabelRight(
+  c: Coords,
+  scale: number,
+  lineCanvasY: number,
+  labelScale = 1,
+): GutterLabelLayout {
+  const { trackStartX, totalTrackWidth } = c.trackGeometry(scale);
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  return {
+    x: trackStartX + totalTrackWidth + BPM_LABEL_GAP_PX,
+    y: lineCanvasY,
+    textAlign: 'left',
+    textBaseline: 'middle',
+    font: GUTTER_LABEL_FONT(fontPx),
+    fontPx,
+  };
+}
+
+/**
+ * 右沟槽的横向钳制：文字盒越出画布**右缘**时把锚点左移（与 `clampGutterLabelX` 对称）。
+ * 预览面板右侧沟槽只有 ~30px，而 combo 数字到三位数就有 ~27px 宽 —— 钳一下总比被裁掉好。
+ */
+export function clampGutterLabelRightX(
+  layout: GutterLabelLayout,
+  textWidth: number,
+  surfaceW: number,
+  edge = 2,
+): GutterLabelLayout {
+  const x = Math.min(layout.x, surfaceW - edge - textWidth);
+  return x === layout.x ? layout : { ...layout, x };
+}
+
 /** 与 bpmLabelBox 纵向半高相同（字号一半 + 4px 命中容差）。 */
 export function bpmGutterHitHalf(fontPx: number): number {
   return fontPx / 2 + 4;

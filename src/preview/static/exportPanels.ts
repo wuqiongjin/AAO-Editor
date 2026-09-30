@@ -9,7 +9,8 @@
 import { bufferSizeFor, displayOptionsFromSettings } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
-import { DEFAULT_PREVIEW_MARKERS, resolvePreviewDisplay } from './displayProfile';
+import type { PreviewSettings } from '../../chart/config/AppSettings';
+import { resolvePreviewDisplay } from './displayProfile';
 import {
   esForZoom,
   makePanelLayout,
@@ -28,6 +29,17 @@ export const EXPORT_PANEL_H = 537;
 export const EXPORT_DPR = 2;
 /** 导出档：缩放（1 = 标准档 → 面板宽 130 CSS px） */
 export const EXPORT_ZOOM = 1;
+/**
+ * 导出档的标注（**固定精简**，不跟 `settings.preview` 走）：票 03 定案「导出与预览解耦」——
+ * 用户改的是自己看谱的习惯，不该顺手改掉导出物的样子。宽度靠谱长说话，标线越少越清楚。
+ */
+export const EXPORT_MARKERS: PreviewSettings = {
+  bpmMarks: false,
+  timeMarks: 'off',
+  beatMarks: 1,
+  comboMarks: false,
+  mirror: false,
+};
 /** 导出图片的 MIME / 扩展名 */
 export const SHEET_IMAGE_MIME = 'image/png';
 
@@ -110,8 +122,8 @@ export async function renderSheet(req: SheetExportRequest): Promise<SheetRenderO
   const painter = createPanelPainter({
     layout,
     scene,
-    // 固定精简标注档（不跟预览开关走）+ 作者画布设置的其余字段
-    display: resolvePreviewDisplay(displayOptionsFromSettings(scene.settingsDisplay), DEFAULT_PREVIEW_MARKERS),
+    // 固定精简标注档（EXPORT_MARKERS，不跟 settings.preview 走）+ 作者画布设置的其余字段
+    display: resolvePreviewDisplay(displayOptionsFromSettings(scene.settingsDisplay), EXPORT_MARKERS),
     noteIcons,
     spriteIcon: new CanvasSpriteIcon(),
     dpr: plan.dpr,

@@ -1,9 +1,9 @@
-// 预览页的「显示」面板（chart-preview 08；2026-09-30 用户定案）：
-// 工具栏一个钮弹出两块 ——
-//   【标注（预览）】`settings.preview`：BPM 标记 / 时间标记 / 节拍线（只有预览面板会画，跨会话记住）；
-//   【画布（与工作台共通）】`settings.display`：音符大小 / 长条不透明度 / 纵向比例 / 双压线 / 画质 /
-//   轨道颜色 / 文字大小 —— 这里改的是**同一份设置**（= Bestdori 行为：改了双方生效），
-//   设置页「画布显示」只是它的另一个入口，不复制状态。
+// 预览页的「设置」面板（chart-preview 08；2026-09-30 用户定案，二轮收敛文案）：
+// 工具栏一个钮弹出三组 ——
+//   【标记】`settings.preview`：BPM / 时间 / 节拍线 / Combo 标记 + 镜向（只有预览面板会画，跨会话记住）；
+//   【画布显示】`settings.display`：与设置页那一节**同一份数据**（改了工作台画布同步变，
+//     = Bestdori 行为）；选项顺序照设置页，只是不放行内说明（说明在设置页，这里要短）；
+//   【音符皮肤】显示当前整包名 + 跳素材页（不做第二套选择器）。
 // 形态照站内：触发钮 = `IconButton`；浮层壳 = `.pp-menu__scrim` / `.pp-menu__panel.is-portaled`
 // （与 ScopePicker / PreviewChartSwitcher 同一套，显式 import 那份 CSS）；控件 = `.slider-control` /
 // `.slider-value` / `.switch` / `.select-control`（设置页同一套词汇，不新造样式），只有行版式是面板自己的。
@@ -36,13 +36,12 @@ const GRID_OPTIONS: ReadonlyArray<{ value: GridStylePreset; labelKey: MessageKey
 /** 面板宽（浮层贴右缘定位时用；与 CSS 里的 `.pdp__panel` 宽度同值） */
 const PANEL_W = 320;
 
-/** 一行：[标签 (+ 提示)] [控件]。行版式是本面板自己的（浮层里要紧凑，不复用设置页那套 64px 行高） */
-function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+/** 一行：[标签] [控件]（行版式是面板自己的：浮层里要紧凑，不复用设置页那套 64px 行高） */
+function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="pdp__row">
       <div className="pdp__row-text">
         <strong>{label}</strong>
-        {hint && <span>{hint}</span>}
       </div>
       {children}
     </div>
@@ -118,7 +117,7 @@ export default function PreviewDisplayPanel() {
   const { setActivePage } = useAppNav();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
-  const btnRef = useRef<HTMLButtonElement>(null);
+  const btnRef = useRef<HTMLSpanElement>(null);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -201,14 +200,14 @@ export default function PreviewDisplayPanel() {
           >
             <section className="pdp__group" aria-label={t('preview.display.group.marks')}>
               <h3 className="pdp__group-title">{t('preview.display.group.marks')}</h3>
-              <Row label={t('preview.display.bpmMarks')} hint={t('preview.display.bpmMarks.hint')}>
+              <Row label={t('preview.display.bpmMarks')}>
                 <Toggle
                   label={t('preview.display.bpmMarks')}
                   checked={preview.bpmMarks}
                   onChange={(bpmMarks) => setPreview({ bpmMarks })}
                 />
               </Row>
-              <Row label={t('preview.display.timeMarks')} hint={t('preview.display.timeMarks.hint')}>
+              <Row label={t('preview.display.timeMarks')}>
                 <Select<PreviewTimeMarkInterval>
                   label={t('preview.display.timeMarks')}
                   value={preview.timeMarks}
@@ -216,7 +215,7 @@ export default function PreviewDisplayPanel() {
                   onChange={(timeMarks) => setPreview({ timeMarks })}
                 />
               </Row>
-              <Row label={t('preview.display.beatMarks')} hint={t('preview.display.beatMarks.hint')}>
+              <Row label={t('preview.display.beatMarks')}>
                 <Select<PreviewBeatMarkDivision>
                   label={t('preview.display.beatMarks')}
                   value={preview.beatMarks}
@@ -224,11 +223,25 @@ export default function PreviewDisplayPanel() {
                   onChange={(beatMarks) => setPreview({ beatMarks })}
                 />
               </Row>
+              <Row label={t('preview.display.comboMarks')}>
+                <Toggle
+                  label={t('preview.display.comboMarks')}
+                  checked={preview.comboMarks}
+                  onChange={(comboMarks) => setPreview({ comboMarks })}
+                />
+              </Row>
+              <Row label={t('preview.display.mirror')}>
+                <Toggle
+                  label={t('preview.display.mirror')}
+                  checked={preview.mirror}
+                  onChange={(mirror) => setPreview({ mirror })}
+                />
+              </Row>
             </section>
 
+            {/* 选项顺序照设置页「画布显示」那一节（同一份数据的两个入口，顺序也一致更好认） */}
             <section className="pdp__group" aria-label={t('preview.display.group.canvas')}>
               <h3 className="pdp__group-title">{t('preview.display.group.canvas')}</h3>
-              <p className="pdp__group-hint">{t('preview.display.group.canvasHint')}</p>
               <Row label={t('settings.noteSize')}>
                 <Percent label={t('settings.noteSize')} value={display.noteSize} min={10} max={200}
                   onChange={(noteSize) => setDisplay({ noteSize })} />
@@ -237,20 +250,23 @@ export default function PreviewDisplayPanel() {
                 <Percent label={t('settings.slideOpacity')} value={display.slideOpacity} min={10} max={100}
                   onChange={(slideOpacity) => setDisplay({ slideOpacity })} />
               </Row>
-              <Row label={t('settings.verticalRatio')}>
-                <Percent label={t('settings.verticalRatio')} value={display.verticalRatio} min={50} max={200}
-                  onChange={(verticalRatio) => setDisplay({ verticalRatio })} />
-              </Row>
-              <Row label={t('settings.labelScale')}>
-                <Percent label={t('settings.labelScale')} value={display.labelScale} min={50} max={300}
-                  onChange={(labelScale) => setDisplay({ labelScale })} />
-              </Row>
               <Row label={t('settings.simultaneousClickLines')}>
                 <Toggle
                   label={t('settings.simultaneousClickLines')}
                   checked={display.simultaneousClickLines}
                   onChange={(simultaneousClickLines) => setDisplay({ simultaneousClickLines })}
                 />
+              </Row>
+              <Row label={t('settings.colorAssist')}>
+                <Toggle
+                  label={t('settings.colorAssist')}
+                  checked={display.colorAssist}
+                  onChange={(colorAssist) => setDisplay({ colorAssist })}
+                />
+              </Row>
+              <Row label={t('settings.verticalRatio')}>
+                <Percent label={t('settings.verticalRatio')} value={display.verticalRatio} min={50} max={200}
+                  onChange={(verticalRatio) => setDisplay({ verticalRatio })} />
               </Row>
               <Row label={t('settings.imageQuality')}>
                 <Select<AppSettings['display']['imageQuality']>
@@ -267,6 +283,21 @@ export default function PreviewDisplayPanel() {
                   options={gridOptions}
                   onChange={(gridStyle) => setDisplay({ gridStyle })}
                 />
+              </Row>
+              <Row label={t('settings.lineShapeTiers')}>
+                <Toggle
+                  label={t('settings.lineShapeTiers')}
+                  checked={display.lineShapeTiers}
+                  onChange={(lineShapeTiers) => setDisplay({ lineShapeTiers })}
+                />
+              </Row>
+              <Row label={t('settings.gridOpacity')}>
+                <Percent label={t('settings.gridOpacity')} value={display.gridOpacity} min={10} max={100}
+                  onChange={(gridOpacity) => setDisplay({ gridOpacity })} />
+              </Row>
+              <Row label={t('settings.labelScale')}>
+                <Percent label={t('settings.labelScale')} value={display.labelScale} min={50} max={300}
+                  onChange={(labelScale) => setDisplay({ labelScale })} />
               </Row>
             </section>
 

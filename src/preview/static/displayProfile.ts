@@ -23,7 +23,7 @@ export const PREVIEW_LABEL_SCALE = 0.7;
 
 /**
  * 把预览标注叠到基础显示参数上（工作台的 `settings.display`）：
- * - 三个标注档（Beat 标记 / BPM 标记 / Time 标记）+ 文字系数来自 `settings.preview`；
+ * - 五个标注档（Beat / BPM / Time / Combo 标记、镜向）+ 文字系数来自 `settings.preview`；
  * - 其余（`gridStyle` / `gridOpacity` / `noteSize` / `slideOpacity` / `colorAssist` /
  *   `simultaneousClickLines` / `labelScale` 之外的一切）**沿用作者自己的设置** —— 预览该像作者自己的画布。
  */
@@ -36,6 +36,8 @@ export function resolvePreviewDisplay(
     gridDetail: markers.beatMarks === 'off' ? 'off' : markers.beatMarks,
     gutterLabels: markers.bpmMarks,
     timeMarks: markers.timeMarks === 'off' ? 0 : markers.timeMarks,
+    comboMarks: markers.comboMarks,
+    mirror: markers.mirror,
     // 起止线在预览里恒不画（03 二轮定案：130px 面板里那只是两条 0.6px 虚线，读不出信息，
     // 工具栏那个开关已撤）；字段留着是为了「缺省 = 编辑器现状」的语义仍然成立。
     boundLines: false,

@@ -7,7 +7,7 @@ import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type Geometr
 import type { BpmBeatRange } from '../chart/geometry/BpmTimeline';
 import { isPastChartEnd, trueBeat } from '../chart/editing/ChartEndBounds';
 import { indexOfTrailingNegativeBpm } from '../chart/editing/BpmTail';
-import { shiftGroupToAnchor, mirrorNote, countNotesUpToBeat } from '../chart/editing/NoteEditing';
+import { shiftGroupToAnchor, mirrorNote, countNotesUpToBeat, comboNodePreciseBeats } from '../chart/editing/NoteEditing';
 import { perf } from '../chart/perf';
 import { formatInMinuteTime, formatTimeCompact } from '../chart/geometry/TimeFormat';
 import { makeCoords, type Coords } from './coords';
@@ -19,7 +19,7 @@ import { previewSpanConnections } from '../chart/editing/SpanCurve';
 import { spanParamFromCurveConfig } from '../chart/editing/CurveTool';
 import { bufferSizeFor } from './rasterScale';
 import type { RenderTarget } from './RenderTarget';
-import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutBpmGutter, clampGutterLabelX, clampGutterLabelY, bpmGutterYIntersectsCanvas, bpmLabelAnchorY, measureGutterLabelWidth, GUTTER_LABEL_FONT_PX } from './gutterLabels';
+import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutGutterLabelRight, layoutBpmGutter, clampGutterLabelX, clampGutterLabelRightX, clampGutterLabelY, bpmGutterYIntersectsCanvas, bpmLabelAnchorY, measureGutterLabelWidth, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridBpmLineColor, gridBpmNegativeColor, gridDivisionOf, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { DirGroupVisual } from './skin/noteSkin';
@@ -398,10 +398,10 @@ export function collectSelectionOutlines(c: Coords, rc: RenderCtx, visibleNotes:
       if (!whole && !hv && !previewWhole) continue;
       const p = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
       const len = note.length;
-      const isLeft = note.type === 'LDirectional';
-      const group = rc.noteIcons.dirGroup(isLeft ? 'L' : 'R', len);
+      const side = dirSideOf(rc, note.type === 'LDirectional');
+      const group = rc.noteIcons.dirGroup(side, len);
       // 本体精灵框内左右有透明留白 → 用构建期实测墨迹（dirInk，与同时点击线同一口径）收紧到可见墨迹
-      const ink = rc.noteIcons.dirInk(isLeft ? 'L' : 'R');
+      const ink = rc.noteIcons.dirInk(side);
       const bodyW = DIRECTIONAL_ICON_SIZE * (ink.w > 0 ? Math.max(0, (ink.w - ink.inkLeft - ink.inkRight) / ink.w) : 1) * s;
       const inkCenterOffset = DIRECTIONAL_ICON_SIZE * (ink.w > 0 ? (ink.inkLeft - ink.inkRight) / 2 / ink.w : 0) * s;
       const h = DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE * s;
@@ -596,11 +596,20 @@ export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords,
 }
 
 /**
+ * 方向键的侧别（只区分"组内几何朝哪边"）：预览镜像下左右互换（照 Bestdori `styleMirror` 的
+ * `isLeft` 取反），因此调用方一律经本函数取图标组，别自己写 `isLeft ? 'L' : 'R'`。
+ */
+const dirSideOf = (rc: RenderCtx, isLeft: boolean): 'L' | 'R' =>
+  isLeft !== (rc.display?.mirror === true) ? 'L' : 'R';
+
+/**
  * 绘制方向键整组（issue 29 视觉修订 2026-08-24）：N 条覆盖轨道各贴一枚扁平本体 +
  * note_flick_top_l/r 箭头组合到最外侧（几何由构建期墨迹推导，见 noteSkin.ts）。
  * 本体轨道间距只随视口 scale（贴轨道）；箭头重叠量随 spriteScale（随 noteSize 等比）。
  */
 function renderDirGroup(ctx: CanvasRenderingContext2D, rc: RenderCtx, group: DirGroupVisual, anchorX: number, anchorY: number, spriteScale: number) {
+  // 预览镜像（chart-preview 08）：整组连箭头一起翻到另一侧 —— **锚点**由 Coords 镜像（lane → 6-lane）、
+  // **侧别**由 dirSideOf 互换（组内偏移/箭头朝向是相对锚点定义的，随侧别自然翻过去，别再取反一次）。
   for (const b of group.bodies) {
     rc.spriteIcon.render(ctx, {
       ...b.config,
@@ -685,12 +694,12 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
         scale: spriteScale, renderLayer: 'main',
       });
     } else if (note.type === "LDirectional" || note.type === "RDirectional") {
+      // 镜像由 renderDirGroup 内部取反（组内偏移 + 侧别），调用方只负责传组
       const subBeat = note.subBeat || 0;
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
-      const isLeft = note.type === "LDirectional";
       // issue 29：N 条覆盖轨道扁平本体 + 最外侧箭头（dirGroup 几何由墨迹推导）
       const len = note.length;
-      renderDirGroup(ctx, rc, icons.dirGroup(isLeft ? 'L' : 'R', len), canvasPos.x, canvasPos.y, spriteScale);
+      renderDirGroup(ctx, rc, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), canvasPos.x, canvasPos.y, spriteScale);
     }
   });
 
@@ -1092,10 +1101,9 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     }
   } else if (note.type === "LDirectional" || note.type === "RDirectional") {
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
-    // issue 29：与 renderNotes 同构（扁平本体 ×N + 外侧箭头）
-    const isLeft = note.type === "LDirectional";
+    // issue 29：与 renderNotes 同构（扁平本体 ×N + 外侧箭头）；侧别交给 dirSideOf（镜像会互换）
     const len = note.length;
-    renderDirGroup(ctx, rc, icons.dirGroup(isLeft ? 'L' : 'R', len), cpt.x, cpt.y, rc.viewport.scale);
+    renderDirGroup(ctx, rc, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), cpt.x, cpt.y, rc.viewport.scale);
   } else if (note.type === "Slide" || note.type === "Long") {
     renderSlideGhost(ctx, c, rc, note);
   }
@@ -1378,8 +1386,9 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   ctx.restore();
 }
 
-/** 时间刻度配色（chart-preview 08「Time 标记」）：中性灰，比 BPM 数值弱一档（读谱参考，不是谱面信息） */
-const TIME_MARK_COLOR = 'rgba(203, 213, 224, 0.7)';
+/** 沟槽标记配色（chart-preview 08 的 Time 标记 / Combo 标记共用）：中性灰，比 BPM 数值弱一档
+ *  （读谱参考，不是谱面信息） */
+const MARKER_TEXT_COLOR = 'rgba(203, 213, 224, 0.7)';
 /** 时间刻度贴轨道左缘的长度（CSS px） */
 const TIME_MARK_TICK_PX = 4;
 /** 刻度枚举上限（可见秒区间 ÷ 间隔的理论值远小于它；防脏 interval 把循环拖死） */
@@ -1411,8 +1420,8 @@ export function renderTimeMarks(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   ctx.beginPath();
   ctx.rect(0, 0, rc.surface.w, rc.surface.h);
   ctx.clip();
-  ctx.fillStyle = TIME_MARK_COLOR;
-  ctx.strokeStyle = TIME_MARK_COLOR;
+  ctx.fillStyle = MARKER_TEXT_COLOR;
+  ctx.strokeStyle = MARKER_TEXT_COLOR;
   ctx.lineWidth = 1;
   let count = 0;
   for (let seconds = Math.ceil(lo / interval - 1e-9) * interval; seconds <= hi + 1e-9; seconds += interval) {
@@ -1428,7 +1437,48 @@ export function renderTimeMarks(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
       layoutGutterLabel(c, es, y, 'centered', 'bpm', labelScale),
       measureGutterLabelWidth(text, fontPx, ctx),
     );
-    drawGutterLabel(ctx, layout, text, TIME_MARK_COLOR);
+    drawGutterLabel(ctx, layout, text, MARKER_TEXT_COLOR);
+  }
+  ctx.restore();
+}
+
+/** Combo 标记的间隔（照 Bestdori `chartCombo`：每 50 combo 一枚） */
+export const COMBO_MARK_INTERVAL = 50;
+
+/**
+ * 沟槽 Combo 刻度（chart-preview 08「Combo 标记」，照 Bestdori `chartCombo`）：
+ * 每 `COMBO_MARK_INTERVAL` 个 combo 在**轨道右侧沟槽**写一个数字（50 / 100 / …）。
+ * - 落点 = 第 N 个**可击打结点**的位置（`comboNodePreciseBeats`，与 `countNotesUpToBeat` 同一枚举：
+ *   单键/方向键各 1、滑条逐结点、BPM/System 不计）；
+ * - 横向越出画布右缘时左移（`clampGutterLabelRightX`），纵向居中并钳进画布（照 Bestdori 的钳制）；
+ * - 由 renderChart 编排在沟槽层（与 Time 标记同带、分居两侧）。
+ */
+export function renderComboMarks(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  if (rc.display?.comboMarks !== true) return;
+  const beats = comboNodePreciseBeats(rc.notes, rc.beatDisplay);
+  if (beats.length < COMBO_MARK_INTERVAL) return;
+  const es = rc.viewport.scale;
+  const labelScale = rc.display?.labelScale ?? 1;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, rc.surface.w, rc.surface.h);
+  ctx.clip();
+  for (let combo = COMBO_MARK_INTERVAL; combo <= beats.length; combo += COMBO_MARK_INTERVAL) {
+    const y = c.virtualToCanvas(0, c.beatToVirtualY(beats[combo - 1]!)).y;
+    // 画布外的刻度直接跳过（长谱面 40+ 枚里通常只有几枚可见）
+    if (y < -fontPx || y > rc.surface.h + fontPx) continue;
+    const text = String(combo);
+    const layout = clampGutterLabelY(
+      clampGutterLabelRightX(
+        layoutGutterLabelRight(c, es, y, labelScale),
+        measureGutterLabelWidth(text, fontPx, ctx),
+        rc.surface.w,
+      ),
+      rc.surface.h,
+      fontPx,
+    );
+    drawGutterLabel(ctx, layout, text, MARKER_TEXT_COLOR);
   }
   ctx.restore();
 }
@@ -1685,7 +1735,7 @@ export function renderChart(target: RenderTarget, view: FrameView) {
   // 静态层（黑底+轨道底+网格+起止线，含整幅清屏）离屏缓存 blit（issue 36 F2）
   target.staticLayer.draw(ctx, frame);
 
-  const c = makeCoords(frame.geometry, frame.viewport, frame.beatDisplay, frame.notes);
+  const c = makeCoords(frame.geometry, frame.viewport, frame.beatDisplay, frame.notes, frame.display?.mirror === true);
 
   // BPM 标线（issue 51 + 用户反馈）：在音符层**之下**（与轨道线同层语义，不覆盖音符）
   renderBpmLines(ctx, c, frame, c.getVisibleNotes());
@@ -1695,8 +1745,9 @@ export function renderChart(target: RenderTarget, view: FrameView) {
   // 同时点击线只在 renderNotes 内画（进瓦片）。
   // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片
   target.noteLayer.draw(ctx, frame);
-  // 时间刻度（chart-preview 08「Time 标记」）：沟槽层，先画（BPM 数值盖在它上面）
+  // 沟槽标记（chart-preview 08）：Time 在左沟槽、Combo 数字在右沟槽；先画，BPM 数值盖在它上面
   renderTimeMarks(ctx, c, frame);
+  renderComboMarks(ctx, c, frame);
   // BPM 数值（issue 51 / 161）：沟槽层，全量布局 + 画布裁切（不按可见集漏画展开叠）
   renderBpmLabels(ctx, c, frame);
   // 实时信息文字（issue 54）：两侧沟槽，画在常显装饰文字之上

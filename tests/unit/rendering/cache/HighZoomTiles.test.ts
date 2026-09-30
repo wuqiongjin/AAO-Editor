@@ -73,20 +73,27 @@ describe('issue 140 · 高倍仍走瓦片', () => {
     expect(canvases).toBe(afterWarm);
   });
 
-  it('瓦片密度可按帧注入：缺省仍是 1.5（编辑器现状），注入 tileDprCap 后按新密度重建', () => {
+  it('directNotes：预览面板/导出走直渲 —— 一块瓦片都不建，且报告 direct 模式', () => {
     const g = new ChartGeometry(bpm120, { endBeat: 40 }, SURFACE);
     const y0 = g.beatToVirtualY(8, ES) - SURFACE.h / (2 * ES);
 
-    // 帧 dpr 2、不注入 → 瓦片仍被 1.5 上限压着（issue 36 的编辑器口径）
-    cache.draw(makeNoopCtx(), makeRc(g, y0, false, { dpr: 2 }));
-    const capped = [...cache.__getTilesForTests().values()].find((t) => t.canvas)!;
-    expect(capped.canvas!.width).toBe(Math.round(SURFACE.w * 1.5));
+    // 默认（编辑器现状）：走瓦片
+    cache.draw(makeNoopCtx(), makeRc(g, y0, false));
+    expect(cache.__getLastNoteLayerStats().layerMode).toBe('tiles');
+    expect(canvases).toBeGreaterThan(0);
+    expect(cache.__getTilesForTests().size).toBeGreaterThan(0);
 
-    // chart-preview 03：预览面板把瓦片密度抬到面板密度（≥ 面板 dpr，音符不被上采样）
-    cache.draw(makeNoopCtx(), makeRc(g, y0, false, { dpr: 2, tileDprCap: 2 }));
-    const followed = [...cache.__getTilesForTests().values()].find((t) => t.canvas)!;
-    expect(followed.canvas!.width).toBe(Math.round(SURFACE.w * 2));
-    expect(followed).not.toBe(capped);   // 密度进失效依据 → 全量重建（身份换新）
+    // chart-preview 08：一次性出图的用法直渲（避开瓦片的最近邻 blit 与无谓重建）
+    const fresh = createNoteLayerCache();
+    let freshCanvases = 0;
+    fresh.__setCanvasFactoryForTests(() => {
+      freshCanvases++;
+      return { width: 0, height: 0, getContext: () => makeNoopCtx() };
+    });
+    fresh.draw(makeNoopCtx(), makeRc(g, y0, false, { directNotes: true }));
+    expect(fresh.__getLastNoteLayerStats().layerMode).toBe('direct');
+    expect(fresh.__getTilesForTests().size).toBe(0);
+    expect(freshCanvases).toBe(0);   // 不建瓦片位图
   });
 
   it('高倍瓦片 dest 高于视口时源矩形只覆盖可见带', () => {

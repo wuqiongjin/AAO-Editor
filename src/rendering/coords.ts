@@ -1,6 +1,7 @@
 // 坐标薄封装：FinalVirtualCanvas 内联的几何换算，统一收敛为对 ChartGeometry 的直调。
 // 渲染与命中测试共用，去掉组件闭包对 geometry/viewport/beatDisplay/notes 的重复捕获。
 import type { ChartGeometry, GeometryBounds, GeometryPoint, GeometryViewport } from '../chart/geometry/ChartGeometry';
+import { mirrorLane } from '../chart/editing/NoteEditing';
 import type { ChartNote } from '../chart/types';
 
 export interface Coords {
@@ -21,8 +22,19 @@ export interface Coords {
   getLaneBeatFromCanvas: (cx: number, cy: number) => { lane: number; preciseBeat: number } | null;
 }
 
-/** 由 geometry + viewport + beatDisplay + notes 构造坐标换算集 */
-export function makeCoords(geometry: ChartGeometry, viewport: GeometryViewport, beatDisplay: number, notes: readonly ChartNote[]): Coords {
+/**
+ * 由 geometry + viewport + beatDisplay + notes 构造坐标换算集。
+ * `mirror` = **预览镜像**（chart-preview 08，照 Bestdori `styleMirror`）：车道左右互换
+ * （`lane → mirrorLane(lane)`，与编辑器镜像工具同一实现）。只影响**绘制侧**的车道 → x 映射，
+ * 不动 `geometry` 自己的命中/圈选换算（编辑器不设本开关）。
+ */
+export function makeCoords(
+  geometry: ChartGeometry,
+  viewport: GeometryViewport,
+  beatDisplay: number,
+  notes: readonly ChartNote[],
+  mirror = false,
+): Coords {
   const scale = viewport.scale;
   // issue 10 性能：trackGeometry 只依赖 (scale, surface)，闭包内缓存一次，
   // 避免密集音符下每帧数千次 virtualToCanvas 重复计算 + 对象分配（GC 压力）。
@@ -48,7 +60,7 @@ export function makeCoords(geometry: ChartGeometry, viewport: GeometryViewport, 
       return { x: (x - cachedTrackGeometry.trackBgX) / es + viewport.scrollX, y: y / es + viewport.scrollY };
     },
     getNoteVirtualY: (beat, subBeat = 0) => geometry.noteVirtualY(beat, subBeat, scale, beatDisplay),
-    getNoteVirtualX: (lane) => geometry.noteVirtualX(lane),
+    getNoteVirtualX: (lane) => geometry.noteVirtualX(mirror ? mirrorLane(lane) : lane),
     getViewportBounds: () => cachedViewportBounds,
     getVisibleNotes: () => (cachedVisibleNotes ??= geometry.visibleNotes(notes, viewport, beatDisplay)),
     getLaneBeatFromCanvas: (cx, cy) => geometry.laneBeatFromCanvas(cx, cy, viewport, beatDisplay),

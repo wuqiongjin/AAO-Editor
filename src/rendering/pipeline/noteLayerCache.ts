@@ -44,13 +44,6 @@ const MAX_TILES = 64;
  *  相比 2.0 内存 -44%、瓦片重建填充也快 ~44%（密集谱下放置延迟同步受益）；主画布仍按完整 dpr。 */
 const TILE_DPR_CAP = 1.5;
 
-/**
- * 本帧的瓦片位图 dpr = `min(帧 dpr, 上限)`。上限可按帧注入（`rc.tileDprCap`）：
- * 预览面板把瓦片密度抬到面板密度（面板是静态位图，一次性出图，不怕内存），
- * 否则 面板 dpr / 1.5 倍的上采样会精准糊在音符上。缺省仍 = 编辑器现状 1.5。
- */
-const tileDprOf = (rc: RenderCtx): number => Math.min(rc.dpr, rc.tileDprCap ?? TILE_DPR_CAP);
-
 interface Tile {
   canvas: HTMLCanvasElement | OffscreenCanvas | null;
   refScale: number;
@@ -252,9 +245,7 @@ export function createNoteLayerCache(): NoteLayerCache {
     notes: readonly ChartNote[]; bpmEvents: readonly BpmTimelineEvent[];
     /** issue 104：瓦片位图活在**布局坐标空间**，其原点 = chartEndVirtualY（画布高度由秒直出），
      *  故失效依据按它比较，而不是按派生出来的 chartEndBeat */
-    chartEndVirtualY: number; beatDisplay: number;
-   /** 瓦片位图密度（= `tileDprOf(rc)`）：与帧 dpr 分开记 —— 只有上限被注入（面板密度）时也得全量重建 */
-   tileDpr: number; skinVersion: number;
+    chartEndVirtualY: number; beatDisplay: number; dpr: number; skinVersion: number;
     /** issue 39：节奏图示大小 / 长压线不透明度烘进音符瓦片，变化时需全量失效 */
     noteSize: number; slideOpacity: number;
     /** issue 39 #4：色觉辅助改变 tap 款式（实拍/虚拍位图），变化时需全量失效 */
@@ -370,9 +361,9 @@ export function createNoteLayerCache(): NoteLayerCache {
     // 位图与主画布同宽（cssW = rc.surface.w），无需左右外扩（装饰器/选中圈均在 surface 内）
     const cssW = rc.surface.w;
     const canvas = createTileCanvas();
-    // issue 36：瓦片 dpr 上限 1.5（内存与重建成本同时下降；主画布 blit 时按 CSS 尺寸 1:1 绘制）；
-    // chart-preview 03 验收回修起上限可按帧注入（预览 = 面板密度，见 tileDprOf）
-    const tileDpr = tileDprOf(rc);
+    // issue 36：瓦片 dpr 上限 1.5（内存与重建成本同时下降；主画布 blit 时按 CSS 尺寸 1:1 绘制）。
+    // 需要"瓦片与画布同密度"的用法（预览面板 / 宽图导出）走 `rc.directNotes` 直渲，不再走瓦片。
+    const tileDpr = Math.min(rc.dpr, TILE_DPR_CAP);
     // buffer = css × dpr，尺寸口径走 rasterScale 唯一处
     const { w: bw, h: bh } = bufferSizeFor({ w: cssW, h: cssH }, tileDpr);
     canvas.width = bw;
@@ -392,7 +383,7 @@ export function createNoteLayerCache(): NoteLayerCache {
     tctx.imageSmoothingQuality = 'high';
     const fakeSurface = { w: cssW, h: cssH };
     const fakeRc: RenderCtx = { ...rc, viewport: vp, surface: fakeSurface };
-    const c = makeCoords(rc.geometry, vp, rc.beatDisplay, rc.notes);
+    const c = makeCoords(rc.geometry, vp, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
     // F1：瓦片不含选中态（选中/hover 高亮由主画布叠加层绘制，选择变化不再重建瓦片）
     renderNotes(tctx, c, fakeRc, vis);
     const tile: Tile = { canvas, refScale: es, surfaceW: cssW, bytes: bw * bh * 4, empty: false };
@@ -403,19 +394,20 @@ export function createNoteLayerCache(): NoteLayerCache {
 
   /**
    * 绘制音符层入口（renderChart 调用，替代原先的直接 renderNotes）：
+   * - `rc.directNotes` → 直接渲染（预览面板 / 宽图导出：一次性出图，不要瓦片的中转与最近邻 blit）；
    * - es > MAX_CACHE_ES → 直接渲染（仅高于工具栏最大缩放；issue 140 起 300% 仍走瓦片）；
    * - 否则走瓦片缓存：miss 的瓦片以当前 es 渲染（播放帧受时间预算，issue 101）；stale 瓦片在手势/播放期间按逐帧预算渐进重建
    *   （超预算的残余先按比例 blit，settle 帧兜底收尾）。
    */
   function draw(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
     const es = rc.viewport.scale;
-    if (es > MAX_CACHE_ES) {
-      // 高于 UI 最大缩放才直渲并丢掉瓦片（缩回瓦片模式时会全量重建）
+    if (rc.directNotes || es > MAX_CACHE_ES) {
+      // 直渲并丢掉瓦片（缩回瓦片模式时会全量重建）
       if (tiles.size > 0) {
         tiles.clear();
         basis = null;
       }
-      const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
+      const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
       const vis = rc.geometry.visibleNotes(rc.notes, rc.viewport, rc.beatDisplay);
       renderNotes(ctx, c, rc, vis);
       // 选中/hover 叠加层（issue 56）：直渲路径与瓦片路径共用同一描边实现
@@ -429,7 +421,7 @@ export function createNoteLayerCache(): NoteLayerCache {
       notes: rc.notes,
       bpmEvents: rc.geometry.bpmEvents,
       chartEndVirtualY: rc.geometry.chartEndVirtualY,
-      beatDisplay: rc.beatDisplay, tileDpr: tileDprOf(rc),
+      beatDisplay: rc.beatDisplay, dpr: rc.dpr,
       skinVersion: rc.skinVersion ?? 0,
       noteSize: rc.display?.noteSize ?? 1,
       slideOpacity: rc.display?.slideOpacity ?? 1,
@@ -438,13 +430,13 @@ export function createNoteLayerCache(): NoteLayerCache {
     };
     if (
       !basis || basis.chartEndVirtualY !== nb.chartEndVirtualY || basis.beatDisplay !== nb.beatDisplay ||
-      basis.tileDpr !== nb.tileDpr || basis.skinVersion !== nb.skinVersion ||
+      basis.dpr !== nb.dpr || basis.skinVersion !== nb.skinVersion ||
       basis.noteSize !== nb.noteSize || basis.slideOpacity !== nb.slideOpacity ||
       basis.colorAssist !== nb.colorAssist ||
       basis.verticalRatio !== nb.verticalRatio ||
       !bpmEventsEqual(basis.bpmEvents, nb.bpmEvents)
     ) {
-      // 时间线内容/节拍显示/瓦片密度/皮肤/音符大小/长压线不透明度/纵向比例变化 → pos 空间或位图语义变化，全量失效。
+      // 时间线内容/节拍显示/dpr/皮肤/音符大小/长压线不透明度/纵向比例变化 → pos 空间或位图语义变化，全量失效。
       // 注意：surface 宽高与 geometry 实例不在失效依据内（issue 36 F3a，见 basis 注释）。
       tiles.clear();
       basis = nb;
@@ -503,7 +495,7 @@ export function createNoteLayerCache(): NoteLayerCache {
     // issue 67：`|| rc.selectionBox` —— 框选手势期间 selectedItems 还是空的（选区要等 mouseup）、
     // hoverItem 也常为 null，漏了这一项会让"框选实时预览"整个不画（首版就栽在这里）。
     if (rc.selectedItems.length > 0 || rc.hoverItem || rc.selectionBox) {
-      const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
+      const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
       renderSelectionOverlay(ctx, c, rc, c.getVisibleNotes());
     }
     lastNoteLayerStats = { layerMode: 'tiles', rebuilt, blitted, lo, hi, blitCssPx };

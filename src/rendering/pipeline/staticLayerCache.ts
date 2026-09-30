@@ -152,7 +152,7 @@ export function createStaticLayerCache(): StaticLayerCache {
     cctx.clearRect(0, 0, nb.surfaceW, nb.surfaceH);
     cctx.fillStyle = '#000000';
     cctx.fillRect(0, 0, nb.surfaceW, nb.surfaceH);
-    const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes);
+    const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
     const { trackBgX, trackBgWidth } = c.trackGeometry(rc.viewport.scale);
     const bg = rc.background ?? null;
     if (nb.bgActive && bg) {
@@ -179,7 +179,7 @@ export function createStaticLayerCache(): StaticLayerCache {
     const cctx = (stripCanvas as HTMLCanvasElement).getContext('2d')!;
     cctx.setTransform(rc.dpr, 0, 0, rc.dpr, 0, 0);
     cctx.clearRect(0, 0, rc.surface.w, stripH);
-    const c = makeCoords(rc.geometry, stripVp, rc.beatDisplay, rc.notes);
+    const c = makeCoords(rc.geometry, stripVp, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
     renderGridBeatLines(cctx, c, stripRc);
     renderBoundLines(cctx, c, stripRc);
     stripMeta = { originScrollY, padCss, stripH };

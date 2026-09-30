@@ -125,6 +125,10 @@ export interface PreviewSettings {
   timeMarks: PreviewTimeMarkInterval;
   /** Beat 标记：横网格画到第几级细分（约分分母 ≤ N）；`'off'` = 不画横网格 */
   beatMarks: PreviewBeatMarkDivision;
+  /** Combo 标记：每 50 combo 在右沟槽写一个数字（照 Bestdori `chartCombo`） */
+  comboMarks: boolean;
+  /** 镜向：整条轨道水平镜像（车道左右互换 + 方向箭头翻转，照 Bestdori `styleMirror`） */
+  mirror: boolean;
 }
 
 /** Time 标记间隔（秒）——照 Bestdori 的 `chartTime`：off / 1s / 2s / 5s / 10s（chart-preview 08） */
@@ -134,9 +138,19 @@ export type PreviewBeatMarkDivision = 'off' | 1 | 2 | 3 | 4 | 6;
 /** 预览标注白名单（归一化与 UI 选项共用同一份，免得两处各列一遍） */
 export const PREVIEW_TIME_MARK_INTERVALS: readonly PreviewTimeMarkInterval[] = ['off', 1, 2, 5, 10];
 export const PREVIEW_BEAT_MARK_DIVISIONS: readonly PreviewBeatMarkDivision[] = ['off', 1, 2, 3, 4, 6];
-/** 预览标注默认档 = 票 03 的「精简档」观感（只整拍线 / 无沟槽文字 / 无时间刻度）：
- *  settings 默认值与宽图导出的**固定档**共用这一份，免得两处各写一遍。 */
-export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = { bpmMarks: false, timeMarks: 'off', beatMarks: 1 };
+/**
+ * 预览标注默认档（用户 2026-09-30 二轮定案）：BPM 标记开、时间标记 5 秒、节拍线 1/1、
+ * Combo 标记关、不镜像。
+ * 注意：**宽图导出不走这一份**（导出是固定精简档，见 `preview/static/exportPanels` 的 `EXPORT_MARKERS`）——
+ * 用户改的是"自己看谱的习惯"，不该顺手改掉导出物的样子。
+ */
+export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
+  bpmMarks: true,
+  timeMarks: 5,
+  beatMarks: 1,
+  comboMarks: false,
+  mirror: false,
+};
 
 /** 音符皮肤六条目（与 renderer/noteSkin.ts 的 NoteSkinItemId 一致；此处独立声明避免 utils→renderer 运行时依赖） */
 export interface NoteSkinSelectionRaw {
@@ -195,7 +209,8 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
       simultaneousClickLines: true,
       colorAssist: true,
       verticalRatio: 1,
-      imageQuality: 'standard',
+      // 图像品质默认高清（用户 2026-09-30 二轮定案）：画布侧 min(设备像素比, 3)、预览侧 max(设备像素比, 3)
+      imageQuality: 'hd',
       gridStyle: 'vivid',
       lineShapeTiers: false,
       gridOpacity: 0.8,
@@ -296,6 +311,8 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       beatMarks: (PREVIEW_BEAT_MARK_DIVISIONS as readonly unknown[]).includes(preview.beatMarks)
         ? preview.beatMarks as PreviewBeatMarkDivision
         : defaults.preview.beatMarks,
+      comboMarks: typeof preview.comboMarks === 'boolean' ? preview.comboMarks : defaults.preview.comboMarks,
+      mirror: typeof preview.mirror === 'boolean' ? preview.mirror : defaults.preview.mirror,
     },
   };
 }

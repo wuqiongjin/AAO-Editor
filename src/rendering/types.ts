@@ -49,11 +49,13 @@ export interface RenderCtx {
    *  `resolveCanvasDpr`（issue 39 #6 / issue 40 定案：流畅 1× / 标准 2.5× / 高清 3×，上限 devicePixelRatio） */
   dpr: number;
   /**
-   * 音符瓦片位图 dpr 上限：瓦片 dpr = `min(dpr, 本值)`。缺省 = `noteLayerCache` 的 1.5（编辑器现状）。
-   * 预览面板把它抬到**面板位图密度**——瓦片 dpr 低于画布 dpr 时音符会被上采样（1/3 缩放下
-   * 音符只有十来像素，上采样直接糊），面板里最抢眼的元素恰恰是音符。
+   * 音符层**直接渲染**（不走 pos 瓦片缓存）：缺省 `false` = 编辑器现状（交互帧复用瓦片）。
+   * 预览面板与宽图导出是**一次性出图**——没有交互帧要省，反而要拿回瓦片的两个代价：
+   * 1. 瓦片 blit 关掉了平滑（`imageSmoothingEnabled = false`，为播放帧减填充），密度不整除时
+   *    最近邻采样会在音符内部留下硬缝（2026-09-30 验收："音符边缘非常诡异"）；
+   * 2. 共享瓦片表在"每面板一个窗口"的用法下命中率极低，重建 + blit 纯属白付。
    */
-  tileDprCap?: number;
+  directNotes?: boolean;
   beatDisplay: number;
   chartEndBeat: number;
   notes: ChartNote[];
@@ -176,6 +178,17 @@ export interface RenderDisplayOptions {
    * 刻度画在轨道左侧沟槽、与 BPM 数值同带（右对齐锚定、越出画布左缘时横向钳制）。
    */
   timeMarks?: number;
+  /**
+   * Combo 标记（chart-preview 08，照 Bestdori `chartCombo`）：每 50 combo 在**轨道右侧沟槽**
+   * 写一个数字（50 / 100 / …，落点 = 第 N 个可击打结点）。计数口径与 `countNotesUpToBeat` 同源
+   * （滑条逐结点、BPM/System 不计）。缺省 = 不画。
+   */
+  comboMarks?: boolean;
+  /**
+   * 预览镜像（chart-preview 08，照 Bestdori `styleMirror`）：**整条轨道水平镜像** —— 车道左右互换
+   * （`lane → 6 - lane`）、方向键整组连同箭头一起翻到另一侧。缺省 `false` = 编辑器现状（编辑器不设本字段）。
+   */
+  mirror?: boolean;
 }
 
 /** 网格细节档（`RenderDisplayOptions.gridDetail` 的取值；静态层失效依据与预览档共用本类型） */
