@@ -62,6 +62,7 @@ vi.mock('@/src/pages/PageRegistry', async () => {
 
 import AppShell from '@/src/layouts/AppShell';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
+import { UIProvider } from '@/src/app/providers/UIProvider';
 import { ChartProjectStore, type ChartDifficulty, type ChartProject, type ProjectChart } from '@/src/project/ChartProject';
 import { createUnnamedProject } from '@/src/project/workspaceProject';
 import {
@@ -121,7 +122,9 @@ async function mountShell(
   renderWithProviders(
     <>
       <Probe ctx={ctx} />
-      <ConfigProvider><AppShell /></ConfigProvider>
+      {/* 预览页自 03 起读 `useUI().beatDisplay`（细分档决定 subBeat 的真实拍位）与 settings.display，
+          故这里补 Config + UI 两层 Provider（照 ProviderTree 的嵌套次序） */}
+      <ConfigProvider><UIProvider><AppShell /></UIProvider></ConfigProvider>
     </>,
     { store: new ChartProjectStore(backend) },
   );

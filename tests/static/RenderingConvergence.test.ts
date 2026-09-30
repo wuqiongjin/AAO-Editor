@@ -58,9 +58,12 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
     expect(srcFiles.filter(isOldPath)).toEqual([]);
     // 顶层只留票面点名的散文件 + 四个桶 —— 多一个目录（再分桶）即红。
     // 08 票（候选 3）按同一形态补 RenderTarget.ts（帧构建者 + 缓存所有者）与 rasterScale.ts（dpr/尺寸解析）
+    // chart-preview 03 补 displayOptions.ts（settings.display → RenderDisplayOptions 的唯一映射处：
+    //   工作台画布与预览面板叠同一层，映射不该写成两份）
     expect(entries('src/rendering')).toEqual([
       'RenderTarget.ts',
       'coords.ts',
+      'displayOptions.ts',
       'gridStyle.ts',
       'gutterLabels.ts',
       'hitTest',

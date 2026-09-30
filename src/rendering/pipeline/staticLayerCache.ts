@@ -25,6 +25,9 @@ type ScreenBasis = {
   lineShapeTiers: boolean;
   gridOpacity: number;
   labelScale: number;
+  /** chart-preview 03 预览显示档：条带里画着横网格与起止线，这两档必须进失效依据 */
+  gridDetail: 'all' | 'beats' | 'none';
+  boundLines: boolean;
   surfaceW: number;
   surfaceH: number;
   dpr: number;
@@ -83,6 +86,8 @@ function collectScreenBasis(rc: RenderCtx): ScreenBasis {
     lineShapeTiers: rc.display?.lineShapeTiers === true,
     gridOpacity: rc.display?.gridOpacity ?? 0.8,
     labelScale: rc.display?.labelScale ?? 1,
+    gridDetail: rc.display?.gridDetail ?? 'all',
+    boundLines: rc.display?.boundLines !== false,
     surfaceW: rc.surface.w,
     surfaceH: rc.surface.h,
     dpr: rc.dpr,
@@ -100,6 +105,7 @@ function screenHit(a: ScreenBasis, b: ScreenBasis): boolean {
     a.verticalRatio === b.verticalRatio &&
     a.gridStyle === b.gridStyle && a.lineShapeTiers === b.lineShapeTiers &&
     a.gridOpacity === b.gridOpacity && a.labelScale === b.labelScale &&
+    a.gridDetail === b.gridDetail && a.boundLines === b.boundLines &&
     a.surfaceW === b.surfaceW && a.surfaceH === b.surfaceH && a.dpr === b.dpr &&
     a.bgActive === b.bgActive && a.bgRevision === b.bgRevision && a.bgOpacity === b.bgOpacity &&
     a.bgFit === b.bgFit && a.bgScope === b.bgScope &&

@@ -17,6 +17,7 @@ import { useEditing, useUI, usePlayback, useConfig } from '../../../app/Provider
 import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import {
   createRenderTarget, resolveCanvasDpr, normalizeBackgroundOpacity, findItemAt, findBpmLineAt,
+  displayOptionsFromSettings,
   type FrameView, type RenderTarget, type ViewportState,
 } from '../../../rendering';
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
@@ -147,6 +148,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // issue 39 功能设置·画布显示：纵向比例进 geometry（重建），其余渲染参数经 RenderCtx 注入渲染器
     const { settings } = useConfig();
     const display = settings.display;
+    // 画布显示参数（issue 39 / chart-preview 03）：映射的唯一实现在 rendering/displayOptions —— 预览面板叠同一层
+    const displayOptions = useMemo(() => displayOptionsFromSettings(display), [display]);
     // 音符皮肤（issue 29）：六条目选择 → 归一化（缺省/非法回退默认包）→ 图标集；引用稳定，仅选择变化时重建
     const noteSkin = useMemo(() => normalizeNoteSkinSelection(settings.visual?.noteSkin), [settings.visual?.noteSkin]);
     const noteIcons = useMemo(() => buildActiveNoteIcons(noteSkin), [noteSkin]);
@@ -576,21 +579,13 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             skinVersion,
             // issue 39：画布显示参数（节奏图示大小/长压线不透明度/同时点击线）
             // issue 51/53 第二轮：轨道颜色主题 + 线形分层开关 + 文字大小系数（进静态层渲染参数）
-            display: {
-              noteSize: display.noteSize,
-              slideOpacity: display.slideOpacity,
-              simultaneousClickLines: display.simultaneousClickLines,
-              colorAssist: display.colorAssist,
-              gridStyle: display.gridStyle,
-              lineShapeTiers: display.lineShapeTiers,
-              gridOpacity: display.gridOpacity,
-              labelScale: display.labelScale,
-            },
+            // chart-preview 03：映射搬到 `rendering/displayOptions`（预览面板叠同一层，唯一一份映射）
+            display: displayOptions,
             // 背景皮肤（issue 29 Q4）：进静态层绘制
             background,
         };
         target.renderFrame(view);
-    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, display.noteSize, display.slideOpacity, display.simultaneousClickLines, display.colorAssist, display.imageQuality, display.gridStyle, display.lineShapeTiers, display.gridOpacity, display.labelScale, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
+    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, displayOptions, display.imageQuality, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
     renderCanvasRef.current = renderCanvas;
 
     useEffect(() => {

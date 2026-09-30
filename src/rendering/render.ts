@@ -178,6 +178,9 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
   const style = GRID_STYLES[normalizeGridStyle(rc.display?.gridStyle)];
   const lineShapeTiers = rc.display?.lineShapeTiers === true;
   const gridOpacity = rc.display?.gridOpacity ?? 1; // 轨道线透明度（第三轮补，用户可调）
+  // chart-preview 03 预览显示档：'none' 不画横网格；'beats' 只画整拍线（子拍候选根本不生成）
+  const gridDetail = rc.display?.gridDetail ?? 'all';
+  if (gridDetail === 'none') return;
 
   interface GridCandidate { y: number; tier: GridTier }
   const candidates: GridCandidate[] = [];
@@ -188,6 +191,7 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
       if (beat < 0 || isPastChartEnd(beat, rc.chartEndBeat)) continue;
       const y = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
       if (y >= -8 && y <= rc.surface.h + 8) candidates.push({ y, tier: 'beat' });
+      if (gridDetail === 'beats') continue;
       for (let subBeat = 1; subBeat < rc.beatDisplay; subBeat++) {
         const preciseBeat = trueBeat(beat, subBeat, rc.beatDisplay);
         if (isPastChartEnd(preciseBeat, rc.chartEndBeat)) continue;
@@ -1313,6 +1317,9 @@ export function renderBpmLines(ctx: CanvasRenderingContext2D, c: Coords, rc: Ren
  * 由 renderChart 编排在沟槽层（音符之上，沟槽内无音符）。
  */
 export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  // chart-preview 03 预览显示档：沟槽常显文字可整体关掉（窄面板下它们本来也放不下，
+  // drawGutterLabel 会自己隐藏；这里省掉整套布局与测量）
+  if (rc.display?.gutterLabels === false) return;
   const preset = normalizeGridStyle(rc.display?.gridStyle);
   const positiveColor = gridThemeBpmColor(preset);
   // issue 105 修法 1：**负值（倒流区）数值换色** —— 倒流区唯一的视觉标识（不做区域底纹）。
@@ -1385,6 +1392,8 @@ export const END_TEXT_COLOR = '#f0a07e';
  * - 起始线不画字；结束线 `END` 在线下方、外带锚定，文字盒钳制在画布内。
  */
 export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  // chart-preview 03 预览显示档：起止线（含 END 文字）可整体关掉（预览 panelW≈130 时属"编辑器装饰"）
+  if (rc.display?.boundLines === false) return;
   const labelScale = rc.display?.labelScale ?? 1;
   const drawLine = (beat: number, lineColor: string): number | null => {
     const canvasY = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
@@ -1422,6 +1431,8 @@ const HOVER_INFO_FONT_PX = 16.5;
 const HOVER_INFO_FONT = (labelScale: number) => `${HOVER_INFO_FONT_PX * labelScale}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
 const HOVER_INFO_COLOR = 'rgba(232, 238, 244, 0.65)';
 const HOVER_INFO_GAP_PX = 8;
+/** 读数盒贴画布缘的最小留白（钳制用；见 clampHoverInfoX） */
+const HOVER_INFO_EDGE_PX = 2;
 
 /**
  * 实时显示线（issue 54）：鼠标所在位置的水平线，**只在轨道宽度内绘制**（沟槽不画），
@@ -1440,6 +1451,22 @@ export function renderHoverLine(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   ctx.restore();
 }
 
+/** 实时读数文字宽度（等宽字体）：给 ctx 精确测量，否则按 0.62em 估算（与沟槽文字同一套估法） */
+function measureHoverInfoWidth(text: string, fontPx: number, font: string, ctx: CanvasRenderingContext2D): number {
+  const measured = (ctx.font = font, ctx.measureText(text)?.width ?? 0);
+  return measured > 0 ? measured : Math.max(text.length * fontPx * 0.62, fontPx);
+}
+
+/**
+ * 读数盒在画布内的横坐标钳制（chart-preview 03）：右对齐盒左缘越出画布就右移、左对齐盒右缘越出就左移。
+ * 窄画布（预览面板 ~130px）里宁可让读数压一点轨道，也不切掉字；宽画布（工作台）上钳制从不触发，
+ * 位置与既有口径逐像素一致。
+ */
+function clampHoverInfoX(anchorX: number, textWidth: number, surfaceW: number, align: 'right' | 'left'): number {
+  if (align === 'right') return Math.max(anchorX, textWidth + HOVER_INFO_EDGE_PX);
+  return Math.min(anchorX, surfaceW - textWidth - HOVER_INFO_EDGE_PX);
+}
+
 /**
  * 实时显示线两侧沟槽信息（issue 54）：左 = 分内时间 `SS.ss`（00.00–59.99 循环），
  * 右 = 已过音符数 `♪ N`（与判定线计数同口径 countNotesUpToBeat：含恰好在线上的音符、
@@ -1456,15 +1483,31 @@ export function renderHoverInfo(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   // countNotesUpToBeat 同源——这是拍域定义，本票不改。
   const seconds = c.virtualYToSeconds(virtualY);
   const count = countNotesUpToBeat(rc.notes, c.virtualYToBeat(virtualY));
+  const font = HOVER_INFO_FONT(labelScale);
+  const fontPx = HOVER_INFO_FONT_PX * labelScale;
+  const timeText = formatInMinuteTime(seconds);
+  const countText = `♪ ${count}`;
   ctx.save();
-  ctx.font = HOVER_INFO_FONT(labelScale);
   ctx.fillStyle = HOVER_INFO_COLOR;
   ctx.textBaseline = 'middle';
+  // 左边锚轨道**左外缘**（含外框 chrome）之外，右边锚轨道**右外缘**之外（用户反馈：锚内容边缘会陷进边条）
+  const leftX = clampHoverInfoX(
+    trackStartX - HOVER_INFO_GAP_PX,
+    measureHoverInfoWidth(timeText, fontPx, font, ctx),
+    rc.surface.w,
+    'right',
+  );
+  const rightX = clampHoverInfoX(
+    trackStartX + totalTrackWidth + HOVER_INFO_GAP_PX,
+    measureHoverInfoWidth(countText, fontPx, font, ctx),
+    rc.surface.w,
+    'left',
+  );
+  ctx.font = font;
   ctx.textAlign = 'right';
-  ctx.fillText(formatInMinuteTime(seconds), trackStartX - HOVER_INFO_GAP_PX, rc.hoverPos.cy);
-  // 右侧锚轨道**右外缘**（含外框 chrome）——锚内容右缘会陷进边条内（用户反馈：向右偏移）
+  ctx.fillText(timeText, leftX, rc.hoverPos.cy);
   ctx.textAlign = 'left';
-  ctx.fillText(`♪ ${count}`, trackStartX + totalTrackWidth + HOVER_INFO_GAP_PX, rc.hoverPos.cy);
+  ctx.fillText(countText, rightX, rc.hoverPos.cy);
   ctx.restore();
 }
 

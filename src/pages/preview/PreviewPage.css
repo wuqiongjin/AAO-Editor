@@ -14,16 +14,66 @@
 }
 
 /* ---- 工具栏行 ----
-   左 = 这一屏在看哪张谱面，右 = 这一页作用于哪个工程（与音频页"作用域条在区块头右侧"同习惯）；
-   模式相关控件（03 / 05）注入同一行。两端的盒子都常驻，换作用域时不改变行高（下面的舞台不跳）。 */
+   左 = 这一屏在看哪张谱面 + 模式控件，右 = 这一页作用于哪个工程（与音频页"作用域条在区块头右侧"同习惯）。
+   窄窗口放不下时换行，不压扁任何一件控件（下面的舞台跟着让一行的位置）。 */
 .preview-toolbar {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   min-height: 34px;
   padding-bottom: 10px;
+}
+
+/* ---- 静态预览控件组（缩放分段档 + 叠加项图标钮 + 导出宽图） ---- */
+.preview-static {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 缩放：分段档（全站第一个分段件；样式照 icon-btn / scope-picker 那一套 token） */
+.preview-zoom {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+}
+
+.preview-zoom__item {
+  min-width: 46px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.preview-zoom__item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.preview-zoom__item.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 650;
+}
+
+.preview-zoom__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 /* ---- 谱面切换器（作用对象工程的谱面；换掉只改本页在看哪张） ---- */
@@ -155,6 +205,14 @@
   border-radius: var(--radius-md);
   background: var(--bg-inset);
   color: var(--text-muted);
+}
+
+/* 画面已接（静态面板折行）：撤掉占位轮廓，整块面积交给画面自己（它自带边框/底色） */
+.preview-stage.is-filled {
+  align-items: stretch;
+  padding: 0;
+  border: none;
+  background: none;
 }
 
 .preview-stage__pending {

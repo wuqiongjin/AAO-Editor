@@ -7,6 +7,10 @@ export { createRenderTarget, type RenderTarget, type RenderTargetOptions } from 
 export { createStaticLayerCache, normalizeBackgroundOpacity, type StaticLayerCache } from './pipeline/staticLayerCache';
 export { createNoteLayerCache, type NoteLayerCache } from './pipeline/noteLayerCache';
 export { resolveCanvasDpr, bufferSizeFor } from './rasterScale';
+export { displayOptionsFromSettings } from './displayOptions';
 export { makeCoords, type Coords } from './coords';
 export { findItemAt, findBpmLineAt, computeItemsInBox, computeBpmLinesInBox, pointInQuad, type HitTestDeps } from './hitTest/hitTest';
-export type { RenderCtx, FrameView, ViewportState, SelectionBox, SlideBuffer, HoverPos } from './types';
+export type {
+  RenderCtx, FrameView, ViewportState, SelectionBox, SlideBuffer, HoverPos,
+  RenderDisplayOptions, RenderBackgroundImage,
+} from './types';

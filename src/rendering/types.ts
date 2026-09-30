@@ -154,4 +154,14 @@ export interface RenderDisplayOptions {
   gridOpacity?: number;
   /** 谱面文字大小系数（issue 51 第二轮 Q1=A）：0.5..3，作用于 BPM 数值/END/实时信息 */
   labelScale?: number;
+  /**
+   * 网格**横线**细节档（chart-preview 03 预览显示档）：`'all'` 全量（缺省 = 编辑器现状）/
+   * `'beats'` 只画整拍线 / `'none'` 不画横网格。轨道竖线属于轨道本身，不在本档内
+   * （预览面板里竖线是读谱基准：130px 宽的轨道要能看出 7 条道）。
+   */
+  gridDetail?: 'all' | 'beats' | 'none';
+  /** 沟槽常显文字（BPM 数值/摘要、END 文字）开关：`false` = 不画（预览精简档）；缺省 = 画 */
+  gutterLabels?: boolean;
+  /** 起止线（START/END 线与 END 文字）开关：`false` = 不画（预览精简档）；缺省 = 画 */
+  boundLines?: boolean;
 }

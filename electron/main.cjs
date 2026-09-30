@@ -177,6 +177,45 @@ function registerChartCodeExportIpc() {
 registerChartCodeExportIpc();
 
 // ---------------------------------------------------------------------------
+// 二进制另存（chart-preview 03）：宽图 PNG（07 的视频导出复用同一通道）。
+// 收 { bytes: Uint8Array, suggestedName, mime }；每次 dialog、不记路径；
+// defaultPath 只用 basename（渲染侧即使传带目录的名字也写不进记忆）。
+// ---------------------------------------------------------------------------
+/** mime → [对话框过滤器名, 扩展名]；当下唯一生产者是宽图 PNG（07 加视频时在这里补一行） */
+function binaryFilter(mime) {
+    if (mime === 'image/webp') return { label: 'WebP', ext: 'webp' };
+    return { label: 'PNG', ext: 'png' };
+}
+
+function registerPreviewIpc() {
+    ipcMain.handle('preview:saveBinary', async (event, payload) => {
+        const bytes = payload && payload.bytes;
+        if (!(bytes instanceof Uint8Array)) {
+            throw new Error('preview:saveBinary 需要字节');
+        }
+        const { label, ext } = binaryFilter(payload && payload.mime);
+        const rawName = payload && payload.suggestedName;
+        const suggestedName =
+            typeof rawName === 'string' && rawName.length > 0
+                ? path.basename(rawName)
+                : `export.${ext}`;
+        const win = BrowserWindow.fromWebContents(event.sender);
+        const result = await dialog.showSaveDialog(win ?? undefined, {
+            title: t('electron.exportSheet'),
+            defaultPath: suggestedName,
+            filters: [{ name: label, extensions: [ext] }],
+        });
+        if (result.canceled || !result.filePath) {
+            return { cancelled: true };
+        }
+        // 成图可能上百 MB（30 分钟谱的宽图）：整块写完，不做流式（07 要流式时再说）
+        await fs.promises.writeFile(result.filePath, Buffer.from(bytes));
+        return { cancelled: false };
+    });
+}
+registerPreviewIpc();
+
+// ---------------------------------------------------------------------------
 // 窗体 OS chrome 与 settings.theme（issue 126）：nativeTheme + backgroundColor；
 // 渲染进程经 windowChrome:sync 推送 light/dark/system。
 // ---------------------------------------------------------------------------

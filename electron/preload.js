@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     chartCodeExport: {
         saveAs: (payload) => ipcRenderer.invoke('chartCode:saveAs', payload),
     },
+    // chart-preview 03：二进制另存（宽图 PNG；07 的视频导出复用）。收 Uint8Array + 建议文件名 + mime，
+    // 每次弹系统保存对话框，不记路径。浏览器侧没有这条桥，降级 Blob + <a download>。
+    preview: {
+        saveBinary: (payload) => ipcRenderer.invoke('preview:saveBinary', payload),
+    },
     // issue 117：数据根（不进设置对象）。change = 搬家；claim = 认领已有根。
     dataRoot: {
         get: () => ipcRenderer.invoke('dataRoot:get'),
