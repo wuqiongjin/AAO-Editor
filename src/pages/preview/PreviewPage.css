@@ -1,33 +1,8 @@
 /* ============================================================
  * 预览页（ADR-0016 §1 / §4；chart-preview 02）
- * 三段：侧栏里的作用域条（窄列，名字要收得住）+ 工具栏宿主 + 舞台。
+ * 三段：模式侧栏（只放模式两项）+ 工具栏行 + 舞台。
  * 几何一概走内容壳（AppPageShell / fill 档），本文件只管页内内容。
  * ============================================================ */
-
-/* ---- 侧栏顶部的作用域条 ----
-   它是宽行形态的控件（名字 max-width 220px），放进 140–200px 的侧栏要改成
-   "挤得下就显示、挤不下省略号"，而不是顶破侧栏。 */
-.preview-scope {
-  min-width: 0;
-  padding: 0 2px 2px;
-}
-
-.preview-scope .scope-picker {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-}
-
-.preview-scope .scope-picker__trigger {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.preview-scope .scope-picker__name {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: none;
-}
 
 /* ---- 空态容器（fill 档正文里居中） ---- */
 .preview-empty {
@@ -38,13 +13,14 @@
   min-height: 0;
 }
 
-/* ---- 工具栏宿主 ----
-   模式无关控件（谱面切换）在此；模式相关控件由 03 / 05 注入同一行。
-   记录未读回来时也占位（min-height），避免正文上下跳一格。 */
+/* ---- 工具栏行 ----
+   左 = 这一屏在看哪张谱面，右 = 这一页作用于哪个工程（与音频页"作用域条在区块头右侧"同习惯）；
+   模式相关控件（03 / 05）注入同一行。两端的盒子都常驻，换作用域时不改变行高（下面的舞台不跳）。 */
 .preview-toolbar {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   min-height: 34px;
   padding-bottom: 10px;
@@ -75,6 +51,13 @@
 
 .preview-chart__trigger:hover {
   background: var(--bg-hover);
+}
+
+/* 记录未到位时的占位触发钮：盒子与真身一致（行高不许变），只把观感调成"还没读到" */
+.preview-chart__trigger.is-pending {
+  border-style: dashed;
+  color: var(--text-muted);
+  cursor: default;
 }
 
 .preview-chart__name {

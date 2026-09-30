@@ -620,6 +620,12 @@
   background: var(--bg-hover);
 }
 
+/* 图标定宽：窄容器（侧栏、长名字并排）里 flex 会把它压扁，视觉上像"图标跟着名字变大小" ——
+   它不参与收缩。 */
+.scope-picker__trigger svg {
+  flex-shrink: 0;
+}
+
 .scope-picker__name {
   max-width: 220px;
   font-weight: 600;

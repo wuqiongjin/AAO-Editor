@@ -17,8 +17,9 @@ import { t } from '../../i18n';
 import '../projects/ProjectsPage.css';
 
 export default function PreviewChartSwitcher({ project, chartId, onPick }: {
-  project: ChartProject;
-  chartId: string;
+  /** 作用对象工程；null = 记录还在路上（走下面的占位触发钮，见那里的注释） */
+  project: ChartProject | null;
+  chartId: string | null;
   /** 换这张谱面（页面内定位，交给 usePreviewScope 记） */
   onPick: (chartId: string) => void;
 }) {
@@ -50,6 +51,21 @@ export default function PreviewChartSwitcher({ project, chartId, onPick }: {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, close]);
+
+  // 记录未到位（换作用域时旧记录已被丢掉）：占位触发钮与真身**同盒子**（同 class、同字体、
+  // 同内边距、同样有那一枚难度徽标），只把内容换成中性骨架——不这么做工具栏会矮一截，
+  // 下面的舞台跟着上下跳（2026-09-30 用户验收报的抖动）。
+  if (project == null || chartId == null) {
+    return (
+      <div className="preview-chart">
+        <button type="button" className="preview-chart__trigger is-pending" disabled aria-hidden="true">
+          <span className="pp-pill__diff" style={{ background: 'var(--border)' }}>··</span>
+          <span className="preview-chart__name">…</span>
+          <ChevronDown size={14} className="preview-chart__caret" />
+        </button>
+      </div>
+    );
+  }
 
   const cur = project.charts.find((c) => c.id === chartId) ?? project.charts[0];
 

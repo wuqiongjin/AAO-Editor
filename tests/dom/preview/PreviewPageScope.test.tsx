@@ -155,6 +155,9 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     expect(await screen.findByRole('button', { name: /^作用域工程：Beta/ })).toBeInTheDocument();
     await waitFor(() => expect(chartTrigger()).toHaveTextContent('Beta 2'));
     expect(scopeTag()).toHaveTextContent('非当前工程');
+    // 两个控件同住工具栏行（2026-09-30 用户验收：作用域条从窄侧栏挪到这里）
+    expect(scopeTrigger().closest('.preview-toolbar')).not.toBeNull();
+    expect(chartTrigger().closest('.preview-toolbar')).not.toBeNull();
     // 作用域存在的全部意义：当前工程一动不动
     expect(ctx.current!.projectId).toBe('pA');
     expect(backend.disk.get('pA')!.charts.map((c) => c.id)).toEqual(['c-a1', 'c-a2']);
@@ -173,6 +176,22 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     expect(scopeTag()).toHaveTextContent('当前');
     // 二级回落：不带二级时取该工程的**当前谱面**（CurrentProjectSession 的 chartId）
     await waitFor(() => expect(chartTrigger()).toHaveTextContent('Alpha 2'));
+  });
+
+  it('换作用域时工具栏不断档：左侧先出同尺寸占位盒，记录回来再换成真身', async () => {
+    // 锁的是"抖动"的根因（2026-09-30 用户报）：记录还在路上那一 tick 谱面切换器整块消失，
+    // 工具栏矮一截 → 下面的舞台跟着上下跳。占位盒与真身同 class（同盒子），行高不变。
+    await mountShell(seed(), { projectId: 'pA', chartId: 'c-a1' });
+
+    fireEvent.click(navButton('工程'));
+    fireEvent.click(screen.getByRole('button', { name: '跳转 Beta 2' }));
+
+    // 同步断言：读记录还是 pending，占位盒已在位（且不可点、不占可访问名）
+    expect(document.querySelector('.preview-chart__trigger.is-pending')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /^预览中的谱面：/ })).toBeNull();
+
+    await waitFor(() => expect(chartTrigger()).toHaveTextContent('Beta 2'));
+    expect(document.querySelector('.preview-chart__trigger.is-pending')).toBeNull();
   });
 
   it('scope 只带工程：非当前工程取它的首张谱面', async () => {

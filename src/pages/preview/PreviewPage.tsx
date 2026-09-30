@@ -1,6 +1,6 @@
 // 预览页（ADR-0016 §1 / §4；chart-preview 02）：独立应用页面，作用于「工程 + 谱面」。
 //
-// 本票只交**壳**：页面头 + 模式侧栏 + 工具栏宿主 + 作用域条 + 谱面切换 + 空态。
+// 本票只交**壳**：页面头 + 模式侧栏 + 工具栏行（谱面切换 + 作用域条 + 模式控件的注入位）+ 空态。
 // 两种形态的画面分别由 03（静态面板折行）与 05（仿真场）注入工具栏与舞台；
 // 本页不 ensure 当前工程：没有作用对象就空态，不因此新建 / 打开工程（与音频页同口径，§4）。
 import { useCallback, useState } from 'react';
@@ -36,9 +36,6 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   // 作用域条的名字取**选项**（与作用域无关的那份全量列表）而不是 `project`：换作用域时记录还在路上，
   // 靠记录会让作用域条断档一个 tick，而"此刻作用于谁"正是它要一直说的事（照音频页）。
   const scopeOption = scopeId == null ? null : options.find((o) => o.id === scopeId) ?? null;
-  const currentChart = project != null && chartId != null
-    ? project.charts.find((c) => c.id === chartId) ?? null
-    : null;
 
   return (
     <AppPageShell>
@@ -49,18 +46,6 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       />
 
       <AppPageShell.Sidebar ariaLabel={t('preview.sidebar.aria')}>
-        {/* 作用域条落在模式切换区**上方**：它说的是"这一页作用于哪个工程"，比"画哪种形态"更外一层 */}
-        {scopeOption && scopeId != null && (
-          <div className="preview-scope">
-            <ScopePicker
-              scopeId={scopeId}
-              currentId={currentId}
-              scopeName={scopeOption.name}
-              options={options}
-              onPick={pickScope}
-            />
-          </div>
-        )}
         {PREVIEW_MODES.map((m) => (
           <AppPageShell.SidebarItem
             key={m.id}
@@ -91,11 +76,20 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
           </div>
         ) : (
           <>
-            {/* 工具栏宿主：模式无关的控件在这里（谱面切换 = 这一屏看哪张谱面），
-                模式相关的控件由 03（静态）/ 05（仿真场）注入同一行。 */}
+            {/* 工具栏行：左 = 这一屏在看哪张谱面，右 = 这一页作用于哪个工程。
+                模式相关的控件由 03（静态）/ 05（仿真场）注入同一行。
+                作用域条放这里而不是侧栏（2026-09-30 用户验收）：窄列截名字、图标被挤、
+                弹层与触发钮错位，三个症状都是"宽度不够 + 贴左缘"来的；侧栏只留模式两项。 */}
             <div className="preview-toolbar">
-              {project != null && currentChart != null && (
-                <PreviewChartSwitcher project={project} chartId={currentChart.id} onPick={pickChart} />
+              <PreviewChartSwitcher project={project} chartId={chartId} onPick={pickChart} />
+              {scopeOption && scopeId != null && (
+                <ScopePicker
+                  scopeId={scopeId}
+                  currentId={currentId}
+                  scopeName={scopeOption.name}
+                  options={options}
+                  onPick={pickScope}
+                />
               )}
             </div>
             {/* 舞台：两种形态的画面（03 / 05 接入）。本票只立接缝，画面未接时不静默空白。 */}
