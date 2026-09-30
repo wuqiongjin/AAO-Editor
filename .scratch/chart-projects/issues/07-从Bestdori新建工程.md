@@ -2,7 +2,9 @@
 
 Type: grilling
 Status: open
-Blocked by: 02, 04；bestdori-integration 的 Electron 网络 IPC 实现票（尚未开，见 ADR-0011 §2）
+Blocked by: 02, 04；[bestdori-integration/issues/07 网络 IPC 面](../bestdori-integration/issues/07-网络IPC面与主进程网关.md)（2026-09-30 已开，不再是「尚未开」）
+
+> 本票的四条「待 grill」已于 2026-09-30 拍板，结论落在 [bestdori-integration/issues/06](../bestdori-integration/issues/06-社区能力层地基.md) 的 Answer 表，实现拆成 08（官方曲）/ 09（社区帖）。其中 ②③ 见 08 票、① 见 Q10、④ 见 Q9。
 
 ## 来源
 
