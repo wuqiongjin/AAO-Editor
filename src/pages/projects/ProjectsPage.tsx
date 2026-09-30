@@ -347,6 +347,7 @@ export default function ProjectsPage() {
             onChartForm={setChartForm}
             onDeleteChart={setAskDeleteChart}
             onOpenAudio={() => setActivePage('audio', { scope: { projectId: sel.id } })}
+            onPreviewChart={(chartId) => setActivePage('preview', { scope: { projectId: sel.id, chartId } })}
             mutate={mutate}
           />
         </div>

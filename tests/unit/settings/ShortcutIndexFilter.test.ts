@@ -17,8 +17,8 @@ import { stripComments, readSource } from '@/tests/support/source';
 
 
 describe('issue 121 · 索引筛选桶归属', () => {
-  it('切页六行恰好 6 条，且都归系统', () => {
-    expect(PAGE_SWITCH_ROWS).toHaveLength(6);
+  it('切页行恰好 7 条（chart-preview 02 起含预览），且都归系统', () => {
+    expect(PAGE_SWITCH_ROWS).toHaveLength(7);
     expect(PAGE_SWITCH_ROWS.every((row) => row.bucket === 'system')).toBe(true);
   });
 

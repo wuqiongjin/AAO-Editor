@@ -1,6 +1,6 @@
 // 工程详情视图（原 ProjectsPage.tsx 的 detail 分支整块抽出，内部未再拆）。
 import type { CSSProperties, ReactNode } from 'react';
-import { Copy, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Copy, Eye, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { newChartId, type ChartProject, type ProjectChart } from '../../../project/ChartProject';
 import {
   DIFF_COLORS,
@@ -23,7 +23,7 @@ import { Cover, DiffLevelBadge, StatusBadge } from './ProjectBits';
 
 export function ProjectDetail({
   list, sel, currentId, listWidth, onListWidthChange, newButton,
-  onHome, onSelect, onOpen, onEdit, onCopy, onDelete, onChartForm, onDeleteChart, onOpenAudio, mutate,
+  onHome, onSelect, onOpen, onEdit, onCopy, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, mutate,
 }: {
   list: ChartProject[];
   sel: ChartProject;
@@ -41,6 +41,8 @@ export function ProjectDetail({
   onDeleteChart: (v: { project: ChartProject; chart: ProjectChart }) => void;
   /** 跳音频页（带作用域）——作用域对象由页面侧构造，这里只负责触发 */
   onOpenAudio: () => void;
+  /** 跳预览页（带作用域二级 chartId，chart-preview 02）——同上，作用域由页面侧构造 */
+  onPreviewChart: (chartId: string) => void;
   mutate: (id: string, fn: (p: ChartProject) => ChartProject | null) => Promise<void>;
 }) {
   const uploads = sel.charts.filter((c) => c.upload);
@@ -136,6 +138,10 @@ export function ProjectDetail({
                   <span className="pc-chart__actions">
                     <button type="button" className="pp-btn pp-btn--sm" onClick={() => void onOpen(sel.id, c.id)}>
                       <Play size={12} />{t('projects.open')}
+                    </button>
+                    {/* 预览入口（ADR-0016 §4）：带作用域跳到预览页的这一张谱面，当前工程不被切走 */}
+                    <button type="button" className="pp-btn pp-btn--sm" onClick={() => onPreviewChart(c.id)}>
+                      <Eye size={12} />{t('projects.previewChart')}
                     </button>
                     <button
                       type="button"

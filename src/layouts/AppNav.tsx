@@ -1,18 +1,20 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { t, type MessageKey } from '../i18n';
-import { ChevronsLeft, ChevronsRight, FolderOpen, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Eye, FolderOpen, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
 import { PAGE_NAV } from './pageNav';
 import type { PageScope } from './pageScope';
 
 // 应用级导航（issue 28）：跨页持久、可折叠（默认折叠）。
 // 工作台页：与左侧工具面板合成同一左列（顶部导航、下方工具）；非工作台页：独立左列导航栏。
 // 展开/折叠只控制标签是否显示，不额外占用一列（画布宽度不受影响）。
-export type PageId = 'projects' | 'workspace' | 'audio' | 'settings' | 'shortcuts' | 'assets';
+export type PageId = 'projects' | 'workspace' | 'audio' | 'preview' | 'assets' | 'settings' | 'shortcuts';
 
+// 顺序照 PAGE_NAV（页面的展示位次以那张表为准，这里只是同序摆放便于对照）
 const NAV_META: Record<PageId, { labelKey: MessageKey; icon: typeof LayoutDashboard }> = {
   projects: { labelKey: 'nav.projects', icon: FolderOpen },
   workspace: { labelKey: 'nav.workspace', icon: LayoutDashboard },
   audio: { labelKey: 'nav.audio', icon: Music2 },
+  preview: { labelKey: 'nav.preview', icon: Eye },
   assets: { labelKey: 'nav.assets', icon: Layers },
   shortcuts: { labelKey: 'nav.shortcuts', icon: Keyboard },
   settings: { labelKey: 'nav.settings', icon: Settings2 },

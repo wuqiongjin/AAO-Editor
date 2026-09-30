@@ -153,8 +153,8 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | --- | --- | --- |
 | 应用壳 | App shell | `src/layouts/AppShell.tsx`——5 页注册 + 保活挂载 + 切页快捷键 + 可折叠应用导航；issue 28 闭环；不在内容壳 ADR 范围 |
 | 内容壳 | Content shell | `src/layouts/AppPageShell.tsx`——4 个非工作台页共用的"页面头 + 紧贴 body 边的侧边索引 + 内容模式 + 自适应几何"模板；compound component 形态（namespace）；ADR-0007 范围 |
-| 应用页面 | Application page | 应用壳中的单例功能目的地；当前范围为工作台、音频、素材、快捷键、设置（issue 28 §ADR-0003 既有定义）；ADR-0015 起新增**工程管理页**并排第一（`⇧⌘0`）；ADR-0016 起新增**预览页**（`⇧⌘6`，末位；承载静态预览与仿真场回放 / 导出） |
-| 内容页 | Content page | 接入内容壳的应用页面；**工作台不接入**（内部布局专属，issue 28 P1+P2）；当前范围 = 音频、素材、快捷键、设置 |
+| 应用页面 | Application page | 应用壳中的单例功能目的地；当前范围为工作台、音频、素材、快捷键、设置（issue 28 §ADR-0003 既有定义）；ADR-0015 起新增**工程管理页**并排第一（`⇧⌘0`）；ADR-0016 起新增**预览页**（`⇧⌘3`，紧随音频页；承载静态预览与仿真场回放 / 导出） |
+| 内容页 | Content page | 接入内容壳的应用页面；**工作台不接入**（内部布局专属，issue 28 P1+P2）；当前范围 = 音频、预览、素材、快捷键、设置 |
 | 工作台页 | Workspace page | **不接入内容壳**的应用页面（内部布局专属 + 黑盒接入应用壳，Editor 仅传 `active` 表面契约） |
 | 页面头 | Page header | 内容壳 `<AppPageShell.Header eyebrow title description />`；沿用 `.page-intro` class，CSS 不动；各页 description 与分区/空态说明的精简见 issue 125 |
 | 侧边索引 | Sidebar | 内容壳 `<AppPageShell.Sidebar>`——**独立于正文外**（不占正文空间，与"压在正文内"语义对立）；可空、可分组；激活态统一为"主色软底 + 主色文字 + 弱描边" |
@@ -225,7 +225,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 
 | 术语 | 英文 | 说明 |
 | --- | --- | --- |
-| 视觉素材页 | Visual assets page | 应用级页面（导航第 3 项 `⇧⌘3`）；原「素材页」收窄为视觉素材；页内**类别子 tab**：音符皮肤 / 背景皮肤，一次看一个类别，可扩展 |
+| 视觉素材页 | Visual assets page | 应用级页面（导航第 5 项 `⇧⌘4`）；原「素材页」收窄为视觉素材；页内**类别子 tab**：音符皮肤 / 背景皮肤，一次看一个类别，可扩展 |
 | 音符皮肤 | Note skin | 音符外观素材包；注册表由 `scripts/build-note-skins.mjs` 从 Bestdori 归档解析 `.sprites` 官方坐标生成（`src/rendering/skin/gen/noteSkinRegistry.gen.ts`，产物入库） |
 | 皮肤条目 | Note skin item | 六条目：单键 `tap` / 滑键 `flick` / 技能键 `skill` / 左方向 `dirL` / 右方向 `dirR` / 滑条 `slide`；slide 管三件套 = `longNoteLine` + `longNoteLine2` + `note_slide_among` |
 | 整包预设 | Skin preset | 官方同名配对（skin0N + directionalflickskin0N）一键写入六条目；写入后各条目仍可独立覆盖 |

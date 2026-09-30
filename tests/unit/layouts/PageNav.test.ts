@@ -4,16 +4,18 @@ import { DEFAULT_PAGE_ID, PAGE_NAV } from '@/src/layouts/pageNav';
 import { PAGE_SWITCH_ROWS } from '@/src/settings/shortcutIndexFilter';
 import { readStripped } from '@/tests/support/source';
 
-describe('PAGE_NAV · 启动落点与 ⇧⌘0..5', () => {
-  it('工程管理页是第一项、启动默认落点，快捷键 ⇧⌘0；其余 ⇧⌘1..5 不变', () => {
+describe('PAGE_NAV · 启动落点与 ⇧⌘0..6', () => {
+  it('工程管理页是第一项、启动默认落点，快捷键 ⇧⌘0；预览紧随音频页 ⇧⌘3，其后三页各顺延一位', () => {
     expect(DEFAULT_PAGE_ID).toBe('projects');
     expect(PAGE_NAV.map((p) => [p.id, p.shortcut, p.key])).toEqual([
       ['projects', '⇧⌘0', '0'],
       ['workspace', '⇧⌘1', '1'],
       ['audio', '⇧⌘2', '2'],
-      ['assets', '⇧⌘3', '3'],
-      ['shortcuts', '⇧⌘4', '4'],
-      ['settings', '⇧⌘5', '5'],
+      // chart-preview 02（ADR-0016 §4）：预览页紧随音频页（2026-09-30 用户验收拍板）
+      ['preview', '⇧⌘3', '3'],
+      ['assets', '⇧⌘4', '4'],
+      ['shortcuts', '⇧⌘5', '5'],
+      ['settings', '⇧⌘6', '6'],
     ]);
   });
 
@@ -22,9 +24,10 @@ describe('PAGE_NAV · 启动落点与 ⇧⌘0..5', () => {
       ['pageSwitch.projects', 'Ctrl/⌘+Shift+0'],
       ['pageSwitch.workspace', 'Ctrl/⌘+Shift+1'],
       ['pageSwitch.audio', 'Ctrl/⌘+Shift+2'],
-      ['pageSwitch.assets', 'Ctrl/⌘+Shift+3'],
-      ['pageSwitch.shortcuts', 'Ctrl/⌘+Shift+4'],
-      ['pageSwitch.settings', 'Ctrl/⌘+Shift+5'],
+      ['pageSwitch.preview', 'Ctrl/⌘+Shift+3'],
+      ['pageSwitch.assets', 'Ctrl/⌘+Shift+4'],
+      ['pageSwitch.shortcuts', 'Ctrl/⌘+Shift+5'],
+      ['pageSwitch.settings', 'Ctrl/⌘+Shift+6'],
     ]);
     expect(PAGE_SWITCH_ROWS.every((row) => row.bucket === 'system')).toBe(true);
   });
@@ -51,7 +54,7 @@ describe('PAGE_NAV · 应用壳接线', () => {
     expect(src).not.toMatch(/isProjectsPrototype/);
   });
 
-  it('PageRegistry 六条 lazy 全部从 ./ 子目录装入（architecture-refactor 02 落点锁）', () => {
+  it('PageRegistry 七条 lazy 全部从 ./ 子目录装入（architecture-refactor 02 落点锁）', () => {
     const src = readStripped('src/pages/PageRegistry.tsx');
     const paths = [...src.matchAll(/lazy\(\(\)\s*=>\s*import\('([^']+)'\)\)/g)].map((m) => m[1]);
     expect(paths).toEqual([
@@ -61,6 +64,7 @@ describe('PAGE_NAV · 应用壳接线', () => {
       './assets/AssetsPage',
       './settings/SettingsPage',
       './settings/ShortcutsPage',
+      './preview/PreviewPage',
     ]);
   });
 
