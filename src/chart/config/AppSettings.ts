@@ -148,7 +148,7 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
   bpmMarks: true,
   timeMarks: 5,
   beatMarks: 1,
-  comboMarks: false,
+  comboMarks: true,
   mirror: false,
 };
 
@@ -205,7 +205,8 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     audio: { keySet: DEFAULT_ACTIVE_KEY_SOUND_SET_ID, seVolume: 1 },
     display: {
       noteSize: 1,
-      slideOpacity: 1,
+      // 长压线不透明度（issue 39 #2）：默认 0.8（用户 2026-09-30 三轮定案：100% 太实）
+      slideOpacity: 0.8,
       simultaneousClickLines: true,
       colorAssist: true,
       verticalRatio: 1,

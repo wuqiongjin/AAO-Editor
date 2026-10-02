@@ -55,10 +55,12 @@ describe('chart-preview 03 · 二进制另存通道（preload → main）', () =
 });
 
 describe('chart-preview 03 · 导出与预览解耦（固定档、不读窗口）', () => {
-  it('导出档是常量：面板高 537 / dpr 2 / 缩放 100%', () => {
+  it('导出档是常量：面板高 537 / dpr 2 / 生效缩放 1/3（面板 130，与预览基准解耦）', () => {
     expect(exportSrc).toMatch(/EXPORT_PANEL_H\s*=\s*537/);
     expect(exportSrc).toMatch(/EXPORT_DPR\s*=\s*2/);
-    expect(exportSrc).toMatch(/EXPORT_ZOOM\s*=\s*1/);
+    expect(exportSrc).toMatch(/EXPORT_ES\s*=\s*1\s*\/\s*3/);
+    // 不跟预览基准走：导出面板宽不能随 PREVIEW_ES_STANDARD（2026-10-02 重定基）一起漂移
+    expect(exportSrc).not.toMatch(/esForZoom|PREVIEW_ES_STANDARD/);
   });
 
   it('导出不读 window（devicePixelRatio / 窗口尺寸）：dpr 只从固定档与显式入参来', () => {

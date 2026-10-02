@@ -165,24 +165,10 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
           <>
             {/* 工具栏行：左 = 这一屏在看哪张谱面 + 模式控件（03 静态 / 05 仿真场注入同一行），
                 右 = 这一页作用于哪个工程。作用域条放这里而不是侧栏（2026-09-30 用户验收）。 */}
-            {/* 两个簇：左 = 这一屏在看哪张谱面；右 = 显示控件 + 作用域（2026-09-30 二轮验收：
-                三个簇各占一端时中间那簇没有归属，看着散）。全屏时显示控件搬进预览区（见 .preview-fs）。 */}
+            {/* 两个簇（2026-09-30 三轮定案）：左 = 作用对象（作用于哪个工程 → 在看哪张谱面）；
+                右 = 显示控件贴右缘。中间不插东西。全屏时显示控件搬进预览区（见 .preview-fs）。 */}
             <div className="preview-toolbar">
-              <PreviewChartSwitcher project={project} chartId={chartId} onPick={pickChart} />
-              <div className="preview-toolbar__right">
-                {mode === 'static' && !fullscreen && (
-                  <div className="preview-toolbar__controls">
-                    <PreviewStaticToolbar
-                      zoom={zoom}
-                      onZoom={setZoom}
-                      exporting={exporting}
-                      onExport={() => void handleExport()}
-                      exportPlan={exportPlan}
-                      fullscreen={fullscreen}
-                      onToggleFullscreen={toggleFullscreen}
-                    />
-                  </div>
-                )}
+              <div className="preview-toolbar__left">
                 {scopeOption && scopeId != null && (
                   <ScopePicker
                     scopeId={scopeId}
@@ -192,7 +178,21 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                     onPick={pickScope}
                   />
                 )}
+                <PreviewChartSwitcher project={project} chartId={chartId} onPick={pickChart} />
               </div>
+              {mode === 'static' && !fullscreen && (
+                <div className="preview-toolbar__controls">
+                  <PreviewStaticToolbar
+                    zoom={zoom}
+                    onZoom={setZoom}
+                    exporting={exporting}
+                    onExport={() => void handleExport()}
+                    exportPlan={exportPlan}
+                    fullscreen={fullscreen}
+                    onToggleFullscreen={toggleFullscreen}
+                  />
+                </div>
+              )}
             </div>
             {/* 舞台：两种形态的画面（03 静态 / 05 仿真场）。画面未接时不静默空白。 */}
             <div

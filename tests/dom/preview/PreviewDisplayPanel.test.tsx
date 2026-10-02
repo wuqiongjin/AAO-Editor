@@ -69,12 +69,12 @@ describe('chart-preview 08 · 面板打开与默认档', () => {
     expect(within(panel()).getByText('音符皮肤')).toBeInTheDocument();
   });
 
-  it('默认档（用户定案）：BPM 标记开、时间标记 5 秒、节拍线 1/1、Combo 关、不镜像', () => {
+  it('默认档（用户定案）：BPM / Combo 标记开、时间标记 5 秒、节拍线 1/1、不镜像', () => {
     setup();
     expect(bpmSwitch()).toHaveAttribute('aria-checked', 'true');
     expect(timeSelect()).toHaveValue('5');
     expect(beatSelect()).toHaveValue('1');
-    expect(comboswitch()).toHaveAttribute('aria-checked', 'false');
+    expect(comboswitch()).toHaveAttribute('aria-checked', 'true');
     expect(mirrorSwitch()).toHaveAttribute('aria-checked', 'false');
     expect(DEFAULT_PREVIEW_SETTINGS.timeMarks).toBe(5);
   });
@@ -106,14 +106,14 @@ describe('chart-preview 08 · 标记项落 settings.preview', () => {
     expect(stored().preview.beatMarks).toBe(4);
 
     fireEvent.click(comboswitch());
-    expect(stored().preview.comboMarks).toBe(true);
+    expect(stored().preview.comboMarks).toBe(false);
 
     fireEvent.click(mirrorSwitch());
     expect(stored().preview.mirror).toBe(true);
 
     expect(stored().preview).toEqual({
       ...DEFAULT_PREVIEW_SETTINGS,
-      bpmMarks: false, timeMarks: 10, beatMarks: 4, comboMarks: true, mirror: true,
+      bpmMarks: false, timeMarks: 10, beatMarks: 4, comboMarks: false, mirror: true,
     });
     // 画布那段一个字段都没被动过（写回的是整份设置，值是默认档）
     expect(stored().display).toEqual(defaultSettings().display);

@@ -37,11 +37,19 @@ export function panelWidthForEs(es: number): number {
 const MIN_PANEL_ES = 0.1;
 
 /**
- * 缩放区间（**连续可调**：滑杆 + 预览区内 Ctrl/⌘+滚轮；1 = 标准档 → 面板 130 CSS px 宽）。
- * 下限 30% 时面板 39 px 宽（轨道 21 px）、上限 300% 时面板 390 px 宽：两端都还在"看得出是谱面"的范围里。
+ * 缩放区间（**连续可调**：滑杆 + 预览区内 Ctrl/⌘+滚轮；1 = 100% → 面板 241 CSS px 宽）。
+ * 下限 30% 时面板 72 px 宽、上限 300% 时面板 722 px 宽：两端都还在"看得出是谱面"的范围里。
  */
 export const PREVIEW_ZOOM_RANGE = { min: 0.3, max: 3, step: 0.05 } as const;
-/** 默认缩放档（100%） */
+/**
+ * 默认缩放档（2026-10-02 重定基，ADR-0017 §5 修订）：1 = 滑杆读数 100% —— 物理观感 = 旧口径的 185%
+ * （用户舒适档，面板仍 241 CSS px 宽）。
+ *
+ * 08 四轮曾把默认值钉在 1.85，前提「预览 UI 没有百分比标签」有误：工具栏滑杆本就渲染百分比读数
+ * （`PreviewStaticToolbar` 的 `slider-value`），默认 1.85 会直接亮出「185%」——用户判定其怪。
+ * 重定基做法：`PREVIEW_ES_STANDARD` 抬到 1.85/3（100% = 旧 185% 的物理尺寸），默认档回 1。
+ * 零迁移仍成立：zoom 只活在页面 React state（不持久化），没有已存值要搬。
+ */
 export const DEFAULT_PREVIEW_ZOOM = 1;
 
 /**
@@ -55,10 +63,12 @@ export function normalizePreviewZoom(zoom: number): number {
 }
 
 /**
- * 标准缩放的 es：面板 130 CSS px 宽（390 × 1/3）。
- * 537 高的面板 → 每面板 ≈3.66 秒，与 Bestdori 静态预览默认档（≈3.6 秒）同档。
+ * 标准缩放的 es（2026-10-02 重定基）：`1.85 / 3` ≈ 0.6167 → 面板 241 CSS px 宽（390 × es）。
+ * 语义：滑杆 100% = **用户舒适档** —— 与 08 四轮选中「1.85」时的物理观感完全一致。
+ * Bestdori 静态预览默认档（面板 130 px 宽 / 537 高 ≈3.66 秒）改由 zoom ≈ 0.54 命中，不再是基准；
+ * 导出的「130 × 537」固定档**不吃这份基准**（`EXPORT_ES` 独立常量钉住，ADR-0016 §7）。
  */
-export const PREVIEW_ES_STANDARD = 1 / 3;
+export const PREVIEW_ES_STANDARD = 1.85 / 3;
 
 /** 缩放档 → es */
 export function esForZoom(zoom: number): number {

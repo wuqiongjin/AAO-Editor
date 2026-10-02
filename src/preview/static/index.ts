@@ -49,8 +49,8 @@ export {
 export { default as StaticPreviewView, type StaticPreviewViewProps } from './StaticPreviewView';
 export {
   EXPORT_DPR,
+  EXPORT_ES,
   EXPORT_PANEL_H,
-  EXPORT_ZOOM,
   SHEET_IMAGE_MIME,
   canvasToPngBytes,
   exportSheetAs,

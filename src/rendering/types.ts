@@ -46,7 +46,7 @@ export interface RenderCtx {
   /** 渲染面尺寸（CSS 像素），ADR-0006 §1：随容器变化；候选 3 起由 RenderTarget 拥有 */
   surface: SurfaceSize;
   /** 设备像素比：buffer = surface × dpr（ADR-0006 §1）；取值策略的唯一实现处 = `./rasterScale` 的
-   *  `resolveCanvasDpr`（issue 39 #6 / issue 40 定案：流畅 1× / 标准 2.5× / 高清 3×，上限 devicePixelRatio） */
+   *  `resolveCanvasDpr`（issue 39 #6 / issue 40 定案；03 三轮改整数阶梯：流畅 1× / 标准 2× / 高清 4×，上限 devicePixelRatio） */
   dpr: number;
   /**
    * 音符层**直接渲染**（不走 pos 瓦片缓存）：缺省 `false` = 编辑器现状（交互帧复用瓦片）。

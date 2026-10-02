@@ -6,7 +6,7 @@ export { renderChart, frameFor, renderGrid, renderNotes, renderPlaybackMarker, r
 export { createRenderTarget, type RenderTarget, type RenderTargetOptions } from './RenderTarget';
 export { createStaticLayerCache, normalizeBackgroundOpacity, type StaticLayerCache } from './pipeline/staticLayerCache';
 export { createNoteLayerCache, type NoteLayerCache } from './pipeline/noteLayerCache';
-export { resolveCanvasDpr, bufferSizeFor, imageQualityDensity } from './rasterScale';
+export { resolveCanvasDpr, bufferSizeFor, imageQualityDensity, imageQualitySupersample } from './rasterScale';
 export { displayOptionsFromSettings } from './displayOptions';
 export { makeCoords, type Coords } from './coords';
 export { findItemAt, findBpmLineAt, computeItemsInBox, computeBpmLinesInBox, pointInQuad, type HitTestDeps } from './hitTest/hitTest';

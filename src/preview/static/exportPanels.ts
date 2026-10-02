@@ -2,8 +2,9 @@
 //
 // - 形态：**单行宽图**（高 = 一格面板，宽 = 面板数 × 面板宽，随谱面变长而变长）；
 //   只有宽度超出画布单边上限时才折行（再不行降密度 dpr 2 → 1），绝不画爆（`planSheetExport`）。
-// - **导出与预览解耦**（2026-09-30 二轮定案）：布局与叠加项走自己的**固定档**（缩放 100% = 面板 130 × 537、
-//   dpr 2、精简显示档），不跟预览当前的缩放 / 开关走；音符外观（皮肤 / 大小 / 配色）沿用作者的画布设置。
+// - **导出与预览解耦**（2026-09-30 二轮定案）：布局与叠加项走自己的**固定档**（面板 130 × 537 = Bestdori
+//   缩略档、dpr 2、精简显示档），不跟预览当前的缩放 / 开关走——也不跟预览的缩放基准走（`EXPORT_ES` 独立
+//   常量，2026-10-02 预览重定基后尤其重要）；音符外观（皮肤 / 大小 / 配色）沿用作者的画布设置。
 //   `resolveCanvasDpr` 也不参与（它会读 `window.devicePixelRatio`）。
 // - 复用 `panelLayout`（排布数学）+ `panelPainter`（面板里画的还是编辑器那套渲染）：不是"第二种画法"。
 import { bufferSizeFor, displayOptionsFromSettings } from '../../rendering';
@@ -12,7 +13,6 @@ import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import type { PreviewSettings } from '../../chart/config/AppSettings';
 import { resolvePreviewDisplay } from './displayProfile';
 import {
-  esForZoom,
   makePanelLayout,
   planSheetExport,
   sheetCellRect,
@@ -27,8 +27,12 @@ import { saveBinaryAs, type SaveBinaryOutcome } from './saveBinary';
 export const EXPORT_PANEL_H = 537;
 /** 导出档：像素密度 —— 固定 2，不读 `window.devicePixelRatio`（ADR-0016 §7） */
 export const EXPORT_DPR = 2;
-/** 导出档：缩放（1 = 标准档 → 面板宽 130 CSS px） */
-export const EXPORT_ZOOM = 1;
+/**
+ * 导出档：生效缩放 —— **直接给 es**（不走 `esForZoom`）→ 面板宽 = 390 × 1/3 = 130 CSS px。
+ * 独立常量是与预览基准解耦的关键：2026-10-02 预览重定基（100% = 面板 241 px）不该带着导出物一起漂移
+ * （ADR-0016 §7「导出与预览解耦」；接线锁在 `PreviewBinarySaveWiring.test`）。
+ */
+export const EXPORT_ES = 1 / 3;
 /**
  * 导出档的标注（**固定精简**，不跟 `settings.preview` 走）：票 03 定案「导出与预览解耦」——
  * 用户改的是自己看谱的习惯，不该顺手改掉导出物的样子。宽度靠谱长说话，标线越少越清楚。
@@ -56,7 +60,7 @@ export function makeExportLayout(scene: PanelSceneInput): PanelLayout {
     chartDuration: scene.chartDuration,
     verticalRatio: scene.verticalRatio,
     panelH: EXPORT_PANEL_H,
-    es: esForZoom(EXPORT_ZOOM),
+    es: EXPORT_ES,
   });
 }
 

@@ -85,6 +85,20 @@ describe('issue 96 · mipLevelFor 采样策略（canvasSpriteMips 纯函数）',
         expect(mipLevelFor(200, 100, 0, 0)).toBe(0);
     });
 
+    it('不上采样钳制（03 三轮「音符边缘诡异」；08 四轮 ADR-0017 收紧为 min(lMax, lNoUp)）', () => {
+        // tap 面板实况：横向 308/36=8.6×、纵向 120/21.6=5.6× —— 旧口径按最大轴取级 3，
+        // 纵向从三重减半源放大 1.44×（白环恰在纵向）；钳到级 2（两轴都仍下采样）
+        expect(mipLevelFor(308, 120, 36, 21.6)).toBe(2);
+        // 带类精灵：纵向比 <1（纯放大轴）不参与取级，横向照旧由最大轴口径决定
+        expect(mipLevelFor(512, 64, 36, 220)).toBe(3);
+        // 细轴比 2.5：级 1 后纵向 30→24 仍下采样 → 取级 1（横向 10× 拆成 5×+2× 两步）
+        expect(mipLevelFor(300, 60, 30, 24)).toBe(1);
+        // 细轴比 ∈ (1,2)（级 1 会把 60px 源纵向上采样到 84）→ 宁取原图单步 3.1× 下采样，不上采样
+        expect(mipLevelFor(308, 120, 100, 84)).toBe(0);
+        // 放大轴占主导 → 原图直绘不变
+        expect(mipLevelFor(200, 100, 120, 200)).toBe(0);
+    });
+
     it('mipDims：逐级减半、最小钳 1', () => {
         expect(mipDims(200, 100, 0)).toEqual({ w: 200, h: 100 });
         expect(mipDims(200, 100, 1)).toEqual({ w: 100, h: 50 });

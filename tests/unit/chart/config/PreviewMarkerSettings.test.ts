@@ -15,13 +15,13 @@ import {
 import { settingsStorageOf } from '@/tests/support/storage';
 
 describe('chart-preview 08 · 预览标注设置', () => {
-  it('默认档（用户 2026-09-30 二轮定案）：BPM 标记开 / 时间标记 5 秒 / 节拍线 1/1 / Combo 关 / 不镜像', () => {
+  it('默认档（用户 2026-09-30 三轮定案）：BPM / Combo 标记开、时间标记 5 秒、节拍线 1/1、不镜像', () => {
     expect(defaultSettings().preview).toEqual(DEFAULT_PREVIEW_SETTINGS);
     expect(DEFAULT_PREVIEW_SETTINGS).toEqual({
       bpmMarks: true,
       timeMarks: 5,
       beatMarks: 1,
-      comboMarks: false,
+      comboMarks: true,
       mirror: false,
     });
   });

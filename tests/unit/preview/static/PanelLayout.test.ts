@@ -42,12 +42,12 @@ function layoutOf(opts: {
 }
 
 describe('chart-preview 03 · 面板模型：一个旋钮', () => {
-  it('面板宽由缩放推出：13 车道宽（130 CSS px @ 100%）', () => {
+  it('面板宽由缩放推出：13 车道宽（241 CSS px @ 100%，2026-10-02 重定基）', () => {
     expect(PANEL_W_PER_ES).toBe(13 * 30);
-    expect(panelWidthForEs(esForZoom(1))).toBeCloseTo(130, 6);
-    expect(layoutOf({ zoom: 1 }).panelW).toBeCloseTo(130, 6);
-    expect(layoutOf({ zoom: 2 }).panelW).toBeCloseTo(260, 6);
-    expect(layoutOf({ zoom: 0.5 }).panelW).toBeCloseTo(65, 6);
+    expect(panelWidthForEs(esForZoom(1))).toBeCloseTo(241, 6);   // 390 × 1.85/3 = 240.5 → 取整
+    expect(layoutOf({ zoom: 1 }).panelW).toBeCloseTo(241, 6);
+    expect(layoutOf({ zoom: 2 }).panelW).toBeCloseTo(481, 6);
+    expect(layoutOf({ zoom: 0.5 }).panelW).toBeCloseTo(120, 6);
   });
 
   it('面板宽取整（2026-09-30 验收回修「画面有点糊」）：位图缓冲恒为整数，面板不再落在半像素上', () => {
@@ -68,11 +68,16 @@ describe('chart-preview 03 · 面板模型：一个旋钮', () => {
     expect(normalizePreviewZoom(Number.POSITIVE_INFINITY)).toBe(DEFAULT_PREVIEW_ZOOM);
   });
 
-  it('标准档每面板 ≈3.66 秒（537 高，Bestdori 同档）', () => {
+  it('标准档每面板 ≈1.98 秒（241 宽 / 537 高）；Bestdori 130px 档（≈3.66 秒）落在 zoom ≈ 0.54', () => {
     const standard = layoutOf({ panelH: 537, zoom: 1 });
-    expect(standard.secondsPerPanel).toBeCloseTo(537 / (PX_PER_SECOND / 3), 6);
-    expect(standard.secondsPerPanel).toBeGreaterThan(3.5);
-    expect(standard.secondsPerPanel).toBeLessThan(3.8);
+    expect(standard.secondsPerPanel).toBeCloseTo(537 / (1.85 / 3) / PX_PER_SECOND, 6);
+    expect(standard.secondsPerPanel).toBeGreaterThan(1.9);
+    expect(standard.secondsPerPanel).toBeLessThan(2.0);
+
+    const bestdori = layoutOf({ panelH: 537, zoom: 0.54 });   // es ≈ 1/3 → 面板宽回到 130
+    expect(bestdori.panelW).toBe(130);
+    expect(bestdori.secondsPerPanel).toBeGreaterThan(3.5);
+    expect(bestdori.secondsPerPanel).toBeLessThan(3.8);
   });
 
   it('缩放↑ → 轨道变宽、每面板时间缩短、面板数变多（横向滑条自然出现）', () => {
@@ -80,20 +85,19 @@ describe('chart-preview 03 · 面板模型：一个旋钮', () => {
     const zoomIn = layoutOf({ zoom: 2 });
     expect(zoomIn.panelW).toBeGreaterThan(base.panelW);
     expect(zoomIn.secondsPerPanel).toBeCloseTo(base.secondsPerPanel / 2, 6);
-    expect(zoomIn.panelCount).toBe(base.panelCount * 2);
+    expect(zoomIn.panelCount).toBeGreaterThan(base.panelCount);   // ceil 口径：28 → 55，不保证正好翻倍
   });
 
   it('面板数 = ceil(chartEndVirtualY ÷ (panelH / es))；整除数不多出空面板', () => {
-    // 40s → 17,600 虚拟 px；面板高 400、es = 1/3 → 窗口 1,200 虚拟 px
+    // 40s → 17,600 虚拟 px；面板高 400、es = 1.85/3 → 窗口 648.65 → 27.13… → 28 个面板
     const layout = layoutOf({ panelH: 400, zoom: 1 });
     expect(layout.geometry.chartEndVirtualY).toBeCloseTo(40 * PX_PER_SECOND, 6);
-    expect(layout.windowVirtualY).toBeCloseTo(1200, 6);
+    expect(layout.windowVirtualY).toBeCloseTo(400 / (1.85 / 3), 6);
     expect(layout.panelCount).toBe(Math.ceil(layout.geometry.chartEndVirtualY / layout.windowVirtualY));
-    expect(layout.panelCount).toBe(15);
+    expect(layout.panelCount).toBe(28);
 
-    // 正好整除：面板高 600、es = 1/3 → 窗口 1,800；17,600 / 1,800 不整，换 30s（13,200）→ 7.33…
-    // 用 24s（10,560 虚拟 px）+ 窗口 1,320（面板高 440）= 恰好 8 个面板，不该冒第 9 个
-    const exact = layoutOf({ duration: 24, panelH: 440, zoom: 1 });
+    // 正好整除（浮点安全）：24s（10,560 虚拟 px）÷ 窗口 1,320（面板高 814 = 1320 × 1.85/3）= 恰好 8 个，不该冒第 9 个
+    const exact = layoutOf({ duration: 24, panelH: 814, zoom: 1 });
     expect(exact.windowVirtualY).toBeCloseTo(1320, 6);
     expect(exact.panelCount).toBe(8);
   });
@@ -105,7 +109,7 @@ describe('chart-preview 03 · 面板模型：一个旋钮', () => {
 
     const shorter = layoutOf({ panelH: 200, zoom: 1 });
     expect(shorter.secondsPerPanel).toBeCloseTo(layout.secondsPerPanel / 2, 6);
-    expect(shorter.panelCount).toBe(layout.panelCount * 2);
+    expect(shorter.panelCount).toBe(55);   // ceil 口径：28 → 55，不是正好翻倍
   });
 
   it('面板 k 的 scrollY：画布顶正好落在窗口上缘 (k+1)·W 上', () => {
@@ -122,12 +126,13 @@ describe('chart-preview 03 · 面板模型：一个旋钮', () => {
 });
 
 describe('chart-preview 03 · 可见面板区间', () => {
-  const layout = layoutOf({ panelH: 400, zoom: 1 });   // panelW = 130、15 个面板
+  const layout = layoutOf({ panelH: 400, zoom: 1 });   // panelW = 241、28 个面板
 
   it('scrollLeft / 视口宽 → [floor(scrollLeft/panelW), floor((scrollLeft+viewW)/panelW)]', () => {
-    expect(visiblePanelRange(layout, 0, 519)).toEqual({ lo: 0, hi: 3 });
-    expect(visiblePanelRange(layout, 650, 519)).toEqual({ lo: 5, hi: 8 });
-    expect(visiblePanelRange(layout, 650, 520)).toEqual({ lo: 5, hi: 9 }); // 右缘正好落在边界：那一格也算
+    expect(visiblePanelRange(layout, 0, 963)).toEqual({ lo: 0, hi: 3 });      // 963 = 241 × 4 - 1
+    expect(visiblePanelRange(layout, 1205, 963)).toEqual({ lo: 5, hi: 8 });   // 1205 = 241 × 5
+    expect(visiblePanelRange(layout, 482, 241)).toEqual({ lo: 2, hi: 3 });    // 右缘正好落在边界：那一格也算
+    expect(visiblePanelRange(layout, 482, 240)).toEqual({ lo: 2, hi: 2 });    // 差 1px 不到边界：不多算
   });
 
   it('两端钳进 [0, panelCount-1]；尺寸未知 / 面板数为 0 时给空区间', () => {
@@ -142,7 +147,7 @@ describe('chart-preview 03 · 可见面板区间', () => {
 
 describe('chart-preview 03 · 面板内指针 → pos / 秒', () => {
   it('线性直读：面板顶 = 窗口上缘秒、面板底 = 窗口下缘秒，不吸附', () => {
-    const layout = layoutOf({ panelH: 400, zoom: 1 });   // 每面板 1200/440 ≈ 2.727s
+    const layout = layoutOf({ panelH: 400, zoom: 1 });   // 每面板 648.65/440 ≈ 1.47s
     const k = 5;
     const top = panelPointerAt(layout, k, 0);
     const bottom = panelPointerAt(layout, k, layout.panelH);
@@ -161,9 +166,10 @@ describe('chart-preview 03 · 面板内指针 → pos / 秒', () => {
       { type: 'BPM', beat: 40, bpm: -120 },
       { type: 'BPM', beat: 48, bpm: 120 },
     ];
-    // 折返区在时间轴上占 pos ∈ [16s, 20s]（20s 处 -120bpm 折回 4 秒）；面板 6 整个落在这段里
+    // 折返区在时间轴上占 pos ∈ [16s, 20s]（= 虚拟 px 7,040..8,800；20s 处 -120bpm 折回 4 秒）；
+    // 面板 11（窗口 648.65 → [7,135, 7,784]）整个落在这段里
     const layout = layoutOf({ notes: backflow, duration: 30, panelH: 400, zoom: 1 });
-    const k = 6;
+    const k = 11;
 
     // 折叠段（时间轴回退那一段）里的某个 y：秒单值、拍多解
     const ys = Array.from({ length: 21 }, (_, i) => (i / 20) * layout.panelH);

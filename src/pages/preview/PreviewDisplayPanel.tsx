@@ -2,7 +2,7 @@
 // 工具栏一个钮弹出三组 ——
 //   【标记】`settings.preview`：BPM / 时间 / 节拍线 / Combo 标记 + 镜向（只有预览面板会画，跨会话记住）；
 //   【画布显示】`settings.display`：与设置页那一节**同一份数据**（改了工作台画布同步变，
-//     = Bestdori 行为）；选项顺序照设置页，只是不放行内说明（说明在设置页，这里要短）；
+//     = Bestdori 行为）；只放对预览有观感意义的项（文字大小 / 线形分层留在设置页），不放行内说明；
 //   【音符皮肤】显示当前整包名 + 跳素材页（不做第二套选择器）。
 // 形态照站内：触发钮 = `IconButton`；浮层壳 = `.pp-menu__scrim` / `.pp-menu__panel.is-portaled`
 // （与 ScopePicker / PreviewChartSwitcher 同一套，显式 import 那份 CSS）；控件 = `.slider-control` /
@@ -284,21 +284,11 @@ export default function PreviewDisplayPanel() {
                   onChange={(gridStyle) => setDisplay({ gridStyle })}
                 />
               </Row>
-              <Row label={t('settings.lineShapeTiers')}>
-                <Toggle
-                  label={t('settings.lineShapeTiers')}
-                  checked={display.lineShapeTiers}
-                  onChange={(lineShapeTiers) => setDisplay({ lineShapeTiers })}
-                />
-              </Row>
               <Row label={t('settings.gridOpacity')}>
                 <Percent label={t('settings.gridOpacity')} value={display.gridOpacity} min={10} max={100}
                   onChange={(gridOpacity) => setDisplay({ gridOpacity })} />
               </Row>
-              <Row label={t('settings.labelScale')}>
-                <Percent label={t('settings.labelScale')} value={display.labelScale} min={50} max={300}
-                  onChange={(labelScale) => setDisplay({ labelScale })} />
-              </Row>
+              {/* 文字大小 / 线形分层不进本面板（用户 2026-09-30 三轮定案：对预览作用不大，设置页仍可改） */}
             </section>
 
             <section className="pdp__group" aria-label={t('preview.display.group.skin')}>

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { createRenderTarget, type RenderTarget } from '@/src/rendering/RenderTarget';
 import { frameFor } from '@/src/rendering/render';
-import { resolveCanvasDpr, bufferSizeFor, imageQualityDensity } from '@/src/rendering/rasterScale';
+import { resolveCanvasDpr, bufferSizeFor, imageQualityDensity, imageQualitySupersample } from '@/src/rendering/rasterScale';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import { makeCanvasStub, makeRecordingCtx, makeTallyingCanvasStub } from '@/tests/support/canvas';
 import type { FrameView } from '@/src/rendering/types';
@@ -114,26 +114,34 @@ describe('08 · 帧构建者（frameFor / renderFrame）', () => {
 });
 
 describe('08 · dpr / 缓冲尺寸解析唯一处（rasterScale）', () => {
-  it('resolveCanvasDpr：流畅 1× / 标准 2.5× / 高清 3×，且不超设备像素比', () => {
+  it('resolveCanvasDpr：流畅 1× / 标准 2× / 高清 4×（整数密度阶梯），且不超设备像素比', () => {
     expect(resolveCanvasDpr('smooth', 4)).toBe(1);
-    expect(resolveCanvasDpr('standard', 4)).toBe(2.5);
-    expect(resolveCanvasDpr('hd', 4)).toBe(3);
+    expect(resolveCanvasDpr('standard', 4)).toBe(2);
+    expect(resolveCanvasDpr('hd', 4)).toBe(4);
     expect(resolveCanvasDpr('hd', 2)).toBe(2);
     expect(resolveCanvasDpr('standard', 1)).toBe(1);
     expect(resolveCanvasDpr('smooth', 1)).toBe(1);
-    // 缺省 / 非法档 = 标准（与组件原口径一致：非 smooth/hd 一律 2.5）
-    expect(resolveCanvasDpr(undefined, 3)).toBe(2.5);
-    expect(resolveCanvasDpr('unknown', 3)).toBe(2.5);
+    // 缺省 / 非法档 = 标准（非 smooth/hd 一律 2）
+    expect(resolveCanvasDpr(undefined, 3)).toBe(2);
+    expect(resolveCanvasDpr('unknown', 3)).toBe(2);
   });
 
-  it('imageQualityDensity：档位表只有一处（画布当上限、预览面板当目标密度都用它）', () => {
+  it('imageQualityDensity：工作台画布档位表（min 上限口径用）', () => {
     expect(imageQualityDensity('smooth')).toBe(1);
-    expect(imageQualityDensity('standard')).toBe(2.5);
-    expect(imageQualityDensity('hd')).toBe(3);
-    expect(imageQualityDensity(undefined)).toBe(2.5);   // 缺省 / 非法 = 标准
-    expect(imageQualityDensity('unknown')).toBe(2.5);
+    expect(imageQualityDensity('standard')).toBe(2);
+    expect(imageQualityDensity('hd')).toBe(4);
+    expect(imageQualityDensity(undefined)).toBe(2);   // 缺省 / 非法 = 标准
+    expect(imageQualityDensity('unknown')).toBe(2);
     // resolveCanvasDpr 就是它的 min 形态（同一张表，不再各写一份）
     expect(resolveCanvasDpr('hd', 2)).toBe(Math.min(2, imageQualityDensity('hd')));
+  });
+
+  it('imageQualitySupersample：静态位图超采样档（ADR-0017 位图:物理 整数比：density = dpr × 它）', () => {
+    expect(imageQualitySupersample('smooth')).toBe(1);
+    expect(imageQualitySupersample('standard')).toBe(1);
+    expect(imageQualitySupersample('hd')).toBe(2);
+    expect(imageQualitySupersample(undefined)).toBe(1);   // 缺省 / 非法 = 标准
+    expect(imageQualitySupersample('unknown')).toBe(1);
   });
 
   it('bufferSizeFor：round(css × dpr)（非整宽量化口径：751×1.5 → 1127）', () => {

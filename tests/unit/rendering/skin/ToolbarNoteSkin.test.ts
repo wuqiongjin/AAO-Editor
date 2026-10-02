@@ -270,11 +270,13 @@ describe('issue 91 · 工具栏 28px + 滑条构图统一（band:结点 = 30:36�
   });
 });
 
-describe('issue 91 · 字形画布固定超采样（防放大发糊）', () => {
-  it('backing 分辨率与运行时 dpr 解耦：固定 3× 超采样（浏览器缩放不重绘也不再糊）', () => {
+describe('issue 91 → 08 四轮 ADR-0017 · 字形画布超采样（防放大发糊）', () => {
+  it('backing = dpr×2（位图:物理 整数比不变量）+ resize 重绘 + 平滑采样', () => {
     const src = stripComments(readSource('src/rendering/primitives/NoteIconGlyph.tsx'));
-    expect(src).toContain('BACKING_SCALE');
-    expect(src).not.toContain('window.devicePixelRatio');
+    expect(src).toContain('backingScale');
+    // dpr 跟随：backing 密度落在 dpr 的整数倍上（固定 3× 在 dpr 1.25 屏是 2.4× 非整数重采样）
+    expect(src).toContain('window.devicePixelRatio');
+    expect(src).toContain("addEventListener('resize'");
     expect(src).toContain("imageSmoothingQuality = 'high'");
   });
 });

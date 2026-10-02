@@ -78,8 +78,8 @@ export default function StaticPreviewView({
     return () => { cancelled = true; };
   }, [noteIcons]);
 
-  // 面板位图密度（2026-09-30 验收回修「画面有点糊」）：画质档当**目标密度**、设备像素比当下限，
-  // 见 panelPainter 的 resolvePanelDpr —— 1× 屏上画布那套 min(设备像素比, 档位) 一点超采样余量都没有
+  // 面板位图密度（08 四轮 ADR-0017 不变量「位图:物理 = 整数」）：density = dpr × 超采样档（流畅1/标准1/高清2），
+  // 见 panelPainter 的 resolvePanelDpr —— 浏览器恒做整数倍盒式下采样，dpr 非整（如 1.25）也不再跳采样
   const dpr = resolvePanelDpr(settingsDisplay.imageQuality);
   // 面板高 = 容器高（ADR-0016 §1.1 + Bestdori 语义：窗口矮 → 面板矮 → 每面板秒数少 → 面板数多）；
   // 未测量（0）时按下限兜底，免得 `panelH / es` 退化（此时也不出图，见下方出图 effect）
