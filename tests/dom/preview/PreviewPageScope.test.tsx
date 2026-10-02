@@ -284,4 +284,28 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     await act(async () => { await Promise.resolve(); });
     expect(backend.disk.size).toBe(0);
   });
+
+  it('布局（票 10）：模式切换当页头（标题区撤销）、不再挂内容壳', async () => {
+    await mountShell(seed(), { projectId: 'pA', chartId: 'c-a1' });
+    fireEvent.click(navButton('预览'));
+
+    // 标题区整块撤销：eyebrow / 标题 / 描述都不再出现（2026-10-02 用户验收：模式名即标题）
+    expect(screen.queryByText('谱面预览')).toBeNull();
+    expect(screen.queryByRole('heading', { level: 2, name: '预览' })).toBeNull();
+    expect(screen.queryByText(/在编辑器之外/)).toBeNull();
+    expect(document.querySelector('.page-intro')).toBeNull();
+    // 自渲染全幅壳：预览页不再套 AppPageShell（本测试的其余六页是探针桩）
+    expect(document.querySelector('.app-page-shell')).toBeNull();
+
+    // 模式切换升为页头级：独占一行（.preview-header），不在工具栏里；仍是 aria-pressed 的二选一
+    const staticBtn = await screen.findByRole('button', { name: '静态预览' });
+    expect(staticBtn.closest('.preview-header')).not.toBeNull();
+    expect(staticBtn.closest('.preview-toolbar')).toBeNull();
+    expect(staticBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '动态预览' })).toHaveAttribute('aria-pressed', 'false');
+
+    // 切到动态预览：这一屏的形态跟着走
+    fireEvent.click(screen.getByRole('button', { name: '动态预览' }));
+    expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video');
+  });
 });

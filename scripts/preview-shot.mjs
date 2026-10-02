@@ -9,12 +9,18 @@ const chartPath = process.argv[2] ?? 'docs/resource/SampleChartCode/Official/30_
 const out = process.argv[3] ?? '/tmp/preview';
 const chartCode = readFileSync(chartPath, 'utf8');
 
+// 视口 / dpr / 入口 URL 可用环境变量覆盖（票 10 验收：VIEWPORT=1490x748 对照舞台目标；
+// 原型验收：URL='http://127.0.0.1:5173/?variant=B' 抓指定页头样式变体）
+const [vw, vh] = (process.env.VIEWPORT ?? '1680x1000').split('x').map(Number);
+const dsf = Number(process.env.DSF ?? 2);
+const url = process.env.URL ?? 'http://127.0.0.1:5173/';
+
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, deviceScaleFactor: 2 });
+const page = await browser.newPage({ viewport: { width: vw, height: vh }, deviceScaleFactor: dsf });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 page.on('console', (m) => { if (m.type() === 'error') console.log('[console.error]', m.text()); });
 
-await page.goto('http://127.0.0.1:5173/', { waitUntil: 'domcontentloaded' });
+await page.goto(url, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(800);
 
 // 1. 新建工程（空态 → 创建第一个工程；名称 → 创建）
@@ -40,6 +46,12 @@ await page.waitForTimeout(2000);
 await page.getByRole('button', { name: /预览/ }).first().click();
 await page.waitForSelector('.spv-panel canvas', { timeout: 20000 });
 await page.waitForTimeout(1800);
+
+// 舞台 / 面板实测（票 10 布局验收：舞台盒 + 面板宽 —— 13 车道口径的锚点）
+const stageBox = await page.locator('.preview-stage').boundingBox();
+const panelBox = await page.locator('.spv-panel').first().boundingBox();
+console.log('[stage]', stageBox && { w: Math.round(stageBox.width), h: Math.round(stageBox.height) });
+console.log('[panel w]', panelBox && Math.round(panelBox.width));
 
 // 5. 全部面板原生位图
 const n = await page.locator('.spv-panel canvas').count();

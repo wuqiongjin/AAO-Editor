@@ -73,11 +73,28 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(literal?.[1].match(/'[^']+'/g)).toEqual(["'workspace'"]);
   });
 
-  it('预览页接入内容壳：AppPageShell + fill 档 + 模式侧栏', () => {
+  it('预览页自渲染全幅布局（票 10）：脱离 AppPageShell、标题区撤销、模式切换当页头', () => {
     const src = readStripped('src/pages/preview/PreviewPage.tsx');
-    expect(src).toContain('<AppPageShell.Body mode="fill">');
-    expect(src).toContain('AppPageShell.Sidebar');
-    expect(src).toContain('ScopePicker');
+    expect(src).not.toContain('AppPageShell');
+    // 标题区（eyebrow + 标题）整块撤销（2026-10-02 用户验收：模式名即标题），i18n 键一并退场
+    expect(src).not.toContain('page-intro');
+    expect(src).not.toContain('preview.header.');
+    // 页头 = 模式切换独占一行（样式变体 D 定案；原型原件留档在 proto/ 分支，不进 main）
+    expect(src).toMatch(/preview-header/);
+    expect(src).toContain('preview.modes.aria');
+    expect(src).not.toMatch(/PreviewHeaderProto|pvproto/);
+    // 左簇只剩作用对象：作用域条 → 谱面切换器（模式切换不在工具栏）
+    const left = src.slice(src.indexOf('preview-toolbar__left'), src.indexOf('preview-stage'));
+    expect(left).toMatch(/ScopePicker[\s\S]*PreviewChartSwitcher/);
+    expect(left).not.toContain('preview-modes');
+    // 显示控件不再套外壳（2026-10-02 用户验收：外壳多余、白占高度）
+    expect(src).not.toContain('preview-toolbar__controls');
+  });
+
+  it('页头分割线是页头级的层次所在（样式变体 D 的落点）', () => {
+    const css = readStripped('src/pages/preview/PreviewPage.css');
+    expect(css).toMatch(/\.preview-modes\s*\{[^}]*border-bottom:\s*1px solid var\(--border\)/);
+    expect(css).not.toContain('preview-toolbar__controls');
   });
 });
 

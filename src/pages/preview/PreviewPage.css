@@ -1,10 +1,76 @@
 /* ============================================================
- * 预览页（ADR-0016 §1 / §4；chart-preview 02）
- * 三段：模式侧栏（只放模式两项）+ 工具栏行 + 舞台。
- * 几何一概走内容壳（AppPageShell / fill 档），本文件只管页内内容。
+ * 预览页（ADR-0016 §1 / §4；chart-preview 02；布局扩大见票 10）
+ * 三段：页头（模式切换 + 整行分割线）+ 工具栏行 + 舞台。
+ * 票 10 起自渲染全幅壳（脱离 AppPageShell）：本文件自带页面几何，
+ * 高度预算 = 24（顶）+ 页头 ≈63 + 工具栏 ≈44 + 16（底）+ 舞台。
  * ============================================================ */
 
-/* ---- 空态容器（fill 档正文里居中） ---- */
+/* ---- 页面根（票 10：专属全幅壳）----
+   壳宽 = 窗宽 − 导航；左右各留 24（1490 视口下舞台 ≈1390）。整页不滚：滚动归画面自己。 */
+.preview-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 24px 24px 16px;
+  background: var(--bg);
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+/* ---- 页头（模式切换独占一行；2026-10-02 用户验收，样式变体 D 定案）----
+   整行下缘分割线把页头与下方工具栏 / 画面分层：这是「页头级」的层次所在。 */
+.preview-header {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.preview-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 模式按钮（图标 + 大字）：页头级体量，选中项软底 + 强调色文字 */
+.preview-modes__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: calc(16px * var(--ui-type-scale));
+  font-weight: 600;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+
+.preview-modes__btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.preview-modes__btn.is-active {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.preview-modes__btn svg {
+  flex: 0 0 auto;
+}
+
+/* ---- 空态容器（页面根里居中） ---- */
 .preview-empty {
   display: flex;
   flex: 1 1 auto;
@@ -14,7 +80,8 @@
 }
 
 /* ---- 工具栏行 ----
-   左 = 这一屏在看哪张谱面 + 模式控件，右 = 这一页作用于哪个工程（与音频页"作用域条在区块头右侧"同习惯）。
+   左 = 作用对象（作用域条 + 谱面切换器），右 = 显示控件直接贴右缘
+   （与音频页"作用域条在区块头右侧"同习惯；控件外壳已撤——2026-10-02 用户验收，外壳多余且白占高度）。
    窄窗口放不下时换行，不压扁任何一件控件（下面的舞台跟着让一行的位置）。 */
 .preview-toolbar {
   display: flex;
@@ -28,23 +95,12 @@
 }
 
 /* 左簇：作用域条（工程）+ 谱面切换器（谱面）并排 —— "作用于谁、在看哪张"一次读完；
-   右簇 = 显示控件贴右缘（pill 容器与全屏浮层 .preview-fs 同一形态）。 */
+   右簇 = 显示控件直接贴右缘（.preview-fs 那个外壳留着：它要浮在画面之上，与页面里的控件不同语境）。 */
 .preview-toolbar__left {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-}
-
-.preview-toolbar__controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 5px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  background: var(--bg-elevated);
 }
 
 /* ---- 静态预览控件组（缩放 + 显示设置 + 全屏 + 导出） ---- */
@@ -347,4 +403,11 @@
   padding: 0 16px;
   font-size: var(--text-sm);
   text-align: center;
+}
+
+/* ---- 窄屏（720 断点，与全站内容壳同口径）：左右收窄，其余行为不变 ---- */
+@media (max-width: 720px) {
+  .preview-page {
+    padding: 20px 16px 12px;
+  }
 }

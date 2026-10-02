@@ -29,7 +29,7 @@ export const EXPORT_PANEL_H = 537;
 export const EXPORT_DPR = 2;
 /**
  * 导出档：生效缩放 —— **直接给 es**（不走 `esForZoom`）→ 面板宽 = 390 × 1/3 = 130 CSS px。
- * 独立常量是与预览基准解耦的关键：2026-10-02 预览重定基（100% = 面板 241 px）不该带着导出物一起漂移
+ * 独立常量是与预览基准解耦的关键：2026-10-02 预览基准当日两次上移（100% 的面板 241 → 289 px）不该带着导出物漂移
  * （ADR-0016 §7「导出与预览解耦」；接线锁在 `PreviewBinarySaveWiring.test`）。
  */
 export const EXPORT_ES = 1 / 3;

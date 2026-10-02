@@ -57,9 +57,9 @@ const NOTES: ChartNote[] = [
 const CHART_DURATION = 40;
 const VERTICAL_RATIO = 1;
 const BEAT_DISPLAY = 16;
-/** 标准缩放档（2026-10-02 重定基）：面板宽 241、es = 1.85/3，面板高 400 → 每面板 648.65 虚拟 px（≈1.47 秒）→ 28 个面板 */
+/** 标准缩放档（2026-10-02 二次重定基）：面板宽 289、es = 0.74，面板高 400 → 每面板 540.54 虚拟 px（≈1.23 秒）→ 33 个面板 */
 const ZOOM = 1;
-const PANEL_W = 241;
+const PANEL_W = 289;
 const PANEL_H = 400;
 
 const SETTINGS_DISPLAY = {
@@ -184,7 +184,7 @@ describe('chart-preview 03 · 面板懒绘制与记账', () => {
   it('滚到第 6 格才建那几格；滚出去的不销毁（位图留着，账也留着）', () => {
     const s = session();
     s.sync();
-    s.scrollTo(PANEL_W * 5);   // 可见区间 = [floor(1205/241), floor((1205 + 963)/241)] = 5..8
+    s.scrollTo(PANEL_W * 5);   // 可见区间 = [floor(1445/289), floor((1445 + 1155)/289)] = 5..8
 
     expect(s.calls.map((c) => c.panel)).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
     expect(s.paintedIndexes()).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
@@ -218,10 +218,10 @@ describe('chart-preview 03 · 面板懒绘制与记账', () => {
 
     s.rerender({ zoom: ZOOM * 2 });
 
-    expect(expectedLayout(ZOOM * 2).panelW).toBe(481);   // 390 × 1.85/3 × 2 = 481（半像素取整后差 1px）
+    expect(expectedLayout(ZOOM * 2).panelW).toBe(577);   // 390 × 0.74 × 2 = 577.2 → 577
     expect(expectedLayout(ZOOM * 2).secondsPerPanel).toBeCloseTo(expectedLayout().secondsPerPanel / 2, 6);
-    expect(expectedLayout(ZOOM * 2).panelCount).toBe(55);   // ceil 口径：27.13 → 54.27，不是正好翻倍
-    // 新档 = 新画家 → 账作废：可见面板重出（面板变宽 → 这一屏 963px 只剩 3 格）；已出图的老位图留着不销毁
+    expect(expectedLayout(ZOOM * 2).panelCount).toBe(66);   // ceil 口径：32.56 → 65.12，不是正好翻倍
+    // 新档 = 新画家 → 账作废：可见面板重出（面板变宽 → 这一屏 1155px 只剩 3 格）；已出图的老位图留着不销毁
     expect(s.calls.map((c) => c.panel)).toEqual([0, 1, 2, 3, 0, 1, 2]);
     expect(s.paintedIndexes()).toEqual([0, 1, 2, 3]);
   });
@@ -241,14 +241,14 @@ describe('chart-preview 03 · 面板懒绘制与记账', () => {
       es: esForZoom(ZOOM),
     });
     expect(shorter.secondsPerPanel).toBeCloseTo(expectedLayout().secondsPerPanel / 2, 6);
-    expect(shorter.panelCount).toBe(55);   // ceil 口径：27.13 → 54.27，不是正好翻倍
+    expect(shorter.panelCount).toBe(66);   // ceil 口径：32.56 → 65.12，不是正好翻倍
     // 面板尺寸进几何 → 新画家 → 可见面板重出（位图缓冲也跟着换）
     expect(s.calls.slice(4).map((c) => c.panel)).toEqual([0, 1, 2, 3]);
   });
 });
 
 describe('chart-preview 03→08 · 清晰度：面板位图密度（ADR-0017 不变量「位图:物理 = 整数」）', () => {
-  /** 一块面板的位图缓冲宽 —— 密度档位的直接读数（面板宽 241 @zoom 1） */
+  /** 一块面板的位图缓冲宽 —— 密度档位的直接读数（面板宽 289 @zoom 1） */
   function panelBuffer(imageQuality: 'smooth' | 'standard' | 'hd'): { w: number; h: number } {
     const s = session({
       real: true,
@@ -295,7 +295,7 @@ describe('chart-preview 03 · 滚轮：横滚与缩放（2026-09-30 验收）', 
     const down = wheel(s.host, { deltaY: 200 });
     expect(down.defaultPrevented).toBe(true);
     expect(s.host.scrollLeft).toBe(200);
-    // 可见区间跟着滚：滚到 200 px → 可见 [floor(200/241), floor((200 + 963)/241)] = 0..4
+    // 可见区间跟着滚：滚到 200 px → 可见 [floor(200/289), floor((200 + 1155)/289)] = 0..4
     expect(s.calls.map((c) => c.panel)).toEqual([0, 1, 2, 3, 4]);
 
     const up = wheel(s.host, { deltaY: -200 });

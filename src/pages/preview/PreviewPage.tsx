@@ -1,12 +1,14 @@
 // 预览页（ADR-0016 §1 / §4；chart-preview 02 壳 + 03 静态预览）：独立应用页面，作用于「工程 + 谱面」。
 //
-// 本页是**装配层**：页面头 + 模式侧栏 + 工具栏行（谱面切换 + 模式控件 + 作用域条）+ 舞台。
+// 本页是**装配层**：页头（模式切换）+ 工具栏行（作用域条 + 谱面切换 + 显示控件）+ 舞台。
+// 票 10 起**脱离 AppPageShell 自渲染全幅壳**（宽高让给画面）：标题区（eyebrow + 标题）整块撤销，
+// 模式切换升为页头独占一行、铺整行下缘分割线（2026-10-02 用户验收，样式变体 D 定案；
+// 原型原件留档在 `proto/chart-preview-10-preview-header` 分支）。
 // 静态形态的画面与控件来自 `src/preview/static`（面板折行 + 显示档 + 宽图导出）；
 // 动态形态（05 仿真场）接同一行工具栏与同一块舞台。
 // 本页不 ensure 当前工程：没有作用对象就空态，不因此新建 / 打开工程（与音频页同口径，§4）。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clapperboard, FolderOpen, Images } from 'lucide-react';
-import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
 import ScopePicker from '../../ui/ScopePicker';
 import { showToast } from '../../ui/Toast';
@@ -28,7 +30,7 @@ import PreviewStaticToolbar from './PreviewStaticToolbar';
 import { usePreviewScope } from './usePreviewScope';
 import './PreviewPage.css';
 
-// 单组平铺（不多分组）：只有两项，且两者是互斥的"这一屏画什么"（ADR-0007 §6 四题之"有且单组"）
+// 页头的模式切换（静态 / 动态）：两项互斥的"这一屏画什么"（ADR-0007 §6 四题之"有且单组"）
 const PREVIEW_MODES: { id: PreviewMode; labelKey: MessageKey; icon: typeof Images }[] = [
   { id: 'static', labelKey: 'preview.mode.static', icon: Images },
   { id: 'video', labelKey: 'preview.mode.video', icon: Clapperboard },
@@ -125,107 +127,106 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   }, [scene, chart, exporting]);
 
   return (
-    <AppPageShell>
-      <AppPageShell.Header
-        eyebrow={t('preview.header.eyebrow')}
-        title={t('preview.header.title')}
-        description={t('preview.header.description')}
-      />
-
-      <AppPageShell.Sidebar ariaLabel={t('preview.sidebar.aria')}>
-        {PREVIEW_MODES.map((m) => (
-          <AppPageShell.SidebarItem
-            key={m.id}
-            icon={m.icon}
-            label={t(m.labelKey)}
-            active={mode === m.id}
-            onClick={() => setMode(m.id)}
-          />
-        ))}
-      </AppPageShell.Sidebar>
-
-      <AppPageShell.Body mode="fill">
-        {/* 没有作用对象（没有当前工程，或作用域失效后当前工程也没有）→ 空态。
-            不在这里 ensure：进预览页不该顺势新建 / 打开工程（ADR-0016 §4）。 */}
-        {scopeId == null || (!loading && project == null) ? (
-          // 外面这层只为居中：fill 档正文是 flex column，EmptyState 自己不占满会贴着顶部
-          <div className="preview-empty">
-            <EmptyState
-              icon={FolderOpen}
-              title={t('preview.noProjectTitle')}
-              description={t('preview.noProjectDescription')}
-              primaryAction={{
-                label: t('preview.goProjects'),
-                onClick: () => setActivePage('projects'),
-                icon: FolderOpen,
-              }}
-            />
-          </div>
-        ) : (
-          <>
-            {/* 工具栏行：左 = 这一屏在看哪张谱面 + 模式控件（03 静态 / 05 仿真场注入同一行），
-                右 = 这一页作用于哪个工程。作用域条放这里而不是侧栏（2026-09-30 用户验收）。 */}
-            {/* 两个簇（2026-09-30 三轮定案）：左 = 作用对象（作用于哪个工程 → 在看哪张谱面）；
-                右 = 显示控件贴右缘。中间不插东西。全屏时显示控件搬进预览区（见 .preview-fs）。 */}
-            <div className="preview-toolbar">
-              <div className="preview-toolbar__left">
-                {scopeOption && scopeId != null && (
-                  <ScopePicker
-                    scopeId={scopeId}
-                    currentId={currentId}
-                    scopeName={scopeOption.name}
-                    options={options}
-                    onPick={pickScope}
-                  />
-                )}
-                <PreviewChartSwitcher project={project} chartId={chartId} onPick={pickChart} />
-              </div>
-              {mode === 'static' && !fullscreen && (
-                <div className="preview-toolbar__controls">
-                  <PreviewStaticToolbar
-                    zoom={zoom}
-                    onZoom={setZoom}
-                    exporting={exporting}
-                    onExport={() => void handleExport()}
-                    exportPlan={exportPlan}
-                    fullscreen={fullscreen}
-                    onToggleFullscreen={toggleFullscreen}
-                  />
-                </div>
-              )}
-            </div>
-            {/* 舞台：两种形态的画面（03 静态 / 05 仿真场）。画面未接时不静默空白。 */}
-            <div
-              ref={stageRef}
-              className={`preview-stage${mode === 'static' && scene ? ' is-filled' : ''}`}
-              data-mode={mode}
+    // 票 10：自渲染全幅壳（页头 → 工具栏 → 舞台），把宽高让给画面；
+    // 原左侧模式侧栏随之撤销，模式切换升为页头（2026-10-02 用户验收）。
+    <div className="preview-page">
+      {/* 页头 = 模式切换独占一行（2026-10-02 用户验收：标题区整块撤销，模式名即标题）；
+          整行下缘分割线是页头级的层次所在（样式变体 D 定案）。 */}
+      <header className="preview-header">
+        <div className="preview-modes" role="group" aria-label={t('preview.modes.aria')}>
+          {PREVIEW_MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              className={`preview-modes__btn${mode === m.id ? ' is-active' : ''}`}
+              aria-pressed={mode === m.id}
+              onClick={() => setMode(m.id)}
             >
-              {mode === 'static' && scene ? (
-                <>
-                  <StaticPreviewView scene={scene} zoom={zoom} markers={settings.preview} onZoom={setZoom} />
-                  {fullscreen && (
-                    <div className="preview-fs">
-                      <PreviewStaticToolbar
-                        zoom={zoom}
-                        onZoom={setZoom}
-                        exporting={exporting}
-                        onExport={() => void handleExport()}
-                        exportPlan={exportPlan}
-                        fullscreen={fullscreen}
-                        onToggleFullscreen={toggleFullscreen}
-                      />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="preview-stage__pending">
-                  {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.pending')}
-                </p>
+              <m.icon size={18} aria-hidden />
+              {t(m.labelKey)}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {/* 没有作用对象（没有当前工程，或作用域失效后当前工程也没有）→ 空态。
+          不在这里 ensure：进预览页不该顺势新建 / 打开工程（ADR-0016 §4）。 */}
+      {scopeId == null || (!loading && project == null) ? (
+        // 外面这层只为居中：全幅壳是 flex column，EmptyState 自己不占满会贴着顶部
+        <div className="preview-empty">
+          <EmptyState
+            icon={FolderOpen}
+            title={t('preview.noProjectTitle')}
+            description={t('preview.noProjectDescription')}
+            primaryAction={{
+              label: t('preview.goProjects'),
+              onClick: () => setActivePage('projects'),
+              icon: FolderOpen,
+            }}
+          />
+        </div>
+      ) : (
+        <>
+          {/* 工具栏行（票 10 起）：左 = 作用对象（作用于哪个工程 → 在看哪张谱面），
+              右 = 显示控件贴右缘，中间不插东西。作用域条放这里而不是侧栏（2026-09-30 用户验收）；
+              全屏时显示控件搬进预览区（见 .preview-fs）。 */}
+          <div className="preview-toolbar">
+            <div className="preview-toolbar__left">
+              {scopeOption && scopeId != null && (
+                <ScopePicker
+                  scopeId={scopeId}
+                  currentId={currentId}
+                  scopeName={scopeOption.name}
+                  options={options}
+                  onPick={pickScope}
+                />
               )}
+              <PreviewChartSwitcher project={project} chartId={chartId} onPick={pickChart} />
             </div>
-          </>
-        )}
-      </AppPageShell.Body>
-    </AppPageShell>
+            {/* 显示控件直接贴右缘：不再套胶囊外壳（2026-10-02 用户验收：外壳多余，还白占一条高度） */}
+            {mode === 'static' && !fullscreen && (
+              <PreviewStaticToolbar
+                zoom={zoom}
+                onZoom={setZoom}
+                exporting={exporting}
+                onExport={() => void handleExport()}
+                exportPlan={exportPlan}
+                fullscreen={fullscreen}
+                onToggleFullscreen={toggleFullscreen}
+              />
+            )}
+          </div>
+          {/* 舞台：两种形态的画面（03 静态 / 05 仿真场）。画面未接时不静默空白。 */}
+          <div
+            ref={stageRef}
+            className={`preview-stage${mode === 'static' && scene ? ' is-filled' : ''}`}
+            data-mode={mode}
+          >
+            {mode === 'static' && scene ? (
+              <>
+                <StaticPreviewView scene={scene} zoom={zoom} markers={settings.preview} onZoom={setZoom} />
+                {fullscreen && (
+                  <div className="preview-fs">
+                    <PreviewStaticToolbar
+                      zoom={zoom}
+                      onZoom={setZoom}
+                      exporting={exporting}
+                      onExport={() => void handleExport()}
+                      exportPlan={exportPlan}
+                      fullscreen={fullscreen}
+                      onToggleFullscreen={toggleFullscreen}
+                    />
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="preview-stage__pending">
+                {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.pending')}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }

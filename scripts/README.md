@@ -72,6 +72,6 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 | 脚本 | 作用 |
 | --- | --- |
 | `verify-slide-band-order.mjs` | issue 115 / ADR-0009：滑条带体与参考截图像像素 IoU 复核（需 esbuild + 本地 PNG） |
-| `preview-shot.mjs` | 静态预览像素验收：建工程 → 贴样例谱 → 预览页抓面板原生位图（`toDataURL`）+ 工作台对照（需 playwright + dev server） |
+| `preview-shot.mjs` | 静态预览像素验收：建工程 → 贴样例谱 → 预览页抓面板原生位图（`toDataURL`）+ 工作台对照；打印舞台盒与面板宽（`VIEWPORT` / `DSF` 可改视口，票 10 用 `VIEWPORT=1490x748`）（需 playwright + dev server） |
 
 一次性 Playwright 探针历史上在迭代后已删除；需要浏览器实测时优先 vitest / 手工清单，或按 issue 说明临时写脚本（不必长期留在本目录）。
