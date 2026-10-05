@@ -2,7 +2,7 @@
  * 预览页（ADR-0016 §1 / §4；chart-preview 02；布局扩大见票 10）
  * 三段：页头（模式切换 + 整行分割线）+ 工具栏行 + 舞台。
  * 票 10 起自渲染全幅壳（脱离 AppPageShell）：本文件自带页面几何，
- * 高度预算 = 24（顶）+ 页头 ≈63 + 工具栏 ≈44 + 16（底）+ 舞台。
+ * 高度预算 = 24（顶）+ 页头 ≈56 + 工具栏 ≈40 + 16（底）+ 舞台。
  * ============================================================ */
 
 /* ---- 页面根（票 10：专属全幅壳）----
@@ -28,13 +28,15 @@
   min-width: 0;
 }
 
+/* 分割线以下的留白 = 工具栏行自己的下留白（`.preview-toolbar` 的 padding-bottom: 10px）：
+   那一行上下的间距因此等宽（2026-10-06 用户：原来上面 16 比下面 10 大，"这行"看着偏下）。 */
 .preview-modes {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
   padding-bottom: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
 }
 
