@@ -95,12 +95,25 @@
 }
 
 /* 左簇：作用域条（工程）+ 谱面切换器（谱面）并排 —— "作用于谁、在看哪张"一次读完；
-   右簇 = 显示控件直接贴右缘（.preview-fs 那个外壳留着：它要浮在画面之上，与页面里的控件不同语境）。 */
+   右簇 = 显示控件直接贴右缘（.preview-fs 那个外壳留着：它要浮在画面之上，与页面里的控件不同语境）。
+
+   两簇的行盒必须同高（票 15）：
+   本行是 `align-items: center`，行高 = 较高那一簇；而右簇 `{mode === 'static' && …}`
+   **只在静态态存在** —— 右簇一高过左簇，就把左簇（作用域条 + 谱面切换器）压低 (右−左)/2，
+   切模式时看着就是"作用域条和切换器上下浮动"。
+   两簇的高都是 `max(固定图标/徽标高, 文本行盒) + 12`，而文本行盒**跟字体走**：拉丁命中
+   Geist Variable、中文回落 Microsoft YaHei，同字号差 0.8~1px。左簇由谱面名撑（谱面名是拉丁 → 矮），
+   右簇由三个 IconButton 的中文标签（显示 / 导出 / 全屏）撑（永远走中文那一档）→ 必然分叉。
+   钉 unitless 行高 = 行盒只跟字号走（照 ProjectsPage.css `.pc-chart__title` 的同一口径；
+   写 px 会被字号档钉死），两簇于是必然等高，与谱面名是拉丁还是中文、字号档是多少都无关。
+   实测（谱面名拉丁 "FB"）：修前左簇 30 / 右簇 31、行高 40↔41、Δtop 0.5；修后两簇 30.19、
+   行高 40.19↔40.19、Δtop 0（字号档 0.8→2 全档 Δtop 0）。 */
 .preview-toolbar__left {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  line-height: 1.3;
 }
 
 /* 左簇里的层级分隔符（issue 11 #5）：作用域条（工程）与谱面切换器（谱面）之间，
@@ -111,13 +124,15 @@
   user-select: none;
 }
 
-/* ---- 静态预览控件组（缩放 + 显示设置 + 全屏 + 导出） ---- */
+/* ---- 静态预览控件组（缩放 + 显示设置 + 全屏 + 导出） ----
+   行高与左簇同钉 1.3：理由见上面 `.preview-toolbar__left`（两簇必须等高，否则切模式时左簇浮动）。 */
 .preview-static {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  line-height: 1.3;
 }
 
 /* 缩放：连续滑杆（滑杆本体复用设置页那套 .slider-control / .slider-value） */
