@@ -83,9 +83,11 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(src).toMatch(/preview-header/);
     expect(src).toContain('preview.modes.aria');
     expect(src).not.toMatch(/PreviewHeaderProto|pvproto/);
-    // 左簇只剩作用对象：作用域条 → 谱面切换器（模式切换不在工具栏）
+    // 左簇只剩作用对象：作用域条 →「/」→ 谱面切换器（模式切换不在工具栏；
+    // 分隔符 = issue 11 #5，纯视觉、aria-hidden）
     const left = src.slice(src.indexOf('preview-toolbar__left'), src.indexOf('preview-stage'));
-    expect(left).toMatch(/ScopePicker[\s\S]*PreviewChartSwitcher/);
+    expect(left).toMatch(/ScopePicker[\s\S]*preview-toolbar__sep[\s\S]*PreviewChartSwitcher/);
+    expect(left).toContain('aria-hidden="true"');
     expect(left).not.toContain('preview-modes');
     // 显示控件不再套外壳（2026-10-02 用户验收：外壳多余、白占高度）
     expect(src).not.toContain('preview-toolbar__controls');

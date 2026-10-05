@@ -173,13 +173,18 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
           <div className="preview-toolbar">
             <div className="preview-toolbar__left">
               {scopeOption && scopeId != null && (
-                <ScopePicker
-                  scopeId={scopeId}
-                  currentId={currentId}
-                  scopeName={scopeOption.name}
-                  options={options}
-                  onPick={pickScope}
-                />
+                <>
+                  <ScopePicker
+                    scopeId={scopeId}
+                    currentId={currentId}
+                    scopeName={scopeOption.name}
+                    options={options}
+                    onPick={pickScope}
+                  />
+                  {/* 层级分隔符（2026-10-05 验收，issue 11 #5）："工程 / 谱面"读作一级到二级。
+                      纯视觉：aria-hidden，不进可访问名，也不引入点按目标。 */}
+                  <span className="preview-toolbar__sep" aria-hidden="true">/</span>
+                </>
               )}
               <PreviewChartSwitcher project={project} chartId={chartId} onPick={pickChart} />
             </div>

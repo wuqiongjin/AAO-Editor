@@ -133,6 +133,7 @@ function AudioSection({ active }: { active: boolean }) {
           scopeName={scopeOption.name}
           options={options}
           onPick={pickScope}
+          align="right"
         />
       )}
     </div>

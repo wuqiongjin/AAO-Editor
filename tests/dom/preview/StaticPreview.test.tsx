@@ -221,9 +221,30 @@ describe('chart-preview 03 · 面板懒绘制与记账', () => {
     expect(expectedLayout(ZOOM * 2).panelW).toBe(577);   // 390 × 0.74 × 2 = 577.2 → 577
     expect(expectedLayout(ZOOM * 2).secondsPerPanel).toBeCloseTo(expectedLayout().secondsPerPanel / 2, 6);
     expect(expectedLayout(ZOOM * 2).panelCount).toBe(66);   // ceil 口径：32.56 → 65.12，不是正好翻倍
-    // 新档 = 新画家 → 账作废：可见面板重出（面板变宽 → 这一屏 1155px 只剩 3 格）；已出图的老位图留着不销毁
+    // 新档 = 新画家 → 账作废：可见面板重出（面板变宽 → 这一屏 1155px 只剩 3 格）；
+    // 视口外的面板 3 位图**整块作废**（issue 11 #2：换代不把老画家的图留在画布上）
     expect(s.calls.map((c) => c.panel)).toEqual([0, 1, 2, 3, 0, 1, 2]);
-    expect(s.paintedIndexes()).toEqual([0, 1, 2, 3]);
+    expect(s.paintedIndexes()).toEqual([0, 1, 2]);
+  });
+
+  it('换谱面（新画家）：滚出视口的老位图连 canvas 一起作废，滚回去必须重画（issue 11 #2）', () => {
+    const s = session();
+    s.sync();
+    s.scrollTo(PANEL_W * 5);   // 0..3 出过图、滚出视口（位图留着）；5..8 出图
+
+    expect(s.paintedIndexes()).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+    const before = s.calls.length;
+
+    // 换谱面 = 新画家：此刻若不动作，0..3 的画布会留着上一版谱面的位图（横滚进场先闪一帧旧音符）
+    s.rerender({ scene: { ...BASE_PROPS.scene, notes: [...NOTES, { type: 'Single', beat: 8, lane: 5 }] } });
+
+    expect(s.calls.slice(before).map((c) => c.panel)).toEqual([5, 6, 7, 8]);   // 可见区间重出
+    expect(s.paintedIndexes()).toEqual([5, 6, 7, 8]);                          // 视口外的连 canvas 撤掉
+
+    const after = s.calls.length;
+    s.scrollTo(0);   // 滚回去：没有旧位图可露，必须老老实实重画
+    expect(s.calls.slice(after).map((c) => c.panel)).toEqual([0, 1, 2, 3]);
+    expect(s.paintedIndexes()).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
   });
 
   it('容器变矮（窗口 resize）：面板高跟着变 → 每面板秒数减半、面板数增多，可见面板重出图', () => {
@@ -316,11 +337,45 @@ describe('chart-preview 03 · 滚轮：横滚与缩放（2026-09-30 验收）', 
     const nextZoom = onZoom.mock.calls[0]![0] as number;
     expect(nextZoom).toBeGreaterThan(1);
 
-    // 指针下那一格（带小数）在缩放前后落在同一屏位置：scrollLeft 按同一套面板数学重算
+    // 换代前不抢写（issue 11 #3）：这一刻 DOM 还是旧内容宽，写下去会被浏览器按旧宽钳、滚动条回跳
+    expect(s.host.scrollLeft).toBe(PANEL_W * 10);
+
+    // 布局换代（父层把新 zoom 传下来）→ 锚点在 layout effect 里一次性对齐：
+    // 指针下那一格（带小数）落在同一屏位置，且写盘时新面板宽已经进 DOM
+    s.rerender({ zoom: nextZoom });
+
     const offsetX = 100;
     const panelAt = (PANEL_W * 10 + offsetX) / PANEL_W;
     const expectedScrollLeft = panelAt * panelWidthForEs(esForZoom(nextZoom)) - offsetX;
     expect(s.host.scrollLeft).toBeCloseTo(expectedScrollLeft, 0);
+  });
+
+  it('连发滚轮（换代还没落地）：第二发从**新档**继续，不把上一档重复算（issue 11 #3）', () => {
+    const onZoom = vi.fn();
+    const s = session({ props: { onZoom } });
+    s.sync();
+    s.scrollTo(PANEL_W * 10);
+
+    wheel(s.host, { deltaY: -100, ctrlKey: true, clientX: 100 });
+    wheel(s.host, { deltaY: -100, ctrlKey: true, clientX: 100 });
+
+    expect(onZoom).toHaveBeenCalledTimes(2);
+    expect(onZoom.mock.calls[1]![0]).toBeGreaterThan(onZoom.mock.calls[0]![0] as number);
+  });
+
+  it('锚点只落一次：换代后再改布局（容器变矮）不动 scrollLeft（没有滞留的待办锚点）', () => {
+    const onZoom = vi.fn();
+    const s = session({ props: { onZoom } });
+    s.sync();
+    s.scrollTo(PANEL_W * 10);
+
+    wheel(s.host, { deltaY: -100, ctrlKey: true, clientX: 100 });
+    s.rerender({ zoom: onZoom.mock.calls[0]![0] as number });
+    const settled = s.host.scrollLeft;
+    expect(settled).toBeGreaterThan(0);
+
+    s.setHeight(PANEL_H / 2);
+    expect(s.host.scrollLeft).toBe(settled);
   });
 
   it('滑杆给的值也走同一把尺：连续可调、两端夹在区间内', () => {

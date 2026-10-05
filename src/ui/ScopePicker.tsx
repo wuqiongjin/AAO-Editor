@@ -1,7 +1,8 @@
 // 作用域条 / 切换器（票 22 / ADR-0015 §6）：标出"这一页此刻作用于哪个工程"，并能改。
 //
-// 它住在**区块头右侧**（不是页级横条）：全宽横条是两端对齐 + 中间 flex:1 的形态，只有两个元素时
-// 中间必然空一大片，而这里要表达的只是一格身份 + 一个入口。
+// 它不住页级横条（横条是两端对齐 + 中间 flex:1，只有两个元素时中间必然空一大片；这里要表达的
+// 只是一格身份 + 一个入口）。落点两处：预览页工具栏左簇 / 音频页区块头右侧——面板贴哪条边跟随
+// 落点，由调用方给的 `align` 决定（2026-10-05 用户定案：左簇左对齐 / 右侧右对齐）。
 //
 // 「当前 / 非当前」由两处一起说（定案 6）：
 //   - 徽标：当前 = accent 系（与工程管理页 `.pp-current-tag` 同一枚语言）、非当前 = 中性 pill；
@@ -39,31 +40,101 @@ export interface ScopePickerProps {
   /** 可选工程（调用方已按 lastOpened 排好；当前项会由本组件提到最前） */
   options: ScopeOption[];
   onPick: (projectId: string) => void;
+  /** 下拉面板贴哪条边：`left`（默认，预览页工具栏左簇）/ `right`（音频页区块头右侧） */
+  align?: 'left' | 'right';
+}
+
+/** 面板目标宽度（CSS px）：空间够时用这个 */
+const PANEL_TARGET_W = 288;
+/** 面板宽度下限：收窄也别比这更窄（再窄搜索框没法用） */
+const PANEL_FLOOR_W = 160;
+/** 面板离视口边缘的留白 */
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * 面板定位：贴触发钮哪条边由 `align` 定（2026-10-05 用户定案——预览页工具栏左簇 → 左对齐，
+ * 音频页区块头右侧 → 右对齐）。**贴边一侧钉死不动**，另一侧放不下时收窄面板宽度（下限
+ * `PANEL_FLOOR_W`）——v1「钳平」与 v2「翻转」都让位置背离触发钮，已被验收否掉。
+ * 内联 width + minWidth:0 覆盖 CSS（`.pp-menu__panel{min-width:200}` 因注入顺序压过
+ * `.scope-panel{min-width:288}`，曾让面板实测只有 237px）。
+ */
+function panelLayoutFor(
+  rect: { left: number; right: number; bottom: number },
+  align: 'left' | 'right',
+) {
+  const top = rect.bottom + 4;
+  if (align === 'right') {
+    const right = Math.min(window.innerWidth - VIEWPORT_MARGIN, rect.right);
+    const width = Math.min(PANEL_TARGET_W, Math.max(PANEL_FLOOR_W, right - VIEWPORT_MARGIN));
+    return { top, left: Math.max(VIEWPORT_MARGIN, right - width), width };
+  }
+  const left = Math.max(VIEWPORT_MARGIN, rect.left);
+  const width = Math.min(PANEL_TARGET_W, Math.max(PANEL_FLOOR_W, window.innerWidth - left - VIEWPORT_MARGIN));
+  // 连下限都放不下时（触发钮贴视口右缘）才把面板往左推——牺牲左对齐换不溢出
+  const finalLeft = left + width <= window.innerWidth - VIEWPORT_MARGIN
+    ? left
+    : window.innerWidth - VIEWPORT_MARGIN - width;
+  return { top, left: finalLeft, width };
 }
 
 export default function ScopePicker({
-  scopeId, currentId, scopeName, options, onPick,
+  scopeId, currentId, scopeName, options, onPick, align = 'left',
 }: ScopePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const btnRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0, width: PANEL_TARGET_W });
 
   const isCurrent = currentId != null && scopeId === currentId;
 
   const close = useCallback(() => setOpen(false), []);
 
+  /** 量触发钮定面板位；打开前与开着时窗口伸缩都走它（算法见 panelLayoutFor） */
+  const computePos = useCallback(() => {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const next = panelLayoutFor(btn.getBoundingClientRect(), align);
+    // 等值守卫：补测路径会反复调用，几何没变时别平白制造一次重渲
+    setPos((prev) =>
+      prev.top === next.top && prev.left === next.left && prev.width === next.width ? prev : next,
+    );
+  }, [align]);
+
   const toggle = useCallback(() => {
-    setOpen((prev) => {
-      if (!prev && btnRef.current) {
-        const r = btnRef.current.getBoundingClientRect();
-        // 面板贴右侧对齐：它开在页头那一行，右缘对齐比左缘对齐更不容易顶出视口
-        setPos({ top: r.bottom + 4, left: Math.max(8, r.right - 288) });
-      }
-      return !prev;
-    });
-  }, []);
+    if (!open) computePos(); // 先量再开：首帧就到位，不出现"先落在旧处再跳一下"
+    setOpen(!open);
+  }, [open, computePos]);
+
+  // 开着时跟随触发钮：伸缩窗口会让触发钮随布局移动，不重新量的话面板停在旧位置、与触发钮脱节
+  // （2026-10-05 音频页验收报，图 2 的形态）。
+  //
+  // 为什么要跨帧补测（2026-10-05 音频页验收，最大化窗口不跟随）：触发钮的位置不是 resize 事件
+  // 当帧就落定的——AppPageShell 的内容壳几何由 ResizeObserver 在布局后**异步**写 --aps-* 变量，
+  // window.resize 先于它派发。当帧量到的是旧几何；拖拽伸缩时 resize 连发、下一发就纠偏（慢一拍
+  // 肉眼无感），而最大化是**单发** resize，量旧了之后没人再量，面板就永久停在旧位（复现：
+  // 916→1900 一次性放大，面板停在旧坐标不动）。跨两帧补测覆盖 RO 落定（第一帧）与极端情况下的
+  // 再落定（第二帧）；等值守卫让补测不制造冗余重渲。
+  useEffect(() => {
+    if (!open) return;
+    let raf1 = 0;
+    let raf2 = 0;
+    const onResize = () => {
+      computePos();
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      raf1 = requestAnimationFrame(() => {
+        computePos();
+        raf2 = requestAnimationFrame(computePos);
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [open, computePos]);
 
   // 打开即聚焦搜索框（显式 focus，不用挂载期隐式抢焦点）
   useEffect(() => {
@@ -159,7 +230,7 @@ export default function ScopePicker({
               context，把浮层的 z-index 困在里面；卡片还有 overflow: clip 会裁掉长列表。 */}
           <div
             className="pp-menu__panel is-portaled scope-panel"
-            style={{ top: pos.top, left: pos.left }}
+            style={{ top: pos.top, left: pos.left, width: pos.width, minWidth: 0, boxSizing: 'border-box' }}
             role="listbox"
             aria-label={t('scope.panelAria')}
           >

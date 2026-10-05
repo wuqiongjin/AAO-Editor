@@ -100,6 +100,17 @@ function project(id: string, name: string, charts: ProjectChart[]): ChartProject
   return { ...createUnnamedProject({ id, chartId: charts[0].id, now: NOW }), name, charts };
 }
 
+/** 读写记账的替身后端：验「读之前先 flush」的次序（issue 11 #2） */
+function tracedBackend(backend: MemoryProjectBackend, log: string[]): MemoryProjectBackend {
+  const get = backend.get.bind(backend);
+  const list = backend.list.bind(backend);
+  return {
+    ...backend,
+    get: async (id) => { log.push(`get:${id}`); return get(id); },
+    list: async () => { log.push('list'); return list(); },
+  };
+}
+
 /** 两个工程各两张谱面：谱面标题各不相同，才断言得出"在看哪张" */
 function seed(): MemoryProjectBackend {
   return makeMemoryProjectBackend([
@@ -221,6 +232,35 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     expect(scopeTrigger()).toHaveTextContent('Beta');
     expect(ctx.current!.projectId).toBe('pA');
     expect(backend.disk.get('pB')!.charts.map((c) => c.id)).toEqual(['c-b1', 'c-b2']);
+  });
+
+  it('读记录之前先落盘：工作台防抖那笔没落地也读得到刚编辑的那份（issue 11 #2）', async () => {
+    const log: string[] = [];
+    const { ctx } = await mountShell(tracedBackend(seed(), log), { projectId: 'pA', chartId: 'c-a1' });
+
+    // 工作台的真实画像是"注册一个 flush 回调"（useChartProjectPersistence）；这里注入替身记账它
+    // 相对读的次序——防抖落地**不通知目录**，不 flush 的话这次访问会整趟停在旧记录上
+    ctx.current!.registerPersistFlush(async () => { log.push('flush'); });
+
+    log.length = 0;
+    fireEvent.click(navButton('预览'));
+    await waitFor(() => expect(scopeTrigger()).toHaveTextContent('Alpha'));
+
+    expect(log[0]).toBe('flush');
+    expect(log.indexOf('flush')).toBeLessThan(log.indexOf('get:pA'));
+  });
+
+  it('左簇读作「工程 / 谱面」：两控件之间一枚纯视觉分隔符（issue 11 #5）', async () => {
+    await mountShell(seed(), { projectId: 'pA', chartId: 'c-a1' });
+    fireEvent.click(navButton('预览'));
+    await waitFor(() => expect(chartTrigger()).toHaveTextContent('Alpha 1'));
+
+    const left = document.querySelector('.preview-toolbar__left')!;
+    expect([...left.children].map((el) => el.className.split(' ')[0]))
+      .toEqual(['scope-picker', 'preview-toolbar__sep', 'preview-chart']);
+    const sep = left.querySelector('.preview-toolbar__sep') as HTMLElement;
+    expect(sep).toHaveAttribute('aria-hidden', 'true');   // 纯视觉：不进可访问名
+    expect(sep).toHaveTextContent('/');
   });
 
   it('重新进入本页 = 重新按入口决定：页面内的临时选择不跨次保留', async () => {

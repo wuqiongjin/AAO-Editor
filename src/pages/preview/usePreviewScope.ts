@@ -39,7 +39,9 @@ export interface PreviewScopeState {
 
 export function usePreviewScope(active = true): PreviewScopeState {
   const { pageScope } = useAppNav();
-  const { projectId: currentId, chartId: currentChartId, store, catalogEpoch } = useCurrentProject();
+  const {
+    projectId: currentId, chartId: currentChartId, store, catalogEpoch, flushPersist,
+  } = useCurrentProject();
   const scopeId = resolveScopedProjectId(pageScope, currentId);
 
   // 读回来的那份连 forId 一起存：记录与"为谁读的"绑在一起，才敢往外发
@@ -51,6 +53,7 @@ export function usePreviewScope(active = true): PreviewScopeState {
   // 每次被激活（保活页从隐藏变可见）时重读一次。数据源是**工程记录**，而记录被工作台以
   // 800ms 防抖落盘——防抖那笔落地时不通知目录，所以只靠 catalogEpoch 的话，本页可能整次访问
   // 都停在"进来那一刻读到的那份"（照 useAudioScope）。激活是"用户真的在看它了"的时刻。
+  // （读之前还先 flushPersist，见下面的读 effect：进门的这次也读得到工作台刚落笔的编辑。）
   const [activation, setActivation] = useState(0);
   const wasActiveRef = useRef(active);
   useEffect(() => {
@@ -70,6 +73,11 @@ export function usePreviewScope(active = true): PreviewScopeState {
     }
     let cancelled = false;
     void (async () => {
+      // 读之前先把当前工程在飞的编辑落盘：记录走工作台的 800ms 防抖，防抖那笔落地时**不通知目录**，
+      // 不 flush 就可能读到"上一版"记录（2026-10-05 验收：重置谱面后切来预览仍见旧音符）。
+      // 对照：音频页 / 工程页在写前都先 flush，这里是"读前"的同一道账。
+      await flushPersist();
+      if (cancelled) return;
       // 两件一起读：作用对象那条记录（含谱面列表）+ 工程列表（作用域条用）。
       // 列表读失败不该连累正文——各自兜住，页面照常显示。
       const [listed, scoped] = await Promise.all([
@@ -87,7 +95,7 @@ export function usePreviewScope(active = true): PreviewScopeState {
       setLoaded({ forId: scopeId, project: scoped });
     })();
     return () => { cancelled = true; };
-  }, [scopeId, catalogEpoch, store, activation]);
+  }, [scopeId, catalogEpoch, store, activation, flushPersist]);
 
   const fresh = loaded != null && loaded.forId === scopeId ? loaded : null;
   const project = fresh?.project ?? null;

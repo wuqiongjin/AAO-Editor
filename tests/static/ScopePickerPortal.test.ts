@@ -1,8 +1,8 @@
-// issue 22（ADR-0015 §6）：作用域切换器的两条结构性约定。
+// issue 22（ADR-0015 §6）：作用域切换器的三条结构性约定。
 //
 // 都是"重构时会被悄悄改坏、但行为测试抓不住"的那类：
 //
-// 1. 浮层必须走 `createPortal`。组件住在区块头右侧，而 AppPageShell.Body 的直系子元素带
+// 1. 浮层必须走 `createPortal`。组件住在区块头右侧 / 工具栏左簇，而 AppPageShell.Body 的直系子元素带
 //    `.app-stagger` 进场动画（终止态 transform: translateY(0) + fill: both）——动画一填死，
 //    每个直系子元素就成了常驻 stacking context，浮层的 z-index 被关在里面；卡片还有
 //    `overflow: clip`，长列表会被直接裁掉。这条塌过一次，塌的方式是"面板不显示"，不是报错。
@@ -10,6 +10,9 @@
 // 2. 配色一律走设计令牌（ADR-0003）。硬编码色值在暗色主题下要么读不出来、要么和周围对不上，
 //    而它自己是能编译、能渲染的，只有眼看才发现。token 是否有定义由 TokenUsageWiring 管，
 //    这里只管"有没有绕过 token"。
+//
+// 3. 面板贴哪条边跟随落点（2026-10-05 用户定案）：预览页在工具栏左簇 → 左对齐（吃默认），
+//    音频页在区块头右侧 → 右对齐（显式传）。两页共用组件，改坏的方式是"把一边的口径复制给另一边"。
 import { describe, expect, it } from 'vitest';
 import { readSource, readStripped } from '@/tests/support/source';
 
@@ -54,5 +57,10 @@ describe('issue 22 · 作用域切换器 · 结构约定', () => {
     expect(hits).toEqual([]);
     expect(section).toMatch(/\.scope-picker\b/);
     expect(section).toMatch(/\.scope-panel\b/);
+  });
+
+  it('面板贴边按落点分置：音频页显式右对齐，预览页不吃右对齐（默认左对齐）', () => {
+    expect(readStripped('src/pages/audio/AudioPage.tsx')).toMatch(/align="right"/);
+    expect(readStripped('src/pages/preview/PreviewPage.tsx')).not.toMatch(/align="right"/);
   });
 });

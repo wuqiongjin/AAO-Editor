@@ -103,6 +103,14 @@
   min-width: 0;
 }
 
+/* 左簇里的层级分隔符（issue 11 #5）：作用域条（工程）与谱面切换器（谱面）之间，
+   "工程 / 谱面"读作一级到二级。纯视觉：不参与命中，也不进可访问名。 */
+.preview-toolbar__sep {
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+  user-select: none;
+}
+
 /* ---- 静态预览控件组（缩放 + 显示设置 + 全屏 + 导出） ---- */
 .preview-static {
   display: inline-flex;

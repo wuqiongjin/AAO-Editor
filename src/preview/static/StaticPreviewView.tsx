@@ -1,7 +1,8 @@
 // 静态预览画面（chart-preview 03；ADR-0016 §1.1 / §2）：**面板折行全景**。
 //
 // 排布：面板按序号横向排开 + 容器横向滚动；只画**可见且尚未画过**的面板（懒绘制 + 记账），
-// 滚出视口不销毁（已出图的 canvas 留着）。面板里画的是编辑器那套渲染（`panelPainter` → `renderChart`），
+// 滚出视口不销毁（已出图的 canvas 留着）；但**画家换代时视口外的老位图整块作废**（见出图段注释）。
+// 面板里画的是编辑器那套渲染（`panelPainter` → `renderChart`），
 // 显示档只是叠了一层 `FrameView.display` 覆盖（`displayProfile.ts`）——**没有第二份绘制**。
 //
 // 本文件只做四件事：量容器 / 认可见区间 / 记账出图 / hover 交互；排布数学全在 `panelLayout.ts`（纯函数）。
@@ -18,7 +19,6 @@ import {
   esForZoom,
   makePanelLayout,
   normalizePreviewZoom,
-  panelWidthForEs,
   visiblePanelRange,
 } from './panelLayout';
 import {
@@ -130,6 +130,13 @@ export default function StaticPreviewView({
   // - 光滚轮 = 横向滚动（纵向滚轮也映射成横滚，不必先够到 Shift）；
   // - Ctrl/⌘+滚轮 = 缩放这一屏（面板宽/密度一起变），并**把指针下的那一格钉住**；
   //   顺带拦掉浏览器整页缩放——用户要缩的是谱面，不是页面（2026-09-30 验收）。
+  //
+  // 缩放锚点的写法（issue 11 #3）：**不在换代前抢写 scrollLeft** —— 那一刻 DOM 还是旧内容宽，
+  // 浏览器会按旧宽先钳一次（锚点错位、滚动条回跳）。这里只把"指针下那一格"记进 ref，
+  // 真正的写盘交给下面按布局落的 layout effect（那时新面板宽已经进 DOM，钳制按新宽算）。
+  const zoomRef = useRef(zoom);
+  useLayoutEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  const pendingAnchorRef = useRef<{ panelAt: number; offsetX: number } | null>(null);
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -138,13 +145,19 @@ export default function StaticPreviewView({
         if (!onZoom) return;
         event.preventDefault();
         const stepPerEvent = Math.min(0.08, Math.max(0.01, Math.abs(event.deltaY) / 200));
-        const next = normalizePreviewZoom(zoom + (event.deltaY < 0 ? stepPerEvent : -stepPerEvent));
-        if (next === zoom) return;
+        // 从**最新档**起步：连发事件里上一发已经改了目标档，state 还停在上一帧（闭包滞后），
+        // 直接读 state 会把同一档重复算 N 次（"锚点不动、档位也不动"的那种一顿一顿）。
+        const next = normalizePreviewZoom(
+          zoomRef.current + (event.deltaY < 0 ? stepPerEvent : -stepPerEvent),
+        );
+        if (next === zoomRef.current) return;
+        zoomRef.current = next;
         // 锚点：指针下的那一格（带小数）在缩放前后落在同一屏位置
         const offsetX = event.clientX - host.getBoundingClientRect().left;
-        const panelAt = (host.scrollLeft + offsetX) / layout.panelW;
-        const nextPanelW = panelWidthForEs(esForZoom(next));
-        host.scrollLeft = Math.max(0, panelAt * nextPanelW - offsetX);
+        pendingAnchorRef.current = {
+          panelAt: (host.scrollLeft + offsetX) / layout.panelW,
+          offsetX,
+        };
         onZoom(next);
         return;
       }
@@ -156,7 +169,19 @@ export default function StaticPreviewView({
     };
     host.addEventListener('wheel', onWheel, { passive: false });
     return () => host.removeEventListener('wheel', onWheel);
-  }, [onZoom, zoom, layout, syncFromHost]);
+  }, [onZoom, layout, syncFromHost]);
+
+  // 缩放锚点落地（issue 11 #3）：必须等**新布局进 DOM 之后**再写 scrollLeft（见滚轮段注释）。
+  // 没有待办锚点时是空转；`zoom` 也在依赖里，兜住"档变了但布局恰好同值"的边界。
+  useLayoutEffect(() => {
+    const anchor = pendingAnchorRef.current;
+    if (!anchor) return;
+    pendingAnchorRef.current = null;
+    const host = hostRef.current;
+    if (!host) return;
+    host.scrollLeft = Math.max(0, anchor.panelAt * layout.panelW - anchor.offsetX);
+    syncFromHost();   // 浏览器钳制后的真值立刻回填 state：本帧的出图区间就按它算
+  }, [layout, zoom, syncFromHost]);
 
   // ---------------- 出图（懒绘制 + 记账） ----------------
   const paintPanel = useCallback((panelIndex: number) => {
@@ -188,6 +213,20 @@ export default function StaticPreviewView({
     );
     paintedRef.current.set(panelIndex, painter);
   }, [painter]);
+
+  // 画家换代（换缩放 / 换谱面 / 换皮肤 / 容器高变化）时，**视口之外**的老位图连 canvas 一起作废：
+  // 只重画可见区间的写法会把旧画家的图像留在视口外的画布上，横滚进视口那一瞬先看到旧音符、
+  // 下一帧才被重画（2026-10-05 验收：重置谱面后横滚看到上一版音符）。视口内的由下面同一次提交的
+  // 出图 effect 重画；纯滚动（画家没换）不作废——"滚出视口不销毁"照旧。
+  useLayoutEffect(() => {
+    for (const [k, painted] of [...paintedRef.current]) {
+      if (painted === painter) continue;
+      if (k >= range.lo && k <= range.hi) continue;
+      canvasesRef.current.get(k)?.remove();
+      canvasesRef.current.delete(k);
+      paintedRef.current.delete(k);
+    }
+  }, [painter, range.lo, range.hi]);
 
   useLayoutEffect(() => {
     // 容器还没测出来（高 0）先不出图：那几张位图既看不见、又会被真实尺寸的画家整批顶掉
