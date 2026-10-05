@@ -149,7 +149,9 @@
   background-color: var(--danger-soft);
 }
 
-/* outlined：实底带边框中性态 */
+/* outlined：实底带边框中性态 —— **只有浮在画面之上、需要自己带面的钮才用**（全屏预览那枚退出钮：
+   底下是画布底色与轨道花色，透明底立不住）。页面工具栏那排贴着页面底色，一律走默认透明态
+   —— 2026-10-05 定案：预览页「导出」曾独带这个面（票 03 起、无理由），与同排的「设置 / 全屏」不一致。 */
 .icon-btn--outlined {
   background-color: var(--bg-inset);
   border-color: var(--border);

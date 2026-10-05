@@ -149,7 +149,8 @@
 }
 
 /* ---- 全屏预览 ----
-   舞台整体进全屏：底色压成画布色、四周不留空，工具栏那排控件搬进右上角（全屏下照样能缩放 / 导出）。 */
+   舞台整体进全屏：底色压成画布色、四周不留空。外壳**只管定位**——面子与阴影在钮自己身上
+   （浮在画面之上，画面底色与轨道花色都不固定，光靠底压不住）。 */
 .preview-stage:fullscreen {
   padding: 0;
   border: none;
@@ -164,10 +165,9 @@
   z-index: 2;
   display: flex;
   align-items: center;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  background: var(--bg-elevated);
+}
+
+.preview-fs .icon-btn {
   box-shadow: var(--shadow-md);
 }
 

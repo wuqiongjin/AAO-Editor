@@ -141,13 +141,14 @@ describe('chart-preview 03 · 预览页消费静态形态', () => {
     expect(profileSrc).toMatch(/boundLines:\s*false/);
   });
 
-  it('全屏预览：舞台进全屏 + 全屏后控件搬进预览区（仍可缩放）', () => {
+  it('全屏预览：舞台进全屏 + 全屏后只留一枚退出钮（issue 12）', () => {
     const page = readStripped('src/pages/preview/PreviewPage.tsx');
     expect(page).toMatch(/requestFullscreen/);
     expect(page).toMatch(/fullscreenchange/);
     expect(page).toMatch(/preview-fs/);
-    // 全屏与否都不能少掉这排控件（页面工具栏一份、全屏浮层一份，同一个组件）
-    expect(page.match(/<PreviewStaticToolbar/g)?.length).toBe(2);
+    // 这一排控件只剩页面工具栏一份：全屏浮层不再整体挂它（2026-10-05 定案：太长、压画面）
+    expect(page.match(/<PreviewStaticToolbar/g)?.length).toBe(1);
+    expect(page).toMatch(/<PreviewExitFullscreenButton/);
   });
 
   it('滚轮接缝：预览区内拦下默认行为（横滚 + Ctrl/⌘ 缩放），缩放不改整页', () => {

@@ -93,6 +93,20 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(src).not.toContain('preview-toolbar__controls');
   });
 
+  it('全屏只留一枚退出钮（issue 12）：.preview-fs 不再整体挂那一排控件', () => {
+    const src = readStripped('src/pages/preview/PreviewPage.tsx');
+    const fsBlock = src.slice(src.indexOf('preview-fs'));
+    expect(fsBlock).not.toMatch(/PreviewStaticToolbar/);
+    expect(fsBlock).toMatch(/PreviewExitFullscreenButton/);
+
+    // 退出钮 icon-only：不传 `label`（IconButton 一见 label 就出文字），可访问名 / tooltip 仍在
+    const toolbar = readStripped('src/pages/preview/PreviewStaticToolbar.tsx');
+    const exitBlock = toolbar.slice(toolbar.indexOf('export function PreviewExitFullscreenButton'));
+    expect(exitBlock).not.toMatch(/\slabel=/);
+    expect(exitBlock).toMatch(/aria-label=/);
+    expect(exitBlock).toMatch(/title=/);
+  });
+
   it('页头分割线是页头级的层次所在（样式变体 D 的落点）', () => {
     const css = readStripped('src/pages/preview/PreviewPage.css');
     expect(css).toMatch(/\.preview-modes\s*\{[^}]*border-bottom:\s*1px solid var\(--border\)/);

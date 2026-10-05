@@ -1,10 +1,14 @@
 // 静态预览的工具栏控件（chart-preview 03；08 起显示档搬进「显示」面板）：
-// 连续缩放滑杆 + 显示面板（标注 / 画布共享 / 音符皮肤）+ 全屏 + 导出。
+// 连续缩放滑杆 + 显示面板（标注 / 画布共享 / 音符皮肤）+ 导出 + 全屏（全屏末位，2026-10-05 定案）。
 //
 // 一个旋钮：缩放决定轨道宽（面板宽 = 13 车道宽）、音符大小、每面板秒数；面板高跟容器高（Bestdori 语义）。
 // 缩放**连续可调**（滑杆；预览区内 Ctrl/⌘+滚轮同款，见 StaticPreviewView 的滚轮监听），不再只给几档。
-// 叠加项（BPM / 时间 / 节拍线）与画布共享项都在 `PreviewDisplayPanel` 里（同一排控件：页面工具栏与全屏浮层各一份）。
+// 叠加项（BPM / 时间 / 节拍线）与画布共享项都在 `PreviewDisplayPanel` 里。
 // 控件形式照全站：滑杆复用 `.slider-control` / `.slider-value`（设置页同一套），其余走 `IconButton`。
+//
+// issue 12（2026-10-05 用户定案）：全屏下这一排**整排退场** —— 它太长、压画面；浮层只留
+// `PreviewExitFullscreenButton` 一枚图标钮（缩放不丢：Ctrl/⌘+滚轮仍归 `StaticPreviewView`，
+// 设置 / 导出先退出全屏再做）。
 import { ImageDown, Maximize2, Minimize2 } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
 import { t } from '../../i18n';
@@ -22,9 +26,8 @@ export interface PreviewStaticToolbarProps {
    * null = 这一屏还没有可导出的谱面。按钮**不因超限而变灰**：点了会说清原因（票面：给方案，不画爆）。
    */
   exportPlan: SheetPlan | null;
-  /** 全屏预览（全屏下这排控件跟着搬进预览区，仍可缩放） */
-  fullscreen: boolean;
-  onToggleFullscreen: () => void;
+  /** 进入全屏（全屏下这排控件整排退场，只留浮层那枚退出钮） */
+  onEnterFullscreen: () => void;
 }
 
 export default function PreviewStaticToolbar({
@@ -33,8 +36,7 @@ export default function PreviewStaticToolbar({
   exporting,
   onExport,
   exportPlan,
-  fullscreen,
-  onToggleFullscreen,
+  onEnterFullscreen,
 }: PreviewStaticToolbarProps) {
   const exportTitle = exportPlan == null
     ? t('preview.static.export')
@@ -63,26 +65,46 @@ export default function PreviewStaticToolbar({
 
       <PreviewDisplayPanel />
 
+      {/* 那一排是页面 chrome（贴着页面底色）：不带面，`outlined` 只留给浮在画面上的钮（见 ui.css） */}
       <IconButton
         width="auto"
         size="sm"
-        icon={fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-        label={fullscreen ? t('preview.static.fullscreenExit') : t('preview.static.fullscreen')}
-        title={fullscreen ? t('preview.static.fullscreenExit') : t('preview.static.fullscreenHint')}
-        active={fullscreen}
-        onClick={onToggleFullscreen}
-      />
-
-      <IconButton
-        width="auto"
-        size="sm"
-        outlined
         disabled={exporting || exportPlan == null}
         icon={<ImageDown size={15} />}
         label={exporting ? t('preview.static.exporting') : t('preview.static.export')}
         title={exportTitle}
         onClick={onExport}
       />
+
+      {/* 全屏**末位**（2026-10-05 用户定案）：进入钮在这一排最右，退出钮浮在舞台右上角 ——
+          进出这一趟手和眼都停在同一个角。 */}
+      <IconButton
+        width="auto"
+        size="sm"
+        icon={<Maximize2 size={15} />}
+        label={t('preview.static.fullscreen')}
+        title={t('preview.static.fullscreenHint')}
+        onClick={onEnterFullscreen}
+      />
     </div>
+  );
+}
+
+/**
+ * 全屏浮层那枚退出钮（issue 12）：icon-only，不显示文字（省占位）—— **别给它加 `label`**，一加就出文字。
+ * 外形 = 圆角方形（`outlined` 自己带面），圆形胶囊被否（2026-10-05 用户：圆形不太合适）；
+ * 阴影由 `.preview-fs .icon-btn` 补 —— 它浮在画面之上，画面底色与轨道花色都不固定。
+ */
+export function PreviewExitFullscreenButton({ onExit }: { onExit: () => void }) {
+  return (
+    <IconButton
+      width="auto"
+      size="sm"
+      outlined
+      icon={<Minimize2 size={15} />}
+      title={t('preview.static.fullscreenExit')}
+      aria-label={t('preview.static.fullscreenExit')}
+      onClick={onExit}
+    />
   );
 }

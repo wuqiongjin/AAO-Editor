@@ -26,7 +26,7 @@ import { chartEffectiveTitle, DIFF_SHORT } from '../../project/projectCatalog';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
-import PreviewStaticToolbar from './PreviewStaticToolbar';
+import PreviewStaticToolbar, { PreviewExitFullscreenButton } from './PreviewStaticToolbar';
 import { usePreviewScope } from './usePreviewScope';
 import './PreviewPage.css';
 
@@ -51,7 +51,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   const [fullscreen, setFullscreen] = useState(false);
   const stageRef = useRef<HTMLDivElement | null>(null);
 
-  // 全屏预览：整块舞台进全屏，这排控件跟着搬进预览区（全屏下照样能缩放 / 切叠加项 / 导出）。
+  // 全屏预览：整块舞台进全屏，显示控件那一排随之退场（它太长、压画面），浮层只留一枚退出钮。
+  // 缩放不丢：Ctrl/⌘+滚轮仍归 StaticPreviewView；设置 / 导出先退出全屏再做（2026-10-05 定案）。
   // Esc 由浏览器负责退出，`fullscreenchange` 是唯一真相（也管住从别处退出时的状态同步）。
   useEffect(() => {
     const onFullscreenChange = () => setFullscreen(document.fullscreenElement === stageRef.current);
@@ -168,8 +169,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       ) : (
         <>
           {/* 工具栏行（票 10 起）：左 = 作用对象（作用于哪个工程 → 在看哪张谱面），
-              右 = 显示控件贴右缘，中间不插东西。作用域条放这里而不是侧栏（2026-09-30 用户验收）；
-              全屏时显示控件搬进预览区（见 .preview-fs）。 */}
+              右 = 显示控件贴右缘，中间不插东西。作用域条放这里而不是侧栏（2026-09-30 用户验收）。 */}
           <div className="preview-toolbar">
             <div className="preview-toolbar__left">
               {scopeOption && scopeId != null && (
@@ -196,8 +196,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 exporting={exporting}
                 onExport={() => void handleExport()}
                 exportPlan={exportPlan}
-                fullscreen={fullscreen}
-                onToggleFullscreen={toggleFullscreen}
+                onEnterFullscreen={toggleFullscreen}
               />
             )}
           </div>
@@ -208,26 +207,17 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
             data-mode={mode}
           >
             {mode === 'static' && scene ? (
-              <>
-                <StaticPreviewView scene={scene} zoom={zoom} markers={settings.preview} onZoom={setZoom} />
-                {fullscreen && (
-                  <div className="preview-fs">
-                    <PreviewStaticToolbar
-                      zoom={zoom}
-                      onZoom={setZoom}
-                      exporting={exporting}
-                      onExport={() => void handleExport()}
-                      exportPlan={exportPlan}
-                      fullscreen={fullscreen}
-                      onToggleFullscreen={toggleFullscreen}
-                    />
-                  </div>
-                )}
-              </>
+              <StaticPreviewView scene={scene} zoom={zoom} markers={settings.preview} onZoom={setZoom} />
             ) : (
               <p className="preview-stage__pending">
                 {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.pending')}
               </p>
+            )}
+            {/* 浮层**不看画面**（issue 12）：谱面没音符时也要有出口 —— 否则全屏下除 Esc 无路可走 */}
+            {mode === 'static' && fullscreen && (
+              <div className="preview-fs">
+                <PreviewExitFullscreenButton onExit={toggleFullscreen} />
+              </div>
             )}
           </div>
         </>
