@@ -316,7 +316,7 @@
   "preview.static.exporting": "导出中…",
   "preview.static.exportHint": "导出谱面图（{{w}} × {{h}} px）",
   "preview.static.exportRefused": "这张谱面出不了图：{{reason}}",
-  "preview.static.exportFilename": "{{title}}-{{diff}}-宽图.png",
+  "preview.static.exportFilename": "{{title}}-{{diff}}-谱面图.png",
   "preview.static.exportDone": "谱面图已导出",
   "preview.static.exportDownscaled": "已按画布上限降密度导出",
   "preview.static.exportFailed": "导出失败",
@@ -696,7 +696,7 @@
   "electron.moveFail": "搬家失败，仍使用原来的保存位置",
   "electron.claimFail": "无法使用该文件夹",
   "electron.exportChart": "导出谱面代码",
-  "electron.exportSheet": "导出谱面宽图",
+  "electron.exportSheet": "导出谱面图",
   "electron.destInside": "不能把数据根改到当前保存位置的内部或其父目录",
   "electron.destOccupied": "目标位置已有「{{leaf}}」文件夹且非空，请换一个位置或改用「使用已有数据文件夹」"
 }

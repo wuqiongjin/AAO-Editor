@@ -314,7 +314,7 @@
   "preview.static.exporting": "Exporting…",
   "preview.static.exportHint": "Export chart image ({{w}} × {{h}} px)",
   "preview.static.exportRefused": "This chart can't be exported: {{reason}}",
-  "preview.static.exportFilename": "{{title}}-{{diff}}-sheet.png",
+  "preview.static.exportFilename": "{{title}}-{{diff}}-chart.png",
   "preview.static.exportDone": "Chart image exported",
   "preview.static.exportDownscaled": "Exported at a lower density to stay within canvas limits",
   "preview.static.exportFailed": "Export failed",
@@ -685,7 +685,7 @@
   "electron.moveFail": "Move failed; still using the previous save location",
   "electron.claimFail": "Could not use that folder",
   "electron.exportChart": "Export chart code",
-  "electron.exportSheet": "Export chart sheet",
+  "electron.exportSheet": "Export chart image",
   "electron.destInside": "Cannot move the data root into itself or its parent",
   "electron.destOccupied": "\"{{leaf}}\" already exists at the destination and is not empty. Pick another location or use “Use existing data folder”."
 }
