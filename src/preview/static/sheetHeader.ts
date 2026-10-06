@@ -37,8 +37,22 @@ const HEADER_BG_BOTTOM = '#0e1119';
 const HEADER_TITLE_COLOR = '#f4f6fb';
 const HEADER_SUBTITLE_COLOR = 'rgba(232, 238, 250, 0.66)';
 const CHIP_BG = 'rgba(255, 255, 255, 0.10)';
-const CHIP_BORDER = 'rgba(255, 255, 255, 0.20)';
+/** chips 的默认字色（难度色没传进来时才用它；其余 chips 各有自己的重音色） */
 const CHIP_TEXT_COLOR = '#eef2fa';
+/**
+ * 各项 chip 的**重音色**（2026-10-07 用户要求：每条信息的文字颜色稍微分一下）。
+ * 底色深、chip 底又是半透明白，所以这几色都取偏亮的中浅调 —— 在深带上读得清、又不至于各自为政。
+ * **难度那枚不在这里**：它必须用工程里那一份难度色（EZ/NM/HD/EX/SP 各一色），由页面传入
+ * （preview 域不 import 工程域，同 `coverHue` 的口径）。
+ */
+const CHIP_ACCENTS = {
+  /** 难度 + 等级：走 `SheetHeaderInput.difficultyColor`（没给就回落默认字色） */
+  difficulty: null as string | null,
+  duration: '#7dd3fc',
+  noteCount: '#c4b5fd',
+  bpm: '#fcd34d',
+  exportedAt: '#94a3b8',
+} as const;
 /**
  * 头带 / 面板区的分界（2026-10-06 用户定案 C）：由深渐暗的一道"缝" + 最底部一条亮线。
  * 两样都画在**下 padding 区内**（不额外占高）——这条道工序的好处是 `EXPORT_HEADER_H` 不变，
@@ -47,7 +61,6 @@ const CHIP_TEXT_COLOR = '#eef2fa';
 const DIVIDER_SEAM_H = 10;
 const DIVIDER_LINE_H = 2;
 const DIVIDER_LINE_COLOR = 'rgba(255, 255, 255, 0.22)';
-/** 无衬线（标题 / 副行）与等宽（指标 chips，读数感）字体链 */
 /**
  * 全站一条无衬线链（含 chips）：一次性画布上的字是**中西混排**（`难度 2:31` 这种），
  * 等宽链在中文环境里会回落成宋体，观感比统一-family 更糟（2026-10-06 版式整改）。
@@ -80,6 +93,11 @@ export interface SheetHeaderInput {
   chartTitle: string | null;
   /** 难度 + 等级（页面按 `DIFF_SHORT` 惯例算好，如「EXP 32」；null = 没这项） */
   difficulty: string | null;
+  /**
+   * 难度的颜色（页面把 `DIFF_COLORS[diff]` 传进来 —— EZ/NM/HD/EX/SP 各一色，与界面上那枚难度徽标同色）。
+   * preview 域不 import 工程域（同 `coverHue` 口径），缺省 / 非法 = chip 走默认字色。
+   */
+  difficultyColor?: string | null;
   /** 谱面时长（秒） */
   durationSeconds: number;
   /** 音符数（口径 = `countChartNotes`） */
@@ -97,6 +115,13 @@ export interface SheetHeaderInput {
   coverHue: number;
 }
 
+/** 一枚 chip：**文本 + 它的重音色**（难度那枚 = 传入的难度色，其余用各自的重音色） */
+export interface HeaderChip {
+  text: string;
+  /** CSS 颜色（`#rrggbb` 最佳：描边要按它取半透明版本） */
+  accent: string;
+}
+
 /** 信息区要画的东西（由输入按字段开关算出；空槽位 = 不画） */
 export interface SheetHeaderModel {
   /** 大字标题 */
@@ -104,7 +129,7 @@ export interface SheetHeaderModel {
   /** 副行（工程名；与标题重复时去重为 null） */
   subtitle: string | null;
   /** 指标 chips（顺序 = 字段表顺序） */
-  chips: string[];
+  chips: HeaderChip[];
 }
 
 const trimmed = (s: string | null | undefined): string | null => {
@@ -156,22 +181,46 @@ export function buildSheetHeaderModel(input: SheetHeaderInput): SheetHeaderModel
     : (fields.projectName ? name : null);
   const subtitle = fields.projectName && name && name !== title ? name : null;
 
-  const chips: string[] = [];
-  if (fields.difficulty && input.difficulty) chips.push(input.difficulty);
+  const difficultyAccent = trimmed(input.difficultyColor) ?? CHIP_ACCENTS.difficulty ?? CHIP_TEXT_COLOR;
+  const chips: HeaderChip[] = [];
+  if (fields.difficulty && input.difficulty) {
+    chips.push({ text: input.difficulty, accent: difficultyAccent });
+  }
   if (fields.duration) {
-    chips.push(t('preview.export.chip.duration', { time: formatTimeCompact(input.durationSeconds) }));
+    chips.push({
+      text: t('preview.export.chip.duration', { time: formatTimeCompact(input.durationSeconds) }),
+      accent: CHIP_ACCENTS.duration,
+    });
   }
   if (fields.noteCount) {
-    chips.push(t('preview.export.chip.notes', { count: groupThousands(input.noteCount) }));
+    chips.push({
+      text: t('preview.export.chip.notes', { count: groupThousands(input.noteCount) }),
+      accent: CHIP_ACCENTS.noteCount,
+    });
   }
   if (fields.bpm) {
     const range = bpmRangeText(input.bpms);
-    if (range) chips.push(t('preview.export.chip.bpm', { range }));
+    if (range) chips.push({ text: t('preview.export.chip.bpm', { range }), accent: CHIP_ACCENTS.bpm });
   }
   if (fields.exportedAt) {
-    chips.push(t('preview.export.chip.exportedAt', { time: formatExportStamp(input.exportedAt) }));
+    chips.push({
+      text: t('preview.export.chip.exportedAt', { time: formatExportStamp(input.exportedAt) }),
+      accent: CHIP_ACCENTS.exportedAt,
+    });
   }
   return { title, subtitle, chips };
+}
+
+/**
+ * 给颜色加透明度（chip 的描边要用重音色的淡版）。
+ * 只认 `#rrggbb`（界面那几枚难度色正是这个形状）；不是这个形状就原样返回 —— 最坏是描边不淡，
+ * 总比让 canvas 抛 invalid fillStyle 强（导出图是一次性出图，出图中断比颜色不对贵得多）。
+ */
+function withAlpha(color: string, alpha: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(color.trim());
+  if (!m) return color;
+  const n = Number.parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
 /** 一行文字放不下就截断加省略号（窄图下的文字截断；空串 = 一个字符都放不下） */
@@ -214,6 +263,8 @@ export function sheetHeaderMetrics(sheetW: number): SheetHeaderMetrics {
 /** 一枚 chip 的落点（CSS px） */
 export interface ChipBox {
   text: string;
+  /** 这枚 chip 的重音色（文字用它、描边用它的半透明版本） */
+  accent: string;
   x: number;
   y: number;
   w: number;
@@ -225,16 +276,16 @@ export interface ChipBox {
  * 行打包与落点计算分开，是为了让竖直排布（`layoutInfoStack`）能先知道 chips 占多高。
  */
 function packChipRows(
-  chips: readonly string[],
+  chips: readonly HeaderChip[],
   measure: (s: string) => number,
   textW: number,
-): { text: string; w: number }[][] {
+): { chip: HeaderChip; w: number }[][] {
   if (textW <= 0) return [];
-  const rows: { text: string; w: number }[][] = [];
-  let cur: { text: string; w: number }[] = [];
+  const rows: { chip: HeaderChip; w: number }[][] = [];
+  let cur: { chip: HeaderChip; w: number }[] = [];
   let used = 0;
-  for (const text of chips) {
-    const w = Math.ceil(measure(text)) + CHIP_PAD_X * 2;
+  for (const chip of chips) {
+    const w = Math.ceil(measure(chip.text)) + CHIP_PAD_X * 2;
     if (w > textW) continue;
     const need = cur.length === 0 ? w : w + CHIP_GAP;
     if (cur.length > 0 && used + need > textW) {
@@ -242,7 +293,7 @@ function packChipRows(
       cur = [];
       used = 0;
     }
-    cur.push({ text, w });
+    cur.push({ chip, w });
     used += cur.length === 1 ? w : w + CHIP_GAP;
     if (rows.length >= CHIP_MAX_ROWS) break;
   }
@@ -303,7 +354,7 @@ export function layoutInfoStack(
  * 纯计算（`measure` 注入），画图与单测共用。
  */
 export function layoutChips(
-  chips: readonly string[],
+  chips: readonly HeaderChip[],
   measure: (s: string) => number,
   textX: number,
   textW: number,
@@ -316,7 +367,7 @@ export function layoutChips(
   for (const row of rows) {
     let x = textX;
     for (const c of row) {
-      out.push({ text: c.text, x, y, w: c.w, h: CHIP_H });
+      out.push({ text: c.chip.text, accent: c.chip.accent, x, y, w: c.w, h: CHIP_H });
       x += c.w + CHIP_GAP;
     }
     y += CHIP_H + CHIP_GAP;
@@ -421,10 +472,11 @@ function drawInfo(ctx: CanvasRenderingContext2D, model: SheetHeaderModel, m: She
       ctx.roundRect(box.x, box.y, box.w, box.h, box.h / 2);
       ctx.fillStyle = CHIP_BG;
       ctx.fill();
-      ctx.strokeStyle = CHIP_BORDER;
+      // 描边跟着重音色走（淡版），文字直接用重音色 —— 难度那枚因此看得出来是哪一档
+      ctx.strokeStyle = withAlpha(box.accent, 0.55);
       ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.fillStyle = CHIP_TEXT_COLOR;
+      ctx.fillStyle = box.accent;
       ctx.textBaseline = 'middle';
       ctx.fillText(box.text, box.x + CHIP_PAD_X, box.y + box.h / 2 + 1);
       ctx.textBaseline = 'top';

@@ -26,7 +26,7 @@ import {
 } from '../../preview';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { getBpmEvents } from '../../audio/AudioTiming';
-import { chartEffectiveTitle, DIFF_SHORT, projectCoverHue } from '../../project/projectCatalog';
+import { chartEffectiveTitle, DIFF_COLORS, DIFF_SHORT, projectCoverHue } from '../../project/projectCatalog';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
@@ -122,6 +122,9 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
         projectName: project?.name ?? null,
         chartTitle: chart.title,
         difficulty: chart.level == null ? DIFF_SHORT[chart.diff] : `${DIFF_SHORT[chart.diff]} ${chart.level}`,
+        // 难度 chip 用工程里那一份难度色（EZ/NM/HD/EX/SP 各一色）——preview 域不 import 工程域，
+        // 由页面按 `coverHue` 的同款口径传进去
+        difficultyColor: DIFF_COLORS[chart.diff],
         durationSeconds: project?.durationSeconds ?? 0,
         noteCount: countChartNotes(chart.notes),
         bpms: getBpmEvents(chart.notes).map((e) => e.bpm),

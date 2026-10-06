@@ -16,8 +16,12 @@ import {
   loadCoverImage,
   sheetHeaderMetrics,
   truncateText,
+  type HeaderChip,
   type SheetHeaderInput,
 } from '@/src/preview/static/sheetHeader';
+
+/** `DIFF_COLORS[3]`（EX）—— 难度 chip 的颜色由页面传入，preview 域不 import 工程域 */
+const DIFF_EX_COLOR = '#e5484d';
 
 /** 全关 → 只开指定项（默认档另有断言） */
 function fields(open: Partial<ExportFieldSettings> = {}): ExportFieldSettings {
@@ -30,6 +34,7 @@ function input(over: Partial<SheetHeaderInput> = {}): SheetHeaderInput {
     projectName: 'My Project',
     chartTitle: 'My Chart',
     difficulty: 'EXP 32',
+    difficultyColor: DIFF_EX_COLOR,
     durationSeconds: 90,
     noteCount: 1234,
     bpms: [120],
@@ -91,7 +96,10 @@ describe('chart-preview 14 · 信息区模型（字段开关 / 回落 / 去重�
     expect(model).toEqual({
       title: 'My Chart',
       subtitle: null,                                   // 工程名默认关
-      chips: ['EXP 32', t('preview.export.chip.bpm', { range: '120' })],
+      chips: [
+        { text: 'EXP 32', accent: DIFF_EX_COLOR },      // 难度 = 传进来的难度色
+        { text: t('preview.export.chip.bpm', { range: '120' }), accent: '#fcd34d' },
+      ],
     });
   });
 
@@ -125,15 +133,22 @@ describe('chart-preview 14 · 信息区模型（字段开关 / 回落 / 去重�
     }))).toEqual({ title: null, subtitle: null, chips: [] });
   });
 
-  it('chips 顺序 = 难度 → 时长 → 音符数 → BPM → 导出时间（全开时逐项在场）', () => {
+  it('chips 顺序 = 难度 → 时长 → 音符数 → BPM → 导出时间（全开时逐项在场，各带自己的重音色）', () => {
     const model = buildSheetHeaderModel(input({ fields: { ...fields(), difficulty: true, duration: true, noteCount: true, bpm: true, exportedAt: true } }));
     expect(model.chips).toEqual([
-      'EXP 32',
-      t('preview.export.chip.duration', { time: '1:30' }),
-      t('preview.export.chip.notes', { count: '1,234' }),
-      t('preview.export.chip.bpm', { range: '120' }),
-      t('preview.export.chip.exportedAt', { time: '2026-10-06 21:30' }),
+      { text: 'EXP 32', accent: DIFF_EX_COLOR },
+      { text: t('preview.export.chip.duration', { time: '1:30' }), accent: '#7dd3fc' },
+      { text: t('preview.export.chip.notes', { count: '1,234' }), accent: '#c4b5fd' },
+      { text: t('preview.export.chip.bpm', { range: '120' }), accent: '#fcd34d' },
+      { text: t('preview.export.chip.exportedAt', { time: '2026-10-06 21:30' }), accent: '#94a3b8' },
     ]);
+  });
+
+  it('难度 chip 用页面传进来的难度色；没传（老数据 / 空串）回落默认字色', () => {
+    const model = buildSheetHeaderModel(input({ difficultyColor: '#3b82f6', fields: fields({ difficulty: true }) }));
+    expect(model.chips).toEqual([{ text: 'EXP 32', accent: '#3b82f6' }]);   // EZ 蓝
+    expect(buildSheetHeaderModel(input({ difficultyColor: null, fields: fields({ difficulty: true }) })).chips[0]?.accent).toBe('#eef2fa');
+    expect(buildSheetHeaderModel(input({ difficultyColor: '  ', fields: fields({ difficulty: true }) })).chips[0]?.accent).toBe('#eef2fa');
   });
 
   it('缺数据项开也不画：难度 / 等级没填不冒出空 chip；BPM 无有效值不画', () => {
@@ -145,7 +160,7 @@ describe('chart-preview 14 · 信息区模型（字段开关 / 回落 / 去重�
 
   it('音符数千位分隔用 ASCII 逗号（不赌 ICU）', () => {
     const model = buildSheetHeaderModel(input({ noteCount: 1234567, fields: fields({ noteCount: true }) }));
-    expect(model.chips).toEqual([t('preview.export.chip.notes', { count: '1,234,567' })]);
+    expect(model.chips).toEqual([{ text: t('preview.export.chip.notes', { count: '1,234,567' }), accent: '#c4b5fd' }]);
   });
 });
 
@@ -164,7 +179,7 @@ describe('chart-preview 14 · 文字截断与 chips 排布', () => {
 
   it('chips 流式排布：等距同行、放不下换行、超两行截掉、单枚超宽跳过、底对齐', () => {
     // 每枚 = len×10 + 56（两侧 28 padding）；GAP 16、H 72
-    const chips = ['aa', 'bb', 'cc'];
+    const chips = ['aa', 'bb', 'cc'].map((text) => ({ text, accent: '#eef2fa' }));
     const oneRow = layoutChips(chips, measure, 100, 300, 300);
     expect(oneRow.map((c) => ({ x: c.x, y: c.y }))).toEqual([
       { x: 100, y: 300 - 72 },        // 单行底对齐：y = bottom − 72
@@ -174,18 +189,21 @@ describe('chart-preview 14 · 文字截断与 chips 排布', () => {
     expect(oneRow.every((c) => c.w === 76 && c.h === 72)).toBe(true);
 
     // 宽 200：一行只放 2 枚（76 + 16 + 76 = 168 ≤ 200），4 枚 → 两行、底对齐
-    const twoRows = layoutChips(['aa', 'bb', 'cc', 'dd'], measure, 0, 200, 300);
+    const twoRows = layoutChips(chips.concat({ text: 'dd', accent: '#eef2fa' }), measure, 0, 200, 300);
     expect(twoRows).toHaveLength(4);
     expect(twoRows.map((c) => c.y)).toEqual([140, 140, 228, 228]);   // 300 − (72×2 + 16)
     expect(twoRows[2]).toMatchObject({ x: 0, y: 228 });
     expect(twoRows[3]).toMatchObject({ x: 92, y: 228 });
 
     // 超两行截掉：宽 100 一行只放 1 枚 → 5 枚只留前两行的 2 枚
-    expect(layoutChips(['aa', 'bb', 'cc', 'dd', 'ee'], measure, 0, 100, 300)).toHaveLength(2);
+    const five = ['aa', 'bb', 'cc', 'dd', 'ee'].map((text) => ({ text, accent: '#eef2fa' }));
+    expect(layoutChips(five, measure, 0, 100, 300)).toHaveLength(2);
 
     // 单枚超宽整枚跳过（不截断 chip 文本），后面的照排
-    const skipped = layoutChips(['a'.repeat(40), 'aa'], measure, 0, 300, 300);
+    const skipped = layoutChips([{ text: 'a'.repeat(40), accent: '#eef2fa' }, { text: 'aa', accent: '#eef2fa' }], measure, 0, 300, 300);
     expect(skipped.map((c) => c.text)).toEqual(['aa']);
+    // 落点带上各自的 accent（画图要用它描边 / 写字）
+    expect(skipped[0]?.accent).toBe('#eef2fa');
 
     expect(layoutChips(chips, measure, 0, 0, 300)).toEqual([]);   // 没有文字区 → 不画
   });
@@ -193,7 +211,7 @@ describe('chart-preview 14 · 文字截断与 chips 排布', () => {
 
 describe('chart-preview 14 · 信息区竖直排布（2026-10-06 版式整改）', () => {
   // 内容区 = 440 − 上下各 24 = 392；行盒：标题 132 / 副行 48；间隙：标题→副行 16、副行→chips 36；chip 行 72
-  const model = (title: string | null, subtitle: string | null) => ({ title, subtitle, chips: [] as string[] });
+  const model = (title: string | null, subtitle: string | null) => ({ title, subtitle, chips: [] as HeaderChip[] });
 
   it('三槽位齐 + chips 一行：整体垂直居中（上下各留 44 空白，不再是旧档的 141 px 空档）', () => {
     const box = layoutInfoStack(model('标题', '工程名'), [[]]);

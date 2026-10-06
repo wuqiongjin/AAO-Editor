@@ -263,6 +263,8 @@ describe('chart-preview 14 · 导出图文版头带（封面区 + 信息区 + �
     expect(pageSrc).toMatch(/countChartNotes\(chart\.notes\)/);
     expect(pageSrc).toMatch(/getBpmEvents\(chart\.notes\)/);
     expect(pageSrc).toMatch(/cover:\s*project\?\.coverBlob \?\? null/);
+    // 难度色由页面传入（DIFF_COLORS，与界面难度徽标同色）—— preview 域不 import 工程域，口径同 coverHue
+    expect(pageSrc).toMatch(/difficultyColor:\s*DIFF_COLORS\[chart\.diff\]/);
     // 导出物跟着头带走：导出调用把 header 递下去
     expect(pageSrc).toMatch(/await exportSheetAs\(\{\s*scene,\s*header,/);
   });
