@@ -57,6 +57,7 @@ export {
   makeExportLayout,
   planSheet,
   renderSheet,
+  waitForPaint,
   type SheetExportOutcome,
   type SheetExportRequest,
   type SheetRefused,

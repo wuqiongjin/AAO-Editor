@@ -16,6 +16,7 @@ export {
   panelWidthForEs,
   planSheet,
   renderSheet,
+  waitForPaint,
 } from './static';
 export type {
   PanelLayout,

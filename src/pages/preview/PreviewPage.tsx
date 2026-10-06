@@ -19,6 +19,7 @@ import {
   StaticPreviewView,
   exportSheetAs,
   planSheet,
+  waitForPaint,
   type PanelSceneInput,
   type PreviewMode,
 } from '../../preview';
@@ -104,6 +105,9 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     if (scene == null || chart == null || exporting) return;
     setExporting(true);
     try {
+      // 先让「导出中」这一帧真正画出来再开干（issue 16）：出图是同步长任务，同一段微任务链里
+      // 直接开干会把它压在按钮首帧之前——表现为按钮先冻住、再直接跳到结束。
+      await waitForPaint();
       const title = chartEffectiveTitle(project?.name ?? null, chart.title, untitledProjectLabel());
       const outcome = await exportSheetAs({
         scene,

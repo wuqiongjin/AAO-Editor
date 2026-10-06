@@ -55,10 +55,10 @@ describe('chart-preview 03 · 二进制另存通道（preload → main）', () =
 });
 
 describe('chart-preview 03 · 导出与预览解耦（固定档、不读窗口）', () => {
-  it('导出档是常量：面板高 537 / dpr 2 / 生效缩放 0.74（面板 289，与预览基准解耦）', () => {
-    // 值来自 issue 13 的实测（805 张真实谱面：85% 单行、0 拒绝；3 分钟谱单行余量 3.0%），
-    // 2026-10-05 用户定案「加大导出档」后钉死——改档必须重跑实测。
-    expect(exportSrc).toMatch(/EXPORT_PANEL_H\s*=\s*537/);
+  it('导出档是常量：面板高 3,222 / dpr 2 / 生效缩放 0.74（面板 289，与预览基准解耦）', () => {
+    // 宽 289 值来自 issue 13 实测（805 张：85% 单行、0 拒绝）；高 3,222 是 issue 14 定案（2026-10-06，
+    // = 6 × 537），复跑实测 100% 单行、0 拒绝、仅最长 715.3s 一条降密度——改档必须重跑实测。
+    expect(exportSrc).toMatch(/EXPORT_PANEL_H\s*=\s*3222/);
     expect(exportSrc).toMatch(/EXPORT_DPR\s*=\s*2/);
     expect(exportSrc).toMatch(/EXPORT_ES\s*=\s*0\.74/);
     // 不跟预览基准走：导出面板宽不能随 PREVIEW_ES_STANDARD（2026-10-02 重定基）一起漂移
@@ -164,5 +164,41 @@ describe('chart-preview 03 · 预览页消费静态形态', () => {
 
   it('原型壳已撤（不再有独立预览原型入口）', () => {
     expect(readSource('src/App.tsx')).not.toMatch(/StaticPreviewPrototype/);
+  });
+});
+
+// ---------------------------------------------------------------- chart-preview 16
+
+describe('chart-preview 16 · 导出按钮即时反馈（先画「导出中」再开干 + 逐块让出）', () => {
+  it('页面顺序：setExporting(true) → 等这一帧真画出来 → 才开导出', () => {
+    const page = readStripped('src/pages/preview/PreviewPage.tsx');
+    const mark = page.indexOf('setExporting(true)');
+    const wait = page.indexOf('await waitForPaint()');
+    const start = page.indexOf('await exportSheetAs(');
+    expect(mark).toBeGreaterThan(-1);
+    expect(wait).toBeGreaterThan(mark);
+    expect(start).toBeGreaterThan(wait);
+  });
+
+  it('出图循环逐块让出：blit 之后按块边界 await，格子算法与出图顺序原样', () => {
+    expect(exportSrc).toMatch(/for \(let k = 0; k < layout\.panelCount; k\+\+\) \{/);
+    expect(exportSrc).toMatch(/const cell = sheetCellRect\(plan, k\);/);
+    expect(exportSrc).toMatch(/painter\.blitInto\(k, ctx, cell\.x, cell\.y\);/);
+    expect(exportSrc).toMatch(/if \(\(k \+ 1\) % EXPORT_PANEL_CHUNK === 0\) await yieldToMainThread\(\);/);
+  });
+
+  it('让出原语：scheduler.yield 优先 / setTimeout 0 降级；等绘制 = rAF + 帧后宏任务', () => {
+    expect(exportSrc).toMatch(/scheduler\?\.yield/);
+    expect(exportSrc).toMatch(/scheduler\.yield\(\)/);
+    expect(exportSrc).toMatch(/new Promise\(\(resolve\) => setTimeout\(resolve, 0\)\)/);
+    expect(exportSrc).toMatch(/requestAnimationFrame\(\(\) => setTimeout\(resolve, 0\)\)/);
+  });
+
+  it('waitForPaint 走两个 barrel 出到页面（页面不直摸 static/ 内部）', () => {
+    const page = readStripped('src/pages/preview/PreviewPage.tsx');
+    expect(page).toMatch(/waitForPaint/);
+    expect(page).not.toMatch(/from '\.\.\/\.\.\/preview\/static/);
+    expect(readStripped('src/preview/static/index.ts')).toMatch(/\bwaitForPaint,/);
+    expect(readStripped('src/preview/index.ts')).toMatch(/\bwaitForPaint,/);
   });
 });

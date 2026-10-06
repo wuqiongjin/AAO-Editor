@@ -2,11 +2,12 @@
 //
 // - 形态：**单行宽图**（高 = 一格面板，宽 = 面板数 × 面板宽，随谱面变长而变长）；
 //   只有宽度超出画布单边上限时才折行（再不行降密度 dpr 2 → 1），绝不画爆（`planSheetExport`）。
-// - **导出与预览解耦**（2026-09-30 二轮定案）：布局与叠加项走自己的**固定档**（面板 289 × 537、dpr 2、
+// - **导出与预览解耦**（2026-09-30 二轮定案）：布局与叠加项走自己的**固定档**（面板 289 × 3,222、dpr 2、
 //   精简显示档），不跟预览当前的缩放 / 开关走——也不跟预览的缩放基准走（`EXPORT_ES` 独立
 //   常量，2026-10-02 预览重定基后尤其重要）；音符外观（皮肤 / 大小 / 配色）沿用作者的画布设置。
 //   档位 2026-10-05 加大（issue 13，治"导出图非常糊"）：旧档 130 × 537 是 Bestdori 缩略档，音符
 //   CSS 尺寸（es 比）只有预览默认档的 45%；新档取值 = 预览默认档的生效缩放在**定档当日**的数（0.74），此后各钉各的。
+//   档高 2026-10-06 再乘 6（537 → 3,222，issue 14，治"横向太长"）：每列 ≈9.9 秒，3 分钟谱 110 列 → 19 列。
 //   `resolveCanvasDpr` 也不参与（它会读 `window.devicePixelRatio`）。
 // - 复用 `panelLayout`（排布数学）+ `panelPainter`（面板里画的还是编辑器那套渲染）：不是"第二种画法"。
 import { bufferSizeFor, displayOptionsFromSettings } from '../../rendering';
@@ -25,8 +26,12 @@ import {
 import { createPanelPainter, type PanelSceneInput } from './panelPainter';
 import { saveBinaryAs, type SaveBinaryOutcome } from './saveBinary';
 
-/** 导出档：面板高（CSS px）—— 宽图的"高固定"就固定在这（照 research §3.1 标准档 537） */
-export const EXPORT_PANEL_H = 537;
+/**
+ * 导出档：面板高（CSS px）—— 宽图的"高固定"就固定在这。2026-10-06 格高定案 **3,222 = 6 × 537**
+ * （issue 14，grill Q5 用户拍板）：537 时每列只装 ≈1.65 秒，长谱横向列数过多（3 分钟谱 110 列、
+ * 59:1 瘦条）；×6 后每列 ≈9.9 秒。上限仍是画布上限（复算见本文件 `EXPORT_ES` 注释与 ADR-0016 §7）。
+ */
+export const EXPORT_PANEL_H = 3222;
 /** 导出档：像素密度 —— 固定 2，不读 `window.devicePixelRatio`（ADR-0016 §7） */
 export const EXPORT_DPR = 2;
 /**
@@ -37,9 +42,10 @@ export const EXPORT_DPR = 2;
  * 引用"——预览基准再上移也不带导出物漂移（ADR-0016 §7「导出与预览解耦」；接线锁在
  * `PreviewBinarySaveWiring.test`，那里同时锁着"本文件不许 import 预览基准"）。
  *
- * 实测（2026-10-06，真实语料 805 张谱面，末音符秒数口径）：本档 dpr 2 下 85% 单行、0 拒绝；
- * 3 分钟谱 = 110 面板 → 缓冲 63,580 × 1,074 px（单边上限 65,535，余量 3.0%）；
- * 更长的谱走既有"先折行（113 列）、再降密度"通路（最多 3 行）。
+ * 实测（2026-10-06 格高 3,222 后复跑，真实语料 805 张谱面，末音符秒数口径）：本档 dpr 2 下
+ * 100% 单行、0 拒绝、仅最长 715.3s 一条降密度（73 面板）；3 分钟谱 = 19 面板 → 缓冲
+ * 10,982 × 6,444 px。硬上限 ≈226 面板（≈37 分钟；73 面板起降密度，>226 拒绝——面积先于单边
+ * 触顶，折行在 3,222 高下不可达）。
  */
 export const EXPORT_ES = 0.74;
 /**
@@ -106,6 +112,35 @@ export interface SheetRefused {
 
 export type SheetRenderOutcome = SheetRendered | SheetRefused;
 
+// ---------------------------------------------------------------- 主线程让出（issue 16）
+
+/**
+ * 出图分块（issue 16）：每出满这么多格面板让出一次主线程。
+ * 取 4：最常见的短谱（十几格）也能让出数次，单块出图工作量又足够小（块太长照样冻）。
+ */
+const EXPORT_PANEL_CHUNK = 4;
+
+/**
+ * 让出一拍主线程（issue 16）：逐面板出图切成若干短任务，长谱导出期间页面不至于整段冻住。
+ * 优先 `scheduler.yield()`（新任务继承优先级，恢复快），不支持就退回宏任务 `setTimeout 0`。
+ */
+function yieldToMainThread(): Promise<void> {
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  if (typeof scheduler?.yield === 'function') return scheduler.yield();
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * 等到「当前这一帧真正画出来」（issue 16）：`setExporting(true)` 之后、开干之前调一次，
+ * 让「导出中」的按钮字先出现在屏幕上，而不是被随后那段同步长任务压在首帧前。
+ * 单等 rAF 不够（排在它后面的微任务仍在绘制前跑），所以帧后再排一个宏任务才放行。
+ */
+export function waitForPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
+}
+
 /**
  * 离屏出图（宽图）。**先等皮肤图集就绪**——一次性出图没有"下一帧补上"的机会
  * （工作台与预览靠重绘兜底，这里只能等）。
@@ -141,9 +176,12 @@ export async function renderSheet(req: SheetExportRequest): Promise<SheetRenderO
     spriteIcon: new CanvasSpriteIcon(),
     dpr: plan.dpr,
   });
+  // 逐面板出图的这一段是纯同步长任务（一口气跑完 = 整页冻到导出结束）：每满一块让出一次
+  // （issue 16）。分块只切任务边界，不改出图顺序，也不动格子算法。
   for (let k = 0; k < layout.panelCount; k++) {
     const cell = sheetCellRect(plan, k);
     painter.blitInto(k, ctx, cell.x, cell.y);
+    if ((k + 1) % EXPORT_PANEL_CHUNK === 0) await yieldToMainThread();
   }
   return {
     ok: true,
