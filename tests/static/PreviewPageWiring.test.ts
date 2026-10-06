@@ -118,7 +118,7 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
   it('src/preview 是新顶层域：barrel + static/ + video/（各自带类型契约）', () => {
     expect(entries('src/preview')).toEqual(['index.ts', 'static', 'types.ts', 'video']);
     // 03 起 static/ 是实件：面板模型（panelLayout）/ 出图器（panelPainter）/ 显示档（displayProfile）
-    // / 画面（StaticPreviewView）/ 宽图导出（exportPanels）/ 二进制另存（saveBinary）
+    // / 画面（StaticPreviewView）/ 头带（sheetHeader，14）/ 宽图导出（exportPanels）/ 二进制另存（saveBinary）
     expect(entries('src/preview/static')).toEqual([
       'StaticPreviewView.css',
       'StaticPreviewView.tsx',
@@ -128,6 +128,7 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'panelLayout.ts',
       'panelPainter.ts',
       'saveBinary.ts',
+      'sheetHeader.ts',
     ]);
     expect(entries('src/preview/video')).toEqual(['index.ts']);
   });

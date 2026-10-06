@@ -23,6 +23,8 @@ export interface ConfigContextValue {
   setDisplay: (patch: Partial<AppSettings['display']>) => void;
   /** 预览标注（chart-preview 08）：字段级写回并持久化（预览页的面板与设置页「画布显示」各改各的段） */
   setPreview: (patch: Partial<AppSettings['preview']>) => void;
+  /** 导出图文版的信息字段（chart-preview 14）：字段级写回并持久化（与 setPreview 同范式） */
+  setExport: (patch: Partial<AppSettings['export']>) => void;
   /** 节奏图示 SE 音量（issue 39 功能设置·播放）：0..1 字段级写回并持久化 */
   setSeVolume: (volume: number) => void;
   /** 音符皮肤（issue 29）：六条目字段级写回并持久化；包合法性由 renderer/noteSkin.ts 归一化 */
@@ -124,6 +126,15 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // 导出信息字段（chart-preview 14）：与 setPreview 同范式（段内浅合并 + 整份写盘）
+  const setExport = useCallback((patch: Partial<AppSettings['export']>) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { export: patch });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
   const setSeVolume = useCallback((volume: number) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { audio: { seVolume: volume } });
@@ -199,7 +210,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setProjectListWidth, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setProjectListWidth, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

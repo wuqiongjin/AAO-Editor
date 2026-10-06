@@ -2,6 +2,8 @@
 //
 // - 形态：**单行宽图**（高 = 一格面板，宽 = 面板数 × 面板宽，随谱面变长而变长）；
 //   只有宽度超出画布单边上限时才折行（再不行降密度 dpr 2 → 1），绝不画爆（`planSheetExport`）。
+// - **图文版**（chart-preview 14）：一律在最上面加一条头部横带（`sheetHeader` 的封面区 + 信息区，
+//   高 `EXPORT_HEADER_H`），横带以下才是面板区；没有封面走色相占位块。横带计入高与面积上限。
 // - **导出与预览解耦**（2026-09-30 二轮定案）：布局与叠加项走自己的**固定档**（面板 289 × 3,222、dpr 2、
 //   精简显示档），不跟预览当前的缩放 / 开关走——也不跟预览的缩放基准走（`EXPORT_ES` 独立
 //   常量，2026-10-02 预览重定基后尤其重要）；音符外观（皮肤 / 大小 / 配色）沿用作者的画布设置。
@@ -25,6 +27,13 @@ import {
 } from './panelLayout';
 import { createPanelPainter, type PanelSceneInput } from './panelPainter';
 import { saveBinaryAs, type SaveBinaryOutcome } from './saveBinary';
+import {
+  EXPORT_HEADER_H,
+  buildSheetHeaderModel,
+  drawSheetHeader,
+  loadCoverImage,
+  type SheetHeaderInput,
+} from './sheetHeader';
 
 /**
  * 导出档：面板高（CSS px）—— 宽图的"高固定"就固定在这。2026-10-06 格高定案 **3,222 = 6 × 537**
@@ -44,8 +53,8 @@ export const EXPORT_DPR = 2;
  *
  * 实测（2026-10-06 格高 3,222 后复跑，真实语料 805 张谱面，末音符秒数口径）：本档 dpr 2 下
  * 100% 单行、0 拒绝、仅最长 715.3s 一条降密度（73 面板）；3 分钟谱 = 19 面板 → 缓冲
- * 10,982 × 6,444 px。硬上限 ≈226 面板（≈37 分钟；73 面板起降密度，>226 拒绝——面积先于单边
- * 触顶，折行在 3,222 高下不可达）。
+ * 10,982 × 7,118 px（含图文版 337 头带）。硬上限 ≈226 面板（≈37 分钟；面积先于单边触顶，
+ * dpr 1 下 226 过 / 227 拒绝；图文版头带把 dpr 2 面积边界自 72 前移到 65 面板，66 起降密度出图）。
  */
 export const EXPORT_ES = 0.74;
 /**
@@ -64,6 +73,8 @@ export const SHEET_IMAGE_MIME = 'image/png';
 
 export interface SheetExportRequest {
   scene: PanelSceneInput;
+  /** 头部横带输入（图文版：工程 / 谱面信息 + 字段开关 + 封面），页面组装（preview 域不 import 工程域） */
+  header: SheetHeaderInput;
   /** 建议文件名（页面按谱面名拼） */
   suggestedName: string;
 }
@@ -79,7 +90,10 @@ export function makeExportLayout(scene: PanelSceneInput): PanelLayout {
   });
 }
 
-/** 导出档的排布 + 上限校验（尺寸预告与出图共用；超限时给降密度方案或拒绝的原因） */
+/**
+ * 导出档的排布 + 上限校验（尺寸预告与出图共用；超限时给降密度方案或拒绝的原因）。
+ * 图文版：`headerH` 恒带 `EXPORT_HEADER_H`（一律图文版，没有"纯面板宽图"的档）。
+ */
 export function planSheet(scene: PanelSceneInput): { layout: PanelLayout; plan: SheetPlan } {
   const layout = makeExportLayout(scene);
   return {
@@ -89,6 +103,7 @@ export function planSheet(scene: PanelSceneInput): { layout: PanelLayout; plan: 
       panelW: layout.panelW,
       panelH: layout.panelH,
       dpr: EXPORT_DPR,
+      headerH: EXPORT_HEADER_H,
     }),
   };
 }
@@ -142,17 +157,24 @@ export function waitForPaint(): Promise<void> {
 }
 
 /**
- * 离屏出图（宽图）。**先等皮肤图集就绪**——一次性出图没有"下一帧补上"的机会
+ * 离屏出图（宽图）。**先等皮肤图集 + 封面解码就绪**——一次性出图没有"下一帧补上"的机会
  * （工作台与预览靠重绘兜底，这里只能等）。
  */
 export async function renderSheet(req: SheetExportRequest): Promise<SheetRenderOutcome> {
   const t0 = performance.now();
   const { scene } = req;
   const noteIcons = buildActiveNoteIcons(normalizeNoteSkinSelection(scene.noteSkin));
-  await CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs()).catch(() => undefined);
+  // 封面解码与皮肤图集并行等：两件事互不依赖，串行等白费一次往返
+  const [cover] = await Promise.all([
+    loadCoverImage(req.header.cover),
+    CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs()).catch(() => undefined),
+  ]);
 
   const { layout, plan } = planSheet(scene);
-  if (!plan.ok) return { ok: false, plan, elapsedMs: performance.now() - t0 };
+  if (!plan.ok) {
+    cover?.close(); // 失败路径也要放掉解码出的位图（出图取消，它没别的用处）
+    return { ok: false, plan, elapsedMs: performance.now() - t0 };
+  }
 
   const canvas = document.createElement('canvas');
   const { w: bufferW, h: bufferH } = bufferSizeFor({ w: plan.sheetW, h: plan.sheetH }, plan.dpr);
@@ -160,6 +182,7 @@ export async function renderSheet(req: SheetExportRequest): Promise<SheetRenderO
   canvas.height = bufferH;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
+    cover?.close();
     return {
       ok: false,
       plan: { ok: false, reason: 'side', detail: '离屏画布不可用（无法创建 2d 上下文）' },
@@ -167,6 +190,14 @@ export async function renderSheet(req: SheetExportRequest): Promise<SheetRenderO
     };
   }
   ctx.setTransform(plan.dpr, 0, 0, plan.dpr, 0, 0);
+  // 头部横带（图文版）：封面（或色相占位块）+ 信息区，画在面板区上方（面板从 `plan.headerH` 起算）
+  drawSheetHeader(ctx, {
+    sheetW: plan.sheetW,
+    model: buildSheetHeaderModel(req.header),
+    cover,
+    coverHue: req.header.coverHue,
+  });
+  cover?.close();
   const painter = createPanelPainter({
     layout,
     scene,

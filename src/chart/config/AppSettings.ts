@@ -115,7 +115,53 @@ export interface AppSettings {
    * additive 字段，不 bump schemaVersion。
    */
   preview: PreviewSettings;
+  /**
+   * 导出图文版的「信息区」字段开关（chart-preview 14 定案 2026-10-06）：跨会话记住。
+   * 与 `preview`（看谱习惯）同样刻意分开：那是"自己怎么看"，这是"导出物里写什么"。
+   * additive 字段，不 bump schemaVersion。
+   */
+  export: ExportFieldSettings;
 }
+
+/**
+ * 导出信息字段（chart-preview 14，字段候选 2026-10-06 用户拍板）：导出图「信息区」显示哪些项。
+ * 七项里没有「谱师姓名」——本票不做（用户拍板：后续票再谈）。
+ */
+export interface ExportFieldSettings {
+  /** 工程名（副行；与标题重复时自动去重不显示） */
+  projectName: boolean;
+  /** 谱面标题（大字标题；未填回落工程名） */
+  chartTitle: boolean;
+  /** 难度 + 等级（如「EXP 32」；level 为空只写难度缩写） */
+  difficulty: boolean;
+  /** 谱面时长 */
+  duration: boolean;
+  /** 音符数（口径走 `countChartNotes`） */
+  noteCount: boolean;
+  /** BPM（多条取绝对值 min–max；单条只写一个值） */
+  bpm: boolean;
+  /** 导出时间（本地时区，写到分钟） */
+  exportedAt: boolean;
+}
+
+/** 导出信息字段的候选全列（归一化与「导出信息」UI 组共用同一份，免得两处各列一遍） */
+export const EXPORT_FIELD_KEYS: readonly (keyof ExportFieldSettings)[] = [
+  'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt',
+];
+
+/**
+ * 导出信息默认档（chart-preview 14，用户 2026-10-06 拍板）：**谱面标题 + 难度等级 + BPM** 开，
+ * 其余关（工程名 / 时长 / 音符数 / 导出时间）。
+ */
+export const DEFAULT_EXPORT_FIELDS: ExportFieldSettings = {
+  projectName: false,
+  chartTitle: true,
+  difficulty: true,
+  duration: false,
+  noteCount: false,
+  bpm: true,
+  exportedAt: false,
+};
 
 /** 预览标注设置（= `settings.preview`；预览面板的叠加项由它推出） */
 export interface PreviewSettings {
@@ -221,6 +267,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     curve: { ...DEFAULT_CURVE_CONFIG },
     projects: { sort: 'lastOpened' },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
+    export: { ...DEFAULT_EXPORT_FIELDS },
   };
 }
 
@@ -236,6 +283,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   const display = (obj.display && typeof obj.display === 'object' ? obj.display : {}) as Record<string, unknown>;
   const preview = (obj.preview && typeof obj.preview === 'object' ? obj.preview : {}) as Record<string, unknown>;
   const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, unknown>;
+  const exportRaw = (obj.export && typeof obj.export === 'object' ? obj.export : {}) as Record<string, unknown>;
   const visual = (obj.visual && typeof obj.visual === 'object' ? obj.visual : {}) as Record<string, unknown>;
   const rawNoteSkin = (visual.noteSkin && typeof visual.noteSkin === 'object' ? visual.noteSkin : {}) as Record<string, unknown>;
   // 音符皮肤：仅保留六条目的字符串值；包 id 合法性由 renderer/noteSkin.ts 在读取时归一化
@@ -315,7 +363,21 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       comboMarks: typeof preview.comboMarks === 'boolean' ? preview.comboMarks : defaults.preview.comboMarks,
       mirror: typeof preview.mirror === 'boolean' ? preview.mirror : defaults.preview.mirror,
     },
+    // 导出信息字段（chart-preview 14）：逐字段布尔归一化，缺字段 / 脏值回落默认档
+    export: normalizeExportFields(exportRaw, defaults.export),
   };
+}
+
+/** 导出信息字段归一化：只认布尔值，其余（缺字段 / 字符串 / 数字）逐字段回落默认档 */
+export function normalizeExportFields(
+  raw: Record<string, unknown>,
+  fallback: ExportFieldSettings = DEFAULT_EXPORT_FIELDS,
+): ExportFieldSettings {
+  const out = { ...fallback };
+  for (const k of EXPORT_FIELD_KEYS) {
+    if (typeof raw[k] === 'boolean') out[k] = raw[k] as boolean;
+  }
+  return out;
 }
 
 export function loadSettings(
@@ -381,6 +443,7 @@ export function updateSettings(
     curve?: CurveConfig;
     projects?: Partial<AppSettings['projects']>;
     preview?: Partial<AppSettings['preview']>;
+    export?: Partial<AppSettings['export']>;
   }>,
 ): AppSettings {
   return {
@@ -397,5 +460,6 @@ export function updateSettings(
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
     projects: { ...prev.projects, ...(patch.projects ?? {}) },
     preview: { ...prev.preview, ...(patch.preview ?? {}) },
+    export: { ...prev.export, ...(patch.export ?? {}) },
   };
 }

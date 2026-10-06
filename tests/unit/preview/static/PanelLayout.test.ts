@@ -23,6 +23,7 @@ import {
 } from '@/src/preview/static/panelLayout';
 // 导出档常量从真源 import（不抄一份数）：改档时本文件的"3 分钟谱不越上限"按新值重算
 import { EXPORT_DPR, EXPORT_ES, EXPORT_PANEL_H } from '@/src/preview/static/exportPanels';
+import { EXPORT_HEADER_H } from '@/src/preview/static/sheetHeader';
 
 const BPM120: ChartNote[] = [{ type: 'BPM', beat: 0, bpm: 120 }];
 /** 120bpm：1 拍 = 0.5s；440 虚拟 px/秒 */
@@ -207,6 +208,8 @@ describe('chart-preview 03 · 宽图排布与画布上限', () => {
   const PANEL_H = EXPORT_PANEL_H;
   /** 合成矮面板：3,222 高下折行不可达（面积先于单边触顶），要走到折行分支只能压矮面板 */
   const THIN_PANEL_H = 537;
+  /** 图文版头带（chart-preview 14）：真实导出档恒带头带，上限边界用例都带上它 */
+  const HEADER_H = EXPORT_HEADER_H;
 
   it('单行宽图：宽 = 面板数 × 面板宽、高 = 一格面板（45 面板 → 13,005 CSS px）', () => {
     const plan = planSheetExport({ panelCount: 45, panelW: PANEL_W, panelH: PANEL_H, dpr: EXPORT_DPR });
@@ -222,13 +225,14 @@ describe('chart-preview 03 · 宽图排布与画布上限', () => {
     expect(plan.downscaled).toBe(false);
   });
 
-  it('3 分钟谱不越上限：19 面板 → 缓冲 10,982 × 6,444，仍单行不降密度', () => {
+  it('3 分钟谱（图文版）不越上限：19 面板 → 缓冲 10,982 × 7,118，仍单行不降密度', () => {
     // 面板数 / 面板宽走真实模型（180s → 79,200 虚拟 px ÷ 窗口 3,222 ÷ 0.74 ≈ 18.2 → 19 列），不是手填的数
     const layout = makePanelLayout({
       notes: BPM120, chartDuration: 180, verticalRatio: 1, panelH: EXPORT_PANEL_H, es: EXPORT_ES,
     });
     const plan = planSheetExport({
       panelCount: layout.panelCount, panelW: layout.panelW, panelH: layout.panelH, dpr: EXPORT_DPR,
+      headerH: HEADER_H,
     });
     expect(layout.panelCount).toBe(19);
     expect(layout.panelW).toBe(289);
@@ -237,8 +241,9 @@ describe('chart-preview 03 · 宽图排布与画布上限', () => {
     expect(plan.rows).toBe(1);
     expect(plan.cols).toBe(19);
     expect(plan.sheetW).toBe(5_491);
+    expect(plan.sheetH).toBe(3_559);          // 3,222 面板 + 337 横带
     expect(plan.bufferW).toBe(10_982);
-    expect(plan.bufferH).toBe(6_444);
+    expect(plan.bufferH).toBe(7_118);         // (3,222 + 337) × 2（issue 14 图文版复算）
     expect(plan.bufferW).toBeLessThanOrEqual(SHEET_LIMITS.maxSidePx);
     expect(plan.bufferH).toBeLessThanOrEqual(SHEET_LIMITS.maxSidePx);
     expect(plan.downscaled).toBe(false);
@@ -255,34 +260,57 @@ describe('chart-preview 03 · 宽图排布与画布上限', () => {
     expect(plan.downscaled).toBe(false);
   });
 
-  it('面积边界（3,222 高下的真实硬上限）：72 面板 dpr 2 恰好不超，73 面板起降密度 dpr 1', () => {
-    // 72 × 578 × 6,444 = 268,173,504 ≤ 2^28（余量 0.1%）；73 面板 dpr 2 = 271.9M → 降到 dpr 1 单行
-    const at72 = planSheetExport({ panelCount: 72, panelW: PANEL_W, panelH: PANEL_H, dpr: 2 });
-    if (!at72.ok) throw new Error('72 面板该过');
-    expect(at72.rows).toBe(1);
-    expect(at72.dpr).toBe(2);
-    expect(at72.downscaled).toBe(false);
-    expect(at72.bufferW * at72.bufferH).toBeLessThanOrEqual(2 ** 28);
+  it('面积边界（图文版 3,559 高下的真实硬上限）：65 面板 dpr 2 恰好不超，66 面板起降密度 dpr 1', () => {
+    // 65 × 578 × 7,118 = 267,423,260 ≤ 2^28（余量 0.38%）；66 面板 dpr 2 = 271.5M → 降到 dpr 1 单行
+    //（头带 337 计入高后边界从 72/73 前移到 65/66，chart-preview 14 复算）
+    const at65 = planSheetExport({ panelCount: 65, panelW: PANEL_W, panelH: PANEL_H, dpr: 2, headerH: HEADER_H });
+    if (!at65.ok) throw new Error('65 面板该过');
+    expect(at65.rows).toBe(1);
+    expect(at65.dpr).toBe(2);
+    expect(at65.downscaled).toBe(false);
+    expect(at65.bufferW * at65.bufferH).toBeLessThanOrEqual(2 ** 28);
 
-    const at73 = planSheetExport({ panelCount: 73, panelW: PANEL_W, panelH: PANEL_H, dpr: 2 });
-    if (!at73.ok) throw new Error('73 面板该降密度通过');
-    expect(at73.rows).toBe(1);
-    expect(at73.dpr).toBe(1);
-    expect(at73.downscaled).toBe(true);
-    expect(at73.bufferW).toBe(73 * PANEL_W);   // dpr 1：缓冲宽 = 逻辑宽
+    const at66 = planSheetExport({ panelCount: 66, panelW: PANEL_W, panelH: PANEL_H, dpr: 2, headerH: HEADER_H });
+    if (!at66.ok) throw new Error('66 面板该降密度通过');
+    expect(at66.rows).toBe(1);
+    expect(at66.dpr).toBe(1);
+    expect(at66.downscaled).toBe(true);
+    expect(at66.bufferW).toBe(66 * PANEL_W);   // dpr 1：缓冲宽 = 逻辑宽
   });
 
   it('降密度后的硬上限：226 面板 dpr 1 单行仍可导出，227 面板起拒绝（面积）', () => {
-    const at226 = planSheetExport({ panelCount: 226, panelW: PANEL_W, panelH: PANEL_H, dpr: 2 });
+    // 图文版复算：226 单行 289 × 226 = 65,314 ≤ 单边上限、面积 65,314 × 3,559 = 232,452,526 ≤ 2^28；
+    // 227 在 dpr 1 下先被宽度逼折行（226 + 1），折行后高 3,559 + 3,222 导致面积越界 → reason 仍是 area
+    const at226 = planSheetExport({ panelCount: 226, panelW: PANEL_W, panelH: PANEL_H, dpr: 2, headerH: HEADER_H });
     if (!at226.ok) throw new Error('226 面板该在 dpr 1 下通过');
     expect(at226.rows).toBe(1);
     expect(at226.dpr).toBe(1);
     expect(at226.bufferW).toBeLessThanOrEqual(SHEET_LIMITS.maxSidePx);
 
-    const at227 = planSheetExport({ panelCount: 227, panelW: PANEL_W, panelH: PANEL_H, dpr: 2 });
+    const at227 = planSheetExport({ panelCount: 227, panelW: PANEL_W, panelH: PANEL_H, dpr: 2, headerH: HEADER_H });
     expect(at227.ok).toBe(false);
     if (at227.ok) return;
     expect(at227.reason).toBe('area');
+  });
+
+  it('头部横带只加高、不动列行；格子坐标从横带之下起算（图文版排布口径）', () => {
+    const without = planSheetExport({ panelCount: 300, panelW: PANEL_W, panelH: THIN_PANEL_H, dpr: 2 });
+    const withHeader = planSheetExport({
+      panelCount: 300, panelW: PANEL_W, panelH: THIN_PANEL_H, dpr: 2, headerH: HEADER_H,
+    });
+    if (!without.ok || !withHeader.ok) throw new Error('两个 plan 都该过');
+    expect(withHeader.headerH).toBe(HEADER_H);
+    expect(withHeader.cols).toBe(without.cols);
+    expect(withHeader.rows).toBe(without.rows);
+    expect(withHeader.sheetW).toBe(without.sheetW);
+    expect(withHeader.sheetH).toBe(without.sheetH + HEADER_H);
+    // 横带缺省 = 0（纯面板宽图照旧）；带了就把面板区整体下移一个横带高
+    expect(without.headerH).toBe(0);
+    expect(sheetCellRect(withHeader, 0)).toEqual({ x: 0, y: HEADER_H, w: PANEL_W, h: THIN_PANEL_H });
+    expect(sheetCellRect(withHeader, withHeader.cols)).toEqual({
+      x: 0, y: HEADER_H + THIN_PANEL_H, w: PANEL_W, h: THIN_PANEL_H,
+    });
+    expect(sheetCellRect(without, 0)).toEqual({ x: 0, y: 0, w: PANEL_W, h: THIN_PANEL_H });
   });
 
   it('降密度也过不去 → 拒绝出图（带原因），不硬画', () => {

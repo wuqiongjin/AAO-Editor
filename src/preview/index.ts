@@ -5,6 +5,7 @@
 export type { PreviewMode, PreviewTarget } from './types';
 export {
   DEFAULT_PREVIEW_ZOOM,
+  EXPORT_HEADER_H,
   EXPORT_PANEL_H,
   PREVIEW_ES_STANDARD,
   PREVIEW_ZOOM_RANGE,
@@ -24,6 +25,7 @@ export type {
   PanelSceneInput,
   SheetExportOutcome,
   SheetExportRequest,
+  SheetHeaderInput,
   SheetPlan,
   SheetRendered,
   StaticPreviewViewProps,

@@ -5,7 +5,8 @@
 //   - `panelPainter`  一份共享离屏 target 逐面板代画（`renderChart` / `RenderTarget`）
 //   - `displayProfile` 预览显示档（`settings.preview` 的三个标注档 → `RenderDisplayOptions` 覆盖）
 //   - `StaticPreviewView` 画面（横向滚动 + 懒绘制 + 记账 + hover）
-//   - `exportPanels`  宽图导出（固定档出图 + 落盘）
+//   - `sheetHeader`   导出图文版的头部横带（封面区 + 信息区；纯计算 + 一次绘制）
+//   - `exportPanels`  宽图导出（固定档出图 + 落盘；头部横带在面板区之上）
 //   - `saveBinary`    二进制另存通道（Electron 桥 / 浏览器降级；07 的视频导出复用）
 export {
   DEFAULT_PREVIEW_ZOOM,
@@ -73,3 +74,22 @@ export {
   type SaveBinaryOutcome,
   type SaveBinaryRequest,
 } from './saveBinary';
+export {
+  EXPORT_HEADER_H,
+  HEADER_COVER_MAX,
+  HEADER_GAP,
+  HEADER_PAD,
+  bpmRangeText,
+  buildSheetHeaderModel,
+  drawSheetHeader,
+  formatExportStamp,
+  layoutChips,
+  loadCoverImage,
+  sheetHeaderMetrics,
+  truncateText,
+  type ChipBox,
+  type SheetHeaderDraw,
+  type SheetHeaderInput,
+  type SheetHeaderMetrics,
+  type SheetHeaderModel,
+} from './sheetHeader';

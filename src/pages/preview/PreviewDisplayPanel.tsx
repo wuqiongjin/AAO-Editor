@@ -15,7 +15,11 @@ import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
 import { t, type MessageKey } from '../../i18n';
 import type { AppSettings, PreviewBeatMarkDivision, PreviewTimeMarkInterval } from '../../chart/config/AppSettings';
-import { PREVIEW_BEAT_MARK_DIVISIONS, PREVIEW_TIME_MARK_INTERVALS } from '../../chart/config/AppSettings';
+import {
+  EXPORT_FIELD_KEYS,
+  PREVIEW_BEAT_MARK_DIVISIONS,
+  PREVIEW_TIME_MARK_INTERVALS,
+} from '../../chart/config/AppSettings';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
 // 浮层复用菜单壳（与 ScopePicker 同因：`.pp-menu__*` 定义在 ProjectsPage.css，别指望那一页先挂载）
@@ -113,7 +117,7 @@ function Percent({
 }
 
 export default function PreviewDisplayPanel() {
-  const { settings, setDisplay, setPreview } = useConfig();
+  const { settings, setDisplay, setPreview, setExport } = useConfig();
   const { setActivePage } = useAppNav();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -302,6 +306,24 @@ export default function PreviewDisplayPanel() {
                   {t('preview.display.skin.open')}
                 </button>
               </Row>
+            </section>
+
+            {/* 导出信息（chart-preview 14）：这张宽图的头带里写哪些字段，落 `settings.export`（跨会话记住）——
+                与上一组「怎么看」分开：这是**导出物里写什么**。谱师姓名不在这里（本票不做）。 */}
+            <section className="pdp__group" aria-label={t('preview.display.group.export')}>
+              <h3 className="pdp__group-title">{t('preview.display.group.export')}</h3>
+              {EXPORT_FIELD_KEYS.map((key) => {
+                const label = t(`preview.display.export.${key}` as MessageKey);
+                return (
+                  <Row key={key} label={label}>
+                    <Toggle
+                      label={label}
+                      checked={settings.export[key]}
+                      onChange={(v) => setExport({ [key]: v })}
+                    />
+                  </Row>
+                );
+              })}
             </section>
           </div>
         </>,

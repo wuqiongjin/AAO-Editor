@@ -18,12 +18,13 @@ import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import PreviewDisplayPanel from '@/src/pages/preview/PreviewDisplayPanel';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '@/src/rendering/skin/noteSkin';
-import { DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/chart/config/AppSettings';
+import { DEFAULT_EXPORT_FIELDS, DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/chart/config/AppSettings';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 interface StoredSettings {
   display: Record<string, unknown>;
   preview: Record<string, unknown>;
+  export: Record<string, unknown>;
 }
 
 function setup() {
@@ -165,6 +166,47 @@ describe('chart-preview 08 · 画布显示组落 settings.display（与设置页
     // 没在种子里的项读的是 settings.display 的默认值（面板不自己造一套默认）
     expect(within(panel()).getByRole('combobox', { name: '轨道颜色' })).toHaveValue(defaultSettings().display.gridStyle);
     expect(bpmSwitch()).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+describe('chart-preview 14 · 「导出信息」组落 settings.export', () => {
+  const exportSwitch = (name: string) => within(panel()).getByRole('switch', { name });
+
+  it('七项都在；默认档 = 谱面标题 / 难度 + 等级 / BPM 开，其余关', () => {
+    setup();
+    expect(within(panel()).getByText('导出信息')).toBeInTheDocument();
+    expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'true');
+    expect(exportSwitch('难度 + 等级')).toHaveAttribute('aria-checked', 'true');
+    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');
+    expect(exportSwitch('工程名')).toHaveAttribute('aria-checked', 'false');
+    expect(exportSwitch('时长')).toHaveAttribute('aria-checked', 'false');
+    expect(exportSwitch('音符数')).toHaveAttribute('aria-checked', 'false');
+    expect(exportSwitch('导出时间')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('开关写进落盘 export 段，且不碰 preview / display（导出物内容与"怎么看"分开）', () => {
+    setup();
+    fireEvent.click(exportSwitch('工程名'));
+    expect(stored().export.projectName).toBe(true);
+    fireEvent.click(exportSwitch('BPM'));
+    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'false');
+    expect(stored().export).toEqual({ ...DEFAULT_EXPORT_FIELDS, projectName: true, bpm: false });
+    expect(stored().preview).toEqual(defaultSettings().preview);
+    expect(stored().display).toEqual(defaultSettings().display);
+  });
+
+  it('面板读同一份设置：外部（落盘种子）改过的 export 段打开即见', () => {
+    seedZhSettings({ export: { duration: true, chartTitle: false } });
+    render(
+      <AppNavProvider value={{ activePage: 'preview', setActivePage: vi.fn(), pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
+        <ConfigProvider><PreviewDisplayPanel /></ConfigProvider>
+      </AppNavProvider>,
+    );
+    fireEvent.click(trigger());
+
+    expect(exportSwitch('时长')).toHaveAttribute('aria-checked', 'true');
+    expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'false');
+    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');   // 没种子的项读默认档
   });
 });
 

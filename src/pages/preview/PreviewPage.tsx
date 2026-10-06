@@ -22,8 +22,11 @@ import {
   waitForPaint,
   type PanelSceneInput,
   type PreviewMode,
+  type SheetHeaderInput,
 } from '../../preview';
-import { chartEffectiveTitle, DIFF_SHORT } from '../../project/projectCatalog';
+import { countChartNotes } from '../../chart/editing/NoteEditing';
+import { getBpmEvents } from '../../audio/AudioTiming';
+import { chartEffectiveTitle, DIFF_SHORT, projectCoverHue } from '../../project/projectCatalog';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
@@ -109,8 +112,23 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       // 直接开干会把它压在按钮首帧之前——表现为按钮先冻住、再直接跳到结束。
       await waitForPaint();
       const title = chartEffectiveTitle(project?.name ?? null, chart.title, untitledProjectLabel());
+      // 图文版头带（chart-preview 14）：字段开关读 `settings.export`，封面取工程封面（没有走占位块色相）；
+      // 导出时间取**点按那一刻**（不 memo：同一张图重导该是新时间）
+      const header: SheetHeaderInput = {
+        projectName: project?.name ?? null,
+        chartTitle: chart.title,
+        difficulty: chart.level == null ? DIFF_SHORT[chart.diff] : `${DIFF_SHORT[chart.diff]} ${chart.level}`,
+        durationSeconds: project?.durationSeconds ?? 0,
+        noteCount: countChartNotes(chart.notes),
+        bpms: getBpmEvents(chart.notes).map((e) => e.bpm),
+        exportedAt: Date.now(),
+        fields: settings.export,
+        cover: project?.coverBlob ?? null,
+        coverHue: projectCoverHue(project?.id ?? chart.id),
+      };
       const outcome = await exportSheetAs({
         scene,
+        header,
         suggestedName: t('preview.static.exportFilename', { title, diff: DIFF_SHORT[chart.diff] }),
       });
       if (!outcome.ok) {
@@ -129,7 +147,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     } finally {
       setExporting(false);
     }
-  }, [scene, chart, exporting]);
+  }, [scene, chart, exporting, project, settings.export]);
 
   return (
     // 票 10：自渲染全幅壳（页头 → 工具栏 → 舞台），把宽高让给画面；

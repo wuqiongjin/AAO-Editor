@@ -202,3 +202,66 @@ describe('chart-preview 16 · 导出按钮即时反馈（先画「导出中」�
     expect(readStripped('src/preview/index.ts')).toMatch(/\bwaitForPaint,/);
   });
 });
+
+// ---------------------------------------------------------------- chart-preview 14
+
+describe('chart-preview 14 · 导出图文版头带（封面区 + 信息区 + 谱面区）', () => {
+  const sheetHeaderSrc = readStripped('src/preview/static/sheetHeader.ts');
+  const panelLayoutSrc = readStripped('src/preview/static/panelLayout.ts');
+  const pageSrc = readStripped('src/pages/preview/PreviewPage.tsx');
+  const displayPanelSrc = readStripped('src/pages/preview/PreviewDisplayPanel.tsx');
+  const appSettingsSrc = readStripped('src/chart/config/AppSettings.ts');
+
+  it('横带高 337 是常量真源（= 289 封面 + 上下各 24）；改它必须同步复算宽图面积上限', () => {
+    expect(sheetHeaderSrc).toMatch(/EXPORT_HEADER_H\s*=\s*337/);
+  });
+
+  it('导出恒带横带：planSheet 把横带高交给排布，格子坐标从横带之下起算', () => {
+    expect(exportSrc).toMatch(/headerH:\s*EXPORT_HEADER_H/);
+    expect(panelLayoutSrc).toMatch(/const sheetH = headerH \+ rows \* req\.panelH/);
+    expect(panelLayoutSrc).toMatch(/y: plan\.headerH \+ row \* plan\.panelH/);
+  });
+
+  it('出图顺序：封面解码与皮肤图集并行 → 横带先画 → 逐面板；位图用完即释放', () => {
+    const decode = exportSrc.indexOf('loadCoverImage(');
+    const drawHeader = exportSrc.indexOf('drawSheetHeader(');
+    const painter = exportSrc.indexOf('createPanelPainter(');
+    expect(decode).toBeGreaterThan(-1);
+    expect(exportSrc).toMatch(/Promise\.all\(/);
+    expect(drawHeader).toBeGreaterThan(decode);
+    expect(painter).toBeGreaterThan(drawHeader);
+    expect(exportSrc).toMatch(/buildSheetHeaderModel\(req\.header\)/);
+    expect(exportSrc).toMatch(/cover\?\.close\(\)/);
+  });
+
+  it('头带是独立图片：配色独立常量，不接 CSS 令牌（画布配色惯例）', () => {
+    expect(sheetHeaderSrc).not.toMatch(/var\(--/);
+    expect(sheetHeaderSrc).toMatch(/hsl\(/);   // 无封面走工程 id 色相占位块
+  });
+
+  it('preview 域不 import 工程域：封面色相等工程知识在页面算好传入', () => {
+    expect(sheetHeaderSrc).not.toMatch(/from '\.\.\/\.\.\/project/);
+    expect(exportSrc).not.toMatch(/from '\.\.\/\.\.\/project/);
+    expect(pageSrc).toMatch(/projectCoverHue\(/);
+    expect(exportSrc).toMatch(/coverHue:\s*req\.header\.coverHue/);
+  });
+
+  it('页面组装头带输入：字段口径全走现成函数（谱面标题 / 难度等级 / 时长 / 音符数 / BPM / 导出时刻）', () => {
+    expect(pageSrc).toMatch(/const header: SheetHeaderInput = \{/);
+    expect(pageSrc).toMatch(/fields:\s*settings\.export/);
+    expect(pageSrc).toMatch(/exportedAt:\s*Date\.now\(\)/);
+    expect(pageSrc).toMatch(/countChartNotes\(chart\.notes\)/);
+    expect(pageSrc).toMatch(/getBpmEvents\(chart\.notes\)/);
+    expect(pageSrc).toMatch(/cover:\s*project\?\.coverBlob \?\? null/);
+    // 导出物跟着头带走：导出调用把 header 递下去
+    expect(pageSrc).toMatch(/await exportSheetAs\(\{\s*scene,\s*header,/);
+  });
+
+  it('「导出信息」组落 settings.export（七开关；与 preview / display 分开）', () => {
+    expect(appSettingsSrc).toMatch(/export:\s*ExportFieldSettings/);
+    expect(appSettingsSrc).toMatch(/EXPORT_FIELD_KEYS/);
+    expect(displayPanelSrc).toMatch(/EXPORT_FIELD_KEYS/);
+    expect(displayPanelSrc).toMatch(/setExport\(\{ \[key\]: v \}\)/);
+    expect(readStripped('src/app/providers/ConfigProvider.tsx')).toMatch(/setExport/);
+  });
+});

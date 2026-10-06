@@ -204,6 +204,12 @@ export interface SheetPlanRequest {
   panelH: number;
   /** 目标像素密度（导出**固定档**，不读窗口） */
   dpr: number;
+  /**
+   * 头部横带高（图文版，chart-preview 14）：整张图 = 横带 + 面板区，横带计入高与面积上限。
+   * 缺省 0 = 不带横带（纯排布用例用；产品档经 `planSheet` 恒传 `EXPORT_HEADER_H` ——
+   * ADR-0016 §7「一律图文版」，没有"纯面板宽图"这个产品档）。
+   */
+  headerH?: number;
   limits?: SheetLimits;
 }
 
@@ -213,6 +219,8 @@ export interface SheetPlanOk {
   panelW: number;
   panelH: number;
   dpr: number;
+  /** 头部横带高（0 = 无横带）；面板区从 `headerH` 起算 */
+  headerH: number;
   cols: number;
   rows: number;
   /** 图像逻辑尺寸（CSS px） */
@@ -241,7 +249,7 @@ function bufferFor(cssSize: number, dpr: number): number {
 
 /**
  * 宽图排布 + 尺寸上限校验（**超限先降密度，再超才折行，绝不画爆**）：
- * 1. 默认**单行**：宽 = 面板数 × 面板宽（高度 = 一格），宽度放得下就一行到底；
+ * 1. 默认**单行**：宽 = 面板数 × 面板宽（高度 = 一格，图文版再 + `headerH` 横带），宽度放得下就一行到底；
  * 2. 宽度越单边上限才折行（列数取满 = 行数最少）；面积只跟 dpr 与面板数有关，折行救不了；
  * 3. 请求 dpr 过不去 → 降到 dpr 1 重排（降密度方案）；
  * 4. 都不行 → `ok: false`（调用方拒绝出图，不硬画）。
@@ -251,6 +259,8 @@ export function planSheetExport(req: SheetPlanRequest): SheetPlan {
   if (req.panelCount <= 0) {
     return { ok: false, reason: 'side', detail: '没有面板可导出' };
   }
+  // 头部横带（图文版）：计入高与面积，不影响列 / 行（那是宽度方向的事）
+  const headerH = Math.max(0, Math.round(req.headerH ?? 0));
   const candidates = req.dpr > 1 ? [req.dpr, 1] : [req.dpr];
   let lastReason: 'side' | 'area' = 'side';
   let lastDetail = '';
@@ -260,7 +270,7 @@ export function planSheetExport(req: SheetPlanRequest): SheetPlan {
     const cols = Math.min(req.panelCount, colCap);
     const rows = Math.ceil(req.panelCount / cols);
     const sheetW = cols * req.panelW;
-    const sheetH = rows * req.panelH;
+    const sheetH = headerH + rows * req.panelH;
     const bufferW = bufferFor(sheetW, dpr);
     const bufferH = bufferFor(sheetH, dpr);
     const overSide = bufferW > limits.maxSidePx || bufferH > limits.maxSidePx;
@@ -271,6 +281,7 @@ export function planSheetExport(req: SheetPlanRequest): SheetPlan {
         panelW: req.panelW,
         panelH: req.panelH,
         dpr,
+        headerH,
         cols,
         rows,
         sheetW,
@@ -288,12 +299,15 @@ export function planSheetExport(req: SheetPlanRequest): SheetPlan {
   return { ok: false, reason: lastReason, detail: lastDetail };
 }
 
-/** 宽图里第 k 格的目标矩形（CSS px，逻辑尺寸坐标系；调用方按自己的 transform 画） */
+/**
+ * 宽图里第 k 格的目标矩形（CSS px，逻辑尺寸坐标系；调用方按自己的 transform 画）。
+ * 图文版（chart-preview 14）：`headerH`（头部横带）之下才是面板区 —— 面板行整体下移。
+ */
 export function sheetCellRect(
-  plan: { cols: number; panelW: number; panelH: number },
+  plan: { cols: number; panelW: number; panelH: number; headerH: number },
   k: number,
 ): { x: number; y: number; w: number; h: number } {
   const col = k % plan.cols;
   const row = Math.floor(k / plan.cols);
-  return { x: col * plan.panelW, y: row * plan.panelH, w: plan.panelW, h: plan.panelH };
+  return { x: col * plan.panelW, y: plan.headerH + row * plan.panelH, w: plan.panelW, h: plan.panelH };
 }
