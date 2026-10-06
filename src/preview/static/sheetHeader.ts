@@ -1,13 +1,20 @@
 // 导出图文版的「头部横带」（chart-preview 14；ADR-0016 §7）：导出图 = **封面区 + 信息区 + 谱面区**。
 //
-// 一律图文版：不管工程有没有封面，导出物都是这条横带 + 下面的面板区；没有封面走占位块
-// （工程 id 派生色相的深色渐变，hue 由页面算好传入 —— preview 域不 import 工程域）。
-// 横带高 `EXPORT_HEADER_H`（= 289 封面 + 上下各 24），横带以下才是面板（`panelLayout` 的 headerH）。
+// 默认图文版（是否带这条横带由 `settings.export.enabled` 决定 —— 关掉就是纯面板区的宽图，
+// 本文件的画图不掺这个决定，画与不画由调用方 `exportPanels` 说了算）：
+//   不管工程有没有封面，带这条横带时都是「封面区 + 信息区 + 下面的面板区」；没有封面走占位块
+//   （工程 id 派生色相的深色渐变，hue 由页面算好传入 —— preview 域不 import 工程域）。
+//   横带高 `EXPORT_HEADER_H`（= 392 封面 + 上下各 24），横带以下才是面板（`panelLayout` 的 headerH）。
 //
 // 信息区字段（`settings.export`，7 项可开关；默认 = 谱面标题 + 难度等级 + BPM）：
 //   大字标题 = 谱面标题（未填回落工程名）；副行 = 工程名（与标题重复时去重不画）；
 //   指标 chips = 难度等级 / 时长 / 音符数 / BPM / 导出时间（按字段表顺序）。
-// 窄图（≤2 面板）：封面自动缩窄（最多占图宽一半，289 封顶），文字走截断 —— 不因图窄而画爆。
+//   三个槽位**整体垂直居中**（`layoutInfoStack`）；头带底部还有一道「深缝 + 亮线」与面板区分界。
+// 窄图（≤2 面板）：封面自动缩窄（最多占图宽一半，392 封顶），文字走截断 —— 不因图窄而画爆。
+//
+// 版式沿革（2026-10-06 用户验收「太丑」后整改）：旧档头带 337（289 封面）+ 标题 46 / 副行 24 /
+// chips 20，标题只占带高 14%、副行与 chips 之间留 ~136 px 空档 —— 缩略看图时读不出来。新档头带
+// 440（392 封面）、标题 120 / 副行 44 / chips 32，并把竖直排布改成整体居中。
 //
 // 图里恒定深色（导出物是一张独立图片，与界面主题无关，照 `selectionStyle` 的画布配色惯例：
 // 独立常量，不接 CSS 设计令牌）。
@@ -15,14 +22,14 @@ import { t } from '../../i18n';
 import type { ExportFieldSettings } from '../../chart/config/AppSettings';
 import { formatTimeCompact } from '../../chart/geometry/TimeFormat';
 
-/** 头部横带高度（CSS px）：289 封面 + 上下各 24 padding。改它要同步复算宽图面积上限（ADR-0016 §7） */
-export const EXPORT_HEADER_H = 337;
+/** 头部横带高度（CSS px）：392 封面 + 上下各 24 padding。改它要同步复算宽图面积上限（ADR-0016 §7） */
+export const EXPORT_HEADER_H = 440;
 /** 横带内边距（上 / 下 / 右；封面**贴左缘**，左侧没有 padding） */
 export const HEADER_PAD = 24;
 /** 封面边长上限（= 横带高 − 上下 padding）：方形裁切，短边居中取满 */
 export const HEADER_COVER_MAX = EXPORT_HEADER_H - HEADER_PAD * 2;
-/** 封面与文字区之间的间隔 */
-export const HEADER_GAP = 24;
+/** 封面与文字区之间的间隔（带高抬高后跟着放宽，别让标题贴着封面） */
+export const HEADER_GAP = 32;
 
 /** 图里恒定的深色配色（独立图片，不跟界面主题 / 令牌走） */
 const HEADER_BG_TOP = '#1b2130';
@@ -32,17 +39,38 @@ const HEADER_SUBTITLE_COLOR = 'rgba(232, 238, 250, 0.66)';
 const CHIP_BG = 'rgba(255, 255, 255, 0.10)';
 const CHIP_BORDER = 'rgba(255, 255, 255, 0.20)';
 const CHIP_TEXT_COLOR = '#eef2fa';
+/**
+ * 头带 / 面板区的分界（2026-10-06 用户定案 C）：由深渐暗的一道"缝" + 最底部一条亮线。
+ * 两样都画在**下 padding 区内**（不额外占高）——这条道工序的好处是 `EXPORT_HEADER_H` 不变，
+ * 面积上限算式跟着不用改第二遍。
+ */
+const DIVIDER_SEAM_H = 10;
+const DIVIDER_LINE_H = 2;
+const DIVIDER_LINE_COLOR = 'rgba(255, 255, 255, 0.22)';
 /** 无衬线（标题 / 副行）与等宽（指标 chips，读数感）字体链 */
+/**
+ * 全站一条无衬线链（含 chips）：一次性画布上的字是**中西混排**（`难度 2:31` 这种），
+ * 等宽链在中文环境里会回落成宋体，观感比统一-family 更糟（2026-10-06 版式整改）。
+ */
 const HEADER_SANS = '"Segoe UI Variable", "Noto Sans CJK SC", "PingFang SC", system-ui, sans-serif';
-const HEADER_MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-const TITLE_PX = 46;
-const SUBTITLE_PX = 24;
-const CHIP_PX = 20;
-const CHIP_H = 46;
-const CHIP_GAP = 12;
-const CHIP_PAD_X = 18;
+// 字形阶梯（2026-10-06 版式整改：旧档 46/24/20 在 337 的带高里只占 14%，缩略看图时读不出来 ——
+// 带高抬到 440 的同时把整条阶梯重排：标题 = 带内容高的 34%，chips 单行读得清）
+const TITLE_PX = 120;
+const SUBTITLE_PX = 44;
+const CHIP_PX = 32;
+const CHIP_H = 72;
+const CHIP_GAP = 16;
+const CHIP_PAD_X = 28;
 /** chips 最多铺两行（再放不下就截掉后面的；窄图下这是常态） */
 const CHIP_MAX_ROWS = 2;
+/** 标题 / 副行的行盒高（比字号略高：中西混排要给中西文的升部降部留余量，别贴死） */
+const TITLE_LINE = 132;
+/** 副行行盒取值让"三槽位齐 + chips 满两行"刚好等于内容区高（132 + 48 + 16 + 36 + 160 = 392），
+ *  这样最满的一种情况也不会越过内容区底边去咬 padding */
+const SUBTITLE_LINE = 48;
+/** 标题→副行（同一语义块内，压紧）；副行→chips（跨语义块，放开） */
+const TITLE_SUB_GAP = 16;
+const STACK_GAP = 36;
 
 /** 信息区输入（页面按「工程 + 谱面 + 设置」组装；preview 域不 import 工程域） */
 export interface SheetHeaderInput {
@@ -169,7 +197,7 @@ export interface SheetHeaderMetrics {
   textW: number;
 }
 
-/** 横带版式：封面最多占图宽一半、289 封顶（≤2 面板的窄图自动缩窄，文字区跟着变窄） */
+/** 横带版式：封面最多占图宽一半、`HEADER_COVER_MAX`（392）封顶（≤2 面板的窄图自动缩窄，文字区跟着变窄） */
 export function sheetHeaderMetrics(sheetW: number): SheetHeaderMetrics {
   const width = Number.isFinite(sheetW) ? Math.max(0, Math.floor(sheetW)) : 0;
   const coverSize = Math.max(0, Math.min(HEADER_COVER_MAX, Math.floor(width / 2)));
@@ -193,16 +221,14 @@ export interface ChipBox {
 }
 
 /**
- * chips 流式排布（底对齐、最多两行）：放不下图宽的单枚跳过，行放满换行，超过两行的截掉。
- * 纯计算（`measure` 注入），画图与单测共用。
+ * chips 分行打包（纯计算 `measure` 注入）：单枚超宽整枚跳过、行放满换行、超过两行截掉。
+ * 行打包与落点计算分开，是为了让竖直排布（`layoutInfoStack`）能先知道 chips 占多高。
  */
-export function layoutChips(
+function packChipRows(
   chips: readonly string[],
   measure: (s: string) => number,
-  textX: number,
   textW: number,
-  bottom: number,
-): ChipBox[] {
+): { text: string; w: number }[][] {
   if (textW <= 0) return [];
   const rows: { text: string; w: number }[][] = [];
   let cur: { text: string; w: number }[] = [];
@@ -221,8 +247,70 @@ export function layoutChips(
     if (rows.length >= CHIP_MAX_ROWS) break;
   }
   if (cur.length > 0 && rows.length < CHIP_MAX_ROWS) rows.push(cur);
+  return rows;
+}
 
-  const total = rows.length > 0 ? rows.length * CHIP_H + (rows.length - 1) * CHIP_GAP : 0;
+/** Chip 行的高度合计（0 行 = 0） */
+function chipRowsHeight(rows: readonly unknown[][]): number {
+  return rows.length > 0 ? rows.length * CHIP_H + (rows.length - 1) * CHIP_GAP : 0;
+}
+
+/** 信息区竖直排布的结果（CSS px） */
+export interface InfoStackBox {
+  /** 标题行盒顶（没标题 = null） */
+  titleY: number | null;
+  /** 副行行盒顶（没副行 = null） */
+  subtitleY: number | null;
+  /** chips 行的**底边**（没 chips = null；交给 `layoutChips` 去算每枚的 y） */
+  chipsBottom: number | null;
+}
+
+/**
+ * 信息区竖直排布（纯计算）：**整体在内容区里垂直居中**，内容超过内容区才退回顶部锚定。
+ * 旧档是"标题顶部锚定 + chips 底对齐"，中间留 ~136 px 空档 —— 那是头带显"空/散"的主因。
+ */
+export function layoutInfoStack(
+  model: SheetHeaderModel,
+  chipRows: readonly unknown[][],
+): InfoStackBox {
+  const chipsH = chipRowsHeight(chipRows);
+  let total = chipsH;
+  if (model.title) total += TITLE_LINE;
+  if (model.subtitle) total += SUBTITLE_LINE;
+  if (model.title && model.subtitle) total += TITLE_SUB_GAP;
+  if (chipsH > 0 && (model.title || model.subtitle)) total += STACK_GAP;
+
+  const innerH = EXPORT_HEADER_H - HEADER_PAD * 2;
+  let y = HEADER_PAD + Math.max(0, (innerH - total) / 2);
+  let titleY: number | null = null;
+  let subtitleY: number | null = null;
+  let chipsBottom: number | null = null;
+
+  if (model.title) {
+    titleY = y;
+    y += TITLE_LINE + (model.subtitle ? TITLE_SUB_GAP : (chipsH > 0 ? STACK_GAP : 0));
+  }
+  if (model.subtitle) {
+    subtitleY = y;
+    y += SUBTITLE_LINE + (chipsH > 0 ? STACK_GAP : 0);
+  }
+  if (chipsH > 0) chipsBottom = y + chipsH;
+  return { titleY, subtitleY, chipsBottom };
+}
+
+/**
+ * chips 流式排布（底对齐、最多两行）：`bottom` 由 `layoutInfoStack` 给出。
+ * 纯计算（`measure` 注入），画图与单测共用。
+ */
+export function layoutChips(
+  chips: readonly string[],
+  measure: (s: string) => number,
+  textX: number,
+  textW: number,
+  bottom: number,
+): ChipBox[] {
+  const rows = packChipRows(chips, measure, textW);
+  const total = chipRowsHeight(rows);
   const out: ChipBox[] = [];
   let y = bottom - total;
   for (const row of rows) {
@@ -262,6 +350,24 @@ export function drawSheetHeader(ctx: CanvasRenderingContext2D, p: SheetHeaderDra
 
   if (m.coverSize > 0) drawCover(ctx, m, p.cover, p.coverHue);
   if (m.textW > 0) drawInfo(ctx, model, m);
+  drawDivider(ctx, sheetW);
+}
+
+/**
+ * 头带 / 面板区的分界：**由深渐暗的缝 + 最底下一条亮线**（都在下 padding 区内）。
+ * 缝在上、亮线贴着头带最后一行像素 —— 读起来是"图头有一条压边，下面才进图体"，
+ * 不依赖面板区底色（面板区跟作者画布设置走，可能是浅色也可能是深色）。
+ */
+function drawDivider(ctx: CanvasRenderingContext2D, sheetW: number): void {
+  const lineY = EXPORT_HEADER_H - DIVIDER_LINE_H;
+  const seamY = lineY - DIVIDER_SEAM_H;
+  const seam = ctx.createLinearGradient(0, seamY, 0, lineY);
+  seam.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  seam.addColorStop(1, 'rgba(0, 0, 0, 0.55)');
+  ctx.fillStyle = seam;
+  ctx.fillRect(0, seamY, sheetW, DIVIDER_SEAM_H);
+  ctx.fillStyle = DIVIDER_LINE_COLOR;
+  ctx.fillRect(0, lineY, sheetW, DIVIDER_LINE_H);
 }
 
 /** 封面：方形裁切（短边居中取满）画进左上角；无封面（或图坏了）露底下的色相占位块 */
@@ -286,37 +392,43 @@ function drawCover(ctx: CanvasRenderingContext2D, m: SheetHeaderMetrics, cover: 
   ctx.drawImage(cover, (iw - side) / 2, (ih - side) / 2, side, side, x, y, size, size);
 }
 
-/** 文字区：大字标题 / 副行（顶部锚定）+ 指标 chips（底对齐、两行封顶） */
+/** 文字区：大字标题 / 副行 / 指标 chips 三个槽位**整体垂直居中**（`layoutInfoStack`） */
 function drawInfo(ctx: CanvasRenderingContext2D, model: SheetHeaderModel, m: SheetHeaderMetrics): void {
   const measure = (s: string) => ctx.measureText(s).width;
   ctx.save();
   ctx.textBaseline = 'top';
+  // chips 分行必须**在设置 chips 字体之后**量：measureText 读的是当前 font，
+  // 拿标题的字号（或默认 10px）去分行，行数会和真正落笔时的重排对不上 —— 竖直居中就跟着错一整行。
+  ctx.font = `600 ${CHIP_PX}px ${HEADER_SANS}`;
+  const chipRows = packChipRows(model.chips, measure, m.textW);
+  const stack = layoutInfoStack(model, chipRows);
 
-  if (model.title) {
+  if (model.title && stack.titleY !== null) {
     ctx.fillStyle = HEADER_TITLE_COLOR;
     ctx.font = `700 ${TITLE_PX}px ${HEADER_SANS}`;
-    ctx.fillText(truncateText(model.title, m.textW, measure), m.textX, m.pad + 6);
+    ctx.fillText(truncateText(model.title, m.textW, measure), m.textX, stack.titleY);
   }
-  if (model.subtitle) {
+  if (model.subtitle && stack.subtitleY !== null) {
     ctx.fillStyle = HEADER_SUBTITLE_COLOR;
     ctx.font = `500 ${SUBTITLE_PX}px ${HEADER_SANS}`;
-    ctx.fillText(truncateText(model.subtitle, m.textW, measure), m.textX, m.pad + 78);
+    ctx.fillText(truncateText(model.subtitle, m.textW, measure), m.textX, stack.subtitleY);
   }
 
-  const bottom = EXPORT_HEADER_H - m.pad;
-  ctx.font = `600 ${CHIP_PX}px ${HEADER_MONO}`;
-  for (const box of layoutChips(model.chips, measure, m.textX, m.textW, bottom)) {
-    ctx.beginPath();
-    ctx.roundRect(box.x, box.y, box.w, box.h, box.h / 2);
-    ctx.fillStyle = CHIP_BG;
-    ctx.fill();
-    ctx.strokeStyle = CHIP_BORDER;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = CHIP_TEXT_COLOR;
-    ctx.textBaseline = 'middle';
-    ctx.fillText(box.text, box.x + CHIP_PAD_X, box.y + box.h / 2 + 1);
-    ctx.textBaseline = 'top';
+  if (stack.chipsBottom !== null) {
+    ctx.font = `600 ${CHIP_PX}px ${HEADER_SANS}`;
+    for (const box of layoutChips(model.chips, measure, m.textX, m.textW, stack.chipsBottom)) {
+      ctx.beginPath();
+      ctx.roundRect(box.x, box.y, box.w, box.h, box.h / 2);
+      ctx.fillStyle = CHIP_BG;
+      ctx.fill();
+      ctx.strokeStyle = CHIP_BORDER;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = CHIP_TEXT_COLOR;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(box.text, box.x + CHIP_PAD_X, box.y + box.h / 2 + 1);
+      ctx.textBaseline = 'top';
+    }
   }
   ctx.restore();
 }

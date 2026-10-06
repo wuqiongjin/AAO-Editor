@@ -210,6 +210,41 @@ describe('chart-preview 14 · 「导出信息」组落 settings.export', () => {
   });
 });
 
+describe('chart-preview 14 · 头带总开关「启用头带」（2026-10-06 追加）', () => {
+  const exportSwitch = (name: string) => within(panel()).getByRole('switch', { name });
+  const headerToggle = () => within(panel()).getByRole('switch', { name: '启用头带' });
+
+  it('默认开，挂在「导出信息」组标题行右侧（不另立条目，2026-10-07 定案）', () => {
+    setup();
+    expect(headerToggle()).toHaveAttribute('aria-checked', 'true');
+    const head = headerToggle().closest('.pdp__group-head');
+    expect(head).not.toBeNull();
+    expect(head).toContainElement(within(panel()).getByText('导出信息') as HTMLElement);
+  });
+
+  it('关：落盘 enabled = false，七项置灰但勾选原样保留；再开就地恢复', () => {
+    setup();
+    fireEvent.click(headerToggle());
+
+    expect(stored().export.enabled).toBe(false);
+    expect(exportSwitch('谱面标题')).toBeDisabled();
+    expect(exportSwitch('BPM')).toBeDisabled();
+    expect(exportSwitch('工程名')).toBeDisabled();
+    // 保留勾选 = 再开不用重勾一遍
+    expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'true');
+    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');
+    expect(exportSwitch('工程名')).toHaveAttribute('aria-checked', 'false');
+    // 置灰期间点它改不动（不是"点了没反应"的骗局：它真 disabled）
+    fireEvent.click(exportSwitch('工程名'));
+    expect(stored().export.projectName).toBe(false);
+
+    fireEvent.click(headerToggle());
+    expect(stored().export.enabled).toBe(true);
+    expect(exportSwitch('BPM')).not.toBeDisabled();
+    expect(stored().export).toEqual(DEFAULT_EXPORT_FIELDS);
+  });
+});
+
 describe('chart-preview 08 · 浮层交互与皮肤入口', () => {
   it('Esc 关面板并把焦点还给触发钮', () => {
     setup();

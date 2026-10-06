@@ -15,9 +15,10 @@ import {
 import { stripComments, readSource } from '@/tests/support/source';
 import { settingsMemStorage, settingsStorageOf } from '@/tests/support/storage';
 
-describe('chart-preview 14 · 导出信息默认档', () => {
-  it('默认开 = 谱面标题 + 难度等级 + BPM，其余关（用户 2026-10-06 拍板）', () => {
+describe('chart-preview 14 · 导出头带默认档', () => {
+  it('默认带头带 + 信息区写谱面标题 / 难度等级 + BPM，其余关（用户 2026-10-06 拍板）', () => {
     expect(DEFAULT_EXPORT_FIELDS).toEqual({
+      enabled: true,
       projectName: false,
       chartTitle: true,
       difficulty: true,
@@ -29,11 +30,33 @@ describe('chart-preview 14 · 导出信息默认档', () => {
     expect(defaultSettings().export).toEqual(DEFAULT_EXPORT_FIELDS);
   });
 
-  it('候选全列与字段一一对应（UI 组与归一化共用同一份，加字段只改一处）', () => {
-    expect([...EXPORT_FIELD_KEYS].sort()).toEqual(Object.keys(DEFAULT_EXPORT_FIELDS).sort());
+  it('候选全列 = 信息区字段（不含 enabled）；enabled 另算 —— 它管整条头带，不是一项字段', () => {
     expect(EXPORT_FIELD_KEYS).toEqual([
       'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt',
     ]);
+    expect(EXPORT_FIELD_KEYS).not.toContain('enabled');
+    expect([...EXPORT_FIELD_KEYS, 'enabled'].sort()).toEqual(Object.keys(DEFAULT_EXPORT_FIELDS).sort());
+  });
+});
+
+describe('chart-preview 14 · 头带总开关 enabled', () => {
+  it('缺字段按开（老数据升级后仍是图文版，不会默默变成纯面板图）', () => {
+    expect(loadSettings(settingsStorageOf({
+      export: { chartTitle: true, difficulty: true },   // 老数据：没有 enabled
+    })).export).toEqual({ ...DEFAULT_EXPORT_FIELDS, enabled: true });
+  });
+
+  it('显式关 / 脏值走默认（只认布尔）', () => {
+    expect(loadSettings(settingsStorageOf({ export: { enabled: false } })).export.enabled).toBe(false);
+    expect(loadSettings(settingsStorageOf({ export: { enabled: 'off' } })).export.enabled).toBe(true);
+    expect(loadSettings(settingsStorageOf({ export: { enabled: 0 } })).export.enabled).toBe(true);
+  });
+
+  it('关开关不动信息区字段的勾选（再开时原样回来）', () => {
+    const st = settingsMemStorage();
+    const next = updateSettings(defaultSettings(), { export: { enabled: false, noteCount: true } });
+    saveSettings(next, st);
+    expect(loadSettings(st).export).toEqual({ ...DEFAULT_EXPORT_FIELDS, enabled: false, noteCount: true });
   });
 });
 

@@ -297,6 +297,7 @@
   "preview.display.skin.custom": "已自定义",
   "preview.display.skin.open": "去素材页",
   "preview.display.group.export": "导出信息",
+  "preview.display.export.enabled": "启用头带",
   "preview.display.export.projectName": "工程名",
   "preview.display.export.chartTitle": "谱面标题",
   "preview.display.export.difficulty": "难度 + 等级",

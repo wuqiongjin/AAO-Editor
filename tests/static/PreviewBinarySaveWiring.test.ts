@@ -212,14 +212,24 @@ describe('chart-preview 14 · 导出图文版头带（封面区 + 信息区 + �
   const displayPanelSrc = readStripped('src/pages/preview/PreviewDisplayPanel.tsx');
   const appSettingsSrc = readStripped('src/chart/config/AppSettings.ts');
 
-  it('横带高 337 是常量真源（= 289 封面 + 上下各 24）；改它必须同步复算宽图面积上限', () => {
-    expect(sheetHeaderSrc).toMatch(/EXPORT_HEADER_H\s*=\s*337/);
+  it('头带高 440 是常量真源（= 392 封面 + 上下各 24）；改它必须同步复算宽图面积上限', () => {
+    expect(sheetHeaderSrc).toMatch(/EXPORT_HEADER_H\s*=\s*440/);
   });
 
-  it('导出恒带横带：planSheet 把横带高交给排布，格子坐标从横带之下起算', () => {
-    expect(exportSrc).toMatch(/headerH:\s*EXPORT_HEADER_H/);
+  it('头带高开关说了算：planSheet 把 headerH 交给排布，关掉就是 0（纯面板宽图）', () => {
+    expect(exportSrc).toMatch(/function exportHeaderHeight\(headerEnabled: boolean\): number/);
+    expect(exportSrc).toMatch(/headerEnabled \? EXPORT_HEADER_H : 0/);
+    expect(exportSrc).toMatch(/function planSheet\(\s*\n?\s*scene: PanelSceneInput,\s*\n?\s*headerEnabled: boolean,/);
+    expect(exportSrc).toMatch(/planSheet\(scene, headerOn\)/);
+    expect(exportSrc).toMatch(/headerH:\s*exportHeaderHeight\(headerEnabled\)/);
     expect(panelLayoutSrc).toMatch(/const sheetH = headerH \+ rows \* req\.panelH/);
     expect(panelLayoutSrc).toMatch(/y: plan\.headerH \+ row \* plan\.panelH/);
+  });
+
+  it('头带关掉时不解码封面、也不画它（解码和画同样省掉）', () => {
+    expect(exportSrc).toMatch(/loadCoverImage\(headerOn \? req\.header\.cover : null\)/);
+    expect(exportSrc).toMatch(/if \(headerOn\) \{/);
+    expect(exportSrc).toMatch(/buildSheetHeaderModel\(req\.header\)/);
   });
 
   it('出图顺序：封面解码与皮肤图集并行 → 横带先画 → 逐面板；位图用完即释放', () => {
@@ -257,11 +267,15 @@ describe('chart-preview 14 · 导出图文版头带（封面区 + 信息区 + �
     expect(pageSrc).toMatch(/await exportSheetAs\(\{\s*scene,\s*header,/);
   });
 
-  it('「导出信息」组落 settings.export（七开关；与 preview / display 分开）', () => {
+  it('「导出信息」组落 settings.export（七字段开关 + 头带总开关；与 preview / display 分开）', () => {
     expect(appSettingsSrc).toMatch(/export:\s*ExportFieldSettings/);
     expect(appSettingsSrc).toMatch(/EXPORT_FIELD_KEYS/);
     expect(displayPanelSrc).toMatch(/EXPORT_FIELD_KEYS/);
     expect(displayPanelSrc).toMatch(/setExport\(\{ \[key\]: v \}\)/);
+    // 总开关：挂组标题行右侧（2026-10-07 定案：不另立条目），七行跟着置灰但保留勾选
+    expect(displayPanelSrc).toMatch(/pdp__group-head/);
+    expect(displayPanelSrc).toMatch(/setExport\(\{ enabled: v \}\)/);
+    expect(displayPanelSrc).toMatch(/disabled=\{!settings\.export\.enabled\}/);
     expect(readStripped('src/app/providers/ConfigProvider.tsx')).toMatch(/setExport/);
   });
 });

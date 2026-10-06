@@ -101,8 +101,12 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     };
   }, [project, chart, settings.display, settings.visual?.noteSkin, beatDisplay]);
 
-  // 导出档的排布结论（跟预览当前缩放无关）：按钮 tooltip 说清要落多大一张图 / 为什么出不了
-  const exportPlan = useMemo(() => (scene ? planSheet(scene).plan : null), [scene]);
+  // 导出档的排布结论（跟预览当前缩放无关）：按钮 tooltip 说清要落多大一张图 / 为什么出不了。
+  // 头带开关要进依赖：关掉它图就矮一截，预告尺寸必须跟着变（与实际出图同一份 `planSheet`）。
+  const exportPlan = useMemo(
+    () => (scene ? planSheet(scene, settings.export.enabled).plan : null),
+    [scene, settings.export.enabled],
+  );
 
   const handleExport = useCallback(async () => {
     if (scene == null || chart == null || exporting) return;

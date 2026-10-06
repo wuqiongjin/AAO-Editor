@@ -295,6 +295,7 @@
   "preview.display.skin.custom": "Customized",
   "preview.display.skin.open": "Open assets",
   "preview.display.group.export": "Export info",
+  "preview.display.export.enabled": "Enable header",
   "preview.display.export.projectName": "Project name",
   "preview.display.export.chartTitle": "Chart title",
   "preview.display.export.difficulty": "Difficulty + level",

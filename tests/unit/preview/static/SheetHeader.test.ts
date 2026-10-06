@@ -12,6 +12,7 @@ import {
   buildSheetHeaderModel,
   formatExportStamp,
   layoutChips,
+  layoutInfoStack,
   loadCoverImage,
   sheetHeaderMetrics,
   truncateText,
@@ -41,26 +42,28 @@ function input(over: Partial<SheetHeaderInput> = {}): SheetHeaderInput {
 }
 
 describe('chart-preview 14 · 头部横带常量与版式', () => {
-  it('横带高 337 = 289 封面 + 上下各 24（改它要同步复算宽图面积上限）', () => {
-    expect(EXPORT_HEADER_H).toBe(337);
-    expect(HEADER_COVER_MAX).toBe(289);
+  it('横带高 440 = 392 封面 + 上下各 24（2026-10-06 版式整改；改它要同步复算宽图面积上限）', () => {
+    expect(EXPORT_HEADER_H).toBe(440);
+    expect(HEADER_COVER_MAX).toBe(392);
   });
 
-  it('宽图（289 封面 + 24 间隔 + 24 右缘）；封面最多占图宽一半、289 封顶', () => {
+  it('宽图（392 封面 + 32 间隔 + 24 右缘）；封面最多占图宽一半、392 封顶', () => {
     const wide = sheetHeaderMetrics(5_491);              // 19 面板（3 分钟谱）
-    expect(wide.coverSize).toBe(289);
+    expect(wide.coverSize).toBe(392);
     expect(wide.pad).toBe(24);
-    expect(wide.textX).toBe(289 + 24);                   // 封面贴左缘：文字区 = 封面 + 间隔
-    expect(wide.textW).toBe(5_491 - 313 - 24);
+    expect(wide.gap).toBe(32);
+    expect(wide.textX).toBe(392 + 32);                   // 封面贴左缘：文字区 = 封面 + 间隔
+    expect(wide.textW).toBe(5_491 - 424 - 24);
 
-    const twoPanels = sheetHeaderMetrics(578);           // 2 面板恰为 578：封面仍取满 289
+    const twoPanels = sheetHeaderMetrics(578);           // 2 面板恰为 578：封面缩到图宽一半 289
     expect(twoPanels.coverSize).toBe(289);
-    expect(twoPanels.textW).toBe(578 - 313 - 24);
+    expect(twoPanels.textX).toBe(289 + 32);
+    expect(twoPanels.textW).toBe(578 - 321 - 24);
 
     const narrow = sheetHeaderMetrics(289);              // 窄图：封面缩到 144（图宽一半）
     expect(narrow.coverSize).toBe(144);
-    expect(narrow.textX).toBe(144 + 24);
-    expect(narrow.textW).toBe(289 - 168 - 24);
+    expect(narrow.textX).toBe(144 + 32);
+    expect(narrow.textW).toBe(289 - 176 - 24);
 
     expect(sheetHeaderMetrics(0)).toMatchObject({ coverSize: 0, textX: 0, textW: 0 });
     expect(sheetHeaderMetrics(Number.NaN)).toMatchObject({ coverSize: 0, textX: 0, textW: 0 });
@@ -160,22 +163,22 @@ describe('chart-preview 14 · 文字截断与 chips 排布', () => {
   });
 
   it('chips 流式排布：等距同行、放不下换行、超两行截掉、单枚超宽跳过、底对齐', () => {
-    // 每枚 = len×10 + 36（两侧 18 padding）；GAP 12、H 46
+    // 每枚 = len×10 + 56（两侧 28 padding）；GAP 16、H 72
     const chips = ['aa', 'bb', 'cc'];
     const oneRow = layoutChips(chips, measure, 100, 300, 300);
     expect(oneRow.map((c) => ({ x: c.x, y: c.y }))).toEqual([
-      { x: 100, y: 300 - 46 },        // 单行底对齐：y = bottom − 46
-      { x: 100 + 56 + 12, y: 300 - 46 },
-      { x: 100 + (56 + 12) * 2, y: 300 - 46 },
+      { x: 100, y: 300 - 72 },        // 单行底对齐：y = bottom − 72
+      { x: 100 + 76 + 16, y: 300 - 72 },
+      { x: 100 + (76 + 16) * 2, y: 300 - 72 },
     ]);
-    expect(oneRow.every((c) => c.w === 56 && c.h === 46)).toBe(true);
+    expect(oneRow.every((c) => c.w === 76 && c.h === 72)).toBe(true);
 
-    // 宽 200：一行只能放 3 枚（56 + 68 + 68 = 192 ≤ 200），6 枚 → 两行、底对齐
-    const twoRows = layoutChips(['aa', 'bb', 'cc', 'dd', 'ee', 'ff'], measure, 0, 200, 300);
-    expect(twoRows).toHaveLength(6);
-    expect(twoRows.map((c) => c.y)).toEqual([196, 196, 196, 254, 254, 254]);   // 300 − (46×2 + 12)
-    expect(twoRows[3]).toMatchObject({ x: 0, y: 254 });
-    expect(twoRows[4]).toMatchObject({ x: 68, y: 254 });
+    // 宽 200：一行只放 2 枚（76 + 16 + 76 = 168 ≤ 200），4 枚 → 两行、底对齐
+    const twoRows = layoutChips(['aa', 'bb', 'cc', 'dd'], measure, 0, 200, 300);
+    expect(twoRows).toHaveLength(4);
+    expect(twoRows.map((c) => c.y)).toEqual([140, 140, 228, 228]);   // 300 − (72×2 + 16)
+    expect(twoRows[2]).toMatchObject({ x: 0, y: 228 });
+    expect(twoRows[3]).toMatchObject({ x: 92, y: 228 });
 
     // 超两行截掉：宽 100 一行只放 1 枚 → 5 枚只留前两行的 2 枚
     expect(layoutChips(['aa', 'bb', 'cc', 'dd', 'ee'], measure, 0, 100, 300)).toHaveLength(2);
@@ -185,6 +188,32 @@ describe('chart-preview 14 · 文字截断与 chips 排布', () => {
     expect(skipped.map((c) => c.text)).toEqual(['aa']);
 
     expect(layoutChips(chips, measure, 0, 0, 300)).toEqual([]);   // 没有文字区 → 不画
+  });
+});
+
+describe('chart-preview 14 · 信息区竖直排布（2026-10-06 版式整改）', () => {
+  // 内容区 = 440 − 上下各 24 = 392；行盒：标题 132 / 副行 48；间隙：标题→副行 16、副行→chips 36；chip 行 72
+  const model = (title: string | null, subtitle: string | null) => ({ title, subtitle, chips: [] as string[] });
+
+  it('三槽位齐 + chips 一行：整体垂直居中（上下各留 44 空白，不再是旧档的 141 px 空档）', () => {
+    const box = layoutInfoStack(model('标题', '工程名'), [[]]);
+    expect(box.titleY).toBe(68);                      // 24 + (392 − 304) / 2
+    expect(box.subtitleY).toBe(216);                  // 68 + 132 + 16
+    expect(box.chipsBottom).toBe(372);                // 216 + 48 + 36 + 72 ≤ 内容区底 416
+  });
+
+  it('最满（chips 两行）：恰好吃满内容区，不越界去咬 padding', () => {
+    const box = layoutInfoStack(model('标题', '工程名'), [[], []]);
+    expect(box.titleY).toBe(24);                      // 没有余量可居中 → 顶部锚定
+    expect(box.subtitleY).toBe(172);
+    expect(box.chipsBottom).toBe(416);                // = 440 − 24（内容区底边，正好是分界线以上）
+  });
+
+  it('只有标题时居中；空槽位不占位也不给坐标', () => {
+    const only = layoutInfoStack(model('标题', null), []);
+    expect(only).toEqual({ titleY: 154, subtitleY: null, chipsBottom: null });
+
+    expect(layoutInfoStack(model(null, null), [])).toEqual({ titleY: null, subtitleY: null, chipsBottom: null });
   });
 });
 

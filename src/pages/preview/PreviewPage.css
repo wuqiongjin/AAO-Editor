@@ -335,6 +335,22 @@
   border-top: 1px solid var(--border);
 }
 
+/* 组标题行右侧挂头带总开关（2026-10-07 定案：不另立条目）—— 组名是小号弱化字，
+   与下面粗体字段行天然不同排，开关管什么由"关掉时七行置灰"这个行为说明。
+   padding 吃在行上（组标题自己的非对称 padding 在行内置零）：开关的右缩进 / 垂直居中
+   才能与下面字段行那列开关逐像素对齐 */
+.pdp__group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+}
+
+.pdp__group-head .pdp__group-title {
+  padding: 0;
+}
+
 .pdp__group-title {
   margin: 0;
   padding: 4px 8px 6px;
@@ -356,6 +372,12 @@
 
 .pdp__row:hover {
   background: var(--bg-hover);
+}
+
+/* 总开关关掉时：字段行保留勾选但不可改（再开就地恢复），hover 也不再有可点的暗示 */
+.pdp__row.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .pdp__row-text {

@@ -40,10 +40,14 @@ const GRID_OPTIONS: ReadonlyArray<{ value: GridStylePreset; labelKey: MessageKey
 /** 面板宽（浮层贴右缘定位时用；与 CSS 里的 `.pdp__panel` 宽度同值） */
 const PANEL_W = 320;
 
-/** 一行：[标签] [控件]（行版式是面板自己的：浮层里要紧凑，不复用设置页那套 64px 行高） */
-function Row({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * 一行：[标签] [控件]（行版式是面板自己的：浮层里要紧凑，不复用设置页那套 64px 行高）。
+ * `disabled` = 整行置灰不可点（2026-10-06：头带总开关关掉时信息区字段保留勾选但不可改 ——
+ * 保留勾选是为了再开时原样回来，置灰是为了说明"现在改它没用"）。
+ */
+function Row({ label, disabled = false, children }: { label: string; disabled?: boolean; children: ReactNode }) {
   return (
-    <div className="pdp__row">
+    <div className={`pdp__row${disabled ? ' is-disabled' : ''}`}>
       <div className="pdp__row-text">
         <strong>{label}</strong>
       </div>
@@ -52,13 +56,16 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  label, checked, onChange, disabled = false,
+}: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       className={`switch${checked ? ' is-on' : ''}`}
       onClick={() => onChange(!checked)}
     >
@@ -308,17 +315,29 @@ export default function PreviewDisplayPanel() {
               </Row>
             </section>
 
-            {/* 导出信息（chart-preview 14）：这张宽图的头带里写哪些字段，落 `settings.export`（跨会话记住）——
-                与上一组「怎么看」分开：这是**导出物里写什么**。谱师姓名不在这里（本票不做）。 */}
+            {/* 导出头带（chart-preview 14）：这条头带导不导、导的话里头写哪些字段，
+                落 `settings.export`（跨会话记住）——与上一组「怎么看」分开：这是**导出物里写什么**。
+                总开关 `enabled` 管整条头带（关 = 纯面板区的宽图），下面 7 项是**信息区字段**。
+                谱师姓名不在这里（本票不做）。 */}
             <section className="pdp__group" aria-label={t('preview.display.group.export')}>
-              <h3 className="pdp__group-title">{t('preview.display.group.export')}</h3>
+              {/* 头带总开关挂在组标题行右侧（2026-10-07 用户定案：不另立条目，说明成本为零）——
+                  它管整条头带，关掉时下面七行当场置灰，管什么由这个行为自己说明 */}
+              <div className="pdp__group-head">
+                <h3 className="pdp__group-title">{t('preview.display.group.export')}</h3>
+                <Toggle
+                  label={t('preview.display.export.enabled')}
+                  checked={settings.export.enabled}
+                  onChange={(v) => setExport({ enabled: v })}
+                />
+              </div>
               {EXPORT_FIELD_KEYS.map((key) => {
                 const label = t(`preview.display.export.${key}` as MessageKey);
                 return (
-                  <Row key={key} label={label}>
+                  <Row key={key} label={label} disabled={!settings.export.enabled}>
                     <Toggle
                       label={label}
                       checked={settings.export[key]}
+                      disabled={!settings.export.enabled}
                       onChange={(v) => setExport({ [key]: v })}
                     />
                   </Row>

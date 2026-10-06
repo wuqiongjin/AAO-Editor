@@ -2,8 +2,9 @@
 //
 // - 形态：**单行宽图**（高 = 一格面板，宽 = 面板数 × 面板宽，随谱面变长而变长）；
 //   只有宽度超出画布单边上限时才折行（再不行降密度 dpr 2 → 1），绝不画爆（`planSheetExport`）。
-// - **图文版**（chart-preview 14）：一律在最上面加一条头部横带（`sheetHeader` 的封面区 + 信息区，
-//   高 `EXPORT_HEADER_H`），横带以下才是面板区；没有封面走色相占位块。横带计入高与面积上限。
+// - **图文版**（chart-preview 14，2026-10-06 验收后改为可关）：`settings.export.enabled` 开时最上面加
+//   一条头部横带（`sheetHeader` 的封面区 + 信息区，高 `EXPORT_HEADER_H` = 440），横带以下才是面板区；
+//   没有封面走色相占位块。横带计入高与面积上限；关掉时 `headerH = 0`，导出物是纯面板区的宽图。
 // - **导出与预览解耦**（2026-09-30 二轮定案）：布局与叠加项走自己的**固定档**（面板 289 × 3,222、dpr 2、
 //   精简显示档），不跟预览当前的缩放 / 开关走——也不跟预览的缩放基准走（`EXPORT_ES` 独立
 //   常量，2026-10-02 预览重定基后尤其重要）；音符外观（皮肤 / 大小 / 配色）沿用作者的画布设置。
@@ -53,8 +54,9 @@ export const EXPORT_DPR = 2;
  *
  * 实测（2026-10-06 格高 3,222 后复跑，真实语料 805 张谱面，末音符秒数口径）：本档 dpr 2 下
  * 100% 单行、0 拒绝、仅最长 715.3s 一条降密度（73 面板）；3 分钟谱 = 19 面板 → 缓冲
- * 10,982 × 7,118 px（含图文版 337 头带）。硬上限 ≈226 面板（≈37 分钟；面积先于单边触顶，
- * dpr 1 下 226 过 / 227 拒绝；图文版头带把 dpr 2 面积边界自 72 前移到 65 面板，66 起降密度出图）。
+ * 10,982 × 7,324 px（含图文版 440 头带，2026-10-07 版式整改复算）。硬上限 ≈226 面板（≈37 分钟；
+ * 面积先于单边触顶，dpr 1 下 226 过 / 227 拒绝；图文版头带把 dpr 2 面积边界自 72 前移到
+ * **63 面板，64 起**降密度出图 —— 337 那档是 65/66，抬高头带（2026-10-07）后再前移两位）。
  */
 export const EXPORT_ES = 0.74;
 /**
@@ -91,10 +93,22 @@ export function makeExportLayout(scene: PanelSceneInput): PanelLayout {
 }
 
 /**
- * 导出档的排布 + 上限校验（尺寸预告与出图共用；超限时给降密度方案或拒绝的原因）。
- * 图文版：`headerH` 恒带 `EXPORT_HEADER_H`（一律图文版，没有"纯面板宽图"的档）。
+ * 头带高（`planSheetExport` 的 `headerH`）：**开关说了算**（`settings.export.enabled`）——
+ * 开 = 一条 `EXPORT_HEADER_H`（440）的图文版头带；关 = 0，导出图就是纯面板区的宽图。
+ * 这条产品岔路是 2026-10-06 用户验收后加的（此前口径是"一律图文版，没有纯面板宽图"）。
  */
-export function planSheet(scene: PanelSceneInput): { layout: PanelLayout; plan: SheetPlan } {
+export function exportHeaderHeight(headerEnabled: boolean): number {
+  return headerEnabled ? EXPORT_HEADER_H : 0;
+}
+
+/**
+ * 导出档的排布 + 上限校验（尺寸预告与出图共用；超限时给降密度方案或拒绝的原因）。
+ * `headerEnabled` 必须显式给（尺寸预告与实际出图才不会两副尺寸）。
+ */
+export function planSheet(
+  scene: PanelSceneInput,
+  headerEnabled: boolean,
+): { layout: PanelLayout; plan: SheetPlan } {
   const layout = makeExportLayout(scene);
   return {
     layout,
@@ -103,7 +117,7 @@ export function planSheet(scene: PanelSceneInput): { layout: PanelLayout; plan: 
       panelW: layout.panelW,
       panelH: layout.panelH,
       dpr: EXPORT_DPR,
-      headerH: EXPORT_HEADER_H,
+      headerH: exportHeaderHeight(headerEnabled),
     }),
   };
 }
@@ -164,13 +178,15 @@ export async function renderSheet(req: SheetExportRequest): Promise<SheetRenderO
   const t0 = performance.now();
   const { scene } = req;
   const noteIcons = buildActiveNoteIcons(normalizeNoteSkinSelection(scene.noteSkin));
-  // 封面解码与皮肤图集并行等：两件事互不依赖，串行等白费一次往返
+  const headerOn = req.header.fields.enabled;
+  // 封面解码与皮肤图集并行等：两件事互不依赖，串行等白费一次往返。
+  // 头带关掉时不解码封面（图里没有它的位置，_decode + close 都是白付）
   const [cover] = await Promise.all([
-    loadCoverImage(req.header.cover),
+    loadCoverImage(headerOn ? req.header.cover : null),
     CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs()).catch(() => undefined),
   ]);
 
-  const { layout, plan } = planSheet(scene);
+  const { layout, plan } = planSheet(scene, headerOn);
   if (!plan.ok) {
     cover?.close(); // 失败路径也要放掉解码出的位图（出图取消，它没别的用处）
     return { ok: false, plan, elapsedMs: performance.now() - t0 };
@@ -190,13 +206,16 @@ export async function renderSheet(req: SheetExportRequest): Promise<SheetRenderO
     };
   }
   ctx.setTransform(plan.dpr, 0, 0, plan.dpr, 0, 0);
-  // 头部横带（图文版）：封面（或色相占位块）+ 信息区，画在面板区上方（面板从 `plan.headerH` 起算）
-  drawSheetHeader(ctx, {
-    sheetW: plan.sheetW,
-    model: buildSheetHeaderModel(req.header),
-    cover,
-    coverHue: req.header.coverHue,
-  });
+  // 头部横带（`settings.export.enabled` 开时才画）：封面（或色相占位块）+ 信息区，
+  // 画在面板区上方（面板从 `plan.headerH` 起算；关掉时 headerH = 0，面板区就是整张图）
+  if (headerOn) {
+    drawSheetHeader(ctx, {
+      sheetW: plan.sheetW,
+      model: buildSheetHeaderModel(req.header),
+      cover,
+      coverHue: req.header.coverHue,
+    });
+  }
   cover?.close();
   const painter = createPanelPainter({
     layout,

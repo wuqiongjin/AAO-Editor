@@ -205,9 +205,10 @@ export interface SheetPlanRequest {
   /** 目标像素密度（导出**固定档**，不读窗口） */
   dpr: number;
   /**
-   * 头部横带高（图文版，chart-preview 14）：整张图 = 横带 + 面板区，横带计入高与面积上限。
-   * 缺省 0 = 不带横带（纯排布用例用；产品档经 `planSheet` 恒传 `EXPORT_HEADER_H` ——
-   * ADR-0016 §7「一律图文版」，没有"纯面板宽图"这个产品档）。
+   * 头部横带高（chart-preview 14）：整张图 = 横带 + 面板区，横带计入高与面积上限。
+   * 缺省 0 = 不带横带 —— **这也是产品档**：`settings.export.enabled` 关掉时 `planSheet` 就传 0，
+   * 导出物是纯面板区的宽图（2026-10-07 用户定案，取代 ADR-0016 §7 旧口径「一律图文版、
+   * 没有纯面板宽图这个产品档」）。
    */
   headerH?: number;
   limits?: SheetLimits;

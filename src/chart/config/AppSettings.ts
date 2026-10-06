@@ -116,7 +116,8 @@ export interface AppSettings {
    */
   preview: PreviewSettings;
   /**
-   * 导出图文版的「信息区」字段开关（chart-preview 14 定案 2026-10-06）：跨会话记住。
+   * 导出图文版的「头带」开关 + 「信息区」字段开关（chart-preview 14 定案 2026-10-06，
+   * 2026-10-06 验收后追加 `enabled`）：跨会话记住。
    * 与 `preview`（看谱习惯）同样刻意分开：那是"自己怎么看"，这是"导出物里写什么"。
    * additive 字段，不 bump schemaVersion。
    */
@@ -124,10 +125,16 @@ export interface AppSettings {
 }
 
 /**
- * 导出信息字段（chart-preview 14，字段候选 2026-10-06 用户拍板）：导出图「信息区」显示哪些项。
+ * 导出头带 + 信息区字段（chart-preview 14，字段候选 2026-10-06 用户拍板；`enabled` 2026-10-06 追加）：
+ * 导出图**要不要带头带**（封面区 + 信息区），以及信息区显示哪些项。
  * 七项里没有「谱师姓名」——本票不做（用户拍板：后续票再谈）。
  */
 export interface ExportFieldSettings {
+  /**
+   * **头带总开关**（默认开）：关 = 导出图**只画面板区**（没有封面、没有标题 / chips）。
+   * 与下面 7 个"信息区写哪些项"的开关是两件事 —— 关了它是"图纸"而不是"空信息的头带"。
+   */
+  enabled: boolean;
   /** 工程名（副行；与标题重复时自动去重不显示） */
   projectName: boolean;
   /** 谱面标题（大字标题；未填回落工程名） */
@@ -150,10 +157,11 @@ export const EXPORT_FIELD_KEYS: readonly (keyof ExportFieldSettings)[] = [
 ];
 
 /**
- * 导出信息默认档（chart-preview 14，用户 2026-10-06 拍板）：**谱面标题 + 难度等级 + BPM** 开，
- * 其余关（工程名 / 时长 / 音符数 / 导出时间）。
+ * 导出默认档（chart-preview 14，用户 2026-10-06 拍板）：**带头带**（`enabled`），
+ * 信息区写 **谱面标题 + 难度等级 + BPM**，其余关（工程名 / 时长 / 音符数 / 导出时间）。
  */
 export const DEFAULT_EXPORT_FIELDS: ExportFieldSettings = {
+  enabled: true,
   projectName: false,
   chartTitle: true,
   difficulty: true,
@@ -368,12 +376,17 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   };
 }
 
-/** 导出信息字段归一化：只认布尔值，其余（缺字段 / 字符串 / 数字）逐字段回落默认档 */
+/**
+ * 导出头带 + 信息区字段归一化：只认布尔值，其余（缺字段 / 字符串 / 数字）逐字段回落默认档。
+ * `enabled` 不算字段候选（不进 `EXPORT_FIELD_KEYS`），单独归一 —— **缺按开**（老数据升级后
+ * 行为与升级前一致，不会默默变成纯面板图）。
+ */
 export function normalizeExportFields(
   raw: Record<string, unknown>,
   fallback: ExportFieldSettings = DEFAULT_EXPORT_FIELDS,
 ): ExportFieldSettings {
   const out = { ...fallback };
+  if (typeof raw.enabled === 'boolean') out.enabled = raw.enabled;
   for (const k of EXPORT_FIELD_KEYS) {
     if (typeof raw[k] === 'boolean') out[k] = raw[k] as boolean;
   }
