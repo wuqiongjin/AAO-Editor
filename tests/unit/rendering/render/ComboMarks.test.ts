@@ -3,7 +3,8 @@
 // 两条口径各锁一条：
 //   1. 计数单位与 `countNotesUpToBeat` **同枚举**（单键/方向键各 1、滑条逐非 hidden 结点、BPM/System 不计），
 //      落点用精确拍（含 subBeat）；
-//   2. 刻度画在轨道右侧沟槽、越出画布右缘时左移（预览面板沟槽只有 ~30px，三位数已经贴着边界）。
+//   2. 刻度画在轨道右侧沟槽、越出画布右缘时左移（**窄档**预览面板沟槽只有 ~30px 就贴着边界；
+//      默认档 289px 宽沟槽 66px 放得下，所以这条用窄档锁 —— 导出档加大不改本用例，见 issue 13 复核）。
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { comboNodePreciseBeats } from '@/src/chart/editing/NoteEditing';
@@ -17,7 +18,7 @@ import { fillTexts, makeRecordingCtx } from '@/tests/support/canvas';
 const bpm120 = [{ beat: 0, bpm: 120 }];
 /** 编辑器画布档（900px 高、es = 1 → 同屏约 4 拍） */
 const CANVAS = { w: 750, h: 900 };
-/** 预览面板默认档（130 × 400、es = 1/3 → 沟槽各 30px） */
+/** 预览窄档（zoom ≈ 45%：130 × 400、es = 1/3 → 沟槽各 30px；默认档 289 宽沟槽 66px） */
 const PANEL = { w: 130, h: 400 };
 const PANEL_ES = 1 / 3;
 

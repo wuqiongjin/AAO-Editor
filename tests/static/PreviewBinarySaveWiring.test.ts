@@ -55,11 +55,14 @@ describe('chart-preview 03 · 二进制另存通道（preload → main）', () =
 });
 
 describe('chart-preview 03 · 导出与预览解耦（固定档、不读窗口）', () => {
-  it('导出档是常量：面板高 537 / dpr 2 / 生效缩放 1/3（面板 130，与预览基准解耦）', () => {
+  it('导出档是常量：面板高 537 / dpr 2 / 生效缩放 0.74（面板 289，与预览基准解耦）', () => {
+    // 值来自 issue 13 的实测（805 张真实谱面：85% 单行、0 拒绝；3 分钟谱单行余量 3.0%），
+    // 2026-10-05 用户定案「加大导出档」后钉死——改档必须重跑实测。
     expect(exportSrc).toMatch(/EXPORT_PANEL_H\s*=\s*537/);
     expect(exportSrc).toMatch(/EXPORT_DPR\s*=\s*2/);
-    expect(exportSrc).toMatch(/EXPORT_ES\s*=\s*1\s*\/\s*3/);
+    expect(exportSrc).toMatch(/EXPORT_ES\s*=\s*0\.74/);
     // 不跟预览基准走：导出面板宽不能随 PREVIEW_ES_STANDARD（2026-10-02 重定基）一起漂移
+    //（可以"取"预览默认档当日的数当值，但必须是字面量、不能是引用——2026-10-05 加大后这条照旧）
     expect(exportSrc).not.toMatch(/esForZoom|PREVIEW_ES_STANDARD/);
   });
 

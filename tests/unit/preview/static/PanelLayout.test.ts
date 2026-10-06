@@ -9,6 +9,7 @@ import {
   DEFAULT_PREVIEW_ZOOM,
   PANEL_W_PER_ES,
   PREVIEW_ZOOM_RANGE,
+  SHEET_LIMITS,
   esForZoom,
   makePanelLayout,
   normalizePreviewZoom,
@@ -20,6 +21,8 @@ import {
   sheetCellRect,
   visiblePanelRange,
 } from '@/src/preview/static/panelLayout';
+// 导出档常量从真源 import（不抄一份数）：改档时本文件的"3 分钟谱不越上限"按新值重算
+import { EXPORT_DPR, EXPORT_ES, EXPORT_PANEL_H } from '@/src/preview/static/exportPanels';
 
 const BPM120: ChartNote[] = [{ type: 'BPM', beat: 0, bpm: 120 }];
 /** 120bpm：1 拍 = 0.5s；440 虚拟 px/秒 */
@@ -198,11 +201,14 @@ describe('chart-preview 03 · 面板内指针 → pos / 秒', () => {
 });
 
 describe('chart-preview 03 · 宽图排布与画布上限', () => {
-  const PANEL_W = 130;
-  const PANEL_H = 537;
+  // 导出档尺寸从真源来（issue 13 加大后 = 面板 289 × 537 @dpr 2）：
+  // 常量的字面量由 PreviewBinarySaveWiring 的源码锁看住，这里锁的是"这一档排得下"。
+  const PANEL_W = panelWidthForEs(EXPORT_ES);
+  const PANEL_H = EXPORT_PANEL_H;
 
-  it('单行宽图：宽 = 面板数 × 面板宽、高 = 一格面板（3 分钟谱 ≈ 50 面板 ≈ 6,500 px 宽）', () => {
-    const plan = planSheetExport({ panelCount: 45, panelW: PANEL_W, panelH: PANEL_H, dpr: 2 });
+  it('单行宽图：宽 = 面板数 × 面板宽、高 = 一格面板（45 面板 → 13,005 CSS px）', () => {
+    const plan = planSheetExport({ panelCount: 45, panelW: PANEL_W, panelH: PANEL_H, dpr: EXPORT_DPR });
+    expect(PANEL_W).toBe(289);
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.rows).toBe(1);
@@ -214,14 +220,36 @@ describe('chart-preview 03 · 宽图排布与画布上限', () => {
     expect(plan.downscaled).toBe(false);
   });
 
-  it('宽度超单边上限才折行：列数取满（行数最少），仍在上限内', () => {
-    const plan = planSheetExport({ panelCount: 600, panelW: PANEL_W, panelH: PANEL_H, dpr: 2 });
+  it('3 分钟谱不越单边上限：110 面板 → 缓冲 63,580 px（余量 3.0%），仍单行', () => {
+    // 面板数 / 面板宽走真实模型（180s → 79,200 虚拟 px ÷ 窗口 537 ÷ 0.74），不是手填的数
+    const layout = makePanelLayout({
+      notes: BPM120, chartDuration: 180, verticalRatio: 1, panelH: EXPORT_PANEL_H, es: EXPORT_ES,
+    });
+    const plan = planSheetExport({
+      panelCount: layout.panelCount, panelW: layout.panelW, panelH: layout.panelH, dpr: EXPORT_DPR,
+    });
+    expect(layout.panelCount).toBe(110);
+    expect(layout.panelW).toBe(289);
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    expect(plan.cols).toBe(Math.floor(65535 / (PANEL_W * 2)));   // 252 列
+    expect(plan.rows).toBe(1);
+    expect(plan.cols).toBe(110);
+    expect(plan.sheetW).toBe(31_790);
+    expect(plan.bufferW).toBe(63_580);
+    expect(plan.bufferW).toBeLessThanOrEqual(SHEET_LIMITS.maxSidePx);
+    expect(plan.bufferH).toBeLessThanOrEqual(SHEET_LIMITS.maxSidePx);
+    expect(plan.downscaled).toBe(false);
+  });
+
+  it('宽度超单边上限才折行：列数取满（行数最少），仍在上限内', () => {
+    const plan = planSheetExport({ panelCount: 300, panelW: PANEL_W, panelH: PANEL_H, dpr: EXPORT_DPR });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.cols).toBe(Math.floor(65535 / (PANEL_W * 2)));   // 113 列
     expect(plan.rows).toBe(3);
     expect(plan.bufferW).toBeLessThanOrEqual(65535);
     expect(plan.bufferH).toBeLessThanOrEqual(65535);
+    expect(plan.downscaled).toBe(false);
   });
 
   it('面积超限 → 降密度（dpr 2 → 1），而不是画爆', () => {

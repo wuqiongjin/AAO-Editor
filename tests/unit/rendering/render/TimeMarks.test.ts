@@ -2,8 +2,9 @@
 //
 // 两件事最容易写错，各锁一条：
 //   1. 落点走**秒 → 布局轴**（`secondsToVirtualY`）落在整秒上（倒流区里"秒 → 拍"多解，秒单值）；
-//   2. 预览面板的沟槽只有 ~30px（130px 面板里轨道占 70px），标签盒放不下时**钳制**而不是隐藏
-//      —— 隐藏等于这个开关在默认缩放下没有任何效果。
+//   2. **窄档**面板的沟槽只有 ~30px（130px 宽 = zoom ≈ 45%，轨道占 70px），标签盒放不下时**钳制**
+//      而不是隐藏 —— 隐藏等于时间标记在小缩放下没有任何效果（默认档 289px 宽时沟槽 66px、放得下，
+//      所以这条用窄档锁；导出档加大不改变本用例的口径，见 issue 13 的复核记录）。
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
 import { formatTimeCompact } from '@/src/chart/geometry/TimeFormat';
@@ -16,7 +17,7 @@ import { makeRecordingCtx, fillTexts } from '@/tests/support/canvas';
 const bpm120 = [{ beat: 0, bpm: 120 }];
 /** 编辑器画布档（900px 高、es = 1 → 同屏 ≈2.05 秒） */
 const CANVAS = { w: 750, h: 900 };
-/** 预览面板默认档（130 × 400、es = 1/3 → 同屏 ≈2.73 秒，两侧沟槽各 30px） */
+/** 预览窄档（zoom ≈ 45%：130 × 400、es = 1/3 → 两侧沟槽各 30px；默认档 289 宽沟槽 66px） */
 const PANEL = { w: 130, h: 400 };
 const PANEL_ES = 1 / 3;
 
