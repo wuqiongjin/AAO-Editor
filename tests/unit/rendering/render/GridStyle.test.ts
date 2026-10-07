@@ -67,11 +67,16 @@ describe('颜色主题（issue 53 第二轮）', () => {
     expect(normalizeGridStyle(42)).toBe(DEFAULT_GRID_STYLE);
   });
 
-  it('有效亮度（luma×alpha）沿层级单调递减，最淡层 luma ≥ 90（下限远离黑）；整拍 alpha 0.45', () => {
+  it('子层颜色亮度单调递减，最淡层 luma ≥ 90（下限远离黑）；整拍 alpha 0.45 柔化', () => {
     for (const p of ['mono', 'amber', 'cyan', 'vivid'] as const) {
       const def = GRID_STYLES[p];
       expect(def.beat.alpha).toBe(0.45); // issue 17 方案 A：整拍实线柔化
-      const ladder = GRID_TIER_ORDER.map((t) => luma(def[t].color) * (def[t].alpha ?? 1));
+      // 虚线保持原来效果：子拍层不设单独 alpha（缺省 1），纯靠颜色承载层级
+      const subTiers = ['half', 'quarter', 'eighth', 'sixteenth'] as const;
+      for (const t of subTiers) {
+        expect(def[t].alpha).toBeUndefined();
+      }
+      const ladder = subTiers.map((t) => luma(def[t].color));
       for (let i = 1; i < ladder.length; i++) expect(ladder[i]).toBeLessThan(ladder[i - 1]);
       expect(luma(def.sixteenth.color)).toBeGreaterThanOrEqual(90);
     }
@@ -222,8 +227,8 @@ describe('renderGrid 分层绘制（issue 53）', () => {
     const alphas = (calls: [string, unknown[]][]) => calls.filter(([k]) => k === 'globalAlpha').map(([, v]) => v[0] as number);
     expect(alphas(renderAt(undefined))).toContain(0.45);
     expect(alphas(renderAt(0.5))).toContain(0.225);
-    // 子层 alpha 0.4 × 0.5 → 0.2
-    expect(alphas(renderAt(0.5))).toContain(0.2);
+    // 子层虚线保持原来效果（alpha 缺省 1）：gridOpacity 0.5 → 1 × 0.5 = 0.5
+    expect(alphas(renderAt(0.5))).toContain(0.5);
   });
 
   it('抽稀与层级叠加：远缩放下高层级优先保留，低层级让位（issue 53 验收）', () => {
