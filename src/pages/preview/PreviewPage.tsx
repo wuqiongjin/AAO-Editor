@@ -23,6 +23,8 @@ import {
   type PanelSceneInput,
   type PreviewMode,
   type SheetHeaderInput,
+  type SimPlaybackAudio,
+  type SimScene,
 } from '../../preview';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { getBpmEvents } from '../../audio/AudioTiming';
@@ -31,6 +33,8 @@ import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
 import PreviewStaticToolbar, { PreviewExitFullscreenButton } from './PreviewStaticToolbar';
+import PreviewDisplayPanel from './PreviewDisplayPanel';
+import PreviewVideoStage from './PreviewVideoStage';
 import { usePreviewScope } from './usePreviewScope';
 import './PreviewPage.css';
 
@@ -100,6 +104,28 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       noteSkin: settings.visual?.noteSkin ?? {},
     };
   }, [project, chart, settings.display, settings.visual?.noteSkin, beatDisplay]);
+
+  // 动态形态要画的那份谱面（票 05）：仿真场的画面输入 = 谱面 + 作者设置（音符速度 / 镜向两档来自
+  // `settings.preview`，其余是画布共享项 `settings.display`——与静态预览同一份数据）
+  const videoScene = useMemo<SimScene | null>(() => {
+    if (!project || !chart || chart.notes.length === 0) return null;
+    return {
+      notes: chart.notes,
+      beatDisplay,
+      noteSpeed: settings.preview.noteSpeed,
+      noteSize: settings.display.noteSize,
+      slideOpacity: settings.display.slideOpacity,
+      simultaneousClickLines: settings.display.simultaneousClickLines,
+      colorAssist: settings.display.colorAssist,
+      mirror: settings.preview.mirror,
+    };
+  }, [project, chart, settings.display, settings.preview, beatDisplay]);
+
+  // 仿真场的声源 = **作用域工程**自己的音频（票 05 定案：仿真场自持引擎；作用域切到非当前工程也有声）
+  const videoAudio = useMemo<SimPlaybackAudio | null>(
+    () => (project?.audioBlob ? { name: project.audioName ?? 'audio', blob: project.audioBlob } : null),
+    [project?.audioBlob, project?.audioName],
+  );
 
   // 导出档的排布结论（跟预览当前缩放无关）：按钮 tooltip 说清要落多大一张图 / 为什么出不了。
   // 头带开关要进依赖：关掉它图就矮一截，预告尺寸必须跟着变（与实际出图同一份 `planSheet`）。
@@ -217,33 +243,51 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               )}
               <PreviewChartSwitcher project={project} chartId={chartId} onPick={pickChart} />
             </div>
-            {/* 显示控件直接贴右缘：不再套胶囊外壳（2026-10-02 用户验收：外壳多余，还白占一条高度） */}
-            {mode === 'static' && !fullscreen && (
-              <PreviewStaticToolbar
-                zoom={zoom}
-                onZoom={setZoom}
-                exporting={exporting}
-                onExport={() => void handleExport()}
-                exportPlan={exportPlan}
-                onEnterFullscreen={toggleFullscreen}
-              />
+            {/* 显示控件直接贴右缘：不再套胶囊外壳（2026-10-02 用户验收：外壳多余，还白占一条高度）。
+                两种形态各用自己那一排：静态 = 缩放 + 设置 + 导出 + 全屏；动态 = 设置（缩放/导出对回放无意义）。 */}
+            {!fullscreen && (
+              mode === 'static' ? (
+                <PreviewStaticToolbar
+                  zoom={zoom}
+                  onZoom={setZoom}
+                  exporting={exporting}
+                  onExport={() => void handleExport()}
+                  exportPlan={exportPlan}
+                  onEnterFullscreen={toggleFullscreen}
+                />
+              ) : (
+                <div className="preview-controls">
+                  <PreviewDisplayPanel mode="video" />
+                </div>
+              )
             )}
           </div>
           {/* 舞台：两种形态的画面（03 静态 / 05 仿真场）。画面未接时不静默空白。 */}
           <div
             ref={stageRef}
-            className={`preview-stage${mode === 'static' && scene ? ' is-filled' : ''}`}
+            className={`preview-stage${(mode === 'static' && scene) || (mode === 'video' && videoScene) ? ' is-filled' : ''}`}
             data-mode={mode}
           >
             {mode === 'static' && scene ? (
               <StaticPreviewView scene={scene} zoom={zoom} markers={settings.preview} onZoom={setZoom} />
+            ) : mode === 'video' && videoScene ? (
+              <PreviewVideoStage
+                active={active}
+                scene={videoScene}
+                duration={project?.durationSeconds ?? 0}
+                audio={videoAudio}
+                keySetId={settings.audio.keySet}
+                seVolume={settings.audio.seVolume}
+                imageQuality={settings.display.imageQuality}
+                noteSkin={settings.visual?.noteSkin ?? {}}
+              />
             ) : (
               <p className="preview-stage__pending">
-                {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.pending')}
+                {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.empty')}
               </p>
             )}
             {/* 浮层**不看画面**（issue 12）：谱面没音符时也要有出口 —— 否则全屏下除 Esc 无路可走 */}
-            {mode === 'static' && fullscreen && (
+            {fullscreen && (
               <div className="preview-fs">
                 <PreviewExitFullscreenButton onExit={toggleFullscreen} />
               </div>

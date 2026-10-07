@@ -104,7 +104,7 @@ const fsOverlay = () => document.querySelector('.preview-fs');
 const previewHost = () => screen.getByRole('group', { name: '静态预览面板折行（横向滚动）' });
 /** 工具栏右端那一排的按钮文案（按 DOM 顺序；组内只有这几枚带文字的钮） */
 const controlRowButtons = () => within(
-  zoomSlider().closest('.preview-static') as HTMLElement,
+  zoomSlider().closest('.preview-controls') as HTMLElement,
 ).getAllByRole('button').map((b) => b.textContent);
 
 /**

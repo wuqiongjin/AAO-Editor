@@ -31,4 +31,31 @@ export type {
   StaticPreviewViewProps,
 } from './static';
 export { DEFAULT_PREVIEW_MARKERS } from './static';
+// 动态形态（仿真场）：面与 `video/sim/index.ts` 同（消费方要用的那几件，内部件走 deep import）
+export {
+  DESIGN_SURFACE,
+  SIM_ASSET_BASE,
+  SIM_ASSET_SERVERS,
+  approachA,
+  approachOf,
+  approachSeconds,
+  buildSimChart,
+  createSimPlayback,
+  drawSimFrameAt,
+  emptySimAssets,
+  fieldMetrics,
+  fitDesignSurface,
+  loadSimAssets,
+  simComboAt,
+  type SimAssets,
+  type SimChart,
+  type SimElement,
+  type SimFieldMetrics,
+  type SimFrameAssets,
+  type SimFrameInput,
+  type SimPlayback,
+  type SimPlaybackAudio,
+  type SimPlaybackOptions,
+  type SimScene,
+} from './video';
 export type { VideoPreviewRequest } from './video';

@@ -143,6 +143,12 @@ export interface ActiveNoteIcons {
   slideEndpointFor(lane: number): SpriteIconConfig;
   /** 滑键顶部箭头装饰（墨迹精确组合；包未提供时为 null） */
   flickTopDecorator: SpriteIconConfig | null;
+  /**
+   * 同时点击线精灵（`simultaneous_line.png`；包未提供时为 null）。
+   * 消费点 = **仿真场**（chart-preview 05）：编辑器画布那套走自绘细线（issue 39 #3），
+   * 仿真场照 Bestdori 用官方精灵。
+   */
+  simultaneousLine: SpriteIconConfig | null;
   /** 方向键整组视觉：N 条覆盖轨道本体 + 最外侧箭头（用户定案 2026-08-24 问题4） */
   dirGroup(type: 'L' | 'R', length: number): DirGroupVisual;
   /** 预热清单：当前选择涉及的全部图片 URL */
@@ -277,6 +283,11 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
     return { bodies, chevron };
   };
 
+  // 同时点击线精灵（chart-preview 05）：整图直用，横向拉伸进两点之间
+  const simultaneousLine: SpriteIconConfig | null = tapPack.simultaneous != null
+    ? { src: tapPack.simultaneous, x: 0, y: 0, w: tapPack.simultaneousW, h: tapPack.simultaneousH }
+    : null;
+
   return {
     selection,
     tapFor: () => tapConfig,
@@ -290,7 +301,8 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
     slideAmongFor: () => amongConfig,
     slideEndpointFor: () => longConfig,
     flickTopDecorator,
+    simultaneousLine,
     dirGroup,
-    preloadSrcs: () => [...new Set([tapPack.atlas, flickPack.atlas, skillPack.atlas, slidePack.atlas, slidePack.band, ...(slidePack.bandSp != null ? [slidePack.bandSp] : []), dirLPack.atlas, dirRPack.atlas])],
+    preloadSrcs: () => [...new Set([tapPack.atlas, flickPack.atlas, skillPack.atlas, slidePack.atlas, slidePack.band, ...(slidePack.bandSp != null ? [slidePack.bandSp] : []), dirLPack.atlas, dirRPack.atlas, ...(simultaneousLine != null ? [simultaneousLine.src] : [])])],
   };
 }

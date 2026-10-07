@@ -45,7 +45,7 @@ export default function PreviewStaticToolbar({
       : t('preview.static.exportRefused', { reason: exportPlan.detail });
 
   return (
-    <div className="preview-static">
+    <div className="preview-controls">
       <div className="preview-zoom">
         <span className="preview-zoom__label">{t('preview.static.zoom')}</span>
         <div className="slider-control preview-zoom__slider">

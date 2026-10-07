@@ -19,9 +19,11 @@ import {
   EXPORT_FIELD_KEYS,
   PREVIEW_BEAT_MARK_DIVISIONS,
   PREVIEW_TIME_MARK_INTERVALS,
+  SIM_NOTE_SPEED_RANGE,
 } from '../../chart/config/AppSettings';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
+import type { PreviewMode } from '../../preview';
 // 浮层复用菜单壳（与 ScopePicker 同因：`.pp-menu__*` 定义在 ProjectsPage.css，别指望那一页先挂载）
 import '../projects/ProjectsPage.css';
 import './PreviewPage.css';
@@ -97,6 +99,30 @@ function Select<T extends string | number>({
   );
 }
 
+/** 音符速度档（1..11 步长 0.5；值是"档"不是比例，故不走 `Percent`） */
+function NoteSpeed({
+  value, label, onChange,
+}: {
+  value: number;
+  label: string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="slider-control pdp__slider">
+      <input
+        type="range"
+        min={SIM_NOTE_SPEED_RANGE.min}
+        max={SIM_NOTE_SPEED_RANGE.max}
+        step={SIM_NOTE_SPEED_RANGE.step}
+        value={value}
+        aria-label={label}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <span className="slider-value">{value.toFixed(1)}</span>
+    </div>
+  );
+}
+
 /** 百分比滑杆（值以比例存储，UI 显示 %）——与设置页同一形态（`.slider-control` + `.slider-value`） */
 function Percent({
   value, label, min, max, onChange,
@@ -123,7 +149,16 @@ function Percent({
   );
 }
 
-export default function PreviewDisplayPanel() {
+/**
+ * 面板形态（chart-preview 05）：同一份「设置」控件在两种预览形态下显示不同的组 ——
+ * 静态（标记 + 画布共享 + 皮肤 + 导出信息）/ 动态（**仿真场** + 画布共享 + 皮肤）。
+ * 「画布共享」与「音符皮肤」两组两种形态共用（同一份数据，改了双方生效）。
+ */
+export interface PreviewDisplayPanelProps {
+  mode?: PreviewMode;
+}
+
+export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayPanelProps) {
   const { settings, setDisplay, setPreview, setExport } = useConfig();
   const { setActivePage } = useAppNav();
   const [open, setOpen] = useState(false);
@@ -209,46 +244,70 @@ export default function PreviewDisplayPanel() {
             role="dialog"
             aria-label={t('preview.display.title')}
           >
-            <section className="pdp__group" aria-label={t('preview.display.group.marks')}>
-              <h3 className="pdp__group-title">{t('preview.display.group.marks')}</h3>
-              <Row label={t('preview.display.bpmMarks')}>
-                <Toggle
-                  label={t('preview.display.bpmMarks')}
-                  checked={preview.bpmMarks}
-                  onChange={(bpmMarks) => setPreview({ bpmMarks })}
-                />
-              </Row>
-              <Row label={t('preview.display.timeMarks')}>
-                <Select<PreviewTimeMarkInterval>
-                  label={t('preview.display.timeMarks')}
-                  value={preview.timeMarks}
-                  options={timeOptions}
-                  onChange={(timeMarks) => setPreview({ timeMarks })}
-                />
-              </Row>
-              <Row label={t('preview.display.beatMarks')}>
-                <Select<PreviewBeatMarkDivision>
-                  label={t('preview.display.beatMarks')}
-                  value={preview.beatMarks}
-                  options={beatOptions}
-                  onChange={(beatMarks) => setPreview({ beatMarks })}
-                />
-              </Row>
-              <Row label={t('preview.display.comboMarks')}>
-                <Toggle
-                  label={t('preview.display.comboMarks')}
-                  checked={preview.comboMarks}
-                  onChange={(comboMarks) => setPreview({ comboMarks })}
-                />
-              </Row>
-              <Row label={t('preview.display.mirror')}>
-                <Toggle
-                  label={t('preview.display.mirror')}
-                  checked={preview.mirror}
-                  onChange={(mirror) => setPreview({ mirror })}
-                />
-              </Row>
-            </section>
+            {/* 两组形态各一组"这一屏自己特有的"：静态 = 标记（只有预览面板会画），
+                动态 = 仿真场（音符速度 + 镜向）。两组的其余部分共用。 */}
+            {mode === 'static' ? (
+              <section className="pdp__group" aria-label={t('preview.display.group.marks')}>
+                <h3 className="pdp__group-title">{t('preview.display.group.marks')}</h3>
+                <Row label={t('preview.display.bpmMarks')}>
+                  <Toggle
+                    label={t('preview.display.bpmMarks')}
+                    checked={preview.bpmMarks}
+                    onChange={(bpmMarks) => setPreview({ bpmMarks })}
+                  />
+                </Row>
+                <Row label={t('preview.display.timeMarks')}>
+                  <Select<PreviewTimeMarkInterval>
+                    label={t('preview.display.timeMarks')}
+                    value={preview.timeMarks}
+                    options={timeOptions}
+                    onChange={(timeMarks) => setPreview({ timeMarks })}
+                  />
+                </Row>
+                <Row label={t('preview.display.beatMarks')}>
+                  <Select<PreviewBeatMarkDivision>
+                    label={t('preview.display.beatMarks')}
+                    value={preview.beatMarks}
+                    options={beatOptions}
+                    onChange={(beatMarks) => setPreview({ beatMarks })}
+                  />
+                </Row>
+                <Row label={t('preview.display.comboMarks')}>
+                  <Toggle
+                    label={t('preview.display.comboMarks')}
+                    checked={preview.comboMarks}
+                    onChange={(comboMarks) => setPreview({ comboMarks })}
+                  />
+                </Row>
+                <Row label={t('preview.display.mirror')}>
+                  <Toggle
+                    label={t('preview.display.mirror')}
+                    checked={preview.mirror}
+                    onChange={(mirror) => setPreview({ mirror })}
+                  />
+                </Row>
+              </section>
+            ) : (
+              <section className="pdp__group" aria-label={t('preview.display.group.sim')}>
+                <h3 className="pdp__group-title">{t('preview.display.group.sim')}</h3>
+                {/* 音符速度 = 接近模型的唯一档（档位 1..11；T = (12 − n)/2 秒，越大越快） */}
+                <Row label={t('preview.display.noteSpeed')}>
+                  <NoteSpeed
+                    label={t('preview.display.noteSpeed')}
+                    value={preview.noteSpeed}
+                    onChange={(noteSpeed) => setPreview({ noteSpeed })}
+                  />
+                </Row>
+                {/* 镜向与静态那张同一个开关（`settings.preview.mirror`）：整轨镜像含方向箭头翻面 */}
+                <Row label={t('preview.display.mirror')}>
+                  <Toggle
+                    label={t('preview.display.mirror')}
+                    checked={preview.mirror}
+                    onChange={(mirror) => setPreview({ mirror })}
+                  />
+                </Row>
+              </section>
+            )}
 
             {/* 选项顺序照设置页「画布显示」那一节（同一份数据的两个入口，顺序也一致更好认） */}
             <section className="pdp__group" aria-label={t('preview.display.group.canvas')}>
@@ -318,32 +377,35 @@ export default function PreviewDisplayPanel() {
             {/* 导出头带（chart-preview 14）：这条头带导不导、导的话里头写哪些字段，
                 落 `settings.export`（跨会话记住）——与上一组「怎么看」分开：这是**导出物里写什么**。
                 总开关 `enabled` 管整条头带（关 = 纯面板区的宽图），下面 7 项是**信息区字段**。
-                谱师姓名不在这里（本票不做）。 */}
-            <section className="pdp__group" aria-label={t('preview.display.group.export')}>
-              {/* 头带总开关挂在组标题行右侧（2026-10-07 用户定案：不另立条目，说明成本为零）——
-                  它管整条头带，关掉时下面七行当场置灰，管什么由这个行为自己说明 */}
-              <div className="pdp__group-head">
-                <h3 className="pdp__group-title">{t('preview.display.group.export')}</h3>
-                <Toggle
-                  label={t('preview.display.export.enabled')}
-                  checked={settings.export.enabled}
-                  onChange={(v) => setExport({ enabled: v })}
-                />
-              </div>
-              {EXPORT_FIELD_KEYS.map((key) => {
-                const label = t(`preview.display.export.${key}` as MessageKey);
-                return (
-                  <Row key={key} label={label} disabled={!settings.export.enabled}>
-                    <Toggle
-                      label={label}
-                      checked={settings.export[key]}
-                      disabled={!settings.export.enabled}
-                      onChange={(v) => setExport({ [key]: v })}
-                    />
-                  </Row>
-                );
-              })}
-            </section>
+                谱师姓名不在这里（本票不做）。
+                **只有静态形态有导出入图这一说**：动态形态（仿真场）的导出是 07 的视频导出。 */}
+            {mode === 'static' && (
+              <section className="pdp__group" aria-label={t('preview.display.group.export')}>
+                {/* 头带总开关挂在组标题行右侧（2026-10-07 用户定案：不另立条目，说明成本为零）——
+                    它管整条头带，关掉时下面七行当场置灰，管什么由这个行为自己说明 */}
+                <div className="pdp__group-head">
+                  <h3 className="pdp__group-title">{t('preview.display.group.export')}</h3>
+                  <Toggle
+                    label={t('preview.display.export.enabled')}
+                    checked={settings.export.enabled}
+                    onChange={(v) => setExport({ enabled: v })}
+                  />
+                </div>
+                {EXPORT_FIELD_KEYS.map((key) => {
+                  const label = t(`preview.display.export.${key}` as MessageKey);
+                  return (
+                    <Row key={key} label={label} disabled={!settings.export.enabled}>
+                      <Toggle
+                        label={label}
+                        checked={settings.export[key]}
+                        disabled={!settings.export.enabled}
+                        onChange={(v) => setExport({ [key]: v })}
+                      />
+                    </Row>
+                  );
+                })}
+              </section>
+            )}
           </div>
         </>,
         document.body,

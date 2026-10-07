@@ -8,6 +8,7 @@ import {
   DEFAULT_PREVIEW_SETTINGS,
   PREVIEW_BEAT_MARK_DIVISIONS,
   PREVIEW_TIME_MARK_INTERVALS,
+  SIM_NOTE_SPEED_RANGE,
   defaultSettings,
   loadSettings,
   updateSettings,
@@ -23,14 +24,27 @@ describe('chart-preview 08 · 预览标注设置', () => {
       beatMarks: 1,
       comboMarks: true,
       mirror: false,
+      // 仿真场音符速度（chart-preview 05；用户 2026-10-07 定案 9.5）
+      noteSpeed: 9.5,
     });
   });
 
   it('白名单取值原样读回（各档位各自独立）', () => {
     const loaded = loadSettings(settingsStorageOf({
-      preview: { bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true },
+      preview: { bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5 },
     }));
-    expect(loaded.preview).toEqual({ bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true });
+    expect(loaded.preview).toEqual({ bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5 });
+  });
+
+  it('音符速度档（chart-preview 05）：1..11 步长 0.5，越界 / 脏值 / 非步长值都归一', () => {
+    expect(SIM_NOTE_SPEED_RANGE).toEqual({ min: 1, max: 11, step: 0.5, fallback: 9.5 });
+    const of = (noteSpeed: unknown) => loadSettings(settingsStorageOf({ preview: { noteSpeed } })).preview.noteSpeed;
+    expect(of(3)).toBe(3);
+    expect(of(0)).toBe(1);
+    expect(of(99)).toBe(11);
+    expect(of(9.3)).toBe(9.5); // 对齐步长（滑杆只能落在半档上）
+    expect(of('fast')).toBe(9.5);
+    expect(of(Number.NaN)).toBe(9.5);
   });
 
   it('缺段 / 脏值（含旧枚举名）→ 逐字段回落默认，不整段丢弃', () => {

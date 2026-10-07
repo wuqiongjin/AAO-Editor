@@ -16,7 +16,7 @@
 import { bufferSizeFor, displayOptionsFromSettings } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
-import type { PreviewSettings } from '../../chart/config/AppSettings';
+import { SIM_NOTE_SPEED_RANGE, type PreviewSettings } from '../../chart/config/AppSettings';
 import { resolvePreviewDisplay } from './displayProfile';
 import {
   makePanelLayout,
@@ -69,6 +69,9 @@ export const EXPORT_MARKERS: PreviewSettings = {
   beatMarks: 1,
   comboMarks: false,
   mirror: false,
+  // 导出图与音符速度无关（那是动态形态的旋钮）：填默认档只为满足设置形状，
+  // 面板出图根本不读它 —— 07 的视频导出走仿真场自己那份 `SimScene`。
+  noteSpeed: SIM_NOTE_SPEED_RANGE.fallback,
 };
 /** 导出图片的 MIME / 扩展名 */
 export const SHEET_IMAGE_MIME = 'image/png';

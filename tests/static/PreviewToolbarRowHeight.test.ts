@@ -42,7 +42,7 @@ function lineHeightOf(selector: string): string | null {
 describe('chart-preview 15 · 预览页工具栏两簇必须等高（行盒只跟字号走）', () => {
   it('两簇都钉了 unitless 行高，且取值相同', () => {
     const left = lineHeightOf('.preview-toolbar__left');
-    const right = lineHeightOf('.preview-static');
+    const right = lineHeightOf('.preview-controls');
     expect(left, '左簇必须钉行高，否则它会被右簇挤下去').not.toBeNull();
     expect(right, '右簇必须钉行高，否则它只在静态态出现时会把左簇挤下去').not.toBeNull();
     // unitless：随 --ui-type-scale 缩放；写成 px 会在字号档被钉死

@@ -183,7 +183,19 @@ export interface PreviewSettings {
   comboMarks: boolean;
   /** 镜向：整条轨道水平镜像（车道左右互换 + 方向箭头翻转，照 Bestdori `styleMirror`） */
   mirror: boolean;
+  /**
+   * 仿真场音符速度档（chart-preview 05；照 Bestdori `simNoteSpeed`）：
+   * 只作用于动态预览，决定接近模型的 T = (12 − noteSpeed)/2 秒。白名单与步长见 `SIM_NOTE_SPEED_RANGE`。
+   */
+  noteSpeed: number;
 }
+
+/**
+ * 音符速度档白名单（chart-preview 05）：`1..11` 步长 `0.5`，默认 **9.5**（用户 2026-10-07 定案：
+ * "比较适合预览谱面的速度"）。上界取 11 而不是游戏里的 12：`T = (12 − n)/2` 在 12 处退化成 0，
+ * 模型没有定义（票面的「档位 1..11」也是同一口径）。
+ */
+export const SIM_NOTE_SPEED_RANGE = { min: 1, max: 11, step: 0.5, fallback: 9.5 } as const;
 
 /** Time 标记间隔（秒）——照 Bestdori 的 `chartTime`：off / 1s / 2s / 5s / 10s（chart-preview 08） */
 export type PreviewTimeMarkInterval = 'off' | 1 | 2 | 5 | 10;
@@ -204,7 +216,16 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
   beatMarks: 1,
   comboMarks: true,
   mirror: false,
+  noteSpeed: SIM_NOTE_SPEED_RANGE.fallback,
 };
+
+/** 音符速度档归一化（读写同一个白名单；快照值对齐步长） */
+export function normalizeNoteSpeed(raw: unknown, fallback: number = SIM_NOTE_SPEED_RANGE.fallback): number {
+  const { min, max, step } = SIM_NOTE_SPEED_RANGE;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
+  const snapped = Math.round(raw / step) * step;
+  return Math.min(max, Math.max(min, snapped));
+}
 
 /** 音符皮肤六条目（与 renderer/noteSkin.ts 的 NoteSkinItemId 一致；此处独立声明避免 utils→renderer 运行时依赖） */
 export interface NoteSkinSelectionRaw {
@@ -370,6 +391,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
         : defaults.preview.beatMarks,
       comboMarks: typeof preview.comboMarks === 'boolean' ? preview.comboMarks : defaults.preview.comboMarks,
       mirror: typeof preview.mirror === 'boolean' ? preview.mirror : defaults.preview.mirror,
+      noteSpeed: normalizeNoteSpeed(preview.noteSpeed, defaults.preview.noteSpeed),
     },
     // 导出信息字段（chart-preview 14）：逐字段布尔归一化，缺字段 / 脏值回落默认档
     export: normalizeExportFields(exportRaw, defaults.export),

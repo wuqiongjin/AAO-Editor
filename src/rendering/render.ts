@@ -22,9 +22,20 @@ import type { RenderTarget } from './RenderTarget';
 import { drawGutterLabel, drawBpmSummary, layoutGutterLabel, layoutGutterLabelRight, layoutBpmGutter, clampGutterLabelX, clampGutterLabelRightX, clampGutterLabelY, bpmGutterYIntersectsCanvas, bpmLabelAnchorY, measureGutterLabelWidth, GUTTER_LABEL_FONT_PX } from './gutterLabels';
 import { GRID_STYLES, GRID_TIER_ORDER, gridBpmLineColor, gridBpmNegativeColor, gridDivisionOf, gridLineDash, gridTierOf, gridThemeBpmColor, normalizeGridStyle, type GridTier } from './gridStyle';
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
-import type { DirGroupVisual } from './skin/noteSkin';
+import type { ActiveNoteIcons, DirGroupVisual } from './skin/noteSkin';
 import type { FrameView, RenderCtx } from './types';
 import type { SpriteIconConfig } from '../ui/CanvasSpriteIcon';
+
+/**
+ * 音符 / 滑条结点**选款**真正读到的输入：图标集 + 细分档 + 色觉辅助与镜向两个开关。
+ * 收成结构子集是为了让**仿真场**（chart-preview 05）用同一份选款口径 —— 那边没有 `RenderCtx`
+ * （不是编辑器画布），只有这几样；编辑器侧传完整帧天然满足，调用点不用改。
+ */
+export interface IconChoiceCtx {
+  noteIcons: ActiveNoteIcons;
+  beatDisplay: number;
+  display?: { colorAssist?: boolean; mirror?: boolean } | undefined;
+}
 
 // 音符大小配置 —— **唯一定义在 `./primitives/noteMetrics`**（issue 82：与 hitTest 命中尺寸同源，
 // 各写一份必然漂移）；此处 re-export 以兼容既有引用。
@@ -269,7 +280,7 @@ export type SelectionOutline =
  * 保证「幽灵 = 画布实绘同形」（ADR-0002 §4）。
  * 导出仅为可测（与 `slideNodeIconConfig` 同款）。
  */
-export function singleIconConfig(rc: RenderCtx, note: { lane: number; beat: number; subBeat?: number; flick?: boolean; skill?: boolean }): SpriteIconConfig {
+export function singleIconConfig(rc: IconChoiceCtx, note: { lane: number; beat: number; subBeat?: number; flick?: boolean; skill?: boolean }): SpriteIconConfig {
   const icons = rc.noteIcons;
   if (note.flick) return icons.flickFor(note.lane);
   if (note.skill) return icons.skillFor(note.lane);
@@ -284,7 +295,7 @@ export function singleIconConfig(rc: RenderCtx, note: { lane: number; beat: numb
  * 旧 `renderSlideGhost` 对所有结点一律取端点款，拖中间结点时"中间那颗长得像单键"，
  * 违反 ADR-0002 §4 的既有不变式「幽灵 = 画布实绘同形」。 */
 /** 导出仅为可测（与 `computeBackgroundDrawRect` 同款）：实绘/描边/幽灵/待连接锚点四处共用它。 */
-export function slideNodeIconConfig(rc: RenderCtx, conn: { lane: number; flick?: boolean; skill?: boolean }, isFirst: boolean, isLast: boolean): SpriteIconConfig {
+export function slideNodeIconConfig(rc: IconChoiceCtx, conn: { lane: number; flick?: boolean; skill?: boolean }, isFirst: boolean, isLast: boolean): SpriteIconConfig {
   const icons = rc.noteIcons;
   const isEndpoint = isFirst || isLast;
   const base = isEndpoint ? icons.slideEndpointFor(conn.lane) : icons.slideAmongFor(conn.lane);
@@ -599,7 +610,7 @@ export function renderSelectionOverlay(ctx: CanvasRenderingContext2D, c: Coords,
  * 方向键的侧别（只区分"组内几何朝哪边"）：预览镜像下左右互换（照 Bestdori `styleMirror` 的
  * `isLeft` 取反），因此调用方一律经本函数取图标组，别自己写 `isLeft ? 'L' : 'R'`。
  */
-const dirSideOf = (rc: RenderCtx, isLeft: boolean): 'L' | 'R' =>
+export const dirSideOf = (rc: IconChoiceCtx, isLeft: boolean): 'L' | 'R' =>
   isLeft !== (rc.display?.mirror === true) ? 'L' : 'R';
 
 /**

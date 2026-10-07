@@ -83,5 +83,6 @@ node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin   # 等价的 
 | --- | --- |
 | `verify-slide-band-order.mjs` | issue 115 / ADR-0009：滑条带体与参考截图像像素 IoU 复核（需 esbuild + 本地 PNG） |
 | `preview-shot.mjs` | 静态预览像素验收：建工程 → 贴样例谱 → 预览页抓面板原生位图（`toDataURL`）+ 工作台对照；打印舞台盒与面板宽（`VIEWPORT` / `DSF` 可改视口，票 10 用 `VIEWPORT=1490x748`）（需 playwright + dev server） |
+| `sim-shot.mjs` | 仿真场像素验收（chart-preview 05）：建工程 → 贴样例谱 → 预览页切「动态预览」→ 抓**场地 canvas 原生位图**（暂停 / 播放中 / seek 中段 / seek 末段）+ 页面截图，打印场地比例与位图尺寸；素材缺席时打印 04 的空态与获取命令（同需 playwright + dev server） |
 
 一次性 Playwright 探针历史上在迭代后已删除；需要浏览器实测时优先 vitest / 手工清单，或按 issue 说明临时写脚本（不必长期留在本目录）。
