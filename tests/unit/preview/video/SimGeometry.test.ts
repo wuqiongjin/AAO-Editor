@@ -115,6 +115,15 @@ describe('设计面与场地几何', () => {
     expect(huge.w).toBe(SIM_FIELD_LIMITS.maxW);
     expect(huge.w / huge.h).toBeCloseTo(DESIGN_RATIO, 2);
   });
+
+  it('上界 = 2560（chart-preview 19：大屏不再被 1920 钳住，画面随舞台长到 2560×1440 档）', () => {
+    expect(SIM_FIELD_LIMITS.maxW).toBe(2560);
+    const xl = fitDesignSurface(2560, 1440); // 2560 宽的舞台：场地能长到上界
+    expect(xl.w).toBe(2560);
+    expect(xl.h).toBe(Math.round(2560 / DESIGN_RATIO));
+    // 仍是 contain：宽高比不变
+    expect(xl.w / xl.h).toBeCloseTo(DESIGN_RATIO, 2);
+  });
 });
 
 describe('场地三图的绘制矩形（chart-preview 18 问题 4）', () => {

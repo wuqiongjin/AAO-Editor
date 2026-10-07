@@ -38,9 +38,12 @@ export const APPROACH = { floor: 0.05, range: 0.95, base: 1.1, exp: 50 } as cons
 /**
  * 场地画面的尺寸钳制（窄 / 宽比例下的同一个 contain 公式 + 上下界）：
  * - 舞台很窄时不低于 `min`（否则 7 轨压成一条线，读不出任何东西）；
- * - 舞台很大时不超过 `max`（画布位图 = 尺寸 × 密度，4K 舞台不把那块位图撑成几百 MB）。
+ * - 舞台很大时不超过 `max`：位图 = 尺寸 × 密度，2560 是"够大"与"位图预算"的折中
+ *   （dpr 2 → 5120×2880 ≈ 14.7M px ≈ 59 MB；逐帧直绘的画布，这个量级可接受）。
+ *   chart-preview 19 定案（用户 2026-10-07）：保持 contain、接受两侧留白，但把画面做大 ——
+ *   原来 1920 的钳制在 2560 / 3440 宽的窗口上会让场地（1920×1079）只有舞台的 78% / 56% 宽。
  */
-export const SIM_FIELD_LIMITS = { minW: 320, maxW: 1920 } as const;
+export const SIM_FIELD_LIMITS = { minW: 320, maxW: 2560 } as const;
 
 /** 场地几何（一帧绘制只读它；尺寸变了才重算） */
 export interface SimFieldMetrics {

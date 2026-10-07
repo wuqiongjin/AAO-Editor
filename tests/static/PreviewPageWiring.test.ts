@@ -112,6 +112,14 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(css).toMatch(/\.preview-modes\s*\{[^}]*border-bottom:\s*1px solid var\(--border\)/);
     expect(css).not.toContain('preview-toolbar__controls');
   });
+
+  it('动态形态把页面留白收一档让给场地（chart-preview 19：contain 下画面变大的唯一来源是高度）', () => {
+    const src = readStripped('src/pages/preview/PreviewPage.tsx');
+    expect(src).toMatch(/preview-page\$\{mode === 'video' \? ' is-video' : ''\}/);
+    const css = readStripped('src/pages/preview/PreviewPage.css');
+    expect(css).toMatch(/\.preview-page\.is-video\s*\{[^}]*padding:\s*12px 12px 8px/);
+    expect(css).toMatch(/\.preview-page\.is-video \.pv-bar\s*\{[^}]*min-height:\s*32px/);
+  });
 });
 
 describe('chart-preview 02 · 预览域骨架与依赖方向', () => {

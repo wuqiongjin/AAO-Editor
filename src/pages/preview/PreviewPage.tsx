@@ -185,7 +185,9 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   return (
     // 票 10：自渲染全幅壳（页头 → 工具栏 → 舞台），把宽高让给画面；
     // 原左侧模式侧栏随之撤销，模式切换升为页头（2026-10-02 用户验收）。
-    <div className="preview-page">
+    // 票 19（用户 2026-10-07 定案）：动态形态把页面留白再收一档，把那点高度让给场地
+    // （场地按设计面 contain，横向空白是它自己的事）。
+    <div className={`preview-page${mode === 'video' ? ' is-video' : ''}`}>
       {/* 页头 = 模式切换独占一行（2026-10-02 用户验收：标题区整块撤销，模式名即标题）；
           整行下缘分割线是页头级的层次所在（样式变体 D 定案）。 */}
       <header className="preview-header">

@@ -535,6 +535,31 @@
   cursor: pointer;
 }
 
+/* ---- 动态形态：页面留白收一档，把那点高度让给场地（chart-preview 19，用户 2026-10-07 定案）----
+   场地按设计面 contain（不满宽、两侧留白接受），所以"画面变大"唯一的来源就是**多给高度**：
+   页 padding 40 → 20、页头行 22 → 16、工具栏下留白 10 → 8、播放条 44 → 40（34→32 + gap 10→8）。
+   实测（1920×1080）场地 1601×900 → 1637×932；大屏另有 `SIM_FIELD_LIMITS.maxW` 1920 → 2560。 */
+.preview-page.is-video {
+  padding: 12px 12px 8px;
+}
+
+.preview-page.is-video .preview-modes {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.preview-page.is-video .preview-toolbar {
+  padding-bottom: 8px;
+}
+
+.preview-page.is-video .pv-stage {
+  gap: 8px;
+}
+
+.preview-page.is-video .pv-bar {
+  min-height: 32px;
+}
+
 /* ---- 窄屏（720 断点，与全站内容壳同口径）：左右收窄，其余行为不变 ---- */
 @media (max-width: 720px) {
   .preview-page {
