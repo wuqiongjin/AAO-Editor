@@ -62,12 +62,13 @@ import {
   SIM_LANE_FLASH_ALPHA,
   SIM_LANE_FLASH_DURATION,
   SIM_LANE_FLASH_SPAN,
+  SIM_SPRITE_EFFECT,
   SIM_SPRITE_EFFECT_DURATION,
   visibleApproach,
   type SimFieldMetrics,
   type SimPoint,
 } from './simGeometry';
-import { digitRect, particleTile, radialCircle, type TileSource } from './simSprites';
+import { digitRect, particleTile, radialCircleOf, type TileSource } from './simSprites';
 import type { SimSprites } from './simAssets';
 
 /** 缺素材时的场地底色（近黑，与游戏场地暗部同族） */
@@ -559,13 +560,10 @@ function elementBound(elements: readonly SimElement[], time: number, inclusive: 
  *
  * | 类型 | 窗口 | 元素（图块 col,row / 生成圆） | 尺寸 | α |
  * | --- | --- | --- | --- | --- |
- * | tap | <0.4 | beam(0,0) / slot(1,0) | 1.33×2 / 1×1 | 1−i |
- * | tap | <0.6 | circle(生成) / whiteCircle | 2.25e × 1.5e | 0.5(1−i) |
- * | tap | <0.3 | whiteCircle | 2.25e × 1.5e | 0.5(1−i) |
- * | tap | <0.6 | ring(2,0) ×2 | 3e×2e / 2.4e×1.6e | 0.8(1−i) |
- * | flick | <0.4 / <0.2 / <0.6 | slot(1,0) / circle + whiteCircle / ring(2,0) | 1×1 / 1.5(1−u)×2(1+4u) / 3e×2e | 1−i / 1 / 0.8(1−i) |
- * | skill | <0.4 / <0.3 / <0.6 | beam(3,0)+slot(1,0) / whiteCircle / star(0,1)+ring(2,0) | 0.6×1.5、1×1 / 2.25e×1.5e / 2.25e×1.5e、3e×2e | 1−i / 0.5(1−i) / 0.8(1−i) |
- * | directional | <0.2 / <0.6 | 斜扫圆（转 ±π/3）+ 正位圆 / 箭头(1,1)（外移 1 lane、转 ±π/2）+ ring(2,0) | 1.5e×4e / … | 1−e / … |
+ * 四样参数（窗口 / 图块 / 尺寸 / α）都在 `SIM_SPRITE_EFFECT`（`simGeometry`）里，**本文件只消费**。
+ *
+ * 另有**连按（带体按住）**那两笔（`drawHoldEffects`）：正在按住的那段带子，在判定线上的
+ * 插值轨位画 `connectionRing`（(2,1)，不染）+ 一对对转的 `rotatingRing`（(3,1)，青），α 恒 1。
  *
  * 滑条结点（`slide`）在 Bestdori 里就是 **tap**（命中样式与配色都照 tap）。
  */
@@ -590,6 +588,7 @@ function drawEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, second
       drawProceduralEffect(ctx, m, el, since);
     }
   }
+  if (sprites) drawHoldEffects(ctx, sprites, m, chart, seconds, scene.noteSize);
   ctx.restore();
 }
 
@@ -636,97 +635,160 @@ function drawSpriteEffect(
   const tint = kind === 'directional'
     ? (el.dirSide === 'R' ? SIM_EFFECT_TINTS.directionalR : SIM_EFFECT_TINTS.directionalL)
     : SIM_EFFECT_TINTS[kind];
-  const white = radialCircle(SIM_EFFECT_TINTS.white, 'rgba(255, 255, 255, 0)');
-  const circle = radialCircle(tint, tint.replace(/,\s*1\)$/, ', 0)'));
-  const tile = (col: number, row: number) => particleTile(sprites, col, row, tint);
+  const white = radialCircleOf(SIM_EFFECT_TINTS.white);
+  const circle = radialCircleOf(tint);
+  const { window: W, tile: TILE, size: S, alpha: A } = SIM_SPRITE_EFFECT;
+  const tile = (at: readonly [number, number], color: string | null = tint) =>
+    particleTile(sprites, at[0], at[1], color);
 
   if (kind === 'tap') {
-    if (since < 0.4) {
-      const t = since / 0.4;
-      const a = 1 - easeInCubic(t);
-      drawBottom(c, tile(0, 0), 1.33, 2, a);
-      drawCentered(c, tile(1, 0), 1, 1, a);
+    if (since < W.beam) {
+      const p = since / W.beam;
+      const a = A.beam * (1 - easeInCubic(p));
+      drawBottom(c, tile(TILE.beam), S.beam[0], S.beam[1], a);
+      drawCentered(c, tile(TILE.slot), S.slot, S.slot, a);
     }
-    if (circle && since < 0.6) {
-      const e = easeOutCubic(since / 0.6);
-      drawCentered(c, circle, 2.25 * e, 1.5 * e, 0.5 * (1 - easeInCubic(since / 0.6)));
+    if (circle && since < W.circle) {
+      const p = since / W.circle;
+      const e = easeOutCubic(p);
+      drawCentered(c, circle, S.circle[0] * e, S.circle[1] * e, A.circle * (1 - easeInCubic(p)));
     }
-    if (white && since < 0.3) {
-      const e = easeOutCubic(since / 0.3);
-      drawCentered(c, white, 2.25 * e, 1.5 * e, 0.5 * (1 - easeInCubic(since / 0.3)));
+    if (white && since < W.white) {
+      const p = since / W.white;
+      const e = easeOutCubic(p);
+      drawCentered(c, white, S.circle[0] * e, S.circle[1] * e, A.white * (1 - easeInCubic(p)));
     }
-    if (since < 0.6) {
-      const e = easeOutCubic(since / 0.6);
-      const a = 0.8 * (1 - easeInCubic(since / 0.6));
-      drawCentered(c, tile(2, 0), 3 * e, 2 * e, a);
-      drawCentered(c, tile(2, 0), 3 * 0.8 * e, 1.6 * e, a);
+    if (since < W.circle) {
+      const p = since / W.circle;
+      const e = easeOutCubic(p);
+      const a = A.ring * (1 - easeInCubic(p));
+      drawCentered(c, tile(TILE.ring), S.ring[0] * e, S.ring[1] * e, a);
+      drawCentered(c, tile(TILE.ring), S.ringInner[0] * e, S.ringInner[1] * e, a);
     }
     return;
   }
 
   if (kind === 'flick') {
-    if (since < 0.4) drawCentered(c, tile(1, 0), 1, 1, 1 - easeInCubic(since / 0.4));
-    if (since < 0.2) {
-      const u = since / 0.2;
-      if (circle) drawCentered(c, circle, 1.5 * (1 - u), 2 * (1 + 4 * u), 1);
-      if (white) drawCentered(c, white, 1.5 * (1 - u), 2, 1);
+    if (since < W.beam) drawCentered(c, tile(TILE.slot), S.slot, S.slot, A.beam * (1 - easeInCubic(since / W.beam)));
+    if (since < W.flickCircle) {
+      const u = since / W.flickCircle;
+      const w = S.flickCircleW * (1 - u);
+      if (circle) drawCentered(c, circle, w, S.flickCircleH * (1 + 4 * u), 1);
+      // 白圆那笔只有宽跟着收（高度恒 `2`）—— 照 bundle 原文，别顺手"对齐"成一样
+      if (white) drawCentered(c, white, w, S.flickCircleH, 1);
     }
-    if (since < 0.6) {
-      const e = easeOutCubic(since / 0.6);
-      drawCentered(c, tile(2, 0), 3 * e, 2 * e, 0.8 * (1 - easeInCubic(since / 0.6)));
+    if (since < W.circle) {
+      const p = since / W.circle;
+      const e = easeOutCubic(p);
+      drawCentered(c, tile(TILE.ring), S.ring[0] * e, S.ring[1] * e, A.ring * (1 - easeInCubic(p)));
     }
     return;
   }
 
   if (kind === 'skill') {
-    if (since < 0.4) {
-      const a = 1 - easeInCubic(since / 0.4);
-      drawBottom(c, tile(3, 0), 0.6, 1.5, a);
-      drawCentered(c, tile(1, 0), 1, 1, a);
+    if (since < W.beam) {
+      const a = A.beam * (1 - easeInCubic(since / W.beam));
+      drawBottom(c, tile(TILE.skillBeam), S.skillBeam[0], S.skillBeam[1], a);
+      drawCentered(c, tile(TILE.slot), S.slot, S.slot, a);
     }
-    if (white && since < 0.3) {
-      const e = easeOutCubic(since / 0.3);
-      drawCentered(c, white, 2.25 * e, 1.5 * e, 0.5 * (1 - easeInCubic(since / 0.3)));
+    if (white && since < W.white) {
+      const p = since / W.white;
+      const e = easeOutCubic(p);
+      drawCentered(c, white, S.circle[0] * e, S.circle[1] * e, A.white * (1 - easeInCubic(p)));
     }
-    if (since < 0.6) {
-      const e = easeOutCubic(since / 0.6);
-      const a = 0.8 * (1 - easeInCubic(since / 0.6));
-      drawCentered(c, tile(0, 1), 2.25 * e, 1.5 * e, a);
-      drawCentered(c, tile(2, 0), 3 * e, 2 * e, a);
+    if (since < W.circle) {
+      const p = since / W.circle;
+      const e = easeOutCubic(p);
+      const a = A.ring * (1 - easeInCubic(p));
+      drawCentered(c, tile(TILE.star), S.star[0] * e, S.star[1] * e, a);
+      drawCentered(c, tile(TILE.ring), S.ring[0] * e, S.ring[1] * e, a);
     }
     return;
   }
 
   // directionalFlick：斜扫一记 + 正位圆 + 箭头（照 Bestdori 的旋转 / 位移）
   const dir = el.dirSide === 'R' ? 1 : -1;
-  if (circle && white && since < 0.2) {
-    const t = easeOutCubic(since / 0.2);
+  if (circle && white && since < W.dirSweep) {
+    const t = easeOutCubic(since / W.dirSweep);
     ctx.save();
     ctx.translate(c.x, c.y);
     ctx.rotate((Math.PI / 3) * dir);
     ctx.globalAlpha = 1 - t;
-    const w = 1.5 * t * noteSize * m.laneWidth;
-    const h = 4 * t * noteSize * m.laneWidth;
+    const w = S.dirSweep[0] * t * noteSize * m.laneWidth;
+    const h = S.dirSweep[1] * t * noteSize * m.laneWidth;
     ctx.drawImage(circle.source, circle.sx, circle.sy, circle.sw, circle.sh, -w / 2, -h, w, h);
     ctx.drawImage(white.source, white.sx, white.sy, white.sw, white.sh, -w / 2, -h, w, h);
     ctx.restore();
-    const shrink = 1 - since / 0.2;
-    drawCentered(c, circle, 1.5 * shrink, 2 * (1 + 4 * (since / 0.2)), 1);
-    drawCentered(c, white, 1.5 * shrink, 2, 1);
+    const u = since / W.dirSweep;
+    drawCentered(c, circle, S.flickCircleW * (1 - u), S.flickCircleH * (1 + 4 * u), 1);
+    drawCentered(c, white, S.flickCircleW * (1 - u), S.flickCircleH, 1);
   }
-  if (since < 0.6) {
-    const t = since / 0.6;
-    const arrow = tile(1, 1);
-    const shift = easeOutCubic(t) * dir; // 圆心外移 1 个 lane
+  if (since < W.dirArrow) {
+    const p = since / W.dirArrow;
+    const arrow = tile(TILE.arrow);
+    const shift = easeOutCubic(p) * dir; // 圆心外移 1 个 lane
     ctx.save();
     ctx.translate(c.x + shift * m.laneWidth, c.y);
     ctx.rotate((Math.PI / 2) * dir);
-    ctx.globalAlpha = 1 - easeInCubic(t);
-    const s = noteSize * m.laneWidth;
-    ctx.drawImage(arrow.source, arrow.sx, arrow.sy, arrow.sw, arrow.sh, -s / 2, -s / 2, s, s);
+    ctx.globalAlpha = A.beam * (1 - easeInCubic(p));
+    const s = S.arrow * noteSize * m.laneWidth;
+    // 箭头是**底边贴判定线**（bundle 的 `He`），不是居中：居中的话整枚会浮到线下面半个身位
+    ctx.drawImage(arrow.source, arrow.sx, arrow.sy, arrow.sw, arrow.sh, -s / 2, -s, s, s);
     ctx.restore();
-    const e = easeOutCubic(t);
-    drawCentered(c, tile(2, 0), 3 * e, 2 * e, 0.8 * (1 - easeInCubic(t)));
+    const e = easeOutCubic(p);
+    drawCentered(c, tile(TILE.ring), S.ring[0] * e, S.ring[1] * e, A.ring * (1 - easeInCubic(p)));
+  }
+}
+
+/**
+ * 连按（带体按住）特效（chart-preview 21；bundle 的 `y.forEach` 两段）：
+ * **正在按住的那一段带子**在判定线上画两笔 —— `connectionRing`（(2,1)，**不染**）
+ * + 一对**反向对转**的 `rotatingRing`（(3,1)，青；1× 与 0.75×），α 恒 1。
+ *
+ * 命中点 = 段内按秒插值的轨位（照 bundle 的 `L = from.lane + (to.lane − from.lane)·(t − t0)/(t1 − t0)`），
+ * 只在 `t ∈ (段起点, 段终点]` 期间给 —— 那一段就是"正被按住"（倒流区里段可能反向，故按 min/max 判）。
+ * 旋转角 = `t · 2π`（两环一个正转一个反转）。
+ */
+function drawHoldEffects(
+  ctx: CanvasRenderingContext2D,
+  sprites: SimSprites,
+  m: SimFieldMetrics,
+  chart: SimChart,
+  seconds: number,
+  noteSize: number,
+): void {
+  const { tile: TILE, size: S, alpha: A } = SIM_SPRITE_EFFECT;
+  const ring = particleTile(sprites, TILE.connectionRing[0], TILE.connectionRing[1], null);
+  const rotating = particleTile(sprites, TILE.rotatingRing[0], TILE.rotatingRing[1], SIM_EFFECT_TINTS.tap);
+  for (const band of chart.bands) {
+    const span = band.t1 - band.t0;
+    if (span === 0) continue;
+    const lo = Math.min(band.t0, band.t1);
+    const hi = Math.max(band.t0, band.t1);
+    if (seconds <= lo || seconds > hi) continue; // 这段没被按住
+    const lane = band.lane0 + (band.lane1 - band.lane0) * ((seconds - band.t0) / span);
+    const x = laneCenterX(m, lane, 1);
+
+    ctx.save();
+    ctx.globalAlpha = A.connection;
+    const w = S.connectionRing[0] * noteSize * m.laneWidth;
+    const h = S.connectionRing[1] * noteSize * m.laneWidth;
+    ctx.drawImage(ring.source, ring.sx, ring.sy, ring.sw, ring.sh, x - w / 2, m.laneHeight - h / 2, w, h);
+
+    // 旋转环：`2·laneWidth·n × 4/3·laneWidth·n`，绕命中点转 `t·2π`（第二枚反向、0.75 倍）
+    const rw = 2 * m.laneWidth * noteSize;
+    const rh = (2 * rw) / 3;
+    const spin = seconds * Math.PI * 2;
+    ctx.translate(x, m.laneHeight);
+    ctx.rotate(spin);
+    ctx.drawImage(rotating.source, rotating.sx, rotating.sy, rotating.sw, rotating.sh, -rw / 2, -rh / 2, rw, rh);
+    ctx.rotate(-2 * spin);
+    ctx.drawImage(
+      rotating.source, rotating.sx, rotating.sy, rotating.sw, rotating.sh,
+      (-rw * S.rotatingRingInner) / 2, (-rh * S.rotatingRingInner) / 2,
+      rw * S.rotatingRingInner, rh * S.rotatingRingInner,
+    );
+    ctx.restore();
   }
 }
 

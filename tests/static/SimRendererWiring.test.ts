@@ -115,6 +115,27 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     expect(playback).toMatch(/engine\.seek\(0\)/);
   });
 
+  it('Bestdori 自家精灵只走直读通道（chart-preview 21）：三张 PNG 都在 `/__bestdori-assets/` 下', () => {
+    const assets = readStripped(`${SIM_DIR}/simAssets.ts`);
+    expect(assets).toMatch(/SIM_SPRITE_PACK = 'sprites'/);
+    expect(assets).toMatch(/digits\.png/);
+    expect(assets).toMatch(/combo\.png/);
+    expect(assets).toMatch(/particles\.png/);
+    // 素材边界（票面 + ADR-0016 §6）：仅供本地研究、不入 git、不进安装包 ⇒ 不许出现远程地址
+    for (const file of simFiles) {
+      expect(readStripped(file)).not.toMatch(/https?:\/\//);
+    }
+  });
+
+  it('打击特效的窗口 / 尺寸 / α 只在 simGeometry 那张表里（chart-preview 21 落点）', () => {
+    const geometry = readStripped(GEOMETRY);
+    expect(geometry).toMatch(/export const SIM_SPRITE_EFFECT = \{/);
+    const field = readStripped(`${SIM_DIR}/simField.ts`);
+    expect(field).toMatch(/SIM_SPRITE_EFFECT/);
+    // 回潮守卫：这几个数是表里誊自 bundle 的，绘制代码里不许再写一份（改表就得改两处 = 口径漂移）
+    expect(field).not.toMatch(/1\.33|2\.25/);
+  });
+
   it('音符速度档：白名单与默认值只在设置域，仿真场不另写一份', () => {
     const geometry = readStripped(GEOMETRY);
     expect(geometry).toMatch(/\{\s*normalizeNoteSpeed\s*\}\s*from\s*'\.\.\/\.\.\/\.\.\/chart\/config\/AppSettings'/);

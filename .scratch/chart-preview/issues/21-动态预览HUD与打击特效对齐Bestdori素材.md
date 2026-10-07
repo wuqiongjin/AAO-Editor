@@ -59,6 +59,12 @@ Status: resolved 实现（2026-10-07，待用户验收；实现与验证见 Answ
 
 - 2026-10-07 开票（本会话）：素材可得性已实测（三张 PNG HTTP 200 + 尺寸）；效果表从 bundle 原文逐条誊出（`.cache/bestdori-bundles/CommunityChartsNew.b534f9a9.js`，`0===this.simTapEffect` 段）。
 - 2026-10-07 **定案（用户拍板）**：素材走 Bestdori 自家 `/res/sprites/*.png`（dev 直读、不入 git / 不进安装包；缺图回落现有自绘）。
+- 2026-10-07 **评审后补**（代码评审 → 修，同一轮）：
+  1. **补上漏掉的「连按（带体按住）」两笔** —— 正在按住的那段带子，在段内按秒插值的轨位上画 `connectionRing(2,1)`（bundle **不染**，故 `particleTile` 加"不染"这一支）+ 一对对转的 `rotatingRing(3,1)` 青（`2·laneWidth·n × 4/3·laneWidth·n` 的 1× 与 0.75×，绕命中点转 `t·2π`）。票里表格有这一行、首轮实现整条没做。
+  2. **方向键箭头改"底边贴判定线"** —— bundle 那一笔是 `He`（`drawImage(..., i−a/2, −s, a, s)`），首轮写成居中 ⇒ 整枚浮到线下面半个身位。
+  3. **特效表收进 `simGeometry`**（票内「落点」原本就这么定，首轮只搬了两个窗口常量）：窗口 / 图块坐标 / 尺寸 / α 四样进 `SIM_SPRITE_EFFECT`，`simField` 只消费（回潮守卫：`SimRendererWiring` 禁 `simField` 再写 `1.33` / `2.25` 这类表里的数）。
+  4. **补票内承诺的锁测** `tests/unit/preview/video/SimEffects.test.ts`（12 例）：表里的数字逐条断言 + 各笔的图块 / 尺寸 / α / 锚点（居中 vs 底边贴线）逐笔对；`SimRendererWiring` 加"精灵只走直读通道（不许出现远程 URL）"与"特效常量只在表里"两条。
+  5. **与 bundle 原文再逐条比对后的四处"不是 bug"**（评审列的偏差，核对后维持实现）：flick 白圆高度恒 `2`（bundle 原文如此，只有宽跟着 `1−u` 收）；skill 星 `2.25e × 1.5e`；combo 标签顶 y = `+Le/2 = +0.0625H`（票内表格那句"y ∈ [+0.025H, +0.075H]"是誊写偏差）；skill 黄 `rgba(255,255,64,1)`（bundle 原文，不是自造）。**以 bundle 为准**，票内表格相关四句按誊写偏差记。
 
 ## Answer
 

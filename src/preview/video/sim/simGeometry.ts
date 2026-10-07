@@ -311,6 +311,77 @@ export const SIM_EFFECT_TINTS = {
 export const SIM_LANE_FLASH_DURATION = 0.2;
 export const SIM_SPRITE_EFFECT_DURATION = 0.6;
 
+/**
+ * 打击特效表（chart-preview 21）：**逐条誊自 Bestdori bundle** 的 `0 === simTapEffect` 段
+ * （`CommunityChartsNew.b534f9a9.js`，scope `691780a2`，本地留档 `.cache/bestdori-bundles/`）。
+ *
+ * 窗口（秒）/ 图块（`particles.png` 4×4 的 `[col, row]`）/ 尺寸（lane 单位，× `noteSize`，
+ * 缓动后）× α 峰值 —— 四样都只在这里定义一次，`simField` 只消费不写字面量
+ * （chart-preview 18 定的「常量唯一定义处」口径）。
+ *
+ * 尺寸里带 `e` 的是 × `easeOutCubic(p)`，带 `u` 的是 × `(1 − u)` / `(1 + 4u)`（线性进度）。
+ */
+export const SIM_SPRITE_EFFECT = {
+  /** 各笔的寿命窗口（秒）；`circle` 同时是"整条特效"的窗口（= `SIM_SPRITE_EFFECT_DURATION`） */
+  window: {
+    /** 光柱 + 槽（tap / flick / skill 通用） */
+    beam: 0.4,
+    /** 生成圆 / 打击环（最长的一笔） */
+    circle: 0.6,
+    /** 白圆 */
+    white: 0.3,
+    /** flick / 方向键的"正位圆"收缩 */
+    flickCircle: 0.2,
+    /** 方向键斜扫 */
+    dirSweep: 0.2,
+    /** 方向键箭头 + 环 */
+    dirArrow: 0.6,
+  },
+  /** 图块坐标 `[col, row]`（生成圆不在此列：它是 `createCircleSprite` 画的径向渐变） */
+  tile: {
+    beam: [0, 0],
+    slot: [1, 0],
+    ring: [2, 0],
+    skillBeam: [3, 0],
+    star: [0, 1],
+    arrow: [1, 1],
+    /** 连按的环（bundle **不染**，照原色） */
+    connectionRing: [2, 1],
+    /** 连按的旋转环（青） */
+    rotatingRing: [3, 1],
+  },
+  /** 尺寸（lane 单位 × `noteSize`；`[w, h]` 或单一值 = 正方） */
+  size: {
+    beam: [1.33, 2],
+    slot: 1,
+    circle: [2.25, 1.5],
+    ring: [3, 2],
+    /** 打击环的第二枚：`3 × 0.8 × e` × `1.6e` */
+    ringInner: [2.4, 1.6],
+    skillBeam: [0.6, 1.5],
+    star: [2.25, 1.5],
+    /** flick / 方向键正位圆的宽：`1.5(1 − u)`；高 = `2(1 + 4u)`（白圆恒 `2`） */
+    flickCircleW: 1.5,
+    flickCircleH: 2,
+    dirSweep: [1.5, 4],
+    arrow: 1,
+    /** 连按环：`3 × 0.6n` × `1.2n` */
+    connectionRing: [1.8, 1.2],
+    /** 连按旋转环：`2·laneWidth·n` × `4/3·laneWidth·n` 的 1× 与 0.75× 两枚 */
+    rotatingRing: 1,
+    rotatingRingInner: 0.75,
+  },
+  /** 各笔的 α 峰值（再乘 `(1 − easeIn(p))`；（方向键斜扫那笔是 `1 − easeOut`）） */
+  alpha: {
+    beam: 1,
+    circle: 0.5,
+    white: 0.5,
+    ring: 0.8,
+    /** 连按（环与旋转环）：α 恒 1 */
+    connection: 1,
+  },
+} as const;
+
 /** Bestdori 的缓动（`easeInCubic` / `easeOutCubic`）：特效各笔的尺寸 / 透明度都按它插值 */
 export function easeInCubic(t: number): number {
   return t * t * t;

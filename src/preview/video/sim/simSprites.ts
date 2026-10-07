@@ -41,15 +41,22 @@ function offscreen(size: number): { canvas: HTMLCanvasElement; ctx: CanvasRender
   }
 }
 
-/** 整块染色（`source-atop`；失败 → null） */
-function buildTintedTile(img: CanvasImageSource, col: number, row: number, color: string): CanvasImageSource | null {
+/** 整块染色（`source-atop`；`color` 为 null = 不染；失败 → null） */
+function buildTintedTile(
+  img: CanvasImageSource,
+  col: number,
+  row: number,
+  color: string | null,
+): CanvasImageSource | null {
   const off = offscreen(SPRITE_TILE);
   if (!off) return null;
   try {
     off.ctx.drawImage(img, col * SPRITE_TILE, row * SPRITE_TILE, SPRITE_TILE, SPRITE_TILE, 0, 0, SPRITE_TILE, SPRITE_TILE);
-    off.ctx.globalCompositeOperation = 'source-atop';
-    off.ctx.fillStyle = color;
-    off.ctx.fillRect(0, 0, SPRITE_TILE, SPRITE_TILE);
+    if (color !== null) {
+      off.ctx.globalCompositeOperation = 'source-atop';
+      off.ctx.fillStyle = color;
+      off.ctx.fillRect(0, 0, SPRITE_TILE, SPRITE_TILE);
+    }
     return off.canvas;
   } catch {
     return null;
@@ -75,10 +82,16 @@ function buildCircle(inner: string, outer: string): CanvasImageSource | null {
 
 /**
  * `particles.png` 的 (col,row) 块，按 `color` 染色（缓存）。
+ * `color` 给 null = **不染**（照 Bestdori：连按那枚 `connectionRing` 就是原色）。
  * 无 DOM 时退回原图整块（不染）—— 观感差一点，但不会画不出来。
  */
-export function particleTile(sprites: SimSprites, col: number, row: number, color: string): TileSource {
-  const key = `${col},${row},${color}`;
+export function particleTile(
+  sprites: SimSprites,
+  col: number,
+  row: number,
+  color: string | null = null,
+): TileSource {
+  const key = `${col},${row},${color ?? 'none'}`;
   if (!tileCache.has(key)) tileCache.set(key, buildTintedTile(sprites.particles, col, row, color));
   const tinted = tileCache.get(key);
   if (tinted) return { source: tinted, sx: 0, sy: 0, sw: SPRITE_TILE, sh: SPRITE_TILE };
@@ -91,6 +104,19 @@ export function radialCircle(inner: string, outer: string): TileSource | null {
   if (!circleCache.has(key)) circleCache.set(key, buildCircle(inner, outer));
   const canvas = circleCache.get(key);
   return canvas ? { source: canvas, sx: 0, sy: 0, sw: SPRITE_TILE, sh: SPRITE_TILE } : null;
+}
+
+/** 本色 → 同色全透明（生成圆的外圈；`rgba(r, g, b, 1)` → `rgba(r, g, b, 0)`） */
+function transparentTint(color: string): string {
+  return color.replace(/,\s*1\)$/, ', 0)');
+}
+
+/**
+ * 元素本色的生成圆（内 = 本色、外 = 同色透明）—— 照 Bestdori 的 `createCircleSprite`，
+ * 一色一张缓存；无 DOM → null（那一笔不画，其余图块照画）。
+ */
+export function radialCircleOf(color: string): TileSource | null {
+  return radialCircle(color, transparentTint(color));
 }
 
 /** 数字位图矩形（源图像素）：第 `digit` 列 */
