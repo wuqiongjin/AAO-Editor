@@ -38,11 +38,17 @@ export interface UseChartProjectPersistenceOptions {
    * 一起做掉——那会清空撤销历史，用户只是换了个音频却丢了编辑历史。
    */
   onRecordAudioChanged?: (project: ChartProject) => void;
+  /** 注册等待恢复就绪回调（供 CurrentProjectProvider 串联 enterWorkspace） */
+  registerRestoreWaiter?: (fn: ((targetProjectId?: string, targetChartId?: string) => Promise<void>) | null) => void;
 }
 
 export interface UseChartProjectPersistenceReturn {
   /** 立即落盘（音频导入/清除、卸载前） */
   saveNow: () => Promise<void>;
+  /** 当前工程是否已恢复结算完成 */
+  readonly isSettled: boolean;
+  /** 等待当前恢复结算完成（已结算立即 resolve） */
+  waitUntilSettled: (targetProjectId?: string, targetChartId?: string) => Promise<void>;
 }
 
 export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptions): UseChartProjectPersistenceReturn {
@@ -89,7 +95,56 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   const boundChartIdRef = useRef<string | null>(null);
   const boundEpochRef = useRef(0);
   const restoreSettledRef = useRef(true);
+  const justRestoredRef = useRef(false);
   const loadGenRef = useRef(0);
+  const settleResolversRef = useRef<Array<() => boolean>>([]);
+
+  const notifySettle = useCallback(() => {
+    restoreSettledRef.current = true;
+    justRestoredRef.current = true;
+    const pending = settleResolversRef.current;
+    const remaining: Array<() => boolean> = [];
+    for (const check of pending) {
+      if (!check()) remaining.push(check);
+    }
+    settleResolversRef.current = remaining;
+  }, []);
+
+  const waitUntilSettled = useCallback((targetProjectId?: string, targetChartId?: string) => {
+    const matchesTarget = targetProjectId == null || (
+      boundProjectIdRef.current === targetProjectId
+      && (targetChartId == null || boundChartIdRef.current === targetChartId)
+    );
+    if (restoreSettledRef.current && matchesTarget) return Promise.resolve();
+
+    return new Promise<void>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const done = () => {
+        if (timer != null) clearTimeout(timer);
+        resolve();
+      };
+      timer = setTimeout(done, 1500);
+
+      const check = () => {
+        const matches = targetProjectId == null || (
+          boundProjectIdRef.current === targetProjectId
+          && (targetChartId == null || boundChartIdRef.current === targetChartId)
+        );
+        if (matches) {
+          done();
+          return true;
+        }
+        return false;
+      };
+      settleResolversRef.current.push(check);
+    });
+  }, []);
+
+  const registerRestoreWaiter = opts.registerRestoreWaiter;
+  useEffect(() => {
+    registerRestoreWaiter?.(waitUntilSettled);
+    return () => registerRestoreWaiter?.(null);
+  }, [registerRestoreWaiter, waitUntilSettled]);
 
   if (
     projectId !== boundProjectIdRef.current
@@ -171,13 +226,13 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
         boundProjectIdRef.current = null;
         boundChartIdRef.current = null;
         boundEpochRef.current = wantedEpoch;
-        restoreSettledRef.current = true;
+        notifySettle();
         return;
       }
 
       const store = storeRef.current;
       if (!store) {
-        restoreSettledRef.current = true;
+        notifySettle();
         return;
       }
 
@@ -192,7 +247,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
         boundProjectIdRef.current = wantedProject;
         boundChartIdRef.current = wantedChart;
         boundEpochRef.current = wantedEpoch;
-        restoreSettledRef.current = true;
+        notifySettle();
         return;
       }
 
@@ -224,14 +279,18 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
         onRecordAudioChangedRef.current?.(loaded);
       }
       if (gen !== loadGenRef.current) return;
-      restoreSettledRef.current = true;
+      notifySettle();
     })();
-  }, [projectId, chartId, catalogEpoch, buildProject, ensureMerger]);
+  }, [projectId, chartId, catalogEpoch, buildProject, ensureMerger, notifySettle]);
 
   useEffect(() => {
     if (!restoreSettledRef.current) return;
     if (projectId !== boundProjectIdRef.current) return;
     if (chartId !== boundChartIdRef.current && chartId != null) return;
+    if (justRestoredRef.current) {
+      justRestoredRef.current = false;
+      return;
+    }
     const next = buildProject();
     if (!next) return;
     ensureMerger().schedule(next);
@@ -263,5 +322,9 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       if (!next) return Promise.resolve();
       return ensureMerger().saveNow(next);
     },
+    get isSettled() {
+      return restoreSettledRef.current;
+    },
+    waitUntilSettled,
   };
 }

@@ -157,7 +157,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     [audioSnap.audioName, audioSession],
   );
 
-  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, open, notifyCatalogChanged } = useCurrentProject();
+  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged } = useCurrentProject();
 
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
@@ -212,13 +212,13 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       audioSession.setChartDuration(project.durationSeconds);
       setCtxDuration(project.durationSeconds);
     }
+    // 无论是切工程还是切谱面，播放进度必须归零、停止播放并清除临时回跳标记
+    seek(0);
+    setMarker(null);
     if (!opts.restoreAudio) {
       audioSession.setAudioLocked(audioLocked);
       return;
     }
-    stopPlayback();
-    setCurrentSeconds(0);
-    setMarker(null);
     audioSession.hydrateFromProject({
       audioName: project.audioName,
       audioBlob: project.audioBlob,
@@ -226,7 +226,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       audioLocked,
     });
     audioSession.setAudioLocked(audioLocked);
-  }, [resetNotes, setCtxDuration, audioSession, stopPlayback, setCurrentSeconds, setMarker]);
+  }, [resetNotes, setCtxDuration, audioSession, seek, setMarker]);
 
   // 记录侧音频变更（票 15 定案 8 的不变量）：音频页按作用域直接写了当前工程记录的音频，
   // 而这条路上没有新谱面——所以只把音频重新对齐，不走 handleProjectRestore（它会 resetNotes，
@@ -235,8 +235,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const handleRecordAudioChanged = useCallback((
     project: import('../../project/ChartProject').ChartProject,
   ) => {
-    stopPlayback();
-    setCurrentSeconds(0);
+    seek(0);
     setMarker(null);
     if (project.durationSeconds > 0) setCtxDuration(project.durationSeconds);
     audioSession.hydrateFromProject({
@@ -245,7 +244,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       durationSeconds: project.durationSeconds,
       audioLocked: isProjectAudioLocked(project),
     });
-  }, [audioSession, stopPlayback, setCurrentSeconds, setMarker, setCtxDuration]);
+  }, [audioSession, seek, setMarker, setCtxDuration]);
 
   // === 会话流 6：持久化（当前工程恢复 + 防抖 800ms 落盘） ===
   // 收口点：不再有 audioMetaRef / persistRef ref 环——audioForPersist 是稳定对象，
@@ -262,6 +261,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     chartCodeFidelity,
     onRestore: handleProjectRestore,
     onRecordAudioChanged: handleRecordAudioChanged,
+    registerRestoreWaiter,
   });
   const persistNow = useCallback(() => persistence.saveNow(), [persistence]);
   useEffect(() => {
@@ -327,6 +327,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     virtualCanvasRef.current?.execPaste?.();
   }, [isReadOnly, triggerReadonlyPrompt]);
 
+  const handleTogglePlay = useCallback(() => {
+    if (!persistence.isSettled) return;
+    togglePlay();
+  }, [persistence, togglePlay]);
+
   // 具体功能分发（ADR-0002 + ADR-0008 §3）：切换功能 = 持工具态；执行功能 = 光标处瞬时执行（不占工具态）。
   // BPM/Slide 执行键按 §3 修订语义经画布 ref 执行（就地编辑 / slideBuffer 双入口共用）。
   const runFunction = useCallback((fn: FunctionId) => {
@@ -369,7 +374,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'execNoteCode': virtualCanvasRef.current?.execNoteCode?.(); break;
       case 'undo': undo(); break;
       case 'redo': redo(); break;
-      case 'play': togglePlay(); break;
+      case 'play': handleTogglePlay(); break;
       case 'jumpToMarker': jumpToMarker(); break;
       case 'toggleSidebar': {
         // ADR-0008 §7：侧栏折叠从 Esc 摘除 → 独立功能（issue 59 §2 起默认键为 Ctrl+Shift+B，
@@ -385,7 +390,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         break;
       }
     }
-  }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, togglePlay, jumpToMarker,
+  }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, handleTogglePlay, jumpToMarker,
       leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
@@ -528,7 +533,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           </div>
         </div>
         <PlayBar
-          onTogglePlay={togglePlay}
+          onTogglePlay={handleTogglePlay}
           onVolumeChange={handleVolumeChange}
           onSeek={seek}
         />

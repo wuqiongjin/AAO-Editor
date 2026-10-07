@@ -15,6 +15,8 @@ export interface CurrentProjectContextValue {
   notifyCatalogChanged: () => void;
   registerPersistFlush: (fn: (() => Promise<void>) | null) => void;
   flushPersist: () => Promise<void>;
+  registerRestoreWaiter: (fn: ((targetProjectId?: string, targetChartId?: string) => Promise<void>) | null) => void;
+  waitForRestore: (targetProjectId?: string, targetChartId?: string) => Promise<void>;
 }
 
 const CurrentProjectContext = createContext<CurrentProjectContextValue | null>(null);
@@ -48,6 +50,7 @@ export function CurrentProjectProvider({
     sessionRef.current = sessionFor(storeRef.current, store);
   }
   const persistFlushRef = useRef<() => Promise<void>>(async () => {});
+  const restoreWaiterRef = useRef<(targetProjectId?: string, targetChartId?: string) => Promise<void>>(async () => {});
   const [projectId, setProjectId] = useState<string | null>(() => sessionRef.current!.projectId);
   const [chartId, setChartId] = useState<string | null>(() => sessionRef.current!.chartId);
   const [catalogEpoch, setCatalogEpoch] = useState(0);
@@ -85,6 +88,15 @@ export function CurrentProjectProvider({
 
   const flushPersist = useCallback(() => persistFlushRef.current(), []);
 
+  const registerRestoreWaiter = useCallback((fn: ((targetProjectId?: string, targetChartId?: string) => Promise<void>) | null) => {
+    restoreWaiterRef.current = fn ?? (async () => {});
+  }, []);
+
+  const waitForRestore = useCallback(
+    (targetProjectId?: string, targetChartId?: string) => restoreWaiterRef.current(targetProjectId, targetChartId),
+    [],
+  );
+
   const value = useMemo(
     () => ({
       projectId,
@@ -97,8 +109,22 @@ export function CurrentProjectProvider({
       notifyCatalogChanged,
       registerPersistFlush,
       flushPersist,
+      registerRestoreWaiter,
+      waitForRestore,
     }),
-    [projectId, chartId, catalogEpoch, ensure, open, reset, notifyCatalogChanged, registerPersistFlush, flushPersist],
+    [
+      projectId,
+      chartId,
+      catalogEpoch,
+      ensure,
+      open,
+      reset,
+      notifyCatalogChanged,
+      registerPersistFlush,
+      flushPersist,
+      registerRestoreWaiter,
+      waitForRestore,
+    ],
   );
   return <CurrentProjectContext.Provider value={value}>{children}</CurrentProjectContext.Provider>;
 }

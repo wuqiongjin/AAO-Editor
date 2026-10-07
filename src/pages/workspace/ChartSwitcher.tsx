@@ -35,7 +35,7 @@ import './ChartSwitcher.css';
 export default function ChartSwitcher() {
   const { setActivePage } = useAppNav();
   const {
-    projectId, chartId, store, catalogEpoch, open, notifyCatalogChanged, flushPersist,
+    projectId, chartId, store, catalogEpoch, open, notifyCatalogChanged, flushPersist, waitForRestore,
   } = useCurrentProject();
   const [project, setProject] = useState<ChartProject | null>(null);
   const [openMenu, setOpenMenu] = useState(false);
@@ -69,15 +69,19 @@ export default function ChartSwitcher() {
     );
     if (result.status !== 'saved') return null;
     setProject(result.project);
-    if (thenChartId) await open(projectId, thenChartId);
+    if (thenChartId) {
+      await open(projectId, thenChartId);
+      await waitForRestore(projectId, thenChartId);
+    }
     return result.project;
-  }, [projectId, flushPersist, store, notifyCatalogChanged, open]);
+  }, [projectId, flushPersist, store, notifyCatalogChanged, open, waitForRestore]);
 
   const selectChart = useCallback(async (id: string) => {
     if (!projectId || id === chartId) return;
     await flushPersist();
     await open(projectId, id);
-  }, [projectId, chartId, flushPersist, open]);
+    await waitForRestore(projectId, id);
+  }, [projectId, chartId, flushPersist, open, waitForRestore]);
 
   const copyChart = useCallback(async () => {
     if (!project || !chartId) return;

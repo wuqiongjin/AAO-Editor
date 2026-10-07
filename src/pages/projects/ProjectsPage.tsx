@@ -37,7 +37,7 @@ export default function ProjectsPage() {
   const { activePage, setActivePage } = useAppNav();
   const { settings, setProjectSort, setProjectListWidth } = useConfig();
   const {
-    projectId, store, catalogEpoch, open, reset, notifyCatalogChanged, flushPersist,
+    projectId, store, catalogEpoch, open, reset, notifyCatalogChanged, flushPersist, waitForRestore,
   } = useCurrentProject();
   // 启动台排序（issue 19 #4）：跨会话沿用，改一次写回设置对象
   const sortKey = settings.projects.sort;
@@ -95,8 +95,9 @@ export default function ProjectsPage() {
 
   const enterWorkspace = useCallback(async (id: string, chartId?: string) => {
     await setCurrent(id, chartId);
+    await waitForRestore(id, chartId);
     setActivePage('workspace');
-  }, [setCurrent, setActivePage]);
+  }, [setCurrent, waitForRestore, setActivePage]);
 
   // 删除工程本体：确认那一步在弹窗里，走到这里就是真的删
   const deleteProject = useCallback(async (p: ChartProject) => {
