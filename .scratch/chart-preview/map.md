@@ -38,7 +38,7 @@
 
 - [01 谱面预览](./issues/01-谱面预览.md) — 已解决（2026-09-30：调研 + 7 项定案，见票内 Answer）
 - [02 预览页壳与入口](./issues/02-预览页壳与入口.md) — 已解决（2026-09-30：预览页壳 + 两条入口 + `chartId` 二级转正；导航位次 **`⇧⌘3` 紧随音频页**——用户验收把原定末位改到这里）
-- [03 静态预览：面板折行 + 长图导出](./issues/03-静态预览面板折行与长图导出.md) — Blocked by: 02
+- [03 静态预览：面板折行 + 长图导出](./issues/03-静态预览面板折行与长图导出.md) — 已解决（2026-09-30 实现 + 三轮验收回修：面板模型 `panelLayout` + 共享离屏 target 逐面板代画 `panelPainter` + 预览显示档 `displayProfile` + 横向滚动宿主 `StaticPreviewView` + 宽图导出 `exportPanels` + Electron 二进制另存通道 `preview:saveBinary` + 工具栏缩放/叠加项/导出；全量 188 文件/2098 例 + tsc + eslint 全绿，见票内 Answer）
 - [04 仿真场素材归档（fieldskin / bgskin）](./issues/04-仿真场素材归档.md) — Blocked by: —
 - [05 仿真场渲染器](./issues/05-仿真场渲染器.md) — Blocked by: 02, 04
 - [06 导出链路与尺寸实测](./issues/06-导出链路与尺寸实测.md) — Blocked by: —（research；结论回填 03 / 07）
