@@ -13,7 +13,7 @@
   overflow-y: hidden;
   border: 1px solid var(--canvas-border);
   border-radius: var(--radius-sm);
-  background: var(--bg-inset);
+  background: var(--canvas-bg);
   overscroll-behavior-x: contain;
 }
 

@@ -79,7 +79,8 @@ describe('滚到开头时 beat 0 BPM 整盒可见', () => {
       const fills = fillTexts(calls);
       expect(fills.length).toBe(1);
       const fillY = fills[0][1][2] as number;
-      expect(classify(fillY, h, FONT)).toBe('full');
+      const fontPx = Math.round(FONT * es);
+      expect(classify(fillY, h, fontPx)).toBe('full');
     }
   });
 });

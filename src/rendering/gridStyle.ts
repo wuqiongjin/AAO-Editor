@@ -19,8 +19,8 @@ export type GridTier = 'beat' | 'half' | 'quarter' | 'eighth' | 'sixteenth';
 export const GRID_TIER_ORDER: readonly GridTier[] = ['beat', 'half', 'quarter', 'eighth', 'sixteenth'];
 
 /** 单层网格线样式：线宽（整拍加粗强调），颜色承载层级区分。
- *  alpha 缺省 1；整拍层 0.8（第三轮用户反馈：实线太显眼）——各主题整拍色已相应提亮，
- *  保证有效亮度（luma×alpha）仍居层级首位、不反转。 */
+ *  整拍层 alpha 0.45（issue 17 用户定案：实线太显眼，降对比弱化）；
+ *  有效亮度（luma×alpha）仍居层级首位、沿层级单调递减。 */
 export interface GridTierStyle {
   color: string;
   width: number;
@@ -44,32 +44,32 @@ export const LINE_SHAPE_LADDER: Record<GridTier, readonly [number, number] | nul
 /** 四颜色主题（亮度沿层级单调递减、luma 下限 ≥ 90；多彩 = 层级靠色相辨识 + 亮度排序） */
 export const GRID_STYLES: Record<GridStylePreset, GridStyleDef> = {
   mono: {
-    beat: { color: '#d9d9d9', width: 2, alpha: 0.8 },
-    half: { color: '#9e9e9e', width: 1 },
-    quarter: { color: '#838383', width: 1 },
-    eighth: { color: '#6e6e6e', width: 1 },
-    sixteenth: { color: '#5c5c5c', width: 1 },
+    beat: { color: '#d9d9d9', width: 2, alpha: 0.45 },
+    half: { color: '#9e9e9e', width: 1, alpha: 0.4 },
+    quarter: { color: '#838383', width: 1, alpha: 0.35 },
+    eighth: { color: '#6e6e6e', width: 1, alpha: 0.3 },
+    sixteenth: { color: '#5c5c5c', width: 1, alpha: 0.25 },
   },
   amber: {
-    beat: { color: '#ffdda6', width: 2, alpha: 0.8 },
-    half: { color: '#e0a35a', width: 1 },
-    quarter: { color: '#c2854e', width: 1 },
-    eighth: { color: '#a56c44', width: 1 },
-    sixteenth: { color: '#8a573c', width: 1 },
+    beat: { color: '#ffdda6', width: 2, alpha: 0.45 },
+    half: { color: '#e0a35a', width: 1, alpha: 0.4 },
+    quarter: { color: '#c2854e', width: 1, alpha: 0.35 },
+    eighth: { color: '#a56c44', width: 1, alpha: 0.3 },
+    sixteenth: { color: '#8a573c', width: 1, alpha: 0.25 },
   },
   cyan: {
-    beat: { color: '#a8e6f2', width: 2, alpha: 0.8 },
-    half: { color: '#5cb8cc', width: 1 },
-    quarter: { color: '#4798ae', width: 1 },
-    eighth: { color: '#387a90', width: 1 },
-    sixteenth: { color: '#326b7e', width: 1 },
+    beat: { color: '#a8e6f2', width: 2, alpha: 0.45 },
+    half: { color: '#5cb8cc', width: 1, alpha: 0.4 },
+    quarter: { color: '#4798ae', width: 1, alpha: 0.35 },
+    eighth: { color: '#387a90', width: 1, alpha: 0.3 },
+    sixteenth: { color: '#326b7e', width: 1, alpha: 0.25 },
   },
   vivid: {
-    beat: { color: '#ffffff', width: 2, alpha: 0.8 },
-    half: { color: '#6fd3e0', width: 1 },
-    quarter: { color: '#6cc96c', width: 1 },
-    eighth: { color: '#d99a4e', width: 1 },
-    sixteenth: { color: '#d67f9f', width: 1 },
+    beat: { color: '#ffffff', width: 2, alpha: 0.45 },
+    half: { color: '#6fd3e0', width: 1, alpha: 0.4 },
+    quarter: { color: '#6cc96c', width: 1, alpha: 0.35 },
+    eighth: { color: '#d99a4e', width: 1, alpha: 0.3 },
+    sixteenth: { color: '#d67f9f', width: 1, alpha: 0.25 },
   },
 };
 

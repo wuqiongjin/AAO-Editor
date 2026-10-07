@@ -98,17 +98,19 @@ describe('chart-preview 08 · Combo 刻度绘制', () => {
   });
 
   it('预览窄面板：数字越出画布右缘时左移（不裁字）', () => {
-    const { calls, c } = renderAt(singles(60), { surface: PANEL, scale: PANEL_ES, centerBeat: 50 });
+    const narrowPanel = { w: 90, h: 400 };
+    const { calls, c } = renderAt(singles(60), { surface: narrowPanel, scale: PANEL_ES, centerBeat: 50 });
     const fills = fillTexts(calls);
     expect(fills.map((t) => t[1][0])).toEqual(['50']);
 
-    const textWidth = measureGutterLabelWidth('50', 21);
+    const fontPx = Math.round(21 * PANEL_ES);
+    const textWidth = measureGutterLabelWidth('50', fontPx);
     const [, [text, x]] = fills[0]!;
     const { trackStartX, totalTrackWidth } = c.trackGeometry(PANEL_ES);
-    const natural = trackStartX + totalTrackWidth + 8;
-    expect(natural + measureGutterLabelWidth(text, 21)).toBeGreaterThan(PANEL.w);   // 前提：自然锚点下确实放不下
-    expect(x).toBeLessThan(natural);            // 被左移了
-    expect(x + textWidth).toBeLessThanOrEqual(PANEL.w - 2 + 1e-6);                  // 文字盒完整落在画布内
+    const natural = trackStartX + totalTrackWidth + Math.round(8 * PANEL_ES);
+    expect(natural + textWidth).toBeGreaterThan(narrowPanel.w - 2);   // 前提：自然锚点下确实放不下
+    expect(x).toBeLessThan(natural);                                   // 被左移了
+    expect(x + textWidth).toBeLessThanOrEqual(narrowPanel.w - 2 + 1e-6); // 文字盒完整落在画布内
   });
 
   it('间隔常量 = 50（照 Bestdori）', () => {

@@ -79,14 +79,15 @@ describe('chart-preview 08 · 沟槽时间刻度', () => {
   });
 
   it('预览窄面板：标签盒放不下时钳进画布（而不是像 BPM 数值那样整体隐藏）', () => {
-    const { calls, c } = renderAt(5, { topSeconds: 10, surface: PANEL, scale: PANEL_ES, labelScale: 0.7 });
+    const narrowPanel = { w: 90, h: 400 };
+    const { calls, c } = renderAt(5, { topSeconds: 10, surface: narrowPanel, scale: PANEL_ES, labelScale: 0.7 });
     const fills = fillTexts(calls);
     expect(fills.map((t) => t[1][0])).toEqual(['0:10']);
 
-    const fontPx = Math.round(21 * 0.7);                 // 预览档字号
+    const fontPx = Math.round(21 * 0.7 * PANEL_ES);                 // 预览档字号联动 scale
     const textWidth = measureGutterLabelWidth('0:10', fontPx);   // 无 ctx → 0.62em 估算
     const { trackStartX } = c.trackGeometry(PANEL_ES);
-    const naturalX = trackStartX - 8;                    // 内带锚点（贴轨道左外缘 − 8px）
+    const naturalX = trackStartX - Math.round(8 * PANEL_ES);     // 内带锚点（贴轨道左外缘 − 8px * scale）
     const x = fills[0]![1][1];
     expect(naturalX - textWidth).toBeLessThan(0);        // 前提：自然锚点下确实放不下
     expect(x).toBeGreaterThan(naturalX);                 // 被右移了

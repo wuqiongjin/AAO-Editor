@@ -67,13 +67,13 @@ describe('颜色主题（issue 53 第二轮）', () => {
     expect(normalizeGridStyle(42)).toBe(DEFAULT_GRID_STYLE);
   });
 
-  it('有效亮度（luma×alpha）沿层级单调递减，最淡层 luma ≥ 90（下限远离黑）；整拍 alpha 0.8', () => {
+  it('有效亮度（luma×alpha）沿层级单调递减，最淡层 luma ≥ 90（下限远离黑）；整拍 alpha 0.45', () => {
     for (const p of ['mono', 'amber', 'cyan', 'vivid'] as const) {
       const def = GRID_STYLES[p];
-      expect(def.beat.alpha).toBe(0.8); // 第三轮：实线透明度降低一点点
+      expect(def.beat.alpha).toBe(0.45); // issue 17 方案 A：整拍实线柔化
       const ladder = GRID_TIER_ORDER.map((t) => luma(def[t].color) * (def[t].alpha ?? 1));
       for (let i = 1; i < ladder.length; i++) expect(ladder[i]).toBeLessThan(ladder[i - 1]);
-      expect(ladder[ladder.length - 1]).toBeGreaterThanOrEqual(90);
+      expect(luma(def.sixteenth.color)).toBeGreaterThanOrEqual(90);
     }
   });
 
@@ -218,12 +218,12 @@ describe('renderGrid 分层绘制（issue 53）', () => {
       renderGrid(proxy, c, rc);
       return calls;
     };
-    // 整拍层 alpha 0.8：无设置 → 0.8；gridOpacity 0.5 → 0.4；缺省/未传 → 0.8
+    // 整拍层 alpha 0.45：无设置 → 0.45；gridOpacity 0.5 → 0.225；缺省/未传 → 0.45
     const alphas = (calls: [string, unknown[]][]) => calls.filter(([k]) => k === 'globalAlpha').map(([, v]) => v[0] as number);
-    expect(alphas(renderAt(undefined))).toContain(0.8);
-    expect(alphas(renderAt(0.5))).toContain(0.4);
-    // 子层 alpha 1 × 0.5 → 0.5
-    expect(alphas(renderAt(0.5))).toContain(0.5);
+    expect(alphas(renderAt(undefined))).toContain(0.45);
+    expect(alphas(renderAt(0.5))).toContain(0.225);
+    // 子层 alpha 0.4 × 0.5 → 0.2
+    expect(alphas(renderAt(0.5))).toContain(0.2);
   });
 
   it('抽稀与层级叠加：远缩放下高层级优先保留，低层级让位（issue 53 验收）', () => {
@@ -251,9 +251,9 @@ describe('renderGrid 分层绘制（issue 53）', () => {
       else if (k === 'stroke' && pendingY !== null && pendingX === trackBgX) { strokes.push({ y: pendingY, width }); pendingX = null; pendingY = null; }
     }
 
-    // 整拍层（lineWidth 2）：可见区间内每条整拍线全部绘制
+    // 整拍层（lineWidth 0.75，小缩放下放宽保底）：可见区间内每条整拍线全部绘制
     // y_b = (chartEndVirtualY + h/es − 220b − scrollY)·es = (31000 − 220b − 21000)·0.1 = 1000 − 22b
-    const beatYs = strokes.filter(s => s.width === 2).map(s => s.y).sort((a, b) => a - b);
+    const beatYs = strokes.filter(s => s.width === 0.75).map(s => s.y).sort((a, b) => a - b);
     const expectedBeats: number[] = [];
     for (let b = 0; b <= 100; b++) {
       const y = 1000 - 22 * b;
@@ -263,7 +263,7 @@ describe('renderGrid 分层绘制（issue 53）', () => {
     expect(beatYs).toEqual(expectedBeats.sort((a, b) => a - b));
 
     // 抽稀属性：每条子拍线距任一整拍线 ≥ 5px，且子拍线彼此 ≥ 5px
-    const subYs = strokes.filter(s => s.width < 2).map(s => s.y);
+    const subYs = strokes.filter(s => s.width < 0.75).map(s => s.y);
     for (const sy of subYs) {
       for (const by of beatYs) expect(Math.abs(sy - by)).toBeGreaterThanOrEqual(5);
     }
@@ -294,7 +294,7 @@ describe('renderGrid 分层绘制（issue 53）', () => {
       for (const [k, args] of calls) {
         if (k === 'lineWidth') width = args[0] as number;
         else if (k === 'moveTo') { pendingX = args[0] as number; pendingY = args[1] as number; }
-        else if (k === 'stroke' && pendingY !== null && pendingX === trackBgX && width >= 2) {
+        else if (k === 'stroke' && pendingY !== null && pendingX === trackBgX && width >= Math.max(0.75, 2 * es) - 1e-6) {
           ys.push(pendingY);
           pendingX = null;
           pendingY = null;
@@ -302,7 +302,8 @@ describe('renderGrid 分层绘制（issue 53）', () => {
       }
       expect(ys.length, `scale=${es}`).toBeGreaterThan(0);
       const bottom = Math.max(...ys);
-      expect(bottom, `scale=${es}`).toBeLessThanOrEqual(TEST_SURFACE.h - 1);
+      const halfLw = Math.max(1, Math.max(0.75, 2 * es)) / 2;
+      expect(bottom, `scale=${es}`).toBeLessThanOrEqual(TEST_SURFACE.h - halfLw + 1e-6);
       expect(bottom, `scale=${es}`).toBeGreaterThan(TEST_SURFACE.h - 8);
     }
   });

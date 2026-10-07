@@ -47,12 +47,12 @@ describe('layoutGutterLabel 外侧装饰文字锚定（issue 51 第二轮）', (
     expect(boundLabelGapPx(1.5)).toBeGreaterThan(boundLabelGapPx(1)); // 随字号系数放大
   });
 
-  it('字号 = 21px 基准（原 150% 观感）× labelScale，跨 scale 恒定', () => {
+  it('字号 = 21px 基准 × labelScale × scale（随画布缩放联动，issue 17）', () => {
     const { c } = makeCoordsAt(2.5);
-    expect(layoutGutterLabel(c, 2.5, 300, 'centered', 'bpm').font).toContain('21px');
+    expect(layoutGutterLabel(c, 1, 300, 'centered', 'bpm').font).toContain('21px');
+    expect(layoutGutterLabel(c, 2.5, 300, 'centered', 'bpm').font).toContain('53px');
     expect(layoutGutterLabel(c, 1, 300, 'centered', 'bpm', 1.5).font).toContain('32px');
-    const fonts = new Set([1, 2.5].map((scale) => layoutGutterLabel(c, scale, 300, 'centered', 'bpm').font));
-    expect(fonts.size).toBe(1); // 与 scale 无关
+    expect(layoutGutterLabel(c, 2, 300, 'centered', 'bpm', 1.5).font).toContain('63px');
   });
 
   it('纵向定位：centered 居中于线；above/below 文字盒贴线（间距 0，与 BPM 数值骑线观感一致）', () => {
@@ -66,15 +66,17 @@ describe('layoutGutterLabel 外侧装饰文字锚定（issue 51 第二轮）', (
     expect(layoutGutterLabel(c, 1, lineY, 'below', 'bound').textBaseline).toBe('top');
   });
 
-  it('间距恒定：不同 scale 下 x 与 trackStartX 的差不变（锚定不随缩放变化）', () => {
+  it('间距随 scale 缩放（issue 17 联动）', () => {
     const gapAt = (scale: number, band: 'bpm' | 'bound') => {
       const { c } = makeCoordsAt(scale);
       return c.trackGeometry(scale).trackStartX - layoutGutterLabel(c, scale, 0, 'centered', band).x;
     };
-    for (const band of ['bpm', 'bound'] as const) {
-      expect(gapAt(0.5, band)).toBe(gapAt(1, band));
-      expect(gapAt(2.5, band)).toBe(gapAt(1, band));
-    }
+    expect(gapAt(0.5, 'bpm')).toBe(Math.round(8 * 0.5));
+    expect(gapAt(1, 'bpm')).toBe(8);
+    expect(gapAt(2.5, 'bpm')).toBe(Math.round(8 * 2.5));
+    expect(gapAt(0.5, 'bound')).toBe(boundLabelGapPx(1, 0.5));
+    expect(gapAt(1, 'bound')).toBe(boundLabelGapPx(1, 1));
+    expect(gapAt(2.5, 'bound')).toBe(boundLabelGapPx(1, 2.5));
   });
 });
 

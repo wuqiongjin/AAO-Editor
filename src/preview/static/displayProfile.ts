@@ -16,16 +16,16 @@ import type { RenderDisplayOptions } from '../../rendering';
 export const DEFAULT_PREVIEW_MARKERS: PreviewSettings = DEFAULT_PREVIEW_SETTINGS;
 
 /**
- * 预览档的文字系数：常显文字在窄面板里按 ~70% 画（实时读数 ≈11.5px，仍可读；
- * 100% 的 21px/16.5px 在 130px 面板里放不下）。这不是"预览第二套字号"，只是这一档的取值。
+ * 预览档的文字系数（issue 17 用户定案）：字号直接随视口 scale = layout.es（0.74 × zoom）
+ * 联动缩放，基准系数继承工作台设置的 labelScale，不再人工硬编码 0.7 钉死。
  */
-export const PREVIEW_LABEL_SCALE = 0.7;
+export const PREVIEW_LABEL_SCALE = 1;
 
 /**
  * 把预览标注叠到基础显示参数上（工作台的 `settings.display`）：
  * - 五个标注档（Beat / BPM / Time / Combo 标记、镜向）+ 文字系数来自 `settings.preview`；
  * - 其余（`gridStyle` / `gridOpacity` / `noteSize` / `slideOpacity` / `colorAssist` /
- *   `simultaneousClickLines` / `labelScale` 之外的一切）**沿用作者自己的设置** —— 预览该像作者自己的画布。
+ *   `simultaneousClickLines` 之外的一切）**沿用作者自己的设置** —— 预览该像作者自己的画布。
  */
 export function resolvePreviewDisplay(
   base: RenderDisplayOptions,
@@ -41,6 +41,6 @@ export function resolvePreviewDisplay(
     // 起止线在预览里恒不画（03 二轮定案：130px 面板里那只是两条 0.6px 虚线，读不出信息，
     // 工具栏那个开关已撤）；字段留着是为了「缺省 = 编辑器现状」的语义仍然成立。
     boundLines: false,
-    labelScale: PREVIEW_LABEL_SCALE,
+    labelScale: base.labelScale ?? 1,
   };
 }

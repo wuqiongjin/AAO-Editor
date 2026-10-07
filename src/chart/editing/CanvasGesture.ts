@@ -126,7 +126,8 @@ export function hitBpmGutterAt(
     const { geometry, viewport, notes } = input.deps;
     const { trackBgX, trackStartX } = geometry.trackGeometry(viewport.scale);
     if (cx >= trackBgX) return null;
-    const fontPx = Math.round(GUTTER_LABEL_FONT_PX * input.labelScale);
+    const scale = viewport.scale;
+    const fontPx = Math.round(GUTTER_LABEL_FONT_PX * input.labelScale * scale);
     const lineCanvasYOf = (beat: number) =>
         geometry.virtualToCanvas(0, geometry.beatToVirtualY(beat, viewport.scale), viewport).y;
     const virtualYOf = (beat: number) => geometry.beatToVirtualY(beat, viewport.scale);
@@ -135,7 +136,7 @@ export function hitBpmGutterAt(
     for (const num of layout.numerals) {
         const text = String(num.bpm);
         const y = bpmLabelAnchorY(num.beat, num.y, fontPx, input.surfaceH);
-        const box = bpmLabelBox(trackStartX, y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
+        const box = bpmLabelBox(trackStartX, y, text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx), scale);
         if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
             const dist = Math.abs(cy - y);
@@ -151,7 +152,7 @@ export function hitBpmGutterAt(
             return n && 'beat' in n ? n.beat : Infinity;
         }));
         const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, input.surfaceH);
-        const box = bpmLabelBox(trackStartX, y, sum.fullText, input.labelScale, input.surfaceH, input.measureWidth(sum.fullText, fontPx));
+        const box = bpmLabelBox(trackStartX, y, sum.fullText, input.labelScale, input.surfaceH, input.measureWidth(sum.fullText, fontPx), scale);
         if (box.x1 < 0 || box.y1 >= box.y2) continue;
         if (cx >= box.x1 && cx <= box.x2 && cy >= box.y1 && cy <= box.y2) {
             return { kind: 'summary', groupKey: sum.key };
@@ -162,7 +163,7 @@ export function hitBpmGutterAt(
         if (expandedNums.length >= 2) {
             const boxes = expandedNums.map((num) => {
                 const text = String(num.bpm);
-                return bpmLabelBox(trackStartX, bpmLabelAnchorY(num.beat, num.y, fontPx, input.surfaceH), text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx));
+                return bpmLabelBox(trackStartX, bpmLabelAnchorY(num.beat, num.y, fontPx, input.surfaceH), text, input.labelScale, input.surfaceH, input.measureWidth(text, fontPx), scale);
             }).filter((b) => b.x1 >= 0 && b.y1 < b.y2);
             if (boxes.length === 0) return null;
             const x1 = Math.min(...boxes.map((b) => b.x1));

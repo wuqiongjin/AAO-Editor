@@ -214,7 +214,7 @@ export function renderGridBeatLines(ctx: CanvasRenderingContext2D, c: Coords, rc
   for (const tier of GRID_TIER_ORDER) {
     const s = style[tier];
     const threshold = tier === 'beat' ? 2 : 5;
-    const lw = tier === 'beat' ? Math.max(2, s.width * es) : Math.max(0.5, s.width * es);
+    const lw = tier === 'beat' ? Math.max(0.75, s.width * es) : Math.max(0.5, s.width * es);
     ctx.strokeStyle = s.color;
     ctx.lineWidth = lw;
     ctx.globalAlpha = (s.alpha ?? 1) * gridOpacity;
@@ -1340,8 +1340,9 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   // issue 142：末条 BPM 为负（导出后 Bestdori 打不开）→ 数值改**警示色**并附 `!`，
   // 与「倒流区负值」（只换倒流色、无后缀）区分开 —— 两者语义不同：后者是合法写法，前者是打不开的谱。
   const tailIdx = indexOfTrailingNegativeBpm(rc.notes);
-  const labelScale = rc.display?.labelScale ?? 1;
-  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  const scale = rc.viewport.scale;
+  const userLabelScale = rc.display?.labelScale ?? 1;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * userLabelScale * scale);
   const expandedKey = rc.expandedBpmGroupKey ?? null;
   const layoutModel = layoutBpmGutter(
     rc.notes,
@@ -1363,7 +1364,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
     }));
     const y = bpmLabelAnchorY(minBeat, sum.lineCanvasY, fontPx, rc.surface.h);
     if (!bpmGutterYIntersectsCanvas(y, fontPx, rc.surface.h)) continue;
-    const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale);
+    const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', userLabelScale);
     drawBpmSummary(ctx, gl, sum.tokens, (bpm) => {
       const warning = sum.memberIndexes.some((i) => {
         const n = rc.notes[i];
@@ -1379,7 +1380,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
         && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) continue;
     const y = bpmLabelAnchorY(note.beat, num.y, fontPx, rc.surface.h);
     if (!bpmGutterYIntersectsCanvas(y, fontPx, rc.surface.h)) continue;
-    const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', labelScale);
+    const gl = layoutGutterLabel(c, rc.viewport.scale, y, 'centered', 'bpm', userLabelScale);
     const bpm = (note as ChartNote & { bpm: number }).bpm;
     drawGutterLabel(ctx, gl, String(bpm), colorOf(bpm, num.noteIndex));
   }
@@ -1406,11 +1407,11 @@ export function renderTimeMarks(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   const interval = rc.display?.timeMarks ?? 0;
   if (!Number.isFinite(interval) || interval <= 0) return;
   const es = rc.viewport.scale;
-  const labelScale = rc.display?.labelScale ?? 1;
-  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  const userLabelScale = rc.display?.labelScale ?? 1;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * userLabelScale * es);
   const { trackStartX } = c.trackGeometry(es);
   // 可见秒区间：画布底 = 时间更早、画布顶 = 更晚（y → 秒恒单值且单调）；上下各留一屏外余量
-  const margin = fontPx + 16;
+  const margin = fontPx + Math.round(16 * es);
   const secBottom = c.virtualYToSeconds(c.canvasToVirtual(0, rc.surface.h + margin).y);
   const secTop = c.virtualYToSeconds(c.canvasToVirtual(0, -margin).y);
   const lo = Math.min(secBottom, secTop);
@@ -1424,17 +1425,18 @@ export function renderTimeMarks(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   ctx.strokeStyle = MARKER_TEXT_COLOR;
   ctx.lineWidth = 1;
   let count = 0;
+  const tickPx = Math.max(1, Math.round(TIME_MARK_TICK_PX * es));
   for (let seconds = Math.ceil(lo / interval - 1e-9) * interval; seconds <= hi + 1e-9; seconds += interval) {
     if (count++ >= TIME_MARK_MAX) break;
     const y = c.virtualToCanvas(0, c.secondsToVirtualY(seconds)).y;
     if (y < -fontPx || y > rc.surface.h + fontPx) continue;
     ctx.beginPath();
-    ctx.moveTo(trackStartX - TIME_MARK_TICK_PX, y);
+    ctx.moveTo(trackStartX - tickPx, y);
     ctx.lineTo(trackStartX - 1, y);
     ctx.stroke();
     const text = formatTimeCompact(seconds);
     const layout = clampGutterLabelX(
-      layoutGutterLabel(c, es, y, 'centered', 'bpm', labelScale),
+      layoutGutterLabel(c, es, y, 'centered', 'bpm', userLabelScale),
       measureGutterLabelWidth(text, fontPx, ctx),
     );
     drawGutterLabel(ctx, layout, text, MARKER_TEXT_COLOR);
@@ -1458,8 +1460,8 @@ export function renderComboMarks(ctx: CanvasRenderingContext2D, c: Coords, rc: R
   const beats = comboNodePreciseBeats(rc.notes, rc.beatDisplay);
   if (beats.length < COMBO_MARK_INTERVAL) return;
   const es = rc.viewport.scale;
-  const labelScale = rc.display?.labelScale ?? 1;
-  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  const userLabelScale = rc.display?.labelScale ?? 1;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * userLabelScale * es);
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, rc.surface.w, rc.surface.h);
@@ -1471,7 +1473,7 @@ export function renderComboMarks(ctx: CanvasRenderingContext2D, c: Coords, rc: R
     const text = String(combo);
     const layout = clampGutterLabelY(
       clampGutterLabelRightX(
-        layoutGutterLabelRight(c, es, y, labelScale),
+        layoutGutterLabelRight(c, es, y, userLabelScale),
         measureGutterLabelWidth(text, fontPx, ctx),
         rc.surface.w,
       ),
@@ -1502,7 +1504,6 @@ export const END_TEXT_COLOR = '#f0a07e';
 export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   // chart-preview 03 预览显示档：起止线（含 END 文字）可整体关掉（预览 panelW≈130 时属"编辑器装饰"）
   if (rc.display?.boundLines === false) return;
-  const labelScale = rc.display?.labelScale ?? 1;
   const drawLine = (beat: number, lineColor: string): number | null => {
     const canvasY = c.virtualToCanvas(0, c.beatToVirtualY(beat)).y;
     if (canvasY < -24 || canvasY > rc.surface.h + 24) return null;
@@ -1524,9 +1525,12 @@ export function renderBoundLines(ctx: CanvasRenderingContext2D, c: Coords, rc: R
   drawLine(0, START_LINE_COLOR);
   const endY = drawLine(rc.chartEndBeat, END_LINE_COLOR);
   if (endY == null) return;
+  const es = rc.viewport.scale;
+  const userLabelScale = rc.display?.labelScale ?? 1;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * userLabelScale * es);
   const layout = clampGutterLabelY(
-    layoutGutterLabel(c, rc.viewport.scale, endY, 'below', 'bound', labelScale),
-    rc.surface.h, GUTTER_LABEL_FONT_PX * labelScale,
+    layoutGutterLabel(c, es, endY, 'below', 'bound', userLabelScale),
+    rc.surface.h, fontPx,
   );
   drawGutterLabel(ctx, layout, 'END', END_TEXT_COLOR);
 }
@@ -1583,30 +1587,33 @@ function clampHoverInfoX(anchorX: number, textWidth: number, surfaceW: number, a
  */
 export function renderHoverInfo(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
   if (!rc.hoverPos) return;
-  const { trackStartX, totalTrackWidth } = c.trackGeometry(rc.viewport.scale);
-  const labelScale = rc.display?.labelScale ?? 1;
+  const es = rc.viewport.scale;
+  const { trackStartX, totalTrackWidth } = c.trackGeometry(es);
+  const userLabelScale = rc.display?.labelScale ?? 1;
+  const effectiveLabelScale = userLabelScale * es;
   const virtualY = c.canvasToVirtual(rc.hoverPos.cx, rc.hoverPos.cy).y;
   // issue 104 修法 3：秒读数走布局轴**直读**（倒流区里「y → 拍」多值，经 beat 往返会取到错层的拍，
   // 读数在折返带上会跳）。已过音符数仍按拍口径（最大 beat 解所在层），与播放 HUD 的
   // countNotesUpToBeat 同源——这是拍域定义，本票不改。
   const seconds = c.virtualYToSeconds(virtualY);
   const count = countNotesUpToBeat(rc.notes, c.virtualYToBeat(virtualY));
-  const font = HOVER_INFO_FONT(labelScale);
-  const fontPx = HOVER_INFO_FONT_PX * labelScale;
+  const font = HOVER_INFO_FONT(effectiveLabelScale);
+  const fontPx = HOVER_INFO_FONT_PX * effectiveLabelScale;
   const timeText = formatInMinuteTime(seconds);
   const countText = `♪ ${count}`;
+  const gap = Math.max(2, Math.round(HOVER_INFO_GAP_PX * es));
   ctx.save();
   ctx.fillStyle = HOVER_INFO_COLOR;
   ctx.textBaseline = 'middle';
   // 左边锚轨道**左外缘**（含外框 chrome）之外，右边锚轨道**右外缘**之外（用户反馈：锚内容边缘会陷进边条）
   const leftX = clampHoverInfoX(
-    trackStartX - HOVER_INFO_GAP_PX,
+    trackStartX - gap,
     measureHoverInfoWidth(timeText, fontPx, font, ctx),
     rc.surface.w,
     'right',
   );
   const rightX = clampHoverInfoX(
-    trackStartX + totalTrackWidth + HOVER_INFO_GAP_PX,
+    trackStartX + totalTrackWidth + gap,
     measureHoverInfoWidth(countText, fontPx, font, ctx),
     rc.surface.w,
     'left',

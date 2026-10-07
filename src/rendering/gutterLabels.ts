@@ -23,9 +23,10 @@ export type GutterBand = 'bpm' | 'bound';
  * 外带间距（动态，随文字大小系数放大）：BPM 数值最多 3 位数字，外带必须让其出
  * 内带文字盒 + 间隔，保证双带在任何 labelScale 下都不重叠（第二轮 Q2=A）。
  */
-export function boundLabelGapPx(labelScale: number): number {
-  return BPM_LABEL_GAP_PX + Math.ceil(GUTTER_LABEL_FONT_PX * labelScale * 2.2) + 8;
-} // labelScale=1 → 63px
+export function boundLabelGapPx(labelScale: number, scale = 1): number {
+  const effectiveScale = labelScale * scale;
+  return Math.round(BPM_LABEL_GAP_PX * scale) + Math.ceil(GUTTER_LABEL_FONT_PX * effectiveScale * 2.2) + Math.round(8 * scale);
+} // labelScale=1, scale=1 → 63px
 
 /** 常显标线文字的纵向位置语义：垂直居中于线（BPM 数值）/ 线上方（START）/ 线下方（END） */
 export type GutterLabelPlacement = 'centered' | 'above' | 'below';
@@ -58,7 +59,7 @@ export function measureGutterLabelWidth(
 /**
  * 常显标线文字的锚定布局（纯函数，供单测）：
  * 右对齐到「轨道左外缘 − 分带间距」，纵向按 placement 相对 lineCanvasY 定位，
- * 字号 = 带基准 × labelScale（恒定 CSS 像素，缩放中距离与大小不变）。
+ * 字号 = 带基准 × labelScale × scale（随画布缩放联动，issue 17 用户定案）。
  */
 export function layoutGutterLabel(
   c: Coords,
@@ -69,8 +70,9 @@ export function layoutGutterLabel(
   labelScale = 1,
 ): GutterLabelLayout {
   const { trackStartX } = c.trackGeometry(scale);
-  const gap = band === 'bpm' ? BPM_LABEL_GAP_PX : boundLabelGapPx(labelScale);
-  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  const effectiveScale = labelScale * scale;
+  const gap = band === 'bpm' ? Math.round(BPM_LABEL_GAP_PX * scale) : boundLabelGapPx(labelScale, scale);
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * effectiveScale);
   const base: GutterLabelLayout = {
     x: trackStartX - gap,
     y: lineCanvasY,
@@ -126,6 +128,7 @@ export function clampGutterLabelX(layout: GutterLabelLayout, textWidth: number, 
 /**
  * **右沟槽**标线文字的锚定布局（与 `layoutGutterLabel` 左右对称）：左对齐到「轨道右外缘 + 间距」、
  * 纵向居中于线。Combo 标记（chart-preview 08）用它 —— 照 Bestdori 把 combo 数字写在轨道右侧。
+ * 字号与间距随 scale 联动（issue 17）。
  */
 export function layoutGutterLabelRight(
   c: Coords,
@@ -134,9 +137,10 @@ export function layoutGutterLabelRight(
   labelScale = 1,
 ): GutterLabelLayout {
   const { trackStartX, totalTrackWidth } = c.trackGeometry(scale);
-  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
+  const effectiveScale = labelScale * scale;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * effectiveScale);
   return {
-    x: trackStartX + totalTrackWidth + BPM_LABEL_GAP_PX,
+    x: trackStartX + totalTrackWidth + Math.round(BPM_LABEL_GAP_PX * scale),
     y: lineCanvasY,
     textAlign: 'left',
     textBaseline: 'middle',
@@ -406,10 +410,12 @@ export function bpmLabelBox(
   surfaceH?: number,
   /** 文字宽度：由 measureGutterLabelWidth 给出（可传画布 ctx 精确测量），与绘制端同一套判定 */
   textWidth?: number,
+  scale = 1,
 ): { x1: number; x2: number; y1: number; y2: number } {
-  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * labelScale);
-  const right = trackStartX - BPM_LABEL_GAP_PX;
-  const width = (textWidth ?? measureGutterLabelWidth(text, fontPx)) + 8;
+  const effectiveScale = labelScale * scale;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * effectiveScale);
+  const right = trackStartX - Math.round(BPM_LABEL_GAP_PX * scale);
+  const width = (textWidth ?? measureGutterLabelWidth(text, fontPx)) + Math.round(8 * scale);
   const half = bpmGutterHitHalf(fontPx);
   let y1 = lineCanvasY - half;
   let y2 = lineCanvasY + half;
@@ -417,5 +423,5 @@ export function bpmLabelBox(
     y1 = Math.max(y1, 0);
     y2 = Math.min(y2, surfaceH);
   }
-  return { x1: right - width, x2: right + 4, y1, y2 };
+  return { x1: right - width, x2: right + Math.max(2, Math.round(4 * scale)), y1, y2 };
 }
