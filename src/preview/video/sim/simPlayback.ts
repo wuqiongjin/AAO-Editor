@@ -19,6 +19,12 @@ export interface SimPlaybackAudio {
   blob: Blob;
 }
 
+/**
+ * 播放器的倍速五档（chart-preview 20；照 Bestdori 的 `audioPlaybackRate = [0.5, 0.75, 1, 1.5, 2]`）。
+ * 只影响**回放速度**：不改谱面秒数、不改进度条量程（进度条仍读引擎的谱面秒）。
+ */
+export const SIM_PLAYBACK_RATES = [0.5, 0.75, 1, 1.5, 2] as const;
+
 export interface SimPlaybackOptions {
   /** 舞台画布（本模块负责它的**位图尺寸**与 transform） */
   canvas: HTMLCanvasElement;
@@ -35,6 +41,12 @@ export interface SimPlaybackOptions {
    * 导出侧的固定密度由 07 显式给（同 ADR-0016 §7 的"导出与预览解耦"）。
    */
   density: number;
+  /** 播放器主音量（0..1；chart-preview 20；缺省 1） */
+  volume?: number;
+  /** 播放速率（缺省 1；播放器给 0.5/0.75/1/1.5/2 五档） */
+  rate?: number;
+  /** 循环播放：到谱面长度回绕到 0 继续（缺省关 = 停在末帧） */
+  loop?: boolean;
   /** 每次推进 / 暂停 / seek 后回调（HUD 时间码与进度条读它，不自己轮询） */
   onTick?: (seconds: number, playing: boolean) => void;
 }
@@ -46,10 +58,20 @@ export interface SimPlayback {
    */
   setFrame(input: SimFrameInput): void;
   /**
-   * 改引擎侧 / 画布侧的旋钮（画质档、SE 音量、键音包）：**不重建引擎、不重载音频** ——
-   * 这三样都随设置面板随时可动，重建一次就要把音频重新解码。
+   * 改引擎侧 / 画布侧的旋钮（画质档、SE 音量、键音包、主音量、倍速、循环）：**不重建引擎、不重载音频** ——
+   * 这些都随设置面板 / 播放条随时可动，重建一次就要把音频重新解码。
    */
-  setOptions(patch: { density?: number; seVolume?: number; keySetId?: string }): void;
+  setOptions(patch: {
+    density?: number;
+    seVolume?: number;
+    keySetId?: string;
+    /** 播放器主音量（0..1；chart-preview 20） */
+    volume?: number;
+    /** 播放速率（chart-preview 20） */
+    rate?: number;
+    /** 循环播放（chart-preview 20） */
+    loop?: boolean;
+  }): void;
   play(): void;
   pause(): void;
   toggle(): void;
@@ -72,12 +94,16 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
   let rafId: number | null = null;
   let duration = Math.max(0, opts.duration);
   let disposed = false;
+  /** 循环播放（chart-preview 20）：到谱面长度回绕到 0 继续；关 = 停在末帧 */
+  let loop = opts.loop === true;
   /** 已经喂给引擎的谱面身份（换谱面 / 换细分档才重建键音表） */
   let fedNotes: ChartNote[] | null = null;
   let fedBeatDisplay = Number.NaN;
 
   engine.setKeySetId(opts.keySetId);
   engine.setSeVolume(opts.seVolume);
+  engine.setVolume(opts.volume ?? 1);
+  engine.setPlaybackRate(opts.rate ?? 1);
   if (opts.audio) {
     const file = new File([opts.audio.blob], opts.audio.name);
     void engine.load(file).catch((err: unknown) => {
@@ -127,6 +153,15 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     if (disposed) return;
     const seconds = engine.getSeconds();
     if (seconds >= duration) {
+      if (loop && duration > 0) {
+        // 循环（chart-preview 20）：回绕到 0 继续播 —— 只让引擎 seek（它自己重锚两条时钟），
+        // 不另起一套时钟、不重建引擎（单一真相源，ADR-0004 §2）
+        engine.seek(0);
+        render();
+        opts.onTick?.(0, true);
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
       stopAtEnd();
       render();
       opts.onTick?.(engine.getSeconds(), false);
@@ -169,11 +204,14 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
       syncChart(input);
       render();
     },
-    setOptions(patch: { density?: number; seVolume?: number; keySetId?: string }): void {
+    setOptions(patch): void {
       if (disposed) return;
       if (patch.density != null && Number.isFinite(patch.density) && patch.density > 0) density = patch.density;
       if (patch.seVolume != null) engine.setSeVolume(patch.seVolume);
       if (patch.keySetId != null) engine.setKeySetId(patch.keySetId);
+      if (patch.volume != null) engine.setVolume(patch.volume);
+      if (patch.rate != null) engine.setPlaybackRate(patch.rate);
+      if (patch.loop != null) loop = patch.loop;
       render();
     },
     play,

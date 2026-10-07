@@ -100,6 +100,21 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     expect(geometry).toMatch(/PLAY_LINE_RATIO = \{ w: 1\.35 \}/);
   });
 
+  it('播放器控件（chart-preview 20）：音量 / 倍速 / 循环都走 simPlayback.setOptions，不自己摸引擎', () => {
+    const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
+    expect(stage).toMatch(/setOptions\(\{\s*density,\s*seVolume,\s*keySetId,\s*volume,\s*rate,\s*loop\s*\}\)/);
+    expect(stage).toMatch(/SIM_PLAYBACK_RATES/);
+    // 音量落设置（`settings.audio.volume`），倍速 / 循环是页面内 state
+    expect(stage).toMatch(/onVolumeChange/);
+    const page = readStripped('src/pages/preview/PreviewPage.tsx');
+    expect(page).toMatch(/volume=\{settings\.audio\.volume\}/);
+    expect(page).toMatch(/onVolumeChange=\{setAudioVolume\}/);
+    // 循环只让引擎 seek 回去（单一时钟），不另起 rAF/时钟
+    const playback = readStripped(`${SIM_DIR}/simPlayback.ts`);
+    expect(playback).toMatch(/if \(loop && duration > 0\)/);
+    expect(playback).toMatch(/engine\.seek\(0\)/);
+  });
+
   it('音符速度档：白名单与默认值只在设置域，仿真场不另写一份', () => {
     const geometry = readStripped(GEOMETRY);
     expect(geometry).toMatch(/\{\s*normalizeNoteSpeed\s*\}\s*from\s*'\.\.\/\.\.\/\.\.\/chart\/config\/AppSettings'/);

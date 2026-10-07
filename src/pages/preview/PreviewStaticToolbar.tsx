@@ -78,15 +78,25 @@ export default function PreviewStaticToolbar({
 
       {/* 全屏**末位**（2026-10-05 用户定案）：进入钮在这一排最右，退出钮浮在舞台右上角 ——
           进出这一趟手和眼都停在同一个角。 */}
-      <IconButton
-        width="auto"
-        size="sm"
-        icon={<Maximize2 size={15} />}
-        label={t('preview.static.fullscreen')}
-        title={t('preview.static.fullscreenHint')}
-        onClick={onEnterFullscreen}
-      />
+      <PreviewEnterFullscreenButton onEnter={onEnterFullscreen} />
     </div>
+  );
+}
+
+/**
+ * 进入全屏钮（静态那一排的末位；chart-preview 20 起动态形态的工具栏也用这一枚 ——
+ * 舞台是形态无关的同一块 `.preview-stage`，进全屏这件事自然也只有一份实现）。
+ */
+export function PreviewEnterFullscreenButton({ onEnter }: { onEnter: () => void }) {
+  return (
+    <IconButton
+      width="auto"
+      size="sm"
+      icon={<Maximize2 size={15} />}
+      label={t('preview.static.fullscreen')}
+      title={t('preview.static.fullscreenHint')}
+      onClick={onEnter}
+    />
   );
 }
 

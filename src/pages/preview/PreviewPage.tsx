@@ -32,7 +32,7 @@ import { chartEffectiveTitle, DIFF_COLORS, DIFF_SHORT, projectCoverHue } from '.
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
-import PreviewStaticToolbar, { PreviewExitFullscreenButton } from './PreviewStaticToolbar';
+import PreviewStaticToolbar, { PreviewEnterFullscreenButton, PreviewExitFullscreenButton } from './PreviewStaticToolbar';
 import PreviewDisplayPanel from './PreviewDisplayPanel';
 import PreviewVideoStage from './PreviewVideoStage';
 import { usePreviewScope } from './usePreviewScope';
@@ -46,7 +46,7 @@ const PREVIEW_MODES: { id: PreviewMode; labelKey: MessageKey; icon: typeof Image
 
 export default function PreviewPage({ active = true }: { active?: boolean }) {
   const { setActivePage } = useAppNav();
-  const { settings } = useConfig();
+  const { settings, setAudioVolume } = useConfig();
   const { beatDisplay } = useUI();
   const [mode, setMode] = useState<PreviewMode>('static');
   const { scopeId, currentId, project, options, loading, chartId, pickChart } = usePreviewScope(active);
@@ -246,7 +246,9 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               <PreviewChartSwitcher project={project} chartId={chartId} onPick={pickChart} />
             </div>
             {/* 显示控件直接贴右缘：不再套胶囊外壳（2026-10-02 用户验收：外壳多余，还白占一条高度）。
-                两种形态各用自己那一排：静态 = 缩放 + 设置 + 导出 + 全屏；动态 = 设置（缩放/导出对回放无意义）。 */}
+                两种形态各用自己那一排：静态 = 缩放 + 设置 + 导出 + 全屏；
+                动态 = 设置 + 全屏（chart-preview 20：全屏钮在舞台层是形态无关的，补一枚即可；
+                **导出仍不给入口** —— 动态形态的导出是 07 的视频导出，随它落地，见 07 Comments）。 */}
             {!fullscreen && (
               mode === 'static' ? (
                 <PreviewStaticToolbar
@@ -260,6 +262,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               ) : (
                 <div className="preview-controls">
                   <PreviewDisplayPanel mode="video" />
+                  <PreviewEnterFullscreenButton onEnter={toggleFullscreen} />
                 </div>
               )
             )}
@@ -280,6 +283,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 audio={videoAudio}
                 keySetId={settings.audio.keySet}
                 seVolume={settings.audio.seVolume}
+                volume={settings.audio.volume}
+                onVolumeChange={setAudioVolume}
                 imageQuality={settings.display.imageQuality}
                 noteSkin={settings.visual?.noteSkin ?? {}}
               />

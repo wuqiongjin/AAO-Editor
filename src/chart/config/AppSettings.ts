@@ -60,7 +60,17 @@ export interface AppSettings {
     projectList: { width: number };
   };
   shortcuts: ShortcutConfig;
-  audio: { keySet: string; /** 节奏图示 SE 音量（键音独立音量，0..1，0=静音），issue 39 #7 */ seVolume: number };
+  audio: {
+    keySet: string;
+    /** 节奏图示 SE 音量（键音独立音量，0..1，0=静音），issue 39 #7 */
+    seVolume: number;
+    /**
+     * 播放器主音量（BGM + 键音的统一前置增益，0..1；chart-preview 20）。
+     * 仿照 Bestdori 的播放器音量（其 `player/volume` 与 SE 音量相乘）；预览播放器是它的编辑入口，
+     * 票 07 的视频导出按它取"与播放一致"的音量。**不动工作台那档页面内主音量**（它不落设置）。
+     */
+    volume: number;
+  };
   /** 画布显示 / 播放参数（issue 39 功能设置组）。数值均以比例存储：100% = 1。 */
   display: {
     /** 节奏图示大小（音符占轨道比例），0.1..2.0，issue 39 #1 */
@@ -277,7 +287,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
       projectList: { width: PROJECT_LIST_WIDTH.default },
     },
     shortcuts: getDefaultConfig(),
-    audio: { keySet: DEFAULT_ACTIVE_KEY_SOUND_SET_ID, seVolume: 1 },
+    audio: { keySet: DEFAULT_ACTIVE_KEY_SOUND_SET_ID, seVolume: 1, volume: 1 },
     display: {
       noteSize: 1,
       // 长压线不透明度（issue 39 #2）：默认 0.8（用户 2026-09-30 三轮定案：100% 太实）
@@ -363,6 +373,8 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       // issue 29 删占位包：未知 id（含历史 'placeholder'/'bangdream'）归一化回落默认包，避免脏 id 驻留持久层
       keySet: typeof audio.keySet === 'string' && isKnownKeySoundSetId(audio.keySet) ? audio.keySet : defaults.audio.keySet,
       seVolume: clamp(audio.seVolume, 0, 1, defaults.audio.seVolume),
+      // 播放器主音量（chart-preview 20）：additive 不 bump schemaVersion，缺字段 / 脏值回落 1
+      volume: clamp(audio.volume, 0, 1, defaults.audio.volume),
     },
     display: {
       noteSize: clamp(display.noteSize, 0.1, 2, defaults.display.noteSize),

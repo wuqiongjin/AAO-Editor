@@ -6,7 +6,7 @@
 //   - 回放：`createSimPlayback`（自持引擎当秒源；rAF 驱动**同一份**任意秒出帧函数）
 //   - 播放条：播放/暂停 + 进度（可拖）+ 时间码 + 回开头（2026-10-07 用户定案：舞台底部一排，照 Bestdori）
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Pause, Play, RotateCcw } from 'lucide-react';
+import { Pause, Play, Repeat, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import { formatTimePrecise, formatTimeWhole } from '../../chart/geometry/TimeFormat';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import { t } from '../../i18n';
@@ -15,6 +15,7 @@ import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../renderin
 import IconButton from '../../ui/IconButton';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import {
+  SIM_PLAYBACK_RATES,
   buildSimChart,
   createSimPlayback,
   fitDesignSurface,
@@ -42,6 +43,10 @@ export interface PreviewVideoStageProps {
   keySetId: string;
   /** 节奏图示 SE 音量（`settings.audio.seVolume`） */
   seVolume: number;
+  /** 播放器主音量（`settings.audio.volume`，chart-preview 20） */
+  volume: number;
+  /** 播放器主音量写回（落 `settings.audio.volume`） */
+  onVolumeChange: (volume: number) => void;
   /** 画质档（`settings.display.imageQuality`）：实时画布走**画布那套** min(设备像素比, 档位) */
   imageQuality: string;
   /** 音符皮肤（`settings.visual.noteSkin`） */
@@ -55,6 +60,8 @@ export default function PreviewVideoStage({
   audio,
   keySetId,
   seVolume,
+  volume,
+  onVolumeChange,
   imageQuality,
   noteSkin,
 }: PreviewVideoStageProps) {
@@ -69,6 +76,12 @@ export default function PreviewVideoStage({
   const [tick, setTick] = useState({ seconds: 0, playing: false });
   /** 皮肤图集到位后 +1：重推一帧（暂停态也要把缺图那帧补上） */
   const [skinVersion, setSkinVersion] = useState(0);
+  /**
+   * 播放器旋钮（chart-preview 20）：倍速与循环是"这一屏怎么看"（页面内 state，不落设置）；
+   * 主音量落 `settings.audio.volume`（跨会话记住，07 的视频导出也按它取）。
+   */
+  const [rate, setRate] = useState<number>(1);
+  const [loop, setLoop] = useState(false);
 
   const noteIcons = useMemo(() => buildActiveNoteIcons(normalizeNoteSkinSelection(noteSkin)), [noteSkin]);
   // 实时画布位图密度：画布那套口径（min(设备像素比, 档位)）——逐帧直绘，不叠超采样；
@@ -133,6 +146,9 @@ export default function PreviewVideoStage({
       audio,
       keySetId,
       seVolume,
+      volume,
+      rate,
+      loop,
       duration,
       density,
       onTick: (seconds, playing) => {
@@ -150,8 +166,8 @@ export default function PreviewVideoStage({
 
   // 引擎侧 / 画布侧的旋钮：不重建引擎（重建一次就要把音频重新解码）
   useEffect(() => {
-    playbackRef.current?.setOptions({ density, seVolume, keySetId });
-  }, [density, seVolume, keySetId, ready]);
+    playbackRef.current?.setOptions({ density, seVolume, keySetId, volume, rate, loop });
+  }, [density, seVolume, keySetId, volume, rate, loop, ready]);
 
   // 谱面长度变化（切谱面 / 换工程）
   useEffect(() => {
@@ -208,7 +224,9 @@ export default function PreviewVideoStage({
         )}
       </div>
 
-      {/* 播放条（2026-10-07 用户定案：舞台底部一排）：播放/暂停 + 当前时间 + 进度（可拖）+ 总时长 + 回开头 */}
+      {/* 播放条（2026-10-07 用户定案：舞台底部一排；chart-preview 20 起补播放器控件 ——
+          倍速五档 / 循环 / 主音量，照 Bestdori 的播放器那一排）：播放/暂停 + 当前时间 + 进度（可拖）
+          + 总时长 + 回开头 + 倍速 + 循环 + 音量 */}
       <div className="pv-bar">
         <IconButton
           width="auto"
@@ -238,6 +256,45 @@ export default function PreviewVideoStage({
           aria-label={t('preview.video.restart')}
           onClick={restart}
         />
+
+        {/* 倍速（五档，照 Bestdori）：只改回放速度，进度条量程仍是谱面秒 */}
+        <select
+          className="select-control pv-bar__rate"
+          value={String(rate)}
+          aria-label={t('preview.video.rate')}
+          title={t('preview.video.rate')}
+          onChange={(e) => setRate(Number(e.target.value))}
+        >
+          {SIM_PLAYBACK_RATES.map((r) => (
+            <option key={r} value={String(r)}>{r}×</option>
+          ))}
+        </select>
+
+        {/* 循环：到谱面长度回绕到 0 继续（关 = 停在末帧） */}
+        <IconButton
+          width="auto"
+          size="sm"
+          active={loop}
+          icon={<Repeat size={15} />}
+          title={t('preview.video.loop')}
+          aria-label={t('preview.video.loop')}
+          aria-pressed={loop}
+          onClick={() => setLoop((prev) => !prev)}
+        />
+
+        {/* 主音量（图标 + 滑杆，照工作台播放条那套）：落 settings.audio.volume */}
+        <label className="pv-bar__volume" title={t('preview.video.volume')}>
+          {volume <= 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            aria-label={t('preview.video.volume')}
+            onChange={(e) => onVolumeChange(Number(e.target.value))}
+          />
+        </label>
       </div>
     </div>
   );

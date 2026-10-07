@@ -16,6 +16,8 @@ class MockGainNode {
 
 class MockBufferSourceNode {
   buffer: AudioBuffer | null = null;
+  /** chart-preview 20：播放速率（真节点自带；引擎按它设倍速） */
+  playbackRate = { value: 1 };
   connect = vi.fn();
   disconnect = vi.fn();
   start = vi.fn();

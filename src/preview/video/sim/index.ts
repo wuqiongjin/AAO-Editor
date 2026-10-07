@@ -39,6 +39,7 @@ export {
   type SimAssets,
 } from './simAssets';
 export {
+  SIM_PLAYBACK_RATES,
   createSimPlayback,
   type SimPlayback,
   type SimPlaybackAudio,

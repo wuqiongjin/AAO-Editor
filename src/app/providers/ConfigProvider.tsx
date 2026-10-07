@@ -27,6 +27,8 @@ export interface ConfigContextValue {
   setExport: (patch: Partial<AppSettings['export']>) => void;
   /** 节奏图示 SE 音量（issue 39 功能设置·播放）：0..1 字段级写回并持久化 */
   setSeVolume: (volume: number) => void;
+  /** 播放器主音量（chart-preview 20）：0..1 字段级写回并持久化 */
+  setAudioVolume: (volume: number) => void;
   /** 音符皮肤（issue 29）：六条目字段级写回并持久化；包合法性由 renderer/noteSkin.ts 归一化 */
   setNoteSkin: (patch: Partial<AppSettings['visual']['noteSkin']>) => void;
   /** 谱面背景皮肤（issue 29 Q4 + 修订）：字段级写回 settings.visual.backgroundSkin（enabled/opacity/fit/scope）；
@@ -143,6 +145,16 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // 播放器主音量（chart-preview 20）：与 setSeVolume 同范式（段内浅合并 + 整份写盘）。
+  // 入口在动态预览的播放条；工作台那档页面内主音量不读它（两者刻意分开）
+  const setAudioVolume = useCallback((volume: number) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { audio: { volume } });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
   // 音符皮肤（issue 29）：与键音同范式——字段级写回、立即生效并持久化
   const setNoteSkin = useCallback((patch: Partial<AppSettings['visual']['noteSkin']>) => {
     setSettings(prev => {
@@ -210,7 +222,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setProjectListWidth, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setProjectListWidth, setAllSettings };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

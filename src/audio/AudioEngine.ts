@@ -15,6 +15,8 @@ const KEY_SCHEDULE_AHEAD = 2.0;
 const SCHEDULE_INTERVAL = 0.2;
 /** 单个按键音时长（秒） */
 const KEY_SOUND_DURATION = 0.06;
+/** 播放速率钳制（chart-preview 20）：播放器只给 0.5/0.75/1/1.5/2 五档（`SIM_PLAYBACK_RATES`），引擎侧留一点余量 */
+export const PLAYBACK_RATE_RANGE = { min: 0.25, max: 4 } as const;
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -25,9 +27,13 @@ export class AudioEngine {
   private seGain: GainNode | null = null;
   /** SE 音量暂存（ctx 未建时记录，建 seGain 时应用） */
   private seVolume = 1;
+  /** 主音量暂存（同上；chart-preview 20 起播放器主音量走 `setVolume`） */
+  private volume = 1;
   private offsetSeconds = 0;
   private startCtxSecond = 0;
   private startPerfSecond = 0;
+  /** 播放速率（chart-preview 20）：BGM（`playbackRate`）与两条时钟一起缩放，键音经同一份时钟换算 */
+  private rate = 1;
   private clock: 'audio' | 'synthetic' = 'synthetic';
   private state: PlaybackState = 'idle';
   private loadGen = 0;
@@ -56,13 +62,14 @@ export class AudioEngine {
     return true;
   }
 
-  /** 当前播放位置（秒）；未播放时为偏移量（暂停位/0）。双时钟：有音频走 AudioContext，无音频走 performance.now */
+  /** 当前播放位置（秒）；未播放时为偏移量（暂停位/0）。双时钟：有音频走 AudioContext，无音频走 performance.now。
+   *  **位置是谱面秒**：两条时钟的经过时间都要乘播放速率（chart-preview 20 的倍速）。 */
   getSeconds(): number {
     if (this.state === 'playing') {
       if (this.clock === 'audio' && this.ctx) {
-        return this.offsetSeconds + (this.ctx.currentTime - this.startCtxSecond);
+        return this.offsetSeconds + (this.ctx.currentTime - this.startCtxSecond) * this.rate;
       }
-      return this.offsetSeconds + (performance.now() / 1000 - this.startPerfSecond);
+      return this.offsetSeconds + (performance.now() / 1000 - this.startPerfSecond) * this.rate;
     }
     return this.offsetSeconds;
   }
@@ -117,9 +124,35 @@ export class AudioEngine {
     }
   }
 
-  /** 主音量（0..1）：作用于音频与按键音（masterGain） */
+  /** 主音量（0..1）：作用于音频与按键音（masterGain）。ctx 未建时先记下，建时应用（与 seVolume 同范式） */
   setVolume(volume: number): void {
-    if (this.masterGain) this.masterGain.gain.value = Math.max(0, Math.min(1, volume));
+    const v = Math.max(0, Math.min(1, volume));
+    this.volume = v;
+    if (this.masterGain) this.masterGain.gain.value = v;
+  }
+
+  /**
+   * 播放速率（chart-preview 20；播放器给 0.5/0.75/1/1.5/2 五档）。
+   * 三处一起缩放才不会有"音画不同步"：BGM 的 `playbackRate`、两条时钟的经过时间（`getSeconds`）、
+   * 键音调度（`tick` 里把谱面秒差除以速率换成墙钟秒差）。**播放中改速率不跳位置**。
+   */
+  setPlaybackRate(rate: number): void {
+    if (!Number.isFinite(rate)) return;
+    const next = Math.min(PLAYBACK_RATE_RANGE.max, Math.max(PLAYBACK_RATE_RANGE.min, rate));
+    if (next === this.rate) return;
+    if (this.state === 'playing') {
+      // 先按**旧**速率把当前位置定下来，再用新速率从那里续跑
+      this.offsetSeconds = this.getSeconds();
+      if (this.ctx) this.startCtxSecond = this.ctx.currentTime;
+      this.startPerfSecond = performance.now() / 1000;
+    }
+    this.rate = next;
+    if (this.source) this.source.playbackRate.value = next;
+  }
+
+  /** 当前播放速率（1 = 原速） */
+  get playbackRate(): number {
+    return this.rate;
   }
 
   /** 节奏图示 SE 音量（issue 39 #7，0..1）：仅作用于键音，不影响背景音乐 */
@@ -136,7 +169,7 @@ export class AudioEngine {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new Ctor();
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = 1;
+      this.masterGain.gain.value = this.volume; // 暂存的主音量（chart-preview 20）在这里落地
       this.masterGain.connect(this.ctx.destination);
       // issue 39 #7：SE gain 插在 masterGain 之前，键音汇入 seGain → masterGain → destination
       this.seGain = this.ctx.createGain();
@@ -161,6 +194,7 @@ export class AudioEngine {
       if (currentSec < decoded.duration) {
         const src = ctx.createBufferSource();
         src.buffer = decoded;
+        src.playbackRate.value = this.rate;
         if (this.masterGain) src.connect(this.masterGain);
         else src.connect(ctx.destination);
         src.start(0, currentSec);
@@ -210,6 +244,7 @@ export class AudioEngine {
     if (this.buffer) {
       const src = ctx.createBufferSource();
       src.buffer = this.buffer;
+      src.playbackRate.value = this.rate;
       if (this.masterGain) src.connect(this.masterGain);
       else src.connect(ctx.destination);
       src.start(0, this.offsetSeconds);
@@ -272,6 +307,7 @@ export class AudioEngine {
       if (this.clock === 'audio' && this.buffer) {
         const src = ctx.createBufferSource();
         src.buffer = this.buffer;
+        src.playbackRate.value = this.rate;
         if (this.masterGain) src.connect(this.masterGain);
         else src.connect(ctx.destination);
         src.start(0, this.offsetSeconds);
@@ -293,11 +329,12 @@ export class AudioEngine {
     if (this.state !== 'playing' || !this.ctx || this.keyEvents.length === 0) return;
     const ctx = this.ctx;
     const playhead = this.getSeconds();
-    const horizon = playhead + KEY_SCHEDULE_AHEAD;
+    // 提前量按**墙钟**算：horizon 是谱面秒，故乘速率；调度时刻再把谱面秒差除以速率换回墙钟
+    const horizon = playhead + KEY_SCHEDULE_AHEAD * this.rate;
     while (this.keyIndex < this.keyEvents.length && this.keyEvents[this.keyIndex].time <= horizon) {
       const evt = this.keyEvents[this.keyIndex];
       if (evt.time >= playhead) {
-        this.playTick(ctx.currentTime + (evt.time - playhead), evt.kind, evt.tier);
+        this.playTick(ctx.currentTime + (evt.time - playhead) / this.rate, evt.kind, evt.tier);
       }
       this.keyIndex++;
     }

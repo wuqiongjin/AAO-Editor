@@ -514,10 +514,35 @@
 .pv-bar {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap; /* 窄窗时播放器控件换行，不压扁进度条（chart-preview 20 加了音量 / 倍速 / 循环） */
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
   min-height: 34px;
   line-height: 1.3;
+}
+
+/* 倍速（chart-preview 20）：五档 select，复用设置页那套 `.select-control` */
+.pv-bar__rate {
+  flex: 0 0 auto;
+  min-height: 26px;
+  max-width: 84px;
+}
+
+/* 主音量（照工作台播放条那套：图标 + 细滑杆） */
+.pv-bar__volume {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pv-bar__volume input[type='range'] {
+  width: 84px;
+  min-width: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .pv-bar__time {

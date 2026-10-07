@@ -36,6 +36,7 @@ export {
   DESIGN_SURFACE,
   SIM_ASSET_BASE,
   SIM_ASSET_SERVERS,
+  SIM_PLAYBACK_RATES,
   approachA,
   approachOf,
   approachSeconds,
