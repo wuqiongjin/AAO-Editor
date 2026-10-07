@@ -5,7 +5,7 @@ import {
   computePresetThumbnailLayout,
   computeThumbnailSpriteTransform,
   presetThumbnailItems,
-} from '@/src/rendering/skin/noteSkinPresetThumbnail';
+} from '@/src/rendering/skin/noteSkinPresetThumbnailLayout';
 import { PREVIEW_CELL_H, PREVIEW_CELL_W } from '@/src/rendering/skin/noteSkinPreviewLayout';
 import { readStripped } from '@/tests/support/source';
 

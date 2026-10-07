@@ -11,7 +11,7 @@ import {
   PRESET_THUMBNAIL_CSS_W,
   presetSelection,
   presetThumbnailItems,
-} from './noteSkinPresetThumbnail';
+} from './noteSkinPresetThumbnailLayout';
 import { PREVIEW_CELL_H, PREVIEW_CELL_W } from './noteSkinPreviewLayout';
 import { drawPreviewSprite } from './noteSkinPreviewDraw';
 

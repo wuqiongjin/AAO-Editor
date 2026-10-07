@@ -88,7 +88,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
       'backgroundSkin.ts',
       'gen',
       'noteSkin.ts',
-      'noteSkinPresetThumbnail.ts',
+      'noteSkinPresetThumbnailLayout.ts',
       'noteSkinPreviewDraw.ts',
       'noteSkinPreviewLayout.ts',
       'useBackgroundSkin.ts',
