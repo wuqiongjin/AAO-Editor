@@ -17,6 +17,7 @@ import {
   comboAnchor,
   effectAlpha,
   effectProgress,
+  fieldImageRect,
   fieldMetrics,
   fieldY,
   fitDesignSurface,
@@ -25,6 +26,7 @@ import {
   laneOffsetDesign,
   mirrorLane,
   pingRadius,
+  playLineRect,
   simEffectColor,
   simSpriteScale,
   visibleApproach,
@@ -112,6 +114,34 @@ describe('设计面与场地几何', () => {
     const huge = fitDesignSurface(4000, 3000); // 太大：上限兜住（位图不撑爆）
     expect(huge.w).toBe(SIM_FIELD_LIMITS.maxW);
     expect(huge.w / huge.h).toBeCloseTo(DESIGN_RATIO, 2);
+  });
+});
+
+describe('场地三图的绘制矩形（chart-preview 18 问题 4）', () => {
+  it('场地图：0.875W × 0.82H×0.983，水平居中、底边贴判定线', () => {
+    const r = fieldImageRect(m);
+    expect(r.w).toBeCloseTo(0.875 * DESIGN_SURFACE.w, 6);
+    expect(r.h).toBeCloseTo(0.82 * 0.983 * DESIGN_SURFACE.h, 6);
+    expect(r.x + r.w / 2).toBeCloseTo(m.centerX, 6);
+    expect(r.y + r.h).toBeCloseTo(m.laneHeight, 6);
+  });
+
+  it('判定线：1.35W（素材 1800px = 1334×1.35 的 1:1 标尺）、上下居中于判定线、左右超出画布', () => {
+    const r = playLineRect(m);
+    expect(r.w).toBeCloseTo(1.35 * DESIGN_SURFACE.w, 6);
+    expect(r.h).toBeCloseTo(r.w * (38 / 1800), 6);
+    expect(r.x).toBeLessThan(0); // 左侧超出画布（素材自己带渐变收尾，照 Bestdori 的 1.35W）
+    expect(r.x + r.w).toBeGreaterThan(m.w);
+    expect(r.y + r.h / 2).toBeCloseTo(m.laneHeight, 6);
+  });
+
+  it('两张素材的轨道标尺 = laneWidth（修前拉满画布 ⇒ 判定线标记只有 0.74 lane 间距）', () => {
+    // 判定线素材的 7 个标记在 1800px 图上间距 154px ⇒ 画到画布上的间距必须（差 < 1%）是 laneWidth
+    const lineSpacing = 154 * (playLineRect(m).w / 1800);
+    expect(Math.abs(lineSpacing - m.laneWidth) / m.laneWidth).toBeLessThan(0.01);
+    // 场地图 1160px 素材的底边车道间距实测 154.3px ⇒ 与 laneWidth 相差 < 1%
+    const fieldSpacing = 154.3 * (fieldImageRect(m).w / 1160);
+    expect(Math.abs(fieldSpacing - m.laneWidth) / m.laneWidth).toBeLessThan(0.01);
   });
 });
 

@@ -43,11 +43,13 @@ import {
   effectAlpha,
   effectProgress,
   elementPoint,
+  fieldImageRect,
   fieldY,
   laneCenterX,
   laneFlashAlpha,
   mirrorLane,
   pingRadius,
+  playLineRect,
   simEffectColor,
   simSpriteScale,
   SIM_BAND_COLORS,
@@ -62,8 +64,6 @@ import {
 export const SIM_FALLBACK_BG = '#0d1017';
 /** HUD 字体（自绘文本，不引官方 digits / combo 精灵） */
 const SIM_HUD_FONT = '"Segoe UI", system-ui, -apple-system, sans-serif';
-/** 场地判定线图（1800×38）的高宽比：贴判定线时按它算线宽，不把 38px 硬编码成 CSS */
-const PLAY_LINE_ASPECT = 38 / 1800;
 /** 数值容差（A 贴到渐近值 = 整段还在很远处） */
 const EPS = 1e-6;
 
@@ -345,17 +345,24 @@ export function drawSimFrameAt(ctx: CanvasRenderingContext2D, input: SimFrameInp
   drawCombo(ctx, metrics, chart, seconds);
 }
 
-/** 场地三图：背景（cover 铺满）→ 场地图 → 判定线（贴场地判定线） */
+/**
+ * 场地三图：背景（cover 铺满）→ 场地图 → 判定线（贴场地判定线）。
+ * 后两张的矩形来自 `simGeometry`（**素材按设计 px 1:1**，见 `fieldImageRect` 的注释）——
+ * 拉满画布会让素材自带的轨道标记 / 车道线与音符错位（chart-preview 18 问题 4）。
+ */
 function drawField(ctx: CanvasRenderingContext2D, input: SimFrameInput): void {
   const { metrics: m, assets } = input;
   ctx.save();
   ctx.fillStyle = SIM_FALLBACK_BG;
   ctx.fillRect(0, 0, m.w, m.h);
   if (assets.background) drawCover(ctx, assets.background, m.w, m.h);
-  if (assets.field) ctx.drawImage(assets.field, 0, 0, m.w, m.h);
+  if (assets.field) {
+    const r = fieldImageRect(m);
+    ctx.drawImage(assets.field, r.x, r.y, r.w, r.h);
+  }
   if (assets.playLine) {
-    const h = Math.max(1, m.w * PLAY_LINE_ASPECT);
-    ctx.drawImage(assets.playLine, 0, m.laneHeight - h / 2, m.w, h);
+    const r = playLineRect(m);
+    ctx.drawImage(assets.playLine, r.x, r.y, r.w, r.h);
   }
   ctx.restore();
 }
@@ -451,9 +458,11 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
   const { chart, metrics: m, scene, noteIcons, spriteIcon } = input;
   const T = chart.approachS;
   const elements = chart.elements;
-  // 可见窗口 = Δ ∈ [−T, 0]：在**已按 time 升序**的元素表上二分出上下界，别在长谱上每帧扫全表
-  const lo = elementBound(elements, seconds - T, true);
-  const hi = elementBound(elements, seconds, false);
+  // 可见窗口 = Δ = seconds − time ∈ [−T, 0] ⇒ **元素时刻落在 [seconds, seconds + T]**（音符是将来才过线的，
+  // chart-preview 18 问题 5：早先写成 [seconds − T, seconds] 取反，结果除"正好压线"外一个音符都不画）。
+  // 在**已按 time 升序**的元素表上二分出上下界，别在长谱上每帧扫全表。
+  const lo = elementBound(elements, seconds, true);
+  const hi = elementBound(elements, seconds + T, false);
   const dec = noteIcons.flickTopDecorator;
   for (let i = lo; i < hi; i++) {
     const el = chart.elements[i]!;

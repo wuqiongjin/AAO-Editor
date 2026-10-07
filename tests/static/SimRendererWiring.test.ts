@@ -89,6 +89,17 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     expect(geometry).toMatch(/LANE_HEIGHT_RATIO = 0\.82/);
   });
 
+  it('场地图 / 判定线的矩形只从 simGeometry 取（不拉满画布，chart-preview 18 问题 4）', () => {
+    const field = readStripped(`${SIM_DIR}/simField.ts`);
+    expect(field).toMatch(/fieldImageRect\(/);
+    expect(field).toMatch(/playLineRect\(/);
+    // 回潮守卫：两张图不许再按画布尺寸绘制（拉满 = 素材自带的轨道标记 / 车道线与音符错位）
+    expect(field).not.toMatch(/drawImage\(assets\.(field|playLine),\s*0,\s*0,\s*m\.w/);
+    const geometry = readStripped(GEOMETRY);
+    expect(geometry).toMatch(/FIELD_IMAGE_RATIO = \{ w: 0\.875, h: 0\.82 \* 0\.983 \}/);
+    expect(geometry).toMatch(/PLAY_LINE_RATIO = \{ w: 1\.35 \}/);
+  });
+
   it('音符速度档：白名单与默认值只在设置域，仿真场不另写一份', () => {
     const geometry = readStripped(GEOMETRY);
     expect(geometry).toMatch(/\{\s*normalizeNoteSpeed\s*\}\s*from\s*'\.\.\/\.\.\/\.\.\/chart\/config\/AppSettings'/);

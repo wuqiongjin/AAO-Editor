@@ -88,6 +88,44 @@ export function fitDesignSurface(containerW: number, containerH: number): SimFie
   return fieldMetrics(w, Math.round(w / ratio));
 }
 
+// ---------------------------------------------------------------- 场地三图的绘制矩形
+
+/**
+ * 场地三图的绘制矩形（**照 Bestdori 的 DOM `<img>` 尺寸**；chart-preview 18 问题 4）。
+ *
+ * 两张图都是"**设计 px 1:1**"标尺 —— 素材自带的轨道标记（判定线 7 个）与车道线因此正好
+ * 落在音符的 lane 中心（实测误差 < 1%）。**别再拉伸到画布尺寸**（那会让标记 / 车道线
+ * 与音符错位：曾把标记间距压成 124.7 CSS px，而 lane 宽是 168.2）：
+ *   - 场地图 1160×610：宽 `0.875W`、高 `0.82H × 0.983`，水平居中、**底边贴场地判定线**；
+ *   - 判定线 1800×38：宽 `1.35W`（1334 × 1.35 = 1800），高按素材比例 `38/1800`，
+ *     上下居中于判定线，左右**故意超出画布**（照素材的自然宽度）。
+ */
+export const FIELD_IMAGE_RATIO = { w: 0.875, h: 0.82 * 0.983 } as const;
+export const PLAY_LINE_RATIO = { w: 1.35 } as const;
+export const PLAY_LINE_ASPECT = 38 / 1800;
+
+/** 画布上的一个矩形（CSS px） */
+export interface SimRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 场地图的绘制矩形：水平居中、底边贴场地判定线 */
+export function fieldImageRect(m: SimFieldMetrics): SimRect {
+  const w = FIELD_IMAGE_RATIO.w * m.w;
+  const h = FIELD_IMAGE_RATIO.h * m.h;
+  return { x: m.centerX - w / 2, y: m.laneHeight - h, w, h };
+}
+
+/** 判定线的绘制矩形：上下居中于场地判定线，左右超出画布两侧 */
+export function playLineRect(m: SimFieldMetrics): SimRect {
+  const w = PLAY_LINE_RATIO.w * m.w;
+  const h = Math.max(1, w * PLAY_LINE_ASPECT);
+  return { x: m.centerX - w / 2, y: m.laneHeight - h / 2, w, h };
+}
+
 // ---------------------------------------------------------------- 接近模型
 
 /**
