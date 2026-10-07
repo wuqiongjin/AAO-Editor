@@ -61,7 +61,7 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 
 | 脚本 | 作用 |
 | --- | --- |
-| `fetch-bestdori-skins.mjs` | 拉取 jp 等服六类素材（音符皮肤 / 方向滑键 / 键音 / 判定参考 / 仿真场 `fieldskin` · `bgskin`）到 `docs/resource/bestdori/`（gitignore） |
+| `fetch-bestdori-skins.mjs` | 拉取 jp 等服七类素材（音符皮肤 / 方向滑键 / 键音 / 判定参考 / 仿真场 `fieldskin` · `bgskin` / Bestdori 自家精灵 `bestdori-sprites`）到 `docs/resource/bestdori/`（gitignore） |
 | `fetch-target-note-skins.mjs` | 按目标列表补拉音符皮肤（依赖上者框架） |
 | `build-note-skins.mjs` | 归档 → `public/assets/skins/` + 生成 `noteSkinRegistry.gen.ts` |
 | `build-key-sounds.mjs` | 归档 → 键音包注册表 |
@@ -76,6 +76,16 @@ node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin   # 等价的 
 产物落 `docs/resource/bestdori/<server>/{fieldskin,bgskin}/<包>_rip/`，不入 git、不进安装包；开发期由
 `vite.config.ts` 的 dev 中间件挂在 `/__bestdori-assets/` 前缀下直读（生产构建没有这条通道），详见
 [docs/resource/bestdori/README.md](../docs/resource/bestdori/README.md)。
+
+combo HUD 与打击特效（chart-preview 21）另要 Bestdori **自家**三张精灵（不在游戏的资源树里，脚本按
+直读 URL 清单拉）：
+
+```bash
+node scripts/fetch-bestdori-skins.mjs --category bestdori-sprites
+```
+
+产物落 `docs/resource/bestdori/<server>/sprites/{digits,combo,particles}.png`（缺了不影响场地：
+HUD 与特效回落自绘，不判空态）。
 
 ## 验收 / 取证（非 CI 默认）
 

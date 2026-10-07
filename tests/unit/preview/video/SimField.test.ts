@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { ChartNote, SingleNote, SlideNote } from '@/src/chart/types';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import type CanvasSpriteIcon from '@/src/ui/CanvasSpriteIcon';
+import type { SimSprites } from '@/src/preview/video/sim/simAssets';
 import {
   buildSimChart,
   drawSimFrameAt,
@@ -149,6 +150,67 @@ describe('drawSimFrameAt · 音符的可见窗口（问题 5）', () => {
     const after = recordingCtx();
     drawSimFrameAt(after.proxy, frame, 1.4); // 命中后 0.4s：已出窗口
     expect(after.calls.filter(([k]) => k === 'arc')).toEqual([]);
+  });
+});
+
+/** Bestdori 自家精灵的假图（node 无 DOM ⇒ 染色 / 生成圆走"退回"分支） */
+const fakeSprites = (over: Partial<Record<'digits' | 'combo' | 'particles', null>> = {}) => {
+  const img = (w: number, h: number) => ({ width: w, height: h, naturalWidth: w, naturalHeight: h } as unknown as HTMLImageElement);
+  return {
+    digits: over.digits === null ? null : img(720, 96),
+    combo: over.combo === null ? null : img(150, 41),
+    particles: over.particles === null ? null : img(1024, 1024),
+  };
+};
+
+describe('drawSimFrameAt · Bestdori 精灵（chart-preview 21）', () => {
+  const withSprites = (notes: ChartNote[], spriteIcon: CanvasSpriteIcon, sprites: SimSprites | null): SimFrameInput => ({
+    ...frameOf(notes, spriteIcon),
+    assets: { ...emptySimAssets(), missing: false, sprites },
+  });
+
+  it('combo 用 digits 数字位图 + combo 标签图（有精灵时不再画文本）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const sprites = fakeSprites() as unknown as SimSprites;
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, withSprites([single(2, 3)], spriteIcon, sprites), 1.05); // 命中后 0.05s → combo 1
+    const sources = calls.filter(([k]) => k === 'drawImage').map(([, args]) => args[0]);
+    expect(sources).toContain(sprites.digits);
+    expect(sources).toContain(sprites.combo);
+    expect(calls.filter(([k]) => k === 'fillText')).toEqual([]); // 回落路径不走
+  });
+
+  it('缺精灵时 combo 回落自绘文本（不空着）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, withSprites([single(2, 3)], spriteIcon, null), 1.05);
+    expect(calls.filter(([k]) => k === 'fillText').length).toBeGreaterThan(0);
+  });
+
+  it('命中特效按窗口画 particles 图块（0.6s 后收手）、轨道闪仍在 0.2s 内', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const sprites = fakeSprites() as unknown as SimSprites;
+    const frame = withSprites([single(2, 3)], spriteIcon, sprites);
+
+    const hit = recordingCtx();
+    drawSimFrameAt(hit.proxy, frame, 1.05); // 命中后 0.05s
+    expect(hit.calls.filter(([k]) => k === 'drawImage').map(([, args]) => args[0])).toContain(sprites.particles);
+    expect(hit.calls.filter(([k]) => k === 'fill').length).toBeGreaterThan(0); // 轨道闪（三角楔）
+
+    const flashOver = recordingCtx();
+    drawSimFrameAt(flashOver.proxy, frame, 1.3); // 命中后 0.3s：闪已收（特效仍在窗口内）
+    expect(flashOver.calls.filter(([k]) => k === 'fill')).toEqual([]);
+
+    const allOver = recordingCtx();
+    drawSimFrameAt(allOver.proxy, frame, 1.7); // 命中后 0.7s：特效也收手（combo 仍在画，不在断言内）
+    expect(allOver.calls.filter(([k, args]) => k === 'drawImage' && args[0] === sprites.particles)).toEqual([]);
+  });
+
+  it('程序化回落：缺精灵时仍画圆 / 环（arc）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const hit = recordingCtx();
+    drawSimFrameAt(hit.proxy, withSprites([single(2, 3)], spriteIcon, null), 1.05);
+    expect(hit.calls.filter(([k]) => k === 'arc').length).toBeGreaterThan(0);
   });
 });
 

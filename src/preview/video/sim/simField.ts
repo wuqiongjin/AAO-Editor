@@ -13,7 +13,8 @@
 //   - 音符尺寸与相对比例取 `rendering/primitives/noteMetrics`（唯一定义处）。
 //
 // 素材边界：引官方素材的只有场地三图（04 的开发期直读通道）+ 音符精灵（既有运行时资产）
-// + 同时点击线精灵；**特效全程序化自绘**（票面「特效」一行）。
+// + 同时点击线精灵；**特效与 combo 自 21 起优先用 Bestdori 自家精灵**（`particles` / `digits` /
+// `combo`，同一开发期直读通道），缺精灵时回落程序化自绘 + 文本（两套都在本文件里）。
 import type { ChartNote, ConnectionNote, SlideNote } from '../../../chart/types';
 import { LANE_WIDTH, directionalLanes } from '../../../chart/geometry/ChartGeometry';
 import { displayConnections, slideUsesSpBand } from '../../../chart/editing/SlideSegments';
@@ -40,13 +41,16 @@ import {
   bandQuad,
   clampApproach,
   comboAnchor,
+  comboMetrics,
+  comboPopScale,
+  easeInCubic,
+  easeOutCubic,
   effectAlpha,
-  effectProgress,
   elementPoint,
   fieldImageRect,
   fieldY,
   laneCenterX,
-  laneFlashAlpha,
+  laneFlashShear,
   mirrorLane,
   pingRadius,
   playLineRect,
@@ -54,11 +58,17 @@ import {
   simSpriteScale,
   SIM_BAND_COLORS,
   SIM_EFFECT_DURATION,
+  SIM_EFFECT_TINTS,
+  SIM_LANE_FLASH_ALPHA,
+  SIM_LANE_FLASH_DURATION,
   SIM_LANE_FLASH_SPAN,
+  SIM_SPRITE_EFFECT_DURATION,
   visibleApproach,
   type SimFieldMetrics,
   type SimPoint,
 } from './simGeometry';
+import { digitRect, particleTile, radialCircle, type TileSource } from './simSprites';
+import type { SimSprites } from './simAssets';
 
 /** 缺素材时的场地底色（近黑，与游戏场地暗部同族） */
 export const SIM_FALLBACK_BG = '#0d1017';
@@ -162,6 +172,8 @@ export interface SimFrameAssets {
   bandColor: string;
   /** SP 带体颜色（同上，取 SP 带图） */
   bandColorSp: string;
+  /** Bestdori 自家精灵（combo / 特效）；null = 回落自绘（chart-preview 21） */
+  sprites: SimSprites | null;
 }
 
 export interface SimFrameInput {
@@ -342,7 +354,7 @@ export function drawSimFrameAt(ctx: CanvasRenderingContext2D, input: SimFrameInp
   if (input.scene.simultaneousClickLines) drawSimultaneousLines(ctx, input, seconds);
   drawElements(ctx, input, seconds);
   drawEffects(ctx, input, seconds);
-  drawCombo(ctx, metrics, chart, seconds);
+  drawCombo(ctx, metrics, chart, seconds, input.assets.sprites);
 }
 
 /**
@@ -539,102 +551,307 @@ function elementBound(elements: readonly SimElement[], time: number, inclusive: 
 }
 
 /**
- * 特效（全程序化自绘）：命中后 SIM_EFFECT_DURATION 秒内 ——
- * 轨道闪（白 0.5 → 0 的线性渐变，沿轨道透视 shear）+ 打击环 + 按样式的一笔（光柱 / 横扫 / 槽）。
- * 位置恒取**场地判定线上**（A = 1）：元素过线后消失，命中表现留在线上（游戏同观感）。
+ * 命中特效（chart-preview 21）：**有 Bestdori 精灵时照它的效果表**（`particles.png` 图块 + 生成圆 +
+ * 轨道闪），缺精灵时退回程序化自绘。位置恒取**场地判定线上**（A = 1）——元素过线后消失，命中表现留在线上。
+ *
+ * 局部坐标：单位 = 一个 lane 宽（x/y 同尺），原点 = 命中点 `(laneCenterX(lane, 1), laneHeight)`；
+ * 尺寸都是 `noteSize` 的倍数；`e = easeOutCubic(p)`、`i = easeInCubic(p)`：
+ *
+ * | 类型 | 窗口 | 元素（图块 col,row / 生成圆） | 尺寸 | α |
+ * | --- | --- | --- | --- | --- |
+ * | tap | <0.4 | beam(0,0) / slot(1,0) | 1.33×2 / 1×1 | 1−i |
+ * | tap | <0.6 | circle(生成) / whiteCircle | 2.25e × 1.5e | 0.5(1−i) |
+ * | tap | <0.3 | whiteCircle | 2.25e × 1.5e | 0.5(1−i) |
+ * | tap | <0.6 | ring(2,0) ×2 | 3e×2e / 2.4e×1.6e | 0.8(1−i) |
+ * | flick | <0.4 / <0.2 / <0.6 | slot(1,0) / circle + whiteCircle / ring(2,0) | 1×1 / 1.5(1−u)×2(1+4u) / 3e×2e | 1−i / 1 / 0.8(1−i) |
+ * | skill | <0.4 / <0.3 / <0.6 | beam(3,0)+slot(1,0) / whiteCircle / star(0,1)+ring(2,0) | 0.6×1.5、1×1 / 2.25e×1.5e / 2.25e×1.5e、3e×2e | 1−i / 0.5(1−i) / 0.8(1−i) |
+ * | directional | <0.2 / <0.6 | 斜扫圆（转 ±π/3）+ 正位圆 / 箭头(1,1)（外移 1 lane、转 ±π/2）+ ring(2,0) | 1.5e×4e / … | 1−e / … |
+ *
+ * 滑条结点（`slide`）在 Bestdori 里就是 **tap**（命中样式与配色都照 tap）。
  */
 function drawEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
-  const { chart, metrics: m } = input;
+  const { chart, metrics: m, assets, scene } = input;
   const elements = chart.elements;
+  const sprites = assets.sprites;
+  const window = sprites ? SIM_SPRITE_EFFECT_DURATION : SIM_EFFECT_DURATION;
   // 起点 = 寿命窗口的下界；之后按 time 升序扫，遇到还没命中的就收手
-  const lo = elementBound(elements, seconds - SIM_EFFECT_DURATION, true);
+  const lo = elementBound(elements, seconds - window, true);
   ctx.save();
   for (let i = lo; i < chart.elements.length; i++) {
     const el = chart.elements[i]!;
-    const p = effectProgress(seconds, el.time);
-    if (p < 0) break; // 之后的都还没命中
-    if (p > 1) continue;
-    const alpha = effectAlpha(p);
-    if (alpha <= 0) continue;
-    const color = simEffectColor(el.kind, el.dirSide ?? undefined);
-    const x = laneCenterX(m, el.lane, 1);
-    const y = m.laneHeight;
-    drawLaneFlash(ctx, m, el.lane, p);
-    // 打击环
-    const r = pingRadius(m, 1, p);
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = Math.max(1.5, m.laneWidth * 0.06);
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.stroke();
-    if (el.kind === 'skill') {
-      // 光柱：从判定线往上的一道竖直亮带
-      const beamH = m.h * SIM_LANE_FLASH_SPAN * p;
-      const halfW = m.laneWidth * 0.16;
-      const grad = ctx.createLinearGradient(0, y, 0, y - beamH);
-      grad.addColorStop(0, color);
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(x - halfW, y - beamH, halfW * 2, beamH);
-    } else if (el.kind === 'flick') {
-      // 横扫：两道水平短线（左右各一）
-      const len = m.laneWidth * (0.42 + 0.5 * p);
-      ctx.lineWidth = Math.max(1.5, m.laneWidth * 0.09);
-      ctx.strokeStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(x - len, y);
-      ctx.lineTo(x - len * 0.35, y);
-      ctx.moveTo(x + len * 0.35, y);
-      ctx.lineTo(x + len, y);
-      ctx.stroke();
-    } else if (el.kind === 'directional') {
-      // 槽：方向键整组范围内的横槽（长度随组合长度）
-      const span = Math.max(1, el.length) * m.laneWidth;
-      const halfH = Math.max(1.5, m.laneWidth * 0.07);
-      const growth = 0.5 + 0.5 * p;
-      ctx.fillStyle = color;
-      ctx.fillRect(x - (span * growth) / 2, y - halfH, span * growth, halfH * 2);
-    } else {
-      // tap / slide：实心圆（环内）
-      ctx.fillStyle = color;
-      ctx.globalAlpha = alpha * 0.55;
-      ctx.beginPath();
-      ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
-      ctx.fill();
+    const since = seconds - el.time;
+    if (since < 0) break; // 之后的都还没命中
+    drawLaneFlash(ctx, m, el.lane, since);
+    if (sprites) {
+      if (since <= SIM_SPRITE_EFFECT_DURATION) {
+        drawSpriteEffect(ctx, sprites, m, el, since, scene.noteSize);
+      }
+    } else if (since <= SIM_EFFECT_DURATION) {
+      drawProceduralEffect(ctx, m, el, since);
     }
   }
   ctx.restore();
 }
 
-/** 轨道闪：轨道透视范围内（下宽上窄）的白色线性渐变，命中后 0.5 → 0 */
-function drawLaneFlash(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, lane: number, p: number): void {
-  const alpha = laneFlashAlpha(p);
+/** 图块 / 生成圆的一次绘制：`center` = 以命中点为中心，`bottom` = 底边贴命中点（照 Bestdori 的 $e / He） */
+interface EffectCanvas {
+  ctx: CanvasRenderingContext2D;
+  /** 局部单位（一个 lane 宽，CSS px） */
+  u: number;
+  /** 命中点 */
+  x: number;
+  y: number;
+  /** `noteSize` 倍数 → CSS px 的换算 */
+  size: number;
+}
+
+function drawCentered(c: EffectCanvas, tile: TileSource, w: number, h: number, alpha: number, dx = 0, dy = 0): void {
+  c.ctx.globalAlpha = alpha;
+  c.ctx.drawImage(
+    tile.source, tile.sx, tile.sy, tile.sw, tile.sh,
+    c.x + dx * c.u - (w * c.size * c.u) / 2, c.y + dy * c.u - (h * c.size * c.u) / 2,
+    w * c.size * c.u, h * c.size * c.u,
+  );
+}
+
+function drawBottom(c: EffectCanvas, tile: TileSource, w: number, h: number, alpha: number): void {
+  c.ctx.globalAlpha = alpha;
+  c.ctx.drawImage(
+    tile.source, tile.sx, tile.sy, tile.sw, tile.sh,
+    c.x - (w * c.size * c.u) / 2, c.y - h * c.size * c.u,
+    w * c.size * c.u, h * c.size * c.u,
+  );
+}
+
+function drawSpriteEffect(
+  ctx: CanvasRenderingContext2D,
+  sprites: SimSprites,
+  m: SimFieldMetrics,
+  el: SimElement,
+  since: number,
+  noteSize: number,
+): void {
+  const c: EffectCanvas = { ctx, u: m.laneWidth, x: laneCenterX(m, el.lane, 1), y: m.laneHeight, size: noteSize };
+  const kind = el.kind === 'slide' ? 'tap' : el.kind; // Bestdori 的滑条结点 = tap
+  const tint = kind === 'directional'
+    ? (el.dirSide === 'R' ? SIM_EFFECT_TINTS.directionalR : SIM_EFFECT_TINTS.directionalL)
+    : SIM_EFFECT_TINTS[kind];
+  const white = radialCircle(SIM_EFFECT_TINTS.white, 'rgba(255, 255, 255, 0)');
+  const circle = radialCircle(tint, tint.replace(/,\s*1\)$/, ', 0)'));
+  const tile = (col: number, row: number) => particleTile(sprites, col, row, tint);
+
+  if (kind === 'tap') {
+    if (since < 0.4) {
+      const t = since / 0.4;
+      const a = 1 - easeInCubic(t);
+      drawBottom(c, tile(0, 0), 1.33, 2, a);
+      drawCentered(c, tile(1, 0), 1, 1, a);
+    }
+    if (circle && since < 0.6) {
+      const e = easeOutCubic(since / 0.6);
+      drawCentered(c, circle, 2.25 * e, 1.5 * e, 0.5 * (1 - easeInCubic(since / 0.6)));
+    }
+    if (white && since < 0.3) {
+      const e = easeOutCubic(since / 0.3);
+      drawCentered(c, white, 2.25 * e, 1.5 * e, 0.5 * (1 - easeInCubic(since / 0.3)));
+    }
+    if (since < 0.6) {
+      const e = easeOutCubic(since / 0.6);
+      const a = 0.8 * (1 - easeInCubic(since / 0.6));
+      drawCentered(c, tile(2, 0), 3 * e, 2 * e, a);
+      drawCentered(c, tile(2, 0), 3 * 0.8 * e, 1.6 * e, a);
+    }
+    return;
+  }
+
+  if (kind === 'flick') {
+    if (since < 0.4) drawCentered(c, tile(1, 0), 1, 1, 1 - easeInCubic(since / 0.4));
+    if (since < 0.2) {
+      const u = since / 0.2;
+      if (circle) drawCentered(c, circle, 1.5 * (1 - u), 2 * (1 + 4 * u), 1);
+      if (white) drawCentered(c, white, 1.5 * (1 - u), 2, 1);
+    }
+    if (since < 0.6) {
+      const e = easeOutCubic(since / 0.6);
+      drawCentered(c, tile(2, 0), 3 * e, 2 * e, 0.8 * (1 - easeInCubic(since / 0.6)));
+    }
+    return;
+  }
+
+  if (kind === 'skill') {
+    if (since < 0.4) {
+      const a = 1 - easeInCubic(since / 0.4);
+      drawBottom(c, tile(3, 0), 0.6, 1.5, a);
+      drawCentered(c, tile(1, 0), 1, 1, a);
+    }
+    if (white && since < 0.3) {
+      const e = easeOutCubic(since / 0.3);
+      drawCentered(c, white, 2.25 * e, 1.5 * e, 0.5 * (1 - easeInCubic(since / 0.3)));
+    }
+    if (since < 0.6) {
+      const e = easeOutCubic(since / 0.6);
+      const a = 0.8 * (1 - easeInCubic(since / 0.6));
+      drawCentered(c, tile(0, 1), 2.25 * e, 1.5 * e, a);
+      drawCentered(c, tile(2, 0), 3 * e, 2 * e, a);
+    }
+    return;
+  }
+
+  // directionalFlick：斜扫一记 + 正位圆 + 箭头（照 Bestdori 的旋转 / 位移）
+  const dir = el.dirSide === 'R' ? 1 : -1;
+  if (circle && white && since < 0.2) {
+    const t = easeOutCubic(since / 0.2);
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate((Math.PI / 3) * dir);
+    ctx.globalAlpha = 1 - t;
+    const w = 1.5 * t * noteSize * m.laneWidth;
+    const h = 4 * t * noteSize * m.laneWidth;
+    ctx.drawImage(circle.source, circle.sx, circle.sy, circle.sw, circle.sh, -w / 2, -h, w, h);
+    ctx.drawImage(white.source, white.sx, white.sy, white.sw, white.sh, -w / 2, -h, w, h);
+    ctx.restore();
+    const shrink = 1 - since / 0.2;
+    drawCentered(c, circle, 1.5 * shrink, 2 * (1 + 4 * (since / 0.2)), 1);
+    drawCentered(c, white, 1.5 * shrink, 2, 1);
+  }
+  if (since < 0.6) {
+    const t = since / 0.6;
+    const arrow = tile(1, 1);
+    const shift = easeOutCubic(t) * dir; // 圆心外移 1 个 lane
+    ctx.save();
+    ctx.translate(c.x + shift * m.laneWidth, c.y);
+    ctx.rotate((Math.PI / 2) * dir);
+    ctx.globalAlpha = 1 - easeInCubic(t);
+    const s = noteSize * m.laneWidth;
+    ctx.drawImage(arrow.source, arrow.sx, arrow.sy, arrow.sw, arrow.sh, -s / 2, -s / 2, s, s);
+    ctx.restore();
+    const e = easeOutCubic(t);
+    drawCentered(c, tile(2, 0), 3 * e, 2 * e, 0.8 * (1 - easeInCubic(t)));
+  }
+}
+
+/** 程序化自绘（缺 Bestdori 精灵时的回落）：圆 / 环 / 光柱 / 槽，配色走 `SIM_EFFECT_COLORS` */
+function drawProceduralEffect(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, el: SimElement, since: number): void {
+  const p = since / SIM_EFFECT_DURATION;
+  const alpha = effectAlpha(p);
   if (alpha <= 0) return;
-  const bottomX = laneCenterX(m, lane, 1);
-  const topA = Math.max(APPROACH.floor, 1 - SIM_LANE_FLASH_SPAN);
-  const topX = laneCenterX(m, lane, topA);
-  const bottomHalf = m.laneWidth / 2;
-  const topHalf = (m.laneWidth * topA) / 2;
-  ctx.save();
+  const color = simEffectColor(el.kind, el.dirSide ?? undefined);
+  const x = laneCenterX(m, el.lane, 1);
+  const y = m.laneHeight;
+  const r = pingRadius(m, 1, p);
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1.5, m.laneWidth * 0.06);
   ctx.beginPath();
-  ctx.moveTo(bottomX - bottomHalf, m.laneHeight);
-  ctx.lineTo(bottomX + bottomHalf, m.laneHeight);
-  ctx.lineTo(topX + topHalf, m.laneHeight * topA);
-  ctx.lineTo(topX - topHalf, m.laneHeight * topA);
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  if (el.kind === 'skill') {
+    // 光柱：从判定线往上的一道竖直亮带
+    const beamH = m.h * SIM_LANE_FLASH_SPAN * p;
+    const halfW = m.laneWidth * 0.16;
+    const grad = ctx.createLinearGradient(0, y, 0, y - beamH);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - halfW, y - beamH, halfW * 2, beamH);
+  } else if (el.kind === 'flick') {
+    // 横扫：两道水平短线（左右各一）
+    const len = m.laneWidth * (0.42 + 0.5 * p);
+    ctx.lineWidth = Math.max(1.5, m.laneWidth * 0.09);
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x - len, y);
+    ctx.lineTo(x - len * 0.35, y);
+    ctx.moveTo(x + len * 0.35, y);
+    ctx.lineTo(x + len, y);
+    ctx.stroke();
+  } else if (el.kind === 'directional') {
+    // 槽：方向键整组范围内的横槽（长度随组合长度）
+    const span = Math.max(1, el.length) * m.laneWidth;
+    const halfH = Math.max(1.5, m.laneWidth * 0.07);
+    const growth = 0.5 + 0.5 * p;
+    ctx.fillStyle = color;
+    ctx.fillRect(x - (span * growth) / 2, y - halfH, span * growth, halfH * 2);
+  } else {
+    // tap / slide：实心圆（环内）
+    ctx.fillStyle = color;
+    ctx.globalAlpha = alpha * 0.55;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/**
+ * 轨道闪（照 Bestdori）：**满高三角楔** —— 底边贴判定线、上端随轨道斜向消失点收成一点，
+ * 白 0.5 → 0 的线性渐变，命中后 0.2s 内 α = 1 − p。
+ * 局部坐标：原点在画布顶中心，`x' = x + shear·y`（`laneFlashShear` 给出 shear）。
+ */
+function drawLaneFlash(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, lane: number, since: number): void {
+  if (since >= SIM_LANE_FLASH_DURATION) return;
+  const p = since / SIM_LANE_FLASH_DURATION;
+  const alpha = 1 - p;
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.transform(1, 0, laneFlashShear(m, lane), 1, m.centerX, 0);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, m.laneHeight);
+  ctx.lineTo(m.laneWidth, m.laneHeight);
   ctx.closePath();
-  const grad = ctx.createLinearGradient(0, m.laneHeight, 0, m.laneHeight * topA);
-  grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
+  const grad = ctx.createLinearGradient(0, m.laneHeight, 0, 0);
+  grad.addColorStop(0, `rgba(255,255,255,${SIM_LANE_FLASH_ALPHA * alpha})`);
   grad.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = grad;
   ctx.fill();
   ctx.restore();
 }
 
-/** HUD：combo 计数（自绘文本，不引官方 digits / combo 精灵） */
-function drawCombo(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, chart: SimChart, seconds: number): void {
+/**
+ * HUD：combo（chart-preview 21）—— 有 Bestdori 精灵时用 `digits.png`（10 列数字）+ `combo.png`
+ * （"COMBO" 标签），整体按 `canvasHeight` 缩放、锚点 `0.85W × 0.4375H`、命中后有 0.2s 弹跳
+ * （0.8 → 1.1 → 1，`comboPopScale`）；缺精灵时退回自绘文本（原实现）。
+ */
+function drawCombo(
+  ctx: CanvasRenderingContext2D,
+  m: SimFieldMetrics,
+  chart: SimChart,
+  seconds: number,
+  sprites: SimSprites | null,
+): void {
   const combo = simComboAt(chart, seconds);
   if (combo <= 0) return;
+  const { x, y } = comboAnchor(m);
+  if (!sprites) {
+    drawComboText(ctx, m, combo);
+    return;
+  }
+  const last = chart.hitTimes[combo - 1] ?? seconds;
+  const scale = comboPopScale(Math.max(0, seconds - last));
+  const { digitW, digitH, labelW, labelH, labelGap } = comboMetrics(m);
+  const text = String(combo);
+  ctx.save();
+  ctx.globalAlpha = 1;
+  // 数字：整串水平居中于锚点（照 Bestdori 的 `Ae = -length/2`）
+  let dx = (-text.length / 2) * digitW;
+  for (const ch of text) {
+    const digit = Number(ch);
+    const rect = digitRect(sprites, Number.isFinite(digit) ? digit : 0);
+    ctx.drawImage(
+      sprites.digits, rect.sx, rect.sy, rect.sw, rect.sh,
+      x + dx * scale, y - (digitH * scale) / 2, digitW * scale, digitH * scale,
+    );
+    dx += digitW;
+  }
+  ctx.drawImage(
+    sprites.combo, 0, 0, sprites.combo.width, sprites.combo.height,
+    x - (labelW * scale) / 2, y + labelGap * scale, labelW * scale, labelH * scale,
+  );
+  ctx.restore();
+}
+
+/** combo 的自绘文本回落（缺 Bestdori 精灵时；系统无衬线 + 右对齐 + 小字 COMBO） */
+function drawComboText(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, combo: number): void {
   const { x, y, fontSize } = comboAnchor(m);
   ctx.save();
   ctx.textAlign = 'right';

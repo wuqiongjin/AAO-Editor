@@ -1,7 +1,7 @@
 # 21 · 动态预览 HUD 与打击特效对齐 Bestdori 素材（combo 精灵 + particles）
 
 Type: feature
-Status: open
+Status: resolved 实现（2026-10-07，待用户验收；实现与验证见 Answer）
 
 **来源**：票 05 验收问题 6（"combo 和数字的字体、样式、大小和 bestdori 的不一样！（可以看看 bestdori 有没有对应的材质，不要自己造）"）+ 问题 7（"音符的打击特效和 bestdori 的好像也不一样？（这个 bestdori 有没有对应的材质？）"）。
 
@@ -58,4 +58,31 @@ Status: open
 ## Comments
 
 - 2026-10-07 开票（本会话）：素材可得性已实测（三张 PNG HTTP 200 + 尺寸）；效果表从 bundle 原文逐条誊出（`.cache/bestdori-bundles/CommunityChartsNew.b534f9a9.js`，`0===this.simTapEffect` 段）。
-- 2026-10-07 **定案（用户拍板）**：素材走 Bestdori 自家 `/res/sprites/*.png`（dev 直读、不入 git / 不进安装包；缺图回落现有自绘）。**未实现**。
+- 2026-10-07 **定案（用户拍板）**：素材走 Bestdori 自家 `/res/sprites/*.png`（dev 直读、不入 git / 不进安装包；缺图回落现有自绘）。
+
+## Answer
+
+2026-10-07 实现（待用户验收）。
+
+**素材通道**
+
+- 归档脚本新增 `bestdori-sprites` 类别（`DIRECT_ASSETS` 直读 URL 清单，**不走** `/api/explorer` 资源树）：`node scripts/fetch-bestdori-skins.mjs --category bestdori-sprites` → `docs/resource/bestdori/<server>/sprites/{digits,combo,particles}.png`（本机已拉，三张 0.2 MB）。`--category` 已知类别校验、dry-run 汇总、`scripts/README.md` 的命令与产物路径都同步。
+- `simAssets`：新增 `simSpriteUrls(server)` / `SimSprites` / `SimAssets.sprites`；**三张齐了才给**，缺任何一张 = `null`（回落自绘，**不置 `missing`**、不影响场地与空态）；`SimFrameAssets` 增同名字段（07 的导出复用同一份素材）。
+
+**HUD（问题 6）**（照 Bestdori `drawCanvas`）
+
+- `digits.png`（10 列）+ `combo.png`（150:41）替代系统字体文本：整体按 `canvasHeight`（数字 0.09375H × 0.125H、标签 0.1829H × 0.05H、标签从数字**下缘**起）、整串水平居中于锚点 `(0.85W, 0.4375H)`；命中后 0.2s 弹跳（`comboPopScale`：0.8 → 1.1 → 1）。缺精灵 → 回落原自绘文本。
+
+**打击特效（问题 7）**（照 Bestdori 的 `0===this.simTapEffect` 段）
+
+- `particles.png` 的 4×4 块 + 程序化径向渐变圆，按元素配色染色（tap 青 `124,225,225` / flick 粉 `255,156,184` / skill 黄 `255,255,64` / 方向键紫 `214,180,250`·橙 `250,196,170` / 白）；图块染色与生成圆都缓存（`simSprites.ts`，node 无 DOM → 退回不染整块）。四类 + 方向键的**窗口 / 尺寸 / α / 缓动**照票内表格逐条落地；滑条结点按 Bestdori 走 **tap**（不再是自造的绿色）。
+- 轨道闪改**满高三角楔**（`laneFlashShear` 的剪切 → 上端收成消失点），窗口 0.2s、α = 1−p、渐变白 0.5 → 0；缺精灵时整条链路回落程序化自绘（原实现保留）。
+
+**落点**：`src/preview/video/sim/simSprites.ts`（新：取块 / 染色 / 生成圆 / 数字矩形）、`simField.ts`（`drawCombo` / `drawEffects` / `drawLaneFlash` 两套路径）、`simGeometry.ts`（配色 / 窗口 / 缓动 / `comboMetrics` / `comboPopScale` / `laneFlashShear`）；barrel 出 `simSpriteUrls` / `SimSprites`；ADR-0016 §6 补记"另需 Bestdori 自家三张精灵 + 缺图回落"。
+
+**验证**
+
+- `npm test` **209 文件 / 2,302 用例全绿**；`npx tsc -b` 通过；改动文件 eslint 干净。
+- 锁测：`SimField.test.ts` +4 例（精灵版 combo 用 digits+combo 且不画文本 / 缺精灵回落文本 / 特效按窗口画 particles 图块且 0.2s 后轨道闪收手、0.6s 后特效收手 / 程序化回落仍画圆）；`SimGeometry.test.ts` +1 例（缓动 / combo 尺寸与弹跳 / 轨道闪剪切）；`SimAssets.test.ts` +2 例（三个 URL 都在直读通道；三张齐才给、缺一张整组 null 且不判空态）；`PreviewPageWiring` 的 sim 目录清单同步。
+- 真机（`.cache/sim-frame.mjs` 渲染 t=2.9s + `scripts/sim-shot.mjs`）：命中帧出现 Bestdori 的 "2 COMBO"（数字 + 标签精灵）、青色打击环与**满高轨道闪楔**；7 个车道标记与音符对齐（票 18 的修复保持）。
+- **待人工验收**：与 Bestdori 同秒并排对照（tap / flick / skill / 方向键命中帧 + 长条按住），以及缺精灵时的回落观感。

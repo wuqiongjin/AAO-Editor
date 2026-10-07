@@ -292,6 +292,75 @@ export function simEffectColor(kind: KeySoundKind, dir?: 'L' | 'R'): string {
   return SIM_EFFECT_COLORS[kind];
 }
 
+// ---------------------------------------------------------------- 命中特效与 HUD（Bestdori 口径，chart-preview 21）
+
+/**
+ * 命中特效配色（照 Bestdori 的 tint / 生成圆）：tap 青、flick 粉、skill 黄、方向键紫 / 橙、白。
+ * `particles.png` 的图块按它整块染色；圆是程序化径向渐变（内 = 本色，外 = 同色透明）。
+ */
+export const SIM_EFFECT_TINTS = {
+  tap: 'rgba(124, 225, 225, 1)',
+  flick: 'rgba(255, 156, 184, 1)',
+  skill: 'rgba(255, 255, 64, 1)',
+  directionalL: 'rgba(214, 180, 250, 1)',
+  directionalR: 'rgba(250, 196, 170, 1)',
+  white: 'rgba(255, 255, 255, 1)',
+} as const;
+
+/** 命中特效的窗口（秒，照 Bestdori）：轨道闪 0.2s；各笔最长 0.6s（扫描窗口用它） */
+export const SIM_LANE_FLASH_DURATION = 0.2;
+export const SIM_SPRITE_EFFECT_DURATION = 0.6;
+
+/** Bestdori 的缓动（`easeInCubic` / `easeOutCubic`）：特效各笔的尺寸 / 透明度都按它插值 */
+export function easeInCubic(t: number): number {
+  return t * t * t;
+}
+
+export function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
+/**
+ * combo 的尺寸（照 Bestdori：整体按 `canvasHeight` 缩放）：
+ * 数字 0.09375H 宽 × 0.125H 高（整串水平居中于锚点）、"COMBO" 标签 0.1829H × 0.05H，
+ * 画在数字**下缘**（从 +0.0625H = 数字半高起）。
+ */
+export function comboMetrics(m: SimFieldMetrics): {
+  digitW: number;
+  digitH: number;
+  labelW: number;
+  labelH: number;
+  labelGap: number;
+} {
+  const h = m.h;
+  return {
+    digitW: h * 0.09375,
+    digitH: h * 0.125,
+    labelW: h * (150 / 41) * 0.05, // combo.png 的 150:41 比例
+    labelH: h * 0.05,
+    labelGap: h * 0.0625, // = 数字半高（Bestdori 的 `Le/2`）
+  };
+}
+
+/**
+ * combo 的弹跳系数（照 Bestdori 的 `Oe`）：命中瞬间 0.8 → 0.1s 时 1.1 → 0.2s 落回 1。
+ * 参数 = 距最近一次命中的秒数（≥0）。
+ */
+export function comboPopScale(secondsSinceHit: number): number {
+  const we = -secondsSinceHit; // Bestdori 的 `we = lastComboTime − e`
+  if (we < -0.2) return 1;
+  if (we < -0.1) return we + 1.2;
+  return 1.1 - 3 * (we + 0.1);
+}
+
+/**
+ * 轨道闪的剪切系数（照 Bestdori 的 `setTransform(1, 0, (lane−0.5)·laneWidth/laneHeight, 1, W/2, 0)`）：
+ * 局部原点在画布顶中心、y 向下到判定线；`x' = x + shear · y` 让满高的三角楔随轨道斜向消失点。
+ */
+export function laneFlashShear(m: SimFieldMetrics, lane: number): number {
+  return (laneOffsetDesign(lane) - 0.5) * (m.laneWidth / m.laneHeight);
+}
+
 /** 进度钳到 0..1（特效四个量共用同一条夹取；非有限值按 0） */
 function clamp01(p: number): number {
   if (!Number.isFinite(p)) return 0;

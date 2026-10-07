@@ -18,6 +18,8 @@ export const SIM_ASSET_SERVERS = ['jp', 'en', 'tw', 'cn', 'kr'] as const;
 /** 场地包（fieldskin）/ 背景包（bgskin）：skin00 是官方默认档 */
 const SIM_FIELD_PACK = 'fieldskin/skin00_rip';
 const SIM_BG_PACK = 'bgskin/skin00_rip';
+/** Bestdori 自家精灵目录（归档脚本 `--category bestdori-sprites` 的产物） */
+const SIM_SPRITE_PACK = 'sprites';
 
 /** 某个服务器目录下要读的三张图 */
 export interface SimAssetUrls {
@@ -38,6 +40,35 @@ export function simAssetUrls(server: string): SimAssetUrls {
   };
 }
 
+/** Bestdori 自家精灵（chart-preview 21）：combo 数字 / COMBO 标签 / 打击特效图块 */
+export interface SimSpriteUrls {
+  digits: string;
+  combo: string;
+  particles: string;
+}
+
+export function simSpriteUrls(server: string): SimSpriteUrls {
+  const root = `${SIM_ASSET_BASE}/${server}/${SIM_SPRITE_PACK}`;
+  return {
+    digits: `${root}/digits.png`,
+    combo: `${root}/combo.png`,
+    particles: `${root}/particles.png`,
+  };
+}
+
+/**
+ * 已就绪的 Bestdori 自家精灵（chart-preview 21）。
+ * **三张齐了才给**：缺一张就整组回落自绘（HUD 文本 + 程序化特效），不做半套。
+ */
+export interface SimSprites {
+  /** `digits.png`（720×96 = 10 个 72×96，左起 10 列） */
+  digits: HTMLImageElement;
+  /** `combo.png`（150×41 的 "COMBO" 标签图） */
+  combo: HTMLImageElement;
+  /** `particles.png`（1024×1024 = 4×4 图块，每块 256×256） */
+  particles: HTMLImageElement;
+}
+
 /** 已就绪的场地素材（缺素材 = `missing`，三图全 null） */
 export interface SimAssets {
   background: HTMLImageElement | null;
@@ -46,6 +77,8 @@ export interface SimAssets {
   /** 带体填充色（皮肤带体图中心取样；取不到 = 兜底绿） */
   bandColor: string;
   bandColorSp: string;
+  /** Bestdori 自家精灵（combo / 特效）：缺 = null → 回落自绘（chart-preview 21，**不置 missing**） */
+  sprites: SimSprites | null;
   /** 缺素材：跑过归档脚本才能有（空态由页面画，这里只报事实） */
   missing: boolean;
   /** 命中的服务器目录（缺素材 = null） */
@@ -73,6 +106,7 @@ export function emptySimAssets(): SimAssets {
     playLine: null,
     bandColor: SIM_BAND_COLORS.band,
     bandColorSp: SIM_BAND_COLORS.sp,
+    sprites: null,
     missing: true,
     server: null,
   };
@@ -129,11 +163,16 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
     } catch {
       continue; // 这个服务器目录没归档：换下一个
     }
-    const [background, playLine, bandImg, bandSpImg] = await Promise.all([
+    const spriteUrls = simSpriteUrls(server);
+    const [background, playLine, bandImg, bandSpImg, digits, combo, particles] = await Promise.all([
       loadImage(urls.background).catch(() => null),
       loadImage(urls.playLine).catch(() => null),
       bandSrc ? loadImage(bandSrc).catch(() => null) : Promise.resolve(null),
       bandSpSrc ? loadImage(bandSpSrc).catch(() => null) : Promise.resolve(null),
+      // Bestdori 自家精灵（chart-preview 21）：缺席只是"回落自绘"，不影响场地
+      loadImage(spriteUrls.digits).catch(() => null),
+      loadImage(spriteUrls.combo).catch(() => null),
+      loadImage(spriteUrls.particles).catch(() => null),
     ]);
     return {
       background,
@@ -141,6 +180,7 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
       playLine,
       bandColor: (bandImg ? sampleColor(bandImg) : null) ?? SIM_BAND_COLORS.band,
       bandColorSp: (bandSpImg ? sampleColor(bandSpImg) : null) ?? SIM_BAND_COLORS.sp,
+      sprites: digits && combo && particles ? { digits, combo, particles } : null,
       missing: false,
       server,
     };

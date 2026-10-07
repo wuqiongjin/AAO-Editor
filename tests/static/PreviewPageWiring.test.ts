@@ -138,7 +138,8 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'saveBinary.ts',
       'sheetHeader.ts',
     ]);
-    // 05 起 video/ 是实件：仿真场落在 sim/ 子目录（几何 / 一帧绘制 / 素材 / 回放，ADR-0016 §3 的树）
+    // 05 起 video/ 是实件：仿真场落在 sim/ 子目录（几何 / 一帧绘制 / 素材 / 回放 / Bestdori 精灵，
+    // ADR-0016 §3 的树；`simSprites` 由 chart-preview 21 引入）
     expect(entries('src/preview/video')).toEqual(['index.ts', 'sim']);
     expect(entries('src/preview/video/sim')).toEqual([
       'index.ts',
@@ -146,6 +147,7 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'simField.ts',
       'simGeometry.ts',
       'simPlayback.ts',
+      'simSprites.ts',
     ]);
   });
 

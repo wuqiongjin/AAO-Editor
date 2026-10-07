@@ -34,9 +34,12 @@ export {
   loadSimAssets,
   sampleCenterColor,
   simAssetUrls,
+  simSpriteUrls,
   type SimAssetLoadOptions,
   type SimAssetUrls,
   type SimAssets,
+  type SimSprites,
+  type SimSpriteUrls,
 } from './simAssets';
 export {
   SIM_PLAYBACK_RATES,

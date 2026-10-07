@@ -10,6 +10,8 @@
  *     4. reference-only/judgeskin  判定结果参考资源（仅研究用，不接入渲染器）
  *     5. fieldskin                 仿真场场地素材（ingameskin/fieldskin/*；chart-preview 04）
  *     6. bgskin                    仿真场背景素材（ingameskin/bgskin/*；chart-preview 04）
+ *     7. bestdori-sprites          Bestdori 自家精灵（/res/sprites/{digits,combo,particles}.png；
+ *                                  chart-preview 21 的 combo 与打击特效 —— 不走资源树，直读 URL）
  *
  *   5 / 6 供谱面预览的仿真场（chart-preview 05）开发期直读：素材仍只落归档目录
  *   （不入 git、不进安装包），dev 由 vite.config.ts 的 /__bestdori-assets/ 中间件直读。
@@ -115,6 +117,24 @@ const SPECIAL_PACKAGES = [
   },
 ];
 
+/**
+ * 直读 URL 清单（chart-preview 21）：**Bestdori 自带的精灵**（不是游戏资源，
+ * 不在 `/api/explorer/<server>/assets/**` 那棵树里），按文件直接列 URL。
+ * 仿真场的 combo（`digits` / `combo`）与打击特效（`particles`，4×4 图块）用这三张，
+ * 与 fieldskin / bgskin 同一条边界：仅供本地研究、不入 git、不进安装包。
+ */
+const DIRECT_ASSETS = [
+  {
+    categoryId: 'bestdori-sprites',
+    dir: 'sprites',
+    files: [
+      { filename: 'digits.png', url: `${BASE_URL}/res/sprites/digits.png` },
+      { filename: 'combo.png', url: `${BASE_URL}/res/sprites/combo.png` },
+      { filename: 'particles.png', url: `${BASE_URL}/res/sprites/particles.png` },
+    ],
+  },
+];
+
 /** 判断包名是否为图鉴预览包：noteskin 用 `*sample` 后缀（如 skin00sample / habahiro_sample），
  *  bgskin 用 `*preview` 后缀（如 skin_mikupreview）——只收预览图，不是仿真场要的主包 */
 function isPreviewPackageName(name) {
@@ -147,6 +167,7 @@ function printHelp() {
   node scripts/fetch-bestdori-skins.mjs --server jp --output docs/resource/bestdori
   node scripts/fetch-bestdori-skins.mjs --dry-run
   node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin
+  node scripts/fetch-bestdori-skins.mjs --category bestdori-sprites
 `);
 }
 
@@ -360,7 +381,7 @@ function toPosix(...parts) {
   return parts.join('/');
 }
 
-async function buildTasks(packages, server, outputRoot, fetchConcurrency) {
+async function buildTasks(packages, server, outputRoot, fetchConcurrency, options = {}) {
   const tasks = [];
   const skippedBundles = [];
   const packageFailures = [];
@@ -424,6 +445,31 @@ async function buildTasks(packages, server, outputRoot, fetchConcurrency) {
         localRel,
         localAbs: path.join(outputRoot, ...localRel.split('/')),
       });
+    }
+  }
+
+  // 直读 URL 清单（Bestdori 自家精灵）：不是"叶子包"，按文件逐个建任务；
+  // 产物落 `<server>/sprites/<file>`（与素材通道同构，读取端照旧逐服探测）
+  if (options.includeDirectAssets) {
+    for (const group of DIRECT_ASSETS) {
+      for (const file of group.files) {
+        const localRel = toPosix(server, group.dir, file.filename);
+        tasks.push({
+          pkg: {
+            categoryId: group.categoryId,
+            categoryDir: group.dir,
+            packageName: group.dir,
+            kind: 'main',
+            referenceOnly: false,
+            assetPath: group.dir,
+            declaredCount: group.files.length,
+          },
+          filename: file.filename,
+          url: file.url,
+          localRel,
+          localAbs: path.join(outputRoot, ...localRel.split('/')),
+        });
+      }
     }
   }
 
@@ -517,8 +563,9 @@ async function main() {
   const allPackages = buildPackageList(info, server);
   // --category / --package 过滤：部分归档时只处理命中的叶子包；
   // 未命中的包不视为"源上消失"，其既有 manifest 条目原样保留（见第 4 步 carriedOver）。
+  const directCategoryIds = DIRECT_ASSETS.map((group) => group.categoryId);
   if (args.category.length > 0) {
-    const known = new Set(allPackages.map((p) => p.categoryId));
+    const known = new Set([...allPackages.map((p) => p.categoryId), ...directCategoryIds]);
     const unknown = args.category.filter((c) => !known.has(c));
     if (unknown.length > 0) {
       die(`--category 含未知类别: ${unknown.join(', ')}（已知: ${[...known].join(', ')}）`);
@@ -530,6 +577,9 @@ async function main() {
       (args.category.length === 0 || args.category.includes(p.categoryId)) &&
       (!packageFilter.size || packageFilter.has(p.packageName)),
   );
+  // 直读清单：默认跟着全量跑；点名了别的类别 / 用了 --package 就不掺进来
+  const includeDirectAssets =
+    args.category.length === 0 || args.category.some((c) => directCategoryIds.includes(c));
   if (packageFilter.size > 0) {
     const found = new Set(packages.map((p) => p.packageName));
     const missing = [...packageFilter].filter((n) => !found.has(n));
@@ -542,6 +592,7 @@ async function main() {
     server,
     outputRoot,
     args.concurrency,
+    { includeDirectAssets },
   );
 
   // 2. dry-run 或汇总打印 ---------------------------------------------------

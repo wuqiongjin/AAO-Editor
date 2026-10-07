@@ -15,6 +15,10 @@ import {
   bandQuad,
   clampApproach,
   comboAnchor,
+  comboMetrics,
+  comboPopScale,
+  easeInCubic,
+  easeOutCubic,
   effectAlpha,
   effectProgress,
   fieldImageRect,
@@ -23,6 +27,7 @@ import {
   fitDesignSurface,
   laneCenterX,
   laneFlashAlpha,
+  laneFlashShear,
   laneOffsetDesign,
   mirrorLane,
   pingRadius,
@@ -199,6 +204,27 @@ describe('特效参数与 HUD（程序化自绘）', () => {
     const all = [simEffectColor('tap'), simEffectColor('flick'), simEffectColor('skill'), simEffectColor('slide')];
     expect(new Set(all).size).toBe(4);
     expect(simEffectColor('directional', 'L')).not.toBe(simEffectColor('directional', 'R'));
+  });
+
+  it('Bestdori 口径（chart-preview 21）：缓动 / combo 尺寸与弹跳 / 轨道闪剪切', () => {
+    expect(easeInCubic(0.5)).toBeCloseTo(0.125, 6);
+    expect(easeOutCubic(0.5)).toBeCloseTo(0.875, 6);
+
+    const combo = comboMetrics(m);
+    expect(combo.digitH).toBeCloseTo(0.125 * DESIGN_SURFACE.h, 6); // 数字高 = 0.125H
+    expect(combo.digitW).toBeCloseTo(0.09375 * DESIGN_SURFACE.h, 6);
+    expect(combo.labelW / combo.labelH).toBeCloseTo(150 / 41, 6); // combo.png 的比例
+    expect(combo.labelGap).toBeCloseTo(combo.digitH / 2, 6); // 标签从数字下缘起
+
+    // 弹跳：命中瞬间 0.8 → 0.1s 时 1.1 → 0.2s 落回 1（之后一直是 1）
+    expect(comboPopScale(0)).toBeCloseTo(0.8, 6);
+    expect(comboPopScale(0.1)).toBeCloseTo(1.1, 6);
+    expect(comboPopScale(0.2)).toBeCloseTo(1, 6);
+    expect(comboPopScale(5)).toBe(1);
+
+    // 轨道闪剪切：最外轨的上下缘错开 3.5 / 2.5 个 lane（照 Bestdori 的 (lane−0.5)）
+    expect(laneFlashShear(m, 0)).toBeCloseTo(-3.5 * (m.laneWidth / m.laneHeight), 6);
+    expect(laneFlashShear(m, 6)).toBeCloseTo(2.5 * (m.laneWidth / m.laneHeight), 6);
   });
 
   it('combo 锚点照 Bestdori 落 0.85W × 0.4375H', () => {

@@ -11,6 +11,7 @@ import {
   loadSimAssets,
   sampleCenterColor,
   simAssetUrls,
+  simSpriteUrls,
 } from '@/src/preview/video/sim/simAssets';
 import { SIM_BAND_COLORS } from '@/src/preview/video/sim/simGeometry';
 
@@ -36,6 +37,35 @@ describe('仿真场的素材 URL', () => {
     expect(urls.field).toContain('fieldskin/skin00_rip/bg_line_rhythm.png');
     expect(urls.playLine).toContain('fieldskin/skin00_rip/game_play_line.png');
     expect(urls.background).toContain('bgskin/skin00_rip/liveBG_normal.png');
+  });
+
+  it('Bestdori 自家精灵也走同一条直读通道（chart-preview 21）', () => {
+    const urls = simSpriteUrls('jp');
+    expect(urls.digits).toBe(`${SIM_ASSET_BASE}/jp/sprites/digits.png`);
+    expect(urls.combo).toBe(`${SIM_ASSET_BASE}/jp/sprites/combo.png`);
+    expect(urls.particles).toBe(`${SIM_ASSET_BASE}/jp/sprites/particles.png`);
+  });
+});
+
+describe('loadSimAssets · Bestdori 自家精灵（chart-preview 21）', () => {
+  it('三张齐了才给：缺一张 → 整组 null（回落自绘），不影响场地与 missing', async () => {
+    const jp = simAssetUrls('jp');
+    const sprites = simSpriteUrls('jp');
+    const full = await loadSimAssets({
+      servers: ['jp'],
+      loadImage: fakeLoader((src) => src === jp.field || src.startsWith(`${SIM_ASSET_BASE}/jp/sprites/`)).load,
+    });
+    expect(full.missing).toBe(false);
+    expect(full.sprites?.digits.src).toBe(sprites.digits);
+    expect(full.sprites?.combo.src).toBe(sprites.combo);
+    expect(full.sprites?.particles.src).toBe(sprites.particles);
+
+    const partial = await loadSimAssets({
+      servers: ['jp'],
+      loadImage: fakeLoader((src) => src === jp.field || src === sprites.digits).load,
+    });
+    expect(partial.sprites).toBeNull(); // 缺 combo / particles ⇒ 整组不用
+    expect(partial.missing).toBe(false); // 场地仍在：不是空态
   });
 });
 

@@ -59,7 +59,7 @@
 - [18 2026-10-07 动态预览验收缺陷批次](./issues/18-2026-10-07动态预览验收缺陷批次.md) — **已实现待验收**（2026-10-07：问题 5 `drawElements` 可见窗口 `[seconds−T, seconds]` → `[seconds, seconds+T]`；问题 4 新增 `fieldImageRect` / `playLineRect`（`0.875W×0.8061H` 底边贴判定线 / `1.35W`）替换两处拉满画布；新增 `SimField.test.ts` 8 例 + 几何 3 例 + 接线守卫 1 例，`npm test` 208/2288 全绿；像素核对：t=4.25s 从 0 次绘制 → 3 颗音符、判定线标记与车道中心偏差 ≤ 0.75 CSS px）
 - [19 动态预览画面尺寸策略（满宽 vs contain）](./issues/19-动态预览画面尺寸策略.md) — **已实现待验收**（2026-10-07 用户拍板：保持 contain / 接受留白，只把画面做大 —— `maxW` 1920 → **2560** + 动态形态 `.is-video` 收页面留白：2560×1440 场地 1920×1079 → **2298×1292（+43% 面积）**，1920×1080 → 1658×932（+7%）；满宽两案否决）
 - [20 动态预览播放器控件（音量 / 倍速 / 循环 / 全屏 / 导出入口）](./issues/20-动态预览播放器控件.md) — **已实现待验收**（2026-10-07 用户拍板：要音量 + 倍速；"没有声音"= 缺控件不是 bug）：播放条补 倍速五档 `[0.5,0.75,1,1.5,2]` + 循环 + 主音量（落新设置 `settings.audio.volume`），工具栏补全屏（导出入口归 07）。引擎侧补 rate（BGM `playbackRate` + 两条时钟 + 键音调度一起缩放，改速率不跳位置）；`npm test` 209/2295 全绿）
-- [21 动态预览 HUD 与打击特效对齐 Bestdori 素材](./issues/21-动态预览HUD与打击特效对齐Bestdori素材.md) — open（Type: feature；`/res/sprites/{digits,combo,particles}.png` 实测可直读；效果表已从 bundle 誊出）
+- [21 动态预览 HUD 与打击特效对齐 Bestdori 素材](./issues/21-动态预览HUD与打击特效对齐Bestdori素材.md) — **已实现待验收**（2026-10-07：归档脚本新增 `bestdori-sprites`（直读 URL 清单）；combo 改 `digits`+`combo` 精灵（含 0.2s 弹跳）、打击特效改 `particles` 图块 + 生成圆（窗口 / 尺寸 / α / 缓动照 bundle 表，滑条结点按 Bestdori 走 tap）、轨道闪改满高三角楔；缺精灵回落自绘。`npm test` 209/2302 全绿、真机命中帧已见精灵版 HUD 与特效）
 
 ## Fog
 
