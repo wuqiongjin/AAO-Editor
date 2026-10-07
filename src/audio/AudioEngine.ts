@@ -30,6 +30,7 @@ export class AudioEngine {
   private startPerfSecond = 0;
   private clock: 'audio' | 'synthetic' = 'synthetic';
   private state: PlaybackState = 'idle';
+  private loadGen = 0;
 
   private keyEvents: KeySoundEvent[] = [];
   /** 下一个待调度的按键音下标（推进式游标，避免每帧全量扫描大谱面） */
@@ -145,12 +146,33 @@ export class AudioEngine {
     return this.ctx;
   }
 
-  /** 解码文件（ArrayBuffer → decodeAudioData），并复位播放进度 */
+  /** 解码文件（ArrayBuffer → decodeAudioData），并复位播放进度（若已在播放中则平滑接入，防打断卡顿） */
   async load(file: File): Promise<void> {
     const ctx = this.ensureCtx();
+    const gen = ++this.loadGen;
     const arrayBuffer = await file.arrayBuffer();
     const decoded = await ctx.decodeAudioData(arrayBuffer);
+    if (gen !== this.loadGen) return;
+
     this.buffer = decoded;
+    if (this.state === 'playing') {
+      const currentSec = this.getSeconds();
+      this.stopCurrent();
+      if (currentSec < decoded.duration) {
+        const src = ctx.createBufferSource();
+        src.buffer = decoded;
+        if (this.masterGain) src.connect(this.masterGain);
+        else src.connect(ctx.destination);
+        src.start(0, currentSec);
+        this.source = src;
+        this.startCtxSecond = ctx.currentTime;
+        this.offsetSeconds = currentSec;
+        this.clock = 'audio';
+      }
+      this.rewindKeyIndex();
+      return;
+    }
+
     this.offsetSeconds = 0;
     this.cancelScheduled();
     this.state = 'ready';
@@ -158,6 +180,7 @@ export class AudioEngine {
 
   /** 清除当前音频（切换到无歌曲模式） */
   clear(): void {
+    ++this.loadGen;
     this.cancelScheduled();
     this.stopCurrent();
     this.stopScheduler();

@@ -488,6 +488,11 @@ export function createNoteLayerCache(): NoteLayerCache {
     ctx.imageSmoothingQuality = prevQuality;
     if (rc.playing) {
       const prefetch: number[] = [];
+      for (let id = lo; id <= hi + 2; id++) prefetch.push(id);
+      enqueuePlayingTiles(prefetch, rc, es);
+    } else {
+      // issue 165：静止时预热视口上方瓦片，避免首次开播向上滚动时触碰未建瓦片卡顿
+      const prefetch: number[] = [];
       for (let id = lo; id <= hi + 1; id++) prefetch.push(id);
       enqueuePlayingTiles(prefetch, rc, es);
     }
