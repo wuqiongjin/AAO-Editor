@@ -319,6 +319,8 @@
   "preview.static.exportDownscaled": "Exported at a lower density to stay within canvas limits",
   "preview.static.exportFailed": "Export failed",
   "preview.video.pending": "The simulation field isn't implemented yet.",
+  "preview.video.assetsMissing": "Field / background assets aren't archived locally yet. Run this once (idempotent, safe to re-run):",
+  "preview.video.assetsCommand": "node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin",
   "preview.noProjectTitle": "Nothing to preview yet",
   "preview.noProjectDescription": "Preview acts on one chart of a chart project. Open or create a project on the projects page first.",
   "preview.goProjects": "Open projects page",

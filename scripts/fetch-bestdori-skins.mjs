@@ -3,11 +3,16 @@
  * fetch-bestdori-skins.mjs —— Bestdori 音游皮肤/键音资源归档脚本
  *
  * 用途（对应计划：爬取 Bestdori 皮肤资源 / issue29 前置准备）：
- *   从 Bestdori 公开接口发现并归档四类资源：
+ *   从 Bestdori 公开接口发现并归档六类资源：
  *     1. rhythm-note-skin          普通节奏图示样式包（ingameskin/noteskin/skin* 等）
  *     2. directional-flick-skin    方向滑键样式包（ingameskin/noteskin/directionalflickskin*）
  *     3. rhythm-note-se            击打音效（sound/tapseskin/*）与技能键音效（sound/common）
  *     4. reference-only/judgeskin  判定结果参考资源（仅研究用，不接入渲染器）
+ *     5. fieldskin                 仿真场场地素材（ingameskin/fieldskin/*；chart-preview 04）
+ *     6. bgskin                    仿真场背景素材（ingameskin/bgskin/*；chart-preview 04）
+ *
+ *   5 / 6 供谱面预览的仿真场（chart-preview 05）开发期直读：素材仍只落归档目录
+ *   （不入 git、不进安装包），dev 由 vite.config.ts 的 /__bestdori-assets/ 中间件直读。
  *
  * 特性：
  *   - 按 Bestdori 文件清单下载（不猜测文件名），自动适配多图/缺文件包
@@ -75,6 +80,22 @@ const CATEGORY_DEFS = [
     referenceOnly: false,
   },
   {
+    // 仿真场场地（chart-preview 04）：bg_line_rhythm.png + game_play_line*.png
+    id: 'fieldskin',
+    dir: 'fieldskin',
+    infoSegments: ['ingameskin', 'fieldskin'],
+    select: () => true,
+    referenceOnly: false,
+  },
+  {
+    // 仿真场背景（chart-preview 04）：liveBG_normal.png 等
+    id: 'bgskin',
+    dir: 'bgskin',
+    infoSegments: ['ingameskin', 'bgskin'],
+    select: () => true,
+    referenceOnly: false,
+  },
+  {
     id: 'reference-only/judgeskin',
     dir: 'reference-only/judgeskin',
     infoSegments: ['ingameskin', 'judgeskin'],
@@ -94,9 +115,10 @@ const SPECIAL_PACKAGES = [
   },
 ];
 
-/** 判断包名是否为目录预览 sample 包（如 skin00sample / habahiro_sample） */
-function isSamplePackageName(name) {
-  return /_?sample$/.test(name);
+/** 判断包名是否为图鉴预览包：noteskin 用 `*sample` 后缀（如 skin00sample / habahiro_sample），
+ *  bgskin 用 `*preview` 后缀（如 skin_mikupreview）——只收预览图，不是仿真场要的主包 */
+function isPreviewPackageName(name) {
+  return /_?sample$/.test(name) || /preview$/.test(name);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +146,7 @@ function printHelp() {
 示例:
   node scripts/fetch-bestdori-skins.mjs --server jp --output docs/resource/bestdori
   node scripts/fetch-bestdori-skins.mjs --dry-run
+  node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin
 `);
 }
 
@@ -289,7 +312,7 @@ function buildPackageList(info, server) {
         categoryId: def.id,
         categoryDir: def.dir,
         packageName: pkg.name,
-        kind: isSamplePackageName(pkg.name) ? 'sample' : 'main',
+        kind: isPreviewPackageName(pkg.name) ? 'sample' : 'main',
         assetPath: pkg.segments.join('/'),
         referenceOnly: def.referenceOnly,
         declaredCount: pkg.declaredCount,

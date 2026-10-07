@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { createReadStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { basename, dirname, extname, resolve, sep } from 'node:path';
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -52,6 +52,85 @@ export default defineConfig(({ mode }) => {
           } catch (err) {
             if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
           }
+        },
+      },
+      {
+        // chart-preview 04 · 仿真场素材的**开发期直读通道**（ADR-0016 §6）：
+        // 归档产物（`docs/resource/bestdori/`，不入 git、不进安装包）由归档脚本生成，
+        // 本插件只在 dev（apply: 'serve'）把它挂在 `/__bestdori-assets/` 前缀下；
+        // 生产构建没有这条通道 —— 没跑过归档脚本的机器上，仿真场给空态 + 获取命令。
+        name: 'bestdori-preview-assets',
+        apply: 'serve',
+        configureServer(server) {
+          const root = resolve(process.cwd(), 'docs/resource/bestdori');
+          const prefix = '/__bestdori-assets/';
+          const prefixBase = prefix.slice(0, -1);
+          const mime: Record<string, string> = {
+            '.png': 'image/png',
+            '.mp3': 'audio/mpeg',
+            '.json': 'application/json',
+          };
+          server.middlewares.use((req, res, next) => {
+            const pathname = (req.url ?? '').split('?')[0];
+            // 裸前缀（无尾斜杠）也归本通道：走下面的目录判定给 404，不落 SPA 回退页冒充 200
+            if (pathname !== prefixBase && !pathname.startsWith(prefix)) return next();
+            if (req.method !== 'GET' && req.method !== 'HEAD') {
+              res.statusCode = 405;
+              res.end('Method Not Allowed');
+              return;
+            }
+            let rel: string;
+            try {
+              rel = decodeURIComponent(pathname === prefixBase ? '' : pathname.slice(prefix.length));
+            } catch {
+              res.statusCode = 400;
+              res.end('Bad Request');
+              return;
+            }
+            // 只允许落在归档目录内（挡 `..` / 绝对路径越界）
+            const abs = resolve(root, rel);
+            if (abs !== root && !abs.startsWith(root + sep)) {
+              res.statusCode = 403;
+              res.end('Forbidden');
+              return;
+            }
+            let stat;
+            try {
+              stat = statSync(abs);
+            } catch {
+              stat = null;
+            }
+            if (stat === null || !stat.isFile()) {
+              res.statusCode = 404;
+              res.end(`missing: ${rel}`);
+              return;
+            }
+            // `.sprites` = Unity SpriteAtlas 序列化 JSON（同 build-note-skins.mjs 的解析口径）；
+            // 它是不带扩展名的点文件（extname 返回空），得按名字单独认
+            const contentType =
+              basename(abs) === '.sprites'
+                ? 'application/json'
+                : mime[extname(abs).toLowerCase()] ?? 'application/octet-stream';
+            res.setHeader('content-type', contentType);
+            res.setHeader('content-length', stat.size);
+            // 重新归档后同一 URL 内容会变，dev 下不要缓存
+            res.setHeader('cache-control', 'no-store');
+            if (req.method === 'HEAD') {
+              res.end();
+              return;
+            }
+            // 文件在 stat 之后被移走 / 权限变化：接住流错误，别让未处理的 'error' 掀掉 dev server
+            const stream = createReadStream(abs);
+            stream.on('error', () => {
+              if (!res.headersSent) {
+                res.statusCode = 500;
+                res.end('Internal Server Error');
+              } else {
+                res.destroy();
+              }
+            });
+            stream.pipe(res);
+          });
         },
       },
     ],

@@ -8,6 +8,7 @@
     "dev": "vite",
     "dev:cloud": "DISABLE_HMR=1 vite",
     "setup": "bash scripts/setup.sh",
+    "fetch:preview-assets": "node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin",
     "build": "tsc -b && vite build",
     "build:release": "vite build --mode release",
     "test": "vitest run",

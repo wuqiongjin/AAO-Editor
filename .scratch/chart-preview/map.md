@@ -33,13 +33,14 @@
 - [2026-09-30 登记 · 票 10 已开] 预览页布局扩大（宽 + 高）：方向已拍板（扩），实施前需专门 grill（是否脱离 AppPageShell / 左索引抽屉化 / 高度上限）；前置 = ADR-0017 落地并实机验收。
 - [2026-10-02 定案 · 票 10 实施]（用户验收 + 逐问拍板）：页头 = **模式切换独占一行 + 整行分割线**（eyebrow/标题整块撤销；原 Q7/Q8 答案被验收推翻）；工具栏右簇**撤掉控件外壳**（"多余、占空间"）；默认档**二次重定基** —— 物理 +20%、读数仍 100%（`PREVIEW_ES_STANDARD` 0.74；ADR-0017 §5 第二次修订）；原型留档 `proto/chart-preview-10-preview-header`。
 - [2026-10-05 定案 · 预览反馈 7 条 → 票 11–14]（用户四答）：① 全屏下**只留图标化「退出全屏」**（缩放走滚轮；否决"静止淡出"）；② 导出**加大档位**治"糊"（参数实测校准，改 ADR-0016 §7）；③ 导出**一律图文版**（封面 + 信息 + 谱面，无封面走占位）；④ 作用域条与谱面切换器之间**只加「/」分隔符**。其余 3 条（下拉左对齐 / 切页数据与位图不同步 / 缩放滚动条弹跳）入批次票 11，根因待实证。
+- [2026-10-07 · 票 04 已实现] 仿真场素材归档 + 开发期直读：脚本 `--category` 增 `fieldskin` / `bgskin`（默认全量含它们，产物 `docs/resource/bestdori/<server>/{fieldskin,bgskin}/`）；`vite.config.ts` 仅 serve 挂 `/__bestdori-assets/` 中间件；获取命令四面同源（空态 i18n 文案 / `npm run fetch:preview-assets` 别名 / 两份 README）；素材仍不入 git、不进安装包（05 的空态消费这条文案）。
 
 ## Frontier
 
 - [01 谱面预览](./issues/01-谱面预览.md) — 已解决（2026-09-30：调研 + 7 项定案，见票内 Answer）
 - [02 预览页壳与入口](./issues/02-预览页壳与入口.md) — 已解决（2026-09-30：预览页壳 + 两条入口 + `chartId` 二级转正；导航位次 **`⇧⌘3` 紧随音频页**——用户验收把原定末位改到这里）
 - [03 静态预览：面板折行 + 长图导出](./issues/03-静态预览面板折行与长图导出.md) — 已解决（2026-09-30 实现 + 三轮验收回修：面板模型 `panelLayout` + 共享离屏 target 逐面板代画 `panelPainter` + 预览显示档 `displayProfile` + 横向滚动宿主 `StaticPreviewView` + 宽图导出 `exportPanels` + Electron 二进制另存通道 `preview:saveBinary` + 工具栏缩放/叠加项/导出；全量 188 文件/2098 例 + tsc + eslint 全绿，见票内 Answer）
-- [04 仿真场素材归档（fieldskin / bgskin）](./issues/04-仿真场素材归档.md) — Blocked by: —
+- [04 仿真场素材归档（fieldskin / bgskin）](./issues/04-仿真场素材归档.md) — 已解决（2026-10-07：脚本增两类 + dev-only `/__bestdori-assets/` 直读 + 空态文案/别名/文档同源；dry-run 与真拉 skin00 实测、dev 中间件 curl 实测、`npm test` 203/2226 全绿，见票内 Answer）
 - [05 仿真场渲染器](./issues/05-仿真场渲染器.md) — Blocked by: 02, 04
 - [06 导出链路与尺寸实测](./issues/06-导出链路与尺寸实测.md) — Blocked by: —（research；结论回填 03 / 07）
 - [07 视频导出](./issues/07-视频导出.md) — Blocked by: 05, 06

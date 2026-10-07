@@ -321,6 +321,8 @@
   "preview.static.exportDownscaled": "已按画布上限降密度导出",
   "preview.static.exportFailed": "导出失败",
   "preview.video.pending": "仿真场画面尚未实现。",
+  "preview.video.assetsMissing": "本地还没有场地 / 背景素材。跑一次（幂等，可重复执行）：",
+  "preview.video.assetsCommand": "node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin",
   "preview.noProjectTitle": "还没有可预览的谱面",
   "preview.noProjectDescription": "预览作用于一个谱面工程的某一张谱面。先去工程管理页打开或新建一个工程。",
   "preview.goProjects": "去工程管理",

@@ -57,15 +57,25 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 
 未加 `--audio` 的拉取模式：`fetch-bestdori-community.mjs` 仍只向 stdout 输出谱面 JSON（便于管道）。搜索模式默认表格走 stdout、进度走 stderr；加 `--json` 可机器可读。
 
-## Bestdori 素材归档（皮肤 / 键音）
+## Bestdori 素材归档（皮肤 / 键音 / 仿真场）
 
 | 脚本 | 作用 |
 | --- | --- |
-| `fetch-bestdori-skins.mjs` | 拉取 jp 等服皮肤、键音等到 `docs/resource/bestdori/`（gitignore） |
+| `fetch-bestdori-skins.mjs` | 拉取 jp 等服六类素材（音符皮肤 / 方向滑键 / 键音 / 判定参考 / 仿真场 `fieldskin` · `bgskin`）到 `docs/resource/bestdori/`（gitignore） |
 | `fetch-target-note-skins.mjs` | 按目标列表补拉音符皮肤（依赖上者框架） |
 | `build-note-skins.mjs` | 归档 → `public/assets/skins/` + 生成 `noteSkinRegistry.gen.ts` |
 | `build-key-sounds.mjs` | 归档 → 键音包注册表 |
 | `note-skin-overrides.json` | `build-note-skins.mjs` 的手工覆写配置 |
+
+仿真场素材（chart-preview 04）的开发 / 空态 / 文档都指向这一条命令（幂等、断点重跑、失败非零退出）：
+
+```bash
+node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin   # 等价的 npm 别名：npm run fetch:preview-assets
+```
+
+产物落 `docs/resource/bestdori/<server>/{fieldskin,bgskin}/<包>_rip/`，不入 git、不进安装包；开发期由
+`vite.config.ts` 的 dev 中间件挂在 `/__bestdori-assets/` 前缀下直读（生产构建没有这条通道），详见
+[docs/resource/bestdori/README.md](../docs/resource/bestdori/README.md)。
 
 ## 验收 / 取证（非 CI 默认）
 
