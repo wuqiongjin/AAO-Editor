@@ -1,5 +1,5 @@
-// 仿真场素材的读取口径（chart-preview 05 锁测③，接 04 的直读通道）：
-//   - 三个 URL 一律挂 `/__bestdori-assets/`（开发期中间件），不落 `public/assets/`；
+// 仿真场素材的读取口径（chart-preview 05 锁测③，release-pipeline 02 收敛到运行时素材树）：
+//   - 三个 URL 一律在 `public/assets/sim/` 下（Vite 站内前缀 `/assets/sim/`）；
 //   - 逐服探测：第一个归档过的服务器目录胜出（本机没归档都是空态）；
 //   - 素材缺席是**明说的产品态**（`missing` + 空态文案），不抛错；
 //   - 带体取色失败走兜底色（1×1 离屏画布不可用 / 图未解码时也一样）。
@@ -29,21 +29,21 @@ function fakeLoader(allow: (src: string) => boolean, seen: string[] = []) {
 }
 
 describe('仿真场的素材 URL', () => {
-  it('三张场地/背景图都在开发期直读通道下（`/__bestdori-assets/<server>/…`）', () => {
+  it('三张场地/背景图都在运行时素材树里（`/assets/sim/<类别>/<server>/…`）', () => {
     const urls = simAssetUrls('jp');
     for (const url of [urls.field, urls.background, urls.playLine]) {
-      expect(url.startsWith(`${SIM_ASSET_BASE}/jp/`)).toBe(true);
+      expect(url.startsWith(`${SIM_ASSET_BASE}/`)).toBe(true);
     }
-    expect(urls.field).toContain('fieldskin/skin00_rip/bg_line_rhythm.png');
-    expect(urls.playLine).toContain('fieldskin/skin00_rip/game_play_line.png');
-    expect(urls.background).toContain('bgskin/skin00_rip/liveBG_normal.png');
+    expect(urls.field).toContain('/fieldskin/jp/skin00_rip/bg_line_rhythm.png');
+    expect(urls.playLine).toContain('/fieldskin/jp/skin00_rip/game_play_line.png');
+    expect(urls.background).toContain('/bgskin/jp/skin00_rip/liveBG_normal.png');
   });
 
-  it('Bestdori 自家精灵也走同一条直读通道（chart-preview 21）', () => {
+  it('Bestdori 自家精灵也走同一条运行时素材树（chart-preview 21）', () => {
     const urls = simSpriteUrls('jp');
-    expect(urls.digits).toBe(`${SIM_ASSET_BASE}/jp/sprites/digits.png`);
-    expect(urls.combo).toBe(`${SIM_ASSET_BASE}/jp/sprites/combo.png`);
-    expect(urls.particles).toBe(`${SIM_ASSET_BASE}/jp/sprites/particles.png`);
+    expect(urls.digits).toBe(`${SIM_ASSET_BASE}/sprites/jp/digits.png`);
+    expect(urls.combo).toBe(`${SIM_ASSET_BASE}/sprites/jp/combo.png`);
+    expect(urls.particles).toBe(`${SIM_ASSET_BASE}/sprites/jp/particles.png`);
   });
 });
 
@@ -53,7 +53,7 @@ describe('loadSimAssets · Bestdori 自家精灵（chart-preview 21）', () => {
     const sprites = simSpriteUrls('jp');
     const full = await loadSimAssets({
       servers: ['jp'],
-      loadImage: fakeLoader((src) => src === jp.field || src.startsWith(`${SIM_ASSET_BASE}/jp/sprites/`)).load,
+      loadImage: fakeLoader((src) => src === jp.field || src.startsWith(`${SIM_ASSET_BASE}/sprites/jp/`)).load,
     });
     expect(full.missing).toBe(false);
     expect(full.sprites?.digits.src).toBe(sprites.digits);

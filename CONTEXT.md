@@ -233,7 +233,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 术语 | 英文 | 说明 |
 | --- | --- | --- |
 | 视觉素材页 | Visual assets page | 应用级页面（导航第 5 项 `⇧⌘4`）；原「素材页」收窄为视觉素材；页内**类别子 tab**：音符皮肤 / 背景皮肤，一次看一个类别，可扩展 |
-| 音符皮肤 | Note skin | 音符外观素材包；注册表由 `scripts/build-note-skins.mjs` 从 Bestdori 归档解析 `.sprites` 官方坐标生成（`src/rendering/skin/gen/noteSkinRegistry.gen.ts`，产物入库） |
+| 音符皮肤 | Note skin | 音符外观素材包；注册表（`src/rendering/skin/gen/noteSkinRegistry.gen.ts`）与 PNG 二进制都是**外部快照提供的构建产物**、`npm run assets:sync` 取件 —— 本仓不含这些二进制，也不含产出它们的工具（见 `.scratch/release-pipeline/issues/02-素材迁出与内部镜像同步.md`） |
 | 皮肤条目 | Note skin item | 六条目：单键 `tap` / 滑键 `flick` / 技能键 `skill` / 左方向 `dirL` / 右方向 `dirR` / 滑条 `slide`；slide 管三件套 = `longNoteLine` + `longNoteLine2` + `note_slide_among` |
 | 整包预设 | Skin preset | 官方同名配对（skin0N + directionalflickskin0N）一键写入六条目；写入后各条目仍可独立覆盖 |
 | 整包预设缩略 | Skin preset thumbnail | 整包预设卡上展示**该预设会写入**的音符皮肤样貌的图，与当前六条目组合无关。_Avoid_: 封面（工程信息里的曲目图） |
@@ -241,7 +241,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | per-lane | per-lane sprite | 官方精灵按轨道一张（透视观感差异）；方向键 length=N = N 条覆盖轨道各贴本轨图；滑条端点复用单键皮肤 |
 | 谱面背景皮肤 | Chart background skin | 谱面画布的可选背景图层（画布固定深色主题不变）；**最小模型已实现**（Q4 + 同日三轮修订）：1 张本地图片（浏览器 IndexedDB `bangdream.assets`；Electron 为数据根下 `assets/background-skin.bin`）+ 启用开关 + 清除；**可调不透明度**（默认 55%）/ **填充方式**（铺满裁剪 cover / 完整显示 contain）/ **显示范围**（仅轨道外 outsideTrack 默认，不覆盖轨道本身 / 全画布 fullCanvas）；渲染进静态层；回工作台激活即补帧重绘 |
 
-> 规则细节：皮肤与音符类型的完整映射、资源接入边界见 `.scratch/basic-editor/issues/29-素材页面-键音素材包与皮肤.md` 定案记录；归档使用边界见 `docs/resource/bestdori/README.md`。
+> 规则细节：皮肤与音符类型的完整映射、资源接入边界见 `.scratch/basic-editor/issues/29-素材页面-键音素材包与皮肤.md` 定案记录；素材分发 / 取件口径见 `.scratch/release-pipeline/issues/02-素材迁出与内部镜像同步.md`。
 
 ## 谱面长度与谱面工程（ADR-0005）
 

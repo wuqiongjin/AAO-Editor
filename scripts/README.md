@@ -57,35 +57,21 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 
 未加 `--audio` 的拉取模式：`fetch-bestdori-community.mjs` 仍只向 stdout 输出谱面 JSON（便于管道）。搜索模式默认表格走 stdout、进度走 stderr；加 `--json` 可机器可读。
 
-## Bestdori 素材归档（皮肤 / 键音 / 仿真场）
+## 运行时资源包（不在本仓 · 取件）
+
+二进制与生成物（注册表 `*.gen.ts`）由**外部快照仓库**提供；本仓只取件 —— 不产出、不记账（无清单 / 无哈希表）。
 
 | 脚本 | 作用 |
 | --- | --- |
-| `fetch-bestdori-skins.mjs` | 拉取 jp 等服七类素材（音符皮肤 / 方向滑键 / 键音 / 判定参考 / 仿真场 `fieldskin` · `bgskin` / Bestdori 自家精灵 `bestdori-sprites`）到 `docs/resource/bestdori/`（gitignore） |
-| `fetch-target-note-skins.mjs` | 按目标列表补拉音符皮肤（依赖上者框架） |
-| `build-note-skins.mjs` | 归档 → `public/assets/skins/` + 生成 `noteSkinRegistry.gen.ts` |
-| `build-key-sounds.mjs` | 归档 → 键音包注册表 |
-| `note-skin-overrides.json` | `build-note-skins.mjs` 的手工覆写配置 |
+| `assets-sync.mjs` | **取件**：拉取快照 → 把产物拷回工作区（缺才拉、按根整取）。`npm run assets:sync` / `npm run assets:check`；`setup.sh` 与 `dev.sh` 都调它 |
 
-仿真场素材（chart-preview 04）的开发 / 空态 / 文档都指向这一条命令（幂等、断点重跑、失败非零退出）：
+来源地址不直写明文（编码在脚本常量里）；要换来源用环境变量或参数：
+`ASSETS_SOURCE=<本地目录|git 地址> npm run assets:sync`（或 `--from <…>`）。
 
-```bash
-node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin   # 等价的 npm 别名：npm run fetch:preview-assets
-```
-
-产物落 `docs/resource/bestdori/<server>/{fieldskin,bgskin}/<包>_rip/`，不入 git、不进安装包；开发期由
-`vite.config.ts` 的 dev 中间件挂在 `/__bestdori-assets/` 前缀下直读（生产构建没有这条通道），详见
-[docs/resource/bestdori/README.md](../docs/resource/bestdori/README.md)。
-
-combo HUD 与打击特效（chart-preview 21）另要 Bestdori **自家**三张精灵（不在游戏的资源树里，脚本按
-直读 URL 清单拉）：
-
-```bash
-node scripts/fetch-bestdori-skins.mjs --category bestdori-sprites
-```
-
-产物落 `docs/resource/bestdori/<server>/sprites/{digits,combo,particles}.png`（缺了不影响场地：
-HUD 与特效回落自绘，不判空态）。
+取回的产物（都在 `.gitignore` 里）：`public/assets/skins/`、`public/assets/sim/`、
+`src/assets/audio/keysounds/`、`src/rendering/skin/gen/`、`src/audio/gen/`。
+仿真场的 URL 约定见 `src/preview/video/sim/simAssets.ts`；口径与决策见
+`.scratch/release-pipeline/issues/02-素材迁出与内部镜像同步.md`。
 
 ## 验收 / 取证（非 CI 默认）
 

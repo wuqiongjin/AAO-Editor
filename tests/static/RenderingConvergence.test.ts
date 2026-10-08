@@ -78,7 +78,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
       'slideBandGeometry.ts',
       'types.ts',
     ]);
-    // 四个桶逐文件点名（skin/gen 是脚本产物目录，`skin/gen/.gitignore` 必须跟着搬）
+    // 四个桶逐文件点名（skin/gen 是快照仓库产出的目录，不入本仓 —— release-pipeline 02）
     expect(entries('src/rendering/primitives')).toEqual(['NoteIconGlyph.tsx', 'noteGlyph.ts', 'noteMetrics.ts']);
     expect(entries('src/rendering/pipeline')).toEqual(['noteLayerCache.ts', 'staticLayerCache.ts']);
     expect(entries('src/rendering/hitTest')).toEqual(['hitTest.ts']);
@@ -94,7 +94,6 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
       'useBackgroundSkin.ts',
     ]);
     expect(entries('src/rendering/skin/gen')).toContain('noteSkinRegistry.gen.ts');
-    expect(existsSync(join(repoRoot, 'src/rendering/skin/gen/.gitignore'))).toBe(true);
   });
 
   it('全仓（src + tests + scripts）不再有指向旧路径的 import / 字面路径', () => {
@@ -133,14 +132,11 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
     expect(offenders).toEqual([]);
   });
 
-  it('单测目录镜像 src/rendering（四子目录保留结构），注册表生成路径跟着搬（写丢即红）', () => {
+  it('单测目录镜像 src/rendering（四子目录保留结构）', () => {
     expect(entries('tests/unit')).toContain('rendering');
     expect(entries('tests/unit')).not.toContain('visual');
     // 08 票补 FrameBuilder.test.ts（帧构建者 + dpr/尺寸解析）到域根
     expect(entries('tests/unit/rendering')).toEqual(['FrameBuilder.test.ts', 'cache', 'hitTest', 'render', 'skin']);
-    // 生成脚本与产物位置必须一致，否则下一次 node scripts/build-note-skins.mjs 会写丢
-    expect(readSource('scripts/build-note-skins.mjs')).toContain(
-      "const REGISTRY_OUT = 'src/rendering/skin/gen/noteSkinRegistry.gen.ts';"
-    );
+    // 注册表生成脚本已随素材迁到外部快照仓库（release-pipeline 02），主仓只消费；生成路径由快照仓库自锁。
   });
 });

@@ -1,5 +1,5 @@
 // 键音素材包（ADR-0004 §7 修订 + issue 29 多款入库 2026-09-06）：按"击打样式"分类，不做 per-lane 音高。
-// 包数据由构建脚本生成：scripts/build-key-sounds.mjs → gen/keySoundRegistry.gen.ts。
+// 包数据由外部快照仓库的构建脚本（tools/build-key-sounds.mjs）生成 → `npm run assets:sync` 取回 gen/keySoundRegistry.gen.ts。
 //   - 官方普通键音包 skin00–03（skin00 = 游戏默认；联动/限定包暂不收录，改脚本 PACKS 清单即可扩容）；
 //   - 每包差异采样（tap/slide/flick）经动态 import 独立 JS chunk 懒下载；共享采样（skill/directional）静态内联。
 // 真实音频仍以 Vite `?inline` 内联为 base64 data-URI（issue 20）：**不产生任何 .mp3 网络请求**，

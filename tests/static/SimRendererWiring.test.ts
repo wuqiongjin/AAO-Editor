@@ -3,7 +3,7 @@
 //   - 仿真场**不 import 编辑器画布那套出帧**（`renderChart` / `RenderTarget` / 面板画家 / 宽图导出）——
 //     它是预览专用画法，不是"编辑器画布的第二种形态"；允许复用的是**精灵与选款原语**
 //     （`rendering/skin/noteSkin` / `rendering/primitives/noteMetrics` / `singleIconConfig` 一族）；
-//   - 场地素材**只走 04 的开发期直读通道**（防"顺手拷进 `public/assets/`"）；
+//   - 场地素材走**运行时素材树** `public/assets/sim/`（站内前缀 `/assets/sim/`），随 dist 出包；
 //   - 一帧的出帧实现只有一份（实时回放与 07 的离线导出共用 `drawSimFrameAt`）；
 //   - 设计面算术 / 音符速度白名单各自只有一处（口径不漂）。
 import { readdirSync, statSync } from 'node:fs';
@@ -50,9 +50,11 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('场地素材只走 04 的开发期直读通道（不出现 public/assets 一类路径）', () => {
+  it('场地素材走运行时素材树 /assets/sim（不再是 dev 中间件直读）', () => {
     const assets = readStripped(`${SIM_DIR}/simAssets.ts`);
-    expect(assets).toMatch(/export const SIM_ASSET_BASE = '\/__bestdori-assets'/);
+    expect(assets).toMatch(/export const SIM_ASSET_BASE = '\/assets\/sim'/);
+    expect(assets).not.toMatch(/__bestdori-assets/);
+    // 仿真场只引用 URL、不 import 本地素材（不出现 public/assets 一类源码路径）
     for (const file of simFiles) {
       expect(readStripped(file)).not.toMatch(/public\/assets|\.\/assets\//);
     }
@@ -135,9 +137,9 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     expect(stage).toMatch(/className="pv-rate__panel"/);
   });
 
-  it('Bestdori 自家精灵只走直读通道（chart-preview 21）：三张 PNG 都在 `/__bestdori-assets/` 下', () => {
+  it('Bestdori 自家精灵走同一条运行时素材树（chart-preview 21）：三张 PNG 都在 `/assets/sim/sprites/` 下', () => {
     const assets = readStripped(`${SIM_DIR}/simAssets.ts`);
-    expect(assets).toMatch(/SIM_SPRITE_PACK = 'sprites'/);
+    expect(assets).toMatch(/SIM_SPRITE_CATEGORY = 'sprites'/);
     expect(assets).toMatch(/digits\.png/);
     expect(assets).toMatch(/combo\.png/);
     expect(assets).toMatch(/particles\.png/);

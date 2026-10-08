@@ -17,6 +17,17 @@ cd "$(dirname "$0")/.."
 
 ulimit -Sn 10000 2>/dev/null || true
 
+# ---------- 运行时资源包预检（产物不在本仓：缺失会被键音注册表的 ?inline 静态导入卡死） ----------
+if ! node scripts/assets-sync.mjs --check >/dev/null 2>&1; then
+  echo "==> 运行时资源包缺失，尝试取件…"
+  if ! node scripts/assets-sync.mjs; then
+    echo "" >&2
+    echo "ERROR: 产物缺失且取件失败，无法启动 dev。" >&2
+    echo "       修复口径见 scripts/assets-sync.mjs 文件头（ASSETS_SOURCE / --from 可指定来源）。" >&2
+    exit 1
+  fi
+fi
+
 # ---------- 解析端口 ----------
 # 优先级：--port CLI 参数 > DEV_PORT 环境变量 > 默认 5173
 PORT="${DEV_PORT:-5173}"

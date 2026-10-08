@@ -18,7 +18,7 @@ else
   echo "    (非 root，跳过 sysctl inotify 调整)"
 fi
 
-echo "==> [2/3] 安装依赖"
+echo "==> [2/4] 安装依赖"
 if command -v npm >/dev/null 2>&1; then
   if [ -f package-lock.json ]; then
     npm ci || npm install
@@ -30,7 +30,18 @@ else
   exit 1
 fi
 
-echo "==> [3/3] 环境就绪"
+echo "==> [3/4] 取运行时资源包（不在本仓，从外部快照取件）"
+if node scripts/assets-sync.mjs; then
+  :
+else
+  echo "" >&2
+  echo "  ! 取件失败：产物缺失会让 dev / build 直接挂（键音注册表是 ?inline 静态导入）。" >&2
+  echo "    修复口径（详见 scripts/assets-sync.mjs 文件头）：" >&2
+  echo "    1) 默认来源在脚本内的编码常量里；这里报错多为离线或本机缺 git 凭据" >&2
+  echo "    2) 指定别的来源：ASSETS_SOURCE=<本地目录|git 地址> node scripts/assets-sync.mjs" >&2
+fi
+
+echo "==> [4/4] 环境就绪"
 echo ""
 echo "  启动开发服务器："
 echo "    npm run dev                  # 常规模式（启用 HMR）"

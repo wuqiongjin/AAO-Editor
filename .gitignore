@@ -23,12 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 
-# Bestdori 资源镜像（大型二进制，由 scripts/fetch-bestdori-skins.mjs 本地生成）
-docs/resource/bestdori/*/
-
-# Bestdori 归档生成产物（完整清单走 release，不入 git；仓库仅留 .example 样本）
-docs/resource/bestdori/manifest.json
-docs/resource/bestdori/failures.json
+# 运行时资源包与生成物：**不在本仓**（由外部快照提供）。
+# 取件：npm run assets:sync（scripts/assets-sync.mjs：按根整取下列目录，会整根替换）
+/public/assets/skins/
+/public/assets/sim/
+/src/assets/audio/keysounds/
+/src/rendering/skin/gen/
+/src/audio/gen/
 
 # 调试 / 验收截图与原型视觉存档：临时文件，仅本地留存，不入库
 shots/

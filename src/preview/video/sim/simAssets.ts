@@ -1,25 +1,23 @@
-// 仿真场素材：**只从 04 的开发期直读通道取**（ADR-0016 §6；票面「素材仅从 04 的开发期直读通道取」）。
+// 仿真场素材：**运行时素材**（与音符皮肤同树，release-pipeline 02 起）。
 //
-//   通道 = Vite dev 中间件挂的 `/__bestdori-assets/`（`vite.config.ts` 的 `bestdori-preview-assets`，
-//   `apply: 'serve'`）；生产构建没有这条通道 → 素材缺席 → 页面给空态（04 的空态文案已写好：
-//   `preview.video.assetsMissing` / `preview.video.assetsCommand`）。
+//   `public/assets/sim/<类别>/<server>/…` 由外部快照仓库产出、`npm run assets:sync` 取件；
+//   dev 与 build 都从 public/ 直读、随 dist 出包，二进制不进 git（`.gitignore` 忽略）。
+//   干净克隆 / 未取件的机器上缺件 → 页面给空态（`preview.video.assetsMissing` /
+//   `preview.video.assetsCommand`），本模块不抛错。
 //
-// 硬约束（04 的锁测看着）：`public/assets/` 不放、`dist/` 不含、仓库不提交这些二进制 ——
-// 本模块只**引用**那三个 URL，不拷贝、不打包、不写回。
-//
-// 归档产物按服务器分目录（`docs/resource/bestdori/<server>/…`，脚本默认 jp）：
-// 逐服探测第一个能读到**场地图**的目录；全都读不到 = 空态。
+// 类别目录（脚本默认 jp）：逐服探测第一个能读到**场地图**的目录；全都读不到 = 空态。
 import { SIM_BAND_COLORS } from './simGeometry';
 
-/** 开发期直读通道前缀（vite.config.ts 的中间件） */
-export const SIM_ASSET_BASE = '/__bestdori-assets';
-/** 服务器目录偏好顺序（归档脚本默认 jp 排头；别的服归档过也能直读） */
+/** 仿真场素材根（Vite 把 `public/` 挂在站点根，故这里直接就是 URL 前缀） */
+export const SIM_ASSET_BASE = '/assets/sim';
+/** 服务器目录偏好顺序（拉取脚本默认 jp 排头；别的服归档过也能直读） */
 export const SIM_ASSET_SERVERS = ['jp', 'en', 'tw', 'cn', 'kr'] as const;
-/** 场地包（fieldskin）/ 背景包（bgskin）：skin00 是官方默认档 */
-const SIM_FIELD_PACK = 'fieldskin/skin00_rip';
-const SIM_BG_PACK = 'bgskin/skin00_rip';
-/** Bestdori 自家精灵目录（归档脚本 `--category bestdori-sprites` 的产物） */
-const SIM_SPRITE_PACK = 'sprites';
+/** 类别目录名（`public/assets/sim/<类别>/<server>/…`） */
+const SIM_FIELD_CATEGORY = 'fieldskin';
+const SIM_BG_CATEGORY = 'bgskin';
+const SIM_SPRITE_CATEGORY = 'sprites';
+/** 官方默认档包名 */
+const SIM_SKIN_PACK = 'skin00_rip';
 
 /** 某个服务器目录下要读的三张图 */
 export interface SimAssetUrls {
@@ -32,11 +30,12 @@ export interface SimAssetUrls {
 }
 
 export function simAssetUrls(server: string): SimAssetUrls {
-  const root = `${SIM_ASSET_BASE}/${server}`;
+  const fieldPack = `${SIM_ASSET_BASE}/${SIM_FIELD_CATEGORY}/${server}/${SIM_SKIN_PACK}`;
+  const bgPack = `${SIM_ASSET_BASE}/${SIM_BG_CATEGORY}/${server}/${SIM_SKIN_PACK}`;
   return {
-    background: `${root}/${SIM_BG_PACK}/liveBG_normal.png`,
-    field: `${root}/${SIM_FIELD_PACK}/bg_line_rhythm.png`,
-    playLine: `${root}/${SIM_FIELD_PACK}/game_play_line.png`,
+    background: `${bgPack}/liveBG_normal.png`,
+    field: `${fieldPack}/bg_line_rhythm.png`,
+    playLine: `${fieldPack}/game_play_line.png`,
   };
 }
 
@@ -48,7 +47,7 @@ export interface SimSpriteUrls {
 }
 
 export function simSpriteUrls(server: string): SimSpriteUrls {
-  const root = `${SIM_ASSET_BASE}/${server}/${SIM_SPRITE_PACK}`;
+  const root = `${SIM_ASSET_BASE}/${SIM_SPRITE_CATEGORY}/${server}`;
   return {
     digits: `${root}/digits.png`,
     combo: `${root}/combo.png`,

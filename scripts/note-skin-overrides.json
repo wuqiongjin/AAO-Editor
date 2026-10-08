@@ -1,4 +1,0 @@
-{
-  "_comment": "issue 29 音符皮肤手工覆写口（scripts/build-note-skins.mjs 消费）。inkL/inkR = 方向键精灵 [左墨迹缩进, 右墨迹缩进]（源像素），供同时点击线贴墨迹边缘。构建期已对 PNG 实测墨迹并写入注册表（优先级：overrides > 实测 > 缺省），仅当实测不满意时才在此覆写。",
-  "packs": {}
-}

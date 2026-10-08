@@ -30,7 +30,7 @@ import {
  */
 
 // issue 86：legacy 素材目录（./assets/skins/legacy/*）已删；预设改指向**正式皮肤包产物**
-// （scripts/build-note-skins.mjs 生成，与渲染器同源同图，避免为工具再留一份 legacy 副本）
+// （由外部快照仓库的构建脚本生成、`npm run assets:sync` 取回，与渲染器同源同图，避免为工具再留一份 legacy 副本）
 const SKIN_FILES: Array<{ label: string; url: string }> = [
   { label: 'RhythmGameSprites.png', url: './assets/skins/skin00/RhythmGameSprites.png' },
   { label: 'DirectionalFlickSprites.png', url: './assets/skins/directionalflickskin00/DirectionalFlickSprites.png' },
