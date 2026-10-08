@@ -1,7 +1,9 @@
 // PlaybackContext（ADR-0003 §7 之外的「播放编排」状态）：
 // AudioEngine 仍由 Editor 持有并通过 ref 暴露，但播放相关状态（isPlaying / canPlay / currentSeconds / duration / volume）
-// 在 Toolbar、PlayBar 之间共享——避免 Editor 反复作为 prop relay。
+// 在 Toolbar 与工作台各处之间共享——避免 Editor 反复作为 prop relay。
 // Editor 仍是播放编排者（RAF 循环、音频解码、键音切换），本 Context 仅承载状态与最薄的 setter。
+// chart-preview 22 起 PlayBar 本身不再直读本 Context：工作台在页面层取值后经 props 传入
+// （预览页的播放条是同一个组件、接自己那份回放状态，两处共用外观与交互、不共用数据源）。
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { DEFAULT_CHART_DURATION_SECONDS } from '../../audio/chartDuration';
 

@@ -1,20 +1,36 @@
 /* ============================================================
- * PlayBar（issue 49 阶段 3 inline 迁出）
- * 工作台底部播放条：从 src/playback/PlayBar.tsx 的 style={{ ... }} 全部迁出。
- * 视觉：左播放按钮 + 时间码 + 进度条 + 音量。
+ * PlayBar（issue 49 阶段 3 inline 迁出；issue 22 props 化 + 外壳变体）
+ * 两处共用同一个内部排布（`.play-bar` 基础规则 + `__*` 子件），
+ * 外壳分两个变体：
+ *   - `.play-bar--workspace`：工作台页底栏（定高 / 抬高底 / 上边框）
+ *   - `.play-bar--preview`  ：预览舞台底部一行（可换行 / 无底色 / 字号小一档）
  * ============================================================ */
 
 .play-bar {
-  height: var(--playbar-h);
-  background-color: var(--bg-elevated);
   color: var(--text);
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0 var(--space-3);
   font-size: var(--text-xs);
   flex-shrink: 0;
+}
+
+/* 工作台页底栏（原样）：高度吃 `--playbar-h`，与画布区之间一条上边框 */
+.play-bar--workspace {
+  height: var(--playbar-h);
+  padding: 0 var(--space-3);
+  background-color: var(--bg-elevated);
   border-top: 1px solid var(--border);
+}
+
+/* 预览舞台底部一行（chart-preview 22）：窄窗换行、无底色 / 无边框 */
+.play-bar--preview {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  min-height: 34px;
+  font-size: var(--text-2xs);
+  line-height: 1.3;
 }
 
 /* 播放 / 暂停按钮 */
@@ -134,4 +150,14 @@
   width: 80px;
   accent-color: var(--accent);
   cursor: pointer;
+}
+
+/* ---- 预览变体的零星覆盖（issue 22）：------
+   舞台底部的底色是页面 / 场地自己的，圆点边框不能借工作台底栏的抬高底色；
+   进度条与原 pv-bar 同口径收 `min-width: 0`（窄窗换行时不撑破这一行）。 */
+.play-bar--preview .play-bar__seek {
+  min-width: 0;
+}
+.play-bar--preview .play-bar__seek-dot {
+  border-color: var(--bg);
 }

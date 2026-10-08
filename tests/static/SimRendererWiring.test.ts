@@ -117,11 +117,11 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     const page = readStripped('src/pages/preview/PreviewPage.tsx');
     expect(page).toMatch(/volume=\{settings\.audio\.volume\}/);
     expect(page).toMatch(/onVolumeChange=\{setAudioVolume\}/);
-    // 循环能力在回放那一层保留（`SimPlaybackOptions.loop` 仍在）：回绕只让引擎 seek 回去
-    // （单一时钟，ADR-0004 §2），UI 不再给入口
+    // 循环 / 回开头已随 issue 22 收掉（零 UI 消费方）：回放那一层不再留这份能力，
+    // 到谱面长度一律停在末帧（ADR-0005 第一性）
     const playback = readStripped(`${SIM_DIR}/simPlayback.ts`);
-    expect(playback).toMatch(/if \(loop && duration > 0\)/);
-    expect(playback).toMatch(/engine\.seek\(0\)/);
+    expect(playback).not.toMatch(/\bloop\b/);
+    expect(playback).not.toMatch(/\brestart\b/);
   });
 
   it('倍速面板是一列（不是横排），且按 max-content 撑开（不是靠 min-width 卡住）', () => {

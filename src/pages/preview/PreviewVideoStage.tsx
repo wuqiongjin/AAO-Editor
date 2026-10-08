@@ -4,12 +4,16 @@
 //   - 素材：04 的**开发期直读通道**（`/__bestdori-assets/`）；缺席 → 空态 + 获取命令（04 的文案）
 //   - 一帧输入：`buildSimChart`（谱面 → 元素表）+ `fitDesignSurface`（设计面 contain + 钳制）
 //   - 回放：`createSimPlayback`（自持引擎当秒源；rAF 驱动**同一份**任意秒出帧函数）
-//   - 播放条：播放/暂停 + 进度（可拖）+ 时间码 + 音量 + 倍速（舞台底部一排；倍速见 `PlaybackRate`）
+//   - 播放条：工作台同一件 `PlayBar`（issue 22 起复用）：播放/暂停 + 时间码（可双击编辑）
+//     + 进度（可拖）+ 音量；倍速（票 20 的 `PlaybackRate`）接 `rateSlot`。空格由本层挂着
+//     的 `useShortcutDispatch` 页面级接管（只认 play，Q2）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Gauge, Pause, Play, Volume2, VolumeX } from 'lucide-react';
-import { formatTimePrecise, formatTimeWhole } from '../../chart/geometry/TimeFormat';
+import { Gauge } from 'lucide-react';
 import type { AppSettings } from '../../chart/config/AppSettings';
+import { formatKey, type FunctionId, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
+import { useShortcutDispatch } from '../../chart/config/useShortcutDispatch';
 import { t } from '../../i18n';
+import PlayBar from '../../playback/PlayBar';
 import { resolveCanvasDpr } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import IconButton from '../../ui/IconButton';
@@ -39,6 +43,9 @@ function round4(v: number): number {
 function formatRate(rate: number): string {
   return `${rate}×`;
 }
+
+/** 预览页只接管 play 这一个功能键（issue 22 Q2）：其余绑定放行原生行为，不吞浏览器键（引用稳定） */
+const PLAY_ONLY: readonly FunctionId[] = ['play'];
 
 /**
  * 倍速控件（chart-preview 20）：触钮 = 播放条那一排的**同款图标钮**（速度表图标 + 当前倍速），
@@ -210,6 +217,8 @@ export interface PreviewVideoStageProps {
   imageQuality: string;
   /** 音符皮肤（`settings.visual.noteSkin`） */
   noteSkin: AppSettings['visual']['noteSkin'];
+  /** 快捷键配置（空格页面级接管 play，issue 22 Q2）：由页面从 `settings.shortcuts` 传 */
+  shortcuts: ShortcutConfig;
 }
 
 export default function PreviewVideoStage({
@@ -223,6 +232,7 @@ export default function PreviewVideoStage({
   onVolumeChange,
   imageQuality,
   noteSkin,
+  shortcuts,
 }: PreviewVideoStageProps) {
   const fieldRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -350,6 +360,18 @@ export default function PreviewVideoStage({
   const togglePlay = useCallback(() => playbackRef.current?.toggle(), []);
   const seekTo = useCallback((seconds: number) => playbackRef.current?.seek(seconds), []);
 
+  // 空格（play）页面级接管（issue 22 Q2）：预览页 active 时按空格 = 播放 / 暂停。
+  // 焦点在 input / textarea / select 内由 hook 放行原生（与工作台同口径）；only 只认 play——
+  // 表里其余编辑功能键不 preventDefault，放行浏览器自己的行为（如 Ctrl+D / Ctrl+T）。
+  useShortcutDispatch({
+    shortcutConfig: shortcuts,
+    active,
+    only: PLAY_ONLY,
+    runFunction: useCallback((fn: FunctionId) => {
+      if (fn === 'play') togglePlay();
+    }, [togglePlay]),
+  });
+
   if (assets?.missing) {
     // 空态（04 定案：必须**直接给出获取命令**，不是一句"素材缺失"）
     return (
@@ -360,9 +382,6 @@ export default function PreviewVideoStage({
     );
   }
 
-  const playLabel = tick.playing ? t('preview.video.pause') : t('preview.video.play');
-  // 进度条量程：谱面长度为 0（还没读到记录）时给个非零量程 —— `range` 不接受 min === max
-  const seekMax = duration > 0 ? duration : 1;
   return (
     <div className="pv-stage">
       {/* 量尺那一层**恒在**：场地尺寸靠它测出来，若"还没测量"就不渲染它，就永远测不出来
@@ -381,46 +400,22 @@ export default function PreviewVideoStage({
         )}
       </div>
 
-      {/* 播放条：播放/暂停 + 当前时间 + 进度（可拖）+ 总时长 + 倍速 + 音量 */}
-      <div className="pv-bar">
-        <IconButton
-          width="auto"
-          size="sm"
-          icon={tick.playing ? <Pause size={15} /> : <Play size={15} />}
-          title={playLabel}
-          aria-label={playLabel}
-          onClick={togglePlay}
-        />
-        <span className="pv-bar__time">{formatTimePrecise(tick.seconds)}</span>
-        <input
-          className="pv-bar__seek"
-          type="range"
-          min={0}
-          max={seekMax}
-          step={0.05}
-          value={Math.min(tick.seconds, seekMax)}
-          aria-label={t('preview.video.seek')}
-          onChange={(e) => seekTo(Number(e.target.value))}
-        />
-        <span className="pv-bar__time">{formatTimeWhole(duration)}</span>
-
-        {/* 倍速（0.25 步进 + 自定义输入 + 常用档菜单）：只改回放速度，进度条量程仍是谱面秒 */}
-        <PlaybackRate value={rate} onChange={setRate} />
-
-        {/* 主音量（图标 + 滑杆，照工作台播放条那套）：落 settings.audio.volume */}
-        <label className="pv-bar__volume" title={t('preview.video.volume')}>
-          {volume <= 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={volume}
-            aria-label={t('preview.video.volume')}
-            onChange={(e) => onVolumeChange(Number(e.target.value))}
-          />
-        </label>
-      </div>
+      {/* 播放条（工作台同一件 PlayBar，issue 22）：外壳走 `--preview` 变体（舞台底部一行），
+          倍速（票 20 的控件）接 `rateSlot`；时间码双击编辑在预览恒允许（Q3：有音频也允许，
+          不照工作台 `canPlay` gate 走） */}
+      <PlayBar
+        variant="preview"
+        isPlaying={tick.playing}
+        currentSeconds={tick.seconds}
+        duration={duration}
+        volume={volume}
+        canEditTime
+        shortcutKey={formatKey(shortcuts.play)}
+        rateSlot={<PlaybackRate value={rate} onChange={setRate} />}
+        onTogglePlay={togglePlay}
+        onVolumeChange={onVolumeChange}
+        onSeek={seekTo}
+      />
     </div>
   );
 }

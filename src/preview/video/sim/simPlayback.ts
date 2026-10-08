@@ -63,8 +63,6 @@ export interface SimPlaybackOptions {
   volume?: number;
   /** 播放速率（缺省 1；任意落在 `PLAYBACK_RATE_RANGE` 内的值，步进取 0.25） */
   rate?: number;
-  /** 循环播放：到谱面长度回绕到 0 继续（缺省关 = 停在末帧） */
-  loop?: boolean;
   /** 每次推进 / 暂停 / seek 后回调（HUD 时间码与进度条读它，不自己轮询） */
   onTick?: (seconds: number, playing: boolean) => void;
 }
@@ -76,7 +74,7 @@ export interface SimPlayback {
    */
   setFrame(input: SimFrameInput): void;
   /**
-   * 改引擎侧 / 画布侧的旋钮（画质档、SE 音量、键音包、主音量、倍速、循环）：**不重建引擎、不重载音频** ——
+   * 改引擎侧 / 画布侧的旋钮（画质档、SE 音量、键音包、主音量、倍速）：**不重建引擎、不重载音频** ——
    * 这些都随设置面板 / 播放条随时可动，重建一次就要把音频重新解码。
    */
   setOptions(patch: {
@@ -87,15 +85,11 @@ export interface SimPlayback {
     volume?: number;
     /** 播放速率（chart-preview 20） */
     rate?: number;
-    /** 循环播放（chart-preview 20） */
-    loop?: boolean;
   }): void;
   play(): void;
   pause(): void;
   toggle(): void;
   seek(seconds: number): void;
-  /** 回到开头（停在暂停态） */
-  restart(): void;
   /** 换谱面长度（切谱面时；播放中会被新的终点截住） */
   setDuration(seconds: number): void;
   /** 立即重画当前秒（暂停态改设置 / 换尺寸后） */
@@ -112,8 +106,6 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
   let rafId: number | null = null;
   let duration = Math.max(0, opts.duration);
   let disposed = false;
-  /** 循环播放（chart-preview 20）：到谱面长度回绕到 0 继续；关 = 停在末帧 */
-  let loop = opts.loop === true;
   /** 已经喂给引擎的谱面身份（换谱面 / 换细分档才重建键音表） */
   let fedNotes: ChartNote[] | null = null;
   let fedBeatDisplay = Number.NaN;
@@ -160,7 +152,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     }
   }
 
-  /** 播放终点：到谱面长度就停住（不回绕），停在末帧 */
+  /** 播放终点：到谱面长度就停住，停在末帧（ADR-0005 第一性） */
   function stopAtEnd(): void {
     engine.pause();
     engine.seek(duration);
@@ -171,15 +163,6 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     if (disposed) return;
     const seconds = engine.getSeconds();
     if (seconds >= duration) {
-      if (loop && duration > 0) {
-        // 循环（chart-preview 20）：回绕到 0 继续播 —— 只让引擎 seek（它自己重锚两条时钟），
-        // 不另起一套时钟、不重建引擎（单一真相源，ADR-0004 §2）
-        engine.seek(0);
-        render();
-        opts.onTick?.(0, true);
-        rafId = requestAnimationFrame(tick);
-        return;
-      }
       stopAtEnd();
       render();
       opts.onTick?.(engine.getSeconds(), false);
@@ -229,7 +212,6 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
       if (patch.keySetId != null) engine.setKeySetId(patch.keySetId);
       if (patch.volume != null) engine.setVolume(patch.volume);
       if (patch.rate != null) engine.setPlaybackRate(patch.rate);
-      if (patch.loop != null) loop = patch.loop;
       render();
     },
     play,
@@ -239,9 +221,6 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
       else play();
     },
     seek,
-    restart(): void {
-      seek(0);
-    },
     setDuration(seconds: number): void {
       duration = Math.max(0, seconds);
       if (engine.getSeconds() > duration) {

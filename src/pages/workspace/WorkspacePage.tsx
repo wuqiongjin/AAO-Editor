@@ -7,7 +7,7 @@ import { ChartCodeEditorProvider } from '../../chart/components/code-editor/Char
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
 import NoteInfoPanel from '../../chart/components/side-panel/NoteInfoPanel';
 import IconButton from '../../ui/IconButton';
-import { type FunctionId } from '../../chart/config/ShortcutConfig';
+import { formatKey, type FunctionId } from '../../chart/config/ShortcutConfig';
 import { DEFAULT_BPM } from '../../audio/AudioTiming';
 import PlayBar from '../../playback/PlayBar';
 import PlaybackMarkerCard from '../../playback/PlaybackMarkerCard';
@@ -74,6 +74,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     duration: ctxDuration, setDuration: setCtxDuration,
     setVolume: setCtxVolume,
     currentSeconds: playheadSeconds,
+    // 播放条（issue 22）props 化的数据入口：isPlaying / volume / canPlay 由页面从
+    // PlaybackContext 取出后显式传入（组件不再直读 context）——值与旧实现同一份真相源
+    isPlaying: ctxIsPlaying,
+    volume: ctxVolume,
+    canPlay,
     markerSeconds,
     setMarker,
   } = playback;
@@ -533,6 +538,14 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           </div>
         </div>
         <PlayBar
+          isPlaying={ctxIsPlaying}
+          currentSeconds={playheadSeconds}
+          duration={ctxDuration}
+          volume={ctxVolume}
+          audioLocked={audioSnap.audioLocked}
+          canEditTime={!canPlay}
+          seekNoCursor={!canPlay && ctxIsPlaying}
+          shortcutKey={formatKey(shortcutConfig.play)}
           onTogglePlay={handleTogglePlay}
           onVolumeChange={handleVolumeChange}
           onSeek={seek}

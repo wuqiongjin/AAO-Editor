@@ -1,11 +1,8 @@
 // @vitest-environment jsdom
-// chart-preview 20 的循环锁测（票面「锁测」：`tests/dom/preview/` 那条之外，回绕本身在回放这一层）。
+// 回放终点的锁测（chart-preview 20 起；issue 22 收掉循环能力后只守"停在末帧"这一侧）。
 //
-// 循环（到谱面长度回绕到 0 继续播）与"关 = 停在末帧"是**回放内部的状态机** —— 控件那一层只能
-// 证明"开关把 `loop` 传下来了"，证明不了"到点真的回绕"。所以这里把 rAF 换成手动泵：
-// 推到终点 → 泵一帧 → 看它回绕还是停住。
-//
-// 单一时钟那条同时被锁住：回绕只允许 `engine.seek(0)`（ADR-0004 §2），不另起 rAF / 计时器。
+// "到谱面长度停在末帧、rAF 收手（不另起时钟）"是**回放内部的状态机** —— 控件那一层证明不了。
+// 所以这里把 rAF 换成手动泵：推到终点 → 泵一帧 → 看它停住。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PLAYBACK_RATE_RANGE as ENGINE_PLAYBACK_RATE_RANGE } from '@/src/audio/AudioEngine';
 import {
@@ -67,7 +64,7 @@ let rafCb: FrameRequestCallback | null = null;
 /** 没有位图的画布（jsdom 不实现 2d 上下文）：`render()` 会自己跳过，不影响状态机 */
 const canvas = { getContext: () => null } as unknown as HTMLCanvasElement;
 
-function makePlayback(loop: boolean, duration = 4) {
+function makePlayback(duration = 4) {
   const ticks: [number, boolean][] = [];
   const pb = createSimPlayback({
     canvas,
@@ -76,7 +73,6 @@ function makePlayback(loop: boolean, duration = 4) {
     seVolume: 1,
     volume: 1,
     rate: 1,
-    loop,
     duration,
     density: 1,
     onTick: (seconds, playing) => ticks.push([seconds, playing]),
@@ -106,24 +102,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('createSimPlayback · 循环（chart-preview 20）', () => {
-  it('开循环：到谱面长度回绕到 0 继续播（仍在同一条时钟上）', async () => {
-    const { pb, ticks } = makePlayback(true);
-    await startPlaying(pb);
-    expect(rafCb).toBeTruthy();
-
-    pb.seek(4); // 推到终点
-    const frame = rafCb!;
-    rafCb = null;
-    frame(0);
-
-    expect(ticks.at(-1)).toEqual([0, true]); // 回绕到 0，且**还在播**
-    expect(rafCb).toBeTruthy(); // 继续排下一帧（没有停）
-    pb.dispose();
-  });
-
-  it('关循环：到谱面长度停在末帧（不回绕、不再排帧）', async () => {
-    const { pb, ticks } = makePlayback(false);
+describe('createSimPlayback · 播放终点', () => {
+  it('到谱面长度停在末帧（不回绕、不再排帧）', async () => {
+    const { pb, ticks } = makePlayback();
     await startPlaying(pb);
     expect(rafCb).toBeTruthy();
 
@@ -134,18 +115,6 @@ describe('createSimPlayback · 循环（chart-preview 20）', () => {
 
     expect(ticks.at(-1)).toEqual([4, false]); // 停在末帧、播放态结束
     expect(rafCb).toBeNull(); // rAF 已收（没有另起时钟）
-    pb.dispose();
-  });
-
-  it('循环开关可以在播放中切换：只走 setOptions，不重建', async () => {
-    const { pb } = makePlayback(false);
-    await startPlaying(pb);
-    pb.setOptions({ loop: true });
-    pb.seek(4);
-    const frame = rafCb!;
-    rafCb = null;
-    frame(0);
-    expect(rafCb).toBeTruthy(); // 中途打开也照样回绕
     pb.dispose();
   });
 });

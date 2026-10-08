@@ -118,7 +118,8 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(src).toMatch(/preview-page\$\{mode === 'video' \? ' is-video' : ''\}/);
     const css = readStripped('src/pages/preview/PreviewPage.css');
     expect(css).toMatch(/\.preview-page\.is-video\s*\{[^}]*padding:\s*12px 12px 8px/);
-    expect(css).toMatch(/\.preview-page\.is-video \.pv-bar\s*\{[^}]*min-height:\s*32px/);
+    // 播放条自 issue 22 起是工作台同一件 PlayBar（变体类 `.play-bar--preview`）
+    expect(css).toMatch(/\.preview-page\.is-video \.play-bar--preview\s*\{[^}]*min-height:\s*32px/);
   });
 });
 

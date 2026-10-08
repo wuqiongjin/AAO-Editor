@@ -1,15 +1,39 @@
-import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Volume2, VolumeX, Play, Pause, Lock } from "lucide-react";
-import { formatKey } from '../chart/config/ShortcutConfig';
 import { formatTimePrecise, formatTimeWhole, parseTimeInput } from '../chart/geometry/TimeFormat';
-import { usePlayback, useConfig, useAudioSession } from '../app/ProviderTree';
 import { t } from '../i18n';
 import './PlayBar.css';
 
-// 工作台底部播放条（issue 22 + issue 49 阶段 3 迁出 inline）。
-// - 播放/暂停、时间码（无音频时可双击原地编辑）、可拖拽进度条 seek、音量。
+// 播放条（issue 49 阶段 3 迁出 inline；issue 22 起 props 化，工作台 / 预览共用这一件）：
+// - 播放/暂停、时间码（`canEditTime` 时可双击原地编辑）、可拖拽进度条 seek、音量；
+// - 数据入口全部走 props（不再直读 Playback / AudioSession / Config），两处消费方各自接线；
+// - 外壳分两个变体（issue 22 Q1）：`play-bar--workspace` 工作台页底栏 / `play-bar--preview`
+//   预览舞台底部一行 —— 只共用内部排布，不共用外壳几何；
+// - 倍速是可选 slot（`rateSlot`，预览专属的票 20 控件）：不传就不渲染。
 
-interface PlayBarProps {
+export type PlayBarVariant = 'workspace' | 'preview';
+
+export interface PlayBarProps {
+  /** 播放中（决定播放 / 暂停图标） */
+  isPlaying: boolean;
+  /** 当前播放头秒数 */
+  currentSeconds: number;
+  /** 总时长（秒） */
+  duration: number;
+  /** 主音量 0..1 */
+  volume: number;
+  /** 时长由外部音频锁定（总时长旁出锁图标 + 提示）；工作台 = 音频被锁定 */
+  audioLocked?: boolean;
+  /** 时间码可双击编辑（工作台 = 无音频；预览恒允许，issue 22 Q3） */
+  canEditTime?: boolean;
+  /** 播放中不给进度条手形光标（工作台历史口径：无音频播放中） */
+  seekNoCursor?: boolean;
+  /** 播放钮提示里的快捷键（`formatKey` 后的展示串，如 "Space"） */
+  shortcutKey: string;
+  /** 外壳变体：工作台页底栏（默认）/ 预览舞台底部一行（issue 22） */
+  variant?: PlayBarVariant;
+  /** 倍速控件 slot（预览专属）：不传就不渲染 */
+  rateSlot?: ReactNode;
   onTogglePlay: () => void;
   onVolumeChange: (v: number) => void;
   /** 进度条 seek（点击/拖动/时间码双击编辑）：目标秒→引擎定位，暂停不自动播（ADR-0004 + issue 22） */
@@ -17,19 +41,20 @@ interface PlayBarProps {
 }
 
 export default function PlayBar({
+  isPlaying,
+  currentSeconds,
+  duration,
+  volume,
+  audioLocked = false,
+  canEditTime = false,
+  seekNoCursor = false,
+  shortcutKey,
+  variant = 'workspace',
+  rateSlot,
   onTogglePlay,
   onVolumeChange,
   onSeek,
 }: PlayBarProps) {
-  const {
-    isPlaying, canPlay, currentSeconds, duration,
-    volume,
-  } = usePlayback();
-  const [audioSnap] = useAudioSession();
-  const audioLocked = audioSnap.audioLocked;
-  const { settings } = useConfig();
-  const shortcutConfig = settings.shortcuts;
-
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -38,7 +63,7 @@ export default function PlayBar({
   const [timeDraft, setTimeDraft] = useState("");
   const timeInputRef = useRef<HTMLInputElement>(null);
   const beginEditTime = () => {
-    if (canPlay) return; // 有音频：时长由音频决定，禁止编辑定位
+    if (!canEditTime) return; // 不可编辑：工作台有音频 = 时长由音频决定，禁止编辑定位
     setTimeDraft(formatTimePrecise(currentSeconds));
     setEditingTime(true);
   };
@@ -81,17 +106,17 @@ export default function PlayBar({
   const endDrag = () => setDragging(false);
 
   return (
-    <div className="play-bar">
+    <div className={`play-bar play-bar--${variant}`}>
       {/* 播放/暂停 */}
       <button
         onClick={onTogglePlay}
-        title={t('play.toggle', { key: formatKey(shortcutConfig.play) })}
+        title={t('play.toggle', { key: shortcutKey })}
         className="play-bar__play-btn"
       >
         {isPlaying ? <Pause size={15} /> : <Play size={15} />}
       </button>
 
-      {/* 时间码组（紧邻）：当前时间 + 总时长；无音频时双击当前时间原地编辑 */}
+      {/* 时间码组（紧邻）：当前时间 + 总时长；可编辑时双击当前时间原地编辑 */}
       <span className="play-bar__time">
         {editingTime ? (
           <input
@@ -108,8 +133,8 @@ export default function PlayBar({
         ) : (
           <span
             onDoubleClick={beginEditTime}
-            title={canPlay ? undefined : t('play.editTime')}
-            className={`play-bar__time-current${canPlay ? '' : ' is-editable'}`}
+            title={canEditTime ? t('play.editTime') : undefined}
+            className={`play-bar__time-current${canEditTime ? ' is-editable' : ''}`}
           >{formatTimePrecise(currentSeconds)}</span>
         )}
         <span
@@ -140,7 +165,7 @@ export default function PlayBar({
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        className={`play-bar__seek${(!canPlay && isPlaying) ? ' is-no-cursor' : ''}`}
+        className={`play-bar__seek${seekNoCursor ? ' is-no-cursor' : ''}`}
       >
         <div className="play-bar__seek-track">
           {/* 已播放填充：去掉 width transition，与圆点位置严格逐帧同步
@@ -159,6 +184,9 @@ export default function PlayBar({
         </div>
       </div>
 
+      {/* 倍速 slot（预览专属）：不传就不占位（工作台没有这一件） */}
+      {rateSlot}
+
       {/* 音量 */}
       <label className="play-bar__volume" title={t('play.volume')}>
         {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
@@ -168,6 +196,8 @@ export default function PlayBar({
           max={1}
           step={0.05}
           value={volume}
+          // 可访问名：预览侧复用前本就有（`aria-label`），工作台这一件此前只靠 label 的 title
+          aria-label={t('play.volume')}
           onChange={e => onVolumeChange(parseFloat(e.target.value))}
           className="play-bar__volume-input"
         />

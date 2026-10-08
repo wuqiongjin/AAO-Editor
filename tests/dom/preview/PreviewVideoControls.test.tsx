@@ -1,16 +1,21 @@
 // @vitest-environment jsdom
-// chart-preview 20 的控件锁测（票面「锁测」：`tests/dom/preview/` —— 控件 → 回放接口调用）。
+// chart-preview 20 的控件锁测（票面「锁测」：`tests/dom/preview/` —— 控件 → 回放接口调用）；
+// chart-preview 22 起播放条是工作台同一件 `PlayBar`，本文件同时守「复用后新增的通路」。
 //
-// 为什么是 DOM 测试：要锁的是"这一排控件真的接到了回放上"——倍速（选档 / 自定义值 / 越界钳回）与
-// 主音量两个旋钮的操作路径（受控组件 + 事件），纯函数单测看不到；至于"声音有没有变、倍速听感
-// 同步不同步"是单测测不到的，票里已列为人工验收项。
+// 为什么是 DOM 测试：要锁的是"这一排控件真的接到了回放上"——倍速（选档 / 自定义值 / 越界钳回）、
+// 主音量、空格（play）与时间码双击编辑四条操作路径（受控组件 + 事件），纯函数单测看不到；
+// 至于"声音有没有变、倍速听感同步不同步"是单测测不到的，票里已列为人工验收项。
 //
 // 回放那一侧换成替身（`createSimPlayback`）：只断言**接口调用**，不碰 Web Audio / rAF。
+// 查询口径按 `tests/README.md` 的 dom 约定：role / text（进度条与音量都是 `role="slider"` 带名字，
+// 时间码用它的 `title` 提示定位，编辑输入框是唯一的 `textbox`）。
 //
 // 2026-10-07 用户验收回修（票内「验收回修」）：
 //   - 撤掉「回开头」与「循环」两钮 ⇒ 这里守"不许回来"（含 setOptions 不再带 loop）；
 //   - 倍速：触钮 = 播放条那一排的同款图标钮（图标 + 当前倍速），点开在它上方翻出
 //     一列常用档 + 一个自定义输入。
+// 2026-10-08 issue 22：进度条换成 PlayBar 的自绘拖拽条（量程看 aria-valuemax）；
+//   loop / restart 已从回放层收掉，替身里不再有这两个洞。
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -21,7 +26,6 @@ const calls = vi.hoisted(() => ({
   play: vi.fn(),
   pause: vi.fn(),
   seek: vi.fn(),
-  restart: vi.fn(),
   setDuration: vi.fn(),
   dispose: vi.fn(),
 }));
@@ -47,7 +51,6 @@ vi.mock('@/src/preview', async (importOriginal) => {
       play: calls.play,
       pause: calls.pause,
       seek: calls.seek,
-      restart: calls.restart,
       toggle: calls.play,
       setDuration: calls.setDuration,
       render: vi.fn(),
@@ -57,7 +60,9 @@ vi.mock('@/src/preview', async (importOriginal) => {
 });
 
 import PreviewVideoStage from '@/src/pages/preview/PreviewVideoStage';
-import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimScene } from '@/src/preview';
+import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimPlaybackAudio, type SimScene } from '@/src/preview';
+import { getDefaultConfig } from '@/src/chart/config/ShortcutConfig';
+import { t } from '@/src/i18n';
 import type { AppSettings } from '@/src/chart/config/AppSettings';
 
 const scene: SimScene = {
@@ -71,25 +76,31 @@ const scene: SimScene = {
   mirror: false,
 };
 
+/** 默认快捷键（空格 = play）——预览页的接管口径就在这份配置上 */
+const SHORTCUTS = getDefaultConfig();
+
 // jsdom 没有布局：`clientWidth/clientHeight` 恒 0 ⇒ 舞台量不出尺寸 ⇒ 回放根本不创建（控件虽渲染，
 // 但接不到回放上）。这里钉一个舞台尺寸，让"素材 + 尺寸都到齐"这条路径真的走通。
 for (const [prop, value] of [['clientWidth', 960], ['clientHeight', 540]] as const) {
   Object.defineProperty(HTMLElement.prototype, prop, { configurable: true, value });
 }
 
-async function renderStage(volume = 1) {
+async function renderStage(opts: { volume?: number; audio?: SimPlaybackAudio | null; active?: boolean } = {}) {
+  const { volume = 1, audio = null, active = true } = opts;
   const onVolumeChange = vi.fn();
   const view = render(
     <PreviewVideoStage
+      active={active}
       scene={scene}
       duration={12}
-      audio={null}
+      audio={audio}
       keySetId="skin00"
       seVolume={1}
       volume={volume}
       onVolumeChange={onVolumeChange}
       imageQuality="high"
       noteSkin={'default' as AppSettings['visual']['noteSkin']}
+      shortcuts={SHORTCUTS}
     />,
   );
   // 素材是异步进场的：等回放真的建起来（控件要接到它上面）
@@ -98,15 +109,23 @@ async function renderStage(volume = 1) {
   return { ...view, onVolumeChange };
 }
 
-const trigger = () => document.querySelector('.pv-rate .icon-btn') as HTMLButtonElement;
+/** 倍速触钮：可访问名就是当前倍速（`1×` / `1.5×`…），面板里的档位是 menuitem、不会混进来 */
+const trigger = () => screen.getByRole('button', { name: /×$/ });
 const openPanel = () => fireEvent.click(trigger());
-const customInput = () => document.querySelector('input.pv-rate__value') as HTMLInputElement;
+const customInput = () => screen.getByRole('spinbutton');
 /** 最后一次写下去的倍速（`setOptions({ rate })`） */
 const lastRate = () => (calls.setOptions.mock.lastCall?.[0] as { rate?: number } | undefined)?.rate;
+/** 播放条的进度条（PlayBar 自绘，`role="slider"`；量程看 aria-valuemax = 谱面长度秒） */
+const seekTrack = () => screen.getByRole('slider', { name: t('play.progress') });
+/** 当前时间码：它就是"双击编辑"提示挂着的那一件（`title` 为可访问名来源） */
+const currentTime = () => screen.getByTitle(t('play.editTime'));
+const timeInput = () => screen.queryByRole('textbox');
 
 beforeEach(() => {
   calls.setOptions.mockClear();
   calls.setFrame.mockClear();
+  calls.play.mockClear();
+  calls.seek.mockClear();
 });
 
 describe('动态预览播放条 · 播放器控件（chart-preview 20）', () => {
@@ -116,7 +135,7 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
     expect(trigger().querySelector('svg')).toBeTruthy(); // 与播放/音量同一套图标钮，不是一串裸文字
     // 收起时播放条上不该挂着档位表 / 输入框
     expect(screen.queryByRole('menu')).toBeNull();
-    expect(customInput()).toBeNull();
+    expect(screen.queryByRole('spinbutton')).toBeNull();
 
     openPanel();
     expect(screen.getByRole('menu')).toBeTruthy();
@@ -126,10 +145,8 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
   it('倍速：选常用档走 setOptions({ rate })，触钮跟着变并点亮，面板收起', async () => {
     await renderStage();
     openPanel();
-    const options = [...document.querySelectorAll('.pv-rate__option')];
-    expect(options.map((b) => b.textContent)).toEqual(['0.25×', '0.5×', '0.75×', '1×', '1.25×', '1.5×', '2×']);
-    // 档位是**一列**（面板里直接铺，没有横排容器那一层）
-    expect(options[0]!.parentElement).toBe(screen.getByRole('menu'));
+    expect(screen.getAllByRole('menuitem').map((b) => b.textContent))
+      .toEqual(['0.25×', '0.5×', '0.75×', '1×', '1.25×', '1.5×', '2×']);
 
     fireEvent.click(screen.getByRole('menuitem', { name: '1.5×' }));
     expect(lastRate()).toBe(1.5);
@@ -169,7 +186,7 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
 
     fireEvent.change(customInput(), { target: { value: '1.35' } });
     expect(lastRate()).toBe(1.35);
-    expect(customInput().value).toBe('1.35');
+    expect((customInput() as HTMLInputElement).value).toBe('1.35');
 
     fireEvent.keyDown(customInput(), { key: 'Enter' }); // 确认（面板不关，方便连着试）
     expect(lastRate()).toBe(1.35);
@@ -193,12 +210,12 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
     fireEvent.blur(customInput());
     expect(lastRate()).toBe(PLAYBACK_RATE_RANGE.max); // 上限仍是引擎那份 4
     expect(trigger().textContent).toBe('4×');
-    expect(customInput().value).toBe('4');
+    expect((customInput() as HTMLInputElement).value).toBe('4');
 
     fireEvent.change(customInput(), { target: { value: '0.05' } });
     fireEvent.blur(customInput());
     expect(lastRate()).toBe(PLAYBACK_RATE_RANGE.min);
-    expect(customInput().value).toBe('0.1');
+    expect((customInput() as HTMLInputElement).value).toBe('0.1');
   });
 
   it(`倍速：↑↓ 按 ${SIM_PLAYBACK_RATE_STEP} 步进`, async () => {
@@ -214,20 +231,18 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
   });
 
   it('倍速不改谱面秒数：进度条量程仍是谱面长度', async () => {
-    const { container } = await renderStage();
-    const seek = () => container.querySelector('input.pv-bar__seek') as HTMLInputElement;
-    expect(Number(seek().max)).toBe(12); // duration = 12s
+    await renderStage();
+    expect(seekTrack().getAttribute('aria-valuemax')).toBe('12'); // duration = 12s
     openPanel();
     fireEvent.click(screen.getByRole('menuitem', { name: '2×' }));
-    expect(Number(seek().max)).toBe(12);
+    expect(seekTrack().getAttribute('aria-valuemax')).toBe('12');
   });
 
   it('验收回修 #1：播放条没有「回开头」与「循环」两钮，loop 也不再往下传', async () => {
-    const { container } = await renderStage();
-    const labels = [...container.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? '');
+    await renderStage();
     // 这两个 i18n 键已随控件删除，故这里按删除前的文案写死
-    expect(labels.some((l) => /^(回到开头|Back to start|循环播放|Loop)$/.test(l))).toBe(false);
-    expect(container.querySelector('button[aria-pressed]')).toBeNull(); // 循环是唯一的开关钮（倍速是菜单，不是开关）
+    expect(screen.queryByRole('button', { name: /^(回到开头|Back to start|循环播放|Loop)$/ })).toBeNull();
+    expect(screen.queryAllByRole('button', { pressed: true })).toEqual([]); // 循环是唯一的开关钮（倍速是菜单，不是开关）
 
     openPanel();
     fireEvent.click(screen.getByRole('menuitem', { name: '0.5×' }));
@@ -235,8 +250,8 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
   });
 
   it('主音量：滑杆走 onVolumeChange（落 settings.audio.volume），不自己摸引擎', async () => {
-    const { container, onVolumeChange } = await renderStage(1);
-    const slider = container.querySelector('label.pv-bar__volume input') as HTMLInputElement;
+    const { onVolumeChange } = await renderStage({ volume: 1 });
+    const slider = screen.getByRole('slider', { name: t('play.volume') }) as HTMLInputElement;
     expect(Number(slider.min)).toBe(0);
     expect(Number(slider.max)).toBe(1);
     expect(Number(slider.step)).toBe(0.05);
@@ -257,5 +272,60 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
     fireEvent.change(customInput(), { target: { value: '2' } });
     fireEvent.blur(customInput());
     expect((createSimPlayback as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(before);
+  });
+});
+
+describe('动态预览播放条 · 与工作台播放器共用（chart-preview 22）', () => {
+  it('空格：预览页 active 时接管 play → 回放 toggle()', async () => {
+    await renderStage();
+    expect(calls.play).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: ' ' });
+    expect(calls.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('空格：焦点在输入框内放行原生（不触发 toggle）', async () => {
+    await renderStage();
+    openPanel();
+    fireEvent.keyDown(customInput(), { key: ' ' });
+    expect(calls.play).not.toHaveBeenCalled();
+  });
+
+  it('空格：预览页失活时不接管（保活挂载的别的页在放）', async () => {
+    await renderStage({ active: false });
+    fireEvent.keyDown(window, { key: ' ' });
+    expect(calls.play).not.toHaveBeenCalled();
+  });
+
+  it('时间码双击：输入秒回车 → seek；越界钳到 [0, duration]', async () => {
+    await renderStage();
+    expect(timeInput()).toBeNull();
+
+    fireEvent.doubleClick(currentTime());
+    expect(timeInput()).toBeTruthy();
+    fireEvent.change(timeInput()!, { target: { value: '0:05' } }); // mm:ss（既有解析口径）
+    fireEvent.keyDown(timeInput()!, { key: 'Enter' });
+    expect(calls.seek).toHaveBeenLastCalledWith(5);
+
+    // 越界：上钳到 duration、下钳到 0（与工作台同一条提交路径）
+    fireEvent.doubleClick(currentTime());
+    fireEvent.change(timeInput()!, { target: { value: '5:00' } });
+    fireEvent.keyDown(timeInput()!, { key: 'Enter' });
+    expect(calls.seek).toHaveBeenLastCalledWith(12);
+
+    fireEvent.doubleClick(currentTime());
+    fireEvent.change(timeInput()!, { target: { value: '0:00' } });
+    fireEvent.keyDown(timeInput()!, { key: 'Enter' });
+    expect(calls.seek).toHaveBeenLastCalledWith(0);
+  });
+
+  it('时间码双击：有音频时照样可编辑（issue 22 Q3：预览不照工作台 canPlay gate 走）', async () => {
+    const audio: SimPlaybackAudio = { name: 'song.mp3', blob: new Blob() };
+    await renderStage({ audio });
+
+    fireEvent.doubleClick(currentTime());
+    expect(timeInput()).toBeTruthy();
+    fireEvent.change(timeInput()!, { target: { value: '0:03.5' } });
+    fireEvent.keyDown(timeInput()!, { key: 'Enter' });
+    expect(calls.seek).toHaveBeenLastCalledWith(3.5);
   });
 });

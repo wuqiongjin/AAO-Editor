@@ -287,6 +287,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 onVolumeChange={setAudioVolume}
                 imageQuality={settings.display.imageQuality}
                 noteSkin={settings.visual?.noteSkin ?? {}}
+                // 空格（play）页面级接管（issue 22 Q2）：配置从设置域取，预览条那层不直读 context
+                shortcuts={settings.shortcuts}
               />
             ) : (
               <p className="preview-stage__pending">

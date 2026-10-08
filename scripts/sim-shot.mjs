@@ -12,8 +12,10 @@
 //   3. 带体：长条 / 滑条是四边形带子（SP 曲线分段转折），颜色取自皮肤带体图；
 //   4. 特效：命中处有轨道闪 + 打击环（tap 青 / flick 粉 / skill 黄 / 方向键紫橙）；
 //   5. combo：右下 0.85W × 0.4375H 一带的数字随播放增长；
-//   6. 播放条：播放/暂停、进度可拖、时间码推进；倍速（±0.25 步进 / 自定义输入 / 常用档菜单）与音量就位
+//   6. 播放条：播放/暂停、进度可拖、时间码推进；倍速（自定义输入 / 常用档菜单）与音量就位
 //      （「回开头」「循环」两钮按 2026-10-07 验收回修撤销）。
+//   7. 播放条 = 工作台同一件 PlayBar（chart-preview 22）：空格能切播放 / 暂停、
+//      暂停态双击时间码输入秒数（mm:ss / mm:ss.s）回车即跳到该帧。
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -72,9 +74,12 @@ const box = async (sel) => {
   const b = await page.locator(sel).first().boundingBox();
   return b && { w: Math.round(b.width), h: Math.round(b.height), x: Math.round(b.x), y: Math.round(b.y) };
 };
+/** 预览播放条的作用域前缀（**含尾空格**，只能当拼接前缀用）：
+    工作台在保活挂载里也有一件 `.play-bar`（不可见），选择器一律钉住预览变体 */
+const PREVIEW_BAR = '.play-bar--preview ';
 const stage = await box('.preview-stage');
 const field = await box('.pv-field__canvas');
-const bar = await box('.pv-bar');
+const bar = await box('.play-bar--preview');
 console.log('[stage]', stage);
 console.log('[field]', field, field ? `比例 ${(field.w / field.h).toFixed(4)}（设计面 ${(1334 / 750).toFixed(4)}）` : '');
 console.log('[bar]', bar);
@@ -87,7 +92,7 @@ console.log('[位图]', await page.evaluate(() => {
 const grab = async (suffix) => {
   const data = await page.evaluate(() => document.querySelector('.pv-field__canvas').toDataURL('image/png'));
   writeFileSync(`${out}-${suffix}.png`, Buffer.from(data.split(',')[1], 'base64'));
-  const time = await page.locator('.pv-bar__time').first().textContent();
+  const time = await page.locator(`${PREVIEW_BAR}.play-bar__time-current`).textContent();
   console.log(`[${suffix}] timecode=${time}`);
 };
 
@@ -95,24 +100,22 @@ await grab('paused0');
 await page.screenshot({ path: `${out}-page0.png` });
 
 // 5. 播 ~2.5 秒（无音频时走合成时间线；有音频放 BGM + 键音）
-await page.getByRole('button', { name: '播放' }).first().click();
+await page.locator(`${PREVIEW_BAR}.play-bar__play-btn`).click();
 await page.waitForTimeout(2600);
 await grab('playing');
 await page.screenshot({ path: `${out}-page-playing.png` });
-await page.getByRole('button', { name: '暂停' }).first().click();
+await page.locator(`${PREVIEW_BAR}.play-bar__play-btn`).click();
 await page.waitForTimeout(400);
 
-// 6. 拖进度条到谱面中段 / 末段（React 的 value tracker 认它自己的 setter，直接赋值会被去重丢掉）
+// 6. 拖进度条到谱面中段 / 末段（PlayBar 自绘条：按指针位置拖 —— 没有原生 range 的 value 可注入）
+const totalText = await page.locator(`${PREVIEW_BAR}.play-bar__time-total`).textContent();
+const total = Number((totalText ?? '').replace(/[^\d:]/g, '').split(':').reduce((acc, part) => acc * 60 + Number(part), 0));
 const seek = async (seconds) => {
-  await page.locator('.pv-bar__seek').evaluate((el, v) => {
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    setter.call(el, String(v));
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  }, seconds);
+  const b = await page.locator(`${PREVIEW_BAR}.play-bar__seek`).boundingBox();
+  if (!b || !(total > 0)) return;
+  await page.mouse.click(b.x + b.width * Math.min(1, seconds / total), b.y + b.height / 2);
   await page.waitForTimeout(700);
 };
-const totalText = await page.locator('.pv-bar__time').last().textContent();
-const total = Number((totalText ?? '0:00').split(':').reduce((acc, part) => acc * 60 + Number(part), 0));
 await seek(Math.max(1, Math.floor(total * 0.6)));
 await grab('seek-mid');
 await seek(Math.max(1, Math.floor(total * 0.95)));
@@ -155,11 +158,53 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 await page.screenshot({ path: `${out}-page-rate.png` });
 
+// 6.6 空格接管 + 时间码双击编辑（chart-preview 22：播放条 = 工作台同一件 PlayBar）
+const timecode = () => page.locator(`${PREVIEW_BAR}.play-bar__time-current`).textContent();
+// 倍速先复位 1×：免得 4× 下时间码跑得太快，日志不好读
+await rateOpen();
+await page.locator('.pv-rate__option').filter({ hasText: /^1×$/ }).click();
+await page.waitForTimeout(200);
+await seek(Math.max(1, Math.floor(total * 0.05)));
+const beforeSpace = await timecode();
+await page.keyboard.press('Space'); // 焦点在 body：页面级接管 play
+await page.waitForTimeout(1000);
+const playingTime = await timecode();
+await page.keyboard.press('Space');
+await page.waitForTimeout(500);
+const pausedTime = await timecode();
+await page.waitForTimeout(600);
+const stillPaused = await timecode();
+console.log('[空格] 起播前 =', beforeSpace, '→ 播放 1s 后 =', playingTime, '→ 再按 =', pausedTime,
+  '→ 0.6s 后仍 =', stillPaused, '（先推进、后停住 = 空格切了播放 / 暂停）');
+
+// 暂停态双击时间码：输入 mm:ss.s → 跳到那一帧
+await page.locator(`${PREVIEW_BAR}.play-bar__time-current`).dblclick();
+await page.locator(`${PREVIEW_BAR}.play-bar__time-input`).fill('0:12.5'); // mm:ss.s 口径
+await page.locator(`${PREVIEW_BAR}.play-bar__time-input`).press('Enter');
+await page.waitForTimeout(400);
+console.log('[时间码编辑] 暂停态输入 0:12.5 回车 →', await timecode());
+await grab('seek-edited');
+
 // 7. 「设置」面板：动态形态该有「仿真场」（音符速度 + 镜向），不该有标记 / 导出信息
 await page.locator('.preview-toolbar').getByRole('button', { name: '设置' }).first().click();
 await page.waitForTimeout(400);
 await page.screenshot({ path: `${out}-page-settings.png` });
 console.log('[设置面板]', await page.locator('.pdp__group-title').allTextContents());
+
+// 8. 工作台播放条（chart-preview 22 props 化之后行为不变）：切回工作台，点播放时间码应推进
+await page.keyboard.press('Escape'); // 先关掉第 7 节开着的设置面板（scrim 会挡住导航）
+await page.waitForTimeout(300);
+const WS_BAR = '.play-bar--workspace ';
+await page.getByRole('button', { name: '工作台' }).first().click();
+await page.waitForTimeout(900);
+console.log('[工作台播放条] 在 =', await page.locator(`${WS_BAR}.play-bar__play-btn`).count() === 1);
+const wsTime0 = await page.locator(`${WS_BAR}.play-bar__time-current`).textContent();
+await page.locator(`${WS_BAR}.play-bar__play-btn`).click();
+await page.waitForTimeout(1200);
+const wsTime1 = await page.locator(`${WS_BAR}.play-bar__time-current`).textContent();
+await page.locator(`${WS_BAR}.play-bar__play-btn`).click();
+console.log('[工作台播放条] 播放前 =', wsTime0, '→ 播放 1.2s 后 =', wsTime1, '（推进 = props 化后照常工作）');
+await page.screenshot({ path: `${out}-page-workspace-bar.png` });
 
 await browser.close();
 console.log('[done]', out);
