@@ -19,12 +19,16 @@ import {
 import { emptySimAssets } from '@/src/preview/video/sim/simAssets';
 import {
   approachSeconds,
+  backgroundRect,
   fieldImageRect,
   fieldMetrics,
+  laneCenterX,
   playLineRect,
+  simDualLineThickness,
+  simNoteRect,
   SIM_BAND_COLORS,
 } from '@/src/preview/video/sim/simGeometry';
-import { makeRecordingCtx, propValues } from '@/tests/support/canvas';
+import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
 
 const icons = buildActiveNoteIcons(normalizeNoteSkinSelection({}));
 
@@ -222,7 +226,7 @@ describe('drawSimFrameAt · 场地三图的矩形（问题 4）', () => {
       assets: {
         ...emptySimAssets(),
         missing: false,
-        // 背景不给（stub 无尺寸 ⇒ `drawCover` 自己跳过这一笔，不参与断言）
+        // 背景单独有例（票 23 #2③ 走 `backgroundRect`）：这里只要两张图，背景不给
         background: null,
         field: {} as HTMLImageElement,
         playLine: {} as HTMLImageElement,
@@ -251,5 +255,147 @@ describe('drawSimFrameAt · 场地三图的矩形（问题 4）', () => {
     // 场地图素材 1160px 宽、底边车道间距实测 154.3px ⇒ 与 laneWidth 差 < 1%
     const fieldLaneSpacing = 154.3 * (fieldImageRect(m).w / 1160);
     expect(Math.abs(fieldLaneSpacing - m.laneWidth) / m.laneWidth).toBeLessThan(0.01);
+  });
+});
+
+/** 帧里**最先**那批路径命令（`fillPolys`：一个四边形 = moveTo + 3×lineTo）——带体排在音符 / 特效之前 */
+function firstVertices(calls: RecordedCall[]): { x: number; y: number }[] {
+  return calls
+    .filter(([k]) => k === 'moveTo' || k === 'lineTo')
+    .slice(0, 4)
+    .map(([, args]) => ({ x: args[0] as number, y: args[1] as number }));
+}
+
+/** 四边形 a 边（头两个顶点）的中点 —— 即"过线那一端"的接触点 */
+function aEdgeCenterX(vertices: { x: number }[]): number {
+  return (vertices[0]!.x + vertices[1]!.x) / 2;
+}
+
+describe('drawSimFrameAt · 带体过线端沿带子行进（票 23 #1）', () => {
+  /** lane 中心 x（A = 1 的判定线上） */
+  const laneX = (lane: number) => laneCenterX(fieldMetrics(1334, 750), lane, 1);
+
+  it('横向滑条过线后：接触点的 x 单调趋近未过线端的 lane（旧写法钉在 lane0、原地不动）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    // lane 3 → 5 的跨轨滑条：1s → 2s。取 1.4 / 1.5 / 1.6 三帧 —— 都在"首结点已过线（1.0s）、
+    // 末结点还没到线（2.0s）"的区间里，且已出首结点的命中特效窗（0.32s）⇒ 路径命令只剩带体那一个四边形
+    const frame = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5 }])], spriteIcon);
+    const centers = [1.4, 1.5, 1.6].map((seconds) => {
+      const { proxy, calls } = recordingCtx();
+      drawSimFrameAt(proxy, frame, seconds);
+      const vertices = firstVertices(calls);
+      expect(vertices).toHaveLength(4);
+      // 过线端钉在场地判定线上（A = 1）
+      expect(vertices[0]!.y).toBeCloseTo(frame.metrics.laneHeight, 6);
+      return aEdgeCenterX(vertices);
+    });
+
+    // 3 → 5 的线性插值：1.4s → lane 3.8、1.5s → lane 4.0、1.6s → lane 4.2
+    expect(centers[0]!).toBeCloseTo(laneX(3.8), 4);
+    expect(centers[1]!).toBeCloseTo(laneX(4), 4);
+    expect(centers[2]!).toBeCloseTo(laneX(4.2), 4);
+
+    // 单调趋近未过线端（lane 5）：旧写法三帧都停在 laneX(3)
+    const target = laneX(5);
+    expect(Math.abs(target - centers[0]!)).toBeGreaterThan(Math.abs(target - centers[1]!));
+    expect(Math.abs(target - centers[1]!)).toBeGreaterThan(Math.abs(target - centers[2]!));
+    expect(centers[0]!).toBeGreaterThan(laneX(3));
+  });
+
+  it('t1 === t0（同刻两点）：不除零、不出 NaN，两端各守自己的轨位', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const frame = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 2, lane: 5 }])], spriteIcon);
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1); // 同刻两点：这一秒正好双双压线
+
+    const vertices = firstVertices(calls);
+    expect(vertices).toHaveLength(4);
+    for (const p of vertices) {
+      expect(Number.isFinite(p.x)).toBe(true);
+      expect(Number.isFinite(p.y)).toBe(true);
+    }
+    // 没有"沿带子行进"可言（两端同一时刻）：各自钉在自己的 lane 中心上
+    const half = frame.metrics.laneWidth / 2;
+    expect(vertices.map((p) => p.x)).toEqual([
+      laneX(3) - half, laneX(3) + half, laneX(5) + half, laneX(5) - half,
+    ]);
+  });
+
+  it('同一秒里带体过线端与 drawHoldEffects 的按住位重合（同一条插值，不许两份）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const sprites = fakeSprites() as unknown as SimSprites;
+    // lane 0 → 4：按住位在 1.7s 落到 lane 2.8（同一条插值）。
+    // 取 1.7s 而不是 1.5s：首结点（1.0s）的命中特效窗是 0.6s，0.7s 后才只剩"按住"这一路画 particles
+    const frame: SimFrameInput = {
+      ...frameOf([slide([{ beat: 2, lane: 0 }, { beat: 4, lane: 4 }])], spriteIcon),
+      assets: { ...emptySimAssets(), missing: false, sprites },
+    };
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1.7);
+
+    const bandX = aEdgeCenterX(firstVertices(calls));
+    expect(bandX).toBeCloseTo(laneX(2.8), 4);
+    // 按住环 = 连按特效那枚 `connectionRing`（图像 = particles，左缘为正 —— 另两枚旋转环以 0,0 为中心）
+    const ring = calls.find(([k, args]) =>
+      k === 'drawImage' && args[0] === sprites.particles && (args[5] as number) > 0)!;
+    const ringX = (ring[1][5] as number) + (ring[1][7] as number) / 2;
+    expect(ringX).toBeCloseTo(bandX, 6);
+  });
+});
+
+describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 23 #2）', () => {
+  it('音符按精灵源格的自然比画：高/宽 = 120/308（修前吃设计盒的 36:21.6 = 1.667）', () => {
+    const { spriteIcon, draws } = makeRecordingSprite();
+    const frame = frameOf([single(2, 3)], spriteIcon);
+    const { proxy } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1); // 压线帧：A = 1
+
+    const note = draws[0]!;
+    const rect = simNoteRect(frame.metrics, 1, 1, 120 / 308);
+    expect(note.w).toBeCloseTo(rect.w, 6);
+    expect(note.h).toBeCloseTo(rect.h, 6);
+    expect(note.w / note.h).toBeCloseTo(308 / 120, 6);
+  });
+
+  it('方向键本体也走精灵源格比（同单键一个盒子口径，只差设计宽 45）', () => {
+    const { spriteIcon, draws } = makeRecordingSprite();
+    const frame = frameOf([{ type: 'LDirectional', beat: 2, lane: 3, length: 1 }], spriteIcon);
+    const { proxy } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1); // 压线帧：A = 1
+
+    const body = draws[0]!; // 本体先画、外侧箭头后画
+    const rect = simNoteRect(frame.metrics, 1, 1, 120 / 308, 45);
+    expect(body.w).toBeCloseTo(rect.w, 6);
+    expect(body.h).toBeCloseTo(rect.h, 6);
+    expect(body.w / body.h).toBeCloseTo(308 / 120, 6);
+  });
+
+  it('同时点击线：一组一根跨全程（端点轨之间），粗细走 0.118 系数（修前逐 gap 一根 / 0.3 粗）', () => {
+    const { spriteIcon, draws } = makeRecordingSprite();
+    const m = fieldMetrics(1334, 750);
+    // 同一 tick 上的 lane 0 / 3 / 6：修前逐 gap 拉两根，且粗细 = 0.3 × laneWidth
+    const frame = frameOf([single(2, 0), single(2, 3), single(2, 6)], spriteIcon);
+    const { proxy } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1);
+
+    const lines = draws.filter((d) => d.src === icons.simultaneousLine!.src);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.w).toBeCloseTo(laneCenterX(m, 6, 1) - laneCenterX(m, 0, 1), 6);
+    expect(lines[0]!.h).toBeCloseTo(simDualLineThickness(m, 1, 1), 6);
+    expect(lines[0]!.y).toBeCloseTo(m.laneHeight, 6); // 压在场地判定线上
+  });
+
+  it('背景按 backgroundRect 的取景矩形画（不再是 cover 居中裁两侧）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const background = { naturalWidth: 2048, naturalHeight: 1024 } as HTMLImageElement;
+    const frame: SimFrameInput = {
+      ...frameOf([single(2, 3)], spriteIcon),
+      assets: { ...emptySimAssets(), missing: false, background, field: null, playLine: null },
+    };
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 0);
+
+    const dest = calls.find(([k, args]) => k === 'drawImage' && args[0] === background)!;
+    expect({ x: dest[1][1], y: dest[1][2], w: dest[1][3], h: dest[1][4] }).toEqual(backgroundRect(frame.metrics));
   });
 });

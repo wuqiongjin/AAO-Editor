@@ -62,21 +62,42 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   // 全屏预览：整块舞台进全屏，显示控件那一排随之退场（它太长、压画面），浮层只留一枚退出钮。
   // 缩放不丢：Ctrl/⌘+滚轮仍归 StaticPreviewView；设置 / 导出先退出全屏再做（2026-10-05 定案）。
   // Esc 由浏览器负责退出，`fullscreenchange` 是唯一真相（也管住从别处退出时的状态同步）。
+  //
+  // 换档那一拍要**抑制过渡**：舞台底色与台上配色（`--stage-*`）都是"同一帧里前后两个值"，
+  // 而播放条 / 图标钮自己带 hover 那套 `transition`（如 `.play-bar__play-btn` 的 `background-color`
+  // 160ms）⇒ 不管的话，亮主题那块不透明的浅色方块会在黑影里淡出约 180ms（2026-10-08 用户：
+  // "闪一下，先保持亮色，最终回到暗色"）。点下钮就挂上类（**先于** `requestFullscreen`，
+  // 保证全屏第一帧就是台上配色），换档画完两帧再摘；Esc 那类"从别处退出"在事件里补挂一次
+  // —— 把已经在跑的过渡掐掉，最坏只剩一帧。
+  const suppressStageTransition = useCallback((on: boolean) => {
+    stageRef.current?.classList.toggle('is-palette-swap', on);
+  }, []);
+
+  const releaseStageTransition = useCallback(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => suppressStageTransition(false)));
+  }, [suppressStageTransition]);
+
   useEffect(() => {
-    const onFullscreenChange = () => setFullscreen(document.fullscreenElement === stageRef.current);
+    const onFullscreenChange = () => {
+      setFullscreen(document.fullscreenElement === stageRef.current);
+      suppressStageTransition(true);
+      releaseStageTransition();
+    };
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, []);
+  }, [suppressStageTransition, releaseStageTransition]);
 
   const toggleFullscreen = useCallback(() => {
     const stage = stageRef.current;
     if (!stage) return;
+    suppressStageTransition(true);
     if (document.fullscreenElement) {
-      void document.exitFullscreen?.().catch(() => undefined);
+      void document.exitFullscreen?.().catch(() => releaseStageTransition());
       return;
     }
-    void stage.requestFullscreen?.().catch(() => undefined);
-  }, []);
+    // 被拒 / 不可用（如 iframe 未授权）也别把类留在身上
+    void stage.requestFullscreen?.().catch(() => releaseStageTransition());
+  }, [suppressStageTransition, releaseStageTransition]);
 
   // 选作用域 = 带作用域重新激活本页（票 22 定案 2）。选中的就是当前工程时写 null 而不是
   // { projectId: currentId }：语义上"没有显式作用域"，解析出的作用对象相同但更干净（照音频页）。

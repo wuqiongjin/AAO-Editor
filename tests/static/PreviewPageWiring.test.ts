@@ -113,6 +113,44 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(css).not.toContain('preview-toolbar__controls');
   });
 
+  it('动态形态全屏：底色规则排在 `.is-filled` 之后，台上配色不引用主题变量（票 23 #3）', () => {
+    const css = readStripped('src/pages/preview/PreviewPage.css');
+    // 两条规则特异性同为 0-2-0 ⇒ 源码序决胜负：`is-filled` 的 `background: none` 必须排在前面，
+    // 否则全屏下那圈是"透明 + 浏览器默认黑 backdrop"（底色不归我们管）
+    const filled = css.indexOf('.preview-stage.is-filled');
+    const fullscreen = css.indexOf('.preview-stage:fullscreen');
+    expect(filled).toBeGreaterThan(-1);
+    expect(fullscreen).toBeGreaterThan(filled);
+
+    const block = css.slice(fullscreen, css.indexOf('}', fullscreen));
+    expect(block).toMatch(/background:\s*var\(--canvas-bg\)/);
+    // 全屏 = 台上态：前景 / 控件色换到 `--stage-*`（tokens.css 的"固定深色，两主题一致"）。
+    // 亮主题的 `--text`(深) / `--bg-inset`(近白) 压在黑底上就是用户报的"播放钮看不见" ——
+    // 这一块不许再引用任何主题文字 / 底色 token（`--stage-*` / `--canvas-*` 之外一律不要）。
+    expect(block).toMatch(/--text:\s*var\(--stage-text\)/);
+    expect(block).toMatch(/--bg-inset:\s*var\(--stage-fill\)/);
+    expect(block).not.toMatch(
+      /var\(--(text|text-muted|text-subtle|bg-inset|bg-hover|bg-elevated|border|danger-text|focus-ring)\)/,
+    );
+    const tokens = readStripped('src/app/styles/tokens.css');
+    expect(tokens).toMatch(/--stage-text: #f2f5f9/);
+    // 暗主题不重写这一组（"台上"与主题无关）
+    expect(tokens.slice(tokens.indexOf('[data-theme="dark"]'))).not.toMatch(/--stage-/);
+    // 播放条留在台上（与静态形态"整排退场"是两个形态各自的口径）：页面里 `!fullscreen` 只护住
+    // 工具栏那一排，动态形态的舞台（播放条在它里面）根本不在护住的范围里
+    const page = readStripped('src/pages/preview/PreviewPage.tsx');
+    const guard = page.slice(page.indexOf('{!fullscreen &&'), page.indexOf('preview-stage'));
+    expect(guard).toMatch(/PreviewEnterFullscreenButton/);
+    expect(guard).not.toMatch(/PreviewVideoStage|PlayBar/);
+
+    // 换档那一拍要抑制过渡（2026-10-08 验收回修）：配色是"同一帧里前后两个值"，而按钮自己带
+    // hover 那套 transition ⇒ 不抑制就是亮主题的浅色方块在黑影里淡出 180ms（用户："闪一下"）。
+    // 规则在 CSS（摁掉整棵子树），类由页面在点下钮时挂上、换档画完两帧摘掉。
+    expect(css).toMatch(/\.preview-stage\.is-palette-swap\b/);
+    expect(css.slice(css.indexOf('.preview-stage.is-palette-swap'))).toMatch(/transition: none !important/);
+    expect(page).toMatch(/classList\.toggle\('is-palette-swap'/);
+  });
+
   it('动态形态把页面留白收一档让给场地（chart-preview 19：contain 下画面变大的唯一来源是高度）', () => {
     const src = readStripped('src/pages/preview/PreviewPage.tsx');
     expect(src).toMatch(/preview-page\$\{mode === 'video' \? ' is-video' : ''\}/);

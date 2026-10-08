@@ -129,6 +129,24 @@ export function playLineRect(m: SimFieldMetrics): SimRect {
   return { x: m.centerX - w / 2, y: m.laneHeight - h / 2, w, h };
 }
 
+/**
+ * 背景的取景（票 23 #2③）：照 Bestdori 那条 `<img>` 的 inline style ——
+ *   `width:  1.2 × backgroundWidth × 1.1`         = `1.32W`
+ *   `height: backgroundWidth/2 × 1.525 × 1.2 × 1.1` = `1.0065W`
+ *   `top: 50%` + `translate(-50%, -37.75%)`        ⇒ 上缘 = `H/2 − 0.3775 × 图高`（设计面上 ≈ −0.176H）
+ * 水平居中。**不是 cover**：Bestdori 就是把这张 2:1 的图当"舞台幕布"按这套尺寸铺开
+ * （纵向放大 1.525 倍、上缘压到画布上方），裁切口径与它保持一致。
+ */
+export const BACKGROUND_RATIO = { w: 1.32, h: 1.0065 } as const;
+/** 背景上缘锚：Bestdori 的 `translate(-50%, -37.75%)`（相对图高） */
+export const BACKGROUND_TOP_ANCHOR = 0.3775;
+
+export function backgroundRect(m: SimFieldMetrics): SimRect {
+  const w = BACKGROUND_RATIO.w * m.w;
+  const h = BACKGROUND_RATIO.h * m.w;
+  return { x: m.centerX - w / 2, y: m.h / 2 - BACKGROUND_TOP_ANCHOR * h, w, h };
+}
+
 // ---------------------------------------------------------------- 接近模型
 
 /**
@@ -206,6 +224,29 @@ export interface SimBandEnd {
   a: number;
 }
 
+/** 带体的一段（两点 + 两时刻；只有插值用得上的字段，故不绑 `SimBand` 本体） */
+export interface SimBandSpan {
+  t0: number;
+  lane0: number;
+  t1: number;
+  lane1: number;
+}
+
+/**
+ * 带体上"某一端"在 `seconds` 时刻沿带子走到的轨位（票 23 #1）—— Bestdori 过线端就是这条插值
+ * （`L = from.lane + (to.lane − from.lane) · (e − from.time) / (to.time − from.time)`）：
+ * 接触点沿带子往**未过线那端**扫过去，而不是钉死在原结点的轨位上。
+ * `t1 === t0`（同刻两点）按同轨处理、不除零；倒流 / 折返段照 `min/max` 段判定（与调用方同口径）。
+ *
+ * 两个消费方共用它 —— `drawBands`（带体几何）与 `drawHoldEffects`（按住位）：
+ * 同一公式两份实现最容易漂（票 23 Comments）。
+ */
+export function bandLaneAt(band: SimBandSpan, seconds: number): number {
+  const span = band.t1 - band.t0;
+  if (span === 0) return band.lane0;
+  return band.lane0 + (band.lane1 - band.lane0) * ((seconds - band.t0) / span);
+}
+
 /**
  * 带体四边形：相邻结点两点构成的四边形，顶点顺序 = **a 边左 → a 边右 → b 边右 → b 边左**。
  * 边宽恒 = 1 个 lane（随端点自己的 A 收缩 → 伪透视下越远的带越窄）。
@@ -243,6 +284,55 @@ export const SIM_NOTE_W_RATIO = 1.35;
 /** 设计 px → 场地 px 的缩放（noteSize=1、A=1 时：1 设计 px = 1.35 × laneWidth / 36 px） */
 export function simSpriteScale(m: SimFieldMetrics, a: number, noteSize: number): number {
   return (SIM_NOTE_W_RATIO * noteSize * m.laneWidth * a) / NOTE_SKIN_GEOMETRY.MAIN_W;
+}
+
+/**
+ * 精灵源格的自然纵横比（高 / 宽）：屏上按它画 —— Bestdori 那句补偿因子
+ * （`s = 120 · a / 308 · i`，i = laneWidth/laneHeight 正是不等比的 `setTransform`）就是这个意思：
+ * 源格 308×120 画上去仍是 308:120（音符因此是**贴着倾斜舞台的扁椭圆**）。
+ * 缺失 / 退化 → 回落 308×120 的那一份。
+ */
+export const SIM_SPRITE_ASPECT_FALLBACK = 120 / 308;
+
+/** 精灵源矩形的自然纵横比（高 / 宽）；尺寸缺失 / 退化 → `SIM_SPRITE_ASPECT_FALLBACK` */
+export function simSpriteAspect(rect: { w: number; h: number }): number {
+  return rect.w > 0 && rect.h > 0 ? rect.h / rect.w : SIM_SPRITE_ASPECT_FALLBACK;
+}
+
+/**
+ * 音符的绘制尺寸（场地 px，票 23 #2）：宽 = `1.35 × noteSize × laneWidth × A`（口径不变），
+ * 高 = 宽 × **精灵源格自己的比例**（`simSpriteAspect`）。
+ * 修前高度吃的是设计盒比（36 × 21.6 = 1.667）⇒ 纵向被拉高 1.54 倍（2.567 的近扁椭圆压成了正圆）。
+ * 锚点（lane 中心 + `fieldY`）由调用方给，这里只管盒子。
+ *
+ * `designW` = 该精灵的设计宽（缺省单键/滑条结点的 36）：方向键本体比单键宽 1.25 倍（45），
+ * 走同一个 `simSpriteScale` 口径；**宽高比只由源格决定**，所以两者都该按自然比画
+ * （Bestdori 的方向键本体也是画进"音符那个盒子"里的，屏上比 ≈ 308:120 —— 量自 2026-10-08）。
+ */
+export function simNoteRect(
+  m: SimFieldMetrics,
+  a: number,
+  noteSize: number,
+  spriteAspect: number,
+  designW: number = NOTE_SKIN_GEOMETRY.MAIN_W,
+): { w: number; h: number } {
+  const w = (SIM_NOTE_W_RATIO * noteSize * m.laneWidth * a * designW) / NOTE_SKIN_GEOMETRY.MAIN_W;
+  const ratio = spriteAspect > 0 ? spriteAspect : SIM_SPRITE_ASPECT_FALLBACK;
+  return { w, h: w * ratio };
+}
+
+// ---------------------------------------------------------------- 同时点击线
+
+/**
+ * 同时点击线的粗细（票 23 #2②）：Bestdori 把线精灵的**源高 27px** 按"音符精灵源宽 308px"的同一比例
+ * 落到画面上（`h = 27 · s / 120`，s = 音符高）⇒
+ *   屏上粗细 = `1.35 × (27/308) × noteSize × laneWidth × A` ≈ `0.1184 × …`
+ * 修前 = `0.3 × …`（约 2.5 倍粗）。
+ */
+export const SIM_DUAL_LINE_SRC_RATIO = 27 / 308;
+
+export function simDualLineThickness(m: SimFieldMetrics, a: number, noteSize: number): number {
+  return SIM_NOTE_W_RATIO * SIM_DUAL_LINE_SRC_RATIO * noteSize * m.laneWidth * a;
 }
 
 // ---------------------------------------------------------------- 打击特效

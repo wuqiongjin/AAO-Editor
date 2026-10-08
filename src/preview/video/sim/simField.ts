@@ -10,7 +10,9 @@
 //   - 带体取点走 `displayConnections` 同一显示投影（ADR-0009 §2.2 / issue 115）——倒流区折返照旧；
 //   - combo 与键音**同一份事件表**（`AudioTiming.buildKeyEvents`）：会出声 = 会过线 = 计 combo；
 //   - 精灵选款走 `singleIconConfig` / `slideNodeIconConfig` / `dirSideOf`（与编辑器画布同一份）；
-//   - 音符尺寸与相对比例取 `rendering/primitives/noteMetrics`（唯一定义处）。
+//   - 音符盒子的**宽**取 `rendering/primitives/noteMetrics` 的设计宽（单键/滑条 36、方向键 45，
+//     唯一定义处），**高**取精灵源格的自然比（`simGeometry.simNoteRect` / `simSpriteAspect`，
+//     票 23 #2：设计盒的 36×21.6 不是精灵的比例，照它画会把音符纵向拉高 1.54 倍）。
 //
 // 素材边界：引官方素材的只有场地三图（04 的开发期直读通道）+ 音符精灵（既有运行时资产）
 // + 同时点击线精灵；**特效与 combo 自 21 起优先用 Bestdori 自家精灵**（`particles` / `digits` /
@@ -21,12 +23,9 @@ import { displayConnections, slideUsesSpBand } from '../../../chart/editing/Slid
 import { trueBeat } from '../../../chart/editing/ChartEndBounds';
 import { comboNodePreciseBeats } from '../../../chart/editing/NoteEditing';
 import {
-  DIRECTIONAL_HEIGHT_SCALE,
   DIRECTIONAL_ICON_SIZE,
   NOTE_HEIGHT_SCALE,
   NOTE_ICON_SIZE,
-  SLIDE_HEIGHT_SCALE,
-  SLIDE_ICON_SIZE,
 } from '../../../rendering/primitives/noteMetrics';
 import { dirSideOf, singleIconConfig, slideNodeIconConfig, type IconChoiceCtx } from '../../../rendering/render';
 import type { ActiveNoteIcons } from '../../../rendering/skin/noteSkin';
@@ -38,6 +37,8 @@ import {
   APPROACH,
   approachA,
   approachSeconds,
+  backgroundRect,
+  bandLaneAt,
   bandQuad,
   clampApproach,
   comboAnchor,
@@ -54,7 +55,10 @@ import {
   mirrorLane,
   pingRadius,
   playLineRect,
+  simDualLineThickness,
   simEffectColor,
+  simNoteRect,
+  simSpriteAspect,
   simSpriteScale,
   SIM_BAND_COLORS,
   SIM_EFFECT_DURATION,
@@ -114,12 +118,8 @@ export interface SimElement {
   dirSide: 'L' | 'R' | null;
   /** 方向键：整组覆盖的轨号（已含镜向）；其余为 null */
   dirLanes: number[] | null;
-  /** 精灵（已按皮肤 + flick/skill + 色觉辅助选好款） */
+  /** 精灵（已按皮肤 + flick/skill + 色觉辅助选好款）；绘制盒子由 `simNoteRect` 从它的源格比例算出 */
   icon: SpriteIconConfig;
-  /** 精灵设计宽（× 场地缩放 = 绘制尺寸） */
-  designW: number;
-  /** 精灵设计高 */
-  designH: number;
   /** 是否补 flick 顶部箭头（单键 / 滑条端点上的 flick） */
   flickDecorator: boolean;
 }
@@ -225,8 +225,6 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
         dirSide: null,
         dirLanes: null,
         icon: singleIconConfig(iconCtx, { ...note, lane }),
-        designW: NOTE_ICON_SIZE,
-        designH: NOTE_ICON_SIZE * NOTE_HEIGHT_SCALE,
         flickDecorator: note.flick === true,
       });
       addToGroup(trueBeat(note.beat, note.subBeat, beatDisplay), lane);
@@ -248,8 +246,6 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
         dirSide: side,
         dirLanes: directionalLanes(lane, side === 'L' ? 'LDirectional' : 'RDirectional', length),
         icon: noteIcons.dirFor(side, lane),
-        designW: DIRECTIONAL_ICON_SIZE,
-        designH: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
         flickDecorator: false,
       });
       addToGroup(trueBeat(note.beat, note.subBeat, beatDisplay), lane);
@@ -277,8 +273,6 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
             dirSide: null,
             dirLanes: null,
             icon: slideNodeIconConfig(iconCtx, { ...conn, lane }, i === 0, i === lastIdx),
-            designW: SLIDE_ICON_SIZE,
-            designH: SLIDE_ICON_SIZE * SLIDE_HEIGHT_SCALE,
             flickDecorator: conn.flick === true && isEnd,
           });
         }
@@ -359,16 +353,20 @@ export function drawSimFrameAt(ctx: CanvasRenderingContext2D, input: SimFrameInp
 }
 
 /**
- * 场地三图：背景（cover 铺满）→ 场地图 → 判定线（贴场地判定线）。
- * 后两张的矩形来自 `simGeometry`（**素材按设计 px 1:1**，见 `fieldImageRect` 的注释）——
- * 拉满画布会让素材自带的轨道标记 / 车道线与音符错位（chart-preview 18 问题 4）。
+ * 场地三图：背景（按 Bestdori 的取景矩形铺）→ 场地图 → 判定线（贴场地判定线）。
+ * 三张图的矩形都来自 `simGeometry`（**素材按设计 px 1:1**，见 `fieldImageRect` 的注释）——
+ * 拉满画布会让素材自带的轨道标记 / 车道线与音符错位（chart-preview 18 问题 4）；
+ * 背景此前走"cover 居中裁两侧"，也不是 Bestdori 的取景（票 23 #2③ → `backgroundRect`）。
  */
 function drawField(ctx: CanvasRenderingContext2D, input: SimFrameInput): void {
   const { metrics: m, assets } = input;
   ctx.save();
   ctx.fillStyle = SIM_FALLBACK_BG;
   ctx.fillRect(0, 0, m.w, m.h);
-  if (assets.background) drawCover(ctx, assets.background, m.w, m.h);
+  if (assets.background) {
+    const r = backgroundRect(m);
+    ctx.drawImage(assets.background, r.x, r.y, r.w, r.h);
+  }
   if (assets.field) {
     const r = fieldImageRect(m);
     ctx.drawImage(assets.field, r.x, r.y, r.w, r.h);
@@ -380,25 +378,11 @@ function drawField(ctx: CanvasRenderingContext2D, input: SimFrameInput): void {
   ctx.restore();
 }
 
-/** 背景图 cover 铺满（保持图片比例，超出部分裁掉、居中） */
-function drawCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource, w: number, h: number): void {
-  const size = sourceSize(img);
-  if (size.w <= 0 || size.h <= 0) return;
-  const s = Math.max(w / size.w, h / size.h);
-  const sw = w / s;
-  const sh = h / s;
-  ctx.drawImage(img, (size.w - sw) / 2, (size.h - sh) / 2, sw, sh, 0, 0, w, h);
-}
-
-/** 图片源尺寸（`CanvasImageSource` 各分支的尺寸字段名不同，收口在这里） */
-function sourceSize(img: CanvasImageSource): { w: number; h: number } {
-  const any = img as { naturalWidth?: number; naturalHeight?: number; width?: number; height?: number };
-  return { w: any.naturalWidth ?? any.width ?? 0, h: any.naturalHeight ?? any.height ?? 0 };
-}
-
 /**
- * 带体（票面「相邻结点 `(lane, A)` 两点构成的四边形填充」）：投影序相邻两点各一个四边形，
- * 过线 / 未进场的一端由 `clampApproach` 钉住。
+ * 带体（票面「相邻结点 `(lane, A)` 两点构成的四边形填充」）：投影序相邻两点各一个四边形。
+ * **已过线的一端沿带子行进**（票 23 #1，照 Bestdori 的 `L`）：A 钉 1（贴判定线）、轨位按时间
+ * 插值到未过线端 —— 横向滑条的观感是"接触点沿带子扫过去"，而不是"整条被折回头部结点那条轨"。
+ * 没过线的一端保持自己的轨位；两端都还没进场的那一段直接跳过。
  * 同一组（普通 / SP）的四边形**合成一条路径再填**：分片各自 fill 会在共享边留下接缝。
  */
 function drawBands(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
@@ -413,10 +397,14 @@ function drawBands(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds:
     const maxT = Math.max(band.t0, band.t1);
     if (maxT < seconds) continue; // 整段已过线
     if (minT > seconds + T) continue; // 整段还没进场（A 都贴在下限）
+    // 过线端：A 自然落到 1（`clampApproach` 的同一支），轨位改走带子插值；
+    // 未过线端：保持原轨位、A 由接近模型给（未进场时贴下限）。
     const a0 = clampApproach(approachA(seconds - band.t0, T));
     const a1 = clampApproach(approachA(seconds - band.t1, T));
     if (a0 <= APPROACH.floor + EPS && a1 <= APPROACH.floor + EPS) continue;
-    (band.sp ? spBands : normal).push(bandQuad(m, { lane: band.lane0, a: a0 }, { lane: band.lane1, a: a1 }));
+    const lane0 = seconds > band.t0 ? bandLaneAt(band, seconds) : band.lane0;
+    const lane1 = seconds > band.t1 ? bandLaneAt(band, seconds) : band.lane1;
+    (band.sp ? spBands : normal).push(bandQuad(m, { lane: lane0, a: a0 }, { lane: lane1, a: a1 }));
   }
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -437,7 +425,11 @@ function fillPolys(ctx: CanvasRenderingContext2D, polys: SimPoint[][], color: st
   ctx.fill();
 }
 
-/** 同时点击线：同 tick 的相邻轨之间拉一条官方精灵（横向拉伸，两端软收） */
+/**
+ * 同时点击线：同 tick 的一组相邻轨之间**一根跨全程**（票 23 #2②）。
+ * Bestdori 就是一根（`lane .. lane + width`，两端点轨之间横向拉伸），不是逐 gap 一根；
+ * 粗细走 `simDualLineThickness`（约 0.118 系数，修前 0.3 约 2.5 倍粗）。
+ */
 function drawSimultaneousLines(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
   const { chart, metrics: m, noteIcons, spriteIcon, scene } = input;
   const sprite = noteIcons.simultaneousLine;
@@ -447,22 +439,20 @@ function drawSimultaneousLines(ctx: CanvasRenderingContext2D, input: SimFrameInp
     const a = visibleApproach(seconds, group.time, T);
     if (a === null) continue;
     if (group.lanes.length < 2) continue;
-    const y = fieldY(m, a);
-    const thickness = Math.max(1, m.laneWidth * 0.3 * a * scene.noteSize);
-    const xs = group.lanes.map((lane) => laneCenterX(m, lane, a));
-    for (let i = 0; i + 1 < xs.length; i++) {
-      const gap = xs[i + 1]! - xs[i]!;
-      if (gap <= 0) continue;
-      spriteIcon.render(ctx, {
-        ...sprite,
-        canvasX: (xs[i]! + xs[i + 1]!) / 2,
-        canvasY: y,
-        canvasSize: 0,
-        canvasWidth: gap,
-        canvasHeight: thickness,
-        // 端点由相邻音符盖住：线画在音符**之前**（照编辑器画布的顺序）
-      });
-    }
+    // 分组是升序轨号：两端就是 min / max
+    const x0 = laneCenterX(m, group.lanes[0]!, a);
+    const x1 = laneCenterX(m, group.lanes[group.lanes.length - 1]!, a);
+    const width = x1 - x0;
+    if (width <= 0) continue;
+    spriteIcon.render(ctx, {
+      ...sprite,
+      canvasX: (x0 + x1) / 2,
+      canvasY: fieldY(m, a),
+      canvasSize: 0,
+      canvasWidth: width,
+      canvasHeight: simDualLineThickness(m, a, scene.noteSize),
+      // 端点由相邻音符盖住：线画在音符**之前**（照编辑器画布的顺序）
+    });
   }
 }
 
@@ -485,15 +475,19 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
     if (el.dirLanes && el.dirSide) {
       const y = fieldY(m, a);
       const group = noteIcons.dirGroup(el.dirSide, el.length);
+      // 方向键本体与单键同一套盒子（票 23 #2）：只差设计宽（45 vs 36），高同样按精灵源格的自然比
+      const body = simNoteRect(
+        m, a, scene.noteSize, simSpriteAspect(noteIcons.dirFor(el.dirSide, el.lane)), DIRECTIONAL_ICON_SIZE,
+      );
       for (const lane of el.dirLanes) {
         spriteIcon.render(ctx, {
           ...noteIcons.dirFor(el.dirSide, lane),
           canvasX: laneCenterX(m, lane, a),
           canvasY: y,
-          canvasSize: DIRECTIONAL_ICON_SIZE,
-          canvasWidth: DIRECTIONAL_ICON_SIZE,
-          canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
-          scale,
+          canvasSize: body.w,
+          canvasWidth: body.w,
+          canvasHeight: body.h,
+          scale: 1,
         });
       }
       const chevron = group.chevron;
@@ -514,14 +508,17 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
       continue;
     }
     const pt = elementPoint(m, el.lane, a);
+    // 音符盒子（票 23 #2）：宽 = 1.35 × noteSize × laneWidth × A、高 = 宽 × 精灵源格的自然比。
+    // `simNoteRect` 给的就是**场地 px**，故这里 scale 归 1（设计 px 那一步换算已经在 rect 里）。
+    const box = simNoteRect(m, a, scene.noteSize, simSpriteAspect(el.icon));
     spriteIcon.render(ctx, {
       ...el.icon,
       canvasX: pt.x,
       canvasY: pt.y,
-      canvasSize: el.designW,
-      canvasWidth: el.icon.out?.w ?? el.designW,
-      canvasHeight: el.icon.out?.h ?? el.designH,
-      scale,
+      canvasSize: box.w,
+      canvasWidth: box.w,
+      canvasHeight: box.h,
+      scale: 1,
     });
     if (el.flickDecorator && dec) {
       const flickCfg = noteIcons.flickFor(el.lane);
@@ -766,8 +763,8 @@ function drawHoldEffects(
     const lo = Math.min(band.t0, band.t1);
     const hi = Math.max(band.t0, band.t1);
     if (seconds <= lo || seconds > hi) continue; // 这段没被按住
-    const lane = band.lane0 + (band.lane1 - band.lane0) * ((seconds - band.t0) / span);
-    const x = laneCenterX(m, lane, 1);
+    // 按住位与带体的过线端**同一条插值**（票 23 #1 把它收进 `simGeometry.bandLaneAt`，不许两份）
+    const x = laneCenterX(m, bandLaneAt(band, seconds), 1);
 
     ctx.save();
     ctx.globalAlpha = A.connection;

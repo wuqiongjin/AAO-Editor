@@ -162,4 +162,27 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     const offenders = simFiles.filter((f) => /\b9\.5\b/.test(readStripped(f)));
     expect(offenders).toEqual([]);
   });
+
+  it('音符盒子 / 同时点击线 / 背景取景都从 simGeometry 取（票 23 #2 落点）', () => {
+    const field = readStripped(`${SIM_DIR}/simField.ts`);
+    expect(field).toMatch(/simNoteRect\(/);
+    expect(field).toMatch(/simSpriteAspect\(/);
+    expect(field).toMatch(/simDualLineThickness\(/);
+    expect(field).toMatch(/backgroundRect\(/);
+    // 细处的数由 unit 锁（`SimGeometry.test`）—— 这里只锁"消费点"（tests/README：static 留接线事实）
+    expect(field).toMatch(/canvasHeight: simDualLineThickness\(m, a, scene\.noteSize\)/);
+    // 回潮守卫：同时点击线不许再自己写粗细（旧写法 `laneWidth * 0.3 * a`，Bestdori ≈ 0.118），
+    // 背景也不许回到 cover 裁切
+    expect(field).not.toMatch(/laneWidth \* 0\.3/);
+    expect(field).not.toMatch(/drawCover|sourceSize\(/);
+  });
+
+  it('带体沿带子行进只有一份实现（票 23 #1）：带体几何与按住位都走 `bandLaneAt`', () => {
+    const geometry = readStripped(GEOMETRY);
+    expect(geometry).toMatch(/export function bandLaneAt/);
+    const field = readStripped(`${SIM_DIR}/simField.ts`);
+    expect(field).toMatch(/bandLaneAt\(/);
+    // 回潮守卫：两处消费方都不许自己再写一遍插值（漂移过一次就得再对一次账）
+    expect(field).not.toMatch(/lane0 \+ \(band\.lane1 - band\.lane0\)/);
+  });
 });

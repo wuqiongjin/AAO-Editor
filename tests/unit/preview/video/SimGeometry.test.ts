@@ -12,6 +12,8 @@ import {
   approachA,
   approachOf,
   approachSeconds,
+  backgroundRect,
+  bandLaneAt,
   bandQuad,
   clampApproach,
   comboAnchor,
@@ -32,7 +34,10 @@ import {
   mirrorLane,
   pingRadius,
   playLineRect,
+  simDualLineThickness,
   simEffectColor,
+  simNoteRect,
+  simSpriteAspect,
   simSpriteScale,
   visibleApproach,
 } from '@/src/preview/video/sim/simGeometry';
@@ -177,6 +182,66 @@ describe('带体四边形', () => {
     expect(clampApproach(1.4)).toBe(1);
     expect(clampApproach(0)).toBe(APPROACH.floor);
     expect(clampApproach(0.5)).toBe(0.5);
+  });
+});
+
+describe('票 23 #1 · 带体过线端沿带子行进（bandLaneAt）', () => {
+  it('按时间插值：起点在 lane0、终点在 lane1、中间线性', () => {
+    const band = { t0: 1, lane0: 3, t1: 2, lane1: 5 };
+    expect(bandLaneAt(band, 1)).toBe(3);
+    expect(bandLaneAt(band, 1.5)).toBe(4);
+    expect(bandLaneAt(band, 2)).toBe(5);
+  });
+
+  it('倒流 / 折返段（t1 < t0）：同一条线、同一个点 —— 结果与两端顺序无关', () => {
+    expect(bandLaneAt({ t0: 2, lane0: 5, t1: 1, lane1: 3 }, 1.5)).toBe(4);
+  });
+
+  it('t1 === t0：按同轨处理，不除零、不出 NaN', () => {
+    const same = { t0: 1, lane0: 3, t1: 1, lane1: 5 };
+    expect(bandLaneAt(same, 1.5)).toBe(3);
+    expect(Number.isFinite(bandLaneAt(same, 1.5))).toBe(true);
+  });
+});
+
+describe('票 23 #2 · 音符盒子 / 同时点击线 / 背景取景', () => {
+  it('simNoteRect：宽 = 1.35 × noteSize × laneWidth × A，高 = 宽 × 精灵源格比', () => {
+    const r = simNoteRect(m, 1, 1, 120 / 308);
+    expect(r.w).toBeCloseTo(1.35 * 154, 6);
+    expect(r.h).toBeCloseTo(1.35 * 154 * (120 / 308), 6);
+    // 屏上纵横比 = 精灵自然比 308:120（修前吃设计盒的 36:21.6 = 1.667 ⇒ 纵向拉高 1.54 倍）
+    expect(r.w / r.h).toBeCloseTo(308 / 120, 6);
+    // A 与 noteSize 都线性（0.5 × 2 = 1）
+    expect(simNoteRect(m, 0.5, 2, 120 / 308)).toEqual(r);
+    // 方向键本体：同一套盒子、只差设计宽（45 设计 px = 1.25 × 单键），比仍由源格定
+    const dir = simNoteRect(m, 1, 1, 120 / 308, 45);
+    expect(dir.w).toBeCloseTo(r.w * (45 / 36), 6);
+    expect(dir.w / dir.h).toBeCloseTo(308 / 120, 6);
+  });
+
+  it('simSpriteAspect：取源矩形的高/宽；尺寸缺失 / 退化 → 回落 120/308', () => {
+    expect(simSpriteAspect({ w: 308, h: 120 })).toBeCloseTo(120 / 308, 12);
+    expect(simSpriteAspect({ w: 0, h: 120 })).toBeCloseTo(120 / 308, 12);
+    expect(simSpriteAspect({ w: 308, h: 0 })).toBeCloseTo(120 / 308, 12);
+    const fallback = simNoteRect(m, 1, 1, 0);
+    expect(fallback.h / fallback.w).toBeCloseTo(120 / 308, 12);
+  });
+
+  it('同时点击线：粗细 = 1.35 × 27/308 × noteSize × laneWidth × A（修前 0.3 ≈ 2.5 倍粗）', () => {
+    const thickness = simDualLineThickness(m, 1, 1);
+    expect(thickness).toBeCloseTo(1.35 * (27 / 308) * 154, 6);
+    expect((0.3 * 154) / thickness).toBeCloseTo(2.53, 2);
+    expect(simDualLineThickness(m, 0.5, 2)).toBeCloseTo(thickness, 6);
+  });
+
+  it('背景取景 = 1.32W × 1.0065W、水平居中、上缘 H/2 − 0.3775·图高（设计面上 ≈ −0.176H）', () => {
+    const r = backgroundRect(m);
+    expect(r.w).toBeCloseTo(1.32 * DESIGN_SURFACE.w, 6);
+    expect(r.h).toBeCloseTo(1.0065 * DESIGN_SURFACE.w, 6);
+    expect(r.x + r.w / 2).toBeCloseTo(m.centerX, 6);
+    expect(r.y).toBeCloseTo(m.h / 2 - 0.3775 * r.h, 6);
+    expect(r.y / m.h).toBeCloseTo(-0.176, 2); // 与票面记的 −0.176H 对上
+    expect(r.y + r.h).toBeGreaterThan(m.h); // 下缘沉到画布之下（幕布铺满）
   });
 });
 

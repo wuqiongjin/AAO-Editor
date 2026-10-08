@@ -15,6 +15,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import type { PageScope } from '@/src/layouts/pageScope';
 import PreviewPage from '@/src/pages/preview/PreviewPage';
+import { t } from '@/src/i18n';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { UIProvider } from '@/src/app/providers/UIProvider';
 import {
@@ -240,5 +241,43 @@ describe('chart-preview 12 · 全屏预览的浮层', () => {
 
     expect(fsOverlay()).toBeNull();
     expect(screen.getByRole('button', { name: '全屏' })).toBeInTheDocument();
+  });
+});
+
+// 票 23 #3：动态形态的全屏口径与静态形态不同 —— 静态是"工具栏整排退场"（票 12），
+// 动态是"外壳进全屏、**播放条留在台上**"（用户 2026-10-07 拍板）。这条锁的就是后者：
+// 播放条不随全屏被撤掉（它的配色是 CSS 的事，jsdom 量不到 —— 见 PreviewPageWiring 的静态断言）。
+describe('chart-preview 23 · 动态形态全屏：播放条留在台上', () => {
+  /** 动态形态的播放条（`.play-bar--preview`，issue 22 起与工作台共用一件 PlayBar） */
+  const previewBar = () => document.querySelector('.play-bar--preview');
+  const stage = () => document.querySelector('.preview-stage');
+
+  it('进全屏：播放条仍在 DOM（只有工具栏那一排退场），退出后照旧', async () => {
+    mountPreview();
+    await waitFor(() => expect(chartTrigger()).toHaveTextContent('Alpha 1'));
+
+    fireEvent.click(screen.getByRole('button', { name: '动态预览' }));
+    await waitFor(() => expect(previewBar()).not.toBeNull());
+    // 非全屏：那一排（设置 + 全屏）在，播放条也在
+    expect(screen.getByRole('button', { name: '全屏' })).toBeInTheDocument();
+
+    const overlay = await enterFullscreen();
+    expect(overlay).toBeInTheDocument();
+    // 换档那一拍要抑制过渡（票 23 #3 验收回修）：点下钮就已经挂上，且还没放开
+    expect(stage()).toHaveClass('is-palette-swap');
+    // 工具栏那一排退场（票 12 的口径），但播放条与它的控件留在台上
+    expect(screen.queryByRole('button', { name: '全屏' })).toBeNull();
+    expect(previewBar()).not.toBeNull();
+    expect(screen.getByRole('slider', { name: t('play.progress') })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /×$/ })).toBeInTheDocument(); // 倍速触钮（票 20）
+    // 换档画完两帧就摘掉 —— 过渡只在这两三帧里缺席，hover 那套照旧
+    await waitFor(() => expect(stage()).not.toHaveClass('is-palette-swap'));
+
+    exitFullscreen();
+    expect(fsOverlay()).toBeNull();
+    expect(previewBar()).not.toBeNull();
+    // 退出那拍同样抑制（浏览器 Esc 这类"从别处退出"由此掐掉在跑的过渡）
+    expect(stage()).toHaveClass('is-palette-swap');
+    await waitFor(() => expect(stage()).not.toHaveClass('is-palette-swap'));
   });
 });

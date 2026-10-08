@@ -166,29 +166,6 @@
   font-size: var(--text-2xs);
 }
 
-/* ---- 全屏预览 ----
-   舞台整体进全屏：底色压成画布色、四周不留空。外壳**只管定位**——面子与阴影在钮自己身上
-   （浮在画面之上，画面底色与轨道花色都不固定，光靠底压不住）。 */
-.preview-stage:fullscreen {
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: var(--canvas-bg);
-}
-
-.preview-fs {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-}
-
-.preview-fs .icon-btn {
-  box-shadow: var(--shadow-md);
-}
-
 /* ---- 谱面切换器（作用对象工程的谱面；换掉只改本页在看哪张） ---- */
 .preview-chart {
   display: inline-flex;
@@ -446,6 +423,65 @@
   background: none;
 }
 
+/* ---- 全屏预览 ----
+   舞台整体进全屏：底色压成画布色、四周不留空；外壳**只管定位** —— 退出钮的面子与阴影在钮自己身上
+   （浮在画面之上，画面底色与轨道花色都不固定，光靠底压不住）。
+
+   两条硬约束（票 23 #3，用户"全屏后看不见播放钮"）：
+
+   ① **排位**：这一段必须排在 `.preview-stage.is-filled` **之后**。两者特异性同为 0-2-0，
+      `is-filled` 的 `background: none` 会按源码序把这里的底色盖掉 —— 此前全屏下画面之外那圈
+      就是"透明 + 浏览器默认黑 backdrop"，底色根本不归我们管。
+
+   ② **配色**：全屏 = **台上态**，一律深底 + 一套固定的浅前景（不随亮 / 暗主题翻）。
+      亮主题的 `--text`(#1f2633) / `--bg-inset`(近白) 压在黑底上就是"播放钮看不见"：
+      播放条（`play-bar--preview`，issue 22 起与工作台共用）、倍速面板、退出钮一起受益。
+      这里只把全屏舞台里用得到的少数几项换成 `--stage-*` / `--canvas-*` 那一组
+      （tokens.css 的"固定深色，两主题一致"），别的照旧走主题 token；
+      色值本身仍在 tokens.css，本文件不落硬编码色值（chart-preview 03 的口径）。 */
+.preview-stage:fullscreen {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--canvas-bg);
+  color: var(--stage-text);
+  --text: var(--stage-text);
+  --text-muted: var(--stage-text-muted);
+  --text-subtle: var(--stage-text-subtle);
+  --bg: var(--canvas-bg);
+  --bg-inset: var(--stage-fill);
+  --bg-hover: var(--stage-hover);
+  --bg-elevated: var(--stage-surface);
+  --border: var(--stage-border);
+  --danger-text: var(--stage-danger-text);
+  --focus-ring: var(--stage-focus-ring);
+}
+
+/* 进 / 出全屏那一拍：**这一整个子树的过渡先关掉**（票 23 #3 验收回修，2026-10-08）。
+   舞台上下的配色是"同一帧里前后两个值"（底色 `none → --canvas-bg`、前景 `--text → --stage-*`），
+   而按钮自己带 hover 那套 `transition`（`.play-bar__play-btn` 的 `background-color` / `color` 各
+   160ms）⇒ 不抑制的话，亮主题那块不透明的浅色方块会在黑影里淡出约 180ms，看着就是"闪一下、
+   先保持亮色、最终才回到暗色"。类由 `PreviewPage.tsx` 在点下全屏钮时挂上（先于 `requestFullscreen`，
+   保证全屏第一帧已是台上配色）、换档画完两帧摘掉；过渡只在这两三帧里缺席（Esc 退出是补挂，
+   顶多把在跑的过渡掐成一帧）。 */
+.preview-stage.is-palette-swap,
+.preview-stage.is-palette-swap * {
+  transition: none !important;
+}
+
+.preview-fs {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+}
+
+.preview-fs .icon-btn {
+  box-shadow: var(--shadow-md);
+}
+
 .preview-stage__pending {
   margin: 0;
   padding: 0 16px;
@@ -455,7 +491,9 @@
 
 /* ---- 仿真场舞台（chart-preview 05）----
    画面（场地 canvas）吃掉剩余高度，播放条贴舞台底部一排（2026-10-07 用户定案，照 Bestdori 的播放条）。
-   场地底色由 canvas 自己画（第一笔就是铺满的近黑），这里只负责居中与圆角。 */
+   场地底色由 canvas 自己画（第一笔就是铺满的近黑），这里只负责居中与圆角。
+   **全屏下这一排不退场**（票 23 #3）：静态形态是"工具栏整排退场"（票 12），动态形态留住播放条 ——
+   两个形态各自的口径，所以它必须在一套深底配色上自己立得住（见下面「全屏预览」那一段）。 */
 .pv-stage {
   display: flex;
   flex: 1 1 auto;
