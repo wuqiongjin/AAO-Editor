@@ -1,14 +1,19 @@
 // @vitest-environment jsdom
 // chart-preview 20 的控件锁测（票面「锁测」：`tests/dom/preview/` —— 控件 → 回放接口调用）。
 //
-// 为什么是 DOM 测试：要锁的是"这一排控件真的接到了回放上"——倍速五档 / 循环开关 / 主音量
-// 三个旋钮的操作路径（受控组件 + 事件），纯函数单测看不到；至于"声音有没有变、倍速听感同步不
-// 同步"是单测测不到的，票里已列为人工验收项。
+// 为什么是 DOM 测试：要锁的是"这一排控件真的接到了回放上"——倍速（选档 / 自定义值 / 越界钳回）与
+// 主音量两个旋钮的操作路径（受控组件 + 事件），纯函数单测看不到；至于"声音有没有变、倍速听感
+// 同步不同步"是单测测不到的，票里已列为人工验收项。
 //
 // 回放那一侧换成替身（`createSimPlayback`）：只断言**接口调用**，不碰 Web Audio / rAF。
+//
+// 2026-10-07 用户验收回修（票内「验收回修」）：
+//   - 撤掉「回开头」与「循环」两钮 ⇒ 这里守"不许回来"（含 setOptions 不再带 loop）；
+//   - 倍速：触钮 = 播放条那一排的同款图标钮（图标 + 当前倍速），点开在它上方翻出
+//     一列常用档 + 一个自定义输入。
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const calls = vi.hoisted(() => ({
   setOptions: vi.fn(),
@@ -52,7 +57,7 @@ vi.mock('@/src/preview', async (importOriginal) => {
 });
 
 import PreviewVideoStage from '@/src/pages/preview/PreviewVideoStage';
-import { SIM_PLAYBACK_RATES, type SimScene } from '@/src/preview';
+import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimScene } from '@/src/preview';
 import type { AppSettings } from '@/src/chart/config/AppSettings';
 
 const scene: SimScene = {
@@ -93,38 +98,140 @@ async function renderStage(volume = 1) {
   return { ...view, onVolumeChange };
 }
 
+const trigger = () => document.querySelector('.pv-rate .icon-btn') as HTMLButtonElement;
+const openPanel = () => fireEvent.click(trigger());
+const customInput = () => document.querySelector('input.pv-rate__value') as HTMLInputElement;
+/** 最后一次写下去的倍速（`setOptions({ rate })`） */
+const lastRate = () => (calls.setOptions.mock.lastCall?.[0] as { rate?: number } | undefined)?.rate;
+
 beforeEach(() => {
   calls.setOptions.mockClear();
   calls.setFrame.mockClear();
 });
 
 describe('动态预览播放条 · 播放器控件（chart-preview 20）', () => {
-  it('倍速：五档照 Bestdori，切档走 setOptions({ rate })', async () => {
-    const { container } = await renderStage();
-    const select = container.querySelector('select.pv-bar__rate') as HTMLSelectElement;
-    expect(select).toBeTruthy();
-    expect([...select.options].map((o) => o.value)).toEqual(['0.5', '0.75', '1', '1.5', '2']);
-    expect([...SIM_PLAYBACK_RATES]).toEqual([0.5, 0.75, 1, 1.5, 2]);
+  it('倍速：触钮是播放条那一排的同款图标钮（图标 + 当前倍速），面板是点开才有的', async () => {
+    await renderStage();
+    expect(trigger().textContent).toBe('1×');
+    expect(trigger().querySelector('svg')).toBeTruthy(); // 与播放/音量同一套图标钮，不是一串裸文字
+    // 收起时播放条上不该挂着档位表 / 输入框
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(customInput()).toBeNull();
 
-    fireEvent.change(select, { target: { value: '2' } });
-    expect(calls.setOptions).toHaveBeenCalledWith(expect.objectContaining({ rate: 2 }));
+    openPanel();
+    expect(screen.getByRole('menu')).toBeTruthy();
+    expect(trigger().getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('倍速：选常用档走 setOptions({ rate })，触钮跟着变并点亮，面板收起', async () => {
+    await renderStage();
+    openPanel();
+    const options = [...document.querySelectorAll('.pv-rate__option')];
+    expect(options.map((b) => b.textContent)).toEqual(['0.25×', '0.5×', '0.75×', '1×', '1.25×', '1.5×', '2×']);
+    // 档位是**一列**（面板里直接铺，没有横排容器那一层）
+    expect(options[0]!.parentElement).toBe(screen.getByRole('menu'));
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '1.5×' }));
+    expect(lastRate()).toBe(1.5);
+    expect(trigger().textContent).toBe('1.5×'); // 当前值就写在钮上
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('倍速：触钮没有"选中"态（值是写在钮上的，不是开关）', async () => {
+    await renderStage();
+    expect(trigger().className).not.toMatch(/icon-btn--active/);
+    openPanel();
+    fireEvent.click(screen.getByRole('menuitem', { name: '1.5×' }));
+    expect(trigger().className).not.toMatch(/icon-btn--active/); // 非原速也一样：它不是一个 toggle
+    expect(trigger().getAttribute('aria-pressed')).toBeNull();
+  });
+
+  it('倍速：常用档 0.25× 起、2× 止（0.1× 与 3× / 4× 都不进表），都在区间内、升序去重', async () => {
+    await renderStage();
+    expect([...SIM_PLAYBACK_RATE_PRESETS]).toEqual([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]);
+    // 下限那一档故意不进表：0.1× 只有手填到得了（表里的最低档仍是 0.25×）
+    expect(Math.min(...SIM_PLAYBACK_RATE_PRESETS)).toBeGreaterThan(PLAYBACK_RATE_RANGE.min);
+    expect(Math.max(...SIM_PLAYBACK_RATE_PRESETS)).toBe(2);
+    for (const [i, r] of SIM_PLAYBACK_RATE_PRESETS.entries()) {
+      expect(r).toBeGreaterThanOrEqual(PLAYBACK_RATE_RANGE.min);
+      expect(r).toBeLessThanOrEqual(PLAYBACK_RATE_RANGE.max);
+      if (i > 0) expect(r).toBeGreaterThan(SIM_PLAYBACK_RATE_PRESETS[i - 1]!);
+    }
+  });
+
+  it('倍速：手填**敲一下就生效**（不用回车），回车只是"确认"且面板不关', async () => {
+    await renderStage();
+    openPanel();
+
+    fireEvent.change(customInput(), { target: { value: '2.4' } });
+    expect(lastRate()).toBe(2.4); // 无需 Enter / 失焦：不是常用档里的一档也照收
+    expect(trigger().textContent).toBe('2.4×');
+
+    fireEvent.change(customInput(), { target: { value: '1.35' } });
+    expect(lastRate()).toBe(1.35);
+    expect(customInput().value).toBe('1.35');
+
+    fireEvent.keyDown(customInput(), { key: 'Enter' }); // 确认（面板不关，方便连着试）
+    expect(lastRate()).toBe(1.35);
+    expect(screen.getByRole('menu')).toBeTruthy();
+  });
+
+  it('倍速：半截 / 越界输入不打断打字，确认时才钳回并回显', async () => {
+    await renderStage();
+    openPanel();
+    fireEvent.change(customInput(), { target: { value: '1.5' } });
+    expect(lastRate()).toBe(1.5);
+
+    // 越界：不即时应用（否则刚敲下 9 就被拉回 4，字也跟着变），只给提示色
+    fireEvent.change(customInput(), { target: { value: '9' } });
+    expect(lastRate()).toBe(1.5);
+    expect(customInput().className).toMatch(/is-out-of-range/);
+    fireEvent.change(customInput(), { target: { value: '' } });
+    expect(lastRate()).toBe(1.5); // 空的 = 没这回事
+
+    fireEvent.change(customInput(), { target: { value: '9' } });
+    fireEvent.blur(customInput());
+    expect(lastRate()).toBe(PLAYBACK_RATE_RANGE.max); // 上限仍是引擎那份 4
+    expect(trigger().textContent).toBe('4×');
+    expect(customInput().value).toBe('4');
+
+    fireEvent.change(customInput(), { target: { value: '0.05' } });
+    fireEvent.blur(customInput());
+    expect(lastRate()).toBe(PLAYBACK_RATE_RANGE.min);
+    expect(customInput().value).toBe('0.1');
+  });
+
+  it(`倍速：↑↓ 按 ${SIM_PLAYBACK_RATE_STEP} 步进`, async () => {
+    await renderStage();
+    openPanel();
+    fireEvent.change(customInput(), { target: { value: '1' } });
+    fireEvent.keyDown(customInput(), { key: 'Enter' });
+    fireEvent.keyDown(customInput(), { key: 'ArrowUp' });
+    expect(lastRate()).toBeCloseTo(1 + SIM_PLAYBACK_RATE_STEP, 6);
+    fireEvent.keyDown(customInput(), { key: 'ArrowDown' });
+    fireEvent.keyDown(customInput(), { key: 'ArrowDown' });
+    expect(lastRate()).toBeCloseTo(1 - SIM_PLAYBACK_RATE_STEP, 6);
   });
 
   it('倍速不改谱面秒数：进度条量程仍是谱面长度', async () => {
     const { container } = await renderStage();
-    const seek = container.querySelector('input.pv-bar__seek') as HTMLInputElement;
-    expect(Number(seek.max)).toBe(12); // duration = 12s
-    fireEvent.change(container.querySelector('select.pv-bar__rate') as HTMLSelectElement, { target: { value: '0.5' } });
-    expect(Number((container.querySelector('input.pv-bar__seek') as HTMLInputElement).max)).toBe(12);
+    const seek = () => container.querySelector('input.pv-bar__seek') as HTMLInputElement;
+    expect(Number(seek().max)).toBe(12); // duration = 12s
+    openPanel();
+    fireEvent.click(screen.getByRole('menuitem', { name: '2×' }));
+    expect(Number(seek().max)).toBe(12);
   });
 
-  it('循环：按钮是开关（aria-pressed），开了走 setOptions({ loop: true })', async () => {
+  it('验收回修 #1：播放条没有「回开头」与「循环」两钮，loop 也不再往下传', async () => {
     const { container } = await renderStage();
-    const loopBtn = container.querySelector('button[aria-pressed]') as HTMLButtonElement;
-    expect(loopBtn.getAttribute('aria-pressed')).toBe('false');
-    fireEvent.click(loopBtn);
-    expect(calls.setOptions).toHaveBeenCalledWith(expect.objectContaining({ loop: true }));
-    expect((container.querySelector('button[aria-pressed]') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true');
+    const labels = [...container.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? '');
+    // 这两个 i18n 键已随控件删除，故这里按删除前的文案写死
+    expect(labels.some((l) => /^(回到开头|Back to start|循环播放|Loop)$/.test(l))).toBe(false);
+    expect(container.querySelector('button[aria-pressed]')).toBeNull(); // 循环是唯一的开关钮（倍速是菜单，不是开关）
+
+    openPanel();
+    fireEvent.click(screen.getByRole('menuitem', { name: '0.5×' }));
+    expect(calls.setOptions).not.toHaveBeenCalledWith(expect.objectContaining({ loop: expect.anything() }));
   });
 
   it('主音量：滑杆走 onVolumeChange（落 settings.audio.volume），不自己摸引擎', async () => {
@@ -136,16 +243,19 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
 
     fireEvent.change(slider, { target: { value: '0.35' } });
     expect(onVolumeChange).toHaveBeenCalledWith(0.35);
-    // 音量不进 setOptions 的"倍速 / 循环"那两个键：它是设置域的值，由页面回写后再透传
+    // 音量不进"倍速"那一路：它是设置域的值，由页面回写后再透传
     expect(calls.setOptions).not.toHaveBeenCalledWith(expect.objectContaining({ volume: 0.35 }));
   });
 
   it('控件都不重建引擎：旋钮只走 setOptions（创建回放只发生一次）', async () => {
-    const { container } = await renderStage();
+    await renderStage();
     const { createSimPlayback } = await import('@/src/preview');
     const before = (createSimPlayback as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
-    fireEvent.click(container.querySelector('button[aria-pressed]') as HTMLButtonElement);
-    fireEvent.change(container.querySelector('select.pv-bar__rate') as HTMLSelectElement, { target: { value: '1.5' } });
+    openPanel();
+    fireEvent.click(screen.getByRole('menuitem', { name: '1.5×' }));
+    openPanel();
+    fireEvent.change(customInput(), { target: { value: '2' } });
+    fireEvent.blur(customInput());
     expect((createSimPlayback as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(before);
   });
 });

@@ -9,9 +9,12 @@
 // 键音 = 同一份事件表（引擎的 `setChart` 内部就是 `AudioTiming.buildKeyEvents`，含"beat < 0 不键音"
 // 与 hidden 结点不计）+ 同一份采样加载与音量口径（`settings.audio`）。
 // 主音量不落设置（工作台那档是页面内状态），故这里用引擎默认 1（导出侧同一口径，07 不再改）。
-import { AudioEngine } from '../../../audio/AudioEngine';
+import { PLAYBACK_RATE_RANGE, AudioEngine } from '../../../audio/AudioEngine';
 import type { ChartNote } from '../../../chart/types';
 import { drawSimFrameAt, type SimFrameInput } from './simField';
+
+/** 倍速上下限 = 引擎既有的钳制区间（chart-preview 20 验收回修 #2：不为此改引擎，也不另立第二来源） */
+export { PLAYBACK_RATE_RANGE };
 
 /** 作用域工程的音频（null = 无音频 → 合成时间线） */
 export interface SimPlaybackAudio {
@@ -19,11 +22,26 @@ export interface SimPlaybackAudio {
   blob: Blob;
 }
 
+/** 倍速输入框里 ↑↓ 的步长 */
+export const SIM_PLAYBACK_RATE_STEP = 0.1;
+
 /**
- * 播放器的倍速五档（chart-preview 20；照 Bestdori 的 `audioPlaybackRate = [0.5, 0.75, 1, 1.5, 2]`）。
- * 只影响**回放速度**：不改谱面秒数、不改进度条量程（进度条仍读引擎的谱面秒）。
+ * 常用倍速档（面板里那一列）：**0.25× 起、2× 止**。
+ * 区间上下限那两档**不进表**（0.1× 只有手填到得了）；手填值不受这张表限制。
+ * 只在区间内、升序去重（锁测守）。
  */
-export const SIM_PLAYBACK_RATES = [0.5, 0.75, 1, 1.5, 2] as const;
+export const SIM_PLAYBACK_RATE_PRESETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+
+/**
+ * 倍速归一化：上下限就是引擎的钳制区间（不另立第二来源），越界**就地钳回**；
+ * 非法输入（空串 / 非数字 / NaN）回落 `fallback`（缺省 1 = 原速）。
+ */
+export function normalizePlaybackRate(raw: unknown, fallback: number = 1): number {
+  const { min, max } = PLAYBACK_RATE_RANGE;
+  const n = raw === '' || (typeof raw === 'string' && raw.trim() === '') ? Number.NaN : Number(raw);
+  if (!Number.isFinite(n)) return Math.min(max, Math.max(min, fallback));
+  return Math.min(max, Math.max(min, n));
+}
 
 export interface SimPlaybackOptions {
   /** 舞台画布（本模块负责它的**位图尺寸**与 transform） */
@@ -43,7 +61,7 @@ export interface SimPlaybackOptions {
   density: number;
   /** 播放器主音量（0..1；chart-preview 20；缺省 1） */
   volume?: number;
-  /** 播放速率（缺省 1；播放器给 0.5/0.75/1/1.5/2 五档） */
+  /** 播放速率（缺省 1；任意落在 `PLAYBACK_RATE_RANGE` 内的值，步进取 0.25） */
   rate?: number;
   /** 循环播放：到谱面长度回绕到 0 继续（缺省关 = 停在末帧） */
   loop?: boolean;

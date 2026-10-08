@@ -15,8 +15,8 @@ const KEY_SCHEDULE_AHEAD = 2.0;
 const SCHEDULE_INTERVAL = 0.2;
 /** 单个按键音时长（秒） */
 const KEY_SOUND_DURATION = 0.06;
-/** 播放速率钳制（chart-preview 20）：播放器只给 0.5/0.75/1/1.5/2 五档（`SIM_PLAYBACK_RATES`），引擎侧留一点余量 */
-export const PLAYBACK_RATE_RANGE = { min: 0.25, max: 4 } as const;
+/** 播放速率钳制（chart-preview 20）：倍速是**连续值**（滑到哪算哪），这个区间既是上下限也是回收区间 */
+export const PLAYBACK_RATE_RANGE = { min: 0.1, max: 4 } as const;
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;

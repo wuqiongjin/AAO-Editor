@@ -42,8 +42,11 @@ export {
   type SimSpriteUrls,
 } from './simAssets';
 export {
-  SIM_PLAYBACK_RATES,
+  PLAYBACK_RATE_RANGE,
+  SIM_PLAYBACK_RATE_PRESETS,
+  SIM_PLAYBACK_RATE_STEP,
   createSimPlayback,
+  normalizePlaybackRate,
   type SimPlayback,
   type SimPlaybackAudio,
   type SimPlaybackOptions,

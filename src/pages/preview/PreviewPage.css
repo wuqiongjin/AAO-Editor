@@ -514,18 +514,114 @@
 .pv-bar {
   display: flex;
   flex: 0 0 auto;
-  flex-wrap: wrap; /* 窄窗时播放器控件换行，不压扁进度条（chart-preview 20 加了音量 / 倍速 / 循环） */
+  flex-wrap: wrap; /* 窄窗时播放器控件换行，不压扁进度条（chart-preview 20 加了音量 / 倍速） */
   align-items: center;
   gap: 8px 10px;
   min-height: 34px;
   line-height: 1.3;
 }
 
-/* 倍速（chart-preview 20）：五档 select，复用设置页那套 `.select-control` */
-.pv-bar__rate {
+/* 倍速（chart-preview 20）：触钮复用播放条那一排的图标钮（`.icon-btn`，图标 + 当前倍速，非原速点亮），
+   点开在它上方翻出一列常用档 + 一个自定义输入。 */
+.pv-rate {
+  position: relative; /* 面板的锚点（往上翻：播放条贴舞台底部） */
+  display: inline-flex;
   flex: 0 0 auto;
-  min-height: 26px;
-  max-width: 84px;
+}
+
+/* 绝对定位的元素默认按"可用宽度"（= 触钮那点宽度）收缩，所以这里必须显式要 `max-content`，
+   否则最宽的那一行（自定义输入那行）会顶出面板右缘 */
+.pv-rate__panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 112px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+
+/* 常用档一列（0.1× … 2×），当前档点亮成强调色 */
+.pv-rate__option {
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pv-rate__option:hover {
+  background: var(--bg-inset);
+}
+
+.pv-rate__option.is-active {
+  color: var(--accent);
+}
+
+.pv-rate__custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.pv-rate__custom-label {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+
+/* 数字输入框：去掉原生步进器（步长由 ↑↓ 自己走），等宽数位让切档不抖 */
+.pv-rate__value {
+  width: 52px;
+  min-height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  appearance: textfield;
+}
+
+.pv-rate__value::-webkit-outer-spin-button,
+.pv-rate__value::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.pv-rate__value:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* 手填的值在范围外：先不打断（不即时应用），只提示"确认时会被拉回上下限" */
+.pv-rate__value.is-out-of-range {
+  color: var(--danger-text);
+  border-color: var(--danger);
+}
+
+.pv-rate__unit {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
 }
 
 /* 主音量（照工作台播放条那套：图标 + 细滑杆） */

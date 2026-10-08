@@ -4,7 +4,7 @@
 // `playbackRate`；③ 键音调度（谱面秒差 ÷ 速率 = 墙钟秒差）。另外：**播放中改速率不跳位置**。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PLAYBACK_RATE_RANGE, AudioEngine } from '@/src/audio/AudioEngine';
-import { SIM_PLAYBACK_RATES } from '@/src/preview/video/sim/simPlayback';
+import { SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP } from '@/src/preview/video/sim/simPlayback';
 
 class MockGainNode {
   gain = {
@@ -135,7 +135,7 @@ describe('AudioEngine · 播放速率（chart-preview 20）', () => {
     expect(ctx.oscStarts[0]!).toBeCloseTo(0.5, 6); // (1 − 0) / 2
   });
 
-  it('速率钳制在引擎允许区间内，五档播放器取值都合法', () => {
+  it('速率钳制在引擎允许区间内，每一档常用倍速都合法', () => {
     const engine = new AudioEngine();
     engine.setPlaybackRate(0);
     expect(engine.playbackRate).toBe(PLAYBACK_RATE_RANGE.min);
@@ -143,9 +143,22 @@ describe('AudioEngine · 播放速率（chart-preview 20）', () => {
     expect(engine.playbackRate).toBe(PLAYBACK_RATE_RANGE.max);
     engine.setPlaybackRate(Number.NaN);
     expect(engine.playbackRate).toBe(PLAYBACK_RATE_RANGE.max); // 非法值不动
-    for (const rate of SIM_PLAYBACK_RATES) {
+    for (const rate of SIM_PLAYBACK_RATE_PRESETS) {
       expect(rate).toBeGreaterThanOrEqual(PLAYBACK_RATE_RANGE.min);
       expect(rate).toBeLessThanOrEqual(PLAYBACK_RATE_RANGE.max);
     }
+  });
+
+  it('倍速控件的边界就是引擎边界：0.1 与 4 照收，再往外一步就被钳回', () => {
+    const engine = new AudioEngine();
+    engine.setPlaybackRate(PLAYBACK_RATE_RANGE.min); // 最低档 0.1×
+    expect(engine.playbackRate).toBe(0.1);
+    engine.setPlaybackRate(PLAYBACK_RATE_RANGE.max); // 手填上限 4×
+    expect(engine.playbackRate).toBe(4);
+
+    engine.setPlaybackRate(0.1 - SIM_PLAYBACK_RATE_STEP); // 再往下一档（0）⇒ 钳回下限
+    expect(engine.playbackRate).toBe(0.1);
+    engine.setPlaybackRate(4 + SIM_PLAYBACK_RATE_STEP); // 再往上一档 ⇒ 钳回上限
+    expect(engine.playbackRate).toBe(4);
   });
 });

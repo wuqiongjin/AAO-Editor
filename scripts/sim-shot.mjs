@@ -12,7 +12,8 @@
 //   3. 带体：长条 / 滑条是四边形带子（SP 曲线分段转折），颜色取自皮肤带体图；
 //   4. 特效：命中处有轨道闪 + 打击环（tap 青 / flick 粉 / skill 黄 / 方向键紫橙）；
 //   5. combo：右下 0.85W × 0.4375H 一带的数字随播放增长；
-//   6. 播放条：播放/暂停、进度可拖、时间码推进；回到开头就位。
+//   6. 播放条：播放/暂停、进度可拖、时间码推进；倍速（±0.25 步进 / 自定义输入 / 常用档菜单）与音量就位
+//      （「回开头」「循环」两钮按 2026-10-07 验收回修撤销）。
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -116,6 +117,43 @@ await seek(Math.max(1, Math.floor(total * 0.6)));
 await grab('seek-mid');
 await seek(Math.max(1, Math.floor(total * 0.95)));
 await grab('seek-late');
+
+// 6.5 倍速控件（chart-preview 20）：触钮上就是当前倍速，点开是一列常用档 + 自定义输入
+const rateTrigger = page.locator('.pv-rate .icon-btn');
+const rateValue = () => page.locator('.pv-rate .icon-btn__label').textContent();
+const rateOpen = async () => {
+  await rateTrigger.click();
+  await page.waitForTimeout(300);
+};
+// 手填是"敲一下就生效"，所以这里**不按回车**（越界的才需要回车 / 失焦来钳回）
+const rateType = async (text, confirm = false) => {
+  await page.locator('.pv-rate__value').fill(text);
+  if (confirm) await page.locator('.pv-rate__value').press('Enter');
+  await page.waitForTimeout(200);
+};
+console.log('[倍速] 初值（触钮上的文字）', await rateValue());
+await rateOpen();
+console.log('[倍速面板]', await page.locator('.pv-rate__option').allTextContents());
+const ratePanel = await box('.pv-rate__panel');
+const rateCustom = await box('.pv-rate__custom');
+console.log('[倍速面板盒]', ratePanel, '（触钮盒', await box('.pv-rate'), '）');
+// 自定义那行（含末尾的 ×）必须整行落在面板里
+console.log('[倍速自定义行]', rateCustom, '未溢出面板 =',
+  !!(ratePanel && rateCustom && rateCustom.x + rateCustom.w <= ratePanel.x + ratePanel.w));
+await page.screenshot({ path: `${out}-page-rate-menu.png` });
+await page.locator('.pv-rate__option').filter({ hasText: /^1\.5×$/ }).click();
+await page.waitForTimeout(200);
+console.log('[倍速] 选 1.5× 后', await rateValue());
+await rateOpen();
+await rateType('1.35');
+console.log('[倍速] 手填 1.35（不按回车）→', await rateValue());
+await rateType('9');
+console.log('[倍速] 手填 9 但未确认 →', await rateValue(), '（越界不即时生效，输完才钳回）');
+await rateType('9', true);
+console.log('[倍速] 回车确认后 →', await rateValue());
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.screenshot({ path: `${out}-page-rate.png` });
 
 // 7. 「设置」面板：动态形态该有「仿真场」（音符速度 + 镜向），不该有标记 / 导出信息
 await page.locator('.preview-toolbar').getByRole('button', { name: '设置' }).first().click();

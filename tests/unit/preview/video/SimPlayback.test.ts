@@ -7,7 +7,13 @@
 //
 // 单一时钟那条同时被锁住：回绕只允许 `engine.seek(0)`（ADR-0004 §2），不另起 rAF / 计时器。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSimPlayback } from '@/src/preview/video/sim/simPlayback';
+import { PLAYBACK_RATE_RANGE as ENGINE_PLAYBACK_RATE_RANGE } from '@/src/audio/AudioEngine';
+import {
+  PLAYBACK_RATE_RANGE,
+  SIM_PLAYBACK_RATE_STEP,
+  createSimPlayback,
+  normalizePlaybackRate,
+} from '@/src/preview/video/sim/simPlayback';
 
 /** 只满足 `AudioEngine.ensureCtx()` 的形状：不解码、不发声 */
 class MockAudioContext {
@@ -141,5 +147,26 @@ describe('createSimPlayback · 循环（chart-preview 20）', () => {
     frame(0);
     expect(rafCb).toBeTruthy(); // 中途打开也照样回绕
     pb.dispose();
+  });
+});
+
+// 倍速的上下限必须与**引擎那份钳制**同源（UI 侧不许另立第二份）。这条守的是"UI 挪了区间 /
+// 引擎没跟着改"的口径漂移：两边一旦松开，输入框里写的值会和引擎实际跑的值对不上。
+describe('倍速归一化（chart-preview 20）', () => {
+  it('上下限就是引擎那份 PLAYBACK_RATE_RANGE 本身（不是抄一份）', () => {
+    expect(PLAYBACK_RATE_RANGE).toBe(ENGINE_PLAYBACK_RATE_RANGE);
+    expect(PLAYBACK_RATE_RANGE).toEqual({ min: 0.1, max: 4 });
+    expect(SIM_PLAYBACK_RATE_STEP).toBe(0.1);
+  });
+
+  it('越界就地钳回、非法值回落到 fallback', () => {
+    expect(normalizePlaybackRate(9)).toBe(4);
+    expect(normalizePlaybackRate(0.05)).toBe(0.1);
+    expect(normalizePlaybackRate(0.05, 2)).toBe(0.1); // 回落值仍旧要过一遍钳制
+    expect(normalizePlaybackRate(Number.NaN)).toBe(1);
+    expect(normalizePlaybackRate(Number.NaN, 0.5)).toBe(0.5);
+    expect(normalizePlaybackRate('abc')).toBe(1);
+    expect(normalizePlaybackRate('')).toBe(1);
+    expect(normalizePlaybackRate(1.35)).toBe(1.35); // 档位表之外的手填值照原样收
   });
 });

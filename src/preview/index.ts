@@ -34,9 +34,11 @@ export { DEFAULT_PREVIEW_MARKERS } from './static';
 // 动态形态（仿真场）：面与 `video/sim/index.ts` 同（消费方要用的那几件，内部件走 deep import）
 export {
   DESIGN_SURFACE,
+  PLAYBACK_RATE_RANGE,
   SIM_ASSET_BASE,
   SIM_ASSET_SERVERS,
-  SIM_PLAYBACK_RATES,
+  SIM_PLAYBACK_RATE_PRESETS,
+  SIM_PLAYBACK_RATE_STEP,
   approachA,
   approachOf,
   approachSeconds,
@@ -47,6 +49,7 @@ export {
   fieldMetrics,
   fitDesignSurface,
   loadSimAssets,
+  normalizePlaybackRate,
   simComboAt,
   type SimAssets,
   type SimChart,
