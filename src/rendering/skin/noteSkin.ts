@@ -132,6 +132,12 @@ export interface ActiveNoteIcons {
   skillFor(lane: number): SpriteIconConfig;
   /** 方向键第 k 条覆盖轨道的精灵（扁平化：任意轨道同图）；k=0 为锚点轨 */
   dirFor(type: 'L' | 'R', lane: number): SpriteIconConfig;
+  /**
+   * 方向键本体的**逐轨**精灵（chart-preview 25 #1，仿真场专用）。
+   * 图集里 0..6 七张自带各自轨位的舞台透视倾角（外轨倾斜更大）——伪 3D 的仿真场逐轨取图，
+   * 整组才会贴着舞台平面；编辑器画布那份继续用扁平的 `dirFor`（视觉修订 1，俯视端正）。
+   */
+  dirLaneFor(type: 'L' | 'R', lane: number): SpriteIconConfig;
   /** 方向键墨迹（同时点击线端点贴边用）：构建期实测 → overrides 覆写 → 缺省 */
   dirInk(type: 'L' | 'R'): { w: number; inkLeft: number; inkRight: number };
   /** 滑条连接带（整图，渲染时拉伸进连接四边形） */
@@ -141,6 +147,11 @@ export interface ActiveNoteIcons {
   slideAmongFor(lane: number): SpriteIconConfig;
   /** 滑条端点基底（= note_long 长条端帽；结点带 flick/skill 时由调用方 spread 覆盖） */
   slideEndpointFor(lane: number): SpriteIconConfig;
+  /**
+   * 滑条端点的**逐轨**精灵（`note_long_<lane>`，chart-preview 25 #2，仿真场专用）：
+   * 按住期间接触点上那枚端帽，轨位按插值**就近取整**（照 bundle 的 `Math.round(e + 3)`）。
+   */
+  slideEndpointLaneFor(lane: number): SpriteIconConfig;
   /** 滑键顶部箭头装饰（墨迹精确组合；包未提供时为 null） */
   flickTopDecorator: SpriteIconConfig | null;
   /**
@@ -189,6 +200,15 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
     const r = arr[FLAT_LANE];
     if (!r) throw new Error(`noteSkin: ${pack.id} 缺 ${what} 精灵`);
     return rectToConfig(pack.atlas, r);
+  };
+  /**
+   * 逐轨取图（chart-preview 25）：轨号**就近取整**并钳到 0..6（与 bundle 的
+   * `Math.max(0, Math.min(6, K + 3))` / `Math.round(e + 3)` 同口径，越界轨照边界那张画）。
+   * 该轨缺图（null）→ 回落扁平轨那张，绝不抛错（皮肤包缺张子是既有事实，静默回落是既有口径）。
+   */
+  const laneRect = (arr: readonly (NoteSkinRect | null)[], lane: number): NoteSkinRect | null => {
+    const idx = Math.min(6, Math.max(0, Math.round(lane)));
+    return arr[idx] ?? arr[FLAT_LANE] ?? null;
   };
 
   const tapConfig = flatRect(tapPack, tapPack.tap, 'tap');
@@ -295,11 +315,20 @@ export function buildActiveNoteIcons(selection: NoteSkinSelection): ActiveNoteIc
     flickFor: () => flickConfig,
     skillFor: () => skillConfig,
     dirFor: (type) => (type === 'L' ? dirLConfig : dirRConfig),
+    dirLaneFor: (type, lane) => {
+      const pack = type === 'L' ? dirLPack : dirRPack;
+      const r = laneRect(type === 'L' ? pack.dirL : pack.dirR, lane);
+      return r ? rectToConfig(pack.atlas, r) : (type === 'L' ? dirLConfig : dirRConfig);
+    },
     dirInk: dirInkCfg,
     slideBand: { src: slidePack.band, x: 0, y: 0, w: slidePack.bandW, h: slidePack.bandH },
     slideBandSp: bandSpConfig,
     slideAmongFor: () => amongConfig,
     slideEndpointFor: () => longConfig,
+    slideEndpointLaneFor: (lane) => {
+      const r = laneRect(slidePack.long, lane);
+      return r ? rectToConfig(slidePack.atlas, r) : longConfig;
+    },
     flickTopDecorator,
     simultaneousLine,
     dirGroup,

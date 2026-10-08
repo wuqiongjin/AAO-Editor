@@ -23,6 +23,7 @@ import {
   easeOutCubic,
   fieldMetrics,
   laneCenterX,
+  SIM_HOLD_RING_SQUASH,
   SIM_SPRITE_EFFECT,
   SIM_SPRITE_EFFECT_DURATION,
 } from '@/src/preview/video/sim/simGeometry';
@@ -154,6 +155,7 @@ describe('SIM_SPRITE_EFFECT · 表里的数字（照 bundle 誊）', () => {
     expect(S.flickCircleH).toBe(2);
     expect(S.dirSweep).toEqual([1.5, 4]);
     expect(S.connectionRing).toEqual([1.8, 1.2]);
+    expect(S.rotatingRing).toBe(2); // 方图边长 2n，纵向 2/3 走 SIM_HOLD_RING_SQUASH
     expect(S.rotatingRingInner).toBe(0.75);
   });
 
@@ -302,12 +304,21 @@ describe('drawSimFrameAt · 方向键与连按', () => {
     expect(ring!.dy + ring!.h / 2).toBeCloseTo(M.laneHeight, 6);
     expect(ring!.alpha).toBe(1);
 
-    // 旋转环：2·laneWidth × 4/3·laneWidth 与它的 0.75 倍，α 恒 1
+    // 旋转环（票 25 #3）：**方图** 2·laneWidth（与 0.75 倍那枚），纵向 2/3 由 `scale` 给、不写进目标矩形
+    // ⇒ 旋转在压扁**之前**生效（`S·R`）：椭圆轮廓恒定（横长轴 2 → 4/3），纹样在舞台平面内扫。
+    // 修前把 4/3 写进目标矩形再整枚刚体旋转（`R·S`）⇒ 椭圆自己翻面 = "3D 转圈"。
     expect(rotating).toHaveLength(2);
     expect(rotating[0]!.w).toBeCloseTo(2 * M.laneWidth, 6);
-    expect(rotating[0]!.h).toBeCloseTo((4 / 3) * M.laneWidth, 6);
+    expect(rotating[0]!.h).toBeCloseTo(rotating[0]!.w, 6); // 方图：压扁不在目标矩形里
     expect(rotating[1]!.w).toBeCloseTo(2 * M.laneWidth * 0.75, 6);
+    expect(rotating[1]!.h).toBeCloseTo(rotating[1]!.w, 6);
     expect(rotating[0]!.alpha).toBe(1);
+    expect(rotating[0]!.w * SIM_HOLD_RING_SQUASH).toBeCloseTo((4 / 3) * M.laneWidth, 6);
+    // 复合顺序：`scale(1, 2/3)` 必须在 `rotate` **之前**调用（后调用者先作用于点 ⇒ 先转后压）
+    const order = calls.filter(([k]) => k === 'scale' || k === 'rotate').map(([k]) => k);
+    expect(order.indexOf('scale')).toBeLessThan(order.indexOf('rotate'));
+    const squash = calls.find(([k]) => k === 'scale')!;
+    expect(squash[1]).toEqual([1, SIM_HOLD_RING_SQUASH]);
 
     // 松手（过了段终点）就不再画
     const after = recordingCtx();

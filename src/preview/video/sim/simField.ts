@@ -63,6 +63,7 @@ import {
   SIM_BAND_COLORS,
   SIM_EFFECT_DURATION,
   SIM_EFFECT_TINTS,
+  SIM_HOLD_RING_SQUASH,
   SIM_LANE_FLASH_ALPHA,
   SIM_LANE_FLASH_DURATION,
   SIM_LANE_FLASH_SPAN,
@@ -245,7 +246,7 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
         length,
         dirSide: side,
         dirLanes: directionalLanes(lane, side === 'L' ? 'LDirectional' : 'RDirectional', length),
-        icon: noteIcons.dirFor(side, lane),
+        icon: noteIcons.dirLaneFor(side, lane),
         flickDecorator: false,
       });
       addToGroup(trueBeat(note.beat, note.subBeat, beatDisplay), lane);
@@ -475,13 +476,14 @@ function drawElements(ctx: CanvasRenderingContext2D, input: SimFrameInput, secon
     if (el.dirLanes && el.dirSide) {
       const y = fieldY(m, a);
       const group = noteIcons.dirGroup(el.dirSide, el.length);
-      // 方向键本体与单键同一套盒子（票 23 #2）：只差设计宽（45 vs 36），高同样按精灵源格的自然比
-      const body = simNoteRect(
-        m, a, scene.noteSize, simSpriteAspect(noteIcons.dirFor(el.dirSide, el.lane)), DIRECTIONAL_ICON_SIZE,
-      );
+      // 方向键本体与单键同一套盒子（票 23 #2）：只差设计宽（45 vs 36），高按精灵源格的自然比
+      // —— 全组共用**锚点轨**那张的源格比（Bestdori 也是整组一个 a×s 盒子；现役包七张全 308×120）
+      const body = simNoteRect(m, a, scene.noteSize, simSpriteAspect(el.icon), DIRECTIONAL_ICON_SIZE);
+      // 逐轨取图（票 25 #1）：图集 7 张各自带该轨位的舞台倾角 —— 全组同一张（扁平轨那张）会让
+      // 外侧本体浮在舞台平面之上（Bestdori 模拟器就是逐轨取 `note_flick_<l/r>_<lane>`）
       for (const lane of el.dirLanes) {
         spriteIcon.render(ctx, {
-          ...noteIcons.dirFor(el.dirSide, lane),
+          ...noteIcons.dirLaneFor(el.dirSide, lane),
           canvasX: laneCenterX(m, lane, a),
           canvasY: y,
           canvasSize: body.w,
@@ -585,7 +587,7 @@ function drawEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, second
       drawProceduralEffect(ctx, m, el, since);
     }
   }
-  if (sprites) drawHoldEffects(ctx, sprites, m, chart, seconds, scene.noteSize);
+  if (sprites) drawHoldEffects(ctx, input, seconds);
   ctx.restore();
 }
 
@@ -738,22 +740,21 @@ function drawSpriteEffect(
 }
 
 /**
- * 连按（带体按住）特效（chart-preview 21；bundle 的 `y.forEach` 两段）：
- * **正在按住的那一段带子**在判定线上画两笔 —— `connectionRing`（(2,1)，**不染**）
- * + 一对**反向对转**的 `rotatingRing`（(3,1)，青；1× 与 0.75×），α 恒 1。
+ * 连按（带体按住）特效（chart-preview 21 + 25 #2/#3；bundle 的 `y.forEach` **三段**）：
+ * **正在按住的那一段带子**在判定线上画三笔 ——
+ *   ① 滑条端点本体 `note_long_<lane>`（21 漏誊的一段；逐轨精灵，随接触点走，画在最下层）；
+ *   ② `connectionRing`（(2,1)，**不染**）；
+ *   ③ 一对**反向对转**的 `rotatingRing`（(3,1)，青；1× 与 0.75×），α 恒 1。
  *
  * 命中点 = 段内按秒插值的轨位（照 bundle 的 `L = from.lane + (to.lane − from.lane)·(t − t0)/(t1 − t0)`），
  * 只在 `t ∈ (段起点, 段终点]` 期间给 —— 那一段就是"正被按住"（倒流区里段可能反向，故按 min/max 判）。
  * 旋转角 = `t · 2π`（两环一个正转一个反转）。
  */
-function drawHoldEffects(
-  ctx: CanvasRenderingContext2D,
-  sprites: SimSprites,
-  m: SimFieldMetrics,
-  chart: SimChart,
-  seconds: number,
-  noteSize: number,
-): void {
+function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
+  const { chart, metrics: m, scene, assets, noteIcons, spriteIcon } = input;
+  const sprites = assets.sprites;
+  if (!sprites) return;
+  const noteSize = scene.noteSize;
   const { tile: TILE, size: S, alpha: A } = SIM_SPRITE_EFFECT;
   const ring = particleTile(sprites, TILE.connectionRing[0], TILE.connectionRing[1], null);
   const rotating = particleTile(sprites, TILE.rotatingRing[0], TILE.rotatingRing[1], SIM_EFFECT_TINTS.tap);
@@ -764,7 +765,21 @@ function drawHoldEffects(
     const hi = Math.max(band.t0, band.t1);
     if (seconds <= lo || seconds > hi) continue; // 这段没被按住
     // 按住位与带体的过线端**同一条插值**（票 23 #1 把它收进 `simGeometry.bandLaneAt`，不许两份）
-    const x = laneCenterX(m, bandLaneAt(band, seconds), 1);
+    const lane = bandLaneAt(band, seconds);
+    const x = laneCenterX(m, lane, 1);
+
+    // ① 端点本体（照 bundle：画在两环**之前**，故被环盖着）：逐轨 `note_long`，轨位就近取整
+    const endpoint = noteIcons.slideEndpointLaneFor(lane);
+    const box = simNoteRect(m, 1, noteSize, simSpriteAspect(endpoint));
+    spriteIcon.render(ctx, {
+      ...endpoint,
+      canvasX: x,
+      canvasY: m.laneHeight,
+      canvasSize: box.w,
+      canvasWidth: box.w,
+      canvasHeight: box.h,
+      scale: 1,
+    });
 
     ctx.save();
     ctx.globalAlpha = A.connection;
@@ -772,18 +787,20 @@ function drawHoldEffects(
     const h = S.connectionRing[1] * noteSize * m.laneWidth;
     ctx.drawImage(ring.source, ring.sx, ring.sy, ring.sw, ring.sh, x - w / 2, m.laneHeight - h / 2, w, h);
 
-    // 旋转环：`2·laneWidth·n × 4/3·laneWidth·n`，绕命中点转 `t·2π`（第二枚反向、0.75 倍）
-    const rw = 2 * m.laneWidth * noteSize;
-    const rh = (2 * rw) / 3;
+    // ③ 旋转环：`2n` 的**方图**（纵向 × `SIM_HOLD_RING_SQUASH` 压扁）绕命中点转 `t·2π`（第二枚反向、0.75 倍）。
+    // **先转入舞台平面、再纵向压扁 2/3**（票 25 #3）：`S·R` ⇒ 椭圆轮廓恒定（横长轴）、纹样在平面内扫；
+    // 修前是"转完直接画 3:2 的椭圆图"（`R·S` = 刚体翻转）⇒ 观感成 3D 转圈。
+    const rw = S.rotatingRing * noteSize * m.laneWidth;
     const spin = seconds * Math.PI * 2;
     ctx.translate(x, m.laneHeight);
+    ctx.scale(1, SIM_HOLD_RING_SQUASH);
     ctx.rotate(spin);
-    ctx.drawImage(rotating.source, rotating.sx, rotating.sy, rotating.sw, rotating.sh, -rw / 2, -rh / 2, rw, rh);
+    ctx.drawImage(rotating.source, rotating.sx, rotating.sy, rotating.sw, rotating.sh, -rw / 2, -rw / 2, rw, rw);
     ctx.rotate(-2 * spin);
+    const inner = rw * S.rotatingRingInner;
     ctx.drawImage(
       rotating.source, rotating.sx, rotating.sy, rotating.sw, rotating.sh,
-      (-rw * S.rotatingRingInner) / 2, (-rh * S.rotatingRingInner) / 2,
-      rw * S.rotatingRingInner, rh * S.rotatingRingInner,
+      -inner / 2, -inner / 2, inner, inner,
     );
     ctx.restore();
   }

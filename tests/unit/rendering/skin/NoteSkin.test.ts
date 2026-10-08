@@ -134,6 +134,41 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
     expect(r.x).toBe(dirPack.dirR[3]!.x);
   });
 
+  it('dirLaneFor 逐轨取图（票 25 #1）：仿真场用，图集 0..6 各轨一张；越界钳到边界轨', () => {
+    const dirPack = dirPacks.find((p) => p.id === 'directionalflickskin00')!;
+    for (const lane of [0, 3, 6]) {
+      const cfg = icons.dirLaneFor('L', lane);
+      expect(cfg.src).toBe(dirPack.atlas);
+      expect(cfg.x).toBe(dirPack.dirL[lane]!.x);
+      expect(cfg.y).toBe(dirPack.dirL[lane]!.y);
+      expect(icons.dirLaneFor('R', lane).x).toBe(dirPack.dirR[lane]!.x);
+    }
+    // 七张互不相同（各自带该轨位的舞台倾角）
+    const rects = [0, 1, 2, 3, 4, 5, 6].map((l) => `${icons.dirLaneFor('L', l).x},${icons.dirLaneFor('L', l).y}`);
+    expect(new Set(rects).size).toBe(7);
+    // 越界 / 小数轨位：就近取整后钳到 0..6（与 bundle 的 clamp(K+3, 0, 6) 同口径）
+    expect(icons.dirLaneFor('L', -3).x).toBe(dirPack.dirL[0]!.x);
+    expect(icons.dirLaneFor('L', 9).x).toBe(dirPack.dirL[6]!.x);
+    expect(icons.dirLaneFor('L', 2.6).x).toBe(dirPack.dirL[3]!.x);
+    // 编辑器那条扁平口径没被改（`dirFor` 恒回中间轨）
+    expect(icons.dirFor('L', 0).x).toBe(dirPack.dirL[3]!.x);
+  });
+
+  it('slideEndpointLaneFor 逐轨 note_long（票 25 #2：按住端点随插值轨位换图）', () => {
+    for (const lane of [0, 2, 6]) {
+      const cfg = icons.slideEndpointLaneFor(lane);
+      expect(cfg.src).toBe(skin00.atlas);
+      expect(cfg.x).toBe(skin00.long[lane]!.x);
+      expect(cfg.y).toBe(skin00.long[lane]!.y);
+    }
+    // 插值轨位是小数：就近取整（bundle 的 Math.round）+ 钳到 0..6
+    expect(icons.slideEndpointLaneFor(2.4).x).toBe(skin00.long[2]!.x);
+    expect(icons.slideEndpointLaneFor(2.6).x).toBe(skin00.long[3]!.x);
+    expect(icons.slideEndpointLaneFor(-1).x).toBe(skin00.long[0]!.x);
+    // 编辑器那条扁平口径没被改
+    expect(icons.slideEndpointFor(0).x).toBe(skin00.long[3]!.x);
+  });
+
   it('dirInk：优先构建期实测墨迹（回退 overrides/缺省），附源宽', () => {
     const ink = icons.dirInk('L');
     expect(ink.w).toBeGreaterThan(0);

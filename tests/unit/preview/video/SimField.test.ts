@@ -52,13 +52,14 @@ const scene = (notes: ChartNote[]): SimScene => ({
 
 /** 记录型精灵替身（node 环境没有图集：真 `CanvasSpriteIcon` 一笔都画不出来） */
 function makeRecordingSprite() {
-  const draws: { x: number; y: number; w: number; h: number; scale: number; src: string }[] = [];
+  /** `sx/sy` = 精灵源矩形左上角（逐轨取图的断言要靠它分辨"同一张图集里的哪一张"） */
+  const draws: { x: number; y: number; w: number; h: number; scale: number; src: string; sx: number; sy: number }[] = [];
   const spriteIcon = {
     render(
       _ctx: unknown,
       props: {
         src: string; canvasX: number; canvasY: number; canvasSize: number;
-        canvasWidth?: number; canvasHeight?: number; scale?: number;
+        canvasWidth?: number; canvasHeight?: number; scale?: number; x: number; y: number;
       },
     ) {
       draws.push({
@@ -68,6 +69,8 @@ function makeRecordingSprite() {
         h: props.canvasHeight ?? props.canvasSize,
         scale: props.scale ?? 1,
         src: props.src,
+        sx: props.x,
+        sy: props.y,
       });
     },
     renderDecorator() { /* flick 顶部箭头：本文件不关心 */ },
@@ -383,6 +386,74 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     expect(lines[0]!.w).toBeCloseTo(laneCenterX(m, 6, 1) - laneCenterX(m, 0, 1), 6);
     expect(lines[0]!.h).toBeCloseTo(simDualLineThickness(m, 1, 1), 6);
     expect(lines[0]!.y).toBeCloseTo(m.laneHeight, 6); // 压在场地判定线上
+  });
+
+  it('方向键本体**逐轨**取图（票 25 #1：图集 0..6 各自带该轨位的舞台倾角）', () => {
+    const { spriteIcon, draws } = makeRecordingSprite();
+    // LDirectional 锚 lane 3、长度 3 ⇒ 占 lane 3 / 2 / 1（向左）。修前三枚全是扁平轨（lane 3）那张，
+    // 整组同一个倾角 ⇒ 外侧本体不贴舞台平面。
+    const frame = frameOf([{ type: 'LDirectional', beat: 2, lane: 3, length: 3 }], spriteIcon);
+    const { proxy } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1); // 压线帧：A = 1
+
+    const bodies = draws.slice(0, 3); // 本体先画，外侧箭头是第 4 笔
+    for (const lane of [3, 2, 1]) {
+      const want = icons.dirLaneFor('L', lane);
+      expect(bodies.find((d) => d.sx === want.x && d.sy === want.y)).toBeTruthy();
+    }
+    // 三枚互不相同（同一张图集里的三张不同子图）
+    expect(new Set(bodies.map((d) => `${d.sx},${d.sy}`)).size).toBe(3);
+    // 且**不是**全组扁平轨那张（dirFor 恒回 lane 3）
+    const flat = icons.dirFor('L', 3);
+    expect(bodies.filter((d) => d.sx === flat.x && d.sy === flat.y)).toHaveLength(1);
+    // 尺寸仍是"设计宽 45 + 精灵源格比"那个盒子（票 23 #2 的口径没动）
+    const rect = simNoteRect(frame.metrics, 1, 1, 120 / 308, 45);
+    expect(bodies[0]!.w).toBeCloseTo(rect.w, 6);
+    expect(bodies[0]!.h).toBeCloseTo(rect.h, 6);
+
+    // 越界轨照**钳到边界**那张画（与 bundle 的 clamp(K+3, 0, 6) 同口径）：lane 6 向右 length 3
+    // ⇒ 占 lane 6/7/8，7/8 都落到 dirR[6]
+    draws.length = 0;
+    const frameR = frameOf([{ type: 'RDirectional', beat: 2, lane: 6, length: 3 }], spriteIcon);
+    drawSimFrameAt(recordingCtx().proxy, frameR, 1);
+    const edge = icons.dirLaneFor('R', 6);
+    expect(draws.slice(0, 3).filter((d) => d.sx === edge.x && d.sy === edge.y)).toHaveLength(3);
+  });
+
+  it('按住期间接触点画**滑条端点**（票 25 #2：bundle 漏誊的那段 `y.forEach`）', () => {
+    const { spriteIcon, draws } = makeRecordingSprite();
+    const sprites = fakeSprites() as unknown as SimSprites;
+    // lane 0 → 4：1s → 4s。取 2.5s ⇒ 按住位 = lane 2，且末结点（4s）还没进可见窗（T = 1.25s）
+    // ⇒ 这一帧的精灵绘制只剩"按住端点"这一笔（带体 / 环走 ctx，不进 draws）
+    const frame: SimFrameInput = {
+      ...frameOf([slide([{ beat: 2, lane: 0 }, { beat: 8, lane: 4 }])], spriteIcon),
+      assets: { ...emptySimAssets(), missing: false, sprites },
+    };
+    const { proxy } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 2.5);
+
+    expect(draws).toHaveLength(1);
+    const endpoint = draws[0]!;
+    expect(endpoint.x).toBeCloseTo(laneCenterX(frame.metrics, 2, 1), 6); // 随插值轨位走
+    expect(endpoint.y).toBeCloseTo(frame.metrics.laneHeight, 6); // 压在判定线上
+    // 逐轨精灵（就近取整 = lane 2），不是扁平轨那张
+    const want = icons.slideEndpointLaneFor(2);
+    expect(endpoint.sx).toBe(want.x);
+    expect(endpoint.sy).toBe(want.y);
+    expect(endpoint.src).toBe(icons.slideEndpointFor(2).src);
+    // 端点与单键同一个盒子（自然比，noteSize = 1）
+    const box = simNoteRect(frame.metrics, 1, 1, 120 / 308);
+    expect(endpoint.w).toBeCloseTo(box.w, 6);
+    expect(endpoint.h).toBeCloseTo(box.h, 6);
+
+    // 松手（过了段终点）就不再画
+    const after = makeRecordingSprite();
+    drawSimFrameAt(
+      recordingCtx().proxy,
+      { ...frame, spriteIcon: after.spriteIcon },
+      4.5,
+    );
+    expect(after.draws).toEqual([]);
   });
 
   it('背景按 backgroundRect 的取景矩形画（不再是 cover 居中裁两侧）', () => {

@@ -457,8 +457,8 @@ export const SIM_SPRITE_EFFECT = {
     arrow: 1,
     /** 连按环：`3 × 0.6n` × `1.2n` */
     connectionRing: [1.8, 1.2],
-    /** 连按旋转环：`2·laneWidth·n` × `4/3·laneWidth·n` 的 1× 与 0.75× 两枚 */
-    rotatingRing: 1,
+    /** 连按旋转环：**方图**边长 `2·n`（lane 单位 × noteSize），纵向另乘 `SIM_HOLD_RING_SQUASH`（2/3）压扁；1× 与 0.75× 两枚 */
+    rotatingRing: 2,
     rotatingRingInner: 0.75,
   },
   /** 各笔的 α 峰值（再乘 `(1 − easeIn(p))`；（方向键斜扫那笔是 `1 − easeOut`）） */
@@ -471,6 +471,13 @@ export const SIM_SPRITE_EFFECT = {
     connection: 1,
   },
 } as const;
+
+/**
+ * 连按旋转环的纵向压缩（票 25 #3）：Bestdori 的 `setTransform(i, 0, 0, 2i/3, …)` 之后再 `rotate(t·2π)`，
+ * 画的是**单位方图**——**先转、后压** ⇒ 椭圆轮廓恒定（横长轴）、纹样在舞台平面内扫（"平面内转圈"）。
+ * 修前压扁已经画进目标矩形里、再整枚刚体旋转（`R·S`）⇒ 椭圆自己翻面，观感成 3D 转圈。
+ */
+export const SIM_HOLD_RING_SQUASH = 2 / 3;
 
 /** Bestdori 的缓动（`easeInCubic` / `easeOutCubic`）：特效各笔的尺寸 / 透明度都按它插值 */
 export function easeInCubic(t: number): number {
