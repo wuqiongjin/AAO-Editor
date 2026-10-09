@@ -39,4 +39,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     i18n: {
         setLanguage: (locale) => ipcRenderer.invoke('i18n:setLanguage', locale),
     },
+    // bestdori-integration 07：社区平台的唯一网络出口。renderer 只递 URL + 方法 + 载荷，
+    // 主机白名单 / 限流 / Cookie 全在主进程（electron/communityNet.cjs）；二进制落下载暂存，
+    // 只回路径不回字节。浏览器侧没有这条桥 = 静态演示版，能力层降级为「平台不可用」。
+    communityNet: {
+        request: (payload) => ipcRenderer.invoke('communityNet:request', payload),
+    },
 });

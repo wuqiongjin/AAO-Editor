@@ -16,6 +16,7 @@ import {
   untitledProjectLabel,
 } from '../../../project/ui/projectUi';
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
+import { postUrl } from '../../../community/bestdori/endpoints';
 import { t } from '../../../i18n';
 import { effectiveTitle, formatDuration, relTime, sourceLabel } from '../projectFormat';
 import ProjectListSplit from '../ProjectListSplit';
@@ -187,7 +188,7 @@ export function ProjectDetail({
                 <li key={c.id}>
                   <span className="pp-pill__diff" style={{ background: DIFF_COLORS[c.diff] }}>{DIFF_SHORT[c.diff]}</span>
                   {effectiveTitle(sel, c)} →{' '}
-                  <a href={`https://bestdori.com/community/charts/${c.upload!.postId}`} target="_blank" rel="noreferrer">
+                  <a href={postUrl(c.upload!.postId)} target="_blank" rel="noreferrer">
                     {t('projects.postLink', { id: c.upload!.postId })}
                   </a>
                   <span className="pp-muted">{relTime(c.upload!.at)}</span>

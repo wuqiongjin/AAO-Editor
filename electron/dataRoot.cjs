@@ -6,6 +6,8 @@ const { t } = require('./i18n.cjs');
 const DATA_DIRNAME = 'data';
 const PROJECTS_DIRNAME = 'projects';
 const ASSETS_DIRNAME = 'assets';
+/** 社区平台的下载暂存（bestdori-integration 07）：过程态，启动即清空，不进任何分发物 */
+const DOWNLOADS_DIRNAME = 'downloads';
 const BACKGROUND_SKIN_RELATIVE = path.join(ASSETS_DIRNAME, 'background-skin.bin');
 
 function dataRootUnderParent(parent) {
@@ -28,9 +30,15 @@ function backgroundSkinPath(dataRoot) {
     return path.join(dataRoot, BACKGROUND_SKIN_RELATIVE);
 }
 
+/** 下载暂存目录（<数据根>/downloads/）—— 社区音频 / 封面的落脚区，导入才写进工程 */
+function downloadsDir(dataRoot) {
+    return path.join(dataRoot, DOWNLOADS_DIRNAME);
+}
+
 function ensureDataRootLayoutSync(dataRoot) {
     fs.mkdirSync(projectsDir(dataRoot), { recursive: true });
     fs.mkdirSync(assetsDir(dataRoot), { recursive: true });
+    fs.mkdirSync(downloadsDir(dataRoot), { recursive: true });
 }
 
 /** 工程 id 白名单：字母数字开头，仅字母数字 . _ -，≤64 位 */
@@ -192,11 +200,13 @@ module.exports = {
     DATA_DIRNAME,
     PROJECTS_DIRNAME,
     ASSETS_DIRNAME,
+    DOWNLOADS_DIRNAME,
     BACKGROUND_SKIN_RELATIVE,
     defaultDataRoot,
     dataRootUnderParent,
     projectsDir,
     assetsDir,
+    downloadsDir,
     backgroundSkinPath,
     ensureDataRootLayoutSync,
     safeProjectId,

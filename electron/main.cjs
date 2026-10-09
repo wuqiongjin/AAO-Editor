@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
@@ -23,7 +23,13 @@ const {
     loadDataRootSync,
     moveDataRoot,
     backgroundSkinPath,
+    downloadsDir,
 } = require('./dataRoot.cjs');
+const {
+    createCommunityGateway,
+    registerCommunityNetIpc,
+    resetCommunityStaging,
+} = require('./communityNet.cjs');
 const {
     getProject,
     putProject,
@@ -248,6 +254,18 @@ function registerI18nIpc() {
 registerI18nIpc();
 
 // ---------------------------------------------------------------------------
+// 社区平台网络面（bestdori-integration 07）：主进程只做发 HTTP / 管 Cookie / 限流
+// （ADR-0011 §2、issue 06 薄主进程）。端点、领域转换、搜索都在 renderer；二进制落
+// <数据根>/downloads/（下载暂存）后只回路径。暂存目录每次现取 —— 数据根可以被用户搬家。
+// ---------------------------------------------------------------------------
+const communityGateway = createCommunityGateway({
+    // net.fetch 只能在 app ready 之后调用；这里只是包一层，加载期不发任何请求。
+    fetchImpl: (url, init) => net.fetch(url, init),
+    stagingDir: () => downloadsDir(currentDataRoot()),
+});
+registerCommunityNetIpc(ipcMain, communityGateway);
+
+// ---------------------------------------------------------------------------
 // 主窗体几何记忆（issue 119 / 117）：userData/app-state.json 的 window 字段。
 // 不进 settings / 导出配置；不记位置（多屏）。
 // ---------------------------------------------------------------------------
@@ -318,6 +336,9 @@ function createWindow() {
 // 当Electron完成初始化并准备创建浏览器窗口时调用此方法
 app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+    // 下载暂存是过程态（CONTEXT「下载暂存」）：启动清空重建，不攒上一轮没导入的半截文件。
+    // 清不掉（权限 / 占用）不影响功能 —— 下次写暂存会自己补目录，所以这里吞掉。
+    void resetCommunityStaging(downloadsDir(currentDataRoot())).catch(() => {});
     nativeTheme.on('updated', () => {
         if (currentAppTheme === 'system') {
             syncAllWindowsChrome();

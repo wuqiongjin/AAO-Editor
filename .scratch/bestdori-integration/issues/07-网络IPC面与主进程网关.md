@@ -1,7 +1,7 @@
 # 07 · 网络 IPC 面与主进程网关
 
 Type: feature
-Status: open
+Status: resolved
 Blocked by: —
 
 ## 来源
@@ -45,3 +45,39 @@ ADR-0011 §2（Electron 主进程为唯一产品通道）、issues/03（浏览�
 4. 单测覆盖不到的：IPC 契约与 preload 白名单的跨进程语义 —— 照 `tests/platform/electron/` 既有惯例补平台测试；真机三态（在线 / 断网 / 静态演示版）走手工验收清单。
 
 ## Comments
+
+### 2026-10-09 · 落地前 grill（用户拍板四问）
+
+| # | 分叉 | 定案 |
+| --- | --- | --- |
+| Q1 | Cookie 归属 | **07 带内存 jar**（`electron/communityCookies.cjs`）：解析 / 附着 / 捕获 / 快照都在 07，**不落盘**；10 用 `snapshot()` / `restore()` 接 safeStorage 并接登录流程 |
+| Q2 | 主进程 HTTP 栈 | **Electron `net.fetch`**（ADR-0011 §2 的 net 模块，走 Chromium 栈、尊重系统代理）。只能在 app ready 之后调用 → main.cjs 里包成 thunk，加载期不发请求 |
+| Q3 | 重试层 | **主进程硬限流 + renderer 退避重试**：主进程单飞队列 + 最小间隔 400ms + 单次超时 + 响应校验；`src/community/rateLimit.ts` 管 429 / 5xx / 超时 / 离线的指数退避（800ms × 2ⁿ + 250ms 抖动，3 次） |
+| Q4 | 下载暂存 | **`<数据根>/downloads/`，启动清空**（`resetCommunityStaging` 在 app ready 时跑）；CONTEXT「数据根」「下载暂存」两个词条同步补了目录 |
+
+### 2026-10-09 · 落地记录
+
+renderer 能力层（新）：`src/community/transport.ts`（`CommunityTransport` 接口 + 跨 IPC 载荷形状 + 统一错误域）、`electronTransport.ts`（**唯一**实现，经 `window.electronAPI.communityNet` 收发；无桥 = `kind:'none'`）、`rateLimit.ts`（`withRetry` + `backoffDelayMs`，时间与随机数注入）、`availability.ts`（可用性状态机，**不轮询**：`check()` + 真实请求成败回报；`capabilitiesFor` 降级矩阵）、`bestdori/endpoints.ts`（**唯一允许出现域名的文件**，顺带导出 `postUrl`）。
+
+Electron 侧（新）：`electron/communityNet.cjs`（主机白名单 https-only、单飞 + 最小间隔、单次超时 JSON 30s / 二进制 120s、响应校验含 `{"result":false,"code"}` 按码翻、二进制落暂存回路径、`registerCommunityNetIpc`）、`electron/communityCookies.cjs`（内存 jar）。
+
+改动：`electron/preload.js` 白名单新增 `communityNet.request` 一条通道；`electron/main.cjs` 接 `net.fetch` 与数据根暂存目录、ready 清空暂存；`electron/dataRoot.cjs` 新增 `downloads/`（进布局）；`src/pages/projects/components/ProjectDetail.tsx` 上传记录外链改走 `postUrl()`（Q14 白名单从落地第一天就是绿的，不欠例外）。
+
+错误域：票里点的六类（离线 / 超时 / 限流 / 未授权 / **运行环境不支持** / 响应非法）+ 三类网关自保（`http` = 非预期状态码、`request-rejected` = 载荷被网关拒、`staging-failed` = 本机暂存写失败）。第六类落地时定名 `unsupported-runtime` —— 票里写的是「平台不支持」，但 CONTEXT「社区平台」词条的 _Avoid_ 明确不许用「平台」指 Electron 运行环境，故避开。错误性质（能不能退避重试、算不算「连不上」）**只在一张 `KIND_TRAITS` 表里定义**，rateLimit 与 availability 都来查它；诊断 message 与界面文案分开：界面按 kind 走 i18n。
+
+锁测（全绿）：`tests/static/CommunityDomainWhitelist.test.ts`（域名白名单非空集 + `postUrl` 改道 + 无 `XMLHttpRequest` + **裸 `fetch` 只准出现在键音采样那一处**（变量 URL 绕道也拦得住）+ `implements CommunityTransport` 只有一处）；`tests/unit/community/`（`transport.test.ts` 429 退避后成功 / 超时统一错误 / 二进制只回路径 / 无桥降级 / 判定表；`rateLimit.test.ts`；`availability.test.ts`；`bestdori/endpoints.test.ts`）；`tests/platform/electron/`（`CommunityNetGateway.test.ts` 白名单 / 单飞与间隔 / 超时 / 响应与业务码 / 暂存落盘与写失败 / Cookie 附着；`CommunityCookies.test.ts`；`CommunityNetWiring.test.ts` IPC 注册 + preload/main 接线静态断言 + `<数据根>/downloads/` + **主进程兜底常量与端点文件同值的互锁**）。
+
+**口径补充（评审后写清，防止下游漂）**：
+- 「最多 3 次」= **含首次的 3 次尝试**（即最多重试 2 次）。
+- `withRetry` 只给**幂等**读路径用；11 的发布 / 上传是 POST，超时与 5xx 都可能「服务端其实已经收了」——写路径要不要退避由 11 自己定，别整段套上。
+- 官方**音频 / 封面**的 `/assets/*` URL 构建器还没进端点文件（07 用不到；桶规则也待实测）——08 用的时候**加进 `endpoints.ts`**（它就是那个唯一允许拿域名的文件），不要就地拼串。
+- `clear()` / `restore()` 是给 10 的登出与 safeStorage 接缝留的，07 不调用。
+
+全量 `vitest run`：222 文件 / 2459 用例通过（改动文件零类型报错；仓内既有 57 条 `tsc -p tsconfig.test.json` 报错与本次无关，未动）。
+
+### 2026-10-09 · 真机待验（单测覆盖不到，Fog）
+
+1. **`net.fetch` 是否吐出 `Set-Cookie`**：Electron 官方文档没承诺（`communityCookies.cjs` 的头注已记）。网关会从 `getSetCookie()` / `set-cookie` 两处取，取不到 jar 就是空的 —— **10 接登录时的第一件事**；要换实现只动 main.cjs 一处（出口是注入的）。
+2. 429 阈值 / Cookie TTL / 多点登录 → `docs/research/bestdori-api.md` §8。
+3. **手工三态验收（07 阶段没有界面）**：① 在线 —— Electron 里 DevTools 跑 `await window.electronAPI.communityNet.request({ url: 'https://bestdori.com/api/songs/all.5.json' })` → `{ok:true,…}`；② 断网 —— 同一条 → `{ok:false, error:{kind:'offline'}}`（不白屏、不循环报错）；③ 静态演示版 —— 浏览器里建 transport → `kind === 'none'`、请求抛 `unsupported-platform`（08 起由界面呈现「仅桌面版」）。
+4. **08 要接的缝**：二进制只回**暂存路径**。导入时怎么把暂存文件写进工程（扩 `projectStore` 收 stagedPath，还是主进程拷进工程目录）由 08 定 —— 07 只保证「字节不过 IPC」这条边界。

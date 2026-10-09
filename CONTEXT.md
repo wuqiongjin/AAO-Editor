@@ -144,7 +144,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, uiLanguage, uiTypeScale, uiFontStack, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出。**不含**窗体状态、**不含**数据根路径 |
 | 窗体状态 | Window chrome state | 这台机器上 OS 窗体的宽、高、是否最大化；与数据根路径同写 `userData/app-state.json`。_Avoid_: 塞进设置对象 / 导出配置；不要再为这类本机状态单开 json |
 | 窗体标题栏 | Window title bar | Electron **系统绘制**的 OS 标题栏与缩小/最大化/关闭。颜色跟主题；不是内容壳 **页面头**。_Avoid_: 把 OS 白条叫页面头 / 标题栏控件 |
-| 数据根 | Data root | Electron 上用户可选的自动落盘根目录（默认 `userData/data`，其下固定 `projects/` 与 `assets/`）。当前路径记在 `userData/app-state.json`。浏览器无此概念（仍 IndexedDB）。_Avoid_: 把「导出谱面代码」的另存路径叫数据根；不要把数据根叫 `projects` |
+| 数据根 | Data root | Electron 上用户可选的自动落盘根目录（默认 `userData/data`，其下固定 `projects/`、`assets/` 与 `downloads/`）。当前路径记在 `userData/app-state.json`。浏览器无此概念（仍 IndexedDB）。_Avoid_: 把「导出谱面代码」的另存路径叫数据根；不要把数据根叫 `projects` |
 | 上下文分域 | Context domains | 状态管理组织：`EditingContext`（音符/历史/选择）、`UIContext`（面板/缩放）、`ConfigContext`（设置）；`Editor` 只负责组装 |
 
 ## 应用页面壳（ADR-0007）
