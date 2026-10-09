@@ -1,59 +1,132 @@
-// 工程管理页的两个表单弹窗：新建（空白 / 复制）/ 编辑工程信息。
-import { useState } from 'react';
-import { Copy, FolderPlus } from 'lucide-react';
+// 工程管理页的两个表单弹窗：新建（四项来源）/ 编辑工程信息。
+//
+// 四项来源（票 12 归类，界面按这个说话）：空白创建 / 从本地谱面导入 / 从官方谱面导入 / 从社区谱面导入。
+// 官方这一支（票 08）实做在 OfficialSongPanel + officialImport；社区那一支留 09，这里只摆位。
+import { useCallback, useState } from 'react';
+import { AlertTriangle, Copy, FolderPlus, Music4, Users } from 'lucide-react';
 import type { ChartDifficulty, ChartProject, SongSource } from '../../../project/ChartProject';
 import { DIFF_NAMES, type updateProjectInfo } from '../../../project/projectCatalog';
 import { displayProjectName, untitledProjectLabel } from '../../../project/ui/projectUi';
 import ActionBtn from '../../../ui/ActionBtn';
 import CoverField, { useCoverUrl, type CoverValue } from '../../../ui/CoverField';
 import Dialog from '../../../ui/Dialog';
-import { t } from '../../../i18n';
+import type { CommunityTransport } from '../../../community/transport';
+import { t, type MessageKey } from '../../../i18n';
 import { parseSource } from '../projectFormat';
+import type { OfficialImportStage } from '../officialImport';
+import { OfficialSongPanel, type OfficialSongSelection } from './OfficialSongPanel';
 
-export type NewSource = 'blank' | 'copy';
+/** 导入阶段 → 文案键（与 OfficialImportStage 同一处：漏一个编译不过，别用模板串拼键） */
+const STAGE_KEYS = {
+  audio: 'projects.official.stage.audio',
+  cover: 'projects.official.stage.cover',
+  chart: 'projects.official.stage.chart',
+  save: 'projects.official.stage.save',
+} satisfies Record<OfficialImportStage, MessageKey>;
+
+export type NewSource = 'blank' | 'copy' | 'official' | 'community';
+
+/** 官方导入的回执：失败时给一句能读的话（按错误域 kind 翻的），弹窗就地显示 */
+export type OfficialImportReply = { ok: true } | { ok: false; message: string };
 
 export function NewProjectDialog({
-  initialSource, projects, onClose, onCreate, onCopy,
+  initialSource, projects, onClose, onCreate, onCopy, onImportOfficial, transport, importSources = false,
 }: {
   initialSource: NewSource;
   projects: ChartProject[];
   onClose: () => void;
   onCreate: (input: { name: string; artist: string; diff: ChartDifficulty }) => void;
   onCopy: (projectId: string) => void;
+  onImportOfficial: (
+    selection: OfficialSongSelection,
+    onStage: (stage: OfficialImportStage) => void,
+  ) => Promise<OfficialImportReply>;
+  /** 注入点：测试塞假出口；不传走 IPC 出口 */
+  transport?: CommunityTransport;
+  /** 有没有社区平台出口：静态演示版只留前两支（票 12 / ADR-0011 §1） */
+  importSources?: boolean;
 }) {
   const [source, setSource] = useState<NewSource>(initialSource);
   const [name, setName] = useState('');
   const [artist, setArtist] = useState('');
   const [diff, setDiff] = useState<ChartDifficulty>(3);
   const [copyFrom, setCopyFrom] = useState(projects[0]?.id ?? '');
+  const [official, setOfficial] = useState<OfficialSongSelection | null>(null);
+  // 导入中：下载 4MB 音频期间**不许关窗**（网关一次性的请求已经在飞，关掉只会让人以为「取消了」，
+  // 结果工程照样建出来）。阶段文案代替字节级进度 —— 网关没有进度事件（票 07 定案）。
+  const [stage, setStage] = useState<OfficialImportStage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const busy = stage !== null;
+
+  const pickOfficial = useCallback((next: OfficialSongSelection | null) => setOfficial(next), []);
+  const close = () => { if (!busy) onClose(); };
+
+  const submit = () => {
+    if (source === 'copy') { onCopy(copyFrom); return; }
+    if (source === 'official') {
+      if (!official) return;
+      setError(null);
+      setStage('audio');
+      void onImportOfficial(official, setStage)
+        .then((reply) => {
+          if (!reply.ok) {
+            setError(reply.message);
+            setStage(null);
+          }
+        })
+        .catch(() => {
+          setError(t('projects.official.err.generic'));
+          setStage(null);
+        });
+      return;
+    }
+    if (source === 'community') return;
+    onCreate({ name, artist, diff });
+  };
+
+  const confirmDisabled = busy
+    || (source === 'copy' && !copyFrom)
+    || (source === 'official' && !official)
+    || source === 'community';
 
   return (
     <Dialog
+      // 选曲面板要一列目录 + 一列预览，走大档；其余三支沿用表单档（票 12：尺寸档位沿用）
+      size={source === 'official' || source === 'community' ? 'lg' : 'md'}
       title={t('projects.newDialogTitle')}
       hint={t('projects.newHint')}
-      onClose={onClose}
+      onClose={close}
       footer={(
         <>
-          <ActionBtn onClick={onClose}>{t('projects.cancel')}</ActionBtn>
-          <ActionBtn
-            variant="primary"
-            disabled={source === 'copy' && !copyFrom}
-            onClick={() => (source === 'copy' ? onCopy(copyFrom) : onCreate({ name, artist, diff }))}
-          >
-            {source === 'copy' ? t('projects.copyAction') : t('projects.createOpen')}
-          </ActionBtn>
+          <ActionBtn onClick={close} disabled={busy}>{t('projects.cancel')}</ActionBtn>
+          {source !== 'community' && (
+            <ActionBtn variant="primary" disabled={confirmDisabled} onClick={submit}>
+              {source === 'copy' ? t('projects.copyAction') : t('projects.createOpen')}
+            </ActionBtn>
+          )}
         </>
       )}
     >
       <div className="dialog-tabs">
-        <button type="button" className={source === 'blank' ? 'is-active' : ''} onClick={() => setSource('blank')}>
+        <button type="button" className={source === 'blank' ? 'is-active' : ''} disabled={busy} onClick={() => setSource('blank')}>
           <FolderPlus size={14} />{t('projects.newBlank')}
         </button>
-        <button type="button" className={source === 'copy' ? 'is-active' : ''} onClick={() => setSource('copy')} disabled={projects.length === 0}>
+        <button type="button" className={source === 'copy' ? 'is-active' : ''} disabled={busy || projects.length === 0} onClick={() => setSource('copy')}>
           <Copy size={14} />{t('projects.newCopy')}
         </button>
+        {importSources && (
+          <>
+            <button type="button" className={source === 'official' ? 'is-active' : ''} disabled={busy} onClick={() => setSource('official')}>
+              <Music4 size={14} />{t('projects.newOfficial')}
+            </button>
+            <button type="button" className={source === 'community' ? 'is-active' : ''} disabled={busy} onClick={() => setSource('community')}>
+              <Users size={14} />{t('projects.newCommunity')}
+            </button>
+          </>
+        )}
       </div>
-      {source === 'copy' ? (
+
+      {source === 'copy' && (
         <label className="dialog-field">
           <span>{t('projects.copyWhich')}</span>
           <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
@@ -63,7 +136,9 @@ export function NewProjectDialog({
           </select>
           <small>{t('projects.copyHint')}</small>
         </label>
-      ) : (
+      )}
+
+      {source === 'blank' && (
         <>
           <div className="dialog-field-row">
             <label className="dialog-field"><span>{t('projects.name')}</span><input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} /></label>
@@ -77,6 +152,26 @@ export function NewProjectDialog({
           </label>
         </>
       )}
+
+      {source === 'official' && (
+        <>
+          <OfficialSongPanel selection={official} onSelectionChange={pickOfficial} transport={transport} />
+          {stage && (
+            <p className="off-status off-status--busy" role="status">
+              <span className="off-spinner" aria-hidden="true" />
+              {t(STAGE_KEYS[stage])}
+            </p>
+          )}
+          {error && (
+            <div className="error-banner" role="alert">
+              <AlertTriangle size={18} />
+              <div><strong>{t('projects.official.importFail')}</strong><p style={{ margin: 0 }}>{error}</p></div>
+            </div>
+          )}
+        </>
+      )}
+
+      {source === 'community' && <p className="off-status">{t('projects.community.notYet')}</p>}
     </Dialog>
   );
 }

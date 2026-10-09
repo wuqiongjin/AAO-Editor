@@ -39,6 +39,12 @@ export interface ProjectPutWire {
   };
   audio?: Uint8Array;
   cover?: Uint8Array;
+  /**
+   * intent=set 时也可以给「下载暂存里的路径」代替字节（票 08：官方 / 社区导入的音频与封面
+   * 由主进程从 `<数据根>/downloads/` 拷进工程目录，字节不过 IPC）。给了它就优先于上面的字节。
+   */
+  audioStagedPath?: string;
+  coverStagedPath?: string;
 }
 
 /** 主进程 → 渲染进程 get 返回（null = 无数据 / 旧 schema） */

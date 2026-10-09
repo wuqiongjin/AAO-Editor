@@ -59,9 +59,22 @@ export interface ChartProject {
   coverBlob?: Blob;
 }
 
+/**
+ * 一次落盘里「这份二进制从下载暂存来」的声明：值是主进程网关给的暂存文件路径
+ * （`<数据根>/downloads/` 里的那一个；票 07 只回路径不回字节）。
+ *
+ * 名字不在这里：`audioName` / `coverName` 是**工程记录**的字段，由工程对象自己带
+ * （见 `OfficialProjectInput`）——暂存只是字节的来路。
+ */
+export interface ProjectBinarySources {
+  audioStagedPath?: string;
+  coverStagedPath?: string;
+}
+
 export interface ChartProjectBackend {
   get(id: string): Promise<ChartProject | null>;
-  save(project: ChartProject): Promise<void>;
+  /** `staged`：这份二进制来自下载暂存，由主进程从暂存拷进工程（字节不过 IPC） */
+  save(project: ChartProject, staged?: ProjectBinarySources): Promise<void>;
   list(): Promise<ChartProject[]>;
   delete(id: string): Promise<void>;
 }
@@ -74,11 +87,27 @@ export function newProjectId(): string {
   return `p${crypto.randomUUID().replace(/-/g, '')}`;
 }
 
-async function blobIntent(
+/**
+ * 「盘上那份二进制现在是什么」的记忆：真实 Blob / 没有 / **有但手里没字节**。
+ * 第三种是暂存导入留下的——主进程已经把暂存文件拷进工程，本会话没有它的 Blob；
+ * 这时再来一次「不带 blob 的 save」（比如改了工程名）语义是 keep 而不是 clear，
+ * 否则会在下一次保存时把刚导入的音频 / 封面抹掉。
+ */
+const STAGED_ON_DISK = Symbol('staged-binary-on-disk');
+type RememberedBinary = Blob | null | typeof STAGED_ON_DISK;
+
+/** 一次 save 的二进制意图：暂存 > 手里的 Blob > 沿用盘上那份（见 STAGED_ON_DISK） */
+async function binaryIntent(
   blob: Blob | undefined,
-  lastWritten: Blob | null,
-): Promise<{ intent: BinaryIntent; bytes?: Uint8Array; next: Blob | null }> {
-  if (blob == null) return { intent: 'cleared', next: null };
+  stagedPath: string | undefined,
+  lastWritten: RememberedBinary,
+): Promise<{ intent: BinaryIntent; bytes?: Uint8Array; stagedPath?: string; next: RememberedBinary }> {
+  if (stagedPath != null && stagedPath !== '') return { intent: 'set', stagedPath, next: STAGED_ON_DISK };
+  if (blob == null) {
+    return lastWritten === STAGED_ON_DISK
+      ? { intent: 'keep', next: STAGED_ON_DISK }
+      : { intent: 'cleared', next: null };
+  }
   if (blob === lastWritten) return { intent: 'keep', next: lastWritten };
   return { intent: 'set', bytes: new Uint8Array(await blob.arrayBuffer()), next: blob };
 }
@@ -123,7 +152,14 @@ export class IndexedDbProjectBackend implements ChartProjectBackend {
     });
   }
 
-  async save(project: ChartProject): Promise<void> {
+  /**
+   * 浏览器后端**不支持**暂存导入：暂存文件在主进程的数据根里，渲染进程读不到字节
+   * （官方 / 社区导入这两支在静态演示版本就被隐藏，走到这里说明接线错了，宁可炸也不静默丢素材）。
+   */
+  async save(project: ChartProject, staged: ProjectBinarySources = {}): Promise<void> {
+    if (staged.audioStagedPath || staged.coverStagedPath) {
+      throw new Error('浏览器后端不支持从下载暂存导入素材');
+    }
     const db = await this.db();
     const existing = await this.rawGet(db, project.id);
     if (!canReplaceStoredProject(existing)) {
@@ -189,9 +225,9 @@ function getElectronProjectBridge(): ElectronProjectBridge | null {
 }
 
 export class ElectronFileProjectBackend implements ChartProjectBackend {
-  /** 按工程记住上次落盘的 Blob 身份；相同 ⇒ keep，避免防抖保存重传大文件 */
-  private lastWrittenAudio = new Map<string, Blob | null>();
-  private lastWrittenCover = new Map<string, Blob | null>();
+  /** 按工程记住上次落盘的 Blob 身份；相同 ⇒ keep，避免防抖保存重传大文件（暂存写进来的见 STAGED_ON_DISK） */
+  private lastWrittenAudio = new Map<string, RememberedBinary>();
+  private lastWrittenCover = new Map<string, RememberedBinary>();
   private bridge: ElectronProjectBridge;
 
   constructor(bridge: ElectronProjectBridge) {
@@ -208,12 +244,12 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
     return project;
   }
 
-  async save(project: ChartProject): Promise<void> {
+  async save(project: ChartProject, staged: ProjectBinarySources = {}): Promise<void> {
     assertValidProjectId(project.id);
     const prevAudio = this.lastWrittenAudio.get(project.id) ?? null;
     const prevCover = this.lastWrittenCover.get(project.id) ?? null;
-    const audio = await blobIntent(project.audioBlob, prevAudio);
-    const cover = await blobIntent(project.coverBlob, prevCover);
+    const audio = await binaryIntent(project.audioBlob, staged.audioStagedPath, prevAudio);
+    const cover = await binaryIntent(project.coverBlob, staged.coverStagedPath, prevCover);
     this.lastWrittenAudio.set(project.id, audio.next);
     this.lastWrittenCover.set(project.id, cover.next);
     try {
@@ -221,7 +257,9 @@ export class ElectronFileProjectBackend implements ChartProjectBackend {
         id: project.id,
         doc: recordFromProject(project, audio.intent, cover.intent),
         ...(audio.bytes != null ? { audio: audio.bytes } : {}),
+        ...(audio.stagedPath != null ? { audioStagedPath: audio.stagedPath } : {}),
         ...(cover.bytes != null ? { cover: cover.bytes } : {}),
+        ...(cover.stagedPath != null ? { coverStagedPath: cover.stagedPath } : {}),
       });
     } catch (err) {
       this.lastWrittenAudio.set(project.id, prevAudio);
@@ -284,12 +322,12 @@ export class ChartProjectStore {
     return project;
   }
 
-  save(project: ChartProject): Promise<void> {
+  save(project: ChartProject, staged?: ProjectBinarySources): Promise<void> {
     const floor = this.lastOpenedFloor.get(project.id) ?? 0;
     const lastOpened = Math.max(floor, project.lastOpened);
     this.lastOpenedFloor.set(project.id, lastOpened);
     const stable = this.stabilizeCover(project);
-    return this.backend.save(lastOpened === stable.lastOpened ? stable : { ...stable, lastOpened });
+    return this.backend.save(lastOpened === stable.lastOpened ? stable : { ...stable, lastOpened }, staged);
   }
 
   async list(): Promise<ChartProject[]> {

@@ -1,6 +1,6 @@
 // 工程管理页的启动台视图（原 ProjectsPage.tsx 的 ProjectStartView + 0 工程引导横幅）。
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Copy, FolderPlus, Music2, Play } from 'lucide-react';
+import { Copy, FolderPlus, Music2, Music4, Play, Users } from 'lucide-react';
 import type { ChartProject } from '../../../project/ChartProject';
 import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT } from '../../../project/projectCatalog';
 import { mostRecentlyOpenedId, PROJECT_SORT_KEYS, type ProjectSortKey } from '../../../project/projectSort';
@@ -30,7 +30,7 @@ function GuideBanner() {
 }
 
 export function ProjectStartView({
-  list, currentId, sort, onSort, onDetail, onOpen, onNew, projectMenu,
+  list, currentId, sort, onSort, onDetail, onOpen, onNew, projectMenu, importSources = false,
 }: {
   list: ChartProject[];
   currentId: string | null;
@@ -40,6 +40,8 @@ export function ProjectStartView({
   onOpen: (id: string, chartId?: string) => void;
   onNew: (src: NewSource) => void;
   projectMenu: (p: ChartProject) => ReactNode;
+  /** 有没有社区平台出口（静态演示版没有）：决定官方 / 社区两格露不露 */
+  importSources?: boolean;
 }) {
   const { activePage } = useAppNav();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -157,6 +159,17 @@ export function ProjectStartView({
           <button type="button" className="pb-tile" disabled={list.length === 0} onClick={() => onNew('copy')}>
             <Copy size={20} /><b>{t('projects.newCopy')}</b><small>{t('projects.newCopyDesc')}</small>
           </button>
+          {/* 官方 / 社区两支要连社区平台，静态演示版（无出口）只隐藏这两格（票 12；ADR-0011 §1） */}
+          {importSources && (
+            <>
+              <button type="button" className="pb-tile" onClick={() => onNew('official')}>
+                <Music4 size={20} /><b>{t('projects.newOfficial')}</b><small>{t('projects.newOfficialDesc')}</small>
+              </button>
+              <button type="button" className="pb-tile" onClick={() => onNew('community')}>
+                <Users size={20} /><b>{t('projects.newCommunity')}</b><small>{t('projects.newCommunityDesc')}</small>
+              </button>
+            </>
+          )}
         </div>
       </section>
       <section>

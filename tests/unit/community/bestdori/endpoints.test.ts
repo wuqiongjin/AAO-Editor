@@ -10,8 +10,12 @@ import {
   BESTDORI_RETRY_POLICY,
   BESTDORI_USER_AGENT,
   OFFICIAL_DIFFICULTIES,
+  bandsIndexUrl,
   bestdoriHeaders,
+  isPlatformFallbackPage,
+  officialAudioUrl,
   officialChartUrl,
+  officialJacketUrl,
   postDetailUrl,
   postListUrl,
   postUrl,
@@ -39,6 +43,27 @@ describe('票 07 · 端点 URL', () => {
 
   it('难度路径段 = 官方 0..4 的五个名字', () => {
     expect(OFFICIAL_DIFFICULTIES).toEqual(['easy', 'normal', 'hard', 'expert', 'special']);
+  });
+
+  it('官方素材 URL（票 08 实测口径）：封面包 ceil(id/10)*10、音频按 bgmId、服务器按曲挑', () => {
+    expect(bandsIndexUrl()).toBe(`${BESTDORI_ORIGIN}/api/bands/all.1.json`);
+
+    // song 29 → 桶 30（相邻桶回的是 SPA 回退页，实测）
+    expect(officialJacketUrl(29, 'blackshout')).toBe(
+      `${BESTDORI_ORIGIN}/assets/jp/musicjacket/musicjacket30_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket30-blackshout-jacket.png`,
+    );
+    // 合作曲：桶继续按 id 算（1004 → 1010），但素材只在首发服
+    expect(officialJacketUrl(1004, '1004_see_the_world_eng', 'en')).toBe(
+      `${BESTDORI_ORIGIN}/assets/en/musicjacket/musicjacket1010_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket1010-1004_see_the_world_eng-jacket.png`,
+    );
+    expect(officialAudioUrl('bgm001')).toBe(`${BESTDORI_ORIGIN}/assets/jp/sound/bgm001_rip/bgm001.mp3`);
+    expect(officialAudioUrl('bgm1004', 'en')).toBe(`${BESTDORI_ORIGIN}/assets/en/sound/bgm1004_rip/bgm1004.mp3`);
+  });
+
+  it('回退页判定：平台对不存在的资源回 200 + text/html（不是 404）', () => {
+    expect(isPlatformFallbackPage('text/html; charset=utf-8')).toBe(true);
+    expect(isPlatformFallbackPage('audio/mpeg')).toBe(false);
+    expect(isPlatformFallbackPage(null)).toBe(false);
   });
 });
 

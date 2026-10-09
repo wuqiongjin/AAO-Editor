@@ -90,6 +90,79 @@ describe('electron/projectStore · 真文件往返', () => {
     }
   });
 
+  it('票 08 · 从下载暂存拷素材进工程：字节不过 IPC，present 照常算', async () => {
+    const root = tmpDir('tsugu-proj-staged-');
+    try {
+      ensureDataRootLayoutSync(root);
+      writeFileSync(join(root, 'downloads', 'abc-bgm001.mp3'), Buffer.from([5, 6, 7]));
+      writeFileSync(join(root, 'downloads', 'abc-jacket.png'), Buffer.from([8, 8]));
+
+      await putProject(root, {
+        id: 'pStaged',
+        doc: doc({
+          audioIntent: 'set',
+          coverIntent: 'set',
+          audioName: 'bgm001.mp3',
+          coverName: 'yes_bang_dream.png',
+        }),
+        audioStagedPath: join(root, 'downloads', 'abc-bgm001.mp3'),
+        coverStagedPath: join(root, 'downloads', 'abc-jacket.png'),
+      });
+
+      const got = await getProject(root, 'pStaged');
+      if (!got) throw new Error('expected pStaged');
+      expect(Buffer.from(got.audio ?? [])).toEqual(Buffer.from([5, 6, 7]));
+      expect(Buffer.from(got.cover ?? [])).toEqual(Buffer.from([8, 8]));
+      expect(got.doc.audioPresent).toBe(true);
+      expect(got.doc.coverPresent).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('票 08 · 暂存之外的路径一律拒（暂存路径来自渲染进程，必须卡在 downloads/ 内）', async () => {
+    const root = tmpDir('tsugu-proj-staged-');
+    try {
+      ensureDataRootLayoutSync(root);
+      writeFileSync(join(root, 'secret.bin'), Buffer.from([1]));
+      const stagedDoc = doc({ audioIntent: 'set' as const, audioName: 'a.mp3' });
+
+      // 数据根里的普通文件
+      await expect(putProject(root, {
+        id: 'pOut1',
+        doc: stagedDoc,
+        audioStagedPath: join(root, 'secret.bin'),
+      })).rejects.toThrow('拒绝从下载暂存之外拷贝素材');
+
+      // 目录穿越写法（resolve 之后落在 downloads/ 外）
+      await expect(putProject(root, {
+        id: 'pOut2',
+        doc: stagedDoc,
+        audioStagedPath: join(root, 'downloads', '..', 'secret.bin'),
+      })).rejects.toThrow('拒绝从下载暂存之外拷贝素材');
+
+      expect(existsSync(join(root, 'projects', 'pOut1', 'project.json'))).toBe(false);
+      expect(existsSync(join(root, 'projects', 'pOut2', 'project.json'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('票 08 · 暂存文件不见了就整笔失败：不写一个「说有音频却没有」的工程', async () => {
+    const root = tmpDir('tsugu-proj-staged-');
+    try {
+      ensureDataRootLayoutSync(root);
+      await expect(putProject(root, {
+        id: 'pGone',
+        doc: doc({ audioIntent: 'set' as const, audioName: 'a.mp3' }),
+        audioStagedPath: join(root, 'downloads', 'never-downloaded.mp3'),
+      })).rejects.toThrow();
+      expect(existsSync(join(root, 'projects', 'pGone', 'project.json'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('旧「一份 notes」记录读回为不存在，磁盘文件不被删除', async () => {
     const root = tmpDir('tsugu-proj-v1-');
     try {

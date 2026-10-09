@@ -26,6 +26,15 @@ export function getCommunityNetBridge(): CommunityNetBridge | null {
   return api?.communityNet ?? null;
 }
 
+/**
+ * 这台机器有没有社区平台出口 —— 静态演示版没有（ADR-0011 §1）。
+ * 判定口径与全仓既有惯例一致：`window.electronAPI` 缺失即静态演示版（如 ChartProject.ts 的自动选后端）。
+ * 官方 / 社区两支导入按它隐藏，留空白与本地导入两支（票 12）。
+ */
+export function hasCommunityNet(): boolean {
+  return getCommunityNetBridge() !== null;
+}
+
 type CommunityWireOk = Extract<CommunityWireResult, { ok: true }>;
 
 function mismatch(expected: string, actual: string): CommunityError {

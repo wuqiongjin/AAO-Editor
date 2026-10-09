@@ -273,3 +273,94 @@
 .pc-uploads li { display: flex; align-items: center; gap: 8px; }
 .pc-uploads a { color: var(--accent-text); }
 .pp-pill__diff { display: inline-grid; place-items: center; min-width: 22px; height: 16px; padding: 0 4px; border-radius: var(--radius-full); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+
+/* ---- 官方曲导入面板（票 08）：左目录 + 右预览，撑满大档弹窗的正文区 ---- */
+.off-panel { display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1; }
+.off-bar { display: flex; align-items: center; gap: 10px; }
+.off-search {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+.off-search:focus { outline: none; border-color: var(--accent); }
+.off-count { font-size: var(--text-xs); white-space: nowrap; }
+.off-status { margin: 0; color: var(--text-muted); font-size: var(--text-sm); }
+/* 导入进行中：阶段文案 + 转圈（网关是一次性请求，给不出字节级进度） */
+.off-status--busy { display: flex; align-items: center; gap: 8px; color: var(--accent-text); }
+.off-spinner {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: off-spin .8s linear infinite;
+}
+@keyframes off-spin { to { transform: rotate(360deg); } }
+.off-body { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: 16px; align-items: start; min-height: 0; }
+/* 822 首的目录：只渲染视口附近的行（Chromium 支持，jsdom 忽略；这里只是性能，不是布局） */
+.off-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.off-list li + li { border-top: 1px solid var(--border); }
+.off-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 46px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.off-row:hover { background-color: var(--bg-inset); }
+.off-row.is-active { background-color: var(--bg-inset); box-shadow: inset 2px 0 0 var(--accent); }
+.off-row__title { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.off-row__artist { font-size: var(--text-xs); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.off-row__levels { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
+.off-row__levels em { padding: 0 5px; border: 1px solid; border-radius: var(--radius-full); font-size: var(--text-2xs); font-style: normal; color: var(--text-muted); }
+.off-preview { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.off-cover {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-inset);
+  color: var(--text-subtle);
+  overflow: hidden;
+}
+.off-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.off-preview__title { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.off-levels { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: var(--text-xs); }
+.off-levels li { display: flex; align-items: center; gap: 6px; }
+.off-levels li b { margin-left: auto; font-weight: 600; }
+.off-levels li.is-missing { color: var(--text-subtle); }
+.off-levels li.is-missing .pp-pill__diff { opacity: .4; }
+.off-audio { width: 100%; height: 32px; }
+.off-note { margin: 0; color: var(--text-subtle); font-size: var(--text-xs); line-height: 1.6; }
+.off-check { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); }
+/* 窄窗（小屏 / 弹窗压到 92vw）：预览退回列表下方，目录矮一截 */
+@media (max-width: 820px) {
+  .off-body { grid-template-columns: minmax(0, 1fr); }
+  .off-list { max-height: 240px; }
+  .off-preview { max-width: 260px; }
+}

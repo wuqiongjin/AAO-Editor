@@ -11,12 +11,19 @@ import { useMemo, type ReactElement, type ReactNode } from 'react';
 import { render, type RenderOptions, type RenderResult } from '@testing-library/react';
 import { AudioSession, createAudioSession } from '@/src/audio/AudioSession';
 import type { AudioEngine } from '@/src/audio/AudioEngine';
-import { ChartProjectStore, type ChartProject, type ChartProjectBackend } from '@/src/project/ChartProject';
+import { ChartProjectStore, type ChartProject, type ChartProjectBackend, type ProjectBinarySources } from '@/src/project/ChartProject';
 import { CurrentProjectProvider } from '@/src/app/providers/CurrentProjectProvider';
 import { AudioSessionProvider } from '@/src/app/providers/AudioSessionProvider';
 
-/** 内存版工程后端：读写都落在 Map 上，不落盘、不碰 IndexedDB。 */
-export type MemoryProjectBackend = ChartProjectBackend & { disk: Map<string, ChartProject> };
+/**
+ * 内存版工程后端：读写都落在 Map 上，不落盘、不碰 IndexedDB。
+ * `staged` 记下「这份素材来自下载暂存」（真实后端由主进程把暂存文件拷进工程目录，内存替身没有 fs，
+ * 只把声明留下来给断言用；工程记录侧的 `audioName` / `coverName` 照常写）。
+ */
+export type MemoryProjectBackend = ChartProjectBackend & {
+  disk: Map<string, ChartProject>;
+  staged: Map<string, ProjectBinarySources>;
+};
 
 /**
  * `cloneBlobsOnRead`：每次读回都新建 Blob 对象，近似 IndexedDB `getAll()` 反序列化 /
@@ -37,11 +44,14 @@ export function makeMemoryProjectBackend(
       ...(p.coverBlob ? { coverBlob: new Blob([p.coverBlob], { type: p.coverBlob.type }) } : {}),
     };
   };
+  const staged = new Map<string, ProjectBinarySources>();
   return {
     disk,
+    staged,
     get: async (id) => read(disk.get(id)),
-    save: async (project) => {
+    save: async (project, sources = {}) => {
       disk.set(project.id, project);
+      if (sources.audioStagedPath || sources.coverStagedPath) staged.set(project.id, sources);
     },
     list: async () => [...disk.values()].map((p) => read(p)!),
     delete: async (id) => {

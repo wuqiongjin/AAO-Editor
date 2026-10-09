@@ -10,12 +10,15 @@ import { describe, it, expect } from 'vitest';
 import { readStripped, repoRoot } from '@/tests/support/source';
 
 const DURATION = 'src/audio/chartDuration.ts';
-/** 夹取的调用点（会话 / 记录写 / 播放协调 / 音频页）—— 多一处即回潮 */
+/** 夹取的调用点（会话 / 记录写 / 播放协调 / 音频页 / 官方曲建工程）—— 多一处即回潮 */
 const CALLERS = [
   'src/audio/AudioSession.ts',
   'src/audio/projectAudio.ts',
   'src/playback/usePlaybackCoordinator.ts',
   'src/pages/audio/AudioPage.tsx',
+  // bestdori-integration 08：官方曲长是**平台来的外部值**（实测 120.048 这种），
+  // 在「建工程」这条边界上夹一次；夹取口径仍是 chartDuration 那一份，没有第二份实现。
+  'src/project/projectCatalog.ts',
 ];
 
 /** src/ 下全部 .ts/.tsx（相对仓库根的路径） */
@@ -41,7 +44,7 @@ describe('architecture-refactor 10 · 谱面时长语义的落点', () => {
     expect(duration).toMatch(/MAX_DURATION_SECONDS/);
   });
 
-  it('夹取的调用点只有四处（会话 / 记录写 / 播放协调 / 音频页）', () => {
+  it('夹取的调用点只有五处（会话 / 记录写 / 播放协调 / 音频页 / 官方曲建工程）', () => {
     const callSites = files
       .filter((f) => f !== DURATION)
       .filter((f) => /clampChartDuration\s*\(/.test(readStripped(f)));

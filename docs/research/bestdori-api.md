@@ -31,7 +31,7 @@
 "1": {
   "tag": "normal", "bandId": 1,
   "jacketImage": ["yes_bang_dream", ...],
-  "musicTitle": [ja, en, zh-Hans, zh-Hant, ko, ...],
+  "musicTitle": [jp, en, tw, cn, kr],
   "publishedAt": [各服毫秒时间戳], "closedAt": [...],
   "difficulty": {
     "0": {"playLevel": 5}, "1": {"playLevel": 10}, "2": {"playLevel": 17},
@@ -42,6 +42,10 @@
 ```
 
 难度编号 `0..4` = easy / normal / hard / expert / special；`difficulty` 中**出现的键即该曲已实装的难度**（special 通常带 per-server `publishedAt`）。
+
+**本地化数组的服序是 `[jp, en, tw, cn, kr]`（2026-10-09 复核，票 08）**：即 **index 2 = 繁中（tw）、index 3 = 简中（cn）**。本文初版把简中记在 index 2，与实盘数据不符 —— 证据：song 49 为 `["天体観測","Tentai Kansoku","天體觀測","天体観測",…]`、song 87 为 `[…,"殘酷な天使のテーゼ","残酷な天使のテーゼ",…]`（繁体在 index 2、日文形在 index 3）；`publishedAt` 同理（song 1004 只在 index 1 有值 = 仅英文服实装）。全文其余处提到「server = jp/en/tw/kr/cn」的**音频路径**顺序不受影响（那是路径名，不是数组下标）。
+
+**没有 artist 字段**：曲库条目与单曲详情都只有 `bandId`。官方曲的「歌手」只能取乐队索引的 `bandName`（见下）。
 
 ### GET `/api/songs/{id}.json`
 
@@ -61,6 +65,12 @@
 ### GET `/api/songs/meta/all.{n}.json`
 
 歌曲 meta（BPM / 时长等）。实测 `all.1.json` 404、`all.2.json` 200（版本号 2）。
+
+### GET `/api/bands/all.1.json`
+
+乐队索引：`{"1": {"bandName": [jp, en, tw, cn, kr]}, …}`，112 支（含 `1004` / `10002` / `10003` 这类合作艺人），`bandName` 的某些位次是 `null`。
+
+官方曲的**歌手**只有这里给（条目与详情都没有 artist 字段）：界面上的「官方歌手」= 这首歌 `bandId` 对应的 `bandName`（按服序取第一个非空）。
 
 ## 2. 社区谱面（= `SELF_POST`/`chart` 分类的帖子）
 
@@ -178,8 +188,12 @@ JSON body（实测约束）：
 
 | 资源 | 模式 | 实测 |
 | --- | --- | --- |
-| 官方完整音频 | `/assets/{server}/sound/bgm{bgmId:03d}_rip/bgm{bgmId:03d}.mp3`（`bgmId` 取自 `/api/songs/{id}.json`；server = jp/en/tw/kr/cn） | song 1 → `bgm001`，200，audio/mpeg，约 4 MB（完整曲，非预览） |
-| 专辑封面 | `/assets/{server}/musicjacket/musicjacket{bucket}_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket{bucket}-{jacketImage}-jacket.png`（`jacketImage` 取自 `all.5.json`） | song 1（`yes_bang_dream`）：`musicjacket10` → 200（97KB，正确封面）；`musicjacket00` → 200 但 14KB（非该封面）。**bucket 求值规则待确认**（假设 `ceil(id/10)*10`，实现时抽查） |
+| 官方完整音频 | `/assets/{server}/sound/{bgmId}_rip/{bgmId}.mp3`（`bgmId` 形如 `bgm001`，取自 `/api/songs/{id}.json`；server = jp/en/tw/cn/kr） | song 1 → `bgm001`，200，audio/mpeg，约 4 MB（完整曲，非预览；带 Range 时回 206） |
+| 专辑封面 | `/assets/{server}/musicjacket/musicjacket{bucket}_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket{bucket}-{jacketImage}-jacket.png`（`jacketImage` 取自 `all.5.json`） | song 1（`yes_bang_dream`）：`musicjacket10` → 200（97KB，正确封面）；`musicjacket00` → 200 但 14KB（非该封面） |
+
+**bucket 求值规则 = `ceil(songId / 10) * 10`（2026-10-09 实测确认，票 08）**：song 1→10（97KB）、29→30（98KB）、100→100（39KB）、500→500（87KB）、822→830（70KB）全部命中真图；相邻桶（10 / 30→20 / 500→490 / 830→820 …）一律回下面那个「回退页」。合作曲（`1004` / `10002` / `10003`）桶照算（1004→1010），但**素材只在首发服有**。
+
+**「资源不存在」的回退页**：不存在的 `/assets/*` 也是 **HTTP 200 + SPA 回退页**（`content-type: text/html`，约 14KB），不是 404。二进制落地前必须按 content-type 判掉，否则会把一张网页当成封面 / 音频写进工程。据此还发现一条口径：**合作曲只在首发服有素材** —— song 1004 的封面包与 `bgm1004.mp3` 在 jp / tw / cn / kr 全是回退页，只有 en 有真文件（`songs/all.5.json` 的 `publishedAt` 数组 = 按服挑素材的现成依据）。
 
 注意：社区谱面若 `song.type="bandori"`，播放同样依赖上述官方音频端点。
 
@@ -203,7 +217,7 @@ JSON body（实测约束）：
 2. 发布帖 `diff` / `level` 的合法取值域（已确认 `diff:0` + `level:1` 可通过；`level` 0/36 拒。全值域未扫完）。
 3. 发布帖 `content` 富文本块完整语法（`text` / `br` / `emoji` …）与 5000 字符上限的计量方式。
 4. `order` 全部合法值（`LIKE_DESC` 无效，是否还有 `LIKE_ASC` 等）。
-5. musicjacket bucket 求值规则（§6）。
+5. ~~musicjacket bucket 求值规则~~（2026-10-09：`ceil(songId/10)*10`，见 §6）。
 6. 429 限流的实际阈值与封禁形态。
 7. `song.type="bandori"` 社区谱面在站内播放用的音频是否为完整曲（影响我们浏览功能的音频体验与流量）。
 
