@@ -638,6 +638,16 @@
   flex: 0 0 auto;
 }
 
+/* 按压时读数与图标不许动（chart-preview 28）：全站那记 `.icon-btn:active { transform: scale(0.98) }`
+   是"整块钮连着内容一起缩"，压在这个钮上就表现为**读数与图标被重采样跳一下** —— 实测图标墨迹
+   质心按住时 +0.47 设备px（DPR 1）/ +0.92px（DPR 2），松开复位；用户读成"点一下，倍速的图标往
+   斜上移动、松开又回来"。这里把这个钮的几何反馈换成**不改盒子**的按压色（深浅与 `--bg-active` 同档；
+   色值混自当前态的两个 token —— 全屏台上态 `--bg-hover` / `--text` 一起换，不落硬编码色值）。 */
+.pv-rate .icon-btn:active:not(:disabled) {
+  transform: none;
+  background-color: color-mix(in srgb, var(--bg-hover) 88%, var(--text));
+}
+
 /* 绝对定位的元素默认按"可用宽度"（= 触钮那点宽度）收缩，所以这里必须显式要 `max-content`，
    否则最宽的那一行（自定义输入那行）会顶出面板右缘 */
 .pv-rate__panel {
