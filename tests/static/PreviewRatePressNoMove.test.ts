@@ -15,27 +15,22 @@
 // —— 这条现象**只在真渲染里存在**（亚像素重采样），故由 Playwright 逐帧实测 + 墨迹质心把关，
 // 数值记在票 28 的 Answer；本文件只锁住"这个钮的按压不许吃 transform、且反馈还在"。
 import { describe, expect, it } from 'vitest';
-import { readStripped } from '@/tests/support/source';
+import { cssRuleBody, readStripped } from '@/tests/support/source';
 
 const CSS = 'src/pages/preview/PreviewPage.css';
 const UI_CSS = 'src/ui/ui.css';
 /** 触钮的按压态规则（`:not(:disabled)` 只为压过 `.icon-btn:hover:not(:disabled)` 的按压底色） */
 const PRESS_SELECTOR = '.pv-rate .icon-btn:active';
 
-function ruleBody(css: string, selector: string): string | undefined {
-  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return css.match(new RegExp(`${esc}[^{]*\\{([^}]*)\\}`))?.[1];
-}
-
 describe('chart-preview 28 · 倍速触钮按压时图标不许位移', () => {
   it('按压态把 transform 钉成 none（不吃全站那记 scale(0.98)）', () => {
-    const body = ruleBody(readStripped(CSS), PRESS_SELECTOR);
+    const body = cssRuleBody(readStripped(CSS), PRESS_SELECTOR);
     expect(body, `${CSS} 里应有 ${PRESS_SELECTOR} 规则`).toBeTruthy();
     expect(body).toMatch(/transform:\s*none/);
   });
 
   it('几何反馈摘掉了，但按压反馈还在（同一档更深底色）', () => {
-    const body = ruleBody(readStripped(CSS), PRESS_SELECTOR) ?? '';
+    const body = cssRuleBody(readStripped(CSS), PRESS_SELECTOR) ?? '';
     expect(body).toMatch(/background-color:/);
     // 色值必须来自当前态的 token（`color-mix` 混 `--bg-hover` / `--text`）：全屏台上态才跟着换，
     // 也不能落硬编码色值（PreviewPage.css 的口径）

@@ -538,6 +538,44 @@
   --focus-ring: var(--stage-focus-ring);
 }
 
+/* 全屏态：**播放条浮在画面上、不再占独立行**（chart-preview 27，用户 2026-10-09 拍板）。
+   黑边的唯一来源就是它占的那一行（32 + gap 8 = 40px）⇒ 画面只吃到 `屏高 − 40`、宽按
+   设计面比例缩到 `(屏高 − 40) × 1.7787`；16:9 屏（1.7778）下正好差出左右各 35px。
+   浮起来 ⇒ 画面吃到整个舞台高度 ⇒ **黑边 0、画面 +7.7%**（1920×1080 实测 1850×1040 →
+   1920×1079）。判定线在 `0.82H`，播放条只压到其下方那一小条背景区，不挡判定线与音符。
+
+   只有全屏浮（窗口态一字不动）的三条理由见票 27「定案」：① 窗口态 `is-filled` 的
+   `background: none` 露的是**页面底色**、不是黑边，没有要消的对象；② 播放条占一排是票 05
+   的用户定案（照 Bestdori）；③ 全屏是沉浸观看、窗口是工作界面。
+
+   两条覆盖都带 `!important`，理由是**特异性恰好打平、而窗口态那条排在后面**：本机 Chromium 里
+   `:fullscreen` 与 `:hover` 同档计一个类 ⇒ `.preview-stage:fullscreen .pv-stage` 是 0-3-0，
+   与 `.preview-page.is-video .pv-stage`（0-3-0）**同权**，源序在后的一方赢（本文件 511-515 行
+   那两条同样靠源序，是同一个坑的两种形态）。实测在同一份规则上：不加 `!important` 时 gap 仍是
+   8px；删掉窗口态那条、或把规则塞进"后到"的 `<style>`、或把选择器写到
+   `.preview-page .preview-stage:fullscreen:fullscreen …`（0-5-0）这一档，gap 才变 0。
+   ⇒ 不用"再多堆两层选择器"这种脆写法，改用本文件既有的手法（`.is-palette-swap` 那条就是
+   `transition: none !important`），代价仍收在全屏这一块里、窗口态一字不动。 */
+.preview-stage:fullscreen .pv-stage {
+  gap: 0 !important;
+}
+
+.preview-stage:fullscreen .play-bar--preview {
+  /* 浮到舞台底缘：三个偏移 + 高度交给内容自己（`.preview-page.is-video .play-bar--preview`
+     的 `min-height: 32px` 是"占独立行"时的口径，浮起来后留着就等于钉死条高）。都带 `!important`，
+     理由同上一条。 */
+  position: absolute !important;
+  left: var(--space-3) !important;
+  right: var(--space-3) !important;
+  bottom: var(--space-3) !important;
+  min-height: 0 !important;
+  /* 极轻的底衬（票 27「落点」允许的那一层，不是不透明胶囊 —— 票 10 已撤过控件外壳）：
+     兜住"视口很矮、画面被压到播放条下方"时压在亮画面上的那点风险。实测 16:9 / 16:10 两档下
+     播放条底下本来就是舞台底色或画面自带的近黑下缘（对比 17.7:1），这层渐变肉眼不可见。 */
+  background: linear-gradient(to top, color-mix(in srgb, var(--canvas-bg) 72%, transparent), transparent);
+  border-radius: var(--radius-md);
+}
+
 /* 进 / 出全屏那一拍：**这一整个子树的过渡先关掉**（票 23 #3 验收回修，2026-10-08）。
    舞台上下的配色是"同一帧里前后两个值"（底色 `none → --canvas-bg`、前景 `--text → --stage-*`），
    而按钮自己带 hover 那套 `transition`（`.play-bar__play-btn` 的 `background-color` / `color` 各

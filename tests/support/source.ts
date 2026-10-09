@@ -26,3 +26,15 @@ export function stripComments(src: string): string {
 export function readStripped(rel: string): string {
   return stripComments(readSource(rel));
 }
+
+/**
+ * 取某条 CSS 规则的声明块（`选择器 { … }` 里的 `…`；第一条命中）。
+ *
+ * 静态锁里要断言"某条规则里有没有某个声明"，用整表正则（`selector[^{]*\{[^}]*…`）会把
+ * 后面的规则一起吞进来 —— 这个工具把选择器与其声明块切成一段，断言才落得准。
+ * 选择器里的正则元字符（`.` / `:` / `(` / `)` 等）由本函数自行转义，调用方照原样写即可。
+ */
+export function cssRuleBody(css: string, selector: string): string | undefined {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return css.match(new RegExp(`${esc}[^{]*\\{([^}]*)\\}`))?.[1];
+}

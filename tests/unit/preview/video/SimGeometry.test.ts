@@ -151,6 +151,34 @@ describe('设计面与场地几何', () => {
     // 仍是 contain：宽高比不变
     expect(xl.w / xl.h).toBeCloseTo(DESIGN_RATIO, 2);
   });
+
+  // 票 27：黑边 = 播放条占的那一行（`play-bar--preview` 的 32 + 舞台 gap 8 = 40，票 19 / 26 收过一档后的值）
+  const PLAY_ROW_PX = 32 + 8;
+  const barsFor = (screenW: number, metrics: { w: number }) => (screenW - metrics.w) / 2;
+
+  it('票 27 · 全屏黑边 = 播放条那一行的算术（去掉它 ⇒ 16:9 屏左右黑边归零）', () => {
+    // 现状：舞台里那一行占掉 40px ⇒ 画面只吃到 `屏高 − 40`、宽按设计面比例缩到 1850
+    // ⇒ 每侧黑边 (1920 − 1850) / 2 ≈ 35px，与票 27 的真机实测（各 35px）逐位吻合
+    const before = fitDesignSurface(1920, 1080 - PLAY_ROW_PX);
+    expect(before).toMatchObject({ w: 1850, h: 1080 - PLAY_ROW_PX });
+    expect(barsFor(1920, before)).toBeCloseTo(35, 0);
+
+    // 播放条浮在画面上（脱离文档流）⇒ 画面吃到整个舞台高度 ⇒ 黑边 0，面积 +7.7%（票面实测）
+    const after = fitDesignSurface(1920, 1080);
+    expect(after.w).toBe(1920);
+    expect((after.w * after.h) / (before.w * before.h) - 1).toBeGreaterThan(0.07);
+  });
+
+  it('票 27 · 21:9 屏上那一行更贵：画面被高钳住后仍差 475px（另有 maxW 成因）', () => {
+    // 3440×1440 下 `fitDesignSurface(3440, 1400)` 出来 2490×1400（h 先被 1400 钳住）
+    const before = fitDesignSurface(3440, 1440 - PLAY_ROW_PX);
+    expect(before.w).toBe(2490);
+    expect(barsFor(3440, before)).toBeCloseTo(475, 0);
+    // 去掉那一行后也只到 2560×1439 —— 真正卡住它的是 maxW（本票的 F，登记观察项不管）
+    const after = fitDesignSurface(3440, 1440);
+    expect(after.w).toBe(SIM_FIELD_LIMITS.maxW);
+    expect(barsFor(3440, after)).toBeCloseTo(440, 0);
+  });
 });
 
 describe('场地三图的绘制矩形（chart-preview 18 问题 4）', () => {
