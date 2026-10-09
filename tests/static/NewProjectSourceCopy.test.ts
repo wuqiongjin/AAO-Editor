@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { readSource } from '@/tests/support/source';
 
 /** 新建入口用到的文案键（弹窗四支 + 官方面板 + 社区占位） */
-const ENTRY_KEYS = /^projects\.(new|official|community)/;
+const ENTRY_KEYS = /^projects\.(new|official|community|tab|copyDisabled)/;
 
 function messages(file: string): Record<string, string> {
   return JSON.parse(readSource(file)) as Record<string, string>;
@@ -36,5 +36,43 @@ describe('票 12 · 新建入口文案去站名化', () => {
     for (const key of ['projects.newOfficial', 'projects.newCommunity']) {
       expect(zh[key].length, `${key} 太长`).toBeLessThanOrEqual(10);
     }
+  });
+
+  it('弹窗 tab 英文短标签；主页入口英文仍用全称（票 13 Q1b / Q2）', () => {
+    const en = messages('src/i18n/messages/en.json');
+    const zh = messages('src/i18n/messages/zh-CN.json');
+    expect(en['projects.tabBlank']).toBe('Blank');
+    expect(en['projects.tabCopy']).toBe('Local');
+    expect(en['projects.tabOfficial']).toBe('Official');
+    expect(en['projects.tabCommunity']).toBe('Community');
+    expect(zh['projects.tabBlank']).toBe('空白新建');
+    expect(zh['projects.tabCopy']).toBe('从本地谱面导入');
+    expect(zh['projects.tabOfficial']).toBe('从官方谱面导入');
+    expect(zh['projects.tabCommunity']).toBe('从社区谱面导入');
+    // 主页 tile / 分裂菜单不跟着缩短
+    expect(en['projects.newBlank']).toBe('Blank project');
+    expect(en['projects.newCopy']).toBe('Import from local charts');
+    expect(en['projects.newOfficial']).toBe('Import from official charts');
+    expect(en['projects.newCommunity']).toBe('Import from community charts');
+  });
+});
+
+describe('票 13 · 禁用态样式在位', () => {
+  it('弹窗 tab 的 :disabled 是 not-allowed，不是还能点的样子', () => {
+    expect(readSource('src/ui/ui.css')).toMatch(/\.dialog-tabs button:disabled[\s\S]{0,200}cursor:\s*not-allowed/);
+  });
+
+  it('主页 tile 禁用时图标不再走强调色', () => {
+    expect(readSource('src/pages/projects/ProjectsPage.css')).toMatch(/\.pb-tile:disabled svg[\s\S]{0,80}accent-disabled/);
+  });
+
+  it('官方曲库重试中的文案键接到了选曲面板（票 13 #4）', () => {
+    expect(readSource('src/pages/projects/components/OfficialSongPanel.tsx')).toMatch(/projects\.official\.retrying/);
+  });
+
+  it('选曲台正文不滚、宽高可过渡（票 13 #6 / #7）', () => {
+    const css = readSource('src/ui/ui.css');
+    expect(css).toMatch(/\.dialog__body--clip[\s\S]{0,120}overflow:\s*hidden/);
+    expect(css).toMatch(/\.dialog\s*\{[^}]*transition:[^}]*width/);
   });
 });

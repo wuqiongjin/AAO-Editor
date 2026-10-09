@@ -12,6 +12,7 @@ import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import ProjectsPage from '@/src/pages/projects/ProjectsPage';
 import { ChartProjectStore } from '@/src/project/ChartProject';
+import { clearSongCatalogCache } from '@/src/community/bestdori/songs';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
 import { seedZhSettings } from '@/tests/support/storage';
 
@@ -105,6 +106,12 @@ async function openNewDialog() {
   return await screen.findByRole('dialog');
 }
 
+/** 切来源 tab。同一颗 Dialog 改 size（票 13 #6），遮罩不卸。 */
+function switchSource(dialog: HTMLElement, name: string) {
+  fireEvent.click(within(dialog).getByRole('button', { name: new RegExp(name) }));
+  return dialog;
+}
+
 const tabNames = ['空白新建', '从本地谱面导入', '从官方谱面导入', '从社区谱面导入'];
 
 beforeEach(() => {
@@ -115,9 +122,23 @@ beforeEach(() => {
 
 afterEach(() => {
   delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+  clearSongCatalogCache();
 });
 
 describe('票 12 · 新建入口四项归类', () => {
+  it('没有工程时「从本地谱面导入」禁用，并写明原因（票 13 #3）', async () => {
+    renderPage();
+    await screen.findByText('全部工程');
+    const tile = screen.getByRole('button', { name: /从本地谱面导入/ });
+    expect(tile).toBeDisabled();
+    expect(tile).toHaveAttribute('title', '需要已有工程');
+
+    const dialog = await openNewDialog();
+    const tab = within(dialog).getByRole('button', { name: /从本地谱面导入/ });
+    expect(tab).toBeDisabled();
+    expect(tab).toHaveAttribute('title', '需要已有工程');
+  });
+
   it('启动台四块 tile、弹窗四个 tab（顺序 = 空白 / 本地 / 官方 / 社区）', async () => {
     renderPage();
     await screen.findByText('全部工程');
@@ -145,21 +166,33 @@ describe('票 12 · 新建入口四项归类', () => {
 
   it('社区那一支只摆位：切过去看到占位说明，且没有「创建」键', async () => {
     renderPage();
-    const dialog = await openNewDialog();
+    let dialog = await openNewDialog();
+    expect(dialog.className).toMatch(/dialog--md/);
 
-    fireEvent.click(within(dialog).getByRole('button', { name: /从社区谱面导入/ }));
+    dialog = await switchSource(dialog, '从社区谱面导入');
 
+    expect(dialog.className).toMatch(/dialog--lg/);
     expect(await within(dialog).findByText(/社区谱面浏览还在开发中/)).toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: '创建' })).toBeNull();
+  });
+
+  it('从空白切到官方是同一颗窗改尺寸，不卸遮罩（票 13 #6）', async () => {
+    renderPage();
+    const dialog = await openNewDialog();
+    expect(dialog.className).toMatch(/dialog--md/);
+
+    switchSource(dialog, '从官方谱面导入');
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.className).toMatch(/dialog--lg/);
+    await within(dialog).findByText(SONG_TITLE);
   });
 });
 
 describe('票 08 · 从官方谱面导入', () => {
   it('选曲 → 预览（封面 / 难度等级表 / 试听）→ 建工程 → 留在工程管理页', async () => {
     const { backend } = renderPage();
-    const dialog = await openNewDialog();
-
-    fireEvent.click(within(dialog).getByRole('button', { name: /从官方谱面导入/ }));
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从官方谱面导入');
     // 曲库一次拉全：两首曲子都在
     await within(dialog).findByText(SONG_TITLE);
     expect(within(dialog).getByText('Yes! BanG_Dream!')).toBeInTheDocument();
@@ -169,21 +202,28 @@ describe('票 08 · 从官方谱面导入', () => {
     expect(within(dialog).getByText(SONG_TITLE)).toBeInTheDocument();
     expect(within(dialog).queryByText('Yes! BanG_Dream!')).toBeNull();
 
-    // 选中 → 就地预览：封面直链 + 五个难度等级 + 试听直链
+    // 选中 → 就地预览：封面直链（占位至 load 淡入）+ 已实装芯片 + 紧凑试听
     fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) }));
     await waitFor(() => expect(document.querySelector('.off-cover img')).not.toBeNull());
-    expect(document.querySelector('.off-cover img')?.getAttribute('src')).toBe(JACKET_URL);
-    // 难度等级表：五个难度都在，等级取自曲库
-    expect([...document.querySelectorAll('.off-levels li')].map((li) => li.querySelector('b')?.textContent))
-      .toEqual(['6', '13', '18', '25', '26']);
-    await waitFor(() => expect(document.querySelector('.off-audio')).not.toBeNull());
-    expect(document.querySelector('.off-audio')?.getAttribute('src')).toBe(AUDIO_URL);
+    const cover = document.querySelector('.off-cover img');
+    expect(cover?.getAttribute('src')).toBe(JACKET_URL);
+    expect(cover?.classList.contains('is-in')).toBe(false);
+    fireEvent.load(cover!);
+    expect(cover?.classList.contains('is-in')).toBe(true);
+    const preview = document.querySelector('.off-preview');
+    expect(preview?.textContent).toMatch(/EZ 6/);
+    expect(preview?.textContent).not.toMatch(/未实装/);
+    await waitFor(() => expect(document.querySelector('.off-compact-audio audio')).not.toBeNull());
+    expect(document.querySelector('audio[controls]')).toBeNull();
+    expect(document.querySelector('.off-compact-audio audio')?.getAttribute('src')).toBe(AUDIO_URL);
+    expect(within(dialog).queryByText(/官方音频与封面/)).toBeNull();
 
-    // 勾 B：把官方谱面一起导入（默认关，勾了才出现难度选择）
-    expect(within(dialog).queryByText('导入哪张难度')).toBeNull();
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: /把官方谱面一起导入/ }));
-    fireEvent.change(within(dialog).getByRole('combobox', { name: /导入哪张难度/ }), { target: { value: 'special' } });
-    expect(within(dialog).getByRole('option', { name: /等级 26/ })).toBeInTheDocument();
+    // 同步导入谱面：默认关；打开后同一排芯片选难度（默认 EX）
+    const sync = within(dialog).getByRole('button', { name: '同步导入谱面' });
+    expect(sync).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(sync);
+    expect(sync).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(dialog).getByRole('radio', { name: /SP 26/ }));
 
     fireEvent.click(within(dialog).getByRole('button', { name: '创建' }));
 
@@ -219,9 +259,8 @@ describe('票 08 · 从官方谱面导入', () => {
     (window as unknown as { electronAPI: { communityNet: { request: unknown } } }).electronAPI.communityNet.request =
       vi.fn(async () => ({ ok: false, error: { kind: 'invalid-response', message: '回退页' } }));
     renderPage();
-    const dialog = await openNewDialog();
-
-    fireEvent.click(within(dialog).getByRole('button', { name: /从官方谱面导入/ }));
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从官方谱面导入');
 
     expect(await within(dialog).findByText('曲库没拉到')).toBeInTheDocument();
     expect(within(dialog).getByText('读取官方曲库失败，请重试。')).toBeInTheDocument();
@@ -229,5 +268,43 @@ describe('票 08 · 从官方谱面导入', () => {
     // 不循环报错：一次打开只打两条请求（曲库索引 + 乐队索引），失败不自动重试 —— 重试要用户点
     expect((window as unknown as { electronAPI: { communityNet: { request: ReturnType<typeof vi.fn> } } })
       .electronAPI.communityNet.request).toHaveBeenCalledTimes(2);
+  });
+
+  it('切走官方 tab 再回来不重拉曲库（票 13 #4）', async () => {
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从官方谱面导入');
+    await within(dialog).findByText(SONG_TITLE);
+
+    const request = (window as unknown as { electronAPI: { communityNet: { request: ReturnType<typeof vi.fn> } } })
+      .electronAPI.communityNet.request;
+    const catalogHits = () => request.mock.calls.filter(([payload]: [{ url: string }]) => (
+      payload.url.endsWith('/api/songs/all.5.json') || payload.url.endsWith('/api/bands/all.1.json')
+    )).length;
+    expect(catalogHits()).toBe(2);
+
+    dialog = await switchSource(dialog, '空白新建');
+    dialog = await switchSource(dialog, '从官方谱面导入');
+    await within(dialog).findByText(SONG_TITLE);
+    expect(catalogHits()).toBe(2);
+  });
+
+  it('筛选按乐队，折叠后仍生效；清除才放开（票 13 #9 / #11）', async () => {
+    renderPage();
+    const dialog = await openNewDialog();
+    switchSource(dialog, '从官方谱面导入');
+    await within(dialog).findByText(SONG_TITLE);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '筛选' }));
+    fireEvent.change(within(dialog).getByLabelText('乐队'), { target: { value: '5' } });
+    expect(within(dialog).getByText(SONG_TITLE)).toBeInTheDocument();
+    expect(within(dialog).queryByText('Yes! BanG_Dream!')).toBeNull();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '筛选' }));
+    expect(within(dialog).queryByLabelText('乐队')).toBeNull();
+    expect(within(dialog).queryByText('Yes! BanG_Dream!')).toBeNull();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '清除筛选' }));
+    expect(within(dialog).getByText('Yes! BanG_Dream!')).toBeInTheDocument();
   });
 });

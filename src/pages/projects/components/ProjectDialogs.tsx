@@ -88,11 +88,14 @@ export function NewProjectDialog({
     || (source === 'copy' && !copyFrom)
     || (source === 'official' && !official)
     || source === 'community';
+  const pickerShell = source === 'official' || source === 'community';
+  const noLocalProject = projects.length === 0;
 
   return (
     <Dialog
-      // 选曲面板要一列目录 + 一列预览，走大档；其余三支沿用表单档（票 12：尺寸档位沿用）
-      size={source === 'official' || source === 'community' ? 'lg' : 'md'}
+      // 空白/本地 md、官方/社区 lg：同一颗窗改 size + 宽高过渡，遮罩不卸（票 13 #6）
+      size={pickerShell ? 'lg' : 'md'}
+      clipBody={pickerShell}
       title={t('projects.newDialogTitle')}
       hint={t('projects.newHint')}
       onClose={close}
@@ -109,18 +112,24 @@ export function NewProjectDialog({
     >
       <div className="dialog-tabs">
         <button type="button" className={source === 'blank' ? 'is-active' : ''} disabled={busy} onClick={() => setSource('blank')}>
-          <FolderPlus size={14} />{t('projects.newBlank')}
+          <FolderPlus size={14} />{t('projects.tabBlank')}
         </button>
-        <button type="button" className={source === 'copy' ? 'is-active' : ''} disabled={busy || projects.length === 0} onClick={() => setSource('copy')}>
-          <Copy size={14} />{t('projects.newCopy')}
+        <button
+          type="button"
+          className={source === 'copy' ? 'is-active' : ''}
+          disabled={busy || noLocalProject}
+          title={noLocalProject ? t('projects.copyDisabledHint') : undefined}
+          onClick={() => setSource('copy')}
+        >
+          <Copy size={14} />{t('projects.tabCopy')}
         </button>
         {importSources && (
           <>
             <button type="button" className={source === 'official' ? 'is-active' : ''} disabled={busy} onClick={() => setSource('official')}>
-              <Music4 size={14} />{t('projects.newOfficial')}
+              <Music4 size={14} />{t('projects.tabOfficial')}
             </button>
             <button type="button" className={source === 'community' ? 'is-active' : ''} disabled={busy} onClick={() => setSource('community')}>
-              <Users size={14} />{t('projects.newCommunity')}
+              <Users size={14} />{t('projects.tabCommunity')}
             </button>
           </>
         )}

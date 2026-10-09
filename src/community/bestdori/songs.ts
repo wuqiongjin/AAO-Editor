@@ -10,7 +10,7 @@
  *     （票 07 定案：字节不过 IPC）。平台对不存在的资源回 **200 + SPA 回退页**，落地前必须认出来。
  */
 import { getActiveUiLanguage, type UiLanguage } from '../../i18n';
-import { withRetry } from '../rateLimit';
+import { withRetry, type RetryNotice } from '../rateLimit';
 import { CommunityError, type CommunityTransport, type StagedBinary } from '../transport';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
@@ -37,7 +37,11 @@ function invalidResponse(message: string): CommunityError {
   return new CommunityError(message, { kind: 'invalid-response', message });
 }
 
-async function fetchJson(transport: CommunityTransport, url: string): Promise<unknown> {
+async function fetchJson(
+  transport: CommunityTransport,
+  url: string,
+  onRetry?: (notice: RetryNotice) => void,
+): Promise<unknown> {
   return withRetry(
     () => transport.requestJson({
       url,
@@ -45,8 +49,18 @@ async function fetchJson(transport: CommunityTransport, url: string): Promise<un
       headers: bestdoriHeaders(),
       timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
     }),
-    { policy: BESTDORI_RETRY_POLICY },
+    { policy: BESTDORI_RETRY_POLICY, onRetry },
   );
+}
+
+type CatalogCache = { language: UiLanguage; songs: SongCandidate[] };
+let catalogCache: CatalogCache | null = null;
+let catalogInflight: { language: UiLanguage; promise: Promise<SongCandidate[]> } | null = null;
+
+/** 测试与语言切换：清掉进程内曲库缓存（票 13 #4） */
+export function clearSongCatalogCache(): void {
+  catalogCache = null;
+  catalogInflight = null;
 }
 
 async function fetchStaged(
@@ -73,12 +87,23 @@ async function fetchStaged(
 export async function fetchSongCatalog(
   transport: CommunityTransport,
   language: UiLanguage = getActiveUiLanguage(),
+  onRetry?: (notice: RetryNotice) => void,
 ): Promise<SongCandidate[]> {
-  const [index, bands] = await Promise.all([
-    fetchJson(transport, songsIndexUrl()),
-    fetchJson(transport, bandsIndexUrl()),
-  ]);
-  return toSongCandidates(index, bands, language);
+  if (catalogCache && catalogCache.language === language) return catalogCache.songs;
+  if (catalogInflight && catalogInflight.language === language) return catalogInflight.promise;
+
+  const promise = Promise.all([
+    fetchJson(transport, songsIndexUrl(), onRetry),
+    fetchJson(transport, bandsIndexUrl(), onRetry),
+  ]).then(([index, bands]) => {
+    const songs = toSongCandidates(index, bands, language);
+    catalogCache = { language, songs };
+    return songs;
+  }).finally(() => {
+    if (catalogInflight?.language === language) catalogInflight = null;
+  });
+  catalogInflight = { language, promise };
+  return promise;
 }
 
 /** 单曲详情（选中某首歌时才拉）：导入要的 `bgmId` 与官方曲长 */
@@ -185,9 +210,58 @@ export function searchSongCandidates(
   candidates: readonly SongCandidate[],
   query: string,
 ): SongCandidate[] {
-  const needle = query.trim().toLowerCase();
-  if (needle === '') return [...candidates];
-  return candidates.filter(
-    (song) => song.title.toLowerCase().includes(needle) || song.artist.toLowerCase().includes(needle),
-  );
+  return filterSongCandidates(candidates, { query });
+}
+
+/** 选曲台筛选（票 13 #9）：本地、与搜索叠加。等级左右填反按数值 min/max，不硬夹。 */
+export interface SongCatalogFilter {
+  query?: string;
+  /** 按乐队身份；null / 省略 = 全部 */
+  bandId?: number | null;
+  /** 必须已实装该难度；省略 = 不限 */
+  difficulty?: OfficialDifficulty | null;
+  levelMin?: number;
+  levelMax?: number;
+}
+
+/** 筛选条默认等级窗；填了别的才算「等级筛选生效」（摘要 / 清除点） */
+export const SONG_LEVEL_FILTER_DEFAULT = { min: 1, max: 35 } as const;
+
+export function filterSongCandidates(
+  candidates: readonly SongCandidate[],
+  filter: SongCatalogFilter,
+): SongCandidate[] {
+  const needle = (filter.query ?? '').trim().toLowerCase();
+  const hasLo = typeof filter.levelMin === 'number' && Number.isFinite(filter.levelMin);
+  const hasHi = typeof filter.levelMax === 'number' && Number.isFinite(filter.levelMax);
+  const lo = hasLo || hasHi
+    ? Math.min(filter.levelMin ?? filter.levelMax as number, filter.levelMax ?? filter.levelMin as number)
+    : null;
+  const hi = lo == null
+    ? null
+    : Math.max(filter.levelMin ?? filter.levelMax as number, filter.levelMax ?? filter.levelMin as number);
+  const needDiff = filter.difficulty ?? null;
+  const bandId = filter.bandId ?? null;
+  return candidates.filter((song) => {
+    if (needle !== '' && !song.title.toLowerCase().includes(needle) && !song.artist.toLowerCase().includes(needle)) {
+      return false;
+    }
+    if (bandId != null && song.bandId !== bandId) return false;
+    const pool = needDiff ? song.difficulties.filter((entry) => entry.diff === needDiff) : song.difficulties;
+    if (needDiff && pool.length === 0) return false;
+    if (lo != null && hi != null && !pool.some((entry) => entry.level >= lo && entry.level <= hi)) return false;
+    return true;
+  });
+}
+
+/** 筛选下拉里的乐队：按 bandId 去重，显示名取候选上已映射的 artist */
+export function catalogBandOptions(songs: readonly SongCandidate[]): { id: number; name: string }[] {
+  const seen = new Map<number, string>();
+  for (const song of songs) {
+    if (song.bandId == null || seen.has(song.bandId)) continue;
+    seen.set(song.bandId, song.artist);
+  }
+  return [...seen.entries()]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
 }

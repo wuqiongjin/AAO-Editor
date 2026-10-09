@@ -156,7 +156,13 @@ export function ProjectStartView({
           <button type="button" className="pb-tile" onClick={() => onNew('blank')}>
             <FolderPlus size={20} /><b>{t('projects.newBlank')}</b><small>{t('projects.newBlankDesc')}</small>
           </button>
-          <button type="button" className="pb-tile" disabled={list.length === 0} onClick={() => onNew('copy')}>
+          <button
+            type="button"
+            className="pb-tile"
+            disabled={list.length === 0}
+            title={list.length === 0 ? t('projects.copyDisabledHint') : undefined}
+            onClick={() => onNew('copy')}
+          >
             <Copy size={20} /><b>{t('projects.newCopy')}</b><small>{t('projects.newCopyDesc')}</small>
           </button>
           {/* 官方 / 社区两支要连社区平台，静态演示版（无出口）只隐藏这两格（票 12；ADR-0011 §1） */}

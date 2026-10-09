@@ -206,9 +206,10 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   animation: dialog-in var(--dur-fast) var(--ease) both;
+  transition: width var(--dur-fast) var(--ease), height var(--dur-fast) var(--ease);
 }
 .dialog--sm { width: min(440px, 92vw); }
-.dialog--md { width: min(560px, 92vw); }
+.dialog--md { width: min(560px, 92vw); height: auto; }
 .dialog--lg { width: min(920px, 92vw); height: min(640px, 86vh); }
 
 /* ---- 头：标题 + 一行说明（色带） ---- */
@@ -242,6 +243,9 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-5);
+}
+.dialog__body--clip {
+  overflow: hidden;
 }
 
 /* 正文注意行：里面的 \n 是"另起一句"（删除工程要多带一行已上传提示） */
@@ -302,6 +306,12 @@
   cursor: pointer;
 }
 .dialog-tabs button.is-active { background-color: var(--bg-elevated); color: var(--text); box-shadow: var(--shadow-sm); }
+.dialog-tabs button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+  color: var(--text-subtle);
+}
+.dialog-tabs button:disabled svg { color: var(--text-subtle); }
 
 /* 编辑工程信息：左封面方块区 / 右文字字段 */
 .dialog-edit-grid { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
@@ -765,3 +775,36 @@
   font-size: var(--text-xs);
   color: var(--text-subtle);
 }
+
+.off-compact-audio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+.off-compact-audio audio { display: none; }
+.off-compact-audio__play {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-btn);
+  color: var(--accent-btn-text);
+  cursor: pointer;
+}
+.off-compact-audio__play:disabled { opacity: .45; cursor: not-allowed; }
+.off-compact-audio__time { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.off-compact-audio__seek {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  accent-color: var(--accent);
+}
+.off-compact-audio__vol { color: var(--text-subtle); flex: 0 0 auto; }

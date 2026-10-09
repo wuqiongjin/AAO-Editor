@@ -43,6 +43,8 @@ export interface SongDifficultyCandidate {
  */
 export interface SongCandidate {
   id: number;
+  /** 乐队身份（筛选用）；曲库条目没有合法 bandId 时为 null */
+  bandId: number | null;
   /** 曲库标题（当前界面语言；全部语言都空则不产出候选） */
   title: string;
   /** 官方歌手 = 乐队名；乐队索引里查不到时为空串（界面按「未填歌手」处理） */
@@ -121,6 +123,10 @@ export function toSongDifficulties(raw: unknown): SongDifficultyCandidate[] {
   return out;
 }
 
+function toBandId(raw: unknown): number | null {
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+}
+
 function toBandName(bands: unknown, bandId: unknown, language: UiLanguage): string {
   if (!isPlainObject(bands)) return '';
   const band = bands[String(bandId)];
@@ -145,6 +151,7 @@ export function toSongCandidate(
   const jacketImage = jacket.find((name): name is string => typeof name === 'string' && name.trim() !== '') ?? '';
   return {
     id,
+    bandId: toBandId(entry.bandId),
     title,
     artist: toBandName(bands, entry.bandId, language),
     jacketImage,

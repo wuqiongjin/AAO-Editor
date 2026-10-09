@@ -24,7 +24,7 @@ const FOCUSABLE = [
 
 export default function Dialog({
   size = 'md', role = 'dialog', raised, title, hint, head, description,
-  onClose, footer, footerAlign = 'end', children,
+  clipBody, onClose, footer, footerAlign = 'end', children,
 }: {
   size?: DialogSize;
   role?: 'dialog' | 'alertdialog';
@@ -38,6 +38,8 @@ export default function Dialog({
   head?: ReactNode;
   /** 正文注意行（确认弹窗的「注意：…」）；挂 aria-describedby，读屏念得到 */
   description?: string;
+  /** 正文不自己滚（选曲台：只有目录列表滚，tab 才不会被滚动条挤偏） */
+  clipBody?: boolean;
   onClose: () => void;
   /** 底栏动作区：默认靠右；工具条形态（谱面代码）用 footerAlign="start" */
   footer: ReactNode;
@@ -107,7 +109,7 @@ export default function Dialog({
             </>
           )}
         </div>
-        <div className="dialog__body">
+        <div className={`dialog__body${clipBody ? ' dialog__body--clip' : ''}`}>
           {description && <p className="dialog__message" id={descId}>{description}</p>}
           {children}
         </div>

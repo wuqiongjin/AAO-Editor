@@ -1,13 +1,7 @@
-// 「从官方谱面导入」的选曲面板（票 08）：曲库一次拉全 + 本地瞬时搜索 + 就地预览（封面 / 难度等级表 / 试听）。
-//
-// 取数分工（见 ADR-0011 §2 的限定条款）：
-//   - 曲库索引、乐队索引、单曲详情 —— 走主进程网关（能力层，票 07/08）；
-//   - 封面与试听 —— 媒体标签直链（`<img>` / `<audio>`），**只在你选中 / 点播放时才发那一条请求**，
-//     列表本身不拉任何图片（822 首 × 一张封面的流量账不能这么算）。
-//
-// 面板只产出「选中了哪首歌 + 两个选项」，建工程与落盘归页面（`officialImport`）。
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Music4 } from 'lucide-react';
+// 「从官方谱面导入」的选曲面板（票 08 + 票 13 #7–#11）：
+// 预览在左、目录在右；筛选手风琴；封面占位淡入；同步导入走同一排芯片。
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { AlertTriangle, ListFilter, Music4, X } from 'lucide-react';
 import {
   OFFICIAL_DIFFICULTIES,
   officialDiffIndex,
@@ -15,21 +9,23 @@ import {
 } from '../../../community/bestdori/endpoints';
 import {
   resolveSongDiff,
-  songLevel,
   type OfficialSongDetail,
   type SongCandidate,
 } from '../../../community/bestdori/mapping';
 import {
   audioPreviewUrl,
+  catalogBandOptions,
   fetchSongCatalog,
   fetchSongDetail,
+  filterSongCandidates,
   jacketPreviewUrl,
-  searchSongCandidates,
+  SONG_LEVEL_FILTER_DEFAULT,
 } from '../../../community/bestdori/songs';
 import { createCommunityTransport } from '../../../community/electronTransport';
 import type { CommunityTransport } from '../../../community/transport';
-import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT } from '../../../project/projectCatalog';
+import { DIFF_COLORS, DIFF_SHORT } from '../../../project/projectCatalog';
 import { t } from '../../../i18n';
+import CompactAudio from '../../../ui/CompactAudio';
 import { officialErrorText } from '../officialImport';
 
 /** 选曲面板交给页面的东西：一首歌 + 它的详情 + 两个选项（A 素材默认做，B 谱面内容默认关） */
@@ -40,6 +36,11 @@ export interface OfficialSongSelection {
   withChart: boolean;
   /** B 的难度（不勾时忽略：产出 Expert） */
   diff: OfficialDifficulty;
+}
+
+function chipLabel(diff: OfficialDifficulty, level: number, picked: boolean): string {
+  const short = DIFF_SHORT[officialDiffIndex(diff)];
+  return picked ? `✓ ${short} ${level}` : `${short} ${level}`;
 }
 
 export function OfficialSongPanel({
@@ -56,22 +57,30 @@ export function OfficialSongPanel({
   const [catalog, setCatalog] = useState<SongCandidate[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [bandId, setBandId] = useState<number | null>(null);
+  const [needDiff, setNeedDiff] = useState<OfficialDifficulty | null>(null);
+  const [lvMin, setLvMin] = useState<number>(SONG_LEVEL_FILTER_DEFAULT.min);
+  const [lvMax, setLvMax] = useState<number>(SONG_LEVEL_FILTER_DEFAULT.max);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [selected, setSelected] = useState<SongCandidate | null>(null);
   const [detail, setDetail] = useState<OfficialSongDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
+  const [coverReady, setCoverReady] = useState(false);
   const [withChart, setWithChart] = useState(selection?.withChart ?? false);
   const [diff, setDiff] = useState<OfficialDifficulty>(selection?.diff ?? 'expert');
+  const [retrying, setRetrying] = useState(false);
 
-  // 曲库一次拉全（822 首 / 约 400KB）：只在打开面板时拉一次，重试走同一入口（不轮询、不循环报错）
-  const loadCatalog = useCallback(() => {
+  const loadCatalog = useCallback((reload = false) => {
     if (net.kind === 'none') return;
     setLoadError(null);
-    setCatalog(null);
-    void fetchSongCatalog(net)
+    setRetrying(false);
+    if (reload) setCatalog(null);
+    void fetchSongCatalog(net, undefined, () => setRetrying(true))
       .then(setCatalog)
-      .catch((error: unknown) => setLoadError(officialErrorText(error)));
+      .catch((error: unknown) => setLoadError(officialErrorText(error)))
+      .finally(() => setRetrying(false));
   }, [net]);
 
   useEffect(() => { loadCatalog(); }, [loadCatalog]);
@@ -81,6 +90,7 @@ export function OfficialSongPanel({
     setDetail(null);
     setDetailError(null);
     setCoverFailed(false);
+    setCoverReady(false);
     setDiff((current) => resolveSongDiff(song, current));
     setLoadingDetail(true);
     void fetchSongDetail(net, song.id)
@@ -89,19 +99,45 @@ export function OfficialSongPanel({
       .finally(() => setLoadingDetail(false));
   }, [net]);
 
-  // 选中项或选项一变就交给页面（页面据此决定「创建」键能不能按、按了建什么）
   useEffect(() => {
     onSelectionChange(selected && detail ? { song: selected, detail, withChart, diff } : null);
   }, [selected, detail, withChart, diff, onSelectionChange]);
 
+  const bands = useMemo(() => (catalog == null ? [] : catalogBandOptions(catalog)), [catalog]);
   const filtered = useMemo(
-    () => (catalog == null ? [] : searchSongCandidates(catalog, query)),
-    [catalog, query],
+    () => (catalog == null ? [] : filterSongCandidates(catalog, { query, bandId, difficulty: needDiff, levelMin: lvMin, levelMax: lvMax })),
+    [catalog, query, bandId, needDiff, lvMin, lvMax],
   );
+
+  const clearFilters = () => {
+    setBandId(null);
+    setNeedDiff(null);
+    setLvMin(SONG_LEVEL_FILTER_DEFAULT.min);
+    setLvMax(SONG_LEVEL_FILTER_DEFAULT.max);
+  };
+
+  const filterSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (bandId != null) parts.push(bands.find((b) => b.id === bandId)?.name || String(bandId));
+    if (needDiff) parts.push(DIFF_SHORT[officialDiffIndex(needDiff)]);
+    if (lvMin !== SONG_LEVEL_FILTER_DEFAULT.min || lvMax !== SONG_LEVEL_FILTER_DEFAULT.max) parts.push(`${lvMin}–${lvMax}`);
+    return parts.join(' · ');
+  }, [bandId, bands, needDiff, lvMin, lvMax]);
+  const filterActive = filterSummary !== '';
 
   if (net.kind === 'none') {
     return <p className="off-status">{t('projects.official.err.desktopOnly')}</p>;
   }
+
+  const toggleSync = () => {
+    if (selected == null) return;
+    if (withChart) {
+      setWithChart(false);
+      return;
+    }
+    setWithChart(true);
+    setDiff(resolveSongDiff(selected, 'expert'));
+  };
 
   return (
     <div className="off-panel">
@@ -113,10 +149,74 @@ export function OfficialSongPanel({
           aria-label={t('projects.official.searchPlaceholder')}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <div className="off-filter-wrap">
+          <button
+            type="button"
+            className={`off-filter-btn${filterOpen ? ' is-on' : ''}${filterActive ? ' is-set' : ''}`}
+            aria-expanded={filterOpen}
+            aria-label={t('projects.official.filter')}
+            onClick={() => setFilterOpen((open) => !open)}
+          >
+            <ListFilter size={14} />
+            {filterActive ? filterSummary : t('projects.official.filter')}
+          </button>
+          {filterActive && (
+            <button
+              type="button"
+              className="off-filter-x"
+              aria-label={t('projects.official.filterClearAria')}
+              onClick={clearFilters}
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
         {catalog != null && (
           <span className="pp-muted off-count">{t('projects.official.count', { n: filtered.length })}</span>
         )}
       </div>
+
+      {filterOpen && (
+        <div className="off-filters">
+          <label>
+            {t('projects.official.filterBand')}
+            <select
+              value={bandId ?? ''}
+              aria-label={t('projects.official.filterBand')}
+              onChange={(e) => setBandId(e.target.value === '' ? null : Number(e.target.value))}
+            >
+              <option value="">{t('projects.official.filterBandAll')}</option>
+              {bands.map((band) => (
+                <option key={band.id} value={band.id}>{band.name || `#${band.id}`}</option>
+              ))}
+            </select>
+          </label>
+          <div className="off-filters__diffs" role="group" aria-label={t('projects.official.filterDiff')}>
+            {OFFICIAL_DIFFICULTIES.map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={needDiff === id ? 'is-on' : ''}
+                style={{ '--chip': DIFF_COLORS[officialDiffIndex(id)] } as CSSProperties}
+                onClick={() => setNeedDiff((current) => (current === id ? null : id))}
+              >
+                {DIFF_SHORT[officialDiffIndex(id)]}
+              </button>
+            ))}
+          </div>
+          <label className="off-filters__lv">
+            {t('projects.official.filterLevel')}
+            <input type="number" value={lvMin} aria-label={t('projects.official.filterLevelMin')} onChange={(e) => setLvMin(Number(e.target.value))} />
+            <span>–</span>
+            <input type="number" value={lvMax} aria-label={t('projects.official.filterLevelMax')} onChange={(e) => setLvMax(Number(e.target.value))} />
+          </label>
+          {filterActive && (
+            <button type="button" className="off-filters__clear" onClick={clearFilters}>
+              {t('projects.official.filterClear')}
+            </button>
+          )}
+        </div>
+      )}
 
       {loadError ? (
         <div className="error-banner" role="alert">
@@ -125,20 +225,86 @@ export function OfficialSongPanel({
             <strong>{t('projects.official.loadFail')}</strong>
             <p style={{ margin: 0 }}>{loadError}</p>
             <div className="error-actions">
-              <button type="button" onClick={loadCatalog}>{t('projects.official.retry')}</button>
+              <button type="button" onClick={() => loadCatalog(true)}>{t('projects.official.retry')}</button>
             </div>
           </div>
         </div>
       ) : catalog == null ? (
-        <p className="off-status">{t('projects.official.loading')}</p>
+        <p className="off-status">{retrying ? t('projects.official.retrying') : t('projects.official.loading')}</p>
       ) : (
-        <div className="off-body">
+        <div className="off-split">
+          <aside className="off-preview">
+            {selected == null ? (
+              <p className="off-status">{t('projects.official.pickHint')}</p>
+            ) : (
+              <>
+                <div className="off-preview__stack">
+                  <div className="off-cover">
+                    {selected.jacketImage !== '' && !coverFailed ? (
+                      <>
+                        {!coverReady && <span className="off-cover__ph">{t('projects.official.coverPlaceholder')}</span>}
+                        <img
+                          src={jacketPreviewUrl(selected)}
+                          alt=""
+                          className={coverReady ? 'is-in' : ''}
+                          onLoad={() => setCoverReady(true)}
+                          onError={() => setCoverFailed(true)}
+                        />
+                      </>
+                    ) : (
+                      <Music4 size={38} aria-hidden />
+                    )}
+                  </div>
+                  <b className="off-preview__title">{selected.title}</b>
+                  <span className="pp-muted">{selected.artist || t('projects.artistMissing')}</span>
+                  <div
+                    className={`off-preview__levels${withChart ? ' is-pick' : ''}`}
+                    role={withChart ? 'radiogroup' : undefined}
+                    aria-label={withChart ? t('projects.official.importDiffAria') : undefined}
+                  >
+                    {selected.difficulties.map((entry) => {
+                      const picked = withChart && diff === entry.diff;
+                      return (
+                        <button
+                          key={entry.diff}
+                          type="button"
+                          role={withChart ? 'radio' : undefined}
+                          aria-checked={withChart ? picked : undefined}
+                          tabIndex={withChart ? undefined : -1}
+                          className={picked ? 'is-picked' : ''}
+                          style={{ '--chip': DIFF_COLORS[officialDiffIndex(entry.diff)] } as CSSProperties}
+                          onClick={() => withChart && setDiff(entry.diff)}
+                        >
+                          {chipLabel(entry.diff, entry.level, picked)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    className={`off-sync${withChart ? ' is-on' : ''}`}
+                    aria-pressed={withChart}
+                    disabled={detail == null}
+                    onClick={toggleSync}
+                  >
+                    <span className={`off-switch${withChart ? ' is-on' : ''}`} aria-hidden><i /></span>
+                    {t('projects.official.withChart')}
+                  </button>
+                </div>
+                {detailError ? (
+                  <p className="off-status">{detailError}</p>
+                ) : (
+                  <CompactAudio src={loadingDetail || detail == null ? null : audioPreviewUrl(selected, detail)} />
+                )}
+              </>
+            )}
+          </aside>
+
           {filtered.length === 0 ? (
             <p className="off-status off-status--list">{t('projects.official.empty')}</p>
           ) : (
             <ul className="off-list" role="listbox" aria-label={t('projects.official.listAria')}>
               {filtered.map((song) => (
-                // li 只作分组，`option` 才是可选项（listbox 的孩子按无障碍树要被读成选项）
                 <li key={song.id} role="presentation">
                   <button
                     type="button"
@@ -147,13 +313,15 @@ export function OfficialSongPanel({
                     className={`off-row${song.id === selected?.id ? ' is-active' : ''}`}
                     onClick={() => pick(song)}
                   >
-                    <span className="off-row__title">{song.title}</span>
-                    <span className="off-row__artist pp-muted">{song.artist || t('projects.artistMissing')}</span>
+                    <span className="off-row__text">
+                      <span className="off-row__title">{song.title}</span>
+                      <span className="off-row__artist pp-muted">{song.artist || t('projects.artistMissing')}</span>
+                    </span>
                     <span className="off-row__levels">
                       {song.difficulties.map((entry) => (
-                        <em key={entry.diff} style={{ borderColor: DIFF_COLORS[officialDiffIndex(entry.diff)] }}>
+                        <span key={entry.diff} style={{ borderColor: DIFF_COLORS[officialDiffIndex(entry.diff)] }}>
                           {DIFF_SHORT[officialDiffIndex(entry.diff)]} {entry.level}
-                        </em>
+                        </span>
                       ))}
                     </span>
                   </button>
@@ -161,72 +329,6 @@ export function OfficialSongPanel({
               ))}
             </ul>
           )}
-
-          <div className="off-preview">
-            {selected == null ? (
-              <p className="off-status">{t('projects.official.pickHint')}</p>
-            ) : (
-              <>
-                <div className="off-cover">
-                  {coverFailed || selected.jacketImage === '' ? (
-                    <Music4 size={38} aria-hidden />
-                  ) : (
-                    <img src={jacketPreviewUrl(selected)} alt="" onError={() => setCoverFailed(true)} />
-                  )}
-                </div>
-                <b className="off-preview__title">{selected.title}</b>
-                <span className="pp-muted">{selected.artist || t('projects.artistMissing')}</span>
-
-                <ul className="off-levels">
-                  {OFFICIAL_DIFFICULTIES.map((name) => {
-                    const level = songLevel(selected, name);
-                    return (
-                      <li key={name} className={level == null ? 'is-missing' : ''}>
-                        <em className="pp-pill__diff" style={{ background: DIFF_COLORS[officialDiffIndex(name)] }}>
-                          {DIFF_SHORT[officialDiffIndex(name)]}
-                        </em>
-                        <span>{DIFF_NAMES[officialDiffIndex(name)]}</span>
-                        <b>{level ?? t('projects.official.levelMissing')}</b>
-                      </li>
-                    );
-                  })}
-                </ul>
-
-                {detailError ? (
-                  <p className="off-status">{detailError}</p>
-                ) : loadingDetail || detail == null ? (
-                  <p className="off-status">{t('projects.official.detailLoading')}</p>
-                ) : (
-                  <audio className="off-audio" controls preload="none" src={audioPreviewUrl(selected, detail)} />
-                )}
-
-                <p className="off-note">{t('projects.official.assetsNote')}</p>
-
-                <label className="off-check">
-                  <input
-                    type="checkbox"
-                    checked={withChart}
-                    disabled={detail == null}
-                    onChange={(e) => setWithChart(e.target.checked)}
-                  />
-                  <span>{t('projects.official.withChart')}</span>
-                </label>
-                {withChart && (
-                  <label className="dialog-field">
-                    <span>{t('projects.official.chartDiff')}</span>
-                    <select value={diff} onChange={(e) => setDiff(e.target.value as OfficialDifficulty)}>
-                      {selected.difficulties.map((entry) => (
-                        <option key={entry.diff} value={entry.diff}>
-                          {DIFF_NAMES[officialDiffIndex(entry.diff)]} · {t('projects.official.levelValue', { level: entry.level })}
-                        </option>
-                      ))}
-                    </select>
-                    <small>{t('projects.official.chartHint')}</small>
-                  </label>
-                )}
-              </>
-            )}
-          </div>
         </div>
       )}
     </div>

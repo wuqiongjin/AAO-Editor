@@ -1,15 +1,18 @@
 // 票 08：官方曲库能力（能力 1–5）与官方曲的中立映射。
 // 惯例照 tests/unit/upload/bestdori/sanitizeChart.test.ts：内联 fixture + 手写假出口，全仓无 msw / vi.mock。
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { isCommunityError } from '@/src/community/transport';
 import {
   audioPreviewUrl,
+  clearSongCatalogCache,
   fetchOfficialAudio,
   fetchOfficialChartText,
   fetchOfficialCover,
   fetchSongCatalog,
   fetchSongDetail,
   jacketPreviewUrl,
+  catalogBandOptions,
+  filterSongCandidates,
   searchSongCandidates,
 } from '@/src/community/bestdori/songs';
 import { toSongCandidates } from '@/src/community/bestdori/mapping';
@@ -65,6 +68,7 @@ describe('票 08 · 曲库条目 → 中立曲目候选', () => {
 
     expect(song).toEqual({
       id: 1,
+      bandId: 1,
       title: '是！',
       artist: '啵啪啪',
       jacketImage: 'yes_bang_dream',
@@ -115,7 +119,47 @@ describe('票 08 · 本地搜索', () => {
   });
 });
 
+describe('票 13 · 曲库筛选（乐队 / 难度 / 等级）', () => {
+  const all = toSongCandidates(SONGS_INDEX, BANDS_INDEX, 'zh-CN');
+
+  it('按 bandId 筛，不按歌手显示名糊掉', () => {
+    expect(filterSongCandidates(all, { bandId: 1 }).map((s) => s.id)).toEqual([1]);
+    expect(filterSongCandidates(all, { bandId: 1004 }).map((s) => s.id)).toEqual([1004]);
+  });
+
+  it('必须已实装某难度：没 Special 的歌出局', () => {
+    expect(filterSongCandidates(all, { difficulty: 'special' }).map((s) => s.id)).toEqual([1004]);
+  });
+
+  it('等级范围按左右填的数值 min/max，填反也能筛；不硬夹 1–35', () => {
+    expect(filterSongCandidates(all, { levelMin: 28, levelMax: 30 }).map((s) => s.id)).toEqual([1004]);
+    expect(filterSongCandidates(all, { levelMin: 30, levelMax: 28 }).map((s) => s.id)).toEqual([1004]);
+    expect(filterSongCandidates(all, { levelMin: 0, levelMax: 6 }).map((s) => s.id)).toEqual([1]);
+  });
+
+  it('指定难度时，等级只看那一张', () => {
+    expect(filterSongCandidates(all, { difficulty: 'expert', levelMin: 24, levelMax: 24 }).map((s) => s.id)).toEqual([1004]);
+    expect(filterSongCandidates(all, { difficulty: 'easy', levelMin: 24, levelMax: 24 })).toEqual([]);
+  });
+
+  it('查询与筛选叠加', () => {
+    expect(filterSongCandidates(all, { query: 'see', bandId: 1 })).toEqual([]);
+    expect(filterSongCandidates(all, { query: 'see', difficulty: 'special' }).map((s) => s.id)).toEqual([1004]);
+  });
+
+  it('乐队下拉按 id 去重、按显示名排序', () => {
+    expect(catalogBandOptions(all)).toEqual([
+      { id: 1004, name: 'IRyS' },
+      { id: 1, name: '啵啪啪' },
+    ]);
+  });
+});
+
 describe('票 08 · 曲库索引 / 详情（一次拉全 + 选中才拉详情）', () => {
+  afterEach(() => {
+    clearSongCatalogCache();
+  });
+
   it('曲库一次拉全：索引 + 乐队索引各一次', async () => {
     const transport = fakeTransport({
       json: {
@@ -131,6 +175,35 @@ describe('票 08 · 曲库索引 / 详情（一次拉全 + 选中才拉详情）
       'https://bestdori.com/api/songs/all.5.json',
       'https://bestdori.com/api/bands/all.1.json',
     ]);
+  });
+
+  it('同一语言第二次拉曲库走会话缓存，不再打出口（票 13 #4）', async () => {
+    const transport = fakeTransport({
+      json: {
+        'https://bestdori.com/api/songs/all.5.json': SONGS_INDEX,
+        'https://bestdori.com/api/bands/all.1.json': BANDS_INDEX,
+      },
+    });
+
+    const first = await fetchSongCatalog(transport, 'zh-CN');
+    const second = await fetchSongCatalog(transport, 'zh-CN');
+
+    expect(second).toBe(first);
+    expect(transport.requests).toHaveLength(2);
+  });
+
+  it('换语言不复用上一份缓存', async () => {
+    const transport = fakeTransport({
+      json: {
+        'https://bestdori.com/api/songs/all.5.json': SONGS_INDEX,
+        'https://bestdori.com/api/bands/all.1.json': BANDS_INDEX,
+      },
+    });
+
+    await fetchSongCatalog(transport, 'zh-CN');
+    await fetchSongCatalog(transport, 'en');
+
+    expect(transport.requests).toHaveLength(4);
   });
 
   it('详情取 bgmId 与官方曲长；形态不对翻成统一错误域', async () => {
