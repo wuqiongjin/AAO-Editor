@@ -40,8 +40,32 @@ const QUALITY_OPTIONS: ReadonlyArray<{ value: AppSettings['display']['imageQuali
 const GRID_OPTIONS: ReadonlyArray<{ value: GridStylePreset; labelKey: MessageKey }> =
   GRID_STYLE_PRESETS.map((value) => ({ value, labelKey: `settings.gridStyle.${value}` as MessageKey }));
 
-/** 面板宽（浮层贴右缘定位时用；与 CSS 里的 `.pdp__panel` 宽度同值） */
+/** 面板**内容**宽（= CSS `.pdp__panel { width }`；定位要的是**盒**宽，见下） */
 const PANEL_W = 320;
+/**
+ * 面板**盒**宽 = 内容宽 + 壳（`.pdp__panel` 的 padding 6×2 + 菜单壳 `.pp-menu__panel` 的 border 1×2）。
+ *
+ * 定位按盒宽对齐触发钮右缘：`.pdp__panel` 是 content-box，拿内容宽当盒宽会让面板右缘恒比触发钮
+ * 右缘多出 14px（issue 29 实测：面板 right 1432 / 触发钮 right 1418）。这两条 CSS 声明与本文件
+ * 这三个常量的一致性由 `tests/static/PreviewPanelAnchorWidth.test.ts` 钉住。
+ */
+const PANEL_CHROME_W = 14;
+const PANEL_BOX_W = PANEL_W + PANEL_CHROME_W;
+/** 面板离视口边缘的留白（贴右缘式放不下时的下限） */
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * 面板定位：贴触发钮**右缘**（盒宽对齐）并夹进视口，纵向贴触发钮下缘 +3。
+ * 量测输入来自工具栏右簇那枚图标钮：右簇贴页面右缘 ⇒ 窗宽一变它就动，故定位必须随伸缩重算
+ * （见组件里那段 resize 监听），只在打开那一刻量一次是不够的。
+ */
+function panelLayoutFor(rect: { right: number; bottom: number }) {
+  const left = Math.min(
+    Math.max(VIEWPORT_MARGIN, rect.right - PANEL_BOX_W),
+    Math.max(VIEWPORT_MARGIN, window.innerWidth - PANEL_BOX_W - VIEWPORT_MARGIN),
+  );
+  return { top: rect.bottom + 3, left };
+}
 
 /**
  * 一行：[标签] [控件]（行版式是面板自己的：浮层里要紧凑，不复用设置页那套 64px 行高）。
@@ -251,17 +275,46 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
 
   const close = useCallback(() => setOpen(false), []);
 
-  const toggle = useCallback(() => {
-    setOpen((prev) => {
-      if (!prev && btnRef.current) {
-        const r = btnRef.current.getBoundingClientRect();
-        // 贴右缘对齐并夹进视口（工具栏那排按钮可以有多个实例：页面工具栏一份、全屏浮层一份）
-        const left = Math.min(Math.max(8, r.right - PANEL_W), Math.max(8, window.innerWidth - PANEL_W - 8));
-        setPos({ top: r.bottom + 3, left });
-      }
-      return !prev;
-    });
+  /** 量触发钮定面板位；打开前与开着时窗口伸缩都走它（算式见 panelLayoutFor） */
+  const computePos = useCallback(() => {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const next = panelLayoutFor(btn.getBoundingClientRect());
+    // 等值守卫：补测路径会反复调用，几何没变时别平白制造一次重渲
+    setPos((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
   }, []);
+
+  const toggle = useCallback(() => {
+    if (!open) computePos();   // 先量再开：首帧就到位，不出现"先落在旧处再跳一下"
+    setOpen(!open);
+  }, [open, computePos]);
+
+  // 开着时跟随触发钮（issue 29）：右簇贴页面右缘 ⇒ 伸缩窗口就把它挪走，不重新量的话面板停在旧位置、
+  // 与触发钮脱节；缩到 1180（1600 开面板）时更糟 —— 面板右缘跑到视口外 252px，右侧控件点不到。
+  //
+  // 跨帧补测的理由照 `src/ui/ScopePicker.tsx` 那段（票 11 #1 同款病灶）：触发钮几何未必在 resize
+  // 当帧落定（那边是 AppPageShell 的 ResizeObserver 异步写 --aps-*；本页是纯 CSS 布局，当帧量通常
+  // 就够，双帧兜底字体 / 滚动条那类迟到几何）。等值守卫让补测不制造冗余重渲。
+  useEffect(() => {
+    if (!open) return;
+    let raf1 = 0;
+    let raf2 = 0;
+    const onResize = () => {
+      computePos();
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      raf1 = requestAnimationFrame(() => {
+        computePos();
+        raf2 = requestAnimationFrame(computePos);
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [open, computePos]);
 
   // Esc 关面板并把焦点还给触发钮（点面板外由遮罩负责，照 ScopePicker）。
   // 焦点给外壳里那枚 `<button>`（外壳只是量尺，本身不可聚焦）

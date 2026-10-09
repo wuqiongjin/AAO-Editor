@@ -29,15 +29,52 @@ export default function PreviewChartSwitcher({ project, chartId, onPick }: {
 
   const close = useCallback(() => setOpen(false), []);
 
-  const toggle = useCallback(() => {
-    setOpen((prev) => {
-      if (!prev && btnRef.current) {
-        const r = btnRef.current.getBoundingClientRect();
-        setPos({ top: r.bottom + 4, left: r.left });
-      }
-      return !prev;
-    });
+  /**
+   * 量触发钮定面板位（贴左缘、纵向下缘 +4）；打开前与开着时窗口伸缩都走它。
+   *
+   * 不做视口夹取（ScopePicker / 设置面板那两处有）：它锚在工具栏左簇，`left` 就是页面左留白，
+   * 而面板 `max-width: 360px` ⇒ 只有极窄视口（< ≈390px）才可能溢出 —— 那是既有口径，本票只补跟随。
+   */
+  const computePos = useCallback(() => {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const next = { top: r.bottom + 4, left: r.left };
+    // 等值守卫：补测路径会反复调用，几何没变时别平白制造一次重渲
+    setPos((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
   }, []);
+
+  const toggle = useCallback(() => {
+    if (!open) computePos();   // 先量再开：首帧就到位
+    setOpen(!open);
+  }, [open, computePos]);
+
+  // 开着时跟随触发钮（issue 29）：它住工具栏**左簇**（左锚）—— 常规伸缩下左簇本来就不动，所以这条
+  // 此前没人报；破口在跨 720 断点（页面 padding 24 → 16 / 顶 24 → 20）后触发钮挪 8px / 4px，不重新
+  // 量的话面板留在原地与触发钮脱节（实测见票 29 的 Comments）。
+  //
+  // 跨帧补测 + 等值守卫照 `src/ui/ScopePicker.tsx` 那段（票 11 #1 同款病灶），理由见
+  // `PreviewDisplayPanel.tsx` 里同段注释（那边是同一个病的重灾区）。
+  useEffect(() => {
+    if (!open) return;
+    let raf1 = 0;
+    let raf2 = 0;
+    const onResize = () => {
+      computePos();
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      raf1 = requestAnimationFrame(() => {
+        computePos();
+        raf2 = requestAnimationFrame(computePos);
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [open, computePos]);
 
   // Esc 关面板并把焦点还给触发钮（点面板外由遮罩负责）
   useEffect(() => {

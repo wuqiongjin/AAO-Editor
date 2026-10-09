@@ -12,8 +12,8 @@
 // 控件文案**复用设置页那套**（节奏图示大小 / 同时点击线 / 色觉辅助 / 图像品质 / 轨道颜色…）：
 // 面板是同一份设置的第二个入口，两处名字必须一样（面板不另起一套词汇）。
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import PreviewDisplayPanel from '@/src/pages/preview/PreviewDisplayPanel';
@@ -352,5 +352,93 @@ describe('chart-preview 24 · 音符速度档（1..12 / 步长 0.1 / 可手动�
   it('静态形态没有这一档（只有动态形态的仿真场组有音符速度）', () => {
     setup();
     expect(within(panel()).queryByRole('spinbutton', { name: '音符速度' })).toBeNull();
+  });
+});
+
+describe('issue 29 · 面板定位（盒宽对齐 + 开着时伸缩跟随）', () => {
+  // jsdom 没有布局引擎（`getBoundingClientRect()` 恒 0）⇒ 触发钮矩形只能显式注入，照 ScopePicker.test.tsx。
+  // 面板盒宽 = 内容 320（CSS `.pdp__panel { width }`）+ 壳 14（padding 6×2 + `.pp-menu__panel` border 1×2）；
+  // 三处一致性走 `tests/static/PreviewPanelAnchorWidth.test.ts`，这里只锁定位算式。
+  const BOX_W = 334;
+  /** 面板离视口边缘的留白（组件同款常量） */
+  const MARGIN = 8;
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  /** 触发钮的量尺外壳（`.pdp__trigger`）：`IconButton` 不可 ref，量的是这层 */
+  const ruler = () => document.querySelector('.pdp__trigger') as HTMLElement;
+  const panelLeft = () => Number.parseFloat(panel().style.left);
+  const panelTop = () => Number.parseFloat(panel().style.top);
+
+  /**
+   * 渲染 + 注入触发钮矩形 + 点开（定位是"打开那一刻量一次"，注入必须在点击之前）。
+   * 返回可变矩形：改它再派 `resize` = 模拟"伸缩后触发钮随布局移动"。
+   */
+  function openAt(right: number, bottom: number) {
+    seedZhSettings();
+    render(
+      <AppNavProvider value={{ activePage: 'preview', setActivePage: vi.fn(), pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
+        <ConfigProvider><PreviewDisplayPanel /></ConfigProvider>
+      </AppNavProvider>,
+    );
+    const rect = { right, bottom };
+    vi.spyOn(ruler(), 'getBoundingClientRect').mockImplementation(() => ({
+      x: rect.right - 73, y: rect.bottom - 30, left: rect.right - 73, right: rect.right,
+      top: rect.bottom - 30, bottom: rect.bottom, width: 73, height: 30, toJSON: () => ({}),
+    }) as DOMRect);
+    fireEvent.click(trigger());
+    return rect;
+  }
+
+  it('面板右缘贴触发钮右缘：left = 触发钮 right − 334（盒宽，不是内容宽 320）', () => {
+    vi.stubGlobal('innerWidth', 1600);
+    openAt(1418, 110);
+
+    // 拿内容宽当盒宽得 1098 ⇒ 面板右缘比触发钮右缘多出 14px（旧写法该条必红）
+    expect(panelLeft()).toBe(1418 - BOX_W);
+    expect(panelLeft() + BOX_W).toBe(1418);
+    expect(panelTop()).toBe(113);              // 触发钮下缘 + 3
+  });
+
+  it('面板开着时伸缩窗口：重新量触发钮，面板跟随（不留在旧位置）', () => {
+    vi.stubGlobal('innerWidth', 1600);
+    const rect = openAt(1418, 110);
+    expect(panelLeft()).toBe(1418 - BOX_W);
+
+    // 放大：右簇贴右缘 ⇒ 触发钮 right 随窗宽走（实测 1418 → 1738）
+    vi.stubGlobal('innerWidth', 1920);
+    rect.right = 1738;
+    rect.bottom = 130;
+    fireEvent(window, new Event('resize'));
+
+    expect(panelLeft()).toBe(1738 - BOX_W);
+    expect(panelTop()).toBe(133);
+  });
+
+  it('布局晚一拍（触发钮几何在 resize 之后才落定）：当帧量旧位，后续帧补测跟上', async () => {
+    vi.stubGlobal('innerWidth', 1600);
+    const rect = openAt(1418, 110);
+
+    fireEvent(window, new Event('resize'));
+    expect(panelLeft()).toBe(1418 - BOX_W);    // 当帧触发钮还没挪（补测要等布局落定）
+
+    // 一拍之后几何才落定：视口变大 + 触发钮随右簇贴到新右缘（两者同时变，故一起注入）
+    vi.stubGlobal('innerWidth', 1920);
+    rect.right = 1738;
+    await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 60)); });
+
+    expect(panelLeft()).toBe(1738 - BOX_W);
+  });
+
+  it('缩到装不下时夹进视口：右缘留在 8px 留白内（夹取式同样按盒宽算）', () => {
+    vi.stubGlobal('innerWidth', 1600);
+    const rect = openAt(1418, 110);
+
+    vi.stubGlobal('innerWidth', 1180);
+    rect.right = 1176;                          // 触发钮已贴到视口右缘
+    fireEvent(window, new Event('resize'));
+
+    expect(panelLeft()).toBe(1180 - BOX_W - MARGIN);
+    expect(panelLeft() + BOX_W).toBeLessThanOrEqual(1180 - MARGIN);
   });
 });
