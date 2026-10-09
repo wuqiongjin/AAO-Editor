@@ -151,11 +151,13 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(page).toMatch(/classList\.toggle\('is-palette-swap'/);
   });
 
-  it('动态形态把页面留白收一档让给场地（chart-preview 19：contain 下画面变大的唯一来源是高度）', () => {
+  it('动态形态把底部留白收一档让给场地（chart-preview 19：contain 下画面变大的唯一来源是高度）', () => {
     const src = readStripped('src/pages/preview/PreviewPage.tsx');
     expect(src).toMatch(/preview-page\$\{mode === 'video' \? ' is-video' : ''\}/);
     const css = readStripped('src/pages/preview/PreviewPage.css');
-    expect(css).toMatch(/\.preview-page\.is-video\s*\{[^}]*padding:\s*12px 12px 8px/);
+    // 票 26：只收**底部** —— padding-top / padding-left 是页头模式按钮的锚点，跟着收就会让
+    // 切模式时页头整体上移 + 左移 12px（实测 Δx = Δy = −12）
+    expect(css).toMatch(/\.preview-page\.is-video\s*\{[^}]*padding-bottom:\s*8px/);
     // 播放条自 issue 22 起是工作台同一件 PlayBar（变体类 `.play-bar--preview`）
     expect(css).toMatch(/\.preview-page\.is-video \.play-bar--preview\s*\{[^}]*min-height:\s*32px/);
   });
