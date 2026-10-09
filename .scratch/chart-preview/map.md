@@ -18,7 +18,7 @@
 - 具体要做哪些子能力：2026-09-30 定案（见「Decisions so far」与票 01 的 Answer），拆分见 Frontier。
 - 仓库没有 `npm run typecheck`；类型门禁 = `npx tsc -b`。
 - 测试基线 **194 文件 / 2140 用例全绿**（2026-10-02 实测，票 10 实施后；票 01 正文里的 164 / 1919 是开票时的旧数）。
-- **调研已落盘**：`docs/research/chart-preview-technical-baseline.md`（Bestdori 静态预览与模拟器的反编译事实、我方可复用面、尺寸与缓存算术、待实测清单）。
+- **调研已落盘**：`docs/research/chart-preview-technical-baseline.md`（Bestdori 静态预览与模拟器的反编译事实、我方可复用面、尺寸与缓存算术、待实测清单）；`docs/research/chart-preview-export-limits.md`（票 06：导出链路与尺寸实测 —— 画布上限 / 宽图耗时与峰值内存 / 仿真场单帧成本 / WebCodecs 编码可用性与吞吐 / MediaRecorder 对照 + 复算命令）。
 - 落地时补 CONTEXT.md 词条：面板折行 / 预览显示档 / 长图导出 / 仿真场 / 接近模型 / 设计面 / 视频导出 / 离线音轨。
 
 ## Decisions so far
@@ -50,8 +50,8 @@
 - [03 静态预览：面板折行 + 长图导出](./issues/03-静态预览面板折行与长图导出.md) — 已解决（2026-09-30 实现 + 三轮验收回修：面板模型 `panelLayout` + 共享离屏 target 逐面板代画 `panelPainter` + 预览显示档 `displayProfile` + 横向滚动宿主 `StaticPreviewView` + 宽图导出 `exportPanels` + Electron 二进制另存通道 `preview:saveBinary` + 工具栏缩放/叠加项/导出；全量 188 文件/2098 例 + tsc + eslint 全绿，见票内 Answer）
 - [04 仿真场素材归档（fieldskin / bgskin）](./issues/04-仿真场素材归档.md) — 已解决（2026-10-07：脚本增两类 + dev-only `/__bestdori-assets/` 直读 + 空态文案/别名/文档同源；dry-run 与真拉 skin00 实测、dev 中间件 curl 实测、`npm test` 203/2226 全绿，见票内 Answer）
 - [05 仿真场渲染器](./issues/05-仿真场渲染器.md) — **已解决**（2026-10-09：7 条验收问题经 18/19/20/21 闭环，后续 22/23/24/25 进一步回修并验收，仿真场渲染器能力完整；显示面板分组 OK、画面/交互问题全部闭环，见票内 Comments）
-- [06 导出链路与尺寸实测](./issues/06-导出链路与尺寸实测.md) — Blocked by: —（research；结论回填 03 / 07）
-- [07 视频导出](./issues/07-视频导出.md) — Blocked by: 05, 06
+- [06 导出链路与尺寸实测](./issues/06-导出链路与尺寸实测.md) — **已解决**（2026-10-09：五节全跑，产出 `docs/research/chart-preview-export-limits.md`；**重心 = 视频导出链路**，07 卡在它上面：仿真场单帧 1080p 光栅 45.7 ms（22 fps）、端到端 0.26× 实时（瓶颈是快照不是编码）、音频**只有 opus**、H.264 **边长必须偶数**、`mp4-muxer`/`webm-muxer` 各 ~14/12 KB gzip。另两节（画布上限 / 宽图导出）是**复核性质**，对已落地的 03 无新增结论，只补了「超限行为全程静默」与「峰值 RSS +500/+735 MB、端到端 1.0/2.4 s」两个 03 没测的数。环境 = 仓内 Playwright Chromium 153 软光栅；Electron 在本工作区缺 GTK 跑不起来，真机复验留 §9）
+- [07 视频导出](./issues/07-视频导出.md) — Blocked by: 05（06 已 resolved，编码 / 容器 / 依赖 / 性能口径见票内回填）
 - [08 静态预览配置项体系（标记开关 + 画布共享项入口）](./issues/08-静态预览配置项体系.md) — 已解决（2026-09-30：四答定案 + 两轮实现；Bestdori 17 项对照表在票内，Skill → 09、Fever 挂起）
 - [09 静态预览：技能发动标记（Skill 矩形框）](./issues/09-技能发动标记.md) — Blocked by: 08（语义已实证，待拍板右沟槽排布 / 取色 / 框几何）
 - [10 预览页布局扩大（宽 + 高）](./issues/10-预览页布局扩大.md) — 已解决（2026-10-02：全幅壳 + 模式切换当页头（变体 D，原型留档分支 `proto/chart-preview-10-preview-header`）+ 控件外壳撤销；舞台 1121×509 → **1390×603**；默认档二次重定基——读数仍 100%、物理 +20%，音符 27.7 → 33.2 px / 一屏 8.91 ≈ 旧 8.74）
@@ -77,7 +77,7 @@
 
 ## Fog
 
-- 长图导出的最终形态（折行网格单图 vs 每面板一张 PNG）实现时定；画布尺寸上限由 06 的实测校准（已知口径：单边 65,535 px / 面积 2^28，3 分钟谱内容高 79,200 px → 单条超高长图不做）。
+- 长图导出的最终形态（折行网格单图 vs 每面板一张 PNG）实现时定；画布尺寸上限**已由 06 实测校准**（单边 65,535 px / 面积 2^28，3 分钟谱内容高 79,200 px → 单条超高长图不做）——`SHEET_LIMITS` 不用改，见 `docs/research/chart-preview-export-limits.md` §2。
 - 二进制落盘通道由 03 先建（PNG），07 复用；大文件 / 流式另存是否需要单开通道，07 实现时定。
 - 仿真场素材的**打包 / 运行时拉取 / 用户自备**方案留后票（拉取路径的前置是 ADR-0011 的网络层）；素材边界仍为"不得再分发、仅供本地研究"；**没跑过归档脚本的机器上仿真场为空态**（空态必须给出 `node scripts/fetch-bestdori-skins.mjs --category fieldskin,bgskin`，ADR-0016 §6）。_2026-10-07 后票已开：`release-pipeline/01`（CI 构建期注入 + release 镜像，用户拍板 A + 镜像为主、否决用户导入；实现排在 GitHub 私有仓库建好之后）_
 - upload 骨架不属本 effort：随 `bestdori-integration` 实现票一次定（ADR-0011 三期递进：网络 IPC → 谱面浏览 → 登录 / 上传）。

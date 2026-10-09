@@ -79,6 +79,7 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 | --- | --- |
 | `verify-slide-band-order.mjs` | issue 115 / ADR-0009：滑条带体与参考截图像像素 IoU 复核（需 esbuild + 本地 PNG） |
 | `preview-shot.mjs` | 静态预览像素验收：建工程 → 贴样例谱 → 预览页抓面板原生位图（`toDataURL`）+ 工作台对照；打印舞台盒与面板宽（`VIEWPORT` / `DSF` 可改视口，票 10 用 `VIEWPORT=1490x748`）（需 playwright + dev server） |
+| `measure-export-limits.mjs` | 导出链路与尺寸实测（chart-preview 06）：画布单边 / 面积上限与超限行为、3 / 5 分钟谱宽图导出的耗时与峰值内存、仿真场单帧成本、WebCodecs 编码可用性与吞吐、MediaRecorder 对照（需 playwright + dev server；`--only=` 分节、`--json=` 落盘）。**一次性探针、不在 CI**：留着是当 `docs/research/chart-preview-export-limits.md` 那组数字的复算 / 复验入口（换机器 / 换 Chromium 版本 / 改编码参数后重跑可比）；它 import 的是 `/src/...` 绝对路径，模块搬家后会跑不起来，到时删掉即可 |
 | `sim-shot.mjs` | 仿真场像素验收（chart-preview 05）：建工程 → 贴样例谱 → 预览页切「动态预览」→ 抓**场地 canvas 原生位图**（暂停 / 播放中 / seek 中段 / seek 末段）+ 页面截图，打印场地比例与位图尺寸；素材缺席时打印 04 的空态与获取命令（同需 playwright + dev server） |
 
 一次性 Playwright 探针历史上在迭代后已删除；需要浏览器实测时优先 vitest / 手工清单，或按 issue 说明临时写脚本（不必长期留在本目录）。
