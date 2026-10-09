@@ -157,7 +157,8 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     const css = readStripped('src/pages/preview/PreviewPage.css');
     // 票 26：只收**底部** —— padding-top / padding-left 是页头模式按钮的锚点，跟着收就会让
     // 切模式时页头整体上移 + 左移 12px（实测 Δx = Δy = −12）
-    expect(css).toMatch(/\.preview-page\.is-video\s*\{[^}]*padding-bottom:\s*8px/);
+    // 票 26 #3：还只在**舞台有画面**时才收 —— 空态收它什么也喂不到，只是把居中内容推下去 4px
+    expect(css).toMatch(/\.preview-page\.is-video:has\(\.preview-stage\.is-filled\)\s*\{[^}]*padding-bottom:\s*8px/);
     // 播放条自 issue 22 起是工作台同一件 PlayBar（变体类 `.play-bar--preview`）
     expect(css).toMatch(/\.preview-page\.is-video \.play-bar--preview\s*\{[^}]*min-height:\s*32px/);
   });
