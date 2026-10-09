@@ -4,11 +4,12 @@
 //
 // 行为保持：
 //   - scrollModel ref 单例（与 Editor 同生命周期；状态机状态在实例上）
-//   - 每次渲染：configure(geometry, scale) 注入最新值
-//   - 谱面末端变化源 key（duration|bpm|surface）变化时 noteChartEndChange
+//   - 每次渲染：configure(geometry, scale, chartEndKey) 注入最新值
+//   - 谱面末端变化源 key（duration|bpm|surface）变化 → configure 内部同帧置位待重锚
+//     （issue 166 RC-1：置位曾挂在 effect 上，挡不住抢在前面的子画布上报）
 //   - virtualHeight 就绪后调用 takePendingReAnchor(maxScroll) 消费待重锚项；如有目标则返回
 //   - 初始滚动（置底=beat0）由调用方在第一次 virtualHeight 就绪时触发
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { PlaybackScrollModel, type ReAnchorTarget } from './PlaybackScrollModel';
 import type { ChartGeometry } from '../chart/geometry/ChartGeometry';
 import { obtainChartGeometry, PLACEHOLDER_SURFACE } from '../chart/geometry/ChartSpace';
@@ -66,12 +67,9 @@ export function useScrollModel(opts: UseScrollModelOptions): UseScrollModelRetur
   }
   const scrollModel = scrollModelRef.current;
 
-  scrollModel.configure(geometry, scale);
-
-  useEffect(() => {
-    scrollModel.noteChartEndChange(chartEndKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chartEndKey]);
+  // issue 166 RC-1：待重锚随几何**同帧**置位（在 configure 里），不再走 effect ——
+  // 子画布的上报会抢在消费方 effect 之前，effect 置位挡不住锚点污染（详见 configure 注释）。
+  scrollModel.configure(geometry, scale, chartEndKey);
 
   return {
     scrollModel,
