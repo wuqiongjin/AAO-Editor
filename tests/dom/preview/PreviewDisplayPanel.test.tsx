@@ -45,6 +45,17 @@ function setup() {
   return { setActivePage };
 }
 
+/** 动态（仿真场）形态：那一组才有音符速度档（票 24 的输入形态锁在这里） */
+function setupDynamic(patch: Record<string, unknown> = {}) {
+  seedZhSettings(patch);
+  render(
+    <AppNavProvider value={{ activePage: 'preview', setActivePage: vi.fn(), pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
+      <ConfigProvider><PreviewDisplayPanel mode="dynamic" /></ConfigProvider>
+    </AppNavProvider>,
+  );
+  fireEvent.click(trigger());
+}
+
 const trigger = () => screen.getByRole('button', { name: '设置' });
 const panel = () => screen.getByRole('dialog', { name: '显示设置' });
 const scrim = () => document.querySelector('.pp-menu__scrim') as HTMLElement;
@@ -266,5 +277,80 @@ describe('chart-preview 08 · 浮层交互与皮肤入口', () => {
 
     expect(setActivePage).toHaveBeenCalledWith('assets');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+describe('chart-preview 24 · 音符速度档（1..12 / 步长 0.1 / 可手动输入）', () => {
+  /** 数字输入框（`<input type="number">`） */
+  const speedInput = () => within(panel()).getByRole('spinbutton', { name: '音符速度' });
+  /** 粗调滑杆（与输入框同一份值） */
+  const speedSlider = () => within(panel()).getByRole('slider', { name: '音符速度' });
+  /** 步进钮（小 0.1 / 大 0.5 各一对，照 Bestdori 的 small / large） */
+  const speedStep = (name: string) => within(panel()).getByRole('button', { name });
+
+  it('默认 9.5：输入框与滑杆是同一份值，区间 1..12 步长 0.1', () => {
+    setupDynamic();
+    expect(speedInput()).toHaveValue(9.5);
+    expect(speedSlider()).toHaveValue('9.5');
+    expect(speedSlider()).toHaveAttribute('min', '1');
+    expect(speedSlider()).toHaveAttribute('max', '12');
+    expect(speedSlider()).toHaveAttribute('step', '0.1');
+    // 这一档自带整行版式（不再套 `Row`）：标签只出现一次
+    expect(within(panel()).getAllByText('音符速度')).toHaveLength(1);
+  });
+
+  it('输入 12 被接受（旧上界 11 会把它夹到 11 ⇒ 这条必红）', () => {
+    setupDynamic();
+    fireEvent.change(speedInput(), { target: { value: '12' } });
+
+    expect(stored().preview.noteSpeed).toBe(12);
+    expect(speedSlider()).toHaveValue('12');
+  });
+
+  it('输入 11.9：读数就是 11.9（步长 0.1，不再被吸到半档）', () => {
+    setupDynamic();
+    fireEvent.change(speedInput(), { target: { value: '11.9' } });
+
+    expect(stored().preview.noteSpeed).toBe(11.9);
+    expect(speedInput()).toHaveValue(11.9);
+  });
+
+  it('越界输入夹回区间：99 → 12、0.4 → 1', () => {
+    setupDynamic();
+    fireEvent.change(speedInput(), { target: { value: '99' } });
+    expect(stored().preview.noteSpeed).toBe(12);
+
+    fireEvent.change(speedInput(), { target: { value: '0.4' } });
+    expect(stored().preview.noteSpeed).toBe(1);
+  });
+
+  it('步进钮两档：大 0.5 / 小 0.1（照 Bestdori 的 large / small）', () => {
+    setupDynamic();
+    fireEvent.click(speedStep('音符速度加 0.5'));
+    expect(stored().preview.noteSpeed).toBe(10);
+
+    fireEvent.click(speedStep('音符速度减 0.1'));
+    expect(stored().preview.noteSpeed).toBe(9.9);
+
+    fireEvent.click(speedStep('音符速度加 0.1'));
+    expect(stored().preview.noteSpeed).toBe(10);
+
+    // 上界那儿不再被夹到 11：11.8 + 0.5 落在 12
+    fireEvent.change(speedInput(), { target: { value: '11.8' } });
+    fireEvent.click(speedStep('音符速度加 0.5'));
+    expect(stored().preview.noteSpeed).toBe(12);
+  });
+
+  it('滑杆拖到 12：写同一份设置，输入框跟着走', () => {
+    setupDynamic();
+    fireEvent.change(speedSlider(), { target: { value: '12' } });
+
+    expect(stored().preview.noteSpeed).toBe(12);
+    expect(speedInput()).toHaveValue(12);
+  });
+
+  it('静态形态没有这一档（只有动态形态的仿真场组有音符速度）', () => {
+    setup();
+    expect(within(panel()).queryByRole('spinbutton', { name: '音符速度' })).toBeNull();
   });
 });

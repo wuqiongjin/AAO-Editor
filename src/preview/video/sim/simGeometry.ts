@@ -6,7 +6,7 @@
 //   设计面        1334 × 750（游戏原生比例）
 //   laneWidth     154 × W/1334         laneHeight 0.82 × H
 //   坐标          原点 (W/2, 0)；y = 1 即场地判定线；元素画在 "A 倍缩放的场地坐标系" 里
-//   接近模型      A = 0.05 + 0.95 × 1.1^(50·Δ/T)，T = (12 − noteSpeed)/2 秒
+//   接近模型      A = 0.05 + 0.95 × 1.1^(50·Δ/T)，T = max(0.1, (12 − noteSpeed)/2) 秒
 //
 // 伪透视的实现 = **同一个 A 同时缩放 x 与 y**：A 越小（越远的将来）元素越靠上、越靠中、越小。
 // 轨道本身是竖直平行的，没有任何梯形变换（照参照实现）。
@@ -34,6 +34,16 @@ export const SIM_CENTER_LANE = 3;
  * Δ = −T 时 A ≈ 0.058 —— 故**渲染窗口取 Δ ∈ [−T, 0]**，再远就只剩渐近值、视觉上等于没来。
  */
 export const APPROACH = { floor: 0.05, range: 0.95, base: 1.1, exp: 50 } as const;
+
+/**
+ * 接近时长的下限（秒）—— `T = max(APPROACH_MIN_SECONDS, (12 − n)/2)`（票 24 案 B，2026-10-08 定案）。
+ *
+ * 档位上界取 12（现代 BanG Dream 的档位上限）之后，映射在 `n = 12` 处退化成 `T = 0`
+ * ⇒ 音符只在压线那一瞬出现，模型无定义。给它一个 0.1s 的地板，12 档就是"**极短但连续**的
+ * 接近窗口"而不是"炸掉"：`n ≥ 11.8` 全部落在 0.1s，行为连续、无跳变。
+ * 0.1 这个数 = 游戏里最快那一档仍然"看得见音符在动"的量级；再小就没有可解释性了。
+ */
+export const APPROACH_MIN_SECONDS = 0.1;
 
 /**
  * 场地画面的尺寸钳制（窄 / 宽比例下的同一个 contain 公式 + 上下界）：
@@ -150,16 +160,20 @@ export function backgroundRect(m: SimFieldMetrics): SimRect {
 // ---------------------------------------------------------------- 接近模型
 
 /**
- * 音符速度档 → 接近时长 T（秒）：`T = (12 − noteSpeed)/2`。
- * 档位 1..11 → 5.5s..0.5s（照票面；12 是模型自己的退化端点，不入白名单）。
+ * 音符速度档 → 接近时长 T（秒）：`T = max(APPROACH_MIN_SECONDS, (12 − noteSpeed)/2)`。
+ * 档位 1..12 → 5.5s..0.1s（11.8 及以上都是下限那 0.1s；下界常量见 `APPROACH_MIN_SECONDS`）。
  */
 export function approachSeconds(noteSpeed: number): number {
-  return (12 - normalizeNoteSpeed(noteSpeed)) / 2;
+  return Math.max(APPROACH_MIN_SECONDS, (12 - normalizeNoteSpeed(noteSpeed)) / 2);
 }
 
 // 档位归一化直接用设置域那一份（白名单与步长只有一个来源，仿真场不另立）
 
-/** 接近值 A（Δ = t_now − t_note，秒；T = approachSeconds(noteSpeed)） */
+/**
+ * 接近值 A（Δ = t_now − t_note，秒；T = approachSeconds(noteSpeed)）。
+ * `T ≤ 0` 的兜底（EPSILON）只是给**直接传 0 进来的调用方**留的：`approachSeconds` 有下限，
+ * 正常路径拿不到 0 —— 别把这里当成 12 档的处理位置。
+ */
 export function approachA(deltaSeconds: number, approachS: number): number {
   const t = approachS > 0 ? approachS : Number.EPSILON;
   return APPROACH.floor + APPROACH.range * APPROACH.base ** ((APPROACH.exp * deltaSeconds) / t);

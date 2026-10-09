@@ -36,15 +36,15 @@ describe('chart-preview 08 · 预览标注设置', () => {
     expect(loaded.preview).toEqual({ bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5 });
   });
 
-  it('音符速度档（chart-preview 05）：1..11 步长 0.5，越界 / 脏值 / 非步长值都归一', () => {
-    expect(SIM_NOTE_SPEED_RANGE).toEqual({ min: 1, max: 11, step: 0.5, fallback: 9.5 });
+  // 音符速度档（chart-preview 24：1..12 步长 0.1）的范围 / 步长 / 吸附锁测单开在
+  // `AppSettingsNoteSpeed.test.ts`（它同时是接近模型的定义域），这里只管"读回白名单值"。
+  it('音符速度档：白名单内原样读回，越界 / 脏值归一', () => {
     const of = (noteSpeed: unknown) => loadSettings(settingsStorageOf({ preview: { noteSpeed } })).preview.noteSpeed;
     expect(of(3)).toBe(3);
-    expect(of(0)).toBe(1);
-    expect(of(99)).toBe(11);
-    expect(of(9.3)).toBe(9.5); // 对齐步长（滑杆只能落在半档上）
-    expect(of('fast')).toBe(9.5);
-    expect(of(Number.NaN)).toBe(9.5);
+    expect(of(0)).toBe(SIM_NOTE_SPEED_RANGE.min);
+    expect(of(99)).toBe(SIM_NOTE_SPEED_RANGE.max);
+    expect(of('fast')).toBe(SIM_NOTE_SPEED_RANGE.fallback);
+    expect(of(Number.NaN)).toBe(SIM_NOTE_SPEED_RANGE.fallback);
   });
 
   it('缺段 / 脏值（含旧枚举名）→ 逐字段回落默认，不整段丢弃', () => {

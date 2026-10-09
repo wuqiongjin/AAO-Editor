@@ -287,6 +287,8 @@
   "preview.display.group.marks": "标记",
   "preview.display.group.sim": "仿真场",
   "preview.display.noteSpeed": "音符速度",
+  "preview.display.noteSpeed.decrease": "音符速度减 {{delta}}",
+  "preview.display.noteSpeed.increase": "音符速度加 {{delta}}",
   "preview.display.group.canvas": "画布显示",
   "preview.display.bpmMarks": "BPM 标记",
   "preview.display.timeMarks": "时间标记",

@@ -285,6 +285,8 @@
   "preview.display.group.marks": "Markers",
   "preview.display.group.sim": "Simulation",
   "preview.display.noteSpeed": "Note speed",
+  "preview.display.noteSpeed.decrease": "Decrease note speed by {{delta}}",
+  "preview.display.noteSpeed.increase": "Increase note speed by {{delta}}",
   "preview.display.group.canvas": "Canvas display",
   "preview.display.bpmMarks": "BPM markers",
   "preview.display.timeMarks": "Time markers",

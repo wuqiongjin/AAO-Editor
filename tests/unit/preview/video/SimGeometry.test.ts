@@ -6,6 +6,7 @@ import { SIM_NOTE_SPEED_RANGE } from '@/src/chart/config/AppSettings';
 import { NOTE_SKIN_GEOMETRY } from '@/src/rendering/skin/noteSkin';
 import {
   APPROACH,
+  APPROACH_MIN_SECONDS,
   DESIGN_SURFACE,
   LANE_DESIGN_W,
   SIM_FIELD_LIMITS,
@@ -70,14 +71,30 @@ describe('接近模型（CONTEXT「接近模型」）', () => {
     expect(visibleApproach(10 - T, 10, T)).toBeCloseTo(APPROACH.floor, 1);
   });
 
-  it('noteSpeed 档位 → T = (12 − n)/2：1..11 → 5.5s..0.5s，默认 9.5 → 1.25s', () => {
+  it('noteSpeed 档位 → T = max(0.1, (12 − n)/2)：1..12 → 5.5s..0.1s，默认 9.5 → 1.25s', () => {
     expect(approachSeconds(1)).toBe(5.5);
     expect(approachSeconds(11)).toBe(0.5);
     expect(approachSeconds(SIM_NOTE_SPEED_RANGE.fallback)).toBe(1.25);
-    // 越界 / 非有限值经白名单归一化（上界 11 是模型的定义域边界：12 会让 T = 0）
+    // 越界 / 非有限值经白名单归一化（上界 12 = 现代游戏的档位上限）
     expect(approachSeconds(0)).toBe(5.5);
-    expect(approachSeconds(99)).toBe(0.5);
+    expect(approachSeconds(99)).toBe(APPROACH_MIN_SECONDS);
     expect(approachSeconds(Number.NaN)).toBe(1.25);
+  });
+
+  it('票 24：12 档不再退化成 T = 0 —— 落到下限、仍是正数，且与 n ≥ 11.8 连续', () => {
+    expect(approachSeconds(12)).toBe(APPROACH_MIN_SECONDS);
+    expect(approachSeconds(12)).toBeGreaterThan(0); // 今天差的 0 那条要能红
+    expect(approachSeconds(11.8)).toBe(APPROACH_MIN_SECONDS); // 11.8 起就贴着下限 ⇒ 无跳变
+    expect(approachSeconds(11.9)).toBe(APPROACH_MIN_SECONDS);
+    expect(approachSeconds(11.7)).toBeCloseTo(0.15, 6); // 下限之上仍是原公式
+  });
+
+  it('票 24：T = 下限那一档的 A 仍成立（Δ = −T ⇒ ≈ 0.058）', () => {
+    const t = approachSeconds(12);
+    expect(t).toBe(APPROACH_MIN_SECONDS);
+    expect(approachA(-t, t)).toBeCloseTo(0.058, 2);
+    expect(approachA(-t, t)).toBeGreaterThan(APPROACH.floor);
+    expect(approachOf(10 - t, 10, t)).toBeCloseTo(approachA(-t, t), 12);
   });
 });
 

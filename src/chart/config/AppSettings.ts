@@ -195,17 +195,22 @@ export interface PreviewSettings {
   mirror: boolean;
   /**
    * 仿真场音符速度档（chart-preview 05；照 Bestdori `simNoteSpeed`）：
-   * 只作用于动态预览，决定接近模型的 T = (12 − noteSpeed)/2 秒。白名单与步长见 `SIM_NOTE_SPEED_RANGE`。
+   * 只作用于动态预览，决定接近模型的 T = max(0.1, (12 − noteSpeed)/2) 秒
+   * （下限 `APPROACH_MIN_SECONDS` 在 `preview/video/sim/simGeometry`）。白名单与步长见 `SIM_NOTE_SPEED_RANGE`。
    */
   noteSpeed: number;
 }
 
 /**
- * 音符速度档白名单（chart-preview 05）：`1..11` 步长 `0.5`，默认 **9.5**（用户 2026-10-07 定案：
- * "比较适合预览谱面的速度"）。上界取 11 而不是游戏里的 12：`T = (12 − n)/2` 在 12 处退化成 0，
- * 模型没有定义（票面的「档位 1..11」也是同一口径）。
+ * 音符速度档白名单（chart-preview 05；**范围 2026-10-08 票 24 定案**）：`1..12` 步长 `0.1`，
+ * 默认 **9.5**（用户 2026-10-07 定案："比较适合预览谱面的速度"）。
+ *
+ * 上界 **12 = 现代 BanG Dream 自己的档位上限**（Bestdori 模拟器封在 11，因为 `T = (12 − n)/2`
+ * 在 12 处退化成 0）。本项目的处理是给 T 一个下限（`APPROACH_MIN_SECONDS`），而不是改映射或封 11 ——
+ * 口径理由（票 24 定案）：**Bestdori 参照实现与游戏本身冲突时优先游戏**
+ * （现代游戏是 1..12，1..11 是老版本）。
  */
-export const SIM_NOTE_SPEED_RANGE = { min: 1, max: 11, step: 0.5, fallback: 9.5 } as const;
+export const SIM_NOTE_SPEED_RANGE = { min: 1, max: 12, step: 0.1, fallback: 9.5 } as const;
 
 /** Time 标记间隔（秒）——照 Bestdori 的 `chartTime`：off / 1s / 2s / 5s / 10s（chart-preview 08） */
 export type PreviewTimeMarkInterval = 'off' | 1 | 2 | 5 | 10;
@@ -233,7 +238,10 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
 export function normalizeNoteSpeed(raw: unknown, fallback: number = SIM_NOTE_SPEED_RANGE.fallback): number {
   const { min, max, step } = SIM_NOTE_SPEED_RANGE;
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
-  const snapped = Math.round(raw / step) * step;
+  // 吸附走 `× (1/step)` 而不是 `÷ step`：0.1 不能被二进制精确表示，
+  // `9.45 / 0.1` 算出 94.499… ⇒ 半档会被吸到**下**一档（步长 0.1 时逐位都可能错一格）。
+  const inv = 1 / step;
+  const snapped = Math.round(raw * inv) / inv;
   return Math.min(max, Math.max(min, snapped));
 }
 

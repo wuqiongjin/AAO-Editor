@@ -9,7 +9,7 @@
 // `.slider-value` / `.switch` / `.select-control`（设置页同一套词汇，不新造样式），只有行版式是面板自己的。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, SlidersHorizontal } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
@@ -20,6 +20,7 @@ import {
   PREVIEW_BEAT_MARK_DIVISIONS,
   PREVIEW_TIME_MARK_INTERVALS,
   SIM_NOTE_SPEED_RANGE,
+  normalizeNoteSpeed,
 } from '../../chart/config/AppSettings';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
@@ -99,7 +100,40 @@ function Select<T extends string | number>({
   );
 }
 
-/** 音符速度档（1..11 步长 0.5；值是"档"不是比例，故不走 `Percent`） */
+/**
+ * 步进的两档（照 Bestdori 那枚 `my-numeric-input` 的 `small: .1 / large: .5`）：
+ * 贴着输入框的一对 = 小步 0.1，外侧一对 = 大步 0.5（图标用双尖以示"跳得多"）。
+ */
+const SPEED_STEPS = { small: 0.1, large: 0.5 } as const;
+
+/** 一枚步进钮：`delta` 带符号（负 = 减），`large` = 大步那对（图标用双尖以示"跳得多"） */
+function SpeedStep({ delta, large, label, onStep }: {
+  delta: number;
+  large: boolean;
+  label: string;
+  onStep: (delta: number) => void;
+}) {
+  const Icon =
+    delta < 0 ? (large ? ChevronsLeft : ChevronLeft) : (large ? ChevronsRight : ChevronRight);
+  return (
+    <button
+      type="button"
+      className="pdp__step"
+      aria-label={label}
+      title={label}
+      onClick={() => onStep(delta)}
+    >
+      <Icon size={12} />
+    </button>
+  );
+}
+
+/**
+ * 音符速度档（1..12 步长 0.1；值是"档"不是比例，故不走 `Percent`）。
+ *
+ * 形态照 Bestdori 那枚 `my-numeric-input`：**数字输入框为主**（能直接敲 11.9 这种非半档值），
+ * 滑杆退到第二行做粗调，两侧步进分小 0.1 / 大 0.5 两档（票 24 定案）。
+ */
 function NoteSpeed({
   value, label, onChange,
 }: {
@@ -107,18 +141,68 @@ function NoteSpeed({
   label: string;
   onChange: (v: number) => void;
 }) {
+  // 输入框是"草稿"：边敲边把解析出来的值写回设置（敲到一半的 "1" 也是合法档位），
+  // 失焦再回到归一化后的那个数 —— 免得 "12." 这种半成品一直挂在框里。
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (raw: number) => onChange(normalizeNoteSpeed(raw, value));
+  const stepBy = (delta: number) => commit(value + delta);
   return (
-    <div className="slider-control pdp__slider">
-      <input
-        type="range"
-        min={SIM_NOTE_SPEED_RANGE.min}
-        max={SIM_NOTE_SPEED_RANGE.max}
-        step={SIM_NOTE_SPEED_RANGE.step}
-        value={value}
-        aria-label={label}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-      <span className="slider-value">{value.toFixed(1)}</span>
+    <div className="pdp__row pdp__row--stack">
+      <div className="pdp__row-text"><strong>{label}</strong></div>
+      {/* 一条上排完：滑杆（粗调）→ 步进（大 / 小）→ 数值框 → 步进（小 / 大）。
+          数值框夹在两对步进钮中间 = 一枚 spinbutton，不再是"读数 + 各在各处的旋钮"。 */}
+      <div className="pdp__speed-line">
+        <input
+          type="range"
+          className="pdp__speed-slider"
+          min={SIM_NOTE_SPEED_RANGE.min}
+          max={SIM_NOTE_SPEED_RANGE.max}
+          step={SIM_NOTE_SPEED_RANGE.step}
+          value={value}
+          aria-label={label}
+          onChange={(e) => { setDraft(null); commit(Number(e.target.value)); }}
+        />
+        <SpeedStep
+          delta={-SPEED_STEPS.large}
+          large
+          label={t('preview.display.noteSpeed.decrease', { delta: SPEED_STEPS.large })}
+          onStep={stepBy}
+        />
+        <SpeedStep
+          delta={-SPEED_STEPS.small}
+          large={false}
+          label={t('preview.display.noteSpeed.decrease', { delta: SPEED_STEPS.small })}
+          onStep={stepBy}
+        />
+        <input
+          type="number"
+          className="pdp__number"
+          min={SIM_NOTE_SPEED_RANGE.min}
+          max={SIM_NOTE_SPEED_RANGE.max}
+          step={SIM_NOTE_SPEED_RANGE.step}
+          inputMode="decimal"
+          value={draft ?? value.toFixed(1)}
+          aria-label={label}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            const parsed = Number(e.target.value);
+            if (e.target.value.trim() !== '' && Number.isFinite(parsed)) commit(parsed);
+          }}
+          onBlur={() => setDraft(null)}
+        />
+        <SpeedStep
+          delta={SPEED_STEPS.small}
+          large={false}
+          label={t('preview.display.noteSpeed.increase', { delta: SPEED_STEPS.small })}
+          onStep={stepBy}
+        />
+        <SpeedStep
+          delta={SPEED_STEPS.large}
+          large
+          label={t('preview.display.noteSpeed.increase', { delta: SPEED_STEPS.large })}
+          onStep={stepBy}
+        />
+      </div>
     </div>
   );
 }
@@ -290,14 +374,13 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
             ) : (
               <section className="pdp__group" aria-label={t('preview.display.group.sim')}>
                 <h3 className="pdp__group-title">{t('preview.display.group.sim')}</h3>
-                {/* 音符速度 = 接近模型的唯一档（档位 1..11；T = (12 − n)/2 秒，越大越快） */}
-                <Row label={t('preview.display.noteSpeed')}>
-                  <NoteSpeed
-                    label={t('preview.display.noteSpeed')}
-                    value={preview.noteSpeed}
-                    onChange={(noteSpeed) => setPreview({ noteSpeed })}
-                  />
-                </Row>
+                {/* 音符速度 = 接近模型的唯一档（档位 1..12 步长 0.1；T = max(0.1, (12 − n)/2) 秒，越大越快）。
+                    它自己就是一整行（上段标签 + 数字框 + 步进，下段滑杆），故不再套 `Row` */}
+                <NoteSpeed
+                  label={t('preview.display.noteSpeed')}
+                  value={preview.noteSpeed}
+                  onChange={(noteSpeed) => setPreview({ noteSpeed })}
+                />
                 {/* 镜向与静态那张同一个开关（`settings.preview.mirror`）：整轨镜像含方向箭头翻面 */}
                 <Row label={t('preview.display.mirror')}>
                   <Toggle
