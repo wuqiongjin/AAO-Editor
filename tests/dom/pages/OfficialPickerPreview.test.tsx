@@ -54,8 +54,12 @@ const SONG_DETAIL = { bgmId: 'bgm029', length: 120 };
 
 type RequestPayload = { url: string; responseType?: string };
 
+/** 票 21 验收回修：把单曲详情卡在闸门后，好观察「detail 未到位」那一帧 */
+let releaseDetail: (() => void) | null = null;
+
 /** 假桥：json 回曲库 / 单曲详情，binary 回素材缓存路径（照 07 契约） */
-function installFakeBridge(): ReturnType<typeof vi.fn> {
+function installFakeBridge(opts: { holdDetail?: boolean } = {}): ReturnType<typeof vi.fn> {
+  const gate = opts.holdDetail ? new Promise<void>((resolve) => { releaseDetail = resolve; }) : null;
   const request = vi.fn(async (payload: RequestPayload) => {
     if (payload.responseType === 'binary') {
       return {
@@ -69,7 +73,10 @@ function installFakeBridge(): ReturnType<typeof vi.fn> {
     }
     if (payload.url.endsWith('/api/songs/all.5.json')) return { ok: true, responseType: 'json', status: 200, data: SONGS_INDEX };
     if (payload.url.endsWith('/api/bands/all.1.json')) return { ok: true, responseType: 'json', status: 200, data: BANDS_INDEX };
-    if (payload.url.endsWith('/api/songs/29.json')) return { ok: true, responseType: 'json', status: 200, data: SONG_DETAIL };
+    if (payload.url.endsWith('/api/songs/29.json')) {
+      if (gate) await gate;
+      return { ok: true, responseType: 'json', status: 200, data: SONG_DETAIL };
+    }
     if (payload.url.endsWith('/api/songs/30.json')) return { ok: true, responseType: 'json', status: 200, data: { bgmId: 'bgm030', length: 100 } };
     return { ok: false, error: { kind: 'request-rejected', message: `未打桩: ${payload.url}` } };
   });
@@ -95,13 +102,20 @@ function renderPage() {
   );
 }
 
-/** 打开「从官方谱面导入」→ 选中 song 29 → 预览区出现（不滚列表：行取图不掺和这条降级链） */
-async function openPreview() {
+/** 只开到「从官方谱面导入」这一档，不选中任何曲子（票 21 的收起态） */
+async function openOfficialTab() {
   renderPage();
   await screen.findByText('全部工程');
   fireEvent.click(screen.getByRole('button', { name: /空白新建/ }));
   const dialog = await screen.findByRole('dialog');
   fireEvent.click(within(dialog).getByRole('button', { name: /从官方谱面导入/ }));
+  await within(dialog).findByRole('option', { name: new RegExp(SONG_TITLE) });
+  return { dialog };
+}
+
+/** 打开「从官方谱面导入」→ 选中 song 29 → 预览区出现（不滚列表：行取图不掺和这条降级链） */
+async function openPreview() {
+  const { dialog } = await openOfficialTab();
   const row = await within(dialog).findByRole('option', { name: new RegExp(SONG_TITLE) });
   fireEvent.click(row);
   // 曲名与列表行同名：认预览区标题那个节点（ OfficialPickerThumbs 同款做法）
@@ -125,6 +139,7 @@ let io: ReturnType<typeof installIntersectionObserverStub>;
 beforeEach(() => {
   seedZhSettings();
   setActivePage.mockClear();
+  releaseDetail = null;
   io = installIntersectionObserverStub();
   request = installFakeBridge();
 });
@@ -172,7 +187,7 @@ describe('票 16 · 预览区的素材复用（本机优先、直链降级）', 
 });
 
 describe('票 20 · 重复点击已选曲目不该清空预览', () => {
-  it('再点同一行：封面保持可见（is-in 与 src 都不动）、试听不重置', async () => {
+  it('收起再展开同一首：内容不重建 —— 详情不重取、封面不重载', async () => {
     const { dialog, preview } = await openPreview();
 
     // jsdom 不会自己发 load：先手动把封面点亮（真机上就是那次 onLoad）
@@ -180,17 +195,21 @@ describe('票 20 · 重复点击已选曲目不该清空预览', () => {
     const img = preview.querySelector('.off-cover img')!;
     fireEvent.load(img);
     await waitFor(() => expect(img.classList.contains('is-in')).toBe(true));
-    const srcBefore = img.getAttribute('src');
+    const detailUrls = () => (request.mock.calls as RequestPayload[][])
+      .map((call) => call[0].url)
+      .filter((url) => url.includes('/api/songs/29.json'));
+    const row = () => within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
 
-    fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) }));
+    // 票 20 的病根是「src 不变 → 不会再有 onLoad → 半截封面永久停在 opacity:0」。
+    // 收起现在只关窗、不清内容，所以那种半截状态压根不会被制造出来。
+    fireEvent.click(row());
+    await waitFor(() => expect(dialog.querySelector('.off-split')?.classList.contains('is-collapsed')).toBe(true));
+    fireEvent.click(row());
+    await waitFor(() => expect(dialog.querySelector('.off-split')?.classList.contains('is-collapsed')).toBe(false));
 
-    // 一旦 coverReady 被重置，src 不变 → 不会再有 onLoad 把它点亮 → 封面永久停在 opacity:0
-    await waitFor(() => expect(preview.querySelector('.off-cover img')).not.toBeNull());
-    const after = preview.querySelector('.off-cover img')!;
-    expect(after.classList.contains('is-in')).toBe(true);
-    expect(after.getAttribute('src')).toBe(srcBefore);
-    // 详情没被清空 → 试听不闪、上层 selection 不抛 null（底部按钮不闪禁）
-    expect(preview.querySelector('audio')).not.toBeNull();
+    expect(detailUrls()).toHaveLength(1); // 详情只取过一次
+    expect(dialog.querySelector('.off-cover img')).toBe(img); // 同一个元素，没被重建
+    expect(img.classList.contains('is-in')).toBe(true); // 封面没被打回 opacity: 0
   });
 
   it('换一首歌照旧重置封面（不把换歌路径一起短路）', async () => {
@@ -210,5 +229,80 @@ describe('票 20 · 重复点击已选曲目不该清空预览', () => {
     expect(after!.getAttribute('src')).not.toBe(srcBefore);
     // 新歌的封面要重新淡入
     expect(after!.classList.contains('is-in')).toBe(false);
+  });
+});
+
+describe('票 21 · 预览栏手风琴折叠', () => {
+  it('没选曲时预览区收起：预览栏不出内容，列表独占一列', async () => {
+    const { dialog } = await openOfficialTab();
+
+    expect(dialog.querySelector('.off-preview__title')).toBeNull();
+    expect(dialog.querySelector('.off-preview')?.classList.contains('is-collapsed')).toBe(true);
+    expect(dialog.querySelector('.off-split')?.classList.contains('is-collapsed')).toBe(true);
+    // 收起即取消选中 → 底部「创建」不可用
+    expect(within(dialog).getByRole('button', { name: '创建' })).toBeDisabled();
+  });
+
+  it('选中一首 → 展开；再点同一首 → 收起并取消选中', async () => {
+    const { dialog } = await openOfficialTab();
+    const row = () => within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
+
+    fireEvent.click(row());
+    await waitFor(() => expect(dialog.querySelector('.off-preview__title')?.textContent).toBe(SONG_TITLE));
+    expect(dialog.querySelector('.off-split')?.classList.contains('is-collapsed')).toBe(false);
+    expect(row().getAttribute('aria-selected')).toBe('true');
+    // 上抛给弹窗的 selection 要等详情到位（票 08 契约）：`.off-sync` 的 disabled 就是这条路标
+    await waitFor(() => expect(dialog.querySelector('.off-sync')).not.toBeDisabled());
+    expect(within(dialog).getByRole('button', { name: '创建' })).toBeEnabled();
+
+    // 再点一次 = 收起（= 取消选中）。收起只关窗、不清内容：内容留着，收起动画才有东西可滑
+    fireEvent.click(row());
+    await waitFor(() => expect(dialog.querySelector('.off-split')?.classList.contains('is-collapsed')).toBe(true));
+    expect(dialog.querySelector('.off-preview')?.classList.contains('is-collapsed')).toBe(true);
+    expect(row().getAttribute('aria-selected')).toBe('false');
+    expect(within(dialog).getByRole('button', { name: '创建' })).toBeDisabled();
+  });
+
+  it('收起后预览栏 aria-hidden 且试听掐掉 src（内容留着，但不再出声）', async () => {
+    const { dialog } = await openOfficialTab();
+    const row = () => within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
+
+    fireEvent.click(row());
+    await waitFor(() => expect(dialog.querySelector('.off-compact-audio audio')).not.toBeNull());
+
+    fireEvent.click(row());
+    await waitFor(() => expect(dialog.querySelector('.off-split')?.classList.contains('is-collapsed')).toBe(true));
+    expect(dialog.querySelector('.off-preview')?.getAttribute('aria-hidden')).toBe('true');
+    // src 掐掉 → `<audio>` 元素卸载 → 试听立刻停
+    expect(dialog.querySelector('.off-compact-audio audio')).toBeNull();
+
+    fireEvent.click(row());
+    await waitFor(() => expect(dialog.querySelector('.off-compact-audio audio')).not.toBeNull());
+    expect(dialog.querySelector('.off-preview')?.getAttribute('aria-hidden')).toBe('false');
+  });
+
+  it('detail 未到位：试听条是等高骨架、同步开关是加载态；到位后原地替换', async () => {
+    request = installFakeBridge({ holdDetail: true });
+    const { dialog } = await openOfficialTab();
+    const row = () => within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
+
+    fireEvent.click(row());
+    await waitFor(() => expect(dialog.querySelector('.off-preview__title')?.textContent).toBe(SONG_TITLE));
+
+    // 不依赖 detail 的几块先出来（封面 / 标题 / 歌手 / 难度 chip）
+    expect(dialog.querySelector('.off-cover')).not.toBeNull();
+    expect(dialog.querySelector('.off-preview__levels')?.children).toHaveLength(2);
+    // 依赖 detail 的两块：骨架在位，真试听条还没挂载
+    expect(dialog.querySelector('.off-compact-audio.is-skeleton')).not.toBeNull();
+    expect(dialog.querySelector('.off-compact-audio audio')).toBeNull();
+    expect(dialog.querySelector('.off-sync')?.classList.contains('is-loading')).toBe(true);
+    expect(dialog.querySelector('.off-sync')).toBeDisabled();
+
+    releaseDetail?.();
+    // 原地替换：还是那一块 `.off-compact-audio`（32px 定高），只是骨架撤掉、真控件挂上
+    await waitFor(() => expect(dialog.querySelector('.off-compact-audio audio')).not.toBeNull());
+    expect(dialog.querySelector('.off-compact-audio.is-skeleton')).toBeNull();
+    expect(dialog.querySelector('.off-sync')?.classList.contains('is-loading')).toBe(false);
+    expect(dialog.querySelector('.off-sync')).toBeEnabled();
   });
 });

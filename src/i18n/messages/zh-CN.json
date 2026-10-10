@@ -53,7 +53,6 @@
   "projects.official.retry": "重试",
   "projects.official.empty": "没有匹配的曲目",
   "projects.official.listAria": "官方曲列表",
-  "projects.official.pickHint": "选一首曲子，看封面、难度与试听",
   "projects.official.detailLoading": "正在取这首曲子的信息…",
   "projects.official.levelMissing": "未实装",
   "projects.official.levelValue": "等级 {{level}}",

@@ -52,7 +52,6 @@
   "projects.official.retry": "Retry",
   "projects.official.empty": "No matching song",
   "projects.official.listAria": "Official song list",
-  "projects.official.pickHint": "Pick a song to see its cover, levels and a preview",
   "projects.official.detailLoading": "Loading song details…",
   "projects.official.levelMissing": "Not yet",
   "projects.official.levelValue": "Lv {{level}}",

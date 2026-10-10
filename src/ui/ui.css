@@ -800,7 +800,14 @@
   cursor: pointer;
 }
 .off-compact-audio__play:disabled { opacity: .45; cursor: not-allowed; }
-.off-compact-audio__time { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* 票 21 验收回修：定宽 + 右对齐 —— 时长从 0:00 变成真实长度时不推动进度条 */
+.off-compact-audio__time {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 3em;
+  text-align: right;
+}
 .off-compact-audio__seek {
   flex: 1;
   min-width: 0;

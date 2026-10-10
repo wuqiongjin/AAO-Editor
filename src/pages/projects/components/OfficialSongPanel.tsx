@@ -69,6 +69,8 @@ export function OfficialSongPanel({
   const [lvMax, setLvMax] = useState<number>(SONG_LEVEL_FILTER_DEFAULT.max);
   const [filterOpen, setFilterOpen] = useState(false);
   const [selected, setSelected] = useState<SongCandidate | null>(null);
+  /** 票 21：预览栏展没展开。与 `selected` 分开 —— 收起只是关窗，内容留着（收起动画才滑得起来） */
+  const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<OfficialSongDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -98,6 +100,7 @@ export function OfficialSongPanel({
   const pick = useCallback((song: SongCandidate) => {
     const sameSong = selected?.id === song.id;
     setSelected(song);
+    setExpanded(true);
     setDiff((current) => resolveSongDiff(song, current));
     // 选中即把封面收进素材缓存（票 16 Q2）：通常行可见时已收过（15/17），这里兜一次底 ——
     // 命中零网络、并发去重；之前那次后台取图失败的话，这一枪就是导入零下载的保险
@@ -121,9 +124,25 @@ export function OfficialSongPanel({
       .finally(() => setLoadingDetail(false));
   }, [net, selected, detail, loadingDetail]);
 
+  // 票 21：再点已展开的那一首 = 收起预览栏（= 取消选中，上层「创建」随之禁用）。
+  // 只关窗、不清 `selected`：内容留着，收起动画才有东西可滑；再展开也不用重取详情、不用重新加载封面。
+  const collapse = useCallback(() => {
+    setExpanded(false);
+  }, []);
+
+  /** 行点击：同一首在「展开 ↔ 收起」之间切，换一首才走 pick */
+  const toggleRow = useCallback((song: SongCandidate) => {
+    if (song.id === selected?.id) {
+      if (expanded) collapse();
+      else setExpanded(true);
+      return;
+    }
+    pick(song);
+  }, [selected, expanded, collapse, pick]);
+
   useEffect(() => {
-    onSelectionChange(selected && detail ? { song: selected, detail, withChart, diff } : null);
-  }, [selected, detail, withChart, diff, onSelectionChange]);
+    onSelectionChange(selected && detail && expanded ? { song: selected, detail, withChart, diff } : null);
+  }, [selected, detail, expanded, withChart, diff, onSelectionChange]);
 
   const bands = useMemo(() => (catalog == null ? [] : catalogBandOptions(catalog)), [catalog]);
   const filtered = useMemo(
@@ -254,12 +273,10 @@ export function OfficialSongPanel({
       ) : catalog == null ? (
         <p className="off-status">{retrying ? t('projects.official.retrying') : t('projects.official.loading')}</p>
       ) : (
-        <div className="off-split">
-          <aside className="off-preview">
-            {selected == null ? (
-              <p className="off-status">{t('projects.official.pickHint')}</p>
-            ) : (
-              <>
+        <div className={`off-split${expanded ? '' : ' is-collapsed'}`}>
+          <aside className={`off-preview${expanded ? '' : ' is-collapsed'}`} aria-hidden={!expanded}>
+            {selected != null && (
+              <div className="off-preview__inner">
                 <div className="off-preview__stack">
                   <div className="off-cover">
                     {selected.jacketImage !== '' && !coverFailed ? (
@@ -308,8 +325,11 @@ export function OfficialSongPanel({
                   </div>
                   <button
                     type="button"
-                    className={`off-sync${withChart ? ' is-on' : ''}`}
+                    // 票 21 验收回修：detail 未到位时是「禁用 + 微光」的骨架态（按钮高度由内容撑，
+                    // 换成另一个骨架元素反而要额外钉高度，不换最稳）
+                    className={`off-sync${withChart ? ' is-on' : ''}${detail == null ? ' is-loading' : ''}`}
                     aria-pressed={withChart}
+                    aria-busy={detail == null}
                     disabled={detail == null}
                     onClick={toggleSync}
                   >
@@ -319,10 +339,15 @@ export function OfficialSongPanel({
                 </div>
                 {detailError ? (
                   <p className="off-status">{detailError}</p>
+                ) : detail == null ? (
+                  // 票 21 验收回修：等高骨架占位 —— `.off-compact-audio` 本身就是 32px 定高，
+                  // detail 到位后原地换成真试听条，尺寸不变 = 零布局变化
+                  <div className="off-compact-audio is-skeleton" aria-hidden />
                 ) : (
                   <CompactAudio
+                    // 收起时掐掉 src：`<audio>` 随之卸载 → 试听立刻停（内容留着，但不再出声）
                     src={
-                      loadingDetail || detail == null
+                      !expanded
                         ? null
                         : audioUseDirect
                           ? audioPreviewUrl(selected, detail)
@@ -334,7 +359,7 @@ export function OfficialSongPanel({
                     }}
                   />
                 )}
-              </>
+              </div>
             )}
           </aside>
 
@@ -347,9 +372,9 @@ export function OfficialSongPanel({
                   <button
                     type="button"
                     role="option"
-                    aria-selected={song.id === selected?.id}
-                    className={`off-row${song.id === selected?.id ? ' is-active' : ''}`}
-                    onClick={() => pick(song)}
+                    aria-selected={expanded && song.id === selected?.id}
+                    className={`off-row${expanded && song.id === selected?.id ? ' is-active' : ''}`}
+                    onClick={() => toggleRow(song)}
                   >
                     <OfficialSongThumb song={song} transport={net} />
                     <span className="off-row__text">
