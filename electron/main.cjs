@@ -181,10 +181,17 @@ registerChartCodeExportIpc();
 // 收 { bytes: Uint8Array, suggestedName, mime }；每次 dialog、不记路径；
 // defaultPath 只用 basename（渲染侧即使传带目录的名字也写不进记忆）。
 // ---------------------------------------------------------------------------
-/** mime → [对话框过滤器名, 扩展名]；当下唯一生产者是宽图 PNG（07 加视频时在这里补一行） */
+/** mime → [对话框过滤器名, 扩展名]；生产者 = 宽图 PNG（03）与视频导出（07） */
 function binaryFilter(mime) {
     if (mime === 'image/webp') return { label: 'WebP', ext: 'webp' };
+    if (mime === 'video/mp4') return { label: 'MP4', ext: 'mp4' };
+    if (mime === 'video/webm') return { label: 'WebM', ext: 'webm' };
     return { label: 'PNG', ext: 'png' };
+}
+
+/** mime → 对话框标题的 i18n key（宽图 = 谱面图，视频 = 回放视频） */
+function binaryDialogTitleKey(mime) {
+    return mime === 'video/mp4' || mime === 'video/webm' ? 'electron.exportVideo' : 'electron.exportSheet';
 }
 
 function registerPreviewIpc() {
@@ -193,7 +200,8 @@ function registerPreviewIpc() {
         if (!(bytes instanceof Uint8Array)) {
             throw new Error('preview:saveBinary 需要字节');
         }
-        const { label, ext } = binaryFilter(payload && payload.mime);
+        const mime = payload && payload.mime;
+        const { label, ext } = binaryFilter(mime);
         const rawName = payload && payload.suggestedName;
         const suggestedName =
             typeof rawName === 'string' && rawName.length > 0
@@ -201,14 +209,15 @@ function registerPreviewIpc() {
                 : `export.${ext}`;
         const win = BrowserWindow.fromWebContents(event.sender);
         const result = await dialog.showSaveDialog(win ?? undefined, {
-            title: t('electron.exportSheet'),
+            title: t(binaryDialogTitleKey(mime)),
             defaultPath: suggestedName,
             filters: [{ name: label, extensions: [ext] }],
         });
         if (result.canceled || !result.filePath) {
             return { cancelled: true };
         }
-        // 成图可能上百 MB（30 分钟谱的宽图）：整块写完，不做流式（07 要流式时再说）
+        // 整块写完，不做流式：宽图上百 MB（30 分钟谱）、视频几十 MB~数百 MB 都走同一条路。
+        // 07 落地时按票面「若需分块 / 流式，同票扩展」评估过：先跑通整块，真机遇到大文件再动这里
         await fs.promises.writeFile(result.filePath, Buffer.from(bytes));
         return { cancelled: false };
     });

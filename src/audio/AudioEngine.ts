@@ -5,7 +5,15 @@
 // - 双时钟（ADR-0004 §2）：有音频 = AudioContext 时间线；无音频 = performance.now + RAF 合成时间线，照常"播放谱面"
 import type { ChartNote } from '../chart/types';
 import { getBpmEvents, buildKeyEvents, type KeySoundEvent } from './AudioTiming';
-import { loadKeySoundSet, KEY_SOUND_DEFAULT_TONES, type KeySoundSet, type KeySoundKind, type KeySoundSample } from './KeySound';
+import { loadKeySoundSet, type KeySoundSet, type KeySoundKind } from './KeySound';
+// chart-preview 07：采样加载与发声已抽到 `keySoundSamples`（离线音轨要用同一份口径），
+// 本引擎只是它的一个消费方 —— 键音的音量 / 包络 / 采样路径解析都不在这里定义
+import {
+  keySoundBank,
+  sampleSrcFor,
+  scheduleKeySample,
+  scheduleKeyTone,
+} from './keySoundSamples';
 
 export type PlaybackState = 'idle' | 'ready' | 'playing' | 'paused';
 
@@ -13,8 +21,6 @@ export type PlaybackState = 'idle' | 'ready' | 'playing' | 'paused';
 const KEY_SCHEDULE_AHEAD = 2.0;
 /** 调度器驱动间隔（秒）：不依赖 rAF（页面切后台 rAF 会被浏览器暂停），用 setInterval 脱离 rAF 持续推进按键音调度 */
 const SCHEDULE_INTERVAL = 0.2;
-/** 单个按键音时长（秒） */
-const KEY_SOUND_DURATION = 0.06;
 /** 播放速率钳制（chart-preview 20）：倍速是**连续值**（滑到哪算哪），这个区间既是上下限也是回收区间 */
 export const PLAYBACK_RATE_RANGE = { min: 0.1, max: 4 } as const;
 
@@ -46,10 +52,6 @@ export class AudioEngine {
   private keySetId = '';
   /** 当前激活素材包（ADR-0004 §7）；null = chunk 未加载完成/加载失败（走振荡器兜底） */
   private keySet: KeySoundSet | null = null;
-  /** 真实采样缓存：src 路径 → 已解码 AudioBuffer（issue 18） */
-  private sampleCache = new Map<string, AudioBuffer>();
-  /** 进行中的采样加载（去重并发，避免重复 fetch/decode） */
-  private sampleLoads = new Map<string, Promise<AudioBuffer>>();
   /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
   private schedTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -112,15 +114,15 @@ export class AudioEngine {
     try {
       const set = await loadKeySoundSet(setId);
       const sample = set.samples[kind];
-      const src = this.srcFor(sample, kind, tier);
+      const src = sampleSrcFor(sample, kind, tier);
       if (src) {
-        const buf = await this.loadSample(src);
-        this.playSampledTick(ctx, buf, ctx.currentTime);
+        const buf = await keySoundBank.load(src, ctx);
+        scheduleKeySample(ctx, this.seBus(), buf, ctx.currentTime);
         return;
       }
-      this.playOscillatorTick(ctx, kind, sample, ctx.currentTime);
+      scheduleKeyTone(ctx, this.seBus(), kind, sample, ctx.currentTime);
     } catch {
-      this.playOscillatorTick(ctx, kind, undefined, ctx.currentTime);
+      scheduleKeyTone(ctx, this.seBus(), kind, undefined, ctx.currentTime);
     }
   }
 
@@ -344,120 +346,34 @@ export class AudioEngine {
     const ctx = this.ctx;
     if (!ctx) return;
     const sample = this.keySet?.samples[kind];
-    const src = sample ? this.srcFor(sample, kind, tier) : undefined;
+    const src = sampleSrcFor(sample, kind, tier);
     if (src) {
-      const buf = this.sampleCache.get(src);
+      const buf = keySoundBank.get(src);
       if (buf) {
-        this.playSampledTick(ctx, buf, when);
+        const node = scheduleKeySample(ctx, this.seBus(), buf, when, () => this.scheduled.delete(node));
+        this.scheduled.add(node);
         return;
       }
       // 采样未就绪：异步补充加载（本次振荡器兜底，避免无声）
-      void this.loadSample(src);
+      void keySoundBank.load(src, ctx).catch(() => undefined);
     }
-    this.playOscillatorTick(ctx, kind, sample, when);
+    const node = scheduleKeyTone(ctx, this.seBus(), kind, sample, when, () => this.scheduled.delete(node));
+    this.scheduled.add(node);
   }
 
-  /** 解析某采样实际要播放的文件路径：方向键按 tier分档，其余用 src */
-  private srcFor(sample: KeySoundSample, kind: KeySoundKind, tier?: number): string | undefined {
-    if (kind === 'directional' && sample.tierSrcs) return sample.tierSrcs[tier ?? 1];
-    return sample.src;
+  /**
+   * 键音的汇入点：独立 `seGain`（issue 39 #7 —— SE 音量不影响背景音乐），
+   * 未建时退回 masterGain / destination（与离线音轨渲染器同一层结构）。
+   */
+  private seBus(): AudioNode {
+    if (this.seGain) return this.seGain;
+    if (this.masterGain) return this.masterGain;
+    return this.ensureCtx().destination;
   }
 
-  /** 预加载素材包内全部真实采样（去重）；失败静默（振荡器兜底） */
+  /** 预加载素材包内全部真实采样（走共享 bank；失败静默，振荡器兜底） */
   private async preloadKeySet(set: KeySoundSet): Promise<void> {
-    const srcs = new Set<string>();
-    for (const kind of Object.keys(set.samples) as KeySoundKind[]) {
-      const s = set.samples[kind];
-      if (s.src) srcs.add(s.src);
-      if (s.tierSrcs) {
-        for (const v of Object.values(s.tierSrcs)) if (v) srcs.add(v);
-      }
-    }
-    await Promise.all([...srcs].map(src => this.loadSample(src).catch(() => undefined)));
-  }
-
-  /** 加载并解码单个采样，缓存复用；并发去重 */
-  private async loadSample(src: string): Promise<AudioBuffer> {
-    const cached = this.sampleCache.get(src);
-    if (cached) return cached;
-    const inflight = this.sampleLoads.get(src);
-    if (inflight) return inflight;
-    const p = (async () => {
-      const ctx = this.ensureCtx();
-      const res = await fetch(src);
-      if (!res.ok) throw new Error(`音效加载失败: ${src}`);
-      const arrayBuffer = await res.arrayBuffer();
-      const decoded = await ctx.decodeAudioData(arrayBuffer);
-      this.sampleCache.set(src, decoded);
-      return decoded;
-    })();
-    this.sampleLoads.set(src, p);
-    try {
-      return await p;
-    } finally {
-      this.sampleLoads.delete(src);
-    }
-  }
-
-  /** 真实采样播放：AudioBufferSourceNode + 短包络；可复停（不复用节点） */
-  private playSampledTick(ctx: AudioContext, buffer: AudioBuffer, when: number): void {
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    const gain = ctx.createGain();
-    src.connect(gain);
-    // issue 39 #7：键音经独立 seGain 汇入 masterGain（SE 音量独立于背景音乐）
-    if (this.seGain) gain.connect(this.seGain);
-    else if (this.masterGain) gain.connect(this.masterGain);
-    else gain.connect(ctx.destination);
-    const now = ctx.currentTime;
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.linearRampToValueAtTime(0.9, when + 0.004);
-    // 让采样按自身自然衰减播完，仅末尾做极短淡出防爆音。
-    // 不要用指数包络整体衰减：那会把 0.748s 的 perfect.mp3 提前压到近静音，听感"被掐断/没播完"。
-    const endFade = Math.min(0.03, buffer.duration / 2);
-    gain.gain.setValueAtTime(0.9, when + (buffer.duration - endFade));
-    gain.gain.linearRampToValueAtTime(0.0001, when + buffer.duration);
-    src.onended = () => {
-      this.scheduled.delete(src);
-      src.disconnect();
-      gain.disconnect();
-    };
-    src.start(when);
-    this.scheduled.add(src);
-  }
-
-  /** 振荡器兜底（素材包未加载/加载失败，或采样缺失时保证按键有反馈声） */
-  private playOscillatorTick(ctx: AudioContext, kind: KeySoundKind, sample: KeySoundSample | undefined, when: number): void {
-    const { osc, gain } = this.createTickNode(ctx);
-    const now = ctx.currentTime;
-    const tone = KEY_SOUND_DEFAULT_TONES[kind];
-    // 极短包络防爆音：快起 + 指数衰减；频率/波形按击打样式兜底参数
-    osc.type = sample?.oscillatorType ?? tone.oscillatorType;
-    osc.frequency.value = sample?.frequency ?? tone.frequency;
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.linearRampToValueAtTime(0.12, when + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + KEY_SOUND_DURATION);
-    osc.onended = () => {
-      this.scheduled.delete(osc);
-      osc.disconnect();
-      gain.disconnect();
-    };
-    osc.start(when);
-    osc.stop(when + KEY_SOUND_DURATION);
-    this.scheduled.add(osc);
-  }
-
-  private createTickNode(ctx: AudioContext): { osc: OscillatorNode; gain: GainNode } {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    // issue 39 #7：键音经独立 seGain 汇入 masterGain（SE 音量独立于背景音乐）
-    if (this.seGain) gain.connect(this.seGain);
-    else if (this.masterGain) gain.connect(this.masterGain);
-    else gain.connect(ctx.destination);
-    return { osc, gain };
+    await keySoundBank.preload(set, this.ensureCtx());
   }
 
   /** 取消全部已调度按键音（暂停/seek/换曲时调用；未起音的 stop 会抛错，兜底 try/catch） */

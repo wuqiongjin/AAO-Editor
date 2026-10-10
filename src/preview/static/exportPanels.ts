@@ -156,7 +156,7 @@ const EXPORT_PANEL_CHUNK = 4;
  * 让出一拍主线程（issue 16）：逐面板出图切成若干短任务，长谱导出期间页面不至于整段冻住。
  * 优先 `scheduler.yield()`（新任务继承优先级，恢复快），不支持就退回宏任务 `setTimeout 0`。
  */
-function yieldToMainThread(): Promise<void> {
+export function yieldToMainThread(): Promise<void> {
   const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
   if (typeof scheduler?.yield === 'function') return scheduler.yield();
   return new Promise((resolve) => setTimeout(resolve, 0));

@@ -59,7 +59,12 @@ const VIEWPORT_MARGIN = 8;
  * 量测输入来自工具栏右簇那枚图标钮：右簇贴页面右缘 ⇒ 窗宽一变它就动，故定位必须随伸缩重算
  * （见组件里那段 resize 监听），只在打开那一刻量一次是不够的。
  */
-function panelLayoutFor(rect: { right: number; bottom: number }) {
+/**
+ * 贴触发钮**右缘**（盒宽对齐）+ 夹进视口。**导出规格面板也用它**（issue 29 同款病灶）：
+ * 两块面板共用同一块浮层壳（`.pp-menu__panel` + 320 内容宽），盒宽口径必须只有这一份，
+ * 否则缩放窗口时两块面板会朝不同的边缘对齐。
+ */
+export function panelLayoutFor(rect: { right: number; bottom: number }) {
   const left = Math.min(
     Math.max(VIEWPORT_MARGIN, rect.right - PANEL_BOX_W),
     Math.max(VIEWPORT_MARGIN, window.innerWidth - PANEL_BOX_W - VIEWPORT_MARGIN),

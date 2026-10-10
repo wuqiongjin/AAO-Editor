@@ -181,8 +181,9 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'sheetHeader.ts',
     ]);
     // 05 起 video/ 是实件：仿真场落在 sim/ 子目录（几何 / 一帧绘制 / 素材 / 回放 / Bestdori 精灵，
-    // ADR-0016 §3 的树；`simSprites` 由 chart-preview 21 引入）
-    expect(entries('src/preview/video')).toEqual(['index.ts', 'sim']);
+    // ADR-0016 §3 的树；`simSprites` 由 chart-preview 21 引入）；
+    // 07 起旁出一支 encode/（规格 / 逐帧出帧 / 离线音轨 / 编码封装 / 编排），与 sim/ 平级
+    expect(entries('src/preview/video')).toEqual(['encode', 'index.ts', 'sim']);
     expect(entries('src/preview/video/sim')).toEqual([
       'index.ts',
       'simAssets.ts',
@@ -190,6 +191,14 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'simGeometry.ts',
       'simPlayback.ts',
       'simSprites.ts',
+    ]);
+    expect(entries('src/preview/video/encode')).toEqual([
+      'exportSpec.ts',
+      'exportVideo.ts',
+      'frameDriver.ts',
+      'index.ts',
+      'muxer.ts',
+      'renderAudioTrack.ts',
     ]);
   });
 

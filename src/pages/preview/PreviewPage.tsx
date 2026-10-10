@@ -35,7 +35,9 @@ import PreviewChartSwitcher from './PreviewChartSwitcher';
 import PreviewStaticToolbar, { PreviewEnterFullscreenButton, PreviewExitFullscreenButton } from './PreviewStaticToolbar';
 import PreviewDisplayPanel from './PreviewDisplayPanel';
 import PreviewVideoStage from './PreviewVideoStage';
+import VideoExportControl from './VideoExportControl';
 import { usePreviewScope } from './usePreviewScope';
+import { useVideoExport, exportDoneText } from './useVideoExport';
 import './PreviewPage.css';
 
 // 页头的模式切换（静态 / 动态）：两项互斥的"这一屏画什么"（ADR-0007 §6 四题之"有且单组"）
@@ -154,6 +156,36 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     () => (scene ? planSheet(scene, settings.export.enabled).plan : null),
     [scene, settings.export.enabled],
   );
+
+  // 动态形态的导出（chart-preview 07）：文件名基础名与静态那一支同一条规则，扩展名按当选容器补
+  const videoExportName = useMemo(() => {
+    if (chart == null) return '';
+    const title = chartEffectiveTitle(project?.name ?? null, chart.title, untitledProjectLabel());
+    return t('preview.video.export.filename', { title, diff: DIFF_SHORT[chart.diff] });
+  }, [chart, project?.name]);
+
+  /**
+   * 视频导出的状态机（规格 / 进度 / 取消 / 失败态）。
+   * 音量口径与播放一致：`settings.audio.volume`（主音量）+ `settings.audio.seVolume`（SE）。
+   */
+  const videoExport = useVideoExport({
+    scene: videoScene,
+    audio: videoAudio,
+    durationSeconds: project?.durationSeconds ?? 0,
+    keySetId: settings.audio.keySet,
+    seVolume: settings.audio.seVolume,
+    volume: settings.audio.volume,
+    noteSkin: settings.visual?.noteSkin ?? {},
+    suggestedBaseName: videoExportName,
+  });
+
+  const handleVideoExport = useCallback(async () => {
+    const outcome = await videoExport.start();
+    if (outcome?.ok === true && !outcome.cancelled) {
+      // 说清落盘的是哪一格（容器 + 实际 codec），别只说"导出了"
+      showToast(exportDoneText(outcome), 'success');
+    }
+  }, [videoExport]);
 
   const handleExport = useCallback(async () => {
     if (scene == null || chart == null || exporting) return;
@@ -283,6 +315,19 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               ) : (
                 <div className="preview-controls">
                   <PreviewDisplayPanel mode="video" />
+                  {/* 导出（07）：票 20 定案，动态形态工具栏的这一枚随视频导出落地；全屏在末位 */}
+                  <VideoExportControl
+                    disabled={videoScene == null}
+                    spec={videoExport.spec}
+                    onSpecChange={videoExport.setSpec}
+                    onStart={() => void handleVideoExport()}
+                    onCancel={videoExport.cancel}
+                    progress={videoExport.progress}
+                    notice={videoExport.notice}
+                    support={videoExport.support}
+                    probing={videoExport.probing}
+                    onProbe={videoExport.probe}
+                  />
                   <PreviewEnterFullscreenButton onEnter={toggleFullscreen} />
                 </div>
               )

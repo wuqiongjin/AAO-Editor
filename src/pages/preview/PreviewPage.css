@@ -825,3 +825,117 @@
     padding: 20px 16px 12px;
   }
 }
+/* ---- 视频导出（chart-preview 07）----
+   两件都是**非模态**：规格弹层（照「设置」面板那套行版式）+ 贴视口右下角的进度卡。
+   为什么不用全站弹窗壳：弹窗是模态的，而一次导出可能要好几分钟（06 §5.4：软光栅下 1080p
+   约 0.26× 实时）——那几分钟页面得还能用，故进度卡不带 scrim。 */
+.pvex {
+  position: relative;
+  display: inline-flex;
+}
+
+.pvex__trigger {
+  display: inline-flex;
+}
+
+/* 规格弹层：宽与「设置」面板同档（320），壳复用 `.pp-menu__panel` */
+/* 规格面板的宽度 / padding / max-height **不在这里写**：直接挂 `.pdp__panel`，
+   与「显示」面板共用同一块壳与同一份盒宽口径（见 issue 29 与 `panelLayoutFor` 的导出）。
+   两处各写一份 320px 的话，改了一处两块面板就会朝不同的边缘对齐。 */
+
+.pvex__group {
+  display: flex;
+  flex-direction: column;
+}
+
+.pvex__group-title {
+  margin: 0;
+  padding: 4px 8px 6px;
+  color: var(--text-muted);
+  font-size: calc(10px * var(--ui-type-scale));
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.pvex__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  /* 两行兜底：极窄窗口下控件换行到下一行，**标签不许被压成竖排**（「分辨率」曾被挤成三行） */
+  flex-wrap: wrap;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.pvex__row-text {
+  flex: 0 0 auto;
+}
+
+.pvex__row-text strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 控件不新造样式：下拉 = `.select-control`、开关 = `.switch`（与「显示」面板同一套词汇）。
+   分段药丸钮那一套已撤（2026-10-10 三轮验收：与全站控件风格不符）。 */
+
+/* 文件格式行下的平实结论（随探测结论走）：没有结论时这一行不出现——
+   不写"尚未检测"这类看不懂又没帮助的占位废话。 */
+.pvex__note {
+  margin: 2px 8px 6px;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+}
+
+.pvex__start {
+  margin: 4px 8px 6px;
+  justify-content: center;
+}
+
+/* 进度卡 / 结果卡：贴视口右下角，浮在页面之上（不遮工具栏，也不吃交互） */
+.pvex__card {
+  position: fixed;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 2 * var(--space-3)));
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+}
+
+.pvex__card--danger {
+  border-color: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+.pvex__card--warn {
+  border-color: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+.pvex__card-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pvex__card-bar {
+  flex: 0 0 120px;
+  height: 6px;
+}
+
+.pvex__card-cancel {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: var(--text-2xs);
+}
