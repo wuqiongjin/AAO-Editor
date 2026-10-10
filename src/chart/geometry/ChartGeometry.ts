@@ -381,6 +381,24 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     return this.noteIndex;
   }
 
+  /** 获取全谱首个实体音符（非 BPM）的最小布局坐标 pos；无实体音符返回 null（issue 167） */
+  firstNotePosition(notes: readonly ChartNote[], beatDisplay: number): number | null {
+    const idx = this.ensureNoteIndex(notes, beatDisplay);
+    let minPos = Infinity;
+    for (const p of idx.points) {
+      if (notes[p.index]?.type !== 'BPM') {
+        minPos = Math.min(minPos, p.pos);
+        break;
+      }
+    }
+    for (const s of idx.spans) {
+      if (s.posMin < minPos) {
+        minPos = s.posMin;
+      }
+    }
+    return Number.isFinite(minPos) ? minPos : null;
+  }
+
   noteVirtualPoints(note: ChartNote, scale: number, beatDisplay: number): GeometryPoint[] {
     if (note.type === 'Single') {
       return [{ x: this.noteVirtualX(note.lane), y: this.noteVirtualY(note.beat, note.subBeat || 0, scale, beatDisplay) }];

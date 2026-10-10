@@ -311,3 +311,41 @@ describe('quantizeBeat（issue 61 的唯一量化口径）', () => {
     expect(Math.abs(pos!.preciseBeat * 4 - Math.round(pos!.preciseBeat * 4))).toBeLessThan(1e-9);
   });
 });
+
+describe('firstNotePosition（issue 167 首实体音符定位）', () => {
+  it('空谱面或纯 BPM 谱面返回 null', () => {
+    const g = new ChartGeometry(bpm120, { endBeat: 100 }, surface());
+    expect(g.firstNotePosition([], 4)).toBeNull();
+    expect(g.firstNotePosition([{ type: 'BPM', beat: 0, bpm: 120 }], 4)).toBeNull();
+  });
+
+  it('单键谱面返回首个单键的 pos，且跳过前置 BPM', () => {
+    const g = new ChartGeometry(bpm120, { endBeat: 100 }, surface());
+    const notes: ChartNote[] = [
+      { type: 'BPM', beat: 0, bpm: 120 },
+      { type: 'Single', lane: 3, beat: 20, subBeat: 0 },
+      { type: 'Single', lane: 4, beat: 24, subBeat: 0 },
+    ];
+    const pos = g.firstNotePosition(notes, 4);
+    expect(pos).not.toBeNull();
+    expect(pos).toBe(20 * 220);
+  });
+
+  it('滑条首结点早于点音符时返回滑条结点的最小 posMin', () => {
+    const g = new ChartGeometry(bpm120, { endBeat: 100 }, surface());
+    const notes: ChartNote[] = [
+      { type: 'BPM', beat: 0, bpm: 120 },
+      {
+        type: 'Slide',
+        connections: [
+          { lane: 2, beat: 10, subBeat: 0 },
+          { lane: 4, beat: 12, subBeat: 0 },
+        ],
+      } as ChartNote,
+      { type: 'Single', lane: 3, beat: 15, subBeat: 0 },
+    ];
+    const pos = g.firstNotePosition(notes, 4);
+    expect(pos).toBe(10 * 220);
+  });
+});
+
