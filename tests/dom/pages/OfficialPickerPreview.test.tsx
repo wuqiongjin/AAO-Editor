@@ -20,6 +20,8 @@ import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/p
 import { seedZhSettings } from '@/tests/support/storage';
 
 const SONG_TITLE = 'BLACK SHOUT';
+/** 票 20：另一首（song 30），用来对照「换歌」与「重复点同一行」 */
+const OTHER_SONG_TITLE = 'LOUDER';
 /** 有封面名的曲子（song 29；封面直链与 OfficialPickerThumbs 同一首） */
 const JACKET_URL = 'https://bestdori.com/assets/jp/musicjacket/musicjacket30_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket30-blackshout-jacket.png';
 /** 试听音频直链（song 29 · bgm029） */
@@ -34,6 +36,15 @@ const SONGS_INDEX = {
     musicTitle: ['BLACK SHOUT', 'BLACK SHOUT', 'BLACK SHOUT', 'BLACK SHOUT', 'BLACK SHOUT'],
     publishedAt: ['1462071600000', '1462104000000', '1507003200000', '1462075200000', '1462071600000'],
     difficulty: { 3: { playLevel: 25 }, 4: { playLevel: 26 } },
+  },
+  // 票 20：换歌那一档要照旧重置（与「重复点同一行」对照）
+  '30': {
+    tag: 'normal',
+    bandId: 5,
+    jacketImage: ['louder'],
+    musicTitle: ['LOUDER', 'LOUDER', 'LOUDER', 'LOUDER', 'LOUDER'],
+    publishedAt: ['1462071600000', '1462104000000', '1507003200000', '1462075200000', '1462071600000'],
+    difficulty: { 3: { playLevel: 27 } },
   },
 };
 const BANDS_INDEX = {
@@ -59,6 +70,7 @@ function installFakeBridge(): ReturnType<typeof vi.fn> {
     if (payload.url.endsWith('/api/songs/all.5.json')) return { ok: true, responseType: 'json', status: 200, data: SONGS_INDEX };
     if (payload.url.endsWith('/api/bands/all.1.json')) return { ok: true, responseType: 'json', status: 200, data: BANDS_INDEX };
     if (payload.url.endsWith('/api/songs/29.json')) return { ok: true, responseType: 'json', status: 200, data: SONG_DETAIL };
+    if (payload.url.endsWith('/api/songs/30.json')) return { ok: true, responseType: 'json', status: 200, data: { bgmId: 'bgm030', length: 100 } };
     return { ok: false, error: { kind: 'request-rejected', message: `未打桩: ${payload.url}` } };
   });
   (window as unknown as { electronAPI?: unknown }).electronAPI = { communityNet: { request } };
@@ -156,5 +168,47 @@ describe('票 16 · 预览区的素材复用（本机优先、直链降级）', 
 
     // 行没滚到、行的后台取图没跑：这一枪来自「选中」本身
     await waitFor(() => expect(binaryUrls(request)).toEqual([JACKET_URL]));
+  });
+});
+
+describe('票 20 · 重复点击已选曲目不该清空预览', () => {
+  it('再点同一行：封面保持可见（is-in 与 src 都不动）、试听不重置', async () => {
+    const { dialog, preview } = await openPreview();
+
+    // jsdom 不会自己发 load：先手动把封面点亮（真机上就是那次 onLoad）
+    await waitFor(() => expect(preview.querySelector('.off-cover img')).not.toBeNull());
+    const img = preview.querySelector('.off-cover img')!;
+    fireEvent.load(img);
+    await waitFor(() => expect(img.classList.contains('is-in')).toBe(true));
+    const srcBefore = img.getAttribute('src');
+
+    fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) }));
+
+    // 一旦 coverReady 被重置，src 不变 → 不会再有 onLoad 把它点亮 → 封面永久停在 opacity:0
+    await waitFor(() => expect(preview.querySelector('.off-cover img')).not.toBeNull());
+    const after = preview.querySelector('.off-cover img')!;
+    expect(after.classList.contains('is-in')).toBe(true);
+    expect(after.getAttribute('src')).toBe(srcBefore);
+    // 详情没被清空 → 试听不闪、上层 selection 不抛 null（底部按钮不闪禁）
+    expect(preview.querySelector('audio')).not.toBeNull();
+  });
+
+  it('换一首歌照旧重置封面（不把换歌路径一起短路）', async () => {
+    const { dialog, preview } = await openPreview();
+
+    await waitFor(() => expect(preview.querySelector('.off-cover img')).not.toBeNull());
+    const img = preview.querySelector('.off-cover img')!;
+    fireEvent.load(img);
+    await waitFor(() => expect(img.classList.contains('is-in')).toBe(true));
+    const srcBefore = img.getAttribute('src');
+
+    fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(OTHER_SONG_TITLE) }));
+
+    await waitFor(() => expect(preview.querySelector('.off-preview__title')?.textContent).toBe(OTHER_SONG_TITLE));
+    const after = preview.querySelector('.off-cover img');
+    expect(after).not.toBeNull();
+    expect(after!.getAttribute('src')).not.toBe(srcBefore);
+    // 新歌的封面要重新淡入
+    expect(after!.classList.contains('is-in')).toBe(false);
   });
 });

@@ -94,24 +94,32 @@ export function OfficialSongPanel({
 
   useEffect(() => { loadCatalog(); }, [loadCatalog]);
 
+  // 票 20：重复点同一行不能重跑整条链 —— 见下面两处守卫
   const pick = useCallback((song: SongCandidate) => {
+    const sameSong = selected?.id === song.id;
     setSelected(song);
-    setDetail(null);
-    setDetailError(null);
-    setCoverFailed(false);
-    setCoverReady(false);
-    setCoverUseDirect(false);
-    setAudioUseDirect(false);
     setDiff((current) => resolveSongDiff(song, current));
-    setLoadingDetail(true);
     // 选中即把封面收进素材缓存（票 16 Q2）：通常行可见时已收过（15/17），这里兜一次底 ——
     // 命中零网络、并发去重；之前那次后台取图失败的话，这一枪就是导入零下载的保险
     void ensureOfficialCoverCached(net, song).catch(() => undefined);
+    // 封面状态只在换歌时重置：`<img src>` 不变就不会再发一次 onLoad，一旦把 coverReady 打回 false，
+    // `.off-cover img`（opacity: 0）再也拿不回 `.is-in` —— 重复点同一行会让封面永久消失。
+    if (!sameSong) {
+      setCoverFailed(false);
+      setCoverReady(false);
+      setCoverUseDirect(false);
+      setAudioUseDirect(false);
+    }
+    // 详情已到手 / 正在取：重复点击什么都不做。取失败了才重跑（这是目前唯一的重试入口）
+    if (sameSong && (detail != null || loadingDetail)) return;
+    setDetail(null);
+    setDetailError(null);
+    setLoadingDetail(true);
     void fetchSongDetail(net, song.id)
       .then(setDetail)
       .catch((error: unknown) => setDetailError(officialErrorText(error)))
       .finally(() => setLoadingDetail(false));
-  }, [net]);
+  }, [net, selected, detail, loadingDetail]);
 
   useEffect(() => {
     onSelectionChange(selected && detail ? { song: selected, detail, withChart, diff } : null);
