@@ -67,7 +67,7 @@ export class ElectronCommunityTransport implements CommunityTransport {
     return result.text;
   }
 
-  /** 二进制：主进程落下载暂存，这里只拿到路径与字节数（字节不过 IPC） */
+  /** 二进制：主进程落素材缓存（<数据根>/cache/community/），这里只拿到路径与字节数（字节不过 IPC） */
   async requestBinary(req: CommunityRequest): Promise<StagedBinary> {
     const result = await this.send({ ...req, responseType: 'binary' });
     if (result.responseType !== 'binary') throw mismatch('binary', result.responseType);

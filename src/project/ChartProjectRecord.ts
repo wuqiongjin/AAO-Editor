@@ -40,8 +40,8 @@ export interface ProjectPutWire {
   audio?: Uint8Array;
   cover?: Uint8Array;
   /**
-   * intent=set 时也可以给「下载暂存里的路径」代替字节（票 08：官方 / 社区导入的音频与封面
-   * 由主进程从 `<数据根>/downloads/` 拷进工程目录，字节不过 IPC）。给了它就优先于上面的字节。
+   * intent=set 时也可以给「素材缓存里的路径」代替字节（票 08 + 14：官方 / 社区导入的音频与封面
+   * 由主进程从 `<数据根>/cache/community/` 拷进工程目录，字节不过 IPC）。给了它就优先于上面的字节。
    */
   audioStagedPath?: string;
   coverStagedPath?: string;

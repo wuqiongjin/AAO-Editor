@@ -1,22 +1,21 @@
 /**
- * 社区平台网络网关（bestdori-integration 07）：Electron 主进程**唯一**的网络出口。
+ * 社区平台网络网关（bestdori-integration 07 + 14）：Electron 主进程**唯一**的网络出口。
  *
- * 主进程只做三件事（ADR-0011 §2 / issue 06 Q1 薄主进程）：
+ * 主进程只做四件事（ADR-0011 §2 / issue 06 Q1 薄主进程）：
  *   1. 发 HTTP —— 主机白名单 + 最小请求间隔（单飞队列）+ 单次超时；
  *   2. 管 Cookie —— 见 communityCookies.cjs（renderer 递进来的凭据头一律拒收）；
- *   3. 响应校验 —— 非 2xx、非 JSON、平台业务错误（`{"result":false,"code":…}`）都翻成结构化错误。
+ *   3. 响应校验 —— 非 2xx、非 JSON、平台业务错误（`{"result":false,"code":…}`）都翻成结构化错误；
+ *   4. 素材缓存（票 14）—— GET 的 json / text / binary 命中就不碰网络（策略见下面 CACHE 一段）。
  * 端点 / 领域转换 / 搜索全在 renderer（靠注入的 transport 收发，见 src/community/）。
  *
- * 二进制不过 IPC（issue 06 Q7）：落到数据根下的**下载暂存**，只回路径与字节数。
+ * 二进制不过 IPC（issue 06 Q7）：落到 `<数据根>/cache/community/`（素材缓存，票 14 取代了
+ * 07 的「下载暂存」），只回路径与字节数。
  * 失败一律 `return { ok: false, error }`、**不 throw** —— renderer 侧拿到的是统一错误域
  * （见 src/community/transport.ts），IPC 上不传异常对象。
  *
  * 重试不在这里：主进程只做单次请求，退避重试归 renderer（src/community/rateLimit.ts）。
  */
 
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const { createCookieJar } = require('./communityCookies.cjs');
 
 /** 唯一允许的主机（renderer 侧的端点常量在 src/community/bestdori/endpoints.ts） */
@@ -41,16 +40,24 @@ const RATE_LIMIT_CODES = ['RATE_LIMITED', 'TOO_MANY_REQUESTS', 'TOO_MANY_POSTS',
 /** 文本响应类型 → 默认 Accept */
 const DEFAULT_ACCEPT = { json: 'application/json', text: 'text/plain', binary: '*/*' };
 
+/**
+ * 素材缓存策略（票 14 定案，只此一份）：
+ *   - json / text：24h 内直接回；过期「先回旧的 + 后台补一枪」——列表这类资源要的是「一打开就有」；
+ *     单曲详情 / 谱面原文也用这一档（它们是「用过就留到 30 天没动才清」，鲜度按天刷新不是负担）；
+ *   - binary：当不可变内容长期复用（音频 / 封面下了就不再变）；
+ *   - 例外：**回退页**（平台对不存在的素材回 200 + `text/html`）只当 1 小时负缓存 ——
+ *     既免得反复打平台，也不把一张网页钉死 30 天（平台后来补上的素材还能取到）。
+ * 条目回收（30 天未用 / 1GB 上限）在 assetCache.sweep() 里，网关只负责存与取。
+ */
+const CACHE_FRESH_MS = 24 * 60 * 60 * 1000;
+const FALLBACK_FRESH_MS = 60 * 60 * 1000;
+
 /** 载荷不合法（越界 URL / 非法方法 / 自带凭据头）—— 网关在发起请求之前就拒掉 */
 class RequestRejected extends Error {}
 
 function errorMessage(error) {
     if (error && typeof error.message === 'string' && error.message !== '') return error.message;
     return String(error);
-}
-
-function hash8(text) {
-    return crypto.createHash('sha1').update(text).digest('hex').slice(0, 8);
 }
 
 /**
@@ -164,24 +171,11 @@ function readSetCookie(response) {
     return [];
 }
 
-/** 暂存文件名：`<url 短哈希>-<建议名>`；建议名只取 basename 并剥掉路径分隔符 */
-function stagingFileName(url, suggestedName) {
-    const base = path.basename(String(suggestedName || '')).replace(/[^\w.-]+/g, '_').replace(/^\.+/, '');
-    const stem = base === '' ? 'download' : base.slice(0, 80);
-    return `${hash8(url)}-${stem}`;
-}
-
-function resolveStagingDir(stagingDir) {
-    const dir = typeof stagingDir === 'function' ? stagingDir() : stagingDir;
-    if (typeof dir !== 'string' || dir.trim() === '') throw new Error('社区网关需要下载暂存目录');
-    return dir;
-}
-
 /**
  * 创建网关。
  * @param {{
  *   fetchImpl: (url: string, init: any) => Promise<any>,
- *   stagingDir: string | (() => string),
+ *   assetCache?: any,
  *   cookieJar?: any,
  *   hosts?: string[],
  *   minIntervalMs?: number,
@@ -193,7 +187,7 @@ function resolveStagingDir(stagingDir) {
 function createCommunityGateway(options) {
     const fetchImpl = options && options.fetchImpl;
     if (typeof fetchImpl !== 'function') throw new Error('社区网关需要 fetchImpl（主进程传 net.fetch）');
-    const stagingDir = options.stagingDir;
+    const assetCache = (options && options.assetCache) || null;
     const cookieJar = options.cookieJar || createCookieJar();
     const allowedHosts = options.hosts || ALLOWED_HOSTS;
     const minIntervalMs = options.minIntervalMs ?? MIN_REQUEST_INTERVAL_MS;
@@ -249,7 +243,7 @@ function createCommunityGateway(options) {
         if (status === 401 || status === 403) return fail('unauthorized', `HTTP ${status}`, { httpStatus: status });
         if (status >= 400) return fail('http', `HTTP ${status}`, { httpStatus: status });
 
-        if (req.responseType === 'binary') return stageBinary(response, req);
+        if (req.responseType === 'binary') return cacheBinary(response, req);
 
         let text;
         try {
@@ -258,7 +252,10 @@ function createCommunityGateway(options) {
             return fail('offline', `读响应失败：${errorMessage(error)}`, { httpStatus: status });
         }
         if (text.length > MAX_TEXT_BYTES) return fail('invalid-response', '响应体过大', { httpStatus: status });
-        if (req.responseType === 'text') return { ok: true, responseType: 'text', status, text };
+        if (req.responseType === 'text') {
+            await storeText(req, text, 'text', status, contentTypeOf(response));
+            return { ok: true, responseType: 'text', status, text };
+        }
 
         let data;
         try {
@@ -270,34 +267,126 @@ function createCommunityGateway(options) {
         if (business) {
             return fail(business.kind, business.message, { httpStatus: status, platformCode: business.code });
         }
+        await storeText(req, text, 'json', status, contentTypeOf(response));
         return { ok: true, responseType: 'json', status, data };
     }
 
-    async function stageBinary(response, req) {
-        let dir;
+    /** 缓存 kind：binary 原样；text / json 都是「文本命中」（过期策略相同） */
+    function cacheKindOf(req) {
+        if (req.responseType === 'binary') return 'binary';
+        if (req.responseType === 'text') return 'text';
+        return 'json';
+    }
+
+    /** 回退页判定（平台对不存在的素材回 200 + text/html；端点侧同规则：endpoints.isPlatformFallbackPage） */
+    function isFallbackHtml(contentType) {
+        return typeof contentType === 'string' && /text\/html/i.test(contentType);
+    }
+
+    function contentTypeOf(response) {
+        return typeof response.headers?.get === 'function' ? response.headers.get('content-type') : null;
+    }
+
+    /**
+     * 缓存命中就**不碰网络**。返回 `{ result, stale }`；未命中 / 条目坏了都回 null（当没缓存）。
+     * stale 只对 json / text 有意义：调用方「先回旧的 + 后台补一枪」（票 14）。
+     */
+    async function readCache(req) {
+        if (assetCache == null || req.method !== 'GET') return null;
+        const kind = cacheKindOf(req);
+        const entry = await assetCache.lookup({ url: req.url, kind });
+        if (entry == null) return null;
+        if (kind !== 'binary' && entry.bytes > MAX_TEXT_BYTES) {
+            await assetCache.drop(entry);
+            return null;
+        }
+
+        if (kind === 'binary') {
+            const freshMs = isFallbackHtml(entry.contentType) ? FALLBACK_FRESH_MS : Number.POSITIVE_INFINITY;
+            if (now() - entry.cachedAt >= freshMs) return null;
+            return {
+                stale: false,
+                result: {
+                    ok: true,
+                    responseType: 'binary',
+                    status: entry.status,
+                    path: entry.path,
+                    byteLength: entry.bytes,
+                    contentType: entry.contentType ?? null,
+                },
+            };
+        }
+
+        let text;
         try {
-            dir = resolveStagingDir(stagingDir);
+            text = (await assetCache.read(entry)).toString('utf8');
+        } catch {
+            await assetCache.drop(entry);
+            return null;
+        }
+        // 回退页（text/html）当短期负缓存：文本形态也要认（谱面原文取不到时回的就是它）
+        const freshMs = isFallbackHtml(entry.contentType) ? FALLBACK_FRESH_MS : CACHE_FRESH_MS;
+        const stale = now() - entry.cachedAt >= freshMs;
+        if (kind === 'text') {
+            return { stale, result: { ok: true, responseType: 'text', status: entry.status, text } };
+        }
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch {
+            await assetCache.drop(entry);
+            return null;
+        }
+        return { stale, result: { ok: true, responseType: 'json', status: entry.status, data } };
+    }
+
+    /** 落文本（json / text）：缓存是加速层，写不进去不影响这次请求；contentType 记下来供回退页判定 */
+    async function storeText(req, text, kind, status, contentType) {
+        if (assetCache == null) return;
+        try {
+            await assetCache.store({
+                url: req.url,
+                kind,
+                bytes: Buffer.from(text, 'utf8'),
+                contentType: contentType ?? null,
+                status,
+                suggestedName: kind === 'json' ? 'response.json' : 'response.txt',
+            });
+        } catch {
+            // 忽略
+        }
+    }
+
+    /** 二进制落素材缓存（字节不过 IPC：只回路径与元数据） */
+    async function cacheBinary(response, req) {
+        if (assetCache == null) return fail('staging-failed', '社区网关需要素材缓存');
+        const contentType = contentTypeOf(response);
+        const status = Number(response.status) || 0;
+        let bytes;
+        try {
+            bytes = Buffer.from(await response.arrayBuffer());
         } catch (error) {
-            return fail('staging-failed', errorMessage(error));
+            return fail('offline', `读响应失败：${errorMessage(error)}`, { httpStatus: status });
         }
         try {
-            const bytes = Buffer.from(await response.arrayBuffer());
-            await fs.promises.mkdir(dir, { recursive: true });
-            const filePath = path.join(dir, stagingFileName(req.url, req.suggestedName));
-            const tmpPath = `${filePath}.part-${process.pid}-${Date.now()}`;
-            await fs.promises.writeFile(tmpPath, bytes);
-            await fs.promises.rename(tmpPath, filePath);
-            const contentType = typeof response.headers?.get === 'function' ? response.headers.get('content-type') : null;
+            const entry = await assetCache.store({
+                url: req.url,
+                kind: 'binary',
+                bytes,
+                contentType: contentType || null,
+                status,
+                suggestedName: req.suggestedName,
+            });
             return {
                 ok: true,
                 responseType: 'binary',
-                status: Number(response.status) || 0,
-                path: filePath,
-                byteLength: bytes.length,
-                contentType: contentType || null,
+                status: entry.status,
+                path: entry.path,
+                byteLength: entry.bytes,
+                contentType: entry.contentType,
             };
         } catch (error) {
-            return fail('staging-failed', `下载暂存写入失败：${errorMessage(error)}`);
+            return fail('staging-failed', `素材缓存写入失败：${errorMessage(error)}`);
         }
     }
 
@@ -314,18 +403,23 @@ function createCommunityGateway(options) {
                 // RequestRejected（越界 URL / 非法方法 / 自带凭据头）：发起之前就拒，什么都不发
                 return fail('request-rejected', errorMessage(error));
             }
-            return schedule(() => send(req));
+
+            let hit = null;
+            try {
+                hit = await readCache(req);
+            } catch {
+                hit = null; // 缓存读不了（目录权限之类）当未命中，主线照走
+            }
+            if (hit == null) return schedule(() => send(req));
+            if (hit.stale) {
+                // 过期先用旧的：后台补一枪（失败静默 —— 旧副本继续服务，票 14）
+                void schedule(() => send(req)).catch(() => undefined);
+            }
+            return hit.result;
         },
         /** 暴露 jar 供 10 接 safeStorage（07 只做内存，main.cjs 不碰它） */
         cookieJar,
     };
-}
-
-/** 下载暂存只在「导入前的落脚」期间有意义：启动时整目录清掉重建 */
-async function resetCommunityStaging(stagingDir) {
-    const dir = resolveStagingDir(stagingDir);
-    await fs.promises.rm(dir, { recursive: true, force: true });
-    await fs.promises.mkdir(dir, { recursive: true });
 }
 
 /**
@@ -343,7 +437,8 @@ module.exports = {
     MIN_REQUEST_INTERVAL_MS,
     JSON_TIMEOUT_MS,
     BINARY_TIMEOUT_MS,
+    CACHE_FRESH_MS,
+    FALLBACK_FRESH_MS,
     createCommunityGateway,
     registerCommunityNetIpc,
-    resetCommunityStaging,
 };

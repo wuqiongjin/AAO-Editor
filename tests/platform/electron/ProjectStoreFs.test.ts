@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { ensureDataRootLayoutSync } from '@/electron/dataRoot.cjs';
+import { cacheDir, ensureDataRootLayoutSync, legacyDownloadsDir } from '@/electron/dataRoot.cjs';
 import {
   SCHEMA_VERSION,
   deleteProject,
@@ -90,27 +90,28 @@ describe('electron/projectStore · 真文件往返', () => {
     }
   });
 
-  it('票 08 · 从下载暂存拷素材进工程：字节不过 IPC，present 照常算', async () => {
-    const root = tmpDir('tsugu-proj-staged-');
+  it('票 08 / 14 · 从素材缓存拷素材进工程：字节不过 IPC，present 照常算', async () => {
+    const root = tmpDir('tsugu-proj-cached-');
     try {
       ensureDataRootLayoutSync(root);
-      writeFileSync(join(root, 'downloads', 'abc-bgm001.mp3'), Buffer.from([5, 6, 7]));
-      writeFileSync(join(root, 'downloads', 'abc-jacket.png'), Buffer.from([8, 8]));
+      const binDir = cacheDir(root);
+      writeFileSync(join(binDir, 'abc-bgm001.mp3'), Buffer.from([5, 6, 7]));
+      writeFileSync(join(binDir, 'abc-jacket.png'), Buffer.from([8, 8]));
 
       await putProject(root, {
-        id: 'pStaged',
+        id: 'pCached',
         doc: doc({
           audioIntent: 'set',
           coverIntent: 'set',
           audioName: 'bgm001.mp3',
           coverName: 'yes_bang_dream.png',
         }),
-        audioStagedPath: join(root, 'downloads', 'abc-bgm001.mp3'),
-        coverStagedPath: join(root, 'downloads', 'abc-jacket.png'),
+        audioStagedPath: join(binDir, 'abc-bgm001.mp3'),
+        coverStagedPath: join(binDir, 'abc-jacket.png'),
       });
 
-      const got = await getProject(root, 'pStaged');
-      if (!got) throw new Error('expected pStaged');
+      const got = await getProject(root, 'pCached');
+      if (!got) throw new Error('expected pCached');
       expect(Buffer.from(got.audio ?? [])).toEqual(Buffer.from([5, 6, 7]));
       expect(Buffer.from(got.cover ?? [])).toEqual(Buffer.from([8, 8]));
       expect(got.doc.audioPresent).toBe(true);
@@ -120,8 +121,8 @@ describe('electron/projectStore · 真文件往返', () => {
     }
   });
 
-  it('票 08 · 暂存之外的路径一律拒（暂存路径来自渲染进程，必须卡在 downloads/ 内）', async () => {
-    const root = tmpDir('tsugu-proj-staged-');
+  it('票 08 / 14 · 缓存之外的路径一律拒（路径来自渲染进程，必须卡在 cache/community/ 内）', async () => {
+    const root = tmpDir('tsugu-proj-cached-');
     try {
       ensureDataRootLayoutSync(root);
       writeFileSync(join(root, 'secret.bin'), Buffer.from([1]));
@@ -132,30 +133,38 @@ describe('electron/projectStore · 真文件往返', () => {
         id: 'pOut1',
         doc: stagedDoc,
         audioStagedPath: join(root, 'secret.bin'),
-      })).rejects.toThrow('拒绝从下载暂存之外拷贝素材');
+      })).rejects.toThrow('拒绝从素材缓存之外拷贝素材');
 
-      // 目录穿越写法（resolve 之后落在 downloads/ 外）
+      // 目录穿越写法（resolve 之后落在缓存外）
       await expect(putProject(root, {
         id: 'pOut2',
         doc: stagedDoc,
-        audioStagedPath: join(root, 'downloads', '..', 'secret.bin'),
-      })).rejects.toThrow('拒绝从下载暂存之外拷贝素材');
+        audioStagedPath: join(cacheDir(root), '..', '..', 'secret.bin'),
+      })).rejects.toThrow('拒绝从素材缓存之外拷贝素材');
 
-      expect(existsSync(join(root, 'projects', 'pOut1', 'project.json'))).toBe(false);
-      expect(existsSync(join(root, 'projects', 'pOut2', 'project.json'))).toBe(false);
+      // 07 时代的 downloads/ 不再算数（暂存退役，票 14）
+      await expect(putProject(root, {
+        id: 'pOut3',
+        doc: stagedDoc,
+        audioStagedPath: join(legacyDownloadsDir(root), 'old.mp3'),
+      })).rejects.toThrow('拒绝从素材缓存之外拷贝素材');
+
+      for (const id of ['pOut1', 'pOut2', 'pOut3']) {
+        expect(existsSync(join(root, 'projects', id, 'project.json'))).toBe(false);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('票 08 · 暂存文件不见了就整笔失败：不写一个「说有音频却没有」的工程', async () => {
-    const root = tmpDir('tsugu-proj-staged-');
+  it('票 08 · 缓存文件不见了就整笔失败：不写一个「说有音频却没有」的工程', async () => {
+    const root = tmpDir('tsugu-proj-cached-');
     try {
       ensureDataRootLayoutSync(root);
       await expect(putProject(root, {
         id: 'pGone',
         doc: doc({ audioIntent: 'set' as const, audioName: 'a.mp3' }),
-        audioStagedPath: join(root, 'downloads', 'never-downloaded.mp3'),
+        audioStagedPath: join(cacheDir(root), 'never-downloaded.mp3'),
       })).rejects.toThrow();
       expect(existsSync(join(root, 'projects', 'pGone', 'project.json'))).toBe(false);
     } finally {

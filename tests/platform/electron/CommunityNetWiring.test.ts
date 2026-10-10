@@ -1,7 +1,7 @@
 // 票 07：IPC 契约与 preload 白名单（跨进程语义）+ 下载暂存接在数据根下。
 // 静态断言照既有惯例（ChartCodeExportSaveAs.test.ts / ElectronDataRoot.test.ts）：
 // 读源码锁接线事实，真函数跑行为。
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -10,9 +10,14 @@ import {
   JSON_TIMEOUT_MS,
   createCommunityGateway,
   registerCommunityNetIpc,
-  resetCommunityStaging,
 } from '@/electron/communityNet.cjs';
-import { DOWNLOADS_DIRNAME, downloadsDir, loadDataRootSync } from '@/electron/dataRoot.cjs';
+import {
+  CACHE_DIRNAME,
+  cacheDir,
+  legacyDownloadsDir,
+  loadDataRootSync,
+  removeLegacyDownloads,
+} from '@/electron/dataRoot.cjs';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
   BESTDORI_JSON_TIMEOUT_MS,
@@ -26,6 +31,7 @@ import { tmpDir } from '@/tests/support/fs';
 const mainSrc = readStripped('electron/main.cjs');
 const preloadSrc = readStripped('electron/preload.js');
 const gatewaySrc = readStripped('electron/communityNet.cjs');
+const assetCacheSrc = readStripped('electron/assetCache.cjs');
 
 type IpcListener = (event: unknown, payload: unknown) => unknown;
 
@@ -49,12 +55,18 @@ const okFetch = async () => ({
   text: async () => '{"result":true}',
 });
 
-describe('票 07 · preload 白名单只多一条网络通道', () => {
+describe('票 07 + 14 · preload 白名单：网络一条、缓存两条', () => {
   it('暴露 communityNet.request，且只走 communityNet:request', () => {
     expect(preloadSrc).toMatch(/communityNet\s*:/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]communityNet:request['"]/);
     expect(preloadSrc).toMatch(/exposeInMainWorld\(\s*'electronAPI'/);
     expect(preloadSrc).not.toMatch(/nodeIntegration/);
+  });
+
+  it('缓存只开两条：占用查询与清除（不暴露缓存内容）', () => {
+    expect(preloadSrc).toMatch(/assetCache\s*:/);
+    expect(preloadSrc).toMatch(/invoke\(\s*['"]assetCache:stats['"]/);
+    expect(preloadSrc).toMatch(/invoke\(\s*['"]assetCache:clear['"]/);
   });
 
   it('主进程注册同一条通道，形态照既有桥（一个命名空间一条 invoke）', () => {
@@ -64,7 +76,7 @@ describe('票 07 · preload 白名单只多一条网络通道', () => {
 
   it('注册到假 ipcMain 后，handler 真的走网关（正常与越界各一条）', async () => {
     const { ipcMain, handlers } = fakeIpcMain();
-    registerCommunityNetIpc(ipcMain, createCommunityGateway({ stagingDir: '/tmp/unused-staging', fetchImpl: okFetch }));
+    registerCommunityNetIpc(ipcMain, createCommunityGateway({ fetchImpl: okFetch }));
 
     const handler = handlers.get('communityNet:request');
     expect(typeof handler).toBe('function');
@@ -86,14 +98,22 @@ describe('票 07 · 主进程接线与安全默认', () => {
     expect(mainSrc).toMatch(/fetchImpl:\s*\(url, init\)\s*=>\s*net\.fetch\(url, init\)/);
   });
 
-  it('暂存目录接在数据根下、每次现取（数据根能被搬家）', () => {
-    expect(mainSrc).toMatch(/stagingDir:\s*\(\)\s*=>\s*downloadsDir\(currentDataRoot\(\)\)/);
-    expect(gatewaySrc).toMatch(/typeof stagingDir === 'function'/);
+  it('素材缓存目录接在数据根下、每次现取（数据根能被搬家）', () => {
+    expect(mainSrc).toMatch(/createAssetCache\(\{\s*dir:\s*\(\)\s*=>\s*cacheDir\(currentDataRoot\(\)\)\s*\}\)/);
+    expect(mainSrc).toMatch(/assetCache,\s*\}\);/);
   });
 
-  it('启动即清空下载暂存（过程态，不攒上一轮没导入的文件）', () => {
+  it('启动扫缓存（30 天 / 1GB / 半截文件）；07 的下载暂存退役，残留顺手清掉', () => {
     const ready = mainSrc.slice(mainSrc.indexOf('app.whenReady()'));
-    expect(ready).toMatch(/resetCommunityStaging\(downloadsDir\(currentDataRoot\(\)\)\)/);
+    expect(ready).toMatch(/assetCache\.sweep\(\)/);
+    expect(ready).toMatch(/removeLegacyDownloads\(currentDataRoot\(\)\)/);
+    expect(mainSrc).not.toMatch(/resetCommunityStaging/);
+  });
+
+  it('设置页的两条缓存 IPC 在主进程与 preload 各就各位', () => {
+    expect(mainSrc).toMatch(/registerAssetCacheIpc\(ipcMain,\s*assetCache\)/);
+    expect(assetCacheSrc).toMatch(/ipcMain\.handle\(\s*['"]assetCache:stats['"]/);
+    expect(assetCacheSrc).toMatch(/ipcMain\.handle\(\s*['"]assetCache:clear['"]/);
   });
 
   it('不为网络放开渲染进程安全开关（nodeIntegration / contextIsolation 不动）', () => {
@@ -114,42 +134,45 @@ describe('票 07 · 主进程接线与安全默认', () => {
   });
 });
 
-describe('票 07 · 下载暂存目录（<数据根>/downloads/）', () => {
+describe('票 14 · 素材缓存目录（<数据根>/cache/community/）', () => {
   it('目录名与路径都从数据根算', () => {
-    expect(DOWNLOADS_DIRNAME).toBe('downloads');
-    expect(downloadsDir('/data')).toBe(join('/data', 'downloads'));
+    expect(CACHE_DIRNAME).toBe('cache');
+    expect(cacheDir('/data')).toBe(join('/data', 'cache', 'community'));
   });
 
-  it('数据根布局带上 downloads/（首次用即存在）', () => {
-    const userData = tmpDir('tsugu-downloads-root-');
+  it('数据根布局带上 cache/community/（首次用即存在）', () => {
+    const userData = tmpDir('tsugu-cache-root-');
     try {
       const root = loadDataRootSync(userData);
-      expect(existsSync(downloadsDir(root))).toBe(true);
+      expect(existsSync(cacheDir(root))).toBe(true);
     } finally {
       rmSync(userData, { recursive: true, force: true });
     }
   });
 
-  it('resetCommunityStaging 删旧建新（启动清空）', async () => {
-    const dir = tmpDir('tsugu-staging-reset-');
+  it('不再预建 downloads/（暂存退役，票 14）', () => {
+    const userData = tmpDir('tsugu-cache-no-downloads-');
     try {
-      mkdirSync(join(dir, 'inner'), { recursive: true });
-      writeFileSync(join(dir, 'inner', 'old.bin'), 'old');
-      await resetCommunityStaging(dir);
-      expect(readdirSync(dir)).toEqual([]);
+      const root = loadDataRootSync(userData);
+      expect(existsSync(legacyDownloadsDir(root))).toBe(false);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(userData, { recursive: true, force: true });
     }
   });
 
-  it('暂存目录不存在也能补齐（rm force + mkdir recursive）', async () => {
-    const parent = tmpDir('tsugu-staging-missing-');
-    const missing = join(parent, 'nested');
+  it('removeLegacyDownloads 清掉旧根残留；本来就没有也不报错', async () => {
+    const userData = tmpDir('tsugu-cache-legacy-');
     try {
-      await expect(resetCommunityStaging(missing)).resolves.toBeUndefined();
-      expect(readdirSync(missing)).toEqual([]);
+      const root = loadDataRootSync(userData);
+      mkdirSync(join(legacyDownloadsDir(root), 'inner'), { recursive: true });
+      writeFileSync(join(legacyDownloadsDir(root), 'inner', 'old.bin'), 'old');
+
+      await removeLegacyDownloads(root);
+      expect(existsSync(legacyDownloadsDir(root))).toBe(false);
+
+      await expect(removeLegacyDownloads(root)).resolves.toBeUndefined();
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      rmSync(userData, { recursive: true, force: true });
     }
   });
 });
@@ -175,5 +198,10 @@ describe('票 07 · 源码事实', () => {
     expect(DEFAULT_USER_AGENT).toBe(BESTDORI_USER_AGENT);
     expect(JSON_TIMEOUT_MS).toBe(BESTDORI_JSON_TIMEOUT_MS);
     expect(BINARY_TIMEOUT_MS).toBe(BESTDORI_BINARY_TIMEOUT_MS);
+  });
+
+  it('回退页判定（text/html）主进程与端点文件同规则（各写一份，改一边另一条要跟上）', () => {
+    expect(gatewaySrc).toContain('text\\/html');
+    expect(readSource('src/community/bestdori/endpoints.ts')).toContain('text\\/html');
   });
 });

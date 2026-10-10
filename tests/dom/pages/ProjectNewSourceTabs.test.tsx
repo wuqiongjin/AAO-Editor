@@ -29,8 +29,9 @@ const SONG_TITLE = 'BLACK SHOUT';
 const SONG_ARTIST = 'Roselia';
 const JACKET_URL = 'https://bestdori.com/assets/jp/musicjacket/musicjacket30_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket30-blackshout-jacket.png';
 const AUDIO_URL = 'https://bestdori.com/assets/jp/sound/bgm029_rip/bgm029.mp3';
-const STAGED_AUDIO_PATH = '/data/downloads/aaa-bgm029.mp3';
-const STAGED_COVER_PATH = '/data/downloads/bbb-blackshout.png';
+// 票 14：二进制的落点是素材缓存（07 的 downloads/ 已退役）
+const STAGED_AUDIO_PATH = '/data/cache/community/aaa-bgm029.mp3';
+const STAGED_COVER_PATH = '/data/cache/community/bbb-blackshout.png';
 
 const SONGS_INDEX = {
   '29': {

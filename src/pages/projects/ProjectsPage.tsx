@@ -174,7 +174,7 @@ export default function ProjectsPage() {
     await setCurrent(copy.id, copy.charts[0]?.id);
   }, [flushPersist, store, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
-  // 「从官方谱面导入」（票 08）：下载暂存（音频 / 封面）→ Apply 闸门（勾了才走）→ 落盘 → 切到新工程详情。
+  // 「从官方谱面导入」（票 08 + 14）：素材缓存（音频 / 封面，命中即零网络）→ Apply 闸门（勾了才走）→ 落盘 → 切到新工程详情。
   // 与另两支同落点（issue 23 #1）：留在工程管理页、新工程成为当前工程、不跳工作台。
   const importOfficial = useCallback(async (
     selection: OfficialSongSelection,

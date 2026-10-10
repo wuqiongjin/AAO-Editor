@@ -172,7 +172,7 @@ export function addChartToProject(
  * `曲目来源` ← 官方曲 id、一张谱面 —— **默认空 Expert**，勾了「带官方谱面内容」才把官方难度、
  * 等级与官方谱面代码（同一条 Apply 闸门）一起带上。
  *
- * 音频与封面不在这里：它们是**二进制**，由 store 从下载暂存拷进工程（见 ChartProject 的
+ * 音频与封面不在这里：它们是**二进制**，由 store 从素材缓存拷进工程（见 ChartProject 的
  * `ProjectBinarySources`）——工程记录里只留 `audioName` / `coverName` 两个名字。
  */
 export interface OfficialProjectInput {
@@ -187,7 +187,7 @@ export interface OfficialProjectInput {
   source: SongSource;
   /** 官方曲长（秒）：音频落地后由实际时长校正，先按官方数据起 */
   durationSeconds: number;
-  /** 音频名（写进工程记录的显示名；二进制本身走暂存，见 ChartProject 的 ProjectBinarySources） */
+  /** 音频名（写进工程记录的显示名；二进制本身走素材缓存，见 ChartProject 的 ProjectBinarySources） */
   audioName: string;
   /** 封面名；这首曲子没有封面时给 null */
   coverName: string | null;

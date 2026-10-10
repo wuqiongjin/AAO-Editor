@@ -144,7 +144,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 设置对象 | Settings | 统一 versioned JSON：`{ schemaVersion, theme, uiLanguage, uiTypeScale, uiFontStack, layout, shortcuts }`；localStorage 持久化 + JSON 导入导出。**不含**窗体状态、**不含**数据根路径 |
 | 窗体状态 | Window chrome state | 这台机器上 OS 窗体的宽、高、是否最大化；与数据根路径同写 `userData/app-state.json`。_Avoid_: 塞进设置对象 / 导出配置；不要再为这类本机状态单开 json |
 | 窗体标题栏 | Window title bar | Electron **系统绘制**的 OS 标题栏与缩小/最大化/关闭。颜色跟主题；不是内容壳 **页面头**。_Avoid_: 把 OS 白条叫页面头 / 标题栏控件 |
-| 数据根 | Data root | Electron 上用户可选的自动落盘根目录（默认 `userData/data`，其下固定 `projects/`、`assets/` 与 `downloads/`）。当前路径记在 `userData/app-state.json`。浏览器无此概念（仍 IndexedDB）。_Avoid_: 把「导出谱面代码」的另存路径叫数据根；不要把数据根叫 `projects` |
+| 数据根 | Data root | Electron 上用户可选的自动落盘根目录（默认 `userData/data`，其下固定 `projects/`、`assets/` 与 `cache/`）。当前路径记在 `userData/app-state.json`。浏览器无此概念（仍 IndexedDB）。_Avoid_: 把「导出谱面代码」的另存路径叫数据根；不要把数据根叫 `projects` |
 | 上下文分域 | Context domains | 状态管理组织：`EditingContext`（音符/历史/选择）、`UIContext`（面板/缩放）、`ConfigContext`（设置）；`Editor` 只负责组装 |
 
 ## 应用页面壳（ADR-0007）
@@ -270,7 +270,7 @@ BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON �
 | 谱师 | Charter | 谱面的创作者；Bestdori 侧 = 社区帖作者（`username`，展示用 `nickname`）。**官方曲只有歌手，不讲谱师**。_Avoid_: 「谱面作者」（未登记的说法）；把歌手当谱师 |
 | 上传 | Upload | 把**字节**（谱面代码 / 音频 / 封面）发到社区平台的动作；产物按内容寻址、可复用（已存在即直接返回）。_Avoid_: 当作可反复进行的动作 |
 | 发布 | Publish | 在社区平台上**发帖**，产生帖子 id；此后**谱面本体不可改**（只能改难度 / 等级 / 警告 / 标签等元数据）。所以一份谱面至多发布一次，已发布的谱面只读。_Avoid_: 与「上传」混称；把发布当成一次可以重来的托管操作 |
-| 下载暂存 | Download staging | 从社区平台取回的音频 / 封面在**决定导入之前**的落脚区：导入时写进工程自己的音频与封面，没导入的按策略丢弃。它不是长期素材缓存，**不进任何分发物**（ADR-0011 §4）。_Avoid_: 让工程引用暂存里的路径；把同一首歌的每个工程都拷一份 4MB 之前先过它这一道 |
+| 社区素材缓存 | Community asset cache | 从社区平台取回的曲库索引 / 单曲详情 / 谱面原文 / 封面（原图与缩略图）/ 音频在本机的复用区：`<数据根>/cache/community/`，按 URL 哈希寻址，**一次下载多处复用**（预览 / 导入都不再打网络）。上限 1GB、30 天未用即清（票 14 定案，2026-10-10 落地）。它**不进任何分发物**（ADR-0011 §4），也不是工程素材——工程自己的音频 / 封面仍拷进 `<数据根>/projects/<id>/`，缓存只做「下载一次」的源。07 时代的「下载暂存」（process-state、启动清空）已退役。_Avoid_: 让工程引用缓存里的路径；把缓存当素材分发渠道；把「清了缓存」当数据丢失 |
 | 官方谱 | Official chart | **用户视角的谱面来源之一**：曲目由官方提供、随游戏实装的歌与谱。当前实现 = 社区平台**曲库**里各曲自带的谱面（`/api/charts/{songId}/{diff}`），**没有谱师、只有歌手**。它与「从官方谱面导入」这个新建入口指同一件事（对应 `曲目来源` 记 `bandori` / `llsif`；游戏之分是字段里的事，不是界面上的分支）。_Avoid_: 在界面文案里写「Bestdori 官方曲」；把官方谱说成「某位谱师的作品」；拿它当 `曲目来源` 的显示名 |
 | 社区谱 | Community chart | **用户视角的谱面来源之一**：谱师自己作、发在社区平台上的谱（载体是**社区帖**）。同一首歌可以有任意多篇，各带自己的难度 / 等级 / 谱师。它是「从社区谱面导入」这一新建入口的另一半名字。_Avoid_: 把社区谱当歌曲、把帖子标题当歌名；在界面文案里写「Bestdori 社区」；用「官方 vs 社区」去指 `曲目来源`（那是发布时怎么填的指针，两码事） |
 

@@ -8,7 +8,7 @@
  *      单测注入假出口（不碰网络）。它的**唯一实现**是 `electronTransport.ts` 里那条走 IPC 的。
  *   2. 跨进程载荷形状 —— 与主进程实现 `electron/communityNet.cjs` 是同一份契约（改一边要改另一边）。
  *   3. 统一错误域 `CommunityError` —— 离线 / 超时 / 限流 / 未授权 / 平台不支持 / 响应非法，
- *      外加三类网关自保（非 2xx / 载荷被拒 / 暂存写失败）。
+ *      外加三类网关自保（非 2xx / 载荷被拒 / 缓存写失败）。
  *
  * `CommunityError.message` 只作**诊断**（日志、排查）；界面文案按 `kind` 走 i18n，
  * 不要把 message 当 UI 文案用。
@@ -33,7 +33,7 @@ export type CommunityErrorKind =
   | 'http'
   /** 网关发起请求之前就拒了：越界主机、非法方法、renderer 自带凭据头 */
   | 'request-rejected'
-  /** 本机下载暂存写不进去（磁盘满 / 权限），社区平台侧没问题 */
+  /** 本机素材缓存写不进去（磁盘满 / 权限），社区平台侧没问题（07 起的码名沿用，14 起指缓存） */
   | 'staging-failed';
 
 /**
@@ -73,7 +73,7 @@ export interface CommunityWireError {
   platformCode?: string;
 }
 
-/** 二进制响应：只有暂存路径与元数据，没有字节 */
+/** 二进制响应：只有素材缓存里的路径与元数据，没有字节（票 14 起落点是 cache/community/） */
 export interface StagedBinary {
   path: string;
   byteLength: number;
@@ -98,7 +98,7 @@ export interface CommunityRequest {
   body?: string;
   responseType?: 'json' | 'text' | 'binary';
   timeoutMs?: number;
-  /** binary：进下载暂存的文件名建议（网关只取 basename 并短哈希前缀） */
+  /** binary：进素材缓存的文件名建议（网关只取 basename 并短哈希前缀） */
   suggestedName?: string;
 }
 

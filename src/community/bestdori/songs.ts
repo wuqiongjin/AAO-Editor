@@ -6,8 +6,9 @@
  *     静态演示版 / 浏览器是 `kind: 'none'`）。退避重试只给这些**幂等读**用（rateLimit 的分工）。
  *   - **谱面代码取原文**：`requestText` 拿回原始 JSON 文本交给 Apply 闸门（`parseCodeText` 是全仓
  *     唯一的 JSON.parse 点，ADR-0014 的保真也靠原文：pristine 时导出直接发原文）。
- *   - **二进制只回暂存路径**：音频 / 封面由主进程落到 `<数据根>/downloads/`，这里只拿 `{ path }`
- *     （票 07 定案：字节不过 IPC）。平台对不存在的资源回 **200 + SPA 回退页**，落地前必须认出来。
+ *   - **二进制只回缓存路径**：音频 / 封面由主进程落到 `<数据根>/cache/community/`（票 14 的素材缓存），
+ *     这里只拿 `{ path }`（票 07 定案：字节不过 IPC）。平台对不存在的资源回 **200 + SPA 回退页**，
+ *     落地前必须认出来。
  */
 import { getActiveUiLanguage, type UiLanguage } from '../../i18n';
 import { withRetry, type RetryNotice } from '../rateLimit';
@@ -138,7 +139,7 @@ export async function fetchOfficialChartText(
 }
 
 /**
- * 落进暂存的字节对不对得上要的东西：
+ * 落进缓存的字节对不对得上要的东西：
  * - 平台的 SPA 回退页（`text/html`）与别的类型 ⇒ 不是它；
  * - **拿不到 content-type 等于没信号，放行** —— 平台万一哪天不回这个头，拒绝它会让整条导入主线断掉，
  *   而回退页只要带了头就一定认得出来（实测 `text/html`）。
@@ -151,7 +152,7 @@ function looksLikeMedia(contentType: string | null, media: 'audio' | 'image'): b
 }
 
 /**
- * 官方音频 → 下载暂存（约 4MB 完整曲）。
+ * 官方音频 → 素材缓存（约 4MB 完整曲）。
  * 平台没有这首曲子的音频时回的是 SPA 回退页 —— 那是「截到一张网页」，不是音频，
  * 直接判成响应非法，别让 4MB 的坑位里躺着一张 HTML。
  */
@@ -168,7 +169,7 @@ export async function fetchOfficialAudio(
 }
 
 /**
- * 官方封面 → 下载暂存；平台没有这张图时回 **null**（= 这次导入不带封面）。
+ * 官方封面 → 素材缓存；平台没有这张图时回 **null**（= 这次导入不带封面）。
  * 不抛错：封面缺失不该挡住「工程 + 音频」这条主线（合作曲在非首发服就是这种情况）。
  */
 export async function fetchOfficialCover(
@@ -179,7 +180,7 @@ export async function fetchOfficialCover(
   return looksLikeMedia(staged.contentType, 'image') ? staged : null;
 }
 
-/** 音频落进工程后记的名字（也是暂存文件名建议）：`bgm001.mp3` */
+/** 音频落进工程后记的名字（也是缓存文件名建议）：`bgm001.mp3` */
 export function audioFileName(detail: OfficialSongDetail): string {
   return `${detail.bgmId}.mp3`;
 }

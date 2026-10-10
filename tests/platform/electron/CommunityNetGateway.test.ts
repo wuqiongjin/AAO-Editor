@@ -1,11 +1,15 @@
-// 票 07：主进程网关的行为 —— 主机白名单、单飞 + 最小间隔、单次超时、响应校验、
-// 二进制落下载暂存、Cookie 附着。全部走注入的假出口 / 假时钟 / 真临时目录，不碰网络。
-import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+// 票 07 + 14：主进程网关的行为 —— 主机白名单、单飞 + 最小间隔、单次超时、响应校验、
+// 二进制落素材缓存、素材缓存命中（json / text / binary）、Cookie 附着。
+// 全部走注入的假出口 / 假时钟 / 真临时目录，不碰网络。
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { createAssetCache } from '@/electron/assetCache.cjs';
 import { createCookieJar } from '@/electron/communityCookies.cjs';
 import {
   ALLOWED_HOSTS,
+  CACHE_FRESH_MS,
+  FALLBACK_FRESH_MS,
   MIN_REQUEST_INTERVAL_MS,
   createCommunityGateway,
 } from '@/electron/communityNet.cjs';
@@ -79,20 +83,32 @@ function fakeTimers() {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** 网关 + 假出口；给了 dir 才带素材缓存（不带的用例只测网络语义） */
 function gatewayWith(
   handler: (call: FetchCall) => unknown,
-  extra: { stagingDir?: string; cookieJar?: unknown } = {},
+  extra: { dir?: string; cookieJar?: unknown } = {},
 ) {
   const fetch = fakeFetch(handler);
   const clock = fakeClock();
+  const assetCache = extra.dir == null ? null : createAssetCache({ dir: extra.dir, now: clock.now });
   const gateway = createCommunityGateway({
     fetchImpl: fetch.impl,
-    stagingDir: extra.stagingDir ?? '/tmp/unused-staging',
+    assetCache,
     cookieJar: extra.cookieJar,
     now: clock.now,
     sleep: clock.sleep,
   });
-  return { gateway, fetch, clock };
+  return { gateway, fetch, clock, assetCache };
+}
+
+/** 临时素材缓存目录（跑完即删） */
+async function withTmpCache<T>(run: (dir: string) => Promise<T>): Promise<T> {
+  const dir = tmpDir('tsugu-gateway-cache-');
+  try {
+    return await run(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 const LIST_URL = 'https://bestdori.com/api/post/list';
@@ -153,7 +169,6 @@ describe('票 07 · 低速率（单飞 + 最小间隔）', () => {
     let inFlight = 0;
     let maxInFlight = 0;
     const gateway = createCommunityGateway({
-      stagingDir: '/tmp/unused-staging',
       minIntervalMs: MIN_REQUEST_INTERVAL_MS,
       now: clock.now,
       sleep: clock.sleep,
@@ -194,7 +209,6 @@ describe('票 07 · 单次超时（重试归 renderer）', () => {
   it('到点即 abort，回 timeout 而不是挂死', async () => {
     const timers = fakeTimers();
     const gateway = createCommunityGateway({
-      stagingDir: '/tmp/unused-staging',
       timers: timers.timers,
       fetchImpl: (_url: string, init: any) =>
         new Promise((_resolve, reject) => {
@@ -214,7 +228,6 @@ describe('票 07 · 单次超时（重试归 renderer）', () => {
 
   it('连不上 = offline（DNS / 拒绝连接 / 系统离线都走这条）', async () => {
     const gateway = createCommunityGateway({
-      stagingDir: '/tmp/unused-staging',
       fetchImpl: async () => {
         throw new TypeError('fetch failed');
       },
@@ -289,13 +302,12 @@ describe('票 07 · 响应校验', () => {
   });
 });
 
-describe('票 07 · 二进制落下载暂存（字节不过 IPC）', () => {
-  it('写进暂存目录、回路径与元数据，不回字节', async () => {
-    const staging = tmpDir('tsugu-community-staging-');
-    try {
+describe('票 14 · 二进制落素材缓存（字节不过 IPC）', () => {
+  it('写进缓存目录、回路径与元数据，不回字节', async () => {
+    await withTmpCache(async (dir) => {
       const { gateway } = gatewayWith(
         () => response({ bytes: [1, 2, 3, 4], contentType: 'audio/mpeg' }),
-        { stagingDir: staging },
+        { dir },
       );
       const result = await gateway.request({
         url: 'https://bestdori.com/assets/jp/sound/bgm001_rip/bgm001.mp3',
@@ -304,40 +316,154 @@ describe('票 07 · 二进制落下载暂存（字节不过 IPC）', () => {
       });
 
       expect(result).toMatchObject({ ok: true, responseType: 'binary', byteLength: 4, contentType: 'audio/mpeg' });
-      expect(result.path.startsWith(`${staging}/`)).toBe(true);
+      expect(relative(dir, result.path).startsWith('..')).toBe(false);
       expect(result.path).toContain('bgm001.mp3');
       expect(result.path).not.toContain('..');
       expect(readFileSync(result.path)).toEqual(Buffer.from([1, 2, 3, 4]));
       expect(Object.keys(result).sort()).toEqual(['byteLength', 'contentType', 'ok', 'path', 'responseType', 'status']);
-    } finally {
-      rmSync(staging, { recursive: true, force: true });
-    }
+    });
   });
 
   it('没给建议名也要落一个能认出来的名字', async () => {
-    const staging = tmpDir('tsugu-community-staging-noname-');
-    try {
-      const { gateway } = gatewayWith(() => response({ bytes: [9] }), { stagingDir: staging });
+    await withTmpCache(async (dir) => {
+      const { gateway } = gatewayWith(() => response({ bytes: [9] }), { dir });
       const result = await gateway.request({ url: 'https://bestdori.com/api/upload/file/abc', responseType: 'binary' });
       expect(result.path).toContain('download');
       expect(existsSync(result.path)).toBe(true);
-    } finally {
-      rmSync(staging, { recursive: true, force: true });
-    }
+    });
   });
 
-  it('暂存写不进去 = staging-failed（平台没问题，是本机的事）', async () => {
-    const dir = tmpDir('tsugu-community-staging-blocked-');
+  it('缓存写不进去 = staging-failed（平台没问题，是本机的事）', async () => {
+    const dir = tmpDir('tsugu-community-cache-blocked-');
     const blocker = join(dir, 'file-not-dir');
     writeFileSync(blocker, 'x');
     try {
-      const { gateway } = gatewayWith(() => response({ bytes: [1] }), { stagingDir: join(blocker, 'nested') });
+      const { gateway } = gatewayWith(() => response({ bytes: [1] }), { dir: join(blocker, 'nested') });
       await expect(
         gateway.request({ url: 'https://bestdori.com/api/upload/file/abc', responseType: 'binary' }),
       ).resolves.toMatchObject({ ok: false, error: { kind: 'staging-failed' } });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('没配缓存的网关：二进制直说不支持（不静默丢字节）', async () => {
+    const { gateway } = gatewayWith(() => response({ bytes: [1] }));
+    await expect(
+      gateway.request({ url: 'https://bestdori.com/api/upload/file/abc', responseType: 'binary' }),
+    ).resolves.toMatchObject({ ok: false, error: { kind: 'staging-failed' } });
+  });
+});
+
+describe('票 14 · 素材缓存命中：GET 不碰网络', () => {
+  const SONGS_URL = 'https://bestdori.com/api/songs/all.5.json';
+  const AUDIO_URL = 'https://bestdori.com/assets/jp/sound/bgm029_rip/bgm029.mp3';
+  const CHART_URL = 'https://bestdori.com/api/charts/29/expert.json';
+
+  it('json：24h 内再来直接就回，一条请求都不发', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch } = gatewayWith(() => response({ body: { result: true, n: 1 } }), { dir });
+      for (let i = 0; i < 3; i += 1) {
+        await expect(gateway.request({ url: SONGS_URL })).resolves.toMatchObject({ ok: true, data: { n: 1 } });
+      }
+      expect(fetch.calls).toHaveLength(1);
+    });
+  });
+
+  it('json：过期先回旧的，后台补一枪（补完就用新的）', async () => {
+    await withTmpCache(async (dir) => {
+      let version = 1;
+      const { gateway, fetch, clock, assetCache } = gatewayWith(
+        () => response({ body: { result: true, n: version } }),
+        { dir },
+      );
+
+      await expect(gateway.request({ url: SONGS_URL })).resolves.toMatchObject({ data: { n: 1 } });
+      const first = await assetCache!.lookup({ url: SONGS_URL, kind: 'json' });
+      clock.advance(CACHE_FRESH_MS + 1);
+      version = 2;
+
+      // 先回旧的：列表不等人（票 14 定案）
+      await expect(gateway.request({ url: SONGS_URL })).resolves.toMatchObject({ data: { n: 1 } });
+      // 后台那一枪写进缓存才算数：直接盯条目（真 fs I/O，不靠猜 tick 数）
+      await expect
+        .poll(async () => (await assetCache!.lookup({ url: SONGS_URL, kind: 'json' }))?.cachedAt, { timeout: 3000 })
+        .toBeGreaterThan(first!.cachedAt);
+
+      await expect(gateway.request({ url: SONGS_URL })).resolves.toMatchObject({ data: { n: 2 } });
+      expect(fetch.calls).toHaveLength(2);
+    });
+  });
+
+  it('text：谱面原文按原样回缓存', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch } = gatewayWith(() => response({ raw: '[[{"type":"BPM"}]]' }), { dir });
+      await expect(gateway.request({ url: CHART_URL, responseType: 'text' })).resolves.toMatchObject({ text: '[[{"type":"BPM"}]]' });
+      await expect(gateway.request({ url: CHART_URL, responseType: 'text' })).resolves.toMatchObject({ text: '[[{"type":"BPM"}]]' });
+      expect(fetch.calls).toHaveLength(1);
+    });
+  });
+
+  it('binary：真素材长期复用（跨多天也不会「过期」重下）', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch, clock } = gatewayWith(
+        () => response({ bytes: [1, 2], contentType: 'audio/mpeg' }),
+        { dir },
+      );
+      await gateway.request({ url: AUDIO_URL, responseType: 'binary' });
+      clock.advance(29 * 24 * 60 * 60 * 1000);
+      await expect(gateway.request({ url: AUDIO_URL, responseType: 'binary' })).resolves.toMatchObject({ byteLength: 2 });
+      expect(fetch.calls).toHaveLength(1);
+    });
+  });
+
+  it('binary：回退页（text/html）只当 1 小时负缓存 —— 不把一张网页钉死 30 天', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch, clock } = gatewayWith(
+        () => response({ bytes: [1], contentType: 'text/html' }),
+        { dir },
+      );
+      await gateway.request({ url: AUDIO_URL, responseType: 'binary' });
+      await gateway.request({ url: AUDIO_URL, responseType: 'binary' });
+      expect(fetch.calls).toHaveLength(1);
+
+      clock.advance(FALLBACK_FRESH_MS + 1);
+      await gateway.request({ url: AUDIO_URL, responseType: 'binary' });
+      expect(fetch.calls).toHaveLength(2);
+    });
+  });
+
+  it('POST 不进缓存（发帖 / 登录都是写）', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch } = gatewayWith(() => response({ body: { result: true } }), { dir });
+      await gateway.request({ url: LIST_URL, method: 'POST', body: '{}' });
+      await gateway.request({ url: LIST_URL, method: 'POST', body: '{}' });
+      expect(fetch.calls).toHaveLength(2);
+    });
+  });
+
+  it('缓存内容坏了（不是合法 JSON）：当未命中重拉，不把坏数据喂给界面', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch } = gatewayWith(() => response({ body: { result: true } }), { dir });
+      await gateway.request({ url: SONGS_URL });
+      const cached = readdirSync(dir).find((name) => name !== 'index.json')!;
+      writeFileSync(join(dir, cached), '{ 坏了');
+
+      await expect(gateway.request({ url: SONGS_URL })).resolves.toMatchObject({ ok: true, data: { result: true } });
+      expect(fetch.calls).toHaveLength(2);
+    });
+  });
+
+  it('缓存文件被删：当未命中重拉', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch } = gatewayWith(() => response({ body: { result: true } }), { dir });
+      await gateway.request({ url: SONGS_URL });
+      const cached = readdirSync(dir).find((name) => name !== 'index.json')!;
+      rmSync(join(dir, cached), { force: true });
+
+      await expect(gateway.request({ url: SONGS_URL })).resolves.toMatchObject({ ok: true, data: { result: true } });
+      expect(fetch.calls).toHaveLength(2);
+    });
   });
 });
 

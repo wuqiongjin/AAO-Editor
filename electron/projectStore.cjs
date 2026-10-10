@@ -2,7 +2,7 @@
 // schemaVersion 保持 1（未发布）。旧「一份 notes」目录（无 charts）不读、不删。
 const fs = require('fs');
 const path = require('path');
-const { downloadsDir, isPathInside, projectDir, projectsDir, safeProjectId } = require('./dataRoot.cjs');
+const { cacheDir, isPathInside, projectDir, projectsDir, safeProjectId } = require('./dataRoot.cjs');
 
 const SCHEMA_VERSION = 1;
 
@@ -51,19 +51,20 @@ async function readBinIfPresent(dir, fileName, present) {
 }
 
 /**
- * 从下载暂存拷一份进工程（bestdori-integration 08）：导入的音频 / 封面先由社区网关落到
- * `<数据根>/downloads/`，再在这里拷进工程目录 —— 字节始终不进 IPC。
+ * 从素材缓存拷一份进工程（bestdori-integration 08 + 14）：导入的音频 / 封面由社区网关落到
+ * `<数据根>/cache/community/`（票 14 取代了 07 的下载暂存），再在这里拷进工程目录 ——
+ * 字节始终不进 IPC。
  *
- * 暂存路径是**渲染进程给的入参**，必须卡在暂存目录内：不卡就等于把「读任意文件」交出去。
+ * 缓存路径是**渲染进程给的入参**，必须卡在缓存目录内：不卡就等于把「读任意文件」交出去。
  */
-async function copyStagedFile(dataRoot, stagedPath, destPath) {
-    if (typeof stagedPath !== 'string' || stagedPath.trim() === '') {
-        throw new Error('暂存路径无效');
+async function copyCachedFile(dataRoot, sourcePath, destPath) {
+    if (typeof sourcePath !== 'string' || sourcePath.trim() === '') {
+        throw new Error('素材缓存路径无效');
     }
-    const staging = path.resolve(downloadsDir(dataRoot));
-    const source = path.resolve(stagedPath);
-    if (!isPathInside(staging, source)) {
-        throw new Error(`拒绝从下载暂存之外拷贝素材: ${stagedPath}`);
+    const cache = path.resolve(cacheDir(dataRoot));
+    const source = path.resolve(sourcePath);
+    if (!isPathInside(cache, source)) {
+        throw new Error(`拒绝从素材缓存之外拷贝素材: ${sourcePath}`);
     }
     await fs.promises.access(source);
     const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
@@ -72,16 +73,16 @@ async function copyStagedFile(dataRoot, stagedPath, destPath) {
     return true;
 }
 
-async function applyBinaryIntent(dataRoot, dir, fileName, intent, bytes, stagedPath) {
+async function applyBinaryIntent(dataRoot, dir, fileName, intent, bytes, sourcePath) {
     const binPath = path.join(dir, fileName);
     if (intent === 'cleared') {
         await fs.promises.rm(binPath, { force: true });
         return false;
     }
     if (intent === 'set') {
-        // 暂存优先：给了它就用它（同一笔里不会再给字节）
-        if (typeof stagedPath === 'string' && stagedPath !== '') {
-            return copyStagedFile(dataRoot, stagedPath, binPath);
+        // 缓存路径优先：给了它就用它（同一笔里不会再给字节）
+        if (typeof sourcePath === 'string' && sourcePath !== '') {
+            return copyCachedFile(dataRoot, sourcePath, binPath);
         }
         if (!(bytes instanceof Uint8Array)) {
             throw new Error(`project:put ${fileName} intent=set 但缺少字节`);

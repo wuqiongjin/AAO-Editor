@@ -60,11 +60,13 @@ export interface ChartProject {
 }
 
 /**
- * 一次落盘里「这份二进制从下载暂存来」的声明：值是主进程网关给的暂存文件路径
- * （`<数据根>/downloads/` 里的那一个；票 07 只回路径不回字节）。
+ * 一次落盘里「这份二进制从素材缓存来」的声明：值是主进程网关给的缓存文件路径
+ * （`<数据根>/cache/community/` 里的那一个；票 07 只回路径不回字节，票 14 起落点是素材缓存）。
  *
  * 名字不在这里：`audioName` / `coverName` 是**工程记录**的字段，由工程对象自己带
- * （见 `OfficialProjectInput`）——暂存只是字节的来路。
+ * （见 `OfficialProjectInput`）——缓存只是字节的来路。
+ *
+ * 命名对账（票 14 记）：字段名仍带 `Staged`（07 时代的叫法），收口留给后续 chore，先不动线形状。
  */
 export interface ProjectBinarySources {
   audioStagedPath?: string;
@@ -73,7 +75,7 @@ export interface ProjectBinarySources {
 
 export interface ChartProjectBackend {
   get(id: string): Promise<ChartProject | null>;
-  /** `staged`：这份二进制来自下载暂存，由主进程从暂存拷进工程（字节不过 IPC） */
+  /** `staged`：这份二进制来自素材缓存，由主进程从缓存拷进工程（字节不过 IPC） */
   save(project: ChartProject, staged?: ProjectBinarySources): Promise<void>;
   list(): Promise<ChartProject[]>;
   delete(id: string): Promise<void>;
@@ -89,14 +91,14 @@ export function newProjectId(): string {
 
 /**
  * 「盘上那份二进制现在是什么」的记忆：真实 Blob / 没有 / **有但手里没字节**。
- * 第三种是暂存导入留下的——主进程已经把暂存文件拷进工程，本会话没有它的 Blob；
+ * 第三种是缓存导入留下的——主进程已经把缓存文件拷进工程，本会话没有它的 Blob；
  * 这时再来一次「不带 blob 的 save」（比如改了工程名）语义是 keep 而不是 clear，
  * 否则会在下一次保存时把刚导入的音频 / 封面抹掉。
  */
 const STAGED_ON_DISK = Symbol('staged-binary-on-disk');
 type RememberedBinary = Blob | null | typeof STAGED_ON_DISK;
 
-/** 一次 save 的二进制意图：暂存 > 手里的 Blob > 沿用盘上那份（见 STAGED_ON_DISK） */
+/** 一次 save 的二进制意图：缓存路径 > 手里的 Blob > 沿用盘上那份（见 STAGED_ON_DISK） */
 async function binaryIntent(
   blob: Blob | undefined,
   stagedPath: string | undefined,
@@ -153,12 +155,12 @@ export class IndexedDbProjectBackend implements ChartProjectBackend {
   }
 
   /**
-   * 浏览器后端**不支持**暂存导入：暂存文件在主进程的数据根里，渲染进程读不到字节
+   * 浏览器后端**不支持**素材缓存导入：缓存文件在主进程的数据根里，渲染进程读不到字节
    * （官方 / 社区导入这两支在静态演示版本就被隐藏，走到这里说明接线错了，宁可炸也不静默丢素材）。
    */
   async save(project: ChartProject, staged: ProjectBinarySources = {}): Promise<void> {
     if (staged.audioStagedPath || staged.coverStagedPath) {
-      throw new Error('浏览器后端不支持从下载暂存导入素材');
+      throw new Error('浏览器后端不支持从素材缓存导入素材');
     }
     const db = await this.db();
     const existing = await this.rawGet(db, project.id);
