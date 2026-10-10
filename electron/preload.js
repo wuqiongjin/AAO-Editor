@@ -46,10 +46,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     communityNet: {
         request: (payload) => ipcRenderer.invoke('communityNet:request', payload),
     },
-    // bestdori-integration 14：素材缓存的占用查询与清除（设置页「存储与数据」用）。
-    // 只有这两条：一条只读统计、一条显式清除 —— 不暴露缓存内容。
+    // bestdori-integration 14 + 18：素材缓存的占用查询 / 清除 / 回收策略推送（设置页「存储与数据」用）。
+    // 只有这三条：一条只读统计、一条显式清除、一条策略参数 —— 不暴露缓存内容。
     assetCache: {
         stats: () => ipcRenderer.invoke('assetCache:stats'),
         clear: () => ipcRenderer.invoke('assetCache:clear'),
+        configure: (policy) => ipcRenderer.invoke('assetCache:configure', policy),
     },
 });

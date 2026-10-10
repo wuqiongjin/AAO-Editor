@@ -132,6 +132,47 @@ export interface AppSettings {
    * additive 字段，不 bump schemaVersion。
    */
   export: ExportFieldSettings;
+  /**
+   * 社区素材缓存的**回收策略**（票 18，用户 2026-10-10 拍板：可配「闲置天数 + 总量上限」，默认 30 天 / 1GB）。
+   * 只管**回收**；鲜度（json / text 24h 后台刷新）与「手动清除」不在这里。
+   * additive 字段，不 bump schemaVersion。
+   */
+  cachePolicy: AssetCachePolicy;
+}
+
+/** 社区素材缓存的回收策略（票 18）。改了**立即生效**（下一次清扫就按新值算），不用重启。 */
+export interface AssetCachePolicy {
+  /** 多少天没用就清（1..365） */
+  maxIdleDays: number;
+  /** 占用上限（MB，64..65536） */
+  maxMegabytes: number;
+}
+
+export const CACHE_POLICY_RANGE = {
+  idleDays: { min: 1, max: 365 },
+  megabytes: { min: 64, max: 65536 },
+} as const;
+
+/** 默认值 = 票 14 定案的那两个常数（30 天 / 1GB） */
+export const DEFAULT_CACHE_POLICY: AssetCachePolicy = {
+  maxIdleDays: 30,
+  maxMegabytes: 1024,
+};
+
+/** 策略归一化：缺段 / 非有限值 / 越界一律落到区间内（界面输入与导入共用同一把尺） */
+export function normalizeCachePolicy(
+  raw: unknown,
+  fallback: AssetCachePolicy = DEFAULT_CACHE_POLICY,
+): AssetCachePolicy {
+  const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const clamp = (value: unknown, { min, max }: { min: number; max: number }, dft: number) =>
+    typeof value === 'number' && Number.isFinite(value)
+      ? Math.min(max, Math.max(min, Math.round(value)))
+      : dft;
+  return {
+    maxIdleDays: clamp(obj.maxIdleDays, CACHE_POLICY_RANGE.idleDays, fallback.maxIdleDays),
+    maxMegabytes: clamp(obj.maxMegabytes, CACHE_POLICY_RANGE.megabytes, fallback.maxMegabytes),
+  };
 }
 
 /**
@@ -307,6 +348,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     projects: { sort: 'lastOpened' },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
     export: { ...DEFAULT_EXPORT_FIELDS },
+    cachePolicy: { ...DEFAULT_CACHE_POLICY },
   };
 }
 
@@ -407,6 +449,8 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     },
     // 导出信息字段（chart-preview 14）：逐字段布尔归一化，缺字段 / 脏值回落默认档
     export: normalizeExportFields(exportRaw, defaults.export),
+    // 社区素材缓存回收策略（票 18）：缺段 / 脏值回落 30 天 / 1GB
+    cachePolicy: normalizeCachePolicy(obj.cachePolicy, defaults.cachePolicy),
   };
 }
 
@@ -491,6 +535,7 @@ export function updateSettings(
     projects?: Partial<AppSettings['projects']>;
     preview?: Partial<AppSettings['preview']>;
     export?: Partial<AppSettings['export']>;
+    cachePolicy?: Partial<AppSettings['cachePolicy']>;
   }>,
 ): AppSettings {
   return {
@@ -508,5 +553,8 @@ export function updateSettings(
     projects: { ...prev.projects, ...(patch.projects ?? {}) },
     preview: { ...prev.preview, ...(patch.preview ?? {}) },
     export: { ...prev.export, ...(patch.export ?? {}) },
+    cachePolicy: patch.cachePolicy
+      ? normalizeCachePolicy({ ...prev.cachePolicy, ...patch.cachePolicy }, prev.cachePolicy)
+      : prev.cachePolicy,
   };
 }

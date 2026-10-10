@@ -69,10 +69,12 @@ describe('票 07 + 14 · preload 白名单：网络一条、缓存两条', () =>
     expect(preloadSrc).not.toMatch(/nodeIntegration/);
   });
 
-  it('缓存只开两条：占用查询与清除（不暴露缓存内容）', () => {
+  it('缓存只开三条：占用查询 / 清除 / 回收策略推送（不暴露缓存内容）', () => {
     expect(preloadSrc).toMatch(/assetCache\s*:/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]assetCache:stats['"]/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]assetCache:clear['"]/);
+    // 票 18：界面改的回收参数经这条推给主进程（只递两个数，不递缓存内容）
+    expect(preloadSrc).toMatch(/invoke\(\s*['"]assetCache:configure['"]/);
   });
 
   it('主进程注册同一条通道，形态照既有桥（一个命名空间一条 invoke）', () => {

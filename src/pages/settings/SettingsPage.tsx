@@ -3,7 +3,7 @@ import { Check, Download, FolderOpen, FolderSearch, Info, MonitorCog, RotateCcw,
 import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
 import { useConfig } from '../../app/ProviderTree';
-import { defaultSettings, loadSettings } from '../../chart/config/AppSettings';
+import { CACHE_POLICY_RANGE, defaultSettings, loadSettings } from '../../chart/config/AppSettings';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import { t, type MessageKey } from '../../i18n';
 import { clearSongCatalogCache } from '../../community/bestdori/songs';
@@ -135,6 +135,32 @@ function ResetRow({ label, hint, confirming, onConfirm, onToggle }: {
   );
 }
 
+/** 行内数字行：一个带单位的数（缓存策略这类参数，票 18） */
+function NumberRow({
+  label, hint, value, min, max, onChange,
+}: {
+  label: string; hint: string; value: number; min: number; max: number; onChange: (v: number) => void;
+}) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row__text">
+        <strong>{label}</strong>
+        <span>{hint}</span>
+      </div>
+      <input
+        className="number-control"
+        type="number"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        aria-label={label}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+    </div>
+  );
+}
+
 /** 行内开关行：布尔参数 */
 function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -152,7 +178,7 @@ function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: st
 }
 
 export default function SettingsPage() {
-  const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setDisplay, setAllSettings } = useConfig();
+  const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setDisplay, setCachePolicy, setAllSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState<'canvas' | null>(null);
@@ -502,7 +528,6 @@ export default function SettingsPage() {
                           })}
                         </span>
                       )}
-                      <span>{t('settings.cache.hint')}</span>
                     </div>
                     <button
                       className="button-secondary"
@@ -513,6 +538,23 @@ export default function SettingsPage() {
                       <Trash2 size={15} />{t('settings.cache.clear')}
                     </button>
                   </div>
+                  {/* 清理策略（票 18）：界面上只留两个数 + 一句「什么时候按新值算」 */}
+                  <NumberRow
+                    label={t('settings.cache.idleDays')}
+                    hint={t('settings.cache.policyHint')}
+                    value={settings.cachePolicy.maxIdleDays}
+                    min={CACHE_POLICY_RANGE.idleDays.min}
+                    max={CACHE_POLICY_RANGE.idleDays.max}
+                    onChange={(v) => setCachePolicy({ maxIdleDays: v })}
+                  />
+                  <NumberRow
+                    label={t('settings.cache.maxSize')}
+                    hint={t('settings.cache.policyHint')}
+                    value={settings.cachePolicy.maxMegabytes}
+                    min={CACHE_POLICY_RANGE.megabytes.min}
+                    max={CACHE_POLICY_RANGE.megabytes.max}
+                    onChange={(v) => setCachePolicy({ maxMegabytes: v })}
+                  />
                   {cacheError && <div className="shortcut-error">{cacheError}</div>}
                 </>
               )}

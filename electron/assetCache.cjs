@@ -27,6 +27,14 @@ const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_BYTES = 1024 * 1024 * 1024;
 /** 半截文件（`.part-*`）超过这个年龄才算崩溃残留 —— 正在写的那一份不动 */
 const PART_MAX_AGE_MS = 60 * 60 * 1000;
+/**
+ * 策略可配之后的**硬边界**（票 18）：界面那把尺在 `AppSettings.CACHE_POLICY_RANGE`（1–365 天 / 64MB–64GB），
+ * 这里放宽一档兜着 —— renderer 递什么进来都先夹一次，绝不让它把缓存清成空转或撑爆磁盘。
+ */
+const POLICY_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+const POLICY_MAX_AGE_MS = 3650 * 24 * 60 * 60 * 1000;
+const POLICY_MIN_BYTES = 1024 * 1024;
+const POLICY_MAX_BYTES = 64 * 1024 * 1024 * 1024;
 /** 命中后 lastUsedAt 的落盘节流：30 天的口径不差这一会儿，免得每次命中都写索引 */
 const BUMP_FLUSH_INTERVAL_MS = 5 * 60 * 1000;
 /** 写入后年龄清扫的节流：长开着的会话也会被扫到，但不会每次写入都全量 stat */
@@ -52,6 +60,12 @@ function safeStem(suggestedName) {
 
 function cacheFileName(url, suggestedName) {
     return `${hash16(url)}-${safeStem(suggestedName)}`;
+}
+
+/** 有限数夹进区间；不是有限数就保持原值（策略参数不接受 NaN / 字符串） */
+function clampNumber(value, min, max, fallback) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(value)));
 }
 
 /** 文件名只准是文件名：越界路径（历史索引被改过）一律不认 */
@@ -126,8 +140,9 @@ async function removeFile(filePath) {
 function createAssetCache(options) {
     const dir = options && options.dir;
     const now = (options && options.now) || Date.now;
-    const maxAgeMs = (options && options.maxAgeMs) ?? MAX_AGE_MS;
-    const maxBytes = (options && options.maxBytes) ?? MAX_BYTES;
+    /** 回收参数：票 14 定案的默认值，票 18 起可以由界面改（`configure()`） */
+    let maxAgeMs = (options && options.maxAgeMs) ?? MAX_AGE_MS;
+    let maxBytes = (options && options.maxBytes) ?? MAX_BYTES;
     /** 缩略图产出（票 15）：注入的纯函数，产出为空 = 这条素材没有缩略图 */
     const makeThumb = (options && options.makeThumb) || null;
 
@@ -452,6 +467,18 @@ function createAssetCache(options) {
             return { removed, freedBytes: freedBytes + enforced.freedBytes };
         },
 
+        /**
+         * 改回收策略（票 18）：**下一次清扫 / 写入容量兜底就按新值算**，不用重启。
+         * renderer 递来的数一律再夹一次（界面是软约束，这里是硬约束）。
+         * @param {{ maxAgeMs?: number, maxBytes?: number }} policy
+         */
+        configure(policy) {
+            const input = policy && typeof policy === 'object' ? policy : {};
+            maxAgeMs = clampNumber(input.maxAgeMs, POLICY_MIN_AGE_MS, POLICY_MAX_AGE_MS, maxAgeMs);
+            maxBytes = clampNumber(input.maxBytes, POLICY_MIN_BYTES, POLICY_MAX_BYTES, maxBytes);
+            return { maxAgeMs, maxBytes };
+        },
+
         /** 清空（设置页「清除缓存」）：整目录重来，索引一并清 */
         async clear() {
             const resolved = resolveDir();
@@ -480,18 +507,23 @@ function createAssetCache(options) {
 
 /**
  * 注册 IPC 通道（形态照既有桥：一个命名空间一条 invoke）。
- * 只有两条，都是设置页「存储与数据」用的只读查询 / 显式清除。
+ * 三条，都是设置页「存储与数据」用的：只读查询 / 显式清除 / 回收策略推送（票 18）。
  * @param {{ handle: (channel: string, listener: Function) => void }} ipcMain
  * @param {ReturnType<typeof createAssetCache>} assetCache
  */
 function registerAssetCacheIpc(ipcMain, assetCache) {
     ipcMain.handle('assetCache:stats', () => assetCache.stats());
     ipcMain.handle('assetCache:clear', () => assetCache.clear());
+    ipcMain.handle('assetCache:configure', (_event, policy) => assetCache.configure(policy));
 }
 
 module.exports = {
     MAX_AGE_MS,
     MAX_BYTES,
+    POLICY_MIN_AGE_MS,
+    POLICY_MAX_AGE_MS,
+    POLICY_MIN_BYTES,
+    POLICY_MAX_BYTES,
     PART_MAX_AGE_MS,
     INDEX_FILE,
     createAssetCache,

@@ -3,7 +3,15 @@
 import { existsSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { INDEX_FILE, createAssetCache, registerAssetCacheIpc } from '@/electron/assetCache.cjs';
+import {
+  INDEX_FILE,
+  POLICY_MAX_AGE_MS,
+  POLICY_MAX_BYTES,
+  POLICY_MIN_AGE_MS,
+  POLICY_MIN_BYTES,
+  createAssetCache,
+  registerAssetCacheIpc,
+} from '@/electron/assetCache.cjs';
 import { tmpDir } from '@/tests/support/fs';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -358,6 +366,66 @@ describe('票 15 · 缩略图跟着条目一起记账 / 回收', () => {
   });
 });
 
+describe('票 18 · 回收策略可配（改了下一次清扫就按新值算）', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const MB = 1024 * 1024;
+
+  it('闲置天数：设成 60 天后，31 天不再被清；61 天才清', async () => {
+    const ctx = makeCache();
+    try {
+      const url = 'https://bestdori.com/assets/jp/musicjacket/x.png';
+      const entry = await ctx.cache.store({ url, kind: 'binary', bytes: Buffer.alloc(4) });
+      await ctx.cache.configure({ maxAgeMs: 60 * DAY });
+
+      ctx.advance(31 * DAY);
+      await ctx.cache.sweep();
+      expect(existsSync(entry.path)).toBe(true);
+
+      ctx.advance(30 * DAY);
+      const result = await ctx.cache.sweep();
+      expect(result.removed).toBe(1);
+      expect(existsSync(entry.path)).toBe(false);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  it('总量上限：设小之后，写入即按新上限回收', async () => {
+    const ctx = makeCache();
+    try {
+      await ctx.cache.store({ url: 'https://bestdori.com/a', kind: 'binary', bytes: Buffer.alloc(700 * 1024) });
+      await ctx.cache.configure({ maxBytes: 1 * MB });
+
+      // 再写一条就把总占用顶到 ~1.4MB > 1MB：最久未用的那条被清
+      await ctx.cache.store({ url: 'https://bestdori.com/b', kind: 'binary', bytes: Buffer.alloc(700 * 1024) });
+      expect((await ctx.cache.stats()).totalBytes).toBeLessThanOrEqual(MB);
+      expect(await ctx.cache.lookup({ url: 'https://bestdori.com/a', kind: 'binary' })).toBeNull();
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  it('renderer 递什么进来都再夹一次（界面是软约束，这里是硬约束）', async () => {
+    const ctx = makeCache();
+    try {
+      expect(ctx.cache.configure({ maxAgeMs: 0 })).toMatchObject({ maxAgeMs: POLICY_MIN_AGE_MS });
+      expect(ctx.cache.configure({ maxBytes: 1 })).toMatchObject({ maxBytes: POLICY_MIN_BYTES });
+      expect(ctx.cache.configure({ maxAgeMs: 9e18, maxBytes: 9e18 })).toMatchObject({
+        maxAgeMs: POLICY_MAX_AGE_MS,
+        maxBytes: POLICY_MAX_BYTES,
+      });
+      // 非有限数 / 垃圾 / 缺字段：保持原值，不炸
+      const kept = ctx.cache.configure({ maxAgeMs: 7 * DAY, maxBytes: 512 * MB });
+      expect(kept).toEqual({ maxAgeMs: 7 * DAY, maxBytes: 512 * MB });
+      expect(ctx.cache.configure({ maxAgeMs: Number.POSITIVE_INFINITY })).toEqual(kept);
+      expect(ctx.cache.configure({})).toEqual(kept);
+      expect(ctx.cache.configure(undefined as unknown as Record<string, number>)).toEqual(kept);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});
+
 describe('票 14 · 素材缓存：统计与清除（设置页用）', () => {
   it('stats 按 kind 归类；clear 清空整目录并回报释放量', async () => {
     const ctx = makeCache();
@@ -380,17 +448,17 @@ describe('票 14 · 素材缓存：统计与清除（设置页用）', () => {
     }
   });
 
-  it('IPC 只开两条：占用查询与清除（形态照既有桥：一个命名空间一条 invoke）', async () => {
+  it('IPC 只有三条：占用查询 / 清除 / 策略推送（形态照既有桥：一个命名空间一条 invoke）', async () => {
     const ctx = makeCache();
     try {
-      const handlers = new Map<string, () => unknown>();
+      const handlers = new Map<string, (payload?: unknown) => unknown>();
       registerAssetCacheIpc(
         // listener 用 any：与 .cjs 侧 JSDoc 的 Function 签名对齐，测试替身不抠这个
-        { handle: (channel: string, listener: any) => { handlers.set(channel, listener as () => unknown); } },
+        { handle: (channel: string, listener: any) => { handlers.set(channel, listener as (payload?: unknown) => unknown); } },
         ctx.cache,
       );
 
-      expect([...handlers.keys()].sort()).toEqual(['assetCache:clear', 'assetCache:stats']);
+      expect([...handlers.keys()].sort()).toEqual(['assetCache:clear', 'assetCache:configure', 'assetCache:stats']);
       await ctx.cache.store({ url: AUDIO_URL, kind: 'binary', bytes: Buffer.from([1, 2, 3]) });
       await expect(handlers.get('assetCache:stats')!()).resolves.toMatchObject({ totalBytes: 3, count: 1 });
       await expect(handlers.get('assetCache:clear')!()).resolves.toMatchObject({ freedBytes: 3 });

@@ -6,6 +6,7 @@ import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, DEFA
 import { getDefaultConfig, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
+import { syncAssetCachePolicy } from '../../community/assetCachePolicy';
 
 export interface ConfigContextValue {
   settings: AppSettings;
@@ -42,6 +43,11 @@ export interface ConfigContextValue {
   setProjectListWidth: (width: number) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
   setAllSettings: (next: AppSettings) => void;
+  /**
+   * 社区素材缓存的回收策略（票 18）：段内浅合并 + 立即推给主进程（下一次清扫就按新值算，不用重启）。
+   * 静态演示版没有那条桥 → 静默跳过。
+   */
+  setCachePolicy: (patch: Partial<AppSettings['cachePolicy']>) => void;
 }
 
 const ConfigContext = createContext<ConfigContextValue | null>(null);
@@ -50,6 +56,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(() => {
     const loaded = loadSettings();
     setActiveUiLanguage(loaded.uiLanguage);
+    // 素材缓存的回收策略在主进程里，启动时先按已存的策略拨一次（票 18）
+    syncAssetCachePolicy(loaded.cachePolicy);
     return loaded;
   });
 
@@ -215,14 +223,25 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const setAllSettings = useCallback((next: AppSettings) => {
     setActiveUiLanguage(next.uiLanguage);
+    syncAssetCachePolicy(next.cachePolicy);
     saveSettings(next);
     setSettings(next);
+  }, []);
+
+  // 社区素材缓存回收策略（票 18）：与上面同范式；写完顺手推给主进程（改了就生效）
+  const setCachePolicy = useCallback((patch: Partial<AppSettings['cachePolicy']>) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { cachePolicy: patch });
+      syncAssetCachePolicy(merged.cachePolicy);
+      saveSettings(merged);
+      return merged;
+    });
   }, []);
 
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setProjectListWidth, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setProjectListWidth, setAllSettings, setCachePolicy };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 
