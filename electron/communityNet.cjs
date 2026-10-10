@@ -2,7 +2,7 @@
  * 社区平台网络网关（bestdori-integration 07 + 14）：Electron 主进程**唯一**的网络出口。
  *
  * 主进程只做四件事（ADR-0011 §2 / issue 06 Q1 薄主进程）：
- *   1. 发 HTTP —— 主机白名单 + 最小请求间隔（单飞队列）+ 单次超时；
+ *   1. 发 HTTP —— 主机白名单 + 队列分档（API 档 1 并发 / 素材档 4 并发，见下面 LANES 一段）+ 单次超时；
  *   2. 管 Cookie —— 见 communityCookies.cjs（renderer 递进来的凭据头一律拒收）；
  *   3. 响应校验 —— 非 2xx、非 JSON、平台业务错误（`{"result":false,"code":…}`）都翻成结构化错误；
  *   4. 素材缓存（票 14）—— GET 的 json / text / binary 命中就不碰网络（策略见下面 CACHE 一段）。
@@ -22,8 +22,16 @@ const { createCookieJar } = require('./communityCookies.cjs');
 const ALLOWED_HOSTS = ['bestdori.com'];
 /** 自报身份：低速率、写清用途（照 scripts/lib/bestdori-http.mjs 口径） */
 const DEFAULT_USER_AGENT = 'tsugu-bestdori-client/1.0 (local chart editor; low-rate fetching)';
-/** 同主机两次请求的最小间隔（低速率；单飞队列保证不会并发打过去） */
+/**
+ * 队列分档（票 17 修订 07 的「单飞」口径）：
+ *   - **API 档**（json / text：曲库索引、单曲详情、谱面原文、帖子）：1 并发 + 两次开始间隔 ≥400ms —— 07 原口径不动；
+ *   - **素材档**（binary：封面 / 音频这类静态文件）：4 并发 + 每条链上间隔 ≥100ms —— 站点自己的列表页同屏并发 ≈6，
+ *     我们比它更客气；这档原来串在 API 后面，导致「滚动列表 10s 才出一张」。
+ * 分档还顺带把「一张卡住」隔离开：素材档 stall 不再堵住 API 档（详情 / 导入照走）。
+ */
 const MIN_REQUEST_INTERVAL_MS = 400;
+const ASSET_CONCURRENCY = 4;
+const ASSET_MIN_REQUEST_INTERVAL_MS = 100;
 const JSON_TIMEOUT_MS = 30_000;
 const BINARY_TIMEOUT_MS = 120_000;
 /** 文本 / JSON 响应的上限（防呆：拿回一坨回退页或超大响应） */
@@ -179,6 +187,8 @@ function readSetCookie(response) {
  *   cookieJar?: any,
  *   hosts?: string[],
  *   minIntervalMs?: number,
+ *   assetConcurrency?: number,
+ *   assetMinIntervalMs?: number,
  *   now?: () => number,
  *   sleep?: (ms: number) => Promise<void>,
  *   timers?: { setTimeout: Function, clearTimeout: Function },
@@ -191,27 +201,46 @@ function createCommunityGateway(options) {
     const cookieJar = options.cookieJar || createCookieJar();
     const allowedHosts = options.hosts || ALLOWED_HOSTS;
     const minIntervalMs = options.minIntervalMs ?? MIN_REQUEST_INTERVAL_MS;
+    const assetConcurrency = options.assetConcurrency ?? ASSET_CONCURRENCY;
+    const assetMinIntervalMs = options.assetMinIntervalMs ?? ASSET_MIN_REQUEST_INTERVAL_MS;
     const now = options.now || Date.now;
     const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const timers = options.timers || { setTimeout, clearTimeout };
 
-    // 单飞 + 最小间隔：请求排队，两次「开始」之间至少隔 minIntervalMs
-    let tail = Promise.resolve();
-    let lastStartedAt = -Infinity;
+    /**
+     * 一条队列：`concurrency` 条独立串行链，链上两次「开始」至少隔 `minIntervalMs`。
+     * 并发 1 时与 07 原来的「单飞 + 最小间隔」逐字等价（既有锁测原样通过）。
+     * @param {{ concurrency: number, minIntervalMs: number }} lane
+     */
+    function createLane(lane) {
+        const tails = Array.from({ length: Math.max(1, lane.concurrency) }, () => Promise.resolve());
+        const lastStartedAt = new Array(tails.length).fill(-Infinity);
+        let cursor = 0;
 
-    function schedule(task) {
-        const run = tail.then(async () => {
-            const waitMs = minIntervalMs - (now() - lastStartedAt);
-            if (waitMs > 0) await sleep(waitMs);
-            lastStartedAt = now();
-            return task();
-        });
-        tail = run.then(
-            () => undefined,
-            () => undefined,
-        );
-        return run;
+        return function schedule(task) {
+            const index = cursor % tails.length;
+            cursor += 1;
+            const run = tails[index].then(async () => {
+                const waitMs = lane.minIntervalMs - (now() - lastStartedAt[index]);
+                if (waitMs > 0) await sleep(waitMs);
+                lastStartedAt[index] = now();
+                return task();
+            });
+            tails[index] = run.then(
+                () => undefined,
+                () => undefined,
+            );
+            return run;
+        };
     }
+
+    const apiLane = createLane({ concurrency: 1, minIntervalMs });
+    const assetLane = createLane({
+        concurrency: assetConcurrency,
+        minIntervalMs: assetMinIntervalMs,
+    });
+    /** 素材（静态文件）走素材档，其余走 API 档 */
+    const schedule = (req, task) => (req.responseType === 'binary' ? assetLane : apiLane)(task);
 
     async function send(req) {
         const controller = new AbortController();
@@ -410,10 +439,10 @@ function createCommunityGateway(options) {
             } catch {
                 hit = null; // 缓存读不了（目录权限之类）当未命中，主线照走
             }
-            if (hit == null) return schedule(() => send(req));
+            if (hit == null) return schedule(req, () => send(req));
             if (hit.stale) {
                 // 过期先用旧的：后台补一枪（失败静默 —— 旧副本继续服务，票 14）
-                void schedule(() => send(req)).catch(() => undefined);
+                void schedule(req, () => send(req)).catch(() => undefined);
             }
             return hit.result;
         },
@@ -435,6 +464,8 @@ module.exports = {
     ALLOWED_HOSTS,
     DEFAULT_USER_AGENT,
     MIN_REQUEST_INTERVAL_MS,
+    ASSET_CONCURRENCY,
+    ASSET_MIN_REQUEST_INTERVAL_MS,
     JSON_TIMEOUT_MS,
     BINARY_TIMEOUT_MS,
     CACHE_FRESH_MS,

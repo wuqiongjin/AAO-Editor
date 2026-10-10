@@ -1,25 +1,27 @@
-// 「从官方谱面导入」目录行的封面缩略图（票 15，定案 B：48px 圆角）：
-//   懒加载（滚到可见才取）→ 占位 → 图回来淡入 → 失败降级图标；
-//   没有素材的曲子（合作曲在非首发服 / 索引里没有封面名）不请求网络，直接虚线框 + 音符图标。
+// 「从官方谱面导入」目录行的封面缩略图（票 15 定案 B：48px 圆角；票 17 改取图策略）：
 //
-// 两步才见图，各管一段：
-//   ① 可见时经网关把封面收进素材缓存（cache-first：命中零网络，未命中下 97KB 左右）；
-//   ② `<img>` 读本机只读协议（`tsugu-asset://thumb/…`）拿缩略图 —— 协议不联网。
+//   行可见 → ① 先试**本机缩略图**（上一轮已收进缓存的话：零网络、秒出）
+//            ② 本机没有就落回**直链原图**（浏览器自己并发 + 站点 4h HTTP 缓存，体感同原型）
+//            ③ 两个都拿不到（平台没这张图 / 网络断）才降级成图标
+//   同时 ④ 后台经网关把封面收进素材缓存（素材档 4 并发）—— 下一轮进列表就吃 ①。
+//
+// 为什么不「先经网关取整图、回来再显示」（票 15 的原设计）：那条路串在一条队列上，
+// 跨境一张 ~7s（还会 stall），首屏就是一分钟量级 —— 见票 17。直链显示是**既有口径**
+// （预览区一直这么干，songs.ts 的「就地预览直链」那段写明了它不是「渲染进程直连平台」的禁区）。
+//
 // 没有 IntersectionObserver 的环境（jsdom / 老内核）直出：宁可多取一张，不空着。
 import { useEffect, useRef, useState } from 'react';
 import { ImageOff, Music4 } from 'lucide-react';
 import type { SongCandidate } from '../../../community/bestdori/mapping';
-import { ensureOfficialCoverCached, jacketThumbUrl } from '../../../community/bestdori/songs';
+import {
+  ensureOfficialCoverCached,
+  jacketPreviewUrl,
+  jacketThumbUrl,
+} from '../../../community/bestdori/songs';
 import type { CommunityTransport } from '../../../community/transport';
 
 /** 提前一屏开始取（原型口径）：不等真正入视口，滚到附近就发起 —— 822 首的目录不能一开就全拉 */
 const LAZY_ROOT_MARGIN = '160px 0px';
-
-/**
- * waiting = 还没滚到；loading = 正在把封面收进缓存；
- * ready = 缓存有了、缩略图交给 `<img>`；empty = 平台没有这张图；failed = 取数失败
- */
-type ThumbPhase = 'waiting' | 'loading' | 'ready' | 'empty' | 'failed';
 
 export default function OfficialSongThumb({
   song,
@@ -30,8 +32,12 @@ export default function OfficialSongThumb({
 }) {
   const hostRef = useRef<HTMLSpanElement | null>(null);
   const [visible, setVisible] = useState(false);
-  const [phase, setPhase] = useState<ThumbPhase>('waiting');
+  /** 本机缩略图没取到（还没进缓存 / 产不出来）→ 落回直链原图 */
+  const [useDirect, setUseDirect] = useState(false);
+  /** 直链也没成 → 断图图标 */
   const [broken, setBroken] = useState(false);
+  /** 平台根本没有这张图（后台取数回了 null）→ 音符图标，别画成「失败」 */
+  const [noMaterial, setNoMaterial] = useState(false);
   const [fadedIn, setFadedIn] = useState(false);
   const hasJacket = song.jacketImage !== '';
 
@@ -56,48 +62,50 @@ export default function OfficialSongThumb({
     return () => observer.disconnect();
   }, []);
 
-  // 可见才取；并发去重与「命中零网络」都在能力层（ensureOfficialCoverCached）
+  // 后台把封面收进素材缓存（命中零网络；同一首歌并发只发一次，见能力层）
   useEffect(() => {
     if (!visible || !hasJacket) return;
     let cancelled = false;
-    setPhase('loading');
     void ensureOfficialCoverCached(transport, song)
       .then((staged) => {
-        if (!cancelled) setPhase(staged == null ? 'empty' : 'ready');
+        if (!cancelled && staged == null) setNoMaterial(true);
       })
       .catch(() => {
-        if (!cancelled) setPhase('failed');
+        // 取不到就保持现状：显示那条路走的是直链，不受这里影响
       });
     return () => {
       cancelled = true;
     };
   }, [visible, hasJacket, transport, song]);
 
-  /** 没有素材（无封面名 / 平台没这张图）：虚线框 + 音符，跟「取数失败」分开画 */
-  const noMaterial = !hasJacket || phase === 'empty';
-  const failed = phase === 'failed' || broken;
-  const showImage = phase === 'ready' && !broken;
+  const showIcon = !hasJacket || noMaterial;
+  const showBroken = !showIcon && broken;
+  const src = useDirect ? jacketPreviewUrl(song) : jacketThumbUrl(song);
 
   return (
     <span
       ref={hostRef}
-      className={`off-row__thumb${noMaterial ? ' is-empty' : ''}`}
+      className={`off-row__thumb${showIcon ? ' is-empty' : ''}`}
       aria-hidden
     >
-      {noMaterial ? (
+      {showIcon ? (
         <Music4 size={16} />
-      ) : failed ? (
+      ) : showBroken ? (
         <ImageOff size={14} />
       ) : (
         <>
           {!fadedIn && <span className="off-row__thumb-ph" />}
-          {showImage && (
+          {visible && (
             <img
-              src={jacketThumbUrl(song)}
+              src={src}
               alt=""
               className={fadedIn ? 'is-in' : ''}
               onLoad={() => setFadedIn(true)}
-              onError={() => setBroken(true)}
+              onError={() => {
+                // 本机没有 → 退直链；直链也不成 → 断图图标
+                if (useDirect) setBroken(true);
+                else setUseDirect(true);
+              }}
             />
           )}
         </>

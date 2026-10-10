@@ -23,6 +23,12 @@ export const BESTDORI_USER_AGENT = 'tsugu-bestdori-client/1.0 (local chart edito
 /** 单次超时：JSON 30s；二进制 120s（一首 4MB 级别的音频） */
 export const BESTDORI_JSON_TIMEOUT_MS = 30_000;
 export const BESTDORI_BINARY_TIMEOUT_MS = 120_000;
+/**
+ * 封面（几十 KB 的小图）单独一档：**列表背景取图**用它（票 17）。
+ * 4MB 的音频值得等 120s，一张 98KB 的封面没必要 —— 卡住的链路要尽快把素材档的队位让出来，
+ * 失败静默（下一轮进列表再试）；**导入路径仍用 120s**（那是用户主动发起、值得等）。
+ */
+export const BESTDORI_COVER_TIMEOUT_MS = 30_000;
 
 /** 退避重试：最多 3 次、800ms × 2^(n-1) + 抖动（算法见 ../rateLimit.ts） */
 export const BESTDORI_RETRY_POLICY: RetryPolicy = {

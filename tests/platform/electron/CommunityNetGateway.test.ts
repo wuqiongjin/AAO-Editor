@@ -8,6 +8,8 @@ import { createAssetCache } from '@/electron/assetCache.cjs';
 import { createCookieJar } from '@/electron/communityCookies.cjs';
 import {
   ALLOWED_HOSTS,
+  ASSET_CONCURRENCY,
+  ASSET_MIN_REQUEST_INTERVAL_MS,
   CACHE_FRESH_MS,
   FALLBACK_FRESH_MS,
   MIN_REQUEST_INTERVAL_MS,
@@ -202,6 +204,118 @@ describe('票 07 · 低速率（单飞 + 最小间隔）', () => {
     await gateway.request({ url: LIST_URL, headers: { 'user-agent': 'my-agent/2.0', accept: '*/*' } });
     expect(fetch.calls[1].init.headers['user-agent']).toBe('my-agent/2.0');
     expect(fetch.calls[1].init.headers.accept).toBe('*/*');
+  });
+});
+
+describe('票 17 · 队列分档：素材档放开并发，API 档不动，且互不阻塞', () => {
+  /** 假出口：素材（/assets/）请求被闸门挂住由用例放行；API 请求立刻回 */
+  function gatedFetch() {
+    const gates: (() => void)[] = [];
+    const starts: string[] = [];
+    let open = false;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let stalled: (() => void) | null = null;
+
+    const impl = async (url: string) => {
+      starts.push(url);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      if (url.includes('stall')) {
+        await new Promise<void>((resolve) => {
+          stalled = resolve;
+        });
+      } else if (url.includes('/assets/')) {
+        await new Promise<void>((resolve) => {
+          if (open) resolve();
+          else gates.push(resolve);
+        });
+      }
+      inFlight -= 1;
+      return url.includes('/assets/')
+        ? response({ bytes: [1, 2], contentType: 'image/png' })
+        : response({ body: { result: true } });
+    };
+
+    return {
+      impl,
+      starts,
+      maxInFlight: () => maxInFlight,
+      /** 开闸：挂住的与之后来的素材请求都直接放行 */
+      openGate: () => {
+        open = true;
+        for (const resolve of gates.splice(0)) resolve();
+      },
+      releaseStall: () => stalled?.(),
+    };
+  }
+
+  /** 网关 + 假出口 + 真临时缓存（素材档要落盘，没缓存会直接 staging-failed） */
+  async function withGatedGateway<T>(run: (ctx: ReturnType<typeof gatedFetch> & { gateway: any }) => Promise<T>): Promise<T> {
+    return withTmpCache(async (dir) => {
+      const clock = fakeClock();
+      const fetch = gatedFetch();
+      const gateway = createCommunityGateway({
+        fetchImpl: fetch.impl,
+        assetCache: createAssetCache({ dir, now: clock.now }),
+        now: clock.now,
+        sleep: clock.sleep,
+      });
+      return run({ ...fetch, gateway });
+    });
+  }
+
+  const assetUrl = (name: string) => `https://bestdori.com/assets/jp/musicjacket/${name}-jacket.png`;
+  const asset = (name: string) => ({ url: assetUrl(name), responseType: 'binary' as const });
+
+  it('素材档：最多 4 个同时在飞（原来串在 API 后面，只有 1 个）', async () => {
+    await withGatedGateway(async (ctx) => {
+      const pending = ['a', 'b', 'c', 'd', 'e'].map((name) => ctx.gateway.request(asset(name)));
+      for (let i = 0; i < 4; i += 1) await tick();
+
+      // 4 条链各起一个；第 5 个排在链后面，要等它前面那个回来
+      expect(ctx.starts).toHaveLength(4);
+      expect(ctx.maxInFlight()).toBe(4);
+
+      ctx.openGate();
+      const results = await Promise.all(pending);
+      expect(results.every((entry: any) => entry.ok)).toBe(true);
+      expect(ctx.starts).toHaveLength(5);
+    });
+  });
+
+  it('API 档仍是单飞（07 口径不动）', async () => {
+    await withGatedGateway(async (ctx) => {
+      const pending = [
+        ctx.gateway.request({ url: `${LIST_URL}?a` }),
+        ctx.gateway.request({ url: `${LIST_URL}?b` }),
+      ];
+      for (let i = 0; i < 4; i += 1) await tick();
+      expect(ctx.starts).toHaveLength(1);
+      expect(ctx.maxInFlight()).toBe(1);
+
+      await Promise.all(pending);
+      expect(ctx.starts).toHaveLength(2);
+    });
+  });
+
+  it('一张素材卡住不阻塞 API：详情照样先回来（卡死隔离）', async () => {
+    await withGatedGateway(async (ctx) => {
+      const stalled = ctx.gateway.request(asset('stall'));
+      for (let i = 0; i < 4; i += 1) await tick();
+
+      const detail = ctx.gateway.request({ url: `${LIST_URL}?detail` });
+      await expect(detail).resolves.toMatchObject({ ok: true, data: { result: true } });
+
+      ctx.releaseStall();
+      await expect(stalled).resolves.toMatchObject({ ok: true, responseType: 'binary', byteLength: 2 });
+    });
+  });
+
+  it('档位是常数（改一处可调）', () => {
+    expect(ASSET_CONCURRENCY).toBe(4);
+    expect(ASSET_MIN_REQUEST_INTERVAL_MS).toBe(100);
+    expect(MIN_REQUEST_INTERVAL_MS).toBe(400);
   });
 });
 

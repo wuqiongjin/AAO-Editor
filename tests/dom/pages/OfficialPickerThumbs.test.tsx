@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-// 票 15：选曲目录的行内封面缩略图（定案 B · 48px 圆角）。
+// 票 15 + 17：选曲目录的行内封面缩略图（定案 B · 48px 圆角；票 17 改取图策略）。
 //
 // 锁的是**行内行为**，不是像素（尺寸 / 圆角 / 行高归原型对照与真机）：
-//   - 惰性：没滚到的行不请求封面（jsdom 没有 IntersectionObserver，测试里 stub 它）；
-//   - 两步取图：可见 → 经网关把封面收进缓存 → `<img>` 读本机协议（tsugu-asset://thumb/…）；
-//   - 降级：没有封面名的曲子不请求网络、画图标；取数失败也不出图；
+//   - 惰性：没滚到的行既不发网关请求，也不挂 <img>（jsdom 没有 IntersectionObserver，测试里 stub 它）；
+//   - 取图：本机缩略图优先（缓存命中零网络）→ 本机没有落回直链原图 → 都不成才降级成图标；
+//   - 后台：行可见时经网关把封面收进缓存（票 17：这条路只负责填缓存，不挡显示）；
+//   - 降级：没有封面名的曲子不请求网络、画音符图标；平台没这张图也画音符（不是「失败」）；
 //   - 行结构不破：曲名 / 乐队 / 难度芯片还在原位。
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -50,7 +51,6 @@ const BANDS_INDEX = {
 };
 
 type RequestPayload = { url: string; responseType?: string };
-type RequestFn = (payload: RequestPayload) => Promise<unknown>;
 
 /** 假桥：json 回曲库索引，binary 回素材缓存路径（照 07 契约），失败形态可直接换成错误 */
 function installFakeBridge(): ReturnType<typeof vi.fn> {
@@ -102,12 +102,17 @@ async function openOfficialTab() {
   return dialog;
 }
 
-/** 请求里所有 binary（= 取封面 / 音频）的 URL */
+/** 请求里所有 binary（= 收封面进缓存）的 URL */
 function binaryUrls(request: ReturnType<typeof vi.fn>): string[] {
   return request.mock.calls
     .map(([payload]: [RequestPayload]) => payload)
     .filter((payload) => payload.responseType === 'binary')
     .map((payload) => payload.url);
+}
+
+/** 本机缩略图的 URL（行的第一优先） */
+function localThumbUrl(): string {
+  return `${ASSET_SCHEME}://${ASSET_THUMB_HOST}/?url=${encodeURIComponent(JACKET_URL)}`;
 }
 
 let request: ReturnType<typeof vi.fn>;
@@ -126,35 +131,49 @@ afterEach(() => {
   clearSongCatalogCache();
 });
 
-describe('票 15 · 选曲目录的行内缩略图', () => {
-  it('没滚到的行不取封面；滚到才逐首收进缓存（没有封面名的曲子不请求）', async () => {
+describe('票 15 + 17 · 选曲目录的行内缩略图', () => {
+  it('没滚到的行不取图（既不请求网关，也不挂 img）；滚到才收缓存 + 出图', async () => {
     const dialog = await openOfficialTab();
-    expect(within(dialog).getByText(NO_JACKET_TITLE)).toBeInTheDocument();
+    const row = within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
 
-    // 一屏都没滚到：一条封面请求都不该发
+    // 一屏都没滚到：既不发封面请求，也不挂 <img>
     expect(binaryUrls(request)).toEqual([]);
+    expect(row.querySelector('img')).toBeNull();
 
     await io.scrollIntoView();
+
+    // 显示走本机（缓存命中就零网络）；同时后台经网关把封面收进缓存
+    await waitFor(() => expect(row.querySelector('img')).not.toBeNull());
+    expect(row.querySelector('img')!.getAttribute('src')).toBe(localThumbUrl());
     await waitFor(() => expect(binaryUrls(request)).toEqual([JACKET_URL]));
+
     // 没有封面名的曲子（合作曲那类）不请求网络，直接画图标
     const noJacketRow = within(dialog).getByRole('option', { name: new RegExp(NO_JACKET_TITLE) });
     expect(noJacketRow.querySelector('img')).toBeNull();
     expect(noJacketRow.querySelector('svg')).not.toBeNull();
   });
 
-  it('封面进缓存后 <img> 读本机协议（tsugu-asset://thumb/…），load 才淡入', async () => {
+  it('本机没有 → 落回直链原图；直链也失败才降级成图标（票 17）', async () => {
     const dialog = await openOfficialTab();
     const row = within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
 
     await io.scrollIntoView();
     await waitFor(() => expect(row.querySelector('img')).not.toBeNull());
     const img = row.querySelector('img')!;
-    expect(img.getAttribute('src')).toBe(
-      `${ASSET_SCHEME}://${ASSET_THUMB_HOST}/?url=${encodeURIComponent(JACKET_URL)}`,
-    );
-    expect(img.classList.contains('is-in')).toBe(false);
-    fireEvent.load(img);
-    expect(img.classList.contains('is-in')).toBe(true);
+
+    // 本机缩略图没取到（协议 404）→ 换直链，不是断图
+    fireEvent.error(img);
+    expect(row.querySelector('img')!.getAttribute('src')).toBe(JACKET_URL);
+    expect(row.querySelector('img')!.classList.contains('is-in')).toBe(false);
+
+    // 直链回来了 → 淡入
+    fireEvent.load(row.querySelector('img')!);
+    expect(row.querySelector('img')!.classList.contains('is-in')).toBe(true);
+
+    // 直链也失败 → 断图图标
+    fireEvent.error(row.querySelector('img')!);
+    expect(row.querySelector('img')).toBeNull();
+    expect(row.querySelector('svg')).not.toBeNull();
   });
 
   it('缩略图占位不挡住选中：点行照样选中，行结构（曲名 / 乐队 / 芯片）不破', async () => {
@@ -171,7 +190,35 @@ describe('票 15 · 选曲目录的行内缩略图', () => {
     await waitFor(() => expect(document.querySelector('.off-preview__title')?.textContent).toBe(SONG_TITLE));
   });
 
-  it('取封面失败：不出图（降级图标），不抛、不重试到卡死', async () => {
+  it('平台没有这张图（回退页）：不挂图，画音符图标（不是「失败」）', async () => {
+    request.mockImplementation(async (payload: RequestPayload) => {
+      if (payload.responseType === 'binary') {
+        return {
+          ok: true,
+          responseType: 'binary',
+          status: 200,
+          path: '/data/cache/community/bbb-fallback.html',
+          byteLength: 14_000,
+          contentType: 'text/html',
+        };
+      }
+      if (payload.url.endsWith('/api/songs/all.5.json')) return { ok: true, responseType: 'json', status: 200, data: SONGS_INDEX };
+      return { ok: true, responseType: 'json', status: 200, data: BANDS_INDEX };
+    });
+    const dialog = await openOfficialTab();
+    const row = within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
+
+    await io.scrollIntoView();
+
+    await waitFor(() => expect(row.querySelector('img')).toBeNull());
+    const thumb = row.querySelector('.off-row__thumb');
+    expect(thumb?.classList.contains('is-empty')).toBe(true);
+    expect(row.querySelector('svg')).not.toBeNull();
+  });
+
+  it('后台收缓存失败（取不到）不影响显示：行照旧走直链那条路', async () => {
+    // 用不可退避的 kind（仓里惯例）：退避重试本身由 rateLimit 那族锁，这里要快 ——
+    // 也让这条失败在测试结束前就落地，不把在途 promise 漏给下一条用例
     request.mockImplementation(async (payload: RequestPayload) => {
       if (payload.responseType === 'binary') {
         return { ok: false, error: { kind: 'invalid-response', message: '回退页' } };
@@ -184,11 +231,11 @@ describe('票 15 · 选曲目录的行内缩略图', () => {
 
     await io.scrollIntoView();
 
-    await waitFor(() => expect(row.querySelector('img')).toBeNull());
-    await waitFor(() => expect(row.querySelector('svg')).not.toBeNull());
-    expect(row.textContent).toContain(SONG_TITLE);
-    // 失败只打一枪（invalid-response 不可退避），不把列表卡在请求队列里
-    expect(binaryUrls(request)).toEqual([JACKET_URL]);
+    // 本机没有（协议 404）→ 落直链；取数失败不把行推进「断图」态
+    await waitFor(() => expect(row.querySelector('img')).not.toBeNull());
+    fireEvent.error(row.querySelector('img')!);
+    expect(row.querySelector('img')!.getAttribute('src')).toBe(JACKET_URL);
+    await waitFor(() => expect(row.querySelector('svg')).toBeNull());
   });
 
   it('没有 IntersectionObserver 的环境直出（宁可多取一张，不留空框）', async () => {
@@ -196,8 +243,7 @@ describe('票 15 · 选曲目录的行内缩略图', () => {
     const dialog = await openOfficialTab();
     const row = within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
 
-    // 这条没有显式滚动这一拍：直出路径的取数发生在挂载的 effect 里，留宽一点等它落地
-    await waitFor(() => expect(binaryUrls(request)).toEqual([JACKET_URL]), { timeout: 3000 });
     await waitFor(() => expect(row.querySelector('img')).not.toBeNull(), { timeout: 3000 });
+    await waitFor(() => expect(binaryUrls(request)).toEqual([JACKET_URL]), { timeout: 3000 });
   });
 });

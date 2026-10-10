@@ -16,6 +16,7 @@ import { withRetry, type RetryNotice } from '../rateLimit';
 import { CommunityError, type CommunityTransport, type StagedBinary } from '../transport';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
+  BESTDORI_COVER_TIMEOUT_MS,
   BESTDORI_JSON_TIMEOUT_MS,
   BESTDORI_RETRY_POLICY,
   bandsIndexUrl,
@@ -69,13 +70,14 @@ async function fetchStaged(
   transport: CommunityTransport,
   url: string,
   suggestedName: string,
+  timeoutMs: number = BESTDORI_BINARY_TIMEOUT_MS,
 ): Promise<StagedBinary> {
   return withRetry(
     () => transport.requestBinary({
       url,
       method: 'GET',
       headers: bestdoriHeaders('*/*'),
-      timeoutMs: BESTDORI_BINARY_TIMEOUT_MS,
+      timeoutMs,
       suggestedName,
     }),
     { policy: BESTDORI_RETRY_POLICY },
@@ -172,12 +174,14 @@ export async function fetchOfficialAudio(
 /**
  * 官方封面 → 素材缓存；平台没有这张图时回 **null**（= 这次导入不带封面）。
  * 不抛错：封面缺失不该挡住「工程 + 音频」这条主线（合作曲在非首发服就是这种情况）。
+ * `timeoutMs` 只有「列表背景取图」那条路会改小（票 17），导入走默认的 120s。
  */
 export async function fetchOfficialCover(
   transport: CommunityTransport,
   song: SongCandidate,
+  timeoutMs: number = BESTDORI_BINARY_TIMEOUT_MS,
 ): Promise<StagedBinary | null> {
-  const staged = await fetchStaged(transport, jacketPreviewUrl(song), coverFileName(song));
+  const staged = await fetchStaged(transport, jacketPreviewUrl(song), coverFileName(song), timeoutMs);
   return looksLikeMedia(staged.contentType, 'image') ? staged : null;
 }
 
@@ -218,6 +222,7 @@ const coverInflight = new Map<string, Promise<StagedBinary | null>>();
  * 把封面收进素材缓存（票 15 行内缩略图 / 16 预览复用）：走网关的 cache-first —— 命中零网络，
  * 未命中下载 97KB 左右的整图并留在缓存里（原图给预览区大图，缩略图给列表）。
  * 平台没有这张图时回 null（合作曲在非首发服就是这种情况），不抛错。
+ * 超时用封面那一档（30s，票 17）：这是**背景取图**，卡住的链路要尽快让出素材档的队位。
  */
 export function ensureOfficialCoverCached(
   transport: CommunityTransport,
@@ -226,7 +231,7 @@ export function ensureOfficialCoverCached(
   const url = jacketPreviewUrl(song);
   const inflight = coverInflight.get(url);
   if (inflight) return inflight;
-  const promise = fetchOfficialCover(transport, song).finally(() => {
+  const promise = fetchOfficialCover(transport, song, BESTDORI_COVER_TIMEOUT_MS).finally(() => {
     if (coverInflight.get(url) === promise) coverInflight.delete(url);
   });
   coverInflight.set(url, promise);
