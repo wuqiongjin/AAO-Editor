@@ -159,10 +159,37 @@ export interface ExportFieldSettings {
   bpm: boolean;
   /** 导出时间（本地时区，写到分钟） */
   exportedAt: boolean;
+  /**
+   * **视频开场**（chart-preview 30）：动态预览导出物最前面那段的总开关 + 信息项开关。
+   * 与上面 7 个「信息区字段」**互不跟随**（那是长图头带的谱面统计信息，这是歌曲信息）。
+   */
+  opening: OpeningSettings;
 }
 
+/**
+ * 视频开场设置（chart-preview 30）：`enabled` 关掉 = 回到"第 0 帧即 0 秒、总长 = 谱面时长"；
+ * 三项信息项 = 难度徽章 / 标题条 / 艺人行（本期不做 credits / 谱师名）。
+ */
+export interface OpeningSettings {
+  enabled: boolean;
+  items: Record<OpeningItemId, boolean>;
+}
+
+/** 开场信息项的候选全列（声明式：未来加项 = 加一个 id + 默认值 + 文案 + 一处绘制） */
+export const OPENING_ITEM_IDS = ['difficulty', 'title', 'artist'] as const;
+
+/** 开场信息项 id */
+export type OpeningItemId = (typeof OPENING_ITEM_IDS)[number];
+
+/** 开场信息项默认值（**全开**） */
+export const DEFAULT_OPENING_ITEMS: Record<OpeningItemId, boolean> = {
+  difficulty: true,
+  title: true,
+  artist: true,
+};
+
 /** 导出信息字段的候选全列（归一化与「导出信息」UI 组共用同一份，免得两处各列一遍） */
-export const EXPORT_FIELD_KEYS: readonly (keyof ExportFieldSettings)[] = [
+export const EXPORT_FIELD_KEYS: readonly Exclude<keyof ExportFieldSettings, 'enabled' | 'opening'>[] = [
   'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt',
 ];
 
@@ -179,6 +206,8 @@ export const DEFAULT_EXPORT_FIELDS: ExportFieldSettings = {
   noteCount: false,
   bpm: true,
   exportedAt: false,
+  // 视频开场默认全开；**缺字段回落 true**（老用户不得被静默关掉，定案 5）
+  opening: { enabled: true, items: { ...DEFAULT_OPENING_ITEMS } },
 };
 
 /** 预览标注设置（= `settings.preview`；预览面板的叠加项由它推出） */
@@ -432,7 +461,32 @@ export function normalizeExportFields(
   for (const k of EXPORT_FIELD_KEYS) {
     if (typeof raw[k] === 'boolean') out[k] = raw[k] as boolean;
   }
+  // `opening` 是嵌套对象：`{ ...fallback }` 是浅拷贝，直接改会写脏 `DEFAULT_EXPORT_FIELDS.opening`
+  // ⇒ 必须显式造一个新对象（含 items 的新对象）
+  out.opening = normalizeOpening(raw.opening, fallback.opening);
   return out;
+}
+
+/**
+ * 视频开场归一化：缺 `enabled` / 缺任一项都**回落 true**，未知键忽略。
+ * `enabled` 缺 = 开（老数据升级后不得被默默关掉，定案 5）。
+ */
+export function normalizeOpening(
+  raw: unknown,
+  fallback: OpeningSettings = DEFAULT_EXPORT_FIELDS.opening,
+): OpeningSettings {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const enabled = typeof src.enabled === 'boolean' ? src.enabled : fallback.enabled !== false;
+  // 整段缺失 ⇒ items 全开（fallback 的 items 已经默认全开，这里再兜一层防脏值）
+  const rawItems =
+    src.items && typeof src.items === 'object'
+      ? (src.items as Record<string, unknown>)
+      : (fallback.items as unknown as Record<string, unknown>);
+  const items: Record<OpeningItemId, boolean> = { ...DEFAULT_OPENING_ITEMS };
+  for (const id of OPENING_ITEM_IDS) {
+    items[id] = typeof rawItems[id] === 'boolean' ? (rawItems[id] as boolean) : DEFAULT_OPENING_ITEMS[id];
+  }
+  return { enabled, items };
 }
 
 export function loadSettings(
@@ -515,6 +569,29 @@ export function updateSettings(
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
     projects: { ...prev.projects, ...(patch.projects ?? {}) },
     preview: { ...prev.preview, ...(patch.preview ?? {}) },
-    export: { ...prev.export, ...(patch.export ?? {}) },
+    // `opening` 是嵌套对象：段内浅合并会把 `items` 整个抹掉（改 `enabled` 就丢三项开关）
+    // ⇒ 显式合并一层（定案：缺字段回落 true、改一项不抹掉其它项）
+    export: {
+      ...prev.export,
+      ...(patch.export ?? {}),
+      opening: mergeOpening(prev.export.opening, patch.export?.opening),
+    },
   };
+}
+
+/** 开场设置的**两层**合并：`enabled` 取新值，`items` 逐项合并（未提的项保持原值） */
+export function mergeOpening(
+  prev: OpeningSettings | undefined,
+  patch: Partial<OpeningSettings> | undefined,
+): OpeningSettings {
+  const base = normalizeOpening(prev);
+  if (!patch) return base;
+  const enabled = typeof patch.enabled === 'boolean' ? patch.enabled : base.enabled;
+  const items: Record<OpeningItemId, boolean> = { ...base.items };
+  if (patch.items) {
+    for (const id of OPENING_ITEM_IDS) {
+      if (typeof patch.items[id] === 'boolean') items[id] = patch.items[id] as boolean;
+    }
+  }
+  return { enabled, items };
 }

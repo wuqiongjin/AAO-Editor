@@ -20,6 +20,7 @@ import {
   exportSheetAs,
   planSheet,
   waitForPaint,
+  type OpeningInput,
   type PanelSceneInput,
   type PreviewMode,
   type SheetHeaderInput,
@@ -28,7 +29,13 @@ import {
 } from '../../preview';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { getBpmEvents } from '../../audio/AudioTiming';
-import { chartEffectiveTitle, DIFF_COLORS, DIFF_SHORT, projectCoverHue } from '../../project/projectCatalog';
+import {
+  chartEffectiveTitle,
+  DIFF_COLORS,
+  DIFF_NAMES,
+  DIFF_SHORT,
+  projectCoverHue,
+} from '../../project/projectCatalog';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
@@ -48,7 +55,7 @@ const PREVIEW_MODES: { id: PreviewMode; labelKey: MessageKey; icon: typeof Image
 
 export default function PreviewPage({ active = true }: { active?: boolean }) {
   const { setActivePage } = useAppNav();
-  const { settings, setAudioVolume } = useConfig();
+  const { settings, setAudioVolume, setExport } = useConfig();
   const { beatDisplay } = useUI();
   const [mode, setMode] = useState<PreviewMode>('static');
   const { scopeId, currentId, project, options, loading, chartId, pickChart } = usePreviewScope(active);
@@ -168,6 +175,24 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
    * 视频导出的状态机（规格 / 进度 / 取消 / 失败态）。
    * 音量口径与播放一致：`settings.audio.volume`（主音量）+ `settings.audio.seVolume`（SE）。
    */
+  /**
+   * 视频开场的**数据面**（chart-preview 30）：与静态那支的 `SheetHeaderInput` 同口径 ——
+   * 页面组装、难度色 / 封面色相由页面算好传进去（preview 域不 import 工程域）。
+   * 总开关关掉 ⇒ 传 `null`（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
+   */
+  const openingInput = useMemo<OpeningInput | null>(() => {
+    if (chart == null || !settings.export.opening.enabled) return null;
+    return {
+      title: chartEffectiveTitle(project?.name ?? null, chart.title, untitledProjectLabel()),
+      difficultyName: DIFF_NAMES[chart.diff].toUpperCase(),
+      difficultyColor: DIFF_COLORS[chart.diff],
+      artist: project?.artist ?? '',
+      cover: project?.coverBlob ?? null,
+      coverHue: projectCoverHue(project?.id ?? chart.id),
+      items: settings.export.opening.items,
+    };
+  }, [chart, project, settings.export.opening]);
+
   const videoExport = useVideoExport({
     scene: videoScene,
     audio: videoAudio,
@@ -177,6 +202,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     volume: settings.audio.volume,
     noteSkin: settings.visual?.noteSkin ?? {},
     suggestedBaseName: videoExportName,
+    opening: openingInput,
   });
 
   const handleVideoExport = useCallback(async () => {
@@ -319,6 +345,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                   <VideoExportControl
                     disabled={videoScene == null}
                     spec={videoExport.spec}
+                    opening={settings.export.opening}
+                    onOpeningChange={(patch) => setExport({ opening: patch })}
                     onSpecChange={videoExport.setSpec}
                     onStart={() => void handleVideoExport()}
                     onCancel={videoExport.cancel}

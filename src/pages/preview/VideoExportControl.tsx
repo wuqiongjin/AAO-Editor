@@ -24,9 +24,12 @@ import { t, type MessageKey } from '../../i18n';
 import {
   CONTAINER_FALLBACK_ORDER,
   EXPORT_FPS,
+  OPENING_ITEM_IDS,
+  OPENING_SECONDS,
   VIDEO_EXPORT_TIERS,
   isAacCodec,
   tierOf,
+  type OpeningItemId,
   type VideoContainerChoice,
   type VideoExportProgress,
   type VideoExportSupport,
@@ -40,9 +43,11 @@ import '../projects/ProjectsPage.css';
 import './PreviewPage.css';
 
 /** 一行：[标签] [控件]（与「显示」面板同一套行版式；标签不许被控件挤成竖排） */
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label, disabled, children,
+}: { label: string; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <div className="pvex__row">
+    <div className={`pvex__row${disabled ? ' is-disabled' : ''}`}>
       <div className="pvex__row-text"><strong>{label}</strong></div>
       {children}
     </div>
@@ -75,14 +80,15 @@ function Select<T extends string>({
 
 /** 开关（与「显示」面板同一枚 `.switch`——色觉辅助那一套）：开 / 关本身就是状态，不需要说明句 */
 function Toggle({
-  label, checked, onChange,
-}: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  label, checked, disabled, onChange,
+}: { label: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       className={`switch${checked ? ' is-on' : ''}`}
       onClick={() => onChange(!checked)}
     >
@@ -129,10 +135,27 @@ function outcomeNote(
     : t('preview.video.export.note.webm');
 }
 
+/**
+ * 视频开场的设置视图（chart-preview 30）：组件纯展示，设置从 props 进。
+ * 口径同「导出信息」组（总开关 + 缩进子项区，关掉置灰）。
+ */
+export interface VideoExportOpeningView {
+  enabled: boolean;
+  items: Record<OpeningItemId, boolean>;
+}
+
 export interface VideoExportControlProps {
   /** 没有可导出的谱面 / 素材未就绪 */
   disabled?: boolean;
   spec: VideoExportSpec;
+  /** 视频开场设置（null = 本弹层不显示开场那一组） */
+  opening?: VideoExportOpeningView | null;
+  /**
+   * 改开场设置：**只传要改的那一段**（`{ enabled }` 或 `{ items: {...全量} }`）。
+   * 由调用处做两段合并（`mergeOpening`）—— `updateSettings({export})` 是浅合并，
+   * 这里直接传嵌套对象会把没提的项抹掉。
+   */
+  onOpeningChange?: (patch: { enabled?: boolean; items?: Record<OpeningItemId, boolean> }) => void;
   onSpecChange: (patch: Partial<VideoExportSpec>) => void;
   onStart: () => void;
   onCancel: () => void;
@@ -149,6 +172,8 @@ export interface VideoExportControlProps {
 export default function VideoExportControl({
   disabled = false,
   spec,
+  opening = null,
+  onOpeningChange,
   onSpecChange,
   onStart,
   onCancel,
@@ -296,6 +321,39 @@ export default function VideoExportControl({
                 onChange={(on) => onSpecChange({ muted: !on })}
               />
             </Row>
+
+            {/* 视频开场（chart-preview 30）：总开关管整段，下面三行是开场里画哪些信息项。
+                关掉时当场置灰（与「导出信息」那一组同一套行为，管什么由这个行为自己说明）。 */}
+            {opening && onOpeningChange && (
+              <section className="pvex__group pvex__group--sub">
+                <div className="pvex__group-head">
+                  <h4 className="pvex__group-title">{t('preview.video.export.opening')}</h4>
+                  <Toggle
+                    label={t('preview.video.export.opening')}
+                    checked={opening.enabled}
+                    onChange={(v) => onOpeningChange({ enabled: v })}
+                  />
+                </div>
+                {opening.enabled && (
+                  <p className="pvex__note">
+                    {t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
+                  </p>
+                )}
+                {OPENING_ITEM_IDS.map((id) => {
+                  const label = t(`preview.video.export.opening.${id}` as MessageKey);
+                  return (
+                    <Row key={id} label={label} disabled={!opening.enabled}>
+                      <Toggle
+                        label={label}
+                        checked={opening.items[id]}
+                        disabled={!opening.enabled}
+                        onChange={(v) => onOpeningChange({ items: { ...opening.items, [id]: v } })}
+                      />
+                    </Row>
+                  );
+                })}
+              </section>
+            )}
 
             <button
               type="button"

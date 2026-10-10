@@ -166,7 +166,9 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
 
 describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
   it('src/preview 是新顶层域：barrel + static/ + video/（各自带类型契约）', () => {
-    expect(entries('src/preview')).toEqual(['index.ts', 'static', 'types.ts', 'video']);
+    // 30 起多一枚 `fontStack.ts`：导出物（长图头带 / 视频开场）共用的字体栈，
+    // 抽出来是为了让两处不再各抄一份字面量（ADR-0016 §5.1「文字沿用既有 HEADER_SANS 链」）
+    expect(entries('src/preview')).toEqual(['fontStack.ts', 'index.ts', 'static', 'types.ts', 'video']);
     // 03 起 static/ 是实件：面板模型（panelLayout）/ 出图器（panelPainter）/ 显示档（displayProfile）
     // / 画面（StaticPreviewView）/ 头带（sheetHeader，14）/ 宽图导出（exportPanels）/ 二进制另存（saveBinary）
     expect(entries('src/preview/static')).toEqual([
@@ -182,8 +184,9 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
     ]);
     // 05 起 video/ 是实件：仿真场落在 sim/ 子目录（几何 / 一帧绘制 / 素材 / 回放 / Bestdori 精灵，
     // ADR-0016 §3 的树；`simSprites` 由 chart-preview 21 引入）；
-    // 07 起旁出一支 encode/（规格 / 逐帧出帧 / 离线音轨 / 编码封装 / 编排），与 sim/ 平级
-    expect(entries('src/preview/video')).toEqual(['encode', 'index.ts', 'sim']);
+    // 07 起旁出一支 encode/（规格 / 逐帧出帧 / 离线音轨 / 编码封装 / 编排），与 sim/ 平级；
+    // 30 起再旁出一支 opening/（视频开场的常量 / 信息项 / 装饰 / 一帧绘制），与 sim/ 平级
+    expect(entries('src/preview/video')).toEqual(['encode', 'index.ts', 'opening', 'sim']);
     expect(entries('src/preview/video/sim')).toEqual([
       'index.ts',
       'simAssets.ts',

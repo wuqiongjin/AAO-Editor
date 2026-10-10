@@ -14,6 +14,7 @@ import {
   probeVideoExportSupport,
   runVideoExport,
   waitForPaint,
+  type OpeningInput,
   type SimPlaybackAudio,
   type SimScene,
   type VideoContainerChoice,
@@ -48,6 +49,11 @@ export interface UseVideoExportArgs {
   noteSkin: AppSettings['visual']['noteSkin'];
   /** 文件名基础名（不含扩展名） */
   suggestedBaseName: string;
+  /**
+   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
+   * 由页面按 `settings.export.opening` 组装（难度色由页面传，preview 域不 import 工程域）。
+   */
+  opening?: OpeningInput | null;
 }
 
 export interface VideoExportController {
@@ -161,6 +167,7 @@ export function useVideoExport(
         container: spec.container,
         muted: spec.muted,
         suggestedBaseName: args.suggestedBaseName,
+        opening: args.opening ?? null,
         onProgress: setProgress,
         isCancelled: () => cancelledRef.current,
       });

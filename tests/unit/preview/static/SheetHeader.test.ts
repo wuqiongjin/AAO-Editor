@@ -21,7 +21,7 @@ import {
 } from '@/src/preview/static/sheetHeader';
 
 /** `DIFF_COLORS[3]`（EX）—— 难度 chip 的颜色由页面传入，preview 域不 import 工程域 */
-const DIFF_EX_COLOR = '#e5484d';
+const DIFF_EX_COLOR = '#ff3e40';
 
 /** 全关 → 只开指定项（默认档另有断言） */
 function fields(open: Partial<ExportFieldSettings> = {}): ExportFieldSettings {
@@ -145,8 +145,8 @@ describe('chart-preview 14 · 信息区模型（字段开关 / 回落 / 去重�
   });
 
   it('难度 chip 用页面传进来的难度色；没传（老数据 / 空串）回落默认字色', () => {
-    const model = buildSheetHeaderModel(input({ difficultyColor: '#3b82f6', fields: fields({ difficulty: true }) }));
-    expect(model.chips).toEqual([{ text: 'EXP 32', accent: '#3b82f6' }]);   // EZ 蓝
+    const model = buildSheetHeaderModel(input({ difficultyColor: '#3464fc', fields: fields({ difficulty: true }) }));
+    expect(model.chips).toEqual([{ text: 'EXP 32', accent: '#3464fc' }]);   // EZ 蓝
     expect(buildSheetHeaderModel(input({ difficultyColor: null, fields: fields({ difficulty: true }) })).chips[0]?.accent).toBe('#eef2fa');
     expect(buildSheetHeaderModel(input({ difficultyColor: '  ', fields: fields({ difficulty: true }) })).chips[0]?.accent).toBe('#eef2fa');
   });

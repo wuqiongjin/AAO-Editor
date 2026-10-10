@@ -10,6 +10,13 @@ import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rende
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { saveBinaryAs } from '../../static/saveBinary';
 import { buildSimChart, loadSimAssets, type SimFrameInput, type SimPlaybackAudio, type SimScene } from '../sim';
+import {
+  OPENING_SECONDS,
+  openingItemOrder,
+  type OpeningFrameInput,
+  type OpeningItemId,
+} from '../opening';
+import { loadCoverImage } from '../../static';
 import { driveExportFrames } from './frameDriver';
 import {
   CONTAINER_SPECS,
@@ -63,8 +70,32 @@ export interface VideoExportRequest {
   muted: boolean;
   /** 文件名基础名（不含扩展名；扩展名按当选容器补） */
   suggestedBaseName: string;
+  /**
+   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
+   * 非 null = 导出物最前面多一段 `OPENING_SECONDS`（5.0s）的纯前置开场，音轨整体后移。
+   */
+  opening?: OpeningInput | null;
   onProgress?: (progress: VideoExportProgress) => void;
   isCancelled?: () => boolean;
+}
+
+/**
+ * 视频开场的**数据面**（照 `SheetHeaderInput` 口径：页面组装、preview 域不 import 工程域）。
+ * 封面还是 `Blob`（一次性出帧没有"下一帧补上"的机会 ⇒ 由编排层解码好再画）。
+ */
+export interface OpeningInput {
+  /** 谱面标题（未填回落工程名，由页面用 `chartEffectiveTitle` 算好） */
+  title: string;
+  /** 难度名（全大写英文，如 `EXPERT`） */
+  difficultyName: string;
+  /** 难度色（页面传 `DIFF_COLORS[diff]`） */
+  difficultyColor: string;
+  artist: string;
+  cover: Blob | null;
+  /** 无封面时占位块的色相（页面按工程 id 派生） */
+  coverHue: number;
+  /** `settings.export.opening.items`（全量写进来，域内按"开着的项"过滤） */
+  items: Record<OpeningItemId, boolean>;
 }
 
 /**
@@ -196,7 +227,9 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
 
   // ---------------- 规格 ----------------
   const tier = tierOf(req.tier);
-  const timeline: ExportTimeline = buildExportTimeline(req.durationSeconds);
+  // 开场段是**纯前置**（chart-preview 30）：总长 = 开场 + 谱面，音轨整体后移，绝不与前奏重叠
+  const openingSeconds = req.opening ? OPENING_SECONDS : 0;
+  const timeline: ExportTimeline = buildExportTimeline(req.durationSeconds + openingSeconds);
   const geometry = resolveExportGeometry(tier);
   const audioTrackParams = req.muted ? null : DEFAULT_AUDIO_TRACK;
   const target = await resolveTarget(
@@ -223,6 +256,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   }
   const track = await renderAudioTrack({
     durationSeconds: req.durationSeconds,
+    openingSeconds,
     keyEvents,
     keySetId: req.keySetId,
     bgm,
@@ -252,10 +286,24 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
       noteIcons,
       spriteIcon: new CanvasSpriteIcon(),
     };
+    // 开场的封面解码：一次性出帧没有"下一帧补上"的机会 ⇒ 开画之前 await 到位（口径同静态头带）
+    const opening: OpeningFrameInput | null = req.opening
+      ? {
+          title: req.opening.title,
+          difficultyName: req.opening.difficultyName,
+          difficultyColor: req.opening.difficultyColor,
+          artist: req.opening.artist,
+          cover: await loadCoverImage(req.opening.cover),
+          coverHue: req.opening.coverHue,
+          items: openingItemOrder(req.opening.items),
+        }
+      : null;
     const driven = await driveExportFrames({
       frame,
       geometry,
       timeline,
+      opening,
+      openingSeconds,
       isCancelled: req.isCancelled,
       onProgress: (p) => req.onProgress?.({ phase: 'frames', frame: p.frame, totalFrames: p.total }),
       onFrame: (vf) => sink.addFrame(vf),

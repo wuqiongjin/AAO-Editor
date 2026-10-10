@@ -13,6 +13,15 @@ import { drawSimFrameAt, SIM_FALLBACK_BG, type SimFrameInput } from '../sim/simF
 import { fieldMetrics, type SimFieldMetrics } from '../sim';
 import { yieldToMainThread } from '../../static/exportPanels';
 import {
+  drawOpeningFieldBackground,
+  drawOpeningFrameAt,
+  drawOpeningTrack,
+  openingAlphaAt,
+  openingSegmentAt,
+  openingTrackAlphaAt,
+  type OpeningFrameInput,
+} from '../opening';
+import {
   frameSecondsAt,
   frameTimestampUs,
   type ExportGeometry,
@@ -31,6 +40,13 @@ export interface FrameDriverRequest {
   frame: Omit<SimFrameInput, 'metrics'>;
   geometry: ExportGeometry;
   timeline: ExportTimeline;
+  /**
+   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
+   * 非 null 时时间轴最前面 `OPENING_SECONDS` 秒走开场四段，其后是谱面。
+   */
+  opening?: OpeningFrameInput | null;
+  /** 开场段长度（秒）：谱面秒 = 视频秒 − 它。与 `opening` 成对给（关掉开场时是 0） */
+  openingSeconds?: number;
   /**
    * 每画出一帧就调（画布已就绪，`VideoFrame` 由本模块建好并在回调后 `close()`）。
    * 返回 Promise 会被 await —— 编码入队有背压时靠它把帧节奏压下来。
@@ -73,12 +89,31 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
   for (let k = 0; k < timeline.frameCount; k++) {
     if (req.isCancelled?.()) return { rendered, cancelled: true };
 
+    const t = frameSecondsAt(timeline, k);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = SIM_FALLBACK_BG;
     ctx.fillRect(0, 0, geometry.width, geometry.height);
-    // 场地按导出档画在留边中间：transform 是「场地原点」，绘制里一律用场地 CSS 坐标
-    ctx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);
-    drawSimFrameAt(ctx, input, frameSecondsAt(timeline, k));
+
+    const seg = req.opening ? openingSegmentAt(t) : 'sim';
+    if (seg === 'sim') {
+      // 谱面段：场地按导出档画在留边中间（transform 是「场地原点」，绘制里一律用场地 CSS 坐标）
+      ctx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);
+      // 开场段占掉了时间轴最前面那段 ⇒ 谱面秒 = 视频秒 − 开场长度（见 exportVideo 传进来的 timeline）
+      drawSimFrameAt(ctx, input, t - (req.openingSeconds ?? 0));
+    } else if (seg === 'fadeIn' || seg === 'hold') {
+      // ① 开场淡入 / ② 停留：整块画布画开场画面（一个 alpha 管整屏）
+      drawOpeningFrameAt(ctx, geometry.width, geometry.height, req.opening!, openingAlphaAt(t));
+    } else {
+      // ③ 入场过渡 / ④ 轨道淡入：只画场地的分层（背景 → 轨道），**不进 drawSimFrameAt**
+      // （负秒下它会画出正在接近的音符 / 带体，不是干净的场地）
+      ctx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);
+      drawOpeningFieldBackground(ctx, metrics, frame.assets);
+      drawOpeningTrack(ctx, metrics, frame.assets, openingTrackAlphaAt(t));
+      if (seg === 'fadeOut') {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        drawOpeningFrameAt(ctx, geometry.width, geometry.height, req.opening!, openingAlphaAt(t));
+      }
+    }
 
     const vf = new VideoFrame(canvas, { timestamp: frameTimestampUs(timeline, k) });
     try {

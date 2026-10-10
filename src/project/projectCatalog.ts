@@ -12,7 +12,11 @@ import { t } from '../i18n';
 
 export const DIFF_NAMES = ['Easy', 'Normal', 'Hard', 'Expert', 'Special'] as const;
 export const DIFF_SHORT = ['EZ', 'NM', 'HD', 'EX', 'SP'] as const;
-export const DIFF_COLORS = ['#3b82f6', '#22a35a', '#d4a106', '#e5484d', '#d9468f'] as const;
+/**
+ * 难度色 = 唯一标准：从游戏内开场画面截图逐像素实测提取（5 张不同难度截图取徽章实色）。
+ * 别改这里之外的任何难度色（界面徽标、谱面预览、开场画面都读这一份）。
+ */
+export const DIFF_COLORS = ['#3464fc', '#64fd33', '#ffcc35', '#ff3e40', '#e22c94'] as const;
 
 const DEFAULT_UNTITLED = '未命名工程';
 

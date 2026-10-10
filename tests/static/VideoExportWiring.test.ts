@@ -37,8 +37,15 @@ const main = readStripped('electron/main.cjs');
 const pkg = readSource('package.json');
 
 describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）', () => {
+  // 30 起开场段占掉时间轴最前面那段 ⇒ 谱面秒 = 视频秒 − 开场长度（关掉开场时减 0）
   it('frameDriver 逐帧调 drawSimFrameAt（05 的同一份任意秒出帧）', () => {
-    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, frameSecondsAt\(timeline, k\)\)/);
+    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - \(req\.openingSeconds \?\? 0\)\)/);
+  });
+
+  it('开场段的画面不进 drawSimFrameAt（③ / ④ 走场地的分层绘制）', () => {
+    expect(frameDriver).toMatch(/openingSegmentAt\(t\)/);
+    expect(frameDriver).toMatch(/drawOpeningFieldBackground\(/);
+    expect(frameDriver).toMatch(/drawOpeningTrack\(/);
   });
 
   it('frameDriver 不自己画场地 / 音符 / 特效（只有铺留边那一笔 fillRect）', () => {
@@ -353,5 +360,33 @@ describe('07 · 走实时录制的那条路没有回来（离线逐帧是主路�
     expect(encodeFiles().length).toBeGreaterThanOrEqual(5);
     expect(frameDriver.length).toBeGreaterThan(500);
     expect(exportVideo.length).toBeGreaterThan(500);
+  });
+});
+
+// 30：导出物最前面多一段**纯前置**开场（5.0s）。这几条盯的是"接线"，观感归原型目视验收。
+describe('30 · 视频开场是纯前置段（不占谱面时间、不与前奏重叠）', () => {
+  it('时间轴总长 = 开场 + 谱面时长（关掉开场时就是谱面时长）', () => {
+    expect(exportVideo).toMatch(/buildExportTimeline\(req\.durationSeconds \+ openingSeconds\)/);
+    expect(exportVideo).toMatch(/req\.opening \? OPENING_SECONDS : 0/);
+  });
+
+  it('音轨：轨长带上开场、BGM 从开场结束那刻起、键音整体 + 开场', () => {
+    expect(exportVideo).toMatch(/openingSeconds,/);
+    expect(renderAudio).toMatch(/audioFramesFor\(req\.durationSeconds \+ offset, sampleRate\)/);
+    expect(renderAudio).toMatch(/src\.start\(offset\)/);
+    expect(renderAudio).toMatch(/const at = evt\.time \+ offset/);
+  });
+
+  it('键音的过滤仍按**谱面时间**判（开场段不产生键音）', () => {
+    expect(renderAudio).toMatch(/evt\.time >= req\.durationSeconds/);
+    expect(renderAudio).not.toMatch(/evt\.time \+ offset >= req\.durationSeconds \+ offset/);
+  });
+
+  it('开场段的画面由 opening/ 那一层画（encode/ 不自己画装饰 / 白条 / 文字）', () => {
+    const src = encodeFiles().map((rel) => readStripped(rel)).join('\n');
+    expect(src).not.toMatch(/drawOpeningDecor\(/);
+    expect(frameDriver).toMatch(/drawOpeningFrameAt\(/);
+    // 开场段不进 drawSimFrameAt（负秒下它会画出正在接近的音符 / 带体）
+    expect(frameDriver).toMatch(/openingSegmentAt\(t\)/);
   });
 });

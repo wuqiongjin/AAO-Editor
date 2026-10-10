@@ -14,8 +14,13 @@ import type { KeySoundEvent } from '../../../audio/AudioTiming';
 import { EXPORT_AUDIO_CHANNELS, EXPORT_AUDIO_SAMPLE_RATE, audioFramesFor } from './exportSpec';
 
 export interface AudioTrackRequest {
-  /** 谱面长度（秒，ADR-0005）：轨长 = 它，与视频同一终点 */
+  /** 谱面长度（秒，ADR-0005） */
   durationSeconds: number;
+  /**
+   * 开场段长度（秒，chart-preview 30）：`> 0` = 轨长 = 它 + 谱面长度，BGM 从它起、
+   * 键音事件整体 + 它 ⇒ 谱面 0 秒落在开场段结束那刻（开场段无 BGM / 无键音）。
+   */
+  openingSeconds?: number;
   /** 键音事件表（`buildKeyEvents` 的输出，按 time 升序） */
   keyEvents: readonly KeySoundEvent[];
   /** 键音素材包（`settings.audio.keySet`） */
@@ -65,7 +70,9 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
   if (req.muted) return null;
   const sampleRate = req.sampleRate ?? EXPORT_AUDIO_SAMPLE_RATE;
   const channels = req.channels ?? EXPORT_AUDIO_CHANNELS;
-  const frames = audioFramesFor(req.durationSeconds, sampleRate);
+  // 开场段在最前面（chart-preview 30）：轨长 = 开场 + 谱面，与视频同一终点
+  const offset = Number.isFinite(req.openingSeconds) ? Math.max(0, req.openingSeconds!) : 0;
+  const frames = audioFramesFor(req.durationSeconds + offset, sampleRate);
   const ctx = new OfflineAudioContext(channels, frames, sampleRate);
 
   // 与实时同一条链：master 是主音量，se 是键音的独立音量（issue 39 #7）
@@ -80,7 +87,7 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
     const src = ctx.createBufferSource();
     src.buffer = req.bgm;
     src.connect(master);
-    src.start(0);
+    src.start(offset); // 开场段无声：BGM 从开场段结束那刻起
   }
 
   if (req.keyEvents.length > 0) {
@@ -92,8 +99,10 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
       const sample = set.samples[evt.kind];
       const src = sampleSrcFor(sample, evt.kind, evt.tier);
       const buffer = src ? await keySoundBank.load(src, decodeCtx).catch(() => undefined) : undefined;
-      if (buffer) scheduleKeySample(ctx, se, buffer, evt.time);
-      else scheduleKeyTone(ctx, se, evt.kind, sample, evt.time);
+      // 键音整体后移开场段长度（过滤仍按**谱面时间** `[0, duration)` 判）
+      const at = evt.time + offset;
+      if (buffer) scheduleKeySample(ctx, se, buffer, at);
+      else scheduleKeyTone(ctx, se, evt.kind, sample, at);
     }
   }
 

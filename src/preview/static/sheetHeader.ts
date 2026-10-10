@@ -21,6 +21,7 @@
 import { t } from '../../i18n';
 import type { ExportFieldSettings } from '../../chart/config/AppSettings';
 import { formatTimeCompact } from '../../chart/geometry/TimeFormat';
+import { HEADER_SANS as headerSans } from '../fontStack';
 
 /** 头部横带高度（CSS px）：392 封面 + 上下各 24 padding。改它要同步复算宽图面积上限（ADR-0016 §7） */
 export const EXPORT_HEADER_H = 440;
@@ -65,7 +66,7 @@ const DIVIDER_LINE_COLOR = 'rgba(255, 255, 255, 0.22)';
  * 全站一条无衬线链（含 chips）：一次性画布上的字是**中西混排**（`难度 2:31` 这种），
  * 等宽链在中文环境里会回落成宋体，观感比统一-family 更糟（2026-10-06 版式整改）。
  */
-const HEADER_SANS = '"Segoe UI Variable", "Noto Sans CJK SC", "PingFang SC", system-ui, sans-serif';
+const HEADER_SANS = headerSans;
 // 字形阶梯（2026-10-06 版式整改：旧档 46/24/20 在 337 的带高里只占 14%，缩略看图时读不出来 ——
 // 带高抬到 440 的同时把整条阶梯重排：标题 = 带内容高的 34%，chips 单行读得清）
 const TITLE_PX = 120;

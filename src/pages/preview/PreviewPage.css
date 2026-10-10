@@ -869,6 +869,30 @@
   border-radius: var(--radius-sm);
 }
 
+/* 开场那一组（chart-preview 30）：总开关在组标题行右侧，子项缩进一格、关掉时整组置灰。
+   版式与「导出信息」那一组（`pdp__group`）同一套口径。 */
+.pvex__group--sub {
+  margin-top: 8px;
+  padding: 2px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.pvex__group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pvex__group--sub .pvex__row {
+  padding-left: 18px;
+}
+
+.pvex__row.is-disabled {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
 .pvex__row-text {
   flex: 0 0 auto;
 }

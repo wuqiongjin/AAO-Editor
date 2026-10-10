@@ -1,10 +1,35 @@
 // 动态预览 = 游戏仿真场（ADR-0016 §1.2），视频导出 = 离线逐帧 + 含音频（§5）。
 //
 // 票 05 起画面与实时回放落 `./sim/`（几何 / 一帧绘制 / 素材 / 回放）；
-// 票 07 起逐帧编码 / 音轨 / 封装落 `./encode/`。
+// 票 07 起逐帧编码 / 音轨 / 封装落 `./encode/`；
+// 票 30 起导出物最前面那段**视频开场**落 `./opening/`。
 //
 // 离线出帧**不依赖窗口尺寸**（§7）：尺寸由调用方显式给（分辨率档），不读窗口、不读 devicePixelRatio。
 export * from './sim';
+// 视频开场（chart-preview 30）
+export {
+  OPENING_FADE_IN_SECONDS,
+  OPENING_FADE_OUT_SECONDS,
+  OPENING_HOLD_SECONDS,
+  OPENING_ITEM_IDS,
+  OPENING_SECONDS,
+  OPENING_TRACK_IN_AT,
+  OPENING_TRACK_IN_SECONDS,
+  DEFAULT_OPENING_ITEMS,
+  drawOpeningFieldBackground,
+  drawOpeningFrameAt,
+  drawOpeningTrack,
+  openingAlphaAt,
+  openingItemOrder,
+  openingSegmentAt,
+  openingStackMetrics,
+  openingTrackAlphaAt,
+  type OpeningFieldImages,
+  type OpeningFrameInput,
+  type OpeningItemId,
+  type OpeningMetrics,
+  type OpeningSegment,
+} from './opening';
 export {
   CONTAINER_FALLBACK_ORDER,
   CONTAINER_SPECS,
@@ -29,6 +54,7 @@ export {
   tierOf,
   videoExportBasename,
   type ContainerSpec,
+  type OpeningInput,
   type ExportGeometry,
   type ExportTimeline,
   type TargetCandidate,

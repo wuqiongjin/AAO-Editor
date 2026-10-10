@@ -62,6 +62,14 @@ export {
   type SimPlaybackOptions,
   type SimScene,
 } from './video';
+// 视频开场（chart-preview 30）：导出物最前面那段（页面只需 `OPENING_ITEM_IDS` 与 `type OpeningInput`）
+export {
+  OPENING_ITEM_IDS,
+  OPENING_SECONDS,
+  DEFAULT_OPENING_ITEMS,
+  type OpeningInput,
+  type OpeningItemId,
+} from './video';
 // 视频导出（chart-preview 07）：离线逐帧 + 离线音轨 + 编码封装
 export {
   CONTAINER_FALLBACK_ORDER,
@@ -78,6 +86,7 @@ export {
   tierOf,
   videoExportBasename,
   type ExportTimeline,
+  type OpeningInput,
   type VideoContainer,
   type VideoContainerChoice,
   type VideoExportFailure,

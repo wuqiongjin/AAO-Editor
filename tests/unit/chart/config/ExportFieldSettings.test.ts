@@ -26,16 +26,21 @@ describe('chart-preview 14 · 导出头带默认档', () => {
       noteCount: false,
       bpm: true,
       exportedAt: false,
+      // 30 起：视频开场（总开关 + 三项信息项）默认全开；与上面 7 个信息区字段**互不跟随**
+      opening: { enabled: true, items: { difficulty: true, title: true, artist: true } },
     });
     expect(defaultSettings().export).toEqual(DEFAULT_EXPORT_FIELDS);
   });
 
-  it('候选全列 = 信息区字段（不含 enabled）；enabled 另算 —— 它管整条头带，不是一项字段', () => {
+  it('候选全列 = 信息区字段（不含 enabled / opening）；这两项另算 —— 它们管整段，不是一项字段', () => {
     expect(EXPORT_FIELD_KEYS).toEqual([
       'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt',
     ]);
     expect(EXPORT_FIELD_KEYS).not.toContain('enabled');
-    expect([...EXPORT_FIELD_KEYS, 'enabled'].sort()).toEqual(Object.keys(DEFAULT_EXPORT_FIELDS).sort());
+    expect(EXPORT_FIELD_KEYS).not.toContain('opening');
+    expect([...EXPORT_FIELD_KEYS, 'enabled', 'opening'].sort()).toEqual(
+      Object.keys(DEFAULT_EXPORT_FIELDS).sort(),
+    );
   });
 });
 
