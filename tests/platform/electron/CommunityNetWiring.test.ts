@@ -18,6 +18,12 @@ import {
   loadDataRootSync,
   removeLegacyDownloads,
 } from '@/electron/dataRoot.cjs';
+import { ASSET_SCHEME, THUMB_HOST } from '@/electron/assetProtocol.cjs';
+import {
+  ASSET_SCHEME as RENDERER_ASSET_SCHEME,
+  ASSET_THUMB_HOST as RENDERER_THUMB_HOST,
+  assetThumbUrl,
+} from '@/src/community/assetUrls';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
   BESTDORI_JSON_TIMEOUT_MS,
@@ -99,7 +105,7 @@ describe('票 07 · 主进程接线与安全默认', () => {
   });
 
   it('素材缓存目录接在数据根下、每次现取（数据根能被搬家）', () => {
-    expect(mainSrc).toMatch(/createAssetCache\(\{\s*dir:\s*\(\)\s*=>\s*cacheDir\(currentDataRoot\(\)\)\s*\}\)/);
+    expect(mainSrc).toMatch(/createAssetCache\(\{\s*dir:\s*\(\)\s*=>\s*cacheDir\(currentDataRoot\(\)\),/);
     expect(mainSrc).toMatch(/assetCache,\s*\}\);/);
   });
 
@@ -174,6 +180,44 @@ describe('票 14 · 素材缓存目录（<数据根>/cache/community/）', () =>
     } finally {
       rmSync(userData, { recursive: true, force: true });
     }
+  });
+});
+
+describe('票 15 · 本机素材协议接线（tsugu-asset://）', () => {
+  it('scheme 特权在 app ready 之前登记，处理器挂进去（Electron 的硬要求）', () => {
+    const privilegedAt = mainSrc.indexOf('registerAssetSchemePrivileges(protocol)');
+    const readyAt = mainSrc.indexOf('app.whenReady()');
+    expect(privilegedAt).toBeGreaterThan(-1);
+    expect(readyAt).toBeGreaterThan(-1);
+    expect(privilegedAt).toBeLessThan(readyAt);
+    expect(mainSrc.slice(readyAt)).toMatch(/registerAssetProtocol\(protocol,\s*assetCache\)/);
+  });
+
+  it('缩略图产出器接在缓存上，nativeImage 由 main 注入（协议 / 缓存模块不 require electron）', () => {
+    expect(mainSrc).toMatch(/const makeThumb = createThumbMaker\(nativeImage\);/);
+    expect(mainSrc).toMatch(/makeThumb,/);
+    for (const file of ['electron/assetProtocol.cjs', 'electron/assetThumbnails.cjs', 'electron/assetCache.cjs']) {
+      expect(readStripped(file), file).not.toMatch(/require\(\s*['"]electron['"]\s*\)/);
+    }
+  });
+
+  it('协议是只读的：不联网、不自己取数（取数仍归网关）', () => {
+    const protocolSrc = readStripped('electron/assetProtocol.cjs');
+    expect(protocolSrc).not.toMatch(/fetch\s*\(/);
+    expect(protocolSrc).not.toMatch(/communityNet|net\.fetch/);
+    expect(protocolSrc).toMatch(/kind:\s*'binary'/);
+  });
+
+  it('渲染侧那份 URL 形态与主进程同值（CJS 引不到 TS，只能互锁）', () => {
+    expect(ASSET_SCHEME).toBe(RENDERER_ASSET_SCHEME);
+    expect(THUMB_HOST).toBe(RENDERER_THUMB_HOST);
+    expect(assetThumbUrl('https://example.com/x.png')).toBe(
+      `${ASSET_SCHEME}://${THUMB_HOST}/?url=${encodeURIComponent('https://example.com/x.png')}`,
+    );
+  });
+
+  it('读缓存不走 IPC 桥：preload 不为它开通道', () => {
+    expect(preloadSrc).not.toMatch(/tsugu-asset/);
   });
 });
 

@@ -11,6 +11,7 @@
  *     落地前必须认出来。
  */
 import { getActiveUiLanguage, type UiLanguage } from '../../i18n';
+import { assetThumbUrl } from '../assetUrls';
 import { withRetry, type RetryNotice } from '../rateLimit';
 import { CommunityError, type CommunityTransport, type StagedBinary } from '../transport';
 import {
@@ -196,9 +197,40 @@ export function coverFileName(song: SongCandidate): string {
  * 是这条口径的来源。取数（导入 / 拉索引）仍一律走主进程网关。
  * ------------------------------------------------------------ */
 
-/** 封面预览直链（选曲面板的 `<img src>`；取不到时浏览器自己走 onError 降级） */
+/** 封面预览直链（选曲面板预览区的 `<img src>`；取不到时浏览器自己走 onError 降级） */
 export function jacketPreviewUrl(song: SongCandidate): string {
   return officialJacketUrl(song.id, song.jacketImage, song.server);
+}
+
+/**
+ * 行内缩略图的本机 URL（票 15）：读的是素材缓存里那张 96×96（原图进缓存时顺手产出的，见
+ * `electron/assetThumbnails.cjs`）。**用之前得先把封面收进缓存**（`ensureOfficialCoverCached`），
+ * 否则协议回 404、行内降级成图标。
+ */
+export function jacketThumbUrl(song: SongCandidate): string {
+  return assetThumbUrl(jacketPreviewUrl(song));
+}
+
+/** 同一首歌的「收封面进缓存」并发只发一次：行内缩略图在 StrictMode 下会跑两遍 effect */
+const coverInflight = new Map<string, Promise<StagedBinary | null>>();
+
+/**
+ * 把封面收进素材缓存（票 15 行内缩略图 / 16 预览复用）：走网关的 cache-first —— 命中零网络，
+ * 未命中下载 97KB 左右的整图并留在缓存里（原图给预览区大图，缩略图给列表）。
+ * 平台没有这张图时回 null（合作曲在非首发服就是这种情况），不抛错。
+ */
+export function ensureOfficialCoverCached(
+  transport: CommunityTransport,
+  song: SongCandidate,
+): Promise<StagedBinary | null> {
+  const url = jacketPreviewUrl(song);
+  const inflight = coverInflight.get(url);
+  if (inflight) return inflight;
+  const promise = fetchOfficialCover(transport, song).finally(() => {
+    if (coverInflight.get(url) === promise) coverInflight.delete(url);
+  });
+  coverInflight.set(url, promise);
+  return promise;
 }
 
 /** 试听直链（`<audio src>`；Chromium 会按 Range 边下边播，不必先导入） */

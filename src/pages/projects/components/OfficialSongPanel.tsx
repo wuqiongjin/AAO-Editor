@@ -27,6 +27,7 @@ import { DIFF_COLORS, DIFF_SHORT } from '../../../project/projectCatalog';
 import { t } from '../../../i18n';
 import CompactAudio from '../../../ui/CompactAudio';
 import { officialErrorText } from '../officialImport';
+import OfficialSongThumb from './OfficialSongThumb';
 
 /** 选曲面板交给页面的东西：一首歌 + 它的详情 + 两个选项（A 素材默认做，B 谱面内容默认关） */
 export interface OfficialSongSelection {
@@ -313,6 +314,7 @@ export function OfficialSongPanel({
                     className={`off-row${song.id === selected?.id ? ' is-active' : ''}`}
                     onClick={() => pick(song)}
                   >
+                    <OfficialSongThumb song={song} transport={net} />
                     <span className="off-row__text">
                       <span className="off-row__title">{song.title}</span>
                       <span className="off-row__artist pp-muted">{song.artist || t('projects.artistMissing')}</span>

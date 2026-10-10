@@ -401,7 +401,8 @@
 .off-list li + li { border-top: 1px solid var(--border); }
 .off-row {
   content-visibility: auto;
-  contain-intrinsic-size: auto 52px;
+  /* 行高提示 = 缩略图 48 + 上下内边距 8×2（票 15：带缩略图后行高从 52 涨到 64） */
+  contain-intrinsic-size: auto 64px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -416,6 +417,48 @@
 }
 .off-row:hover { background-color: var(--bg-inset); }
 .off-row.is-active { background-color: var(--bg-inset); box-shadow: inset 2px 0 0 var(--accent); }
+/* 行内封面缩略图（票 15 定案 B：48px 方形、圆角 8px）。
+   边长写在这里，主进程产出的缩略图是它的 2 倍（96×96，高分屏不发虚）——
+   两边互锁见 tests/platform/electron/AssetThumbnails.test.ts */
+.off-row__thumb {
+  --off-thumb-size: 48px;
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: var(--off-thumb-size);
+  height: var(--off-thumb-size);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  color: var(--text-subtle);
+  overflow: hidden;
+}
+/* 没有素材的曲子：虚线框 + 音符图标（与「取数失败」的实底图标分开） */
+.off-row__thumb.is-empty { border: 1px dashed var(--border-strong); }
+.off-row__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.off-row__thumb img.is-in { opacity: 1; }
+.off-row__thumb-ph {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--text) 7%, transparent) 50%,
+    transparent 70%
+  );
+  animation: off-thumb-shimmer 1.3s linear infinite;
+}
+@keyframes off-thumb-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
 .off-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .off-row__title { font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
 .off-row__artist { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.35; }

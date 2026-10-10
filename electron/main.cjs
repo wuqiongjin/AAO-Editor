@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
@@ -34,6 +34,11 @@ const {
     createAssetCache,
     registerAssetCacheIpc,
 } = require('./assetCache.cjs');
+const {
+    registerAssetSchemePrivileges,
+    registerAssetProtocol,
+} = require('./assetProtocol.cjs');
+const { createThumbMaker } = require('./assetThumbnails.cjs');
 const {
     getProject,
     putProject,
@@ -262,8 +267,13 @@ registerI18nIpc();
 // 素材缓存（ADR-0011 §2、issue 06 薄主进程）。端点、领域转换、搜索都在 renderer；
 // 二进制落 <数据根>/cache/community/（素材缓存，跨启动复用）后只回路径。
 // 缓存目录每次现取 —— 数据根可以被用户搬家。
+// 缩略图（票 15）：图片进缓存时顺手产 96×96（nativeImage 由这里注入，见 assetThumbnails.cjs）。
 // ---------------------------------------------------------------------------
-const assetCache = createAssetCache({ dir: () => cacheDir(currentDataRoot()) });
+const makeThumb = createThumbMaker(nativeImage);
+const assetCache = createAssetCache({
+    dir: () => cacheDir(currentDataRoot()),
+    makeThumb,
+});
 const communityGateway = createCommunityGateway({
     // net.fetch 只能在 app ready 之后调用；这里只是包一层，加载期不发任何请求。
     fetchImpl: (url, init) => net.fetch(url, init),
@@ -340,9 +350,15 @@ function createWindow() {
     return mainWindow;
 }
 
+// 本机素材协议（票 15）：scheme 特权必须在 app ready **之前**登记（Electron 的硬要求），
+// 处理器本身在 ready 之后挂（见下）。渲染侧用它的 URL 形参见 src/community/assetUrls.ts。
+registerAssetSchemePrivileges(protocol);
+
 // 当Electron完成初始化并准备创建浏览器窗口时调用此方法
 app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+    // 只读协议：媒体标签按 URL 读素材缓存里的缩略图（不联网；缺图回 404，界面自己降级）
+    registerAssetProtocol(protocol, assetCache);
     // 素材缓存（票 14）：启动扫一遍（30 天未用 / 1GB 上限 / 崩溃残留的半截文件）。
     // 清不掉（权限 / 占用）不影响功能 —— 下次写缓存会自己补目录，所以这里吞掉。
     void assetCache.sweep().catch(() => {});

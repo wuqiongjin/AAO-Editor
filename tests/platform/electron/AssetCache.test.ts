@@ -8,8 +8,12 @@ import { tmpDir } from '@/tests/support/fs';
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** 临时缓存目录 + 可控时钟 */
-function makeCache(options: { maxBytes?: number; maxAgeMs?: number } = {}) {
+/** 临时缓存目录 + 可控时钟（票 15 起还能接一个缩略图产出器） */
+function makeCache(options: {
+  maxBytes?: number;
+  maxAgeMs?: number;
+  makeThumb?: (bytes: Buffer, contentType: string | null) => unknown;
+} = {}) {
   const dir = tmpDir('tsugu-asset-cache-');
   // 起点取真实现在：`.part-*` 的年龄看文件 mtime（真时钟），两者得能比
   let time = Date.now();
@@ -208,6 +212,146 @@ describe('票 14 · 素材缓存：回收（30 天未用 / 1GB 上限 / 半截�
       await ctx.cache.sweep();
       expect(existsSync(stale)).toBe(false);
       expect(existsSync(fresh)).toBe(true);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+});
+
+describe('票 15 · 缩略图跟着条目一起记账 / 回收', () => {
+  /** 落一条带缩略图的素材，回两边文件路径 */
+  async function storeWithThumb(ctx: ReturnType<typeof makeCache>, url: string, size = 4) {
+    const entry = await ctx.cache.store({
+      url,
+      kind: 'binary',
+      bytes: Buffer.alloc(size, 1),
+      contentType: 'image/png',
+    });
+    return { entry, thumbPath: join(ctx.dir, entry.thumb.file) };
+  }
+
+  it('30 天未用：原图与缩略图一起清，释放量两边都算', async () => {
+    const ctx = makeCache({ makeThumb: () => ({ bytes: Buffer.alloc(3), contentType: 'image/png' }) });
+    try {
+      const { entry, thumbPath } = await storeWithThumb(ctx, 'https://bestdori.com/cover.png');
+      expect(existsSync(thumbPath)).toBe(true);
+
+      ctx.advance(31 * DAY);
+      const result = await ctx.cache.sweep();
+
+      expect(result.removed).toBe(1);
+      expect(result.freedBytes).toBe(7); // 原图 4 + 缩略图 3
+      expect(existsSync(entry.path)).toBe(false);
+      expect(existsSync(thumbPath)).toBe(false);
+      expect(readdirSync(ctx.dir)).toEqual([INDEX_FILE]);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  it('原图已经没了：清扫顺手把孤儿缩略图也删掉', async () => {
+    const ctx = makeCache({ makeThumb: () => ({ bytes: Buffer.alloc(3), contentType: 'image/png' }) });
+    try {
+      const { entry, thumbPath } = await storeWithThumb(ctx, 'https://bestdori.com/orphan.png');
+      rmSync(entry.path, { force: true });
+
+      await ctx.cache.sweep();
+
+      expect(existsSync(thumbPath)).toBe(false);
+      expect(readdirSync(ctx.dir)).toEqual([INDEX_FILE]);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  it('摘条目（drop）连缩略图一起摘', async () => {
+    const ctx = makeCache({ makeThumb: () => ({ bytes: Buffer.alloc(3), contentType: 'image/png' }) });
+    try {
+      const { thumbPath } = await storeWithThumb(ctx, 'https://bestdori.com/drop.png');
+      const hit = (await ctx.cache.lookup({ url: 'https://bestdori.com/drop.png', kind: 'binary' }))!;
+
+      await ctx.cache.drop(hit);
+
+      expect(existsSync(hit.path)).toBe(false);
+      expect(existsSync(thumbPath)).toBe(false);
+      expect((await ctx.cache.stats()).totalBytes).toBe(0);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  it('1GB 上限按「原图 + 缩略图」算总量（缩略图不白占）', async () => {
+    const ctx = makeCache({
+      maxBytes: 10,
+      makeThumb: () => ({ bytes: Buffer.alloc(4, 2), contentType: 'image/png' }),
+    });
+    try {
+      // 每条 4 + 4 = 8：第二条一进来就超 10，最久未用的第一条（连缩略图）被清掉
+      const first = await storeWithThumb(ctx, 'https://bestdori.com/a.png');
+      ctx.advance(DAY);
+      const second = await storeWithThumb(ctx, 'https://bestdori.com/b.png');
+
+      expect(existsSync(first.entry.path)).toBe(false);
+      expect(existsSync(first.thumbPath)).toBe(false);
+      expect(existsSync(second.thumbPath)).toBe(true);
+      expect((await ctx.cache.stats()).totalBytes).toBe(8);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  it('重存同一条目但这次没产出缩略图：旧的缩略图文件清掉（不留索引里没有的孤儿）', async () => {
+    const ctx = makeCache({ makeThumb: () => ({ bytes: Buffer.alloc(3), contentType: 'image/png' }) });
+    const url = 'https://bestdori.com/cover.png';
+    try {
+      const first = await storeWithThumb(ctx, url);
+      expect(existsSync(first.thumbPath)).toBe(true);
+
+      // 换一个「产不出缩略图」的实例重存同一条（文件名一致 = 覆盖那条）
+      const noMaker = createAssetCache({ dir: ctx.dir });
+      const second = await noMaker.store({ url, kind: 'binary', bytes: Buffer.alloc(4, 2), contentType: 'image/png' });
+
+      expect(second.thumb).toBeUndefined();
+      expect(existsSync(first.thumbPath)).toBe(false);
+      expect(readdirSync(ctx.dir).sort()).toEqual([second.file, INDEX_FILE].sort());
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  it('ensureThumb 只认索引里那一条：条目已经被摘掉就不再产（免得留没人认领的文件）', async () => {
+    const ctx = makeCache({ makeThumb: () => ({ bytes: Buffer.alloc(3), contentType: 'image/png' }) });
+    try {
+      await storeWithThumb(ctx, 'https://bestdori.com/gone.png');
+      const hit = (await ctx.cache.lookup({ url: 'https://bestdori.com/gone.png', kind: 'binary' }))!;
+      await ctx.cache.drop(hit);
+
+      await expect(ctx.cache.ensureThumb(hit)).resolves.toBeNull();
+      expect(readdirSync(ctx.dir)).toEqual([INDEX_FILE]);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  it('索引里的缩略图记录坏了（越界 / 形状不对）：整条不认，不回错文件', async () => {
+    const ctx = makeCache();
+    try {
+      writeFileSync(join(ctx.dir, INDEX_FILE), JSON.stringify({
+        version: 1,
+        entries: {
+          deadbeefdeadbeef: {
+            url: 'https://bestdori.com/x.png',
+            kind: 'binary',
+            file: 'ok.png',
+            bytes: 1,
+            cachedAt: 1,
+            lastUsedAt: 1,
+            thumb: { file: '../evil.png', bytes: 1, contentType: 'image/png' },
+          },
+        },
+      }));
+      const stats = await ctx.cache.stats();
+      expect(stats.count).toBe(0);
     } finally {
       ctx.cleanup();
     }

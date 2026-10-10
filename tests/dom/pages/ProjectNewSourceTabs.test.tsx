@@ -13,6 +13,7 @@ import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import ProjectsPage from '@/src/pages/projects/ProjectsPage';
 import { ChartProjectStore } from '@/src/project/ChartProject';
 import { clearSongCatalogCache } from '@/src/community/bestdori/songs';
+import { installIntersectionObserverStub } from '@/tests/support/intersection';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
 import { seedZhSettings } from '@/tests/support/storage';
 
@@ -115,14 +116,19 @@ function switchSource(dialog: HTMLElement, name: string) {
 
 const tabNames = ['空白新建', '从本地谱面导入', '从官方谱面导入', '从社区谱面导入'];
 
+// 票 15：目录行里的封面缩略图靠 IntersectionObserver 懒加载，这里桩一个（不滚动 = 一行都不取图）
+let io: ReturnType<typeof installIntersectionObserverStub>;
+
 beforeEach(() => {
   seedZhSettings();
   setActivePage.mockClear();
+  io = installIntersectionObserverStub();
   installFakeBridge();
 });
 
 afterEach(() => {
   delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+  io.restore();
   clearSongCatalogCache();
 });
 

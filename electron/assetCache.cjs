@@ -10,6 +10,10 @@
  * 三件事只住在这里：**寻址（URL → 文件）**、**记账（lastUsedAt / bytes）**、**回收**。
  * 「多久算新鲜、过期怎么办」是网关的策略（见 communityNet.cjs），本模块不掺和。
  *
+ * 缩略图（票 15）是**同一条目的附产**：图片进缓存时顺手产一份（`makeThumb` 注入，见
+ * assetThumbnails.cjs），文件名挂在条目的 `thumb` 上；占用、回收、摘除都算上它。
+ * 「老条目没有缩略图」由 `ensureThumb()` 现产自愈 —— 它是**只读时的补救**，不影响 store 的写法。
+ *
  * 版权口径（ADR-0011 §4 + issue 05）：缓存只在用户本机、只为复用下载，**不进任何分发物**；
  * 工程自己的音频 / 封面仍是拷进 `<数据根>/projects/<id>/`，缓存只做「下载一次、多处复用」的源。
  */
@@ -50,17 +54,37 @@ function cacheFileName(url, suggestedName) {
     return `${hash16(url)}-${safeStem(suggestedName)}`;
 }
 
+/** 文件名只准是文件名：越界路径（历史索引被改过）一律不认 */
+function isFileName(value) {
+    return typeof value === 'string' && value !== '' && !value.includes('/') && !value.includes('\\');
+}
+
+/** 索引里的缩略图记录（可以没有）：file 与条目同规矩，bytes / contentType 供记账与响应头用 */
+function isThumb(value) {
+    if (value == null) return true;
+    if (typeof value !== 'object') return false;
+    if (!isFileName(value.file)) return false;
+    if (!Number.isFinite(value.bytes) || value.bytes < 0) return false;
+    if (value.contentType != null && typeof value.contentType !== 'string') return false;
+    return true;
+}
+
 /** 索引里的条目：形状不对的整条丢（索引文件是本机状态，坏了不能拖垮功能） */
 function isEntry(value) {
     if (value == null || typeof value !== 'object') return false;
     const { url, kind, file, bytes, cachedAt, lastUsedAt } = value;
     if (typeof url !== 'string' || url === '') return false;
     if (typeof kind !== 'string' || kind === '') return false;
-    // file 只准是文件名：越界路径（历史索引被改过）一律不认
-    if (typeof file !== 'string' || file === '' || file.includes('/') || file.includes('\\')) return false;
+    if (!isFileName(file)) return false;
     if (!Number.isFinite(bytes) || bytes < 0) return false;
     if (!Number.isFinite(cachedAt) || !Number.isFinite(lastUsedAt)) return false;
+    if (!isThumb(value.thumb)) return false;
     return true;
+}
+
+/** 一条素材的磁盘占用：原图 + 缩略图（统计与回收都看它，别把缩略图漏在账外） */
+function entryBytes(entry) {
+    return entry.bytes + (entry.thumb ? entry.thumb.bytes : 0);
 }
 
 function parseIndex(raw) {
@@ -96,6 +120,7 @@ async function removeFile(filePath) {
  *   now?: () => number,
  *   maxAgeMs?: number,
  *   maxBytes?: number,
+ *   makeThumb?: (bytes: Buffer, contentType: string | null) => ({ bytes: Buffer | Uint8Array, contentType?: string | null } | null),
  * }} options
  */
 function createAssetCache(options) {
@@ -103,6 +128,8 @@ function createAssetCache(options) {
     const now = (options && options.now) || Date.now;
     const maxAgeMs = (options && options.maxAgeMs) ?? MAX_AGE_MS;
     const maxBytes = (options && options.maxBytes) ?? MAX_BYTES;
+    /** 缩略图产出（票 15）：注入的纯函数，产出为空 = 这条素材没有缩略图 */
+    const makeThumb = (options && options.makeThumb) || null;
 
     /** @type {{ version: number, entries: Record<string, any> } | null} */
     let index = null;
@@ -159,16 +186,16 @@ function createAssetCache(options) {
     /** 超上限就按最久未用清到线上（写入后扫一次用这条） */
     async function enforceSize(resolved, idx) {
         const entries = Object.entries(idx.entries);
-        let total = entries.reduce((sum, [, entry]) => sum + entry.bytes, 0);
+        let total = entries.reduce((sum, [, entry]) => sum + entryBytes(entry), 0);
         if (total <= maxBytes) return { removed: 0, freedBytes: 0 };
         let removed = 0;
         let freedBytes = 0;
         for (const [key, entry] of entries.sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt)) {
             if (total <= maxBytes) break;
             delete idx.entries[key];
-            await removeFile(path.join(resolved, entry.file));
-            total -= entry.bytes;
-            freedBytes += entry.bytes;
+            await removeEntryFiles(resolved, entry);
+            total -= entryBytes(entry);
+            freedBytes += entryBytes(entry);
             removed += 1;
         }
         return { removed, freedBytes };
@@ -199,13 +226,52 @@ function createAssetCache(options) {
         return freedBytes;
     }
 
+    /**
+     * 给一条素材产缩略图并落盘，回索引里那条 `thumb` 记录（产不出 / 写不进都回 null）。
+     * 全程尽力而为：缩略图是**加速件**，它失败不该让素材本身进不去缓存。
+     * 文件名 = 原图名 + `.thumb.png`（产出器只产 PNG，见 assetThumbnails.cjs）。
+     * @returns {Promise<{ file: string, bytes: number, contentType: string | null } | null>}
+     */
+    async function writeThumb(resolved, file, bytes, contentType) {
+        if (typeof makeThumb !== 'function') return null;
+        let made = null;
+        try {
+            made = await makeThumb(bytes, contentType ?? null);
+        } catch {
+            return null;
+        }
+        if (made == null || !(made.bytes instanceof Uint8Array) || made.bytes.length === 0) return null;
+        const thumbFile = `${file}.thumb.png`;
+        const thumbPath = path.join(resolved, thumbFile);
+        const tmpPath = `${thumbPath}.part-${process.pid}-${Date.now()}`;
+        try {
+            await fs.promises.writeFile(tmpPath, Buffer.from(made.bytes));
+            await fs.promises.rename(tmpPath, thumbPath);
+        } catch {
+            await removeFile(tmpPath);
+            return null;
+        }
+        return {
+            file: thumbFile,
+            bytes: Buffer.from(made.bytes).length,
+            contentType: made.contentType ?? null,
+        };
+    }
+
+    /** 摘掉条目名下（原图之外）的缩略图文件；本来就是坏的索引也尽力删 */
+    async function removeEntryFiles(resolved, entry) {
+        await removeFile(path.join(resolved, entry.file));
+        if (entry.thumb) await removeFile(path.join(resolved, entry.thumb.file));
+    }
+
     const api = {
         /** 缓存目录（现取：数据根可以被用户搬家） */
         resolveDir,
 
         /**
          * 按 URL + kind 找条目；文件没了 / URL 对不上都当未命中（顺手把坏条目摘掉）。
-         * 命中会更新 lastUsedAt（回收看的是它）。
+         * 命中会更新 lastUsedAt（回收看的是它）。缩略图缺失**不算未命中**（`thumb` 只是记录，
+         * 真要读它走 `ensureThumb()`）。
          * @param {{ url: string, kind: string }} query
          */
         async lookup(query) {
@@ -259,6 +325,8 @@ function createAssetCache(options) {
             await fs.promises.rename(tmpPath, filePath);
 
             const at = now();
+            const previous = idx.entries[hash16(url)];
+            const thumb = await writeThumb(resolved, file, buffer, contentType);
             idx.entries[hash16(url)] = {
                 url,
                 kind,
@@ -268,14 +336,55 @@ function createAssetCache(options) {
                 status,
                 cachedAt: at,
                 lastUsedAt: at,
+                ...(thumb ? { thumb } : {}),
             };
+            // 旧的缩略图不再被这条引用（这次没产出来 / 换了文件名）：删掉，别留成索引里没有的孤儿
+            if (previous != null && previous.thumb != null && previous.thumb.file !== thumb?.file) {
+                await removeFile(path.join(resolved, previous.thumb.file));
+            }
             await flush();
             await enforceSize(resolved, idx);
             await maybeSweep();
             return { ...idx.entries[hash16(url)], path: filePath };
         },
 
-        /** 摘掉一条（内容坏了 / 不再适用） */
+        /**
+         * 取缩略图（票 15）：条目里记着就直接用；没记着（本功能之前进的缓存 / 上次产出失败）
+         * 就拿原图现产一份并写回索引 —— **老缓存自愈**，不必让用户清缓存。
+         * 产不出（不是图片 / 解码失败 / 没接产出器）回 null = 界面降级成图标。
+         * @param {{ url: string, file: string, bytes: number, contentType?: string | null, path?: string, thumb?: any }} entry
+         * @returns {Promise<{ file: string, bytes: number, contentType: string | null, path: string } | null>}
+         */
+        async ensureThumb(entry) {
+            const resolved = await ensureDir();
+            const idx = await loadIndex();
+            // 只认「索引里还是那一条」：条目被清 / 被换过就不产了 —— 免得产出一份没人认领的文件
+            const current = idx.entries[hash16(entry.url)];
+            if (current == null || current.file !== entry.file) return null;
+            if (entry.thumb != null) {
+                const existing = path.join(resolved, entry.thumb.file);
+                try {
+                    await fs.promises.access(existing);
+                    return { ...entry.thumb, path: existing };
+                } catch {
+                    // 文件没了（被清 / 被删）：下面重建
+                }
+            }
+            const originalPath = entry.path ?? path.join(resolved, entry.file);
+            let original;
+            try {
+                original = await fs.promises.readFile(originalPath);
+            } catch {
+                return null;
+            }
+            const made = await writeThumb(resolved, entry.file, original, entry.contentType ?? null);
+            if (made == null) return null;
+            current.thumb = made;
+            await flush();
+            return { ...made, path: path.join(resolved, made.file) };
+        },
+
+        /** 摘掉一条（内容坏了 / 不再适用）；缩略图跟着走 */
         async drop(entry) {
             const idx = await loadIndex();
             const key = hash16(entry.url);
@@ -283,10 +392,12 @@ function createAssetCache(options) {
             if (current != null && current.file !== entry.file) return;
             delete idx.entries[key];
             await removeFile(entry.path ?? path.join(resolveDir(), entry.file));
+            const thumbFile = entry.thumb?.file ?? current?.thumb?.file;
+            if (thumbFile) await removeFile(path.join(resolveDir(), thumbFile));
             await flush();
         },
 
-        /** 占用统计（设置页「存储与数据」用） */
+        /** 占用统计（设置页「存储与数据」用）；缩略图算进它所属条目的桶里，不单列 */
         async stats() {
             await ensureDir();
             const idx = await loadIndex();
@@ -295,10 +406,10 @@ function createAssetCache(options) {
             let totalBytes = 0;
             let count = 0;
             for (const entry of Object.values(idx.entries)) {
-                totalBytes += entry.bytes;
+                totalBytes += entryBytes(entry);
                 count += 1;
                 const bucket = byKind[entry.kind] ?? { bytes: 0, count: 0 };
-                bucket.bytes += entry.bytes;
+                bucket.bytes += entryBytes(entry);
                 bucket.count += 1;
                 byKind[entry.kind] = bucket;
             }
@@ -324,8 +435,11 @@ function createAssetCache(options) {
                 if (!exists || at - entry.lastUsedAt > maxAgeMs) {
                     delete idx.entries[key];
                     if (exists) {
-                        await removeFile(filePath);
-                        freedBytes += entry.bytes;
+                        await removeEntryFiles(resolved, entry);
+                        freedBytes += entryBytes(entry);
+                    } else if (entry.thumb) {
+                        // 原图已经没了：缩略图别留成没人认领的孤儿
+                        await removeFile(path.join(resolved, entry.thumb.file));
                     }
                     removed += 1;
                 }
