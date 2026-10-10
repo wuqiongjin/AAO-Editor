@@ -1,0 +1,160 @@
+// @vitest-environment jsdom
+// 票 16：选曲面板预览区的素材复用 —— 封面大图与试听音频**本机优先、直链降级**。
+//
+// 锁的是预览这条通道（目录行缩略图归 OfficialPickerThumbs 那族）：
+//   - 封面：先读本机（`aao-asset://raw/`，缓存命中零网络）→ 未缓存协议 404 落回直链 →
+//     直链也失败才降级成图标（体感与 16 之前一致）；
+//   - 音频：先读本机（导入过的歌才有缓存；协议含 Range，拖进度条不重下）→ 未命中落回直链；
+//   - 选中即经网关把封面收进缓存（Q2：导入零下载的保险；行可见时 15/17 已收过，这里兜底去重）。
+import '@testing-library/jest-dom/vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
+import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
+import ProjectsPage from '@/src/pages/projects/ProjectsPage';
+import { ChartProjectStore } from '@/src/project/ChartProject';
+import { clearSongCatalogCache } from '@/src/community/bestdori/songs';
+import { assetRawUrl } from '@/src/community/assetUrls';
+import { installIntersectionObserverStub } from '@/tests/support/intersection';
+import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
+import { seedZhSettings } from '@/tests/support/storage';
+
+const SONG_TITLE = 'BLACK SHOUT';
+/** 有封面名的曲子（song 29；封面直链与 OfficialPickerThumbs 同一首） */
+const JACKET_URL = 'https://bestdori.com/assets/jp/musicjacket/musicjacket30_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket30-blackshout-jacket.png';
+/** 试听音频直链（song 29 · bgm029） */
+const AUDIO_URL = 'https://bestdori.com/assets/jp/sound/bgm029_rip/bgm029.mp3';
+const STAGED_COVER_PATH = '/data/cache/community/bbb-blackshout.png';
+
+const SONGS_INDEX = {
+  '29': {
+    tag: 'normal',
+    bandId: 5,
+    jacketImage: ['blackshout'],
+    musicTitle: ['BLACK SHOUT', 'BLACK SHOUT', 'BLACK SHOUT', 'BLACK SHOUT', 'BLACK SHOUT'],
+    publishedAt: ['1462071600000', '1462104000000', '1507003200000', '1462075200000', '1462071600000'],
+    difficulty: { 3: { playLevel: 25 }, 4: { playLevel: 26 } },
+  },
+};
+const BANDS_INDEX = {
+  '5': { bandName: ['Roselia', 'Roselia', 'Roselia', 'Roselia', 'Roselia'] },
+};
+const SONG_DETAIL = { bgmId: 'bgm029', length: 120 };
+
+type RequestPayload = { url: string; responseType?: string };
+
+/** 假桥：json 回曲库 / 单曲详情，binary 回素材缓存路径（照 07 契约） */
+function installFakeBridge(): ReturnType<typeof vi.fn> {
+  const request = vi.fn(async (payload: RequestPayload) => {
+    if (payload.responseType === 'binary') {
+      return {
+        ok: true,
+        responseType: 'binary',
+        status: 200,
+        path: STAGED_COVER_PATH,
+        byteLength: 98_575,
+        contentType: 'image/png',
+      };
+    }
+    if (payload.url.endsWith('/api/songs/all.5.json')) return { ok: true, responseType: 'json', status: 200, data: SONGS_INDEX };
+    if (payload.url.endsWith('/api/bands/all.1.json')) return { ok: true, responseType: 'json', status: 200, data: BANDS_INDEX };
+    if (payload.url.endsWith('/api/songs/29.json')) return { ok: true, responseType: 'json', status: 200, data: SONG_DETAIL };
+    return { ok: false, error: { kind: 'request-rejected', message: `未打桩: ${payload.url}` } };
+  });
+  (window as unknown as { electronAPI?: unknown }).electronAPI = { communityNet: { request } };
+  return request;
+}
+
+const setActivePage = vi.fn();
+const navValue = {
+  activePage: 'projects' as PageId,
+  setActivePage,
+  pageScope: null,
+  navCollapsed: true,
+  setNavCollapsed: () => {},
+};
+
+function renderPage() {
+  return renderWithProviders(
+    <ConfigProvider>
+      <AppNavProvider value={navValue}><ProjectsPage /></AppNavProvider>
+    </ConfigProvider>,
+    { store: new ChartProjectStore(makeMemoryProjectBackend([])) },
+  );
+}
+
+/** 打开「从官方谱面导入」→ 选中 song 29 → 预览区出现（不滚列表：行取图不掺和这条降级链） */
+async function openPreview() {
+  renderPage();
+  await screen.findByText('全部工程');
+  fireEvent.click(screen.getByRole('button', { name: /空白新建/ }));
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: /从官方谱面导入/ }));
+  const row = await within(dialog).findByRole('option', { name: new RegExp(SONG_TITLE) });
+  fireEvent.click(row);
+  // 曲名与列表行同名：认预览区标题那个节点（ OfficialPickerThumbs 同款做法）
+  await waitFor(() => expect(dialog.querySelector('.off-preview__title')?.textContent).toBe(SONG_TITLE));
+  const preview = dialog.querySelector('.off-preview');
+  if (!(preview instanceof HTMLElement)) throw new Error('预览区没渲染');
+  return { dialog, preview };
+}
+
+/** 请求里所有 binary（= 收封面进缓存）的 URL */
+function binaryUrls(request: ReturnType<typeof vi.fn>): string[] {
+  return (request.mock.calls as RequestPayload[][])
+    .map((call) => call[0])
+    .filter((payload) => payload.responseType === 'binary')
+    .map((payload) => payload.url);
+}
+
+let request: ReturnType<typeof vi.fn>;
+let io: ReturnType<typeof installIntersectionObserverStub>;
+
+beforeEach(() => {
+  seedZhSettings();
+  setActivePage.mockClear();
+  io = installIntersectionObserverStub();
+  request = installFakeBridge();
+});
+
+afterEach(() => {
+  delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+  io.restore();
+  clearSongCatalogCache();
+});
+
+describe('票 16 · 预览区的素材复用（本机优先、直链降级）', () => {
+  it('封面先读本机大图；未缓存（协议 404）落回直链；直链也失败才降级成图标', async () => {
+    const { preview } = await openPreview();
+
+    // 第一落点：本机原始字节（raw 支），不是直链
+    await waitFor(() => expect(preview.querySelector('.off-cover img')).not.toBeNull());
+    expect(preview.querySelector('.off-cover img')!.getAttribute('src')).toBe(assetRawUrl(JACKET_URL));
+
+    // 本机没有（未缓存）→ 直链；直链也失败 → 图标（与 16 之前的终态一致）
+    fireEvent.error(preview.querySelector('.off-cover img')!);
+    expect(preview.querySelector('.off-cover img')!.getAttribute('src')).toBe(JACKET_URL);
+    fireEvent.error(preview.querySelector('.off-cover img')!);
+    expect(preview.querySelector('.off-cover img')).toBeNull();
+    expect(preview.querySelector('.off-cover svg')).not.toBeNull();
+  });
+
+  it('试听先读本机（导入过的歌才有缓存）；未命中落回直链', async () => {
+    const { preview } = await openPreview();
+
+    // 详情到位后 CompactAudio 出现，第一落点是本机音频
+    await waitFor(() => expect(preview.querySelector('audio')).not.toBeNull());
+    expect(preview.querySelector('audio')!.getAttribute('src')).toBe(assetRawUrl(AUDIO_URL));
+
+    // 本机没有（这歌没导入过）→ 直链边下边播
+    fireEvent.error(preview.querySelector('audio')!);
+    expect(preview.querySelector('audio')!.getAttribute('src')).toBe(AUDIO_URL);
+  });
+
+  it('选中即经网关把封面收进缓存（Q2：这次导入就零下载；行没滚到也兜底）', async () => {
+    await openPreview();
+
+    // 行没滚到、行的后台取图没跑：这一枪来自「选中」本身
+    await waitFor(() => expect(binaryUrls(request)).toEqual([JACKET_URL]));
+  });
+});

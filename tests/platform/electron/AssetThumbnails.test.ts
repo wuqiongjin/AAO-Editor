@@ -74,7 +74,7 @@ describe('票 15 · 缩略图产出：96×96 方形 PNG', () => {
 
 describe('票 15 · 缩略图接进缓存：进缓存时顺手产出', () => {
   it('store 时产一份，挂在条目上，文件真的落盘', async () => {
-    const dir = tmpDir('tsugu-thumb-store-');
+    const dir = tmpDir('aao-thumb-store-');
     try {
       const cache = createAssetCache({
         dir,
@@ -101,7 +101,7 @@ describe('票 15 · 缩略图接进缓存：进缓存时顺手产出', () => {
   });
 
   it('产出器抛异常 / 回空：素材照样进缓存，只是没有缩略图', async () => {
-    const dir = tmpDir('tsugu-thumb-fail-');
+    const dir = tmpDir('aao-thumb-fail-');
     try {
       const cache = createAssetCache({
         dir,
@@ -119,7 +119,7 @@ describe('票 15 · 缩略图接进缓存：进缓存时顺手产出', () => {
   });
 
   it('没接产出器时一切照旧（不产缩略图，也不报错）', async () => {
-    const dir = tmpDir('tsugu-thumb-none-');
+    const dir = tmpDir('aao-thumb-none-');
     try {
       const cache = createAssetCache({ dir });
       const entry = await cache.store({ url: 'https://bestdori.com/x.png', kind: 'binary', bytes: Buffer.alloc(4) });
@@ -131,7 +131,7 @@ describe('票 15 · 缩略图接进缓存：进缓存时顺手产出', () => {
   });
 
   it('老缓存自愈：条目上没有缩略图的记录 → 现产一份并写回索引，第二次直接用', async () => {
-    const dir = tmpDir('tsugu-thumb-heal-');
+    const dir = tmpDir('aao-thumb-heal-');
     try {
       const url = 'https://bestdori.com/assets/jp/musicjacket/old.png';
       // 先用「没有产出器」的实例落一条（= 票 15 之前进的缓存）
@@ -165,7 +165,7 @@ describe('票 15 · 缩略图接进缓存：进缓存时顺手产出', () => {
   });
 
   it('缩略图文件被删：ensureThumb 重产一份（记录坏了也修）', async () => {
-    const dir = tmpDir('tsugu-thumb-rebuild-');
+    const dir = tmpDir('aao-thumb-rebuild-');
     try {
       const cache = createAssetCache({
         dir,

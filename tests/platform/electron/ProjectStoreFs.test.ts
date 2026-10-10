@@ -44,7 +44,7 @@ function doc(overrides: Record<string, unknown> = {}) {
 
 describe('electron/projectStore · 真文件往返', () => {
   it('put/get/list/delete 多工程，封面与音频写成独立 bin', async () => {
-    const root = tmpDir('tsugu-proj-fs-');
+    const root = tmpDir('aao-proj-fs-');
     try {
       ensureDataRootLayoutSync(root);
       await putProject(root, {
@@ -91,7 +91,7 @@ describe('electron/projectStore · 真文件往返', () => {
   });
 
   it('票 08 / 14 · 从素材缓存拷素材进工程：字节不过 IPC，present 照常算', async () => {
-    const root = tmpDir('tsugu-proj-cached-');
+    const root = tmpDir('aao-proj-cached-');
     try {
       ensureDataRootLayoutSync(root);
       const binDir = cacheDir(root);
@@ -122,7 +122,7 @@ describe('electron/projectStore · 真文件往返', () => {
   });
 
   it('票 08 / 14 · 缓存之外的路径一律拒（路径来自渲染进程，必须卡在 cache/community/ 内）', async () => {
-    const root = tmpDir('tsugu-proj-cached-');
+    const root = tmpDir('aao-proj-cached-');
     try {
       ensureDataRootLayoutSync(root);
       writeFileSync(join(root, 'secret.bin'), Buffer.from([1]));
@@ -158,7 +158,7 @@ describe('electron/projectStore · 真文件往返', () => {
   });
 
   it('票 08 · 缓存文件不见了就整笔失败：不写一个「说有音频却没有」的工程', async () => {
-    const root = tmpDir('tsugu-proj-cached-');
+    const root = tmpDir('aao-proj-cached-');
     try {
       ensureDataRootLayoutSync(root);
       await expect(putProject(root, {
@@ -173,7 +173,7 @@ describe('electron/projectStore · 真文件往返', () => {
   });
 
   it('旧「一份 notes」记录读回为不存在，磁盘文件不被删除', async () => {
-    const root = tmpDir('tsugu-proj-v1-');
+    const root = tmpDir('aao-proj-v1-');
     try {
       const dir = join(root, 'projects', 'default');
       mkdirSync(dir, { recursive: true });

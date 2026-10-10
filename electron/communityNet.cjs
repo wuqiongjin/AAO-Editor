@@ -21,7 +21,7 @@ const { createCookieJar } = require('./communityCookies.cjs');
 /** 唯一允许的主机（renderer 侧的端点常量在 src/community/bestdori/endpoints.ts） */
 const ALLOWED_HOSTS = ['bestdori.com'];
 /** 自报身份：低速率、写清用途（照 scripts/lib/bestdori-http.mjs 口径） */
-const DEFAULT_USER_AGENT = 'tsugu-bestdori-client/1.0 (local chart editor; low-rate fetching)';
+const DEFAULT_USER_AGENT = 'aao-bestdori-client/1.0 (local chart editor; low-rate fetching)';
 /**
  * 队列分档（票 17 修订 07 的「单飞」口径）：
  *   - **API 档**（json / text：曲库索引、单曲详情、谱面原文、帖子）：1 并发 + 两次开始间隔 ≥400ms —— 07 原口径不动；

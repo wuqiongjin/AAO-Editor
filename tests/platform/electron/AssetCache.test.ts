@@ -22,7 +22,7 @@ function makeCache(options: {
   maxAgeMs?: number;
   makeThumb?: (bytes: Buffer, contentType: string | null) => unknown;
 } = {}) {
-  const dir = tmpDir('tsugu-asset-cache-');
+  const dir = tmpDir('aao-asset-cache-');
   // 起点取真实现在：`.part-*` 的年龄看文件 mtime（真时钟），两者得能比
   let time = Date.now();
   const cache = createAssetCache({

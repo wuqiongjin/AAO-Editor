@@ -1,5 +1,7 @@
 // 「从官方谱面导入」的选曲面板（票 08 + 票 13 #7–#11）：
 // 预览在左、目录在右；筛选手风琴；封面占位淡入；同步导入走同一排芯片。
+// 预览素材本机优先（票 16）：封面大图 / 试听音频先读素材缓存（aao-asset://raw/），
+// 未缓存协议 404 才落回直链 —— 已导入过的歌再次预览与导入都零网络。
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { AlertTriangle, ListFilter, Music4, X } from 'lucide-react';
 import {
@@ -13,11 +15,14 @@ import {
   type SongCandidate,
 } from '../../../community/bestdori/mapping';
 import {
+  audioLocalUrl,
   audioPreviewUrl,
   catalogBandOptions,
+  ensureOfficialCoverCached,
   fetchSongCatalog,
   fetchSongDetail,
   filterSongCandidates,
+  jacketLocalUrl,
   jacketPreviewUrl,
   SONG_LEVEL_FILTER_DEFAULT,
 } from '../../../community/bestdori/songs';
@@ -69,6 +74,9 @@ export function OfficialSongPanel({
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
   const [coverReady, setCoverReady] = useState(false);
+  /** 预览的本机 URL 没取到（票 16：未缓存协议 404）→ 落回直链（封面 / 音频各自一条降级链） */
+  const [coverUseDirect, setCoverUseDirect] = useState(false);
+  const [audioUseDirect, setAudioUseDirect] = useState(false);
   const [withChart, setWithChart] = useState(selection?.withChart ?? false);
   const [diff, setDiff] = useState<OfficialDifficulty>(selection?.diff ?? 'expert');
   const [retrying, setRetrying] = useState(false);
@@ -92,8 +100,13 @@ export function OfficialSongPanel({
     setDetailError(null);
     setCoverFailed(false);
     setCoverReady(false);
+    setCoverUseDirect(false);
+    setAudioUseDirect(false);
     setDiff((current) => resolveSongDiff(song, current));
     setLoadingDetail(true);
+    // 选中即把封面收进素材缓存（票 16 Q2）：通常行可见时已收过（15/17），这里兜一次底 ——
+    // 命中零网络、并发去重；之前那次后台取图失败的话，这一枪就是导入零下载的保险
+    void ensureOfficialCoverCached(net, song).catch(() => undefined);
     void fetchSongDetail(net, song.id)
       .then(setDetail)
       .catch((error: unknown) => setDetailError(officialErrorText(error)))
@@ -245,11 +258,15 @@ export function OfficialSongPanel({
                       <>
                         {!coverReady && <span className="off-cover__ph">{t('projects.official.coverPlaceholder')}</span>}
                         <img
-                          src={jacketPreviewUrl(selected)}
+                          src={coverUseDirect ? jacketPreviewUrl(selected) : jacketLocalUrl(selected)}
                           alt=""
                           className={coverReady ? 'is-in' : ''}
                           onLoad={() => setCoverReady(true)}
-                          onError={() => setCoverFailed(true)}
+                          onError={() => {
+                            // 本机没有（未缓存，票 16）→ 落回直链；直链也不成 → 图标
+                            if (coverUseDirect) setCoverFailed(true);
+                            else setCoverUseDirect(true);
+                          }}
                         />
                       </>
                     ) : (
@@ -295,7 +312,19 @@ export function OfficialSongPanel({
                 {detailError ? (
                   <p className="off-status">{detailError}</p>
                 ) : (
-                  <CompactAudio src={loadingDetail || detail == null ? null : audioPreviewUrl(selected, detail)} />
+                  <CompactAudio
+                    src={
+                      loadingDetail || detail == null
+                        ? null
+                        : audioUseDirect
+                          ? audioPreviewUrl(selected, detail)
+                          : audioLocalUrl(selected, detail)
+                    }
+                    onError={() => {
+                      // 本机没有（这歌没导入过，票 16）→ 落回直链边下边播
+                      setAudioUseDirect(true);
+                    }}
+                  />
                 )}
               </>
             )}

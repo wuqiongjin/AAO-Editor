@@ -11,7 +11,7 @@
  *     落地前必须认出来。
  */
 import { getActiveUiLanguage, type UiLanguage } from '../../i18n';
-import { assetThumbUrl } from '../assetUrls';
+import { assetRawUrl, assetThumbUrl } from '../assetUrls';
 import { withRetry, type RetryNotice } from '../rateLimit';
 import { CommunityError, type CommunityTransport, type StagedBinary } from '../transport';
 import {
@@ -201,7 +201,7 @@ export function coverFileName(song: SongCandidate): string {
  * 是这条口径的来源。取数（导入 / 拉索引）仍一律走主进程网关。
  * ------------------------------------------------------------ */
 
-/** 封面预览直链（选曲面板预览区的 `<img src>`；取不到时浏览器自己走 onError 降级） */
+/** 封面预览的**直链**（预览区本机 404 时的落点；也是封面进缓存的寻址 upstream） */
 export function jacketPreviewUrl(song: SongCandidate): string {
   return officialJacketUrl(song.id, song.jacketImage, song.server);
 }
@@ -213,6 +213,14 @@ export function jacketPreviewUrl(song: SongCandidate): string {
  */
 export function jacketThumbUrl(song: SongCandidate): string {
   return assetThumbUrl(jacketPreviewUrl(song));
+}
+
+/**
+ * 预览区大图的本机 URL（票 16）：读缓存里那张原图（`aao-asset://raw/`，只认**已缓存**的）。
+ * 已缓存 → 零网络秒出；未缓存 → 协议 404，预览区落回 `jacketPreviewUrl` 直链（体感同现状）。
+ */
+export function jacketLocalUrl(song: SongCandidate): string {
+  return assetRawUrl(jacketPreviewUrl(song));
 }
 
 /** 同一首歌的「收封面进缓存」并发只发一次：行内缩略图在 StrictMode 下会跑两遍 effect */
@@ -238,9 +246,17 @@ export function ensureOfficialCoverCached(
   return promise;
 }
 
-/** 试听直链（`<audio src>`；Chromium 会按 Range 边下边播，不必先导入） */
+/** 试听直链（`<audio src>` 的降级落点；Chromium 会按 Range 边下边播，不必先导入） */
 export function audioPreviewUrl(song: SongCandidate, detail: OfficialSongDetail): string {
   return officialAudioUrl(detail.bgmId, song.server);
+}
+
+/**
+ * 试听的本机 URL（票 16）：音频进缓存的唯一路径是**导入**（预览不替用户下 4MB，Q2 定案只收封面），
+ * 所以这条只对导入过的歌命中 —— 命中后拖进度条读本地（协议含 Range）；未命中 404，落回直链。
+ */
+export function audioLocalUrl(song: SongCandidate, detail: OfficialSongDetail): string {
+  return assetRawUrl(audioPreviewUrl(song, detail));
 }
 
 /** 就地搜索：命中标题或歌手（大小写不敏感；空查询 = 全部） */

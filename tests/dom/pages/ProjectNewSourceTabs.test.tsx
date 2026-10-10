@@ -13,6 +13,7 @@ import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import ProjectsPage from '@/src/pages/projects/ProjectsPage';
 import { ChartProjectStore } from '@/src/project/ChartProject';
 import { clearSongCatalogCache } from '@/src/community/bestdori/songs';
+import { assetRawUrl } from '@/src/community/assetUrls';
 import { installIntersectionObserverStub } from '@/tests/support/intersection';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
 import { seedZhSettings } from '@/tests/support/storage';
@@ -209,9 +210,12 @@ describe('票 08 · 从官方谱面导入', () => {
     expect(within(dialog).getByText(SONG_TITLE)).toBeInTheDocument();
     expect(within(dialog).queryByText('Yes! BanG_Dream!')).toBeNull();
 
-    // 选中 → 就地预览：封面直链（占位至 load 淡入）+ 已实装芯片 + 紧凑试听
+    // 选中 → 就地预览：封面 / 试听都**本机优先**（票 16：未缓存协议 404 才落回直链）；
+    // 假环境里协议不存在 → error 事件落直链，直链 load 后淡入。已实装芯片 + 紧凑试听照旧。
     fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) }));
     await waitFor(() => expect(document.querySelector('.off-cover img')).not.toBeNull());
+    expect(document.querySelector('.off-cover img')?.getAttribute('src')).toBe(assetRawUrl(JACKET_URL));
+    fireEvent.error(document.querySelector('.off-cover img')!);
     const cover = document.querySelector('.off-cover img');
     expect(cover?.getAttribute('src')).toBe(JACKET_URL);
     expect(cover?.classList.contains('is-in')).toBe(false);
@@ -222,6 +226,8 @@ describe('票 08 · 从官方谱面导入', () => {
     expect(preview?.textContent).not.toMatch(/未实装/);
     await waitFor(() => expect(document.querySelector('.off-compact-audio audio')).not.toBeNull());
     expect(document.querySelector('audio[controls]')).toBeNull();
+    expect(document.querySelector('.off-compact-audio audio')?.getAttribute('src')).toBe(assetRawUrl(AUDIO_URL));
+    fireEvent.error(document.querySelector('.off-compact-audio audio')!);
     expect(document.querySelector('.off-compact-audio audio')?.getAttribute('src')).toBe(AUDIO_URL);
     expect(within(dialog).queryByText(/官方音频与封面/)).toBeNull();
 

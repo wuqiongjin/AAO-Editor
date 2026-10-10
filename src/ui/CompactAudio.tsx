@@ -14,8 +14,11 @@ function formatClock(seconds: number): string {
 
 export default function CompactAudio({
   src,
+  onError,
 }: {
   src: string | null;
+  /** 载入失败（票 16：本机 404 → 调用方降级成直链） */
+  onError?: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -46,6 +49,7 @@ export default function CompactAudio({
           ref={audioRef}
           src={src}
           preload="metadata"
+          onError={onError}
           onTimeUpdate={() => setCurrent(audioRef.current?.currentTime ?? 0)}
           onDurationChange={() => setDuration(audioRef.current?.duration ?? 0)}
           onEnded={() => setPlaying(false)}

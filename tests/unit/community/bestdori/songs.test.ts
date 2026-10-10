@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { isCommunityError } from '@/src/community/transport';
 import {
+  audioLocalUrl,
   audioPreviewUrl,
   clearSongCatalogCache,
   fetchOfficialAudio,
@@ -10,6 +11,7 @@ import {
   fetchOfficialCover,
   fetchSongCatalog,
   fetchSongDetail,
+  jacketLocalUrl,
   jacketPreviewUrl,
   catalogBandOptions,
   filterSongCandidates,
@@ -17,6 +19,7 @@ import {
 } from '@/src/community/bestdori/songs';
 import { toSongCandidates } from '@/src/community/bestdori/mapping';
 import type { SongCandidate } from '@/src/community/bestdori/mapping';
+import { assetRawUrl } from '@/src/community/assetUrls';
 import { makeFakeCommunityTransport as fakeTransport } from '@/tests/support/communityTransport';
 
 /** 曲库条目（形状照 docs/research/bestdori-api.md §1；`musicTitle` 的服序 = [jp, en, tw, cn, kr]） */
@@ -231,7 +234,7 @@ describe('票 08 · 官方谱面代码取原文（解析留给 Apply 闸门）',
 
     await expect(fetchOfficialChartText(transport, 1, 'special')).resolves.toBe(CHART_TEXT);
     expect(transport.requests[0]?.url).toBe('https://bestdori.com/api/charts/1/special.json');
-    expect(transport.requests[0]?.headers?.['user-agent']).toContain('tsugu-bestdori-client');
+    expect(transport.requests[0]?.headers?.['user-agent']).toContain('aao-bestdori-client');
   });
 });
 
@@ -285,5 +288,13 @@ describe('票 08 · 官方音频 / 封面落下载暂存', () => {
       'https://bestdori.com/assets/en/musicjacket/musicjacket1010_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket1010-1004_see_the_world_eng-jacket.png',
     );
     expect(audioPreviewUrl(song, detail)).toBe('https://bestdori.com/assets/en/sound/bgm1004_rip/bgm1004.mp3');
+  });
+
+  it('预览的本机 URL 包住同一条直链（票 16：缓存按直链寻址，协议侧只认已缓存）', () => {
+    const song = candidate(1004);
+    const detail = { bgmId: 'bgm1004', lengthSeconds: 108.878 };
+
+    expect(jacketLocalUrl(song)).toBe(assetRawUrl(jacketPreviewUrl(song)));
+    expect(audioLocalUrl(song, detail)).toBe(assetRawUrl(audioPreviewUrl(song, detail)));
   });
 });

@@ -149,7 +149,7 @@ describe('票 14 · 素材缓存目录（<数据根>/cache/community/）', () =>
   });
 
   it('数据根布局带上 cache/community/（首次用即存在）', () => {
-    const userData = tmpDir('tsugu-cache-root-');
+    const userData = tmpDir('aao-cache-root-');
     try {
       const root = loadDataRootSync(userData);
       expect(existsSync(cacheDir(root))).toBe(true);
@@ -159,7 +159,7 @@ describe('票 14 · 素材缓存目录（<数据根>/cache/community/）', () =>
   });
 
   it('不再预建 downloads/（暂存退役，票 14）', () => {
-    const userData = tmpDir('tsugu-cache-no-downloads-');
+    const userData = tmpDir('aao-cache-no-downloads-');
     try {
       const root = loadDataRootSync(userData);
       expect(existsSync(legacyDownloadsDir(root))).toBe(false);
@@ -169,7 +169,7 @@ describe('票 14 · 素材缓存目录（<数据根>/cache/community/）', () =>
   });
 
   it('removeLegacyDownloads 清掉旧根残留；本来就没有也不报错', async () => {
-    const userData = tmpDir('tsugu-cache-legacy-');
+    const userData = tmpDir('aao-cache-legacy-');
     try {
       const root = loadDataRootSync(userData);
       mkdirSync(join(legacyDownloadsDir(root), 'inner'), { recursive: true });
@@ -185,7 +185,7 @@ describe('票 14 · 素材缓存目录（<数据根>/cache/community/）', () =>
   });
 });
 
-describe('票 15 · 本机素材协议接线（tsugu-asset://）', () => {
+describe('票 15 · 本机素材协议接线（aao-asset://）', () => {
   it('scheme 特权在 app ready 之前登记，处理器挂进去（Electron 的硬要求）', () => {
     const privilegedAt = mainSrc.indexOf('registerAssetSchemePrivileges(protocol)');
     const readyAt = mainSrc.indexOf('app.whenReady()');
@@ -219,7 +219,8 @@ describe('票 15 · 本机素材协议接线（tsugu-asset://）', () => {
   });
 
   it('读缓存不走 IPC 桥：preload 不为它开通道', () => {
-    expect(preloadSrc).not.toMatch(/tsugu-asset/);
+    // 用常量做子串断言：scheme 再改名也不用在两处同步
+    expect(preloadSrc).not.toMatch(ASSET_SCHEME);
   });
 });
 

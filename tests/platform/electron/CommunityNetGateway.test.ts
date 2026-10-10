@@ -105,7 +105,7 @@ function gatewayWith(
 
 /** 临时素材缓存目录（跑完即删） */
 async function withTmpCache<T>(run: (dir: string) => Promise<T>): Promise<T> {
-  const dir = tmpDir('tsugu-gateway-cache-');
+  const dir = tmpDir('aao-gateway-cache-');
   try {
     return await run(dir);
   } finally {
@@ -448,7 +448,7 @@ describe('票 14 · 二进制落素材缓存（字节不过 IPC）', () => {
   });
 
   it('缓存写不进去 = staging-failed（平台没问题，是本机的事）', async () => {
-    const dir = tmpDir('tsugu-community-cache-blocked-');
+    const dir = tmpDir('aao-community-cache-blocked-');
     const blocker = join(dir, 'file-not-dir');
     writeFileSync(blocker, 'x');
     try {

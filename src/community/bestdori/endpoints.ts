@@ -18,7 +18,7 @@ export const BESTDORI_HOST = 'bestdori.com';
 export const BESTDORI_ORIGIN = `https://${BESTDORI_HOST}`;
 
 /** 自报身份：低速率、写清用途（照 scripts 口径） */
-export const BESTDORI_USER_AGENT = 'tsugu-bestdori-client/1.0 (local chart editor; low-rate fetching)';
+export const BESTDORI_USER_AGENT = 'aao-bestdori-client/1.0 (local chart editor; low-rate fetching)';
 
 /** 单次超时：JSON 30s；二进制 120s（一首 4MB 级别的音频） */
 export const BESTDORI_JSON_TIMEOUT_MS = 30_000;

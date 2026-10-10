@@ -76,7 +76,7 @@ describe('06 · 跨进程同口径：id 白名单与 schema 闸门', () => {
   });
 
   it('同一 doc 语料：渲染侧读闸门与主进程 isCurrentDoc（经 getProject 实读）判决一致', async () => {
-    const root = tmpDir('tsugu-record-gate-');
+    const root = tmpDir('aao-record-gate-');
     try {
       for (const [index, { name, doc }] of DOC_CORPUS.entries()) {
         const id = `pGate${index}`;
@@ -91,7 +91,7 @@ describe('06 · 跨进程同口径：id 白名单与 schema 闸门', () => {
   });
 
   it('写侧闸门同口径：空位两侧都判可写，旧「一份 notes」两侧都拒绝覆盖', async () => {
-    const root = tmpDir('tsugu-record-gate-');
+    const root = tmpDir('aao-record-gate-');
     const payload = (id: string) => ({
       id,
       doc: {
