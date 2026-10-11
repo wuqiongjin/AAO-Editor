@@ -115,7 +115,7 @@ function switchSource(dialog: HTMLElement, name: string) {
   return dialog;
 }
 
-const tabNames = ['空白新建', '从本地谱面导入', '从官方谱面导入', '从社区谱面导入'];
+const tabNames = ['空白新建', '复制工程', '从官方谱面导入', '从社区谱面导入'];
 
 // 票 15：目录行里的封面缩略图靠 IntersectionObserver 懒加载，这里桩一个（不滚动 = 一行都不取图）
 let io: ReturnType<typeof installIntersectionObserverStub>;
@@ -134,15 +134,15 @@ afterEach(() => {
 });
 
 describe('票 12 · 新建入口四项归类', () => {
-  it('没有工程时「从本地谱面导入」禁用，并写明原因（票 13 #3）', async () => {
+  it('没有工程时「复制工程」禁用，并写明原因（票 13 #3）', async () => {
     renderPage();
     await screen.findByText('全部工程');
-    const tile = screen.getByRole('button', { name: /从本地谱面导入/ });
+    const tile = screen.getByRole('button', { name: /复制工程/ });
     expect(tile).toBeDisabled();
     expect(tile).toHaveAttribute('title', '需要已有工程');
 
     const dialog = await openNewDialog();
-    const tab = within(dialog).getByRole('button', { name: /从本地谱面导入/ });
+    const tab = within(dialog).getByRole('button', { name: /复制工程/ });
     expect(tab).toBeDisabled();
     expect(tab).toHaveAttribute('title', '需要已有工程');
   });
@@ -205,8 +205,8 @@ describe('票 08 · 从官方谱面导入', () => {
     await within(dialog).findByText(SONG_TITLE);
     expect(within(dialog).getByText('Yes! BanG_Dream!')).toBeInTheDocument();
 
-    // 搜索命中歌手（票 08 锁测：标题与歌手都要能搜到）
-    fireEvent.change(screen.getByLabelText('搜索曲名或歌手'), { target: { value: 'roselia' } });
+    // 搜索命中歌手/乐队（票 08 锁测：标题与乐队都要能搜到）
+    fireEvent.change(screen.getByLabelText('搜索曲名或乐队'), { target: { value: 'roselia' } });
     expect(within(dialog).getByText(SONG_TITLE)).toBeInTheDocument();
     expect(within(dialog).queryByText('Yes! BanG_Dream!')).toBeNull();
 

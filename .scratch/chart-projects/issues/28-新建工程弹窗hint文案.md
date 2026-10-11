@@ -1,35 +1,56 @@
-# 28 · 新建工程弹窗的 hint 文案
+# 28 · 工程管理页面文案整改与去冗余
 
 Type: chore
-Status: open
+Status: resolved
 Blocked by: —
 
 ## 来源
 
-用户 2026-10-10 反馈 #3，原话：
+1. 用户 2026-10-10 反馈 #3：
+   > 「新建谱面工程」中的描述「全部可不填。音频去音频页导入；封面、曲目来源在『编辑工程信息』里补。要贴谱面 JSON，建好后再『新增谱面』。」对用户没什么意义。
+2. 用户 2026-10-11 拓展范围：
+   > 这个 issue 内容好少，感觉可以顺带整改一下其它的文案描述……issue 28 的范围变成工程管理页面的文案整改吧。去口语化、去冗余、去 Bestdori 化。
 
-> 「新建谱面工程」中的描述「全部可不填。音频去音频页导入；封面、曲目来源在『编辑工程信息』里补。要贴谱面 JSON，建好后再『新增谱面』。」对用户没什么意义。
+## 症状与根因
 
-## 症状
+1. **过程描述式废话**：文案通篇在描述实现流程（「去哪里补、以后怎么做」），而不是用户在当前界面的动作目标；
+2. **共用 hint 逻辑破产**：新建弹窗 4 个 Tab 流程各异，单句 hint 无法覆盖且在官方选曲下甚至自相矛盾；
+3. **命名误导与口语化严重**：「从本地谱面导入」实际是「复制工程」，易误导为从磁盘导入；原提示「工程信息、音频、封面、全部谱面照搬；谱面状态不带（副本全部为未完成）。」口语化且冗长；
+4. **Bestdori 泄露至界面**：用户界面频繁出现 Bestdori 实现细节，而用户只需要关心「社区」和「游戏」。
 
-`projects.newHint`（`zh-CN.json:138`）经 `ProjectDialogs.tsx:100` 作为 `Dialog` 的 `hint` 渲染，**四个 Tab（空白新建 / 从本地谱面导入 / 从官方谱面导入 / 从社区谱面导入）共用同一句**，通篇讲的是「哪些可以不填、以后去哪补」。
+## 定案（用户 2026-10-11 两轮确认）
 
-## 根因
+### 1. 彻底移除的冗余 Hint（不留空行距）
+- `projects.newHint`（新建工程弹窗头部的全局提示）彻底移除；
+- `projects.coverHint`（编辑工程信息弹窗头部的「上传音频与封面…」提示）彻底移除，`EditInfoDialog` 移除 `hint` 传参；
+- `projects.chartNameHint`（「未填谱面名称的谱面会跟着工程名称一起变…」）彻底移除；
+- `projects.chartCodeHint`（「空白新建后也可以在工作台的谱面代码编辑器里贴…」）彻底移除。
 
-1. 文案写的是**实现流程**，不是用户此刻要做的决定（弹窗里实际只有工程名称 / 歌手 / 难度三个字段）；
-2. 同一句要覆盖四种差异极大的创建流程，写不全 —— 在「从官方谱面导入」下「全都可留空」甚至是**错的**（不选曲无法创建）。
+### 2. 四大新建入口与 Tab 文案收敛
+- **空白新建**：
+  - `projects.newBlankDesc`: 「创建全新的空白谱面工程」（en: `Create a fresh blank project`）
+- **复制工程**：
+  - `projects.newCopy` / `projects.tabCopy`: 「复制工程」（en: `Duplicate project`）
+  - `projects.newCopyDesc`: 「以已有工程为模板创建」（en: `Create from an existing project template`）
+  - `projects.copyHint`: 「完整复制音频、封面及谱面；谱面状态重置为未完成。」（en: `Copy audio, cover, and charts; chart statuses are reset to incomplete.`）
+- **官方谱面**：
+  - `projects.newOfficialDesc`: 「从官方曲库中选曲，并同步导入音频与封面」（en: `Pick songs from the official library with audio and cover`）
+  - `projects.official.searchPlaceholder`: 「搜索曲名或乐队」（en: `Search title or band`）
+- **社区谱面**：
+  - `projects.newCommunityDesc`: 「从游戏社区中选曲，并同步导入音频与封面」（en: `Pick songs from the community with audio and cover`）
 
-## 定案（用户 2026-10-11）
+### 3. 工程管理与谱面相关文案精炼
+- `projects.empty.description`: 「从空白新建开始，创建你的第一个谱面工程。」（en: `Start with a blank project to create your first chart project.`）
+- `projects.uploadsEmpty`: 「暂无上传记录。」（en: `No upload history.`）
+- `projects.chartCodePlaceholder`: 「粘贴谱面 JSON，留空则创建空白谱面」（en: `Paste chart JSON, or leave blank to create an empty chart`）
+- `projects.confirmDeleteUploaded`: 「其中 {{count}} 张已上传至社区，删除工程不会影响已发布的谱面。」（en: `{{count}} uploaded to community; deleting will not affect published charts.`）
 
-**整条 hint 删掉**；弹窗只靠 Tab 描述（`projects.newBlankDesc` 等）与字段 placeholder 承担。用户理由：几种创建方式差异大、一句覆盖不了、用户用一下就懂。
+### 4. 彻底去「Bestdori」化
+- `projects.*` 下所有面向用户的文案中，Bestdori 出现次数归零；
+- 静态测试 `tests/static/NewProjectSourceCopy.test.ts` 建立全局前缀扫检守卫，防止未来回潮。
 
-## 修法
+## 验证结论
 
-- 删 `projects.newHint` 的 zh-CN / en 两条；
-- 删 `ProjectDialogs.tsx:100` 的 `hint` 传参（顺带确认 `Dialog` 在 hint 缺省时的头部形态，不留空行距）；
-- 不新增任何替代文案。
-
-## 锁测
-
-1. 若 `tests/dom` 下有对该弹窗的文案断言，同步更新；否则补一条**静态源码断言**（照 `EditorAudioSessionRefactor.test.ts` 惯例）锁「弹窗不再引用 `projects.newHint`」—— 文案类改动 jsdom 断言价值低，静态断言即可。
-2. **真机目检**：四个 Tab 逐个切换，弹窗头部干净、无空行距；空白新建时仍能从 Tab 描述与 placeholder 看懂要填什么。
+1. `npx tsc --noEmit`：类型检查 0 错误通过；
+2. `npx vitest run tests/static/ tests/dom/`：87 个测试文件、554 个用例全绿通过；
+3. Playwright 浏览器端视觉走查：新建弹窗各 Tab、主页 Tiles、编辑工程信息弹窗、新增谱面弹窗头部及说明均干净对齐，无空行与残留样式。

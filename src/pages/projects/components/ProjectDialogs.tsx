@@ -97,7 +97,6 @@ export function NewProjectDialog({
       size={pickerShell ? 'lg' : 'md'}
       clipBody={pickerShell}
       title={t('projects.newDialogTitle')}
-      hint={t('projects.newHint')}
       onClose={close}
       footer={(
         <>
@@ -202,7 +201,6 @@ export function EditInfoDialog({ project, onClose, onSave }: {
   return (
     <Dialog
       title={t('projects.editTitle')}
-      hint={t('projects.coverHint')}
       onClose={onClose}
       footer={(
         <>

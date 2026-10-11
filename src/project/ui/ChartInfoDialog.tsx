@@ -56,7 +56,6 @@ export function ChartInfoDialog({
       <label className="dialog-field">
         <span>{t('projects.chartName')}</span>
         <input value={title} placeholder={displayProjectName(project)} disabled={locked} onChange={(e) => setTitle(e.target.value)} />
-        <small>{t('projects.chartNameHint', { name: displayProjectName(project) })}</small>
       </label>
       <div className="dialog-field-row">
         <label className="dialog-field">
@@ -74,7 +73,6 @@ export function ChartInfoDialog({
         <label className="dialog-field">
           <span>{t('projects.chartCode')}</span>
           <textarea rows={4} value={code} placeholder={t('projects.chartCodePlaceholder')} onChange={(e) => setCode(e.target.value)} />
-          <small>{t('projects.chartCodeHint')}</small>
         </label>
       )}
     </Dialog>
