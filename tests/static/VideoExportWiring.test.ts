@@ -243,9 +243,10 @@ describe('07 · 容器口径跟运行时走（不在代码里断言"AAC 不可�
     // MP4 + 有 AAC ⇒ 不占一行（常识）。按 key 判，不能按子串：`note.mp4Opus` 含有 `note.mp4`
     expect(zh['preview.video.export.note.mp4']).toBeUndefined();
     expect(raw).not.toContain('手机和电脑');
-    // 没有结论就不出现这一行：不许再有"尚未检测"这类占位文案（用户看不懂，也没帮他做决定）
+    // 没有结论就不出现这一行：不许再有"尚未检测"、"正在检测"这类占位文案（避免弹窗高度瞬态跳变与闪烁，issue 40）
     expect(zh['preview.video.export.note.unknown']).toBeUndefined();
     expect(zh['preview.video.export.note.muted']).toBeUndefined();
+    expect(zh['preview.video.export.note.probing']).toBeUndefined();
     expect(control).toMatch(/\{note && <p className="pvex__note">\{note\}<\/p>\}/);
     // 探测结论是**面板打开时**问的，不是挂载就问
     expect(control).toMatch(/onProbe\?\.\(\);/);

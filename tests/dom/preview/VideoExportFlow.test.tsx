@@ -269,8 +269,14 @@ describe('本机编码能力 · 说明跟着探测结论走（不写死"AAC 不�
     ]);
   });
 
-  it('探测中：给一行"正在检测"，不装作没事发生', () => {
-    render(
+  it('探测中不占行：静默探测，不渲染临时占位行避免弹窗高度闪烁（issue 40）', () => {
+    withSupport(null);
+    expect(screen.queryByText(/检测/)).toBeNull();
+    expect(document.querySelector('.pvex__note')).toBeNull();
+  });
+
+  it('从探测到完成（MP4+AAC）：全程不出现说明行，消除伸长收缩闪烁（issue 40）', () => {
+    const { rerender } = render(
       <VideoExportControl
         spec={spec}
         onSpecChange={() => undefined}
@@ -279,10 +285,27 @@ describe('本机编码能力 · 说明跟着探测结论走（不写死"AAC 不�
         progress={null}
         notice={null}
         probing
+        support={null}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: t('preview.video.export.open') }));
-    expect(screen.getByText(t('preview.video.export.note.probing'))).toBeInTheDocument();
+    expect(screen.queryByText(/检测/)).toBeNull();
+    expect(document.querySelector('.pvex__note')).toBeNull();
+
+    rerender(
+      <VideoExportControl
+        spec={spec}
+        onSpecChange={() => undefined}
+        onStart={() => undefined}
+        onCancel={() => undefined}
+        progress={null}
+        notice={null}
+        probing={false}
+        support={{ ok: true, container: 'mp4', videoCodec: 'avc1.640033', audioCodec: 'mp4a.40.2' }}
+      />,
+    );
+    expect(screen.queryByText(/检测/)).toBeNull();
+    expect(document.querySelector('.pvex__note')).toBeNull();
   });
 
   it('探测失败：直接给"没有可用编码器"那句，不装没事发生', () => {

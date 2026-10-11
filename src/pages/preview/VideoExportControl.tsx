@@ -109,16 +109,17 @@ function phaseText(progress: VideoExportProgress): string {
  * 文件格式行下的说明行（`probeVideoExportSupport` 的结论，与真正导出同一判定）。
  *
  * 口径：**常识不占行** —— MP4 + 有 AAC 不出现（MP4 到处能放人人知道）；WebM 的兼容面用户未必知道，
- * 讲；自动降级与 mp4 + Opus 要讲（用户需要应对）。探不出结论不占位；"能不能导出来"归
- * `unsupported` 那条。措辞去术语化：不出现容器 / codec 名。
+ * 讲；自动降级与 mp4 + Opus 要讲（用户需要应对）。探不出结论不占位（探测中不占行，issue 40：避免
+ * 打开弹窗瞬间因临时占位文字撑开高度又收缩的视觉闪烁）；"能不能导出来"归 `unsupported` 那条。
+ * 措辞去术语化：不出现容器 / codec 名。
  */
 function outcomeNote(
   support: VideoExportSupport | null,
-  probing: boolean,
+  _probing: boolean,
   choice: VideoContainerChoice,
   muted: boolean,
 ): string | null {
-  if (probing) return t('preview.video.export.note.probing');
+  // 探不出结论不占位（探测中不占行，issue 40）：避免打开弹窗瞬态高度抖动，仅在探出异常结论时才展示说明行
   if (!support) return null;
   if (!support.ok) return t('preview.video.export.unsupported');
   if (support.container === 'mp4') {

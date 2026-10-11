@@ -352,7 +352,6 @@
   "preview.video.export.opening.difficulty": "Difficulty",
   "preview.video.export.opening.title": "Song title",
   "preview.video.export.opening.artist": "Band",
-  "preview.video.export.note.probing": "Checking which formats this computer supports…",
   "preview.video.export.note.webm": "The video will be exported as WebM (plays in Chrome, Edge and VLC).",
   "preview.video.export.note.webmFallback": "This computer can't export MP4, so WebM will be used instead (plays in Chrome, Edge and VLC).",
   "preview.video.export.note.mp4Opus": "MP4 files exported on this computer may not play in some players and editors. WebM is recommended.",
