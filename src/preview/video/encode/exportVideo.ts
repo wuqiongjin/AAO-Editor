@@ -41,8 +41,14 @@ import {
   type VideoTierId,
 } from './exportSpec';
 
-/** 导出阶段（进度卡的文案按它分档） */
-export type VideoExportPhase = 'assets' | 'audio' | 'frames' | 'muxing';
+/**
+ * 导出阶段（进度卡的文案按它分档）。
+ *
+ * `audio` = **渲染**离线音轨（`OfflineAudioContext`）；`audioEncode` = 把渲染好的音轨**编码**进容器。
+ * 两者都在出帧之后/之前各占一段，分开报才看得懂卡在哪（chart-preview 33 就是"音轨编码不上报进度"
+ * 害得卡片停在最后一条 frames 进度上，看着像画面导出卡在 100%）。
+ */
+export type VideoExportPhase = 'assets' | 'audio' | 'audioEncode' | 'frames' | 'muxing';
 
 export interface VideoExportProgress {
   phase: VideoExportPhase;
@@ -276,6 +282,8 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     fps: timeline.fps,
     bitrate: tier.bitrate,
     audio: track ? { sampleRate: track.sampleRate, numberOfChannels: track.numberOfChannels } : null,
+    // 取消要能穿透背压与切音轨（chart-preview 33：那两处都可能停住）
+    isCancelled: req.isCancelled,
   });
 
   try {
@@ -312,7 +320,14 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
       sink.abort();
       return done({ ok: true, cancelled: true, container: target.container });
     }
+    // 音轨**编码**（渲染在更早那一步）：不上报的话卡片就停在上一条 frames 进度上
+    if (track) req.onProgress?.({ phase: 'audioEncode', frame: 0, totalFrames: timeline.frameCount });
     if (track) await sink.addAudio(track.buffer);
+    // 切音轨那段也可能被取消（sink 内部查，回到这里补一次判定，别把取消报成失败）
+    if (cancelled()) {
+      sink.abort();
+      return done({ ok: true, cancelled: true, container: target.container });
+    }
 
     req.onProgress?.({ phase: 'muxing', frame: timeline.frameCount, totalFrames: timeline.frameCount });
     const bytes = await sink.finish();
@@ -333,6 +348,8 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     });
   } catch (err) {
     sink.abort();
+    // 取消也会从这里出来（sink 在等背压时点取消 → 抛错），那是取消不是失败
+    if (cancelled()) return done({ ok: true, cancelled: true, container: target.container });
     console.error('[preview] 导出视频失败', err);
     return done({ ok: false, failure: 'unknown', container: target.container });
   }

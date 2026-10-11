@@ -73,6 +73,22 @@ describe('导出进度卡 · 按帧数走 + 可取消', () => {
     expect(screen.getByText(t('preview.video.export.phase.frames', { frame: 30, total: 120 }))).toBeInTheDocument();
   });
 
+  it('音轨编码有自己的阶段文案，且这一步不显示帧数进度条', () => {
+    render(
+      <VideoExportControl
+        spec={spec}
+        onSpecChange={() => undefined}
+        onStart={() => undefined}
+        onCancel={() => undefined}
+        progress={{ phase: 'audioEncode', frame: 0, totalFrames: 2100 }}
+        notice={null}
+      />,
+    );
+    expect(screen.getByText(t('preview.video.export.phase.audioEncode'))).toBeInTheDocument();
+    // 进度条只属于 frames 阶段（音轨/封装阶段别装作有帧数进度）
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
   it('取消钮随时在，点了就回调（导出中按钮自己变忙、不再触发第二次）', () => {
     const onCancel = vi.fn();
     render(

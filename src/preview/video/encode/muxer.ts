@@ -10,6 +10,12 @@
 //   - 运行时实际只加载当选容器那一份（动态 import），不是两份都进主包。
 //
 // 编码不是瓶颈（06 §5.3：入队 0.6–1.2 ms/帧，瓶颈是快照与光栅）⇒ 别指望降码率提速。
+//
+// **背压是内存闸门**（2026-10-11 现场故障修正）：往编码器里塞的帧不是"入队即消化"——
+// 在途帧数 × 一帧位图（720p ≈ 3 MB / 1080p ≈ 8 MB）就是这条链的常驻内存，所以
+// 上限 `MAX_ENCODE_QUEUE` 是**硬性的**：满了要**等编码器吐帧**，不能只"等一拍"。
+// 旧写法在 Firefox（libvpx 比出帧慢）上把 30s@720p 的队列堆到 1511 帧、进程 RSS 6.2 GB
+// （页面白屏 + 导出失败）；Chromium 软编上同一份活峰值只有 9。
 import {
   CONTAINER_SPECS,
   EXPORT_AUDIO_CHANNELS,
@@ -20,8 +26,79 @@ import {
 } from './exportSpec';
 import { audioChunkFrames } from './renderAudioTrack';
 
-/** 编码器在队列里最多压这么多帧（超了就等一拍；06 §5.4 的端到端脚本用的是 6） */
-const MAX_ENCODE_QUEUE = 8;
+/**
+ * 在途帧上限（常驻）：**已交给编码器、还没吐出来**的帧最多这么多。
+ *
+ * 它就是**内存上限**（在途帧数 × 一帧位图：720p ≈ 3 MB / 1080p ≈ 8 MB），所以它是硬性闸门：
+ * 满了要**等编码器吐帧**，不是"等一拍"。
+ *
+ * 旧写法（`encodeQueueSize > 8` 时 `await sleepTick()`）只**限速**不限量 —— 编码器比出帧慢时
+ * 队列照样无界增长：实测 Firefox 导出 30s@720p 时 `encodeQueueSize` 冲到 **1511**、进程 RSS 6.2 GB
+ * （页面白屏 + 导出失败），同一份活在 Chromium 上峰值只有 9。**等一拍 ≠ 等编码器。**
+ */
+const MAX_ENCODE_QUEUE = 32;
+
+/**
+ * 等这么久**没有任何输出**就认定"它不会自己吐"，用 `flush()` 逼它吐（见 `createEncodeGate`）。
+ *
+ * 1 s 是"单帧编码慢于 1 秒"的分界：健康编码器 1080p 一帧也就几十毫秒量级，正常不会触发；
+ * 真触发也只是多一次 flush（代价 = 那一段提前收 GOP），**换的是绝不死锁**。
+ */
+const STARVE_MS = 1000;
+
+/**
+ * 一条编码通道的背压闸门（视频 / 音频各一条）。
+ *
+ * 常驻上限 = `MAX_ENCODE_QUEUE`（满了**等编码器吐**，不是"等一拍"）。
+ * 等不到就 `flush()` —— **这就是"不死锁"的根据**：`flush()` 保证把已提交的都吐出来，
+ * 所以"在途 ≥ 上限"这个状态一定能被打破。
+ *
+ * 反面教材（2026-10-11 用户现场）：早先的退让只是"把上限翻倍后重等"，一旦涨到封顶值，
+ * `while (在途 >= 上限)` 就永远成立 ⇒ 导出**挂死在进度条最后**、取消也无效（取消只在出帧循环里查）。
+ * 别再用"放宽上限"当兜底：放宽不产生输出，只有 flush 会。
+ */
+function createEncodeGate(
+  inFlight: () => number,
+  flush: () => Promise<void>,
+): {
+  wait: () => Promise<void>;
+  output: () => void;
+  close: () => void;
+} {
+  let closed = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const waiters: Array<(gotOutput: boolean) => void> = [];
+
+  const release = (gotOutput: boolean): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    const pending = waiters.splice(0);
+    for (const resolve of pending) resolve(gotOutput);
+  };
+
+  return {
+    async wait(): Promise<void> {
+      while (!closed && inFlight() >= MAX_ENCODE_QUEUE) {
+        const gotOutput = await new Promise<boolean>((resolve) => {
+          waiters.push(resolve);
+          // 只有一个定时器：第一个等的人设上，吐帧 / 超时时清掉
+          timer ??= setTimeout(() => release(false), STARVE_MS);
+        });
+        // 它不自己吐（起搏不够深 / 要攒一批才吐 / 只在 flush 时吐）⇒ 逼它吐，别死等
+        if (!gotOutput && !closed) await flush();
+      }
+    },
+    output(): void {
+      release(true);
+    },
+    close(): void {
+      closed = true;
+      release(false);
+    },
+  };
+}
 
 /** 不可用时的原因（UI 文案按它分档，不静默失败） */
 export type UnsupportedReason =
@@ -103,6 +180,11 @@ export interface VideoSinkOptions {
   fps: number;
   bitrate: number;
   audio: { sampleRate: number; numberOfChannels: number } | null;
+  /**
+   * 取消判定（chart-preview 33）：出帧循环里的取消只在帧边界查一次，而**等背压 / 切音轨**
+   * 这两处都可能停住 ⇒ 也要在这里查，否则取消钮形同虚设（用户现场："卡在 2100/2100，点取消没反应"）。
+   */
+  isCancelled?: () => boolean;
 }
 
 export interface VideoSink {
@@ -127,9 +209,6 @@ interface MuxerModule {
   ArrayBufferTarget: new () => { buffer: ArrayBuffer };
 }
 
-function sleepTick(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 /**
  * 建一条编码 / 封装的槽。
@@ -161,13 +240,30 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
   if (opts.spec.id === 'mp4') muxerOptions.fastStart = 'in-memory';
   const muxer = new mod.Muxer(muxerOptions);
 
+  let closed = false;
   let failure: Error | null = null;
+
+  /**
+   * 在途帧数（已交给编码器、还没吐出来的）。**在途 = 内存**，所以它是硬性上限：
+   * 见 `MAX_ENCODE_QUEUE` 的文件头 —— 旧实现靠"等一拍"限速，慢编码器上会涨到 GB 级。
+   */
+  let videoInFlight = 0;
+  let audioInFlight = 0;
+  /** 闸门在编码器建好之后装配（`fail` 早于它被引用，故用 `let`；实际调用都在构造之后） */
+  let videoGate: ReturnType<typeof createEncodeGate> | null = null;
+  let audioGate: ReturnType<typeof createEncodeGate> | null = null;
   const fail = (e: Error) => {
     failure ??= e;
+    // 出错也必须把等背压的放行，否则调用方永远挂在这里
+    videoGate?.close();
+    audioGate?.close();
   };
 
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => {
+      // 夹在 0：对账后仍可能有多余的输出在路上，别让计数变成负数（那会短暂放大闸门）
+      videoInFlight = Math.max(0, videoInFlight - 1);
+      videoGate?.output();
       try {
         muxer.addVideoChunk(chunk, meta);
       } catch (e) {
@@ -190,6 +286,8 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
     opts.audioCodec && opts.audio
       ? new AudioEncoder({
         output: (chunk, meta) => {
+          audioInFlight = Math.max(0, audioInFlight - 1);
+          audioGate?.output();
           try {
             muxer.addAudioChunk(chunk, meta);
           } catch (e) {
@@ -207,16 +305,78 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
     });
   }
 
-  let closed = false;
+  // 两个编码器都建好了 ⇒ 装配闸门（`recover()` 是"不死锁"的兜底）
+  /**
+   * 等不到输出时的兜底。两条路，先便宜的对账、再贵的逼吐：
+   *
+   * 1. **对账**（`encodeQueueSize` < 上限，或读不到就跳过）：编码器手上没压着活 ⇒
+   *    "在途"只是我们**按输入:输出 1:1 记账**留下的残渣。音频编码器不是 1:1：AAC 一帧
+   *    1024 采样、而 `addAudio` 按 960 采样一块喂，约 6% 的输入不会变成输出 ⇒ 计数只涨不还。
+   *    真编码器自己是健康的，把账清回 0 即可（不打乱 GOP，也不多花时间）。
+   * 2. **逼吐**（`flush()` + 清账）：编码器确实压着活却不吐（起搏不够深 / 要攒一批），
+   *    `flush()` 的语义保证"已提交的都处理完" ⇒ 它手上的账清空，我们也必须清回 0。
+   *
+   * 用户现场（2026-10-11，chart-preview 33）：第 1 条缺失 ⇒ 残渣把闸门吊死在
+   * 「2100 / 2100 帧」那一条上（每秒 flush 一次、永远等不满），而 cancel 是好的。
+   */
+  const recover = async (encoder: VideoEncoder | AudioEncoder, clear: () => void): Promise<void> => {
+    const queued = (encoder as { encodeQueueSize?: number }).encodeQueueSize;
+    if (typeof queued !== 'number' || queued < MAX_ENCODE_QUEUE) {
+      clear();
+      return;
+    }
+    try {
+      await encoder.flush();
+    } catch (e) {
+      fail(e instanceof Error ? e : new Error(String(e)));
+    }
+    clear();
+  };
+  videoGate = createEncodeGate(() => videoInFlight, () =>
+    recover(videoEncoder, () => {
+      videoInFlight = 0;
+    }),
+  );
+  audioGate = createEncodeGate(() => audioInFlight, () =>
+    audioEncoder
+      ? recover(audioEncoder, () => {
+        audioInFlight = 0;
+      })
+      : Promise.resolve(),
+  );
+
   /** 已入队帧数：首帧必须是关键帧，其余交给编码器自己挑 */
   let queuedFrames = 0;
+  /** 取消：等背压时也要查（否则导出挂在最后一帧、取消钮形同虚设） */
+  const isCancelled = (): boolean => opts.isCancelled?.() === true;
+  const cancelledNow = (): boolean => {
+    if (!isCancelled()) return false;
+    abort();
+    return true;
+  };
+
+  function abort(): void {
+    if (closed) return;
+    closed = true;
+    // 等背压的那一帧也要退出（否则取消后导出永不返回）
+    videoGate?.close();
+    audioGate?.close();
+    // 关了就不再产出：未 flush 的队列随编码器一起丢（取消不该写出半个文件）
+    videoEncoder.close();
+    audioEncoder?.close();
+  }
 
   return {
     async addFrame(frame): Promise<void> {
       if (closed || failure) throw failure ?? new Error('导出已取消');
+      if (cancelledNow()) throw new Error('导出已取消');
+      // 背压：在途满就**等编码器吐帧**（不是等一拍）；上限即内存上限
+      await videoGate.wait();
+      if (cancelledNow()) throw new Error('导出已取消');
+      if (closed || failure) throw failure ?? new Error('导出已取消');
       videoEncoder.encode(frame, { keyFrame: queuedFrames === 0 });
       queuedFrames++;
-      if (videoEncoder.encodeQueueSize > MAX_ENCODE_QUEUE) await sleepTick();
+      videoInFlight++;
     },
     async addAudio(buffer): Promise<void> {
       if (!audioEncoder || closed || failure) return;
@@ -226,6 +386,11 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
       const planes: Float32Array[] = [];
       for (let c = 0; c < channels; c++) planes.push(buffer.getChannelData(c));
       for (let offset = 0; offset < buffer.length; offset += chunk) {
+        if (closed || failure) return;
+        if (cancelledNow()) return;
+        // 同一套背压（块比帧小得多，但"等一拍"同样挡不住慢编码器）
+        await audioGate.wait();
+        if (cancelledNow()) return;
         if (closed || failure) return;
         const n = Math.min(chunk, buffer.length - offset);
         // 'f32-planar'：整块 = 各声道平面首尾相接（AudioData 的要求）
@@ -240,8 +405,8 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
           data,
         });
         audioEncoder.encode(audio);
+        audioInFlight++;
         audio.close();
-        if (audioEncoder.encodeQueueSize > MAX_ENCODE_QUEUE) await sleepTick();
       }
     },
     async finish(): Promise<Uint8Array> {
@@ -251,18 +416,10 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
       if (audioEncoder) await audioEncoder.flush().catch(fail);
       if (failure) throw failure;
       muxer.finalize();
-      closed = true;
-      videoEncoder.close();
-      audioEncoder?.close();
+      abort();
       return new Uint8Array(target.buffer);
     },
-    abort(): void {
-      if (closed) return;
-      closed = true;
-      // 关了就不再产出：未 flush 的队列随编码器一起丢（取消不该写出半个文件）
-      videoEncoder.close();
-      audioEncoder?.close();
-    },
+    abort,
   };
 }
 

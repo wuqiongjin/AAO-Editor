@@ -115,6 +115,14 @@ describe('07 · 离线音轨不另立音量 / 调度口径', () => {
     expect(renderAudio).not.toMatch(/toBlob|showSaveDialog|writeFile/);
     expect(renderAudio).toMatch(/ctx\.startRendering\(\)/);
   });
+
+  it('音轨**编码**这一步要上报自己的阶段（否则卡片停在上一条 frames 进度上，看着像卡在 100%）', () => {
+    expect(exportVideo).toMatch(/phase: 'audioEncode'/);
+    // 上报必须在 `addAudio` 之前——它是那一段唯一的进度信号
+    expect(exportVideo.indexOf("phase: 'audioEncode'")).toBeLessThan(
+      exportVideo.indexOf('await sink.addAudio('),
+    );
+  });
 });
 
 describe('07 · 落盘只走既有二进制通道', () => {

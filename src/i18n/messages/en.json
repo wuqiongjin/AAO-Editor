@@ -354,6 +354,7 @@
   "preview.video.export.note.mp4Opus": "MP4 files exported on this computer may not play in some players and editors. WebM is recommended.",
   "preview.video.export.phase.assets": "Preparing assets…",
   "preview.video.export.phase.audio": "Mixing the audio…",
+  "preview.video.export.phase.audioEncode": "Encoding the audio track…",
   "preview.video.export.phase.frames": "Exporting frames ({{frame}} / {{total}})",
   "preview.video.export.phase.muxing": "Writing the video file…",
   "preview.video.export.unsupported": "This computer can't export video. Please try again with the latest Chrome / Edge or the desktop app.",

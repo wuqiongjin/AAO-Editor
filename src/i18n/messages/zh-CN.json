@@ -356,6 +356,7 @@
   "preview.video.export.note.mp4Opus": "这台电脑导出的 MP4 可能无法在部分播放器和剪辑软件中播放，建议改用 WebM。",
   "preview.video.export.phase.assets": "正在准备素材…",
   "preview.video.export.phase.audio": "正在合成声音…",
+  "preview.video.export.phase.audioEncode": "正在编码音轨…",
   "preview.video.export.phase.frames": "正在导出画面（{{frame}} / {{total}} 帧）",
   "preview.video.export.phase.muxing": "正在生成视频文件…",
   "preview.video.export.unsupported": "这台电脑导不出视频。请换用最新版 Chrome / Edge 浏览器或桌面客户端重试。",
