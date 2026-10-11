@@ -18,7 +18,7 @@ import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import PreviewDisplayPanel from '@/src/pages/preview/PreviewDisplayPanel';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '@/src/rendering/skin/noteSkin';
-import { DEFAULT_EXPORT_FIELDS, DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/chart/config/AppSettings';
+import { DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/chart/config/AppSettings';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 interface StoredSettings {
@@ -180,79 +180,14 @@ describe('chart-preview 08 · 画布显示组落 settings.display（与设置页
   });
 });
 
-describe('chart-preview 14 · 「导出信息」组落 settings.export', () => {
-  const exportSwitch = (name: string) => within(panel()).getByRole('switch', { name });
-
-  it('七项都在；默认档 = 谱面标题 / 难度 + 等级 / BPM 开，其余关', () => {
+describe('chart-preview 37 · 「设置」面板不再承载「导出信息」（已迁移至导出按钮）', () => {
+  it('设置面板仅包含标记、画布显示、音符皮肤三组，不展示导出信息', () => {
     setup();
-    expect(within(panel()).getByText('导出信息')).toBeInTheDocument();
-    expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('难度 + 等级')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('工程名')).toHaveAttribute('aria-checked', 'false');
-    expect(exportSwitch('时长')).toHaveAttribute('aria-checked', 'false');
-    expect(exportSwitch('音符数')).toHaveAttribute('aria-checked', 'false');
-    expect(exportSwitch('导出时间')).toHaveAttribute('aria-checked', 'false');
-  });
-
-  it('开关写进落盘 export 段，且不碰 preview / display（导出物内容与"怎么看"分开）', () => {
-    setup();
-    fireEvent.click(exportSwitch('工程名'));
-    expect(stored().export.projectName).toBe(true);
-    fireEvent.click(exportSwitch('BPM'));
-    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'false');
-    expect(stored().export).toEqual({ ...DEFAULT_EXPORT_FIELDS, projectName: true, bpm: false });
-    expect(stored().preview).toEqual(defaultSettings().preview);
-    expect(stored().display).toEqual(defaultSettings().display);
-  });
-
-  it('面板读同一份设置：外部（落盘种子）改过的 export 段打开即见', () => {
-    seedZhSettings({ export: { duration: true, chartTitle: false } });
-    render(
-      <AppNavProvider value={{ activePage: 'preview', setActivePage: vi.fn(), pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
-        <ConfigProvider><PreviewDisplayPanel /></ConfigProvider>
-      </AppNavProvider>,
-    );
-    fireEvent.click(trigger());
-
-    expect(exportSwitch('时长')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'false');
-    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');   // 没种子的项读默认档
-  });
-});
-
-describe('chart-preview 14 · 头带总开关「启用头带」（2026-10-06 追加）', () => {
-  const exportSwitch = (name: string) => within(panel()).getByRole('switch', { name });
-  const headerToggle = () => within(panel()).getByRole('switch', { name: '启用头带' });
-
-  it('默认开，挂在「导出信息」组标题行右侧（不另立条目，2026-10-07 定案）', () => {
-    setup();
-    expect(headerToggle()).toHaveAttribute('aria-checked', 'true');
-    const head = headerToggle().closest('.pdp__group-head');
-    expect(head).not.toBeNull();
-    expect(head).toContainElement(within(panel()).getByText('导出信息') as HTMLElement);
-  });
-
-  it('关：落盘 enabled = false，七项置灰但勾选原样保留；再开就地恢复', () => {
-    setup();
-    fireEvent.click(headerToggle());
-
-    expect(stored().export.enabled).toBe(false);
-    expect(exportSwitch('谱面标题')).toBeDisabled();
-    expect(exportSwitch('BPM')).toBeDisabled();
-    expect(exportSwitch('工程名')).toBeDisabled();
-    // 保留勾选 = 再开不用重勾一遍
-    expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('工程名')).toHaveAttribute('aria-checked', 'false');
-    // 置灰期间点它改不动（不是"点了没反应"的骗局：它真 disabled）
-    fireEvent.click(exportSwitch('工程名'));
-    expect(stored().export.projectName).toBe(false);
-
-    fireEvent.click(headerToggle());
-    expect(stored().export.enabled).toBe(true);
-    expect(exportSwitch('BPM')).not.toBeDisabled();
-    expect(stored().export).toEqual(DEFAULT_EXPORT_FIELDS);
+    expect(within(panel()).getByText('标记')).toBeInTheDocument();
+    expect(within(panel()).getByText('画布显示')).toBeInTheDocument();
+    expect(within(panel()).getByText('音符皮肤')).toBeInTheDocument();
+    expect(within(panel()).queryByText('导出信息')).toBeNull();
+    expect(within(panel()).queryByRole('switch', { name: '启用头带' })).toBeNull();
   });
 });
 

@@ -16,7 +16,6 @@ import { useConfig } from '../../app/ProviderTree';
 import { t, type MessageKey } from '../../i18n';
 import type { AppSettings, PreviewBeatMarkDivision, PreviewTimeMarkInterval } from '../../chart/config/AppSettings';
 import {
-  EXPORT_FIELD_KEYS,
   PREVIEW_BEAT_MARK_DIVISIONS,
   PREVIEW_TIME_MARK_INTERVALS,
   SIM_NOTE_SPEED_RANGE,
@@ -263,16 +262,17 @@ function Percent({
 }
 
 /**
- * 面板形态（chart-preview 05）：同一份「设置」控件在两种预览形态下显示不同的组 ——
- * 静态（标记 + 画布共享 + 皮肤 + 导出信息）/ 动态（**仿真场** + 画布共享 + 皮肤）。
+ * 面板形态（chart-preview 05 / 37）：同一份「设置」控件在两种预览形态下显示不同的组 ——
+ * 静态（标记 + 画布共享 + 皮肤）/ 动态（**仿真场** + 画布共享 + 皮肤）。
  * 「画布共享」与「音符皮肤」两组两种形态共用（同一份数据，改了双方生效）。
+ * 导出相关设置已迁移至导出按钮弹窗（StaticExportControl / VideoExportControl）。
  */
 export interface PreviewDisplayPanelProps {
   mode?: PreviewMode;
 }
 
 export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayPanelProps) {
-  const { settings, setDisplay, setPreview, setExport } = useConfig();
+  const { settings, setDisplay, setPreview } = useConfig();
   const { setActivePage } = useAppNav();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -514,39 +514,6 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                 </button>
               </Row>
             </section>
-
-            {/* 导出头带（chart-preview 14）：这条头带导不导、导的话里头写哪些字段，
-                落 `settings.export`（跨会话记住）——与上一组「怎么看」分开：这是**导出物里写什么**。
-                总开关 `enabled` 管整条头带（关 = 纯面板区的宽图），下面 7 项是**信息区字段**。
-                谱师姓名不在这里（本票不做）。
-                **只有静态形态有导出入图这一说**：动态形态（仿真场）的导出是 07 的视频导出。 */}
-            {mode === 'static' && (
-              <section className="pdp__group" aria-label={t('preview.display.group.export')}>
-                {/* 头带总开关挂在组标题行右侧（2026-10-07 用户定案：不另立条目，说明成本为零）——
-                    它管整条头带，关掉时下面七行当场置灰，管什么由这个行为自己说明 */}
-                <div className="pdp__group-head">
-                  <h3 className="pdp__group-title">{t('preview.display.group.export')}</h3>
-                  <Toggle
-                    label={t('preview.display.export.enabled')}
-                    checked={settings.export.enabled}
-                    onChange={(v) => setExport({ enabled: v })}
-                  />
-                </div>
-                {EXPORT_FIELD_KEYS.map((key) => {
-                  const label = t(`preview.display.export.${key}` as MessageKey);
-                  return (
-                    <Row key={key} label={label} disabled={!settings.export.enabled}>
-                      <Toggle
-                        label={label}
-                        checked={settings.export[key]}
-                        disabled={!settings.export.enabled}
-                        onChange={(v) => setExport({ [key]: v })}
-                      />
-                    </Row>
-                  );
-                })}
-              </section>
-            )}
           </div>
         </>,
         document.body,
