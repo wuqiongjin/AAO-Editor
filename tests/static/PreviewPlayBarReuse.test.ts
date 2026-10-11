@@ -36,8 +36,9 @@ describe('chart-preview 22 · 预览播放条复用工作台 PlayBar', () => {
     expect(ws).toMatch(/duration=\{ctxDuration\}/);
     expect(ws).toMatch(/volume=\{ctxVolume\}/);
     expect(ws).toMatch(/audioLocked=\{audioSnap\.audioLocked\}/);
-    // 行为口径保持：有音频禁止编辑定位（Q3 只放开预览）；播放中掩手形光标照旧
-    expect(ws).toMatch(/canEditTime=\{!canPlay\}/);
+    // 行为口径：工作台与动态预览对齐，均允许双击时间码编辑定位（issue 168）；播放中掩手形光标照旧
+    expect(ws).toMatch(/canEditTime/);
+    expect(ws).not.toMatch(/canEditTime=\{!canPlay\}/);
     expect(ws).toMatch(/seekNoCursor=\{!canPlay && ctxIsPlaying\}/);
     expect(ws).toMatch(/shortcutKey=\{formatKey\(shortcutConfig\.play\)\}/);
   });

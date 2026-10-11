@@ -548,7 +548,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           duration={ctxDuration}
           volume={ctxVolume}
           audioLocked={audioSnap.audioLocked}
-          canEditTime={!canPlay}
+          canEditTime
           seekNoCursor={!canPlay && ctxIsPlaying}
           shortcutKey={formatKey(shortcutConfig.play)}
           onTogglePlay={handleTogglePlay}

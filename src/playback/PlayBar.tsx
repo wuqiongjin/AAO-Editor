@@ -24,7 +24,7 @@ export interface PlayBarProps {
   volume: number;
   /** 时长由外部音频锁定（总时长旁出锁图标 + 提示）；工作台 = 音频被锁定 */
   audioLocked?: boolean;
-  /** 时间码可双击编辑（工作台 = 无音频；预览恒允许，issue 22 Q3） */
+  /** 时间码可双击编辑（工作台与预览均支持双击编辑跳转） */
   canEditTime?: boolean;
   /** 播放中不给进度条手形光标（工作台历史口径：无音频播放中） */
   seekNoCursor?: boolean;
@@ -58,23 +58,43 @@ export default function PlayBar({
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
 
-  // 时间码双击原地编辑（无音频时）：改写当前播放位置秒数 → seek（issue 22 §4）
+  // 时间码双击原地编辑：改写当前播放位置秒数 → seek（issue 22 §4 / issue 39）
   const [editingTime, setEditingTime] = useState(false);
   const [timeDraft, setTimeDraft] = useState("");
   const timeInputRef = useRef<HTMLInputElement>(null);
+  const initialDraftRef = useRef<string>("");
+  const isDirtyRef = useRef<boolean>(false);
+  const cancelledRef = useRef<boolean>(false);
+
   const beginEditTime = () => {
-    if (!canEditTime) return; // 不可编辑：工作台有音频 = 时长由音频决定，禁止编辑定位
-    setTimeDraft(formatTimePrecise(currentSeconds));
+    if (!canEditTime) return;
+    const initial = formatTimePrecise(currentSeconds);
+    initialDraftRef.current = initial;
+    isDirtyRef.current = false;
+    cancelledRef.current = false;
+    setTimeDraft(initial);
     setEditingTime(true);
   };
   const commitTime = () => {
     setEditingTime(false);
-    const sec = parseTimeInput(timeDraft);
-    if (sec !== null) onSeek(Math.max(0, Math.min(sec, duration)));
+    if (cancelledRef.current || !isDirtyRef.current) return;
+    const trimmed = timeDraft.trim();
+    if (trimmed === "" || trimmed === initialDraftRef.current) {
+      // 未修改或清空：不改变当前播放进度（播放中不回退到双击时的秒数）
+      return;
+    }
+    const sec = parseTimeInput(trimmed);
+    if (sec !== null) {
+      onSeek(Math.max(0, Math.min(sec, duration)));
+    }
   };
   const onTimeKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') commitTime();
-    else if (e.key === 'Escape') setEditingTime(false);
+    if (e.key === 'Enter') {
+      commitTime();
+    } else if (e.key === 'Escape') {
+      cancelledRef.current = true;
+      setEditingTime(false);
+    }
   };
 
   const ratio = duration > 0 ? Math.max(0, Math.min(1, currentSeconds / duration)) : 0;
@@ -123,7 +143,11 @@ export default function PlayBar({
             ref={timeInputRef}
             autoFocus
             value={timeDraft}
-            onChange={e => setTimeDraft(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={e => {
+              isDirtyRef.current = true;
+              setTimeDraft(e.target.value);
+            }}
             onBlur={commitTime}
             onKeyDown={onTimeKeyDown}
             inputMode="decimal"

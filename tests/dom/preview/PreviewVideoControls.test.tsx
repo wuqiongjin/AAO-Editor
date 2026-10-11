@@ -353,6 +353,37 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
     expect(calls.seek).toHaveBeenLastCalledWith(3.5);
   });
 
+  it('时间码双击：未输入/未修改任何内容失焦或回车不触发 seek（issue 38 锁）', async () => {
+    await renderStage({ initialSeconds: 4.5 });
+    calls.seek.mockClear();
+
+    // 双击打开输入框，不输入任何内容直接按 Enter
+    fireEvent.doubleClick(currentTime());
+    expect(timeInput()).toBeTruthy();
+    fireEvent.keyDown(timeInput()!, { key: 'Enter' });
+    expect(timeInput()).toBeNull();
+    expect(calls.seek).not.toHaveBeenCalled();
+
+    // 再次双击打开，不输入任何内容直接 blur
+    fireEvent.doubleClick(currentTime());
+    expect(timeInput()).toBeTruthy();
+    fireEvent.blur(timeInput()!);
+    expect(timeInput()).toBeNull();
+    expect(calls.seek).not.toHaveBeenCalled();
+  });
+
+  it('时间码双击：按 Escape 取消编辑不触发 seek（issue 38 锁）', async () => {
+    await renderStage({ initialSeconds: 2.0 });
+    calls.seek.mockClear();
+
+    fireEvent.doubleClick(currentTime());
+    expect(timeInput()).toBeTruthy();
+    fireEvent.change(timeInput()!, { target: { value: '0:10' } });
+    fireEvent.keyDown(timeInput()!, { key: 'Escape' });
+    expect(timeInput()).toBeNull();
+    expect(calls.seek).not.toHaveBeenCalled();
+  });
+
   it('播放进度：切页/对象重建但谱面语义一致时不重置回 0；内容真正修改或换谱才重置', async () => {
     const onSecondsChange = vi.fn();
     const initialNotes = [{ type: 'Single' as const, beat: 0, lane: 0 }];
