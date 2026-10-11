@@ -1,5 +1,5 @@
 // 仿真场素材的读取口径（chart-preview 05 锁测③，release-pipeline 02 收敛到运行时素材树）：
-//   - 三个 URL 一律在 `public/assets/sim/` 下（Vite 站内前缀 `/assets/sim/`）；
+//   - 三个 URL 一律在 `public/assets/sim/` 下（前缀 = `SIM_ASSET_BASE`，跟着构建 base）；
 //   - 逐服探测：第一个归档过的服务器目录胜出（本机没归档都是空态）；
 //   - 素材缺席是**明说的产品态**（`missing` + 空态文案），不抛错；
 //   - 带体取色失败走兜底色（1×1 离屏画布不可用 / 图未解码时也一样）。
@@ -29,7 +29,7 @@ function fakeLoader(allow: (src: string) => boolean, seen: string[] = []) {
 }
 
 describe('仿真场的素材 URL', () => {
-  it('三张场地/背景图都在运行时素材树里（`/assets/sim/<类别>/<server>/…`）', () => {
+  it('三张场地/背景图都在运行时素材树里（`assets/sim/<类别>/<server>/…`）', () => {
     const urls = simAssetUrls('jp');
     for (const url of [urls.field, urls.background, urls.playLine]) {
       expect(url.startsWith(`${SIM_ASSET_BASE}/`)).toBe(true);

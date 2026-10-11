@@ -622,7 +622,7 @@
   min-height: 0;
 }
 
-/* 空态（缺素材 / 还在读）：只居中说明 + 获取命令，不铺场地 */
+/* 空态（素材加载失败 / 还在读）：只居中一句话说明，不铺场地 */
 .pv-stage.is-empty {
   align-items: center;
   justify-content: center;
@@ -631,23 +631,8 @@
 }
 
 .pv-empty__text {
-  margin: 0 0 10px;
+  margin: 0;
   font-size: var(--text-sm);
-}
-
-/* 获取命令：可选中可复制（空态的全部意义就是让人把这条跑起来） */
-.pv-empty__cmd {
-  display: inline-block;
-  max-width: 100%;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  overflow-wrap: anywhere;
-  user-select: text;
 }
 
 .pv-field {

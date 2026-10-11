@@ -3,7 +3,8 @@
 // 结构事实，DOM 测试抓不住：读源码 / git 索引 / .gitignore。
 import { execSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { readSource, readStripped, repoRoot } from '@/tests/support/source';
+import { join } from 'node:path';
+import { readSource, readStripped, repoRoot, sourceFiles } from '@/tests/support/source';
 
 describe('release-pipeline 02 · 资源取件与所有权', () => {
   it('产物与生成物都不在 git 索引（防再入库）', () => {
@@ -49,13 +50,25 @@ describe('release-pipeline 02 · 资源取件与所有权', () => {
     }
   });
 
-  it('仿真场素材走运行时素材树 /assets/sim；dev 直读中间件已退役', () => {
+  it('仿真场素材走运行时素材树 assets/sim；dev 直读中间件已退役', () => {
     const simAssets = readStripped('src/preview/video/sim/simAssets.ts');
-    expect(simAssets).toContain("'/assets/sim'");
+    expect(simAssets).toContain('assets/sim');
+    // 前缀必须跟着构建 base：写死站点根在 Electron 的 file:// 下解析不到包里的素材
+    expect(simAssets).toMatch(/SIM_ASSET_BASE[^\n]*import\.meta\.env\.BASE_URL/);
+    expect(simAssets).not.toMatch(/['"`]\/assets\/sim/);
     expect(simAssets).not.toContain('/__bestdori-assets');
 
     const viteConfig = readStripped('vite.config.ts');
     expect(viteConfig).not.toContain('bestdori-preview-assets');
     expect(viteConfig).not.toContain('/__bestdori-assets/');
+  });
+
+  it('运行时素材 URL 一律跟构建 base：src/ 下不许出现站点根绝对路径', () => {
+    // 打包态是 file://，没有站点根 —— 写死 `/assets/…` 会解析到磁盘根（票 03）。
+    // 单条用例点名管得住一处，这条锁的是"整棵树都不许再出现"这个口径。
+    const offenders = sourceFiles(join(repoRoot, 'src')).filter((f) =>
+      /['"`]\/assets\//.test(readStripped(f)),
+    );
+    expect(offenders).toEqual([]);
   });
 });

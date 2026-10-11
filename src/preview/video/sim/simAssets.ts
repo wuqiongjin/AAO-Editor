@@ -2,14 +2,21 @@
 //
 //   `public/assets/sim/<类别>/<server>/…` 由外部快照仓库产出、`npm run assets:sync` 取件；
 //   dev 与 build 都从 public/ 直读、随 dist 出包，二进制不进 git（`.gitignore` 忽略）。
-//   干净克隆 / 未取件的机器上缺件 → 页面给空态（`preview.video.assetsMissing` /
-//   `preview.video.assetsCommand`），本模块不抛错。
+//   读不到（缺件 / 前缀解析不到，这两者在这一层无法区分）→ 页面给空态
+//   （`preview.video.assetsMissing`），本模块不抛错。
 //
 // 类别目录（脚本默认 jp）：逐服探测第一个能读到**场地图**的目录；全都读不到 = 空态。
 import { SIM_BAND_COLORS } from './simGeometry';
 
-/** 仿真场素材根（Vite 把 `public/` 挂在站点根，故这里直接就是 URL 前缀） */
-export const SIM_ASSET_BASE = '/assets/sim';
+/**
+ * 仿真场素材根（Vite 把 `public/` 挂在站点根，dev 的前缀就是 `/`）。
+ *
+ * 必须拼 `import.meta.env.BASE_URL` 而不能写死 `/assets/sim`：Electron 生产包是
+ * `loadFile(dist/index.html)`，页面跑在 `file://` 下 —— file 协议没有站点根，
+ * 绝对路径会被解析到磁盘根（`file:///assets/sim/…`），图上不去、页面只能误报"缺素材"。
+ * 打包态 `base: './'` → `./assets/sim`，相对当前文档解析，才落到 asar 里的 dist/assets/sim。
+ */
+export const SIM_ASSET_BASE = `${import.meta.env.BASE_URL}assets/sim`;
 /** 服务器目录偏好顺序（拉取脚本默认 jp 排头；别的服归档过也能直读） */
 export const SIM_ASSET_SERVERS = ['jp', 'en', 'tw', 'cn', 'kr'] as const;
 /** 类别目录名（`public/assets/sim/<类别>/<server>/…`） */

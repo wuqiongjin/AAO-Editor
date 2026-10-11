@@ -1,7 +1,8 @@
 // 动态预览的舞台（chart-preview 05）：**装配层** —— 画面与回放全在 `src/preview/video/sim`，
 // 本文件只做四件事：读素材 / 量舞台 / 建回放 / 画播放条。
 //
-//   - 素材：运行时素材树 `public/assets/sim/`（站内前缀 `/assets/sim/`）；缺席 → 空态 + 获取命令（04 的文案）
+//   - 素材：运行时素材树 `public/assets/sim/`（URL 前缀 `SIM_ASSET_BASE`，跟着构建 base）；
+//     缺席 → 空态 + 获取命令（04 的文案）
 //   - 一帧输入：`buildSimChart`（谱面 → 元素表）+ `fitDesignSurface`（设计面 contain + 钳制）
 //   - 回放：`createSimPlayback`（自持引擎当秒源；rAF 驱动**同一份**任意秒出帧函数）
 //   - 播放条：工作台同一件 `PlayBar`（issue 22 起复用）：播放/暂停 + 时间码（可双击编辑）
@@ -403,11 +404,12 @@ export default function PreviewVideoStage({
   });
 
   if (assets?.missing) {
-    // 空态（04 定案：必须**直接给出获取命令**，不是一句"素材缺失"）
+    // 空态只陈述"加载失败 + 可能原因"，不摆取件命令：看到这个空态的是打包应用的使用者，
+    // `npm run assets:sync` 是对开发者的话术，摆出来也跑不了（取件入口记在 scripts/README.md）。
+    // 另一个原因是不该猜成因——素材没取件、和素材在包里但 URL 解析不到，在这一层长得一样。
     return (
       <div className="pv-stage is-empty" role="status">
         <p className="pv-empty__text">{t('preview.video.assetsMissing')}</p>
-        <code className="pv-empty__cmd">{t('preview.video.assetsCommand')}</code>
       </div>
     );
   }
