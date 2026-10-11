@@ -99,6 +99,10 @@ export function ProjectStartView({
         if (next === effectiveSelectedId) return; // 边界停在原地：不吞键，放行 .pb-page 原生滚页
         e.preventDefault();
         setSelectedId(next);
+        // 选中卡片自动滚入视口（issue 14 定案 5 / issue 27：仅在键盘导航移动选中项时触发，首次挂载不滚）
+        gridRef.current?.querySelectorAll<HTMLElement>('.pb-card').forEach((card) => {
+          if (card.dataset.projectId === next) card.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        });
         return;
       }
       // Enter 打开选中工程详情；焦点在按钮 / 链接等可激活元素上时交给浏览器原生行为
@@ -111,14 +115,6 @@ export function ProjectStartView({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activePage, list, columns, effectiveSelectedId, onDetail]);
-
-  // 选中卡片自动滚入视口（定案 5；布局行为 jsdom 测不了 → 人工验收）
-  useEffect(() => {
-    if (!effectiveSelectedId) return;
-    gridRef.current?.querySelectorAll<HTMLElement>('.pb-card').forEach((card) => {
-      if (card.dataset.projectId === effectiveSelectedId) card.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-    });
-  }, [effectiveSelectedId]);
 
   // hero 是选中卡片的投影（选中失效时 = 最近打开，横幅不闪空）
   const selected = list.find((p) => p.id === effectiveSelectedId) ?? list[0];
