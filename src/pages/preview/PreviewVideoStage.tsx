@@ -12,6 +12,7 @@ import { Gauge } from 'lucide-react';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import { formatKey, type FunctionId, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 import { useShortcutDispatch } from '../../chart/config/useShortcutDispatch';
+import { notesEqual } from '../../chart/editing/NotesEqual';
 import { t } from '../../i18n';
 import PlayBar from '../../playback/PlayBar';
 import { resolveCanvasDpr } from '../../rendering';
@@ -219,6 +220,12 @@ export interface PreviewVideoStageProps {
   noteSkin: AppSettings['visual']['noteSkin'];
   /** 快捷键配置（空格页面级接管 play，issue 22 Q2）：由页面从 `settings.shortcuts` 传 */
   shortcuts: ShortcutConfig;
+  /** 当前看哪张谱面（切谱面重置秒数） */
+  chartId?: string | null;
+  /** 初始/恢复播放秒数（切回页面或切回动态形态时恢复） */
+  initialSeconds?: number;
+  /** 播放秒数变动回调（通知父层记忆最新进度） */
+  onSecondsChange?: (seconds: number) => void;
 }
 
 export default function PreviewVideoStage({
@@ -233,6 +240,9 @@ export default function PreviewVideoStage({
   imageQuality,
   noteSkin,
   shortcuts,
+  chartId,
+  initialSeconds,
+  onSecondsChange,
 }: PreviewVideoStageProps) {
   const fieldRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -242,7 +252,7 @@ export default function PreviewVideoStage({
 
   const [assets, setAssets] = useState<SimAssets | null>(null);
   const [hostSize, setHostSize] = useState({ w: 0, h: 0 });
-  const [tick, setTick] = useState({ seconds: 0, playing: false });
+  const [tick, setTick] = useState({ seconds: initialSeconds ?? 0, playing: false });
   /** 皮肤图集到位后 +1：重推一帧（暂停态也要把缺图那帧补上） */
   const [skinVersion, setSkinVersion] = useState(0);
   /**
@@ -319,8 +329,10 @@ export default function PreviewVideoStage({
       rate,
       duration,
       density,
+      initialSeconds,
       onTick: (seconds, playing) => {
         setTick((prev) => (prev.seconds === seconds && prev.playing === playing ? prev : { seconds, playing }));
+        onSecondsChange?.(seconds);
       },
     });
     playbackRef.current = pb;
@@ -342,6 +354,21 @@ export default function PreviewVideoStage({
     playbackRef.current?.setDuration(duration);
   }, [duration, ready]);
 
+  // 谱面音符内容变化（工作台改谱 / 换谱面代码 / 切谱面）：重置回 00:00:0 并暂停
+  const prevNotesRef = useRef(scene.notes);
+  const prevChartIdRef = useRef(chartId);
+  useEffect(() => {
+    const chartChanged = prevChartIdRef.current !== chartId;
+    prevChartIdRef.current = chartId;
+    const notesChanged = !notesEqual(prevNotesRef.current, scene.notes);
+    prevNotesRef.current = scene.notes;
+    if (chartChanged || notesChanged) {
+      playbackRef.current?.pause();
+      playbackRef.current?.seek(0);
+      onSecondsChange?.(0);
+    }
+  }, [scene.notes, chartId, onSecondsChange]);
+
   // 切走这一页就停声：保活挂载不做这件事，仿真场就会和别处的播放叠着响
   useEffect(() => {
     if (!active) playbackRef.current?.pause();
@@ -358,7 +385,10 @@ export default function PreviewVideoStage({
   }, [chart, scene, metrics, assets, noteIcons, skinVersion, ready]);
 
   const togglePlay = useCallback(() => playbackRef.current?.toggle(), []);
-  const seekTo = useCallback((seconds: number) => playbackRef.current?.seek(seconds), []);
+  const seekTo = useCallback((seconds: number) => {
+    playbackRef.current?.seek(seconds);
+    onSecondsChange?.(seconds);
+  }, [onSecondsChange]);
 
   // 空格（play）页面级接管（issue 22 Q2）：预览页 active 时按空格 = 播放 / 暂停。
   // 焦点在 input / textarea / select 内由 hook 放行原生（与工作台同口径）；only 只认 play——

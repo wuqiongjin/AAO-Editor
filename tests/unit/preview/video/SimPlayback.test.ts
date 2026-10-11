@@ -51,7 +51,7 @@ class MockAudioContext {
     };
   }
   decodeAudioData(): Promise<AudioBuffer> {
-    return Promise.resolve({} as AudioBuffer);
+    return Promise.resolve({ duration: 60 } as AudioBuffer);
   }
   resume(): Promise<void> {
     return Promise.resolve();
@@ -139,3 +139,47 @@ describe('倍速归一化（chart-preview 20）', () => {
     expect(normalizePlaybackRate(1.35)).toBe(1.35); // 档位表之外的手填值照原样收
   });
 });
+
+describe('createSimPlayback · 初始进度与异步解码保持（issue 35）', () => {
+  it('传入 initialSeconds 时首帧通知目标秒数，异步音频解码完成后不被冲回 0', async () => {
+    const ticks: [number, boolean][] = [];
+    const mockAudio = { name: 'test.mp3', blob: new Blob(['mock-audio-data'], { type: 'audio/mp3' }) };
+    const pb = createSimPlayback({
+      canvas,
+      audio: mockAudio,
+      keySetId: 'skin00',
+      seVolume: 1,
+      volume: 1,
+      rate: 1,
+      duration: 30,
+      initialSeconds: 12.5,
+      density: 1,
+      onTick: (seconds, playing) => ticks.push([seconds, playing]),
+    });
+
+    // 创建时立即向外部广播 initialSeconds
+    expect(ticks.length).toBeGreaterThanOrEqual(1);
+    expect(ticks[0]).toEqual([12.5, false]);
+
+    // 等待引擎内部 load(file) 异步解码 Promise 完成
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // 解码完成后 targetSeconds 必须重新恢复，依然是 12.5，不会被 AudioEngine.load 内部的 offsetSeconds = 0 冲刷
+    const lastTick = ticks.at(-1);
+    expect(lastTick?.[0]).toBe(12.5);
+
+    // 随后起播，第一帧应当从 12.5 处开始向后推进，而不是从 0 开始
+    await startPlaying(pb);
+    expect(rafCb).toBeTruthy();
+    const frame = rafCb!;
+    rafCb = null;
+    frame(100);
+
+    const playTick = ticks.at(-1);
+    expect(playTick?.[0]).toBeGreaterThanOrEqual(12.5);
+    expect(playTick?.[1]).toBe(true);
+
+    pb.dispose();
+  });
+});
+

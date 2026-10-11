@@ -18,7 +18,7 @@
 // 锁测因此能在 jsdom 里直接驱动它，不必伪造 WebCodecs。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Clapperboard } from 'lucide-react';
+import { Clapperboard, HelpCircle, X } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
 import { t, type MessageKey } from '../../i18n';
 import {
@@ -163,6 +163,8 @@ export interface VideoExportControlProps {
   progress: VideoExportProgress | null;
   /** 结果文案（失败 / 编码器不可用 / 已取消） */
   notice: VideoExportNotice | null;
+  /** 清除结果文案 */
+  onDismissNotice?: () => void;
   /** 本机实际会用的编码组合（null = 还没探）；面板打开时调 `onProbe` 探一次 */
   support?: VideoExportSupport | null;
   probing?: boolean;
@@ -179,15 +181,29 @@ export default function VideoExportControl({
   onCancel,
   progress,
   notice,
+  onDismissNotice,
   support = null,
   probing = false,
   onProbe,
 }: VideoExportControlProps) {
   const [open, setOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const btnRef = useRef<HTMLSpanElement>(null);
   /** 面板 portal 到 body ⇒ 它**不在** `btnRef` 里，判"点外面"必须把它也算进来 */
   const panelRef = useRef<HTMLDivElement>(null);
+  const helpWrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!helpOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!helpWrapRef.current?.contains(e.target as Node)) {
+        setHelpOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [helpOpen]);
 
   const tier = tierOf(spec.tier);
   const busy = progress != null;
@@ -322,23 +338,35 @@ export default function VideoExportControl({
               />
             </Row>
 
-            {/* 视频开场（chart-preview 30）：总开关管整段，下面三行是开场里画哪些信息项。
+            {/* 曲目信息片头（chart-preview 30）：总开关管整段，下面三行是开场里画哪些信息项。
                 关掉时当场置灰（与「导出信息」那一组同一套行为，管什么由这个行为自己说明）。 */}
             {opening && onOpeningChange && (
               <section className="pvex__group pvex__group--sub">
                 <div className="pvex__group-head">
-                  <h4 className="pvex__group-title">{t('preview.video.export.opening')}</h4>
+                  <div className="pvex__group-title-wrap" ref={helpWrapRef}>
+                    <h4 className="pvex__group-title">{t('preview.video.export.opening')}</h4>
+                    <button
+                      type="button"
+                      className={`pvex__help-btn${helpOpen ? ' is-active' : ''}`}
+                      title={t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
+                      aria-label={t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
+                      aria-expanded={helpOpen}
+                      onClick={() => setHelpOpen((v) => !v)}
+                    >
+                      <HelpCircle size={13} />
+                    </button>
+                    {helpOpen && (
+                      <div className="pvex__help-popover" role="tooltip">
+                        {t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
+                      </div>
+                    )}
+                  </div>
                   <Toggle
                     label={t('preview.video.export.opening')}
                     checked={opening.enabled}
                     onChange={(v) => onOpeningChange({ enabled: v })}
                   />
                 </div>
-                {opening.enabled && (
-                  <p className="pvex__note">
-                    {t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
-                  </p>
-                )}
                 {OPENING_ITEM_IDS.map((id) => {
                   const label = t(`preview.video.export.opening.${id}` as MessageKey);
                   return (
@@ -389,10 +417,21 @@ export default function VideoExportControl({
         document.body,
       )}
 
-      {/* 结果文案（失败 / 编码器不可用 / 已取消）：读屏立刻打断 */}
+      {/* 结果文案（失败 / 编码器不可用 / 已取消）：读屏立刻打断，带手动关闭按钮 */}
       {notice && createPortal(
         <div className={`pvex__card pvex__card--${notice.tone}`} role="alert">
           <span className="pvex__card-text">{notice.text}</span>
+          {onDismissNotice && (
+            <IconButton
+              size="sm"
+              width="auto"
+              className="pvex__card-close"
+              aria-label={t('ui.dismiss')}
+              title={t('ui.dismiss')}
+              icon={<X size={14} />}
+              onClick={onDismissNotice}
+            />
+          )}
         </div>,
         document.body,
       )}

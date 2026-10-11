@@ -15,14 +15,34 @@ export function makeRecordingCtx(
   overrides: Record<string, (...args: unknown[]) => unknown> = {},
 ) {
   const calls: RecordedCall[] = [];
+  let state: Record<string, unknown> = { globalAlpha: 1 };
+  const stack: Record<string, unknown>[] = [];
   const proxy = new Proxy({}, {
     get(_t, prop) {
       if (prop === 'canvas') return { width: 0, height: 0 };
       const key = String(prop);
       if (key in overrides) return overrides[key];
+      if (key === 'save') {
+        return () => {
+          stack.push({ ...state });
+          calls.push([key, []]);
+        };
+      }
+      if (key === 'restore') {
+        return () => {
+          state = stack.pop() ?? { globalAlpha: 1 };
+          calls.push([key, []]);
+        };
+      }
+      if (key in state) return state[key];
       return (...args: unknown[]) => { calls.push([key, args]); };
     },
-    set(_t, prop, value) { calls.push([String(prop), [value]]); return true; },
+    set(_t, prop, value) {
+      const key = String(prop);
+      state[key] = value;
+      calls.push([key, [value]]);
+      return true;
+    },
   }) as unknown as CanvasRenderingContext2D;
   return { proxy, calls };
 }

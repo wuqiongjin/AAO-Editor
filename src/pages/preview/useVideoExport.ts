@@ -5,7 +5,7 @@
 //
 // **非模态**（票面：长谱导出不得阻塞页面交互）：没有 scrim，页面其余部分照样能点。
 // 取消不是 AbortController —— 域那一层是逐帧循环，靠 `isCancelled` 轮询在帧边界上退出来。
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import { t } from '../../i18n';
 import {
@@ -116,13 +116,30 @@ export function useVideoExport(
   const [support, setSupport] = useState<VideoExportSupport | null>(null);
   const [probing, setProbing] = useState(false);
   const cancelledRef = useRef(false);
+  const noticeTimerRef = useRef<number | null>(null);
+
+  const clearNoticeTimer = useCallback(() => {
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+  }, []);
+
+  const updateNotice = useCallback((n: VideoExportNotice | null) => {
+    clearNoticeTimer();
+    setNotice(n);
+    if (n !== null) {
+      noticeTimerRef.current = window.setTimeout(() => {
+        setNotice(null);
+        noticeTimerRef.current = null;
+      }, 5000);
+    }
+  }, [clearNoticeTimer]);
+
+  useEffect(() => () => clearNoticeTimer(), [clearNoticeTimer]);
 
   /**
    * 探本机可用的编码组合。
-   *
-   * **按需**（面板打开时才探），不在挂载时白跑：WebCodecs 的可用性要真问浏览器，
-   * 而这玩意儿的答案随平台变（06 那台 Linux 软光栅没有 AAC，Windows / macOS 的 Electron 很可能有）。
-   * 探测结论只用来**说清"会导出什么"**，不改导出决策本身 —— 决策由域那一层同一次判定做出。
    */
   const probe = useCallback(() => {
     setProbing(true);
@@ -134,11 +151,11 @@ export function useVideoExport(
 
   const setSpec = useCallback((patch: Partial<VideoExportSpec>) => {
     setSpecState((prev) => ({ ...prev, ...patch }));
-    setNotice(null); // 改规格 = 上一次的失败文案不再适用
+    updateNotice(null); // 改规格 = 上一次的失败文案不再适用
     setSupport(null); // 探测结论跟着规格走，改了就得重探（面板会再开一次）
-  }, []);
+  }, [updateNotice]);
 
-  const dismissNotice = useCallback(() => setNotice(null), []);
+  const dismissNotice = useCallback(() => updateNotice(null), [updateNotice]);
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;
@@ -148,7 +165,7 @@ export function useVideoExport(
     if (busy || args.scene == null) return;
     cancelledRef.current = false;
     setBusy(true);
-    setNotice(null);
+    updateNotice(null);
     setProgress({ phase: 'assets', frame: 0, totalFrames: 0 });
     // 探过的结论顺带作废：规格可能刚改过，重新导出的组合要重新问一遍浏览器
     setSupport(null);
@@ -171,17 +188,17 @@ export function useVideoExport(
         onProgress: setProgress,
         isCancelled: () => cancelledRef.current,
       });
-      setNotice(noticeFor(outcome));
+      updateNotice(noticeFor(outcome));
       return outcome;
     } catch (err) {
       console.error('[preview] 导出视频异常', err);
-      setNotice({ text: t('preview.video.export.failed'), tone: 'danger' });
+      updateNotice({ text: t('preview.video.export.failed'), tone: 'danger' });
       return undefined;
     } finally {
       setBusy(false);
       setProgress(null);
     }
-  }, [args, busy, run, spec]);
+  }, [args, busy, run, spec, updateNotice]);
 
   return { spec, setSpec, progress, notice, busy, support, probing, probe, start, cancel, dismissNotice };
 }

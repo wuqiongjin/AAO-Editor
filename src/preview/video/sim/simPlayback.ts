@@ -63,6 +63,8 @@ export interface SimPlaybackOptions {
   volume?: number;
   /** 播放速率（缺省 1；任意落在 `PLAYBACK_RATE_RANGE` 内的值，步进取 0.25） */
   rate?: number;
+  /** 初始播放秒数（恢复播放位置，防异步解码覆盖） */
+  initialSeconds?: number;
   /** 每次推进 / 暂停 / seek 后回调（HUD 时间码与进度条读它，不自己轮询） */
   onTick?: (seconds: number, playing: boolean) => void;
 }
@@ -109,14 +111,29 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
   /** 已经喂给引擎的谱面身份（换谱面 / 换细分档才重建键音表） */
   let fedNotes: ChartNote[] | null = null;
   let fedBeatDisplay = Number.NaN;
+  /** 目标播放进度：防止引擎 load(file) 异步解码完成时将游标重置回 0 */
+  let targetSeconds = Math.min(duration, Math.max(0, opts.initialSeconds ?? 0));
 
   engine.setKeySetId(opts.keySetId);
   engine.setSeVolume(opts.seVolume);
   engine.setVolume(opts.volume ?? 1);
   engine.setPlaybackRate(opts.rate ?? 1);
+  if (targetSeconds > 0) {
+    engine.seek(targetSeconds);
+    opts.onTick?.(engine.getSeconds(), engine.isPlaying);
+  }
   if (opts.audio) {
     const file = new File([opts.audio.blob], opts.audio.name);
-    void engine.load(file).catch((err: unknown) => {
+    void engine.load(file).then(() => {
+      if (disposed) return;
+      // 引擎 load 内部会重置 offsetSeconds=0；若之前有目标进度且未起播，在此精准恢复。
+      // 若解码期间用户已点击播放，AudioEngine.load 已平滑续播，不可强行拽回 targetSeconds。
+      if (!engine.isPlaying && targetSeconds > 0) {
+        engine.seek(targetSeconds);
+        render();
+        opts.onTick?.(engine.getSeconds(), engine.isPlaying);
+      }
+    }).catch((err: unknown) => {
       // 解码失败 = 按无音频回放（合成时间线照样能看谱），不打断页面
       console.warn('[preview] 仿真场音频解码失败，按无音频回放：', err);
     });
@@ -175,7 +192,10 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
 
   function play(): void {
     if (disposed || rafId !== null) return;
-    if (engine.getSeconds() >= duration) engine.seek(0);
+    if (engine.getSeconds() >= duration) {
+      targetSeconds = 0;
+      engine.seek(0);
+    }
     void engine.play().then(() => {
       if (disposed) return;
       render();
@@ -194,7 +214,8 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
 
   function seek(seconds: number): void {
     if (disposed) return;
-    engine.seek(Math.min(duration, Math.max(0, seconds)));
+    targetSeconds = Math.min(duration, Math.max(0, seconds));
+    engine.seek(targetSeconds);
     render();
     opts.onTick?.(engine.getSeconds(), engine.isPlaying);
   }

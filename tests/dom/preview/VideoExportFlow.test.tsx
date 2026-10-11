@@ -415,4 +415,79 @@ describe('失败态 · 明确文案，不静默', () => {
     expect(result.current.progress).toBeNull();
     expect(result.current.busy).toBe(false);
   });
+
+  it('issue 34 #1：结果卡片带关闭按钮，点击触发 onDismissNotice', () => {
+    const onDismiss = vi.fn();
+    render(
+      <VideoExportControl
+        spec={spec}
+        onSpecChange={() => undefined}
+        onStart={() => undefined}
+        onCancel={() => undefined}
+        progress={null}
+        notice={{ text: t('preview.video.export.failed'), tone: 'danger' }}
+        onDismissNotice={onDismiss}
+      />,
+    );
+    const closeBtn = screen.getByRole('button', { name: t('ui.dismiss') });
+    expect(closeBtn).toBeInTheDocument();
+    fireEvent.click(closeBtn);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('issue 34 #1：notice 在 5 秒后自动消失', async () => {
+    vi.useFakeTimers();
+    try {
+      const run = vi.fn(async () => outcome({ ok: false, failure: 'unknown' }));
+      const { result } = renderHook(() => useVideoExport(args, run));
+      let startPromise: Promise<void> | undefined;
+      act(() => {
+        startPromise = result.current.start();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+        await startPromise;
+      });
+      expect(result.current.notice).not.toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(result.current.notice).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('issue 34 #4：开场组具备帮助图标且描述不单独占行', () => {
+    render(
+      <VideoExportControl
+        spec={spec}
+        opening={{ enabled: true, items: { difficulty: true, title: true, artist: true } }}
+        onOpeningChange={() => undefined}
+        onSpecChange={() => undefined}
+        onStart={() => undefined}
+        onCancel={() => undefined}
+        progress={null}
+        notice={null}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: t('preview.video.export.open') }));
+    // 开场标题
+    expect(screen.getByText(t('preview.video.export.opening'))).toBeInTheDocument();
+    // 问号帮助图标包含描述 tooltip，且点击能弹出 popover 气泡
+    const help = screen.getByLabelText(t('preview.video.export.opening.note', { seconds: 5 }));
+    expect(help).toBeInTheDocument();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    // 点击弹出说明气泡
+    fireEvent.click(help);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(t('preview.video.export.opening.note', { seconds: 5 }));
+
+    // 再次点击收起
+    fireEvent.click(help);
+    expect(screen.queryByRole('tooltip')).toBeNull();
+
+    // 独立的大段描述段落不再出现
+    expect(document.querySelector('.pvex__group--sub .pvex__note')).toBeNull();
+  });
 });

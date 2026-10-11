@@ -28,6 +28,9 @@ import {
   type SimScene,
 } from '../../preview';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
+import { notesEqual } from '../../chart/editing/NotesEqual';
+import type { ChartNote } from '../../chart/types';
+import { mergeOpening } from '../../chart/config/AppSettings';
 import { getBpmEvents } from '../../audio/AudioTiming';
 import {
   chartEffectiveTitle,
@@ -60,13 +63,36 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   const [mode, setMode] = useState<PreviewMode>('static');
   const { scopeId, currentId, project, options, loading, chartId, pickChart } = usePreviewScope(active);
 
+  // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
+  const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
+
   // 静态预览的看谱档：缩放 / 全屏是"这一屏怎么看"（页面内 state，不落设置）；
   // 叠加项（BPM / 时间 / 节拍线）落 `settings.preview`、画布共享项落 `settings.display`
   // —— 两者都由「显示」面板直接读写，本页只把 `settings.preview` 转交给画面（chart-preview 08 定案）。
   const [zoom, setZoom] = useState<number>(DEFAULT_PREVIEW_ZOOM);
   const [exporting, setExporting] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [videoPlaybackSeconds, setVideoPlaybackSeconds] = useState(0);
+  const prevProjectAndChartRef = useRef({ projectId: project?.id, chartId });
+  const prevNotesRef = useRef<readonly ChartNote[] | null>(chart?.notes ?? null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const notes = chart?.notes ?? null;
+    const projectOrChartChanged =
+      prevProjectAndChartRef.current.projectId !== project?.id ||
+      prevProjectAndChartRef.current.chartId !== chartId;
+    const prevNotes = prevNotesRef.current;
+    const notesChanged =
+      (prevNotes == null && notes != null) ||
+      (prevNotes != null && notes == null) ||
+      (prevNotes != null && notes != null && !notesEqual(prevNotes, notes));
+    if (projectOrChartChanged || notesChanged) {
+      prevProjectAndChartRef.current = { projectId: project?.id, chartId };
+      prevNotesRef.current = notes;
+      setVideoPlaybackSeconds(0);
+    }
+  }, [project?.id, chartId, chart?.notes]);
 
   // 全屏预览：整块舞台进全屏，显示控件那一排随之退场（它太长、压画面），浮层只留一枚退出钮。
   // 缩放不丢：Ctrl/⌘+滚轮仍归 StaticPreviewView；设置 / 导出先退出全屏再做（2026-10-05 定案）。
@@ -119,9 +145,6 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   // 靠记录会让作用域条断档一个 tick，而"此刻作用于谁"正是它要一直说的事（照音频页）。
   const scopeOption = scopeId == null ? null : options.find((o) => o.id === scopeId) ?? null;
 
-  // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
-  const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
-
   // 要画的那份谱面（画面与导出共用同一份字段定义）：没有谱面 / 没有音符 → null（走空态）
   const scene = useMemo<PanelSceneInput | null>(() => {
     if (!project || !chart || chart.notes.length === 0) return null;
@@ -152,10 +175,28 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   }, [project, chart, settings.display, settings.preview, beatDisplay]);
 
   // 仿真场的声源 = **作用域工程**自己的音频（票 05 定案：仿真场自持引擎；作用域切到非当前工程也有声）
-  const videoAudio = useMemo<SimPlaybackAudio | null>(
-    () => (project?.audioBlob ? { name: project.audioName ?? 'audio', blob: project.audioBlob } : null),
-    [project?.audioBlob, project?.audioName],
-  );
+  // 缓存稳定引用：切页重读 IndexedDB 时相同 Blob 不换对象，避免无谓重建引擎与重新解码
+  const cachedAudioRef = useRef<{ id: string; name: string; size: number; audio: SimPlaybackAudio } | null>(null);
+  const videoAudio = useMemo<SimPlaybackAudio | null>(() => {
+    if (!project?.audioBlob) {
+      cachedAudioRef.current = null;
+      return null;
+    }
+    const id = project.id;
+    const name = project.audioName ?? 'audio';
+    const size = project.audioBlob.size;
+    if (
+      cachedAudioRef.current &&
+      cachedAudioRef.current.id === id &&
+      cachedAudioRef.current.name === name &&
+      cachedAudioRef.current.size === size
+    ) {
+      return cachedAudioRef.current.audio;
+    }
+    const audio: SimPlaybackAudio = { name, blob: project.audioBlob };
+    cachedAudioRef.current = { id, name, size, audio };
+    return audio;
+  }, [project?.id, project?.audioBlob, project?.audioName]);
 
   // 导出档的排布结论（跟预览当前缩放无关）：按钮 tooltip 说清要落多大一张图 / 为什么出不了。
   // 头带开关要进依赖：关掉它图就矮一截，预告尺寸必须跟着变（与实际出图同一份 `planSheet`）。
@@ -346,12 +387,13 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                     disabled={videoScene == null}
                     spec={videoExport.spec}
                     opening={settings.export.opening}
-                    onOpeningChange={(patch) => setExport({ opening: patch })}
+                    onOpeningChange={(patch) => setExport({ opening: mergeOpening(settings.export.opening, patch) })}
                     onSpecChange={videoExport.setSpec}
                     onStart={() => void handleVideoExport()}
                     onCancel={videoExport.cancel}
                     progress={videoExport.progress}
                     notice={videoExport.notice}
+                    onDismissNotice={videoExport.dismissNotice}
                     support={videoExport.support}
                     probing={videoExport.probing}
                     onProbe={videoExport.probe}
@@ -373,6 +415,9 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               <PreviewVideoStage
                 active={active}
                 scene={videoScene}
+                chartId={chartId}
+                initialSeconds={videoPlaybackSeconds}
+                onSecondsChange={setVideoPlaybackSeconds}
                 duration={project?.durationSeconds ?? 0}
                 audio={videoAudio}
                 keySetId={settings.audio.keySet}

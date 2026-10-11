@@ -86,7 +86,6 @@ export {
   tierOf,
   videoExportBasename,
   type ExportTimeline,
-  type OpeningInput,
   type VideoContainer,
   type VideoContainerChoice,
   type VideoExportFailure,
