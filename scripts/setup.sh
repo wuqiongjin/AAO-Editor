@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "==> [1/3] 提升文件描述符与 inotify 限制（容器内默认过小易导致请求挂起）"
+echo "==> [1/4] 提升文件描述符与 inotify 限制（容器内默认过小易导致请求挂起）"
 ulimit -Sn 10000 2>/dev/null || echo "    (无法修改 ulimit，跳过)"
 if [ "$(id -u)" = "0" ]; then
   sysctl -w fs.inotify.max_user_watches=524288 2>/dev/null || true
