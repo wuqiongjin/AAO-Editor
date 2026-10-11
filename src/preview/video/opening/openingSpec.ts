@@ -41,8 +41,10 @@ export const OPENING_BAND_COLOR = '#ebe8eb';
 export const OPENING_BAND_TEXT = '#38383c';
 /** 标题字号 / 帧高（字重 400，不加粗） */
 export const OPENING_TITLE_FONT = 0.05;
-/** 艺人行字号 / 帧高 */
-export const OPENING_ARTIST_FONT = 0.04;
+/** 艺人行字号 / 帧高（方案 B：0.030 H） */
+export const OPENING_ARTIST_FONT = 0.030;
+/** 追加子字段（作词/作曲/编曲/谱师）字号 / 帧高（方案 B：0.022 H） */
+export const OPENING_CREDIT_FONT = 0.022;
 /** 封面四周细白框宽 / 帧高 */
 export const OPENING_FRAME_LINE = 0.0035;
 
@@ -50,10 +52,14 @@ export const OPENING_FRAME_LINE = 0.0035;
 export const OPENING_GAP_COVER_BADGE = 0.025;
 /** 徽章 → 标题条的间距 / 帧高 */
 export const OPENING_GAP_BADGE_BAND = 0.026;
-/** 标题条 → 艺人行的间距 / 帧高 */
-export const OPENING_GAP_BAND_ARTIST = 0.03;
+/** 标题条 → 艺人行的间距 / 帧高（方案 B：0.022 H） */
+export const OPENING_GAP_BAND_ARTIST = 0.022;
+/** 艺人行 → 追加子字段的间距 / 帧高（方案 B：0.016 H） */
+export const OPENING_GAP_ARTIST_CREDIT = 0.016;
 /** 艺人行占高 = 字号 × 1.6 */
 export const OPENING_ARTIST_LINE_FACTOR = 1.6;
+/** 追加子字段行高倍率（方案 B：1.4x 紧凑行距） */
+export const OPENING_CREDIT_LINE_FACTOR = 1.4;
 
 // 文字字体：与长图头带同一条 `HEADER_SANS`（ADR-0016 §5.1），不打包字体 —— 见 `src/preview/fontStack.ts`
 
@@ -82,18 +88,23 @@ export interface OpeningMetrics {
   /** 艺人行墨迹中心（无该项 = NaN，不画） */
   artistCy: number;
   artistFont: number;
+  /** 追加字段块上缘（无该项 = NaN，不画） */
+  creditsTop: number;
+  creditFont: number;
+  creditLineH: number;
   /** 整块底（含所有画出的项） */
   bottom: number;
 }
 
 /**
  * 按**实际画出的项**组成的栈算垂直居中（上 / 下留白相等；关掉某项不留空位）。
- * `items` 为空时只剩封面。
+ * `items` 为空时只剩封面；`creditLinesCount` 为 0 时不计入附加字段。
  */
 export function openingStackMetrics(
   w: number,
   h: number,
   items: readonly OpeningItemId[],
+  creditLinesCount: number = 0,
 ): OpeningMetrics {
   const cover = Math.round(OPENING_COVER_RATIO * h);
   const badgeFont = Math.round(OPENING_BADGE_FONT * h);
@@ -101,9 +112,13 @@ export function openingStackMetrics(
   const bandH = Math.round(OPENING_BAND_H * h);
   const artistFont = Math.round(OPENING_ARTIST_FONT * h);
   const artistLine = Math.round(artistFont * OPENING_ARTIST_LINE_FACTOR);
+  const creditFont = Math.round(OPENING_CREDIT_FONT * h);
+  const creditLineH = Math.round(creditFont * OPENING_CREDIT_LINE_FACTOR);
+
   const gap1 = Math.round(OPENING_GAP_COVER_BADGE * h);
   const gap2 = Math.round(OPENING_GAP_BADGE_BAND * h);
   const gap3 = Math.round(OPENING_GAP_BAND_ARTIST * h);
+  const gap4 = Math.round(OPENING_GAP_ARTIST_CREDIT * h);
 
   let y = cover;
   let badgeTop = y + gap1;
@@ -118,10 +133,18 @@ export function openingStackMetrics(
     y += bandH;
   }
   let artistCy = NaN;
-  if (items.includes('artist')) {
+  const hasArtist = items.includes('artist');
+  if (hasArtist) {
     y += gap3;
     artistCy = y + artistLine / 2;
     y += artistLine;
+  }
+
+  let creditsTop = NaN;
+  if (creditLinesCount > 0) {
+    y += hasArtist ? gap4 : gap3;
+    creditsTop = y;
+    y += creditLinesCount * creditLineH;
   }
 
   const top = Math.round((h - y) / 2);
@@ -138,6 +161,9 @@ export function openingStackMetrics(
     bandH,
     artistCy: Number.isNaN(artistCy) ? NaN : top + artistCy,
     artistFont,
+    creditsTop: Number.isNaN(creditsTop) ? NaN : top + creditsTop,
+    creditFont,
+    creditLineH,
     bottom: top + y,
   };
 }

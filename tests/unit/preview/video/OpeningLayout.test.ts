@@ -11,7 +11,11 @@ import {
   OPENING_BADGE_FONT,
   OPENING_BAND_H,
   OPENING_COVER_RATIO,
+  OPENING_CREDIT_FONT,
+  OPENING_CREDIT_LINE_FACTOR,
   OPENING_FRAME_LINE,
+  OPENING_GAP_ARTIST_CREDIT,
+  OPENING_GAP_BAND_ARTIST,
   OPENING_STACK_INSET,
   OPENING_STACK_T,
   OPENING_TITLE_FONT,
@@ -35,6 +39,7 @@ const RATIOS = [
   ['bandH', OPENING_BAND_H],
   ['titleFont', OPENING_TITLE_FONT],
   ['artistFont', OPENING_ARTIST_FONT],
+  ['creditFont', OPENING_CREDIT_FONT],
   ['frameLine', OPENING_FRAME_LINE],
 ] as const;
 
@@ -96,12 +101,16 @@ describe('chart-preview 30 · 比例常量落值（照游戏内参考图实测�
     expect(value).toBeLessThan(1);
   });
 
-  it('封面 0.48 H / 标题条 0.11 H / 徽章字号 0.024 H / 标题 0.05 H / 艺人 0.04 H', () => {
+  it('方案 B 落值：艺人 0.030 H / 子字段 0.022 H / 行高倍率 1.4', () => {
     expect(OPENING_COVER_RATIO).toBe(0.48);
     expect(OPENING_BAND_H).toBe(0.11);
     expect(OPENING_BADGE_FONT).toBe(0.024);
     expect(OPENING_TITLE_FONT).toBe(0.05);
-    expect(OPENING_ARTIST_FONT).toBe(0.04);
+    expect(OPENING_ARTIST_FONT).toBe(0.030);
+    expect(OPENING_CREDIT_FONT).toBe(0.022);
+    expect(OPENING_GAP_BAND_ARTIST).toBe(0.022);
+    expect(OPENING_GAP_ARTIST_CREDIT).toBe(0.016);
+    expect(OPENING_CREDIT_LINE_FACTOR).toBe(1.4);
     // 堆叠垫层：露出 t 比内缩 i 大 ⇒ 顶条 / 右条露得出来（i > t 时只剩顶条）
     expect(OPENING_STACK_T).toBeGreaterThan(OPENING_STACK_INSET - 0.002);
   });
@@ -112,6 +121,39 @@ describe('chart-preview 30 · 比例常量落值（照游戏内参考图实测�
     expect(m.bandH).toBe(119);
     expect(m.badgeH).toBe(48);
     expect(m.coverX).toBe((1920 - 518) >> 1);
+  });
+});
+
+describe('chart-preview 39 · 可选附加字段兼容性（0~4项自由组合且空项不占位）', () => {
+  it('0 个字段时：不画 credits，creditsTop 为 NaN，与基线高度完全一致', () => {
+    const baseline = openingStackMetrics(1920, 1080, ALL);
+    const withZero = openingStackMetrics(1920, 1080, ALL, 0);
+    expect(Number.isNaN(withZero.creditsTop)).toBe(true);
+    expect(withZero.top).toBe(baseline.top);
+    expect(withZero.bottom).toBe(baseline.bottom);
+  });
+
+  it.each([1, 2, 3, 4])('包含 %i 个可选字段时：上下留白严格相等，整栈保持垂直居中', (count) => {
+    const m = openingStackMetrics(1920, 1080, ALL, count);
+    expect(Number.isNaN(m.creditsTop)).toBe(false);
+    expect(m.creditsTop).toBeGreaterThan(m.artistCy);
+    // 垂直居中不变量：上留白 = 下留白
+    const topGap = m.top;
+    const bottomGap = 1080 - m.bottom;
+    expect(Math.abs(topGap - bottomGap)).toBeLessThanOrEqual(1);
+  });
+
+  it('逐项追加字段时，栈高按 creditLineH 严格单调增加', () => {
+    const m0 = openingStackMetrics(1920, 1080, ALL, 0);
+    const m1 = openingStackMetrics(1920, 1080, ALL, 1);
+    const m2 = openingStackMetrics(1920, 1080, ALL, 2);
+    const m3 = openingStackMetrics(1920, 1080, ALL, 3);
+    const m4 = openingStackMetrics(1920, 1080, ALL, 4);
+
+    expect(m1.bottom - m1.top).toBeGreaterThan(m0.bottom - m0.top);
+    expect((m2.bottom - m2.top) - (m1.bottom - m1.top)).toBe(m1.creditLineH);
+    expect((m3.bottom - m3.top) - (m2.bottom - m2.top)).toBe(m1.creditLineH);
+    expect((m4.bottom - m4.top) - (m3.bottom - m3.top)).toBe(m1.creditLineH);
   });
 });
 

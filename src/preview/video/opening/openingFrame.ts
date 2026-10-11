@@ -31,6 +31,18 @@ import {
   openingStackMetrics,
 } from './openingSpec';
 
+/** 歌曲信息附加字段（全部可选：作词 / 作曲 / 编曲 / 谱师，空项不占位） */
+export interface OpeningCredits {
+  /** 作词 */
+  lyricist?: string | null;
+  /** 作曲 */
+  composer?: string | null;
+  /** 编曲 */
+  arranger?: string | null;
+  /** 谱师 */
+  charter?: string | null;
+}
+
 /** 一帧要画的开场（封面已由编排层解码好；`items` 已是有序的"实际画哪些项"） */
 export interface OpeningFrameInput {
   title: string;
@@ -43,6 +55,8 @@ export interface OpeningFrameInput {
   /** 无封面时占位块的色相（由页面按工程 id 派生） */
   coverHue: number;
   items: readonly OpeningItemId[];
+  /** 可选的附加字段（作词/作曲/编曲/谱师），每首歌曲可选填任意子集，空项不占位 */
+  credits?: OpeningCredits | null;
 }
 
 /** 场地的三张素材（结构对齐 `SimFrameAssets`，免得开场这一层依赖仿真场的类型） */
@@ -107,6 +121,65 @@ function drawFittedText(
   ctx.font = `${weight} ${px}px ${HEADER_SANS}`;
   ctx.fillStyle = color;
   inkCentered(ctx, truncateToWidth(ctx, text, maxW), cx, cy);
+}
+
+const CREDIT_FIELDS = [
+  ['lyricist', '作词'],
+  ['composer', '作曲'],
+  ['arranger', '编曲'],
+  ['charter', '谱师'],
+] as const;
+
+/**
+ * 提取有效的附加字段行（空值不占位）。
+ * 顺序：作词 → 作曲 → 编曲 → 谱师。
+ */
+export function extractCreditLines(credits?: OpeningCredits | null): string[] {
+  if (!credits) return [];
+  const lines: string[] = [];
+  for (const [key, label] of CREDIT_FIELDS) {
+    const raw = credits[key];
+    const val = typeof raw === 'string' ? raw.trim() : '';
+    if (val) {
+      lines.push(`${label}：${val}`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * 方案 B：首字对齐（块居中）
+ * 整个 credits 区域在画面中轴居中，内部多行统一左对齐，使得“作词/作曲/编曲/谱师”首字垂直对齐。
+ */
+function drawCreditsBlock(
+  ctx: CanvasRenderingContext2D,
+  lines: readonly string[],
+  cx: number,
+  startY: number,
+  fontPx: number,
+  lineH: number,
+  maxW: number,
+): void {
+  ctx.save();
+  ctx.font = `400 ${fontPx}px ${HEADER_SANS}`;
+  ctx.fillStyle = '#f0f2f5';
+
+  let maxLineWidth = 0;
+  for (const line of lines) {
+    const lw = ctx.measureText(line).width;
+    if (lw > maxLineWidth) maxLineWidth = lw;
+  }
+  const blockW = Math.min(maxLineWidth, maxW);
+  const blockLeft = Math.round(cx - blockW / 2);
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  lines.forEach((line, idx) => {
+    const text = truncateToWidth(ctx, line, maxW);
+    const lineCy = startY + idx * lineH + lineH / 2;
+    ctx.fillText(text, blockLeft, lineCy);
+  });
+  ctx.restore();
 }
 
 /** 难度徽章：微圆角实底胶囊 + 白字全大写 */
@@ -189,7 +262,8 @@ export function drawOpeningFrameAt(
   ctx.fillStyle = OPENING_BG;
   ctx.fillRect(0, 0, w, h);
 
-  const m = openingStackMetrics(w, h, input.items);
+  const creditLines = extractCreditLines(input.credits);
+  const m = openingStackMetrics(w, h, input.items, creditLines.length);
   const cx = w / 2;
   // 装饰层在最下（可被封面 / 白条切边），整链相对白条上缘定位
   const bandTop = Number.isNaN(m.bandY) ? m.top + m.cover : m.bandY;
@@ -247,6 +321,10 @@ export function drawOpeningFrameAt(
 
   if (!Number.isNaN(m.artistCy) && input.artist) {
     drawFittedText(ctx, input.artist, cx, m.artistCy, m.artistFont, w * 0.8, '#ffffff', 500);
+  }
+
+  if (!Number.isNaN(m.creditsTop) && creditLines.length > 0) {
+    drawCreditsBlock(ctx, creditLines, cx, m.creditsTop, m.creditFont, m.creditLineH, w * 0.85);
   }
 
   ctx.restore();

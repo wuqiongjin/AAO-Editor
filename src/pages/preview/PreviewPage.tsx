@@ -231,6 +231,9 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       cover: project?.coverBlob ?? null,
       coverHue: projectCoverHue(project?.id ?? chart.id),
       items: settings.export.opening.items,
+      // 可选的附加字段（作词/作曲/编曲/谱师，chart-preview 39）：
+      // 当前 ChartProject 尚未扩容此 4 个字段（未来扩容时直接透传）；这里留好接线口
+      credits: (project as { credits?: OpeningInput['credits'] })?.credits ?? null,
     };
   }, [chart, project, settings.export.opening]);
 

@@ -16,6 +16,7 @@ import {
   drawOpeningFieldBackground,
   drawOpeningFrameAt,
   drawOpeningTrack,
+  extractCreditLines,
   openingAlphaAt,
   openingItemOrder,
   openingSegmentAt,
@@ -220,3 +221,65 @@ describe('chart-preview 30 · 信息项的有序列表', () => {
     expect(openingItemOrder({ ...DEFAULT_OPENING_ITEMS })).toEqual([...OPENING_ITEM_IDS]);
   });
 });
+
+describe('chart-preview 39 · 可选附加字段（作词/作曲/编曲/谱师）渲染与对齐', () => {
+  it('extractCreditLines：按作词/作曲/编曲/谱师顺序提取，空值与纯空白过滤', () => {
+    expect(extractCreditLines(null)).toEqual([]);
+    expect(extractCreditLines({})).toEqual([]);
+    expect(extractCreditLines({ lyricist: '  ', composer: '', arranger: null, charter: undefined })).toEqual([]);
+
+    expect(
+      extractCreditLines({
+        charter: ' 千石抚子 ',
+        lyricist: '織田あすか',
+        composer: ' 都丸椋太',
+      }),
+    ).toEqual(['作词：織田あすか', '作曲：都丸椋太', '谱师：千石抚子']);
+  });
+
+  it('未提供 credits 时：不画任何附加字段文字', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawOpeningFrameAt(proxy, 1920, 1080, frameInput({ credits: null }), 1);
+    const t = texts(calls);
+    expect(t).not.toEqual(expect.arrayContaining([expect.stringMatching(/作词|作曲|编曲|谱师/)]));
+  });
+
+  it('提供部分字段时（如仅谱师）：只画谱师行，其余不出现也不占位', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawOpeningFrameAt(proxy, 1920, 1080, frameInput({
+      credits: { charter: '千石抚子' },
+    }), 1);
+    const t = texts(calls);
+    expect(t).toContain('谱师：千石抚子');
+    expect(t.filter((s) => /作词|作曲|编曲/.test(s))).toEqual([]);
+  });
+
+  it('方案 B 首字对齐块居中：多个字段时，首字 X 坐标完全一致（严格垂直对齐）', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawOpeningFrameAt(proxy, 1920, 1080, frameInput({
+      credits: {
+        lyricist: '織田あすか（Elements Garden）',
+        composer: '都丸椋太（Elements Garden）',
+        arranger: '都丸椋太（Elements Garden）',
+        charter: '千石抚子',
+      },
+    }), 1);
+
+    // 过滤出 credits 字段绘制的 fillText 调用
+    const creditCalls = calls.filter(
+      ([k, a]) => k === 'fillText' && /作词|作曲|编曲|谱师/.test(String((a as unknown[])[0])),
+    );
+    expect(creditCalls.length).toBe(4);
+
+    // 方案 B 不变量：所有 credits 行的 x 坐标必须相同（首字对齐）
+    const xPositions = creditCalls.map(([, a]) => (a as number[])[1]);
+    expect(new Set(xPositions).size).toBe(1);
+
+    // y 坐标单调递增
+    const yPositions = creditCalls.map(([, a]) => (a as number[])[2]);
+    for (let i = 1; i < yPositions.length; i++) {
+      expect(yPositions[i]).toBeGreaterThan(yPositions[i - 1]);
+    }
+  });
+});
+

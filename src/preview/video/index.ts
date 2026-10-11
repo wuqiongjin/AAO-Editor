@@ -24,6 +24,7 @@ export {
   openingSegmentAt,
   openingStackMetrics,
   openingTrackAlphaAt,
+  type OpeningCredits,
   type OpeningFieldImages,
   type OpeningFrameInput,
   type OpeningItemId,

@@ -13,6 +13,7 @@ import { buildSimChart, loadSimAssets, type SimFrameInput, type SimPlaybackAudio
 import {
   OPENING_SECONDS,
   openingItemOrder,
+  type OpeningCredits,
   type OpeningFrameInput,
   type OpeningItemId,
 } from '../opening';
@@ -102,6 +103,8 @@ export interface OpeningInput {
   coverHue: number;
   /** `settings.export.opening.items`（全量写进来，域内按"开着的项"过滤） */
   items: Record<OpeningItemId, boolean>;
+  /** 可选的附加字段（作词/作曲/编曲/谱师） */
+  credits?: OpeningCredits | null;
 }
 
 /**
@@ -304,6 +307,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
           cover: await loadCoverImage(req.opening.cover),
           coverHue: req.opening.coverHue,
           items: openingItemOrder(req.opening.items),
+          credits: req.opening.credits,
         }
       : null;
     const driven = await driveExportFrames({
