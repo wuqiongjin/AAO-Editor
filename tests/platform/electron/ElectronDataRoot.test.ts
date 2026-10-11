@@ -317,7 +317,7 @@ describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () =>
     expect(settingsSrc).not.toMatch(/dataRoot|data-root|保存位置/);
   });
 
-  it('设置页导出仍是 settings 对象；搬家与认领在 electronAPI 门控之后', () => {
+  it('设置页导出仍是 settings 对象；打开、搬家与认领在 electronAPI 门控之后', () => {
     const settingsPageSrc = stripComments(readSource('src/pages/settings/SettingsPage.tsx'));
     expect(settingsPageSrc).toMatch(/JSON\.stringify\(settings/);
     expect(settingsPageSrc).toMatch(/settings\.export/);
@@ -327,19 +327,23 @@ describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () =>
     expect(settingsPageSrc).toMatch(/settings\.prefs/);
     expect(settingsPageSrc).not.toMatch(/不含/);
     expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot/);
+    expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot\.open/);
     expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot\.change/);
     expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot\.claim/);
     expect(settingsPageSrc).not.toMatch(/JSON\.stringify\([^)]*dataRoot/);
     expect(settingsPageSrc).not.toMatch(/导出全部配置/);
   });
 
-  it('主进程/preload 接线：搬家与认领分开；背景图走数据根固定文件', () => {
+  it('主进程/preload 接线：打开、搬家与认领分开；背景图走数据根固定文件', () => {
     const mainSrc = stripComments(readSource('electron/main.cjs'));
     const preloadSrc = stripComments(readSource('electron/preload.js'));
     expect(preloadSrc).toMatch(/dataRoot\s*:/);
+    expect(preloadSrc).toMatch(/invoke\(\s*['"]dataRoot:open['"]/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]dataRoot:change['"]/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]dataRoot:claim['"]/);
     expect(preloadSrc).toMatch(/backgroundSkin\s*:/);
+    expect(mainSrc).toMatch(/shell\.openPath/);
+    expect(mainSrc).toMatch(/['"]dataRoot:open['"]/);
     expect(mainSrc).toMatch(/moveDataRoot/);
     expect(mainSrc).toMatch(/claimDataRoot/);
     expect(mainSrc).toMatch(/['"]dataRoot:change['"]/);

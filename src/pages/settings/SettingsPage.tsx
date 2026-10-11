@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Download, FolderOpen, FolderSearch, Info, MonitorCog, RotateCcw, SlidersHorizontal, Trash2, Upload, Eye } from 'lucide-react';
+import { Check, Download, FolderOpen, FolderSearch, FolderSync, Info, MonitorCog, RotateCcw, SlidersHorizontal, Trash2, Upload, Eye } from 'lucide-react';
 import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
 import { useConfig } from '../../app/ProviderTree';
@@ -31,6 +31,7 @@ const QUALITY_OPTIONS: Array<{ value: AppSettings['display']['imageQuality']; la
 
 interface DataRootBridge {
   get(): Promise<{ path: string }>;
+  open(): Promise<{ ok: boolean; path: string; message?: string }>;
   change(): Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>;
   claim(): Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>;
 }
@@ -50,17 +51,6 @@ interface AssetCacheStats {
 interface AssetCacheBridge {
   stats(): Promise<AssetCacheStats>;
   clear(): Promise<{ freedBytes: number }>;
-}
-
-/** 占用分桶：文本类（索引 / 谱面原文）与二进制（封面 / 音频）—— kind 粒度只到这里，说清即可 */
-function splitCacheUsage(byKind: AssetCacheStats['byKind']): { textBytes: number; assetBytes: number } {
-  let textBytes = 0;
-  let assetBytes = 0;
-  for (const [kind, bucket] of Object.entries(byKind)) {
-    if (kind === 'json' || kind === 'text') textBytes += bucket.bytes;
-    else assetBytes += bucket.bytes;
-  }
-  return { textBytes, assetBytes };
 }
 
 function getAssetCacheBridge(): AssetCacheBridge | undefined {
@@ -255,6 +245,7 @@ export default function SettingsPage() {
     }
   };
 
+  const handleOpenDataRoot = () => void applyDataRootResult(() => dataRootApi!.open(), t('settings.dataRoot.openFail'));
   const handleChangeDataRoot = () => void applyDataRootResult(() => dataRootApi!.change(), t('settings.dataRoot.changeFail'));
   const handleClaimDataRoot = () => void applyDataRootResult(() => dataRootApi!.claim(), t('settings.dataRoot.claimFail'));
 
@@ -285,8 +276,6 @@ export default function SettingsPage() {
     };
     reader.readAsText(file);
   };
-
-  const cacheUsage = cacheStats == null ? null : splitCacheUsage(cacheStats.byKind);
 
   return (
     <AppPageShell>
@@ -489,10 +478,18 @@ export default function SettingsPage() {
                       <button
                         className="button-secondary"
                         type="button"
+                        disabled={dataRootBusy || !dataRootPath}
+                        onClick={handleOpenDataRoot}
+                      >
+                        <FolderOpen size={15} />{t('settings.dataRoot.open')}
+                      </button>
+                      <button
+                        className="button-secondary"
+                        type="button"
                         disabled={dataRootBusy}
                         onClick={handleChangeDataRoot}
                       >
-                        <FolderOpen size={15} />{t('settings.dataRoot.change')}
+                        <FolderSync size={15} />{t('settings.dataRoot.change')}
                       </button>
                       <button
                         className="button-secondary"
@@ -518,16 +515,8 @@ export default function SettingsPage() {
                             ? t('settings.cache.reading')
                             : cacheStats.count === 0
                               ? t('settings.cache.empty')
-                              : t('settings.cache.usage', { size: formatBytes(cacheStats.totalBytes), n: cacheStats.count }))}
+                              : t('settings.cache.usage', { size: formatBytes(cacheStats.totalBytes) }))}
                       </span>
-                      {cacheUsage != null && cacheStats != null && cacheStats.count > 0 && (
-                        <span>
-                          {t('settings.cache.breakdown', {
-                            text: formatBytes(cacheUsage.textBytes),
-                            assets: formatBytes(cacheUsage.assetBytes),
-                          })}
-                        </span>
-                      )}
                     </div>
                     <button
                       className="button-secondary"
@@ -538,10 +527,9 @@ export default function SettingsPage() {
                       <Trash2 size={15} />{t('settings.cache.clear')}
                     </button>
                   </div>
-                  {/* 清理策略（票 18）：界面上只留两个数 + 一句「什么时候按新值算」 */}
                   <NumberRow
                     label={t('settings.cache.idleDays')}
-                    hint={t('settings.cache.policyHint')}
+                    hint={t('settings.cache.idleDays.hint')}
                     value={settings.cachePolicy.maxIdleDays}
                     min={CACHE_POLICY_RANGE.idleDays.min}
                     max={CACHE_POLICY_RANGE.idleDays.max}
@@ -549,7 +537,7 @@ export default function SettingsPage() {
                   />
                   <NumberRow
                     label={t('settings.cache.maxSize')}
-                    hint={t('settings.cache.policyHint')}
+                    hint={t('settings.cache.maxSize.hint')}
                     value={settings.cachePolicy.maxMegabytes}
                     min={CACHE_POLICY_RANGE.megabytes.min}
                     max={CACHE_POLICY_RANGE.megabytes.max}

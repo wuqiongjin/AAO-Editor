@@ -21,9 +21,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     preview: {
         saveBinary: (payload) => ipcRenderer.invoke('preview:saveBinary', payload),
     },
-    // issue 117：数据根（不进设置对象）。change = 搬家；claim = 认领已有根。
+    // issue 117 + 19：数据根（不进设置对象）。open = 打开目录；change = 搬家；claim = 认领已有根。
     dataRoot: {
         get: () => ipcRenderer.invoke('dataRoot:get'),
+        open: () => ipcRenderer.invoke('dataRoot:open'),
         change: () => ipcRenderer.invoke('dataRoot:change'),
         claim: () => ipcRenderer.invoke('dataRoot:claim'),
     },

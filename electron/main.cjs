@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
@@ -80,6 +80,19 @@ registerProjectStoreIpc();
 // ---------------------------------------------------------------------------
 function registerDataRootIpc() {
     ipcMain.handle('dataRoot:get', async () => ({ path: currentDataRoot() }));
+
+    ipcMain.handle('dataRoot:open', async () => {
+        const root = currentDataRoot();
+        try {
+            const errMsg = await shell.openPath(root);
+            if (errMsg) {
+                return { ok: false, message: errMsg, path: root };
+            }
+            return { ok: true, path: root };
+        } catch (err) {
+            return { ok: false, message: err?.message || String(err), path: root };
+        }
+    });
 
     ipcMain.handle('dataRoot:change', async (event) => {
         const win = BrowserWindow.fromWebContents(event.sender);
