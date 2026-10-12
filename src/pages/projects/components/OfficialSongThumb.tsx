@@ -19,6 +19,7 @@ import {
   jacketThumbUrl,
 } from '../../../community/bestdori/songs';
 import type { CommunityTransport } from '../../../community/transport';
+import LoadingShimmer, { useSlowLoading } from '../../../ui/LoadingShimmer';
 
 /** 提前一屏开始取（原型口径）：不等真正入视口，滚到附近就发起 —— 822 首的目录不能一开就全拉 */
 const LAZY_ROOT_MARGIN = '160px 0px';
@@ -81,6 +82,9 @@ export default function OfficialSongThumb({
   const showIcon = !hasJacket || noMaterial;
   const showBroken = !showIcon && broken;
   const src = useDirect ? jacketPreviewUrl(song) : jacketThumbUrl(song);
+  // 票 24 验收回修：微光只表示「真的慢」—— 缓存秒开（协议往返 < 150ms）不再闪；
+  // 入视口 / 直链降级 / 终态都重置计时
+  const slow = useSlowLoading(fadedIn || broken || showIcon || !visible, `${src}:${visible}`);
 
   return (
     <span
@@ -94,7 +98,7 @@ export default function OfficialSongThumb({
         <ImageOff size={14} />
       ) : (
         <>
-          {!fadedIn && <span className="off-row__thumb-ph" />}
+          {!fadedIn && slow && <LoadingShimmer />}
           {visible && (
             <img
               src={src}

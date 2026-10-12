@@ -8,7 +8,7 @@
 //   - 选中即经网关把封面收进缓存（Q2：导入零下载的保险；行可见时 15/17 已收过，这里兜底去重）。
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import ProjectsPage from '@/src/pages/projects/ProjectsPage';
@@ -17,7 +17,7 @@ import { clearSongCatalogCache } from '@/src/community/bestdori/songs';
 import { assetRawUrl } from '@/src/community/assetUrls';
 import { installIntersectionObserverStub } from '@/tests/support/intersection';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
-import { seedZhSettings } from '@/tests/support/storage';
+import { seedZhSettings, SETTINGS_KEY } from '@/tests/support/storage';
 
 const SONG_TITLE = 'BLACK SHOUT';
 /** 票 20：另一首（song 30），用来对照「换歌」与「重复点同一行」 */
@@ -45,6 +45,15 @@ const SONGS_INDEX = {
     musicTitle: ['LOUDER', 'LOUDER', 'LOUDER', 'LOUDER', 'LOUDER'],
     publishedAt: ['1462071600000', '1462104000000', '1507003200000', '1462075200000', '1462071600000'],
     difficulty: { 3: { playLevel: 27 } },
+  },
+  // 票 24：平台没给封面的曲子（jacketImage 空串）—— 三态里的「无封面」档
+  '31': {
+    tag: 'normal',
+    bandId: 5,
+    jacketImage: [''],
+    musicTitle: ['NO JACKET', 'NO JACKET', 'NO JACKET', 'NO JACKET', 'NO JACKET'],
+    publishedAt: ['1462071600000', '1462104000000', '1507003200000', '1462075200000', '1462071600000'],
+    difficulty: { 3: { playLevel: 20 } },
   },
 };
 const BANDS_INDEX = {
@@ -78,6 +87,7 @@ function installFakeBridge(opts: { holdDetail?: boolean } = {}): ReturnType<type
       return { ok: true, responseType: 'json', status: 200, data: SONG_DETAIL };
     }
     if (payload.url.endsWith('/api/songs/30.json')) return { ok: true, responseType: 'json', status: 200, data: { bgmId: 'bgm030', length: 100 } };
+    if (payload.url.endsWith('/api/songs/31.json')) return { ok: true, responseType: 'json', status: 200, data: { bgmId: 'bgm031', length: 90 } };
     return { ok: false, error: { kind: 'request-rejected', message: `未打桩: ${payload.url}` } };
   });
   (window as unknown as { electronAPI?: unknown }).electronAPI = { communityNet: { request } };
@@ -158,12 +168,12 @@ describe('票 16 · 预览区的素材复用（本机优先、直链降级）', 
     await waitFor(() => expect(preview.querySelector('.off-cover img')).not.toBeNull());
     expect(preview.querySelector('.off-cover img')!.getAttribute('src')).toBe(assetRawUrl(JACKET_URL));
 
-    // 本机没有（未缓存）→ 直链；直链也失败 → 图标（与 16 之前的终态一致）
+    // 本机没有（未缓存）→ 直链；直链也失败（请求终态）→ 票 24：失败态可就地重试（不再是死路）
     fireEvent.error(preview.querySelector('.off-cover img')!);
     expect(preview.querySelector('.off-cover img')!.getAttribute('src')).toBe(JACKET_URL);
     fireEvent.error(preview.querySelector('.off-cover img')!);
     expect(preview.querySelector('.off-cover img')).toBeNull();
-    expect(preview.querySelector('.off-cover svg')).not.toBeNull();
+    expect(preview.querySelector('.off-cover__retry')).not.toBeNull();
   });
 
   it('试听先读本机（导入过的歌才有缓存）；未命中落回直链', async () => {
@@ -251,9 +261,9 @@ describe('票 21 · 预览栏手风琴折叠', () => {
     await waitFor(() => expect(dialog.querySelector('.off-preview__title')?.textContent).toBe(SONG_TITLE));
     expect(dialog.querySelector('.off-split')?.classList.contains('is-collapsed')).toBe(false);
     expect(row().getAttribute('aria-selected')).toBe('true');
-    // 上抛给弹窗的 selection 要等详情到位（票 08 契约）：`.off-sync` 的 disabled 就是这条路标
-    await waitFor(() => expect(dialog.querySelector('.off-sync')).not.toBeDisabled());
-    expect(within(dialog).getByRole('button', { name: '创建' })).toBeEnabled();
+    // 上抛给弹窗的 selection 要等详情到位（票 08 契约）：路标是「创建」解禁
+    // （票 25 起同步开关不再挂 detail 门禁，`.off-sync` 的 disabled 不再是路标）
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: '创建' })).toBeEnabled());
 
     // 再点一次 = 收起（= 取消选中）。收起只关窗、不清内容：内容留着，收起动画才有东西可滑
     fireEvent.click(row());
@@ -281,7 +291,7 @@ describe('票 21 · 预览栏手风琴折叠', () => {
     expect(dialog.querySelector('.off-preview')?.getAttribute('aria-hidden')).toBe('false');
   });
 
-  it('detail 未到位：试听条是等高骨架、同步开关是加载态；到位后原地替换', async () => {
+  it('detail 未到位：试听条是等高骨架、同步开关照常可用（票 25）；到位后原地替换', async () => {
     request = installFakeBridge({ holdDetail: true });
     const { dialog } = await openOfficialTab();
     const row = () => within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
@@ -292,17 +302,154 @@ describe('票 21 · 预览栏手风琴折叠', () => {
     // 不依赖 detail 的几块先出来（封面 / 标题 / 歌手 / 难度 chip）
     expect(dialog.querySelector('.off-cover')).not.toBeNull();
     expect(dialog.querySelector('.off-preview__levels')?.children).toHaveLength(2);
-    // 依赖 detail 的两块：骨架在位，真试听条还没挂载
+    // 依赖 detail 的那块：骨架在位（它是「detail 拉取中」的加载信号），真试听条还没挂载
     expect(dialog.querySelector('.off-compact-audio.is-skeleton')).not.toBeNull();
     expect(dialog.querySelector('.off-compact-audio audio')).toBeNull();
-    expect(dialog.querySelector('.off-sync')?.classList.contains('is-loading')).toBe(true);
-    expect(dialog.querySelector('.off-sync')).toBeDisabled();
+
+    // 票 25：删 detail 门禁 —— 开关不依赖 detail，detail 卡闸门也照常勾选
+    fireEvent.click(dialog.querySelector('.off-sync')!);
+    expect(dialog.querySelector('.off-sync')?.getAttribute('aria-pressed')).toBe('true');
+    // 但「创建」仍等 detail（语义不变）：selection 不上抛
+    expect(within(dialog).getByRole('button', { name: '创建' })).toBeDisabled();
 
     releaseDetail?.();
     // 原地替换：还是那一块 `.off-compact-audio`（32px 定高），只是骨架撤掉、真控件挂上
     await waitFor(() => expect(dialog.querySelector('.off-compact-audio audio')).not.toBeNull());
     expect(dialog.querySelector('.off-compact-audio.is-skeleton')).toBeNull();
-    expect(dialog.querySelector('.off-sync')?.classList.contains('is-loading')).toBe(false);
-    expect(dialog.querySelector('.off-sync')).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: '创建' })).toBeEnabled();
+  });
+});
+
+describe('票 22 · 试听条：音量内嵌 + 音频加载/失败三态', () => {
+  it('拖音量滑条 → setAudioVolume 写回 settings（持久化）；拖到 0 → 图标切 VolumeX', async () => {
+    const { preview } = await openPreview();
+    const volInput = () => preview.querySelector('.off-compact-audio__vol-input') as HTMLInputElement;
+    await waitFor(() => expect(volInput()).not.toBeNull());
+
+    fireEvent.change(volInput(), { target: { value: '0' } });
+    // 0 → 静音图标
+    expect(preview.querySelector('.off-compact-audio__vol .lucide-volume-x')).not.toBeNull();
+    // 跟随 settings.audio.volume（经 setAudioVolume 字段级写回并落盘）
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as { audio?: { volume?: number } };
+      expect(saved.audio?.volume).toBe(0);
+    });
+  });
+
+  it('音频 onError（直链也败）→ 按钮切重试态；点重试 → <audio> 重挂重走「本机 → 直链」', async () => {
+    const { preview } = await openPreview();
+    await waitFor(() => expect(preview.querySelector('audio')).not.toBeNull());
+
+    // 本机 404 → 直链（既有降级，不进失败态：src 变化即回零）
+    fireEvent.error(preview.querySelector('audio')!);
+    await waitFor(() => expect(preview.querySelector('audio')!.getAttribute('src')).toBe(AUDIO_URL));
+    expect(preview.querySelector('.off-compact-audio__play')!.getAttribute('aria-label')).toBe('播放试听');
+
+    // 直链也败 = 请求终态 → 失败态：按钮位切 RotateCcw + title 提示
+    const audioBefore = preview.querySelector('audio')!;
+    fireEvent.error(audioBefore);
+    const playBtn = preview.querySelector('.off-compact-audio__play') as HTMLButtonElement;
+    expect(playBtn.getAttribute('aria-label')).toBe('试听加载失败，点击重试');
+    expect(preview.querySelector('.off-compact-audio__play .lucide-rotate-ccw')).not.toBeNull();
+
+    // 点重试：<audio> 是重挂的新元素，降级链打回本机优先重走
+    fireEvent.click(playBtn);
+    await waitFor(() => {
+      const audio = preview.querySelector('audio');
+      expect(audio).not.toBeNull();
+      expect(audio).not.toBe(audioBefore);
+      expect(audio!.getAttribute('src')).toBe(assetRawUrl(AUDIO_URL));
+    });
+  });
+});
+
+describe('票 24 · 封面三态（微光加载 / 失败重试 / 无封面）', () => {
+  it('直链也失败 → 整块可点的重试按钮（微光消失）；点重试 → <img> 重挂重走「本机 → 直链」', async () => {
+    const { preview } = await openPreview();
+    await waitFor(() => expect(preview.querySelector('.off-cover img')).not.toBeNull());
+    const imgBefore = preview.querySelector('.off-cover img')!;
+
+    fireEvent.error(imgBefore);
+    expect(preview.querySelector('.off-cover img')!.getAttribute('src')).toBe(JACKET_URL);
+    fireEvent.error(preview.querySelector('.off-cover img')!);
+
+    const retry = await waitFor(() => {
+      const btn = preview.querySelector('.off-cover__retry') as HTMLButtonElement | null;
+      expect(btn).not.toBeNull();
+      return btn!;
+    });
+    expect(retry.textContent).toContain('封面加载失败，点击重试');
+    expect(preview.querySelector('.off-cover .loading-shimmer')).toBeNull();
+
+    // 重试 = key nonce 强制重挂（新元素）+ 降级链打回本机（此时请求已终态，重挂安全）
+    fireEvent.click(retry);
+    await waitFor(() => {
+      const img = preview.querySelector('.off-cover img');
+      expect(img).not.toBeNull();
+      expect(img).not.toBe(imgBefore);
+      expect(img!.getAttribute('src')).toBe(assetRawUrl(JACKET_URL));
+    });
+  });
+
+  it('平台无封面的曲子只出裸图标、不出重试（重试无意义，不给）', async () => {
+    renderPage();
+    await screen.findByText('全部工程');
+    fireEvent.click(screen.getByRole('button', { name: /空白新建/ }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /从官方谱面导入/ }));
+    const row = await within(dialog).findByRole('option', { name: /NO JACKET/ });
+    fireEvent.click(row);
+    await waitFor(() => expect(dialog.querySelector('.off-preview__title')?.textContent).toBe('NO JACKET'));
+
+    const cover = dialog.querySelector('.off-cover')!;
+    expect(cover.querySelector('svg')).not.toBeNull();
+    expect(cover.querySelector('.off-cover__retry')).toBeNull();
+    expect(cover.querySelector('.loading-shimmer')).toBeNull();
+    expect(cover.querySelector('img')).toBeNull();
+  });
+
+  it('加载动效延迟显示：150ms 内不出微光/spinner（缓存秒开零闪感），超时才出现，ready 撤掉', async () => {
+    const { dialog } = await openPreview();
+    // 换一首重走加载链（openPreview 里的首载可能已越过延迟窗口）。
+    // 只 fake 计时器本身：waitFor 在假计时器下会挂死，这里全程同步断言 + act 驱动计时
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(OTHER_SONG_TITLE) }));
+      expect(dialog.querySelector('.off-preview__title')?.textContent).toBe(OTHER_SONG_TITLE);
+
+      // 100ms：还不够「慢」，不出动效（缓存命中就停在这个窗口里，全程零闪）
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+      expect(dialog.querySelector('.off-cover .loading-shimmer')).toBeNull();
+      expect(dialog.querySelector('.off-cover__spin')).toBeNull();
+
+      // 越过 150ms：微光 + spinner 出现（网络慢路径的反馈保留）
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+      expect(dialog.querySelector('.off-cover .loading-shimmer')).not.toBeNull();
+      expect(dialog.querySelector('.off-cover__spin')).not.toBeNull();
+
+      // ready：撤掉
+      fireEvent.load(dialog.querySelector('.off-cover img')!);
+      expect(dialog.querySelector('.off-cover .loading-shimmer')).toBeNull();
+      expect(dialog.querySelector('.off-cover__spin')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('票 22 验收回修 · 折叠掐 src 不是加载', () => {
+  it('收起预览栏时按钮位不进 spinner 态；再展开重挂 <audio> 重拉元数据才出', async () => {
+    const { dialog } = await openPreview();
+    await waitFor(() => expect(dialog.querySelector('.off-compact-audio audio')).not.toBeNull());
+
+    // 再点同一行 = 收起（票 21）：src 掐成 null 是停声，不是加载 → 无 spinner
+    fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) }));
+    await waitFor(() => expect(dialog.querySelector('.off-split')?.classList.contains('is-collapsed')).toBe(true));
+    expect(dialog.querySelector('.off-compact-audio audio')).toBeNull();
+    expect(dialog.querySelector('.off-compact-audio__spin')).toBeNull();
+
+    // 再展开：<audio> 重挂、元数据重拉（真实加载）→ spinner 出现
+    fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) }));
+    await waitFor(() => expect(dialog.querySelector('.off-compact-audio__spin')).not.toBeNull());
   });
 });

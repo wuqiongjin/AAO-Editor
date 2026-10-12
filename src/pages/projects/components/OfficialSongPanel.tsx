@@ -2,8 +2,9 @@
 // 预览在左、目录在右；筛选手风琴；封面占位淡入；同步导入走同一排芯片。
 // 预览素材本机优先（票 16）：封面大图 / 试听音频先读素材缓存（aao-asset://raw/），
 // 未缓存协议 404 才落回直链 —— 已导入过的歌再次预览与导入都零网络。
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { AlertTriangle, ListFilter, Music4, X } from 'lucide-react';
+import { useConfig } from '../../../app/providers/ConfigProvider';
 import {
   OFFICIAL_DIFFICULTIES,
   officialDiffIndex,
@@ -31,6 +32,7 @@ import type { CommunityTransport } from '../../../community/transport';
 import { DIFF_COLORS, DIFF_SHORT } from '../../../project/projectCatalog';
 import { t } from '../../../i18n';
 import CompactAudio from '../../../ui/CompactAudio';
+import LoadingShimmer, { useSlowLoading } from '../../../ui/LoadingShimmer';
 import { officialErrorText } from '../officialImport';
 import OfficialSongThumb from './OfficialSongThumb';
 
@@ -60,6 +62,8 @@ export function OfficialSongPanel({
   transport?: CommunityTransport;
 }) {
   const net = useMemo(() => transport ?? createCommunityTransport(), [transport]);
+  // 票 22：本面板就是「预览播放器」，试听音量跟随 settings.audio.volume（chart-preview 20 同口径）
+  const { settings, setAudioVolume } = useConfig();
   const [catalog, setCatalog] = useState<SongCandidate[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -79,6 +83,8 @@ export function OfficialSongPanel({
   /** 预览的本机 URL 没取到（票 16：未缓存协议 404）→ 落回直链（封面 / 音频各自一条降级链） */
   const [coverUseDirect, setCoverUseDirect] = useState(false);
   const [audioUseDirect, setAudioUseDirect] = useState(false);
+  /** 票 24：封面重试 nonce —— 失败态重试时强制重挂 `<img>`，让「本机优先 → 直链」降级链重走一遍 */
+  const [coverNonce, setCoverNonce] = useState(0);
   const [withChart, setWithChart] = useState(selection?.withChart ?? false);
   const [diff, setDiff] = useState<OfficialDifficulty>(selection?.diff ?? 'expert');
   const [retrying, setRetrying] = useState(false);
@@ -129,6 +135,30 @@ export function OfficialSongPanel({
   const collapse = useCallback(() => {
     setExpanded(false);
   }, []);
+
+  // 票 24：封面失败态的就地重试。只许在 onError（请求终态）后触发 —— 同 URL 重挂一个
+  // 「飞行中」的 img，Chromium 会让新请求永久挂住（ADR-0018 §3）。重试入口天然满足。
+  const retryCover = useCallback(() => {
+    setCoverFailed(false);
+    setCoverReady(false);
+    setCoverUseDirect(false);
+    setCoverNonce((n) => n + 1);
+  }, []);
+
+  // 票 24 · 缓存图竞态护栏（票 20 一族）：img 在 onLoad 挂上前已 complete（重挂载 / 磁盘缓存）
+  // 时 onLoad 永不来 → 微光层永不撤。挂载后同步补判一次。
+  const coverImgRef = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const img = coverImgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) setCoverReady(true);
+  }, [selected, coverUseDirect, coverNonce]);
+
+  // 票 24 验收回修：微光/spinner 只表示「真的慢」—— 缓存秒开（协议往返 < 150ms）不再闪。
+  // ready = 已就绪或终态（失败 / 无封面 / 没选中）；换歌 / 直链降级 / 重试都重置计时
+  const coverSlow = useSlowLoading(
+    selected == null || coverReady || coverFailed || selected.jacketImage === '',
+    selected == null ? '' : `${selected.id}:${coverUseDirect}:${coverNonce}`,
+  );
 
   /** 行点击：同一首在「展开 ↔ 收起」之间切，换一首才走 pick */
   const toggleRow = useCallback((song: SongCandidate) => {
@@ -279,27 +309,42 @@ export function OfficialSongPanel({
               <div className="off-preview__inner">
                 <div className="off-preview__stack">
                   <div className="off-cover">
-                    {selected.jacketImage !== '' && !coverFailed ? (
+                    {/* 票 24：封面三态可区分 —— 加载中（微光 + spinner）/ 失败（整块可点重试）/ 无封面（裸图标） */}
+                    {selected.jacketImage === '' ? (
+                      <Music4 size={38} aria-hidden />
+                    ) : coverFailed ? (
+                      <button type="button" className="off-cover__retry" onClick={retryCover}>
+                        <Music4 size={30} aria-hidden />
+                        <span className="off-cover__retry-text">{t('projects.official.coverFailed')}</span>
+                      </button>
+                    ) : (
                       <>
-                        {!coverReady && <span className="off-cover__ph">{t('projects.official.coverPlaceholder')}</span>}
+                        {/* spinner 与微光层平级、各自绝对定位居中 —— 不做微光层的子元素（见 LoadingShimmer 注释）；
+                          验收回修：150ms 内就绪（缓存秒开）不出动效 */}
+                        {!coverReady && coverSlow && (
+                          <>
+                            <LoadingShimmer />
+                            <i className="off-cover__spin" aria-hidden />
+                          </>
+                        )}
                         <img
+                          key={coverNonce}
+                          ref={coverImgRef}
                           src={coverUseDirect ? jacketPreviewUrl(selected) : jacketLocalUrl(selected)}
                           alt=""
                           className={coverReady ? 'is-in' : ''}
                           onLoad={() => setCoverReady(true)}
                           onError={() => {
-                            // 本机没有（未缓存，票 16）→ 落回直链；直链也不成 → 图标
+                            // 本机没有（未缓存，票 16）→ 落回直链；直链也不成（请求终态）→ 失败态可就地重试
                             if (coverUseDirect) setCoverFailed(true);
                             else setCoverUseDirect(true);
                           }}
                         />
                       </>
-                    ) : (
-                      <Music4 size={38} aria-hidden />
                     )}
                   </div>
                   <b className="off-preview__title">{selected.title}</b>
-                  <span className="pp-muted">{selected.artist || t('projects.artistMissing')}</span>
+                  <span className="pp-muted off-preview__artist">{selected.artist || t('projects.artistMissing')}</span>
                   <div
                     className={`off-preview__levels${withChart ? ' is-pick' : ''}`}
                     role={withChart ? 'radiogroup' : undefined}
@@ -325,40 +370,49 @@ export function OfficialSongPanel({
                   </div>
                   <button
                     type="button"
-                    // 票 21 验收回修：detail 未到位时是「禁用 + 微光」的骨架态（按钮高度由内容撑，
-                    // 换成另一个骨架元素反而要额外钉高度，不换最稳）
-                    className={`off-sync${withChart ? ' is-on' : ''}${detail == null ? ' is-loading' : ''}`}
+                    // 票 25：删 detail 门禁 —— 开关不依赖 detail（toggleSync 只用 selected），
+                    // 换歌瞬间禁用闪灰像 BUG；「创建」仍另行等 detail，语义不变。
+                    // 「detail 拉取中」的加载信号由下面试听条槽位的骨架微光承担
+                    className={`off-sync${withChart ? ' is-on' : ''}`}
                     aria-pressed={withChart}
-                    aria-busy={detail == null}
-                    disabled={detail == null}
                     onClick={toggleSync}
                   >
                     <span className={`off-switch${withChart ? ' is-on' : ''}`} aria-hidden><i /></span>
                     {t('projects.official.withChart')}
                   </button>
+                  {/* 票 23 反馈 4（复）：试听条移进 stack、跟在同步开关下面（自然流最后一项，
+                     剩余空白沉到栏底）；detailError / 骨架 / 真条占同一槽位 */}
+                  {detailError ? (
+                    <p className="off-status">{detailError}</p>
+                  ) : detail == null ? (
+                    // 票 21 验收回修 + 票 25 职责收窄：等高骨架占位 —— `.off-compact-audio` 本身就是
+                    // 32px 定高，detail 到位后原地换成真试听条，尺寸不变 = 零布局变化
+                    <div className="off-compact-audio is-skeleton" aria-hidden>
+                      <LoadingShimmer />
+                    </div>
+                  ) : (
+                    <CompactAudio
+                      // 收起时掐掉 src：`<audio>` 随之卸载 → 试听立刻停（内容留着，但不再出声）
+                      src={
+                        !expanded
+                          ? null
+                          : audioUseDirect
+                            ? audioPreviewUrl(selected, detail)
+                            : audioLocalUrl(selected, detail)
+                      }
+                      volume={settings.audio.volume}
+                      onVolumeChange={setAudioVolume}
+                      onError={() => {
+                        // 本机没有（这歌没导入过，票 16）→ 落回直链边下边播；直链也败 → 组件内切重试态
+                        if (!audioUseDirect) setAudioUseDirect(true);
+                      }}
+                      onRetry={() => {
+                        // 票 22：重挂 `<audio>` 重走「本机 → 直链」降级链
+                        setAudioUseDirect(false);
+                      }}
+                    />
+                  )}
                 </div>
-                {detailError ? (
-                  <p className="off-status">{detailError}</p>
-                ) : detail == null ? (
-                  // 票 21 验收回修：等高骨架占位 —— `.off-compact-audio` 本身就是 32px 定高，
-                  // detail 到位后原地换成真试听条，尺寸不变 = 零布局变化
-                  <div className="off-compact-audio is-skeleton" aria-hidden />
-                ) : (
-                  <CompactAudio
-                    // 收起时掐掉 src：`<audio>` 随之卸载 → 试听立刻停（内容留着，但不再出声）
-                    src={
-                      !expanded
-                        ? null
-                        : audioUseDirect
-                          ? audioPreviewUrl(selected, detail)
-                          : audioLocalUrl(selected, detail)
-                    }
-                    onError={() => {
-                      // 本机没有（这歌没导入过，票 16）→ 落回直链边下边播
-                      setAudioUseDirect(true);
-                    }}
-                  />
-                )}
               </div>
             )}
           </aside>

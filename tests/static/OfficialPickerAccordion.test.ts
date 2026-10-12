@@ -13,7 +13,8 @@ describe('票 21 · 手风琴的裁切结构', () => {
     // 过渡期预览栏会溢出轨道叠到列表上 —— 真机截图实锤过一次）
     expect(css).toMatch(/\.off-preview\s*\{[^}]*overflow:\s*hidden/);
     expect(css).toMatch(/\.off-preview__inner\s*\{[^}]*width:\s*var\(--off-preview-w\)/);
-    expect(css).toMatch(/\.off-split\s*\{[^}]*--off-preview-w:\s*240px/);
+    // 票 23：240 → 300px（五档芯片勾选态最坏 274.7px，两态都收进一行）
+    expect(css).toMatch(/\.off-split\s*\{[^}]*--off-preview-w:\s*300px/);
     expect(css).toMatch(/grid-template-columns:\s*var\(--off-preview-w\)\s*minmax\(0,\s*1fr\)/);
   });
 

@@ -786,6 +786,9 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
+  /* 票 22：音量组把条的 min-content 从 ~154 抬到 ~218 —— flex 条默认 min-width:auto
+     会把它撑破 300px 栏宽（实测 318 > 300 顶出横向滚动条）；seek（flex:1 + min-width:0）吸收剩余空间 */
+  min-width: 0;
 }
 .off-compact-audio audio { display: none; }
 .off-compact-audio__play {
@@ -793,6 +796,9 @@
   height: 24px;
   display: grid;
   place-items: center;
+  /* 票 22：UA 默认 padding 1px 6px 在 border-box 下把 24×24 的内容盒挤到 12px 宽
+     （< 图标 13.7px）→ 图标贴左缘。padding:0 拿回正圆与真居中 */
+  padding: 0;
   border: 0;
   border-radius: 50%;
   background: var(--accent-btn);
@@ -800,6 +806,18 @@
   cursor: pointer;
 }
 .off-compact-audio__play:disabled { opacity: .45; cursor: not-allowed; }
+/* 票 22：lucide 的 Play 三角在 viewBox 内偏右 1px（6..20，中心 13≠12）→ 光学校正（Pause 居中，不校正） */
+.off-compact-audio__nudge { margin-left: -1px; }
+/* 票 22：按钮位的音频加载 spinner（12px，正圆内原地转；复用 off-spin 关键帧） */
+.off-compact-audio__spin {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, var(--accent-btn-text) 35%, transparent);
+  border-top-color: var(--accent-btn-text);
+  border-radius: 50%;
+  animation: off-spin .8s linear infinite;
+}
 /* 票 21 验收回修：定宽 + 右对齐 —— 时长从 0:00 变成真实长度时不推动进度条 */
 .off-compact-audio__time {
   font-size: 11px;
@@ -814,4 +832,37 @@
   height: 4px;
   accent-color: var(--accent);
 }
-.off-compact-audio__vol { color: var(--text-subtle); flex: 0 0 auto; }
+/* 票 22 · B 内嵌音量小滑条：口径同 PlayBar（icon + range），只是更窄（56px） */
+.off-compact-audio__vol {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+}
+.off-compact-audio__vol-input {
+  width: 56px;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ---- 票 24 · LoadingShimmer（src/ui/LoadingShimmer.tsx）：块级加载微光 ----
+   绝对定位填满父级 + 100deg 渐变扫光。要点：spinner 与它平级、各自绝对定位居中，
+   不许做它的子元素 —— 整层 translateX 扫光会带着子元素横向漂移（票 24 原型实测） */
+.loading-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--text) 12%, transparent) 50%,
+    transparent 70%
+  );
+  animation: off-thumb-shimmer 1.3s linear infinite;
+}
+/* 微光关键帧上收共享（票 24）：ProjectsPage.css 同名声明已删 */
+@keyframes off-thumb-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
