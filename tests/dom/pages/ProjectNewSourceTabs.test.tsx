@@ -15,6 +15,7 @@ import { ChartProjectStore } from '@/src/project/ChartProject';
 import { clearSongCatalogCache } from '@/src/community/bestdori/songs';
 import { clearPostPageCache } from '@/src/community/bestdori/posts';
 import { assetRawUrl } from '@/src/community/assetUrls';
+import * as ToastModule from '@/src/ui/Toast';
 import { installIntersectionObserverStub } from '@/tests/support/intersection';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
 import { seedZhSettings } from '@/tests/support/storage';
@@ -57,7 +58,8 @@ const COMMUNITY_POST = {
   likes: 1,
 };
 const POST_LIST = { result: true, count: 1, posts: [COMMUNITY_POST] };
-const POST_DETAIL = { result: true, post: { ...COMMUNITY_POST, chart: COMMUNITY_CHART } };
+const { id: _ignoredPostId, ...COMMUNITY_POST_WITHOUT_ID } = COMMUNITY_POST;
+const POST_DETAIL = { result: true, post: { ...COMMUNITY_POST_WITHOUT_ID, chart: COMMUNITY_CHART } };
 
 const SONGS_INDEX = {
   '29': {
@@ -94,8 +96,10 @@ const OFFICIAL_SPECIAL = JSON.stringify([
 ]);
 
 /** 假桥：按 URL 回 07 契约里的三种形态（json / text / binary） */
-function installFakeBridge(): void {
+function installFakeBridge(override?: (payload: { url: string; responseType?: string }) => unknown | undefined): void {
   const request = vi.fn(async (payload: { url: string; responseType?: string }) => {
+    const custom = override?.(payload);
+    if (custom !== undefined) return custom;
     const { url, responseType } = payload;
     if (responseType === 'binary') {
       // 官方音频与帖内音频都回「音频」那一份，封面（官方 jacket / 帖内封面）回「图片」那一份
@@ -302,6 +306,32 @@ describe('票 12 · 新建入口四项归类', () => {
     expect(created.audioName).toBe('post-248468-audio.mp3');
     // 少一次网络：详情根本没被请求
     expect(backend.disk.size).toBe(1);
+  });
+
+  it('票 27 · 社区导入失败时通过 Toast 报错，不残留 error-banner', async () => {
+    const toastSpy = vi.spyOn(ToastModule, 'showToast');
+    installFakeBridge((payload) => {
+      if (payload.url === POST_AUDIO_URL) {
+        return { ok: false, error: { kind: 'staging-failed', message: 'disk full' } };
+      }
+      return undefined;
+    });
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    await within(dialog).findByText('All You Wanted (GBP Edit)');
+    fireEvent.click(within(dialog).getByRole('option', { name: /All You Wanted/ }));
+
+    const create = within(dialog).getByRole('button', { name: '创建' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+
+    await waitFor(() => {
+      expect(toastSpy).toHaveBeenCalledWith(expect.any(String), 'danger');
+    });
+    expect(dialog.querySelector('.error-banner')).toBeNull();
+    expect(create).toBeEnabled();
+    toastSpy.mockRestore();
   });
 
   it('社区筛选：只作用于已加载的条目，范围与命中数写在列表尾（不自动补扫）', async () => {

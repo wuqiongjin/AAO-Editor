@@ -143,7 +143,7 @@ export async function fetchPostDetail(
     }),
     { policy: BESTDORI_RETRY_POLICY },
   );
-  const detail = toPostDetail(raw);
+  const detail = toPostDetail(raw, postId);
   if (!detail) throw invalidResponse(`社区帖详情不是预期形态（post ${postId}）`);
   return detail;
 }

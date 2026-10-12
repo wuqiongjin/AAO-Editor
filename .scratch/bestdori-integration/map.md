@@ -37,7 +37,7 @@
 - 26 导入素材失败时「创建」是否降级放行（grilling，**open**，2026-10-12 开票并 grill 定案）：**定案 = 音频失败维持阻断；谱面代码网络失败降级放行（等同没勾 B + Toast 警告，Apply 拒绝维持不建）；封面平台无图（预期）建后 Toast 提醒「该曲目未提供官方封面，工程未包含封面」（封面网络失败实为整笔失败，grill 中修正了初表误记）**。grill 附带落词汇表：**歌曲元数据**（原口语「单曲详情」，代码名 `songDetail`；CONTEXT.md 社区互通节新词条）。实现落点与锁测见票内；实现可并入 22/24 批次。语义已升 **ADR-0018**（`docs/adr/0018-官方谱面导入的素材失败降级矩阵与重试红线.md`）。
 - （2026-10-12 **实现分组**：22+23+24+25 同表面（OfficialSongPanel/CompactAudio/两 CSS）一批一个 session，26 单独一个 session（officialImport + Toast，ADR-0018 即规格）。**22–25 已实现并删除原型与截图；26 待单独 session。**）
 - （2026-10-12 验收批次的**原型与截图**：`src/prototypes/OfficialPreviewPrototype.*` + `App.tsx` 的 `?prototype=official-preview` 挂载 + `.scratch/bestdori-integration/official-preview-*.png` —— **已随 22–25 落地删除**，同票 15 先例。）
-- 27 社区谱面详情缺少 id 导致导入失败与报错改用 Toast（bug，open）：`post/details` 返回对象缺少 `id` 导致校验崩溃（用户此前成功 1 次因当时关掉了同步导入）；报错改用全局 `showToast(msg, 'danger')` 取代易滞留的 error-banner。
+- 27 社区谱面详情缺少 id 导致导入失败与报错改用 Toast（bug，**resolved 2026-10-12**）：`post/details` 返回对象缺少 `id` 导致校验崩溃（用户此前成功 1 次因当时关掉了同步导入）；报错改用全局 `showToast(msg, 'danger')` 取代易滞留的 error-banner。
 - 28 「同步导入谱面」开关状态持久化记忆（feature，open）：官方与社区共用 `settings.importWithChart`，首次默认统一为 `true`。
 - 29 官方与社区歌曲列表拉取更新机制与启动拉取评估（grilling，**resolved 2026-10-12**）：定案为每次启动后首次访问穿透请求最新列表，失败回退磁盘缓存，会话内复用内存。
 - 30 导入谱面音频复用机制调查与评估（grilling，**resolved 2026-10-12**）：定案为保持现状（选项 A），试听维持 Range stream 不入缓存，导入维持 cache-first 按需全量下载。

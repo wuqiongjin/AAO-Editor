@@ -4,13 +4,14 @@
 // 官方这一支（票 08）实做在 OfficialSongPanel + officialImport；社区这一支（票 09）
 // 实做在 CommunityPostPanel + communityImport —— 两支共用同一颗 lg 窗（票 13 #5/#6）。
 import { useCallback, useState } from 'react';
-import { AlertTriangle, Copy, FolderPlus, Music4, Users } from 'lucide-react';
+import { Copy, FolderPlus, Music4, Users } from 'lucide-react';
 import type { ChartDifficulty, ChartProject, SongSource } from '../../../project/ChartProject';
 import { DIFF_NAMES, type updateProjectInfo } from '../../../project/projectCatalog';
 import { displayProjectName, untitledProjectLabel } from '../../../project/ui/projectUi';
 import ActionBtn from '../../../ui/ActionBtn';
 import CoverField, { useCoverUrl, type CoverValue } from '../../../ui/CoverField';
 import Dialog from '../../../ui/Dialog';
+import { showToast } from '../../../ui/Toast';
 import type { CommunityTransport } from '../../../community/transport';
 import { t, type MessageKey } from '../../../i18n';
 import { parseSource } from '../projectFormat';
@@ -74,7 +75,6 @@ export function NewProjectDialog({
   // 导入中：下载 4MB 音频期间**不许关窗**（网关一次性的请求已经在飞，关掉只会让人以为「取消了」，
   // 结果工程照样建出来）。阶段文案代替字节级进度 —— 网关没有进度事件（票 07 定案）。
   const [stage, setStage] = useState<OfficialImportStage | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const busy = stage !== null;
 
   const pickOfficial = useCallback((next: OfficialSongSelection | null) => setOfficial(next), []);
@@ -85,34 +85,32 @@ export function NewProjectDialog({
     if (source === 'copy') { onCopy(copyFrom); return; }
     if (source === 'official') {
       if (!official) return;
-      setError(null);
       setStage('audio');
       void onImportOfficial(official, setStage)
         .then((reply) => {
           if (!reply.ok) {
-            setError(reply.message);
+            showToast(reply.message, 'danger');
             setStage(null);
           }
         })
         .catch(() => {
-          setError(t('projects.official.err.generic'));
+          showToast(t('projects.official.err.generic'), 'danger');
           setStage(null);
         });
       return;
     }
     if (source === 'community') {
       if (!community) return;
-      setError(null);
       setStage('audio');
       void onImportCommunity(community, setStage)
         .then((reply) => {
           if (!reply.ok) {
-            setError(reply.message);
+            showToast(reply.message, 'danger');
             setStage(null);
           }
         })
         .catch(() => {
-          setError(t('projects.community.err.generic'));
+          showToast(t('projects.community.err.generic'), 'danger');
           setStage(null);
         });
       return;
@@ -204,12 +202,6 @@ export function NewProjectDialog({
               {t(STAGE_KEYS[stage])}
             </p>
           )}
-          {error && (
-            <div className="error-banner" role="alert">
-              <AlertTriangle size={18} />
-              <div><strong>{t('projects.official.importFail')}</strong><p style={{ margin: 0 }}>{error}</p></div>
-            </div>
-          )}
         </>
       )}
 
@@ -221,12 +213,6 @@ export function NewProjectDialog({
               <span className="off-spinner" aria-hidden="true" />
               {t(COMMUNITY_STAGE_KEYS[stage])}
             </p>
-          )}
-          {error && (
-            <div className="error-banner" role="alert">
-              <AlertTriangle size={18} />
-              <div><strong>{t('projects.community.importFail')}</strong><p style={{ margin: 0 }}>{error}</p></div>
-            </div>
           )}
         </>
       )}

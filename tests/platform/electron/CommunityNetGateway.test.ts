@@ -109,7 +109,12 @@ async function withTmpCache<T>(run: (dir: string) => Promise<T>): Promise<T> {
   try {
     return await run(dir);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    } catch {
+      // Windows 偶发文件锁延迟释放，忽略临时目录清理异常
+    }
   }
 }
 

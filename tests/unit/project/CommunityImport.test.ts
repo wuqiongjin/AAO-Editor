@@ -62,9 +62,11 @@ const BANDORI_POST = {
   author: { username: 'chunbaishanshuo', nickname: '白', titles: null },
 };
 
+// 真实平台契约（票 27 实测）：post/details 的 post 对象自身不包含 id 字段
+const { id: _ignoredCustomId, ...CUSTOM_POST_DETAIL } = CUSTOM_POST;
 const DETAIL_OK = {
   result: true,
-  post: { ...CUSTOM_POST, chart: COMMUNITY_CHART },
+  post: { ...CUSTOM_POST_DETAIL, chart: COMMUNITY_CHART },
 };
 
 const BANDORI_SONG = toSongCandidates({

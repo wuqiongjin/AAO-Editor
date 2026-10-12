@@ -176,6 +176,25 @@ describe('票 09 · 详情与谱面代码原文', () => {
     });
     await expect(fetchPostDetail(transport, 248468)).rejects.toMatchObject({ kind: 'invalid-response' });
   });
+
+  it('票 27 · 真实平台 payload（post 对象无 id 字段）能通过 fallbackId 正常解析', () => {
+    const { id: _ignoredId, ...postWithoutId } = DETAIL.post;
+    const raw = { result: true, post: postWithoutId };
+    const parsed = toPostDetail(raw, 248468);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.post.postId).toBe(248468);
+    expect(parsed!.chartCodeText).toBe(JSON.stringify(DETAIL.post.chart));
+  });
+
+  it('票 27 · fetchPostDetail 能正确解析真实平台 payload（post 对象无 id 字段）', async () => {
+    const { id: _ignoredId, ...postWithoutId } = DETAIL.post;
+    const transport = makeFakeCommunityTransport({
+      json: { [DETAIL_URL]: { result: true, post: postWithoutId } },
+    });
+    const detail = await fetchPostDetail(transport, 248468);
+    expect(detail.post.postId).toBe(248468);
+    expect(detail.chartCodeText).toBe(JSON.stringify(DETAIL.post.chart));
+  });
 });
 
 describe('票 09 · 帖内素材（custom 分支）', () => {

@@ -245,10 +245,13 @@ function toPostSong(raw: unknown): PostSongRef | null {
 }
 
 /** 一条帖子 → 候选。缺 id / song / diff（或 song 是 llsif）都不产出。 */
-export function toPostCandidate(raw: unknown): PostCandidate | null {
+export function toPostCandidate(raw: unknown, fallbackId?: number): PostCandidate | null {
   if (!isPlainObject(raw)) return null;
-  const postId = raw.id;
-  if (typeof postId !== 'number' || !Number.isFinite(postId)) return null;
+  const rawId = raw.id;
+  const postId = typeof rawId === 'number' && Number.isFinite(rawId)
+    ? rawId
+    : (typeof fallbackId === 'number' && Number.isFinite(fallbackId) ? fallbackId : null);
+  if (postId == null) return null;
   const song = toPostSong(raw.song);
   if (!song) return null;
   const diff = raw.diff;
@@ -284,12 +287,15 @@ export function toPostPage(raw: unknown): { total: number; rawCount: number; pos
   return { total, rawCount: raw.posts.length, posts };
 }
 
-/** 帖子详情 → 候选 + 谱面代码原文（`chart` 数组是完整谱面，交给 Apply 闸门，票 09）。 */
-export function toPostDetail(raw: unknown): { post: PostCandidate; chartCodeText: string } | null {
+/**
+ * 帖子详情 → 候选 + 谱面代码原文（`chart` 数组是完整谱面，交给 Apply 闸门，票 09）。
+ * 平台事实（票 27 实测）：`post/details` 的 `post` 对象不包含 `id`，必须由调用方传入 `fallbackId`（即请求 URL 中的 postId）。
+ */
+export function toPostDetail(raw: unknown, fallbackId?: number): { post: PostCandidate; chartCodeText: string } | null {
   if (!isPlainObject(raw) || raw.result !== true) return null;
   if (!isPlainObject(raw.post)) return null;
   if (!Array.isArray(raw.post.chart)) return null;
-  const post = toPostCandidate(raw.post);
+  const post = toPostCandidate(raw.post, fallbackId);
   if (!post) return null;
   return { post, chartCodeText: JSON.stringify(raw.post.chart) };
 }
