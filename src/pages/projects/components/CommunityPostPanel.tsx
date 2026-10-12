@@ -81,7 +81,7 @@ export function CommunityPostPanel({
   transport?: CommunityTransport;
 }) {
   const net = useMemo(() => transport ?? createCommunityTransport(), [transport]);
-  const { settings, setAudioVolume } = useConfig();
+  const { settings, setAudioVolume, setImportWithChart } = useConfig();
 
   // 列表：服务端分页 + 上拉加载。rawCount 是服务端游标（含被映射层丢弃的 llsif / 坏条目），
   // 翻页 offset 与翻完判定都按它走 —— 候选数 ≠ 服务端序列长度
@@ -116,8 +116,8 @@ export function CommunityPostPanel({
   const [coverUseDirect, setCoverUseDirect] = useState(false);
   const [audioUseDirect, setAudioUseDirect] = useState(false);
   const [coverNonce, setCoverNonce] = useState(0);
-  /** 「同步导入谱面」：默认开（与官方那颗芯片同义；关掉 = 只建工程 + 音频 + 封面） */
-  const [withChart, setWithChart] = useState(true);
+  /** 票 28：「同步导入谱面」跨官方/社区共用偏好 settings.projects.importWithChart（默认开） */
+  const withChart = settings.projects.importWithChart;
 
   // 防抖搜索：350ms 内的连续输入只发最后一发
   useEffect(() => {
@@ -558,7 +558,7 @@ export function CommunityPostPanel({
                     type="button"
                     className={`off-sync${withChart ? ' is-on' : ''}`}
                     aria-pressed={withChart}
-                    onClick={() => setWithChart((on) => !on)}
+                    onClick={() => setImportWithChart(!withChart)}
                   >
                     <span className={`off-switch${withChart ? ' is-on' : ''}`} aria-hidden><i /></span>
                     {t('projects.official.withChart')}

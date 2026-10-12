@@ -114,10 +114,14 @@ export interface AppSettings {
    */
   curve: CurveConfig;
   /**
-   * 工程启动台排序（issue 19 #4 定案：跨会话沿用上次选法，随配置导入导出走）。
-   * additive 字段，不 bump schemaVersion；键白名单与比较器在 `project/projectSort.ts`。
+   * 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28）。
+   * additive 字段，不 bump schemaVersion。
    */
-  projects: { sort: ProjectSortKey };
+  projects: {
+    sort: ProjectSortKey;
+    /** 同步导入谱面代码（票 28 定案 2026-10-12：跨官方/社区共用，默认 true） */
+    importWithChart: boolean;
+  };
   /**
    * 预览标注（chart-preview 08 定案 2026-09-30）：预览页的「看谱方式」，跨会话记住。
    * 与 `display`（画布通性设置）刻意分开：这几项只有预览面板画，编辑器画布没有对应装饰，
@@ -345,7 +349,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
-    projects: { sort: 'lastOpened' },
+    projects: { sort: 'lastOpened', importWithChart: true },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
     export: { ...DEFAULT_EXPORT_FIELDS },
     cachePolicy: { ...DEFAULT_CACHE_POLICY },
@@ -432,8 +436,13 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
-    // 工程启动台排序（issue 19 #4）：白名单外 / 缺字段 → 默认最近打开
-    projects: { sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort) },
+    // 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28）
+    projects: {
+      sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort),
+      importWithChart: typeof projects.importWithChart === 'boolean'
+        ? projects.importWithChart
+        : defaults.projects.importWithChart,
+    },
     // 预览标注（chart-preview 08）：枚举白名单归一化，缺字段 → 默认精简档
     preview: {
       bpmMarks: typeof preview.bpmMarks === 'boolean' ? preview.bpmMarks : defaults.preview.bpmMarks,

@@ -306,7 +306,10 @@ describe('票 21 · 预览栏手风琴折叠', () => {
     expect(dialog.querySelector('.off-compact-audio.is-skeleton')).not.toBeNull();
     expect(dialog.querySelector('.off-compact-audio audio')).toBeNull();
 
-    // 票 25：删 detail 门禁 —— 开关不依赖 detail，detail 卡闸门也照常勾选
+    // 票 25：删 detail 门禁 —— 开关不依赖 detail，detail 卡闸门也照常切换（票 28 默认开）
+    expect(dialog.querySelector('.off-sync')?.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(dialog.querySelector('.off-sync')!);
+    expect(dialog.querySelector('.off-sync')?.getAttribute('aria-pressed')).toBe('false');
     fireEvent.click(dialog.querySelector('.off-sync')!);
     expect(dialog.querySelector('.off-sync')?.getAttribute('aria-pressed')).toBe('true');
     // 但「创建」仍等 detail（语义不变）：selection 不上抛
@@ -316,7 +319,7 @@ describe('票 21 · 预览栏手风琴折叠', () => {
     // 原地替换：还是那一块 `.off-compact-audio`（32px 定高），只是骨架撤掉、真控件挂上
     await waitFor(() => expect(dialog.querySelector('.off-compact-audio audio')).not.toBeNull());
     expect(dialog.querySelector('.off-compact-audio.is-skeleton')).toBeNull();
-    expect(within(dialog).getByRole('button', { name: '创建' })).toBeEnabled();
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: '创建' })).toBeEnabled());
   });
 });
 

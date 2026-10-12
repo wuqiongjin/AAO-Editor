@@ -406,10 +406,8 @@ describe('票 08 · 从官方谱面导入', () => {
     expect(document.querySelector('.off-compact-audio audio')?.getAttribute('src')).toBe(AUDIO_URL);
     expect(within(dialog).queryByText(/官方音频与封面/)).toBeNull();
 
-    // 同步导入谱面：默认关；打开后同一排芯片选难度（默认 EX）
+    // 同步导入谱面（票 28）：出厂默认开；选难度（默认 EX，这里切 SP 26）
     const sync = within(dialog).getByRole('button', { name: '同步导入谱面' });
-    expect(sync).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(sync);
     expect(sync).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(within(dialog).getByRole('radio', { name: /SP 26/ }));
 
@@ -495,4 +493,52 @@ describe('票 08 · 从官方谱面导入', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '清除筛选' }));
     expect(within(dialog).getByText('Yes! BanG_Dream!')).toBeInTheDocument();
   });
+
+  it('票 28 · 同步导入谱面开关状态官方与社区共用且持久保持', async () => {
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从官方谱面导入');
+    await within(dialog).findByText(SONG_TITLE);
+    fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) }));
+    await waitFor(() => expect(document.querySelector('.off-preview')?.className).not.toMatch(/is-collapsed/));
+
+    // 默认开
+    const officialSync = within(dialog).getByRole('button', { name: '同步导入谱面' });
+    expect(officialSync).toHaveAttribute('aria-pressed', 'true');
+
+    // 在官方切为关闭
+    fireEvent.click(officialSync);
+    expect(officialSync).toHaveAttribute('aria-pressed', 'false');
+
+    // 校验落盘
+    const saved1 = JSON.parse(localStorage.getItem('bangdream.settings.v1') ?? '{}');
+    expect(saved1.projects?.importWithChart).toBe(false);
+
+    // 切到社区面板
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    await within(dialog).findByText('All You Wanted (GBP Edit)');
+    fireEvent.click(within(dialog).getByRole('option', { name: /All You Wanted/ }));
+    await waitFor(() => expect(document.querySelector('.off-preview')?.className).not.toMatch(/is-collapsed/));
+
+    // 社区面板同步反映为关
+    const communitySync = within(dialog).getByRole('button', { name: '同步导入谱面' });
+    expect(communitySync).toHaveAttribute('aria-pressed', 'false');
+
+    // 在社区切回开启
+    fireEvent.click(communitySync);
+    expect(communitySync).toHaveAttribute('aria-pressed', 'true');
+
+    // 校验落盘为 true
+    const saved2 = JSON.parse(localStorage.getItem('bangdream.settings.v1') ?? '{}');
+    expect(saved2.projects?.importWithChart).toBe(true);
+
+    // 切回官方面板，同样反映为开启
+    dialog = await switchSource(dialog, '从官方谱面导入');
+    await within(dialog).findByText(SONG_TITLE);
+    fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) }));
+    await waitFor(() => expect(document.querySelector('.off-preview')?.className).not.toMatch(/is-collapsed/));
+    const officialSyncBack = within(dialog).getByRole('button', { name: '同步导入谱面' });
+    expect(officialSyncBack).toHaveAttribute('aria-pressed', 'true');
+  });
 });
+

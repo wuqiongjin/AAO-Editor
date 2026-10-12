@@ -5,8 +5,8 @@ import { defaultSettings, loadSettings, saveSettings, updateSettings } from '@/s
 import { settingsMemStorage as memStorage, settingsStorageOf } from '@/tests/support/storage';
 
 describe('issue 19 #4 · settings.projects.sort', () => {
-  it('出厂默认「最近打开」', () => {
-    expect(defaultSettings().projects).toEqual({ sort: 'lastOpened' });
+  it('出厂默认「最近打开」，同步导入默认开启', () => {
+    expect(defaultSettings().projects).toEqual({ sort: 'lastOpened', importWithChart: true });
   });
 
   it('additive：写 sort 不 bump schemaVersion，其余字段不动', () => {
@@ -31,5 +31,32 @@ describe('issue 19 #4 · settings.projects.sort', () => {
     expect(loadSettings(settingsStorageOf({ schemaVersion: 1, projects: 'nope' })).projects.sort).toBe('lastOpened');
     expect(loadSettings(settingsStorageOf({ schemaVersion: 1, projects: null })).projects.sort).toBe('lastOpened');
     expect(loadSettings(settingsStorageOf({ schemaVersion: 1, projects: { sort: 'lastModified' } })).projects.sort).toBe('lastModified');
+  });
+});
+
+describe('票 28 · settings.projects.importWithChart', () => {
+  it('出厂默认开启（true）', () => {
+    expect(defaultSettings().projects.importWithChart).toBe(true);
+  });
+
+  it('additive：更新 importWithChart 不 bump schemaVersion，其余字段不动', () => {
+    const base = defaultSettings();
+    const next = updateSettings(base, { projects: { importWithChart: false } });
+    expect(next.schemaVersion).toBe(base.schemaVersion);
+    expect(next.projects.importWithChart).toBe(false);
+    expect(next.projects.sort).toBe(base.projects.sort);
+    expect(base.projects.importWithChart).toBe(true);
+  });
+
+  it('save → load 往返保留所选状态', () => {
+    const st = memStorage();
+    saveSettings(updateSettings(defaultSettings(), { projects: { importWithChart: false } }), st);
+    expect(loadSettings(st).projects.importWithChart).toBe(false);
+  });
+
+  it('老设置文件没有 importWithChart 或为非布尔 → 回落默认 true', () => {
+    expect(loadSettings(memStorage(JSON.stringify({ schemaVersion: 1, theme: 'dark' }))).projects.importWithChart).toBe(true);
+    expect(loadSettings(settingsStorageOf({ schemaVersion: 1, projects: { importWithChart: 'invalid' } })).projects.importWithChart).toBe(true);
+    expect(loadSettings(settingsStorageOf({ schemaVersion: 1, projects: { sort: 'name' } })).projects.importWithChart).toBe(true);
   });
 });

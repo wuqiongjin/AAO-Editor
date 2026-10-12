@@ -64,7 +64,8 @@ export function OfficialSongPanel({
 }) {
   const net = useMemo(() => transport ?? createCommunityTransport(), [transport]);
   // 票 22：本面板就是「预览播放器」，试听音量跟随 settings.audio.volume（chart-preview 20 同口径）
-  const { settings, setAudioVolume } = useConfig();
+  // 票 28：「同步导入谱面」跨官方/社区共用偏好 settings.projects.importWithChart
+  const { settings, setAudioVolume, setImportWithChart } = useConfig();
   const [catalog, setCatalog] = useState<SongCandidate[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -86,7 +87,7 @@ export function OfficialSongPanel({
   const [audioUseDirect, setAudioUseDirect] = useState(false);
   /** 票 24：封面重试 nonce —— 失败态重试时强制重挂 `<img>`，让「本机优先 → 直链」降级链重走一遍 */
   const [coverNonce, setCoverNonce] = useState(0);
-  const [withChart, setWithChart] = useState(selection?.withChart ?? false);
+  const withChart = settings.projects.importWithChart;
   const [diff, setDiff] = useState<OfficialDifficulty>(selection?.diff ?? 'expert');
   const [retrying, setRetrying] = useState(false);
 
@@ -221,10 +222,10 @@ export function OfficialSongPanel({
   const toggleSync = () => {
     if (selected == null) return;
     if (withChart) {
-      setWithChart(false);
+      setImportWithChart(false);
       return;
     }
-    setWithChart(true);
+    setImportWithChart(true);
     setDiff(resolveSongDiff(selected, 'expert'));
   };
 
