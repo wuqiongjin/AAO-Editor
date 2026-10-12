@@ -291,6 +291,22 @@
 }
 .off-search:focus { outline: none; border-color: var(--accent); }
 .off-count { font-size: var(--text-xs); white-space: nowrap; }
+/* 主动刷新（票 09）：与搜索框同高的图标钮；拉取中转一圈（keyframes 见 .off-cover__spin） */
+.off-refresh {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.off-refresh:hover:not(:disabled) { color: var(--text); background: var(--bg-active); }
+.off-refresh:disabled { opacity: .6; cursor: default; }
+.off-refresh.is-busy svg { animation: off-spin .8s linear infinite; }
 .off-filter-wrap { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .off-filter-btn {
   display: inline-flex;
@@ -462,6 +478,15 @@
   font-size: var(--text-2xs);
   font-style: normal;
   color: var(--text-muted);
+}
+/* 行内发布时间（票 09 反馈 #3）：右列、与难度芯片并排的**纯小字**（不进 .off-row__levels ——
+   那条规则会给里面每个 span 套上边框，日期会被画成第二枚徽章） */
+.off-row__date {
+  flex: 0 0 auto;
+  font-size: var(--text-2xs);
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .off-preview {
   /* 票 21 手风琴：这一层是**裁切窗口** —— 宽度就是首列轨道宽（跟着动画走），

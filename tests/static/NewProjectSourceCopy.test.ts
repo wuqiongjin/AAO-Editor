@@ -120,11 +120,13 @@ describe('票 28 · 工程管理页面文案整改与去冗余', () => {
     expect(zh['projects.newCommunityDesc']).toBe('从游戏社区中选曲，并同步导入音频与封面');
   });
 
-  it('官方选曲搜索框 placeholder 匹配乐队领域事实', () => {
+  it('两支选曲的搜索框 placeholder 匹配领域事实（标题 + 歌手 / 乐队）', () => {
     const zh = messages('src/i18n/messages/zh-CN.json');
     const en = messages('src/i18n/messages/en.json');
-    expect(zh['projects.official.searchPlaceholder']).toBe('搜索曲名或乐队');
-    expect(en['projects.official.searchPlaceholder']).toBe('Search title or band');
+    // 搜索同时命中标题与乐队 / 歌手（实测：官方走乐队索引，社区帖走 post.artists）
+    expect(zh['projects.official.searchPlaceholder']).toBe('搜索歌曲标题或乐队');
+    expect(en['projects.official.searchPlaceholder']).toBe('Search song titles or bands');
+    expect(zh['projects.community.searchPlaceholder']).toBe('搜索歌曲标题');
   });
 
   it('上传记录空态与删除提示去 Bestdori 化', () => {

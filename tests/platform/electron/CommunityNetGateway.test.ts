@@ -547,11 +547,52 @@ describe('票 14 · 素材缓存命中：GET 不碰网络', () => {
     });
   });
 
-  it('POST 不进缓存（发帖 / 登录都是写）', async () => {
+  it('POST 默认不进缓存（发帖 / 登录都是写）', async () => {
     await withTmpCache(async (dir) => {
       const { gateway, fetch } = gatewayWith(() => response({ body: { result: true } }), { dir });
       await gateway.request({ url: LIST_URL, method: 'POST', body: '{}' });
       await gateway.request({ url: LIST_URL, method: 'POST', body: '{}' });
+      expect(fetch.calls).toHaveLength(2);
+    });
+  });
+
+  // 票 09 修订 07/14 的口径：**读型 POST** 显式声明 cacheable 才进 json 档（帖子列表），
+  // 写请求不传该标记、照旧直连；缓存键带上 body（同 URL 不同查询体是两份数据）。
+  it('声明 cacheable 的读型 POST：命中就不碰网络；body 不同 = 不同条目', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch } = gatewayWith(() => response({ body: { result: true, n: 1 } }), { dir });
+
+      await gateway.request({ url: LIST_URL, method: 'POST', body: '{"offset":0}', cacheable: true });
+      await expect(
+        gateway.request({ url: LIST_URL, method: 'POST', body: '{"offset":0}', cacheable: true }),
+      ).resolves.toMatchObject({ ok: true, data: { n: 1 } });
+      expect(fetch.calls).toHaveLength(1);
+
+      // 同 URL、不同 body：另算一条，照样打网络
+      await gateway.request({ url: LIST_URL, method: 'POST', body: '{"offset":50}', cacheable: true });
+      expect(fetch.calls).toHaveLength(2);
+    });
+  });
+
+  it('revalidate = 主动刷新：跳过缓存读真打一发，并把新结果写回', async () => {
+    await withTmpCache(async (dir) => {
+      let version = 1;
+      const { gateway, fetch } = gatewayWith(() => response({ body: { result: true, n: version } }), { dir });
+
+      await expect(
+        gateway.request({ url: LIST_URL, method: 'POST', body: '{"offset":0}', cacheable: true }),
+      ).resolves.toMatchObject({ data: { n: 1 } });
+
+      version = 2;
+      await expect(
+        gateway.request({ url: LIST_URL, method: 'POST', body: '{"offset":0}', cacheable: true, revalidate: true }),
+      ).resolves.toMatchObject({ data: { n: 2 } });
+      expect(fetch.calls).toHaveLength(2);
+
+      // 刷新过之后，普通请求吃的是新副本
+      await expect(
+        gateway.request({ url: LIST_URL, method: 'POST', body: '{"offset":0}', cacheable: true }),
+      ).resolves.toMatchObject({ data: { n: 2 } });
       expect(fetch.calls).toHaveLength(2);
     });
   });

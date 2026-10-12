@@ -183,3 +183,113 @@ export function toSongDetail(raw: unknown): OfficialSongDetail | null {
   if (bgmId === '' || typeof length !== 'number' || !Number.isFinite(length) || length <= 0) return null;
   return { bgmId, lengthSeconds: length };
 }
+
+/* ---------------- 社区帖（票 09：post/list · post/details 的映射部分） ----------------
+ * 帖子形状依据 docs/research/bestdori-api.md §2（2026-09 实测）：
+ *   - `song` 三种形态：custom（帖内音频+封面直链）/ bandori / llsif（按曲库 id 引用）；
+ *   - 等级 / 难度没有服务端过滤字段（§2.2），`diff` 0..4、`level` 可缺。
+ * 口径（2026-10-12 拍板）：**llsif 帖不产出候选** —— 音频 / 封面在网关白名单之外
+ * （card.niconi.co.ni，未实测），摆一条永远导不进来的条目不诚实；素材域实测后再放开。
+ * ----------------------------------------------------------------------------- */
+
+export type PostSongKind = 'custom' | 'bandori';
+
+export type PostSongRef =
+  | { kind: 'custom'; /** 帖内音频直链（站内上传文件地址，域名不出端点文件） */ audioUrl: string; /** 帖内封面直链；帖子没给时为 null */ coverUrl: string | null }
+  | { kind: 'bandori'; /** 官方曲库 id（素材与歌曲元数据都从曲库那条路走，见 songs.ts） */ songId: number };
+
+/**
+ * 中立「帖子候选」：社区谱列表 / 导入只认这一份。字段即帖子自带的事实，
+ * 不掺任何「我们打算怎么用」——原帖标题与谱师**只进导入会话**，落不落工程由编排层定（票 09）。
+ */
+export interface PostCandidate {
+  postId: number;
+  /** 原帖标题；帖子没填为空串（界面按「无标题」处理） */
+  title: string;
+  /** 谱师展示名（nickname 优先，退 username）；两者都缺为空串 */
+  charter: string;
+  /** 帖子自报的歌曲 artists（自填文本，与曲库歌手无关） */
+  artists: string;
+  /** 谱面难度 0..4（与工程难度同值） */
+  diff: number;
+  /** 谱师自报等级；帖子没给为 null */
+  level: number | null;
+  /** 发布时间（ms）；取不到为 null */
+  time: number | null;
+  song: PostSongRef;
+}
+
+function toCharter(raw: unknown): string {
+  if (!isPlainObject(raw)) return '';
+  const nickname = typeof raw.nickname === 'string' ? raw.nickname.trim() : '';
+  if (nickname !== '') return nickname;
+  const username = typeof raw.username === 'string' ? raw.username.trim() : '';
+  return username;
+}
+
+function toPostSong(raw: unknown): PostSongRef | null {
+  if (!isPlainObject(raw)) return null;
+  if (raw.type === 'custom') {
+    const audioUrl = typeof raw.audio === 'string' ? raw.audio.trim() : '';
+    if (audioUrl === '') return null;
+    const coverUrl = typeof raw.cover === 'string' && raw.cover.trim() !== '' ? raw.cover.trim() : null;
+    return { kind: 'custom', audioUrl, coverUrl };
+  }
+  if (raw.type === 'bandori') {
+    const songId = raw.id;
+    if (typeof songId !== 'number' || !Number.isFinite(songId)) return null;
+    return { kind: 'bandori', songId };
+  }
+  // llsif（与未知形态）：素材域在网关白名单之外，2026-10-12 拍板不产出候选
+  return null;
+}
+
+/** 一条帖子 → 候选。缺 id / song / diff（或 song 是 llsif）都不产出。 */
+export function toPostCandidate(raw: unknown): PostCandidate | null {
+  if (!isPlainObject(raw)) return null;
+  const postId = raw.id;
+  if (typeof postId !== 'number' || !Number.isFinite(postId)) return null;
+  const song = toPostSong(raw.song);
+  if (!song) return null;
+  const diff = raw.diff;
+  if (typeof diff !== 'number' || !Number.isFinite(diff) || diff < 0 || diff > 4) return null;
+  const level = typeof raw.level === 'number' && Number.isFinite(raw.level) ? raw.level : null;
+  const time = typeof raw.time === 'number' && Number.isFinite(raw.time) ? raw.time : null;
+  return {
+    postId,
+    title: typeof raw.title === 'string' ? raw.title : '',
+    charter: toCharter(raw.author),
+    artists: typeof raw.artists === 'string' ? raw.artists : '',
+    diff: Math.trunc(diff),
+    level,
+    time,
+    song,
+  };
+}
+
+/**
+ * 列表响应 → 一页候选。total 是平台侧的过滤后总数（分页终点用它判断，§2.1 实测）；
+ * `rawCount` 是这一页的**原始条数**（含被丢弃的 llsif / 坏条目）—— 翻页的 offset 游标
+ * 必须按它走：候选被映射层丢了几条，服务端序列并不因此缩短。
+ */
+export function toPostPage(raw: unknown): { total: number; rawCount: number; posts: PostCandidate[] } | null {
+  if (!isPlainObject(raw) || raw.result !== true) return null;
+  if (!Array.isArray(raw.posts)) return null;
+  const posts: PostCandidate[] = [];
+  for (const entry of raw.posts) {
+    const candidate = toPostCandidate(entry);
+    if (candidate) posts.push(candidate);
+  }
+  const total = typeof raw.count === 'number' && Number.isFinite(raw.count) ? raw.count : posts.length;
+  return { total, rawCount: raw.posts.length, posts };
+}
+
+/** 帖子详情 → 候选 + 谱面代码原文（`chart` 数组是完整谱面，交给 Apply 闸门，票 09）。 */
+export function toPostDetail(raw: unknown): { post: PostCandidate; chartCodeText: string } | null {
+  if (!isPlainObject(raw) || raw.result !== true) return null;
+  if (!isPlainObject(raw.post)) return null;
+  if (!Array.isArray(raw.post.chart)) return null;
+  const post = toPostCandidate(raw.post);
+  if (!post) return null;
+  return { post, chartCodeText: JSON.stringify(raw.post.chart) };
+}

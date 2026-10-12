@@ -1,7 +1,8 @@
 // 工程管理页的两个表单弹窗：新建（四项来源）/ 编辑工程信息。
 //
 // 四项来源（票 12 归类，界面按这个说话）：空白创建 / 从本地谱面导入 / 从官方谱面导入 / 从社区谱面导入。
-// 官方这一支（票 08）实做在 OfficialSongPanel + officialImport；社区那一支留 09，这里只摆位。
+// 官方这一支（票 08）实做在 OfficialSongPanel + officialImport；社区这一支（票 09）
+// 实做在 CommunityPostPanel + communityImport —— 两支共用同一颗 lg 窗（票 13 #5/#6）。
 import { useCallback, useState } from 'react';
 import { AlertTriangle, Copy, FolderPlus, Music4, Users } from 'lucide-react';
 import type { ChartDifficulty, ChartProject, SongSource } from '../../../project/ChartProject';
@@ -14,7 +15,9 @@ import type { CommunityTransport } from '../../../community/transport';
 import { t, type MessageKey } from '../../../i18n';
 import { parseSource } from '../projectFormat';
 import type { OfficialImportStage } from '../officialImport';
+import type { CommunityImportStage } from '../communityImport';
 import { OfficialSongPanel, type OfficialSongSelection } from './OfficialSongPanel';
+import { CommunityPostPanel, type CommunityPostSelection } from './CommunityPostPanel';
 
 /** 导入阶段 → 文案键（与 OfficialImportStage 同一处：漏一个编译不过，别用模板串拼键） */
 const STAGE_KEYS = {
@@ -24,13 +27,24 @@ const STAGE_KEYS = {
   save: 'projects.official.stage.save',
 } satisfies Record<OfficialImportStage, MessageKey>;
 
+/** 社区导入的阶段键（与官方同一组阶段；chart 那句不同——取的是社区谱面） */
+const COMMUNITY_STAGE_KEYS = {
+  audio: 'projects.community.stage.audio',
+  cover: 'projects.community.stage.cover',
+  chart: 'projects.community.stage.chart',
+  save: 'projects.community.stage.save',
+} satisfies Record<CommunityImportStage, MessageKey>;
+
 export type NewSource = 'blank' | 'copy' | 'official' | 'community';
 
 /** 官方导入的回执：失败时给一句能读的话（按错误域 kind 翻的）；成功可带降级警告（票 26，Toast 展示） */
 export type OfficialImportReply = { ok: true; warnings?: string[] } | { ok: false; message: string };
 
+/** 社区导入的回执（形状同官方；社区导入没有「谱面降级」，警告只有封面缺失一种） */
+export type CommunityImportReply = OfficialImportReply;
+
 export function NewProjectDialog({
-  initialSource, projects, onClose, onCreate, onCopy, onImportOfficial, transport, importSources = false,
+  initialSource, projects, onClose, onCreate, onCopy, onImportOfficial, onImportCommunity, transport, importSources = false,
 }: {
   initialSource: NewSource;
   projects: ChartProject[];
@@ -41,6 +55,10 @@ export function NewProjectDialog({
     selection: OfficialSongSelection,
     onStage: (stage: OfficialImportStage) => void,
   ) => Promise<OfficialImportReply>;
+  onImportCommunity: (
+    selection: CommunityPostSelection,
+    onStage: (stage: CommunityImportStage) => void,
+  ) => Promise<CommunityImportReply>;
   /** 注入点：测试塞假出口；不传走 IPC 出口 */
   transport?: CommunityTransport;
   /** 有没有社区平台出口：静态演示版只留前两支（票 12 / ADR-0011 §1） */
@@ -52,6 +70,7 @@ export function NewProjectDialog({
   const [diff, setDiff] = useState<ChartDifficulty>(3);
   const [copyFrom, setCopyFrom] = useState(projects[0]?.id ?? '');
   const [official, setOfficial] = useState<OfficialSongSelection | null>(null);
+  const [community, setCommunity] = useState<CommunityPostSelection | null>(null);
   // 导入中：下载 4MB 音频期间**不许关窗**（网关一次性的请求已经在飞，关掉只会让人以为「取消了」，
   // 结果工程照样建出来）。阶段文案代替字节级进度 —— 网关没有进度事件（票 07 定案）。
   const [stage, setStage] = useState<OfficialImportStage | null>(null);
@@ -59,6 +78,7 @@ export function NewProjectDialog({
   const busy = stage !== null;
 
   const pickOfficial = useCallback((next: OfficialSongSelection | null) => setOfficial(next), []);
+  const pickCommunity = useCallback((next: CommunityPostSelection | null) => setCommunity(next), []);
   const close = () => { if (!busy) onClose(); };
 
   const submit = () => {
@@ -80,14 +100,30 @@ export function NewProjectDialog({
         });
       return;
     }
-    if (source === 'community') return;
+    if (source === 'community') {
+      if (!community) return;
+      setError(null);
+      setStage('audio');
+      void onImportCommunity(community, setStage)
+        .then((reply) => {
+          if (!reply.ok) {
+            setError(reply.message);
+            setStage(null);
+          }
+        })
+        .catch(() => {
+          setError(t('projects.community.err.generic'));
+          setStage(null);
+        });
+      return;
+    }
     onCreate({ name, artist, diff });
   };
 
   const confirmDisabled = busy
     || (source === 'copy' && !copyFrom)
     || (source === 'official' && !official)
-    || source === 'community';
+    || (source === 'community' && !community);
   const pickerShell = source === 'official' || source === 'community';
   const noLocalProject = projects.length === 0;
 
@@ -101,11 +137,9 @@ export function NewProjectDialog({
       footer={(
         <>
           <ActionBtn onClick={close} disabled={busy}>{t('projects.cancel')}</ActionBtn>
-          {source !== 'community' && (
-            <ActionBtn variant="primary" disabled={confirmDisabled} onClick={submit}>
-              {source === 'copy' ? t('projects.copyAction') : t('projects.createOpen')}
-            </ActionBtn>
-          )}
+          <ActionBtn variant="primary" disabled={confirmDisabled} onClick={submit}>
+            {source === 'copy' ? t('projects.copyAction') : t('projects.createOpen')}
+          </ActionBtn>
         </>
       )}
     >
@@ -179,7 +213,23 @@ export function NewProjectDialog({
         </>
       )}
 
-      {source === 'community' && <p className="off-status">{t('projects.community.notYet')}</p>}
+      {source === 'community' && (
+        <>
+          <CommunityPostPanel onSelectionChange={pickCommunity} transport={transport} />
+          {stage && (
+            <p className="off-status off-status--busy" role="status">
+              <span className="off-spinner" aria-hidden="true" />
+              {t(COMMUNITY_STAGE_KEYS[stage])}
+            </p>
+          )}
+          {error && (
+            <div className="error-banner" role="alert">
+              <AlertTriangle size={18} />
+              <div><strong>{t('projects.community.importFail')}</strong><p style={{ margin: 0 }}>{error}</p></div>
+            </div>
+          )}
+        </>
+      )}
     </Dialog>
   );
 }

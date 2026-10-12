@@ -5,7 +5,9 @@
  *   1. 发 HTTP —— 主机白名单 + 队列分档（API 档 1 并发 / 素材档 4 并发，见下面 LANES 一段）+ 单次超时；
  *   2. 管 Cookie —— 见 communityCookies.cjs（renderer 递进来的凭据头一律拒收）；
  *   3. 响应校验 —— 非 2xx、非 JSON、平台业务错误（`{"result":false,"code":…}`）都翻成结构化错误；
- *   4. 素材缓存（票 14）—— GET 的 json / text / binary 命中就不碰网络（策略见下面 CACHE 一段）。
+ *   4. 素材缓存（票 14）—— GET 的 json / text / binary 命中就不碰网络（策略见下面 CACHE 一段）；
+ *      **票 09 修订**：读型 POST（帖子列表）显式声明 `cacheable` 后同样进 json 档（key 带 body 哈希），
+ *      写请求（发帖 / 登录）不传该标记、照旧直连；`revalidate` = 用户主动刷新，跳过缓存读。
  * 端点 / 领域转换 / 搜索全在 renderer（靠注入的 transport 收发，见 src/community/）。
  *
  * 二进制不过 IPC（issue 06 Q7）：落到 `<数据根>/cache/community/`（素材缓存，票 14 取代了
@@ -16,7 +18,16 @@
  * 重试不在这里：主进程只做单次请求，退避重试归 renderer（src/community/rateLimit.ts）。
  */
 
+const crypto = require('crypto');
 const { createCookieJar } = require('./communityCookies.cjs');
+
+/**
+ * 读型 POST 的缓存键后缀：body 的短哈希（sha1 前 16 位）。
+ * 同一 URL 不同查询体是两份数据（帖子列表的 search / offset 组合），不哈希就会互相串味。
+ */
+function hashCacheKey(body) {
+    return crypto.createHash('sha1').update(body).digest('hex').slice(0, 16);
+}
 
 /** 唯一允许的主机（renderer 侧的端点常量在 src/community/bestdori/endpoints.ts） */
 const ALLOWED_HOSTS = ['bestdori.com'];
@@ -49,12 +60,16 @@ const RATE_LIMIT_CODES = ['RATE_LIMITED', 'TOO_MANY_REQUESTS', 'TOO_MANY_POSTS',
 const DEFAULT_ACCEPT = { json: 'application/json', text: 'text/plain', binary: '*/*' };
 
 /**
- * 素材缓存策略（票 14 定案，只此一份）：
+ * 素材缓存策略（票 14 定案 + 票 09 修订，只此一份）：
+ *   - 范围：**GET** 的 json / text / binary；外加**显式 `cacheable` 的读型 POST**（帖子列表：
+ *     key = URL + body 哈希）。写请求永不进缓存 —— 「发帖 / 登录」是同一个 POST 方法，
+ *     靠 renderer 的显式声明区分，不给方法开例外；
  *   - json / text：24h 内直接回；过期「先回旧的 + 后台补一枪」——列表这类资源要的是「一打开就有」；
  *     单曲详情 / 谱面原文也用这一档（它们是「用过就留到 30 天没动才清」，鲜度按天刷新不是负担）；
  *   - binary：当不可变内容长期复用（音频 / 封面下了就不再变）；
  *   - 例外：**回退页**（平台对不存在的素材回 200 + `text/html`）只当 1 小时负缓存 ——
- *     既免得反复打平台，也不把一张网页钉死 30 天（平台后来补上的素材还能取到）。
+ *     既免得反复打平台，也不把一张网页钉死 30 天（平台后来补上的素材还能取到）；
+ *   - `revalidate: true`（用户主动刷新，票 09）：跳过缓存读、真打一发并写回。
  * 条目回收（30 天未用 / 1GB 上限）在 assetCache.sweep() 里，网关只负责存与取。
  */
 const CACHE_FRESH_MS = 24 * 60 * 60 * 1000;
@@ -140,6 +155,10 @@ function normalizeRequest(payload, allowedHosts) {
     if (!hasHeader(headers, 'user-agent')) headers['user-agent'] = DEFAULT_USER_AGENT;
     if (!hasHeader(headers, 'accept')) headers.accept = DEFAULT_ACCEPT[responseType];
 
+    // 读型 POST 的缓存许可（票 09 修订 07/14 的口径：POST 默认不缓存，发帖 / 登录照旧直连）
+    const cacheable = payload.cacheable === true;
+    const revalidate = payload.revalidate === true;
+
     return {
         url: rawUrl,
         method,
@@ -148,6 +167,10 @@ function normalizeRequest(payload, allowedHosts) {
         responseType,
         timeoutMs: normalizeTimeout(payload.timeoutMs, responseType),
         suggestedName: typeof payload.suggestedName === 'string' ? payload.suggestedName : '',
+        cacheable,
+        revalidate,
+        // 缓存键：POST 把 body 一并算进去（同 URL 不同查询体是两份数据）。GET 就是 URL 本身。
+        cacheKey: cacheable && method === 'POST' ? `${rawUrl}#${hashCacheKey(body || '')}` : rawUrl,
     };
 }
 
@@ -321,9 +344,13 @@ function createCommunityGateway(options) {
      * stale 只对 json / text 有意义：调用方「先回旧的 + 后台补一枪」（票 14）。
      */
     async function readCache(req) {
-        if (assetCache == null || req.method !== 'GET') return null;
+        // 票 09 修订 07/14 的「POST 不进缓存」：**读型 POST** 显式声明 `cacheable` 才进（帖子列表），
+        // 发帖 / 登录这类写请求不传该标记、照旧直连；`revalidate` = 用户主动刷新，跳过缓存读。
+        if (assetCache == null) return null;
+        if (req.method !== 'GET' && !req.cacheable) return null;
+        if (req.revalidate) return null;
         const kind = cacheKindOf(req);
-        const entry = await assetCache.lookup({ url: req.url, kind });
+        const entry = await assetCache.lookup({ url: req.cacheKey, kind });
         if (entry == null) return null;
         if (kind !== 'binary' && entry.bytes > MAX_TEXT_BYTES) {
             await assetCache.drop(entry);
@@ -372,9 +399,11 @@ function createCommunityGateway(options) {
     /** 落文本（json / text）：缓存是加速层，写不进去不影响这次请求；contentType 记下来供回退页判定 */
     async function storeText(req, text, kind, status, contentType) {
         if (assetCache == null) return;
+        // 只有「缓存许可」的请求才写：GET 的 json / text 与显式声明 cacheable 的读型 POST
+        if (req.method !== 'GET' && !req.cacheable) return;
         try {
             await assetCache.store({
-                url: req.url,
+                url: req.cacheKey,
                 kind,
                 bytes: Buffer.from(text, 'utf8'),
                 contentType: contentType ?? null,

@@ -15,6 +15,7 @@ import {
   jacketPreviewUrl,
   catalogBandOptions,
   filterSongCandidates,
+  refreshSongCatalog,
   searchSongCandidates,
 } from '@/src/community/bestdori/songs';
 import { toSongCandidates } from '@/src/community/bestdori/mapping';
@@ -192,6 +193,30 @@ describe('票 08 · 曲库索引 / 详情（一次拉全 + 选中才拉详情）
     const second = await fetchSongCatalog(transport, 'zh-CN');
 
     expect(second).toBe(first);
+    expect(transport.requests).toHaveLength(2);
+  });
+
+  // 会话内这份模块缓存不过期（不点刷新就只能等下次启动才看到新曲）——
+  // 主动刷新必须**穿透**它（清缓存）并让网关重拉（revalidate）。
+  it('主动刷新：丢掉会话缓存 + 两次请求都带 revalidate，并换成新数据', async () => {
+    const transport = fakeTransport({
+      json: {
+        'https://bestdori.com/api/songs/all.5.json': SONGS_INDEX,
+        'https://bestdori.com/api/bands/all.1.json': BANDS_INDEX,
+      },
+    });
+
+    await fetchSongCatalog(transport, 'zh-CN');
+    transport.requests.length = 0;
+
+    const refreshed = await refreshSongCatalog(transport, 'zh-CN');
+
+    expect(refreshed.map((s) => s.id)).toEqual([1, 1004]);
+    expect(transport.requests).toHaveLength(2);
+    expect(transport.requests.every((req) => req.revalidate === true)).toBe(true);
+    // 刷新后的副本接管会话缓存：下一次普通拉取不再打网络
+    const again = await fetchSongCatalog(transport, 'zh-CN');
+    expect(again).toBe(refreshed);
     expect(transport.requests).toHaveLength(2);
   });
 

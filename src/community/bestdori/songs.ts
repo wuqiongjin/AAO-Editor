@@ -44,6 +44,7 @@ async function fetchJson(
   transport: CommunityTransport,
   url: string,
   onRetry?: (notice: RetryNotice) => void,
+  revalidate = false,
 ): Promise<unknown> {
   return withRetry(
     () => transport.requestJson({
@@ -51,6 +52,8 @@ async function fetchJson(
       method: 'GET',
       headers: bestdoriHeaders(),
       timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+      // 用户主动刷新（票 09 的刷新钮，官方 / 社区共用）：跳过网关的 24h 副本，真打一发
+      ...(revalidate ? { revalidate: true } : {}),
     }),
     { policy: BESTDORI_RETRY_POLICY, onRetry },
   );
@@ -108,6 +111,27 @@ export async function fetchSongCatalog(
   });
   catalogInflight = { language, promise };
   return promise;
+}
+
+/**
+ * 用户主动刷新曲库（官方 / 社区共用一颗钮）：先丢**会话内**的模块缓存（它在一个会话里不过期，
+ * 不清就永远看不见新数据），再带 `revalidate` 让网关跳过 24h 副本真打一发 —— 网关的 SWR
+ * 只管「后台补枪」，新数据要等会话重开才可见，用户主动刷新不该等。失败由调用方保留旧列表。
+ */
+export function refreshSongCatalog(
+  transport: CommunityTransport,
+  language: UiLanguage = getActiveUiLanguage(),
+  onRetry?: (notice: RetryNotice) => void,
+): Promise<SongCandidate[]> {
+  clearSongCatalogCache();
+  return Promise.all([
+    fetchJson(transport, songsIndexUrl(), onRetry, true),
+    fetchJson(transport, bandsIndexUrl(), onRetry, true),
+  ]).then(([index, bands]) => {
+    const songs = toSongCandidates(index, bands, language);
+    catalogCache = { language, songs };
+    return songs;
+  });
 }
 
 /** 单曲详情（选中某首歌时才拉）：导入要的 `bgmId` 与官方曲长 */

@@ -100,6 +100,17 @@ export interface CommunityRequest {
   timeoutMs?: number;
   /** binary：进素材缓存的文件名建议（网关只取 basename 并短哈希前缀） */
   suggestedName?: string;
+  /**
+   * 让网关缓存这次响应（**读型 POST** 才需要；GET 的 json / text 本来就缓存）。
+   * 07/14 的默认口径是「POST 不缓存」（发帖 / 登录都是写），所以这里必须**显式**声明；
+   * 缓存 key 带上 body（同一 URL 不同查询体是两份数据）。
+   */
+  cacheable?: boolean;
+  /**
+   * 主动刷新：跳过缓存读、真打一发，并把结果写回缓存（票 09 的面板「刷新」钮）。
+   * 与 `cacheable` 正交：刷新不关心这次是否允许写缓存，只表示「别吃旧副本」。
+   */
+  revalidate?: boolean;
 }
 
 /**

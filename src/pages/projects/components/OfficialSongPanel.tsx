@@ -3,7 +3,7 @@
 // 预览素材本机优先（票 16）：封面大图 / 试听音频先读素材缓存（aao-asset://raw/），
 // 未缓存协议 404 才落回直链 —— 已导入过的歌再次预览与导入都零网络。
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { AlertTriangle, ListFilter, Music4, X } from 'lucide-react';
+import { AlertTriangle, ListFilter, Music4, RefreshCw, X } from 'lucide-react';
 import { useConfig } from '../../../app/providers/ConfigProvider';
 import {
   OFFICIAL_DIFFICULTIES,
@@ -25,6 +25,7 @@ import {
   filterSongCandidates,
   jacketLocalUrl,
   jacketPreviewUrl,
+  refreshSongCatalog,
   SONG_LEVEL_FILTER_DEFAULT,
 } from '../../../community/bestdori/songs';
 import { createCommunityTransport } from '../../../community/electronTransport';
@@ -101,6 +102,23 @@ export function OfficialSongPanel({
   }, [net]);
 
   useEffect(() => { loadCatalog(); }, [loadCatalog]);
+
+  // 用户主动刷新曲库：清会话缓存 + `revalidate` 重拉；**失败保留旧列表、不弹错**（票 09 口径）
+  const [refreshingCatalog, setRefreshingCatalog] = useState(false);
+  const refreshCatalog = useCallback(() => {
+    if (net.kind === 'none' || refreshingCatalog) return;
+    setRefreshingCatalog(true);
+    void refreshSongCatalog(net, undefined, () => setRetrying(true))
+      .then((songs) => {
+        setCatalog(songs);
+        setLoadError(null);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setRefreshingCatalog(false);
+        setRetrying(false);
+      });
+  }, [net, refreshingCatalog]);
 
   // 票 20：重复点同一行不能重跑整条链 —— 见下面两处守卫
   const pick = useCallback((song: SongCandidate) => {
@@ -220,6 +238,18 @@ export function OfficialSongPanel({
           aria-label={t('projects.official.searchPlaceholder')}
           onChange={(e) => setQuery(e.target.value)}
         />
+        {/* 主动刷新：与社区面板同一颗钮、同一个 `revalidate` 出口 —— 曲库索引在一个会话里不过期，
+            不点它就只能等下次启动才看到新曲 */}
+        <button
+          type="button"
+          className={`off-refresh${refreshingCatalog ? ' is-busy' : ''}`}
+          aria-label={t('projects.official.refresh')}
+          title={t('projects.official.refresh')}
+          disabled={refreshingCatalog}
+          onClick={refreshCatalog}
+        >
+          <RefreshCw size={14} aria-hidden />
+        </button>
         <div className="off-filter-wrap">
           <button
             type="button"

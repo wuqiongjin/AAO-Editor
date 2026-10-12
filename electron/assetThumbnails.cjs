@@ -28,12 +28,15 @@ function squareCrop(width, height) {
  * 造一个「字节 → 缩略图」的产出函数，喂给 `assetCache` 的 `makeThumb`（产固定 PNG）。
  * 不是图片 / 解不开 / 产出为空都回 **null** = 这条素材没有缩略图（界面降级成图标，不是报错）。
  *
+ * **判定口径**：只拦「明说了不是图片」的那一类（SPA 回退页 `text/html`），其余交给解码器嗅探魔数 ——
+ * 社区帖的**用户上传文件一律回 `application/octet-stream`**（实测：封面是 JPEG、音频是 mp3，
+ * 站点都不给具体类型），按类型拦会让封面永远产不出缩略图。
+ *
  * @param {{ createFromBuffer: (bytes: Buffer) => any }} nativeImage
  */
 function createThumbMaker(nativeImage) {
     return (bytes, contentType) => {
-        // 拿不到 content-type 也试一把（平台万一哪天不回这个头）；明说不是图片的直接跳过
-        if (contentType != null && !/^image\//i.test(contentType)) return null;
+        if (typeof contentType === 'string' && /^text\//i.test(contentType)) return null;
         const image = nativeImage.createFromBuffer(Buffer.from(bytes));
         if (image == null || typeof image.isEmpty !== 'function' || image.isEmpty()) return null;
         const { width, height } = image.getSize();

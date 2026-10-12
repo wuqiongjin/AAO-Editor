@@ -33,7 +33,14 @@ import {
   EditInfoDialog, NewProjectDialog, type NewSource, type OfficialImportReply,
 } from './components/ProjectDialogs';
 import type { OfficialSongSelection } from './components/OfficialSongPanel';
+import type { CommunityPostSelection } from './components/CommunityPostPanel';
 import { importOfficialSong, officialApplyErrorText, officialErrorText, type OfficialImportStage } from './officialImport';
+import {
+  communityApplyErrorText,
+  communityErrorText,
+  importCommunityPost,
+  type CommunityImportStage,
+} from './communityImport';
 import { ProjectStartView } from './components/ProjectHub';
 import { ProjectDetail } from './components/ProjectDetail';
 import './ProjectsPage.css';
@@ -213,6 +220,40 @@ export default function ProjectsPage() {
     return { ok: true, warnings };
   }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
+  // 「从社区谱面导入」（票 09）：帖子素材缓存 → 帖子详情（谱面原文，带上谱面时必达）→ Apply 闸门
+  // → 落盘 → 切到新工程详情。落点与官方那支同口径（issue 23 #1）；
+  // 工程名称 / 歌手留空（票 09：不转手别人的谱连名字一起转）；
+  // `withChart` = 预览栏那颗「同步导入谱面」芯片（默认开；关掉 = 只建工程 + 音频 + 封面）。
+  const importCommunity = useCallback(async (
+    selection: CommunityPostSelection,
+    onStage: (stage: CommunityImportStage) => void,
+  ): Promise<OfficialImportReply> => {
+    await flushPersist();
+    let result: Awaited<ReturnType<typeof importCommunityPost>>;
+    try {
+      result = await importCommunityPost(
+        { store, transport: communityTransport, notifyCatalogChanged, onStage },
+        { post: selection.post, song: selection.song, detail: selection.detail, withChart: selection.withChart },
+      );
+    } catch (error) {
+      return { ok: false, message: communityErrorText(error) };
+    }
+    if (!result.ok) {
+      return {
+        ok: false,
+        message: result.reason === 'apply' ? communityApplyErrorText(result.errors) : communityErrorText(result.error),
+      };
+    }
+    const warnings: string[] = [];
+    if (!result.coverImported) warnings.push(t('projects.community.warn.coverMissing'));
+    setNewSource(null);
+    goDetailKeepAnimation(result.project.id);
+    await reload();
+    await setCurrent(result.project.id, result.chartId);
+    if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
+    return { ok: true, warnings };
+  }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
+
   // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）
   const list = useMemo(() => sortProjects(projects, sortKey, untitledProjectLabel()), [projects, sortKey]);
 
@@ -269,6 +310,7 @@ export default function ProjectsPage() {
           onCreate={(input) => void createBlank(input)}
           onCopy={(id) => void copyProject(id)}
           onImportOfficial={importOfficial}
+          onImportCommunity={importCommunity}
           transport={communityTransport}
           importSources={importSources}
         />

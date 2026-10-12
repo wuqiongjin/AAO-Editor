@@ -13,6 +13,7 @@ import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import ProjectsPage from '@/src/pages/projects/ProjectsPage';
 import { ChartProjectStore } from '@/src/project/ChartProject';
 import { clearSongCatalogCache } from '@/src/community/bestdori/songs';
+import { clearPostPageCache } from '@/src/community/bestdori/posts';
 import { assetRawUrl } from '@/src/community/assetUrls';
 import { installIntersectionObserverStub } from '@/tests/support/intersection';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
@@ -34,6 +35,29 @@ const AUDIO_URL = 'https://bestdori.com/assets/jp/sound/bgm029_rip/bgm029.mp3';
 // 票 14：二进制的落点是素材缓存（07 的 downloads/ 已退役）
 const STAGED_AUDIO_PATH = '/data/cache/community/aaa-bgm029.mp3';
 const STAGED_COVER_PATH = '/data/cache/community/bbb-blackshout.png';
+
+// 票 09：社区帖 fixture（custom 帖：帖内音频 + 封面直链）
+const POST_AUDIO_URL = 'https://bestdori.com/api/upload/file/d936a1';
+const POST_COVER_URL = 'https://bestdori.com/api/upload/file/247c2b';
+const STAGED_POST_AUDIO_PATH = '/data/cache/community/ccc-post-audio';
+const STAGED_POST_COVER_PATH = '/data/cache/community/ddd-post-cover';
+const COMMUNITY_CHART = [
+  { type: 'BPM', bpm: 185, beat: 0 },
+  { type: 'Single', lane: 5, beat: 10 },
+];
+const COMMUNITY_POST = {
+  id: 248468,
+  title: 'All You Wanted (GBP Edit)',
+  song: { type: 'custom', audio: POST_AUDIO_URL, cover: POST_COVER_URL },
+  artists: 'Michelle Branch',
+  diff: 3,
+  level: 24,
+  time: 1789214607000,
+  author: { username: 'envy09', nickname: 'Envy', titles: null },
+  likes: 1,
+};
+const POST_LIST = { result: true, count: 1, posts: [COMMUNITY_POST] };
+const POST_DETAIL = { result: true, post: { ...COMMUNITY_POST, chart: COMMUNITY_CHART } };
 
 const SONGS_INDEX = {
   '29': {
@@ -74,13 +98,16 @@ function installFakeBridge(): void {
   const request = vi.fn(async (payload: { url: string; responseType?: string }) => {
     const { url, responseType } = payload;
     if (responseType === 'binary') {
-      return url === AUDIO_URL
-        ? { ok: true, responseType: 'binary', status: 200, path: STAGED_AUDIO_PATH, byteLength: 4_000_000, contentType: 'audio/mpeg' }
-        : { ok: true, responseType: 'binary', status: 200, path: STAGED_COVER_PATH, byteLength: 98_575, contentType: 'image/png' };
+      // 官方音频与帖内音频都回「音频」那一份，封面（官方 jacket / 帖内封面）回「图片」那一份
+      return url === AUDIO_URL || url === POST_AUDIO_URL
+        ? { ok: true, responseType: 'binary', status: 200, path: url === AUDIO_URL ? STAGED_AUDIO_PATH : STAGED_POST_AUDIO_PATH, byteLength: 4_000_000, contentType: 'audio/mpeg' }
+        : { ok: true, responseType: 'binary', status: 200, path: url === JACKET_URL ? STAGED_COVER_PATH : STAGED_POST_COVER_PATH, byteLength: 98_575, contentType: 'image/png' };
     }
     if (responseType === 'text') {
       return { ok: true, responseType: 'text', status: 200, text: OFFICIAL_SPECIAL };
     }
+    if (url.endsWith('/api/post/list')) return { ok: true, responseType: 'json', status: 200, data: POST_LIST };
+    if (url.endsWith('/api/post/details?id=248468')) return { ok: true, responseType: 'json', status: 200, data: POST_DETAIL };
     if (url.endsWith('/api/songs/all.5.json')) return { ok: true, responseType: 'json', status: 200, data: SONGS_INDEX };
     if (url.endsWith('/api/bands/all.1.json')) return { ok: true, responseType: 'json', status: 200, data: BANDS_INDEX };
     if (url.endsWith('/api/songs/29.json')) {
@@ -131,6 +158,9 @@ afterEach(() => {
   delete (window as unknown as { electronAPI?: unknown }).electronAPI;
   io.restore();
   clearSongCatalogCache();
+  // 帖子列表的页缓存是模块级的（同一会话里重开弹窗要复用，见票 09 反馈 #2）——
+  // 跨用例必须清，否则后面的用例读到上一个用例的那一页、一条请求都不发。
+  clearPostPageCache();
 });
 
 describe('票 12 · 新建入口四项归类', () => {
@@ -172,7 +202,7 @@ describe('票 12 · 新建入口四项归类', () => {
     expect(within(dialog).queryByRole('button', { name: /从官方谱面导入/ })).toBeNull();
   });
 
-  it('社区那一支只摆位：切过去看到占位说明，且没有「创建」键', async () => {
+  it('社区那一支：切过去是同一颗 lg 窗，帖子列表就位；未选中时「创建」禁用', async () => {
     renderPage();
     let dialog = await openNewDialog();
     expect(dialog.className).toMatch(/dialog--md/);
@@ -180,8 +210,123 @@ describe('票 12 · 新建入口四项归类', () => {
     dialog = await switchSource(dialog, '从社区谱面导入');
 
     expect(dialog.className).toMatch(/dialog--lg/);
-    expect(await within(dialog).findByText(/社区谱面浏览还在开发中/)).toBeInTheDocument();
-    expect(within(dialog).queryByRole('button', { name: '创建' })).toBeNull();
+    // 列表走服务端分页：帖子标题与谱师就位
+    expect(await within(dialog).findByText('All You Wanted (GBP Edit)')).toBeInTheDocument();
+    expect(within(dialog).getByText('Envy')).toBeInTheDocument();
+    // 未选中：创建键在但禁用（与官方支同口径）
+    const create = within(dialog).getByRole('button', { name: '创建' });
+    expect(create).toBeDisabled();
+  });
+
+  it('社区帖选中后预览展开，创建 → 工程「未命名」、曲目来源 custom、谱面名称留空（票 09 锁）', async () => {
+    const { backend } = renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    await within(dialog).findByText('All You Wanted (GBP Edit)');
+
+    // 票 09 反馈 #3：发布时间在**列表行**（右列，与难度等级并排），不在预览栏里重复
+    const row = within(dialog).getByRole('option', { name: /All You Wanted/ });
+    expect(row.textContent).toMatch(/EX 24/);
+    expect(row.textContent).toMatch(/2026-\d{2}-\d{2}/);
+
+    fireEvent.click(row);
+    // 预览展开：原帖标题 + 谱师 + 难度等级（原帖标题只在导入会话里，见工程断言的名称锁）
+    await waitFor(() => expect(document.querySelector('.off-preview')?.className).not.toMatch(/is-collapsed/));
+    const preview = document.querySelector('.off-preview') as HTMLElement | null;
+    expect(preview?.querySelector('.off-preview__title')?.textContent).toBe('All You Wanted (GBP Edit)');
+    expect(preview?.textContent).toContain('Envy');
+    expect(preview?.textContent).toMatch(/EX 24/);
+    // 预览栏不重复时间（票 09 反馈 #5：日期不跟谱师挤一行）
+    expect(preview?.textContent).not.toMatch(/2026-\d{2}-\d{2}/);
+    // 「同步导入谱面」芯片与官方支同形同义：默认开
+    const syncChip = within(dialog).getByRole('button', { name: '同步导入谱面' });
+    expect(syncChip).toHaveAttribute('aria-pressed', 'true');
+
+    const create = within(dialog).getByRole('button', { name: '创建' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+
+    await waitFor(() => expect(backend.disk.size).toBe(1));
+    const created = [...backend.disk.values()][0];
+    // 名称口径（票 09）：工程名 / 歌手 / 谱面名称全空 —— 不转手别人的谱连名字一起转
+    expect(created).toMatchObject({
+      name: null,
+      artist: null,
+      source: { type: 'custom' },
+      audioName: 'post-248468-audio.mp3',
+      coverName: 'post-248468-cover.png',
+    });
+    expect(created.charts[0]).toMatchObject({
+      title: null,
+      diff: 3,
+      level: 24,
+      chartCodePristine: true,
+    });
+    expect(created.charts[0].appliedChartCodeText).toBe(JSON.stringify(COMMUNITY_CHART));
+    // custom 帖没有官方曲长：探针在 jsdom 里解不了音频，占位 30 就是终值
+    expect(created.durationSeconds).toBe(30);
+    expect(backend.staged.get(created.id)).toEqual({
+      audioStagedPath: STAGED_POST_AUDIO_PATH,
+      coverStagedPath: STAGED_POST_COVER_PATH,
+    });
+
+    // 落点照 issue 23 #1：留在工程管理页、新工程成为当前工程、不跳工作台
+    expect(setActivePage).not.toHaveBeenCalledWith('workspace');
+  });
+
+  it('关掉「同步导入谱面」：难度芯片变回未选中样式，产出空 Expert（等级不预填）', async () => {
+    const { backend } = renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    await within(dialog).findByText('All You Wanted (GBP Edit)');
+    fireEvent.click(within(dialog).getByRole('option', { name: /All You Wanted/ }));
+    await waitFor(() => expect(document.querySelector('.off-preview')?.className).not.toMatch(/is-collapsed/));
+
+    // 开着的时候：芯片组是「可选中」态，那一枚带 ✓
+    expect(document.querySelector('.off-preview__levels')?.className).toMatch(/is-pick/);
+    expect(document.querySelector('.off-preview__levels button')?.textContent).toMatch(/^✓ /);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '同步导入谱面' }));
+    await waitFor(() => expect(document.querySelector('.off-preview__levels')?.className).not.toMatch(/is-pick/));
+    expect(document.querySelector('.off-preview__levels button')?.textContent).not.toMatch(/^✓ /);
+
+    const create = within(dialog).getByRole('button', { name: '创建' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+
+    await waitFor(() => expect(backend.disk.size).toBe(1));
+    const created = [...backend.disk.values()][0];
+    // 空 Expert：没有原文、没有等级；工程素材照常带走
+    expect(created.charts[0]).toMatchObject({ title: null, diff: 3, level: null, chartCodePristine: false });
+    expect(created.charts[0].appliedChartCodeText).toBeNull();
+    expect(created.audioName).toBe('post-248468-audio.mp3');
+    // 少一次网络：详情根本没被请求
+    expect(backend.disk.size).toBe(1);
+  });
+
+  it('社区筛选：只作用于已加载的条目，范围与命中数写在列表尾（不自动补扫）', async () => {
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    await within(dialog).findByText('All You Wanted (GBP Edit)');
+
+    // 只有一条 custom 帖（EX 24）：筛 Special → 它被筛掉，且**不发第二条列表请求**（不补扫）
+    fireEvent.click(within(dialog).getByRole('button', { name: '筛选' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'SP' }));
+
+    expect(await within(dialog).findByText(/已加载的 1 条里没有符合条件的/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('option', { name: /All You Wanted/ })).toBeNull();
+
+    // 关键口径：筛选**不触发补扫** —— 列表请求仍然只有第一页那一条
+    const bridge = (window as unknown as {
+      electronAPI: { communityNet: { request: { mock: { calls: [{ url: string }][] } } } };
+    }).electronAPI.communityNet.request;
+    const listCalls = bridge.mock.calls.filter(([payload]) => payload.url.endsWith('/api/post/list'));
+    expect(listCalls).toHaveLength(1);
+
+    // 清除筛选：帖子回来了，尾部换成范围提示（筛选已生效过一次）
+    fireEvent.click(within(dialog).getByRole('button', { name: '清除筛选' }));
+    expect(await within(dialog).findByRole('option', { name: /All You Wanted/ })).toBeInTheDocument();
   });
 
   it('从空白切到官方是同一颗窗改尺寸，不卸遮罩（票 13 #6）', async () => {
@@ -206,7 +351,7 @@ describe('票 08 · 从官方谱面导入', () => {
     expect(within(dialog).getByText('Yes! BanG_Dream!')).toBeInTheDocument();
 
     // 搜索命中歌手/乐队（票 08 锁测：标题与乐队都要能搜到）
-    fireEvent.change(screen.getByLabelText('搜索曲名或乐队'), { target: { value: 'roselia' } });
+    fireEvent.change(screen.getByLabelText('搜索歌曲标题或乐队'), { target: { value: 'roselia' } });
     expect(within(dialog).getByText(SONG_TITLE)).toBeInTheDocument();
     expect(within(dialog).queryByText('Yes! BanG_Dream!')).toBeNull();
 

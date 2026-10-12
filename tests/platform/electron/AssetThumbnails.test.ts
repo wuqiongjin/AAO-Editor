@@ -43,18 +43,27 @@ describe('票 15 · 缩略图产出：96×96 方形 PNG', () => {
     expect(Buffer.from(made!.bytes)).toEqual(Buffer.from([1, 2, 3]));
   });
 
-  it('不是图片 / 解不开 / 拿到的图是空的：一律回 null（= 没有缩略图，不是报错）', () => {
+  it('明说不是图片（text/*）/ 解不开 / 拿到的图是空的：一律回 null（= 没有缩略图，不是报错）', () => {
     const { calls, nativeImage } = fakeNativeImage({ width: 400, height: 400 });
     const makeThumb = createThumbMaker(nativeImage);
 
-    expect(makeThumb(Buffer.from([0]), 'audio/mpeg')).toBeNull();
+    // 回退页是唯一「按类型就拦得死」的一类；其余交给解码器（下面一条就是这条口径的正面用例）
     expect(makeThumb(Buffer.from([0]), 'text/html')).toBeNull();
     expect(calls.crops).toEqual([]);
 
-    // content-type 缺失也试一把（平台万一哪天不回这个头）；解不开就 null
+    // content-type 缺失 / 解不开：试一把，解不开就 null
     const broken = createThumbMaker(fakeNativeImage(null).nativeImage);
     expect(broken(Buffer.from([0]), null)).toBeNull();
+    expect(broken(Buffer.from([0]), 'audio/mpeg')).toBeNull();
     expect(makeThumb(Buffer.from([0]), null)).not.toBeNull();
+  });
+
+  it('octet-stream 也产出缩略图（社区帖的上传文件一律是这个头 —— 2026-10-12 实测）', () => {
+    const { calls, nativeImage } = fakeNativeImage({ width: 400, height: 400 });
+    const makeThumb = createThumbMaker(nativeImage);
+
+    expect(makeThumb(Buffer.from([0xff, 0xd8, 0xff]), 'application/octet-stream')).toMatchObject({ contentType: 'image/png' });
+    expect(calls.resizes).toEqual([{ width: 96, height: 96, quality: 'good' }]);
   });
 
   it('正方形 / 竖图 / 横图的裁剪框', () => {
