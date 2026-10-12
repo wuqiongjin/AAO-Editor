@@ -602,6 +602,63 @@ describe('票 14 · 素材缓存命中：GET 不碰网络', () => {
     });
   });
 
+  it('票 29 · freshFirst = 穿透请求最新：优先打网络，网络成功更新缓存并返回新数据', async () => {
+    await withTmpCache(async (dir) => {
+      let version = 1;
+      const { gateway, fetch } = gatewayWith(() => response({ body: { result: true, n: version } }), { dir });
+
+      // 存入初始缓存
+      await gateway.request({ url: SONGS_URL });
+      expect(fetch.calls).toHaveLength(1);
+
+      // 普通请求在 24h 内直接吃缓存，不打网络
+      await expect(gateway.request({ url: SONGS_URL })).resolves.toMatchObject({ data: { n: 1 } });
+      expect(fetch.calls).toHaveLength(1);
+
+      // 带 freshFirst：穿透未过期缓存打网络，拿到最新数据并写回缓存
+      version = 2;
+      await expect(gateway.request({ url: SONGS_URL, freshFirst: true })).resolves.toMatchObject({ data: { n: 2 } });
+      expect(fetch.calls).toHaveLength(2);
+
+      // 后续普通请求拿到的是更新后的缓存
+      await expect(gateway.request({ url: SONGS_URL })).resolves.toMatchObject({ data: { n: 2 } });
+      expect(fetch.calls).toHaveLength(2);
+    });
+  });
+
+  it('票 29 · freshFirst = 离线降级容灾：网络失败自动回退本地既有磁盘缓存', async () => {
+    await withTmpCache(async (dir) => {
+      let failNetwork = false;
+      const { gateway, fetch } = gatewayWith(() => {
+        if (failNetwork) throw new Error('网络断开');
+        return response({ body: { result: true, n: 1 } });
+      }, { dir });
+
+      // 首次成功落盘
+      await gateway.request({ url: SONGS_URL });
+      expect(fetch.calls).toHaveLength(1);
+
+      // 网络断开，带 freshFirst 请求
+      failNetwork = true;
+      const result = await gateway.request({ url: SONGS_URL, freshFirst: true });
+      expect(fetch.calls).toHaveLength(2);
+      // 成功回退到磁盘缓存，不抛错、不白屏
+      expect(result).toMatchObject({ ok: true, data: { n: 1 } });
+    });
+  });
+
+  it('票 29 · freshFirst = 无缓存时网络失败原样返回错误', async () => {
+    await withTmpCache(async (dir) => {
+      const { gateway, fetch } = gatewayWith(() => {
+        throw new Error('网络断开');
+      }, { dir });
+
+      const result = await gateway.request({ url: SONGS_URL, freshFirst: true });
+      expect(result).toMatchObject({ ok: false, error: { kind: 'offline' } });
+      expect(fetch.calls).toHaveLength(1);
+    });
+  });
+
   it('缓存内容坏了（不是合法 JSON）：当未命中重拉，不把坏数据喂给界面', async () => {
     await withTmpCache(async (dir) => {
       const { gateway, fetch } = gatewayWith(() => response({ body: { result: true } }), { dir });

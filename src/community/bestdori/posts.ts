@@ -111,8 +111,9 @@ export async function fetchPostPage(
       timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
       // 列表是**读型 POST**：第一页显式允许跨会话缓存（07/14 的口径是「POST 默认不缓存」，
       // 发帖 / 登录这类写请求不传这个标记，照旧直连）。
+      // 票 29：第一页启动后首次拉取使用 freshFirst 穿透请求最新，网络失败自动回退磁盘缓存。
       // **深页不落盘**：offset 随新帖插入整体漂移，跨会话拼两个时刻的快照会把页码语义搞烂。
-      ...(at === 0 ? { cacheable: true } : {}),
+      ...(at === 0 ? { cacheable: true, freshFirst: true } : {}),
       ...(force ? { revalidate: true } : {}),
     }),
     { policy: BESTDORI_RETRY_POLICY, onRetry },

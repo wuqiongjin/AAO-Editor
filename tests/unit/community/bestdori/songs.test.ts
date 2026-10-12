@@ -179,6 +179,8 @@ describe('票 08 · 曲库索引 / 详情（一次拉全 + 选中才拉详情）
       'https://bestdori.com/api/songs/all.5.json',
       'https://bestdori.com/api/bands/all.1.json',
     ]);
+    // 票 29：启动首次拉取使用 freshFirst 穿透请求最新，失败回退磁盘缓存
+    expect(transport.requests.every((r) => r.freshFirst === true)).toBe(true);
   });
 
   it('同一语言第二次拉曲库走会话缓存，不再打出口（票 13 #4）', async () => {

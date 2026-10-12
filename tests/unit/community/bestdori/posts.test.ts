@@ -145,12 +145,13 @@ describe('票 09 · fetchPostPage（POST body 与分页口径）', () => {
     expect(req.cacheable).toBeUndefined();
   });
 
-  it('第一页声明 cacheable（读型 POST 才允许落盘缓存，票 09 修订 07/14 口径）', async () => {
+  it('第一页声明 cacheable（读型 POST 才允许落盘缓存，票 09 修订 07/14 口径；票 29 freshFirst）', async () => {
     const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE } });
 
     await fetchPostPage(transport, { query: '', offset: 0 });
 
     expect(transport.requests[0].cacheable).toBe(true);
+    expect(transport.requests[0].freshFirst).toBe(true);
     expect(transport.requests[0].revalidate).toBeUndefined();
   });
 

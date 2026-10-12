@@ -111,6 +111,11 @@ export interface CommunityRequest {
    * 与 `cacheable` 正交：刷新不关心这次是否允许写缓存，只表示「别吃旧副本」。
    */
   revalidate?: boolean;
+  /**
+   * 优先打网络拿最新数据；网络失败时自动回退本地已有的磁盘缓存（离线容灾）。
+   * 票 29 定案：官方曲库列表与社区列表第一页在每次应用启动首次拉取时使用。
+   */
+  freshFirst?: boolean;
 }
 
 /**

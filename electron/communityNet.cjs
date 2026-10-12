@@ -158,6 +158,8 @@ function normalizeRequest(payload, allowedHosts) {
     // 读型 POST 的缓存许可（票 09 修订 07/14 的口径：POST 默认不缓存，发帖 / 登录照旧直连）
     const cacheable = payload.cacheable === true;
     const revalidate = payload.revalidate === true;
+    // 穿透拉取最新（票 29）：跳过直接读缓存，优先发网络；网络失败时优雅回退本地既有磁盘缓存
+    const freshFirst = payload.freshFirst === true;
 
     return {
         url: rawUrl,
@@ -169,6 +171,7 @@ function normalizeRequest(payload, allowedHosts) {
         suggestedName: typeof payload.suggestedName === 'string' ? payload.suggestedName : '',
         cacheable,
         revalidate,
+        freshFirst,
         // 缓存键：POST 把 body 一并算进去（同 URL 不同查询体是两份数据）。GET 就是 URL 本身。
         cacheKey: cacheable && method === 'POST' ? `${rawUrl}#${hashCacheKey(body || '')}` : rawUrl,
     };
@@ -460,6 +463,20 @@ function createCommunityGateway(options) {
             } catch (error) {
                 // RequestRejected（越界 URL / 非法方法 / 自带凭据头）：发起之前就拒，什么都不发
                 return fail('request-rejected', errorMessage(error));
+            }
+
+            // 票 29：优先拉取最新，网络失败时自动回退本地磁盘既有缓存（离线容灾）
+            if (req.freshFirst && !req.revalidate) {
+                const netRes = await schedule(req, () => send(req));
+                if (netRes.ok) return netRes;
+                let fallback = null;
+                try {
+                    fallback = await readCache({ ...req, freshFirst: false });
+                } catch {
+                    fallback = null;
+                }
+                if (fallback != null) return fallback.result;
+                return netRes;
             }
 
             let hit = null;

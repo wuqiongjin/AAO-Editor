@@ -45,6 +45,7 @@ async function fetchJson(
   url: string,
   onRetry?: (notice: RetryNotice) => void,
   revalidate = false,
+  freshFirst = false,
 ): Promise<unknown> {
   return withRetry(
     () => transport.requestJson({
@@ -54,6 +55,8 @@ async function fetchJson(
       timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
       // 用户主动刷新（票 09 的刷新钮，官方 / 社区共用）：跳过网关的 24h 副本，真打一发
       ...(revalidate ? { revalidate: true } : {}),
+      // 启动后首次访问穿透请求最新，失败自动回退磁盘缓存（票 29）
+      ...(freshFirst ? { freshFirst: true } : {}),
     }),
     { policy: BESTDORI_RETRY_POLICY, onRetry },
   );
@@ -90,6 +93,8 @@ async function fetchStaged(
 /**
  * 曲库**一次拉全**（822 首 / 约 400KB）+ 乐队索引，映射成中立曲目候选；
  * 搜索在本地做（见 `searchSongCandidates`），不再打网络。
+ * 票 29：启动后首次访问使用 freshFirst 穿透请求最新，失败回退本地磁盘缓存；
+ * 会话运行期间只要语言不切、不主动刷新，复用内存缓存 catalogCache。
  */
 export async function fetchSongCatalog(
   transport: CommunityTransport,
@@ -100,8 +105,8 @@ export async function fetchSongCatalog(
   if (catalogInflight && catalogInflight.language === language) return catalogInflight.promise;
 
   const promise = Promise.all([
-    fetchJson(transport, songsIndexUrl(), onRetry),
-    fetchJson(transport, bandsIndexUrl(), onRetry),
+    fetchJson(transport, songsIndexUrl(), onRetry, false, true),
+    fetchJson(transport, bandsIndexUrl(), onRetry, false, true),
   ]).then(([index, bands]) => {
     const songs = toSongCandidates(index, bands, language);
     catalogCache = { language, songs };

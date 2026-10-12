@@ -39,7 +39,7 @@
 - （2026-10-12 验收批次的**原型与截图**：`src/prototypes/OfficialPreviewPrototype.*` + `App.tsx` 的 `?prototype=official-preview` 挂载 + `.scratch/bestdori-integration/official-preview-*.png` —— **已随 22–25 落地删除**，同票 15 先例。）
 - 27 社区谱面详情缺少 id 导致导入失败与报错改用 Toast（bug，**resolved 2026-10-12**）：`post/details` 返回对象缺少 `id` 导致校验崩溃（用户此前成功 1 次因当时关掉了同步导入）；报错改用全局 `showToast(msg, 'danger')` 取代易滞留的 error-banner。
 - 28 「同步导入谱面」开关状态持久化记忆（feature，**resolved 2026-10-12**）：官方与社区共用 `settings.projects.importWithChart`，首次默认统一为 `true`。
-- 29 官方与社区歌曲列表拉取更新机制与启动拉取评估（grilling，**resolved 2026-10-12**）：定案为每次启动后首次访问穿透请求最新列表，失败回退磁盘缓存，会话内复用内存。
+- 29 官方与社区歌曲列表拉取更新机制与启动拉取评估（feature/grilling，**resolved 2026-10-12**）：网关增加 `freshFirst` 策略并在官方与社区第一页接入 —— 每次启动后首次访问穿透请求最新列表，失败回退磁盘缓存，会话内复用内存。
 - 30 导入谱面音频复用机制调查与评估（grilling，**resolved 2026-10-12**）：定案为保持现状（选项 A），试听维持 Range stream 不入缓存，导入维持 cache-first 按需全量下载。
 
 
