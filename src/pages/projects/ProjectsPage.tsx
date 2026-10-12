@@ -201,11 +201,16 @@ export default function ProjectsPage() {
         message: result.reason === 'apply' ? officialApplyErrorText(result.errors) : officialErrorText(result.error),
       };
     }
+    // 票 26：建成了但要说一声 —— 谱面降级 / 封面缺失都走 Toast（弹窗此刻已在关）
+    const warnings: string[] = [];
+    if (result.chartDegraded) warnings.push(t('projects.official.warn.chartFallback'));
+    if (!result.coverImported) warnings.push(t('projects.official.warn.coverMissing'));
     setNewSource(null);
     goDetailKeepAnimation(result.project.id);
     await reload();
     await setCurrent(result.project.id, result.chartId);
-    return { ok: true };
+    if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
+    return { ok: true, warnings };
   }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
   // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）

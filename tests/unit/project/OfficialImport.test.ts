@@ -6,7 +6,10 @@
 //   ③ 封面取不到照样建（合作曲在非首发服就没有封面），但**音频取不到就不建**；
 //   ④ 过不了 Apply 闸门整笔不落盘（不留半截工程）。
 import { describe, expect, it } from 'vitest';
+import { defaultRetryDeps } from '@/src/community/rateLimit';
 import { CommunityError, isCommunityError } from '@/src/community/transport';
+import { zhCN, en } from '@/src/i18n/t';
+import { readStripped } from '@/tests/support/source';
 import type { SongCandidate } from '@/src/community/bestdori/mapping';
 import { toSongCandidates } from '@/src/community/bestdori/mapping';
 import type { ChartProject, ProjectBinarySources } from '@/src/project/ChartProject';
@@ -278,5 +281,79 @@ describe('票 08 · 失败文案按 kind 走 i18n', () => {
     expect(officialErrorText(wire('unsupported-runtime', '没有出口'))).toBe('官方曲库只在桌面版提供。');
     expect(officialErrorText(wire('http', 'HTTP 500'))).toBe('读取官方曲库失败，请重试。');
     expect(officialErrorText(new Error('裸异常'))).toBe('读取官方曲库失败，请重试。');
+  });
+});
+
+// 票 26：素材失败时「创建」的降级语义 —— 谱面代码网络失败放行、Apply 拒绝维持整笔不建、
+// 封面静默跳过仅限「平台无图」（网络失败整笔挡）；音频失败维持阻断（上面的既有用例即反向护栏）。
+describe('票 26 · 素材失败时的降级语义', () => {
+  /** 网络域错误会按退避策略真等 2.4s+，测试里让 sleep 只记账不真等（本仓不用 vi.useFakeTimers） */
+  function withSilentSleep(run: () => Promise<void>): Promise<void> {
+    const realSleep = defaultRetryDeps.sleep;
+    defaultRetryDeps.sleep = async () => {};
+    return run().finally(() => { defaultRetryDeps.sleep = realSleep; });
+  }
+
+  it('官方谱面请求网络失败 → 降级放行：空 Expert 谱面照建 + 结果带警告标记', async () => {
+    const t = deps();
+    // 手打桩会顶掉假出口的请求记账，重试次数自己数
+    let chartAttempts = 0;
+    t.transport.requestText = async () => {
+      chartAttempts += 1;
+      throw new CommunityError('connect ECONNREFUSED', { kind: 'offline', message: 'connect ECONNREFUSED' });
+    };
+
+    await withSilentSleep(async () => {
+      const result = await t.run(true, 'special');
+      expect(result).toEqual(expect.objectContaining({ ok: true, chartDegraded: true }));
+    });
+
+    // 等同没勾 B：难度回 Expert、等级不预填、谱面是最小可用空谱
+    const chart = t.writes[0].project.charts[0];
+    expect(chart).toMatchObject({ diff: 3, level: null, appliedChartCodeText: null, chartCodePristine: false });
+    expect(chart.notes).toEqual([{ beat: 0, type: 'BPM', bpm: 120 }]);
+    // 音频与封面照常落地，工程照建
+    expect(t.writes[0].staged).toEqual({
+      audioStagedPath: STAGED_AUDIO.path,
+      coverStagedPath: STAGED_COVER.path,
+    });
+    // 网络域错误按退避策略试满 3 次才降级
+    expect(chartAttempts).toBe(3);
+  });
+
+  it('封面网络失败 → 整笔失败（静默跳过仅限平台无图，见票 08 的回退页用例）', async () => {
+    const t = deps();
+    t.transport.requestBinary = (req) => req.url === AUDIO_URL
+      ? Promise.resolve(STAGED_AUDIO)
+      : Promise.reject(new CommunityError('connect ECONNREFUSED', { kind: 'offline', message: 'connect ECONNREFUSED' }));
+
+    await withSilentSleep(async () => {
+      await expect(t.run(false)).rejects.toSatisfy(
+        (error: unknown) => isCommunityError(error) && error.kind === 'offline',
+      );
+    });
+    expect(t.writes).toHaveLength(0);
+  });
+
+  it('非网络域（响应非法）不降级：照抛整笔失败，别静默变空谱', async () => {
+    const t = deps();
+    t.transport.requestText = async () => {
+      throw new CommunityError('载荷被网关拒', { kind: 'invalid-response', message: '载荷被网关拒' });
+    };
+
+    await expect(t.run(true, 'special')).rejects.toSatisfy(
+      (error: unknown) => isCommunityError(error) && error.kind === 'invalid-response',
+    );
+    expect(t.writes).toHaveLength(0);
+  });
+
+  it('降级 / 缺封面的警告文案接进了 Toast：ProjectsPage 的映射与 zh/en 键都在', () => {
+    const page = readStripped('src/pages/projects/ProjectsPage.tsx');
+    expect(page).toContain("if (result.chartDegraded) warnings.push(t('projects.official.warn.chartFallback'))");
+    expect(page).toContain("if (!result.coverImported) warnings.push(t('projects.official.warn.coverMissing'))");
+    expect(zhCN['projects.official.warn.chartFallback']).toBe('官方谱面获取失败，已按空白谱面创建，可稍后在谱面代码导入中补。');
+    expect(zhCN['projects.official.warn.coverMissing']).toBe('该曲目未提供官方封面，工程未包含封面。');
+    expect(en['projects.official.warn.chartFallback']).toBeTruthy();
+    expect(en['projects.official.warn.coverMissing']).toBeTruthy();
   });
 });

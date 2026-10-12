@@ -5,7 +5,8 @@
  * `<数据根>/cache/community/`，决定导入才写进工程）：
  *   1. 官方音频（主线，约 4MB，走主进程网关）；
  *   2. 官方封面（可选：平台没有这张图就不带封面，不挡主线）；
- *   3. 官方谱面代码（可选，默认关）：原文交给 Apply 闸门，过不了就**整笔不建**。
+ *   3. 官方谱面代码（可选，默认关）：原文交给 Apply 闸门，过不了就**整笔不建**；
+ *      请求本身失败（离线 / 限流等网络域）则**降级放行** = 等同没勾 B + 结果带警告标记（票 26）。
  *
  * 落盘走 `store.save(project, { audioStagedPath, coverStagedPath })`：缓存路径交给主进程拷进
  * 工程目录，字节不过 IPC（07 定案）。落盘后 `get()` 一次把字节顶回内存（否则下一次保存会
@@ -37,6 +38,11 @@ import { createOfficialProject } from '../../project/projectCatalog';
 
 /** 不勾「带官方谱面」时的默认难度：Expert（票 08 定案：默认产出 = 一张空 Expert 谱面） */
 const DEFAULT_DIFF: ChartDifficulty = 3;
+
+/** 谱面请求可降级的错误域（票 26 定案的「网络类」）：平台侧没把谱面递出来 */
+const CHART_DEGRADE_KINDS: ReadonlySet<CommunityErrorKind> = new Set([
+  'offline', 'timeout', 'rate-limited', 'http',
+]);
 
 /** 时长校正的容差（秒）：与 useChartProjectPersistence 对齐 —— 毫秒级差异不值得再写一次盘 */
 const DURATION_TOLERANCE_SECONDS = 0.5;
@@ -72,7 +78,7 @@ export interface OfficialImportDeps {
 }
 
 export type OfficialImportResult =
-  | { ok: true; project: ChartProject; chartId: string; coverImported: boolean }
+  | { ok: true; project: ChartProject; chartId: string; coverImported: boolean; chartDegraded: boolean }
   | { ok: false; reason: 'apply'; errors: ValidationError[] }
   | { ok: false; reason: 'download'; error: unknown };
 
@@ -94,10 +100,22 @@ export async function importOfficialSong(
   if (cover) staged.coverStagedPath = cover.path;
 
   let chartCodeText = '';
+  // 票 26：谱面请求在**平台侧拿不到**（连不上 / 超时 / 限流 / 非预期状态码）→ 降级放行
+  // （等同没勾 B：空 Expert 谱面 + 警告标记）；Apply 闸门拒绝不走这里（那是
+  // createOfficialProject 的返回值），维持整笔不建。其余错误域（未授权 / 网关自保 /
+  // 响应非法）不是「网络拿不到」，照抛整笔失败 —— 静默把这类错降成空谱会误导。
+  let chartDegraded = false;
   if (input.withChart) {
     deps.onStage?.('chart');
-    chartCodeText = await fetchOfficialChartText(deps.transport, song.id, input.diff);
+    try {
+      chartCodeText = await fetchOfficialChartText(deps.transport, song.id, input.diff);
+    } catch (error) {
+      if (!(isCommunityError(error) && CHART_DEGRADE_KINDS.has(error.kind))) throw error;
+      chartDegraded = true;
+    }
   }
+  // 降级后按「没勾 B」的口径建谱面：难度回 Expert、等级不预填 —— 别带着官方等级配一张空谱
+  const bringChart = input.withChart && !chartDegraded;
 
   const built = createOfficialProject({
     id: ids.projectId,
@@ -108,9 +126,9 @@ export async function importOfficialSong(
     source: { type: 'bandori', id: song.id },
     durationSeconds: detail.lengthSeconds,
     // 官方难度编号与工程难度同值（endpoints.officialDiffIndex 只此一张表）
-    diff: input.withChart ? (officialDiffIndex(input.diff) as ChartDifficulty) : DEFAULT_DIFF,
+    diff: bringChart ? (officialDiffIndex(input.diff) as ChartDifficulty) : DEFAULT_DIFF,
     // 等级是作品属性：不勾 B 就不预填（人还没作谱）
-    level: input.withChart ? songLevel(song, input.diff) : null,
+    level: bringChart ? songLevel(song, input.diff) : null,
     chartCodeText,
     audioName: audioFileName(detail),
     coverName: cover ? coverFileName(song) : null,
@@ -135,7 +153,13 @@ export async function importOfficialSong(
   }
 
   deps.notifyCatalogChanged();
-  return { ok: true, project: built.project, chartId: built.chart.id, coverImported: cover != null };
+  return {
+    ok: true,
+    project: built.project,
+    chartId: built.chart.id,
+    coverImported: cover != null,
+    chartDegraded,
+  };
 }
 
 /**

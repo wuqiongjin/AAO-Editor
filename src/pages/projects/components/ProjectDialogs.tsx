@@ -26,8 +26,8 @@ const STAGE_KEYS = {
 
 export type NewSource = 'blank' | 'copy' | 'official' | 'community';
 
-/** 官方导入的回执：失败时给一句能读的话（按错误域 kind 翻的），弹窗就地显示 */
-export type OfficialImportReply = { ok: true } | { ok: false; message: string };
+/** 官方导入的回执：失败时给一句能读的话（按错误域 kind 翻的）；成功可带降级警告（票 26，Toast 展示） */
+export type OfficialImportReply = { ok: true; warnings?: string[] } | { ok: false; message: string };
 
 export function NewProjectDialog({
   initialSource, projects, onClose, onCreate, onCopy, onImportOfficial, transport, importSources = false,

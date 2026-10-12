@@ -59,9 +59,9 @@ describe('issue 17 · 原生提示弹窗清零', () => {
     expect(codeModal).toMatch(/showToast\(t\('chartCode\.needBpm0'\), 'danger'\)/);
   });
 
-  it('工程页三处（删最后一张 / 新增被拒 / 已上传徽标只读）与工作台切换器一处同样接了 showToast', () => {
-    // 页面两处：删最后一张、新增谱面被拒；页内小件一处：已上传徽标只读
-    expect(toastCalls(projectsPage)).toBe(2);
+  it('工程页四处（删最后一张 / 新增被拒 / 官方导入降级警告·票 26 / 已上传徽标只读）与工作台切换器一处同样接了 showToast', () => {
+    // 页面三处：删最后一张、新增谱面被拒、官方导入的降级 / 缺封面警告（票 26）；页内小件一处：已上传徽标只读
+    expect(toastCalls(projectsPage)).toBe(3);
     expect(toastCalls(projectBits)).toBe(1);
     expect(toastCalls(chartSwitcher)).toBe(1);
     // 「不能删最后一张」是拦住动作，不是出错 —— 走 warn 不走 danger

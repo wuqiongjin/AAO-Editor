@@ -82,6 +82,8 @@
   "projects.official.err.staging": "Could not write to the local asset cache (disk full or permissions).",
   "projects.official.err.generic": "Could not read the official song list. Please retry.",
   "projects.official.err.apply": "The official chart code failed the Apply gate: {{message}}",
+  "projects.official.warn.chartFallback": "Could not fetch the official chart; the project was created with a blank chart. You can import the chart code later.",
+  "projects.official.warn.coverMissing": "This song has no official cover on the platform; the project was created without one.",
   "projects.guide.eyebrow": "Get started",
   "projects.guide.title": "Start with your first project",
   "projects.guide.description": "A project is one song with one or more charts; creating one leaves you on its detail page so you can fill in details before entering the workspace.",

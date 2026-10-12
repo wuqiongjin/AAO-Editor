@@ -83,6 +83,8 @@
   "projects.official.err.staging": "本机素材缓存写不进去（磁盘满或权限问题）。",
   "projects.official.err.generic": "读取官方曲库失败，请重试。",
   "projects.official.err.apply": "官方谱面代码过不了 Apply 闸门：{{message}}",
+  "projects.official.warn.chartFallback": "官方谱面获取失败，已按空白谱面创建，可稍后在谱面代码导入中补。",
+  "projects.official.warn.coverMissing": "该曲目未提供官方封面，工程未包含封面。",
   "projects.guide.eyebrow": "开始使用",
   "projects.guide.title": "从第一个工程开始",
   "projects.guide.description": "一个工程是一首歌，下面挂若干张谱面；创建后留在工程详情，补完信息再进工作台。",

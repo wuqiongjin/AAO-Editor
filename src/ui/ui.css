@@ -372,6 +372,9 @@
 .toast--warn { background-color: color-mix(in srgb, var(--warning) 14%, var(--bg-elevated)); color: var(--warning-text); }
 .toast--danger { background-color: color-mix(in srgb, var(--danger) 14%, var(--bg-elevated)); color: var(--danger-text); }
 
+/* 降级警告可能两条一起到（票 26：谱面降级 + 封面缺失），\n 分行显示 */
+.toast__text { white-space: pre-line; }
+
 /* 关掉按钮自己也要跟着语气色，别在浅底上戳出一个中性灰块 */
 .toast__close {
   display: inline-flex;
