@@ -9,7 +9,7 @@
 
 ## 领域
 
-BanG Dream / Bestdori 自制谱编辑器。谱面代码 = Bestdori 风格 JSON 数组（见 `docs/plans/谱面代码规则文档.md`）。
+产品定名为 **AAO Editor**（全称 **Advanced Arrangement Organizer**）。当前核心领域为 BanG Dream / Bestdori 体系自制谱编辑器。谱面代码 = Bestdori 风格 JSON 数组（见 `docs/plans/谱面代码规则文档.md`）。应用标识为 `com.aao.editor`，数据与本地存储统一使用 `aao.*` 命名空间。
 
 ## 核心实体
 

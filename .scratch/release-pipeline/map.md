@@ -28,3 +28,4 @@
 - [01 素材分发与发布策略（CI 构建期注入 + release 镜像）](./issues/01-素材分发与发布策略.md) — open（拍板已毕 2026-10-07；迁移子集由 02 落地，CI / 发版链路待仓库隔离定案后实现）
 - [02 素材迁出与内部镜像同步（无 CI）](./issues/02-素材迁出与内部镜像同步.md) — resolved（**主仓与素材解耦**：外部快照仓库自治（素材 + 生成注册表 + 抓取/构建/`update.sh` 自更新），主仓只 `npm run assets:sync` 取件、不含素材工具与 SHA 清单；实现 857f45bd，2026-10-09 用户验收通过）
 - [03 打包态（file://）仿真场素材读不到：素材前缀写死站点根](./issues/03-打包态仿真场素材读不到前缀写死站点根.md) — resolved（2026-10-11 用户验收通过）：素材前缀改跟 `import.meta.env.BASE_URL`（素材本就在包里，是 file:// 下绝对路径解析到磁盘根）
+- [04 AAO-Editor品牌与产品信息整改](./issues/04-AAO-Editor品牌与产品信息整改.md) — resolved（2026-10-12 定案：产品定名 AAO Editor（Advanced Arrangement Organizer），全套图标落位，元数据/外壳/UI/存储键收敛为 aao.*）

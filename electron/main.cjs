@@ -261,15 +261,29 @@ registerI18nIpc();
 // 不进 settings / 导出配置；不记位置（多屏）。
 // ---------------------------------------------------------------------------
 
+function resolveAppIcon() {
+    const filename = process.platform === 'win32' ? 'favicon.ico' : 'icon.png';
+    const candidateDirs = isDev
+        ? [path.join(__dirname, '../public'), path.join(__dirname, '../dist')]
+        : [path.join(__dirname, '../dist'), path.join(__dirname, '../public')];
+    for (const dir of candidateDirs) {
+        const full = path.join(dir, filename);
+        if (fs.existsSync(full)) return full;
+    }
+    return undefined;
+}
+
 function createWindow() {
     const minWidth = MIN_WINDOW_WIDTH;
     const minHeight = MIN_WINDOW_HEIGHT;
     const saved = loadWindowStateSync(app.getPath('userData'));
     const { width, height } = browserWindowCreateOptions(saved, { minWidth, minHeight });
     const initialAppearance = resolvedAppearance(currentAppTheme, nativeTheme.shouldUseDarkColors);
+    const appIcon = resolveAppIcon();
 
     // 创建浏览器窗口
     const mainWindow = new BrowserWindow({
+        title: 'AAO Editor',
         width,
         height,
         minWidth,
@@ -280,7 +294,7 @@ function createWindow() {
             enableRemoteModule: false,
             preload: path.join(__dirname, 'preload.js')
         },
-        icon: path.join(__dirname, '../public/vite.svg'), // 应用图标
+        icon: appIcon, // 应用图标
         titleBarStyle: 'default',
         backgroundColor: chromeBackgroundFor(initialAppearance),
         show: false // 先不显示，等加载完成后再显示

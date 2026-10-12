@@ -42,7 +42,7 @@ interface BackgroundSkinPorts {
 const DEFAULT_IDB_KEY = 'backgroundSkin';
 
 function defaultPersist() {
-  const DB_NAME = 'bangdream.assets';
+  const DB_NAME = 'aao.assets';
   const DB_VERSION = 1;
   const STORE = 'kv';
   let dbPromise: Promise<IDBDatabase> | null = null;

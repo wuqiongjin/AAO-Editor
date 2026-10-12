@@ -284,7 +284,7 @@ export interface NoteSkinSelectionRaw {
   slide: string;
 }
 
-const STORAGE_KEY = 'bangdream.settings.v1';
+const STORAGE_KEY = 'aao.settings.v1';
 
 /** 谱面时长上限（秒）：30 分钟，防误输入把画布撑爆（issue 28 第 2 轮 P6） */
 export const MAX_DURATION_SECONDS = 1800;

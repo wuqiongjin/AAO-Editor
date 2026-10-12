@@ -138,7 +138,7 @@ export function getDefaultConfig(): ShortcutConfig {
   return cfg;
 }
 
-const STORAGE_KEY = 'bangdream.shortcuts.v1';
+const STORAGE_KEY = 'aao.shortcuts.v1';
 
 /**
  * 旧存档修复（issue 59）：功能表会随版本增删，旧存档里某个功能占着的键位可能与**新功能**的默认键撞车。

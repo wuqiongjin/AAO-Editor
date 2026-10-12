@@ -1,6 +1,7 @@
 {
-  "app.name": "BangDream Editor",
-  "app.markAria": "BanG Dream chart editor",
+  "app.name": "AAO Editor",
+  "app.markAria": "AAO Editor",
+  "app.fullName": "AAO Editor · Advanced Arrangement Organizer",
   "nav.projects": "Projects",
   "nav.workspace": "Workspace",
   "nav.audio": "Audio",

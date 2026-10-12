@@ -1,7 +1,8 @@
 {
   "i18n.fallbackProbe": "回退探针",
-  "app.name": "BangDream Editor",
-  "app.markAria": "BanG Dream 谱面编辑器",
+  "app.name": "AAO Editor",
+  "app.markAria": "AAO Editor",
+  "app.fullName": "AAO Editor · Advanced Arrangement Organizer",
   "nav.projects": "工程",
   "nav.workspace": "工作台",
   "nav.audio": "音频",

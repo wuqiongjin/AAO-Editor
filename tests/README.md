@@ -12,7 +12,7 @@ tests/
 ├── support/            测试基建（共享替身），不含 .test.ts，不参与收集
 │   ├── canvas.ts       假 2d context（记录型 / 计数型）与假离屏位图
 │   ├── source.ts       静态源码断言工具：repoRoot / readSource / stripComments
-│   ├── storage.ts      内存版 Storage（只认 bangdream.settings.v1）
+│   ├── storage.ts      内存版 Storage（只认 aao.settings.v1）
 │   ├── providers.tsx   组件测试的 Provider 替身（当前工程 / 音频会话默认上下文）
 │   └── fs.ts           临时目录
 │

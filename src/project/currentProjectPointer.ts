@@ -12,7 +12,7 @@ export interface CurrentProjectPointer {
   chartId: string | null;
 }
 
-export const CURRENT_PROJECT_POINTER_KEY = 'bangdream.currentProject.v1';
+export const CURRENT_PROJECT_POINTER_KEY = 'aao.currentProject.v1';
 
 export type PointerStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 

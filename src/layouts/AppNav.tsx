@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
+import appLogo from '../assets/brand/app-logo.png';
 import { t, type MessageKey } from '../i18n';
 import { ChevronsLeft, ChevronsRight, Eye, FolderOpen, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
 import { PAGE_NAV } from './pageNav';
@@ -50,7 +51,9 @@ export function AppNav() {
   const { activePage, setActivePage, navCollapsed, setNavCollapsed } = useAppNav();
   return (
     <>
-      <div className="app-mark" aria-label={t('app.markAria')}>BD</div>
+      <div className="app-mark" title={t('app.fullName')} aria-label={t('app.markAria')}>
+        <img src={appLogo} alt={t('app.name')} className="app-mark-img" />
+      </div>
       <nav className="app-nav-items">
         {PAGE_NAV.map(({ id, shortcut }) => {
           const { labelKey, icon: Icon } = NAV_META[id];
