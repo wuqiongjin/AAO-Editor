@@ -78,3 +78,25 @@ describe('issue 10 · 当前工程与工程目录同步', () => {
     expect(backend.disk.size).toBe(1);
   });
 });
+
+describe('issue 29 · 启动预载目录', () => {
+  it('Provider 挂载即发起一次 list()（不等页面挂载）', async () => {
+    let listCalls = 0;
+    const backend = makeMemoryProjectBackend();
+    const counting: MemoryProjectBackend = {
+      ...backend,
+      list: () => {
+        listCalls += 1;
+        return backend.list();
+      },
+    };
+
+    mountProbe(counting); // 只挂探针，不挂工程管理页
+
+    expect(listCalls).toBe(1);
+
+    await act(async () => {}); // 让预载落地，确认不会补第二次
+
+    expect(listCalls).toBe(1);
+  });
+});

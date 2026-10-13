@@ -23,6 +23,8 @@ import { AudioSessionProvider } from '@/src/app/providers/AudioSessionProvider';
 export type MemoryProjectBackend = ChartProjectBackend & {
   disk: Map<string, ChartProject>;
   staged: Map<string, ProjectBinarySources>;
+  /** `deferList` 模式下放行 list()（issue 29）；未开该选项时是空操作。 */
+  releaseList: () => void;
 };
 
 /**
@@ -32,7 +34,7 @@ export type MemoryProjectBackend = ChartProjectBackend & {
  */
 export function makeMemoryProjectBackend(
   projects: ChartProject[] = [],
-  opts: { cloneBlobsOnRead?: boolean } = {},
+  opts: { cloneBlobsOnRead?: boolean; deferList?: boolean } = {},
 ): MemoryProjectBackend {
   const disk = new Map<string, ChartProject>(projects.map((p) => [p.id, p]));
   const read = (p: ChartProject | undefined): ChartProject | null => {
@@ -45,15 +47,31 @@ export function makeMemoryProjectBackend(
     };
   };
   const staged = new Map<string, ProjectBinarySources>();
+  /**
+   * `deferList`（issue 29）：list() 全部挂在手动闸门上，`releaseList()` 才放行 ——
+   * 测试才能停在"目录还没读回来"那一帧，验"未就绪 ≠ 0 工程"。默认开闸（现有用例不受影响）。
+   */
+  let gateOpen = !opts.deferList;
+  let openGate: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    openGate = () => {
+      gateOpen = true;
+      resolve();
+    };
+  });
   return {
     disk,
     staged,
+    releaseList: () => openGate(),
     get: async (id) => read(disk.get(id)),
     save: async (project, sources = {}) => {
       disk.set(project.id, project);
       if (sources.audioStagedPath || sources.coverStagedPath) staged.set(project.id, sources);
     },
-    list: async () => [...disk.values()].map((p) => read(p)!),
+    list: async () => {
+      if (!gateOpen) await gate;
+      return [...disk.values()].map((p) => read(p)!);
+    },
     delete: async (id) => {
       disk.delete(id);
     },

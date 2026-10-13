@@ -310,6 +310,14 @@ export class ChartProjectStore {
    * 本应用自己换封面走 `save()`，会即时更新记忆，不影响。
    */
   private coverInstances = new Map<string, Blob>();
+  /**
+   * 进行中的 list()（issue 29）：启动预载与工程页挂载常在同一窗口里各发起一次，合并成一次读盘 --
+   * 慢盘时页面直接共享预载那次的结果，不必等自己再读一遍。
+   *
+   * **只在"进行中"合并**（settle 后即清空，不留结果缓存）：编辑后的 reload 仍读到新数据，
+   * 也躲开了"另一个窗口改了工程、本会话看不见"的陈旧风险。
+   */
+  private listInFlight: Promise<ChartProject[]> | null = null;
 
   constructor(backend: ChartProjectBackend = autoDetectBackend()) {
     this.backend = backend;
@@ -332,9 +340,15 @@ export class ChartProjectStore {
     return this.backend.save(lastOpened === stable.lastOpened ? stable : { ...stable, lastOpened }, staged);
   }
 
-  async list(): Promise<ChartProject[]> {
-    const listed = await this.backend.list();
-    return listed.map((project) => this.stabilizeCover(project));
+  list(): Promise<ChartProject[]> {
+    if (this.listInFlight) return this.listInFlight;
+    const pending = this.backend
+      .list()
+      .then((listed) => listed.map((project) => this.stabilizeCover(project)));
+    this.listInFlight = pending;
+    return pending.finally(() => {
+      if (this.listInFlight === pending) this.listInFlight = null;
+    });
   }
 
   delete(id: string): Promise<void> {

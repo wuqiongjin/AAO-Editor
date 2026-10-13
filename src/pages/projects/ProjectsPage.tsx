@@ -53,7 +53,9 @@ export default function ProjectsPage() {
   } = useCurrentProject();
   // 启动台排序（issue 19 #4）：跨会话沿用，改一次写回设置对象
   const sortKey = settings.projects.sort;
-  const [projects, setProjects] = useState<ChartProject[]>([]);
+  // `null` = 目录还没读回来（issue 29）：与"一个工程都没有"（`[]`）是两件事，
+  // 混用同一个值会让首帧把"未就绪"渲染成 0 工程空态，列表到达后再闪一下换掉。
+  const [projects, setProjects] = useState<ChartProject[] | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [newSource, setNewSource] = useState<NewSource | null>(null);
   const [editing, setEditing] = useState<ChartProject | null>(null);
@@ -255,7 +257,9 @@ export default function ProjectsPage() {
   }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
   // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）
-  const list = useMemo(() => sortProjects(projects, sortKey, untitledProjectLabel()), [projects, sortKey]);
+  const list = useMemo(() => sortProjects(projects ?? [], sortKey, untitledProjectLabel()), [projects, sortKey]);
+  // 目录就绪 = list() 至少回来过一次（issue 29）：未就绪时不显示空态、也不显示 0 计数
+  const catalogReady = projects !== null;
 
   // 详情页左栏 ↑↓ 翻看（issue 23 #4，2026-09-28 修订）。口径：
   //   - **只翻看**（只切 `detailId`），**永不碰当前工程** —— "把 ↑↓ 接到当前工程上"
@@ -415,6 +419,7 @@ export default function ProjectsPage() {
   const hub = (
     <ProjectStartView
       list={list}
+      ready={catalogReady}
       currentId={projectId}
       sort={sortKey}
       onSort={setProjectSort}

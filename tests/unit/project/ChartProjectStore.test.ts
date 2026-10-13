@@ -114,3 +114,58 @@ describe('chart-projects 21 · 封面 Blob 身份稳定化', () => {
     expect(await store.list()).toEqual([]);
   });
 });
+
+/** list() 计数后端：验「并发 list 合并成一次读盘」（issue 29）。 */
+function countingBackend(projects: ChartProject[]): { backend: ChartProjectBackend; listCalls: () => number } {
+  let listCalls = 0;
+  const backend: ChartProjectBackend = {
+    get: async (id) => projects.find((p) => p.id === id) ?? null,
+    list: async () => {
+      listCalls += 1;
+      return projects;
+    },
+    save: async () => {},
+    delete: async () => {},
+  };
+  return { backend, listCalls: () => listCalls };
+}
+
+describe('issue 29 · list() 进行中去重（启动预载与页面挂载共用一个 Promise）', () => {
+  it('并发两次 list()：只读一次盘，两边拿到同一份结果', async () => {
+    const { backend, listCalls } = countingBackend([project()]);
+    const store = new ChartProjectStore(backend);
+
+    const [first, second] = await Promise.all([store.list(), store.list()]);
+
+    expect(listCalls()).toBe(1);
+    expect(first).toBe(second);
+  });
+
+  it('settle 之后不留结果缓存：下一次 list() 重新读盘（编辑后的 reload 要看得到新数据）', async () => {
+    const { backend, listCalls } = countingBackend([project()]);
+    const store = new ChartProjectStore(backend);
+
+    await store.list();
+    await store.list();
+
+    expect(listCalls()).toBe(2);
+  });
+
+  it('一次 list() 失败不粘住后来的调用者（闸门在 finally 里清）', async () => {
+    let calls = 0;
+    const backend: ChartProjectBackend = {
+      get: async () => null,
+      list: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('读盘炸了');
+        return [project()];
+      },
+      save: async () => {},
+      delete: async () => {},
+    };
+    const store = new ChartProjectStore(backend);
+
+    await expect(store.list()).rejects.toThrow('读盘炸了');
+    await expect(store.list()).resolves.toHaveLength(1);
+  });
+});
