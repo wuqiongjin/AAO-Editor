@@ -26,12 +26,6 @@ export function formatDuration(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export function sourceLabel(source: SongSource): string {
-  if (source.type === 'bandori') return t('projects.sourceLabel.bandori', { id: source.id });
-  if (source.type === 'llsif') return t('projects.sourceLabel.llsif', { id: source.id });
-  return t('projects.sourceLabel.custom');
-}
-
 export function statusLabel(chart: ProjectChart): string {
   return t(`projects.status.${chartStatus(chart)}` as 'projects.status.unfinished');
 }

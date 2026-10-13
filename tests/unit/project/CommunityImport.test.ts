@@ -1,8 +1,8 @@
 // bestdori-integration 09：社区帖 → 建工程这条编排（「从社区谱面导入」那一支）。
 //
 // 锁五件事：
-//   ① **名称口径（票 34，2026-10-13 推翻票 09 的「全留空」）**：bandori 帖预填官方曲名 +
-//      官方乐队名（与官方导入同口径），custom 帖预填原帖标题 + 帖子自报歌手；谱师署名仍只在
+//   ① **名称口径（票 34 预填、票 36 修订名称）**：工程名一律取**原帖标题**（bandori 帖标题缺省
+//      退回官方曲名），歌手 = bandori 帖官方乐队名 / custom 帖帖子自报歌手；谱师署名仍只在
 //      导入会话里展示，ProjectChart.title 继续跟随工程名、不单独动；
 //   ② custom 帖：音频与封面按帖内 URL 下载，`曲目来源` = custom；难度等级跟帖子走；
 //   ③ bandori 帖：素材走官方那条路（曲库候选 + 歌曲元数据），`曲目来源` 记曲库 id，时长按官方曲长起；
@@ -135,7 +135,7 @@ function deps(overrides: Overrides = {}) {
   return { store, writes, disk, stages, run, notified: () => notified, transport };
 }
 
-describe('票 34 · 名称口径（推翻票 09 的「全留空」，改预填）', () => {
+describe('票 34 预填 / 票 36 名称口径（工程名一律取帖标题）', () => {
   it('custom 帖：工程名 = 原帖标题、歌手 = 帖子自报歌手；谱面名称仍留空', async () => {
     const t = deps();
 
@@ -150,7 +150,7 @@ describe('票 34 · 名称口径（推翻票 09 的「全留空」，改预填�
     expect(saved!.charts[0].title).toBeNull();
   });
 
-  it('bandori 帖：工程名 = 官方曲名、歌手 = 官方乐队名（与官方导入同口径）', async () => {
+  it('bandori 帖：工程名 = 帖标题（谱师自起的谱名）、歌手 = 官方乐队名', async () => {
     const t = deps({
       json: { [BANDORI_DETAIL_URL]: { result: true, post: { ...BANDORI_POST, chart: COMMUNITY_CHART } } },
       binary: { [OFFICIAL_AUDIO_URL]: STAGED_AUDIO, [OFFICIAL_JACKET_URL]: STAGED_COVER },
@@ -163,9 +163,28 @@ describe('票 34 · 名称口径（推翻票 09 的「全留空」，改预填�
 
     expect(result.ok).toBe(true);
     const saved = t.disk.get('pNew1');
-    expect(saved!.name).toBe('BLACK SHOUT');
+    // 官方曲名是「BLACK SHOUT」，帖标题是「BLACK SHOUT 谱师版」—— 工程取后者（票 36）
+    expect(BANDORI_POST.title).toBe('BLACK SHOUT 谱师版');
+    expect(saved!.name).toBe('BLACK SHOUT 谱师版');
     expect(saved!.artist).toBe('Roselia');
     expect(saved!.charts[0].title).toBeNull();
+  });
+
+  it('bandori 帖标题缺省：退回官方曲名（空名不如歌名有用）', async () => {
+    const t = deps({
+      json: { [BANDORI_DETAIL_URL]: { result: true, post: { ...BANDORI_POST, title: '   ', chart: COMMUNITY_CHART } } },
+      binary: { [OFFICIAL_AUDIO_URL]: STAGED_AUDIO, [OFFICIAL_JACKET_URL]: STAGED_COVER },
+    });
+
+    const result = await t.run(
+      post({ ...BANDORI_POST, title: '   ' }),
+      { song: BANDORI_SONG, detail: { bgmId: 'bgm029', lengthSeconds: 120.048 } },
+    );
+
+    expect(result.ok).toBe(true);
+    const saved = t.disk.get('pNew1');
+    expect(saved!.name).toBe('BLACK SHOUT');
+    expect(saved!.artist).toBe('Roselia');
   });
 
   it('custom 帖没自报歌手：歌手留空（不编一个），工程名照填', async () => {

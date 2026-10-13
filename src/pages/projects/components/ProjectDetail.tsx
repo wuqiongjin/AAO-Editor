@@ -18,7 +18,7 @@ import {
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import { postUrl } from '../../../community/bestdori/endpoints';
 import { t } from '../../../i18n';
-import { effectiveTitle, formatDuration, relTime, sourceLabel } from '../projectFormat';
+import { effectiveTitle, formatDuration, relTime } from '../projectFormat';
 import ProjectListSplit from '../ProjectListSplit';
 import { Cover, DiffLevelBadge, StatusBadge } from './ProjectBits';
 
@@ -85,7 +85,10 @@ export function ProjectDetail({
           <Cover project={sel} size={96} />
           <div className="pc-detail__body">
             <h2 className={sel.name ? '' : 'pp-muted'}>{displayProjectName(sel)}</h2>
-            <p className="pp-muted">{sel.artist ?? t('projects.artistMissing')} · {sourceLabel(sel.source)}</p>
+            {/* 只留歌手（票 37）：曲目来源曾是「歌手 · BanG Dream #804」那半截，用户 2026-10-13
+                判它没价值 —— 「BanG Dream」谁都知道，而 `#804` 与下一行的音频名（`official-804-…`）
+                重复。字段本身保留（发布时要按它填 `song`，工程信息里可改），只是不再占副行。 */}
+            <p className="pp-muted">{sel.artist ?? t('projects.artistMissing')}</p>
             <p className="pp-muted">
               <Music2 size={12} /> {sel.audioName ?? t('projects.noAudio')} · {formatDuration(sel.durationSeconds)}
               {locked && (

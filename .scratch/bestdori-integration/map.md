@@ -44,8 +44,10 @@
 - 31 官方歌曲列表排序（feature，**open**，2026-10-13 开票并定案）：现状无排序、`publishedAt` 没进 `SongCandidate`；**定了**：四键 发布时间（默认降序，最新在前）/ 谱面 ID / 曲名 / 乐队名；难度等级不进排序；publishedAt 取最早（日服）。
 - 32 社区谱面 ID：展示、搜索与持久化（grilling，**open**，2026-10-13 开票）：ID 已存在（postId）；**定了**：纯数字 → 并发 `search` + `details?id=` 直查、置顶 + postId 去重、404 静默；postId 常驻展示（列表行 + 预览栏）；**持久化定了（2026-10-13 三轮）：不落盘**——无消费场景 + 二次发布会过期，官方 songId 现状不扩面。
 - 33 官方谱面 ID：展示与搜索（grilling，**open**，2026-10-13 开票）：songId 已持久化；**定了**：纯数字时客户端 songId 匹配、命中置顶（零网络）；songId 常驻展示（列表行 + 预览栏）；谱面级 songId+diff 引用默认不做；来源数据不新增落盘。
-- 34 社区导入工程名/歌手留空口径重议（grilling，**resolved 2026-10-13**）：**推翻票 09 Q2「全留空」**——bandori 帖预填官方曲名+乐队名、custom 帖预填原帖标题+自报歌手，防回潮锁测反转；顺带 `projects.artistMissing`「未填歌手→未知歌手」。**已落地**：`communityImport.ts` 按帖型分支预填（空串归一 null）、i18n 两份字典同键改值；锁测反转为三条预填断言 + DOM 端到端改写。
+- 34 社区导入工程名/歌手留空口径重议（grilling，**resolved 2026-10-13**）：**推翻票 09 Q2「全留空」**——bandori 帖预填官方曲名+乐队名、custom 帖预填原帖标题+自报歌手，防回潮锁测反转；顺带 `projects.artistMissing`「未填歌手→未知歌手」。**已落地**：`communityImport.ts` 按帖型分支预填（空串归一 null）、i18n 两份字典同键改值；锁测反转为三条预填断言 + DOM 端到端改写。→ **票 36 修订**：bandori 帖工程名改为取帖标题（不再顶官方曲名）。
 - 35 导入音频命名规则统一（grilling，**resolved 2026-10-13**）：**定了** = 来源前缀+ID+曲名：`official-<songId>-<曲名>.mp3` / `community-<postId>-<曲名>.mp3`，只对新导入生效；封面同步同规则为待验收口径。**已落地**：新模块 `src/community/bestdori/assetNames.ts`（清洗一处做：非法字符/控制字符换 `_`、首尾空格与点、截断 60 不劈代理对、缺省退 id），songs/posts 的四个命名函数委托它，封面两支按一致性先做（待验收可砍）；手动换音频与已落盘工程不动。
+- 36 社区导入工程名改帖标题（grilling，**resolved 2026-10-13**）：**修订票 34 定案第 1 条** —— 上一轮把 bandori 帖的工程名定成官方曲名，用户判「社区谱一般自己起名，哪怕是官方曲（如 [官方曲名]-加强版）」，且同曲多谱会撞名。**定了 = 社区导入工程名一律取原帖标题**（bandori 与 custom 同一口径；bandori 帖标题缺省退回官方曲名），歌手口径不变（bandori 官方乐队名 / custom 自报歌手）。**已落地**：`communityImport.ts` 一个表达式 + 头注改口径；锁测 = bandori 用例改断言帖标题（`BLACK SHOUT 谱师版` ≠ 官方曲名 `BLACK SHOUT`）+ 新增标题缺省退官方曲名用例。
+- 37 详情页副行删掉曲目来源（feature，**resolved 2026-10-13**）：用户判「BanG Dream #804」冗余——站点名是废话、`#804` 与下一行音频名（票 35 起自带曲库 id）重复。**修法 = 副行只留歌手**；`sourceLabel()` 与 i18n 三键 `projects.sourceLabel.*` 一并退役（**`曲目来源` 字段本身保留**：发布填 `song`、工程信息可改、换音频回 custom）。锁测 = `ProjectDetailHeadLayout.test.ts` 新增静态断言三条（含「弹窗 sourceCustom/Bandori/Llsif 不许误删」）。
 
 
 ## Fog

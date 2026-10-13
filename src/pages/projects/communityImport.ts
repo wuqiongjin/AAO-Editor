@@ -8,9 +8,9 @@
  *      并且**连详情都不请求**；
  *   2. **曲目按帖子 `song.type`**：bandori 帖走官方素材那条路（曲库候选 + 歌曲元数据 +
  *      官方音频 / 封面，见 songs.ts），custom 帖按帖内 URL 下载音频与封面、曲目来源记 custom；
- *   3. **工程名称 / 歌手预填**（票 34，2026-10-13 推翻票 09 的「全留空」）：bandori 帖 = 官方曲名 +
- *      官方乐队名（与官方导入同口径），custom 帖 = 原帖标题 + 帖子自报歌手；谱师署名仍只在导入
- *      会话里展示，不落进工程；
+ *   3. **工程名称 / 歌手预填**（票 34 预填、票 36 修订名称口径）：工程名一律取**原帖标题**
+ *      （bandori 帖标题缺省时退回官方曲名），歌手 = bandori 帖官方乐队名 / custom 帖帖子自报歌手；
+ *      谱师署名仍只在导入会话里展示，不落进工程；
  *   4. **等级跟着帖子走，但只在带谱面时**：不导谱面还预填等级 = 给一张空谱挂个属于别人作品的等级。
  *
  * 落盘走 `store.save(project, staged)`：素材缓存路径交给主进程拷进工程目录，字节不过 IPC。
@@ -143,15 +143,16 @@ export async function importCommunityPost(
     chartCodeText = detail.chartCodeText;
   }
 
-  // 工程名称 / 歌手预填（票 34，2026-10-13 推翻票 09 的「全留空」）：bandori 帖取官方曲名 +
-  // 官方乐队名（与官方导入同口径），custom 帖取原帖标题 + 帖子自报歌手；空串由
-  // createOfficialProject 归一成 null。谱师署名仍只在导入会话里展示，不落盘。
+  // 工程名称 / 歌手预填（票 34 预填、票 36 修订名称口径）：**工程名 = 帖标题**（谱师对这只谱的
+  // 命名，bandori 与 custom 两支一样 —— 官方曲的社区谱一般也会自己起名，如「BLACK SHOUT 谱师版」）；
+  // bandori 帖标题缺省时退回官方曲名（空名不如歌名有用）。歌手 = bandori 帖官方乐队名 / custom 帖
+  // 帖子自报歌手。空串由 createOfficialProject 归一成 null。谱师署名仍只在导入会话里展示，不落盘。
   // 带谱面时难度等级跟帖子走。
   const built = createOfficialProject({
     id: ids.projectId,
     chartId: ids.chartId,
     now,
-    name: song && songDetail ? song.title : post.title,
+    name: post.title.trim() !== '' ? post.title : (song?.title ?? ''),
     artist: song && songDetail ? song.artist : post.artists,
     source: post.song.kind === 'bandori' ? { type: 'bandori', id: post.song.songId } : { type: 'custom' },
     durationSeconds: songDetail?.lengthSeconds ?? CUSTOM_DURATION_PLACEHOLDER_SECONDS,
