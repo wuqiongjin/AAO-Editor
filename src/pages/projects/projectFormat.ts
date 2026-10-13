@@ -1,5 +1,4 @@
-// 工程管理页的格式化 / 标签纯函数（原 ProjectsPage.tsx 顶部一组，随页拆解搬出）。
-import type { ChartProject, ProjectChart, SongSource } from '../../project/ChartProject';
+import type { ChartProject, ProjectChart } from '../../project/ChartProject';
 import { chartEffectiveTitle } from '../../project/projectCatalog';
 import { chartStatus } from '../../project/workspaceProject';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
@@ -30,12 +29,6 @@ export function statusLabel(chart: ProjectChart): string {
   return t(`projects.status.${chartStatus(chart)}` as 'projects.status.unfinished');
 }
 
-export function parseSource(type: string, idText: string): SongSource {
-  const id = Number(idText);
-  if (type === 'bandori' && Number.isFinite(id)) return { type: 'bandori', id };
-  if (type === 'llsif' && Number.isFinite(id)) return { type: 'llsif', id };
-  return { type: 'custom' };
-}
 
 /** 删除工程的后果行（标题负责问，这里只说会连带删掉什么）。 */
 export function deleteProjectNotice(p: ChartProject): string {

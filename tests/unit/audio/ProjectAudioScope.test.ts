@@ -254,7 +254,7 @@ describe('票 08 · 换音频即改归属（Q12）', () => {
     expect(disk.get('pBandori')!.audioName).toBe('我换的.mp3');
   });
 
-  it('清除音频不动归属：这一刀只切「换音频」，改回官方的出路仍在编辑工程信息里', async () => {
+  it('清除音频变更为自定义曲目：本地没有原版音频，归属不能继续冒充官方曲（chart-projects 票 30 定案）', async () => {
     const { store, disk } = memoryStore([
       project('pBandori', {
         source: { type: 'bandori', id: 29 },
@@ -265,7 +265,7 @@ describe('票 08 · 换音频即改归属（Q12）', () => {
 
     await clearProjectAudio({ store, currentProjectId: null, notifyCatalogChanged: () => {} }, 'pBandori');
 
-    expect(disk.get('pBandori')!.source).toEqual({ type: 'bandori', id: 29 });
+    expect(disk.get('pBandori')!.source).toEqual({ type: 'custom' });
     expect(disk.get('pBandori')!.audioName).toBeNull();
   });
 });

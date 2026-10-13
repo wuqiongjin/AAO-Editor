@@ -327,6 +327,10 @@ export default function ProjectsPage() {
             void mutate(editing.id, (p) => updateProjectInfo(p, patch));
             setEditing(null);
           }}
+          onOpenAudio={() => {
+            setActivePage('audio', { scope: { projectId: editing.id } });
+            setEditing(null);
+          }}
         />
       )}
       {askDelete && (

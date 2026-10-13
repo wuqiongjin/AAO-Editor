@@ -23,8 +23,7 @@ export type ChartDifficulty = 0 | 1 | 2 | 3 | 4;
 
 export type SongSource =
   | { type: 'custom' }
-  | { type: 'bandori'; id: number }
-  | { type: 'llsif'; id: number };
+  | { type: 'bandori'; id: number };
 
 export interface ChartUploadRecord {
   postId: number;

@@ -101,7 +101,14 @@ const RECORD_FIELDS = {
     write: (src: RecordFields): string | null => src.artist,
   },
   source: {
-    read: (raw: unknown): SongSource => (raw as SongSource | undefined) ?? { type: 'custom' },
+    read: (raw: unknown): SongSource => {
+      const src = raw as SongSource | undefined;
+      if (!src || typeof src !== 'object') return { type: 'custom' };
+      if (src.type === 'bandori' && typeof (src as { id: unknown }).id === 'number') {
+        return { type: 'bandori', id: (src as { id: number }).id };
+      }
+      return { type: 'custom' };
+    },
     write: (src: RecordFields): SongSource => src.source,
   },
   // 两个数值字段不做兜底：读闸门已把它们当必填（畸形记录过不了闸门，与改前逐条一致）。

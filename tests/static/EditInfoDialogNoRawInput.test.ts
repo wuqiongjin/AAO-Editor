@@ -32,3 +32,26 @@ describe('chart-projects 12: 编辑工程信息封面字段改为自绘上传区
     expect(PAGE).toMatch(/clearCover:/);
   });
 });
+
+describe('chart-projects 30: 编辑工程信息曲目归属改只读与LLSIF下线', () => {
+  it('EditInfoDialog 中彻底移除了曲目来源选择框与手输 ID 控件', () => {
+    const editInfoDialogCode = PAGE.match(/export function EditInfoDialog[\s\S]*?^}/m)?.[0] ?? '';
+    expect(editInfoDialogCode).toBeTruthy();
+    expect(editInfoDialogCode).not.toMatch(/<select\b/);
+    expect(editInfoDialogCode).not.toMatch(/sourceId/);
+    expect(editInfoDialogCode).not.toMatch(/inputMode="numeric"/);
+  });
+
+  it('展示只读胶囊徽标 dialog-source-pill 并移除 parseSource 引用', () => {
+    expect(PAGE).not.toMatch(/parseSource/);
+    expect(PAGE).toMatch(/dialog-source-pill/);
+    expect(PAGE).toMatch(/dialog-field__help-btn/);
+    expect(PAGE).toMatch(/projects\.sourceBadgeBandori/);
+    expect(PAGE).toMatch(/projects\.sourceBadgeCustom/);
+  });
+
+  it('当帮助气泡展开时按 Esc 先收起气泡（通过 handleDialogClose 守卫）', () => {
+    expect(PAGE).toMatch(/handleDialogClose/);
+    expect(PAGE).toMatch(/showSourceHelpRef/);
+  });
+});

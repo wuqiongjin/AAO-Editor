@@ -217,14 +217,17 @@ describe('票 37 · 详情页副行不再显示曲目来源', () => {
     expect(format).not.toMatch(/export function sourceLabel/);
   });
 
-  it('三枚 sourceLabel.* 文案键已清掉，弹窗那组照旧还在', () => {
+  it('三枚 sourceLabel.* 文案键已清掉，chart-projects 票 30 下线 sourceLlsif 并改用只读徽标文案', () => {
     for (const file of FILES) {
       const messages = JSON.parse(readSource(file)) as Record<string, string>;
       expect(Object.keys(messages).filter((k) => k.startsWith('projects.sourceLabel.')), file).toEqual([]);
-      // 误删这组 = 工程信息里选不了曲目来源
-      expect(messages['projects.sourceCustom'], file).toBeTruthy();
-      expect(messages['projects.sourceBandori'], file).toBeTruthy();
-      expect(messages['projects.sourceLlsif'], file).toBeTruthy();
+      // chart-projects 票 30：LLSIF 彻底下线，不再保留 sourceLlsif 键
+      expect(messages['projects.sourceLlsif'], file).toBeUndefined();
+      // chart-projects 票 30：工程信息只读徽标与提示文案必须就绪
+      expect(messages['projects.sourceBadgeCustom'], file).toBeTruthy();
+      expect(messages['projects.sourceBadgeBandori'], file).toBeTruthy();
+      expect(messages['projects.sourceCustomHint'], file).toBeTruthy();
+      expect(messages['projects.sourceBandoriHint'], file).toBeTruthy();
     }
   });
 });

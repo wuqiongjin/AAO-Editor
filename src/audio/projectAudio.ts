@@ -9,7 +9,7 @@
 //
 // 另一条 08 补的语义：**换音频即改归属**（Q12）——导入 / 更换时 `曲目来源` 置 `custom`，
 // 见 importProjectAudio 的注解。
-import type { ChartDifficulty, ChartProject, ChartProjectStore } from '../project/ChartProject';
+import type { ChartDifficulty, ChartProject, ChartProjectStore, SongSource } from '../project/ChartProject';
 import { mutateProject } from '../project/ChartProjectRecord';
 import { isProjectAudioLocked } from '../project/workspaceProject';
 import { clampChartDuration } from './chartDuration';
@@ -35,6 +35,7 @@ export interface ProjectAudioView {
   durationSeconds: number;
   locked: boolean;
   lockedBy: ProjectAudioLockSource[];
+  source?: SongSource;
 }
 
 export type ProjectAudioWriteResult =
@@ -77,6 +78,7 @@ export async function readProjectAudio(
     durationSeconds: project.durationSeconds,
     locked: isProjectAudioLocked(project),
     lockedBy: lockSourcesOf(project),
+    source: project.source,
   };
 }
 
@@ -170,14 +172,18 @@ export async function importProjectAudio(
   });
 }
 
-/** 清除音频：时长保留当前值（与 session.clearAudio 同口径——时长是独立字段，不跟着归零） */
+/** 清除音频：时长保留当前值（与 session.clearAudio 同口径——时长是独立字段，不跟着归零）；曲目来源变更为自定义 */
 export async function clearProjectAudio(
   deps: ProjectAudioDeps,
   projectId: string,
 ): Promise<ProjectAudioWriteResult> {
   return mutateWritable(deps, projectId, (project) => {
     if (project.audioName == null && project.audioBlob == null) return { outcome: 'skip' };
-    const next: ChartProject = { ...project, audioName: null };
+    const next: ChartProject = {
+      ...project,
+      audioName: null,
+      source: { type: 'custom' },
+    };
     delete next.audioBlob;
     return { outcome: 'write', next };
   });
