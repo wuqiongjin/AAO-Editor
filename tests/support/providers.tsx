@@ -11,12 +11,21 @@ import { useMemo, type ReactElement, type ReactNode } from 'react';
 import { render, type RenderOptions, type RenderResult } from '@testing-library/react';
 import { AudioSession, createAudioSession } from '@/src/audio/AudioSession';
 import type { AudioEngine } from '@/src/audio/AudioEngine';
-import { ChartProjectStore, type ChartProject, type ChartProjectBackend } from '@/src/project/ChartProject';
+import { ChartProjectStore, type ChartProject, type ChartProjectBackend, type ProjectBinarySources } from '@/src/project/ChartProject';
 import { CurrentProjectProvider } from '@/src/app/providers/CurrentProjectProvider';
 import { AudioSessionProvider } from '@/src/app/providers/AudioSessionProvider';
 
-/** 内存版工程后端：读写都落在 Map 上，不落盘、不碰 IndexedDB。 */
-export type MemoryProjectBackend = ChartProjectBackend & { disk: Map<string, ChartProject> };
+/**
+ * 内存版工程后端：读写都落在 Map 上，不落盘、不碰 IndexedDB。
+ * `staged` 记下「这份素材来自下载暂存」（真实后端由主进程把暂存文件拷进工程目录，内存替身没有 fs，
+ * 只把声明留下来给断言用；工程记录侧的 `audioName` / `coverName` 照常写）。
+ */
+export type MemoryProjectBackend = ChartProjectBackend & {
+  disk: Map<string, ChartProject>;
+  staged: Map<string, ProjectBinarySources>;
+  /** `deferList` 模式下放行 list()（issue 29）；未开该选项时是空操作。 */
+  releaseList: () => void;
+};
 
 /**
  * `cloneBlobsOnRead`：每次读回都新建 Blob 对象，近似 IndexedDB `getAll()` 反序列化 /
@@ -25,7 +34,7 @@ export type MemoryProjectBackend = ChartProjectBackend & { disk: Map<string, Cha
  */
 export function makeMemoryProjectBackend(
   projects: ChartProject[] = [],
-  opts: { cloneBlobsOnRead?: boolean } = {},
+  opts: { cloneBlobsOnRead?: boolean; deferList?: boolean } = {},
 ): MemoryProjectBackend {
   const disk = new Map<string, ChartProject>(projects.map((p) => [p.id, p]));
   const read = (p: ChartProject | undefined): ChartProject | null => {
@@ -37,13 +46,32 @@ export function makeMemoryProjectBackend(
       ...(p.coverBlob ? { coverBlob: new Blob([p.coverBlob], { type: p.coverBlob.type }) } : {}),
     };
   };
+  const staged = new Map<string, ProjectBinarySources>();
+  /**
+   * `deferList`（issue 29）：list() 全部挂在手动闸门上，`releaseList()` 才放行 ——
+   * 测试才能停在"目录还没读回来"那一帧，验"未就绪 ≠ 0 工程"。默认开闸（现有用例不受影响）。
+   */
+  let gateOpen = !opts.deferList;
+  let openGate: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    openGate = () => {
+      gateOpen = true;
+      resolve();
+    };
+  });
   return {
     disk,
+    staged,
+    releaseList: () => openGate(),
     get: async (id) => read(disk.get(id)),
-    save: async (project) => {
+    save: async (project, sources = {}) => {
       disk.set(project.id, project);
+      if (sources.audioStagedPath || sources.coverStagedPath) staged.set(project.id, sources);
     },
-    list: async () => [...disk.values()].map((p) => read(p)!),
+    list: async () => {
+      if (!gateOpen) await gate;
+      return [...disk.values()].map((p) => read(p)!);
+    },
     delete: async (id) => {
       disk.delete(id);
     },

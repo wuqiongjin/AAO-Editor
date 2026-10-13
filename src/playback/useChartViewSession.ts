@@ -44,6 +44,8 @@ export interface UseChartViewSessionOptions {
   engine: AudioEngine | null;
   /** 渲染面测量实时门控（面板过渡 / 拖拽改宽期间逐帧提交，见 useSurfaceSize） */
   live?: () => boolean;
+  /** 页面激活态（issue 169：切回工作台前台时同步尺寸） */
+  active?: boolean;
   /** 播放头秒数写回（约 12.5Hz；工作台写 PlaybackContext） */
   onSecondsChange: (sec: number) => void;
   /** 播放状态写回 */
@@ -78,14 +80,14 @@ export interface ChartViewSession extends UsePlaybackCoordinatorReturn {
 export function useChartViewSession(opts: UseChartViewSessionOptions): ChartViewSession {
   const {
     containerRef, canvasRef, notes, chartDuration, verticalRatio, scale, engine,
-    live, onSecondsChange, onPlayingChange, onChartDurationChange,
+    live, active, onSecondsChange, onPlayingChange, onChartDurationChange,
   } = opts;
 
   // === 流 1：渲染面测量（候选 2 拆出，issue 36 / 38 不变量保留） ===
   // 实时门控由消费方注入（工作台：展开/收起侧栏的 200ms width 过渡或拖拽改宽面板期间，
   // 令测量逐帧提交，使画布缓冲始终贴合容器实时宽度 —— 否则合并器在过渡后半段冻结提交，
   // 缓冲被 CSS 拉伸，轨道出现"瞬间偏宽再回弹"；同一根因也影响拖拽）。
-  const surface = useSurfaceSize(containerRef, { live });
+  const surface = useSurfaceSize(containerRef, { live, active });
 
   // === 流 2：布局轴几何唯一生命周期（issue 134：画布 + 滚动模型 bind 同一引用） ===
   const { geometry, chartEndKey } = useChartSpace({

@@ -4,7 +4,7 @@
 // 选中态以 .pb-grid 圈定 + is-selected class 锁结构（同 issue 09 的节点归属断言口径）。
 // 列数实测（offsetTop）与自动滚入视口是布局行为，jsdom 无布局引擎 → 人工门票（见票）。
 import '@testing-library/jest-dom/vitest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
@@ -15,8 +15,16 @@ import {
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
 import { seedZhSettings } from '@/tests/support/storage';
 
+const scrollIntoViewMock = vi.fn();
+
 beforeEach(() => {
   seedZhSettings();
+  scrollIntoViewMock.mockClear();
+  Element.prototype.scrollIntoView = scrollIntoViewMock;
+});
+
+afterEach(() => {
+  delete (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView;
 });
 
 const AT = 1_700_000_000_000;
@@ -149,3 +157,20 @@ describe('issue 14 · 工程卡片网格方向键导航与横幅跟随', () => {
     expect(cardOf('最近工程')).toHaveClass('is-selected');
   });
 });
+
+describe('issue 27 · 首次挂载不触发 scrollIntoView，仅键盘导航位移时触发', () => {
+  it('挂载后未按方向键不发生滚动（调用次数 0）', async () => {
+    await renderAndSelectFirst();
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+  });
+
+  it('方向键移动到新卡片时触发该卡片的 scrollIntoView', async () => {
+    await renderAndSelectFirst();
+    scrollIntoViewMock.mockClear();
+    pressKey('ArrowRight');
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+    expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    expect(scrollIntoViewMock.mock.contexts[0]).toBe(cardOf('已完成工程'));
+  });
+});
+

@@ -165,6 +165,7 @@
 - **166 冷启动打开工作台视口停在非开头位置**（[166](./issues/166-冷启动打开工作台视口停在非开头位置.md)，`Type: bug`，claimed，第一步已实现待验收）—— **改成什么** = 打开/恢复谱面显式归零到 beat 0（置底发生在工程恢复之前 + 置底未登记回声 + 锚点被旧 scrollY 污染）。
 - **167 首个音符抵线卡顿**（[167](./issues/167-首个音符抵线卡顿.md)，`Type: bug`，resolved）—— **改成什么** = 静止期主动靶向预热全谱首个实体非空瓦片（提前消化图集 mip 链），播放期瓦片补建链 16ms 节流防连环宏任务打穿帧预算。
 - **168 工作台播放条支持双击时间输入秒数跳转**（[168](./issues/168-工作台播放条支持双击时间输入秒数跳转.md)，`Type: bug`，resolved）—— **改成什么** = WorkspacePage 移除 `canEditTime={!canPlay}` 限制，改为无条件允许双击时间码编辑跳转，行为与动态预览对齐。已实现。
+- **169 窗口最大化或切工程后画布与容器脱节留黑边**（[169](./issues/169-窗口最大化或切工程后画布与容器脱节留黑边.md)，`Type: bug`，resolved）—— **改成什么** = 增强 `useSurfaceSize` 具备 DOM 节点更替自愈重绑、前台激活校准与 `window.resize` 兜底测量；`ChartCodeEditorProvider` 接入 props 重置。*（原编号 166，与上面 main 侧 2026-10-11 开票的 166 撞号，合入 main 时改号。）*
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

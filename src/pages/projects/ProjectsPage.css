@@ -116,6 +116,16 @@
 /* 引导横幅（issue 09）：占 hero 位；120px 图块对齐封面尺寸，保证与有工程时等高不塌陷 */
 .pb-hero--guide { min-height: 168px; }
 .pb-guide-art { flex-shrink: 0; display: grid; place-items: center; width: 120px; height: 120px; border-radius: var(--radius-md); background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--bg))); color: #fff; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+/* 目录未就绪占位（issue 29）：高度与最终内容对齐（hero 168px / 卡片封面 1:1），到位后原地替换、零跳位。
+   微光由 LoadingShimmer 渲染（.loading-shimmer，ui.css），且只在"真的慢"时出现（SLOW_LOADING_MS）。 */
+.pb-hero--pending { min-height: 168px; background: var(--bg-elevated); }
+.pb-pending-cover { position: relative; flex-shrink: 0; width: 120px; height: 120px; border-radius: var(--radius-md); background: var(--bg-elevated); overflow: hidden; }
+.pb-pending-cover--card { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+.pb-pending-line { position: relative; display: block; width: 60%; height: 12px; border-radius: var(--radius-sm); background: var(--bg-elevated); overflow: hidden; }
+.pb-pending-line--title { width: 40%; height: 20px; }
+/* 占位块坐在 hero 的实底上 → 用页面底色区分，不然两块同色看不见 */
+.pb-hero--pending .pb-pending-cover,
+.pb-hero--pending .pb-pending-line { background: var(--bg); }
 .pb-h { margin: 0 0 12px; font-size: var(--text-sm); font-weight: 600; }
 /* 「全部工程」标题行（issue 19 #4）：标题 + 右侧排序选择 */
 .pb-h-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -127,7 +137,8 @@
 .pb-tile svg { color: var(--accent); }
 .pb-tile small { color: var(--text-muted); font-size: var(--text-xs); }
 .pb-tile:hover:not(:disabled) { border-color: var(--accent); box-shadow: var(--shadow-sm); }
-.pb-tile:disabled { opacity: .55; cursor: not-allowed; }
+.pb-tile:disabled { opacity: .55; cursor: not-allowed; color: var(--text-subtle); }
+.pb-tile:disabled svg { color: var(--accent-disabled); }
 /* 流式轨道（issue 19 #5）：固定 172px 轨道会把一行凑不满的余量全留在右侧；
    minmax 让每列平分余量、末列贴右缘，封面走 .pp-cover--fluid 等比例放大。 */
 .pb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 20px 18px; }
@@ -273,3 +284,448 @@
 .pc-uploads li { display: flex; align-items: center; gap: 8px; }
 .pc-uploads a { color: var(--accent-text); }
 .pp-pill__diff { display: inline-grid; place-items: center; min-width: 22px; height: 16px; padding: 0 4px; border-radius: var(--radius-full); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+
+/* ---- 官方曲导入面板（票 08 / 13）：预览在左、目录吃满剩余高度 ---- */
+.off-panel { display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1; }
+.off-bar { display: flex; align-items: center; gap: 8px; }
+.off-search {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+.off-search:focus { outline: none; border-color: var(--accent); }
+/* 排序（票 31）：状态 pill（当前键 + 方向箭头），点开在 bar 下方出一排芯片。
+   与左侧「筛选」同形 —— 原生 <select> 的 OS 弹层跟这排 pill 不是一套语言（验收已否掉）。 */
+.off-sort-wrap { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.off-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.off-sort-btn.is-on { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
+.off-count { font-size: var(--text-xs); white-space: nowrap; }
+/* 主动刷新（票 09）：与搜索框同高的图标钮；拉取中转一圈（keyframes 见 .off-cover__spin） */
+.off-refresh {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.off-refresh:hover:not(:disabled) { color: var(--text); background: var(--bg-active); }
+.off-refresh:disabled { opacity: .6; cursor: default; }
+.off-refresh.is-busy svg { animation: off-spin .8s linear infinite; }
+.off-filter-wrap { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.off-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  max-width: 200px;
+}
+.off-filter-btn.is-on, .off-filter-btn.is-set {
+  border-color: var(--accent);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+.off-filter-x {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.off-filter-x:hover { color: var(--text); background: var(--bg-active); }
+.off-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.off-filters label { display: inline-flex; align-items: center; gap: 6px; }
+.off-filters select, .off-filters input[type='number'] {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+.off-filters input[type='number'] { width: 52px; }
+.off-filters__diffs { display: inline-flex; gap: 4px; }
+/* 选曲面板的小芯片：难度筛选 / 排序键 / 排序方向共用这一枚语言（`--chip` 给难度上色） */
+.off-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.off-chip.is-on {
+  border-color: var(--chip, var(--accent));
+  background: color-mix(in srgb, var(--chip, var(--accent)) 16%, var(--bg-elevated));
+  color: var(--text);
+  font-weight: 600;
+}
+/* 排序那一排：与 .off-filters 同形、同位置（都贴在 bar 下面），两排不会同时摊开 */
+.off-sorts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.off-sorts__group { display: inline-flex; align-items: center; gap: 4px; }
+.off-filters__clear {
+  height: 26px;
+  padding: 0 10px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.off-status { margin: 0; color: var(--text-muted); font-size: var(--text-sm); }
+.off-status--busy { display: flex; align-items: center; gap: 8px; color: var(--accent-text); }
+.off-spinner {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: off-spin .8s linear infinite;
+}
+@keyframes off-spin { to { transform: rotate(360deg); } }
+.off-split {
+  /* 票 21：预览栏的最终宽度只写一处 —— 首列轨道与「钉宽的内层」共用。
+     票 23：240 → 300px（五档芯片勾选态最坏 274.7px，300 余量 25px；两态都收进一行） */
+  --off-preview-w: 300px;
+  display: grid;
+  grid-template-columns: var(--off-preview-w) minmax(0, 1fr);
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+  transition: grid-template-columns 180ms ease, gap 180ms ease;
+}
+/* 收起 = 首列归零（保持两轨，grid-template-columns 才插值得到） */
+.off-split.is-collapsed { grid-template-columns: 0 minmax(0, 1fr); gap: 0; }
+.off-split > * { min-width: 0; min-height: 0; }
+.off-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.off-list li + li { border-top: 1px solid var(--border); }
+.off-row {
+  content-visibility: auto;
+  /* 行高提示 = 缩略图 48 + 上下内边距 8×2（票 15：带缩略图后行高从 52 涨到 64） */
+  contain-intrinsic-size: auto 64px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.off-row:hover { background-color: var(--bg-inset); }
+.off-row.is-active { background-color: var(--bg-inset); box-shadow: inset 2px 0 0 var(--accent); }
+/* 行内封面缩略图（票 15 定案 B：48px 方形、圆角 8px）。
+   边长写在这里，主进程产出的缩略图是它的 2 倍（96×96，高分屏不发虚）——
+   两边互锁见 tests/platform/electron/AssetThumbnails.test.ts */
+.off-row__thumb {
+  --off-thumb-size: 48px;
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: var(--off-thumb-size);
+  height: var(--off-thumb-size);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  color: var(--text-subtle);
+  overflow: hidden;
+}
+/* 没有素材的曲子：虚线框 + 音符图标（与「取数失败」的实底图标分开） */
+.off-row__thumb.is-empty { border: 1px dashed var(--border-strong); }
+.off-row__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.off-row__thumb img.is-in { opacity: 1; }
+/* 加载占位微光（票 24）：改由 src/ui/LoadingShimmer 组件渲染（.loading-shimmer，ui.css） */
+.off-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.off-row__title { font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
+.off-row__artist { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.35; }
+.off-row__levels { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; flex: 0 1 auto; max-width: 46%; }
+.off-row__levels span {
+  padding: 0 5px;
+  border: 1px solid;
+  border-radius: var(--radius-full);
+  font-size: var(--text-2xs);
+  font-style: normal;
+  color: var(--text-muted);
+}
+/* 行内发布时间（票 09 反馈 #3）：右列、与难度芯片并排的**纯小字**（不进 .off-row__levels ——
+   那条规则会给里面每个 span 套上边框，日期会被画成第二枚徽章） */
+.off-row__date {
+  flex: 0 0 auto;
+  font-size: var(--text-2xs);
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 行内 ID（票 32 帖 id / 票 33 曲库 id）：与日期同一档的右列小字，同样不进 .off-row__levels */
+.off-row__id {
+  flex: 0 0 auto;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.off-preview {
+  /* 票 21 手风琴：这一层是**裁切窗口** —— 宽度就是首列轨道宽（跟着动画走），
+     `overflow: hidden` 在它自己的盒子边界裁切，所以内层溢出多少都压不到列表上 */
+  display: flex;
+  /* 主轴必须是纵向：`flex: 1` 作用在主轴上。若主轴是横向（默认 row），
+     内层的 `flex-basis: 0%` 会**覆盖它的 width**，宽度就跟着轨道一起长 → 内容重排（真机复现过） */
+  flex-direction: column;
+  /* 交叉轴不拉伸：内层横向保持自己钉的最终宽度 */
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  /* 收起动画跑完才真的藏起来：visibility 不能插值，只能靠延迟切换。
+     跑完前内容跟着窗口一起被裁掉（滑走），跑完后才从无障碍树与 Tab 序里消失 */
+  visibility: visible;
+  transition: visibility 0s linear 0s;
+}
+.off-preview.is-collapsed { visibility: hidden; transition: visibility 0s linear 180ms; }
+/* 内层钉住最终宽度：轨道 0 → 240px 期间内容纹丝不动，展开是「揭开」而不是「挤出来」 */
+.off-preview__inner {
+  flex: 1; /* 纵向撑满（主轴 = 纵向，不会动到宽度） */
+  width: var(--off-preview-w);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* 票 25 + 24：detail 未到位的骨架态收窄为试听条槽位（32px 定高，等高占位 —— 到位后原地替换、
+   零布局变化），同时它是「detail 拉取中」的唯一加载信号（同步开关不再禁用闪断）；
+   微光改由 src/ui/LoadingShimmer 渲染（.loading-shimmer，ui.css） */
+.off-compact-audio.is-skeleton {
+  position: relative;
+  overflow: hidden;
+  justify-content: center;
+}
+/* 票 23：整摞（封面 / 标题 / 歌手 / 芯片 / 同步开关 / 试听条）随封面居中 */
+.off-preview__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.off-cover {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  /* 票 23：居中并放大到 180px（栏宽 300 下左右 gap 相等） */
+  align-self: center;
+  max-width: 180px;
+  flex: 0 0 auto;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-inset);
+  color: var(--text-subtle);
+  overflow: hidden;
+}
+/* 票 24：封面加载中 = LoadingShimmer 微光 + 居中 spinner（18px；复用 off-spin 关键帧）。
+   spinner 与微光层平级、各自绝对定位居中（inset:0 + margin:auto）——
+   不做微光层的子元素：微光整层 translateX 扫光会把子元素带着横向漂移（原型实测） */
+.off-cover__spin {
+  position: absolute;
+  inset: 0;
+  width: 18px;
+  height: 18px;
+  margin: auto;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: off-spin .8s linear infinite;
+}
+/* 票 24：封面加载失败态 —— 与「加载中 / 无封面裸图标」三态可区分，整块可点重试。
+   重试只许在 onError（请求终态）后触发：同 URL 重挂「飞行中」的 img 会永久挂死（ADR-0020 §3） */
+.off-cover__retry {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-subtle);
+  background: var(--bg-inset);
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.off-cover__retry:hover { color: var(--text); background: var(--bg-hover); }
+.off-cover__retry-text {
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  text-align: center;
+}
+.off-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.off-cover img.is-in { opacity: 1; }
+.off-preview__title { font-size: var(--text-sm); overflow-wrap: anywhere; text-align: center; }
+/* 票 23：歌手行随封面整摞居中 */
+.off-preview__artist { text-align: center; }
+/* 预览栏不再放 ID 行（验收回修）：列表行已经在说 ID（票 32/33），而列表就贴在预览栏左边 —— 重复 */
+
+.off-preview__levels { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.off-preview__levels button {
+  padding: 3px 8px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-full);
+  background: var(--chip);
+  color: var(--accent-btn-text);
+  font-size: 11px;
+  /* 票 23：✓（U+2713）不在 Geist Variable → 回退字体行盒高 1px，经 flex stretch 传染整行
+     把同步开关顶下 1px —— 钉死 line-height 后两态芯片恒 22px、dy=0（与 font-size: 11px 配套） */
+  line-height: 14px;
+  font-weight: 700;
+  font-style: normal;
+  cursor: default;
+}
+.off-preview__levels:not(.is-pick) button { pointer-events: none; }
+.off-preview__levels.is-pick button {
+  cursor: pointer;
+  background: color-mix(in srgb, var(--chip) 16%, var(--bg-elevated));
+  color: var(--chip);
+  border-color: var(--chip);
+}
+.off-preview__levels.is-pick button.is-picked {
+  background: var(--chip);
+  color: var(--accent-btn-text);
+  border-color: var(--accent-btn-text);
+  box-shadow: inset 0 0 0 1px var(--chip);
+}
+.off-sync {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.off-sync:disabled { opacity: .55; cursor: not-allowed; }
+.off-sync.is-on {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: var(--accent-soft);
+}
+.off-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  border-radius: 99px;
+  background: var(--bg-active);
+  transition: background-color 160ms ease;
+}
+.off-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-btn-text);
+  box-shadow: var(--shadow-sm);
+  transition: transform 160ms ease;
+}
+.off-switch.is-on { background: var(--accent); }
+.off-switch.is-on i { transform: translateX(16px); }
+/* 票 23：试听条移进 stack（同步开关之后、自然流最后一项），整摞居中下显式通栏。
+   只许 align-self: stretch，不许再写 width:100% —— 实测 width:100% 会把 padding+border
+   再加一遍（300 → 318，顶出横向滚动条；stretch 单独用正好 300） */
+.off-preview__stack .off-compact-audio { align-self: stretch; }
+@media (max-width: 820px) {
+  .off-split { grid-template-columns: minmax(0, 1fr); }
+  /* 单列下没有相邻列，不需要「钉宽 + 揭开」：内层跟着列宽走（票 23：跟着变量走，不再写死） */
+  .off-preview { max-width: var(--off-preview-w); }
+  .off-preview__inner { width: 100%; }
+}

@@ -121,6 +121,62 @@ describe('ElectronFileProjectBackend · 保存意图', () => {
   });
 });
 
+// 票 08：官方 / 社区导入的音频与封面先落下载暂存，由主进程从暂存拷进工程（字节不过 IPC）。
+// 这条接缝的坑在「暂存写完之后，手里没有 Blob」——再保存一次不能当清空处理。
+describe('ElectronFileProjectBackend · 暂存导入（票 08）', () => {
+  it('给了暂存路径就走 set + 只递路径，不带字节', async () => {
+    const t = makeMemoryProjectBridge();
+    const b = new ElectronFileProjectBackend(t.bridge);
+
+    await b.save(
+      makeProject({ audioName: 'bgm001.mp3', coverName: 'yes_bang_dream.png' }),
+      {
+        audioStagedPath: '/data/downloads/abc-bgm001.mp3',
+        coverStagedPath: '/data/downloads/abc-jacket.png',
+      },
+    );
+
+    const p = t.puts[0];
+    expect(p.doc.audioIntent).toBe('set');
+    expect(p.doc.coverIntent).toBe('set');
+    expect(p.audioStagedPath).toBe('/data/downloads/abc-bgm001.mp3');
+    expect(p.coverStagedPath).toBe('/data/downloads/abc-jacket.png');
+    expect(p.audio).toBeUndefined();
+    expect(p.cover).toBeUndefined();
+    expect(t.disk.get('pSong1')?.doc.audioPresent).toBe(true);
+  });
+
+  it('暂存写完之后再保存（手里没有 Blob）走 keep：不能把刚导入的音频抹掉', async () => {
+    const t = makeMemoryProjectBridge();
+    const b = new ElectronFileProjectBackend(t.bridge);
+    const proj = makeProject({ audioName: 'bgm001.mp3', coverName: 'j.png' });
+    await b.save(proj, {
+      audioStagedPath: '/data/downloads/a.mp3',
+      coverStagedPath: '/data/downloads/c.png',
+    });
+
+    await b.save({ ...proj, name: '改了工程名' });
+
+    const p = t.puts[1];
+    expect(p.doc.audioIntent).toBe('keep');
+    expect(p.doc.coverIntent).toBe('keep');
+    expect(t.disk.get('pSong1')?.doc.audioPresent).toBe(true);
+    expect(t.disk.get('pSong1')?.doc.audioName).toBe('bgm001.mp3');
+  });
+
+  it('读回一次（拿到真字节）之后：清空音频仍然照旧走 cleared', async () => {
+    const t = makeMemoryProjectBridge();
+    const b = new ElectronFileProjectBackend(t.bridge);
+    await b.save(makeProject({ audioName: 'a.wav', audioBlob: blobOf([1]) }));
+
+    const restored = await b.get('pSong1');
+    await b.save({ ...restored!, audioName: null, audioBlob: undefined } as ChartProject);
+
+    expect(t.puts[t.puts.length - 1].doc.audioIntent).toBe('cleared');
+    expect(t.disk.get('pSong1')?.doc.audioPresent).toBe(false);
+  });
+});
+
 describe('ElectronFileProjectBackend · 读取与多工程', () => {
   it('get 重建工程并缓存音频身份：紧随的保存命中 keep', async () => {
     const t = makeMemoryProjectBridge();
@@ -238,7 +294,12 @@ describe('安全与门面', () => {
     await store.get('pSong1');
     await store.list();
     await store.delete('pSong1');
-    expect(backend.save).toHaveBeenCalledWith(proj);
+    expect(backend.save).toHaveBeenCalledWith(proj, undefined);
+
+    // 暂存导入的来源声明原样透传给后端（票 08）
+    const staged = { audioStagedPath: '/data/downloads/a.mp3' };
+    await store.save(proj, staged);
+    expect(backend.save).toHaveBeenCalledWith(proj, staged);
     expect(backend.get).toHaveBeenCalledWith('pSong1');
     expect(backend.list).toHaveBeenCalled();
     expect(backend.delete).toHaveBeenCalledWith('pSong1');

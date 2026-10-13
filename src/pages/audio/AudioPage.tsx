@@ -4,11 +4,12 @@
 //
 // 写路径不直连 AudioSession（票 15 定案 8）：session 手里握着全站唯一那个共享 AudioEngine
 // （工作台解码后的那份），借它 load 别的工程会顶掉工作台那份。四个动作都走 projectAudio 接缝。
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, Clock3, FileAudio, FolderOpen, Lock, Music2, Play, SlidersHorizontal, Upload, Volume2 } from 'lucide-react';
 import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
 import ScopePicker from '../../ui/ScopePicker';
+import ConfirmDialog from '../../ui/ConfirmDialog';
 import { useAppNav } from '../../layouts/AppNav';
 import { useAudioSession } from '../../app/providers/AudioSessionProvider';
 import { MAX_DURATION_SECONDS, defaultSettings } from '../../chart/config/AppSettings';
@@ -82,6 +83,11 @@ function AudioSection({ active }: { active: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
   // 解码失败时留住那个文件，好让"重新选择"能直接重试同一份
   const [failed, setFailed] = useState<File | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  useEffect(() => {
+    setShowClearConfirm(false);
+  }, [scopeId]);
 
   // 选作用域 = 带作用域重新激活本页（票 22 定案 2）。选中的就是当前工程时写 null 而不是
   // { projectId: currentId }：语义上"没有显式作用域"，两者解析出的作用对象相同但更干净。
@@ -108,6 +114,28 @@ function AudioSection({ active }: { active: boolean }) {
       .then((result) => settle(result, file))
       .catch(() => settle({ ok: false, reason: 'decode' }, file));
   }, [deps, scopeId, settle]);
+
+  const executeClear = useCallback(() => {
+    if (scopeId == null) return;
+    void clearProjectAudio(deps, scopeId).then(settle);
+  }, [deps, scopeId, settle]);
+
+  const handleClear = useCallback(() => {
+    if (view?.locked || scopeId == null) return;
+    // 官方曲清除音频会转为自定义且本地无法再播放，需弹窗警示；自定义曲目则直接清除
+    if (view?.source?.type === 'bandori') {
+      setShowClearConfirm(true);
+      return;
+    }
+    executeClear();
+  }, [executeClear, scopeId, view?.locked, view?.source?.type]);
+
+  const handleConfirmClear = useCallback(() => {
+    setShowClearConfirm(false);
+    if (!view?.locked && scopeId != null) {
+      executeClear();
+    }
+  }, [executeClear, scopeId, view?.locked]);
 
   const changeDuration = (seconds: number) => {
     if (scopeId == null) return;
@@ -214,7 +242,7 @@ function AudioSection({ active }: { active: boolean }) {
               className="action-btn action-btn--danger"
               disabled={locked}
               title={locked ? t('audio.lockedPrompt') : t('audio.clearTitle')}
-              onClick={() => { if (!locked && scopeId != null) void clearProjectAudio(deps, scopeId).then(settle); }}
+              onClick={handleClear}
             >
               {t('audio.clear')}
             </button>
@@ -275,6 +303,16 @@ function AudioSection({ active }: { active: boolean }) {
             </div>
           </div>
         </div>
+      )}
+
+      {showClearConfirm && (
+        <ConfirmDialog
+          title={t('audio.clearOfficialConfirmTitle')}
+          message={t('audio.clearOfficialConfirmPrompt')}
+          confirmLabel={t('audio.clearOfficialConfirmAction')}
+          onConfirm={handleConfirmClear}
+          onCancel={() => setShowClearConfirm(false)}
+        />
       )}
     </>
   );

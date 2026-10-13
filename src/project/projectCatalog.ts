@@ -6,8 +6,10 @@ import {
   parseCodeText,
   type ValidationError,
 } from '../chart/editing/ChartConverter';
+import type { ChartNote } from '../chart/types';
 import type { ChartDifficulty, ChartProject, ProjectChart, SongSource } from './ChartProject';
 import { createUnnamedProject, emptyChartNotes } from './workspaceProject';
+import { clampChartDuration } from '../audio/chartDuration';
 import { t } from '../i18n';
 
 export const DIFF_NAMES = ['Easy', 'Normal', 'Hard', 'Expert', 'Special'] as const;
@@ -102,6 +104,39 @@ export function duplicateProject(
   };
 }
 
+/**
+ * Apply 闸门（ADR-0014）的产物：notes + 保真标记。空文本 = 一张空谱面（空白新建那条路）。
+ * 这是「谱面代码文本 → 能落进工程的谱面」的**唯一**入口：新增谱面、官方 / 社区导入都走它。
+ */
+export interface AppliedChartCode {
+  notes: ChartNote[];
+  appliedChartCodeText: string | null;
+  chartCodePristine: boolean;
+}
+
+export type ApplyChartCodeResult =
+  | ({ ok: true } & AppliedChartCode)
+  | { ok: false; errors: ValidationError[] };
+
+export function applyChartCodeText(codeText: string): ApplyChartCodeResult {
+  const trimmed = codeText.trim();
+  if (!trimmed) {
+    return { ok: true, notes: emptyChartNotes(), appliedChartCodeText: null, chartCodePristine: false };
+  }
+  // 一次解析同时给出 code 与全部错误（不再「先 parse 校验、再 parse 取数组」）
+  const parsed = parseCodeText(trimmed);
+  if (!parsed.ok) return { ok: false, errors: parsed.errors };
+  if (!hasBeat0Bpm(parsed.code)) {
+    return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.needBpm0') }] };
+  }
+  return {
+    ok: true,
+    notes: convertChartCodeToNotes(parsed.code),
+    appliedChartCodeText: trimmed,
+    chartCodePristine: true,
+  };
+}
+
 export type AddChartInput = {
   title: string | null;
   diff: ChartDifficulty;
@@ -118,36 +153,87 @@ export function addChartToProject(
   input: AddChartInput,
   ids: { chartId: string; now: number },
 ): AddChartResult {
-  const trimmed = input.codeText.trim();
-  let notes = emptyChartNotes();
-  let appliedChartCodeText: string | null = null;
-  let chartCodePristine = false;
-
-  if (trimmed) {
-    // 一次解析同时给出 code 与全部错误（不再「先 parse 校验、再 parse 取数组」）
-    const parsed = parseCodeText(trimmed);
-    if (!parsed.ok) return { ok: false, errors: parsed.errors };
-    if (!hasBeat0Bpm(parsed.code)) {
-      return { ok: false, errors: [{ noteIndex: -1, reason: t('chartCode.needBpm0') }] };
-    }
-    notes = convertChartCodeToNotes(parsed.code);
-    appliedChartCodeText = trimmed;
-    chartCodePristine = true;
-  }
+  const applied = applyChartCodeText(input.codeText);
+  if (!applied.ok) return { ok: false, errors: applied.errors };
 
   const chart: ProjectChart = {
     id: ids.chartId,
-    notes,
+    notes: applied.notes,
     title: input.title?.trim() || null,
     diff: input.diff,
     level: input.level,
     completed: false,
     upload: null,
     lastModified: ids.now,
-    appliedChartCodeText,
-    chartCodePristine,
+    appliedChartCodeText: applied.appliedChartCodeText,
+    chartCodePristine: applied.chartCodePristine,
   };
   return { ok: true, project: { ...project, charts: [...project.charts, chart] }, chart };
+}
+
+/**
+ * 「从官方谱面导入」建出来的工程（票 08）：工程名称 ← 曲库标题、歌手 ← 官方歌手（乐队名）、
+ * `曲目来源` ← 官方曲 id、一张谱面 —— **默认空 Expert**，勾了「带官方谱面内容」才把官方难度、
+ * 等级与官方谱面代码（同一条 Apply 闸门）一起带上。
+ *
+ * 音频与封面不在这里：它们是**二进制**，由 store 从素材缓存拷进工程（见 ChartProject 的
+ * `ProjectBinarySources`）——工程记录里只留 `audioName` / `coverName` 两个名字。
+ */
+export interface OfficialProjectInput {
+  id: string;
+  chartId: string;
+  now: number;
+  /** 曲库标题（工程名称；空串按未命名处理） */
+  name: string;
+  /** 官方歌手（乐队名）；乐队索引里查不到时给 null */
+  artist: string | null;
+  /** 曲目来源（官方曲 id）——发布时 `song` 怎么填的指针 */
+  source: SongSource;
+  /** 官方曲长（秒）：音频落地后由实际时长校正，先按官方数据起 */
+  durationSeconds: number;
+  /** 音频名（写进工程记录的显示名；二进制本身走素材缓存，见 ChartProject 的 ProjectBinarySources） */
+  audioName: string;
+  /** 封面名；这首曲子没有封面时给 null */
+  coverName: string | null;
+  /** 这张谱面的难度：不勾「带官方谱面」时就是 Expert（3） */
+  diff: ChartDifficulty;
+  /** 等级：只有勾了「带官方谱面」才给（等级是作品属性，人还没作谱，不预填） */
+  level: number | null;
+  /** 官方谱面代码原文（勾了才给）；走 Apply 闸门，过不了就整笔不建 */
+  chartCodeText?: string;
+}
+
+export type OfficialProjectResult =
+  | { ok: true; project: ChartProject; chart: ProjectChart }
+  | { ok: false; errors: ValidationError[] };
+
+export function createOfficialProject(input: OfficialProjectInput): OfficialProjectResult {
+  const applied = applyChartCodeText(input.chartCodeText ?? '');
+  if (!applied.ok) return { ok: false, errors: applied.errors };
+
+  const base = createUnnamedProject({ id: input.id, chartId: input.chartId, now: input.now });
+  const chart: ProjectChart = {
+    ...base.charts[0],
+    notes: applied.notes,
+    diff: input.diff,
+    level: input.level,
+    appliedChartCodeText: applied.appliedChartCodeText,
+    chartCodePristine: applied.chartCodePristine,
+  };
+  return {
+    ok: true,
+    chart,
+    project: {
+      ...base,
+      name: input.name.trim() || null,
+      artist: input.artist?.trim() || null,
+      source: input.source,
+      durationSeconds: clampChartDuration(input.durationSeconds),
+      audioName: input.audioName,
+      coverName: input.coverName,
+      charts: [chart],
+    },
+  };
 }
 
 /** 复制工程 / 复制谱面共用：原显示名 + 副本标记，重名则标记内递增「（副本 2）」「(Copy 2)」…。

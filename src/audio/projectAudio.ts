@@ -6,7 +6,10 @@
 // 「当前 / 非当前」的差别只剩一条——**目标是当前工程时要先把在飞的编辑落盘**。
 //
 // 锁（ADR-0015 §4）：UI 禁用是第一道，这里再挡一次——纵深防御，别让"按钮忘了 disable"变成能写。
-import type { ChartDifficulty, ChartProject, ChartProjectStore } from '../project/ChartProject';
+//
+// 另一条 08 补的语义：**换音频即改归属**（Q12）——导入 / 更换时 `曲目来源` 置 `custom`，
+// 见 importProjectAudio 的注解。
+import type { ChartDifficulty, ChartProject, ChartProjectStore, SongSource } from '../project/ChartProject';
 import { mutateProject } from '../project/ChartProjectRecord';
 import { isProjectAudioLocked } from '../project/workspaceProject';
 import { clampChartDuration } from './chartDuration';
@@ -32,6 +35,7 @@ export interface ProjectAudioView {
   durationSeconds: number;
   locked: boolean;
   lockedBy: ProjectAudioLockSource[];
+  source?: SongSource;
 }
 
 export type ProjectAudioWriteResult =
@@ -74,6 +78,7 @@ export async function readProjectAudio(
     durationSeconds: project.durationSeconds,
     locked: isProjectAudioLocked(project),
     lockedBy: lockSourcesOf(project),
+    source: project.source,
   };
 }
 
@@ -123,7 +128,24 @@ async function mutateWritable(
   return { ok: true };
 }
 
-/** 导入 / 更换音频：时长先探出来（探不到就不写，不留"有音频但时长是旧的"这种半截态） */
+/**
+ * 探一次音频时长并夹到工程时长口径 —— **「音频 → 工程时长」的唯一算法**（探针 + `clampChartDuration`）。
+ * 换音频、建官方曲工程（票 08）都走它，免得夹取在调用点各长一份（tests/static/ChartDurationWiring 盯着）。
+ */
+export async function probeProjectDuration(
+  file: Blob,
+  probe: (file: Blob, decode?: AudioBytesDecoder) => Promise<number> = probeAudioDuration,
+): Promise<number> {
+  return clampChartDuration(await probe(file));
+}
+
+/**
+ * 导入 / 更换音频：时长先探出来（探不到就不写，不留"有音频但时长是旧的"这种半截态）。
+ *
+ * **换音频即改归属**（bestdori-integration 06 Q12 / 08）：音频一旦被用户换掉，它就不再是
+ * 官方 / LLSIF 那首歌的音频了，`曲目来源` 一并回 `custom` —— 否则发布时会把别人曲子的
+ * 音频按官方曲 id 填进 `song`。改回官方 / LLSIF 的出路还在「编辑工程信息」里，不封死。
+ */
 export async function importProjectAudio(
   deps: ProjectAudioDeps,
   projectId: string,
@@ -132,7 +154,7 @@ export async function importProjectAudio(
   return mutateWritable(deps, projectId, async (project) => {
     let duration: number;
     try {
-      duration = await (deps.probeDuration ?? probeAudioDuration)(file);
+      duration = await probeProjectDuration(file, deps.probeDuration);
     } catch {
       return { outcome: 'decode-failed' };
     }
@@ -142,21 +164,26 @@ export async function importProjectAudio(
         ...project,
         audioName: file.name,
         audioBlob: file,
+        source: { type: 'custom' },
         // 有音频 = 音频时长（ADR-0005 §4 / 票 15 定案 1）
-        durationSeconds: clampChartDuration(duration),
+        durationSeconds: duration,
       },
     };
   });
 }
 
-/** 清除音频：时长保留当前值（与 session.clearAudio 同口径——时长是独立字段，不跟着归零） */
+/** 清除音频：时长保留当前值（与 session.clearAudio 同口径——时长是独立字段，不跟着归零）；曲目来源变更为自定义 */
 export async function clearProjectAudio(
   deps: ProjectAudioDeps,
   projectId: string,
 ): Promise<ProjectAudioWriteResult> {
   return mutateWritable(deps, projectId, (project) => {
     if (project.audioName == null && project.audioBlob == null) return { outcome: 'skip' };
-    const next: ChartProject = { ...project, audioName: null };
+    const next: ChartProject = {
+      ...project,
+      audioName: null,
+      source: { type: 'custom' },
+    };
     delete next.audioBlob;
     return { outcome: 'write', next };
   });

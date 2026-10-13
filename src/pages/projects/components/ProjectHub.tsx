@@ -1,6 +1,6 @@
 // 工程管理页的启动台视图（原 ProjectsPage.tsx 的 ProjectStartView + 0 工程引导横幅）。
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Copy, FolderPlus, Music2, Play } from 'lucide-react';
+import { Copy, FolderPlus, Music2, Music4, Play, Users } from 'lucide-react';
 import type { ChartProject } from '../../../project/ChartProject';
 import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT } from '../../../project/projectCatalog';
 import { mostRecentlyOpenedId, PROJECT_SORT_KEYS, type ProjectSortKey } from '../../../project/projectSort';
@@ -8,6 +8,7 @@ import { chartStatus } from '../../../project/workspaceProject';
 import { displayProjectName } from '../../../project/ui/projectUi';
 import { useAppNav } from '../../../layouts/AppNav';
 import EmptyState from '../../../ui/EmptyState';
+import LoadingShimmer, { useSlowLoading } from '../../../ui/LoadingShimmer';
 import { t } from '../../../i18n';
 import { effectiveTitle, relTime, statusLabel } from '../projectFormat';
 import { moveGridSelection } from '../projectGridSelection';
@@ -29,10 +30,42 @@ function GuideBanner() {
   );
 }
 
+/**
+ * 目录未就绪时的占位（issue 29）：槽位与最终内容等高（hero 168px / 卡片封面 1:1），
+ * 到位后原地替换、零跳位。微光只在"真的慢"时出现（`useSlowLoading` + `SLOW_LOADING_MS`，票 24 口径）——
+ * 快启动不闪任何加载动效，只是这块占位很快被真实内容顶掉。
+ */
+function PendingHero({ shimmer }: { shimmer: boolean }) {
+  return (
+    <section className="pb-hero pb-hero--pending" aria-hidden="true">
+      <span className="pb-pending-cover">{shimmer && <LoadingShimmer />}</span>
+      <div className="pb-hero__body">
+        <span className="pb-pending-line pb-pending-line--title">{shimmer && <LoadingShimmer />}</span>
+        <span className="pb-pending-line">{shimmer && <LoadingShimmer />}</span>
+      </div>
+    </section>
+  );
+}
+
+function PendingGrid({ shimmer }: { shimmer: boolean }) {
+  return (
+    <div className="pb-grid" aria-hidden="true">
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="pb-card">
+          <span className="pb-pending-cover pb-pending-cover--card">{shimmer && <LoadingShimmer />}</span>
+          <span className="pb-pending-line pb-pending-line--title">{shimmer && <LoadingShimmer />}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ProjectStartView({
-  list, currentId, sort, onSort, onDetail, onOpen, onNew, projectMenu,
+  list, ready, currentId, sort, onSort, onDetail, onOpen, onNew, projectMenu, importSources = false,
 }: {
   list: ChartProject[];
+  /** 目录是否已读回来（issue 29）：未就绪 ≠ 0 工程 —— 未就绪不渲染空态，也不显示 0 计数 */
+  ready: boolean;
   currentId: string | null;
   sort: ProjectSortKey;
   onSort: (key: ProjectSortKey) => void;
@@ -40,12 +73,18 @@ export function ProjectStartView({
   onOpen: (id: string, chartId?: string) => void;
   onNew: (src: NewSource) => void;
   projectMenu: (p: ChartProject) => ReactNode;
+  /** 有没有社区平台出口（静态演示版没有）：决定官方 / 社区两格露不露 */
+  importSources?: boolean;
 }) {
   const { activePage } = useAppNav();
   const gridRef = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [columns, setColumns] = useState(1);
-  const isEmpty = list.length === 0;
+  // 未就绪 ≠ 空（issue 29）：只有目录读回来、且确实一个工程都没有，才是空态。
+  const isEmpty = ready && list.length === 0;
+  const showProjects = ready && !isEmpty;
+  // 占位微光只在"真的慢"时出现（票 24 口径：本机秒开不闪动效）
+  const pendingShimmer = useSlowLoading(ready, 'project-catalog');
 
   // 浏览焦点（issue 14）：不等于「当前工程」，is-current 角标继续单独标识。
   // 默认选中 = 最近打开（Q11），与显示排序无关（issue 19 #4：排序可选后「第一个卡片」不再等于它）；
@@ -97,6 +136,10 @@ export function ProjectStartView({
         if (next === effectiveSelectedId) return; // 边界停在原地：不吞键，放行 .pb-page 原生滚页
         e.preventDefault();
         setSelectedId(next);
+        // 选中卡片自动滚入视口（issue 14 定案 5 / issue 27：仅在键盘导航移动选中项时触发，首次挂载不滚）
+        gridRef.current?.querySelectorAll<HTMLElement>('.pb-card').forEach((card) => {
+          if (card.dataset.projectId === next) card.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+        });
         return;
       }
       // Enter 打开选中工程详情；焦点在按钮 / 链接等可激活元素上时交给浏览器原生行为
@@ -110,20 +153,13 @@ export function ProjectStartView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activePage, list, columns, effectiveSelectedId, onDetail]);
 
-  // 选中卡片自动滚入视口（定案 5；布局行为 jsdom 测不了 → 人工验收）
-  useEffect(() => {
-    if (!effectiveSelectedId) return;
-    gridRef.current?.querySelectorAll<HTMLElement>('.pb-card').forEach((card) => {
-      if (card.dataset.projectId === effectiveSelectedId) card.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-    });
-  }, [effectiveSelectedId]);
-
   // hero 是选中卡片的投影（选中失效时 = 最近打开，横幅不闪空）
   const selected = list.find((p) => p.id === effectiveSelectedId) ?? list[0];
   return (
     <div className="pb-page">
+      {!ready && <PendingHero shimmer={pendingShimmer} />}
       {isEmpty && <GuideBanner />}
-      {!isEmpty && selected && (
+      {showProjects && selected && (
         <section className="pb-hero">
           <Cover project={selected} size={120} />
           <div className="pb-hero__body">
@@ -154,15 +190,32 @@ export function ProjectStartView({
           <button type="button" className="pb-tile" onClick={() => onNew('blank')}>
             <FolderPlus size={20} /><b>{t('projects.newBlank')}</b><small>{t('projects.newBlankDesc')}</small>
           </button>
-          <button type="button" className="pb-tile" disabled={list.length === 0} onClick={() => onNew('copy')}>
+          <button
+            type="button"
+            className="pb-tile"
+            disabled={!showProjects}
+            title={showProjects ? undefined : t('projects.copyDisabledHint')}
+            onClick={() => onNew('copy')}
+          >
             <Copy size={20} /><b>{t('projects.newCopy')}</b><small>{t('projects.newCopyDesc')}</small>
           </button>
+          {/* 官方 / 社区两支要连社区平台，静态演示版（无出口）只隐藏这两格（票 12；ADR-0011 §1） */}
+          {importSources && (
+            <>
+              <button type="button" className="pb-tile" onClick={() => onNew('official')}>
+                <Music4 size={20} /><b>{t('projects.newOfficial')}</b><small>{t('projects.newOfficialDesc')}</small>
+              </button>
+              <button type="button" className="pb-tile" onClick={() => onNew('community')}>
+                <Users size={20} /><b>{t('projects.newCommunity')}</b><small>{t('projects.newCommunityDesc')}</small>
+              </button>
+            </>
+          )}
         </div>
       </section>
       <section>
         <div className="pb-h-row">
-          <h3 className="pb-h">{t('projects.allProjects')} <span className="pp-muted">{list.length}</span></h3>
-          {!isEmpty && (
+          <h3 className="pb-h">{t('projects.allProjects')}{ready && <span className="pp-muted"> {list.length}</span>}</h3>
+          {showProjects && (
             <label className="pb-sort">
               <span className="pp-muted">{t('projects.sortBy')}</span>
               <select value={sort} onChange={(e) => onSort(e.target.value as ProjectSortKey)}>
@@ -173,7 +226,9 @@ export function ProjectStartView({
             </label>
           )}
         </div>
-        {isEmpty ? (
+        {!ready ? (
+          <PendingGrid shimmer={pendingShimmer} />
+        ) : isEmpty ? (
           <EmptyState
             icon={Music2}
             title={t('projects.empty.title')}

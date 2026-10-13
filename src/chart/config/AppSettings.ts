@@ -7,6 +7,7 @@
 // - 旧版 schema（仅有 {schemaVersion, audio.keySet}）已包含 audio 段，load 时按字段合并。
 import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutConfig';
 import { normalizeProjectSortKey, type ProjectSortKey } from '../../project/projectSort';
+import { normalizeSongSort, SONG_SORT_DEFAULT, type SongSort } from '../../community/bestdori/songs';
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../audio/KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../rendering/skin/gen/noteSkinRegistry.gen';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
@@ -114,10 +115,17 @@ export interface AppSettings {
    */
   curve: CurveConfig;
   /**
-   * 工程启动台排序（issue 19 #4 定案：跨会话沿用上次选法，随配置导入导出走）。
-   * additive 字段，不 bump schemaVersion；键白名单与比较器在 `project/projectSort.ts`。
+   * 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28
+   * ；官方选曲面板排序 票 31）。
+   * additive 字段，不 bump schemaVersion。
    */
-  projects: { sort: ProjectSortKey };
+  projects: {
+    sort: ProjectSortKey;
+    /** 同步导入谱面代码（票 28 定案 2026-10-12：跨官方/社区共用，默认 true） */
+    importWithChart: boolean;
+    /** 官方选曲面板的列表排序（票 31 验收回修 2026-10-13：要跨会话记住，默认发布时间降序） */
+    songSort: SongSort;
+  };
   /**
    * 预览标注（chart-preview 08 定案 2026-09-30）：预览页的「看谱方式」，跨会话记住。
    * 与 `display`（画布通性设置）刻意分开：这几项只有预览面板画，编辑器画布没有对应装饰，
@@ -132,6 +140,47 @@ export interface AppSettings {
    * additive 字段，不 bump schemaVersion。
    */
   export: ExportFieldSettings;
+  /**
+   * 社区素材缓存的**回收策略**（票 18，用户 2026-10-10 拍板：可配「闲置天数 + 总量上限」，默认 30 天 / 1GB）。
+   * 只管**回收**；鲜度（json / text 24h 后台刷新）与「手动清除」不在这里。
+   * additive 字段，不 bump schemaVersion。
+   */
+  cachePolicy: AssetCachePolicy;
+}
+
+/** 社区素材缓存的回收策略（票 18）。改了**立即生效**（下一次清扫就按新值算），不用重启。 */
+export interface AssetCachePolicy {
+  /** 多少天没用就清（1..365） */
+  maxIdleDays: number;
+  /** 占用上限（MB，64..65536） */
+  maxMegabytes: number;
+}
+
+export const CACHE_POLICY_RANGE = {
+  idleDays: { min: 1, max: 365 },
+  megabytes: { min: 64, max: 65536 },
+} as const;
+
+/** 默认值 = 票 14 定案的那两个常数（30 天 / 1GB） */
+export const DEFAULT_CACHE_POLICY: AssetCachePolicy = {
+  maxIdleDays: 30,
+  maxMegabytes: 1024,
+};
+
+/** 策略归一化：缺段 / 非有限值 / 越界一律落到区间内（界面输入与导入共用同一把尺） */
+export function normalizeCachePolicy(
+  raw: unknown,
+  fallback: AssetCachePolicy = DEFAULT_CACHE_POLICY,
+): AssetCachePolicy {
+  const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const clamp = (value: unknown, { min, max }: { min: number; max: number }, dft: number) =>
+    typeof value === 'number' && Number.isFinite(value)
+      ? Math.min(max, Math.max(min, Math.round(value)))
+      : dft;
+  return {
+    maxIdleDays: clamp(obj.maxIdleDays, CACHE_POLICY_RANGE.idleDays, fallback.maxIdleDays),
+    maxMegabytes: clamp(obj.maxMegabytes, CACHE_POLICY_RANGE.megabytes, fallback.maxMegabytes),
+  };
 }
 
 /**
@@ -341,9 +390,10 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
-    projects: { sort: 'lastOpened' },
+    projects: { sort: 'lastOpened', importWithChart: true, songSort: { ...SONG_SORT_DEFAULT } },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
     export: { ...DEFAULT_EXPORT_FIELDS },
+    cachePolicy: { ...DEFAULT_CACHE_POLICY },
   };
 }
 
@@ -427,8 +477,14 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
-    // 工程启动台排序（issue 19 #4）：白名单外 / 缺字段 → 默认最近打开
-    projects: { sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort) },
+    // 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28；官方选曲面板排序 票 31）
+    projects: {
+      sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort),
+      importWithChart: typeof projects.importWithChart === 'boolean'
+        ? projects.importWithChart
+        : defaults.projects.importWithChart,
+      songSort: normalizeSongSort(projects.songSort, defaults.projects.songSort),
+    },
     // 预览标注（chart-preview 08）：枚举白名单归一化，缺字段 → 默认精简档
     preview: {
       bpmMarks: typeof preview.bpmMarks === 'boolean' ? preview.bpmMarks : defaults.preview.bpmMarks,
@@ -444,6 +500,8 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     },
     // 导出信息字段（chart-preview 14）：逐字段布尔归一化，缺字段 / 脏值回落默认档
     export: normalizeExportFields(exportRaw, defaults.export),
+    // 社区素材缓存回收策略（票 18）：缺段 / 脏值回落 30 天 / 1GB
+    cachePolicy: normalizeCachePolicy(obj.cachePolicy, defaults.cachePolicy),
   };
 }
 
@@ -553,6 +611,7 @@ export function updateSettings(
     projects?: Partial<AppSettings['projects']>;
     preview?: Partial<AppSettings['preview']>;
     export?: Partial<AppSettings['export']>;
+    cachePolicy?: Partial<AppSettings['cachePolicy']>;
   }>,
 ): AppSettings {
   return {
@@ -576,6 +635,10 @@ export function updateSettings(
       ...(patch.export ?? {}),
       opening: mergeOpening(prev.export.opening, patch.export?.opening),
     },
+    // 社区素材缓存回收策略（票 18）：整段归一化，缺段 / 脏值回落默认档
+    cachePolicy: patch.cachePolicy
+      ? normalizeCachePolicy({ ...prev.cachePolicy, ...patch.cachePolicy }, prev.cachePolicy)
+      : prev.cachePolicy,
   };
 }
 

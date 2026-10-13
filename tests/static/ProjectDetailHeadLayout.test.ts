@@ -26,7 +26,7 @@
 // 真正的观感（位置、间距）jsdom 验不了 → 票内人工门票 / headless 真渲染截图；
 // 这里锁的是"这几条声明不许被悄悄改成反面"。
 import { describe, expect, it } from 'vitest';
-import { readSource } from '@/tests/support/source';
+import { readSource, readStripped } from '@/tests/support/source';
 import { PROJECT_LIST_WIDTH } from '@/src/chart/config/AppSettings';
 
 const css = readSource('src/pages/projects/ProjectsPage.css');
@@ -68,7 +68,8 @@ describe('issue 23 #4 · 详情页头部布局的接线', () => {
     const block = css.match(/\.pc-detail__body\s*\{([^}]*)\}/s);
     expect(block, '.pc-detail__body 不见了').toBeTruthy();
     expect(block![1]).toMatch(/flex:\s*1 1 0/);
-    // 下限是可读性保证：太小会把"歌手 · 来源"压成竖排单字（曾实测 900px）
+    // 下限是可读性保证：太小会把那行字压成竖排单字（曾实测 900px；当时那行是「歌手 · 来源」，
+    // 票 37 起只剩歌手，下限照旧）
     expect(block![1]).toMatch(/min-width:\s*140px/);
   });
 
@@ -193,5 +194,40 @@ describe('issue 23 #2 · 详情页左栏分栏的接线', () => {
     // 夹取区间不在 CSS 复述（只在 JS 一处），这条是配套的"没写第二套"证明
     expect(block).not.toContain(`${min}px`);
     expect(block).not.toContain(`${max}px`);
+  });
+});
+
+// 票 37（用户 2026-10-13 验收，附详情页头部截图）：副行曾写「<歌手> · <曲目来源>」，
+// bandori 曲显示成「Poppin'Party · BanG Dream #804」—— 站点名对用户是废话，`#804` 又与
+// 下一行音频名（票 35 起自带曲库 id：`official-804-英…mp3`）重复，用户判定删掉。
+// 这里锁「别再长回来」：那一行只剩歌手，`sourceLabel` 与其三枚文案键一并退役。
+// **`曲目来源` 字段本身没删**（发布时要按它填 `song`，工程信息弹窗里可改，换音频时还会回自定义），
+// 弹窗用的是另一组键 `projects.source{Custom,Bandori,Llsif}`，本票不许误伤。
+describe('票 37 · 详情页副行不再显示曲目来源', () => {
+  const detail = readStripped('src/pages/projects/components/ProjectDetail.tsx');
+  const format = readStripped('src/pages/projects/projectFormat.ts');
+  const FILES = ['src/i18n/messages/zh-CN.json', 'src/i18n/messages/en.json'];
+
+  it('ProjectDetail 不再引用 sourceLabel，副行只渲染歌手', () => {
+    expect(detail).not.toMatch(/sourceLabel/);
+    expect(detail).toMatch(/projects\.artistMissing/);
+  });
+
+  it('sourceLabel 工具函数已退役（渲染点只有详情页那一处）', () => {
+    expect(format).not.toMatch(/export function sourceLabel/);
+  });
+
+  it('三枚 sourceLabel.* 文案键已清掉，chart-projects 票 30 下线 sourceLlsif 并改用只读徽标文案', () => {
+    for (const file of FILES) {
+      const messages = JSON.parse(readSource(file)) as Record<string, string>;
+      expect(Object.keys(messages).filter((k) => k.startsWith('projects.sourceLabel.')), file).toEqual([]);
+      // chart-projects 票 30：LLSIF 彻底下线，不再保留 sourceLlsif 键
+      expect(messages['projects.sourceLlsif'], file).toBeUndefined();
+      // chart-projects 票 30：工程信息只读徽标与提示文案必须就绪
+      expect(messages['projects.sourceBadgeCustom'], file).toBeTruthy();
+      expect(messages['projects.sourceBadgeBandori'], file).toBeTruthy();
+      expect(messages['projects.sourceCustomHint'], file).toBeTruthy();
+      expect(messages['projects.sourceBandoriHint'], file).toBeTruthy();
+    }
   });
 });

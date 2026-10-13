@@ -206,9 +206,10 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   animation: dialog-in var(--dur-fast) var(--ease) both;
+  transition: width var(--dur-fast) var(--ease), height var(--dur-fast) var(--ease);
 }
 .dialog--sm { width: min(440px, 92vw); }
-.dialog--md { width: min(560px, 92vw); }
+.dialog--md { width: min(560px, 92vw); height: auto; }
 .dialog--lg { width: min(920px, 92vw); height: min(640px, 86vh); }
 
 /* ---- 头：标题 + 一行说明（色带） ---- */
@@ -238,10 +239,14 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-5);
+}
+.dialog__body--clip {
+  overflow: hidden;
 }
 
 /* 正文注意行：里面的 \n 是"另起一句"（删除工程要多带一行已上传提示） */
@@ -285,6 +290,194 @@
 .dialog-field textarea { height: auto; padding: 8px 10px; font-family: var(--font-mono); resize: vertical; }
 .dialog-field small { color: var(--text-subtle); line-height: 1.6; }
 .dialog-field-row { display: flex; gap: 12px; }
+.dialog-field__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  position: relative;
+}
+.dialog-field__label-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+.dialog-field__help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: none;
+  color: var(--text-subtle);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  transition: color var(--dur-fast) var(--ease);
+}
+.dialog-field__help-btn:hover {
+  color: var(--accent);
+}
+.dialog-field__popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  width: 280px;
+  max-width: calc(100vw - 40px);
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  animation: dialog-in var(--dur-fast) var(--ease);
+}
+.dialog-field__popover::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 60px;
+  border: 5px solid transparent;
+  border-top-color: var(--border);
+}
+.dialog-field__popover::before {
+  content: '';
+  position: absolute;
+  top: calc(100% - 1px);
+  left: 60px;
+  border: 5px solid transparent;
+  border-top-color: var(--bg-elevated);
+  z-index: 1;
+}
+.dialog-source-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.dialog-source-pill svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.dialog-source-pill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.dialog-source-pill--muted {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.dialog-audio-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-inset);
+  min-width: 0;
+  box-sizing: border-box;
+}
+.dialog-audio-bar__info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.dialog-audio-bar__info svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+/* ---- 动态走马灯（无缝单向循环，开头静止停顿 + 单向匀速滑行，绝不左右横晃，文字全显） ---- */
+.dialog-marquee {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+.dialog-marquee__measure {
+  position: absolute;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.dialog-marquee__content {
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.dialog-marquee__track {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  will-change: transform;
+  animation: dialog-marquee-seamless var(--marquee-dur) linear infinite;
+}
+.dialog-audio-bar:hover .dialog-marquee__track {
+  animation-play-state: paused;
+}
+@keyframes dialog-marquee-seamless {
+  0%, 25% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(var(--marquee-dist));
+  }
+}
+.dialog-marquee__item {
+  display: inline-block;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.dialog-audio-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--dur-fast) var(--ease);
+}
+.dialog-audio-jump-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
 
 .dialog-tabs { display: flex; gap: 4px; padding: 3px; border-radius: var(--radius-md); background-color: var(--bg-inset); }
 .dialog-tabs button {
@@ -302,10 +495,18 @@
   cursor: pointer;
 }
 .dialog-tabs button.is-active { background-color: var(--bg-elevated); color: var(--text); box-shadow: var(--shadow-sm); }
+.dialog-tabs button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+  color: var(--text-subtle);
+}
+.dialog-tabs button:disabled svg { color: var(--text-subtle); }
 
-/* 编辑工程信息：左封面方块区 / 右文字字段 */
+/* 编辑工程信息：左封面方块区 / 右文字字段（适度舒展，32px 规范高度，留白舒适自然） */
 .dialog-edit-grid { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
-.dialog-edit-fields { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dialog-edit-fields { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dialog-edit-fields .dialog-field { gap: 5px; }
+.dialog-edit-fields input { height: 32px; padding: 0 10px; font-size: var(--text-sm); }
 /* 弹窗被压到很窄（小窗 / 92vw）时右栏挤不下两个并排字段，退回单栏 */
 @media (max-width: 420px) {
   .dialog-edit-grid { grid-template-columns: 1fr; }
@@ -361,6 +562,9 @@
 .toast--success { background-color: color-mix(in srgb, var(--success) 14%, var(--bg-elevated)); color: var(--success); }
 .toast--warn { background-color: color-mix(in srgb, var(--warning) 14%, var(--bg-elevated)); color: var(--warning-text); }
 .toast--danger { background-color: color-mix(in srgb, var(--danger) 14%, var(--bg-elevated)); color: var(--danger-text); }
+
+/* 降级警告可能两条一起到（票 26：谱面降级 + 封面缺失），\n 分行显示 */
+.toast__text { white-space: pre-line; }
 
 /* 关掉按钮自己也要跟着语气色，别在浅底上戳出一个中性灰块 */
 .toast__close {
@@ -764,4 +968,95 @@
   text-align: center;
   font-size: var(--text-xs);
   color: var(--text-subtle);
+}
+
+.off-compact-audio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  /* 票 22：音量组把条的 min-content 从 ~154 抬到 ~218 —— flex 条默认 min-width:auto
+     会把它撑破 300px 栏宽（实测 318 > 300 顶出横向滚动条）；seek（flex:1 + min-width:0）吸收剩余空间 */
+  min-width: 0;
+}
+.off-compact-audio audio { display: none; }
+.off-compact-audio__play {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  /* 票 22：UA 默认 padding 1px 6px 在 border-box 下把 24×24 的内容盒挤到 12px 宽
+     （< 图标 13.7px）→ 图标贴左缘。padding:0 拿回正圆与真居中 */
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-btn);
+  color: var(--accent-btn-text);
+  cursor: pointer;
+}
+.off-compact-audio__play:disabled { opacity: .45; cursor: not-allowed; }
+/* 票 22：lucide 的 Play 三角在 viewBox 内偏右 1px（6..20，中心 13≠12）→ 光学校正（Pause 居中，不校正） */
+.off-compact-audio__nudge { margin-left: -1px; }
+/* 票 22：按钮位的音频加载 spinner（12px，正圆内原地转；复用 off-spin 关键帧） */
+.off-compact-audio__spin {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, var(--accent-btn-text) 35%, transparent);
+  border-top-color: var(--accent-btn-text);
+  border-radius: 50%;
+  animation: off-spin .8s linear infinite;
+}
+/* 票 21 验收回修：定宽 + 右对齐 —— 时长从 0:00 变成真实长度时不推动进度条 */
+.off-compact-audio__time {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 3em;
+  text-align: right;
+}
+.off-compact-audio__seek {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  accent-color: var(--accent);
+}
+/* 票 22 · B 内嵌音量小滑条：口径同 PlayBar（icon + range），只是更窄（56px） */
+.off-compact-audio__vol {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+}
+.off-compact-audio__vol-input {
+  width: 56px;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ---- 票 24 · LoadingShimmer（src/ui/LoadingShimmer.tsx）：块级加载微光 ----
+   绝对定位填满父级 + 100deg 渐变扫光。要点：spinner 与它平级、各自绝对定位居中，
+   不许做它的子元素 —— 整层 translateX 扫光会带着子元素横向漂移（票 24 原型实测） */
+.loading-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--text) 12%, transparent) 50%,
+    transparent 70%
+  );
+  animation: off-thumb-shimmer 1.3s linear infinite;
+}
+/* 微光关键帧上收共享（票 24）：ProjectsPage.css 同名声明已删 */
+@keyframes off-thumb-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
 }

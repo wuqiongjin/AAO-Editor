@@ -1,6 +1,6 @@
 // CurrentProjectProvider（chart-projects 03 / ADR-0015 §3）：
 // 会话内唯一当前工程 + 当前谱面。进工作台/音频页时 ensure；切工程走 open。
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChartProjectStore, type ChartProject, type ProjectChart } from '../../project/ChartProject';
 import { CurrentProjectSession } from '../../project/CurrentProjectSession';
 
@@ -54,6 +54,13 @@ export function CurrentProjectProvider({
   const [projectId, setProjectId] = useState<string | null>(() => sessionRef.current!.projectId);
   const [chartId, setChartId] = useState<string | null>(() => sessionRef.current!.chartId);
   const [catalogEpoch, setCatalogEpoch] = useState(0);
+
+  // 启动预载目录（issue 29）：本 Provider 在应用启动时即挂载，早于各页 lazy chunk 加载 ——
+  // 先发起一次 list()，工程页挂载时要么已就绪、要么共享同一个进行中 Promise（去重在 ChartProjectStore）。
+  // 不让"页面挂载"成为读盘的起点。读失败不抛给启动流程：页面自己的 reload 会照常暴露错误。
+  useEffect(() => {
+    void storeRef.current!.list().catch(() => {});
+  }, []);
 
   const notifyCatalogChanged = useCallback(() => {
     setCatalogEpoch((n) => n + 1);

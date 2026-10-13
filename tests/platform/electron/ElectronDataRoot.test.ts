@@ -25,7 +25,7 @@ import { tmpDir } from '@/tests/support/fs';
 
 describe('issue 117 · 根路径规范化与布局', () => {
   it('缺省指针 → userData/data，并建好 projects/ 与 assets/', () => {
-    const userData = tmpDir('tsugu-data-root-');
+    const userData = tmpDir('aao-data-root-');
     try {
       expect(APP_STATE_FILENAME).toBe('app-state.json');
       expect(appStateFilePath(userData)).toBe(join(userData, 'app-state.json'));
@@ -42,8 +42,8 @@ describe('issue 117 · 根路径规范化与布局', () => {
   });
 
   it('指针往返写在 app-state.json；非法/空回退 userData/data', () => {
-    const userData = tmpDir('tsugu-data-ptr-');
-    const custom = tmpDir('tsugu-data-custom-');
+    const userData = tmpDir('aao-data-ptr-');
+    const custom = tmpDir('aao-data-custom-');
     try {
       saveDataRootSync(userData, custom);
       expect(loadDataRootSync(userData)).toBe(normalizeDataRootPath(custom));
@@ -61,8 +61,8 @@ describe('issue 117 · 根路径规范化与布局', () => {
   });
 
   it('app-state.json 同时记下数据根与窗体字段', () => {
-    const userData = tmpDir('tsugu-app-state-both-');
-    const custom = tmpDir('tsugu-app-state-root-');
+    const userData = tmpDir('aao-app-state-both-');
+    const custom = tmpDir('aao-app-state-root-');
     try {
       saveDataRootSync(userData, custom);
       saveWindowStateSync(userData, { width: 1320, height: 880, isMaximized: true });
@@ -89,8 +89,8 @@ describe('issue 117 · 根路径规范化与布局', () => {
 
 describe('issue 117 · resolveMoveDestRoot', () => {
   it('所选为空目录 → 新根即所选路径', async () => {
-    const empty = tmpDir('tsugu-resolve-empty-');
-    const fromParent = tmpDir('tsugu-resolve-from-wrap-');
+    const empty = tmpDir('aao-resolve-empty-');
+    const fromParent = tmpDir('aao-resolve-from-wrap-');
     const fromRoot = join(fromParent, '123');
     mkdirSync(fromRoot, { recursive: true });
     try {
@@ -102,7 +102,7 @@ describe('issue 117 · resolveMoveDestRoot', () => {
   });
 
   it('所选非空 → 新根为 所选/当前根目录名', async () => {
-    const parent = tmpDir('tsugu-resolve-parent-');
+    const parent = tmpDir('aao-resolve-parent-');
     const music = join(parent, 'music');
     const fromRoot = join(parent, '123');
     mkdirSync(music, { recursive: true });
@@ -120,9 +120,9 @@ describe('issue 117 · resolveMoveDestRoot', () => {
 
 describe('issue 117 · 搬家失败不切根', () => {
   it('目标下已有同名子文件夹且非空 → 拒绝，指针不变', async () => {
-    const userData = tmpDir('tsugu-mv-occ-ud-');
-    const fromRoot = tmpDir('tsugu-mv-occ-from-');
-    const toParent = tmpDir('tsugu-mv-occ-to-');
+    const userData = tmpDir('aao-mv-occ-ud-');
+    const fromRoot = tmpDir('aao-mv-occ-from-');
+    const toParent = tmpDir('aao-mv-occ-to-');
     try {
       const leaf = fromRoot.replace(/[/\\]+$/, '').split(/[/\\]/).pop()!;
       mkdirSync(join(toParent, leaf, 'projects'), { recursive: true });
@@ -140,8 +140,8 @@ describe('issue 117 · 搬家失败不切根', () => {
   });
 
   it('根名为 data、父目录已有 data/ → 解析到同路径，搬家因占用拒绝', async () => {
-    const userData = tmpDir('tsugu-mv-data-clash-ud-');
-    const parent = tmpDir('tsugu-mv-data-clash-parent-');
+    const userData = tmpDir('aao-mv-data-clash-ud-');
+    const parent = tmpDir('aao-mv-data-clash-parent-');
     const music = join(parent, 'music');
     const fromRoot = join(parent, 'data');
     mkdirSync(music, { recursive: true });
@@ -168,8 +168,8 @@ describe('issue 117 · 搬家失败不切根', () => {
   });
 
   it('父目录已有其他子目录：落到 父目录/当前根名，互不影响', async () => {
-    const userData = tmpDir('tsugu-mv-sibling-ud-');
-    const parent = tmpDir('tsugu-mv-sibling-parent-');
+    const userData = tmpDir('aao-mv-sibling-ud-');
+    const parent = tmpDir('aao-mv-sibling-parent-');
     const music = join(parent, 'music');
     const fromRoot = join(parent, '123');
     mkdirSync(music, { recursive: true });
@@ -195,8 +195,8 @@ describe('issue 117 · 搬家失败不切根', () => {
   });
 
   it('目标落在当前根子目录 → 拒绝', async () => {
-    const userData = tmpDir('tsugu-mv-in-ud-');
-    const fromRoot = tmpDir('tsugu-mv-in-from-');
+    const userData = tmpDir('aao-mv-in-ud-');
+    const fromRoot = tmpDir('aao-mv-in-from-');
     const toRoot = join(fromRoot, 'nested');
     mkdirSync(toRoot);
     try {
@@ -212,9 +212,9 @@ describe('issue 117 · 搬家失败不切根', () => {
   });
 
   it('拷贝失败 → 不切根，目标侧不留下半套 data/', async () => {
-    const userData = tmpDir('tsugu-mv-fail-ud-');
-    const fromRoot = tmpDir('tsugu-mv-fail-from-');
-    const toRoot = tmpDir('tsugu-mv-fail-to-');
+    const userData = tmpDir('aao-mv-fail-ud-');
+    const fromRoot = tmpDir('aao-mv-fail-from-');
+    const toRoot = tmpDir('aao-mv-fail-to-');
     try {
       mkdirSync(join(fromRoot, 'projects', 'default'), { recursive: true });
       writeFileSync(join(fromRoot, 'projects', 'default', 'project.json'), '{}');
@@ -242,9 +242,9 @@ describe('issue 117 · 搬家失败不切根', () => {
   });
 
   it('成功搬家：数据拷到所选文件夹本身，指针指向该路径，旧目录删除', async () => {
-    const userData = tmpDir('tsugu-mv-ok-ud-');
-    const fromRoot = tmpDir('tsugu-mv-ok-from-');
-    const toRoot = tmpDir('tsugu-mv-ok-to-');
+    const userData = tmpDir('aao-mv-ok-ud-');
+    const fromRoot = tmpDir('aao-mv-ok-from-');
+    const toRoot = tmpDir('aao-mv-ok-to-');
     try {
       mkdirSync(join(fromRoot, 'projects', 'default'), { recursive: true });
       writeFileSync(join(fromRoot, 'projects', 'default', 'project.json'), '{"schemaVersion":1}');
@@ -270,9 +270,9 @@ describe('issue 117 · 搬家失败不切根', () => {
 
 describe('issue 117 · 认领已有数据根', () => {
   it('已有 projects/ 的目录：只改指针，不复制', async () => {
-    const userData = tmpDir('tsugu-claim-ud-');
-    const fromRoot = tmpDir('tsugu-claim-from-');
-    const toRoot = tmpDir('tsugu-claim-to-');
+    const userData = tmpDir('aao-claim-ud-');
+    const fromRoot = tmpDir('aao-claim-from-');
+    const toRoot = tmpDir('aao-claim-to-');
     try {
       mkdirSync(join(fromRoot, 'projects', 'a'), { recursive: true });
       writeFileSync(join(fromRoot, 'projects', 'a', 'project.json'), '{"from":true}');
@@ -293,9 +293,9 @@ describe('issue 117 · 认领已有数据根', () => {
   });
 
   it('空目录：初始化 projects/、assets/ 并切指针', async () => {
-    const userData = tmpDir('tsugu-claim-empty-ud-');
-    const fromRoot = tmpDir('tsugu-claim-empty-from-');
-    const toRoot = tmpDir('tsugu-claim-empty-to-');
+    const userData = tmpDir('aao-claim-empty-ud-');
+    const fromRoot = tmpDir('aao-claim-empty-from-');
+    const toRoot = tmpDir('aao-claim-empty-to-');
     try {
       saveDataRootSync(userData, fromRoot);
       const r = await claimDataRoot({ userData, toRoot });
@@ -317,7 +317,7 @@ describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () =>
     expect(settingsSrc).not.toMatch(/dataRoot|data-root|保存位置/);
   });
 
-  it('设置页导出仍是 settings 对象；搬家与认领在 electronAPI 门控之后', () => {
+  it('设置页导出仍是 settings 对象；打开、搬家与认领在 electronAPI 门控之后', () => {
     const settingsPageSrc = stripComments(readSource('src/pages/settings/SettingsPage.tsx'));
     expect(settingsPageSrc).toMatch(/JSON\.stringify\(settings/);
     expect(settingsPageSrc).toMatch(/settings\.export/);
@@ -327,19 +327,23 @@ describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () =>
     expect(settingsPageSrc).toMatch(/settings\.prefs/);
     expect(settingsPageSrc).not.toMatch(/不含/);
     expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot/);
+    expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot\.open/);
     expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot\.change/);
     expect(settingsPageSrc).toMatch(/dataRootApi\s*&&[\s\S]*settings\.dataRoot\.claim/);
     expect(settingsPageSrc).not.toMatch(/JSON\.stringify\([^)]*dataRoot/);
     expect(settingsPageSrc).not.toMatch(/导出全部配置/);
   });
 
-  it('主进程/preload 接线：搬家与认领分开；背景图走数据根固定文件', () => {
+  it('主进程/preload 接线：打开、搬家与认领分开；背景图走数据根固定文件', () => {
     const mainSrc = stripComments(readSource('electron/main.cjs'));
     const preloadSrc = stripComments(readSource('electron/preload.js'));
     expect(preloadSrc).toMatch(/dataRoot\s*:/);
+    expect(preloadSrc).toMatch(/invoke\(\s*['"]dataRoot:open['"]/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]dataRoot:change['"]/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]dataRoot:claim['"]/);
     expect(preloadSrc).toMatch(/backgroundSkin\s*:/);
+    expect(mainSrc).toMatch(/shell\.openPath/);
+    expect(mainSrc).toMatch(/['"]dataRoot:open['"]/);
     expect(mainSrc).toMatch(/moveDataRoot/);
     expect(mainSrc).toMatch(/claimDataRoot/);
     expect(mainSrc).toMatch(/['"]dataRoot:change['"]/);

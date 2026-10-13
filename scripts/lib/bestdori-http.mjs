@@ -5,7 +5,7 @@
 
 export const BASE_URL = 'https://bestdori.com';
 export const USER_AGENT =
-  'tsugu-bestdori-fetch/1.0 (local research fetch for a fan chart editor; low-rate fetching)';
+  'aao-bestdori-fetch/1.0 (local research fetch for a fan chart editor; low-rate fetching)';
 export const JSON_TIMEOUT_MS = 30_000;
 export const BINARY_TIMEOUT_MS = 120_000;
 export const MAX_ATTEMPTS = 3;

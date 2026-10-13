@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Download, FolderOpen, FolderSearch, Info, MonitorCog, RotateCcw, SlidersHorizontal, Upload, Eye } from 'lucide-react';
+import { Check, Download, FolderOpen, FolderSearch, FolderSync, Info, MonitorCog, RotateCcw, SlidersHorizontal, Trash2, Upload, Eye } from 'lucide-react';
 import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
 import { useConfig } from '../../app/ProviderTree';
-import { defaultSettings, loadSettings } from '../../chart/config/AppSettings';
+import { CACHE_POLICY_RANGE, defaultSettings, loadSettings } from '../../chart/config/AppSettings';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import { t, type MessageKey } from '../../i18n';
+import { clearSongCatalogCache } from '../../community/bestdori/songs';
 
 // 设置页：接入 AppPageShell（Sidebar 分组导航 + Body 设置详情），修改立即生效并持久化。
 type Section = 'appearance' | 'layout' | 'data' | 'canvas';
@@ -30,6 +31,7 @@ const QUALITY_OPTIONS: Array<{ value: AppSettings['display']['imageQuality']; la
 
 interface DataRootBridge {
   get(): Promise<{ path: string }>;
+  open(): Promise<{ ok: boolean; path: string; message?: string }>;
   change(): Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>;
   claim(): Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>;
 }
@@ -37,6 +39,36 @@ interface DataRootBridge {
 function getDataRootBridge(): DataRootBridge | undefined {
   if (typeof window === 'undefined') return undefined;
   return (window as unknown as { electronAPI?: { dataRoot?: DataRootBridge } }).electronAPI?.dataRoot;
+}
+
+/** 社区素材缓存（票 14）：只开占用查询与清除两条，没有别的面 */
+interface AssetCacheStats {
+  totalBytes: number;
+  count: number;
+  byKind: Record<string, { bytes: number; count: number }>;
+}
+
+interface AssetCacheBridge {
+  stats(): Promise<AssetCacheStats>;
+  clear(): Promise<{ freedBytes: number }>;
+}
+
+function getAssetCacheBridge(): AssetCacheBridge | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return (window as unknown as { electronAPI?: { assetCache?: AssetCacheBridge } }).electronAPI?.assetCache;
+}
+
+/** 字节 → 人看的（B / KB / MB / GB，一位小数） */
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }
 
 const GRID_STYLE_OPTIONS: Array<{ value: AppSettings['display']['gridStyle']; labelKey: MessageKey }> = [
@@ -93,6 +125,32 @@ function ResetRow({ label, hint, confirming, onConfirm, onToggle }: {
   );
 }
 
+/** 行内数字行：一个带单位的数（缓存策略这类参数，票 18） */
+function NumberRow({
+  label, hint, value, min, max, onChange,
+}: {
+  label: string; hint: string; value: number; min: number; max: number; onChange: (v: number) => void;
+}) {
+  return (
+    <div className="settings-row">
+      <div className="settings-row__text">
+        <strong>{label}</strong>
+        <span>{hint}</span>
+      </div>
+      <input
+        className="number-control"
+        type="number"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        aria-label={label}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+    </div>
+  );
+}
+
 /** 行内开关行：布尔参数 */
 function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -110,7 +168,7 @@ function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: st
 }
 
 export default function SettingsPage() {
-  const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setDisplay, setAllSettings } = useConfig();
+  const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setDisplay, setCachePolicy, setAllSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState<'canvas' | null>(null);
@@ -119,6 +177,11 @@ export default function SettingsPage() {
   const [dataRootPath, setDataRootPath] = useState<string | null>(null);
   const [dataRootError, setDataRootError] = useState<string | null>(null);
   const [dataRootBusy, setDataRootBusy] = useState(false);
+  const cacheApi = getAssetCacheBridge();
+  const [cacheStats, setCacheStats] = useState<AssetCacheStats | null>(null);
+  const [cacheBusy, setCacheBusy] = useState(false);
+  const [cacheNote, setCacheNote] = useState<string | null>(null);
+  const [cacheError, setCacheError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!dataRootApi) return;
@@ -130,6 +193,35 @@ export default function SettingsPage() {
     });
     return () => { cancelled = true; };
   }, [dataRootApi]);
+
+  useEffect(() => {
+    if (!cacheApi) return;
+    let cancelled = false;
+    cacheApi.stats().then((r) => {
+      if (!cancelled) setCacheStats(r);
+    }).catch(() => {
+      if (!cancelled) setCacheError(t('settings.cache.readFail'));
+    });
+    return () => { cancelled = true; };
+  }, [cacheApi]);
+
+  const handleClearCache = async () => {
+    if (!cacheApi || cacheBusy) return;
+    setCacheBusy(true);
+    setCacheError(null);
+    setCacheNote(null);
+    try {
+      const r = await cacheApi.clear();
+      // 曲库索引的会话内缓存一并失效，否则「清了重拉」在同一会话里看不出效果（票 14）
+      clearSongCatalogCache();
+      setCacheStats({ totalBytes: 0, count: 0, byKind: {} });
+      setCacheNote(t('settings.cache.cleared', { size: formatBytes(r.freedBytes) }));
+    } catch {
+      setCacheError(t('settings.cache.clearFail'));
+    } finally {
+      setCacheBusy(false);
+    }
+  };
 
   const applyDataRootResult = async (
     run: () => Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>,
@@ -153,6 +245,7 @@ export default function SettingsPage() {
     }
   };
 
+  const handleOpenDataRoot = () => void applyDataRootResult(() => dataRootApi!.open(), t('settings.dataRoot.openFail'));
   const handleChangeDataRoot = () => void applyDataRootResult(() => dataRootApi!.change(), t('settings.dataRoot.changeFail'));
   const handleClaimDataRoot = () => void applyDataRootResult(() => dataRootApi!.claim(), t('settings.dataRoot.claimFail'));
 
@@ -385,10 +478,18 @@ export default function SettingsPage() {
                       <button
                         className="button-secondary"
                         type="button"
+                        disabled={dataRootBusy || !dataRootPath}
+                        onClick={handleOpenDataRoot}
+                      >
+                        <FolderOpen size={15} />{t('settings.dataRoot.open')}
+                      </button>
+                      <button
+                        className="button-secondary"
+                        type="button"
                         disabled={dataRootBusy}
                         onClick={handleChangeDataRoot}
                       >
-                        <FolderOpen size={15} />{t('settings.dataRoot.change')}
+                        <FolderSync size={15} />{t('settings.dataRoot.change')}
                       </button>
                       <button
                         className="button-secondary"
@@ -401,6 +502,48 @@ export default function SettingsPage() {
                     </span>
                   </div>
                   {dataRootError && <div className="shortcut-error">{dataRootError}</div>}
+                </>
+              )}
+              {cacheApi && (
+                <>
+                  <div className="settings-row">
+                    <div className="settings-row__text">
+                      <strong>{t('settings.cache')}</strong>
+                      <span>
+                        {cacheNote
+                          ?? (cacheStats == null
+                            ? t('settings.cache.reading')
+                            : cacheStats.count === 0
+                              ? t('settings.cache.empty')
+                              : t('settings.cache.usage', { size: formatBytes(cacheStats.totalBytes) }))}
+                      </span>
+                    </div>
+                    <button
+                      className="button-secondary"
+                      type="button"
+                      disabled={cacheBusy || cacheStats == null}
+                      onClick={() => void handleClearCache()}
+                    >
+                      <Trash2 size={15} />{t('settings.cache.clear')}
+                    </button>
+                  </div>
+                  <NumberRow
+                    label={t('settings.cache.idleDays')}
+                    hint={t('settings.cache.idleDays.hint')}
+                    value={settings.cachePolicy.maxIdleDays}
+                    min={CACHE_POLICY_RANGE.idleDays.min}
+                    max={CACHE_POLICY_RANGE.idleDays.max}
+                    onChange={(v) => setCachePolicy({ maxIdleDays: v })}
+                  />
+                  <NumberRow
+                    label={t('settings.cache.maxSize')}
+                    hint={t('settings.cache.maxSize.hint')}
+                    value={settings.cachePolicy.maxMegabytes}
+                    min={CACHE_POLICY_RANGE.megabytes.min}
+                    max={CACHE_POLICY_RANGE.megabytes.max}
+                    onChange={(v) => setCachePolicy({ maxMegabytes: v })}
+                  />
+                  {cacheError && <div className="shortcut-error">{cacheError}</div>}
                 </>
               )}
               <div className="settings-row">

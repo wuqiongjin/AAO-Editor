@@ -6,6 +6,7 @@ import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, DEFA
 import { getDefaultConfig, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
+import { syncAssetCachePolicy } from '../../community/assetCachePolicy';
 
 export interface ConfigContextValue {
   settings: AppSettings;
@@ -38,10 +39,19 @@ export interface ConfigContextValue {
   setCurveConfig: (config: CurveConfig) => void;
   /** 工程启动台排序（issue 19 #4）：字段级写回 settings.projects.sort 并持久化 */
   setProjectSort: (sort: AppSettings['projects']['sort']) => void;
+  /** 同步导入谱面代码（票 28）：字段级写回 settings.projects.importWithChart 并持久化 */
+  setImportWithChart: (importWithChart: boolean) => void;
+  /** 官方选曲面板排序（票 31 验收回修）：字段级写回 settings.projects.songSort 并持久化 */
+  setSongSort: (songSort: AppSettings['projects']['songSort']) => void;
   /** 工程详情页左栏宽度（issue 23 #2）：已夹取到 PROJECT_LIST_WIDTH 区间 */
   setProjectListWidth: (width: number) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
   setAllSettings: (next: AppSettings) => void;
+  /**
+   * 社区素材缓存的回收策略（票 18）：段内浅合并 + 立即推给主进程（下一次清扫就按新值算，不用重启）。
+   * 静态演示版没有那条桥 → 静默跳过。
+   */
+  setCachePolicy: (patch: Partial<AppSettings['cachePolicy']>) => void;
 }
 
 const ConfigContext = createContext<ConfigContextValue | null>(null);
@@ -50,6 +60,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(() => {
     const loaded = loadSettings();
     setActiveUiLanguage(loaded.uiLanguage);
+    // 素材缓存的回收策略在主进程里，启动时先按已存的策略拨一次（票 18）
+    syncAssetCachePolicy(loaded.cachePolicy);
     return loaded;
   });
 
@@ -200,6 +212,24 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // 同步导入谱面代码（票 28）：字段级写回 settings.projects.importWithChart 并持久化
+  const setImportWithChart = useCallback((importWithChart: boolean) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { projects: { importWithChart } });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
+  // 官方选曲面板排序（票 31 验收回修）：键 + 方向一起写回 settings.projects.songSort 并持久化
+  const setSongSort = useCallback((songSort: AppSettings['projects']['songSort']) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { projects: { songSort } });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
   // 工程详情页左栏宽度（issue 23 #2）：只改 layout.projectList，不整对象覆写 ——
   // setLayout 会带上 leftPanel/rightPanel 的**旧值**，而那两个归工作台的 UIContext 管，
   // 从这里整写会把工作台刚拖的宽度打回去。
@@ -215,14 +245,25 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const setAllSettings = useCallback((next: AppSettings) => {
     setActiveUiLanguage(next.uiLanguage);
+    syncAssetCachePolicy(next.cachePolicy);
     saveSettings(next);
     setSettings(next);
+  }, []);
+
+  // 社区素材缓存回收策略（票 18）：与上面同范式；写完顺手推给主进程（改了就生效）
+  const setCachePolicy = useCallback((patch: Partial<AppSettings['cachePolicy']>) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { cachePolicy: patch });
+      syncAssetCachePolicy(merged.cachePolicy);
+      saveSettings(merged);
+      return merged;
+    });
   }, []);
 
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setProjectListWidth, setAllSettings };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

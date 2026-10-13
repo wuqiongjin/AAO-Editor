@@ -2,7 +2,7 @@
 // schemaVersion 保持 1（未发布）。旧「一份 notes」目录（无 charts）不读、不删。
 const fs = require('fs');
 const path = require('path');
-const { projectDir, projectsDir, safeProjectId } = require('./dataRoot.cjs');
+const { cacheDir, isPathInside, projectDir, projectsDir, safeProjectId } = require('./dataRoot.cjs');
 
 const SCHEMA_VERSION = 1;
 
@@ -50,13 +50,40 @@ async function readBinIfPresent(dir, fileName, present) {
     }
 }
 
-async function applyBinaryIntent(dir, fileName, intent, bytes) {
+/**
+ * 从素材缓存拷一份进工程（bestdori-integration 08 + 14）：导入的音频 / 封面由社区网关落到
+ * `<数据根>/cache/community/`（票 14 取代了 07 的下载暂存），再在这里拷进工程目录 ——
+ * 字节始终不进 IPC。
+ *
+ * 缓存路径是**渲染进程给的入参**，必须卡在缓存目录内：不卡就等于把「读任意文件」交出去。
+ */
+async function copyCachedFile(dataRoot, sourcePath, destPath) {
+    if (typeof sourcePath !== 'string' || sourcePath.trim() === '') {
+        throw new Error('素材缓存路径无效');
+    }
+    const cache = path.resolve(cacheDir(dataRoot));
+    const source = path.resolve(sourcePath);
+    if (!isPathInside(cache, source)) {
+        throw new Error(`拒绝从素材缓存之外拷贝素材: ${sourcePath}`);
+    }
+    await fs.promises.access(source);
+    const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
+    await fs.promises.copyFile(source, tmpPath);
+    await fs.promises.rename(tmpPath, destPath);
+    return true;
+}
+
+async function applyBinaryIntent(dataRoot, dir, fileName, intent, bytes, sourcePath) {
     const binPath = path.join(dir, fileName);
     if (intent === 'cleared') {
         await fs.promises.rm(binPath, { force: true });
         return false;
     }
     if (intent === 'set') {
+        // 缓存路径优先：给了它就用它（同一笔里不会再给字节）
+        if (typeof sourcePath === 'string' && sourcePath !== '') {
+            return copyCachedFile(dataRoot, sourcePath, binPath);
+        }
         if (!(bytes instanceof Uint8Array)) {
             throw new Error(`project:put ${fileName} intent=set 但缺少字节`);
         }
@@ -76,7 +103,7 @@ async function getProject(dataRoot, rawId) {
 }
 
 async function putProject(dataRoot, payload) {
-    const { id, doc, audio, cover } = payload || {};
+    const { id, doc, audio, cover, audioStagedPath, coverStagedPath } = payload || {};
     const dir = projectDir(dataRoot, id);
     const existing = await readProjectJson(dir);
     if (existing != null && !isCurrentDoc(existing)) {
@@ -84,8 +111,8 @@ async function putProject(dataRoot, payload) {
     }
     await fs.promises.mkdir(dir, { recursive: true });
 
-    const audioPresent = await applyBinaryIntent(dir, 'audio.bin', doc.audioIntent, audio);
-    const coverPresent = await applyBinaryIntent(dir, 'cover.bin', doc.coverIntent, cover);
+    const audioPresent = await applyBinaryIntent(dataRoot, dir, 'audio.bin', doc.audioIntent, audio, audioStagedPath);
+    const coverPresent = await applyBinaryIntent(dataRoot, dir, 'cover.bin', doc.coverIntent, cover, coverStagedPath);
 
     const { audioIntent: _a, coverIntent: _c, ...docRest } = doc;
     const durableDoc = { ...docRest, audioPresent, coverPresent };

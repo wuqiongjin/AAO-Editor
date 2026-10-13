@@ -244,4 +244,45 @@ describe('票 15 · 音频页 = 工程音频的唯一管理入口（作用域版
     expect(document.querySelector('.scope-picker__tag')).toHaveTextContent('非当前工程');
     expect(await screen.findByText('b.mp3')).toBeInTheDocument();
   });
+
+  it('清除自定义音频：无确认弹窗，直接清除', async () => {
+    const { backend } = await mountPage([
+      projectWithAudio('pCustom', 'CustomSong', 'custom.mp3', 88),
+    ], { openId: 'pCustom' });
+
+    expect(await screen.findByText('custom.mp3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '清除' }));
+
+    await waitFor(() => expect(backend.disk.get('pCustom')!.audioName).toBeNull());
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('清除官方曲目音频：弹出确认弹窗，确认后才清除且转为自定义曲目', async () => {
+    const official = {
+      ...projectWithAudio('pOfficial', 'OfficialSong', 'official.mp3', 100),
+      source: { type: 'bandori' as const, id: 77 },
+    };
+    const { backend } = await mountPage([official], { openId: 'pOfficial' });
+
+    expect(await screen.findByText('official.mp3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '清除' }));
+
+    // 弹窗出现
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByText('清除官方原版音频')).toBeInTheDocument();
+
+    // 点击取消：未清除
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(backend.disk.get('pOfficial')!.audioName).toBe('official.mp3');
+    expect(backend.disk.get('pOfficial')!.source).toEqual({ type: 'bandori', id: 77 });
+
+    // 再次点击清除并确认
+    fireEvent.click(screen.getByRole('button', { name: '清除' }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '清除并转为自定义' }));
+
+    await waitFor(() => expect(backend.disk.get('pOfficial')!.audioName).toBeNull());
+    expect(backend.disk.get('pOfficial')!.source).toEqual({ type: 'custom' });
+  });
 });

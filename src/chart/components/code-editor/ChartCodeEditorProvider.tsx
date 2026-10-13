@@ -3,7 +3,7 @@
 // 由画布（工具态点击、Ctrl+B）与工具栏（按钮）各自调用；面包屑的换档（结点 → 滑条 → 完整代码）
 // 同样是换 target，弹窗据此重建草稿。
 // 弹窗只在 target 非空时挂载 → 关闭即卸载 textarea（issue 37 的成本归零不变量不变）。
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { NoteCodeTarget } from '../../editing/NoteCodeOps';
 import ChartCodeEditorModal from './ChartCodeEditorModal';
 
@@ -41,14 +41,21 @@ export function ChartCodeEditorProvider({
   children,
   readOnly,
   onReadonlyReject,
+  projectId,
 }: {
   children: ReactNode;
   readOnly?: boolean;
   onReadonlyReject?: () => void;
+  projectId?: string | null;
 }) {
   const [target, setTarget] = useState<CodeEditorTarget | null>(null);
   // issue 69：最近一次从画布进入的深层对象（面包屑"回得去"的依据）
   const [trail, setTrail] = useState<NoteCodeTarget | null>(null);
+  // 切工程时重置弹窗状态（issue 169：替代外层 key={projectId} 破坏性整页 remount）
+  useEffect(() => {
+    setTarget(null);
+    setTrail(null);
+  }, [projectId]);
   // 外部入口 = 新会话起点：工具栏「谱面代码」按钮清空 trail，画布点音符则记录 trail
   const openChartCode = useCallback(() => { setTrail(null); setTarget({ kind: 'chart' }); }, []);
   const openNoteCode = useCallback((t: NoteCodeTarget) => { setTrail(t); setTarget({ kind: 'note', ...t }); }, []);

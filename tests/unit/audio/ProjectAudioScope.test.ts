@@ -236,3 +236,36 @@ describe('票 15 · 工程音频接缝写路径', () => {
     });
   });
 });
+
+// bestdori-integration 08（06 Q12）：换音频即改归属 —— 音频换了，`曲目来源` 不能再指着官方曲。
+describe('票 08 · 换音频即改归属（Q12）', () => {
+  it('导入 / 更换音频后曲目来源回自定义（官方曲 id 不再成立）', async () => {
+    const { store, disk } = memoryStore([project('pBandori', { source: { type: 'bandori', id: 29 } })]);
+    const deps: ProjectAudioDeps = {
+      store,
+      currentProjectId: null,
+      notifyCatalogChanged: () => {},
+      probeDuration: async () => 120,
+    };
+
+    expect(await importProjectAudio(deps, 'pBandori', audioFile('我换的.mp3'))).toEqual({ ok: true });
+
+    expect(disk.get('pBandori')!.source).toEqual({ type: 'custom' });
+    expect(disk.get('pBandori')!.audioName).toBe('我换的.mp3');
+  });
+
+  it('清除音频变更为自定义曲目：本地没有原版音频，归属不能继续冒充官方曲（chart-projects 票 30 定案）', async () => {
+    const { store, disk } = memoryStore([
+      project('pBandori', {
+        source: { type: 'bandori', id: 29 },
+        audioName: 'x.mp3',
+        audioBlob: new Blob([new Uint8Array([1])]),
+      }),
+    ]);
+
+    await clearProjectAudio({ store, currentProjectId: null, notifyCatalogChanged: () => {} }, 'pBandori');
+
+    expect(disk.get('pBandori')!.source).toEqual({ type: 'custom' });
+    expect(disk.get('pBandori')!.audioName).toBeNull();
+  });
+});

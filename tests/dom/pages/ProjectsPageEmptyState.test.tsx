@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 // issue 09：工程启动台空状态与引导横幅。
+// issue 29：目录未就绪（list() 还没回来）≠ 0 工程 —— 未就绪不渲染空态，就绪后为空才渲染。
 // 0 工程 → 横幅位是引导横幅（占 hero 同一节点）+ 网格区 EmptyState（主行动 = 新建空白工程）；
 // 有工程（哪怕全已完成）→ hero 仍渲染（防「横幅没了」回归）。
 // 视觉几何（占位等高）jsdom 测不了 → 人工门票：0 工程 vs 1 工程并列截图对比 hero 区高度一致。
@@ -12,7 +13,9 @@ import ProjectsPage from '@/src/pages/projects/ProjectsPage';
 import {
   ChartProjectStore, type ChartProject, type ProjectChart,
 } from '@/src/project/ChartProject';
-import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
+import {
+  makeMemoryProjectBackend, renderWithProviders, type MemoryProjectBackend,
+} from '@/tests/support/providers';
 import { seedZhSettings } from '@/tests/support/storage';
 
 beforeEach(() => {
@@ -58,15 +61,19 @@ function makeProject(id: string, charts: ProjectChart[]): ChartProject {
   };
 }
 
-function renderStartView(projects: ChartProject[]) {
+function renderStartViewWith(backend: MemoryProjectBackend) {
   return renderWithProviders(
     <ConfigProvider>
       <AppNavProvider value={navValue}>
         <ProjectsPage />
       </AppNavProvider>
     </ConfigProvider>,
-    { store: new ChartProjectStore(makeMemoryProjectBackend(projects)) },
+    { store: new ChartProjectStore(backend) },
   );
+}
+
+function renderStartView(projects: ChartProject[]) {
+  return renderStartViewWith(makeMemoryProjectBackend(projects));
 }
 
 describe('issue 09 · 工程管理页空状态与引导横幅', () => {
@@ -90,5 +97,61 @@ describe('issue 09 · 工程管理页空状态与引导横幅', () => {
     expect(screen.getByRole('button', { name: '进入工作台' })).toBeInTheDocument();
     expect(screen.queryByText('从第一个工程开始')).toBeNull();
     expect(screen.queryByText('还没有工程')).toBeNull();
+  });
+});
+
+describe('issue 29 · 目录未就绪 ≠ 0 工程', () => {
+  it('list() 还没回来：不渲染空态 / 引导横幅 / 0 计数；放行且确实为空才轮到空态', async () => {
+    const backend = makeMemoryProjectBackend([], { deferList: true });
+    renderStartViewWith(backend);
+
+    // 这一帧目录还没读回来：不能说"还没有工程"，也不能拿 0 当计数
+    expect(screen.queryByText('还没有工程')).toBeNull();
+    expect(screen.queryByText('从第一个工程开始')).toBeNull();
+    expect(screen.queryByRole('button', { name: '创建第一个工程' })).toBeNull();
+    expect(screen.queryByText('0')).toBeNull();
+
+    backend.releaseList();
+
+    expect(await screen.findByText('还没有工程')).toBeInTheDocument();
+    expect(screen.getByText('从第一个工程开始')).toBeInTheDocument();
+  });
+
+  it('启动预载与页面挂载合并成一次读盘（页面消费同一个进行中 Promise）', async () => {
+    let listCalls = 0;
+    const backend = makeMemoryProjectBackend([], { deferList: true });
+    const counting: MemoryProjectBackend = {
+      ...backend,
+      list: () => {
+        listCalls += 1;
+        return backend.list();
+      },
+    };
+    renderStartViewWith(counting);
+
+    // Provider 的预载与页面自己的 reload 落在同一个进行中的 Promise 上，只读一次盘
+    expect(listCalls).toBe(1);
+
+    backend.releaseList();
+
+    expect(await screen.findByText('还没有工程')).toBeInTheDocument();
+    expect(listCalls).toBe(1);
+  });
+
+  it('list() 还没回来但有工程：不闪空态，放行后直接出 hero', async () => {
+    const backend = makeMemoryProjectBackend(
+      [makeProject('pOne', [makeChart('c1')])],
+      { deferList: true },
+    );
+    renderStartViewWith(backend);
+
+    expect(screen.queryByText('还没有工程')).toBeNull();
+    expect(screen.queryByText('从第一个工程开始')).toBeNull();
+
+    backend.releaseList();
+
+    expect(await screen.findByText('继续创作')).toBeInTheDocument();
+    expect(screen.queryByText('还没有工程')).toBeNull();
+    expect(screen.queryByText('从第一个工程开始')).toBeNull();
   });
 });

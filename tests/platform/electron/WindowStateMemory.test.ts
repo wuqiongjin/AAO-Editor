@@ -83,7 +83,7 @@ describe('issue 119 · 磁盘路径与 I/O', () => {
   });
 
   it('saveWindowStateSync + loadWindowStateSync 往返', () => {
-    const dir = tmpDir('tsugu-window-state-');
+    const dir = tmpDir('aao-window-state-');
     try {
       saveWindowStateSync(dir, { width: 1320, height: 880, isMaximized: true });
       expect(loadWindowStateSync(dir)).toEqual({ width: 1320, height: 880, isMaximized: true });

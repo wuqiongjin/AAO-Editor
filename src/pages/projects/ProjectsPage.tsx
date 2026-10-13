@@ -2,9 +2,10 @@
 // 默认工程启动台；点封面进工程详情。保活挂载，⇧⌘0 回来停在离开前那一层。
 // 本文件只留：双视图调度 + state / handlers + 弹窗编排；两个视图与弹窗分别住在 components/。
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Copy, FolderPlus, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, Copy, FolderPlus, MoreHorizontal, Music4, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
+import { createCommunityTransport, hasCommunityNet } from '../../community/electronTransport';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import {
   newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ProjectChart,
@@ -28,7 +29,18 @@ import { showToast } from '../../ui/Toast';
 import { deleteProjectNotice } from './projectFormat';
 import { moveGridSelection } from './projectGridSelection';
 import { Menu } from './components/ProjectBits';
-import { EditInfoDialog, NewProjectDialog, type NewSource } from './components/ProjectDialogs';
+import {
+  EditInfoDialog, NewProjectDialog, type NewSource, type OfficialImportReply,
+} from './components/ProjectDialogs';
+import type { OfficialSongSelection } from './components/OfficialSongPanel';
+import type { CommunityPostSelection } from './components/CommunityPostPanel';
+import { importOfficialSong, officialApplyErrorText, officialErrorText, type OfficialImportStage } from './officialImport';
+import {
+  communityApplyErrorText,
+  communityErrorText,
+  importCommunityPost,
+  type CommunityImportStage,
+} from './communityImport';
 import { ProjectStartView } from './components/ProjectHub';
 import { ProjectDetail } from './components/ProjectDetail';
 import './ProjectsPage.css';
@@ -41,7 +53,9 @@ export default function ProjectsPage() {
   } = useCurrentProject();
   // 启动台排序（issue 19 #4）：跨会话沿用，改一次写回设置对象
   const sortKey = settings.projects.sort;
-  const [projects, setProjects] = useState<ChartProject[]>([]);
+  // `null` = 目录还没读回来（issue 29）：与"一个工程都没有"（`[]`）是两件事，
+  // 混用同一个值会让首帧把"未就绪"渲染成 0 工程空态，列表到达后再闪一下换掉。
+  const [projects, setProjects] = useState<ChartProject[] | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [newSource, setNewSource] = useState<NewSource | null>(null);
   const [editing, setEditing] = useState<ChartProject | null>(null);
@@ -51,6 +65,9 @@ export default function ProjectsPage() {
   const [askDeleteChart, setAskDeleteChart] = useState<{ project: ChartProject; chart: ProjectChart } | null>(null);
   // 视图切换方向（issue 19 #1）：进详情从右滑入、回主页从左滑入；详情内换工程不重放动画（见视图包裹层 key）
   const [navDir, setNavDir] = useState<'forward' | 'back'>('forward');
+  // 社区平台出口（票 07）：静态演示版没有 → 官方 / 社区两支入口整体隐藏（ADR-0011 §1 / 票 12）
+  const communityTransport = useMemo(() => createCommunityTransport(), []);
+  const importSources = hasCommunityNet();
 
   const goDetail = useCallback((id: string) => {
     setNavDir('forward');
@@ -166,8 +183,83 @@ export default function ProjectsPage() {
     await setCurrent(copy.id, copy.charts[0]?.id);
   }, [flushPersist, store, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
+  // 「从官方谱面导入」（票 08 + 14）：素材缓存（音频 / 封面，命中即零网络）→ Apply 闸门（勾了才走）→ 落盘 → 切到新工程详情。
+  // 与另两支同落点（issue 23 #1）：留在工程管理页、新工程成为当前工程、不跳工作台。
+  const importOfficial = useCallback(async (
+    selection: OfficialSongSelection,
+    onStage: (stage: OfficialImportStage) => void,
+  ): Promise<OfficialImportReply> => {
+    await flushPersist();
+    let result: Awaited<ReturnType<typeof importOfficialSong>>;
+    try {
+      result = await importOfficialSong(
+        { store, transport: communityTransport, notifyCatalogChanged, onStage },
+        {
+          song: selection.song,
+          detail: selection.detail,
+          withChart: selection.withChart,
+          diff: selection.diff,
+        },
+      );
+    } catch (error) {
+      return { ok: false, message: officialErrorText(error) };
+    }
+    if (!result.ok) {
+      return {
+        ok: false,
+        message: result.reason === 'apply' ? officialApplyErrorText(result.errors) : officialErrorText(result.error),
+      };
+    }
+    // 票 26：建成了但要说一声 —— 谱面降级 / 封面缺失都走 Toast（弹窗此刻已在关）
+    const warnings: string[] = [];
+    if (result.chartDegraded) warnings.push(t('projects.official.warn.chartFallback'));
+    if (!result.coverImported) warnings.push(t('projects.official.warn.coverMissing'));
+    setNewSource(null);
+    goDetailKeepAnimation(result.project.id);
+    await reload();
+    await setCurrent(result.project.id, result.chartId);
+    if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
+    return { ok: true, warnings };
+  }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
+
+  // 「从社区谱面导入」（票 09）：帖子素材缓存 → 帖子详情（谱面原文，带上谱面时必达）→ Apply 闸门
+  // → 落盘 → 切到新工程详情。落点与官方那支同口径（issue 23 #1）；
+  // 工程名称 / 歌手留空（票 09：不转手别人的谱连名字一起转）；
+  // `withChart` = 预览栏那颗「同步导入谱面」芯片（默认开；关掉 = 只建工程 + 音频 + 封面）。
+  const importCommunity = useCallback(async (
+    selection: CommunityPostSelection,
+    onStage: (stage: CommunityImportStage) => void,
+  ): Promise<OfficialImportReply> => {
+    await flushPersist();
+    let result: Awaited<ReturnType<typeof importCommunityPost>>;
+    try {
+      result = await importCommunityPost(
+        { store, transport: communityTransport, notifyCatalogChanged, onStage },
+        { post: selection.post, song: selection.song, detail: selection.detail, withChart: selection.withChart },
+      );
+    } catch (error) {
+      return { ok: false, message: communityErrorText(error) };
+    }
+    if (!result.ok) {
+      return {
+        ok: false,
+        message: result.reason === 'apply' ? communityApplyErrorText(result.errors) : communityErrorText(result.error),
+      };
+    }
+    const warnings: string[] = [];
+    if (!result.coverImported) warnings.push(t('projects.community.warn.coverMissing'));
+    setNewSource(null);
+    goDetailKeepAnimation(result.project.id);
+    await reload();
+    await setCurrent(result.project.id, result.chartId);
+    if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
+    return { ok: true, warnings };
+  }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
+
   // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）
-  const list = useMemo(() => sortProjects(projects, sortKey, untitledProjectLabel()), [projects, sortKey]);
+  const list = useMemo(() => sortProjects(projects ?? [], sortKey, untitledProjectLabel()), [projects, sortKey]);
+  // 目录就绪 = list() 至少回来过一次（issue 29）：未就绪时不显示空态、也不显示 0 计数
+  const catalogReady = projects !== null;
 
   // 详情页左栏 ↑↓ 翻看（issue 23 #4，2026-09-28 修订）。口径：
   //   - **只翻看**（只切 `detailId`），**永不碰当前工程** —— "把 ↑↓ 接到当前工程上"
@@ -221,6 +313,10 @@ export default function ProjectsPage() {
           onClose={() => setNewSource(null)}
           onCreate={(input) => void createBlank(input)}
           onCopy={(id) => void copyProject(id)}
+          onImportOfficial={importOfficial}
+          onImportCommunity={importCommunity}
+          transport={communityTransport}
+          importSources={importSources}
         />
       )}
       {editing && (
@@ -229,6 +325,10 @@ export default function ProjectsPage() {
           onClose={() => setEditing(null)}
           onSave={(patch) => {
             void mutate(editing.id, (p) => updateProjectInfo(p, patch));
+            setEditing(null);
+          }}
+          onOpenAudio={() => {
+            setActivePage('audio', { scope: { projectId: editing.id } });
             setEditing(null);
           }}
         />
@@ -302,6 +402,12 @@ export default function ProjectsPage() {
       <Menu trigger={<button type="button" className="pp-btn pp-btn--primary pp-split__caret"><ChevronDown size={15} /></button>}>
         <ProjectMenuItem icon={<FolderPlus size={14} />} label={t('projects.newBlank')} onClick={() => setNewSource('blank')} />
         <ProjectMenuItem icon={<Copy size={14} />} label={t('projects.newCopy')} onClick={() => setNewSource('copy')} disabled={list.length === 0} />
+        {importSources && (
+          <>
+            <ProjectMenuItem icon={<Music4 size={14} />} label={t('projects.newOfficial')} onClick={() => setNewSource('official')} />
+            <ProjectMenuItem icon={<Users size={14} />} label={t('projects.newCommunity')} onClick={() => setNewSource('community')} />
+          </>
+        )}
       </Menu>
     </span>
   );
@@ -317,6 +423,7 @@ export default function ProjectsPage() {
   const hub = (
     <ProjectStartView
       list={list}
+      ready={catalogReady}
       currentId={projectId}
       sort={sortKey}
       onSort={setProjectSort}
@@ -324,6 +431,7 @@ export default function ProjectsPage() {
       onOpen={enterWorkspace}
       onNew={setNewSource}
       projectMenu={projectMenu}
+      importSources={importSources}
     />
   );
 

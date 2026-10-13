@@ -2116,9 +2116,27 @@ button.skin-pill {
 }
 .settings-row .slider-control,
 .settings-row .select-control,
+.settings-row .number-control,
 .settings-row .switch,
 .settings-row .inline-actions {
   flex: 0 0 auto;
+}
+
+/* 数字输入（缓存策略这类「一个数」的参数，票 18） */
+.number-control {
+  width: 108px;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-inset);
+  color: var(--text);
+  padding: 0 10px;
+  font-size: var(--text-2xs);
+}
+.number-control:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 /* 滑块（百分比参数） */

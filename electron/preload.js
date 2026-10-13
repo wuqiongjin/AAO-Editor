@@ -21,9 +21,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     preview: {
         saveBinary: (payload) => ipcRenderer.invoke('preview:saveBinary', payload),
     },
-    // issue 117：数据根（不进设置对象）。change = 搬家；claim = 认领已有根。
+    // issue 117 + 19：数据根（不进设置对象）。open = 打开目录；change = 搬家；claim = 认领已有根。
     dataRoot: {
         get: () => ipcRenderer.invoke('dataRoot:get'),
+        open: () => ipcRenderer.invoke('dataRoot:open'),
         change: () => ipcRenderer.invoke('dataRoot:change'),
         claim: () => ipcRenderer.invoke('dataRoot:claim'),
     },
@@ -38,5 +39,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     i18n: {
         setLanguage: (locale) => ipcRenderer.invoke('i18n:setLanguage', locale),
+    },
+    // bestdori-integration 07 + 14：社区平台的唯一网络出口。renderer 只递 URL + 方法 + 载荷，
+    // 主机白名单 / 限流 / Cookie / 素材缓存全在主进程（electron/communityNet.cjs + assetCache.cjs）；
+    // 二进制落素材缓存（<数据根>/cache/community/），只回路径不回字节。
+    // 浏览器侧没有这条桥 = 静态演示版，能力层降级为「平台不可用」。
+    communityNet: {
+        request: (payload) => ipcRenderer.invoke('communityNet:request', payload),
+    },
+    // bestdori-integration 14 + 18：素材缓存的占用查询 / 清除 / 回收策略推送（设置页「存储与数据」用）。
+    // 只有这三条：一条只读统计、一条显式清除、一条策略参数 —— 不暴露缓存内容。
+    assetCache: {
+        stats: () => ipcRenderer.invoke('assetCache:stats'),
+        clear: () => ipcRenderer.invoke('assetCache:clear'),
+        configure: (policy) => ipcRenderer.invoke('assetCache:configure', policy),
     },
 });

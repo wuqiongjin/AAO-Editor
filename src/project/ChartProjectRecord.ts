@@ -39,6 +39,12 @@ export interface ProjectPutWire {
   };
   audio?: Uint8Array;
   cover?: Uint8Array;
+  /**
+   * intent=set 时也可以给「素材缓存里的路径」代替字节（票 08 + 14：官方 / 社区导入的音频与封面
+   * 由主进程从 `<数据根>/cache/community/` 拷进工程目录，字节不过 IPC）。给了它就优先于上面的字节。
+   */
+  audioStagedPath?: string;
+  coverStagedPath?: string;
 }
 
 /** 主进程 → 渲染进程 get 返回（null = 无数据 / 旧 schema） */
@@ -95,7 +101,14 @@ const RECORD_FIELDS = {
     write: (src: RecordFields): string | null => src.artist,
   },
   source: {
-    read: (raw: unknown): SongSource => (raw as SongSource | undefined) ?? { type: 'custom' },
+    read: (raw: unknown): SongSource => {
+      const src = raw as SongSource | undefined;
+      if (!src || typeof src !== 'object') return { type: 'custom' };
+      if (src.type === 'bandori' && typeof (src as { id: unknown }).id === 'number') {
+        return { type: 'bandori', id: (src as { id: number }).id };
+      }
+      return { type: 'custom' };
+    },
     write: (src: RecordFields): SongSource => src.source,
   },
   // 两个数值字段不做兜底：读闸门已把它们当必填（畸形记录过不了闸门，与改前逐条一致）。
