@@ -51,7 +51,7 @@ export function ChartCodeEditorProvider({
   const [target, setTarget] = useState<CodeEditorTarget | null>(null);
   // issue 69：最近一次从画布进入的深层对象（面包屑"回得去"的依据）
   const [trail, setTrail] = useState<NoteCodeTarget | null>(null);
-  // 切工程时重置弹窗状态（issue 166：替代外层 key={projectId} 破坏性整页 remount）
+  // 切工程时重置弹窗状态（issue 169：替代外层 key={projectId} 破坏性整页 remount）
   useEffect(() => {
     setTarget(null);
     setTrail(null);

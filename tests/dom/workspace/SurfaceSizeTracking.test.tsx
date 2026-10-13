@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// issue 166 锁测：
+// issue 169 锁测：
 // 1. ChartCodeEditorProvider 在 projectId 切换时不卸载 children，并重置 modal 状态；
 // 2. useSurfaceSize 在 DOM 节点更替时自动解绑旧节点并监听新节点；
 // 3. useSurfaceSize 在 window resize 时主动触发尺寸同步；
@@ -41,7 +41,7 @@ class MockResizeObserver {
   }
 }
 
-describe('issue 166 · ChartCodeEditorProvider 工程切换与 children 稳定性', () => {
+describe('issue 169 · ChartCodeEditorProvider 工程切换与 children 稳定性', () => {
   it('projectId 变化时重置 target/trail 状态，但保持 children 不被销毁', () => {
     let unmountCount = 0;
     let editorApi: ReturnType<typeof useChartCodeEditor> | null = null;
@@ -85,7 +85,7 @@ describe('issue 166 · ChartCodeEditorProvider 工程切换与 children 稳定�
   });
 });
 
-describe('issue 166 · useSurfaceSize DOM 跟踪与兜底同步', () => {
+describe('issue 169 · useSurfaceSize DOM 跟踪与兜底同步', () => {
   beforeEach(() => {
     MockResizeObserver.instances = [];
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = MockResizeObserver;

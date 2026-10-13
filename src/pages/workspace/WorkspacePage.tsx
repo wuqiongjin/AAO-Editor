@@ -438,7 +438,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // issue 59 §2：弹窗打开态提到 Editor ——「谱面代码」按钮（工具栏）与「音符代码」工具（画布）
     // 共用同一个弹窗组件，故 target 必须挂在两者共同的祖先上。
     // workspaceProject.test.ts 契约：切工程时谱面代码弹窗随当前工程卸载 (key={projectId})
-    // issue 166：useSurfaceSize 现已具备 DOM 替换追踪与 active 校准能力，即便 key remount 亦能平稳追踪尺寸
+    // issue 169：useSurfaceSize 现已具备 DOM 替换追踪与 active 校准能力，即便 key remount 亦能平稳追踪尺寸
     <ChartCodeEditorProvider key={projectId ?? 'none'} projectId={projectId} readOnly={isReadOnly} onReadonlyReject={triggerReadonlyPrompt}>
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
       {/* 左侧工具栏列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}

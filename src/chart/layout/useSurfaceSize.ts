@@ -18,7 +18,7 @@ import { createZoomLiveTracker, type ZoomLiveTracker } from './zoomLiveTracker';
 export interface UseSurfaceSizeOptions extends Omit<SurfaceSizeMergerConfig, 'onCommit'> {
   /** 自定义初始 surface（默认 null——ResizeObserver 尚未回调，组件不渲染） */
   initial?: SurfaceSize;
-  /** 页面激活态（issue 166：false→true 切回工作台时触发一次主动尺寸校准） */
+  /** 页面激活态（issue 169：false→true 切回工作台时触发一次主动尺寸校准） */
   active?: boolean;
 }
 
@@ -87,7 +87,7 @@ export function useSurfaceSize(
   };
 
   // 记录 devicePixelRatio：只在它变化（= 浏览器缩放）时开启实时窗口期；
-  // issue 166 追加：同时作为窗口最大化/还原/拖拽的尺寸同步兜底
+  // issue 169 追加：同时作为窗口最大化/还原/拖拽的尺寸同步兜底
   useEffect(() => {
     const tracker = zoomTrackerRef.current!;
     const onResize = () => {
@@ -99,7 +99,7 @@ export function useSurfaceSize(
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // issue 166：追踪当前绑定的 DOM 节点。React ref 对象引用恒定，若其绑定的 DOM 节点因任何
+  // issue 169：追踪当前绑定的 DOM 节点。React ref 对象引用恒定，若其绑定的 DOM 节点因任何
   // 原因发生更替（如父级 remount），需解绑旧节点并监听新节点，并在接入时主动测量一次当前尺寸。
   const observedElRef = useRef<HTMLElement | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
@@ -136,7 +136,7 @@ export function useSurfaceSize(
     };
   }, []);
 
-  // issue 166：工作台由后台保活切回前台（active: false -> true）时主动校准尺寸
+  // issue 169：工作台由后台保活切回前台（active: false -> true）时主动校准尺寸
   const wasActiveRef = useRef(options.active ?? true);
   useEffect(() => {
     const nowActive = options.active ?? true;

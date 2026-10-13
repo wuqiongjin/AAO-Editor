@@ -44,7 +44,7 @@ export interface UseChartViewSessionOptions {
   engine: AudioEngine | null;
   /** 渲染面测量实时门控（面板过渡 / 拖拽改宽期间逐帧提交，见 useSurfaceSize） */
   live?: () => boolean;
-  /** 页面激活态（issue 166：切回工作台前台时同步尺寸） */
+  /** 页面激活态（issue 169：切回工作台前台时同步尺寸） */
   active?: boolean;
   /** 播放头秒数写回（约 12.5Hz；工作台写 PlaybackContext） */
   onSecondsChange: (sec: number) => void;
