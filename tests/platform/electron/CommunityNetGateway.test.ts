@@ -85,6 +85,20 @@ function fakeTimers() {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** 事件流水里有没有「两条同时在飞」：出现连续两个 start 就是重叠了 */
+function hasOverlap(events: string[]): boolean {
+  let inFlight = 0;
+  for (const event of events) {
+    if (event.startsWith('start:')) {
+      inFlight += 1;
+      if (inFlight > 1) return true;
+    } else {
+      inFlight -= 1;
+    }
+  }
+  return false;
+}
+
 /** 网关 + 假出口；给了 dir 才带素材缓存（不带的用例只测网络语义） */
 function gatewayWith(
   handler: (call: FetchCall) => unknown,
@@ -217,6 +231,8 @@ describe('票 17 · 队列分档：素材档放开并发，API 档不动，且�
   function gatedFetch() {
     const gates: (() => void)[] = [];
     const starts: string[] = [];
+    /** start / end 交织的事件流水：判「首尾相接」用，count 判不出来 */
+    const events: string[] = [];
     let open = false;
     let inFlight = 0;
     let maxInFlight = 0;
@@ -224,6 +240,7 @@ describe('票 17 · 队列分档：素材档放开并发，API 档不动，且�
 
     const impl = async (url: string) => {
       starts.push(url);
+      events.push(`start:${url}`);
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
       if (url.includes('stall')) {
@@ -237,6 +254,7 @@ describe('票 17 · 队列分档：素材档放开并发，API 档不动，且�
         });
       }
       inFlight -= 1;
+      events.push(`end:${url}`);
       return url.includes('/assets/')
         ? response({ bytes: [1, 2], contentType: 'image/png' })
         : response({ body: { result: true } });
@@ -245,6 +263,7 @@ describe('票 17 · 队列分档：素材档放开并发，API 档不动，且�
     return {
       impl,
       starts,
+      events,
       maxInFlight: () => maxInFlight,
       /** 开闸：挂住的与之后来的素材请求都直接放行 */
       openGate: () => {
@@ -295,12 +314,17 @@ describe('票 17 · 队列分档：素材档放开并发，API 档不动，且�
         ctx.gateway.request({ url: `${LIST_URL}?a` }),
         ctx.gateway.request({ url: `${LIST_URL}?b` }),
       ];
-      for (let i = 0; i < 4; i += 1) await tick();
-      expect(ctx.starts).toHaveLength(1);
-      expect(ctx.maxInFlight()).toBe(1);
-
       await Promise.all(pending);
+
+      // 单飞 = 任何时刻只有一条在飞（事件流水里不出现连续两个 start）。
+      //
+      // 不写「推进 N 轮 tick 时只起了 1 条」，也不写「a 一定排在 b 前面」——
+      // 两者都取决于真实磁盘 I/O：request() 进队列前要先 await readCache()（真 fs 读），
+      // send() 收尾还要 await storeText()（真 fs 写），落地快慢与 a/b 谁先入队
+      // 都随机器 / 磁盘 / 平台变。07 口径的不变量是「不重叠」，不是「起得慢」也不是「按序」。
+      expect(hasOverlap(ctx.events)).toBe(false);
       expect(ctx.starts).toHaveLength(2);
+      expect(ctx.maxInFlight()).toBe(1);
     });
   });
 
