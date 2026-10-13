@@ -74,10 +74,20 @@ function pageKey(query: string, offset: number): string {
   return `${query}\u0000${offset}`;
 }
 
-/** 测试与「刷新」用：清掉会话内页缓存 */
+/**
+ * 会话内 **id 直查缓存**（key = 查询词，票 32 定案）：命中过的那条留着，
+ * 翻页 / 重开弹窗 / 改完筛选再搜同一个数字都不再打 `post/details`。
+ * 只缓存**命中**：不存在 / 网络失败不落进来（下一次照样能问到）。
+ */
+const idLookupCache = new Map<string, PostCandidate>();
+const idLookupInflight = new Map<string, Promise<PostCandidate | null>>();
+
+/** 测试与「刷新」用：清掉会话内页缓存（含 id 直查缓存） */
 export function clearPostPageCache(): void {
   pageCache.clear();
   pageInflight.clear();
+  idLookupCache.clear();
+  idLookupInflight.clear();
 }
 
 /** POST post/list 单页原语（列表 / 搜索 / 分页都走它）：会话内缓存 + inflight 去重 */
@@ -129,6 +139,73 @@ export async function fetchPostPage(
 
   pageInflight.set(key, promise);
   return promise;
+}
+
+/* ---------------- id 搜索（票 32 定案） ----------------
+ * 用户 2026-10-13 口径：输入纯数字时**并发两路** —— ①服务端 `search=<数字>`（既有路径，
+ * 平台上确实有把数字当关键词的帖）；②`GET /post/details?id=<数字>` 直查（一跳直达，但语义是「跳转」）。
+ * 合并规则：直查命中置顶优先、两路按 postId 去重、直查失败（不存在 / 形态不对 / 网络）静默忽略，只留搜索结果。
+ * ---------------------------------------------------- */
+
+/** 纯数字查询 → 帖 id；不是纯数字 / 超出安全整数 / 0 都回 null（不是一次 id 查询） */
+export function numericPostIdQuery(query: string): number | null {
+  const trimmed = query.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const id = Number(trimmed);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * 直查一条帖（票 32）：命中回候选，任何失败回 **null**（静默 —— 这条是「加分项」，
+ * 它抖一下不该把搜索结果整屏打翻）。命中结果进会话内缓存（key = **trim 后**的查询词：面板传进来
+ * 的查询词本来就是 trim 过的，这里再 trim 一次是为了别让「248468」和「 248468 」各占一份缓存）。
+ */
+export function fetchPostIdLookup(
+  transport: CommunityTransport,
+  query: string,
+): Promise<PostCandidate | null> {
+  const postId = numericPostIdQuery(query);
+  if (postId == null) return Promise.resolve(null);
+  const key = query.trim();
+  const cached = idLookupCache.get(key);
+  if (cached) return Promise.resolve(cached);
+  const inflight = idLookupInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = fetchPostDetail(transport, postId)
+    .then((detail) => {
+      idLookupCache.set(key, detail.post);
+      return detail.post;
+    })
+    .catch(() => null)
+    .finally(() => {
+      if (idLookupInflight.get(key) === promise) idLookupInflight.delete(key);
+    });
+  idLookupInflight.set(key, promise);
+  return promise;
+}
+
+/** 直查命中与搜索页合并：命中那条置顶、按 postId 去重（票 32 合并规则） */
+export function mergeIdLookupHit(hit: PostCandidate | null, page: PostPage): PostPage {
+  if (hit == null) return page;
+  return { ...page, posts: [hit, ...page.posts.filter((post) => post.postId !== hit.postId)] };
+}
+
+/**
+ * 搜索用的一页（票 32）：**首页**且查询是纯数字时并发「服务端 search + id 直查」并按上面的规则合并；
+ * 其余情况就是 `fetchPostPage`（直查那一路回 null，零额外请求）。
+ * 直查只挂在首页（`offset === 0`）：它是「跳转」语义，深页是同一段搜索的翻页，不该每翻一页重问一次；
+ * `total` / `rawCount` 也仍取搜索那一路 —— 直查命中不在服务端序列里，翻页游标不该被它带偏。
+ */
+export async function fetchPostSearchPage(
+  transport: CommunityTransport,
+  opts: PostPageQuery,
+): Promise<PostPage> {
+  const [hit, page] = await Promise.all([
+    opts.offset === 0 ? fetchPostIdLookup(transport, opts.query) : Promise.resolve(null),
+    fetchPostPage(transport, opts),
+  ]);
+  return mergeIdLookupHit(hit, page);
 }
 
 /** 帖子详情：候选 + 谱面代码原文（选中导入时才拉） */

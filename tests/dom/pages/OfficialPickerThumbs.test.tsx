@@ -18,7 +18,7 @@ import { clearSongCatalogCache } from '@/src/community/bestdori/songs';
 import { ASSET_SCHEME, ASSET_THUMB_HOST } from '@/src/community/assetUrls';
 import { installIntersectionObserverStub } from '@/tests/support/intersection';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
-import { seedZhSettings } from '@/tests/support/storage';
+import { seedZhSettings, SETTINGS_KEY } from '@/tests/support/storage';
 
 const SONG_TITLE = 'BLACK SHOUT';
 const SONG_ARTIST = 'Roselia';
@@ -41,7 +41,8 @@ const SONGS_INDEX = {
     bandId: 1,
     jacketImage: [],
     musicTitle: [NO_JACKET_TITLE, NO_JACKET_TITLE, NO_JACKET_TITLE, NO_JACKET_TITLE],
-    publishedAt: ['1462071600000', '1462104000000', null, null],
+    // 票 31 排序用例：这首比 song 29 早发布，所以「发布时间降序」下 29 在前、id 升序下 5 在前
+    publishedAt: ['1442071600000', '1442104000000', null, null],
     difficulty: { 3: { playLevel: 25 } },
   },
 };
@@ -113,6 +114,12 @@ function binaryUrls(request: ReturnType<typeof vi.fn>): string[] {
 /** 本机缩略图的 URL（行的第一优先） */
 function localThumbUrl(): string {
   return `${ASSET_SCHEME}://${ASSET_THUMB_HOST}/?url=${encodeURIComponent(JACKET_URL)}`;
+}
+
+/** 列表**行**的 id 小字，按 DOM 顺序（只取 .off-list 里的行 —— 下拉的 <option> 也是 role=option） */
+function rowIds(dialog: HTMLElement): (string | null | undefined)[] {
+  return Array.from(dialog.querySelectorAll<HTMLElement>('.off-list [role="option"]'))
+    .map((row) => row.querySelector('.off-row__id')?.textContent);
 }
 
 let request: ReturnType<typeof vi.fn>;
@@ -245,5 +252,87 @@ describe('票 15 + 17 · 选曲目录的行内缩略图', () => {
 
     await waitFor(() => expect(row.querySelector('img')).not.toBeNull(), { timeout: 3000 });
     await waitFor(() => expect(binaryUrls(request)).toEqual([JACKET_URL]), { timeout: 3000 });
+  });
+});
+
+describe('票 31 + 33 · 排序控件与曲库 ID', () => {
+  it('票 33：曲库 id 只放列表行（预览栏不再重复一遍）', async () => {
+    const dialog = await openOfficialTab();
+    const row = within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) });
+
+    expect(row.querySelector('.off-row__id')?.textContent).toBe('#29');
+
+    fireEvent.click(row);
+    await waitFor(() => expect(document.querySelector('.off-preview__title')?.textContent).toBe(SONG_TITLE));
+    // 验收回修：预览栏那行 ID 撤了（列表就在左边，重复）
+    expect(document.querySelector('.off-preview__id')).toBeNull();
+    expect(document.querySelector('.off-preview')?.textContent).not.toContain('曲库 ID');
+  });
+
+  it('票 31：默认发布时间降序；换键 / 换方向都改列表顺序，pill 上写着当前状态', async () => {
+    const dialog = await openOfficialTab();
+    // song 29 的日服发布时间比 song 5 晚 → 最新在前
+    expect(rowIds(dialog)).toEqual(['#29', '#5']);
+    const pill = within(dialog).getByRole('button', { name: /排序：发布时间 降序/ });
+
+    fireEvent.click(pill);
+    // 四把键 + 升 / 降序都在
+    for (const name of ['发布时间', '曲库 ID', '曲名', '乐队', '升序', '降序']) {
+      expect(within(dialog).getByRole('button', { name })).toBeInTheDocument();
+    }
+
+    // 换键 = 采用该键的自然方向（曲库 ID 升序 → 5 在前）
+    fireEvent.click(within(dialog).getByRole('button', { name: '曲库 ID' }));
+    expect(rowIds(dialog)).toEqual(['#5', '#29']);
+    expect(within(dialog).getByRole('button', { name: /排序：曲库 ID 升序/ })).toBeInTheDocument();
+
+    // 同一把键换方向：降序 → 29 在前
+    fireEvent.click(within(dialog).getByRole('button', { name: '降序' }));
+    expect(rowIds(dialog)).toEqual(['#29', '#5']);
+    expect(within(dialog).getByRole('button', { name: /排序：曲库 ID 降序/ })).toBeInTheDocument();
+
+    // 升序 chip 是「已选中」态，降序不是（aria-pressed 给读屏与测试同一个事实）
+    expect(within(dialog).getByRole('button', { name: '升序' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).getByRole('button', { name: '降序' })).toHaveAttribute('aria-pressed', 'true');
+
+    // 落 settings（票 31 验收回修：排序的设置要保存）—— 面板里改一次就写回 localStorage
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
+    expect(saved.projects.songSort).toEqual({ key: 'id', dir: 'desc' });
+  });
+
+  it('票 31：面板开门就用上次存的键与方向（跨会话记住）', async () => {
+    // 故意选一个与默认（发布时间降序 → 29 在前）**顺序不同**的档：id 升序 → 5 在前
+    seedZhSettings({ projects: { songSort: { key: 'id', dir: 'asc' } } });
+
+    const dialog = await openOfficialTab();
+
+    expect(within(dialog).getByRole('button', { name: /排序：曲库 ID 升序/ })).toBeInTheDocument();
+    expect(rowIds(dialog)).toEqual(['#5', '#29']);
+  });
+
+  it('票 31：筛选与排序两排芯片互斥（同一块地方，一起开会叠成两段）', async () => {
+    const dialog = await openOfficialTab();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /^排序/ }));
+    expect(within(dialog).getByRole('button', { name: '曲名' })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '筛选' }));
+    expect(within(dialog).queryByRole('button', { name: '曲名' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'SP' })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /^排序/ }));
+    expect(within(dialog).queryByRole('button', { name: 'SP' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: '曲名' })).toBeInTheDocument();
+  });
+
+  it('票 33：纯数字查询按曲库 id 命中（本地过滤，零额外网络）', async () => {
+    const dialog = await openOfficialTab();
+    const search = within(dialog).getByPlaceholderText('搜索曲名、乐队或曲库 ID');
+    const jsonCallsBefore = request.mock.calls.length;
+
+    fireEvent.change(search, { target: { value: '5' } });
+
+    expect(rowIds(dialog)).toEqual(['#5']);
+    expect(request.mock.calls.length).toBe(jsonCallsBefore);
   });
 });

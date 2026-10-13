@@ -7,6 +7,7 @@
 // - 旧版 schema（仅有 {schemaVersion, audio.keySet}）已包含 audio 段，load 时按字段合并。
 import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutConfig';
 import { normalizeProjectSortKey, type ProjectSortKey } from '../../project/projectSort';
+import { normalizeSongSort, SONG_SORT_DEFAULT, type SongSort } from '../../community/bestdori/songs';
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../audio/KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../rendering/skin/gen/noteSkinRegistry.gen';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
@@ -114,13 +115,16 @@ export interface AppSettings {
    */
   curve: CurveConfig;
   /**
-   * 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28）。
+   * 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28
+   * ；官方选曲面板排序 票 31）。
    * additive 字段，不 bump schemaVersion。
    */
   projects: {
     sort: ProjectSortKey;
     /** 同步导入谱面代码（票 28 定案 2026-10-12：跨官方/社区共用，默认 true） */
     importWithChart: boolean;
+    /** 官方选曲面板的列表排序（票 31 验收回修 2026-10-13：要跨会话记住，默认发布时间降序） */
+    songSort: SongSort;
   };
   /**
    * 预览标注（chart-preview 08 定案 2026-09-30）：预览页的「看谱方式」，跨会话记住。
@@ -349,7 +353,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
-    projects: { sort: 'lastOpened', importWithChart: true },
+    projects: { sort: 'lastOpened', importWithChart: true, songSort: { ...SONG_SORT_DEFAULT } },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
     export: { ...DEFAULT_EXPORT_FIELDS },
     cachePolicy: { ...DEFAULT_CACHE_POLICY },
@@ -436,12 +440,13 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
-    // 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28）
+    // 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28；官方选曲面板排序 票 31）
     projects: {
       sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort),
       importWithChart: typeof projects.importWithChart === 'boolean'
         ? projects.importWithChart
         : defaults.projects.importWithChart,
+      songSort: normalizeSongSort(projects.songSort, defaults.projects.songSort),
     },
     // 预览标注（chart-preview 08）：枚举白名单归一化，缺字段 → 默认精简档
     preview: {

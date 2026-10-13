@@ -120,13 +120,15 @@ describe('票 28 · 工程管理页面文案整改与去冗余', () => {
     expect(zh['projects.newCommunityDesc']).toBe('从游戏社区中选曲，并同步导入音频与封面');
   });
 
-  it('两支选曲的搜索框 placeholder 匹配领域事实（标题 + 歌手 / 乐队）', () => {
+  it('两支选曲的搜索框 placeholder 匹配领域事实（标题 + 歌手 / 乐队 + ID）', () => {
     const zh = messages('src/i18n/messages/zh-CN.json');
     const en = messages('src/i18n/messages/en.json');
-    // 搜索同时命中标题与乐队 / 歌手（实测：官方走乐队索引，社区帖走 post.artists）
-    expect(zh['projects.official.searchPlaceholder']).toBe('搜索歌曲标题或乐队');
-    expect(en['projects.official.searchPlaceholder']).toBe('Search song titles or bands');
-    expect(zh['projects.community.searchPlaceholder']).toBe('搜索歌曲标题');
+    // 搜索命中标题与乐队 / 歌手（实测：官方走乐队索引，社区帖走 post.artists）；
+    // 票 32/33 起纯数字还按 id 搜（官方 songId 本地匹配、社区 postId 走详情直查）→ placeholder 一并说清
+    expect(zh['projects.official.searchPlaceholder']).toBe('搜索曲名、乐队或曲库 ID');
+    expect(en['projects.official.searchPlaceholder']).toBe('Search song titles, bands, or catalog IDs');
+    expect(zh['projects.community.searchPlaceholder']).toBe('搜索歌曲标题或帖 ID');
+    expect(en['projects.community.searchPlaceholder']).toBe('Search song titles or post IDs');
   });
 
   it('上传记录空态与删除提示去 Bestdori 化', () => {

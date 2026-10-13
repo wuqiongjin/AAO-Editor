@@ -2,8 +2,14 @@
 // 预览在左、目录在右；筛选手风琴；封面占位淡入；同步导入走同一排芯片。
 // 预览素材本机优先（票 16）：封面大图 / 试听音频先读素材缓存（aao-asset://raw/），
 // 未缓存协议 404 才落回直链 —— 已导入过的歌再次预览与导入都零网络。
+//
+// 票 31 排序：搜索框那排一颗状态 pill（当前排序键 + 方向箭头），点开在下方出一排芯片
+// （4 键 + 升 / 降序）—— 与左侧「筛选」同形。原生 <select> 的 OS 弹层与这排 pill 不是一套
+// 语言，验收已否掉（见 select 版截图）。排序状态**落 settings.projects.songSort**（跨会话记住）。
+// 票 33 id 搜索与展示：纯数字查询按 songId 前缀命中且命中行置顶（零网络）；
+// **列表行常驻 `#id`**（多结果时用来辨别目标；预览栏不放 —— 列表就在旁边，重复了）。
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { AlertTriangle, ListFilter, Music4, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ListFilter, Music4, RefreshCw, X } from 'lucide-react';
 import { useConfig } from '../../../app/providers/ConfigProvider';
 import {
   OFFICIAL_DIFFICULTIES,
@@ -25,8 +31,12 @@ import {
   filterSongCandidates,
   jacketLocalUrl,
   jacketPreviewUrl,
+  promoteIdMatches,
   refreshSongCatalog,
   SONG_LEVEL_FILTER_DEFAULT,
+  SONG_SORT_KEYS,
+  SONG_SORT_NATURAL_DIR,
+  sortSongCandidates,
 } from '../../../community/bestdori/songs';
 import { createCommunityTransport } from '../../../community/electronTransport';
 import type { CommunityTransport } from '../../../community/transport';
@@ -52,6 +62,20 @@ function chipLabel(diff: OfficialDifficulty, level: number, picked: boolean): st
   return picked ? `✓ ${short} ${level}` : `${short} ${level}`;
 }
 
+/** 排序键 → 文案键（与 songs.SONG_SORT_KEYS 一一对应，`as const` 让每个值都能过 t 的键类型） */
+const SORT_LABEL_KEY = {
+  publishedAt: 'projects.songSort.publishedAt',
+  id: 'projects.songSort.id',
+  title: 'projects.songSort.title',
+  artist: 'projects.songSort.artist',
+} as const;
+
+/** 方向 → 文案键（芯片上写全「升序 / 降序」，pill 上只用箭头） */
+const SORT_DIR_LABEL_KEY = {
+  asc: 'projects.songSort.dir.asc',
+  desc: 'projects.songSort.dir.desc',
+} as const;
+
 export function OfficialSongPanel({
   selection,
   onSelectionChange,
@@ -65,7 +89,7 @@ export function OfficialSongPanel({
   const net = useMemo(() => transport ?? createCommunityTransport(), [transport]);
   // 票 22：本面板就是「预览播放器」，试听音量跟随 settings.audio.volume（chart-preview 20 同口径）
   // 票 28：「同步导入谱面」跨官方/社区共用偏好 settings.projects.importWithChart
-  const { settings, setAudioVolume, setImportWithChart } = useConfig();
+  const { settings, setAudioVolume, setImportWithChart, setSongSort } = useConfig();
   const [catalog, setCatalog] = useState<SongCandidate[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -74,6 +98,7 @@ export function OfficialSongPanel({
   const [lvMin, setLvMin] = useState<number>(SONG_LEVEL_FILTER_DEFAULT.min);
   const [lvMax, setLvMax] = useState<number>(SONG_LEVEL_FILTER_DEFAULT.max);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const [selected, setSelected] = useState<SongCandidate | null>(null);
   /** 票 21：预览栏展没展开。与 `selected` 分开 —— 收起只是关窗，内容留着（收起动画才滑得起来） */
   const [expanded, setExpanded] = useState(false);
@@ -88,6 +113,11 @@ export function OfficialSongPanel({
   /** 票 24：封面重试 nonce —— 失败态重试时强制重挂 `<img>`，让「本机优先 → 直链」降级链重走一遍 */
   const [coverNonce, setCoverNonce] = useState(0);
   const withChart = settings.projects.importWithChart;
+  /**
+   * 票 31 排序 = 键 + 方向，**落 settings**（验收回修：要跨会话记住）。点键 = 采用该键的自然方向
+   * （换到「曲名」就该 A→Z，而不是沿用上一把键的降序），之后再点升序 / 降序覆盖它。
+   */
+  const { key: songSort, dir: songSortDir } = settings.projects.songSort;
   const [diff, setDiff] = useState<OfficialDifficulty>(selection?.diff ?? 'expert');
   const [retrying, setRetrying] = useState(false);
 
@@ -194,10 +224,13 @@ export function OfficialSongPanel({
   }, [selected, detail, expanded, withChart, diff, onSelectionChange]);
 
   const bands = useMemo(() => (catalog == null ? [] : catalogBandOptions(catalog)), [catalog]);
-  const filtered = useMemo(
-    () => (catalog == null ? [] : filterSongCandidates(catalog, { query, bandId, difficulty: needDiff, levelMin: lvMin, levelMax: lvMax })),
-    [catalog, query, bandId, needDiff, lvMin, lvMax],
-  );
+  // 两层：票 31 排序（哪些键、什么方向由比较器定）→ 票 33 把 id 命中的挑到最前。
+  // 顺序不能反：id 置顶是「搜索语境」的排序覆盖，不能被用户选的排序键打散。
+  const filtered = useMemo(() => {
+    if (catalog == null) return [];
+    const matched = filterSongCandidates(catalog, { query, bandId, difficulty: needDiff, levelMin: lvMin, levelMax: lvMax });
+    return promoteIdMatches(sortSongCandidates(matched, songSort, songSortDir), query);
+  }, [catalog, query, bandId, needDiff, lvMin, lvMax, songSort, songSortDir]);
 
   const clearFilters = () => {
     setBandId(null);
@@ -257,7 +290,10 @@ export function OfficialSongPanel({
             className={`off-filter-btn${filterOpen ? ' is-on' : ''}${filterActive ? ' is-set' : ''}`}
             aria-expanded={filterOpen}
             aria-label={t('projects.official.filter')}
-            onClick={() => setFilterOpen((open) => !open)}
+            onClick={() => {
+              setFilterOpen((open) => !open);
+              setSortOpen(false); // 两排芯片不同时摊开（同一块地方，一起开会叠成两段）
+            }}
           >
             <ListFilter size={14} />
             {filterActive ? filterSummary : t('projects.official.filter')}
@@ -272,6 +308,26 @@ export function OfficialSongPanel({
               <X size={12} />
             </button>
           )}
+        </div>
+        {/* 票 31：排序 = 状态 pill（当前键 + 方向箭头）+ 点开的一排芯片。曲库全量在内存，纯客户端零网络 */}
+        <div className="off-sort-wrap">
+          <button
+            type="button"
+            className={`off-sort-btn${sortOpen ? ' is-on' : ''}`}
+            aria-expanded={sortOpen}
+            // 图标就是方向（↓ 降 / ↑ 升），不再叠一枚通用排序图标 —— pill 上两枚箭头看着冗余
+            aria-label={`${t('projects.sortBy')}：${t(SORT_LABEL_KEY[songSort])} ${t(SORT_DIR_LABEL_KEY[songSortDir])}`}
+            title={`${t('projects.sortBy')}：${t(SORT_LABEL_KEY[songSort])} ${t(SORT_DIR_LABEL_KEY[songSortDir])}`}
+            onClick={() => {
+              setSortOpen((open) => !open);
+              setFilterOpen(false);
+            }}
+          >
+            {songSortDir === 'desc'
+              ? <ArrowDown size={14} aria-hidden />
+              : <ArrowUp size={14} aria-hidden />}
+            {t(SORT_LABEL_KEY[songSort])}
+          </button>
         </div>
         {catalog != null && (
           <span className="pp-muted off-count">{t('projects.official.count', { n: filtered.length })}</span>
@@ -298,7 +354,7 @@ export function OfficialSongPanel({
               <button
                 key={id}
                 type="button"
-                className={needDiff === id ? 'is-on' : ''}
+                className={`off-chip${needDiff === id ? ' is-on' : ''}`}
                 style={{ '--chip': DIFF_COLORS[officialDiffIndex(id)] } as CSSProperties}
                 onClick={() => setNeedDiff((current) => (current === id ? null : id))}
               >
@@ -317,6 +373,40 @@ export function OfficialSongPanel({
               {t('projects.official.filterClear')}
             </button>
           )}
+        </div>
+      )}
+
+      {sortOpen && (
+        // 与筛选那一排同形、同位置（都贴在 bar 下面），点键 = 采用该键的自然方向
+        <div className="off-sorts">
+          <span className="pp-muted">{t('projects.sortBy')}</span>
+          <div className="off-sorts__group" role="group" aria-label={t('projects.sortBy')}>
+            {SONG_SORT_KEYS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={`off-chip${songSort === key ? ' is-on' : ''}`}
+                aria-pressed={songSort === key}
+                onClick={() => setSongSort({ key, dir: SONG_SORT_NATURAL_DIR[key] })}
+              >
+                {t(SORT_LABEL_KEY[key])}
+              </button>
+            ))}
+          </div>
+          <div className="off-sorts__group" role="group" aria-label={t('projects.songSort.dirAria')}>
+            {(['asc', 'desc'] as const).map((dir) => (
+              <button
+                key={dir}
+                type="button"
+                className={`off-chip${songSortDir === dir ? ' is-on' : ''}`}
+                aria-pressed={songSortDir === dir}
+                onClick={() => setSongSort({ key: songSort, dir })}
+              >
+                {dir === 'desc' ? <ArrowDown size={12} aria-hidden /> : <ArrowUp size={12} aria-hidden />}
+                {t(SORT_DIR_LABEL_KEY[dir])}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -466,6 +556,9 @@ export function OfficialSongPanel({
                       <span className="off-row__title">{song.title}</span>
                       <span className="off-row__artist pp-muted">{song.artist || t('projects.artistMissing')}</span>
                     </span>
+                    {/* 票 33：曲库 id 常驻（右列小字，与难度芯片并排；不进 .off-row__levels ——
+                        那条规则会给里面每个 span 套边框，id 会变成第二枚徽章） */}
+                    <span className="off-row__id pp-muted" title={t('projects.official.idLabel')}>#{song.id}</span>
                     <span className="off-row__levels">
                       {song.difficulties.map((entry) => (
                         <span key={entry.diff} style={{ borderColor: DIFF_COLORS[officialDiffIndex(entry.diff)] }}>

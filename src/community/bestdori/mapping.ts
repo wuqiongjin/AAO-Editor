@@ -55,6 +55,11 @@ export interface SongCandidate {
   server: OfficialAssetServer;
   /** 已实装难度，按 0..4 序 */
   difficulties: SongDifficultyCandidate[];
+  /**
+   * 最早发布时间（ms epoch）；各服都没有记录时为 null（票 31 排序用）。
+   * 与 `server` 是两个问题：`server` 是「哪一服有素材」，这里是「什么时候上的」。
+   */
+  publishedAt: number | null;
 }
 
 /** 这首歌某个难度的官方等级；没实装就是 null（界面按「未实装」显示） */
@@ -109,6 +114,24 @@ export function pickAssetServer(publishedAt: unknown): OfficialAssetServer {
   return DEFAULT_ASSET_SERVER;
 }
 
+/**
+ * 各服发布记录 → **最早**发布时间（ms epoch，票 31）。
+ * 空 / 坏值（非数字串、0、负数）一律跳过 —— 平台上「没在这服上」写的是 null/0/空串，
+ * 一个有效值都没有才是 null（界面按「发布时间未知」排序，见 songs.sortSongCandidates）。
+ */
+export function earliestPublishedAt(raw: unknown): number | null {
+  if (!Array.isArray(raw)) return null;
+  let earliest: number | null = null;
+  for (const value of raw) {
+    const at = typeof value === 'number'
+      ? value
+      : (typeof value === 'string' ? Number(value.trim()) : Number.NaN);
+    if (!Number.isFinite(at) || at <= 0) continue;
+    if (earliest == null || at < earliest) earliest = at;
+  }
+  return earliest;
+}
+
 /** `difficulty` 映射：出现的键即已实装；`playLevel` 不是有限数的那条也不产出 */
 export function toSongDifficulties(raw: unknown): SongDifficultyCandidate[] {
   if (!isPlainObject(raw)) return [];
@@ -157,6 +180,7 @@ export function toSongCandidate(
     jacketImage,
     server: pickAssetServer(entry.publishedAt),
     difficulties: toSongDifficulties(entry.difficulty),
+    publishedAt: earliestPublishedAt(entry.publishedAt),
   };
 }
 

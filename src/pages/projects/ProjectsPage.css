@@ -290,6 +290,23 @@
   font-size: var(--text-sm);
 }
 .off-search:focus { outline: none; border-color: var(--accent); }
+/* 排序（票 31）：状态 pill（当前键 + 方向箭头），点开在 bar 下方出一排芯片。
+   与左侧「筛选」同形 —— 原生 <select> 的 OS 弹层跟这排 pill 不是一套语言（验收已否掉）。 */
+.off-sort-wrap { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.off-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.off-sort-btn.is-on { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); }
 .off-count { font-size: var(--text-xs); white-space: nowrap; }
 /* 主动刷新（票 09）：与搜索框同高的图标钮；拉取中转一圈（keyframes 见 .off-cover__spin） */
 .off-refresh {
@@ -358,7 +375,11 @@
 }
 .off-filters input[type='number'] { width: 52px; }
 .off-filters__diffs { display: inline-flex; gap: 4px; }
-.off-filters__diffs button {
+/* 选曲面板的小芯片：难度筛选 / 排序键 / 排序方向共用这一枚语言（`--chip` 给难度上色） */
+.off-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   height: 26px;
   padding: 0 8px;
   border: 1px solid var(--border);
@@ -368,12 +389,22 @@
   font: inherit;
   cursor: pointer;
 }
-.off-filters__diffs button.is-on {
+.off-chip.is-on {
   border-color: var(--chip, var(--accent));
   background: color-mix(in srgb, var(--chip, var(--accent)) 16%, var(--bg-elevated));
   color: var(--text);
   font-weight: 600;
 }
+/* 排序那一排：与 .off-filters 同形、同位置（都贴在 bar 下面），两排不会同时摊开 */
+.off-sorts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.off-sorts__group { display: inline-flex; align-items: center; gap: 4px; }
 .off-filters__clear {
   height: 26px;
   padding: 0 10px;
@@ -488,6 +519,13 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* 行内 ID（票 32 帖 id / 票 33 曲库 id）：与日期同一档的右列小字，同样不进 .off-row__levels */
+.off-row__id {
+  flex: 0 0 auto;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .off-preview {
   /* 票 21 手风琴：这一层是**裁切窗口** —— 宽度就是首列轨道宽（跟着动画走），
      `overflow: hidden` 在它自己的盒子边界裁切，所以内层溢出多少都压不到列表上 */
@@ -598,6 +636,8 @@
 .off-preview__title { font-size: var(--text-sm); overflow-wrap: anywhere; text-align: center; }
 /* 票 23：歌手行随封面整摞居中 */
 .off-preview__artist { text-align: center; }
+/* 预览栏不再放 ID 行（验收回修）：列表行已经在说 ID（票 32/33），而列表就贴在预览栏左边 —— 重复 */
+
 .off-preview__levels { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .off-preview__levels button {
   padding: 3px 8px;

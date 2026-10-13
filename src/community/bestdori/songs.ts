@@ -311,11 +311,21 @@ export interface SongCatalogFilter {
 /** 筛选条默认等级窗；填了别的才算「等级筛选生效」（摘要 / 清除点） */
 export const SONG_LEVEL_FILTER_DEFAULT = { min: 1, max: 35 } as const;
 
+/**
+ * 纯数字查询串（trim 后全是数字）—— 票 33 的「按曲库 id 搜」开关。
+ * 返回 null 表示这不是一次 id 查询（按曲名 / 乐队照常走）。
+ */
+function digitQuery(query: string): string | null {
+  const trimmed = query.trim();
+  return /^\d+$/.test(trimmed) ? trimmed : null;
+}
+
 export function filterSongCandidates(
   candidates: readonly SongCandidate[],
   filter: SongCatalogFilter,
 ): SongCandidate[] {
   const needle = (filter.query ?? '').trim().toLowerCase();
+  const idNeedle = digitQuery(filter.query ?? '');
   const hasLo = typeof filter.levelMin === 'number' && Number.isFinite(filter.levelMin);
   const hasHi = typeof filter.levelMax === 'number' && Number.isFinite(filter.levelMax);
   const lo = hasLo || hasHi
@@ -327,8 +337,12 @@ export function filterSongCandidates(
   const needDiff = filter.difficulty ?? null;
   const bandId = filter.bandId ?? null;
   return candidates.filter((song) => {
-    if (needle !== '' && !song.title.toLowerCase().includes(needle) && !song.artist.toLowerCase().includes(needle)) {
-      return false;
+    if (needle !== '') {
+      const hitTitle = song.title.toLowerCase().includes(needle);
+      const hitArtist = song.artist.toLowerCase().includes(needle);
+      // 票 33：纯数字查询同时按曲库 id 匹配（曲库全量在内存，这一步零网络成本）
+      const hitId = idNeedle != null && String(song.id).startsWith(idNeedle);
+      if (!hitTitle && !hitArtist && !hitId) return false;
     }
     if (bandId != null && song.bandId !== bandId) return false;
     const pool = needDiff ? song.difficulties.filter((entry) => entry.diff === needDiff) : song.difficulties;
@@ -336,6 +350,116 @@ export function filterSongCandidates(
     if (lo != null && hi != null && !pool.some((entry) => entry.level >= lo && entry.level <= hi)) return false;
     return true;
   });
+}
+
+/**
+ * 票 33：纯数字查询下，曲库 id 命中的那几首**置顶**（精确命中的最前，其余前缀命中按 id 升序），
+ * 其余保持传入顺序（= 当前排序）。非数字查询、或没有 id 命中时**顺序不动**。
+ * 一律返回新数组、不动入参（与 sortSongCandidates 同约定：面板里这些都是 useMemo 的派生值）。
+ * 为什么不在 filter 里做：过滤不该改顺序 —— 「哪些留下」与「怎么排」是两件事（票 31 的排序在中间那层）。
+ */
+export function promoteIdMatches<T extends SongCandidate>(songs: readonly T[], query: string): T[] {
+  const needle = digitQuery(query);
+  if (needle == null) return [...songs];
+  const exact: T[] = [];
+  const prefixed: T[] = [];
+  const rest: T[] = [];
+  for (const song of songs) {
+    const id = String(song.id);
+    if (id === needle) exact.push(song);
+    else if (id.startsWith(needle)) prefixed.push(song);
+    else rest.push(song);
+  }
+  if (exact.length === 0 && prefixed.length === 0) return [...songs];
+  prefixed.sort((a, b) => a.id - b.id);
+  return [...exact, ...prefixed, ...rest];
+}
+
+/* ---------------- 排序（票 31） ----------------
+ * 与工程启动台（projectSort.ts）同一套写法：键白名单 + 比较器 + id 兜底。
+ * 比启动台多一个轴：**方向可切**（验收回修：用户要升序 / 降序）。每个键有自己的「自然方向」——
+ * 发布时间新在前（降序）、其余小→大 / A→Z（升序）；不传方向就按该键的自然方向排。
+ * 默认 = 发布时间降序（最新在最上）—— 用户 2026-10-13 拍板。
+ * -------------------------------------------------- */
+
+export type SongSortKey = 'publishedAt' | 'id' | 'title' | 'artist';
+
+export type SongSortDirection = 'asc' | 'desc';
+
+export const SONG_SORT_KEYS: readonly SongSortKey[] = ['publishedAt', 'id', 'title', 'artist'];
+
+/**
+ * 各键的自然方向：切键时用（换到「曲名」就该是 A→Z，而不是沿用上一把键的降序）。
+ * 面板点键 = 采用这里的值，之后再点升序 / 降序覆盖它。
+ */
+export const SONG_SORT_NATURAL_DIR: Record<SongSortKey, SongSortDirection> = {
+  publishedAt: 'desc',
+  id: 'asc',
+  title: 'asc',
+  artist: 'asc',
+};
+
+export const DEFAULT_SONG_SORT_KEY: SongSortKey = 'publishedAt';
+
+export const DEFAULT_SONG_SORT_DIRECTION: SongSortDirection = SONG_SORT_NATURAL_DIR[DEFAULT_SONG_SORT_KEY];
+
+/** 排序状态（键 + 方向）。两个轴一起存一起读 —— 落 settings 时也是一个整体（票 31 验收回修：要记住） */
+export interface SongSort {
+  key: SongSortKey;
+  dir: SongSortDirection;
+}
+
+export const SONG_SORT_DEFAULT: SongSort = {
+  key: DEFAULT_SONG_SORT_KEY,
+  dir: DEFAULT_SONG_SORT_DIRECTION,
+};
+
+/**
+ * 归一化一份排序状态（settings 是不可信输入：手改过的 localStorage / 旧版本写的值都可能不在白名单里）。
+ * 两个轴各自白名单，任一处不认得就取该处的默认；整个值不是对象也一样。
+ */
+export function normalizeSongSort(raw: unknown, fallback: SongSort = SONG_SORT_DEFAULT): SongSort {
+  if (raw == null || typeof raw !== 'object') return { ...fallback };
+  const { key, dir } = raw as { key?: unknown; dir?: unknown };
+  return {
+    key: (SONG_SORT_KEYS as readonly unknown[]).includes(key) ? (key as SongSortKey) : fallback.key,
+    dir: dir === 'asc' || dir === 'desc' ? dir : fallback.dir,
+  };
+}
+
+/**
+ * 排序（不改原数组）。`dir` 省略 = 该键的自然方向。
+ * 并列时一律回退 id 升序 —— 保证任何输入下的顺序确定（含整批都是同一个发布时间的老曲）。
+ * `publishedAt` 为 null（平台上一条发布记录都没有）的**哪个方向都垫底**：未知不该占首位。
+ * 曲名 / 乐队名按显示名排（与工程启动台的名称排序同为 'zh-CN' 口径）。
+ */
+export function sortSongCandidates<T extends SongCandidate>(
+  songs: readonly T[],
+  key: SongSortKey,
+  dir: SongSortDirection = SONG_SORT_NATURAL_DIR[key],
+): T[] {
+  const sign = dir === 'desc' ? -1 : 1;
+  const tie = (a: T, b: T) => a.id - b.id;
+  const out = [...songs];
+  out.sort((a, b) => {
+    switch (key) {
+      case 'id':
+        return (a.id - b.id) * sign || tie(a, b);
+      case 'title':
+        return a.title.localeCompare(b.title, 'zh-CN') * sign || tie(a, b);
+      case 'artist':
+        return a.artist.localeCompare(b.artist, 'zh-CN') * sign || tie(a, b);
+      default: {
+        if (a.publishedAt == null || b.publishedAt == null) {
+          // 两个都是未知 → 回退 id；一有一无 → 未知的靠后（与方向无关）
+          if (a.publishedAt == null && b.publishedAt == null) return tie(a, b);
+          return a.publishedAt == null ? 1 : -1;
+        }
+        return (a.publishedAt - b.publishedAt) * sign || tie(a, b);
+      }
+    }
+  });
+  return out;
 }
 
 /** 筛选下拉里的乐队：按 bandId 去重，显示名取候选上已映射的 artist */

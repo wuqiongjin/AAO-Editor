@@ -41,6 +41,8 @@ export interface ConfigContextValue {
   setProjectSort: (sort: AppSettings['projects']['sort']) => void;
   /** 同步导入谱面代码（票 28）：字段级写回 settings.projects.importWithChart 并持久化 */
   setImportWithChart: (importWithChart: boolean) => void;
+  /** 官方选曲面板排序（票 31 验收回修）：字段级写回 settings.projects.songSort 并持久化 */
+  setSongSort: (songSort: AppSettings['projects']['songSort']) => void;
   /** 工程详情页左栏宽度（issue 23 #2）：已夹取到 PROJECT_LIST_WIDTH 区间 */
   setProjectListWidth: (width: number) => void;
   /** 整体替换设置（Q13 配置数据-导入）：经 loadSettings 校验合并后写回 */
@@ -219,6 +221,15 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // 官方选曲面板排序（票 31 验收回修）：键 + 方向一起写回 settings.projects.songSort 并持久化
+  const setSongSort = useCallback((songSort: AppSettings['projects']['songSort']) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { projects: { songSort } });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
   // 工程详情页左栏宽度（issue 23 #2）：只改 layout.projectList，不整对象覆写 ——
   // setLayout 会带上 leftPanel/rightPanel 的**旧值**，而那两个归工作台的 UIContext 管，
   // 从这里整写会把工作台刚拖的宽度打回去。
@@ -252,7 +263,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setImportWithChart, setProjectListWidth, setAllSettings, setCachePolicy };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

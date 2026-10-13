@@ -8,6 +8,8 @@ import {
   audioPreviewUrl,
   clearSongCatalogCache,
   coverFileName,
+  DEFAULT_SONG_SORT_DIRECTION,
+  DEFAULT_SONG_SORT_KEY,
   fetchOfficialAudio,
   fetchOfficialChartText,
   fetchOfficialCover,
@@ -17,10 +19,14 @@ import {
   jacketPreviewUrl,
   catalogBandOptions,
   filterSongCandidates,
+  promoteIdMatches,
   refreshSongCatalog,
   searchSongCandidates,
+  SONG_SORT_KEYS,
+  SONG_SORT_NATURAL_DIR,
+  sortSongCandidates,
 } from '@/src/community/bestdori/songs';
-import { toSongCandidates } from '@/src/community/bestdori/mapping';
+import { earliestPublishedAt, toSongCandidates } from '@/src/community/bestdori/mapping';
 import type { SongCandidate } from '@/src/community/bestdori/mapping';
 import { assetRawUrl } from '@/src/community/assetUrls';
 import { makeFakeCommunityTransport as fakeTransport } from '@/tests/support/communityTransport';
@@ -85,6 +91,8 @@ describe('票 08 · 曲库条目 → 中立曲目候选', () => {
         { diff: 'hard', level: 17 },
         { diff: 'expert', level: 22 },
       ],
+      // 票 31：发布时间同时进候选（取各服里最早的那个，上面两条都是日服的串）
+      publishedAt: 1462071600000,
     });
   });
 
@@ -101,6 +109,21 @@ describe('票 08 · 曲库条目 → 中立曲目候选', () => {
 
   it('素材服务器按发布记录挑：只在 en 发布的合作曲走 en（jp / tw / cn / kr 都没有它的素材）', () => {
     expect(candidate(1004).server).toBe('en');
+  });
+
+  // 票 31：排序要「什么时候上的」，与素材服是两个问题（合作曲 1004 的素材只在 en，但发布时间也在 en）
+  it('发布时间取各服里最早的那个；一条记录都没有（或全坏）回 null', () => {
+    expect(candidate(1).publishedAt).toBe(1462071600000);
+    expect(candidate(1004).publishedAt).toBe(1681545600000);
+    expect(earliestPublishedAt([])).toBeNull();
+    expect(earliestPublishedAt(undefined)).toBeNull();
+  });
+
+  it('坏时间戳兜底：空串 / 0 / 负数 / 非数字串一律跳过，只看有效的那些', () => {
+    expect(earliestPublishedAt(['', '0', 0, -1, 'abc', null, '1700000000000'])).toBe(1700000000000);
+    expect(earliestPublishedAt([0, null, '  ', 'NaN'])).toBeNull();
+    // 数字与数字串混排时也按数值取最小（平台两种形态都出现过）
+    expect(earliestPublishedAt([1700000000000, '1690000000000'])).toBe(1690000000000);
   });
 
   it('一个语言的标题都没有的条目直接不产出（宁缺勿造）', () => {
@@ -158,6 +181,98 @@ describe('票 13 · 曲库筛选（乐队 / 难度 / 等级）', () => {
       { id: 1004, name: 'IRyS' },
       { id: 1, name: '啵啪啪' },
     ]);
+  });
+});
+
+/** 票 31 / 33 用例的语料：只关心 id / 曲名 / 乐队 / 发布时间四样 */
+function song(id: number, title: string, artist: string, publishedAt: number | null): SongCandidate {
+  return { id, bandId: 1, title, artist, jacketImage: `j${id}`, server: 'jp', difficulties: [], publishedAt };
+}
+
+describe('票 31 · 官方歌曲列表排序', () => {
+  const all = [
+    song(29, 'BLACK SHOUT', 'Roselia', 1500000000000),
+    song(1, 'Yes! BanG_Dream!', "Poppin'Party", 1462071600000),
+    song(291, 'A to Z', 'Roselia', null),
+    song(1004, 'See the world', 'IRyS', 1681545600000),
+  ];
+
+  it('键与方向的白名单 / 默认值（默认 = 发布时间降序）', () => {
+    expect(SONG_SORT_KEYS).toEqual(['publishedAt', 'id', 'title', 'artist']);
+    expect(DEFAULT_SONG_SORT_KEY).toBe('publishedAt');
+    expect(DEFAULT_SONG_SORT_DIRECTION).toBe('desc');
+    // 每个键的自然方向：发布时间新在前，其余小→大 / A→Z（切键时用它，不是沿用上一把键的方向）
+    expect(SONG_SORT_NATURAL_DIR).toEqual({ publishedAt: 'desc', id: 'asc', title: 'asc', artist: 'asc' });
+  });
+
+  it('发布时间降序（最新在最前）；null 排最后；同键并列回退 id 升序', () => {
+    expect(sortSongCandidates(all, 'publishedAt').map((s) => s.id)).toEqual([1004, 29, 1, 291]);
+
+    const sameTime = [
+      song(30, 'b', 'X', 1700000000000),
+      song(7, 'a', 'Y', 1700000000000),
+      song(7 + 1, 'c', 'Z', 1700000000000),
+    ];
+    expect(sortSongCandidates(sameTime, 'publishedAt').map((s) => s.id)).toEqual([7, 8, 30]);
+  });
+
+  it('省略方向 = 该键的自然方向：id / 曲名 / 乐队名都升序（并列都回退 id）', () => {
+    expect(sortSongCandidates(all, 'id').map((s) => s.id)).toEqual([1, 29, 291, 1004]);
+    expect(sortSongCandidates(all, 'title').map((s) => s.title)).toEqual([
+      'A to Z', 'BLACK SHOUT', 'See the world', 'Yes! BanG_Dream!',
+    ]);
+    expect(sortSongCandidates(all, 'artist').map((s) => s.id)).toEqual([1004, 1, 29, 291]);
+  });
+
+  it('方向可切：同一把键给出互反的顺序（发布时间升序 = 最老在最前，null 仍垫底）', () => {
+    expect(sortSongCandidates(all, 'id', 'desc').map((s) => s.id)).toEqual([1004, 291, 29, 1]);
+    expect(sortSongCandidates(all, 'title', 'desc').map((s) => s.title)).toEqual([
+      'Yes! BanG_Dream!', 'See the world', 'BLACK SHOUT', 'A to Z',
+    ]);
+    expect(sortSongCandidates(all, 'publishedAt', 'asc').map((s) => s.id)).toEqual([1, 29, 1004, 291]);
+  });
+
+  it('不改原数组（面板的 filtered 是派生值，曲库缓存那份不许被排乱）', () => {
+    const before = all.map((s) => s.id);
+    const sorted = sortSongCandidates(all, 'id');
+    expect(all.map((s) => s.id)).toEqual(before);
+    expect(sorted).not.toBe(all);
+  });
+});
+
+describe('票 33 · 纯数字查询按曲库 id 搜（命中置顶）', () => {
+  const all = [
+    song(29, 'BLACK SHOUT', 'Roselia', null),
+    song(291, 'A to Z', 'Roselia', null),
+    song(1, 'Yes! BanG_Dream!', "Poppin'Party", null),
+    song(1004, '1004', 'IRyS', null),
+  ];
+
+  it('纯数字按 songId 前缀匹配（与曲名 / 乐队匹配叠加，零网络）', () => {
+    expect(filterSongCandidates(all, { query: '29' }).map((s) => s.id)).toEqual([29, 291]);
+    expect(filterSongCandidates(all, { query: '2' }).map((s) => s.id)).toEqual([29, 291]);
+    expect(filterSongCandidates(all, { query: '100' }).map((s) => s.id)).toEqual([1004]);
+    // 非数字查询照旧只认曲名 / 乐队，不拿 id 去凑
+    expect(filterSongCandidates(all, { query: 'Roselia' }).map((s) => s.id)).toEqual([29, 291]);
+    expect(filterSongCandidates(all, { query: 'black' }).map((s) => s.id)).toEqual([29]);
+  });
+
+  it('命中置顶：精确命中在最前，其余前缀命中按 id 升序，未命中的保持传入顺序', () => {
+    const filtered = filterSongCandidates(all, { query: '29' });
+    expect(promoteIdMatches(filtered, '29').map((s) => s.id)).toEqual([29, 291]);
+
+    // 精确命中不在队首时也要被挑到最前
+    const reversed = [all[1], all[0]];
+    expect(promoteIdMatches(reversed, '29').map((s) => s.id)).toEqual([29, 291]);
+
+    // 数字标题撞车：1004 既是 id 精确命中、又是曲名匹配，只该出现一次且在最前
+    const collision = [all[2], all[3]];
+    expect(promoteIdMatches(collision, '1004').map((s) => s.id)).toEqual([1004, 1]);
+  });
+
+  it('非数字查询 / 无 id 命中：原样返回（顺序不动）', () => {
+    expect(promoteIdMatches(all, 'Roselia').map((s) => s.id)).toEqual(all.map((s) => s.id));
+    expect(promoteIdMatches(all, '777').map((s) => s.id)).toEqual(all.map((s) => s.id));
   });
 });
 

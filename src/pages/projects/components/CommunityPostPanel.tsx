@@ -12,6 +12,10 @@
 //   3. **发布时间进列表行**：行右列 = 难度等级芯片 + 时间小字；预览栏不重复时间 ——
 //      它是「什么时候」的维度，跟谱师（谁作的）挤一行会互相拖累。
 //   4. bandori 帖的封面 / 试听 / 导入素材都从曲库那条路走（面板照常拉曲库索引，命中会话缓存）。
+//   5. **纯数字查询走两路**（票 32）：服务端 `search=<数字>` + `post/details?id=<数字>` 直查，
+//      直查命中置顶、两路按 postId 去重、直查失败静默忽略；命中那条进会话内 id 缓存（翻页 / 重开不重发）。
+//   6. **postId 常驻展示**（票 32 + 验收回修）：只放**列表行**（与日期同一档的右列小字）——
+//      ID 搜索出多条时要能辨别目标，而列表就在预览栏旁边，预览栏再写一遍是重复。
 //
 // 「同步导入谱面」芯片与官方那颗同形同义（默认开）：关掉 = 只建工程 + 音频 + 封面，
 // 产出对齐官方「没勾 B」（空 Expert、等级不预填），并且连帖子详情都不请求。
@@ -26,6 +30,7 @@ import {
   customAudioPreviewUrl,
   customCoverLocalUrl,
   fetchPostPage,
+  fetchPostSearchPage,
   filterPostCandidates,
 } from '../../../community/bestdori/posts';
 import {
@@ -135,7 +140,8 @@ export function CommunityPostPanel({
     setPosts(null);
     setRawCount(0);
     setEndReached(false);
-    void fetchPostPage(net, { query: q, offset: 0, onRetry: () => setRetrying(true) })
+    // 票 32：首屏走「两路」入口（纯数字查询时并发 id 直查）；深页（loadMore）只走服务端那一页
+    void fetchPostSearchPage(net, { query: q, offset: 0, onRetry: () => setRetrying(true) })
       .then((page) => {
         if (seq !== loadSeq.current) return;
         setPosts(page.posts);
@@ -200,8 +206,9 @@ export function CommunityPostPanel({
   const refresh = useCallback(() => {
     if (net.kind === 'none' || refreshing) return;
     setRefreshing(true);
+    // clearPostPageCache 连 id 直查缓存一起清 —— 刷新就该重问一次那个数字（票 32）
     clearPostPageCache();
-    void fetchPostPage(net, { query: activeQuery, offset: 0, force: true, onRetry: () => setRetrying(true) })
+    void fetchPostSearchPage(net, { query: activeQuery, offset: 0, force: true, onRetry: () => setRetrying(true) })
       .then((page) => {
         setPosts(page.posts);
         setRawCount(page.rawCount);
@@ -461,7 +468,7 @@ export function CommunityPostPanel({
                 <button
                   key={id}
                   type="button"
-                  className={needDiff === index ? 'is-on' : ''}
+                  className={`off-chip${needDiff === index ? ' is-on' : ''}`}
                   style={{ '--chip': DIFF_COLORS[index] } as CSSProperties}
                   onClick={() => setNeedDiff((current) => (current === index ? null : index))}
                 >
@@ -612,6 +619,9 @@ export function CommunityPostPanel({
                       <span className="off-row__title">{post.title !== '' ? post.title : t('projects.community.noTitle')}</span>
                       <span className="off-row__artist pp-muted">{post.charter !== '' ? post.charter : t('projects.community.charterMissing')}</span>
                     </span>
+                    {/* 票 32：帖 id 常驻（右列小字，与难度芯片 / 时间并排；不进 .off-row__levels ——
+                        那条规则会给里面每个 span 套边框，id 会变成第二枚徽章） */}
+                    <span className="off-row__id pp-muted" title={t('projects.community.idLabel')}>#{post.postId}</span>
                     <span className="off-row__levels">
                       <span style={{ borderColor: DIFF_COLORS[post.diff] }}>
                         {DIFF_SHORT[post.diff]}{post.level != null ? ` ${post.level}` : ''}

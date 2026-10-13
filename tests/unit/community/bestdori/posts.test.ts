@@ -18,8 +18,12 @@ import {
   fetchCustomAudio,
   fetchCustomCover,
   fetchPostDetail,
+  fetchPostIdLookup,
   fetchPostPage,
+  fetchPostSearchPage,
   filterPostCandidates,
+  mergeIdLookupHit,
+  numericPostIdQuery,
 } from '@/src/community/bestdori/posts';
 import { toPostCandidate, toPostPage, toPostDetail } from '@/src/community/bestdori/mapping';
 import { isCommunityError, type StagedBinary } from '@/src/community/transport';
@@ -158,6 +162,96 @@ describe('票 09 · fetchPostPage（POST body 与分页口径）', () => {
   it('result:false 翻成 invalid-response（body 里的未知字段会被平台拒）', async () => {
     const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: { result: false, code: 'REQUEST_INVALID' } } });
     await expect(fetchPostPage(transport, { query: '', offset: 0 })).rejects.toMatchObject({ kind: 'invalid-response' });
+  });
+});
+
+// 票 32 · 用户口径：输入纯数字时「并发两路」，id 匹配的那条优先展示、两路都展示。
+describe('票 32 · 纯数字查询的 id 直查（search + post/details）', () => {
+  it('numericPostIdQuery：纯数字才算（前后的空格无所谓），0 / 非数字 / 超安全整数都不是', () => {
+    expect(numericPostIdQuery('248468')).toBe(248468);
+    expect(numericPostIdQuery(' 248468 ')).toBe(248468);
+    expect(numericPostIdQuery('248468a')).toBeNull();
+    expect(numericPostIdQuery('')).toBeNull();
+    expect(numericPostIdQuery('0')).toBeNull();
+    expect(numericPostIdQuery('99999999999999999999')).toBeNull();
+  });
+
+  it('两路并发：直查命中置顶，与服务端结果按 postId 去重（两路都发过请求）', async () => {
+    const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE, [DETAIL_URL]: DETAIL } });
+
+    const page = await fetchPostSearchPage(transport, { query: '248468', offset: 0 });
+
+    // 直查那条在服务端结果里也有 → 只留置顶那一条，其余照旧
+    expect(page.posts.map((post) => post.postId)).toEqual([248468, 258646]);
+    expect(transport.requests.map((req) => req.url)).toEqual([DETAIL_URL, LIST_URL]);
+    expect(transport.requests.find((req) => req.url === DETAIL_URL)?.method).toBe('GET');
+    // total / rawCount 仍取搜索那一路：直查命中不在服务端序列里，翻页游标不该被它带偏
+    expect(page.total).toBe(47920);
+    expect(page.rawCount).toBe(5);
+  });
+
+  it('直查命中不在搜索结果里时也照常置顶（一条都不少）', async () => {
+    const other = { ...DETAIL, post: { ...DETAIL.post, id: 111111 } };
+    const transport = makeFakeCommunityTransport({
+      json: { [LIST_URL]: LIST_PAGE, 'https://bestdori.com/api/post/details?id=111111': other },
+    });
+
+    const page = await fetchPostSearchPage(transport, { query: '111111', offset: 0 });
+
+    expect(page.posts.map((post) => post.postId)).toEqual([111111, 248468, 258646]);
+  });
+
+  it('直查不存在 / 形态不对 → 静默忽略，只留搜索结果（不报错）', async () => {
+    const transport = makeFakeCommunityTransport({
+      json: { [LIST_URL]: LIST_PAGE, [DETAIL_URL]: { result: false, code: 'POST_NOT_EXIST' } },
+    });
+
+    const page = await fetchPostSearchPage(transport, { query: '248468', offset: 0 });
+
+    expect(page.posts.map((post) => post.postId)).toEqual([248468, 258646]);
+  });
+
+  it('非数字查询不打直查（只服务端一路）', async () => {
+    const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE } });
+
+    await fetchPostSearchPage(transport, { query: 'gyari', offset: 0 });
+
+    expect(transport.requests.map((req) => req.url)).toEqual([LIST_URL]);
+  });
+
+  it('fetchPostIdLookup：非数字查询零请求直接回 null', async () => {
+    const transport = makeFakeCommunityTransport({ json: {} });
+
+    await expect(fetchPostIdLookup(transport, 'gyari')).resolves.toBeNull();
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it('直查命中进会话缓存：同一数字再搜零请求、深页不多打直查、清缓存后重问', async () => {
+    const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE, [DETAIL_URL]: DETAIL } });
+    await fetchPostSearchPage(transport, { query: '248468', offset: 0 });
+    expect(transport.requests.filter((req) => req.url === DETAIL_URL)).toHaveLength(1);
+
+    // 首页第二次：页缓存 + id 缓存都命中 → 一条请求都不发
+    transport.requests.length = 0;
+    await fetchPostSearchPage(transport, { query: '248468', offset: 0 });
+    expect(transport.requests).toHaveLength(0);
+
+    // 深页（上拉加载）只走服务端那一页：直查只挂在首页那个入口上（冷缓存下也不打）
+    clearPostPageCache();
+    transport.requests.length = 0;
+    await fetchPostSearchPage(transport, { query: '248468', offset: 50 });
+    expect(transport.requests.map((req) => req.url)).toEqual([LIST_URL]);
+
+    // 用户刷新：清掉缓存后重问一次（首页那个入口重走两路）
+    transport.requests.length = 0;
+    clearPostPageCache();
+    await fetchPostSearchPage(transport, { query: '248468', offset: 0 });
+    expect(transport.requests.filter((req) => req.url === DETAIL_URL)).toHaveLength(1);
+  });
+
+  it('mergeIdLookupHit：没有命中就直接把这一页还回去（同一个对象，不白拷）', () => {
+    const page = { total: 1, rawCount: 1, posts: [] };
+    expect(mergeIdLookupHit(null, page)).toBe(page);
   });
 });
 

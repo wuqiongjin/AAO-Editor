@@ -95,8 +95,8 @@ const OFFICIAL_SPECIAL = JSON.stringify([
   { type: 'Single', lane: 5, beat: 10 },
 ]);
 
-/** 假桥：按 URL 回 07 契约里的三种形态（json / text / binary） */
-function installFakeBridge(override?: (payload: { url: string; responseType?: string }) => unknown | undefined): void {
+/** 假桥：按 URL 回 07 契约里的三种形态（json / text / binary）；返回 mock 便于断言发过哪些请求 */
+function installFakeBridge(override?: (payload: { url: string; responseType?: string }) => unknown | undefined): ReturnType<typeof vi.fn> {
   const request = vi.fn(async (payload: { url: string; responseType?: string }) => {
     const custom = override?.(payload);
     if (custom !== undefined) return custom;
@@ -120,6 +120,7 @@ function installFakeBridge(override?: (payload: { url: string; responseType?: st
     return { ok: false, error: { kind: 'request-rejected', message: `未打桩: ${url}` } };
   });
   (window as unknown as { electronAPI?: unknown }).electronAPI = { communityNet: { request } };
+  return request;
 }
 
 function renderPage() {
@@ -346,7 +347,7 @@ describe('票 12 · 新建入口四项归类', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '筛选' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'SP' }));
 
-    expect(await within(dialog).findByText(/已加载的 1 条里没有符合条件的/)).toBeInTheDocument();
+    expect(await within(dialog).findByText(/已加载的 1 首里没有符合条件的/)).toBeInTheDocument();
     expect(within(dialog).queryByRole('option', { name: /All You Wanted/ })).toBeNull();
 
     // 关键口径：筛选**不触发补扫** —— 列表请求仍然只有第一页那一条
@@ -359,6 +360,76 @@ describe('票 12 · 新建入口四项归类', () => {
     // 清除筛选：帖子回来了，尾部换成范围提示（筛选已生效过一次）
     fireEvent.click(within(dialog).getByRole('button', { name: '清除筛选' }));
     expect(await within(dialog).findByRole('option', { name: /All You Wanted/ })).toBeInTheDocument();
+  });
+
+  it('票 32：帖 id 只放列表行（预览栏不再重复一遍）', async () => {
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    const row = await within(dialog).findByRole('option', { name: /All You Wanted/ });
+
+    expect(row.querySelector('.off-row__id')?.textContent).toBe('#248468');
+    // 票 32 验收回修：计数单位与官方面板对齐 —— 导入的是谱面，数它用「首」而不是「条」
+    expect(within(dialog).getByText('1 首')).toBeInTheDocument();
+
+    fireEvent.click(row);
+    await waitFor(() => expect(document.querySelector('.off-preview__title')?.textContent).toBe('All You Wanted (GBP Edit)'));
+    // 验收回修：预览栏那行 ID 撤了（列表就在左边，重复）
+    expect(document.querySelector('.off-preview__id')).toBeNull();
+    expect(document.querySelector('.off-preview')?.textContent).not.toContain('帖 ID');
+  });
+
+  it('票 32：纯数字查询并发「search + 详情直查」，直查那条置顶且按 postId 去重', async () => {
+    const OTHER_POST = {
+      ...COMMUNITY_POST,
+      id: 999,
+      title: '别的帖',
+      author: { username: 'other', nickname: '别人', titles: null },
+    };
+    const request = installFakeBridge((payload) => (payload.url.endsWith('/api/post/list')
+      ? {
+          ok: true,
+          responseType: 'json',
+          status: 200,
+          // 服务端 search 把两条都带回来了，直查那条要置顶且不重复
+          data: { result: true, count: 2, posts: [OTHER_POST, COMMUNITY_POST] },
+        }
+      : undefined));
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    await within(dialog).findByText('All You Wanted (GBP Edit)');
+
+    fireEvent.change(within(dialog).getByPlaceholderText('搜索歌曲标题或帖 ID'), { target: { value: '248468' } });
+
+    await waitFor(() => {
+      const rows = Array.from(dialog.querySelectorAll('.off-list [role="option"]'))
+        .map((row) => row.querySelector('.off-row__id')?.textContent);
+      expect(rows).toEqual(['#248468', '#999']);
+    });
+    // 两路都发过：服务端列表 + 详情直查（直查是 GET，语义是「跳转」不是「搜索」）
+    const urls = request.mock.calls.map(([payload]) => payload.url);
+    expect(urls.filter((url) => url.endsWith('/api/post/details?id=248468'))).toHaveLength(1);
+    expect(urls.filter((url) => url.endsWith('/api/post/list'))).toHaveLength(2);
+  });
+
+  it('票 32：直查失败（不存在）静默忽略 —— 只留搜索结果，不弹错', async () => {
+    const request = installFakeBridge((payload) => (payload.url.endsWith('/api/post/details?id=123123')
+      ? { ok: true, responseType: 'json', status: 200, data: { result: false, code: 'POST_NOT_EXIST' } }
+      : undefined));
+    renderPage();
+    let dialog = await openNewDialog();
+    dialog = await switchSource(dialog, '从社区谱面导入');
+    await within(dialog).findByText('All You Wanted (GBP Edit)');
+
+    fireEvent.change(within(dialog).getByPlaceholderText('搜索歌曲标题或帖 ID'), { target: { value: '123123' } });
+
+    // 搜索那一路照常（假桥把 POST_LIST 原样回给任何 search 词）
+    expect(await within(dialog).findByRole('option', { name: /All You Wanted/ })).toBeInTheDocument();
+    await waitFor(() => expect(
+      request.mock.calls.some(([payload]) => payload.url.endsWith('/api/post/details?id=123123')),
+    ).toBe(true));
+    expect(dialog.querySelector('.error-banner')).toBeNull();
   });
 
   it('从空白切到官方是同一颗窗改尺寸，不卸遮罩（票 13 #6）', async () => {
@@ -383,7 +454,7 @@ describe('票 08 · 从官方谱面导入', () => {
     expect(within(dialog).getByText('Yes! BanG_Dream!')).toBeInTheDocument();
 
     // 搜索命中歌手/乐队（票 08 锁测：标题与乐队都要能搜到）
-    fireEvent.change(screen.getByLabelText('搜索歌曲标题或乐队'), { target: { value: 'roselia' } });
+    fireEvent.change(screen.getByLabelText('搜索曲名、乐队或曲库 ID'), { target: { value: 'roselia' } });
     expect(within(dialog).getByText(SONG_TITLE)).toBeInTheDocument();
     expect(within(dialog).queryByText('Yes! BanG_Dream!')).toBeNull();
 
