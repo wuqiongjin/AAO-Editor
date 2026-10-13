@@ -53,7 +53,7 @@ panels         = ceil(maxTime × heightPerSecond / panelHeight)
 设计面        1334 × 750（游戏原生比例）；canvas = stage × (devicePixelRatio × styleGraphicsQuality)
 laneWidth     154 × W/1334          laneHeight 0.82 × H
 坐标          原点 (W/2, 0)；y=1 即场地判定线；音符/带体都画在 setTransform(laneWidth·A, 0, 0, laneHeight·A, W/2, 0) 里
-接近模型      A = 0.05 + 0.95 × 1.1^(50·(t_now − t_note)/T)，T = (12 − simNoteSpeed)/2 秒（档位 1..11 → 5.5s..0.5s）
+接近模型      A = 0.05 + 0.95 × 1.1^(50·(t_now − t_note)/T)，T = (12 − simNoteSpeed)/2 秒（**Bestdori 自己**封在档位 1..11 → 5.5s..0.5s；它的 `my-numeric-input` 是 min 1 / max 11 / small .1 / large .5。本项目按**现代游戏**取 1..12 并给 T 一个 0.1s 下限，见 CONTEXT「接近模型」/ 票 24）
 音符          官方 per-lane 精灵：drawImage(sprite[lane·d], lane·d − a/2, 1 − s/2, a, s)，a = 1.35 × styleNoteSize
 带体          相邻结点 (lane, A) 两点构成的四边形填充；颜色从 longNoteLine.png 中心像素采样
 同时点击线    simultaneous_line.png 精灵

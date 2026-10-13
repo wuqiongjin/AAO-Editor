@@ -161,6 +161,13 @@ export function tileIndexRange(posMin: number, posMax: number): { lo: number; hi
   return { lo, hi };
 }
 
+/** 获取全谱首个非空实体音符所在的瓦片序号；无实体音符返回 null（issue 167 靶向预热用） */
+export function firstNonEmptyTileIdOf(rc: RenderCtx): number | null {
+  const minPos = rc.geometry.firstNotePosition(rc.notes, rc.beatDisplay);
+  if (minPos === null) return null;
+  return Math.max(0, Math.floor(minPos / TILE_PX));
+}
+
 /**
  * 瓦片 blit 目标矩形（纯函数，供单测校验数学精确性）：
  * X 绕画布中心缩放（轨道布局绕中心线性 → lane 中心精确），Y 精确映射 pos → canvasY（与 refScale 无关）。
@@ -268,11 +275,15 @@ export function createNoteLayerCache(): NoteLayerCache {
 
   function schedulePlayTileDrain() {
     if (playTileTimer !== null || playTileQueue.length === 0) return;
+    const isPlaying = playTileSnap?.rc.playing === true;
+    // issue 167：播放期单帧至多补建 1 块实体瓦片，将下一次补建延后 16ms（~1 帧），防连环同步光栅打穿帧预算；
+    // 静止期 delay 恒为 0，以最快速度在空闲期排空预热队列。
+    const delay = isPlaying ? 16 : 0;
     playTileTimer = setTimeout(() => {
       playTileTimer = null;
       drainOnePlayingTile();
       schedulePlayTileDrain();
-    }, 0);
+    }, delay);
   }
 
   function enqueuePlayingTiles(ids: number[], rc: RenderCtx, es: number) {
@@ -492,8 +503,13 @@ export function createNoteLayerCache(): NoteLayerCache {
       enqueuePlayingTiles(prefetch, rc, es);
     } else {
       // issue 165：静止时预热视口上方瓦片，避免首次开播向上滚动时触碰未建瓦片卡顿
+      // issue 167：静止时靶向预热全谱首个实体音符所在的瓦片，消除开播后首音符抵线时的突发冷建
       const prefetch: number[] = [];
       for (let id = lo; id <= hi + 1; id++) prefetch.push(id);
+      const firstTile = firstNonEmptyTileIdOf(rc);
+      if (firstTile !== null && !prefetch.includes(firstTile)) {
+        prefetch.push(firstTile);
+      }
       enqueuePlayingTiles(prefetch, rc, es);
     }
     // F1：选中/hover 叠加层（瓦片不含选中态，O(选中∩可见) 逐帧绘制，与瓦片 blit 逐像素对齐）

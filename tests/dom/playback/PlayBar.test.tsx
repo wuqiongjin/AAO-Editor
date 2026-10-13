@@ -143,6 +143,22 @@ describe('播放条（PlayBar）· 工作台口径', () => {
     expect(props.onSeek).toHaveBeenCalledTimes(2);
   });
 
+  it('时间码双击：未输入/未修改直接提交或失焦不触发 onSeek（issue 38 锁）', () => {
+    const { props } = renderBar({ currentSeconds: 5, duration: 60, canEditTime: true });
+
+    // 双击后直接回车
+    fireEvent.doubleClick(screen.getByText('00:05.0'));
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(props.onSeek).not.toHaveBeenCalled();
+
+    // 再次双击后直接失焦
+    fireEvent.doubleClick(screen.getByText('00:05.0'));
+    fireEvent.blur(screen.getByRole('textbox'));
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(props.onSeek).not.toHaveBeenCalled();
+  });
+
   it('倍速是可选 slot：不传就不渲染（工作台）；传了才出现（预览）', () => {
     const { props, rerender } = renderBar();
     expect(screen.queryByText('fake-rate')).toBeNull();

@@ -664,3 +664,72 @@ describe('issue 101 · 换肤全量失效后的播放滚动帧', () => {
     expect(tileCreates).toBeGreaterThan(0);
   });
 });
+
+describe('issue 167 · 首个音符抵线卡顿防范（静止期靶向预热与播放期节流）', () => {
+  it('静止期自动将全谱首个实体音符所在的远端瓦片加入预热队列并建好', () => {
+    vi.restoreAllMocks();
+    const chartEndBeat = 100;
+    // 首个音符在 beat 20（pos = 4400，瓦片 8）
+    const notes: ChartNote[] = [
+      { type: 'BPM', beat: 0, bpm: 120 },
+      { type: 'Single', lane: 3, beat: 20, subBeat: 0 },
+    ];
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const noteLayer = createNoteLayerCache();
+    const es = 1;
+    // 视口在底部 0 拍（此时视口在瓦片 0~2 左右，瓦片 8 远在视口之外）
+    const scrollY = g.chartEndVirtualY;
+
+    noteLayer.__setCanvasFactoryForTests(() => {
+      return makeCanvasStub({ drawImage: 0, spriteRenders: 0 });
+    });
+
+    // 静止帧绘制
+    noteLayer.draw(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters));
+
+    // 此时首音符所在的瓦片 8 必须已经进入预热队列
+    // 同步 flush 队列后，瓦片 8 必须已被创建
+    noteLayer.__flushPlayingTileQueueForTests();
+    const tiles = noteLayer.__getTilesForTests();
+    const firstTileId = Math.floor((20 * 220) / TILE_PX); // 8
+    expect(tiles.has(firstTileId)).toBe(true);
+    expect(tiles.get(firstTileId)?.empty).toBe(false);
+  });
+
+  it('播放期补建节流为 16ms，静止期排空为 0ms（防连环同步光栅打穿帧预算）', () => {
+    vi.restoreAllMocks();
+    const chartEndBeat = 100;
+    const notes: ChartNote[] = [
+      { type: 'Single', lane: 3, beat: 10, subBeat: 0 },
+    ];
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const noteLayer = createNoteLayerCache();
+    const es = 1;
+    const scrollY = g.chartEndVirtualY;
+
+    const timeoutDelays: number[] = [];
+    const origSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: any, delay?: number, ...args: any[]) => {
+      timeoutDelays.push(delay ?? 0);
+      return origSetTimeout(fn, delay, ...args);
+    }) as any);
+
+    // 1. 静止帧绘制：排队 delay 应为 0
+    noteLayer.draw(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters));
+    expect(timeoutDelays.length).toBeGreaterThan(0);
+    expect(timeoutDelays[timeoutDelays.length - 1]).toBe(0);
+
+    noteLayer.reset();
+    timeoutDelays.length = 0;
+
+    // 2. 播放帧绘制：排队 delay 应为 16
+    noteLayer.draw(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters, SURFACE, { playing: true }));
+    expect(timeoutDelays.length).toBeGreaterThan(0);
+    expect(timeoutDelays[timeoutDelays.length - 1]).toBe(16);
+  });
+});
+

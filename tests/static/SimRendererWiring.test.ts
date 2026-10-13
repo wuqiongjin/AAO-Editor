@@ -3,24 +3,12 @@
 //   - 仿真场**不 import 编辑器画布那套出帧**（`renderChart` / `RenderTarget` / 面板画家 / 宽图导出）——
 //     它是预览专用画法，不是"编辑器画布的第二种形态"；允许复用的是**精灵与选款原语**
 //     （`rendering/skin/noteSkin` / `rendering/primitives/noteMetrics` / `singleIconConfig` 一族）；
-//   - 场地素材走**运行时素材树** `public/assets/sim/`（站内前缀 `/assets/sim/`），随 dist 出包；
+//   - 场地素材走**运行时素材树** `public/assets/sim/`（前缀跟着构建 base，随 dist 出包）；
 //   - 一帧的出帧实现只有一份（实时回放与 07 的离线导出共用 `drawSimFrameAt`）；
 //   - 设计面算术 / 音符速度白名单各自只有一处（口径不漂）。
-import { readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readStripped, repoRoot } from '@/tests/support/source';
-
-/** src/ 下全部 .ts/.tsx（相对仓库根的路径） */
-function sourceFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const abs = join(dir, entry);
-    if (statSync(abs).isDirectory()) out.push(...sourceFiles(abs));
-    else if (/\.(ts|tsx)$/.test(entry)) out.push(relative(repoRoot, abs).split('\\').join('/'));
-  }
-  return out;
-}
+import { readStripped, repoRoot, sourceFiles } from '@/tests/support/source';
 
 const SIM_DIR = 'src/preview/video/sim';
 const simFiles = sourceFiles(join(repoRoot, SIM_DIR));
@@ -50,9 +38,12 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('场地素材走运行时素材树 /assets/sim（不再是 dev 中间件直读）', () => {
+  it('场地素材走运行时素材树 assets/sim（不再是 dev 中间件直读）', () => {
     const assets = readStripped(`${SIM_DIR}/simAssets.ts`);
-    expect(assets).toMatch(/export const SIM_ASSET_BASE = '\/assets\/sim'/);
+    // 前缀必须跟着构建 base：写死 '/assets/sim' 在 Electron 的 file:// 下会被解析到磁盘根，
+    // 包里的素材照样读不到（表现为"没取件"的空态）。
+    expect(assets).toMatch(/SIM_ASSET_BASE[^\n]*import\.meta\.env\.BASE_URL/);
+    expect(assets).not.toMatch(/['"`]\/assets\/sim/);
     expect(assets).not.toMatch(/__bestdori-assets/);
     // 仿真场只引用 URL、不 import 本地素材（不出现 public/assets 一类源码路径）
     for (const file of simFiles) {
@@ -137,7 +128,7 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     expect(stage).toMatch(/className="pv-rate__panel"/);
   });
 
-  it('Bestdori 自家精灵走同一条运行时素材树（chart-preview 21）：三张 PNG 都在 `/assets/sim/sprites/` 下', () => {
+  it('Bestdori 自家精灵走同一条运行时素材树（chart-preview 21）：三张 PNG 都在 `assets/sim/sprites/` 下', () => {
     const assets = readStripped(`${SIM_DIR}/simAssets.ts`);
     expect(assets).toMatch(/SIM_SPRITE_CATEGORY = 'sprites'/);
     expect(assets).toMatch(/digits\.png/);

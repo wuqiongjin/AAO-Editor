@@ -10,6 +10,7 @@ const saveBinarySrc = readStripped('src/preview/static/saveBinary.ts');
 const exportSrc = readStripped('src/preview/static/exportPanels.ts');
 const viewSrc = readStripped('src/preview/static/StaticPreviewView.tsx');
 const toolbarSrc = readStripped('src/pages/preview/PreviewStaticToolbar.tsx');
+const staticExportSrc = readStripped('src/pages/preview/StaticExportControl.tsx');
 const pageCss = readStripped('src/pages/preview/PreviewPage.css');
 const viewCss = readStripped('src/preview/static/StaticPreviewView.css');
 /** hex 色值或 rgb/rgba()/hsl —— 样式里出现任何一个都说明色值绕过 token 了 */
@@ -101,6 +102,7 @@ describe('chart-preview 03 · 预览页样式一律走 token', () => {
     ['preview/StaticPreviewView.css', viewCss],
     ['preview/PreviewPage.css', pageCss],
     ['preview/PreviewStaticToolbar.tsx', toolbarSrc],
+    ['preview/StaticExportControl.tsx', staticExportSrc],
   ])('%s 里没有一个硬编码色值', (_name, src) => {
     expect(src).not.toMatch(HARD_CODED_COLOR);
   });
@@ -109,6 +111,7 @@ describe('chart-preview 03 · 预览页样式一律走 token', () => {
     expect(viewCss.length).toBeGreaterThan(200);
     expect(pageCss.length).toBeGreaterThan(500);
     expect(toolbarSrc.length).toBeGreaterThan(500);
+    expect(staticExportSrc.length).toBeGreaterThan(500);
   });
 });
 
@@ -269,15 +272,17 @@ describe('chart-preview 14 · 导出图文版头带（封面区 + 信息区 + �
     expect(pageSrc).toMatch(/await exportSheetAs\(\{\s*scene,\s*header,/);
   });
 
-  it('「导出信息」组落 settings.export（七字段开关 + 头带总开关；与 preview / display 分开）', () => {
+  it('「导出信息」组落 settings.export（七字段开关 + 头带总开关；挂在 StaticExportControl，与 settings 分开）', () => {
     expect(appSettingsSrc).toMatch(/export:\s*ExportFieldSettings/);
     expect(appSettingsSrc).toMatch(/EXPORT_FIELD_KEYS/);
-    expect(displayPanelSrc).toMatch(/EXPORT_FIELD_KEYS/);
-    expect(displayPanelSrc).toMatch(/setExport\(\{ \[key\]: v \}\)/);
-    // 总开关：挂组标题行右侧（2026-10-07 定案：不另立条目），七行跟着置灰但保留勾选
-    expect(displayPanelSrc).toMatch(/pdp__group-head/);
-    expect(displayPanelSrc).toMatch(/setExport\(\{ enabled: v \}\)/);
-    expect(displayPanelSrc).toMatch(/disabled=\{!settings\.export\.enabled\}/);
+    // 导出信息已从 PreviewDisplayPanel 迁移至 StaticExportControl（chart-preview 37）
+    expect(displayPanelSrc).not.toMatch(/EXPORT_FIELD_KEYS/);
+    expect(staticExportSrc).toMatch(/EXPORT_FIELD_KEYS/);
+    expect(staticExportSrc).toMatch(/setExport\(\{\s*\[key\]:\s*v\s*\}\)/);
+    // 总开关：挂组标题行右侧（对齐 VideoExportControl），七行跟着置灰但保留勾选
+    expect(staticExportSrc).toMatch(/pvex__group-head/);
+    expect(staticExportSrc).toMatch(/setExport\(\{\s*enabled:\s*v\s*\}\)/);
+    expect(staticExportSrc).toMatch(/disabled=\{!settings\.export\.enabled\}/);
     expect(readStripped('src/app/providers/ConfigProvider.tsx')).toMatch(/setExport/);
   });
 });

@@ -151,11 +151,14 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(page).toMatch(/classList\.toggle\('is-palette-swap'/);
   });
 
-  it('动态形态把页面留白收一档让给场地（chart-preview 19：contain 下画面变大的唯一来源是高度）', () => {
+  it('动态形态把底部留白收一档让给场地（chart-preview 19：contain 下画面变大的唯一来源是高度）', () => {
     const src = readStripped('src/pages/preview/PreviewPage.tsx');
     expect(src).toMatch(/preview-page\$\{mode === 'video' \? ' is-video' : ''\}/);
     const css = readStripped('src/pages/preview/PreviewPage.css');
-    expect(css).toMatch(/\.preview-page\.is-video\s*\{[^}]*padding:\s*12px 12px 8px/);
+    // 票 26：只收**底部** —— padding-top / padding-left 是页头模式按钮的锚点，跟着收就会让
+    // 切模式时页头整体上移 + 左移 12px（实测 Δx = Δy = −12）
+    // 票 26 #3：还只在**舞台有画面**时才收 —— 空态收它什么也喂不到，只是把居中内容推下去 4px
+    expect(css).toMatch(/\.preview-page\.is-video:has\(\.preview-stage\.is-filled\)\s*\{[^}]*padding-bottom:\s*8px/);
     // 播放条自 issue 22 起是工作台同一件 PlayBar（变体类 `.play-bar--preview`）
     expect(css).toMatch(/\.preview-page\.is-video \.play-bar--preview\s*\{[^}]*min-height:\s*32px/);
   });
@@ -163,7 +166,9 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
 
 describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
   it('src/preview 是新顶层域：barrel + static/ + video/（各自带类型契约）', () => {
-    expect(entries('src/preview')).toEqual(['index.ts', 'static', 'types.ts', 'video']);
+    // 30 起多一枚 `fontStack.ts`：导出物（长图头带 / 视频开场）共用的字体栈，
+    // 抽出来是为了让两处不再各抄一份字面量（ADR-0016 §5.1「文字沿用既有 HEADER_SANS 链」）
+    expect(entries('src/preview')).toEqual(['fontStack.ts', 'index.ts', 'static', 'types.ts', 'video']);
     // 03 起 static/ 是实件：面板模型（panelLayout）/ 出图器（panelPainter）/ 显示档（displayProfile）
     // / 画面（StaticPreviewView）/ 头带（sheetHeader，14）/ 宽图导出（exportPanels）/ 二进制另存（saveBinary）
     expect(entries('src/preview/static')).toEqual([
@@ -178,8 +183,10 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'sheetHeader.ts',
     ]);
     // 05 起 video/ 是实件：仿真场落在 sim/ 子目录（几何 / 一帧绘制 / 素材 / 回放 / Bestdori 精灵，
-    // ADR-0016 §3 的树；`simSprites` 由 chart-preview 21 引入）
-    expect(entries('src/preview/video')).toEqual(['index.ts', 'sim']);
+    // ADR-0016 §3 的树；`simSprites` 由 chart-preview 21 引入）；
+    // 07 起旁出一支 encode/（规格 / 逐帧出帧 / 离线音轨 / 编码封装 / 编排），与 sim/ 平级；
+    // 30 起再旁出一支 opening/（视频开场的常量 / 信息项 / 装饰 / 一帧绘制），与 sim/ 平级
+    expect(entries('src/preview/video')).toEqual(['encode', 'index.ts', 'opening', 'sim']);
     expect(entries('src/preview/video/sim')).toEqual([
       'index.ts',
       'simAssets.ts',
@@ -187,6 +194,14 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'simGeometry.ts',
       'simPlayback.ts',
       'simSprites.ts',
+    ]);
+    expect(entries('src/preview/video/encode')).toEqual([
+      'exportSpec.ts',
+      'exportVideo.ts',
+      'frameDriver.ts',
+      'index.ts',
+      'muxer.ts',
+      'renderAudioTrack.ts',
     ]);
   });
 

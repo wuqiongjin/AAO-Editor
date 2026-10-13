@@ -45,17 +45,22 @@ vi.mock('@/src/preview', async (importOriginal) => {
       missing: false,
       server: 'jp',
     })),
-    createSimPlayback: vi.fn(() => ({
-      setFrame: calls.setFrame,
-      setOptions: calls.setOptions,
-      play: calls.play,
-      pause: calls.pause,
-      seek: calls.seek,
-      toggle: calls.play,
-      setDuration: calls.setDuration,
-      render: vi.fn(),
-      dispose: calls.dispose,
-    })),
+    createSimPlayback: vi.fn((opts?: { initialSeconds?: number }) => {
+      if (opts?.initialSeconds && opts.initialSeconds > 0) {
+        calls.seek(opts.initialSeconds);
+      }
+      return {
+        setFrame: calls.setFrame,
+        setOptions: calls.setOptions,
+        play: calls.play,
+        pause: calls.pause,
+        seek: calls.seek,
+        toggle: calls.play,
+        setDuration: calls.setDuration,
+        render: vi.fn(),
+        dispose: calls.dispose,
+      };
+    }),
   };
 });
 
@@ -85,13 +90,29 @@ for (const [prop, value] of [['clientWidth', 960], ['clientHeight', 540]] as con
   Object.defineProperty(HTMLElement.prototype, prop, { configurable: true, value });
 }
 
-async function renderStage(opts: { volume?: number; audio?: SimPlaybackAudio | null; active?: boolean } = {}) {
-  const { volume = 1, audio = null, active = true } = opts;
+async function renderStage(opts: {
+  volume?: number;
+  audio?: SimPlaybackAudio | null;
+  active?: boolean;
+  chartId?: string | null;
+  initialSeconds?: number;
+  onSecondsChange?: (s: number) => void;
+  scene?: SimScene;
+} = {}) {
+  const {
+    volume = 1,
+    audio = null,
+    active = true,
+    chartId = null,
+    initialSeconds = 0,
+    onSecondsChange,
+    scene: curScene = scene,
+  } = opts;
   const onVolumeChange = vi.fn();
   const view = render(
     <PreviewVideoStage
       active={active}
-      scene={scene}
+      scene={curScene}
       duration={12}
       audio={audio}
       keySetId="skin00"
@@ -101,6 +122,9 @@ async function renderStage(opts: { volume?: number; audio?: SimPlaybackAudio | n
       imageQuality="high"
       noteSkin={'default' as AppSettings['visual']['noteSkin']}
       shortcuts={SHORTCUTS}
+      chartId={chartId}
+      initialSeconds={initialSeconds}
+      onSecondsChange={onSecondsChange}
     />,
   );
   // 素材是异步进场的：等回放真的建起来（控件要接到它上面）
@@ -238,10 +262,10 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
     expect(seekTrack().getAttribute('aria-valuemax')).toBe('12');
   });
 
-  it('验收回修 #1：播放条没有「回开头」与「循环」两钮，loop 也不再往下传', async () => {
+  it('票 20 验收定案：播放条无「回开头」与「循环」两钮，loop 也不再往下传', async () => {
     await renderStage();
-    // 这两个 i18n 键已随控件删除，故这里按删除前的文案写死
-    expect(screen.queryByRole('button', { name: /^(回到开头|Back to start|循环播放|Loop)$/ })).toBeNull();
+    // 回开头与循环均无入口
+    expect(screen.queryByRole('button', { name: /^(回到开头|Restart|循环播放|Loop)$/ })).toBeNull();
     expect(screen.queryAllByRole('button', { pressed: true })).toEqual([]); // 循环是唯一的开关钮（倍速是菜单，不是开关）
 
     openPanel();
@@ -327,5 +351,103 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
     fireEvent.change(timeInput()!, { target: { value: '0:03.5' } });
     fireEvent.keyDown(timeInput()!, { key: 'Enter' });
     expect(calls.seek).toHaveBeenLastCalledWith(3.5);
+  });
+
+  it('时间码双击：未输入/未修改任何内容失焦或回车不触发 seek（issue 38 锁）', async () => {
+    await renderStage({ initialSeconds: 4.5 });
+    calls.seek.mockClear();
+
+    // 双击打开输入框，不输入任何内容直接按 Enter
+    fireEvent.doubleClick(currentTime());
+    expect(timeInput()).toBeTruthy();
+    fireEvent.keyDown(timeInput()!, { key: 'Enter' });
+    expect(timeInput()).toBeNull();
+    expect(calls.seek).not.toHaveBeenCalled();
+
+    // 再次双击打开，不输入任何内容直接 blur
+    fireEvent.doubleClick(currentTime());
+    expect(timeInput()).toBeTruthy();
+    fireEvent.blur(timeInput()!);
+    expect(timeInput()).toBeNull();
+    expect(calls.seek).not.toHaveBeenCalled();
+  });
+
+  it('时间码双击：按 Escape 取消编辑不触发 seek（issue 38 锁）', async () => {
+    await renderStage({ initialSeconds: 2.0 });
+    calls.seek.mockClear();
+
+    fireEvent.doubleClick(currentTime());
+    expect(timeInput()).toBeTruthy();
+    fireEvent.change(timeInput()!, { target: { value: '0:10' } });
+    fireEvent.keyDown(timeInput()!, { key: 'Escape' });
+    expect(timeInput()).toBeNull();
+    expect(calls.seek).not.toHaveBeenCalled();
+  });
+
+  it('播放进度：切页/对象重建但谱面语义一致时不重置回 0；内容真正修改或换谱才重置', async () => {
+    const onSecondsChange = vi.fn();
+    const initialNotes = [{ type: 'Single' as const, beat: 0, lane: 0 }];
+    const { rerender } = await renderStage({
+      chartId: 'chart-1',
+      initialSeconds: 5.5,
+      onSecondsChange,
+      scene: { ...scene, notes: initialNotes },
+    });
+    // 挂载时恢复 initialSeconds
+    expect(calls.seek).toHaveBeenCalledWith(5.5);
+
+    calls.seek.mockClear();
+    calls.pause.mockClear();
+
+    // 模拟切页激活：从 IndexedDB 重新读出结构相同的深拷贝 notes（新引用，但内容相同）
+    const identicalNotes = [{ type: 'Single' as const, beat: 0, lane: 0 }];
+    rerender(
+      <PreviewVideoStage
+        active={true}
+        scene={{ ...scene, notes: identicalNotes }}
+        duration={12}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={vi.fn()}
+        imageQuality="high"
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+        chartId="chart-1"
+        onSecondsChange={onSecondsChange}
+      />,
+    );
+
+    // 语义未改：不重置、不 seek(0)、不 pause()
+    expect(calls.seek).not.toHaveBeenCalled();
+    expect(calls.pause).not.toHaveBeenCalled();
+
+    // 真正修改音符（增加一个音符）：触发重置回 0 并暂停
+    const modifiedNotes = [
+      { type: 'Single' as const, beat: 0, lane: 0 },
+      { type: 'Single' as const, beat: 1, lane: 1 },
+    ];
+    rerender(
+      <PreviewVideoStage
+        active={true}
+        scene={{ ...scene, notes: modifiedNotes }}
+        duration={12}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={vi.fn()}
+        imageQuality="high"
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+        chartId="chart-1"
+        onSecondsChange={onSecondsChange}
+      />,
+    );
+
+    expect(calls.pause).toHaveBeenCalled();
+    expect(calls.seek).toHaveBeenCalledWith(0);
+    expect(onSecondsChange).toHaveBeenCalledWith(0);
   });
 });

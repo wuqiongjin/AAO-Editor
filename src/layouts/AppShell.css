@@ -57,11 +57,19 @@
   margin: 1px 8px 22px;
   place-items: center;
   border-radius: 9px;
-  background: var(--text);
-  color: var(--bg-elevated);
-  font-size: var(--text-2xs);
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+.app-mark-img {
+  width: 34px;
+  height: 34px;
+  display: block;
+  object-fit: contain;
+  border-radius: 9px;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .app-nav-items {

@@ -20,6 +20,7 @@ import {
   exportSheetAs,
   planSheet,
   waitForPaint,
+  type OpeningInput,
   type PanelSceneInput,
   type PreviewMode,
   type SheetHeaderInput,
@@ -27,15 +28,26 @@ import {
   type SimScene,
 } from '../../preview';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
+import { notesEqual } from '../../chart/editing/NotesEqual';
+import type { ChartNote } from '../../chart/types';
+import { mergeOpening } from '../../chart/config/AppSettings';
 import { getBpmEvents } from '../../audio/AudioTiming';
-import { chartEffectiveTitle, DIFF_COLORS, DIFF_SHORT, projectCoverHue } from '../../project/projectCatalog';
+import {
+  chartEffectiveTitle,
+  DIFF_COLORS,
+  DIFF_NAMES,
+  DIFF_SHORT,
+  projectCoverHue,
+} from '../../project/projectCatalog';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
 import PreviewStaticToolbar, { PreviewEnterFullscreenButton, PreviewExitFullscreenButton } from './PreviewStaticToolbar';
 import PreviewDisplayPanel from './PreviewDisplayPanel';
 import PreviewVideoStage from './PreviewVideoStage';
+import VideoExportControl from './VideoExportControl';
 import { usePreviewScope } from './usePreviewScope';
+import { useVideoExport, exportDoneText } from './useVideoExport';
 import './PreviewPage.css';
 
 // 页头的模式切换（静态 / 动态）：两项互斥的"这一屏画什么"（ADR-0007 §6 四题之"有且单组"）
@@ -46,10 +58,13 @@ const PREVIEW_MODES: { id: PreviewMode; labelKey: MessageKey; icon: typeof Image
 
 export default function PreviewPage({ active = true }: { active?: boolean }) {
   const { setActivePage } = useAppNav();
-  const { settings, setAudioVolume } = useConfig();
+  const { settings, setAudioVolume, setExport } = useConfig();
   const { beatDisplay } = useUI();
   const [mode, setMode] = useState<PreviewMode>('static');
   const { scopeId, currentId, project, options, loading, chartId, pickChart } = usePreviewScope(active);
+
+  // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
+  const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
 
   // 静态预览的看谱档：缩放 / 全屏是"这一屏怎么看"（页面内 state，不落设置）；
   // 叠加项（BPM / 时间 / 节拍线）落 `settings.preview`、画布共享项落 `settings.display`
@@ -57,7 +72,27 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   const [zoom, setZoom] = useState<number>(DEFAULT_PREVIEW_ZOOM);
   const [exporting, setExporting] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [videoPlaybackSeconds, setVideoPlaybackSeconds] = useState(0);
+  const prevProjectAndChartRef = useRef({ projectId: project?.id, chartId });
+  const prevNotesRef = useRef<readonly ChartNote[] | null>(chart?.notes ?? null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const notes = chart?.notes ?? null;
+    const projectOrChartChanged =
+      prevProjectAndChartRef.current.projectId !== project?.id ||
+      prevProjectAndChartRef.current.chartId !== chartId;
+    const prevNotes = prevNotesRef.current;
+    const notesChanged =
+      (prevNotes == null && notes != null) ||
+      (prevNotes != null && notes == null) ||
+      (prevNotes != null && notes != null && !notesEqual(prevNotes, notes));
+    if (projectOrChartChanged || notesChanged) {
+      prevProjectAndChartRef.current = { projectId: project?.id, chartId };
+      prevNotesRef.current = notes;
+      setVideoPlaybackSeconds(0);
+    }
+  }, [project?.id, chartId, chart?.notes]);
 
   // 全屏预览：整块舞台进全屏，显示控件那一排随之退场（它太长、压画面），浮层只留一枚退出钮。
   // 缩放不丢：Ctrl/⌘+滚轮仍归 StaticPreviewView；设置 / 导出先退出全屏再做（2026-10-05 定案）。
@@ -110,9 +145,6 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   // 靠记录会让作用域条断档一个 tick，而"此刻作用于谁"正是它要一直说的事（照音频页）。
   const scopeOption = scopeId == null ? null : options.find((o) => o.id === scopeId) ?? null;
 
-  // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
-  const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
-
   // 要画的那份谱面（画面与导出共用同一份字段定义）：没有谱面 / 没有音符 → null（走空态）
   const scene = useMemo<PanelSceneInput | null>(() => {
     if (!project || !chart || chart.notes.length === 0) return null;
@@ -143,10 +175,28 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   }, [project, chart, settings.display, settings.preview, beatDisplay]);
 
   // 仿真场的声源 = **作用域工程**自己的音频（票 05 定案：仿真场自持引擎；作用域切到非当前工程也有声）
-  const videoAudio = useMemo<SimPlaybackAudio | null>(
-    () => (project?.audioBlob ? { name: project.audioName ?? 'audio', blob: project.audioBlob } : null),
-    [project?.audioBlob, project?.audioName],
-  );
+  // 缓存稳定引用：切页重读 IndexedDB 时相同 Blob 不换对象，避免无谓重建引擎与重新解码
+  const cachedAudioRef = useRef<{ id: string; name: string; size: number; audio: SimPlaybackAudio } | null>(null);
+  const videoAudio = useMemo<SimPlaybackAudio | null>(() => {
+    if (!project?.audioBlob) {
+      cachedAudioRef.current = null;
+      return null;
+    }
+    const id = project.id;
+    const name = project.audioName ?? 'audio';
+    const size = project.audioBlob.size;
+    if (
+      cachedAudioRef.current &&
+      cachedAudioRef.current.id === id &&
+      cachedAudioRef.current.name === name &&
+      cachedAudioRef.current.size === size
+    ) {
+      return cachedAudioRef.current.audio;
+    }
+    const audio: SimPlaybackAudio = { name, blob: project.audioBlob };
+    cachedAudioRef.current = { id, name, size, audio };
+    return audio;
+  }, [project?.id, project?.audioBlob, project?.audioName]);
 
   // 导出档的排布结论（跟预览当前缩放无关）：按钮 tooltip 说清要落多大一张图 / 为什么出不了。
   // 头带开关要进依赖：关掉它图就矮一截，预告尺寸必须跟着变（与实际出图同一份 `planSheet`）。
@@ -154,6 +204,58 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     () => (scene ? planSheet(scene, settings.export.enabled).plan : null),
     [scene, settings.export.enabled],
   );
+
+  // 动态形态的导出（chart-preview 07）：文件名基础名与静态那一支同一条规则，扩展名按当选容器补
+  const videoExportName = useMemo(() => {
+    if (chart == null) return '';
+    const title = chartEffectiveTitle(project?.name ?? null, chart.title, untitledProjectLabel());
+    return t('preview.video.export.filename', { title, diff: DIFF_SHORT[chart.diff] });
+  }, [chart, project?.name]);
+
+  /**
+   * 视频导出的状态机（规格 / 进度 / 取消 / 失败态）。
+   * 音量口径与播放一致：`settings.audio.volume`（主音量）+ `settings.audio.seVolume`（SE）。
+   */
+  /**
+   * 视频开场的**数据面**（chart-preview 30）：与静态那支的 `SheetHeaderInput` 同口径 ——
+   * 页面组装、难度色 / 封面色相由页面算好传进去（preview 域不 import 工程域）。
+   * 总开关关掉 ⇒ 传 `null`（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
+   */
+  const openingInput = useMemo<OpeningInput | null>(() => {
+    if (chart == null || !settings.export.opening.enabled) return null;
+    return {
+      title: chartEffectiveTitle(project?.name ?? null, chart.title, untitledProjectLabel()),
+      difficultyName: DIFF_NAMES[chart.diff].toUpperCase(),
+      difficultyColor: DIFF_COLORS[chart.diff],
+      artist: project?.artist ?? '',
+      cover: project?.coverBlob ?? null,
+      coverHue: projectCoverHue(project?.id ?? chart.id),
+      items: settings.export.opening.items,
+      // 可选的附加字段（作词/作曲/编曲/谱师，chart-preview 39）：
+      // 当前 ChartProject 尚未扩容此 4 个字段（未来扩容时直接透传）；这里留好接线口
+      credits: (project as { credits?: OpeningInput['credits'] })?.credits ?? null,
+    };
+  }, [chart, project, settings.export.opening]);
+
+  const videoExport = useVideoExport({
+    scene: videoScene,
+    audio: videoAudio,
+    durationSeconds: project?.durationSeconds ?? 0,
+    keySetId: settings.audio.keySet,
+    seVolume: settings.audio.seVolume,
+    volume: settings.audio.volume,
+    noteSkin: settings.visual?.noteSkin ?? {},
+    suggestedBaseName: videoExportName,
+    opening: openingInput,
+  });
+
+  const handleVideoExport = useCallback(async () => {
+    const outcome = await videoExport.start();
+    if (outcome?.ok === true && !outcome.cancelled) {
+      // 说清落盘的是哪一格（容器 + 实际 codec），别只说"导出了"
+      showToast(exportDoneText(outcome), 'success');
+    }
+  }, [videoExport]);
 
   const handleExport = useCallback(async () => {
     if (scene == null || chart == null || exporting) return;
@@ -283,6 +385,22 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               ) : (
                 <div className="preview-controls">
                   <PreviewDisplayPanel mode="video" />
+                  {/* 导出（07）：票 20 定案，动态形态工具栏的这一枚随视频导出落地；全屏在末位 */}
+                  <VideoExportControl
+                    disabled={videoScene == null}
+                    spec={videoExport.spec}
+                    opening={settings.export.opening}
+                    onOpeningChange={(patch) => setExport({ opening: mergeOpening(settings.export.opening, patch) })}
+                    onSpecChange={videoExport.setSpec}
+                    onStart={() => void handleVideoExport()}
+                    onCancel={videoExport.cancel}
+                    progress={videoExport.progress}
+                    notice={videoExport.notice}
+                    onDismissNotice={videoExport.dismissNotice}
+                    support={videoExport.support}
+                    probing={videoExport.probing}
+                    onProbe={videoExport.probe}
+                  />
                   <PreviewEnterFullscreenButton onEnter={toggleFullscreen} />
                 </div>
               )
@@ -300,6 +418,9 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               <PreviewVideoStage
                 active={active}
                 scene={videoScene}
+                chartId={chartId}
+                initialSeconds={videoPlaybackSeconds}
+                onSecondsChange={setVideoPlaybackSeconds}
                 duration={project?.durationSeconds ?? 0}
                 audio={videoAudio}
                 keySetId={settings.audio.keySet}

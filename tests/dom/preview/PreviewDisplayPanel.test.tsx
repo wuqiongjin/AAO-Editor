@@ -12,13 +12,13 @@
 // 控件文案**复用设置页那套**（节奏图示大小 / 同时点击线 / 色觉辅助 / 图像品质 / 轨道颜色…）：
 // 面板是同一份设置的第二个入口，两处名字必须一样（面板不另起一套词汇）。
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import PreviewDisplayPanel from '@/src/pages/preview/PreviewDisplayPanel';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '@/src/rendering/skin/noteSkin';
-import { DEFAULT_EXPORT_FIELDS, DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/chart/config/AppSettings';
+import { DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/chart/config/AppSettings';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 interface StoredSettings {
@@ -43,6 +43,17 @@ function setup() {
   );
   fireEvent.click(trigger());
   return { setActivePage };
+}
+
+/** 动态（仿真场）形态：那一组才有音符速度档（票 24 的输入形态锁在这里） */
+function setupDynamic(patch: Record<string, unknown> = {}) {
+  seedZhSettings(patch);
+  render(
+    <AppNavProvider value={{ activePage: 'preview', setActivePage: vi.fn(), pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
+      <ConfigProvider><PreviewDisplayPanel mode="dynamic" /></ConfigProvider>
+    </AppNavProvider>,
+  );
+  fireEvent.click(trigger());
 }
 
 const trigger = () => screen.getByRole('button', { name: '设置' });
@@ -169,79 +180,14 @@ describe('chart-preview 08 · 画布显示组落 settings.display（与设置页
   });
 });
 
-describe('chart-preview 14 · 「导出信息」组落 settings.export', () => {
-  const exportSwitch = (name: string) => within(panel()).getByRole('switch', { name });
-
-  it('七项都在；默认档 = 谱面标题 / 难度 + 等级 / BPM 开，其余关', () => {
+describe('chart-preview 37 · 「设置」面板不再承载「导出信息」（已迁移至导出按钮）', () => {
+  it('设置面板仅包含标记、画布显示、音符皮肤三组，不展示导出信息', () => {
     setup();
-    expect(within(panel()).getByText('导出信息')).toBeInTheDocument();
-    expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('难度 + 等级')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('工程名')).toHaveAttribute('aria-checked', 'false');
-    expect(exportSwitch('时长')).toHaveAttribute('aria-checked', 'false');
-    expect(exportSwitch('音符数')).toHaveAttribute('aria-checked', 'false');
-    expect(exportSwitch('导出时间')).toHaveAttribute('aria-checked', 'false');
-  });
-
-  it('开关写进落盘 export 段，且不碰 preview / display（导出物内容与"怎么看"分开）', () => {
-    setup();
-    fireEvent.click(exportSwitch('工程名'));
-    expect(stored().export.projectName).toBe(true);
-    fireEvent.click(exportSwitch('BPM'));
-    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'false');
-    expect(stored().export).toEqual({ ...DEFAULT_EXPORT_FIELDS, projectName: true, bpm: false });
-    expect(stored().preview).toEqual(defaultSettings().preview);
-    expect(stored().display).toEqual(defaultSettings().display);
-  });
-
-  it('面板读同一份设置：外部（落盘种子）改过的 export 段打开即见', () => {
-    seedZhSettings({ export: { duration: true, chartTitle: false } });
-    render(
-      <AppNavProvider value={{ activePage: 'preview', setActivePage: vi.fn(), pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
-        <ConfigProvider><PreviewDisplayPanel /></ConfigProvider>
-      </AppNavProvider>,
-    );
-    fireEvent.click(trigger());
-
-    expect(exportSwitch('时长')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'false');
-    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');   // 没种子的项读默认档
-  });
-});
-
-describe('chart-preview 14 · 头带总开关「启用头带」（2026-10-06 追加）', () => {
-  const exportSwitch = (name: string) => within(panel()).getByRole('switch', { name });
-  const headerToggle = () => within(panel()).getByRole('switch', { name: '启用头带' });
-
-  it('默认开，挂在「导出信息」组标题行右侧（不另立条目，2026-10-07 定案）', () => {
-    setup();
-    expect(headerToggle()).toHaveAttribute('aria-checked', 'true');
-    const head = headerToggle().closest('.pdp__group-head');
-    expect(head).not.toBeNull();
-    expect(head).toContainElement(within(panel()).getByText('导出信息') as HTMLElement);
-  });
-
-  it('关：落盘 enabled = false，七项置灰但勾选原样保留；再开就地恢复', () => {
-    setup();
-    fireEvent.click(headerToggle());
-
-    expect(stored().export.enabled).toBe(false);
-    expect(exportSwitch('谱面标题')).toBeDisabled();
-    expect(exportSwitch('BPM')).toBeDisabled();
-    expect(exportSwitch('工程名')).toBeDisabled();
-    // 保留勾选 = 再开不用重勾一遍
-    expect(exportSwitch('谱面标题')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('BPM')).toHaveAttribute('aria-checked', 'true');
-    expect(exportSwitch('工程名')).toHaveAttribute('aria-checked', 'false');
-    // 置灰期间点它改不动（不是"点了没反应"的骗局：它真 disabled）
-    fireEvent.click(exportSwitch('工程名'));
-    expect(stored().export.projectName).toBe(false);
-
-    fireEvent.click(headerToggle());
-    expect(stored().export.enabled).toBe(true);
-    expect(exportSwitch('BPM')).not.toBeDisabled();
-    expect(stored().export).toEqual(DEFAULT_EXPORT_FIELDS);
+    expect(within(panel()).getByText('标记')).toBeInTheDocument();
+    expect(within(panel()).getByText('画布显示')).toBeInTheDocument();
+    expect(within(panel()).getByText('音符皮肤')).toBeInTheDocument();
+    expect(within(panel()).queryByText('导出信息')).toBeNull();
+    expect(within(panel()).queryByRole('switch', { name: '启用头带' })).toBeNull();
   });
 });
 
@@ -266,5 +212,168 @@ describe('chart-preview 08 · 浮层交互与皮肤入口', () => {
 
     expect(setActivePage).toHaveBeenCalledWith('assets');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+describe('chart-preview 24 · 音符速度档（1..12 / 步长 0.1 / 可手动输入）', () => {
+  /** 数字输入框（`<input type="number">`） */
+  const speedInput = () => within(panel()).getByRole('spinbutton', { name: '音符速度' });
+  /** 粗调滑杆（与输入框同一份值） */
+  const speedSlider = () => within(panel()).getByRole('slider', { name: '音符速度' });
+  /** 步进钮（小 0.1 / 大 0.5 各一对，照 Bestdori 的 small / large） */
+  const speedStep = (name: string) => within(panel()).getByRole('button', { name });
+
+  it('默认 9.5：输入框与滑杆是同一份值，区间 1..12 步长 0.1', () => {
+    setupDynamic();
+    expect(speedInput()).toHaveValue(9.5);
+    expect(speedSlider()).toHaveValue('9.5');
+    expect(speedSlider()).toHaveAttribute('min', '1');
+    expect(speedSlider()).toHaveAttribute('max', '12');
+    expect(speedSlider()).toHaveAttribute('step', '0.1');
+    // 这一档自带整行版式（不再套 `Row`）：标签只出现一次
+    expect(within(panel()).getAllByText('音符速度')).toHaveLength(1);
+  });
+
+  it('输入 12 被接受（旧上界 11 会把它夹到 11 ⇒ 这条必红）', () => {
+    setupDynamic();
+    fireEvent.change(speedInput(), { target: { value: '12' } });
+
+    expect(stored().preview.noteSpeed).toBe(12);
+    expect(speedSlider()).toHaveValue('12');
+  });
+
+  it('输入 11.9：读数就是 11.9（步长 0.1，不再被吸到半档）', () => {
+    setupDynamic();
+    fireEvent.change(speedInput(), { target: { value: '11.9' } });
+
+    expect(stored().preview.noteSpeed).toBe(11.9);
+    expect(speedInput()).toHaveValue(11.9);
+  });
+
+  it('越界输入夹回区间：99 → 12、0.4 → 1', () => {
+    setupDynamic();
+    fireEvent.change(speedInput(), { target: { value: '99' } });
+    expect(stored().preview.noteSpeed).toBe(12);
+
+    fireEvent.change(speedInput(), { target: { value: '0.4' } });
+    expect(stored().preview.noteSpeed).toBe(1);
+  });
+
+  it('步进钮两档：大 0.5 / 小 0.1（照 Bestdori 的 large / small）', () => {
+    setupDynamic();
+    fireEvent.click(speedStep('音符速度加 0.5'));
+    expect(stored().preview.noteSpeed).toBe(10);
+
+    fireEvent.click(speedStep('音符速度减 0.1'));
+    expect(stored().preview.noteSpeed).toBe(9.9);
+
+    fireEvent.click(speedStep('音符速度加 0.1'));
+    expect(stored().preview.noteSpeed).toBe(10);
+
+    // 上界那儿不再被夹到 11：11.8 + 0.5 落在 12
+    fireEvent.change(speedInput(), { target: { value: '11.8' } });
+    fireEvent.click(speedStep('音符速度加 0.5'));
+    expect(stored().preview.noteSpeed).toBe(12);
+  });
+
+  it('滑杆拖到 12：写同一份设置，输入框跟着走', () => {
+    setupDynamic();
+    fireEvent.change(speedSlider(), { target: { value: '12' } });
+
+    expect(stored().preview.noteSpeed).toBe(12);
+    expect(speedInput()).toHaveValue(12);
+  });
+
+  it('静态形态没有这一档（只有动态形态的仿真场组有音符速度）', () => {
+    setup();
+    expect(within(panel()).queryByRole('spinbutton', { name: '音符速度' })).toBeNull();
+  });
+});
+
+describe('issue 29 · 面板定位（盒宽对齐 + 开着时伸缩跟随）', () => {
+  // jsdom 没有布局引擎（`getBoundingClientRect()` 恒 0）⇒ 触发钮矩形只能显式注入，照 ScopePicker.test.tsx。
+  // 面板盒宽 = 内容 320（CSS `.pdp__panel { width }`）+ 壳 14（padding 6×2 + `.pp-menu__panel` border 1×2）；
+  // 三处一致性走 `tests/static/PreviewPanelAnchorWidth.test.ts`，这里只锁定位算式。
+  const BOX_W = 334;
+  /** 面板离视口边缘的留白（组件同款常量） */
+  const MARGIN = 8;
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  /** 触发钮的量尺外壳（`.pdp__trigger`）：`IconButton` 不可 ref，量的是这层 */
+  const ruler = () => document.querySelector('.pdp__trigger') as HTMLElement;
+  const panelLeft = () => Number.parseFloat(panel().style.left);
+  const panelTop = () => Number.parseFloat(panel().style.top);
+
+  /**
+   * 渲染 + 注入触发钮矩形 + 点开（定位是"打开那一刻量一次"，注入必须在点击之前）。
+   * 返回可变矩形：改它再派 `resize` = 模拟"伸缩后触发钮随布局移动"。
+   */
+  function openAt(right: number, bottom: number) {
+    seedZhSettings();
+    render(
+      <AppNavProvider value={{ activePage: 'preview', setActivePage: vi.fn(), pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
+        <ConfigProvider><PreviewDisplayPanel /></ConfigProvider>
+      </AppNavProvider>,
+    );
+    const rect = { right, bottom };
+    vi.spyOn(ruler(), 'getBoundingClientRect').mockImplementation(() => ({
+      x: rect.right - 73, y: rect.bottom - 30, left: rect.right - 73, right: rect.right,
+      top: rect.bottom - 30, bottom: rect.bottom, width: 73, height: 30, toJSON: () => ({}),
+    }) as DOMRect);
+    fireEvent.click(trigger());
+    return rect;
+  }
+
+  it('面板右缘贴触发钮右缘：left = 触发钮 right − 334（盒宽，不是内容宽 320）', () => {
+    vi.stubGlobal('innerWidth', 1600);
+    openAt(1418, 110);
+
+    // 拿内容宽当盒宽得 1098 ⇒ 面板右缘比触发钮右缘多出 14px（旧写法该条必红）
+    expect(panelLeft()).toBe(1418 - BOX_W);
+    expect(panelLeft() + BOX_W).toBe(1418);
+    expect(panelTop()).toBe(113);              // 触发钮下缘 + 3
+  });
+
+  it('面板开着时伸缩窗口：重新量触发钮，面板跟随（不留在旧位置）', () => {
+    vi.stubGlobal('innerWidth', 1600);
+    const rect = openAt(1418, 110);
+    expect(panelLeft()).toBe(1418 - BOX_W);
+
+    // 放大：右簇贴右缘 ⇒ 触发钮 right 随窗宽走（实测 1418 → 1738）
+    vi.stubGlobal('innerWidth', 1920);
+    rect.right = 1738;
+    rect.bottom = 130;
+    fireEvent(window, new Event('resize'));
+
+    expect(panelLeft()).toBe(1738 - BOX_W);
+    expect(panelTop()).toBe(133);
+  });
+
+  it('布局晚一拍（触发钮几何在 resize 之后才落定）：当帧量旧位，后续帧补测跟上', async () => {
+    vi.stubGlobal('innerWidth', 1600);
+    const rect = openAt(1418, 110);
+
+    fireEvent(window, new Event('resize'));
+    expect(panelLeft()).toBe(1418 - BOX_W);    // 当帧触发钮还没挪（补测要等布局落定）
+
+    // 一拍之后几何才落定：视口变大 + 触发钮随右簇贴到新右缘（两者同时变，故一起注入）
+    vi.stubGlobal('innerWidth', 1920);
+    rect.right = 1738;
+    await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 60)); });
+
+    expect(panelLeft()).toBe(1738 - BOX_W);
+  });
+
+  it('缩到装不下时夹进视口：右缘留在 8px 留白内（夹取式同样按盒宽算）', () => {
+    vi.stubGlobal('innerWidth', 1600);
+    const rect = openAt(1418, 110);
+
+    vi.stubGlobal('innerWidth', 1180);
+    rect.right = 1176;                          // 触发钮已贴到视口右缘
+    fireEvent(window, new Event('resize'));
+
+    expect(panelLeft()).toBe(1180 - BOX_W - MARGIN);
+    expect(panelLeft() + BOX_W).toBeLessThanOrEqual(1180 - MARGIN);
   });
 });

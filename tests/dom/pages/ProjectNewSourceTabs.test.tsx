@@ -18,7 +18,7 @@ import { assetRawUrl } from '@/src/community/assetUrls';
 import * as ToastModule from '@/src/ui/Toast';
 import { installIntersectionObserverStub } from '@/tests/support/intersection';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
-import { seedZhSettings } from '@/tests/support/storage';
+import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 const setActivePage = vi.fn();
 const navValue = {
@@ -585,7 +585,7 @@ describe('票 08 · 从官方谱面导入', () => {
     expect(officialSync).toHaveAttribute('aria-pressed', 'false');
 
     // 校验落盘
-    const saved1 = JSON.parse(localStorage.getItem('bangdream.settings.v1') ?? '{}');
+    const saved1 = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
     expect(saved1.projects?.importWithChart).toBe(false);
 
     // 切到社区面板
@@ -603,7 +603,7 @@ describe('票 08 · 从官方谱面导入', () => {
     expect(communitySync).toHaveAttribute('aria-pressed', 'true');
 
     // 校验落盘为 true
-    const saved2 = JSON.parse(localStorage.getItem('bangdream.settings.v1') ?? '{}');
+    const saved2 = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
     expect(saved2.projects?.importWithChart).toBe(true);
 
     // 切回官方面板，同样反映为开启

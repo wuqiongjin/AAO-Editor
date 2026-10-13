@@ -88,7 +88,7 @@ export interface SimScene {
   notes: ChartNote[];
   /** 当前细分档（subBeat 的单位 = 1/beatDisplay） */
   beatDisplay: number;
-  /** 音符速度档（1..11；T = (12 − n)/2 秒） */
+  /** 音符速度档（1..12；T = max(0.1, (12 − n)/2) 秒） */
   noteSpeed: number;
   /** `settings.display.noteSize`：节奏图示大小 */
   noteSize: number;
@@ -146,7 +146,7 @@ export interface SimSimultaneous {
  * 一帧只做「按秒窗口取可见元素」的二分 + 画，不每帧重算 beat→秒。
  */
 export interface SimChart {
-  /** 接近时长 T（秒）= (12 − noteSpeed)/2 */
+  /** 接近时长 T（秒）= max(APPROACH_MIN_SECONDS, (12 − noteSpeed)/2) */
   approachS: number;
   /** 全部元素，按 time 升序 */
   elements: SimElement[];
@@ -587,8 +587,8 @@ function drawEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, second
       drawProceduralEffect(ctx, m, el, since);
     }
   }
-  if (sprites) drawHoldEffects(ctx, input, seconds);
   ctx.restore();
+  if (sprites) drawHoldEffects(ctx, input, seconds);
 }
 
 /** 图块 / 生成圆的一次绘制：`center` = 以命中点为中心，`bottom` = 底边贴命中点（照 Bestdori 的 $e / He） */
@@ -768,7 +768,10 @@ function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, se
     const lane = bandLaneAt(band, seconds);
     const x = laneCenterX(m, lane, 1);
 
-    // ① 端点本体（照 bundle：画在两环**之前**，故被环盖着）：逐轨 `note_long`，轨位就近取整
+    // ① 端点本体（照 bundle：画在两环**之前**，故被环盖着）：逐轨 `note_long`，轨位就近取整。
+    // 显式锁定 globalAlpha = 1（issue 36）：免受任何外部/命中特效 alpha 残余污染
+    ctx.save();
+    ctx.globalAlpha = 1;
     const endpoint = noteIcons.slideEndpointLaneFor(lane);
     const box = simNoteRect(m, 1, noteSize, simSpriteAspect(endpoint));
     spriteIcon.render(ctx, {
@@ -780,6 +783,7 @@ function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, se
       canvasHeight: box.h,
       scale: 1,
     });
+    ctx.restore();
 
     ctx.save();
     ctx.globalAlpha = A.connection;

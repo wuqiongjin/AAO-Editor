@@ -104,7 +104,7 @@ function PageShellPrototype() {
   return (
     <div className={`page-prototype${navCollapsed ? ' is-nav-collapsed' : ''}`}>
       <aside className="app-nav" aria-label="应用页面导航">
-        <div className="app-mark" aria-label="BanG Dream 谱面编辑器">BD</div>
+        <div className="app-mark" title="AAO Editor · Advanced Arrangement Organizer" aria-label="AAO Editor">AAO</div>
         <nav className="app-nav-items">
           {NAV_ITEMS.map(({ id, label, shortcut, icon: Icon }) => (
             <button

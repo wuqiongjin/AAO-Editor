@@ -256,7 +256,7 @@ export default function SettingsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'bangdream-settings.json';
+    a.download = 'aao-settings.json';
     a.click();
     URL.revokeObjectURL(url);
   };

@@ -73,7 +73,11 @@ describe('architecture-refactor 09 · 谱面视口会话的落点与接线', () 
     expect(view).toMatch(/useChartSpace\s*\(/);
     expect(view).toMatch(/useScrollModel\s*\(/);
     expect(view).toMatch(/usePlaybackCoordinator\s*\(/);
-    expect((view.match(/registerScrollEcho\(/g) ?? []).length).toBe(2); // 比例位回写 + 重锚
+    // 比例位回写 + 重锚 + issue 166 的两处（首次置底、归零到 beat 0）—— 程序化写 scrollTop
+    // 的每一处都必须登记回声，否则它自己引发的 scroll 事件会被当成手滚反算出错误的秒数。
+    // 置底 + 比例位回写 + 同源写入 helper（重锚 / 归零共用）—— 程序化写 scrollTop 的每一处
+    // 都必须登记回声，否则它自己引发的 scroll 事件会被当成手滚反算出错误的秒数（issue 166）。
+    expect((view.match(/registerScrollEcho\(/g) ?? []).length).toBe(3);
     expect(view).toMatch(/querySelector\(['"]\.virtual-content/);
     expect(view).toMatch(/markInitialized\s*\(/);
     expect(view).toMatch(/consumePendingReAnchor\(/);

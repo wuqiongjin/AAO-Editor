@@ -9,11 +9,12 @@
 // issue 12（2026-10-05 用户定案）：全屏下这一排**整排退场** —— 它太长、压画面；浮层只留
 // `PreviewExitFullscreenButton` 一枚图标钮（缩放不丢：Ctrl/⌘+滚轮仍归 `StaticPreviewView`，
 // 设置 / 导出先退出全屏再做）。
-import { ImageDown, Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
 import { t } from '../../i18n';
 import { PREVIEW_ZOOM_RANGE, type SheetPlan } from '../../preview';
 import PreviewDisplayPanel from './PreviewDisplayPanel';
+import StaticExportControl from './StaticExportControl';
 import './PreviewPage.css';
 
 export interface PreviewStaticToolbarProps {
@@ -23,7 +24,7 @@ export interface PreviewStaticToolbarProps {
   onExport: () => void;
   /**
    * 导出档的排布结论（固定档算出来的 `宽 × 高`；`ok:false` 时带"为什么出不了"的原因）。
-   * null = 这一屏还没有可导出的谱面。按钮**不因超限而变灰**：点了会说清原因（票面：给方案，不画爆）。
+   * null = 这一屏还没有可导出的谱面。
    */
   exportPlan: SheetPlan | null;
   /** 进入全屏（全屏下这排控件整排退场，只留浮层那枚退出钮） */
@@ -38,12 +39,6 @@ export default function PreviewStaticToolbar({
   exportPlan,
   onEnterFullscreen,
 }: PreviewStaticToolbarProps) {
-  const exportTitle = exportPlan == null
-    ? t('preview.static.export')
-    : exportPlan.ok
-      ? t('preview.static.exportHint', { w: exportPlan.sheetW, h: exportPlan.sheetH })
-      : t('preview.static.exportRefused', { reason: exportPlan.detail });
-
   return (
     <div className="preview-controls">
       <div className="preview-zoom">
@@ -65,15 +60,12 @@ export default function PreviewStaticToolbar({
 
       <PreviewDisplayPanel />
 
-      {/* 那一排是页面 chrome（贴着页面底色）：不带面，`outlined` 只留给浮在画面上的钮（见 ui.css） */}
-      <IconButton
-        width="auto"
-        size="sm"
-        disabled={exporting || exportPlan == null}
-        icon={<ImageDown size={15} />}
-        label={exporting ? t('preview.static.exporting') : t('preview.static.export')}
-        title={exportTitle}
-        onClick={onExport}
+      {/* 导出控件（chart-preview 37）：点击弹出「导出图片」弹层，内含「导出信息」头带配置 */}
+      <StaticExportControl
+        disabled={exportPlan == null}
+        exporting={exporting}
+        exportPlan={exportPlan}
+        onExport={onExport}
       />
 
       {/* 全屏**末位**（2026-10-05 用户定案）：进入钮在这一排最右，退出钮浮在舞台右上角 ——

@@ -62,4 +62,38 @@ export {
   type SimPlaybackOptions,
   type SimScene,
 } from './video';
-export type { VideoPreviewRequest } from './video';
+// 视频开场（chart-preview 30）：导出物最前面那段（页面只需 `OPENING_ITEM_IDS` 与 `type OpeningInput`）
+export {
+  OPENING_ITEM_IDS,
+  OPENING_SECONDS,
+  DEFAULT_OPENING_ITEMS,
+  type OpeningInput,
+  type OpeningItemId,
+} from './video';
+// 视频导出（chart-preview 07）：离线逐帧 + 离线音轨 + 编码封装
+export {
+  CONTAINER_FALLBACK_ORDER,
+  CONTAINER_SPECS,
+  DEFAULT_VIDEO_CONTAINER,
+  DEFAULT_VIDEO_TIER,
+  EXPORT_FPS,
+  VIDEO_EXPORT_TIERS,
+  buildExportTimeline,
+  isAacCodec,
+  probeVideoExportSupport,
+  resolveExportGeometry,
+  runVideoExport,
+  tierOf,
+  videoExportBasename,
+  type ExportTimeline,
+  type VideoContainer,
+  type VideoContainerChoice,
+  type VideoExportFailure,
+  type VideoExportOutcome,
+  type VideoExportPhase,
+  type VideoExportProgress,
+  type VideoExportRequest,
+  type VideoExportSupport,
+  type VideoTier,
+  type VideoTierId,
+} from './video';

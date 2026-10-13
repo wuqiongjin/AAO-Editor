@@ -6,6 +6,7 @@ import { SIM_NOTE_SPEED_RANGE } from '@/src/chart/config/AppSettings';
 import { NOTE_SKIN_GEOMETRY } from '@/src/rendering/skin/noteSkin';
 import {
   APPROACH,
+  APPROACH_MIN_SECONDS,
   DESIGN_SURFACE,
   LANE_DESIGN_W,
   SIM_FIELD_LIMITS,
@@ -70,14 +71,30 @@ describe('接近模型（CONTEXT「接近模型」）', () => {
     expect(visibleApproach(10 - T, 10, T)).toBeCloseTo(APPROACH.floor, 1);
   });
 
-  it('noteSpeed 档位 → T = (12 − n)/2：1..11 → 5.5s..0.5s，默认 9.5 → 1.25s', () => {
+  it('noteSpeed 档位 → T = max(0.1, (12 − n)/2)：1..12 → 5.5s..0.1s，默认 9.5 → 1.25s', () => {
     expect(approachSeconds(1)).toBe(5.5);
     expect(approachSeconds(11)).toBe(0.5);
     expect(approachSeconds(SIM_NOTE_SPEED_RANGE.fallback)).toBe(1.25);
-    // 越界 / 非有限值经白名单归一化（上界 11 是模型的定义域边界：12 会让 T = 0）
+    // 越界 / 非有限值经白名单归一化（上界 12 = 现代游戏的档位上限）
     expect(approachSeconds(0)).toBe(5.5);
-    expect(approachSeconds(99)).toBe(0.5);
+    expect(approachSeconds(99)).toBe(APPROACH_MIN_SECONDS);
     expect(approachSeconds(Number.NaN)).toBe(1.25);
+  });
+
+  it('票 24：12 档不再退化成 T = 0 —— 落到下限、仍是正数，且与 n ≥ 11.8 连续', () => {
+    expect(approachSeconds(12)).toBe(APPROACH_MIN_SECONDS);
+    expect(approachSeconds(12)).toBeGreaterThan(0); // 今天差的 0 那条要能红
+    expect(approachSeconds(11.8)).toBe(APPROACH_MIN_SECONDS); // 11.8 起就贴着下限 ⇒ 无跳变
+    expect(approachSeconds(11.9)).toBe(APPROACH_MIN_SECONDS);
+    expect(approachSeconds(11.7)).toBeCloseTo(0.15, 6); // 下限之上仍是原公式
+  });
+
+  it('票 24：T = 下限那一档的 A 仍成立（Δ = −T ⇒ ≈ 0.058）', () => {
+    const t = approachSeconds(12);
+    expect(t).toBe(APPROACH_MIN_SECONDS);
+    expect(approachA(-t, t)).toBeCloseTo(0.058, 2);
+    expect(approachA(-t, t)).toBeGreaterThan(APPROACH.floor);
+    expect(approachOf(10 - t, 10, t)).toBeCloseTo(approachA(-t, t), 12);
   });
 });
 
@@ -133,6 +150,34 @@ describe('设计面与场地几何', () => {
     expect(xl.h).toBe(Math.round(2560 / DESIGN_RATIO));
     // 仍是 contain：宽高比不变
     expect(xl.w / xl.h).toBeCloseTo(DESIGN_RATIO, 2);
+  });
+
+  // 票 27：黑边 = 播放条占的那一行（`play-bar--preview` 的 32 + 舞台 gap 8 = 40，票 19 / 26 收过一档后的值）
+  const PLAY_ROW_PX = 32 + 8;
+  const barsFor = (screenW: number, metrics: { w: number }) => (screenW - metrics.w) / 2;
+
+  it('票 27 · 全屏黑边 = 播放条那一行的算术（去掉它 ⇒ 16:9 屏左右黑边归零）', () => {
+    // 现状：舞台里那一行占掉 40px ⇒ 画面只吃到 `屏高 − 40`、宽按设计面比例缩到 1850
+    // ⇒ 每侧黑边 (1920 − 1850) / 2 ≈ 35px，与票 27 的真机实测（各 35px）逐位吻合
+    const before = fitDesignSurface(1920, 1080 - PLAY_ROW_PX);
+    expect(before).toMatchObject({ w: 1850, h: 1080 - PLAY_ROW_PX });
+    expect(barsFor(1920, before)).toBeCloseTo(35, 0);
+
+    // 播放条浮在画面上（脱离文档流）⇒ 画面吃到整个舞台高度 ⇒ 黑边 0，面积 +7.7%（票面实测）
+    const after = fitDesignSurface(1920, 1080);
+    expect(after.w).toBe(1920);
+    expect((after.w * after.h) / (before.w * before.h) - 1).toBeGreaterThan(0.07);
+  });
+
+  it('票 27 · 21:9 屏上那一行更贵：画面被高钳住后仍差 475px（另有 maxW 成因）', () => {
+    // 3440×1440 下 `fitDesignSurface(3440, 1400)` 出来 2490×1400（h 先被 1400 钳住）
+    const before = fitDesignSurface(3440, 1440 - PLAY_ROW_PX);
+    expect(before.w).toBe(2490);
+    expect(barsFor(3440, before)).toBeCloseTo(475, 0);
+    // 去掉那一行后也只到 2560×1439 —— 真正卡住它的是 maxW（本票的 F，登记观察项不管）
+    const after = fitDesignSurface(3440, 1440);
+    expect(after.w).toBe(SIM_FIELD_LIMITS.maxW);
+    expect(barsFor(3440, after)).toBeCloseTo(440, 0);
   });
 });
 

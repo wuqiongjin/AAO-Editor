@@ -134,7 +134,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onPlayingChange: setIsPlaying,
     onChartDurationChange: setSessionChartDuration,
   });
-  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker, stopPlayback } = viewSession;
+  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker, stopPlayback, resetToStart } = viewSession;
 
   // 当前播放头所在区间的 BPM（顶栏实时区）
   // issue 134：与 HUD playheadBeat 同 geometry；最大 beat 解所在段（ADR-0010 结论 5）
@@ -220,6 +220,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     }
     // 无论是切工程还是切谱面，播放进度必须归零、停止播放并清除临时回跳标记
     seek(0);
+    // issue 166：视口也要显式归零到 beat 0（ADR-0005 §7）。`seek(0)` 只按**旧几何**写了一帧，
+    // 随后到达的新几何会走「按秒重锚」（语义 = 保留当前秒）把视图留在非开头位置；
+    // `resetToStart` 在几何/高度落地后再落一次权威值（冷启动首次恢复就是这条路径）。
+    resetToStart();
     setMarker(null);
     if (!opts.restoreAudio) {
       audioSession.setAudioLocked(audioLocked);
@@ -232,7 +236,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       audioLocked,
     });
     audioSession.setAudioLocked(audioLocked);
-  }, [resetNotes, setCtxDuration, audioSession, seek, setMarker]);
+  }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, setMarker]);
 
   // 记录侧音频变更（票 15 定案 8 的不变量）：音频页按作用域直接写了当前工程记录的音频，
   // 而这条路上没有新谱面——所以只把音频重新对齐，不走 handleProjectRestore（它会 resetNotes，
@@ -242,6 +246,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     project: import('../../project/ChartProject').ChartProject,
   ) => {
     seek(0);
+    resetToStart(); // issue 166：同上，音频换掉后时长会变，视口同样归零到 beat 0
     setMarker(null);
     if (project.durationSeconds > 0) setCtxDuration(project.durationSeconds);
     audioSession.hydrateFromProject({
@@ -250,7 +255,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       durationSeconds: project.durationSeconds,
       audioLocked: isProjectAudioLocked(project),
     });
-  }, [audioSession, seek, setMarker, setCtxDuration]);
+  }, [audioSession, seek, resetToStart, setMarker, setCtxDuration]);
 
   // === 会话流 6：持久化（当前工程恢复 + 防抖 800ms 落盘） ===
   // 收口点：不再有 audioMetaRef / persistRef ref 环——audioForPersist 是稳定对象，
@@ -546,7 +551,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           duration={ctxDuration}
           volume={ctxVolume}
           audioLocked={audioSnap.audioLocked}
-          canEditTime={!canPlay}
+          canEditTime
           seekNoCursor={!canPlay && ctxIsPlaying}
           shortcutKey={formatKey(shortcutConfig.play)}
           onTogglePlay={handleTogglePlay}

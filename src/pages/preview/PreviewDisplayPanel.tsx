@@ -9,17 +9,17 @@
 // `.slider-value` / `.switch` / `.select-control`（设置页同一套词汇，不新造样式），只有行版式是面板自己的。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, SlidersHorizontal } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
 import { t, type MessageKey } from '../../i18n';
 import type { AppSettings, PreviewBeatMarkDivision, PreviewTimeMarkInterval } from '../../chart/config/AppSettings';
 import {
-  EXPORT_FIELD_KEYS,
   PREVIEW_BEAT_MARK_DIVISIONS,
   PREVIEW_TIME_MARK_INTERVALS,
   SIM_NOTE_SPEED_RANGE,
+  normalizeNoteSpeed,
 } from '../../chart/config/AppSettings';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
@@ -39,8 +39,37 @@ const QUALITY_OPTIONS: ReadonlyArray<{ value: AppSettings['display']['imageQuali
 const GRID_OPTIONS: ReadonlyArray<{ value: GridStylePreset; labelKey: MessageKey }> =
   GRID_STYLE_PRESETS.map((value) => ({ value, labelKey: `settings.gridStyle.${value}` as MessageKey }));
 
-/** 面板宽（浮层贴右缘定位时用；与 CSS 里的 `.pdp__panel` 宽度同值） */
+/** 面板**内容**宽（= CSS `.pdp__panel { width }`；定位要的是**盒**宽，见下） */
 const PANEL_W = 320;
+/**
+ * 面板**盒**宽 = 内容宽 + 壳（`.pdp__panel` 的 padding 6×2 + 菜单壳 `.pp-menu__panel` 的 border 1×2）。
+ *
+ * 定位按盒宽对齐触发钮右缘：`.pdp__panel` 是 content-box，拿内容宽当盒宽会让面板右缘恒比触发钮
+ * 右缘多出 14px（issue 29 实测：面板 right 1432 / 触发钮 right 1418）。这两条 CSS 声明与本文件
+ * 这三个常量的一致性由 `tests/static/PreviewPanelAnchorWidth.test.ts` 钉住。
+ */
+const PANEL_CHROME_W = 14;
+const PANEL_BOX_W = PANEL_W + PANEL_CHROME_W;
+/** 面板离视口边缘的留白（贴右缘式放不下时的下限） */
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * 面板定位：贴触发钮**右缘**（盒宽对齐）并夹进视口，纵向贴触发钮下缘 +3。
+ * 量测输入来自工具栏右簇那枚图标钮：右簇贴页面右缘 ⇒ 窗宽一变它就动，故定位必须随伸缩重算
+ * （见组件里那段 resize 监听），只在打开那一刻量一次是不够的。
+ */
+/**
+ * 贴触发钮**右缘**（盒宽对齐）+ 夹进视口。**导出规格面板也用它**（issue 29 同款病灶）：
+ * 两块面板共用同一块浮层壳（`.pp-menu__panel` + 320 内容宽），盒宽口径必须只有这一份，
+ * 否则缩放窗口时两块面板会朝不同的边缘对齐。
+ */
+export function panelLayoutFor(rect: { right: number; bottom: number }) {
+  const left = Math.min(
+    Math.max(VIEWPORT_MARGIN, rect.right - PANEL_BOX_W),
+    Math.max(VIEWPORT_MARGIN, window.innerWidth - PANEL_BOX_W - VIEWPORT_MARGIN),
+  );
+  return { top: rect.bottom + 3, left };
+}
 
 /**
  * 一行：[标签] [控件]（行版式是面板自己的：浮层里要紧凑，不复用设置页那套 64px 行高）。
@@ -99,7 +128,40 @@ function Select<T extends string | number>({
   );
 }
 
-/** 音符速度档（1..11 步长 0.5；值是"档"不是比例，故不走 `Percent`） */
+/**
+ * 步进的两档（照 Bestdori 那枚 `my-numeric-input` 的 `small: .1 / large: .5`）：
+ * 贴着输入框的一对 = 小步 0.1，外侧一对 = 大步 0.5（图标用双尖以示"跳得多"）。
+ */
+const SPEED_STEPS = { small: 0.1, large: 0.5 } as const;
+
+/** 一枚步进钮：`delta` 带符号（负 = 减），`large` = 大步那对（图标用双尖以示"跳得多"） */
+function SpeedStep({ delta, large, label, onStep }: {
+  delta: number;
+  large: boolean;
+  label: string;
+  onStep: (delta: number) => void;
+}) {
+  const Icon =
+    delta < 0 ? (large ? ChevronsLeft : ChevronLeft) : (large ? ChevronsRight : ChevronRight);
+  return (
+    <button
+      type="button"
+      className="pdp__step"
+      aria-label={label}
+      title={label}
+      onClick={() => onStep(delta)}
+    >
+      <Icon size={12} />
+    </button>
+  );
+}
+
+/**
+ * 音符速度档（1..12 步长 0.1；值是"档"不是比例，故不走 `Percent`）。
+ *
+ * 形态照 Bestdori 那枚 `my-numeric-input`：**数字输入框为主**（能直接敲 11.9 这种非半档值），
+ * 滑杆退到第二行做粗调，两侧步进分小 0.1 / 大 0.5 两档（票 24 定案）。
+ */
 function NoteSpeed({
   value, label, onChange,
 }: {
@@ -107,18 +169,68 @@ function NoteSpeed({
   label: string;
   onChange: (v: number) => void;
 }) {
+  // 输入框是"草稿"：边敲边把解析出来的值写回设置（敲到一半的 "1" 也是合法档位），
+  // 失焦再回到归一化后的那个数 —— 免得 "12." 这种半成品一直挂在框里。
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (raw: number) => onChange(normalizeNoteSpeed(raw, value));
+  const stepBy = (delta: number) => commit(value + delta);
   return (
-    <div className="slider-control pdp__slider">
-      <input
-        type="range"
-        min={SIM_NOTE_SPEED_RANGE.min}
-        max={SIM_NOTE_SPEED_RANGE.max}
-        step={SIM_NOTE_SPEED_RANGE.step}
-        value={value}
-        aria-label={label}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-      <span className="slider-value">{value.toFixed(1)}</span>
+    <div className="pdp__row pdp__row--stack">
+      <div className="pdp__row-text"><strong>{label}</strong></div>
+      {/* 一条上排完：滑杆（粗调）→ 步进（大 / 小）→ 数值框 → 步进（小 / 大）。
+          数值框夹在两对步进钮中间 = 一枚 spinbutton，不再是"读数 + 各在各处的旋钮"。 */}
+      <div className="pdp__speed-line">
+        <input
+          type="range"
+          className="pdp__speed-slider"
+          min={SIM_NOTE_SPEED_RANGE.min}
+          max={SIM_NOTE_SPEED_RANGE.max}
+          step={SIM_NOTE_SPEED_RANGE.step}
+          value={value}
+          aria-label={label}
+          onChange={(e) => { setDraft(null); commit(Number(e.target.value)); }}
+        />
+        <SpeedStep
+          delta={-SPEED_STEPS.large}
+          large
+          label={t('preview.display.noteSpeed.decrease', { delta: SPEED_STEPS.large })}
+          onStep={stepBy}
+        />
+        <SpeedStep
+          delta={-SPEED_STEPS.small}
+          large={false}
+          label={t('preview.display.noteSpeed.decrease', { delta: SPEED_STEPS.small })}
+          onStep={stepBy}
+        />
+        <input
+          type="number"
+          className="pdp__number"
+          min={SIM_NOTE_SPEED_RANGE.min}
+          max={SIM_NOTE_SPEED_RANGE.max}
+          step={SIM_NOTE_SPEED_RANGE.step}
+          inputMode="decimal"
+          value={draft ?? value.toFixed(1)}
+          aria-label={label}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            const parsed = Number(e.target.value);
+            if (e.target.value.trim() !== '' && Number.isFinite(parsed)) commit(parsed);
+          }}
+          onBlur={() => setDraft(null)}
+        />
+        <SpeedStep
+          delta={SPEED_STEPS.small}
+          large={false}
+          label={t('preview.display.noteSpeed.increase', { delta: SPEED_STEPS.small })}
+          onStep={stepBy}
+        />
+        <SpeedStep
+          delta={SPEED_STEPS.large}
+          large
+          label={t('preview.display.noteSpeed.increase', { delta: SPEED_STEPS.large })}
+          onStep={stepBy}
+        />
+      </div>
     </div>
   );
 }
@@ -150,16 +262,17 @@ function Percent({
 }
 
 /**
- * 面板形态（chart-preview 05）：同一份「设置」控件在两种预览形态下显示不同的组 ——
- * 静态（标记 + 画布共享 + 皮肤 + 导出信息）/ 动态（**仿真场** + 画布共享 + 皮肤）。
+ * 面板形态（chart-preview 05 / 37）：同一份「设置」控件在两种预览形态下显示不同的组 ——
+ * 静态（标记 + 画布共享 + 皮肤）/ 动态（**仿真场** + 画布共享 + 皮肤）。
  * 「画布共享」与「音符皮肤」两组两种形态共用（同一份数据，改了双方生效）。
+ * 导出相关设置已迁移至导出按钮弹窗（StaticExportControl / VideoExportControl）。
  */
 export interface PreviewDisplayPanelProps {
   mode?: PreviewMode;
 }
 
 export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayPanelProps) {
-  const { settings, setDisplay, setPreview, setExport } = useConfig();
+  const { settings, setDisplay, setPreview } = useConfig();
   const { setActivePage } = useAppNav();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -167,17 +280,46 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
 
   const close = useCallback(() => setOpen(false), []);
 
-  const toggle = useCallback(() => {
-    setOpen((prev) => {
-      if (!prev && btnRef.current) {
-        const r = btnRef.current.getBoundingClientRect();
-        // 贴右缘对齐并夹进视口（工具栏那排按钮可以有多个实例：页面工具栏一份、全屏浮层一份）
-        const left = Math.min(Math.max(8, r.right - PANEL_W), Math.max(8, window.innerWidth - PANEL_W - 8));
-        setPos({ top: r.bottom + 3, left });
-      }
-      return !prev;
-    });
+  /** 量触发钮定面板位；打开前与开着时窗口伸缩都走它（算式见 panelLayoutFor） */
+  const computePos = useCallback(() => {
+    const btn = btnRef.current;
+    if (!btn) return;
+    const next = panelLayoutFor(btn.getBoundingClientRect());
+    // 等值守卫：补测路径会反复调用，几何没变时别平白制造一次重渲
+    setPos((prev) => (prev.top === next.top && prev.left === next.left ? prev : next));
   }, []);
+
+  const toggle = useCallback(() => {
+    if (!open) computePos();   // 先量再开：首帧就到位，不出现"先落在旧处再跳一下"
+    setOpen(!open);
+  }, [open, computePos]);
+
+  // 开着时跟随触发钮（issue 29）：右簇贴页面右缘 ⇒ 伸缩窗口就把它挪走，不重新量的话面板停在旧位置、
+  // 与触发钮脱节；缩到 1180（1600 开面板）时更糟 —— 面板右缘跑到视口外 252px，右侧控件点不到。
+  //
+  // 跨帧补测的理由照 `src/ui/ScopePicker.tsx` 那段（票 11 #1 同款病灶）：触发钮几何未必在 resize
+  // 当帧落定（那边是 AppPageShell 的 ResizeObserver 异步写 --aps-*；本页是纯 CSS 布局，当帧量通常
+  // 就够，双帧兜底字体 / 滚动条那类迟到几何）。等值守卫让补测不制造冗余重渲。
+  useEffect(() => {
+    if (!open) return;
+    let raf1 = 0;
+    let raf2 = 0;
+    const onResize = () => {
+      computePos();
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      raf1 = requestAnimationFrame(() => {
+        computePos();
+        raf2 = requestAnimationFrame(computePos);
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [open, computePos]);
 
   // Esc 关面板并把焦点还给触发钮（点面板外由遮罩负责，照 ScopePicker）。
   // 焦点给外壳里那枚 `<button>`（外壳只是量尺，本身不可聚焦）
@@ -290,14 +432,13 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
             ) : (
               <section className="pdp__group" aria-label={t('preview.display.group.sim')}>
                 <h3 className="pdp__group-title">{t('preview.display.group.sim')}</h3>
-                {/* 音符速度 = 接近模型的唯一档（档位 1..11；T = (12 − n)/2 秒，越大越快） */}
-                <Row label={t('preview.display.noteSpeed')}>
-                  <NoteSpeed
-                    label={t('preview.display.noteSpeed')}
-                    value={preview.noteSpeed}
-                    onChange={(noteSpeed) => setPreview({ noteSpeed })}
-                  />
-                </Row>
+                {/* 音符速度 = 接近模型的唯一档（档位 1..12 步长 0.1；T = max(0.1, (12 − n)/2) 秒，越大越快）。
+                    它自己就是一整行（上段标签 + 数字框 + 步进，下段滑杆），故不再套 `Row` */}
+                <NoteSpeed
+                  label={t('preview.display.noteSpeed')}
+                  value={preview.noteSpeed}
+                  onChange={(noteSpeed) => setPreview({ noteSpeed })}
+                />
                 {/* 镜向与静态那张同一个开关（`settings.preview.mirror`）：整轨镜像含方向箭头翻面 */}
                 <Row label={t('preview.display.mirror')}>
                   <Toggle
@@ -373,39 +514,6 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                 </button>
               </Row>
             </section>
-
-            {/* 导出头带（chart-preview 14）：这条头带导不导、导的话里头写哪些字段，
-                落 `settings.export`（跨会话记住）——与上一组「怎么看」分开：这是**导出物里写什么**。
-                总开关 `enabled` 管整条头带（关 = 纯面板区的宽图），下面 7 项是**信息区字段**。
-                谱师姓名不在这里（本票不做）。
-                **只有静态形态有导出入图这一说**：动态形态（仿真场）的导出是 07 的视频导出。 */}
-            {mode === 'static' && (
-              <section className="pdp__group" aria-label={t('preview.display.group.export')}>
-                {/* 头带总开关挂在组标题行右侧（2026-10-07 用户定案：不另立条目，说明成本为零）——
-                    它管整条头带，关掉时下面七行当场置灰，管什么由这个行为自己说明 */}
-                <div className="pdp__group-head">
-                  <h3 className="pdp__group-title">{t('preview.display.group.export')}</h3>
-                  <Toggle
-                    label={t('preview.display.export.enabled')}
-                    checked={settings.export.enabled}
-                    onChange={(v) => setExport({ enabled: v })}
-                  />
-                </div>
-                {EXPORT_FIELD_KEYS.map((key) => {
-                  const label = t(`preview.display.export.${key}` as MessageKey);
-                  return (
-                    <Row key={key} label={label} disabled={!settings.export.enabled}>
-                      <Toggle
-                        label={label}
-                        checked={settings.export[key]}
-                        disabled={!settings.export.enabled}
-                        onChange={(v) => setExport({ [key]: v })}
-                      />
-                    </Row>
-                  );
-                })}
-              </section>
-            )}
           </div>
         </>,
         document.body,

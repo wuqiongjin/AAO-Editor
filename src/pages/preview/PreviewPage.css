@@ -399,6 +399,87 @@
   max-width: 132px;
 }
 
+/* ---- 音符速度档（票 24）：滑杆 + 步进 + 数字输入框 ----
+   一行塞不下「标签 + 滑杆 + 4 枚步进钮 + 数字框」⇒ 标签独占上段，下段一条排完控件本身：
+   `滑杆（粗调）→ « ‹ 数值 › »`。数值框夹在两对步进钮中间 = 一枚 spinbutton
+   （粗调在左、微调贴着数值），整段读起来是"一个控件"，而不是散着的三件。 */
+.pdp__row--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+/* 数值框：最大内容就是 `12.0` 四字符 ⇒ 宽度按它给死，不加 padding 撑胖 */
+.pdp__number {
+  width: 44px;
+  flex: 0 0 44px;
+  margin: 0 3px;
+  padding: 2px 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text);
+  text-align: center;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.pdp__number:hover {
+  background: var(--bg-hover);
+}
+
+.pdp__number:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
+/* 浏览器自带的上下小箭头不要（档位有自己那两对步进钮） */
+.pdp__number::-webkit-outer-spin-button,
+.pdp__number::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* 下段：滑杆吃满剩余宽度，四枚步进钮贴右缘收成一簇 */
+.pdp__speed-line {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.pdp__speed-slider {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0 7px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.pdp__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pdp__step:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
 /* ---- 舞台 ----
    两种形态的画面（03 静态面板折行 / 05 仿真场）画在这里。
    面积极限让给画面本身：这里只给一个"舞台轮廓"，不预设内部布局。 */
@@ -457,6 +538,44 @@
   --focus-ring: var(--stage-focus-ring);
 }
 
+/* 全屏态：**播放条浮在画面上、不再占独立行**（chart-preview 27，用户 2026-10-09 拍板）。
+   黑边的唯一来源就是它占的那一行（32 + gap 8 = 40px）⇒ 画面只吃到 `屏高 − 40`、宽按
+   设计面比例缩到 `(屏高 − 40) × 1.7787`；16:9 屏（1.7778）下正好差出左右各 35px。
+   浮起来 ⇒ 画面吃到整个舞台高度 ⇒ **黑边 0、画面 +7.7%**（1920×1080 实测 1850×1040 →
+   1920×1079）。判定线在 `0.82H`，播放条只压到其下方那一小条背景区，不挡判定线与音符。
+
+   只有全屏浮（窗口态一字不动）的三条理由见票 27「定案」：① 窗口态 `is-filled` 的
+   `background: none` 露的是**页面底色**、不是黑边，没有要消的对象；② 播放条占一排是票 05
+   的用户定案（照 Bestdori）；③ 全屏是沉浸观看、窗口是工作界面。
+
+   两条覆盖都带 `!important`，理由是**特异性恰好打平、而窗口态那条排在后面**：本机 Chromium 里
+   `:fullscreen` 与 `:hover` 同档计一个类 ⇒ `.preview-stage:fullscreen .pv-stage` 是 0-3-0，
+   与 `.preview-page.is-video .pv-stage`（0-3-0）**同权**，源序在后的一方赢（本文件 511-515 行
+   那两条同样靠源序，是同一个坑的两种形态）。实测在同一份规则上：不加 `!important` 时 gap 仍是
+   8px；删掉窗口态那条、或把规则塞进"后到"的 `<style>`、或把选择器写到
+   `.preview-page .preview-stage:fullscreen:fullscreen …`（0-5-0）这一档，gap 才变 0。
+   ⇒ 不用"再多堆两层选择器"这种脆写法，改用本文件既有的手法（`.is-palette-swap` 那条就是
+   `transition: none !important`），代价仍收在全屏这一块里、窗口态一字不动。 */
+.preview-stage:fullscreen .pv-stage {
+  gap: 0 !important;
+}
+
+.preview-stage:fullscreen .play-bar--preview {
+  /* 浮到舞台底缘：三个偏移 + 高度交给内容自己（`.preview-page.is-video .play-bar--preview`
+     的 `min-height: 32px` 是"占独立行"时的口径，浮起来后留着就等于钉死条高）。都带 `!important`，
+     理由同上一条。 */
+  position: absolute !important;
+  left: var(--space-3) !important;
+  right: var(--space-3) !important;
+  bottom: var(--space-3) !important;
+  min-height: 0 !important;
+  /* 极轻的底衬（票 27「落点」允许的那一层，不是不透明胶囊 —— 票 10 已撤过控件外壳）：
+     兜住"视口很矮、画面被压到播放条下方"时压在亮画面上的那点风险。实测 16:9 / 16:10 两档下
+     播放条底下本来就是舞台底色或画面自带的近黑下缘（对比 17.7:1），这层渐变肉眼不可见。 */
+  background: linear-gradient(to top, color-mix(in srgb, var(--canvas-bg) 72%, transparent), transparent);
+  border-radius: var(--radius-md);
+}
+
 /* 进 / 出全屏那一拍：**这一整个子树的过渡先关掉**（票 23 #3 验收回修，2026-10-08）。
    舞台上下的配色是"同一帧里前后两个值"（底色 `none → --canvas-bg`、前景 `--text → --stage-*`），
    而按钮自己带 hover 那套 `transition`（`.play-bar__play-btn` 的 `background-color` / `color` 各
@@ -503,7 +622,7 @@
   min-height: 0;
 }
 
-/* 空态（缺素材 / 还在读）：只居中说明 + 获取命令，不铺场地 */
+/* 空态（素材加载失败 / 还在读）：只居中一句话说明，不铺场地 */
 .pv-stage.is-empty {
   align-items: center;
   justify-content: center;
@@ -512,23 +631,8 @@
 }
 
 .pv-empty__text {
-  margin: 0 0 10px;
+  margin: 0;
   font-size: var(--text-sm);
-}
-
-/* 获取命令：可选中可复制（空态的全部意义就是让人把这条跑起来） */
-.pv-empty__cmd {
-  display: inline-block;
-  max-width: 100%;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  overflow-wrap: anywhere;
-  user-select: text;
 }
 
 .pv-field {
@@ -555,6 +659,16 @@
   position: relative; /* 面板的锚点（往上翻：播放条贴舞台底部） */
   display: inline-flex;
   flex: 0 0 auto;
+}
+
+/* 按压时读数与图标不许动（chart-preview 28）：全站那记 `.icon-btn:active { transform: scale(0.98) }`
+   是"整块钮连着内容一起缩"，压在这个钮上就表现为**读数与图标被重采样跳一下** —— 实测图标墨迹
+   质心按住时 +0.47 设备px（DPR 1）/ +0.92px（DPR 2），松开复位；用户读成"点一下，倍速的图标往
+   斜上移动、松开又回来"。这里把这个钮的几何反馈换成**不改盒子**的按压色（深浅与 `--bg-active` 同档；
+   色值混自当前态的两个 token —— 全屏台上态 `--bg-hover` / `--text` 一起换，不落硬编码色值）。 */
+.pv-rate .icon-btn:active:not(:disabled) {
+  transform: none;
+  background-color: color-mix(in srgb, var(--bg-hover) 88%, var(--text));
 }
 
 /* 绝对定位的元素默认按"可用宽度"（= 触钮那点宽度）收缩，所以这里必须显式要 `max-content`，
@@ -655,20 +769,30 @@
 /* 播放条本体（含音量 / 时间码 / 进度）是工作台同一件 `PlayBar`（issue 22）：
    内部件样式全在 `src/playback/PlayBar.css`，本文件只留动态形态对它的几何覆盖（见下）。 */
 
-/* ---- 动态形态：页面留白收一档，把那点高度让给场地（chart-preview 19，用户 2026-10-07 定案）----
-   场地按设计面 contain（不满宽、两侧留白接受），所以"画面变大"唯一的来源就是**多给高度**：
-   页 padding 40 → 20、页头行 22 → 16、工具栏下留白 10 → 8、播放条 44 → 40（34→32 + gap 10→8）。
-   实测（1920×1080）场地 1601×900 → 1637×932；大屏另有 `SIM_FIELD_LIMITS.maxW` 1920 → 2560。 */
-.preview-page.is-video {
-  padding: 12px 12px 8px;
-}
+/* ---- 动态形态：只省"不推动内容"的那几处，把高度让给场地
+       （chart-preview 19，用户 2026-10-07 定案；可省的范围由票 26 / 票 26 #3 逐条收窄）----
+   场地按设计面 contain（不满宽、两侧留白接受），所以"画面变大"唯一的来源就是**多给高度**。
+   页底部留白（16 → 8）、舞台内 gap（10 → 8）、播放条（44 → 40，34→32 + gap 10→8）三处。
+   实测（1920×1080）场地 1601×900 → 1637×932（票 19 落地时；其后经 20 / 22 等回修，
+   现值 1656×931，见票 26）；大屏另有 `SIM_FIELD_LIMITS.maxW` 1920 → 2560。
 
-.preview-page.is-video .preview-modes {
-  padding-bottom: 8px;
-  margin-bottom: 8px;
-}
+   **只收底部、不收 top / left（票 26，用户 2026-10-09 拍板）**：padding-top 与 padding-left
+   同时是页头（「静态预览 / 动态预览」两枚模式按钮）的起始锚点 —— 跟着收，切模式时页头就
+   整体上移 + 左移 12px（实测 Δx = Δy = −12），与票 19 §3「页头不动」的口径冲突。
+   左右那 12px 也不必收：contain 是**高度受限**（画面两侧本就各余约 94px），收了让不出任何
+   场地尺寸（实测 `24 24 8 24` 与 `24 12 8 24` 场地尺寸完全相同）。
 
-.preview-page.is-video .preview-toolbar {
+   **页头行与工具栏的间距也不收（票 26 #2，同日）**：`.preview-modes` 的 padding / margin 与
+   `.preview-toolbar` 的 padding-bottom 都在"页头 → 工具栏 → 舞台"这条竖链上 —— 收一档就把
+   下方整条链抬起来（实测工具栏 −6px、舞台 −8px），切模式时看着就是"页头下面全在上移"。
+   票 19 §3 要的是「页头 / 工具栏不动」，故这两条撤掉。
+
+   **底部这 8px 只在"舞台里真的有画面"时才收（票 26 #3，用户 2026-10-09 本机复验）**：
+   收它 = 舞台盒子变高 8px ⇒ **盒子里的居中内容跟着下移 4px**。有画面时那 8px 喂给画面
+   （contain 下就是画面变大，票 19 要的收益）；没画面时什么也喂不到、只是把内容推下去 ——
+   实测两种空态：无工程（空态块整体 +4px）、谱面 0 音符（虚线舞台 +8px、待机文案 +4px）。
+   故这一条挂在 `:has(.preview-stage.is-filled)` 上：空态的舞台盒子与静态态逐像素一致。 */
+.preview-page.is-video:has(.preview-stage.is-filled) {
   padding-bottom: 8px;
 }
 
@@ -685,4 +809,213 @@
   .preview-page {
     padding: 20px 16px 12px;
   }
+}
+/* ---- 视频导出（chart-preview 07）----
+   两件都是**非模态**：规格弹层（照「设置」面板那套行版式）+ 贴视口右下角的进度卡。
+   为什么不用全站弹窗壳：弹窗是模态的，而一次导出可能要好几分钟（06 §5.4：软光栅下 1080p
+   约 0.26× 实时）——那几分钟页面得还能用，故进度卡不带 scrim。 */
+.pvex {
+  position: relative;
+  display: inline-flex;
+}
+
+.pvex__trigger {
+  display: inline-flex;
+}
+
+/* 规格弹层：宽与「设置」面板同档（320），壳复用 `.pp-menu__panel` */
+/* 规格面板的宽度 / padding / max-height **不在这里写**：直接挂 `.pdp__panel`，
+   与「显示」面板共用同一块壳与同一份盒宽口径（见 issue 29 与 `panelLayoutFor` 的导出）。
+   两处各写一份 320px 的话，改了一处两块面板就会朝不同的边缘对齐。 */
+
+.pvex__group {
+  display: flex;
+  flex-direction: column;
+}
+
+.pvex__group-title {
+  margin: 0;
+  padding: 4px 8px 6px;
+  color: var(--text-muted);
+  font-size: calc(10px * var(--ui-type-scale));
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.pvex__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  /* 两行兜底：极窄窗口下控件换行到下一行，**标签不许被压成竖排**（「分辨率」曾被挤成三行） */
+  flex-wrap: wrap;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+}
+
+/* 开场那一组（chart-preview 30）：总开关在组标题行右侧，子项缩进一格、关掉时整组置灰。
+   版式与「导出信息」那一组（`pdp__group`）同一套口径。 */
+.pvex__group--sub {
+  margin-top: 8px;
+  padding: 2px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.pvex__group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+}
+
+.pvex__group-head .pvex__group-title {
+  padding: 0;
+}
+
+.pvex__group-title-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pvex__help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  opacity: 0.75;
+  transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+
+.pvex__help-btn:hover,
+.pvex__help-btn.is-active {
+  opacity: 1;
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.pvex__help-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 70;
+  width: 220px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  pointer-events: auto;
+}
+
+.pvex__row.is-disabled {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.pvex__row-text {
+  flex: 0 0 auto;
+}
+
+.pvex__row-text strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 控件不新造样式：下拉 = `.select-control`、开关 = `.switch`（与「显示」面板同一套词汇）。
+   分段药丸钮那一套已撤（2026-10-10 三轮验收：与全站控件风格不符）。 */
+
+/* 文件格式行下的平实结论（随探测结论走）：没有结论时这一行不出现——
+   不写"尚未检测"这类看不懂又没帮助的占位废话。 */
+.pvex__note {
+  margin: 2px 8px 6px;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+}
+
+.pvex__start {
+  margin: 4px 8px 6px;
+  justify-content: center;
+}
+
+/* 进度卡 / 结果卡：贴视口右下角，浮在页面之上（不遮工具栏，也不吃交互） */
+.pvex__card {
+  position: fixed;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 2 * var(--space-3)));
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+}
+
+.pvex__card--danger {
+  border-color: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+.pvex__card--warn {
+  border-color: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+.pvex__card-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pvex__card-bar {
+  flex: 0 0 120px;
+  height: 6px;
+}
+
+.pvex__card-cancel {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: var(--text-2xs);
+}
+
+.pvex__card-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+
+.pvex__card-close:hover {
+  opacity: 1;
+  background: var(--bg-hover);
 }

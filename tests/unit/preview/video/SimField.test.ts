@@ -53,10 +53,10 @@ const scene = (notes: ChartNote[]): SimScene => ({
 /** 记录型精灵替身（node 环境没有图集：真 `CanvasSpriteIcon` 一笔都画不出来） */
 function makeRecordingSprite() {
   /** `sx/sy` = 精灵源矩形左上角（逐轨取图的断言要靠它分辨"同一张图集里的哪一张"） */
-  const draws: { x: number; y: number; w: number; h: number; scale: number; src: string; sx: number; sy: number }[] = [];
+  const draws: { x: number; y: number; w: number; h: number; scale: number; src: string; sx: number; sy: number; alpha: number }[] = [];
   const spriteIcon = {
     render(
-      _ctx: unknown,
+      ctx: unknown,
       props: {
         src: string; canvasX: number; canvasY: number; canvasSize: number;
         canvasWidth?: number; canvasHeight?: number; scale?: number; x: number; y: number;
@@ -71,6 +71,7 @@ function makeRecordingSprite() {
         src: props.src,
         sx: props.x,
         sy: props.y,
+        alpha: (ctx as { globalAlpha?: number })?.globalAlpha ?? 1,
       });
     },
     renderDecorator() { /* flick 顶部箭头：本文件不关心 */ },
@@ -445,6 +446,16 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     const box = simNoteRect(frame.metrics, 1, 1, 120 / 308);
     expect(endpoint.w).toBeCloseTo(box.w, 6);
     expect(endpoint.h).toBeCloseTo(box.h, 6);
+
+    // issue 36：即使在命中特效窗口内（since <= 0.6s），端点本体绘制时的 globalAlpha 恒为 1（不受粒子环污染）
+    const duringHit = makeRecordingSprite();
+    drawSimFrameAt(
+      recordingCtx().proxy,
+      { ...frame, spriteIcon: duringHit.spriteIcon },
+      1.2, // 起点在 1.0s，1.2s 时命中特效正处于活跃衰减中（since = 0.2s）
+    );
+    expect(duringHit.draws).toHaveLength(1);
+    expect(duringHit.draws[0]!.alpha).toBe(1);
 
     // 松手（过了段终点）就不再画
     const after = makeRecordingSprite();

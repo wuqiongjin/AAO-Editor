@@ -8,7 +8,7 @@ import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import SettingsPage from '@/src/pages/settings/SettingsPage';
 import { renderWithProviders } from '@/tests/support/providers';
 import { stubPageShellEnv } from '@/tests/support/domEnv';
-import { seedZhSettings } from '@/tests/support/storage';
+import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 const MB = 1024 * 1024;
 const DAY = 24 * 60 * 60 * 1000;
@@ -137,7 +137,7 @@ describe('票 14 + 18 + 19 · 设置页社区素材缓存与数据目录块', ()
       expect(configureFn).toHaveBeenLastCalledWith({ maxAgeMs: 7 * DAY, maxBytes: 256 * MB }),
     );
     // 持久化：不读桥，只认 settings 里那两个字段
-    const persisted = JSON.parse(localStorage.getItem('bangdream.settings.v1') ?? '{}');
+    const persisted = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
     expect(persisted.cachePolicy).toEqual({ maxIdleDays: 7, maxMegabytes: 256 });
   });
 

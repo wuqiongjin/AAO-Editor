@@ -117,7 +117,7 @@ async function binaryIntent(
 /* IndexedDB 后端                                                       */
 /* ------------------------------------------------------------------ */
 
-const DB_NAME = 'bangdream.chartproject';
+const DB_NAME = 'aao.chartproject';
 const DB_VERSION = 1;
 const STORE = 'projects';
 

@@ -1,7 +1,9 @@
 {
-  "name": "bangdream-editor",
+  "name": "aao-editor",
   "private": true,
   "version": "0.0.0",
+  "description": "Advanced Arrangement Organizer",
+  "author": "AAO Editor",
   "main": "electron/main.cjs",
   "homepage": "./",
   "scripts": {
@@ -26,8 +28,10 @@
     "@fontsource-variable/geist": "^5.3.0",
     "async-exit-hook": "^2.0.1",
     "lucide-react": "^0.544.0",
+    "mp4-muxer": "^5.2.2",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "webm-muxer": "^5.1.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
@@ -53,8 +57,9 @@
     "wait-on": "^9.0.1"
   },
   "build": {
-    "appId": "com.mocacoffee.bangdream-editor",
-    "productName": "BangDream Editor",
+    "appId": "com.aao.editor",
+    "productName": "AAO Editor",
+    "copyright": "Copyright © 2026 AAO Editor",
     "directories": {
       "output": "release"
     },
@@ -66,17 +71,20 @@
     ],
     "mac": {
       "category": "public.app-category.music",
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "public/icon.png"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "public/favicon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "public/icon.png"
     }
   }
 }

@@ -59,6 +59,7 @@ export {
   planSheet,
   renderSheet,
   waitForPaint,
+  yieldToMainThread,
   type SheetExportOutcome,
   type SheetExportRequest,
   type SheetRefused,

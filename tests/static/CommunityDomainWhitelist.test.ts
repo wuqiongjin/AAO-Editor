@@ -26,8 +26,12 @@ const XHR = /XMLHttpRequest/;
  * 唯一允许出现裸 fetch 的文件：键音采样加载。
  * `src/audio/KeySound.ts` 写明 `src` / `tierSrcs` 是 **Vite 内联 data-URI / 打包资源**，
  * 不是外域请求；这里连着断言它确实拿对象 URL / data-URI 喂 fetch。
+ *
+ * 2026-10 主分支把采样加载从 `AudioEngine` 的 private `loadSample` 抽成
+ * `src/audio/keySoundSamples.ts` 的 `KeySoundSampleBank.load`（实时引擎与离线音轨共用一份），
+ * 裸 fetch 随之搬家，这里跟着改指向。
  */
-const LOCAL_FETCH_FILE = 'src/audio/AudioEngine.ts';
+const LOCAL_FETCH_FILE = 'src/audio/keySoundSamples.ts';
 /** 只有这些后缀参与扫描：src 下还有 .mp3 / .png 之类二进制，按文本读会误伤 */
 const TEXT_EXT = /\.(ts|tsx|css|json)$/;
 
@@ -69,9 +73,9 @@ describe('bestdori-integration 07 · 出口唯一', () => {
     const callers = sourceFiles().filter((rel) => BARE_FETCH.test(readStripped(rel)));
     expect(callers).toEqual([LOCAL_FETCH_FILE]);
     // 那一处的入参必须是本地资源（data-URI / object URL），不是拼出来的外域地址
-    const engine = readStripped(LOCAL_FETCH_FILE);
-    expect(engine).toMatch(/loadSample\(src: string\)/);
-    expect(engine).not.toMatch(/https?:\/\//);
+    const sampleLoader = readStripped(LOCAL_FETCH_FILE);
+    expect(sampleLoader).toMatch(/load\(src: string/);
+    expect(sampleLoader).not.toMatch(/https?:\/\//);
   });
 
   it('CommunityTransport 的实现只有一个，就是走 IPC 那个', () => {

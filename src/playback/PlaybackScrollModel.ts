@@ -48,16 +48,29 @@ export class PlaybackScrollModel {
   private playing = false;          // 播放中 RAF 独占滚动，重锚让位
   private anchorSeconds = 0;        // 「判定线处秒数」实时锚点
   private pendingAnchorKey: string | null = null; // 待重锚标记（chartEndKey）
+  private lastChartEndKey: string | null = null;  // 最近注入的末端 key（issue 166 RC-1：置位与几何同帧）
 
   constructor(geometry: ChartGeometry, scale: number) {
     this.geometry = geometry;
     this.scale = scale;
   }
 
-  /** 谱面/时长/渲染面/缩放变化时注入新几何与缩放（同实例，状态机状态保留）。 */
-  configure(geometry: ChartGeometry, scale: number): void {
+  /**
+   * 谱面/时长/渲染面/缩放变化时注入新几何与缩放（同实例，状态机状态保留）。
+   *
+   * issue 166 RC-1：**置位待重锚与几何注入同帧**。此前置位挂在消费方的 effect 上，而子画布
+   * 的上报（"几何已新 + scrollY 仍旧"）实测会抢在它前面执行 —— 那时 pending 还是 null，
+   * `noteScrollObserved` 便把锚点从 0 刷成了 `(新末端 − 旧scrollY) / 密度` 秒
+   * （冷启动 30s → 120s 实测刷成 90s），随后的按秒重锚就"忠实"地把视图钉在这个假秒数上。
+   * @param chartEndKey 末端变化源 key；给值时按"与上次不同"置位待重锚（幂等）
+   */
+  configure(geometry: ChartGeometry, scale: number, chartEndKey?: string): void {
     this.geometry = geometry;
     this.scale = scale;
+    if (chartEndKey != null && chartEndKey !== this.lastChartEndKey) {
+      this.lastChartEndKey = chartEndKey;
+      this.noteChartEndChange(chartEndKey);
+    }
   }
 
   // ---------------- 三域互映：seconds ↔ scrollY ↔ scrollTop ----------------
@@ -134,6 +147,16 @@ export class PlaybackScrollModel {
   setPlaying(v: boolean): void { this.playing = v; }
   /** 当前锚点秒数（供诊断/回写）。 */
   getAnchorSeconds(): number { return this.anchorSeconds; }
+
+  /**
+   * issue 166：「打开 / 恢复谱面 → 视口归零到 beat 0」的模型侧落点。
+   * 与按秒重锚的语义相反（重锚 = 保留当前秒，ADR/issue 24 定案），故这里直接把锚点归 0
+   * 并**丢弃**待重锚 —— 否则重锚会用（被污染或过期的）旧锚点把视图拉回非开头位置。
+   */
+  resetAnchorToStart(): void {
+    this.anchorSeconds = 0;
+    this.pendingAnchorKey = null;
+  }
 
   /** 谱面末端变化源（时长/BPM/surface）变化时置位待重锚。
    *  未初始化或播放中不置位（播放中 RAF 独占滚动）。 */

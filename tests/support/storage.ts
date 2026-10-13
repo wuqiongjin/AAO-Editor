@@ -3,7 +3,7 @@
 // AppSettings 的读写只依赖 `Storage` 的两个方法，且固定使用
 // `bangdream.settings.v1` 这一个 key，因此这里给一个最小内存实现即可覆盖。
 
-export const SETTINGS_KEY = 'bangdream.settings.v1';
+export const SETTINGS_KEY = 'aao.settings.v1';
 
 export interface SettingsMemStorage {
   raw: () => string | null;

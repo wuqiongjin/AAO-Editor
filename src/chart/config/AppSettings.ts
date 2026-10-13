@@ -208,10 +208,37 @@ export interface ExportFieldSettings {
   bpm: boolean;
   /** 导出时间（本地时区，写到分钟） */
   exportedAt: boolean;
+  /**
+   * **视频开场**（chart-preview 30）：动态预览导出物最前面那段的总开关 + 信息项开关。
+   * 与上面 7 个「信息区字段」**互不跟随**（那是长图头带的谱面统计信息，这是歌曲信息）。
+   */
+  opening: OpeningSettings;
 }
 
+/**
+ * 视频开场设置（chart-preview 30）：`enabled` 关掉 = 回到"第 0 帧即 0 秒、总长 = 谱面时长"；
+ * 三项信息项 = 难度徽章 / 标题条 / 艺人行（本期不做 credits / 谱师名）。
+ */
+export interface OpeningSettings {
+  enabled: boolean;
+  items: Record<OpeningItemId, boolean>;
+}
+
+/** 开场信息项的候选全列（声明式：未来加项 = 加一个 id + 默认值 + 文案 + 一处绘制） */
+export const OPENING_ITEM_IDS = ['difficulty', 'title', 'artist'] as const;
+
+/** 开场信息项 id */
+export type OpeningItemId = (typeof OPENING_ITEM_IDS)[number];
+
+/** 开场信息项默认值（**全开**） */
+export const DEFAULT_OPENING_ITEMS: Record<OpeningItemId, boolean> = {
+  difficulty: true,
+  title: true,
+  artist: true,
+};
+
 /** 导出信息字段的候选全列（归一化与「导出信息」UI 组共用同一份，免得两处各列一遍） */
-export const EXPORT_FIELD_KEYS: readonly (keyof ExportFieldSettings)[] = [
+export const EXPORT_FIELD_KEYS: readonly Exclude<keyof ExportFieldSettings, 'enabled' | 'opening'>[] = [
   'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt',
 ];
 
@@ -228,6 +255,8 @@ export const DEFAULT_EXPORT_FIELDS: ExportFieldSettings = {
   noteCount: false,
   bpm: true,
   exportedAt: false,
+  // 视频开场默认全开；**缺字段回落 true**（老用户不得被静默关掉，定案 5）
+  opening: { enabled: true, items: { ...DEFAULT_OPENING_ITEMS } },
 };
 
 /** 预览标注设置（= `settings.preview`；预览面板的叠加项由它推出） */
@@ -244,17 +273,22 @@ export interface PreviewSettings {
   mirror: boolean;
   /**
    * 仿真场音符速度档（chart-preview 05；照 Bestdori `simNoteSpeed`）：
-   * 只作用于动态预览，决定接近模型的 T = (12 − noteSpeed)/2 秒。白名单与步长见 `SIM_NOTE_SPEED_RANGE`。
+   * 只作用于动态预览，决定接近模型的 T = max(0.1, (12 − noteSpeed)/2) 秒
+   * （下限 `APPROACH_MIN_SECONDS` 在 `preview/video/sim/simGeometry`）。白名单与步长见 `SIM_NOTE_SPEED_RANGE`。
    */
   noteSpeed: number;
 }
 
 /**
- * 音符速度档白名单（chart-preview 05）：`1..11` 步长 `0.5`，默认 **9.5**（用户 2026-10-07 定案：
- * "比较适合预览谱面的速度"）。上界取 11 而不是游戏里的 12：`T = (12 − n)/2` 在 12 处退化成 0，
- * 模型没有定义（票面的「档位 1..11」也是同一口径）。
+ * 音符速度档白名单（chart-preview 05；**范围 2026-10-08 票 24 定案**）：`1..12` 步长 `0.1`，
+ * 默认 **9.5**（用户 2026-10-07 定案："比较适合预览谱面的速度"）。
+ *
+ * 上界 **12 = 现代 BanG Dream 自己的档位上限**（Bestdori 模拟器封在 11，因为 `T = (12 − n)/2`
+ * 在 12 处退化成 0）。本项目的处理是给 T 一个下限（`APPROACH_MIN_SECONDS`），而不是改映射或封 11 ——
+ * 口径理由（票 24 定案）：**Bestdori 参照实现与游戏本身冲突时优先游戏**
+ * （现代游戏是 1..12，1..11 是老版本）。
  */
-export const SIM_NOTE_SPEED_RANGE = { min: 1, max: 11, step: 0.5, fallback: 9.5 } as const;
+export const SIM_NOTE_SPEED_RANGE = { min: 1, max: 12, step: 0.1, fallback: 9.5 } as const;
 
 /** Time 标记间隔（秒）——照 Bestdori 的 `chartTime`：off / 1s / 2s / 5s / 10s（chart-preview 08） */
 export type PreviewTimeMarkInterval = 'off' | 1 | 2 | 5 | 10;
@@ -282,7 +316,10 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
 export function normalizeNoteSpeed(raw: unknown, fallback: number = SIM_NOTE_SPEED_RANGE.fallback): number {
   const { min, max, step } = SIM_NOTE_SPEED_RANGE;
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
-  const snapped = Math.round(raw / step) * step;
+  // 吸附走 `× (1/step)` 而不是 `÷ step`：0.1 不能被二进制精确表示，
+  // `9.45 / 0.1` 算出 94.499… ⇒ 半档会被吸到**下**一档（步长 0.1 时逐位都可能错一格）。
+  const inv = 1 / step;
+  const snapped = Math.round(raw * inv) / inv;
   return Math.min(max, Math.max(min, snapped));
 }
 
@@ -296,7 +333,7 @@ export interface NoteSkinSelectionRaw {
   slide: string;
 }
 
-const STORAGE_KEY = 'bangdream.settings.v1';
+const STORAGE_KEY = 'aao.settings.v1';
 
 /** 谱面时长上限（秒）：30 分钟，防误输入把画布撑爆（issue 28 第 2 轮 P6） */
 export const MAX_DURATION_SECONDS = 1800;
@@ -482,7 +519,32 @@ export function normalizeExportFields(
   for (const k of EXPORT_FIELD_KEYS) {
     if (typeof raw[k] === 'boolean') out[k] = raw[k] as boolean;
   }
+  // `opening` 是嵌套对象：`{ ...fallback }` 是浅拷贝，直接改会写脏 `DEFAULT_EXPORT_FIELDS.opening`
+  // ⇒ 必须显式造一个新对象（含 items 的新对象）
+  out.opening = normalizeOpening(raw.opening, fallback.opening);
   return out;
+}
+
+/**
+ * 视频开场归一化：缺 `enabled` / 缺任一项都**回落 true**，未知键忽略。
+ * `enabled` 缺 = 开（老数据升级后不得被默默关掉，定案 5）。
+ */
+export function normalizeOpening(
+  raw: unknown,
+  fallback: OpeningSettings = DEFAULT_EXPORT_FIELDS.opening,
+): OpeningSettings {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const enabled = typeof src.enabled === 'boolean' ? src.enabled : fallback.enabled !== false;
+  // 整段缺失 ⇒ items 全开（fallback 的 items 已经默认全开，这里再兜一层防脏值）
+  const rawItems =
+    src.items && typeof src.items === 'object'
+      ? (src.items as Record<string, unknown>)
+      : (fallback.items as unknown as Record<string, unknown>);
+  const items: Record<OpeningItemId, boolean> = { ...DEFAULT_OPENING_ITEMS };
+  for (const id of OPENING_ITEM_IDS) {
+    items[id] = typeof rawItems[id] === 'boolean' ? (rawItems[id] as boolean) : DEFAULT_OPENING_ITEMS[id];
+  }
+  return { enabled, items };
 }
 
 export function loadSettings(
@@ -566,9 +628,33 @@ export function updateSettings(
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
     projects: { ...prev.projects, ...(patch.projects ?? {}) },
     preview: { ...prev.preview, ...(patch.preview ?? {}) },
-    export: { ...prev.export, ...(patch.export ?? {}) },
+    // `opening` 是嵌套对象：段内浅合并会把 `items` 整个抹掉（改 `enabled` 就丢三项开关）
+    // ⇒ 显式合并一层（定案：缺字段回落 true、改一项不抹掉其它项）
+    export: {
+      ...prev.export,
+      ...(patch.export ?? {}),
+      opening: mergeOpening(prev.export.opening, patch.export?.opening),
+    },
+    // 社区素材缓存回收策略（票 18）：整段归一化，缺段 / 脏值回落默认档
     cachePolicy: patch.cachePolicy
       ? normalizeCachePolicy({ ...prev.cachePolicy, ...patch.cachePolicy }, prev.cachePolicy)
       : prev.cachePolicy,
   };
+}
+
+/** 开场设置的**两层**合并：`enabled` 取新值，`items` 逐项合并（未提的项保持原值） */
+export function mergeOpening(
+  prev: OpeningSettings | undefined,
+  patch: Partial<OpeningSettings> | undefined,
+): OpeningSettings {
+  const base = normalizeOpening(prev);
+  if (!patch) return base;
+  const enabled = typeof patch.enabled === 'boolean' ? patch.enabled : base.enabled;
+  const items: Record<OpeningItemId, boolean> = { ...base.items };
+  if (patch.items) {
+    for (const id of OPENING_ITEM_IDS) {
+      if (typeof patch.items[id] === 'boolean') items[id] = patch.items[id] as boolean;
+    }
+  }
+  return { enabled, items };
 }

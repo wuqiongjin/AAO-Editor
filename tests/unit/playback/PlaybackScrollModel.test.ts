@@ -217,6 +217,53 @@ describe('PlaybackScrollModel · 按秒重锚状态机（issue 24）', () => {
     expect(m.takePendingReAnchor(2000)).toBeNull(); // pending 已清
   });
 
+  it('issue 166 RC-1 · 几何注入即置位：新几何下的"旧 scrollY"上报不得把锚点刷成假秒数', () => {
+    const m = new PlaybackScrollModel(geom(30), 1);
+    m.markInitialized();
+    const bottom30 = m.scrollYForSeconds(0);
+    m.noteScrollObserved(bottom30); // 停在 beat 0
+    expect(m.getAnchorSeconds()).toBeCloseTo(0, 6);
+
+    // 时长 30 → 120（音频解码落定时长 / 导入更长谱面代码）：几何与末端 key 同帧注入
+    m.configure(geom(120), 1, '120');
+    // 子画布在"几何已新、scrollY 仍旧"时上报：旧 scrollY 在新几何下读作 90s
+    m.noteScrollObserved(bottom30);
+
+    expect(m.getAnchorSeconds()).toBeCloseTo(0, 6); // 仍是 0，不是 90
+  });
+
+  it('issue 166 RC-1 · 同上序列的重锚目标必须回到 0 秒（视图留在 beat 0，不跳中段）', () => {
+    const m = new PlaybackScrollModel(geom(30), 1);
+    m.markInitialized();
+    const bottom30 = m.scrollYForSeconds(0);
+    m.noteScrollObserved(bottom30);
+    m.configure(geom(120), 1, '120');
+    m.noteScrollObserved(bottom30);
+
+    const target = m.takePendingReAnchor(2000);
+    expect(target).not.toBeNull();
+    expect(m.secondsForScrollY(target!.scrollY)).toBeCloseTo(0, 6);
+    expect(target!.scrollTop).toBeCloseTo(2000, 6); // 0 秒 = 滚动条置底
+  });
+
+  it('issue 166 · resetAnchorToStart：锚点归 0 且丢弃待重锚（归零 ≠ 按秒重锚）', () => {
+    const m = new PlaybackScrollModel(geom(30), 1);
+    m.markInitialized();
+    m.noteScrollObserved(m.scrollYForSeconds(15)); // 锚点 = 15s
+    m.noteChartEndChange('40');                    // 置位待重锚
+    expect(m.getAnchorSeconds()).toBeCloseTo(15, 6);
+
+    m.resetAnchorToStart();
+
+    expect(m.getAnchorSeconds()).toBe(0);
+    // 待重锚已丢弃：否则重锚会用旧锚点把视图拉回非开头位置
+    expect(m.takePendingReAnchor(2000)).toBeNull();
+    // 归零后的目标 = 0 秒（画布 scrollY = chartEndVirtualY，滚动条置底）
+    const g40 = geom(40);
+    m.configure(g40, 1);
+    expect(m.scrollTargetForSeconds(0, 2000).scrollY).toBeCloseTo(g40.chartEndVirtualY, 6);
+  });
+
   it('重锚目标经滚动条映射落在 [0, maxScroll]', () => {
     const m = new PlaybackScrollModel(geom(30), 1);
     m.markInitialized();
