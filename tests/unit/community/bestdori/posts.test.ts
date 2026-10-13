@@ -222,13 +222,25 @@ describe('票 09 · 帖内素材（custom 分支）', () => {
     await expect(fetchCustomCover(fallback, customPost())).resolves.toBeNull();
   });
 
-  it('名字与预览 URL：帖内封面 / 音频的本机寻址（aao-asset://）', () => {
+  it('票 35 · 名字与预览 URL：来源前缀 + 帖 id + 帖标题；本机寻址（aao-asset://）', () => {
     const post = customPost();
-    expect(customAudioName(post)).toBe('post-248468-audio.mp3');
-    expect(customCoverName(post)).toBe('post-248468-cover.png');
+    expect(customAudioName(post)).toBe('community-248468-All You Wanted (GBP Edit).mp3');
+    expect(customCoverName(post)).toBe('community-248468-All You Wanted (GBP Edit).png');
     expect(customAudioPreviewUrl(post)).toBe(AUDIO_URL);
     expect(customCoverThumbUrl(post)).toBe(assetThumbUrl(COVER_URL));
     expect(customCoverLocalUrl(post)).toBe(assetRawUrl(COVER_URL));
+  });
+
+  it('票 35 · 标题缺省退 community-<postId>（不留秃名）；标题里清洗后的字符不进名字', () => {
+    const noTitle = toPostCandidate({ ...LIST_PAGE.posts[0], title: '  ' })!;
+    expect(customAudioName(noTitle)).toBe('community-248468.mp3');
+    expect(customCoverName(noTitle)).toBe('community-248468.png');
+    // 帖标题整行都是非法字符（清洗后为空）同样退 id
+    const allIllegal = toPostCandidate({ ...LIST_PAGE.posts[0], title: '///' })!;
+    expect(customAudioName(allIllegal)).toBe('community-248468.mp3');
+    // 非法字符换 `_` 不删除（「A/B」删掉斜杆会粘成「AB」）
+    const slashed = toPostCandidate({ ...LIST_PAGE.posts[0], title: 'A/B:C*D?' })!;
+    expect(customAudioName(slashed)).toBe('community-248468-A_B_C_D_.mp3');
   });
 
   it('ensureCustomCoverCached：失败回 null（背景取图不惊动界面）', async () => {

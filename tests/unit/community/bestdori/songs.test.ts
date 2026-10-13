@@ -3,9 +3,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { isCommunityError } from '@/src/community/transport';
 import {
+  audioFileName,
   audioLocalUrl,
   audioPreviewUrl,
   clearSongCatalogCache,
+  coverFileName,
   fetchOfficialAudio,
   fetchOfficialChartText,
   fetchOfficialCover,
@@ -266,14 +268,14 @@ describe('票 08 · 官方谱面代码取原文（解析留给 Apply 闸门）',
 });
 
 describe('票 08 · 官方音频 / 封面落下载暂存', () => {
-  it('音频进暂存：URL 用这首歌的服务器，建议名带 bgmId', async () => {
+  it('音频进暂存：URL 用这首歌的服务器，建议名按票 35 规则（official-<songId>-<曲名>）', async () => {
     const transport = fakeTransport({ binary: { 'https://bestdori.com/assets/jp/sound/bgm001_rip/bgm001.mp3': REAL_AUDIO } });
 
     const staged = await fetchOfficialAudio(transport, candidate(1), { bgmId: 'bgm001', lengthSeconds: 120.048 });
 
     expect(staged).toEqual(REAL_AUDIO);
     expect(transport.requests[0]).toMatchObject({
-      suggestedName: 'bgm001.mp3',
+      suggestedName: 'official-1-是！.mp3',
       timeoutMs: 120_000,
     });
   });
@@ -323,5 +325,18 @@ describe('票 08 · 官方音频 / 封面落下载暂存', () => {
 
     expect(jacketLocalUrl(song)).toBe(assetRawUrl(jacketPreviewUrl(song)));
     expect(audioLocalUrl(song, detail)).toBe(assetRawUrl(audioPreviewUrl(song, detail)));
+  });
+});
+
+// 票 35：落名规则统一（替代旧的平台内部文件名 bgm029.mp3 / blackshout.png）。
+// 曲名清洗与缺省退化的细颗粒用例在 assetNames.test.ts，这里锁「官方这支的接线」。
+describe('票 35 · 官方素材落名（来源前缀 + 曲库 id + 曲名）', () => {
+  it('音频与封面同一把尺，曲名跟当前界面语言走', () => {
+    expect(audioFileName(candidate(1))).toBe('official-1-是！.mp3');
+    expect(coverFileName(candidate(1))).toBe('official-1-是！.png');
+    // en 走英文标题（歌在不同语言下名字不同，落名也跟着不同）
+    expect(audioFileName(candidate(1, 'en'))).toBe('official-1-Yes! BanG_Dream!.mp3');
+    // 合作曲（1004）同规则
+    expect(coverFileName(candidate(1004))).toBe('official-1004-See the world.png');
   });
 });

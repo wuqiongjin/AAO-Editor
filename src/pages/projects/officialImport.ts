@@ -130,7 +130,7 @@ export async function importOfficialSong(
     // 等级是作品属性：不勾 B 就不预填（人还没作谱）
     level: bringChart ? songLevel(song, input.diff) : null,
     chartCodeText,
-    audioName: audioFileName(detail),
+    audioName: audioFileName(song),
     coverName: cover ? coverFileName(song) : null,
   });
   if (!built.ok) return { ok: false, reason: 'apply', errors: built.errors };

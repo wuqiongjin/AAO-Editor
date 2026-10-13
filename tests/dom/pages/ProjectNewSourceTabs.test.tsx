@@ -222,7 +222,7 @@ describe('票 12 · 新建入口四项归类', () => {
     expect(create).toBeDisabled();
   });
 
-  it('社区帖选中后预览展开，创建 → 工程「未命名」、曲目来源 custom、谱面名称留空（票 09 锁）', async () => {
+  it('社区帖选中后预览展开，创建 → 工程名 / 歌手预填原帖信息、曲目来源 custom（票 34 锁）', async () => {
     const { backend } = renderPage();
     let dialog = await openNewDialog();
     dialog = await switchSource(dialog, '从社区谱面导入');
@@ -234,7 +234,7 @@ describe('票 12 · 新建入口四项归类', () => {
     expect(row.textContent).toMatch(/2026-\d{2}-\d{2}/);
 
     fireEvent.click(row);
-    // 预览展开：原帖标题 + 谱师 + 难度等级（原帖标题只在导入会话里，见工程断言的名称锁）
+    // 预览展开：原帖标题 + 谱师 + 难度等级（票 34：标题与自报歌手同时预填进工程，见下面的工程断言）
     await waitFor(() => expect(document.querySelector('.off-preview')?.className).not.toMatch(/is-collapsed/));
     const preview = document.querySelector('.off-preview') as HTMLElement | null;
     expect(preview?.querySelector('.off-preview__title')?.textContent).toBe('All You Wanted (GBP Edit)');
@@ -252,13 +252,15 @@ describe('票 12 · 新建入口四项归类', () => {
 
     await waitFor(() => expect(backend.disk.size).toBe(1));
     const created = [...backend.disk.values()][0];
-    // 名称口径（票 09）：工程名 / 歌手 / 谱面名称全空 —— 不转手别人的谱连名字一起转
+    // 名称口径（票 34，推翻票 09 的「全留空」）：工程名 = 原帖标题、歌手 = 帖子自报歌手；
+    // 谱面名称仍留空（上传时动态跟随工程名）
     expect(created).toMatchObject({
-      name: null,
-      artist: null,
+      name: 'All You Wanted (GBP Edit)',
+      artist: 'Michelle Branch',
       source: { type: 'custom' },
-      audioName: 'post-248468-audio.mp3',
-      coverName: 'post-248468-cover.png',
+      // 票 35：落名规则 = community-<postId>-<曲名>
+      audioName: 'community-248468-All You Wanted (GBP Edit).mp3',
+      coverName: 'community-248468-All You Wanted (GBP Edit).png',
     });
     expect(created.charts[0]).toMatchObject({
       title: null,
@@ -303,7 +305,7 @@ describe('票 12 · 新建入口四项归类', () => {
     // 空 Expert：没有原文、没有等级；工程素材照常带走
     expect(created.charts[0]).toMatchObject({ title: null, diff: 3, level: null, chartCodePristine: false });
     expect(created.charts[0].appliedChartCodeText).toBeNull();
-    expect(created.audioName).toBe('post-248468-audio.mp3');
+    expect(created.audioName).toBe('community-248468-All You Wanted (GBP Edit).mp3');
     // 少一次网络：详情根本没被请求
     expect(backend.disk.size).toBe(1);
   });
@@ -425,8 +427,9 @@ describe('票 08 · 从官方谱面导入', () => {
     expect(created.charts[0]).toMatchObject({ diff: 4, level: 26, chartCodePristine: true, title: null });
     expect(created.charts[0].notes).toHaveLength(3);
     // 音频 / 封面的名字落进工程记录（详情行与音频页靠它认出「有音频」）
-    expect(created.audioName).toBe('bgm029.mp3');
-    expect(created.coverName).toBe('blackshout.png');
+    // 票 35：官方这支落名 = official-<songId>-<曲名>
+    expect(created.audioName).toBe('official-29-BLACK SHOUT.mp3');
+    expect(created.coverName).toBe('official-29-BLACK SHOUT.png');
     // 二进制走暂存：只递路径，字节不过 IPC
     expect(backend.staged.get(created.id)).toEqual({
       audioStagedPath: STAGED_AUDIO_PATH,

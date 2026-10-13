@@ -47,7 +47,7 @@ export interface SongCandidate {
   bandId: number | null;
   /** 曲库标题（当前界面语言；全部语言都空则不产出候选） */
   title: string;
-  /** 官方歌手 = 乐队名；乐队索引里查不到时为空串（界面按「未填歌手」处理） */
+  /** 官方歌手 = 乐队名；乐队索引里查不到时为空串（界面按「未知歌手」处理） */
   artist: string;
   /** 封面名（封面 URL 的组成部分） */
   jacketImage: string;

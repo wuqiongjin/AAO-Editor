@@ -14,6 +14,7 @@ import { getActiveUiLanguage, type UiLanguage } from '../../i18n';
 import { assetRawUrl, assetThumbUrl } from '../assetUrls';
 import { withRetry, type RetryNotice } from '../rateLimit';
 import { CommunityError, type CommunityTransport, type StagedBinary } from '../transport';
+import { officialAssetName } from './assetNames';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
   BESTDORI_COVER_TIMEOUT_MS,
@@ -193,7 +194,7 @@ export async function fetchOfficialAudio(
   song: SongCandidate,
   detail: OfficialSongDetail,
 ): Promise<StagedBinary> {
-  const staged = await fetchStaged(transport, officialAudioUrl(detail.bgmId, song.server), audioFileName(detail));
+  const staged = await fetchStaged(transport, officialAudioUrl(detail.bgmId, song.server), audioFileName(song));
   if (!looksLikeMedia(staged.contentType, 'audio')) {
     throw invalidResponse(`官方音频取不到（拿到的不是音频）：song ${song.id} · ${staged.contentType ?? '无 content-type'}`);
   }
@@ -214,14 +215,14 @@ export async function fetchOfficialCover(
   return looksLikeMedia(staged.contentType, 'image') ? staged : null;
 }
 
-/** 音频落进工程后记的名字（也是缓存文件名建议）：`bgm001.mp3` */
-export function audioFileName(detail: OfficialSongDetail): string {
-  return `${detail.bgmId}.mp3`;
+/** 音频落进工程后记的名字（也是缓存文件名建议）：`official-29-BLACK SHOUT.mp3`（票 35 统一规则） */
+export function audioFileName(song: SongCandidate): string {
+  return officialAssetName(song, 'mp3');
 }
 
-/** 封面落进工程后记的名字：`yes_bang_dream.png`（没有封面名时退回曲号） */
+/** 封面落进工程后记的名字：`official-29-BLACK SHOUT.png`（票 35 统一规则，与音频同一把尺） */
 export function coverFileName(song: SongCandidate): string {
-  return `${song.jacketImage === '' ? `jacket-${song.id}` : song.jacketImage}.png`;
+  return officialAssetName(song, 'png');
 }
 
 /* ---------------- 就地预览用的直链（不走网关） ----------------

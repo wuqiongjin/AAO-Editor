@@ -1,12 +1,14 @@
 // bestdori-integration 09：社区帖 → 建工程这条编排（「从社区谱面导入」那一支）。
 //
 // 锁五件事：
-//   ① **名称口径（票 09 的防回潮锁）**：工程名称 / 歌手 / 谱面名称（ProjectChart.title）全空 ——
-//      原帖标题与谱师只在导入会话里显示，谁预填谁红；
+//   ① **名称口径（票 34，2026-10-13 推翻票 09 的「全留空」）**：bandori 帖预填官方曲名 +
+//      官方乐队名（与官方导入同口径），custom 帖预填原帖标题 + 帖子自报歌手；谱师署名仍只在
+//      导入会话里展示，ProjectChart.title 继续跟随工程名、不单独动；
 //   ② custom 帖：音频与封面按帖内 URL 下载，`曲目来源` = custom；难度等级跟帖子走；
 //   ③ bandori 帖：素材走官方那条路（曲库候选 + 歌曲元数据），`曲目来源` 记曲库 id，时长按官方曲长起；
 //   ④ 谱面是主线：详情取不到 / Apply 闸门拒绝 → **整笔不建**（没有官方那支的「空白谱降级」）；
 //   ⑤ 封面缺失照样建（警告由界面 Toast 说）。
+// 音频 / 封面的落名规则（票 35）由 assetNames.test.ts 与 songs/posts 的命名用例锁，这里只断言编排产出。
 import { describe, expect, it } from 'vitest';
 import { CommunityError } from '@/src/community/transport';
 import { toPostCandidate, toSongCandidates, type PostCandidate } from '@/src/community/bestdori/mapping';
@@ -133,8 +135,8 @@ function deps(overrides: Overrides = {}) {
   return { store, writes, disk, stages, run, notified: () => notified, transport };
 }
 
-describe('票 09 · 名称口径（防回潮总锁）', () => {
-  it('工程名称 / 歌手 / 谱面名称全空：原帖标题与谱师不落进工程', async () => {
+describe('票 34 · 名称口径（推翻票 09 的「全留空」，改预填）', () => {
+  it('custom 帖：工程名 = 原帖标题、歌手 = 帖子自报歌手；谱面名称仍留空', async () => {
     const t = deps();
 
     const result = await t.run(post(CUSTOM_POST));
@@ -142,9 +144,40 @@ describe('票 09 · 名称口径（防回潮总锁）', () => {
     expect(result.ok).toBe(true);
     const saved = t.disk.get('pNew1');
     expect(saved).not.toBeNull();
-    expect(saved!.name).toBeNull();
-    expect(saved!.artist).toBeNull();
+    expect(saved!.name).toBe('All You Wanted (GBP Edit)');
+    expect(saved!.artist).toBe('Michelle Branch');
+    // 谱面标题不单独动：上传时动态跟随工程名
     expect(saved!.charts[0].title).toBeNull();
+  });
+
+  it('bandori 帖：工程名 = 官方曲名、歌手 = 官方乐队名（与官方导入同口径）', async () => {
+    const t = deps({
+      json: { [BANDORI_DETAIL_URL]: { result: true, post: { ...BANDORI_POST, chart: COMMUNITY_CHART } } },
+      binary: { [OFFICIAL_AUDIO_URL]: STAGED_AUDIO, [OFFICIAL_JACKET_URL]: STAGED_COVER },
+    });
+
+    const result = await t.run(
+      post(BANDORI_POST),
+      { song: BANDORI_SONG, detail: { bgmId: 'bgm029', lengthSeconds: 120.048 } },
+    );
+
+    expect(result.ok).toBe(true);
+    const saved = t.disk.get('pNew1');
+    expect(saved!.name).toBe('BLACK SHOUT');
+    expect(saved!.artist).toBe('Roselia');
+    expect(saved!.charts[0].title).toBeNull();
+  });
+
+  it('custom 帖没自报歌手：歌手留空（不编一个），工程名照填', async () => {
+    const t = deps();
+    const noArtist = { ...CUSTOM_POST, artists: '' };
+
+    const result = await t.run(post(noArtist));
+
+    expect(result.ok).toBe(true);
+    const saved = t.disk.get('pNew1');
+    expect(saved!.name).toBe('All You Wanted (GBP Edit)');
+    expect(saved!.artist).toBeNull();
   });
 });
 
@@ -166,8 +199,9 @@ describe('票 09 · custom 帖', () => {
     expect(saved.source).toEqual({ type: 'custom' });
     expect(saved.charts[0]).toMatchObject({ diff: 3, level: 24, chartCodePristine: true });
     expect(saved.charts[0].appliedChartCodeText).toBe(JSON.stringify(COMMUNITY_CHART));
-    expect(saved.audioName).toBe('post-248468-audio.mp3');
-    expect(saved.coverName).toBe('post-248468-cover.png');
+    // 票 35：落名规则 = community-<postId>-<曲名>（曲名取原帖标题）
+    expect(saved.audioName).toBe('community-248468-All You Wanted (GBP Edit).mp3');
+    expect(saved.coverName).toBe('community-248468-All You Wanted (GBP Edit).png');
     // custom 帖没有官方曲长：先按占位值起，落盘后由实际音频校正（探针注入 413.2）
     expect(t.writes.map((w) => w.project.durationSeconds)).toEqual([30, 413.2]);
     expect(t.writes[0].staged).toEqual({ audioStagedPath: STAGED_AUDIO.path, coverStagedPath: STAGED_COVER.path });
@@ -201,7 +235,7 @@ describe('票 09 · 关掉「同步导入谱面」（2026-10-12 加的芯片）'
     // 谱面仍是主线之外的那张空谱：难度回 Expert、等级不预填、没有原文
     expect(saved.charts[0]).toMatchObject({ diff: 3, level: null, chartCodePristine: false });
     expect(saved.charts[0].appliedChartCodeText).toBeNull();
-    expect(saved.audioName).toBe('post-248468-audio.mp3');
+    expect(saved.audioName).toBe('community-248468-All You Wanted (GBP Edit).mp3');
     // 音视频与封面照常带走
     expect(t.writes[0].staged).toEqual({ audioStagedPath: STAGED_AUDIO.path, coverStagedPath: STAGED_COVER.path });
     // 阶段里没有 chart 这一段（少一次网络）
@@ -231,7 +265,7 @@ describe('票 09 · 关掉「同步导入谱面」（2026-10-12 加的芯片）'
 });
 
 describe('票 09 · bandori 帖', () => {
-  it('素材走官方那条路：曲目来源记曲库 id，时长按官方曲长，音频名是 bgm 名', async () => {
+  it('素材走官方那条路：曲目来源记曲库 id，时长按官方曲长，落名按票 35 规则', async () => {
     const t = deps({
       json: {
         // 详情还是要点名取（谱面原文对 bandori 帖同样必达）
@@ -252,8 +286,9 @@ describe('票 09 · bandori 帖', () => {
     expect(saved.source).toEqual({ type: 'bandori', id: 29 });
     expect(saved.charts[0]).toMatchObject({ diff: 4, level: 30, chartCodePristine: true });
     expect(saved.durationSeconds).toBe(120.048);
-    expect(saved.audioName).toBe('bgm029.mp3');
-    expect(saved.coverName).toBe('blackshout.png');
+    // 票 35：bandori 来源落名 = official-<songId>-<曲名>（曲名取官方曲库标题）
+    expect(saved.audioName).toBe('official-29-BLACK SHOUT.mp3');
+    expect(saved.coverName).toBe('official-29-BLACK SHOUT.png');
     expect(t.writes[0].staged).toEqual({ audioStagedPath: STAGED_AUDIO.path, coverStagedPath: STAGED_COVER.path });
   });
 

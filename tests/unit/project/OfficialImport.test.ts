@@ -148,8 +148,9 @@ describe('票 08 · 默认产出（不勾「带官方谱面」）', () => {
     });
     expect(project.charts[0].notes).toEqual([{ beat: 0, type: 'BPM', bpm: 120 }]);
     // 名字落进工程记录（详情行 / 音频页靠它认出「有音频」），二进制只递暂存路径、没碰字节
-    expect(project.audioName).toBe('bgm029.mp3');
-    expect(project.coverName).toBe('blackshout.png');
+    // 票 35：落名规则统一为「来源前缀 + 曲库 id + 曲名」
+    expect(project.audioName).toBe('official-29-BLACK SHOUT.mp3');
+    expect(project.coverName).toBe('official-29-BLACK SHOUT.png');
     expect(staged).toEqual({
       audioStagedPath: STAGED_AUDIO.path,
       coverStagedPath: STAGED_COVER.path,
@@ -199,7 +200,7 @@ describe('票 08 · 素材缺失与闸门拒绝', () => {
     expect(t.writes[0].staged?.coverStagedPath).toBeUndefined();
     expect(t.writes[0].staged?.audioStagedPath).toBeDefined();
     expect(t.writes[0].project.coverName).toBeNull();
-    expect(t.writes[0].project.audioName).toBe('bgm029.mp3');
+    expect(t.writes[0].project.audioName).toBe('official-29-BLACK SHOUT.mp3');
   });
 
   it('音频取不到 → 抛响应非法，且不落盘（没有音频就不是这条导入的产物）', async () => {

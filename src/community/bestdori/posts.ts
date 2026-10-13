@@ -25,6 +25,7 @@
 import { assetRawUrl, assetThumbUrl } from '../assetUrls';
 import { withRetry, type RetryNotice } from '../rateLimit';
 import { CommunityError, isCommunityError, type CommunityTransport, type StagedBinary } from '../transport';
+import { communityAssetName } from './assetNames';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
   BESTDORI_COVER_TIMEOUT_MS,
@@ -218,14 +219,14 @@ export async function fetchCustomCover(
   }
 }
 
-/** 音频落进工程后记的名字：`post-248468-audio.mp3` */
+/** 音频落进工程后记的名字：`community-248468-All You Wanted (GBP Edit).mp3`（票 35 统一规则） */
 export function customAudioName(post: PostCandidate): string {
-  return `post-${post.postId}-audio.mp3`;
+  return communityAssetName(post, 'mp3');
 }
 
-/** 封面落进工程后记的名字：`post-248468-cover.png` */
+/** 封面落进工程后记的名字：`community-248468-All You Wanted (GBP Edit).png`（票 35 统一规则） */
 export function customCoverName(post: PostCandidate): string {
-  return `post-${post.postId}-cover.png`;
+  return communityAssetName(post, 'png');
 }
 
 /* ---------------- 帖内封面的预览与缓存（行内缩略图 / 预览大图） ----------------
