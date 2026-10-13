@@ -18,6 +18,8 @@ import { createZoomLiveTracker, type ZoomLiveTracker } from './zoomLiveTracker';
 export interface UseSurfaceSizeOptions extends Omit<SurfaceSizeMergerConfig, 'onCommit'> {
   /** 自定义初始 surface（默认 null——ResizeObserver 尚未回调，组件不渲染） */
   initial?: SurfaceSize;
+  /** 页面激活态（issue 166：false→true 切回工作台时触发一次主动尺寸校准） */
+  active?: boolean;
 }
 
 export function useSurfaceSize(
@@ -35,9 +37,15 @@ export function useSurfaceSize(
   // flushSync 让本次提交在该回调内同步渲染完，画布尺寸与容器在同一帧对齐（差 0px）。
   // 安全性：画布在 `position: sticky` 的离屏包裹里、不参与 chartArea 的尺寸计算 → 不会触发
   // ResizeObserver 循环告警。
+  const isSyncMeasuringRef = useRef(false);
+
   const onCommit = useRef<(v: SurfaceSize) => void>(() => {});
   onCommit.current = (v: SurfaceSize) => {
-    flushSync(() => setSurface(v));
+    if (isSyncMeasuringRef.current) {
+      setSurface(v);
+    } else {
+      flushSync(() => setSurface(v));
+    }
   };
 
   // issue 87：浏览器缩放探针（dpr 变化 → 实时窗口期）
@@ -64,17 +72,46 @@ export function useSurfaceSize(
     mergerRef.current = new SurfaceSizeMerger({ ...options, live: liveProbeRef.current, onCommit: (v) => onCommit.current(v) });
   }
 
-  // 记录 devicePixelRatio：只在它变化（= 浏览器缩放）时开启实时窗口期
+  const measureNow = () => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      isSyncMeasuringRef.current = true;
+      try {
+        mergerRef.current?.feed({ w: rect.width, h: rect.height });
+      } finally {
+        isSyncMeasuringRef.current = false;
+      }
+    }
+  };
+
+  // 记录 devicePixelRatio：只在它变化（= 浏览器缩放）时开启实时窗口期；
+  // issue 166 追加：同时作为窗口最大化/还原/拖拽的尺寸同步兜底
   useEffect(() => {
     const tracker = zoomTrackerRef.current!;
-    const onResize = () => tracker.observe(window.devicePixelRatio || 1);
+    const onResize = () => {
+      tracker.observe(window.devicePixelRatio || 1);
+      measureNow();
+    };
     tracker.observe(window.devicePixelRatio || 1); // 初值（不布防）
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // issue 166：追踪当前绑定的 DOM 节点。React ref 对象引用恒定，若其绑定的 DOM 节点因任何
+  // 原因发生更替（如父级 remount），需解绑旧节点并监听新节点，并在接入时主动测量一次当前尺寸。
+  const observedElRef = useRef<HTMLElement | null>(null);
+  const roRef = useRef<ResizeObserver | null>(null);
+
   useEffect(() => {
     const el = ref.current;
+    if (el === observedElRef.current) return;
+    if (roRef.current) {
+      roRef.current.disconnect();
+      roRef.current = null;
+    }
+    observedElRef.current = el;
     if (!el) return;
     const merger = mergerRef.current!;
     const ro = new ResizeObserver((entries) => {
@@ -84,14 +121,29 @@ export function useSurfaceSize(
       }
     });
     ro.observe(el);
+    roRef.current = ro;
+    measureNow();
+  });
+
+  // 组件真卸载时断开 RO（issue 50：不 destroy merger 单例）
+  useEffect(() => {
     return () => {
-      // issue 50 修复：仅断开 RO；merger 单例由 GC 在组件真卸载时回收（不主动 destroy）。
-      // 原因：React 18 StrictMode dev 下 effect cleanup 会在 mount→unmount→remount 循环里被反复调用，
-      // 任何 `mergerRef.current = null` / `merger.destroy()` 都会在 RO callback 异步 fire 之前把 merger
-      // 置空，导致 `merger.feed()` 抛 TypeError、setSurface 永远不触发、FinalVirtualCanvas 整个不渲染。
-      // merger 只持有 1 个 ResizeObserver 回调 + 几个状态字段，由 GC 回收即可。
-      ro.disconnect();
+      if (roRef.current) {
+        roRef.current.disconnect();
+        roRef.current = null;
+      }
+      observedElRef.current = null;
     };
-  }, [ref]);
+  }, []);
+
+  // issue 166：工作台由后台保活切回前台（active: false -> true）时主动校准尺寸
+  const wasActiveRef = useRef(options.active ?? true);
+  useEffect(() => {
+    const nowActive = options.active ?? true;
+    if (nowActive && !wasActiveRef.current) {
+      measureNow();
+    }
+    wasActiveRef.current = nowActive;
+  }, [options.active]);
   return surface;
 }
