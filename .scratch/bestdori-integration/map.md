@@ -41,6 +41,11 @@
 - 28 「同步导入谱面」开关状态持久化记忆（feature，**resolved 2026-10-12**）：官方与社区共用 `settings.projects.importWithChart`，首次默认统一为 `true`。
 - 29 官方与社区歌曲列表拉取更新机制与启动拉取评估（feature/grilling，**resolved 2026-10-12**）：网关增加 `freshFirst` 策略并在官方与社区第一页接入 —— 每次启动后首次访问穿透请求最新列表，失败回退磁盘缓存，会话内复用内存。
 - 30 导入谱面音频复用机制调查与评估（grilling，**resolved 2026-10-12**）：定案为保持现状（选项 A），试听维持 Range stream 不入缓存，导入维持 cache-first 按需全量下载。
+- 31 官方歌曲列表排序（feature，**open**，2026-10-13 开票并定案）：现状无排序、`publishedAt` 没进 `SongCandidate`；**定了**：四键 发布时间（默认降序，最新在前）/ 谱面 ID / 曲名 / 乐队名；难度等级不进排序；publishedAt 取最早（日服）。
+- 32 社区谱面 ID：展示、搜索与持久化（grilling，**open**，2026-10-13 开票）：ID 已存在（postId）；**定了**：纯数字 → 并发 `search` + `details?id=` 直查、置顶 + postId 去重、404 静默；postId 常驻展示（列表行 + 预览栏）；**持久化定了（2026-10-13 三轮）：不落盘**——无消费场景 + 二次发布会过期，官方 songId 现状不扩面。
+- 33 官方谱面 ID：展示与搜索（grilling，**open**，2026-10-13 开票）：songId 已持久化；**定了**：纯数字时客户端 songId 匹配、命中置顶（零网络）；songId 常驻展示（列表行 + 预览栏）；谱面级 songId+diff 引用默认不做；来源数据不新增落盘。
+- 34 社区导入工程名/歌手留空口径重议（grilling，**open**，2026-10-13 开票并定案）：**推翻票 09 Q2「全留空」**——bandori 帖预填官方曲名+乐队名、custom 帖预填原帖标题+自报歌手，防回潮锁测反转；顺带 `projects.artistMissing`「未填歌手→未知歌手」。
+- 35 导入音频命名规则统一（grilling，**open**，2026-10-13 开票并定案）：**定了** = 来源前缀+ID+曲名：`official-<songId>-<曲名>.mp3` / `community-<postId>-<曲名>.mp3`，只对新导入生效；封面同步同规则为待验收口径。
 
 
 ## Fog
