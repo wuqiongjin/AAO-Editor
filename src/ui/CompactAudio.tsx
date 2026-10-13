@@ -69,7 +69,7 @@ export default function CompactAudio({
   };
 
   // 重试 = 重挂 `<audio>` 重走「本机 → 直链」。只在失败（请求终态）后可点 ——
-  // 飞行中重挂同 URL 资源会永久挂死（ADR-0018 §3 / 票 24 红线）
+  // 飞行中重挂同 URL 资源会永久挂死（ADR-0020 §3 / 票 24 红线）
   const retry = () => {
     setFailed(false);
     setSrcNonce((n) => n + 1);

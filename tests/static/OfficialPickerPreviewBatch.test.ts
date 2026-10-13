@@ -103,7 +103,7 @@ describe('票 24 · 封面三态 + LoadingShimmer', () => {
     expect(panelSrc).toMatch(/jacketImage === ''\s*\?\s*\(/);
   });
 
-  it('重试入口只由 onError 触达（飞行中重挂同 URL 资源会永久挂死，ADR-0018 §3）', () => {
+  it('重试入口只由 onError 触达（飞行中重挂同 URL 资源会永久挂死，ADR-0020 §3）', () => {
     // retryCover 只出现在失败态分支与定义处，加载分支没有「强制重挂」
     expect(panelSrc).toMatch(/const retryCover = useCallback/);
   });

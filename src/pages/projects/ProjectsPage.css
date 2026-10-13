@@ -613,7 +613,7 @@
   animation: off-spin .8s linear infinite;
 }
 /* 票 24：封面加载失败态 —— 与「加载中 / 无封面裸图标」三态可区分，整块可点重试。
-   重试只许在 onError（请求终态）后触发：同 URL 重挂「飞行中」的 img 会永久挂死（ADR-0018 §3） */
+   重试只许在 onError（请求终态）后触发：同 URL 重挂「飞行中」的 img 会永久挂死（ADR-0020 §3） */
 .off-cover__retry {
   position: absolute;
   inset: 0;

@@ -186,7 +186,7 @@ export function OfficialSongPanel({
   }, []);
 
   // 票 24：封面失败态的就地重试。只许在 onError（请求终态）后触发 —— 同 URL 重挂一个
-  // 「飞行中」的 img，Chromium 会让新请求永久挂住（ADR-0018 §3）。重试入口天然满足。
+  // 「飞行中」的 img，Chromium 会让新请求永久挂住（ADR-0020 §3）。重试入口天然满足。
   const retryCover = useCallback(() => {
     setCoverFailed(false);
     setCoverReady(false);
