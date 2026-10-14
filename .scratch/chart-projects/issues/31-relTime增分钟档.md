@@ -1,7 +1,7 @@
 # 31 · 相对时间增「N 分钟前」档
 
 Type: feature
-Status: open
+Status: resolved
 Blocked by: —
 
 ## 来源
@@ -27,3 +27,8 @@ Blocked by: —
 
 1. 新增 `tests/unit/project/projectFormat.test.ts`：五档边界逐条（0s / 59s / 60s / 59min / 60min / 23h / 24h / 29d / 30d / 60d），`now` 可注入（函数已带 `now = Date.now()` 默认参）。
 2. 每一档边界各锁一条：加新档不许悄悄改旧档边界（撤掉任一边界断言应立刻红）。
+
+## Comments
+
+- 2026-10-14 落地：`projectFormat.ts` 加 `M = 60_000`，`relTime` 变五档（`<M` 刚刚 / `<H` N 分钟前 / `<D` N 小时前 / `<30D` N 天前 / 其余 N 个月前）；`zh-CN` / `en` 各加 `projects.time.minutesAgo`（「{{n}} 分钟前」/ "{{n}} minutes ago"）；5 个使用处自动跟随，无 UI / CSS 改动。
+- 锁测：新增 `tests/unit/project/projectFormat.test.ts`，10 条边界用例逐条独立（0s / 59s / 60s / 59min / 60min / 23h / 24h / 29d / 30d / 60d），`now` 注入固定值。全量 `vitest run` 258 文件 / 3043 用例全绿；`tsc -p tsconfig.test.json` 存量 2 处报错（`ShortcutIndexFilter` / `sanitizeChart`，均在本票改动范围外）。

@@ -201,6 +201,7 @@
   "projects.confirmDelete": "Note: its audio, cover, and {{charts}} charts will be deleted.",
   "projects.confirmDeleteUploaded": "{{count}} of them have been uploaded to the community; deleting the project will not affect published charts.",
   "projects.time.justNow": "Just now",
+  "projects.time.minutesAgo": "{{n}} minutes ago",
   "projects.time.hoursAgo": "{{n}} hours ago",
   "projects.time.daysAgo": "{{n}} days ago",
   "projects.time.monthsAgo": "{{n}} months ago",

@@ -4,6 +4,7 @@ import { chartStatus } from '../../project/workspaceProject';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
 import { t } from '../../i18n';
 
+const M = 60_000;
 const H = 3600_000;
 const D = 24 * H;
 
@@ -13,7 +14,8 @@ export function effectiveTitle(project: { name: string | null }, chart: { title:
 
 export function relTime(at: number, now = Date.now()): string {
   const delta = now - at;
-  if (delta < H) return t('projects.time.justNow');
+  if (delta < M) return t('projects.time.justNow');
+  if (delta < H) return t('projects.time.minutesAgo', { n: Math.floor(delta / M) });
   if (delta < D) return t('projects.time.hoursAgo', { n: Math.floor(delta / H) });
   if (delta < 30 * D) return t('projects.time.daysAgo', { n: Math.floor(delta / D) });
   return t('projects.time.monthsAgo', { n: Math.floor(delta / (30 * D)) });
