@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { ChartProjectStore, type ChartProject, type ProjectChart } from './ChartProject';
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
+import { stampChartModified } from './chartModifiedStamp';
 import { isProjectAudioLocked, pickCurrentChart } from './workspaceProject';
 import { AUDIO_DURATION_MISMATCH_TOLERANCE } from '../audio/projectAudio';
 import type { ChartNote } from '../chart/types';
@@ -159,7 +160,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     const prev = projectRef.current;
     if (prev == null) return null;
     const now = Date.now();
-    // 保真（编辑态的**一个**字段）在这里映射回记录的两个扁平字段 —— 记录形状不变
+    // 保真（编辑态的**一个**字段）经 stampChartModified 映射回记录的两个扁平字段 —— 记录形状不变
     const fidelity = fidelityRef.current;
     const audio = audioBlobRef.current ?? undefined;
     const targetId = boundChartIdRef.current;
@@ -167,17 +168,12 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     const audioLocked = isProjectAudioLocked(prev);
     const charts = prev.charts.length > 0
       ? prev.charts.map((c, i) => {
-        const isCurrent = hasTarget ? c.id === targetId : i === 0;
-        if (!isCurrent) return c;
-        if (c.upload) return c; // 已上传谱面只读：不可被改写
-        return {
-          ...c,
-          notes: notesRef.current,
-          lastModified: now,
-          appliedChartCodeText: fidelity?.text ?? null,
-          chartCodePristine: fidelity?.pristine === true,
-        };
-      })
+          const isCurrent = hasTarget ? c.id === targetId : i === 0;
+          if (!isCurrent) return c;
+          if (c.upload) return c; // 已上传谱面只读：不可被改写
+          // issue 35：lastModified 条件戳——notes / 保真真变才重戳，时长 / 音频 / 切 tab flush 不戳
+          return stampChartModified(c, { notes: notesRef.current, fidelity, now });
+        })
       : prev.charts;
     const next: ChartProject = {
       ...prev,
