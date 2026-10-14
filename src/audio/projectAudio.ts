@@ -9,11 +9,54 @@
 //
 // 另一条 08 补的语义：**换音频即改归属**（Q12）——导入 / 更换时 `曲目来源` 置 `custom`，
 // 见 importProjectAudio 的注解。
+//
+// 33 票（音频资源异常的检测与对齐）补的两族信号与两条修复写路径：
+//   - 检测都落在**工作台 hydrate 路径**（丢失 = 半态判定，加载即可判；替换 = 解码后比对时长），
+//     工程管理页不解码、不检测；
+//   - 对齐口径与「更换音频」一致：修复写把 `durationSeconds` 改为音频实际时长、`source` 置
+//     `custom`（音频已不是官方那首，同 06 Q12 理由），因此两条修复**不走锁闸**——
+//     修复是记录与字节对齐、不是换音频；已上传谱面发布物不可变且按 song id 引用，本地修复
+//     不影响社区。
 import type { ChartDifficulty, ChartProject, ChartProjectStore, SongSource } from '../project/ChartProject';
 import { mutateProject } from '../project/ChartProjectRecord';
 import { isProjectAudioLocked } from '../project/workspaceProject';
 import { clampChartDuration } from './chartDuration';
 import { probeAudioDuration, type AudioBytesDecoder } from './probeAudioDuration';
+
+/**
+ * 替换信号的容差（秒）：hydrate 解码后 `engine.duration` 与记录 `durationSeconds` 差超过它
+ * 即判「字节被替换」。沿用 `useChartProjectPersistence` 的现容差——离线探针与播放引擎对
+ * 同一文件的秒数可能有极小差异，不设容差会退化成"每次加载都报警"。
+ *
+ * 已知缺口（33 票明记）：同时长替换 / 重编码检测不到；将来要补，最便宜是记录字节数，
+ * 不必上哈希。
+ */
+export const AUDIO_DURATION_MISMATCH_TOLERANCE = 0.5;
+
+/** 锁定工程音频视图里与「记录有没有音频字节」相关的两个字段（半态判定用） */
+type AudioBytesFields = Pick<ChartProject, 'audioName' | 'audioBlob'>;
+
+/**
+ * 替换信号：记录时长与音频实际时长差 > 容差。`actualSeconds` 为 null（还没解码 / 无音频）
+ * 时不触发——调用方（工作台）在解码完成后才问这一句。
+ */
+export function audioDurationMismatch(
+  recordSeconds: number,
+  actualSeconds: number | null,
+  tolerance: number = AUDIO_DURATION_MISMATCH_TOLERANCE,
+): boolean {
+  if (actualSeconds == null) return false;
+  return Math.abs(recordSeconds - actualSeconds) > tolerance;
+}
+
+/**
+ * 丢失信号（半态判定）：记录说"有音频"（`audioName != null`）但手里没有字节
+ * （`audioBlob == null`——主进程读 `audio.bin` 失败时的降级形状，见 projectStore.cjs
+ * 的 `readBinIfPresent`）。加载即可判，零解码、零 IPC 改动，比替换信号更早。
+ */
+export function audioBytesLost(project: AudioBytesFields): boolean {
+  return project.audioName != null && project.audioBlob == null;
+}
 
 /** 锁定原因（点名的已上传谱面）：横幅文案要能说清"为什么锁" */
 export interface ProjectAudioLockSource {
@@ -95,11 +138,15 @@ type ChangeOutcome =
  * 次序的两条约束原样保留：
  * - 目标是当前工程时先落盘在飞编辑（否则整条记录覆写会盖掉工作台正在编辑的内容）；
  * - 锁判定在**解码之前**（探针是这条路径上最贵的一步，ADR-0015 §4 的第二道闸要在第一道上就拦住）。
+ *
+ * `bypassLock`（33 票）：修复类写路径（记录与字节对齐）不走锁闸——音频已被外部换掉 / 删掉时，
+ * 「已上传谱面锁定」锁的是"用户主动换音频"这个动作，不是"记录与事实对齐"这个事实。
  */
 async function mutateWritable(
   deps: ProjectAudioDeps,
   projectId: string,
   change: (project: ChartProject) => Promise<ChangeOutcome> | ChangeOutcome,
+  bypassLock = false,
 ): Promise<ProjectAudioWriteResult> {
   // 不落盘时的失败原因（锁 / 解码）只有本文件懂，挂在 fn 的取消路径上带出来。
   let aborted: ProjectAudioWriteResult | null = null;
@@ -111,7 +158,7 @@ async function mutateWritable(
     },
     projectId,
     async (project) => {
-      if (isProjectAudioLocked(project)) {
+      if (!bypassLock && isProjectAudioLocked(project)) {
         aborted = { ok: false, reason: 'locked' };
         return null;
       }
@@ -172,10 +219,47 @@ export async function importProjectAudio(
   });
 }
 
-/** 清除音频：时长保留当前值（与 session.clearAudio 同口径——时长是独立字段，不跟着归零）；曲目来源变更为自定义 */
+/**
+ * 替换修复（33 票）：把工程记录对齐到磁盘上**实际那份**音频——时长 ← 入参（音频实际时长）、
+ * `曲目来源` ← `custom`（同 importProjectAudio 的 Q12 理由：音频已不是官方那首），
+ * `audioName` 不动（外部替换拿不到新文件名；纯展示字段，横幅文案说明音频已变——
+ * 与 import 路径唯一的刻意分歧）。
+ *
+ * **不走锁闸**（与 importProjectAudio 的锁闸刻意相反，33 票定案）：这是记录与字节对齐，
+ * 不是换音频；已上传谱面发布物不可变且按 song id 引用，本地修复不影响社区。
+ */
+export async function realignProjectAudio(
+  deps: ProjectAudioDeps,
+  projectId: string,
+  seconds: number,
+): Promise<ProjectAudioWriteResult> {
+  if (!Number.isFinite(seconds) || seconds <= 0) return { ok: false, reason: 'invalid' };
+  return mutateWritable(deps, projectId, (project) => {
+    // 没有音频名 = 记录本就无音频（并发清除已先行落地）：无从对齐，整笔不写。
+    if (project.audioName == null) return { outcome: 'skip' };
+    return {
+      outcome: 'write',
+      next: {
+        ...project,
+        durationSeconds: clampChartDuration(seconds),
+        source: { type: 'custom' },
+      },
+    };
+  }, true);
+}
+
+/**
+ * 清除音频：时长保留当前值（与 session.clearAudio 同口径——时长是独立字段，不跟着归零）；
+ * 曲目来源变更为自定义。
+ *
+ * `force`（33 票）：横幅的「清除音频记录」传 true 绕过锁闸——半态工程（记录说有音频、
+ * 字节已丢）不清除就会永远卡在"幽灵音频"上，锁闸锁的是主动换音频，不是清理坏记录。
+ * 音频页不传（UI 禁用不变）。
+ */
 export async function clearProjectAudio(
   deps: ProjectAudioDeps,
   projectId: string,
+  force = false,
 ): Promise<ProjectAudioWriteResult> {
   return mutateWritable(deps, projectId, (project) => {
     if (project.audioName == null && project.audioBlob == null) return { outcome: 'skip' };
@@ -186,7 +270,7 @@ export async function clearProjectAudio(
     };
     delete next.audioBlob;
     return { outcome: 'write', next };
-  });
+  }, force);
 }
 
 /** 手改谱面时长（只在无音频时有意义：有音频时时长跟随音频，与 session 的口径一致） */

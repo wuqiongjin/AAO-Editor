@@ -23,8 +23,12 @@ import { isChartReadonly, isChartEditFunction } from '../../project/chartReadonl
 import { isProjectAudioLocked } from '../../project/workspaceProject';
 import { duplicateChartInProject } from '../../project/projectCatalog';
 import { mutateProject } from '../../project/ChartProjectRecord';
-import { newChartId } from '../../project/ChartProject';
+import { newChartId, type ChartProject } from '../../project/ChartProject';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
+import { useAppNav } from '../../layouts/AppNav';
+import type { ProjectAudioDeps } from '../../audio/projectAudio';
+import AudioAnomalyBanner from './AudioAnomalyBanner';
+import { useAudioAnomaly } from './useAudioAnomaly';
 import { t } from '../../i18n';
 
 interface EditorProps {
@@ -163,7 +167,28 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     [audioSnap.audioName, audioSession],
   );
 
-  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged } = useCurrentProject();
+  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged, flushPersist } = useCurrentProject();
+  const { setActivePage } = useAppNav();
+
+  // === 33 票：音频资源异常的检测与对齐（工作台 hydrate 路径） ===
+  // 丢失（半态）在恢复时判；替换等解码落地（audioLoadGeneration +1）后判。写路径收口
+  // projectAudio 接缝（realignProjectAudio / clearProjectAudio force），与音频页同口径。
+  const audioAnomalyDeps = useMemo<ProjectAudioDeps>(() => ({
+    store,
+    currentProjectId: projectId,
+    flushPersist,
+    notifyCatalogChanged,
+  }), [store, projectId, flushPersist, notifyCatalogChanged]);
+  const audioAnomaly = useAudioAnomaly({
+    projectId,
+    deps: audioAnomalyDeps,
+    audioDuration: audioSnap.audioDuration,
+    audioLoadGeneration: audioSnap.audioLoadGeneration,
+    goToAudioPage: useCallback(() => {
+      // 重新导入 = 带作用域跳音频页（票 22 既有机制）：不切当前工程，直接去管它的音频
+      if (projectId != null) setActivePage('audio', { scope: { projectId } });
+    }, [projectId, setActivePage]),
+  });
 
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
@@ -202,7 +227,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // 当前工程恢复（ADR-0015 §3）：切工程时整份编辑态换成新工程，剪贴板由 resetNotes 保留。
   const handleProjectRestore = useCallback(async (
-    project: import('../../project/ChartProject').ChartProject,
+    project: ChartProject,
     chart: import('../../project/ChartProject').ProjectChart,
     opts: { restoreAudio: boolean },
   ) => {
@@ -236,7 +261,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       audioLocked,
     });
     audioSession.setAudioLocked(audioLocked);
-  }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, setMarker]);
+    // 33 票：音频资源异常检测落在 hydrate 路径——丢失（半态）这里就判；
+    // 替换等解码落地（会话时长落到音频实际值）后由 useAudioAnomaly 的 effect 判。
+    audioAnomaly.noteRestoredProject(project, opts);
+  }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, setMarker, audioAnomaly]);
 
   // 记录侧音频变更（票 15 定案 8 的不变量）：音频页按作用域直接写了当前工程记录的音频，
   // 而这条路上没有新谱面——所以只把音频重新对齐，不走 handleProjectRestore（它会 resetNotes，
@@ -502,6 +530,18 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             </div>
           </div>
         </div>
+
+        {/* 33 票：音频资源异常横幅（丢失 / 被替换）——hydrate 路径检出，动作收口 projectAudio */}
+        {audioAnomaly.anomaly && (
+          <AudioAnomalyBanner
+            anomaly={audioAnomaly.anomaly}
+            busy={audioAnomaly.busy}
+            onReimport={audioAnomaly.reimport}
+            onClearRecord={() => void audioAnomaly.clearRecordAudio()}
+            onRealign={() => void audioAnomaly.realign()}
+            onDismiss={audioAnomaly.dismiss}
+          />
+        )}
 
         {/* 谱面画布滚动容器 */}
         <div ref={chartAreaRef} style={{

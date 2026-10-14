@@ -580,6 +580,62 @@
   color: var(--warning-text);
 }
 
+/* 33 票：工作台音频资源异常横幅（丢失 / 被替换）。
+   样式族照 .audio-locked-banner（同一枚壳：warning 左饰边 + soft 底），不新造壳；
+   只补文案块与动作行——文案可换行，动作行贴右。 */
+.audio-anomaly-banner {
+  align-items: flex-start;
+  margin: 0;
+  border-radius: 0;
+  border-left: 4px solid var(--warning);
+  border-top: none;
+  border-right: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+}
+
+.audio-anomaly-banner svg {
+  margin-top: 2px;
+}
+
+.audio-anomaly-banner__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.audio-anomaly-banner__hint {
+  color: color-mix(in srgb, var(--warning-text) 82%, var(--text-subtle));
+  font-size: var(--text-xs);
+}
+
+.audio-anomaly-banner__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.audio-anomaly-banner__actions button {
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--warning-text);
+  cursor: pointer;
+  padding: 3px 10px;
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.audio-anomaly-banner__actions button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--warning) 14%, var(--bg-elevated));
+}
+
+.audio-anomaly-banner__actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* chart-projects 06：工作台已上传只读提示浮条 */
 .readonly-toast {
   position: fixed;

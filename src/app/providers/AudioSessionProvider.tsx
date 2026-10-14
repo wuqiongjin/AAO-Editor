@@ -58,6 +58,7 @@ function shallowEqual(a: AudioSessionSnapshot, b: AudioSessionSnapshot): boolean
     a.audioError === b.audioError &&
     a.chartDuration === b.chartDuration &&
     a.audioDuration === b.audioDuration &&
+    a.audioLoadGeneration === b.audioLoadGeneration &&
     a.hasAudio === b.hasAudio &&
     a.keySetId === b.keySetId &&
     a.seVolume === b.seVolume &&

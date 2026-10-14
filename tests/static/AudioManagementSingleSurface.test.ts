@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { readStripped } from '@/tests/support/source';
 
-/** 音频的三个写动作（会话侧的名字与接缝侧的名字） */
+/** 音频的写动作（会话侧的名字与接缝侧的名字）。33 票补了 realignProjectAudio（对齐修复）——新写路径一并列进来防双写路径。 */
 const AUDIO_WRITES = [
   'importAudio',
   'clearAudio',
@@ -19,6 +19,7 @@ const AUDIO_WRITES = [
   'importProjectAudio',
   'clearProjectAudio',
   'setProjectAudioDuration',
+  'realignProjectAudio',
 ];
 
 describe('票 15 · 音频管理的唯一面与唯一写路径', () => {
@@ -47,6 +48,18 @@ describe('票 15 · 音频管理的唯一面与唯一写路径', () => {
     const hit = AUDIO_WRITES.filter((name) => src.includes(name));
     expect(hit).toEqual([]);
     expect(src).toMatch(/setActivePage\('audio'\)/);
+  });
+
+  // 33 票补的例外：工作台的音频**异常修复**（记录与字节对齐）也调写路径，但只经 projectAudio
+  // 接缝、不直连会话——本锁的"唯一写路径"性质由此守住。菜单文件（ChartSwitcher）依旧零写动作。
+  it('工作台异常修复（33 票）也只走 projectAudio 接缝，不直连会话', () => {
+    const src = readStripped('src/pages/workspace/useAudioAnomaly.ts');
+    expect(src).toMatch(/clearProjectAudio\(/);
+    expect(src).toMatch(/realignProjectAudio\(/);
+    expect(src).toMatch(/from '\.\.\/\.\.\/audio\/projectAudio'/);
+    expect(src).not.toMatch(/session\.importAudio/);
+    expect(src).not.toMatch(/session\.clearAudio/);
+    expect(src).not.toMatch(/session\.setChartDuration/);
   });
 
   it('音频页的三个动作全部走 projectAudio 接缝，不直连会话', () => {

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { ChartProjectStore, type ChartProject, type ProjectChart } from './ChartProject';
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
 import { isProjectAudioLocked, pickCurrentChart } from './workspaceProject';
+import { AUDIO_DURATION_MISMATCH_TOLERANCE } from '../audio/projectAudio';
 import type { ChartNote } from '../chart/types';
 import type { ChartCodeFidelity } from '../chart/editing/ChartConverter';
 
@@ -259,10 +260,11 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       // 也不 onRestore，会话里就一直留着上一个工程的音频。
       const audioMismatch = loaded.audioName !== audioNameRef.current;
       // 时长：只在**无音频**时按记录对齐（有音频时长度由音频决定，跟着音频一起 hydrate 过来）。
-      // 留 0.5s 容差——离线探针与播放引擎对同一文件的秒数可能有极小差异，不设容差会退化
+      // 容差与音频接缝同一个口径（AUDIO_DURATION_MISMATCH_TOLERANCE，33 票的替换信号沿用）
+      // ——离线探针与播放引擎对同一文件的秒数可能有极小差异，不设容差会退化
       // 成"每次目录刷新都重新对齐一次"，顺带把播放停掉。
       const durationMismatch = loaded.audioName == null
-        && Math.abs(loaded.durationSeconds - durationRef.current) > 0.5;
+        && Math.abs(loaded.durationSeconds - durationRef.current) > AUDIO_DURATION_MISMATCH_TOLERANCE;
       const recordChanged = audioMismatch || durationMismatch;
       projectRef.current = loaded;
       boundProjectIdRef.current = loaded.id;
