@@ -2,8 +2,10 @@
 // 「刚刚」收缩到 <1 分钟；1–59 分钟走「N 分钟前」；小时/天/月三档边界不动。
 // 每档边界各锁一条：新增/调整档位不许悄悄改旧档边界（撤掉任一边界断言应立刻红）。
 // 默认语言 zh-CN；now 可注入（relTime 第二参）。
-import { describe, expect, it } from 'vitest';
+// issue 34：en 单复数锁（n=1 走 .one，其余走 .other）。
+import { afterEach, describe, expect, it } from 'vitest';
 import { relTime } from '@/src/pages/projects/projectFormat';
+import { setActiveUiLanguage } from '@/src/i18n';
 
 const NOW = 1_700_000_000_000;
 const M = 60_000;
@@ -57,5 +59,22 @@ describe('relTime · 天档（1 天 ≤ delta < 30 天）', () => {
 describe('relTime · 月档（delta ≥ 30 天）', () => {
   it('60d → 2 个月前', () => {
     expect(relTime(NOW - 60 * D, NOW)).toBe('2 个月前');
+  });
+});
+
+describe('relTime · en 单复数（issue 34）', () => {
+  afterEach(() => setActiveUiLanguage('zh-CN'));
+
+  it('分钟档：60s → "1 minute ago"（one）；59min → "59 minutes ago"（other）', () => {
+    setActiveUiLanguage('en');
+    expect(relTime(NOW - M, NOW)).toBe('1 minute ago');
+    expect(relTime(NOW - 59 * M, NOW)).toBe('59 minutes ago');
+  });
+
+  it('小时/天/月档 one 形同样生效（撤任一一档的 .one 键应立刻红）', () => {
+    setActiveUiLanguage('en');
+    expect(relTime(NOW - H, NOW)).toBe('1 hour ago');
+    expect(relTime(NOW - D, NOW)).toBe('1 day ago');
+    expect(relTime(NOW - 30 * D, NOW)).toBe('1 month ago');
   });
 });

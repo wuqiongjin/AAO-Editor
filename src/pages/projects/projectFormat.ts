@@ -2,7 +2,7 @@ import type { ChartProject, ProjectChart } from '../../project/ChartProject';
 import { chartEffectiveTitle } from '../../project/projectCatalog';
 import { chartStatus } from '../../project/workspaceProject';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
-import { t } from '../../i18n';
+import { t, tPlural } from '../../i18n';
 
 const M = 60_000;
 const H = 3600_000;
@@ -15,10 +15,10 @@ export function effectiveTitle(project: { name: string | null }, chart: { title:
 export function relTime(at: number, now = Date.now()): string {
   const delta = now - at;
   if (delta < M) return t('projects.time.justNow');
-  if (delta < H) return t('projects.time.minutesAgo', { n: Math.floor(delta / M) });
-  if (delta < D) return t('projects.time.hoursAgo', { n: Math.floor(delta / H) });
-  if (delta < 30 * D) return t('projects.time.daysAgo', { n: Math.floor(delta / D) });
-  return t('projects.time.monthsAgo', { n: Math.floor(delta / (30 * D)) });
+  if (delta < H) return tPlural('projects.time.minutesAgo', Math.floor(delta / M));
+  if (delta < D) return tPlural('projects.time.hoursAgo', Math.floor(delta / H));
+  if (delta < 30 * D) return tPlural('projects.time.daysAgo', Math.floor(delta / D));
+  return tPlural('projects.time.monthsAgo', Math.floor(delta / (30 * D)));
 }
 
 export function formatDuration(sec: number): string {
