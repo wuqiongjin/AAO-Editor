@@ -1,6 +1,7 @@
 // 工程详情视图（原 ProjectsPage.tsx 的 detail 分支整块抽出，内部未再拆）。
 import type { CSSProperties, ReactNode } from 'react';
 import { Copy, Eye, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { useNow } from '../../../app/ProviderTree';
 import { newChartId, type ChartProject, type ProjectChart } from '../../../project/ChartProject';
 import {
   DIFF_COLORS,
@@ -47,6 +48,8 @@ export function ProjectDetail({
 }) {
   const uploads = sel.charts.filter((c) => c.upload);
   const locked = uploads.length > 0;
+  // relTime 的 now 走共享 ticker（issue 36）：30s 一跳，三处「N 分钟前」随时间自己走
+  const now = useNow();
   return (
     <div className="pc-page" style={{ '--pc-list-w': `${listWidth}px` } as CSSProperties}>
       <aside className="pc-list">
@@ -71,7 +74,7 @@ export function ProjectDetail({
                   {displayProjectName(p)}
                   {p.id === currentId && <em className="pp-current-tag">{t('projects.current')}</em>}
                 </b>
-                <small className="pp-muted">{t('projects.doneRatio', { done, n, time: relTime(p.lastOpened) })}</small>
+                <small className="pp-muted">{t('projects.doneRatio', { done, n, time: relTime(p.lastOpened, now) })}</small>
               </span>
               <span className="pc-item__bar"><span style={{ width: `${n ? (done / n) * 100 : 0}%` }} /></span>
             </button>
@@ -136,7 +139,7 @@ export function ProjectDetail({
                   />
                   <span className="pc-chart__title">
                     <b>{effectiveTitle(sel, c)}</b>
-                    <small className="pp-muted">{t('projects.notesMeta', { count: countChartNotes(c.notes), time: relTime(c.lastModified) })}</small>
+                    <small className="pp-muted">{t('projects.notesMeta', { count: countChartNotes(c.notes), time: relTime(c.lastModified, now) })}</small>
                   </span>
                   <StatusBadge chart={c} />
                   <span className="pc-chart__actions">
@@ -194,7 +197,7 @@ export function ProjectDetail({
                   <a href={postUrl(c.upload!.postId)} target="_blank" rel="noreferrer">
                     {t('projects.postLink', { id: c.upload!.postId })}
                   </a>
-                  <span className="pp-muted">{relTime(c.upload!.at)}</span>
+                  <span className="pp-muted">{relTime(c.upload!.at, now)}</span>
                 </li>
               ))}
             </ul>

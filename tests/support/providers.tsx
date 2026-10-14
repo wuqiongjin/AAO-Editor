@@ -14,6 +14,7 @@ import type { AudioEngine } from '@/src/audio/AudioEngine';
 import { ChartProjectStore, type ChartProject, type ChartProjectBackend, type ProjectBinarySources } from '@/src/project/ChartProject';
 import { CurrentProjectProvider } from '@/src/app/providers/CurrentProjectProvider';
 import { AudioSessionProvider } from '@/src/app/providers/AudioSessionProvider';
+import { NowProvider } from '@/src/app/providers/NowProvider';
 
 /**
  * 内存版工程后端：读写都落在 Map 上，不落盘、不碰 IndexedDB。
@@ -140,13 +141,16 @@ export interface TestProvidersProps {
   session?: AudioSession;
 }
 
-/** 默认上下文：当前工程 + 音频会话。其余 Provider（Config / UI / Editing…）按需在测试里自己套。 */
+/** 默认上下文：当前工程 + 音频会话 + 共享 ticker（issue 36，relTime 的 now 来源）。
+ *  其余 Provider（Config / UI / Editing…）按需在测试里自己套。 */
 export function TestProviders({ children, store, session }: TestProvidersProps) {
   const projectStore = useMemo(() => store ?? new ChartProjectStore(makeMemoryProjectBackend()), [store]);
   const audioSession = useMemo(() => session ?? makeTestAudioSession().session, [session]);
   return (
     <CurrentProjectProvider store={projectStore}>
-      <AudioSessionProvider session={audioSession}>{children}</AudioSessionProvider>
+      <AudioSessionProvider session={audioSession}>
+        <NowProvider>{children}</NowProvider>
+      </AudioSessionProvider>
     </CurrentProjectProvider>
   );
 }
