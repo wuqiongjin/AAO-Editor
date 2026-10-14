@@ -24,7 +24,7 @@ import { Cover, DiffLevelBadge, StatusBadge } from './ProjectBits';
 
 export function ProjectDetail({
   list, sel, currentId, listWidth, onListWidthChange, newButton,
-  onHome, onSelect, onOpen, onEdit, onCopy, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, mutate,
+  onHome, onSelect, onOpen, onEdit, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, mutate,
 }: {
   list: ChartProject[];
   sel: ChartProject;
@@ -36,7 +36,6 @@ export function ProjectDetail({
   onSelect: (id: string) => void;
   onOpen: (id: string, chartId?: string) => void;
   onEdit: (p: ChartProject) => void;
-  onCopy: (id: string) => void;
   onDelete: (p: ChartProject) => void;
   onChartForm: (v: { project: ChartProject; chart: ProjectChart | null }) => void;
   onDeleteChart: (v: { project: ChartProject; chart: ProjectChart }) => void;
@@ -108,15 +107,16 @@ export function ProjectDetail({
               </button>
             </p>
           </div>
-          {/* 动作组**一行**：主行动「在工作台打开」在最左，其后编辑 / 复制 / 删除，整体贴右缘。
+          {/* 动作组**一行**：主行动「在工作台打开」在最左，其后编辑 / 删除，整体贴右缘。
               保持原有一行的排列（用户 2026-09-28 二轮："这个东西就应该固定在一个位置"，
-              指位置稳定而不是拆成两行——稳定性改由 CSS 的**固定高度锚**保证，见 `.pc-detail__actions`）。 */}
+              指位置稳定而不是拆成两行——稳定性改由 CSS 的**固定高度锚**保证，见 `.pc-detail__actions`）。
+              复制工程钮已撤（chart-projects 票 32）：低频「以旧工程为模板新建」动作归 hub
+              （卡片 ⋯ 菜单一步复制 / 新建弹窗选源新建），详情页常驻钮误点成本高。 */}
           <div className="pc-detail__actions">
             <button type="button" className="pp-btn pp-btn--primary" onClick={() => void onOpen(sel.id)}>
               <Play size={14} />{t('projects.openInWorkspace')}
             </button>
             <button type="button" className="pp-btn" onClick={() => onEdit(sel)}><Pencil size={14} />{t('projects.editInfo')}</button>
-            <button type="button" className="pp-btn" onClick={() => void onCopy(sel.id)}><Copy size={14} />{t('projects.duplicate')}</button>
             <button type="button" className="pp-icon-btn is-danger" title={t('projects.delete')} onClick={() => onDelete(sel)}><Trash2 size={15} /></button>
           </div>
         </header>

@@ -451,7 +451,6 @@ export default function ProjectsPage() {
             onSelect={goDetail}
             onOpen={enterWorkspace}
             onEdit={setEditing}
-            onCopy={(id) => void copyProject(id)}
             onDelete={setAskDelete}
             onChartForm={setChartForm}
             onDeleteChart={setAskDeleteChart}
