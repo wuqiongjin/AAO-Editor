@@ -12,8 +12,10 @@
  */
 import { getActiveUiLanguage, type UiLanguage } from '../../i18n';
 import { assetRawUrl, assetThumbUrl } from '../assetUrls';
+import { dedupInflight } from '../inflight';
+import { normalizeLevelWindow } from '../levelWindow';
 import { withRetry, type RetryNotice } from '../rateLimit';
-import { CommunityError, type CommunityTransport, type StagedBinary } from '../transport';
+import { invalidResponse, type CommunityTransport, type StagedBinary } from '../transport';
 import { officialAssetName } from './assetNames';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
@@ -36,10 +38,6 @@ import {
   type OfficialSongDetail,
   type SongCandidate,
 } from './mapping';
-
-function invalidResponse(message: string): CommunityError {
-  return new CommunityError(message, { kind: 'invalid-response', message });
-}
 
 async function fetchJson(
   transport: CommunityTransport,
@@ -266,14 +264,8 @@ export function ensureOfficialCoverCached(
   transport: CommunityTransport,
   song: SongCandidate,
 ): Promise<StagedBinary | null> {
-  const url = jacketPreviewUrl(song);
-  const inflight = coverInflight.get(url);
-  if (inflight) return inflight;
-  const promise = fetchOfficialCover(transport, song, BESTDORI_COVER_TIMEOUT_MS).finally(() => {
-    if (coverInflight.get(url) === promise) coverInflight.delete(url);
-  });
-  coverInflight.set(url, promise);
-  return promise;
+  return dedupInflight(coverInflight, jacketPreviewUrl(song), () =>
+    fetchOfficialCover(transport, song, BESTDORI_COVER_TIMEOUT_MS));
 }
 
 /** 试听直链（`<audio src>` 的降级落点；Chromium 会按 Range 边下边播，不必先导入） */
@@ -326,14 +318,7 @@ export function filterSongCandidates(
 ): SongCandidate[] {
   const needle = (filter.query ?? '').trim().toLowerCase();
   const idNeedle = digitQuery(filter.query ?? '');
-  const hasLo = typeof filter.levelMin === 'number' && Number.isFinite(filter.levelMin);
-  const hasHi = typeof filter.levelMax === 'number' && Number.isFinite(filter.levelMax);
-  const lo = hasLo || hasHi
-    ? Math.min(filter.levelMin ?? filter.levelMax as number, filter.levelMax ?? filter.levelMin as number)
-    : null;
-  const hi = lo == null
-    ? null
-    : Math.max(filter.levelMin ?? filter.levelMax as number, filter.levelMax ?? filter.levelMin as number);
+  const { lo, hi } = normalizeLevelWindow(filter);
   const needDiff = filter.difficulty ?? null;
   const bandId = filter.bandId ?? null;
   return candidates.filter((song) => {

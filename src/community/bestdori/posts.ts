@@ -23,8 +23,10 @@
  *   - 用户主动刷新走 `force`：绕开会话缓存，并让网关重拉（`revalidate`）。
  */
 import { assetRawUrl, assetThumbUrl } from '../assetUrls';
+import { dedupInflight } from '../inflight';
+import { normalizeLevelWindow } from '../levelWindow';
 import { withRetry, type RetryNotice } from '../rateLimit';
-import { CommunityError, isCommunityError, type CommunityTransport, type StagedBinary } from '../transport';
+import { invalidResponse, isCommunityError, type CommunityTransport, type StagedBinary } from '../transport';
 import { communityAssetName } from './assetNames';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
@@ -37,10 +39,6 @@ import {
   postListUrl,
 } from './endpoints';
 import { toPostDetail, toPostPage, type PostCandidate } from './mapping';
-
-function invalidResponse(message: string): CommunityError {
-  return new CommunityError(message, { kind: 'invalid-response', message });
-}
 
 /** 单页上限（实测 10..50，按 50 拉：上拉加载少打几次请求） */
 export const POST_PAGE_LIMIT = 50;
@@ -345,15 +343,10 @@ export function ensureCustomCoverCached(
   post: PostCandidate,
 ): Promise<StagedBinary | null> {
   if (post.song.kind !== 'custom' || post.song.coverUrl == null) return Promise.resolve(null);
-  const inflight = coverInflight.get(post.postId);
-  if (inflight) return inflight;
-  const promise = fetchCustomMedia(transport, post.song.coverUrl, customCoverName(post), 'image', BESTDORI_COVER_TIMEOUT_MS)
-    .catch(() => null)
-    .finally(() => {
-      if (coverInflight.get(post.postId) === promise) coverInflight.delete(post.postId);
-    });
-  coverInflight.set(post.postId, promise);
-  return promise;
+  const coverUrl = post.song.coverUrl;
+  return dedupInflight(coverInflight, post.postId, () =>
+    fetchCustomMedia(transport, coverUrl, customCoverName(post), 'image', BESTDORI_COVER_TIMEOUT_MS)
+      .catch(() => null));
 }
 
 /* ---------------- 客户端过滤（§2.2：等级 / 难度没有服务端字段） ----------------
@@ -376,14 +369,7 @@ export function filterPostCandidates(
   posts: readonly PostCandidate[],
   filter: PostFilter,
 ): PostCandidate[] {
-  const hasLo = typeof filter.levelMin === 'number' && Number.isFinite(filter.levelMin);
-  const hasHi = typeof filter.levelMax === 'number' && Number.isFinite(filter.levelMax);
-  const lo = hasLo || hasHi
-    ? Math.min(filter.levelMin ?? filter.levelMax as number, filter.levelMax ?? filter.levelMin as number)
-    : null;
-  const hi = lo == null
-    ? null
-    : Math.max(filter.levelMin ?? filter.levelMax as number, filter.levelMax ?? filter.levelMin as number);
+  const { lo, hi } = normalizeLevelWindow(filter);
   const needDiff = filter.diff ?? null;
   return posts.filter((post) => {
     if (needDiff != null && post.diff !== needDiff) return false;

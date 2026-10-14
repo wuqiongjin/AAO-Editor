@@ -154,3 +154,8 @@ export function isCommunityError(value: unknown): value is CommunityError {
 export function isOfflineError(value: unknown): boolean {
   return isCommunityError(value) && isOfflineKind(value.kind);
 }
+
+/** 能力层把「响应不是预期形态」翻成统一错误域的共用工厂（票 38 #1：songs / posts 各一份同形私有函数上收） */
+export function invalidResponse(message: string): CommunityError {
+  return new CommunityError(message, { kind: 'invalid-response', message });
+}

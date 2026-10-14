@@ -48,7 +48,7 @@
 - 35 导入音频命名规则统一（grilling，**resolved 2026-10-13**）：**定了** = 来源前缀+ID+曲名：`official-<songId>-<曲名>.mp3` / `community-<postId>-<曲名>.mp3`，只对新导入生效；封面同步同规则为待验收口径。**已落地**：新模块 `src/community/bestdori/assetNames.ts`（清洗一处做：非法字符/控制字符换 `_`、首尾空格与点、截断 60 不劈代理对、缺省退 id），songs/posts 的四个命名函数委托它，封面两支按一致性先做（待验收可砍）；手动换音频与已落盘工程不动。
 - 36 社区导入工程名改帖标题（grilling，**resolved 2026-10-13**）：**修订票 34 定案第 1 条** —— 上一轮把 bandori 帖的工程名定成官方曲名，用户判「社区谱一般自己起名，哪怕是官方曲（如 [官方曲名]-加强版）」，且同曲多谱会撞名。**定了 = 社区导入工程名一律取原帖标题**（bandori 与 custom 同一口径；bandori 帖标题缺省退回官方曲名），歌手口径不变（bandori 官方乐队名 / custom 自报歌手）。**已落地**：`communityImport.ts` 一个表达式 + 头注改口径；锁测 = bandori 用例改断言帖标题（`BLACK SHOUT 谱师版` ≠ 官方曲名 `BLACK SHOUT`）+ 新增标题缺省退官方曲名用例。
 - 37 详情页副行删掉曲目来源（feature，**resolved 2026-10-13**）：用户判「BanG Dream #804」冗余——站点名是废话、`#804` 与下一行音频名（票 35 起自带曲库 id）重复。**修法 = 副行只留歌手**；`sourceLabel()` 与 i18n 三键 `projects.sourceLabel.*` 一并退役（**`曲目来源` 字段本身保留**：发布填 `song`、工程信息可改、换音频回 custom）。锁测 = `ProjectDetailHeadLayout.test.ts` 新增静态断言三条（含「弹窗 sourceCustom/Bandori/Llsif 不许误删」）。
-- 38 选曲路径去重批次（chore，**open**，2026-10-14 开票）：PR #3 合并前代码评审报的 3 条重复代码 —— ① `songs.ts` / `posts.ts` 的 `invalidResponse` / `looksLikeMedia` / `coverInflight` 各两份（**`looksLikeMedia` 两边规则故意不同，不要硬合**）；② 等级窗口 `lo` / `hi` 归一化近乎逐字（纯函数、零差异，**最值得先抽**）；③ `OfficialSongPanel` / `CommunityPostPanel` 近乎同形（**风险最高，先补静态锁再动刀**）。均为行为等价重构，不阻塞合并；锁测见票内。
+- 38 选曲路径去重批次（chore，**resolved 2026-10-14**）：评审报 3 条重复 —— ①②共享收敛落地（invalidResponse / 封面 inflight 内核 / 等级窗口），③ wontfix（两边各自演化、无第三消费者）。实现流水账、锁测与门禁数字一律见票内 Comments。
 
 
 ## Fog
