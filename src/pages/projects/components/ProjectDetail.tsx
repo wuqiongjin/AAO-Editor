@@ -20,6 +20,7 @@ import { postUrl } from '../../../community/bestdori/endpoints';
 import { t } from '../../../i18n';
 import { effectiveTitle, formatDuration, relTime } from '../projectFormat';
 import ProjectListSplit from '../ProjectListSplit';
+import { AccountBar } from './AccountBar';
 import { Cover, DiffLevelBadge, StatusBadge } from './ProjectBits';
 
 export function ProjectDetail({
@@ -78,6 +79,10 @@ export function ProjectDetail({
             </button>
           );
         })}
+        {/* 账号区钉在左栏底部（票 39 Q13）：`.pc-list` 是 flex column + overflow-y，
+            `margin-top: auto` 让它在列表短时贴底、列表长时跟在末尾（不随列表滚走的是上面的 head）。
+            只在这里挂 —— 启动台没有它（Q24：0 工程时登录不可达，已接受）。 */}
+        <AccountBar />
       </aside>
       <ProjectListSplit width={listWidth} onChange={onListWidthChange} />
       <main className="pc-detail">

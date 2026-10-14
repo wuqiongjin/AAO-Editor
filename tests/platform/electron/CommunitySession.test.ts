@@ -293,7 +293,8 @@ describe('票 10 · 真实载荷走满全链（07 网关 → 10 账号层 → �
         platformCode: 'CREDENTIALS_INVALID',
       });
 
-      expect(account.getSession()).toEqual({ signedIn: false, account: null });
+      // 平台当面拒了凭据 = 「没登上」，不是「会话失效」（票 39：expired 留给 user/me 401 那条路）
+      expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: false });
       // 平台拒了凭据 → 本机一份都不留：jar 空、没写过文件、也没有「可以写进盘里的东西」
       expect(gateway.cookieJar.snapshot()).toEqual([]);
       await expect(handlers.get('communitySession:persist')?.(null)).resolves.toEqual({ persisted: false });

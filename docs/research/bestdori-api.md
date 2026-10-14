@@ -164,6 +164,12 @@ JSON body（实测约束）：
 - 后端不校验 CSRF（见 §0），自建客户端只需保存并回传会话 Cookie。
 - 2026-09-24 写路径实测：成功 Cookie 名是 **`token`**；`GET /api/user/me` 登录后返回 `{result, username, nickname, titles, email, messageCount}`。有效期 / 多点登录仍未测。详见 [bestdori-community-upload.md](./bestdori-community-upload.md) §2。
 
+**2026-10-14 补测：站点的「登录 / 注册 / 找回密码」没有独立页面，全在一个弹窗里**（前端 bundle 实抓，`https://bestdori.com/js/app.d390adb1.js`，哈希随发版变）：
+
+- 路由表里（bundle 里 `path:"…"` 全量抽出）**没有** `login` / `signup` / `forgot` / `reset` 任何一条。与之相关的只有：`btnSignUp`（按钮文案 =「注册」/「Sign Up」…）、`resetRequest` / `resetConsume`（Vuex action，对应 API `user/reset/request` / `user/reset/consume`）。
+- 唯一像"加入"的路由是 `/home/join`（i18n `txtJoinUs` = 「加入我们」）—— 那是社区引导页，**不是注册表单**。账号设置页 `/profile/account` 需登录。
+- ⇒ **想让用户"去注册 / 去找回密码"，落脚点只能是站点首页**（落地后走站点自己的登录弹窗，那里才有这两个按钮）。本产品**不集成**注册 / 找回 / 改密码这些账号生命周期机制（口径见 `.scratch/bestdori-integration/issues/39`：替用户在第三方站开户 / 改密码的责任边界不清，issues/06 Q2）。
+
 ## 4. 文件上传（发布谱面所需的音频 / 封面图）
 
 流程（wrapper `upload.py` 与前端 bundle 一致；**需登录会话**）：

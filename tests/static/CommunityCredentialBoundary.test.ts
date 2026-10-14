@@ -3,8 +3,10 @@
 // 一条红线：**密码不落盘**（ADR-0011 §3）。它不是一个动作写对就行，而是「凭据没有路走到
 // 任何持久化写入路径」——所以这里断言的是**通路**，不是某一行的写法：
 //
-//   ① `password` 字面量在 `src/` 里只准出现在账号模块（`electron/` 那一侧由 ③ 单独盯：
-//      `sourceFiles()` 只走 .ts/.tsx，两边射程不同，别把话说过头）；
+//   ① `password` 字面量在 `src/` 里只准出现在**两处**白名单：账号模块 + 登录弹窗
+//      （票 39 Q9 —— 登录表单天生要一个 `<input type="password">`，藏字面量才是自欺；
+//      弹窗那一处另有结构性约束，见 PASSWORD_WHITELIST 与下面那条弹窗断言。
+//      `electron/` 那一侧由 ③ 单独盯：`sourceFiles()` 只走 .ts/.tsx，两边射程不同，别把话说过头）；
 //   ② 会话 Cookie 的持久化接缝**零入参**（renderer 递不进凭据，主进程从自己的 jar 落盘）；
 //   ③ 持久化那几个文件**不认识** password / username；加密只有主进程会做，renderer 连 API 都没有；
 //   ④ 加密不可用时**不写**（宁可不记住登录态，也不落一份明文）；
@@ -14,6 +16,8 @@ import { describe, expect, it } from 'vitest';
 import { readSource, readStripped, sourceFiles } from '@/tests/support/source';
 
 const ACCOUNT_MODULE = 'src/community/bestdori/account.ts';
+/** 登录弹窗：白名单的第二处（票 39 Q9），它只把凭据递给 `account.login()` 的参数 */
+const SIGN_IN_DIALOG = 'src/pages/projects/components/SignInDialog.tsx';
 const SESSION_BRIDGE = 'src/community/sessionPersistence.ts';
 const SESSION_MAIN = 'electron/communitySession.cjs';
 const PRELOAD = 'electron/preload.js';
@@ -29,6 +33,13 @@ const SESSION_CHANNELS = [
 
 /** `password` 那个标识符（大小写与包含关系都算：`userPassword` 也逃不掉） */
 const PASSWORD = /password/i;
+/**
+ * `password` 字面量允许出现的**两处**（票 39 Q9）。放宽成"白名单"而不是"目录级豁免"是
+ * 有意的：目录级豁免会长期弱化这条红线（谁往那个目录里丢文件都不再受约束），而白名单的
+ * 第二处还带着结构性约束 —— 登录弹窗**不 import 任何持久化出口**、正文里也没有 storage 出口，
+ * 于是「界面有表单」与「凭据有第二条落盘路」被分开（后者仍是红线）。
+ */
+const PASSWORD_WHITELIST = [ACCOUNT_MODULE, SIGN_IN_DIALOG];
 /** 渲染侧的持久化出口：任何一条出现在账号模块里都是红线被绕道 */
 const PERSISTENCE_SINKS = /localStorage|sessionStorage|indexedDB|projectStore|safeStorage/;
 /**
@@ -43,10 +54,17 @@ function importsOf(rel: string): string[] {
 }
 
 describe('票 10 · 密码不落盘（凭据通路）', () => {
-  it('`password` 在 `src/` 里只出现在账号模块（其它文件一个都不许有）', () => {
+  it('`password` 在 `src/` 里只出现在两处白名单（账号模块 + 登录弹窗），别处一个都不许有', () => {
     const offenders = sourceFiles('src')
-      .filter((rel) => rel !== ACCOUNT_MODULE && PASSWORD.test(readStripped(rel)));
+      .filter((rel) => !PASSWORD_WHITELIST.includes(rel) && PASSWORD.test(readStripped(rel)));
     expect(offenders).toEqual([]);
+  });
+
+  it('登录弹窗那一处是结构性的：不 import 持久化出口、正文里也没有 storage 出口', () => {
+    // 它 import 的是账号模块（凭据唯一的去处），不是任何"能不能存"的接缝
+    const sinks = importsOf(SIGN_IN_DIALOG).filter((spec) => /persist|storage|credential|safeStorage/i.test(spec));
+    expect(sinks).toEqual([]);
+    expect(readStripped(SIGN_IN_DIALOG)).not.toMatch(PERSISTENCE_SINKS);
   });
 
   it('在账号模块里它只以两种身份出现：函数形参、登录请求体里的那个值', () => {

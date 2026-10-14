@@ -30,6 +30,7 @@ const {
     createCommunityGateway,
     registerCommunityNetIpc,
 } = require('./communityNet.cjs');
+const { registerExternalLinkIpc } = require('./externalLink.cjs');
 const {
     sessionFilePath,
     createSessionStore,
@@ -288,6 +289,13 @@ function registerI18nIpc() {
     });
 }
 registerI18nIpc();
+
+// ---------------------------------------------------------------------------
+// 站外链接出口（票 39 Q47）：注册 / 找回密码这类「去站点」的入口开**系统浏览器**。
+// 校验（只放行社区平台及其子域）与 handler 都在 externalLink.cjs —— 那里能跑真函数测试；
+// 这里只接线，与社区网络 / 会话 / 素材缓存三条出口同形。
+// ---------------------------------------------------------------------------
+registerExternalLinkIpc(ipcMain, shell);
 
 // ---------------------------------------------------------------------------
 // 社区平台网络面（bestdori-integration 07 + 14）：主进程只做发 HTTP / 管 Cookie / 限流 /

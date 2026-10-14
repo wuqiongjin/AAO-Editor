@@ -162,3 +162,20 @@ export function postDetailUrl(postId: number): string {
 export function postUrl(postId: number): string {
   return `${BESTDORI_ORIGIN}/community/charts/${postId}`;
 }
+
+/* ---------------- 站外链接（票 39） ---------------- */
+
+/**
+ * 站点首页（票 39 Q42 / Q45 / Q47）：注册 / 找回密码那两枚入口的落点。
+ *
+ * 为什么都落首页：站点侧**没有**独立的 `login` / `signup` / `forgot` 页面 —— 三者是同一个
+ * 弹窗里的按钮（2026-10-14 前端 bundle 实抓，见 `docs/research/bestdori-api.md` §3）。
+ * 于是「注册」与「忘记密码」只能是「去站点首页，在那儿走站点自己的弹窗」，
+ * 不存在更精确的深链（自造带查询参数的地址就是猜 URL）。
+ *
+ * 调用方拿到的是**完整 URL**，域名仍然只有这一处知道（票 07 的域名白名单锁测盯着它）；
+ * 点开由 `../externalLink.ts` 经主进程开系统浏览器。
+ */
+export function siteHomeUrl(): string {
+  return `${BESTDORI_ORIGIN}/`;
+}

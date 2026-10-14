@@ -729,3 +729,153 @@
   .off-preview { max-width: var(--off-preview-w); }
   .off-preview__inner { width: 100%; }
 }
+
+/* ---------- 账号区（票 39）：详情视图左栏底部 ---------- */
+/* 与兄弟 `.pc-item` 同族：满宽、无框、无圆角、hover 才亮（Q35）。
+   「框」是上一版被否的原因 —— 左栏的兄弟都是无框列表行，摆一个描边圆角的盒子就是外来组件。 */
+.pc-account {
+  /* 列表短时钉底、长时跟在末尾（`.pc-list` 是 flex column + overflow-y） */
+  margin-top: auto;
+  /* 与工程列表之间的分隔：一条 --border-faint 细线（照 `.pc-list__head` 的 border-bottom），不靠框 */
+  border-top: 1px solid var(--border-faint);
+  background: var(--bg-elevated);
+}
+
+.pc-account__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.pc-account__row:hover { background: var(--bg-hover); }
+/* 打开态用中性按下色：accent-soft 是"当前选中工程"（`.pc-item.is-selected`）的语言，账号行不是选中项 */
+.pc-account__row[aria-expanded='true'] { background: var(--bg-active); }
+.pc-account__row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* 整行是一个目标：头像与「⋯」不各自吃点击 / 不吃鼠标态（Q36 的"一行两个目标"就是这么跑出来的） */
+.pc-account__row > * { pointer-events: none; }
+
+/* 「已登录」那一行外面裹着菜单壳（`.pp-menu` 是 inline-flex，只按内容量宽），不铺开的话：
+   - 这一行会比「未登录」那一行窄一截（那行没有菜单壳，直接是块级容器里的满宽按钮）；
+   - 窄多少**跟着昵称长短走**（实测：`wuqiongjin` 那一行只占左栏一半）。
+   两者都违背 Q35「满宽是对的 —— 它是列表行，兄弟都满宽」。所以这里把壳与触发层都摊开，
+   让行宽只由左栏宽度决定、与文字内容无关（与 `.pc-item` 一致）。 */
+.pc-account .pp-menu { display: flex; width: 100%; }
+.pc-account .pp-menu__trigger { display: flex; flex: 1 1 auto; min-width: 0; }
+
+.pc-account__lead {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+}
+.pc-account__lead.is-warn { color: var(--warning-text); }
+
+.pc-account__text { flex: 1 1 auto; min-width: 0; }
+.pc-account__text b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.pc-account__avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  color: #fff;
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+
+/* 次要动作走渐进披露（Q37）：静止时只有"我是谁"，悬停 / 打开 / 键盘聚焦才浮现「⋯」 */
+.pc-account__more {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.pc-account__row:hover .pc-account__more,
+.pc-account__row[aria-expanded='true'] .pc-account__more,
+.pc-account__row:focus-visible .pc-account__more { opacity: 1; }
+
+/* 菜单信息头（菜单壳本身走 `.pp-menu__panel` / `.pp-menu__item`，与卡片菜单同族） */
+.pc-account__id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 9px;
+  margin: 0 -4px 4px;
+  border-bottom: 1px solid var(--border-faint);
+}
+.pc-account__idtext { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pc-account__idtext b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.pc-account__idtext small { color: var(--text-muted); font-size: var(--text-2xs); }
+.pc-account__note { color: var(--warning-text); }
+
+/* ---------- 登录弹窗（票 39）：标题 + 「?」+ 密码框的眼睛 + 内联失败 + 底栏左端两枚外链 ---------- */
+
+.pc-signin__head { display: flex; align-items: center; gap: 6px; }
+.pc-signin__head .dialog__title { margin: 0; }
+
+.pc-signin { display: flex; flex-direction: column; gap: 12px; }
+/* 输入框样式挂在 `.dialog-field input` 上：外壳只负责定位，输入框右内边距让出眼睛的位置 */
+.pc-signin__secret { position: relative; display: flex; }
+.pc-signin__secret input { width: 100%; padding-right: 34px; }
+.pc-signin__eye {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+.pc-signin__eye:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
+.pc-signin__eye:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pc-signin__eye:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 失败就地内联在表单下方（Q15 #3）：不 Toast —— Toast 会自己消失，登录失败必须留在场 */
+.pc-signin__error { margin: 0; color: var(--danger-text); font-size: var(--text-xs); }
+
+/* 底栏左端的两枚入口（Q49 定案「底栏」）：与「取消 / 登录」同一条带，`margin-right: auto` 推出去 */
+.pc-signin__links {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  font-size: var(--text-xs);
+}
+.pc-signin__sep { color: var(--text-subtle); }
+.pc-signin__link { color: var(--accent-text); text-decoration: none; }
+.pc-signin__link:hover { text-decoration: underline; }
+.pc-signin__link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+/* 写能力被挡住的那行说明（CapabilityStatusLine；本票不渲染，票 11 挂发布按钮时用） */
+.pc-capability { margin: 0; color: var(--text-muted); font-size: var(--text-xs); }

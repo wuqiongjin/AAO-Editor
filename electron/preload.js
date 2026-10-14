@@ -56,6 +56,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
         persist: () => ipcRenderer.invoke('communitySession:persist'),
         clear: () => ipcRenderer.invoke('communitySession:clear'),
     },
+    // 票 39：站外链接的唯一出口 —— 注册 / 找回密码这类「去站点」的入口开系统浏览器
+    // （仓里既有的 <a target="_blank"> 在 Electron 里会开应用内无地址栏窗口 = 错形态）。
+    // 与上面几条零入参桥不同：这条**必须收 URL**，所以放不放行由主进程校验
+    // （electron/externalLink.cjs 只放行社区平台及其子域），renderer 递不进任意地址。
+    shell: {
+        openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+    },
     // bestdori-integration 14 + 18：素材缓存的占用查询 / 清除 / 回收策略推送（设置页「存储与数据」用）。
     // 只有这三条：一条只读统计、一条显式清除、一条策略参数 —— 不暴露缓存内容。
     assetCache: {

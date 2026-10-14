@@ -40,6 +40,19 @@ export interface CommunityAccountSession {
   signedIn: boolean;
   /** 未登录时恒为 null（校验通过才有资料）；`username` 是身份，展示用 `nickname` */
   account: AccountProfile | null;
+  /**
+   * 本机把这份登录**记没记住**（票 39 Q6）：`login()` 落盘 / `start()` 恢复的成败。
+   * 未登录（没登上 / 已登出）恒为 null —— 界面那句「本机不会记住登录状态」的唯一数据来源，
+   * 不开第四条 IPC（「本机能不能加密」由 `persist()` 的布尔回答，见 sessionPersistence）。
+   */
+  remembered: boolean | null;
+  /**
+   * 上一份会话**是被平台拒掉的**（`user/me` 401 ⇒ 就地失效，票 39 Q17 / Q20）：
+   * 界面据此把账号行写成「登录状态已失效，请重新登录」而不是「登录」。
+   * 这一位必须由能力层给：`{signedIn, account}` 里「本来就没登录」与「刚被平台踢掉」
+   * 长得一模一样，界面自己分不开（票 39 对账第 4 条之后新加的机制，见票内 Comments）。
+   */
+  expired: boolean;
 }
 
 export interface CommunityAccount {
@@ -85,28 +98,39 @@ export function createCommunityAccount(options: CommunityAccountOptions): Commun
   const { transport, onRetry, retry } = options;
   const persistence = options.persistence ?? createSessionPersistence();
 
-  let state: CommunityAccountSession = { signedIn: false, account: null };
+  let state: CommunityAccountSession = { signedIn: false, account: null, remembered: null, expired: false };
   const listeners = new Set<(session: CommunityAccountSession) => void>();
   /** 幂等闸：`start()` 只跑一次（校验出结论就不再重来；离线那次也不例外，见上面的口径） */
   let started: Promise<CommunityAccountSession> | null = null;
 
   function publish(next: CommunityAccountSession) {
-    if (next.signedIn === state.signedIn && next.account === state.account) return;
+    if (
+      next.signedIn === state.signedIn
+      && next.account === state.account
+      && next.remembered === state.remembered
+      && next.expired === state.expired
+    ) return;
     state = next;
     for (const listener of [...listeners]) listener(state);
   }
 
-  const settleSignedOut = () => publish({ signedIn: false, account: null });
-  const settleSignedIn = (account: AccountProfile) => publish({ signedIn: true, account });
+  /** 未登录的落定：`expired` 只有「恢复来的那份 Cookie 被平台拒了」这一种情形为 true */
+  const settleSignedOut = (expired = false) => publish({ signedIn: false, account: null, remembered: null, expired });
+  const settleSignedIn = (account: AccountProfile, remembered: boolean) =>
+    publish({ signedIn: true, account, remembered, expired: false });
 
-  /** 登出 / 会话失效的唯一出口：先清持久化（清不掉也要把内存态落定），再转未登录 */
-  async function clearSession(): Promise<void> {
+  /**
+   * 登出 / 会话失效的唯一出口：先清持久化（清不掉也要把内存态落定），再转未登录。
+   * `expired` 只有 `user/me` 401 那条路会给 true —— 平台当面拒了凭据（登录失败）不是「失效」，
+   * 那是「没登上」，账号行照旧写「登录」。
+   */
+  async function clearSession(expired = false): Promise<void> {
     try {
       await persistence.clear();
     } catch {
       // 清不掉不是「还登录着」的理由：内存态照转未登录，下次启动再清一次
     }
-    settleSignedOut();
+    settleSignedOut(expired);
   }
 
   /** `GET /api/user/me`：会话校验（登录成功与启动各一次；幂等读，走统一退避） */
@@ -137,11 +161,12 @@ export function createCommunityAccount(options: CommunityAccountOptions): Commun
       return state;
     }
     try {
-      settleSignedIn(await verify());
+      // 恢复成功 ⇒ 本机记住了这份登录（`remembered` 的另一半来自 login 时的落盘）
+      settleSignedIn(await verify(), true);
     } catch (error) {
-      // 401 → 平台已不认这份 Cookie：清干净（= 登出）；连不上 / 超时 → 只是这次没校验上，
-      // 留着 Cookie，绝不因为一次断网把登录态烧掉
-      if (isSessionRejected(error)) await clearSession();
+      // 401 → 平台已不认这份 Cookie：清干净（= 登出）并标失效（界面要说「登录状态已失效」）；
+      // 连不上 / 超时 → 只是这次没校验上，留着 Cookie，绝不因为一次断网把登录态烧掉
+      if (isSessionRejected(error)) await clearSession(true);
       else settleSignedOut();
     }
     return state;
@@ -172,7 +197,8 @@ export function createCommunityAccount(options: CommunityAccountOptions): Commun
         timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
       }).catch(async (error: unknown) => {
         // 平台当面拒了凭据（`{"result":false,"code":"CREDENTIALS_INVALID"}` 已被网关翻成 unauthorized）：
-        // 本机一份**都不留** —— 「失败不写入任何凭据」是这条实现，不是「没调用 persist()」那句约定
+        // 本机一份**都不留** —— 「失败不写入任何凭据」是这条实现，不是「没调用 persist()」那句约定。
+        // 注意：这不是「会话失效」（`expired` 留给 user/me 401 那条路），账号行照旧写「登录」
         if (isSessionRejected(error)) await clearSession();
         throw error;
       });
@@ -181,24 +207,28 @@ export function createCommunityAccount(options: CommunityAccountOptions): Commun
       if (!isPlainObject(raw) || raw.result !== true) throw invalidResponse('登录响应不是预期形态');
 
       // 先把它加密落盘（主进程从自己的 jar 快照做，renderer 连 Cookie 值都拿不到），
-      // 再按「登录成功各查一次 me」校验；落盘失败不算登录失败（内存会话照用）
+      // 再按「登录成功各查一次 me」校验；落盘失败不算登录失败（内存会话照用），
+      // 但**要记下来**：界面据此说一句「本机不会记住登录状态」（票 39 Q6）
+      let remembered = false;
       try {
-        await persistence.persist();
+        remembered = (await persistence.persist()) === true;
       } catch {
         // 同上：这是「记不住登录状态」，不是「没登上」
+        remembered = false;
       }
 
       try {
-        settleSignedIn(await verify());
+        settleSignedIn(await verify(), remembered);
       } catch (error) {
-        if (isSessionRejected(error)) await clearSession();
+        if (isSessionRejected(error)) await clearSession(true);
         throw error;
       }
       return state;
     },
 
-    logout: clearSession,
-  };
+        /** 登出 = 清本机（不标失效：主动登出之后的账号行是「登录」，不是「已失效」） */
+        logout: () => clearSession(),
+        };
 }
 
 /** 能力层持的**唯一**会话对象（issue 06 Q3）；全应用共用这一份，别各建各的 */

@@ -5,6 +5,10 @@
 //   ② 登录失败（`{"result":false,"code":"CREDENTIALS_INVALID"}`）**不写入任何凭据**；
 //   ③ `user/me` 401 → 会话失效、持久化被清，**读能力仍可用**（写能力变灰 = signed-out）；
 //   ④ 凭据红线的两个反例：持久化接缝**零入参**（renderer 递不进凭据）、离线不乱清 Cookie。
+//
+// 票 39 又往快照上加了两位（界面要用，能力层本来就知道）：
+//   - `remembered`：落盘 / 恢复的成败 ⇒「本机记住没有」（Q6）；
+//   - `expired`：这一份是**恢复来的且被平台拒了**（Q17）—— 与「本来就没登录」分开。
 import { describe, expect, it } from 'vitest';
 import {
   createCommunityAccount,
@@ -133,6 +137,8 @@ describe('票 10 · 登录成功', () => {
     expect(account.getSession()).toEqual({
       signedIn: true,
       account: { username: 'envy09', nickname: 'Envy', email: 'envy09@example.com', messageCount: 3 },
+      remembered: true,
+      expired: false,
     });
 
     // 两条请求：登录（POST）→ 校验（GET user/me）
@@ -147,7 +153,7 @@ describe('票 10 · 登录成功', () => {
     expect(persistence.ops).toEqual([{ op: 'persist', args: [] }]);
   });
 
-  it('登录成功但落盘失败：会话照用（记不住 ≠ 没登上）', async () => {
+  it('登录成功但落盘失败：会话照用（记不住 ≠ 没登上），并且**记下没记住**（票 39 Q6）', async () => {
     const transport = fakeTransport({ [LOGIN_URL]: { result: true }, [ME_URL]: ME_OK });
     const account = createCommunityAccount({
       transport,
@@ -161,7 +167,26 @@ describe('票 10 · 登录成功', () => {
 
     await account.login('envy09', 'hunter2');
 
-    expect(account.getSession().signedIn).toBe(true);
+    // 「本机记住没有」与「登没登上」是两件事：登上了（signedIn）但没记住（remembered false）——
+    // 界面那句「下次启动需要重新登录」的唯一数据来源就是这一位
+    expect(account.getSession()).toMatchObject({ signedIn: true, remembered: false, expired: false });
+  });
+
+  it('落盘抛错（本机不支持加密那类）也只是一次「没记住」，不把登录判失败', async () => {
+    const transport = fakeTransport({ [LOGIN_URL]: { result: true }, [ME_URL]: ME_OK });
+    const account = createCommunityAccount({
+      transport,
+      retry: noSleep,
+      persistence: {
+        restore: async () => false,
+        persist: async () => { throw new Error('本机不支持安全存储'); },
+        clear: async () => undefined,
+      },
+    });
+
+    await account.login('envy09', 'hunter2');
+
+    expect(account.getSession()).toMatchObject({ signedIn: true, remembered: false });
   });
 });
 
@@ -178,7 +203,8 @@ describe('票 10 · 登录失败不写入任何凭据', () => {
       platformCode: 'CREDENTIALS_INVALID',
     });
 
-    expect(account.getSession()).toEqual({ signedIn: false, account: null });
+    // 这不是「会话失效」：账号行照旧写「登录」（票 39：expired 只留给 user/me 401 那条路）
+    expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: false });
     // 一次 persist 都没有；反倒 clear 了一次（平台当面拒了凭据 → 本机一份都不留）
     expect(persistence.ops).toEqual([{ op: 'clear', args: [] }]);
     // 失败后不再多打一条 user/me
@@ -214,7 +240,12 @@ describe('票 10 · 启动校验（restore → user/me）', () => {
     const persistence = fakePersistence();
     const account = makeAccount(transport, persistence.impl);
 
-    await expect(account.start()).resolves.toEqual({ signedIn: false, account: null });
+    await expect(account.start()).resolves.toEqual({
+      signedIn: false,
+      account: null,
+      remembered: null,
+      expired: false,
+    });
 
     expect(transport.requests).toEqual([]);
     expect(persistence.ops.map((op) => op.op)).toEqual(['restore']);
@@ -228,7 +259,9 @@ describe('票 10 · 启动校验（restore → user/me）', () => {
     await account.start();
 
     const session = account.getSession();
-    expect(session).toEqual({ signedIn: false, account: null });
+    // 恢复来的那份被平台拒了 = 失效（票 39 Q17）：界面靠这一位写「登录状态已失效」，
+    // 而不是「本来就没登录」—— 两者在 `{signedIn, account}` 里长得一模一样
+    expect(session).toEqual({ signedIn: false, account: null, remembered: null, expired: true });
     expect(persistence.ops.map((op) => op.op)).toEqual(['restore', 'clear']);
 
     // 失效表现（ADR-0011 §1 / issue 06 Q3）：不弹窗、不白屏 —— 只是写能力灰掉
@@ -247,6 +280,8 @@ describe('票 10 · 启动校验（restore → user/me）', () => {
     await account.start();
 
     expect(account.getSession().signedIn).toBe(false);
+    // 也不是「失效」（票 39）：一次断网不该让界面去说「登录状态已失效，请重新登录」
+    expect(account.getSession().expired).toBe(false);
     // 清一条都不会发：一次断网不该把用户的登录态烧掉
     expect(persistence.ops.map((op) => op.op)).toEqual(['restore']);
     // 幂等读走统一退避（3 次尝试），失败后才落定
@@ -276,8 +311,36 @@ describe('票 10 · 登出与订阅', () => {
     await account.login('envy09', 'hunter2');
     await account.logout();
 
-    expect(account.getSession()).toEqual({ signedIn: false, account: null });
+    // 主动登出不是「失效」：界面回到「登录」，不写「登录状态已失效」（票 39 Q20）
+    expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: false });
     expect(persistence.ops.map((op) => op.op)).toEqual(['persist', 'clear']);
+  });
+
+  it('失效之后重新登录成功：`expired` 清掉、「记住没有」按这次落盘结果记（票 39）', async () => {
+    // 第一发 user/me 被平台拒（= 恢复来的那份会话已失效），重登之后才通
+    let meFails = true;
+    const transport: CommunityTransport = {
+      kind: 'ipc',
+      async requestJson(req) {
+        if (req.url === ME_URL) {
+          if (meFails) throw platformError('unauthorized', 'LOGIN_REQUIRED');
+          return ME_OK;
+        }
+        if (req.url === LOGIN_URL) return { result: true };
+        throw new Error(`未打桩的请求: ${req.url}`);
+      },
+      async requestText() { throw new Error('不该有文本请求'); },
+      async requestBinary() { throw new Error('不该有二进制请求'); },
+    };
+    const persistence = fakePersistence({ restored: true });
+    const account = makeAccount(transport, persistence.impl);
+
+    await account.start();
+    expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: true });
+
+    meFails = false;
+    await account.login('envy09', 'hunter2');
+    expect(account.getSession()).toMatchObject({ signedIn: true, remembered: true, expired: false });
   });
 
   it('订阅只在会话真的变了时通知一次', async () => {
@@ -304,7 +367,12 @@ describe('票 10 · 静态演示版（没有会话桥）', () => {
       const account = getCommunityAccount();
       // 同一个会话对象（唯一真相）：两次取到的是同一份
       expect(getCommunityAccount()).toBe(account);
-      await expect(account.start()).resolves.toEqual({ signedIn: false, account: null });
+      await expect(account.start()).resolves.toEqual({
+        signedIn: false,
+        account: null,
+        remembered: null,
+        expired: false,
+      });
       await expect(account.login('envy09', 'x')).rejects.toMatchObject({ kind: 'unsupported-runtime' });
     } finally {
       resetCommunityAccount();
