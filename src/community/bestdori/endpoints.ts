@@ -130,6 +130,24 @@ export function isPlatformFallbackPage(contentType: string | null): boolean {
   return /text\/html/i.test(contentType ?? '');
 }
 
+/* ---------------- 账号与会话（票 10） ----------------
+ * 事实依据：docs/research/bestdori-community-upload.md §2（2026-09-24 写路径实测）。
+ * 登录成功 = HTTP 200 + `{"result":true}` + `Set-Cookie: token=…`（Cookie 名实测为 `token`）；
+ * 失败 = HTTP 200 + `{"result":false,"code":"CREDENTIALS_INVALID"}`（网关按 code 翻成 unauthorized）。
+ * Cookie 的解析 / 附着 / 持久化**全在主进程**（electron/communityCookies.cjs + communitySession.cjs），
+ * 这里只有两个 URL —— renderer 经此走 transport，永远看不到 Cookie 的值（ADR-0011 §3 凭据红线）。
+ * ------------------------------------------------------------------ */
+
+/** 登录（POST JSON `{username, password}`）。**密码不落盘**：只活在这次请求的载荷里 */
+export function userLoginUrl(): string {
+  return apiUrl('user/login');
+}
+
+/** 当前用户（登录成功与启动时各校验一次；响应 `{result, username, nickname, titles, email, messageCount}`） */
+export function userMeUrl(): string {
+  return apiUrl('user/me');
+}
+
 /** 社区帖列表 / 搜索 / 分页（POST；body 约束见 docs/research/bestdori-api.md §2） */
 export function postListUrl(): string {
   return apiUrl('post/list');

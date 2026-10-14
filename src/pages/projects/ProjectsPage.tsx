@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Copy, FolderPlus, MoreHorizontal, Music4, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
+import { getCommunityAccount } from '../../community/bestdori/account';
 import { createCommunityTransport, hasCommunityNet } from '../../community/electronTransport';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import {
@@ -68,6 +69,14 @@ export default function ProjectsPage() {
   // 社区平台出口（票 07）：静态演示版没有 → 官方 / 社区两支入口整体隐藏（ADR-0011 §1 / 票 12）
   const communityTransport = useMemo(() => createCommunityTransport(), []);
   const importSources = hasCommunityNet();
+
+  // 会话唯一真相的**启动校验**（票 10）：还原那份被 safeStorage 加密的会话 Cookie，
+  // 并查一次 `GET /api/user/me`。没有会话时一条请求都不发；平台不认了就转未登录
+  // （读能力照旧可用，写能力变灰，不弹窗、不白屏）。`start()` 幂等，StrictMode 的双跑也只发一次。
+  useEffect(() => {
+    if (!importSources) return;
+    void getCommunityAccount().start();
+  }, [importSources]);
 
   const goDetail = useCallback((id: string) => {
     setNavDir('forward');

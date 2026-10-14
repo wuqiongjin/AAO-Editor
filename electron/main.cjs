@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
@@ -30,6 +30,11 @@ const {
     createCommunityGateway,
     registerCommunityNetIpc,
 } = require('./communityNet.cjs');
+const {
+    sessionFilePath,
+    createSessionStore,
+    registerCommunitySessionIpc,
+} = require('./communitySession.cjs');
 const {
     createAssetCache,
     registerAssetCacheIpc,
@@ -303,6 +308,15 @@ const communityGateway = createCommunityGateway({
 });
 registerCommunityNetIpc(ipcMain, communityGateway);
 registerAssetCacheIpc(ipcMain, assetCache);
+
+// 会话 Cookie 的加密持久化（票 10）：落到 **userData** 下，**不跟数据根走** ——
+// 数据根是用户数据（可搬家 / 可拷贝 / 可分享），凭据是本机的事（与 app-state.json 同级）。
+// safeStorage 只在 app ready 之后可用，所以 store 只记「怎么取路径」，加解密都在请求时现做。
+const communitySessionStore = createSessionStore({
+    safeStorage,
+    filePath: () => sessionFilePath(userDataDir()),
+});
+registerCommunitySessionIpc(ipcMain, { gateway: communityGateway, store: communitySessionStore });
 
 // ---------------------------------------------------------------------------
 // 主窗体几何记忆（issue 119 / 117）：userData/app-state.json 的 window 字段。

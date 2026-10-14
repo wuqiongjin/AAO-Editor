@@ -47,6 +47,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     communityNet: {
         request: (payload) => ipcRenderer.invoke('communityNet:request', payload),
     },
+    // bestdori-integration 10：会话 Cookie 的加密持久化（safeStorage 在主进程）。
+    // 三条通道**都不收也不回凭据**：恢复 / 落盘 / 清除都由主进程从它自己那份内存 jar 做，
+    // renderer 只拿到「有没有会话 / 落没落盘」这类布尔（ADR-0011 §3 凭据红线）。
+    // 没有第四条：凭据面的接口越小越好，「本机能不能加密」由 persist() 的成败回答。
+    communitySession: {
+        restore: () => ipcRenderer.invoke('communitySession:restore'),
+        persist: () => ipcRenderer.invoke('communitySession:persist'),
+        clear: () => ipcRenderer.invoke('communitySession:clear'),
+    },
     // bestdori-integration 14 + 18：素材缓存的占用查询 / 清除 / 回收策略推送（设置页「存储与数据」用）。
     // 只有这三条：一条只读统计、一条显式清除、一条策略参数 —— 不暴露缓存内容。
     assetCache: {

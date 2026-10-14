@@ -323,3 +323,35 @@ export function toPostDetail(raw: unknown, fallbackId?: number): { post: PostCan
   if (!post) return null;
   return { post, chartCodeText: JSON.stringify(raw.post.chart) };
 }
+
+/* ---------------- 账号（票 10 能力 10） ---------------- */
+
+/**
+ * 中立「账号资料」（`GET /api/user/me`，实测形状见 `docs/research/bestdori-community-upload.md` §2）。
+ *
+ * **只有展示需要的字段**：`titles`（站点称号）不取 —— 本产品没有它的用武之地，
+ * 静默把不明形状塞进会话对象只会让「会话里到底有什么」越来越难答。
+ * 站点账号名（`username`）是**身份**：串在 URL / 查询里（如 `post/list` 的 `username`）都用它，
+ * 展示才用 `nickname`。
+ */
+export interface AccountProfile {
+  /** 站点账号名（登录名）：身份用它 */
+  username: string;
+  /** 展示名；站点没填时为 null */
+  nickname: string | null;
+  email: string | null;
+  messageCount: number | null;
+}
+
+/** `GET /api/user/me` → 账号资料；`result` 非 true 或缺 `username` 时 null（能力层翻成 invalid-response） */
+export function toAccountProfile(raw: unknown): AccountProfile | null {
+  if (!isPlainObject(raw) || raw.result !== true) return null;
+  const username = typeof raw.username === 'string' ? raw.username.trim() : '';
+  if (username === '') return null;
+  const nickname = typeof raw.nickname === 'string' && raw.nickname.trim() !== '' ? raw.nickname.trim() : null;
+  const email = typeof raw.email === 'string' && raw.email.trim() !== '' ? raw.email.trim() : null;
+  const messageCount = typeof raw.messageCount === 'number' && Number.isFinite(raw.messageCount)
+    ? raw.messageCount
+    : null;
+  return { username, nickname, email, messageCount };
+}

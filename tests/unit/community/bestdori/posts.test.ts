@@ -17,6 +17,7 @@ import {
   ensureCustomCoverCached,
   fetchCustomAudio,
   fetchCustomCover,
+  fetchMyPostsPage,
   fetchPostDetail,
   fetchPostIdLookup,
   fetchPostPage,
@@ -162,6 +163,50 @@ describe('票 09 · fetchPostPage（POST body 与分页口径）', () => {
   it('result:false 翻成 invalid-response（body 里的未知字段会被平台拒）', async () => {
     const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: { result: false, code: 'REQUEST_INVALID' } } });
     await expect(fetchPostPage(transport, { query: '', offset: 0 })).rejects.toMatchObject({ kind: 'invalid-response' });
+  });
+});
+
+// 票 10 · 能力 8 的「我自己的作品列表」：同一条 post/list，靠服务端的 username 过滤。
+describe('票 10 · 我自己的作品列表（post/list 带 username）', () => {
+  it('body 带上 username；搜索词为空、翻页与其他口径不变', async () => {
+    const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE } });
+
+    const page = await fetchMyPostsPage(transport, 'envy09', { offset: 0 });
+
+    expect(page.posts).toHaveLength(2);
+    const req = transport.requests[0];
+    expect(req.method).toBe('POST');
+    expect(JSON.parse(req.body ?? '{}')).toEqual({
+      search: '',
+      categoryName: 'SELF_POST',
+      categoryId: 'chart',
+      order: 'TIME_DESC',
+      limit: 50,
+      offset: 0,
+      username: 'envy09',
+    });
+    // 首页那一档跨会话缓存照旧（与公开列表同一条路径）
+    expect(req.cacheable).toBe(true);
+    expect(req.freshFirst).toBe(true);
+  });
+
+  it('username 进缓存键：不同谱师各算一页，不会被上一份串味', async () => {
+    const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE } });
+
+    await fetchMyPostsPage(transport, 'envy09', { offset: 0 });
+    await fetchMyPostsPage(transport, 'someone-else', { offset: 0 });
+    await fetchMyPostsPage(transport, '  envy09  ', { offset: 0 });
+
+    expect(transport.requests).toHaveLength(2);
+    expect(transport.requests.map((req) => JSON.parse(req.body ?? '{}').username)).toEqual(['envy09', 'someone-else']);
+  });
+
+  it('空 username = 不限（与既往请求体逐字相同，不塞一个空字段给平台）', async () => {
+    const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE } });
+
+    await fetchPostPage(transport, { query: '', offset: 0, username: '   ' });
+
+    expect(JSON.parse(transport.requests[0].body ?? '{}')).not.toHaveProperty('username');
   });
 });
 
