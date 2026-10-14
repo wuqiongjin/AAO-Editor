@@ -226,6 +226,7 @@
   "workspace.readonlyPrompt": "Uploaded charts cannot be modified. Duplicate this chart to edit?",
   "workspace.readonlyCopyBtn": "Duplicate this chart",
   "workspace.switcher.rowMeta": "{{diff}} {{level}} · {{count}} notes",
+  "workspace.displaySettings": "Canvas display settings",
 
   "settings.header.eyebrow": "App Settings",
   "settings.header.title": "Settings",

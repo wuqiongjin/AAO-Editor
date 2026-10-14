@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, ZoomIn, ZoomOut, Lock, Copy, X } from 'lucide-react';
+import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, Minus, Plus, Lock, Copy, X } from 'lucide-react';
 import Toolbar from './Toolbar';
 import ChartSwitcher from './ChartSwitcher';
+import WorkspaceDisplayPanel from './WorkspaceDisplayPanel';
+import './WorkspaceTopBar.css';
 import { ChartCodeEditorProvider } from '../../chart/components/code-editor/ChartCodeEditorProvider';
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
 import NoteInfoPanel from '../../chart/components/side-panel/NoteInfoPanel';
@@ -479,27 +481,50 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         }}>
           <ChartSwitcher />
 
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-            <span style={{
-              color: 'var(--text-muted)', fontSize: 'var(--text-xs)',
-              fontVariantNumeric: 'tabular-nums', display: 'flex', alignItems: 'center', gap: 4,
-            }}>
-              BPM <b style={{ color: 'var(--text)', fontWeight: 600 }}>{currentRegionBpm}</b>
+          <div className="ws-topbar-right">
+            <span className="ws-topbar-bpm" title={`BPM: ${currentRegionBpm}`}>
+              <span className="ws-topbar-bpm__prefix">BPM</span>
+              <b className="ws-topbar-bpm__val">{currentRegionBpm}</b>
             </span>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <IconButton width="auto" size="sm" icon={<ZoomOut size={14} />} title={t('editor.zoomOut')} onClick={() => setScale(prev => Math.max(prev - 0.1, 0.1))} />
+            <span className="ws-topbar-divider" />
+
+            <div
+              className="ws-zoom-capsule"
+              onWheel={(e) => {
+                e.preventDefault();
+                const delta = e.deltaY < 0 ? 0.1 : -0.1;
+                setScale(prev => Math.min(3, Math.max(Math.round((prev + delta) * 10) / 10, 0.1)));
+              }}
+            >
+              <button
+                type="button"
+                className="ws-zoom-capsule__btn"
+                title={t('editor.zoomOut')}
+                aria-label={t('editor.zoomOut')}
+                onClick={() => setScale(prev => Math.max(prev - 0.1, 0.1))}
+              >
+                <Minus size={12} strokeWidth={2} />
+              </button>
               <span
+                className="ws-zoom-capsule__val"
                 onDoubleClick={() => setScale(1)}
                 title={t('editor.zoomReset')}
-                style={{
-                  fontSize: 'var(--text-xs)', color: 'var(--text-muted)',
-                  fontVariantNumeric: 'tabular-nums', minWidth: 40, textAlign: 'center',
-                  cursor: 'pointer', userSelect: 'none',
-                }}
-              >{Math.round(scale * 100)}%</span>
-              <IconButton width="auto" size="sm" icon={<ZoomIn size={14} />} title={t('editor.zoomIn')} onClick={() => setScale(prev => Math.min(prev + 0.1, 3))} />
+              >
+                {Math.round(scale * 100)}%
+              </span>
+              <button
+                type="button"
+                className="ws-zoom-capsule__btn"
+                title={t('editor.zoomIn')}
+                aria-label={t('editor.zoomIn')}
+                onClick={() => setScale(prev => Math.min(prev + 0.1, 3))}
+              >
+                <Plus size={12} strokeWidth={2} />
+              </button>
             </div>
+
+            <WorkspaceDisplayPanel />
           </div>
         </div>
 

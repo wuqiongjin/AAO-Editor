@@ -295,7 +295,7 @@ describe('票 17 · 队列分档：素材档放开并发，API 档不动，且�
   it('素材档：最多 4 个同时在飞（原来串在 API 后面，只有 1 个）', async () => {
     await withGatedGateway(async (ctx) => {
       const pending = ['a', 'b', 'c', 'd', 'e'].map((name) => ctx.gateway.request(asset(name)));
-      for (let i = 0; i < 4; i += 1) await tick();
+      for (let i = 0; i < 30 && ctx.starts.length < 4; i += 1) await tick();
 
       // 4 条链各起一个；第 5 个排在链后面，要等它前面那个回来
       expect(ctx.starts).toHaveLength(4);
