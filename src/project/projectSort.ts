@@ -1,4 +1,4 @@
-// 工程启动台排序（issue 19 #4）：键白名单 + 比较器 + 派生口径。
+// 工程启动台排序（issue 19 #4）：键白名单 + 比较器 + 派生口径 + 列表显示口径（issue 37）。
 //
 // 为什么单独一个模块、而不是塞进 projectCatalog：设置对象（AppSettings）要 import 这里的
 // 白名单做归一化，而 projectCatalog 拖着谱面代码转换器那串重依赖；本模块零运行时依赖
@@ -29,6 +29,23 @@ export function projectLastModified(project: SortableProject): number {
     if (chart.lastModified > latest) latest = chart.lastModified;
   }
   return latest;
+}
+
+/**
+ * 列表显示哪个工程时间戳（issue 37）：时间键显示该键的时间，其余键回落 lastOpened。
+ *
+ * 为什么单列一个函数：卡片副行 / hero / 详情左栏三处显示必须与排序键**同源**——
+ * 排序键可以是派生的「最近修改」，而显示若写死 lastOpened，「最近修改」排序下
+ * 顺序按 max(charts.lastModified) 排、眼睛看到的是「上次打开」，二者对不上。
+ * 模型保证工程恒有 ≥1 谱面（见 projectLastModified 注释），故不回落 0。
+ */
+export function projectTimeAt(project: SortableProject, key: ProjectSortKey): number {
+  switch (key) {
+    case 'lastModified':
+      return projectLastModified(project);
+    default:
+      return project.lastOpened;
+  }
 }
 
 /** 最近打开的那个工程 id：启动台 hero 的默认选中口径，与显示排序无关（issue 14 Q11 + 19 #4）。 */

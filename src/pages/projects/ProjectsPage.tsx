@@ -447,6 +447,7 @@ export default function ProjectsPage() {
             listWidth={settings.layout.projectList.width}
             onListWidthChange={setProjectListWidth}
             newButton={newButton}
+            sort={sortKey}
             onHome={goHome}
             onSelect={goDetail}
             onOpen={enterWorkspace}

@@ -18,13 +18,14 @@ import {
 } from '../../../project/ui/projectUi';
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import { postUrl } from '../../../community/bestdori/endpoints';
+import { projectTimeAt, type ProjectSortKey } from '../../../project/projectSort';
 import { t } from '../../../i18n';
-import { effectiveTitle, formatDuration, relTime } from '../projectFormat';
+import { effectiveTitle, formatDuration, projectTimeTag, relTime } from '../projectFormat';
 import ProjectListSplit from '../ProjectListSplit';
 import { Cover, DiffLevelBadge, StatusBadge } from './ProjectBits';
 
 export function ProjectDetail({
-  list, sel, currentId, listWidth, onListWidthChange, newButton,
+  list, sel, currentId, listWidth, onListWidthChange, newButton, sort,
   onHome, onSelect, onOpen, onEdit, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, mutate,
 }: {
   list: ChartProject[];
@@ -33,6 +34,10 @@ export function ProjectDetail({
   listWidth: number;
   onListWidthChange: (width: number) => void;
   newButton: ReactNode;
+  /** 全局排序键（`settings.projects.sort`，与 hub 同源）：左栏顺序即展示序，
+      工程时间戳跟随它显示（issue 37）——详情页自己没有排序控件，不跟则
+      「最近修改」下的错位在这里复发；标签也是这里唯一能说明在看哪个时间的口径。 */
+  sort: ProjectSortKey;
   onHome: () => void;
   onSelect: (id: string) => void;
   onOpen: (id: string, chartId?: string) => void;
@@ -74,7 +79,7 @@ export function ProjectDetail({
                   {displayProjectName(p)}
                   {p.id === currentId && <em className="pp-current-tag">{t('projects.current')}</em>}
                 </b>
-                <small className="pp-muted">{t('projects.doneRatio', { done, n, time: relTime(p.lastOpened, now) })}</small>
+                <small className="pp-muted">{t('projects.doneRatio', { done, n, time: `${projectTimeTag(sort)} ${relTime(projectTimeAt(p, sort), now)}` })}</small>
               </span>
               <span className="pc-item__bar"><span style={{ width: `${n ? (done / n) * 100 : 0}%` }} /></span>
             </button>

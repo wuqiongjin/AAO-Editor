@@ -1,9 +1,11 @@
 // issue 19 #4：启动台排序纯函数（四键 + 派生口径 + 并列回退）。
+// issue 37：列表显示口径（projectTimeAt）——显示必须与排序键同源。
 import { describe, expect, it } from 'vitest';
 import {
   mostRecentlyOpenedId,
   normalizeProjectSortKey,
   projectLastModified,
+  projectTimeAt,
   sortProjects,
 } from '@/src/project/projectSort';
 
@@ -70,5 +72,26 @@ describe('projectLastModified / mostRecentlyOpenedId（派生口径）', () => {
     expect(normalizeProjectSortKey(undefined)).toBe('lastOpened');
     expect(normalizeProjectSortKey(3)).toBe('lastOpened');
     expect(normalizeProjectSortKey('nope', 'name')).toBe('name');
+  });
+});
+
+// 四键各自显示哪个时间戳（issue 37）：时间键 → 该键时间，其余 → lastOpened。
+// 撤掉 lastModified 分支（一律回落 lastOpened）→ 第一条红；把 chartCount / name
+// 也接到派生时间上 → 第三条红。PROJECTS 里每个工程的两个时间都不同（如 p3：900/100），
+// 不存在"两支返回同值所以测不出"的假绿。
+describe('projectTimeAt · 列表显示口径跟随排序键（issue 37）', () => {
+  it('lastModified 键 → 派生修改时间 max(charts.lastModified)', () => {
+    expect(projectTimeAt(PROJECTS[2], 'lastModified')).toBe(900);
+    expect(projectTimeAt(PROJECTS[0], 'lastModified')).toBe(500);
+  });
+
+  it('lastOpened 键 → lastOpened', () => {
+    expect(projectTimeAt(PROJECTS[2], 'lastOpened')).toBe(100);
+    expect(projectTimeAt(PROJECTS[0], 'lastOpened')).toBe(200);
+  });
+
+  it('chartCount / name 键 → 回落 lastOpened（顺序不像时间序，时间仍显示打开时间）', () => {
+    expect(projectTimeAt(PROJECTS[2], 'chartCount')).toBe(100);
+    expect(projectTimeAt(PROJECTS[2], 'name')).toBe(100);
   });
 });
