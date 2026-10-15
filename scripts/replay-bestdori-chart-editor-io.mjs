@@ -6,7 +6,7 @@
  * Usage: node scripts/replay-bestdori-chart-editor-io.mjs [--local-413]
  *
  * 全量 413_SP 在 docs/resource/StressTestChart/（issue 154，不进库）；仅 --local-413 且文件存在时读取。
- * 产品上传清洗见 src/upload/bestdori/sanitizeChart.ts（单测内联切片）。
+ * 产品上传清洗见 src/community/bestdori/sanitizeChart.ts（单测内联切片）。
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -154,7 +154,7 @@ function summarizeOfficial413() {
     );
     if (!existsSync(path)) {
         console.error(
-            'skip: 413_SP not found (fetch-stress-test-charts.mjs); CI uses tests/unit/upload/bestdori/sanitizeChart.test.ts',
+            'skip: 413_SP not found (fetch-stress-test-charts.mjs); CI uses tests/unit/community/bestdori/sanitizeChart.test.ts',
         );
         return null;
     }

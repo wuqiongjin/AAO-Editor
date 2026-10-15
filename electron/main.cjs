@@ -24,6 +24,7 @@ const {
     moveDataRoot,
     backgroundSkinPath,
     cacheDir,
+    projectsDir,
     removeLegacyDownloads,
 } = require('./dataRoot.cjs');
 const {
@@ -50,6 +51,7 @@ const {
     putProject,
     listProjects,
     deleteProject,
+    uploadRefs,
 } = require('./projectStore.cjs');
 const { t, setActiveUiLanguage } = require('./i18n.cjs');
 
@@ -78,6 +80,9 @@ function registerProjectStoreIpc() {
     ipcMain.handle('project:put', (_event, payload) => putProject(currentDataRoot(), payload));
     ipcMain.handle('project:list', () => listProjects(currentDataRoot()));
     ipcMain.handle('project:delete', (_event, rawId) => deleteProject(currentDataRoot(), rawId));
+    // 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1）。
+    // 二进制不过 IPC：字节留在主进程，渲染侧只拿「事实」去凑 prepare 与 multipart。
+    ipcMain.handle('project:uploadRefs', (_event, rawId) => uploadRefs(currentDataRoot(), rawId));
 }
 registerProjectStoreIpc();
 
@@ -312,6 +317,9 @@ const assetCache = createAssetCache({
 const communityGateway = createCommunityGateway({
     // net.fetch 只能在 app ready 之后调用；这里只是包一层，加载期不发任何请求。
     fetchImpl: (url, init) => net.fetch(url, init),
+    // 发布（票 11）：multipart 上传只准读**工程目录**里的文件（音频 / 封面）。
+    // 每次现取 —— 数据根可以被用户搬家；不给就是「一个都不许传」。
+    uploadRoots: () => [projectsDir(currentDataRoot())],
     assetCache,
 });
 registerCommunityNetIpc(ipcMain, communityGateway);

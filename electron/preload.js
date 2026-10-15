@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         put: (payload) => ipcRenderer.invoke('project:put', payload),
         list: () => ipcRenderer.invoke('project:list'),
         delete: (id) => ipcRenderer.invoke('project:delete', id),
+        // 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1），字节不过 IPC
+        uploadRefs: (id) => ipcRenderer.invoke('project:uploadRefs', id),
     },
     // issue 118：谱面代码另存为。每次弹出系统保存对话框，不记路径。
     chartCodeExport: {

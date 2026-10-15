@@ -1,5 +1,7 @@
 // chart-projects 06：只读闸门单测。
 // 注入上传记录后，编辑类操作返回拒绝、谱面源数据不变；选中与复制仍可用。
+// bestdori-integration 11：补「经真实写入路径（recordChartUpload）落账后编辑被拒」——
+// 闸门此前只能靠手工注入记录测，发布落地后要走一遍真的写入。
 import { describe, expect, it, vi } from 'vitest';
 import {
   checkChartEditAllowed,
@@ -11,8 +13,9 @@ import {
   type ChartEditOp,
   type ChartReadOp,
 } from '@/src/project/chartReadonlyGate';
+import { recordChartUpload } from '@/src/project/projectCatalog';
 import type { ChartNote, SelectionItem } from '@/src/chart/types';
-import type { ChartUploadRecord } from '@/src/project/ChartProject';
+import type { ChartProject, ChartUploadRecord, ProjectChart } from '@/src/project/ChartProject';
 import { copySelection } from '@/src/chart/editing/SelectionEditing';
 
 const initialNotes: ChartNote[] = [
@@ -131,6 +134,70 @@ describe('chartReadonlyGate · 选中与复制仍可用', () => {
     expect(copyResult.ok).toBe(true);
     expect(copyResult.result).toEqual([{ beat: 4, lane: 2, type: 'Single' }]);
     expect(chart.notes).toHaveLength(3); // 源数据不变
+  });
+});
+
+/** 一份带两张谱面的工程（票 11 的真实写入路径用）；字段照 ProjectChart / ChartProject */
+function makeProjectWithCharts(): ChartProject {
+  const chart = (id: string, title: string): ProjectChart => ({
+    id,
+    notes: [...initialNotes],
+    title,
+    diff: 3,
+    level: 24,
+    completed: false,
+    upload: null,
+    lastModified: 1_700_000_000_000,
+    appliedChartCodeText: null,
+    chartCodePristine: true,
+  });
+  return {
+    id: 'p1',
+    name: 'Test Project',
+    artist: 'RAS',
+    source: { type: 'bandori', id: 413 },
+    durationSeconds: 100,
+    lastOpened: 1_700_000_000_000,
+    charts: [chart('c1', 'Expert'), chart('c2', 'Special')],
+    audioName: 'audio.mp3',
+    coverName: 'cover.png',
+  };
+}
+
+describe('票 11 · 真实写入路径：recordChartUpload 之后编辑操作被拒', () => {
+  it('发布落账后：闸门对该谱面的编辑类操作一律拒绝，源数据不变', () => {
+    const record: ChartUploadRecord = { postId: 254203, at: 1_700_000_000_000 };
+    const written = recordChartUpload(makeProjectWithCharts(), 'c1', record);
+    expect(written).not.toBeNull();
+    const chart = written!.charts[0];
+
+    // 写入即生效：状态派生与判定都认这份记录（不再靠测试手工注入）
+    expect(chart.upload).toEqual(record);
+    expect(isChartUploaded(chart)).toBe(true);
+    expect(isChartReadonly(chart)).toBe(true);
+    expect(checkChartEditAllowed(chart).allowed).toBe(false);
+
+    const mutateAction = vi.fn((notes: readonly ChartNote[]) => ({ notes: [...notes] }));
+    const result = executeWithReadonlyGate(chart, 'place', mutateAction);
+    expect(result.ok).toBe(false);
+    expect(result.rejected).toBe('uploaded_readonly');
+    expect(mutateAction).not.toHaveBeenCalled();
+    expect(result.notes).toBe(chart.notes);
+    // 另一张没发布的谱面不受影响（记录是谱面级的）
+    expect(isChartUploaded(written!.charts[1])).toBe(false);
+  });
+
+  it('只写一次：已有记录的谱面再记返回 null，原记录不被覆盖', () => {
+    const project = makeProjectWithCharts();
+    const first = recordChartUpload(project, 'c1', { postId: 1, at: 1 });
+    expect(first).not.toBeNull();
+
+    const second = recordChartUpload(first!, 'c1', { postId: 2, at: 2 });
+    expect(second).toBeNull();
+    expect(first!.charts[0].upload).toEqual({ postId: 1, at: 1 });
+
+    // 谱面不在这个工程里也同样拒绝（不凭空造记录）
+    expect(recordChartUpload(project, 'nope', { postId: 3, at: 3 })).toBeNull();
   });
 });
 

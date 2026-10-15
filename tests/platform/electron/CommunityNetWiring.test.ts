@@ -224,6 +224,30 @@ describe('票 15 · 本机素材协议接线（aao-asset://）', () => {
   });
 });
 
+describe('票 11 · 上传接线（multipart + uploadRefs）', () => {
+  it('multipart 上传只准读工程目录：main.cjs 注入 uploadRoots，每次现取（数据根能搬家）', () => {
+    expect(mainSrc).toMatch(/uploadRoots:\s*\(\)\s*=>\s*\[projectsDir\(currentDataRoot\(\)\)\]/);
+    expect(gatewaySrc).toMatch(/uploadRoots/);
+    // 不注入 = 一个都不许传（网关侧默认空）
+    expect(gatewaySrc).toMatch(/options\.uploadRoots === 'function' \? options\.uploadRoots : \(\) => \[\]/);
+  });
+
+  it('project:uploadRefs 通道在主进程与 preload 各就各位（形态照既有 projectStore 桥）', () => {
+    expect(mainSrc).toMatch(/ipcMain\.handle\(\s*['"]project:uploadRefs['"]/);
+    expect(preloadSrc).toMatch(/uploadRefs:\s*\(id\)\s*=>\s*ipcRenderer\.invoke\(\s*['"]project:uploadRefs['"],\s*id\)/);
+  });
+
+  it('上传引用只回「事实」：接口是 path / size / hash，没有字节字段', () => {
+    const record = readStripped('src/project/ChartProjectRecord.ts');
+    // 只裁接口体本身：跨到下一个接口会把 ProjectPutWire 的 Uint8Array 算进来
+    const body = record.match(/interface ProjectUploadFile \{[\s\S]*?\}/)?.[0] ?? '';
+    expect(body).toMatch(/path: string;/);
+    expect(body).toMatch(/size: number;/);
+    expect(body).toMatch(/hash: string;/);
+    expect(body).not.toMatch(/bytes|Blob|Uint8Array/);
+  });
+});
+
 describe('票 07 · 源码事实', () => {
   it('网关不 import renderer 侧的东西（CJS 单向依赖）', () => {
     expect(readSource('electron/communityNet.cjs')).not.toMatch(/from '@\/src|require\(['"]\.\.\/src/);

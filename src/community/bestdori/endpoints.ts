@@ -163,6 +163,50 @@ export function postUrl(postId: number): string {
   return `${BESTDORI_ORIGIN}/community/charts/${postId}`;
 }
 
+/* ---------------- 发布：二进制上传三步 + 发帖（票 11） ----------------
+ * 事实依据：docs/research/bestdori-community-upload.md §3–5（2026-09-24 写路径实测）。
+ *   - 上传 = 发字节（音频 / 封面；谱面代码走发帖 body 内联，不走文件上传）；
+ *     产物按内容寻址（SHA-1），已存在即 ALREADY_UPLOADED 可直接复用。
+ *   - 发布 = 发帖（POST /api/post），产生帖子 id；谱面本体此后不可改（post/edit 没有 chart）。
+ * 上传与发布的边界（issue 06 定案）：两步都是「写」，都不套退避重试 —— 超时意味着
+ * 服务端可能已经收了（重发只会多造一份上传 / 多发一帖）。
+ * ------------------------------------------------------------------ */
+
+/** 上传协议版本（`upload/prepare` 的 `ver`；官网前端常量，实测未变） */
+export const BESTDORI_UPLOAD_VER = 3;
+
+/** 上传三步（Custom 曲目的音频 / 封面走这条；bandori / llsif 不上传） */
+export function uploadPrepareUrl(): string {
+  return apiUrl('upload/prepare');
+}
+
+/** multipart 上传（表单字段名固定 `file`，见 publish.ts 的 UPLOAD_FILE_FIELD） */
+export function uploadUrl(): string {
+  return apiUrl('upload');
+}
+
+/** 轮询上传状态（直到 `{"status":"available"}`；未就绪时帖子里引用它会 TEMPORARY_FILE） */
+export function uploadStatusUrl(hash: string): string {
+  return apiUrl(`upload/status/${hash}`);
+}
+
+/** 上传产物的引用地址（发帖时填进 `song.audio` / `song.cover`；匿名可下载） */
+export function uploadedFileUrl(hash: string): string {
+  return apiUrl(`upload/file/${hash}`);
+}
+
+/** 发帖（社区谱 = `SELF_POST` / `chart`）；成功回 `{"result":true,"id":<postId>}` */
+export function postCreateUrl(): string {
+  return apiUrl('post');
+}
+
+/** 发帖正文（`content`）的字符上限（前端 `userChartBody.length > 5000` → POST_INVALID） */
+export const POST_CONTENT_MAX_CHARS = 5000;
+
+/** 谱面等级合法区间（实测 `1` 可通过、`0` / `36` 为 POST_INVALID；区间外先拦） */
+export const POST_LEVEL_MIN = 1;
+export const POST_LEVEL_MAX = 35;
+
 /* ---------------- 站外链接（票 39） ---------------- */
 
 /**

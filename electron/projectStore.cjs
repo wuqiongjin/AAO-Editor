@@ -1,5 +1,6 @@
 // 谱面工程文件后端（ADR-0015 §5）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
 // schemaVersion 保持 1（未发布）。旧「一份 notes」目录（无 charts）不读、不删。
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { cacheDir, isPathInside, projectDir, projectsDir, safeProjectId } = require('./dataRoot.cjs');
@@ -153,10 +154,48 @@ async function deleteProject(dataRoot, rawId) {
     await fs.promises.rm(dir, { recursive: true, force: true });
 }
 
+/**
+ * 发布用的上传引用（bestdori-integration 11）：工程音频 / 封面在主进程侧的
+ * **路径 + 字节数 + SHA-1**。三步二进制上传里 prepare 要 `{hash, size}`、
+ * multipart 要文件路径 —— 两样都只有主进程方便给（字节不过 IPC：这里回的是
+ * 「事实」，字节始终不进渲染进程）。文件缺失（present 但盘上没有）按没有处理。
+ * @returns {Promise<{ audio: { path: string, size: number, hash: string } | null, cover: ... } | null>}
+ */
+async function uploadRefs(dataRoot, rawId) {
+    const dir = projectDir(dataRoot, rawId);
+    const doc = await readProjectJson(dir);
+    if (!isCurrentDoc(doc)) return null;
+    const out = {};
+    const kinds = [
+        ['audio', 'audio.bin', doc.audioPresent],
+        ['cover', 'cover.bin', doc.coverPresent],
+    ];
+    for (const [kind, fileName, present] of kinds) {
+        if (!present) {
+            out[kind] = null;
+            continue;
+        }
+        const filePath = path.join(dir, fileName);
+        try {
+            const bytes = await fs.promises.readFile(filePath);
+            out[kind] = {
+                path: filePath,
+                size: bytes.byteLength,
+                hash: crypto.createHash('sha1').update(bytes).digest('hex'),
+            };
+        } catch (err) {
+            console.warn(`[project-store] ${fileName} 缺失，按无数据处理:`, err);
+            out[kind] = null;
+        }
+    }
+    return out;
+}
+
 module.exports = {
     SCHEMA_VERSION,
     getProject,
     putProject,
     listProjects,
     deleteProject,
+    uploadRefs,
 };

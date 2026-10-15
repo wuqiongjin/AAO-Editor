@@ -33,6 +33,8 @@ import { Menu } from './components/ProjectBits';
 import {
   EditInfoDialog, NewProjectDialog, type NewSource, type OfficialImportReply,
 } from './components/ProjectDialogs';
+import { PublishDialog } from './components/PublishDialog';
+import { usePublishEntry } from './usePublishEntry';
 import type { OfficialSongSelection } from './components/OfficialSongPanel';
 import type { CommunityPostSelection } from './components/CommunityPostPanel';
 import { importOfficialSong, officialApplyErrorText, officialErrorText, type OfficialImportStage } from './officialImport';
@@ -265,6 +267,9 @@ export default function ProjectsPage() {
     return { ok: true, warnings };
   }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
+  // 发布（票 11）：入口的状态与编排整块在 usePublishEntry（页面 500 行纪律），这里只挂 hook
+  const publish = usePublishEntry({ store, transport: communityTransport, flush: flushPersist, notify: notifyCatalogChanged, reload });
+
   // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）
   const list = useMemo(() => sortProjects(projects ?? [], sortKey, untitledProjectLabel()), [projects, sortKey]);
   // 目录就绪 = list() 至少回来过一次（issue 29）：未就绪时不显示空态、也不显示 0 计数
@@ -400,6 +405,8 @@ export default function ProjectsPage() {
           }}
         />
       )}
+      {/* 发布弹窗（票 11）：target 的三个字段就是弹窗的前三个 props */}
+      {publish.target && <PublishDialog {...publish.target} onClose={publish.close} onPublish={(input, onStage) => publish.run(input, onStage)} />}
     </>
   );
 
@@ -466,6 +473,7 @@ export default function ProjectsPage() {
             onDeleteChart={setAskDeleteChart}
             onOpenAudio={() => setActivePage('audio', { scope: { projectId: sel.id } })}
             onPreviewChart={(chartId) => setActivePage('preview', { scope: { projectId: sel.id, chartId } })}
+            onPublishChart={(chart) => publish.open(sel, chart)}
             mutate={mutate}
           />
         </div>

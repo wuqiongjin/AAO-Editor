@@ -1,6 +1,6 @@
 // 工程详情视图（原 ProjectsPage.tsx 的 detail 分支整块抽出，内部未再拆）。
 import type { CSSProperties, ReactNode } from 'react';
-import { Copy, Eye, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Copy, Eye, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2, Upload } from 'lucide-react';
 import { newChartId, type ChartProject, type ProjectChart } from '../../../project/ChartProject';
 import {
   DIFF_COLORS,
@@ -19,13 +19,15 @@ import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import { postUrl } from '../../../community/bestdori/endpoints';
 import { t } from '../../../i18n';
 import { effectiveTitle, formatDuration, relTime } from '../projectFormat';
+import { useCommunityCapabilities } from '../communityCapabilities';
 import ProjectListSplit from '../ProjectListSplit';
 import { AccountBar } from './AccountBar';
+import { CapabilityStatusLine } from './CapabilityStatusLine';
 import { Cover, DiffLevelBadge, StatusBadge } from './ProjectBits';
 
 export function ProjectDetail({
   list, sel, currentId, listWidth, onListWidthChange, newButton,
-  onHome, onSelect, onOpen, onEdit, onCopy, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, mutate,
+  onHome, onSelect, onOpen, onEdit, onCopy, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, onPublishChart, mutate,
 }: {
   list: ChartProject[];
   sel: ChartProject;
@@ -45,10 +47,17 @@ export function ProjectDetail({
   onOpenAudio: () => void;
   /** 跳预览页（带作用域二级 chartId，chart-preview 02）——同上，作用域由页面侧构造 */
   onPreviewChart: (chartId: string) => void;
+  /** 打开发布弹窗（票 11；入口在工程管理页，ADR-0015 §4 后果） */
+  onPublishChart: (chart: ProjectChart) => void;
   mutate: (id: string, fn: (p: ChartProject) => ChartProject | null) => Promise<void>;
 }) {
   const uploads = sel.charts.filter((c) => c.upload);
   const locked = uploads.length > 0;
+  // 发布入口的能力灰化（票 39 交下来的积木）：写能力被挡住时按钮禁用 + 一行就地说明
+  // （文案只有 CapabilityStatusLine 一处，Q22）。没有出口（静态演示版）整枚不渲染。
+  const { write: canPublish, block: capabilityBlock } = useCommunityCapabilities();
+  const publishEntry = capabilityBlock !== 'unsupported-runtime';
+  const publishable = sel.charts.filter((c) => !c.upload);
   return (
     <div className="pc-page" style={{ '--pc-list-w': `${listWidth}px` } as CSSProperties}>
       <aside className="pc-list">
@@ -127,6 +136,11 @@ export function ProjectDetail({
         </header>
         <section>
           <h3 className="pb-h">{t('projects.charts')} <span className="pp-muted">{sel.charts.length}</span></h3>
+          {/* 写能力被挡住时的就地说明（票 39 Q22 的积木）：只在有可发布谱面时出现，
+              静态演示版连按钮都没有（publishEntry 为假），不浪费这一行。 */}
+          {publishEntry && publishable.length > 0 && capabilityBlock != null && (
+            <CapabilityStatusLine block={capabilityBlock} />
+          )}
           <div className="pc-charts">
             {sel.charts.map((c) => {
               const up = chartStatus(c) === 'uploaded';
@@ -152,6 +166,18 @@ export function ProjectDetail({
                     <button type="button" className="pp-btn pp-btn--sm" onClick={() => onPreviewChart(c.id)}>
                       <Eye size={12} />{t('projects.previewChart')}
                     </button>
+                    {/* 发布入口（票 11）：已上传的谱面没有它（至多一条上传记录，
+                        要改就复制谱面改副本）；写能力被挡时禁用（说明见上面那一行）。 */}
+                    {publishEntry && !up && (
+                      <button
+                        type="button"
+                        className="pp-btn pp-btn--sm"
+                        disabled={!canPublish}
+                        onClick={() => onPublishChart(c)}
+                      >
+                        <Upload size={12} />{t('projects.publish.action')}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="pp-btn pp-btn--sm"

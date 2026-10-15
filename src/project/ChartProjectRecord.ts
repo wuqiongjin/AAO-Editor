@@ -67,6 +67,25 @@ export interface ElectronProjectBridge {
   put(payload: ProjectPutWire): Promise<unknown>;
   list(): Promise<ProjectListItem[]>;
   delete(id: string): Promise<unknown>;
+  /** 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1；字节不过 IPC） */
+  uploadRefs(id: string): Promise<ProjectUploadRefs | null>;
+}
+
+/**
+ * 一个待上传文件的**引用**（票 11）：主进程侧的路径、字节数与 SHA-1。
+ * 三步二进制上传里 `prepare` 要 `{hash, size}`、multipart 要路径 ——
+ * 两样都从这里拿，字节始终不进渲染进程（issue 06 Q7）。
+ */
+export interface ProjectUploadFile {
+  path: string;
+  size: number;
+  hash: string;
+}
+
+/** 一份工程里可上传的两个文件（absent = 工程没有这份素材） */
+export interface ProjectUploadRefs {
+  audio: ProjectUploadFile | null;
+  cover: ProjectUploadFile | null;
 }
 
 /** IndexedDB 记录形状：工程实体原样 + schemaVersion（Blob 内联），未发布，不做数据迁移。 */

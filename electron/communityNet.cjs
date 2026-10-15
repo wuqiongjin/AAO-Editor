@@ -19,7 +19,10 @@
  */
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { createCookieJar } = require('./communityCookies.cjs');
+const { isPathInside } = require('./dataRoot.cjs');
 
 /**
  * 读型 POST 的缓存键后缀：body 的短哈希（sha1 前 16 位）。
@@ -49,10 +52,35 @@ const BINARY_TIMEOUT_MS = 120_000;
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;
 /** 请求体上限（谱面代码 / 发帖 payload 都是文本，远小于此） */
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
+/**
+ * multipart 上传的单文件上限（票 11）。**防呆线，不是平台政策**：15MB 只在前端文案里
+ * 见过（docs/research/bestdori-community-upload.md §8 未实测），这里不替平台定规矩，
+ * 只防「把一张几个 G 的东西整个读进内存」。
+ */
+const MAX_UPLOAD_FILE_BYTES = 64 * 1024 * 1024;
 const ALLOWED_METHODS = ['GET', 'POST'];
 const RESPONSE_TYPES = ['json', 'text', 'binary'];
 /** renderer 不得自带的头：凭据 / 目标主机 / 长度（都由网关自己算） */
 const FORBIDDEN_HEADERS = ['cookie', 'host', 'content-length'];
+/**
+ * 表单字段名 / 文件名的安全字符（票 11）：字段名进表单、文件名进 content-disposition 头，
+ * 两头都不许带引号 / 分号 / 换行 —— 带上去就是往请求里注结构。
+ */
+const SAFE_FIELD = /^[A-Za-z0-9_-]{1,64}$/;
+const UNSAFE_NAME_CHARS = /["\\;\r\n]/g;
+/** 扩展名 → content-type（上传的文件名是工程里的音频 / 封面；猜不出给泛型二进制） */
+const CONTENT_TYPE_BY_EXT = {
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.flac': 'audio/flac',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
 /** 平台业务码 → 统一错误域（错误码全集见 docs/research/bestdori-api.md §0） */
 const UNAUTHORIZED_CODES = ['LOGIN_REQUIRED', 'CREDENTIALS_INVALID', 'USER_INVALID'];
 const RATE_LIMIT_CODES = ['RATE_LIMITED', 'TOO_MANY_REQUESTS', 'TOO_MANY_POSTS', 'TOO_MANY_UPLOADS'];
@@ -122,8 +150,10 @@ function normalizeTimeout(raw, responseType) {
 /**
  * 校验载荷并归一化成一次请求。
  * @param {any} payload
+ * @param {string[]} allowedHosts
+ * @param {() => string[]} uploadRoots  multipart 上传文件许可落在其中的目录（主进程注入）
  */
-function normalizeRequest(payload, allowedHosts) {
+function normalizeRequest(payload, allowedHosts, uploadRoots) {
     if (!payload || typeof payload !== 'object') throw new RequestRejected('请求载荷必须是对象');
     const rawUrl = typeof payload.url === 'string' ? payload.url.trim() : '';
     if (rawUrl === '') throw new RequestRejected('缺少 url');
@@ -143,17 +173,29 @@ function normalizeRequest(payload, allowedHosts) {
     const responseType = payload.responseType || 'json';
     if (!RESPONSE_TYPES.includes(responseType)) throw new RequestRejected(`未知的 responseType：${responseType}`);
 
+    // multipart 文件上传（票 11）：与 JSON body 二选一，语义在 send() 里落成 multipart 体
+    const multipart = payload.multipart == null
+        ? null
+        : normalizeMultipart(payload.multipart, method, payload.body, responseType, uploadRoots);
+
     let body;
     if (payload.body !== undefined && payload.body !== null) {
+        if (multipart) throw new RequestRejected('multipart 上传不能同时带 JSON body');
         if (typeof payload.body !== 'string') throw new RequestRejected('body 只收字符串（序列化由 renderer 负责）');
         if (method !== 'POST') throw new RequestRejected('只有 POST 能带 body');
         if (Buffer.byteLength(payload.body) > MAX_BODY_BYTES) throw new RequestRejected('请求体过大');
         body = payload.body;
+    } else if (multipart && method !== 'POST') {
+        throw new RequestRejected('multipart 上传只支持 POST');
     }
 
     const headers = normalizeHeaders(payload.headers);
     if (!hasHeader(headers, 'user-agent')) headers['user-agent'] = DEFAULT_USER_AGENT;
     if (!hasHeader(headers, 'accept')) headers.accept = DEFAULT_ACCEPT[responseType];
+    // multipart 的 content-type 带 boundary，只能由网关算；renderer 自带就是两份真相
+    if (multipart && hasHeader(headers, 'content-type')) {
+        throw new RequestRejected('multipart 上传的 content-type 由网关自己算，renderer 不得自带');
+    }
 
     // 读型 POST 的缓存许可（票 09 修订 07/14 的口径：POST 默认不缓存，发帖 / 登录照旧直连）
     const cacheable = payload.cacheable === true;
@@ -172,8 +214,72 @@ function normalizeRequest(payload, allowedHosts) {
         cacheable,
         revalidate,
         freshFirst,
+        multipart,
         // 缓存键：POST 把 body 一并算进去（同 URL 不同查询体是两份数据）。GET 就是 URL 本身。
         cacheKey: cacheable && method === 'POST' ? `${rawUrl}#${hashCacheKey(body || '')}` : rawUrl,
+    };
+}
+
+/**
+ * multipart 描述归一化（票 11）：字段名 / 文件名 / content-type 的安全字符 +
+ * 文件路径必须落在网关许可的目录内（主进程注入；不许可 = 一个都不许传）。
+ * @returns {{ field: string, filePath: string, fileName: string, contentType: string }}
+ */
+function normalizeMultipart(raw, method, body, responseType, uploadRoots) {
+    if (typeof raw !== 'object' || Array.isArray(raw)) throw new RequestRejected('multipart 必须是对象');
+    const field = typeof raw.field === 'string' ? raw.field : '';
+    if (!SAFE_FIELD.test(field)) throw new RequestRejected(`multipart 字段名不合法：${field}`);
+
+    const rawPath = typeof raw.filePath === 'string' ? raw.filePath.trim() : '';
+    if (rawPath === '') throw new RequestRejected('multipart 上传缺少 filePath');
+    const filePath = path.resolve(rawPath);
+    const roots = typeof uploadRoots === 'function' ? uploadRoots() : [];
+    if (!roots.some((root) => isPathInside(root, filePath))) {
+        throw new RequestRejected(`上传文件不在许可目录内：${filePath}`);
+    }
+
+    // 文件名只取 basename 并剥掉结构字符（它进 content-disposition 头）
+    const fileName = (typeof raw.fileName === 'string' ? raw.fileName : path.basename(filePath))
+        .replace(UNSAFE_NAME_CHARS, '_')
+        .trim() || 'file';
+
+    let contentType;
+    if (typeof raw.contentType === 'string' && raw.contentType.trim() !== '') {
+        if (/["\\;\r\n]/.test(raw.contentType)) throw new RequestRejected('content-type 含非法字符');
+        contentType = raw.contentType.trim();
+    } else {
+        contentType = CONTENT_TYPE_BY_EXT[path.extname(fileName).toLowerCase()] ?? 'application/octet-stream';
+    }
+    return { field, filePath, fileName, contentType };
+}
+
+/**
+ * 读上传文件并拼 multipart 体（票 11）。**字节不过 IPC** 的正面：字节只在这一段里
+ * 从磁盘进请求体，renderer 自始至终只见过路径。
+ * @param {{ field: string, filePath: string, fileName: string, contentType: string }} multipart
+ * @returns {{ body: Buffer, contentType: string }}
+ */
+async function buildMultipartBody(multipart) {
+    let bytes;
+    try {
+        const stat = await fs.promises.stat(multipart.filePath);
+        if (!stat.isFile()) throw new Error('不是普通文件');
+        if (stat.size > MAX_UPLOAD_FILE_BYTES) {
+            throw new Error(`文件超过上传上限（${MAX_UPLOAD_FILE_BYTES} 字节）`);
+        }
+        bytes = await fs.promises.readFile(multipart.filePath);
+    } catch (error) {
+        throw new RequestRejected(`上传文件读不到：${errorMessage(error)}`);
+    }
+    const boundary = `----aao${crypto.randomBytes(16).toString('hex')}`;
+    const head = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${multipart.field}"; filename="${multipart.fileName}"\r\nContent-Type: ${multipart.contentType}\r\n\r\n`,
+        'utf8',
+    );
+    const tail = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
+    return {
+        body: Buffer.concat([head, bytes, tail]),
+        contentType: `multipart/form-data; boundary=${boundary}`,
     };
 }
 
@@ -215,6 +321,7 @@ function readSetCookie(response) {
  *   minIntervalMs?: number,
  *   assetConcurrency?: number,
  *   assetMinIntervalMs?: number,
+ *   uploadRoots?: () => string[],
  *   now?: () => number,
  *   sleep?: (ms: number) => Promise<void>,
  *   timers?: { setTimeout: Function, clearTimeout: Function },
@@ -232,6 +339,8 @@ function createCommunityGateway(options) {
     const now = options.now || Date.now;
     const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     const timers = options.timers || { setTimeout, clearTimeout };
+    /** multipart 上传文件许可落在其中的目录（票 11；主进程注入工程目录。不注入 = 一个都不许传） */
+    const uploadRoots = typeof options.uploadRoots === 'function' ? options.uploadRoots : () => [];
 
     /**
      * 一条队列：`concurrency` 条独立串行链，链上两次「开始」至少隔 `minIntervalMs`。
@@ -269,6 +378,20 @@ function createCommunityGateway(options) {
     const schedule = (req, task) => (req.responseType === 'binary' ? assetLane : apiLane)(task);
 
     async function send(req) {
+        // multipart 上传（票 11）：文件字节在这一步才读进来拼体（renderer 只递过路径），
+        // content-type 连 boundary 一起由网关算。读不到 / 越界都在发起之前就拒。
+        let body = req.body;
+        if (req.multipart) {
+            try {
+                const built = await buildMultipartBody(req.multipart);
+                body = built.body;
+                req.headers['content-type'] = built.contentType;
+            } catch (error) {
+                // 读不到 / 越界 / 超大：发起之前就拒（RequestRejected 的唯一出口）
+                return fail('request-rejected', errorMessage(error));
+            }
+        }
+
         const controller = new AbortController();
         const timer = timers.setTimeout(() => controller.abort(), req.timeoutMs);
         let response;
@@ -276,7 +399,7 @@ function createCommunityGateway(options) {
             response = await fetchImpl(req.url, {
                 method: req.method,
                 headers: cookieJar.attach(req.url, req.headers),
-                body: req.body,
+                body,
                 signal: controller.signal,
                 redirect: 'follow',
                 // 凭据只走我们自己的 jar，不进 Electron 默认 session 的 cookie store（ADR-0011 §3）
@@ -459,7 +582,7 @@ function createCommunityGateway(options) {
         async request(payload) {
             let req;
             try {
-                req = normalizeRequest(payload, allowedHosts);
+                req = normalizeRequest(payload, allowedHosts, uploadRoots);
             } catch (error) {
                 // RequestRejected（越界 URL / 非法方法 / 自带凭据头）：发起之前就拒，什么都不发
                 return fail('request-rejected', errorMessage(error));
@@ -516,6 +639,7 @@ module.exports = {
     BINARY_TIMEOUT_MS,
     CACHE_FRESH_MS,
     FALLBACK_FRESH_MS,
+    MAX_UPLOAD_FILE_BYTES,
     createCommunityGateway,
     registerCommunityNetIpc,
 };
