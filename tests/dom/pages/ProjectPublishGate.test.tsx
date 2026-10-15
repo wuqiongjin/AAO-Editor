@@ -120,8 +120,8 @@ describe('票 41 · 发布灰化与登录续上', () => {
     fireEvent.change(within(signIn).getByLabelText('密码'), { target: { value: 'hunter2' } });
     fireEvent.click(within(signIn).getByRole('button', { name: '登录' }));
 
-    expect(await screen.findByRole('dialog', { name: /发布谱面/ })).toBeInTheDocument();
-    expect(screen.getByText('将以 Envy 发布')).toBeInTheDocument();
-    expect(screen.getByText('账号：envy09')).toBeInTheDocument();
+    const publishDialog = await screen.findByRole('dialog', { name: /发布谱面/ });
+    expect(within(publishDialog).getByTitle('账号：envy09')).toBeInTheDocument();
+    expect(within(publishDialog).getByText('E')).toBeInTheDocument();
   });
 });

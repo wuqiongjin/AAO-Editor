@@ -51,6 +51,8 @@ export interface PublishEntry {
   close: () => void;
   /** 跑一次发布；结果原样回给弹窗（失败就地点名，成功由这里收尾） */
   run: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
+  /** 就地修改工程（发布弹窗内就地编辑标题/歌手/难度/等级/草稿，见票 42） */
+  updateProject: (updater: (p: ChartProject) => ChartProject | null) => Promise<void>;
 }
 
 export function usePublishEntry(deps: PublishEntryDeps): PublishEntry {
@@ -96,5 +98,22 @@ export function usePublishEntry(deps: PublishEntryDeps): PublishEntry {
     return outcome;
   }, [target, store, flush, notify, reload, transport]);
 
-  return { target, open, close, run };
+  const updateProject = useCallback(async (updater: (p: ChartProject) => ChartProject | null) => {
+    const current = target;
+    if (!current) return;
+    const result = await mutateProject(
+      { store, flush, notify },
+      current.project.id,
+      updater,
+    );
+    if (result.status === 'saved') {
+      const nextChart = result.project.charts.find((c) => c.id === current.chart.id);
+      if (nextChart) {
+        setTarget({ project: result.project, chart: nextChart, chartCode: current.chartCode });
+      }
+      await reload();
+    }
+  }, [target, store, flush, notify, reload]);
+
+  return { target, open, close, run, updateProject };
 }

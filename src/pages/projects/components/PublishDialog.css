@@ -1,0 +1,208 @@
+/* 发布弹窗样式（票 42）：原型 A 布局 + 就地编辑控件。一律走 token，零硬编码色值 */
+.ppc-head,
+.ppc-head__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ppc-head {
+  justify-content: space-between;
+  width: 100%;
+}
+.ppc-head .dialog__title {
+  margin: 0;
+}
+
+.ppc-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.ppc-who .pc-account__avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full, 999px);
+  color: var(--text-inverse);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+
+.ppc-a {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+}
+.ppc-a .ppc-cover {
+  box-sizing: border-box;
+  width: 204px;
+  height: 204px;
+  min-width: 204px;
+  min-height: 204px;
+  aspect-ratio: 1 / 1;
+  flex-shrink: 0;
+}
+.ppc-cover {
+  display: grid;
+  place-items: center;
+  position: relative;
+  width: 204px;
+  height: 204px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  color: var(--text-subtle);
+  cursor: default;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+.ppc-cover.is-optional {
+  border-style: dashed;
+  background: var(--bg);
+}
+.ppc-cover.is-empty {
+  border-color: var(--danger-text);
+  border-style: dashed;
+}
+.ppc-cover__art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.ppc-a__id {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 204px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ppc-fact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 24px;
+  min-height: 24px;
+  box-sizing: border-box;
+}
+.ppc-fact__k {
+  width: 36px;
+  flex-shrink: 0;
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  text-align: right;
+  user-select: none;
+}
+.ppc-fact__v {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+.ppc-fact.is-missing .ppc-fact__v {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+.ppc-fact-input {
+  display: block;
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font-size: var(--text-sm);
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.ppc-fact-input:hover {
+  background: var(--bg-hover);
+}
+.ppc-fact-input:focus {
+  border-color: var(--accent);
+  background: var(--bg);
+  outline: none;
+}
+.ppc-fact-input.is-missing {
+  border-color: var(--danger-text);
+  color: var(--danger-text);
+}
+.ppc-fact-input.is-missing::placeholder {
+  color: var(--danger-text);
+  opacity: 0.8;
+}
+.ppc-fact-input--title {
+  font-weight: 600;
+}
+.ppc-fact-input--level {
+  width: 48px;
+  flex: none;
+}
+
+.ppc-diff-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+.ppc-diff-select {
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-inverse);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  outline: none;
+  transition: opacity 0.15s ease;
+}
+.ppc-diff-select:hover {
+  opacity: 0.9;
+}
+.ppc-diff-select option {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.ppc-miss {
+  color: var(--danger-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.ppc-fact__audio-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppc-content {
+  margin-top: 14px;
+}
+.ppc-content textarea {
+  min-height: 88px;
+}
+.ppc-content.is-missing textarea {
+  border-color: var(--danger-text);
+}

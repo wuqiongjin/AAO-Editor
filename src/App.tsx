@@ -41,6 +41,8 @@ function App() {
   // `src/preview/video/opening/` 后删除（口径同 issue 16 的弹窗壳原型）
   // 票 39 的登录 / 账号区原型（?prototype=account-bar）同样已随定案落进
   // `src/pages/projects/components/{AccountBar,SignInDialog}.tsx` 后删除（票 15 先例：原型不进提交）
+  // 票 42 发布确认原型（?prototype=publish-confirm）已随方案 A 定案落进
+  // `src/pages/projects/components/PublishDialog.tsx` 后删除
   return <Root />;
 }
 

@@ -259,6 +259,30 @@ type PostSongBody =
   | { type: 'custom'; audio: string; cover?: string }
   | { type: 'bandori'; id: number };
 
+export type PostContentBlock =
+  | { type: 'text'; data: string }
+  | { type: 'br' };
+
+/**
+ * 正文富文本块格式化（票 42 Q4）：纯文本 + 换行拆成 text 与 br 块。
+ */
+export function formatPostContent(raw: string): PostContentBlock[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  const lines = trimmed.split(/\r?\n/);
+  const blocks: PostContentBlock[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (i > 0) {
+      blocks.push({ type: 'br' });
+    }
+    const line = lines[i];
+    if (line.length > 0) {
+      blocks.push({ type: 'text', data: line });
+    }
+  }
+  return blocks;
+}
+
 /**
  * 发布一张谱面（票 11）：预检 →（custom）上传音频 / 封面 → 发帖 → 写上传记录。
  *
@@ -305,8 +329,8 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
         diff: input.diff,
         level: input.level,
         chart,
-        // 纯文本块（前端同形态；富文本语法见 bestdori-api.md §5，本产品只发纯文本）
-        content: [{ type: 'text', data: input.content.trim() }],
+        // 正文富文本块（票 42 Q4：纯文本 + 换行拆成 br 块；富文本语法见 bestdori-api.md §5）
+        content: formatPostContent(input.content),
         categoryName: 'SELF_POST',
         categoryId: 'chart',
         tags: [],

@@ -102,18 +102,17 @@ async function confirmAndPublish(onPublish: ReturnType<typeof renderDialog>) {
 }
 
 describe('票 11 · 发布弹窗：必填预检与确认门', () => {
-  it('缺字段时实时点名（不用等点发布），确认门压根不开', async () => {
+  it('缺字段时实时就地标红与呈现缺项（票 42），确认门压根不开', async () => {
     renderDialog({
       project: makeProject({ name: null, artist: null }),
       chart: makeChart({ title: null, level: null }),
     });
 
-    const box = await screen.findByRole('alert');
-    expect(box).toHaveTextContent('还缺以下信息，补齐后才能发布：');
-    expect(box).toHaveTextContent('标题');
-    expect(box).toHaveTextContent('歌手');
-    expect(box).toHaveTextContent('等级');
-    expect(box).toHaveTextContent('描述');
+    // 票 42 Q2：缺口画在对应条目上，空槽代替伪值，灰盒删除；发布键禁用
+    expect(screen.getByPlaceholderText('未命名工程')).toHaveClass('is-missing');
+    expect(screen.getByPlaceholderText('未知歌手')).toHaveClass('is-missing');
+    expect(screen.getByPlaceholderText('未填')).toHaveClass('is-missing');
+    expect(screen.getByPlaceholderText(DESCRIPTION).closest('.ppc-content')).toHaveClass('is-missing');
     // 确认是不可逆动作的门，不是报错的门 —— 预检不过时发布键点不动
     expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
     expect(screen.queryByRole('alertdialog')).toBeNull();
@@ -238,13 +237,13 @@ describe('票 11 · 发布弹窗：失败就地内联', () => {
   });
 });
 
-describe('票 41 · 发布弹窗只读身份', () => {
+describe('票 41 / 42 · 发布弹窗只读身份与就地编辑', () => {
   afterEach(() => {
     delete (window as unknown as { electronAPI?: unknown }).electronAPI;
     resetCommunityAccount();
   });
 
-  it('有会话时画出「将以 … 发布」和账号名', async () => {
+  it('有会话时画出账号名与头像（票 42 头部右侧）', async () => {
     const me = userMeUrl();
     const ok = (data: unknown): CommunityWireResult => ({ ok: true, responseType: 'json', status: 200, data });
     (window as unknown as { electronAPI?: unknown }).electronAPI = {
@@ -263,7 +262,59 @@ describe('票 41 · 发布弹窗只读身份', () => {
     resetCommunityAccount();
     await getCommunityAccount().start();
     renderDialog();
-    expect(screen.getByText('将以 Envy 发布')).toBeInTheDocument();
-    expect(screen.getByText('账号：envy09')).toBeInTheDocument();
+    expect(screen.getByTitle('账号：envy09')).toBeInTheDocument();
+    expect(screen.getByText('E')).toBeInTheDocument();
+  });
+
+  it('草稿持久化：打开时带出 chart.publishDraft', () => {
+    renderDialog({
+      chart: makeChart({ publishDraft: '草稿内容已带出' }),
+    });
+    expect(screen.getByPlaceholderText(DESCRIPTION)).toHaveValue('草稿内容已带出');
+  });
+
+  it('就地编辑：修改标题/歌手/难度/等级影响发帖入参', async () => {
+    const onPublish = renderDialog({
+      chart: makeChart({ title: 'Old Title', diff: 1, level: 10 }),
+      project: makeProject({ artist: 'Old Artist' }),
+    });
+
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'New Title' } });
+    fireEvent.change(screen.getByLabelText('歌手'), { target: { value: 'New Artist' } });
+    fireEvent.change(screen.getByLabelText('难度'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('等级'), { target: { value: '28' } });
+    fillDescription('new desc');
+
+    const input = await confirmAndPublish(onPublish);
+    expect(input.title).toBe('New Title');
+    expect(input.artists).toBe('New Artist');
+    expect(input.diff).toBe(3);
+    expect(input.level).toBe(28);
+    expect(input.content).toBe('new desc');
+  });
+
+  it('打开发布弹窗不会触发 onUpdateProject，绝不改动最近修改时间', () => {
+    const onUpdateProject = vi.fn();
+    render(
+      <PublishDialog
+        project={makeProject()}
+        chart={makeChart()}
+        chartCode={CHART_CODE}
+        onPublish={vi.fn()}
+        onUpdateProject={onUpdateProject}
+      />,
+    );
+    expect(onUpdateProject).not.toHaveBeenCalled();
+  });
+
+  it('信息区清晰展示 7 个独立字段标签，包含「音符」与「时长」，无挤压', () => {
+    renderDialog();
+    expect(screen.getByText('标题')).toBeInTheDocument();
+    expect(screen.getByText('歌手')).toBeInTheDocument();
+    expect(screen.getByText('难度')).toBeInTheDocument();
+    expect(screen.getByText('等级')).toBeInTheDocument();
+    expect(screen.getByText('音符')).toBeInTheDocument();
+    expect(screen.getByText('音频')).toBeInTheDocument();
+    expect(screen.getByText('时长')).toBeInTheDocument();
   });
 });

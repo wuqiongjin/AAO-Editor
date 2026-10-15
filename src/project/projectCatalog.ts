@@ -309,7 +309,22 @@ export function recordChartUpload(
   if (!target || target.upload) return null;
   return {
     ...project,
-    charts: project.charts.map((c) => (c.id === chartId ? { ...c, upload: record } : c)),
+    charts: project.charts.map((c) => (c.id === chartId ? { ...c, upload: record, publishDraft: null } : c)),
+  };
+}
+
+/** 更新谱面的发布描述草稿（票 42 Q3）：随谱面持久化，发布成功后清除 */
+export function updateChartPublishDraft(
+  project: ChartProject,
+  chartId: string,
+  draft: string | null,
+): ChartProject {
+  const normalized = draft?.trim() ? draft : null;
+  return {
+    ...project,
+    charts: project.charts.map((c) => (
+      c.id === chartId ? { ...c, publishDraft: normalized } : c
+    )),
   };
 }
 
@@ -319,13 +334,20 @@ export function updateChartInfo(
   patch: { title: string | null; diff: ChartDifficulty; level: number | null },
   now: number,
 ): ChartProject {
+  const cleanTitle = patch.title?.trim() || null;
   return {
     ...project,
-    charts: project.charts.map((c) => (
-      c.id === chartId && !c.upload
-        ? { ...c, title: patch.title?.trim() || null, diff: patch.diff, level: patch.level, lastModified: now }
-        : c
-    )),
+    charts: project.charts.map((c) => {
+      if (c.id !== chartId || c.upload) return c;
+      const unchanged = c.title === cleanTitle && c.diff === patch.diff && c.level === patch.level;
+      return {
+        ...c,
+        title: cleanTitle,
+        diff: patch.diff,
+        level: patch.level,
+        lastModified: unchanged ? c.lastModified : now,
+      };
+    }),
   };
 }
 

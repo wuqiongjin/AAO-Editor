@@ -1,19 +1,13 @@
-// 发布弹窗（票 11）：必填预检 + 一次性「发布后不可改」确认 + 阶段提示。
+// 发布弹窗（票 42）：原型 A 视觉布局 + 字段就地编辑 + 描述草稿持久化。
 //
-// 一条一条对票（issues/06 Q13 定案）：
-//   ① 走**既有弹窗壳**（ui/Dialog），不自绘 scrim；一次性确认复用 ConfirmDialog
-//      （实底红确认键 = 危险键分寸，这是不可逆动作）；
-//   ② **必填预检**：缺什么按字段点名（CONTEXT「工程信息」：缺的字段上传时再拦），
-//      预检是纯函数（publish.ts 的 precheckPublish），弹窗与能力层共用同一份；
-//   ③ **静默 sanitize**：这里不校验谱面合法性，只报「没有可发布的音符」——
-//      System / charge 的剥离开塞给能力层（issue 156：上传时静默清洗）；
-//   ④ 描述是唯一在这里填的字段（帖子正文，工程里没有它的家）；
-//   ⑤ custom 曲目的上传引用（路径 / 字节数 / SHA-1）打开时就备好 —— 预检要它判
-//      「有没有音频」，发布时原样递回（字节不过 IPC，见 projectStore.uploadRefs）。
-//
-// 发布动作本身不在这里：transport 与上传记录写入由页面侧装配（本组件只递
-// PublishInput 与阶段回调），能力层零 React、零工程域依赖。
-import { useEffect, useMemo, useState } from 'react';
+// 依据与定案（issues/42 + issues/11 + ADR-0015）：
+//   ① 走 ui/Dialog 既有弹窗壳，头部左侧带 HelpHint 问号气泡，右侧展示当前账号与头像（与 AccountBar 完全一致）；
+//   ② 原型 A 封面身份卡：左侧 1:1 封面展示（只读视觉锚），右侧 7 行整齐对齐元信息条目；
+//   ③ 字段就地编辑：标题、歌手、难度、等级直接就地操作，保持原型 A 极简纯净排版，不加冗余小图标；
+//   ④ 描述草稿持久化（Q3）：草稿记在谱面工程记录里，复制谱面一并带上，发布成功后清除；
+//   ⑤ 预检与一次性确认：预检纯函数 precheckPublish，缺项就地标红与空槽展示，确认窗复用 ConfirmDialog。
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Music2 } from 'lucide-react';
 import type { ChartCodeNote } from '../../../chart/editing/ChartConverter';
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import {
@@ -29,18 +23,31 @@ import {
 import { POST_CONTENT_MAX_CHARS } from '../../../community/bestdori/endpoints';
 import {
   getProjectUploadRefs,
+  type ChartDifficulty,
   type ChartProject,
   type ProjectChart,
 } from '../../../project/ChartProject';
 import type { ProjectUploadFile as ProjectUploadFileRef, ProjectUploadRefs } from '../../../project/ChartProjectRecord';
-import { DIFF_NAMES } from '../../../project/projectCatalog';
+import {
+  DIFF_COLORS,
+  DIFF_NAMES,
+  updateChartInfo,
+  updateChartPublishDraft,
+  updateProjectInfo,
+} from '../../../project/projectCatalog';
+import { parseLevel } from '../../../project/ui/ChartInfoDialog';
+import { useCoverUrl } from '../../../ui/CoverField';
 import { t, type MessageKey } from '../../../i18n';
 import ActionBtn from '../../../ui/ActionBtn';
 import ConfirmDialog from '../../../ui/ConfirmDialog';
 import Dialog from '../../../ui/Dialog';
+import HelpHint from '../../../ui/HelpHint';
+import { InitialAvatar } from './AccountBar';
+import { formatDuration } from '../projectFormat';
 import { useCommunityCapabilities } from '../communityCapabilities';
+import './PublishDialog.css';
 
-/** 缺失字段 → 文案键（一档一条「缺什么、去哪儿补」；漏一个编译不过） */
+/** 缺失字段 → 文案键 */
 const MISSING_KEYS: Record<PublishMissingField, MessageKey> = {
   title: 'projects.publish.missing.title',
   artists: 'projects.publish.missing.artists',
@@ -52,7 +59,7 @@ const MISSING_KEYS: Record<PublishMissingField, MessageKey> = {
   audio: 'projects.publish.missing.audio',
 };
 
-/** 发布失败的六档 + 记账失败 → 文案键（与 loginFailure 同族：界面不认平台码） */
+/** 发布失败原因 → 文案键 */
 const FAILURE_KEYS: Record<PublishFailure, MessageKey> = {
   'missing-fields': 'projects.publish.err.generic',
   'already-published': 'projects.publish.err.already',
@@ -72,33 +79,62 @@ const STAGE_KEYS: Record<PublishStage, MessageKey> = {
   record: 'projects.publish.stage.record',
 };
 
-/** 上传引用加载（默认走 projectStore 桥；测试注入） */
 type LoadUploadRefs = (projectId: string) => Promise<ProjectUploadRefs | null>;
 
 function toUploadFile(ref: ProjectUploadFileRef, fileName: string): PublishUploadFile {
   return { path: ref.path, size: ref.size, hash: ref.hash, fileName };
 }
 
-export function PublishDialog({
-  project, chart, chartCode, onClose, onPublish, loadUploadRefs = getProjectUploadRefs,
+function Fact({
+  k,
+  missing,
+  children,
 }: {
+  k: string;
+  missing?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`ppc-fact${missing ? ' is-missing' : ''}`}>
+      <span className="ppc-fact__k">{k}</span>
+      <span className="ppc-fact__v">{children}</span>
+    </div>
+  );
+}
+
+export function PublishDialog(props: {
   project: ChartProject;
   chart: ProjectChart;
-  /** 页面用编辑器的导出转换备好的谱面代码（convertNotesToChartCode） */
   chartCode: readonly ChartCodeNote[];
-  onClose: () => void;
-  /** 发布：递入参 + 收阶段回报；结果由调用方落盘 / 提示，本组件只呈现 */
+  onClose?: () => void;
   onPublish: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
   loadUploadRefs?: LoadUploadRefs;
+  onUpdateProject?: (updater: (p: ChartProject) => ChartProject | null) => Promise<void> | void;
 }) {
+  const {
+    project,
+    chart,
+    chartCode,
+    onClose,
+    onPublish,
+    loadUploadRefs = getProjectUploadRefs,
+    onUpdateProject,
+  } = props;
   const { session } = useCommunityCapabilities();
   const profile = session.signedIn ? session.account : null;
   const displayName = profile ? (profile.nickname ?? profile.username) : '';
-  const [content, setContent] = useState('');
+
+  // 本地就地编辑状态（票 42：原型 A 风格直接编辑）
+  const [title, setTitle] = useState(chart.title ?? '');
+  const [artists, setArtists] = useState(project.artist ?? '');
+  const [diff, setDiff] = useState<ChartDifficulty>(chart.diff);
+  const [level, setLevel] = useState(chart.level != null ? String(chart.level) : '');
+  const [content, setContent] = useState(chart.publishDraft ?? '');
+
   const [stage, setStage] = useState<PublishStage | null>(null);
   const [failure, setFailure] = useState<PublishFailure | null>(null);
   const [confirming, setConfirming] = useState(false);
-  // 上传引用：undefined = 还在读；null = 读不到（本机问题，发布不可用）
+
   const [refs, setRefs] = useState<ProjectUploadRefs | null | undefined>(undefined);
   const custom = project.source.type === 'custom';
 
@@ -111,6 +147,88 @@ export function PublishDialog({
     return () => { alive = false; };
   }, [custom, project.id, loadUploadRefs]);
 
+  const coverUrl = useCoverUrl(project.coverBlob);
+  const hasCover = custom ? !!project.coverBlob : true;
+
+  // 描述草稿防抖持久化（票 42 Q3）
+  const debouncedDraftRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncDraft = (nextDraft: string) => {
+    setContent(nextDraft);
+    const nextCleanDraft = nextDraft.trim() || null;
+    if (nextCleanDraft === (chart.publishDraft?.trim() || null)) {
+      if (debouncedDraftRef.current) {
+        clearTimeout(debouncedDraftRef.current);
+        debouncedDraftRef.current = null;
+      }
+      return;
+    }
+    if (debouncedDraftRef.current) clearTimeout(debouncedDraftRef.current);
+    debouncedDraftRef.current = setTimeout(() => {
+      onUpdateProject?.((p) => updateChartPublishDraft(p, chart.id, nextDraft));
+    }, 350);
+  };
+
+  // 谱面信息（标题、难度、等级）就地改动防抖落盘
+  const debouncedChartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncChartMeta = (nextTitle: string, nextDiff: ChartDifficulty, nextLevelStr: string) => {
+    const nextCleanTitle = nextTitle.trim() || null;
+    const nextParsedLevel = parseLevel(nextLevelStr);
+    if (
+      nextCleanTitle === (chart.title?.trim() || null) &&
+      nextDiff === chart.diff &&
+      nextParsedLevel === chart.level
+    ) {
+      if (debouncedChartRef.current) {
+        clearTimeout(debouncedChartRef.current);
+        debouncedChartRef.current = null;
+      }
+      return;
+    }
+    if (debouncedChartRef.current) clearTimeout(debouncedChartRef.current);
+    debouncedChartRef.current = setTimeout(() => {
+      onUpdateProject?.((p) => updateChartInfo(
+        p,
+        chart.id,
+        { title: nextCleanTitle, diff: nextDiff, level: nextParsedLevel },
+        Date.now(),
+      ));
+    }, 350);
+  };
+
+  // 歌手就地改动防抖落盘
+  const debouncedArtistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncArtistMeta = (nextArtist: string) => {
+    const nextCleanArtist = nextArtist.trim() || null;
+    if (nextCleanArtist === (project.artist?.trim() || null)) {
+      if (debouncedArtistRef.current) {
+        clearTimeout(debouncedArtistRef.current);
+        debouncedArtistRef.current = null;
+      }
+      return;
+    }
+    if (debouncedArtistRef.current) clearTimeout(debouncedArtistRef.current);
+    debouncedArtistRef.current = setTimeout(() => {
+      onUpdateProject?.((p) => updateProjectInfo(p, { ...p, artist: nextCleanArtist }));
+    }, 350);
+  };
+
+  // 退出 / 跳转前强制冲刷草稿
+  const flushDraftImmediate = () => {
+    if (debouncedDraftRef.current) {
+      clearTimeout(debouncedDraftRef.current);
+      debouncedDraftRef.current = null;
+      if ((content.trim() || null) !== (chart.publishDraft?.trim() || null)) {
+        onUpdateProject?.((p) => updateChartPublishDraft(p, chart.id, content));
+      }
+    }
+  };
+
+  const closeDialog = () => {
+    if (stage !== null) return;
+    flushDraftImmediate();
+    onClose?.();
+  };
+
   const song: PublishSong = useMemo(() => {
     if (project.source.type === 'bandori') {
       return { kind: 'bandori', songId: project.source.id };
@@ -122,29 +240,23 @@ export function PublishDialog({
     };
   }, [project.source, project.audioName, project.coverName, refs]);
 
-  // 标题按站点口径解析（ADR-0015 §1：帖子的 title 就是谱面名称，未填跟随工程名称），
-  // 但**不拿「未命名工程」这个显示兜底去发帖** —— 社区帖的标题是它的门面，
-  // 谱面名称与工程名称都缺时就该被预检点名，而不是发一个「未命名工程」上去。
-  const chartTitle = chart.title?.trim() ?? '';
-  const projectName = project.name?.trim() ?? '';
-  const rawTitle = chartTitle !== '' ? chartTitle : projectName;
+  const rawTitle = title.trim() || project.name?.trim() || '';
   const displayTitle = rawTitle !== '' ? rawTitle : t('projects.untitled');
+  const parsedLevel = parseLevel(level);
 
   const input: PublishInput = useMemo(() => ({
     published: chart.upload != null,
     title: rawTitle,
-    artists: project.artist ?? '',
-    diff: chart.diff,
-    level: chart.level,
+    artists: artists.trim(),
+    diff,
+    level: parsedLevel,
     content,
     chartCode,
     song,
-  }), [project.artist, chart, chartCode, content, song, rawTitle]);
+  }), [chart.upload, rawTitle, artists, diff, parsedLevel, content, chartCode, song]);
 
   const precheck = precheckPublish(input);
   const busy = stage !== null;
-  // custom 曲目要等上传引用到位才能判「有没有音频」；读不到（null）按发布不可用。
-  // 已发布过的谱面直接禁（详情页本就没有它的入口；这是纵深防御，见 ADR-0015 §4）
   const refsPending = custom && refs === undefined;
   const refsFailed = custom && refs === null;
   const alreadyPublished = chart.upload != null;
@@ -156,48 +268,57 @@ export function PublishDialog({
       const outcome = await onPublish(input, setStage);
       setStage(null);
       if (outcome.ok) {
-        // 成功：弹窗自己关（页面负责 reload 与提示；记账失败的警告也走那边的 Toast）
         setConfirming(false);
-        onClose();
+        onClose?.();
         return;
       }
       setFailure(outcome.failure);
     } catch {
-      // 编排层抛了（不该发生 —— publishChart 自己收口）；当通用失败呈现
       setStage(null);
       setFailure('unknown');
     }
     setConfirming(false);
   };
 
-  const songLabel = song.kind === 'bandori'
-    ? t('projects.publish.songBandori', { id: song.songId })
-    : song.cover != null
-      ? t('projects.publish.songCustom')
-      : t('projects.publish.songCustomNoCover');
+  const notesCount = countChartNotes(chart.notes);
+  const audioMissing = custom && (!refs?.audio || !project.audioName);
+  const isTitleMissing = !rawTitle;
+  const isArtistsMissing = !artists.trim();
+  const isLevelMissing = parsedLevel == null;
+  const isContentMissing = !content.trim();
+  const isNotesMissing = notesCount === 0;
 
-  const row = (label: string, value: string, bad = false) => (
-    <div className="dialog-field">
-      <span>{label}</span>
-      <b className={bad ? 'pp-publish__missing' : ''}>{value}</b>
+
+  const head = (
+    <div className="ppc-head">
+      <div className="ppc-head__title">
+        <h3 className="dialog__title">{t('projects.publish.title')}</h3>
+        <HelpHint text={t('projects.publish.helpHint')} placement="down" />
+      </div>
+      {profile && (
+        <div
+          className="ppc-who"
+          title={t('community.account.menuAccount', { username: profile.username })}
+        >
+          <InitialAvatar name={displayName} seed={profile.username} />
+        </div>
+      )}
     </div>
   );
 
   return (
     <>
       <Dialog
-        title={t('projects.publish.title')}
-        hint={t('projects.publish.hint')}
-        onClose={() => { if (!busy) onClose(); }}
+        size="md"
+        head={head}
+        onClose={closeDialog}
         footer={(
           <>
-            <ActionBtn onClick={onClose} disabled={busy}>{t('ui.cancel')}</ActionBtn>
+            <ActionBtn onClick={closeDialog} disabled={busy}>{t('ui.cancel')}</ActionBtn>
             <ActionBtn
               variant="primary"
               disabled={!canPublish}
               onClick={() => {
-                // 缺什么早已实时列在上面（预检纯函数，弹窗与能力层共用）；这枚键是
-                // 一次性确认的门，不是报错的门 —— 预检不过时它压根点不动
                 setFailure(null);
                 setConfirming(true);
               }}
@@ -207,35 +328,124 @@ export function PublishDialog({
           </>
         )}
       >
-        {profile && (
-          <p className="pp-publish__as">
-            <b>{t('projects.publish.asAccount', { name: displayName })}</b>
-            <small>{t('community.account.menuAccount', { username: profile.username })}</small>
-          </p>
-        )}
-        <div className="dialog-field-row">
-          {row(t('projects.publish.field.title'), displayTitle, rawTitle === '')}
-          {row(t('projects.publish.field.artists'), input.artists || t('projects.artistMissing'), !input.artists.trim())}
-        </div>
-        <div className="dialog-field-row">
-          {row(t('projects.publish.field.diff'), DIFF_NAMES[chart.diff])}
-          {row(t('projects.publish.field.level'), chart.level != null ? String(chart.level) : '—', chart.level == null)}
-        </div>
-        <div className="dialog-field-row">
-          {row(t('projects.publish.field.song'), songLabel)}
-          {row(t('projects.publish.field.chart'), t('projects.publish.notesMeta', { count: countChartNotes(chart.notes) }))}
+        <div className="ppc-a">
+          {/* 左列：1:1 封面展示（只读视觉卡） */}
+          <div
+            className={`ppc-cover${hasCover ? '' : ' is-optional'}`}
+            title={hasCover ? t('projects.cover') : '暂无封面'}
+          >
+            {hasCover && coverUrl ? (
+              <span className="ppc-cover__art" style={{ backgroundImage: `url(${coverUrl})` }} />
+            ) : (
+              <Music2 size={32} />
+            )}
+          </div>
+
+          {/* 右列：7 个整齐条目（就地可编辑） */}
+          <div className="ppc-a__id">
+            {/* 标题 */}
+            <Fact k={t('projects.publish.field.title')} missing={isTitleMissing}>
+              <input
+                type="text"
+                className={`ppc-fact-input ppc-fact-input--title${isTitleMissing ? ' is-missing' : ''}`}
+                value={title}
+                disabled={busy}
+                placeholder={project.name?.trim() || t('projects.untitled')}
+                aria-label={t('projects.publish.field.title')}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  syncChartMeta(e.target.value, diff, level);
+                }}
+              />
+            </Fact>
+
+            {/* 歌手 */}
+            <Fact k={t('projects.publish.field.artists')} missing={isArtistsMissing}>
+              <input
+                type="text"
+                className={`ppc-fact-input${isArtistsMissing ? ' is-missing' : ''}`}
+                value={artists}
+                disabled={busy}
+                placeholder={t('projects.artistMissing')}
+                aria-label={t('projects.publish.field.artists')}
+                onChange={(e) => {
+                  setArtists(e.target.value);
+                  syncArtistMeta(e.target.value);
+                }}
+              />
+            </Fact>
+
+            {/* 难度 */}
+            <Fact k={t('projects.publish.field.diff')}>
+              <div className="ppc-diff-wrap">
+                <select
+                  className="ppc-diff-select"
+                  style={{ background: DIFF_COLORS[diff] }}
+                  value={diff}
+                  disabled={busy}
+                  aria-label={t('projects.publish.field.diff')}
+                  onChange={(e) => {
+                    const next = Number(e.target.value) as ChartDifficulty;
+                    setDiff(next);
+                    syncChartMeta(title, next, level);
+                  }}
+                >
+                  {DIFF_NAMES.map((name, i) => (
+                    <option key={name} value={i}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            </Fact>
+
+            {/* 等级 */}
+            <Fact k={t('projects.publish.field.level')} missing={isLevelMissing}>
+              <input
+                type="text"
+                inputMode="numeric"
+                className={`ppc-fact-input ppc-fact-input--level${isLevelMissing ? ' is-missing' : ''}`}
+                value={level}
+                disabled={busy}
+                placeholder="未填"
+                aria-label={t('projects.publish.field.level')}
+                onChange={(e) => {
+                  setLevel(e.target.value);
+                  syncChartMeta(title, diff, e.target.value);
+                }}
+              />
+            </Fact>
+
+            {/* 音符 */}
+            <Fact k={t('projects.publish.field.chart')} missing={isNotesMissing}>
+              {isNotesMissing ? (
+                <span role="alert" className="ppc-miss">{t(MISSING_KEYS.chart)}</span>
+              ) : (
+                <span>{t('projects.publish.notesMeta', { count: notesCount })}</span>
+              )}
+            </Fact>
+
+            {/* 音频 */}
+            <Fact k={t('projects.publish.field.audio')} missing={audioMissing}>
+              {audioMissing ? (
+                <span className="ppc-miss">未导入</span>
+              ) : (
+                <span className="ppc-fact__audio-name" title={project.audioName ?? ''}>
+                  {project.audioName ?? ''}
+                </span>
+              )}
+            </Fact>
+
+            {/* 时长 */}
+            <Fact k={t('projects.publish.field.duration')} missing={audioMissing}>
+              {audioMissing ? (
+                <span className="ppc-miss">未填</span>
+              ) : (
+                formatDuration(project.durationSeconds)
+              )}
+            </Fact>
+          </div>
         </div>
 
-        {/* 缺失清单**实时**派生自预检（同一个纯函数，能力层发帖前还会再跑一遍）——
-            用户边填边看到还缺什么，不用等点一次发布才被点名 */}
-        {precheck.missing.length > 0 && (
-          <div className="pp-publish__missing-box" role="alert">
-            <p>{t('projects.publish.missingTitle')}</p>
-            <ul>
-              {precheck.missing.map((field) => <li key={field}>{t(MISSING_KEYS[field])}</li>)}
-            </ul>
-          </div>
-        )}
+        {/* 失败与环境异常内联提示 */}
         {refsFailed && (
           <p className="pp-publish__error" role="alert">{t('projects.publish.err.local')}</p>
         )}
@@ -246,15 +456,17 @@ export function PublishDialog({
           <p className="pp-publish__error" role="alert">{t(FAILURE_KEYS[failure])}</p>
         )}
 
-        <label className="dialog-field">
+        {/* 描述正文（草稿持久化 + 换行解析） */}
+        <label className={`dialog-field ppc-content${isContentMissing ? ' is-missing' : ''}`}>
           <span>{t('projects.publish.contentLabel')}</span>
           <textarea
             value={content}
             disabled={busy}
             maxLength={POST_CONTENT_MAX_CHARS}
             placeholder={t('projects.publish.contentPlaceholder')}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => syncDraft(e.target.value)}
           />
+          <small>{content.length} / {POST_CONTENT_MAX_CHARS}</small>
         </label>
 
         {busy && (
@@ -264,8 +476,8 @@ export function PublishDialog({
           </p>
         )}
       </Dialog>
-      {/* 确认浮层只到「确认那一刻」为止：发布动起来（busy）它就退场，阶段提示回到主弹窗 —
-          否则进行中它还挂着一枚可点的「取消」，而字节已经在路上，取消只是个谎言 */}
+
+      {/* 不可逆确认弹窗 */}
       {confirming && !busy && (
         <ConfirmDialog
           title={t('projects.publish.confirmTitle')}

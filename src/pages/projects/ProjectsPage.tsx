@@ -8,17 +8,10 @@ import { useConfig } from '../../app/ProviderTree';
 import { useCommunitySessionStart } from './useCommunitySessionStart';
 import { createCommunityTransport, hasCommunityNet } from '../../community/electronTransport';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
-import {
-  newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ProjectChart,
-} from '../../project/ChartProject';
+import { newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ProjectChart } from '../../project/ChartProject';
 import { mutateProject } from '../../project/ChartProjectRecord';
 import {
-  addChartToProject,
-  createBlankProject,
-  deleteChartFromProject,
-  duplicateProject,
-  updateChartInfo,
-  updateProjectInfo,
+  addChartToProject, createBlankProject, deleteChartFromProject, duplicateProject, updateChartInfo, updateProjectInfo,
 } from '../../project/projectCatalog';
 import { mostRecentlyOpenedId, sortProjects } from '../../project/projectSort';
 import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
@@ -285,8 +278,10 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     return { ok: true, warnings };
   }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
-  // 发布（票 11）：入口的状态与编排整块在 usePublishEntry（页面 500 行纪律），这里只挂 hook
-  const publish = usePublishEntry({ store, transport: communityTransport, flush: flushPersist, notify: notifyCatalogChanged, reload });
+  // 发布（票 11/42）：入口状态与编排在 usePublishEntry（页面 500 行纪律），这里只挂 hook
+  const publish = usePublishEntry({
+    store, transport: communityTransport, flush: flushPersist, notify: notifyCatalogChanged, reload,
+  });
 
   // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）
   const list = useMemo(() => sortProjects(projects ?? [], sortKey, untitledProjectLabel()), [projects, sortKey]);
@@ -414,8 +409,15 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
           }}
         />
       )}
-      {/* 发布弹窗（票 11）：target 的三个字段就是弹窗的前三个 props */}
-      {publish.target && <PublishDialog {...publish.target} onClose={publish.close} onPublish={(input, onStage) => publish.run(input, onStage)} />}
+      {/* 发布弹窗（票 11/42）：就地编辑与页面跳转由 publish 收敛 */}
+      {publish.target && (
+        <PublishDialog
+          {...publish.target}
+          onClose={publish.close}
+          onPublish={publish.run}
+          onUpdateProject={publish.updateProject}
+        />
+      )}
     </>
   );
 

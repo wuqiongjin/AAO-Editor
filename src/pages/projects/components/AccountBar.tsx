@@ -29,7 +29,7 @@ import { SignInDialog } from './SignInDialog';
  * 昵称首字母色块（Q31）：色相由**账号名**派生（展示名会改，账号名不会），
  * 沿用工程封面占位块的 `projectCoverHue`（同一套派生口径，不另写一份哈希）。
  */
-function InitialAvatar({ name, seed }: { name: string; seed: string }) {
+export function InitialAvatar({ name, seed }: { name: string; seed: string }) {
   return (
     <span
       className="pc-account__avatar"

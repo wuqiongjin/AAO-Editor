@@ -8,6 +8,7 @@
 // custom 无封面不发 cover 键、平台拒了时记录不写。
 import { describe, expect, it } from 'vitest';
 import {
+  formatPostContent,
   precheckPublish,
   publishChart,
   publishFailureOf,
@@ -457,3 +458,44 @@ describe('票 11 · 失败立档（界面只认这个，不认平台码）', () 
     expect(outcome).toEqual({ ok: false, failure: 'offline' });
   });
 });
+
+describe('票 42 Q4 · 正文换行解析为 text 与 br 块', () => {
+  it('formatPostContent：单行文本为单块 text', () => {
+    expect(formatPostContent('Hello World')).toEqual([
+      { type: 'text', data: 'Hello World' },
+    ]);
+  });
+
+  it('formatPostContent：多行文本拆成 text 与 br 块', () => {
+    expect(formatPostContent('Line 1\nLine 2\r\nLine 3')).toEqual([
+      { type: 'text', data: 'Line 1' },
+      { type: 'br' },
+      { type: 'text', data: 'Line 2' },
+      { type: 'br' },
+      { type: 'text', data: 'Line 3' },
+    ]);
+  });
+
+  it('formatPostContent：连续换行产生空行 br 块', () => {
+    expect(formatPostContent('Paragraph 1\n\nParagraph 2')).toEqual([
+      { type: 'text', data: 'Paragraph 1' },
+      { type: 'br' },
+      { type: 'br' },
+      { type: 'text', data: 'Paragraph 2' },
+    ]);
+  });
+
+  it('发帖 body 包含换行时按 text 与 br 块递送', async () => {
+    const { requests } = await run(
+      { [POST_URL]: { result: true, id: 9 } },
+      makeInput({ content: 'Notes: 413\nGood chart' }),
+    );
+
+    expect(postBodyOf(requests).content).toEqual([
+      { type: 'text', data: 'Notes: 413' },
+      { type: 'br' },
+      { type: 'text', data: 'Good chart' },
+    ]);
+  });
+});
+

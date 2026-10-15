@@ -10,7 +10,10 @@ import {
   duplicateChartInProject,
   duplicateProject,
   projectDisplayName,
+  recordChartUpload,
   sortProjectsByLastOpened,
+  updateChartInfo,
+  updateChartPublishDraft,
 } from '@/src/project/projectCatalog';
 import { createUnnamedProject } from '@/src/project/workspaceProject';
 import type { ChartNote } from '@/src/chart/types';
@@ -317,3 +320,53 @@ describe('duplicateProject · 照搬工程、谱面状态不带', () => {
     expect(src.charts[0].upload).toEqual({ postId: 254301, at: 3 });
   });
 });
+
+describe('票 42 Q3 · 发布描述草稿持久化', () => {
+  it('updateChartPublishDraft：更新指定谱面的草稿，空白串归一为 null', () => {
+    const p = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const withDraft = updateChartPublishDraft(p, 'c1', '这是草稿内容');
+    expect(withDraft.charts[0].publishDraft).toBe('这是草稿内容');
+
+    const cleared = updateChartPublishDraft(withDraft, 'c1', '   ');
+    expect(cleared.charts[0].publishDraft).toBeNull();
+  });
+
+  it('duplicateChartInProject：复制谱面一并带上草稿', () => {
+    const base = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const withDraft = updateChartPublishDraft(base, 'c1', '带上我');
+    const duplicated = duplicateChartInProject(withDraft, 'c1', { chartId: 'c2', now: 101 }, untitled);
+    expect(duplicated).not.toBeNull();
+    expect(duplicated!.charts.find((c) => c.id === 'c2')?.publishDraft).toBe('带上我');
+  });
+
+  it('recordChartUpload：发布成功写上传记录时清空草稿', () => {
+    const base = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const withDraft = updateChartPublishDraft(base, 'c1', '成功后清空');
+    const uploaded = recordChartUpload(withDraft, 'c1', { postId: 12345, at: 200 });
+    expect(uploaded).not.toBeNull();
+    expect(uploaded!.charts[0].upload).toEqual({ postId: 12345, at: 200 });
+    expect(uploaded!.charts[0].publishDraft).toBeNull();
+  });
+});
+
+describe('updateChartInfo · 谱面信息更新与 lastModified 守卫', () => {
+  it('未做实际修改时不更新 lastModified', () => {
+    const p = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    // 原谱面：title null, diff 3, level null, lastModified 100
+    const unchanged = updateChartInfo(p, 'c1', { title: null, diff: 3, level: null }, 200);
+    expect(unchanged.charts[0].lastModified).toBe(100);
+
+    const withSpaces = updateChartInfo(p, 'c1', { title: '   ', diff: 3, level: null }, 200);
+    expect(withSpaces.charts[0].lastModified).toBe(100);
+  });
+
+  it('做实际修改时更新 lastModified', () => {
+    const p = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const changed = updateChartInfo(p, 'c1', { title: 'Special', diff: 4, level: 28 }, 200);
+    expect(changed.charts[0].title).toBe('Special');
+    expect(changed.charts[0].diff).toBe(4);
+    expect(changed.charts[0].level).toBe(28);
+    expect(changed.charts[0].lastModified).toBe(200);
+  });
+});
+

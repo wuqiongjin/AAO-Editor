@@ -43,6 +43,8 @@ export interface ProjectChart {
   lastModified: number;
   appliedChartCodeText: string | null;
   chartCodePristine: boolean;
+  /** 发布描述草稿（票 42 Q3）：随谱面持久化，复制带上，发布成功后清除 */
+  publishDraft?: string | null;
 }
 
 export interface ChartProject {
