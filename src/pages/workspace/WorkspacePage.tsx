@@ -308,10 +308,20 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   useEffect(() => {
     audioSession.setPersistNow(persistNow);
   }, [audioSession, persistNow]);
+  // persist flush 的注册必须**挂载一次、句柄稳定**（issue 38 复验的注册侧契约）。
+  // persistNow 每次渲染都是新闭包（persistence 对象每渲染新建）：按 [persistNow] 依赖注册
+  // 会让本 effect 在每次重渲染时先 cleanup（registerPersistFlush(null)）再 setup，而 React
+  // 一个 commit 内先跑完整个 cleanup 阶段再跑 setup 阶段，setup 又按树序——工程页在树序里
+  // 排在工作台**之前**，于是"回工程页"那一提交里，工程页激活 effect 的 flushPersist() 打到
+  // 的是刚被 cleanup 清空的注册柄，在飞防抖笔落不了盘（预览/音频页没踩到，只因它们树序排在
+  // 工作台之后、setup 时注册已恢复）。用 ref 包一层最新句柄、依赖只剩稳定的
+  // registerPersistFlush：churn 与竞态一并消除（与 registerRestoreWaiter 的稳定注册同范式）。
+  const persistNowRef = useRef(persistNow);
+  persistNowRef.current = persistNow;
   useEffect(() => {
-    registerPersistFlush(persistNow);
+    registerPersistFlush(() => persistNowRef.current());
     return () => registerPersistFlush(null);
-  }, [persistNow, registerPersistFlush]);
+  }, [registerPersistFlush]);
 
   // === 会话流 5：布局持久化（issue 22 §6 / ADR-0003 §6） ===
   useLayoutPersistence({ settings, ui, setLayout });

@@ -2,7 +2,7 @@
 // 谱面工程持久化 = 当前工程恢复 + 编辑防抖落盘（IndexedDB / Electron 数据根门面）。
 //
 // 当前工程由 CurrentProjectSession 决定；本 hook 在 projectId 变化时先 flush 旧工程，
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ChartProjectStore, type ChartProject, type ProjectChart } from './ChartProject';
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
 import { stampChartModified } from './chartModifiedStamp';
@@ -313,16 +313,31 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return {
-    saveNow: () => {
-      if (!restoreSettledRef.current) return Promise.resolve();
-      const next = buildProject();
-      if (!next) return Promise.resolve();
-      return ensureMerger().saveNow(next);
-    },
-    get isSettled() {
-      return restoreSettledRef.current;
-    },
-    waitUntilSettled,
-  };
+  // 立即落盘（音频导入/清除、卸载前、工程页激活时的 flushPersist）。
+  // 提成 useCallback：**句柄身份必须稳定**。它被 WorkspacePage 注册进
+  // CurrentProjectProvider.registerPersistFlush，而注册 effect 以它为依赖；每次渲染换新
+  // 闭包会让那个 effect 反复 cleanup（注册柄清成 no-op）→ setup。React 一个 commit 内
+  // 先跑完整个 cleanup 阶段再跑 setup 阶段，且 setup 按树序（工程页在工作台之前）——
+  // 于是"回工程页"那一提交里，工程页激活 effect 的 flushPersist() 打到刚被清空的注册柄上，
+  // 在飞防抖笔落不了盘，reload 读到编辑前的旧记录（issue 38 复验：激活 effect 本身没错，
+  // 错在 flush 柄被导航提交的 cleanup 清掉后又晚于激活 effect 才恢复）。
+  const saveNow = useCallback((): Promise<void> => {
+    if (!restoreSettledRef.current) return Promise.resolve();
+    const next = buildProject();
+    if (!next) return Promise.resolve();
+    return ensureMerger().saveNow(next);
+  }, [buildProject, ensureMerger]);
+
+  // 返回对象一并求稳：调用方（WorkspacePage 的 persistNow）以它为 useCallback 依赖，
+  // 每渲染一个新对象会把句柄 churn 原样传导到注册 effect 上。
+  return useMemo(
+    () => ({
+      saveNow,
+      get isSettled() {
+        return restoreSettledRef.current;
+      },
+      waitUntilSettled,
+    }),
+    [saveNow, waitUntilSettled],
+  );
 }

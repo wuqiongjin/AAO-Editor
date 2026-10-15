@@ -46,3 +46,33 @@ describe('issue 38 · 工程页激活重读的次序锁', () => {
     expect(src).toMatch(/useEffect\(\(\) => \{ void reload\(\); \}, \[reload, catalogEpoch\]\)/);
   });
 });
+
+// issue 38 复验（2026-10-15）：激活 effect 的 flushPersist() 曾打到**空注册柄**上——
+// React 一个 commit 内先跑完 cleanup 阶段再跑 setup，setup 按树序（工程页在工作台之前），
+// 而工作台每次渲染都换新 persistNow 闭包，导航提交里注册 effect 先被 cleanup 清空、
+// 激活 effect 后跑、重新注册又晚于它。两处形状锁死：注册挂载一次（ref 包装），
+// 钩子返回稳定句柄（churn 的根因）。
+describe('issue 38 复验 · persist flush 注册不得被导航提交清空', () => {
+  const wsSrc = readStripped('src/pages/workspace/WorkspacePage.tsx');
+  const hookSrc = readStripped('src/project/useChartProjectPersistence.ts');
+
+  it('WorkspacePage 的 flush 注册挂载一次：ref 包最新句柄，依赖只剩 registerPersistFlush', () => {
+    expect(wsSrc).toMatch(
+      /const persistNowRef = useRef\(persistNow\);\s*persistNowRef\.current = persistNow;\s*useEffect\(\(\) => \{\s*registerPersistFlush\(\(\) => persistNowRef\.current\(\)\);\s*return \(\) => registerPersistFlush\(null\);\s*\}, \[registerPersistFlush\]\)/,
+    );
+  });
+
+  it('注册依赖里不得再出现 persistNow（出现即恢复 churn：cleanup 会在导航提交里清空注册柄）', () => {
+    expect(wsSrc).not.toMatch(/\}, \[persistNow, registerPersistFlush\]\)/);
+  });
+
+  it('hook 的 saveNow 是稳定 useCallback（句柄 churn 是注册竞态的根因）', () => {
+    expect(hookSrc).toMatch(/const saveNow = useCallback\(\(\): Promise<void> => \{[\s\S]*?\}, \[buildProject, ensureMerger\]\)/);
+  });
+
+  it('hook 返回值经 useMemo 求稳（调用方以它为 useCallback 依赖，新对象会传导 churn）', () => {
+    expect(hookSrc).toMatch(/return useMemo\(/);
+    expect(hookSrc).toMatch(/\(\) => \(\{\s*saveNow,/);
+    expect(hookSrc).toMatch(/\[saveNow, waitUntilSettled\],/);
+  });
+});
