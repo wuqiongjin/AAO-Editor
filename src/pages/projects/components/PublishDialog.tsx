@@ -38,6 +38,7 @@ import { t, type MessageKey } from '../../../i18n';
 import ActionBtn from '../../../ui/ActionBtn';
 import ConfirmDialog from '../../../ui/ConfirmDialog';
 import Dialog from '../../../ui/Dialog';
+import { useCommunityCapabilities } from '../communityCapabilities';
 
 /** 缺失字段 → 文案键（一档一条「缺什么、去哪儿补」；漏一个编译不过） */
 const MISSING_KEYS: Record<PublishMissingField, MessageKey> = {
@@ -90,6 +91,9 @@ export function PublishDialog({
   onPublish: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
   loadUploadRefs?: LoadUploadRefs;
 }) {
+  const { session } = useCommunityCapabilities();
+  const profile = session.signedIn ? session.account : null;
+  const displayName = profile ? (profile.nickname ?? profile.username) : '';
   const [content, setContent] = useState('');
   const [stage, setStage] = useState<PublishStage | null>(null);
   const [failure, setFailure] = useState<PublishFailure | null>(null);
@@ -203,6 +207,12 @@ export function PublishDialog({
           </>
         )}
       >
+        {profile && (
+          <p className="pp-publish__as">
+            <b>{t('projects.publish.asAccount', { name: displayName })}</b>
+            <small>{t('community.account.menuAccount', { username: profile.username })}</small>
+          </p>
+        )}
         <div className="dialog-field-row">
           {row(t('projects.publish.field.title'), displayTitle, rawTitle === '')}
           {row(t('projects.publish.field.artists'), input.artists || t('projects.artistMissing'), !input.artists.trim())}

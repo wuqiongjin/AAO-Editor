@@ -1,5 +1,5 @@
 // 工程详情视图（原 ProjectsPage.tsx 的 detail 分支整块抽出，内部未再拆）。
-import type { CSSProperties, ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Copy, Eye, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2, Upload } from 'lucide-react';
 import { newChartId, type ChartProject, type ProjectChart } from '../../../project/ChartProject';
 import {
@@ -22,8 +22,9 @@ import { effectiveTitle, formatDuration, relTime } from '../projectFormat';
 import { useCommunityCapabilities } from '../communityCapabilities';
 import ProjectListSplit from '../ProjectListSplit';
 import { AccountBar } from './AccountBar';
-import { CapabilityStatusLine } from './CapabilityStatusLine';
+import { capabilityBlockLabel } from './CapabilityStatusLine';
 import { Cover, DiffLevelBadge, StatusBadge } from './ProjectBits';
+import { SignInDialog } from './SignInDialog';
 
 export function ProjectDetail({
   list, sel, currentId, listWidth, onListWidthChange, newButton,
@@ -53,11 +54,13 @@ export function ProjectDetail({
 }) {
   const uploads = sel.charts.filter((c) => c.upload);
   const locked = uploads.length > 0;
-  // 发布入口的能力灰化（票 39 交下来的积木）：写能力被挡住时按钮禁用 + 一行就地说明
-  // （文案只有 CapabilityStatusLine 一处，Q22）。没有出口（静态演示版）整枚不渲染。
+  // 发布入口的能力灰化（票 41）：写能力被挡住时按钮灰掉，why 挂在按钮 title 上，
+  // 不再占谱面列表上方一行。文案仍只从 capabilityBlockLabel 一处取。
+  // 没有出口（静态演示版）整枚不渲染。未登录要点得开 → 登录弹窗，成功后续上发布确认。
   const { write: canPublish, block: capabilityBlock } = useCommunityCapabilities();
   const publishEntry = capabilityBlock !== 'unsupported-runtime';
-  const publishable = sel.charts.filter((c) => !c.upload);
+  const signedOut = capabilityBlock === 'signed-out';
+  const [signInForChart, setSignInForChart] = useState<ProjectChart | null>(null);
   return (
     <div className="pc-page" style={{ '--pc-list-w': `${listWidth}px` } as CSSProperties}>
       <aside className="pc-list">
@@ -136,11 +139,6 @@ export function ProjectDetail({
         </header>
         <section>
           <h3 className="pb-h">{t('projects.charts')} <span className="pp-muted">{sel.charts.length}</span></h3>
-          {/* 写能力被挡住时的就地说明（票 39 Q22 的积木）：只在有可发布谱面时出现，
-              静态演示版连按钮都没有（publishEntry 为假），不浪费这一行。 */}
-          {publishEntry && publishable.length > 0 && capabilityBlock != null && (
-            <CapabilityStatusLine block={capabilityBlock} />
-          )}
           <div className="pc-charts">
             {sel.charts.map((c) => {
               const up = chartStatus(c) === 'uploaded';
@@ -172,8 +170,16 @@ export function ProjectDetail({
                       <button
                         type="button"
                         className="pp-btn pp-btn--sm"
-                        disabled={!canPublish}
-                        onClick={() => onPublishChart(c)}
+                        disabled={!canPublish && !signedOut}
+                        aria-disabled={signedOut || undefined}
+                        title={capabilityBlock != null ? capabilityBlockLabel(capabilityBlock) : undefined}
+                        onClick={() => {
+                          if (signedOut) {
+                            setSignInForChart(c);
+                            return;
+                          }
+                          onPublishChart(c);
+                        }}
                       >
                         <Upload size={12} />{t('projects.publish.action')}
                       </button>
@@ -232,6 +238,12 @@ export function ProjectDetail({
           )}
         </section>
       </main>
+      {signInForChart && (
+        <SignInDialog
+          onClose={() => setSignInForChart(null)}
+          onSuccess={() => onPublishChart(signInForChart)}
+        />
+      )}
     </div>
   );
 }

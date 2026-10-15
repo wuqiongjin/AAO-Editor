@@ -44,7 +44,7 @@ function linksTitle(): string {
   return t('community.account.linksTitle', { host: BESTDORI_HOST });
 }
 
-export function SignInDialog({ onClose }: { onClose: () => void }) {
+export function SignInDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess?: () => void }) {
   const [username, setUsername] = useState('');
   const [secret, setSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
@@ -62,6 +62,7 @@ export function SignInDialog({ onClose }: { onClose: () => void }) {
     try {
       // 密码只走这一行参数：能力层不落盘、不记日志（票 10 的红线）
       await getCommunityAccount().login(username, secret);
+      onSuccess?.(); // 票 41：从未登录点「发布」走进来时，续上发布确认
       onClose(); // 成功：弹窗自己关，账号区跟着会话变（不 Toast）
     } catch (error) {
       setFailure(loginFailureOf(error));

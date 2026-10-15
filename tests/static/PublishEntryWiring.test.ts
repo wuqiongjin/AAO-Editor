@@ -30,6 +30,9 @@ describe('票 11 · 发布入口的接线', () => {
     expect(projectDetail).toMatch(/t\('projects\.publish\.action'\)/);
     // 已上传的谱面没有发布入口（至多一条上传记录）
     expect(projectDetail).toMatch(/publishEntry && !up/);
+    // 票 41：灰化 why 不占列表行；未登录要点得开（aria-disabled，不是原生 disabled）
+    expect(projectDetail).not.toMatch(/<CapabilityStatusLine/);
+    expect(projectDetail).toMatch(/aria-disabled=\{signedOut/);
   });
 
   it('弹窗由页面编排挂载；发布动作与记录写入在页面目录的 hook 里（页面只挂 hook）', () => {

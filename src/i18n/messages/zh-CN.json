@@ -118,6 +118,7 @@
   "projects.official.err.apply": "官方谱面代码过不了 Apply 闸门：{{message}}",
   "projects.official.warn.chartFallback": "官方谱面获取失败，已按空白谱面创建，可稍后在谱面代码导入中补。",
   "projects.official.warn.coverMissing": "该曲目未提供官方封面，工程未包含封面。",
+  "projects.publish.asAccount": "将以 {{name}} 发布",
   "projects.publish.action": "发布",
   "projects.publish.title": "发布谱面",
   "projects.publish.hint": "把这张谱面发布到社区平台。上传与发帖一次完成，中途取消不会留下半帖。",

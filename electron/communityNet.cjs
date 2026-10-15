@@ -97,11 +97,22 @@ const DEFAULT_ACCEPT = { json: 'application/json', text: 'text/plain', binary: '
  *   - binary：当不可变内容长期复用（音频 / 封面下了就不再变）；
  *   - 例外：**回退页**（平台对不存在的素材回 200 + `text/html`）只当 1 小时负缓存 ——
  *     既免得反复打平台，也不把一张网页钉死 30 天（平台后来补上的素材还能取到）；
+ *   - 例外：**会话身份**（`GET /api/user/me`，票 40）不进缓存 —— 键是 URL、不含 Cookie，
+ *     换账号会把上一份资料当成新鲜副本；曲库 / 帖子列表仍按 URL 缓存；
  *   - `revalidate: true`（用户主动刷新，票 09）：跳过缓存读、真打一发并写回。
  * 条目回收（30 天未用 / 1GB 上限）在 assetCache.sweep() 里，网关只负责存与取。
  */
 const CACHE_FRESH_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_FRESH_MS = 60 * 60 * 1000;
+
+/** 会话身份不能按 URL 缓存（票 40）：同一条 me 在不同 Cookie 下是不同人 */
+function isSessionIdentityUrl(rawUrl) {
+    try {
+        return new URL(rawUrl).pathname === '/api/user/me';
+    } catch {
+        return false;
+    }
+}
 
 /** 载荷不合法（越界 URL / 非法方法 / 自带凭据头）—— 网关在发起请求之前就拒掉 */
 class RequestRejected extends Error {}
@@ -475,6 +486,7 @@ function createCommunityGateway(options) {
         if (assetCache == null) return null;
         if (req.method !== 'GET' && !req.cacheable) return null;
         if (req.revalidate) return null;
+        if (isSessionIdentityUrl(req.url)) return null;
         const kind = cacheKindOf(req);
         const entry = await assetCache.lookup({ url: req.cacheKey, kind });
         if (entry == null) return null;
@@ -527,6 +539,7 @@ function createCommunityGateway(options) {
         if (assetCache == null) return;
         // 只有「缓存许可」的请求才写：GET 的 json / text 与显式声明 cacheable 的读型 POST
         if (req.method !== 'GET' && !req.cacheable) return;
+        if (isSessionIdentityUrl(req.url)) return;
         try {
             await assetCache.store({
                 url: req.cacheKey,

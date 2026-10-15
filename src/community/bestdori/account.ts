@@ -141,6 +141,8 @@ export function createCommunityAccount(options: CommunityAccountOptions): Commun
         method: 'GET',
         headers: bestdoriHeaders(),
         timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+        // 票 40：me 是会话身份，不能吃按 URL 缓存的上一份资料（网关也不再写入这条）
+        revalidate: true,
       }),
       { policy: BESTDORI_RETRY_POLICY, onRetry, deps: retry },
     );

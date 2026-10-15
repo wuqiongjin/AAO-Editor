@@ -117,6 +117,7 @@
   "projects.official.err.apply": "The official chart code failed the Apply gate: {{message}}",
   "projects.official.warn.chartFallback": "Could not fetch the official chart; the project was created with a blank chart. You can import the chart code later.",
   "projects.official.warn.coverMissing": "This song has no official cover on the platform; the project was created without one.",
+  "projects.publish.asAccount": "Publishing as {{name}}",
   "projects.publish.action": "Publish",
   "projects.publish.title": "Publish chart",
   "projects.publish.hint": "Publish this chart to the community platform. Uploading and posting happen in one go; cancelling midway leaves no half-post behind.",

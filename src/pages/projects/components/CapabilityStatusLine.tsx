@@ -21,3 +21,8 @@ const BLOCK_KEYS: Record<CommunityCapabilityBlock, MessageKey> = {
 export function CapabilityStatusLine({ block }: { block: CommunityCapabilityBlock }) {
   return <p className="pc-capability">{t(BLOCK_KEYS[block])}</p>;
 }
+
+/** 灰化 why 的唯一取词口（票 41：挂在发布按钮 title 上，不再占列表一行） */
+export function capabilityBlockLabel(block: CommunityCapabilityBlock): string {
+  return t(BLOCK_KEYS[block]);
+}

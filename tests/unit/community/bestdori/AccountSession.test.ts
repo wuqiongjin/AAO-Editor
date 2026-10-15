@@ -149,6 +149,8 @@ describe('票 10 · 登录成功', () => {
     expect(JSON.parse(transport.requests[0].body ?? '{}')).toEqual({ username: 'envy09', password: 'hunter2' });
     // 登录是**写型 POST**：不声明 cacheable（07/14 的口径：写请求不进网关缓存）
     expect(transport.requests[0].cacheable).toBeUndefined();
+    // 票 40：me 是会话身份，必须穿透按 URL 的 json 缓存
+    expect(transport.requests[1].revalidate).toBe(true);
     // 落盘那次零入参 —— renderer 没有任何一只手能把凭据递给持久化路径
     expect(persistence.ops).toEqual([{ op: 'persist', args: [] }]);
   });

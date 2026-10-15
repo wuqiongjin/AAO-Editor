@@ -7,10 +7,13 @@
 //   ④ custom 曲目打开时就备上传引用；读不到 = 发布不可用（就地一行，不静默）；
 //   ⑤ 失败就地内联在弹窗里（不 Toast、不关窗）；已发布过的谱面直接禁用。
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
+import { getCommunityAccount, resetCommunityAccount } from '@/src/community/bestdori/account';
+import { userMeUrl } from '@/src/community/bestdori/endpoints';
 import type { PublishInput, PublishOutcome, PublishStage } from '@/src/community/bestdori/publish';
+import type { CommunityWireResult } from '@/src/community/transport';
 import type { ChartProject, ProjectChart } from '@/src/project/ChartProject';
 import type { ProjectUploadRefs } from '@/src/project/ChartProjectRecord';
 import { PublishDialog } from '@/src/pages/projects/components/PublishDialog';
@@ -232,5 +235,35 @@ describe('票 11 · 发布弹窗：失败就地内联', () => {
     fireEvent.click(screen.getByRole('button', { name: '发布' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认发布' }));
     expect(await screen.findByText('连不上社区平台，检查网络后重试。')).toBeInTheDocument();
+  });
+});
+
+describe('票 41 · 发布弹窗只读身份', () => {
+  afterEach(() => {
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    resetCommunityAccount();
+  });
+
+  it('有会话时画出「将以 … 发布」和账号名', async () => {
+    const me = userMeUrl();
+    const ok = (data: unknown): CommunityWireResult => ({ ok: true, responseType: 'json', status: 200, data });
+    (window as unknown as { electronAPI?: unknown }).electronAPI = {
+      communitySession: {
+        restore: async () => ({ restored: true }),
+        persist: async () => ({ persisted: true }),
+        clear: async () => true,
+      },
+      communityNet: {
+        request: async (req: { url: string }) => {
+          if (req.url === me) return ok({ result: true, username: 'envy09', nickname: 'Envy' });
+          throw new Error(`未打桩的请求: ${req.url}`);
+        },
+      },
+    };
+    resetCommunityAccount();
+    await getCommunityAccount().start();
+    renderDialog();
+    expect(screen.getByText('将以 Envy 发布')).toBeInTheDocument();
+    expect(screen.getByText('账号：envy09')).toBeInTheDocument();
   });
 });

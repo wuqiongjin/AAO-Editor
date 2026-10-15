@@ -716,6 +716,27 @@ describe('票 14 · 素材缓存命中：GET 不碰网络', () => {
     });
   });
 
+  it('票 40 · GET /api/user/me 不进 json 缓存（会话身份按 URL 缓存会串号）', async () => {
+    await withTmpCache(async (dir) => {
+      let n = 1;
+      const { gateway, fetch } = gatewayWith(
+        () => response({ body: { result: true, username: `u${n}`, n } }),
+        { dir },
+      );
+      const me = 'https://bestdori.com/api/user/me';
+
+      await expect(gateway.request({ url: me })).resolves.toMatchObject({ data: { n: 1 } });
+      n = 2;
+      await expect(gateway.request({ url: me })).resolves.toMatchObject({ data: { n: 2 } });
+      expect(fetch.calls).toHaveLength(2);
+
+      // 对照：普通 GET json 仍按 URL 缓存（曲库这类共享资源）
+      await gateway.request({ url: SONGS_URL });
+      await gateway.request({ url: SONGS_URL });
+      expect(fetch.calls).toHaveLength(3);
+    });
+  });
+
   it('POST 默认不进缓存（发帖 / 登录都是写）', async () => {
     await withTmpCache(async (dir) => {
       const { gateway, fetch } = gatewayWith(() => response({ body: { result: true } }), { dir });
