@@ -22,6 +22,7 @@
 - [2026-10-07 用户三答] ① 发布范围 = **内部**（仓库 + release）；② 已入库的 skins / 键音 **迁出 git**（`git rm --cached`，历史不清）；③ 镜像 = **构建选集**（几 MB，不做全量归档备份）。
 - [2026-10-11 票 03 · 实现口径，用户已验收] 运行时素材 URL **一律跟构建 base**（`import.meta.env.BASE_URL`），不许写死站点根 —— Electron 生产包是 `file://`，绝对路径会解析到磁盘根。
 - [2026-10-11 用户拍板] 用户可见文案**只陈述事实、不摆开发者命令**：`npm run …` 是对开发者的话术（打包应用的使用者跑不了）；同理**不猜失败成因**（"没取件"与"路径解析不到"在这一层无法区分）→ 空态改为中性一句「加载失败 + 缺什么 + 可能原因」。取件入口只在 `package.json` / `scripts/README.md`。
+- [2026-10-14 票 05 · 用户拍板] README = **中英双文件**（`README.md` 中文默认 + `README.en.md` 全量对等，静态锁测防双语腐烂）；**LICENSE = MIT**（© 2026 AAO Editor，仅覆盖代码、不覆盖 Bestdori 素材，声明区块说清）；README 兼作宣传视频脚本素材，功能叙事以**谱面工程管理**为锚点、只述已发布功能；截图/GIF 落 `docs/media/readme/`，Electron 专属画面列本地补拍清单，随「公开分发」复审一并放行。
 
 ## Frontier
 
@@ -29,3 +30,4 @@
 - [02 素材迁出与内部镜像同步（无 CI）](./issues/02-素材迁出与内部镜像同步.md) — resolved（**主仓与素材解耦**：外部快照仓库自治（素材 + 生成注册表 + 抓取/构建/`update.sh` 自更新），主仓只 `npm run assets:sync` 取件、不含素材工具与 SHA 清单；实现 857f45bd，2026-10-09 用户验收通过）
 - [03 打包态（file://）仿真场素材读不到：素材前缀写死站点根](./issues/03-打包态仿真场素材读不到前缀写死站点根.md) — resolved（2026-10-11 用户验收通过）：素材前缀改跟 `import.meta.env.BASE_URL`（素材本就在包里，是 file:// 下绝对路径解析到磁盘根）
 - [04 AAO-Editor品牌与产品信息整改](./issues/04-AAO-Editor品牌与产品信息整改.md) — resolved（2026-10-12 定案：产品定名 AAO Editor（Advanced Arrangement Organizer），全套图标落位，元数据/外壳/UI/存储键收敛为 aao.*）
+- [05 README与LICENSE整改](./issues/05-README与LICENSE整改.md) — resolved（2026-10-14 定案并落地：双语 README + MIT LICENSE + 媒体实测 + 锁测；本地补拍清单与公开化门禁见票内）
