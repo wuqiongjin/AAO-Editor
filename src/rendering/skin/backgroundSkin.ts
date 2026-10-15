@@ -195,7 +195,34 @@ export class BackgroundSkinStore {
   ensureLoaded(): Promise<void> {
     if (this.loadedOnce) return this.queue;
     this.loadedOnce = true;
-    this.queue = this.queue.then(async () => {
+    this.queue = this.queue.then(() => this.loadOnce());
+    return this.queue;
+  }
+
+  /**
+   * 数据根切换后重新装载（chart-projects 39）。
+   *
+   * `ensureLoaded` 的 `loadedOnce` 幂等闸会让第二次调用直接返回旧快照——而 Electron 下图的
+   * 真身在 `<数据根>/assets/background-skin.bin`，主进程按**当前根**出字节：切根后不强制重读，
+   * 渲染侧就一直画着旧根的背景。reload 自带一次完整的装载周期（读盘 → 解码 → 换快照），
+   * 并把幂等闸关上（reload 之后 ensureLoaded 不再二次读盘）。
+   *
+   * 旧 URL 在**装载完成后**才回收：窗口期内旧快照仍是当前快照，订阅方不裂图。
+   */
+  reload(): Promise<void> {
+    this.loadedOnce = true;
+    const run = this.queue.then(async () => {
+      const staleUrl = this.snapshot.image?.url ?? null;
+      await this.loadOnce();
+      if (staleUrl && staleUrl !== this.snapshot.image?.url) this.ports.revokeUrl(staleUrl);
+    });
+    this.queue = run.catch(() => { /* 链条不断：reload 失败不堵住后续操作 */ });
+    return this.queue;
+  }
+
+  /** 一次完整装载周期：读盘 →（有图则）解码 → 换快照。读取/解码失败静默降级为无背景。 */
+  private loadOnce(): Promise<void> {
+    return (async () => {
       try {
         const blob = await this.ports.persist.load();
         if (!blob) {
@@ -209,8 +236,7 @@ export class BackgroundSkinStore {
         console.warn('[backgroundSkin] 装载失败（按无背景渲染）:', e);
         this.emit({ status: 'ready', image: null, revision: this.snapshot.revision });
       }
-    });
-    return this.queue;
+    })();
   }
 
   /** 上传并替换（Q4=1 张图）：保存 → 解码 → 快照换新。失败时抛错且不污染内存态。 */

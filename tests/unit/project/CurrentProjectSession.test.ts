@@ -2,7 +2,7 @@
 // issue 20 起当前工程跨刷新存活（指针注入内存实现，测试不碰真 localStorage）。
 import { describe, expect, it } from 'vitest';
 import { ChartProjectStore, type ChartProject, type ChartProjectBackend } from '@/src/project/ChartProject';
-import { CurrentProjectSession } from '@/src/project/CurrentProjectSession';
+import { CurrentProjectSession, shouldResetSessionAfterDataRootSwitch } from '@/src/project/CurrentProjectSession';
 import {
   CURRENT_PROJECT_POINTER_KEY,
   loadCurrentProjectPointer,
@@ -178,5 +178,23 @@ describe('CurrentProjectSession · 当前工程跨刷新（issue 20）', () => {
 
     const created = await sessionOf(new MemoryBackend(), 60, pointer).ensure();
     expect(loadCurrentProjectPointer(pointer)).toEqual({ projectId: created.project.id, chartId: created.chart.id });
+  });
+});
+
+describe('shouldResetSessionAfterDataRootSwitch（chart-projects 39：切根后的会话校验）', () => {
+  it('无会话（projectId=null）：没什么可重置的', () => {
+    expect(shouldResetSessionAfterDataRootSwitch(null, [saved({ id: 'p1', lastOpened: 1 })])).toBe(false);
+    expect(shouldResetSessionAfterDataRootSwitch(null, [])).toBe(false);
+  });
+
+  it('旧工程在新目录里存在（含同 id）：保留会话，不误重置', () => {
+    const listed = [saved({ id: 'p1', lastOpened: 1 }), saved({ id: 'p2', lastOpened: 2 })];
+    expect(shouldResetSessionAfterDataRootSwitch('p1', listed)).toBe(false);
+    expect(shouldResetSessionAfterDataRootSwitch('p2', listed)).toBe(false);
+  });
+
+  it('旧工程在新目录不存在：必须重置（否则工作台悬空 + 旧根内容可能写进新目录）', () => {
+    expect(shouldResetSessionAfterDataRootSwitch('pOld', [saved({ id: 'p1', lastOpened: 1 })])).toBe(true);
+    expect(shouldResetSessionAfterDataRootSwitch('pOld', [])).toBe(true);
   });
 });

@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Download, FolderOpen, FolderSearch, FolderSync, MonitorCog, Trash2, Upload } from 'lucide-react';
 import AppPageShell from '../../layouts/AppPageShell';
 import { useConfig } from '../../app/ProviderTree';
+import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import { CACHE_POLICY_RANGE, loadSettings } from '../../chart/config/AppSettings';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import { t, type MessageKey } from '../../i18n';
 import { clearSongCatalogCache } from '../../community/bestdori/songs';
+import { shouldResetSessionAfterDataRootSwitch } from '../../project/CurrentProjectSession';
+import { backgroundSkinStore } from '../../rendering/skin/backgroundSkin';
 
 // 设置页：接入 AppPageShell（Sidebar 扁平导航 + Body 设置详情），修改立即生效并持久化。
 type Section = 'appearance' | 'data';
@@ -115,6 +118,8 @@ function NumberRow({
 
 export default function SettingsPage() {
   const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setCachePolicy, setAllSettings } = useConfig();
+  // 切数据根的联动对象（chart-projects 39）：目录消费者通知 + 当前工程会话 + 存储门面
+  const { projectId, store, reset, notifyCatalogChanged } = useCurrentProject();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -139,16 +144,20 @@ export default function SettingsPage() {
     return () => { cancelled = true; };
   }, [dataRootApi]);
 
+  /** 拉一次缓存占用。`isCancelled` 供挂载 effect 防卸载后 setState；切根重拉走缺省（不取消）。 */
+  const loadCacheStats = useCallback((isCancelled: () => boolean = () => false) => {
+    if (!cacheApi) return;
+    cacheApi.stats()
+      .then((r) => { if (!isCancelled()) setCacheStats(r); })
+      .catch(() => { if (!isCancelled()) setCacheError(t('settings.cache.readFail')); });
+  }, [cacheApi]);
+
   useEffect(() => {
     if (!cacheApi) return;
     let cancelled = false;
-    cacheApi.stats().then((r) => {
-      if (!cancelled) setCacheStats(r);
-    }).catch(() => {
-      if (!cancelled) setCacheError(t('settings.cache.readFail'));
-    });
+    loadCacheStats(() => cancelled);
     return () => { cancelled = true; };
-  }, [cacheApi]);
+  }, [cacheApi, loadCacheStats]);
 
   const handleClearCache = async () => {
     if (!cacheApi || cacheBusy) return;
@@ -183,6 +192,30 @@ export default function SettingsPage() {
         return;
       }
       setDataRootPath(r.path);
+      // 换根才联动（chart-projects 39）：「打开数据目录」只是开文件管理器，根没变，
+      // 不必惊动各消费者；同目录重新认领 likewise。
+      if (r.path !== dataRootPath) {
+        // 主进程各 IPC（project:list / backgroundSkin / assetCache）都按**当前根**出数，
+        // 但渲染侧的单例与会话还停在旧根。38 的激活 reload 只盖住「切回工程页时列表重读」
+        // 这一条导航时序；这里补换根本身——递增 catalogEpoch，所有目录消费者即时刷新，
+        // 不依赖用户接下来点到哪一页。
+        //
+        // 次序：先作废按 id 的会话派生值（封面 Blob 稳定器 / lastOpened 下限）——新旧目录
+        // 可能出现同 id 工程，不丢就把旧根的 Blob 身份与时间戳漏给新盘；再校验会话；
+        // 最后统一通知（reset 与 notify 落同一次批处理，消费者看到的是结算后的状态）。
+        store.resetCatalogCaches();
+        const listed = await store.list().catch((err: unknown) => {
+          // 读新目录失败：不当作"旧工程消失了"（一次读错不该静默重置会话），跳过校验但仍通知
+          console.warn('[chart-project] 切根后读取新目录失败，跳过会话校验:', err);
+          return null;
+        });
+        if (listed && shouldResetSessionAfterDataRootSwitch(projectId, listed)) reset();
+        notifyCatalogChanged();
+        // 单例失效：背景皮肤重新装载（Electron 下图真身在 <数据根>/assets/background-skin.bin，
+        // 主进程按当前根出字节，渲染侧不重读就还画着旧根的图）；缓存占用按新根的 cacheDir 重拉。
+        void backgroundSkinStore.reload();
+        loadCacheStats();
+      }
     } catch {
       setDataRootError(failMessage);
     } finally {

@@ -169,3 +169,54 @@ describe('issue 29 · list() 进行中去重（启动预载与页面挂载共用
     await expect(store.list()).resolves.toHaveLength(1);
   });
 });
+
+describe('chart-projects 39 · resetCatalogCaches（切数据根：按 id 的会话派生值作废）', () => {
+  it('同 id 同尺寸封面：reset 后按新盘字节出新实例，不把旧根的 Blob 漏给新盘', async () => {
+    const backend = new ChurningBackend();
+    const store = new ChartProjectStore(backend);
+    // 旧根：p1 封面 3 字节
+    await store.save(project(coverOf([1, 2, 3])));
+    const oldCover = (await store.list())[0].coverBlob;
+
+    // 新根：同 id、同尺寸的另一张封面（拷贝/备份出来的目录）
+    await backend.save(project(coverOf([7, 7, 7])));
+    // 不 reset：尺寸没变 → 稳定器把旧根 Blob 顶回来（本票要防的漏值）
+    expect((await store.list())[0].coverBlob).toBe(oldCover);
+
+    store.resetCatalogCaches();
+    const after = (await store.list())[0].coverBlob;
+    expect(after).not.toBe(oldCover);
+    expect(after!.size).toBe(3);
+  });
+
+  it('lastOpened 下限记忆作废：reset 后旧根时间戳不再被 save 盖回新盘', async () => {
+    const backend = new ChurningBackend();
+    const store = new ChartProjectStore(backend);
+    // 旧根：p1 lastOpened=100 → store 的 floor 记忆=100
+    await store.save(project(coverOf([1, 2, 3])));
+    expect((await store.get('p1'))!.lastOpened).toBe(100);
+
+    // 新根（同 id）：lastOpened=50
+    await backend.save({ ...project(coverOf([1, 2, 3])), lastOpened: 50 });
+    await store.save((await backend.get('p1'))!);
+    expect((await backend.get('p1'))!.lastOpened).toBe(100); // 旧根的 floor 把新盘的 50 盖成 100
+
+    // reset 后：floor 作废，按新盘原值落
+    await backend.save({ ...project(coverOf([1, 2, 3])), lastOpened: 50 });
+    store.resetCatalogCaches();
+    await store.save((await backend.get('p1'))!);
+    expect((await backend.get('p1'))!.lastOpened).toBe(50);
+  });
+
+  it('reset 不影响正常读写：清完再 list/get 照常从盘上重建', async () => {
+    const backend = new ChurningBackend();
+    const store = new ChartProjectStore(backend);
+    await store.save(project(coverOf([1, 2, 3])));
+    store.resetCatalogCaches();
+
+    const listed = (await store.list())[0];
+    expect(listed.coverBlob).toBeDefined();
+    const got = await store.get('p1');
+    expect(got!.coverBlob).toBe(listed.coverBlob); // 重建后同一会话内再次稳定
+  });
+});

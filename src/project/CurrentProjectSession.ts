@@ -144,3 +144,17 @@ export class CurrentProjectSession {
     clearCurrentProjectPointer(this.pointerStorage);
   }
 }
+
+/**
+ * 切数据根后的会话校验（chart-projects 39）：当前工程 id 不在新目录的列表里 → 该重置。
+ *
+ * 不重置的后果不是"列表显示旧"这么轻：会话的内存指针还指着**旧根**的工程，
+ * 工作台的在飞防抖会把旧根内容写进新目录（38 的激活 flush 先写后读），
+ * 且新目录没有这个 id 时工作台状态悬空。同目录重新认领时列表里当然还有它，不会误重置。
+ */
+export function shouldResetSessionAfterDataRootSwitch(
+  projectId: string | null,
+  listed: readonly { id: string }[],
+): boolean {
+  return projectId != null && !listed.some((p) => p.id === projectId);
+}

@@ -203,6 +203,77 @@ describe('BackgroundSkinStore（最小模型三原语）', () => {
   });
 });
 
+describe('chart-projects 39 · reload（数据根切换后重新装载）', () => {
+  it('ensureLoaded 的幂等闸拦不住 reload：重读持久层、按新盘换快照（引用更替 + revision 推进）', async () => {
+    const state: FakePersistState = { blob: new Blob(['100x50']) };
+    const f = makePorts(state);
+    const store = new BackgroundSkinStore(f.ports);
+    await store.ensureLoaded();
+    const before = store.getSnapshot();
+
+    // 切到新根：另一张图（Electron 下 persist 读的是 <新数据根>/assets/background-skin.bin）
+    state.blob = new Blob(['800x600']);
+    await store.reload();
+
+    const snap = store.getSnapshot();
+    expect(snap).not.toBe(before);
+    expect(snap.image!.width).toBe(800);
+    expect(snap.revision).toBe(before.revision + 1);
+  });
+
+  it('reload 到无图目录：快照去图（ready + image=null）', async () => {
+    const state: FakePersistState = { blob: new Blob(['100x50']) };
+    const f = makePorts(state);
+    const store = new BackgroundSkinStore(f.ports);
+    await store.ensureLoaded();
+
+    state.blob = null;
+    await store.reload();
+
+    const snap = store.getSnapshot();
+    expect(snap.status).toBe('ready');
+    expect(snap.image).toBeNull();
+  });
+
+  it('reload 装载完成后才回收旧 URL（窗口期内旧快照仍是当前快照，订阅方不裂图）', async () => {
+    const state: FakePersistState = { blob: new Blob(['100x50']) };
+    const f = makePorts(state);
+    const store = new BackgroundSkinStore(f.ports);
+    await store.ensureLoaded();
+    const oldUrl = store.getSnapshot().image!.url;
+
+    state.blob = new Blob(['640x480']);
+    await store.reload();
+
+    expect(f.revoked).toContain(oldUrl);
+    expect(f.revoked).not.toContain(store.getSnapshot().image!.url); // 新 URL 不被误伤
+  });
+
+  it('reload 之后 ensureLoaded 仍走幂等闸：不再重读（快照不变）', async () => {
+    const state: FakePersistState = { blob: new Blob(['100x50']) };
+    const f = makePorts(state);
+    const store = new BackgroundSkinStore(f.ports);
+    await store.ensureLoaded();
+    await store.reload();
+    const afterReload = store.getSnapshot();
+
+    state.blob = new Blob(['999x999']);
+    await store.ensureLoaded();
+    expect(store.getSnapshot()).toBe(afterReload);
+  });
+
+  it('reload 早于首次 ensureLoaded（先切根后有人订阅）：也按一次装载结算', async () => {
+    const state: FakePersistState = { blob: new Blob(['320x240']) };
+    const f = makePorts(state);
+    const store = new BackgroundSkinStore(f.ports);
+
+    await store.reload();
+    expect(store.getSnapshot().image!.width).toBe(320);
+    await store.ensureLoaded(); // 幂等闸已由 reload 关上，不二次读盘
+    expect(store.getSnapshot().image!.width).toBe(320);
+  });
+});
+
 describe('issue 117 · Electron 背景图文件 persist（桥注入）', () => {
   it('文件已有字节则不读 IndexedDB', async () => {
     const persist = createElectronBackgroundPersist(

@@ -367,6 +367,20 @@ export class ChartProjectStore {
     return this.backend.delete(id);
   }
 
+  /**
+   * 作废按工程 id 记的会话内派生值（chart-projects 39，切换数据根时调）。
+   *
+   * `lastOpenedFloor`（save 的时间戳下限）与 `coverInstances`（封面 Blob 稳定器）都按 id 记、
+   * 且只在 delete 时清理。切换数据根后，新旧目录可能出现**同 id 工程**（拷贝 / 备份出来的目录）——
+   * 不丢的话：封面稳定器把旧根的 Blob 实例漏给新盘（同名同尺寸即漏，issue 21 的盲区在这里显形），
+   * lastOpenedFloor 把旧根的时间戳盖回新盘记录（污染排序键与 hero 选中锚）。
+   * 根变换 = 整个目录的身份作废，必须显式清（与"别的进程改了封面"那种盲区不同）。
+   */
+  resetCatalogCaches(): void {
+    this.lastOpenedFloor.clear();
+    this.coverInstances.clear();
+  }
+
   /** 读/写路径共用的封面实例稳定化：返回的工程一定带着"本会话认得的那个"封面 Blob 实例。 */
   private stabilizeCover(project: ChartProject): ChartProject {
     const fresh = project.coverBlob;
