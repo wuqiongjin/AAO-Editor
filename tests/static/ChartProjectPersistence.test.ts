@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { repoRoot } from '@/tests/support/source';
+import { repoRoot, readStripped } from '@/tests/support/source';
 
 const hookSrc = readFileSync(
   join(repoRoot, 'src/project/useChartProjectPersistence.ts'),
@@ -52,5 +52,31 @@ describe('useChartProjectPersistence · 落盘实例生命周期（issue 64）',
   it('读写当前工程 id，不再写死单一 workspace 工程', () => {
     expect(codeOnly).toMatch(/projectId/);
     expect(codeOnly).not.toMatch(/WORKSPACE_PROJECT_ID|'workspace'/);
+  });
+});
+
+// issue 35：lastModified 戳机口径立档。旧实现在 buildProject() 里无条件 `lastModified: now`
+// ——依赖抖动（时长/音频同步、切 tab flush）也重戳，谱面行「N 分钟前」被读成「上次编辑」，
+// 还污染 hub「最近修改」排序键（projectLastModified = max(charts.lastModified)）。
+// 钉法：戳机口径不许内联回 hook，必须走 stampChartModified；模块自身必须保留条件判断。
+describe('useChartProjectPersistence · lastModified 条件戳（issue 35）', () => {
+  it('hook 内不再出现任何 lastModified 字样（戳机口径收口到 chartModifiedStamp）', () => {
+    expect(codeOnly).not.toMatch(/lastModified/);
+  });
+
+  it('谱面记录改写道经 stampChartModified（条件戳的唯一入口）', () => {
+    expect(codeOnly).toMatch(/stampChartModified\(/);
+  });
+
+  it('戳机模块按「真变才戳」实现（把条件判断改回无条件 now，本条红）', () => {
+    const stampSrc = readStripped('src/project/chartModifiedStamp.ts');
+    expect(stampSrc).toMatch(/lastModified:\s*modified\s*\?/);
+    expect(stampSrc).toMatch(/chart\.lastModified/);
+  });
+
+  it('戳机判据含保真两字段（appliedChartCodeText / chartCodePristine）', () => {
+    const stampSrc = readStripped('src/project/chartModifiedStamp.ts');
+    expect(stampSrc).toMatch(/appliedChartCodeText/);
+    expect(stampSrc).toMatch(/chartCodePristine/);
   });
 });

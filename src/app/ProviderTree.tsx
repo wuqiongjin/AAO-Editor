@@ -6,6 +6,7 @@
 //        → Playback（播放编排状态）
 //        → UI（工作台 UI 状态）
 //        → Editing（最内层，选区/历史最终被画布消费）
+//        → Now（issue 36：relTime 的共享 ticker，无依赖，贴最内层即可）
 //
 // 详见 /workspace/.scratch/basic-editor/issues/48-src-目录整改与按域重组.md
 import type { ReactNode } from 'react';
@@ -15,6 +16,7 @@ import { EditingProvider } from './providers/EditingProvider';
 import { PlaybackProvider } from './providers/PlaybackProvider';
 import { AudioSessionRoot } from './providers/AudioSessionRoot';
 import { CurrentProjectProvider } from './providers/CurrentProjectProvider';
+import { NowProvider } from './providers/NowProvider';
 
 export { useConfig } from './providers/ConfigProvider';
 export type { ConfigContextValue } from './providers/ConfigProvider';
@@ -27,6 +29,7 @@ export type { PlaybackContextValue } from './providers/PlaybackProvider';
 export { useAudioSession } from './providers/AudioSessionProvider';
 export { useCurrentProject } from './providers/CurrentProjectProvider';
 export type { CurrentProjectContextValue } from './providers/CurrentProjectProvider';
+export { useNow, NOW_TICK_MS } from './providers/NowProvider';
 
 export function ProviderTree({ children }: { children: ReactNode }) {
   return (
@@ -35,7 +38,9 @@ export function ProviderTree({ children }: { children: ReactNode }) {
         <AudioSessionRoot>
           <PlaybackProvider>
             <UIProvider>
-              <EditingProvider>{children}</EditingProvider>
+              <EditingProvider>
+                <NowProvider>{children}</NowProvider>
+              </EditingProvider>
             </UIProvider>
           </PlaybackProvider>
         </AudioSessionRoot>

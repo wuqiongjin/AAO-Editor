@@ -174,6 +174,38 @@ describe('electron/projectStore · 真文件往返', () => {
     }
   });
 
+  it('audioPresent:true 但 audio.bin 缺失 → getProject 降级不炸、doc 原地不动（33 票：半态记录的来源）', async () => {
+    const root = tmpDir('aao-proj-fs-');
+    try {
+      // 手工摆出「用户偷偷删了 audio.bin」的磁盘形状：doc 说有音频，字节不在
+      const dir = join(root, 'projects', 'pMissing');
+      mkdirSync(dir, { recursive: true });
+      const durableDoc = doc({ name: 'M', audioName: '没了的歌.mp3', audioIntent: 'set' });
+      delete (durableDoc as Record<string, unknown>).audioIntent;
+      delete (durableDoc as Record<string, unknown>).coverIntent;
+      writeFileSync(join(dir, 'project.json'), JSON.stringify({
+        ...durableDoc,
+        audioPresent: true,
+        coverPresent: false,
+      }));
+
+      const got = await getProject(root, 'pMissing');
+      if (!got) throw new Error('expected pMissing');
+      // doc 原地不动：audioName 旧名、audioPresent 仍 true（半态由渲染层 projectFromRecord 制造，
+      // 工作台据此判「音频文件丢失」——33 票的丢失信号）
+      expect(got.doc.audioName).toBe('没了的歌.mp3');
+      expect(got.doc.audioPresent).toBe(true);
+      // 字节按无数据返回（readBinIfPresent 的降级），不抛
+      expect(got.audio).toBeNull();
+
+      // list 同口径：不读音频字节，doc 原样列出
+      const listed = await listProjects(root);
+      expect(listed.map((p: { id: string }) => p.id)).toEqual(['pMissing']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('票 11 · uploadRefs：音频 / 封面的路径 + 字节数 + SHA-1（字节不过 IPC）', async () => {
     const root = tmpDir('aao-proj-uploadrefs-');
     try {

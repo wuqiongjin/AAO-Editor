@@ -196,6 +196,31 @@ describe('AudioSession · importAudio / clearAudio / dismissError', () => {
     expect(persist).not.toHaveBeenCalled();
   });
 
+  // 33 票：负载落定代数是「解码已完成」的信号——替换检测依赖它（时长值担不起：
+  // 切工程时新旧音频同时长，audioDuration 不变、快照浅比较不重渲染，检测会整条漏掉）。
+  it('audioLoadGeneration：每次负载落定（解码完成 / 清除 / 无音频 hydrate）+1', async () => {
+    const { factory } = makeFactory();
+    const s = new AudioSession({ engineFactory: factory, keySetId: 'skin00', seVolume: 1 });
+    expect(s.getSnapshot().audioLoadGeneration).toBe(0);
+
+    // 无音频 hydrate：同步落定
+    s.hydrateFromProject({ audioName: null, durationSeconds: 45 });
+    expect(s.getSnapshot().audioLoadGeneration).toBe(1);
+
+    // 有音频 hydrate：同步那一跳不落定（解码在飞），解码完成才 +1
+    s.hydrateFromProject({ audioName: 'a.mp3', audioBlob: new Blob([new Uint8Array([1])]), durationSeconds: 90 });
+    expect(s.getSnapshot().audioLoadGeneration).toBe(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.getSnapshot().audioLoadGeneration).toBe(2);
+
+    // 导入同样在解码落地时 +1；清除同步 +1
+    s.importAudio(new File([new Uint8Array([1])], 'b.mp3'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.getSnapshot().audioLoadGeneration).toBe(3);
+    s.clearAudio();
+    expect(s.getSnapshot().audioLoadGeneration).toBe(4);
+  });
+
   it('dismissError：仅在 audioError 非空时清空，emit 一次', async () => {
     const failFactory = (): AudioEngine => {
       const f = new FakeAudioEngine();

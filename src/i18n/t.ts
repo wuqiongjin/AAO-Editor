@@ -7,9 +7,20 @@ export type MessageVars = Record<string, string | number>;
 
 const FALLBACK: UiLanguage = 'zh-CN';
 
-const DICTS: Record<UiLanguage, Record<string, string>> = {
+/** 全语言消息表。导出供 parity 锁测（`tests/unit/i18n/tPlural.test.ts`）引用——新增语言在此登记，锁测自动覆盖。 */
+export const DICTS: Record<UiLanguage, Record<string, string>> = {
   'zh-CN': zhCN as Record<string, string>,
   en: en as Record<string, string>,
+};
+
+/**
+ * UiLanguage → `Intl.PluralRules` 的 BCP-47 tag。**数据驱动**：新增界面语言必须在这里加一项
+ * —— `Record<UiLanguage, …>` 漏加直接编译红（issue 34：为计划中的日语铺路，不允许再出现
+ * 「非 zh-CN 一律按 en 规则办」的硬编码二分）。
+ */
+export const PLURAL_TAGS: Record<UiLanguage, string> = {
+  'zh-CN': 'zh-CN',
+  en: 'en',
 };
 
 let activeUiLanguage: UiLanguage = 'zh-CN';
@@ -57,13 +68,16 @@ export function tFor(locale: UiLanguage, key: MessageKey, vars?: MessageVars): s
   return lookupMessage(locale, key, vars);
 }
 
-/** 英语 one/other；中文 CLDR 只有 other。 */
+/**
+ * 复数取键：类别 = **该语言自己的** `Intl.PluralRules` 选出（one/other，未来语言可能更多），
+ * 键按类别原样拼（`<base>.<category>`）。英语 one/other；中文 CLDR 只有 other。
+ * 类别键缺失（新语言多了类别但消息表没补）→ 回落 `.other`，不把键名当文案吐给用户；
+ * 缺键由 `tests/unit/i18n/tPlural.test.ts` 的 parity 锁在看守。
+ */
 export function tPlural(keyBase: string, count: number, vars?: MessageVars): string {
   const locale = activeUiLanguage;
-  const tag = locale === 'zh-CN' ? 'zh-CN' : 'en';
-  const category = new Intl.PluralRules(tag).select(count);
-  const suffix = category === 'one' ? 'one' : 'other';
-  const key = `${keyBase}.${suffix}`;
+  const category = new Intl.PluralRules(PLURAL_TAGS[locale]).select(count);
+  const key = `${keyBase}.${category}`;
   const found = lookupMessage(locale, key, { count, ...vars });
   if (found !== key) return found;
   return lookupMessage(locale, `${keyBase}.other`, { count, ...vars });

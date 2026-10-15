@@ -25,8 +25,12 @@ import { isChartReadonly, isChartEditFunction } from '../../project/chartReadonl
 import { isProjectAudioLocked } from '../../project/workspaceProject';
 import { duplicateChartInProject } from '../../project/projectCatalog';
 import { mutateProject } from '../../project/ChartProjectRecord';
-import { newChartId } from '../../project/ChartProject';
+import { newChartId, type ChartProject } from '../../project/ChartProject';
 import { untitledProjectLabel } from '../../project/ui/projectUi';
+import { useAppNav } from '../../layouts/AppNav';
+import type { ProjectAudioDeps } from '../../audio/projectAudio';
+import AudioAnomalyBanner from './AudioAnomalyBanner';
+import { useAudioAnomaly } from './useAudioAnomaly';
 import { t } from '../../i18n';
 
 interface EditorProps {
@@ -165,7 +169,28 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     [audioSnap.audioName, audioSession],
   );
 
-  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged } = useCurrentProject();
+  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged, flushPersist } = useCurrentProject();
+  const { setActivePage } = useAppNav();
+
+  // === 33 票：音频资源异常的检测与对齐（工作台 hydrate 路径） ===
+  // 丢失（半态）在恢复时判；替换等解码落地（audioLoadGeneration +1）后判。写路径收口
+  // projectAudio 接缝（realignProjectAudio / clearProjectAudio force），与音频页同口径。
+  const audioAnomalyDeps = useMemo<ProjectAudioDeps>(() => ({
+    store,
+    currentProjectId: projectId,
+    flushPersist,
+    notifyCatalogChanged,
+  }), [store, projectId, flushPersist, notifyCatalogChanged]);
+  const audioAnomaly = useAudioAnomaly({
+    projectId,
+    deps: audioAnomalyDeps,
+    audioDuration: audioSnap.audioDuration,
+    audioLoadGeneration: audioSnap.audioLoadGeneration,
+    goToAudioPage: useCallback(() => {
+      // 重新导入 = 带作用域跳音频页（票 22 既有机制）：不切当前工程，直接去管它的音频
+      if (projectId != null) setActivePage('audio', { scope: { projectId } });
+    }, [projectId, setActivePage]),
+  });
 
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
@@ -204,7 +229,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // 当前工程恢复（ADR-0015 §3）：切工程时整份编辑态换成新工程，剪贴板由 resetNotes 保留。
   const handleProjectRestore = useCallback(async (
-    project: import('../../project/ChartProject').ChartProject,
+    project: ChartProject,
     chart: import('../../project/ChartProject').ProjectChart,
     opts: { restoreAudio: boolean },
   ) => {
@@ -238,7 +263,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       audioLocked,
     });
     audioSession.setAudioLocked(audioLocked);
-  }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, setMarker]);
+    // 33 票：音频资源异常检测落在 hydrate 路径——丢失（半态）这里就判；
+    // 替换等解码落地（会话时长落到音频实际值）后由 useAudioAnomaly 的 effect 判。
+    audioAnomaly.noteRestoredProject(project, opts);
+  }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, setMarker, audioAnomaly]);
 
   // 记录侧音频变更（票 15 定案 8 的不变量）：音频页按作用域直接写了当前工程记录的音频，
   // 而这条路上没有新谱面——所以只把音频重新对齐，不走 handleProjectRestore（它会 resetNotes，
@@ -280,10 +308,20 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   useEffect(() => {
     audioSession.setPersistNow(persistNow);
   }, [audioSession, persistNow]);
+  // persist flush 的注册必须**挂载一次、句柄稳定**（issue 38 复验的注册侧契约）。
+  // persistNow 每次渲染都是新闭包（persistence 对象每渲染新建）：按 [persistNow] 依赖注册
+  // 会让本 effect 在每次重渲染时先 cleanup（registerPersistFlush(null)）再 setup，而 React
+  // 一个 commit 内先跑完整个 cleanup 阶段再跑 setup 阶段，setup 又按树序——工程页在树序里
+  // 排在工作台**之前**，于是"回工程页"那一提交里，工程页激活 effect 的 flushPersist() 打到
+  // 的是刚被 cleanup 清空的注册柄，在飞防抖笔落不了盘（预览/音频页没踩到，只因它们树序排在
+  // 工作台之后、setup 时注册已恢复）。用 ref 包一层最新句柄、依赖只剩稳定的
+  // registerPersistFlush：churn 与竞态一并消除（与 registerRestoreWaiter 的稳定注册同范式）。
+  const persistNowRef = useRef(persistNow);
+  persistNowRef.current = persistNow;
   useEffect(() => {
-    registerPersistFlush(persistNow);
+    registerPersistFlush(() => persistNowRef.current());
     return () => registerPersistFlush(null);
-  }, [persistNow, registerPersistFlush]);
+  }, [registerPersistFlush]);
 
   // === 会话流 5：布局持久化（issue 22 §6 / ADR-0003 §6） ===
   useLayoutPersistence({ settings, ui, setLayout });
@@ -527,6 +565,18 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             <WorkspaceDisplayPanel />
           </div>
         </div>
+
+        {/* 33 票：音频资源异常横幅（丢失 / 被替换）——hydrate 路径检出，动作收口 projectAudio */}
+        {audioAnomaly.anomaly && (
+          <AudioAnomalyBanner
+            anomaly={audioAnomaly.anomaly}
+            busy={audioAnomaly.busy}
+            onReimport={audioAnomaly.reimport}
+            onClearRecord={() => void audioAnomaly.clearRecordAudio()}
+            onRealign={() => void audioAnomaly.realign()}
+            onDismiss={audioAnomaly.dismiss}
+          />
+        )}
 
         {/* 谱面画布滚动容器 */}
         <div ref={chartAreaRef} style={{

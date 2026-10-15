@@ -1,11 +1,11 @@
 // 工程管理页（chart-projects 04 / ADR-0015 §2）：一层两个视图。
 // 默认工程启动台；点封面进工程详情。保活挂载，⇧⌘0 回来停在离开前那一层。
 // 本文件只留：双视图调度 + state / handlers + 弹窗编排；两个视图与弹窗分别住在 components/。
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Copy, FolderPlus, MoreHorizontal, Music4, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
-import { getCommunityAccount } from '../../community/bestdori/account';
+import { useCommunitySessionStart } from './useCommunitySessionStart';
 import { createCommunityTransport, hasCommunityNet } from '../../community/electronTransport';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import {
@@ -45,10 +45,11 @@ import {
   type CommunityImportStage,
 } from './communityImport';
 import { ProjectStartView } from './components/ProjectHub';
+import { NewProjectButton } from './components/NewProjectButton';
 import { ProjectDetail } from './components/ProjectDetail';
 import './ProjectsPage.css';
 
-export default function ProjectsPage() {
+export default function ProjectsPage({ active = true }: { active?: boolean }) {
   const { activePage, setActivePage } = useAppNav();
   const { settings, setProjectSort, setProjectListWidth } = useConfig();
   const {
@@ -72,13 +73,8 @@ export default function ProjectsPage() {
   const communityTransport = useMemo(() => createCommunityTransport(), []);
   const importSources = hasCommunityNet();
 
-  // 会话唯一真相的**启动校验**（票 10）：还原那份被 safeStorage 加密的会话 Cookie，
-  // 并查一次 `GET /api/user/me`。没有会话时一条请求都不发；平台不认了就转未登录
-  // （读能力照旧可用，写能力变灰，不弹窗、不白屏）。`start()` 幂等，StrictMode 的双跑也只发一次。
-  useEffect(() => {
-    if (!importSources) return;
-    void getCommunityAccount().start();
-  }, [importSources]);
+  // 社区会话的启动校验（票 10）：有出口才还原加密会话并查一次 me（细节见 hook）
+  useCommunitySessionStart(importSources);
 
   const goDetail = useCallback((id: string) => {
     setNavDir('forward');
@@ -98,6 +94,28 @@ export default function ProjectsPage() {
   }, [store]);
 
   useEffect(() => { void reload(); }, [reload, catalogEpoch]);
+
+  // 每次被激活（保活页从隐藏变可见，issue 38）时先 flush 再重读一次。列表的数据源是**工程记录**，
+  // 而记录被工作台以 800ms 防抖落盘——防抖那笔落地时**不通知目录**，切页也不 flush：只靠
+  // catalogEpoch 的话，从工作台回来看到的还是"上次进来那一刻"的快照（正好晚一次导航）。
+  // 唯一会把工作台编辑刷进本页的 notifyCatalogChanged 发生在**点进工作台那一刻**（setCurrent），
+  // 对"这次编辑"鞭长莫及。激活是"用户真的在看它了"的时刻，与 usePreviewScope / useAudioScope
+  // 同一个范式（预览页 2026-10-05 验收踩过同一坑：重置谱面后切预览仍见旧音符）。
+  // hub 卡片与详情谱面行的音符数同出一个 `projects` state，一处修两边好。
+  // 先 flush 再 reload 的次序是这条修法的命门（静态锁 tests/static/ProjectsActiveReload.test.ts）：
+  // 不 flush 就读，读到的是防抖窗口前的旧记录。
+  const wasActiveRef = useRef(active);
+  useEffect(() => {
+    if (!(active && !wasActiveRef.current)) {
+      wasActiveRef.current = active;
+      return;
+    }
+    wasActiveRef.current = true;
+    void (async () => {
+      await flushPersist();
+      await reload();
+    })();
+  }, [active, flushPersist, reload]);
 
   // 整记录读-改-写走唯一写入口（次序：flush → get → fn → save → notify）；
   // reload 是本页自己的下一步，不属记录模块。
@@ -306,15 +324,6 @@ export default function ProjectsPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activePage, detailId, list]);
-
-  // 详情页左栏选中项自动滚入视口（issue 23 Q12/Q13）——与 hub 那份同参数。
-  // 索引必须与渲染序（`list`）对齐：左栏渲染的是 `list.map(...)`，用 `projects` 会错位。
-  useEffect(() => {
-    if (!detailId) return;
-    document.querySelectorAll<HTMLElement>('.pc-item').forEach((item, i) => {
-      if (list[i]?.id === detailId) item.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-    });
-  }, [detailId, list]);
   // issue 09：有工程（哪怕全已完成）横幅常显；issue 14：横幅内容由 ProjectStartView 的
   // selectedId 驱动（默认选中 = 最近打开，Q11），resume 兜底不再参与。
 
@@ -411,21 +420,7 @@ export default function ProjectsPage() {
   );
 
   const newButton = (
-    <span className="pp-split">
-      <button type="button" className="pp-btn pp-btn--primary" onClick={() => setNewSource('blank')}>
-        <Plus size={15} />{t('projects.newProject')}
-      </button>
-      <Menu trigger={<button type="button" className="pp-btn pp-btn--primary pp-split__caret"><ChevronDown size={15} /></button>}>
-        <ProjectMenuItem icon={<FolderPlus size={14} />} label={t('projects.newBlank')} onClick={() => setNewSource('blank')} />
-        <ProjectMenuItem icon={<Copy size={14} />} label={t('projects.newCopy')} onClick={() => setNewSource('copy')} disabled={list.length === 0} />
-        {importSources && (
-          <>
-            <ProjectMenuItem icon={<Music4 size={14} />} label={t('projects.newOfficial')} onClick={() => setNewSource('official')} />
-            <ProjectMenuItem icon={<Users size={14} />} label={t('projects.newCommunity')} onClick={() => setNewSource('community')} />
-          </>
-        )}
-      </Menu>
-    </span>
+    <NewProjectButton onNew={setNewSource} canCopy={list.length > 0} importSources={importSources} />
   );
 
   const projectMenu = (p: ChartProject) => (
@@ -463,11 +458,11 @@ export default function ProjectsPage() {
             listWidth={settings.layout.projectList.width}
             onListWidthChange={setProjectListWidth}
             newButton={newButton}
+            sort={sortKey}
             onHome={goHome}
             onSelect={goDetail}
             onOpen={enterWorkspace}
             onEdit={setEditing}
-            onCopy={(id) => void copyProject(id)}
             onDelete={setAskDelete}
             onChartForm={setChartForm}
             onDeleteChart={setAskDeleteChart}

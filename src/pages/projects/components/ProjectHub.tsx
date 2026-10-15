@@ -3,14 +3,15 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Copy, FolderPlus, Music2, Music4, Play, Users } from 'lucide-react';
 import type { ChartProject } from '../../../project/ChartProject';
 import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT } from '../../../project/projectCatalog';
-import { mostRecentlyOpenedId, PROJECT_SORT_KEYS, type ProjectSortKey } from '../../../project/projectSort';
+import { mostRecentlyOpenedId, PROJECT_SORT_KEYS, projectTimeAt, type ProjectSortKey } from '../../../project/projectSort';
 import { chartStatus } from '../../../project/workspaceProject';
 import { displayProjectName } from '../../../project/ui/projectUi';
 import { useAppNav } from '../../../layouts/AppNav';
+import { useNow } from '../../../app/ProviderTree';
 import EmptyState from '../../../ui/EmptyState';
 import LoadingShimmer, { useSlowLoading } from '../../../ui/LoadingShimmer';
 import { t } from '../../../i18n';
-import { effectiveTitle, relTime, statusLabel } from '../projectFormat';
+import { effectiveTitle, projectTimeTag, relTime, statusLabel } from '../projectFormat';
 import { moveGridSelection } from '../projectGridSelection';
 import { Cover, StatusBadge } from './ProjectBits';
 import type { NewSource } from './ProjectDialogs';
@@ -77,6 +78,9 @@ export function ProjectStartView({
   importSources?: boolean;
 }) {
   const { activePage } = useAppNav();
+  // relTime 的 now 走共享 ticker（issue 36）：30s 一跳，「N 分钟前」随时间自己走，
+  // 不再"切走再切回来才变"。
+  const now = useNow();
   const gridRef = useRef<HTMLDivElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [columns, setColumns] = useState(1);
@@ -155,6 +159,9 @@ export function ProjectStartView({
 
   // hero 是选中卡片的投影（选中失效时 = 最近打开，横幅不闪空）
   const selected = list.find((p) => p.id === effectiveSelectedId) ?? list[0];
+  // 列表时间戳跟随排序键（issue 37）：hero 的完整标签也随排序切——顺序按
+  // max(charts.lastModified) 排时，标签不能还写死「上次打开」。选中锚不动（仍 = 最近打开）。
+  const heroTimeKey = sort === 'lastModified' ? 'projects.lastModified' : 'projects.lastOpened';
   return (
     <div className="pb-page">
       {!ready && <PendingHero shimmer={pendingShimmer} />}
@@ -168,7 +175,7 @@ export function ProjectStartView({
               {displayProjectName(selected)}
               <button type="button" className="pb-hero__detail" onClick={() => onDetail(selected.id)}>{t('projects.detailLink')}</button>
             </h2>
-            <p className="pp-muted">{selected.artist ?? t('projects.artistMissing')} · {t('projects.lastOpened', { time: relTime(selected.lastOpened) })}</p>
+            <p className="pp-muted">{selected.artist ?? t('projects.artistMissing')} · {t(heroTimeKey, { time: relTime(projectTimeAt(selected, sort), now) })}</p>
             <div className="pb-hero__charts">
               {selected.charts.map((c) => (
                 <button key={c.id} type="button" className="pb-chart-btn" onClick={() => onOpen(selected.id, c.id)}>
@@ -263,7 +270,7 @@ export function ProjectStartView({
                 </button>
               </div>
               <b className={p.name ? '' : 'pp-muted'}>{displayProjectName(p)}</b>
-              <small className="pp-muted">{p.artist ?? '—'} · {relTime(p.lastOpened)}</small>
+              <small className="pp-muted">{p.artist ?? '—'} · {projectTimeTag(sort)} {relTime(projectTimeAt(p, sort), now)}</small>
               <span className="pb-card__dots">
                 {p.charts.map((c) => (
                   <span

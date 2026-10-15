@@ -14,9 +14,12 @@ import {
 import { createUnnamedProject } from '@/src/project/workspaceProject';
 import { MAX_DURATION_SECONDS } from '@/src/chart/config/AppSettings';
 import {
+  audioBytesLost,
+  audioDurationMismatch,
   clearProjectAudio,
   importProjectAudio,
   readProjectAudio,
+  realignProjectAudio,
   setProjectAudioDuration,
   type ProjectAudioDeps,
 } from '@/src/audio/projectAudio';
@@ -267,5 +270,114 @@ describe('票 08 · 换音频即改归属（Q12）', () => {
 
     expect(disk.get('pBandori')!.source).toEqual({ type: 'custom' });
     expect(disk.get('pBandori')!.audioName).toBeNull();
+  });
+});
+
+// 33 票：音频资源异常的检测与对齐（被替换 / 被删除）——两个信号 + 两条修复写路径。
+describe('票 33 · 异常检测纯函数', () => {
+  it('替换信号：差 > 0.5s 才触发（0.4 不触发 / 0.6 触发 / 边界 0.5 不触发）', () => {
+    expect(audioDurationMismatch(90, 90.4)).toBe(false);
+    expect(audioDurationMismatch(90, 90.6)).toBe(true);
+    expect(audioDurationMismatch(90, 90.5)).toBe(false); // 严格大于
+    expect(audioDurationMismatch(90, 89.6)).toBe(false); // 低 0.4s
+    expect(audioDurationMismatch(90, 89.4)).toBe(true); // 低 0.6s
+  });
+
+  it('替换信号：无音频（actualSeconds = null）不触发——调用方解码完成后才问这一句', () => {
+    expect(audioDurationMismatch(90, null)).toBe(false);
+  });
+
+  it('丢失信号三态：有字节不触发 / 无音频不触发 / 半态（audioName 在、字节不在）触发', () => {
+    // 有字节
+    expect(audioBytesLost({ audioName: 'a.mp3', audioBlob: new Blob([new Uint8Array([1])]) })).toBe(false);
+    // 无音频（名字与字节都不在）
+    expect(audioBytesLost({ audioName: null, audioBlob: undefined })).toBe(false);
+    // 半态：主进程读 audio.bin 失败降级出的形状（projectStore.readBinIfPresent → null 字节）
+    expect(audioBytesLost({ audioName: 'a.mp3', audioBlob: undefined })).toBe(true);
+  });
+});
+
+describe('票 33 · 修复写路径（不走锁闸：记录与字节对齐，不是换音频）', () => {
+  it('realignProjectAudio 写入形状：时长变、source 变 custom、audioName 不变', async () => {
+    const { store, disk } = memoryStore([
+      project('pRealign', {
+        source: { type: 'bandori', id: 29 },
+        audioName: '旧名.mp3',
+        audioBlob: new Blob([new Uint8Array([1])]),
+        durationSeconds: 90,
+      }),
+    ]);
+    const deps: ProjectAudioDeps = { store, currentProjectId: null, notifyCatalogChanged: () => {} };
+
+    expect(await realignProjectAudio(deps, 'pRealign', 145.4)).toEqual({ ok: true });
+
+    const after = disk.get('pRealign')!;
+    expect(after.durationSeconds).toBe(145.4);
+    expect(after.source).toEqual({ type: 'custom' });
+    expect(after.audioName).toBe('旧名.mp3'); // 外部替换拿不到新文件名：纯展示字段不动
+    expect(after.audioBlob).toBeInstanceOf(Blob); // 字节原样保留
+  });
+
+  it('realignProjectAudio 对锁定工程也写得进——与 importProjectAudio 的锁闸刻意相反', async () => {
+    const { store, disk } = memoryStore([lockedProject('pLocked')]);
+    const deps: ProjectAudioDeps = { store, currentProjectId: 'pLocked', notifyCatalogChanged: () => {} };
+
+    expect(await realignProjectAudio(deps, 'pLocked', 200)).toEqual({ ok: true });
+
+    expect(disk.get('pLocked')!.durationSeconds).toBe(200);
+    expect(disk.get('pLocked')!.source).toEqual({ type: 'custom' });
+  });
+
+  it('realignProjectAudio：非法时长拒写；无音频名的记录无从对齐（整笔不写）', async () => {
+    const { store, disk } = memoryStore([
+      project('pNoAudio'),
+      project('pHalf', { audioName: '半态.mp3', durationSeconds: 90 }),
+    ]);
+    const deps: ProjectAudioDeps = { store, currentProjectId: null, notifyCatalogChanged: () => {} };
+
+    expect(await realignProjectAudio(deps, 'pHalf', Number.NaN)).toEqual({ ok: false, reason: 'invalid' });
+    expect(await realignProjectAudio(deps, 'pNoAudio', 120)).toEqual({ ok: true }); // skip = 无需改动
+    expect(disk.get('pNoAudio')!.durationSeconds).toBe(30); // 记录一个字没动
+    expect(disk.get('pHalf')!.durationSeconds).toBe(90);
+  });
+
+  it('半态工程 clearProjectAudio(force)：audioName 清、source 翻 custom、锁定工程也写得进', async () => {
+    const { store, disk } = memoryStore([
+      // 半态：记录说有音频，字节已丢（audioPresent:true 但 audio.bin 不在）
+      project('pHalf', {
+        source: { type: 'bandori', id: 29 },
+        audioName: '丢了的歌.mp3',
+        durationSeconds: 90,
+      }),
+    ]);
+    const deps: ProjectAudioDeps = { store, currentProjectId: 'pHalf', notifyCatalogChanged: () => {} };
+
+    expect(await clearProjectAudio(deps, 'pHalf', true)).toEqual({ ok: true });
+
+    const after = disk.get('pHalf')!;
+    expect(after.audioName).toBeNull();
+    expect(after.source).toEqual({ type: 'custom' });
+    expect(after.durationSeconds).toBe(90); // 时长保留（与普通清除同口径）
+
+    // 锁定工程上的 force 清除同样穿过锁闸（幽灵音频不除，工程永远卡在半态）
+    const { store: lockedStore, disk: lockedDisk } = memoryStore([{
+      ...lockedProject('pLockedHalf'),
+      audioBlob: undefined, // 半态：锁定工程的音频字节也照样会丢
+    }]);
+    const lockedDeps: ProjectAudioDeps = {
+      store: lockedStore, currentProjectId: 'pLockedHalf', notifyCatalogChanged: () => {},
+    };
+    expect(await clearProjectAudio(lockedDeps, 'pLockedHalf', true)).toEqual({ ok: true });
+    expect(lockedDisk.get('pLockedHalf')!.audioName).toBeNull();
+    expect(lockedDisk.get('pLockedHalf')!.source).toEqual({ type: 'custom' });
+  });
+
+  it('不带 force 的清除照旧被锁闸挡（音频页 UI 禁用不变，纵深防御不松）', async () => {
+    const { store, disk } = memoryStore([lockedProject('pLocked')]);
+    const before = { ...disk.get('pLocked')! };
+    const deps: ProjectAudioDeps = { store, currentProjectId: 'pLocked', notifyCatalogChanged: () => {} };
+
+    expect(await clearProjectAudio(deps, 'pLocked')).toEqual({ ok: false, reason: 'locked' });
+    expect(disk.get('pLocked')).toEqual(before);
   });
 });

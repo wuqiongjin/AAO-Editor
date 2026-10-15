@@ -48,9 +48,15 @@ describe('05 · 保真收成一个 commit（改 notes 的路径绕不过作废�
       .toMatch(/resetNotes\(chart\.notes, \{[\s\S]*?text: chart\.appliedChartCodeText \?\? null,[\s\S]*?pristine: chart\.chartCodePristine === true/);
   });
 
-  it('落盘仍写记录的两个扁平字段（记录形状不变，映射在 hook 边界）', () => {
+  it('落盘仍写记录的两个扁平字段（记录形状不变，映射在戳机边界模块）', () => {
+    // issue 35：映射随 lastModified 条件戳一起收口到 chartModifiedStamp.ts；
+    // hook 只经 stampChartModified 落盘，不再自己拼这两个扁平字段。
+    const stamp = readStripped('src/project/chartModifiedStamp.ts');
+    expect(stamp).toMatch(/const text = input\.fidelity\?\.text \?\? null/);
+    expect(stamp).toMatch(/const pristine = input\.fidelity\?\.pristine === true/);
+    expect(stamp).toMatch(/appliedChartCodeText: text/);
+    expect(stamp).toMatch(/chartCodePristine: pristine/);
     const persist = readStripped(PERSIST);
-    expect(persist).toMatch(/appliedChartCodeText: fidelity\?\.text \?\? null/);
-    expect(persist).toMatch(/chartCodePristine: fidelity\?\.pristine === true/);
+    expect(persist).toMatch(/stampChartModified\(/);
   });
 });

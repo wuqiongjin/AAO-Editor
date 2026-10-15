@@ -5,5 +5,6 @@ export {
 export {
   t, tFor, tPlural, tPluralFor, lookupMessage, interpolate,
   getActiveUiLanguage, setActiveUiLanguage,
+  DICTS, PLURAL_TAGS,
   type MessageKey, type MessageVars,
 } from './t';

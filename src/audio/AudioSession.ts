@@ -33,6 +33,15 @@ export interface AudioSessionSnapshot {
   chartDuration: number;
   /** 当前音频时长（秒，null = 无音频） */
   audioDuration: number | null;
+  /**
+   * 音频负载落定代数（33 票）：每次「加载完成 / 清除 / 解码失败」+1。
+   *
+   * 存在的理由：替换检测要一个「解码已落地」的信号，而时长**值**担不起这个信号——
+   * 切工程时新旧音频时长相同的话，audioDuration / chartDuration 都不变，订阅方
+   * （React 快照浅比较）根本收不到一次变化，检测会整条漏掉。代数单调递增，
+   * 与时长值是否变化无关。
+   */
+  audioLoadGeneration: number;
   /** 引擎是否可播放（等价于 hasAudio，合成时间线使 engine.canPlay 恒真；语义上 = 是否有音频） */
   hasAudio: boolean;
   /** 激活键音素材包 id（settings.audio.keySet） */
@@ -75,6 +84,8 @@ export class AudioSession {
   private _chartDuration: number;
   private _audioBlob: Blob | null = null;
   private _audioLocked = false;
+  /** 音频负载落定代数（33 票）：加载完成 / 清除 / 解码失败时 +1，见 snapshot 字段注解 */
+  private _audioLoadGeneration = 0;
   private _keySetId: string;
   private _seVolume: number;
   private _volume: number; // 主音量（与 SE 音量分离；唯一真相源 = 本字段；engine 是镜像）
@@ -184,6 +195,7 @@ export class AudioSession {
         // 夹取按统一口径（clampChartDuration：下界 0.1、上限 MAX_DURATION_SECONDS = issue 28 P6 的 30 分钟）
         const ad = this.engine.duration;
         if (ad != null) this._chartDuration = clampChartDuration(ad);
+        this._audioLoadGeneration += 1;
         void this.persistNow();
         this.emit();
       })
@@ -193,6 +205,7 @@ export class AudioSession {
         this._audioName = null;
         this._audioBlob = null;
         this._audioError = err instanceof Error && err.message ? err.message : t('audio.decodeFallback');
+        this._audioLoadGeneration += 1;
         this.emit();
       });
   }
@@ -216,6 +229,7 @@ export class AudioSession {
       this._audioName = null;
       this._audioBlob = null;
       this._chartDuration = duration;
+      this._audioLoadGeneration += 1; // 负载落定为「无音频」（33 票：丢失信号的落定时刻）
       this.emit();
       return;
     }
@@ -231,11 +245,13 @@ export class AudioSession {
         if (token !== this.inFlightToken) return;
         const ad = this.engine.duration;
         if (ad != null) this._chartDuration = clampChartDuration(ad);
+        this._audioLoadGeneration += 1; // 解码落地（33 票：替换信号只认这一刻的时长）
         this.emit();
       })
       .catch((err: unknown) => {
         if (token !== this.inFlightToken) return;
         this._audioError = err instanceof Error && err.message ? err.message : t('audio.decodeFallback');
+        this._audioLoadGeneration += 1;
         this.emit();
       });
   }
@@ -249,6 +265,7 @@ export class AudioSession {
     this._audioName = null;
     this._audioBlob = null;
     this._audioError = null;
+    this._audioLoadGeneration += 1; // 负载落定为「无音频」
     void this.persistNow();
     this.emit();
   }
@@ -364,6 +381,7 @@ export class AudioSession {
       audioError: this._audioError,
       chartDuration: this._chartDuration,
       audioDuration: this.engine.duration,
+      audioLoadGeneration: this._audioLoadGeneration,
       hasAudio: this._audioName !== null,
       keySetId: this._keySetId,
       seVolume: this._seVolume,
