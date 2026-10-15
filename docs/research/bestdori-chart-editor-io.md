@@ -122,7 +122,7 @@ flowchart LR
 node scripts/replay-bestdori-chart-editor-io.mjs
 ```
 
-上传清洗单测（内联官谱味切片）：`tests/unit/upload/bestdori/sanitizeChart.test.ts`。
+上传清洗单测（内联官谱味切片）：`tests/unit/community/bestdori/sanitizeChart.test.ts`。
 
 ### 5.1 官方全谱对照（本地语料，不进库）
 

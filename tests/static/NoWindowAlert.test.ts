@@ -38,6 +38,8 @@ const projectsPage = readStripped('src/pages/projects/ProjectsPage.tsx');
 // 已上传谱面徽标只读的拦截随小件下沉到 ProjectBits（原在 ProjectsPage 内）
 const projectBits = readStripped('src/pages/projects/components/ProjectBits.tsx');
 const chartSwitcher = readStripped('src/pages/workspace/ChartSwitcher.tsx');
+// 发布（票 11）的成功 / 记账失败提示随编排住在页面目录的 hook 里
+const publishEntry = readStripped('src/pages/projects/usePublishEntry.ts');
 const shell = readStripped('src/layouts/AppShell.tsx');
 
 /** 一个文件里 showToast 的接线数量（数出调用点，防止哪天又被换回原生） */
@@ -69,6 +71,14 @@ describe('issue 17 · 原生提示弹窗清零', () => {
     expect(projectsPage).toMatch(/showToast\(t\('projects\.deleteLastChart'\), 'warn'\)/);
     // 已上传谱面的难度/等级徽标点击（issue 19 #2）：只读拦截同样走 warn，文案复用既有键
     expect(projectBits).toMatch(/showToast\(t\('projects\.uploadedReadonly'\), 'warn'\)/);
+  });
+
+  it('票 11 · 发布的两句提示（成功 / 本机记账失败）都接了 showToast，且随编排住进页面目录的 hook', () => {
+    // 一处调用点、两句话：成功走 success，记账失败走 warn（帖子已在平台上，不是 danger）
+    expect(toastCalls(publishEntry)).toBe(1);
+    expect(publishEntry).toMatch(/t\('projects\.publish\.done', \{ id: outcome\.postId \}\)/);
+    expect(publishEntry).toMatch(/t\('projects\.publish\.err\.record'\)/);
+    expect(publishEntry).toMatch(/'success' : 'warn'/);
   });
 
   it('宿主在应用壳里挂了恰好一次（挂零处 = 提示发出去没人接）', () => {

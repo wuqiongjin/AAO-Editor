@@ -403,7 +403,7 @@ function SettingsPage({ theme, onThemeChange }: { theme: ThemeChoice; onThemeCha
 
   return (
     <PageContent>
-      <PageIntro eyebrow="应用设置" title="设置" description="修改立即生效并自动保存。高风险操作会单独确认。" />
+      <PageIntro eyebrow="应用设置" title="设置" description="管理应用外观偏好、界面语言与本地数据存储。" />
       <div className="settings-layout">
         <aside className="settings-index">
           <button className={settingSection === 'appearance' ? 'is-active' : ''} type="button" onClick={() => setSettingSection('appearance')}><MonitorCog size={17} />外观</button>

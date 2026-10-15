@@ -7,7 +7,7 @@ import {
   type ValidationError,
 } from '../chart/editing/ChartConverter';
 import type { ChartNote } from '../chart/types';
-import type { ChartDifficulty, ChartProject, ProjectChart, SongSource } from './ChartProject';
+import type { ChartDifficulty, ChartProject, ChartUploadRecord, ProjectChart, SongSource } from './ChartProject';
 import { createUnnamedProject, emptyChartNotes } from './workspaceProject';
 import { clampChartDuration } from '../audio/chartDuration';
 import { t } from '../i18n';
@@ -291,6 +291,25 @@ export function toggleChartCompleted(project: ChartProject, chartId: string, now
         ? { ...c, completed: !c.completed, lastModified: now }
         : c
     )),
+  };
+}
+
+/**
+ * 发布成功后记上传记录（bestdori-integration 11；ADR-0015 §4「每张谱面至多一条」）。
+ * **只写一次**：谱面已有记录（或谱面不在这个工程里）时返回 null = 调用方取消，
+ * 与 `mutateProject` 的 `fn` 返回 null 同口径 —— 「重复调用被拒」的落点就在这一行，
+ * 平台侧那帖已经发了，本机绝不再记第二条。
+ */
+export function recordChartUpload(
+  project: ChartProject,
+  chartId: string,
+  record: ChartUploadRecord,
+): ChartProject | null {
+  const target = project.charts.find((c) => c.id === chartId);
+  if (!target || target.upload) return null;
+  return {
+    ...project,
+    charts: project.charts.map((c) => (c.id === chartId ? { ...c, upload: record } : c)),
   };
 }
 

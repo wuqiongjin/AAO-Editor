@@ -17,6 +17,7 @@ import {
   storedFromProject,
   type BinaryIntent,
   type ElectronProjectBridge,
+  type ProjectUploadRefs,
 } from './ChartProjectRecord';
 
 export type ChartDifficulty = 0 | 1 | 2 | 3 | 4;
@@ -223,6 +224,16 @@ function getElectronProjectBridge(): ElectronProjectBridge | null {
   if (typeof window === 'undefined') return null;
   const api = (window as unknown as { electronAPI?: { projectStore?: ElectronProjectBridge } }).electronAPI;
   return api?.projectStore ?? null;
+}
+
+/**
+ * 工程音频 / 封面的上传引用（票 11：发布时的三步二进制上传用）。
+ * 没有桥（浏览器 / 静态演示版）回 null —— 发布链路在那边整体不可用，调用方按
+ * 「没有出口」处理，不在这里分叉。字节不过 IPC：回的是路径 + 字节数 + SHA-1。
+ */
+export function getProjectUploadRefs(projectId: string): Promise<ProjectUploadRefs | null> {
+  const bridge = getElectronProjectBridge();
+  return bridge ? bridge.uploadRefs(projectId) : Promise.resolve(null);
 }
 
 export class ElectronFileProjectBackend implements ChartProjectBackend {

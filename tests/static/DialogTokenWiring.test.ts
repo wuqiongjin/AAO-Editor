@@ -16,6 +16,7 @@ const confirmDialog = readStripped('src/ui/ConfirmDialog.tsx');
 const projectsPage = readStripped('src/pages/projects/ProjectsPage.tsx');
 const projectDialogs = readStripped('src/pages/projects/components/ProjectDialogs.tsx');
 const projectBits = readStripped('src/pages/projects/components/ProjectBits.tsx');
+const publishDialog = readStripped('src/pages/projects/components/PublishDialog.tsx');
 const chartInfoDialog = readStripped('src/project/ui/ChartInfoDialog.tsx');
 const codeModal = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.tsx');
 const codeModalCss = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.css');
@@ -30,6 +31,7 @@ const HARD_CODED_COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
  * （启动台封面角标之类的 #fff）是另一笔历史账，不在本票范围。
  * 弹窗内容随 architecture-refactor 01 拆解分住三处：页面（编排）/ ProjectDialogs（两个表单弹窗）/
  * ProjectBits（卡片菜单与难度徽标浮层 —— 原也在 ProjectsPage 里，一并纳入扫描）。
+ * 票 11 的发布弹窗（PublishDialog）同族：同一个壳、同一套 token。
  */
 const DIALOG_SOURCES: [string, string][] = [
   ['ui/Dialog.tsx', shell],
@@ -39,6 +41,7 @@ const DIALOG_SOURCES: [string, string][] = [
   ['pages/projects/ProjectsPage.tsx', projectsPage],
   ['pages/projects/components/ProjectDialogs.tsx', projectDialogs],
   ['pages/projects/components/ProjectBits.tsx', projectBits],
+  ['pages/projects/components/PublishDialog.tsx', publishDialog],
   ['project/ui/ChartInfoDialog.tsx', chartInfoDialog],
   ['chart/.../ChartCodeEditorModal.tsx', codeModal],
   ['chart/.../ChartCodeEditorModal.css', codeModalCss],

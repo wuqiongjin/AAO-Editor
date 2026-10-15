@@ -116,6 +116,25 @@ export interface CommunityRequest {
    * 票 29 定案：官方曲库列表与社区列表第一页在每次应用启动首次拉取时使用。
    */
   freshFirst?: boolean;
+  /**
+   * multipart 文件上传（票 11：二进制上传三步的第二步）。**字节不过 IPC**：
+   * 渲染进程只递本地文件路径，主进程读它并拼 multipart 体（字段名 / 文件名 /
+   * content-type 都由网关算或按这里给的）。给了它 = 一次 POST 文件请求，
+   * `body` 必须省略；上传是写路径，不进缓存、不套退避。
+   */
+  multipart?: MultipartUpload;
+}
+
+/** multipart 上传描述（`file` 字段；平台侧字段名固定，见 publish.ts） */
+export interface MultipartUpload {
+  /** 表单字段名（平台固定 `file`） */
+  field: string;
+  /** 要上传的本地文件（主进程读它；必须落在网关许可的目录内，见 communityNet.cjs） */
+  filePath: string;
+  /** 文件名（递给平台的表单文件名；省略 = 路径 basename） */
+  fileName?: string;
+  /** 内容类型（省略 = 网关按扩展名猜，猜不出给 application/octet-stream） */
+  contentType?: string;
 }
 
 /**

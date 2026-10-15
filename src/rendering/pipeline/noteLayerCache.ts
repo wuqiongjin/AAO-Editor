@@ -255,8 +255,12 @@ export function createNoteLayerCache(): NoteLayerCache {
     chartEndVirtualY: number; beatDisplay: number; dpr: number; skinVersion: number;
     /** issue 39：节奏图示大小 / 长压线不透明度烘进音符瓦片，变化时需全量失效 */
     noteSize: number; slideOpacity: number;
+    /** issue 39 #3：同时点击线烘进音符瓦片，变化时需全量失效 */
+    simultaneousClickLines: boolean;
     /** issue 39 #4：色觉辅助改变 tap 款式（实拍/虚拍位图），变化时需全量失效 */
     colorAssist: boolean;
+    /** chart-preview 08：轨道镜像翻转音符位置与方向键，变化时需全量失效 */
+    mirror: boolean;
     /** issue 39 #5：纵向比例改变 timeline 高度 → pos 空间平移，需全量失效 */
     verticalRatio: number;
   } | null = null;
@@ -436,18 +440,22 @@ export function createNoteLayerCache(): NoteLayerCache {
       skinVersion: rc.skinVersion ?? 0,
       noteSize: rc.display?.noteSize ?? 1,
       slideOpacity: rc.display?.slideOpacity ?? 1,
+      simultaneousClickLines: rc.display?.simultaneousClickLines ?? false,
       colorAssist: rc.display?.colorAssist ?? false,
+      mirror: rc.display?.mirror === true,
       verticalRatio: rc.geometry.verticalRatio,
     };
     if (
       !basis || basis.chartEndVirtualY !== nb.chartEndVirtualY || basis.beatDisplay !== nb.beatDisplay ||
       basis.dpr !== nb.dpr || basis.skinVersion !== nb.skinVersion ||
       basis.noteSize !== nb.noteSize || basis.slideOpacity !== nb.slideOpacity ||
+      basis.simultaneousClickLines !== nb.simultaneousClickLines ||
       basis.colorAssist !== nb.colorAssist ||
+      basis.mirror !== nb.mirror ||
       basis.verticalRatio !== nb.verticalRatio ||
       !bpmEventsEqual(basis.bpmEvents, nb.bpmEvents)
     ) {
-      // 时间线内容/节拍显示/dpr/皮肤/音符大小/长压线不透明度/纵向比例变化 → pos 空间或位图语义变化，全量失效。
+      // 时间线内容/节拍显示/dpr/皮肤/音符大小/长压线不透明度/同时点击线/色觉辅助/镜像/纵向比例变化 → pos 空间或位图语义变化，全量失效。
       // 注意：surface 宽高与 geometry 实例不在失效依据内（issue 36 F3a，见 basis 注释）。
       tiles.clear();
       basis = nb;

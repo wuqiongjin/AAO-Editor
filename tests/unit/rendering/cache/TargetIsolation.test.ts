@@ -150,4 +150,57 @@ describe('08 · RenderTarget 缓存有主（两个渲染目标互不顶掉）', 
       if (current) expect(current).toBe(tile);
     }
   });
+
+  it('显示参数变化：同时点击线（simultaneousClickLines）与色觉辅助（colorAssist）独立使音符瓦片失效重建', () => {
+    const creates = { n: 0 };
+    const target = makeTarget(SURFACE_A);
+    target.noteLayer.__setCanvasFactoryForTests(() => {
+      creates.n++;
+      return makeCanvasStub({ drawImage: 0 });
+    });
+    const g = new ChartGeometry([{ beat: 0, bpm: 120 }], { endBeat: 240 }, SURFACE_A);
+    const notes = makeNotes(200);
+    const es = 0.5;
+    const y = scrollYCenterBeat(g, 100, es, SURFACE_A);
+
+    // 初始状态：simultaneousClickLines = false, colorAssist = false
+    target.renderFrame({
+      ...viewOf(g, notes, y, es),
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: false, colorAssist: false },
+    });
+    const firstCount = creates.n;
+    expect(firstCount).toBeGreaterThan(0);
+
+    // 命中测试：相同 display 参数下零重建
+    creates.n = 0;
+    target.renderFrame({
+      ...viewOf(g, notes, y, es),
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: false, colorAssist: false },
+    });
+    expect(creates.n).toBe(0);
+
+    // 仅切换 simultaneousClickLines（从 false 改为 true）：必须立即全量失效并重建瓦片，不依赖 colorAssist
+    creates.n = 0;
+    target.renderFrame({
+      ...viewOf(g, notes, y, es),
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, colorAssist: false },
+    });
+    expect(creates.n).toBeGreaterThan(0);
+
+    // 再次渲染相同参数：命中缓存零重建
+    creates.n = 0;
+    target.renderFrame({
+      ...viewOf(g, notes, y, es),
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, colorAssist: false },
+    });
+    expect(creates.n).toBe(0);
+
+    // 仅切换 colorAssist（从 false 改为 true）：同样独立失效并重建
+    creates.n = 0;
+    target.renderFrame({
+      ...viewOf(g, notes, y, es),
+      display: { noteSize: 1, slideOpacity: 1, simultaneousClickLines: true, colorAssist: true },
+    });
+    expect(creates.n).toBeGreaterThan(0);
+  });
 });

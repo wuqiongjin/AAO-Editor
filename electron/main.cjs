@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
@@ -24,12 +24,19 @@ const {
     moveDataRoot,
     backgroundSkinPath,
     cacheDir,
+    projectsDir,
     removeLegacyDownloads,
 } = require('./dataRoot.cjs');
 const {
     createCommunityGateway,
     registerCommunityNetIpc,
 } = require('./communityNet.cjs');
+const { registerExternalLinkIpc } = require('./externalLink.cjs');
+const {
+    sessionFilePath,
+    createSessionStore,
+    registerCommunitySessionIpc,
+} = require('./communitySession.cjs');
 const {
     createAssetCache,
     registerAssetCacheIpc,
@@ -44,6 +51,7 @@ const {
     putProject,
     listProjects,
     deleteProject,
+    uploadRefs,
 } = require('./projectStore.cjs');
 const { t, setActiveUiLanguage } = require('./i18n.cjs');
 
@@ -72,6 +80,9 @@ function registerProjectStoreIpc() {
     ipcMain.handle('project:put', (_event, payload) => putProject(currentDataRoot(), payload));
     ipcMain.handle('project:list', () => listProjects(currentDataRoot()));
     ipcMain.handle('project:delete', (_event, rawId) => deleteProject(currentDataRoot(), rawId));
+    // 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1）。
+    // 二进制不过 IPC：字节留在主进程，渲染侧只拿「事实」去凑 prepare 与 multipart。
+    ipcMain.handle('project:uploadRefs', (_event, rawId) => uploadRefs(currentDataRoot(), rawId));
 }
 registerProjectStoreIpc();
 
@@ -285,6 +296,13 @@ function registerI18nIpc() {
 registerI18nIpc();
 
 // ---------------------------------------------------------------------------
+// 站外链接出口（票 39 Q47）：注册 / 找回密码这类「去站点」的入口开**系统浏览器**。
+// 校验（只放行社区平台及其子域）与 handler 都在 externalLink.cjs —— 那里能跑真函数测试；
+// 这里只接线，与社区网络 / 会话 / 素材缓存三条出口同形。
+// ---------------------------------------------------------------------------
+registerExternalLinkIpc(ipcMain, shell);
+
+// ---------------------------------------------------------------------------
 // 社区平台网络面（bestdori-integration 07 + 14）：主进程只做发 HTTP / 管 Cookie / 限流 /
 // 素材缓存（ADR-0011 §2、issue 06 薄主进程）。端点、领域转换、搜索都在 renderer；
 // 二进制落 <数据根>/cache/community/（素材缓存，跨启动复用）后只回路径。
@@ -299,10 +317,22 @@ const assetCache = createAssetCache({
 const communityGateway = createCommunityGateway({
     // net.fetch 只能在 app ready 之后调用；这里只是包一层，加载期不发任何请求。
     fetchImpl: (url, init) => net.fetch(url, init),
+    // 发布（票 11）：multipart 上传只准读**工程目录**里的文件（音频 / 封面）。
+    // 每次现取 —— 数据根可以被用户搬家；不给就是「一个都不许传」。
+    uploadRoots: () => [projectsDir(currentDataRoot())],
     assetCache,
 });
 registerCommunityNetIpc(ipcMain, communityGateway);
 registerAssetCacheIpc(ipcMain, assetCache);
+
+// 会话 Cookie 的加密持久化（票 10）：落到 **userData** 下，**不跟数据根走** ——
+// 数据根是用户数据（可搬家 / 可拷贝 / 可分享），凭据是本机的事（与 app-state.json 同级）。
+// safeStorage 只在 app ready 之后可用，所以 store 只记「怎么取路径」，加解密都在请求时现做。
+const communitySessionStore = createSessionStore({
+    safeStorage,
+    filePath: () => sessionFilePath(userDataDir()),
+});
+registerCommunitySessionIpc(ipcMain, { gateway: communityGateway, store: communitySessionStore });
 
 // ---------------------------------------------------------------------------
 // 主窗体几何记忆（issue 119 / 117）：userData/app-state.json 的 window 字段。

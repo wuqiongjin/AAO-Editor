@@ -56,6 +56,7 @@
 - 37 列表时间戳跟随排序键（feature，resolved 2026-10-15）：**定了**：hub 卡片 / hero / 详情左栏的工程时间戳跟随排序键（`lastModified` → 派生修改时间，其余键 → `lastOpened`）并贴短标签（打开 / 修改），hero 标签随之切换；两个时间键都保留——删键否决（`lastModified` 是 35 刚修好的戳机，`lastOpened` 是 hero 选中锚与工作台恢复锚）。**落地**：`projectSort.projectTimeAt(project, key)` 纯函数 + `projectFormat.projectTimeTag` 短标签，hub hero/卡片与详情左栏（`sort` prop 同源 `settings.projects.sort`）共用；锁测三件（单测四键 / DOM 标签与 hero 切换 / 静态断言防回溜写死 `p.lastOpened`）。
 - 38 回工程页时列表不重读（bug，**resolved 2026-10-15**）：工作台编辑后回工程页，音符数还是上次编辑后的——保活页只认 catalogEpoch、防抖落盘不通知目录、切页不 flush 不重读，晚一次导航；**落地**：`ProjectsPage` 收 `active` prop + 激活 effect（`false→true` 先 `flushPersist` 再 `reload`，照 `usePreviewScope`/`useAudioScope` 范式；hub 卡片与详情谱面行同出 `projects` state，一处修两边）。锁测与验证记账见票内 Comments。
 - [30 编辑工程信息曲目归属改只读与LLSIF下线](./issues/30-编辑工程信息曲目归属改只读与LLSIF下线.md)（grilling，**resolved 2026-10-13**）：推演剥离“换源”伪需求（不换音频谱面脱节、换了等于新建）；**定了**：① 彻底取消编辑弹窗中修改曲目归属/换源能力，曲目归属是工程创建时的出生属性；② 弹窗内改用轻量只读徽标展示（官方曲显示 `BanG Dream 官方曲 (#ID)`、自定义显示 `自定义曲目`，删除 select 与 sourceId 输入框）；③ 彻底下线 LLSIF，反序列化遇旧值平滑归一 custom；④ 换封面/工程名/歌手完整保留，换音频保留在音频页（换后自动改归属 custom）；⑤ 导入谱面收敛于工程详情页谱面列表区（后续另开票，开在本图）。
+- 39 切换数据目录后工程管理页未即时刷新（bug，open，2026-10-14 反馈）：切根后通知 `CurrentProjectProvider` 递增 `catalogEpoch` 重新列盘，重置悬空会话与缓存单例。
 
 路线（2026-09-26 规划）：
 

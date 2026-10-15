@@ -2,9 +2,10 @@
 // 默认工程启动台；点封面进工程详情。保活挂载，⇧⌘0 回来停在离开前那一层。
 // 本文件只留：双视图调度 + state / handlers + 弹窗编排；两个视图与弹窗分别住在 components/。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Copy, FolderPlus, MoreHorizontal, Music4, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
+import { useCommunitySessionStart } from './useCommunitySessionStart';
 import { createCommunityTransport, hasCommunityNet } from '../../community/electronTransport';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import {
@@ -32,6 +33,8 @@ import { Menu } from './components/ProjectBits';
 import {
   EditInfoDialog, NewProjectDialog, type NewSource, type OfficialImportReply,
 } from './components/ProjectDialogs';
+import { PublishDialog } from './components/PublishDialog';
+import { usePublishEntry } from './usePublishEntry';
 import type { OfficialSongSelection } from './components/OfficialSongPanel';
 import type { CommunityPostSelection } from './components/CommunityPostPanel';
 import { importOfficialSong, officialApplyErrorText, officialErrorText, type OfficialImportStage } from './officialImport';
@@ -42,6 +45,7 @@ import {
   type CommunityImportStage,
 } from './communityImport';
 import { ProjectStartView } from './components/ProjectHub';
+import { NewProjectButton } from './components/NewProjectButton';
 import { ProjectDetail } from './components/ProjectDetail';
 import './ProjectsPage.css';
 
@@ -68,6 +72,9 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   // 社区平台出口（票 07）：静态演示版没有 → 官方 / 社区两支入口整体隐藏（ADR-0011 §1 / 票 12）
   const communityTransport = useMemo(() => createCommunityTransport(), []);
   const importSources = hasCommunityNet();
+
+  // 社区会话的启动校验（票 10）：有出口才还原加密会话并查一次 me（细节见 hook）
+  useCommunitySessionStart(importSources);
 
   const goDetail = useCallback((id: string) => {
     setNavDir('forward');
@@ -278,6 +285,9 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     return { ok: true, warnings };
   }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
+  // 发布（票 11）：入口的状态与编排整块在 usePublishEntry（页面 500 行纪律），这里只挂 hook
+  const publish = usePublishEntry({ store, transport: communityTransport, flush: flushPersist, notify: notifyCatalogChanged, reload });
+
   // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）
   const list = useMemo(() => sortProjects(projects ?? [], sortKey, untitledProjectLabel()), [projects, sortKey]);
   // 目录就绪 = list() 至少回来过一次（issue 29）：未就绪时不显示空态、也不显示 0 计数
@@ -314,15 +324,6 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activePage, detailId, list]);
-
-  // 详情页左栏选中项自动滚入视口（issue 23 Q12/Q13）——与 hub 那份同参数。
-  // 索引必须与渲染序（`list`）对齐：左栏渲染的是 `list.map(...)`，用 `projects` 会错位。
-  useEffect(() => {
-    if (!detailId) return;
-    document.querySelectorAll<HTMLElement>('.pc-item').forEach((item, i) => {
-      if (list[i]?.id === detailId) item.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
-    });
-  }, [detailId, list]);
   // issue 09：有工程（哪怕全已完成）横幅常显；issue 14：横幅内容由 ProjectStartView 的
   // selectedId 驱动（默认选中 = 最近打开，Q11），resume 兜底不再参与。
 
@@ -413,25 +414,13 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
           }}
         />
       )}
+      {/* 发布弹窗（票 11）：target 的三个字段就是弹窗的前三个 props */}
+      {publish.target && <PublishDialog {...publish.target} onClose={publish.close} onPublish={(input, onStage) => publish.run(input, onStage)} />}
     </>
   );
 
   const newButton = (
-    <span className="pp-split">
-      <button type="button" className="pp-btn pp-btn--primary" onClick={() => setNewSource('blank')}>
-        <Plus size={15} />{t('projects.newProject')}
-      </button>
-      <Menu trigger={<button type="button" className="pp-btn pp-btn--primary pp-split__caret"><ChevronDown size={15} /></button>}>
-        <ProjectMenuItem icon={<FolderPlus size={14} />} label={t('projects.newBlank')} onClick={() => setNewSource('blank')} />
-        <ProjectMenuItem icon={<Copy size={14} />} label={t('projects.newCopy')} onClick={() => setNewSource('copy')} disabled={list.length === 0} />
-        {importSources && (
-          <>
-            <ProjectMenuItem icon={<Music4 size={14} />} label={t('projects.newOfficial')} onClick={() => setNewSource('official')} />
-            <ProjectMenuItem icon={<Users size={14} />} label={t('projects.newCommunity')} onClick={() => setNewSource('community')} />
-          </>
-        )}
-      </Menu>
-    </span>
+    <NewProjectButton onNew={setNewSource} canCopy={list.length > 0} importSources={importSources} />
   );
 
   const projectMenu = (p: ChartProject) => (
@@ -479,6 +468,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
             onDeleteChart={setAskDeleteChart}
             onOpenAudio={() => setActivePage('audio', { scope: { projectId: sel.id } })}
             onPreviewChart={(chartId) => setActivePage('preview', { scope: { projectId: sel.id, chartId } })}
+            onPublishChart={(chart) => publish.open(sel, chart)}
             mutate={mutate}
           />
         </div>

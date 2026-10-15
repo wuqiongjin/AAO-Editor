@@ -49,6 +49,11 @@ export interface PostPageQuery {
   query: string;
   offset: number;
   limit?: number;
+  /**
+   * 只看这位谱师的作品（`post/list` 的 `username` 字段，服务端过滤）。
+   * 票 10 能力 8 的「我自己的作品列表」就是它：`username` 取自会话里的账号（`account.username`）。
+   */
+  username?: string;
   onRetry?: (notice: RetryNotice) => void;
   /**
    * 用户主动刷新：绕开会话内缓存，并让主业面网关**重拉**（`revalidate`，不吃 24h 的旧副本）。
@@ -68,8 +73,9 @@ export interface PostPage {
 const pageCache = new Map<string, PostPage>();
 const pageInflight = new Map<string, Promise<PostPage>>();
 
-function pageKey(query: string, offset: number): string {
-  return `${query}\u0000${offset}`;
+/** 缓存键：查询词 + 谱师（空 = 不限）+ offset —— 三者任一不同就是另一页，不许互相串味 */
+function pageKey(query: string, offset: number, username: string): string {
+  return `${username}\u0000${query}\u0000${offset}`;
 }
 
 /**
@@ -91,10 +97,11 @@ export function clearPostPageCache(): void {
 /** POST post/list 单页原语（列表 / 搜索 / 分页都走它）：会话内缓存 + inflight 去重 */
 export async function fetchPostPage(
   transport: CommunityTransport,
-  { query, offset, limit = POST_PAGE_LIMIT, onRetry, force = false }: PostPageQuery,
+  { query, offset, limit = POST_PAGE_LIMIT, username, onRetry, force = false }: PostPageQuery,
 ): Promise<PostPage> {
   const at = Math.max(0, Math.trunc(offset));
-  const key = pageKey(query.trim(), at);
+  const who = (username ?? '').trim();
+  const key = pageKey(query.trim(), at, who);
   if (!force) {
     const cached = pageCache.get(key);
     if (cached) return cached;
@@ -110,6 +117,9 @@ export async function fetchPostPage(
     order: 'TIME_DESC',
     limit: pageLimit,
     offset: at,
+    // 谱师过滤（票 10）：空 = 不限，`JSON.stringify` 会把 `undefined` 整个丢掉，
+    // 所以「没传 username」的请求体与既往逐字相同
+    username: who === '' ? undefined : who,
   });
   const promise = withRetry(
     () => transport.requestJson({
@@ -137,6 +147,22 @@ export async function fetchPostPage(
 
   pageInflight.set(key, promise);
   return promise;
+}
+
+/** 「我自己的作品列表」的入参：查询词恒为空（那是搜索框的事）、谱师由调用方给 */
+export type MyPostsQuery = Partial<Omit<PostPageQuery, 'query' | 'username'>>;
+
+/**
+ * 我自己的作品列表（票 10 能力 8）：同一份 `post/list`，只是带上 `username` 让**服务端**过滤。
+ * 不套 `fetchPostSearchPage` 那条「纯数字并发 id 直查」的路径 —— 那是搜索框的语义（找帖），
+ * 这里是「列出我的帖」，没有跳转的意思。
+ */
+export function fetchMyPostsPage(
+  transport: CommunityTransport,
+  username: string,
+  options: MyPostsQuery = {},
+): Promise<PostPage> {
+  return fetchPostPage(transport, { ...options, offset: options.offset ?? 0, query: '', username });
 }
 
 /* ---------------- id 搜索（票 32 定案） ----------------

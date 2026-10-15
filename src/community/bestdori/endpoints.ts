@@ -130,6 +130,24 @@ export function isPlatformFallbackPage(contentType: string | null): boolean {
   return /text\/html/i.test(contentType ?? '');
 }
 
+/* ---------------- 账号与会话（票 10） ----------------
+ * 事实依据：docs/research/bestdori-community-upload.md §2（2026-09-24 写路径实测）。
+ * 登录成功 = HTTP 200 + `{"result":true}` + `Set-Cookie: token=…`（Cookie 名实测为 `token`）；
+ * 失败 = HTTP 200 + `{"result":false,"code":"CREDENTIALS_INVALID"}`（网关按 code 翻成 unauthorized）。
+ * Cookie 的解析 / 附着 / 持久化**全在主进程**（electron/communityCookies.cjs + communitySession.cjs），
+ * 这里只有两个 URL —— renderer 经此走 transport，永远看不到 Cookie 的值（ADR-0011 §3 凭据红线）。
+ * ------------------------------------------------------------------ */
+
+/** 登录（POST JSON `{username, password}`）。**密码不落盘**：只活在这次请求的载荷里 */
+export function userLoginUrl(): string {
+  return apiUrl('user/login');
+}
+
+/** 当前用户（登录成功与启动时各校验一次；响应 `{result, username, nickname, titles, email, messageCount}`） */
+export function userMeUrl(): string {
+  return apiUrl('user/me');
+}
+
 /** 社区帖列表 / 搜索 / 分页（POST；body 约束见 docs/research/bestdori-api.md §2） */
 export function postListUrl(): string {
   return apiUrl('post/list');
@@ -143,4 +161,65 @@ export function postDetailUrl(postId: number): string {
 /** 帖子的**页面**地址（浏览用，不是 API）：上传记录的外链引用它（票 07 把既有硬编码收到这里） */
 export function postUrl(postId: number): string {
   return `${BESTDORI_ORIGIN}/community/charts/${postId}`;
+}
+
+/* ---------------- 发布：二进制上传三步 + 发帖（票 11） ----------------
+ * 事实依据：docs/research/bestdori-community-upload.md §3–5（2026-09-24 写路径实测）。
+ *   - 上传 = 发字节（音频 / 封面；谱面代码走发帖 body 内联，不走文件上传）；
+ *     产物按内容寻址（SHA-1），已存在即 ALREADY_UPLOADED 可直接复用。
+ *   - 发布 = 发帖（POST /api/post），产生帖子 id；谱面本体此后不可改（post/edit 没有 chart）。
+ * 上传与发布的边界（issue 06 定案）：两步都是「写」，都不套退避重试 —— 超时意味着
+ * 服务端可能已经收了（重发只会多造一份上传 / 多发一帖）。
+ * ------------------------------------------------------------------ */
+
+/** 上传协议版本（`upload/prepare` 的 `ver`；官网前端常量，实测未变） */
+export const BESTDORI_UPLOAD_VER = 3;
+
+/** 上传三步（Custom 曲目的音频 / 封面走这条；bandori / llsif 不上传） */
+export function uploadPrepareUrl(): string {
+  return apiUrl('upload/prepare');
+}
+
+/** multipart 上传（表单字段名固定 `file`，见 publish.ts 的 UPLOAD_FILE_FIELD） */
+export function uploadUrl(): string {
+  return apiUrl('upload');
+}
+
+/** 轮询上传状态（直到 `{"status":"available"}`；未就绪时帖子里引用它会 TEMPORARY_FILE） */
+export function uploadStatusUrl(hash: string): string {
+  return apiUrl(`upload/status/${hash}`);
+}
+
+/** 上传产物的引用地址（发帖时填进 `song.audio` / `song.cover`；匿名可下载） */
+export function uploadedFileUrl(hash: string): string {
+  return apiUrl(`upload/file/${hash}`);
+}
+
+/** 发帖（社区谱 = `SELF_POST` / `chart`）；成功回 `{"result":true,"id":<postId>}` */
+export function postCreateUrl(): string {
+  return apiUrl('post');
+}
+
+/** 发帖正文（`content`）的字符上限（前端 `userChartBody.length > 5000` → POST_INVALID） */
+export const POST_CONTENT_MAX_CHARS = 5000;
+
+/** 谱面等级合法区间（实测 `1` 可通过、`0` / `36` 为 POST_INVALID；区间外先拦） */
+export const POST_LEVEL_MIN = 1;
+export const POST_LEVEL_MAX = 35;
+
+/* ---------------- 站外链接（票 39） ---------------- */
+
+/**
+ * 站点首页（票 39 Q42 / Q45 / Q47）：注册 / 找回密码那两枚入口的落点。
+ *
+ * 为什么都落首页：站点侧**没有**独立的 `login` / `signup` / `forgot` 页面 —— 三者是同一个
+ * 弹窗里的按钮（2026-10-14 前端 bundle 实抓，见 `docs/research/bestdori-api.md` §3）。
+ * 于是「注册」与「忘记密码」只能是「去站点首页，在那儿走站点自己的弹窗」，
+ * 不存在更精确的深链（自造带查询参数的地址就是猜 URL）。
+ *
+ * 调用方拿到的是**完整 URL**，域名仍然只有这一处知道（票 07 的域名白名单锁测盯着它）；
+ * 点开由 `../externalLink.ts` 经主进程开系统浏览器。
+ */
+export function siteHomeUrl(): string {
+  return `${BESTDORI_ORIGIN}/`;
 }

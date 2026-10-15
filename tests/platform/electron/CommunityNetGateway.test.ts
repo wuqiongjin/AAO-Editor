@@ -1,7 +1,7 @@
 // 票 07 + 14：主进程网关的行为 —— 主机白名单、单飞 + 最小间隔、单次超时、响应校验、
 // 二进制落素材缓存、素材缓存命中（json / text / binary）、Cookie 附着。
 // 全部走注入的假出口 / 假时钟 / 真临时目录，不碰网络。
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createAssetCache } from '@/electron/assetCache.cjs';
@@ -12,6 +12,7 @@ import {
   ASSET_MIN_REQUEST_INTERVAL_MS,
   CACHE_FRESH_MS,
   FALLBACK_FRESH_MS,
+  MAX_UPLOAD_FILE_BYTES,
   MIN_REQUEST_INTERVAL_MS,
   createCommunityGateway,
 } from '@/electron/communityNet.cjs';
@@ -226,6 +227,145 @@ describe('票 07 · 低速率（单飞 + 最小间隔）', () => {
   });
 });
 
+/** 票 11 · multipart 上传：字节不过 IPC 的正面 —— renderer 递路径，网关读文件拼体 */
+describe('票 11 · multipart 上传（renderer 递路径，网关读文件拼体）', () => {
+  /** 带 uploadRoots 的网关（工程目录；真实注入见 main.cjs） */
+  function uploadGateway(handler: (call: FetchCall) => unknown, root: string) {
+    const fetch = fakeFetch(handler);
+    const gateway = createCommunityGateway({
+      fetchImpl: fetch.impl,
+      uploadRoots: () => [root],
+      now: () => 0,
+      sleep: async () => undefined,
+    });
+    return { gateway, fetch };
+  }
+
+  /** 从 multipart 体里把「文件段」抠出来（boundary 由网关算，按 content-type 拆） */
+  function filePartOf(init: any): { disposition: string; contentType: string; bytes: Buffer } {
+    const contentType = init.headers['content-type'] as string;
+    const boundary = contentType.match(/boundary=(.+)$/)?.[1];
+    expect(boundary, 'content-type 必须带 boundary').toBeTruthy();
+    const body = Buffer.from(init.body);
+    const head = `--${boundary}\r\n`;
+    const start = body.indexOf(head);
+    expect(start, '体里必须有分节').toBe(0);
+    const metaEnd = body.indexOf('\r\n\r\n');
+    const meta = body.subarray(start + head.length, metaEnd).toString('utf8');
+    const bytesStart = metaEnd + 4;
+    const bytesEnd = body.indexOf(`\r\n--${boundary}--\r\n`);
+    expect(bytesEnd, '体尾必须收边界').toBeGreaterThan(bytesStart);
+    const disposition = meta.split('\r\n').find((line) => line.startsWith('Content-Disposition')) ?? '';
+    const type = meta.split('\r\n').find((line) => line.startsWith('Content-Type')) ?? '';
+    return { disposition, contentType: type.replace('Content-Type: ', ''), bytes: body.subarray(bytesStart, bytesEnd) };
+  }
+
+  it('读文件拼 multipart：字段名 / 文件名 / content-type 都对，字节原样进体', async () => {
+    const dir = tmpDir('aao-upload-');
+    try {
+      const file = join(dir, 'audio.bin');
+      writeFileSync(file, 'RIFFfake-audio-bytes');
+      const { gateway, fetch } = uploadGateway(() => response({ body: { hash: 'abc' } }), dir);
+
+      const result = await gateway.request({
+        url: 'https://bestdori.com/api/upload',
+        method: 'POST',
+        responseType: 'json',
+        multipart: { field: 'file', filePath: file, fileName: 'official-413- excite.mp3' },
+      });
+
+      expect(result).toMatchObject({ ok: true, responseType: 'json', data: { hash: 'abc' } });
+      expect(fetch.calls).toHaveLength(1);
+      const part = filePartOf(fetch.calls[0].init);
+      expect(part.disposition).toBe('Content-Disposition: form-data; name="file"; filename="official-413- excite.mp3"');
+      // 文件名按扩展名猜类型；给了 contentType 就用调用方的
+      expect(part.contentType).toBe('audio/mpeg');
+      expect(part.bytes.toString('utf8')).toBe('RIFFfake-audio-bytes');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('许可目录之外 / 没注入 uploadRoots / 文件不存在：发起之前就拒，零 fetch', async () => {
+    const dir = tmpDir('aao-upload-');
+    const outside = tmpDir('aao-upload-out-');
+    try {
+      const inside = join(dir, 'cover.bin');
+      writeFileSync(inside, 'png-bytes');
+      const outsideFile = join(outside, 'cover.bin');
+      writeFileSync(outsideFile, 'png-bytes');
+
+      const { gateway, fetch } = uploadGateway(() => response({ body: {} }), dir);
+      // 目录外
+      expect(await gateway.request({
+        url: 'https://bestdori.com/api/upload', method: 'POST',
+        multipart: { field: 'file', filePath: outsideFile },
+      })).toMatchObject({ ok: false, error: { kind: 'request-rejected' } });
+      // 不存在
+      expect(await gateway.request({
+        url: 'https://bestdori.com/api/upload', method: 'POST',
+        multipart: { field: 'file', filePath: join(dir, 'gone.bin') },
+      })).toMatchObject({ ok: false, error: { kind: 'request-rejected' } });
+      expect(fetch.calls).toHaveLength(0);
+
+      // 一个 root 都不注入 = 一个都不许传
+      const noRoots = createCommunityGateway({ fetchImpl: async () => response({ body: {} }), now: () => 0, sleep: async () => undefined });
+      expect(await noRoots.request({
+        url: 'https://bestdori.com/api/upload', method: 'POST',
+        multipart: { field: 'file', filePath: inside },
+      })).toMatchObject({ ok: false, error: { kind: 'request-rejected' } });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('形状不合法一律拒：非 POST / 同带 JSON body / 自带 content-type / 脏字段名 / 超大文件', async () => {
+    const dir = tmpDir('aao-upload-');
+    try {
+      const file = join(dir, 'audio.bin');
+      writeFileSync(file, 'bytes');
+      const { gateway, fetch } = uploadGateway(() => response({ body: {} }), dir);
+      const url = 'https://bestdori.com/api/upload';
+
+      expect(await gateway.request({ url, multipart: { field: 'file', filePath: file } }))
+        .toMatchObject({ ok: false, error: { kind: 'request-rejected' } });
+      expect(await gateway.request({ url, method: 'POST', body: '{}', multipart: { field: 'file', filePath: file } }))
+        .toMatchObject({ ok: false, error: { kind: 'request-rejected' } });
+      expect(await gateway.request({ url, method: 'POST', headers: { 'content-type': 'multipart/form-data' }, multipart: { field: 'file', filePath: file } }))
+        .toMatchObject({ ok: false, error: { kind: 'request-rejected' } });
+      expect(await gateway.request({ url, method: 'POST', multipart: { field: 'fi"le', filePath: file } }))
+        .toMatchObject({ ok: false, error: { kind: 'request-rejected' } });
+      // 超过防呆上限（稀疏文件：只长个头，不真写字节）
+      truncateSync(file, MAX_UPLOAD_FILE_BYTES + 1);
+      expect(await gateway.request({ url, method: 'POST', multipart: { field: 'file', filePath: file } }))
+        .toMatchObject({ ok: false, error: { kind: 'request-rejected' } });
+      expect(fetch.calls).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('文件名里的结构字符被剥（content-disposition 不许被注）', async () => {
+    const dir = tmpDir('aao-upload-');
+    try {
+      const file = join(dir, 'audio.bin');
+      writeFileSync(file, 'bytes');
+      const { gateway, fetch } = uploadGateway(() => response({ body: { hash: 'x' } }), dir);
+
+      await gateway.request({
+        url: 'https://bestdori.com/api/upload', method: 'POST',
+        multipart: { field: 'file', filePath: file, fileName: 'a"b;c\\d\r\ne.mp3' },
+      });
+
+      const part = filePartOf(fetch.calls[0].init);
+      expect(part.disposition).toBe('Content-Disposition: form-data; name="file"; filename="a_b_c_d__e.mp3"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('票 17 · 队列分档：素材档放开并发，API 档不动，且互不阻塞', () => {
   /** 假出口：素材（/assets/）请求被闸门挂住由用例放行；API 请求立刻回 */
   function gatedFetch() {
@@ -295,7 +435,7 @@ describe('票 17 · 队列分档：素材档放开并发，API 档不动，且�
   it('素材档：最多 4 个同时在飞（原来串在 API 后面，只有 1 个）', async () => {
     await withGatedGateway(async (ctx) => {
       const pending = ['a', 'b', 'c', 'd', 'e'].map((name) => ctx.gateway.request(asset(name)));
-      for (let i = 0; i < 4; i += 1) await tick();
+      for (let i = 0; i < 30 && ctx.starts.length < 4; i += 1) await tick();
 
       // 4 条链各起一个；第 5 个排在链后面，要等它前面那个回来
       expect(ctx.starts).toHaveLength(4);
@@ -573,6 +713,27 @@ describe('票 14 · 素材缓存命中：GET 不碰网络', () => {
       clock.advance(FALLBACK_FRESH_MS + 1);
       await gateway.request({ url: AUDIO_URL, responseType: 'binary' });
       expect(fetch.calls).toHaveLength(2);
+    });
+  });
+
+  it('票 40 · GET /api/user/me 不进 json 缓存（会话身份按 URL 缓存会串号）', async () => {
+    await withTmpCache(async (dir) => {
+      let n = 1;
+      const { gateway, fetch } = gatewayWith(
+        () => response({ body: { result: true, username: `u${n}`, n } }),
+        { dir },
+      );
+      const me = 'https://bestdori.com/api/user/me';
+
+      await expect(gateway.request({ url: me })).resolves.toMatchObject({ data: { n: 1 } });
+      n = 2;
+      await expect(gateway.request({ url: me })).resolves.toMatchObject({ data: { n: 2 } });
+      expect(fetch.calls).toHaveLength(2);
+
+      // 对照：普通 GET json 仍按 URL 缓存（曲库这类共享资源）
+      await gateway.request({ url: SONGS_URL });
+      await gateway.request({ url: SONGS_URL });
+      expect(fetch.calls).toHaveLength(3);
     });
   });
 

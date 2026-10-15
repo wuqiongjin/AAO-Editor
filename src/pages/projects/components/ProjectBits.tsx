@@ -134,24 +134,64 @@ export function DiffLevelBadge({ chart, uploaded, onCommit }: {
   );
 }
 
-export function Menu({ trigger, children }: { trigger: ReactNode; children: ReactNode }) {
+/** 面板的落点：竖档取 `top` 或 `bottom`，横档取 `left` 或 `right`（没取的键不写进内联样式） */
+type MenuPos = { top?: number; bottom?: number; left?: number; right?: number };
+
+/**
+ * 卡片 / 工具条上的小菜单（portal 到 body）。
+ *
+ * `placement`（票 39 Q29，additive，默认仍是 `down`，既有消费方一个都不受影响）：
+ * 左栏**最底部**的账号区只能往上弹 —— 向下弹会顶到窗口外。`up` 时改用 `bottom` 定位
+ * （面板底边贴在触发器上缘），坐标仍由触发器实测的 `getBoundingClientRect()` 给。
+ *
+ * `align`（票 39 回修，用户 2026-10-14 验收）：贴触发器的**左缘**还是右缘。默认 `end`
+ * 是既有的右对齐（卡片行尾的 ⋯ 菜单就锚在右边）。账号区必须 `start`：它在左栏最左边，
+ * 面板又是 `min-width: 200px` 的**收缩宽度**（宽随内容），右对齐会把面板左缘挂在"内容宽度"
+ * 上 —— 昵称一长，面板就朝左长出去压住导航条、更长的还会出屏。
+ *
+ * `trigger` 可以是 `(open: boolean) => ReactNode`：账号行的「已登录」态要在触发键上
+ * 如实写 `aria-expanded`，而那一位由菜单自己持有 —— 没有这条函数形态就得多造一份 state。
+ *
+ * 触发键外面那层 `<span>` 有稳定的类名 `pp-menu__trigger`：`.pp-menu` 是 `inline-flex`
+ * （工具条里的小菜单要按内容宽贴住按钮），但账号行是**满宽列表行**，得由消费方把它铺开
+ * （见 ProjectsPage.css 的 `.pc-account .pp-menu`）—— 没有这个类名就只能靠 `:first-child` 去猜。
+ */
+export function Menu({ trigger, placement = 'down', align = 'end', children }: {
+  trigger: ReactNode | ((open: boolean) => ReactNode);
+  placement?: 'down' | 'up';
+  align?: 'start' | 'end';
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
-  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const [pos, setPos] = useState<MenuPos>({ right: 0 });
   const toggle = () => {
     if (!open && wrapRef.current) {
       const r = wrapRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+      setPos({
+        ...(align === 'start'
+          ? { left: Math.max(8, r.left) }
+          : { right: Math.max(8, window.innerWidth - r.right) }),
+        ...(placement === 'up'
+          ? { bottom: window.innerHeight - r.top + 4 }
+          : { top: r.bottom + 4 }),
+      });
     }
     setOpen((v) => !v);
   };
+  const panel = typeof trigger === 'function' ? trigger(open) : trigger;
   return (
     <span className="pp-menu" ref={wrapRef}>
-      <span onClick={toggle}>{trigger}</span>
+      <span className="pp-menu__trigger" onClick={toggle}>{panel}</span>
       {open && createPortal(
         <>
           <span className="pp-menu__scrim" onClick={() => setOpen(false)} />
-          <div className="pp-menu__panel is-portaled" style={{ top: pos.top, right: pos.right }} onClick={() => setOpen(false)}>
+          {/* `pos` 的键就是 CSS 属性名，没测过的那一档不写（`undefined` 会被 React 跳过） */}
+          <div
+            className="pp-menu__panel is-portaled"
+            style={pos}
+            onClick={() => setOpen(false)}
+          >
             {children}
           </div>
         </>,

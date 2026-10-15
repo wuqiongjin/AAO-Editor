@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Download, FolderOpen, FolderSearch, FolderSync, Info, MonitorCog, RotateCcw, SlidersHorizontal, Trash2, Upload, Eye } from 'lucide-react';
+import { Check, Download, FolderOpen, FolderSearch, FolderSync, MonitorCog, Trash2, Upload } from 'lucide-react';
 import AppPageShell from '../../layouts/AppPageShell';
-import EmptyState from '../../ui/EmptyState';
 import { useConfig } from '../../app/ProviderTree';
-import { CACHE_POLICY_RANGE, defaultSettings, loadSettings } from '../../chart/config/AppSettings';
+import { CACHE_POLICY_RANGE, loadSettings } from '../../chart/config/AppSettings';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import { t, type MessageKey } from '../../i18n';
 import { clearSongCatalogCache } from '../../community/bestdori/songs';
 
-// 设置页：接入 AppPageShell（Sidebar 分组导航 + Body 设置详情），修改立即生效并持久化。
-type Section = 'appearance' | 'layout' | 'data' | 'canvas';
+// 设置页：接入 AppPageShell（Sidebar 扁平导航 + Body 设置详情），修改立即生效并持久化。
+type Section = 'appearance' | 'data';
 
 const THEME_OPTIONS: Array<{ value: AppSettings['theme']; labelKey: MessageKey; swatch: string }> = [
   { value: 'light', labelKey: 'settings.theme.light', swatch: 'light' },
@@ -21,12 +20,6 @@ const UI_FONT_STACK_OPTIONS: Array<{ value: AppSettings['uiFontStack']; labelKey
   { value: 'geist', labelKey: 'settings.uiFont.geist' },
   { value: 'yahei', labelKey: 'settings.uiFont.yahei' },
   { value: 'noto', labelKey: 'settings.uiFont.noto' },
-];
-
-const QUALITY_OPTIONS: Array<{ value: AppSettings['display']['imageQuality']; labelKey: MessageKey }> = [
-  { value: 'smooth', labelKey: 'settings.imageQuality.smooth' },
-  { value: 'standard', labelKey: 'settings.imageQuality.standard' },
-  { value: 'hd', labelKey: 'settings.imageQuality.hd' },
 ];
 
 interface DataRootBridge {
@@ -71,13 +64,6 @@ function formatBytes(bytes: number): string {
   return `${unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 }
 
-const GRID_STYLE_OPTIONS: Array<{ value: AppSettings['display']['gridStyle']; labelKey: MessageKey }> = [
-  { value: 'mono', labelKey: 'settings.gridStyle.mono' },
-  { value: 'amber', labelKey: 'settings.gridStyle.amber' },
-  { value: 'cyan', labelKey: 'settings.gridStyle.cyan' },
-  { value: 'vivid', labelKey: 'settings.gridStyle.vivid' },
-];
-
 /** 行内滑块行：百分比参数（值以比例存储，UI 以 % 显示） */
 function PercentSliderRow({
   label, hint, value, min, max, step, onChange,
@@ -97,30 +83,6 @@ function PercentSliderRow({
         />
         <span className="slider-value">{Math.round(value * 100)}%</span>
       </div>
-    </div>
-  );
-}
-
-/** 分组"恢复默认"行：本组参数恢复出厂默认，需二次确认 */
-function ResetRow({ label, hint, confirming, onConfirm, onToggle }: {
-  label: string; hint: string; confirming: boolean; onToggle: () => void; onConfirm: () => void;
-}) {
-  return (
-    <div className="settings-row">
-      <div className="settings-row__text">
-        <strong>{label}</strong>
-        <span>{confirming ? t('settings.reset.confirm', { hint }) : hint}</span>
-      </div>
-      {confirming ? (
-        <span className="inline-actions">
-          <button className="button-secondary" type="button" onClick={onConfirm}>{t('settings.reset.confirmBtn')}</button>
-          <button className="button-secondary" type="button" onClick={onToggle}>{t('settings.reset.cancel')}</button>
-        </span>
-      ) : (
-        <button className="button-secondary" type="button" onClick={onToggle}>
-          <RotateCcw size={15} />{t('settings.reset')}
-        </button>
-      )}
     </div>
   );
 }
@@ -151,27 +113,10 @@ function NumberRow({
   );
 }
 
-/** 行内开关行：布尔参数 */
-function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="settings-row">
-      <div className="settings-row__text">
-        <strong>{label}</strong>
-        <span>{hint}</span>
-      </div>
-      <button
-        className={`switch${checked ? ' is-on' : ''}`} type="button" role="switch" aria-checked={checked}
-        aria-label={label} onClick={() => onChange(!checked)}
-      ><span /></button>
-    </div>
-  );
-}
-
 export default function SettingsPage() {
-  const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setDisplay, setCachePolicy, setAllSettings } = useConfig();
+  const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setCachePolicy, setAllSettings } = useConfig();
   const [section, setSection] = useState<Section>('appearance');
   const [importError, setImportError] = useState<string | null>(null);
-  const [resetConfirm, setResetConfirm] = useState<'canvas' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const dataRootApi = getDataRootBridge();
   const [dataRootPath, setDataRootPath] = useState<string | null>(null);
@@ -249,8 +194,6 @@ export default function SettingsPage() {
   const handleChangeDataRoot = () => void applyDataRootResult(() => dataRootApi!.change(), t('settings.dataRoot.changeFail'));
   const handleClaimDataRoot = () => void applyDataRootResult(() => dataRootApi!.claim(), t('settings.dataRoot.claimFail'));
 
-  const resetCanvasDefaults = () => setDisplay(defaultSettings().display);
-
   const handleExport = () => {
     const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -286,14 +229,18 @@ export default function SettingsPage() {
       />
 
       <AppPageShell.Sidebar ariaLabel={t('settings.sidebar.aria')}>
-        <AppPageShell.SidebarGroup title={t('settings.group.app')}>
-          <AppPageShell.SidebarItem icon={MonitorCog} label={t('settings.section.appearance')} active={section === 'appearance'} onClick={() => setSection('appearance')} />
-          <AppPageShell.SidebarItem icon={SlidersHorizontal} label={t('settings.section.layout')} active={section === 'layout'} onClick={() => setSection('layout')} />
-          <AppPageShell.SidebarItem icon={Download} label={t('settings.section.data')} active={section === 'data'} onClick={() => setSection('data')} />
-        </AppPageShell.SidebarGroup>
-        <AppPageShell.SidebarGroup title={t('settings.group.feature')}>
-          <AppPageShell.SidebarItem icon={Eye} label={t('settings.section.canvas')} active={section === 'canvas'} onClick={() => setSection('canvas')} />
-        </AppPageShell.SidebarGroup>
+        <AppPageShell.SidebarItem
+          icon={MonitorCog}
+          label={t('settings.section.appearance')}
+          active={section === 'appearance'}
+          onClick={() => setSection('appearance')}
+        />
+        <AppPageShell.SidebarItem
+          icon={Download}
+          label={t('settings.section.data')}
+          active={section === 'data'}
+          onClick={() => setSection('data')}
+        />
       </AppPageShell.Sidebar>
 
       <AppPageShell.Body mode="default">
@@ -357,107 +304,6 @@ export default function SettingsPage() {
                   ))}
                 </select>
               </div>
-            </>
-          )}
-
-          {section === 'layout' && (
-            <>
-              <div className="settings-heading">
-                <h2>{t('settings.section.layout')}</h2>
-                <p>{t('settings.layout.intro')}</p>
-              </div>
-              <EmptyState
-                icon={Info}
-                title={t('settings.layout.emptyTitle')}
-                description={t('settings.layout.emptyDescription')}
-              />
-            </>
-          )}
-
-          {section === 'canvas' && (
-            <>
-              <div className="settings-heading">
-                <h2>{t('settings.section.canvas')}</h2>
-                <p>{t('settings.canvas.intro')}</p>
-              </div>
-              <PercentSliderRow
-                label={t('settings.noteSize')} hint={t('settings.noteSize.hint')}
-                value={settings.display.noteSize} min={10} max={200} step={10}
-                onChange={(v) => setDisplay({ noteSize: v })}
-              />
-              <PercentSliderRow
-                label={t('settings.slideOpacity')} hint={t('settings.slideOpacity.hint')}
-                value={settings.display.slideOpacity} min={10} max={100} step={10}
-                onChange={(v) => setDisplay({ slideOpacity: v })}
-              />
-              <ToggleRow
-                label={t('settings.simultaneousClickLines')} hint={t('settings.simultaneousClickLines.hint')}
-                checked={settings.display.simultaneousClickLines}
-                onChange={(v) => setDisplay({ simultaneousClickLines: v })}
-              />
-              <ToggleRow
-                label={t('settings.colorAssist')} hint={t('settings.colorAssist.hint')}
-                checked={settings.display.colorAssist}
-                onChange={(v) => setDisplay({ colorAssist: v })}
-              />
-              <PercentSliderRow
-                label={t('settings.verticalRatio')} hint={t('settings.verticalRatio.hint')}
-                value={settings.display.verticalRatio} min={50} max={200} step={10}
-                onChange={(v) => setDisplay({ verticalRatio: v })}
-              />
-              <div className="settings-row">
-                <div className="settings-row__text">
-                  <strong>{t('settings.imageQuality')}</strong>
-                  <span>{t('settings.imageQuality.hint')}</span>
-                </div>
-                <select
-                  className="select-control"
-                  value={settings.display.imageQuality}
-                  onChange={(e) => setDisplay({ imageQuality: e.target.value as AppSettings['display']['imageQuality'] })}
-                  aria-label={t('settings.imageQuality')}
-                >
-                  {QUALITY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="settings-row">
-                <div className="settings-row__text">
-                  <strong>{t('settings.gridStyle')}</strong>
-                  <span>{t('settings.gridStyle.hint')}</span>
-                </div>
-                <select
-                  className="select-control"
-                  value={settings.display.gridStyle}
-                  onChange={(e) => setDisplay({ gridStyle: e.target.value as AppSettings['display']['gridStyle'] })}
-                  aria-label={t('settings.gridStyle')}
-                >
-                  {GRID_STYLE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{t(opt.labelKey)}</option>
-                  ))}
-                </select>
-              </div>
-              <ToggleRow
-                label={t('settings.lineShapeTiers')} hint={t('settings.lineShapeTiers.hint')}
-                checked={settings.display.lineShapeTiers}
-                onChange={(v) => setDisplay({ lineShapeTiers: v })}
-              />
-              <PercentSliderRow
-                label={t('settings.gridOpacity')} hint={t('settings.gridOpacity.hint')}
-                value={settings.display.gridOpacity} min={10} max={100} step={10}
-                onChange={(v) => setDisplay({ gridOpacity: v })}
-              />
-              <PercentSliderRow
-                label={t('settings.labelScale')} hint={t('settings.labelScale.hint')}
-                value={settings.display.labelScale} min={50} max={300} step={10}
-                onChange={(v) => setDisplay({ labelScale: v })}
-              />
-              <ResetRow
-                label={t('settings.reset')} hint={t('settings.reset.hint')}
-                confirming={resetConfirm === 'canvas'}
-                onToggle={() => setResetConfirm(resetConfirm === 'canvas' ? null : 'canvas')}
-                onConfirm={() => { resetCanvasDefaults(); setResetConfirm(null); }}
-              />
             </>
           )}
 

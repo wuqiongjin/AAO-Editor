@@ -1,4 +1,5 @@
 // 工程文件后端真 fs 往返：list/get/put/delete、封面分离、旧 schema 不读不删。
+import { createHash } from 'crypto';
 import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -9,6 +10,7 @@ import {
   getProject,
   listProjects,
   putProject,
+  uploadRefs,
 } from '@/electron/projectStore.cjs';
 import { tmpDir } from '@/tests/support/fs';
 
@@ -199,6 +201,56 @@ describe('electron/projectStore · 真文件往返', () => {
       // list 同口径：不读音频字节，doc 原样列出
       const listed = await listProjects(root);
       expect(listed.map((p: { id: string }) => p.id)).toEqual(['pMissing']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('票 11 · uploadRefs：音频 / 封面的路径 + 字节数 + SHA-1（字节不过 IPC）', async () => {
+    const root = tmpDir('aao-proj-uploadrefs-');
+    try {
+      ensureDataRootLayoutSync(root);
+      await putProject(root, {
+        id: 'pUp',
+        doc: doc({ audioIntent: 'set', coverIntent: 'set', audioName: 'a.mp3', coverName: 'c.png' }),
+        audio: new Uint8Array([1, 2, 3, 4]),
+        cover: new Uint8Array([9, 9]),
+      });
+      await putProject(root, { id: 'pBare', doc: doc({ name: 'Bare' }) });
+
+      const refs = await uploadRefs(root, 'pUp');
+      if (!refs) throw new Error('expected pUp');
+      expect(refs.audio).toEqual({
+        path: join(root, 'projects', 'pUp', 'audio.bin'),
+        size: 4,
+        hash: createHash('sha1').update(Buffer.from([1, 2, 3, 4])).digest('hex'),
+      });
+      expect(refs.cover).toEqual({
+        path: join(root, 'projects', 'pUp', 'cover.bin'),
+        size: 2,
+        hash: createHash('sha1').update(Buffer.from([9, 9])).digest('hex'),
+      });
+
+      // 没有的素材是 null（不是「有路径没字节」）
+      const bare = await uploadRefs(root, 'pBare');
+      expect(bare).toEqual({ audio: null, cover: null });
+
+      // 工程不存在 / 旧 schema → 整个 null
+      expect(await uploadRefs(root, 'nope')).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('票 11 · uploadRefs：present 但盘上没有 → 该素材按没有处理（不返回假路径）', async () => {
+    const root = tmpDir('aao-proj-uploadrefs-gone-');
+    try {
+      const dir = join(root, 'projects', 'pGone');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'project.json'), JSON.stringify(doc({ audioPresent: true, audioName: 'a.mp3' })));
+
+      const refs = await uploadRefs(root, 'pGone');
+      expect(refs).toEqual({ audio: null, cover: null });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

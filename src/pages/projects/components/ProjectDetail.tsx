@@ -1,6 +1,6 @@
 // 工程详情视图（原 ProjectsPage.tsx 的 detail 分支整块抽出，内部未再拆）。
-import type { CSSProperties, ReactNode } from 'react';
-import { Copy, Eye, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { Copy, Eye, Lock, Music2, Pencil, Play, Plus, SlidersHorizontal, Trash2, Upload } from 'lucide-react';
 import { useNow } from '../../../app/ProviderTree';
 import { newChartId, type ChartProject, type ProjectChart } from '../../../project/ChartProject';
 import {
@@ -21,12 +21,16 @@ import { postUrl } from '../../../community/bestdori/endpoints';
 import { projectTimeAt, type ProjectSortKey } from '../../../project/projectSort';
 import { t } from '../../../i18n';
 import { effectiveTitle, formatDuration, projectTimeTag, relTime } from '../projectFormat';
+import { useCommunityCapabilities } from '../communityCapabilities';
 import ProjectListSplit from '../ProjectListSplit';
+import { AccountBar } from './AccountBar';
+import { capabilityBlockLabel } from './CapabilityStatusLine';
 import { Cover, DiffLevelBadge, StatusBadge } from './ProjectBits';
+import { SignInDialog } from './SignInDialog';
 
 export function ProjectDetail({
   list, sel, currentId, listWidth, onListWidthChange, newButton, sort,
-  onHome, onSelect, onOpen, onEdit, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, mutate,
+  onHome, onSelect, onOpen, onEdit, onDelete, onChartForm, onDeleteChart, onOpenAudio, onPreviewChart, onPublishChart, mutate,
 }: {
   list: ChartProject[];
   sel: ChartProject;
@@ -49,12 +53,28 @@ export function ProjectDetail({
   onOpenAudio: () => void;
   /** 跳预览页（带作用域二级 chartId，chart-preview 02）——同上，作用域由页面侧构造 */
   onPreviewChart: (chartId: string) => void;
+  /** 打开发布弹窗（票 11；入口在工程管理页，ADR-0015 §4 后果） */
+  onPublishChart: (chart: ProjectChart) => void;
   mutate: (id: string, fn: (p: ChartProject) => ChartProject | null) => Promise<void>;
 }) {
   const uploads = sel.charts.filter((c) => c.upload);
   const locked = uploads.length > 0;
   // relTime 的 now 走共享 ticker（issue 36）：30s 一跳，三处「N 分钟前」随时间自己走
   const now = useNow();
+  // 发布入口的能力灰化（票 41）：写能力被挡住时按钮灰掉，why 挂在按钮 title 上，
+  // 不再占谱面列表上方一行。文案仍只从 capabilityBlockLabel 一处取。
+  // 没有出口（静态演示版）整枚不渲染。未登录要点得开 → 登录弹窗，成功后续上发布确认。
+  const { write: canPublish, block: capabilityBlock } = useCommunityCapabilities();
+  const publishEntry = capabilityBlock !== 'unsupported-runtime';
+  const signedOut = capabilityBlock === 'signed-out';
+  const [signInForChart, setSignInForChart] = useState<ProjectChart | null>(null);
+  // 左栏选中项自动滚入视口（issue 23 Q12/Q13）——与 hub 那份同参数。
+  // 索引必须与渲染序（`list`）对齐：左栏渲染的是 `list.map(...)`，用 `projects` 会错位。
+  useEffect(() => {
+    document.querySelectorAll<HTMLElement>('.pc-item').forEach((item, i) => {
+      if (list[i]?.id === sel.id) item.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    });
+  }, [list, sel.id]);
   return (
     <div className="pc-page" style={{ '--pc-list-w': `${listWidth}px` } as CSSProperties}>
       <aside className="pc-list">
@@ -85,6 +105,10 @@ export function ProjectDetail({
             </button>
           );
         })}
+        {/* 账号区钉在左栏底部（票 39 Q13）：`.pc-list` 是 flex column + overflow-y，
+            `margin-top: auto` 让它在列表短时贴底、列表长时跟在末尾（不随列表滚走的是上面的 head）。
+            只在这里挂 —— 启动台没有它（Q24：0 工程时登录不可达，已接受）。 */}
+        <AccountBar />
       </aside>
       <ProjectListSplit width={listWidth} onChange={onListWidthChange} />
       <main className="pc-detail">
@@ -155,6 +179,26 @@ export function ProjectDetail({
                     <button type="button" className="pp-btn pp-btn--sm" onClick={() => onPreviewChart(c.id)}>
                       <Eye size={12} />{t('projects.previewChart')}
                     </button>
+                    {/* 发布入口（票 11）：已上传的谱面没有它（至多一条上传记录，
+                        要改就复制谱面改副本）；写能力被挡时禁用（说明见上面那一行）。 */}
+                    {publishEntry && !up && (
+                      <button
+                        type="button"
+                        className="pp-btn pp-btn--sm"
+                        disabled={!canPublish && !signedOut}
+                        aria-disabled={signedOut || undefined}
+                        title={capabilityBlock != null ? capabilityBlockLabel(capabilityBlock) : undefined}
+                        onClick={() => {
+                          if (signedOut) {
+                            setSignInForChart(c);
+                            return;
+                          }
+                          onPublishChart(c);
+                        }}
+                      >
+                        <Upload size={12} />{t('projects.publish.action')}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="pp-btn pp-btn--sm"
@@ -209,6 +253,12 @@ export function ProjectDetail({
           )}
         </section>
       </main>
+      {signInForChart && (
+        <SignInDialog
+          onClose={() => setSignInForChart(null)}
+          onSuccess={() => onPublishChart(signInForChart)}
+        />
+      )}
     </div>
   );
 }

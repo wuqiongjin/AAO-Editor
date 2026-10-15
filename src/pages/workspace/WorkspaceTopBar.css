@@ -1,0 +1,135 @@
+/* 工作台顶栏右侧紧凑控件簇（issue 170） */
+
+.ws-topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* 分隔线：分隔元信息（BPM）与视口控制交互组件 */
+.ws-topbar-divider {
+  width: 1px;
+  height: 14px;
+  background-color: color-mix(in srgb, var(--border) 70%, transparent);
+  margin: 0 1px;
+  flex-shrink: 0;
+}
+
+/* BPM 紧凑 Meta 标签展示：高度 26px，融入顶栏背景 */
+.ws-topbar-bpm {
+  height: 26px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-elevated);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+
+.ws-topbar-bpm:hover {
+  border-color: var(--border-strong);
+}
+
+.ws-topbar-bpm__prefix {
+  color: var(--text-subtle);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.ws-topbar-bpm__val {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 缩放一体化微型胶囊：[ – | 100% | + ]，高度 26px，融入顶栏背景 */
+.ws-zoom-capsule {
+  height: 26px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-elevated);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+  user-select: none;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+
+.ws-zoom-capsule:hover {
+  border-color: var(--border-strong);
+}
+
+.ws-zoom-capsule__btn {
+  width: 22px;
+  height: 100%;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.ws-zoom-capsule__btn:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  color: var(--text);
+}
+
+.ws-zoom-capsule__btn:active:not(:disabled) {
+  background-color: var(--bg-active, var(--border));
+}
+
+.ws-zoom-capsule__btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.ws-zoom-capsule__val {
+  min-width: 38px;
+  height: 100%;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  font-size: 11.5px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.ws-zoom-capsule__val:hover {
+  background-color: var(--bg-hover);
+  color: var(--text);
+}

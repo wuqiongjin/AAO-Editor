@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         put: (payload) => ipcRenderer.invoke('project:put', payload),
         list: () => ipcRenderer.invoke('project:list'),
         delete: (id) => ipcRenderer.invoke('project:delete', id),
+        // 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1），字节不过 IPC
+        uploadRefs: (id) => ipcRenderer.invoke('project:uploadRefs', id),
     },
     // issue 118：谱面代码另存为。每次弹出系统保存对话框，不记路径。
     chartCodeExport: {
@@ -46,6 +48,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 浏览器侧没有这条桥 = 静态演示版，能力层降级为「平台不可用」。
     communityNet: {
         request: (payload) => ipcRenderer.invoke('communityNet:request', payload),
+    },
+    // bestdori-integration 10：会话 Cookie 的加密持久化（safeStorage 在主进程）。
+    // 三条通道**都不收也不回凭据**：恢复 / 落盘 / 清除都由主进程从它自己那份内存 jar 做，
+    // renderer 只拿到「有没有会话 / 落没落盘」这类布尔（ADR-0011 §3 凭据红线）。
+    // 没有第四条：凭据面的接口越小越好，「本机能不能加密」由 persist() 的成败回答。
+    communitySession: {
+        restore: () => ipcRenderer.invoke('communitySession:restore'),
+        persist: () => ipcRenderer.invoke('communitySession:persist'),
+        clear: () => ipcRenderer.invoke('communitySession:clear'),
+    },
+    // 票 39：站外链接的唯一出口 —— 注册 / 找回密码这类「去站点」的入口开系统浏览器
+    // （仓里既有的 <a target="_blank"> 在 Electron 里会开应用内无地址栏窗口 = 错形态）。
+    // 与上面几条零入参桥不同：这条**必须收 URL**，所以放不放行由主进程校验
+    // （electron/externalLink.cjs 只放行社区平台及其子域），renderer 递不进任意地址。
+    shell: {
+        openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
     },
     // bestdori-integration 14 + 18：素材缓存的占用查询 / 清除 / 回收策略推送（设置页「存储与数据」用）。
     // 只有这三条：一条只读统计、一条显式清除、一条策略参数 —— 不暴露缓存内容。

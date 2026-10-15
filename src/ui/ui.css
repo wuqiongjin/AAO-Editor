@@ -354,6 +354,28 @@
   border-top-color: var(--bg-elevated);
   z-index: 1;
 }
+/* 往下展开那一档（票 39 Q49 / src/ui/HelpHint.tsx：弹窗标题右侧的「?」）。
+   同一套类、同一份视觉，只把方向反过来 —— 气泡在按钮下方、尖角朝上。
+   标题在弹窗最上面，往上弹会被面板的 overflow: hidden 裁掉，所以这一档必须存在。 */
+.dialog-field__popover.is-below {
+  top: calc(100% + 8px);
+  bottom: auto;
+  left: -8px;
+}
+.dialog-field__popover.is-below::after {
+  top: auto;
+  bottom: 100%;
+  left: 14px;
+  border-top-color: transparent;
+  border-bottom-color: var(--border);
+}
+.dialog-field__popover.is-below::before {
+  top: auto;
+  bottom: calc(100% - 1px);
+  left: 14px;
+  border-top-color: transparent;
+  border-bottom-color: var(--bg-elevated);
+}
 .dialog-source-pill {
   display: inline-flex;
   align-items: center;
