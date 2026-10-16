@@ -101,6 +101,19 @@ describe('issue 19 #2 · 难度+等级徽标就地编辑', () => {
     expect(screen.queryByRole('dialog', { name: '点击改难度 / 等级' })).toBeNull();
   });
 
+  it('越界等级回车不落库（票 43）', async () => {
+    await renderDetail();
+    fireEvent.click(badges()[0]);
+    const panel = await screen.findByRole('dialog', { name: '点击改难度 / 等级' });
+    const input = within(panel).getByRole('textbox');
+    fireEvent.change(input, { target: { value: '99' } });
+    expect(input).toHaveClass('is-missing');
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '点击改难度 / 等级' })).toBeNull());
+    expect(storedChart('cEdit').level).toBe(27);
+  });
+
   it('Esc 收起但不提交', async () => {
     await renderDetail();
     fireEvent.click(badges()[0]);

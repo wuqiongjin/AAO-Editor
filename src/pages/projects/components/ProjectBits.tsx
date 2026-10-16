@@ -6,7 +6,7 @@ import { Music2 } from 'lucide-react';
 import type { ChartDifficulty, ChartProject, ProjectChart } from '../../../project/ChartProject';
 import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT, projectCoverHue } from '../../../project/projectCatalog';
 import { chartStatus } from '../../../project/workspaceProject';
-import { parseLevel } from '../../../project/ui/ChartInfoDialog';
+import { readChartLevelInput } from '../../../project/ui/ChartInfoDialog';
 import { ChartStatusIcon } from '../../../project/ui/projectUi';
 import { useCoverUrl } from '../../../ui/CoverField';
 import { showToast } from '../../../ui/Toast';
@@ -73,9 +73,10 @@ export function DiffLevelBadge({ chart, uploaded, onCommit }: {
     setOpen(true);
   };
 
+  const levelInput = readChartLevelInput(level);
   const commitLevel = () => {
-    const parsed = parseLevel(level);
-    if (parsed !== chart.level) onCommit({ diff: chart.diff, level: parsed });
+    if (!levelInput.persist) return;
+    if (levelInput.level !== chart.level) onCommit({ diff: chart.diff, level: levelInput.level });
   };
 
   return (
@@ -113,6 +114,7 @@ export function DiffLevelBadge({ chart, uploaded, onCommit }: {
               <input
                 value={level}
                 inputMode="numeric"
+                className={levelInput.persist ? undefined : 'is-missing'}
                 autoFocus
                 onChange={(e) => setLevel(e.target.value)}
                 onKeyDown={(e) => {

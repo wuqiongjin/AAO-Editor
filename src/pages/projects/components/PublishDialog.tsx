@@ -1,7 +1,8 @@
 // 发布弹窗（票 42）：原型 A 视觉布局 + 字段就地编辑 + 描述草稿持久化。
 //
 // 依据与定案（issues/42 + issues/11 + ADR-0015）：
-//   ① 走 ui/Dialog 既有弹窗壳，头部左侧带 HelpHint 问号气泡，右侧展示当前账号与头像（与 AccountBar 完全一致）；
+//   ① 走 ui/Dialog 既有弹窗壳，头部左侧带 HelpHint 问号气泡，右上角账号头像 + 昵称（与 AccountBar
+//      完全一致）；「不双写」= 昵称与账号名不同时出现，账号名只留在头像的 title 提示里；
 //   ② 原型 A 封面身份卡：左侧 1:1 封面展示（只读视觉锚），右侧 7 行整齐对齐元信息条目；
 //   ③ 字段就地编辑：标题、歌手、难度、等级直接就地操作，保持原型 A 极简纯净排版，不加冗余小图标；
 //   ④ 描述草稿持久化（Q3）：草稿记在谱面工程记录里，复制谱面一并带上，发布成功后清除；
@@ -29,13 +30,12 @@ import {
 } from '../../../project/ChartProject';
 import type { ProjectUploadFile as ProjectUploadFileRef, ProjectUploadRefs } from '../../../project/ChartProjectRecord';
 import {
-  DIFF_COLORS,
   DIFF_NAMES,
   updateChartInfo,
   updateChartPublishDraft,
   updateProjectInfo,
 } from '../../../project/projectCatalog';
-import { parseLevel } from '../../../project/ui/ChartInfoDialog';
+import { readChartLevelInput } from '../../../project/ui/ChartInfoDialog';
 import { useCoverUrl } from '../../../ui/CoverField';
 import { t, type MessageKey } from '../../../i18n';
 import ActionBtn from '../../../ui/ActionBtn';
@@ -83,6 +83,37 @@ type LoadUploadRefs = (projectId: string) => Promise<ProjectUploadRefs | null>;
 
 function toUploadFile(ref: ProjectUploadFileRef, fileName: string): PublishUploadFile {
   return { path: ref.path, size: ref.size, hash: ref.hash, fileName };
+}
+
+/** 就地编辑防抖时长（票 42）：改完停下来这么久才落盘 */
+const SAVE_DEBOUNCE_MS = 350;
+
+type SaveTimerRef = { current: ReturnType<typeof setTimeout> | null };
+
+/** 下一版谱面元信息（票 43 Q3：等级越界不写、回落到当前值） */
+type ChartMetaNext = { title: string | null; diff: ChartDifficulty; level: number | null };
+
+function cancelSave(ref: SaveTimerRef): void {
+  if (ref.current) {
+    clearTimeout(ref.current);
+    ref.current = null;
+  }
+}
+
+/** 重排防抖；触发时自清 ref —— 否则 flush 会把已经落过盘的写再写一遍（票 43） */
+function scheduleSave(ref: SaveTimerRef, run: () => void): void {
+  if (ref.current) clearTimeout(ref.current);
+  ref.current = setTimeout(() => {
+    ref.current = null;
+    run();
+  }, SAVE_DEBOUNCE_MS);
+}
+
+/** 把在飞的防抖立刻落盘（票 43 Q2：关窗 / 发布成功都不丢刚改的值） */
+function flushSave(ref: SaveTimerRef, run: () => void): void {
+  if (!ref.current) return;
+  cancelSave(ref);
+  run();
 }
 
 function Fact({
@@ -152,80 +183,80 @@ export function PublishDialog(props: {
 
   // 描述草稿防抖持久化（票 42 Q3）
   const debouncedDraftRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commitDraft = (nextDraft: string) => {
+    onUpdateProject?.((p) => updateChartPublishDraft(p, chart.id, nextDraft));
+  };
   const syncDraft = (nextDraft: string) => {
     setContent(nextDraft);
-    const nextCleanDraft = nextDraft.trim() || null;
-    if (nextCleanDraft === (chart.publishDraft?.trim() || null)) {
-      if (debouncedDraftRef.current) {
-        clearTimeout(debouncedDraftRef.current);
-        debouncedDraftRef.current = null;
-      }
+    if ((nextDraft.trim() || null) === (chart.publishDraft?.trim() || null)) {
+      cancelSave(debouncedDraftRef);
       return;
     }
-    if (debouncedDraftRef.current) clearTimeout(debouncedDraftRef.current);
-    debouncedDraftRef.current = setTimeout(() => {
-      onUpdateProject?.((p) => updateChartPublishDraft(p, chart.id, nextDraft));
-    }, 350);
+    scheduleSave(debouncedDraftRef, () => commitDraft(nextDraft));
   };
 
   // 谱面信息（标题、难度、等级）就地改动防抖落盘
   const debouncedChartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nextChartMeta = (nextTitle: string, nextDiff: ChartDifficulty, nextLevelStr: string): ChartMetaNext => {
+    const levelRead = readChartLevelInput(nextLevelStr);
+    return {
+      title: nextTitle.trim() || null,
+      diff: nextDiff,
+      level: levelRead.persist ? levelRead.level : chart.level,
+    };
+  };
+  const chartMetaUnchanged = (next: ChartMetaNext) =>
+    next.title === (chart.title?.trim() || null)
+    && next.diff === chart.diff
+    && next.level === chart.level;
+  const commitChartMeta = (next: ChartMetaNext) => {
+    if (chartMetaUnchanged(next)) return;
+    onUpdateProject?.((p) => updateChartInfo(p, chart.id, next, Date.now()));
+  };
   const syncChartMeta = (nextTitle: string, nextDiff: ChartDifficulty, nextLevelStr: string) => {
-    const nextCleanTitle = nextTitle.trim() || null;
-    const nextParsedLevel = parseLevel(nextLevelStr);
-    if (
-      nextCleanTitle === (chart.title?.trim() || null) &&
-      nextDiff === chart.diff &&
-      nextParsedLevel === chart.level
-    ) {
-      if (debouncedChartRef.current) {
-        clearTimeout(debouncedChartRef.current);
-        debouncedChartRef.current = null;
-      }
+    const next = nextChartMeta(nextTitle, nextDiff, nextLevelStr);
+    if (chartMetaUnchanged(next)) {
+      cancelSave(debouncedChartRef);
       return;
     }
-    if (debouncedChartRef.current) clearTimeout(debouncedChartRef.current);
-    debouncedChartRef.current = setTimeout(() => {
-      onUpdateProject?.((p) => updateChartInfo(
-        p,
-        chart.id,
-        { title: nextCleanTitle, diff: nextDiff, level: nextParsedLevel },
-        Date.now(),
-      ));
-    }, 350);
+    scheduleSave(debouncedChartRef, () => commitChartMeta(next));
   };
 
   // 歌手就地改动防抖落盘
   const debouncedArtistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commitArtistMeta = (nextArtist: string | null) => {
+    if (nextArtist === (project.artist?.trim() || null)) return;
+    onUpdateProject?.((p) => updateProjectInfo(p, { ...p, artist: nextArtist }));
+  };
   const syncArtistMeta = (nextArtist: string) => {
-    const nextCleanArtist = nextArtist.trim() || null;
-    if (nextCleanArtist === (project.artist?.trim() || null)) {
-      if (debouncedArtistRef.current) {
-        clearTimeout(debouncedArtistRef.current);
-        debouncedArtistRef.current = null;
-      }
+    const next = nextArtist.trim() || null;
+    if (next === (project.artist?.trim() || null)) {
+      cancelSave(debouncedArtistRef);
       return;
     }
-    if (debouncedArtistRef.current) clearTimeout(debouncedArtistRef.current);
-    debouncedArtistRef.current = setTimeout(() => {
-      onUpdateProject?.((p) => updateProjectInfo(p, { ...p, artist: nextCleanArtist }));
-    }, 350);
+    scheduleSave(debouncedArtistRef, () => commitArtistMeta(next));
   };
 
-  // 退出 / 跳转前强制冲刷草稿
-  const flushDraftImmediate = () => {
-    if (debouncedDraftRef.current) {
-      clearTimeout(debouncedDraftRef.current);
-      debouncedDraftRef.current = null;
-      if ((content.trim() || null) !== (chart.publishDraft?.trim() || null)) {
-        onUpdateProject?.((p) => updateChartPublishDraft(p, chart.id, content));
-      }
-    }
+  // 退出 / 跳转前强制冲刷草稿与就地元数据（票 43 Q2：关窗不丢刚改的难度）
+  const flushDraftImmediate = () => flushSave(debouncedDraftRef, () => {
+    if ((content.trim() || null) !== (chart.publishDraft?.trim() || null)) commitDraft(content);
+  });
+  const flushChartImmediate = () => flushSave(
+    debouncedChartRef,
+    () => commitChartMeta(nextChartMeta(title, diff, level)),
+  );
+  const flushArtistImmediate = () => flushSave(debouncedArtistRef, () => commitArtistMeta(artists.trim() || null));
+
+  /** 就地元数据（谱面信息 + 歌手）的在飞防抖立刻落盘 */
+  const flushPendingSaves = () => {
+    flushChartImmediate();
+    flushArtistImmediate();
   };
 
   const closeDialog = () => {
     if (stage !== null) return;
     flushDraftImmediate();
+    flushPendingSaves();
     onClose?.();
   };
 
@@ -242,7 +273,9 @@ export function PublishDialog(props: {
 
   const rawTitle = title.trim() || project.name?.trim() || '';
   const displayTitle = rawTitle !== '' ? rawTitle : t('projects.untitled');
-  const parsedLevel = parseLevel(level);
+  const levelRead = readChartLevelInput(level);
+  // 空 / 越界 / 非整数都算缺等级（票 43 Q3：28.5 与 0 一样当缺项）
+  const parsedLevel = levelRead.persist ? levelRead.level : null;
 
   const input: PublishInput = useMemo(() => ({
     published: chart.upload != null,
@@ -269,6 +302,10 @@ export function PublishDialog(props: {
       setStage(null);
       if (outcome.ok) {
         setConfirming(false);
+        // 票 43 Q2：发布成功同样是关窗 —— 350ms 内未到期的就地编辑（标题/难度/等级/歌手）
+        // 先落盘再关，否则定时器在卸载后触发、updateProject 因 target 已空直接 return，改动被丢。
+        // 描述草稿不刷：recordChartUpload 发布成功时已把它清除（票 42 Q3），再写会复活。
+        flushPendingSaves();
         onClose?.();
         return;
       }
@@ -301,6 +338,7 @@ export function PublishDialog(props: {
           title={t('community.account.menuAccount', { username: profile.username })}
         >
           <InitialAvatar name={displayName} seed={profile.username} />
+          <span className="ppc-who__name">{displayName}</span>
         </div>
       )}
     </div>
@@ -377,24 +415,21 @@ export function PublishDialog(props: {
 
             {/* 难度 */}
             <Fact k={t('projects.publish.field.diff')}>
-              <div className="ppc-diff-wrap">
-                <select
-                  className="ppc-diff-select"
-                  style={{ background: DIFF_COLORS[diff] }}
-                  value={diff}
-                  disabled={busy}
-                  aria-label={t('projects.publish.field.diff')}
-                  onChange={(e) => {
-                    const next = Number(e.target.value) as ChartDifficulty;
-                    setDiff(next);
-                    syncChartMeta(title, next, level);
-                  }}
-                >
-                  {DIFF_NAMES.map((name, i) => (
-                    <option key={name} value={i}>{name}</option>
-                  ))}
-                </select>
-              </div>
+              <select
+                className="ppc-diff-select"
+                value={diff}
+                disabled={busy}
+                aria-label={t('projects.publish.field.diff')}
+                onChange={(e) => {
+                  const next = Number(e.target.value) as ChartDifficulty;
+                  setDiff(next);
+                  syncChartMeta(title, next, level);
+                }}
+              >
+                {DIFF_NAMES.map((name, i) => (
+                  <option key={name} value={i}>{name}</option>
+                ))}
+              </select>
             </Fact>
 
             {/* 等级 */}
@@ -419,7 +454,7 @@ export function PublishDialog(props: {
               {isNotesMissing ? (
                 <span role="alert" className="ppc-miss">{t(MISSING_KEYS.chart)}</span>
               ) : (
-                <span>{t('projects.publish.notesMeta', { count: notesCount })}</span>
+                <span className="ppc-fact__plain">{t('projects.publish.notesMeta', { count: notesCount })}</span>
               )}
             </Fact>
 
@@ -428,7 +463,7 @@ export function PublishDialog(props: {
               {audioMissing ? (
                 <span className="ppc-miss">未导入</span>
               ) : (
-                <span className="ppc-fact__audio-name" title={project.audioName ?? ''}>
+                <span className="ppc-fact__plain ppc-fact__audio-name" title={project.audioName ?? ''}>
                   {project.audioName ?? ''}
                 </span>
               )}
@@ -439,7 +474,7 @@ export function PublishDialog(props: {
               {audioMissing ? (
                 <span className="ppc-miss">未填</span>
               ) : (
-                formatDuration(project.durationSeconds)
+                <span className="ppc-fact__plain">{formatDuration(project.durationSeconds)}</span>
               )}
             </Fact>
           </div>

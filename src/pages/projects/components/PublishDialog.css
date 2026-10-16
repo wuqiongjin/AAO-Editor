@@ -32,6 +32,14 @@
   font-size: var(--text-2xs);
   font-weight: 700;
 }
+/* 昵称（2026-10-16 推翻票 42「仅头像」定案：头像 + 昵称，与 AccountBar 一致）。
+   头部是 space-between，长昵称省略而不是把标题挤扁（照 `.pc-account__text b` 的口径）。 */
+.ppc-who__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .ppc-a {
   display: flex;
@@ -84,7 +92,8 @@
 .ppc-a__id {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 6px;
   height: 204px;
   min-width: 0;
   flex: 1;
@@ -100,10 +109,15 @@
   box-sizing: border-box;
 }
 .ppc-fact__k {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   width: 36px;
+  height: 24px;
   flex-shrink: 0;
   color: var(--text-subtle);
   font-size: var(--text-xs);
+  line-height: 24px;
   text-align: right;
   user-select: none;
 }
@@ -112,10 +126,12 @@
   align-items: center;
   flex: 1;
   min-width: 0;
+  height: 24px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-sm);
+  line-height: 22px;
   color: var(--text);
 }
 .ppc-fact.is-missing .ppc-fact__v {
@@ -161,28 +177,32 @@
   flex: none;
 }
 
-.ppc-diff-wrap {
-  display: inline-flex;
-  align-items: center;
-}
 .ppc-diff-select {
-  height: 22px;
-  padding: 0 8px;
-  border: none;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  color: var(--text-inverse);
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  outline: none;
-  transition: opacity 0.15s ease;
-}
-.ppc-diff-select:hover {
-  opacity: 0.9;
-}
-.ppc-diff-select option {
   background: var(--bg);
   color: var(--text);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  box-sizing: border-box;
+}
+.ppc-diff-select:hover {
+  background: var(--bg-hover);
+}
+.ppc-diff-select:focus {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.ppc-fact__plain,
+.ppc-miss {
+  padding: 1px 6px;
+  box-sizing: border-box;
 }
 
 .ppc-miss {

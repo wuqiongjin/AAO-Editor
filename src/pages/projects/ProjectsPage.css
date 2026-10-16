@@ -260,6 +260,7 @@
 .pc-diff__chip.is-active { border-color: var(--text); }
 .pc-diff__level { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); }
 .pc-diff__level input { width: 72px; height: 26px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: var(--text-xs); }
+.pc-diff__level input.is-missing { border-color: var(--danger-text); color: var(--danger-text); }
 /* 标题列吃掉剩余宽度并可缩到任意窄（`min-width: 0` 是省略号的前提），
    于是动作组的位置不受标题长度影响 —— 每个谱面条目的按钮都在同一个 x 上。 */
 .pc-chart__title { display: flex; flex-direction: column; gap: 2px; flex: 1 1 0; min-width: 0; }

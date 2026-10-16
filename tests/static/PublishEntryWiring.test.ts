@@ -42,6 +42,10 @@ describe('票 11 · 发布入口的接线', () => {
     // 上传记录走唯一写入口（mutateProject）+ 只写一次的把门（recordChartUpload）
     expect(publishEntry).toMatch(/mutateProject\(/);
     expect(publishEntry).toMatch(/recordChartUpload\(/);
+    // 票 43 Q2：关窗后在飞写入按 prev 判断，不把弹窗 target 设回来
+    expect(publishEntry).toMatch(/setTarget\(\(prev\) => \(prev == null \? null/);
+    // 票 43 Q5：发布弹窗难度下拉不再铺 DIFF_COLORS
+    expect(publishDialog).not.toMatch(/DIFF_COLORS/);
   });
 
   it('能力层（src/community）不 import 工程域与页面（分层纪律）', () => {

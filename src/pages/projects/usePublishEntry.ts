@@ -109,7 +109,12 @@ export function usePublishEntry(deps: PublishEntryDeps): PublishEntry {
     if (result.status === 'saved') {
       const nextChart = result.project.charts.find((c) => c.id === current.chart.id);
       if (nextChart) {
-        setTarget({ project: result.project, chart: nextChart, chartCode: current.chartCode });
+        // 票 43 Q2：关窗后在飞写入不得把 target 设回来（否则弹窗关了又开）
+        setTarget((prev) => (prev == null ? null : {
+          project: result.project,
+          chart: nextChart,
+          chartCode: prev.chartCode,
+        }));
       }
       await reload();
     }

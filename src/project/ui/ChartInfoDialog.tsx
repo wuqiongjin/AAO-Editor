@@ -3,17 +3,31 @@
 import { useState } from 'react';
 import type { ChartDifficulty, ChartProject, ProjectChart } from '../ChartProject';
 import { DIFF_NAMES } from '../projectCatalog';
+import { POST_LEVEL_MAX, POST_LEVEL_MIN } from '../../community/bestdori/endpoints';
 import { t } from '../../i18n';
 import ActionBtn from '../../ui/ActionBtn';
 import Dialog from '../../ui/Dialog';
 import { displayProjectName } from './projectUi';
 
-/** 等级输入解析（空 → null；非有限数 → null）。难度/等级徽标就地编辑与弹窗共用。 */
+/** 等级输入解析（空 / 非整数 → null）。难度/等级徽标就地编辑与弹窗共用。 */
 export function parseLevel(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const n = Number(trimmed);
-  return Number.isFinite(n) ? n : null;
+  return Number.isInteger(n) ? n : null;
+}
+
+/**
+ * 空 → 可落盘 null；平台发帖区间（POST_LEVEL_MIN–MAX，实测 1 可通过、0 / 36 拒）内的整数可落盘；
+ * 0 / 负数 / 36+ / 非整数不写。票 43：发布弹窗、谱面信息、难度徽标同一套。
+ */
+export function readChartLevelInput(raw: string):
+  { persist: true; level: number | null } | { persist: false } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { persist: true, level: null };
+  const n = parseLevel(raw);
+  if (n == null || n < POST_LEVEL_MIN || n > POST_LEVEL_MAX) return { persist: false };
+  return { persist: true, level: n };
 }
 
 export function ChartInfoDialog({
@@ -31,13 +45,14 @@ export function ChartInfoDialog({
   const [diff, setDiff] = useState<ChartDifficulty>(chart?.diff ?? defaultDiff);
   const [level, setLevel] = useState(chart?.level != null ? String(chart.level) : '');
   const [code, setCode] = useState('');
+  const levelInput = readChartLevelInput(level);
   const save = () => {
-    const parsed = parseLevel(level);
+    if (!levelInput.persist) return;
     if (chart) {
-      onUpdate({ title: title.trim() || null, diff, level: parsed });
+      onUpdate({ title: title.trim() || null, diff, level: levelInput.level });
       return;
     }
-    onAdd({ title: title.trim() || null, diff, level: parsed, codeText: code });
+    onAdd({ title: title.trim() || null, diff, level: levelInput.level, codeText: code });
   };
   return (
     <Dialog
@@ -47,7 +62,9 @@ export function ChartInfoDialog({
         <>
           <ActionBtn onClick={onClose}>{t('projects.cancel')}</ActionBtn>
           {!locked && (
-            <ActionBtn variant="primary" onClick={save}>{chart ? t('projects.save') : t('projects.add')}</ActionBtn>
+            <ActionBtn variant="primary" onClick={save} disabled={!levelInput.persist}>
+              {chart ? t('projects.save') : t('projects.add')}
+            </ActionBtn>
           )}
         </>
       )}
@@ -64,7 +81,7 @@ export function ChartInfoDialog({
             {DIFF_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
           </select>
         </label>
-        <label className="dialog-field">
+        <label className={`dialog-field${levelInput.persist ? '' : ' is-missing'}`}>
           <span>{t('projects.level')}</span>
           <input value={level} placeholder={t('projects.levelLater')} disabled={locked} inputMode="numeric" onChange={(e) => setLevel(e.target.value)} />
         </label>

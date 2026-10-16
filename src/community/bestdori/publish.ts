@@ -110,7 +110,12 @@ export function precheckPublish(input: PublishInput): PublishPrecheck {
     missing.push('song');
   }
   if (!Number.isInteger(input.diff) || input.diff < 0 || input.diff > 4) missing.push('diff');
-  if (input.level == null || input.level < POST_LEVEL_MIN || input.level > POST_LEVEL_MAX) {
+  if (
+    input.level == null
+    || !Number.isInteger(input.level)
+    || input.level < POST_LEVEL_MIN
+    || input.level > POST_LEVEL_MAX
+  ) {
     missing.push('level');
   }
   const content = input.content.trim();

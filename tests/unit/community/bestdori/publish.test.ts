@@ -284,6 +284,7 @@ describe('票 11 · 必填预检（逐字段点名）', () => {
     ['level', { level: null }],
     ['level', { level: 0 }],
     ['level', { level: 36 }],
+    ['level', { level: 28.5 }],
     ['content', { content: '' }],
     ['content', { content: 'x'.repeat(5001) }],
     ['chart', { chartCode: [] as never }],

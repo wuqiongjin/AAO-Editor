@@ -118,6 +118,33 @@ describe('票 11 · 发布弹窗：必填预检与确认门', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
+  it.each(['28.5', '0', '-1', '36'])('等级 %s：就地缺项，发布键禁用（票 43）', (value) => {
+    renderDialog();
+    fillDescription('x');
+    const level = screen.getByLabelText('等级');
+    fireEvent.change(level, { target: { value } });
+    expect(level).toHaveClass('is-missing');
+    expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
+  });
+
+  it('越界等级不防抖写入工程（票 43）', () => {
+    vi.useFakeTimers();
+    const onUpdateProject = vi.fn();
+    render(
+      <PublishDialog
+        project={makeProject()}
+        chart={makeChart()}
+        chartCode={CHART_CODE}
+        onPublish={vi.fn()}
+        onUpdateProject={onUpdateProject}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('等级'), { target: { value: '0' } });
+    vi.advanceTimersByTime(400);
+    expect(onUpdateProject).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   it('谱面只有 System（没有可发布的音符）也点名', async () => {
     // chartCode 与谱面对齐：页面递进来的就是全 System 的转换结果
     renderDialog({
@@ -243,7 +270,7 @@ describe('票 41 / 42 · 发布弹窗只读身份与就地编辑', () => {
     resetCommunityAccount();
   });
 
-  it('有会话时画出账号名与头像（票 42 头部右侧）', async () => {
+  it('有会话时画出昵称与头像（票 42 头部右侧）', async () => {
     const me = userMeUrl();
     const ok = (data: unknown): CommunityWireResult => ({ ok: true, responseType: 'json', status: 200, data });
     (window as unknown as { electronAPI?: unknown }).electronAPI = {
@@ -262,6 +289,8 @@ describe('票 41 / 42 · 发布弹窗只读身份与就地编辑', () => {
     resetCommunityAccount();
     await getCommunityAccount().start();
     renderDialog();
+    // 2026-10-16 推翻票 42「仅头像」定案：昵称可见（账号名不双写，留 title 提示）
+    expect(screen.getByText('Envy')).toBeInTheDocument();
     expect(screen.getByTitle('账号：envy09')).toBeInTheDocument();
     expect(screen.getByText('E')).toBeInTheDocument();
   });
@@ -291,6 +320,26 @@ describe('票 41 / 42 · 发布弹窗只读身份与就地编辑', () => {
     expect(input.diff).toBe(3);
     expect(input.level).toBe(28);
     expect(input.content).toBe('new desc');
+  });
+
+  it('关窗时冲刷未到期的难度防抖，不丢刚改的值（票 43 Q2）', () => {
+    const onUpdateProject = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <PublishDialog
+        project={makeProject()}
+        chart={makeChart()}
+        chartCode={CHART_CODE}
+        onPublish={vi.fn()}
+        onUpdateProject={onUpdateProject}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('难度'), { target: { value: '4' } });
+    expect(onUpdateProject).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onUpdateProject).toHaveBeenCalledOnce();
   });
 
   it('打开发布弹窗不会触发 onUpdateProject，绝不改动最近修改时间', () => {

@@ -288,6 +288,7 @@
   font-size: var(--text-sm);
 }
 .dialog-field textarea { height: auto; padding: 8px 10px; font-family: var(--font-mono); resize: vertical; }
+.dialog-field.is-missing input { border-color: var(--danger-text); color: var(--danger-text); }
 .dialog-field small { color: var(--text-subtle); line-height: 1.6; }
 .dialog-field-row { display: flex; gap: 12px; }
 .dialog-field__label-row {
