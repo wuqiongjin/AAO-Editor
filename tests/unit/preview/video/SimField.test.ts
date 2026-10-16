@@ -481,3 +481,98 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     expect({ x: dest[1][1], y: dest[1][2], w: dest[1][3], h: dest[1][4] }).toEqual(backgroundRect(frame.metrics));
   });
 });
+
+// ---------------------------------------------------------------- issue 45 锁测
+
+/** BPM 事件（负 BPM = 倒流折返：其后的 beat 时间往回走） */
+const bpm = (beat: number, value: number): ChartNote => ({ type: 'BPM', beat, bpm: value });
+
+/** 多边形的有符号面积（shoelace；canvas 坐标 y 向下，正向流带体为负、倒流段为正） */
+function signedArea(pts: { x: number; y: number }[]): number {
+  let s = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % pts.length]!;
+    s += a.x * b.y - b.x * a.y;
+  }
+  return s / 2;
+}
+
+/** 四边形点集的规范化键（与顶点序无关）—— 判"两枚几何重合"用 */
+const quadKey = (q: { x: number; y: number }[]) =>
+  q.map((p) => `${p.x.toFixed(6)},${p.y.toFixed(6)}`).sort().join(' ');
+
+/**
+ * 从记录里切出**带体批次**：fillStyle 为带体色（普通 / SP）的那些 beginPath…fill。
+ * 一个批次 = 一次 `ctx.fill()` 的一条路径（同组全部四边形都在里面，防接缝的那条性质）。
+ */
+function bandBatches(calls: RecordedCall[]): { quads: { x: number; y: number }[][] }[] {
+  const batches: { quads: { x: number; y: number }[][] }[] = [];
+  let cur: { x: number; y: number }[] | null = null;
+  let quads: { x: number; y: number }[][] = [];
+  let fillStyle = '';
+  for (const [k, args] of calls) {
+    if (k === 'fillStyle') fillStyle = String(args[0]);
+    else if (k === 'moveTo') {
+      cur = [{ x: args[0] as number, y: args[1] as number }];
+      quads.push(cur);
+    } else if (k === 'lineTo' && cur) {
+      cur.push({ x: args[0] as number, y: args[1] as number });
+    } else if (k === 'fill') {
+      if (quads.length > 0 && (fillStyle === SIM_BAND_COLORS.band || fillStyle === SIM_BAND_COLORS.sp)) {
+        batches.push({ quads });
+      }
+      quads = [];
+      cur = null;
+    }
+  }
+  return batches;
+}
+
+describe('drawSimFrameAt · 带体批次的绕向归一（issue 45：倒流区带体填充自抵消）', () => {
+  const batchesAt = (notes: ChartNote[], seconds: number) => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, frameOf(notes, spriteIcon), seconds);
+    return bandBatches(calls);
+  };
+
+  it('倒流折返：同一段物理带子的两个反向段归一后绕向一致（修前一正一负 ⇒ nonzero 抵消成洞）', () => {
+    // 负 BPM 折返：t(4)=2.0s、t(8)=0.0s（beat 8 比 beat 4 先过线）、t(12)=2.0s。
+    // 滑条 6→6→6 跨折返点：段(4→8) 与 段(8→12) 是**同一条 lane 6 竖带**（点集相同）、
+    // 顶点绕向相反。修前并入同一条路径一次 nonzero fill ⇒ 缠绕数 0 ⇒ 互相抵消成洞，
+    // 整个倒流区滑条不显示（而逐段单独绘制的连按特效照常——与用户所见一致）。
+    const notes = [
+      bpm(0, 120), bpm(4, -120), bpm(8, 120),
+      slide([{ beat: 4, lane: 6 }, { beat: 8, lane: 6 }, { beat: 12, lane: 6 }]),
+    ];
+    for (const seconds of [0.5, 1.0, 1.5]) {
+      const batches = batchesAt(notes, seconds);
+      expect(batches).toHaveLength(1); // 仍并成一条路径一次 fill（防接缝性质不退回逐段 fill）
+      const quads = batches[0]!.quads;
+      expect(quads).toHaveLength(2);
+      // 两枚几何重合（同一段物理带子）：点集相同、修前顶点序互为反向
+      expect(quadKey(quads[0]!)).toBe(quadKey(quads[1]!));
+      // 修前：一正一负 ⇒ 下面两条红；修后：两枚同向（与正向流一致，≤ 0）⇒ 绿
+      for (const q of quads) expect(signedArea(q)).toBeLessThanOrEqual(0);
+      // 反向那枚被反序后，两条的顶点序完全相同（重合带子不再抵消）
+      expect(quads[0]).toEqual(quads[1]);
+    }
+  });
+
+  it('同拍反向水平段：6→4 与 4→6 同拍也并成一条路径，绕向断言同样成立', () => {
+    // 票面列的第二个触发场景。同拍 ⇒ 两端同时刻 ⇒ 同 A ⇒ 四边形退化成**零面积**线段
+    // （浏览器探针实测：零面积四边形单独 / 反向成对都不填充，见票 Comments）——所以本
+    // fixture 锁的是结构不变量：两段仍并成一条路径、批次内绕向一致。哪天同拍端不再退化
+    // （或有人把合并路径拆回逐段 fill），这条红。
+    const notes = [bpm(0, 120), slide([{ beat: 2, lane: 6 }, { beat: 2, lane: 4 }, { beat: 2, lane: 6 }])];
+    const batches = batchesAt(notes, 0.75);
+    expect(batches).toHaveLength(1);
+    const quads = batches[0]!.quads;
+    expect(quads).toHaveLength(2);
+    // 6→4 与 4→6 是同一条水平线段的两个方向：点集相同
+    expect(quadKey(quads[0]!)).toBe(quadKey(quads[1]!));
+    // 同拍水平段退化成零面积（绕向断言对零面积恒成立，防的是"将来不再退化"）
+    for (const q of quads) expect(Math.abs(signedArea(q))).toBeCloseTo(0, 6);
+  });
+});

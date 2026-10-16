@@ -385,6 +385,9 @@ function drawField(ctx: CanvasRenderingContext2D, input: SimFrameInput): void {
  * 插值到未过线端 —— 横向滑条的观感是"接触点沿带子扫过去"，而不是"整条被折回头部结点那条轨"。
  * 没过线的一端保持自己的轨位；两端都还没进场的那一段直接跳过。
  * 同一组（普通 / SP）的四边形**合成一条路径再填**：分片各自 fill 会在共享边留下接缝。
+ * 并入前先做**绕向归一**（`fillPolys`）：倒流折返会让同一段物理带子被两个 band 段同时贡献
+ * 几何完全重合、顶点绕向相反的四边形，nonzero 下反向子路径重叠 = 缠绕数 0 = 互相抵消成洞
+ * （issue 45：动态预览整个倒流区滑条不显示）。
  */
 function drawBands(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
   const { chart, metrics: m, assets, scene } = input;
@@ -414,16 +417,38 @@ function drawBands(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds:
   ctx.restore();
 }
 
-/** 一批四边形**合成一条路径**再填（seam 见 drawBands 注释） */
+/**
+ * 一批四边形**合成一条路径**再填（seam 见 drawBands 注释）。
+ * **绕向归一**（issue 45）：每个四边形先按有符号面积（shoelace，canvas 坐标 y 向下）归一成
+ * 一致绕向——面积 > 0 的反序再并入。正向流（t0 < t1）的四边形原生就是负面积（a 边 = 过线端
+ * 在判定线上、b 边远在上方），倒流折返的段则相反；两个绕向相反的子路径进同一条路径、nonzero
+ * 规则下重叠 ⇒ 缠绕数 0 ⇒ 互相抵消成洞（修前：整个倒流区滑条不显示，而逐段单独绘制的连按
+ * 特效照常——与用户所见一致）。归一到"与正向流一致"后，同向重叠 = 缠绕 2 仍填充，抵消与接缝
+ * 两个问题一并解决；逐段单独 fill 会退回接缝，不采纳。正向流四边形的顶点序因此与修前逐字节
+ * 一致（票 23 #1 那几条按顶点序取"过线端"的锁测不用改）。
+ * 零面积四边形（同拍水平段：两端同时刻 ⇒ 同 A ⇒ 退化成线段）恒不反序——它本来就不填充。
+ */
 function fillPolys(ctx: CanvasRenderingContext2D, polys: SimPoint[][], color: string): void {
   if (polys.length === 0) return;
   ctx.fillStyle = color;
   ctx.beginPath();
   for (const poly of polys) {
-    poly.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+    const pts = signedArea(poly) > 0 ? [...poly].reverse() : poly;
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
     ctx.closePath();
   }
   ctx.fill();
+}
+
+/** 多边形的有符号面积（shoelace 公式；canvas 坐标 y 向下，正向流带体为负） */
+function signedArea(poly: readonly SimPoint[]): number {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    s += a.x * b.y - b.x * a.y;
+  }
+  return s / 2;
 }
 
 /**
