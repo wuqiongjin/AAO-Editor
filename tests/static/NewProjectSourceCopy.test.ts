@@ -92,6 +92,40 @@ describe('票 13 · 禁用态样式在位', () => {
     expect(src).toContain('if (verifying) return');
   });
 
+  it('票 44 回修（用户 2026-10-16 反馈）：空台阶梯改口、成功 Toast、死键清理', () => {
+    const zh = messages('src/i18n/messages/zh-CN.json');
+    const en = messages('src/i18n/messages/en.json');
+    // 慢档文案按用户定稿改口；阈值 8s → 15s（跨境慢链正常往返就能到 10s 级，8s 喊慢太早）
+    expect(zh['projects.community.loadingSlow']).toBe('网络较慢，努力拉取中…');
+    expect(zh['projects.official.loadingSlow']).toBe('网络较慢，努力拉取中…');
+    expect(zh['projects.community.retrying']).toBe('网络不稳定，正在重试…');
+    expect(zh['projects.official.retrying']).toBe('网络不稳定，正在重试…');
+    // 拉取成功也补 Toast（success 档绿底）：让用户等过了（慢 / 重试过）才弹，秒开不弹
+    expect(zh['projects.community.loadOk']).toBe('社区谱面拉取成功');
+    expect(zh['projects.official.loadOk']).toBe('官方曲库拉取成功');
+    expect(en['projects.community.loadOk']).toBeTruthy();
+    expect(en['projects.official.loadOk']).toBeTruthy();
+    // 上一笔 commit 用居中「请点刷新」替掉错误横幅后，旧标题（"…没拉到"）成了死键 —— 清掉
+    for (const key of ['projects.community.loadFail', 'projects.official.loadFail']) {
+      expect(zh).not.toHaveProperty(key);
+      expect(en).not.toHaveProperty(key);
+    }
+    for (const file of [
+      'src/pages/projects/components/OfficialSongPanel.tsx',
+      'src/pages/projects/components/CommunityPostPanel.tsx',
+    ]) {
+      const src = readStripped(file);
+      expect(src).toMatch(/SLOW_AFTER_MS = 15_000/);
+      expect(src).not.toContain('8000');
+      expect(src).toMatch(/t\('projects\.(official|community)\.loadOk'\), 'success'/);
+    }
+    // 首屏（浏览）拉取成功必弹；社区侧搜索成功不弹 —— 结果列表本身就是反馈，别每搜一次吵一声
+    const community = readStripped('src/pages/projects/components/CommunityPostPanel.tsx');
+    expect(community).toMatch(/else if \(q === ''\) showToast\(t\('projects\.community\.loadOk'\), 'success'\)/);
+    const official = readStripped('src/pages/projects/components/OfficialSongPanel.tsx');
+    expect(official).toMatch(/else showToast\(t\('projects\.official\.loadOk'\), 'success'\)/);
+  });
+
   it('票 45：导入中取消键不禁用', () => {
     const src = readStripped('src/pages/projects/components/ProjectDialogs.tsx');
     expect(src).toMatch(/<ActionBtn onClick=\{close\}>\{t\('projects\.cancel'\)\}<\/ActionBtn>/);

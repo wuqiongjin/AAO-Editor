@@ -337,6 +337,57 @@ describe('票 12 · 新建入口四项归类', () => {
     toastSpy.mockRestore();
   });
 
+  it('票 44 回修：网关 freshFirst 回退磁盘缓存（fromCache）→ 列表照出 + warn Toast「使用上次拉取结果」', async () => {
+    const toastSpy = vi.spyOn(ToastModule, 'showToast');
+    // 深拷贝：markJsonFromCache 会在网关回传的对象上打缓存标，别污染共用 fixture
+    installFakeBridge((payload) => (payload.url.endsWith('/api/post/list')
+      ? { ok: true, responseType: 'json', status: 200, data: structuredClone(POST_LIST), fromCache: true }
+      : undefined));
+    renderPage();
+    const dialog = await openNewDialog();
+    switchSource(dialog, '从社区谱面导入');
+
+    // 回退的那一页照常出示（不是白屏、也不是空台）
+    expect(await within(dialog).findByText('All You Wanted (GBP Edit)')).toBeInTheDocument();
+    // 同时必须有一颗 warn Toast 说明「当前是上次的结果」—— 用户 2026-10-16 反馈没看到它
+    await waitFor(() => expect(
+      toastSpy.mock.calls.some(([message, tone]) => tone === 'warn' && String(message).includes('使用上次拉取结果')),
+    ).toBe(true));
+    toastSpy.mockRestore();
+  });
+
+  it('票 44 回修：第一次尝试失败 → 空台改口「网络不稳定，正在重试…」，重试成功补 success Toast', async () => {
+    const toastSpy = vi.spyOn(ToastModule, 'showToast');
+    let listAttempts = 0;
+    installFakeBridge((payload) => {
+      if (!payload.url.endsWith('/api/post/list')) return undefined;
+      listAttempts += 1;
+      // 第一枪回可退避错误（超时）：renderer 的 withRetry 退避 ~800ms 后重发
+      return listAttempts === 1
+        ? { ok: false, error: { kind: 'timeout', message: '请求超时（30000ms）' } }
+        : { ok: true, responseType: 'json', status: 200, data: POST_LIST };
+    });
+    renderPage();
+    const dialog = await openNewDialog();
+    switchSource(dialog, '从社区谱面导入');
+
+    // 退避窗口里空台就改口重试档（不用等 15s 的慢档）—— 用户反馈「等了快 1 分钟没看到它」
+    await waitFor(() => expect(
+      within(dialog).queryByText('网络不稳定，正在重试…'),
+    ).not.toBeNull(), { timeout: 3000 });
+
+    // 第二枪成功：列表就位 + 一颗 success Toast（绿底）—— 让用户白等了一回，得有个交代。
+    // 退避 800ms + 抖动最长 ~1.05s：默认 1s 的等待会偶发不够（放弃后那发挂起的重试还会变成
+    // "僵尸请求"重新填模块级页缓存、污染下一个用例），这里显式给足时间
+    await waitFor(() => expect(
+      within(dialog).queryByText('All You Wanted (GBP Edit)'),
+    ).not.toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(
+      toastSpy.mock.calls.some(([message, tone]) => tone === 'success' && String(message).includes('拉取成功')),
+    ).toBe(true), { timeout: 4000 });
+    toastSpy.mockRestore();
+  });
+
   it('社区筛选：只作用于已加载的条目，范围与命中数写在列表尾（不自动补扫）', async () => {
     renderPage();
     let dialog = await openNewDialog();

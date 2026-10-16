@@ -33,7 +33,6 @@ import {
   fetchPostSearchPage,
   filterPostCandidates,
   peekPostPage,
-  postPageInflight,
 } from '../../../community/bestdori/posts';
 import {
   audioLocalUrl,
@@ -65,6 +64,12 @@ export interface CommunityPostSelection {
 
 /** 服务端搜索的防抖（ms）：post/list 一次往返不便宜，别每敲一个字发一发 */
 const SEARCH_DEBOUNCE_MS = 350;
+
+/**
+ * 空台多久才改口「网络较慢」（票 44 首版 8s；用户反馈太早 —— 跨境慢链上一次正常往返
+ * 就能到 10s 级，提前喊慢像狼来了）。单次尝试本身有 30s 超时，15s 开口离结论还远。
+ */
+const SLOW_AFTER_MS = 15_000;
 
 function formatPostDate(time: number | null): string {
   if (time == null) return '';
@@ -140,13 +145,15 @@ export function CommunityPostPanel({
     if (net.kind === 'none') return;
     const seq = ++loadSeq.current;
     const peeked = peekPostPage(q, 0);
-    const inflight = postPageInflight(q, 0);
     if (peeked) {
       setPosts(peeked.posts);
       setRawCount(peeked.rawCount);
       setEndReached(peeked.rawCount >= peeked.total || peeked.posts.length === 0);
       setLoadError(null);
-      if (inflight == null) return;
+      // 会话内已有这一页就秒出、不再发请求：真在飞的那一趟（只可能是用户点的刷新）
+      // 由它自己的 .then 整段替换。放行 inflight 只会把会话缓存页原样取回，
+      // 还可能误报一条「使用上次拉取结果」（那一页是上次回退时存进来的，带缓存标）。
+      return;
     } else {
       setPosts(null);
       setRawCount(0);
@@ -164,6 +171,9 @@ export function CommunityPostPanel({
         setEndReached(page.rawCount >= page.total || page.posts.length === 0);
         setLoadError(null);
         if (isJsonFromCache(page)) showToast(t('projects.community.loadFailCache'), 'warn');
+        // 首屏（浏览，查询词为空）拉取成功也给一颗：与失败那颗成对，success 档绿底。
+        // 搜索成功不弹 —— 结果列表本身就是反馈，别每搜一次吵一声
+        else if (q === '') showToast(t('projects.community.loadOk'), 'success');
       })
       .catch((error: unknown) => {
         if (seq !== loadSeq.current) return;
@@ -203,7 +213,7 @@ export function CommunityPostPanel({
   useEffect(() => {
     setWaitSlow(false);
     if (!waitingBlank) return;
-    const timer = setTimeout(() => setWaitSlow(true), 8000);
+    const timer = setTimeout(() => setWaitSlow(true), SLOW_AFTER_MS);
     return () => clearTimeout(timer);
   }, [waitingBlank]);
 
@@ -251,6 +261,10 @@ export function CommunityPostPanel({
         setEndReached(page.rawCount >= page.total || page.posts.length === 0);
         setLoadError(null);
         setLoadMoreError(null);
+        // 刷新撞上还在飞的首拉时会并进同一趟（票 44）：那一趟的结果可能是 freshFirst 的
+        // 缓存回退 —— 那不是刷新成功，按「使用上次拉取结果」报，别谎报成功
+        if (isJsonFromCache(page)) showToast(t('projects.community.loadFailCache'), 'warn');
+        else showToast(t('projects.community.loadOk'), 'success');
       })
       .catch(() => {
         showToast(t('projects.community.refreshFail'), 'danger');

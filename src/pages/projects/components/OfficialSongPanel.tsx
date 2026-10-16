@@ -79,6 +79,12 @@ const SORT_DIR_LABEL_KEY = {
   desc: 'projects.songSort.dir.desc',
 } as const;
 
+/**
+ * 空台多久才改口「网络较慢」（票 44 首版 8s；用户反馈太早 —— 跨境慢链上一次正常往返
+ * 就能到 10s 级，提前喊慢像狼来了）。单次尝试本身有 30s 超时，15s 开口离结论还远。
+ */
+const SLOW_AFTER_MS = 15_000;
+
 export function OfficialSongPanel({
   selection,
   onSelectionChange,
@@ -143,6 +149,8 @@ export function OfficialSongPanel({
         setCatalog(songs);
         setLoadError(null);
         if (isJsonFromCache(songs)) showToast(t('projects.official.loadFailCache'), 'warn');
+        // 首屏拉取成功也给一颗：与失败那颗成对，success 档绿底
+        else showToast(t('projects.official.loadOk'), 'success');
       })
       .catch((error: unknown) => {
         const fallback = peekSongCatalog();
@@ -166,7 +174,7 @@ export function OfficialSongPanel({
   useEffect(() => {
     setWaitSlow(false);
     if (!waitingBlank) return;
-    const timer = setTimeout(() => setWaitSlow(true), 8000);
+    const timer = setTimeout(() => setWaitSlow(true), SLOW_AFTER_MS);
     return () => clearTimeout(timer);
   }, [waitingBlank]);
 
@@ -177,6 +185,10 @@ export function OfficialSongPanel({
       .then((songs) => {
         setCatalog(songs);
         setLoadError(null);
+        // 刷新撞上还在飞的首拉时会并进同一趟（票 44）：那一趟的结果可能是 freshFirst 的
+        // 缓存回退 —— 那不是刷新成功，按「使用上次拉取结果」报，别谎报成功
+        if (isJsonFromCache(songs)) showToast(t('projects.official.loadFailCache'), 'warn');
+        else showToast(t('projects.official.loadOk'), 'success');
       })
       .catch(() => {
         showToast(t('projects.official.refreshFail'), 'danger');

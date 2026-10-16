@@ -54,7 +54,7 @@ export interface CommunityAccountSession {
    */
   expired: boolean;
   /**
-   * 正在用恢复来的 Cookie 查 `user/me`（票 47）：界面据此写「正在确认…」，
+   * 正在用恢复来的 Cookie 查 `user/me`（票 47）：界面据此写「正在确认登录情况…」，
    * 不要和「从未登录」共用「登录」两个字。资料还没到手，所以 `account` 仍是 null。
    */
   verifying: boolean;
