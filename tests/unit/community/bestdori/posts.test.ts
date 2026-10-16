@@ -459,6 +459,22 @@ describe('票 09 · 会话内页缓存（重复打开 / 改筛选不再重拉）
     expect(transport.requests).toHaveLength(3);
   });
 
+  it('票 44：同一页还在飞时 force 刷新并进 inflight，不另发一枪', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE } });
+    const original = transport.requestJson.bind(transport);
+    transport.requestJson = async (req) => {
+      await gate;
+      return original(req);
+    };
+    const first = fetchPostPage(transport, { query: '', offset: 0 });
+    const second = fetchPostPage(transport, { query: '', offset: 0, force: true });
+    release();
+    await Promise.all([first, second]);
+    expect(transport.requests).toHaveLength(1);
+  });
+
   it('force = 用户刷新：绕开缓存重拉，并让网关也重拉（revalidate）', async () => {
     const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE } });
     await fetchPostPage(transport, { query: '', offset: 0 });

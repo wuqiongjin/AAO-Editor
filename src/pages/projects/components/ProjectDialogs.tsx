@@ -39,7 +39,9 @@ const COMMUNITY_STAGE_KEYS = {
 export type NewSource = 'blank' | 'copy' | 'official' | 'community';
 
 /** 官方导入的回执：失败时给一句能读的话（按错误域 kind 翻的）；成功可带降级警告（票 26，Toast 展示） */
-export type OfficialImportReply = { ok: true; warnings?: string[] } | { ok: false; message: string };
+export type OfficialImportReply =
+  | { ok: true; warnings?: string[] }
+  | { ok: false; message: string; cancelled?: boolean };
 
 /** 社区导入的回执（形状同官方；社区导入没有「谱面降级」，警告只有封面缺失一种） */
 export type CommunityImportReply = OfficialImportReply;
@@ -55,10 +57,12 @@ export function NewProjectDialog({
   onImportOfficial: (
     selection: OfficialSongSelection,
     onStage: (stage: OfficialImportStage) => void,
+    signal?: AbortSignal,
   ) => Promise<OfficialImportReply>;
   onImportCommunity: (
     selection: CommunityPostSelection,
     onStage: (stage: CommunityImportStage) => void,
+    signal?: AbortSignal,
   ) => Promise<CommunityImportReply>;
   /** 注入点：测试塞假出口；不传走 IPC 出口 */
   transport?: CommunityTransport;
@@ -72,28 +76,36 @@ export function NewProjectDialog({
   const [copyFrom, setCopyFrom] = useState(projects[0]?.id ?? '');
   const [official, setOfficial] = useState<OfficialSongSelection | null>(null);
   const [community, setCommunity] = useState<CommunityPostSelection | null>(null);
-  // 导入中：下载 4MB 音频期间**不许关窗**（网关一次性的请求已经在飞，关掉只会让人以为「取消了」，
-  // 结果工程照样建出来）。阶段文案代替字节级进度 —— 网关没有进度事件（票 07 定案）。
+  // 票 45：导入中可以取消。关窗 / 取消键 abort，编排在落盘前看到 aborted 就不建工程。
   const [stage, setStage] = useState<OfficialImportStage | null>(null);
   const busy = stage !== null;
+  const importAbort = useRef<AbortController | null>(null);
 
   const pickOfficial = useCallback((next: OfficialSongSelection | null) => setOfficial(next), []);
   const pickCommunity = useCallback((next: CommunityPostSelection | null) => setCommunity(next), []);
-  const close = () => { if (!busy) onClose(); };
+  const close = () => {
+    importAbort.current?.abort();
+    importAbort.current = null;
+    onClose();
+  };
 
   const submit = () => {
     if (source === 'copy') { onCopy(copyFrom); return; }
     if (source === 'official') {
       if (!official) return;
+      const abort = new AbortController();
+      importAbort.current = abort;
       setStage('audio');
-      void onImportOfficial(official, setStage)
+      void onImportOfficial(official, setStage, abort.signal)
         .then((reply) => {
+          if (abort.signal.aborted || (!reply.ok && reply.cancelled)) return;
           if (!reply.ok) {
             showToast(reply.message, 'danger');
             setStage(null);
           }
         })
         .catch(() => {
+          if (abort.signal.aborted) return;
           showToast(t('projects.official.err.generic'), 'danger');
           setStage(null);
         });
@@ -101,15 +113,19 @@ export function NewProjectDialog({
     }
     if (source === 'community') {
       if (!community) return;
+      const abort = new AbortController();
+      importAbort.current = abort;
       setStage('audio');
-      void onImportCommunity(community, setStage)
+      void onImportCommunity(community, setStage, abort.signal)
         .then((reply) => {
+          if (abort.signal.aborted || (!reply.ok && reply.cancelled)) return;
           if (!reply.ok) {
             showToast(reply.message, 'danger');
             setStage(null);
           }
         })
         .catch(() => {
+          if (abort.signal.aborted) return;
           showToast(t('projects.community.err.generic'), 'danger');
           setStage(null);
         });
@@ -134,7 +150,7 @@ export function NewProjectDialog({
       onClose={close}
       footer={(
         <>
-          <ActionBtn onClick={close} disabled={busy}>{t('projects.cancel')}</ActionBtn>
+            <ActionBtn onClick={close}>{t('projects.cancel')}</ActionBtn>
           <ActionBtn variant="primary" disabled={confirmDisabled} onClick={submit}>
             {source === 'copy' ? t('projects.copyAction') : t('projects.createOpen')}
           </ActionBtn>

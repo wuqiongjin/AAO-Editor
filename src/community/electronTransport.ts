@@ -8,6 +8,7 @@
  */
 import {
   CommunityError,
+  markJsonFromCache,
   type CommunityRequest,
   type CommunityTransport,
   type CommunityWireResult,
@@ -58,7 +59,7 @@ export class ElectronCommunityTransport implements CommunityTransport {
   async requestJson(req: CommunityRequest): Promise<unknown> {
     const result = await this.send({ ...req, responseType: 'json' });
     if (result.responseType !== 'json') throw mismatch('json', result.responseType);
-    return result.data;
+    return result.fromCache ? markJsonFromCache(result.data) : result.data;
   }
 
   async requestText(req: CommunityRequest): Promise<string> {

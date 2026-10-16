@@ -9,7 +9,7 @@
 // 票 33 id 搜索与展示：纯数字查询按 songId 前缀命中且命中行置顶（零网络）；
 // **列表行常驻 `#id`**（多结果时用来辨别目标；预览栏不放 —— 列表就在旁边，重复了）。
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, ListFilter, Music4, RefreshCw, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ListFilter, Music4, RefreshCw, X } from 'lucide-react';
 import { useConfig } from '../../../app/providers/ConfigProvider';
 import {
   OFFICIAL_DIFFICULTIES,
@@ -31,19 +31,22 @@ import {
   filterSongCandidates,
   jacketLocalUrl,
   jacketPreviewUrl,
+  peekSongCatalog,
   promoteIdMatches,
   refreshSongCatalog,
+  songCatalogInflight,
   SONG_LEVEL_FILTER_DEFAULT,
   SONG_SORT_KEYS,
   SONG_SORT_NATURAL_DIR,
   sortSongCandidates,
 } from '../../../community/bestdori/songs';
 import { createCommunityTransport } from '../../../community/electronTransport';
-import type { CommunityTransport } from '../../../community/transport';
+import { isJsonFromCache, type CommunityTransport } from '../../../community/transport';
 import { DIFF_COLORS, DIFF_SHORT } from '../../../project/projectCatalog';
 import { t } from '../../../i18n';
 import CompactAudio from '../../../ui/CompactAudio';
 import LoadingShimmer, { useSlowLoading } from '../../../ui/LoadingShimmer';
+import { showToast } from '../../../ui/Toast';
 import { officialErrorText } from '../officialImport';
 import OfficialSongThumb from './OfficialSongThumb';
 
@@ -120,22 +123,53 @@ export function OfficialSongPanel({
   const { key: songSort, dir: songSortDir } = settings.projects.songSort;
   const [diff, setDiff] = useState<OfficialDifficulty>(selection?.diff ?? 'expert');
   const [retrying, setRetrying] = useState(false);
+  const [refreshingCatalog, setRefreshingCatalog] = useState(false);
+  const [waitSlow, setWaitSlow] = useState(false);
 
-  const loadCatalog = useCallback((reload = false) => {
+  const loadCatalog = useCallback(() => {
     if (net.kind === 'none') return;
-    setLoadError(null);
+    const peeked = peekSongCatalog();
+    if (peeked) {
+      setCatalog(peeked);
+      setLoadError(null);
+    }
+    const inflight = songCatalogInflight();
+    if (peeked && inflight == null) return;
     setRetrying(false);
-    if (reload) setCatalog(null);
+    if (peeked == null) setLoadError(null);
+    setRefreshingCatalog(true);
     void fetchSongCatalog(net, undefined, () => setRetrying(true))
-      .then(setCatalog)
-      .catch((error: unknown) => setLoadError(officialErrorText(error)))
-      .finally(() => setRetrying(false));
+      .then((songs) => {
+        setCatalog(songs);
+        setLoadError(null);
+        if (isJsonFromCache(songs)) showToast(t('projects.official.loadFailCache'), 'warn');
+      })
+      .catch((error: unknown) => {
+        const fallback = peekSongCatalog();
+        if (fallback) {
+          setCatalog(fallback);
+          setLoadError(null);
+          showToast(t('projects.official.loadFailCache'), 'warn');
+          return;
+        }
+        setLoadError(officialErrorText(error));
+      })
+      .finally(() => {
+        setRefreshingCatalog(false);
+        setRetrying(false);
+      });
   }, [net]);
 
   useEffect(() => { loadCatalog(); }, [loadCatalog]);
 
-  // 用户主动刷新曲库：清会话缓存 + `revalidate` 重拉；**失败保留旧列表、不弹错**（票 09 口径）
-  const [refreshingCatalog, setRefreshingCatalog] = useState(false);
+  const waitingBlank = catalog == null && loadError == null && net.kind !== 'none';
+  useEffect(() => {
+    setWaitSlow(false);
+    if (!waitingBlank) return;
+    const timer = setTimeout(() => setWaitSlow(true), 8000);
+    return () => clearTimeout(timer);
+  }, [waitingBlank]);
+
   const refreshCatalog = useCallback(() => {
     if (net.kind === 'none' || refreshingCatalog) return;
     setRefreshingCatalog(true);
@@ -144,7 +178,9 @@ export function OfficialSongPanel({
         setCatalog(songs);
         setLoadError(null);
       })
-      .catch(() => undefined)
+      .catch(() => {
+        showToast(t('projects.official.refreshFail'), 'danger');
+      })
       .finally(() => {
         setRefreshingCatalog(false);
         setRetrying(false);
@@ -411,18 +447,14 @@ export function OfficialSongPanel({
       )}
 
       {loadError ? (
-        <div className="error-banner" role="alert">
-          <AlertTriangle size={18} />
-          <div>
-            <strong>{t('projects.official.loadFail')}</strong>
-            <p style={{ margin: 0 }}>{loadError}</p>
-            <div className="error-actions">
-              <button type="button" onClick={() => loadCatalog(true)}>{t('projects.official.retry')}</button>
-            </div>
-          </div>
+        <div className="off-blank" role="alert">
+          <b>{t('projects.official.loadFailRetry')}</b>
         </div>
       ) : catalog == null ? (
-        <p className="off-status">{retrying ? t('projects.official.retrying') : t('projects.official.loading')}</p>
+        <div className="off-blank" role="status">
+          <i className="off-spinner" aria-hidden />
+          <b>{retrying ? t('projects.official.retrying') : (waitSlow ? t('projects.official.loadingSlow') : t('projects.official.loading'))}</b>
+        </div>
       ) : (
         <div className={`off-split${expanded ? '' : ' is-collapsed'}`}>
           <aside className={`off-preview${expanded ? '' : ' is-collapsed'}`} aria-hidden={!expanded}>
@@ -539,7 +571,9 @@ export function OfficialSongPanel({
           </aside>
 
           {filtered.length === 0 ? (
-            <p className="off-status off-status--list">{t('projects.official.empty')}</p>
+            <div className="off-blank">
+              <b>{t('projects.official.empty')}</b>
+            </div>
           ) : (
             <ul className="off-list" role="listbox" aria-label={t('projects.official.listAria')}>
               {filtered.map((song) => (

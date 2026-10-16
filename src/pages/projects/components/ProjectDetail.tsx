@@ -64,9 +64,10 @@ export function ProjectDetail({
   // 发布入口的能力灰化（票 41）：写能力被挡住时按钮灰掉，why 挂在按钮 title 上，
   // 不再占谱面列表上方一行。文案仍只从 capabilityBlockLabel 一处取。
   // 没有出口（静态演示版）整枚不渲染。未登录要点得开 → 登录弹窗，成功后续上发布确认。
-  const { write: canPublish, block: capabilityBlock } = useCommunityCapabilities();
+  const { write: canPublish, block: capabilityBlock, session } = useCommunityCapabilities();
   const publishEntry = capabilityBlock !== 'unsupported-runtime';
-  const signedOut = capabilityBlock === 'signed-out';
+  const verifying = session.verifying;
+  const signedOut = capabilityBlock === 'signed-out' && !verifying;
   const [signInForChart, setSignInForChart] = useState<ProjectChart | null>(null);
   // 左栏选中项自动滚入视口（issue 23 Q12/Q13）——与 hub 那份同参数。
   // 索引必须与渲染序（`list`）对齐：左栏渲染的是 `list.map(...)`，用 `projects` 会错位。
@@ -185,10 +186,11 @@ export function ProjectDetail({
                       <button
                         type="button"
                         className="pp-btn pp-btn--sm"
-                        disabled={!canPublish && !signedOut}
+                        disabled={verifying || (!canPublish && !signedOut)}
                         aria-disabled={signedOut || undefined}
-                        title={capabilityBlock != null ? capabilityBlockLabel(capabilityBlock) : undefined}
+                        title={verifying ? t('community.account.verifying') : (capabilityBlock != null ? capabilityBlockLabel(capabilityBlock) : undefined)}
                         onClick={() => {
+                          if (verifying) return;
                           if (signedOut) {
                             setSignInForChart(c);
                             return;

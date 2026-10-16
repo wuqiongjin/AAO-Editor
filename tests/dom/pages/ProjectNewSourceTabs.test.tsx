@@ -515,17 +515,16 @@ describe('票 08 · 从官方谱面导入', () => {
 
   // 用不可退避的 kind：退避重试本身由 rateLimit 那族锁，这里要快（不白等 3 次退避），
   // 离线 / 限流那几句文案的映射在 tests/unit/project/OfficialImport.test.ts 里直接锁。
-  it('曲库拉不到：出错误横幅与重试键，而不是白屏', async () => {
+  it('曲库拉不到：居中失败文案，用刷新钮重试，而不是白屏', async () => {
     (window as unknown as { electronAPI: { communityNet: { request: unknown } } }).electronAPI.communityNet.request =
       vi.fn(async () => ({ ok: false, error: { kind: 'invalid-response', message: '回退页' } }));
     renderPage();
     let dialog = await openNewDialog();
     dialog = await switchSource(dialog, '从官方谱面导入');
 
-    expect(await within(dialog).findByText('曲库没拉到')).toBeInTheDocument();
-    expect(within(dialog).getByText('读取官方曲库失败，请重试。')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: '重试' })).toBeInTheDocument();
-    // 不循环报错：一次打开只打两条请求（曲库索引 + 乐队索引），失败不自动重试 —— 重试要用户点
+    expect(await within(dialog).findByText('拉取失败，请点击「刷新歌曲列表」以重试。')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '刷新歌曲列表' })).toBeEnabled();
+    // 不循环报错：一次打开只打两条请求（曲库索引 + 乐队索引），失败不自动重试 —— 重试要点刷新
     expect((window as unknown as { electronAPI: { communityNet: { request: ReturnType<typeof vi.fn> } } })
       .electronAPI.communityNet.request).toHaveBeenCalledTimes(2);
   });

@@ -75,12 +75,26 @@ export interface OfficialImportDeps {
   now?: () => number;
   /** 探音频时长（默认离线探针；测试注入） */
   probeDuration?: (file: Blob, decode?: AudioBytesDecoder) => Promise<number>;
+  /** 票 45：关窗 / 取消 = 不建工程 */
+  signal?: AbortSignal;
+}
+
+export function isImportCancelled(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+export function throwIfImportAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error('import-cancelled');
+  error.name = 'AbortError';
+  throw error;
 }
 
 export type OfficialImportResult =
   | { ok: true; project: ChartProject; chartId: string; coverImported: boolean; chartDegraded: boolean }
   | { ok: false; reason: 'apply'; errors: ValidationError[] }
-  | { ok: false; reason: 'download'; error: unknown };
+  | { ok: false; reason: 'download'; error: unknown }
+  | { ok: false; reason: 'cancelled' };
 
 export async function importOfficialSong(
   deps: OfficialImportDeps,
@@ -91,10 +105,12 @@ export async function importOfficialSong(
   const now = deps.now?.() ?? Date.now();
   const staged: ProjectBinarySources = {};
 
+  throwIfImportAborted(deps.signal);
   deps.onStage?.('audio');
   const audio = await fetchOfficialAudio(deps.transport, song, detail);
   staged.audioStagedPath = audio.path;
 
+  throwIfImportAborted(deps.signal);
   deps.onStage?.('cover');
   const cover = await fetchOfficialCover(deps.transport, song);
   if (cover) staged.coverStagedPath = cover.path;
@@ -106,6 +122,7 @@ export async function importOfficialSong(
   // 响应非法）不是「网络拿不到」，照抛整笔失败 —— 静默把这类错降成空谱会误导。
   let chartDegraded = false;
   if (input.withChart) {
+    throwIfImportAborted(deps.signal);
     deps.onStage?.('chart');
     try {
       chartCodeText = await fetchOfficialChartText(deps.transport, song.id, input.diff);
@@ -135,6 +152,7 @@ export async function importOfficialSong(
   });
   if (!built.ok) return { ok: false, reason: 'apply', errors: built.errors };
 
+  throwIfImportAborted(deps.signal);
   deps.onStage?.('save');
   await deps.store.save(built.project, staged);
 

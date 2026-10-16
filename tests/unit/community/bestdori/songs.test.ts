@@ -339,6 +339,54 @@ describe('票 08 · 曲库索引 / 详情（一次拉全 + 选中才拉详情）
     expect(transport.requests).toHaveLength(2);
   });
 
+  it('票 44：首拉还在飞时点刷新并进同一趟，不另发 revalidate', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const requests: { url: string; revalidate?: boolean }[] = [];
+    const transport = {
+      kind: 'ipc' as const,
+      async requestJson(req: { url: string; revalidate?: boolean }) {
+        requests.push({ url: req.url, revalidate: req.revalidate });
+        await gate;
+        if (req.url.includes('/songs/')) return SONGS_INDEX;
+        if (req.url.includes('/bands/')) return BANDS_INDEX;
+        throw new Error(req.url);
+      },
+      async requestText() { throw new Error('no text'); },
+      async requestBinary() { throw new Error('no binary'); },
+    };
+    const first = fetchSongCatalog(transport, 'zh-CN');
+    const second = refreshSongCatalog(transport, 'zh-CN');
+    release();
+    await Promise.all([first, second]);
+    expect(requests.every((req) => req.revalidate !== true)).toBe(true);
+    expect(requests).toHaveLength(2);
+  });
+
+  it('票 44：刷新失败保留上一份会话缓存', async () => {
+    let fail = false;
+    const requests: { url: string }[] = [];
+    const transport = {
+      kind: 'ipc' as const,
+      async requestJson(req: { url: string }) {
+        requests.push(req);
+        if (fail) throw new Error('timeout');
+        if (req.url.includes('/songs/')) return SONGS_INDEX;
+        if (req.url.includes('/bands/')) return BANDS_INDEX;
+        throw new Error(req.url);
+      },
+      async requestText() { throw new Error('no text'); },
+      async requestBinary() { throw new Error('no binary'); },
+    };
+    const first = await fetchSongCatalog(transport, 'zh-CN');
+    fail = true;
+    await expect(refreshSongCatalog(transport, 'zh-CN')).rejects.toBeTruthy();
+    requests.length = 0;
+    const again = await fetchSongCatalog(transport, 'zh-CN');
+    expect(again).toBe(first);
+    expect(requests).toHaveLength(0);
+  });
+
   it('换语言不复用上一份缓存', async () => {
     const transport = fakeTransport({
       json: {

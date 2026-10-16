@@ -26,7 +26,7 @@ import { assetRawUrl, assetThumbUrl } from '../assetUrls';
 import { dedupInflight } from '../inflight';
 import { normalizeLevelWindow } from '../levelWindow';
 import { withRetry, type RetryNotice } from '../rateLimit';
-import { invalidResponse, isCommunityError, type CommunityTransport, type StagedBinary } from '../transport';
+import { invalidResponse, isCommunityError, isJsonFromCache, markJsonFromCache, type CommunityTransport, type StagedBinary } from '../transport';
 import { communityAssetName } from './assetNames';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
@@ -94,6 +94,19 @@ export function clearPostPageCache(): void {
   idLookupInflight.clear();
 }
 
+export function peekPostPage(query: string, offset: number, username = ''): PostPage | null {
+  return pageCache.get(pageKey(query.trim(), Math.max(0, Math.trunc(offset)), username.trim())) ?? null;
+}
+
+export function postPageInflight(query: string, offset: number, username = ''): Promise<PostPage> | null {
+  return pageInflight.get(pageKey(query.trim(), Math.max(0, Math.trunc(offset)), username.trim())) ?? null;
+}
+
+export function clearPostIdLookupCache(): void {
+  idLookupCache.clear();
+  idLookupInflight.clear();
+}
+
 /** POST post/list 单页原语（列表 / 搜索 / 分页都走它）：会话内缓存 + inflight 去重 */
 export async function fetchPostPage(
   transport: CommunityTransport,
@@ -105,9 +118,10 @@ export async function fetchPostPage(
   if (!force) {
     const cached = pageCache.get(key);
     if (cached) return cached;
-    const inflight = pageInflight.get(key);
-    if (inflight) return inflight;
   }
+  // 票 44：同一 key 还在飞（含首拉时点刷新）并进这一趟，不另排一队。
+  const inflight = pageInflight.get(key);
+  if (inflight) return inflight;
 
   const pageLimit = Math.min(POST_PAGE_LIMIT, Math.max(POST_PAGE_LIMIT_MIN, limit));
   const body = JSON.stringify({
@@ -139,8 +153,9 @@ export async function fetchPostPage(
   ).then((raw) => {
     const page = toPostPage(raw);
     if (!page) throw invalidResponse('帖子列表不是预期形态');
-    pageCache.set(key, page);
-    return page;
+    const stored = isJsonFromCache(raw) ? markJsonFromCache(page) : page;
+    pageCache.set(key, stored);
+    return stored;
   }).finally(() => {
     if (pageInflight.get(key) === promise) pageInflight.delete(key);
   });
@@ -212,7 +227,8 @@ export function fetchPostIdLookup(
 /** 直查命中与搜索页合并：命中那条置顶、按 postId 去重（票 32 合并规则） */
 export function mergeIdLookupHit(hit: PostCandidate | null, page: PostPage): PostPage {
   if (hit == null) return page;
-  return { ...page, posts: [hit, ...page.posts.filter((post) => post.postId !== hit.postId)] };
+  const merged = { ...page, posts: [hit, ...page.posts.filter((post) => post.postId !== hit.postId)] };
+  return isJsonFromCache(page) ? markJsonFromCache(merged) : merged;
 }
 
 /**

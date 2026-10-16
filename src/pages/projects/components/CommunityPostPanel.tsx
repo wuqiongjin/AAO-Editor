@@ -20,18 +20,20 @@
 // 「同步导入谱面」芯片与官方那颗同形同义（默认开）：关掉 = 只建工程 + 音频 + 封面，
 // 产出对齐官方「没勾 B」（空 Expert、等级不预填），并且连帖子详情都不请求。
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { AlertTriangle, ListFilter, Music4, RefreshCw, X } from 'lucide-react';
+import { ListFilter, Music4, RefreshCw, X } from 'lucide-react';
 import { useConfig } from '../../../app/providers/ConfigProvider';
 import { OFFICIAL_DIFFICULTIES, officialDiffIndex } from '../../../community/bestdori/endpoints';
 import type { OfficialSongDetail, PostCandidate, SongCandidate } from '../../../community/bestdori/mapping';
 import {
-  clearPostPageCache,
+  clearPostIdLookupCache,
   customAudioLocalUrl,
   customAudioPreviewUrl,
   customCoverLocalUrl,
   fetchPostPage,
   fetchPostSearchPage,
   filterPostCandidates,
+  peekPostPage,
+  postPageInflight,
 } from '../../../community/bestdori/posts';
 import {
   audioLocalUrl,
@@ -44,11 +46,12 @@ import {
   SONG_LEVEL_FILTER_DEFAULT,
 } from '../../../community/bestdori/songs';
 import { createCommunityTransport } from '../../../community/electronTransport';
-import type { CommunityTransport } from '../../../community/transport';
+import { isJsonFromCache, type CommunityTransport } from '../../../community/transport';
 import { DIFF_COLORS, DIFF_SHORT } from '../../../project/projectCatalog';
 import { t } from '../../../i18n';
 import CompactAudio from '../../../ui/CompactAudio';
 import LoadingShimmer, { useSlowLoading } from '../../../ui/LoadingShimmer';
+import { showToast } from '../../../ui/Toast';
 import { communityErrorText } from '../communityImport';
 import CommunityPostThumb from './CommunityPostThumb';
 
@@ -132,14 +135,26 @@ export function CommunityPostPanel({
 
   // 防抖后的防陈旧卫兵：慢响应回来时查询已变，丢弃
   const loadSeq = useRef(0);
+  const [waitSlow, setWaitSlow] = useState(false);
   const loadFirst = useCallback((q: string) => {
     if (net.kind === 'none') return;
     const seq = ++loadSeq.current;
-    setLoadError(null);
+    const peeked = peekPostPage(q, 0);
+    const inflight = postPageInflight(q, 0);
+    if (peeked) {
+      setPosts(peeked.posts);
+      setRawCount(peeked.rawCount);
+      setEndReached(peeked.rawCount >= peeked.total || peeked.posts.length === 0);
+      setLoadError(null);
+      if (inflight == null) return;
+    } else {
+      setPosts(null);
+      setRawCount(0);
+      setEndReached(false);
+      setLoadError(null);
+    }
     setRetrying(false);
-    setPosts(null);
-    setRawCount(0);
-    setEndReached(false);
+    setRefreshing(true);
     // 票 32：首屏走「两路」入口（纯数字查询时并发 id 直查）；深页（loadMore）只走服务端那一页
     void fetchPostSearchPage(net, { query: q, offset: 0, onRetry: () => setRetrying(true) })
       .then((page) => {
@@ -147,13 +162,26 @@ export function CommunityPostPanel({
         setPosts(page.posts);
         setRawCount(page.rawCount);
         setEndReached(page.rawCount >= page.total || page.posts.length === 0);
+        setLoadError(null);
+        if (isJsonFromCache(page)) showToast(t('projects.community.loadFailCache'), 'warn');
       })
       .catch((error: unknown) => {
         if (seq !== loadSeq.current) return;
+        const fallback = peekPostPage(q, 0);
+        if (fallback) {
+          setPosts(fallback.posts);
+          setRawCount(fallback.rawCount);
+          setEndReached(fallback.rawCount >= fallback.total || fallback.posts.length === 0);
+          setLoadError(null);
+          showToast(t('projects.community.loadFailCache'), 'warn');
+          return;
+        }
         setLoadError(communityErrorText(error));
       })
       .finally(() => {
-        if (seq === loadSeq.current) setRetrying(false);
+        if (seq !== loadSeq.current) return;
+        setRetrying(false);
+        setRefreshing(false);
       });
   }, [net]);
 
@@ -170,6 +198,14 @@ export function CommunityPostPanel({
     loadFirst(activeQuery);
     loadCatalog();
   }, [activeQuery, loadFirst, loadCatalog]);
+
+  const waitingBlank = posts == null && loadError == null && net.kind !== 'none';
+  useEffect(() => {
+    setWaitSlow(false);
+    if (!waitingBlank) return;
+    const timer = setTimeout(() => setWaitSlow(true), 8000);
+    return () => clearTimeout(timer);
+  }, [waitingBlank]);
 
   const loadingRef = useRef(false);
 
@@ -206,8 +242,8 @@ export function CommunityPostPanel({
   const refresh = useCallback(() => {
     if (net.kind === 'none' || refreshing) return;
     setRefreshing(true);
-    // clearPostPageCache 连 id 直查缓存一起清 —— 刷新就该重问一次那个数字（票 32）
-    clearPostPageCache();
+    // 票 32：刷新重问数字 id；票 44：不清页缓存，失败仍出示上一份
+    clearPostIdLookupCache();
     void fetchPostSearchPage(net, { query: activeQuery, offset: 0, force: true, onRetry: () => setRetrying(true) })
       .then((page) => {
         setPosts(page.posts);
@@ -216,7 +252,9 @@ export function CommunityPostPanel({
         setLoadError(null);
         setLoadMoreError(null);
       })
-      .catch(() => undefined)
+      .catch(() => {
+        showToast(t('projects.community.refreshFail'), 'danger');
+      })
       .finally(() => {
         setRefreshing(false);
         setRetrying(false);
@@ -365,7 +403,12 @@ export function CommunityPostPanel({
       );
     }
     if (loadingMore || retrying) {
-      return <li className="off-status off-status--list">{retrying ? t('projects.community.retrying') : t('projects.community.loadingMore')}</li>;
+      return (
+        <li className="off-foot">
+          <i className="off-spinner" aria-hidden />
+          {retrying ? t('projects.community.retrying') : t('projects.community.loadingMore')}
+        </li>
+      );
     }
     // 筛选生效：说清「只筛了已加载的这么多」—— 平台没有服务端筛选字段，这是唯一诚实的说法
     if (filterActive && posts != null) {
@@ -375,10 +418,9 @@ export function CommunityPostPanel({
         </li>
       );
     }
-    if (endReached) {
-      return posts != null && posts.length > 0
-        ? <li className="off-status off-status--list">{t('projects.community.end')}</li>
-        : null;
+    // 票 46：浏览翻完用 A 的「没有更多了」；搜索短结果不写（顶部已有计数）
+    if (endReached && posts != null && posts.length > 0 && activeQuery === '') {
+      return <li className="off-foot is-quiet">{t('projects.community.noMore')}</li>;
     }
     return null;
   })();
@@ -492,20 +534,14 @@ export function CommunityPostPanel({
       )}
 
       {loadError ? (
-        <div className="error-banner" role="alert">
-          <AlertTriangle size={18} />
-          <div>
-            <strong>{t('projects.community.loadFail')}</strong>
-            <p style={{ margin: 0 }}>{loadError}</p>
-            <div className="error-actions">
-              <button type="button" onClick={() => { loadFirst(activeQuery); loadCatalog(); }}>
-                {t('projects.community.retry')}
-              </button>
-            </div>
-          </div>
+        <div className="off-blank" role="alert">
+          <b>{t('projects.community.loadFailRetry')}</b>
         </div>
       ) : posts == null ? (
-        <p className="off-status">{retrying ? t('projects.community.retrying') : t('projects.community.loading')}</p>
+        <div className="off-blank" role="status">
+          <i className="off-spinner" aria-hidden />
+          <b>{retrying ? t('projects.community.retrying') : activeQuery !== '' ? t('projects.community.searching') : (waitSlow ? t('projects.community.loadingSlow') : t('projects.community.loading'))}</b>
+        </div>
       ) : (
         <div className={`off-split${expanded ? '' : ' is-collapsed'}`}>
           <aside className={`off-preview${expanded ? '' : ' is-collapsed'}`} aria-hidden={!expanded}>
@@ -593,10 +629,14 @@ export function CommunityPostPanel({
           </aside>
 
           {posts.length === 0 ? (
-            <p className="off-status off-status--list">{t('projects.community.empty')}</p>
+            <div className="off-blank">
+              <b>{t('projects.community.empty')}</b>
+            </div>
           ) : filtered.length === 0 ? (
             /* 筛选后为空：说清是「已加载的这些里没有」——不是全站没有（筛选只作用于已加载条目） */
-            <p className="off-status off-status--list">{t('projects.community.emptyFiltered', { loaded: posts.length })}</p>
+            <div className="off-blank">
+              <b>{t('projects.community.emptyFiltered', { loaded: posts.length })}</b>
+            </div>
           ) : (
             <ul className="off-list" role="listbox" aria-label={t('projects.community.listAria')}>
               {filtered.map((post) => (

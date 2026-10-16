@@ -70,6 +70,33 @@ describe('票 13 · 禁用态样式在位', () => {
     expect(readSource('src/pages/projects/components/OfficialSongPanel.tsx')).toMatch(/projects\.official\.retrying/);
   });
 
+  it('票 46：首次加载用居中骨架 + 原句「正在拉取…」，不在工具条旁加一行', () => {
+    const official = readStripped('src/pages/projects/components/OfficialSongPanel.tsx');
+    const community = readStripped('src/pages/projects/components/CommunityPostPanel.tsx');
+    expect(official).toContain('off-blank');
+    expect(official).toContain("t('projects.official.loading')");
+    expect(community).toContain('off-blank');
+    expect(community).toContain("t('projects.community.loading')");
+    expect(community).toContain("t('projects.community.searching')");
+    expect(community).not.toContain('is-searching');
+    expect(community).not.toContain("t('projects.community.end')");
+    expect(community).toContain("t('projects.community.noMore')");
+    expect(official).toContain("t('projects.official.loadFailRetry')");
+    expect(official).toContain("t('projects.official.loadingSlow')");
+    expect(community).toContain("t('projects.community.loadFailRetry')");
+  });
+
+  it('票 47：确认中发布不弹登录', () => {
+    const src = readStripped('src/pages/projects/components/ProjectDetail.tsx');
+    expect(src).toContain('session.verifying');
+    expect(src).toContain('if (verifying) return');
+  });
+
+  it('票 45：导入中取消键不禁用', () => {
+    const src = readStripped('src/pages/projects/components/ProjectDialogs.tsx');
+    expect(src).toMatch(/<ActionBtn onClick=\{close\}>\{t\('projects\.cancel'\)\}<\/ActionBtn>/);
+  });
+
   it('选曲台正文不滚、宽高可过渡（票 13 #6 / #7）', () => {
     const css = readSource('src/ui/ui.css');
     expect(css).toMatch(/\.dialog__body--clip[\s\S]{0,120}overflow:\s*hidden/);

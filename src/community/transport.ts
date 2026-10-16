@@ -82,10 +82,24 @@ export interface StagedBinary {
 
 /** 主进程网关的返回（成功三种形态 + 失败一种） */
 export type CommunityWireResult =
-  | { ok: true; responseType: 'json'; status: number; data: unknown }
-  | { ok: true; responseType: 'text'; status: number; text: string }
-  | ({ ok: true; responseType: 'binary'; status: number } & StagedBinary)
+  | { ok: true; responseType: 'json'; status: number; data: unknown; fromCache?: boolean }
+  | { ok: true; responseType: 'text'; status: number; text: string; fromCache?: boolean }
+  | ({ ok: true; responseType: 'binary'; status: number; fromCache?: boolean } & StagedBinary)
   | { ok: false; error: CommunityWireError };
+
+const JSON_FROM_CACHE = Symbol('aao-json-from-cache');
+
+/** 网关 freshFirst 回退磁盘缓存时，给 JSON 数据打标（票 44 Toast） */
+export function markJsonFromCache<T>(data: T): T {
+  if (data !== null && typeof data === 'object') {
+    Object.defineProperty(data, JSON_FROM_CACHE, { value: true });
+  }
+  return data;
+}
+
+export function isJsonFromCache(data: unknown): boolean {
+  return data !== null && typeof data === 'object' && JSON_FROM_CACHE in data;
+}
 
 /** 一次社区请求（renderer → transport）。载荷是「HTTP 事实」，不含领域语义。 */
 export interface CommunityRequest {

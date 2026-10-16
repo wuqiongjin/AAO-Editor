@@ -348,6 +348,32 @@ describe('票 26 · 素材失败时的降级语义', () => {
     expect(t.writes).toHaveLength(0);
   });
 
+  it('票 45：取消后不落盘', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const { store, writes } = recordingStore();
+    const transport = makeFakeCommunityTransport({
+      binary: { [AUDIO_URL]: STAGED_AUDIO, [JACKET_URL]: STAGED_COVER },
+    });
+    await expect(importOfficialSong(
+      {
+        store,
+        transport,
+        notifyCatalogChanged: () => undefined,
+        signal: abort.signal,
+        newIds: () => ({ projectId: 'pNew1', chartId: 'cNew1' }),
+        now: () => NOW,
+      },
+      {
+        song: song(),
+        detail: { bgmId: 'bgm029', lengthSeconds: 120.048 },
+        withChart: false,
+        diff: 'expert',
+      },
+    )).rejects.toMatchObject({ name: 'AbortError' });
+    expect(writes).toHaveLength(0);
+  });
+
   it('降级 / 缺封面的警告文案接进了 Toast：ProjectsPage 的映射与 zh/en 键都在', () => {
     const page = readStripped('src/pages/projects/ProjectsPage.tsx');
     expect(page).toContain("if (result.chartDegraded) warnings.push(t('projects.official.warn.chartFallback'))");

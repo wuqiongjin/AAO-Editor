@@ -15,7 +15,7 @@
 //
 // 静态演示版（没有社区出口）**整块不渲染**（Q11，与 ProjectsPage 的 `importSources` 同口径）。
 import { useState } from 'react';
-import { CircleAlert, LogOut, MoreHorizontal, User } from 'lucide-react';
+import { CircleAlert, LoaderCircle, LogOut, MoreHorizontal, User } from 'lucide-react';
 import { getCommunityAccount, type CommunityAccountSession } from '../../../community/bestdori/account';
 import { hasCommunityNet } from '../../../community/electronTransport';
 import { projectCoverHue } from '../../../project/projectCatalog';
@@ -86,7 +86,16 @@ export function AccountBar() {
 
   return (
     <div className="pc-account">
-      {signedIn ? (
+      {session.verifying ? (
+        <div className="pc-account__row" role="status">
+          <span className="pc-account__lead" aria-hidden="true">
+            <LoaderCircle size={15} strokeWidth={1.9} className="pc-account__spin" />
+          </span>
+          <span className="pc-account__text">
+            <b>{t('community.account.verifying')}</b>
+          </span>
+        </div>
+      ) : signedIn ? (
         <Menu
           placement="up"
           align="start"

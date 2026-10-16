@@ -35,6 +35,7 @@ import {
 import { isCommunityError, type CommunityErrorKind } from '../../community/transport';
 import type { CommunityTransport } from '../../community/transport';
 import { t, type MessageKey } from '../../i18n';
+import { throwIfImportAborted } from './officialImport';
 import {
   newChartId,
   newProjectId,
@@ -84,12 +85,15 @@ export interface CommunityImportDeps {
   now?: () => number;
   /** 探音频时长（默认离线探针；测试注入） */
   probeDuration?: (file: Blob, decode?: AudioBytesDecoder) => Promise<number>;
+  /** 票 45：关窗 / 取消 = 不建工程 */
+  signal?: AbortSignal;
 }
 
 export type CommunityImportResult =
   | { ok: true; project: ChartProject; chartId: string; coverImported: boolean }
   | { ok: false; reason: 'apply'; errors: ValidationError[] }
-  | { ok: false; reason: 'download'; error: unknown };
+  | { ok: false; reason: 'download'; error: unknown }
+  | { ok: false; reason: 'cancelled' };
 
 export async function importCommunityPost(
   deps: CommunityImportDeps,
@@ -112,6 +116,7 @@ export async function importCommunityPost(
     songDetail = input.detail;
   }
 
+  throwIfImportAborted(deps.signal);
   deps.onStage?.('audio');
   let audioName: string;
   if (song && songDetail) {
@@ -124,6 +129,7 @@ export async function importCommunityPost(
     audioName = customAudioName(post);
   }
 
+  throwIfImportAborted(deps.signal);
   deps.onStage?.('cover');
   let cover: { path: string; name: string } | null = null;
   if (song) {
@@ -138,6 +144,7 @@ export async function importCommunityPost(
   // 用户主动关掉同步导入时不请求详情 —— 少一次网络，产出也回到官方「没勾 B」的形状。
   let chartCodeText = '';
   if (input.withChart) {
+    throwIfImportAborted(deps.signal);
     deps.onStage?.('chart');
     const detail = await fetchPostDetail(deps.transport, post.postId);
     chartCodeText = detail.chartCodeText;
@@ -164,6 +171,7 @@ export async function importCommunityPost(
   });
   if (!built.ok) return { ok: false, reason: 'apply', errors: built.errors };
 
+  throwIfImportAborted(deps.signal);
   deps.onStage?.('save');
   await deps.store.save(built.project, { ...staged, ...(cover ? { coverStagedPath: cover.path } : {}) });
 

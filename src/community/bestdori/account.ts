@@ -53,6 +53,11 @@ export interface CommunityAccountSession {
    * 长得一模一样，界面自己分不开（票 39 对账第 4 条之后新加的机制，见票内 Comments）。
    */
   expired: boolean;
+  /**
+   * 正在用恢复来的 Cookie 查 `user/me`（票 47）：界面据此写「正在确认…」，
+   * 不要和「从未登录」共用「登录」两个字。资料还没到手，所以 `account` 仍是 null。
+   */
+  verifying: boolean;
 }
 
 export interface CommunityAccount {
@@ -98,7 +103,9 @@ export function createCommunityAccount(options: CommunityAccountOptions): Commun
   const { transport, onRetry, retry } = options;
   const persistence = options.persistence ?? createSessionPersistence();
 
-  let state: CommunityAccountSession = { signedIn: false, account: null, remembered: null, expired: false };
+  let state: CommunityAccountSession = {
+    signedIn: false, account: null, remembered: null, expired: false, verifying: false,
+  };
   const listeners = new Set<(session: CommunityAccountSession) => void>();
   /** 幂等闸：`start()` 只跑一次（校验出结论就不再重来；离线那次也不例外，见上面的口径） */
   let started: Promise<CommunityAccountSession> | null = null;
@@ -109,15 +116,17 @@ export function createCommunityAccount(options: CommunityAccountOptions): Commun
       && next.account === state.account
       && next.remembered === state.remembered
       && next.expired === state.expired
+      && next.verifying === state.verifying
     ) return;
     state = next;
     for (const listener of [...listeners]) listener(state);
   }
 
   /** 未登录的落定：`expired` 只有「恢复来的那份 Cookie 被平台拒了」这一种情形为 true */
-  const settleSignedOut = (expired = false) => publish({ signedIn: false, account: null, remembered: null, expired });
+  const settleSignedOut = (expired = false) =>
+    publish({ signedIn: false, account: null, remembered: null, expired, verifying: false });
   const settleSignedIn = (account: AccountProfile, remembered: boolean) =>
-    publish({ signedIn: true, account, remembered, expired: false });
+    publish({ signedIn: true, account, remembered, expired: false, verifying: false });
 
   /**
    * 登出 / 会话失效的唯一出口：先清持久化（清不掉也要把内存态落定），再转未登录。
@@ -162,6 +171,7 @@ export function createCommunityAccount(options: CommunityAccountOptions): Commun
       settleSignedOut();
       return state;
     }
+    publish({ signedIn: false, account: null, remembered: true, expired: false, verifying: true });
     try {
       // 恢复成功 ⇒ 本机记住了这份登录（`remembered` 的另一半来自 login 时的落盘）
       settleSignedIn(await verify(), true);

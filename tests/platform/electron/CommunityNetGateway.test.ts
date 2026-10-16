@@ -716,6 +716,36 @@ describe('票 14 · 素材缓存命中：GET 不碰网络', () => {
     });
   });
 
+  it('票 47 · GET /api/user/me 插到 API 档已排队的曲库前面（不抢正在飞的那一发）', async () => {
+    const started: string[] = [];
+    let releaseSongs!: () => void;
+    const songsHold = new Promise<void>((resolve) => {
+      releaseSongs = resolve;
+    });
+    const gateway = createCommunityGateway({
+      minIntervalMs: 0,
+      now: () => 0,
+      sleep: async () => undefined,
+      fetchImpl: async (url: string) => {
+        const path = new URL(url).pathname;
+        started.push(path);
+        if (path.includes('/songs/')) await songsHold;
+        return response({ body: { result: true } });
+      },
+    });
+
+    const songs = gateway.request({ url: 'https://bestdori.com/api/songs/all.5.json' });
+    await Promise.resolve();
+    await Promise.resolve();
+    const bands = gateway.request({ url: 'https://bestdori.com/api/bands/all.1.json' });
+    const me = gateway.request({ url: 'https://bestdori.com/api/user/me' });
+    releaseSongs();
+    await Promise.all([songs, bands, me]);
+
+    expect(started[0]).toBe('/api/songs/all.5.json');
+    expect(started.slice(1)).toEqual(['/api/user/me', '/api/bands/all.1.json']);
+  });
+
   it('票 40 · GET /api/user/me 不进 json 缓存（会话身份按 URL 缓存会串号）', async () => {
     await withTmpCache(async (dir) => {
       let n = 1;
@@ -828,7 +858,7 @@ describe('票 14 · 素材缓存命中：GET 不碰网络', () => {
       const result = await gateway.request({ url: SONGS_URL, freshFirst: true });
       expect(fetch.calls).toHaveLength(2);
       // 成功回退到磁盘缓存，不抛错、不白屏
-      expect(result).toMatchObject({ ok: true, data: { n: 1 } });
+      expect(result).toMatchObject({ ok: true, data: { n: 1 }, fromCache: true });
     });
   });
 

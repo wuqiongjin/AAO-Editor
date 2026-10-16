@@ -139,6 +139,7 @@ describe('票 10 · 登录成功', () => {
       account: { username: 'envy09', nickname: 'Envy', email: 'envy09@example.com', messageCount: 3 },
       remembered: true,
       expired: false,
+      verifying: false,
     });
 
     // 两条请求：登录（POST）→ 校验（GET user/me）
@@ -206,7 +207,7 @@ describe('票 10 · 登录失败不写入任何凭据', () => {
     });
 
     // 这不是「会话失效」：账号行照旧写「登录」（票 39：expired 只留给 user/me 401 那条路）
-    expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: false });
+    expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: false, verifying: false });
     // 一次 persist 都没有；反倒 clear 了一次（平台当面拒了凭据 → 本机一份都不留）
     expect(persistence.ops).toEqual([{ op: 'clear', args: [] }]);
     // 失败后不再多打一条 user/me
@@ -237,6 +238,30 @@ describe('票 10 · 启动校验（restore → user/me）', () => {
     expect(persistence.ops.map((op) => op.op)).toEqual(['restore']);
   });
 
+  it('票 47：Cookie 已恢复、me 还没回来 → verifying，不是「未登录」', async () => {
+    let release!: () => void;
+    const hang = new Promise<void>((resolve) => { release = resolve; });
+    const transport: CommunityTransport = {
+      kind: 'ipc',
+      async requestJson(req) {
+        if (req.url !== ME_URL) throw new Error(`未打桩的请求: ${req.url}`);
+        await hang;
+        return ME_OK;
+      },
+      async requestText() { throw new Error('不该有文本请求'); },
+      async requestBinary() { throw new Error('不该有二进制请求'); },
+    };
+    const account = makeAccount(transport, fakePersistence({ restored: true }).impl);
+    const pending = account.start();
+    await Promise.resolve();
+    expect(account.getSession()).toMatchObject({
+      signedIn: false, account: null, remembered: true, verifying: true, expired: false,
+    });
+    release();
+    await pending;
+    expect(account.getSession()).toMatchObject({ signedIn: true, verifying: false });
+  });
+
   it('没有持久化会话：一条请求都不发（不白屏、不打网络）', async () => {
     const transport = fakeTransport({});
     const persistence = fakePersistence();
@@ -247,6 +272,7 @@ describe('票 10 · 启动校验（restore → user/me）', () => {
       account: null,
       remembered: null,
       expired: false,
+      verifying: false,
     });
 
     expect(transport.requests).toEqual([]);
@@ -263,7 +289,7 @@ describe('票 10 · 启动校验（restore → user/me）', () => {
     const session = account.getSession();
     // 恢复来的那份被平台拒了 = 失效（票 39 Q17）：界面靠这一位写「登录状态已失效」，
     // 而不是「本来就没登录」—— 两者在 `{signedIn, account}` 里长得一模一样
-    expect(session).toEqual({ signedIn: false, account: null, remembered: null, expired: true });
+    expect(session).toEqual({ signedIn: false, account: null, remembered: null, expired: true, verifying: false });
     expect(persistence.ops.map((op) => op.op)).toEqual(['restore', 'clear']);
 
     // 失效表现（ADR-0011 §1 / issue 06 Q3）：不弹窗、不白屏 —— 只是写能力灰掉
@@ -314,7 +340,7 @@ describe('票 10 · 登出与订阅', () => {
     await account.logout();
 
     // 主动登出不是「失效」：界面回到「登录」，不写「登录状态已失效」（票 39 Q20）
-    expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: false });
+    expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: false, verifying: false });
     expect(persistence.ops.map((op) => op.op)).toEqual(['persist', 'clear']);
   });
 
@@ -338,7 +364,7 @@ describe('票 10 · 登出与订阅', () => {
     const account = makeAccount(transport, persistence.impl);
 
     await account.start();
-    expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: true });
+    expect(account.getSession()).toEqual({ signedIn: false, account: null, remembered: null, expired: true, verifying: false });
 
     meFails = false;
     await account.login('envy09', 'hunter2');
@@ -374,6 +400,7 @@ describe('票 10 · 静态演示版（没有会话桥）', () => {
         account: null,
         remembered: null,
         expired: false,
+        verifying: false,
       });
       await expect(account.login('envy09', 'x')).rejects.toMatchObject({ kind: 'unsupported-runtime' });
     } finally {

@@ -15,7 +15,7 @@ import { assetRawUrl, assetThumbUrl } from '../assetUrls';
 import { dedupInflight } from '../inflight';
 import { normalizeLevelWindow } from '../levelWindow';
 import { withRetry, type RetryNotice } from '../rateLimit';
-import { invalidResponse, type CommunityTransport, type StagedBinary } from '../transport';
+import { invalidResponse, isJsonFromCache, markJsonFromCache, type CommunityTransport, type StagedBinary } from '../transport';
 import { officialAssetName } from './assetNames';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
@@ -95,21 +95,31 @@ async function fetchStaged(
  * 票 29：启动后首次访问使用 freshFirst 穿透请求最新，失败回退本地磁盘缓存；
  * 会话运行期间只要语言不切、不主动刷新，复用内存缓存 catalogCache。
  */
+export function peekSongCatalog(language: UiLanguage = getActiveUiLanguage()): SongCandidate[] | null {
+  return catalogCache?.language === language ? catalogCache.songs : null;
+}
+
+export function songCatalogInflight(language: UiLanguage = getActiveUiLanguage()): Promise<SongCandidate[]> | null {
+  return catalogInflight?.language === language ? catalogInflight.promise : null;
+}
+
 export async function fetchSongCatalog(
   transport: CommunityTransport,
   language: UiLanguage = getActiveUiLanguage(),
   onRetry?: (notice: RetryNotice) => void,
 ): Promise<SongCandidate[]> {
-  if (catalogCache && catalogCache.language === language) return catalogCache.songs;
+  // 刷新还在飞时优先并进（即便上一份缓存还在）——关窗再开才能接到同一枪
   if (catalogInflight && catalogInflight.language === language) return catalogInflight.promise;
+  if (catalogCache && catalogCache.language === language) return catalogCache.songs;
 
   const promise = Promise.all([
     fetchJson(transport, songsIndexUrl(), onRetry, false, true),
     fetchJson(transport, bandsIndexUrl(), onRetry, false, true),
   ]).then(([index, bands]) => {
     const songs = toSongCandidates(index, bands, language);
-    catalogCache = { language, songs };
-    return songs;
+    const fromCache = isJsonFromCache(index) || isJsonFromCache(bands);
+    catalogCache = { language, songs: fromCache ? markJsonFromCache(songs) : songs };
+    return catalogCache.songs;
   }).finally(() => {
     if (catalogInflight?.language === language) catalogInflight = null;
   });
@@ -127,15 +137,21 @@ export function refreshSongCatalog(
   language: UiLanguage = getActiveUiLanguage(),
   onRetry?: (notice: RetryNotice) => void,
 ): Promise<SongCandidate[]> {
-  clearSongCatalogCache();
-  return Promise.all([
+  // 票 44：首拉还在飞时点刷新 = 并进同一趟，不另排一队把刷新钮空转。
+  if (catalogInflight && catalogInflight.language === language) return catalogInflight.promise;
+  // 成功前不清上一份会话缓存：失败 / 关窗再开仍能出示上一份列表
+  const promise = Promise.all([
     fetchJson(transport, songsIndexUrl(), onRetry, true),
     fetchJson(transport, bandsIndexUrl(), onRetry, true),
   ]).then(([index, bands]) => {
     const songs = toSongCandidates(index, bands, language);
     catalogCache = { language, songs };
     return songs;
+  }).finally(() => {
+    if (catalogInflight?.language === language) catalogInflight = null;
   });
+  catalogInflight = { language, promise };
+  return promise;
 }
 
 /** 单曲详情（选中某首歌时才拉）：导入要的 `bgmId` 与官方曲长 */

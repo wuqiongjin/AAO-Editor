@@ -30,7 +30,7 @@ import { PublishDialog } from './components/PublishDialog';
 import { usePublishEntry } from './usePublishEntry';
 import type { OfficialSongSelection } from './components/OfficialSongPanel';
 import type { CommunityPostSelection } from './components/CommunityPostPanel';
-import { importOfficialSong, officialApplyErrorText, officialErrorText, type OfficialImportStage } from './officialImport';
+import { importOfficialSong, isImportCancelled, officialApplyErrorText, officialErrorText, type OfficialImportStage } from './officialImport';
 import {
   communityApplyErrorText,
   communityErrorText,
@@ -210,12 +210,13 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   const importOfficial = useCallback(async (
     selection: OfficialSongSelection,
     onStage: (stage: OfficialImportStage) => void,
+    signal?: AbortSignal,
   ): Promise<OfficialImportReply> => {
     await flushPersist();
     let result: Awaited<ReturnType<typeof importOfficialSong>>;
     try {
       result = await importOfficialSong(
-        { store, transport: communityTransport, notifyCatalogChanged, onStage },
+        { store, transport: communityTransport, notifyCatalogChanged, onStage, signal },
         {
           song: selection.song,
           detail: selection.detail,
@@ -224,9 +225,11 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
         },
       );
     } catch (error) {
+      if (isImportCancelled(error)) return { ok: false, message: '', cancelled: true };
       return { ok: false, message: officialErrorText(error) };
     }
     if (!result.ok) {
+      if (result.reason === 'cancelled') return { ok: false, message: '', cancelled: true };
       return {
         ok: false,
         message: result.reason === 'apply' ? officialApplyErrorText(result.errors) : officialErrorText(result.error),
@@ -251,18 +254,21 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   const importCommunity = useCallback(async (
     selection: CommunityPostSelection,
     onStage: (stage: CommunityImportStage) => void,
+    signal?: AbortSignal,
   ): Promise<OfficialImportReply> => {
     await flushPersist();
     let result: Awaited<ReturnType<typeof importCommunityPost>>;
     try {
       result = await importCommunityPost(
-        { store, transport: communityTransport, notifyCatalogChanged, onStage },
+        { store, transport: communityTransport, notifyCatalogChanged, onStage, signal },
         { post: selection.post, song: selection.song, detail: selection.detail, withChart: selection.withChart },
       );
     } catch (error) {
+      if (isImportCancelled(error)) return { ok: false, message: '', cancelled: true };
       return { ok: false, message: communityErrorText(error) };
     }
     if (!result.ok) {
+      if (result.reason === 'cancelled') return { ok: false, message: '', cancelled: true };
       return {
         ok: false,
         message: result.reason === 'apply' ? communityApplyErrorText(result.errors) : communityErrorText(result.error),

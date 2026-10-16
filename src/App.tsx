@@ -37,6 +37,7 @@ function App() {
       </Suspense>
     );
   }
+  // 票 46 选曲状态行原型（?prototype=picker-status）已随 B 定案落进 Official/Community 面板后删除
   // 票 30/39 的视频开场画面原型（?prototype=opening-screen）已随方案 B 定案落进
   // `src/preview/video/opening/` 后删除（口径同 issue 16 的弹窗壳原型）
   // 票 39 的登录 / 账号区原型（?prototype=account-bar）同样已随定案落进

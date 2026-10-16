@@ -380,13 +380,60 @@ function createCommunityGateway(options) {
         };
     }
 
-    const apiLane = createLane({ concurrency: 1, minIntervalMs });
+    /**
+     * API 档：并发 1 + 最小间隔，与 createLane(1) 同速率。
+     * 票 47：`GET /api/user/me` 插到**已排队、还没开始**的曲库前面，不抢正在飞的那一发。
+     */
+    function createApiLane(minIntervalMs) {
+        const queue = [];
+        let looping = false;
+        let lastStartedAt = -Infinity;
+
+        async function pump() {
+            if (looping) return;
+            looping = true;
+            try {
+                while (queue.length > 0) {
+                    const job = queue.shift();
+                    try {
+                        const waitMs = minIntervalMs - (now() - lastStartedAt);
+                        if (waitMs > 0) await sleep(waitMs);
+                        lastStartedAt = now();
+                        job.resolve(await job.task());
+                    } catch (error) {
+                        job.reject(error);
+                    }
+                }
+            } finally {
+                looping = false;
+                if (queue.length > 0) void pump();
+            }
+        }
+
+        return function schedule(task, urgent) {
+            return new Promise((resolve, reject) => {
+                const job = { task, resolve, reject };
+                if (urgent) {
+                    const index = queue.findIndex((item) => !item.urgent);
+                    if (index < 0) queue.push({ ...job, urgent: true });
+                    else queue.splice(index, 0, { ...job, urgent: true });
+                } else {
+                    queue.push({ ...job, urgent: false });
+                }
+                void pump();
+            });
+        };
+    }
+
+    const apiLane = createApiLane(minIntervalMs);
     const assetLane = createLane({
         concurrency: assetConcurrency,
         minIntervalMs: assetMinIntervalMs,
     });
-    /** 素材（静态文件）走素材档，其余走 API 档 */
-    const schedule = (req, task) => (req.responseType === 'binary' ? assetLane : apiLane)(task);
+    /** 素材（静态文件）走素材档，其余走 API 档；me 在 API 档里插队 */
+    const schedule = (req, task) => (
+        req.responseType === 'binary' ? assetLane(task) : apiLane(task, isSessionIdentityUrl(req.url))
+    );
 
     async function send(req) {
         // multipart 上传（票 11）：文件字节在这一步才读进来拼体（renderer 只递过路径），
@@ -611,7 +658,7 @@ function createCommunityGateway(options) {
                 } catch {
                     fallback = null;
                 }
-                if (fallback != null) return fallback.result;
+                if (fallback != null) return { ...fallback.result, fromCache: true };
                 return netRes;
             }
 
