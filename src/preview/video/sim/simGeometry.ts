@@ -263,15 +263,26 @@ export function bandLaneAt(band: SimBandSpan, seconds: number): number {
 
 /**
  * 带体四边形：相邻结点两点构成的四边形，顶点顺序 = **a 边左 → a 边右 → b 边右 → b 边左**。
- * 边宽恒 = 1 个 lane（随端点自己的 A 收缩 → 伪透视下越远的带越窄）。
+ * 边宽 = 1 个 lane × `noteSize`（随端点自己的 A 收缩 → 伪透视下越远的带越窄）。
+ *
+ * issue 47：`noteSize`（`settings.display.noteSize` / 节奏图示大小）必须参与 —— 音符盒子
+ * （`simNoteRect`）、同时点击线（`simDualLineThickness`）、按住环 / 命中特效全都乘了它，
+ * 只有带体漏乘时"调大结点、段还是原宽"；画布侧 `renderSpanBands` 的半宽本来就是
+ * `LANE_WIDTH × scale × noteSize / 2`（issue 39 #1 补修），本函数与它同一口径。
+ *
  * 注意倒流区里 `b` 的时间可以**早于** `a`（谱面折返），四边形照样成形（只是上下关系反过来）——
  * 折返带由调用方按 `displayConnections` 的显示序喂进来，本函数不做任何"排序修正"。
  */
-export function bandQuad(m: SimFieldMetrics, a: SimBandEnd, b: SimBandEnd): [SimPoint, SimPoint, SimPoint, SimPoint] {
+export function bandQuad(
+  m: SimFieldMetrics,
+  a: SimBandEnd,
+  b: SimBandEnd,
+  noteSize: number,
+): [SimPoint, SimPoint, SimPoint, SimPoint] {
   const ax = laneCenterX(m, a.lane, a.a);
   const bx = laneCenterX(m, b.lane, b.a);
-  const ah = (m.laneWidth * a.a) / 2;
-  const bh = (m.laneWidth * b.a) / 2;
+  const ah = (m.laneWidth * noteSize * a.a) / 2;
+  const bh = (m.laneWidth * noteSize * b.a) / 2;
   return [
     { x: ax - ah, y: fieldY(m, a.a) },
     { x: ax + ah, y: fieldY(m, a.a) },

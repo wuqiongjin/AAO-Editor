@@ -543,6 +543,19 @@ function bodyBatches(calls: RecordedCall[]): { quads: { x: number; y: number }[]
   return bandBatches(calls).filter((b) => Math.abs(b.alpha - body) < 1e-12);
 }
 
+/**
+ * 四边形在**同一条边**上的宽度：同一 y 上左右两点的水平距离。
+ * 斜边平移后 bbox 会更宽，故不能直接量 bbox（亮缘宽度 / 段宽都用它）。
+ */
+function widthAtSameY(q: { x: number; y: number }[]): number {
+  for (let i = 0; i < q.length; i++) {
+    for (let j = i + 1; j < q.length; j++) {
+      if (Math.abs(q[i]!.y - q[j]!.y) < 1e-9) return Math.abs(q[i]!.x - q[j]!.x);
+    }
+  }
+  return NaN;
+}
+
 describe('drawSimFrameAt · 带体批次的绕向归一（issue 45：倒流区带体填充自抵消）', () => {
   const batchesAt = (notes: ChartNote[], seconds: number) => {
     const { spriteIcon } = makeRecordingSprite();
@@ -625,15 +638,7 @@ describe('drawSimFrameAt · 带体材质与叠亮（issue 46）', () => {
       q.some((v) => Math.abs(v.x - p.x) < 1e-9 && Math.abs(v.y - p.y) < 1e-9);
     expect(hasPoint(rimBatch[0]!.quads[0]!, quad[0]!)).toBe(true);
     expect(hasPoint(rimBatch[0]!.quads[1]!, quad[1]!)).toBe(true);
-    // 亮缘宽度 = 同一 y 上内外两条边的水平距离（斜边平移后 bbox 宽会更宽，不能直接量 bbox）
-    const widthAtSameY = (q: { x: number; y: number }[]) => {
-      for (let i = 0; i < q.length; i++) {
-        for (let j = i + 1; j < q.length; j++) {
-          if (Math.abs(q[i]!.y - q[j]!.y) < 1e-9) return Math.abs(q[i]!.x - q[j]!.x);
-        }
-      }
-      return NaN;
-    };
+    // 亮缘宽度 = 同一 y 上内外两条边的水平距离（`widthAtSameY`；不能直接量 bbox）
     const half = (Math.abs(quad[1]!.x - quad[0]!.x) + Math.abs(quad[2]!.x - quad[3]!.x)) / 4;
     for (const q of rimBatch[0]!.quads) {
       expect(widthAtSameY(q)).toBeCloseTo(half * SIM_BAND_MATERIAL.rimFrac, 6);
@@ -688,5 +693,49 @@ describe('drawSimFrameAt · 带体材质与叠亮（issue 46）', () => {
     const centerX = (q: { x: number }[]) => (q[0]!.x + q[1]!.x) / 2;
     expect(centerX(batches[0]!.quads[0]!)).toBeCloseTo(laneCenterX(frame.metrics, 4.5, 1), 4);
     expect(centerX(batches[1]!.quads[0]!)).toBeCloseTo(laneCenterX(frame.metrics, 3.5, 1), 4);
+  });
+});
+
+// ---------------------------------------------------------------- issue 47 锁测
+
+describe('drawSimFrameAt · 节奏图示大小对滑条段生效（issue 47）', () => {
+  /** 体批次里第一块四边形的 a 边宽（同一 y 上左右两点的水平距离） */
+  const bodyAEdgeWidth = (quads: { x: number; y: number }[][]) => {
+    const q = quads[0]!;
+    return Math.abs(q[1]!.x - q[0]!.x);
+  };
+
+  it('noteSize=2：段宽跟着翻倍（修前恒 1 lane —— 只有结点变大）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy, calls } = recordingCtx();
+    // 同刻两点（两端 A 都是 1）：A 不参与差异，段宽只由 noteSize 决定
+    const base = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 2, lane: 5 }])], spriteIcon);
+    const frame = { ...base, scene: { ...base.scene, noteSize: 2 } };
+    drawSimFrameAt(proxy, frame, 1);
+    const batches = bodyBatches(calls);
+    expect(batches).toHaveLength(1);
+    expect(bodyAEdgeWidth(batches[0]!.quads)).toBeCloseTo(frame.metrics.laneWidth * 2, 6);
+  });
+
+  it('亮缘宽度随段宽一起变（半宽 × rimFrac），不会在放大后变成发丝线', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy, calls } = recordingCtx();
+    const base = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5 }])], spriteIcon);
+    const frame = { ...base, scene: { ...base.scene, noteSize: 2 } };
+    drawSimFrameAt(proxy, frame, 1.5);
+    const body = SIM_BAND_MATERIAL.bodyAlpha * 0.8;
+    const rimTarget = Math.min(1, SIM_BAND_MATERIAL.rimAlpha * 0.8);
+    const rim = (rimTarget - body) / (1 - body);
+    const rimBatch = bandBatches(calls).filter((b) => Math.abs(b.alpha - rim) < 1e-9);
+    expect(rimBatch).toHaveLength(1);
+    // 亮缘宽度 = 该段两端的**平均半宽** × rimFrac（`bandRimQuads` 的口径）：直接从体四边形
+    // 量 a 边 / b 边的宽度，不另算 A —— 锁的是"亮缘跟着段宽走"，而不是复述一遍公式。
+    const bodyQuad = bodyBatches(calls)[0]!.quads[0]!;
+    const avgHalf = (Math.abs(bodyQuad[1]!.x - bodyQuad[0]!.x) + Math.abs(bodyQuad[2]!.x - bodyQuad[3]!.x)) / 4;
+    expect(avgHalf).toBeGreaterThan(frame.metrics.laneWidth / 2); // 确实吃过 noteSize
+    const want = avgHalf * SIM_BAND_MATERIAL.rimFrac;
+    for (const q of rimBatch[0]!.quads) {
+      expect(widthAtSameY(q)).toBeCloseTo(want, 6);
+    }
   });
 });

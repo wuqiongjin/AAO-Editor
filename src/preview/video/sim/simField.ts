@@ -449,7 +449,8 @@ function drawBands(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds:
       flush();
       group = { slide: band.slide, sp: band.sp, quads: [] };
     }
-    group.quads.push(bandQuad(m, { lane: lane0, a: a0 }, { lane: lane1, a: a1 }));
+    // issue 47：段宽与结点图标同口径 × noteSize（亮缘由四边形自身半宽推出，随之自动跟随）
+    group.quads.push(bandQuad(m, { lane: lane0, a: a0 }, { lane: lane1, a: a1 }, scene.noteSize));
   }
   flush();
   ctx.restore();

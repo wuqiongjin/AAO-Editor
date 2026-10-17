@@ -211,7 +211,7 @@ describe('场地三图的绘制矩形（chart-preview 18 问题 4）', () => {
 
 describe('带体四边形', () => {
   it('顶点顺序 = a 边左 → a 边右 → b 边右 → b 边左；边宽随各自的 A 收缩', () => {
-    const [p0, p1, p2, p3] = bandQuad(m, { lane: 3, a: 1 }, { lane: 5, a: 0.5 });
+    const [p0, p1, p2, p3] = bandQuad(m, { lane: 3, a: 1 }, { lane: 5, a: 0.5 }, 1);
     expect(p0).toEqual({ x: 667 - 77, y: 615 });
     expect(p1).toEqual({ x: 667 + 77, y: 615 });
     expect(p2).toEqual({ x: 667 + 2 * 154 * 0.5 + (154 * 0.5) / 2, y: 615 * 0.5 });
@@ -219,8 +219,16 @@ describe('带体四边形', () => {
   });
 
   it('倒流区折返：b 端落在 a 端下方也照样成形（不做任何排序修正）', () => {
-    const quad = bandQuad(m, { lane: 0, a: 1 }, { lane: 1, a: 0.5 });
+    const quad = bandQuad(m, { lane: 0, a: 1 }, { lane: 1, a: 0.5 }, 1);
     expect(quad[0]!.y).toBeGreaterThan(quad[3]!.y);
+  });
+
+  it('issue 47：边宽 × noteSize（与音符盒子 / 双押线同一口径；修前恒 1 lane）', () => {
+    const [p0, p1] = bandQuad(m, { lane: 3, a: 1 }, { lane: 3, a: 1 }, 2);
+    expect(p1.x - p0.x).toBeCloseTo(m.laneWidth * 2, 6);
+    // A 的收缩与 noteSize 正交：半宽 = laneWidth × noteSize × A / 2
+    const [q0, q1] = bandQuad(m, { lane: 3, a: 0.5 }, { lane: 3, a: 0.5 }, 2);
+    expect(q1.x - q0.x).toBeCloseTo(m.laneWidth * 2 * 0.5, 6);
   });
 
   it('clampApproach：过线的钉在判定线、没进场的钉在渐近位置', () => {
