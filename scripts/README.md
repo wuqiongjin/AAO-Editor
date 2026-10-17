@@ -82,5 +82,6 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 | `measure-export-limits.mjs` | 导出链路与尺寸实测（chart-preview 06）：画布单边 / 面积上限与超限行为、3 / 5 分钟谱宽图导出的耗时与峰值内存、仿真场单帧成本、WebCodecs 编码可用性与吞吐、MediaRecorder 对照（需 playwright + dev server；`--only=` 分节、`--json=` 落盘）。**一次性探针、不在 CI**：留着是当 `docs/research/chart-preview-export-limits.md` 那组数字的复算 / 复验入口（换机器 / 换 Chromium 版本 / 改编码参数后重跑可比）；它 import 的是 `/src/...` 绝对路径，模块搬家后会跑不起来，到时删掉即可 |
 | `sim-shot.mjs` | 仿真场像素验收（chart-preview 05）：建工程 → 贴样例谱 → 预览页切「动态预览」→ 抓**场地 canvas 原生位图**（暂停 / 播放中 / seek 中段 / seek 末段）+ 页面截图，打印场地比例与位图尺寸；素材缺席时打印 04 的空态与获取命令（同需 playwright + dev server） |
 | `verify-backflow-band-fill.mjs` | issue 45：倒流区带体填充的位图验收（单测锁测的**替代证据**——记录型 ctx 不光栅化，nonzero 抵消只在光栅阶段显形）：载入 dzilas 150030 → 动态预览 → 暂停态 seek 到倒流区内若干秒（默认 5.0/8.0/11.0/12.5）→ 抓 `.pv-field__canvas` 位图，用 node 侧**真实 `drawSimFrameAt`** 算出的期望四边形逐条采样中线（带体色族）；`--label` + 另一个 worktree 的 dev server 可做修前 / 修后 A/B（需 esbuild + playwright + dev server；谱面在本地语料 `docs/resource/`，可用参数覆盖） |
+| `verify-band-material.mjs` | issue 46：动态预览带体材质 / 叠亮的位图验收（零外部语料——脚本内造两条同轨错时竖滑条）：动态预览 seek 到 1.5s → 抓 `.pv-field__canvas` → 按体色反算 α，断言单层半透明、双层重叠更亮、亮缘比中线亮（需 playwright + dev server） |
 
 一次性 Playwright 探针历史上在迭代后已删除；需要浏览器实测时优先 vitest / 手工清单，或按 issue 说明临时写脚本（不必长期留在本目录）。

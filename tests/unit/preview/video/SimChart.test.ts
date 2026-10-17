@@ -126,6 +126,17 @@ describe('buildSimChart · 滑条与带体', () => {
     expect(c.bands).toEqual([]);
   });
 
+  it('带体按谱面数组序、同一条滑条一个分组（issue 46：后放置者在上）', () => {
+    const c = chartOf([
+      // 先放但更晚的滑条（2s → 3s）
+      slide([{ beat: 4, lane: 0 }, { beat: 6, lane: 6 }]),
+      // 后放但更早的滑条（0s → 1s）：旧实现按进场时刻重排会把两条的上下关系翻过来
+      slide([{ beat: 0, lane: 0 }, { beat: 2, lane: 6 }]),
+    ]);
+    expect(c.bands.map((b) => [b.t0, b.t1])).toEqual([[2, 3], [0, 1]]);
+    expect(c.bands.map((b) => b.slide)).toEqual([0, 1]);
+  });
+
   it('combo 走画布那份枚举（单键/方向键各 1、滑条逐非 hidden 结点；BPM / System 不计）', () => {
     const notes: ChartNote[] = [
       { type: 'BPM', beat: 0, bpm: 120 },
@@ -159,8 +170,8 @@ describe('buildSimChart · 倒流区（ADR-0010）', () => {
   it('折返带的两端时刻照实折返（不排序、不重写时间）', () => {
     const c = chartOf(backflow);
     // 滑条三点 beat 5 / 6 / 7 → 1.5s / 1s / 0.5s：带子两段的上下关系随折返反过来
-    // （带表按进场时刻升序，故 0.5→1 那一段在前）
-    expect(c.bands.map((b) => [b.t0, b.t1])).toEqual([[1, 0.5], [1.5, 1]]);
+    // （带表按**谱面数组序**，故 1.5→1 那一段在前；绘制序 = 后放置者在上，见 issue 46）
+    expect(c.bands.map((b) => [b.t0, b.t1])).toEqual([[1.5, 1], [1, 0.5]]);
     // 元素按**播放时钟**升序排（折返层里先到的是 beat 7 那一点）
     expect(c.elements.map((e) => e.time)).toEqual([0.5, 1, 1, 1.5]);
   });

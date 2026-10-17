@@ -40,6 +40,7 @@ import {
   backgroundRect,
   bandLaneAt,
   bandQuad,
+  clamp01,
   clampApproach,
   comboAnchor,
   comboMetrics,
@@ -70,6 +71,7 @@ import {
   SIM_SPRITE_EFFECT,
   SIM_SPRITE_EFFECT_DURATION,
   visibleApproach,
+  type SimBandMaterial,
   type SimFieldMetrics,
   type SimPoint,
 } from './simGeometry';
@@ -127,6 +129,12 @@ export interface SimElement {
 
 /** 带体的一段：投影序里相邻两结点的 `(lane, A)` */
 export interface SimBand {
+  /**
+   * 所属滑条的分组号（谱面数组序递增，同一条滑条的段连续）。
+   * `drawBands` 按它把同一条滑条合成一条路径（防接缝）并逐条上色；
+   * 绘制序 = 谱面数组序 ⇒ 与画布一致（后放置者在上）。
+   */
+  slide: number;
   t0: number;
   lane0: number;
   t1: number;
@@ -150,7 +158,11 @@ export interface SimChart {
   approachS: number;
   /** 全部元素，按 time 升序 */
   elements: SimElement[];
-  /** 全部带体段，按进场时刻升序 */
+  /**
+   * 全部带体段，**按谱面数组序**（同一条滑条的段连续）。
+   * 不做时间排序：绘制序 = 后放置者在上（与画布 `renderNotes` 同口径）；
+   * 两个消费方（`drawBands` / `drawHoldEffects`）都全表遍历，顺序不影响可见窗口。
+   */
   bands: SimBand[];
   /** 同时点击线分组，按 time 升序 */
   simultaneous: SimSimultaneous[];
@@ -174,6 +186,10 @@ export interface SimFrameAssets {
   bandColor: string;
   /** SP 带体颜色（同上，取 SP 带图） */
   bandColorSp: string;
+  /** 带体材质（皮肤带体图剖面采样；缺图 = 兜底常量） */
+  bandMaterial: SimBandMaterial;
+  /** SP 带体材质（同上，取 SP 带图） */
+  bandMaterialSp: SimBandMaterial;
   /** Bestdori 自家精灵（combo / 特效）；null = 回落自绘（chart-preview 21） */
   sprites: SimSprites | null;
 }
@@ -203,6 +219,8 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
 
   const elements: SimElement[] = [];
   const bands: SimBand[] = [];
+  /** 带体分组号：每条滑条一个（同一条滑条的段连续，绘制时合并成一条路径） */
+  let slideSeq = 0;
   // 同时点击线的分组：同 tick → 一组轨号（口径与编辑器那份相同：同拍、链式相邻、只端点参与；
   // 键是把精确拍按 1e-6 取整，编辑器那边是逐个比 |Δ| < 1e-6 —— 同一容差的两写法）
   const groups = new Map<number, number[]>();
@@ -258,6 +276,7 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
       // 显示投影（ADR-0009 §2.2）：稳定排序 + 掐首尾 hidden；带体与端点身份都按它
       const projected: ConnectionNote[] = displayConnections(conns).conns;
       if (projected.length === 0) continue; // 全 hidden：画布上没有任何效果（数据保留）
+      const slide = slideSeq++;
       const sp = slideUsesSpBand(conns);
       const lastIdx = projected.length - 1;
       projected.forEach((conn, i) => {
@@ -285,6 +304,7 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
         const b = projected[i + 1]!;
         if (a.beat < 0 && b.beat < 0) continue; // 整段都在负 beat：不渲染
         bands.push({
+          slide,
           t0: secondsAt(a.beat, a.subBeat),
           lane0: mirrorLane(a.lane, mirror),
           t1: secondsAt(b.beat, b.subBeat),
@@ -298,7 +318,9 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
   }
 
   elements.sort((a, b) => a.time - b.time);
-  bands.sort((a, b) => Math.min(a.t0, a.t1) - Math.min(b.t0, b.t1));
+  // bands **不排序**：谱面数组序就是绘制序（后放置者在上，与画布 `renderNotes` 同口径）；
+  // 同一条滑条的段天然连续，`drawBands` 按 `slide` 分组时不必再找回来。
+
   const simultaneous: SimSimultaneous[] = [...groups.entries()]
     .filter(([, lanes]) => lanes.length > 1)
     .map(([beat, lanes]) => ({ time: secondsAt(beat), lanes: [...lanes].sort((a, b) => a - b) }))
@@ -384,18 +406,33 @@ function drawField(ctx: CanvasRenderingContext2D, input: SimFrameInput): void {
  * **已过线的一端沿带子行进**（票 23 #1，照 Bestdori 的 `L`）：A 钉 1（贴判定线）、轨位按时间
  * 插值到未过线端 —— 横向滑条的观感是"接触点沿带子扫过去"，而不是"整条被折回头部结点那条轨"。
  * 没过线的一端保持自己的轨位；两端都还没进场的那一段直接跳过。
- * 同一组（普通 / SP）的四边形**合成一条路径再填**：分片各自 fill 会在共享边留下接缝。
- * 并入前先做**绕向归一**（`fillPolys`）：倒流折返会让同一段物理带子被两个 band 段同时贡献
- * 几何完全重合、顶点绕向相反的四边形，nonzero 下反向子路径重叠 = 缠绕数 0 = 互相抵消成洞
- * （issue 45：动态预览整个倒流区滑条不显示）。
+ *
+ * **按"一条滑条"分组绘制**（issue 46）：同一条滑条的四边形仍**合成一条路径再填**（分片各自
+ * fill 会在共享边留下接缝，且倒流折返要用 nonzero + 绕向归一防抵消 —— issue 45）；不同滑条
+ * 各自 fill ⇒ 半透明体在交叉处自然二次合成（叠亮）、后放置者在上（与画布 `renderNotes` 同口径）。
+ * 此前把**同材质全谱**并成一条路径只填一次：重叠处只应用一次 α、同材质无 z 序 —— 用户所见
+ * "一色平铺、重叠处毫无变化"。
+ *
+ * **材质**（issue 46）：不再把"贴图中心 1 像素色"平涂。体用半透明色（皮肤带体图实测：普通
+ * α≈0.55、SP≈0.48），再沿两条长边内侧铺一道亮缘（贴图边缘峰值 α≈1.0 / 体色同色）——
+ * 与画布带体的"亮边 + 中间光泽"同构；亮缘是薄四边形（水平内缩，与贴图剪切同口径），不溢出几何。
  */
 function drawBands(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
   const { chart, metrics: m, assets, scene } = input;
   const T = chart.approachS;
   const alpha = Math.min(1, Math.max(0, scene.slideOpacity));
   if (alpha <= 0) return;
-  const normal: SimPoint[][] = [];
-  const spBands: SimPoint[][] = [];
+  ctx.save();
+  /** 当前正在累积的滑条（谱面数组序：同一条滑条的段连续） */
+  let group: { slide: number; sp: boolean; quads: SimPoint[][] } | null = null;
+  const flush = () => {
+    if (!group) return;
+    const g = group;
+    group = null;
+    if (g.quads.length === 0) return;
+    const color = g.sp ? (assets.bandColorSp || SIM_BAND_COLORS.sp) : (assets.bandColor || SIM_BAND_COLORS.band);
+    drawBandGroup(ctx, g.quads, g.sp ? assets.bandMaterialSp : assets.bandMaterial, color, alpha);
+  };
   for (const band of chart.bands) {
     const minT = Math.min(band.t0, band.t1);
     const maxT = Math.max(band.t0, band.t1);
@@ -408,36 +445,174 @@ function drawBands(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds:
     if (a0 <= APPROACH.floor + EPS && a1 <= APPROACH.floor + EPS) continue;
     const lane0 = seconds > band.t0 ? bandLaneAt(band, seconds) : band.lane0;
     const lane1 = seconds > band.t1 ? bandLaneAt(band, seconds) : band.lane1;
-    (band.sp ? spBands : normal).push(bandQuad(m, { lane: lane0, a: a0 }, { lane: lane1, a: a1 }));
+    if (!group || group.slide !== band.slide) {
+      flush();
+      group = { slide: band.slide, sp: band.sp, quads: [] };
+    }
+    group.quads.push(bandQuad(m, { lane: lane0, a: a0 }, { lane: lane1, a: a1 }));
   }
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  fillPolys(ctx, normal, assets.bandColor || SIM_BAND_COLORS.band);
-  fillPolys(ctx, spBands, assets.bandColorSp || SIM_BAND_COLORS.sp);
+  flush();
   ctx.restore();
 }
 
+// ---------------------------------------------------------------- 带体材质
+
 /**
- * 一批四边形**合成一条路径**再填（seam 见 drawBands 注释）。
- * **绕向归一**（issue 45）：每个四边形先按有符号面积（shoelace，canvas 坐标 y 向下）归一成
- * 一致绕向——面积 > 0 的反序再并入。正向流（t0 < t1）的四边形原生就是负面积（a 边 = 过线端
- * 在判定线上、b 边远在上方），倒流折返的段则相反；两个绕向相反的子路径进同一条路径、nonzero
- * 规则下重叠 ⇒ 缠绕数 0 ⇒ 互相抵消成洞（修前：整个倒流区滑条不显示，而逐段单独绘制的连按
- * 特效照常——与用户所见一致）。归一到"与正向流一致"后，同向重叠 = 缠绕 2 仍填充，抵消与接缝
- * 两个问题一并解决；逐段单独 fill 会退回接缝，不采纳。正向流四边形的顶点序因此与修前逐字节
- * 一致（票 23 #1 那几条按顶点序取"过线端"的锁测不用改）。
- * 零面积四边形（同拍水平段：两端同时刻 ⇒ 同 A ⇒ 退化成线段）恒不反序——它本来就不填充。
+ * 一条滑条的可见带体：体填充 + 自叠加亮 + 两侧亮缘（材质来自皮肤带体图剖面采样）。
+ * - 体：合并路径一次 fill（防接缝、绕向归一，见 `drawBands` 注释）；
+ * - 自叠：同一条滑条的段在屏幕上真的重叠时（折返 / 绕圈），重叠区再补一层体色 ——
+ *   合并路径只填一次，不补就"自叠也不变亮"；画布那边是逐像素合成。
+ *   只在存在折返段时扫描：正向流各段的 y 区间首尾相接、互不相交，没有自叠可能；
+ * - 亮缘：沿两条长边的内侧各铺一条**薄四边形**（朝带子中心水平内缩，宽度按该段自己的
+ *   半宽缩放），再合并成一条路径一次 fill。不用 `clip` + `stroke`：每滑条一次裁剪在
+ *   密集谱里是主要开销，而薄四边形与体共用同一套顶点 / 绕向，同样不会外溢，
+ *   接缝也与体一样被合并路径吃掉。
  */
-function fillPolys(ctx: CanvasRenderingContext2D, polys: SimPoint[][], color: string): void {
-  if (polys.length === 0) return;
+function drawBandGroup(
+  ctx: CanvasRenderingContext2D,
+  quads: SimPoint[][],
+  material: SimBandMaterial,
+  color: string,
+  alpha: number,
+): void {
+  const body = clamp01(material.bodyAlpha * alpha);
+  if (body <= 0) return;
+  // issue 45：并入同一条路径前绕向归一（正向流原生为负；倒流段 > 0 的反序）。
+  // 同向重叠 = 缠绕 2 仍填充；反向不归一 ⇒ 缠绕 0 ⇒ 洞。
+  const polys = quads.map(normalizeWinding);
+
+  ctx.globalAlpha = body;
   ctx.fillStyle = color;
   ctx.beginPath();
-  for (const poly of polys) {
-    const pts = signedArea(poly) > 0 ? [...poly].reverse() : poly;
-    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-    ctx.closePath();
-  }
+  for (const p of polys) addPolygonPath(ctx, p);
   ctx.fill();
+
+  // 自叠：非相邻段（含折返的相邻重合段）真重叠时补一层；相邻段只共享边（面积 0）→ 跳过。
+  if (quads.some(isFoldedQuad)) {
+    const boxes = quads.map(quadBBox);
+    for (let i = 0; i < quads.length; i++) {
+      for (let j = i + 1; j < quads.length; j++) {
+        if (!bboxOverlap(boxes[i]!, boxes[j]!)) continue;
+        const inter = intersectConvex(quads[i]!, quads[j]!);
+        if (inter.length < 3 || Math.abs(signedArea(inter)) < 0.5) continue;
+        ctx.beginPath();
+        addPolygonPath(ctx, inter);
+        ctx.fill();
+      }
+    }
+  }
+
+  const rimTarget = clamp01(material.rimAlpha * alpha);
+  const rimAlpha = body >= 1 ? 1 : clamp01((rimTarget - body) / (1 - body));
+  if (rimAlpha <= 0) return;
+  const rimPolys = bandRimQuads(quads, material.rimFrac).map(normalizeWinding);
+  if (rimPolys.length === 0) return;
+
+  ctx.globalAlpha = rimAlpha;
+  ctx.beginPath();
+  for (const p of rimPolys) addPolygonPath(ctx, p);
+  ctx.fill();
+}
+
+/** 折返段：b 边落在 a 边下方（正常前向流是 b 在上、y 更小） */
+function isFoldedQuad(q: readonly SimPoint[]): boolean {
+  return q[2]!.y > q[0]!.y + 0.5;
+}
+
+/** 绕向归一（issue 45）：面积 > 0 的反序再并入，nonzero 下同向重叠不抵消 */
+function normalizeWinding(poly: SimPoint[]): SimPoint[] {
+  return signedArea(poly) > 0 ? [...poly].reverse() : poly;
+}
+
+/** 四边形并入当前路径（调用方负责 `beginPath` / `fill`） */
+function addPolygonPath(ctx: CanvasRenderingContext2D, poly: readonly SimPoint[]): void {
+  poly.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  ctx.closePath();
+}
+
+interface BandBBox {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+function quadBBox(q: readonly SimPoint[]): BandBBox {
+  const box: BandBBox = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+  for (const p of q) {
+    if (p.x < box.minX) box.minX = p.x;
+    if (p.x > box.maxX) box.maxX = p.x;
+    if (p.y < box.minY) box.minY = p.y;
+    if (p.y > box.maxY) box.maxY = p.y;
+  }
+  return box;
+}
+
+function bboxOverlap(a: BandBBox, b: BandBBox): boolean {
+  return a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
+}
+
+/**
+ * 亮缘四边形：沿每条长边朝带子中心**水平**内缩 —— 与画布 `drawBandQuad` 的贴图剪切同口径
+ * （贴图 X = 世界横向），且宽度按**该段自己的半宽**缩放（带子随 A 收缩时亮缘同步变窄，
+ * 与画布贴图横截面的局部比例一致），不外溢。
+ * 相邻段共享结点 ⇒ 相邻薄四边形共享一条边，合并成一条路径一次 fill（接缝被 union 吃掉）。
+ * 零面积段（同拍水平段，两端同时刻 ⇒ 同 A）不铺亮缘 —— 它本来就不填充
+ * （画布 `drawBandQuad` 同判据：`|dy| < 0.5` 直接 return）。
+ */
+function bandRimQuads(quads: readonly SimPoint[][], frac: number): SimPoint[][] {
+  const rim: SimPoint[][] = [];
+  for (const q of quads) {
+    if (Math.abs(q[0]!.y - q[3]!.y) < 0.5) continue; // a 边与 b 边同高 = 零面积
+    const half = (Math.abs(q[1]!.x - q[0]!.x) + Math.abs(q[2]!.x - q[3]!.x)) / 4;
+    const w = half * frac;
+    if (w < 0.4) continue; // 远端 A 很小时亮缘退到亚像素：不画，省几笔
+    const aL = q[0]!, aR = q[1]!, bR = q[2]!, bL = q[3]!;
+    rim.push([aL, bL, { x: bL.x + w, y: bL.y }, { x: aL.x + w, y: aL.y }]);
+    rim.push([aR, bR, { x: bR.x - w, y: bR.y }, { x: aR.x - w, y: aR.y }]);
+  }
+  return rim;
+}
+
+/**
+ * 两个凸四边形（带体四边形恒凸）的交集多边形（Sutherland–Hodgman）。
+ * 只用于"同一条滑条自叠"的补层；相邻段只共享一条边 ⇒ 交集退化成线（面积 0）被调用方滤掉。
+ */
+function intersectConvex(subject: readonly SimPoint[], clip: readonly SimPoint[]): SimPoint[] {
+  const orient = Math.sign(signedArea(clip));
+  if (orient === 0) return [];
+  let out: SimPoint[] = [...subject];
+  for (let i = 0; i < clip.length && out.length > 0; i++) {
+    const a = clip[i]!;
+    const b = clip[(i + 1) % clip.length]!;
+    const input = out;
+    out = [];
+    for (let j = 0; j < input.length; j++) {
+      const p = input[j]!;
+      const q = input[(j + 1) % input.length]!;
+      const pIn = orient * cross(a, b, p) >= -1e-9;
+      const qIn = orient * cross(a, b, q) >= -1e-9;
+      if (pIn) out.push(p);
+      if (pIn !== qIn) {
+        const hit = lineIntersect(p, q, a, b);
+        if (hit) out.push(hit);
+      }
+    }
+  }
+  return out;
+}
+
+function cross(a: SimPoint, b: SimPoint, p: SimPoint): number {
+  return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+}
+
+function lineIntersect(p: SimPoint, q: SimPoint, a: SimPoint, b: SimPoint): SimPoint | null {
+  const rx = q.x - p.x, ry = q.y - p.y;
+  const sx = b.x - a.x, sy = b.y - a.y;
+  const denom = rx * sy - ry * sx;
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = ((a.x - p.x) * sy - (a.y - p.y) * sx) / denom;
+  return { x: p.x + rx * t, y: p.y + ry * t };
 }
 
 /** 多边形的有符号面积（shoelace 公式；canvas 坐标 y 向下，正向流带体为负） */

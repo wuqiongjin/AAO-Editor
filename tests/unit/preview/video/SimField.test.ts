@@ -27,6 +27,8 @@ import {
   simDualLineThickness,
   simNoteRect,
   SIM_BAND_COLORS,
+  SIM_BAND_MATERIAL,
+  SIM_BAND_MATERIAL_SP,
 } from '@/src/preview/video/sim/simGeometry';
 import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
 
@@ -35,7 +37,7 @@ const icons = buildActiveNoteIcons(normalizeNoteSkinSelection({}));
 const single = (beat: number, lane: number, extra: Partial<SingleNote> = {}): SingleNote => ({
   type: 'Single', beat, lane, ...extra,
 });
-const slide = (points: { beat: number; lane: number }[]): SlideNote => ({
+const slide = (points: { beat: number; lane: number; hidden?: boolean }[]): SlideNote => ({
   type: 'Slide', connections: points.map((p) => ({ ...p })),
 });
 
@@ -503,24 +505,30 @@ const quadKey = (q: { x: number; y: number }[]) =>
   q.map((p) => `${p.x.toFixed(6)},${p.y.toFixed(6)}`).sort().join(' ');
 
 /**
- * 从记录里切出**带体批次**：fillStyle 为带体色（普通 / SP）的那些 beginPath…fill。
- * 一个批次 = 一次 `ctx.fill()` 的一条路径（同组全部四边形都在里面，防接缝的那条性质）。
+ * 从记录里切出**带体填充批次**：fillStyle 为带体色（普通 / SP）的那些 beginPath…fill。
+ * 一个批次 = 一次 `ctx.fill()` 的一条路径，`alpha` = 该笔的 globalAlpha：
+ * - 体（`alpha` = 体剖面 × slideOpacity）：同一条滑条的全部四边形在一条路径里
+ *   （防接缝 / 绕向归一的性质）；
+ * - 自叠加亮层：同一条滑条真正重叠的区域再补一层（`alpha` 与体相同）；
+ * - 亮缘：两侧长边的薄四边形，`alpha` 更高（`alpha` 与体不同 ⇒ 可据此区分）。
  */
-function bandBatches(calls: RecordedCall[]): { quads: { x: number; y: number }[][] }[] {
-  const batches: { quads: { x: number; y: number }[][] }[] = [];
+function bandBatches(calls: RecordedCall[]): { quads: { x: number; y: number }[][]; alpha: number }[] {
+  const batches: { quads: { x: number; y: number }[][]; alpha: number }[] = [];
   let cur: { x: number; y: number }[] | null = null;
   let quads: { x: number; y: number }[][] = [];
   let fillStyle = '';
+  let alpha = 1;
   for (const [k, args] of calls) {
     if (k === 'fillStyle') fillStyle = String(args[0]);
+    else if (k === 'globalAlpha') alpha = Number(args[0]);
     else if (k === 'moveTo') {
       cur = [{ x: args[0] as number, y: args[1] as number }];
       quads.push(cur);
     } else if (k === 'lineTo' && cur) {
       cur.push({ x: args[0] as number, y: args[1] as number });
-    } else if (k === 'fill') {
-      if (quads.length > 0 && (fillStyle === SIM_BAND_COLORS.band || fillStyle === SIM_BAND_COLORS.sp)) {
-        batches.push({ quads });
+    } else if (k === 'fill' || k === 'stroke' || k === 'clip') {
+      if (k === 'fill' && quads.length > 0 && (fillStyle === SIM_BAND_COLORS.band || fillStyle === SIM_BAND_COLORS.sp)) {
+        batches.push({ quads, alpha });
       }
       quads = [];
       cur = null;
@@ -529,12 +537,18 @@ function bandBatches(calls: RecordedCall[]): { quads: { x: number; y: number }[]
   return batches;
 }
 
+/** 体 / 自叠层的批次（α = 体剖面 × slideOpacity）；亮缘批次的 α 更高，据此剔除 */
+function bodyBatches(calls: RecordedCall[]): { quads: { x: number; y: number }[][]; alpha: number }[] {
+  const body = SIM_BAND_MATERIAL.bodyAlpha * 0.8; // frameOf 的 scene：普通带 × slideOpacity 0.8
+  return bandBatches(calls).filter((b) => Math.abs(b.alpha - body) < 1e-12);
+}
+
 describe('drawSimFrameAt · 带体批次的绕向归一（issue 45：倒流区带体填充自抵消）', () => {
   const batchesAt = (notes: ChartNote[], seconds: number) => {
     const { spriteIcon } = makeRecordingSprite();
     const { proxy, calls } = recordingCtx();
     drawSimFrameAt(proxy, frameOf(notes, spriteIcon), seconds);
-    return bandBatches(calls);
+    return bodyBatches(calls);
   };
 
   it('倒流折返：同一段物理带子的两个反向段归一后绕向一致（修前一正一负 ⇒ nonzero 抵消成洞）', () => {
@@ -548,7 +562,9 @@ describe('drawSimFrameAt · 带体批次的绕向归一（issue 45：倒流区�
     ];
     for (const seconds of [0.5, 1.0, 1.5]) {
       const batches = batchesAt(notes, seconds);
-      expect(batches).toHaveLength(1); // 仍并成一条路径一次 fill（防接缝性质不退回逐段 fill）
+      // 体仍并成一条路径一次 fill（防接缝 + 绕向归一不退回逐段 fill）；
+      // 第二条 = issue 46 的自叠加亮层：两段几何重合 ⇒ 重叠区再补一层（画布那边是逐像素合成）。
+      expect(batches).toHaveLength(2);
       const quads = batches[0]!.quads;
       expect(quads).toHaveLength(2);
       // 两枚几何重合（同一段物理带子）：点集相同、修前顶点序互为反向
@@ -557,6 +573,9 @@ describe('drawSimFrameAt · 带体批次的绕向归一（issue 45：倒流区�
       for (const q of quads) expect(signedArea(q)).toBeLessThanOrEqual(0);
       // 反向那枚被反序后，两条的顶点序完全相同（重合带子不再抵消）
       expect(quads[0]).toEqual(quads[1]);
+      // 自叠加亮层盖的正是同一块几何（不是整条再涂一遍）
+      expect(batches[1]!.quads).toHaveLength(1);
+      expect(quadKey(batches[1]!.quads[0]!)).toBe(quadKey(quads[0]!));
     }
   });
 
@@ -574,5 +593,100 @@ describe('drawSimFrameAt · 带体批次的绕向归一（issue 45：倒流区�
     expect(quadKey(quads[0]!)).toBe(quadKey(quads[1]!));
     // 同拍水平段退化成零面积（绕向断言对零面积恒成立，防的是"将来不再退化"）
     for (const q of quads) expect(Math.abs(signedArea(q))).toBeCloseTo(0, 6);
+  });
+});
+
+// ---------------------------------------------------------------- issue 46 锁测
+
+describe('drawSimFrameAt · 带体材质与叠亮（issue 46）', () => {
+  it('体半透明（剖面体 α × slideOpacity）+ 同色亮缘铺在两条长边内侧（不再是单色平涂）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(
+      proxy,
+      frameOf([slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5 }])], spriteIcon),
+      1.5,
+    );
+    const opacity = 0.8; // frameOf 的 scene
+    const body = SIM_BAND_MATERIAL.bodyAlpha * opacity;
+    const rimTarget = Math.min(1, SIM_BAND_MATERIAL.rimAlpha * opacity);
+    const rim = (rimTarget - body) / (1 - body);
+    const batches = bandBatches(calls);
+    const bodyBatch = batches.filter((b) => Math.abs(b.alpha - body) < 1e-12);
+    const rimBatch = batches.filter((b) => Math.abs(b.alpha - rim) < 1e-9);
+    expect(bodyBatch).toHaveLength(1);
+    expect(bodyBatch[0]!.quads).toHaveLength(1);
+    // 亮缘：一笔填充、两块薄四边形（左右各一），宽度 ≈ 半宽 × 0.03
+    expect(rimBatch).toHaveLength(1);
+    expect(rimBatch[0]!.quads).toHaveLength(2);
+    const quad = bodyBatch[0]!.quads[0]!;
+    // 左右亮缘各含体的一个角（与体同源顶点，水平内缩；绕向归一后顶点序可能反）
+    const hasPoint = (q: { x: number; y: number }[], p: { x: number; y: number }) =>
+      q.some((v) => Math.abs(v.x - p.x) < 1e-9 && Math.abs(v.y - p.y) < 1e-9);
+    expect(hasPoint(rimBatch[0]!.quads[0]!, quad[0]!)).toBe(true);
+    expect(hasPoint(rimBatch[0]!.quads[1]!, quad[1]!)).toBe(true);
+    // 亮缘宽度 = 同一 y 上内外两条边的水平距离（斜边平移后 bbox 宽会更宽，不能直接量 bbox）
+    const widthAtSameY = (q: { x: number; y: number }[]) => {
+      for (let i = 0; i < q.length; i++) {
+        for (let j = i + 1; j < q.length; j++) {
+          if (Math.abs(q[i]!.y - q[j]!.y) < 1e-9) return Math.abs(q[i]!.x - q[j]!.x);
+        }
+      }
+      return NaN;
+    };
+    const half = (Math.abs(quad[1]!.x - quad[0]!.x) + Math.abs(quad[2]!.x - quad[3]!.x)) / 4;
+    for (const q of rimBatch[0]!.quads) {
+      expect(widthAtSameY(q)).toBeCloseTo(half * SIM_BAND_MATERIAL.rimFrac, 6);
+    }
+  });
+
+  it('低 slideOpacity 下亮缘仍比体亮（看叠合后的目标 α，不是图层 α）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy, calls } = recordingCtx();
+    const base = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5 }])], spriteIcon);
+    const frame = { ...base, scene: { ...base.scene, slideOpacity: 0.2 } };
+    drawSimFrameAt(proxy, frame, 1.5);
+    const body = SIM_BAND_MATERIAL.bodyAlpha * 0.2;
+    const rimTarget = SIM_BAND_MATERIAL.rimAlpha * 0.2;
+    const rimLayer = (rimTarget - body) / (1 - body);
+    const composite = 1 - (1 - body) * (1 - rimLayer);
+    expect(composite).toBeCloseTo(rimTarget, 10);
+    expect(composite).toBeGreaterThan(body);
+    const alphas = propValues(calls, 'globalAlpha').map(Number);
+    expect(alphas.some((a) => Math.abs(a - body) < 1e-9)).toBe(true);
+    expect(alphas.some((a) => Math.abs(a - rimLayer) < 1e-9)).toBe(true);
+  });
+
+  it('SP 带体用 SP 剖面，与普通带区分', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy, calls } = recordingCtx();
+    // 含 hidden 中间结点 ⇒ 整条传染 SP（ADR-0009 §5）
+    drawSimFrameAt(
+      proxy,
+      frameOf([slide([{ beat: 0, lane: 3 }, { beat: 2, lane: 4, hidden: true }, { beat: 4, lane: 5 }])], spriteIcon),
+      1.5,
+    );
+    const alphas = propValues(calls, 'globalAlpha').map(Number);
+    expect(alphas.some((a) => Math.abs(a - SIM_BAND_MATERIAL_SP.bodyAlpha * 0.8) < 1e-9)).toBe(true);
+    expect(alphas.some((a) => Math.abs(a - SIM_BAND_MATERIAL.bodyAlpha * 0.8) < 1e-9)).toBe(false);
+  });
+
+  it('两条滑条交叉：各自一条体路径（跨滑条二次合成的前提），按谱面数组序画（后放置者在上）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy, calls } = recordingCtx();
+    // 两条 timing 相同、轨向相反而交叉的滑条：1.5s 时两条都在判定线上方中段
+    const frame = frameOf([
+      slide([{ beat: 0, lane: 3 }, { beat: 4, lane: 5 }]),
+      slide([{ beat: 0, lane: 5 }, { beat: 4, lane: 3 }]),
+    ], spriteIcon);
+    drawSimFrameAt(proxy, frame, 1.5);
+    const batches = bodyBatches(calls);
+    // 旧实现：同材质全谱并成一条路径 ⇒ 只有 1 个批次、重叠处只填一次
+    expect(batches).toHaveLength(2);
+    expect(batches.map((b) => b.quads.length)).toEqual([1, 1]);
+    // 批次顺序 = 谱面数组序：先放的那条 a 边中心在 lane 4.5，后放的在 lane 3.5
+    const centerX = (q: { x: number }[]) => (q[0]!.x + q[1]!.x) / 2;
+    expect(centerX(batches[0]!.quads[0]!)).toBeCloseTo(laneCenterX(frame.metrics, 4.5, 1), 4);
+    expect(centerX(batches[1]!.quads[0]!)).toBeCloseTo(laneCenterX(frame.metrics, 3.5, 1), 4);
   });
 });

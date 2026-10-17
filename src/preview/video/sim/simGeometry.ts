@@ -383,10 +383,30 @@ export const SIM_EFFECT_COLORS = {
 
 /**
  * 带体兜底色（皮肤带体图取不到色时）：游戏绿条同族。
- * 正常路径是**取皮肤带体图的中心像素**（票面「带体」一行允许"颜色取皮肤带体图或采样中心色"）——
- * 带体在仿真场里是四边形填充，不做贴图透视变换。
+ * 正常路径是**取皮肤带体图的中心像素**作体色 / 亮缘色（票面「带体」一行允许"颜色取皮肤带体图或
+ * 采样中心色"）；issue 46 起体部 α 与亮缘按贴图横截面剖面近似（见 `simField.drawBandGroup`），
+ * 几何仍是四边形填充，不做贴图透视变换。
  */
 export const SIM_BAND_COLORS = { band: '#5fd68a', sp: '#8fe6c0' } as const;
+
+/**
+ * 带体材质（皮肤带体图横截面剖面；`simAssets` 读图时采样填充，取不到 = 下面两个兜底常量）。
+ * 剖面口径与画布 SP 条带同源（ADR-0009 五轮：带贴图运行时采样、弃手工近似）——
+ * 这里只取"体部平均 α + 亮缘峰值 α"两个标量，逐像素 17 点剖面留给画布（动态预览不做逐像素光栅）。
+ */
+export interface SimBandMaterial {
+  /** 体部 α（中心区域的列平均不透明度） */
+  bodyAlpha: number;
+  /** 亮缘复合目标 α（最亮列的列平均不透明度） */
+  rimAlpha: number;
+  /** 亮缘宽度 / 带体半宽（贴图横截面里亮缘所占比例） */
+  rimFrac: number;
+}
+
+/** skin00 带体图实测兜底（普通 `longNoteLine`：体 0.55 / 亮缘 1.0） */
+export const SIM_BAND_MATERIAL: SimBandMaterial = { bodyAlpha: 0.55, rimAlpha: 1, rimFrac: 0.03 };
+/** skin00 SP 带体图实测兜底（`longNoteLine2`：体 0.48 / 亮缘 1.0） */
+export const SIM_BAND_MATERIAL_SP: SimBandMaterial = { bodyAlpha: 0.48, rimAlpha: 1, rimFrac: 0.03 };
 
 /** 击打样式 + 方向 → 特效色（方向键按左右分紫 / 橙，其余按 key sound 样式） */
 export function simEffectColor(kind: KeySoundKind, dir?: 'L' | 'R'): string {
@@ -543,8 +563,8 @@ export function laneFlashShear(m: SimFieldMetrics, lane: number): number {
   return (laneOffsetDesign(lane) - 0.5) * (m.laneWidth / m.laneHeight);
 }
 
-/** 进度钳到 0..1（特效四个量共用同一条夹取；非有限值按 0） */
-function clamp01(p: number): number {
+/** 进度钳到 0..1（特效 / 带体透明度共用同一条夹取；非有限值按 0） */
+export function clamp01(p: number): number {
   if (!Number.isFinite(p)) return 0;
   return Math.min(1, Math.max(0, p));
 }

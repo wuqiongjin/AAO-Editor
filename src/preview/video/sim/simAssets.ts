@@ -6,7 +6,13 @@
 //   （`preview.video.assetsMissing`），本模块不抛错。
 //
 // 类别目录（脚本默认 jp）：逐服探测第一个能读到**场地图**的目录；全都读不到 = 空态。
-import { SIM_BAND_COLORS } from './simGeometry';
+import {
+  clamp01,
+  SIM_BAND_COLORS,
+  SIM_BAND_MATERIAL,
+  SIM_BAND_MATERIAL_SP,
+  type SimBandMaterial,
+} from './simGeometry';
 
 /**
  * 仿真场素材根（Vite 把 `public/` 挂在站点根，dev 的前缀就是 `/`）。
@@ -80,9 +86,12 @@ export interface SimAssets {
   background: HTMLImageElement | null;
   field: HTMLImageElement | null;
   playLine: HTMLImageElement | null;
-  /** 带体填充色（皮肤带体图中心取样；取不到 = 兜底绿） */
+  /** 带体体色 / 亮缘色（皮肤带体图中心取样；取不到 = 兜底绿） */
   bandColor: string;
   bandColorSp: string;
+  /** 带体材质（皮肤带体图横截面采样：体 α / 亮缘 α；取不到 = 兜底常量） */
+  bandMaterial: SimBandMaterial;
+  bandMaterialSp: SimBandMaterial;
   /** Bestdori 自家精灵（combo / 特效）：缺 = null → 回落自绘（chart-preview 21，**不置 missing**） */
   sprites: SimSprites | null;
   /** 缺素材：跑过归档脚本才能有（空态由页面画，这里只报事实） */
@@ -112,6 +121,8 @@ export function emptySimAssets(): SimAssets {
     playLine: null,
     bandColor: SIM_BAND_COLORS.band,
     bandColorSp: SIM_BAND_COLORS.sp,
+    bandMaterial: { ...SIM_BAND_MATERIAL },
+    bandMaterialSp: { ...SIM_BAND_MATERIAL_SP },
     sprites: null,
     missing: true,
     server: null,
@@ -148,8 +159,56 @@ export function sampleCenterColor(img: HTMLImageElement | null): string | null {
 }
 
 /**
+ * 读带体图的横截面剖面：中心区域列平均 α = 体部，最亮列 = 亮缘峰值
+ * （与画布 `render.bandStripStyle` 同一口径 —— ADR-0009 五轮：剖面走贴图运行时采样、
+ * 不手工近似；换肤时体 / 亮缘的透明度自动跟随皮肤，兜底常量只服务缺图环境）。
+ * `rimFrac` 不从粗剖面推（峰值位置混着外侧 AA 衰减，推出来会偏宽）：沿用兜底常量。
+ * 无 DOM / 无 2d 上下文 / 跨域污染 → null（调用方走兜底材质）。
+ */
+export function sampleBandMaterial(img: HTMLImageElement | null): SimBandMaterial | null {
+  if (!img || typeof document === 'undefined') return null;
+  try {
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const colAvg = (x: number) => {
+      const xx = Math.max(0, Math.min(w - 1, x));
+      let s = 0;
+      for (let y = 0; y < h; y++) s += d[(y * w + xx) * 4 + 3];
+      return s / h / 255;
+    };
+    const mid = w >> 1;
+    const lo = Math.floor(mid - w * 0.3);
+    const hi = Math.ceil(mid + w * 0.3);
+    let bodySum = 0;
+    let bodyN = 0;
+    for (let x = lo; x <= hi; x++) {
+      bodySum += colAvg(x);
+      bodyN++;
+    }
+    const bodyAlpha = bodyN > 0 ? bodySum / bodyN : colAvg(mid);
+    let rimAlpha = 0;
+    for (let x = 1; x < w - 1; x++) rimAlpha = Math.max(rimAlpha, colAvg(x));
+    return {
+      bodyAlpha: clamp01(bodyAlpha),
+      rimAlpha: clamp01(rimAlpha),
+      rimFrac: SIM_BAND_MATERIAL.rimFrac,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 读场地素材：逐服探测（按**场地图**判成败，它是场地层的必需件），
- * 三图 + 带体取色一次到位；全服都读不到 → `emptySimAssets()`。
+ * 三图 + 带体取色 / 剖面一次到位；全服都读不到 → `emptySimAssets()`。
  * 不抛错：素材缺席是**明说的产品态**（04 的空态），不是异常。
  */
 export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<SimAssets> {
@@ -186,6 +245,8 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
       playLine,
       bandColor: (bandImg ? sampleColor(bandImg) : null) ?? SIM_BAND_COLORS.band,
       bandColorSp: (bandSpImg ? sampleColor(bandSpImg) : null) ?? SIM_BAND_COLORS.sp,
+      bandMaterial: sampleBandMaterial(bandImg) ?? { ...SIM_BAND_MATERIAL },
+      bandMaterialSp: sampleBandMaterial(bandSpImg) ?? { ...SIM_BAND_MATERIAL_SP },
       sprites: digits && combo && particles ? { digits, combo, particles } : null,
       missing: false,
       server,

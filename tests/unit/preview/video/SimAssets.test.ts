@@ -13,7 +13,7 @@ import {
   simAssetUrls,
   simSpriteUrls,
 } from '@/src/preview/video/sim/simAssets';
-import { SIM_BAND_COLORS } from '@/src/preview/video/sim/simGeometry';
+import { SIM_BAND_COLORS, SIM_BAND_MATERIAL, SIM_BAND_MATERIAL_SP } from '@/src/preview/video/sim/simGeometry';
 
 const okImage = (src: string) => ({ naturalWidth: 8, naturalHeight: 8, src } as unknown as HTMLImageElement);
 
@@ -90,6 +90,9 @@ describe('loadSimAssets · 逐服探测', () => {
     expect(assets.field?.src).toBe(en.field);
     expect(assets.bandColor).toBe('rgb(1, 2, 3)');
     expect(assets.bandColorSp).toBe('rgb(1, 2, 3)');
+    // node 环境没有 2d 上下文 ⇒ 剖面采样失败，走兜底材质（有 DOM 时才按皮肤图采样）
+    expect(assets.bandMaterial).toEqual(SIM_BAND_MATERIAL);
+    expect(assets.bandMaterialSp).toEqual(SIM_BAND_MATERIAL_SP);
     // 探测顺序：jp 的场地图先失败，才轮到 en；带体图（取色用）也读到了
     expect(loader.seen[0]).toBe(jp.field);
     expect(loader.seen).toContain(en.field);

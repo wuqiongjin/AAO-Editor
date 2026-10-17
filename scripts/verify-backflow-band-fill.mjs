@@ -73,7 +73,7 @@ const stubBinary = {
 const ENTRY = `
 export { buildSimChart, drawSimFrameAt } from './src/preview/video/sim/simField';
 export { buildActiveNoteIcons, normalizeNoteSkinSelection } from './src/rendering/skin/noteSkin';
-export { fieldMetrics, SIM_BAND_COLORS } from './src/preview/video/sim/simGeometry';
+export { fieldMetrics, SIM_BAND_COLORS, SIM_BAND_MATERIAL, SIM_BAND_MATERIAL_SP } from './src/preview/video/sim/simGeometry';
 `;
 const bundled = await esbuild.build({
   stdin: { contents: ENTRY, resolveDir: process.cwd(), loader: 'ts' },
@@ -89,6 +89,8 @@ const emptySimAssets = () => ({
   playLine: null,
   bandColor: sim.SIM_BAND_COLORS.band,
   bandColorSp: sim.SIM_BAND_COLORS.sp,
+  bandMaterial: sim.SIM_BAND_MATERIAL,
+  bandMaterialSp: sim.SIM_BAND_MATERIAL_SP,
   sprites: null,
   missing: true,
   server: null,
@@ -114,7 +116,11 @@ function makeRecordingCtx() {
   return { proxy, calls };
 }
 
-/** 从记录里切出带体批次（fillStyle 为带体色的 beginPath…fill），与单测锁测同一取法 */
+/**
+ * 从记录里切出带体填充批次（fillStyle 为带体色的 beginPath…fill），与单测锁测同一取法。
+ * issue 46 起带体还有亮缘 `stroke` 与它的裁剪路径 `clip`：两者也是路径终点，必须把当前
+ * 点集切走，否则亮缘的点会被算进下一个 fill 批次。
+ */
 function bandQuadsOf(calls) {
   const bandColors = new Set([sim.SIM_BAND_COLORS.band, sim.SIM_BAND_COLORS.sp]);
   const batches = [];
@@ -125,8 +131,8 @@ function bandQuadsOf(calls) {
     if (k === 'fillStyle') fillStyle = String(args[0]);
     else if (k === 'moveTo') { cur = [{ x: args[0], y: args[1] }]; quads.push(cur); }
     else if (k === 'lineTo' && cur) cur.push({ x: args[0], y: args[1] });
-    else if (k === 'fill') {
-      if (quads.length > 0 && bandColors.has(fillStyle)) batches.push(quads);
+    else if (k === 'fill' || k === 'stroke' || k === 'clip') {
+      if (k === 'fill' && quads.length > 0 && bandColors.has(fillStyle)) batches.push(quads);
       quads = [];
       cur = null;
     }
