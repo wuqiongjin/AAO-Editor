@@ -7,6 +7,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import SettingsPage from '@/src/pages/settings/SettingsPage';
 import { renderWithProviders } from '@/tests/support/providers';
+import * as ToastModule from '@/src/ui/Toast';
 import { stubPageShellEnv } from '@/tests/support/domEnv';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
@@ -26,9 +27,16 @@ function installCacheBridge(
     byKind: { json: { bytes: MB, count: 1 }, binary: { bytes: 4 * MB, count: 2 } },
   },
   cleared: { freedBytes: number } = { freedBytes: 5 * MB },
+  opts: { clearThrows?: boolean } = {},
 ) {
-  const statsFn = vi.fn(async () => stats);
-  const clearFn = vi.fn(async () => cleared);
+  // 票 48：主进程 clear() 会重置索引，替身照此建模 —— 清除之后 stats 归零
+  let live = stats;
+  const statsFn = vi.fn(async () => live);
+  const clearFn = vi.fn(async () => {
+    if (opts.clearThrows) throw new Error('disk full');
+    live = { totalBytes: 0, count: 0, byKind: {} };
+    return cleared;
+  });
   const configureFn = vi.fn(async () => ({ maxAgeMs: 0, maxBytes: 0 }));
   const current = (window as unknown as { electronAPI?: Record<string, unknown> }).electronAPI ?? {};
   (window as unknown as { electronAPI?: unknown }).electronAPI = {
@@ -81,9 +89,10 @@ afterEach(() => {
   delete (window as unknown as { electronAPI?: unknown }).electronAPI;
 });
 
-describe('票 14 + 18 + 19 · 设置页社区素材缓存与数据目录块', () => {
-  it('占用只出总量不再出条数与分桶；点清除后归零并给出释放量', async () => {
+describe('票 14 + 18 + 19 + 48 · 设置页社区素材缓存与数据目录块', () => {
+  it('占用只出总量不再出条数与分桶；点清除后回实时文本并弹一次性 toast', async () => {
     const { statsFn, clearFn } = installCacheBridge();
+    const toastSpy = vi.spyOn(ToastModule, 'showToast');
     renderSettings();
     await openDataSection();
 
@@ -97,7 +106,76 @@ describe('票 14 + 18 + 19 · 设置页社区素材缓存与数据目录块', ()
 
     fireEvent.click(screen.getByRole('button', { name: /清除缓存/ }));
     await waitFor(() => expect(clearFn).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('已清除（释放 5.0 MB）')).toBeInTheDocument();
+    // 票 48 Q1：「已清除」是一次性 toast（success，2.6s 自动消失），不是常驻状态文本
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('释放 5.0 MB'), 'success');
+    expect(screen.queryByText('已清除（释放 5.0 MB）')).toBeNull();
+    // 票 48 Q3：清除后重拉真实 stats（挂载 1 次 + 清除后 1 次），状态行回到实时文本
+    await waitFor(() => expect(statsFn).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('还没有缓存内容')).toBeInTheDocument();
+    toastSpy.mockRestore();
+  });
+
+  it('票 48 · 清除失败：不出 toast、不重拉、占用保持原值并给出错误行', async () => {
+    const { statsFn, clearFn } = installCacheBridge(undefined, undefined, { clearThrows: true });
+    const toastSpy = vi.spyOn(ToastModule, 'showToast');
+    renderSettings();
+    await openDataSection();
+
+    await waitFor(() => expect(screen.getByText('占用 5.0 MB')).toBeInTheDocument());
+    const callsBefore = statsFn.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: /清除缓存/ }));
+    await waitFor(() => expect(clearFn).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('清除缓存失败')).toBeInTheDocument();
+    expect(toastSpy).not.toHaveBeenCalled();
+    // 失败不重拉（没有「清除成功」可结算），占用行保持原值
+    expect(statsFn).toHaveBeenCalledTimes(callsBefore);
+    expect(screen.getByText('占用 5.0 MB')).toBeInTheDocument();
+    toastSpy.mockRestore();
+  });
+
+  it('票 48 · 切回设置页（active 边沿）时重拉缓存占用，失活与停留都不重复拉', async () => {
+    const { statsFn } = installCacheBridge();
+    const view = renderWithProviders(
+      <ConfigProvider>
+        <SettingsPage active={false} />
+      </ConfigProvider>,
+    );
+    // 保活页：挂载即拉一次（与 active 无关）
+    await waitFor(() => expect(statsFn).toHaveBeenCalledTimes(1));
+
+    // 切回设置页：active false→true 边沿再拉一次（照票 38 的 wasActiveRef 模式）
+    view.rerender(
+      <ConfigProvider>
+        <SettingsPage active />
+      </ConfigProvider>,
+    );
+    await waitFor(() => expect(statsFn).toHaveBeenCalledTimes(2));
+
+    // 停留期间不拉：active 不变则 effect 不跑（不是每次渲染都拉）
+    view.rerender(
+      <ConfigProvider>
+        <SettingsPage active />
+      </ConfigProvider>,
+    );
+    expect(statsFn).toHaveBeenCalledTimes(2);
+
+    // 失活不拉：true→false 不是刷新沿（没有 ref 守卫的实现会在这里多拉一次）
+    view.rerender(
+      <ConfigProvider>
+        <SettingsPage active={false} />
+      </ConfigProvider>,
+    );
+    expect(statsFn).toHaveBeenCalledTimes(2);
+
+    // 失活性重渲染也不拉：active 不变则 effect 不跑
+    view.rerender(
+      <ConfigProvider>
+        <SettingsPage active={false} />
+      </ConfigProvider>,
+    );
+    expect(statsFn).toHaveBeenCalledTimes(2);
   });
 
   it('回收策略项改名：缓存闲置天数 / 缓存上限（MB），各配独立 hint；启动时推送主进程', async () => {

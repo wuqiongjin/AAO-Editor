@@ -9,6 +9,7 @@ import { t, type MessageKey } from '../../i18n';
 import { clearSongCatalogCache } from '../../community/bestdori/songs';
 import { shouldResetSessionAfterDataRootSwitch } from '../../project/CurrentProjectSession';
 import { backgroundSkinStore } from '../../rendering/skin/backgroundSkin';
+import { showToast } from '../../ui/Toast';
 
 // 设置页：接入 AppPageShell（Sidebar 扁平导航 + Body 设置详情），修改立即生效并持久化。
 type Section = 'appearance' | 'data';
@@ -116,7 +117,7 @@ function NumberRow({
   );
 }
 
-export default function SettingsPage() {
+export default function SettingsPage({ active = true }: { active?: boolean }) {
   const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setCachePolicy, setAllSettings } = useConfig();
   // 切数据根的联动对象（chart-projects 39）：目录消费者通知 + 当前工程会话 + 存储门面
   const { projectId, store, reset, notifyCatalogChanged } = useCurrentProject();
@@ -130,7 +131,6 @@ export default function SettingsPage() {
   const cacheApi = getAssetCacheBridge();
   const [cacheStats, setCacheStats] = useState<AssetCacheStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
-  const [cacheNote, setCacheNote] = useState<string | null>(null);
   const [cacheError, setCacheError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -144,10 +144,11 @@ export default function SettingsPage() {
     return () => { cancelled = true; };
   }, [dataRootApi]);
 
-  /** 拉一次缓存占用。`isCancelled` 供挂载 effect 防卸载后 setState；切根重拉走缺省（不取消）。 */
-  const loadCacheStats = useCallback((isCancelled: () => boolean = () => false) => {
-    if (!cacheApi) return;
-    cacheApi.stats()
+  /** 拉一次缓存占用。`isCancelled` 供挂载 effect 防卸载后 setState；切根重拉走缺省（不取消）。
+   *  回 promise 供「等真实占用落地再放开按钮」的调用方 await（票 48 Q3）。 */
+  const loadCacheStats = useCallback((isCancelled: () => boolean = () => false): Promise<void> => {
+    if (!cacheApi) return Promise.resolve();
+    return cacheApi.stats()
       .then((r) => { if (!isCancelled()) setCacheStats(r); })
       .catch(() => { if (!isCancelled()) setCacheError(t('settings.cache.readFail')); });
   }, [cacheApi]);
@@ -159,17 +160,32 @@ export default function SettingsPage() {
     return () => { cancelled = true; };
   }, [cacheApi, loadCacheStats]);
 
+  // 切回设置页时重拉占用（票 48 Q2）：保活页不重挂载，stats 停在挂载时那一帧；
+  // 照票 38 的边沿模式（先例 ProjectsPage）—— 只有 active false→true 才拉，停留期间不重复。
+  const wasActiveRef = useRef(active);
+  useEffect(() => {
+    if (!(active && !wasActiveRef.current)) {
+      wasActiveRef.current = active;
+      return;
+    }
+    wasActiveRef.current = true;
+    loadCacheStats();
+  }, [active, loadCacheStats]);
+
   const handleClearCache = async () => {
     if (!cacheApi || cacheBusy) return;
     setCacheBusy(true);
     setCacheError(null);
-    setCacheNote(null);
     try {
       const r = await cacheApi.clear();
       // 曲库索引的会话内缓存一并失效，否则「清了重拉」在同一会话里看不出效果（票 14）
       clearSongCatalogCache();
-      setCacheStats({ totalBytes: 0, count: 0, byKind: {} });
-      setCacheNote(t('settings.cache.cleared', { size: formatBytes(r.freedBytes) }));
+      // 票 48 Q3：以主进程结算为准 —— clear() 返回时内存索引已重置，同 tick 重拉即真实占用。
+      // 先置瞬时 reading（不拿旧占用糊脸、顺带禁掉按钮），等 stats 落地再放开（票 48 评审回修）。
+      setCacheStats(null);
+      await loadCacheStats();
+      // 票 48 Q1：「已清除」是一次性反馈（toast 2.6s 自动消失），不常驻状态行
+      showToast(t('settings.cache.cleared', { size: formatBytes(r.freedBytes) }), 'success');
     } catch {
       setCacheError(t('settings.cache.clearFail'));
     } finally {
@@ -389,12 +405,11 @@ export default function SettingsPage() {
                     <div className="settings-row__text">
                       <strong>{t('settings.cache')}</strong>
                       <span>
-                        {cacheNote
-                          ?? (cacheStats == null
-                            ? t('settings.cache.reading')
-                            : cacheStats.count === 0
-                              ? t('settings.cache.empty')
-                              : t('settings.cache.usage', { size: formatBytes(cacheStats.totalBytes) }))}
+                        {cacheStats == null
+                          ? t('settings.cache.reading')
+                          : cacheStats.count === 0
+                            ? t('settings.cache.empty')
+                            : t('settings.cache.usage', { size: formatBytes(cacheStats.totalBytes) })}
                       </span>
                     </div>
                     <button
