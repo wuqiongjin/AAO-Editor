@@ -171,7 +171,17 @@ export function ProjectDetail({
                     <b>{effectiveTitle(sel, c)}</b>
                     <small className="pp-muted">{t('projects.notesMeta', { count: countChartNotes(c.notes), time: relTime(c.lastModified, now) })}</small>
                   </span>
-                  <StatusBadge chart={c} />
+                  {/* 状态徽标即控件（票 41）：点开就地小菜单切「未完成 / 已完成」，
+                      行尾独立「标为完成」文字按钮已撤（低频动作不占动作组宽位）。
+                      已上传谱面 inert（组件内守卫）；消费侧再守卫一道，翻转即得目标态。 */}
+                  <StatusBadge
+                    chart={c}
+                    interactive
+                    onSelect={(completed) => {
+                      if (completed === c.completed) return;
+                      void mutate(sel.id, (p) => toggleChartCompleted(p, c.id, Date.now()));
+                    }}
+                  />
                   <span className="pc-chart__actions">
                     <button type="button" className="pp-btn pp-btn--sm" onClick={() => void onOpen(sel.id, c.id)}>
                       <Play size={12} />{t('projects.open')}
@@ -201,14 +211,6 @@ export function ProjectDetail({
                         <Upload size={12} />{t('projects.publish.action')}
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="pp-btn pp-btn--sm"
-                      disabled={up}
-                      onClick={() => void mutate(sel.id, (p) => toggleChartCompleted(p, c.id, Date.now()))}
-                    >
-                      {c.completed ? t('projects.unmarkComplete') : t('projects.markComplete')}
-                    </button>
                     <button type="button" className="pp-icon-btn" title={t('projects.editChart')} onClick={() => onChartForm({ project: sel, chart: c })}><Pencil size={14} /></button>
                     <button
                       type="button"

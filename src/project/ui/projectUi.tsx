@@ -41,18 +41,20 @@ export function ChartStatusIcon({ chart, size = 12 }: { chart: ProjectChart; siz
   return <Circle size={size - 2} className="pp-st pp-st--unfinished" />;
 }
 
-export function ProjectMenuItem({ icon, label, onClick, danger, disabled, note }: {
+export function ProjectMenuItem({ icon, label, onClick, danger, disabled, note, active }: {
   icon: ReactNode;
   label: string;
   onClick?: () => void;
   danger?: boolean;
   disabled?: boolean;
   note?: string;
+  /** 当前态标活（票 41 状态菜单的「现在在哪」）——纯样式，不含禁用语义 */
+  active?: boolean;
 }) {
   return (
     <button
       type="button"
-      className={`pp-menu__item${danger ? ' is-danger' : ''}`}
+      className={`pp-menu__item${danger ? ' is-danger' : ''}${active ? ' is-active' : ''}`}
       disabled={disabled}
       onClick={onClick}
     >

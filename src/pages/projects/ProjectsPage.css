@@ -51,6 +51,11 @@
 .pp-badge--unfinished { background: var(--bg-inset); color: var(--text-muted); }
 .pp-badge--completed { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
 .pp-badge--uploaded { background: var(--accent-soft); color: var(--accent-text); }
+/* 徽标即控件（票 41）：详情页谱面行状态徽标点开就地状态菜单。
+   手型 / hover 口径照同行 `.pc-chart__diff`（难度徽标就地编辑），focus-visible 补键盘可达。 */
+.pp-badge--action { border: none; font-family: inherit; cursor: pointer; }
+.pp-badge--action:hover { filter: brightness(1.08); }
+.pp-badge--action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .pp-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-elevated); color: var(--text); font-size: var(--text-sm); cursor: pointer; white-space: nowrap; }
 .pp-btn:hover:not(:disabled) { background: var(--bg-hover); }
@@ -78,6 +83,12 @@
 .pp-menu__item:hover:not(:disabled) { background: var(--bg-hover); }
 .pp-menu__item:disabled { opacity: .4; cursor: not-allowed; }
 .pp-menu__item.is-danger { color: var(--danger-text); }
+/* 当前态标活（票 41 状态菜单「现在在哪」）——背景口径照 `.chart-switcher__row.is-active`；
+   排在 :hover 之后，悬停不冲掉当前态底色。 */
+.pp-menu__item.is-active { background: var(--accent-soft); font-weight: 600; }
+/* 状态菜单收内容宽（票 41 验收反馈）：两条 4 字标签撑不满全局 200px 下限，
+   只这一种面板松绑；卡片 ⋯ 菜单等长文案菜单的 200px 不动。 */
+.pp-menu__panel--status { min-width: 0; }
 .pp-menu__item em { margin-left: auto; padding-left: 12px; font-style: normal; font-size: var(--text-2xs); color: var(--text-subtle); }
 
 /* 弹窗（新建 / 编辑工程信息 / 谱面信息 / 删除确认）与表单字段样式已收进

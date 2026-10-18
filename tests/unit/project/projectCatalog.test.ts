@@ -12,6 +12,7 @@ import {
   projectDisplayName,
   recordChartUpload,
   sortProjectsByLastOpened,
+  toggleChartCompleted,
   updateChartInfo,
   updateChartPublishDraft,
 } from '@/src/project/projectCatalog';
@@ -367,6 +368,41 @@ describe('updateChartInfo · 谱面信息更新与 lastModified 守卫', () => {
     expect(changed.charts[0].diff).toBe(4);
     expect(changed.charts[0].level).toBe(28);
     expect(changed.charts[0].lastModified).toBe(200);
+  });
+});
+
+describe('toggleChartCompleted · 完成标记切换与已上传只读（票 41 锁测）', () => {
+  it('未完成 → 已完成 → 未完成，lastModified 跟着切换走', () => {
+    const p = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+
+    const done = toggleChartCompleted(p, 'c1', 200);
+    expect(done.charts[0].completed).toBe(true);
+    expect(done.charts[0].lastModified).toBe(200);
+
+    const back = toggleChartCompleted(done, 'c1', 300);
+    expect(back.charts[0].completed).toBe(false);
+    expect(back.charts[0].lastModified).toBe(300);
+  });
+
+  it('已上传谱面拒绝切换：同一张谱面原样返回（completed / lastModified / upload 不动）', () => {
+    const p = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const uploaded = recordChartUpload(p, 'c1', { postId: 7, at: 150 })!;
+
+    const after = toggleChartCompleted(uploaded, 'c1', 200);
+
+    expect(after.charts[0]).toBe(uploaded.charts[0]); // 守卫命中：这张谱面根本没被换掉
+    expect(after.charts[0].completed).toBe(false);
+    expect(after.charts[0].lastModified).toBe(100);
+    expect(after.charts[0].upload).toEqual({ postId: 7, at: 150 });
+  });
+
+  it('同工程其它谱面不受目标谱面切换影响', () => {
+    const p = createBlankProject({ id: 'p1', chartId: 'c1', now: 100, name: 'FIRE BIRD', diff: 3 });
+    const two = duplicateChartInProject(p, 'c1', { chartId: 'c2', now: 100 }, untitled);
+
+    const after = toggleChartCompleted(two, 'c1', 200);
+    expect(after.charts[0].completed).toBe(true);
+    expect(after.charts[1].completed).toBe(false);
   });
 });
 

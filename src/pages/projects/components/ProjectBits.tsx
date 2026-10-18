@@ -2,12 +2,12 @@
 // 只被本页消费，不上升为跨页资产。
 import { useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Music2 } from 'lucide-react';
+import { Check, Circle, Music2 } from 'lucide-react';
 import type { ChartDifficulty, ChartProject, ProjectChart } from '../../../project/ChartProject';
 import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT, projectCoverHue } from '../../../project/projectCatalog';
 import { chartStatus } from '../../../project/workspaceProject';
 import { readChartLevelInput } from '../../../project/ui/ChartInfoDialog';
-import { ChartStatusIcon } from '../../../project/ui/projectUi';
+import { ChartStatusIcon, ProjectMenuItem } from '../../../project/ui/projectUi';
 import { useCoverUrl } from '../../../ui/CoverField';
 import { showToast } from '../../../ui/Toast';
 import { t } from '../../../i18n';
@@ -37,9 +37,62 @@ export function Cover({ project, size, fluid = false }: { project: ChartProject;
   );
 }
 
-export function StatusBadge({ chart }: { chart: ProjectChart }) {
+/**
+ * 状态徽标。默认只读（hub hero / 切换器下拉行等一切既有消费方不受影响）；
+ * `interactive` 时徽标即控件（票 41）：点开垂直小菜单就地切「未完成 / 已完成」——
+ * 与同行 DiffLevelBadge「徽标即控件」同构，撤掉详情页行尾独立文字按钮后这里是唯一状态入口。
+ *
+ * - 只列两个**可选**态；「已上传」是上传记录派生的，任何形态下都不可操作
+ *   （interactive 也不挂——素色徽标不假装能点，无需 toast 兜底）。
+ * - 点当前态是 no-op（菜单照常收起）：翻转交给 `toggleChartCompleted`，守卫放这里与消费方各一道。
+ * - 每行图标 = **状态图标**（○ / ✓，与触发徽标同一套 `ChartStatusIcon` 图标学），各司其职：
+ *   图标说"这行是什么态"，当前态由 `is-active`（底色 + 字重）说——勾不再兼任"当前"标记
+ *   （2026-10-18 验收反馈细化定案 1：原"当前态打 ✓"改为状态图标 + 底色标活）。
+ * - 浮层走本文件 `Menu`（portal + scrim，与卡片 ⋯ 菜单同一套语言），触发器用函数形态如实写 aria；
+ *   面板收内容宽（`pp-menu__panel--status`）——两条 4 字标签撑不满全局 200px。
+ */
+export function StatusBadge({ chart, interactive = false, onSelect }: {
+  chart: ProjectChart;
+  interactive?: boolean;
+  /** 选中目标态（true = 已完成）；仅在目标态 ≠ 当前态时触发 */
+  onSelect?: (completed: boolean) => void;
+}) {
   const s = chartStatus(chart);
-  return <span className={`pp-badge pp-badge--${s}`}><ChartStatusIcon chart={chart} size={11} />{statusLabel(chart)}</span>;
+  const badge = (
+    <>
+      <ChartStatusIcon chart={chart} size={11} />
+      {statusLabel(chart)}
+    </>
+  );
+  if (!interactive || s === 'uploaded') {
+    return <span className={`pp-badge pp-badge--${s}`}>{badge}</span>;
+  }
+  return (
+    <Menu placement="down" align="start" panelClass="pp-menu__panel--status" trigger={(open) => (
+      <button
+        type="button"
+        className={`pp-badge pp-badge--${s} pp-badge--action`}
+        title={t('projects.statusEdit')}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        {badge}
+      </button>
+    )}>
+      <ProjectMenuItem
+        icon={<Circle size={14} className="pp-st pp-st--unfinished" />}
+        label={t('projects.status.unfinished')}
+        active={s === 'unfinished'}
+        onClick={() => { if (chart.completed) onSelect?.(false); }}
+      />
+      <ProjectMenuItem
+        icon={<Check size={14} className="pp-st pp-st--completed" />}
+        label={t('projects.status.completed')}
+        active={s === 'completed'}
+        onClick={() => { if (!chart.completed) onSelect?.(true); }}
+      />
+    </Menu>
+  );
 }
 
 /**
@@ -158,10 +211,12 @@ type MenuPos = { top?: number; bottom?: number; left?: number; right?: number };
  * （工具条里的小菜单要按内容宽贴住按钮），但账号行是**满宽列表行**，得由消费方把它铺开
  * （见 ProjectsPage.css 的 `.pc-account .pp-menu`）—— 没有这个类名就只能靠 `:first-child` 去猜。
  */
-export function Menu({ trigger, placement = 'down', align = 'end', children }: {
+export function Menu({ trigger, placement = 'down', align = 'end', panelClass, children }: {
   trigger: ReactNode | ((open: boolean) => ReactNode);
   placement?: 'down' | 'up';
   align?: 'start' | 'end';
+  /** 面板附加类（票 41 状态菜单用它收内容宽 `pp-menu__panel--status`；其余菜单不传，200px 下限不动） */
+  panelClass?: string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -190,7 +245,7 @@ export function Menu({ trigger, placement = 'down', align = 'end', children }: {
           <span className="pp-menu__scrim" onClick={() => setOpen(false)} />
           {/* `pos` 的键就是 CSS 属性名，没测过的那一档不写（`undefined` 会被 React 跳过） */}
           <div
-            className="pp-menu__panel is-portaled"
+            className={`pp-menu__panel is-portaled${panelClass ? ` ${panelClass}` : ''}`}
             style={pos}
             onClick={() => setOpen(false)}
           >
