@@ -6,7 +6,7 @@
 //   设计面        1334 × 750（游戏原生比例）
 //   laneWidth     154 × W/1334         laneHeight 0.82 × H
 //   坐标          原点 (W/2, 0)；y = 1 即场地判定线；元素画在 "A 倍缩放的场地坐标系" 里
-//   接近模型      A = 0.05 + 0.95 × 1.1^(50·Δ/T)，T = max(0.1, (12 − noteSpeed)/2) 秒
+//   接近模型      A = 0.05 + 0.95 × 1.1^(50·Δ/T)，T = 分段映射（票 48）：n ≤ 11 → (12 − n)/2、n > 11 → (16 − n)/10 秒
 //
 // 伪透视的实现 = **同一个 A 同时缩放 x 与 y**：A 越小（越远的将来）元素越靠上、越靠中、越小。
 // 轨道本身是竖直平行的，没有任何梯形变换（照参照实现）。
@@ -36,12 +36,11 @@ export const SIM_CENTER_LANE = 3;
 export const APPROACH = { floor: 0.05, range: 0.95, base: 1.1, exp: 50 } as const;
 
 /**
- * 接近时长的下限（秒）—— `T = max(APPROACH_MIN_SECONDS, (12 − n)/2)`（票 24 案 B，2026-10-08 定案）。
- *
- * 档位上界取 12（现代 BanG Dream 的档位上限）之后，映射在 `n = 12` 处退化成 `T = 0`
- * ⇒ 音符只在压线那一瞬出现，模型无定义。给它一个 0.1s 的地板，12 档就是"**极短但连续**的
- * 接近窗口"而不是"炸掉"：`n ≥ 11.8` 全部落在 0.1s，行为连续、无跳变。
- * 0.1 这个数 = 游戏里最快那一档仍然"看得见音符在动"的量级；再小就没有可解释性了。
+ * 接近时长的下限（秒）—— 票 24（2026-10-08）引入时它是"12 档的兜底"；票 48（2026-10-18）起
+ * 映射换成**游戏同款分段**（见 `approachSeconds`），12 档 = 0.4s 有定义 ⇒ 本常量**降级为纯越界
+ * 防御**：白名单 1..12 内任何档位都不触达它（最小 T = 12 档的 0.4s）。留着不删的原因：
+ * `normalizeNoteSpeed` 的上界若将来抬过 15.9（游戏档位表本身到 15.9），第二支 `(16 − n)/10`
+ * 会退化到 ≤ 0 —— 那时它重新当行为下限接住，而不是让 `approachA` 的分母归零。
  */
 export const APPROACH_MIN_SECONDS = 0.1;
 
@@ -160,11 +159,21 @@ export function backgroundRect(m: SimFieldMetrics): SimRect {
 // ---------------------------------------------------------------- 接近模型
 
 /**
- * 音符速度档 → 接近时长 T（秒）：`T = max(APPROACH_MIN_SECONDS, (12 − noteSpeed)/2)`。
- * 档位 1..12 → 5.5s..0.1s（11.8 及以上都是下限那 0.1s；下界常量见 `APPROACH_MIN_SECONDS`）。
+ * 音符速度档 → 接近时长 T（秒）：**游戏同款分段映射**（票 48，2026-10-18；口径来源 =
+ * sonolus-bandori-engine `note.duration`，即现代 BanG Dream 自己那一份）：
+ *
+ *   n ≤ 11 → (12 − n)/2      档位 1..11 → 5.5s..0.5s（Bestdori 模拟器同款第一支）
+ *   n > 11 → (16 − n)/10     档位 11..12 → 0.5s..0.4s（游戏本身的第二支）
+ *
+ * 两支在 n = 11 处连续（两侧都是 0.5s）；档位 1..12 → 5.5s..0.4s。
+ * 修前（票 24）只有第一支 + `APPROACH_MIN_SECONDS` 地板 ⇒ 11.5 档 0.25s（游戏 0.45s）、
+ * 12 档 0.1s（游戏 0.4s，快 4x），且 11.8 起贴地板成平台期。地板保留 = 越界防御
+ * （见 `APPROACH_MIN_SECONDS` 注释），正常路径不再触达。
  */
 export function approachSeconds(noteSpeed: number): number {
-  return Math.max(APPROACH_MIN_SECONDS, (12 - normalizeNoteSpeed(noteSpeed)) / 2);
+  const n = normalizeNoteSpeed(noteSpeed);
+  const seconds = n <= 11 ? (12 - n) / 2 : (16 - n) / 10;
+  return Math.max(APPROACH_MIN_SECONDS, seconds);
 }
 
 // 档位归一化直接用设置域那一份（白名单与步长只有一个来源，仿真场不另立）

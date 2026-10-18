@@ -71,27 +71,33 @@ describe('接近模型（CONTEXT「接近模型」）', () => {
     expect(visibleApproach(10 - T, 10, T)).toBeCloseTo(APPROACH.floor, 1);
   });
 
-  it('noteSpeed 档位 → T = max(0.1, (12 − n)/2)：1..12 → 5.5s..0.1s，默认 9.5 → 1.25s', () => {
+  it('noteSpeed 档位 → T = 游戏分段映射：n ≤ 11 走 (12 − n)/2，n > 11 走 (16 − n)/10', () => {
     expect(approachSeconds(1)).toBe(5.5);
     expect(approachSeconds(11)).toBe(0.5);
     expect(approachSeconds(SIM_NOTE_SPEED_RANGE.fallback)).toBe(1.25);
     // 越界 / 非有限值经白名单归一化（上界 12 = 现代游戏的档位上限）
     expect(approachSeconds(0)).toBe(5.5);
-    expect(approachSeconds(99)).toBe(APPROACH_MIN_SECONDS);
+    expect(approachSeconds(99)).toBe(0.4); // 99 → 归一化到 12 → 第二支
     expect(approachSeconds(Number.NaN)).toBe(1.25);
   });
 
-  it('票 24：12 档不再退化成 T = 0 —— 落到下限、仍是正数，且与 n ≥ 11.8 连续', () => {
-    expect(approachSeconds(12)).toBe(APPROACH_MIN_SECONDS);
-    expect(approachSeconds(12)).toBeGreaterThan(0); // 今天差的 0 那条要能红
-    expect(approachSeconds(11.8)).toBe(APPROACH_MIN_SECONDS); // 11.8 起就贴着下限 ⇒ 无跳变
-    expect(approachSeconds(11.9)).toBe(APPROACH_MIN_SECONDS);
-    expect(approachSeconds(11.7)).toBeCloseTo(0.15, 6); // 下限之上仍是原公式
+  it('票 48：高档走游戏第二支（11.5 → 0.45 / 11.7 → 0.43 / 12 → 0.4），与游戏同档同速', () => {
+    expect(approachSeconds(11.5)).toBe(0.45);
+    expect(approachSeconds(11.7)).toBeCloseTo(0.43, 6);
+    expect(approachSeconds(12)).toBe(0.4); // 修前 = 0.1s 地板，比游戏快 4x
   });
 
-  it('票 24：T = 下限那一档的 A 仍成立（Δ = −T ⇒ ≈ 0.058）', () => {
-    const t = approachSeconds(12);
-    expect(t).toBe(APPROACH_MIN_SECONDS);
+  it('票 48：分段映射在 n = 11 处连续（两侧都是 0.5s），且白名单内不再触达地板', () => {
+    expect(approachSeconds(11 - 1e-9)).toBeCloseTo(0.5, 9);
+    expect(approachSeconds(11 + 1e-9)).toBeCloseTo(0.5, 9);
+    // 地板只剩越界防御：1..12 内任何档位的 T 都 > 0.1s（最小 = 12 档的 0.4s）
+    for (let n = 1; n <= 12; n += 0.1) {
+      expect(approachSeconds(n)).toBeGreaterThan(APPROACH_MIN_SECONDS);
+    }
+  });
+
+  it('地板档的 A 仍成立（Δ = −T ⇒ ≈ 0.058；票 48 起地板只剩越界防御，直传常量测）', () => {
+    const t = APPROACH_MIN_SECONDS;
     expect(approachA(-t, t)).toBeCloseTo(0.058, 2);
     expect(approachA(-t, t)).toBeGreaterThan(APPROACH.floor);
     expect(approachOf(10 - t, 10, t)).toBeCloseTo(approachA(-t, t), 12);

@@ -90,7 +90,7 @@ export interface SimScene {
   notes: ChartNote[];
   /** 当前细分档（subBeat 的单位 = 1/beatDisplay） */
   beatDisplay: number;
-  /** 音符速度档（1..12；T = max(0.1, (12 − n)/2) 秒） */
+  /** 音符速度档（1..12；T = 分段映射：n ≤ 11 → (12 − n)/2，n > 11 → (16 − n)/10 秒，见 `approachSeconds`） */
   noteSpeed: number;
   /** `settings.display.noteSize`：节奏图示大小 */
   noteSize: number;
@@ -154,7 +154,7 @@ export interface SimSimultaneous {
  * 一帧只做「按秒窗口取可见元素」的二分 + 画，不每帧重算 beat→秒。
  */
 export interface SimChart {
-  /** 接近时长 T（秒）= max(APPROACH_MIN_SECONDS, (12 − noteSpeed)/2) */
+  /** 接近时长 T（秒）= 游戏分段映射（`approachSeconds`：n ≤ 11 → (12 − n)/2，n > 11 → (16 − n)/10） */
   approachS: number;
   /** 全部元素，按 time 升序 */
   elements: SimElement[];

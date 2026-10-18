@@ -94,7 +94,7 @@ function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon): SimFrameInpu
 
 const recordingCtx = () => makeRecordingCtx({ createLinearGradient: () => ({ addColorStop: () => undefined }) });
 
-/** 默认 120 BPM：beat → 秒 = beat / 2；T = (12 − noteSpeed)/2 = 1.25s */
+/** 默认 120 BPM：beat → 秒 = beat / 2；noteSpeed 9.5 ≤ 11 ⇒ T = (12 − noteSpeed)/2 = 1.25s */
 const T = approachSeconds(9.5);
 
 describe('drawSimFrameAt · 音符的可见窗口（问题 5）', () => {

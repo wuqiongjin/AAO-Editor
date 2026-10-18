@@ -432,7 +432,8 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
             ) : (
               <section className="pdp__group" aria-label={t('preview.display.group.sim')}>
                 <h3 className="pdp__group-title">{t('preview.display.group.sim')}</h3>
-                {/* 音符速度 = 接近模型的唯一档（档位 1..12 步长 0.1；T = max(0.1, (12 − n)/2) 秒，越大越快）。
+                {/* 音符速度 = 接近模型的唯一档（档位 1..12 步长 0.1；T = 分段映射：n ≤ 11 → (12 − n)/2、
+                   n > 11 → (16 − n)/10 秒，越大越快，见 `approachSeconds`）。
                     它自己就是一整行（上段标签 + 数字框 + 步进，下段滑杆），故不再套 `Row` */}
                 <NoteSpeed
                   label={t('preview.display.noteSpeed')}
