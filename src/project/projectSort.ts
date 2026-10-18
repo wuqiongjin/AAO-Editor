@@ -1,4 +1,5 @@
-// 工程启动台排序（issue 19 #4）：键白名单 + 比较器 + 派生口径 + 列表显示口径（issue 37）。
+// 工程启动台排序（issue 19 #4）：键白名单 + 比较器 + 派生口径 + 列表显示口径（issue 37）
+// + 横幅锚口径（issue 40）。
 //
 // 为什么单独一个模块、而不是塞进 projectCatalog：设置对象（AppSettings）要 import 这里的
 // 白名单做归一化，而 projectCatalog 拖着谱面代码转换器那串重依赖；本模块零运行时依赖
@@ -55,6 +56,41 @@ export function mostRecentlyOpenedId(projects: readonly SortableProject[]): stri
     if (!best || p.lastOpened > best.lastOpened) best = p;
   }
   return best?.id ?? null;
+}
+
+/**
+ * 横幅锚（issue 40 定案 A）：当前排序键下 hero 该展示哪个工程。
+ *
+ * 口径 = 排序键的「头」，且与 `projectTimeAt` 同一套回落：时间键取该键最大值
+ * （`lastModified` 走派生），其余键回落「最近打开」（issue 19 #4：非时间排序不改
+ * resume 语义）。并列回退与 `sortProjects` 逐条一致（该键 → lastOpened → id），
+ * 因此时间键下锚恒等于展示序的第一个。
+ *
+ * 并列末级按 id（不是"首个最大值"）是**有意为之**：`mostRecentlyOpenedId` 取数组序里
+ * 第一个最大值，会跟着 store 的入库次序飘；锚必须确定、且必须等于展示序的头（列表并列
+ * 本就按 id 排）。二者在 `lastOpened` 并列时可能不同——单测「时间键：锚 = 展示序的头」
+ * 把这点钉死（含与 mostRecentlyOpenedId 的分歧断言）。
+ *
+ * 为什么必须是活函数、而不是组件里算一次的默认值：打开工程会把 `lastOpened` 写成
+ * now（`CurrentProjectSession.open` → `mutateProject`），锚要跟着列表重排走。曾经的
+ * 写法把「最近打开」在挂载时固化成 state，保活页从工作台回来读到快照——打开新工程后
+ * 横幅滞留老工程（issue 40 a）正是这么来的。
+ */
+export function sortAnchorId(projects: readonly SortableProject[], key: ProjectSortKey): string | null {
+  let best: SortableProject | null = null;
+  for (const p of projects) {
+    if (!best || anchorBeats(p, best, key)) best = p;
+  }
+  return best?.id ?? null;
+}
+
+/** 与 sortProjects 同构的单项比较：锚度量 → lastOpened → id（保证锚 = 展示序的头）。 */
+function anchorBeats(a: SortableProject, b: SortableProject, key: ProjectSortKey): boolean {
+  const byMetric = projectTimeAt(a, key) - projectTimeAt(b, key);
+  if (byMetric !== 0) return byMetric > 0;
+  const byOpened = a.lastOpened - b.lastOpened;
+  if (byOpened !== 0) return byOpened > 0;
+  return a.id < b.id;
 }
 
 /**

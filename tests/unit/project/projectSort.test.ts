@@ -1,11 +1,13 @@
 // issue 19 #4：启动台排序纯函数（四键 + 派生口径 + 并列回退）。
 // issue 37：列表显示口径（projectTimeAt）——显示必须与排序键同源。
+// issue 40：横幅锚（sortAnchorId）——锚同样跟随排序键，活派生不固化。
 import { describe, expect, it } from 'vitest';
 import {
   mostRecentlyOpenedId,
   normalizeProjectSortKey,
   projectLastModified,
   projectTimeAt,
+  sortAnchorId,
   sortProjects,
 } from '@/src/project/projectSort';
 
@@ -93,5 +95,38 @@ describe('projectTimeAt · 列表显示口径跟随排序键（issue 37）', () 
   it('chartCount / name 键 → 回落 lastOpened（顺序不像时间序，时间仍显示打开时间）', () => {
     expect(projectTimeAt(PROJECTS[2], 'chartCount')).toBe(100);
     expect(projectTimeAt(PROJECTS[2], 'name')).toBe(100);
+  });
+});
+
+// 横幅锚（issue 40 定案 A）：时间键取该键的头，其余键回落最近打开。
+// 活派生——打开工程把 lastOpened 写成 now，锚要跟着走（曾经的挂载快照 = issue 40 a 根因）。
+describe('sortAnchorId · 横幅锚跟随排序键（issue 40）', () => {
+  it('lastOpened → 最近打开；lastModified → 最近修改（派生口径）', () => {
+    expect(sortAnchorId(PROJECTS, 'lastOpened')).toBe('p2');
+    expect(sortAnchorId(PROJECTS, 'lastModified')).toBe('p3');
+  });
+
+  it('chartCount / name → 回落最近打开（非时间排序不改 resume 语义，定案 A）', () => {
+    expect(sortAnchorId(PROJECTS, 'chartCount')).toBe(mostRecentlyOpenedId(PROJECTS));
+    expect(sortAnchorId(PROJECTS, 'name')).toBe(mostRecentlyOpenedId(PROJECTS));
+  });
+
+  it('空列表回 null', () => {
+    expect(sortAnchorId([], 'lastOpened')).toBeNull();
+  });
+
+  it('时间键：锚 = 展示序的头（并列回退 lastOpened → id，逐条同 sortProjects）', () => {
+    const tied = [project('b', 'B', 100, [7]), project('a', 'A', 100, [7])];
+    for (const key of ['lastOpened', 'lastModified'] as const) {
+      expect(sortAnchorId(tied, key)).toBe(sortProjects(tied, key, untitled)[0].id);
+    }
+    // lastOpened 并列 → 按 id 定（'a'），不是数组首位 'b'：与 mostRecentlyOpenedId 的
+    // 「首个最大值」**有意分歧**——锚必须确定且 = 展示序的头，不跟入库次序飘
+    expect(sortAnchorId(tied, 'lastOpened')).toBe('a');
+    expect(mostRecentlyOpenedId(tied)).toBe('b');
+    // 修改时间并列 → 回退最近打开的 y（200 > 100）；不能碰运气取数组首位 x
+    const openedTie = [project('x', 'X', 100, [7]), project('y', 'Y', 200, [7])];
+    expect(sortAnchorId(openedTie, 'lastModified')).toBe('y');
+    expect(sortProjects(openedTie, 'lastModified', untitled)[0].id).toBe('y');
   });
 });

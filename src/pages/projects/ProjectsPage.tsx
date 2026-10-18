@@ -289,7 +289,8 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     store, transport: communityTransport, flush: flushPersist, notify: notifyCatalogChanged, reload,
   });
 
-  // 展示序 = 用户选的排序；hero 的默认选中口径仍是「最近打开」（issue 19 #4，见 ProjectStartView）
+  // 展示序 = 用户选的排序；hero 锚 = 排序头活派生（issue 40 定案 A：时间键取该键的头、
+  // 其余键回落最近打开），手动浏览焦点在排序切换 / 打开工程时让位（见 ProjectStartView）
   const list = useMemo(() => sortProjects(projects ?? [], sortKey, untitledProjectLabel()), [projects, sortKey]);
   // 目录就绪 = list() 至少回来过一次（issue 29）：未就绪时不显示空态、也不显示 0 计数
   const catalogReady = projects !== null;

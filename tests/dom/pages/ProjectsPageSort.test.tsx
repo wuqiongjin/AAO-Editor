@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 // issue 19 #4：启动台排序界面 —— 换排序后卡片顺序变且写回 settings.projects.sort；
-// 排序从设置对象读回（跨会话沿用）；hero 的默认选中恒为「最近打开」，不随排序走。
+// 排序从设置对象读回（跨会话沿用）。
 // issue 37：列表时间戳跟随排序键 —— 卡片 / hero 显示哪个工程时间戳由 sort 决定，
 // 且贴短标签（打开 / 修改）；「最近修改」下眼睛看到的必须就是排序依据本身。
+// issue 40：横幅锚跟随排序键（定案 A）—— 时间键取该键的头，其余键回落最近打开；
+// 手动浏览焦点在排序切换 / 打开工程时让位（见 ProjectHeroAnchor.test.tsx）。
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
@@ -123,7 +125,7 @@ describe('issue 19 #4 · 启动台排序', () => {
 
     await waitFor(() => expect(cardOrder()).toEqual(['p2', 'p3', 'p1']));
     expect(storedSort()).toBe('chartCount');
-    // 排序不影响「继续创作」的默认选中口径（issue 19 #4 定案）
+    // 非时间键不改 resume 语义（issue 19 #4 定案，issue 40 定案 A 沿用）：横幅回落最近打开
     expect(heroName()).toHaveTextContent('Alpha');
   });
 
@@ -133,7 +135,8 @@ describe('issue 19 #4 · 启动台排序', () => {
 
     await waitFor(() => expect(cardOrder()).toEqual(['p3', 'p1', 'p2']));
     expect(sortSelect().value).toBe('lastModified');
-    expect(heroName()).toHaveTextContent('Alpha');
+    // issue 40 定案 A：时间键下横幅 = 该键的头——最近修改 → p3（Mike）
+    expect(heroName()).toHaveTextContent('Mike');
   });
 });
 
@@ -163,19 +166,20 @@ describe('issue 37 · 列表时间戳跟随排序键', () => {
     expect(cardSubline('p2')).toHaveTextContent(`打开 ${relTime(T - 30 * MIN, Date.now())}`);
   });
 
-  it('hero 标签随排序切换：上次打开 / 上次修改，时间同样跟随（选中锚不动）', async () => {
+  it('hero 标签与展示工程都随排序切换：上次打开 / 上次修改（issue 40）', async () => {
     renderHub(TIME_PROJECTS);
     await screen.findByText('全部工程');
     await waitFor(() => expect(cardOrder()).toEqual(['p2', 'p1', 'p3']));
 
     // 默认键：hero = 最近打开的 p2，标签「上次打开」+ 它的打开时间
+    expect(heroName()).toHaveTextContent('Alpha');
     expect(heroMeta()).toHaveTextContent(`上次打开 ${relTime(T - 30 * MIN, Date.now())}`);
 
     fireEvent.change(sortSelect(), { target: { value: 'lastModified' } });
 
     await waitFor(() => expect(cardOrder()).toEqual(['p3', 'p1', 'p2']));
-    // 选中锚恒为最近打开（issue 19 #4）不动，但显示口径切到 p2 的修改时间
-    expect(heroName()).toHaveTextContent('Alpha');
-    expect(heroMeta()).toHaveTextContent(`上次修改 ${relTime(T - 10 * DAY, Date.now())}`);
+    // issue 40 定案 A：锚随排序走——hero 换成修改序的头 p3，标签与时间都是它的修改口径
+    expect(heroName()).toHaveTextContent('Mike');
+    expect(heroMeta()).toHaveTextContent(`上次修改 ${relTime(T - 1 * HOUR, Date.now())}`);
   });
 });

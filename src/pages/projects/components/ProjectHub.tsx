@@ -1,9 +1,9 @@
 // 工程管理页的启动台视图（原 ProjectsPage.tsx 的 ProjectStartView + 0 工程引导横幅）。
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Copy, FolderPlus, Music2, Music4, Play, Users } from 'lucide-react';
 import type { ChartProject } from '../../../project/ChartProject';
 import { DIFF_COLORS, DIFF_NAMES, DIFF_SHORT } from '../../../project/projectCatalog';
-import { mostRecentlyOpenedId, PROJECT_SORT_KEYS, projectTimeAt, type ProjectSortKey } from '../../../project/projectSort';
+import { PROJECT_SORT_KEYS, projectTimeAt, sortAnchorId, type ProjectSortKey } from '../../../project/projectSort';
 import { chartStatus } from '../../../project/workspaceProject';
 import { displayProjectName } from '../../../project/ui/projectUi';
 import { useAppNav } from '../../../layouts/AppNav';
@@ -91,15 +91,29 @@ export function ProjectStartView({
   const pendingShimmer = useSlowLoading(ready, 'project-catalog');
 
   // 浏览焦点（issue 14）：不等于「当前工程」，is-current 角标继续单独标识。
-  // 默认选中 = 最近打开（Q11），与显示排序无关（issue 19 #4：排序可选后「第一个卡片」不再等于它）；
-  // 选中失效（工程被删等）时先按默认口径**投影**（hero 与高亮首帧就不闪），再由 effect 固化回 state。
-  const defaultSelectedId = mostRecentlyOpenedId(list);
+  // 横幅锚 = 排序头**活派生**（issue 40 定案 A：lastOpened → 最近打开、lastModified → 最近修改，
+  // 其余键回落最近打开）——打开工程把 lastOpened 写成 now、列表重排，锚跟着走，横幅不再滞留老工程（a)。
+  // 曾经这里把默认锚在挂载时固化成 state（useEffect setSelectedId(default)），保活页从工作台
+  // 回来读到的是快照——issue 40 a 的根因，勿回溜（静态锁 tests/static/ProjectHeroAnchor.test.ts）。
+  // 选中失效（工程被删等）不写 state：渲染期投影直接回落锚，hero 与高亮首帧不闪。
+  const anchorId = sortAnchorId(list, sort);
   const effectiveSelectedId = selectedId !== null && list.some((p) => p.id === selectedId)
     ? selectedId
-    : defaultSelectedId;
-  useEffect(() => {
-    if (effectiveSelectedId !== selectedId) setSelectedId(effectiveSelectedId);
-  }, [effectiveSelectedId, selectedId]);
+    : anchorId;
+  // 排序切换即放手动浏览焦点（定案 Q2）：render 期校正 state（React 文档
+  // 「Adjusting state when props change」认可的模式）——切排序那一帧横幅就换到
+  // 新排序头，不走 effect 少一帧旧内容。
+  const [prevSort, setPrevSort] = useState(sort);
+  if (prevSort !== sort) {
+    setPrevSort(sort);
+    setSelectedId(null);
+  }
+  // 打开工程 = 用户明确了「接下来做这个」：手动焦点让位，回落后排序头（定案 Q2，a 的全覆盖点）。
+  // lastModified 键下锚不随打开动（打开不改谱面 lastModified）——横幅仍是最久未修改的，与定案 A 同源。
+  const openProject = useCallback((id: string, chartId?: string) => {
+    setSelectedId(null);
+    onOpen(id, chartId);
+  }, [onOpen]);
 
   // 列数按容器实际折行实测：首行卡片数即列数。ResizeObserver 覆盖窗口 resize 与导航展开折叠；
   // 失活页只是 opacity:0，布局仍可测，无需等激活。
@@ -157,10 +171,11 @@ export function ProjectStartView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activePage, list, columns, effectiveSelectedId, onDetail]);
 
-  // hero 是选中卡片的投影（选中失效时 = 最近打开，横幅不闪空）
+  // hero 是选中卡片的投影（无有效选中时 = 排序头，横幅不闪空）
   const selected = list.find((p) => p.id === effectiveSelectedId) ?? list[0];
   // 列表时间戳跟随排序键（issue 37）：hero 的完整标签也随排序切——顺序按
-  // max(charts.lastModified) 排时，标签不能还写死「上次打开」。选中锚不动（仍 = 最近打开）。
+  // max(charts.lastModified) 排时，标签不能还写死「上次打开」。issue 40：展示的工程
+  // 同样跟随（锚 = sortAnchorId），标签与工程同源。
   const heroTimeKey = sort === 'lastModified' ? 'projects.lastModified' : 'projects.lastOpened';
   return (
     <div className="pb-page">
@@ -178,7 +193,7 @@ export function ProjectStartView({
             <p className="pp-muted">{selected.artist ?? t('projects.artistMissing')} · {t(heroTimeKey, { time: relTime(projectTimeAt(selected, sort), now) })}</p>
             <div className="pb-hero__charts">
               {selected.charts.map((c) => (
-                <button key={c.id} type="button" className="pb-chart-btn" onClick={() => onOpen(selected.id, c.id)}>
+                <button key={c.id} type="button" className="pb-chart-btn" onClick={() => openProject(selected.id, c.id)}>
                   <span className="pp-pill__diff" style={{ background: DIFF_COLORS[c.diff] }}>{DIFF_SHORT[c.diff]}</span>
                   {effectiveTitle(selected, c) !== displayProjectName(selected) && <span>{c.title}</span>}
                   <StatusBadge chart={c} />
@@ -186,7 +201,7 @@ export function ProjectStartView({
               ))}
             </div>
           </div>
-          <button type="button" className="pp-btn pp-btn--primary pp-btn--lg pb-hero__go" onClick={() => onOpen(selected.id)}>
+          <button type="button" className="pp-btn pp-btn--primary pp-btn--lg pb-hero__go" onClick={() => openProject(selected.id)}>
             <Play size={16} />{t('projects.enterWorkspace')}
           </button>
         </section>
@@ -264,7 +279,7 @@ export function ProjectStartView({
                   type="button"
                   className="pb-card__play"
                   title={t('projects.play')}
-                  onClick={(e) => { e.stopPropagation(); onOpen(p.id); }}
+                  onClick={(e) => { e.stopPropagation(); openProject(p.id); }}
                 >
                   <Play size={16} />
                 </button>

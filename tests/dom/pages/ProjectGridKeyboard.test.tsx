@@ -93,7 +93,7 @@ function cardOf(name: string): HTMLElement {
 
 const pressKey = (key: string) => fireEvent.keyDown(window, { key });
 
-/** 渲染并等待默认选中（最近打开）就位——hero 标题由渲染兜底先出，is-selected 随自愈 effect 提交 */
+/** 渲染并等待默认选中（最近打开）就位——hero 与 is-selected 都由渲染期锚投影给出（issue 40 活派生） */
 async function renderAndSelectFirst(nav = navValue) {
   renderStartView(nav);
   await screen.findByRole('heading', { name: /最近工程/ });
