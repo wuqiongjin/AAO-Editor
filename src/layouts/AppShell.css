@@ -2135,8 +2135,52 @@ button.skin-pill {
   color: var(--text-muted);
 }
 
-.about-identity + .settings-row {
+.about-identity + .settings-row:not(.settings-row--diagnostics) {
   border-top: 0;
+}
+
+.settings-row--diagnostics {
+  align-items: flex-start;
+  padding-top: 14px;
+}
+
+.settings-row--diagnostics .button-secondary {
+  margin-top: 2px;
+}
+
+.settings-export-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  line-height: 1.45;
+  max-width: 36rem;
+}
+
+.settings-row .settings-check {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  place-items: center;
+  margin-top: 1px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-on-accent);
+  box-sizing: border-box;
+}
+
+.settings-row .settings-check.is-on {
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .settings-row > div,

@@ -77,6 +77,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
         write: (payload) => ipcRenderer.invoke('log:write', payload),
         trail: (payload) => ipcRenderer.invoke('log:trail', payload),
     },
+    // ADR-0019 / 票 04：诊断包 zip 由主进程组包并弹保存对话框。
+    diagnostics: {
+        export: (payload) => ipcRenderer.invoke('diagnostics:export', payload),
+    },
     // ADR-0021：应用更新。事件从主进程推过来；检查 / 安装由渲染进程按设置对象里的自动检查发起。
     appUpdate: {
         getState: () => ipcRenderer.invoke('appUpdate:getState'),

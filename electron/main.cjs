@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const isDev = process.env.NODE_ENV === 'development';
 const {
     MIN_WINDOW_WIDTH,
@@ -58,6 +59,7 @@ const { t, setActiveUiLanguage } = require('./i18n.cjs');
 const { autoUpdater } = require('electron-updater');
 const { createAppUpdater, registerAppUpdateIpc } = require('./appUpdate.cjs');
 const { createAppLog, registerAppLogIpc } = require('./appLog.cjs');
+const { registerDiagnosticsExportIpc } = require('./diagnosticsExport.cjs');
 
 // ---------------------------------------------------------------------------
 // 谱面工程文件后端（ADR-0015）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
@@ -77,6 +79,20 @@ function currentDataRoot() {
 const appLog = createAppLog({ userData: () => userDataDir() });
 registerAppLogIpc(ipcMain, appLog);
 setAppLog(appLog);
+registerDiagnosticsExportIpc(ipcMain, {
+    logsDir: () => path.join(userDataDir(), 'logs'),
+    dataRoot: () => currentDataRoot(),
+    versions: () => ({
+        app: app.getVersion(),
+        electron: process.versions.electron,
+        chrome: process.versions.chrome,
+        node: process.versions.node,
+        os: `${process.platform} ${os.release()}`,
+    }),
+    fromWebContents: (sender) => BrowserWindow.fromWebContents(sender),
+    showSaveDialog: (win, opts) => dialog.showSaveDialog(win ?? undefined, opts),
+    t,
+});
 
 async function writeFileAtomic(filePath, data) {
     const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;

@@ -19,6 +19,7 @@ import {
   subscribeAppUpdate,
   type AppUpdateState,
 } from '../../app/appUpdate';
+import { exportDiagnostics, getDiagnosticsExportBridge } from '../../diagnostics/exportDiagnostics';
 
 // 设置页：接入 AppPageShell（Sidebar 扁平导航 + Body 设置详情），修改立即生效并持久化。
 type Section = 'appearance' | 'data' | 'about';
@@ -141,6 +142,7 @@ function updateStatusText(state: AppUpdateState): string | null {
 
 function AboutSection({
   version, packaged, updateState, autoCheck, onAutoCheck, onCheck, onInstall,
+  diagnosticsAvailable, includeChart, exportBusy, onIncludeChart, onExportDiagnostics,
 }: {
   version: string;
   packaged: boolean;
@@ -149,6 +151,11 @@ function AboutSection({
   onAutoCheck: (v: boolean) => void;
   onCheck: () => void;
   onInstall: () => void;
+  diagnosticsAvailable: boolean;
+  includeChart: boolean;
+  exportBusy: boolean;
+  onIncludeChart: (v: boolean) => void;
+  onExportDiagnostics: () => void;
 }) {
   const busy = updateState.status === 'checking' || updateState.status === 'downloading';
   const ready = updateState.status === 'ready';
@@ -202,6 +209,34 @@ function AboutSection({
           </div>
         </>
       )}
+      {diagnosticsAvailable && (
+        <div className="settings-row settings-row--diagnostics">
+          <div className="settings-row__text">
+            <strong>{t('settings.diagnostics')}</strong>
+            <span>{t('settings.diagnostics.hint')}</span>
+            <button
+              type="button"
+              className="settings-export-opt"
+              role="checkbox"
+              aria-checked={includeChart}
+              onClick={() => onIncludeChart(!includeChart)}
+            >
+              <span className={`settings-check${includeChart ? ' is-on' : ''}`} aria-hidden>
+                {includeChart ? <Check size={11} strokeWidth={3} /> : null}
+              </span>
+              <span>{t('settings.diagnostics.includeChart')}</span>
+            </button>
+          </div>
+          <button
+            className="button-secondary"
+            type="button"
+            disabled={exportBusy}
+            onClick={onExportDiagnostics}
+          >
+            <Download size={15} />{t('settings.diagnostics.export')}
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -222,6 +257,9 @@ export default function SettingsPage({ active = true }: { active?: boolean }) {
   const [cacheBusy, setCacheBusy] = useState(false);
   const [cacheError, setCacheError] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<AppUpdateState>(getAppUpdateState);
+  const diagnosticsAvailable = Boolean(getDiagnosticsExportBridge());
+  const [includeChart, setIncludeChart] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
 
   useEffect(() => subscribeAppUpdate(setUpdateState), []);
 
@@ -341,6 +379,26 @@ export default function SettingsPage({ active = true }: { active?: boolean }) {
   const handleOpenDataRoot = () => void applyDataRootResult(() => dataRootApi!.open(), t('settings.dataRoot.openFail'));
   const handleChangeDataRoot = () => void applyDataRootResult(() => dataRootApi!.change(), t('settings.dataRoot.changeFail'));
   const handleClaimDataRoot = () => void applyDataRootResult(() => dataRootApi!.claim(), t('settings.dataRoot.claimFail'));
+
+  const handleExportDiagnostics = async () => {
+    if (!diagnosticsAvailable || exportBusy) return;
+    setExportBusy(true);
+    try {
+      const result = await exportDiagnostics({
+        pageId: 'settings',
+        projectId,
+        settings,
+        includeChart,
+        getProject: (id) => store.get(id),
+      });
+      if ('unavailable' in result) return;
+      if (!result.cancelled) showToast(t('settings.diagnostics.exported'), 'success');
+    } catch {
+      showToast(t('settings.diagnostics.failed'), 'danger');
+    } finally {
+      setExportBusy(false);
+    }
+  };
 
   const handleExport = () => {
     const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
@@ -576,6 +634,11 @@ export default function SettingsPage({ active = true }: { active?: boolean }) {
               onAutoCheck={setAutoCheck}
               onCheck={() => void handleCheckUpdate()}
               onInstall={() => void installAppUpdate()}
+              diagnosticsAvailable={diagnosticsAvailable}
+              includeChart={includeChart}
+              exportBusy={exportBusy}
+              onIncludeChart={setIncludeChart}
+              onExportDiagnostics={() => void handleExportDiagnostics()}
             />
           )}
         </section>
