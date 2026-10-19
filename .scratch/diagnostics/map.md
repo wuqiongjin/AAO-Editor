@@ -21,10 +21,11 @@
 - [2026-10-13 用户拍板] 可观测性形态与范围 = [ADR-0019 本地日志与诊断包](../../docs/adr/0019-本地日志与诊断包.md) 全文：纯本地（Q2=A）；第一阶段先静默故障 + 数据损坏、第二阶段难复现由轨迹兜底（Q1=D）；双轨落盘 + 按天 / 5MB / 7 天 / 50MB 轮转（Q6=A）；轨迹粗粒度 + ring buffer 500（Q7=A）；诊断包含脱敏默认全量 + 谱面数据默认不附（Q8=A）；三层 boundary + 全局 handler（Q9=A）。
 - 术语（诊断包 / 操作轨迹）已入 `CONTEXT.md` § 诊断与日志。
 - [2026-10-19 复核] 代码仍无 logger / 落盘 / ErrorBoundary / 诊断包 UI。实现口径收窄写进各票：05 不追求清零 console；04 不挡在 02 后；02 仍是第二阶段。ADR-0019 正文未改。
+- [2026-10-19] [01 日志模块与主进程落盘](./issues/01-日志模块与主进程落盘.md) 已落地：`userData/logs/` 双轨 + `log:write`/`log:trail`；`trail.append` 立刻写盘（票 02 的 ring 是调用方）。
 
 ## Frontier
 
-- [01 日志模块与主进程落盘](./issues/01-日志模块与主进程落盘.md) — open（先做；`registerXxxIpc` + `userData/logs/`）
+- [01 日志模块与主进程落盘](./issues/01-日志模块与主进程落盘.md) — resolved（`registerAppLogIpc` + `userData/logs/`）
 - [05 第一阶段失败路径落盘](./issues/05-旧console迁移与第一阶段覆盖面收口.md) — open（Blocked by: 01；不要求 src 零 console）
 - [04 诊断包导出](./issues/04-诊断包导出.md) — open（Blocked by: 01；不等 02）
 - [03 崩溃兜底三层边界](./issues/03-崩溃兜底三层边界.md) — open（Blocked by: 01；按 PageId 七页，无独立 Bestdori 路由）

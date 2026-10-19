@@ -56,6 +56,7 @@ const {
 const { t, setActiveUiLanguage } = require('./i18n.cjs');
 const { autoUpdater } = require('electron-updater');
 const { createAppUpdater, registerAppUpdateIpc } = require('./appUpdate.cjs');
+const { createAppLog, registerAppLogIpc } = require('./appLog.cjs');
 
 // ---------------------------------------------------------------------------
 // 谱面工程文件后端（ADR-0015）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
@@ -70,6 +71,10 @@ function userDataDir() {
 function currentDataRoot() {
     return loadDataRootSync(userDataDir());
 }
+
+// ADR-0019 / 票 01：userData/logs/，不跟数据根走。主进程失败可直接 appLog.write / appendTrail。
+const appLog = createAppLog({ userData: () => userDataDir() });
+registerAppLogIpc(ipcMain, appLog);
 
 async function writeFileAtomic(filePath, data) {
     const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
