@@ -7,6 +7,16 @@ import { getDefaultConfig, type ShortcutConfig } from '../../chart/config/Shortc
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
 import { syncAssetCachePolicy } from '../../community/assetCachePolicy';
+import { trail } from '../../diagnostics/trail';
+
+function persistSettings(merged: AppSettings): AppSettings {
+  saveSettings(merged);
+  return merged;
+}
+
+function noteSettingsChange(keys: string[]): void {
+  trail.record({ module: 'settings', action: 'change', meta: { keys } });
+}
 
 export interface ConfigContextValue {
   settings: AppSettings;
@@ -69,121 +79,107 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const setShortcutConfig = useCallback((next: ShortcutConfig) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { shortcuts: next });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { shortcuts: next }));
     });
+    noteSettingsChange(['shortcuts']);
   }, []);
 
   const setKeySetId = useCallback((id: string) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { audio: { keySet: id } });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { audio: { keySet: id } }));
     });
+    noteSettingsChange(['audio']);
   }, []);
 
   const setTheme = useCallback((theme: AppSettings['theme']) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { theme });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { theme }));
     });
+    noteSettingsChange(['theme']);
   }, []);
 
   const setUiLanguage = useCallback((uiLanguage: AppSettings['uiLanguage']) => {
     setActiveUiLanguage(uiLanguage);
     setSettings(prev => {
-      const merged = updateSettings(prev, { uiLanguage });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { uiLanguage }));
     });
+    noteSettingsChange(['uiLanguage']);
   }, []);
 
   const setUiTypeScale = useCallback((uiTypeScale: number) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { uiTypeScale });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { uiTypeScale }));
     });
+    noteSettingsChange(['uiTypeScale']);
   }, []);
 
   const setUiFontStack = useCallback((uiFontStack: AppSettings['uiFontStack']) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { uiFontStack });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { uiFontStack }));
     });
+    noteSettingsChange(['uiFontStack']);
   }, []);
 
   const setAutoCheck = useCallback((autoCheck: boolean) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { autoCheck });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { autoCheck }));
     });
+    noteSettingsChange(['autoCheck']);
   }, []);
 
   // 布局 setter 需保持引用稳定（Editor 的持久化 effect 依赖它做 deps；不稳定会导致无限重渲染）
   const setLayout = useCallback((layout: AppSettings['layout']) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { layout });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { layout }));
     });
+    noteSettingsChange(['layout']);
   }, []);
 
   const setDisplay = useCallback((patch: Partial<AppSettings['display']>) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { display: patch });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { display: patch }));
     });
+    noteSettingsChange(['display']);
   }, []);
 
   // 预览标注（chart-preview 08）：与 setDisplay 同范式（段内浅合并 + 整份写盘）
   const setPreview = useCallback((patch: Partial<AppSettings['preview']>) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { preview: patch });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { preview: patch }));
     });
+    noteSettingsChange(['preview']);
   }, []);
 
   // 导出信息字段（chart-preview 14）：与 setPreview 同范式（段内浅合并 + 整份写盘）
   const setExport = useCallback((patch: Partial<AppSettings['export']>) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { export: patch });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { export: patch }));
     });
+    noteSettingsChange(['export']);
   }, []);
 
   const setSeVolume = useCallback((volume: number) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { audio: { seVolume: volume } });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { audio: { seVolume: volume } }));
     });
+    noteSettingsChange(['audio']);
   }, []);
 
   // 播放器主音量（chart-preview 20）：与 setSeVolume 同范式（段内浅合并 + 整份写盘）。
   // 入口在动态预览的播放条；工作台那档页面内主音量不读它（两者刻意分开）
   const setAudioVolume = useCallback((volume: number) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { audio: { volume } });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { audio: { volume } }));
     });
+    noteSettingsChange(['audio']);
   }, []);
 
   // 音符皮肤（issue 29）：与键音同范式——字段级写回、立即生效并持久化
   const setNoteSkin = useCallback((patch: Partial<AppSettings['visual']['noteSkin']>) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { visual: { noteSkin: { ...prev.visual.noteSkin, ...patch } } });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { visual: { noteSkin: { ...prev.visual.noteSkin, ...patch } } }));
     });
+    noteSettingsChange(['visual']);
   }, []);
 
   // 背景皮肤（issue 29 Q4 + 修订）：字段级 patch（enabled/opacity/fit/scope）写回，段内合并保留其余字段
@@ -197,47 +193,42 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         scope: prevBg.scope,
         ...patch,
       };
-      const merged = updateSettings(prev, { visual: { backgroundSkin: bg } });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { visual: { backgroundSkin: bg } }));
     });
+    noteSettingsChange(['visual']);
   }, []);
 
   // 曲线工具配置（issue 114）：与皮肤/键音同范式——字段级写回、立即生效并持久化。
   // 引用必须稳定：UIProvider 的 setCurveConfig 依赖它做写透（deps 变化会让工具栏每次渲染换新回调）。
   const setCurveConfig = useCallback((config: CurveConfig) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { curve: config });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { curve: config }));
     });
+    noteSettingsChange(['curve']);
   }, []);
 
   // 启动台排序（issue 19 #4）：与皮肤/键音同范式——字段级写回、立即生效并持久化
   const setProjectSort = useCallback((sort: AppSettings['projects']['sort']) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { projects: { sort } });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { projects: { sort } }));
     });
+    noteSettingsChange(['projects']);
   }, []);
 
   // 同步导入谱面代码（票 28）：字段级写回 settings.projects.importWithChart 并持久化
   const setImportWithChart = useCallback((importWithChart: boolean) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { projects: { importWithChart } });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { projects: { importWithChart } }));
     });
+    noteSettingsChange(['projects']);
   }, []);
 
   // 官方选曲面板排序（票 31 验收回修）：键 + 方向一起写回 settings.projects.songSort 并持久化
   const setSongSort = useCallback((songSort: AppSettings['projects']['songSort']) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { projects: { songSort } });
-      saveSettings(merged);
-      return merged;
+      return persistSettings(updateSettings(prev, { projects: { songSort } }));
     });
+    noteSettingsChange(['projects']);
   }, []);
 
   // 工程详情页左栏宽度（issue 23 #2）：只改 layout.projectList，不整对象覆写 ——
@@ -245,29 +236,29 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 从这里整写会把工作台刚拖的宽度打回去。
   const setProjectListWidth = useCallback((width: number) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, {
+      return persistSettings(updateSettings(prev, {
         layout: { ...prev.layout, projectList: { width: clampProjectListWidth(width) } },
-      });
-      saveSettings(merged);
-      return merged;
+      }));
     });
+    noteSettingsChange(['layout']);
   }, []);
 
   const setAllSettings = useCallback((next: AppSettings) => {
     setActiveUiLanguage(next.uiLanguage);
     syncAssetCachePolicy(next.cachePolicy);
-    saveSettings(next);
+    persistSettings(next);
     setSettings(next);
+    noteSettingsChange(Object.keys(next));
   }, []);
 
   // 社区素材缓存回收策略（票 18）：与上面同范式；写完顺手推给主进程（改了就生效）
   const setCachePolicy = useCallback((patch: Partial<AppSettings['cachePolicy']>) => {
     setSettings(prev => {
-      const merged = updateSettings(prev, { cachePolicy: patch });
+      const merged = persistSettings(updateSettings(prev, { cachePolicy: patch }));
       syncAssetCachePolicy(merged.cachePolicy);
-      saveSettings(merged);
       return merged;
     });
+    noteSettingsChange(['cachePolicy']);
   }, []);
 
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）

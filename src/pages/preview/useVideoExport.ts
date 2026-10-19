@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import { t } from '../../i18n';
 import { logger } from '../../diagnostics/logger';
+import { trail } from '../../diagnostics/trail';
 import {
   DEFAULT_VIDEO_CONTAINER,
   DEFAULT_VIDEO_TIER,
@@ -170,6 +171,8 @@ export function useVideoExport(
     setProgress({ phase: 'assets', frame: 0, totalFrames: 0 });
     // 探过的结论顺带作废：规格可能刚改过，重新导出的组合要重新问一遍浏览器
     setSupport(null);
+    const started = Date.now();
+    trail.record({ module: 'preview', action: 'export-start', meta: { container: spec.container } });
     try {
       // 先让「导出中」这一帧真正画出来再开干（issue 16）：同一段微任务链里直接开干会把它压在首帧前
       await waitForPaint();
@@ -189,9 +192,24 @@ export function useVideoExport(
         onProgress: setProgress,
         isCancelled: () => cancelledRef.current,
       });
+      const result = !outcome.ok ? 'fail' : outcome.cancelled ? 'cancel' : 'ok';
+      trail.record({
+        module: 'preview',
+        action: 'export-end',
+        result,
+        durationMs: Date.now() - started,
+        meta: { container: outcome.container ?? spec.container },
+      });
       updateNotice(noticeFor(outcome));
       return outcome;
     } catch (err) {
+      trail.record({
+        module: 'preview',
+        action: 'export-end',
+        result: 'fail',
+        durationMs: Date.now() - started,
+        meta: { container: spec.container },
+      });
       logger.error('[preview]', '导出视频异常', err);
       updateNotice({ text: t('preview.video.export.failed'), tone: 'danger' });
       return undefined;

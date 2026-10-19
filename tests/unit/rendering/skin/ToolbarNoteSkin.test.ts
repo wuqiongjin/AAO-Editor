@@ -27,6 +27,7 @@ const glyphSrc = stripComments(readSource('src/rendering/primitives/NoteIconGlyp
 
 /** 递归收集目录下的 .ts / .tsx 文件（跳过 node_modules） */
 function walkTs(dir: string): string[] {
+  if (!existsSync(dir)) return [];
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     if (name === 'node_modules') continue;

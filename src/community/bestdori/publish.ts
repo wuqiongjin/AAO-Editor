@@ -34,6 +34,7 @@ import {
   uploadedFileUrl,
 } from './endpoints';
 import { withRetry } from '../rateLimit';
+import { trail } from '../../diagnostics/trail';
 import { invalidResponse, isCommunityError, type CommunityTransport } from '../transport';
 
 /** multipart 上传的表单字段名（平台固定 `file`，见 bestdori-api.md §4） */
@@ -304,6 +305,8 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
 
   const chart = sanitizeChartForBestdoriUpload(input.chartCode);
 
+  const t0 = Date.now();
+  trail.record({ module: 'community', action: 'upload-start' });
   try {
     // 上传（custom 才有）：音频必需、封面可选（平台不强制 custom 帖带封面）
     let song: PostSongBody;
@@ -357,8 +360,20 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
       // 记账失败不推翻「帖子已发」这个事实（见上面的口径）
       recordWritten = false;
     }
+    trail.record({
+      module: 'community',
+      action: 'upload-end',
+      result: 'ok',
+      durationMs: Date.now() - t0,
+    });
     return { ok: true, postId, recordWritten };
   } catch (error) {
+    trail.record({
+      module: 'community',
+      action: 'upload-end',
+      result: 'fail',
+      durationMs: Date.now() - t0,
+    });
     return { ok: false, failure: publishFailureOf(error) };
   }
 }

@@ -9,6 +9,7 @@ import EmptyState from '../ui/EmptyState';
 import { showToast } from '../ui/Toast';
 import { exportDiagnostics } from './exportDiagnostics';
 import { logger, type Logger } from './logger';
+import { trail } from './trail';
 import './crash.css';
 
 export type CrashScope = 'app' | 'page' | 'canvas';
@@ -35,6 +36,7 @@ export class CrashBoundary extends Component<CrashBoundaryProps, CrashState> {
   componentDidCatch(error: Error): void {
     const log = this.props.logger ?? logger;
     log.error(`[crash:${this.props.scope}]`, error.message || 'render error', error);
+    trail.flush();
   }
 
   private retry = (): void => {

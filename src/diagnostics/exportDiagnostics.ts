@@ -2,6 +2,7 @@ import type { ChartProject } from '../project/ChartProject';
 import { storedFromProject } from '../project/ChartProjectRecord';
 import { logger } from './logger';
 import { sanitizeSettingsForDiagnostics } from './sanitizeSettings';
+import { trail } from './trail';
 
 export interface DiagnosticsExportPayload {
   pageId: string;
@@ -47,6 +48,7 @@ export async function exportDiagnostics(input: {
     }
   }
   try {
+    trail.flush();
     return await bridge.export({
       pageId: input.pageId,
       projectId: input.projectId,

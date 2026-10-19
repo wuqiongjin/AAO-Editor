@@ -35,7 +35,8 @@ import {
 import { isCommunityError, type CommunityErrorKind } from '../../community/transport';
 import type { CommunityTransport } from '../../community/transport';
 import { t, type MessageKey } from '../../i18n';
-import { throwIfImportAborted } from './officialImport';
+import { throwIfImportAborted, isImportCancelled } from './officialImport';
+import { trail } from '../../diagnostics/trail';
 import {
   newChartId,
   newProjectId,
@@ -96,6 +97,35 @@ export type CommunityImportResult =
   | { ok: false; reason: 'cancelled' };
 
 export async function importCommunityPost(
+  deps: CommunityImportDeps,
+  input: CommunityImportInput,
+): Promise<CommunityImportResult> {
+  const started = Date.now();
+  trail.record({ module: 'chart', action: 'import-start', meta: { kind: 'community' } });
+  try {
+    const result = await runCommunityImport(deps, input);
+    const outcome = result.ok ? 'ok' : result.reason === 'cancelled' ? 'cancel' : 'fail';
+    trail.record({
+      module: 'chart',
+      action: 'import-end',
+      result: outcome,
+      durationMs: Date.now() - started,
+      meta: { kind: 'community' },
+    });
+    return result;
+  } catch (err) {
+    trail.record({
+      module: 'chart',
+      action: 'import-end',
+      result: isImportCancelled(err) ? 'cancel' : 'fail',
+      durationMs: Date.now() - started,
+      meta: { kind: 'community' },
+    });
+    throw err;
+  }
+}
+
+async function runCommunityImport(
   deps: CommunityImportDeps,
   input: CommunityImportInput,
 ): Promise<CommunityImportResult> {

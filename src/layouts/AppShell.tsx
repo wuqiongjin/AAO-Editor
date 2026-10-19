@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppNavProvider, AppNav, type AppNavValue, type PageId } from './AppNav';
 import { showToast } from '../ui/Toast';
 import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
@@ -8,6 +8,7 @@ import { t } from '../i18n';
 import { DEFAULT_PAGE_ID, PAGE_NAV } from './pageNav';
 import { useCurrentProject } from '../app/providers/CurrentProjectProvider';
 import AppUpdateHost from '../app/AppUpdateHost';
+import { trail } from '../diagnostics/trail';
 import type { PageScope } from './pageScope';
 import './AppShell.css';
 
@@ -32,10 +33,17 @@ export default function AppShell() {
   const [pageScope, setPageScope] = useState<PageScope | null>(null);
   const [navCollapsed, setNavCollapsed] = useState(true);
   const { ensure, store, catalogEpoch } = useCurrentProject();
+  const activePageRef = useRef(activePage);
+  activePageRef.current = activePage;
 
   // 切页 = 同时决定这一页的作用域（票 22 定案 2）。两个 state 一起批，页面看到的是同一帧的新值。
+  // 句柄必须稳定：预览/音频页有 effect 依赖 setActivePage，身份一变会把带 chartId 的作用域冲掉。
   const setActivePage = useCallback<AppNavValue['setActivePage']>((page, request) => {
     setPageScope(request?.scope ?? null);
+    const from = activePageRef.current;
+    if (page !== from) {
+      trail.record({ module: 'nav', action: 'page', meta: { from, to: page } });
+    }
     setActivePageState(page);
   }, []);
 

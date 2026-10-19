@@ -11,6 +11,7 @@ import { AUDIO_DURATION_MISMATCH_TOLERANCE } from '../audio/projectAudio';
 import type { ChartNote } from '../chart/types';
 import type { ChartCodeFidelity } from '../chart/editing/ChartConverter';
 import { logger } from '../diagnostics/logger';
+import { trail } from '../diagnostics/trail';
 
 export interface UseChartProjectPersistenceOptions {
   /** 当前工程 id；null = 尚未 ensure，不读写 */
@@ -326,7 +327,16 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     if (!restoreSettledRef.current) return Promise.resolve();
     const next = buildProject();
     if (!next) return Promise.resolve();
-    return ensureMerger().saveNow(next);
+    const projectId = next.id;
+    return ensureMerger().saveNow(next).then(
+      () => {
+        trail.record({ module: 'project', action: 'save', result: 'ok', meta: { projectId } });
+      },
+      (err: unknown) => {
+        trail.record({ module: 'project', action: 'save', result: 'fail', meta: { projectId } });
+        throw err;
+      },
+    );
   }, [buildProject, ensureMerger]);
 
   // 返回对象一并求稳：调用方（WorkspacePage 的 persistNow）以它为 useCallback 依赖，

@@ -21,6 +21,7 @@ import {
   decideWorkspaceProject,
   pickCurrentChart,
 } from './workspaceProject';
+import { trail } from '../diagnostics/trail';
 
 export interface CurrentProjectClock {
   now: () => number;
@@ -127,14 +128,20 @@ export class CurrentProjectSession {
     // get → 改 lastOpened → save 属记录侧整记录读-改-写，走唯一写入口（06 票）；
     // 会话自身的指针写入仍在下面 persistPointer。
     const now = this.clock.now();
-    const result = await mutateProject({ store: this.store }, projectId, (loaded) => ({ ...loaded, lastOpened: now }));
-    if (result.status !== 'saved') throw new Error(`谱面工程不存在: ${JSON.stringify(projectId)}`);
-    const project: ChartProject = result.project;
-    const chart = pickCurrentChart(project, chartId);
-    this._projectId = project.id;
-    this._chartId = chart.id;
-    this.persistPointer();
-    return { project, chart };
+    try {
+      const result = await mutateProject({ store: this.store }, projectId, (loaded) => ({ ...loaded, lastOpened: now }));
+      if (result.status !== 'saved') throw new Error(`谱面工程不存在: ${JSON.stringify(projectId)}`);
+      const project: ChartProject = result.project;
+      const chart = pickCurrentChart(project, chartId);
+      this._projectId = project.id;
+      this._chartId = chart.id;
+      this.persistPointer();
+      trail.record({ module: 'project', action: 'open', result: 'ok', meta: { projectId: project.id } });
+      return { project, chart };
+    } catch (err) {
+      trail.record({ module: 'project', action: 'open', result: 'fail', meta: { projectId } });
+      throw err;
+    }
   }
 
   /** 删除当前工程后卸会话；进工作台会再 ensure。指针一并清掉（issue 20）。 */

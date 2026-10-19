@@ -1,5 +1,6 @@
 import { APP_VERSION } from './appVersion';
 import { logger } from '../diagnostics/logger';
+import { trail } from '../diagnostics/trail';
 
 export type AppUpdateStatus = 'idle' | 'checking' | 'downloading' | 'ready' | 'current' | 'error';
 
@@ -81,8 +82,26 @@ export async function checkAppUpdate(opts?: { silent?: boolean }): Promise<void>
   const api = getAppUpdateBridge();
   if (!api) return;
   silentCheck = !!opts?.silent;
+  const t0 = Date.now();
+  trail.record({ module: 'app-update', action: 'check-start' });
   try {
     await api.check();
+    const result = state.status === 'error' ? 'fail' : state.status === 'current' ? 'current' : 'ok';
+    trail.record({
+      module: 'app-update',
+      action: 'check-end',
+      result,
+      durationMs: Date.now() - t0,
+      ...(state.availableVersion ? { meta: { availableVersion: state.availableVersion } } : {}),
+    });
+  } catch (err) {
+    trail.record({
+      module: 'app-update',
+      action: 'check-end',
+      result: 'fail',
+      durationMs: Date.now() - t0,
+    });
+    throw err;
   } finally {
     if (silentCheck) applyUpdateState(state);
     silentCheck = false;
