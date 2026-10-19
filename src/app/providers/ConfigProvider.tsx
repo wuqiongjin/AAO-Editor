@@ -18,6 +18,8 @@ export interface ConfigContextValue {
   setUiTypeScale: (uiTypeScale: number) => void;
   /** chrome 无衬线字体档（issue 124） */
   setUiFontStack: (uiFontStack: AppSettings['uiFontStack']) => void;
+  /** 启动自动检查（ADR-0021）：写入设置对象 */
+  setAutoCheck: (autoCheck: boolean) => void;
   /** 布局（面板宽/折叠，ADR-0003 §6）：字段级写回并持久化 */
   setLayout: (layout: AppSettings['layout']) => void;
   /** 画布显示参数（issue 39 功能设置·画布显示）：字段级写回并持久化 */
@@ -109,6 +111,14 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const setUiFontStack = useCallback((uiFontStack: AppSettings['uiFontStack']) => {
     setSettings(prev => {
       const merged = updateSettings(prev, { uiFontStack });
+      saveSettings(merged);
+      return merged;
+    });
+  }, []);
+
+  const setAutoCheck = useCallback((autoCheck: boolean) => {
+    setSettings(prev => {
+      const merged = updateSettings(prev, { autoCheck });
       saveSettings(merged);
       return merged;
     });
@@ -263,7 +273,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

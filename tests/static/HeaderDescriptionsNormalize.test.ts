@@ -37,9 +37,9 @@ describe('issue 171 · 全局页面头与指引文案去口语化规范整改', 
       '查看并自定义编辑器全局与工作台操作快捷键。',
     );
 
-    // 6. settings.header.description -> 管理应用外观偏好、界面语言与本地数据存储。
+    // 6. settings.header.description
     expect(zh['settings.header.description']).toBe(
-      '管理应用外观偏好、界面语言与本地数据存储。',
+      '管理应用外观偏好、界面语言、本地数据存储与应用更新。',
     );
   });
 
@@ -60,7 +60,7 @@ describe('issue 171 · 全局页面头与指引文案去口语化规范整改', 
       'View and customize global and workspace editor shortcuts.',
     );
     expect(en['settings.header.description']).toBe(
-      'Manage app appearance preferences, UI language, and local data storage.',
+      'Manage app appearance preferences, UI language, local data storage, and app updates.',
     );
   });
 

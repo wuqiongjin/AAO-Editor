@@ -7,6 +7,7 @@ import { useConfig } from '../app/ProviderTree';
 import { t } from '../i18n';
 import { DEFAULT_PAGE_ID, PAGE_NAV } from './pageNav';
 import { useCurrentProject } from '../app/providers/CurrentProjectProvider';
+import AppUpdateHost from '../app/AppUpdateHost';
 import type { PageScope } from './pageScope';
 import './AppShell.css';
 
@@ -92,6 +93,7 @@ export default function AppShell() {
       <div className={`app-shell${navCollapsed ? ' is-nav-collapsed' : ''}`}>
         {/* 全局轻提示的宿主（issue 17）：挂一次，portal 到 body，层高在弹窗之上 */}
         <ToastHost />
+        <AppUpdateHost />
         <aside className="app-nav" aria-label={t('nav.aria')}>
           <AppNav />
         </aside>

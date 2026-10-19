@@ -102,7 +102,7 @@ describe('issue 171 · 五大内容页 Header 与指引新文案渲染', () => {
       renderPage(<SettingsPage />);
 
       expect(
-        screen.getByText('管理应用外观偏好、界面语言与本地数据存储。'),
+        screen.getByText('管理应用外观偏好、界面语言、本地数据存储与应用更新。'),
       ).toBeInTheDocument();
       expect(screen.queryByText(/修改立即生效并自动保存/)).toBeNull();
       expect(screen.queryByText(/高风险操作会单独确认/)).toBeNull();
@@ -162,7 +162,7 @@ describe('issue 171 · 五大内容页 Header 与指引新文案渲染', () => {
 
       expect(
         screen.getByText(
-          'Manage app appearance preferences, UI language, and local data storage.',
+          'Manage app appearance preferences, UI language, local data storage, and app updates.',
         ),
       ).toBeInTheDocument();
       expect(screen.queryByText(/Changes apply immediately/i)).toBeNull();

@@ -72,4 +72,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
         clear: () => ipcRenderer.invoke('assetCache:clear'),
         configure: (policy) => ipcRenderer.invoke('assetCache:configure', policy),
     },
+    // ADR-0021：应用更新。事件从主进程推过来；检查 / 安装由渲染进程按设置对象里的自动检查发起。
+    appUpdate: {
+        getState: () => ipcRenderer.invoke('appUpdate:getState'),
+        check: () => ipcRenderer.invoke('appUpdate:check'),
+        install: () => ipcRenderer.invoke('appUpdate:install'),
+        onEvent: (cb) => {
+            const listener = (_event, payload) => cb(payload);
+            ipcRenderer.on('appUpdate:event', listener);
+            return () => ipcRenderer.removeListener('appUpdate:event', listener);
+        },
+    },
 });

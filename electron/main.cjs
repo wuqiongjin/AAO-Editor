@@ -54,6 +54,8 @@ const {
     uploadRefs,
 } = require('./projectStore.cjs');
 const { t, setActiveUiLanguage } = require('./i18n.cjs');
+const { autoUpdater } = require('electron-updater');
+const { createAppUpdater, registerAppUpdateIpc } = require('./appUpdate.cjs');
 
 // ---------------------------------------------------------------------------
 // 谱面工程文件后端（ADR-0015）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
@@ -333,6 +335,17 @@ const communitySessionStore = createSessionStore({
     filePath: () => sessionFilePath(userDataDir()),
 });
 registerCommunitySessionIpc(ipcMain, { gateway: communityGateway, store: communitySessionStore });
+
+registerAppUpdateIpc(ipcMain, createAppUpdater({
+    isPackaged: () => app.isPackaged,
+    getVersion: () => app.getVersion(),
+    autoUpdater,
+    send: (channel, payload) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+            win.webContents.send(channel, payload);
+        }
+    },
+}));
 
 // ---------------------------------------------------------------------------
 // 主窗体几何记忆（issue 119 / 117）：userData/app-state.json 的 window 字段。

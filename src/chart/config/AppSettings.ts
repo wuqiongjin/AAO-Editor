@@ -50,6 +50,8 @@ export interface AppSettings {
   uiTypeScale: number;
   /** chrome 无衬线字体档（issue 124）。additive，不 bump schemaVersion */
   uiFontStack: UiFontStackId;
+  /** 启动时自动检查更新（ADR-0021）。additive，不 bump schemaVersion；默认开 */
+  autoCheck: boolean;
   layout: {
     leftPanel: { width: number; collapsed: boolean };
     rightPanel: { width: number; collapsed: boolean };
@@ -369,6 +371,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     uiLanguage: resolveUiLanguage(undefined, osLanguage),
     uiTypeScale: 1,
     uiFontStack: 'geist',
+    autoCheck: true,
     layout: {
       leftPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
       rightPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
@@ -445,6 +448,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     uiLanguage: resolveUiLanguage(obj.uiLanguage, osLanguage),
     uiTypeScale: normalizeUiTypeScale(obj.uiTypeScale, defaults.uiTypeScale),
     uiFontStack: normalizeUiFontStack(obj.uiFontStack, defaults.uiFontStack),
+    autoCheck: typeof obj.autoCheck === 'boolean' ? obj.autoCheck : defaults.autoCheck,
     layout: {
       leftPanel: {
         width: typeof leftPanel.width === 'number' && leftPanel.width > 0 ? leftPanel.width : defaults.layout.leftPanel.width,
@@ -604,6 +608,7 @@ export function updateSettings(
     uiLanguage: UiLanguage;
     uiTypeScale: number;
     uiFontStack: UiFontStackId;
+    autoCheck: boolean;
     layout: AppSettings['layout'];
     shortcuts: AppSettings['shortcuts'];
     audio: Partial<AppSettings['audio']>;
@@ -622,6 +627,7 @@ export function updateSettings(
     uiLanguage: patch.uiLanguage ?? prev.uiLanguage,
     uiTypeScale: patch.uiTypeScale !== undefined ? normalizeUiTypeScale(patch.uiTypeScale, prev.uiTypeScale) : prev.uiTypeScale,
     uiFontStack: patch.uiFontStack !== undefined ? normalizeUiFontStack(patch.uiFontStack, prev.uiFontStack) : prev.uiFontStack,
+    autoCheck: patch.autoCheck ?? prev.autoCheck,
     layout: patch.layout ?? prev.layout,
     shortcuts: patch.shortcuts ?? prev.shortcuts,
     audio: { ...prev.audio, ...(patch.audio ?? {}) },

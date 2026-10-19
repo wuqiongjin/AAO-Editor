@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Download, FolderOpen, FolderSearch, FolderSync, MonitorCog, Trash2, Upload } from 'lucide-react';
+import { Check, Download, FolderOpen, FolderSearch, FolderSync, Info, MonitorCog, RefreshCw, Trash2, Upload } from 'lucide-react';
+import appLogo from '../../assets/brand/app-logo.png';
 import AppPageShell from '../../layouts/AppPageShell';
 import { useConfig } from '../../app/ProviderTree';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
@@ -10,9 +11,17 @@ import { clearSongCatalogCache } from '../../community/bestdori/songs';
 import { shouldResetSessionAfterDataRootSwitch } from '../../project/CurrentProjectSession';
 import { backgroundSkinStore } from '../../rendering/skin/backgroundSkin';
 import { showToast } from '../../ui/Toast';
+import { APP_VERSION } from '../../app/appVersion';
+import {
+  checkAppUpdate,
+  getAppUpdateState,
+  installAppUpdate,
+  subscribeAppUpdate,
+  type AppUpdateState,
+} from '../../app/appUpdate';
 
 // 设置页：接入 AppPageShell（Sidebar 扁平导航 + Body 设置详情），修改立即生效并持久化。
-type Section = 'appearance' | 'data';
+type Section = 'appearance' | 'data' | 'about';
 
 const THEME_OPTIONS: Array<{ value: AppSettings['theme']; labelKey: MessageKey; swatch: string }> = [
   { value: 'light', labelKey: 'settings.theme.light', swatch: 'light' },
@@ -117,8 +126,88 @@ function NumberRow({
   );
 }
 
+function updateStatusText(state: AppUpdateState): string | null {
+  switch (state.status) {
+    case 'checking':
+      return t('update.status.checking');
+    case 'downloading':
+      return t('update.status.downloading', { percent: Math.round(state.percent ?? 0) });
+    case 'ready':
+      return t('update.status.ready');
+    default:
+      return null;
+  }
+}
+
+function AboutSection({
+  version, packaged, updateState, autoCheck, onAutoCheck, onCheck, onInstall,
+}: {
+  version: string;
+  packaged: boolean;
+  updateState: AppUpdateState;
+  autoCheck: boolean;
+  onAutoCheck: (v: boolean) => void;
+  onCheck: () => void;
+  onInstall: () => void;
+}) {
+  const busy = updateState.status === 'checking' || updateState.status === 'downloading';
+  const ready = updateState.status === 'ready';
+  const status = packaged ? updateStatusText(updateState) : null;
+  return (
+    <>
+      <div className="settings-heading">
+        <h2>{t('settings.section.about')}</h2>
+        <p>{t('settings.about.intro')}</p>
+      </div>
+      <div className="about-identity">
+        <img className="about-identity__mark" src={appLogo} alt="" width={48} height={48} />
+        <div className="about-identity__text">
+          <strong className="about-identity__name">{t('app.name')}</strong>
+          <span className="about-identity__ver">{t('settings.appVersion')} {version}</span>
+        </div>
+      </div>
+      {packaged && (
+        <>
+          <div className="settings-row">
+            <div className="settings-row__text">
+              <strong>{t('settings.autoCheck')}</strong>
+              <span>{t('settings.autoCheck.hint')}</span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoCheck}
+              aria-label={t('settings.autoCheck')}
+              className={`switch${autoCheck ? ' is-on' : ''}`}
+              onClick={() => onAutoCheck(!autoCheck)}
+            >
+              <span />
+            </button>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row__text">
+              <strong>{ready ? t('update.restart') : t('settings.checkUpdate')}</strong>
+              <span>{status ?? t('settings.checkUpdate.hint')}</span>
+            </div>
+            <button
+              className="button-secondary"
+              type="button"
+              disabled={busy}
+              onClick={ready ? onInstall : onCheck}
+            >
+              {ready ? t('update.restart') : (
+                <><RefreshCw size={15} />{t('settings.checkUpdate')}</>
+              )}
+            </button>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 export default function SettingsPage({ active = true }: { active?: boolean }) {
-  const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setCachePolicy, setAllSettings } = useConfig();
+  const { settings, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setCachePolicy, setAllSettings } = useConfig();
   // 切数据根的联动对象（chart-projects 39）：目录消费者通知 + 当前工程会话 + 存储门面
   const { projectId, store, reset, notifyCatalogChanged } = useCurrentProject();
   const [section, setSection] = useState<Section>('appearance');
@@ -132,6 +221,16 @@ export default function SettingsPage({ active = true }: { active?: boolean }) {
   const [cacheStats, setCacheStats] = useState<AssetCacheStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
   const [cacheError, setCacheError] = useState<string | null>(null);
+  const [updateState, setUpdateState] = useState<AppUpdateState>(getAppUpdateState);
+
+  useEffect(() => subscribeAppUpdate(setUpdateState), []);
+
+  const handleCheckUpdate = async () => {
+    await checkAppUpdate();
+    const next = getAppUpdateState();
+    if (next.status === 'current') showToast(t('update.status.current'), 'success');
+    if (next.status === 'error') showToast(t('update.status.error'), 'danger');
+  };
 
   useEffect(() => {
     if (!dataRootApi) return;
@@ -289,6 +388,12 @@ export default function SettingsPage({ active = true }: { active?: boolean }) {
           label={t('settings.section.data')}
           active={section === 'data'}
           onClick={() => setSection('data')}
+        />
+        <AppPageShell.SidebarItem
+          icon={Info}
+          label={t('settings.section.about')}
+          active={section === 'about'}
+          onClick={() => setSection('about')}
         />
       </AppPageShell.Sidebar>
 
@@ -460,6 +565,18 @@ export default function SettingsPage({ active = true }: { active?: boolean }) {
               </div>
               {importError && <div className="shortcut-error">{importError}</div>}
             </>
+          )}
+
+          {section === 'about' && (
+            <AboutSection
+              version={updateState.currentVersion || APP_VERSION}
+              packaged={updateState.packaged}
+              updateState={updateState}
+              autoCheck={settings.autoCheck}
+              onAutoCheck={setAutoCheck}
+              onCheck={() => void handleCheckUpdate()}
+              onInstall={() => void installAppUpdate()}
+            />
           )}
         </section>
       </AppPageShell.Body>

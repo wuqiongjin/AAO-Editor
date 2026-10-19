@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe('issue 172 · 设置页清理布局空态与扁平化侧栏分组', () => {
-  it('侧栏直接平铺：仅存在【外观】与【存储与数据】两项，不存在布局项与分组外壳', () => {
+  it('侧栏直接平铺：【外观】【存储与数据】【关于】三项，不存在布局项与分组外壳', () => {
     const { container } = renderSettings();
 
     const sidebar = container.querySelector('.app-page-shell__sidebar');
@@ -40,13 +40,11 @@ describe('issue 172 · 设置页清理布局空态与扁平化侧栏分组', () 
     expect(screen.queryByText('应用设置', { selector: '.app-page-shell__sidebar-group-title' })).toBeNull();
     expect(screen.queryByText('功能设置', { selector: '.app-page-shell__sidebar-group-title' })).toBeNull();
 
-    // 侧栏仅有 2 个 item
     const items = sidebar!.querySelectorAll('.app-page-shell__sidebar-item');
-    expect(items.length).toBe(2);
+    expect(items.length).toBe(3);
 
-    // 两个项目分别为外观与存储与数据
     const itemLabels = Array.from(items).map((el) => el.textContent?.trim());
-    expect(itemLabels).toEqual(['外观', '存储与数据']);
+    expect(itemLabels).toEqual(['外观', '存储与数据', '关于']);
 
     // 绝不存在布局与画布显示导航项
     expect(screen.queryByRole('button', { name: '布局' })).toBeNull();
