@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppSettings } from '../../chart/config/AppSettings';
 import { t } from '../../i18n';
+import { logger } from '../../diagnostics/logger';
 import {
   DEFAULT_VIDEO_CONTAINER,
   DEFAULT_VIDEO_TIER,
@@ -86,7 +87,7 @@ export function exportDoneText(outcome: VideoExportOutcome): string {
 /**
  * 导出结果的文案映射：失败与不可用**必须说出口**，不静默。
  *
- * 文案全走 i18n（域层只回失败档）：原始错误不拼进界面 —— 它已在域层 `console.error`，
+ * 文案全走 i18n（域层只回失败档）：原始错误不拼进界面 —— 它已在域层 `logger.error`，
  * 拼上去只会把英文界面漏成中文、把普通用户看不懂的技术话漏进来。
  */
 export function noticeFor(outcome: VideoExportOutcome): VideoExportNotice | null {
@@ -191,7 +192,7 @@ export function useVideoExport(
       updateNotice(noticeFor(outcome));
       return outcome;
     } catch (err) {
-      console.error('[preview] 导出视频异常', err);
+      logger.error('[preview]', '导出视频异常', err);
       updateNotice({ text: t('preview.video.export.failed'), tone: 'danger' });
       return undefined;
     } finally {

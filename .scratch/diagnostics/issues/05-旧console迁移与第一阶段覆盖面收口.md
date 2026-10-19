@@ -1,5 +1,5 @@
 Type: chore
-Status: open
+Status: resolved
 Blocked by: 01
 
 ## 来源
@@ -41,3 +41,16 @@ ADR-0019 §2 第一阶段范围。2026-10-13 快照：`src/` 18 处 `console.*` 
 - `src/` 仍约 18 处 `console.warn/error`（i18n、持久化、导出、皮肤、画布精灵、设置页数据根切换后读目录等）。
 - `electron/`：`projectStore.cjs` 3、`i18n.cjs` 1。
 - `src/community/`：0 处 `console.*`，失败已结构化，缺的是落盘。
+
+### 2026-10-19 实现口径（grill 全同意推荐）
+
+- 噪音级 `console` 不动（i18n / 精灵预热 / 仿真解码 / CanvasSpriteIcon / 切根读目录 / `electron/i18n.cjs`）。
+- 社区只在出口抛 `CommunityError` 时落盘；extra 仅 `{ kind, httpStatus, platformCode }`；`unsupported-runtime` 不写；重试中间失败也写。
+- 视频：域层「导出视频失败」+ hook「导出视频异常」；静态图只在 PreviewPage。
+- 应用更新在 `applyUpdateState` 收到 `error` 时写（silent 收 UI 之前）。
+- `projectStore` 经 `setAppLog` 注入 sink；未注入退回 `console.warn`。
+- 能降级 → warn，写/导出/社区/更新失败 → error；用 logger 替换原 `console.*`（双写）。
+
+## Answer
+
+表内失败路径接到票 01 logger / 主进程 sink。社区 `ElectronCommunityTransport` 抛错落 `[community]`；工程 hook / `projectStore` 降级 warn；导出 / 资产 IO / 应用更新 error。锁测：`tests/unit/community/transport.test.ts`、`tests/static/DiagnosticsPhase1Coverage.test.ts`、`tests/static/ChartProjectPersistence.test.ts`、`tests/platform/electron/ProjectStoreFs.test.ts`。不追求 `src/` 零 `console.*`。

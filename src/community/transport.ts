@@ -183,6 +183,18 @@ export function isCommunityError(value: unknown): value is CommunityError {
   return value instanceof CommunityError;
 }
 
+/** 落盘 extra：只有诊断用的 kind / 状态码 / 平台码，不带 Cookie / 密码 / 请求体。 */
+export function communityErrorLogExtra(error: CommunityError): {
+  kind: CommunityErrorKind;
+  httpStatus?: number;
+  platformCode?: string;
+} {
+  const extra: { kind: CommunityErrorKind; httpStatus?: number; platformCode?: string } = { kind: error.kind };
+  if (error.httpStatus !== undefined) extra.httpStatus = error.httpStatus;
+  if (error.platformCode !== undefined) extra.platformCode = error.platformCode;
+  return extra;
+}
+
 /** 连不上（离线 / 超时）—— 可用性只认这一类为「社区平台没答话」 */
 export function isOfflineError(value: unknown): boolean {
   return isCommunityError(value) && isOfflineKind(value.kind);

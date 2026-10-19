@@ -1,7 +1,8 @@
 // 票 07：社区出口的统一错误域与「假出口」接线。
 // 假出口 = 一个 CommunityNetBridge 替身（就是 preload 那条桥的形状），
 // 假时钟 = rateLimit 的注入式 sleep/random；两者都不碰网络、不依赖 vi.useFakeTimers。
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { logger } from '@/src/diagnostics/logger';
 import {
   CommunityError,
   isCommunityError,
@@ -183,5 +184,51 @@ describe('票 07 · 统一错误域的 retryable 判定表', () => {
     expect(error).toMatchObject({ kind: 'unauthorized', httpStatus: 200, platformCode: 'LOGIN_REQUIRED', retryable: false });
     expect(isCommunityError(error)).toBe(true);
     expect(isCommunityError(new Error('x'))).toBe(false);
+  });
+});
+
+describe('票 05 · 社区失败落盘（出口抛错时）', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('网关 ok:false → logger.error [community]，extra 只有 kind / httpStatus / platformCode', async () => {
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const { bridge } = fakeBridge(
+      failWire('unauthorized', { httpStatus: 401, platformCode: 'LOGIN_REQUIRED' }),
+    );
+    await expect(
+      new ElectronCommunityTransport(bridge).requestJson({ url: 'https://bestdori.com/api/user/me' }),
+    ).rejects.toMatchObject({ kind: 'unauthorized' });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe('[community]');
+    expect(spy.mock.calls[0][1]).toBe('失败（unauthorized）');
+    expect(spy.mock.calls[0][2]).toEqual({
+      kind: 'unauthorized',
+      httpStatus: 401,
+      platformCode: 'LOGIN_REQUIRED',
+    });
+    expect(Object.keys(spy.mock.calls[0][2] as object).sort()).toEqual([
+      'httpStatus',
+      'kind',
+      'platformCode',
+    ]);
+  });
+
+  it('unsupported-runtime（没桥）不写盘', async () => {
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    await expect(
+      createCommunityTransport(null).requestJson({ url: 'https://bestdori.com/api/x' }),
+    ).rejects.toMatchObject({ kind: 'unsupported-runtime' });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('可重试失败每次 send 都落一行（中间失败也写）', async () => {
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const { bridge } = fakeBridge(failWire('timeout'), failWire('timeout'), failWire('timeout'));
+    await withRetry(() => new ElectronCommunityTransport(bridge).requestText({ url: 'https://bestdori.com/api/x' }), {
+      policy: POLICY,
+      deps: fakeClock().deps,
+    }).catch(() => {});
+    expect(spy).toHaveBeenCalledTimes(3);
   });
 });

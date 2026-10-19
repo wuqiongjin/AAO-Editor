@@ -7,6 +7,31 @@ const { cacheDir, isPathInside, projectDir, projectsDir, safeProjectId } = requi
 
 const SCHEMA_VERSION = 1;
 
+/** 主进程 logger sink（票 05）。测试 / 未注入时退回 console.warn。 */
+let appLog = null;
+
+function setAppLog(log) {
+    appLog = log && typeof log.write === 'function' ? log : null;
+}
+
+function storeWarn(message, extra) {
+    if (appLog) {
+        try {
+            appLog.write({
+                level: 'warn',
+                module: 'project-store',
+                message,
+                extra,
+                ts: new Date().toISOString(),
+            });
+        } catch {
+            /* 日志失败不能打翻业务 */
+        }
+        return;
+    }
+    console.warn(`[project-store] ${message}`, extra);
+}
+
 async function writeFileAtomic(filePath, data) {
     const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
     await fs.promises.writeFile(tmpPath, data);
@@ -36,7 +61,7 @@ async function readProjectJson(dir) {
     try {
         return JSON.parse(raw);
     } catch (err) {
-        console.warn('[project-store] project.json 解析失败，按空数据处理:', err);
+        storeWarn('project.json 解析失败，按空数据处理:', err);
         return null;
     }
 }
@@ -46,7 +71,7 @@ async function readBinIfPresent(dir, fileName, present) {
     try {
         return await fs.promises.readFile(path.join(dir, fileName));
     } catch (err) {
-        console.warn(`[project-store] ${fileName} 缺失，按无数据处理:`, err);
+        storeWarn(`${fileName} 缺失，按无数据处理:`, err);
         return null;
     }
 }
@@ -184,7 +209,7 @@ async function uploadRefs(dataRoot, rawId) {
                 hash: crypto.createHash('sha1').update(bytes).digest('hex'),
             };
         } catch (err) {
-            console.warn(`[project-store] ${fileName} 缺失，按无数据处理:`, err);
+            storeWarn(`${fileName} 缺失，按无数据处理:`, err);
             out[kind] = null;
         }
     }
@@ -198,4 +223,5 @@ module.exports = {
     listProjects,
     deleteProject,
     uploadRefs,
+    setAppLog,
 };

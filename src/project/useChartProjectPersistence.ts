@@ -10,6 +10,7 @@ import { isProjectAudioLocked, pickCurrentChart } from './workspaceProject';
 import { AUDIO_DURATION_MISMATCH_TOLERANCE } from '../audio/projectAudio';
 import type { ChartNote } from '../chart/types';
 import type { ChartCodeFidelity } from '../chart/editing/ChartConverter';
+import { logger } from '../diagnostics/logger';
 
 export interface UseChartProjectPersistenceOptions {
   /** 当前工程 id；null = 尚未 ensure，不读写 */
@@ -72,7 +73,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       debounceMs,
       save: async (project) => {
         await storeRef.current!.save(project).catch((err: unknown) => {
-          console.warn('[chart-project] 谱面工程落盘失败（下次编辑会重试）:', err);
+          logger.warn('[chart-project]', '谱面工程落盘失败（下次编辑会重试）:', err);
         });
       },
     });
@@ -237,7 +238,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       try {
         loaded = await store.get(wantedProject);
       } catch (err: unknown) {
-        console.warn('[chart-project] 谱面工程读取失败，按空谱面继续:', err);
+        logger.warn('[chart-project]', '谱面工程读取失败，按空谱面继续:', err);
       }
       if (gen !== loadGenRef.current) return;
       if (!loaded) {

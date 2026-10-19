@@ -12,6 +12,7 @@ import { Clapperboard, FolderOpen, Images } from 'lucide-react';
 import EmptyState from '../../ui/EmptyState';
 import ScopePicker from '../../ui/ScopePicker';
 import { showToast } from '../../ui/Toast';
+import { logger } from '../../diagnostics/logger';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig, useUI } from '../../app/ProviderTree';
 import {
@@ -298,7 +299,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
         outcome.plan.downscaled ? 'warn' : 'success',
       );
     } catch (err) {
-      console.error('[preview] 导出宽图失败', err);
+      logger.error('[preview]', '导出宽图失败', err);
       showToast(t('preview.static.exportFailed'), 'danger');
     } finally {
       setExporting(false);

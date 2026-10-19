@@ -1,4 +1,5 @@
 import { APP_VERSION } from './appVersion';
+import { logger } from '../diagnostics/logger';
 
 export type AppUpdateStatus = 'idle' | 'checking' | 'downloading' | 'ready' | 'current' | 'error';
 
@@ -47,6 +48,9 @@ function isQuietTerminal(status: AppUpdateStatus) {
 
 /** 启动自动检查期间把「已是最新 / 失败」收成 idle（updater 常 error 事件 + check() 再抛一次）。 */
 function applyUpdateState(next: AppUpdateState) {
+  if (next.status === 'error') {
+    logger.error('[app-update]', next.errorMessage ?? 'update failed');
+  }
   if (silentCheck && isQuietTerminal(next.status)) {
     publish({ ...next, status: 'idle', errorMessage: undefined });
     return;
