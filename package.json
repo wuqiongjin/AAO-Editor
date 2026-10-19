@@ -6,6 +6,9 @@
   "author": "AAO Editor",
   "main": "electron/main.cjs",
   "homepage": "./",
+  "engines": {
+    "node": ">=20.19"
+  },
   "scripts": {
     "dev": "vite",
     "dev:cloud": "DISABLE_HMR=1 vite",
@@ -94,9 +97,20 @@
       "owner": "wuqiongjin",
       "repo": "AAO-Editor"
     },
+    "releaseInfo": {
+      "releaseNotesFile": "RELEASE_NOTES.md"
+    },
     "mac": {
       "category": "public.app-category.music",
-      "target": "dmg",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
       "icon": "public/icon.png"
     },
     "win": {

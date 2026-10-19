@@ -44,6 +44,27 @@ export function sourceFiles(dir: string): string[] {
 }
 
 /**
+ * 多目录文本文件扫描（相对**仓库根**的路径）——跨仓文档 / 配置类静态锁的 walker。
+ * 与 `sourceFiles` 的分工：那条只服务 `src` 单树的 `.ts/.tsx`；这条服务
+ * "扫 md / yml / mjs / sh / json 等多种扩展名、跨多棵树"的场景。
+ * 第二套口径仍然只有一处——都在本文件里，调用方只给目录表与扩展名。
+ */
+export function textFilesUnder(dirs: string[], ext: RegExp, skip = ['node_modules', '.git']): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(join(repoRoot, dir))) {
+      if (skip.includes(entry)) continue;
+      const rel = dir ? `${dir}/${entry}` : entry;
+      const abs = join(repoRoot, rel);
+      if (statSync(abs).isDirectory()) walk(rel);
+      else if (ext.test(entry)) out.push(rel);
+    }
+  };
+  for (const dir of dirs) walk(dir);
+  return out;
+}
+
+/**
  * 取某条 CSS 规则的声明块（`选择器 { … }` 里的 `…`；第一条命中）。
  *
  * 静态锁里要断言"某条规则里有没有某个声明"，用整表正则（`selector[^{]*\{[^}]*…`）会把

@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# electron-builder 输出目录（安装包产物，本地 electron:dist 会落在这里）
+/release/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

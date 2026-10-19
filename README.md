@@ -10,7 +10,9 @@
 
 ## 下载
 
-桌面安装包见 **[GitHub Releases](https://github.com/wuqiongjin/AAO-Editor/releases)**（Windows NSIS / macOS DMG / Linux AppImage，由 electron-builder 打包）。
+桌面安装包见 **[GitHub Releases](https://github.com/wuqiongjin/AAO-Editor/releases)**（Windows NSIS / macOS DMG / Linux AppImage，由 electron-builder 打包）；国内网络也可从 **[CNB Releases](https://cnb.cool/AsterPicker/AAO-Editor/-/releases)** 下载同一批安装包（发布后自动同步，略晚于 GitHub）。
+
+安装包暂未做代码签名：macOS 首次打开请右键（或按住 Ctrl 点按）选「打开」；Windows 若弹出 SmartScreen 提示，点「仍要运行」即可。
 
 本应用为非营利粉丝自制工具，安装包内含 BanG Dream! 相关游戏素材。使用前请阅读 [非官方声明](#非官方声明) 中的版权与免责说明。
 
@@ -118,9 +120,11 @@ AAO Editor 是一款非营利的粉丝自制工具，与 Bushiroad、Craft Egg �
 git clone https://github.com/wuqiongjin/AAO-Editor.git
 cd AAO-Editor
 npm install
-npm run assets:sync   # 同步皮肤、键音、场地等运行时素材（首次克隆后执行）
+npm run assets:sync   # 同步皮肤、键音、场地等运行时素材（需 CNB 访问凭据，向维护者索取）
 bash scripts/dev.sh   # 启动开发服务器（统一处理文件描述符上限与对外地址）
 ```
+
+> **仓库结构**：开发与 CI 在 [CNB 主仓](https://cnb.cool/AsterPicker/AAO-Editor)，GitHub 为发布镜像（安装包发布 + 代码自动同步）。Issues / PR 请直接提交到 GitHub 仓；PR 合并后由维护者回流 CNB——代码以 CNB 为准，直接推送到 GitHub 的提交进不了镜像（非快进会被拒绝）。
 
 常用命令：`npm test`（单元测试 + 静态锁测）、`npm run build`（Web 构建）、`npm run electron:dev` / `npm run electron:build`（桌面端开发 / 打包）。
 

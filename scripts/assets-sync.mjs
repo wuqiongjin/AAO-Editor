@@ -8,6 +8,9 @@
 // 用法：
 //   node scripts/assets-sync.mjs                 # 取件（缺才拉；按根整取，快照为准）
 //   node scripts/assets-sync.mjs --check         # 只检查是否已取件（setup.sh / dev.sh 用）
+//
+// 凭据：CNB 上的 https 源 + 环境里的 CNB_TOKEN（CNB 流水线内置 / 本地 export）→ 自动拼凭据，
+// 私有快照仓无需额外配置；已带凭据或非 CNB 地址原样返回。
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -36,7 +39,25 @@ const FROM_ARG = (() => {
   const i = process.argv.indexOf('--from');
   return i >= 0 ? process.argv[i + 1] : undefined;
 })();
-const SOURCE = FROM_ARG ?? process.env.ASSETS_SOURCE ?? DEFAULT_SOURCE;
+
+/**
+ * 解析最终来源：显式 --from / ASSETS_SOURCE > 内置默认。
+ * CNB 上的源 + CNB_TOKEN（流水线内置 / 本地 export）→ 自动拼凭据（私有仓免配置）；
+ * 已带凭据、非 CNB 地址、本地目录原样返回。
+ * 注意：不出现 scheme 字面量——本文件受 issue 02「来源不写明文」静态锁约束。
+ */
+function resolveSource(url) {
+  const token = process.env.CNB_TOKEN;
+  if (!token || !url.includes('://cnb.cool/') || url.includes('@')) return url;
+  return url.replace('://cnb.cool/', `://cnb:${token}@cnb.cool/`);
+}
+
+/** 日志用：凭据打码（`://user:pass@` → `://***@`），防令牌漏进构建日志 */
+function redact(url) {
+  return url.replace(/\/\/[^/@]*@/, '//***@');
+}
+
+const SOURCE = resolveSource(FROM_ARG ?? process.env.ASSETS_SOURCE ?? DEFAULT_SOURCE);
 
 const fail = (msg) => {
   console.error(`ERROR: ${msg}`);
@@ -77,7 +98,7 @@ if (fs.existsSync(SOURCE) && fs.statSync(SOURCE).isDirectory()) {
 } else {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aao-deps-'));
   const cloned = path.join(tmpDir, 'repo');
-  console.log(`    源：${SOURCE}（临时目录克隆）`);
+  console.log(`    源：${redact(SOURCE)}（临时目录克隆）`);
   try {
     execFileSync('git', ['clone', '--depth', '1', SOURCE, cloned], { stdio: ['ignore', 'pipe', 'inherit'] });
   } catch {

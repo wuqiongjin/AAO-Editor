@@ -1,0 +1,83 @@
+# CNB 云原生构建 —— 质量门禁 + GitHub 镜像 + 国内 release 副本
+# 拓扑与口径：docs/adr/0022-发布链路拓扑.md；实现票：.scratch/release-pipeline/issues/07
+#
+# secret 机制 = **密钥仓库（Keystore）**（非 GitHub 式仓库级 secret）：
+#   建一个类型为「密钥仓库」的独立仓（AsterPicker/AAO-Editor-Keystore，private），
+#   里面放 env.yml（KEY: "value" 形式），下方各流水线用 imports: 引用后注入为环境变量。
+# 当前两项：
+#   GITHUB_TOKEN   GitHub fine-grained PAT（contents + workflow 均写，仅代码仓）——镜像 job 推送用。
+#                  workflow  scope 必选：镜像推全仓含 .github/workflows/，GitHub 拒绝无此 scope 的
+#                  PAT 创建/更新 workflow 文件（2026-10-19 镜像首跑被 remote rejected 实证）。
+#   ASSETS_SOURCE  完整带只读 CNB 令牌的素材源 git 地址——门禁取素材用（ci-assets.sh 优先读它）。
+#                  不能图「零 secret」：流水线内置 CNB_TOKEN 作用域仅限当前仓，读不了
+#                  私有快照仓（2026-10-19 门禁首跑实测：clone 报 Repository Not Found）。
+# 内置：CNB_TOKEN（上传 CNB release 用；取素材不够用，见上）。
+
+main:
+  push:
+    - imports:
+        - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
+      docker:
+        image: node:22
+      stages:
+        - name: gate
+          script: bash scripts/ci/ci-gate.sh
+        - name: mirror-to-github
+          script: bash scripts/ci/ci-mirror-github.sh
+  pull_request:
+    - docker:
+        image: node:22
+      stages:
+        - name: gate
+          script: bash scripts/ci/ci-gate.sh
+  # 国内下载副本：轮询 GitHub latest release，转载到 CNB release（幂等，缺谁补谁）。
+  # 每天 22:00 一轮（Asia/Shanghai，CNB cron 平台固定，非配置项）。发版是手动低频事件，
+  # 轮询只为「免看管」；要即时补镜像走下方 web_trigger 手动触发，不靠加密频率。
+  # 单轮失败不影响后续轮次，下一轮自然重试。
+  "crontab: 0 22 * * * *":
+    - imports:
+        - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
+      docker:
+        image: node:22
+      stages:
+        - name: mirror-installers
+          script: node scripts/ci/ci-mirror-installers.mjs
+  # 手动触发：页面「构建 → 手动触发构建」选 web_trigger 事件，或分支详情页
+  # 「镜像国内副本」按钮（.cnb/web_trigger.yml）。与 cron 同一脚本，发版后即时补镜像。
+  web_trigger:
+    - imports:
+        - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
+      docker:
+        image: node:22
+      stages:
+        - name: mirror-installers
+          script: node scripts/ci/ci-mirror-installers.mjs
+
+# 发版 tag：先过门禁，再镜像到 GitHub（tag push 到 GitHub 后触发那边的 release workflow）
+v*:
+  tag_push:
+    - imports:
+        - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
+      docker:
+        image: node:22
+      stages:
+        - name: gate
+          script: bash scripts/ci/ci-gate.sh
+        - name: mirror-to-github
+          script: bash scripts/ci/ci-mirror-github.sh
+
+# 云开发环境挂载（vscode 事件，$ 兜底所有分支）：把漫游的个人环境变量接进新环境。
+# ~/.cnb 按用户维度漫游（环境销毁重建自动恢复，见 CNB 文档「代码备份和文件漫游」），
+# 但云主机每次是全新容器，export / ~/.zshenv 都不留存——这里在环境创建时重挂 hook，
+# 之后每个新终端 source 漫游文件即恢复 CNB_TOKEN 等个人变量。token 只存漫游目录，
+# 不进仓库、不进工作区、不进流水线日志。
+# 用法：~/.cnb/.env.local 里写 export CNB_TOKEN=<有素材快照仓读权限的个人访问令牌>。
+$:
+  vscode:
+    - services:
+        - vscode
+      stages:
+        - name: 挂载漫游环境变量
+          script: |
+            grep -q '.cnb/.env.local' ~/.zshenv 2>/dev/null || echo '[ -f /root/.cnb/.env.local ] && source /root/.cnb/.env.local' >> ~/.zshenv
+            echo "==> 漫游环境变量已挂载（/root/.cnb/.env.local → ~/.zshenv）"

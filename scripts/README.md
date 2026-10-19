@@ -73,6 +73,21 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 仿真场的 URL 约定见 `src/preview/video/sim/simAssets.ts`；口径与决策见
 `.scratch/release-pipeline/issues/02-素材迁出与内部镜像同步.md`。
 
+## CI / 发布（ADR-0022 · release-pipeline 07）
+
+CI 脚本住 `scripts/ci/`（门禁与发版链路共用，入口文件 `.cnb.yml` / `.github/workflows/release.yml`）：
+
+| 脚本 | 作用 |
+| --- | --- |
+| `ci/ci-assets.sh` | 素材取件（CI 用）：`ASSETS_SOURCE`（密钥仓注入）> 内置默认源（CNB 地址 + `CNB_TOKEN` 自动拼凭据——内置 token 仅限当前仓，私有快照仓必须走 `ASSETS_SOURCE`） |
+| `ci/ci-gate.sh` | 质量门禁：`npm ci` → 取素材 → `npm test` → `npm run build` → `npm run assets:check`（`lint` / `test:types` 存量债清一项收一项） |
+| `ci/ci-mirror-github.sh` | CNB → GitHub 代码镜像：**非 force** 推 `main` + tags，分叉即失败（PR 回流纪律见 ADR-0022 §2） |
+| `ci/ci-mirror-installers.mjs` | 国内下载副本（cron）：GitHub latest release → CNB release，幂等（缺谁补谁） |
+
+发版流程：CNB 上 `npm version` + 打 `v*` tag → 门禁 → 镜像到 GitHub → GitHub Actions 三平台矩阵构建并发布正式 Release（`latest*.yml` 随包，updater 立即可见）。secret 清单见票 07「人工步骤」。
+
+版本发行说明的单一来源是仓库根的 `RELEASE_NOTES.md`（**发版前更新、随发布提交**；`package.json` 的 `build.releaseInfo.releaseNotesFile` 指向它）：electron-builder 读它写进 `latest.yml` 的 `releaseNotes`（产品内「重启更新」弹窗展示，ADR-0021 §2），workflow 的 `notes` job 再把它拼进 GitHub Release 正文。未签名告知由 workflow 自动加，不写进该文件。
+
 ## 验收 / 取证（非 CI 默认）
 
 | 脚本 | 作用 |

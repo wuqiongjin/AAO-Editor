@@ -1,0 +1,99 @@
+# 发版 workflow：v* tag push / 手动 dispatch → 三平台矩阵构建 → 发布正式 Release。
+# 上游：CNB 主仓打 tag 并过门禁后，由 .cnb.yml 镜像到本仓（非 force），tag push 触发本 workflow。
+# 口径：docs/adr/0022-发布链路拓扑.md；实现票：.scratch/release-pipeline/issues/07
+#
+# 触发只有两种（分支 push / PR 不监听——门禁在 CNB，不双边重复跑）：
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布 / 补发的 tag（须已存在，且与 package.json version 一致，如 v0.1.0）'
+        required: true
+
+permissions:
+  contents: write # electron-builder 发布 release 与 gh 补 notes 用
+
+jobs:
+  # tag 与 package.json version 必须一致（npm version 手动管理，不一致即失败）。
+  # 手动 dispatch 时构建的是 inputs.tag 指向的代码，不是页面选的分支。
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: 校验 tag ↔ version
+        env:
+          TAG_INPUT: ${{ github.event.inputs.tag || '' }}
+        run: |
+          TAG="${TAG_INPUT:-$GITHUB_REF_NAME}"
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG version=$VERSION"
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::tag 与 package.json version 不一致"
+            exit 1
+          fi
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # electron 二进制跨 run 缓存（各平台路径不同，按 OS 分开 key）
+      - name: 缓存 electron 二进制
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/AppData/Local/electron/Cache
+            ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: 安装依赖
+        run: npm ci
+      # 素材由 CI 构建期注入（release-pipeline/01）：外部快照仓，凭据走 secret，地址不写明文。
+      # 一个 secret 到位：ASSETS_SOURCE = 完整带只读令牌的素材源 git 地址。
+      - name: 取素材
+        env:
+          ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
+        run: bash scripts/ci/ci-assets.sh
+      # 测试与 tsc 门禁已在 CNB 对该 tag 跑过（不三平台重复全量）；此处直接构建发布。
+      # macos-latest 为 arm64 runner，dmg 出 x64 + arm64 双架构（electron-builder 交叉构建）。
+      - name: 构建并发布正式 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run electron:build -- --publish=always
+
+  # 三平台都发布完后跑一次：把「未签名告知」与版本发行说明（根目录 RELEASE_NOTES.md）写进 release notes。
+  # electron-builder 的 GitHub 发布器建 release 时不写 body（payload 只有 tag/name/draft/prerelease）；
+  # 版本描述的单一来源就是仓库根的 RELEASE_NOTES.md（package.json build.releaseInfo.releaseNotesFile
+  # 指定，electron-builder 读它写进 latest.yml 的 releaseNotes）——它同时进产品内的「重启更新」弹窗
+  # （ADR-0021 §2），页面与产品内是同一份文本。文件在根目录是 issue 04 锁测禁根 build 夹之故。
+  notes:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: 补未签名告知 + 发行说明
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          NOTICE='> ⚠️ 安装包暂未做代码签名：macOS 首次打开请右键（或按住 Ctrl 点按）选「打开」；Windows 若弹出 SmartScreen 提示，点「仍要运行」即可。 / Installers are not code-signed yet: on macOS right-click (or Ctrl-click) and choose "Open" the first time; on Windows choose "Run anyway" if SmartScreen appears.'
+          NOTES=""
+          if [ -f RELEASE_NOTES.md ]; then NOTES="$(cat RELEASE_NOTES.md)"; fi
+          { printf '%s\n' "$NOTICE"; if [ -n "$NOTES" ]; then printf '\n---\n\n%s\n' "$NOTES"; fi; } > notes.md
+          gh release edit "$TAG" --notes-file notes.md
