@@ -101,14 +101,11 @@ kill_port "$PORT"
 
 # ---------- 打印对外访问地址 ----------
 # CNB 云环境的对外访问网址：绕开 VSCode 端口转发隧道，避免刷新无限转圈
-# 注：sprite-locator 的源文件已搬到 tools/sprite-locator.html，但 vite.config.ts 里的
-#     dev 中间件会把公开 URL `/sprite-locator.html` 重写到源文件，所以这里 URL 不变。
 PROXY_URL="${CNB_VSCODE_PROXY_URI:-}"
 if [ -n "$PROXY_URL" ]; then
   PUBLIC_URL="${PROXY_URL//\{\{port\}\}/$PORT}"
   echo "==> 对外访问地址（CNB 代理，绕开 VSCode 转发隧道，端口 ${PORT}）："
   echo "    $PUBLIC_URL"
-  echo "    ${PUBLIC_URL%/}/sprite-locator.html  （精灵图定位工具，独立入口，不随主应用发布）"
 fi
 
 echo "==> 启动 Vite 开发服务器（host: 0.0.0.0, port: ${PORT}）"

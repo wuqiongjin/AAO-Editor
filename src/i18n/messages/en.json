@@ -19,7 +19,6 @@
   "ui.overwrite": "Overwrite",
   "ui.dismiss": "Dismiss",
   "dialog.close": "Close",
-  "prototype.loading": "Loading layout prototype…",
   "projects.header.eyebrow": "Project manager",
   "projects.header.title": "Project manager",
   "projects.header.description": "Manage local song projects and their chart difficulty versions.",

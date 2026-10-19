@@ -33,7 +33,6 @@ tests/
 │   ├── playback/       播放条 / 滚动模型
 │   ├── project/        src/project 工程域（持久化 / 目录 / 会话 / 只读闸门…）
 │   ├── settings/       快捷键配置与索引筛选
-│   ├── tools/          tools/ 下的独立脚本（sprite-locator）
 │   ├── ui/             src/ui 通用组件
 │   └── rendering/       ← src/rendering（03 票由 visual/ 更名）
 │       ├── cache/      瓦片 / 静态层缓存
