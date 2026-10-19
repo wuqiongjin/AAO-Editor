@@ -11,6 +11,7 @@ import {
   subscribeAppUpdate,
   type AppUpdateState,
 } from './appUpdate';
+import ReleaseNotes from './ReleaseNotes';
 
 /** 应用更新宿主：启动自动检查 + 下完后的重启确认（ADR-0021）。挂在应用壳一次。 */
 export default function AppUpdateHost() {
@@ -35,6 +36,7 @@ export default function AppUpdateHost() {
 
   if (!promptOpen || state.status !== 'ready') return null;
 
+  // 发行说明：latest.yml 带下来的 markdown 子集，渲染后作弹窗正文（ADR-0021 §2）
   const notes = state.releaseNotes?.trim();
 
   return (
@@ -56,7 +58,7 @@ export default function AppUpdateHost() {
         </>
       )}
     >
-      {notes || undefined}
+      {notes ? <ReleaseNotes markdown={notes} /> : undefined}
     </Dialog>
   );
 }
