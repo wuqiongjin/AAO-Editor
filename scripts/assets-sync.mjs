@@ -100,7 +100,9 @@ if (fs.existsSync(SOURCE) && fs.statSync(SOURCE).isDirectory()) {
   const cloned = path.join(tmpDir, 'repo');
   console.log(`    源：${redact(SOURCE)}（临时目录克隆）`);
   try {
-    execFileSync('git', ['clone', '--depth', '1', SOURCE, cloned], { stdio: ['ignore', 'pipe', 'inherit'] });
+    // -c credential.helper= ：URL 内嵌凭据只用于本次 clone，禁止被 store 类助手存盘
+    // （本地 .git/.git-credentials 会把它当成 git 凭据顶掉原 token，读公共仓无恙、写直接 403）
+    execFileSync('git', ['-c', 'credential.helper=', 'clone', '--depth', '1', SOURCE, cloned], { stdio: ['ignore', 'pipe', 'inherit'] });
   } catch {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     fail(`取件失败：访问不了来源（离线 / 本机无 git 凭据 / 地址失效）`);
