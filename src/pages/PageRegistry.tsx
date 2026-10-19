@@ -4,6 +4,7 @@
 // 未来若要加 URL 路由（react-router 之类），这一层可以替换成 <Routes> 形式。
 
 import { lazy, Suspense, type ComponentType } from 'react';
+import { CrashBoundaryHost } from '../diagnostics/CrashBoundary';
 import type { PageId } from '../layouts/AppNav';
 
 // 路由目的地全部走 lazy 装入。Suspense fallback 写在这里，AppShell 不用管。
@@ -31,9 +32,11 @@ export function PageSlot({ id, active }: { id: PageId; active: boolean }) {
   const Component = PAGE_REGISTRY[id];
   return (
     <div className={`app-page${active ? ' is-active' : ''}`} aria-hidden={!active}>
-      <Suspense fallback={null}>
-        <Component active={active} />
-      </Suspense>
+      <CrashBoundaryHost scope="page" pageId={id}>
+        <Suspense fallback={null}>
+          <Component active={active} />
+        </Suspense>
+      </CrashBoundaryHost>
     </div>
   );
 }

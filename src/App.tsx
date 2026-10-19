@@ -1,6 +1,8 @@
 import './app/styles/App.css'
 import AppShell from "./layouts/AppShell";
 import { ProviderTree, useConfig } from "./app/ProviderTree";
+import { CrashBoundaryHost } from "./diagnostics/CrashBoundary";
+import ToastHost from "./ui/Toast";
 import { useApplyTheme } from './app/styles/theme';
 import { useApplyChromeTypography } from './app/styles/chromeTypography';
 import { useApplyUiLanguage } from './i18n/useApplyUiLanguage';
@@ -18,7 +20,11 @@ function Root() {
   return (
     <ProviderTree>
       <ThemeSync />
-      <AppShell />
+      {/* 在 App 崩溃壳外面：顶层错误态导出诊断包仍能 toast */}
+      <ToastHost />
+      <CrashBoundaryHost scope="app" pageId="app">
+        <AppShell />
+      </CrashBoundaryHost>
     </ProviderTree>
   );
 }

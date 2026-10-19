@@ -24,11 +24,12 @@
 - [2026-10-19] [01 日志模块与主进程落盘](./issues/01-日志模块与主进程落盘.md) 已落地：`userData/logs/` 双轨 + `log:write`/`log:trail`；`trail.append` 立刻写盘（票 02 的 ring 是调用方）。
 - [2026-10-19] [05 第一阶段失败路径落盘](./issues/05-旧console迁移与第一阶段覆盖面收口.md) 已落地：表内失败走 logger / `projectStore` sink；不追求 src 零 console。
 - [2026-10-19] [04 诊断包导出](./issues/04-诊断包导出.md) 已落地：设置页关于段导出脱敏 zip（主进程 jszip + 保存对话框）；谱面 JSON 默认不附。
+- [2026-10-19] [03 崩溃兜底三层边界](./issues/03-崩溃兜底三层边界.md) 已落地：App / 七页 PageSlot / 画布三层错误态 + 全局 `error`/`unhandledrejection` 记日志；崩溃态接导出诊断包。
 
 ## Frontier
 
 - [01 日志模块与主进程落盘](./issues/01-日志模块与主进程落盘.md) — resolved（`registerAppLogIpc` + `userData/logs/`）
 - [05 第一阶段失败路径落盘](./issues/05-旧console迁移与第一阶段覆盖面收口.md) — resolved（表内失败走 logger；不要求 src 零 console）
 - [04 诊断包导出](./issues/04-诊断包导出.md) — resolved（设置页关于段导出 zip；谱面默认不附）
-- [03 崩溃兜底三层边界](./issues/03-崩溃兜底三层边界.md) — open（Blocked by: 01；按 PageId 七页，无独立 Bestdori 路由）
+- [03 崩溃兜底三层边界](./issues/03-崩溃兜底三层边界.md) — resolved（App/PageSlot/canvas 三层 + `[uncaught]` handler；错误态接诊断包）
 - [02 操作轨迹埋点](./issues/02-操作轨迹埋点.md) — open（Blocked by: 01；第二阶段，不挡 04）

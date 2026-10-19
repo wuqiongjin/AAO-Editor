@@ -81,8 +81,10 @@ describe('issue 17 · 原生提示弹窗清零', () => {
     expect(publishEntry).toMatch(/'success' : 'warn'/);
   });
 
-  it('宿主在应用壳里挂了恰好一次（挂零处 = 提示发出去没人接）', () => {
-    expect(shell.match(/<ToastHost\s*\/>/g)).toHaveLength(1);
+  it('宿主在 App 根挂了恰好一次（挂零处 = 提示发出去没人接；须在崩溃壳外）', () => {
+    const app = readStripped('src/App.tsx');
+    expect(app.match(/<ToastHost\s*\/>/g)).toHaveLength(1);
+    expect(shell).not.toMatch(/<ToastHost\s*\/>/);
   });
 
   it('提示条层高在弹窗之上（代码弹窗里的提示要压在它自己头上）', () => {

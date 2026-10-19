@@ -32,6 +32,7 @@ import type { ProjectAudioDeps } from '../../audio/projectAudio';
 import AudioAnomalyBanner from './AudioAnomalyBanner';
 import { useAudioAnomaly } from './useAudioAnomaly';
 import { t } from '../../i18n';
+import { CrashBoundaryHost } from '../../diagnostics/CrashBoundary';
 
 interface EditorProps {
   /** issue 28 页面壳表面契约（Q16）：false 时暂停播放并抑制全局输入 */
@@ -608,16 +609,18 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             boxSizing: 'border-box',
             zIndex: 1
           }}>
-            <FinalVirtualCanvas
-              ref={virtualCanvasRef}
-              scrollHostRef={chartAreaRef}
-              onScrollChange={viewSession.onCanvasScrollChange}
-              geometry={geometry}
-              surface={surface}
-              active={active}
-              readOnly={isReadOnly}
-              onReadonlyReject={triggerReadonlyPrompt}
-            />
+            <CrashBoundaryHost scope="canvas" pageId="workspace">
+              <FinalVirtualCanvas
+                ref={virtualCanvasRef}
+                scrollHostRef={chartAreaRef}
+                onScrollChange={viewSession.onCanvasScrollChange}
+                geometry={geometry}
+                surface={surface}
+                active={active}
+                readOnly={isReadOnly}
+                onReadonlyReject={triggerReadonlyPrompt}
+              />
+            </CrashBoundaryHost>
           </div>
         </div>
         <PlayBar

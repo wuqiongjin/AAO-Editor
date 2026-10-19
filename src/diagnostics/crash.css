@@ -1,0 +1,20 @@
+.crash-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 12rem;
+  padding: var(--space-4);
+  box-sizing: border-box;
+}
+
+.crash-fallback__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
