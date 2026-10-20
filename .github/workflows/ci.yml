@@ -4,7 +4,8 @@
 # 常态路径不触发本 workflow：镜像 push（main push / tag push）不监听，只服务 PR，
 # 不存在与 CNB 双边重复跑（ADR-0022 §8 否决项「双边 CI」的口径边界正在此）。
 # 上游：docs/adr/0022-发布链路拓扑.md §9；实现票：.scratch/release-pipeline/issues/09
-#
+name: CI（PR 门禁）
+
 # 触发只有一种（release workflow 的 tag push / 手动 dispatch 在那边，不重复）：
 on:
   pull_request:

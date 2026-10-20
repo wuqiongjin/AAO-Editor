@@ -1,7 +1,8 @@
 # 发版 workflow：v* tag push / 手动 dispatch → 三平台矩阵构建 → 发布正式 Release。
 # 上游：CNB 主仓打 tag 并过门禁后，由 .cnb.yml 镜像到本仓（非 force），tag push 触发本 workflow。
 # 口径：docs/adr/0022-发布链路拓扑.md；实现票：.scratch/release-pipeline/issues/07
-#
+name: Release（发版）
+
 # 触发只有两种（分支 push / PR 不监听——PR 门禁在 ci.yml，镜像 push 不触发任何 workflow）。
 # tag 路径自带 gate job：tag 规则保留管理员直推的灵活性（ADR-0022 §9，用户 2026-10-20 拍板 B），
 # 直推的 tag 没过 CNB 门禁——由本 job 三件套兜底后才允许构建发布。
@@ -95,11 +96,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run electron:build -- --publish=always
 
-  # 三平台都发布完后跑一次：把「未签名告知」与版本发行说明（根目录 RELEASE_NOTES.md）写进 release notes。
+  # 三平台都发布完后跑一次：把版本发行说明（根目录 RELEASE_NOTES.md）写进 release notes。
   # electron-builder 的 GitHub 发布器建 release 时不写 body（payload 只有 tag/name/draft/prerelease）；
   # 版本描述的单一来源就是仓库根的 RELEASE_NOTES.md（package.json build.releaseInfo.releaseNotesFile
   # 指定，electron-builder 读它写进 latest.yml 的 releaseNotes）——它同时进产品内的「重启更新」弹窗
-  # （ADR-0021 §2），页面与产品内是同一份文本。文件在根目录是 issue 04 锁测禁根 build 夹之故。
+  # （ADR-0021 §2），页面与产品内是同一份文本。未签名告知等已知问题由该文件「已知问题」节统一承载，
+  # workflow 不二次注入——同一句文案出现两处必腐烂（ADR-0022 §6 的「README 与 release notes 双落地」
+  # 由 RELEASE_NOTES.md 与 README 两个文件各自承载，不靠 workflow 拼贴）。文件在根目录是
+  # issue 04 锁测禁根 build 夹之故。
   notes:
     needs: build
     runs-on: ubuntu-latest
@@ -107,13 +111,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
-      - name: 补未签名告知 + 发行说明
+      - name: 补发行说明（单一来源 RELEASE_NOTES.md）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: |
-          NOTICE='> ⚠️ 安装包暂未做代码签名：macOS 首次打开请右键（或按住 Ctrl 点按）选「打开」；Windows 若弹出 SmartScreen 提示，点「仍要运行」即可。 / Installers are not code-signed yet: on macOS right-click (or Ctrl-click) and choose "Open" the first time; on Windows choose "Run anyway" if SmartScreen appears.'
-          NOTES=""
-          if [ -f RELEASE_NOTES.md ]; then NOTES="$(cat RELEASE_NOTES.md)"; fi
-          { printf '%s\n' "$NOTICE"; if [ -n "$NOTES" ]; then printf '\n---\n\n%s\n' "$NOTES"; fi; } > notes.md
-          gh release edit "$TAG" --notes-file notes.md
+        run: gh release edit "$TAG" --notes-file RELEASE_NOTES.md

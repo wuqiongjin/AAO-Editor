@@ -10,10 +10,14 @@
 #   ASSETS_SOURCE   带只读令牌的素材源 git 地址——门禁取素材用（ci-assets.sh 优先读它）。
 #                   流水线内置 CNB_TOKEN 作用域仅限当前仓，取素材不够用，故走 secret。
 # 内置：CNB_TOKEN（上传 CNB release 用；取素材不够用，见上）。
+#
+# 各流水线显式命名（pipeline 级 name:）：不写则 CNB 按 pipeline / pipeline-1 … 编号显示，
+# 构建列表里分不出谁是谁（2026-10-20 票 13）。显示形如 <仓库>/<事件>/<name>。
 
 main:
   push:
-    - imports:
+    - name: 门禁与镜像
+      imports:
         - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
       docker:
         image: node:22
@@ -23,7 +27,8 @@ main:
         - name: mirror-to-github
           script: bash scripts/ci/ci-mirror-github.sh
   pull_request:
-    - docker:
+    - name: PR 门禁
+      docker:
         image: node:22
       stages:
         - name: gate
@@ -33,7 +38,8 @@ main:
   # 轮询只为「免看管」；要即时补镜像走下方 web_trigger 手动触发，不靠加密频率。
   # 单轮失败不影响后续轮次，下一轮自然重试。
   "crontab: 0 22 * * * *":
-    - imports:
+    - name: 国内副本镜像（每日）
+      imports:
         - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
       docker:
         image: node:22
@@ -43,7 +49,8 @@ main:
   # 手动触发：页面「构建 → 手动触发构建」选 web_trigger 事件，或分支详情页
   # 「镜像国内副本」按钮（.cnb/web_trigger.yml）。与 cron 同一脚本，发版后即时补镜像。
   web_trigger:
-    - imports:
+    - name: 国内副本镜像（手动）
+      imports:
         - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
       docker:
         image: node:22
@@ -54,7 +61,8 @@ main:
 # 发版 tag：先过门禁，再镜像到 GitHub（tag push 到 GitHub 后触发那边的 release workflow）
 v*:
   tag_push:
-    - imports:
+    - name: 发版门禁与镜像
+      imports:
         - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
       docker:
         image: node:22

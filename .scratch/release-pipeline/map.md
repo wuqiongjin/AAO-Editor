@@ -40,3 +40,5 @@
 - [08 云开发取件凭据自举](./issues/08-云开发取件凭据自举.md) — resolved（2026-10-20 用户验收通过：凭据改走平台个人环境变量注入 `ASSETS_SOURCE`，脚本候选链兜底；清理漫游令牌文件 / rc source 行 / `.cnb.yml` vscode 挂载 hook）
 - [09 GitHub 侧门禁](./issues/09-GitHub侧门禁.md) — claimed（实现口径待用户在 GitHub 应用后确认；仓库侧件已落地）
 - [11 打包图标尺寸校验失败](./issues/11-打包图标尺寸校验失败.md) — resolved（2026-10-20：`public/icon.png` 128x128 预切圆角 → 512x512 全出血方图，过 mac ≥512 / linux ≥256 最低线；应用内 `app-logo.png` 同步升 256 圆角版；favicon.ico 无需动）
+- [12 workflow显示名与发布模式](./issues/12-workflow显示名与发布模式.md) — resolved（2026-10-20：两个 workflow 补 `name:`（Release（发版）/ CI（PR 门禁））；发布模式维持 electron-builder 草稿默认 + 人工 Publish，不设 `releaseType`——用户拍板保留公开前人工闸）
+- [13 发布展示层去重与流水线命名](./issues/13-发布展示层去重与流水线命名.md) — resolved（2026-10-20：release notes 去 NOTICE 拼贴、直写单一来源 RELEASE_NOTES.md；.cnb.yml 五条流水线显式命名，imports 缩进 4→6 同步锁测）

@@ -143,11 +143,14 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(release.indexOf('ci-gate.sh')).toBeLessThan(release.indexOf('needs: gate'));
   });
 
-  it('发布后补未签名告知 + 发行说明进 release notes（ADR-0022 §6：README 与 release notes 双落地）', () => {
+  it('发布后把发行说明写进 release notes，单一来源 RELEASE_NOTES.md（ADR-0022 §6：README 与 release notes 双落地）', () => {
     expect(release).toMatch(/gh release edit/);
+    // 未签名告知等已知问题由 RELEASE_NOTES.md「已知问题」节统一承载，workflow 不二次注入
+    // （票 13：NOTICE 拼贴与 RELEASE_NOTES.md 同一句出现两处必腐烂，去掉注入改直写单一来源）
     expect(release).toMatch(/未签名/);
     expect(release).toMatch(/needs: build/);
     // 版本描述单一来源：RELEASE_NOTES.md（页面正文 + latest.yml → 产品内更新弹窗，ADR-0021 §2）
+    expect(release).toMatch(/--notes-file RELEASE_NOTES\.md/);
     expect(release).toContain('RELEASE_NOTES.md');
   });
 
@@ -181,9 +184,10 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
   });
 
   it('CNB secret 走平台 secret 仓库 imports（平台无 GitHub 式仓库 secret），四个流水线各自引用', () => {
-    expect(cnb).toMatch(/^ {4}- imports:\s*\n {8}- https:\/\/cnb\.cool\/.+\/-\/blob\/main\/env\.yml/m);
+    // pipeline 显式命名后 imports 不再是列表首键：缩进从 4 空格（- imports:）变 6 空格（imports:）
+    expect(cnb).toMatch(/^ {6}imports:\s*\n {8}- https:\/\/cnb\.cool\/.+\/-\/blob\/main\/env\.yml/m);
     // main push / tag_push / crontab / web_trigger 四条要 GITHUB_TOKEN 的流水线（只数 YAML 键，注释里的不算）
-    expect(cnb.match(/^ {4}- imports:/gm)?.length).toBe(4);
+    expect(cnb.match(/^ {6}imports:/gm)?.length).toBe(4);
   });
 
   it('assets-sync 凭据自举：环境 CNB_TOKEN 进候选链，日志剥令牌（CI 侧 ASSETS_SOURCE 走 secret 注入）', () => {
