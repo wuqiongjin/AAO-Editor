@@ -18,6 +18,7 @@ import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
 import { displayProjectName, ProjectMenuItem, untitledProjectLabel } from '../../project/ui/projectUi';
 import { formatValidationError } from '../../chart/editing/ChartConverter';
 import { t } from '../../i18n';
+import { trail } from '../../diagnostics/trail';
 import ConfirmDialog from '../../ui/ConfirmDialog';
 import { showToast } from '../../ui/Toast';
 import { deleteProjectNotice } from './projectFormat';
@@ -177,7 +178,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       diff: input.diff,
     });
     await store.save(project);
-    notifyCatalogChanged();
+    trail.record({ module: 'project', action: 'save', result: 'ok', meta: { projectId: project.id } }); notifyCatalogChanged();
     setNewSource(null);
     goDetailKeepAnimation(project.id);
     await setCurrent(project.id, project.charts[0].id);
@@ -196,7 +197,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       now,
     }, untitledProjectLabel(), taken);
     await store.save(copy);
-    notifyCatalogChanged();
+    trail.record({ module: 'project', action: 'save', result: 'ok', meta: { projectId: copy.id } }); notifyCatalogChanged();
     setNewSource(null);
     goDetailKeepAnimation(copy.id);
     // 与创建同口径：切视图 + 改当前工程都做，但不跳工作台。

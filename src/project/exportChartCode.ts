@@ -7,6 +7,7 @@
 import { chartCodeExportText, EMPTY_CHART_CODE_FIDELITY, type ChartCodeFidelity } from '../chart/editing/ChartConverter';
 import { buildNoteCode, noteViewCodeToJSON, type NoteCodeTarget } from '../chart/editing/NoteCodeOps';
 import type { ChartNote } from '../chart/types';
+import { trail } from '../diagnostics/trail';
 
 export const CHART_CODE_EXPORT_FILENAME = 'chart.json';
 /** 对象视图另存为的推荐名（带音符下标，连续存多条不会互相覆盖） */
@@ -60,10 +61,37 @@ export async function exportChartCodeSaveAs(
   const json = target ? noteCodeExportText(notes, target) : chartCodeExportText(notes, fidelity);
   if (json === null) return; // 目标已被画布改动抹掉
   const suggestedName = target ? noteCodeExportFilename(target) : CHART_CODE_EXPORT_FILENAME;
-  const bridge = getExportBridge();
-  if (bridge) {
-    await bridge.saveAs({ json, suggestedName });
-    return;
+  const started = Date.now();
+  trail.record({ module: 'chart', action: 'export-start', meta: { kind: 'code' } });
+  try {
+    const bridge = getExportBridge();
+    if (bridge) {
+      const saved = await bridge.saveAs({ json, suggestedName });
+      trail.record({
+        module: 'chart',
+        action: 'export-end',
+        result: saved.cancelled ? 'cancel' : 'ok',
+        durationMs: Date.now() - started,
+        meta: { kind: 'code' },
+      });
+      return;
+    }
+    downloadJson(suggestedName, json);
+    trail.record({
+      module: 'chart',
+      action: 'export-end',
+      result: 'ok',
+      durationMs: Date.now() - started,
+      meta: { kind: 'code' },
+    });
+  } catch (err) {
+    trail.record({
+      module: 'chart',
+      action: 'export-end',
+      result: 'fail',
+      durationMs: Date.now() - started,
+      meta: { kind: 'code' },
+    });
+    throw err;
   }
-  downloadJson(suggestedName, json);
 }

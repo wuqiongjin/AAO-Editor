@@ -11,6 +11,7 @@
  *     落地前必须认出来。
  */
 import { getActiveUiLanguage, type UiLanguage } from '../../i18n';
+import { trail } from '../../diagnostics/trail';
 import { assetRawUrl, assetThumbUrl } from '../assetUrls';
 import { dedupInflight } from '../inflight';
 import { normalizeLevelWindow } from '../levelWindow';
@@ -112,6 +113,8 @@ export async function fetchSongCatalog(
   if (catalogInflight && catalogInflight.language === language) return catalogInflight.promise;
   if (catalogCache && catalogCache.language === language) return catalogCache.songs;
 
+  const started = Date.now();
+  trail.record({ module: 'community', action: 'browse-start' });
   const promise = Promise.all([
     fetchJson(transport, songsIndexUrl(), onRetry, false, true),
     fetchJson(transport, bandsIndexUrl(), onRetry, false, true),
@@ -119,7 +122,21 @@ export async function fetchSongCatalog(
     const songs = toSongCandidates(index, bands, language);
     const fromCache = isJsonFromCache(index) || isJsonFromCache(bands);
     catalogCache = { language, songs: fromCache ? markJsonFromCache(songs) : songs };
+    trail.record({
+      module: 'community',
+      action: 'browse-end',
+      result: 'ok',
+      durationMs: Date.now() - started,
+    });
     return catalogCache.songs;
+  }, (err: unknown) => {
+    trail.record({
+      module: 'community',
+      action: 'browse-end',
+      result: 'fail',
+      durationMs: Date.now() - started,
+    });
+    throw err;
   }).finally(() => {
     if (catalogInflight?.language === language) catalogInflight = null;
   });
@@ -140,13 +157,29 @@ export function refreshSongCatalog(
   // 票 44：首拉还在飞时点刷新 = 并进同一趟，不另排一队把刷新钮空转。
   if (catalogInflight && catalogInflight.language === language) return catalogInflight.promise;
   // 成功前不清上一份会话缓存：失败 / 关窗再开仍能出示上一份列表
+  const started = Date.now();
+  trail.record({ module: 'community', action: 'browse-start' });
   const promise = Promise.all([
     fetchJson(transport, songsIndexUrl(), onRetry, true),
     fetchJson(transport, bandsIndexUrl(), onRetry, true),
   ]).then(([index, bands]) => {
     const songs = toSongCandidates(index, bands, language);
     catalogCache = { language, songs };
+    trail.record({
+      module: 'community',
+      action: 'browse-end',
+      result: 'ok',
+      durationMs: Date.now() - started,
+    });
     return songs;
+  }, (err: unknown) => {
+    trail.record({
+      module: 'community',
+      action: 'browse-end',
+      result: 'fail',
+      durationMs: Date.now() - started,
+    });
+    throw err;
   }).finally(() => {
     if (catalogInflight?.language === language) catalogInflight = null;
   });

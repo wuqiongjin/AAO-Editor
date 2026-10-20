@@ -27,6 +27,7 @@ import {
   type ContainerSupport,
 } from './muxer';
 import { decodeBgmBytes, renderAudioTrack } from './renderAudioTrack';
+import { logger } from '../../../diagnostics/logger';
 import {
   AAC_AUDIO_CODECS,
   DEFAULT_VIDEO_CONTAINER,
@@ -354,7 +355,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     sink.abort();
     // 取消也会从这里出来（sink 在等背压时点取消 → 抛错），那是取消不是失败
     if (cancelled()) return done({ ok: true, cancelled: true, container: target.container });
-    console.error('[preview] 导出视频失败', err);
+    logger.error('[preview]', '导出视频失败', err);
     return done({ ok: false, failure: 'unknown', container: target.container });
   }
 }

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const isDev = process.env.NODE_ENV === 'development';
 const {
     MIN_WINDOW_WIDTH,
@@ -52,10 +53,14 @@ const {
     listProjects,
     deleteProject,
     uploadRefs,
+    setAppLog,
 } = require('./projectStore.cjs');
 const { t, setActiveUiLanguage } = require('./i18n.cjs');
 const { autoUpdater } = require('electron-updater');
 const { createAppUpdater, registerAppUpdateIpc } = require('./appUpdate.cjs');
+const { createAppLog, registerAppLogIpc } = require('./appLog.cjs');
+const { registerDiagnosticsExportIpc } = require('./diagnosticsExport.cjs');
+const { writeFileAtomic } = require('./atomicWrite.cjs');
 
 // ---------------------------------------------------------------------------
 // 谱面工程文件后端（ADR-0015）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
@@ -71,11 +76,24 @@ function currentDataRoot() {
     return loadDataRootSync(userDataDir());
 }
 
-async function writeFileAtomic(filePath, data) {
-    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    await fs.promises.writeFile(tmpPath, data);
-    await fs.promises.rename(tmpPath, filePath);
-}
+// ADR-0019 / 票 01：userData/logs/，不跟数据根走。主进程失败可直接 appLog.write / appendTrail。
+const appLog = createAppLog({ userData: () => userDataDir() });
+registerAppLogIpc(ipcMain, appLog);
+setAppLog(appLog);
+registerDiagnosticsExportIpc(ipcMain, {
+    logsDir: () => path.join(userDataDir(), 'logs'),
+    dataRoot: () => currentDataRoot(),
+    versions: () => ({
+        app: app.getVersion(),
+        electron: process.versions.electron,
+        chrome: process.versions.chrome,
+        node: process.versions.node,
+        os: `${process.platform} ${os.release()}`,
+    }),
+    fromWebContents: (sender) => BrowserWindow.fromWebContents(sender),
+    showSaveDialog: (win, opts) => dialog.showSaveDialog(win ?? undefined, opts),
+    t,
+});
 
 function registerProjectStoreIpc() {
     ipcMain.handle('project:get', (_event, rawId) => getProject(currentDataRoot(), rawId));

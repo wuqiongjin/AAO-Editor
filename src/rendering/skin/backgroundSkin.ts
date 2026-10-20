@@ -10,6 +10,7 @@
 //
 // 可测性：持久化 / 解码 / URL 工厂三个端口可注入（默认 IndexedDB + createImageBitmap + objectURL），
 // 纯逻辑（修订号推进、快照引用稳定、异常传播）可在 node 测试环境覆盖。
+import { logger } from '../../diagnostics/logger';
 
 /** 背景皮肤快照：渲染器与素材页共读；引用仅在真实变化时更替（useSyncExternalStore 兼容） */
 export interface BackgroundSkinSnapshot {
@@ -233,7 +234,7 @@ export class BackgroundSkinStore {
         this.emitWithImage({ url: this.ports.createUrl(blob), source: dec.source, width: dec.width, height: dec.height });
       } catch (e) {
         // 图损坏/解码失败：静默降级为无背景（定案：读取侧失败不阻断编辑器），但保留 ready 态供重新上传
-        console.warn('[backgroundSkin] 装载失败（按无背景渲染）:', e);
+        logger.warn('[backgroundSkin]', '装载失败（按无背景渲染）:', e);
         this.emit({ status: 'ready', image: null, revision: this.snapshot.revision });
       }
     })();

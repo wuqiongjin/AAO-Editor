@@ -22,6 +22,7 @@
  */
 const path = require('path');
 const fs = require('fs');
+const { writeFileAtomic } = require('./atomicWrite.cjs');
 
 /** 会话文件名（落在 userData 下，与 app-state.json 同级） */
 const SESSION_FILENAME = 'community-session.bin';
@@ -31,13 +32,6 @@ const SESSION_FORMAT_VERSION = 1;
 /** `<userData>/community-session.bin` */
 function sessionFilePath(userData) {
     return path.join(userData, SESSION_FILENAME);
-}
-
-/** 原子写（口径同 main.cjs 的 writeFileAtomic）：崩在半路不会留下一份截断的密文 */
-async function writeFileAtomic(filePath, data) {
-    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    await fs.promises.writeFile(tmpPath, data);
-    await fs.promises.rename(tmpPath, filePath);
 }
 
 /**

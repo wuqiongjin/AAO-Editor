@@ -29,6 +29,7 @@ import {
   userMeUrl,
 } from './endpoints';
 import { toAccountProfile, type AccountProfile } from './mapping';
+import { trail } from '../../diagnostics/trail';
 
 /**
  * 会话快照（唯一真相的对外形态）。
@@ -198,49 +199,67 @@ export function createCommunityAccount(options: CommunityAccountOptions): Commun
     },
 
     async login(username: string, password: string): Promise<CommunityAccountSession> {
-      // 登录是**写型 POST**：不套退避（07 的口径：写路径的超时意味着「服务端可能已经收了」，
-      // 重发只会多造一次登录），超时/5xx 由界面提示用户重按。
-      // 密码只出现在下面这一行载荷里：调用栈出去就没了，不进状态、不进持久化。
-      const raw = await transport.requestJson({
-        url: userLoginUrl(),
-        method: 'POST',
-        headers: { ...bestdoriHeaders(), 'content-type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-        timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
-      }).catch(async (error: unknown) => {
-        // 平台当面拒了凭据（`{"result":false,"code":"CREDENTIALS_INVALID"}` 已被网关翻成 unauthorized）：
-        // 本机一份**都不留** —— 「失败不写入任何凭据」是这条实现，不是「没调用 persist()」那句约定。
-        // 注意：这不是「会话失效」（`expired` 留给 user/me 401 那条路），账号行照旧写「登录」
-        if (isSessionRejected(error)) await clearSession();
-        throw error;
-      });
-
-      // 成功形态 = HTTP 200 + `{"result":true}`（`{result:false, code}` 走不到这里，已被网关翻成错误）
-      if (!isPlainObject(raw) || raw.result !== true) throw invalidResponse('登录响应不是预期形态');
-
-      // 先把它加密落盘（主进程从自己的 jar 快照做，renderer 连 Cookie 值都拿不到），
-      // 再按「登录成功各查一次 me」校验；落盘失败不算登录失败（内存会话照用），
-      // 但**要记下来**：界面据此说一句「本机不会记住登录状态」（票 39 Q6）
-      let remembered = false;
+      const t0 = Date.now();
+      trail.record({ module: 'community', action: 'login-start' });
       try {
-        remembered = (await persistence.persist()) === true;
-      } catch {
-        // 同上：这是「记不住登录状态」，不是「没登上」
-        remembered = false;
-      }
+        // 登录是**写型 POST**：不套退避（07 的口径：写路径的超时意味着「服务端可能已经收了」，
+        // 重发只会多造一次登录），超时/5xx 由界面提示用户重按。
+        // 密码只出现在下面这一行载荷里：调用栈出去就没了，不进状态、不进持久化。
+        const raw = await transport.requestJson({
+          url: userLoginUrl(),
+          method: 'POST',
+          headers: { ...bestdoriHeaders(), 'content-type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+          timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+        }).catch(async (error: unknown) => {
+          // 平台当面拒了凭据（`{"result":false,"code":"CREDENTIALS_INVALID"}` 已被网关翻成 unauthorized）：
+          // 本机一份**都不留** —— 「失败不写入任何凭据」是这条实现，不是「没调用 persist()」那句约定。
+          // 注意：这不是「会话失效」（`expired` 留给 user/me 401 那条路），账号行照旧写「登录」
+          if (isSessionRejected(error)) await clearSession();
+          throw error;
+        });
 
-      try {
-        settleSignedIn(await verify(), remembered);
-      } catch (error) {
-        if (isSessionRejected(error)) await clearSession(true);
-        throw error;
+        // 成功形态 = HTTP 200 + `{"result":true}`（`{result:false, code}` 走不到这里，已被网关翻成错误）
+        if (!isPlainObject(raw) || raw.result !== true) throw invalidResponse('登录响应不是预期形态');
+
+        // 先把它加密落盘（主进程从自己的 jar 快照做，renderer 连 Cookie 值都拿不到），
+        // 再按「登录成功各查一次 me」校验；落盘失败不算登录失败（内存会话照用），
+        // 但**要记下来**：界面据此说一句「本机不会记住登录状态」（票 39 Q6）
+        let remembered = false;
+        try {
+          remembered = (await persistence.persist()) === true;
+        } catch {
+          // 同上：这是「记不住登录状态」，不是「没登上」
+          remembered = false;
+        }
+
+        try {
+          settleSignedIn(await verify(), remembered);
+        } catch (error) {
+          if (isSessionRejected(error)) await clearSession(true);
+          throw error;
+        }
+        trail.record({
+          module: 'community',
+          action: 'login-end',
+          result: 'ok',
+          durationMs: Date.now() - t0,
+        });
+        return state;
+      } catch (err) {
+        trail.record({
+          module: 'community',
+          action: 'login-end',
+          result: 'fail',
+          durationMs: Date.now() - t0,
+        });
+        throw err;
       }
-      return state;
     },
 
-        /** 登出 = 清本机（不标失效：主动登出之后的账号行是「登录」，不是「已失效」） */
-        logout: () => clearSession(),
-        };
+    /** 登出 = 清本机（不标失效：主动登出之后的账号行是「登录」，不是「已失效」） */
+    logout: () => clearSession(),
+  };
 }
 
 /** 能力层持的**唯一**会话对象（issue 06 Q3）；全应用共用这一份，别各建各的 */

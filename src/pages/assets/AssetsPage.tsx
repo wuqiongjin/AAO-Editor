@@ -13,6 +13,7 @@ import { backgroundSkinStore } from '../../rendering/skin/backgroundSkin';
 import { useBackgroundSkin } from '../../rendering/skin/useBackgroundSkin';
 import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../../chart/config/AppSettings';
 import { t, type MessageKey } from '../../i18n';
+import { logger } from '../../diagnostics/logger';
 
 // 视觉素材页（导航第 3 项）：音符皮肤（整包预设 + 条目独立覆盖）+ 背景皮肤（单图上传/隐藏/清除）。
 
@@ -180,7 +181,7 @@ function BackgroundPanel() {
       // 上传即启用（最小模型的"开关"语义：用户可见的结果优先）
       setBackgroundSkin({ enabled: true });
     } catch (e) {
-      console.error('[AssetsPage] 背景图保存失败:', e);
+      logger.error('[AssetsPage]', '背景图保存失败:', e);
       setError(t('assets.bg.saveError'));
     } finally {
       setBusy(false);
@@ -195,7 +196,7 @@ function BackgroundPanel() {
       await backgroundSkinStore.clear();
       setBackgroundSkin({ enabled: false });
     } catch (e) {
-      console.error('[AssetsPage] 背景图清除失败:', e);
+      logger.error('[AssetsPage]', '背景图清除失败:', e);
       setError(t('assets.bg.clearError'));
     } finally {
       setBusy(false);

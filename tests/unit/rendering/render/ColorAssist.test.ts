@@ -1,5 +1,6 @@
 // issue 39 #4 色觉辅助：半拍判断纯函数 + tapVirtual 注册表完整性 + tapVirtualFor 解析 + 设置默认值 + renderNotes 接线
 import { describe, it, expect } from 'vitest';
+import { hasAssetSnapshot } from '@/tests/support/assetSnapshot';
 import {
   NOTE_SKIN_PACKS,
   type NoteSkinPackNote,
@@ -60,7 +61,9 @@ describe('isHalfBeatAligned（色觉辅助半拍整数倍判定，issue 39 #4）
   });
 });
 
-describe('tapVirtual 注册表完整性（构建脚本产物守约，issue 39 #4）', () => {
+// 守约套件：钉的是构建脚本产出的真实快照数据（tapVirtual 逐轨坐标）。
+// 无快照环境（PR 门禁走最小合法桩，release-pipeline 10）跳过；push / tag_push 门禁有真快照，全量执行。
+describe.skipIf(!hasAssetSnapshot)('tapVirtual 注册表完整性（构建脚本产物守约，issue 39 #4）', () => {
   it('7 个音符皮肤包均含 7 轨道 tapVirtual，中间轨（FLAT_LANE=3）非空且矩形在图集内', () => {
     expect(notePacks).toHaveLength(7);
     for (const pack of notePacks) {

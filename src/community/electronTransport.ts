@@ -6,14 +6,24 @@
  * 没有这条桥 = 静态演示版 / 浏览器 → `kind === 'none'`，请求抛 `unsupported-runtime`；
  * 能力层据此降级（ADR-0011 §1），不是白屏、也不是循环报错。
  */
+import { logger } from '../diagnostics/logger';
 import {
   CommunityError,
+  communityErrorLogExtra,
+  isCommunityError,
   markJsonFromCache,
   type CommunityRequest,
   type CommunityTransport,
   type CommunityWireResult,
   type StagedBinary,
 } from './transport';
+
+/** 出口抛错时落盘。`unsupported-runtime` 是预期降级，不写 errors 日志。 */
+function logCommunityError(error: unknown): void {
+  if (!isCommunityError(error)) return;
+  if (error.kind === 'unsupported-runtime') return;
+  logger.error('[community]', error.message, communityErrorLogExtra(error));
+}
 
 /** preload 暴露的网络桥（本仓惯例：桥形状由消费方就近声明，没有集中 d.ts） */
 export interface CommunityNetBridge {
@@ -39,10 +49,12 @@ export function hasCommunityNet(): boolean {
 type CommunityWireOk = Extract<CommunityWireResult, { ok: true }>;
 
 function mismatch(expected: string, actual: string): CommunityError {
-  return new CommunityError(`主进程回的是 ${actual}，与请求的 ${expected} 不一致`, {
+  const error = new CommunityError(`主进程回的是 ${actual}，与请求的 ${expected} 不一致`, {
     kind: 'invalid-response',
     message: `响应形态不符：期望 ${expected}，实际 ${actual}`,
   });
+  logCommunityError(error);
+  return error;
 }
 
 export class ElectronCommunityTransport implements CommunityTransport {
@@ -93,12 +105,18 @@ export class ElectronCommunityTransport implements CommunityTransport {
       });
     }
     if (!result || typeof result !== 'object' || typeof result.ok !== 'boolean') {
-      throw new CommunityError('社区网络桥返回了无法识别的结果', {
+      const error = new CommunityError('社区网络桥返回了无法识别的结果', {
         kind: 'invalid-response',
         message: '社区网络桥返回非法结果',
       });
+      logCommunityError(error);
+      throw error;
     }
-    if (!result.ok) throw new CommunityError(result.error.message, result.error);
+    if (!result.ok) {
+      const error = new CommunityError(result.error.message, result.error);
+      logCommunityError(error);
+      throw error;
+    }
     return result;
   }
 }

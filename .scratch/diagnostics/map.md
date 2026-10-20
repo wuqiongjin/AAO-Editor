@@ -11,7 +11,8 @@
 ## Notes
 
 - 排序（2026-10-13 用户拍板）：全部实现票等 `feature/bestdori-integration` 合并后落稳定 main——合并是最大变量，基建不踩合并中的代码。
-- 票内的 pre-merge 快照事实（console 计数、文件清单、路由清单）以合并后实测为准；权威判据是各票的静态全树锁，见 01 / 03 / 05 的 Comments。
+- **2026-10-19**：Bestdori 已合入当前线，上述等待取消。开工顺序：01 → 05 与 04（04 不再等 02）→ 03 → 02 最后。票内 10-13 快照以各票 2026-10-19 Comments 为准。
+- 票内的 pre-merge 快照事实（console 计数、文件清单、路由清单）以合并后实测为准；05 不再以「`src/` 零 console」为权威判据。
 - 范围分阶段（ADR-0019 §2）：第一阶段 = 静默故障 + 数据损坏（白屏 / 崩溃、导出失败、工程保存 / 加载失败；bestdori 合并后的网络 / 登录 / 上传失败路径同属本阶段）；第二阶段 = 难复现问题由操作轨迹兜底。
 - **无远程遥测**（ADR-0011 §1）：不得引入任何错误上报 SDK；主进程合并后虽获得受控网络能力，不因此重开遥测议题（ADR-0019 §1）。
 
@@ -19,11 +20,19 @@
 
 - [2026-10-13 用户拍板] 可观测性形态与范围 = [ADR-0019 本地日志与诊断包](../../docs/adr/0019-本地日志与诊断包.md) 全文：纯本地（Q2=A）；第一阶段先静默故障 + 数据损坏、第二阶段难复现由轨迹兜底（Q1=D）；双轨落盘 + 按天 / 5MB / 7 天 / 50MB 轮转（Q6=A）；轨迹粗粒度 + ring buffer 500（Q7=A）；诊断包含脱敏默认全量 + 谱面数据默认不附（Q8=A）；三层 boundary + 全局 handler（Q9=A）。
 - 术语（诊断包 / 操作轨迹）已入 `CONTEXT.md` § 诊断与日志。
+- [2026-10-19 复核] 代码仍无 logger / 落盘 / ErrorBoundary / 诊断包 UI。实现口径收窄写进各票：05 不追求清零 console；04 不挡在 02 后；02 仍是第二阶段。ADR-0019 正文未改。
+- [2026-10-19] [01 日志模块与主进程落盘](./issues/01-日志模块与主进程落盘.md) 已落地：`userData/logs/` 双轨 + `log:write`/`log:trail`；`trail.append` 立刻写盘（票 02 的 ring 是调用方）。
+- [2026-10-19] [05 第一阶段失败路径落盘](./issues/05-旧console迁移与第一阶段覆盖面收口.md) 已落地：表内失败走 logger / `projectStore` sink；不追求 src 零 console。
+- [2026-10-19] [04 诊断包导出](./issues/04-诊断包导出.md) 已落地：设置页关于段导出脱敏 zip（主进程 jszip + 保存对话框）；谱面 JSON 默认不附。
+- [2026-10-19] [03 崩溃兜底三层边界](./issues/03-崩溃兜底三层边界.md) 已落地：App / 七页 PageSlot / 画布三层错误态 + 全局 `error`/`unhandledrejection` 记日志；崩溃态接导出诊断包。
+- [2026-10-19] [02 操作轨迹埋点](./issues/02-操作轨迹埋点.md) 已落地：ring 500，崩溃/诊断包 flush；模块级动作进 jsonl。
+- [2026-10-20] [06 评审缺陷批次](./issues/06-20261020评审缺陷批次.md) 已落地：PR 评审 + 复审共 8 条——脱敏补 `password` 且两份一致（chart 同筛）、flush 可等待保序、appLog 扫描按天缓存、五处原子写收敛 `atomicWrite.cjs`、全局 handler dispose 幂等、改名 `sanitizeDiagnosticsPayload.ts`，逐条补锁测。
 
 ## Frontier
 
-- [01 日志模块与主进程落盘](./issues/01-日志模块与主进程落盘.md) — open
-- [02 操作轨迹埋点](./issues/02-操作轨迹埋点.md) — open（Blocked by: 01）
-- [03 崩溃兜底三层边界](./issues/03-崩溃兜底三层边界.md) — open（Blocked by: 01）
-- [04 诊断包导出](./issues/04-诊断包导出.md) — open（Blocked by: 01, 02）
-- [05 旧 console 迁移与第一阶段覆盖面收口](./issues/05-旧console迁移与第一阶段覆盖面收口.md) — open（Blocked by: 01）
+- [01 日志模块与主进程落盘](./issues/01-日志模块与主进程落盘.md) — resolved（`registerAppLogIpc` + `userData/logs/`）
+- [05 第一阶段失败路径落盘](./issues/05-旧console迁移与第一阶段覆盖面收口.md) — resolved（表内失败走 logger；不要求 src 零 console）
+- [04 诊断包导出](./issues/04-诊断包导出.md) — resolved（设置页关于段导出 zip；谱面默认不附）
+- [03 崩溃兜底三层边界](./issues/03-崩溃兜底三层边界.md) — resolved（App/PageSlot/canvas 三层 + `[uncaught]` handler；错误态接诊断包）
+- [02 操作轨迹埋点](./issues/02-操作轨迹埋点.md) — resolved（ring 500 + 崩溃/诊断包 flush；模块级埋点）
+- [06 评审缺陷批次](./issues/06-20261020评审缺陷批次.md) — resolved（脱敏 password + chart 同筛；flush 保序；扫描缓存；atomicWrite 收敛；dispose 幂等）

@@ -247,6 +247,7 @@
 | --- | --- | --- |
 | 视觉素材页 | Visual assets page | 应用级页面（导航第 5 项 `⇧⌘4`）；原「素材页」收窄为视觉素材；页内**类别子 tab**：音符皮肤 / 背景皮肤，一次看一个类别，可扩展 |
 | 音符皮肤 | Note skin | 音符外观素材包；注册表（`src/rendering/skin/gen/noteSkinRegistry.gen.ts`）与 PNG 二进制都是**外部快照提供的构建产物**、`npm run assets:sync` 取件 —— 本仓不含这些二进制，也不含产出它们的工具（见 `.scratch/release-pipeline/issues/02-素材迁出与内部镜像同步.md`） |
+| 桩 | CI stub | 无素材快照环境（PR 门禁：不可信事件不注入密钥仓库，取件必然失败）下由 `scripts/ci/ci-stub-gen.mjs` 写入的占位 `*.gen.ts`——API 同真产物、数据取最小合法集，使 `tsc` / `vitest` 可加载；逐注册表判别（真快照则不动）。仅对真实快照数据有效的守约套件（注册表坐标钉子、真实采样结构、精灵源格比）由 `tests/support/assetSnapshot.ts` 判别后 `skipIf` 跳过，交 push / tag_push 门禁全量验证——**PR 阶段零遗漏仅限合入前**（ADR-0022 §5）。_Avoid_: 把桩数据当真实素材断言 |
 | 皮肤条目 | Note skin item | 六条目：单键 `tap` / 滑键 `flick` / 技能键 `skill` / 左方向 `dirL` / 右方向 `dirR` / 滑条 `slide`；slide 管三件套 = `longNoteLine` + `longNoteLine2` + `note_slide_among` |
 | 整包预设 | Skin preset | 官方同名配对（skin0N + directionalflickskin0N）一键写入六条目；写入后各条目仍可独立覆盖 |
 | 整包预设缩略 | Skin preset thumbnail | 整包预设卡上展示**该预设会写入**的音符皮肤样貌的图，与当前六条目组合无关。_Avoid_: 封面（工程信息里的曲目图） |

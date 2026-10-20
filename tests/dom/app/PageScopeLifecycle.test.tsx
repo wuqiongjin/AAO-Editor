@@ -43,6 +43,7 @@ vi.mock('@/src/pages/PageRegistry', async () => {
 });
 
 import AppShell from '@/src/layouts/AppShell';
+import ToastHost from '@/src/ui/Toast';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { ChartProjectStore } from '@/src/project/ChartProject';
 import { createUnnamedProject } from '@/src/project/workspaceProject';
@@ -66,7 +67,7 @@ beforeEach(() => {
 });
 
 function mountShell() {
-  renderWithProviders(<ConfigProvider><AppShell /></ConfigProvider>, {
+  renderWithProviders(<ConfigProvider><ToastHost /><AppShell /></ConfigProvider>, {
     store: new ChartProjectStore(backend),
   });
 }

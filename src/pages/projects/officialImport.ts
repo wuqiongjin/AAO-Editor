@@ -27,6 +27,7 @@ import {
 import { isCommunityError, type CommunityErrorKind } from '../../community/transport';
 import type { CommunityTransport } from '../../community/transport';
 import { t, type MessageKey } from '../../i18n';
+import { trail } from '../../diagnostics/trail';
 import {
   newChartId,
   newProjectId,
@@ -97,6 +98,35 @@ export type OfficialImportResult =
   | { ok: false; reason: 'cancelled' };
 
 export async function importOfficialSong(
+  deps: OfficialImportDeps,
+  input: OfficialImportInput,
+): Promise<OfficialImportResult> {
+  const started = Date.now();
+  trail.record({ module: 'chart', action: 'import-start', meta: { kind: 'official' } });
+  try {
+    const result = await runOfficialImport(deps, input);
+    const outcome = result.ok ? 'ok' : result.reason === 'cancelled' ? 'cancel' : 'fail';
+    trail.record({
+      module: 'chart',
+      action: 'import-end',
+      result: outcome,
+      durationMs: Date.now() - started,
+      meta: { kind: 'official' },
+    });
+    return result;
+  } catch (err) {
+    trail.record({
+      module: 'chart',
+      action: 'import-end',
+      result: isImportCancelled(err) ? 'cancel' : 'fail',
+      durationMs: Date.now() - started,
+      meta: { kind: 'official' },
+    });
+    throw err;
+  }
+}
+
+async function runOfficialImport(
   deps: OfficialImportDeps,
   input: OfficialImportInput,
 ): Promise<OfficialImportResult> {

@@ -1,6 +1,6 @@
 // 工程文件后端真 fs 往返：list/get/put/delete、封面分离、旧 schema 不读不删。
 import { createHash } from 'crypto';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { cacheDir, ensureDataRootLayoutSync, legacyDownloadsDir } from '@/electron/dataRoot.cjs';
@@ -10,6 +10,7 @@ import {
   getProject,
   listProjects,
   putProject,
+  setAppLog,
   uploadRefs,
 } from '@/electron/projectStore.cjs';
 import { tmpDir } from '@/tests/support/fs';
@@ -45,6 +46,8 @@ function doc(overrides: Record<string, unknown> = {}) {
 }
 
 describe('electron/projectStore · 真文件往返', () => {
+  afterEach(() => setAppLog(null));
+
   it('put/get/list/delete 多工程，封面与音频写成独立 bin', async () => {
     const root = tmpDir('aao-proj-fs-');
     try {
@@ -169,6 +172,32 @@ describe('electron/projectStore · 真文件往返', () => {
         audioStagedPath: join(cacheDir(root), 'never-downloaded.mp3'),
       })).rejects.toThrow();
       expect(existsSync(join(root, 'projects', 'pGone', 'project.json'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('票 05 · project.json 解析失败 → sink warn，按空数据处理', async () => {
+    const root = tmpDir('aao-proj-fs-');
+    const writes: Array<{ level: string; module: string; message: string }> = [];
+    setAppLog({
+      write(payload: { level: string; module: string; message: string }) {
+        writes.push(payload);
+      },
+    });
+    try {
+      const dir = join(root, 'projects', 'pBad');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'project.json'), '{not json');
+
+      await expect(getProject(root, 'pBad')).resolves.toBeNull();
+      expect(writes).toEqual([
+        expect.objectContaining({
+          level: 'warn',
+          module: 'project-store',
+          message: 'project.json 解析失败，按空数据处理:',
+        }),
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

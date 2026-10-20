@@ -53,6 +53,12 @@ describe('useChartProjectPersistence · 落盘实例生命周期（issue 64）',
     expect(codeOnly).toMatch(/projectId/);
     expect(codeOnly).not.toMatch(/WORKSPACE_PROJECT_ID|'workspace'/);
   });
+
+  it('票 05 · 保存 / 加载失败走 logger.warn，不改用户可见语义', () => {
+    expect(codeOnly).toMatch(/logger\.warn\(\s*['"]\[chart-project\]['"]/);
+    expect(codeOnly).toMatch(/谱面工程落盘失败/);
+    expect(codeOnly).toMatch(/谱面工程读取失败/);
+  });
 });
 
 // issue 35：lastModified 戳机口径立档。旧实现在 buildProject() 里无条件 `lastModified: now`

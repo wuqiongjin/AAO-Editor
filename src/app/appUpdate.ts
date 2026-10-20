@@ -1,4 +1,6 @@
 import { APP_VERSION } from './appVersion';
+import { logger } from '../diagnostics/logger';
+import { trail } from '../diagnostics/trail';
 
 export type AppUpdateStatus = 'idle' | 'checking' | 'downloading' | 'ready' | 'current' | 'error';
 
@@ -47,6 +49,9 @@ function isQuietTerminal(status: AppUpdateStatus) {
 
 /** 启动自动检查期间把「已是最新 / 失败」收成 idle（updater 常 error 事件 + check() 再抛一次）。 */
 function applyUpdateState(next: AppUpdateState) {
+  if (next.status === 'error') {
+    logger.error('[app-update]', next.errorMessage ?? 'update failed');
+  }
   if (silentCheck && isQuietTerminal(next.status)) {
     publish({ ...next, status: 'idle', errorMessage: undefined });
     return;
@@ -77,8 +82,26 @@ export async function checkAppUpdate(opts?: { silent?: boolean }): Promise<void>
   const api = getAppUpdateBridge();
   if (!api) return;
   silentCheck = !!opts?.silent;
+  const t0 = Date.now();
+  trail.record({ module: 'app-update', action: 'check-start' });
   try {
     await api.check();
+    const result = state.status === 'error' ? 'fail' : state.status === 'current' ? 'current' : 'ok';
+    trail.record({
+      module: 'app-update',
+      action: 'check-end',
+      result,
+      durationMs: Date.now() - t0,
+      ...(state.availableVersion ? { meta: { availableVersion: state.availableVersion } } : {}),
+    });
+  } catch (err) {
+    trail.record({
+      module: 'app-update',
+      action: 'check-end',
+      result: 'fail',
+      durationMs: Date.now() - t0,
+    });
+    throw err;
   } finally {
     if (silentCheck) applyUpdateState(state);
     silentCheck = false;

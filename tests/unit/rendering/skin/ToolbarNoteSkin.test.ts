@@ -27,6 +27,7 @@ const glyphSrc = stripComments(readSource('src/rendering/primitives/NoteIconGlyp
 
 /** 递归收集目录下的 .ts / .tsx 文件（跳过 node_modules；目录不存在返回空——tools/ 已随 chore 895c3361 从 git 移除，fresh clone 没有它） */
 function walkTs(dir: string): string[] {
+  if (!existsSync(dir)) return [];
   const out: string[] = [];
   if (!existsSync(dir)) return out;
   for (const name of readdirSync(dir)) {

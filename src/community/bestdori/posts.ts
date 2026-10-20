@@ -22,6 +22,7 @@
  *     深页**不落盘** —— offset 会随新帖插入整体漂移，跨会话拼两个时刻的快照会把页码语义搞烂。
  *   - 用户主动刷新走 `force`：绕开会话缓存，并让网关重拉（`revalidate`）。
  */
+import { trail } from '../../diagnostics/trail';
 import { assetRawUrl, assetThumbUrl } from '../assetUrls';
 import { dedupInflight } from '../inflight';
 import { normalizeLevelWindow } from '../levelWindow';
@@ -135,6 +136,8 @@ export async function fetchPostPage(
     // 所以「没传 username」的请求体与既往逐字相同
     username: who === '' ? undefined : who,
   });
+  const started = Date.now();
+  trail.record({ module: 'community', action: 'browse-start' });
   const promise = withRetry(
     () => transport.requestJson({
       url: postListUrl(),
@@ -155,7 +158,21 @@ export async function fetchPostPage(
     if (!page) throw invalidResponse('帖子列表不是预期形态');
     const stored = isJsonFromCache(raw) ? markJsonFromCache(page) : page;
     pageCache.set(key, stored);
+    trail.record({
+      module: 'community',
+      action: 'browse-end',
+      result: 'ok',
+      durationMs: Date.now() - started,
+    });
     return stored;
+  }, (err: unknown) => {
+    trail.record({
+      module: 'community',
+      action: 'browse-end',
+      result: 'fail',
+      durationMs: Date.now() - started,
+    });
+    throw err;
   }).finally(() => {
     if (pageInflight.get(key) === promise) pageInflight.delete(key);
   });
