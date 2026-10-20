@@ -42,3 +42,4 @@
 - [11 打包图标尺寸校验失败](./issues/11-打包图标尺寸校验失败.md) — resolved（2026-10-20：`public/icon.png` 128x128 预切圆角 → 512x512 全出血方图，过 mac ≥512 / linux ≥256 最低线；应用内 `app-logo.png` 同步升 256 圆角版；favicon.ico 无需动）
 - [12 workflow显示名与发布模式](./issues/12-workflow显示名与发布模式.md) — resolved（2026-10-20：两个 workflow 补 `name:`（Release（发版）/ CI（PR 门禁））；发布模式维持 electron-builder 草稿默认 + 人工 Publish，不设 `releaseType`——用户拍板保留公开前人工闸）
 - [13 发布展示层去重与流水线命名](./issues/13-发布展示层去重与流水线命名.md) — resolved（2026-10-20：release notes 去 NOTICE 拼贴、直写单一来源 RELEASE_NOTES.md；.cnb.yml 五条流水线显式命名，imports 缩进 4→6 同步锁测）
+- [14 CNB 每日 22:00 定时任务不触发](./issues/14-CNB定时任务未触发.md) — resolved（2026-10-20：根因 = cron 表达式写成六字段，CNB 只认五字段 POSIX cron，非法表达式平台不注册且静默、只丢 cron 触发；修为 `0 22 * * *` + 锁测正负双锁）

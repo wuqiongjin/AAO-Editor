@@ -37,7 +37,11 @@ main:
   # 每天 22:00 一轮（Asia/Shanghai，CNB cron 平台固定，非配置项）。发版是手动低频事件，
   # 轮询只为「免看管」；要即时补镜像走下方 web_trigger 手动触发，不靠加密频率。
   # 单轮失败不影响后续轮次，下一轮自然重试。
-  "crontab: 0 22 * * * *":
+  # 表达式 = 标准 POSIX cron 五字段（分 时 日 月 周），无秒字段：CNB 官方文档明确
+  # 「标准 POSIX cron 表达式」（docs.cnb.cool/zh/build/crontab.md）。写成六字段平台
+  # 不注册该定时任务且静默——只丢 cron 触发，push / tag 等其他事件流水线照跑，
+  # 表现为「到点没构建」而非报错（2026-10-20 实测，release-pipeline/14）。
+  "crontab: 0 22 * * *":
     - name: 国内副本镜像（每日）
       imports:
         - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml

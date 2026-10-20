@@ -165,7 +165,10 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(cnb).toMatch(/crontab:/);
     expect(cnb).toMatch(/^ {2}web_trigger:/m);
     // 轮询频率锁每日 22:00（2026-10-19 拍板：*/30 空转 48 次/天，唯一代价是红叉噪音）
-    expect(cnb).toContain('crontab: 0 22 * * * *');
+    // 五字段 POSIX cron（分 时 日 月 周，无秒字段）。收尾引号锁死字段数；负锁防回退成
+    // 六字段——平台对非法表达式不注册且静默，只丢 cron 触发（2026-10-20 实测，release-pipeline/14）
+    expect(cnb).toContain('crontab: 0 22 * * *"');
+    expect(cnb).not.toContain('crontab: 0 22 * * * *');
     // 票 08 退役件防回归：凭据改走平台个人环境变量注入后，漫游文件挂载 hook
     // （~/.cnb/.env.local → ~/.zshenv）已清理，不许悄悄回来
     expect(cnb).not.toMatch(/env\.local|vscode/);
