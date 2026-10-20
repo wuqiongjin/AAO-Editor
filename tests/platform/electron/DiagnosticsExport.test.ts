@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
 import {
   diagnosticsArchiveName,
-  planDiagnosticsEntries,
+  diagnosticsZipFiles,
   registerDiagnosticsExportIpc,
 } from '@/electron/diagnosticsExport.cjs';
 import { tmpDir } from '@/tests/support/fs';
@@ -19,7 +19,7 @@ function fakeIpcMain() {
       handle: (channel: string, listener: (event: unknown, payload?: unknown) => unknown) => {
         handlers.set(channel, listener);
       },
-    } as { handle: (channel: string, listener: Function) => void },
+    },
   };
 }
 
@@ -30,17 +30,24 @@ describe('票 04 · 诊断包文件名与清单', () => {
 
   it('无轨迹时清单仍含 env / settings / 错误日志；谱面仅在有 chart 时出现', () => {
     expect(
-      planDiagnosticsEntries({
-        logNames: ['errors-20261019.log'],
-        hasChart: false,
-      }).map((e: { path: string }) => e.path),
+      diagnosticsZipFiles({
+        env: {},
+        settings: {},
+        logFiles: [{ name: 'errors-20261019.log', content: Buffer.alloc(0) }],
+        chart: undefined,
+      }).map((file) => file.path),
     ).toEqual(['env.json', 'settings.json', 'logs/errors-20261019.log']);
 
     expect(
-      planDiagnosticsEntries({
-        logNames: ['errors-20261018.log', 'trail-20261019.jsonl'],
-        hasChart: true,
-      }).map((e: { path: string }) => e.path),
+      diagnosticsZipFiles({
+        env: {},
+        settings: {},
+        logFiles: [
+          { name: 'errors-20261018.log', content: Buffer.alloc(0) },
+          { name: 'trail-20261019.jsonl', content: Buffer.alloc(0) },
+        ],
+        chart: {},
+      }).map((file) => file.path),
     ).toEqual([
       'env.json',
       'settings.json',
@@ -165,7 +172,7 @@ describe('票 04 · 主进程组包 IPC', () => {
           pageId: 'workspace',
           projectId: 'p2',
           settings: { theme: 'light' },
-          chart: { id: 'p2', charts: [] },
+          chart: { id: 'p2', charts: [], communityToken: 'leak-me' },
         },
       );
       const zip = await JSZip.loadAsync(readFileSync(outFile));

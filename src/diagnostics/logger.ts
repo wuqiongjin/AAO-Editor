@@ -20,10 +20,15 @@ export interface LogBridge {
 }
 
 export interface Logger {
-  error(module: string, message: string, extra?: unknown): void;
-  warn(module: string, message: string, extra?: unknown): void;
-  info(module: string, message: string, extra?: unknown): void;
-  trail: { append(event: unknown): void };
+  /**
+   * error / warn / info 返回桥调用的结果（Electron 下是 Promise，主进程写完才 resolve）；
+   * 无桥（浏览器演示）时返回 undefined。需要保序的调用方可以 await（见 exportDiagnostics）。
+   */
+  error(module: string, message: string, extra?: unknown): unknown;
+  warn(module: string, message: string, extra?: unknown): unknown;
+  info(module: string, message: string, extra?: unknown): unknown;
+  /** 返回桥调用的结果（Electron 下是 Promise，主进程写完才 resolve）；无桥时 undefined。 */
+  trail: { append(event: unknown): unknown };
 }
 
 function getLogBridge(): LogBridge | null {
@@ -58,23 +63,27 @@ export function formatLogLine(
   return line;
 }
 
-function defaultWrite(payload: LogWritePayload): void {
+function defaultWrite(payload: LogWritePayload): unknown {
   const write = getLogBridge()?.write;
-  if (!write) return;
+  if (!write) return undefined;
   try {
-    void write(payload);
+    // 不 void 掉：回传桥调用结果，需要保序的调用方可以 await（见 exportDiagnostics）
+    return write(payload);
   } catch {
     /* 无桥 / 桥挂了都不该把业务打翻 */
+    return undefined;
   }
 }
 
-function defaultTrail(event: unknown): void {
+function defaultTrail(event: unknown): unknown {
   const trail = getLogBridge()?.trail;
-  if (!trail) return;
+  if (!trail) return undefined;
   try {
-    void trail(event);
+    // 不 void 掉：返回的 Promise 让 trail.flush() 能等到主进程落盘
+    return trail(event);
   } catch {
     /* 无桥 / 桥挂了都不该把业务打翻 */
+    return undefined;
   }
 }
 
@@ -89,7 +98,7 @@ export function createLogger(deps?: {
   const trail = deps?.trail ?? defaultTrail;
   const cons = deps?.console ?? console;
 
-  function emit(level: LogLevel, module: string, message: string, extra?: unknown): void {
+  function emit(level: LogLevel, module: string, message: string, extra?: unknown): unknown {
     const at = now();
     const line = formatLogLine(level, module, message, extra, at);
     if (level === 'error') cons.error(line);
@@ -99,9 +108,10 @@ export function createLogger(deps?: {
     const payload: LogWritePayload = { level, module, message, ts: at.toISOString() };
     if (extraVal !== undefined) payload.extra = extraVal;
     try {
-      void write(payload);
+      return write(payload);
     } catch {
       /* write 失败不抛 */
+      return undefined;
     }
   }
 
@@ -112,9 +122,10 @@ export function createLogger(deps?: {
     trail: {
       append(event: unknown) {
         try {
-          void trail(event);
+          return trail(event);
         } catch {
           /* trail 失败不抛 */
+          return undefined;
         }
       },
     },

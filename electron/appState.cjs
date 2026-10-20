@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { writeFileAtomicSync } = require('./atomicWrite.cjs');
 
 const APP_STATE_FILENAME = 'app-state.json';
 
@@ -18,10 +19,7 @@ function readAppStateRawSync(userData) {
 }
 
 function writeAppStateRawSync(userData, doc) {
-    const filePath = appStateFilePath(userData);
-    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    fs.writeFileSync(tmpPath, JSON.stringify(doc), 'utf8');
-    fs.renameSync(tmpPath, filePath);
+    writeFileAtomicSync(appStateFilePath(userData), JSON.stringify(doc));
 }
 
 /** 只覆盖传入的键，保留文件里其它本机状态字段 */

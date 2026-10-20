@@ -54,6 +54,57 @@ describe('票 02 · 操作轨迹 ring', () => {
     trail.flush();
     expect(persisted.map((row) => (row.meta as { n: number }).n)).toEqual([0, 1, 2]);
   });
+
+  it('flush 返回的 Promise 在所有 persist 落盘后才 resolve；单条失败不拖垮整批', async () => {
+    const order: string[] = [];
+    const trail = createTrail({
+      now: () => AT,
+      persist: (row) =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            order.push(row.action);
+            resolve();
+          }, 5);
+        }),
+    });
+    trail.record({ module: 'community', action: 'login-start' });
+    trail.record({ module: 'community', action: 'login-end', result: 'ok' });
+    const done = trail.flush();
+    expect(order).toEqual([]);
+    await done;
+    expect(order).toEqual(['login-start', 'login-end']);
+
+    const rejecting = createTrail({
+      now: () => AT,
+      persist: () => Promise.reject(new Error('ipc down')),
+    });
+    rejecting.record({ module: 'community', action: 'login-start' });
+    await expect(rejecting.flush()).resolves.toBeUndefined();
+  });
+
+  it('上一次 flush 还没落盘时再来 flush：返回的 Promise 等前一次一起落盘', async () => {
+    const landed: string[] = [];
+    const trail = createTrail({
+      now: () => AT,
+      persist: (row) =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            landed.push(row.action);
+            resolve();
+          }, row.action === 'slow' ? 30 : 5),
+        ),
+    });
+    trail.record({ module: 'community', action: 'slow' });
+    const first = trail.flush();
+    trail.record({ module: 'community', action: 'fast' });
+    const second = trail.flush();
+
+    await second;
+    // 旧实现（不等前一次）在 fast 落盘后就 resolve，这里会看不到 slow
+    expect(landed).toContain('slow');
+    await first;
+    expect(landed).toContain('fast');
+  });
 });
 
 describe('票 02 · 事件结构序列化', () => {

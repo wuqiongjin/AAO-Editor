@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { readStripped, repoRoot, sourceFiles } from '@/tests/support/source';
 
 const ASSEMBLER_FILES = [
-  'src/diagnostics/sanitizeSettings.ts',
+  'src/diagnostics/sanitizeDiagnosticsPayload.ts',
   'src/diagnostics/exportDiagnostics.ts',
   'electron/diagnosticsExport.cjs',
 ];
@@ -23,6 +23,18 @@ describe('票 04 · 诊断包接线与凭据红线', () => {
     for (const rel of ASSEMBLER_FILES) {
       expect(readStripped(rel), rel).not.toMatch(CREDENTIAL_LEAK);
     }
+  });
+
+  it('渲染 / 主进程两份脱敏键名表逐字一致，且覆盖 password', () => {
+    const keyOf = (rel: string): string => {
+      const m = readStripped(rel).match(/const SENSITIVE_KEY = (\/[^/\n]+\/[a-z]*);/);
+      expect(m, rel).not.toBeNull();
+      return m![1]!;
+    };
+    const renderer = keyOf('src/diagnostics/sanitizeDiagnosticsPayload.ts');
+    const main = keyOf('electron/diagnosticsExport.cjs');
+    expect(renderer).toBe(main);
+    expect(renderer).toMatch(/password/);
   });
 
   it('组包代码不 import 凭据模块', () => {

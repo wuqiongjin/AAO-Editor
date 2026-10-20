@@ -158,26 +158,11 @@ function listLogFiles(dir) {
     }
 }
 
-function appendLine(logsDir, track, line, now) {
-    const entryBytes = Buffer.byteLength(line, 'utf8');
-    const plan = planLogRotation({
-        files: listLogFiles(logsDir),
-        now,
-        entryBytes,
-        track,
-    });
-    fs.mkdirSync(logsDir, { recursive: true });
-    for (const name of plan.deleteNames) {
-        try {
-            fs.unlinkSync(path.join(logsDir, name));
-        } catch {
-            /* 删不掉不挡写入 */
-        }
-    }
-    fs.appendFileSync(path.join(logsDir, plan.writeName), line);
-}
-
 /**
+ * 每条写入都重新扫目录，在轨迹 flush（一次最多 500 条）时太贵：
+ * 扫描结果按 UTC 天缓存，同一天的连续写入只扫一次；
+ * 文件大小随 append / 删除增量更新，轮转判定仍然准确；跨天必然重扫。
+ *
  * @param {{ userData: string | (() => string), now?: () => Date }} deps
  */
 function createAppLog(deps) {
@@ -185,6 +170,44 @@ function createAppLog(deps) {
     function logsDir() {
         const userData = typeof deps.userData === 'function' ? deps.userData() : deps.userData;
         return path.join(userData, 'logs');
+    }
+    let scanDay = null;
+    let scanFiles = [];
+    // 单实例口径：logs 目录只由本进程的 appLog 写。第二个实例 / 外部删文件看不到，
+    // 最坏晚一个 UTC 天反映——轮转上限（5MB / 7 天 / 50MB）仍由下次重扫兜住。
+    function filesFor(now) {
+        const day = utcStamp(now);
+        if (scanDay !== day) {
+            scanDay = day;
+            scanFiles = listLogFiles(logsDir());
+        }
+        return scanFiles;
+    }
+    function append(track, line, now) {
+        const entryBytes = Buffer.byteLength(line, 'utf8');
+        const files = filesFor(now);
+        const plan = planLogRotation({ files, now, entryBytes, track });
+        fs.mkdirSync(logsDir(), { recursive: true });
+        for (const name of plan.deleteNames) {
+            try {
+                fs.unlinkSync(path.join(logsDir(), name));
+            } catch {
+                // 删不掉：缓存里留着它——50MB 预算与轮转判定才不会少算一份
+                continue;
+            }
+            const idx = files.findIndex((f) => f.name === name);
+            if (idx >= 0) files.splice(idx, 1);
+        }
+        try {
+            fs.appendFileSync(path.join(logsDir(), plan.writeName), line);
+        } catch (err) {
+            // 写失败：缓存里的体积没更新，作废等下次重扫，避免轮转判定少算
+            scanDay = null;
+            throw err;
+        }
+        const target = files.find((f) => f.name === plan.writeName);
+        if (target) target.size += entryBytes;
+        else files.push({ name: plan.writeName, size: entryBytes });
     }
     return {
         write(payload) {
@@ -199,7 +222,7 @@ function createAppLog(deps) {
                     payload && payload.extra,
                     atDate,
                 )}\n`;
-                appendLine(logsDir(), 'errors', line, wall);
+                append('errors', line, wall);
             } catch {
                 /* 日志失败不能打翻业务 */
             }
@@ -210,7 +233,7 @@ function createAppLog(deps) {
                 // JSON.stringify(undefined) 得到 undefined 而不是字符串
                 const text = JSON.stringify(event);
                 if (typeof text !== 'string') return;
-                appendLine(logsDir(), 'trail', `${text}\n`, nowFn());
+                append('trail', `${text}\n`, nowFn());
             } catch {
                 /* 不可序列化 / 写盘失败：丢掉这一条 */
             }
@@ -231,4 +254,8 @@ module.exports = {
     formatLogLine,
     createAppLog,
     registerAppLogIpc,
+    // 与 diagnosticsExport.cjs 共享的托管日志文件名 / 日期计算（避免两处漂移）
+    parseManaged,
+    utcDayNumber,
+    stampDayNumber,
 };

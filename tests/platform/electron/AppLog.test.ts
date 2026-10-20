@@ -212,4 +212,32 @@ describe('票 01 · 主进程落盘 sink', () => {
       rmSync(userData, { recursive: true, force: true });
     }
   });
+
+  it('同一天连续写入：体积在扫描缓存里累积，跨过 5MB 才开 -2（不依赖重扫）', async () => {
+    const userData = tmpDir('aao-log-cache-');
+    try {
+      const logs = join(userData, 'logs');
+      mkdirSync(logs, { recursive: true });
+      // 预留 5MB-50：第一条（40B）留本报，第二条必然越界 —— 只有缓存体积被正确累积才会开 -2
+      const head = Buffer.alloc(5 * MB - 50, 97);
+      writeFileSync(join(logs, 'errors-20261019.log'), head);
+      const { handlers } = makeLog(userData);
+      const write = handlers.get('log:write');
+      const payload = { level: 'info', module: 'i18n', message: 'ok', ts: NOW.toISOString() };
+      const line = '2026-10-19T12:00:00.000Z INFO [i18n] ok\n';
+      expect(line).toHaveLength(40);
+
+      await write?.(null, payload);
+      expect(existsSync(join(logs, 'errors-20261019-2.log'))).toBe(false);
+
+      await write?.(null, payload);
+      expect(existsSync(join(logs, 'errors-20261019-2.log'))).toBe(true);
+      expect(readFileSync(join(logs, 'errors-20261019.log'), 'utf8')).toBe(
+        `${head.toString('latin1')}${line}`,
+      );
+      expect(readFileSync(join(logs, 'errors-20261019-2.log'), 'utf8')).toBe(line);
+    } finally {
+      rmSync(userData, { recursive: true, force: true });
+    }
+  });
 });

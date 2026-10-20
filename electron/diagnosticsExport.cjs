@@ -5,10 +5,11 @@
 const fs = require('fs');
 const path = require('path');
 const JSZip = require('jszip/dist/jszip.min.js');
-const { MAX_AGE_DAYS } = require('./appLog.cjs');
+const { MAX_AGE_DAYS, parseManaged, utcDayNumber, stampDayNumber } = require('./appLog.cjs');
+const { writeFileAtomic } = require('./atomicWrite.cjs');
 
+// 与 src/diagnostics/sanitizeDiagnosticsPayload.ts 的键名表一致（tests/static/DiagnosticsExportWiring.test.ts 钉住）。
 const SENSITIVE_KEY = /token|cookie|session|password|authorization|secret|credential|apiKey/i;
-const LOG_FILE = /^(errors|trail)-(\d{8})(?:-\d+)?(\.log|\.jsonl)$/;
 
 function pad2(n) {
     return String(n).padStart(2, '0');
@@ -18,13 +19,13 @@ function diagnosticsArchiveName(now) {
     return `aao-diagnostics-${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}.zip`;
 }
 
-function sanitizeSettingsForDiagnostics(value) {
-    if (Array.isArray(value)) return value.map(sanitizeSettingsForDiagnostics);
+function sanitizeForDiagnostics(value) {
+    if (Array.isArray(value)) return value.map(sanitizeForDiagnostics);
     if (value !== null && typeof value === 'object') {
         const out = {};
         for (const [key, child] of Object.entries(value)) {
             if (SENSITIVE_KEY.test(key)) continue;
-            out[key] = sanitizeSettingsForDiagnostics(child);
+            out[key] = sanitizeForDiagnostics(child);
         }
         return out;
     }
@@ -45,26 +46,6 @@ function diagnosticsZipFiles({ env, settings, logFiles, chart }) {
     return files;
 }
 
-function planDiagnosticsEntries({ logNames, hasChart }) {
-    return diagnosticsZipFiles({
-        env: {},
-        settings: {},
-        logFiles: logNames.map((name) => ({ name, content: Buffer.alloc(0) })),
-        chart: hasChart ? {} : undefined,
-    }).map((file) => ({ path: file.path }));
-}
-
-function utcDayNumber(date) {
-    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / 86400000;
-}
-
-function stampDayNumber(stamp) {
-    const y = Number(stamp.slice(0, 4));
-    const m = Number(stamp.slice(4, 6));
-    const d = Number(stamp.slice(6, 8));
-    return Date.UTC(y, m - 1, d) / 86400000;
-}
-
 function collectLogFiles(logsDir, now) {
     let names = [];
     try {
@@ -75,11 +56,10 @@ function collectLogFiles(logsDir, now) {
     const today = utcDayNumber(now);
     const out = [];
     for (const name of names) {
-        const m = LOG_FILE.exec(name);
-        if (!m) continue;
-        if (m[1] === 'errors' && m[3] !== '.log') continue;
-        if (m[1] === 'trail' && m[3] !== '.jsonl') continue;
-        if (today - stampDayNumber(m[2]) >= MAX_AGE_DAYS) continue;
+        // parseManaged 已挡住 errors→.log / trail→.jsonl 之外的组合
+        const parsed = parseManaged(name);
+        if (!parsed) continue;
+        if (today - stampDayNumber(parsed.stamp) >= MAX_AGE_DAYS) continue;
         try {
             out.push({ name, content: fs.readFileSync(path.join(logsDir, name)) });
         } catch {
@@ -95,7 +75,7 @@ function resolveVersions(raw) {
 
 /**
  * @param {{
- *   handle: (channel: string, listener: Function) => void,
+ *   handle: (channel: string, listener: (event: unknown, payload?: unknown) => unknown) => void,
  * }} ipcMain
  * @param {{
  *   logsDir: () => string,
@@ -110,14 +90,16 @@ function resolveVersions(raw) {
  */
 function registerDiagnosticsExportIpc(ipcMain, deps) {
     const nowFn = deps.now || (() => new Date());
-    const writeFile = deps.writeFile || ((filePath, bytes) => fs.promises.writeFile(filePath, bytes));
+    const writeFile = deps.writeFile || writeFileAtomic;
 
     ipcMain.handle('diagnostics:export', async (event, payload) => {
         const now = nowFn();
         const logs = collectLogFiles(deps.logsDir(), now);
         const versions = resolveVersions(deps.versions);
         const body = payload && typeof payload === 'object' ? payload : {};
-        const chart = Object.prototype.hasOwnProperty.call(body, 'chart') ? body.chart : undefined;
+        const rawChart = Object.prototype.hasOwnProperty.call(body, 'chart') ? body.chart : undefined;
+        // chart 与 settings 过同一把键名筛：谱面文档将来若带 token 类字段不会原样进包
+        const chart = rawChart === undefined ? undefined : sanitizeForDiagnostics(rawChart);
         const env = {
             exportedAt: now.toISOString(),
             appVersion: versions.app || '',
@@ -129,7 +111,7 @@ function registerDiagnosticsExportIpc(ipcMain, deps) {
             pageId: body.pageId ?? null,
             projectId: body.projectId ?? null,
         };
-        const settings = sanitizeSettingsForDiagnostics(body.settings ?? {});
+        const settings = sanitizeForDiagnostics(body.settings ?? {});
         const zip = new JSZip();
         for (const file of diagnosticsZipFiles({ env, settings, logFiles: logs, chart })) {
             zip.file(file.path, file.data);
@@ -153,9 +135,8 @@ function registerDiagnosticsExportIpc(ipcMain, deps) {
 
 module.exports = {
     diagnosticsArchiveName,
-    sanitizeSettingsForDiagnostics,
+    sanitizeForDiagnostics,
     diagnosticsZipFiles,
-    planDiagnosticsEntries,
     collectLogFiles,
     registerDiagnosticsExportIpc,
 };

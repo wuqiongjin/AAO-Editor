@@ -60,6 +60,7 @@ const { autoUpdater } = require('electron-updater');
 const { createAppUpdater, registerAppUpdateIpc } = require('./appUpdate.cjs');
 const { createAppLog, registerAppLogIpc } = require('./appLog.cjs');
 const { registerDiagnosticsExportIpc } = require('./diagnosticsExport.cjs');
+const { writeFileAtomic } = require('./atomicWrite.cjs');
 
 // ---------------------------------------------------------------------------
 // 谱面工程文件后端（ADR-0015）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
@@ -93,12 +94,6 @@ registerDiagnosticsExportIpc(ipcMain, {
     showSaveDialog: (win, opts) => dialog.showSaveDialog(win ?? undefined, opts),
     t,
 });
-
-async function writeFileAtomic(filePath, data) {
-    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    await fs.promises.writeFile(tmpPath, data);
-    await fs.promises.rename(tmpPath, filePath);
-}
 
 function registerProjectStoreIpc() {
     ipcMain.handle('project:get', (_event, rawId) => getProject(currentDataRoot(), rawId));

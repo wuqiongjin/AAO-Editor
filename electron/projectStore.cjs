@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { cacheDir, isPathInside, projectDir, projectsDir, safeProjectId } = require('./dataRoot.cjs');
+const { writeFileAtomic } = require('./atomicWrite.cjs');
 
 const SCHEMA_VERSION = 1;
 
@@ -30,12 +31,6 @@ function storeWarn(message, extra) {
         return;
     }
     console.warn(`[project-store] ${message}`, extra);
-}
-
-async function writeFileAtomic(filePath, data) {
-    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    await fs.promises.writeFile(tmpPath, data);
-    await fs.promises.rename(tmpPath, filePath);
 }
 
 async function fileExists(filePath) {

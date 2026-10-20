@@ -80,4 +80,36 @@ describe('票 01 · 渲染进程 logger', () => {
     expect(events).toEqual([{ ts: AT.toISOString(), module: 'preview', action: 'export-start' }]);
     expect(() => createLogger({ console: { error() {}, warn() {}, info() {} } }).trail.append({ a: 1 })).not.toThrow();
   });
+
+  it('trail.append / warn 把桥调用的 Promise 透传出去（flush 与导出保序靠它）', async () => {
+    let trailLanded = false;
+    let writeLanded = false;
+    const log = createLogger({
+      now: () => AT,
+      write: () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            writeLanded = true;
+            resolve();
+          }, 5),
+        ),
+      trail: () =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            trailLanded = true;
+            resolve();
+          }, 5),
+        ),
+      console: { error() {}, warn() {}, info() {} },
+    });
+
+    const trailPending = log.trail.append({ ts: AT.toISOString(), module: 'preview', action: 'export-start' });
+    const writePending = log.warn('diagnostics', '读取当前谱面失败');
+    expect(trailLanded).toBe(false);
+    expect(writeLanded).toBe(false);
+
+    await Promise.all([trailPending, writePending]);
+    expect(trailLanded).toBe(true);
+    expect(writeLanded).toBe(true);
+  });
 });

@@ -1,7 +1,7 @@
 import type { ChartProject } from '../project/ChartProject';
 import { storedFromProject } from '../project/ChartProjectRecord';
 import { logger } from './logger';
-import { sanitizeSettingsForDiagnostics } from './sanitizeSettings';
+import { sanitizeForDiagnostics } from './sanitizeDiagnosticsPayload';
 import { trail } from './trail';
 
 export interface DiagnosticsExportPayload {
@@ -44,16 +44,19 @@ export async function exportDiagnostics(input: {
       const project = await input.getProject(input.projectId);
       if (project) chart = chartDocumentForDiagnostics(project);
     } catch (err) {
-      logger.warn('[diagnostics]', '读取当前谱面失败，诊断包将不含谱面', err);
+      // 这条 warn 与轨迹同族：也要赶在主进程读 logs 之前落盘，一并 await
+      await logger.warn('[diagnostics]', '读取当前谱面失败，诊断包将不含谱面', err);
     }
   }
   try {
-    trail.flush();
+    // flush 返回的 Promise 在所有 pending 轨迹落盘后才 resolve（见 trail.ts），
+    // 之后才发起导出，主进程读 logs 目录时轨迹已完整。
+    await trail.flush();
     return await bridge.export({
       pageId: input.pageId,
       projectId: input.projectId,
-      settings: sanitizeSettingsForDiagnostics(input.settings),
-      ...(chart !== undefined ? { chart } : {}),
+      settings: sanitizeForDiagnostics(input.settings),
+      ...(chart !== undefined ? { chart: sanitizeForDiagnostics(chart) } : {}),
     });
   } catch (err) {
     logger.error('[diagnostics]', '导出诊断包失败', err);

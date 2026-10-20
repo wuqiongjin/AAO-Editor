@@ -14,7 +14,8 @@ export interface TrailEvent {
 
 export interface Trail {
   record(event: Omit<TrailEvent, 'ts'>): void;
-  flush(): void;
+  /** 把尚未落盘的条目交给 persist，返回的 Promise 在全部落盘后才 resolve。 */
+  flush(): Promise<void>;
   snapshot(): TrailEvent[];
 }
 
@@ -32,13 +33,14 @@ export function serializeTrailEvent(event: TrailEvent): string {
   return JSON.stringify(row);
 }
 
-function defaultPersist(event: TrailEvent): void {
-  logger.trail.append(event);
+function defaultPersist(event: TrailEvent): unknown {
+  // 不 void 掉：logger.trail.append 返回 IPC 调用的 Promise，flush 靠它保序
+  return logger.trail.append(event);
 }
 
 export function createTrail(deps?: {
   now?: () => Date;
-  persist?: (event: TrailEvent) => void;
+  persist?: (event: TrailEvent) => unknown;
   capacity?: number;
 }): Trail {
   const now = deps?.now ?? (() => new Date());
@@ -46,6 +48,9 @@ export function createTrail(deps?: {
   const capacity = deps?.capacity ?? TRAIL_CAPACITY;
   const buffer: TrailEvent[] = [];
   let nextFlush = 0;
+  // 上一次 flush 的落盘尾巴：进行中再来 flush 就挂到同一条尾巴上，
+  // 调用方拿到的 Promise 因此覆盖「本次 + 此前所有」pending 落盘
+  let flushing: Promise<void> = Promise.resolve();
 
   return {
     record(event) {
@@ -56,14 +61,23 @@ export function createTrail(deps?: {
       }
     },
     flush() {
+      const pending: Promise<void>[] = [];
       for (let i = nextFlush; i < buffer.length; i++) {
         try {
-          persist(buffer[i]!);
+          const result = persist(buffer[i]!);
+          if (result && typeof (result as Promise<void>).then === 'function') {
+            pending.push(result as Promise<void>);
+          }
         } catch {
           /* persist 失败不抛 */
         }
       }
       nextFlush = buffer.length;
+      // 无等待中的落盘时也返回已 resolve 的 Promise：调用方（exportDiagnostics）统一 await。
+      // 单条落盘失败不拖垮整批，也不外溢成未处理 rejection（与同步抛错被吞掉同语义）。
+      const mine = Promise.all(pending.map((p) => p.catch(() => undefined))).then(() => undefined);
+      flushing = flushing.then(() => mine);
+      return flushing;
     },
     snapshot() {
       return buffer.slice();

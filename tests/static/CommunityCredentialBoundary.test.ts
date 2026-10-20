@@ -3,9 +3,10 @@
 // 一条红线：**密码不落盘**（ADR-0011 §3）。它不是一个动作写对就行，而是「凭据没有路走到
 // 任何持久化写入路径」——所以这里断言的是**通路**，不是某一行的写法：
 //
-//   ① `password` 字面量在 `src/` 里只准出现在**两处**白名单：账号模块 + 登录弹窗
+//   ① `password` 字面量在 `src/` 里只准出现在**白名单三处**：账号模块 + 登录弹窗 + 诊断包脱敏键名表
 //      （票 39 Q9 —— 登录表单天生要一个 `<input type="password">`，藏字面量才是自欺；
-//      弹窗那一处另有结构性约束，见 PASSWORD_WHITELIST 与下面那条弹窗断言。
+//      弹窗那一处另有结构性约束，见 PASSWORD_WHITELIST 与下面两条弹窗 / 键名表断言。
+//      脱敏键名表（ADR-0019 §4）里的 password 是**被剔除的键名**，同样带结构性约束。
 //      `electron/` 那一侧由 ③ 单独盯：`sourceFiles()` 只走 .ts/.tsx，两边射程不同，别把话说过头）；
 //   ② 会话 Cookie 的持久化接缝**零入参**（renderer 递不进凭据，主进程从自己的 jar 落盘）；
 //   ③ 持久化那几个文件**不认识** password / username；加密只有主进程会做，renderer 连 API 都没有；
@@ -18,6 +19,12 @@ import { readSource, readStripped, sourceFiles } from '@/tests/support/source';
 const ACCOUNT_MODULE = 'src/community/bestdori/account.ts';
 /** 登录弹窗：白名单的第二处（票 39 Q9），它只把凭据递给 `account.login()` 的参数 */
 const SIGN_IN_DIALOG = 'src/pages/projects/components/SignInDialog.tsx';
+/**
+ * 诊断包脱敏键名表：白名单的第三处（ADR-0019 §4）。这里的 `password` 是**被剔除的键名**，
+ * 不是凭据通路 —— 它出现在 SENSITIVE_KEY 正则里，且该文件不 import 任何东西（纯函数）。
+ * 下面「脱敏键名表那一处是结构性的」断言把这两点钉住。
+ */
+const SANITIZE_KEY_TABLE = 'src/diagnostics/sanitizeDiagnosticsPayload.ts';
 const SESSION_BRIDGE = 'src/community/sessionPersistence.ts';
 const SESSION_MAIN = 'electron/communitySession.cjs';
 const PRELOAD = 'electron/preload.js';
@@ -34,12 +41,12 @@ const SESSION_CHANNELS = [
 /** `password` 那个标识符（大小写与包含关系都算：`userPassword` 也逃不掉） */
 const PASSWORD = /password/i;
 /**
- * `password` 字面量允许出现的**两处**（票 39 Q9）。放宽成"白名单"而不是"目录级豁免"是
- * 有意的：目录级豁免会长期弱化这条红线（谁往那个目录里丢文件都不再受约束），而白名单的
- * 第二处还带着结构性约束 —— 登录弹窗**不 import 任何持久化出口**、正文里也没有 storage 出口，
- * 于是「界面有表单」与「凭据有第二条落盘路」被分开（后者仍是红线）。
+ * `password` 字面量允许出现的**三处**（票 39 Q9 两处 + 脱敏键名表一处）。放宽成"白名单"而不是
+ * "目录级豁免"是有意的：目录级豁免会长期弱化这条红线（谁往那个目录里丢文件都不再受约束），而白名单的
+ * 后两处还带着结构性约束 —— 登录弹窗**不 import 任何持久化出口**、正文里也没有 storage 出口，
+ * 于是「界面有表单」与「凭据有第二条落盘路」被分开（后者仍是红线）；脱敏键名表则只以键名身份出现。
  */
-const PASSWORD_WHITELIST = [ACCOUNT_MODULE, SIGN_IN_DIALOG];
+const PASSWORD_WHITELIST = [ACCOUNT_MODULE, SIGN_IN_DIALOG, SANITIZE_KEY_TABLE];
 /** 渲染侧的持久化出口：任何一条出现在账号模块里都是红线被绕道 */
 const PERSISTENCE_SINKS = /localStorage|sessionStorage|indexedDB|projectStore|safeStorage/;
 /**
@@ -65,6 +72,20 @@ describe('票 10 · 密码不落盘（凭据通路）', () => {
     const sinks = importsOf(SIGN_IN_DIALOG).filter((spec) => /persist|storage|credential|safeStorage/i.test(spec));
     expect(sinks).toEqual([]);
     expect(readStripped(SIGN_IN_DIALOG)).not.toMatch(PERSISTENCE_SINKS);
+  });
+
+  it('脱敏键名表那一处是结构性的：password 只是被剔除的键名，且是个纯函数', () => {
+    const src = readStripped(SANITIZE_KEY_TABLE);
+    // 全文只有 SENSITIVE_KEY 一行出现 password，且它在正则字面量里（键名筛，不是值）
+    const lines = src
+      .split('\n')
+      .filter((text) => PASSWORD.test(text))
+      .map((text) => text.trim());
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^const SENSITIVE_KEY = \/[^/\n]*password/i);
+    // 零 import、零持久化出口：脱敏不碰任何"能不能存"的接缝
+    expect(importsOf(SANITIZE_KEY_TABLE)).toEqual([]);
+    expect(src).not.toMatch(PERSISTENCE_SINKS);
   });
 
   it('在账号模块里它只以两种身份出现：函数形参、登录请求体里的那个值', () => {
@@ -151,8 +172,10 @@ describe('票 10 · 凭据落点与降级', () => {
   it('不支持加密就不落盘（没有「退化成明文」这条兜底）', () => {
     const src = readStripped(SESSION_MAIN);
     expect(src).toMatch(/isEncryptionAvailable/);
-    // 全文件只有一处真写盘，而且写进去的必须是 encryptString 的产物
-    expect(src.match(/fs\.promises\.writeFile\(/g)).toHaveLength(1);
+    // 本文件不直接写盘：写盘统一走共享的 atomicWrite（tmp + rename），
+    // 且全文件只有这一次调用，写进去的必须是 encryptString 的产物
+    expect(src.match(/fs\.(?:promises\.)?writeFile/g) ?? []).toHaveLength(0);
+    expect(src.match(/writeFileAtomic\(/g)).toHaveLength(1);
     expect(src).toMatch(/writeFileAtomic\(\s*filePath\(\),\s*safeStorage\.encryptString\(text\)\s*\)/);
   });
 

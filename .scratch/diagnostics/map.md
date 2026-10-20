@@ -26,6 +26,7 @@
 - [2026-10-19] [04 诊断包导出](./issues/04-诊断包导出.md) 已落地：设置页关于段导出脱敏 zip（主进程 jszip + 保存对话框）；谱面 JSON 默认不附。
 - [2026-10-19] [03 崩溃兜底三层边界](./issues/03-崩溃兜底三层边界.md) 已落地：App / 七页 PageSlot / 画布三层错误态 + 全局 `error`/`unhandledrejection` 记日志；崩溃态接导出诊断包。
 - [2026-10-19] [02 操作轨迹埋点](./issues/02-操作轨迹埋点.md) 已落地：ring 500，崩溃/诊断包 flush；模块级动作进 jsonl。
+- [2026-10-20] [06 评审缺陷批次](./issues/06-20261020评审缺陷批次.md) 已落地：PR 评审 + 复审共 8 条——脱敏补 `password` 且两份一致（chart 同筛）、flush 可等待保序、appLog 扫描按天缓存、五处原子写收敛 `atomicWrite.cjs`、全局 handler dispose 幂等、改名 `sanitizeDiagnosticsPayload.ts`，逐条补锁测。
 
 ## Frontier
 
@@ -34,3 +35,4 @@
 - [04 诊断包导出](./issues/04-诊断包导出.md) — resolved（设置页关于段导出 zip；谱面默认不附）
 - [03 崩溃兜底三层边界](./issues/03-崩溃兜底三层边界.md) — resolved（App/PageSlot/canvas 三层 + `[uncaught]` handler；错误态接诊断包）
 - [02 操作轨迹埋点](./issues/02-操作轨迹埋点.md) — resolved（ring 500 + 崩溃/诊断包 flush；模块级埋点）
+- [06 评审缺陷批次](./issues/06-20261020评审缺陷批次.md) — resolved（脱敏 password + chart 同筛；flush 保序；扫描缓存；atomicWrite 收敛；dispose 幂等）

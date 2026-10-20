@@ -36,7 +36,9 @@ export class CrashBoundary extends Component<CrashBoundaryProps, CrashState> {
   componentDidCatch(error: Error): void {
     const log = this.props.logger ?? logger;
     log.error(`[crash:${this.props.scope}]`, error.message || 'render error', error);
-    trail.flush();
+    // 崩溃路径只求尽力落盘：componentDidCatch 是同步的，不等 Promise；
+    // 需要「落盘后再组包」的场景（导出诊断包）走 exportDiagnostics 里的 await trail.flush()。
+    void trail.flush();
   }
 
   private retry = (): void => {

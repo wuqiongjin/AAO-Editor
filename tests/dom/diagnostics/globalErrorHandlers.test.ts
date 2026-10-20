@@ -61,4 +61,33 @@ describe('票 03 · 全局未捕获 handler', () => {
     expect(writes).toHaveLength(1);
     expect(writes[0]).toMatchObject({ level: 'error', module: '[uncaught]', message: 'once' });
   });
+
+  it('换 logger 重复 install：旧监听被拆掉，错误只进新 logger', () => {
+    const first: unknown[] = [];
+    const second: unknown[] = [];
+    dispose = installGlobalErrorHandlers({ logger: silentLogger(first) });
+    dispose = installGlobalErrorHandlers({ logger: silentLogger(second) });
+
+    window.dispatchEvent(new ErrorEvent('error', { message: 'swapped', error: new Error('swapped') }));
+
+    expect(first).toHaveLength(0);
+    expect(second).toHaveLength(1);
+    expect(second[0]).toMatchObject({ level: 'error', module: '[uncaught]', message: 'swapped' });
+  });
+
+  it('换代后调用旧 dispose：只拆自己，不动在任监听', () => {
+    const first: unknown[] = [];
+    const second: unknown[] = [];
+    const disposeA = installGlobalErrorHandlers({ logger: silentLogger(first) });
+    dispose = installGlobalErrorHandlers({ logger: silentLogger(second) });
+    disposeA(); // 旧世代：已随换代拆掉，重复调用是 no-op，且不得动在任一代
+
+    window.dispatchEvent(new ErrorEvent('error', { message: 'still-live', error: new Error('still-live') }));
+    expect(second).toHaveLength(1);
+
+    dispose?.();
+    // 全拆干净后没有监听记日志（不带 error 对象派发：无用户监听时 vitest 会把它当未捕获异常）
+    window.dispatchEvent(new ErrorEvent('error', { message: 'gone' }));
+    expect(second).toHaveLength(1);
+  });
 });
