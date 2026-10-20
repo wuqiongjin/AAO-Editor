@@ -12,4 +12,18 @@ describe('ADR-0021 · 应用更新接线', () => {
     expect(settings).toMatch(/settings\.section\.about/);
     expect(settings).not.toMatch(/electron-updater/);
   });
+
+  it('发行说明走 markdown 子集渲染组件，不裸贴文本、不走 innerHTML', () => {
+    const host = readStripped('src/app/AppUpdateHost.tsx');
+    expect(host).toMatch(/from '\.\/ReleaseNotes'/);
+    expect(host).toMatch(/<ReleaseNotes markdown=\{notes\} \/>/);
+    expect(host).not.toMatch(/\{notes \|\| undefined\}/);
+
+    // 渲染链（组件 + 解析器）只产 React 元素：XSS 面不给 dangerouslySetInnerHTML 留门
+    for (const file of ['src/app/ReleaseNotes.tsx', 'src/app/releaseNotesParser.ts']) {
+      const src = readStripped(file);
+      expect(src, file).not.toMatch(/dangerouslySetInnerHTML/);
+      expect(src, file).not.toMatch(/innerHTML/);
+    }
+  });
 });

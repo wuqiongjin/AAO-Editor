@@ -10,7 +10,9 @@
 
 ## Download
 
-Get desktop installers from **[GitHub Releases](https://github.com/wuqiongjin/AAO-Editor/releases)** (Windows NSIS / macOS DMG / Linux AppImage, built with electron-builder).
+Get desktop installers from **[GitHub Releases](https://github.com/wuqiongjin/AAO-Editor/releases)** (Windows NSIS / macOS DMG / Linux AppImage, built with electron-builder). For networks with limited GitHub access, the same installers are mirrored to **[CNB Releases](https://cnb.cool/AsterPicker/AAO-Editor/-/releases)** shortly after each release.
+
+Installers are not code-signed yet: on macOS, right-click (or Ctrl-click) the app and choose "Open" the first time; on Windows, if SmartScreen appears, choose "Run anyway".
 
 AAO Editor is a non-profit, fan-made tool and the app bundle includes BanG Dream! game assets. Please read the [unofficial fan tool notice](#unofficial-fan-tool-notice) for copyright and disclaimer details before installing.
 
@@ -118,9 +120,11 @@ Requirements: Node.js ≥ 20.19 and npm.
 git clone https://github.com/wuqiongjin/AAO-Editor.git
 cd AAO-Editor
 npm install
-npm run assets:sync   # sync runtime assets (skins, key sounds, field art) after first clone
+npm run assets:sync   # sync runtime assets (skins, key sounds, field art) — needs CNB credentials, ask the maintainer
 bash scripts/dev.sh   # start the dev server (handles fd limits and the external address for you)
 ```
+
+> **Repository layout**: development and CI live in the [CNB repository](https://cnb.cool/AsterPicker/AAO-Editor); GitHub is the publish mirror (releases + automatic code sync). Please file Issues / PRs in the GitHub repository; merges there are pulled back into CNB by the maintainer. Direct pushes to GitHub cannot enter the mirror (non-fast-forward pushes are rejected) — CNB is the source of truth. GitHub is gated as well: `main` only accepts pull requests that pass the required `gate` check (the CNB mirror account excepted), and `v*` tags can only be created by authorized identities; PRs from forks cannot fetch the private assets, so the maintainer pushes the branch into this repository to re-run the gate.
 
 Common commands: `npm test` (unit tests + static lock tests), `npm run build` (web build), `npm run electron:dev` / `npm run electron:build` (desktop dev / packaging).
 

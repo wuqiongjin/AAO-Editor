@@ -1,0 +1,40 @@
+# PR 门禁：pull_request → main 时跑与 CNB 同款门禁三件套（ADR-0022 §5 / §9）。
+# 为什么 GitHub 侧也要门禁：GitHub 是对外公开的主仓库，罕见回流 PR（他人在此 merge，
+# ADR-0022 §2）若不过检查就能落进公开 main——CNB 门禁在那之后才看得到，太晚。
+# 常态路径不触发本 workflow：镜像 push（main push / tag push）不监听，只服务 PR，
+# 不存在与 CNB 双边重复跑（ADR-0022 §8 否决项「双边 CI」的口径边界正在此）。
+# 上游：docs/adr/0022-发布链路拓扑.md §9；实现票：.scratch/release-pipeline/issues/09
+#
+# 触发只有一种（release workflow 的 tag push / 手动 dispatch 在那边，不重复）：
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read # 只读：本 job 不发布任何东西
+
+jobs:
+  # job id = 必过检查名：GitHub 分支规则 required status check 填 `gate`。
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # 素材快照仓 private：ASSETS_SOURCE 只在本仓分支的 PR 里注入，fork PR 拿不到 secret。
+      # 此时明确失败并指路（维护者把分支推入本仓后重跑，或改走 CNB MR），
+      # 而不是让取件脚本报看不懂的 clone 错误——红着比绿着安全。
+      - name: 检查 ASSETS_SOURCE（fork PR 无 secret）
+        env:
+          ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
+        run: |
+          if [ -z "$ASSETS_SOURCE" ]; then
+            echo "::error::本 PR 来自 fork，未注入 ASSETS_SOURCE secret，无法跑完整门禁。请维护者把该分支推入本仓后重跑，或改走 CNB MR。"
+            exit 1
+          fi
+      # 与 CNB 门禁同一脚本（npm ci → 取素材 → npm test → build → assets:check），口径不复制。
+      # 锁测：tests/static/ReleasePipeline.test.ts
+      - name: 门禁三件套（ci-gate.sh）
+        run: bash scripts/ci/ci-gate.sh

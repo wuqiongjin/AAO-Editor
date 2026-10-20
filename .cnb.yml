@@ -1,0 +1,65 @@
+# CNB 云原生构建 —— 质量门禁 + GitHub 镜像 + 国内 release 副本
+# 拓扑与口径：docs/adr/0022-发布链路拓扑.md；实现票：.scratch/release-pipeline/issues/07
+#
+# secret 机制 = **平台 secret 仓库**（非 GitHub 式仓库级 secret）：
+#   建一个类型为「secret 仓库」的独立 private 仓，里面放 env.yml（KEY: "value" 形式），
+#   下方各流水线用 imports: 引用后注入为环境变量（仓地址见各 imports 行）。
+# 当前两项：
+#   GITHUB_TOKEN   GitHub fine-grained PAT（contents + workflow 均写，仅代码仓）——镜像 job 推送用。
+#                  workflow scope 必选（镜像推全仓含 .github/workflows/，否则 remote rejected）。
+#   ASSETS_SOURCE   带只读令牌的素材源 git 地址——门禁取素材用（ci-assets.sh 优先读它）。
+#                   流水线内置 CNB_TOKEN 作用域仅限当前仓，取素材不够用，故走 secret。
+# 内置：CNB_TOKEN（上传 CNB release 用；取素材不够用，见上）。
+
+main:
+  push:
+    - imports:
+        - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
+      docker:
+        image: node:22
+      stages:
+        - name: gate
+          script: bash scripts/ci/ci-gate.sh
+        - name: mirror-to-github
+          script: bash scripts/ci/ci-mirror-github.sh
+  pull_request:
+    - docker:
+        image: node:22
+      stages:
+        - name: gate
+          script: bash scripts/ci/ci-gate.sh
+  # 国内下载副本：轮询 GitHub latest release，转载到 CNB release（幂等，缺谁补谁）。
+  # 每天 22:00 一轮（Asia/Shanghai，CNB cron 平台固定，非配置项）。发版是手动低频事件，
+  # 轮询只为「免看管」；要即时补镜像走下方 web_trigger 手动触发，不靠加密频率。
+  # 单轮失败不影响后续轮次，下一轮自然重试。
+  "crontab: 0 22 * * * *":
+    - imports:
+        - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
+      docker:
+        image: node:22
+      stages:
+        - name: mirror-installers
+          script: node scripts/ci/ci-mirror-installers.mjs
+  # 手动触发：页面「构建 → 手动触发构建」选 web_trigger 事件，或分支详情页
+  # 「镜像国内副本」按钮（.cnb/web_trigger.yml）。与 cron 同一脚本，发版后即时补镜像。
+  web_trigger:
+    - imports:
+        - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
+      docker:
+        image: node:22
+      stages:
+        - name: mirror-installers
+          script: node scripts/ci/ci-mirror-installers.mjs
+
+# 发版 tag：先过门禁，再镜像到 GitHub（tag push 到 GitHub 后触发那边的 release workflow）
+v*:
+  tag_push:
+    - imports:
+        - https://cnb.cool/AsterPicker/AAO-Editor-Keystore/-/blob/main/env.yml
+      docker:
+        image: node:22
+      stages:
+        - name: gate
+          script: bash scripts/ci/ci-gate.sh
+        - name: mirror-to-github
+          script: bash scripts/ci/ci-mirror-github.sh

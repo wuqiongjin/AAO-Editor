@@ -1,0 +1,8 @@
+# 分支详情页自定义按钮（CNB 手动触发流水线；口径：docs/build/web-trigger）
+# 点击按钮 → web_trigger 事件 → .cnb.yml `main: web_trigger:` 流水线
+# （国内副本即时镜像：轮询 GitHub latest release，转载安装包到 CNB release，幂等可重复点）。
+branch:
+  - buttons:
+      - name: 镜像国内副本
+        description: 立即轮询 GitHub latest release 并转载安装包到 CNB release（幂等，可重复点）
+        event: web_trigger

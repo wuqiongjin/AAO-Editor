@@ -1,0 +1,61 @@
+/* 发行说明正文（AppUpdateHost 重启弹窗内）：贴 dialog__message 的字号/行高/灰阶，
+   自己只管块级节奏与行内强调。 */
+
+.release-notes {
+  font-size: var(--text-sm);
+  line-height: 1.75;
+  color: var(--text-muted);
+}
+
+.release-notes__h {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.release-notes__h:first-child {
+  margin-top: 0;
+}
+
+.release-notes__p {
+  margin: 0 0 var(--space-2);
+  white-space: pre-line;
+}
+
+.release-notes__p:last-child {
+  margin-bottom: 0;
+}
+
+.release-notes__list {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-5);
+}
+
+.release-notes__list li {
+  margin: 0 0 var(--space-1);
+}
+
+.release-notes__list li:last-child {
+  margin-bottom: 0;
+}
+
+.release-notes__quote {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-strong);
+  color: var(--text);
+}
+
+.release-notes__code {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-2xs);
+}
+
+.release-notes strong {
+  color: var(--text);
+  font-weight: 600;
+}

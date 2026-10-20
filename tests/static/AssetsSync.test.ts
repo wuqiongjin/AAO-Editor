@@ -50,6 +50,25 @@ describe('release-pipeline 02 · 资源取件与所有权', () => {
     }
   });
 
+  it('取件脚本：凭据候选链自举（shell 配置不漫游的兜底）+ clone 失败逐个换候选', () => {
+    // 票 08：平台注入的 CNB_TOKEN 作用域仅限当前仓，读不了外部素材源；rc 不漫游、
+    // /etc/profile 每次重建覆盖本地令牌。脚本必须不依赖 shell 配置，按优先级自举。
+    const sync = readSource('scripts/assets-sync.mjs');
+    // 凭据链优先级：环境 ASSETS_TOKEN / CNB_ASSETS_TOKEN > 漫游文件 ~/.cnb/.env.local > 环境 CNB_TOKEN
+    expect(sync).toContain('ASSETS_TOKEN');
+    expect(sync).toContain('CNB_ASSETS_TOKEN');
+    expect(sync).toContain('CNB_TOKEN');
+    expect(sync).toContain('.cnb/.env.local'); // ~/.cnb/ 按用户漫游，环境重建后仍在
+    expect(sync).toContain('CNB_TOKEN_FILE'); // 漫游文件路径可换
+    // 多候选重试：clone 失败自动换下一个凭据
+    expect(sync).toMatch(/for\s*\(const \[\w+, \w+\] of candidates\.entries\(\)\)/);
+    // 全部失败时给出三种修复口径（写漫游文件 / ASSETS_TOKEN 注入 / 换 ASSETS_SOURCE）
+    expect(sync).toContain('ASSETS_SOURCE');
+    // 日志剥令牌：凭据只进内部 URL，源行不再出现令牌（连打码形式也不要）
+    expect(sync).toContain('stripCredential');
+    expect(sync).not.toContain('***@');
+  });
+
   it('仿真场素材走运行时素材树 assets/sim；dev 直读中间件已退役', () => {
     const simAssets = readStripped('src/preview/video/sim/simAssets.ts');
     expect(simAssets).toContain('assets/sim');
