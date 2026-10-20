@@ -9,8 +9,13 @@
 //   node scripts/assets-sync.mjs                 # 取件（缺才拉；按根整取，快照为准）
 //   node scripts/assets-sync.mjs --check         # 只检查是否已取件（setup.sh / dev.sh 用）
 //
-// 凭据：CNB 上的 https 源 + 环境里的 CNB_TOKEN（CNB 流水线内置 / 本地 export）→ 自动拼凭据，
-// 私有快照仓无需额外配置；已带凭据或非 CNB 地址原样返回。
+// 凭据自举（不依赖任何 shell 配置——环境重建后 export / rc 全部丢失，本链按优先级自动换候选）：
+//   1) 环境变量 ASSETS_TOKEN / CNB_ASSETS_TOKEN
+//   2) 本地漫游文件 ~/.cnb/.env.local（CNB_TOKEN_FILE 可换路径）里的 CNB_TOKEN
+//      （~/.cnb/ 按用户维度漫游，环境销毁重建自动恢复；export / ~/.zshenv 不留存）
+//   3) 环境变量 CNB_TOKEN（平台注入 / 流水线内置；作用域仅限当前仓，读不了外部素材源）
+// clone 失败自动换下一个候选；已带凭据（URL 含 @）/ 非 CNB 地址 / 本地目录原样使用。
+// CI 路径不变：ASSETS_SOURCE 由 CI secret 注入（地址内嵌凭据）。
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -41,23 +46,63 @@ const FROM_ARG = (() => {
 })();
 
 /**
- * 解析最终来源：显式 --from / ASSETS_SOURCE > 内置默认。
- * CNB 上的源 + CNB_TOKEN（流水线内置 / 本地 export）→ 自动拼凭据（私有仓免配置）；
- * 已带凭据、非 CNB 地址、本地目录原样返回。
+ * 最终来源：显式 --from / ASSETS_SOURCE > 内置默认（凭据不在这里拼，见 sourceCandidates）。
  * 注意：不出现 scheme 字面量——本文件受 issue 02「来源不写明文」静态锁约束。
  */
-function resolveSource(url) {
-  const token = process.env.CNB_TOKEN;
-  if (!token || !url.includes('://cnb.cool/') || url.includes('@')) return url;
-  return url.replace('://cnb.cool/', `://cnb:${token}@cnb.cool/`);
+const SOURCE = FROM_ARG ?? process.env.ASSETS_SOURCE ?? DEFAULT_SOURCE;
+
+/**
+ * 凭据候选链（去重保序）：环境 ASSETS_TOKEN / CNB_ASSETS_TOKEN > 漫游文件
+ * ~/.cnb/.env.local（CNB_TOKEN_FILE 可换路径）里的 CNB_TOKEN > 环境 CNB_TOKEN。
+ * 文件不在 / 读不了 / 无令牌行：跳过该候选，不影响后续。
+ */
+function credentialTokens() {
+  const tokens = [];
+  const seen = new Set();
+  const push = (token) => {
+    const value = (token ?? '').trim();
+    if (value && !seen.has(value)) {
+      seen.add(value);
+      tokens.push(value);
+    }
+  };
+  push(process.env.ASSETS_TOKEN);
+  push(process.env.CNB_ASSETS_TOKEN);
+  push(readTokenFile(process.env.CNB_TOKEN_FILE || path.join(os.homedir(), '.cnb/.env.local')));
+  push(process.env.CNB_TOKEN);
+  return tokens;
 }
 
-/** 日志用：凭据打码（`://user:pass@` → `://***@`），防令牌漏进构建日志 */
-function redact(url) {
-  return url.replace(/\/\/[^/@]*@/, '//***@');
+/** 读漫游 dotenv 里的令牌：兼容 `KEY=value` 与 `export KEY=value`，取首个令牌行 */
+function readTokenFile(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return undefined; // 文件不在（未漫游 / 本地机）：跳过该候选
+  }
+  for (const line of text.split('\n')) {
+    const matched = line.match(/^\s*(?:export\s+)?(?:ASSETS_TOKEN|CNB_ASSETS_TOKEN|CNB_TOKEN)\s*=\s*(.*)$/);
+    if (matched) return matched[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+  }
+  return undefined;
 }
 
-const SOURCE = resolveSource(FROM_ARG ?? process.env.ASSETS_SOURCE ?? DEFAULT_SOURCE);
+/**
+ * 拼出待尝试的来源 URL 列表（多候选，clone 失败自动换下一个）：
+ * CNB 源且未带凭据 → 逐候选拼 `cnb:<令牌>@`；
+ * 已带凭据、非 CNB 地址、本地目录 → 原样单候选（公开源 / CI secret 注入的地址）。
+ */
+function sourceCandidates(url, tokens) {
+  if (url.includes('@') || !url.includes('://cnb.cool/')) return [url];
+  const withCredentials = tokens.map((token) => url.replace('://cnb.cool/', `://cnb:${token}@cnb.cool/`));
+  return withCredentials.length ? withCredentials : [url]; // 无任何候选时原样试一次
+}
+
+/** 日志用：剥掉 URL 里的凭据——令牌（含打码形式）一律不进日志 */
+function stripCredential(url) {
+  return url.replace(/\/\/[^/@]*@/, '//');
+}
 
 const fail = (msg) => {
   console.error(`ERROR: ${msg}`);
@@ -89,7 +134,7 @@ if (!missing.length) {
 }
 console.log(`==> 产物缺 ${missing.length}/${ROOTS.length} 个目录，开始取件…`);
 
-// 来源：本地目录直接用；否则 clone 到临时目录
+// 来源：本地目录直接用；否则 clone 到临时目录（凭据候选逐个试，失败自动换下一个）
 let sourceDir;
 let tmpDir = null;
 if (fs.existsSync(SOURCE) && fs.statSync(SOURCE).isDirectory()) {
@@ -98,16 +143,28 @@ if (fs.existsSync(SOURCE) && fs.statSync(SOURCE).isDirectory()) {
 } else {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aao-deps-'));
   const cloned = path.join(tmpDir, 'repo');
-  console.log(`    源：${redact(SOURCE)}（临时目录克隆）`);
-  try {
-    // -c credential.helper= ：URL 内嵌凭据只用于本次 clone，禁止被 store 类助手存盘
-    // （本地 .git/.git-credentials 会把它当成 git 凭据顶掉原 token，读公共仓无恙、写直接 403）
-    execFileSync('git', ['-c', 'credential.helper=', 'clone', '--depth', '1', SOURCE, cloned], { stdio: ['ignore', 'pipe', 'inherit'] });
-  } catch {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-    fail(`取件失败：访问不了来源（离线 / 本机无 git 凭据 / 地址失效）`);
+  const candidates = sourceCandidates(SOURCE, credentialTokens());
+  console.log(`    源：${stripCredential(SOURCE)}（临时目录克隆；${candidates.length} 个凭据候选）`);
+  for (const [index, url] of candidates.entries()) {
+    try {
+      // -c credential.helper= ：URL 内嵌凭据只用于本次 clone，禁止被 store 类助手存盘
+      // （本地 .git/.git-credentials 会把它当成 git 凭据顶掉原 token，读公共仓无恙、写直接 403）
+      execFileSync('git', ['-c', 'credential.helper=', 'clone', '--depth', '1', url, cloned], { stdio: ['ignore', 'pipe', 'inherit'] });
+      sourceDir = cloned;
+      break;
+    } catch {
+      if (index < candidates.length - 1) console.error(`  ! 凭据候选 ${index + 1} 访问失败，尝试下一个…`);
+    }
   }
-  sourceDir = cloned;
+  if (!sourceDir) {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fail(
+      `取件失败：${candidates.length} 个凭据候选都访问不了来源（离线 / 令牌无素材源读权限 / 地址失效）。修复口径：\n` +
+        '  1) 写漫游文件（跨环境重建保留）：echo \'export CNB_TOKEN=<有素材源读权限的令牌>\' >> ~/.cnb/.env.local\n' +
+        '  2) 临时注入：ASSETS_TOKEN=<令牌> node scripts/assets-sync.mjs\n' +
+        '  3) 换来源：ASSETS_SOURCE=<本地目录|git 地址> node scripts/assets-sync.mjs',
+    );
+  }
 }
 
 try {

@@ -25,6 +25,7 @@
 - [2026-10-14 票 05 · 用户拍板] README = **中英双文件**（`README.md` 中文默认 + `README.en.md` 全量对等，静态锁测防双语腐烂）；**LICENSE = MIT**（© 2026 AAO Editor，仅覆盖代码、不覆盖 Bestdori 素材，声明区块说清）；README 兼作宣传视频脚本素材，功能叙事以**谱面工程管理**为锚点、只述已发布功能；截图/GIF 落 `docs/media/readme/`，Electron 专属画面列本地补拍清单，随「公开分发」复审一并放行。
 - [2026-10-19 票 06 · 用户拍板] **应用更新**（ADR-0021）：已安装包检查 GitHub 正式 Release、下完请重启；关于页；自动检查进设置对象；不做第二源。验收改口：手动结果 toast；就绪改立即重启；稍后下次仍查发行；导语不承诺下载。
 - [2026-10-19 票 07 · 用户拍板] **CI 拓扑（ADR-0022 Accepted）** = CNB 工作台（门禁 + 向 GitHub 单向**非 force** 镜像 main/tags + cron 国内 release 副本）/ GitHub 公开面孔（代码镜像 + 三平台发版矩阵 + 正式 Release 直发）；GitHub PR 走人节奏回流；素材 = GitHub Actions 直连 CNB（`CNB_TOKEN` 只读 secret，不建第二个仓、不 pin ref）；门禁 = test + build + assets:check（lint/test:types 存量债另排）；签名本期不做。
+- [2026-10-20 票 08 · 用户拍板] 云开发取件凭据 = **平台个人环境变量**（平台 secret 注入 `ASSETS_SOURCE`，整地址含只读令牌，`use_in_slugs` 限本仓）；`assets-sync.mjs` 凭据候选链降级兜底；漫游令牌文件 / shell rc source 行 / `.cnb.yml` vscode 挂载 hook 于验收后清理。
 
 ## Frontier
 
@@ -35,3 +36,4 @@
 - [05 README与LICENSE整改](./issues/05-README与LICENSE整改.md) — resolved（2026-10-14 定案并落地：双语 README + MIT LICENSE + 媒体实测 + 锁测；本地补拍清单与公开化门禁见票内）
 - [06 应用更新](./issues/06-应用更新.md) — resolved（2026-10-19 客户端落地；发版 CI / 签名 / 国内第二源不在本票）
 - [07 CI与发版链路](./issues/07-CI与发版链路.md) — resolved（拍板完成 = ADR-0022；实现按票内落点推进，完成时 01 一并 resolved）
+- [08 云开发取件凭据自举](./issues/08-云开发取件凭据自举.md) — resolved（2026-10-20 用户验收通过：凭据改走平台个人环境变量注入 `ASSETS_SOURCE`，脚本候选链兜底；清理漫游令牌文件 / rc source 行 / `.cnb.yml` vscode 挂载 hook）

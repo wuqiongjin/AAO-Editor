@@ -79,7 +79,7 @@ CI 脚本住 `scripts/ci/`（门禁与发版链路共用，入口文件 `.cnb.ym
 
 | 脚本 | 作用 |
 | --- | --- |
-| `ci/ci-assets.sh` | 素材取件（CI 用）：`ASSETS_SOURCE`（密钥仓注入）> 内置默认源（CNB 地址 + `CNB_TOKEN` 自动拼凭据——内置 token 仅限当前仓，私有快照仓必须走 `ASSETS_SOURCE`） |
+| `ci/ci-assets.sh` | 素材取件（CI 用）：`ASSETS_SOURCE`（secret 注入）> 内置默认源（CNB 地址 + `CNB_TOKEN` 自动拼凭据——内置 token 仅限当前仓，外部素材源必须走 `ASSETS_SOURCE`） |
 | `ci/ci-gate.sh` | 质量门禁：`npm ci` → 取素材 → `npm test` → `npm run build` → `npm run assets:check`（`lint` / `test:types` 存量债清一项收一项） |
 | `ci/ci-mirror-github.sh` | CNB → GitHub 代码镜像：**非 force** 推 `main` + tags，分叉即失败（PR 回流纪律见 ADR-0022 §2） |
 | `ci/ci-mirror-installers.mjs` | 国内下载副本（cron）：GitHub latest release → CNB release，幂等（缺谁补谁） |

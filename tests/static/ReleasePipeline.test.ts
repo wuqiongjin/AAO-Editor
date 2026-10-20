@@ -116,37 +116,38 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(gitignore.split('\n').map((l) => l.trim())).toContain('/release/');
   });
 
-  it('.cnb.yml 六种触发俱全：push / pull_request / tag_push / crontab / web_trigger / vscode', () => {
+  it('.cnb.yml 五种触发俱全：push / pull_request / tag_push / crontab / web_trigger', () => {
     expect(cnb).toMatch(/^ {2}push:/m);
     expect(cnb).toMatch(/^ {2}pull_request:/m);
     expect(cnb).toMatch(/tag_push:/);
     expect(cnb).toMatch(/crontab:/);
     expect(cnb).toMatch(/^ {2}web_trigger:/m);
-    // 云开发环境挂载：漫游个人环境变量（~/.cnb/.env.local）接进新环境（token 不走仓库）
-    expect(cnb).toMatch(/^ {2}vscode:/m);
-    expect(cnb).toContain('.cnb/.env.local');
     // 轮询频率锁每日 22:00（2026-10-19 拍板：*/30 空转 48 次/天，唯一代价是红叉噪音）
     expect(cnb).toContain('crontab: 0 22 * * * *');
+    // 票 08 退役件防回归：凭据改走平台个人环境变量注入后，漫游文件挂载 hook
+    // （~/.cnb/.env.local → ~/.zshenv）已清理，不许悄悄回来
+    expect(cnb).not.toMatch(/env\.local|vscode/);
   });
 
   it('取素材凭据走 secret，不写明文地址', () => {
     expect(release).toContain('secrets.ASSETS_SOURCE');
-    // CNB 侧同型：ASSETS_SOURCE 经密钥仓 env.yml 注入（内置 CNB_TOKEN 读不到私有快照仓）
+    // CNB 侧同型：ASSETS_SOURCE 由 secret 注入（内置 CNB_TOKEN 读不到外部素材源）
     expect(cnb).toContain('ASSETS_SOURCE');
     // workflow / .cnb.yml 里不出现带内联凭据的 URL 形态
     expect(release).not.toMatch(/https?:\/\/[^/\s]*:[^/\s]*@/);
     expect(cnb).not.toMatch(/https?:\/\/[^/\s]*:[^/\s]*@/);
   });
 
-  it('CNB secret 走密钥仓库 imports（平台无 GitHub 式仓库 secret），四个流水线各自引用', () => {
+  it('CNB secret 走平台 secret 仓库 imports（平台无 GitHub 式仓库 secret），四个流水线各自引用', () => {
     expect(cnb).toMatch(/^ {4}- imports:\s*\n {8}- https:\/\/cnb\.cool\/.+\/-\/blob\/main\/env\.yml/m);
     // main push / tag_push / crontab / web_trigger 四条要 GITHUB_TOKEN 的流水线（只数 YAML 键，注释里的不算）
     expect(cnb.match(/^ {4}- imports:/gm)?.length).toBe(4);
   });
 
-  it('assets-sync 内置 CNB_TOKEN 时自动拼凭据，且日志打码（CI 侧 ASSETS_SOURCE 走密钥仓注入）', () => {
+  it('assets-sync 凭据自举：环境 CNB_TOKEN 进候选链，日志剥令牌（CI 侧 ASSETS_SOURCE 走 secret 注入）', () => {
     expect(assetsSync).toMatch(/CNB_TOKEN/);
-    expect(assetsSync).toMatch(/redact/);
+    expect(assetsSync).toMatch(/stripCredential/); // 令牌连打码形式都不进日志（票 08）
+    expect(assetsSync).not.toContain('***@');
   });
 
   it('素材快照仓名不出现在任何公开文档 / 配置里（地址走 secret 与脚本内置编码）', () => {

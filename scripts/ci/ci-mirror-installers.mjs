@@ -15,7 +15,7 @@
 //   CNB_TOKEN          流水线内置（本地跑用个人访问令牌，git 用户名 cnb）
 //   CNB_REPO_SLUG      CNB 流水线自动注入；本地跑需自备（形如 <org>/<repo>）
 //   GITHUB_MIRROR_REPO  默认 wuqiongjin/AAO-Editor
-//   GITHUB_TOKEN        可选（密钥仓 env.yml 经 .cnb.yml imports 注入，同镜像 job 共用），
+//   GITHUB_TOKEN        可选（secret 经 .cnb.yml imports 注入，同镜像 job 共用），
 //                       提高 GitHub API 配额；缺省匿名跑（每轮 1 次调用，60/h 限额够用）
 import fs from 'node:fs';
 import os from 'node:os';
