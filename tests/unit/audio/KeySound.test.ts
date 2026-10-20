@@ -1,6 +1,7 @@
 // 键音素材包注册表单测（issue 29 多款入库 + 删占位）：
 // 验证生成注册表的包清单、历史持久化 id 的归一化回落、包采样加载完整性与 memoize。
 import { describe, it, expect } from 'vitest';
+import { hasAssetSnapshot } from '@/tests/support/assetSnapshot';
 import {
   KEY_SOUND_SETS,
   DEFAULT_ACTIVE_KEY_SOUND_SET_ID,
@@ -14,7 +15,9 @@ import { loadSettings } from '@/src/chart/config/AppSettings';
 import { settingsStorageOf as storageWith } from '@/tests/support/storage';
 
 describe('KeySound 注册表（skin00–03 普通包入库）', () => {
-  it('注册表收录官方普通包 skin00–03，默认激活 skin00', () => {
+  // 守约用例：钉的是构建脚本产出的真实快照包清单（官方普通包 skin00–03）。
+  // 无快照环境（PR 门禁走最小合法桩，release-pipeline 10）跳过；push / tag_push 门禁有真快照，全量执行。
+  it.skipIf(!hasAssetSnapshot)('注册表收录官方普通包 skin00–03，默认激活 skin00', () => {
     expect(KEY_SOUND_SETS.map((s) => s.id)).toEqual(['skin00', 'skin01', 'skin02', 'skin03']);
     expect(DEFAULT_ACTIVE_KEY_SOUND_SET_ID).toBe('skin00');
   });
@@ -36,7 +39,9 @@ describe('KeySound 注册表（skin00–03 普通包入库）', () => {
     }
   });
 
-  it('loadKeySoundSet：5 类击打样式全部为真实采样（方向键 1..3 分档），同 id memoize', async () => {
+  // 守约用例：钉的是构建期真实采样结构（data-URI 内联、方向键 1..3 分档）。
+  // 无快照环境（PR 门禁走最小合法桩，release-pipeline 10）跳过；push / tag_push 门禁有真快照，全量执行。
+  it.skipIf(!hasAssetSnapshot)('loadKeySoundSet：5 类击打样式全部为真实采样（方向键 1..3 分档），同 id memoize', async () => {
     for (const entry of KEY_SOUND_SETS) {
       const set = await loadKeySoundSet(entry.id);
       expect(set.id).toBe(entry.id);

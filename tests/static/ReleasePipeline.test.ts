@@ -102,6 +102,12 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(cnbSection('v*:')).toContain('scripts/ci/ci-gate.sh');
     // push / pull_request / tag_push 三处门禁
     expect(cnb.match(/scripts\/ci\/ci-gate\.sh/g)?.length).toBe(3);
+    // PR 段走桩驱动（release-pipeline 10：PR 事件不注入密钥仓库，无快照环境）：
+    // 正锁 pull_request 段、负锁 main / v* 段——标志误加到常态触发段必须红
+    expect(cnbSection('pull_request:', 'crontab:')).toContain('ci-gate.sh --stub-assets');
+    expect(cnbSection('main:', 'pull_request:')).not.toContain('--stub-assets');
+    expect(cnbSection('v*:')).not.toContain('--stub-assets');
+    expect(bashCode(gate)).toContain('ci-stub-gen.mjs');
     // 国内副本脚本被 crontab 与 web_trigger 两条触发共用（同一脚本两个入口）
     expect(cnb.match(/scripts\/ci\/ci-mirror-installers\.mjs/g)?.length).toBe(2);
   });

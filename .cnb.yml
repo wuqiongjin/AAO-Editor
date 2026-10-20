@@ -27,7 +27,7 @@ main:
         image: node:22
       stages:
         - name: gate
-          script: bash scripts/ci/ci-gate.sh
+          script: bash scripts/ci/ci-gate.sh --stub-assets
   # 国内下载副本：轮询 GitHub latest release，转载到 CNB release（幂等，缺谁补谁）。
   # 每天 22:00 一轮（Asia/Shanghai，CNB cron 平台固定，非配置项）。发版是手动低频事件，
   # 轮询只为「免看管」；要即时补镜像走下方 web_trigger 手动触发，不靠加密频率。

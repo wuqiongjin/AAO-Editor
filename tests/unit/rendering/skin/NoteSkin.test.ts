@@ -1,5 +1,6 @@
 // issue 29 音符皮肤：注册表完整性 + 选择归一化 + 图标集解析 + 设置合并
 import { describe, it, expect } from 'vitest';
+import { hasAssetSnapshot } from '@/tests/support/assetSnapshot';
 import {
   NOTE_SKIN_PACKS,
   NOTE_SKIN_DEFAULT_SELECTION,
@@ -20,7 +21,9 @@ const notePacks = NOTE_SKIN_PACKS.filter((p): p is NoteSkinPackNote => p.kind ==
 const dirPacks = NOTE_SKIN_PACKS.filter((p): p is NoteSkinPackDirectional => p.kind === 'directional');
 const skin00 = notePacks.find((p) => p.id === 'skin00')!;
 
-describe('音符皮肤注册表完整性（生成器产物守约）', () => {
+// 守约套件：钉的是构建脚本产出的真实快照数据（包清单 / 精确坐标 / 墨迹覆盖）。
+// 无快照环境（PR 门禁走最小合法桩，release-pipeline 10）跳过；push / tag_push 门禁有真快照，全量执行。
+describe.skipIf(!hasAssetSnapshot)('音符皮肤注册表完整性（生成器产物守约）', () => {
   it('至少包含默认包 skin00 与 directionalflickskin00', () => {
     expect(notePacks.some((p) => p.id === 'skin00')).toBe(true);
     expect(dirPacks.some((p) => p.id === 'directionalflickskin00')).toBe(true);
@@ -169,7 +172,9 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
     expect(icons.slideEndpointFor(0).x).toBe(skin00.long[3]!.x);
   });
 
-  it('dirInk：优先构建期实测墨迹（回退 overrides/缺省），附源宽', () => {
+  // 钉的是构建期对真实图集实测的墨迹值（note_flick_l_3 left 42 / right 56），
+  // 无快照环境（PR 门禁走最小合法桩，release-pipeline 10）跳过；push / tag_push 门禁有真快照，全量执行。
+  it.skipIf(!hasAssetSnapshot)('dirInk：优先构建期实测墨迹（回退 overrides/缺省），附源宽', () => {
     const ink = icons.dirInk('L');
     expect(ink.w).toBeGreaterThan(0);
     expect(ink.inkLeft).toBeGreaterThanOrEqual(0);

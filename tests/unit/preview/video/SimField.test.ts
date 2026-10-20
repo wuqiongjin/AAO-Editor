@@ -5,6 +5,7 @@
 // 单测为什么够：出帧是纯函数（`drawSimFrameAt(ctx, frame, seconds)`）——把精灵换成记录替身，
 // 就能看清"这一秒画了哪些元素、画在哪个矩形"；**光栅观感**仍归 `scripts/sim-shot.mjs` 的位图人工核对。
 import { describe, expect, it } from 'vitest';
+import { hasAssetSnapshot } from '@/tests/support/assetSnapshot';
 import type { ChartNote, SingleNote, SlideNote } from '@/src/chart/types';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import type CanvasSpriteIcon from '@/src/ui/CanvasSpriteIcon';
@@ -349,8 +350,10 @@ describe('drawSimFrameAt · 带体过线端沿带子行进（票 23 #1）', () =
   });
 });
 
+// 以下钉子钉的是皮肤包图集的真实精灵矩形（源格比 / 逐轨取图 / 端帽与结点区分），
+// 无快照环境（PR 门禁走最小合法桩，release-pipeline 10）跳过；push / tag_push 门禁有真快照，全量执行。
 describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 23 #2）', () => {
-  it('音符按精灵源格的自然比画：高/宽 = 120/308（修前吃设计盒的 36:21.6 = 1.667）', () => {
+  it.skipIf(!hasAssetSnapshot)('音符按精灵源格的自然比画：高/宽 = 120/308（修前吃设计盒的 36:21.6 = 1.667）', () => {
     const { spriteIcon, draws } = makeRecordingSprite();
     const frame = frameOf([single(2, 3)], spriteIcon);
     const { proxy } = recordingCtx();
@@ -363,7 +366,7 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     expect(note.w / note.h).toBeCloseTo(308 / 120, 6);
   });
 
-  it('方向键本体也走精灵源格比（同单键一个盒子口径，只差设计宽 45）', () => {
+  it.skipIf(!hasAssetSnapshot)('方向键本体也走精灵源格比（同单键一个盒子口径，只差设计宽 45）', () => {
     const { spriteIcon, draws } = makeRecordingSprite();
     const frame = frameOf([{ type: 'LDirectional', beat: 2, lane: 3, length: 1 }], spriteIcon);
     const { proxy } = recordingCtx();
@@ -376,7 +379,7 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     expect(body.w / body.h).toBeCloseTo(308 / 120, 6);
   });
 
-  it('同时点击线：一组一根跨全程（端点轨之间），粗细走 0.118 系数（修前逐 gap 一根 / 0.3 粗）', () => {
+  it.skipIf(!hasAssetSnapshot)('同时点击线：一组一根跨全程（端点轨之间），粗细走 0.118 系数（修前逐 gap 一根 / 0.3 粗）', () => {
     const { spriteIcon, draws } = makeRecordingSprite();
     const m = fieldMetrics(1334, 750);
     // 同一 tick 上的 lane 0 / 3 / 6：修前逐 gap 拉两根，且粗细 = 0.3 × laneWidth
@@ -391,7 +394,7 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     expect(lines[0]!.y).toBeCloseTo(m.laneHeight, 6); // 压在场地判定线上
   });
 
-  it('方向键本体**逐轨**取图（票 25 #1：图集 0..6 各自带该轨位的舞台倾角）', () => {
+  it.skipIf(!hasAssetSnapshot)('方向键本体**逐轨**取图（票 25 #1：图集 0..6 各自带该轨位的舞台倾角）', () => {
     const { spriteIcon, draws } = makeRecordingSprite();
     // LDirectional 锚 lane 3、长度 3 ⇒ 占 lane 3 / 2 / 1（向左）。修前三枚全是扁平轨（lane 3）那张，
     // 整组同一个倾角 ⇒ 外侧本体不贴舞台平面。
@@ -423,7 +426,7 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     expect(draws.slice(0, 3).filter((d) => d.sx === edge.x && d.sy === edge.y)).toHaveLength(3);
   });
 
-  it('按住期间接触点画**滑条端点**（票 25 #2：bundle 漏誊的那段 `y.forEach`）', () => {
+  it.skipIf(!hasAssetSnapshot)('按住期间接触点画**滑条端点**（票 25 #2：bundle 漏誊的那段 `y.forEach`）', () => {
     const { spriteIcon, draws } = makeRecordingSprite();
     const sprites = fakeSprites() as unknown as SimSprites;
     // lane 0 → 4：1s → 4s。取 2.5s ⇒ 按住位 = lane 2，且末结点（4s）还没进可见窗（T = 1.25s）
