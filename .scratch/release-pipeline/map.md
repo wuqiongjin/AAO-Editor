@@ -26,6 +26,7 @@
 - [2026-10-19 票 06 · 用户拍板] **应用更新**（ADR-0021）：已安装包检查 GitHub 正式 Release、下完请重启；关于页；自动检查进设置对象；不做第二源。验收改口：手动结果 toast；就绪改立即重启；稍后下次仍查发行；导语不承诺下载。
 - [2026-10-19 票 07 · 用户拍板] **CI 拓扑（ADR-0022 Accepted）** = CNB 工作台（门禁 + 向 GitHub 单向**非 force** 镜像 main/tags + cron 国内 release 副本）/ GitHub 公开面孔（代码镜像 + 三平台发版矩阵 + 正式 Release 直发）；GitHub PR 走人节奏回流；素材 = GitHub Actions 直连 CNB（`CNB_TOKEN` 只读 secret，不建第二个仓、不 pin ref）；门禁 = test + build + assets:check（lint/test:types 存量债另排）；签名本期不做。
 - [2026-10-20 票 08 · 用户拍板] 云开发取件凭据 = **平台个人环境变量**（平台 secret 注入 `ASSETS_SOURCE`，整地址含只读令牌，`use_in_slugs` 限本仓）；`assets-sync.mjs` 凭据候选链降级兜底；漫游令牌文件 / shell rc source 行 / `.cnb.yml` vscode 挂载 hook 于验收后清理。
+- [2026-10-20 票 09 · tag 口径已拍板 B，规则待用户应用] **GitHub 侧门禁**（ADR-0022 §9）：`main` 分支规则（仅 PR + `gate` 必过 + bypass 只放镜像 PAT）、`v*` tag 规则（PAT + 管理员均可建、禁改禁删）、PR 门禁 `ci.yml` 复用 `ci-gate.sh`（只跑罕见回流 PR，镜像 push 不触发）、发版 workflow `gate` job 同脚本兜底（tag 直推灵活性保留的对价：常态发版门禁跑两次）、Actions 只读权限、删残留 `master`。
 
 ## Frontier
 
@@ -37,3 +38,4 @@
 - [06 应用更新](./issues/06-应用更新.md) — resolved（2026-10-19 客户端落地；发版 CI / 签名 / 国内第二源不在本票）
 - [07 CI与发版链路](./issues/07-CI与发版链路.md) — resolved（拍板完成 = ADR-0022；实现按票内落点推进，完成时 01 一并 resolved）
 - [08 云开发取件凭据自举](./issues/08-云开发取件凭据自举.md) — resolved（2026-10-20 用户验收通过：凭据改走平台个人环境变量注入 `ASSETS_SOURCE`，脚本候选链兜底；清理漫游令牌文件 / rc source 行 / `.cnb.yml` vscode 挂载 hook）
+- [09 GitHub 侧门禁](./issues/09-GitHub侧门禁.md) — claimed（实现口径待用户在 GitHub 应用后确认；仓库侧件已落地）

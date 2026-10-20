@@ -124,7 +124,7 @@ npm run assets:sync   # sync runtime assets (skins, key sounds, field art) — n
 bash scripts/dev.sh   # start the dev server (handles fd limits and the external address for you)
 ```
 
-> **Repository layout**: development and CI live in the [CNB repository](https://cnb.cool/AsterPicker/AAO-Editor); GitHub is the publish mirror (releases + automatic code sync). Please file Issues / PRs in the GitHub repository; merges there are pulled back into CNB by the maintainer. Direct pushes to GitHub cannot enter the mirror (non-fast-forward pushes are rejected) — CNB is the source of truth.
+> **Repository layout**: development and CI live in the [CNB repository](https://cnb.cool/AsterPicker/AAO-Editor); GitHub is the publish mirror (releases + automatic code sync). Please file Issues / PRs in the GitHub repository; merges there are pulled back into CNB by the maintainer. Direct pushes to GitHub cannot enter the mirror (non-fast-forward pushes are rejected) — CNB is the source of truth. GitHub is gated as well: `main` only accepts pull requests that pass the required `gate` check (the CNB mirror account excepted), and `v*` tags can only be created by authorized identities; PRs from forks cannot fetch the private assets, so the maintainer pushes the branch into this repository to re-run the gate.
 
 Common commands: `npm test` (unit tests + static lock tests), `npm run build` (web build), `npm run electron:dev` / `npm run electron:build` (desktop dev / packaging).
 

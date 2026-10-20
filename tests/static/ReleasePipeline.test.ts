@@ -1,12 +1,13 @@
-// release-pipeline 07 / ADR-0022：发布链路的静态锁。
+// release-pipeline 07 / 09 / ADR-0022：发布链路的静态锁。
 // 锁的是「接线事实」——触发面、镜像挂哪个触发、镜像非 force、门禁三件套、
-// 素材地址不进公开文档——防止后来人重构 CI 时悄悄改坏口径。
+// GitHub 侧 PR 门禁、素材地址不进公开文档——防止后来人重构 CI 时悄悄改坏口径。
 // 行为冒烟（secret 就绪后）见票 07「锁测」节。
 import { describe, expect, it } from 'vitest';
 import { readSource, textFilesUnder } from '@/tests/support/source';
 
 const cnb = readSource('.cnb.yml');
 const release = readSource('.github/workflows/release.yml');
+const ci = readSource('.github/workflows/ci.yml');
 const gitignore = readSource('.gitignore');
 const gate = readSource('scripts/ci/ci-gate.sh');
 const mirror = readSource('scripts/ci/ci-mirror-github.sh');
@@ -24,6 +25,7 @@ const bashCode = (src: string) => src.replace(/^#[^\n]*/gm, '');
 const PIPELINE_FILES: [string, string][] = [
   ['.cnb.yml', cnb],
   ['.github/workflows/release.yml', release],
+  ['.github/workflows/ci.yml', ci],
   ['scripts/ci/ci-assets.sh', assets],
   ['scripts/ci/ci-gate.sh', gate],
   ['scripts/ci/ci-mirror-github.sh', mirror],
@@ -57,7 +59,7 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
 
   it('手动 dispatch 走 tag 输入并构建该 tag 的代码（GITHUB_REF_NAME 在手动触发下是分支名）', () => {
     expect(release).toMatch(/workflow_dispatch:[\s\S]*?inputs:[\s\S]*?tag:/);
-    // verify / build / notes 三处 checkout 都必须落在 inputs.tag 上
+    // gate / build / notes 三处 checkout 都必须落在 inputs.tag 上
     expect(release.match(/ref: \$\{\{ github\.event\.inputs\.tag \|\| github\.ref \}\}/g)?.length).toBe(3);
   });
 
@@ -104,6 +106,37 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(cnb.match(/scripts\/ci\/ci-mirror-installers\.mjs/g)?.length).toBe(2);
   });
 
+  it('PR 门禁 workflow 只监听 pull_request → main（不监听 push / tag / 定时 / 手动；不用 pull_request_target）', () => {
+    const on = ci.match(/^on:([\s\S]*?)^jobs:/m)?.[1] ?? '';
+    expect(on).toMatch(/pull_request:\s*\n\s*branches:\s*\[main\]/);
+    // pull_request_target 会在 base 上下文带 secret 跑 fork 代码——凭据外泄面，明令禁止
+    expect(ci).not.toContain('pull_request_target');
+    expect(on).not.toMatch(/^ {2}push:/m);
+    expect(on).not.toMatch(/^ {2}schedule:/m);
+    expect(on).not.toContain('workflow_dispatch');
+    expect(on).not.toContain('tags:');
+  });
+
+  it('PR 门禁复用 CNB 同一脚本（ci-gate.sh），必过检查名 = gate（与分支规则 required check 对齐）', () => {
+    expect(ci).toMatch(/^ {2}gate:/m);
+    expect(ci).toContain('bash scripts/ci/ci-gate.sh');
+  });
+
+  it('PR 门禁取素材凭据走 secret；fork PR 缺 secret 明确失败，不静默跳过（红着比绿着安全）', () => {
+    expect(ci).toContain('secrets.ASSETS_SOURCE');
+    expect(ci).toMatch(/if \[ -z "\$ASSETS_SOURCE" \]/);
+    expect(ci).toContain('exit 1');
+    expect(ci).not.toMatch(/continue-on-error/);
+  });
+
+  it('发版路径自带门禁兜底：gate job 跑 ci-gate.sh 三件套，构建矩阵 needs: gate（tag 保留管理员直推的对价，用户 2026-10-20 拍板）', () => {
+    expect(release).toMatch(/^ {2}gate:/m);
+    expect(release).toContain('bash scripts/ci/ci-gate.sh');
+    expect(release).toMatch(/needs: gate/);
+    // 顺序：门禁步骤在矩阵构建之前（ci-gate.sh 调用文本出现在 build 的 needs 之前）
+    expect(release.indexOf('ci-gate.sh')).toBeLessThan(release.indexOf('needs: gate'));
+  });
+
   it('发布后补未签名告知 + 发行说明进 release notes（ADR-0022 §6：README 与 release notes 双落地）', () => {
     expect(release).toMatch(/gh release edit/);
     expect(release).toMatch(/未签名/);
@@ -131,10 +164,13 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
 
   it('取素材凭据走 secret，不写明文地址', () => {
     expect(release).toContain('secrets.ASSETS_SOURCE');
+    // PR 门禁同型：同样只认 secret 注入的 ASSETS_SOURCE
+    expect(ci).toContain('secrets.ASSETS_SOURCE');
     // CNB 侧同型：ASSETS_SOURCE 由 secret 注入（内置 CNB_TOKEN 读不到外部素材源）
     expect(cnb).toContain('ASSETS_SOURCE');
     // workflow / .cnb.yml 里不出现带内联凭据的 URL 形态
     expect(release).not.toMatch(/https?:\/\/[^/\s]*:[^/\s]*@/);
+    expect(ci).not.toMatch(/https?:\/\/[^/\s]*:[^/\s]*@/);
     expect(cnb).not.toMatch(/https?:\/\/[^/\s]*:[^/\s]*@/);
   });
 

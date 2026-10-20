@@ -124,7 +124,7 @@ npm run assets:sync   # 同步皮肤、键音、场地等运行时素材（需 C
 bash scripts/dev.sh   # 启动开发服务器（统一处理文件描述符上限与对外地址）
 ```
 
-> **仓库结构**：开发与 CI 在 [CNB 主仓](https://cnb.cool/AsterPicker/AAO-Editor)，GitHub 为发布镜像（安装包发布 + 代码自动同步）。Issues / PR 请直接提交到 GitHub 仓；PR 合并后由维护者回流 CNB——代码以 CNB 为准，直接推送到 GitHub 的提交进不了镜像（非快进会被拒绝）。
+> **仓库结构**：开发与 CI 在 [CNB 主仓](https://cnb.cool/AsterPicker/AAO-Editor)，GitHub 为发布镜像（安装包发布 + 代码自动同步）。Issues / PR 请直接提交到 GitHub 仓；PR 合并后由维护者回流 CNB——代码以 CNB 为准，直接推送到 GitHub 的提交进不了镜像（非快进会被拒绝）。GitHub 侧同样有门禁：`main` 只接受能过 `gate` 检查的 PR 合入（CNB 镜像账号除外），`v*` tag 仅授权身份可创建；fork 来的 PR 取不到私有素材，需维护者把分支推入本仓后重跑门禁。
 
 常用命令：`npm test`（单元测试 + 静态锁测）、`npm run build`（Web 构建）、`npm run electron:dev` / `npm run electron:build`（桌面端开发 / 打包）。
 

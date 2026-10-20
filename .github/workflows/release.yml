@@ -2,7 +2,9 @@
 # 上游：CNB 主仓打 tag 并过门禁后，由 .cnb.yml 镜像到本仓（非 force），tag push 触发本 workflow。
 # 口径：docs/adr/0022-发布链路拓扑.md；实现票：.scratch/release-pipeline/issues/07
 #
-# 触发只有两种（分支 push / PR 不监听——门禁在 CNB，不双边重复跑）：
+# 触发只有两种（分支 push / PR 不监听——PR 门禁在 ci.yml，镜像 push 不触发任何 workflow）。
+# tag 路径自带 gate job：tag 规则保留管理员直推的灵活性（ADR-0022 §9，用户 2026-10-20 拍板 B），
+# 直推的 tag 没过 CNB 门禁——由本 job 三件套兜底后才允许构建发布。
 on:
   push:
     tags: ['v*']
@@ -16,9 +18,17 @@ permissions:
   contents: write # electron-builder 发布 release 与 gh 补 notes 用
 
 jobs:
+  # 门禁 + tag 校验：构建矩阵之前，在 ubuntu 单平台跑一遍与 CNB 同款的三件套。
+  # 为什么发版路径也有门禁：tag 规则保留「镜像 PAT + 仓库管理员」均可建 tag（用户 2026-10-20
+  # 拍板 B：直推灵活性要保留）——直推的 tag 没过 CNB 门禁，若此处不兜底，一个跑不过门禁的
+  # 版本会直接发成正式 Release（latest*.yml 随包，updater 立即可见，撤不回）。
+  # 代价（用户拍板接受）：常态发版（CNB 打 tag → 镜像）门禁跑两次——CNB 一次 + 这里一次；
+  # 换的是「发布物必然过门禁」+「应急能直推」。手动 dispatch 同样过本 job。
   # tag 与 package.json version 必须一致（npm version 手动管理，不一致即失败）。
   # 手动 dispatch 时构建的是 inputs.tag 指向的代码，不是页面选的分支。
-  verify:
+  gate:
+    permissions:
+      contents: read # 本 job 只读；发布写权限在 build / notes（workflow 级 contents: write）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,9 +45,19 @@ jobs:
             echo "::error::tag 与 package.json version 不一致"
             exit 1
           fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # 与 CNB 门禁 job、PR 门禁（ci.yml）同一脚本：npm ci → 取素材 → npm test → build → assets:check。
+      # tag push / 手动 dispatch 不是 fork PR，ASSETS_SOURCE 正常注入。
+      - name: 门禁三件套（ci-gate.sh）
+        env:
+          ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
+        run: bash scripts/ci/ci-gate.sh
 
   build:
-    needs: verify
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -68,7 +88,7 @@ jobs:
         env:
           ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
         run: bash scripts/ci/ci-assets.sh
-      # 测试与 tsc 门禁已在 CNB 对该 tag 跑过（不三平台重复全量）；此处直接构建发布。
+      # 门禁三件套已在 gate job（ubuntu 单平台）跑过；矩阵各平台只装依赖 + 取素材 + 构建，不重复全量测试。
       # macos-latest 为 arm64 runner，dmg 出 x64 + arm64 双架构（electron-builder 交叉构建）。
       - name: 构建并发布正式 Release
         env:

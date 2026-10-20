@@ -73,16 +73,20 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 仿真场的 URL 约定见 `src/preview/video/sim/simAssets.ts`；口径与决策见
 `.scratch/release-pipeline/issues/02-素材迁出与内部镜像同步.md`。
 
-## CI / 发布（ADR-0022 · release-pipeline 07）
+## CI / 发布（ADR-0022 · release-pipeline 07 / 09）
 
-CI 脚本住 `scripts/ci/`（门禁与发版链路共用，入口文件 `.cnb.yml` / `.github/workflows/release.yml`）：
+CI 脚本住 `scripts/ci/`（门禁与发版链路共用，入口文件 `.cnb.yml` / `.github/workflows/ci.yml` / `.github/workflows/release.yml`）：
 
 | 脚本 | 作用 |
 | --- | --- |
 | `ci/ci-assets.sh` | 素材取件（CI 用）：`ASSETS_SOURCE`（secret 注入）> 内置默认源（CNB 地址 + `CNB_TOKEN` 自动拼凭据——内置 token 仅限当前仓，外部素材源必须走 `ASSETS_SOURCE`） |
-| `ci/ci-gate.sh` | 质量门禁：`npm ci` → 取素材 → `npm test` → `npm run build` → `npm run assets:check`（`lint` / `test:types` 存量债清一项收一项） |
+| `ci/ci-gate.sh` | 质量门禁：`npm ci` → 取素材 → `npm test` → `npm run build` → `npm run assets:check`（`lint` / `test:types` 存量债清一项收一项）。三处共用：CNB 门禁 job、GitHub PR 门禁（`ci.yml`）、GitHub 发版门禁（release.yml `gate` job） |
 | `ci/ci-mirror-github.sh` | CNB → GitHub 代码镜像：**非 force** 推 `main` + tags，分叉即失败（PR 回流纪律见 ADR-0022 §2） |
 | `ci/ci-mirror-installers.mjs` | 国内下载副本（cron）：GitHub latest release → CNB release，幂等（缺谁补谁） |
+
+GitHub 侧门禁（ADR-0022 §9）：`ci.yml` 只在 `pull_request → main` 上跑（镜像 push 不触发，不与 CNB 双边重复跑），必过检查名 `gate`；`main` 分支规则与 `v*` tag 规则、PAT bypass 名单、Actions 权限收紧见 ADR-0022 §9 与票 09「人工步骤」。
+
+发版路径（`v*` tag push / 手动 dispatch）另有兜底：release.yml 的 `gate` job 先跑同一套三件套（ubuntu 单平台）才进三平台矩阵——tag 规则保留「PAT + 管理员」均可建 tag（用户 2026-10-20 拍板 B：直推灵活性要保留），直推的 tag 没过 CNB 门禁，由这一关兜底：跑不过门禁的 tag 发不出正式 Release。代价是常态发版门禁跑两次（CNB + GitHub 各一次），拍板时接受。
 
 发版流程：CNB 上 `npm version` + 打 `v*` tag → 门禁 → 镜像到 GitHub → GitHub Actions 三平台矩阵构建并发布正式 Release（`latest*.yml` 随包，updater 立即可见）。secret 清单见票 07「人工步骤」。
 
