@@ -211,4 +211,35 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     }
     expect(hits).toEqual([]);
   });
+
+  it('国内副本脚本打 CNB Release API 的路径无多余前缀层：仓库级路由一律 /{repo}/-/…（2026-10-21 实测：多一层前缀全站 404，且 GET 的 404 被当成「release 不存在」吞掉，一路憋到 POST 创建才响亮失败，release-pipeline/15）', () => {
+    // 正锁：CNB 端点都是 api.cnb.cool/{slug}/-/… 形态
+    expect(installersMirror).toContain('${CNB_API}/${CNB_SLUG}/-/releases/tags/');
+    expect(installersMirror).toContain('${CNB_API}/${CNB_SLUG}/-/releases/${encodeURIComponent(releaseId)}/asset-upload-url');
+    // 负锁：CNB base 与 slug 之间不许插前缀层（GitHub API 自带的 /repos 是平台自身路由，不锁它）
+    expect(installersMirror).not.toMatch(/\$\{CNB_API\}\/repos\//);
+    // 负锁：不许走回 SDK 的 AssetsApi.upload/releases/{tag} 那套（响应无 verify_url，确认步必 400）
+    expect(installersMirror).not.toContain('/-/upload/releases/');
+  });
+
+  it('CNB OpenAPI 上传全链与 cnbcool/attachments 插件同型（2026-10-22 TS / Go 两版实现交叉校准：asset-upload-url 发起 → PUT 直传 → verify_url 回认；Accept 不显式带版本化类型会被网关 406 拒）', () => {
+    // 全链统一 vnd.cnb.api+json（Node fetch 默认 */* 被网关 406 拒，2026-10-22 实测）
+    expect(installersMirror).toContain("accept: 'application/vnd.cnb.api+json'");
+    // 鉴权 Bearer（GitHub 式 token scheme 是 GitHub 主义，负锁防回退）
+    expect(installersMirror).toContain('authorization: `Bearer ${CNB_TOKEN}`');
+    expect(installersMirror).not.toContain('authorization: `token');
+    // 发起：体 asset_name/size/ttl（SDK 的 name 字段服务端不识别）；响应 upload_url + verify_url
+    expect(installersMirror).toContain('asset_name: name');
+    expect(installersMirror).toContain('ttl: 0');
+    expect(installersMirror).toMatch(/upload_url: uploadUrl, verify_url: verifyUrl/);
+    // 直传：COS 预签名 PUT + octet-stream + 显式 Content-Length（不是 FormData POST）
+    expect(installersMirror).toMatch(/method: 'PUT'/);
+    expect(installersMirror).toContain("'content-type': 'application/octet-stream'");
+    // 回认：POST 响应给的 verify_url 绝对地址，不自己拼 release_id/token/asset_path
+    expect(installersMirror).toContain('fetch(verifyUrl');
+    expect(installersMirror).not.toContain('asset-upload-confirmation');
+    expect(installersMirror).not.toContain('?filename=');
+    // release_id 来自查 / 建的 release 对象（409 竞态有回查兜底）
+    expect(installersMirror).toContain('uploadAsset(release.id, file)');
+  });
 });

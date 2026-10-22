@@ -6,10 +6,19 @@
 // 或 web_trigger 手动触发（页面「构建 → 手动触发构建」/ 分支详情页按钮，发版后即时补镜像）。
 // 幂等（目标 tag 附件齐 → 跳过，可重复跑）；单轮失败不影响后续轮次，下一轮自然重试。
 //
-// CNB OpenAPI 端点（smoke 时按实际响应校准字段名，见文件末 TODO）：
-//   GET  /repos/{repo}/-/releases/tags/{tag}    查 release（404 = 不存在）
-//   POST /repos/{repo}/-/releases                建 release（409 = 已存在）
-//   POST /repos/{repo}/-/upload/releases/{tag}  发起附件上传，返回 COS 直传 url + form
+// CNB OpenAPI 端点与口径（2026-10-22 按 cnbcool/attachments 插件 TS / Go 两版实现交叉校准）：
+//   路径  仓库级路由一律 /{repo}/-/…，base 与 slug 间无前缀层（2026-10-21：多一层全站 404，
+//         且 GET 的 404 被当「release 不存在」吞掉、POST 创建才暴露——票 15）
+//   媒体  Accept 必须显式带版本化类型——Node fetch 默认 */* 被网关 406 拒（2026-10-22 实测），
+//         本脚本全链统一 vnd.cnb.api+json
+//   鉴权  Authorization: Bearer（官方示例与 SDK 口径；GitHub 式 token scheme 是 GitHub 主义）
+//   GET  /{repo}/-/releases/tags/{tag}             查 release（404 = 不存在）
+//   POST /{repo}/-/releases                        建 release（体 tag_name/name/body/draft/prerelease；409 = 已存在）
+//   POST /{repo}/-/releases/{id}/asset-upload-url  发起附件上传（体 asset_name/size/ttl；返 upload_url + verify_url）
+//   PUT  <upload_url>                              COS 直传（octet-stream + Content-Length，链接一次性）
+//   POST <verify_url>                              回认（响应给的绝对地址；缺这步附件不挂 release）
+// 别走 python-cnb SDK 的 AssetsApi.upload_releases 那套（Accept web+json、按 tag 发起）：
+// 响应没有 verify_url、confirm 无从拼起，2026-10-22 实测走到确认步即 400。
 //
 // 环境变量：
 //   CNB_TOKEN          流水线内置（本地跑用个人访问令牌，git 用户名 cnb）
@@ -35,6 +44,12 @@ const fail = (msg) => {
 };
 const log = (msg) => console.log(`==> ${msg}`);
 
+/** CNB 失败时把服务端错误体一起打出来（插件同型：光有状态码没法定位，2026-10-22 加） */
+const failHttp = async (res, msg) => {
+  const text = await res.text().catch(() => '');
+  fail(`${msg}：HTTP ${res.status}${text ? `；${text.slice(0, 300)}` : ''}`);
+};
+
 if (!CNB_SLUG) fail('缺少 CNB_REPO_SLUG（流水线自动注入；本地运行需自备）');
 if (!CNB_TOKEN) fail('缺少 CNB_TOKEN');
 
@@ -43,7 +58,11 @@ const ghHeaders = {
   'user-agent': 'aao-editor-ci',
   ...(GH_TOKEN ? { authorization: `Bearer ${GH_TOKEN}` } : {}),
 };
-const cnbHeaders = { authorization: `token ${CNB_TOKEN}` };
+// 见文件头「媒体 / 鉴权」口径：全链统一 vnd.cnb.api+json；Bearer 鉴权
+const cnbHeaders = {
+  authorization: `Bearer ${CNB_TOKEN}`,
+  accept: 'application/vnd.cnb.api+json',
+};
 
 /** GitHub 最新**正式** release（/latest 天然排除 draft 与 prerelease，与 updater 口径一致） */
 async function githubLatestRelease() {
@@ -54,21 +73,23 @@ async function githubLatestRelease() {
 }
 
 async function cnbReleaseByTag(tag) {
-  const res = await fetch(`${CNB_API}/repos/${CNB_SLUG}/-/releases/tags/${encodeURIComponent(tag)}`, {
+  const res = await fetch(`${CNB_API}/${CNB_SLUG}/-/releases/tags/${encodeURIComponent(tag)}`, {
     headers: cnbHeaders,
   });
   if (res.status === 404) return null;
-  if (!res.ok) fail(`CNB release 查询失败（${tag}）：HTTP ${res.status}`);
+  if (!res.ok) await failHttp(res, `CNB release 查询失败（${tag}）`);
   return res.json();
 }
 
 async function cnbCreateRelease(tag, body) {
-  const res = await fetch(`${CNB_API}/repos/${CNB_SLUG}/-/releases`, {
+  const res = await fetch(`${CNB_API}/${CNB_SLUG}/-/releases`, {
     method: 'POST',
     headers: { ...cnbHeaders, 'content-type': 'application/json' },
-    body: JSON.stringify({ tag_name: tag, name: tag, body }),
+    // draft/prerelease 显式 false：ADR-0022 §6 首个 Release 即正式 Release（updater 可见性口径）
+    body: JSON.stringify({ tag_name: tag, name: tag, body, draft: false, prerelease: false }),
   });
-  if (!res.ok && res.status !== 409) fail(`CNB release 创建失败（${tag}）：HTTP ${res.status}`);
+  if (!res.ok && res.status !== 409) await failHttp(res, `CNB release 创建失败（${tag}）`);
+  return res.ok ? res.json() : null;
 }
 
 async function download(url, dest) {
@@ -77,22 +98,33 @@ async function download(url, dest) {
   fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
 }
 
-/** 两步上传：CNB 发起（拿 COS 直传地址 + form）→ 直传 */
-async function uploadAsset(tag, filePath) {
+/** 三步上传（与 cnbcool/attachments 插件同型，TS / Go 两版实现交叉验证）：
+ *  发起（asset-upload-url 换一次性 upload_url + verify_url）→ PUT 直传 → POST verify_url 回认 */
+async function uploadAsset(releaseId, filePath) {
   const name = path.basename(filePath);
+  const size = fs.statSync(filePath).size;
   const init = await fetch(
-    `${CNB_API}/repos/${CNB_SLUG}/-/upload/releases/${encodeURIComponent(tag)}?filename=${encodeURIComponent(name)}`,
-    { method: 'POST', headers: cnbHeaders },
+    `${CNB_API}/${CNB_SLUG}/-/releases/${encodeURIComponent(releaseId)}/asset-upload-url`,
+    {
+      method: 'POST',
+      headers: { ...cnbHeaders, 'content-type': 'application/json' },
+      // asset_name 才是文件名字段（SDK 的 name 服务端不识别）；ttl 0 = 永久保留（插件口径）
+      body: JSON.stringify({ asset_name: name, size, ttl: 0 }),
+    },
   );
-  if (!init.ok) fail(`发起上传失败（${name}）：HTTP ${init.status}`);
-  // TODO(smoke): 校准响应字段名与鉴权头（Authorization: token）后去掉本注释
-  const { url, form } = await init.json();
-  if (!url) fail(`发起上传响应里没有直传地址（${name}）`);
-  const body = new FormData();
-  for (const [k, v] of Object.entries(form ?? {})) body.append(k, String(v));
-  body.append('file', new Blob([fs.readFileSync(filePath)]), name);
-  const up = await fetch(url, { method: 'POST', body });
-  if (!up.ok) fail(`COS 直传失败（${name}）：HTTP ${up.status}`);
+  if (!init.ok) await failHttp(init, `发起上传失败（${name}）`);
+  const { upload_url: uploadUrl, verify_url: verifyUrl } = await init.json();
+  if (!uploadUrl || !verifyUrl) fail(`发起上传响应里没有上传 / 确认地址（${name}）`);
+  // COS 预签名 PUT：裸字节 + octet-stream + 显式 Content-Length（对象存储拒 chunked）
+  const up = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/octet-stream', 'content-length': String(size) },
+    body: fs.readFileSync(filePath),
+  });
+  if (!up.ok) await failHttp(up, `COS 直传失败（${name}）`);
+  // 回认：POST 响应给的 verify_url 绝对地址——不自己拼 release_id/token/asset_path
+  const confirm = await fetch(verifyUrl, { method: 'POST', headers: cnbHeaders });
+  if (!confirm.ok) await failHttp(confirm, `上传确认失败（${name}）`);
 }
 
 async function main() {
@@ -112,9 +144,13 @@ async function main() {
     log(`${tag} 已镜像（${wanted.length} 个附件齐），跳过`);
     return;
   }
-  if (!existing) {
+  let release = existing;
+  if (!release) {
     log(`创建 CNB release：${tag}`);
-    await cnbCreateRelease(tag, latest.body ?? '');
+    release = await cnbCreateRelease(tag, latest.body ?? '');
+    // 409（竞态已存在）时创建响应为空，回查一次——确认接口要 release_id
+    if (!release) release = await cnbReleaseByTag(tag);
+    if (!release) fail(`拿不到 CNB release（${tag}），无法上传附件`);
   }
 
   const todo = wanted.filter((a) => !have.has(a.name));
@@ -125,7 +161,7 @@ async function main() {
       const file = path.join(dir, a.name);
       await download(a.browser_download_url, file);
       log(`上传 ${a.name} → CNB release ${tag}`);
-      await uploadAsset(tag, file);
+      await uploadAsset(release.id, file);
     }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

@@ -43,3 +43,4 @@
 - [12 workflow显示名与发布模式](./issues/12-workflow显示名与发布模式.md) — resolved（2026-10-20：两个 workflow 补 `name:`（Release（发版）/ CI（PR 门禁））；发布模式维持 electron-builder 草稿默认 + 人工 Publish，不设 `releaseType`——用户拍板保留公开前人工闸）
 - [13 发布展示层去重与流水线命名](./issues/13-发布展示层去重与流水线命名.md) — resolved（2026-10-20：release notes 去 NOTICE 拼贴、直写单一来源 RELEASE_NOTES.md；.cnb.yml 五条流水线显式命名，imports 缩进 4→6 同步锁测）
 - [14 CNB 每日 22:00 定时任务不触发](./issues/14-CNB定时任务未触发.md) — resolved（2026-10-20：根因 = cron 表达式写成六字段，CNB 只认五字段 POSIX cron，非法表达式平台不注册且静默、只丢 cron 触发；修为 `0 22 * * *` + 锁测正负双锁）
+- [15 CNB 国内副本镜像 API 集成](./issues/15-CNB国内副本镜像API集成.md) — resolved（2026-10-21~22 三轮验收逐层剥开：404 = 端点多插一层路径前缀（CNB 路由一律 `/{repo}/-/…`，且 GET 的 404 被当「release 不存在」吞掉，POST 创建才暴露）；406 = Accept 未带版本化媒体类型；400 = SDK 的 upload_releases + asset-upload-confirmation 是旧口径（响应无 token，确认 URL 拼出 undefined）。终态 = cnbcool/attachments 插件 TS/Go 两版交叉验证的全链：asset-upload-url 发起 → PUT 直传 → verify_url 回认；第 3 轮验收通过，用户确认）
