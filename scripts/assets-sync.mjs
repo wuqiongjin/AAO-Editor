@@ -37,6 +37,7 @@ const ROOTS = [
   'src/assets/audio/keysounds',
   'src/rendering/skin/gen',
   'src/audio/gen',
+  'src/preview/video/sim/gen',
 ];
 
 const CHECK_ONLY = process.argv.includes('--check');

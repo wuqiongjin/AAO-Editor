@@ -16,6 +16,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const REGISTRIES = [
   resolve(repoRoot, 'src/audio/gen/keySoundRegistry.gen.ts'),
   resolve(repoRoot, 'src/rendering/skin/gen/noteSkinRegistry.gen.ts'),
+  resolve(repoRoot, 'src/preview/video/sim/gen/simAssetPacks.gen.ts'),
 ];
 
 export const hasAssetSnapshot: boolean = REGISTRIES.every(

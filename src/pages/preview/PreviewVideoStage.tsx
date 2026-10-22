@@ -277,13 +277,19 @@ export default function PreviewVideoStage({
     return () => { cancelled = true; };
   }, [noteIcons]);
 
-  // 场地素材（只走 04 的直读通道）：缺席 = 空态。带体取色跟皮肤走 → 皮肤换了重读一次
+  // 场地素材（只走 04 的直读通道）：缺席 = 空态。带体取色跟皮肤走 → 皮肤换了重读一次；
+  // 背景 / 轨道包（41）换了也重读 —— 包 ID 随 scene 进来（settings.preview），
+  // 实时预览与视频导出 / 开场第③段因此永远是同一份素材（ADR-0018 §5）。
   useEffect(() => {
     let cancelled = false;
-    void loadSimAssets({ bandSrc: noteIcons.slideBand.src, bandSpSrc: noteIcons.slideBandSp.src })
+    void loadSimAssets({
+      bandSrc: noteIcons.slideBand.src,
+      bandSpSrc: noteIcons.slideBandSp.src,
+      packs: { field: scene?.fieldPackId, background: scene?.bgPackId },
+    })
       .then((next) => { if (!cancelled) setAssets(next); });
     return () => { cancelled = true; };
-  }, [noteIcons]);
+  }, [noteIcons, scene?.fieldPackId, scene?.bgPackId]);
 
   // 谱面 → 仿真场派生表（元素 / 带体 / 同时点击线 / combo 时刻）
   const chart = useMemo(() => buildSimChart(scene, noteIcons), [scene, noteIcons]);

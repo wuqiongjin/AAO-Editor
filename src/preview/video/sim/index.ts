@@ -33,14 +33,26 @@ export {
   emptySimAssets,
   loadSimAssets,
   sampleCenterColor,
+  simAssetPackThumbUrl,
   simAssetUrls,
   simSpriteUrls,
   type SimAssetLoadOptions,
+  type SimAssetPackSelection,
   type SimAssetUrls,
   type SimAssets,
   type SimSprites,
   type SimSpriteUrls,
 } from './simAssets';
+export {
+  SIM_DEFAULT_PACK_IDS,
+  SIM_EMPTY_REGISTRY_FILES,
+  findSimBackgroundPack,
+  findSimFieldPack,
+  listSimBackgroundPacks,
+  listSimFieldPacks,
+  normalizeSimAssetPackId,
+  type SimAssetPackKind,
+} from './simAssetPacks';
 export {
   PLAYBACK_RATE_RANGE,
   SIM_PLAYBACK_RATE_PRESETS,

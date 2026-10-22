@@ -10,6 +10,7 @@ import { normalizeProjectSortKey, type ProjectSortKey } from '../../project/proj
 import { normalizeSongSort, SONG_SORT_DEFAULT, type SongSort } from '../../community/bestdori/songs';
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../audio/KeySound';
 import { NOTE_SKIN_DEFAULT_SELECTION } from '../../rendering/skin/gen/noteSkinRegistry.gen';
+import { SIM_DEFAULT_PACK_IDS, normalizeSimAssetPackId } from '../../preview/video/sim/simAssetPacks';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/CurveTool';
 import { detectOsLanguageTag, resolveUiLanguage, type UiLanguage } from '../../i18n/resolveUiLanguage';
@@ -280,6 +281,17 @@ export interface PreviewSettings {
    * 白名单与步长见 `SIM_NOTE_SPEED_RANGE`。
    */
   noteSpeed: number;
+  /**
+   * 仿真场**表演背景**包 ID（chart-preview 41 · ADR-0018 §3：应用级，"我的默认口味"；
+   * 新建工程默认沿用上次选的包）。取值 = 取件侧包清单里的包 ID（`bgPackId` 非法 / 不在
+   * 清单里 → 归一化回落默认 `skin00`，见 `normalizeSimAssetPackId`）。
+   */
+  bgPackId: string;
+  /**
+   * 仿真场**场地皮肤包**（轨道）ID（chart-preview 41 · ADR-0018 §3：应用级，
+   * 等同音符速度 / 镜向，是"我看着舒服"）。口径同 `bgPackId`。
+   */
+  fieldPackId: string;
 }
 
 /**
@@ -314,6 +326,9 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
   comboMarks: true,
   mirror: false,
   noteSpeed: SIM_NOTE_SPEED_RANGE.fallback,
+  // 表演背景 / 场地皮肤包各默认 skin00（ADR-0018 §1；非法 ID 读盘时归一化回落）
+  bgPackId: SIM_DEFAULT_PACK_IDS.background,
+  fieldPackId: SIM_DEFAULT_PACK_IDS.field,
 };
 
 /** 音符速度档归一化（读写同一个白名单；快照值对齐步长） */
@@ -503,6 +518,10 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       comboMarks: typeof preview.comboMarks === 'boolean' ? preview.comboMarks : defaults.preview.comboMarks,
       mirror: typeof preview.mirror === 'boolean' ? preview.mirror : defaults.preview.mirror,
       noteSpeed: normalizeNoteSpeed(preview.noteSpeed, defaults.preview.noteSpeed),
+      // 仿真场素材包（chart-preview 41）：按取件侧包清单归一化，清单里没有的 ID（含脏值 /
+      // 快照缩水后残留的旧选择）静默回落默认 skin00 —— "列表即真相"
+      bgPackId: normalizeSimAssetPackId('background', preview.bgPackId),
+      fieldPackId: normalizeSimAssetPackId('field', preview.fieldPackId),
     },
     // 导出信息字段（chart-preview 14）：逐字段布尔归一化，缺字段 / 脏值回落默认档
     export: normalizeExportFields(exportRaw, defaults.export),

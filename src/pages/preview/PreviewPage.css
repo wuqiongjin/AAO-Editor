@@ -452,6 +452,71 @@
   gap: 1px;
 }
 
+/* ---- 仿真场素材包缩略图网格（chart-preview 41 · ADR-0018 §1）----
+   背景 / 轨道两个独立选择器：一格 = 一张素材自身缩成的缩略图 + 包 ID（辨识交给缩略图，
+   不人工起名）。轨道 33 包全列会顶穿面板 ⇒ 网格自带限高 + 内部滚动（面板那层
+   `overflow-y` 仍然在，管的是组与组之间）。 */
+.pdp__pack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 4px;
+  max-height: 152px;
+  overflow-y: auto;
+  /* 网格内部滚动条别抢焦点轮廓：item 自带 focus 样式 */
+  overscroll-behavior: contain;
+}
+
+.pdp__pack-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  cursor: pointer;
+  /* 缩略图按素材自身比例裁切（场地图 1160×610 / 背景 2048×1024 都是宽幅） */
+  font-family: inherit;
+}
+
+.pdp__pack-item:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.pdp__pack-item.is-active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--text);
+}
+
+.pdp__pack-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
+.pdp__pack-item img {
+  display: block;
+  width: 100%;
+  height: 26px;
+  object-fit: cover;
+  border-radius: calc(var(--radius-sm) - 1px);
+  background: var(--bg-hover);
+}
+
+.pdp__pack-id {
+  padding: 0 2px 1px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-align: center;
+  /* 包 ID 可能较长（如 skin_collabo25_autumn_s）：单行省略，全文在 title 里 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .pdp__speed-slider {
   flex: 1 1 auto;
   width: auto;

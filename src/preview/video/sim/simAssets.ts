@@ -6,6 +6,10 @@
 //   （`preview.video.assetsMissing`），本模块不抛错。
 //
 // 类别目录（脚本默认 jp）：逐服探测第一个能读到**场地图**的目录；全都读不到 = 空态。
+//
+// 包选择（chart-preview 41 · ADR-0018）：包与文件名**不硬编码**——按包 ID 查取件侧产出的
+// 包清单（`./simAssetPacks` → `./gen/simAssetPacks.gen`）取文件名；非法 / 不在清单里的 ID
+// 静默回落默认 `skin00`（"列表即真相"，见 simAssetPacks.ts）。
 import {
   clamp01,
   SIM_BAND_COLORS,
@@ -13,7 +17,14 @@ import {
   SIM_BAND_MATERIAL_SP,
   type SimBandMaterial,
 } from './simGeometry';
-
+import {
+  findSimBackgroundPack,
+  findSimFieldPack,
+  normalizeSimAssetPackId,
+  SIM_DEFAULT_PACK_IDS,
+  SIM_EMPTY_REGISTRY_FILES,
+  type SimAssetPackKind,
+} from './simAssetPacks';
 /**
  * 仿真场素材根（Vite 把 `public/` 挂在站点根，dev 的前缀就是 `/`）。
  *
@@ -29,12 +40,21 @@ export const SIM_ASSET_SERVERS = ['jp', 'en', 'tw', 'cn', 'kr'] as const;
 const SIM_FIELD_CATEGORY = 'fieldskin';
 const SIM_BG_CATEGORY = 'bgskin';
 const SIM_SPRITE_CATEGORY = 'sprites';
-/** 官方默认档包名 */
-const SIM_SKIN_PACK = 'skin00_rip';
+
+/**
+ * 两个独立选择器传进来的包 ID（chart-preview 41；`settings.preview.bgPackId` / `fieldPackId`）。
+ * 缺省 / 非法值在 `simAssetUrls` 里归一化（回落默认 `skin00`），调用方不用先洗值。
+ */
+export interface SimAssetPackSelection {
+  /** 场地皮肤包 ID（fieldskin） */
+  field?: string;
+  /** 表演背景包 ID（bgskin） */
+  background?: string;
+}
 
 /** 某个服务器目录下要读的三张图 */
 export interface SimAssetUrls {
-  /** 背景（bgskin `liveBG_normal.png`） */
+  /** 背景（bgskin 主图；文件名按包 ID 查清单，`liveBG_normal.png` / `liveBG.png` 两种命名并存） */
   background: string;
   /** 场地图（fieldskin `bg_line_rhythm.png`） */
   field: string;
@@ -42,14 +62,49 @@ export interface SimAssetUrls {
   playLine: string;
 }
 
-export function simAssetUrls(server: string): SimAssetUrls {
-  const fieldPack = `${SIM_ASSET_BASE}/${SIM_FIELD_CATEGORY}/${server}/${SIM_SKIN_PACK}`;
-  const bgPack = `${SIM_ASSET_BASE}/${SIM_BG_CATEGORY}/${server}/${SIM_SKIN_PACK}`;
+/**
+ * 拼一个包里的某个文件 URL（`<base>/<类别>/<server>/<packId>_rip/<file>`）：
+ * `simAssetUrls` 与 `simAssetPackThumbUrl` 共用这一份路径形状，别处不再拼。
+ */
+function simPackUrl(kind: SimAssetPackKind, server: string, packId: string, file: string): string {
+  const category = kind === 'field' ? SIM_FIELD_CATEGORY : SIM_BG_CATEGORY;
+  return `${SIM_ASSET_BASE}/${category}/${server}/${packId}_rip/${file}`;
+}
+
+/**
+ * 三张图的 URL：包 ID → 清单 → 文件名（ADR-0018 §2，应用侧不拼文件名）。
+ * `packs` 缺省 = 两个选择器都取默认 `skin00`。
+ */
+export function simAssetUrls(server: string, packs: SimAssetPackSelection = {}): SimAssetUrls {
+  const fieldId = normalizeSimAssetPackId('field', packs.field);
+  const bgId = normalizeSimAssetPackId('background', packs.background);
+  const fieldPack = findSimFieldPack(fieldId);
+  const bgPack = findSimBackgroundPack(bgId);
   return {
-    background: `${bgPack}/liveBG_normal.png`,
-    field: `${fieldPack}/bg_line_rhythm.png`,
-    playLine: `${fieldPack}/game_play_line.png`,
+    background: simPackUrl('background', server, bgId, bgPack?.background ?? SIM_EMPTY_REGISTRY_FILES.background),
+    field: simPackUrl('field', server, fieldId, fieldPack?.field ?? SIM_EMPTY_REGISTRY_FILES.field),
+    playLine: simPackUrl('field', server, fieldId, fieldPack?.playLine ?? SIM_EMPTY_REGISTRY_FILES.playLine),
   };
+}
+
+/**
+ * 包缩略图 URL（预览页「设置」面板的缩略图网格用，chart-preview 41 定案 #3）：
+ * 轨道 = 该包场地图、背景 = 该包主图 —— 缩略从素材自身缩放生成，不额外抓图。
+ * 包 ID 先过归一化（不在清单里 → skin00）；**这类素材一个包都没取到（空清单）→ null**，
+ * 面板据此不渲染缩略（只留包 ID 格）。
+ */
+export function simAssetPackThumbUrl(
+  kind: SimAssetPackKind,
+  packId: string,
+  server: string,
+): string | null {
+  const id = normalizeSimAssetPackId(kind, packId);
+  if (kind === 'field') {
+    const entry = findSimFieldPack(id);
+    return entry ? simPackUrl(kind, server, id, entry.field) : null;
+  }
+  const entry = findSimBackgroundPack(id);
+  return entry ? simPackUrl(kind, server, id, entry.background) : null;
 }
 
 /** Bestdori 自家精灵（chart-preview 21）：combo 数字 / COMBO 标签 / 打击特效图块 */
@@ -107,6 +162,11 @@ export interface SimAssetLoadOptions {
   bandSpSrc?: string | null;
   /** 服务器偏好顺序（默认 `SIM_ASSET_SERVERS`） */
   servers?: readonly string[];
+  /**
+   * 包选择（chart-preview 41：背景 / 轨道两个独立选择器；来自 `settings.preview`）。
+   * 缺省 / 非法 ID 回落默认 `skin00`。
+   */
+  packs?: SimAssetPackSelection;
   /** 图片加载（测试注入替身；缺省 `new Image()`） */
   loadImage?: (src: string) => Promise<HTMLImageElement>;
   /** 取色（测试注入替身；缺省读 1×1 离屏画布） */
@@ -210,23 +270,60 @@ export function sampleBandMaterial(img: HTMLImageElement | null): SimBandMateria
  * 读场地素材：逐服探测（按**场地图**判成败，它是场地层的必需件），
  * 三图 + 带体取色 / 剖面一次到位；全服都读不到 → `emptySimAssets()`。
  * 不抛错：素材缺席是**明说的产品态**（04 的空态），不是异常。
+ *
+ * 包选择（41）：`packs` 两个选择器各自独立；**包内缺件不算空态**（背景 / 判定线缺 = 那一层
+ * 不画）——只有**场地图**读不到才换下一个服务器目录。选中包整服都读不到（注册表列了它、
+ * 二进制却没摆 / 被裁掉）⇒ 按默认 `skin00` 再探一次（ADR-0018 §1「运行时加载失败兜底回落
+ * skin00」）；默认包也读不到才空态。
  */
 export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<SimAssets> {
   const {
     bandSrc = null,
     bandSpSrc = null,
     servers = SIM_ASSET_SERVERS,
+    packs,
     loadImage = loadImageElement,
     sampleColor = sampleCenterColor,
   } = opts;
 
+  const probe = (selection: Required<SimAssetPackSelection>) => probeSimServers({
+    servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor,
+  });
+  const selected: Required<SimAssetPackSelection> = {
+    field: normalizeSimAssetPackId('field', packs?.field),
+    background: normalizeSimAssetPackId('background', packs?.background),
+  };
+
+  const hit = await probe(selected);
+  if (hit) return hit;
+  // 选中包与默认包不同且整服读不到 ⇒ 兜底再探一次默认 skin00（不弹错、不做"缺失"占位）
+  if (selected.field !== SIM_DEFAULT_PACK_IDS.field || selected.background !== SIM_DEFAULT_PACK_IDS.background) {
+    const fallback = await probe({
+      field: SIM_DEFAULT_PACK_IDS.field,
+      background: SIM_DEFAULT_PACK_IDS.background,
+    });
+    if (fallback) return fallback;
+  }
+  return emptySimAssets();
+}
+
+/** 逐服探测一轮（`selection` 已是归一化后的包 ID）；命中 = 该服务器目录归档过 */
+async function probeSimServers(opts: {
+  servers: readonly string[];
+  selection: Required<SimAssetPackSelection>;
+  bandSrc: string | null;
+  bandSpSrc: string | null;
+  loadImage: (src: string) => Promise<HTMLImageElement>;
+  sampleColor: (img: HTMLImageElement) => string | null;
+}): Promise<SimAssets | null> {
+  const { servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor } = opts;
   for (const server of servers) {
-    const urls = simAssetUrls(server);
+    const urls = simAssetUrls(server, selection);
     let field: HTMLImageElement;
     try {
       field = await loadImage(urls.field);
     } catch {
-      continue; // 这个服务器目录没归档：换下一个
+      continue; // 这个服务器目录没归档（或没摆选中的场地图）：换下一个
     }
     const spriteUrls = simSpriteUrls(server);
     const [background, playLine, bandImg, bandSpImg, digits, combo, particles] = await Promise.all([
@@ -252,5 +349,5 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
       server,
     };
   }
-  return emptySimAssets();
+  return null;
 }

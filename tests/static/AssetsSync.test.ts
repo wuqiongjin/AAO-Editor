@@ -9,7 +9,7 @@ import { readSource, readStripped, repoRoot, sourceFiles } from '@/tests/support
 describe('release-pipeline 02 · 资源取件与所有权', () => {
   it('产物与生成物都不在 git 索引（防再入库）', () => {
     const tracked = execSync(
-      'git ls-files -- public/assets/skins public/assets/sim src/assets/audio/keysounds src/rendering/skin/gen src/audio/gen',
+      'git ls-files -- public/assets/skins public/assets/sim src/assets/audio/keysounds src/rendering/skin/gen src/audio/gen src/preview/video/sim/gen',
       { cwd: repoRoot, encoding: 'utf8' },
     )
       .trim()
@@ -26,6 +26,7 @@ describe('release-pipeline 02 · 资源取件与所有权', () => {
       '/src/assets/audio/keysounds/',
       '/src/rendering/skin/gen/',
       '/src/audio/gen/',
+      '/src/preview/video/sim/gen/',
     ]) {
       expect(gitignore).toContain(entry);
     }
@@ -45,6 +46,7 @@ describe('release-pipeline 02 · 资源取件与所有权', () => {
       'src/assets/audio/keysounds',
       'src/rendering/skin/gen',
       'src/audio/gen',
+      'src/preview/video/sim/gen',
     ]) {
       expect(sync).toContain(`'${root}'`);
     }

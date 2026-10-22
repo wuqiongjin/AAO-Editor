@@ -332,7 +332,10 @@ export function drawOpeningFrameAt(
 
 // ---------------- 场地的两层（③ 背景 / ④ 轨道） ----------------
 
-/** ③ 只有**表演背景图**这一层（bgskin `liveBG_normal.png`） */
+/**
+ * ③ 只有**表演背景图**这一层（bgskin 主图；文件名按包 ID 查清单 —— `liveBG_normal.png` /
+ * `liveBG.png` 两种命名并存，chart-preview 41 起不硬编码）
+ */
 export function drawOpeningFieldBackground(
   ctx: CanvasRenderingContext2D,
   m: SimFieldMetrics,

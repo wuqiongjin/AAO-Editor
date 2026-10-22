@@ -227,7 +227,12 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   req.onProgress?.({ phase: 'assets', frame: 0, totalFrames: 0 });
   const noteIcons = buildActiveNoteIcons(normalizeNoteSkinSelection(req.noteSkin));
   const [assets] = await Promise.all([
-    loadSimAssets({ bandSrc: noteIcons.slideBand.src, bandSpSrc: noteIcons.slideBandSp.src }),
+    // 背景 / 轨道包（chart-preview 41）随 scene 进来 ⇒ 导出物与实时预览同一份素材（ADR-0018 §5）
+    loadSimAssets({
+      bandSrc: noteIcons.slideBand.src,
+      bandSpSrc: noteIcons.slideBandSp.src,
+      packs: { field: req.scene.fieldPackId, background: req.scene.bgPackId },
+    }),
     CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs()).catch(() => undefined),
   ]);
   if (assets.missing) {

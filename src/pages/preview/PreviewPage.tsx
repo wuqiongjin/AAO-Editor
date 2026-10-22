@@ -159,8 +159,9 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     };
   }, [project, chart, settings.display, settings.visual?.noteSkin, beatDisplay]);
 
-  // 动态形态要画的那份谱面（票 05）：仿真场的画面输入 = 谱面 + 作者设置（音符速度 / 镜向两档来自
-  // `settings.preview`，其余是画布共享项 `settings.display`——与静态预览同一份数据）
+  // 动态形态要画的那份谱面（票 05）：仿真场的画面输入 = 谱面 + 作者设置（音符速度 / 镜向 /
+  // 背景包 / 轨道包来自 `settings.preview`，其余是画布共享项 `settings.display`——与静态预览同一份数据）。
+  // 背景 / 轨道包（41）随 scene 走 ⇒ 实时预览、视频导出、开场第③段三处画面一致（ADR-0018 §5）。
   const videoScene = useMemo<SimScene | null>(() => {
     if (!project || !chart || chart.notes.length === 0) return null;
     return {
@@ -172,6 +173,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       simultaneousClickLines: settings.display.simultaneousClickLines,
       colorAssist: settings.display.colorAssist,
       mirror: settings.preview.mirror,
+      bgPackId: settings.preview.bgPackId,
+      fieldPackId: settings.preview.fieldPackId,
     };
   }, [project, chart, settings.display, settings.preview, beatDisplay]);
 

@@ -13,6 +13,7 @@ import {
   loadSettings,
   updateSettings,
 } from '@/src/chart/config/AppSettings';
+import { SIM_DEFAULT_PACK_IDS } from '@/src/preview/video/sim/simAssetPacks';
 import { settingsStorageOf } from '@/tests/support/storage';
 
 describe('chart-preview 08 · 预览标注设置', () => {
@@ -26,6 +27,9 @@ describe('chart-preview 08 · 预览标注设置', () => {
       mirror: false,
       // 仿真场音符速度（chart-preview 05；用户 2026-10-07 定案 9.5）
       noteSpeed: 9.5,
+      // 仿真场素材包（chart-preview 41 · ADR-0018 §1：各默认 skin00）
+      bgPackId: SIM_DEFAULT_PACK_IDS.background,
+      fieldPackId: SIM_DEFAULT_PACK_IDS.field,
     });
   });
 
@@ -33,7 +37,12 @@ describe('chart-preview 08 · 预览标注设置', () => {
     const loaded = loadSettings(settingsStorageOf({
       preview: { bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5 },
     }));
-    expect(loaded.preview).toEqual({ bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5 });
+    expect(loaded.preview).toEqual({
+      bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5,
+      // 种子没给素材包 ⇒ 补默认（chart-preview 41，additive 不 bump schemaVersion）
+      bgPackId: SIM_DEFAULT_PACK_IDS.background,
+      fieldPackId: SIM_DEFAULT_PACK_IDS.field,
+    });
   });
 
   // 音符速度档（chart-preview 24：1..12 步长 0.1）的范围 / 步长 / 吸附锁测单开在

@@ -184,11 +184,15 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
     ]);
     // 05 起 video/ 是实件：仿真场落在 sim/ 子目录（几何 / 一帧绘制 / 素材 / 回放 / Bestdori 精灵，
     // ADR-0016 §3 的树；`simSprites` 由 chart-preview 21 引入）；
+    // 41 起 sim/ 多两件：`simAssetPacks.ts`（包清单消费侧：按包 ID 查清单 + 非法 ID 回落
+    // skin00）与 `gen/`（取件侧产出的包清单，git 忽略、assets:sync 取件，照 skin/gen 先例）；
     // 07 起旁出一支 encode/（规格 / 逐帧出帧 / 离线音轨 / 编码封装 / 编排），与 sim/ 平级；
     // 30 起再旁出一支 opening/（视频开场的常量 / 信息项 / 装饰 / 一帧绘制），与 sim/ 平级
     expect(entries('src/preview/video')).toEqual(['encode', 'index.ts', 'opening', 'sim']);
     expect(entries('src/preview/video/sim')).toEqual([
+      'gen',
       'index.ts',
+      'simAssetPacks.ts',
       'simAssets.ts',
       'simField.ts',
       'simGeometry.ts',

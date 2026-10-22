@@ -23,6 +23,13 @@ import {
 } from '../../chart/config/AppSettings';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
+import { SIM_ASSET_SERVERS, simAssetPackThumbUrl } from '../../preview/video/sim/simAssets';
+import {
+  listSimBackgroundPacks,
+  listSimFieldPacks,
+  normalizeSimAssetPackId,
+  type SimAssetPackKind,
+} from '../../preview/video/sim/simAssetPacks';
 import type { PreviewMode } from '../../preview';
 // 浮层复用菜单壳（与 ScopePicker 同因：`.pp-menu__*` 定义在 ProjectsPage.css，别指望那一页先挂载）
 import '../projects/ProjectsPage.css';
@@ -262,6 +269,65 @@ function Percent({
 }
 
 /**
+ * 仿真场素材包缩略图网格（chart-preview 41 · ADR-0018 §1）：背景 / 轨道两个独立选择器，
+ * 显示名 = 包 ID（辨识交给缩略图，与音符皮肤整包预设同一口径）。
+ *
+ * 缩略从素材自身缩放生成（`<img>` + CSS 裁切，不额外抓图）：轨道取该包场地图、背景取主图。
+ * **列表即真相**：只渲染清单里实际取到的包；选中的 ID 不在清单里时高亮跟随归一化结果
+ * （回落默认 `skin00`），不弹错、不占"缺失"行。
+ */
+function SimPackGrid({
+  kind, label, full, value, onChange,
+}: {
+  kind: SimAssetPackKind;
+  /** 行标签（UI 文案：「背景」/「轨道」） */
+  label: string;
+  /** 全称（tooltip 用：表演背景 / 场地皮肤包） */
+  full: string;
+  value: string;
+  onChange: (packId: string) => void;
+}) {
+  const packs = kind === 'field' ? listSimFieldPacks() : listSimBackgroundPacks();
+  // 只同步 jp 一个服务器（ADR-0018 §2）⇒ 缩略图按探测顺序的首服取；真要读不到时
+  // `<img onError>` 把那一格降级成"只有包 ID"，不影响选择。
+  const server = SIM_ASSET_SERVERS[0];
+  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
+  const activeId = normalizeSimAssetPackId(kind, value);
+  if (packs.length === 0) return null;
+
+  return (
+    <div className="pdp__row pdp__row--stack">
+      <div className="pdp__row-text"><strong>{label}</strong></div>
+      <div className="pdp__pack-grid" role="group" aria-label={full}>
+        {packs.map((pack) => {
+          const thumb = simAssetPackThumbUrl(kind, pack.id, server);
+          return (
+            <button
+              key={pack.id}
+              type="button"
+              className={`pdp__pack-item${pack.id === activeId ? ' is-active' : ''}`}
+              aria-pressed={pack.id === activeId}
+              title={`${full} · ${pack.id}`}
+              onClick={() => onChange(pack.id)}
+            >
+              {thumb && !broken.has(thumb) ? (
+                <img
+                  src={thumb}
+                  alt=""
+                  loading="lazy"
+                  onError={() => setBroken((prev) => new Set(prev).add(thumb))}
+                />
+              ) : null}
+              <span className="pdp__pack-id">{pack.id}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
  * 面板形态（chart-preview 05 / 37）：同一份「设置」控件在两种预览形态下显示不同的组 ——
  * 静态（标记 + 画布共享 + 皮肤）/ 动态（**仿真场** + 画布共享 + 皮肤）。
  * 「画布共享」与「音符皮肤」两组两种形态共用（同一份数据，改了双方生效）。
@@ -448,6 +514,22 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                     onChange={(mirror) => setPreview({ mirror })}
                   />
                 </Row>
+                {/* 表演背景 / 场地皮肤包（41）：两个独立选择器，缩略图网格 + 包 ID 显示名，
+                    挑背景要看着画面挑（定案 #4：入口在预览页设置面板） */}
+                <SimPackGrid
+                  kind="background"
+                  label={t('preview.display.bgPack')}
+                  full={t('preview.display.bgPack.full')}
+                  value={preview.bgPackId}
+                  onChange={(bgPackId) => setPreview({ bgPackId })}
+                />
+                <SimPackGrid
+                  kind="field"
+                  label={t('preview.display.fieldPack')}
+                  full={t('preview.display.fieldPack.full')}
+                  value={preview.fieldPackId}
+                  onChange={(fieldPackId) => setPreview({ fieldPackId })}
+                />
               </section>
             )}
 

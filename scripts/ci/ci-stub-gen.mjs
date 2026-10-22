@@ -23,6 +23,7 @@ const MARKER = 'CI-STUB';
 
 const KEY_SOUND_REGISTRY = 'src/audio/gen/keySoundRegistry.gen.ts';
 const NOTE_SKIN_REGISTRY = 'src/rendering/skin/gen/noteSkinRegistry.gen.ts';
+const SIM_PACK_REGISTRY = 'src/preview/video/sim/gen/simAssetPacks.gen.ts';
 
 /** 该注册表是真快照产物（存在且无 CI-STUB 标记）→ 不介入；缺文件 / 是桩 → 写 */
 function isRealSnapshot(rel) {
@@ -172,6 +173,17 @@ export const NOTE_SKIN_DEFAULT_SELECTION: Record<string, string> = {
 };
 `;
 
+const SIM_PACK_STUB = `// ${MARKER} · PR 门禁（无素材快照）占位模块：API 同真产物，数据为最小合法集。勿手改；真产物见 scripts/assets-sync.mjs。
+export interface SimFieldPackEntry { id: string; field: string; playLine: string; }
+export interface SimBackgroundPackEntry { id: string; background: string; }
+export interface SimAssetPackRegistry { field: SimFieldPackEntry[]; background: SimBackgroundPackEntry[]; }
+
+export const SIM_ASSET_PACKS: SimAssetPackRegistry = {
+  field: [{ id: 'skin00', field: 'bg_line_rhythm.png', playLine: 'game_play_line.png' }],
+  background: [{ id: 'skin00', background: 'liveBG_normal.png' }],
+};
+`;
+
 function write(rel, content) {
   const abs = path.join(REPO_ROOT, rel);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -182,6 +194,7 @@ function write(rel, content) {
 const REGISTRIES = [
   [KEY_SOUND_REGISTRY, KEY_SOUND_STUB],
   [NOTE_SKIN_REGISTRY, NOTE_SKIN_STUB],
+  [SIM_PACK_REGISTRY, SIM_PACK_STUB],
 ];
 
 // 逐注册表判别：真的不动，缺 / 是桩的才写——部分态（如键音真、皮肤桩）不会被

@@ -102,6 +102,14 @@ export interface SimScene {
   colorAssist: boolean;
   /** `settings.preview.mirror`：整轨镜像（车道对调 + 方向箭头翻面） */
   mirror: boolean;
+  /**
+   * `settings.preview.bgPackId`：表演背景包 ID（chart-preview 41 · ADR-0018）。
+   * **可选**（缺省 = 默认 `skin00`）：只喂 `loadSimAssets` 取文件名，画面不直接消费；
+   * 实时预览 / 视频导出 / 开场第③段走同一份 scene ⇒ 三处画面一致。
+   */
+  bgPackId?: string;
+  /** `settings.preview.fieldPackId`：场地皮肤包（轨道）ID；口径同 `bgPackId` */
+  fieldPackId?: string;
 }
 
 /** 一个会过线的元素（单键 / 方向键 / 滑条可见结点）；已含镜向与精灵选款 */
