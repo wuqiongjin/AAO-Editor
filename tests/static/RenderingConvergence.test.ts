@@ -91,6 +91,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
       'noteSkinPresetThumbnailLayout.ts',
       'noteSkinPreviewDraw.ts',
       'noteSkinPreviewLayout.ts',
+      'skinDisplayName.ts',
       'useBackgroundSkin.ts',
     ]);
     expect(entries('src/rendering/skin/gen')).toContain('noteSkinRegistry.gen.ts');

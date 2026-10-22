@@ -13,6 +13,7 @@ import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import {
   buildActiveNoteIcons,
   listNoteSkinPacks,
+  noteSkinPackLabel,
   type NoteSkinItemId,
   type NoteSkinSelection,
 } from './noteSkin';
@@ -52,7 +53,8 @@ function summarizeSelection(selection: NoteSkinSelection): { title: string; subt
     return true;
   }) ?? null;
   if (matched) {
-    return { title: matched.label, subtitle: t('pack.presetActive') };
+    // 标题 = 整包显示名（与预设卡 / 预览面板同一口径）
+    return { title: noteSkinPackLabel(matched), subtitle: t('pack.presetActive') };
   }
   return { title: t('assets.preview.custom'), subtitle: '' };
 }
@@ -129,6 +131,7 @@ export default function NoteSkinPreview({
               <div className="skin-col-picker" role="radiogroup" aria-label={t('assets.preview.skinAria', { label: colLabel })}>
                 {packs.map((p) => {
                   const selected = p.id === currentId;
+                  const display = noteSkinPackLabel(p);
                   return (
                     <button
                       key={p.id}
@@ -136,10 +139,10 @@ export default function NoteSkinPreview({
                       role="radio"
                       aria-checked={selected}
                       className={`skin-pill${selected ? ' is-active' : ''}`}
-                      title={p.label}
+                      title={`${display}（${p.id}）`}
                       onClick={() => onChange(col.item, p.id)}
                     >
-                      <span className="skin-pill-label">{p.label}</span>
+                      <span className="skin-pill-label">{display}</span>
                       {selected && (
                         <span className="skin-pill-mark" aria-label={t('assets.preview.currentChoice')}>
                           <Check size={10} />

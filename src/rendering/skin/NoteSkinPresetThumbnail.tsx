@@ -17,10 +17,13 @@ import { drawPreviewSprite } from './noteSkinPreviewDraw';
 
 export default function NoteSkinPresetThumbnail({
   pack,
+  label,
   active,
   onApply,
 }: {
-  pack: { id: string; label: string; pairedDir: string | null };
+  pack: { id: string; pairedDir: string | null };
+  /** 显示名（issue 49 选服后的名；包 ID 由卡片标题保留） */
+  label: string;
   active: boolean;
   onApply: () => void;
 }) {
@@ -82,8 +85,8 @@ export default function NoteSkinPresetThumbnail({
     <button
       type="button"
       className="asset-set-visual skin-preset-thumb"
-      title={pack.label}
-      aria-label={active ? pack.label : t('assets.presetThumb.applyAria', { label: pack.label })}
+      title={label}
+      aria-label={active ? label : t('assets.presetThumb.applyAria', { label })}
       style={{ width: PRESET_THUMBNAIL_CSS_W, aspectRatio: PRESET_THUMBNAIL_ASPECT }}
       disabled={active}
       onClick={onApply}

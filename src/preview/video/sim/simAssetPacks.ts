@@ -10,6 +10,7 @@ import {
   type SimBackgroundPackEntry,
   type SimFieldPackEntry,
 } from './gen/simAssetPacks.gen';
+import { packDisplayName, pickBackgroundSkinName, readPackSkinName } from '../../../rendering/skin/skinDisplayName';
 
 /** 两个独立选择器（ADR-0018 §1：背景 / 轨道各自独立选择，不做成对整包） */
 export type SimAssetPackKind = 'field' | 'background';
@@ -31,14 +32,28 @@ export const SIM_EMPTY_REGISTRY_FILES = {
   playLine: 'game_play_line.png',
 } as const;
 
-/** 场地皮肤包清单（只含实际取到的包；空 = 快照没摆这类素材） */
+/**
+ * 展示序：编号包在前、主题包在后——默认 skin00 落第一格，不用在 33 个包里翻
+ * （用户 2026-10-22 反馈）。顺序是应用侧展示策略；取件侧清单仍只决定"有哪些包"。
+ */
+const NUMBERED_PACK_ID = /^skin\d+$/;
+
+function compareForDisplay(a: { id: string }, b: { id: string }): number {
+  const aNum = NUMBERED_PACK_ID.test(a.id);
+  const bNum = NUMBERED_PACK_ID.test(b.id);
+  if (aNum !== bNum) return aNum ? -1 : 1;
+  if (aNum) return Number(a.id.slice(4)) - Number(b.id.slice(4));
+  return 0; // 主题包保留取件侧顺序（sort 稳定）
+}
+
+/** 场地皮肤包清单（只含实际取到的包；空 = 快照没摆这类素材；按展示序，见 compareForDisplay） */
 export function listSimFieldPacks(): readonly SimFieldPackEntry[] {
-  return SIM_ASSET_PACKS.field;
+  return [...SIM_ASSET_PACKS.field].sort(compareForDisplay);
 }
 
 /** 表演背景包清单（口径同上） */
 export function listSimBackgroundPacks(): readonly SimBackgroundPackEntry[] {
-  return SIM_ASSET_PACKS.background;
+  return [...SIM_ASSET_PACKS.background].sort(compareForDisplay);
 }
 
 /** 按包 ID 查场地皮肤包；不在清单里（含空清单）→ undefined */
@@ -60,4 +75,20 @@ export function normalizeSimAssetPackId(kind: SimAssetPackKind, raw: unknown): s
   if (typeof raw !== 'string' || raw === '') return SIM_DEFAULT_PACK_IDS[kind];
   const entry = kind === 'field' ? findSimFieldPack(raw) : findSimBackgroundPack(raw);
   return entry ? raw : SIM_DEFAULT_PACK_IDS[kind];
+}
+
+/**
+ * 包的显示名（issue 49）：官方命名映射按界面语言选服；旧快照未带 skinName → 回落包 ID。
+ * 两类包的差别在官方名的本地化程度：背景包官方名五服同值日文 → 当前语言名走 i18n
+ * （pickBackgroundSkinName）；轨道包官方名有真本地化条目 → 直接选服（fallback = 包 ID）。
+ *
+ * 入参只认 id + 契约字段 skinName（gen 类型随快照版本走，故不绑死 entry 类型）。
+ */
+export function simPackDisplayName(
+  entry: { id: string; skinName?: readonly (string | null)[] },
+  kind: SimAssetPackKind,
+): string {
+  return kind === 'background'
+    ? pickBackgroundSkinName(entry.id, readPackSkinName(entry), entry.id)
+    : packDisplayName(entry, entry.id);
 }

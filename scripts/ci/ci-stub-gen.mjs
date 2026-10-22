@@ -68,6 +68,8 @@ export interface NoteSkinPackNote {
   kind: 'note';
   id: string;
   label: string;
+  /** 官方命名五服原样 [jp,en,tw,cn,kr]（issue 49；取件侧产出，旧快照可缺） */
+  skinName?: string[];
   atlas: string;
   atlasW: number;
   atlasH: number;
@@ -95,6 +97,8 @@ export interface NoteSkinPackDirectional {
   kind: 'directional';
   id: string;
   label: string;
+  /** 同 NoteSkinPackNote.skinName（issue 49） */
+  skinName?: string[];
   atlas: string;
   atlasW: number;
   atlasH: number;
@@ -117,6 +121,7 @@ const STUB_NOTE_PACK: NoteSkinPackNote = {
   kind: 'note',
   id: 'skin00',
   label: 'CI 桩皮肤',
+  skinName: ['TYPE1', 'TYPE1', 'TYPE1', 'TYPE1', 'TYPE1'],
   atlas: 'skins/skin00/atlas.png',
   atlasW: 1024,
   atlasH: 1024,
@@ -146,6 +151,7 @@ const STUB_DIR_PACK: NoteSkinPackDirectional = {
   kind: 'directional',
   id: 'directionalflickskin00',
   label: 'CI 桩方向皮肤',
+  skinName: ['TYPE1', 'TYPE1', 'TYPE1', 'TYPE1', 'TYPE1'],
   atlas: 'skins/directionalflickskin00/atlas.png',
   atlasW: 1024,
   atlasH: 1024,
@@ -174,13 +180,13 @@ export const NOTE_SKIN_DEFAULT_SELECTION: Record<string, string> = {
 `;
 
 const SIM_PACK_STUB = `// ${MARKER} · PR 门禁（无素材快照）占位模块：API 同真产物，数据为最小合法集。勿手改；真产物见 scripts/assets-sync.mjs。
-export interface SimFieldPackEntry { id: string; field: string; playLine: string; }
-export interface SimBackgroundPackEntry { id: string; background: string; }
+export interface SimFieldPackEntry { id: string; field: string; playLine: string; skinName?: string[]; }
+export interface SimBackgroundPackEntry { id: string; background: string; skinName?: string[]; }
 export interface SimAssetPackRegistry { field: SimFieldPackEntry[]; background: SimBackgroundPackEntry[]; }
 
 export const SIM_ASSET_PACKS: SimAssetPackRegistry = {
-  field: [{ id: 'skin00', field: 'bg_line_rhythm.png', playLine: 'game_play_line.png' }],
-  background: [{ id: 'skin00', background: 'liveBG_normal.png' }],
+  field: [{ id: 'skin00', field: 'bg_line_rhythm.png', playLine: 'game_play_line.png', skinName: ['CI 桩轨道 00', 'CI 桩轨道 00', 'CI 桩轨道 00', 'CI 桩轨道 00', 'CI 桩轨道 00'] }],
+  background: [{ id: 'skin00', background: 'liveBG_normal.png', skinName: ['CI 桩背景 00', 'CI 桩背景 00', 'CI 桩背景 00', 'CI 桩背景 00', 'CI 桩背景 00'] }],
 };
 `;
 

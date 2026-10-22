@@ -101,6 +101,7 @@ describe('整包预设缩略：格内精灵缩小居中', () => {
 describe('整包预设缩略：静态接线', () => {
   const assetsSrc = readStripped('src/pages/assets/AssetsPage.tsx');
   const previewSrc = readStripped('src/rendering/skin/NoteSkinPreview.tsx');
+  const thumbSrc = readStripped('src/rendering/skin/NoteSkinPresetThumbnail.tsx');
   const cssSrc = readStripped('src/layouts/AppShell.css');
 
   it('整包预设不再用 Sparkles 占位', () => {
@@ -108,8 +109,17 @@ describe('整包预设缩略：静态接线', () => {
     expect(assetsSrc).toContain('NoteSkinPresetThumbnail');
   });
 
-  it('卡上显示 Skin 编号（pack.label）', () => {
-    expect(assetsSrc).toContain('{pack.label}');
+  it('卡上显示官方显示名（issue 49：noteSkinPackLabel 选服，fallback = 现 label）', () => {
+    expect(assetsSrc).toContain('noteSkinPackLabel(pack)');
+    expect(assetsSrc).toContain('{display}');
+    // 包 ID 不丢：title 带上（用户/开发者仍可对照包 ID）
+    expect(assetsSrc).toContain('${display}（${pack.id}）');
+  });
+
+  it('缩略钮的 title / aria-label 用传入的显示名（label prop）', () => {
+    expect(thumbSrc).toContain('title={label}');
+    expect(thumbSrc).toContain('label: string');
+    expect(thumbSrc).not.toMatch(/\bpack\.label\b/);
   });
 
   it('缩略槽固定宽、不拉满卡宽', () => {

@@ -14,6 +14,7 @@ import {
   NOTE_SKIN_GEOMETRY,
 } from '@/src/rendering/skin/noteSkin';
 import { LANE_WIDTH } from '@/src/chart/geometry/ChartGeometry';
+import { readPackSkinName } from '@/src/rendering/skin/skinDisplayName';
 import type { SpriteIconConfig } from '@/src/ui/CanvasSpriteIcon';
 import { defaultSettings, loadSettings, updateSettings } from '@/src/chart/config/AppSettings';
 
@@ -66,6 +67,14 @@ describe.skipIf(!hasAssetSnapshot)('音符皮肤注册表完整性（生成器�
       if (pack.pairedDir !== null) {
         expect(dirPacks.some((d) => d.id === pack.pairedDir)).toBe(true);
       }
+    });
+
+    it(`${pack.id}: skinName（issue 49 契约）若快照带了该字段，形状为五服字符串 [jp,en,tw,cn,kr]`, () => {
+      // 旧快照未带该字段 → 应用侧回落 label（灰度安全）；带了就必须是五服原样。
+      const skinName = readPackSkinName(pack);
+      if (skinName === undefined) return;
+      expect(skinName).toHaveLength(5);
+      for (const name of skinName) expect(typeof name).toBe('string');
     });
   }
 

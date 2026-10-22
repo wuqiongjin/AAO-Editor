@@ -18,9 +18,52 @@ import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import PreviewDisplayPanel from '@/src/pages/preview/PreviewDisplayPanel';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '@/src/rendering/skin/noteSkin';
-import { listSimBackgroundPacks, listSimFieldPacks } from '@/src/preview/video/sim/simAssetPacks';
+import { listSimBackgroundPacks, listSimFieldPacks, simPackDisplayName } from '@/src/preview/video/sim/simAssetPacks';
+import { setActiveUiLanguage } from '@/src/i18n';
 import { DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/chart/config/AppSettings';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
+
+// issue 49：显示名走取件侧 skinName 契约字段（五服原样 [jp,en,tw,cn,kr]）。本机真快照
+// 尚未带该字段（回落路径由单测覆盖），这里注入两份**带 skinName** 的最小注册表，锁
+// 「面板显示选服后的官方名」。背景包官方名是日文 → 当前语言名走 i18n 消息表；
+// tooltip 只留显示名（行标签已说明类别，包 ID 对用户无意义）。
+vi.mock('@/src/rendering/skin/gen/noteSkinRegistry.gen', () => ({
+  NOTE_SKIN_PACKS: [
+    {
+      kind: 'note', id: 'skin00', label: 'CI 桩皮肤', skinName: ['音符皮肤00', 'TYPE1', '音符条皮膚00', '按键条皮肤00', '音符皮膚00'],
+      atlas: 'skins/skin00/atlas.png', atlasW: 1024, atlasH: 1024,
+      tap: [], tapVirtual: [], flick: [], skill: [], long: [],
+      flickTop: null, slideAmong: null, ink: {},
+      band: 'skins/skin00/longNoteLine.png', bandW: 100, bandH: 20,
+      bandSp: null, bandSpW: 0, bandSpH: 0,
+      simultaneous: null, simultaneousW: 0, simultaneousH: 0,
+      pairedDir: 'directionalflickskin00',
+    },
+    {
+      kind: 'directional', id: 'directionalflickskin00', label: 'CI 桩方向皮肤', skinName: ['音符皮肤00', 'TYPE1', '音符条皮膚00', '按键条皮肤00', '音符皮膚00'],
+      atlas: 'skins/directionalflickskin00/atlas.png', atlasW: 1024, atlasH: 1024,
+      dirL: [], dirR: [], flickTopL: null, flickTopR: null, ink: {},
+    },
+  ],
+  NOTE_SKIN_DEFAULT_SELECTION: {
+    tap: 'skin00', flick: 'skin00', skill: 'skin00', slide: 'skin00',
+    dirL: 'directionalflickskin00', dirR: 'directionalflickskin00',
+  },
+}));
+
+vi.mock('@/src/preview/video/sim/gen/simAssetPacks.gen', () => ({
+  SIM_ASSET_PACKS: {
+    field: [
+      { id: 'skin_maid', field: 'bg_line_rhythm.png', playLine: 'game_play_line.png', skinName: ['Maid', 'Maid', 'Maid', 'Maid', 'Maid'] },
+      { id: 'skin00', field: 'bg_line_rhythm.png', playLine: 'game_play_line.png', skinName: ['レーンスキン00', 'レーンスキン00', '軌跡外觀00', '按键条皮肤00', '레인 스킨00'] },
+      { id: 'skin05', field: 'bg_line_rhythm.png', playLine: 'game_play_line.png', skinName: ["Poppin'Partyのレーン", "Poppin'Party Lane", "Poppin'Party的軌跡", "Poppin'Party的按键条皮肤", "Poppin'Party 레인"] },
+    ],
+    background: [
+      { id: 'skin_miku', background: 'liveBG.png', skinName: ['Miku', 'Miku', 'Miku', 'Miku', 'Miku'] },
+      { id: 'skin00', background: 'liveBG_normal.png', skinName: ['デフォルト背景', 'デフォルト背景', 'デフォルト背景', 'デフォルト背景', '기본 배경'] },
+    ],
+  },
+}));
 
 interface StoredSettings {
   display: Record<string, unknown>;
@@ -96,11 +139,30 @@ describe('chart-preview 08 · 面板打开与默认档', () => {
     setup();
 
     // 期望名从注册表算（不抄字面量）：与素材页"整包预设"同一判定口径。
-    // 默认选择就是某个整包 → 面板显示的是它的 label，而不是"已自定义"。
+    // 默认选择就是某个整包 → 面板显示的是它的显示名，而不是"已自定义"。
     const expected = noteSkinPresetLabel(normalizeNoteSkinSelection(undefined));
     expect(expected).toBeTruthy();
+    // issue 49：显示名 = 官方命名映射选服（zh-CN 取 cn 条目），不是 label
+    expect(expected).toBe('按键条皮肤00');
     expect(within(panel()).getByText(expected!)).toBeInTheDocument();
     expect(within(panel()).queryByText('已自定义')).toBeNull();
+    expect(within(panel()).queryByText('CI 桩皮肤')).toBeNull();
+  });
+
+  it('运行中切界面语言：整包名跟随选服换语言（useMemo 依赖带 lang）', () => {
+    setup();
+    expect(within(panel()).getByText('按键条皮肤00')).toBeInTheDocument(); // zh-CN 取 cn 条目
+
+    // 切语言的真实路径 = setUiLanguage → setActiveUiLanguage + 设置态变更带动整树重渲；
+    // 这里直接置 locale 再点任一开关触发重渲（不动音符皮肤设置）。
+    setActiveUiLanguage('en');
+    fireEvent.click(mirrorSwitch());
+    // 重渲后面板文案也换成了 en —— 按 role 取对话框（不再按中文名）
+    const panelEn = screen.getByRole('dialog');
+    expect(within(panelEn).getByText('TYPE1')).toBeInTheDocument(); // en 取 en 条目
+    expect(within(panelEn).queryByText('按键条皮肤00')).toBeNull();
+
+    setActiveUiLanguage('zh-CN'); // 还原，避免污染同文件后续用例
   });
 });
 
@@ -292,11 +354,16 @@ describe('chart-preview 24 · 音符速度档（1..12 / 步长 0.1 / 可手动�
 });
 
 describe('chart-preview 41 · 仿真场素材包选择器（背景 / 轨道）', () => {
-  /** 两个独立选择器（ADR-0018 §1）：行标签「背景」/「轨道」，tooltip 用全称 */
+  /** 两个独立选择器（ADR-0018 §1）：行标签「背景」/「轨道」，分组 aria-label 用全称 */
   const bgGrid = () => within(panel()).getByRole('group', { name: '表演背景' });
   const fieldGrid = () => within(panel()).getByRole('group', { name: '场地皮肤包' });
+  const bgPack = (id: string) => listSimBackgroundPacks().find((p) => p.id === id)!;
+  const fieldPack = (id: string) => listSimFieldPacks().find((p) => p.id === id)!;
+  /** 格钮可及名 = 显示名（官方命名选服 / 背景包取 i18n 名，issue 49） */
+  const bgBtn = (id: string) => within(bgGrid()).getByRole('button', { name: simPackDisplayName(bgPack(id), 'background') });
+  const fieldBtn = (id: string) => within(fieldGrid()).getByRole('button', { name: simPackDisplayName(fieldPack(id), 'field') });
 
-  it('动态形态有两行缩略图网格：显示名 = 包 ID，缩略 = 素材自身 URL', () => {
+  it('动态形态有两行缩略图网格：显示名 = 选服后的名（背景包不出日文），tooltip 只留显示名，缩略 = 素材自身 URL', () => {
     setupDynamic();
     expect(within(panel()).getByText('背景')).toBeInTheDocument();
     expect(within(panel()).getByText('轨道')).toBeInTheDocument();
@@ -306,28 +373,40 @@ describe('chart-preview 41 · 仿真场素材包选择器（背景 / 轨道）',
     expect(bgPacks.length).toBeGreaterThan(0);
     expect(fieldPacks.length).toBeGreaterThan(0);
     for (const pack of bgPacks) {
-      expect(within(bgGrid()).getByRole('button', { name: pack.id })).toBeInTheDocument();
+      const display = simPackDisplayName(pack, 'background');
+      expect(within(bgGrid()).getByRole('button', { name: display }))
+        .toHaveAttribute('title', display);
     }
     for (const pack of fieldPacks) {
-      expect(within(fieldGrid()).getByRole('button', { name: pack.id })).toBeInTheDocument();
+      const display = simPackDisplayName(pack, 'field');
+      expect(within(fieldGrid()).getByRole('button', { name: display }))
+        .toHaveAttribute('title', display);
     }
+    // 背景 skin00：官方名五服同值日文 → 显示 i18n 中文名，不出原始日文（用户 2026-10-22 反馈）
+    expect(within(bgGrid()).getByText('默认背景')).toBeInTheDocument();
+    expect(within(bgGrid()).queryByText('デフォルト背景')).toBeNull();
     // 缩略从素材自身缩放生成（不额外抓图）：src 落在该包的运行时素材树路径上
-    const thumb = within(bgGrid()).getByRole('button', { name: bgPacks[0].id }).querySelector('img');
+    const thumb = within(bgGrid()).getByRole('button', { name: simPackDisplayName(bgPacks[0], 'background') }).querySelector('img');
     expect(thumb?.getAttribute('src')).toContain(`/bgskin/jp/${bgPacks[0].id}_rip/`);
+  });
+
+  it('展示序：编号包在前（默认 skin00 第一格）、主题包在后（用户 2026-10-22 反馈）', () => {
+    setupDynamic();
+    // 注入清单里主题包 skin_maid 写在编号包之前 → 渲染序仍是编号包在前
+    expect(listSimFieldPacks().map((p) => p.id)).toEqual(['skin00', 'skin05', 'skin_maid']);
+    expect(listSimBackgroundPacks().map((p) => p.id)).toEqual(['skin00', 'skin_miku']);
   });
 
   it('默认选中 skin00（两个选择器各自）；点一格写 settings.preview 对应字段', () => {
     setupDynamic();
-    // 默认包 = skin00（ADR-0018 §1）；清单按 ID 字典序排，它不一定是第一格
-    expect(within(fieldGrid()).getByRole('button', { name: 'skin00' }))
-      .toHaveAttribute('aria-pressed', 'true');
-    expect(within(bgGrid()).getByRole('button', { name: 'skin00' }))
-      .toHaveAttribute('aria-pressed', 'true');
+    // 默认包 = skin00（ADR-0018 §1）；编号包排在前，它在两个网格的第一格
+    expect(fieldBtn('skin00')).toHaveAttribute('aria-pressed', 'true');
+    expect(bgBtn('skin00')).toHaveAttribute('aria-pressed', 'true');
 
     // 点一个**非默认**包：落盘的就是它，另一个选择器没被碰
-    const other = listSimBackgroundPacks().find((p) => p.id !== 'skin00')!;
+    const other = bgPack('skin_miku');
     expect(other).toBeTruthy();
-    fireEvent.click(within(bgGrid()).getByRole('button', { name: other.id }));
+    fireEvent.click(bgBtn(other.id));
     expect(stored().preview.bgPackId).toBe(other.id);
     expect(stored().preview.fieldPackId).toBe('skin00');
   });
@@ -335,7 +414,7 @@ describe('chart-preview 41 · 仿真场素材包选择器（背景 / 轨道）',
   it('存了清单里没有的旧包 ID：高亮回落默认格，点它落盘归一化结果', () => {
     setupDynamic({ preview: { bgPackId: 'skin_已消失' } });
 
-    const fallback = within(bgGrid()).getByRole('button', { name: 'skin00' });
+    const fallback = bgBtn('skin00');
     expect(fallback).toHaveAttribute('aria-pressed', 'true'); // 归一化后的高亮，不占"缺失"行
     fireEvent.click(fallback);
     expect(stored().preview.bgPackId).toBe('skin00');

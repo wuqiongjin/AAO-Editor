@@ -6,6 +6,7 @@ import { useConfig } from '../../app/ProviderTree';
 import {
   listNoteSkinPacks,
   normalizeNoteSkinSelection,
+  noteSkinPackLabel,
 } from '../../rendering/skin/noteSkin';
 import NoteSkinPreview from '../../rendering/skin/NoteSkinPreview';
 import NoteSkinPresetThumbnail from '../../rendering/skin/NoteSkinPresetThumbnail';
@@ -98,6 +99,7 @@ function NoteSkinPanel() {
           </h3>
           <div className="skin-preset-list">
             {notePacks.map((pack) => {
+              const display = noteSkinPackLabel(pack);
               const active = isPresetActive(pack.id, pack.pairedDir);
               return (
                 <div
@@ -110,12 +112,13 @@ function NoteSkinPanel() {
                 >
                   <NoteSkinPresetThumbnail
                     pack={pack}
+                    label={display}
                     active={active}
                     onApply={() => applyPreset(pack.id, pack.pairedDir)}
                   />
                   <div className="asset-set-body">
                     <div className="asset-set-head">
-                      <strong>{pack.label}</strong>
+                      <strong title={`${display}（${pack.id}）`}>{display}</strong>
                       {active ? (
                         <span className="skin-pill is-active" aria-label={t('pack.inUseAria')}>
                           <Check size={12} />{t('pack.inUse')}

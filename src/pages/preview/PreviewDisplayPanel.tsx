@@ -13,7 +13,7 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, SlidersHorizont
 import IconButton from '../../ui/IconButton';
 import { useAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
-import { t, type MessageKey } from '../../i18n';
+import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
 import type { AppSettings, PreviewBeatMarkDivision, PreviewTimeMarkInterval } from '../../chart/config/AppSettings';
 import {
   PREVIEW_BEAT_MARK_DIVISIONS,
@@ -28,6 +28,7 @@ import {
   listSimBackgroundPacks,
   listSimFieldPacks,
   normalizeSimAssetPackId,
+  simPackDisplayName,
   type SimAssetPackKind,
 } from '../../preview/video/sim/simAssetPacks';
 import type { PreviewMode } from '../../preview';
@@ -270,7 +271,8 @@ function Percent({
 
 /**
  * 仿真场素材包缩略图网格（chart-preview 41 · ADR-0018 §1）：背景 / 轨道两个独立选择器，
- * 显示名 = 包 ID（辨识交给缩略图，与音符皮肤整包预设同一口径）。
+ * 显示名 = 分层命名（issue 49：官方 API > 社区 fallback > 包 ID，取件侧产出、这里只查表；
+ * 背景包官方名是日文，当前语言的名走 i18n），辨识交给缩略图。
  *
  * 缩略从素材自身缩放生成（`<img>` + CSS 裁切，不额外抓图）：轨道取该包场地图、背景取主图。
  * **列表即真相**：只渲染清单里实际取到的包；选中的 ID 不在清单里时高亮跟随归一化结果
@@ -282,14 +284,14 @@ function SimPackGrid({
   kind: SimAssetPackKind;
   /** 行标签（UI 文案：「背景」/「轨道」） */
   label: string;
-  /** 全称（tooltip 用：表演背景 / 场地皮肤包） */
+  /** 全称（分组 aria-label 用：表演背景 / 场地皮肤包） */
   full: string;
   value: string;
   onChange: (packId: string) => void;
 }) {
   const packs = kind === 'field' ? listSimFieldPacks() : listSimBackgroundPacks();
   // 只同步 jp 一个服务器（ADR-0018 §2）⇒ 缩略图按探测顺序的首服取；真要读不到时
-  // `<img onError>` 把那一格降级成"只有包 ID"，不影响选择。
+  // `<img onError>` 把那一格降级成"只有显示名"，不影响选择。
   const server = SIM_ASSET_SERVERS[0];
   const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
   const activeId = normalizeSimAssetPackId(kind, value);
@@ -301,13 +303,14 @@ function SimPackGrid({
       <div className="pdp__pack-grid" role="group" aria-label={full}>
         {packs.map((pack) => {
           const thumb = simAssetPackThumbUrl(kind, pack.id, server);
+          const display = simPackDisplayName(pack, kind);
           return (
             <button
               key={pack.id}
               type="button"
               className={`pdp__pack-item${pack.id === activeId ? ' is-active' : ''}`}
               aria-pressed={pack.id === activeId}
-              title={`${full} · ${pack.id}`}
+              title={display}
               onClick={() => onChange(pack.id)}
             >
               {thumb && !broken.has(thumb) ? (
@@ -318,7 +321,7 @@ function SimPackGrid({
                   onError={() => setBroken((prev) => new Set(prev).add(thumb))}
                 />
               ) : null}
-              <span className="pdp__pack-id">{pack.id}</span>
+              <span className="pdp__pack-id">{display}</span>
             </button>
           );
         })}
@@ -402,9 +405,11 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
   }, [open, close]);
 
   const { display, preview } = settings;
+  // 显示名按当前界面语言选服（issue 49）→ 依赖里带 lang：运行中切语言当场换名
+  const lang = getActiveUiLanguage();
   const skinName = useMemo(
     () => noteSkinPresetLabel(normalizeNoteSkinSelection(settings.visual?.noteSkin)) ?? t('preview.display.skin.custom'),
-    [settings.visual?.noteSkin],
+    [settings.visual?.noteSkin, lang],
   );
 
   const timeOptions = useMemo(
@@ -514,8 +519,9 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                     onChange={(mirror) => setPreview({ mirror })}
                   />
                 </Row>
-                {/* 表演背景 / 场地皮肤包（41）：两个独立选择器，缩略图网格 + 包 ID 显示名，
-                    挑背景要看着画面挑（定案 #4：入口在预览页设置面板） */}
+                {/* 表演背景 / 场地皮肤包（41）：两个独立选择器，缩略图网格 + 分层命名显示名
+                    （issue 49：官方命名映射选服，title 保留包 ID），挑背景要看着画面挑
+                    （定案 #4：入口在预览页设置面板） */}
                 <SimPackGrid
                   kind="background"
                   label={t('preview.display.bgPack')}

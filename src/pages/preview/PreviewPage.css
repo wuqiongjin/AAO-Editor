@@ -511,7 +511,7 @@
   font-size: var(--text-2xs);
   font-weight: 600;
   text-align: center;
-  /* 包 ID 可能较长（如 skin_collabo25_autumn_s）：单行省略，全文在 title 里 */
+  /* 显示名可能较长（如 Poppin'Party的按键条皮肤）：单行省略，全文在 title 里 */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

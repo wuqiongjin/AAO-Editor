@@ -17,6 +17,7 @@ import {
   type NoteSkinPackNote,
   type NoteSkinRect,
 } from './gen/noteSkinRegistry.gen';
+import { packDisplayName } from './skinDisplayName';
 import { LANE_WIDTH } from '../../chart/geometry/ChartGeometry';
 import type { SpriteIconConfig } from '../../ui/CanvasSpriteIcon';
 
@@ -69,6 +70,11 @@ export function listNoteSkinPacks(): NoteSkinPack[] {
 /** 默认选择（六条目默认值，来自构建期生成器）；供 UI 判定"是否已覆盖" */
 export const DEFAULT_NOTE_SKIN_SELECTION: NoteSkinSelection = NOTE_SKIN_DEFAULT_SELECTION as NoteSkinSelection;
 
+/** 包的显示名（issue 49）：官方命名映射按界面语言选服；快照未带 skinName → 回落现 label */
+export function noteSkinPackLabel(pack: NoteSkinPack): string {
+  return packDisplayName(pack, pack.label);
+}
+
 /**
  * 当前选择对应的**整包名**（六条目完全命中某个 note 整包 + 它的配对方向包）；混用 / 只改了几条 → `null`。
  * 判定口径与素材页的"整包预设"一致（`AssetsPage.isPresetActive` / `NoteSkinPreview.summarizeSelection`）：
@@ -79,7 +85,7 @@ export function noteSkinPresetLabel(selection: NoteSkinSelection): string | null
     p.kind === 'note' &&
     selection.tap === p.id && selection.flick === p.id && selection.skill === p.id && selection.slide === p.id &&
     (!p.pairedDir || (selection.dirL === p.pairedDir && selection.dirR === p.pairedDir)));
-  return pack ? pack.label : null;
+  return pack ? noteSkinPackLabel(pack) : null;
 }
 
 /** 选择归一化：缺字段/包不存在/类别不符 → 默认包（定案 Q10 静默回退） */
