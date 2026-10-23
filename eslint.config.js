@@ -6,7 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // docs-site 是独立 VitePress 工程（有自己的 devDependencies 与构建产物），
+  // 其 .vitepress/cache 里的预打包依赖不该进根仓 lint。
+  globalIgnores(['dist', 'docs-site/.vitepress/cache', 'docs-site/.vitepress/dist']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
