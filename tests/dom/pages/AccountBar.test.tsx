@@ -140,7 +140,8 @@ function renderPage() {
 /** 进工程详情视图（账号区只在那儿）。节点会随会话态换新，所以每处都现取（见 `row()`）。 */
 async function enterDetail() {
   renderPage();
-  await screen.findByText('全部工程');
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
   const grid = document.querySelector('.pb-grid') as HTMLElement;
   fireEvent.click(within(grid).getByText('甲工程'));
   await waitFor(() => expect(document.querySelector('.pc-account')).not.toBeNull());
@@ -200,7 +201,8 @@ describe('票 39 · 账号区落在哪儿（Q13 / Q24 / Q11）', () => {
   it('没有社区出口（静态演示版）→ 账号区整块不渲染（Q11）', async () => {
     resetCommunityAccount();
     renderPage();
-    await screen.findByText('全部工程');
+    // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+    await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
     const grid = document.querySelector('.pb-grid') as HTMLElement;
     fireEvent.click(within(grid).getByText('甲工程'));
 

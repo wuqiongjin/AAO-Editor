@@ -86,7 +86,8 @@ function renderPage() {
 
 async function enterDetail() {
   renderPage();
-  await screen.findByText('全部工程');
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
   fireEvent.click(within(document.querySelector('.pb-grid') as HTMLElement).getByText('甲工程'));
   await waitFor(() => expect(document.querySelector('.pc-account')).not.toBeNull());
 }

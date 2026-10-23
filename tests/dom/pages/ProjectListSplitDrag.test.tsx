@@ -58,7 +58,8 @@ function renderDetail() {
 }
 
 async function openDetail() {
-  await screen.findByText('全部工程');
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
   fireEvent.click(document.querySelector('.pb-card') as HTMLElement);
   await screen.findByRole('heading', { name: '甲工程' });
 }

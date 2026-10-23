@@ -84,7 +84,8 @@ const currentTagName = () =>
 
 /** 进详情：从 hub 点「最近工程」的卡片 */
 async function openDetailOf(name: string) {
-  await screen.findByText('全部工程');
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
   const card = [...document.querySelectorAll('.pb-card')]
     .find((el) => el.textContent?.includes(name)) as HTMLElement;
   fireEvent.click(card);
@@ -146,7 +147,8 @@ describe('issue 23 #4 · 详情页左栏 ↑↓ 翻看', () => {
       </ConfigProvider>,
       { store: new ChartProjectStore(backend) },
     );
-    await screen.findByText('全部工程');
+    // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+    await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
     // 展示序 = 最近打开降序 = 商店序第三 > 第二 > 第一（与 store 序相反）
     const card = [...document.querySelectorAll('.pb-card')]
       .find((el) => el.textContent?.includes('商店序第三')) as HTMLElement;

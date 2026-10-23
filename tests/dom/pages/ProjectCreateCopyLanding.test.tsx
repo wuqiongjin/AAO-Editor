@@ -72,7 +72,8 @@ const currentTagName = () =>
   document.querySelector('.pc-item .pp-current-tag')?.closest('b')?.textContent?.replace('当前', '') ?? '';
 
 async function openDetailOf(name: string) {
-  await screen.findByText('全部工程');
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
   const card = [...document.querySelectorAll('.pb-card')]
     .find((el) => el.textContent?.includes(name)) as HTMLElement;
   fireEvent.click(card);
@@ -88,7 +89,8 @@ function cardOf(name: string): HTMLElement {
 
 /** 票 32：复制的触发点——hub 卡片 ⋯ 菜单的「复制工程」项（详情页常驻钮已撤） */
 async function copyViaCardMenu(name: string) {
-  await screen.findByText('全部工程');
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
   const card = cardOf(name);
   fireEvent.click(within(card).getByTitle('更多'));
   fireEvent.click(screen.getByRole('button', { name: '复制工程' }));
@@ -175,7 +177,8 @@ describe('chart-projects 票 32 · 复制入口收归 hub', () => {
 
   it('hub 卡片 ⋯ 菜单仍有「复制工程」项', async () => {
     renderPage();
-    await screen.findByText('全部工程');
+    // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+    await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
 
     const card = cardOf('甲工程');
     fireEvent.click(within(card).getByTitle('更多'));

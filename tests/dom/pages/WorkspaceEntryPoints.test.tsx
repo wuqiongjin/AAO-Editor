@@ -67,7 +67,8 @@ const expectWorkspace = async () => {
 };
 
 async function openDetail() {
-  await screen.findByText('全部工程');
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
   fireEvent.click(document.querySelector('.pb-card') as HTMLElement);
   await screen.findByRole('heading', { name: '甲工程' });
 }
@@ -75,14 +76,15 @@ async function openDetail() {
 describe('issue 23 #1 · 5 个跳工作台入口逐个仍在跳', () => {
   it('① 启动台 hero 的「进入工作台」', async () => {
     renderPage();
-    await screen.findByText('全部工程');
-    fireEvent.click(screen.getByRole('button', { name: /进入工作台/ }));
+    // hero 按钮只在目录就绪后渲染——等它本身，不等也渲染于骨架态的标题（test-infra 01）
+    fireEvent.click(await screen.findByRole('button', { name: /进入工作台/ }));
     await expectWorkspace();
   });
 
   it('② 启动台卡片的播放按钮', async () => {
     renderPage();
-    await screen.findByText('全部工程');
+    // 等目录就绪（真实卡片出现）——播放钮在卡片里，标题在骨架屏态也渲染（test-infra 01）
+    await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
     const play = document.querySelector('.pb-card__play') as HTMLElement;
     expect(play, '卡片播放按钮没渲染').toBeTruthy();
     fireEvent.click(play);

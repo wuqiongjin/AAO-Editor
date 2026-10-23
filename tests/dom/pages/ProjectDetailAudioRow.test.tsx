@@ -5,7 +5,7 @@
 // 「设置音频」chip 跳到音频页去改——跳过去时把 scope 带上，当前工程不许被切走（票 22 §6）。
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { AppNavProvider, type AppNavValue } from '@/src/layouts/AppNav';
 import ProjectsPage from '@/src/pages/projects/ProjectsPage';
@@ -94,7 +94,8 @@ function Harness({ children }: { children: React.ReactNode }) {
 
 async function renderDetail(projectName: string) {
   renderWithProviders(<Harness><ProjectsPage /></Harness>, { store: new ChartProjectStore(backend) });
-  await screen.findByText('全部工程'); // 启动台就绪
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
   const grid = document.querySelector('.pb-grid') as HTMLElement;
   fireEvent.click(within(grid).getByText(projectName)); // 进工程详情
   return screen.findByRole('button', { name: /设置音频/ });

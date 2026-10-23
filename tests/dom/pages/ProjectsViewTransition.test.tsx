@@ -3,7 +3,7 @@
 // 滑入观感（位移方向 / 时长）jsdom 验不了 → 票内人工门票；这里锁的是可编程的结构事实。
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import ProjectsPage from '@/src/pages/projects/ProjectsPage';
@@ -55,7 +55,8 @@ function renderHub() {
 const view = () => document.querySelector('.pm-view') as HTMLElement;
 
 async function openDetail() {
-  await screen.findByText('全部工程');
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
   fireEvent.click(document.querySelector('.pb-card') as HTMLElement);
   await screen.findByRole('heading', { name: '甲工程' });
 }

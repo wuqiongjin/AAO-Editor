@@ -53,7 +53,7 @@ beforeEach(() => {
   backend = makeMemoryProjectBackend([makeProject('p1', [{ ...EDITABLE }, { ...UPLOADED }])]);
 });
 
-function renderDetail() {
+async function renderDetail() {
   renderWithProviders(
     <ConfigProvider>
       <AppNavProvider value={navValue}>
@@ -63,10 +63,10 @@ function renderDetail() {
     </ConfigProvider>,
     { store: new ChartProjectStore(backend) },
   );
-  return screen.findByText('全部工程').then(async () => {
-    fireEvent.click(document.querySelector('.pb-card') as HTMLElement);
-    await screen.findByRole('heading', { name: '甲工程' });
-  });
+  // 等目录就绪（真实卡片出现）再点——「全部工程」标题在骨架屏态也渲染，等它 ≠ 就绪（test-infra 01）
+  await waitFor(() => expect(document.querySelector('.pb-card[data-project-id]')).not.toBeNull());
+  fireEvent.click(document.querySelector('.pb-card') as HTMLElement);
+  await screen.findByRole('heading', { name: '甲工程' });
 }
 
 /** 两枚徽标按谱面行顺序：可编辑在前、已上传在后 */
