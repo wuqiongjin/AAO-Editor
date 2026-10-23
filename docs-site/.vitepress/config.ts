@@ -80,16 +80,20 @@ export default defineConfig({
     'AAO Editor 是一款为 BanG Dream! 自制谱作者打造的桌面级谱面编辑器：工程管理、谱面编辑、预览导出与 Bestdori 社区互通都在一个应用里完成。',
   head: [
     ['link', { rel: 'icon', href: `${base}favicon.ico` }],
-    ['meta', { name: 'theme-color', content: '#0c0e11' }],
-    // 深色是站点的唯一外观：进首屏前就打上 dark，避免文档页闪一下浅色。
-    ['script', {}, `document.documentElement.classList.add('dark')`],
+    // 浏览器 UI 底色跟着系统走；页面外观由 dark 类决定（见 theme/style.css）
+    ['meta', { name: 'theme-color', media: '(prefers-color-scheme: dark)', content: '#0c0e11' }],
+    ['meta', { name: 'theme-color', media: '(prefers-color-scheme: light)', content: '#f7f8fa' }],
   ],
-  // 站点视觉以深色制谱台为准（与落地页一致），因此不提供浅色切换。
-  appearance: 'force-dark',
+  /**
+   * 默认深色（品牌调性），但允许用户切到亮色：落地页顶栏与文档导航右侧都带开关，
+   * 两边共用 `vitepress-theme-appearance` 这个存储键，切换后全站一致。
+   */
+  appearance: 'dark',
   locales: {
     root: { label: '简体中文', lang: 'zh-CN' },
     // i18n 结构预留（本票只留结构，不填英文正文）：
-    // 1) 建 `docs-site/en/`（index.md + guide/*.md 镜像），落地页文案在 `theme/components/Landing.vue` 里再出英文版；
+    // 1) 建 `docs-site/en/`（index.md + guide/*.md 镜像）；落地页的中 / EN 两套文案都在
+    //    `theme/landingCopy.ts`，由顶栏的语言开关真切换，不靠 VitePress 的 locale 路由；
     // 2) 取消下面注释，英文导航 / 侧边栏 / 页脚与 root 各自成树。
     // en: {
     //   label: 'English',

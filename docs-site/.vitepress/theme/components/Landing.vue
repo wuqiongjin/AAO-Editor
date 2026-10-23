@@ -1,227 +1,98 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+/**
+ * 落地页：页面骨架 + 页面级副作用（滚动进度、滚入显现、区块左缘线、导航高亮、
+ * 首屏测高、playhead、灯箱）；语言 / 外观 / 轮播 / 受众轮换都在 composable 里。
+ *
+ * 注意别在这里抽子组件：`landing.css` 是 `<style scoped>` 载入的，只给本组件的模板节点
+ * 打 `data-v`，子组件内部节点拿不到、样式会整片失效。要拆，先把 `landing.css` 的选择器
+ * 全部前缀到 `.landing` 名下改成全局加载。
+ */
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { withBase } from 'vitepress'
 import { CNB_RELEASES_URL, ISSUES_URL, RELEASES_URL, REPO_URL } from '../../links'
-import { COPY, type Locale } from '../landingCopy'
+import { bulletsOf, type CopyKey } from '../landingCopy'
+import { resolveShots, type Shot, type Slide } from '../landingTypes'
+import { CAP01_SLIDES, CAP02_SHOTS, CAP03_SLIDES, HERO_SHOT } from '../landingMedia'
+import { useAppearance, useLocale } from '../composables/useSiteChrome'
+import { useCarousel, type Carousel } from '../composables/useCarousel'
+import { useRotor } from '../composables/useRotor'
 
 // 顶栏品牌图标：直接复用 app 的 public/icon.png（相对路径，不依赖 config 里的别名）
 import appIcon from '../../../../public/icon.png'
-import createFromOfficialChart from '@shots/create-from-official-chart.png'
-import curveTool from '@shots/curve-tool.gif'
-import placeSlide from '@shots/place-slide.gif'
-import projectDetail from '@shots/project-detail.png'
-import projectHub from '@shots/project-hub.png'
-import sheetExport from '@shots/sheet-export.png'
-import simulation from '@shots/simulation.png'
-import staticPreview from '@shots/static-preview.png'
-import workspace from '@shots/workspace.png'
 
-interface Slide {
-  src: string
-  alt: string
-  caption: string
-  width: number
-  height: number
-}
-
-interface CarouselState {
-  pos: number
-  animate: boolean
-  busy: boolean
-}
-
-const root = ref<HTMLElement | null>(null)
-const heroSection = ref<HTMLElement | null>(null)
-const playhead = ref<HTMLElement | null>(null)
-const heroFigure = ref<HTMLElement | null>(null)
-const card01Track = ref<HTMLElement | null>(null)
-const card03Track = ref<HTMLElement | null>(null)
-
-/** 语言：跟随原型的中 / EN 切换，localStorage 记忆。 */
-const storageKey = 'aao-lang'
-const locale = ref<Locale>('zh-CN')
-const t = computed(() => COPY[locale.value])
-
-function setLocale(next: Locale) {
-  locale.value = next
-}
-
-const car01Slides = computed<Slide[]>(() => [
-  {
-    src: createFromOfficialChart,
-    alt: t.value.altOfficialChart,
-    caption: t.value.cap01Shot1Cap,
-    width: 1920,
-    height: 1001,
-  },
-  {
-    src: projectDetail,
-    alt: t.value.altProjectDetail,
-    caption: t.value.cap01Shot2Cap,
-    width: 1920,
-    height: 1001,
-  },
-  {
-    src: projectHub,
-    alt: t.value.altProjectHub,
-    caption: t.value.cap01Shot3Cap,
-    width: 1920,
-    height: 1001,
-  },
-])
-
-const car03Slides = computed<Slide[]>(() => [
-  {
-    src: staticPreview,
-    alt: t.value.altStaticPreview,
-    caption: t.value.cap03Shot1Cap,
-    width: 1920,
-    height: 1001,
-  },
-  {
-    src: simulation,
-    alt: t.value.altSimulation,
-    caption: t.value.cap03Shot2Cap,
-    width: 1920,
-    height: 1001,
-  },
-  {
-    src: sheetExport,
-    alt: t.value.altSheetExport,
-    caption: t.value.cap03Shot3Cap,
-    width: 1006,
-    height: 976,
-  },
-])
-
-/** 首尾各克隆一张 → pos 1..n 是真实张，0 / n+1 是克隆，用于无缝循环。 */
-function withClones(slides: Slide[]) {
-  if (slides.length < 2) return slides.map((slide) => ({ slide, clone: false }))
-  return [
-    { slide: slides[slides.length - 1], clone: true },
-    ...slides.map((slide) => ({ slide, clone: false })),
-    { slide: slides[0], clone: true },
-  ]
-}
-
-const car01TrackSlides = computed(() => withClones(car01Slides.value))
-const car03TrackSlides = computed(() => withClones(car03Slides.value))
-
-const car01 = reactive<CarouselState>({ pos: 1, animate: true, busy: false })
-const car03 = reactive<CarouselState>({ pos: 1, animate: true, busy: false })
+/** 人称配色 `--c1…--c6`（见 landing.css）：候选多于 6 条就从头再轮一圈 */
+const AUDIENCE_COLORS = 6
 
 const reducedMotion =
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-function trackStyle(car: CarouselState) {
-  return {
-    transform: `translateX(${-car.pos * 100}%)`,
-    transition: car.animate ? '' : 'none',
-  }
+/* ---------- 语言 / 外观（各自一个 composable） ---------- */
+const { locale, t, setLocale } = useLocale()
+const { isDark, toggle: toggleTheme } = useAppearance()
+
+/* ---------- 图片（规格在 landingMedia.ts，alt / 图注按语言解析） ---------- */
+const heroShot = computed<Shot>(() => resolveShots(t.value, [HERO_SHOT])[0])
+const cap01Slides = computed<Slide[]>(() => resolveShots(t.value, CAP01_SLIDES))
+const cap02Shots = computed<Shot[]>(() => resolveShots(t.value, CAP02_SHOTS))
+const cap03Slides = computed<Slide[]>(() => resolveShots(t.value, CAP03_SLIDES))
+
+/* ---------- 首屏受众轮换 ---------- */
+const audience = computed(() => t.value.heroAudience.split('|'))
+const {
+  el: rotorEl,
+  index: rotorIndex,
+  width: rotorWidth,
+  onResize: onRotorResize,
+} = useRotor(audience, { reducedMotion })
+
+/* ---------- 轮播：两块各一个实例，共用一份实现 ---------- */
+const car01 = useCarousel(cap01Slides, reducedMotion)
+const car03 = useCarousel(cap03Slides, reducedMotion)
+
+/**
+ * 三块能力：文案键统一由 `bulletsOf` 按编号收集，加一条要点只改文案、不动模板。
+ * 媒体两种形态（轮播 / 定图）用 `kind` 区分，模板里只写一遍。
+ */
+interface CapBlock {
+  key: string
+  num: string
+  title: string
+  bullets: string[]
+  media:
+    | { kind: 'carousel'; carousel: Carousel; slides: Slide[] }
+    | { kind: 'shots'; shots: Shot[] }
 }
 
-function dotIndex(car: CarouselState, total: number) {
-  return ((car.pos - 1) % total + total) % total
-}
-
-function setPos(car: CarouselState, pos: number, animate: boolean) {
-  car.animate = animate
-  car.pos = pos
-  if (!animate) {
-    void nextTick(() => {
-      // 关掉过渡后立刻改 transform 不会补间；下一帧再恢复过渡
-      requestAnimationFrame(() => {
-        car.animate = true
-      })
-    })
-  }
-}
-
-function finishWrap(car: CarouselState, total: number) {
-  if (car.pos === total + 1) setPos(car, 1, false)
-  else if (car.pos === 0) setPos(car, total, false)
-  car.busy = false
-}
-
-function wrapTo(car: CarouselState, total: number, pos: number) {
-  car.busy = true
-  setPos(car, pos, true)
-  window.setTimeout(() => finishWrap(car, total), 700)
-}
-
-function next(car: CarouselState, total: number) {
-  if (car.busy) return
-  if (car.pos >= total + 1) return setPos(car, 2, true)
-  if (car.pos === total) return wrapTo(car, total, total + 1)
-  setPos(car, car.pos + 1, true)
-}
-
-function prev(car: CarouselState, total: number) {
-  if (car.busy) return
-  if (car.pos <= 0) return setPos(car, total - 1, true)
-  if (car.pos === 1) return wrapTo(car, total, 0)
-  setPos(car, car.pos - 1, true)
-}
-
-function onTrackEnd(car: CarouselState, total: number, event: TransitionEvent) {
-  if (event.propertyName !== 'transform' || !car.busy) return
-  finishWrap(car, total)
-}
-
-/* ---------- 轮播自动播放：hover / focus 内暂停，离开续播 ---------- */
-const timers: Record<'car01' | 'car03', number | null> = { car01: null, car03: null }
-
-function startAuto(key: 'car01' | 'car03', car: CarouselState, total: number) {
-  if (reducedMotion) return
-  stopAuto(key)
-  timers[key] = window.setInterval(() => next(car, total), 5500)
-}
-
-function stopAuto(key: 'car01' | 'car03') {
-  const timer = timers[key]
-  if (timer) window.clearInterval(timer)
-  timers[key] = null
-}
-
-function manual(key: 'car01' | 'car03', car: CarouselState, total: number, step: 1 | -1) {
-  if (step === 1) next(car, total)
-  else prev(car, total)
-  startAuto(key, car, total)
-}
-
-function jumpTo(key: 'car01' | 'car03', car: CarouselState, total: number, index: number) {
-  if (car.busy) return
-  setPos(car, index + 1, true)
-  startAuto(key, car, total)
-}
-
-/* ---------- 手势滑动 ---------- */
-const pointerStart: Record<'car01' | 'car03', number | null> = { car01: null, car03: null }
-
-function onPointerDown(key: 'car01' | 'car03', event: PointerEvent) {
-  pointerStart[key] = event.clientX
-}
-
-function onPointerUp(
-  key: 'car01' | 'car03',
-  car: CarouselState,
-  total: number,
-  event: PointerEvent
-) {
-  const start = pointerStart[key]
-  pointerStart[key] = null
-  if (start === null) return
-  const delta = event.clientX - start
-  if (delta > 40) manual(key, car, total, -1)
-  else if (delta < -40) manual(key, car, total, 1)
-}
+const capBlocks = computed<CapBlock[]>(() => [
+  {
+    key: 'cap01',
+    num: t.value.capNum01,
+    title: t.value.cap01Title,
+    bullets: bulletsOf(t.value, 'cap01'),
+    media: { kind: 'carousel', carousel: car01, slides: cap01Slides.value },
+  },
+  {
+    key: 'cap02',
+    num: t.value.capNum02,
+    title: t.value.cap02Title,
+    bullets: bulletsOf(t.value, 'cap02'),
+    media: { kind: 'shots', shots: cap02Shots.value },
+  },
+  {
+    key: 'cap03',
+    num: t.value.capNum03,
+    title: t.value.cap03Title,
+    bullets: bulletsOf(t.value, 'cap03'),
+    media: { kind: 'carousel', carousel: car03, slides: cap03Slides.value },
+  },
+])
 
 /* ---------- 灯箱 ---------- */
 const lightboxEl = ref<HTMLDialogElement | null>(null)
-const lightboxSlide = ref<Slide | null>(null)
+const lightboxSlide = ref<Shot | null>(null)
 
-function openZoom(slide: Slide) {
-  lightboxSlide.value = slide
+function openZoom(shot: Shot) {
+  lightboxSlide.value = shot
   const el = lightboxEl.value
   if (!el) return
   if (typeof el.showModal === 'function') el.showModal()
@@ -249,14 +120,16 @@ function onScroll() {
   scrolled.value = top > 8
 }
 
+const root = ref<HTMLElement | null>(null)
+const heroSection = ref<HTMLElement | null>(null)
+const heroFigure = ref<HTMLElement | null>(null)
+const playhead = ref<HTMLElement | null>(null)
+
 let ioReveal: IntersectionObserver | undefined
 let ioEdge: IntersectionObserver | undefined
 let ioSpy: IntersectionObserver | undefined
 
-/**
- * playhead 的扫过距离必须取 hero 自己的宽度（原型口径）。
- * 之前取了整页宽度，在宽屏上会多扫出去一截，把页面撑出横向滚动条。
- */
+/** 扫过距离必须取 hero 自己的宽度：取整页宽度会在宽屏多扫出一截，把页面撑出横向滚动条 */
 function sizePlayhead() {
   if (playhead.value && heroSection.value) {
     // 减 1px：扫到最右端时留一线，避免亚像素取整把页面撑出 1px 横向滚动
@@ -264,110 +137,23 @@ function sizePlayhead() {
   }
 }
 
-function applyLocale(next: Locale) {
-  document.documentElement.lang = next === 'en' ? 'en' : 'zh-CN'
-  const meta = document.querySelector('meta[name="description"]')
-  if (meta) meta.setAttribute('content', COPY[next].docDesc)
-  try {
-    localStorage.setItem(storageKey, next)
-  } catch {
-    /* 隐私模式下不可写，忽略 */
-  }
+/**
+ * 首屏高度：直接用实测的视口高度写 `--hero-vh`。
+ * `100svh` 在普通浏览器里没问题，但嵌在预览 iframe 里、或系统缩放比较大时可能算不准，
+ * 结果就是首屏没撑满、下一节又漏进来。
+ */
+function sizeHero() {
+  document.documentElement.style.setProperty('--hero-vh', `${window.innerHeight}px`)
 }
 
-watch(locale, applyLocale, { immediate: false })
+function scrollToFeatures() {
+  document.getElementById('features')?.scrollIntoView({
+    behavior: reducedMotion ? 'auto' : 'smooth',
+    block: 'start',
+  })
+}
 
-onMounted(() => {
-  // 语言：读上次选择
-  try {
-    const saved = localStorage.getItem(storageKey)
-    if (saved === 'en' || saved === 'zh-CN') locale.value = saved
-  } catch {
-    /* ignore */
-  }
-  applyLocale(locale.value)
-
-  onScroll()
-  window.addEventListener('scroll', onScroll, { passive: true })
-
-  sizePlayhead()
-  window.addEventListener('resize', sizePlayhead)
-
-  // 滚入显现
-  const rootEl = root.value
-  if (rootEl) {
-    const reveals = Array.from(rootEl.querySelectorAll<HTMLElement>('.reveal, .stagger'))
-    if ('IntersectionObserver' in window) {
-      ioReveal = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue
-            entry.target.classList.add('in')
-            ioReveal?.unobserve(entry.target)
-          }
-        },
-        { threshold: 0.12, rootMargin: '0px 0px -48px 0px' }
-      )
-      reveals.forEach((el) => ioReveal?.observe(el))
-    } else {
-      reveals.forEach((el) => el.classList.add('in'))
-    }
-
-    // 区块左缘播放线
-    const edges = Array.from(rootEl.querySelectorAll<HTMLElement>('[data-edge]'))
-    if ('IntersectionObserver' in window && edges.length > 0) {
-      ioEdge = new IntersectionObserver(
-        (entries) => {
-          let entered: HTMLElement | null = null
-          for (const entry of entries) {
-            if (entry.isIntersecting) entered = entry.target as HTMLElement
-          }
-          if (entered) edges.forEach((el) => el.classList.toggle('edge-on', el === entered))
-          else entries.forEach((entry) => entry.target.classList.remove('edge-on'))
-        },
-        { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
-      )
-      edges.forEach((el) => ioEdge?.observe(el))
-    }
-
-    // 导航滚动高亮
-    const spyLinks = new Map<string, HTMLAnchorElement>()
-    rootEl.querySelectorAll<HTMLAnchorElement>('.nav a[href^="#"]').forEach((a) => {
-      spyLinks.set(a.getAttribute('href')!.slice(1), a)
-    })
-    if ('IntersectionObserver' in window && spyLinks.size > 0) {
-      ioSpy = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue
-            const link = spyLinks.get(entry.target.id)
-            if (!link) continue
-            spyLinks.forEach((el) => el.classList.remove('active'))
-            link.classList.add('active')
-            activeSection.value = entry.target.id
-          }
-        },
-        { rootMargin: '-40% 0px -55% 0px' }
-      )
-      spyLinks.forEach((_, id) => {
-        const section = document.getElementById(id)
-        if (section) ioSpy?.observe(section)
-      })
-    }
-  }
-
-  // Hero 主图指针微倾斜
-  const fine = window.matchMedia('(hover:hover) and (pointer:fine)').matches
-  const figure = heroFigure.value
-  if (figure && fine && !reducedMotion) {
-    figure.addEventListener('pointermove', onFigureMove)
-    figure.addEventListener('pointerleave', onFigureLeave)
-  }
-
-  startAuto('car01', car01, car01Slides.value.length)
-  startAuto('car03', car03, car03Slides.value.length)
-})
-
+/* ---------- Hero 主图指针微倾斜 ---------- */
 function onFigureMove(event: PointerEvent) {
   const figure = heroFigure.value
   if (!figure) return
@@ -381,11 +167,93 @@ function onFigureLeave() {
   if (heroFigure.value) heroFigure.value.style.transform = ''
 }
 
+onMounted(() => {
+  onScroll()
+  window.addEventListener('scroll', onScroll, { passive: true })
+
+  sizePlayhead()
+  sizeHero()
+  window.addEventListener('resize', sizePlayhead)
+  window.addEventListener('resize', sizeHero)
+  window.addEventListener('resize', onRotorResize)
+  window.addEventListener('orientationchange', sizeHero)
+
+  const rootEl = root.value
+  if (!rootEl) return
+
+  // 滚入显现
+  const reveals = Array.from(rootEl.querySelectorAll<HTMLElement>('.reveal, .stagger'))
+  if ('IntersectionObserver' in window) {
+    ioReveal = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          entry.target.classList.add('in')
+          ioReveal?.unobserve(entry.target)
+        }
+      },
+      { threshold: 0.12, rootMargin: '0px 0px -48px 0px' }
+    )
+    reveals.forEach((el) => ioReveal?.observe(el))
+  } else {
+    reveals.forEach((el) => el.classList.add('in'))
+  }
+
+  // 区块左缘播放线
+  const edges = Array.from(rootEl.querySelectorAll<HTMLElement>('[data-edge]'))
+  if ('IntersectionObserver' in window && edges.length > 0) {
+    ioEdge = new IntersectionObserver(
+      (entries) => {
+        let entered: HTMLElement | null = null
+        for (const entry of entries) {
+          if (entry.isIntersecting) entered = entry.target as HTMLElement
+        }
+        if (entered) edges.forEach((el) => el.classList.toggle('edge-on', el === entered))
+        else entries.forEach((entry) => entry.target.classList.remove('edge-on'))
+      },
+      { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
+    )
+    edges.forEach((el) => ioEdge?.observe(el))
+  }
+
+  // 导航滚动高亮
+  const spyLinks = new Map<string, HTMLAnchorElement>()
+  rootEl.querySelectorAll<HTMLAnchorElement>('.nav a[href^="#"]').forEach((a) => {
+    spyLinks.set(a.getAttribute('href')!.slice(1), a)
+  })
+  if ('IntersectionObserver' in window && spyLinks.size > 0) {
+    ioSpy = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          const link = spyLinks.get(entry.target.id)
+          if (!link) continue
+          spyLinks.forEach((el) => el.classList.remove('active'))
+          link.classList.add('active')
+          activeSection.value = entry.target.id
+        }
+      },
+      { rootMargin: '-40% 0px -55% 0px' }
+    )
+    spyLinks.forEach((_, id) => {
+      const section = document.getElementById(id)
+      if (section) ioSpy?.observe(section)
+    })
+  }
+
+  const fine = window.matchMedia('(hover:hover) and (pointer:fine)').matches
+  if (heroFigure.value && fine && !reducedMotion) {
+    heroFigure.value.addEventListener('pointermove', onFigureMove)
+    heroFigure.value.addEventListener('pointerleave', onFigureLeave)
+  }
+})
+
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', sizePlayhead)
-  stopAuto('car01')
-  stopAuto('car03')
+  window.removeEventListener('resize', sizeHero)
+  window.removeEventListener('resize', onRotorResize)
+  window.removeEventListener('orientationchange', sizeHero)
   ioReveal?.disconnect()
   ioEdge?.disconnect()
   ioSpy?.disconnect()
@@ -395,6 +263,16 @@ onBeforeUnmount(() => {
     figure.removeEventListener('pointerleave', onFigureLeave)
   }
 })
+
+/** 圆点的无障碍标签：`carDot1 / carDot2 / carDot3` */
+function dotLabel(index: number): string {
+  return t.value[`carDot${index + 1}` as CopyKey]
+}
+
+/** 人称配色：`--c1 … --c6` */
+function audienceColor(index: number): string {
+  return `var(--c${(index % AUDIENCE_COLORS) + 1})`
+}
 </script>
 
 <template>
@@ -437,19 +315,50 @@ onBeforeUnmount(() => {
           EN
         </button>
       </div>
+      <button
+        class="theme-btn"
+        type="button"
+        :aria-label="isDark ? t.themeToLight : t.themeToDark"
+        :title="isDark ? t.themeToLight : t.themeToDark"
+        @click="toggleTheme"
+      >
+        <svg v-if="isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /></svg>
+        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.2 8.2 0 1 0 10.2 10.2Z" /></svg>
+      </button>
     </header>
 
     <main id="top">
       <!-- Hero（左文右图） -->
       <section ref="heroSection" class="hero hero-anim">
-        <p class="eyebrow">CUSTOM CHART EDITOR</p>
+        <p class="eyebrow">{{ t.eyebrow }}</p>
         <div class="hero-grid">
           <div class="hero-copy">
             <h1>
-              <span class="hero-lead" v-html="t.heroLead" />
-              <span class="hero-main">{{ t.heroMain }}</span>
+              <span class="hero-lead">
+                <!-- 读屏拿一句稳定的完整句；视觉行整段是装饰性的轮换 -->
+                <span class="sr-only">{{ t.heroLeadSr }}</span>
+                <span class="lead-line" aria-hidden="true">
+                  <span>{{ t.leadPre }}</span>
+                  <span
+                    ref="rotorEl"
+                    class="rotor"
+                    :style="rotorWidth === null ? undefined : { width: `${rotorWidth}px` }"
+                  >
+                    <span
+                      v-for="(item, index) in audience"
+                      :key="item"
+                      class="rotor-item"
+                      :class="{ on: rotorIndex === index }"
+                      :style="{ '--c': audienceColor(index) }"
+                      v-html="item"
+                    />
+                  </span>
+                  <span v-if="t.leadPost">{{ t.leadPost }}</span>
+                </span>
+              </span>
+              <span class="hero-main" v-html="t.heroMain" />
             </h1>
-            <p class="lede">{{ t.heroLede }}</p>
+            <p class="lede" v-html="t.heroLede" />
             <div class="cta-row">
               <a
                 class="btn btn-primary"
@@ -458,79 +367,82 @@ onBeforeUnmount(() => {
                 rel="noreferrer noopener"
                 >{{ t.ctaDownload }}</a
               >
+              <!-- 平台徽标与主按钮同行；「桌面安装包」只留给读屏，不再占一行文字宽度 -->
+              <p class="cta-note" :aria-label="t.ctaNoteLabel">
+                <span class="plat">Windows</span><span class="plat">macOS</span
+                ><span class="plat">Linux</span>
+              </p>
             </div>
-            <p class="cta-note">
-              <b>{{ t.ctaNoteLabel }}</b><span class="plat">Windows</span><span class="plat">macOS</span
-              ><span class="plat">Linux</span>
-            </p>
           </div>
           <div class="hero-visual">
             <figure ref="heroFigure" class="shot hero-figure">
               <div class="win" aria-hidden="true"><i /><i /><i /></div>
-              <button class="zoom" type="button" @click="openZoom({
-                src: projectHub,
-                alt: t.altProjectHub,
-                caption: t.heroShotCap,
-                width: 1920,
-                height: 1001,
-              })">
-                <img :src="projectHub" :alt="t.altProjectHub" width="1920" height="1001" />
+              <button class="zoom" type="button" @click="openZoom(heroShot)">
+                <img
+                  :src="heroShot.src"
+                  :alt="heroShot.alt"
+                  :width="heroShot.width"
+                  :height="heroShot.height"
+                />
                 <svg class="zoom-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v5" /><path d="M15 4h5v5" /><path d="M15 20h5v-5" /><path d="M9 20H4v-5" /></svg>
               </button>
-              <figcaption>{{ t.heroShotCap }}</figcaption>
+              <figcaption>{{ heroShot.caption }}</figcaption>
             </figure>
           </div>
         </div>
-        <div class="scroll-cue" aria-hidden="true">
-          <span class="cue-track"><span class="cue-dot" /></span>
-          <span class="cue-label">SCROLL</span>
-        </div>
+        <button
+          class="scroll-cue"
+          type="button"
+          :aria-label="t.cueDown"
+          :title="t.cueDown"
+          @click="scrollToFeatures"
+        >
+          <svg class="cue-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 9 7 7 7-7" /></svg>
+        </button>
         <div ref="playhead" class="playhead" aria-hidden="true" />
       </section>
 
       <!-- 功能特性 -->
       <section id="features" class="section">
         <div class="section-head reveal">
-          <p class="kicker">FEATURES</p>
+          <p class="kicker">{{ t.kickerFeatures }}</p>
           <h2 class="section-title">{{ t.featuresTitle }}</h2>
           <p class="section-sub">{{ t.featuresSub }}</p>
         </div>
 
-        <!-- 01 工程管理（含社区互通） -->
-        <article class="cap reveal" data-edge>
+        <article v-for="block in capBlocks" :key="block.key" class="cap reveal" data-edge>
           <div class="edge-line" aria-hidden="true" />
           <div class="cap-text">
-            <p class="cap-num">01 / PROJECT</p>
-            <h3>{{ t.cap01Title }}</h3>
+            <p class="cap-num">{{ block.num }}</p>
+            <h3>{{ block.title }}</h3>
             <ul class="cap-list">
-              <li v-html="t.cap01b1" />
-              <li v-html="t.cap01b2" />
-              <li v-html="t.cap01b3" />
+              <li v-for="(bullet, index) in block.bullets" :key="index" v-html="bullet" />
             </ul>
           </div>
           <div class="cap-media">
+            <!-- 01 / 03：轮播 -->
             <div
+              v-if="block.media.kind === 'carousel'"
               class="carousel"
               role="group"
               aria-roledescription="carousel"
               :aria-label="t.carAria"
-              @mouseenter="stopAuto('car01')"
-              @mouseleave="startAuto('car01', car01, car01Slides.length)"
-              @focusin="stopAuto('car01')"
-              @focusout="startAuto('car01', car01, car01Slides.length)"
-              @pointerdown="onPointerDown('car01', $event)"
-              @pointerup="onPointerUp('car01', car01, car01Slides.length, $event)"
+              @mouseenter="block.media.carousel.stop()"
+              @mouseleave="block.media.carousel.start()"
+              @focusin="block.media.carousel.stop()"
+              @focusout="block.media.carousel.start()"
+              @pointerdown="block.media.carousel.onPointerDown($event)"
+              @pointerup="block.media.carousel.onPointerUp($event)"
             >
               <div class="car-viewport">
                 <div
-                  ref="card01Track"
                   class="car-track"
-                  :style="trackStyle(car01)"
-                  @transitionend="onTrackEnd(car01, car01Slides.length, $event)"
+                  :style="block.media.carousel.trackStyle.value"
+                  @transitionend="block.media.carousel.onTrackEnd($event)"
                 >
                   <figure
-                    v-for="(item, index) in car01TrackSlides"
-                    :key="`01-${index}`"
+                    v-for="(item, index) in block.media.carousel.track.value"
+                    :key="`${block.key}-${index}`"
                     class="shot car-slide"
                     :aria-hidden="item.clone ? 'true' : undefined"
                   >
@@ -555,14 +467,14 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="car-dots">
                   <button
-                    v-for="(slide, index) in car01Slides"
-                    :key="`01-dot-${index}`"
+                    v-for="(slide, index) in block.media.slides"
+                    :key="`${block.key}-dot-${index}`"
                     class="car-dot"
-                    :class="{ active: dotIndex(car01, car01Slides.length) === index }"
+                    :class="{ active: block.media.carousel.dot.value === index }"
                     type="button"
-                    :aria-label="t[`carDot${index + 1}` as keyof typeof t]"
-                    :aria-current="dotIndex(car01, car01Slides.length) === index ? 'true' : 'false'"
-                    @click="jumpTo('car01', car01, car01Slides.length, index)"
+                    :aria-label="dotLabel(index)"
+                    :aria-current="block.media.carousel.dot.value === index ? 'true' : 'false'"
+                    @click="block.media.carousel.jumpTo(index)"
                   />
                 </div>
               </div>
@@ -570,7 +482,7 @@ onBeforeUnmount(() => {
                 class="car-btn car-prev"
                 type="button"
                 :aria-label="t.carPrevAria"
-                @click="manual('car01', car01, car01Slides.length, -1)"
+                @click="block.media.carousel.step(-1)"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6" /></svg>
               </button>
@@ -578,165 +490,47 @@ onBeforeUnmount(() => {
                 class="car-btn car-next"
                 type="button"
                 :aria-label="t.carNextAria"
-                @click="manual('car01', car01, car01Slides.length, 1)"
+                @click="block.media.carousel.step(1)"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
               </button>
             </div>
-          </div>
-        </article>
 
-        <!-- 02 编辑 -->
-        <article class="cap reveal" data-edge>
-          <div class="edge-line" aria-hidden="true" />
-          <div class="cap-text">
-            <p class="cap-num">02 / EDIT</p>
-            <h3>{{ t.cap02Title }}</h3>
-            <ul class="cap-list">
-              <li v-html="t.cap02b1" />
-              <li v-html="t.cap02b2" />
-              <li v-html="t.cap02b3" />
-            </ul>
-          </div>
-          <div class="cap-media">
-            <figure class="shot">
-              <div class="win" aria-hidden="true"><i /><i /><i /></div>
-              <button class="zoom" type="button" @click="openZoom({
-                src: workspace,
-                alt: t.altWorkspace,
-                caption: t.cap02ShotCap,
-                width: 1920,
-                height: 1001,
-              })">
-                <img :src="workspace" :alt="t.altWorkspace" width="1920" height="1001" loading="lazy" />
-                <svg class="zoom-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v5" /><path d="M15 4h5v5" /><path d="M15 20h5v-5" /><path d="M9 20H4v-5" /></svg>
-              </button>
-              <figcaption>{{ t.cap02ShotCap }}</figcaption>
-            </figure>
-            <div class="shot-row">
-              <figure class="shot">
-                <div class="win win--demo" aria-hidden="true">
-                  <span class="demo-dot" /><span class="demo-label">{{ t.demoLabel }}</span>
-                </div>
-                <button class="zoom" type="button" @click="openZoom({
-                  src: placeSlide,
-                  alt: t.altPlaceSlide,
-                  caption: t.gif1Cap,
-                  width: 1475,
-                  height: 652,
-                })">
-                  <img :src="placeSlide" :alt="t.altPlaceSlide" width="1475" height="652" loading="lazy" />
-                  <svg class="zoom-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v5" /><path d="M15 4h5v5" /><path d="M15 20h5v-5" /><path d="M9 20H4v-5" /></svg>
-                </button>
-                <figcaption>{{ t.gif1Cap }}</figcaption>
-              </figure>
-              <figure class="shot">
-                <div class="win win--demo" aria-hidden="true">
-                  <span class="demo-dot" /><span class="demo-label">{{ t.demoLabel }}</span>
-                </div>
-                <button class="zoom" type="button" @click="openZoom({
-                  src: curveTool,
-                  alt: t.altCurveTool,
-                  caption: t.gif2Cap,
-                  width: 1477,
-                  height: 652,
-                })">
-                  <img :src="curveTool" :alt="t.altCurveTool" width="1477" height="652" loading="lazy" />
-                  <svg class="zoom-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v5" /><path d="M15 4h5v5" /><path d="M15 20h5v-5" /><path d="M9 20H4v-5" /></svg>
-                </button>
-                <figcaption>{{ t.gif2Cap }}</figcaption>
-              </figure>
-            </div>
-          </div>
-        </article>
-
-        <!-- 03 预览与导出 -->
-        <article class="cap cap--soft reveal" data-edge>
-          <div class="edge-line" aria-hidden="true" />
-          <div class="cap-text">
-            <p class="cap-num">03 / PREVIEW &amp; EXPORT</p>
-            <h3>{{ t.cap03Title }}</h3>
-            <ul class="cap-list">
-              <li v-html="t.cap03b1" />
-              <li v-html="t.cap03b2" />
-              <li v-html="t.cap03b3" />
-            </ul>
-          </div>
-          <div class="cap-media">
-            <div
-              class="carousel"
-              role="group"
-              aria-roledescription="carousel"
-              :aria-label="t.carAria"
-              @mouseenter="stopAuto('car03')"
-              @mouseleave="startAuto('car03', car03, car03Slides.length)"
-              @focusin="stopAuto('car03')"
-              @focusout="startAuto('car03', car03, car03Slides.length)"
-              @pointerdown="onPointerDown('car03', $event)"
-              @pointerup="onPointerUp('car03', car03, car03Slides.length, $event)"
-            >
-              <div class="car-viewport">
-                <div
-                  ref="card03Track"
-                  class="car-track"
-                  :style="trackStyle(car03)"
-                  @transitionend="onTrackEnd(car03, car03Slides.length, $event)"
-                >
-                  <figure
-                    v-for="(item, index) in car03TrackSlides"
-                    :key="`03-${index}`"
-                    class="shot car-slide"
-                    :aria-hidden="item.clone ? 'true' : undefined"
-                  >
-                    <div class="win" aria-hidden="true"><i /><i /><i /></div>
-                    <button
-                      class="zoom car-shot"
-                      type="button"
-                      :tabindex="item.clone ? -1 : 0"
-                      @click="openZoom(item.slide)"
-                    >
-                      <img
-                        :src="item.slide.src"
-                        :alt="item.slide.alt"
-                        :width="item.slide.width"
-                        :height="item.slide.height"
-                        :loading="index === 1 ? 'eager' : 'lazy'"
-                      />
-                      <svg class="zoom-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v5" /><path d="M15 4h5v5" /><path d="M15 20h5v-5" /><path d="M9 20H4v-5" /></svg>
-                    </button>
-                    <figcaption>{{ item.slide.caption }}</figcaption>
-                  </figure>
-                </div>
-                <div class="car-dots">
-                  <button
-                    v-for="(slide, index) in car03Slides"
-                    :key="`03-dot-${index}`"
-                    class="car-dot"
-                    :class="{ active: dotIndex(car03, car03Slides.length) === index }"
-                    type="button"
-                    :aria-label="t[`carDot${index + 1}` as keyof typeof t]"
-                    :aria-current="dotIndex(car03, car03Slides.length) === index ? 'true' : 'false'"
-                    @click="jumpTo('car03', car03, car03Slides.length, index)"
+            <!-- 02：主图 + 演示动图 -->
+            <template v-else>
+              <figure v-if="block.media.shots[0]" class="shot">
+                <div class="win" aria-hidden="true"><i /><i /><i /></div>
+                <button class="zoom" type="button" @click="openZoom(block.media.shots[0])">
+                  <img
+                    :src="block.media.shots[0].src"
+                    :alt="block.media.shots[0].alt"
+                    :width="block.media.shots[0].width"
+                    :height="block.media.shots[0].height"
+                    loading="lazy"
                   />
-                </div>
+                  <svg class="zoom-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v5" /><path d="M15 4h5v5" /><path d="M15 20h5v-5" /><path d="M9 20H4v-5" /></svg>
+                </button>
+                <figcaption>{{ block.media.shots[0].caption }}</figcaption>
+              </figure>
+              <div class="shot-row">
+                <figure v-for="shot in block.media.shots.slice(1)" :key="shot.src" class="shot">
+                  <div class="win win--demo" aria-hidden="true">
+                    <span class="demo-dot" /><span class="demo-label">{{ t.demoLabel }}</span>
+                  </div>
+                  <button class="zoom" type="button" @click="openZoom(shot)">
+                    <img
+                      :src="shot.src"
+                      :alt="shot.alt"
+                      :width="shot.width"
+                      :height="shot.height"
+                      loading="lazy"
+                    />
+                    <svg class="zoom-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v5" /><path d="M15 4h5v5" /><path d="M15 20h5v-5" /><path d="M9 20H4v-5" /></svg>
+                  </button>
+                  <figcaption>{{ shot.caption }}</figcaption>
+                </figure>
               </div>
-              <button
-                class="car-btn car-prev"
-                type="button"
-                :aria-label="t.carPrevAria"
-                @click="manual('car03', car03, car03Slides.length, -1)"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6" /></svg>
-              </button>
-              <button
-                class="car-btn car-next"
-                type="button"
-                :aria-label="t.carNextAria"
-                @click="manual('car03', car03, car03Slides.length, 1)"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
-              </button>
-            </div>
+            </template>
           </div>
         </article>
       </section>
@@ -747,19 +541,19 @@ onBeforeUnmount(() => {
         <div class="trust-inner stagger">
           <dl>
             <dt>
-              <span class="ic-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="12" width="18" height="8" rx="2" /><path d="M6 12.2 7.6 6.8A2 2 0 0 1 9.5 5.5h5a2 2 0 0 1 1.9 1.3l1.6 5.4" /><circle cx="16.5" cy="16" r="1" fill="currentColor" stroke="none" /></svg></span>LOCAL-FIRST
+              <span class="ic-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="12" width="18" height="8" rx="2" /><path d="M6 12.2 7.6 6.8A2 2 0 0 1 9.5 5.5h5a2 2 0 0 1 1.9 1.3l1.6 5.4" /><circle cx="16.5" cy="16" r="1" fill="currentColor" stroke="none" /></svg></span>{{ t.trustLocal }}
             </dt>
             <dd>{{ t.trustLocalD }}</dd>
           </dl>
           <dl>
             <dt>
-              <span class="ic-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a4 4 0 0 1 .5-8 5.5 5.5 0 0 1 10-3 3.5 3.5 0 0 1-.5 11Z" /><path d="M4.5 4.5 19.5 19.5" /></svg></span>NO TELEMETRY
+              <span class="ic-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a4 4 0 0 1 .5-8 5.5 5.5 0 0 1 10-3 3.5 3.5 0 0 1-.5 11Z" /><path d="M4.5 4.5 19.5 19.5" /></svg></span>{{ t.trustNoTel }}
             </dt>
             <dd>{{ t.trustNoTelD }}</dd>
           </dl>
           <dl>
             <dt>
-              <span class="ic-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13" /><path d="m14 5 3 3-3 3" /><path d="M20 16H7" /><path d="m10 13-3 3 3 3" /></svg></span>PORTABLE
+              <span class="ic-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h13" /><path d="m14 5 3 3-3 3" /><path d="M20 16H7" /><path d="m10 13-3 3 3 3" /></svg></span>{{ t.trustPort }}
             </dt>
             <dd>{{ t.trustPortD }}</dd>
           </dl>
@@ -770,7 +564,7 @@ onBeforeUnmount(() => {
       <section id="download" class="section" data-edge>
         <div class="edge-line" aria-hidden="true" />
         <div class="section-head reveal">
-          <p class="kicker">DOWNLOAD</p>
+          <p class="kicker">{{ t.kickerDownload }}</p>
           <h2 class="section-title">{{ t.downloadTitle }}</h2>
         </div>
         <div class="dl-grid stagger">
