@@ -11,7 +11,7 @@
 ## Notes
 
 - 站点文案不得宣传未发布功能（沿用 release-pipeline 2026-10-11 口径：用户可见文案只陈述事实）。
-- 仓库目前零 CI——本 effort 的部署 pipeline 与 `release-pipeline` 的发版 pipeline 各自独立、互不依赖。
+- ~~仓库目前零 CI~~（2026-10-23 更正：已有 PR 门禁 `ci.yml`、发版 `release.yml` 与 CNB 流水线）——本 effort 的部署 pipeline 与 `release-pipeline` 的发版 pipeline 各自独立、互不依赖。
 
 ## Decisions so far
 
@@ -24,7 +24,13 @@
 - [2026-10-13 用户拍板] v1 文档目录 = 完整核心集（landing / 安装 / 快速上手 / 功能指南 / FAQ / 排障）**+ Bestdori 章节**（社区浏览 / 账号上传）；Bestdori 章节随首发 release 同步上，站点先行时导航留占位。
 - [2026-10-13 用户拍板] 排序 = 先合并 `feature/bestdori-integration` → 日志基建落稳定 main → 文档站先行上线（只述已发布功能）→ Bestdori 章节随首发补。
 - [2026-10-13 用户拍板] 维护纪律 = 发版 checklist 固化「更新受影响章节」；ADR 级功能必须带指南页；否决 CI 强卡（单人项目过重）与按需更新（文档必然过期）。
+- [2026-10-23 用户拍板] 范围追加**浏览器演示版**：静态站同时发布 `/demo/`，复用现有 `vite build`、**不做人为功能限制**（编辑 / 预览 / 谱面图 / 视频导出 / 皮肤设置能跑的全上）；Bestdori 在线能力受 CORS 硬限制天然缺失（ADR-0011），属平台边界、不计入「被砍的功能」。
+- [2026-10-23 用户拍板] 素材口径 = **CI 取件**（`scripts/ci/ci-assets.sh` 读 `secrets.ASSETS_SOURCE`，GitHub 侧已配好），素材**不入仓**、不改 `.gitignore`；本地开发仍走 `npm run assets:sync`。
+- [2026-10-23 用户拍板] 落地页 CTA 主次 = **「下载桌面版」为主、「在线试用」为次**（浏览器版有平台性缺失，不能当主入口）。
+- [2026-10-23 实现口径（待验收）] 部署 = **构建与托管解耦**：GitHub Actions 产出单一 `site-dist/`（文档在根、demo 在 `/demo/`），托管只做最后一步；迁 Cloudflare Pages 只换 deploy job + 把 `DOCS_BASE` 从 `/AAO-Editor/` 改成 `/`。
+- [2026-10-23 实现口径（待验收）] 服务端口径：托管只能在 GitHub（CNB 无 Pages 等价物）；新增独立 `deploy-site.yml`（`push: main` + 手动），**不跑测试**——门禁在 CNB 与 `ci.yml`，不构成 ADR-0022 §8 的「双边 CI」。
 
 ## Frontier
 
-- 无——两轮 grilling 已走完设计树，待用户确认开工。
+- 票已拆（`issues/01..06`）：01 站点骨架与落地页 → 02 Pages 发布流水线 → 03 浏览器演示版构建接入 → 04 演示版降级口径 → 05 预置样例工程 → 06 文档核心集（可延后、不阻塞上线）。
+- 开工顺序建议：01 + 02 先跑通「站点能上线」，03~05 再上 demo；06 全程慢慢补。
