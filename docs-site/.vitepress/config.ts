@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitepress'
+import type { Connect } from 'vite'
 import { REPO_URL } from './links'
 
 /**
@@ -15,6 +16,30 @@ const base = (() => {
   if (!raw) return '/AAO-Editor/'
   return raw.endsWith('/') ? raw : `${raw}/`
 })()
+
+/**
+ * `/AAO-Editor` → 302 → `/AAO-Editor/`（保留 query / hash）。
+ * base 为 `/`（自定义域名、根域托管）时没有可补的东西，直接放行。
+ */
+const bareBase = base.endsWith('/') ? base.slice(0, -1) : base
+
+const baseRedirect: Connect.NextHandleFunction = (req, res, next) => {
+  const url = req.url ?? ''
+  // base 是 `/` 时没有可补的斜杠，直接放行
+  if (!bareBase) {
+    next()
+    return
+  }
+  const isBare =
+    url === bareBase || url.startsWith(`${bareBase}?`) || url.startsWith(`${bareBase}#`)
+  if (!isBare) {
+    next()
+    return
+  }
+  res.statusCode = 302
+  res.setHeader('Location', `${base}${url.slice(bareBase.length)}`)
+  res.end()
+}
 
 const DOCS_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const APP_FAVICON = fileURLToPath(new URL('../../public/favicon.ico', import.meta.url))
@@ -61,6 +86,24 @@ export default defineConfig({
         },
         closeBundle() {
           syncFavicon(faviconOutDir)
+        },
+      },
+      /**
+       * 把「不带尾斜杠的 base」补成规范地址。
+       *
+       * VitePress 会把 `/` 重定向到 base（`/AAO-Editor/`），却对 `/AAO-Editor` 直接 404——
+       * 同一个目标两种态度。静态托管（GitHub Pages / Cloudflare Pages）都会自动补斜杠，
+       * 所以这只是开发 / 预览服务器的短板，但预览链接走的就是它。
+       * 这里 302 到带斜杠的地址，而不是就地返回 index.html：就地返回会让页面里的
+       * 相对资源按 `/AAO-Editor/xxx` 之外的基准去找，资源全 404。
+       */
+      {
+        name: 'aao:base-trailing-slash',
+        configureServer(server) {
+          server.middlewares.use(baseRedirect)
+        },
+        configurePreviewServer(server) {
+          server.middlewares.use(baseRedirect)
         },
       },
     ],
