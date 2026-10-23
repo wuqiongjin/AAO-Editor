@@ -14,6 +14,9 @@
 //
 // 缩放手势策略：手势期间（rc.zoomGesture）stale 瓦片按逐帧时间预算渐进重建
 // （预算内现建、超预算才按比例 blit），250ms settle 后的重渲只兜底残余 —— 全程无"糊→清晰"的整批突替换切。
+// issue 173：预算中断的位置记在游标里，下一帧从断点续建（轮转），不再每帧从 lo 重扫 —— 否则慢机/被抢占时
+// 视口上方的瓦片帧帧排在后面、整个手势期都轮不到，settle 一次性集中重建（正是上面要消灭的跳变）。
+// 同时给单块重建加成本上限（GESTURE_TILE_COST_CAP_MS），把最坏帧成本压到「预算 + 一块」。
 //
 // 候选 3（缓存有主）：本缓存是**实例**（`createNoteLayerCache`），不再是模块级可变单例 ——
 // 工作台画布与离屏导出 / 未来预览各持一份，互不顶掉（见 `../RenderTarget`）。
@@ -35,6 +38,10 @@ const STALE_TOL = 0.02;
 /** 手势帧的重建时间预算（ms）：预算内把 stale 瓦片逐帧现建（轻谱 1-2 帧内全部转新、无"糊→清晰"跳变），
  *  超预算退回比例 blit；重谱逐帧锐化、单帧成本有界。 */
 const GESTURE_REBUILD_BUDGET_MS = 4;
+/** 单块重建成本上限（ms，issue 173）：一块瓦片的实测建造成本超过它，本帧立刻收手（余下的留到后续帧）。
+ *  正常机器单块 ≈0.3~0.5ms，永不触发；只在进程被抢占 / 极慢机上生效，把"一帧连建 N 块"
+ *  的最坏帧成本从「不可控」压到「预算 + 一块」。 */
+const GESTURE_TILE_COST_CAP_MS = 8;
 /** 瓦片总内存预算（字节，按 RGBA 4B/px 估算），超出按插入序淘汰。
  *  issue 36：96MB → 64MB（密集谱下瓦片缓存是常驻内存增量的主体；配合瓦片 dpr 上限下调） */
 const BYTES_BUDGET = 64 * 1024 * 1024;
@@ -65,6 +72,9 @@ interface NoteLayerStats {
   lo: number;
   hi: number;
   blitCssPx: number;
+  /** 本帧结束后仍然 stale / 待建的可见瓦片数（issue 173：手势被预算掐断时的积压量）。
+   *  0 = 可见瓦片全部与当前 es 一致 → 紧接着的 settle 帧不会再重建任何东西。 */
+  backlog: number;
 }
 
 export interface NoteLayerCache {
@@ -265,7 +275,12 @@ export function createNoteLayerCache(): NoteLayerCache {
     verticalRatio: number;
   } | null = null;
 
-  let lastNoteLayerStats: NoteLayerStats = { layerMode: 'tiles', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0 };
+  let lastNoteLayerStats: NoteLayerStats = { layerMode: 'tiles', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0, backlog: 0 };
+
+  /** 手势期「上次因预算/单块超支而中断」的瓦片 id（issue 173）：下一帧从它续建，而不是每帧都从 lo 重扫。
+   *  旧行为下预算被抢占吃光时，id 更大（视口上方）的瓦片帧帧排在后面 → 整个手势期都轮不到，
+   *  松手 settle 时集中重建 = 「糊 → 清晰整批替换」跳变。null = 没有积压。 */
+  let rebuildCursor: number | null = null;
 
   function drainOnePlayingTile() {
     const snap = playTileSnap;
@@ -305,7 +320,8 @@ export function createNoteLayerCache(): NoteLayerCache {
   function reset() {
     tiles.clear();
     basis = null;
-    lastNoteLayerStats = { layerMode: 'tiles', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0 };
+    rebuildCursor = null;
+    lastNoteLayerStats = { layerMode: 'tiles', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0, backlog: 0 };
     playTileQueue.length = 0;
     playTileSnap = null;
     if (playTileTimer !== null) {
@@ -422,12 +438,13 @@ export function createNoteLayerCache(): NoteLayerCache {
         tiles.clear();
         basis = null;
       }
+      rebuildCursor = null;
       const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
       const vis = rc.geometry.visibleNotes(rc.notes, rc.viewport, rc.beatDisplay);
       renderNotes(ctx, c, rc, vis);
       // 选中/hover 叠加层（issue 56）：直渲路径与瓦片路径共用同一描边实现
       renderSelectionOverlay(ctx, c, rc, vis);
-      lastNoteLayerStats = { layerMode: 'direct', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0 };
+      lastNoteLayerStats = { layerMode: 'direct', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0, backlog: 0 };
       perf.info({ layerMode: 'direct', visibleNotes: vis.length });
       return;
     }
@@ -469,33 +486,62 @@ export function createNoteLayerCache(): NoteLayerCache {
 
     const { posMin, posMax } = posRangeOf(rc);
     const { lo, hi } = tileIndexRange(posMin, posMax);
-    const rebuildBudgetUntil = rc.zoomGesture ? performance.now() + GESTURE_REBUILD_BUDGET_MS : Infinity;
 
     let rebuilt = 0, blitted = 0, staleBlit = false, blitCssPx = 0;
     const prevSmooth = ctx.imageSmoothingEnabled;
     const prevQuality = ctx.imageSmoothingQuality;
     // 瓦片里精灵已烘焙；播放 1:1 CSS 仍会因 tile dpr 1.5 vs 主画布 dpr 被放大，关掉高阶滤波减填充。
     ctx.imageSmoothingEnabled = false;
-    for (let id = lo; id <= hi; id++) {
-      let t = tiles.get(id);
-      const stale = !!t && !t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL;
-      if (!t) {
-        // 播放 miss 进队列；手势/静止仍同步现建。
-        // 完全没建过的瓦片没有旧位图可过渡 → 播放期那一帧确实没像素（保持现状，见 issue 101 起始口）。
-        if (rc.playing) continue;
-        t = renderTile(id, rc, es);
+
+    // ---- 1) 先重建（issue 173：游标轮转 + 单块成本上限），blit 再统一取本帧最新瓦片 ----
+    const pending: number[] = [];
+    if (!rc.playing) {
+      // 播放期不同步光栅：miss 交给队列（本帧无像素，见 issue 101 起始口）；
+      // 打脏的让位给队列（`enqueuePlayingTiles` 已把它排进去），本帧 blit 旧位图过渡、不留下空白帧。
+      for (let id = lo; id <= hi; id++) {
+        const t = tiles.get(id);
+        if (!t || t.dirty) { pending.push(id); continue; }
+        if (!t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL) pending.push(id);
+      }
+    }
+    if (pending.length > 0) {
+      // 起点：手势期从上次中断处续建（否则每帧都从 lo 重扫 → 视口上方的瓦片永远轮不到）；
+      // settle / 非手势帧预算为 Infinity，起点无关紧要（全部都会建）。
+      let startIdx = 0;
+      if (rc.zoomGesture && rebuildCursor !== null) {
+        const at = pending.indexOf(rebuildCursor);
+        const next = at >= 0 ? at : pending.findIndex((id) => id >= rebuildCursor!);
+        startIdx = next >= 0 ? next : 0;
+      }
+      const budgetEnd = rc.zoomGesture ? performance.now() + GESTURE_REBUILD_BUDGET_MS : Infinity;
+      let deferred: number | null = null;
+      for (let k = 0; k < pending.length; k++) {
+        const id = pending[(startIdx + k) % pending.length];
+        // 首块恒建（保证每帧都有进展、不会因预算为 0 而饿死）；其余按预算 / 单块成本上限收手。
+        if (k > 0 && performance.now() >= budgetEnd) { deferred = id; break; }
+        const t0 = performance.now();
+        renderTile(id, rc, es);
         rebuilt++;
-      } else if (t.dirty || (stale && !rc.playing && performance.now() < rebuildBudgetUntil)) {
-        // issue 146：打脏的瓦片——静止/手势期同步重建（改了就立刻看得见，与旧行为一致）；
-        // 播放期让位给队列（`enqueuePlayingTiles` 已把它排进去），本帧 blit 旧位图过渡、不留下空白帧。
-        if (!rc.playing) {
-          t = renderTile(id, rc, es);
-          rebuilt++;
+        // 单块成本上限**只对手势帧**生效：手势期是"锐化速度换帧时间"；settle / 静止帧要的是
+        // 一次收尾（预算本来就是 Infinity），在这里收手会让瓦片永远停在旧的 es 上。
+        if (rc.zoomGesture && performance.now() - t0 > GESTURE_TILE_COST_CAP_MS) {
+          // 单块就超支：本帧不再建，下一帧从它的下一块接着来（保证轮转，不会饿死高 id）
+          deferred = pending[(startIdx + k + 1) % pending.length];
+          break;
         }
       }
-      if (t.empty || !t.canvas) continue;
+      rebuildCursor = rc.zoomGesture ? deferred : null;
+    } else {
+      // 本帧没有积压（含播放帧 / settle 已收尾）：游标清空
+      rebuildCursor = null;
+    }
+
+    // ---- 2) blit：用本帧重建后的瓦片（顺序 lo→hi，旧的"重建即 blit"语义不变） ----
+    const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
+    for (let id = lo; id <= hi; id++) {
+      const t = tiles.get(id);
+      if (!t || t.empty || !t.canvas) continue;
       if (Math.abs(es / t.refScale - 1) > STALE_TOL) staleBlit = true;
-      const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
       const r = tileBlitRect(id, es, t.refScale, anchorY, rc.surface.w, t.surfaceW);
       const clipped = clipTileDrawRect(r, rc.surface.w, rc.surface.h, t.canvas.width, t.canvas.height);
       if (!clipped) continue;
@@ -527,7 +573,7 @@ export function createNoteLayerCache(): NoteLayerCache {
       const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
       renderSelectionOverlay(ctx, c, rc, c.getVisibleNotes());
     }
-    lastNoteLayerStats = { layerMode: 'tiles', rebuilt, blitted, lo, hi, blitCssPx };
+    lastNoteLayerStats = { layerMode: 'tiles', rebuilt, blitted, lo, hi, blitCssPx, backlog: pending.length - rebuilt };
     perf.info({ layerMode: 'tiles', tiles: tiles.size, blitted, rebuilt, staleBlit, blitCssPx });
   }
 

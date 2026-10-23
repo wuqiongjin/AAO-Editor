@@ -351,36 +351,67 @@ describe('端到端缩放性能（stub canvas，5000 音符）', () => {
     expect(spritesAfterBuild).toBeGreaterThan(0); // 确认确实画了音符
 
     // 连续 9 帧 zoom-in 手势（0.4 → ~0.94，窗口单调收缩 → 无新瓦片进入）
-    const frameTimes: number[] = [];
+    // issue 173：帧成本按**本进程 CPU 时间**计量（`process.cpuUsage` 差值），不把被调度出去的时间
+    // 算进渲染成本 —— 墙钟在多 worker 并发下会被抢占放大 10 倍以上，曾把 1.6ms 的帧测成 19ms。
+    const frameCpuMs: number[] = [];
+    const frameWallMs: number[] = [];
+    const rebuiltEver = new Set<number>();
     let spritesPrev = spritesAfterBuild;
     let rebuildFrames = 0;
     for (let k = 1; k <= 9; k++) {
       es = 0.4 * Math.pow(1.1, k);
       mainCounters.drawImage = 0;
       rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), true, mainCounters);
+      const tilesBefore = new Map(target.noteLayer.__getTilesForTests());
+      const cpu0 = process.cpuUsage();
       const t0 = performance.now();
       renderChart(target, rc);
-      frameTimes.push(performance.now() - t0);
+      frameWallMs.push(performance.now() - t0);
+      const { user, system } = process.cpuUsage(cpu0);
+      frameCpuMs.push((user + system) / 1000); // µs → ms
       // 核心断言：手势帧在时间预算内渐进重建 stale 瓦片（精灵逐帧转新），
       // 帧成本有界由下面的 avg/max 与 drawImage 上限共同看守
       expect(mainCounters.spriteRenders).toBeGreaterThanOrEqual(spritesPrev);
       if (mainCounters.spriteRenders > spritesPrev) rebuildFrames++;
       spritesPrev = mainCounters.spriteRenders;
       expect(mainCounters.drawImage).toBeLessThanOrEqual(8);
+      // issue 173：记录本帧重建了哪些瓦片（对象身份变化 = 重建）
+      const tilesAfter = target.noteLayer.__getTilesForTests();
+      for (const [id, t] of tilesBefore) if (tilesAfter.get(id) !== t) rebuiltEver.add(id);
     }
-    const avg = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
-    const max = Math.max(...frameTimes);
-    expect(avg).toBeLessThan(16); // 60fps 帧预算
-    expect(max).toBeLessThan(100); // 防极端长帧，同时容忍并发测试时的单帧调度噪音
+    const avgCpu = frameCpuMs.reduce((a, b) => a + b, 0) / frameCpuMs.length;
+    const maxWall = Math.max(...frameWallMs);
+    expect(avgCpu).toBeLessThan(16); // 60fps 帧预算（CPU 时间口径，免疫并发抢占）
+    expect(maxWall).toBeLessThan(100); // 墙钟兜底：只防"整个进程被冻住"级别的极端长帧
     expect(rebuildFrames).toBeGreaterThan(0); // 渐进重建确实发生
 
-    // settle 帧（手势结束）：手势帧已渐进把可见瓦片转到最终 es → **无集中重建**（"被替换"跳变消失）
+    // issue 173 公平性：最终可见的每块瓦片都在手势期内轮到过（旧实现恒从 lo 重扫 → 高 id 饿死）。
+    // 与机器快慢无关：即使预算被抢占吃光、每帧只建一块，游标轮转也保证轮得到。
+    const finalIds = (() => {
+      const { posMin, posMax } = posRangeOf(rc);
+      const { lo, hi } = tileIndexRange(posMin, posMax);
+      const ids: number[] = [];
+      for (let id = lo; id <= hi; id++) ids.push(id);
+      return ids;
+    })();
+    for (const id of finalIds) {
+      expect(rebuiltEver.has(id), `瓦片 ${id} 在手势期一次都没重建（饿死）`).toBe(true);
+    }
+
+    // settle 帧（手势结束）：机器跟得上时（backlog=0，手势末帧已把可见瓦片全部转新）**必须零重建**；
+    // 被抢占到预算吃光时只允许补完末帧遗留的残块（issue 173：不再整屏集中重建）。
+    const backlog = target.noteLayer.__getLastNoteLayerStats().backlog;
+    const tilesBeforeSettle = new Map(target.noteLayer.__getTilesForTests());
     mainCounters.spriteRenders = 0;
     rc = makeRc(g, notes, chartEndBeat, es, scrollYForCenterBeat(g, 750, es), false, mainCounters);
     const tSettle0 = performance.now();
     renderChart(target, rc);
     expect(performance.now() - tSettle0).toBeLessThan(500);
-    expect(mainCounters.spriteRenders).toBe(0);
+    const tilesAfterSettle = target.noteLayer.__getTilesForTests();
+    let settleRebuilt = 0;
+    for (const [id, t] of tilesBeforeSettle) if (tilesAfterSettle.get(id) !== t) settleRebuilt++;
+    expect(settleRebuilt).toBeLessThanOrEqual(backlog); // 只补积压，不重画已转新的
+    if (backlog === 0) expect(mainCounters.spriteRenders).toBe(0); // 无积压 → 无集中重建
 
     // settle 后同 es 再来一帧手势：瓦片已新鲜 → 依然零重绘
     const spritesAfterSettle = mainCounters.spriteRenders;
