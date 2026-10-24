@@ -53,9 +53,10 @@ describe('chart-projects 06: 只读闸门与音频锁静态装配锁测', () => 
     // 锁定态现在来自工程记录（projectAudio 的读路径）而不是会话快照（票 15 定案 8）
     expect(src).toMatch(/const locked = view\.locked;/);
     expect(src).toMatch(/audio-locked-banner/);
-    // 横幅点名是哪几张已上传谱面（票 15 定案 6），不是一句"已锁定"
+    // 横幅点名是哪几张已上传谱面（票 15 定案 6），不是一句"已锁定"；
+    // 票 50 #4 起点名走 lockedChartsSummary（封顶 + 全量名单一体递出）
     expect(src).toMatch(/projects\.audioLockedNamed/);
-    expect(src).toMatch(/lockedChartLabels/);
+    expect(src).toMatch(/lockedChartsSummary/);
     expect(src).toMatch(/audio\.lockedPrompt/);
     expect(src).toMatch(/disabled=\{locked\}/);
     expect(src).toMatch(/readOnly=\{locked \|\| hasAudio\}/);

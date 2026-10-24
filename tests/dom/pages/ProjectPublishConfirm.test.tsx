@@ -164,6 +164,9 @@ describe('票 11 · 发布弹窗：必填预检与确认门', () => {
     const confirm = await screen.findByRole('alertdialog', { name: '发布后谱面本体不可修改' });
     expect(confirm).toHaveTextContent('谱面本身不能改、也不能删除');
     expect(confirm).toHaveTextContent('确定发布「Expert」？');
+    // 票 50 #1：后果说明与问句拆两个键、\n 拼接，问句「确定发布…」独占一行
+    const message = confirm.querySelector('.dialog__message');
+    expect(message?.textContent).toContain('也不能删除。\n确定发布「Expert」？');
     expect(onPublish).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: '确认发布' }));
@@ -245,17 +248,32 @@ describe('票 11 · 发布弹窗：递出去的入参', () => {
 });
 
 describe('票 11 · 发布弹窗：失败就地内联', () => {
-  it('平台拒了：错误行留在弹窗里，不关窗', async () => {
-    renderDialog({ onPublish: async () => ({ ok: false, failure: 'rejected' }) });
+  it('平台拒了：告警块留在弹窗里，可重试（仍过确认门）、可关闭（票 50 #2）', async () => {
+    const onPublish = vi.fn(async () => ({ ok: false as const, failure: 'rejected' as const }));
+    renderDialog({ onPublish });
     fillDescription('x');
     fireEvent.click(screen.getByRole('button', { name: '发布' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认发布' }));
 
-    expect(await screen.findByText('社区平台拒绝了这次发布，请检查谱面与各项信息后重试。')).toBeInTheDocument();
+    // 告警块内联在弹窗里，不关窗；文案点出可核对项（不猜平台拒绝的具体成因）
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('社区平台拒绝了这次发布。可核对标题、歌手、难度与等级、谱面与描述后重试。');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    // 重试：重新走不可逆确认门，而不是直接把请求再发一遍
+    fireEvent.click(within(alert).getByRole('button', { name: '重试' }));
+    const confirm = await screen.findByRole('alertdialog');
+    expect(onPublish).toHaveBeenCalledOnce();
+    fireEvent.click(within(confirm).getByRole('button', { name: '确认发布' }));
+    await waitFor(() => expect(onPublish).toHaveBeenCalledTimes(2));
+
+    // 关闭：红块收起，弹窗留着继续改字段
+    fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
+    expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('连不上：错误行就地内联', async () => {
+  it('连不上：告警块就地内联', async () => {
     renderDialog({ onPublish: async () => ({ ok: false, failure: 'offline' }) });
     fillDescription('x');
     fireEvent.click(screen.getByRole('button', { name: '发布' }));

@@ -20,7 +20,7 @@ import { useAudioScope } from '../../audio/useAudioScope';
 import {
   clearProjectAudio, importProjectAudio, setProjectAudioDuration, type ProjectAudioWriteResult,
 } from '../../audio/projectAudio';
-import { lockedChartLabels } from '../../project/ui/projectUi';
+import { lockedChartsSummary } from '../../project/ui/projectUi';
 import { t, type MessageKey } from '../../i18n';
 
 type AudioSection = 'audio' | 'keysound' | 'se';
@@ -193,15 +193,22 @@ function AudioSection({ active }: { active: boolean }) {
 
   const locked = view.locked;
   const hasAudio = view.hasAudio;
+  // 锁源点名（票 50 #4）：封顶截断与全量名单一起取，封顶知识只在 helper 里
+  const lockSummary = lockedChartsSummary(view.name, view.lockedBy);
 
   return (
     <>
       {heading}
 
+      {/* 票 50 #4：点名封顶（前 3 张 + 「等 N 张」）；截断时全量名单挂 title 悬停提示 */}
       {locked && (
-        <div className="audio-locked-banner" role="alert">
+        <div
+          className="audio-locked-banner"
+          role="alert"
+          title={lockSummary.fullList ?? undefined}
+        >
           <Lock size={15} />
-          <span>{t('projects.audioLockedNamed', { charts: lockedChartLabels(view.name, view.lockedBy) })}</span>
+          <span>{t('projects.audioLockedNamed', { charts: lockSummary.text })}</span>
         </div>
       )}
 

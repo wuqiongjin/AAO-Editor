@@ -13,7 +13,6 @@ import {
 import { chartStatus } from '../../../project/workspaceProject';
 import {
   displayProjectName,
-  lockedChartLabels,
   untitledProjectLabel,
 } from '../../../project/ui/projectUi';
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
@@ -125,7 +124,9 @@ export function ProjectDetail({
               <Music2 size={12} /> {sel.audioName ?? t('projects.noAudio')} · {formatDuration(sel.durationSeconds)}
               {locked && (
                 <span className="pp-lock-note">
-                  <Lock size={11} />{t('projects.audioLockedNamed', { charts: lockedChartLabels(sel.name, uploads) })}
+                  {/* 票 50 #3：详情页只留「音频与时长已锁定」短语（不点名谱面）——不出音频页仍看得到锁定态，
+                      点名职责归音频页横幅（票 15 定案 6 的「点名判断能不能救」发生在音频页的管理场景里）。 */}
+                  <Lock size={11} />{t('projects.audioLockedShort')}
                 </span>
               )}
               {/* 音频在这里只读展示，管理入口只有音频页（票 15 定案 2）——这枚 chip 是带

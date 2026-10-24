@@ -112,10 +112,27 @@ describe('票 15 · 工程详情音频行（只读展示 + 带作用域跳转）
     expect(screen.queryByRole('button', { name: '导入音频' })).toBeNull();
   });
 
-  it('锁定文案点名是哪张（已上传的）谱面，不是一句"已锁定"', async () => {
+  it('锁定说明收敛为短语（票 50 #3）：只说锁定态，不点名谱面（点名归音频页横幅）', async () => {
     await renderDetail('甲工程');
 
-    expect(screen.getByText('已上传谱面 甲工程（Expert 27），音频与时长已锁定')).toBeInTheDocument();
+    expect(screen.getByText('音频与时长已锁定')).toBeInTheDocument();
+    expect(screen.queryByText(/甲工程（Expert 27）/)).toBeNull();
+  });
+
+  it('多张已上传谱面：详情页仍是同一句短语，不随张数变长（票 50 #4）', async () => {
+    await renderDetail('甲工程');
+    await act(async () => {
+      backend.disk.set('p1', {
+        ...(backend.disk.get('p1') as ChartProject),
+        charts: [
+          ...(backend.disk.get('p1') as ChartProject).charts,
+          chart('c-p1-b', { title: '第二张', diff: 4, level: 30, upload: { postId: 8, at: AT } }),
+        ],
+      });
+      ctx.current!.notifyCatalogChanged();
+    });
+
+    expect(screen.getByText('音频与时长已锁定')).toBeInTheDocument();
   });
 
   it('「设置音频」chip 带 scope 跳到音频页（不切当前工程）', async () => {

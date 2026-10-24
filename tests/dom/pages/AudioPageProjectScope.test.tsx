@@ -49,6 +49,24 @@ function lockedProject(id: string, name: string): ChartProject {
   };
 }
 
+/** 多张已上传谱面的锁定工程（票 50 #4）：点名封顶截断的场景 */
+function multiLockedProject(id: string, name: string, count: number): ChartProject {
+  const base = projectWithAudio(id, name, '锁定.mp3', 120);
+  const proto = base.charts[0];
+  const titles = ['甲谱', '乙谱', '丙谱', '丁谱', '戊谱'];
+  return {
+    ...base,
+    charts: Array.from({ length: count }, (_, i) => ({
+      ...proto,
+      id: `${proto.id}-${i}`,
+      title: titles[i],
+      diff: 3,
+      level: 27 + i,
+      upload: { postId: 100 + i, at: NOW },
+    })),
+  };
+}
+
 /** 假离线解码：只回答"多长"，不碰共享引擎（生产走 OfflineAudioContext，jsdom 没有） */
 function stubOfflineDecode(duration: number) {
   (window as unknown as { OfflineAudioContext: unknown }).OfflineAudioContext = class {
@@ -142,6 +160,23 @@ describe('票 15 · 音频页 = 工程音频的唯一管理入口（作用域版
     expect(screen.getByRole('button', { name: '更换音频' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '清除' })).toBeDisabled();
     expect(screen.getByDisplayValue('120')).toHaveAttribute('readonly');
+  });
+
+  it('三张已上传谱面：横幅全量点名，不截断（票 50 #4 边界）', async () => {
+    await mountPage([multiLockedProject('p3', 'Triple', 3)], { scope: { projectId: 'p3' } });
+
+    const banner = await screen.findByRole('alert');
+    expect(banner).toHaveTextContent('已上传谱面 甲谱（Expert 27）、乙谱（Expert 28）、丙谱（Expert 29），音频与时长已锁定');
+    expect(banner).not.toHaveAttribute('title');
+  });
+
+  it('四张已上传谱面：点名封顶前 3 张 + 「等 N 张」，全量名单挂 title 悬停提示（票 50 #4）', async () => {
+    await mountPage([multiLockedProject('p4', 'Quad', 4)], { scope: { projectId: 'p4' } });
+
+    const banner = await screen.findByRole('alert');
+    expect(banner).toHaveTextContent('已上传谱面 甲谱（Expert 27）、乙谱（Expert 28）、丙谱（Expert 29）等 4 张，音频与时长已锁定');
+    // 丁谱不占版面但点得到名：title 里是全量名单
+    expect(banner).toHaveAttribute('title', '甲谱（Expert 27）、乙谱（Expert 28）、丙谱（Expert 29）、丁谱（Expert 30）');
   });
 
   it('没有当前工程也没有作用域：区块空态 + 去工程管理，且不因此新建 / 打开工程（票 15 定案 4）', async () => {

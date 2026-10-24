@@ -34,6 +34,26 @@ export function lockedChartLabels(
     .join(t('list.separator'));
 }
 
+/** 点名封顶（票 50 #4）：锁源最多逐张点名到这里，再多收尾「等 N 张」——
+ *  每多发一张横幅就长一行，三张以上可读性崩；全量名单由 summary 一并递给调用方挂 title。 */
+const LOCKED_CHARTS_MAX_SHOWN = 3;
+
+/** lockedChartLabels 的封顶版（票 50 #4）：≤3 张全量点名不截断；更多时点名前 3 张 +
+ *  「等 N 张」（N = 总数），`fullList` 带全量名单（未截断时为 null，调用方不用挂 tooltip）。
+ *  封顶的判断只活在这里——调用方不该自己再数一遍张数。 */
+export function lockedChartsSummary(
+  projectName: string | null,
+  charts: { title: string | null; diff: ChartDifficulty; level: number | null }[],
+): { text: string; fullList: string | null } {
+  if (charts.length <= LOCKED_CHARTS_MAX_SHOWN) {
+    return { text: lockedChartLabels(projectName, charts), fullList: null };
+  }
+  return {
+    text: `${lockedChartLabels(projectName, charts.slice(0, LOCKED_CHARTS_MAX_SHOWN))}${t('projects.lockedChartsMore', { count: charts.length })}`,
+    fullList: lockedChartLabels(projectName, charts),
+  };
+}
+
 export function ChartStatusIcon({ chart, size = 12 }: { chart: ProjectChart; size?: number }) {
   const s = chartStatus(chart);
   if (s === 'uploaded') return <Upload size={size} className="pp-st pp-st--uploaded" />;

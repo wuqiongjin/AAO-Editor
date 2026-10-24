@@ -6,9 +6,10 @@
 //   ② 原型 A 封面身份卡：左侧 1:1 封面展示（只读视觉锚），右侧 7 行整齐对齐元信息条目；
 //   ③ 字段就地编辑：标题、歌手、难度、等级直接就地操作，保持原型 A 极简纯净排版，不加冗余小图标；
 //   ④ 描述草稿持久化（Q3）：草稿记在谱面工程记录里，复制谱面一并带上，发布成功后清除；
-//   ⑤ 预检与一次性确认：预检纯函数 precheckPublish，缺项就地标红与空槽展示，确认窗复用 ConfirmDialog。
+//   ⑤ 预检与一次性确认：预检纯函数 precheckPublish，缺项就地标红与空槽展示，确认窗复用 ConfirmDialog；
+//   ⑥ 票 50：确认问句独立成行（#1）、失败展示升级为告警区块（#2）——重试仍过确认门，不猜平台拒绝成因。
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Music2 } from 'lucide-react';
+import { CircleAlert, Music2, X } from 'lucide-react';
 import { formatValidationError, type ChartCodeNote, type ValidationError } from '../../../chart/editing/ChartConverter';
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import {
@@ -73,6 +74,16 @@ const FAILURE_KEYS: Record<PublishFailure, MessageKey> = {
   unknown: 'projects.publish.err.generic',
 };
 
+/** 「重试」只给再试一次可能成的失败档：平台 / 网络 / 会话侧。确定性拦截
+ *  （谱面域预检、本机读不到、环境不支持）重试必然原样再败，不给这颗键（票 50 #2）。 */
+const RETRYABLE_FAILURES: ReadonlySet<PublishFailure> = new Set([
+  'rejected',
+  'offline',
+  'rate-limited',
+  'unauthorized',
+  'unknown',
+]);
+
 /** chart-invalid 明细列表最多展示的条数，其余折叠（与谱面代码弹窗同口径） */
 const MAX_VISIBLE_CHART_ISSUES = 8;
 
@@ -133,6 +144,18 @@ function Fact({
     <div className={`ppc-fact${missing ? ' is-missing' : ''}`}>
       <span className="ppc-fact__k">{k}</span>
       <span className="ppc-fact__v">{children}</span>
+    </div>
+  );
+}
+
+/** 失败 / 环境异常告警块（票 50 #2）：一行红字升级为 danger 左饰边 + soft 底的告警区，
+ *  样式族照音频页的 .audio-locked-banner，不新造壳。actions 区放重试 / 关闭（可不给）。 */
+function PublishAlert({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="pp-publish__alert" role="alert">
+      <CircleAlert size={15} aria-hidden="true" />
+      <div className="pp-publish__alert__body">{children}</div>
+      {actions}
     </div>
   );
 }
@@ -300,6 +323,9 @@ export function PublishDialog(props: {
   const refsFailed = custom && refs === null;
   const alreadyPublished = chart.upload != null;
   const canPublish = !busy && !refsPending && !refsFailed && !alreadyPublished && precheck.ok;
+  // 失败与常驻事实重复（本机读不到 / 已发布过）就不叠第二条告警（票 50 #2）
+  const failureDuplicatesKnownFact = failure != null
+    && ((refsFailed && failure === 'local') || (alreadyPublished && failure === 'already-published'));
 
   const runPublish = async () => {
     setFailure(null);
@@ -365,10 +391,8 @@ export function PublishDialog(props: {
             <ActionBtn
               variant="primary"
               disabled={!canPublish}
-              onClick={() => {
-                setFailure(null);
-                setConfirming(true);
-              }}
+              // 清失败留给 runPublish：确认门上取消的话，告警块还说得通（票 50 #2）
+              onClick={() => setConfirming(true)}
             >
               {busy ? t('projects.publish.submitting') : t('projects.publish.action')}
             </ActionBtn>
@@ -489,26 +513,51 @@ export function PublishDialog(props: {
           </div>
         </div>
 
-        {/* 失败与环境异常内联提示 */}
+        {/* 失败与环境异常告警区（票 50 #2）：环境异常（读不到引用 / 已发布过）是事实陈述，只陈述不挂动作；
+            发布失败可关闭（改完字段不再挂着红字）、「重试」重新走发布流程（不可逆动作，仍先过确认弹窗）。
+            失败与常驻事实重复时（本地读不到 / 已发布过）不叠两条。 */}
         {refsFailed && (
-          <p className="pp-publish__error" role="alert">{t('projects.publish.err.local')}</p>
+          <PublishAlert><p>{t('projects.publish.err.local')}</p></PublishAlert>
         )}
         {alreadyPublished && (
-          <p className="pp-publish__error" role="alert">{t('projects.publish.err.already')}</p>
+          <PublishAlert><p>{t('projects.publish.err.already')}</p></PublishAlert>
         )}
-        {failure && (
-          <p className="pp-publish__error" role="alert">{t(FAILURE_KEYS[failure])}</p>
-        )}
-        {/* 谱面域点名明细（issue 49）：校验拦下、未发请求，逐条说清哪条音符哪个字段 */}
-        {failure === 'chart-invalid' && chartIssues.length > 0 && (
-          <ul className="pp-publish__issues" role="alert">
-            {chartIssues.slice(0, MAX_VISIBLE_CHART_ISSUES).map((issue, index) => (
-              <li key={index}>{formatValidationError(issue)}</li>
-            ))}
-            {chartIssues.length > MAX_VISIBLE_CHART_ISSUES && (
-              <li>{t('chartCode.errorsMore', { count: chartIssues.length - MAX_VISIBLE_CHART_ISSUES })}</li>
+        {failure && !failureDuplicatesKnownFact && (
+          <PublishAlert
+            actions={(
+              <div className="pp-publish__alert__actions">
+                {canPublish && failure != null && RETRYABLE_FAILURES.has(failure) && (
+                  <ActionBtn onClick={() => setConfirming(true)}>
+                    {t('projects.publish.retry')}
+                  </ActionBtn>
+                )}
+                <button
+                  type="button"
+                  className="pp-publish__alert__close"
+                  aria-label={t('ui.dismiss')}
+                  onClick={() => {
+                    setFailure(null);
+                    setChartIssues([]);
+                  }}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
             )}
-          </ul>
+          >
+            <p>{t(FAILURE_KEYS[failure])}</p>
+            {/* 谱面域点名明细（issue 49）：校验拦下、未发请求，逐条说清哪条音符哪个字段 */}
+            {failure === 'chart-invalid' && chartIssues.length > 0 && (
+              <ul className="pp-publish__issues">
+                {chartIssues.slice(0, MAX_VISIBLE_CHART_ISSUES).map((issue, index) => (
+                  <li key={index}>{formatValidationError(issue)}</li>
+                ))}
+                {chartIssues.length > MAX_VISIBLE_CHART_ISSUES && (
+                  <li>{t('chartCode.errorsMore', { count: chartIssues.length - MAX_VISIBLE_CHART_ISSUES })}</li>
+                )}
+              </ul>
+            )}
+          </PublishAlert>
         )}
 
         {/* 描述正文（草稿持久化 + 换行解析） */}
@@ -532,11 +581,12 @@ export function PublishDialog(props: {
         )}
       </Dialog>
 
-      {/* 不可逆确认弹窗 */}
+      {/* 不可逆确认弹窗（票 50 #1）：后果说明与问句拆两个文案键，\n 拼接 ——
+          .dialog__message 的 pre-line 让问句「确定发布「…」？」独占一行，ConfirmDialog 本体不动 */}
       {confirming && !busy && (
         <ConfirmDialog
           title={t('projects.publish.confirmTitle')}
-          message={t('projects.publish.confirmMessage', { title: displayTitle })}
+          message={`${t('projects.publish.confirmMessage')}\n${t('projects.publish.confirmQuestion', { title: displayTitle })}`}
           confirmLabel={t('projects.publish.confirmAction')}
           onConfirm={() => void runPublish()}
           onCancel={() => setConfirming(false)}
