@@ -33,6 +33,7 @@
 - [2026-10-23 用户拍板] 外观不再是「只深不浅」：默认深色（品牌调性），但支持切到亮色——文档页天然需要白底阅读，落地页另给一套亮色令牌（只覆盖令牌、组件样式不动）。顶栏日 / 月开关与文档页原生开关共用 `vitepress-theme-appearance`，两边状态互相同步。
 - [2026-10-24 用户拍板] 主题开关维持「两个」：文档页**保留 VitePress 原生开关**（样式重置为站点 chrome 圆形、≥768px 一律内联），落地页保留圆形按钮；不得再 `display:none` 藏原生开关——2026-10-23 定案写的就是「文档页原生开关」。
 - [2026-10-24 用户拍板] Bestdori 导航占位**撤掉**：与其在导航放一个「莫名其妙、本质指向 GitHub」的外链，不如等章节正文随首发 release 一起上（覆盖 2026-10-13「站点先行时导航留占位」）。
+- [2026-10-24 实现] 票 02 发布流水线落地：`deploy-site.yml`（push main + 手动 dispatch，构建与托管解耦，单一 `site-dist/` 产物）+ 静态锁 `DocsSiteDeploy.test.ts`（含锁测 1「不纳入 PIPELINE_FILES」拍定负锁）；迁 Cloudflare 只换 deploy job + `DOCS_BASE`。细节见票 02 Comments。
 
 ## Frontier
 

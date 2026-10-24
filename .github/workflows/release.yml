@@ -1,7 +1,7 @@
 # 发版 workflow：v* tag push / 手动 dispatch → 三平台矩阵构建 → 发布正式 Release。
 # 上游：CNB 主仓打 tag 并过门禁后，由 .cnb.yml 镜像到本仓（非 force），tag push 触发本 workflow。
 # 口径：docs/adr/0022-发布链路拓扑.md；实现票：.scratch/release-pipeline/issues/07
-name: Release（发版）
+name: Release
 
 # 触发只有两种（分支 push / PR 不监听——PR 门禁在 ci.yml，镜像 push 不触发任何 workflow）。
 # tag 路径自带 gate job：tag 规则保留管理员直推的灵活性（ADR-0022 §9，用户 2026-10-20 拍板 B），

@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# 站点发布合并产物（deploy-site.yml 的 build job 输出；本地手工复现构建同样落在这里）
+/site-dist/
+
 # electron-builder 输出目录（安装包产物，本地 electron:dist 会落在这里）
 /release/
 

@@ -1,0 +1,84 @@
+# 文档站 + 浏览器演示版发布：构建与托管解耦（docs-site 票 02，map 2026-10-23 实现口径）。
+# 本 workflow 产出单一 `site-dist/`（文档在根、demo 在 `/demo/`），托管只做最后一步——
+# 迁 Cloudflare Pages = 把 deploy job 换成 `wrangler pages deploy site-dist`，build 一字不改。
+#
+# 为什么单独一个 workflow、不听 PR：门禁在 CNB 与 ci.yml（PR 门禁）两侧，本 workflow 只负责
+# 发布，不构成 ADR-0022 §8 否决的「双边 CI」——不跑测试、不跑 assets:check。
+# 上游：docs/adr/0022-发布链路拓扑.md；实现票：.scratch/docs-site/issues/02
+name: Deploy Site
+
+# 触发只有两种：main 落地即发 + 手动 dispatch（补发 / 在特性分支上试跑接线）。
+# 不监听 PR——PR 的门禁在 ci.yml，那边已经跑过同款三件套。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read # 只读：本 workflow 不写仓库任何内容
+  pages: write # 部署到 GitHub Pages
+  id-token: write # deploy-pages 用 OIDC 换部署凭据
+
+# Pages 部署串行：进行中的发布不被后来者取消（cancel-in-progress: false），
+# 否则一次手滑的 dispatch 会把正在写的站点掐一半。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # app 依赖（demo 构建 + tsc -b 需要素材 gen 文件，故取件必须在构建之前）。
+      # 素材快照仓 private：ASSETS_SOURCE 由本仓 secret 注入（与 release.yml / ci.yml 同一口径），
+      # 地址不写明文；取件失败即红（ci-assets.sh 为 set -euo pipefail），不发空态站。
+      - name: 安装依赖（app）
+        run: npm ci
+      - name: 取素材
+        env:
+          ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
+        run: bash scripts/ci/ci-assets.sh
+      # 浏览器演示版：base: './' 不动，产物整体落 /demo/ 子路径即可用（票 03）。
+      - name: 构建 app（浏览器演示版）
+        run: npm run build
+      # 文档站：独立 package.json，DOCS_BASE 取默认 /AAO-Editor/（GitHub Pages 项目站路径）。
+      # 与 app 的 npm ci 分开跑——两边 lockfile 不同；setup-node 的 cache: npm 只按根
+      # lockfile 出一个 key、预热同一份 ~/.npm，本步直接复用，不另算缓存。
+      - name: 构建 docs-site
+        run: |
+          cd docs-site
+          npm ci
+          npm run build
+      # 合并到单一 site-dist/：两边产物目录都叫 dist，用互不重叠的去向落盘，不共用暂存根。
+      # app（base: './'）→ site-dist/demo/；docs → site-dist/ 根。
+      # 先 docs 后 demo：docs 根级文件与 demo/ 子目录不相交，顺序无所谓也不互相覆盖。
+      - name: 合并到 site-dist/
+        run: |
+          set -euo pipefail
+          rm -rf site-dist
+          mkdir -p site-dist
+          cp -a docs-site/.vitepress/dist/. site-dist/
+          mkdir -p site-dist/demo
+          cp -a dist/. site-dist/demo/
+          echo "==> site-dist 顶层："
+          ls site-dist
+          echo "==> site-dist/demo 顶层："
+          ls site-dist/demo
+      # Actions artifact 部署不跑 Jekyll，无需 .nojekyll。
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site-dist
+
+  # 唯一与托管绑定的 job：换托管只改这里，build 一字不动。
+  deploy:
+    needs: build
+    environment: github-pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/deploy-pages@v4
