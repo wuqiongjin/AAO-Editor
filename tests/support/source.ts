@@ -44,6 +44,36 @@ export function sourceFiles(dir: string): string[] {
 }
 
 /**
+ * 剥 YAML 行注释（`#` 开头的整行）。
+ *
+ * 静态锁读 workflow 时要先剥一层：否则注释里写的说明文字会跟着进断言，
+ * 于是「注释里提了一句某某字符串」也会被当成接线事实。多条 workflow 锁共用。
+ */
+export function stripYamlComments(src: string): string {
+  return src.replace(/^[ \t]*#[^\n]*\n?/gm, '');
+}
+
+/**
+ * 取 YAML 里某个 block 的正文：匹配一条 block 头（如 `jobs:` / `  build:`），
+ * 一直吃到**下一个同级 key 之前**为止（最后一个同级 block 则到文件尾）。
+ * 返回的正文**不含**头行自己，含它的全部子 block。
+ *
+ * 收在这里而不是各测试文件各写一份：多条 workflow 锁都要「先切 jobs、再切某个 job」，
+ * 各写一份 slice 会让「算到哪一级算同级」出现第二套口径。
+ */
+export function yamlBlock(src: string, header: string): string {
+  const indent = header.match(/^ */)?.[0].length ?? 0;
+  const head = header.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const start = src.search(new RegExp(`^${head}\\n`, 'm'));
+  if (start < 0) return '';
+  const body = src.slice(start + header.length + 1);
+  // 同级边界：一条缩进 ≤ indent 且首字符非空白的行。不用 `$` 断言——开 `m` 标志时
+  // `$` 在**每一行**末尾都成立，惰性匹配会在第一行的行尾就收手，切出一段假正文。
+  const sibling = body.search(new RegExp(`\\n {0,${indent}}\\S`));
+  return sibling < 0 ? body : body.slice(0, sibling);
+}
+
+/**
  * 多目录文本文件扫描（相对**仓库根**的路径）——跨仓文档 / 配置类静态锁的 walker。
  * 与 `sourceFiles` 的分工：那条只服务 `src` 单树的 `.ts/.tsx`；这条服务
  * "扫 md / yml / mjs / sh / json 等多种扩展名、跨多棵树"的场景。

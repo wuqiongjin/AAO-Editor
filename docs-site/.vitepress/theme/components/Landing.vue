@@ -40,6 +40,13 @@ const guideHref = computed(() =>
   withBase(locale.value === 'en' ? '/en/guide/' : '/guide/'),
 )
 
+/**
+ * 浏览器演示版（票 03 起随站点同批发布）：app 产物整体落在站点的 `demo/` 下，
+ * 自身是 `base: './'` 的相对路径 SPA 壳，所以这里给目录形式的 URL（尾斜杠不能省——
+ * 省了会被静态托管解析到站点根）。
+ */
+const demoHref = withBase('/demo/')
+
 /* ---------- 图片（规格在 landingMedia.ts，alt / 图注按语言解析） ---------- */
 const heroShot = computed<Shot>(() => resolveShots(t.value, [HERO_SHOT])[0])
 const cap01Slides = computed<Slide[]>(() => resolveShots(t.value, CAP01_SLIDES))
@@ -349,18 +356,30 @@ function audienceColor(index: number): string {
             </h1>
             <p class="lede" v-html="t.heroLede" />
             <div class="cta-row">
-              <a
-                class="btn btn-primary"
-                :href="RELEASES_URL"
-                target="_blank"
-                rel="noreferrer noopener"
-                >{{ t.ctaDownload }}</a
-              >
-              <!-- 平台徽标与主按钮同行；「桌面安装包」只留给读屏，不再占一行文字宽度 -->
-              <p class="cta-note" :aria-label="t.ctaNoteLabel">
-                <span class="plat">Windows</span><span class="plat">macOS</span
-                ><span class="plat">Linux</span>
-              </p>
+              <!-- 主按钮 + 平台徽标一组：徽标是「下载给你什么平台」的说明，必须贴着主按钮，
+                   不能被次入口隔在中间（否则读起来像第三个按钮） -->
+              <span class="cta-main">
+                <a
+                  class="btn btn-primary"
+                  :href="RELEASES_URL"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  >{{ t.ctaDownload }}</a
+                >
+                <!-- 「桌面安装包」只留给读屏，不再占一行文字宽度 -->
+                <p class="cta-note" :aria-label="t.ctaNoteLabel">
+                  <span class="plat">Windows</span><span class="plat">macOS</span
+                  ><span class="plat">Linux</span>
+                </p>
+              </span>
+              <!-- 次入口（map 2026-10-23：桌面版为主、浏览器演示版为次）。
+                   `target="_self"` 不是装饰，是**必须的**：`/demo/` 是同源同前缀的另一个静态应用，
+                   VitePress 的客户端路由会把站内 <a> 一律拦成 SPA 跳转（而且它的 click 监听是
+                   window 的**捕获阶段**，比元素上的 @click 更早，抢不过），找不到路由就渲染自己的
+                   404 且一个文档请求都不发——表现为「点了 404、刷新才正常」，历史里还是 pushState
+                   出来的假条目，回退键跟着失效。带 target 是它唯一的 bail 条件之一
+                   （dist/client/app/router.js），改用其它写法前先看那段。 -->
+              <a class="btn btn-secondary" :href="demoHref" target="_self">{{ t.ctaTry }}</a>
             </div>
           </div>
           <div class="hero-visual">

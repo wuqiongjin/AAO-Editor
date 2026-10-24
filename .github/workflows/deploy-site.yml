@@ -3,7 +3,9 @@
 # 迁 Cloudflare Pages = 把 deploy job 换成 `wrangler pages deploy site-dist`，build 一字不改。
 #
 # 为什么单独一个 workflow、不听 PR：门禁在 CNB 与 ci.yml（PR 门禁）两侧，本 workflow 只负责
-# 发布，不构成 ADR-0022 §8 否决的「双边 CI」——不跑测试、不跑 assets:check。
+# 发布，不构成 ADR-0022 §8 否决的「双边 CI」——不跑测试。
+# 「资产完整性」例外：票 03 起跑 `assets:check` 与 demo 素材落位断言，这两步是构建自身的
+# 产物校验（缺二进制的表现是画布空白），不是测试门禁。
 # 上游：docs/adr/0022-发布链路拓扑.md；实现票：.scratch/docs-site/issues/02
 name: Deploy Site
 
@@ -43,6 +45,12 @@ jobs:
         env:
           ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
         run: bash scripts/ci/ci-assets.sh
+      # 票 03：ci-assets.sh 自己也断言过（set -euo pipefail + 取件后复校），这里再跑一次
+      # `assets:check` 是为了让「素材完整性」在 Actions 的时间轴上有独立一步——缺件时红的
+      # 是这一步，一眼看出是素材而不是代码。它不是测试门禁（不跑 npm test），只是构建自身的
+      # 产物断言：缺 `*.gen.ts` 时 `tsc -b` 会红，缺二进制则是画布空白，**不允许**静默发出空态站。
+      - name: 校验素材已取件
+        run: npm run assets:check
       # 浏览器演示版：base: './' 不动，产物整体落 /demo/ 子路径即可用（票 03）。
       - name: 构建 app（浏览器演示版）
         run: npm run build
@@ -69,6 +77,24 @@ jobs:
           ls site-dist
           echo "==> site-dist/demo 顶层："
           ls site-dist/demo
+      # 票 03：demo 的两个运行时素材根（`public/assets/sim|skins`）必须真落进产物。
+      # 上面那步 `assets:check` 查的是源码树；这条查的是**最终产物**——两者缺一都可能
+      # 变成「构建全绿、画布空白」（比如合并路径写错、assetsDir 改了名字）。
+      #
+      # 只查这两个目录是有意的：它们是**运行时才 fetch 的**素材（运行时 `new Image()`、
+      # 路径由 `SIM_ASSET_BASE` 拼出来），缺了不会挡住构建，只会产出空画布。
+      # 键音不在此列——它的 mp3 是 `?inline` 静态 import 进 JS 包的（`src/audio/gen`），
+      # 缺文件时 vite 在构建期就解析失败，跑不到这一步。
+      - name: 校验演示版素材落位
+        run: |
+          set -euo pipefail
+          for dir in site-dist/demo/assets/sim site-dist/demo/assets/skins; do
+            if [ ! -d "$dir" ] || [ -z "$(ls -A "$dir")" ]; then
+              echo "ERROR: 演示版缺运行时素材目录 $dir（画布会空白）"
+              exit 1
+            fi
+            echo "  ✓ $dir（$(find "$dir" -type f | wc -l) 个文件）"
+          done
       # Actions artifact 部署不跑 Jekyll，无需 .nojekyll。
       - name: 上传 Pages 产物
         uses: actions/upload-pages-artifact@v3

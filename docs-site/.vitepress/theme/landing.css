@@ -51,7 +51,11 @@
   --font-label:var(--font-mono);
   /* 字号阶梯 */
   --text-xs:12px; --text-sm:13px; --text-md:15px; --text-base:16px; --text-lg:18px;
-  --fs-h1:clamp(32px,5vw,60px);
+  /* 主标题字号：vw 系数由「hero 文案列在不带尾号的宽度下刚好放得下 8 个汉字」倒推——
+     两栏布局（≥900px）时文案列约占 5/11，1024 档实测 392px，中文标题「桌面级谱面编辑器」
+     8 字须 ≤ 392/8 = 49px；5vw 在 1024 是 51.2px，会从中间断成「…编 / 辑器」。
+     改 4.6vw（1024 档 47.1px）刚好塞进去；≥1280 档仍被 60px 上限夹住，宽屏观感不变。 */
+  --fs-h1:clamp(32px,4.6vw,60px);
   --fs-h2:clamp(22px,3vw,32px);
   --fs-h3:clamp(20px,2.4vw,26px);
   /* 间距 8px 节奏 */
@@ -297,8 +301,12 @@ p,li{text-wrap:pretty}
 }
 .lede{margin:var(--s2) 0 0;max-width:560px;color:var(--text-dim);font-size:var(--text-lg);line-height:1.8}
 .lede :deep(b){color:var(--accent);font-weight:600}
-/* 主按钮与平台徽标同一行；宽度不够时整块徽标换行（内部不拆开） */
-.cta-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2) 14px;margin-top:var(--s4)}
+/* CTA 行分两组：「下载桌面版 + 平台徽标」是一组（徽标是主按钮的说明，不许被隔开），
+   「在线试用」是另一组，组间距比组内大——否则三个元素同排同距，
+   徽标看起来像第三个按钮，「为主 / 为次」的层级就散了。
+   宽度不够时在**两组之间**断行，组内徽标整块换行（内部不拆开）。 */
+.cta-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2) 28px;margin-top:var(--s4)}
+.cta-main{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2) 14px;min-width:0}
 .cta-note{
   display:flex;flex-wrap:nowrap;align-items:center;gap:6px;margin:0;
   color:var(--text-faint);font-size:var(--text-sm);line-height:1;white-space:nowrap;

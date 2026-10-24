@@ -3,26 +3,23 @@
 // 防止后来人改 CI 时悄悄把发布 workflow 改成「也跑测试的双边 CI」或把两边产物写串。
 // 部署行为冒烟（secret 就绪、Pages 开了 Actions 源之后）见票 02「锁测」节的手工验收。
 import { describe, expect, it } from 'vitest';
-import { readSource } from '@/tests/support/source';
+import { readSource, stripYamlComments, yamlBlock } from '@/tests/support/source';
 
-/** YAML 行注释（# 开头整行剥掉，断言不被注释里的说明文字干扰——同 ReleasePipeline 的 bashCode 口径） */
-const yamlCode = (src: string) => src.replace(/^[ \t]*#[^\n]*\n?/gm, '');
-
-const deploy = yamlCode(readSource('.github/workflows/deploy-site.yml'));
+const deploy = stripYamlComments(readSource('.github/workflows/deploy-site.yml'));
 const releasePipeline = readSource('tests/static/ReleasePipeline.test.ts');
 const gitignore = readSource('.gitignore');
 
 /** on: 段（到 jobs: 之前） */
 const on = deploy.match(/^on:([\s\S]*?)^jobs:/m)?.[1] ?? '';
 
-/** jobs: 段整体 */
-const jobs = deploy.match(/^jobs:\n([\s\S]*)$/m)?.[1] ?? '';
+/** jobs: 正文 */
+const jobs = yamlBlock(deploy, 'jobs:');
 
-/** build job 段（到 deploy job 之前） */
-const buildJob = jobs.match(/^ {2}build:\n([\s\S]*?)(?=\n {2}deploy:)/m)?.[1] ?? '';
+/** build job 正文（到同级 deploy job 之前） */
+const buildJob = yamlBlock(jobs, '  build:');
 
-/** deploy job 段（jobs: 段里最后一个，吃到段尾） */
-const deployJob = jobs.match(/^ {2}deploy:\n([\s\S]*)$/m)?.[1] ?? '';
+/** deploy job 正文（同级最后一个，吃到段尾） */
+const deployJob = yamlBlock(jobs, '  deploy:');
 
 describe('docs-site 02 · Pages 发布流水线静态锁（构建与托管解耦）', () => {
   it('workflow 文件存在', () => {
@@ -68,10 +65,12 @@ describe('docs-site 02 · Pages 发布流水线静态锁（构建与托管解耦
     expect(buildJob).not.toMatch(/mv\s+docs-site\/\.vitepress\/dist\s+site-dist\/?$/m);
   });
 
-  it('本 workflow 只发布不门禁：不跑 npm test / assets:check / ci-gate.sh（门禁在 CNB 与 ci.yml）', () => {
+  it('本 workflow 只发布不门禁：不跑 npm test / ci-gate.sh（门禁在 CNB 与 ci.yml）', () => {
     expect(buildJob).not.toMatch(/npm test|vitest/);
-    expect(buildJob).not.toContain('assets:check');
     expect(deploy).not.toContain('ci-gate.sh');
+    // `assets:check` 不在这条负锁里——它不是测试门禁，是构建自身的产物完整性断言。
+    // 票 02 原本一并禁掉了它，票 03 按「缺二进制 → 画布空白，不许静默发出空态站」把它加回；
+    // 正锁在 tests/static/DocsSiteDemoBuild.test.ts，要再砍掉先看那边的口径。
   });
 
   it('取素材不许让步：无 continue-on-error（锁测 3——坏源必须红，不能静默发出空态站；与 ci.yml 同口径）', () => {
