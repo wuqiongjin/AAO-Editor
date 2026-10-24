@@ -1,5 +1,6 @@
 import type { ChartNote, SingleNote, LDirectionalNote, RDirectionalNote, SlideNote, LongNote, SystemNote, OpaqueNote, ConnectionNote, ChartSourceObject } from '../types';
 import { t } from '../../i18n';
+import { checkChartDomainRules } from './ChartDomainRules';
 
 // 谱面代码类型定义
 export interface ChartCodeBPM {
@@ -369,6 +370,12 @@ export interface ValidationError {
 export interface ValidationResult {
     valid: boolean;
     errors: ValidationError[];
+    /**
+     * 谱面域警告通道（issue 49）：越出值域的点名（如 Directional width ∉ 1..3），
+     * 复用 ValidationError 的结构（formatValidationError 可直接渲染），但**语义分道**——
+     * 「errors 非空即拒」的闸门（导入 / 应用）不看它：width 5 结构合法，只警告、不拒收。
+     */
+    warnings: ValidationError[];
 }
 
 /**
@@ -494,6 +501,7 @@ export function validateChartCode(
         return {
             valid: false,
             errors: [{ noteIndex: -1, reason: t('validate.mustBeArray'), expected: t('validate.mustBeArrayExpected') }],
+            warnings: [],
         };
     }
 
@@ -599,9 +607,17 @@ export function validateChartCode(
     // 整份谱面级的倒流区边界（放行负 BPM 之后才可能触发；见 checkBackflowBoundaries）
     checkBackflowBoundaries(chartCode, errors, options.fragment === true);
 
+    // 谱面域规则（issue 49）：越出值域的值走 warnings，不进 errors。同一处已被
+    // 结构错误点名的（如 width 非数字已在 errors 里）不重复报——警告只补
+    // 「结构合法但值域外」的增量信息。
+    const warnings = checkChartDomainRules(chartCode).filter(
+        w => !errors.some(e => e.noteIndex === w.noteIndex && e.connIndex === w.connIndex && e.field === w.field),
+    );
+
     return {
         valid: errors.length === 0,
-        errors
+        errors,
+        warnings,
     };
 }
 
@@ -639,16 +655,17 @@ export function parseCodeRaw(text: string): ParseCodeRawResult {
  * **校验与转换分离**：只要错误列表的路径（弹窗 250ms 防抖）不付 `convertChartCodeToNotes` 的成本。
  */
 export type ParseCodeTextResult =
-    | { ok: true; code: ChartCodeNote[]; errors: ValidationError[] }
-    | { ok: false; code: null; errors: ValidationError[] };
+    | { ok: true; code: ChartCodeNote[]; errors: ValidationError[]; warnings: ValidationError[] }
+    | { ok: false; code: null; errors: ValidationError[]; warnings: ValidationError[] };
 
 export function parseCodeText(text: string): ParseCodeTextResult {
     const raw = parseCodeRaw(text);
-    if (raw.errors.length > 0) return { ok: false, code: null, errors: raw.errors };
+    if (raw.errors.length > 0) return { ok: false, code: null, errors: raw.errors, warnings: [] };
     // 根不是数组 → validateChartCode 自己报整体级错误（`validate.mustBeArray`）
-    const { errors } = validateChartCode(raw.value as ChartCodeNote[]);
-    if (errors.length > 0) return { ok: false, code: null, errors };
-    return { ok: true, code: raw.value as ChartCodeNote[], errors };
+    // warnings 随错误一起带出（errors 挡在前面时弹窗两块并列展示，issue 49）
+    const { errors, warnings } = validateChartCode(raw.value as ChartCodeNote[]);
+    if (errors.length > 0) return { ok: false, code: null, errors, warnings };
+    return { ok: true, code: raw.value as ChartCodeNote[], errors, warnings };
 }
 
 /**

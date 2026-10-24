@@ -281,11 +281,13 @@ export function coerceNoteViewCode(
  * 完整视图走 `parseCodeText`（按数组口径）——两口径在此分叉，弹窗按视图择一。
  * issue 103：对象视图按**片段**校验（`fragment`）——「末条 BPM 必须为正」是整份谱面级规则，
  * 在这里会把"把中途某条 BPM 改成负值"误判成末条（ADR-0010 结论 8 要求编辑器内能创建负值）。
+ * warnings（issue 49）：谱面域警告随片段口径一并带出（width 域外值在整条音符视图里同样点名）。
  */
-export function validateNoteViewCodeText(text: string): ValidationError[] {
+export function validateNoteViewCodeText(text: string): { errors: ValidationError[]; warnings: ValidationError[] } {
     const coerced = coerceNoteViewCode(text);
-    if (!coerced.ok) return coerced.errors;
-    return validateChartCode(coerced.code, { fragment: true }).errors;
+    if (!coerced.ok) return { errors: coerced.errors, warnings: [] };
+    const result = validateChartCode(coerced.code, { fragment: true });
+    return { errors: result.errors, warnings: result.warnings };
 }
 
 /**

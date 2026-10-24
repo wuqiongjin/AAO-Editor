@@ -230,7 +230,7 @@ describe('Chart Converter', () => {
             { beat: 5.5, type: "BPM", bpm: 120 },
         ] as ChartCodeNote[];
 
-        expect(validateChartCode(code)).toEqual({ valid: true, errors: [] });
+        expect(validateChartCode(code)).toEqual({ valid: true, errors: [], warnings: [] });
     });
 
     // ADR-0010 结论 9：负值原样写出、不取绝对值、不 clamp、不归一化；同拍多条全保留

@@ -76,6 +76,8 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
     const [isValid, setIsValid] = useState(true);
     // 校验错误列表（issue 59 §1：一次收集全部，带定位路径；展示前 N 条 + 「共 N 处」）
     const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
+    // 谱面域警告（issue 49）：越出值域的值（width ∉ 1..3）——只警告不拦，应用照常可用
+    const [validationWarnings, setValidationWarnings] = useState<ValidationError[]>([]);
     // dirty 基准：打开时（或应用后）同步的最新代码串
     const [lastAppliedCode, setLastAppliedCode] = useState("");
     // 打开/应用时的画布音符数，用于 dirty + canvas 变动的过期检测（单向同步下画布可能已变）
@@ -118,6 +120,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         setAppliedNotesCount(snapshotCount);
         setIsValid(true);
         setValidationErrors([]);
+        setValidationWarnings([]);
     };
 
     /**
@@ -156,6 +159,11 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                 resetDraft(text, snapshot.length);
                 setGenerating(false);
             });
+            // 打开即校验一次（issue 49 验收追问）：警告常驻，但**不占谱面文本上屏的关键路径**
+            // （验收追问 2：用户对加载时间敏感，告警随后补跑）——校验走既有防抖任务：
+            // 文本先落、250ms 后出警告；用户立即开始打字时，这次待跑校验被编辑校验替换。
+            // 挂在填充的空闲回调里安排，取消仍归 regenerateDraft 开头的 cancel 与卸载清理。
+            validationTask.schedule(() => validateCode(text));
         }, IDLE_TIMEOUT_MS);
     };
 
@@ -188,16 +196,18 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         ta.value = chartCode;
     }, [chartCode]);
 
-    // 验证谱面代码：返回全部错误（空数组 = 合法），完整视图顺带给出**这一次**解析出的 code。
+    // 验证谱面代码：返回全部错误 + 谱面域警告（空数组 = 合法 / 无警告），完整视图顺带给出**这一次**解析出的 code。
     // 完整视图走 parseCodeText（文本 → 已校验 code 的唯一入口）：内部只 parse 一次，
     // 「应用」直接复用它的 code 回写画布，不二次 parse。
     // 对象视图（issue 94）：走 validateNoteViewCodeText（裸对象 / 片段口径），回写前才容错。
+    // warnings（issue 49）：两个视图都带——越出值域的值只警告，应用可用性只看 errors。
     const validateCode = (code: string): { code: ChartCodeNote[] | null; errors: ValidationError[] } => {
-        const result: { code: ChartCodeNote[] | null; errors: ValidationError[] } = isChartView
+        const result: { code: ChartCodeNote[] | null; errors: ValidationError[]; warnings: ValidationError[] } = isChartView
             ? parseCodeText(code)
-            : { code: null, errors: validateNoteViewCodeText(code) };
+            : { code: null, ...validateNoteViewCodeText(code) };
         setIsValid(result.errors.length === 0);
         setValidationErrors(result.errors);
+        setValidationWarnings(result.warnings);
         return result;
     };
 
@@ -234,6 +244,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
             validationTask.cancel();
             setIsValid(true);
             setValidationErrors([]);
+            setValidationWarnings([]);
             return;
         }
 
@@ -345,6 +356,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
         setTextHistory(createHistory(defaultCode));
         setIsValid(true);
         setValidationErrors([]);
+        setValidationWarnings([]);
     };
 
     // 用画布刷新代码（丢弃草稿，从当前画布重新生成；单向同步下画布可能已变）。
@@ -591,6 +603,24 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                         {validationErrors.length > MAX_VISIBLE_ERRORS && (
                             <div className="chart-code-modal__errors-more">
                                 {t('chartCode.errorsMore', { count: validationErrors.length - MAX_VISIBLE_ERRORS })}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* 谱面域警告（issue 49）：越出值域的值——与 errors 分道，不阻止编辑与应用。
+                    编辑器只说「值域外」，不涉及任何发布渠道的概念（验收定案 2026-10-24）。 */}
+                {validationWarnings.length > 0 && (
+                    <div className="chart-code-modal__warnings">
+                        <h4>{t('chartCode.warningsTitle', { count: validationWarnings.length })}</h4>
+                        <ul>
+                            {validationWarnings.slice(0, MAX_VISIBLE_ERRORS).map((warning, index) => (
+                                <li key={index}>• {formatValidationError(warning)}</li>
+                            ))}
+                        </ul>
+                        {validationWarnings.length > MAX_VISIBLE_ERRORS && (
+                            <div className="chart-code-modal__errors-more">
+                                {t('chartCode.errorsMore', { count: validationWarnings.length - MAX_VISIBLE_ERRORS })}
                             </div>
                         )}
                     </div>

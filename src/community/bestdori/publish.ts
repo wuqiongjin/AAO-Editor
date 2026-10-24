@@ -8,6 +8,9 @@
  *   - **静默 sanitize**：待发布的谱面先过 `sanitizeChartForBestdoriUpload`（剥 System /
  *     charge），不弹「谱面不合法」（issue 156 定案）—— 官方谱原样 POST 会 POST_INVALID。
  *   - **必填预检**：发帖前按字段点名缺什么（CONTEXT「工程信息」：缺的字段上传时再拦）。
+ *   - **谱面域预检（issue 49）**：平台不收的域外值（Directional width ∉ 1..3 等）在
+ *     **任何网络之前**拦下（custom 渠道连音频都不传），`chart-invalid` 档点名到音符；
+ *     规则清单住 `chart/editing/ChartDomainRules.ts`（进清单判据：实测或在野证据）。
  *   - **写路径不套退避**（07 口径）：prepare / upload / post 三个 POST 超时都可能
  *     「服务端已经收了」，重发只会多造一份上传 / 多发一帖；轮询 status 是幂等读，照常退避。
  *   - **每张谱面至多一条上传记录**（ADR-0015 §4）：`input.published` 为真时任何网络都不发。
@@ -16,7 +19,8 @@
  * tests/static/PublishDialogShell 的分层断言），「发布成功后写 upload 记录」
  * 经注入的 `writeUploadRecord` 接缝由页面侧用 mutateProject 装配。
  */
-import type { ChartCodeNote } from '../../chart/editing/ChartConverter';
+import type { ChartCodeNote, ValidationError } from '../../chart/editing/ChartConverter';
+import { checkChartDomainRules } from '../../chart/editing/ChartDomainRules';
 import { sanitizeChartForBestdoriUpload } from './sanitizeChart';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
@@ -91,11 +95,20 @@ export type PublishMissingField =
 export interface PublishPrecheck {
   ok: boolean;
   missing: PublishMissingField[];
+  /**
+   * 谱面域规则点名（issue 49）：平台不收的值（Directional width ∉ 1..3 等），逐条带定位。
+   * 与 missing / ok **分道**——弹窗的「发布」按钮不因它禁用（用户口径：点发布时报错硬拦），
+   * `publishChart` 在**任何网络之前**（custom 含上传音频）据此立 `chart-invalid`。
+   */
+  chartIssues: ValidationError[];
 }
 
 /**
- * 必填预检（纯函数；弹窗与能力层共用同一份，别在两边各写一套）。
- * 顺序即票面字段表：title / artists / song / diff / level / chart / content。
+ * 必填预检 + 谱面域预检（纯函数；弹窗与能力层共用同一份，别在两边各写一套）。
+ * `missing` 的顺序即票面字段表：title / artists / song / diff / level / chart / content；
+ * `chartIssues` 是另一条道（issue 49）：平台值域规则点名（width ∉ 1..3 等），不并入
+ * `ok` / `missing` —— 缺字段由弹窗就地标红、按钮禁用，而域外值按用户口径走
+ * 「点发布时报错硬拦」，由 `publishChart` 立 `chart-invalid`。
  * `song` / `diff` 查的是**取值合法性**而不是「用户填没填」——bandori 的曲库 id 与
  * 谱面 diff 都是工程记录里的既有值（前者来自官方导入时的曲库选中），平台对越界值
  * 一概 `POST_INVALID`，与坏谱面分不开（bestdori-community-upload.md §3.2：曲 id
@@ -123,8 +136,14 @@ export function precheckPublish(input: PublishInput): PublishPrecheck {
   if (content === '' || content.length > POST_CONTENT_MAX_CHARS) missing.push('content');
   // 谱面：先按上传口径静默清洗，再问「还有没有东西可发」—— 全是 System 的谱面
   // 洗出来就是空数组，那和没谱面一样发不出去（平台 CHART_INVALID）。
-  if (sanitizeChartForBestdoriUpload(input.chartCode).length === 0) missing.push('chart');
-  return { ok: missing.length === 0, missing };
+  const chart = sanitizeChartForBestdoriUpload(input.chartCode);
+  if (chart.length === 0) missing.push('chart');
+  // 谱面域规则（issue 49）：对**原始**谱面代码过「平台收什么」清单——sanitize 只丢
+  // System / 未知 type、不碰 Directional，点名结果与清洗后等价，但序号落在用户谱面
+  // 代码的真实坐标上（对清洗后数组算会因 System 前移而错位，也与代码弹窗的警告不同坐标）。
+  // 域外值在这里点名、不发请求；规则只此一份（ChartDomainRules）。
+  const chartIssues = checkChartDomainRules(input.chartCode);
+  return { ok: missing.length === 0, missing, chartIssues };
 }
 
 /** 发布阶段（弹窗据此出提示文案；网关没有字节级进度，票 07 定案） */
@@ -146,6 +165,8 @@ export type PublishFailure =
   | 'unsupported'
   /** 平台拒了这次发布（POST_INVALID 等业务码 / 形态不对 / 5xx） */
   | 'rejected'
+  /** 谱面含平台不收的值（issue 49；内部预检拦下，`chartIssues` 点名到音符，未发任何网络） */
+  | 'chart-invalid'
   /** 本机问题：上传文件读不到 / 暂存写不进去（平台侧没问题） */
   | 'local'
   /** 其余 */
@@ -153,7 +174,7 @@ export type PublishFailure =
 
 export type PublishOutcome =
   | { ok: true; postId: number; /** 上传记录写没写进去（false = 帖子已在，本机记账失败） */ recordWritten: boolean }
-  | { ok: false; failure: PublishFailure; missing?: PublishMissingField[] };
+  | { ok: false; failure: PublishFailure; missing?: PublishMissingField[]; chartIssues?: ValidationError[] };
 
 export interface PublishDeps {
   transport: CommunityTransport;
@@ -301,6 +322,12 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
   if (input.published) return { ok: false, failure: 'already-published' };
 
   const precheck = precheckPublish(input);
+  // 谱面域规则硬拦（issue 49）：域外值在**任何网络之前**拒绝——custom 渠道尤其不能
+  // 先把音频传上去（否则白传一次）。missing 让位：缺字段在弹窗里就地标红、按钮禁用，
+  // 走到这里谱面域还不合法时，先报最靠近载荷、且预览阶段看不见的那个因。
+  if (precheck.chartIssues.length > 0) {
+    return { ok: false, failure: 'chart-invalid', chartIssues: precheck.chartIssues };
+  }
   if (!precheck.ok) return { ok: false, failure: 'missing-fields', missing: precheck.missing };
 
   const chart = sanitizeChartForBestdoriUpload(input.chartCode);
@@ -326,23 +353,43 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
     }
 
     deps.onStage?.('post');
+    const contentBlocks = formatPostContent(input.content);
+    const body = {
+      title: input.title,
+      artists: input.artists,
+      song,
+      diff: input.diff,
+      level: input.level,
+      chart,
+      // 正文富文本块（票 42 Q4：纯文本 + 换行拆成 br 块；富文本语法见 bestdori-api.md §5）
+      content: contentBlocks,
+      categoryName: 'SELF_POST',
+      categoryId: 'chart',
+      tags: [],
+    };
+    const bodyText = JSON.stringify(body);
+    // 载荷统计（issue 49）：发帖前记进 trail，只记统计不记内容（请求体原文不进 trail，
+    // 凭据红线同口径）。现场没有这段时，平台拒了（POST_INVALID 不指因）只能像票 49 那样
+    // 离线复现载荷逐项排除——width 分布就是那次排查最后才锁定的那格。
+    trail.record({
+      module: 'community',
+      action: 'post-payload',
+      meta: {
+        bytes: utf8ByteLength(bodyText),
+        chartBytes: utf8ByteLength(JSON.stringify(chart)),
+        objects: countChartObjects(chart),
+        widths: directionalWidthDistribution(chart),
+        song: song.type,
+        diff: input.diff,
+        level: input.level,
+        contentBlocks: contentBlocks.length,
+      },
+    });
     const posted = await deps.transport.requestJson({
       url: postCreateUrl(),
       method: 'POST',
       headers: { ...bestdoriHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({
-        title: input.title,
-        artists: input.artists,
-        song,
-        diff: input.diff,
-        level: input.level,
-        chart,
-        // 正文富文本块（票 42 Q4：纯文本 + 换行拆成 br 块；富文本语法见 bestdori-api.md §5）
-        content: formatPostContent(input.content),
-        categoryName: 'SELF_POST',
-        categoryId: 'chart',
-        tags: [],
-      }),
+      body: bodyText,
       timeoutMs: BESTDORI_BINARY_TIMEOUT_MS,
     });
 
@@ -379,3 +426,31 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
 }
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** UTF-8 字节数（trail 载荷统计用）：`string.length` 是 UTF-16 码元数，title/content 含中文时会低估真实字节 */
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** 对象分桶（trail 载荷统计用）：type → 数量；脏数据没有字符串 type 归「unknown」桶 */
+function countChartObjects(chart: readonly ChartCodeNote[]): Record<string, number> {
+  const buckets: Record<string, number> = {};
+  for (const note of chart) {
+    const type = (note as { type?: unknown }).type;
+    const key = typeof type === 'string' && type !== '' ? type : 'unknown';
+    buckets[key] = (buckets[key] ?? 0) + 1;
+  }
+  return buckets;
+}
+
+/** Directional width 分布（trail 载荷统计用）：width → 数量——票 49 的根因靠它一眼可见 */
+function directionalWidthDistribution(chart: readonly ChartCodeNote[]): Record<string, number> {
+  const dist: Record<string, number> = {};
+  for (const note of chart) {
+    const raw = note as { type?: unknown; width?: unknown };
+    if (raw.type !== 'Directional') continue;
+    const key = String(raw.width);
+    dist[key] = (dist[key] ?? 0) + 1;
+  }
+  return dist;
+}

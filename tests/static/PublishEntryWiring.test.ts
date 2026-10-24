@@ -61,3 +61,19 @@ describe('票 11 · 发布入口的接线', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('issue 49 · 谱面域预检的接线', () => {
+  it('弹窗认 chart-invalid 档并渲染点名明细（formatValidationError），域外值不发请求才报得出', () => {
+    expect(publishDialog).toMatch(/'chart-invalid': 'projects\.publish\.err\.chartInvalid'/);
+    expect(publishDialog).toMatch(/formatValidationError/);
+    expect(publishDialog).toMatch(/outcome\.chartIssues/);
+  });
+
+  it('预检的 chartIssues 与 ok / missing 分道：按钮不因警告禁用（点发布时才硬拦）', () => {
+    const precheck = readStripped('src/community/bestdori/publish.ts');
+    expect(precheck).toMatch(/chartIssues/);
+    // hard 拦在 publishChart 里、先于必填上报；precheckPublish 的 ok 只看 missing
+    expect(precheck).toMatch(/precheck\.chartIssues\.length > 0/);
+    expect(precheck).toMatch(/ok: missing\.length === 0/);
+  });
+});

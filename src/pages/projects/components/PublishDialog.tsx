@@ -9,7 +9,7 @@
 //   ⑤ 预检与一次性确认：预检纯函数 precheckPublish，缺项就地标红与空槽展示，确认窗复用 ConfirmDialog。
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Music2 } from 'lucide-react';
-import type { ChartCodeNote } from '../../../chart/editing/ChartConverter';
+import { formatValidationError, type ChartCodeNote, type ValidationError } from '../../../chart/editing/ChartConverter';
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import {
   precheckPublish,
@@ -68,9 +68,13 @@ const FAILURE_KEYS: Record<PublishFailure, MessageKey> = {
   unauthorized: 'projects.publish.err.unauthorized',
   unsupported: 'projects.publish.err.unsupported',
   rejected: 'projects.publish.err.rejected',
+  'chart-invalid': 'projects.publish.err.chartInvalid',
   local: 'projects.publish.err.local',
   unknown: 'projects.publish.err.generic',
 };
+
+/** chart-invalid 明细列表最多展示的条数，其余折叠（与谱面代码弹窗同口径） */
+const MAX_VISIBLE_CHART_ISSUES = 8;
 
 const STAGE_KEYS: Record<PublishStage, MessageKey> = {
   audio: 'projects.publish.stage.audio',
@@ -164,6 +168,8 @@ export function PublishDialog(props: {
 
   const [stage, setStage] = useState<PublishStage | null>(null);
   const [failure, setFailure] = useState<PublishFailure | null>(null);
+  // chart-invalid 的点名明细（issue 49：哪条音符、哪个字段；可列多条）
+  const [chartIssues, setChartIssues] = useState<ValidationError[]>([]);
   const [confirming, setConfirming] = useState(false);
 
   const [refs, setRefs] = useState<ProjectUploadRefs | null | undefined>(undefined);
@@ -297,6 +303,7 @@ export function PublishDialog(props: {
 
   const runPublish = async () => {
     setFailure(null);
+    setChartIssues([]);
     try {
       const outcome = await onPublish(input, setStage);
       setStage(null);
@@ -310,9 +317,11 @@ export function PublishDialog(props: {
         return;
       }
       setFailure(outcome.failure);
+      setChartIssues(outcome.chartIssues ?? []);
     } catch {
       setStage(null);
       setFailure('unknown');
+      setChartIssues([]);
     }
     setConfirming(false);
   };
@@ -489,6 +498,17 @@ export function PublishDialog(props: {
         )}
         {failure && (
           <p className="pp-publish__error" role="alert">{t(FAILURE_KEYS[failure])}</p>
+        )}
+        {/* 谱面域点名明细（issue 49）：校验拦下、未发请求，逐条说清哪条音符哪个字段 */}
+        {failure === 'chart-invalid' && chartIssues.length > 0 && (
+          <ul className="pp-publish__issues" role="alert">
+            {chartIssues.slice(0, MAX_VISIBLE_CHART_ISSUES).map((issue, index) => (
+              <li key={index}>{formatValidationError(issue)}</li>
+            ))}
+            {chartIssues.length > MAX_VISIBLE_CHART_ISSUES && (
+              <li>{t('chartCode.errorsMore', { count: chartIssues.length - MAX_VISIBLE_CHART_ISSUES })}</li>
+            )}
+          </ul>
         )}
 
         {/* 描述正文（草稿持久化 + 换行解析） */}

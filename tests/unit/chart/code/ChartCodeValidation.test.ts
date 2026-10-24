@@ -311,3 +311,40 @@ describe('谱面代码校验 · 回归', () => {
         expect(applied.applied).toBe(false);
     });
 });
+
+describe('谱面代码校验 · warnings 通道（issue 49）', () => {
+    const width5: ChartCodeNote = { beat: 4, lane: 2, type: 'Directional', direction: 'Left', width: 5 };
+
+    test('width 5 只出警告、不拒收：valid 仍 true，导入/应用闸门放行', () => {
+        const result = validateChartCode([bpm0, width5]);
+        expect(result.valid).toBe(true);
+        expect(result.errors).toEqual([]);
+        expect(result.warnings).toHaveLength(1);
+        expect(result.warnings[0]).toMatchObject({ noteIndex: 1, field: 'width' });
+        // 与调用方同构的闸门：errors 非空即拒——warnings 不参与，应用照常
+        expect(applyChartCode([bpm0, width5]).applied).toBe(true);
+    });
+
+    test('warnings 与 errors 分道：结构错误照报，width 警告并存', () => {
+        const result = validateChartCode([
+            bpm0,
+            width5,
+            { beat: 'x', lane: 1, type: 'Single' },
+        ] as unknown as ChartCodeNote[]);
+        expect(result.valid).toBe(false);
+        expect(result.errors).toHaveLength(1);
+        expect(result.errors[0]).toMatchObject({ noteIndex: 2, field: 'beat' });
+        expect(result.warnings).toHaveLength(1);
+        expect(result.warnings[0]).toMatchObject({ noteIndex: 1, field: 'width' });
+    });
+
+    test('width 非数字已被 errors 点名 → 同处不重复出警告（去重）', () => {
+        const result = validateChartCode([
+            bpm0,
+            { beat: 4, lane: 2, type: 'Directional', direction: 'Left', width: 'abc' },
+        ] as unknown as ChartCodeNote[]);
+        expect(result.valid).toBe(false);
+        expect(result.errors.filter((e) => e.field === 'width')).toHaveLength(1);
+        expect(result.warnings).toEqual([]);
+    });
+});

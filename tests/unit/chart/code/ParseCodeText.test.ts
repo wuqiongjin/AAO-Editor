@@ -30,7 +30,20 @@ describe('04 票 · parseCodeText（唯一入口：一次 parse 给 code + 全�
 
         expect(result.ok).toBe(true);
         expect(result.errors).toEqual([]);
+        expect(result.warnings).toEqual([]);
         expect(result.code).toEqual(code);
+    });
+
+    test('issue 49：warnings 随解析结果带出（width 域外 → ok 仍 true）', () => {
+        const withWidth5: ChartCodeNote[] = [
+            { beat: 0, type: 'BPM', bpm: 120 },
+            { beat: 4, lane: 2, type: 'Directional', direction: 'Left', width: 5 },
+        ];
+        const result = parseCodeText(JSON.stringify(withWidth5));
+        expect(result.ok).toBe(true);
+        expect(result.errors).toEqual([]);
+        expect(result.warnings).toHaveLength(1);
+        expect(result.warnings[0]).toMatchObject({ noteIndex: 1, field: 'width' });
     });
 
     test('同一份文本只 parse 一次（解析出的 code 不再被丢）', () => {

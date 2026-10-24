@@ -29,6 +29,7 @@ import {
   type CommunityRequest,
   type CommunityTransport,
 } from '@/src/community/transport';
+import { trail } from '@/src/diagnostics/trail';
 
 const PREPARE_URL = uploadPrepareUrl();
 const UPLOAD_URL = uploadUrl();
@@ -275,7 +276,7 @@ describe('票 11 · 三步二进制上传', () => {
 
 describe('票 11 · 必填预检（逐字段点名）', () => {
   it('全合法时放行', () => {
-    expect(precheckPublish(makeInput())).toEqual({ ok: true, missing: [] });
+    expect(precheckPublish(makeInput())).toEqual({ ok: true, missing: [], chartIssues: [] });
   });
 
   it.each([
@@ -500,3 +501,120 @@ describe('票 42 Q4 · 正文换行解析为 text 与 br 块', () => {
   });
 });
 
+
+describe('issue 49 · 谱面域预检（width 值域，上传前硬拦）', () => {
+  const bpm0 = { type: 'BPM', beat: 0, bpm: 210 } as const;
+  /** 复刻事故现场：官方曲 268 的自制谱里 width 5 的 Directional（画布画不出来，外部粘进来的） */
+  const width5Chart: PublishInput['chartCode'] = [
+    bpm0,
+    { type: 'Directional', beat: 4, lane: 2, direction: 'Left', width: 5 },
+  ] as never;
+
+  it('precheckPublish：width 5 点名到音符（noteIndex + field），missing 与 ok 不掺和', () => {
+    const precheck = precheckPublish(makeInput({ chartCode: width5Chart }));
+    expect(precheck.ok).toBe(true); // 字段齐：按钮不禁用，用户口径「点发布时报错硬拦」
+    expect(precheck.missing).toEqual([]);
+    expect(precheck.chartIssues).toHaveLength(1);
+    expect(precheck.chartIssues[0]).toMatchObject({ noteIndex: 1, field: 'width' });
+  });
+
+  it('点名序号落在用户谱面代码的坐标上：sanitize 丢 System 不使索引前移（评审回修）', () => {
+    const precheck = precheckPublish(makeInput({
+      chartCode: [
+        bpm0,
+        { type: 'System', data: 'bgm1020.wav', beat: 0 },
+        { type: 'Single', lane: 1, beat: 220 },
+        { type: 'Directional', beat: 4, lane: 2, direction: 'Left', width: 5 },
+      ] as never,
+    }));
+    // 域外 Directional 在用户代码里是第 3 条（清洗后才是第 2 条）——明细必须按前者点名，
+    // 与代码弹窗警告同一坐标，用户才能对着改
+    expect(precheck.chartIssues).toHaveLength(1);
+    expect(precheck.chartIssues[0]).toMatchObject({ noteIndex: 3, field: 'width' });
+  });
+
+  it('precheckPublish：width 1/2/3 放行；越界 lane 不进规则集（在野反例，平台收）', () => {
+    for (const width of [1, 2, 3]) {
+      const precheck = precheckPublish(makeInput({
+        chartCode: [bpm0, { type: 'Directional', beat: 4, lane: 6.5, direction: 'Right', width }] as never,
+      }));
+      expect(precheck.chartIssues, String(width)).toEqual([]);
+    }
+  });
+
+  it('publishChart：width 5 → chart-invalid 带明细，custom 渠道连音频都不传（零网络）', async () => {
+    const { outcome, requests, writes } = await run(
+      {}, // 什么都不打桩：真发了任何请求都会抛「未打桩的请求」
+      makeInput({
+        song: { kind: 'custom', audio: FILE_AUDIO, cover: FILE_COVER },
+        chartCode: width5Chart,
+      }),
+    );
+    expect(outcome).toMatchObject({ ok: false, failure: 'chart-invalid' });
+    expect(outcome.ok === false && outcome.chartIssues).toHaveLength(1);
+    expect(requests).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it('publishChart：bandori 渠道同样不发帖', async () => {
+    const { outcome, requests } = await run({}, makeInput({ chartCode: width5Chart }));
+    expect(outcome).toMatchObject({ ok: false, failure: 'chart-invalid' });
+    expect(requests).toEqual([]);
+  });
+
+  it('谱面域先于缺字段上报：域外值连「缺标题」的错都不等', async () => {
+    const { outcome } = await run({}, makeInput({ title: ' ', chartCode: width5Chart }));
+    expect(outcome).toMatchObject({ ok: false, failure: 'chart-invalid' });
+  });
+
+  it('发帖前 trail 记载荷统计 meta（分桶 / 字节 / song / diff / level / content 块 / width 分布）', async () => {
+    const before = trail.snapshot().length;
+    await run(
+      { [POST_URL]: { result: true, id: 9 } },
+      makeInput({
+        content: 'line1\nline2',
+        chartCode: [
+          bpm0,
+          { type: 'Single', lane: 1, beat: 220 },
+          { type: 'Directional', beat: 4, lane: 2, direction: 'Left', width: 2 },
+          { type: 'Directional', beat: 6, lane: 3, direction: 'Right', width: 1 },
+          { type: 'Slide', connections: [{ lane: 0, beat: 8 }, { lane: 2, beat: 8.5 }] },
+        ] as never,
+      }),
+    );
+
+    const events = trail.snapshot().slice(before);
+    const payload = events.find((e) => e.action === 'post-payload');
+    expect(payload).toBeDefined();
+    expect(payload!.module).toBe('community');
+    // meta 键锁死 = 多余键（比如请求体原文）一进来这条就红：只记统计不记内容
+    expect(payload!.meta).toEqual({
+      bytes: expect.any(Number),
+      chartBytes: expect.any(Number),
+      objects: { BPM: 1, Single: 1, Directional: 2, Slide: 1 },
+      widths: { '1': 1, '2': 1 },
+      song: 'bandori',
+      diff: 3,
+      level: 24,
+      // 'line1\nline2' → text + br + text
+      contentBlocks: 3,
+    });
+  });
+
+  it('载荷统计在 custom 渠道也记（上传后、发帖前）', async () => {
+    const hash = '9'.repeat(40);
+    const before = trail.snapshot().length;
+    await run(
+      {
+        [PREPARE_URL]: { result: true },
+        [UPLOAD_URL]: { hash },
+        [statusUrl(hash)]: { status: 'available' },
+        [POST_URL]: { result: true, id: 10 },
+      },
+      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: null } }),
+    );
+    const payload = trail.snapshot().slice(before).find((e) => e.action === 'post-payload');
+    expect(payload).toBeDefined();
+    expect(payload!.meta).toMatchObject({ song: 'custom' });
+  });
+});

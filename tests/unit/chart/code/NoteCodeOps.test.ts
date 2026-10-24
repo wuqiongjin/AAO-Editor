@@ -414,19 +414,28 @@ describe('issue 94 · coerceNoteViewCode 输入容错（裸对象 / 数组都收
 
 describe('issue 94 · validateNoteViewCodeText（容错后与完整视图同一套规则）', () => {
     test('合法裸对象 → 零错误', () => {
-        expect(validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Single" }')).toEqual([]);
+        expect(validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Single" }').errors).toEqual([]);
     });
 
     test('裸对象：有限越界 lane 放行；hidden 端点不拦', () => {
-        expect(validateNoteViewCodeText('{ "beat": 8, "lane": 9, "type": "Single" }')).toEqual([]);
-        expect(validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Slide", "connections": [{ "beat": 8, "lane": 1 }, { "beat": 9, "lane": 2, "hidden": true }] }'))
+        expect(validateNoteViewCodeText('{ "beat": 8, "lane": 9, "type": "Single" }').errors).toEqual([]);
+        expect(validateNoteViewCodeText('{ "beat": 8, "lane": 1, "type": "Slide", "connections": [{ "beat": 8, "lane": 1 }, { "beat": 9, "lane": 2, "hidden": true }] }').errors)
             .toEqual([]);
     });
 
     test('语法错误 → 1 条定位错误（不会"零错误"放行）', () => {
-        const errors = validateNoteViewCodeText('{ "beat": 8, ');
+        const { errors } = validateNoteViewCodeText('{ "beat": 8, ');
         expect(errors).toHaveLength(1);
         expect(errors[0].noteIndex).toBe(-1);
+    });
+
+    test('issue 49：整条 Directional 的域外 width 只出警告（errors 零条，应用不被拒）', () => {
+        const { errors, warnings } = validateNoteViewCodeText(
+            '{ "beat": 8, "lane": 2, "type": "Directional", "direction": "Left", "width": 5 }',
+        );
+        expect(errors).toEqual([]);
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toMatchObject({ noteIndex: 0, field: 'width' });
     });
 });
 

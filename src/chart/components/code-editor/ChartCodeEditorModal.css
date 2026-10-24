@@ -107,6 +107,29 @@
   opacity: 0.85;
 }
 
+/* 谱面域警告（issue 49）：值域外的值——同 errors 的排版，warning 色系 */
+.chart-code-modal__warnings {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background-color: var(--warning-soft);
+  color: var(--warning-text);
+}
+.chart-code-modal__warnings h4 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.chart-code-modal__warnings ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--text-xs);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 132px;
+  overflow-y: auto;
+}
+
 .chart-code-modal__editor {
   flex: 1;
   min-height: 0;
