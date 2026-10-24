@@ -3,9 +3,12 @@
  * 落地页：页面骨架 + 页面级副作用（滚动进度、滚入显现、区块左缘线、导航高亮、
  * 首屏测高、playhead、灯箱）；语言 / 外观 / 轮播 / 受众轮换都在 composable 里。
  *
- * 注意别在这里抽子组件：`landing.css` 是 `<style scoped>` 载入的，只给本组件的模板节点
- * 打 `data-v`，子组件内部节点拿不到、样式会整片失效。要拆，先把 `landing.css` 的选择器
- * 全部前缀到 `.landing` 名下改成全局加载。
+ * 抽子组件的前置规则：`landing.css` 是 `<style scoped>` 载入的，只给本组件的模板节点
+ * 打 `data-v`，子组件内部节点拿不到、样式会整片失效。当前已拆出的两个顶栏开关
+ * （NavLangSwitch / NavThemeToggle）走的是「共享样式进全局」路线：基础样式在
+ * `site-chrome.css`（`.aao-lang` / `.aao-theme-btn` 命名空间），`landing.css` 只留
+ * `.landing` 作用域内的令牌微调。后续再拆子组件沿用同一路线，别把共享样式写回
+ * `<style scoped>`。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { withBase } from 'vitepress'
@@ -13,7 +16,10 @@ import { CNB_RELEASES_URL, ISSUES_URL, RELEASES_URL, REPO_URL } from '../../link
 import { bulletsOf, type CopyKey } from '../landingCopy'
 import { resolveShots, type Shot, type Slide } from '../landingTypes'
 import { CAP01_SLIDES, CAP02_SHOTS, CAP03_SLIDES, HERO_SHOT } from '../landingMedia'
-import { useAppearance, useLocale } from '../composables/useSiteChrome'
+import { useAppearance } from '../composables/useSiteChrome'
+import { useSiteLocale } from '../composables/useSiteLocale'
+import NavLangSwitch from './NavLangSwitch.vue'
+import NavThemeToggle from './NavThemeToggle.vue'
 import { useCarousel, type Carousel } from '../composables/useCarousel'
 import { useRotor } from '../composables/useRotor'
 
@@ -27,8 +33,12 @@ const reducedMotion =
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 /* ---------- 语言 / 外观（各自一个 composable） ---------- */
-const { locale, t, setLocale } = useLocale()
-const { isDark, toggle: toggleTheme } = useAppearance()
+const { locale, t } = useSiteLocale()
+useAppearance()
+
+const guideHref = computed(() =>
+  withBase(locale.value === 'en' ? '/en/guide/' : '/guide/'),
+)
 
 /* ---------- 图片（规格在 landingMedia.ts，alt / 图注按语言解析） ---------- */
 const heroShot = computed<Shot>(() => resolveShots(t.value, [HERO_SHOT])[0])
@@ -291,40 +301,19 @@ function audienceColor(index: number): string {
         />
         <strong>AAO Editor</strong><span>{{ t.brandSub }}</span>
       </a>
-      <nav class="nav" aria-label="页面导航">
-        <a href="#features" :class="{ active: activeSection === 'features' }">{{ t.navFeatures }}</a>
-        <a href="#download" :class="{ active: activeSection === 'download' }">{{ t.navDownload }}</a>
-        <a :href="withBase('/guide/')">{{ t.navGuide }}</a>
-        <a :href="REPO_URL" target="_blank" rel="noreferrer noopener">GitHub</a>
-      </nav>
-      <div class="lang" role="group" aria-label="语言 / Language">
-        <button
-          type="button"
-          :class="{ active: locale === 'zh-CN' }"
-          :aria-pressed="locale === 'zh-CN'"
-          @click="setLocale('zh-CN')"
-        >
-          中文
-        </button>
-        <button
-          type="button"
-          :class="{ active: locale === 'en' }"
-          :aria-pressed="locale === 'en'"
-          @click="setLocale('en')"
-        >
-          EN
-        </button>
+      <div class="topbar-end">
+        <nav class="nav" aria-label="页面导航">
+          <a href="#features" :class="{ active: activeSection === 'features' }">{{ t.navFeatures }}</a>
+          <a href="#download" :class="{ active: activeSection === 'download' }">{{ t.navDownload }}</a>
+          <a :href="guideHref">{{ t.navGuide }}</a>
+          <a :href="REPO_URL" target="_blank" rel="noreferrer noopener">GitHub</a>
+        </nav>
+        <span class="aao-chrome-split" aria-hidden="true" />
+        <div class="topbar-utilities aao-topbar-utilities">
+          <NavThemeToggle />
+          <NavLangSwitch />
+        </div>
       </div>
-      <button
-        class="theme-btn"
-        type="button"
-        :aria-label="isDark ? t.themeToLight : t.themeToDark"
-        :title="isDark ? t.themeToLight : t.themeToDark"
-        @click="toggleTheme"
-      >
-        <svg v-if="isDark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" /></svg>
-        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.2 8.2 0 1 0 10.2 10.2Z" /></svg>
-      </button>
     </header>
 
     <main id="top">

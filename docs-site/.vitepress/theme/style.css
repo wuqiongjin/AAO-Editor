@@ -19,3 +19,92 @@
     scroll-behavior: smooth;
   }
 }
+
+/* 避免有/无纵向滚动条时视口宽度抖动，导致侧栏与顶栏错位 */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* 使用自定义胶囊语言开关，隐藏 VitePress 默认语言下拉 */
+.VPNavBarTranslations {
+  display: none !important;
+}
+
+.VPNavBarSocialLinks.social-links {
+  display: none !important;
+}
+
+/* VitePress 原生外观开关：恢复可见并对齐站点 chrome（票 07 · 用户 2026-10-24 拍板 B）。
+   控件本身保留——键盘 / aria-label / 与 useAppearance 的 StorageEvent 同步都是白拿的；
+   只把 40x22 滑条重置成 30px 圆形，与落地页圆形按钮同族（边框 + 面板底 + 图标居中）。
+   （曾经 display:none 藏掉它，理由「与落地页圆形按钮不一致」越过用户 2026-10-23
+     「文档页原生开关」定案，已作废。） */
+.VPNavBarAppearance .VPSwitchAppearance {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--aao-chrome-line, var(--line, var(--vp-c-divider)));
+  background-color: var(--aao-chrome-panel, var(--bg-panel, var(--vp-c-bg-alt)));
+}
+
+/* 滑条把手抹平为图标层：取消 dark 态 translateX(18px)，18px 把手在 30px 圆内居中 */
+.VPNavBarAppearance .VPSwitchAppearance .check {
+  inset: 0;
+  margin: auto;
+  background: none;
+  box-shadow: none;
+  transform: none !important;
+}
+
+/* 菜单链接与工具区之间的竖线。VitePress 自带的 `.menu + .appearance` 分隔线因
+   translations 被隐藏（相邻选择器按 DOM 不按可见性）而失效，这里自己画。 */
+.VPNavBar .VPNavBarAppearance::before {
+  content: "";
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 24px;
+  margin: 0 12px;
+  background: var(--aao-chrome-split, var(--line, var(--vp-c-divider)));
+}
+
+@media (min-width: 768px) {
+  .VPNavBar .content-body {
+    gap: 0;
+    align-items: center;
+  }
+
+  /* VitePress 默认 1280px 以上才内联原生开关，768–1280 收进 ⋯ 浮动菜单；
+     本站统一内联（与语言胶囊并列）。浮动菜单里还塞着与自定义胶囊重复的翻译下拉，一并藏掉。 */
+  .VPNavBar .VPNavBarAppearance {
+    display: flex !important;
+    align-items: center;
+  }
+
+  .VPNavBarExtra {
+    display: none !important;
+  }
+
+  .VPNavBarSearch.search {
+    order: 0;
+  }
+
+  .VPNavBarMenu.menu {
+    order: 1;
+  }
+
+  .VPNavBarAppearance.appearance {
+    order: 2;
+    /* content-body 在 ≥768 被置 gap:0（原先由 split 的 margin 供间距），这里补回 */
+    margin-right: 10px;
+  }
+
+  .aao-nav-utilities {
+    order: 3;
+    margin-left: 0;
+  }
+
+  .VPNavBarHamburger.hamburger {
+    order: 4;
+  }
+}

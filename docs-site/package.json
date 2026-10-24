@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vitepress dev",
+    "dev:cloud": "DISABLE_HMR=1 vitepress dev",
     "build": "vitepress build",
-    "preview": "vitepress preview"
+    "preview": "vitepress preview",
+    "preview:cloud": "DISABLE_HMR=1 vitepress preview"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
