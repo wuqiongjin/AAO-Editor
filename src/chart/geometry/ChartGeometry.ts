@@ -5,6 +5,7 @@
 // 坐标系（issue 11）：虚拟坐标（X 原点=轨道内容左缘，Y 自下而上、beat 0 在判定线）↔ 画布坐标。
 import type { ChartNote } from '../types';
 import { trueBeat } from '../editing/ChartEndBounds';
+import { DEFAULT_BPM } from '../../audio/AudioTiming';
 import { BpmTimeline, type BpmBeatRange, type BpmBeatSolution, type BpmTimelineEvent } from './BpmTimeline';
 
 export const LANES = 7;
@@ -220,6 +221,11 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   /** 秒 → 最大 beat 解所在 BPM 段序号（顶栏当前区间 BPM 与 beatOfSeconds 同解） */
   segmentIndexOfSeconds(seconds: number): number {
     return this.timeline.maxBeatSolutionOf(seconds * this.virtualPxPerSecond).segmentIndex;
+  }
+
+  /** 秒 → 所在段的 BPM（判定线读数）；谱面没有 BPM 事件时回落 DEFAULT_BPM */
+  bpmAtSeconds(seconds: number): number {
+    return this.bpmEvents[this.segmentIndexOfSeconds(seconds)]?.bpm ?? DEFAULT_BPM;
   }
 
   /**

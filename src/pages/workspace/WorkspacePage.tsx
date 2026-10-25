@@ -5,15 +5,16 @@ import Toolbar from './Toolbar';
 import ChartSwitcher from './ChartSwitcher';
 import WorkspaceDisplayPanel from './WorkspaceDisplayPanel';
 import BeatSnapCapsule from './BeatSnapCapsule';
+import CurveOptionsCapsule from './CurveOptionsCapsule';
 import './WorkspaceTopBar.css';
 import { ChartCodeEditorProvider } from '../../chart/components/code-editor/ChartCodeEditorProvider';
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
 import NoteInfoPanel from '../../chart/components/side-panel/NoteInfoPanel';
 import IconButton from '../../ui/IconButton';
 import { formatKey, type FunctionId } from '../../chart/config/ShortcutConfig';
-import { DEFAULT_BPM } from '../../audio/AudioTiming';
 import PlayBar from '../../playback/PlayBar';
 import PlaybackMarkerCard from '../../playback/PlaybackMarkerCard';
+import PlaybackMarkerButton from '../../playback/PlaybackMarkerButton';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { useAudioBridge } from '../../audio/useAudioBridge';
@@ -146,10 +147,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   // 当前播放头所在区间的 BPM（顶栏实时区）
   // issue 134：与 HUD playheadBeat 同 geometry；最大 beat 解所在段（ADR-0010 结论 5）
-  const currentRegionBpm = useMemo(() => {
-    const events = geometry.bpmEvents;
-    return events[geometry.segmentIndexOfSeconds(playheadSeconds)]?.bpm ?? DEFAULT_BPM;
-  }, [geometry, playheadSeconds]);
+  const currentRegionBpm = useMemo(() => geometry.bpmAtSeconds(playheadSeconds), [geometry, playheadSeconds]);
 
   // === 会话流 3：音频桥接（订阅 session 变化，副作用单向写回 PlaybackContext） ===
   // 单一稳定回调：避免 useAudioBridge 内部 useEffect 因新引用反复触发
@@ -627,6 +625,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
                 onReadonlyReject={triggerReadonlyPrompt}
               />
             </CrashBoundaryHost>
+            <CurveOptionsCapsule />
           </div>
         </div>
         <PlayBar
@@ -638,6 +637,13 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           canEditTime
           seekNoCursor={!canPlay && ctxIsPlaying}
           shortcutKey={formatKey(shortcutConfig.play)}
+          timeSlot={settings.playbar.markerButton && (
+            <PlaybackMarkerButton
+              seconds={markerSeconds}
+              shortcut={shortcutConfig.jumpToMarker}
+              onJump={jumpToMarker}
+            />
+          )}
           onTogglePlay={handleTogglePlay}
           onVolumeChange={handleVolumeChange}
           onSeek={seek}

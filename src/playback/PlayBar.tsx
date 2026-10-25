@@ -34,6 +34,8 @@ export interface PlayBarProps {
   variant?: PlayBarVariant;
   /** 倍速控件 slot（预览专属）：不传就不渲染 */
   rateSlot?: ReactNode;
+  /** 时间码右侧 slot（工作台的播放起点按钮，票 179）：不传就不渲染 */
+  timeSlot?: ReactNode;
   onTogglePlay: () => void;
   onVolumeChange: (v: number) => void;
   /** 进度条 seek（点击/拖动/时间码双击编辑）：目标秒→引擎定位，暂停不自动播（ADR-0004 + issue 22） */
@@ -51,6 +53,7 @@ export default function PlayBar({
   shortcutKey,
   variant = 'workspace',
   rateSlot,
+  timeSlot,
   onTogglePlay,
   onVolumeChange,
   onSeek,
@@ -175,6 +178,7 @@ export default function PlayBar({
           )}
         </span>
       </span>
+      {timeSlot}
 
       {/* 可拖拽进度条（居中占满剩余空间）：点击/拖动 seek，暂停不自动播 */}
       <div

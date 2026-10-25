@@ -111,7 +111,7 @@ function Percent({
 }
 
 export default memo(function WorkspaceDisplayPanel() {
-  const { settings, setDisplay } = useConfig();
+  const { settings, setDisplay, setPlaybar } = useConfig();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -321,6 +321,19 @@ export default memo(function WorkspaceDisplayPanel() {
                   </div>
                 )}
               </div>
+            </section>
+
+            <section className="wdp__group" aria-label={t('workspace.playbar')}>
+              <div className="wdp__group-head">
+                <h3 className="wdp__group-title">{t('workspace.playbar')}</h3>
+              </div>
+              <Row label={t('workspace.playbar.markerButton')}>
+                <Toggle
+                  label={t('workspace.playbar.markerButton')}
+                  checked={settings.playbar.markerButton}
+                  onChange={(markerButton) => setPlaybar({ markerButton })}
+                />
+              </Row>
             </section>
           </div>
         </>,

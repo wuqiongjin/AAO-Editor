@@ -66,6 +66,12 @@
   gap: 1px;
 }
 
+.wdp__group + .wdp__group {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
 .wdp__group-head {
   padding: 4px 8px 6px;
 }

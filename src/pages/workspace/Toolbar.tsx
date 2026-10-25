@@ -163,7 +163,10 @@ export default memo(function Toolbar() {
         {/* issue 09 S2：曲线工具配置（仅曲线持工具态时出现）。
             issue 114：面板抽到 CurveConfigPanel（表驱动）；配置持久化于 settings.curve、跨会话沿用 */}
         {armedTool === "curve" && (
-          <CurveConfigPanel config={curveConfig} onChange={setCurveConfig} />
+          <div>
+            <SectionHeader>{t('curve.title')}</SectionHeader>
+            <CurveConfigPanel config={curveConfig} onChange={setCurveConfig} />
+          </div>
         )}
 
         {/* 编辑功能（对选中对象/剪贴板）：2 列网格，谱面代码铺满 */}

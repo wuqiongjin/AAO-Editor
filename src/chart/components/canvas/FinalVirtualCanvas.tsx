@@ -25,7 +25,7 @@ import { PLAYBACK_MARKER_LAYOUT, PLAYBACK_MARKER_CLIP_PATH } from '../../../rend
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rendering/skin/noteSkin';
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../rendering/gutterLabels';
 import { useBackgroundSkin } from '../../../rendering/skin/useBackgroundSkin';
-import { countNotesUpToBeat } from '../../editing/NoteEditing';
+import { countChartNotes, countNotesUpToBeat } from '../../editing/NoteEditing';
 import { parseBpmInput } from '../../editing/BpmInput';
 import { t } from '../../../i18n';
 import {
@@ -33,9 +33,7 @@ import {
   isInsideSurface,
   canPlaceAtCursor, resolveExecNoteCodeHit,
 } from '../../editing/CanvasGesture';
-import { formatTimePrecise } from '../../geometry/TimeFormat';
-
-// 画布实时信息叠加（issue 22 / issue 188）：判定线处精确时间（左下）+ 已过判定线音符数（右下）。
+// 画布实时信息叠加（issue 22 / issue 179 / issue 188）：判定线处 BPM（左下）+ 已过 / 总数（右下）。
 // 独立子组件消费 currentSeconds，使 80ms 时间码节流更新只重渲本轻量 HUD，不触发整张画布重渲染。
 const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
     geometry,
@@ -53,8 +51,10 @@ const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
         () => countNotesUpToBeat(notes, playheadBeat),
         [notes, playheadBeat],
     );
+    const totalNoteCount = useMemo(() => countChartNotes(notes), [notes]);
+    const playheadBpm = geometry.bpmAtSeconds(currentSeconds);
     return (
-        <div style={{
+        <div data-testid="canvas-readout" style={{
             position: 'absolute', left: 0, right: 0, bottom: 8,
             display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
             pointerEvents: 'none', zIndex: 20, padding: '0 12px',
@@ -62,12 +62,11 @@ const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
             fontSize: 'var(--text-sm)', color: 'rgba(230,236,239,0.75)',
             textShadow: '0 1px 2px rgba(0,0,0,0.8)',
         }}>
-            <span>{formatTimePrecise(currentSeconds)}</span>
-            <span title={t('canvas.passedNotes')}>♪ {passedNoteCount}</span>
+            <span title={`BPM: ${playheadBpm}`}>BPM {playheadBpm}</span>
+            <span title={t('canvas.passedNotes')}>♪ {passedNoteCount} / {totalNoteCount}</span>
         </div>
     );
 });
-
 interface FinalVirtualCanvasProps {
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
   onScrollChange?: (scrollY: number, virtualHeight: number) => void;
@@ -1103,7 +1102,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                     )}
                 </div>
 
-                {/* 画布实时信息叠加层（issue 22 / issue 188）：常显，不拦截指针 */}
+                {/* 画布实时信息叠加层（issue 22 / issue 188）：常显，不拦截指针。
+                    issue 179：左下 = 判定线处 BPM（时间与播放条时间码重复，已删），右下 = 已过 / 总数 */}
                 <CanvasPlayheadHud geometry={geometry} notes={notes} />
             </div>
         </div>

@@ -152,6 +152,23 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(stored().display.slideOpacity).toBe(defaults.slideOpacity);
   });
 
+  it('issue 179：最下方「播放条」组的「显示播放起点按钮」开关，默认开、写盘；恢复默认不动它', () => {
+    setup();
+    const canvasGroup = within(panel()).getByRole('region', { name: '画布显示' });
+    const playbarGroup = within(panel()).getByRole('region', { name: '播放条' });
+    expect(canvasGroup.compareDocumentPosition(playbarGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const markerSwitch = within(playbarGroup).getByRole('switch', { name: '显示播放起点按钮' });
+    expect(markerSwitch).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(markerSwitch);
+    const playbar = () => (JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as { playbar: { markerButton: boolean } }).playbar;
+    expect(playbar().markerButton).toBe(false);
+
+    fireEvent.click(resetBtn());
+    fireEvent.click(within(panel()).getByRole('button', { name: '确认恢复' }));
+    expect(playbar().markerButton).toBe(false);
+  });
+
   it('关闭行为：Esc 键收起面板并将焦点还给触发钮；点击遮罩收起面板', () => {
     setup();
     expect(panel()).toBeInTheDocument();

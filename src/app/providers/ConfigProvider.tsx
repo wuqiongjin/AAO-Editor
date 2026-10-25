@@ -55,6 +55,8 @@ export interface ConfigContextValue {
   setCurveConfig: (config: CurveConfig) => void;
   /** 节拍吸附档位（票 178）：写回 settings.beatSnap 并持久化（跨会话沿用上次值） */
   setBeatSnap: (beatSnap: number) => void;
+  /** 工作台播放条（票 179）：段内浅合并写回 settings.playbar 并持久化 */
+  setPlaybar: (patch: Partial<AppSettings['playbar']>) => void;
   /** 工程启动台排序（issue 19 #4）：字段级写回 settings.projects.sort 并持久化 */
   setProjectSort: (sort: AppSettings['projects']['sort']) => void;
   /** 同步导入谱面代码（票 28）：字段级写回 settings.projects.importWithChart 并持久化 */
@@ -227,6 +229,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     noteSettingsChange(['beatSnap']);
   }, []);
 
+  const setPlaybar = useCallback((patch: Partial<AppSettings['playbar']>) => {
+    setSettings(prev => {
+      return persistSettings(updateSettings(prev, { playbar: patch }));
+    });
+    noteSettingsChange(['playbar']);
+  }, []);
+
   // 启动台排序（issue 19 #4）：与皮肤/键音同范式——字段级写回、立即生效并持久化
   const setProjectSort = useCallback((sort: AppSettings['projects']['sort']) => {
     setSettings(prev => {
@@ -284,7 +293,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setBeatSnap, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setBeatSnap, setPlaybar, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

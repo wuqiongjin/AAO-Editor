@@ -145,6 +145,11 @@ export interface AppSettings {
    */
   beatSnap: number;
   /**
+   * 工作台播放条（issue 177 Q25 / 票 179）：`markerButton` = 时间码旁的播放起点按钮显不显示，默认开。
+   * 与 `display`（画布显示项）分段：显示面板「恢复默认」只重置画布那段。additive，不 bump schemaVersion。
+   */
+  playbar: { markerButton: boolean };
+  /**
    * 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28
    * ；官方选曲面板排序 票 31）。
    * additive 字段，不 bump schemaVersion。
@@ -472,6 +477,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
     beatSnap: DEFAULT_BEAT_SNAP,
+    playbar: { markerButton: true },
     projects: { sort: 'lastOpened', importWithChart: true, songSort: { ...SONG_SORT_DEFAULT } },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
     export: { ...DEFAULT_EXPORT_FIELDS },
@@ -491,6 +497,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   const display = (obj.display && typeof obj.display === 'object' ? obj.display : {}) as Record<string, unknown>;
   const preview = (obj.preview && typeof obj.preview === 'object' ? obj.preview : {}) as Record<string, unknown>;
   const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, unknown>;
+  const playbar = (obj.playbar && typeof obj.playbar === 'object' ? obj.playbar : {}) as Record<string, unknown>;
   const exportRaw = (obj.export && typeof obj.export === 'object' ? obj.export : {}) as Record<string, unknown>;
   const visual = (obj.visual && typeof obj.visual === 'object' ? obj.visual : {}) as Record<string, unknown>;
   const rawNoteSkin = (visual.noteSkin && typeof visual.noteSkin === 'object' ? visual.noteSkin : {}) as Record<string, unknown>;
@@ -563,6 +570,9 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
     beatSnap: normalizeBeatSnap(obj.beatSnap),
+    playbar: {
+      markerButton: typeof playbar.markerButton === 'boolean' ? playbar.markerButton : defaults.playbar.markerButton,
+    },
     // 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28；官方选曲面板排序 票 31）
     projects: {
       sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort),
@@ -703,6 +713,7 @@ export function updateSettings(
     visual: Partial<AppSettings['visual']>;
     curve?: CurveConfig;
     beatSnap?: number;
+    playbar?: Partial<AppSettings['playbar']>;
     projects?: Partial<AppSettings['projects']>;
     preview?: Partial<AppSettings['preview']>;
     export?: Partial<AppSettings['export']>;
@@ -724,6 +735,7 @@ export function updateSettings(
     visual: { ...prev.visual, ...(patch.visual ?? {}) },
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
     beatSnap: patch.beatSnap !== undefined ? normalizeBeatSnap(patch.beatSnap) : prev.beatSnap,
+    playbar: { ...prev.playbar, ...(patch.playbar ?? {}) },
     projects: { ...prev.projects, ...(patch.projects ?? {}) },
     preview: { ...prev.preview, ...(patch.preview ?? {}) },
     // `opening` 是嵌套对象：段内浅合并会把 `items` 整个抹掉（改 `enabled` 就丢三项开关）
