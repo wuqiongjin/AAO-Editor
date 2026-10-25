@@ -11,6 +11,9 @@ describe('ADR-0021 · 应用更新接线', () => {
     expect(settings).toMatch(/section === 'about'/);
     expect(settings).toMatch(/settings\.section\.about/);
     expect(settings).not.toMatch(/electron-updater/);
+    expect(readStripped('src/app/appUpdate.ts')).not.toMatch(/electron-updater/);
+    expect(readStripped('electron/appUpdate.cjs')).toMatch(/setFeedURL/);
+    expect(readStripped('electron/appUpdate.cjs')).toMatch(/provider: 'generic'/);
   });
 
   it('发行说明走 markdown 子集渲染组件，不裸贴文本、不走 innerHTML', () => {

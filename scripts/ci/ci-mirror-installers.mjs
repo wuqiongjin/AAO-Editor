@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// 国内下载副本（ADR-0022 §7 / release-pipeline 07）：把 GitHub 最新正式 Release 的
-// 安装包转载到 CNB release，供国内网络直接下载。**非更新源**——updater 仍只认 GitHub。
+// 国内下载副本（ADR-0022 §7 / release-pipeline 07 + 16）：把 GitHub 最新正式 Release 的
+// 安装包转载到 CNB release，并改写 latest*.yml 为可匿名 GET 的 generic feed（下载源 CNB）。
 //
 // 由 .cnb.yml 触发：crontab 每天 22:00 一轮（CNB cron 固定 Asia/Shanghai，平台行为非配置项），
 // 或 web_trigger 手动触发（页面「构建 → 手动触发构建」/ 分支详情页按钮，发版后即时补镜像）。
@@ -29,6 +29,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  cnbReleaseAssetUrl,
+  isFeedYmlName,
+  rewriteGenericFeedYml,
+} from './cnbGenericFeed.mjs';
 
 const GH_REPO = process.env.GITHUB_MIRROR_REPO ?? 'wuqiongjin/AAO-Editor';
 const CNB_SLUG = process.env.CNB_REPO_SLUG;
@@ -140,8 +145,17 @@ async function main() {
   const wanted = (latest.assets ?? []).filter((a) => a.browser_download_url);
   // 幂等键 = tag + 附件名集合：缺谁补谁，部分上传中断的下一轮自动续
   const have = new Set((existing?.assets ?? []).map((a) => a.name));
-  if (existing && wanted.every((a) => have.has(a.name))) {
-    log(`${tag} 已镜像（${wanted.length} 个附件齐），跳过`);
+  const genericMarker = `https://cnb.cool/${CNB_SLUG}/-/releases/download/`;
+  const staleFeeds = [];
+  for (const a of wanted.filter((x) => isFeedYmlName(x.name) && have.has(x.name))) {
+    const url = cnbReleaseAssetUrl(CNB_SLUG, tag, a.name);
+    const res = await fetch(url, { redirect: 'follow' });
+    const text = res.ok ? await res.text() : '';
+    if (!text.includes(genericMarker)) staleFeeds.push(a.name);
+  }
+  const missing = wanted.filter((a) => !have.has(a.name));
+  if (existing && missing.length === 0 && staleFeeds.length === 0) {
+    log(`${tag} 已镜像（${wanted.length} 个附件齐，generic feed 已改写），跳过`);
     return;
   }
   let release = existing;
@@ -153,13 +167,21 @@ async function main() {
     if (!release) fail(`拿不到 CNB release（${tag}），无法上传附件`);
   }
 
-  const todo = wanted.filter((a) => !have.has(a.name));
+  const stale = new Set(staleFeeds);
+  const todo = wanted.filter((a) => !have.has(a.name) || stale.has(a.name));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aao-mirror-'));
   try {
     for (const a of todo) {
       log(`下载 ${a.name}`);
       const file = path.join(dir, a.name);
       await download(a.browser_download_url, file);
+      if (isFeedYmlName(a.name)) {
+        fs.writeFileSync(
+          file,
+          rewriteGenericFeedYml(fs.readFileSync(file, 'utf8'), { slug: CNB_SLUG, tag }),
+        );
+        log(`改写 generic feed ${a.name}`);
+      }
       log(`上传 ${a.name} → CNB release ${tag}`);
       await uploadAsset(release.id, file);
     }

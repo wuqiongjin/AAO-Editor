@@ -58,6 +58,7 @@ const {
 const { t, setActiveUiLanguage } = require('./i18n.cjs');
 const { autoUpdater } = require('electron-updater');
 const { createAppUpdater, registerAppUpdateIpc } = require('./appUpdate.cjs');
+const { loadUpdateSourceSync, patchAppStateSync } = require('./appState.cjs');
 const { createAppLog, registerAppLogIpc } = require('./appLog.cjs');
 const { registerDiagnosticsExportIpc } = require('./diagnosticsExport.cjs');
 const { writeFileAtomic } = require('./atomicWrite.cjs');
@@ -358,6 +359,8 @@ registerAppUpdateIpc(ipcMain, createAppUpdater({
     isPackaged: () => app.isPackaged,
     getVersion: () => app.getVersion(),
     autoUpdater,
+    getUpdateSource: () => loadUpdateSourceSync(userDataDir()),
+    setUpdateSource: (source) => patchAppStateSync(userDataDir(), { updateSource: source }),
     send: (channel, payload) => {
         for (const win of BrowserWindow.getAllWindows()) {
             win.webContents.send(channel, payload);

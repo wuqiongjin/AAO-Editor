@@ -29,6 +29,7 @@ function stubPackagedUpdate(
     packaged: true,
     currentVersion: '0.1.0',
     status: 'idle',
+    updateSource: 'github',
     ...initial,
   };
   const listeners: Array<(s: AppUpdateState) => void> = [];
@@ -37,18 +38,34 @@ function stubPackagedUpdate(
     appUpdate: {
       getState: async () => state,
       check: async () => {
-        state = { ...state, status: result };
+        if (state.status === 'downloading') return state;
+        state = {
+          ...state,
+          status: result,
+          errorMessage: result === 'error' ? (state.errorMessage ?? 'net::ERR_FAILED') : state.errorMessage,
+        };
         listeners.forEach((fn) => fn(state));
         return state;
       },
       install,
+      setUpdateSource: async (source: AppUpdateState['updateSource']) => {
+        state = { ...state, updateSource: source ?? 'github' };
+        listeners.forEach((fn) => fn(state));
+        return { ...state, ok: true };
+      },
       onEvent: (cb: (s: AppUpdateState) => void) => {
         listeners.push(cb);
         return () => {};
       },
     },
   };
-  return { install };
+  return {
+    install,
+    emit(next: AppUpdateState) {
+      state = next;
+      listeners.forEach((fn) => fn(state));
+    },
+  };
 }
 
 beforeEach(() => {
@@ -68,6 +85,7 @@ describe('ADR-0021 · 设置页关于', () => {
     expect(screen.getByText(new RegExp(APP_VERSION))).toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: '自动检查' })).toBeNull();
     expect(screen.queryByRole('button', { name: '检查更新' })).toBeNull();
+    expect(screen.queryByRole('radiogroup', { name: '下载源' })).toBeNull();
     // 票 04：浏览器里补一段身份说明（与首访弹窗同一份内容）。
     // 锁三个形态事实：它并入身份卡下半段（.about-note 在 .about-identity 里，不是悬空一段
     // 文字、也不是另一张卡）、用共享内容的 compact 档、并且自带小标题。
@@ -99,13 +117,18 @@ describe('ADR-0021 · 设置页关于', () => {
     expect(screen.queryByText(/部分功能仅在桌面版支持/)).toBeNull();
   });
 
-  it('启动自动检查失败：不出 toast', async () => {
+  it('启动自动检查网络失败：toast 提示换下载源', async () => {
     stubPackagedUpdate({}, 'error');
     const toastSpy = vi.spyOn(ToastModule, 'showToast');
     renderAbout();
     fireEvent.click(screen.getByRole('button', { name: '关于' }));
     await screen.findByRole('button', { name: '检查更新' });
-    await waitFor(() => expect(toastSpy).not.toHaveBeenCalled());
+    await waitFor(() => {
+      expect(toastSpy).toHaveBeenCalledWith(
+        '检查失败，可能是网络问题，可以尝试将下载源替换为 CNB。',
+        'danger',
+      );
+    });
     toastSpy.mockRestore();
   });
 
@@ -139,14 +162,62 @@ describe('ADR-0021 · 设置页关于', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
-  it('手动检查失败：一条危险 toast，不在关于里写两遍', async () => {
+  it('手动检查网络失败：toast 含下载源与另一个源名，不在关于里写两遍', async () => {
     stubPackagedUpdate({}, 'error');
     const toastSpy = vi.spyOn(ToastModule, 'showToast');
     renderAbout();
     fireEvent.click(screen.getByRole('button', { name: '关于' }));
     fireEvent.click(await screen.findByRole('button', { name: '检查更新' }));
-    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith('暂时查不到更新，请稍后重试。', 'danger'));
-    expect(screen.queryAllByText('暂时查不到更新，请稍后重试。')).toHaveLength(0);
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(
+      '检查失败，可能是网络问题，可以尝试将下载源替换为 CNB。',
+      'danger',
+    ));
+    expect(screen.queryAllByText(/检查失败，可能是网络问题/)).toHaveLength(0);
     toastSpy.mockRestore();
+  });
+
+  it('校验失败 toast 不提换源', async () => {
+    stubPackagedUpdate({ errorMessage: 'sha512 checksum mismatch' }, 'error');
+    const toastSpy = vi.spyOn(ToastModule, 'showToast');
+    renderAbout();
+    fireEvent.click(screen.getByRole('button', { name: '关于' }));
+    fireEvent.click(await screen.findByRole('button', { name: '检查更新' }));
+    await waitFor(() => expect(toastSpy).toHaveBeenCalled());
+    const msg = String(toastSpy.mock.calls[0]?.[0] ?? '');
+    expect(msg).not.toMatch(/下载源/);
+    expect(msg).toMatch(/校验/);
+    toastSpy.mockRestore();
+  });
+
+  it('下载中断网络失败：toast 提示换下载源', async () => {
+    const { emit } = stubPackagedUpdate({ status: 'downloading', percent: 40, updateSource: 'github' });
+    const toastSpy = vi.spyOn(ToastModule, 'showToast');
+    renderAbout();
+    fireEvent.click(screen.getByRole('button', { name: '关于' }));
+    await screen.findByRole('radiogroup', { name: '下载源' });
+    emit({
+      packaged: true,
+      currentVersion: '0.1.0',
+      status: 'error',
+      updateSource: 'github',
+      errorMessage: 'net::ERR_CONNECTION_RESET',
+    });
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(
+      '检查失败，可能是网络问题，可以尝试将下载源替换为 CNB。',
+      'danger',
+    ));
+    toastSpy.mockRestore();
+  });
+
+  it('已打包露出 GitHub/CNB 下载源；下载中控件禁用', async () => {
+    stubPackagedUpdate({ status: 'downloading', percent: 40, updateSource: 'github' });
+    renderAbout();
+    fireEvent.click(screen.getByRole('button', { name: '关于' }));
+    const group = await screen.findByRole('radiogroup', { name: '下载源' });
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'GitHub' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'CNB' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('radio', { name: /GitHub/ })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'CNB' })).toBeDisabled();
   });
 });

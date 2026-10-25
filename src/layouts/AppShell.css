@@ -2283,8 +2283,54 @@ button.skin-pill {
 .settings-row .select-control,
 .settings-row .number-control,
 .settings-row .switch,
-.settings-row .inline-actions {
+.settings-row .inline-actions,
+.settings-row .update-source-options {
   flex: 0 0 auto;
+}
+
+/* 覆盖 `.settings-row > div { flex-direction: column }`：两个源并排成一段控件 */
+.settings-row > .update-source-options {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-inset);
+}
+
+.update-source-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 88px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-2xs);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.settings-row .update-source-option span {
+  color: inherit;
+  font-size: inherit;
+}
+
+.update-source-option.is-active {
+  background: var(--accent-btn);
+  color: var(--accent-btn-text);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent-btn) 28%, transparent);
+}
+
+.update-source-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* 数字输入（缓存策略这类「一个数」的参数，票 18） */

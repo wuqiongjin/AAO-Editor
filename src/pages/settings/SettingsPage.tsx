@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Download, FolderOpen, FolderSearch, FolderSync, Info, MonitorCog, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { Check, Download, FolderOpen, FolderSearch, FolderSync, Github, Info, MonitorCog, RefreshCw, Trash2, Upload } from 'lucide-react';
 import appLogo from '../../assets/brand/app-logo.png';
 import AppPageShell from '../../layouts/AppPageShell';
 import { useConfig } from '../../app/ProviderTree';
@@ -18,9 +18,13 @@ import {
   checkAppUpdate,
   getAppUpdateState,
   installAppUpdate,
+  setAppUpdateSource,
   subscribeAppUpdate,
   type AppUpdateState,
+  type UpdateSource,
 } from '../../app/appUpdate';
+import { toastAppUpdateResult } from '../../app/appUpdateFeedback';
+import CnbMark from '../../ui/CnbMark';
 import { exportDiagnostics, getDiagnosticsExportBridge } from '../../diagnostics/exportDiagnostics';
 
 // 设置页：接入 AppPageShell（Sidebar 扁平导航 + Body 设置详情），修改立即生效并持久化。
@@ -143,7 +147,7 @@ function updateStatusText(state: AppUpdateState): string | null {
 }
 
 function AboutSection({
-  version, packaged, updateState, autoCheck, onAutoCheck, onCheck, onInstall,
+  version, packaged, updateState, autoCheck, onAutoCheck, onCheck, onInstall, onUpdateSource,
   diagnosticsAvailable, includeChart, exportBusy, onIncludeChart, onExportDiagnostics,
 }: {
   version: string;
@@ -153,6 +157,7 @@ function AboutSection({
   onAutoCheck: (v: boolean) => void;
   onCheck: () => void;
   onInstall: () => void;
+  onUpdateSource: (source: UpdateSource) => void;
   diagnosticsAvailable: boolean;
   includeChart: boolean;
   exportBusy: boolean;
@@ -160,8 +165,10 @@ function AboutSection({
   onExportDiagnostics: () => void;
 }) {
   const busy = updateState.status === 'checking' || updateState.status === 'downloading';
+  const sourceLocked = updateState.status === 'downloading';
   const ready = updateState.status === 'ready';
   const status = packaged ? updateStatusText(updateState) : null;
+  const source = updateState.updateSource === 'cnb' ? 'cnb' : 'github';
   return (
     <>
       <div className="settings-heading">
@@ -218,6 +225,38 @@ function AboutSection({
                 <><RefreshCw size={15} />{t('settings.checkUpdate')}</>
               )}
             </button>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row__text">
+              <strong>{t('settings.updateSource')}</strong>
+              <span>{t('settings.updateSource.hint')}</span>
+            </div>
+            <div className="update-source-options" role="radiogroup" aria-label={t('settings.updateSource')}>
+              <button
+                type="button"
+                role="radio"
+                className={`update-source-option${source === 'github' ? ' is-active' : ''}`}
+                aria-checked={source === 'github'}
+                aria-label={t('update.source.github')}
+                disabled={sourceLocked}
+                onClick={() => onUpdateSource('github')}
+              >
+                <Github size={15} aria-hidden />
+                <span>{t('update.source.github')}</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                className={`update-source-option${source === 'cnb' ? ' is-active' : ''}`}
+                aria-checked={source === 'cnb'}
+                aria-label={t('update.source.cnb')}
+                disabled={sourceLocked}
+                onClick={() => onUpdateSource('cnb')}
+              >
+                <CnbMark size={15} />
+                <span>{t('update.source.cnb')}</span>
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -276,10 +315,8 @@ export default function SettingsPage({ active = true }: { active?: boolean }) {
   useEffect(() => subscribeAppUpdate(setUpdateState), []);
 
   const handleCheckUpdate = async () => {
-    await checkAppUpdate();
-    const next = getAppUpdateState();
-    if (next.status === 'current') showToast(t('update.status.current'), 'success');
-    if (next.status === 'error') showToast(t('update.status.error'), 'danger');
+    const next = await checkAppUpdate();
+    if (next.status === 'current') toastAppUpdateResult(next);
   };
 
   useEffect(() => {
@@ -646,6 +683,7 @@ export default function SettingsPage({ active = true }: { active?: boolean }) {
               onAutoCheck={setAutoCheck}
               onCheck={() => void handleCheckUpdate()}
               onInstall={() => void installAppUpdate()}
+              onUpdateSource={(source) => void setAppUpdateSource(source)}
               diagnosticsAvailable={diagnosticsAvailable}
               includeChart={includeChart}
               exportBusy={exportBusy}

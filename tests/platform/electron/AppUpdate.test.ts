@@ -23,11 +23,15 @@ function fakeAutoUpdater() {
     allowPrerelease: true,
     checkCalls: 0,
     installCalls: 0,
+    feedCalls: [] as unknown[],
     on(ev: string, fn: (...args: unknown[]) => void) {
       (handlers[ev] ??= []).push(fn);
     },
     emit(ev: string, ...args: unknown[]) {
       (handlers[ev] ?? []).forEach((fn) => fn(...args));
+    },
+    setFeedURL(opts: unknown) {
+      this.feedCalls.push(opts);
     },
     async checkForUpdates() {
       this.checkCalls += 1;
@@ -37,6 +41,21 @@ function fakeAutoUpdater() {
       this.installCalls += 1;
     },
   };
+}
+
+function packagedUpdater(
+  updater: ReturnType<typeof fakeAutoUpdater>,
+  extras: Record<string, unknown> = {},
+) {
+  return createAppUpdater({
+    isPackaged: () => true,
+    getVersion: () => '0.1.0',
+    autoUpdater: updater,
+    send: () => {},
+    getUpdateSource: () => 'github',
+    setUpdateSource: () => {},
+    ...extras,
+  });
 }
 
 describe('ADR-0021 · 主进程应用更新', () => {
@@ -101,6 +120,7 @@ describe('ADR-0021 · 主进程应用更新', () => {
     const preload = readStripped('electron/preload.js');
     expect(preload).toMatch(/appUpdate:/);
     expect(preload).toMatch(/appUpdate:event/);
+    expect(preload).toMatch(/setUpdateSource/);
 
     const pkg = JSON.parse(readSource('package.json')) as {
       version: string;
@@ -118,5 +138,101 @@ describe('ADR-0021 · 主进程应用更新', () => {
 
     const renderer = readStripped('src/app/appUpdate.ts');
     expect(renderer).not.toMatch(/from ['"]electron-updater['"]/);
+    expect(handlers.has('appUpdate:setUpdateSource')).toBe(true);
+  });
+
+  it('CNB 先读公开 Release 列表再 setFeedURL 到真实 tag；GitHub 走 generic 不打 api.github.com', async () => {
+    const updater = fakeAutoUpdater();
+    let source: 'github' | 'cnb' = 'cnb';
+    const api = packagedUpdater(updater, {
+      getUpdateSource: () => source,
+      setUpdateSource: (next: 'github' | 'cnb') => {
+        source = next;
+      },
+      fetchCnbReleases: async () => [
+        {
+          tag_name: 'v0.1.0',
+          draft: false,
+          prerelease: false,
+          is_latest: false,
+          published_at: '2026-10-22T02:02:16Z',
+        },
+      ],
+    });
+    await api.check();
+    expect(updater.feedCalls[0]).toEqual({
+      provider: 'generic',
+      url: 'https://cnb.cool/AsterPicker/AAO-Editor/-/releases/download/v0.1.0',
+    });
+    updater.emit('update-not-available');
+    const switched = api.setUpdateSource('github');
+    expect(switched.updateSource).toBe('github');
+    await api.check();
+    expect(updater.feedCalls.at(-1)).toEqual({
+      provider: 'generic',
+      url: 'https://github.com/wuqiongjin/AAO-Editor/releases/latest/download',
+    });
+  });
+
+  it('未打包不调 updater、不 setFeedURL', async () => {
+    const updater = fakeAutoUpdater();
+    const api = createAppUpdater({
+      isPackaged: () => false,
+      getVersion: () => '0.1.0',
+      autoUpdater: updater,
+      send: () => {},
+      getUpdateSource: () => 'cnb',
+      setUpdateSource: () => {},
+    });
+    await api.check();
+    expect(updater.checkCalls).toBe(0);
+    expect(updater.feedCalls).toEqual([]);
+  });
+
+  it('下载中改源被拒；ready 时可改源且仍能 install', async () => {
+    const updater = fakeAutoUpdater();
+    let stored: 'github' | 'cnb' = 'github';
+    const api = packagedUpdater(updater, {
+      getUpdateSource: () => stored,
+      setUpdateSource: (next: 'github' | 'cnb') => {
+        stored = next;
+      },
+    });
+    await api.check();
+    updater.emit('update-available', { version: '0.2.0' });
+    expect(api.getState().status).toBe('downloading');
+    const denied = api.setUpdateSource('cnb');
+    expect(denied.ok).toBe(false);
+    expect(stored).toBe('github');
+    expect(denied.updateSource).toBe('github');
+    updater.emit('update-downloaded', { version: '0.2.0' });
+    expect(api.getState().status).toBe('ready');
+    const allowed = api.setUpdateSource('cnb');
+    expect(allowed.ok).toBe(true);
+    expect(stored).toBe('cnb');
+    expect(api.getState().status).toBe('ready');
+    api.install();
+    expect(updater.installCalls).toBe(1);
+  });
+
+  it('失败后改源只记账、不立刻检查，清掉 error 以免再 toast', async () => {
+    const updater = fakeAutoUpdater();
+    let stored: 'github' | 'cnb' = 'github';
+    const api = packagedUpdater(updater, {
+      getUpdateSource: () => stored,
+      setUpdateSource: (next: 'github' | 'cnb') => {
+        stored = next;
+      },
+    });
+    await api.check();
+    updater.emit('error', new Error('net::ERR_FAILED'));
+    expect(api.getState().status).toBe('error');
+    const checks = updater.checkCalls;
+    const switched = api.setUpdateSource('cnb');
+    expect(switched.ok).toBe(true);
+    expect(switched.updateSource).toBe('cnb');
+    expect(switched.status).toBe('idle');
+    expect(switched.errorMessage).toBeFalsy();
+    expect(updater.checkCalls).toBe(checks);
   });
 });

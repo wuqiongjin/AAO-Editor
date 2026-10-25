@@ -10,7 +10,7 @@
 
 ## Download
 
-Get desktop installers from **[GitHub Releases](https://github.com/wuqiongjin/AAO-Editor/releases)** (Windows NSIS / macOS DMG / Linux AppImage, built with electron-builder). For networks with limited GitHub access, the same installers are mirrored to **[CNB Releases](https://cnb.cool/AsterPicker/AAO-Editor/-/releases)** shortly after each release.
+Get desktop installers from **[GitHub Releases](https://github.com/wuqiongjin/AAO-Editor/releases)** (Windows NSIS / macOS DMG / Linux AppImage, built with electron-builder). For networks with limited GitHub access, the same installers are mirrored to **[CNB Releases](https://cnb.cool/AsterPicker/AAO-Editor/-/releases)** shortly after each release. If in-app update checks cannot reach GitHub, install once from CNB, then set **Download source** to CNB in Settings → About.
 
 Installers are not code-signed yet: on macOS, right-click (or Ctrl-click) the app and choose "Open" the first time; on Windows, if SmartScreen appears, choose "Run anyway".
 

@@ -22,6 +22,14 @@ function writeAppStateRawSync(userData, doc) {
     writeFileAtomicSync(appStateFilePath(userData), JSON.stringify(doc));
 }
 
+function normalizeUpdateSource(raw) {
+    return raw === 'cnb' ? 'cnb' : 'github';
+}
+
+function loadUpdateSourceSync(userData) {
+    return normalizeUpdateSource(readAppStateRawSync(userData).updateSource);
+}
+
 /** 只覆盖传入的键，保留文件里其它本机状态字段 */
 function patchAppStateSync(userData, patch) {
     const cur = readAppStateRawSync(userData);
@@ -32,6 +40,9 @@ function patchAppStateSync(userData, patch) {
     if (Object.prototype.hasOwnProperty.call(patch, 'window')) {
         next.window = patch.window;
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'updateSource')) {
+        next.updateSource = normalizeUpdateSource(patch.updateSource);
+    }
     writeAppStateRawSync(userData, next);
 }
 
@@ -41,4 +52,6 @@ module.exports = {
     readAppStateRawSync,
     writeAppStateRawSync,
     patchAppStateSync,
+    normalizeUpdateSource,
+    loadUpdateSourceSync,
 };

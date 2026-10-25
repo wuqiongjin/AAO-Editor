@@ -19,4 +19,16 @@ describe('ADR-0021 · 自动检查写入设置对象', () => {
     expect(off.autoCheck).toBe(false);
     expect(updateSettings(off, { theme: 'dark' }).autoCheck).toBe(false);
   });
+
+  it('导入 JSON 不含也不能改 updateSource', () => {
+    const loaded = loadSettings(settingsStorageOf({
+      schemaVersion: 1,
+      autoCheck: false,
+      updateSource: 'cnb',
+    }));
+    expect(loaded.autoCheck).toBe(false);
+    expect(loaded).not.toHaveProperty('updateSource');
+    expect(JSON.stringify(loaded)).not.toContain('updateSource');
+    expect(JSON.stringify(defaultSettings())).not.toContain('updateSource');
+  });
 });

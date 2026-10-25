@@ -242,4 +242,19 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     // release_id 来自查 / 建的 release 对象（409 竞态有回查兜底）
     expect(installersMirror).toContain('uploadAsset(release.id, file)');
   });
+
+  it('镜像脚本改写 latest*.yml 为 CNB generic feed，不用 GitHub 相对路径当 CNB 根（release-pipeline 16）', () => {
+    expect(installersMirror).toContain("from './cnbGenericFeed.mjs'");
+    expect(installersMirror).toContain('rewriteGenericFeedYml');
+    expect(installersMirror).toContain('isFeedYmlName');
+    expect(installersMirror).not.toMatch(/非更新源/);
+    const feed = readSource('scripts/ci/cnbGenericFeed.mjs');
+    expect(feed).toContain('/-/releases/download/${encodeURIComponent(tag)}');
+    expect(feed).not.toContain('/-/releases/download/latest');
+    expect(feed).not.toContain('${CNB_WEB}/${slug}/-/releases/latest/download');
+    expect(feed).not.toMatch(/CNB_TOKEN|Bearer/);
+    const runtime = readSource('electron/cnbFeed.cjs');
+    expect(runtime).toContain('?format=json');
+    expect(runtime).toContain('pickLatestCnbReleaseTag');
+  });
 });

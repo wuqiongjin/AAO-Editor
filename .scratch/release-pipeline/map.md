@@ -23,7 +23,8 @@
 - [2026-10-11 票 03 · 实现口径，用户已验收] 运行时素材 URL **一律跟构建 base**（`import.meta.env.BASE_URL`），不许写死站点根 —— Electron 生产包是 `file://`，绝对路径会解析到磁盘根。
 - [2026-10-11 用户拍板] 用户可见文案**只陈述事实、不摆开发者命令**：`npm run …` 是对开发者的话术（打包应用的使用者跑不了）；同理**不猜失败成因**（"没取件"与"路径解析不到"在这一层无法区分）→ 空态改为中性一句「加载失败 + 缺什么 + 可能原因」。取件入口只在 `package.json` / `scripts/README.md`。
 - [2026-10-14 票 05 · 用户拍板] README = **中英双文件**（`README.md` 中文默认 + `README.en.md` 全量对等，静态锁测防双语腐烂）；**LICENSE = MIT**（© 2026 AAO Editor，仅覆盖代码、不覆盖 Bestdori 素材，声明区块说清）；README 兼作宣传视频脚本素材，功能叙事以**谱面工程管理**为锚点、只述已发布功能；截图/GIF 落 `docs/media/readme/`，Electron 专属画面列本地补拍清单，随「公开分发」复审一并放行。
-- [2026-10-19 票 06 · 用户拍板] **应用更新**（ADR-0021）：已安装包检查 GitHub 正式 Release、下完请重启；关于页；自动检查进设置对象；不做第二源。验收改口：手动结果 toast；就绪改立即重启；稍后下次仍查发行；导语不承诺下载。
+- [2026-10-19 票 06 · 用户拍板] **应用更新**（ADR-0021）：已安装包检查 GitHub 正式 Release、下完请重启；关于页；自动检查进设置对象；不做第二源。验收改口：手动结果 toast；就绪改立即重启；稍后下次仍查发行；导语不承诺下载。（2026-10-25 票 16 修订第二源，见下）
+- [2026-10-25 票 16 · 用户拍板] **下载源** GitHub（默认）/ CNB：发版原址仍 GitHub；CNB 为同一 tag 可达副本；关于里持久切换、不静默 fallback；本机 `app-state.json`；网络失败每次提示换源；选择器与 CNB 匿名 generic feed 同一张票（ADR-0021 §3 / ADR-0022 §7）。[落地](./issues/16-下载源CNB与GitHub.md)
 - [2026-10-19 票 07 · 用户拍板] **CI 拓扑（ADR-0022 Accepted）** = CNB 工作台（门禁 + 向 GitHub 单向**非 force** 镜像 main/tags + cron 国内 release 副本）/ GitHub 公开面孔（代码镜像 + 三平台发版矩阵 + 正式 Release 直发）；GitHub PR 走人节奏回流；素材 = GitHub Actions 直连 CNB（`CNB_TOKEN` 只读 secret，不建第二个仓、不 pin ref）；门禁 = test + build + assets:check（lint/test:types 存量债另排）；签名本期不做。
 - [2026-10-20 票 08 · 用户拍板] 云开发取件凭据 = **平台个人环境变量**（平台 secret 注入 `ASSETS_SOURCE`，整地址含只读令牌，`use_in_slugs` 限本仓）；`assets-sync.mjs` 凭据候选链降级兜底；漫游令牌文件 / shell rc source 行 / `.cnb.yml` vscode 挂载 hook 于验收后清理。
 - [2026-10-20 票 09 · tag 口径已拍板 B，规则待用户应用] **GitHub 侧门禁**（ADR-0022 §9）：`main` 分支规则（仅 PR + `gate` 必过 + bypass 只放镜像 PAT）、`v*` tag 规则（PAT + 管理员均可建、禁改禁删）、PR 门禁 `ci.yml` 复用 `ci-gate.sh`（只跑罕见回流 PR，镜像 push 不触发）、发版 workflow `gate` job 同脚本兜底（tag 直推灵活性保留的对价：常态发版门禁跑两次）、Actions 只读权限、删残留 `master`。
@@ -35,7 +36,7 @@
 - [03 打包态（file://）仿真场素材读不到：素材前缀写死站点根](./issues/03-打包态仿真场素材读不到前缀写死站点根.md) — resolved（2026-10-11 用户验收通过）：素材前缀改跟 `import.meta.env.BASE_URL`（素材本就在包里，是 file:// 下绝对路径解析到磁盘根）
 - [04 AAO-Editor品牌与产品信息整改](./issues/04-AAO-Editor品牌与产品信息整改.md) — resolved（2026-10-12 定案：产品定名 AAO Editor（Advanced Arrangement Organizer），全套图标落位，元数据/外壳/UI/存储键收敛为 aao.*）
 - [05 README与LICENSE整改](./issues/05-README与LICENSE整改.md) — resolved（2026-10-14 定案并落地：双语 README + MIT LICENSE + 媒体实测 + 锁测；本地补拍清单与公开化门禁见票内）
-- [06 应用更新](./issues/06-应用更新.md) — resolved（2026-10-19 客户端落地；发版 CI / 签名 / 国内第二源不在本票）
+- [06 应用更新](./issues/06-应用更新.md) — resolved（2026-10-19 客户端落地；发版 CI / 签名 / 国内第二源不在本票；第二源由 16 承接）
 - [07 CI与发版链路](./issues/07-CI与发版链路.md) — resolved（拍板完成 = ADR-0022；实现按票内落点推进，完成时 01 一并 resolved）
 - [08 云开发取件凭据自举](./issues/08-云开发取件凭据自举.md) — resolved（2026-10-20 用户验收通过：凭据改走平台个人环境变量注入 `ASSETS_SOURCE`，脚本候选链兜底；清理漫游令牌文件 / rc source 行 / `.cnb.yml` vscode 挂载 hook）
 - [09 GitHub 侧门禁](./issues/09-GitHub侧门禁.md) — claimed（实现口径待用户在 GitHub 应用后确认；仓库侧件已落地）
@@ -44,3 +45,4 @@
 - [13 发布展示层去重与流水线命名](./issues/13-发布展示层去重与流水线命名.md) — resolved（2026-10-20：release notes 去 NOTICE 拼贴、直写单一来源 RELEASE_NOTES.md；.cnb.yml 五条流水线显式命名，imports 缩进 4→6 同步锁测）
 - [14 CNB 每日 22:00 定时任务不触发](./issues/14-CNB定时任务未触发.md) — resolved（2026-10-20：根因 = cron 表达式写成六字段，CNB 只认五字段 POSIX cron，非法表达式平台不注册且静默、只丢 cron 触发；修为 `0 22 * * *` + 锁测正负双锁）
 - [15 CNB 国内副本镜像 API 集成](./issues/15-CNB国内副本镜像API集成.md) — resolved（2026-10-21~22 三轮验收逐层剥开：404 = 端点多插一层路径前缀（CNB 路由一律 `/{repo}/-/…`，且 GET 的 404 被当「release 不存在」吞掉，POST 创建才暴露）；406 = Accept 未带版本化媒体类型；400 = SDK 的 upload_releases + asset-upload-confirmation 是旧口径（响应无 token，确认 URL 拼出 undefined）。终态 = cnbcool/attachments 插件 TS/Go 两版交叉验证的全链：asset-upload-url 发起 → PUT 直传 → verify_url 回认；第 3 轮验收通过，用户确认）
+- [16 下载源：CNB 与 GitHub](./issues/16-下载源CNB与GitHub.md) — resolved（关于选择器 + CNB 匿名 generic feed：运行时 `setFeedURL`，镜像改写 `latest*.yml`）

@@ -1,9 +1,20 @@
 /**
- * 应用更新（ADR-0021）：已安装的正式产品向 GitHub Releases 检查、下载，下完请用户重启。
+ * 应用更新（ADR-0021）：已安装的正式产品检查、下载，下完请用户重启。
+ * 发版原址仍是 GitHub；运行时按本机 updateSource setFeedURL（两边都 generic，避开 api.github.com）。
  * 未打包不调 updater。主进程只接线；渲染进程决定何时 check（自动检查偏好在设置对象里）。
  */
 
+const { normalizeUpdateSource } = require('./appState.cjs');
+const {
+    CNB_SLUG,
+    cnbGenericFeedUrlForTag,
+    cnbReleasesListUrl,
+    pickLatestCnbReleaseTag,
+} = require('./cnbFeed.cjs');
+
 const EVENT = 'appUpdate:event';
+/** 运行时走 GitHub 的 generic 目录，避开 api.github.com（未认证 403 / 国内常失败）。打包 publish 仍是 github。 */
+const GITHUB_GENERIC_FEED_URL = 'https://github.com/wuqiongjin/AAO-Editor/releases/latest/download';
 
 function stripNotes(raw) {
     if (typeof raw === 'string') return raw.replace(/<[^>]+>/g, '').trim();
@@ -18,6 +29,18 @@ function stripNotes(raw) {
 
 function createAppUpdater(deps) {
     const { isPackaged, getVersion, autoUpdater, send } = deps;
+    const readSource = deps.getUpdateSource || (() => 'github');
+    const persistSource = deps.setUpdateSource || (() => {});
+    const fetchCnbReleases =
+        deps.fetchCnbReleases ||
+        (async () => {
+            const url = cnbReleasesListUrl(CNB_SLUG);
+            const res = await fetch(url, { headers: { Accept: 'application/json' } });
+            if (!res.ok) {
+                throw new Error(`HttpError: ${res.status} "method: GET url: ${url}"`);
+            }
+            return res.json();
+        });
     let status = 'idle';
     let percent = 0;
     let availableVersion = '';
@@ -29,6 +52,30 @@ function createAppUpdater(deps) {
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.allowPrerelease = false;
 
+    function currentSource() {
+        return normalizeUpdateSource(readSource());
+    }
+
+    async function applyFeed() {
+        if (!isPackaged() || typeof autoUpdater.setFeedURL !== 'function') return;
+        const source = currentSource();
+        if (source === 'cnb') {
+            const tag = pickLatestCnbReleaseTag(await fetchCnbReleases());
+            if (!tag) {
+                throw new Error('Cannot find channel "latest.yml" update info: CNB has no stable release');
+            }
+            autoUpdater.setFeedURL({
+                provider: 'generic',
+                url: cnbGenericFeedUrlForTag(CNB_SLUG, tag),
+            });
+            return;
+        }
+        autoUpdater.setFeedURL({
+            provider: 'generic',
+            url: GITHUB_GENERIC_FEED_URL,
+        });
+    }
+
     function snapshot() {
         return {
             packaged: isPackaged(),
@@ -38,6 +85,7 @@ function createAppUpdater(deps) {
             availableVersion: availableVersion || undefined,
             releaseNotes: releaseNotes || undefined,
             errorMessage: errorMessage || undefined,
+            updateSource: currentSource(),
         };
     }
 
@@ -100,14 +148,30 @@ function createAppUpdater(deps) {
             if (checking || status === 'downloading') return snapshot();
             checking = true;
             try {
+                await applyFeed();
                 await autoUpdater.checkForUpdates();
             } catch (err) {
                 checking = false;
-                status = 'error';
-                errorMessage = err && err.message ? String(err.message) : 'update failed';
-                emit();
+                if (status !== 'error') {
+                    status = 'error';
+                    errorMessage = err && err.message ? String(err.message) : 'update failed';
+                    emit();
+                }
             }
             return snapshot();
+        },
+        setUpdateSource(raw) {
+            const next = normalizeUpdateSource(raw);
+            if (status === 'downloading') {
+                return { ...snapshot(), ok: false };
+            }
+            persistSource(next);
+            if (status === 'error') {
+                status = 'idle';
+                errorMessage = '';
+            }
+            emit();
+            return { ...snapshot(), ok: true };
         },
         install() {
             if (!isPackaged() || status !== 'ready') return snapshot();
@@ -121,6 +185,7 @@ function registerAppUpdateIpc(ipcMain, updater) {
     ipcMain.handle('appUpdate:getState', () => updater.getState());
     ipcMain.handle('appUpdate:check', () => updater.check());
     ipcMain.handle('appUpdate:install', () => updater.install());
+    ipcMain.handle('appUpdate:setUpdateSource', (_event, source) => updater.setUpdateSource(source));
 }
 
 module.exports = { EVENT, stripNotes, createAppUpdater, registerAppUpdateIpc };
