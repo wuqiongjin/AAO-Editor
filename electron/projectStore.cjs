@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { cacheDir, isPathInside, projectDir, projectsDir, safeProjectId } = require('./dataRoot.cjs');
-const { writeFileAtomic } = require('./atomicWrite.cjs');
+const { writeFileAtomic, renameOver } = require('./atomicWrite.cjs');
 
 const SCHEMA_VERSION = 1;
 
@@ -89,8 +89,13 @@ async function copyCachedFile(dataRoot, sourcePath, destPath) {
     }
     await fs.promises.access(source);
     const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
-    await fs.promises.copyFile(source, tmpPath);
-    await fs.promises.rename(tmpPath, destPath);
+    try {
+        await fs.promises.copyFile(source, tmpPath);
+        await renameOver(tmpPath, destPath);
+    } catch (err) {
+        await fs.promises.rm(tmpPath, { force: true }).catch(() => {});
+        throw err;
+    }
     return true;
 }
 

@@ -34,6 +34,13 @@ describe('atomicWrite · 临时文件 + rename', () => {
     }
   });
 
+  it('Windows 锁冲突路径：源码含 EPERM 重试（cover.bin 被预览占用时的替换）', () => {
+    const src = readFileSync(join(process.cwd(), 'electron/atomicWrite.cjs'), 'utf8');
+    expect(src).toMatch(/EPERM/);
+    expect(src).toMatch(/renameOver/);
+    expect(src).toMatch(/WIN_RENAME_TRIES/);
+  });
+
   it('覆盖已存在的目标文件', async () => {
     const dir = tmpDir('aao-atomic-overwrite-');
     try {
