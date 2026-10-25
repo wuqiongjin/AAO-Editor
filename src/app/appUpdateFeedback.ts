@@ -12,15 +12,16 @@ export function updateErrorToastMessage(state: AppUpdateState): string {
   if (kind === 'checksum') return t('update.status.error.checksum');
   if (kind === 'disk') return t('update.status.error.disk');
   if (kind === 'permission') return t('update.status.error.permission');
+  if (kind === 'install') return t('update.status.error.install');
   return t('update.status.error.network', { other: otherUpdateSourceName(state.updateSource) });
 }
 
 export function toastAppUpdateResult(state: AppUpdateState, opts?: { silent?: boolean }): void {
-  if (state.status === 'error') {
+  if (state.remote === 'error' || state.status === 'error') {
     showToast(updateErrorToastMessage(state), 'danger');
     return;
   }
-  if (!opts?.silent && state.status === 'current') {
+  if (!opts?.silent && (state.remote === 'current' || state.status === 'current')) {
     showToast(t('update.status.current'), 'success');
   }
 }

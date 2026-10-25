@@ -24,7 +24,7 @@ const FOCUSABLE = [
 
 export default function Dialog({
   size = 'md', role = 'dialog', raised, title, hint, head, description,
-  clipBody, onClose, footer, footerAlign = 'end', children,
+  clipBody, onClose, closeOnScrim = true, footer, footerAlign = 'end', children,
 }: {
   size?: DialogSize;
   role?: 'dialog' | 'alertdialog';
@@ -41,6 +41,8 @@ export default function Dialog({
   /** 正文不自己滚（选曲台：只有目录列表滚，tab 才不会被滚动条挤偏） */
   clipBody?: boolean;
   onClose: () => void;
+  /** 点遮罩是否关掉。默认开；应用更新这种要人做主的确认关掉。 */
+  closeOnScrim?: boolean;
   /** 底栏动作区：默认靠右；工具条形态（谱面代码）用 footerAlign="start" */
   footer: ReactNode;
   footerAlign?: 'end' | 'start';
@@ -91,7 +93,7 @@ export default function Dialog({
   }, []);
 
   return createPortal(
-    <div className={`dialog__scrim${raised ? ' dialog__scrim--raised' : ''}`} onMouseDown={onClose}>
+    <div className={`dialog__scrim${raised ? ' dialog__scrim--raised' : ''}`} onMouseDown={closeOnScrim ? onClose : undefined}>
       <div
         ref={panelRef}
         className={`dialog dialog--${size}`}

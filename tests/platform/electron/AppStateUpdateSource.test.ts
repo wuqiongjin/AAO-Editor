@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, rmSync, writeFileSync } from 'fs';
 import {
   appStateFilePath,
+  loadReadyVersionSync,
   loadUpdateSourceSync,
   patchAppStateSync,
 } from '@/electron/appState.cjs';
@@ -43,6 +44,8 @@ describe('ADR-0021 · app-state.json 下载源', () => {
       expect(doc.updateSource).toBe('cnb');
       expect(doc.dataRoot).toBe(normalizeDataRootPath(custom));
       expect(doc.window.width).toBe(1320);
+      patchAppStateSync(userData, { readyVersion: '0.2.0' });
+      expect(loadReadyVersionSync(userData)).toBe('0.2.0');
     } finally {
       rmSync(userData, { recursive: true, force: true });
       rmSync(custom, { recursive: true, force: true });

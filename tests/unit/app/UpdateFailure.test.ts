@@ -14,4 +14,9 @@ describe('ADR-0021 · 更新失败分类', () => {
     expect(classifyUpdateFailure('ENOSPC: no space left on device')).toBe('disk');
     expect(classifyUpdateFailure('EACCES: permission denied')).toBe('permission');
   });
+
+  it('装不上安装包不算 network，不提示换源', () => {
+    expect(classifyUpdateFailure("No update filepath provided, can't quit and install")).toBe('install');
+    expect(classifyUpdateFailure('Please check update first')).toBe('install');
+  });
 });

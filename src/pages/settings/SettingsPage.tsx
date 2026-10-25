@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Download, FolderOpen, FolderSearch, FolderSync, Github, Info, MonitorCog, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { Check, Download, FolderOpen, FolderSearch, FolderSync, Github, Info, MonitorCog, RefreshCw, RotateCw, Trash2, Upload } from 'lucide-react';
 import appLogo from '../../assets/brand/app-logo.png';
 import AppPageShell from '../../layouts/AppPageShell';
 import { useConfig } from '../../app/ProviderTree';
@@ -134,16 +134,19 @@ function NumberRow({
 }
 
 function updateStatusText(state: AppUpdateState): string | null {
-  switch (state.status) {
-    case 'checking':
-      return t('update.status.checking');
-    case 'downloading':
-      return t('update.status.downloading', { percent: Math.round(state.percent ?? 0) });
-    case 'ready':
-      return t('update.status.ready');
-    default:
-      return null;
+  if (state.local === 'downloading' || state.status === 'downloading') {
+    return t('update.status.downloading', { percent: Math.round(state.percent ?? 0) });
   }
+  if (state.remote === 'checking' || state.status === 'checking') {
+    return t('update.status.checking');
+  }
+  if (state.local === 'ready' || state.status === 'ready') {
+    return t('update.status.ready');
+  }
+  if (state.remote === 'available' || state.status === 'available') {
+    return t('update.status.available');
+  }
+  return null;
 }
 
 function AboutSection({
@@ -164,9 +167,9 @@ function AboutSection({
   onIncludeChart: (v: boolean) => void;
   onExportDiagnostics: () => void;
 }) {
-  const busy = updateState.status === 'checking' || updateState.status === 'downloading';
-  const sourceLocked = updateState.status === 'downloading';
-  const ready = updateState.status === 'ready';
+  const busy = updateState.remote === 'checking' || updateState.local === 'downloading' || updateState.status === 'checking' || updateState.status === 'downloading';
+  const sourceLocked = updateState.local === 'downloading' || updateState.status === 'downloading';
+  const ready = updateState.local === 'ready' || updateState.status === 'ready';
   const status = packaged ? updateStatusText(updateState) : null;
   const source = updateState.updateSource === 'cnb' ? 'cnb' : 'github';
   return (
@@ -212,19 +215,24 @@ function AboutSection({
           </div>
           <div className="settings-row">
             <div className="settings-row__text">
-              <strong>{ready ? t('update.restart') : t('settings.checkUpdate')}</strong>
+              <strong>{t('settings.checkUpdate')}</strong>
               <span>{status ?? t('settings.checkUpdate.hint')}</span>
             </div>
-            <button
-              className="button-secondary"
-              type="button"
-              disabled={busy}
-              onClick={ready ? onInstall : onCheck}
-            >
-              {ready ? t('update.restart') : (
-                <><RefreshCw size={15} />{t('settings.checkUpdate')}</>
-              )}
-            </button>
+            <span className="inline-actions">
+              {ready ? (
+                <button className="button-primary" type="button" onClick={onInstall}>
+                  <RotateCw size={15} />{t('update.restart')}
+                </button>
+              ) : null}
+              <button
+                className="button-secondary"
+                type="button"
+                disabled={busy}
+                onClick={onCheck}
+              >
+                <RefreshCw size={15} />{t('settings.checkUpdate')}
+              </button>
+            </span>
           </div>
           <div className="settings-row">
             <div className="settings-row__text">
@@ -316,7 +324,7 @@ export default function SettingsPage({ active = true }: { active?: boolean }) {
 
   const handleCheckUpdate = async () => {
     const next = await checkAppUpdate();
-    if (next.status === 'current') toastAppUpdateResult(next);
+    if (next.remote === 'current' || next.status === 'current') toastAppUpdateResult(next);
   };
 
   useEffect(() => {

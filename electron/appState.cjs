@@ -30,6 +30,11 @@ function loadUpdateSourceSync(userData) {
     return normalizeUpdateSource(readAppStateRawSync(userData).updateSource);
 }
 
+function loadReadyVersionSync(userData) {
+    const raw = readAppStateRawSync(userData).readyVersion;
+    return typeof raw === 'string' ? raw : '';
+}
+
 /** 只覆盖传入的键，保留文件里其它本机状态字段 */
 function patchAppStateSync(userData, patch) {
     const cur = readAppStateRawSync(userData);
@@ -43,6 +48,9 @@ function patchAppStateSync(userData, patch) {
     if (Object.prototype.hasOwnProperty.call(patch, 'updateSource')) {
         next.updateSource = normalizeUpdateSource(patch.updateSource);
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'readyVersion')) {
+        next.readyVersion = typeof patch.readyVersion === 'string' ? patch.readyVersion : '';
+    }
     writeAppStateRawSync(userData, next);
 }
 
@@ -54,4 +62,5 @@ module.exports = {
     patchAppStateSync,
     normalizeUpdateSource,
     loadUpdateSourceSync,
+    loadReadyVersionSync,
 };

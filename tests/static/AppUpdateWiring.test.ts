@@ -5,6 +5,8 @@ describe('ADR-0021 · 应用更新接线', () => {
   it('弹窗走 Dialog 壳；关于页不直连 updater', () => {
     const host = readStripped('src/app/AppUpdateHost.tsx');
     expect(host).toMatch(/from '\.\.\/ui\/Dialog'/);
+    expect(host).toMatch(/size="md"/);
+    expect(host).toMatch(/closeOnScrim=\{false\}/);
     expect(host).not.toMatch(/electron-updater/);
 
     const settings = readStripped('src/pages/settings/SettingsPage.tsx');

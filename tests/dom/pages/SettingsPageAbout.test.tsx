@@ -21,33 +21,70 @@ function renderAbout() {
   );
 }
 
+function axesFromStatus(status: AppUpdateState['status']): Pick<AppUpdateState, 'remote' | 'local'> {
+  if (status === 'downloading') return { remote: 'available', local: 'downloading' };
+  if (status === 'ready') return { remote: 'available', local: 'ready' };
+  if (status === 'available') return { remote: 'available', local: 'none' };
+  if (status === 'checking') return { remote: 'checking', local: 'none' };
+  if (status === 'current') return { remote: 'current', local: 'none' };
+  if (status === 'error') return { remote: 'error', local: 'none' };
+  return { remote: 'idle', local: 'none' };
+}
+
 function stubPackagedUpdate(
   initial: Partial<AppUpdateState> = {},
   result: AppUpdateState['status'] = 'current',
 ) {
+  const status = initial.status ?? 'idle';
   let state: AppUpdateState = {
     packaged: true,
     currentVersion: '0.1.0',
-    status: 'idle',
+    status,
     updateSource: 'github',
+    ...axesFromStatus(status),
     ...initial,
+    remote: initial.remote ?? axesFromStatus(status).remote,
+    local: initial.local ?? axesFromStatus(status).local,
+    cycle: initial.cycle ?? 0,
   };
   const listeners: Array<(s: AppUpdateState) => void> = [];
   const install = vi.fn(async () => state);
+  let cycle = initial.cycle ?? 0;
+  const download = vi.fn(async () => {
+    state = { ...state, local: 'downloading', status: 'downloading' as const, percent: 0 };
+    listeners.forEach((fn) => fn(state));
+    state = {
+      ...state,
+      local: 'ready',
+      status: 'ready' as const,
+      percent: 100,
+      readyVersion: state.availableVersion,
+    };
+    listeners.forEach((fn) => fn(state));
+    return state;
+  });
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     appUpdate: {
       getState: async () => state,
       check: async () => {
-        if (state.status === 'downloading') return state;
+        if (state.local === 'downloading') return state;
+        const keptLocal = state.local;
+        const keptReady = state.readyVersion;
+        cycle += 1;
         state = {
           ...state,
-          status: result,
+          cycle,
+          status: keptLocal === 'ready' && result === 'available' ? 'ready' : result,
+          ...axesFromStatus(result),
+          local: keptLocal === 'ready' ? 'ready' : axesFromStatus(result).local,
+          readyVersion: keptLocal === 'ready' ? keptReady : undefined,
           errorMessage: result === 'error' ? (state.errorMessage ?? 'net::ERR_FAILED') : state.errorMessage,
         };
         listeners.forEach((fn) => fn(state));
         return state;
       },
       install,
+      download,
       setUpdateSource: async (source: AppUpdateState['updateSource']) => {
         state = { ...state, updateSource: source ?? 'github' };
         listeners.forEach((fn) => fn(state));
@@ -61,8 +98,16 @@ function stubPackagedUpdate(
   };
   return {
     install,
+    download,
     emit(next: AppUpdateState) {
-      state = next;
+      const status = next.status;
+      state = {
+        ...state,
+        ...next,
+        remote: next.remote ?? axesFromStatus(status).remote,
+        local: next.local ?? axesFromStatus(status).local,
+        cycle: next.cycle ?? state.cycle,
+      };
       listeners.forEach((fn) => fn(state));
     },
   };
@@ -144,8 +189,58 @@ describe('ADR-0021 · 设置页关于', () => {
     toastSpy.mockRestore();
   });
 
-  it('新版本已就绪：关掉弹窗后关于页变成立即重启，不再检查更新', async () => {
-    const { install } = stubPackagedUpdate({ status: 'ready', availableVersion: '0.2.0' }, 'ready');
+  it('查到新版本先弹下载确认；稍后关于仍是检查更新，包就绪才立即重启', async () => {
+    const { download } = stubPackagedUpdate(
+      { status: 'available', availableVersion: '0.2.0' },
+      'available',
+    );
+    renderAbout();
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '发现新版本' })).toBeInTheDocument();
+    expect(screen.getByText('0.2.0 可用（当前 0.1.0）。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '下载' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '立即重启' })).toBeNull();
+    expect(screen.queryByText(/已就绪/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '稍后' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(download).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '关于' }));
+    expect(screen.getByText('发现新版本。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '检查更新' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '立即重启' })).toBeNull();
+  });
+
+  it('弹窗点下载后包就绪：立即重启留在弹窗和关于，不先关掉再找按钮', async () => {
+    const { download } = stubPackagedUpdate(
+      { status: 'available', availableVersion: '0.2.0' },
+      'available',
+    );
+    const toastSpy = vi.spyOn(ToastModule, 'showToast');
+    renderAbout();
+    fireEvent.click(await screen.findByRole('button', { name: '下载' }));
+    await waitFor(() => expect(download).toHaveBeenCalled());
+    expect(toastSpy).toHaveBeenCalledWith(
+      '正在后台下载，可在设置 → 关于的检查更新处查看进度。',
+      'info',
+    );
+    toastSpy.mockRestore();
+    expect(await screen.findByRole('button', { name: '立即重启' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '重启以更新' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '稍后' }));
+    fireEvent.click(screen.getByRole('button', { name: '关于' }));
+    expect(screen.getByRole('button', { name: '检查更新' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '立即重启' })).toBeInTheDocument();
+  });
+
+  it('新版本已就绪：关掉弹窗后关于同时留检查更新和立即重启，立即重启在左', async () => {
+    const { install } = stubPackagedUpdate({
+      status: 'ready',
+      local: 'ready',
+      remote: 'available',
+      availableVersion: '0.2.0',
+      readyVersion: '0.2.0',
+    }, 'ready');
     renderAbout();
     expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '重启以更新' })).toBeInTheDocument();
@@ -155,11 +250,52 @@ describe('ADR-0021 · 设置页关于', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '关于' }));
     expect(screen.getByText('新版本已就绪。')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '检查更新' })).toBeNull();
-    expect(screen.getAllByText('立即重启').length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(screen.getByRole('button', { name: '立即重启' }));
+    const restart = screen.getByRole('button', { name: '立即重启' });
+    const check = screen.getByRole('button', { name: '检查更新' });
+    expect(restart).toHaveClass('button-primary');
+    expect(check).toHaveClass('button-secondary');
+    expect(restart.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(restart);
     await waitFor(() => expect(install).toHaveBeenCalled());
     expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('更新弹窗用 md 宽；点遮罩不关', async () => {
+    stubPackagedUpdate({
+      status: 'ready',
+      local: 'ready',
+      remote: 'available',
+      availableVersion: '0.2.0',
+      readyVersion: '0.2.0',
+    }, 'ready');
+    renderAbout();
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog.className).toMatch(/dialog--md/);
+    fireEvent.mouseDown(document.querySelector('.dialog__scrim') as HTMLElement);
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '稍后' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('下过后再检查点稍后：立即重启仍在关于，弹窗是重启不是下载', async () => {
+    stubPackagedUpdate({
+      status: 'ready',
+      local: 'ready',
+      remote: 'available',
+      availableVersion: '0.2.0',
+      readyVersion: '0.2.0',
+    }, 'available');
+    renderAbout();
+    fireEvent.click(await screen.findByRole('button', { name: '稍后' }));
+    fireEvent.click(screen.getByRole('button', { name: '关于' }));
+    expect(screen.getByRole('button', { name: '立即重启' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
+    expect(await screen.findByRole('heading', { name: '重启以更新' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '下载' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '稍后' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '关于' }));
+    expect(screen.getByRole('button', { name: '立即重启' })).toBeInTheDocument();
   });
 
   it('手动检查网络失败：toast 含下载源与另一个源名，不在关于里写两遍', async () => {

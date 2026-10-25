@@ -22,7 +22,9 @@ function fakeAutoUpdater() {
     autoInstallOnAppQuit: true,
     allowPrerelease: true,
     checkCalls: 0,
+    downloadCalls: 0,
     installCalls: 0,
+    installerPath: null as string | null,
     feedCalls: [] as unknown[],
     on(ev: string, fn: (...args: unknown[]) => void) {
       (handlers[ev] ??= []).push(fn);
@@ -36,6 +38,10 @@ function fakeAutoUpdater() {
     async checkForUpdates() {
       this.checkCalls += 1;
       this.emit('checking-for-update');
+    },
+    async downloadUpdate() {
+      this.downloadCalls += 1;
+      this.installerPath = 'AAO-Editor-Setup.exe';
     },
     quitAndInstall() {
       this.installCalls += 1;
@@ -89,12 +95,16 @@ describe('ADR-0021 · 主进程应用更新', () => {
     });
     await api.check();
     expect(updater.checkCalls).toBe(1);
-    updater.emit('update-downloaded', { version: '0.2.0', releaseNotes: 'notes' });
+    updater.emit('update-available', { version: '0.2.0', releaseNotes: 'notes' });
+    expect(api.getState().status).toBe('available');
+    expect(updater.downloadCalls).toBe(0);
+    await api.download();
+    expect(updater.downloadCalls).toBe(1);
     expect(api.getState().status).toBe('ready');
     expect(api.getState().availableVersion).toBe('0.2.0');
     api.install();
     expect(updater.installCalls).toBe(1);
-    expect(updater.autoDownload).toBe(true);
+    expect(updater.autoDownload).toBe(false);
     expect(updater.autoInstallOnAppQuit).toBe(false);
     expect(updater.allowPrerelease).toBe(false);
   });
@@ -121,6 +131,7 @@ describe('ADR-0021 · 主进程应用更新', () => {
     expect(preload).toMatch(/appUpdate:/);
     expect(preload).toMatch(/appUpdate:event/);
     expect(preload).toMatch(/setUpdateSource/);
+    expect(preload).toMatch(/appUpdate:download/);
 
     const pkg = JSON.parse(readSource('package.json')) as {
       version: string;
@@ -139,6 +150,7 @@ describe('ADR-0021 · 主进程应用更新', () => {
     const renderer = readStripped('src/app/appUpdate.ts');
     expect(renderer).not.toMatch(/from ['"]electron-updater['"]/);
     expect(handlers.has('appUpdate:setUpdateSource')).toBe(true);
+    expect(handlers.has('appUpdate:download')).toBe(true);
   });
 
   it('CNB 先读公开 Release 列表再 setFeedURL 到真实 tag；GitHub 走 generic 不打 api.github.com', async () => {
@@ -200,12 +212,24 @@ describe('ADR-0021 · 主进程应用更新', () => {
     });
     await api.check();
     updater.emit('update-available', { version: '0.2.0' });
+    expect(api.getState().status).toBe('available');
+    let finishDownload: () => void = () => {};
+    updater.downloadUpdate = async () => {
+      updater.downloadCalls += 1;
+      await new Promise<void>((resolve) => {
+        finishDownload = resolve;
+      });
+      updater.installerPath = 'AAO-Editor-Setup.exe';
+    };
+    const downloading = api.download();
     expect(api.getState().status).toBe('downloading');
     const denied = api.setUpdateSource('cnb');
     expect(denied.ok).toBe(false);
     expect(stored).toBe('github');
     expect(denied.updateSource).toBe('github');
     updater.emit('update-downloaded', { version: '0.2.0' });
+    finishDownload();
+    await downloading;
     expect(api.getState().status).toBe('ready');
     const allowed = api.setUpdateSource('cnb');
     expect(allowed.ok).toBe(true);
@@ -234,5 +258,53 @@ describe('ADR-0021 · 主进程应用更新', () => {
     expect(switched.status).toBe('idle');
     expect(switched.errorMessage).toBeFalsy();
     expect(updater.checkCalls).toBe(checks);
+  });
+
+  it('下完后再检查：本地仍 ready，不退回 available', async () => {
+    const updater = fakeAutoUpdater();
+    const api = packagedUpdater(updater);
+    await api.check();
+    updater.emit('update-available', { version: '0.2.0' });
+    await api.download();
+    expect(api.getState().local).toBe('ready');
+    expect(api.getState().readyVersion).toBe('0.2.0');
+    await api.check();
+    expect(api.getState().local).toBe('ready');
+    updater.emit('update-available', { version: '0.2.0' });
+    expect(api.getState().local).toBe('ready');
+    expect(api.getState().remote).toBe('available');
+    expect(api.getState().status).toBe('ready');
+  });
+
+  it('已下旧包、源上又有更新版：ready 仍是旧版，不把新版标成就绪', async () => {
+    const updater = fakeAutoUpdater();
+    const api = packagedUpdater(updater);
+    await api.check();
+    updater.emit('update-available', { version: '0.2.0' });
+    await api.download();
+    expect(api.getState().readyVersion).toBe('0.2.0');
+    await api.check();
+    updater.emit('update-available', { version: '0.3.0' });
+    expect(api.getState().local).toBe('ready');
+    expect(api.getState().readyVersion).toBe('0.2.0');
+    expect(api.getState().availableVersion).toBe('0.3.0');
+  });
+
+  it('只检查到新版本：即使本机记过该版本也不算 ready', async () => {
+    const updater = fakeAutoUpdater();
+    const api = packagedUpdater(updater, { getReadyVersion: () => '0.2.0' });
+    expect(api.getState().local).toBe('none');
+    await api.check();
+    updater.emit('update-available', { version: '0.2.0' });
+    expect(api.getState().local).toBe('none');
+    expect(api.getState().remote).toBe('available');
+    expect(api.getState().status).toBe('available');
+    expect(updater.downloadCalls).toBe(0);
+  });
+
+  it('记下的版本不比当前新：不当成可装', () => {
+    const updater = fakeAutoUpdater();
+    const api = packagedUpdater(updater, { getReadyVersion: () => '0.1.0' });
+    expect(api.getState().local).toBe('none');
   });
 });
