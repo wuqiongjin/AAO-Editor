@@ -14,6 +14,12 @@ import { t } from '../i18n';
 
 export const DIFF_NAMES = ['Easy', 'Normal', 'Hard', 'Expert', 'Special'] as const;
 export const DIFF_SHORT = ['EZ', 'NM', 'HD', 'EX', 'SP'] as const;
+
+/** 切换器色块文案：短码，有等级则「EZ 1」。issue 176。 */
+export function diffPillLabel(diff: ChartDifficulty, level: number | null | undefined): string {
+  const short = DIFF_SHORT[diff];
+  return level == null ? short : `${short} ${level}`;
+}
 /**
  * 难度色 = 唯一标准：从游戏内开场画面截图逐像素实测提取（5 张不同难度截图取徽章实色）。
  * 别改这里之外的任何难度色（界面徽标、谱面预览、开场画面都读这一份）。
@@ -36,15 +42,14 @@ export function chartEffectiveTitle(
   return title ? title : projectDisplayName(projectName, untitled);
 }
 
-/** 工作台切换器当前谱面那段：空名或等于工程名称时只显示难度。 */
+/** 切换器当前谱面的显示名：有谱面名用谱面名，否则回落工程名（不写难度全称）。
+ *  176 初版把「与工程同名」藏掉，官方谱 / 空标题就只剩色块；验收回修为始终显示。 */
 export function chartSwitchLabel(
   projectName: string | null | undefined,
-  chart: { title: string | null; diff: ChartDifficulty },
+  chart: { title: string | null },
+  untitled: string,
 ): string {
-  const title = chart.title?.trim() ?? '';
-  const name = projectName?.trim() ?? '';
-  if (title && title !== name) return `${DIFF_NAMES[chart.diff]} · ${title}`;
-  return DIFF_NAMES[chart.diff];
+  return chartEffectiveTitle(projectName, chart.title, untitled);
 }
 
 export function sortProjectsByLastOpened<T extends { lastOpened: number }>(projects: readonly T[]): T[] {

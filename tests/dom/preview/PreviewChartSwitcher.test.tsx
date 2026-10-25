@@ -92,6 +92,30 @@ describe('issue 29 · 谱面切换器浮层定位', () => {
     expect(panelLeft()).toBe(251);
   });
 
+  it('触发钮色块带等级，标题只留谱面名、不跟 Easy、等级不在标题后', () => {
+    renderSwitcher('c2');
+    const el = trigger();
+    expect(el.querySelector('.pp-pill__diff')).toHaveTextContent('EZ 3');
+    expect(el.querySelector('.preview-chart__name')).toHaveTextContent('Second Beat');
+    expect(el.textContent ?? '').not.toMatch(/Easy/);
+  });
+
+  it('谱面名为空时回落工程名，不把标题藏掉只留色块', () => {
+    seedZhSettings();
+    const base = createBlankProject({ id: 'p1', chartId: 'c1', now: 1, name: 'Wonder Night Land' });
+    render(
+      <PreviewChartSwitcher
+        project={{ ...base, charts: [{ ...base.charts[0], title: null, diff: 3, level: 26 }] }}
+        chartId="c1"
+        onPick={vi.fn()}
+      />,
+    );
+    expect(trigger().querySelector('.pp-pill__diff')).toHaveTextContent('EX 26');
+    expect(trigger().querySelector('.preview-chart__name')).toHaveTextContent('Wonder Night Land');
+    expect(trigger()).toHaveAttribute('aria-label', expect.stringContaining('Wonder Night Land'));
+    expect(trigger().getAttribute('aria-label') ?? '').not.toMatch(/EX 26/);
+  });
+
   it('选另一张谱面：回调带 id，面板随手关掉', () => {
     const { onPick } = renderSwitcher();
     openAt(259, 110.2);

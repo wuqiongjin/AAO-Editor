@@ -296,7 +296,6 @@
   "workspace.switcher.preview": "Preview current chart",
   "workspace.switcher.crumbTitle": "Back to projects page (⇧⌘0)",
   "workspace.switcher.uploaded": "Uploaded · read-only",
-  "workspace.switcher.copyToEdit": "Duplicate this chart to edit",
   "workspace.readonlyPrompt": "Uploaded charts cannot be modified. Duplicate this chart to edit?",
   "workspace.readonlyCopyBtn": "Duplicate this chart",
   "workspace.switcher.rowMeta": "{{diff}} {{level}} · {{count}} notes",

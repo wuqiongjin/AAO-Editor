@@ -297,7 +297,7 @@
 .pc-uploads { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: var(--text-sm); }
 .pc-uploads li { display: flex; align-items: center; gap: 8px; }
 .pc-uploads a { color: var(--accent-text); }
-.pp-pill__diff { display: inline-grid; place-items: center; min-width: 22px; height: 16px; padding: 0 4px; border-radius: var(--radius-full); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+.pp-pill__diff { display: inline-grid; place-items: center; min-width: 22px; height: 16px; padding: 0 4px; border-radius: var(--radius-full); color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
 
 /* ---- 官方曲导入面板（票 08 / 13）：预览在左、目录吃满剩余高度 ---- */
 .off-panel { display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1; }

@@ -97,6 +97,7 @@
 - [47 动态预览「节奏图示大小」对滑条段无效](./issues/47-动态预览节奏图示大小对滑条段无效.md) — **resolved 实现（2026-10-17，待用户验收）**：根因 = `bandQuad` 边宽只乘 `laneWidth × A`、漏乘 `noteSize`（同链音符 / 双押线 / 按住环 / 特效都乘了；画布与静态预览早就是 × noteSize，issue 39 #1 补修）⇒ 只有动态预览漂。修法 = `bandQuad` 收 `noteSize`（必填，逼出调用点）+ `drawBands` 传 `scene.noteSize`，亮缘按四边形半宽自动跟随；几何 / 窗口 / 绘制序未动。`npm test` 286/3357 绿（+3），tsc 干净；像素复核受"本机无仿真场素材"限制，留实机验收
 - [48 动态预览音符速度高档映射偏离游戏](./issues/48-动态预览音符速度高档映射偏离游戏.md) — **resolved（用户 2026-10-18 验收通过）**：根因 = `approachSeconds`（`simGeometry.ts`）只抄了 Bestdori 单支 `(12 − n)/2`，n > 11 后钳 0.1s 地板，未接游戏本身的第二支分段映射 ⇒ 11.5 快 1.8x、**12.0 = 0.1s vs 游戏 0.4s 快 4x**，11.8 起贴地板成平台期。修法 = 用户拍板换**游戏同款分段映射** `n ≤ 11 → (12 − n)/2`、`n > 11 → (16 − n)/10`（口径来源 sonolus-bandori-engine `note.duration`；两支在 n=11 处连续，12 档 0.1s → **0.4s**、11.5 档 0.25s → **0.45s**），`APPROACH_MIN_SECONDS` 降级为纯越界防御（白名单内不再触达）；注释 / CONTEXT「接近模型」/ ADR-0016 §1.2 / research baseline 同步，票 24 不回改。`npm test` 293/3414 绿，tsc / eslint 干净；实机与游戏同档对照通过
 - [49 皮肤显示名接入官方命名映射](./issues/49-皮肤显示名接入官方命名映射.md) — **done（2026-10-22 应用侧实现并提交；取件侧升级后自动生效）**：三类皮肤（音符 / 轨道 / 背景）显示名接官方命名 API 分层（官方 > 社区 fallback > 包 ID），中文取 cn 服条目优先、回退 en→jp；新模块 `skinDisplayName.ts` 查表（空服/null/NBSP 变体跳过），设置仍存包 ID 零迁移。锁测见票内 Comments + ADR-0018 §6
+- 预览谱面切换器当前钮拼法随 [basic-editor 176](../basic-editor/issues/176-切换器当前钮色块带等级去Easy.md)：**`[EZ 1] 谱面名`**，等级进色块、不再跟在标题后。
 
 ## Fog
 

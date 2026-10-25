@@ -13,6 +13,7 @@ import {
   DIFF_COLORS,
   DIFF_NAMES,
   DIFF_SHORT,
+  diffPillLabel,
   duplicateChartInProject,
   updateChartInfo,
 } from '../../project/projectCatalog';
@@ -91,6 +92,11 @@ export default function ChartSwitcher() {
   if (!project) return null;
   const cur = pickCurrentChart(project, chartId);
   const uploaded = chartStatus(cur) === 'uploaded';
+  const switchLabel = chartSwitchLabel(project.name, cur, untitledProjectLabel());
+  const pillLabel = diffPillLabel(cur.diff, cur.level);
+  const currentTitle = uploaded
+    ? `${switchLabel} · ${t('workspace.switcher.uploaded')}`
+    : switchLabel;
 
   const toggle = () => {
     if (!openMenu && btnRef.current) {
@@ -111,10 +117,10 @@ export default function ChartSwitcher() {
         {displayProjectName(project)}
       </button>
       <span className="pp-muted">/</span>
-      <button ref={btnRef} type="button" className="chart-switcher__current" aria-expanded={openMenu} aria-haspopup="listbox" onClick={toggle}>
-        <span className="pp-pill__diff" style={{ background: DIFF_COLORS[cur.diff] }}>{DIFF_SHORT[cur.diff]}</span>
-        {chartSwitchLabel(project.name, cur)}
-        <span className="pp-muted">{cur.level ?? ''}</span>
+      <button ref={btnRef} type="button" className="chart-switcher__current" title={currentTitle} aria-expanded={openMenu} aria-haspopup="listbox" onClick={toggle}>
+        <span className="pp-pill__diff" style={{ background: DIFF_COLORS[cur.diff] }}>{pillLabel}</span>
+        <span className="chart-switcher__current-name">{switchLabel}</span>
+        {uploaded && <Lock size={12} className="chart-switcher__lock" aria-hidden />}
         <ChevronDown size={14} />
       </button>
       {openMenu && createPortal(
@@ -166,12 +172,6 @@ export default function ChartSwitcher() {
           </div>
         </>,
         document.body,
-      )}
-      {uploaded && (
-        <span className="chart-switcher__readonly">
-          <Lock size={12} />{t('workspace.switcher.uploaded')}
-          <button type="button" onClick={() => void copyChart()}>{t('workspace.switcher.copyToEdit')}</button>
-        </span>
       )}
       {chartInfo && (
         <ChartInfoDialog

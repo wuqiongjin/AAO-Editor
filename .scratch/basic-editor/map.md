@@ -170,6 +170,9 @@
 - **171 全局页面头与指引文案去口语化规范整改**（[171](./issues/171-全局页面头与指引文案去口语化规范整改.md)，`Type: chore`，open）—— **改成什么** = 落地 2026-10-14 定案文案（画布背景 / 0工程横幅与工程头去口语化 / 素材与快捷键去自述 / 设置头去显示偏好），规范中英文字典为日语打底。
 - **172 设置页清理布局空态与扁平化侧栏分组**（[172](./issues/172-设置页清理布局空态与扁平化侧栏分组.md)，`Type: chore`，resolved）—— **改成什么** = 移除设置页无配置项的 `layout` 空态；画布显示迁出后移除侧栏两分组标签，扁平展示「外观」与「存储与数据」；清理冗余 i18n 键。**已实现**（2026-10-14）。
 - **173 RendererPerf 缩放手势用例偶发假红**（[173](./issues/173-RendererPerf缩放手势用例偶发假红.md)，`Type: bug`，resolved）—— **根因** = 帧耗时断言测墙钟（空载 1.6ms vs 16ms 预算，10× 余量，并发抢占即可假红）；并牵出真 bug：手势重建每帧从 `lo` 重扫，预算被抢占吃光时高 id 瓦片饿死 → settle 整批重建。**改成什么** = `avg` 改 `process.cpuUsage()` 增量（墙钟只留 `max<100` 兜底）；`noteLayerCache` 加重建游标（断点续建、环形轮转）+ 单块成本上限 8ms（仅手势帧）+ `stats.backlog`；假时钟锁「每帧只够一块时仍轮转覆盖」。
+- **174 工作台顶栏长歌名与右簇重叠**（[174](./issues/174-工作台顶栏长歌名与右簇重叠.md)，`Type: bug`，resolved）—— **根因** = `.chart-switcher__current` `flex-shrink:0` + nowrap + overflow visible，窄列时盖住 BPM/缩放；issue 170 只瘦右簇。**改成什么** = current/crumb 可缩 + 谱面名 ellipsis，宽屏不 grow；锁测静态 CSS（几何探针已删）。
+- **175 工作台顶栏只读改为锁图标**（[175](./issues/175-工作台顶栏只读改为锁图标.md)，`Type: feature`，resolved）—— **定了什么** = 拆掉只读芯片与顶栏复制键；切换钮内锁图标；复制留菜单 + 改谱浮条。
+- **176 切换器当前钮色块带等级去 Easy**（[176](./issues/176-切换器当前钮色块带等级去Easy.md)，`Type: feature`，resolved）—— **定了什么** = `[EZ 1] 谱面名`；预览同一套。**验收修订** = 空名仍回落工程名，不只出色块。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import type { ChartProject } from '../../project/ChartProject';
-import { chartEffectiveTitle, DIFF_COLORS, DIFF_NAMES, DIFF_SHORT } from '../../project/projectCatalog';
+import { chartEffectiveTitle, chartSwitchLabel, DIFF_COLORS, DIFF_NAMES, DIFF_SHORT, diffPillLabel } from '../../project/projectCatalog';
 import { chartStatus } from '../../project/workspaceProject';
 import { ChartStatusIcon, untitledProjectLabel } from '../../project/ui/projectUi';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
@@ -105,6 +105,8 @@ export default function PreviewChartSwitcher({ project, chartId, onPick }: {
   }
 
   const cur = project.charts.find((c) => c.id === chartId) ?? project.charts[0];
+  const switchLabel = chartSwitchLabel(project.name, cur, untitledProjectLabel());
+  const pillLabel = diffPillLabel(cur.diff, cur.level);
 
   return (
     <div className="preview-chart">
@@ -115,14 +117,11 @@ export default function PreviewChartSwitcher({ project, chartId, onPick }: {
         title={t('preview.chart.triggerTitle')}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={t('preview.chart.triggerAria', {
-          title: chartEffectiveTitle(project.name, cur.title, untitledProjectLabel()),
-        })}
+        aria-label={t('preview.chart.triggerAria', { title: switchLabel })}
         onClick={toggle}
       >
-        <span className="pp-pill__diff" style={{ background: DIFF_COLORS[cur.diff] }}>{DIFF_SHORT[cur.diff]}</span>
-        <span className="preview-chart__name">{chartEffectiveTitle(project.name, cur.title, untitledProjectLabel())}</span>
-        <span className="pp-muted">{cur.level ?? ''}</span>
+        <span className="pp-pill__diff" style={{ background: DIFF_COLORS[cur.diff] }}>{pillLabel}</span>
+        <span className="preview-chart__name">{switchLabel}</span>
         <ChevronDown size={14} className={`preview-chart__caret${open ? ' is-open' : ''}`} />
       </button>
 

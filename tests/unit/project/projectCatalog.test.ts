@@ -5,6 +5,7 @@ import { convertNotesToChartCode } from '@/src/chart/editing/ChartConverter';
 import {
   addChartToProject,
   chartSwitchLabel,
+  diffPillLabel,
   createBlankProject,
   deleteChartFromProject,
   duplicateChartInProject,
@@ -103,18 +104,22 @@ describe('addChartToProject · 谱面代码 Apply 闸门', () => {
   });
 });
 
-describe('chartSwitchLabel · 工作台切换器当前谱面那段', () => {
-  it('名称为空或等于工程名称时只显示难度；不同则「难度 · 名称」', () => {
-    expect(chartSwitchLabel('FIRE BIRD', { title: null, diff: 3 })).toBe('Expert');
-    expect(chartSwitchLabel('FIRE BIRD', { title: '  ', diff: 3 })).toBe('Expert');
-    expect(chartSwitchLabel('FIRE BIRD', { title: 'FIRE BIRD', diff: 3 })).toBe('Expert');
-    expect(chartSwitchLabel('FIRE BIRD', { title: '  FIRE BIRD  ', diff: 3 })).toBe('Expert');
-    expect(chartSwitchLabel('FIRE BIRD', { title: '练习版', diff: 3 })).toBe('Expert · 练习版');
+describe('chartSwitchLabel · 切换器当前谱面标题（issue 176 验收回修）', () => {
+  const untitled = '未命名工程';
+  it('空名回落工程名；有独立谱面名则用谱面名（始终有字，不写难度全称）', () => {
+    expect(chartSwitchLabel('FIRE BIRD', { title: null }, untitled)).toBe('FIRE BIRD');
+    expect(chartSwitchLabel('FIRE BIRD', { title: '  ' }, untitled)).toBe('FIRE BIRD');
+    expect(chartSwitchLabel('FIRE BIRD', { title: 'FIRE BIRD' }, untitled)).toBe('FIRE BIRD');
+    expect(chartSwitchLabel(null, { title: null }, untitled)).toBe(untitled);
+    expect(chartSwitchLabel('FIRE BIRD', { title: '练习版' }, untitled)).toBe('练习版');
   });
+});
 
-  it('同难度两张：空名只显示难度，另一张带自己的名称', () => {
-    expect(chartSwitchLabel('FIRE BIRD', { title: null, diff: 3 })).toBe('Expert');
-    expect(chartSwitchLabel('FIRE BIRD', { title: 'FIRE BIRD 练习版', diff: 3 })).toBe('Expert · FIRE BIRD 练习版');
+describe('diffPillLabel · 切换器色块', () => {
+  it('无等级只短码，有等级为「短码 等级」', () => {
+    expect(diffPillLabel(0, null)).toBe('EZ');
+    expect(diffPillLabel(0, 1)).toBe('EZ 1');
+    expect(diffPillLabel(3, 27)).toBe('EX 27');
   });
 });
 
