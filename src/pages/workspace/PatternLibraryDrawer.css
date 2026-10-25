@@ -1,0 +1,113 @@
+/* 片段库抽屉外壳（票 180）：宽度由 JS 注入（可拖），上限随视口由 CSS 夹（issue 87 口径：缩放 / 改窗即时生效） */
+.pld {
+  position: relative;
+  flex-shrink: 0;
+  min-width: 220px;
+  max-width: 32vw;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: pld-slide 180ms var(--ease);
+}
+
+.pld__resizer {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 5px;
+  cursor: col-resize;
+  border-radius: 3px;
+  z-index: 2;
+}
+
+.pld__resizer:hover,
+.pld__resizer.is-dragging {
+  background: var(--accent);
+}
+
+.pld__head {
+  height: var(--topbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.pld__title {
+  flex: 1;
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.pld__close {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pld__close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pld__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.pld__empty b {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.pld__foot {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.pld__save {
+  width: 100%;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: not-allowed;
+}
+
+@keyframes pld-slide {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pld { animation: none; }
+}

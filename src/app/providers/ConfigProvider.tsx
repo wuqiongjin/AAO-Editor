@@ -2,7 +2,7 @@
 // 承载：theme / layout / shortcuts / audio，按字段写回（updateSettings）。
 // Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
-import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
+import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, clampPatternDrawerWidth, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
 import { getDefaultConfig, pruneShortcutMasks, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
@@ -35,7 +35,7 @@ export interface ConfigContextValue {
   /** 启动自动检查（ADR-0021）：写入设置对象 */
   setAutoCheck: (autoCheck: boolean) => void;
   /** 布局（面板宽/折叠，ADR-0003 §6）：字段级写回并持久化 */
-  setLayout: (layout: AppSettings['layout']) => void;
+  setPatternDrawer: (patch: Partial<AppSettings['layout']['patternDrawer']>) => void;
   /** 画布显示参数（issue 39 功能设置·画布显示）：字段级写回并持久化 */
   setDisplay: (patch: Partial<AppSettings['display']>) => void;
   /** 预览标注（chart-preview 08）：字段级写回并持久化（预览页的面板与设置页「画布显示」各改各的段） */
@@ -141,10 +141,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     noteSettingsChange(['autoCheck']);
   }, []);
 
-  // 布局 setter 需保持引用稳定（Editor 的持久化 effect 依赖它做 deps；不稳定会导致无限重渲染）
-  const setLayout = useCallback((layout: AppSettings['layout']) => {
+  // 片段库抽屉（票 180）：只改 layout.patternDrawer（段内浅合并），不动工程列表宽度
+  const setPatternDrawer = useCallback((patch: Partial<AppSettings['layout']['patternDrawer']>) => {
     setSettings(prev => {
-      return persistSettings(updateSettings(prev, { layout }));
+      const patternDrawer = { ...prev.layout.patternDrawer, ...patch };
+      return persistSettings(updateSettings(prev, {
+        layout: { ...prev.layout, patternDrawer: { open: patternDrawer.open, width: clampPatternDrawerWidth(patternDrawer.width) } },
+      }));
     });
     noteSettingsChange(['layout']);
   }, []);
@@ -260,9 +263,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     noteSettingsChange(['projects']);
   }, []);
 
-  // 工程详情页左栏宽度（issue 23 #2）：只改 layout.projectList，不整对象覆写 ——
-  // setLayout 会带上 leftPanel/rightPanel 的**旧值**，而那两个归工作台的 UIContext 管，
-  // 从这里整写会把工作台刚拖的宽度打回去。
+  // 工程详情页左栏宽度（issue 23 #2）：只改 layout.projectList，不动工作台抽屉
   const setProjectListWidth = useCallback((width: number) => {
     setSettings(prev => {
       return persistSettings(updateSettings(prev, {
@@ -293,7 +294,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setBeatSnap, setPlaybar, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setPatternDrawer, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setBeatSnap, setPlaybar, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

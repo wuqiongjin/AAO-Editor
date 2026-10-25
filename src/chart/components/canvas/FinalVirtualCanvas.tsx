@@ -67,6 +67,7 @@ const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
         </div>
     );
 });
+
 interface FinalVirtualCanvasProps {
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
   onScrollChange?: (scrollY: number, virtualHeight: number) => void;

@@ -1,8 +1,7 @@
 // issue 23 #2 锁测：工程详情页左栏宽度存于 `settings.layout.projectList.width`。
 //
-// 形状照 PanelWidth.test.ts（工作台面板默认宽那条）：归一化公式 + 出厂默认 + 落盘往返
-// 一起锁。这里多一层理由——详情页的夹取是**绝对区间**（220..420），不是工作台那种随视口
-// 伸缩（min(300,20vw)），所以边界必须钉死，免得哪天有人把它改成 vw 口径。
+// 归一化公式 + 出厂默认 + 落盘往返一起锁。详情页的夹取是**绝对区间**（220..420），
+// 不是工作台片段库抽屉那种上限随视口（32vw），所以边界必须钉死，免得哪天有人把它改成 vw 口径。
 import { describe, expect, it } from 'vitest';
 import {
   clampProjectListWidth, defaultSettings, loadSettings, saveSettings, updateSettings, PROJECT_LIST_WIDTH,
@@ -44,15 +43,14 @@ describe('issue 23 #2 · 出厂默认与持久化', () => {
     expect(defaultSettings().layout.projectList.width).toBe(300);
   });
 
-  it('additive：写 projectList 不 bump schemaVersion，工作台两栏不动', () => {
+  it('additive：写 projectList 不 bump schemaVersion，工作台抽屉不动', () => {
     const base = defaultSettings();
     const next = updateSettings(base, {
       layout: { ...base.layout, projectList: { width: 380 } },
     });
     expect(next.schemaVersion).toBe(base.schemaVersion);
     expect(next.layout.projectList.width).toBe(380);
-    expect(next.layout.leftPanel).toEqual(base.layout.leftPanel);
-    expect(next.layout.rightPanel).toEqual(base.layout.rightPanel);
+    expect(next.layout.patternDrawer).toEqual(base.layout.patternDrawer);
   });
 
   it('save → load 往返保留拖出来的宽度（跨会话沿用的机制）', () => {
@@ -72,17 +70,15 @@ describe('issue 23 #2 · 出厂默认与持久化', () => {
     expect(loadSettings(settingsStorageOf({ ...base, layout: { projectList: { width: 340 } } })).layout.projectList.width).toBe(340);
   });
 
-  it('工作台两栏的读取不受 projectList 段影响（同一 layout 下的两套尺子）', () => {
+  it('工作台抽屉的读取不受 projectList 段影响（同一 layout 下的两套尺子）', () => {
     const loaded = loadSettings(settingsStorageOf({
       schemaVersion: 1,
       layout: {
-        leftPanel: { width: 999, collapsed: true },
-        rightPanel: { width: 123, collapsed: false },
+        patternDrawer: { open: true, width: 400 },
         projectList: { width: 250 },
       },
     }));
-    expect(loaded.layout.leftPanel).toEqual({ width: 999, collapsed: true });
-    expect(loaded.layout.rightPanel).toEqual({ width: 123, collapsed: false });
+    expect(loaded.layout.patternDrawer).toEqual({ open: true, width: 400 });
     expect(loaded.layout.projectList.width).toBe(250);
   });
 });

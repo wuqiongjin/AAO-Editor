@@ -1,11 +1,8 @@
 // 工程详情页左栏（工程列表）宽度的拖拽调节（issue 23 #2）。
 //
-// 形状对齐工作台的面板分隔条（6px 命中区、col-resize、hover/拖动高亮 accent），
-// 但**刻意不复用那套实现**：工作台的宽度状态住在 UIProvider（Provider 级 state +
-// Provider 里的全局 mousemove effect），宽度以**内联 CSS 变量**喂给 flex 面板；
-// 这里是 CSS Grid 的一列、宽度来自 settings。两者的夹取范围也本质不同
-// （工作台随视口 20vw / 50vw 伸缩，详情页是导航列表、绝对区间 220..420）。
-// 抽公共抽象的收益（约 30 行）抵不上把详情页拖进工作台 UI 状态的代价 —— 详见 issue 23
+// 与工作台片段库抽屉（票 180，PatternLibraryDrawer）的拖宽条各自实现：这里是 CSS Grid 的一列、
+// 拖向右变宽、绝对区间 220..420；抽屉贴右缘、拖向左变宽、上限随视口 32vw。
+// 抽公共抽象的收益（约 30 行）抵不上两边方向 / 夹取口径的分叉 —— 详见 issue 23
 // 的「被否决方案」。等出现第三个可拖拽分栏再抽。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clampProjectListWidth, PROJECT_LIST_WIDTH } from '../../chart/config/AppSettings';

@@ -8,24 +8,28 @@ function readStripped(relPath: string): string {
 }
 
 describe('issue 170 · 工作台顶栏架构与静态接线约束', () => {
-  it('WorkspacePage 顶栏接入紧凑右簇：BPM 标签 + 缩放微型胶囊 + WorkspaceDisplayPanel', () => {
+  // 票 180：顶栏抽成 WorkspaceTopBar 组件；BPM 标签撤掉（当前 BPM 在画布左下读数，票 179）
+  it('WorkspaceTopBar 接入紧凑右簇：缩放微型胶囊 + WorkspaceDisplayPanel；页面只挂组件', () => {
     const ws = readStripped('src/pages/workspace/WorkspacePage.tsx');
-    expect(ws).toContain("import WorkspaceDisplayPanel from './WorkspaceDisplayPanel';");
-    expect(ws).toContain("import './WorkspaceTopBar.css';");
-    expect(ws).toContain('className="ws-topbar-right"');
-    expect(ws).toContain('className="ws-topbar-bpm"');
-    expect(ws).toContain('className="ws-zoom-capsule"');
-    expect(ws).toContain('<WorkspaceDisplayPanel />');
+    expect(ws).toContain("import WorkspaceTopBar from './WorkspaceTopBar';");
+    expect(ws).toContain('<WorkspaceTopBar />');
+
+    const bar = readStripped('src/pages/workspace/WorkspaceTopBar.tsx');
+    expect(bar).toContain("import WorkspaceDisplayPanel from './WorkspaceDisplayPanel';");
+    expect(bar).toContain("import './WorkspaceTopBar.css';");
+    expect(bar).toContain('className="ws-topbar-right"');
+    expect(bar).toContain('className="ws-zoom-capsule"');
+    expect(bar).toContain('<WorkspaceDisplayPanel />');
+    expect(bar).not.toContain('ws-topbar-bpm');
 
     // 顶栏右簇不再包含旧的分散 ZoomIn / ZoomOut 按钮
-    expect(ws).not.toMatch(/ZoomOut/);
-    expect(ws).not.toMatch(/ZoomIn/);
+    expect(bar).not.toMatch(/ZoomOut/);
+    expect(bar).not.toMatch(/ZoomIn/);
   });
 
   it('WorkspaceTopBar.css 约束尺寸与版式', () => {
     const css = readStripped('src/pages/workspace/WorkspaceTopBar.css');
-    // BPM 标签：height 26px 统一高度
-    expect(css).toMatch(/\.ws-topbar-bpm\s*\{[^}]*height:\s*26px/);
+    expect(css).not.toContain('.ws-topbar-bpm');
     // 缩放微型胶囊：height 26px 统一高度
     expect(css).toMatch(/\.ws-zoom-capsule\s*\{[^}]*height:\s*26px/);
     // 缩放胶囊内部按键与读数区约束

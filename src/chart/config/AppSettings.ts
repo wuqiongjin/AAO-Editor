@@ -69,12 +69,14 @@ export interface AppSettings {
   /** 启动时自动检查更新（ADR-0021）。additive，不 bump schemaVersion；默认开 */
   autoCheck: boolean;
   layout: {
-    leftPanel: { width: number; collapsed: boolean };
-    rightPanel: { width: number; collapsed: boolean };
+    /**
+     * 工作台片段库抽屉（issue 177 Q14 / 票 180）：开合态与宽度跨会话，默认收起。
+     * 旧版工作台左右面板（`leftPanel` / `rightPanel`）随换壳删除，读盘时丢弃。
+     */
+    patternDrawer: { open: boolean; width: number };
     /**
      * 工程详情页左栏（工程列表）宽度，issue 23 #2。additive，不 bump schemaVersion。
-     * 与 leftPanel/rightPanel（工作台面板）是**两套独立的分栏**：工作台那套绑 UIProvider +
-     * 内联 CSS 变量、夹取随视口；这一套是 CSS Grid、夹取为绝对区间（见 PROJECT_LIST_WIDTH）。
+     * 与工作台抽屉是**两套独立的分栏**：夹取为绝对区间（见 PROJECT_LIST_WIDTH）。
      */
     projectList: { width: number };
   };
@@ -422,8 +424,13 @@ const STORAGE_KEY = 'aao.settings.v1';
 /** 谱面时长上限（秒）：30 分钟，防误输入把画布撑爆（issue 28 第 2 轮 P6） */
 export const MAX_DURATION_SECONDS = 1800;
 
-/** 工作台左右面板的默认宽度上限（issue 97：左右同口径同宽） */
-export const DEFAULT_PANEL_WIDTH = 300;
+/** 片段库抽屉宽度（票 180）：下限在这里夹，上限 32vw 交给 CSS `max-width`（随视口瞬时生效，issue 87 口径） */
+export const PATTERN_DRAWER_WIDTH = { min: 220, default: 300 } as const;
+
+export function clampPatternDrawerWidth(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return PATTERN_DRAWER_WIDTH.default;
+  return Math.max(PATTERN_DRAWER_WIDTH.min, Math.round(value));
+}
 
 /**
  * 工程详情页左栏（工程列表）宽度的绝对区间，issue 23 #2。
@@ -439,11 +446,6 @@ export function clampProjectListWidth(value: unknown): number {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
-/** 默认面板宽度：窄视口随 20vw 收缩，宽屏封顶 DEFAULT_PANEL_WIDTH（issue 12 / issue 97 起左右同一公式） */
-export function defaultPanelWidth(innerWidth: number): number {
-  return Math.min(DEFAULT_PANEL_WIDTH, Math.round(innerWidth * 0.20));
-}
-
 export function defaultSettings(osLanguage: string = detectOsLanguageTag()): AppSettings {
   return {
     schemaVersion: 1,
@@ -453,8 +455,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     uiFontStack: 'geist',
     autoCheck: true,
     layout: {
-      leftPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
-      rightPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
+      patternDrawer: { open: false, width: PATTERN_DRAWER_WIDTH.default },
       projectList: { width: PROJECT_LIST_WIDTH.default },
     },
     shortcuts: getDefaultConfig(),
@@ -491,8 +492,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   const obj = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
   const audio = (obj.audio && typeof obj.audio === 'object' ? obj.audio : {}) as Record<string, unknown>;
   const layout = (obj.layout && typeof obj.layout === 'object' ? obj.layout : {}) as Record<string, unknown>;
-  const leftPanel = (layout.leftPanel && typeof layout.leftPanel === 'object' ? layout.leftPanel : {}) as Record<string, unknown>;
-  const rightPanel = (layout.rightPanel && typeof layout.rightPanel === 'object' ? layout.rightPanel : {}) as Record<string, unknown>;
+  const patternDrawer = (layout.patternDrawer && typeof layout.patternDrawer === 'object' ? layout.patternDrawer : {}) as Record<string, unknown>;
   const projectList = (layout.projectList && typeof layout.projectList === 'object' ? layout.projectList : {}) as Record<string, unknown>;
   const display = (obj.display && typeof obj.display === 'object' ? obj.display : {}) as Record<string, unknown>;
   const preview = (obj.preview && typeof obj.preview === 'object' ? obj.preview : {}) as Record<string, unknown>;
@@ -534,13 +534,9 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     uiFontStack: normalizeUiFontStack(obj.uiFontStack, defaults.uiFontStack),
     autoCheck: typeof obj.autoCheck === 'boolean' ? obj.autoCheck : defaults.autoCheck,
     layout: {
-      leftPanel: {
-        width: typeof leftPanel.width === 'number' && leftPanel.width > 0 ? leftPanel.width : defaults.layout.leftPanel.width,
-        collapsed: typeof leftPanel.collapsed === 'boolean' ? leftPanel.collapsed : defaults.layout.leftPanel.collapsed,
-      },
-      rightPanel: {
-        width: typeof rightPanel.width === 'number' && rightPanel.width > 0 ? rightPanel.width : defaults.layout.rightPanel.width,
-        collapsed: typeof rightPanel.collapsed === 'boolean' ? rightPanel.collapsed : defaults.layout.rightPanel.collapsed,
+      patternDrawer: {
+        open: typeof patternDrawer.open === 'boolean' ? patternDrawer.open : defaults.layout.patternDrawer.open,
+        width: clampPatternDrawerWidth(patternDrawer.width),
       },
       projectList: { width: clampProjectListWidth(projectList.width) },
     },

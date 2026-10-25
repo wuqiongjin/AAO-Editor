@@ -186,7 +186,7 @@
 .pc-list { display: flex; flex-direction: column; height: 100%; overflow: hidden; border-right: 1px solid var(--border); background: var(--bg-elevated); min-width: 0; }
 .pc-list__items { flex: 1; min-height: 0; overflow-y: auto; }
 /* 分隔条（issue 23 #2）：命中区 6px、贴左栏右缘；hover/拖动中给 accent。
-   形状照工作台的 .ws-panel__resizer，但实现独立（见 ProjectListSplit.tsx 的文件头说明）。 */
+   实现独立于工作台片段库抽屉的拖宽条（见 ProjectListSplit.tsx 的文件头说明）。 */
 .pc-split { position: relative; cursor: col-resize; touch-action: none; }
 .pc-split::before { content: ''; position: absolute; inset: 0 2px; background: transparent; transition: background var(--dur-fast) var(--ease); }
 .pc-split:hover::before, .pc-split.is-dragging::before { background: var(--accent); }

@@ -1,0 +1,48 @@
+/* 工作台岛屿外壳（issue 177 Q3 / Q18，票 180）：与窗口边留 8px、各块圆角 + 轻阴影，并排占布局、不压画布 */
+.ws-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 8px;
+  gap: 8px;
+  background: var(--bg);
+}
+
+.ws-island {
+  background: var(--bg-elevated);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.ws-canvas-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  box-shadow: var(--shadow-sm);
+  background: var(--canvas-bg);
+}
+
+/* 画布列不能 overflow: hidden（会裁掉顶栏弹层）→ 圆角交给首尾两条 chrome 自己切 */
+.ws-canvas-col > .ws-topbar {
+  border-radius: calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px) 0 0;
+  position: relative;
+  z-index: 25;
+}
+
+.ws-canvas-col > .play-bar--workspace {
+  border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px);
+}
+
+.ws-chart-area {
+  flex: 1;
+  overflow: auto;
+  overflow-x: hidden;
+  background-color: var(--canvas-bg);
+  position: relative;
+}

@@ -38,13 +38,13 @@ describe('architecture-refactor 02 · pages 收敛与 chart 解耦的落点', ()
     expect(strays).toEqual([]);
   });
 
-  it('工作台页壳（Editor 本体 + 工具栏 / 切换器 / 面板）统一在 src/pages/workspace/', () => {
-    // 票面「目标结构」点名的七件套 —— 缺一件即回潮
+  it('工作台页壳（Editor 本体 + 工具轨 / 顶栏 / 切换器 / 抽屉）统一在 src/pages/workspace/', () => {
+    // 票面「目标结构」点名的件 —— 缺一件即回潮（票 180：旧左栏 Toolbar 换成工具轨 + 顶栏 + 抽屉）
     const WORKSPACE_SHELL = [
       'src/pages/workspace/WorkspacePage.tsx',
-      'src/pages/workspace/Toolbar.tsx',
-      'src/pages/workspace/Toolbar.css',
-      'src/pages/workspace/ToolbarSection.tsx',
+      'src/pages/workspace/WorkspaceToolRail.tsx',
+      'src/pages/workspace/WorkspaceTopBar.tsx',
+      'src/pages/workspace/PatternLibraryDrawer.tsx',
       'src/pages/workspace/ChartSwitcher.tsx',
       'src/pages/workspace/ChartSwitcher.css',
       'src/pages/workspace/CurveConfigPanel.tsx',

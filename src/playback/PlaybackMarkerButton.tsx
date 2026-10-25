@@ -1,6 +1,6 @@
 // 播放条时间码旁的播放起点按钮（issue 177 Q13 / Q25，票 179）：设了起点才出现，点 = 跳回并播放。
 // 起点从「无」变「有」时弹入 + 一圈光晕，让用户注意到播放条多了个东西；挪动起点不重播。
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import playbackMarkerSvgUrl from '../assets/playback-marker/flag.svg?url';
 import { formatKey } from '../chart/config/ShortcutConfig';
 import { formatTimePrecise } from '../chart/geometry/TimeFormat';
@@ -13,7 +13,7 @@ interface PlaybackMarkerButtonProps {
   onJump: () => void;
 }
 
-export default function PlaybackMarkerButton({ seconds, shortcut, onJump }: PlaybackMarkerButtonProps) {
+export default memo(function PlaybackMarkerButton({ seconds, shortcut, onJump }: PlaybackMarkerButtonProps) {
   const [prevSeconds, setPrevSeconds] = useState(seconds);
   const [isNew, setIsNew] = useState(false);
   if (prevSeconds !== seconds) {
@@ -36,4 +36,4 @@ export default function PlaybackMarkerButton({ seconds, shortcut, onJump }: Play
       <span>{formatTimePrecise(seconds)}</span>
     </button>
   );
-}
+});

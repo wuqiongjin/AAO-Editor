@@ -76,7 +76,7 @@ export const countNotesUpToBeat = (
   return count;
 };
 
-// 轨道镜像（唯一实现，三处调用点收敛于此——NoteEditing/SelectionEditing/NoteInfoPanel）
+// 轨道镜像（唯一实现，调用点收敛于此——NoteEditing/SelectionEditing）
 export const mirrorLane = (lane: number) => TOTAL_LANES - 1 - lane;
 
 /**

@@ -1,13 +1,11 @@
-// UIContext（ADR-0003 §7.2）：工作台 UI 状态——工具/缩放/节拍/组合态/设置弹窗/布局（面板宽与折叠）。
+// UIContext（ADR-0003 §7.2）：工作台 UI 状态——工具/缩放/节拍吸附。
 // 注：鼠标悬停位置**不在此 Provider**（候选 3，2026-09-10 移出）—— 谱面光标是「画布 px × viewport」
 // 的派生值，缓存进 context state 会在滚动/缩放后落到旧拍；现由画布按 hoverPos 用时现算，
 // 并通过 ref 出口 getCursorChartPos() 提供给需要的一方。
-// 布局收纳（issue 12 / ADR-0003 L1）：面板宽度与折叠态、拖拽分隔条逻辑集中于此。
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { defaultPanelWidth } from '../../chart/config/AppSettings';
+// 票 180：旧版左右面板（宽度 / 折叠 / 拖拽分隔条）随换壳删除；片段库抽屉的开合与宽度存 settings.layout.patternDrawer。
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { useConfig } from './ConfigProvider';
-
 
 // ADR-0008 §1 工具轴（持工具态）：所有工具共驻一根互斥轴；null = 指针态（默认底态）。
 // 工具被激活称"持工具态"，与对象轴（选区，EditingContext.selectedItems）解耦。
@@ -30,21 +28,6 @@ export interface UIContextValue {
   setScale: (scale: number | ((prev: number) => number)) => void;
   beatDisplay: number;
   setBeatDisplay: (b: number) => void;
-
-  // 布局（ADR-0003 L1）
-  leftPanelWidth: number;
-  rightPanelWidth: number;
-  leftCollapsed: boolean;
-  rightCollapsed: boolean;
-  isDragging: 'left' | 'right' | null;
-  startDrag: (side: 'left' | 'right') => void;
-  toggleLeftPanel: () => void;
-  toggleRightPanel: () => void;
-  // 布局持久化（issue 22 / ADR-0003 §6）：供 Editor 从 settings 初始化与回写
-  setLeftPanelWidth: (w: number) => void;
-  setRightPanelWidth: (w: number) => void;
-  setLeftCollapsed: (v: boolean) => void;
-  setRightCollapsed: (v: boolean) => void;
 }
 
 const UIContext = createContext<UIContextValue | null>(null);
@@ -52,8 +35,7 @@ const UIContext = createContext<UIContextValue | null>(null);
 export function UIProvider({ children }: { children: ReactNode }) {
   // issue 114：曲线配置持久化于 settings.curve（全局一份、跨会话沿用），**单一真相在 ConfigContext**。
   // 本 Provider 不另存副本：否则「设置导入」走 ConfigContext 的 `setAllSettings` 整体替换 settings 后，
-  // 这里的副本不会跟着变——工具栏面板与画笔采样步长（`step = 1 / curveConfig.precision`）会继续用旧值。
-  // 也正因如此不需要布局那套"挂载 hydrate + 回写"双 effect（布局初值依赖 window 尺寸才要挂载后覆盖）。
+  // 这里的副本不会跟着变——曲线配置面板与画笔采样步长（`step = 1 / curveConfig.precision`）会继续用旧值。
   // 票 178：节拍吸附档位同理，单一真相在 settings.beatSnap。
   const { settings, setCurveConfig: persistCurveConfig, setBeatSnap } = useConfig();
   const curveConfig = settings.curve;
@@ -61,56 +43,11 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [armedTool, setArmedTool] = useState<ArmedTool | null>(null);
   const [scale, setScale] = useState(1);
 
-
-  // 区域宽度（issue 12 / ADR-0003 L1；issue 97 起左右同口径 = defaultPanelWidth：20vw 兜底、300px 封顶，
-  //   与 AppSettings 出厂默认一致——挂载 hydrate 会以 settings.layout 覆盖本初值，两者不得再分叉），
-  // 并支持折叠/展开
-  const [leftPanelWidth, setLeftPanelWidth] = useState(() => defaultPanelWidth(window.innerWidth));
-  const [rightPanelWidth, setRightPanelWidth] = useState(() => defaultPanelWidth(window.innerWidth));
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [isDragging, setIsDragging] = useState<'left' | 'right' | null>(null);
-
-  const startDrag = (side: 'left' | 'right') => setIsDragging(side);
-
-  // 拖拽分隔条：min/max 随视口缩放（窄屏可收到更小，宽屏不超半屏）
-  useEffect(() => {
-    if (!isDragging) return;
-    const onMove = (e: MouseEvent) => {
-      const containerWidth = window.innerWidth;
-      const minWidth = Math.min(160, containerWidth * 0.2);
-      const maxWidth = containerWidth * 0.5;
-      if (isDragging === 'left') {
-        setLeftPanelWidth(Math.max(minWidth, Math.min(maxWidth, e.clientX)));
-      } else {
-        setRightPanelWidth(Math.max(minWidth, Math.min(maxWidth, containerWidth - e.clientX)));
-      }
-    };
-    const onUp = () => setIsDragging(null);
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-  }, [isDragging]);
-
-  // 收口：toggle 风格对齐（两侧都用具名函数，避免内联箭头每渲染产生新引用）
-  const toggleLeftPanel = () => setLeftCollapsed(v => !v);
-  const toggleRightPanel = () => setRightCollapsed(v => !v);
-
   const value: UIContextValue = {
     armedTool, setArmedTool,
     curveConfig, setCurveConfig: persistCurveConfig,
     scale, setScale,
     beatDisplay, setBeatDisplay: setBeatSnap,
-    leftPanelWidth, rightPanelWidth,
-    leftCollapsed, rightCollapsed,
-    isDragging, startDrag,
-    toggleLeftPanel,
-    toggleRightPanel,
-    setLeftPanelWidth, setRightPanelWidth,
-    setLeftCollapsed, setRightCollapsed,
   };
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>;

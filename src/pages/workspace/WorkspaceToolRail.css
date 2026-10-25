@@ -1,0 +1,126 @@
+/* 工作台窄工具轨（票 180 / issue 177 Q2 Q11）：52px 固定宽，不折叠不拖宽 */
+.wtr {
+  width: 52px;
+  flex-shrink: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  z-index: 30;
+}
+
+.wtr__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+}
+
+.wtr__group + .wtr__group {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.wtr__btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.wtr__btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.wtr__btn.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.wtr__btn.is-active::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.wtr__btn.is-danger.is-active {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.wtr__btn.is-danger.is-active::before {
+  background: var(--danger);
+}
+
+/* 置灰按钮仍要能悬停出 tooltip（说明为什么不可用），故不用 pointer-events: none */
+.wtr__btn:disabled {
+  cursor: not-allowed;
+}
+
+.wtr__btn:disabled > :not(.wtr__tip) {
+  opacity: 0.35;
+}
+
+.wtr__btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* 自绘 tooltip：名称 + 快捷键，贴工具轨右侧 */
+.wtr__tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translate(-4px, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: #15181e;
+  color: #f2f4f7;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms var(--ease), transform 120ms var(--ease);
+  z-index: 50;
+}
+
+.wtr__btn:hover .wtr__tip,
+.wtr__btn:focus-visible .wtr__tip {
+  opacity: 1;
+  transform: translate(0, -50%);
+  transition-delay: 250ms;
+}
+
+.wtr__tip-keys {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.wtr__tip kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #cfd5de;
+}

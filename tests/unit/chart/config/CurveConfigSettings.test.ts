@@ -17,7 +17,9 @@ import { repoRoot, stripComments, readSource } from '@/tests/support/source';
 import { settingsMemStorage as memStorage } from '@/tests/support/storage';
 
 const panelSrc = stripComments(readSource('src/pages/workspace/CurveConfigPanel.tsx'));
-const toolbarSrc = stripComments(readSource('src/pages/workspace/Toolbar.tsx'));
+// 票 179 / 180：曲线配置住进画布左上角胶囊，工具轨不再内联任何配置项
+const capsuleSrc = stripComments(readSource('src/pages/workspace/CurveOptionsCapsule.tsx'));
+const railSrc = stripComments(readSource('src/pages/workspace/WorkspaceToolRail.tsx'));
 
 /** 只认 v1 设置键的假 storage（其余 key 一律 null → 快捷键走出厂默认，不干扰本票断言） */
 function walkTs(dir: string): string[] {
@@ -115,16 +117,17 @@ describe('issue 114 · 曲线配置面板（展开序 / 措辞 / 表驱动）', 
   });
 
   it('文案不出现第三方站名（缓动族 title 里的对标说明已删）', () => {
-    for (const src of [panelSrc, toolbarSrc]) {
+    for (const src of [panelSrc, capsuleSrc]) {
       expect(stripComments(src).toLowerCase()).not.toContain('bestdori');
     }
   });
 
-  it('面板抽成独立组件 + 表驱动：Toolbar 不再内联曲线配置项', () => {
-    expect(toolbarSrc).toContain('CurveConfigPanel');
-    // 只否定旧标识符不够（换名内联回 Toolbar 就绿了）——直接断言四个字段 id 都不在 Toolbar 里
+  it('面板抽成独立组件 + 表驱动：胶囊挂面板、工具轨与胶囊都不内联曲线配置项', () => {
+    expect(capsuleSrc).toContain('CurveConfigPanel');
+    // 只否定旧标识符不够（换名内联回去就绿了）——直接断言四个字段 id 都不在胶囊 / 工具轨里
     for (const id of ['family', 'type', 'precision', 'templateId']) {
-      expect(toolbarSrc, `曲线配置项 ${id} 不该回到 Toolbar`).not.toContain(`id: '${id}'`);
+      expect(capsuleSrc, `曲线配置项 ${id} 不该内联进胶囊`).not.toContain(`id: '${id}'`);
+      expect(railSrc, `曲线配置项 ${id} 不该回到工具轨`).not.toContain(`id: '${id}'`);
     }
     for (const id of ['family', 'type', 'precision', 'templateId']) {
       expect(panelSrc, `曲线配置项 ${id} 应在面板里`).toContain(`id: '${id}'`);
