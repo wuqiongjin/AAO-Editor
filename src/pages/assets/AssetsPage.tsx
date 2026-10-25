@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Eye, EyeOff, ImageOff, ImagePlus, Music2, Trash2, Upload, Wand2 } from 'lucide-react';
 import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
@@ -26,8 +26,18 @@ const ASSET_CATEGORIES: { id: AssetCategory; labelKey: MessageKey; icon: typeof 
   { id: 'background', labelKey: 'assets.background', icon: ImagePlus },
 ];
 
-export default function AssetsPage() {
+export default function AssetsPage({ active = true }: { active?: boolean }) {
   const [category, setCategory] = useState<AssetCategory>('noteskin');
+  // issue 10：应用壳保活挂载 ⇒ 本页在**启动时**就 mount，而正文里的 7 张整包缩略图各拉本包图集
+  // （atlas / band / bandSp / 配对方向 atlas），33 张 ≈ 1.75 MB 会全部在首屏取一遍——网页版
+  // 就是白付这笔与用户操作无关的流量。正文因此延迟到**首次进入本页**再挂：
+  // `visited` 只升不降，访问过就常驻，保活语义不变（切走再切回不重挂、不重画、不丢状态）；
+  // 首访那一帧用 `|| active` 直接出内容，等 effect 落 latch 不会闪一帧空白。
+  const [visited, setVisited] = useState(active);
+  useEffect(() => {
+    if (active) setVisited(true);
+  }, [active]);
+  const bodyMounted = visited || active;
 
   return (
     <AppPageShell>
@@ -50,8 +60,8 @@ export default function AssetsPage() {
       </AppPageShell.Sidebar>
 
       <AppPageShell.Body mode="default">
-        {category === 'noteskin' && <NoteSkinPanel />}
-        {category === 'background' && <BackgroundPanel />}
+        {bodyMounted && category === 'noteskin' && <NoteSkinPanel />}
+        {bodyMounted && category === 'background' && <BackgroundPanel />}
       </AppPageShell.Body>
     </AppPageShell>
   );

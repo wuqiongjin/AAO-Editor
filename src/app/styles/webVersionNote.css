@@ -1,0 +1,51 @@
+/* 票 04：在线版说明 —— 首访弹窗与 设置 › 关于 共用同一份内容，两处只差字号与图标。
+   三条都是灰字、各自成行：读的时候先扫条目，不需要先读一段导语。 */
+.web-note {
+  margin: 0;
+}
+
+.web-note__items {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.web-note__item {
+  display: grid;
+  grid-template-columns: 15px 1fr;
+  gap: 9px;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.web-note__item svg {
+  margin-top: 3px;
+  color: var(--text-subtle);
+}
+
+/* 关于页那一档：同一份内容缩成小字，图标跟着缩一档 —— 三条并列，图标是分行锚点，不能省 */
+.web-note--compact .web-note__items {
+  gap: 6px;
+}
+
+.web-note--compact .web-note__item {
+  grid-template-columns: 14px 1fr;
+  gap: 8px;
+  font-size: var(--text-xs);
+  line-height: 1.65;
+}
+
+.web-note--compact .web-note__item svg {
+  margin-top: 2px;
+}
+
+/* 弹窗底栏左侧的指路小字：跟主按钮同一行，不单独占一段 */
+.web-note__more {
+  margin-right: auto;
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+  color: var(--text-subtle);
+}

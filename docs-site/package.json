@@ -1,0 +1,18 @@
+{
+  "name": "aao-editor-docs-site",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "dev:cloud": "DISABLE_HMR=1 vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview",
+    "preview:cloud": "DISABLE_HMR=1 vitepress preview"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "vitepress": "^1.6.4",
+    "vue": "^3.5.13"
+  }
+}

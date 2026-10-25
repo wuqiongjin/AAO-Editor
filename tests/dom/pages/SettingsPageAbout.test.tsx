@@ -68,6 +68,17 @@ describe('ADR-0021 · 设置页关于', () => {
     expect(screen.getByText(new RegExp(APP_VERSION))).toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: '自动检查' })).toBeNull();
     expect(screen.queryByRole('button', { name: '检查更新' })).toBeNull();
+    // 票 04：浏览器里补一段身份说明（与首访弹窗同一份内容）。
+    // 锁三个形态事实：它并入身份卡下半段（.about-note 在 .about-identity 里，不是悬空一段
+    // 文字、也不是另一张卡）、用共享内容的 compact 档、并且自带小标题。
+    const first = screen.getByText(/部分功能仅在桌面版支持/);
+    const note = first.closest('.about-note');
+    expect(note).not.toBeNull();
+    expect(note!.closest('.about-identity')).not.toBeNull();
+    expect(note!.querySelector('.web-note--compact')).not.toBeNull();
+    expect(screen.getByText('在线版说明')).toHaveClass('about-note__title');
+    // 三条各自带图标：它们是并列条目的分行锚点（2026-10-25 验收：少了图标像一坨）
+    expect(note!.querySelectorAll('.web-note__item svg')).toHaveLength(3);
   });
 
   it('已安装包：关于露出自动检查与检查更新，开关写入设置对象', async () => {
@@ -84,6 +95,8 @@ describe('ADR-0021 · 设置页关于', () => {
     const persisted = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
     expect(persisted.autoCheck).toBe(false);
     expect(screen.getByRole('button', { name: '检查更新' })).toBeInTheDocument();
+    // 票 04：桌面版不写「在线版说明」——用户不需要被告知自己用的是完整版
+    expect(screen.queryByText(/部分功能仅在桌面版支持/)).toBeNull();
   });
 
   it('启动自动检查失败：不出 toast', async () => {

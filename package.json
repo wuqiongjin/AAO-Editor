@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "vite",
     "dev:cloud": "DISABLE_HMR=1 vite",
+    "docs:dev": "bash scripts/docs-dev.sh",
     "setup": "bash scripts/setup.sh",
     "assets:sync": "node scripts/assets-sync.mjs",
     "assets:check": "node scripts/assets-sync.mjs --check",

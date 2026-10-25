@@ -7,7 +7,10 @@
 | 脚本 | 作用 |
 | --- | --- |
 | `dev.sh` | 启动 Vite 开发服务器（**唯一推荐入口**，见根目录 `AGENTS.md`） |
+| `docs-dev.sh` | 启动 `docs-site/` VitePress 文档站（默认端口 4300、`DOCS_BASE=/`、云环境对外 URL） |
 | `setup.sh` | 初次环境安装（`npm run setup`） |
+
+`lib/dev-server.sh`：`dev.sh` / `docs-dev.sh` 共用的端口解析与占用清理（source 引入，不直接运行；改杀端口策略只改这一处）。
 
 ## Bestdori 谱面 / 音频
 

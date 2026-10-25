@@ -1,0 +1,82 @@
+/* 落地页与文档顶栏共用的语言胶囊（样式对齐 landing 顶栏 .lang） */
+.aao-lang {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--aao-chrome-line, var(--line, var(--vp-c-divider)));
+  border-radius: 999px;
+  background: var(--aao-chrome-panel, var(--bg-panel, var(--vp-c-bg-alt)));
+}
+
+.aao-lang button {
+  border: 0;
+  background: transparent;
+  color: var(--aao-chrome-faint, var(--text-faint, var(--vp-c-text-2)));
+  font-family: var(--font-sans, var(--vp-font-family-base));
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  line-height: 1.2;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.aao-lang button:hover {
+  color: var(--aao-chrome-text, var(--text, var(--vp-c-text-1)));
+}
+
+.aao-lang button.active {
+  color: var(--aao-chrome-accent-ink, var(--accent-ink, var(--vp-c-bg)));
+  background: var(--aao-chrome-accent, var(--accent, var(--vp-c-brand-1)));
+}
+
+/* 圆形外观开关：落地页与文档顶栏共用 */
+.aao-theme-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--aao-chrome-line, var(--line, var(--vp-c-divider)));
+  border-radius: 50%;
+  background: var(--aao-chrome-panel, var(--bg-panel, var(--vp-c-bg-alt)));
+  color: var(--aao-chrome-faint, var(--text-dim, var(--vp-c-text-2)));
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.aao-theme-btn:hover {
+  color: var(--aao-chrome-accent, var(--accent, var(--vp-c-brand-1)));
+  border-color: var(--aao-chrome-accent, var(--accent, var(--vp-c-brand-1)));
+}
+
+.aao-theme-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.aao-topbar-utilities {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 导航链接（含 GitHub）与外观/语言工具区之间的竖线 — 主页与指南页共用同一类名 */
+.aao-chrome-split {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 24px;
+  margin: 0 12px;
+  background: var(--aao-chrome-split, var(--line, var(--vp-c-divider)));
+}

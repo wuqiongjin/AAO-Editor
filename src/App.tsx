@@ -6,6 +6,7 @@ import ToastHost from "./ui/Toast";
 import { useApplyTheme } from './app/styles/theme';
 import { useApplyChromeTypography } from './app/styles/chromeTypography';
 import { useApplyUiLanguage } from './i18n/useApplyUiLanguage';
+import WebNoticeHost from './app/WebNoticeHost';
 
 // 主题同步（ADR-0003 §5）：把 settings.theme 落到 <html data-theme>，驱动 tokens.css 亮/暗。
 function ThemeSync() {
@@ -22,6 +23,8 @@ function Root() {
       <ThemeSync />
       {/* 在 App 崩溃壳外面：顶层错误态导出诊断包仍能 toast */}
       <ToastHost />
+      {/* 在线版的首次访问说明：挂在壳外一次，桌面运行时自己判掉（票 04） */}
+      <WebNoticeHost />
       <CrashBoundaryHost scope="app" pageId="app">
         <AppShell />
       </CrashBoundaryHost>
