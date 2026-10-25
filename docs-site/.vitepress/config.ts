@@ -171,6 +171,7 @@ export default defineConfig({
               text: '使用指南',
               items: [
                 { text: '功能指南', link: '/guide/features' },
+                { text: 'Bestdori 社区', link: '/guide/bestdori' },
                 { text: '在线版与桌面版的差异', link: '/guide/web-version' },
               ],
             },
@@ -241,6 +242,7 @@ export default defineConfig({
               text: 'Using the app',
               items: [
                 { text: 'Feature guide', link: '/en/guide/features' },
+                { text: 'Bestdori community', link: '/en/guide/bestdori' },
                 { text: 'Web version vs desktop', link: '/en/guide/web-version' },
               ],
             },
