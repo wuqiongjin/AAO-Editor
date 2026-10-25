@@ -319,6 +319,12 @@
   "workspace.audioAnomaly.realign": "按音频重新对齐（时长与曲目归属将更新）",
   "workspace.audioAnomaly.dismiss": "暂不处理",
   "workspace.displaySettings": "画布显示设置",
+  "workspace.beatSnap": "节拍吸附",
+  "workspace.beatSnap.tooltip": "节拍吸附 · 滚轮切换档位",
+  "workspace.beatSnap.custom": "自定义",
+  "workspace.beatSnap.customAria": "自定义细分",
+  "workspace.beatSnap.customHint": "回车生效",
+  "workspace.beatSnap.customInvalid": "{{min}}–{{max}} 的整数",
 
   "settings.header.eyebrow": "应用设置",
   "settings.header.title": "设置",

@@ -54,11 +54,12 @@ export function UIProvider({ children }: { children: ReactNode }) {
   // 本 Provider 不另存副本：否则「设置导入」走 ConfigContext 的 `setAllSettings` 整体替换 settings 后，
   // 这里的副本不会跟着变——工具栏面板与画笔采样步长（`step = 1 / curveConfig.precision`）会继续用旧值。
   // 也正因如此不需要布局那套"挂载 hydrate + 回写"双 effect（布局初值依赖 window 尺寸才要挂载后覆盖）。
-  const { settings, setCurveConfig: persistCurveConfig } = useConfig();
+  // 票 178：节拍吸附档位同理，单一真相在 settings.beatSnap。
+  const { settings, setCurveConfig: persistCurveConfig, setBeatSnap } = useConfig();
   const curveConfig = settings.curve;
+  const beatDisplay = settings.beatSnap;
   const [armedTool, setArmedTool] = useState<ArmedTool | null>(null);
   const [scale, setScale] = useState(1);
-  const [beatDisplay, setBeatDisplay] = useState(4);
 
 
   // 区域宽度（issue 12 / ADR-0003 L1；issue 97 起左右同口径 = defaultPanelWidth：20vw 兜底、300px 封顶，
@@ -102,7 +103,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
     armedTool, setArmedTool,
     curveConfig, setCurveConfig: persistCurveConfig,
     scale, setScale,
-    beatDisplay, setBeatDisplay,
+    beatDisplay, setBeatDisplay: setBeatSnap,
     leftPanelWidth, rightPanelWidth,
     leftCollapsed, rightCollapsed,
     isDragging, startDrag,

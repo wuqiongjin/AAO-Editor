@@ -154,6 +154,9 @@ export default memo(function Toolbar() {
                 {option.label}
               </option>
             ))}
+            {!beatOptions.some((o) => o.value === beatDisplay) && (
+              <option value={beatDisplay}>1/{beatDisplay}</option>
+            )}
           </select>
         </div>
 

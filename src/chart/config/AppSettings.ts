@@ -13,6 +13,7 @@ import { NOTE_SKIN_DEFAULT_SELECTION } from '../../rendering/skin/gen/noteSkinRe
 import { SIM_DEFAULT_PACK_IDS, normalizeSimAssetPackId } from '../../preview/video/sim/simAssetPacks';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/CurveTool';
+import { DEFAULT_BEAT_SNAP, normalizeBeatSnap } from '../../chart/editing/BeatSnap';
 import { detectOsLanguageTag, resolveUiLanguage, type UiLanguage } from '../../i18n/resolveUiLanguage';
 
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */
@@ -138,6 +139,11 @@ export interface AppSettings {
    * 缺段/脏值经 `normalizeCurveConfig` 归一化回落。
    */
   curve: CurveConfig;
+  /**
+   * 节拍吸附档位 1/N 的 N（issue 177 Q6 / 票 178）：与 `curve` 同属"我的习惯"——全局一份、跨会话沿用。
+   * 1–192 整数，缺字段 / 脏值经 `normalizeBeatSnap` 回落 4。additive 字段，不 bump schemaVersion。
+   */
+  beatSnap: number;
   /**
    * 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28
    * ；官方选曲面板排序 票 31）。
@@ -465,6 +471,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
+    beatSnap: DEFAULT_BEAT_SNAP,
     projects: { sort: 'lastOpened', importWithChart: true, songSort: { ...SONG_SORT_DEFAULT } },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
     export: { ...DEFAULT_EXPORT_FIELDS },
@@ -555,6 +562,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
+    beatSnap: normalizeBeatSnap(obj.beatSnap),
     // 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28；官方选曲面板排序 票 31）
     projects: {
       sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort),
@@ -694,6 +702,7 @@ export function updateSettings(
     display: Partial<AppSettings['display']>;
     visual: Partial<AppSettings['visual']>;
     curve?: CurveConfig;
+    beatSnap?: number;
     projects?: Partial<AppSettings['projects']>;
     preview?: Partial<AppSettings['preview']>;
     export?: Partial<AppSettings['export']>;
@@ -714,6 +723,7 @@ export function updateSettings(
     display: { ...prev.display, ...(patch.display ?? {}) },
     visual: { ...prev.visual, ...(patch.visual ?? {}) },
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
+    beatSnap: patch.beatSnap !== undefined ? normalizeBeatSnap(patch.beatSnap) : prev.beatSnap,
     projects: { ...prev.projects, ...(patch.projects ?? {}) },
     preview: { ...prev.preview, ...(patch.preview ?? {}) },
     // `opening` 是嵌套对象：段内浅合并会把 `items` 整个抹掉（改 `enabled` 就丢三项开关）

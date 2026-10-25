@@ -67,6 +67,15 @@ describe('issue 170 · 工作台顶栏右簇紧凑化与交互', () => {
     expect(displayBtn).toHaveAttribute('title', '画布显示设置');
   });
 
+  it('issue 178：节拍吸附胶囊挂在右簇、排在缩放胶囊之前', () => {
+    const { container } = renderWorkspace();
+    const cluster = container.querySelector('.ws-topbar-right') as HTMLElement;
+    const snap = screen.getByRole('button', { name: '节拍吸附' });
+    expect(cluster).toContainElement(snap);
+    const zoom = cluster.querySelector('.ws-zoom-capsule') as HTMLElement;
+    expect(snap.compareDocumentPosition(zoom) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('缩放胶囊交互：点击减加按 0.1 步进、双击重置为 100%、滚轮缩放', () => {
     let currentScale = 1;
     const { container } = renderWorkspace(

@@ -322,6 +322,12 @@
   "workspace.audioAnomaly.realign": "Realign to audio (duration and song source will update)",
   "workspace.audioAnomaly.dismiss": "Not now",
   "workspace.displaySettings": "Canvas display settings",
+  "workspace.beatSnap": "Beat snap",
+  "workspace.beatSnap.tooltip": "Beat snap · scroll to change",
+  "workspace.beatSnap.custom": "Custom",
+  "workspace.beatSnap.customAria": "Custom division",
+  "workspace.beatSnap.customHint": "Enter to apply",
+  "workspace.beatSnap.customInvalid": "Integer {{min}}–{{max}}",
 
   "settings.header.eyebrow": "App Settings",
   "settings.header.title": "Settings",

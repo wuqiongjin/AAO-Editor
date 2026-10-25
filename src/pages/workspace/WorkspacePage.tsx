@@ -4,6 +4,7 @@ import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, Minus, Plus, Lock,
 import Toolbar from './Toolbar';
 import ChartSwitcher from './ChartSwitcher';
 import WorkspaceDisplayPanel from './WorkspaceDisplayPanel';
+import BeatSnapCapsule from './BeatSnapCapsule';
 import './WorkspaceTopBar.css';
 import { ChartCodeEditorProvider } from '../../chart/components/code-editor/ChartCodeEditorProvider';
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
@@ -530,6 +531,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             </span>
 
             <span className="ws-topbar-divider" />
+
+            <BeatSnapCapsule />
 
             <div
               className="ws-zoom-capsule"
