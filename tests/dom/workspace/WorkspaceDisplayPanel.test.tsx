@@ -152,11 +152,12 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(stored().display.slideOpacity).toBe(defaults.slideOpacity);
   });
 
-  it('issue 179：最下方「播放条」组的「显示播放起点按钮」开关，默认开、写盘；恢复默认不动它', () => {
+  it('issue 179：画布组之后、「恢复默认」之前是「播放条」组；开关默认开、写盘；恢复默认不动它', () => {
     setup();
     const canvasGroup = within(panel()).getByRole('region', { name: '画布显示' });
     const playbarGroup = within(panel()).getByRole('region', { name: '播放条' });
     expect(canvasGroup.compareDocumentPosition(playbarGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(playbarGroup.compareDocumentPosition(resetBtn()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const markerSwitch = within(playbarGroup).getByRole('switch', { name: '显示播放起点按钮' });
     expect(markerSwitch).toHaveAttribute('aria-checked', 'true');

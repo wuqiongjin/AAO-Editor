@@ -14,6 +14,11 @@ export default function CurveOptionsCapsule() {
   const rootRef = useRef<HTMLDivElement>(null);
   const visible = armedTool === 'curve';
 
+  // Q15：切走工具即消失；再切回必须先出收起的胶囊，不能残留上次的展开态
+  useEffect(() => {
+    if (!visible) setOpen(false);
+  }, [visible]);
+
   useEffect(() => {
     if (!open || !visible) return;
     const onDown = (e: MouseEvent) => {

@@ -78,6 +78,17 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(within(form()).getByRole('combobox', { name: '模板' })).toBeEnabled();
   });
 
+  it('切走工具再切回：先出收起的胶囊，不残留上次展开的表单', () => {
+    setup();
+    arm('curve');
+    fireEvent.click(pill());
+    expect(form()).toBeInTheDocument();
+    arm('single');
+    arm('curve');
+    expect(queryForm()).not.toBeInTheDocument();
+    expect(pill()).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('点外面 / Esc 收回（无关闭钮）', () => {
     setup();
     arm('curve');

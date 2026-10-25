@@ -288,39 +288,6 @@ export default memo(function WorkspaceDisplayPanel() {
                   onChange={(labelScale) => setDisplay({ labelScale })}
                 />
               </Row>
-
-              <div className="wdp__reset-row">
-                {!confirmingReset ? (
-                  <button
-                    type="button"
-                    className="action-btn wdp__reset-btn"
-                    onClick={() => setConfirmingReset(true)}
-                  >
-                    <RotateCcw size={13} />
-                    <span>{t('settings.reset')}</span>
-                  </button>
-                ) : (
-                  <div className="wdp__reset-confirm">
-                    <span className="wdp__reset-prompt">{t('settings.reset.confirm', { hint: '' })}</span>
-                    <div className="wdp__reset-actions">
-                      <button
-                        type="button"
-                        className="action-btn action-btn--danger"
-                        onClick={handleReset}
-                      >
-                        {t('settings.reset.confirmBtn')}
-                      </button>
-                      <button
-                        type="button"
-                        className="action-btn"
-                        onClick={() => setConfirmingReset(false)}
-                      >
-                        {t('settings.reset.cancel')}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
             </section>
 
             <section className="wdp__group" aria-label={t('workspace.playbar')}>
@@ -335,6 +302,39 @@ export default memo(function WorkspaceDisplayPanel() {
                 />
               </Row>
             </section>
+
+            <div className="wdp__reset-row">
+              {!confirmingReset ? (
+                <button
+                  type="button"
+                  className="action-btn wdp__reset-btn"
+                  onClick={() => setConfirmingReset(true)}
+                >
+                  <RotateCcw size={13} />
+                  <span>{t('settings.reset')}</span>
+                </button>
+              ) : (
+                <div className="wdp__reset-confirm">
+                  <span className="wdp__reset-prompt">{t('settings.reset.confirm', { hint: '' })}</span>
+                  <div className="wdp__reset-actions">
+                    <button
+                      type="button"
+                      className="action-btn action-btn--danger"
+                      onClick={handleReset}
+                    >
+                      {t('settings.reset.confirmBtn')}
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn"
+                      onClick={() => setConfirmingReset(false)}
+                    >
+                      {t('settings.reset.cancel')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </>,
         document.body,
