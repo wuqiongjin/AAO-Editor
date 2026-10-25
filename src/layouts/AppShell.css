@@ -2095,14 +2095,17 @@ button.skin-pill {
 }
 
 .about-identity {
-  display: flex;
-  align-items: center;
-  gap: 14px;
   margin: 20px 0 8px;
   padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-inset);
+}
+
+.about-identity__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
 .about-identity__mark {
@@ -2133,6 +2136,22 @@ button.skin-pill {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   color: var(--text-muted);
+}
+
+/* 在线版身份说明（票 04）：身份卡的下半段，细线隔开。它不是可操作项，不占 settings-row
+   的槽位；内容排版归 webVersionNote.css —— 弹窗那边渲染的是同一份东西。 */
+.about-note {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+}
+
+.about-note__title {
+  margin: 0 0 8px;
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--text);
 }
 
 .about-identity + .settings-row:not(.settings-row--diagnostics) {

@@ -56,9 +56,9 @@ describe('docs-site 02 · Pages 发布流水线静态锁（构建与托管解耦
     expect(buildJob).toMatch(/actions\/upload-pages-artifact@/);
   });
 
-  it('合并落点：app 产物进 site-dist/demo/、docs 产物进 site-dist/ 根（两边都叫 dist，暂存目录不共用）', () => {
+  it('合并落点：app 产物进 site-dist/app/、docs 产物进 site-dist/ 根（两边都叫 dist，暂存目录不共用）', () => {
     // 正锁两个去向都在合并步骤里
-    expect(buildJob).toContain('site-dist/demo');
+    expect(buildJob).toContain('site-dist/app');
     expect(buildJob).toContain('docs-site/.vitepress/dist');
     // 负锁：不许把任一侧的 dist 直接当暂存根（会互相覆盖）
     expect(buildJob).not.toMatch(/mv\s+dist\s+site-dist\/?$/m);
@@ -70,7 +70,7 @@ describe('docs-site 02 · Pages 发布流水线静态锁（构建与托管解耦
     expect(deploy).not.toContain('ci-gate.sh');
     // `assets:check` 不在这条负锁里——它不是测试门禁，是构建自身的产物完整性断言。
     // 票 02 原本一并禁掉了它，票 03 按「缺二进制 → 画布空白，不许静默发出空态站」把它加回；
-    // 正锁在 tests/static/DocsSiteDemoBuild.test.ts，要再砍掉先看那边的口径。
+    // 正锁在 tests/static/DocsSiteWebAppBuild.test.ts，要再砍掉先看那边的口径。
   });
 
   it('取素材不许让步：无 continue-on-error（锁测 3——坏源必须红，不能静默发出空态站；与 ci.yml 同口径）', () => {

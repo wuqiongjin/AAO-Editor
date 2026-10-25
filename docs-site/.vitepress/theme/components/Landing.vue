@@ -41,11 +41,11 @@ const guideHref = computed(() =>
 )
 
 /**
- * 浏览器演示版（票 03 起随站点同批发布）：app 产物整体落在站点的 `demo/` 下，
+ * 在线版（票 03 起随站点同批发布）：app 产物整体落在站点的 `app/` 下，
  * 自身是 `base: './'` 的相对路径 SPA 壳，所以这里给目录形式的 URL（尾斜杠不能省——
  * 省了会被静态托管解析到站点根）。
  */
-const demoHref = withBase('/demo/')
+const appHref = withBase('/app/')
 
 /* ---------- 图片（规格在 landingMedia.ts，alt / 图注按语言解析） ---------- */
 const heroShot = computed<Shot>(() => resolveShots(t.value, [HERO_SHOT])[0])
@@ -372,14 +372,14 @@ function audienceColor(index: number): string {
                   ><span class="plat">Linux</span>
                 </p>
               </span>
-              <!-- 次入口（map 2026-10-23：桌面版为主、浏览器演示版为次）。
-                   `target="_self"` 不是装饰，是**必须的**：`/demo/` 是同源同前缀的另一个静态应用，
+              <!-- 次入口（map 2026-10-23：桌面版为主、在线版为次）。
+                   `target="_self"` 不是装饰，是**必须的**：`/app/` 是同源同前缀的另一个静态应用，
                    VitePress 的客户端路由会把站内 <a> 一律拦成 SPA 跳转（而且它的 click 监听是
                    window 的**捕获阶段**，比元素上的 @click 更早，抢不过），找不到路由就渲染自己的
                    404 且一个文档请求都不发——表现为「点了 404、刷新才正常」，历史里还是 pushState
                    出来的假条目，回退键跟着失效。带 target 是它唯一的 bail 条件之一
                    （dist/client/app/router.js），改用其它写法前先看那段。 -->
-              <a class="btn btn-secondary" :href="demoHref" target="_self">{{ t.ctaTry }}</a>
+              <a class="btn btn-secondary" :href="appHref" target="_self">{{ t.ctaTry }}</a>
             </div>
           </div>
           <div class="hero-visual">

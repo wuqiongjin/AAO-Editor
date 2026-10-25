@@ -10,7 +10,7 @@ Install, get started, and troubleshoot AAO Editor. Pages marked as drafts point 
 ## Using the app
 
 - [Feature guide](./features.md) — projects / editing & slides / preview & chart images / simulation & video / skins & audio
-- [Browser demo vs desktop](./browser-demo.md) — what the browser build can do and its limits
+- [Web version vs desktop](./web-version.md) — what the web version can do and where projects live
 
 ## Help
 

@@ -12,6 +12,8 @@ import { shouldResetSessionAfterDataRootSwitch } from '../../project/CurrentProj
 import { backgroundSkinStore } from '../../rendering/skin/backgroundSkin';
 import { showToast } from '../../ui/Toast';
 import { APP_VERSION } from '../../app/appVersion';
+import WebVersionNote from '../../app/WebVersionNote';
+import { hasDesktopRuntime } from '../../app/webNotice';
 import {
   checkAppUpdate,
   getAppUpdateState,
@@ -167,11 +169,21 @@ function AboutSection({
         <p>{t('settings.about.intro')}</p>
       </div>
       <div className="about-identity">
-        <img className="about-identity__mark" src={appLogo} alt="" width={48} height={48} />
-        <div className="about-identity__text">
-          <strong className="about-identity__name">{t('app.name')}</strong>
-          <span className="about-identity__ver">{t('settings.appVersion')} {version}</span>
+        <div className="about-identity__row">
+          <img className="about-identity__mark" src={appLogo} alt="" width={48} height={48} />
+          <div className="about-identity__text">
+            <strong className="about-identity__name">{t('app.name')}</strong>
+            <span className="about-identity__ver">{t('settings.appVersion')} {version}</span>
+          </div>
         </div>
+        {/* 在线版身份说明（票 04）：与首访弹窗同一份内容。并入身份卡、用一道细线隔开——
+            另起一张卡或让一段字悬在卡片下方都不成体统（2026-10-25 用户验收）。 */}
+        {!hasDesktopRuntime() && (
+          <div className="about-note">
+            <p className="about-note__title">{t('web.notice.title')}</p>
+            <WebVersionNote compact />
+          </div>
+        )}
       </div>
       {packaged && (
         <>
