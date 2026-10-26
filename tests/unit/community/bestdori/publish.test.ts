@@ -674,7 +674,7 @@ describe('票 52 · 描述自动生成', () => {
     expect(precheckPublish(makeInput({ content: '   ' })).missing).toContain('content');
   });
 
-  it('事实块按标题 / 难度+等级 / 音符 / 时长 / 谱师拼；缺项跳过', () => {
+  it('事实块按标题 / 难度 / 等级 / 音符 / 时长 / 谱师拼；缺项跳过', () => {
     expect(generatePublishDescription({
       title: 'Expert',
       diffName: 'Expert',
@@ -684,7 +684,8 @@ describe('票 52 · 描述自动生成', () => {
       charter: 'Alice',
     })).toBe([
       '标题：Expert',
-      '难度：Expert 24',
+      '难度：Expert',
+      '等级：24',
       '音符：128',
       '时长：1:40',
       '谱师：Alice',

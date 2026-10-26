@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { readStripped, repoRoot } from '@/tests/support/source';
 
 const publishDialog = readStripped('src/pages/projects/components/PublishDialog.tsx');
+const publishDialogCss = readStripped('src/pages/projects/components/PublishDialog.css');
 const projectDetail = readStripped('src/pages/projects/components/ProjectDetail.tsx');
 const projectsPage = readStripped('src/pages/projects/ProjectsPage.tsx');
 const publishEntry = readStripped('src/pages/projects/usePublishEntry.ts');
@@ -28,7 +29,7 @@ describe('票 11 · 发布入口的接线', () => {
   it('入口在工程详情（ADR-0015 §4：上传链路不归工程管理页管，它作入口）', () => {
     expect(projectDetail).toMatch(/onPublishChart/);
     expect(projectDetail).toMatch(/t\(up \? 'projects\.publish\.communityPost' : 'projects\.publish\.action'\)/);
-    // 票 51：已发谱面仍有入口（社区帖），不再卸掉
+    // 票 51：已发谱面仍有入口（已发布），不再卸掉
     expect(projectDetail).toMatch(/\{publishEntry && \(/);
     expect(projectDetail).not.toMatch(/publishEntry && !up/);
     // 票 41：灰化 why 不占列表行；未登录要点得开（aria-disabled，不是原生 disabled）
@@ -78,5 +79,19 @@ describe('issue 49 · 谱面域预检的接线', () => {
     // hard 拦在 publishChart 里、先于必填上报；precheckPublish 的 ok 只看 missing
     expect(precheck).toMatch(/precheck\.chartIssues\.length > 0/);
     expect(precheck).toMatch(/ok: missing\.length === 0/);
+  });
+});
+
+describe('发布弹窗 · 描述框按正文撑开', () => {
+  it('随行数变高；空稿也比旧的 88px 盒子高一截', () => {
+    expect(publishDialogCss).toMatch(/field-sizing:\s*content/);
+    expect(publishDialogCss).toMatch(/min-height:\s*9em/);
+    expect(publishDialogCss).not.toMatch(/min-height:\s*88px/);
+    expect(publishDialog).toMatch(/rows=\{6\}/);
+  });
+
+  it('整张内容卡可竖向拉伸，右下角有角标', () => {
+    expect(publishDialogCss).toMatch(/\.ppc-resize\s*\{[^}]*cursor:\s*ns-resize/);
+    expect(publishDialog).toMatch(/className="ppc-resize"/);
   });
 });

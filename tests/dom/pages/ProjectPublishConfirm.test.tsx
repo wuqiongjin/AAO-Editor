@@ -189,9 +189,9 @@ describe('票 11 · 发布弹窗：必填预检与确认门', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('已发布过的谱面：标题改「社区帖」，主按钮是「更新」，不再挡成已发布错误', async () => {
+  it('已发布过的谱面：标题改「已发布」，主按钮是「更新」，不再挡成已发布错误', async () => {
     renderDialog({ chart: makeChart({ upload: { postId: 254203, at: AT } }) });
-    expect(screen.getByRole('heading', { name: '社区帖' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '已发布' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '更新' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: '发布' })).toBeNull();
     expect(screen.queryByText(/这张谱面已经发布过了/)).toBeNull();
@@ -393,6 +393,8 @@ describe('票 51 · 标签芯片与已发态', () => {
   it('回车添加标签芯片；空标签仍可发；tags 进发帖入参', async () => {
     const onPublish = renderDialog();
     const tagInput = screen.getByPlaceholderText('输入后按回车添加');
+    expect(tagInput.closest('.ppc-post')).toContainElement(screen.getByPlaceholderText(DESCRIPTION));
+    expect(screen.getByPlaceholderText(DESCRIPTION)).toHaveAttribute('rows', '6');
     fireEvent.change(tagInput, { target: { value: '結束バンド' } });
     fireEvent.keyDown(tagInput, { key: 'Enter' });
     expect(screen.getByText('結束バンド')).toBeInTheDocument();
@@ -465,10 +467,12 @@ describe('票 52 · 描述自动生成', () => {
     const onPublish = renderDialog();
     expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
 
+    expect(screen.getByRole('button', { name: '拖动调整描述高度' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '自动生成' }));
     const generated = [
       '标题：Expert',
-      '难度：Expert 24',
+      '难度：Expert',
+      '等级：24',
       '音符：1',
       '时长：1:40',
     ].join('\n');
@@ -486,5 +490,19 @@ describe('票 52 · 描述自动生成', () => {
   it('已发：没有自动生成', () => {
     renderDialog({ chart: makeChart({ upload: { postId: 1, at: AT }, publishDraft: '当时那份描述' }) });
     expect(screen.queryByRole('button', { name: '自动生成' })).toBeNull();
+  });
+
+  it('自动生成走 insertText，好进 Ctrl+Z 撤销栈', () => {
+    const exec = vi.fn(() => true);
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: exec });
+    try {
+      renderDialog();
+      fillDescription('旧稿');
+      fireEvent.click(screen.getByRole('button', { name: '自动生成' }));
+      expect(exec).toHaveBeenCalledWith('insertText', false, expect.stringContaining('难度：Expert'));
+      expect(exec).toHaveBeenCalledWith('insertText', false, expect.stringContaining('等级：24'));
+    } finally {
+      Reflect.deleteProperty(document, 'execCommand');
+    }
   });
 });

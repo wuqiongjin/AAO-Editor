@@ -9,7 +9,7 @@
 //   ⑤ 预检与一次性确认：预检纯函数 precheckPublish，缺项就地标红与空槽展示，确认窗复用 ConfirmDialog；
 //   ⑥ 票 50：确认问句独立成行（#1）、失败展示升级为告警区块（#2）——重试仍过确认门，不猜平台拒绝成因。
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { CircleAlert, Music2, X } from 'lucide-react';
+import { CircleAlert, Music2, Wand2, X } from 'lucide-react';
 import { formatValidationError, type ChartCodeNote, type ValidationError } from '../../../chart/editing/ChartConverter';
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import {
@@ -135,6 +135,42 @@ function flushSave(ref: SaveTimerRef, run: () => void): void {
   run();
 }
 
+/** 描述卡右下角手柄：按住竖向拖高度。 */
+function startVerticalResize(
+  box: HTMLElement,
+  handle: HTMLElement,
+  startY: number,
+  startH: number,
+  pointerId: number,
+): void {
+  const onMove = (ev: PointerEvent) => {
+    if (ev.pointerId !== pointerId) return;
+    const maxH = Math.round(window.innerHeight * 0.48);
+    box.style.height = `${Math.min(maxH, Math.max(160, startH + ev.clientY - startY))}px`;
+  };
+  const onUp = (ev: PointerEvent) => {
+    if (ev.pointerId !== pointerId) return;
+    handle.releasePointerCapture(pointerId);
+    handle.removeEventListener('pointermove', onMove);
+    handle.removeEventListener('pointerup', onUp);
+  };
+  handle.addEventListener('pointermove', onMove);
+  handle.addEventListener('pointerup', onUp);
+}
+
+/** 走浏览器原生插入，好进 Ctrl+Z 撤销栈。失败由调用方退回受控 setState。 */
+function replaceTextareaPreservingUndo(el: HTMLTextAreaElement, next: string): boolean {
+  if (el.value === next) return true;
+  el.focus();
+  el.setSelectionRange(0, el.value.length);
+  try {
+    return typeof document.execCommand === 'function'
+      && document.execCommand('insertText', false, next);
+  } catch {
+    return false;
+  }
+}
+
 function Fact({
   k,
   missing,
@@ -185,7 +221,6 @@ export function PublishDialog(props: {
     loadUploadRefs = getProjectUploadRefs,
     onUpdateProject,
   } = props;
-  const published = chart.upload != null;
   const { session } = useCommunityCapabilities();
   const profile = session.signedIn ? session.account : null;
   const displayName = profile ? (profile.nickname ?? profile.username) : '';
@@ -199,6 +234,7 @@ export function PublishDialog(props: {
   const [tags, setTags] = useState<string[]>(() => (chart.tags ?? []).map((tag) => tag.data));
   const [tagDraft, setTagDraft] = useState('');
   const [editing, setEditing] = useState(false);
+  const published = chart.upload != null;
 
   const [stage, setStage] = useState<PublishStage | null>(null);
   const [failure, setFailure] = useState<PublishFailure | null>(null);
@@ -222,6 +258,8 @@ export function PublishDialog(props: {
   const hasCover = custom ? !!project.coverBlob : true;
 
   // 描述草稿防抖持久化（票 42 Q3）
+  const contentEl = useRef<HTMLTextAreaElement>(null);
+  const postEl = useRef<HTMLDivElement>(null);
   const debouncedDraftRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commitDraft = (nextDraft: string) => {
     onUpdateProject?.((p) => updateChartPublishDraft(p, chart.id, nextDraft));
@@ -411,6 +449,20 @@ export function PublishDialog(props: {
   const isContentMissing = !published && !content.trim();
   const isNotesMissing = notesCount === 0;
 
+  const fillAutogen = () => {
+    const next = generatePublishDescription({
+      title: rawTitle,
+      diffName: DIFF_NAMES[diff],
+      level: parsedLevel,
+      noteCount: notesCount,
+      duration: audioMissing ? null : formatDuration(project.durationSeconds),
+      charter: displayName,
+    });
+    const el = contentEl.current;
+    if (el) replaceTextareaPreservingUndo(el, next);
+    // insertText 只负责进撤销栈；受控 value 仍要 setState，否则下一帧 React 会写回旧稿。
+    syncDraft(next);
+  };
 
   const head = (
     <div className="ppc-head">
@@ -612,74 +664,100 @@ export function PublishDialog(props: {
           </PublishAlert>
         )}
 
-        <div className="ppc-tags">
-          <span className="ppc-tags__label">{t('projects.publish.field.tags')}</span>
-          <div className="ppc-tags__row">
-            {tags.map((tag) => (
-              <span key={tag} className="ppc-tag">
-                {tag}
-                <button
-                  type="button"
-                  className="ppc-tag__remove"
-                  aria-label={t('projects.publish.removeTag', { tag })}
-                  disabled={busy}
-                  onClick={() => removeTag(tag)}
-                >
-                  <X size={12} aria-hidden="true" />
-                </button>
-              </span>
-            ))}
-            <input
-              type="text"
-              className="ppc-tags__input"
-              value={tagDraft}
-              disabled={busy}
-              placeholder={t('projects.publish.tagsPlaceholder')}
-              aria-label={t('projects.publish.field.tags')}
-              onChange={(e) => setTagDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing) return;
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addTag(tagDraft);
-                }
-              }}
-            />
-          </div>
-        </div>
-
-        {/* 描述正文（草稿持久化 + 换行解析）；票 52：未发才给自动生成，点了才写、已有字覆盖。
+        {/* 标签收进描述同一张内容卡：上面芯片、下面正文，少一块孤立输入框。
             生成键不进 <label>：否则无障碍名会被拼成整段「描述 + 计数」。 */}
         <div className={`dialog-field ppc-content${isContentMissing ? ' is-missing' : ''}`}>
           <span className="ppc-content__head">
             {t('projects.publish.contentLabel')}
-            {!published && (
-              <button
-                type="button"
-                className="ppc-content__autogen"
-                disabled={busy}
-                onClick={() => syncDraft(generatePublishDescription({
-                  title: rawTitle,
-                  diffName: DIFF_NAMES[diff],
-                  level: parsedLevel,
-                  noteCount: notesCount,
-                  duration: audioMissing ? null : formatDuration(project.durationSeconds),
-                  charter: displayName,
-                }))}
-              >
-                {t('projects.publish.autogen')}
-              </button>
-            )}
+            <span className="ppc-content__actions">
+              {!published && (
+                <button
+                  type="button"
+                  className="ppc-content__autogen"
+                  disabled={busy}
+                  onClick={fillAutogen}
+                >
+                  <Wand2 size={12} aria-hidden="true" />
+                  {t('projects.publish.autogen')}
+                </button>
+              )}
+            </span>
           </span>
-          <textarea
-            value={content}
-            disabled={busy}
-            readOnly={published}
-            maxLength={POST_CONTENT_MAX_CHARS}
-            placeholder={t('projects.publish.contentPlaceholder')}
-            aria-label={t('projects.publish.contentLabel')}
-            onChange={(e) => syncDraft(e.target.value)}
-          />
+          <div className="ppc-post" ref={postEl}>
+            <div className="ppc-tags__row">
+              <span className="ppc-tags__k">{t('projects.publish.field.tags')}</span>
+              {tags.map((tag) => (
+                <span key={tag} className="ppc-tag">
+                  {tag}
+                  <button
+                    type="button"
+                    className="ppc-tag__remove"
+                    aria-label={t('projects.publish.removeTag', { tag })}
+                    disabled={busy}
+                    onClick={() => removeTag(tag)}
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+              <input
+                type="text"
+                className="ppc-tags__input"
+                value={tagDraft}
+                disabled={busy}
+                placeholder={t('projects.publish.tagsPlaceholder')}
+                aria-label={t('projects.publish.field.tags')}
+                onChange={(e) => setTagDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing) return;
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addTag(tagDraft);
+                  }
+                }}
+              />
+            </div>
+            <textarea
+              ref={contentEl}
+              rows={6}
+              value={content}
+              disabled={busy}
+              readOnly={published}
+              maxLength={POST_CONTENT_MAX_CHARS}
+              placeholder={t('projects.publish.contentPlaceholder')}
+              aria-label={t('projects.publish.contentLabel')}
+              onChange={(e) => syncDraft(e.target.value)}
+            />
+            <button
+              type="button"
+              className="ppc-resize"
+              aria-label={t('projects.publish.resizeDescription')}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                const box = postEl.current;
+                if (!box) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                startVerticalResize(
+                  box,
+                  e.currentTarget,
+                  e.clientY,
+                  box.getBoundingClientRect().height,
+                  e.pointerId,
+                );
+              }}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <path
+                  d="M8 2L2 8M9 5L5 9M9 8L8 9"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.15"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
           <small>{content.length} / {POST_CONTENT_MAX_CHARS}</small>
         </div>
 

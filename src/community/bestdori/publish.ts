@@ -339,10 +339,8 @@ export function generatePublishDescription(facts: PublishDescriptionFacts): stri
   const title = facts.title?.trim();
   if (title) lines.push(factLine(t('projects.publish.field.title'), title));
   const diffName = facts.diffName?.trim();
-  if (diffName || facts.level != null) {
-    const value = [diffName, facts.level != null ? String(facts.level) : null].filter(Boolean).join(' ');
-    lines.push(factLine(t('projects.publish.field.diff'), value));
-  }
+  if (diffName) lines.push(factLine(t('projects.publish.field.diff'), diffName));
+  if (facts.level != null) lines.push(factLine(t('projects.publish.field.level'), String(facts.level)));
   if (facts.noteCount != null && facts.noteCount > 0) {
     lines.push(factLine(t('projects.publish.field.chart'), String(facts.noteCount)));
   }
