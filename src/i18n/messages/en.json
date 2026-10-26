@@ -155,6 +155,8 @@
   "projects.publish.field.duration": "Duration",
   "projects.publish.field.content": "Description",
   "projects.publish.field.tags": "Tags",
+  "projects.publish.field.charter": "Charter",
+  "projects.publish.autogen": "Autogenerate",
   "projects.publish.tagsPlaceholder": "Type a tag and press Enter",
   "projects.publish.removeTag": "Remove tag {{tag}}",
   "projects.publish.helpHint": "Upload and post complete in one step; cancelling midway leaves no partial post.",

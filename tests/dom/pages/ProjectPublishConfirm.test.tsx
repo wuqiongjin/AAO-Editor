@@ -459,3 +459,32 @@ describe('票 51 · 标签芯片与已发态', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });
+
+describe('票 52 · 描述自动生成', () => {
+  it('空描述不能发；点自动生成后可发；已有字再点直接覆盖', async () => {
+    const onPublish = renderDialog();
+    expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '自动生成' }));
+    const generated = [
+      '标题：Expert',
+      '难度：Expert 24',
+      '音符：1',
+      '时长：1:40',
+    ].join('\n');
+    expect(screen.getByPlaceholderText(DESCRIPTION)).toHaveValue(generated);
+    expect(screen.getByRole('button', { name: '发布' })).toBeEnabled();
+
+    fillDescription('旧稿');
+    fireEvent.click(screen.getByRole('button', { name: '自动生成' }));
+    expect(screen.getByPlaceholderText(DESCRIPTION)).toHaveValue(generated);
+
+    const input = await confirmAndPublish(onPublish);
+    expect(input.content).toBe(generated);
+  });
+
+  it('已发：没有自动生成', () => {
+    renderDialog({ chart: makeChart({ upload: { postId: 1, at: AT }, publishDraft: '当时那份描述' }) });
+    expect(screen.queryByRole('button', { name: '自动生成' })).toBeNull();
+  });
+});

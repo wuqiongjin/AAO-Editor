@@ -156,6 +156,8 @@
   "projects.publish.field.duration": "时长",
   "projects.publish.field.content": "描述",
   "projects.publish.field.tags": "标签",
+  "projects.publish.field.charter": "谱师",
+  "projects.publish.autogen": "自动生成",
   "projects.publish.tagsPlaceholder": "输入后按回车添加",
   "projects.publish.removeTag": "移除标签 {{tag}}",
   "projects.publish.helpHint": "上传与发帖一次完成，中途取消不会留下半帖。",

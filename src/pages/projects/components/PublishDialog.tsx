@@ -13,6 +13,7 @@ import { CircleAlert, Music2, X } from 'lucide-react';
 import { formatValidationError, type ChartCodeNote, type ValidationError } from '../../../chart/editing/ChartConverter';
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import {
+  generatePublishDescription,
   precheckPublish,
   type EditChartOutcome,
   type PostTextTag,
@@ -647,19 +648,40 @@ export function PublishDialog(props: {
           </div>
         </div>
 
-        {/* 描述正文（草稿持久化 + 换行解析） */}
-        <label className={`dialog-field ppc-content${isContentMissing ? ' is-missing' : ''}`}>
-          <span>{t('projects.publish.contentLabel')}</span>
+        {/* 描述正文（草稿持久化 + 换行解析）；票 52：未发才给自动生成，点了才写、已有字覆盖。
+            生成键不进 <label>：否则无障碍名会被拼成整段「描述 + 计数」。 */}
+        <div className={`dialog-field ppc-content${isContentMissing ? ' is-missing' : ''}`}>
+          <span className="ppc-content__head">
+            {t('projects.publish.contentLabel')}
+            {!published && (
+              <button
+                type="button"
+                className="ppc-content__autogen"
+                disabled={busy}
+                onClick={() => syncDraft(generatePublishDescription({
+                  title: rawTitle,
+                  diffName: DIFF_NAMES[diff],
+                  level: parsedLevel,
+                  noteCount: notesCount,
+                  duration: audioMissing ? null : formatDuration(project.durationSeconds),
+                  charter: displayName,
+                }))}
+              >
+                {t('projects.publish.autogen')}
+              </button>
+            )}
+          </span>
           <textarea
             value={content}
             disabled={busy}
             readOnly={published}
             maxLength={POST_CONTENT_MAX_CHARS}
             placeholder={t('projects.publish.contentPlaceholder')}
+            aria-label={t('projects.publish.contentLabel')}
             onChange={(e) => syncDraft(e.target.value)}
           />
           <small>{content.length} / {POST_CONTENT_MAX_CHARS}</small>
-        </label>
+        </div>
 
         {busy && (
           <p className="off-status off-status--busy" role="status">

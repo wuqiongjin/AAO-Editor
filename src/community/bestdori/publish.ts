@@ -41,6 +41,7 @@ import {
 import { withRetry } from '../rateLimit';
 import { trail } from '../../diagnostics/trail';
 import { invalidResponse, isCommunityError, type CommunityTransport } from '../transport';
+import { t } from '../../i18n';
 
 /** multipart 上传的表单字段名（平台固定 `file`，见 bestdori-api.md §4） */
 export const UPLOAD_FILE_FIELD = 'file';
@@ -317,6 +318,39 @@ export function formatPostContent(raw: string): PostContentBlock[] {
     }
   }
   return blocks;
+}
+
+/** 票 52：描述自动生成的事实。缺项跳过，不编歌词 / 玩法。 */
+export interface PublishDescriptionFacts {
+  title?: string | null;
+  diffName?: string | null;
+  level?: number | null;
+  noteCount?: number | null;
+  duration?: string | null;
+  charter?: string | null;
+}
+
+function factLine(label: string, value: string): string {
+  return `${label}：${value}`;
+}
+
+export function generatePublishDescription(facts: PublishDescriptionFacts): string {
+  const lines: string[] = [];
+  const title = facts.title?.trim();
+  if (title) lines.push(factLine(t('projects.publish.field.title'), title));
+  const diffName = facts.diffName?.trim();
+  if (diffName || facts.level != null) {
+    const value = [diffName, facts.level != null ? String(facts.level) : null].filter(Boolean).join(' ');
+    lines.push(factLine(t('projects.publish.field.diff'), value));
+  }
+  if (facts.noteCount != null && facts.noteCount > 0) {
+    lines.push(factLine(t('projects.publish.field.chart'), String(facts.noteCount)));
+  }
+  const duration = facts.duration?.trim();
+  if (duration) lines.push(factLine(t('projects.publish.field.duration'), duration));
+  const charter = facts.charter?.trim();
+  if (charter) lines.push(factLine(t('projects.publish.field.charter'), charter));
+  return lines.join('\n');
 }
 
 function normalizePostTags(tags: readonly PostTextTag[] | undefined): PostTextTag[] {

@@ -296,6 +296,28 @@
 .ppc-content {
   margin-top: 14px;
 }
+.ppc-content__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ppc-content__autogen {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.ppc-content__autogen:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.ppc-content__autogen:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
 .ppc-content textarea {
   min-height: 88px;
 }
