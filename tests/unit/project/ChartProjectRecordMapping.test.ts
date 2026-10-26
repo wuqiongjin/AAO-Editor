@@ -40,6 +40,7 @@ function chart(overrides: Partial<ProjectChart> = {}): ProjectChart {
     lastModified: 1_700_000_000_000,
     appliedChartCodeText: '[{"type":"BPM","beat":0,"bpm":120}]',
     chartCodePristine: true,
+    tags: [{ type: 'text', data: '結束バンド' }],
     ...overrides,
   };
 }

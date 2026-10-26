@@ -12,7 +12,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
 import { getCommunityAccount, resetCommunityAccount } from '@/src/community/bestdori/account';
 import { userMeUrl } from '@/src/community/bestdori/endpoints';
-import type { PublishInput, PublishOutcome, PublishStage } from '@/src/community/bestdori/publish';
+import type { EditChartOutcome, PublishInput, PublishOutcome, PublishStage } from '@/src/community/bestdori/publish';
 import type { CommunityWireResult } from '@/src/community/transport';
 import type { ChartProject, ProjectChart } from '@/src/project/ChartProject';
 import type { ProjectUploadRefs } from '@/src/project/ChartProjectRecord';
@@ -68,6 +68,7 @@ function renderDialog(options: {
   chart?: ProjectChart;
   chartCode?: ChartCodeNote[];
   onPublish?: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
+  onEdit?: (input: { diff: number; level: number; tags: { type: 'text'; data: string }[] }) => Promise<EditChartOutcome>;
   uploadRefs?: ProjectUploadRefs | null;
 } = {}) {
   const onPublish = options.onPublish ?? vi.fn(async () => ({ ok: true as const, postId: 1, recordWritten: true }));
@@ -77,6 +78,7 @@ function renderDialog(options: {
       chart={options.chart ?? makeChart()}
       chartCode={options.chartCode ?? CHART_CODE}
       onPublish={onPublish}
+      onEdit={options.onEdit}
       {...(options.uploadRefs === undefined
         ? {}
         : { loadUploadRefs: async () => options.uploadRefs as ProjectUploadRefs | null })}
@@ -187,11 +189,12 @@ describe('票 11 · 发布弹窗：必填预检与确认门', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('已发布过的谱面：发布键禁用 + 就地说明出路（复制谱面再发）', async () => {
+  it('已发布过的谱面：标题改「社区帖」，主按钮是「更新」，不再挡成已发布错误', async () => {
     renderDialog({ chart: makeChart({ upload: { postId: 254203, at: AT } }) });
-    fillDescription();
-    expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
-    expect(screen.getByText(/这张谱面已经发布过了；要改就复制这张谱面/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '社区帖' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '更新' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '发布' })).toBeNull();
+    expect(screen.queryByText(/这张谱面已经发布过了/)).toBeNull();
   });
 });
 
@@ -383,5 +386,76 @@ describe('票 41 / 42 · 发布弹窗只读身份与就地编辑', () => {
     expect(screen.getByText('音符')).toBeInTheDocument();
     expect(screen.getByText('音频')).toBeInTheDocument();
     expect(screen.getByText('时长')).toBeInTheDocument();
+  });
+});
+
+describe('票 51 · 标签芯片与已发态', () => {
+  it('回车添加标签芯片；空标签仍可发；tags 进发帖入参', async () => {
+    const onPublish = renderDialog();
+    const tagInput = screen.getByPlaceholderText('输入后按回车添加');
+    fireEvent.change(tagInput, { target: { value: '結束バンド' } });
+    fireEvent.keyDown(tagInput, { key: 'Enter' });
+    expect(screen.getByText('結束バンド')).toBeInTheDocument();
+
+    fillDescription('x');
+    const input = await confirmAndPublish(onPublish);
+    expect(input.tags).toEqual([{ type: 'text', data: '結束バンド' }]);
+  });
+
+  it('已发：标题/歌手/描述只读，难度/等级/标签可改；点更新直接 onEdit，无二次确认', async () => {
+    const onPublish = vi.fn(async () => ({ ok: true as const, postId: 1, recordWritten: true }));
+    const onEdit = vi.fn(async () => ({ ok: true as const }));
+    renderDialog({
+      chart: makeChart({
+        upload: { postId: 254203, at: AT },
+        tags: [{ type: 'text', data: 'old' }],
+        publishDraft: '当时那份描述',
+      }),
+      onPublish,
+      onEdit,
+    });
+
+    expect(screen.getByLabelText('标题')).toHaveAttribute('readOnly');
+    expect(screen.getByLabelText('歌手')).toHaveAttribute('readOnly');
+    expect(screen.getByPlaceholderText(DESCRIPTION)).toHaveAttribute('readOnly');
+    expect(screen.getByPlaceholderText(DESCRIPTION)).toHaveValue('当时那份描述');
+    expect(screen.getByLabelText('难度')).not.toBeDisabled();
+    expect(screen.getByLabelText('等级')).not.toHaveAttribute('readOnly');
+
+    fireEvent.change(screen.getByLabelText('难度'), { target: { value: '4' } });
+    fireEvent.change(screen.getByLabelText('等级'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: '移除标签 old' }));
+    const tagInput = screen.getByPlaceholderText('输入后按回车添加');
+    fireEvent.change(tagInput, { target: { value: 'gimmick' } });
+    fireEvent.keyDown(tagInput, { key: 'Enter' });
+
+    fireEvent.click(screen.getByRole('button', { name: '更新' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    await waitFor(() => expect(onEdit).toHaveBeenCalledOnce());
+    expect(onPublish).not.toHaveBeenCalled();
+    expect(onEdit.mock.calls[0][0]).toEqual({
+      diff: 4,
+      level: 30,
+      tags: [{ type: 'text', data: 'gimmick' }],
+    });
+  });
+
+  it('已发：post/edit 失败则弹窗留着报错，不关窗', async () => {
+    const onEdit = vi.fn(async () => ({ ok: false as const, failure: 'rejected' as const }));
+    const onClose = vi.fn();
+    render(
+      <PublishDialog
+        project={makeProject()}
+        chart={makeChart({ upload: { postId: 1, at: AT } })}
+        chartCode={CHART_CODE}
+        onPublish={vi.fn()}
+        onEdit={onEdit}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '更新' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('社区平台拒绝了这次发布');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });

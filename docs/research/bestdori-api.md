@@ -148,7 +148,7 @@ JSON body（实测约束）：
 ### 其他读端点
 
 - `GET /api/post/basic?id={id}` — 标题/作者摘要
-- `GET /api/post/tag?type=&data=&fuzzy=` — 标签搜索（返回 `tags[]` 带 count）
+- `GET /api/post/tag?type=&data=&fuzzy=` — 标签搜索。2026-10-26 实测 `type=text&data=gimmick&fuzzy=true` → `{"result":true,"tags":[{"type":"text","data":"gimmick","count":2}]}`。帖子详情里的 `tags` 同形（无 `count`）：`{type:"text", data:"…"}` 自由文本，见 [bestdori-community-upload.md §3.3](./bestdori-community-upload.md)
 - `GET /api/post/find?categoryName=&categoryId=&id=` — 帖子在画廊中的时间序位次
 
 ## 3. 账号与登录

@@ -14,15 +14,18 @@
 import { useCallback, useState } from 'react';
 import { convertNotesToChartCode, type ChartCodeNote } from '../../chart/editing/ChartConverter';
 import {
+  editChartPost,
   publishChart,
+  type EditChartOutcome,
+  type PostTextTag,
   type PublishInput,
   type PublishOutcome,
   type PublishStage,
 } from '../../community/bestdori/publish';
 import { createCommunityTransport } from '../../community/electronTransport';
-import type { ChartProject, ProjectChart } from '../../project/ChartProject';
+import type { ChartDifficulty, ChartProject, ProjectChart } from '../../project/ChartProject';
 import { mutateProject, type ProjectMutationStore } from '../../project/ChartProjectRecord';
-import { recordChartUpload } from '../../project/projectCatalog';
+import { recordChartUpload, updateUploadedChartMeta } from '../../project/projectCatalog';
 import { t } from '../../i18n';
 import { showToast } from '../../ui/Toast';
 
@@ -51,6 +54,8 @@ export interface PublishEntry {
   close: () => void;
   /** 跑一次发布；结果原样回给弹窗（失败就地点名，成功由这里收尾） */
   run: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
+  /** 已发谱面改元数据；失败本地不动（票 51 Q15） */
+  runEdit: (input: { diff: ChartDifficulty; level: number; tags: PostTextTag[] }) => Promise<EditChartOutcome>;
   /** 就地修改工程（发布弹窗内就地编辑标题/歌手/难度/等级/草稿，见票 42） */
   updateProject: (updater: (p: ChartProject) => ChartProject | null) => Promise<void>;
 }
@@ -98,6 +103,30 @@ export function usePublishEntry(deps: PublishEntryDeps): PublishEntry {
     return outcome;
   }, [target, store, flush, notify, reload, transport]);
 
+  const runEdit = useCallback(async (
+    input: { diff: ChartDifficulty; level: number; tags: PostTextTag[] },
+  ): Promise<EditChartOutcome> => {
+    const current = target;
+    const postId = current?.chart.upload?.postId;
+    if (current == null || postId == null) return { ok: false, failure: 'unknown' };
+    const outcome = await editChartPost(
+      { transport: transport ?? createCommunityTransport() },
+      { postId, diff: input.diff, level: input.level, tags: input.tags },
+    );
+    if (!outcome.ok) return outcome;
+    const result = await mutateProject(
+      { store, flush, notify },
+      current.project.id,
+      (loaded) => updateUploadedChartMeta(loaded, current.chart.id, input),
+    );
+    await reload();
+    showToast(
+      t('projects.publish.updated'),
+      result.status === 'saved' ? 'success' : 'warn',
+    );
+    return { ok: true };
+  }, [target, store, flush, notify, reload, transport]);
+
   const updateProject = useCallback(async (updater: (p: ChartProject) => ChartProject | null) => {
     const current = target;
     if (!current) return;
@@ -120,5 +149,5 @@ export function usePublishEntry(deps: PublishEntryDeps): PublishEntry {
     }
   }, [target, store, flush, notify, reload]);
 
-  return { target, open, close, run, updateProject };
+  return { target, open, close, run, runEdit, updateProject };
 }

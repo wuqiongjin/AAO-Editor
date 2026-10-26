@@ -7,7 +7,7 @@ import {
   type ValidationError,
 } from '../chart/editing/ChartConverter';
 import type { ChartNote } from '../chart/types';
-import type { ChartDifficulty, ChartProject, ChartUploadRecord, ProjectChart, SongSource } from './ChartProject';
+import type { ChartDifficulty, ChartProject, ChartTag, ChartUploadRecord, ProjectChart, SongSource } from './ChartProject';
 import { createUnnamedProject, emptyChartNotes } from './workspaceProject';
 import { clampChartDuration } from '../audio/chartDuration';
 import { t } from '../i18n';
@@ -314,11 +314,57 @@ export function recordChartUpload(
   if (!target || target.upload) return null;
   return {
     ...project,
-    charts: project.charts.map((c) => (c.id === chartId ? { ...c, upload: record, publishDraft: null } : c)),
+    charts: project.charts.map((c) => (c.id === chartId ? { ...c, upload: record } : c)),
   };
 }
 
-/** 更新谱面的发布描述草稿（票 42 Q3）：随谱面持久化，发布成功后清除 */
+/** 标签去空白、去重、丢掉非 text（票 51 Q3：空数组合法） */
+export function normalizeChartTags(tags: readonly ChartTag[] | undefined): ChartTag[] {
+  const seen = new Set<string>();
+  const out: ChartTag[] = [];
+  for (const tag of tags ?? []) {
+    if (tag?.type !== 'text' || typeof tag.data !== 'string') continue;
+    const data = tag.data.trim();
+    if (!data || seen.has(data)) continue;
+    seen.add(data);
+    out.push({ type: 'text', data });
+  }
+  return out;
+}
+
+/** 更新谱面标签（未发谱面就地记；已发的走 updateUploadedChartMeta，发后成功才写） */
+export function updateChartTags(
+  project: ChartProject,
+  chartId: string,
+  tags: readonly ChartTag[],
+): ChartProject {
+  const next = normalizeChartTags(tags);
+  return {
+    ...project,
+    charts: project.charts.map((c) => (c.id === chartId && !c.upload ? { ...c, tags: next } : c)),
+  };
+}
+
+/**
+ * 已发谱面在 `post/edit` 成功后对齐本地 diff / level / tags（票 51）。
+ * 未发谱面原样返回——不要用这条给未发谱面开写，那是 updateChartInfo / updateChartTags 的事。
+ */
+export function updateUploadedChartMeta(
+  project: ChartProject,
+  chartId: string,
+  patch: { diff: ChartDifficulty; level: number | null; tags: readonly ChartTag[] },
+): ChartProject {
+  const tags = normalizeChartTags(patch.tags);
+  return {
+    ...project,
+    charts: project.charts.map((c) => {
+      if (c.id !== chartId || !c.upload) return c;
+      return { ...c, diff: patch.diff, level: patch.level, tags };
+    }),
+  };
+}
+
+/** 更新谱面的发布描述草稿（票 42 Q3 / 票 51 Q13）：随谱面持久化，发布成功后保留 */
 export function updateChartPublishDraft(
   project: ChartProject,
   chartId: string,

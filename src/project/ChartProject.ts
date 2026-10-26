@@ -31,6 +31,12 @@ export interface ChartUploadRecord {
   at: number;
 }
 
+/** 社区帖标签（票 51）：自由文本芯片，wire 形态 `{type:"text", data}` */
+export interface ChartTag {
+  type: 'text';
+  data: string;
+}
+
 export interface ProjectChart {
   id: string;
   /** 谱面代码源数据（ADR-0014 保真：未知字段随 JSON 往返保留） */
@@ -43,8 +49,10 @@ export interface ProjectChart {
   lastModified: number;
   appliedChartCodeText: string | null;
   chartCodePristine: boolean;
-  /** 发布描述草稿（票 42 Q3）：随谱面持久化，复制带上，发布成功后清除 */
+  /** 发布描述草稿（票 42 Q3 / 票 51 Q13）：随谱面持久化，复制带上，发布成功后保留 */
   publishDraft?: string | null;
+  /** 社区帖标签（票 51 Q3/Q8）：空数组合法；复制带走，发布后不清 */
+  tags?: ChartTag[];
 }
 
 export interface ChartProject {

@@ -8,6 +8,7 @@
 // custom 无封面不发 cover 键、平台拒了时记录不写。
 import { describe, expect, it } from 'vitest';
 import {
+  editChartPost,
   formatPostContent,
   precheckPublish,
   publishChart,
@@ -18,6 +19,7 @@ import {
 } from '@/src/community/bestdori/publish';
 import {
   postCreateUrl,
+  postEditUrl,
   uploadPrepareUrl,
   uploadStatusUrl,
   uploadUrl,
@@ -34,6 +36,7 @@ import { trail } from '@/src/diagnostics/trail';
 const PREPARE_URL = uploadPrepareUrl();
 const UPLOAD_URL = uploadUrl();
 const POST_URL = postCreateUrl();
+const EDIT_URL = postEditUrl();
 const statusUrl = (hash: string) => uploadStatusUrl(hash);
 
 /** 平台侧的失败：网关已按 code 翻成统一错误域（票 07），能力层只认 kind + platformCode */
@@ -616,5 +619,50 @@ describe('issue 49 · 谱面域预检（width 值域，上传前硬拦）', () =
     const payload = trail.snapshot().slice(before).find((e) => e.action === 'post-payload');
     expect(payload).toBeDefined();
     expect(payload!.meta).toMatchObject({ song: 'custom' });
+  });
+});
+
+describe('票 51 · 发帖 tags 与 post/edit', () => {
+  it('非空 tags 进 POST body；缺省仍是空数组', async () => {
+    const tags = [{ type: 'text' as const, data: '結束バンド' }, { type: 'text' as const, data: 'gimmick' }];
+    const { requests } = await run({ [POST_URL]: { result: true, id: 11 } }, makeInput({ tags }));
+    expect(postBodyOf(requests).tags).toEqual(tags);
+
+    const empty = await run({ [POST_URL]: { result: true, id: 12 } }, makeInput());
+    expect(postBodyOf(empty.requests).tags).toEqual([]);
+  });
+
+  it('post/edit 只发 {id, diff, level, tags}，不含 rating / warning / content / chart', async () => {
+    const transport = fakeTransport({ [EDIT_URL]: { result: true } });
+    const tags = [{ type: 'text' as const, data: 'gimmick' }];
+    const outcome = await editChartPost({ transport }, {
+      postId: 111533,
+      diff: 4,
+      level: 30,
+      tags,
+    });
+    expect(outcome).toEqual({ ok: true });
+    expect(transport.requests).toHaveLength(1);
+    expect(transport.requests[0].url).toBe(EDIT_URL);
+    expect(transport.requests[0].method).toBe('POST');
+    const body = JSON.parse(transport.requests[0].body!) as Record<string, unknown>;
+    expect(body).toEqual({ id: 111533, diff: 4, level: 30, tags });
+    expect(body).not.toHaveProperty('rating');
+    expect(body).not.toHaveProperty('warningViolence');
+    expect(body).not.toHaveProperty('content');
+    expect(body).not.toHaveProperty('chart');
+  });
+
+  it('post/edit 失败不上抛：映射为 PublishFailure，不带 ok', async () => {
+    const transport = fakeTransport({
+      [EDIT_URL]: platformError('invalid-response', 'POST_INVALID'),
+    });
+    const outcome = await editChartPost({ transport }, {
+      postId: 1,
+      diff: 3,
+      level: 24,
+      tags: [],
+    });
+    expect(outcome).toEqual({ ok: false, failure: 'rejected' });
   });
 });

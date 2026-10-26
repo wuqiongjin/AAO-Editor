@@ -73,11 +73,12 @@ describe('issue 17 · 原生提示弹窗清零', () => {
     expect(projectBits).toMatch(/showToast\(t\('projects\.uploadedReadonly'\), 'warn'\)/);
   });
 
-  it('票 11 · 发布的两句提示（成功 / 本机记账失败）都接了 showToast，且随编排住进页面目录的 hook', () => {
-    // 一处调用点、两句话：成功走 success，记账失败走 warn（帖子已在平台上，不是 danger）
-    expect(toastCalls(publishEntry)).toBe(1);
+  it('票 11 / 51 · 发布与更新的提示都接了 showToast，且随编排住进页面目录的 hook', () => {
+    // 两处调用点：发布（成功 / 记账失败）+ 更新（成功 / 本机写入失败）
+    expect(toastCalls(publishEntry)).toBe(2);
     expect(publishEntry).toMatch(/t\('projects\.publish\.done', \{ id: outcome\.postId \}\)/);
     expect(publishEntry).toMatch(/t\('projects\.publish\.err\.record'\)/);
+    expect(publishEntry).toMatch(/t\('projects\.publish\.updated'\)/);
     expect(publishEntry).toMatch(/'success' : 'warn'/);
   });
 

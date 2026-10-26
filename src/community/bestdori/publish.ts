@@ -32,6 +32,7 @@ import {
   POST_LEVEL_MIN,
   bestdoriHeaders,
   postCreateUrl,
+  postEditUrl,
   uploadPrepareUrl,
   uploadStatusUrl,
   uploadUrl,
@@ -86,6 +87,14 @@ export interface PublishInput {
   /** 谱面代码（页面用编辑器的导出转换 `convertNotesToChartCode` 备好；发布前静默 sanitize） */
   chartCode: readonly ChartCodeNote[];
   song: PublishSong;
+  /** 社区帖标签（票 51）；缺省 = `[]` */
+  tags?: readonly PostTextTag[];
+}
+
+/** 发帖 / 改帖标签元素（与平台 `{type:"text", data}` 同形） */
+export interface PostTextTag {
+  type: 'text';
+  data: string;
 }
 
 /** 必填预检能点名出的字段（界面按它取文案，一档一条 hint） */
@@ -310,6 +319,61 @@ export function formatPostContent(raw: string): PostContentBlock[] {
   return blocks;
 }
 
+function normalizePostTags(tags: readonly PostTextTag[] | undefined): PostTextTag[] {
+  const seen = new Set<string>();
+  const out: PostTextTag[] = [];
+  for (const tag of tags ?? []) {
+    if (tag?.type !== 'text' || typeof tag.data !== 'string') continue;
+    const data = tag.data.trim();
+    if (!data || seen.has(data)) continue;
+    seen.add(data);
+    out.push({ type: 'text', data });
+  }
+  return out;
+}
+
+export interface EditChartInput {
+  postId: number;
+  diff: number;
+  level: number;
+  tags?: readonly PostTextTag[];
+}
+
+export type EditChartOutcome =
+  | { ok: true }
+  | { ok: false; failure: PublishFailure };
+
+/**
+ * 已发谱面改元数据（票 51）：`POST /api/post/edit`，body 只有 `{id, diff, level, tags}`。
+ * 写路径不套退避（与发帖同口径）。失败映射为 PublishFailure，调用方负责本地不动。
+ */
+export async function editChartPost(
+  deps: { transport: CommunityTransport },
+  input: EditChartInput,
+): Promise<EditChartOutcome> {
+  try {
+    const body = {
+      id: input.postId,
+      diff: input.diff,
+      level: input.level,
+      tags: normalizePostTags(input.tags),
+    };
+    const edited = await deps.transport.requestJson({
+      url: postEditUrl(),
+      method: 'POST',
+      headers: { ...bestdoriHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+    });
+    if (!isPlainObject(edited) || edited.result !== true) {
+      throw invalidResponse('改帖响应不是预期形态');
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, failure: publishFailureOf(error) };
+  }
+}
+
 /**
  * 发布一张谱面（票 11）：预检 →（custom）上传音频 / 封面 → 发帖 → 写上传记录。
  *
@@ -365,7 +429,7 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
       content: contentBlocks,
       categoryName: 'SELF_POST',
       categoryId: 'chart',
-      tags: [],
+      tags: normalizePostTags(input.tags),
     };
     const bodyText = JSON.stringify(body);
     // 载荷统计（issue 49）：发帖前记进 trail，只记统计不记内容（请求体原文不进 trail，

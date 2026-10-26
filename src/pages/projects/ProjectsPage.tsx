@@ -422,7 +422,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
         <PublishDialog
           {...publish.target}
           onClose={publish.close}
-          onPublish={publish.run}
+          onPublish={publish.run} onEdit={publish.runEdit}
           onUpdateProject={publish.updateProject}
         />
       )}

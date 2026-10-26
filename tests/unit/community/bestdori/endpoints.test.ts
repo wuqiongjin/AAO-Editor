@@ -16,7 +16,9 @@ import {
   officialAudioUrl,
   officialChartUrl,
   officialJacketUrl,
+  postCreateUrl,
   postDetailUrl,
+  postEditUrl,
   postListUrl,
   postUrl,
   songDetailUrl,
@@ -35,6 +37,8 @@ describe('票 07 · 端点 URL', () => {
     expect(officialChartUrl(1, 'special')).toBe(`${BESTDORI_ORIGIN}/api/charts/1/special.json`);
     expect(postListUrl()).toBe(`${BESTDORI_ORIGIN}/api/post/list`);
     expect(postDetailUrl(248468)).toBe(`${BESTDORI_ORIGIN}/api/post/details?id=248468`);
+    expect(postCreateUrl()).toBe(`${BESTDORI_ORIGIN}/api/post`);
+    expect(postEditUrl()).toBe(`${BESTDORI_ORIGIN}/api/post/edit`);
   });
 
   it('postUrl 是帖子的页面地址（上传记录外链的落点，不是 API）', () => {

@@ -192,9 +192,9 @@ export function ProjectDetail({
                     <button type="button" className="pp-btn pp-btn--sm" onClick={() => onPreviewChart(c.id)}>
                       <Eye size={12} />{t('projects.previewChart')}
                     </button>
-                    {/* 发布入口（票 11）：已上传的谱面没有它（至多一条上传记录，
-                        要改就复制谱面改副本）；写能力被挡时禁用（说明见上面那一行）。 */}
-                    {publishEntry && !up && (
+                    {/* 发布入口（票 11 / 51）：未发「发布」、已发「社区帖」（同一张弹窗改 diff/level/tags）。
+                        写能力被挡时禁用（说明见上面那一行）。 */}
+                    {publishEntry && (
                       <button
                         type="button"
                         className="pp-btn pp-btn--sm"
@@ -210,7 +210,7 @@ export function ProjectDetail({
                           onPublishChart(c);
                         }}
                       >
-                        <Upload size={12} />{t('projects.publish.action')}
+                        <Upload size={12} />{t(up ? 'projects.publish.communityPost' : 'projects.publish.action')}
                       </button>
                     )}
                     <button type="button" className="pp-icon-btn" title={t('projects.editChart')} onClick={() => onChartForm({ project: sel, chart: c })}><Pencil size={14} /></button>

@@ -52,7 +52,7 @@ Cookie 有效期、多端登录未测。
 | `content`      | 是   | 富文本块数组。纯文本：`[{"type":"text","data":"…"}]`。前端限制正文 ≤ 5000 字符 |
 | `categoryName` | 是   | `"SELF_POST"`                                              |
 | `categoryId`   | 是   | `"chart"`                                                  |
-| `tags`         | 否   | `[]` 可通过                                                   |
+| `tags`         | 否   | `[]` 可通过。元素形态见 §3.3（读路径已实测；非空数组发帖尚未测）          |
 
 
 前端校验码（未登录会先跳转登录页，不一定打到 API）：`TITLE_INVALID` / `SONG_INVALID` / `ARTISTS_INVALID` / `POST_EMPTY` / `POST_INVALID`（过长）/ `CHART_INVALID` / `TEMPORARY_FILE`。
@@ -79,6 +79,19 @@ Cookie 有效期、多端登录未测。
 Custom 上传三步（本次未重测文件上传，沿用 bestdori-api.md §4）：SHA-1 → `POST /api/upload/prepare` `{ver:3,hash,size}` → multipart `POST /api/upload` 字段 `file` → 轮询 `GET /api/upload/status/{hash}`。引用 `https://bestdori.com/api/upload/file/{hash}`。
 
 **Bandori 曲 id 发帖时不校验**：`id: 999999` 仍可建帖成功（见 §6 误发帖）。实现里应自己校验曲库。
+
+### 3.3 标签形态（2026-10-26 读路径补测）
+
+Bestdori 社区帖的 `tags` **不是**预置枚举、也不是纯字符串数组。读路径实测：
+
+| 来源 | 结果 |
+| --- | --- |
+| `GET /api/post/details?id=111533` | `tags: [{type:"text", data:"結束バンド"}, …]` 共 **8** 条；内容是自由文本（角色 / 作品名），不是等级或难度 |
+| `GET /api/post/tag?type=text&data=gimmick&fuzzy=true` | `{"result":true,"tags":[{"type":"text","data":"gimmick","count":2}]}` |
+| `GET /api/post/tag?type=level&data=28`（2026-09-24） | `tags: []`（等级不进 tag） |
+| `POST /api/post` 带 `tags: []`（2026-09-24） | 可通过 |
+
+产品发帖目前写死 `tags: []`（`src/community/bestdori/publish.ts`）。**尚未**用非空 `{type,data}` 实测 `POST /api/post` / `POST /api/post/edit`。单条长度、条数上限、非法 `type` 的错误码仍未知。
 
 ## 4. 谱面代码必须先清洗
 
@@ -109,11 +122,20 @@ Custom 上传三步（本次未重测文件上传，沿用 bestdori-api.md §4�
 
 ### 能：`POST /api/post/edit`
 
-前端 `postEdit` / 谱面编辑页 `onEdit` 只提交：
+Vuex 通用 `postEdit` 的 body 形状是：
 
 `{id, diff, level, rating?, warningViolence?, warningDeath?, warningNonCon?, warningUnderage?, tags}`
 
-谱面编辑页实际用到的是 **diff / level / tags**。没有 `chart` / `title` / `song` / `content`。
+**谱面编辑页** `CommunityChartsEdit.onEdit` 实际只提交 `{id, diff, level, tags}`。没有 `chart` / `title` / `song` / `content`，也没有 rating / 警告。
+
+`rating` 与四条 `warning*` **不是谱面帖的字段**。它们属于**社区故事**（`CommunityStoriesNew` / `Edit`）：
+
+| 字段 | 故事页在干什么 |
+| --- | --- |
+| `rating` | 分级下拉（i18n `txtHelpRating`：「Inform audience about rating of your story」；选项里有 Mature / Explicit，默认 `0`） |
+| `warningViolence` / `warningDeath` / `warningNonCon` / `warningUnderage` | 内容警告勾选（暴力 / 死亡 / 非自愿 / 未成年相关） |
+
+谱面发帖 `POST /api/post`（`CommunityChartsNew.onPublish`）body 里本来就没有这五项。现网谱面详情（如帖 111533）也不返回它们。第三方有把谱面 `level` 改名叫 `rating` 的（Bestdori-Proxy 文档把 rating 写成 5–35 等级）——那是他们自己的改名，不是站点字段。
 
 ### 不能：改谱面、隐藏、删除
 
@@ -162,7 +184,8 @@ i18n 里的「删除」是通用 `btnDelete`（列表项打叉），不是删帖
 - Custom 文件上传（prepare / multipart / 15MB 上限仅见前端文案）
 - LLSIF 渠道完整发帖
 - `content` 富文本（emoji / link / 5000 字如何计）
-- `diff`/`level` 全值域；`tags` 形态
+- `diff`/`level` 全值域
+- **非空 `tags` 发帖 / 编辑**（读路径形态已见 §3.3；写路径、条数/长度上限未测）
 - 429 阈值
 - 谱面对象数量 / body 体积上限（本次 865 对象、约 43KB 可通过）
 

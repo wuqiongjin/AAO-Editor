@@ -200,6 +200,11 @@ export function postCreateUrl(): string {
   return apiUrl('post');
 }
 
+/** 改帖元数据（谱面帖只交 `diff` / `level` / `tags`，见 community-upload.md §5） */
+export function postEditUrl(): string {
+  return apiUrl('post/edit');
+}
+
 /** 发帖正文（`content`）的字符上限（前端 `userChartBody.length > 5000` → POST_INVALID） */
 export const POST_CONTENT_MAX_CHARS = 5000;
 

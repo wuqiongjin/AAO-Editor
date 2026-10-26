@@ -5,7 +5,7 @@
 //      完全一致）；「不双写」= 昵称与账号名不同时出现，账号名只留在头像的 title 提示里；
 //   ② 原型 A 封面身份卡：左侧 1:1 封面展示（只读视觉锚），右侧 7 行整齐对齐元信息条目；
 //   ③ 字段就地编辑：标题、歌手、难度、等级直接就地操作，保持原型 A 极简纯净排版，不加冗余小图标；
-//   ④ 描述草稿持久化（Q3）：草稿记在谱面工程记录里，复制谱面一并带上，发布成功后清除；
+//   ④ 描述草稿持久化（Q3 / 票 51 Q13）：草稿记在谱面工程记录里，复制谱面一并带上，发布成功后保留；
 //   ⑤ 预检与一次性确认：预检纯函数 precheckPublish，缺项就地标红与空槽展示，确认窗复用 ConfirmDialog；
 //   ⑥ 票 50：确认问句独立成行（#1）、失败展示升级为告警区块（#2）——重试仍过确认门，不猜平台拒绝成因。
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -14,6 +14,8 @@ import { formatValidationError, type ChartCodeNote, type ValidationError } from 
 import { countChartNotes } from '../../../chart/editing/NoteEditing';
 import {
   precheckPublish,
+  type EditChartOutcome,
+  type PostTextTag,
   type PublishFailure,
   type PublishInput,
   type PublishMissingField,
@@ -34,6 +36,7 @@ import {
   DIFF_NAMES,
   updateChartInfo,
   updateChartPublishDraft,
+  updateChartTags,
   updateProjectInfo,
 } from '../../../project/projectCatalog';
 import { readChartLevelInput } from '../../../project/ui/ChartInfoDialog';
@@ -166,6 +169,8 @@ export function PublishDialog(props: {
   chartCode: readonly ChartCodeNote[];
   onClose?: () => void;
   onPublish: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
+  /** 已发谱面点「更新」：直接 `post/edit`，无二次确认（票 51 Q14） */
+  onEdit?: (input: { diff: ChartDifficulty; level: number; tags: PostTextTag[] }) => Promise<EditChartOutcome>;
   loadUploadRefs?: LoadUploadRefs;
   onUpdateProject?: (updater: (p: ChartProject) => ChartProject | null) => Promise<void> | void;
 }) {
@@ -175,9 +180,11 @@ export function PublishDialog(props: {
     chartCode,
     onClose,
     onPublish,
+    onEdit,
     loadUploadRefs = getProjectUploadRefs,
     onUpdateProject,
   } = props;
+  const published = chart.upload != null;
   const { session } = useCommunityCapabilities();
   const profile = session.signedIn ? session.account : null;
   const displayName = profile ? (profile.nickname ?? profile.username) : '';
@@ -188,6 +195,9 @@ export function PublishDialog(props: {
   const [diff, setDiff] = useState<ChartDifficulty>(chart.diff);
   const [level, setLevel] = useState(chart.level != null ? String(chart.level) : '');
   const [content, setContent] = useState(chart.publishDraft ?? '');
+  const [tags, setTags] = useState<string[]>(() => (chart.tags ?? []).map((tag) => tag.data));
+  const [tagDraft, setTagDraft] = useState('');
+  const [editing, setEditing] = useState(false);
 
   const [stage, setStage] = useState<PublishStage | null>(null);
   const [failure, setFailure] = useState<PublishFailure | null>(null);
@@ -239,16 +249,35 @@ export function PublishDialog(props: {
     && next.diff === chart.diff
     && next.level === chart.level;
   const commitChartMeta = (next: ChartMetaNext) => {
-    if (chartMetaUnchanged(next)) return;
+    if (published || chartMetaUnchanged(next)) return;
     onUpdateProject?.((p) => updateChartInfo(p, chart.id, next, Date.now()));
   };
   const syncChartMeta = (nextTitle: string, nextDiff: ChartDifficulty, nextLevelStr: string) => {
+    if (published) return;
     const next = nextChartMeta(nextTitle, nextDiff, nextLevelStr);
     if (chartMetaUnchanged(next)) {
       cancelSave(debouncedChartRef);
       return;
     }
     scheduleSave(debouncedChartRef, () => commitChartMeta(next));
+  };
+  const tagObjects = (): PostTextTag[] => tags.map((data) => ({ type: 'text', data }));
+  const persistTags = (next: string[]) => {
+    if (published) return;
+    onUpdateProject?.((p) => updateChartTags(p, chart.id, next.map((data) => ({ type: 'text', data }))));
+  };
+  const addTag = (raw: string) => {
+    const data = raw.trim();
+    setTagDraft('');
+    if (!data || tags.includes(data)) return;
+    const next = [...tags, data];
+    setTags(next);
+    persistTags(next);
+  };
+  const removeTag = (data: string) => {
+    const next = tags.filter((tag) => tag !== data);
+    setTags(next);
+    persistTags(next);
   };
 
   // 歌手就地改动防抖落盘
@@ -258,6 +287,7 @@ export function PublishDialog(props: {
     onUpdateProject?.((p) => updateProjectInfo(p, { ...p, artist: nextArtist }));
   };
   const syncArtistMeta = (nextArtist: string) => {
+    if (published) return;
     const next = nextArtist.trim() || null;
     if (next === (project.artist?.trim() || null)) {
       cancelSave(debouncedArtistRef);
@@ -307,7 +337,7 @@ export function PublishDialog(props: {
   const parsedLevel = levelRead.persist ? levelRead.level : null;
 
   const input: PublishInput = useMemo(() => ({
-    published: chart.upload != null,
+    published,
     title: rawTitle,
     artists: artists.trim(),
     diff,
@@ -315,17 +345,17 @@ export function PublishDialog(props: {
     content,
     chartCode,
     song,
-  }), [chart.upload, rawTitle, artists, diff, parsedLevel, content, chartCode, song]);
+    tags: tagObjects(),
+  }), [published, rawTitle, artists, diff, parsedLevel, content, chartCode, song, tags]);
 
   const precheck = precheckPublish(input);
-  const busy = stage !== null;
+  const busy = stage !== null || editing;
   const refsPending = custom && refs === undefined;
   const refsFailed = custom && refs === null;
-  const alreadyPublished = chart.upload != null;
-  const canPublish = !busy && !refsPending && !refsFailed && !alreadyPublished && precheck.ok;
-  // 失败与常驻事实重复（本机读不到 / 已发布过）就不叠第二条告警（票 50 #2）
-  const failureDuplicatesKnownFact = failure != null
-    && ((refsFailed && failure === 'local') || (alreadyPublished && failure === 'already-published'));
+  const canPublish = !published && !busy && !refsPending && !refsFailed && precheck.ok;
+  const canUpdate = published && !busy && parsedLevel != null;
+  // 失败与常驻事实重复（本机读不到）就不叠第二条告警（票 50 #2）
+  const failureDuplicatesKnownFact = failure != null && refsFailed && failure === 'local';
 
   const runPublish = async () => {
     setFailure(null);
@@ -337,7 +367,8 @@ export function PublishDialog(props: {
         setConfirming(false);
         // 票 43 Q2：发布成功同样是关窗 —— 350ms 内未到期的就地编辑（标题/难度/等级/歌手）
         // 先落盘再关，否则定时器在卸载后触发、updateProject 因 target 已空直接 return，改动被丢。
-        // 描述草稿不刷：recordChartUpload 发布成功时已把它清除（票 42 Q3），再写会复活。
+        // 票 51 Q13：草稿发后保留，关窗前冲刷，别把 350ms 内未到期的描述丢掉。
+        flushDraftImmediate();
         flushPendingSaves();
         onClose?.();
         return;
@@ -352,20 +383,39 @@ export function PublishDialog(props: {
     setConfirming(false);
   };
 
+  const runEdit = async () => {
+    if (!onEdit || parsedLevel == null) return;
+    setFailure(null);
+    setChartIssues([]);
+    setEditing(true);
+    try {
+      const outcome = await onEdit({ diff, level: parsedLevel, tags: tagObjects() });
+      setEditing(false);
+      if (outcome.ok) {
+        onClose?.();
+        return;
+      }
+      setFailure(outcome.failure);
+    } catch {
+      setEditing(false);
+      setFailure('unknown');
+    }
+  };
+
   const notesCount = countChartNotes(chart.notes);
   const audioMissing = custom && (!refs?.audio || !project.audioName);
   const isTitleMissing = !rawTitle;
   const isArtistsMissing = !artists.trim();
   const isLevelMissing = parsedLevel == null;
-  const isContentMissing = !content.trim();
+  const isContentMissing = !published && !content.trim();
   const isNotesMissing = notesCount === 0;
 
 
   const head = (
     <div className="ppc-head">
       <div className="ppc-head__title">
-        <h3 className="dialog__title">{t('projects.publish.title')}</h3>
-        <HelpHint text={t('projects.publish.helpHint')} placement="down" />
+        <h3 className="dialog__title">{t(published ? 'projects.publish.communityPost' : 'projects.publish.title')}</h3>
+        <HelpHint text={t(published ? 'projects.publish.editHint' : 'projects.publish.helpHint')} placement="down" />
       </div>
       {profile && (
         <div
@@ -390,11 +440,13 @@ export function PublishDialog(props: {
             <ActionBtn onClick={closeDialog} disabled={busy}>{t('ui.cancel')}</ActionBtn>
             <ActionBtn
               variant="primary"
-              disabled={!canPublish}
-              // 清失败留给 runPublish：确认门上取消的话，告警块还说得通（票 50 #2）
-              onClick={() => setConfirming(true)}
+              disabled={published ? !canUpdate : !canPublish}
+              // 未发：清失败留给 runPublish（确认门上取消的话，告警块还说得通）。已发：点更新直接 post/edit（Q14）。
+              onClick={() => (published ? void runEdit() : setConfirming(true))}
             >
-              {busy ? t('projects.publish.submitting') : t('projects.publish.action')}
+              {busy
+                ? t(published ? 'projects.publish.updating' : 'projects.publish.submitting')
+                : t(published ? 'projects.publish.update' : 'projects.publish.action')}
             </ActionBtn>
           </>
         )}
@@ -421,6 +473,7 @@ export function PublishDialog(props: {
                 className={`ppc-fact-input ppc-fact-input--title${isTitleMissing ? ' is-missing' : ''}`}
                 value={title}
                 disabled={busy}
+                readOnly={published}
                 placeholder={project.name?.trim() || t('projects.untitled')}
                 aria-label={t('projects.publish.field.title')}
                 onChange={(e) => {
@@ -437,6 +490,7 @@ export function PublishDialog(props: {
                 className={`ppc-fact-input${isArtistsMissing ? ' is-missing' : ''}`}
                 value={artists}
                 disabled={busy}
+                readOnly={published}
                 placeholder={t('projects.artistMissing')}
                 aria-label={t('projects.publish.field.artists')}
                 onChange={(e) => {
@@ -516,18 +570,15 @@ export function PublishDialog(props: {
         {/* 失败与环境异常告警区（票 50 #2）：环境异常（读不到引用 / 已发布过）是事实陈述，只陈述不挂动作；
             发布失败可关闭（改完字段不再挂着红字）、「重试」重新走发布流程（不可逆动作，仍先过确认弹窗）。
             失败与常驻事实重复时（本地读不到 / 已发布过）不叠两条。 */}
-        {refsFailed && (
+        {refsFailed && !published && (
           <PublishAlert><p>{t('projects.publish.err.local')}</p></PublishAlert>
-        )}
-        {alreadyPublished && (
-          <PublishAlert><p>{t('projects.publish.err.already')}</p></PublishAlert>
         )}
         {failure && !failureDuplicatesKnownFact && (
           <PublishAlert
             actions={(
               <div className="pp-publish__alert__actions">
-                {canPublish && failure != null && RETRYABLE_FAILURES.has(failure) && (
-                  <ActionBtn onClick={() => setConfirming(true)}>
+                {(published ? canUpdate : canPublish) && failure != null && RETRYABLE_FAILURES.has(failure) && (
+                  <ActionBtn onClick={() => (published ? void runEdit() : setConfirming(true))}>
                     {t('projects.publish.retry')}
                   </ActionBtn>
                 )}
@@ -560,12 +611,49 @@ export function PublishDialog(props: {
           </PublishAlert>
         )}
 
+        <div className="ppc-tags">
+          <span className="ppc-tags__label">{t('projects.publish.field.tags')}</span>
+          <div className="ppc-tags__row">
+            {tags.map((tag) => (
+              <span key={tag} className="ppc-tag">
+                {tag}
+                <button
+                  type="button"
+                  className="ppc-tag__remove"
+                  aria-label={t('projects.publish.removeTag', { tag })}
+                  disabled={busy}
+                  onClick={() => removeTag(tag)}
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              className="ppc-tags__input"
+              value={tagDraft}
+              disabled={busy}
+              placeholder={t('projects.publish.tagsPlaceholder')}
+              aria-label={t('projects.publish.field.tags')}
+              onChange={(e) => setTagDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addTag(tagDraft);
+                }
+              }}
+            />
+          </div>
+        </div>
+
         {/* 描述正文（草稿持久化 + 换行解析） */}
         <label className={`dialog-field ppc-content${isContentMissing ? ' is-missing' : ''}`}>
           <span>{t('projects.publish.contentLabel')}</span>
           <textarea
             value={content}
             disabled={busy}
+            readOnly={published}
             maxLength={POST_CONTENT_MAX_CHARS}
             placeholder={t('projects.publish.contentPlaceholder')}
             onChange={(e) => syncDraft(e.target.value)}
@@ -576,7 +664,9 @@ export function PublishDialog(props: {
         {busy && (
           <p className="off-status off-status--busy" role="status">
             <span className="off-spinner" aria-hidden="true" />
-            {stage ? t(STAGE_KEYS[stage]) : t('projects.publish.submitting')}
+            {stage
+              ? t(STAGE_KEYS[stage])
+              : t(published ? 'projects.publish.updating' : 'projects.publish.submitting')}
           </p>
         )}
       </Dialog>

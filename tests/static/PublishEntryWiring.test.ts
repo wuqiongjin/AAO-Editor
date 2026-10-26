@@ -27,9 +27,10 @@ describe('票 11 · 发布弹窗走既有弹窗壳', () => {
 describe('票 11 · 发布入口的接线', () => {
   it('入口在工程详情（ADR-0015 §4：上传链路不归工程管理页管，它作入口）', () => {
     expect(projectDetail).toMatch(/onPublishChart/);
-    expect(projectDetail).toMatch(/t\('projects\.publish\.action'\)/);
-    // 已上传的谱面没有发布入口（至多一条上传记录）
-    expect(projectDetail).toMatch(/publishEntry && !up/);
+    expect(projectDetail).toMatch(/t\(up \? 'projects\.publish\.communityPost' : 'projects\.publish\.action'\)/);
+    // 票 51：已发谱面仍有入口（社区帖），不再卸掉
+    expect(projectDetail).toMatch(/\{publishEntry && \(/);
+    expect(projectDetail).not.toMatch(/publishEntry && !up/);
     // 票 41：灰化 why 不占列表行；未登录要点得开（aria-disabled，不是原生 disabled）
     expect(projectDetail).not.toMatch(/<CapabilityStatusLine/);
     expect(projectDetail).toMatch(/aria-disabled=\{signedOut/);
@@ -39,6 +40,8 @@ describe('票 11 · 发布入口的接线', () => {
     expect(projectsPage).toMatch(/<PublishDialog/);
     expect(projectsPage).toMatch(/usePublishEntry\(/);
     expect(publishEntry).toMatch(/publishChart\(/);
+    expect(publishEntry).toMatch(/editChartPost\(/);
+    expect(publishEntry).toMatch(/updateUploadedChartMeta\(/);
     // 上传记录走唯一写入口（mutateProject）+ 只写一次的把门（recordChartUpload）
     expect(publishEntry).toMatch(/mutateProject\(/);
     expect(publishEntry).toMatch(/recordChartUpload\(/);

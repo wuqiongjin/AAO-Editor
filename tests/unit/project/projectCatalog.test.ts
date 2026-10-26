@@ -16,6 +16,8 @@ import {
   toggleChartCompleted,
   updateChartInfo,
   updateChartPublishDraft,
+  updateChartTags,
+  updateUploadedChartMeta,
 } from '@/src/project/projectCatalog';
 import { createUnnamedProject } from '@/src/project/workspaceProject';
 import type { ChartNote } from '@/src/chart/types';
@@ -345,13 +347,85 @@ describe('票 42 Q3 · 发布描述草稿持久化', () => {
     expect(duplicated!.charts.find((c) => c.id === 'c2')?.publishDraft).toBe('带上我');
   });
 
-  it('recordChartUpload：发布成功写上传记录时清空草稿', () => {
+  it('recordChartUpload：发布成功写上传记录时保留草稿（票 51 Q13）', () => {
     const base = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
-    const withDraft = updateChartPublishDraft(base, 'c1', '成功后清空');
+    const withDraft = updateChartPublishDraft(base, 'c1', '发后只读展示');
     const uploaded = recordChartUpload(withDraft, 'c1', { postId: 12345, at: 200 });
     expect(uploaded).not.toBeNull();
     expect(uploaded!.charts[0].upload).toEqual({ postId: 12345, at: 200 });
-    expect(uploaded!.charts[0].publishDraft).toBeNull();
+    expect(uploaded!.charts[0].publishDraft).toBe('发后只读展示');
+  });
+});
+
+describe('票 51 · 标签落在谱面记录上', () => {
+  const tags = [
+    { type: 'text' as const, data: '結束バンド' },
+    { type: 'text' as const, data: 'gimmick' },
+  ];
+
+  it('updateChartTags：写入 / 空数组合法 / 去空白与重复；已发谱面不动', () => {
+    const p = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const written = updateChartTags(p, 'c1', tags);
+    expect(written.charts[0].tags).toEqual(tags);
+    const uploaded = recordChartUpload(written, 'c1', { postId: 1, at: 1 })!;
+    const blocked = updateChartTags(uploaded, 'c1', [{ type: 'text', data: 'nope' }]);
+    expect(blocked.charts[0].tags).toEqual(tags);
+
+    const emptied = updateChartTags(written, 'c1', []);
+    expect(emptied.charts[0].tags).toEqual([]);
+
+    const messy = updateChartTags(p, 'c1', [
+      { type: 'text', data: '  a  ' },
+      { type: 'text', data: '' },
+      { type: 'text', data: 'a' },
+      { type: 'text', data: 'b' },
+    ]);
+    expect(messy.charts[0].tags).toEqual([
+      { type: 'text', data: 'a' },
+      { type: 'text', data: 'b' },
+    ]);
+  });
+
+  it('复制谱面 / 复制工程带走标签；发布成功不清', () => {
+    const base = updateChartTags(createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 }), 'c1', tags);
+    const duplicated = duplicateChartInProject(base, 'c1', { chartId: 'c2', now: 101 }, untitled);
+    expect(duplicated!.charts.find((c) => c.id === 'c2')?.tags).toEqual(tags);
+
+    const projectCopy = duplicateProject(base, { id: 'pCopy', chartIds: ['cCopy'], now: 99 });
+    expect(projectCopy.charts[0].tags).toEqual(tags);
+    expect(projectCopy.charts[0].upload).toBeNull();
+
+    const uploaded = recordChartUpload(base, 'c1', { postId: 9, at: 200 });
+    expect(uploaded!.charts[0].tags).toEqual(tags);
+  });
+
+  it('updateChartInfo 对已发谱面仍然拒绝改 diff/level（Q2）', () => {
+    const uploaded = recordChartUpload(
+      createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 }),
+      'c1',
+      { postId: 1, at: 1 },
+    )!;
+    const blocked = updateChartInfo(uploaded, 'c1', { title: 'X', diff: 0, level: 1 }, 300);
+    expect(blocked.charts[0].diff).toBe(3);
+    expect(blocked.charts[0].level).toBeNull();
+    expect(blocked.charts[0].title).toBeNull();
+  });
+
+  it('updateUploadedChartMeta：只改已发谱面的 diff/level/tags，未发的不动', () => {
+    const uploaded = recordChartUpload(
+      createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 }),
+      'c1',
+      { postId: 1, at: 1 },
+    )!;
+    const next = updateUploadedChartMeta(uploaded, 'c1', { diff: 4, level: 30, tags });
+    expect(next.charts[0].diff).toBe(4);
+    expect(next.charts[0].level).toBe(30);
+    expect(next.charts[0].tags).toEqual(tags);
+
+    const unpublished = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const ignored = updateUploadedChartMeta(unpublished, 'c1', { diff: 0, level: 1, tags });
+    expect(ignored.charts[0].diff).toBe(3);
+    expect(ignored.charts[0].level).toBeNull();
   });
 });
 
