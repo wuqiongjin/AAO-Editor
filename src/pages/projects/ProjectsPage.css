@@ -191,7 +191,9 @@
 .pc-split::before { content: ''; position: absolute; inset: 0 2px; background: transparent; transition: background var(--dur-fast) var(--ease); }
 .pc-split:hover::before, .pc-split.is-dragging::before { background: var(--accent); }
 .pc-list__head { display: flex; align-items: center; justify-content: space-between; padding: 14px; border-bottom: 1px solid var(--border-faint); position: sticky; top: 0; background: var(--bg-elevated); z-index: 2; }
-.pc-item { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: none; background: none; color: var(--text); text-align: left; cursor: pointer; font-size: var(--text-sm); }
+/* 票 43：button 的 width:auto 是 fit-content，display:flex 改不了。不钉 100% 的话
+   选中底 / 进度条 / hover 都跟着标题长短走。按钮 UA 已是 border-box，padding 不会再加一遍。 */
+.pc-item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border: none; background: none; color: var(--text); text-align: left; cursor: pointer; font-size: var(--text-sm); }
 .pc-item:hover { background: var(--bg-hover); }
 .pc-item.is-selected { background: var(--accent-soft); }
 .pc-item__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }

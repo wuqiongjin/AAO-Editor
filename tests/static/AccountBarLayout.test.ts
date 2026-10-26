@@ -93,3 +93,11 @@ describe('票 53 · 账号区钉在视口底，不跟工程列表一起滚', () 
     expect(BAR).toMatch(/<Menu[\s\S]*?placement="up"/);
   });
 });
+
+// 票 43：工程行是 <button>，display:flex 改不了 UA 的 width:auto = fit-content，
+// 选中底 / 进度条 / hover 都跟着标题长短走。jsdom 无布局引擎，锁 CSS 事实。
+describe('票 43 · 工程行满宽（行宽不跟标题走）', () => {
+  it('`.pc-item` 钉 width:100%，行宽只由左栏决定', () => {
+    expect(rule('.pc-item')).toMatch(/width:\s*100%/);
+  });
+});
