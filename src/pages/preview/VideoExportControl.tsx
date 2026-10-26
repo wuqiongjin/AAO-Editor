@@ -23,12 +23,15 @@ import IconButton from '../../ui/IconButton';
 import { t, type MessageKey } from '../../i18n';
 import {
   CONTAINER_FALLBACK_ORDER,
+  ENDING_SECONDS,
+  ENDING_STAMPS,
   EXPORT_FPS,
   OPENING_ITEM_IDS,
   OPENING_SECONDS,
   VIDEO_EXPORT_TIERS,
   isAacCodec,
   tierOf,
+  type EndingStamp,
   type OpeningItemId,
   type VideoContainerChoice,
   type VideoExportProgress,
@@ -56,18 +59,20 @@ function Row({
 
 /** 下拉（与「显示」面板同一枚 `.select-control`——图像品质 / 轨道颜色那一套，不新造样式） */
 function Select<T extends string>({
-  value, label, options, onChange,
+  value, label, options, onChange, disabled,
 }: {
   value: T;
   label: string;
   options: ReadonlyArray<{ value: T; label: string }>;
   onChange: (v: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <select
       className="select-control"
       value={value}
       aria-label={label}
+      disabled={disabled}
       onChange={(e) => {
         const hit = options.find((o) => o.value === e.target.value);
         if (hit) onChange(hit.value);
@@ -75,6 +80,49 @@ function Select<T extends string>({
     >
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
+  );
+}
+
+/**
+ * 分段组的标题 + 可选的问号说明（说明不单独占行：点问号弹一小片气泡）。
+ * 自持展开态与"点外面收起"—— 两个分段组（开场 / 结尾）各有一枚，互不牵连。
+ */
+function GroupHead({ title, help }: { title: string; help?: string }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  return (
+    <div className="pvex__group-title-wrap" ref={wrapRef}>
+      <h4 className="pvex__group-title">{title}</h4>
+      {help && (
+        <>
+          <button
+            type="button"
+            className={`pvex__help-btn${open ? ' is-active' : ''}`}
+            title={help}
+            aria-label={help}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <HelpCircle size={13} />
+          </button>
+          {open && (
+            <div className="pvex__help-popover" role="tooltip">
+              {help}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -145,10 +193,23 @@ export interface VideoExportOpeningView {
   items: Record<OpeningItemId, boolean>;
 }
 
+/**
+ * 结尾画面的设置视图（chart-preview 52）：同「曲目信息片头」——总开关 + 缩进子项。
+ * 子项只有一项「结算形态」三档（ALL PERFECT / FULL COMBO / 普通 Clear）。
+ */
+export interface VideoExportEndingView {
+  enabled: boolean;
+  stamp: EndingStamp;
+}
+
 export interface VideoExportControlProps {
   /** 没有可导出的谱面 / 素材未就绪 */
   disabled?: boolean;
   spec: VideoExportSpec;
+  /** 结尾画面设置（null = 本弹层不显示结尾那一组） */
+  ending?: VideoExportEndingView | null;
+  /** 改结尾画面设置：只传要改的字段（`updateSettings` 段内合并） */
+  onEndingChange?: (patch: Partial<VideoExportEndingView>) => void;
   /** 视频开场设置（null = 本弹层不显示开场那一组） */
   opening?: VideoExportOpeningView | null;
   /**
@@ -177,6 +238,8 @@ export interface VideoExportControlProps {
 export default function VideoExportControl({
   disabled = false,
   spec,
+  ending = null,
+  onEndingChange,
   opening = null,
   onOpeningChange,
   onSpecChange,
@@ -191,23 +254,10 @@ export default function VideoExportControl({
   onProbe,
 }: VideoExportControlProps) {
   const [open, setOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const btnRef = useRef<HTMLSpanElement>(null);
   /** 面板 portal 到 body ⇒ 它**不在** `btnRef` 里，判"点外面"必须把它也算进来 */
   const panelRef = useRef<HTMLDivElement>(null);
-  const helpWrapRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!helpOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (!helpWrapRef.current?.contains(e.target as Node)) {
-        setHelpOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [helpOpen]);
 
   const tier = tierOf(spec.tier);
   const busy = progress != null;
@@ -347,24 +397,10 @@ export default function VideoExportControl({
             {opening && onOpeningChange && (
               <section className="pvex__group pvex__group--sub">
                 <div className="pvex__group-head">
-                  <div className="pvex__group-title-wrap" ref={helpWrapRef}>
-                    <h4 className="pvex__group-title">{t('preview.video.export.opening')}</h4>
-                    <button
-                      type="button"
-                      className={`pvex__help-btn${helpOpen ? ' is-active' : ''}`}
-                      title={t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
-                      aria-label={t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
-                      aria-expanded={helpOpen}
-                      onClick={() => setHelpOpen((v) => !v)}
-                    >
-                      <HelpCircle size={13} />
-                    </button>
-                    {helpOpen && (
-                      <div className="pvex__help-popover" role="tooltip">
-                        {t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
-                      </div>
-                    )}
-                  </div>
+                  <GroupHead
+                    title={t('preview.video.export.opening')}
+                    help={t('preview.video.export.opening.note', { seconds: OPENING_SECONDS })}
+                  />
                   <Toggle
                     label={t('preview.video.export.opening')}
                     checked={opening.enabled}
@@ -384,6 +420,36 @@ export default function VideoExportControl({
                     </Row>
                   );
                 })}
+              </section>
+            )}
+
+            {/* 结尾画面（chart-preview 52）：同「曲目信息片头」——总开关 + 缩进子项（结算形态三档）。
+                关掉 = 回到旧行为（播完切末帧、总长 = 开场 + 谱面）。 */}
+            {ending && onEndingChange && (
+              <section className="pvex__group pvex__group--sub">
+                <div className="pvex__group-head">
+                  <GroupHead
+                    title={t('preview.video.export.ending')}
+                    help={t('preview.video.export.ending.note', { seconds: ENDING_SECONDS })}
+                  />
+                  <Toggle
+                    label={t('preview.video.export.ending')}
+                    checked={ending.enabled}
+                    onChange={(v) => onEndingChange({ enabled: v })}
+                  />
+                </div>
+                <Row label={t('preview.video.export.ending.stamp')} disabled={!ending.enabled}>
+                  <Select<EndingStamp>
+                    label={t('preview.video.export.ending.stamp')}
+                    value={ending.stamp}
+                    disabled={!ending.enabled}
+                    options={ENDING_STAMPS.map((id) => ({
+                      value: id,
+                      label: t(`preview.video.export.ending.stamp.${id}` as MessageKey),
+                    }))}
+                    onChange={(v) => onEndingChange({ stamp: v })}
+                  />
+                </Row>
               </section>
             )}
 

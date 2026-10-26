@@ -24,6 +24,7 @@ vi.mock('@/src/preview/video/sim/gen/simAssetPacks.gen', () => ({
 }));
 
 import {
+  GAME_UI_ASSET_BASE,
   SIM_ASSET_BASE,
   SIM_ASSET_SERVERS,
   emptySimAssets,
@@ -31,6 +32,7 @@ import {
   sampleCenterColor,
   simAssetPackThumbUrl,
   simAssetUrls,
+  simJudgeUrl,
   simSpriteUrls,
 } from '@/src/preview/video/sim/simAssets';
 import { SIM_BAND_COLORS, SIM_BAND_MATERIAL, SIM_BAND_MATERIAL_SP } from '@/src/preview/video/sim/simGeometry';
@@ -121,6 +123,29 @@ describe('loadSimAssets · Bestdori 自家精灵（chart-preview 21）', () => {
     });
     expect(partial.sprites).toBeNull(); // 缺 combo / particles ⇒ 整组不用
     expect(partial.missing).toBe(false); // 场地仍在：不是空态
+  });
+});
+
+describe('loadSimAssets · 判定图集（chart-preview 51）', () => {
+  it('判定图集不在逐服目录里：`assets/game-ui/judgeskin/skin00/judge.png`（ingameskin 只有一份）', async () => {
+    expect(simJudgeUrl()).toBe(`${GAME_UI_ASSET_BASE}/judgeskin/skin00/judge.png`);
+    const jp = simAssetUrls('jp');
+    const assets = await loadSimAssets({
+      servers: ['jp'],
+      loadImage: fakeLoader((src) => src === jp.field || src === simJudgeUrl()).load,
+    });
+    expect(assets.judge?.src).toBe(simJudgeUrl());
+    expect(assets.missing).toBe(false);
+  });
+
+  it('判定图集缺件**不**置 missing（判定字退纯字，场地照画）', async () => {
+    const jp = simAssetUrls('jp');
+    const assets = await loadSimAssets({
+      servers: ['jp'],
+      loadImage: fakeLoader((src) => src === jp.field).load,
+    });
+    expect(assets.judge).toBeNull();
+    expect(assets.missing).toBe(false);
   });
 });
 

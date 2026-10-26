@@ -22,6 +22,11 @@ export interface AudioTrackRequest {
    * 键音事件整体 + 它 ⇒ 谱面 0 秒落在开场段结束那刻（开场段无 BGM / 无键音）。
    */
   openingSeconds?: number;
+  /**
+   * 结尾段长度（秒，chart-preview 52）：`> 0` = 轨长在谱面之后再留这段**静音**
+   * （结尾画面出声未定案，先不出声；轨长必须与视频等长，否则封装时音画错位）。
+   */
+  endingSeconds?: number;
   /** 键音事件表（`buildKeyEvents` 的输出，按 time 升序） */
   keyEvents: readonly KeySoundEvent[];
   /** 键音素材包（`settings.audio.keySet`） */
@@ -87,9 +92,11 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
   if (req.muted) return null;
   const sampleRate = req.sampleRate ?? EXPORT_AUDIO_SAMPLE_RATE;
   const channels = req.channels ?? EXPORT_AUDIO_CHANNELS;
-  // 开场段在最前面（chart-preview 30）：轨长 = 开场 + 谱面，与视频同一终点
+  // 开场段在最前面（chart-preview 30）、结尾段在最后（52）：轨长 = 开场 + 谱面 + 结尾，
+  // 与视频同一终点（结尾段没声音，但不能缺 —— 短了封装时音画就错位）
   const offset = Number.isFinite(req.openingSeconds) ? Math.max(0, req.openingSeconds!) : 0;
-  const frames = audioFramesFor(req.durationSeconds + offset, sampleRate);
+  const tail = Number.isFinite(req.endingSeconds) ? Math.max(0, req.endingSeconds!) : 0;
+  const frames = audioFramesFor(req.durationSeconds + offset + tail, sampleRate);
   const ctx = new OfflineAudioContext(channels, frames, sampleRate);
 
   // 与实时同一条链：master 是主音量，se 是键音的独立音量（issue 39 #7）

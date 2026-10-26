@@ -55,6 +55,7 @@ export {
 export {
   probeVideoExportSupport,
   runVideoExport,
+  type EndingInput,
   type OpeningInput,
   type VideoExportFailure,
   type VideoExportOutcome,

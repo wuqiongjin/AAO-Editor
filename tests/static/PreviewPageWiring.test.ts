@@ -217,8 +217,9 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
     // 41 起 sim/ 多两件：`simAssetPacks.ts`（包清单消费侧：按包 ID 查清单 + 非法 ID 回落
     // skin00）与 `gen/`（取件侧产出的包清单，git 忽略、assets:sync 取件，照 skin/gen 先例）；
     // 07 起旁出一支 encode/（规格 / 逐帧出帧 / 离线音轨 / 编码封装 / 编排），与 sim/ 平级；
-    // 30 起再旁出一支 opening/（视频开场的常量 / 信息项 / 装饰 / 一帧绘制），与 sim/ 平级
-    expect(entries('src/preview/video')).toEqual(['encode', 'index.ts', 'opening', 'sim']);
+    // 30 起再旁出一支 opening/（视频开场的常量 / 信息项 / 装饰 / 一帧绘制），与 sim/ 平级；
+    // 52 起再旁出一支 ending/（结尾段的参数表 / 素材 / 一帧绘制），同样与 sim/ 平级
+    expect(entries('src/preview/video')).toEqual(['encode', 'ending', 'index.ts', 'opening', 'sim']);
     expect(entries('src/preview/video/sim')).toEqual([
       'gen',
       'index.ts',
@@ -228,6 +229,7 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'simBandRaster.ts', // 65：带体贴图剖面 / LUT / 一张共享缓冲的逐像素光栅
       'simField.ts',
       'simGeometry.ts',
+      'simHud.ts',
       'simPlayback.ts',
       'simSprites.ts',
     ]);

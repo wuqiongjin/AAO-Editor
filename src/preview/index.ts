@@ -79,6 +79,13 @@ export {
   type OpeningInput,
   type OpeningItemId,
 } from './video';
+// 结尾画面（chart-preview 52）：谱面之后那段（页面只需三档形态 + 段长 + `type EndingInput`）
+export {
+  ENDING_SECONDS,
+  ENDING_STAMPS,
+  type EndingInput,
+  type EndingStamp,
+} from './video';
 // 视频导出（chart-preview 07）：离线逐帧 + 离线音轨 + 编码封装
 export {
   CONTAINER_FALLBACK_ORDER,

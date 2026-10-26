@@ -283,6 +283,11 @@ export interface ExportFieldSettings {
    * 与上面 7 个「信息区字段」**互不跟随**（那是长图头带的谱面统计信息，这是歌曲信息）。
    */
   opening: OpeningSettings;
+  /**
+   * **结尾画面**（chart-preview 52）：谱面播完之后那段（中央章 → 黑幕转场 → 结算）。
+   * 与开场同样是视频导出专属、**只在导出里演**（实时预览不加后置段）。
+   */
+  ending: EndingSettings;
 }
 
 /**
@@ -293,6 +298,24 @@ export interface OpeningSettings {
   enabled: boolean;
   items: Record<OpeningItemId, boolean>;
 }
+
+/**
+ * 结尾画面设置（chart-preview 52）：`enabled` 关掉 = 回到"播完切末帧、总长 = 开场 + 谱面"；
+ * `stamp` = 中央章形态三档（Auto 永远 PERFECT，故默认 ALL PERFECT；不是按漏判算的）。
+ */
+export interface EndingSettings {
+  enabled: boolean;
+  stamp: EndingStamp;
+}
+
+/** 中央章形态（`clear` = 普通 Clear，无章） */
+export type EndingStamp = 'ap' | 'fc' | 'clear';
+
+/** 中央章候选全列（归一化与「结算形态」下拉共用同一份） */
+export const ENDING_STAMP_IDS: readonly EndingStamp[] = ['ap', 'fc', 'clear'];
+
+/** 结尾画面默认档（用户 2026-10-26 拍板）：**开**、ALL PERFECT */
+export const DEFAULT_ENDING: EndingSettings = { enabled: true, stamp: 'ap' };
 
 /** 开场信息项的候选全列（声明式：未来加项 = 加一个 id + 默认值 + 文案 + 一处绘制） */
 export const OPENING_ITEM_IDS = ['difficulty', 'title', 'artist'] as const;
@@ -308,7 +331,10 @@ export const DEFAULT_OPENING_ITEMS: Record<OpeningItemId, boolean> = {
 };
 
 /** 导出信息字段的候选全列（归一化与「导出信息」UI 组共用同一份，免得两处各列一遍） */
-export const EXPORT_FIELD_KEYS: readonly Exclude<keyof ExportFieldSettings, 'enabled' | 'opening'>[] = [
+export const EXPORT_FIELD_KEYS: readonly Exclude<
+  keyof ExportFieldSettings,
+  'enabled' | 'opening' | 'ending'
+>[] = [
   'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt',
 ];
 
@@ -327,6 +353,8 @@ export const DEFAULT_EXPORT_FIELDS: ExportFieldSettings = {
   exportedAt: false,
   // 视频开场默认全开；**缺字段回落 true**（老用户不得被静默关掉，定案 5）
   opening: { enabled: true, items: { ...DEFAULT_OPENING_ITEMS } },
+  // 结尾画面默认开 + ALL PERFECT（票 52 Q8）
+  ending: { ...DEFAULT_ENDING },
 };
 
 /** 预览标注设置（= `settings.preview`；预览面板的叠加项由它推出） */
@@ -683,7 +711,25 @@ export function normalizeExportFields(
   // `opening` 是嵌套对象：`{ ...fallback }` 是浅拷贝，直接改会写脏 `DEFAULT_EXPORT_FIELDS.opening`
   // ⇒ 必须显式造一个新对象（含 items 的新对象）
   out.opening = normalizeOpening(raw.opening, fallback.opening);
+  out.ending = normalizeEnding(raw.ending, fallback.ending);
   return out;
+}
+
+/**
+ * 结尾画面归一化（票 52）：`enabled` 缺 = **开**（老数据升级后不得被默默关掉）；
+ * `stamp` 只认三档白名单，脏值 / 缺字段回落 `ap`。
+ */
+export function normalizeEnding(
+  raw: unknown,
+  fallback: EndingSettings = DEFAULT_ENDING,
+): EndingSettings {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    enabled: typeof src.enabled === 'boolean' ? src.enabled : fallback.enabled !== false,
+    stamp: (ENDING_STAMP_IDS as readonly unknown[]).includes(src.stamp)
+      ? (src.stamp as EndingStamp)
+      : fallback.stamp,
+  };
 }
 
 /**
@@ -815,6 +861,11 @@ export function updateSettings(prev: AppSettings, patch: SettingsPatch): AppSett
       ...prev.export,
       ...(patch.export ?? {}),
       opening: mergeOpening(prev.export.opening, patch.export?.opening),
+      // `ending` 是平铺对象：段内浅合并就够（没有 `opening.items` 那种第二层）
+      ending: normalizeEnding(
+        { ...prev.export.ending, ...(patch.export?.ending ?? {}) },
+        prev.export.ending,
+      ),
     },
     // 社区素材缓存回收策略（票 18）：整段归一化，缺段 / 脏值回落默认档
     cachePolicy: patch.cachePolicy

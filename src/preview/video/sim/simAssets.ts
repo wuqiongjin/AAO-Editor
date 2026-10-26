@@ -49,6 +49,18 @@ const SIM_BG_CATEGORY = 'bgskin';
 const SIM_SPRITE_CATEGORY = 'sprites';
 
 /**
+ * **游戏 UI 素材根**（`chart-preview 51/52`）：判定图集、结算图、中央章字样都在这儿。
+ * 与仿真场素材同一套 `public/` 规则（拼 `BASE_URL`），但**不逐服**（`ingameskin` 只有一份），
+ * 也不进安装包 ⇒ 读不到 = 那处留空 / 纯字（票 51/52 Q12）。
+ */
+export const GAME_UI_ASSET_BASE = `${import.meta.env.BASE_URL}assets/game-ui`;
+
+/** 判定图集 URL（`judgeskin/skin00/judge.png`；Auto 只用 PERFECT 那一格） */
+export function simJudgeUrl(): string {
+  return `${GAME_UI_ASSET_BASE}/judgeskin/skin00/judge.png`;
+}
+
+/**
  * 两个独立选择器传进来的包 ID（chart-preview 41；`settings.preview.bgPackId` / `fieldPackId`）。
  * 缺省 / 非法值在 `simAssetUrls` 里归一化（回落默认 `skin00`），调用方不用先洗值。
  */
@@ -163,6 +175,8 @@ export interface SimAssets {
   bandRasterSp: SimBandRasterMaterial;
   /** Bestdori 自家精灵（combo / 特效）：缺 = null → 回落自绘（chart-preview 21，**不置 missing**） */
   sprites: SimSprites | null;
+  /** 判定图集（51）：缺 = null → 判定字走纯字（**不置 missing**） */
+  judge: HTMLImageElement | null;
   /** 缺素材：跑过归档脚本才能有（空态由页面画，这里只报事实） */
   missing: boolean;
   /** 命中的服务器目录（缺素材 = null） */
@@ -202,6 +216,7 @@ export function emptySimAssets(): SimAssets {
     bandRaster: SIM_BAND_RASTER_MATERIAL,
     bandRasterSp: SIM_BAND_RASTER_MATERIAL_SP,
     sprites: null,
+    judge: null,
     missing: true,
     server: null,
   };
@@ -322,7 +337,7 @@ async function probeSimServers(opts: {
       continue; // 这个服务器目录没归档（或没摆选中的场地图）：换下一个
     }
     const spriteUrls = simSpriteUrls(server);
-    const [background, playLine, bandImg, bandSpImg, digits, combo, particles] = await Promise.all([
+    const [background, playLine, bandImg, bandSpImg, digits, combo, particles, judge] = await Promise.all([
       loadImage(urls.background).catch(() => null),
       loadImage(urls.playLine).catch(() => null),
       bandSrc ? loadImage(bandSrc).catch(() => null) : Promise.resolve(null),
@@ -331,6 +346,8 @@ async function probeSimServers(opts: {
       loadImage(spriteUrls.digits).catch(() => null),
       loadImage(spriteUrls.combo).catch(() => null),
       loadImage(spriteUrls.particles).catch(() => null),
+      // 判定图集（51）：缺席只是"判定字走纯字"，不影响场地
+      loadImage(simJudgeUrl()).catch(() => null),
     ]);
     const sprites = digits && combo && particles ? { digits, combo, particles } : null;
     warmupSimSprites(sprites, [background, field, playLine]);
@@ -349,6 +366,7 @@ async function probeSimServers(opts: {
       bandRaster: buildSimBandRasterMaterial(bandSample, false),
       bandRasterSp: buildSimBandRasterMaterial(bandSpSample, true),
       sprites,
+      judge,
       missing: false,
       server,
     };

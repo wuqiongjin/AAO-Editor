@@ -251,7 +251,30 @@ describe('drawSimFrameAt · Bestdori 精灵（chart-preview 21）', () => {
     const sources = calls.filter(([k]) => k === 'drawImage').map(([, args]) => args[0]);
     expect(sources).toContain(sprites.digits);
     expect(sources).toContain(sprites.combo);
-    expect(calls.filter(([k]) => k === 'fillText')).toEqual([]); // 回落路径不走
+    // combo 不走文本回落；判定字（51）这份 assets 没给 judgeskin ⇒ 纯字占位，不算进来
+    expect(calls.filter(([k, a]) => k === 'fillText' && (a as unknown[])[0] !== 'PERFECT')).toEqual([]);
+  });
+
+  // 51：判定字走 judgeskin 的 `judge_perfect` 一格，位置钉在场中央（不跟轨道）
+  it('判定字（51）：有 judgeskin 时切 PERFECT 那一格，字心 0.497W × 判定线上 0.092H', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const judge = { width: 512, height: 256, naturalWidth: 512, naturalHeight: 256 } as unknown as HTMLImageElement;
+    const base = withSprites([single(2, 3)], spriteIcon, null);
+    const frame: SimFrameInput = { ...base, assets: { ...base.assets, judge } };
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1.05); // 命中后 0.05s
+
+    const drawn = calls.filter(([k]) => k === 'drawImage').map(([, a]) => a as unknown[]);
+    const hit = drawn.find((a) => a[0] === judge);
+    expect(hit).toBeTruthy();
+    const [, sx, sy, sw, sh, dx, dy, dw, dh] = hit as number[];
+    expect([sx, sy, sw, sh]).toEqual([0, 177, 287, 79]);
+    const m = frame.metrics;
+    expect((dx as number) + (dw as number) / 2).toBeCloseTo(m.w * 0.497, 5);
+    expect((dy as number) + (dh as number) / 2).toBeCloseTo(m.laneHeight - m.h * 0.092, 5);
+    expect(dh).toBeCloseTo(m.h * 0.042, 5);
+    // 有图集就不该再画纯字
+    expect(calls.filter(([k, a]) => k === 'fillText' && (a as unknown[])[0] === 'PERFECT')).toEqual([]);
   });
 
   it('缺精灵时 combo 回落自绘文本（不空着）', () => {

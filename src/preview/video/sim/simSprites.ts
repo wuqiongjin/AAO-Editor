@@ -220,3 +220,44 @@ export function warmupSimSprites(
   for (const c of circles.values()) touch(c);
   for (const tile of tiles.values()) touch(tile);
 }
+
+/** 整张精灵的染色缓存（按图身份 → 颜色） */
+const tintedImageCache = new WeakMap<CanvasImageSource, Map<string, CanvasImageSource | null>>();
+
+/**
+ * 整张精灵染色（chart-preview 51 的 AP combo 变色）：`multiply` 保住原图明暗（白字变彩色、
+ * 灰阶过渡还在），再用 `destination-in` 把颜色裁回字形 alpha —— 否则 `multiply` 会把整块
+ * 矩形填成实色（透明底也会变成不透明）。建好就缓存；无 DOM（node 单测）→ 原图。
+ */
+export function tintedImage(img: CanvasImageSource, color: string): CanvasImageSource {
+  if (typeof document === 'undefined') return img;
+  let map = tintedImageCache.get(img);
+  if (!map) {
+    map = new Map();
+    tintedImageCache.set(img, map);
+  }
+  if (!map.has(color)) map.set(color, buildTintedImage(img, color));
+  return map.get(color) ?? img;
+}
+
+function buildTintedImage(img: CanvasImageSource, color: string): CanvasImageSource | null {
+  const w = Number((img as HTMLImageElement).naturalWidth || (img as HTMLCanvasElement).width || 0);
+  const h = Number((img as HTMLImageElement).naturalHeight || (img as HTMLCanvasElement).height || 0);
+  if (!w || !h) return null;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(img, 0, 0);
+    return canvas;
+  } catch {
+    return null;
+  }
+}

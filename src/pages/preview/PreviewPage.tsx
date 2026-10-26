@@ -21,6 +21,7 @@ import {
   exportSheetAs,
   planSheet,
   waitForPaint,
+  type EndingInput,
   type OpeningInput,
   type PanelSceneInput,
   type PreviewMode,
@@ -276,6 +277,27 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     };
   }, [chart, project, settings.export.opening]);
 
+  /**
+   * 结尾画面的**数据面**（chart-preview 52）：口径同 `openingInput`。
+   * 判定计数在 Auto 下恒为全 PERFECT（不是按漏判算的），MAX COMBO = 音符总数。
+   * 总开关关掉 ⇒ 传 `null`（回到旧行为：播完切末帧）。
+   */
+  const endingInput = useMemo<EndingInput | null>(() => {
+    if (chart == null || !settings.export.ending.enabled) return null;
+    const noteCount = countChartNotes(chart.notes);
+    return {
+      stamp: settings.export.ending.stamp,
+      title: chartEffectiveTitle(project?.name ?? null, chart.title, untitledProjectLabel()),
+      difficultyName: DIFF_NAMES[chart.diff].toUpperCase(),
+      difficultyColor: DIFF_COLORS[chart.diff],
+      level: chart.level,
+      cover: project?.coverBlob ?? null,
+      coverHue: projectCoverHue(project?.id ?? chart.id),
+      counts: { perfect: noteCount, great: 0, good: 0, bad: 0, miss: 0 },
+      maxCombo: noteCount,
+    };
+  }, [chart, project, settings.export.ending]);
+
   const videoExport = useVideoExport({
     scene: videoScene,
     audio: videoAudio,
@@ -286,6 +308,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     noteSkin: settings.visual?.noteSkin ?? {},
     suggestedBaseName: videoExportName,
     opening: openingInput,
+    ending: endingInput,
   });
 
   const handleVideoExport = useCallback(async () => {
@@ -455,6 +478,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                     spec={videoExport.spec}
                     opening={settings.export.opening}
                     onOpeningChange={(patch) => setExport({ opening: mergeOpening(settings.export.opening, patch) })}
+                    ending={settings.export.ending}
+                    onEndingChange={(patch) => setExport({ ending: { ...settings.export.ending, ...patch } })}
                     onSpecChange={videoExport.setSpec}
                     onStart={() => void handleVideoExport()}
                     onCancel={videoExport.cancel}

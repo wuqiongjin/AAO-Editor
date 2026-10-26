@@ -73,6 +73,7 @@ vi.mock('@/src/preview', async (importOriginal) => {
       bandRaster: SIM_BAND_RASTER_MATERIAL,
       bandRasterSp: SIM_BAND_RASTER_MATERIAL_SP,
       sprites: null,
+      judge: null,
       missing: false,
       server: 'jp',
     })),

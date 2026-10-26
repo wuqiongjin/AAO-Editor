@@ -16,6 +16,7 @@ import {
   probeVideoExportSupport,
   runVideoExport,
   waitForPaint,
+  type EndingInput,
   type OpeningInput,
   type SimPlaybackAudio,
   type SimScene,
@@ -56,6 +57,11 @@ export interface UseVideoExportArgs {
    * 由页面按 `settings.export.opening` 组装（难度色由页面传，preview 域不 import 工程域）。
    */
   opening?: OpeningInput | null;
+  /**
+   * 结尾画面（chart-preview 52）：`null` = 关掉（播完切末帧、总长 = 开场 + 谱面）。
+   * 由页面按 `settings.export.ending` 组装（封面 / 判定计数都由页面给）。
+   */
+  ending?: EndingInput | null;
 }
 
 export interface VideoExportController {
@@ -198,6 +204,7 @@ export function useVideoExport(
         muted: spec.muted,
         suggestedBaseName: args.suggestedBaseName,
         opening: args.opening ?? null,
+        ending: args.ending ?? null,
         onProgress: setProgress,
         isCancelled: () => cancelledRef.current,
       });

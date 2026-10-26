@@ -80,8 +80,9 @@ import {
   type SimBandRasterMaterial,
   type SimBandRasterScale,
 } from './simBandRaster';
-import { digitRect, particleTile, radialCircleOf, type TileSource } from './simSprites';
+import { digitRect, particleTile, radialCircleOf, tintedImage, type TileSource } from './simSprites';
 import type { SimSprites } from './simAssets';
+import { SIM_AP_COMBO, SIM_JUDGE, apColorAt, judgeAt, judgeSprite } from './simHud';
 
 /** 缺素材时的场地底色（近黑，与游戏场地暗部同族） */
 export const SIM_FALLBACK_BG = '#0d1017';
@@ -215,6 +216,8 @@ export interface SimFrameAssets {
   bandRasterSp: SimBandRasterMaterial;
   /** Bestdori 自家精灵（combo / 特效）；null = 回落自绘（chart-preview 21） */
   sprites: SimSprites | null;
+  /** 判定图集（chart-preview 51）；null = 判定字走纯字占位 */
+  judge: HTMLImageElement | null;
 }
 
 export interface SimFrameInput {
@@ -475,6 +478,8 @@ export function drawSimFrameAt(ctx: CanvasRenderingContext2D, input: SimFrameInp
   if (input.scene.simultaneousClickLines) drawSimultaneousLines(ctx, input, seconds);
   drawElements(ctx, input, seconds);
   drawEffects(ctx, input, seconds);
+  // 判定字（51）在 combo 之下：两条 HUD 不重叠，先字后数只为免得字块压在数字上
+  drawJudgement(ctx, metrics, chart, seconds, input.assets.judge);
   drawCombo(ctx, metrics, chart, seconds, input.assets.sprites);
 }
 
@@ -1068,6 +1073,53 @@ function drawLaneFlash(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, lane: 
 }
 
 /**
+ * 判定字（chart-preview 51）：每音一条、**位置固定**在场中央（0.497W × 判定线上 0.092H）。
+ *
+ * - Auto 永远 PERFECT ⇒ 只出 PERFECT 那一格（`judgeAt` 取最近一次命中）；
+ * - 缺 `judgeskin` ⇒ **纯字** "PERFECT"（Q12：留空或纯字，不画假徽章）；
+ * - 不做上浮 / 弹跳：实机 30fps 跟踪 1s 未见位移（只有淡入淡出）。
+ */
+function drawJudgement(
+  ctx: CanvasRenderingContext2D,
+  m: SimFieldMetrics,
+  chart: SimChart,
+  seconds: number,
+  judge: HTMLImageElement | null,
+): void {
+  const age = judgeAt(chart, seconds);
+  if (age == null) return;
+  const alpha =
+    age < SIM_JUDGE.fadeIn
+      ? age / SIM_JUDGE.fadeIn
+      : clamp01((SIM_JUDGE.life - age) / SIM_JUDGE.fadeOut);
+  if (alpha <= 0.002) return;
+
+  const h = m.h * SIM_JUDGE.h;
+  const cx = m.w * SIM_JUDGE.cx;
+  const cy = m.laneHeight - m.h * SIM_JUDGE.dy;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (judge) {
+    const box = judgeSprite();
+    const w = (h * box.w) / box.h;
+    ctx.drawImage(judge, box.x, box.y, box.w, box.h, cx - w / 2, cy - h / 2, w, h);
+  } else {
+    // 缺判定图集（常态：素材不在安装包里）⇒ 纯字：位置 / 高度与图版同一框
+    ctx.font = `800 ${h * 0.84}px ${SIM_HUD_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${(h * 0.05).toFixed(2)}px`;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    ctx.shadowBlur = h * 0.18;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('PERFECT', cx, cy);
+    (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '0px';
+  }
+  ctx.restore();
+}
+
+/**
  * HUD：combo（chart-preview 21）—— 有 Bestdori 精灵时用 `digits.png`（10 列数字）+ `combo.png`
  * （"COMBO" 标签），整体按 `canvasHeight` 缩放、锚点 `0.85W × 0.4375H`、命中后有 0.2s 弹跳
  * （0.8 → 1.1 → 1，`comboPopScale`）；缺精灵时退回自绘文本（原实现）。
@@ -1082,48 +1134,100 @@ function drawCombo(
   const combo = simComboAt(chart, seconds);
   if (combo <= 0) return;
   const { x, y } = comboAnchor(m);
+  // AP 电池态（51）：Auto 永远 PERFECT ⇒ 全程染色；命中瞬间再叠一层光环
+  const since = Math.max(0, seconds - (chart.hitTimes[combo - 1] ?? seconds));
   if (!sprites) {
-    drawComboText(ctx, m, combo);
+    drawComboText(ctx, m, combo, SIM_AP_COMBO.tint, apColorAt(since), since);
     return;
   }
-  const last = chart.hitTimes[combo - 1] ?? seconds;
-  const scale = comboPopScale(Math.max(0, seconds - last));
+  const scale = comboPopScale(since);
   const { digitW, digitH, labelW, labelH, labelGap } = comboMetrics(m);
   const text = String(combo);
+  const digits = tintedImage(sprites.digits, SIM_AP_COMBO.tint);
+  const label = tintedImage(sprites.combo, SIM_AP_COMBO.tint);
   ctx.save();
   ctx.globalAlpha = 1;
+  drawApComboGlow(ctx, x, y, digitH, since);
   // 数字：整串水平居中于锚点（照 Bestdori 的 `Ae = -length/2`）
   let dx = (-text.length / 2) * digitW;
   for (const ch of text) {
     const digit = Number(ch);
     const rect = digitRect(sprites, Number.isFinite(digit) ? digit : 0);
     ctx.drawImage(
-      sprites.digits, rect.sx, rect.sy, rect.sw, rect.sh,
+      digits, rect.sx, rect.sy, rect.sw, rect.sh,
       x + dx * scale, y - (digitH * scale) / 2, digitW * scale, digitH * scale,
     );
     dx += digitW;
   }
   ctx.drawImage(
-    sprites.combo, 0, 0, sprites.combo.width, sprites.combo.height,
+    label, 0, 0, sprites.combo.width, sprites.combo.height,
     x - (labelW * scale) / 2, y + labelGap * scale, labelW * scale, labelH * scale,
   );
   ctx.restore();
 }
 
-/** combo 的自绘文本回落（缺 Bestdori 精灵时；系统无衬线 + 右对齐 + 小字 COMBO） */
-function drawComboText(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, combo: number): void {
+/**
+ * AP combo 的命中光环（51）：数字背后一团柔光，近 `glow` 秒内淡出。
+ * 起始是闪白、之后转紫（`apColorAt` 给色），加色叠（`lighter`）不与数字抢亮度。
+ */
+function drawApComboGlow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  digitH: number,
+  since: number,
+): void {
+  const color = apColorAt(since);
+  if (!color) return;
+  const k = 1 - clamp01(since / SIM_AP_COMBO.glow);
+  const alpha = Math.pow(k, 1.25) * 0.42;
+  if (alpha <= 0.002) return;
+  const r = digitH * 1.9;
+  const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+  // 假 ctx（单测）/ 上下文不支持渐变 → 这一层不画（数字照画）
+  if (!grad) return;
+  grad.addColorStop(0, `${color}${alphaToHex(alpha)}`);
+  grad.addColorStop(1, `${color}00`);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = grad;
+  ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  ctx.restore();
+}
+
+/** 0..1 → 两位十六进制 alpha（`#rrggbb` + 后缀组成 `#rrggbbaa`） */
+function alphaToHex(alpha: number): string {
+  return Math.round(clamp01(alpha) * 255).toString(16).padStart(2, '0');
+}
+
+/** combo 的自绘文本回落（缺 Bestdori 精灵时；系统无衬线 + 右对齐 + 小字 COMBO，同样走 AP 染色） */
+function drawComboText(
+  ctx: CanvasRenderingContext2D,
+  m: SimFieldMetrics,
+  combo: number,
+  tint: string,
+  glow: string | null,
+  since: number,
+): void {
   const { x, y, fontSize } = comboAnchor(m);
   ctx.save();
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
   ctx.shadowBlur = fontSize * 0.25;
-  ctx.fillStyle = '#ffffff';
+  if (glow) {
+    const k = 1 - clamp01(since / SIM_AP_COMBO.glow);
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = fontSize * (0.3 + 0.5 * k);
+  }
+  ctx.fillStyle = tint;
   ctx.font = `800 ${fontSize.toFixed(1)}px ${SIM_HUD_FONT}`;
   ctx.fillText(String(combo), x, y);
-  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+  ctx.shadowBlur = fontSize * 0.25;
   ctx.font = `700 ${(fontSize * 0.3).toFixed(1)}px ${SIM_HUD_FONT}`;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+  ctx.fillStyle = tint;
+  ctx.globalAlpha = 0.78;
   ctx.fillText('COMBO', x, y + fontSize * 0.72);
   ctx.restore();
 }

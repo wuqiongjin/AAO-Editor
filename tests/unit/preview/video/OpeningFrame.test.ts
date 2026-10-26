@@ -11,6 +11,8 @@ import {
   OPENING_HOLD_SECONDS,
   OPENING_ITEM_IDS,
   OPENING_SECONDS,
+  OPENING_STACK_DRIFT_AT,
+  OPENING_STACK_DRIFT_SECONDS,
   OPENING_TRACK_IN_AT,
   OPENING_TRACK_IN_SECONDS,
   drawOpeningFieldBackground,
@@ -20,6 +22,7 @@ import {
   openingAlphaAt,
   openingItemOrder,
   openingSegmentAt,
+  openingStackDriftAt,
   openingStackMetrics,
   openingTrackAlphaAt,
   type OpeningFrameInput,
@@ -219,6 +222,39 @@ describe('chart-preview 30 · 场地的两层（③ 背景 / ④ 轨道）', () 
     drawOpeningTrack(zero.proxy, m, imgs, 0);
     expect(zero.calls.filter(([k]) => k === 'drawImage')).toEqual([]);
   });
+});
+
+// 50：堆叠缓出（定案 A 轻推）—— 垫层从封面正后方向右上推出，单层、小位移、缓出曲线
+describe('chart-preview 50 · 堆叠 A 轻推', () => {
+  it('缓出曲线：0.35s 起推 1.0s 到位；缺省（Infinity）= 已推完', () => {
+    expect(OPENING_STACK_DRIFT_AT).toBe(0.35);
+    expect(OPENING_STACK_DRIFT_SECONDS).toBe(1.0);
+    expect(openingStackDriftAt(0)).toBe(0);
+    expect(openingStackDriftAt(0.35)).toBe(0);
+    expect(openingStackDriftAt(-1)).toBe(0);
+    expect(openingStackDriftAt(0.85)).toBeCloseTo(0.875, 6); // 缓出三次：过半时已推 87.5%
+    expect(openingStackDriftAt(1.35)).toBe(1);
+    expect(openingStackDriftAt(4.9)).toBe(1);
+    expect(openingStackDriftAt(Number.POSITIVE_INFINITY)).toBe(1);
+  });
+
+  it('没推出来时垫层不画（厚度 0）；推完后顶条露出的厚度 = stackD', () => {
+    const m = openingStackMetrics(1920, 1080, [...OPENING_ITEM_IDS], 0);
+    const thickness = (seconds?: number) => {
+      const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+      if (seconds === undefined) drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1);
+      else drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1, seconds);
+      // 顶条：起点在封面左缘之内、y 在封面上方
+      const band = fillRects(calls)
+        .filter((r) => Math.abs(r[0] - (m.coverX + m.stackInset)) < 1.5 && r[1] < m.top)
+        .sort((a, b) => a[1] - b[1])[0];
+      return band ? m.top - band[1] : 0;
+    };
+    expect(thickness(0)).toBe(0);
+    expect(thickness(1.35)).toBe(m.stackD);
+    expect(thickness()).toBe(m.stackD); // 缺省 = 最终版式（返回类型：number）
+  });
+
 });
 
 describe('chart-preview 30 · 信息项的有序列表', () => {

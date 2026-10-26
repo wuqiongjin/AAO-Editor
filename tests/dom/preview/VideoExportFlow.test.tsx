@@ -599,4 +599,46 @@ describe('失败态 · 明确文案，不静默', () => {
     // 独立的大段描述段落不再出现
     expect(document.querySelector('.pvex__group--sub .pvex__note')).toBeNull();
   });
+
+  // 52：结尾画面与开场同一形制（总开关 + 缩进子项），子项是「结算形态」三档下拉
+  it('52 · 结尾画面组：总开关 + 结算形态三档，关掉时子项置灰', () => {
+    const onEndingChange = vi.fn();
+    const view = (over: Partial<{ enabled: boolean; stamp: 'ap' | 'fc' | 'clear' }> = {}) => (
+      <VideoExportControl
+        spec={spec}
+        ending={{ enabled: true, stamp: 'ap', ...over }}
+        onEndingChange={onEndingChange}
+        onSpecChange={() => undefined}
+        onStart={() => undefined}
+        onCancel={() => undefined}
+        progress={null}
+        notice={null}
+      />
+    );
+
+    const { rerender } = render(view());
+    fireEvent.click(screen.getByRole('button', { name: t('preview.video.export.open') }));
+
+    expect(screen.getByText(t('preview.video.export.ending'))).toBeInTheDocument();
+    // 说明走问号气泡，不单独占行
+    const help = screen.getByLabelText(t('preview.video.export.ending.note', { seconds: 7.5 }));
+    fireEvent.click(help);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      t('preview.video.export.ending.note', { seconds: 7.5 }),
+    );
+
+    // 关掉后子项置灰（与开场那组同一套行为）
+    fireEvent.click(screen.getByRole('switch', { name: t('preview.video.export.ending') }));
+    expect(onEndingChange).toHaveBeenCalledWith({ enabled: false });
+
+    rerender(view({ enabled: false }));
+    expect(screen.getByLabelText(t('preview.video.export.ending.stamp'))).toBeDisabled();
+
+    // 三档分别写回 stamp
+    rerender(view());
+    fireEvent.change(screen.getByLabelText(t('preview.video.export.ending.stamp')), {
+      target: { value: 'fc' },
+    });
+    expect(onEndingChange).toHaveBeenCalledWith({ stamp: 'fc' });
+  });
 });

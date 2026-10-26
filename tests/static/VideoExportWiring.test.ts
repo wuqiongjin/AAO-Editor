@@ -406,15 +406,43 @@ describe('07 · 走实时录制的那条路没有回来（离线逐帧是主路�
 });
 
 // 30：导出物最前面多一段**纯前置**开场（5.0s）。这几条盯的是"接线"，观感归原型目视验收。
+// 50：堆叠缓出（定案 A 轻推）只动**垫层厚度**，不改版式几何、不改字体
+describe('50 · Opening 堆叠 A 轻推', () => {
+  const frame = readStripped('src/preview/video/opening/openingFrame.ts');
+
+  it('frameDriver 把开场秒喂给 drawOpeningFrameAt（两处：①② 整屏画 / ③ 淡出叠画）', () => {
+    const calls = frameDriver.match(
+      /drawOpeningFrameAt\(ctx, geometry\.width, geometry\.height, req\.opening!, openingAlphaAt\(t\), t\)/g,
+    );
+    expect(calls).toHaveLength(2);
+  });
+
+  it('缓出只缩放垫层露出厚度；封面 / 白条 / 文字全按原几何画', () => {
+    expect(frame).toMatch(/const stackD = Math\.round\(m\.stackD \* openingStackDriftAt\(seconds\)\)/);
+    expect(frame).toMatch(/drawSquareCover\(ctx, cover, m\.coverX, m\.top, m\.cover\)/);
+    expect(frame).not.toMatch(/openingStackDriftAt\(seconds\) \* m\.(top|cover)/);
+  });
+
+  it('缺省 = 已推完（单测 / 定格帧看最终版式，不必模拟入场）', () => {
+    expect(frame).toMatch(/seconds: number = Number\.POSITIVE_INFINITY/);
+  });
+});
+
 describe('30 · 视频开场是纯前置段（不占谱面时间、不与前奏重叠）', () => {
   it('时间轴总长 = 开场 + 谱面时长（关掉开场时就是谱面时长）', () => {
-    expect(exportVideo).toMatch(/buildExportTimeline\(req\.durationSeconds \+ openingSeconds\)/);
+    // 52 起再叠一段结尾（关掉时 endingSeconds = 0，公式不变）
+    expect(exportVideo).toMatch(
+      /buildExportTimeline\(\s*\n?\s*req\.durationSeconds \+ openingSeconds \+ endingSeconds/,
+    );
     expect(exportVideo).toMatch(/req\.opening \? OPENING_SECONDS : 0/);
   });
 
   it('音轨：轨长带上开场、BGM 从开场结束那刻起、键音整体 + 开场', () => {
     expect(exportVideo).toMatch(/openingSeconds,/);
-    expect(renderAudio).toMatch(/audioFramesFor\(req\.durationSeconds \+ offset, sampleRate\)/);
+    // 52 起尾部再接一段静音（结尾段），轨长与视频等长
+    expect(renderAudio).toMatch(
+      /audioFramesFor\(req\.durationSeconds \+ offset \+ tail, sampleRate\)/,
+    );
     expect(renderAudio).toMatch(/src\.start\(offset\)/);
     expect(renderAudio).toMatch(/const at = evt\.time \+ offset/);
   });

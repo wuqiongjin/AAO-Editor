@@ -30,6 +30,12 @@ export const OPENING_COVER_RATIO = 0.48;
 export const OPENING_STACK_T = 0.011;
 /** 垫层内缩 i / 帧高：垫层方形边长 = 封面 + t − i */
 export const OPENING_STACK_INSET = 0.01;
+/**
+ * 堆叠**缓出**（票 50 · 定案 A 轻推）：垫层从封面正后方**向右上**推出到 `OPENING_STACK_T`。
+ * 单层、小位移 —— 不是折扇（B）也不是整板（C）。卡片落定后起推，1.0s 内缓出到位。
+ */
+export const OPENING_STACK_DRIFT_AT = 0.35;
+export const OPENING_STACK_DRIFT_SECONDS = 1.0;
 /** 难度徽章字号 / 帧高（徽章高 = 字号 × 1.85） */
 export const OPENING_BADGE_FONT = 0.024;
 export const OPENING_BADGE_HEIGHT_FACTOR = 1.85;

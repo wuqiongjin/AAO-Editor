@@ -19,6 +19,14 @@ import {
   type OpeningFrameInput,
   type OpeningItemId,
 } from '../opening';
+import {
+  ENDING_SECONDS,
+  EMPTY_ENDING_ASSETS,
+  loadEndingAssets,
+  type EndingContentInput,
+  type EndingCounts,
+  type EndingStamp,
+} from '../ending';
 import { loadCoverImage } from '../../static';
 import { driveExportFrames } from './frameDriver';
 import {
@@ -85,8 +93,36 @@ export interface VideoExportRequest {
    * 非 null = 导出物最前面多一段 `OPENING_SECONDS`（5.0s）的纯前置开场，音轨整体后移。
    */
   opening?: OpeningInput | null;
+  /**
+   * 结尾画面（chart-preview 52）：`null` = 关掉（谱面播完切末帧，总长 = 开场 + 谱面）。
+   * 非 null = 谱面之后多一段 **7.5s**（章 3.0 → 黑幕转场 1.5 → 结算 3.0），音轨尾部是静音。
+   */
+  ending?: EndingInput | null;
   onProgress?: (progress: VideoExportProgress) => void;
   isCancelled?: () => boolean;
+}
+
+/**
+ * 结尾画面的**数据面**（照 `OpeningInput` 口径：页面组装、preview 域不 import 工程域）。
+ * 封面仍是 `Blob` —— 一次性出帧没有"下一帧补上"的机会 ⇒ 由编排层解码好再画。
+ */
+export interface EndingInput {
+  /** 中央章形态（AP / FC / 普通 Clear 无章） */
+  stamp: EndingStamp;
+  title: string;
+  /** 难度名（全大写英文，如 `EXPERT`） */
+  difficultyName: string;
+  /** 难度色（页面传 `DIFF_COLORS[diff]`） */
+  difficultyColor: string;
+  /** Lv 数字（null = 写 `–`） */
+  level: number | null;
+  cover: Blob | null;
+  /** 无封面时占位块的色相（页面按工程 id 派生） */
+  coverHue: number;
+  /** 判定五档计数（Auto 永远全 PERFECT） */
+  counts: EndingCounts;
+  /** MAX COMBO（= 音符总数） */
+  maxCombo: number;
 }
 
 /**
@@ -229,13 +265,16 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   // ---------------- 素材（一次性出帧没有"下一帧补上"的机会，只能等齐） ----------------
   req.onProgress?.({ phase: 'assets', frame: 0, totalFrames: 0 });
   const noteIcons = buildActiveNoteIcons(normalizeNoteSkinSelection(req.noteSkin));
-  const [assets] = await Promise.all([
+  const [assets, endingAssets] = await Promise.all([
     // 背景 / 轨道包（chart-preview 41）随 scene 进来 ⇒ 导出物与实时预览同一份素材（ADR-0018 §5）
     loadSimAssets({
       bandSrc: noteIcons.slideBand.src,
       bandSpSrc: noteIcons.slideBandSp.src,
       packs: { field: req.scene.fieldPackId, background: req.scene.bgPackId },
     }),
+    // 结尾段的游戏 UI 素材（票 52）：缺件是常态（素材不在安装包里），逐件兜底、从不抛错
+    req.ending ? loadEndingAssets() : Promise.resolve(EMPTY_ENDING_ASSETS),
+    // 票 68：开播前预热独立音符切片与 mip，消除播放期首次创建尖峰
     prepareSimNoteSprites(noteIcons).catch(() => undefined),
   ]);
   if (assets.missing) {
@@ -245,9 +284,13 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
 
   // ---------------- 规格 ----------------
   const tier = tierOf(req.tier);
-  // 开场段是**纯前置**（chart-preview 30）：总长 = 开场 + 谱面，音轨整体后移，绝不与前奏重叠
+  // 开场段是**纯前置**（chart-preview 30）：总长 = 开场 + 谱面，音轨整体后移，绝不与前奏重叠。
+  // 结尾段（52）是**纯后置**：谱面之后再占 7.5s，音轨尾部留静音。
   const openingSeconds = req.opening ? OPENING_SECONDS : 0;
-  const timeline: ExportTimeline = buildExportTimeline(req.durationSeconds + openingSeconds);
+  const endingSeconds = req.ending ? ENDING_SECONDS : 0;
+  const timeline: ExportTimeline = buildExportTimeline(
+    req.durationSeconds + openingSeconds + endingSeconds,
+  );
   const geometry = resolveExportGeometry(tier);
   const audioTrackParams = req.muted ? null : DEFAULT_AUDIO_TRACK;
   const target = await resolveTarget(
@@ -288,6 +331,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   const rendered = await renderAudioTrack({
     durationSeconds: req.durationSeconds,
     openingSeconds,
+    endingSeconds,
     keyEvents,
     keySetId: req.keySetId,
     bgm,
@@ -338,12 +382,29 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
           credits: req.opening.credits,
         }
       : null;
+    // 结尾段（52）：封面同样要在开画前解码到位（缺封面走占位）
+    const ending: EndingContentInput | null = req.ending
+      ? {
+          stamp: req.ending.stamp,
+          title: req.ending.title,
+          difficultyName: req.ending.difficultyName,
+          difficultyColor: req.ending.difficultyColor,
+          level: req.ending.level,
+          cover: await loadCoverImage(req.ending.cover),
+          coverHue: req.ending.coverHue,
+          counts: req.ending.counts,
+          maxCombo: req.ending.maxCombo,
+          assets: endingAssets,
+        }
+      : null;
     const driven = await driveExportFrames({
       frame,
       geometry,
       timeline,
       opening,
       openingSeconds,
+      ending,
+      endingSeconds,
       isCancelled: req.isCancelled,
       onProgress: (p) => req.onProgress?.({ phase: 'frames', frame: p.frame, totalFrames: p.total }),
       onFrame: (vf) => sink.addFrame(vf),

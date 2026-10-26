@@ -26,6 +26,8 @@ import {
 
   OPENING_FRAME_LINE,
   OPENING_HOLD_SECONDS,
+  OPENING_STACK_DRIFT_AT,
+  OPENING_STACK_DRIFT_SECONDS,
   OPENING_TITLE_FONT,
   OPENING_TRACK_IN_SECONDS,
   openingStackMetrics,
@@ -209,8 +211,11 @@ function drawBadge(
 /** 占位块缓存（同一 hue 只画一次；逐帧重建会白烧 300 次渐变） */
 let placeholderCache: { hue: number; canvas: HTMLCanvasElement } | null = null;
 
-/** 无封面时的占位块：`coverHue` 派生的深色渐变（口径同长图头带） */
-function placeholderCover(hue: number): HTMLCanvasElement | null {
+/**
+ * 无封面时的占位块：`coverHue` 派生的深色渐变（口径同长图头带）。
+ * 结尾段（票 52）的结算左栏复用同一张占位，不另造第二套。
+ */
+export function openingPlaceholderCover(hue: number): HTMLCanvasElement | null {
   // 无 DOM（单测 / node）时不造占位块：返回 null ⇒ 只画空画框，不炸
   if (typeof document === 'undefined') return null;
   if (placeholderCache && placeholderCache.hue === hue) return placeholderCache.canvas;
@@ -230,7 +235,8 @@ function placeholderCover(hue: number): HTMLCanvasElement | null {
   return c;
 }
 
-function drawSquareCover(
+/** 方形裁切（居中取短边）；开场封面与结尾段结算的封面实体共用 */
+export function drawSquareCover(
   ctx: CanvasRenderingContext2D,
   img: CanvasImageSource,
   x: number,
@@ -249,6 +255,9 @@ function drawSquareCover(
 /**
  * 画开场画面（`alpha` = 整屏三段 alpha）。
  * **整屏 alpha 就在这里设一次**，装饰 / 垫层 / 封面 / 徽章 / 白条 / 艺人行全部继承它 ⇒ 同时机。
+ *
+ * `seconds` = 开场内的视频秒（票 50 · A 轻推的堆叠缓出用它）；缺省 = 已推完，
+ * 即**最终版式**（单测 / 定格帧不必关心入场过程）。
  */
 export function drawOpeningFrameAt(
   ctx: CanvasRenderingContext2D,
@@ -256,6 +265,7 @@ export function drawOpeningFrameAt(
   h: number,
   input: OpeningFrameInput,
   alpha: number,
+  seconds: number = Number.POSITIVE_INFINITY,
 ): void {
   ctx.save();
   ctx.globalAlpha = Math.min(1, Math.max(0, alpha));
@@ -265,32 +275,34 @@ export function drawOpeningFrameAt(
   const creditLines = extractCreditLines(input.credits);
   const m = openingStackMetrics(w, h, input.items, creditLines.length);
   const cx = w / 2;
+  // 垫层缓出（票 50 · A 轻推）：露出厚度从 0 长到 `stackD`，单层向右上推出
+  const stackD = Math.round(m.stackD * openingStackDriftAt(seconds));
   // 装饰层在最下（可被封面 / 白条切边），整链相对白条上缘定位
   const bandTop = Number.isNaN(m.bandY) ? m.top + m.cover : m.bandY;
   // 装饰压在封面下面的那些枚直接跳过（封面 / 垫层是不透明的，画了也看不见）。
   // **只按封面 + 垫层的实际方形剔除**，不额外外扩 —— 外扩会把"该露在封面旁边"的装饰也吃掉。
   drawOpeningDecor(ctx, w, h, bandTop, {
     x: m.coverX,
-    y: m.top - m.stackD,
-    w: m.cover + m.stackD,
-    h: m.cover + m.stackD,
+    y: m.top - stackD,
+    w: m.cover + stackD,
+    h: m.cover + stackD,
   });
 
   // 难度色堆叠垫层：**只画露出来的 L 形**（第五轮）—— 画整个方形的话，封面缺位 / 还没浮现时
   // 会在封面的位置露出一整块纯色方块
   const sx0 = m.coverX + m.stackInset;
-  const sy0 = m.top - m.stackD;
-  const sx1 = sx0 + m.cover + m.stackD - m.stackInset;
-  const sy1 = sy0 + m.cover + m.stackD - m.stackInset;
-  if (m.stackD > 0 && sx1 > sx0) {
+  const sy0 = m.top - stackD;
+  const sx1 = sx0 + m.cover + stackD - m.stackInset;
+  const sy1 = sy0 + m.cover + stackD - m.stackInset;
+  if (stackD > 0 && sx1 > sx0) {
     ctx.fillStyle = input.difficultyColor;
     const leftEdge = Math.max(sx0, m.coverX);
-    if (sx1 > leftEdge) ctx.fillRect(leftEdge, sy0, sx1 - leftEdge, Math.min(m.stackD, sy1 - sy0));
+    if (sx1 > leftEdge) ctx.fillRect(leftEdge, sy0, sx1 - leftEdge, Math.min(stackD, sy1 - sy0));
     const rx0 = Math.max(sx0, m.coverX + m.cover);
     if (sx1 > rx0 && sy1 > sy0) ctx.fillRect(rx0, sy0, sx1 - rx0, sy1 - sy0);
   }
 
-  const cover = input.cover ?? placeholderCover(input.coverHue);
+  const cover = input.cover ?? openingPlaceholderCover(input.coverHue);
   if (cover) drawSquareCover(ctx, cover, m.coverX, m.top, m.cover);
   // 细白框（垫层在白框之外）
   const framePx = Math.max(1, Math.round(h * OPENING_FRAME_LINE));
@@ -401,4 +413,17 @@ export function openingTrackAlphaAt(t: number): number {
     return Math.min(1, (t - OPENING_TRACK_IN_AT) / OPENING_TRACK_IN_SECONDS);
   }
   return 1;
+}
+
+/**
+ * 堆叠垫层的**缓出**进度（票 50 · 定案 A 轻推）：`OPENING_STACK_DRIFT_AT` 起
+ * `OPENING_STACK_DRIFT_SECONDS` 秒内 0 → 1（缓出三次曲线），垫层从封面正后方向右上推出。
+ *
+ * 传 `Infinity`（`drawOpeningFrameAt` 的缺省）= 已推完 —— 单测与定格帧看的是**最终版式**。
+ */
+export function openingStackDriftAt(t: number): number {
+  const p = (t - OPENING_STACK_DRIFT_AT) / OPENING_STACK_DRIFT_SECONDS;
+  if (!Number.isFinite(p)) return 1;
+  const x = Math.min(1, Math.max(0, p));
+  return 1 - Math.pow(1 - x, 3);
 }
