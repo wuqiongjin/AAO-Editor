@@ -82,32 +82,33 @@ export function ProjectDetail({
           <button type="button" className="pp-btn pp-btn--sm" onClick={onHome}>{t('projects.home')}</button>
           {newButton}
         </div>
-        {list.map((p) => {
-          const n = p.charts.length;
-          const done = p.charts.filter((c) => chartStatus(c) !== 'unfinished').length;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              className={`pc-item${p.id === sel.id ? ' is-selected' : ''}`}
-              onClick={() => onSelect(p.id)}
-              onDoubleClick={() => void onOpen(p.id)}
-            >
-              <Cover project={p} size={36} />
-              <span className="pc-item__text">
-                <b className={p.name ? '' : 'pp-muted'}>
-                  {displayProjectName(p)}
-                  {p.id === currentId && <em className="pp-current-tag">{t('projects.current')}</em>}
-                </b>
-                <small className="pp-muted">{t('projects.doneRatio', { done, n, time: `${projectTimeTag(sort)} ${relTime(projectTimeAt(p, sort), now)}` })}</small>
-              </span>
-              <span className="pc-item__bar"><span style={{ width: `${n ? (done / n) * 100 : 0}%` }} /></span>
-            </button>
-          );
-        })}
-        {/* 账号区钉在左栏底部（票 39 Q13）：`.pc-list` 是 flex column + overflow-y，
-            `margin-top: auto` 让它在列表短时贴底、列表长时跟在末尾（不随列表滚走的是上面的 head）。
-            只在这里挂 —— 启动台没有它（Q24：0 工程时登录不可达，已接受）。 */}
+        <div className="pc-list__items">
+          {list.map((p) => {
+            const n = p.charts.length;
+            const done = p.charts.filter((c) => chartStatus(c) !== 'unfinished').length;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                className={`pc-item${p.id === sel.id ? ' is-selected' : ''}`}
+                onClick={() => onSelect(p.id)}
+                onDoubleClick={() => void onOpen(p.id)}
+              >
+                <Cover project={p} size={36} />
+                <span className="pc-item__text">
+                  <b className={p.name ? '' : 'pp-muted'}>
+                    {displayProjectName(p)}
+                    {p.id === currentId && <em className="pp-current-tag">{t('projects.current')}</em>}
+                  </b>
+                  <small className="pp-muted">{t('projects.doneRatio', { done, n, time: `${projectTimeTag(sort)} ${relTime(projectTimeAt(p, sort), now)}` })}</small>
+                </span>
+                <span className="pc-item__bar"><span style={{ width: `${n ? (done / n) * 100 : 0}%` }} /></span>
+              </button>
+            );
+          })}
+        </div>
+        {/* 账号区钉在左栏视口底（票 53）：工程列表自己滚，本行不进滚动盒。
+            只在这里挂 —— 启动台没有它（票 39 Q24：0 工程时登录不可达，已接受）。 */}
         <AccountBar />
       </aside>
       <ProjectListSplit width={listWidth} onChange={onListWidthChange} />

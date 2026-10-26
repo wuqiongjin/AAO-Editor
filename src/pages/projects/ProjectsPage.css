@@ -183,7 +183,8 @@
    兜底值与 PROJECT_LIST_WIDTH.default 的同源由静态断言看守（ProjectDetailHeadLayout.test.ts）；
    夹取只在 JS 侧（clampProjectListWidth），这里不写第二套 min/max。分隔条自己占一列（6px）。 */
 .pc-page { display: grid; grid-template-columns: var(--pc-list-w, 300px) 6px minmax(0, 1fr); height: 100%; }
-.pc-list { display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg-elevated); overflow-y: auto; min-width: 0; }
+.pc-list { display: flex; flex-direction: column; height: 100%; overflow: hidden; border-right: 1px solid var(--border); background: var(--bg-elevated); min-width: 0; }
+.pc-list__items { flex: 1; min-height: 0; overflow-y: auto; }
 /* 分隔条（issue 23 #2）：命中区 6px、贴左栏右缘；hover/拖动中给 accent。
    形状照工作台的 .ws-panel__resizer，但实现独立（见 ProjectListSplit.tsx 的文件头说明）。 */
 .pc-split { position: relative; cursor: col-resize; touch-action: none; }
@@ -772,8 +773,8 @@
 /* 与兄弟 `.pc-item` 同族：满宽、无框、无圆角、hover 才亮（Q35）。
    「框」是上一版被否的原因 —— 左栏的兄弟都是无框列表行，摆一个描边圆角的盒子就是外来组件。 */
 .pc-account {
-  /* 列表短时钉底、长时跟在末尾（`.pc-list` 是 flex column + overflow-y） */
-  margin-top: auto;
+  /* 钉在左栏视口底（票 53）：不跟工程列表一起滚。`.pc-list` 拆成滚动的 items + 本行 flex-shrink:0。 */
+  flex-shrink: 0;
   /* 与工程列表之间的分隔：一条 --border-faint 细线（照 `.pc-list__head` 的 border-bottom），不靠框 */
   border-top: 1px solid var(--border-faint);
   background: var(--bg-elevated);
