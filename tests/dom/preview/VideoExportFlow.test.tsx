@@ -601,12 +601,12 @@ describe('失败态 · 明确文案，不静默', () => {
   });
 
   // 52：结尾画面与开场同一形制（总开关 + 缩进子项），子项是「结算形态」三档下拉
-  it('52 · 结尾画面组：总开关 + 结算形态三档，关掉时子项置灰', () => {
+  it('52 · 结尾画面组：只有总开关，形态固定 ALL PERFECT（选择档暂时撤下）', () => {
     const onEndingChange = vi.fn();
-    const view = (over: Partial<{ enabled: boolean; stamp: 'ap' | 'fc' | 'clear' }> = {}) => (
+    const view = (over: Partial<{ enabled: boolean }> = {}) => (
       <VideoExportControl
         spec={spec}
-        ending={{ enabled: true, stamp: 'ap', ...over }}
+        ending={{ enabled: true, ...over }}
         onEndingChange={onEndingChange}
         onSpecChange={() => undefined}
         onStart={() => undefined}
@@ -627,18 +627,18 @@ describe('失败态 · 明确文案，不静默', () => {
       t('preview.video.export.ending.note', { seconds: 7.5 }),
     );
 
+    // 形态那一行是**只读文字**（用户 2026-10-27：暂时不给能改形态的入口）
+    const stampText = t('preview.video.export.ending.stamp.ap');
+    expect(screen.getByText(stampText)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: t('preview.video.export.ending.stamp') }),
+    ).toBeNull();
+
     // 关掉后子项置灰（与开场那组同一套行为）
     fireEvent.click(screen.getByRole('switch', { name: t('preview.video.export.ending') }));
     expect(onEndingChange).toHaveBeenCalledWith({ enabled: false });
 
     rerender(view({ enabled: false }));
-    expect(screen.getByLabelText(t('preview.video.export.ending.stamp'))).toBeDisabled();
-
-    // 三档分别写回 stamp
-    rerender(view());
-    fireEvent.change(screen.getByLabelText(t('preview.video.export.ending.stamp')), {
-      target: { value: 'fc' },
-    });
-    expect(onEndingChange).toHaveBeenCalledWith({ stamp: 'fc' });
+    expect(screen.getByText(stampText).closest('.pvex__row')?.className).toContain('is-disabled');
   });
 });

@@ -80,9 +80,9 @@ import {
   type SimBandRasterMaterial,
   type SimBandRasterScale,
 } from './simBandRaster';
-import { digitRect, particleTile, radialCircleOf, tintedImage, type TileSource } from './simSprites';
+import { digitRect, particleTile, radialCircleOf, type TileSource } from './simSprites';
 import type { SimSprites } from './simAssets';
-import { SIM_AP_COMBO, SIM_JUDGE, apColorAt, judgeAt, judgeSprite } from './simHud';
+import { SIM_JUDGE, judgeAt, judgeSprite, type SimJudgeStyle } from './simHud';
 
 /** 缺素材时的场地底色（近黑，与游戏场地暗部同族） */
 export const SIM_FALLBACK_BG = '#0d1017';
@@ -471,16 +471,41 @@ function upperBound(sorted: readonly number[], target: number): number {
  * 画出 `seconds` 这一秒的仿真场（**同一份实现**服务实时回放与离线逐帧导出）。
  * `ctx` 需已按目标密度设好 transform：本函数一律用场地 CSS 像素坐标。
  */
-export function drawSimFrameAt(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
+export function drawSimFrameAt(
+  ctx: CanvasRenderingContext2D,
+  input: SimFrameInput,
+  seconds: number,
+  layers?: SimFrameLayers,
+): void {
   const { chart, metrics } = input;
-  drawField(ctx, input);
+  drawField(ctx, input, layers?.backgroundAlpha ?? 1, layers?.trackAlpha ?? 1);
   drawBands(ctx, input, seconds);
   if (input.scene.simultaneousClickLines) drawSimultaneousLines(ctx, input, seconds);
   drawElements(ctx, input, seconds);
   drawEffects(ctx, input, seconds);
   // 判定字（51）在 combo 之下：两条 HUD 不重叠，先字后数只为免得字块压在数字上
-  drawJudgement(ctx, metrics, chart, seconds, input.assets.judge);
-  drawCombo(ctx, metrics, chart, seconds, input.assets.sprites);
+  if (layers?.judge !== null) {
+    drawJudgement(ctx, metrics, chart, seconds, input.assets.judge, layers?.judge);
+  }
+  drawCombo(ctx, metrics, chart, seconds, input.assets.sprites, layers?.comboAlpha ?? 1, layers?.combo);
+}
+
+/**
+ * 一帧的**图层开关**（chart-preview 52 的结尾段要分层收：轨道 / combo 各自淡出）。
+ *
+ * 全部可选，缺省 = 现有观感（一次画全）。`judge: null` = 这一帧不画判定字。
+ */
+export interface SimFrameLayers {
+  /** 背景（bgskin）alpha */
+  backgroundAlpha?: number;
+  /** 轨道（场地图 + 判定线）alpha */
+  trackAlpha?: number;
+  /** combo alpha */
+  comboAlpha?: number;
+  /** 判定字样式（`null` = 不画） */
+  judge?: Partial<SimJudgeStyle> | null;
+  /** combo 样式 */
+  combo?: Partial<SimComboStyle>;
 }
 
 /**
@@ -492,27 +517,40 @@ export function drawSimFrameAt(ctx: CanvasRenderingContext2D, input: SimFrameInp
  * 三层抽到 `drawFieldLayers`：**设置面板的 hover 大预览也画这三层**（票 56 Q1=D），
  * 预览与正片必须同一份几何与层序，不另写一份。
  */
-function drawField(ctx: CanvasRenderingContext2D, input: SimFrameInput): void {
+function drawField(
+  ctx: CanvasRenderingContext2D,
+  input: SimFrameInput,
+  backgroundAlpha = 1,
+  trackAlpha = 1,
+): void {
   ctx.save();
-  drawFieldLayers(ctx, input.metrics, input.assets, input.scene.bgBrightness);
+  drawFieldLayers(ctx, input.metrics, input.assets, input.scene.bgBrightness, backgroundAlpha, trackAlpha);
   ctx.restore();
 }
 
-/** 场地三图 + 背景亮度黑罩（`brightness` 缺省 = 1 = 原图） */
+/** 场地三图 + 背景亮度黑罩（`brightness` 缺省 = 1 = 原图；两个 alpha 供结尾段分层收） */
 export function drawFieldLayers(
   ctx: CanvasRenderingContext2D,
   m: SimFieldMetrics,
   assets: Pick<SimFrameAssets, 'background' | 'field' | 'playLine'>,
   brightness: number = 1,
+  backgroundAlpha: number = 1,
+  trackAlpha: number = 1,
 ): void {
-  drawSimBackground(ctx, m, assets.background, brightness);
-  if (assets.field) {
+  drawSimBackground(ctx, m, assets.background, brightness, backgroundAlpha);
+  // 轨道两层（场地图 + 判定线）一起退，背景留着 —— 结尾段"只剩舞台"就靠这个
+  const track = clamp01(trackAlpha);
+  if (assets.field && track > 0.002) {
     const r = fieldImageRect(m);
+    ctx.globalAlpha = track;
     ctx.drawImage(assets.field, r.x, r.y, r.w, r.h);
+    ctx.globalAlpha = 1;
   }
-  if (assets.playLine) {
+  if (assets.playLine && track > 0.002) {
     const r = playLineRect(m);
+    ctx.globalAlpha = track;
     ctx.drawImage(assets.playLine, r.x, r.y, r.w, r.h);
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -530,10 +568,16 @@ export function drawSimBackground(
   m: SimFieldMetrics,
   img: CanvasImageSource | null,
   brightness: number = 1,
+  backgroundAlpha: number = 1,
 ): void {
+  // 兜底底色不受淡出影响：结尾段退掉的是背景图，露出的是这块底色
   ctx.fillStyle = SIM_FALLBACK_BG;
   ctx.fillRect(0, 0, m.w, m.h);
   if (!img) return;
+  const alpha = clamp01(backgroundAlpha);
+  if (alpha <= 0.002) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
   const r = backgroundRect(m);
   ctx.drawImage(img, r.x, r.y, r.w, r.h);
   // 非有限值按"原图"（不是按 0：那会把整屏压黑）
@@ -543,6 +587,7 @@ export function drawSimBackground(
     ctx.fillStyle = `rgba(0, 0, 0, ${dim})`;
     ctx.fillRect(0, 0, m.w, m.h);
   }
+  ctx.restore();
 }
 
 /**
@@ -1085,18 +1130,19 @@ function drawJudgement(
   chart: SimChart,
   seconds: number,
   judge: HTMLImageElement | null,
+  style?: Partial<SimJudgeStyle>,
 ): void {
-  const age = judgeAt(chart, seconds);
+  const js: SimJudgeStyle = { ...SIM_JUDGE, ...style };
+  const age = judgeAt(chart, seconds, js.life);
   if (age == null) return;
-  const alpha =
-    age < SIM_JUDGE.fadeIn
-      ? age / SIM_JUDGE.fadeIn
-      : clamp01((SIM_JUDGE.life - age) / SIM_JUDGE.fadeOut);
+  const alpha = age < js.fadeIn ? age / js.fadeIn : clamp01((js.life - age) / Math.max(0.01, js.fadeOut));
   if (alpha <= 0.002) return;
 
-  const h = m.h * SIM_JUDGE.h;
-  const cx = m.w * SIM_JUDGE.cx;
-  const cy = m.laneHeight - m.h * SIM_JUDGE.dy;
+  // 命中瞬间"弹一下"（与 combo 的 `pop` 同一条曲线）：0.8 → 1.1 → 1
+  const pop = js.pop > 0 ? comboPopScale(age) : 1;
+  const h = m.h * js.h * pop;
+  const cx = m.w * js.cx;
+  const cy = m.laneHeight - m.h * js.dy;
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -1120,9 +1166,198 @@ function drawJudgement(
 }
 
 /**
- * HUD：combo（chart-preview 21）—— 有 Bestdori 精灵时用 `digits.png`（10 列数字）+ `combo.png`
- * （"COMBO" 标签），整体按 `canvasHeight` 缩放、锚点 `0.85W × 0.4375H`、命中后有 0.2s 弹跳
- * （0.8 → 1.1 → 1，`comboPopScale`）；缺精灵时退回自绘文本（原实现）。
+ * combo 样式（chart-preview 52，按 `.cache/Combo-Style.mov` 逐帧重做）。
+ *
+ * 实机 AP 续航态长这样（不是"渐变字 + 白描边"）：
+ *   - 字**芯是白的**；
+ *   - 外边一圈**竖向渐变的描边**：上洋红 `#e35bd2` → 中紫 `#a163d8` → 下青 `#3fc9c7`；
+ *   - 描边外是**同色的柔光**，并且**会脉动**（录屏里约 0.5 s 一个周期）；
+ *   - 下面的「COMBO」也吃同一套描边 + 光晕（不是白字）。
+ *
+ * 非 AP 就是游戏常态：纯白数字 + 白字 COMBO，不发光。
+ */
+export interface SimComboStyle {
+  /** 是否处在 AP（ALL PERFECT）续航态 */
+  ap: boolean;
+  /** 命中弹跳时长（秒；0 = 不弹） */
+  pop: number;
+  /** 数字高倍率（1 = `comboMetrics` 的 0.125H） */
+  scale: number;
+  /** 相对默认锚点（`0.85W × 0.4375H`）的偏移（场地 px） */
+  dx: number;
+  dy: number;
+  /** 光晕强度倍率（0 = 不发光） */
+  glow: number;
+  /** 光晕脉动周期（秒；0 = 常亮不脉动） */
+  glowPeriod: number;
+}
+
+/** combo 默认档：实机 AP 态 */
+export const SIM_COMBO_STYLE: SimComboStyle = {
+  ap: true,
+  pop: 0.2,
+  scale: 1,
+  dx: 0,
+  dy: 0,
+  glow: 1,
+  glowPeriod: 0.5,
+};
+
+/** 实机采样色（`.cache/Combo-Style.mov`，1920×1342 逐帧取平均） */
+const AP_STROKE = { top: '#e35bd2', mid: '#a163d8', bottom: '#3fc9c7' } as const;
+
+/** 描边/白芯瓦片缓存：精灵 → `切图|尺寸` → 画好的瓦片 */
+const apTileCache = new WeakMap<CanvasImageSource, Map<string, HTMLCanvasElement>>();
+/** 光晕瓦片缓存：同上，单独一张（太糊了不跟主体共用） */
+const glowTileCache = new WeakMap<CanvasImageSource, Map<string, HTMLCanvasElement>>();
+/** 每字「墨迹」在切图里的左右边（按 alpha 量一次）—— 居中要靠它，不能按字宽 */
+const inkCache = new WeakMap<CanvasImageSource, Map<string, { left: number; right: number }>>();
+
+function tileKey(rect: { sx: number; sy: number; sw: number; sh: number }, tw: number, th: number): string {
+  return `${rect.sx},${rect.sy},${rect.sw},${rect.sh}|${tw}x${th}`;
+}
+
+/** 量一格切图里字形的墨迹左右边（alpha > 24），按切图源 px 返回 */
+function glyphInk(
+  img: CanvasImageSource,
+  rect: { sx: number; sy: number; sw: number; sh: number },
+): { left: number; right: number } | null {
+  if (typeof document === 'undefined') return null;
+  let map = inkCache.get(img);
+  if (!map) {
+    map = new Map();
+    inkCache.set(img, map);
+  }
+  const key = `${rect.sx},${rect.sy},${rect.sw},${rect.sh}`;
+  const hit = map.get(key);
+  if (hit) return hit;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(rect.sw));
+  canvas.height = Math.max(1, Math.round(rect.sh));
+  const g = canvas.getContext('2d');
+  if (!g) return null;
+  g.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, canvas.width, canvas.height);
+  const { data } = g.getImageData(0, 0, canvas.width, canvas.height);
+  let left = canvas.width;
+  let right = -1;
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      if (data[(y * canvas.width + x) * 4 + 3] > 24) {
+        if (x < left) left = x;
+        if (x > right) right = x;
+      }
+    }
+  }
+  const box = right < 0 ? { left: 0, right: canvas.width - 1 } : { left, right };
+  map.set(key, box);
+  return box;
+}
+
+/**
+ * 白芯 + 竖向渐变描边的字形瓦片（四周扩 `pad`）。
+ * 描边 = 白色剪影按圆周铺 8 次（扩张）再挖掉原字形；颜色用 `source-in` 灌竖向渐变。
+ */
+function apTile(
+  img: CanvasImageSource,
+  rect: { sx: number; sy: number; sw: number; sh: number },
+  w: number,
+  h: number,
+  /** 描边粗细（字高的比例） */
+  strokeRatio = 0.065,
+): { canvas: HTMLCanvasElement; pad: number } | null {
+  if (typeof document === 'undefined') return null;
+  const tw = Math.max(1, Math.round(w));
+  const th = Math.max(1, Math.round(h));
+  const key = `${tileKey(rect, tw, th)}|${strokeRatio}`;
+  let map = apTileCache.get(img);
+  if (!map) {
+    map = new Map();
+    apTileCache.set(img, map);
+  }
+  const pad = Math.max(2, Math.round(th * strokeRatio));
+  const hit = map.get(key);
+  if (hit) return { canvas: hit, pad };
+
+  const white = document.createElement('canvas');
+  white.width = tw;
+  white.height = th;
+  const wg = white.getContext('2d');
+  const out = document.createElement('canvas');
+  out.width = tw + pad * 2;
+  out.height = th + pad * 2;
+  const g = out.getContext('2d');
+  if (!wg || !g) return null;
+  wg.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, tw, th);
+
+  const spread = Math.max(1, Math.round(pad / 1.6));
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2;
+    g.drawImage(white, pad + Math.cos(ang) * spread, pad + Math.sin(ang) * spread);
+  }
+  g.globalCompositeOperation = 'destination-out';
+  g.drawImage(white, pad, pad);
+  g.globalCompositeOperation = 'source-in';
+  const grad = g.createLinearGradient(0, 0, 0, out.height);
+  grad.addColorStop(0, AP_STROKE.top);
+  grad.addColorStop(0.45, AP_STROKE.mid);
+  grad.addColorStop(1, AP_STROKE.bottom);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, out.width, out.height);
+  // 白芯压回中间
+  g.globalCompositeOperation = 'source-over';
+  g.drawImage(white, pad, pad);
+  map.set(key, out);
+  return { canvas: out, pad };
+}
+
+/**
+ * 光晕瓦片：把字形**按边缘糊开**再灌渐变 —— 不是中心一团圆光，
+ * 而是从笔画边缘向内外渗透，叠在主体后面就有"呼吸"感（用户 2026-10-27 第 2 轮）。
+ */
+function glowTile(
+  img: CanvasImageSource,
+  rect: { sx: number; sy: number; sw: number; sh: number },
+  w: number,
+  h: number,
+  /** 糊开的半径（字高的比例） */
+  blurRatio = 0.09,
+): { canvas: HTMLCanvasElement; pad: number } | null {
+  if (typeof document === 'undefined') return null;
+  const tw = Math.max(1, Math.round(w));
+  const th = Math.max(1, Math.round(h));
+  const key = `${tileKey(rect, tw, th)}|${blurRatio}`;
+  let map = glowTileCache.get(img);
+  if (!map) {
+    map = new Map();
+    glowTileCache.set(img, map);
+  }
+  const pad = Math.max(4, Math.round(th * 0.42));
+  const hit = map.get(key);
+  if (hit) return { canvas: hit, pad };
+
+  const out = document.createElement('canvas');
+  out.width = tw + pad * 2;
+  out.height = th + pad * 2;
+  const g = out.getContext('2d');
+  if (!g) return null;
+  // 先按字形铺白，再用画布滤镜糊开 —— 糊的是**字形的轮廓**，不是圆心
+  g.filter = `blur(${Math.max(2, th * blurRatio).toFixed(1)}px)`;
+  g.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, pad, pad, tw, th);
+  g.filter = 'none';
+  g.globalCompositeOperation = 'source-in';
+  const grad = g.createLinearGradient(0, 0, 0, out.height);
+  grad.addColorStop(0, AP_STROKE.top);
+  grad.addColorStop(0.45, AP_STROKE.mid);
+  grad.addColorStop(1, AP_STROKE.bottom);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, out.width, out.height);
+  map.set(key, out);
+  return { canvas: out, pad };
+}
+
+/**
+ * HUD：combo（chart-preview 21 起）—— 有 Bestdori 精灵走 `digits.png` + `combo.png`，
+ * 缺精灵退回自绘文本。
  */
 function drawCombo(
   ctx: CanvasRenderingContext2D,
@@ -1130,104 +1365,198 @@ function drawCombo(
   chart: SimChart,
   seconds: number,
   sprites: SimSprites | null,
+  alpha = 1,
+  style?: Partial<SimComboStyle>,
 ): void {
+  if (alpha <= 0.002) return;
   const combo = simComboAt(chart, seconds);
   if (combo <= 0) return;
-  const { x, y } = comboAnchor(m);
-  // AP 电池态（51）：Auto 永远 PERFECT ⇒ 全程染色；命中瞬间再叠一层光环
+  const cs: SimComboStyle = { ...SIM_COMBO_STYLE, ...style };
+  const anchor = comboAnchor(m);
+  const x = anchor.x + cs.dx;
+  const y = anchor.y + cs.dy;
   const since = Math.max(0, seconds - (chart.hitTimes[combo - 1] ?? seconds));
+  const popScale = cs.pop > 0 ? comboPopScale(since * (0.2 / cs.pop)) : 1;
+  const scale = popScale * cs.scale;
+  const text = String(combo);
+
   if (!sprites) {
-    drawComboText(ctx, m, combo, SIM_AP_COMBO.tint, apColorAt(since), since);
+    drawComboText(ctx, m, text, alpha, cs, x, y);
     return;
   }
-  const scale = comboPopScale(since);
+
   const { digitW, digitH, labelW, labelH, labelGap } = comboMetrics(m);
-  const text = String(combo);
-  const digits = tintedImage(sprites.digits, SIM_AP_COMBO.tint);
-  const label = tintedImage(sprites.combo, SIM_AP_COMBO.tint);
+  const dw = digitW * scale;
+  const dh = digitH * scale;
+  const top = y - dh / 2;
+  // 居中按**墨迹**：每个字形在切图里的左右留白不一样（"1" 只占 39/72），
+  // 按字宽居中在 2 位以上就会偏 —— 先量出整串的墨迹跨度，再把它对到锚点上。
+  const cells = [...text].map((ch) => {
+    const digit = Math.min(9, Math.max(0, Number(ch) || 0));
+    const rect = digitRect(sprites, digit);
+    const ink = glyphInk(sprites.digits, rect);
+    const k = digitW / Math.max(1, rect.sw);
+    return { rect, inkLeft: ink ? ink.left * k : 0, inkRight: ink ? ink.right * k : digitW };
+  });
+  const first = cells[0];
+  const last = cells[cells.length - 1];
+  const inkSpanLeft = (-cells.length / 2) * digitW + (first ? first.inkLeft : 0);
+  const inkSpanRight =
+    ((-cells.length / 2) + (cells.length - 1)) * digitW + (last ? last.inkRight : digitW);
+  const inkShift = -(inkSpanLeft + inkSpanRight) / 2;
+
+  const labelLeft = x - (labelW * scale) / 2;
+  const labelTop = y + labelGap * scale;
+  const labelRect = { sx: 0, sy: 0, sw: sprites.combo.width, sh: sprites.combo.height };
+
   ctx.save();
-  ctx.globalAlpha = 1;
-  drawApComboGlow(ctx, x, y, digitH, since);
-  // 数字：整串水平居中于锚点（照 Bestdori 的 `Ae = -length/2`）
-  let dx = (-text.length / 2) * digitW;
-  for (const ch of text) {
-    const digit = Number(ch);
-    const rect = digitRect(sprites, Number.isFinite(digit) ? digit : 0);
-    ctx.drawImage(
-      digits, rect.sx, rect.sy, rect.sw, rect.sh,
-      x + dx * scale, y - (digitH * scale) / 2, digitW * scale, digitH * scale,
-    );
+  ctx.globalAlpha = alpha;
+  const mod = cs.ap ? apGlowModulation(seconds, since, cs) : { alpha: 0, scale: 1 };
+  /**
+   * 铺光晕。**数字和「COMBO」一起铺** —— 上一版只给了数字，标签只有描边没有呼吸
+   * （用户 2026-10-27：下面那行没有光晕）。
+   */
+  const glowPass = (mode: 'behind' | 'front', repeats: number) => {
+    if (mod.alpha <= 0.004) return;
+    const k = scale * mod.scale;
+    ctx.save();
+    // 走加色：光晕是"发光"，不是盖一层半透明色块
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha * mod.alpha * (mode === 'front' ? 0.2 : 0.62);
+    for (let i = 0; i < repeats; i++) {
+      let gx = (-cells.length / 2) * digitW + inkShift;
+      for (const cell of cells) {
+        const glow = glowTile(sprites.digits, cell.rect, digitW, digitH);
+        if (glow) {
+          const padPx = glow.pad * k;
+          ctx.drawImage(
+            glow.canvas,
+            x + gx * scale - padPx, top - padPx,
+            dw * mod.scale + padPx * 2, dh * mod.scale + padPx * 2,
+          );
+        }
+        gx += digitW;
+      }
+      const labelGlow = glowTile(sprites.combo, labelRect, labelW, labelH, 0.08);
+      if (labelGlow) {
+        const padPx = labelGlow.pad * k;
+        ctx.drawImage(
+          labelGlow.canvas,
+          labelLeft - padPx, labelTop - padPx,
+          labelW * scale * mod.scale + padPx * 2, labelH * scale * mod.scale + padPx * 2,
+        );
+      }
+    }
+    ctx.restore();
+  };
+  glowPass('behind', 2);
+
+  let dx = (-cells.length / 2) * digitW + inkShift;
+  for (const cell of cells) {
+    const left = x + dx * scale;
+    const tile = cs.ap ? apTile(sprites.digits, cell.rect, digitW, digitH) : null;
+    if (tile) {
+      const padPx = tile.pad * scale;
+      ctx.drawImage(tile.canvas, left - padPx, top - padPx, dw + padPx * 2, dh + padPx * 2);
+    } else {
+      ctx.drawImage(
+        sprites.digits, cell.rect.sx, cell.rect.sy, cell.rect.sw, cell.rect.sh,
+        left, top, dw, dh,
+      );
+    }
     dx += digitW;
   }
-  ctx.drawImage(
-    label, 0, 0, sprites.combo.width, sprites.combo.height,
-    x - (labelW * scale) / 2, y + labelGap * scale, labelW * scale, labelH * scale,
-  );
+  glowPass('front', 1);
+
+  const labelTile = cs.ap ? apTile(sprites.combo, labelRect, labelW, labelH, 0.045) : null;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = labelH * 0.35;
+  if (labelTile) {
+    const padPx = labelTile.pad * scale;
+    ctx.drawImage(
+      labelTile.canvas,
+      labelLeft - padPx, labelTop - padPx,
+      labelW * scale + padPx * 2, labelH * scale + padPx * 2,
+    );
+  } else {
+    ctx.drawImage(
+      sprites.combo, 0, 0, sprites.combo.width, sprites.combo.height,
+      labelLeft, labelTop, labelW * scale, labelH * scale,
+    );
+  }
+  ctx.restore();
   ctx.restore();
 }
 
 /**
- * AP combo 的命中光环（51）：数字背后一团柔光，近 `glow` 秒内淡出。
- * 起始是闪白、之后转紫（`apColorAt` 给色），加色叠（`lighter`）不与数字抢亮度。
+ * AP 态光晕的**呼吸**：形状由 `glowTile` 决定（沿笔画边缘糊开），这里只给强度与尺度。
+ *
+ * - 相位走**绝对秒**（不是命中后计时）：不然每来一个音就把呼吸打断，看起来是一闪一闪而不是"呼吸"；
+ * - 深度调满：谷底几乎熄、峰顶压满，才看得出来（用户 2026-10-27 第 3 轮：太弱、看不出呼吸）；
+ * - 命中那一拍再叠一次快速闪，`flash` 0.12 s 衰减。
  */
-function drawApComboGlow(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  digitH: number,
+function apGlowModulation(
+  seconds: number,
   since: number,
-): void {
-  const color = apColorAt(since);
-  if (!color) return;
-  const k = 1 - clamp01(since / SIM_AP_COMBO.glow);
-  const alpha = Math.pow(k, 1.25) * 0.42;
-  if (alpha <= 0.002) return;
-  const r = digitH * 1.9;
-  const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-  // 假 ctx（单测）/ 上下文不支持渐变 → 这一层不画（数字照画）
-  if (!grad) return;
-  grad.addColorStop(0, `${color}${alphaToHex(alpha)}`);
-  grad.addColorStop(1, `${color}00`);
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.fillStyle = grad;
-  ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  ctx.restore();
+  cs: SimComboStyle,
+): { alpha: number; scale: number } {
+  if (cs.glow <= 0.01) return { alpha: 0, scale: 1 };
+  const period = cs.glowPeriod > 0 ? cs.glowPeriod : 0;
+  const phase = period > 0 ? 0.5 - 0.5 * Math.cos((seconds / period) * Math.PI * 2) : 0.75;
+  const flash = Math.exp(-since / 0.12);
+  const alpha = clamp01((0.14 + 0.95 * phase) * cs.glow + 0.4 * flash * cs.glow);
+  // 峰顶连"光晕范围"一起涨一点，才像在呼吸而不是单纯调亮度
+  return { alpha, scale: 1 + 0.06 * phase };
 }
 
-/** 0..1 → 两位十六进制 alpha（`#rrggbb` + 后缀组成 `#rrggbbaa`） */
-function alphaToHex(alpha: number): string {
-  return Math.round(clamp01(alpha) * 255).toString(16).padStart(2, '0');
-}
-
-/** combo 的自绘文本回落（缺 Bestdori 精灵时；系统无衬线 + 右对齐 + 小字 COMBO，同样走 AP 染色） */
+/**
+ * combo 的自绘文本回落（缺 Bestdori 精灵时）：`ap` = 白字 + 渐变描边 + 柔光；
+ * 非 AP = 纯白。位置与精灵版同一锚点。
+ */
 function drawComboText(
   ctx: CanvasRenderingContext2D,
   m: SimFieldMetrics,
-  combo: number,
-  tint: string,
-  glow: string | null,
-  since: number,
+  text: string,
+  alpha: number,
+  cs: SimComboStyle,
+  x: number,
+  y: number,
 ): void {
-  const { x, y, fontSize } = comboAnchor(m);
+  const fontSize = comboAnchor(m).fontSize * cs.scale;
   ctx.save();
+  ctx.globalAlpha = alpha;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-  ctx.shadowBlur = fontSize * 0.25;
-  if (glow) {
-    const k = 1 - clamp01(since / SIM_AP_COMBO.glow);
-    ctx.shadowColor = glow;
-    ctx.shadowBlur = fontSize * (0.3 + 0.5 * k);
-  }
-  ctx.fillStyle = tint;
   ctx.font = `800 ${fontSize.toFixed(1)}px ${SIM_HUD_FONT}`;
-  ctx.fillText(String(combo), x, y);
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-  ctx.shadowBlur = fontSize * 0.25;
+  if (cs.ap) {
+    const grad = ctx.createLinearGradient(0, y - fontSize * 0.5, 0, y + fontSize * 0.5);
+    grad.addColorStop(0, AP_STROKE.top);
+    grad.addColorStop(0.45, AP_STROKE.mid);
+    grad.addColorStop(1, AP_STROKE.bottom);
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2, fontSize * 0.16);
+    ctx.strokeStyle = grad;
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, x, y);
+  } else {
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = fontSize * 0.2;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, x, y);
+  }
   ctx.font = `700 ${(fontSize * 0.3).toFixed(1)}px ${SIM_HUD_FONT}`;
-  ctx.fillStyle = tint;
-  ctx.globalAlpha = 0.78;
+  if (cs.ap) {
+    const g2 = ctx.createLinearGradient(0, y + fontSize * 0.5, 0, y + fontSize * 0.9);
+    g2.addColorStop(0, AP_STROKE.mid);
+    g2.addColorStop(1, AP_STROKE.bottom);
+    ctx.lineWidth = Math.max(1.5, fontSize * 0.07);
+    ctx.strokeStyle = g2;
+    ctx.strokeText('COMBO', x, y + fontSize * 0.72);
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.globalAlpha = alpha * 0.95;
   ctx.fillText('COMBO', x, y + fontSize * 0.72);
   ctx.restore();
 }

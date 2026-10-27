@@ -12,7 +12,24 @@ import type { SimChart } from './simField';
  * 判定字（实机逐帧量测，2026-10-26 复核）：
  * 字心 `0.497 W`、离判定线 `0.092 H`、高 `0.042 H` ⇒ 宽约 `0.15–0.16 W`（图集本身的 287:79）。
  */
-export const SIM_JUDGE = {
+export interface SimJudgeStyle {
+  /** 字心 X（场地宽的比例） */
+  cx: number;
+  /** 字心离判定线的距离（场地高的比例） */
+  dy: number;
+  /** 字高（场地高的比例） */
+  h: number;
+  /** 停留时长（秒） */
+  life: number;
+  /** 淡入（秒） */
+  fadeIn: number;
+  /** 淡出（秒） */
+  fadeOut: number;
+  /** 命中瞬间的弹放时长（秒；0 = 不弹，与 combo 的 `pop` 同一条曲线） */
+  pop: number;
+}
+
+export const SIM_JUDGE: SimJudgeStyle = {
   /** 字心 X（场地宽的比例） */
   cx: 0.497,
   /** 字心离判定线的距离（场地高的比例；字底 = 0.069 H） */
@@ -25,7 +42,9 @@ export const SIM_JUDGE = {
   fadeIn: 0.04,
   /** 淡出（秒） */
   fadeOut: 0.16,
-} as const;
+  /** 弹放（秒） */
+  pop: 0.2,
+};
 
 /**
  * `judgeskin/skin00/judge.png` 里 `judge_perfect` 的切图坐标
@@ -41,13 +60,17 @@ export function judgeSprite(): { x: number; y: number; w: number; h: number } {
  * 命中表升序，从尾部回扫：Auto 下每个可击打物都命中，密集谱面里这个窗口几乎一直亮着 ——
  * 与实机一致（判定字跟着音符节奏闪）。超出 `life` 就返回 null，调用方据此不画。
  */
-export function judgeAt(chart: SimChart, seconds: number): number | null {
+export function judgeAt(
+  chart: SimChart,
+  seconds: number,
+  life: number = SIM_JUDGE.life,
+): number | null {
   const hits = chart.hitTimes;
   for (let i = hits.length - 1; i >= 0; i--) {
     const t = hits[i]!;
     if (t > seconds) continue;
     const age = seconds - t;
-    return age <= SIM_JUDGE.life ? age : null;
+    return age <= life ? age : null;
   }
   return null;
 }

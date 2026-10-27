@@ -104,7 +104,22 @@ export const ENDING_SPEC = {
   burst5At: 80,
   burst5Points: 5,
   wordGlow: 0,
+  // 舞台两层在结尾段里的淡出（秒，相对结尾段起点）：章擦入的同一段时间里先把
+  // combo 收掉、轨道慢慢退，结算只剩背景（2026-10-27 用户拍板要可调）。
+  comboFadeAt: 0,
+  comboFadeDur: 0.35,
+  trackFadeAt: 0,
+  trackFadeDur: 1,
 } as const;
+
+/**
+ * 参数表的**可写宽化版**：`ENDING_SPEC` 是 `as const`（键名照抄票面、首期不可变），
+ * 调参 / 原型要按同一套键覆盖，故派生一份可变形状。绘制一律收这个类型，
+ * 缺省 = `ENDING_SPEC`，行为与以前逐像素一致。
+ */
+export type EndingSpec = {
+  -readonly [K in keyof typeof ENDING_SPEC]: (typeof ENDING_SPEC)[K];
+};
 
 /** 参数表里出现的键 */
 export type EndingSpecKey = keyof typeof ENDING_SPEC;
@@ -137,13 +152,16 @@ export interface EndingUnits {
   hp(key: EndingUnitKey): number;
   /** %W → px */
   wp(key: EndingUnitKey): number;
+  /** 这一帧用的参数表（缺省 = `ENDING_SPEC`；原型 / 调参按同一套键覆盖） */
+  readonly spec: EndingSpec;
 }
 
-export function endingUnits(w: number, h: number): EndingUnits {
+export function endingUnits(w: number, h: number, spec: EndingSpec = ENDING_SPEC): EndingUnits {
   return {
     w,
     h,
-    hp: (key) => (ENDING_SPEC[key] / 100) * h,
-    wp: (key) => (ENDING_SPEC[key] / 100) * w,
+    spec,
+    hp: (key) => (spec[key] / 100) * h,
+    wp: (key) => (spec[key] / 100) * w,
   };
 }

@@ -1060,6 +1060,12 @@
   border-radius: var(--radius-sm);
 }
 
+/* 行内的只读取值（如「结算形态 · ALL PERFECT」）：借 `.pvex__note` 的字色 / 字号，
+   但去掉它作为独立段落的上下外边距，否则会把这行撑歪。 */
+.pvex__row > .pvex__note {
+  margin: 0;
+}
+
 /* 开场那一组（chart-preview 30）：总开关在组标题行右侧，子项缩进一格、关掉时整组置灰。
    版式与「导出信息」那一组（`pdp__group`）同一套口径。 */
 .pvex__group--sub {

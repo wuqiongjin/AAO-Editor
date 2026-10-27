@@ -28,6 +28,7 @@ import {
   type EndingStamp,
 } from '../ending';
 import { loadCoverImage } from '../../static';
+import { endingSfxCues, openingSfxCues, type SfxCue } from '../sfx';
 import { driveExportFrames } from './frameDriver';
 import {
   CONTAINER_SPECS,
@@ -327,11 +328,19 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
       bgm = null;
     }
   }
+  // 两端的游戏音效（52）：开场人潮从整条轨的 0s 起（收在开场段末尾），
+  // 结尾章两层同起在**谱面结束那刻**（= 结尾段 t=0，章入场那一拍）
+  const sfx: SfxCue[] = [
+    ...(req.opening ? openingSfxCues(openingSeconds) : []),
+    ...(req.ending ? endingSfxCues(openingSeconds + req.durationSeconds, req.ending.stamp) : []),
+  ];
+  // 票 67：进音轨合成前先认一次取消，合成结果也按取消哨兵判定
   if (cancelled()) return done({ ok: true, cancelled: true });
   const rendered = await renderAudioTrack({
     durationSeconds: req.durationSeconds,
     openingSeconds,
     endingSeconds,
+    sfx,
     keyEvents,
     keySetId: req.keySetId,
     bgm,

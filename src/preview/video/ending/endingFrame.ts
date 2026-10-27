@@ -10,18 +10,18 @@
 //
 // 三条口径（都是用户拍过的）：
 //   - **整帧 1920×1080**：结尾 UI 按帧高缩放，不嵌进场地矩形（嵌进去会整体缩 0.2%）。
-//   - **缺件不造假**：`all_perfect.png` / `judge.png` / 粒子图集缺哪件，那一处就走纯字 / 不画；
-//     不画假徽章（票 52 Q12）。
-//   - **不开第二份渲染真相**：章的舞台直接调 `drawSimFrameAt` 画谱面末帧，并按导出一次缓存成
-//     一张离屏图（逐帧重画 1080p 场地是纯浪费）；UI 层与仿真场互不共享画笔。
+//   - **缺件不造假**：中央章 / 结算标的 AP·FC 图、`judge.png`、粒子图集缺哪件，那一处就走纯字 / 不画；
+//     不画假徽章（票 52 Q12）。AP 与 FC 各有**两套**材质（章用大的、结算用小的），互不顶替。
+//   - **不开第二份渲染真相**：章的舞台直接调 `drawSimFrameAt` 画谱面末帧，**分层给 alpha**
+//     （背景 / 轨道+判定线 / combo 各自淡出；不再烤成一张整帧快照 —— 那样 combo 与轨道
+//     就收不掉了）；UI 层与仿真场互不共享画笔。
 import { HEADER_SANS } from '../../fontStack';
 import { drawSimFrameAt, SIM_FALLBACK_BG, type SimFrameInput } from '../sim/simField';
 import { drawSquareCover, openingPlaceholderCover } from '../opening/openingFrame';
 import {
   ENDING_SPEC,
-  ENDING_STAMP_SECONDS,
-  ENDING_TRANS_SECONDS,
   endingUnits,
+  type EndingSpec,
   type EndingStamp,
   type EndingUnits,
 } from './endingSpec';
@@ -96,6 +96,23 @@ const JUDGE_SPRITES: Record<RowName, readonly [number, number, number, number]> 
   BAD: [168, 33, 148, 70],
   MISS: [0, 33, 166, 70],
 };
+
+/**
+ * 顶栏星徽的三态切图（`atlas/MenuAtlas.png` **左上角**，2026-10-27 用户指认）：
+ * 虹彩 = ALL PERFECT、粉 = FULL COMBO、金 = CLEAR —— 颜色即形态，一张图集切三格。
+ *
+ * 三格**不是同尺寸**（贴纸边 51×49 / 51×49、金 41×39），外发光各向外溢 ~3px（已含在框里）。
+ * 画的时候按 `BADGE_INK_W` 统一比例尺、同中心对齐，**保留三颗的相对大小** ——
+ * 各自缩到同高的话金星会被放大一圈，和实机不一致。
+ * （图集里第四颗是灰星 = 未通关；导出弹窗只有 AP / FC / CLEAR 三档，不接。）
+ */
+const BADGE_SPRITES: Record<EndingStamp, readonly [number, number, number, number]> = {
+  ap: [116, 218, 57, 55],
+  fc: [60, 257, 57, 55],
+  clear: [275, 230, 47, 45],
+};
+/** 比例尺基准 = 最大那格（AP / FC）的框宽：`starSize` 即星徽（含发光）宽 */
+const BADGE_INK_W = 57;
 
 /** `tex_parSet_fever.png` 里的实心五角星（粒子母图） */
 const PAR_STAR = [153, 278, 79, 76] as const;
@@ -195,32 +212,22 @@ function mulberry32(seed: number): () => number {
 
 // ---------------------------------------------------------------- 预烘层
 
-/** 章舞台（仿真场末帧）：按 `EndingStageInput` 对象身份缓存，一次导出只画一次 */
-const stageCache = new WeakMap<EndingStageInput, { w: number; h: number; canvas: HTMLCanvasElement }>();
-
-function stageCanvas(input: EndingFrameInput, w: number, h: number): HTMLCanvasElement | null {
-  // 无 DOM（单测 / node）时不造离屏图：绘制侧只铺兜底底色，不炸
-  if (typeof document === 'undefined') return null;
-  const hit = stageCache.get(input.stage);
-  if (hit && hit.w === w && hit.h === h) return hit.canvas;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const g = canvas.getContext('2d');
-  if (!g) return null;
-  g.setTransform(1, 0, 0, 1, input.stage.x, input.stage.y);
-  drawSimFrameAt(g, input.stage.frame, input.stage.seconds);
-  stageCache.set(input.stage, { w, h, canvas });
-  return canvas;
+/**
+ * 分层淡出：`elapsed` 秒时某层的不透明度（`dur <= 0` = 到点直接归零）。
+ * 结尾段里 combo 先收、轨道慢慢退，结算只剩背景舞台。
+ */
+function layerAlpha(elapsed: number, at: number, dur: number): number {
+  if (!Number.isFinite(dur) || dur <= 0) return elapsed < at ? 1 : 0;
+  return 1 - clamp01((elapsed - at) / dur);
 }
 
 /** 结算左半幅的背景封面（虚化 + 压暗 + 向右渐隐）：一张图，按封面身份缓存 */
-let bleedCache: { cover: CanvasImageSource; w: number; h: number; canvas: HTMLCanvasElement } | null =
-  null;
+let bleedCache: { cover: CanvasImageSource; key: string; canvas: HTMLCanvasElement } | null = null;
 
 function bleedCanvas(cover: CanvasImageSource, u: EndingUnits): HTMLCanvasElement | null {
   if (typeof document === 'undefined') return null;
-  if (bleedCache && bleedCache.cover === cover && bleedCache.w === u.w && bleedCache.h === u.h) {
+  const key = `${u.w}x${u.h}|${u.spec.bgBlur}|${u.spec.bgBright}|${u.spec.bgScrim}`;
+  if (bleedCache && bleedCache.cover === cover && bleedCache.key === key) {
     return bleedCache.canvas;
   }
   const { w: iw, h: ih } = imageSide(cover);
@@ -232,13 +239,13 @@ function bleedCanvas(cover: CanvasImageSource, u: EndingUnits): HTMLCanvasElemen
   if (!g) return null;
   const dw = (iw * u.h) / ih;
 
-  g.filter = `blur(${ENDING_SPEC.bgBlur}px) saturate(0.9) brightness(${ENDING_SPEC.bgBright / 100})`;
+  g.filter = `blur(${u.spec.bgBlur}px) saturate(0.9) brightness(${u.spec.bgBright / 100})`;
   g.drawImage(cover, 0, 0, dw, u.h);
   g.filter = 'none';
 
   // 压暗（只压在封面层上）
   const scrim = g.createLinearGradient(0, 0, u.wp('bgFadeTo'), 0);
-  scrim.addColorStop(0, `rgba(8,12,20,${ENDING_SPEC.bgScrim / 100})`);
+  scrim.addColorStop(0, `rgba(8,12,20,${u.spec.bgScrim / 100})`);
   scrim.addColorStop(1, 'rgba(8,12,20,0)');
   g.globalCompositeOperation = 'source-atop';
   g.fillStyle = scrim;
@@ -256,7 +263,7 @@ function bleedCanvas(cover: CanvasImageSource, u: EndingUnits): HTMLCanvasElemen
   fade.addColorStop(1, 'rgba(0,0,0,1)');
   g.fillStyle = fade;
   g.fillRect(0, 0, u.w, u.h);
-  bleedCache = { cover, w: u.w, h: u.h, canvas };
+  bleedCache = { cover, key, canvas };
   return canvas;
 }
 
@@ -272,14 +279,38 @@ interface WordLayer {
 
 let wordCache: WordLayer | null = null;
 
+/**
+ * 中央章（大号材质）：`ap` = 用户自抠的 `stamp-ap`、`fc` = `stamp-fc`（**暂缺**）；
+ * 缺件 = null ⇒ 走纯字（票 52 Q12：不拿结算那张小图放大顶替）。
+ */
+function stampWordImage(input: EndingFrameInput): HTMLImageElement | null {
+  if (input.stamp === 'ap') return input.assets.stampAp;
+  if (input.stamp === 'fc') return input.assets.stampFc;
+  return null;
+}
+
+/**
+ * 结算白卡的角标（**小号材质**，与中央章不是同一张图）：`ap` = `mark-ap`（暂缺）、
+ * `fc` = `mark-fc`（韩服真件）；缺件 = null ⇒ 走纯字。
+ */
+function markImage(input: EndingFrameInput): HTMLImageElement | null {
+  if (input.stamp === 'ap') return input.assets.markAp;
+  if (input.stamp === 'fc') return input.assets.markFc;
+  return null;
+}
+
 function wordLayer(input: EndingFrameInput, wPx: number): WordLayer | null {
   if (typeof document === 'undefined') return null;
-  const img = input.stamp === 'ap' ? input.assets.stamp : null;
+  const img = stampWordImage(input);
   if (wordCache && wordCache.stamp === input.stamp && wordCache.img === img && wordCache.w === wPx) {
     return wordCache;
   }
   const w = Math.max(1, Math.round(wPx));
-  const h = Math.max(1, Math.round(w * WORD_ASPECT));
+  // 有图按图自己的比例（AP 章 1028×187）；缺件才用 AP 那个常量兜底
+  const iw = img ? img.naturalWidth || img.width : 0;
+  const ih = img ? img.naturalHeight || img.height : 0;
+  const aspect = iw > 0 && ih > 0 ? ih / iw : WORD_ASPECT;
+  const h = Math.max(1, Math.round(w * aspect));
   const layer = document.createElement('canvas');
   layer.width = w;
   layer.height = h;
@@ -292,7 +323,7 @@ function wordLayer(input: EndingFrameInput, wPx: number): WordLayer | null {
   if (img) {
     g.drawImage(img, 0, 0, w, h);
   } else {
-    // 缺 AP 图 / FC 没有官方字样 ⇒ **纯字**（票 52 Q12：缺件不造假徽章）
+    // 缺中央章材质（FC 大号至今没有；AP 缺安装包时同理）⇒ **纯字**（票 52 Q12：缺件不造假徽章）
     const text = input.stamp === 'ap' ? 'ALL PERFECT!' : 'FULL COMBO';
     let px = h * 0.84;
     const maxW = w * 0.94;
@@ -316,14 +347,22 @@ function wordLayer(input: EndingFrameInput, wPx: number): WordLayer | null {
 
 // ---------------------------------------------------------------- 舞台
 
-function drawStage(ctx: CanvasRenderingContext2D, u: EndingUnits, input: EndingFrameInput): void {
-  const layer = stageCanvas(input, u.w, u.h);
-  if (layer) {
-    ctx.drawImage(layer, 0, 0);
-    return;
-  }
-  ctx.fillStyle = SIM_FALLBACK_BG;
-  ctx.fillRect(0, 0, u.w, u.h);
+function drawStage(
+  ctx: CanvasRenderingContext2D,
+  u: EndingUnits,
+  input: EndingFrameInput,
+  elapsed: number,
+): void {
+  const { stage } = input;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, stage.x, stage.y);
+  drawSimFrameAt(ctx, stage.frame, stage.seconds, {
+    trackAlpha: layerAlpha(elapsed, u.spec.trackFadeAt, u.spec.trackFadeDur),
+    comboAlpha: layerAlpha(elapsed, u.spec.comboFadeAt, u.spec.comboFadeDur),
+    // 结尾段不画判定字：那是打歌时的东西
+    judge: null,
+  });
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- 中央章
@@ -342,11 +381,11 @@ function drawStampWord(
 ): void {
   const word = wordLayer(input, u.wp('stampW'));
   if (!word) return;
-  const inSec = Math.max(0.05, ENDING_SPEC.stampIn);
+  const inSec = Math.max(0.05, u.spec.stampIn);
   const p = clamp01(elapsed / inSec);
-  const fadeStart = ENDING_STAMP_SECONDS - Math.max(0, ENDING_SPEC.stampOut);
+  const fadeStart = u.spec.stampDur - Math.max(0, u.spec.stampOut);
   const alpha =
-    elapsed >= fadeStart ? 1 - smooth((elapsed - fadeStart) / Math.max(0.01, ENDING_SPEC.stampOut)) : 1;
+    elapsed >= fadeStart ? 1 - smooth((elapsed - fadeStart) / Math.max(0.01, u.spec.stampOut)) : 1;
   if (alpha <= 0.003) return;
 
   const g = word.mask.getContext('2d');
@@ -376,8 +415,8 @@ function drawStampWord(
   ctx.scale(scale, scale);
 
   // 字块后面的柔光（不是星，不遮挡笔画）
-  if (ENDING_SPEC.wordGlow > 0.001 && p < 0.85) {
-    const glowA = ENDING_SPEC.wordGlow * (1 - smooth((p - 0.5) / 0.35)) * 0.55;
+  if (u.spec.wordGlow > 0.001 && p < 0.85) {
+    const glowA = u.spec.wordGlow * (1 - smooth((p - 0.5) / 0.35)) * 0.55;
     if (glowA > 0.002) {
       const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, word.w * 0.55);
       gr.addColorStop(0, `rgba(190,240,255,${glowA})`);
@@ -431,8 +470,8 @@ function starSprite(img: CanvasImageSource, color: string): HTMLCanvasElement | 
   return canvas;
 }
 
-function paletteFor(wave: number): readonly string[] {
-  const style = ENDING_SPEC.palette;
+function paletteFor(wave: number, spec: EndingSpec): readonly string[] {
+  const style = spec.palette;
   if (style !== 'cycle') return PALETTES[style];
   return PALETTES[WAVE_PALETTE[wave] ?? 'mix'];
 }
@@ -461,34 +500,34 @@ function burstWaves(u: EndingUnits): Array<{
   n: number;
   speed: number;
 }> {
-  const count = ENDING_SPEC.partCount;
+  const count = u.spec.partCount;
   return [
-    { wave: 0, at: 0.02 * ENDING_STAMP_SECONDS, points: [[u.w / 2, u.hp('stampY')]], n: count, speed: 1 },
+    { wave: 0, at: 0.02 * u.spec.stampDur, points: [[u.w / 2, u.hp('stampY')]], n: count, speed: 1 },
     {
       wave: 1,
-      at: (ENDING_SPEC.burst2At / 100) * ENDING_STAMP_SECONDS,
+      at: (u.spec.burst2At / 100) * u.spec.stampDur,
       points: [[u.wp('burst2X'), u.hp('burst2Y')]],
       n: count * 0.46,
       speed: 0.86,
     },
     {
       wave: 2,
-      at: (ENDING_SPEC.burst3At / 100) * ENDING_STAMP_SECONDS,
+      at: (u.spec.burst3At / 100) * u.spec.stampDur,
       points: [[u.wp('burst3X'), u.hp('burst3Y')]],
       n: count * 0.4,
       speed: 0.8,
     },
     {
       wave: 3,
-      at: (ENDING_SPEC.burst4At / 100) * ENDING_STAMP_SECONDS,
-      points: scatterPoints(Math.max(1, Math.round(ENDING_SPEC.burst4Points)), 41, u),
+      at: (u.spec.burst4At / 100) * u.spec.stampDur,
+      points: scatterPoints(Math.max(1, Math.round(u.spec.burst4Points)), 41, u),
       n: count * 0.3,
       speed: 0.72,
     },
     {
       wave: 4,
-      at: (ENDING_SPEC.burst5At / 100) * ENDING_STAMP_SECONDS,
-      points: scatterPoints(Math.max(1, Math.round(ENDING_SPEC.burst5Points)), 97, u),
+      at: (u.spec.burst5At / 100) * u.spec.stampDur,
+      points: scatterPoints(Math.max(1, Math.round(u.spec.burst5Points)), 97, u),
       n: count * 0.26,
       speed: 0.66,
     },
@@ -502,14 +541,14 @@ function particles(u: EndingUnits): EndingParticle[] {
   if (particleCache && particleCache.key === key) return particleCache.list;
   const out: EndingParticle[] = [];
   burstWaves(u).forEach((grp, gi) => {
-    const colors = paletteFor(grp.wave);
+    const colors = paletteFor(grp.wave, u.spec);
     grp.points.forEach((pt, pi) => {
       const rnd = mulberry32(3000 + gi * 131 + pi * 17);
       const count = Math.max(1, Math.round(grp.n));
       for (let i = 0; i < count; i++) {
         const ang = rnd() * Math.PI * 2;
         // 同一组共用一个减速度 ⇒ 扩散成一圈（烟花），而不是一团随机散点
-        const sp = (960 + rnd() * 380) * ENDING_SPEC.partSpeed * grp.speed;
+        const sp = (960 + rnd() * 380) * u.spec.partSpeed * grp.speed;
         const color = colors[Math.floor(rnd() * colors.length)] ?? '#ffffff';
         out.push({
           ox: pt[0],
@@ -638,10 +677,15 @@ function drawBar(ctx: CanvasRenderingContext2D, u: EndingUnits, input: EndingFra
     ctx.fill();
   });
 
-  const star = input.assets.badgeStar;
-  if (star) {
-    const ss = u.hp('starSize');
-    ctx.drawImage(star, x + u.hp('starDX') - ss / 2, cy - ss / 2, ss, ss);
+  // 星徽：按结算形态取图集里的那一格（虹彩 / 粉 / 金），缺图集则不画。
+  // 三格同一比例尺、同中心（保留相对大小），`starSize` 按最大那格算。
+  const menu = input.assets.menu;
+  const badge = BADGE_SPRITES[input.stamp];
+  if (menu && badge) {
+    const k = u.hp('starSize') / BADGE_INK_W;
+    const bw = badge[2] * k;
+    const bh = badge[3] * k;
+    ctx.drawImage(menu, badge[0], badge[1], badge[2], badge[3], x + u.hp('starDX') - bw / 2, cy - bh / 2, bw, bh);
   }
 
   // 难度徽章（**正体**，不斜）
@@ -664,7 +708,7 @@ function drawBar(ctx: CanvasRenderingContext2D, u: EndingUnits, input: EndingFra
   const lvRight = x + w - u.hp('lvRight');
   const lvBlockW = u.hp('lvNumFont') * 3 + u.hp('lvLabelFont') * 3;
   const titleMax = lvRight - lvBlockW - titleX;
-  fitText(ctx, input.title, ENDING_SPEC.titleWeight, u.hp('titleFont'), titleMax);
+  fitText(ctx, input.title, u.spec.titleWeight, u.hp('titleFont'), titleMax);
   ctx.fillStyle = '#4c4c4c';
   ctx.textBaseline = 'middle';
   ctx.fillText(ellipsize(ctx, input.title, titleMax), titleX, cy + 1);
@@ -752,12 +796,13 @@ function drawRow(
   }
 
   const value = formatCount(input.counts[ROW_COUNTS[index]!]);
-  drawCount(ctx, value, card.left + u.hp('countRight'), cy + u.hp('countDY'), u.hp('countFont'), 'right');
+  drawCount(ctx, u, value, card.left + u.hp('countRight'), cy + u.hp('countDY'), u.hp('countFont'), 'right');
 }
 
 /** 计数：前导 0 转灰，末位恒深色 */
 function drawCount(
   ctx: CanvasRenderingContext2D,
+  u: EndingUnits,
   value: string,
   anchor: number,
   cy: number,
@@ -765,7 +810,7 @@ function drawCount(
   align: 'left' | 'right' | 'center',
 ): void {
   ctx.save();
-  ctx.font = `${ENDING_SPEC.countWeight} ${px}px ${HEADER_SANS}`;
+  ctx.font = `${u.spec.countWeight} ${px}px ${HEADER_SANS}`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   const widths = [...value].map((ch) => ctx.measureText(ch).width);
@@ -789,7 +834,7 @@ function drawCombo(
 ): void {
   if (a <= 0.002) return;
   const r = comboRect(card, u);
-  const darkH = r.h * ENDING_SPEC.comboDark;
+  const darkH = r.h * u.spec.comboDark;
   const cx = r.x + r.w / 2;
   const cy = r.y + r.h / 2;
   const sc = 0.92 + 0.08 * a;
@@ -820,15 +865,25 @@ function drawCombo(
   roundRect(ctx, r.x, r.y, r.w, r.h, radius);
   ctx.stroke();
 
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = `700 ${u.hp('comboFont')}px ${HEADER_SANS}`;
-  ctx.fillText('MAX', r.x + r.w / 2, r.y + darkH * 0.34);
-  ctx.fillText('COMBO', r.x + r.w / 2, r.y + darkH * 0.72);
+  const label = input.assets.maxCombo;
+  if (label) {
+    // 韩服 `MenuAtlas.png` 的真两行白字：按高度铺满深色带，水平居中
+    const side = imageSide(label);
+    const lh = darkH * 0.78;
+    const lw = (lh * side.w) / Math.max(1, side.h);
+    ctx.drawImage(label, r.x + r.w / 2 - lw / 2, r.y + (darkH - lh) / 2, lw, lh);
+  } else {
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${u.hp('comboFont')}px ${HEADER_SANS}`;
+    ctx.fillText('MAX', r.x + r.w / 2, r.y + darkH * 0.34);
+    ctx.fillText('COMBO', r.x + r.w / 2, r.y + darkH * 0.72);
+  }
 
   drawCount(
     ctx,
+    u,
     formatCount(input.maxCombo),
     r.x + r.w / 2,
     r.y + darkH + (r.h - darkH) / 2,
@@ -838,7 +893,10 @@ function drawCombo(
   ctx.restore();
 }
 
-/** AP / FC 标：有图用图，没图（FC / 缺件）走纯字；`clear` 不画 */
+/**
+ * 白卡右下角的 AP / FC 标：**小号材质**（`mark-ap` / `mark-fc`），缺件走纯字；`clear` 不画。
+ * 与中央章那套大图**不共用**（用户 2026-10-27：结算的图更小，章的大更高清）。
+ */
 function drawAp(
   ctx: CanvasRenderingContext2D,
   u: EndingUnits,
@@ -852,7 +910,7 @@ function drawAp(
   const cx = r.x + r.w / 2 + u.hp('apDX');
   const cy = r.y + r.h + u.hp('apGap') + h / 2;
   const sc = 0.9 + 0.1 * a;
-  const img = input.stamp === 'ap' ? input.assets.stamp : null;
+  const img = markImage(input);
 
   ctx.save();
   ctx.globalAlpha = a;
@@ -883,9 +941,9 @@ function drawSettlement(
   input: EndingFrameInput,
   elapsed: number,
 ): void {
-  const base = ENDING_TRANS_SECONDS * 0.4;
+  const base = u.spec.transDur * 0.4;
   if (elapsed < base) return;
-  const span = Math.max(0.45, ENDING_TRANS_SECONDS * 0.6);
+  const span = Math.max(0.45, u.spec.transDur * 0.6);
   const q = clamp01((elapsed - base) / span);
   const at = (a: number, b: number): number => smooth(clamp01((q - a) / (b - a)));
 
@@ -938,7 +996,7 @@ function drawCoverProp(ctx: CanvasRenderingContext2D, u: EndingUnits, cover: Can
   const x = cx - s / 2;
   const y = cy - s / 2;
 
-  withShadow(ctx, s * 0.12, s * 0.02, ENDING_SPEC.coverShadow, () => {
+  withShadow(ctx, s * 0.12, s * 0.02, u.spec.coverShadow, () => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(x - frame, y - frame, s + frame * 2, s + frame * 2);
   });
@@ -947,10 +1005,10 @@ function drawCoverProp(ctx: CanvasRenderingContext2D, u: EndingUnits, cover: Can
 }
 
 /** 黑幕：盖住 → 停一拍 → 抬起（抬完 0.62T，剩下 0.38T 正好留给组件逐个入场） */
-function curtainAlpha(elapsed: number): number {
-  const inT = ENDING_TRANS_SECONDS * 0.22;
-  const holdT = ENDING_TRANS_SECONDS * 0.3;
-  const outT = ENDING_TRANS_SECONDS * 0.62;
+function curtainAlpha(elapsed: number, transDur: number): number {
+  const inT = transDur * 0.22;
+  const holdT = transDur * 0.3;
+  const outT = transDur * 0.62;
   if (elapsed < inT) return smooth(elapsed / inT);
   if (elapsed < holdT) return 1;
   if (elapsed < outT) return 1 - smooth((elapsed - holdT) / (outT - holdT));
@@ -971,8 +1029,11 @@ export function drawEndingFrameAt(
   h: number,
   input: EndingFrameInput,
   elapsed: number,
+  /** 参数表覆盖（原型 / 调参用；缺省 = `ENDING_SPEC`，行为不变） */
+  specOverride?: Partial<EndingSpec>,
 ): void {
-  const u = endingUnits(w, h);
+  const spec: EndingSpec = { ...ENDING_SPEC, ...specOverride };
+  const u = endingUnits(w, h, spec);
   const t = Math.max(0, elapsed);
 
   ctx.save();
@@ -980,20 +1041,23 @@ export function drawEndingFrameAt(
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
 
-  drawStage(ctx, u, input);
+  // 整帧铺底：舞台只覆盖场地矩形，留边那圈（≤1px）不能是透明
+  ctx.fillStyle = SIM_FALLBACK_BG;
+  ctx.fillRect(0, 0, w, h);
+  drawStage(ctx, u, input, t);
 
-  if (t < ENDING_STAMP_SECONDS) {
+  if (t < spec.stampDur) {
     if (input.stamp !== 'clear') {
       // 粒子画在字样**后面**：火花从徽章背后炸开，不糊住笔画
       drawParticles(ctx, u, input, t);
       drawStampWord(ctx, u, input, t);
     }
   } else {
-    const e = t - ENDING_STAMP_SECONDS;
+    const e = t - spec.stampDur;
     // 最后一波余烬延续到幕布升起前
     if (input.stamp !== 'clear' && e < EMBERS_SECONDS) drawParticles(ctx, u, input, t);
     drawSettlement(ctx, u, input, e);
-    const a = curtainAlpha(e);
+    const a = curtainAlpha(e, spec.transDur);
     if (a > 0.001) {
       ctx.globalAlpha = a;
       ctx.fillStyle = '#000000';

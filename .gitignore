@@ -33,6 +33,7 @@ dist-ssr
 # 取件：npm run assets:sync（scripts/assets-sync.mjs：按根整取下列目录，会整根替换）
 /public/assets/skins/
 /public/assets/sim/
+/public/assets/game-ui/
 /src/assets/audio/keysounds/
 /src/rendering/skin/gen/
 /src/audio/gen/

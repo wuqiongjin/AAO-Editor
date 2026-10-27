@@ -23,6 +23,13 @@
 
 ## Decisions so far
 
+- [2026-10-27 结票 · 票 31] 开场人潮结案：`SE_RHYTHM_GAYA` 从开场段 0 s 起播、到开场段末尾截断 + 0.8 s 淡出，走 `se` 增益；不做开关、不做程序化回落（缺件静音）。落点 `src/preview/video/sfx.ts` + `renderAudioTrack` 的 `sfx` 通道（随 52 那批一起落）。
+- [2026-10-27 定案 · 票 51 第三轮] AP combo 按 `.cache/Combo-Style.mov` 重做：**白芯 + 竖向渐变描边（#e35bd2→#a163d8→#3fc9c7）+ 脉动彩色光晕（周期 ~0.5 s）**，「COMBO」同套；删掉旧的白描边环；修整串居中；新增 `ap` 开关与 `glow` / `glowPeriod`。判定字加 `pop` 弹放（0.2 s）。
+- [2026-10-27 定案 · 票 52 第三轮] **绘制函数参数化 + 结尾分层**：`drawOpeningFrameAt` 收 `stack`（起推时刻 / 用时 / 位移倍率）、
+  `drawSimFrameAt` 收 `layers`（背景 / 轨道 / combo 各自 alpha、判定字样式、combo 样式）、`drawEndingFrameAt` 收整份 `spec` 覆盖；
+  结尾舞台**不再烤整帧快照**，轨道与 combo 各自淡出（结算只剩背景）。AP combo 默认改为实机采样版
+  （竖向虹彩 + 白描边 + 粉青辉光，`flat` 保留对照）。调参台 `public/proto/scenes.html`（不入库）。
+- [2026-10-27 定案 · 票 52 第二轮验收] 结尾段收口：① 顶栏星徽改用 **`atlas/MenuAtlas.png` 左上角三格**（虹彩 = AP / 粉 = FC / 金 = CLEAR，同比例尺同中心；原 `RhythmGameUI.png` 那三格切出来是半颗粉角 / 「《」按钮 / 灰角，废弃）；② **AP / FC 拆两套材质** —— 中央章 `result/stamp-ap|fc`（大，1028×187 / 暂缺）、结算角标 `result/mark-ap|fc`（小，暂缺 / 221×40），互不顶替、缺件纯字；③ 导出弹窗**撤下「结算形态」下拉**（暂无诉求，固定 AP，`settings.export.ending.stamp` 仍是渲染 / 音效输入）；④ **两端音效接入**（ADR-0016 §5.1 开放项结案）—— 开场 `SE_RHYTHM_GAYA` 0s 起、收在开场段末尾 0.8s 淡出；结尾章 `SE_RHYTHM_CLEAR_VO` + `SE_RHYTHM_CLEAR`（clear）/ `SE_RHYTHM_FULLCOMBO`（fc·ap）两层同起、clear 也出声，音量只走 `se`。落点 `src/preview/video/sfx.ts` + `renderAudioTrack` 的 `sfx` 表。
 - [2026-10-26 定案 · 票 31 / 50–52 grill 第 2 轮 Q8–Q12=OK] 结尾画面 = 导出弹窗独立组（总开关默认开 + 结算形态 AP/FC/Clear）；后置 2.0 + 1.5 + 4.0 = 7.5 s；判定字 + AP combo **实时预览和导出都画、无开关**；环境音优先 `SE_RHYTHM_GAYA`、缺件程序化、挂片头组默认开、音量跟 master；ADR-0016 §5.1 改为「无 BGM/键音、允许人潮」；缺游戏精灵 ⇒ 留空或纯字，不准造假徽章。观感未定：Opening 字体/堆叠、结算版式、判定落点。调研 `docs/research/gbp-live-cinematic.md`
 - [2026-10-11 定案 · ADR-0018 · 票 41–44 grill 四轮] **表演背景 / 场地皮肤包的选择模型**（用户逐问拍板 Q1–Q21）：两个**独立选择器**（背景 / 轨道，各默认 `skin00`，不做成对整包）、**缩略图网格 + 包 ID 显示名**、入口 = 预览页「设置」面板、**包清单由素材取件侧产出**（应用侧按包 ID 取文件名 —— 上游 `liveBG_normal` / `liveBG` 两种命名并存，硬编码必然碎）、取件 = 轨道全量 33 + 背景策展 ~20 只取主图（跳 fever / 特效层 / `*preview`，只同步 jp）、**归属混合**：内置包 / 轨道 / 亮度 = **应用级**（`settings.preview`），自定义图 / 视频 = **工程级**（第 4 个工程二进制，复制工程带走；与画布那张"应用级"层级语义相反）、选中内置包 = **停用但保留**、图片与视频**共用一个自定义槽位**、选中结果对**实时预览 + 视频导出 + 开场③段统一生效**、亮度**只压暗且只压背景层**。上游盘点见 `docs/research/sim-asset-variants.md`
 - 命名定为 `chart-preview`（谱面预览）。

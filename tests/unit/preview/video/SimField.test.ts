@@ -22,6 +22,7 @@ import { emptySimAssets } from '@/src/preview/video/sim/simAssets';
 import {
   approachSeconds,
   backgroundRect,
+  comboPopScale,
   fieldImageRect,
   fieldMetrics,
   laneCenterX,
@@ -272,7 +273,9 @@ describe('drawSimFrameAt · Bestdori 精灵（chart-preview 21）', () => {
     const m = frame.metrics;
     expect((dx as number) + (dw as number) / 2).toBeCloseTo(m.w * 0.497, 5);
     expect((dy as number) + (dh as number) / 2).toBeCloseTo(m.laneHeight - m.h * 0.092, 5);
-    expect(dh).toBeCloseTo(m.h * 0.042, 5);
+    // 命中瞬间会"弹一下"（0.8 → 1.1 → 1），所以只断言**基准高度 × 弹放系数**
+    expect(dh).toBeCloseTo(m.h * 0.042 * comboPopScale(0.05), 5);
+    expect(dh).toBeLessThanOrEqual(m.h * 0.042 * 1.1 + 1e-9);
     // 有图集就不该再画纯字
     expect(calls.filter(([k, a]) => k === 'fillText' && (a as unknown[])[0] === 'PERFECT')).toEqual([]);
   });

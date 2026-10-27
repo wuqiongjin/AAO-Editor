@@ -218,8 +218,9 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
     // skin00）与 `gen/`（取件侧产出的包清单，git 忽略、assets:sync 取件，照 skin/gen 先例）；
     // 07 起旁出一支 encode/（规格 / 逐帧出帧 / 离线音轨 / 编码封装 / 编排），与 sim/ 平级；
     // 30 起再旁出一支 opening/（视频开场的常量 / 信息项 / 装饰 / 一帧绘制），与 sim/ 平级；
-    // 52 起再旁出一支 ending/（结尾段的参数表 / 素材 / 一帧绘制），同样与 sim/ 平级
-    expect(entries('src/preview/video')).toEqual(['encode', 'ending', 'index.ts', 'opening', 'sim']);
+    // 52 起再旁出一支 ending/（结尾段的参数表 / 素材 / 一帧绘制），同样与 sim/ 平级；
+    // 52 起同层多一枚 `sfx.ts`：导出两端的游戏音效（开场人潮 / 结尾章双声）的 cue 表
+    expect(entries('src/preview/video')).toEqual(['encode', 'ending', 'index.ts', 'opening', 'sfx.ts', 'sim']);
     expect(entries('src/preview/video/sim')).toEqual([
       'gen',
       'index.ts',

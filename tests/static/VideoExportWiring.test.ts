@@ -418,9 +418,11 @@ describe('50 · Opening 堆叠 A 轻推', () => {
   });
 
   it('缓出只缩放垫层露出厚度；封面 / 白条 / 文字全按原几何画', () => {
-    expect(frame).toMatch(/const stackD = Math\.round\(m\.stackD \* openingStackDriftAt\(seconds\)\)/);
+    // 票 50 的轻推：露出厚度 = `stackD × 缓出进度`，垫层起点/时长/距离可由调用方覆盖（缺省 = 定稿）
+    expect(frame).toMatch(/const stackD = Math\.round\(m\.stackD \* openingStackDriftAt\(seconds, stack\)\)/);
+    expect(frame).toMatch(/openingStackMetrics\(w, h, input\.items, creditLines\.length, stack\.distance\)/);
     expect(frame).toMatch(/drawSquareCover\(ctx, cover, m\.coverX, m\.top, m\.cover\)/);
-    expect(frame).not.toMatch(/openingStackDriftAt\(seconds\) \* m\.(top|cover)/);
+    expect(frame).not.toMatch(/openingStackDriftAt\(seconds, stack\) \* m\.(top|cover)/);
   });
 
   it('缺省 = 已推完（单测 / 定格帧看最终版式，不必模拟入场）', () => {

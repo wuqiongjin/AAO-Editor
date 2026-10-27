@@ -635,8 +635,6 @@
   "preview.video.export.ending.note": "Adds a ~{{seconds}}-second ending after the chart (clear stamp + results)",
   "preview.video.export.ending.stamp": "Clear stamp",
   "preview.video.export.ending.stamp.ap": "ALL PERFECT",
-  "preview.video.export.ending.stamp.fc": "FULL COMBO",
-  "preview.video.export.ending.stamp.clear": "Clear",
   "preview.video.export.note.webm": "The video will be exported as WebM (plays in Chrome, Edge and VLC).",
   "preview.video.export.note.webmFallback": "This computer can't export MP4, so WebM will be used instead (plays in Chrome, Edge and VLC).",
   "preview.video.export.note.mp4Opus": "MP4 files exported on this computer may not play in some players and editors. WebM is recommended.",

@@ -27,7 +27,16 @@ const texts = (calls: RecordedCall[]) =>
   calls.filter(([k]) => k === 'fillText').map(([, a]) => String(a[0]));
 
 /** 缺件常态：素材不在安装包里（票 52 Q12） */
-const NO_ASSETS: EndingAssets = { stamp: null, judge: null, particles: null, badgeStar: null };
+const NO_ASSETS: EndingAssets = {
+  stampAp: null,
+  stampFc: null,
+  markAp: null,
+  markFc: null,
+  judge: null,
+  particles: null,
+  maxCombo: null,
+  menu: null,
+};
 
 /**
  * 假仿真场末帧：只提供 `drawSimFrameAt` 会读到的最小面（`metrics` 全 0 / 空元素表）。
@@ -168,6 +177,11 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       burst5At: 80,
       burst5Points: 5,
       wordGlow: 0,
+      // 2026-10-27 追加：舞台两层各自淡出（秒，相对结尾段起点）
+      comboFadeAt: 0,
+      comboFadeDur: 0.35,
+      trackFadeAt: 0,
+      trackFadeDur: 1,
     });
   });
 
@@ -228,6 +242,63 @@ describe('chart-preview 52 · 一帧绘制', () => {
     // 前导 0 逐字画（每个数字一笔），末位也算在 4 位里
     expect(t.filter((s) => s === '0').length).toBeGreaterThanOrEqual(3);
     expect(t).toContain('6');
+  });
+
+  it('MAX COMBO 有韩服真件时贴图（不再用文字拼两行）', () => {
+    const maxCombo = { naturalWidth: 112, naturalHeight: 59 } as unknown as HTMLImageElement;
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawEndingFrameAt(
+      proxy,
+      1920,
+      1080,
+      frameInput({ assets: { ...NO_ASSETS, maxCombo } }),
+      ENDING_SECONDS - 0.1,
+    );
+    const draws = calls.filter(([k]) => k === 'drawImage').map(([, a]) => a[0]);
+    expect(draws).toContain(maxCombo);
+    // 两行字不再出现（'MAX' / 'COMBO' 都不该被 fillText）
+    expect(texts(calls)).not.toContain('MAX');
+    expect(texts(calls)).not.toContain('COMBO');
+  });
+
+  it('顶栏星徽按 `atlas/MenuAtlas.png` 切三格（虹彩 / 粉 / 金），不是另一张 HUD 图集', () => {
+    const menu = { naturalWidth: 2048, naturalHeight: 2048 } as unknown as HTMLImageElement;
+    const boxOf = (stamp: 'ap' | 'fc' | 'clear'): unknown[] | null => {
+      const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+      drawEndingFrameAt(
+        proxy,
+        1920,
+        1080,
+        frameInput({ stamp, assets: { ...NO_ASSETS, menu } }),
+        ENDING_SECONDS - 0.1,
+      );
+      const hit = calls
+        .filter(([k]) => k === 'drawImage')
+        .map(([, a]) => a as unknown[])
+        .find((a) => a[0] === menu);
+      return hit ? hit.slice(1, 5) : null;
+    };
+    // 三格不同尺寸 ⇒ 绘制按**同一比例尺**（`starSize` 对最大那格），保留相对大小
+    expect(boxOf('ap')).toEqual([116, 218, 57, 55]);
+    expect(boxOf('fc')).toEqual([60, 257, 57, 55]);
+    expect(boxOf('clear')).toEqual([275, 230, 47, 45]);
+  });
+
+  it('AP / FC 是**两套材质**：结算标只认 mark*，不拿中央章那张大图缩下去', () => {
+    const stampAp = { naturalWidth: 1028, naturalHeight: 187 } as unknown as HTMLImageElement;
+    const markAp = { naturalWidth: 221, naturalHeight: 40 } as unknown as HTMLImageElement;
+    const drawSources = (assets: EndingAssets): unknown[] =>
+      (() => {
+        const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+        drawEndingFrameAt(proxy, 1920, 1080, frameInput({ assets }), ENDING_SECONDS - 0.1);
+        return calls.filter(([k]) => k === 'drawImage').map(([, a]) => (a as unknown[])[0]);
+      })();
+    // 只有中央章的大图 ⇒ 结算标那格走纯字，不贴它
+    const onlyBig = drawSources({ ...NO_ASSETS, stampAp });
+    expect(onlyBig).not.toContain(stampAp);
+    // 只有结算标的小图 ⇒ 直接贴它
+    const onlySmall = drawSources({ ...NO_ASSETS, markAp });
+    expect(onlySmall).toContain(markAp);
   });
 
   it('`clear`（普通 Clear）**无章**：章段不画字、也不放粒子', () => {

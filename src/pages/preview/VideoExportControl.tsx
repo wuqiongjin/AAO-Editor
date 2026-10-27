@@ -24,14 +24,12 @@ import { t, type MessageKey } from '../../i18n';
 import {
   CONTAINER_FALLBACK_ORDER,
   ENDING_SECONDS,
-  ENDING_STAMPS,
   EXPORT_FPS,
   OPENING_ITEM_IDS,
   OPENING_SECONDS,
   VIDEO_EXPORT_TIERS,
   isAacCodec,
   tierOf,
-  type EndingStamp,
   type OpeningItemId,
   type VideoContainerChoice,
   type VideoExportProgress,
@@ -194,12 +192,14 @@ export interface VideoExportOpeningView {
 }
 
 /**
- * 结尾画面的设置视图（chart-preview 52）：同「曲目信息片头」——总开关 + 缩进子项。
- * 子项只有一项「结算形态」三档（ALL PERFECT / FULL COMBO / 普通 Clear）。
+ * 结尾画面的设置视图（chart-preview 52）：只有总开关。
+ *
+ * 「结算形态」三档（ALL PERFECT / FULL COMBO / 普通 Clear）**2026-10-27 用户拍板暂时不上弹窗**
+ * —— 目前没有"按实际漏判算形态"的诉求，固定按默认档（ALL PERFECT）出；形态仍是渲染层 / 音效
+ * 的输入（`settings.export.ending.stamp`），等要了再把下拉接回来。
  */
 export interface VideoExportEndingView {
   enabled: boolean;
-  stamp: EndingStamp;
 }
 
 export interface VideoExportControlProps {
@@ -439,16 +439,7 @@ export default function VideoExportControl({
                   />
                 </div>
                 <Row label={t('preview.video.export.ending.stamp')} disabled={!ending.enabled}>
-                  <Select<EndingStamp>
-                    label={t('preview.video.export.ending.stamp')}
-                    value={ending.stamp}
-                    disabled={!ending.enabled}
-                    options={ENDING_STAMPS.map((id) => ({
-                      value: id,
-                      label: t(`preview.video.export.ending.stamp.${id}` as MessageKey),
-                    }))}
-                    onChange={(v) => onEndingChange({ stamp: v })}
-                  />
+                  <span className="pvex__note">{t('preview.video.export.ending.stamp.ap')}</span>
                 </Row>
               </section>
             )}

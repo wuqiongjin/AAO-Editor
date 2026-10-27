@@ -133,10 +133,10 @@ t116 报酬页、t122 活动页、t114 漫画、角色 3D：**不做**，只当�
 | 结算背景 | **已有本地**：`public/assets/sim/bgskin/jp/skin00_rip/liveBG_normal.png`（与仿真场同一份） | 取件仓产物 |
 | ALL PERFECT! 字样（章 + 结算小标） | **没拿到**：ingameskin 七个分类（bgskin / fieldskin / judgeskin / noteskin / stagelight / stageskin / tapeffect）全部清单扫过，没有 perfect / combo 字样；`stageskin` 的 `.bundle` 只是预载表 JSON（不是 Unity 包） | 扫包结果：只有 `bgskin/skin_teamlivefestival` 的 `PerfectStage.png`（背景，不是字） |
 | MAX COMBO | **没拿到专用图**：结算卡里这一行应是深色胶囊 + 游戏字体文字，和卡内其它文字同源；字体也缺 | 同上 |
-| 顶栏星星徽章 | **从用户截图抠出**（白底按亮度转 alpha，`public/assets/game-ui/derived/star-64.png`，源 64 px） | 派生素材，非官方原件；放大会软 |
-| ALL PERFECT! 字样 | **用户自带** `all_perfect.png`（1028×187，RGBA）→ `public/assets/game-ui/result/all-perfect.png`；章与结算卡共用 | 用户 2026-10-26 上传 |
+| 顶栏星星徽章 | **官方图集里有**：`atlas/MenuAtlas.png` 左上角三颗（虹彩 / 粉 / 金）= AP / FC / CLEAR 三态，见 `gbp-ui-assets.md` §3；`RhythmGameUI.png` 那三格 2026-10-27 核过是切错的，已废弃 | 按图集切图，不预裁 |
+| ALL PERFECT! 字样 | **用户自带** `all_perfect.png`（1028×187，RGBA）→ `result/stamp-ap.png`（**只做中央章**）；结算小标 `mark-ap` 仍缺，缺件走纯字 | 用户 2026-10-26 上传；2026-10-27 拆两套材质 |
 
-本地副本（不入 git，`public/assets/` 已在 .gitignore 忽略）：`public/assets/game-ui/{judgeskin,stageskin,result,derived}/`；清单见 `docs/research/gbp-ui-assets.md`。
+本地副本（不入 git，`public/assets/` 已在 .gitignore 忽略）：`public/assets/game-ui/{judgeskin,stageskin,atlas,result,audio}/`；清单见 `docs/research/gbp-ui-assets.md`。
 
 
 ## 7.1 结算版式实测（用户 2388×1668 高清截图 · 无 FAST/SLOW 版）

@@ -17,11 +17,14 @@ export {
   type SimFieldMetrics,
 } from './simGeometry';
 export {
+  SIM_COMBO_STYLE,
   buildSimChart,
   buildSimChartInChunks,
   drawSimFrameAt,
   simComboAt,
   type SimBand,
+  type SimComboStyle,
+  type SimFrameLayers,
   type SimChart,
   type SimChartChunkOptions,
   type SimElement,
@@ -30,6 +33,7 @@ export {
   type SimScene,
   type SimSimultaneous,
 } from './simField';
+export { SIM_JUDGE, apColorAt, judgeAt, type SimJudgeStyle } from './simHud';
 export {
   SIM_ASSET_BASE,
   SIM_ASSET_SERVERS,

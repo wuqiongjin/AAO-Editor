@@ -9,6 +9,7 @@ export {
   ENDING_TRANS_SECONDS,
   endingUnits,
   type EndingPalette,
+  type EndingSpec,
   type EndingSpecKey,
   type EndingStamp,
   type EndingUnitKey,

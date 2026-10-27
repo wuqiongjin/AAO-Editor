@@ -15,22 +15,20 @@ import { drawSimBackground } from '../sim/simField';
 import { drawOpeningDecor } from './openingDecor';
 import type { OpeningItemId } from './openingItems';
 import { HEADER_SANS } from '../../fontStack';
-import { OPENING_SECONDS, OPENING_TRACK_IN_AT } from './openingSpec';
 import {
   OPENING_BADGE_HEIGHT_FACTOR,
   OPENING_BAND_COLOR,
   OPENING_BAND_TEXT,
   OPENING_BG,
-  OPENING_FADE_IN_SECONDS,
-  OPENING_FADE_OUT_SECONDS,
-
   OPENING_FRAME_LINE,
-  OPENING_HOLD_SECONDS,
-  OPENING_STACK_DRIFT_AT,
-  OPENING_STACK_DRIFT_SECONDS,
+  OPENING_STACK,
+  OPENING_TIMING,
   OPENING_TITLE_FONT,
-  OPENING_TRACK_IN_SECONDS,
+  openingSecondsOf,
   openingStackMetrics,
+  openingTrackInAt,
+  type OpeningStack,
+  type OpeningTiming,
 } from './openingSpec';
 
 /** 歌曲信息附加字段（全部可选：作词 / 作曲 / 编曲 / 谱师，空项不占位） */
@@ -266,6 +264,8 @@ export function drawOpeningFrameAt(
   input: OpeningFrameInput,
   alpha: number,
   seconds: number = Number.POSITIVE_INFINITY,
+  /** 垫层轻推的覆盖参数（原型 / 调参用；缺省 = 票 50 定稿） */
+  stack: OpeningStack = OPENING_STACK,
 ): void {
   ctx.save();
   ctx.globalAlpha = Math.min(1, Math.max(0, alpha));
@@ -273,10 +273,10 @@ export function drawOpeningFrameAt(
   ctx.fillRect(0, 0, w, h);
 
   const creditLines = extractCreditLines(input.credits);
-  const m = openingStackMetrics(w, h, input.items, creditLines.length);
+  const m = openingStackMetrics(w, h, input.items, creditLines.length, stack.distance);
   const cx = w / 2;
   // 垫层缓出（票 50 · A 轻推）：露出厚度从 0 长到 `stackD`，单层向右上推出
-  const stackD = Math.round(m.stackD * openingStackDriftAt(seconds));
+  const stackD = Math.round(m.stackD * openingStackDriftAt(seconds, stack));
   // 装饰层在最下（可被封面 / 白条切边），整链相对白条上缘定位
   const bandTop = Number.isNaN(m.bandY) ? m.top + m.cover : m.bandY;
   // 装饰压在封面下面的那些枚直接跳过（封面 / 垫层是不透明的，画了也看不见）。
@@ -386,33 +386,32 @@ export function drawOpeningTrack(
 /** 该视频秒落在开场四段的哪一段（帧循环用；`t >= OPENING_SECONDS` 返回 `'sim'`） */
 export type OpeningSegment = 'fadeIn' | 'hold' | 'fadeOut' | 'trackIn' | 'sim';
 
-export function openingSegmentAt(t: number): OpeningSegment {
-  if (t < OPENING_FADE_IN_SECONDS) return 'fadeIn';
-  if (t < OPENING_FADE_IN_SECONDS + OPENING_HOLD_SECONDS) return 'hold';
-  if (t < OPENING_TRACK_IN_AT) return 'fadeOut';
-  if (t < OPENING_SECONDS) return 'trackIn';
+export function openingSegmentAt(t: number, timing: OpeningTiming = OPENING_TIMING): OpeningSegment {
+  if (t < timing.fadeIn) return 'fadeIn';
+  if (t < timing.fadeIn + timing.hold) return 'hold';
+  if (t < openingTrackInAt(timing)) return 'fadeOut';
+  if (t < openingSecondsOf(timing)) return 'trackIn';
   return 'sim';
 }
 
 /** 开场画面在该视频秒的 alpha（fadeIn 渐显 / hold 恒 1 / fadeOut 渐隐；其余不画） */
-export function openingAlphaAt(t: number): number {
-  const seg = openingSegmentAt(t);
-  if (seg === 'fadeIn') return t / OPENING_FADE_IN_SECONDS;
+export function openingAlphaAt(t: number, timing: OpeningTiming = OPENING_TIMING): number {
+  const seg = openingSegmentAt(t, timing);
+  if (seg === 'fadeIn') return timing.fadeIn > 0 ? t / timing.fadeIn : 1;
   if (seg === 'hold') return 1;
   if (seg === 'fadeOut') {
-    const a = (t - OPENING_FADE_IN_SECONDS - OPENING_HOLD_SECONDS) / OPENING_FADE_OUT_SECONDS;
+    const a = timing.fadeOut > 0 ? (t - timing.fadeIn - timing.hold) / timing.fadeOut : 1;
     return 1 - Math.min(1, Math.max(0, a));
   }
   return 0;
 }
 
 /** 轨道层在该视频秒的 alpha（④ 里 0 → 1；⑤ 起恒 1 —— 正常仿真帧自己画场地） */
-export function openingTrackAlphaAt(t: number): number {
-  if (t < OPENING_TRACK_IN_AT) return 0;
-  if (t < OPENING_SECONDS) {
-    return Math.min(1, (t - OPENING_TRACK_IN_AT) / OPENING_TRACK_IN_SECONDS);
-  }
-  return 1;
+export function openingTrackAlphaAt(t: number, timing: OpeningTiming = OPENING_TIMING): number {
+  const at = openingTrackInAt(timing);
+  if (t < at) return 0;
+  if (timing.trackIn <= 0) return 1;
+  return Math.min(1, (t - at) / timing.trackIn);
 }
 
 /**
@@ -421,8 +420,8 @@ export function openingTrackAlphaAt(t: number): number {
  *
  * 传 `Infinity`（`drawOpeningFrameAt` 的缺省）= 已推完 —— 单测与定格帧看的是**最终版式**。
  */
-export function openingStackDriftAt(t: number): number {
-  const p = (t - OPENING_STACK_DRIFT_AT) / OPENING_STACK_DRIFT_SECONDS;
+export function openingStackDriftAt(t: number, stack: OpeningStack = OPENING_STACK): number {
+  const p = (t - stack.at) / Math.max(1e-6, stack.seconds);
   if (!Number.isFinite(p)) return 1;
   const x = Math.min(1, Math.max(0, p));
   return 1 - Math.pow(1 - x, 3);
