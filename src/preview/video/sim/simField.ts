@@ -82,7 +82,7 @@ import {
 } from './simBandRaster';
 import { digitRect, particleTile, radialCircleOf, type TileSource } from './simSprites';
 import type { SimSprites } from './simAssets';
-import { SIM_JUDGE, judgeAt, judgeSprite, type SimJudgeStyle } from './simHud';
+import { SIM_JUDGE, judgeSprite, judgeStateAt, type SimJudgeStyle } from './simHud';
 
 /** 缺素材时的场地底色（近黑，与游戏场地暗部同族） */
 export const SIM_FALLBACK_BG = '#0d1017';
@@ -108,6 +108,11 @@ export interface SimScene {
   colorAssist: boolean;
   /** `settings.preview.mirror`：整轨镜像（车道对调 + 方向箭头翻面） */
   mirror: boolean;
+  /**
+   * `settings.preview.apCombo`：combo 是否走 AP 态（白芯 + 渐变描边 + 呼吸光晕）。
+   * **可选**，缺省 `true`（Auto 恒 PERFECT ⇒ 一直是 AP 态）；关掉就是游戏常态的纯白数字。
+   */
+  apCombo?: boolean;
   /**
    * `settings.preview.bgPackId`：表演背景包 ID（chart-preview 41 · ADR-0018）。
    * **可选**（缺省 = 默认 `skin00`）：只喂 `loadSimAssets` 取文件名，画面不直接消费；
@@ -487,7 +492,11 @@ export function drawSimFrameAt(
   if (layers?.judge !== null) {
     drawJudgement(ctx, metrics, chart, seconds, input.assets.judge, layers?.judge);
   }
-  drawCombo(ctx, metrics, chart, seconds, input.assets.sprites, layers?.comboAlpha ?? 1, layers?.combo);
+  // AP 态（`settings.preview.apCombo`，默认开）由场景带进来；调用方仍可逐帧覆盖
+  drawCombo(ctx, metrics, chart, seconds, input.assets.sprites, layers?.comboAlpha ?? 1, {
+    ap: input.scene.apCombo ?? true,
+    ...layers?.combo,
+  });
 }
 
 /**
@@ -1133,9 +1142,13 @@ function drawJudgement(
   style?: Partial<SimJudgeStyle>,
 ): void {
   const js: SimJudgeStyle = { ...SIM_JUDGE, ...style };
-  const age = judgeAt(chart, seconds, js.life);
-  if (age == null) return;
-  const alpha = age < js.fadeIn ? age / js.fadeIn : clamp01((js.life - age) / Math.max(0.01, js.fadeOut));
+  const state = judgeStateAt(chart, seconds, js.life);
+  if (!state) return;
+  const { age, stacked } = state;
+  const fadeOutA = clamp01((js.life - age) / Math.max(0.01, js.fadeOut));
+  // 叠字（上一个还没消失就又打中）⇒ 不再淡入：满强度、只重新弹一下
+  const fadeInA = stacked || js.fadeIn <= 0 ? 1 : Math.min(1, age / js.fadeIn);
+  const alpha = fadeInA * fadeOutA;
   if (alpha <= 0.002) return;
 
   // 命中瞬间"弹一下"（与 combo 的 `pop` 同一条曲线）：0.8 → 1.1 → 1

@@ -190,11 +190,12 @@ describe('52 · 只在导出里演 + 设置 / 弹窗接线', () => {
     expect(hook).toMatch(/ending: args\.ending \?\? null/);
   });
 
-  it('导出弹窗的「结尾画面」组**只有总开关**（形态档 2026-10-27 暂时不上弹窗，固定 AP）', () => {
+  it('导出弹窗的「结尾画面」组：总开关 + 结算形态两档（AP / FC）', () => {
     expect(control).toMatch(/preview\.video\.export\.ending'/);
     expect(control).toMatch(/onEndingChange\(\{ enabled: v \}\)/);
-    expect(control).not.toMatch(/onEndingChange\(\{ stamp: v \}\)/);
-    expect(control).not.toMatch(/ENDING_STAMPS/);
+    // 只暴露两档：`clear` 没有中央章，暂不给入口
+    expect(control).toMatch(/const ENDING_STAMP_CHOICES = \['ap', 'fc'\] as const/);
+    expect(control).toMatch(/onEndingChange\(\{ stamp \}\)/);
     expect(page).toMatch(/ending=\{settings\.export\.ending\}/);
   });
 

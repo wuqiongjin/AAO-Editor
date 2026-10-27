@@ -190,6 +190,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       simultaneousClickLines: settings.display.simultaneousClickLines,
       colorAssist: settings.display.colorAssist,
       mirror: settings.preview.mirror,
+      apCombo: settings.preview.apCombo,
       bgPackId: settings.preview.bgPackId,
       fieldPackId: settings.preview.fieldPackId,
       // 背景亮度（票 43）：随 scene 走 ⇒ 实时预览 / 视频导出 / 开场③段同一份

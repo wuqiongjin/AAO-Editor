@@ -90,3 +90,10 @@ Blocked by: —
   - 描边粗细 9% → 6.5%（对照录屏比例），内渗透层 28% → 15%。
   - 锁测补三条：光晕用 `blur()` 而非 `createRadialGradient`、前后两趟 `glowPass`、`inkShift` 居中。
     门禁：`npx tsc -b` 干净、`npx vitest run` 339 文件 / 3786 例全绿。
+- 2026-10-27 第五轮（用户三条反馈）：
+  - **高密度叠字不再闪**：`judgeStateAt()` 多返回 `stacked`（上一个字还在窗口里就又打中）；`drawJudgement` 在 `stacked` 时
+    **跳过淡入**（`fadeInA = 1`），只重新弹放 → 连续音符下 PERFECT 保持常亮，不再"灭一下再亮"。
+  - **PERFECT 显示状态开关**：`settings.preview.apCombo`（默认开，设置面板「仿真场」组、镜向下面一行）→ `SimScene.apCombo`
+    → `drawSimFrameAt` 里的 `combo.ap`；实时预览与导出视频同一份 scene。关掉 = 纯白数字（游戏常态）。
+  - 锁测：`SimHud.test` 加叠字三例（间隔 < life / > life / 第一个音）；`SimHudWiring` 锁 `fadeInA` 与 `scene.apCombo`；
+    `PreviewMarkerSettings` 的默认档 / 读回各加 `apCombo`。

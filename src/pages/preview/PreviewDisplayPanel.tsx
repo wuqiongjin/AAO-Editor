@@ -877,6 +877,15 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                           onChange={(mirror) => setPreview({ mirror })}
                         />
                       </Row>
+                      {/* PERFECT 显示状态（51，2026-10-27）：开 = combo 走 AP 态（变色 + 呼吸光晕），
+                          关 = 游戏常态的纯白数字。实时预览与导出视频同一份 scene，不存在两套画面 */}
+                      <Row label={t('preview.display.apCombo')}>
+                        <Toggle
+                          label={t('preview.display.apCombo')}
+                          checked={preview.apCombo}
+                          onChange={(apCombo) => setPreview({ apCombo })}
+                        />
+                      </Row>
                       <Row label={t('settings.seVolume')}>
                         <Percent
                           label={t('settings.seVolume')}

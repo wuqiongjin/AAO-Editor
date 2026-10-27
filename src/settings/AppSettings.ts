@@ -370,6 +370,12 @@ export interface PreviewSettings {
   /** 镜向：整条轨道水平镜像（车道左右互换 + 方向箭头翻转，照 Bestdori `styleMirror`） */
   mirror: boolean;
   /**
+   * **PERFECT 显示状态**（chart-preview 51，2026-10-27）：combo 是否走 AP 态
+   * （白芯 + 竖向渐变描边 + 呼吸光晕）。默认**开** —— Auto 恒 PERFECT，实机这时就是变色态；
+   * 关掉 = 游戏常态的纯白数字。实时预览与导出视频读同一个值。
+   */
+  apCombo: boolean;
+  /**
    * 仿真场音符速度档（chart-preview 05；照 Bestdori `simNoteSpeed`）：
    * 只作用于动态预览，决定接近模型的 T = 游戏分段映射（票 48）：n ≤ 11 → (12 − n)/2、
    * n > 11 → (16 − n)/10 秒（口径来源 = sonolus-bandori-engine `note.duration`）。
@@ -453,6 +459,7 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
   beatMarks: 1,
   comboMarks: true,
   mirror: false,
+  apCombo: true,
   noteSpeed: SIM_NOTE_SPEED_RANGE.fallback,
   // 表演背景 / 场地皮肤包各默认 skin00（ADR-0018 §1；非法 ID 读盘时归一化回落）
   bgPackId: SIM_DEFAULT_PACK_IDS.background,
@@ -679,6 +686,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
         : defaults.preview.beatMarks,
       comboMarks: typeof preview.comboMarks === 'boolean' ? preview.comboMarks : defaults.preview.comboMarks,
       mirror: typeof preview.mirror === 'boolean' ? preview.mirror : defaults.preview.mirror,
+      apCombo: typeof preview.apCombo === 'boolean' ? preview.apCombo : defaults.preview.apCombo,
       noteSpeed: normalizeNoteSpeed(preview.noteSpeed, defaults.preview.noteSpeed),
       // 仿真场素材包（chart-preview 41）：按取件侧包清单归一化，清单里没有的 ID（含脏值 /
       // 快照缩水后残留的旧选择）静默回落默认 skin00 —— "列表即真相"

@@ -30,6 +30,7 @@ import {
   VIDEO_EXPORT_TIERS,
   isAacCodec,
   tierOf,
+  type EndingStamp,
   type OpeningItemId,
   type VideoContainerChoice,
   type VideoExportProgress,
@@ -200,7 +201,12 @@ export interface VideoExportOpeningView {
  */
 export interface VideoExportEndingView {
   enabled: boolean;
+  /** 结算形态：`ap` = ALL PERFECT、`fc` = FULL COMBO（2026-10-27 用户：这两个要能选） */
+  stamp: EndingStamp;
 }
+
+/** 弹窗里「结算形态」只给这两档（2026-10-27 用户拍板；`clear` 没有章，暂不暴露） */
+const ENDING_STAMP_CHOICES = ['ap', 'fc'] as const satisfies readonly EndingStamp[];
 
 export interface VideoExportControlProps {
   /** 没有可导出的谱面 / 素材未就绪 */
@@ -439,7 +445,16 @@ export default function VideoExportControl({
                   />
                 </div>
                 <Row label={t('preview.video.export.ending.stamp')} disabled={!ending.enabled}>
-                  <span className="pvex__note">{t('preview.video.export.ending.stamp.ap')}</span>
+                  <Select<EndingStamp>
+                    label={t('preview.video.export.ending.stamp')}
+                    value={ending.stamp}
+                    disabled={!ending.enabled}
+                    options={ENDING_STAMP_CHOICES.map((id) => ({
+                      value: id,
+                      label: t(`preview.video.export.ending.stamp.${id}` as MessageKey),
+                    }))}
+                    onChange={(stamp) => onEndingChange({ stamp })}
+                  />
                 </Row>
               </section>
             )}

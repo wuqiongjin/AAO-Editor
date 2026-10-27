@@ -27,6 +27,8 @@ describe('chart-preview 08 · 预览标注设置', () => {
       beatMarks: 1,
       comboMarks: true,
       mirror: false,
+      // PERFECT 显示状态（chart-preview 51；2026-10-27 用户定案默认开 = AP combo）
+      apCombo: true,
       // 仿真场音符速度（chart-preview 05；用户 2026-10-07 定案 9.5）
       noteSpeed: 9.5,
       // 仿真场素材包（chart-preview 41 · ADR-0018 §1：各默认 skin00）
@@ -42,7 +44,8 @@ describe('chart-preview 08 · 预览标注设置', () => {
       preview: { bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5 },
     }));
     expect(loaded.preview).toEqual({
-      bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true, noteSpeed: 7.5,
+      bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true,
+      apCombo: true, noteSpeed: 7.5,
       // 种子没给素材包 ⇒ 补默认（chart-preview 41，additive 不 bump schemaVersion）
       bgPackId: SIM_DEFAULT_PACK_IDS.background,
       fieldPackId: SIM_DEFAULT_PACK_IDS.field,

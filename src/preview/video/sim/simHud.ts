@@ -65,12 +65,35 @@ export function judgeAt(
   seconds: number,
   life: number = SIM_JUDGE.life,
 ): number | null {
+  return judgeStateAt(chart, seconds, life)?.age ?? null;
+}
+
+/** 判定字这一刻的状态：`age` = 距最近一次命中的秒数；`stacked` = 上一个字还没消失又打中 */
+export interface JudgeState {
+  age: number;
+  stacked: boolean;
+}
+
+/**
+ * 判定字状态（chart-preview 51）。
+ *
+ * `stacked` 是给**高密度谱**用的：上一个 PERFECT 还在屏幕上（间隔 < `life`）就打下一下时，
+ * 不许再淡入 —— 否则每来一个音就"灭一下再亮"，看起来一闪一闪。
+ * 命中密度低于 `life` 时才是正常的一次淡入。
+ */
+export function judgeStateAt(
+  chart: SimChart,
+  seconds: number,
+  life: number = SIM_JUDGE.life,
+): JudgeState | null {
   const hits = chart.hitTimes;
   for (let i = hits.length - 1; i >= 0; i--) {
     const t = hits[i]!;
     if (t > seconds) continue;
     const age = seconds - t;
-    return age <= life ? age : null;
+    if (age > life) return null;
+    const prev = i > 0 ? hits[i - 1]! : null;
+    return { age, stacked: prev != null && t - prev <= life };
   }
   return null;
 }

@@ -19,8 +19,9 @@ describe('51 · 判定字画在仿真场帧里（预览 / 导出同一份）', (
     expect(field).toMatch(
       /drawJudgement\(ctx, metrics, chart, seconds, input\.assets\.judge, layers\?\.judge\)/,
     );
+    // AP 态由场景带入（`settings.preview.apCombo`），调用方仍可逐帧覆盖
     expect(field).toMatch(
-      /drawCombo\(ctx, metrics, chart, seconds, input\.assets\.sprites, layers\?\.comboAlpha \?\? 1, layers\?\.combo\)/,
+      /drawCombo\(ctx, metrics, chart, seconds, input\.assets\.sprites, layers\?\.comboAlpha \?\? 1, \{\s*ap: input\.scene\.apCombo \?\? true,/,
     );
     // combo 在判定字之后调（免得字块压在数字上）
     expect(field.indexOf('drawJudgement(ctx')).toBeLessThan(field.indexOf('drawCombo(ctx'));
@@ -38,9 +39,9 @@ describe('51 · 判定字画在仿真场帧里（预览 / 导出同一份）', (
 
   it('Auto 永远 PERFECT：只切 PERFECT 那一格，不按漏判分档', () => {
     expect(hud).toMatch(/life: number = SIM_JUDGE\.life,/);
-    expect(hud).toMatch(/return age <= life \? age : null;/);
+    expect(hud).toMatch(/return judgeStateAt\(chart, seconds, life\)\?\.age \?\? null;/);
     // 停留时长可由调用方覆盖（结尾段 / 原型调参），但判定只有 PERFECT 一档
-    expect(field).toMatch(/judgeAt\(chart, seconds, js\.life\)/);
+    expect(field).toMatch(/judgeStateAt\(chart, seconds, js\.life\)/);
     expect(field).toMatch(/const box = judgeSprite\(\);/);
     expect(field).not.toMatch(/judge_great|judge_miss|judge_auto/);
   });
@@ -123,6 +124,16 @@ describe('52 · AP combo（按 `.cache/Combo-Style.mov` 重做：白芯 + 渐变
     expect(field).toMatch(/scale: 1 \+ 0\.06 \* phase/);
     // 光晕是加色叠（发光），不是半透明色块
     expect(field).toMatch(/ctx\.globalCompositeOperation = 'lighter';/);
+  });
+
+  it('叠字不淡入：`stacked` 时 alpha 直接满强度（高密度谱不再一闪一闪）', () => {
+    expect(field).toMatch(/const fadeInA = stacked \|\| js\.fadeIn <= 0 \? 1 : Math\.min\(1, age \/ js\.fadeIn\);/);
+    expect(field).toMatch(/const alpha = fadeInA \* fadeOutA;/);
+  });
+
+  it('combo 的 AP 态由 `settings.preview.apCombo` 决定（缺省 = 开）', () => {
+    expect(field).toMatch(/ap: input\.scene\.apCombo \?\? true,/);
+    expect(field).toMatch(/apCombo\?: boolean;/);
   });
 
   it('判定字也"弹一下"（与 combo 同一条 `comboPopScale` 曲线）', () => {

@@ -69,6 +69,8 @@ export const EXPORT_MARKERS: PreviewSettings = {
   beatMarks: 1,
   comboMarks: false,
   mirror: false,
+  // 宽图导出不画仿真场 HUD，同理只为满足设置形状
+  apCombo: true,
   // 导出图与音符速度无关（那是动态形态的旋钮）：填默认档只为满足设置形状，
   // 面板出图根本不读它 —— 07 的视频导出走仿真场自己那份 `SimScene`。
   noteSpeed: SIM_NOTE_SPEED_RANGE.fallback,
