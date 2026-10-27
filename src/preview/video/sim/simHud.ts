@@ -15,9 +15,9 @@ import type { SimChart } from './simField';
 export interface SimJudgeStyle {
   /** 字心 X（场地宽的比例） */
   cx: number;
-  /** 字心离判定线的距离（场地高的比例） */
+  /** 字心离判定线的距离（场地高的比例；2026-10-27 原型回填 0.10） */
   dy: number;
-  /** 字高（场地高的比例） */
+  /** 字高（场地高的比例；原型回填 0.08） */
   h: number;
   /** 停留时长（秒） */
   life: number;
@@ -32,12 +32,12 @@ export interface SimJudgeStyle {
 export const SIM_JUDGE: SimJudgeStyle = {
   /** 字心 X（场地宽的比例） */
   cx: 0.497,
-  /** 字心离判定线的距离（场地高的比例；字底 = 0.069 H） */
-  dy: 0.092,
-  /** 字高（场地高的比例） */
-  h: 0.042,
-  /** 停留时长（秒）：出字即满强度，末段淡出；实机 30fps 跟踪 1s 未见上浮 */
-  life: 0.42,
+  /** 字心离判定线的距离（场地高的比例；2026-10-27 原型回填 0.10） */
+  dy: 0.1,
+  /** 字高（场地高的比例；原型回填 0.08） */
+  h: 0.08,
+  /** 停留时长（秒）：出字即满强度，末段淡出 */
+  life: 1,
   /** 淡入（秒）：避免硬切 */
   fadeIn: 0.04,
   /** 淡出（秒） */
@@ -73,32 +73,4 @@ export function judgeAt(
     return age <= life ? age : null;
   }
   return null;
-}
-
-/**
- * AP combo 态（游戏 v6.2.0「コンボ状態表示」：全 PERFECT 时 combo 变色）。
- *
- * 配色是用户给的那三档：数字 / 标签染 `#c17cff`，命中瞬间叠 `#fff` → `#a06bff` 的光环。
- * Auto 永远 PERFECT ⇒ 全程变色（这是"AP 续航态"，不是按漏判算的）。
- */
-export const SIM_AP_COMBO = {
-  /** 数字 / COMBO 标签的染色（AP 续航态恒紫） */
-  tint: '#c17cff',
-  /** 命中后的光环色 */
-  halo: '#a06bff',
-  /** 命中瞬间的闪白 */
-  flash: '#ffffff',
-  /** 光环可见窗口（秒）：近这么久叠淡彩 + 光环 */
-  glow: 1.05,
-  /** 窗口内前这一段是闪白，之后转紫 */
-  flashWindow: 0.16,
-} as const;
-
-/**
- * 命中后 `age` 秒该叠的颜色（`null` = 窗口外 / 没有命中）。
- * 强度由调用方按同一个窗口归一（`1 - age / glow`），这里只给颜色。
- */
-export function apColorAt(age: number | null): string | null {
-  if (age == null || !Number.isFinite(age) || age < 0 || age > SIM_AP_COMBO.glow) return null;
-  return age <= SIM_AP_COMBO.flashWindow ? SIM_AP_COMBO.flash : SIM_AP_COMBO.halo;
 }

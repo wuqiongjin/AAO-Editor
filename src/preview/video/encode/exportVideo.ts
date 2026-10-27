@@ -91,7 +91,7 @@ export interface VideoExportRequest {
   suggestedBaseName: string;
   /**
    * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
-   * 非 null = 导出物最前面多一段 `OPENING_SECONDS`（5.0s）的纯前置开场，音轨整体后移。
+   * 非 null = 导出物最前面多一段 `OPENING_SECONDS`（6.75s）的纯前置开场，音轨整体后移。
    */
   opening?: OpeningInput | null;
   /**

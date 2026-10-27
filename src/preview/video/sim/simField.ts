@@ -1200,7 +1200,7 @@ export const SIM_COMBO_STYLE: SimComboStyle = {
   dx: 0,
   dy: 0,
   glow: 1,
-  glowPeriod: 0.5,
+  glowPeriod: 1,
 };
 
 /** 实机采样色（`.cache/Combo-Style.mov`，1920×1342 逐帧取平均） */

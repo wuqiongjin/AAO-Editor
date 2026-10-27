@@ -93,18 +93,18 @@ function frameInput(over: Partial<EndingFrameInput> = {}): EndingFrameInput {
 }
 
 describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9）', () => {
-  it('三段时长钉死：章 3.0 + 转场 1.5 + 结算 3.0 = 7.5s', () => {
+  it('三段时长钉死：章 3.0 + 转场 1.55 + 结算 2.95 = 7.5s', () => {
     expect(ENDING_STAMP_SECONDS).toBe(3.0);
-    expect(ENDING_TRANS_SECONDS).toBe(1.5);
-    expect(ENDING_RESULT_SECONDS).toBe(3.0);
+    expect(ENDING_TRANS_SECONDS).toBe(1.55);
+    expect(ENDING_RESULT_SECONDS).toBe(2.95);
     expect(ENDING_SECONDS).toBe(7.5);
   });
 
   it('整份 JSON 落码：键名照抄、数值不改（改动即验收口径变更）', () => {
     expect(ENDING_SPEC).toEqual({
       stampDur: 3,
-      transDur: 1.5,
-      resultDur: 3,
+      transDur: 1.55,
+      resultDur: 2.95,
       barX: 8.25,
       barY: 12.9,
       barW: 85,
@@ -179,7 +179,7 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       wordGlow: 0,
       // 2026-10-27 追加：舞台两层各自淡出（秒，相对结尾段起点）
       comboFadeAt: 0,
-      comboFadeDur: 0.35,
+      comboFadeDur: 0,
       trackFadeAt: 0,
       trackFadeDur: 1,
     });

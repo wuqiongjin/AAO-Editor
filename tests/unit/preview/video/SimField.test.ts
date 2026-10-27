@@ -257,7 +257,7 @@ describe('drawSimFrameAt · Bestdori 精灵（chart-preview 21）', () => {
   });
 
   // 51：判定字走 judgeskin 的 `judge_perfect` 一格，位置钉在场中央（不跟轨道）
-  it('判定字（51）：有 judgeskin 时切 PERFECT 那一格，字心 0.497W × 判定线上 0.092H', () => {
+  it('判定字（51）：有 judgeskin 时切 PERFECT 那一格，字心 0.497W × 判定线上 0.10H', () => {
     const { spriteIcon } = makeRecordingSprite();
     const judge = { width: 512, height: 256, naturalWidth: 512, naturalHeight: 256 } as unknown as HTMLImageElement;
     const base = withSprites([single(2, 3)], spriteIcon, null);
@@ -272,10 +272,10 @@ describe('drawSimFrameAt · Bestdori 精灵（chart-preview 21）', () => {
     expect([sx, sy, sw, sh]).toEqual([0, 177, 287, 79]);
     const m = frame.metrics;
     expect((dx as number) + (dw as number) / 2).toBeCloseTo(m.w * 0.497, 5);
-    expect((dy as number) + (dh as number) / 2).toBeCloseTo(m.laneHeight - m.h * 0.092, 5);
+    expect((dy as number) + (dh as number) / 2).toBeCloseTo(m.laneHeight - m.h * 0.1, 5);
     // 命中瞬间会"弹一下"（0.8 → 1.1 → 1），所以只断言**基准高度 × 弹放系数**
-    expect(dh).toBeCloseTo(m.h * 0.042 * comboPopScale(0.05), 5);
-    expect(dh).toBeLessThanOrEqual(m.h * 0.042 * 1.1 + 1e-9);
+    expect(dh).toBeCloseTo(m.h * 0.08 * comboPopScale(0.05), 5);
+    expect(dh).toBeLessThanOrEqual(m.h * 0.08 * 1.1 + 1e-9);
     // 有图集就不该再画纯字
     expect(calls.filter(([k, a]) => k === 'fillText' && (a as unknown[])[0] === 'PERFECT')).toEqual([]);
   });

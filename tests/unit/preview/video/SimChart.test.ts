@@ -230,7 +230,8 @@ describe('drawSimFrameAt · 一帧绘制', () => {
     expect(fillTexts(before.calls)).toHaveLength(0);
 
     const after = recordingCtx();
-    drawSimFrameAt(after.proxy, f, 1.6);
+    // 判定字停留 1s（2026-10-27 定稿）⇒ 取 2.0s，判定字已经收掉，只剩 combo 两件
+    drawSimFrameAt(after.proxy, f, 2.0);
     expect(fillTexts(after.calls).map(([, [text]]) => text)).toEqual(['2', 'COMBO']);
   });
 });

@@ -59,7 +59,7 @@ describe('52 · AP combo（按 `.cache/Combo-Style.mov` 重做：白芯 + 渐变
     expect(field).toMatch(/ap: true,/);
     expect(field).toMatch(/pop: 0\.2,/);
     expect(field).toMatch(/glow: 1,/);
-    expect(field).toMatch(/glowPeriod: 0\.5,/);
+    expect(field).toMatch(/glowPeriod: 1,/);
   });
 
   it('色值 = 录屏采样：描边 洋红 → 紫 → 青', () => {

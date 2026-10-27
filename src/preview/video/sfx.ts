@@ -31,7 +31,7 @@ export interface SfxCue {
   fadeOut?: number;
 }
 
-/** 开场人潮（7.11s；开场段只有 5.0s ⇒ 靠 `endAt` + `fadeOut` 收在 BGM 起点） */
+/** 开场人潮（7.11s；开场段 6.75s ⇒ 靠 `endAt` + `fadeOut` 收在 BGM 起点） */
 export const OPENING_CROWD_SFX = 'SE_RHYTHM_GAYA';
 /** 开场人潮的淡入 / 淡出（淡出必须落在开场段末尾：用户要求"快结束时音量递减"） */
 export const OPENING_CROWD_FADE_IN = 0.05;

@@ -8,13 +8,13 @@ import type { OpeningItemId } from './openingItems';
 //   - **四段时长是用户逐段拍板的，钉死常量**（首期不可调）。
 
 /** ① 开场淡入：第 0 帧纯黑 → 开场画面浮现 */
-export const OPENING_FADE_IN_SECONDS = 1.0;
+export const OPENING_FADE_IN_SECONDS = 1;
 /** ② 停留：整屏静止读信息 */
-export const OPENING_HOLD_SECONDS = 1.5;
+export const OPENING_HOLD_SECONDS = 2.2;
 /** ③ 入场过渡：开场画面淡出到**只有表演背景图**的场地上 */
-export const OPENING_FADE_OUT_SECONDS = 1.0;
+export const OPENING_FADE_OUT_SECONDS = 1.75;
 /** ④ 轨道淡入：整块轨道（场地图的扇形车道 + 判定线）浮现 */
-export const OPENING_TRACK_IN_SECONDS = 1.5;
+export const OPENING_TRACK_IN_SECONDS = 1.8;
 /** 开场段总长（= 四段之和）；视频总长 = 它 + 谱面时长 */
 export const OPENING_SECONDS =
   OPENING_FADE_IN_SECONDS + OPENING_HOLD_SECONDS + OPENING_FADE_OUT_SECONDS + OPENING_TRACK_IN_SECONDS;
@@ -23,7 +23,7 @@ export const OPENING_SECONDS =
 export const OPENING_TRACK_IN_AT = OPENING_SECONDS - OPENING_TRACK_IN_SECONDS;
 
 /**
- * 四段时长的**可覆盖形状**（2026-10-27：5.0s 不再是唯一档 —— 原型的参数面板要能拉长 / 压缩）。
+ * 四段时长的**可覆盖形状**：定稿是 6.75s（2026-10-27 原型回填），仍可按组覆盖。
  * 缺省 = 上面那四个常量；导出编排仍按 `OPENING_SECONDS`，要用别的段长得显式传进来。
  */
 export interface OpeningTiming {
@@ -33,7 +33,7 @@ export interface OpeningTiming {
   trackIn: number;
 }
 
-/** 定稿的 1.0 / 1.5 / 1.0 / 1.5 */
+/** 定稿的 1 / 2.2 / 1.75 / 1.8（合计 6.75 s，配 7.0 s 的人潮素材） */
 export const OPENING_TIMING: OpeningTiming = {
   fadeIn: OPENING_FADE_IN_SECONDS,
   hold: OPENING_HOLD_SECONDS,
@@ -74,17 +74,17 @@ export const OPENING_STACK_T = 0.011;
 /** 垫层内缩 i / 帧高：垫层方形边长 = 封面 + t − i */
 export const OPENING_STACK_INSET = 0.01;
 /**
- * 堆叠**缓出**（票 50 · 定案 A 轻推）：垫层从封面正后方**向右上**推出到 `OPENING_STACK_T`。
+ * 堆叠**缓出**（票 50 · 定案 A 轻推）：垫层从封面正后方**向右上**推出到 `OPENING_STACK_T × distance`。
  * 单层、小位移 —— 不是折扇（B）也不是整板（C）。卡片落定后起推，1.0s 内缓出到位。
  */
-export const OPENING_STACK_DRIFT_AT = 0.35;
-export const OPENING_STACK_DRIFT_SECONDS = 1.0;
+export const OPENING_STACK_DRIFT_AT = 0.4;
+export const OPENING_STACK_DRIFT_SECONDS = 2.5;
 
-/** 定稿的那一推（0.35s 起、1.0s 推完、距离 = `OPENING_STACK_T`） */
+/** 定稿的那一推（0.4s 起、2.5s 推完、1.45 倍厚度 —— 2026-10-27 原型回填） */
 export const OPENING_STACK: OpeningStack = {
   at: OPENING_STACK_DRIFT_AT,
   seconds: OPENING_STACK_DRIFT_SECONDS,
-  distance: 1,
+  distance: 1.45,
 };
 /** 难度徽章字号 / 帧高（徽章高 = 字号 × 1.85） */
 export const OPENING_BADGE_FONT = 0.024;

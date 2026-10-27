@@ -14,6 +14,7 @@ import { act, fireEvent, render, renderHook, screen } from '@testing-library/rea
 import { t } from '@/src/i18n';
 import VideoExportControl from '@/src/pages/preview/VideoExportControl';
 import { useVideoExport, type UseVideoExportArgs } from '@/src/pages/preview/useVideoExport';
+import { OPENING_SECONDS } from '@/src/preview';
 import type { VideoExportOutcome, VideoExportRequest, VideoExportSupport } from '@/src/preview';
 import type { VideoExportSpec } from '@/src/pages/preview/useVideoExport';
 
@@ -584,13 +585,15 @@ describe('失败态 · 明确文案，不静默', () => {
     // 开场标题
     expect(screen.getByText(t('preview.video.export.opening'))).toBeInTheDocument();
     // 问号帮助图标包含描述 tooltip，且点击能弹出 popover 气泡
-    const help = screen.getByLabelText(t('preview.video.export.opening.note', { seconds: 5 }));
+    const help = screen.getByLabelText(t('preview.video.export.opening.note', { seconds: OPENING_SECONDS }));
     expect(help).toBeInTheDocument();
     expect(screen.queryByRole('tooltip')).toBeNull();
 
     // 点击弹出说明气泡
     fireEvent.click(help);
-    expect(screen.getByRole('tooltip')).toHaveTextContent(t('preview.video.export.opening.note', { seconds: 5 }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      t('preview.video.export.opening.note', { seconds: OPENING_SECONDS }),
+    );
 
     // 再次点击收起
     fireEvent.click(help);

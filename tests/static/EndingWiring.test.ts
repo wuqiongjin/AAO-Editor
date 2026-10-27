@@ -31,10 +31,10 @@ describe('52 · 结尾段是纯后置（不占谱面时间、不与谱面重叠�
     expect(endingFiles).toEqual(['endingAssets.ts', 'endingFrame.ts', 'endingSpec.ts', 'index.ts']);
   });
 
-  it('三段时长钉死 3.0 / 1.5 / 3.0 = 7.5（首期不可调）', () => {
+  it('三段时长钉死 3.0 / 1.55 / 2.95 = 7.5（2026-10-27 原型定稿回填）', () => {
     expect(spec).toMatch(/stampDur: 3,/);
-    expect(spec).toMatch(/transDur: 1\.5,/);
-    expect(spec).toMatch(/resultDur: 3,/);
+    expect(spec).toMatch(/transDur: 1\.55,/);
+    expect(spec).toMatch(/resultDur: 2\.95,/);
     expect(spec).toMatch(
       /ENDING_SECONDS = ENDING_SPEC\.stampDur \+ ENDING_SPEC\.transDur \+ ENDING_SPEC\.resultDur/,
     );

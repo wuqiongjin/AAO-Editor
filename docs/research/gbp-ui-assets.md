@@ -104,7 +104,7 @@ jp / en / tw / cn 的 `stageskin` 里**没有这个文件**（KR 的 normal / ch
 
 | 文件 | 时长 | 用途（2026-10-27 用户定案） |
 | --- | --- | --- |
-| `SE_RHYTHM_GAYA.mp3` | 7.11 s | **开场人潮**：开场段第 0 秒起播，收在开场段末尾淡出（7.11 s > 5.0 s，故截断 + 0.8 s 淡出） |
+| `SE_RHYTHM_GAYA.mp3` | 7.11 s | **开场人潮**：开场段第 0 秒起播，收在开场段末尾淡出（7.11 s > 6.75 s，故截断 + 0.8 s 淡出） |
 | `SE_RHYTHM_CLEAR_VO.mp3` | 3.47 s | **结尾章固定的人声层**（三种形态都出） |
 | `SE_RHYTHM_CLEAR.mp3` | 2.51 s | **结尾章伴奏层**：普通 Clear |
 | `SE_RHYTHM_FULLCOMBO.mp3` | 1.23 s | **结尾章伴奏层**：FC / AP |

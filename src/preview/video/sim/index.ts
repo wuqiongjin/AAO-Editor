@@ -33,7 +33,7 @@ export {
   type SimScene,
   type SimSimultaneous,
 } from './simField';
-export { SIM_JUDGE, apColorAt, judgeAt, type SimJudgeStyle } from './simHud';
+export { SIM_JUDGE, judgeAt, type SimJudgeStyle } from './simHud';
 export {
   SIM_ASSET_BASE,
   SIM_ASSET_SERVERS,

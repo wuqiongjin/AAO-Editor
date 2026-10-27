@@ -6,7 +6,7 @@
 //
 // 两条硬口径：
 //   - **几何按帧的百分比定义**：`%H` = 帧高、`%W` = 帧宽（1920×1080 下 1%H = 10.8px）。
-//   - **三段时长钉死**（首期不可调）：章 3.0 + 黑幕转场 1.5 + 结算停留 3.0 = 7.5s。
+//   - **三段时长钉死**（首期不可调）：章 3.0 + 黑幕转场 1.55 + 结算停留 2.95 = 7.5s。
 
 /** 中央章形态：AP 彩虹字样 / FC / 普通 Clear（无章） */
 export type EndingStamp = 'ap' | 'fc' | 'clear';
@@ -26,8 +26,8 @@ export type EndingPalette = 'cycle' | 'warm' | 'cool' | 'pink' | 'mix';
 export const ENDING_SPEC = {
   // 时序（三段总长 = ENDING_SECONDS）
   stampDur: 3,
-  transDur: 1.5,
-  resultDur: 3,
+  transDur: 1.55,
+  resultDur: 2.95,
   // 顶栏
   barX: 8.25,
   barY: 12.9,
@@ -104,10 +104,11 @@ export const ENDING_SPEC = {
   burst5At: 80,
   burst5Points: 5,
   wordGlow: 0,
-  // 舞台两层在结尾段里的淡出（秒，相对结尾段起点）：章擦入的同一段时间里先把
-  // combo 收掉、轨道慢慢退，结算只剩背景（2026-10-27 用户拍板要可调）。
+  // 舞台两层在结尾段里的收场（秒，相对结尾段起点）：
+  //   - combo `dur = 0` ⇒ **瞬时消失**（结尾段第一帧就不画），游戏里也是打完就收；
+  //   - 轨道 1.0s 慢慢退，结算只剩背景（2026-10-27 原型回填）。
   comboFadeAt: 0,
-  comboFadeDur: 0.35,
+  comboFadeDur: 0,
   trackFadeAt: 0,
   trackFadeDur: 1,
 } as const;
@@ -134,7 +135,7 @@ export const ENDING_STAMP_SECONDS = ENDING_SPEC.stampDur;
 export const ENDING_TRANS_SECONDS = ENDING_SPEC.transDur;
 /** ③ 结算停留 */
 export const ENDING_RESULT_SECONDS = ENDING_SPEC.resultDur;
-/** 结尾段总长；导出总长 =（开场 5.0，若开）+ 谱面 + 它 */
+/** 结尾段总长；导出总长 =（开场 6.75，若开）+ 谱面 + 它 */
 export const ENDING_SECONDS = ENDING_SPEC.stampDur + ENDING_SPEC.transDur + ENDING_SPEC.resultDur;
 
 /**

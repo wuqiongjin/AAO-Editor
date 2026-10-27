@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPENING_ITEMS,
+  OPENING_STACK,
+  OPENING_STACK_T,
   OPENING_FADE_IN_SECONDS,
   OPENING_FADE_OUT_SECONDS,
   OPENING_HOLD_SECONDS,
@@ -33,6 +35,9 @@ import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support
 
 /** 假封面（node 环境没有真图；`drawSquareCover` 只读 width / height） */
 const coverStub = () => ({ width: 512, height: 512 }) as unknown as CanvasImageSource;
+
+/** 垫层推到位的露出厚度（1080p）：`OPENING_STACK_T × 位移倍率` —— 2026-10-27 定稿 1.45× */
+const STACK_D = Math.round(OPENING_STACK_T * OPENING_STACK.distance * 1080);
 
 function frameInput(over: Partial<OpeningFrameInput> = {}): OpeningFrameInput {
   return {
@@ -62,25 +67,25 @@ const texts = (calls: RecordedCall[]) =>
   calls.filter(([k]) => k === 'fillText').map(([, a]) => String(a[0]));
 
 describe('chart-preview 30 · 四段时长（用户 2026-10-10 逐段拍板）', () => {
-  it('① 1.0 / ② 1.5 / ③ 1.0 / ④ 1.5 ⇒ 合计 5.0s；④ 起点在 3.5s', () => {
-    expect(OPENING_FADE_IN_SECONDS).toBe(1.0);
-    expect(OPENING_HOLD_SECONDS).toBe(1.5);
-    expect(OPENING_FADE_OUT_SECONDS).toBe(1.0);
-    expect(OPENING_TRACK_IN_SECONDS).toBe(1.5);
-    expect(OPENING_SECONDS).toBe(5.0);
-    expect(OPENING_TRACK_IN_AT).toBe(3.5);
+  it('① 1 / ② 2.2 / ③ 1.75 / ④ 1.8 ⇒ 合计 6.75s（2026-10-27 定稿）；④ 起点在 4.95s', () => {
+    expect(OPENING_FADE_IN_SECONDS).toBe(1);
+    expect(OPENING_HOLD_SECONDS).toBe(2.2);
+    expect(OPENING_FADE_OUT_SECONDS).toBe(1.75);
+    expect(OPENING_TRACK_IN_SECONDS).toBe(1.8);
+    expect(OPENING_SECONDS).toBe(6.75);
+    expect(OPENING_TRACK_IN_AT).toBe(4.95);
   });
 
   it('分段边界', () => {
     expect(openingSegmentAt(0)).toBe('fadeIn');
     expect(openingSegmentAt(0.99)).toBe('fadeIn');
     expect(openingSegmentAt(1.0)).toBe('hold');
-    expect(openingSegmentAt(2.49)).toBe('hold');
-    expect(openingSegmentAt(2.5)).toBe('fadeOut');
-    expect(openingSegmentAt(3.49)).toBe('fadeOut');
-    expect(openingSegmentAt(3.5)).toBe('trackIn');
-    expect(openingSegmentAt(4.99)).toBe('trackIn');
-    expect(openingSegmentAt(5.0)).toBe('sim');
+    expect(openingSegmentAt(3.19)).toBe('hold');
+    expect(openingSegmentAt(3.2)).toBe('fadeOut');
+    expect(openingSegmentAt(4.94)).toBe('fadeOut');
+    expect(openingSegmentAt(4.95)).toBe('trackIn');
+    expect(openingSegmentAt(6.74)).toBe('trackIn');
+    expect(openingSegmentAt(6.75)).toBe('sim');
     expect(openingSegmentAt(9.9)).toBe('sim');
   });
 });
@@ -90,19 +95,19 @@ describe('chart-preview 30 · 两段 alpha', () => {
     expect(openingAlphaAt(0)).toBe(0);
     expect(openingAlphaAt(0.5)).toBeCloseTo(0.5, 5);
     expect(openingAlphaAt(1.0)).toBe(1);
-    expect(openingAlphaAt(2.4)).toBe(1);
-    expect(openingAlphaAt(3.0)).toBeCloseTo(0.5, 5);
-    expect(openingAlphaAt(3.5)).toBe(0);
-    expect(openingAlphaAt(4.5)).toBe(0);
+    expect(openingAlphaAt(3.1)).toBe(1);
+    expect(openingAlphaAt(4.075)).toBeCloseTo(0.5, 5);
+    expect(openingAlphaAt(4.95)).toBe(0);
+    expect(openingAlphaAt(5.5)).toBe(0);
   });
 
   it('轨道层：④ 之前全 0（③ 里只有背景图），④ 里 0 → 1，之后恒 1', () => {
     expect(openingTrackAlphaAt(0)).toBe(0);
-    expect(openingTrackAlphaAt(3.49)).toBe(0);
-    expect(openingTrackAlphaAt(3.5)).toBe(0);
-    expect(openingTrackAlphaAt(4.25)).toBeCloseTo(0.5, 5);
-    expect(openingTrackAlphaAt(5.0)).toBe(1);
-    expect(openingTrackAlphaAt(6.5)).toBe(1);
+    expect(openingTrackAlphaAt(4.94)).toBe(0);
+    expect(openingTrackAlphaAt(4.95)).toBe(0);
+    expect(openingTrackAlphaAt(5.85)).toBeCloseTo(0.5, 5);
+    expect(openingTrackAlphaAt(6.75)).toBeCloseTo(1, 6);
+    expect(openingTrackAlphaAt(8)).toBe(1);
   });
 });
 
@@ -125,7 +130,7 @@ describe('chart-preview 30 · 一帧绘制', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1);
     const coverAt = calls.findIndex(([k]) => k === 'drawImage');
-    const stackAt = calls.findIndex(([k, a]) => k === 'fillRect' && (a as number[])[2] === 12);
+    const stackAt = calls.findIndex(([k, a]) => k === 'fillRect' && (a as number[])[2] === STACK_D);
     expect(coverAt).toBeGreaterThan(0);
     expect(stackAt).toBeGreaterThan(0);
     expect(stackAt).toBeLessThan(coverAt);
@@ -134,7 +139,7 @@ describe('chart-preview 30 · 一帧绘制', () => {
   it('垫层**只画露出来的 L 形**（第五轮）：不出现一整块纯色方形', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1);
-    const stackSize = 518 + 12 - 11; // 封面 + t − i
+    const stackSize = 518 + STACK_D - 11; // 封面 + t − i
     const full = fillRects(calls).filter((r) => r[2] === stackSize && r[3] === stackSize);
     expect(full).toEqual([]);
   });
@@ -226,20 +231,20 @@ describe('chart-preview 30 · 场地的两层（③ 背景 / ④ 轨道）', () 
 
 // 50：堆叠缓出（定案 A 轻推）—— 垫层从封面正后方向右上推出，单层、小位移、缓出曲线
 describe('chart-preview 50 · 堆叠 A 轻推', () => {
-  it('缓出曲线：0.35s 起推 1.0s 到位；缺省（Infinity）= 已推完', () => {
-    expect(OPENING_STACK_DRIFT_AT).toBe(0.35);
-    expect(OPENING_STACK_DRIFT_SECONDS).toBe(1.0);
+  it('缓出曲线：0.4s 起推 2.5s 到位（2026-10-27 定稿）；缺省（Infinity）= 已推完', () => {
+    expect(OPENING_STACK_DRIFT_AT).toBe(0.4);
+    expect(OPENING_STACK_DRIFT_SECONDS).toBe(2.5);
     expect(openingStackDriftAt(0)).toBe(0);
-    expect(openingStackDriftAt(0.35)).toBe(0);
+    expect(openingStackDriftAt(0.4)).toBe(0);
     expect(openingStackDriftAt(-1)).toBe(0);
-    expect(openingStackDriftAt(0.85)).toBeCloseTo(0.875, 6); // 缓出三次：过半时已推 87.5%
-    expect(openingStackDriftAt(1.35)).toBe(1);
-    expect(openingStackDriftAt(4.9)).toBe(1);
+    expect(openingStackDriftAt(1.65)).toBeCloseTo(0.875, 6); // 缓出三次：过半时已推 87.5%
+    expect(openingStackDriftAt(2.9)).toBe(1);
+    expect(openingStackDriftAt(6.7)).toBe(1);
     expect(openingStackDriftAt(Number.POSITIVE_INFINITY)).toBe(1);
   });
 
   it('没推出来时垫层不画（厚度 0）；推完后顶条露出的厚度 = stackD', () => {
-    const m = openingStackMetrics(1920, 1080, [...OPENING_ITEM_IDS], 0);
+    const m = openingStackMetrics(1920, 1080, [...OPENING_ITEM_IDS], 0, OPENING_STACK.distance);
     const thickness = (seconds?: number) => {
       const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
       if (seconds === undefined) drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1);
@@ -251,7 +256,7 @@ describe('chart-preview 50 · 堆叠 A 轻推', () => {
       return band ? m.top - band[1] : 0;
     };
     expect(thickness(0)).toBe(0);
-    expect(thickness(1.35)).toBe(m.stackD);
+    expect(thickness(2.9)).toBe(m.stackD);
     expect(thickness()).toBe(m.stackD); // 缺省 = 最终版式（返回类型：number）
   });
 
