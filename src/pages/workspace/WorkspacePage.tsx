@@ -286,7 +286,10 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       durationSeconds: project.durationSeconds,
       audioLocked: isProjectAudioLocked(project),
     });
-  }, [audioSession, seek, resetToStart, setMarker, setCtxDuration]);
+    // 33 票：这条路径不是 restore，检测入口得自己调用一次——否则替换信号拿的是换音频之前
+    // 那份记录的时长（音频页换完音频就误报「与工程记录不一致」，清除音频则旧横幅赖着不走）。
+    audioAnomaly.noteRecordAudioChanged(project);
+  }, [audioSession, audioAnomaly, seek, resetToStart, setMarker, setCtxDuration]);
 
   // === 会话流 6：持久化（当前工程恢复 + 防抖 800ms 落盘） ===
   // 收口点：不再有 audioMetaRef / persistRef ref 环——audioForPersist 是稳定对象，

@@ -21,13 +21,13 @@ import { createAudioSession } from '@/src/audio/AudioSession';
 import type { AudioEngine } from '@/src/audio/AudioEngine';
 import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/project/ChartProject';
 import { FakeAudioEngine, makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
-import type { ProjectAudioDeps } from '@/src/audio/projectAudio';
+import { clearProjectAudio, importProjectAudio, type ProjectAudioDeps } from '@/src/audio/projectAudio';
 
 const AT = 1_700_000_000_000;
 
-/** 解码后给出固定时长的假引擎（替换场景：字节在，但时长与记录不符） */
+/** 解码后给出固定时长的假引擎（替换场景：字节在，但时长与记录不符）；decoded 可在测试中改写 */
 class FixedDurationEngine extends FakeAudioEngine {
-  private readonly decoded: number | null;
+  decoded: number | null;
   constructor(decoded: number | null) {
     super();
     this.decoded = decoded;
@@ -73,11 +73,13 @@ function consistentProject(): ChartProject {
 
 let setActivePage: ReturnType<typeof vi.fn>;
 let ctx: { current: ReturnType<typeof useCurrentProject> | null };
+let anomalyCtl: { current: ReturnType<typeof useAudioAnomaly> | null };
 
 beforeEach(() => {
   window.localStorage.clear();
   setActivePage = vi.fn();
   ctx = { current: null };
+  anomalyCtl = { current: null };
 });
 
 function Probe() {
@@ -91,6 +93,8 @@ function Harness() {
   const [snap, session] = useAudioSession();
   const deps = useMemo<ProjectAudioDeps>(() => ({
     store, currentProjectId: projectId, flushPersist, notifyCatalogChanged,
+    // 音频页的导入探针（注入定值：新文件记 130s）
+    probeDuration: async () => 130,
   }), [store, projectId, flushPersist, notifyCatalogChanged]);
   const anomaly = useAudioAnomaly({
     projectId,
@@ -103,10 +107,24 @@ function Harness() {
       }
     },
   });
+  anomalyCtl.current = anomaly;
   const noteRestoredProjectRef = useRef(anomaly.noteRestoredProject);
   noteRestoredProjectRef.current = anomaly.noteRestoredProject;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const depsRef = useRef(deps);
+  depsRef.current = deps;
 
-  // 模拟工作台恢复：读记录 → noteRestoredProject（检测入口）→ hydrate（解码异步，时长随后落快照）
+  // 工作台两条路径共用的会话对齐：读回记录 → hydrate（解码异步，时长随后落快照）
+  const hydrateRecord = async (loaded: ChartProject) => {
+    sessionRef.current.hydrateFromProject({
+      audioName: loaded.audioName,
+      audioBlob: loaded.audioBlob,
+      durationSeconds: loaded.durationSeconds,
+    });
+  };
+
+  // 模拟工作台恢复：读记录 → noteRestoredProject（检测入口）→ hydrate
   useEffect(() => {
     if (projectId == null) return;
     let cancelled = false;
@@ -114,25 +132,62 @@ function Harness() {
       const loaded = await store.get(projectId);
       if (cancelled || loaded == null) return;
       noteRestoredProjectRef.current(loaded, { restoreAudio: true });
-      session.hydrateFromProject({
-        audioName: loaded.audioName,
-        audioBlob: loaded.audioBlob,
-        durationSeconds: loaded.durationSeconds,
-      });
+      await hydrateRecord(loaded);
     })();
     return () => { cancelled = true; };
-  }, [projectId, store, session]);
+  }, [projectId, store]);
 
-  if (anomaly.anomaly == null) return null;
+  // 模拟音频页写当前工程记录（票 15 定案 8）+ 工作台的「记录侧音频变更」路径
+  //（WorkspacePage.handleRecordAudioChanged 同款：hydrateFromProject 重新对齐会话）。
+  const recordAudioChanged = async (write: () => Promise<unknown>) => {
+    if (projectId == null) return;
+    await write();
+    const loaded = await store.get(projectId);
+    if (loaded == null) return;
+    await hydrateRecord(loaded);
+    anomaly.noteRecordAudioChanged(loaded);
+  };
+
   return (
-    <AudioAnomalyBanner
-      anomaly={anomaly.anomaly}
-      busy={anomaly.busy}
-      onReimport={anomaly.reimport}
-      onClearRecord={() => void anomaly.clearRecordAudio()}
-      onRealign={() => void anomaly.realign()}
-      onDismiss={anomaly.dismiss}
-    />
+    <>
+      <button onClick={() => {
+        if (projectId == null) return;
+        void recordAudioChanged(() => importProjectAudio(depsRef.current, projectId, new File([new Uint8Array([4, 5, 6])], 'b.mp3')));
+      }}>
+        模拟音频页更换音频
+      </button>
+      <button onClick={() => {
+        if (projectId == null) return;
+        void (async () => {
+          const loaded = await store.get(projectId);
+          if (loaded == null) return;
+          // 记录侧也可能交出半态（记录说有音频、字节不在）
+          const next: ChartProject = { ...loaded, audioName: '半态.mp3' };
+          delete next.audioBlob;
+          await store.save(next);
+          await hydrateRecord(next);
+          anomaly.noteRecordAudioChanged(next);
+        })();
+      }}>
+        模拟记录侧交出半态记录
+      </button>
+      <button onClick={() => {
+        if (projectId == null) return;
+        void recordAudioChanged(() => clearProjectAudio(depsRef.current, projectId));
+      }}>
+        模拟音频页清除音频
+      </button>
+      {anomaly.anomaly != null && (
+        <AudioAnomalyBanner
+          anomaly={anomaly.anomaly}
+          busy={anomaly.busy}
+          onReimport={anomaly.reimport}
+          onClearRecord={() => void anomaly.clearRecordAudio()}
+          onRealign={() => void anomaly.realign()}
+          onDismiss={anomaly.dismiss}
+        />
+      )}
+    </>
   );
 }
 
@@ -166,6 +221,8 @@ async function mount(projects: ChartProject[], decoded: number | null) {
   await flush();
   return {
     backend,
+    engine,
+    flush,
     open: async (id: string) => {
       await act(async () => { await ctx.current!.open(id); });
       await flush();
@@ -259,5 +316,50 @@ describe('票 33 · 工作台音频异常横幅（无异常）', () => {
   it('记录与音频一致 → 不出横幅', async () => {
     await mount([consistentProject()], 90);
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('票 33 回归 · 音频页写当前工程音频（保活工作台的记录侧变更路径）', () => {
+  it('更换音频：记录与解码一致 → 不出替换横幅，记录落为新时长', async () => {
+    const { backend, engine, flush } = await mount([consistentProject()], 90);
+    engine.decoded = 130; // 新文件解码时长（与探针写入记录的 130 一致）
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟音频页更换音频' }));
+    await flush();
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    const after = backend.disk.get('p1')!;
+    expect(after.durationSeconds).toBe(130);
+    expect(after.source).toEqual({ type: 'custom' });
+  });
+
+  it('清除音频：不出横幅，且已有横幅即清（记录侧已无音频）', async () => {
+    const { backend, flush } = await mount([replacedProject()], 130);
+    expect(screen.getByRole('alert')).toHaveTextContent('音频文件与工程记录不一致');
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟音频页清除音频' }));
+    await flush();
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(backend.disk.get('p1')!.audioName).toBeNull();
+  });
+
+  it('记录侧交出半态记录（有音频名、无字节）→ 丢失横幅照出', async () => {
+    await mount([consistentProject()], 90);
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟记录侧交出半态记录' }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('音频文件丢失（原文件：半态.mp3）');
+  });
+
+  it('记录侧变更后记录仍与解码不符（外部换文件）→ 替换横幅照出', async () => {
+    // 探针写记录 130，引擎对任何字节都解出 90 → 记录与解码真不符
+    await mount([consistentProject()], 90);
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟音频页更换音频' }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('音频文件与工程记录不一致');
   });
 });

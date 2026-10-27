@@ -48,6 +48,19 @@ export interface AudioAnomalyController {
    * 丢失在这里判（半态，加载即可判）；替换等解码落地后由 effect 判。
    */
   noteRestoredProject: (project: ChartProject, opts: { restoreAudio: boolean }) => void;
+  /**
+   * 记录侧音频变更的检测入口：音频页按作用域写了**当前工程**记录的音频（更换 / 清除）后，
+   * 工作台走「记录侧音频变更」重新 hydrate 会话时调用（票 15 定案 8 那条路径——它不经过
+   * `noteRestoredProject`）。
+   *
+   * 少了它的后果就是误报：工作台是保活挂载的，`recordRef` 若只在恢复路径刷新，音频页换完
+   * 音频、新文件解码落地时，替换信号会拿**换之前那份记录的时长**去比**新音频的实际时长**，
+   * 明明记录与音频已经一致却弹「与工程记录不一致」（清除音频同理：旧横幅赖着不走）。
+   *
+   * 丢失信号在这里同步判（半态 `audioName != null && audioBlob == null`，加载即可判），
+   * 与恢复路径同口径——记录侧写路径同样可能交出半态记录。
+   */
+  noteRecordAudioChanged: (project: ChartProject) => void;
   /** 暂不处理（仅本会话不再提示，不落盘） */
   dismiss: () => void;
   /** 去音频页重新导入（丢失横幅的动作：清横幅 + 带作用域跳音频页） */
@@ -69,6 +82,12 @@ export function useAudioAnomaly(opts: UseAudioAnomalyOptions): AudioAnomalyContr
   const handledRef = useRef<ChartProject | null>(null);
   // 暂不处理：仅本会话不再提示
   const dismissedRef = useRef(false);
+  // 记录被记下那一刻的负载落定代数：只有**新的**落定（gen 前进）之后，audioDuration 才代表
+  // 这批字节——否则它可能是换音频前那份旧 buffer 的时长，拿它判替换就是误报（也是"旧记录
+  // 比新音频"的另一半：解码还没落地就先比一轮）。
+  const notedGenRef = useRef(0);
+  const genRef = useRef(audioLoadGeneration);
+  genRef.current = audioLoadGeneration;
 
   // 切工程 = 新记录的检测起点：会话级 dismiss / handled 记忆留给"同一工程反复恢复"用，
   // 但换到别的工程必须重新获得提示机会（否则 A 工程 dismiss 掉 B 工程的横幅）。
@@ -79,13 +98,32 @@ export function useAudioAnomaly(opts: UseAudioAnomalyOptions): AudioAnomalyContr
     setAnomaly(null);
   }, [projectId]);
 
+  /**
+   * 记下"接下来要比对的那份记录"，同时记下落定代数基线：只有记下之后**又**有一次负载落定，
+   * audioDuration 才代表这批字节，否则它可能是换音频前那份旧 buffer 的时长。
+   */
+  const remember = useCallback((project: ChartProject) => {
+    recordRef.current = project;
+    notedGenRef.current = genRef.current;
+  }, []);
+
   const noteRestoredProject = useCallback((project: ChartProject, restoreOpts: { restoreAudio: boolean }) => {
     if (!restoreOpts.restoreAudio) return; // 切谱面不重判
-    recordRef.current = project;
+    remember(project);
     if (audioBytesLost(project)) {
       setAnomaly({ kind: 'lost', audioName: project.audioName as string });
     }
-  }, []);
+  }, [remember]);
+
+  // 音频页写路径（更换 / 清除当前工程记录的音频）落地后的检测入口：刷新记录记忆，并按新记录
+  // 重判一次——旧横幅抱怨的对象已经不存在了，新记录一致就静默、半态就照旧报丢失、真不一致
+  // 由落定后的替换信号报（这里判不了替换：新文件还没解出来）。
+  const noteRecordAudioChanged = useCallback((project: ChartProject) => {
+    remember(project);
+    setAnomaly(audioBytesLost(project)
+      ? { kind: 'lost', audioName: project.audioName as string }
+      : null);
+  }, [remember]);
 
   // 替换信号：**解码落地后**才判（audioLoadGeneration 每次负载落定 +1，见它的字段注解）。
   // 落定时刻的 audioDuration 就是本工程这份音频的时长——不存在拿旧工程残留时长比新记录
@@ -97,6 +135,8 @@ export function useAudioAnomaly(opts: UseAudioAnomalyOptions): AudioAnomalyContr
     if (record == null || record === handledRef.current) return;
     if (record.audioName == null || record.audioBlob == null) return;
     if (audioDuration == null) return;
+    // 这批字节还没落定（记录记下后没有新的 load 完成）：时长是旧 buffer 的，判了就是误报
+    if (audioLoadGeneration === notedGenRef.current) return;
     if (audioDurationMismatch(record.durationSeconds, audioDuration)) {
       setAnomaly({
         kind: 'replaced',
@@ -156,5 +196,7 @@ export function useAudioAnomaly(opts: UseAudioAnomalyOptions): AudioAnomalyContr
     goToAudioPage();
   }, [goToAudioPage]);
 
-  return { anomaly, busy, noteRestoredProject, dismiss, reimport, clearRecordAudio, realign };
+  return {
+    anomaly, busy, noteRestoredProject, noteRecordAudioChanged, dismiss, reimport, clearRecordAudio, realign,
+  };
 }
