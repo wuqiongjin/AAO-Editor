@@ -37,7 +37,7 @@ import {
   probeContainer,
   type ContainerSupport,
 } from './muxer';
-import { AUDIO_TRACK_CANCELLED, decodeBgmBytes, raceCancellation, renderAudioTrack } from './renderAudioTrack';
+import { AUDIO_TRACK_CANCELLED, decodeBgmBytes, raceCancellation, renderAudioTrack, type AudioTrack } from './renderAudioTrack';
 import { logger } from '../../../diagnostics/logger';
 import {
   AAC_AUDIO_CODECS,
@@ -336,21 +336,30 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   ];
   // 票 67：进音轨合成前先认一次取消，合成结果也按取消哨兵判定
   if (cancelled()) return done({ ok: true, cancelled: true });
-  const rendered = await renderAudioTrack({
-    durationSeconds: req.durationSeconds,
-    openingSeconds,
-    endingSeconds,
-    sfx,
-    keyEvents,
-    keySetId: req.keySetId,
-    bgm,
-    volume: req.volume,
-    seVolume: req.seVolume,
-    muted: req.muted,
-    isCancelled: req.isCancelled,
-  });
-  if (rendered === AUDIO_TRACK_CANCELLED || cancelled()) return done({ ok: true, cancelled: true });
-  const track = rendered;
+  // 音轨渲染也走域层的失败口径（票 53）：这里抛错不该越过 `runVideoExport` 冒到页面 hook，
+  // 否则进度卡 / 提示只剩页面那条通用 catch，容器与取消态也一并丢掉。
+  let track: AudioTrack | null;
+  try {
+    const rendered = await renderAudioTrack({
+      durationSeconds: req.durationSeconds,
+      openingSeconds,
+      endingSeconds,
+      sfx,
+      keyEvents,
+      keySetId: req.keySetId,
+      bgm,
+      volume: req.volume,
+      seVolume: req.seVolume,
+      muted: req.muted,
+      isCancelled: req.isCancelled,
+    });
+    if (rendered === AUDIO_TRACK_CANCELLED || cancelled()) return done({ ok: true, cancelled: true });
+    track = rendered;
+  } catch (err) {
+    if (cancelled()) return done({ ok: true, cancelled: true });
+    logger.error('[preview]', '导出音轨失败', err);
+    return done({ ok: false, failure: 'unknown', container: target.container });
+  }
 
   // ---------------- 编码 + 逐帧出帧 ----------------
   const sink = await createVideoSink({

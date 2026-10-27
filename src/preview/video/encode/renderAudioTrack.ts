@@ -135,6 +135,11 @@ async function scheduleSfx(
     } else {
       gain.gain.setValueAtTime(peak, cue.at);
     }
+    src.connect(gain);
+    gain.connect(dest);
+    // `start` 必须早于 `stop`：Web Audio 对未起音的 `stop()` 直接抛 InvalidStateError
+    // （票 53：开场人潮 7.105s > 开场段 6.75s，必然走到下面的截断分支）。
+    src.start(cue.at);
     // 截断只发生在"素材比这一段长"时；素材自然结束的不去动它
     if (endAt < cue.at + buffer.duration) {
       const fadeOut = Math.max(0, cue.fadeOut ?? 0);
@@ -143,9 +148,6 @@ async function scheduleSfx(
       gain.gain.linearRampToValueAtTime(0, endAt);
       src.stop(endAt);
     }
-    src.connect(gain);
-    gain.connect(dest);
-    src.start(cue.at);
   }
 }
 

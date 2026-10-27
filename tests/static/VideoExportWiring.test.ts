@@ -507,3 +507,24 @@ describe('67 · 取消在合成声音阶段就能生效（不拖到下一阶段�
     expect(run.slice(sinkIdx, framesIdx)).toMatch(/cancelled\(\)/);
   });
 });
+
+// 53：离线音轨渲染的异常不能越过域层冒到页面 hook（用户现场那条 InvalidStateError
+// 就是从 `runVideoExport` 逃出去的，进度卡只剩页面那条通用 catch）。
+describe('53 · 音轨渲染的失败口径', () => {
+  it('`renderAudioTrack` 包在 try 里，失败走域层 failure: unknown', () => {
+    const at = exportVideo.indexOf('await renderAudioTrack({');
+    expect(at).toBeGreaterThan(-1);
+    // 用索引切块，不锁字符距离（加注释不该变红）
+    const open = exportVideo.lastIndexOf('try {', at);
+    const close = exportVideo.indexOf('catch (err)', at);
+    expect(open).toBeGreaterThan(-1);
+    expect(close).toBeGreaterThan(at);
+    expect(exportVideo.slice(open, close)).toContain('await renderAudioTrack({');
+    // catch 块（到建 sink 为止）里要落日志并回同一失败档
+    const blockEnd = exportVideo.indexOf('const sink = await createVideoSink', close);
+    expect(blockEnd).toBeGreaterThan(close);
+    const catchBlock = exportVideo.slice(close, blockEnd);
+    expect(catchBlock).toMatch(/logger\.error\('\[preview\]', '导出音轨失败', err\)/);
+    expect(catchBlock).toMatch(/failure: 'unknown'/);
+  });
+});
