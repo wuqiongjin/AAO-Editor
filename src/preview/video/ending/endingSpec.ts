@@ -87,7 +87,8 @@ export const ENDING_SPEC = {
   // 中央章
   stampW: 62.2,
   stampY: 50.5,
-  stampIn: 1,
+  /** 入场总时长（秒）：逐字母落位 + 星标飞行的整条时间轴都按它缩放 */
+  stampIn: 1.3,
   stampOut: 0.25,
   partCount: 56,
   partSize: 3.5,
@@ -104,6 +105,48 @@ export const ENDING_SPEC = {
   burst5At: 80,
   burst5Points: 5,
   wordGlow: 0,
+  // 中央章入场（2026-10-28）：字母像排队一样阶梯落下 + `!` 下的星标从正中飞出。
+  // 时间类凡是 `%stampIn` 的，都随「入场总时长」等比缩放，改一个数不用逐个调。
+  /** 字母依次落位的跨度（%stampIn；首字起点 → 末字落定） */
+  letterSpan: 50,
+  /** 单字的落位用时（秒）—— `letterDur / 相邻间隔` ≈ 同时在空中的字块数（3~6） */
+  letterDur: 0.2,
+  /** 每字从上方落下的距离（% 字块高） */
+  letterDrop: 32,
+  /** 落位回弹（0 = 直接停住，1 = 回弹约落距 25%） */
+  letterBounce: 0,
+  /** 刚入队时的透明度（0 = 从无到有，0.5 = 半透明排在队尾，落位时补齐到 1） */
+  letterInAlpha: 0.5,
+  /** 星标在字块正中出现的时刻（%stampIn） */
+  starAt: 7,
+  /** 星标变大 + 旋转的用时（%stampIn） */
+  starGrow: 35,
+  /** 变大结束 → 起飞之间的停顿（%stampIn；0 = 立刻起飞） */
+  starHold: 0,
+  /** 星标飞到 `!` 下方的用时（%stampIn） */
+  starFly: 40,
+  /** 变大到终态尺寸的几倍（字块高 ≈ 字母高，1.38× ≈ 字母的 2/3） */
+  starBig: 3,
+  /** 变大期间转过的角度（度，落地前会转正） */
+  starSpin: 90,
+  /** 飞行时留在正中的影子：不透明度（影子是纯色圆角五角星，不是原图贴图） */
+  ghostAlpha: 0.7,
+  /** 影子的终点尺寸（× 终态；不会小于 `starBig`） */
+  ghostGrow: 10,
+  /** 影子继续转过的角度（度） */
+  ghostSpin: 50,
+  /** 飞行影子的颜色（`auto` = 按星贴图的代表色自动取；也可以写 `#rrggbb`） */
+  ghostTint: 'auto' as string,
+  /** 影子淡出用时（秒） */
+  ghostDur: 0.55,
+  /** 落位后外围影子的放大倍数（× 终态；这枚影子仍用原图贴图） */
+  landGrow: 2.3,
+  /** 落位后影子的不透明度 */
+  landAlpha: 0.55,
+  /** 落位后单次影子的用时（秒） */
+  landDur: 0.4,
+  /** 落位后影子连续出现的次数 */
+  landPulses: 1,
   // 舞台两层在结尾段里的收场（秒，相对结尾段起点）：
   //   - combo `dur = 0` ⇒ **瞬时消失**（结尾段第一帧就不画），游戏里也是打完就收；
   //   - 轨道 1.0s 慢慢退，结算只剩背景（2026-10-27 原型回填）。
@@ -119,7 +162,11 @@ export const ENDING_SPEC = {
  * 缺省 = `ENDING_SPEC`，行为与以前逐像素一致。
  */
 export type EndingSpec = {
-  -readonly [K in keyof typeof ENDING_SPEC]: (typeof ENDING_SPEC)[K];
+  // `as const` 会把数值收成字面量（`stampIn: 1`），覆盖参数就写不进 1.2 这种值 ——
+  // 数值一律宽化成 `number`，字符串键（`palette`）保留字面量联合。
+  -readonly [K in keyof typeof ENDING_SPEC]: (typeof ENDING_SPEC)[K] extends number
+    ? number
+    : (typeof ENDING_SPEC)[K];
 };
 
 /** 参数表里出现的键 */

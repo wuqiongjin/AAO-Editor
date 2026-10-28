@@ -4,7 +4,7 @@
 // `public/proto/ending.html` 的 `draw()`：
 //
 //   ① 舞台（= **仿真场末帧**，取景沿用 `simField` 的 `backgroundRect`；轨道 / 判定线仍在）
-//   ② 章：粒子（画在字样**后面**）→ 字样羽化擦入
+//   ② 章：粒子（画在字样**后面**）→ 字样逐字母落下（`!` 下的星标从正中飞出）
 //   ③ 转场：结算组件逐个入场，黑幕盖 0.22T → 停 0.30T → 抬完 0.62T
 //   ④ 结算：左半封面满幅 + 向右渐隐、封面实体、顶栏、白卡（五行 + MAX COMBO）、AP 标
 //
@@ -267,17 +267,266 @@ function bleedCanvas(cover: CanvasImageSource, u: EndingUnits): HTMLCanvasElemen
   return canvas;
 }
 
+/*
+ * ── 逐字母入场（2026-10-28）────────────────────────────────────────────────
+ *
+ * 章字样是一张**烤平的**贴纸图（`stamp-ap` 1028×187）：字母挨着字母，白色描边连成一片，
+ * 整块只能做"从左到右擦入"。要做"一个一个落下"就得先把图**拆成一枚枚字形**：
+ *
+ *   ① 找"字芯"：饱和度够高的像素（彩色笔画本体），白色描边 / 白点纹理 / 外发光都不算；
+ *   ② 字芯连通域：白描边天然把相邻字母隔开 ⇒ 每枚字母一块（`!` 与它旁边那道闪电
+ *      在图上粘连，算作同一枚，一起落）；
+ *   ③ 多源 BFS 生长：以字芯为种子把描边、纹理、柔光**各归最近的那一枚**（Voronoi 切分）；
+ *   ④ 每枚切一张自己的画布，矩形**归一化**（跟字块一起缩放，换分辨率不用重拆）。
+ *
+ * 星标（`!` 下面那颗小星）在这套切分里天然是**独立一块** —— 按"贴着底边 + 近似方形"
+ * 认出来，从字母层里摘掉，改由 `drawStampStar` 单独演（正中变大 → 飞到原位）。
+ *
+ * 拆不开（图是纯白 / 跨域污染 / 只有一块）就退回老路径：整块羽化擦入，行为与以前一致。
+ */
+
+/** 一枚字形：自己的画布 + 它在字块里的归一化矩形（0..1） */
+interface GlyphSprite {
+  canvas: HTMLCanvasElement;
+  nx: number;
+  ny: number;
+  nw: number;
+  nh: number;
+  /** 彩色字芯的归一化宽（不含白描边）—— 星标影子按它取基准尺寸，跨章才对齐 */
+  inkW: number;
+}
+
+/** 拆字结果：从左到右的字形（不含星标）+ 星标 */
+interface GlyphSplit {
+  glyphs: GlyphSprite[];
+  star: GlyphSprite | null;
+}
+
 /** 章字样层（原图或纯字）+ 擦入用的遮罩层 */
 interface WordLayer {
   stamp: EndingStamp;
   img: CanvasImageSource | null;
   w: number;
   h: number;
-  layer: HTMLCanvasElement;
-  mask: HTMLCanvasElement;
+  /** 逐字母用：从原图拆出来的字形（纯字兜底 / 拆不开 = 空） */
+  glyphs: GlyphSprite[];
+  /** 逐字母用：`!` 下面那颗星（缺件 / 拆不开 = null） */
+  star: GlyphSprite | null;
+  /** 整块烘焙层（纯字兜底 / 拆不开时走擦入用；逐字母路径不用） */
+  layer: HTMLCanvasElement | null;
+  mask: HTMLCanvasElement | null;
 }
 
+/** 字芯判定：alpha 低于它算背景、饱和度低于它算白描边 */
+const GLYPH_INK_MIN = 40;
+const GLYPH_SAT_MIN = 0.18;
+/** 连通域面积下限（占全图），滤掉贴纸上的高光小点 */
+const GLYPH_AREA_MIN = 0.0006;
+
 let wordCache: WordLayer | null = null;
+let splitCache: { stamp: EndingStamp; img: CanvasImageSource; split: GlyphSplit | null } | null = null;
+
+/**
+ * 拆字（按图身份缓存）：同一张图只解析一遍 —— 归一化矩形与字号无关，
+ * 换分辨率不必重跑。
+ */
+function glyphSplit(stamp: EndingStamp, img: CanvasImageSource): GlyphSplit | null {
+  if (splitCache && splitCache.stamp === stamp && splitCache.img === img) return splitCache.split;
+  const split = typeof document === 'undefined' ? null : splitImage(img);
+  splitCache = { stamp, img, split };
+  return split;
+}
+
+function splitImage(img: CanvasImageSource): GlyphSplit | null {
+  const side = imageSide(img);
+  const iw = Math.round(side.w);
+  const ih = Math.round(side.h);
+  if (iw <= 0 || ih <= 0) return null;
+
+  const full = document.createElement('canvas');
+  full.width = iw;
+  full.height = ih;
+  const g = full.getContext('2d', { willReadFrequently: true });
+  if (!g) return null;
+  g.drawImage(img, 0, 0, iw, ih);
+
+  let data: ImageData;
+  try {
+    data = g.getImageData(0, 0, iw, ih);
+  } catch {
+    return null; // 跨域污染的画布：读不出像素就别拆，退回整块擦入
+  }
+  const px = data.data;
+  const n = iw * ih;
+
+  // ① 字芯
+  const core = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    if (px[o + 3]! < GLYPH_INK_MIN) continue;
+    const r = px[o]!;
+    const gg = px[o + 1]!;
+    const b = px[o + 2]!;
+    const mx = Math.max(r, gg, b);
+    if (mx < 60) continue;
+    if ((mx - Math.min(r, gg, b)) / mx < GLYPH_SAT_MIN) continue;
+    core[i] = 1;
+  }
+
+  // ② 字芯连通域（4 邻域：8 邻域会把斜贴着两枚字芯串成一块）
+  const comp = new Int32Array(n).fill(-1);
+  const stack = new Int32Array(n);
+  const boxes: Array<{ id: number; x0: number; y0: number; x1: number; y1: number; area: number }> = [];
+  for (let start = 0; start < n; start++) {
+    if (!core[start] || comp[start]! >= 0) continue;
+    const id = boxes.length;
+    let sp = 0;
+    stack[sp++] = start;
+    comp[start] = id;
+    let x0 = start % iw;
+    let x1 = x0;
+    let y0 = Math.floor(start / iw);
+    let y1 = y0;
+    let area = 0;
+    while (sp > 0) {
+      const p = stack[--sp]!;
+      const x = p % iw;
+      const y = (p - x) / iw;
+      area++;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      if (x > 0 && core[p - 1] && comp[p - 1]! < 0) {
+        comp[p - 1] = id;
+        stack[sp++] = p - 1;
+      }
+      if (x < iw - 1 && core[p + 1] && comp[p + 1]! < 0) {
+        comp[p + 1] = id;
+        stack[sp++] = p + 1;
+      }
+      if (y > 0 && core[p - iw] && comp[p - iw]! < 0) {
+        comp[p - iw] = id;
+        stack[sp++] = p - iw;
+      }
+      if (y < ih - 1 && core[p + iw] && comp[p + iw]! < 0) {
+        comp[p + iw] = id;
+        stack[sp++] = p + iw;
+      }
+    }
+    boxes.push({ id, x0, y0, x1, y1, area });
+  }
+
+  const minArea = Math.max(48, n * GLYPH_AREA_MIN);
+  const kept = boxes.filter((b) => b.area >= minArea).sort((a, b) => a.x0 - b.x0);
+  if (kept.length < 2) return null;
+
+  // ③ 认星标：贴到字块底边、且近似方形（字母 / `!` 都是竖高的，唯一方的是那颗星）
+  const square = (b: (typeof kept)[number]): boolean => {
+    const bw = b.x1 - b.x0 + 1;
+    const bh = b.y1 - b.y0 + 1;
+    return bw / bh > 0.7 && bw / bh < 1.4;
+  };
+  const starBox =
+    kept
+      .filter((b) => square(b) && (b.y1 + 1) / ih > 0.86)
+      .sort((a, b) => b.y1 - a.y1)[0] ?? null;
+
+  // ④ 多源 BFS：全部不透明像素按"最近的字芯"归属
+  const parts = kept.map((b) => ({ ...b, star: b === starBox }));
+  const slotOfComp = new Int32Array(boxes.length).fill(-1);
+  parts.forEach((p, i) => {
+    slotOfComp[p.id] = i;
+  });
+  const slot = new Int32Array(n).fill(-1);
+  const queue = new Int32Array(n);
+  let tail = 0;
+  for (let i = 0; i < n; i++) {
+    const c = comp[i]!;
+    if (c < 0) continue;
+    const s = slotOfComp[c]!;
+    if (s < 0) continue;
+    slot[i] = s;
+    queue[tail++] = i;
+  }
+  let head = 0;
+  while (head < tail) {
+    const p = queue[head++]!;
+    const s = slot[p]!;
+    const x = p % iw;
+    const y = (p - x) / iw;
+    const grow = (q: number): void => {
+      if (slot[q]! >= 0 || px[q * 4 + 3]! <= 8) return;
+      slot[q] = s;
+      queue[tail++] = q;
+    };
+    if (x > 0) grow(p - 1);
+    if (x < iw - 1) grow(p + 1);
+    if (y > 0) grow(p - iw);
+    if (y < ih - 1) grow(p + iw);
+  }
+
+  const rects = parts.map(() => ({ x0: iw, y0: ih, x1: -1, y1: -1 }));
+  for (let i = 0; i < n; i++) {
+    const s = slot[i]!;
+    if (s < 0) continue;
+    const x = i % iw;
+    const y = (i - x) / iw;
+    const r = rects[s]!;
+    if (x < r.x0) r.x0 = x;
+    if (x > r.x1) r.x1 = x;
+    if (y < r.y0) r.y0 = y;
+    if (y > r.y1) r.y1 = y;
+  }
+
+  const sprites = parts.map((_part, i): GlyphSprite | null => {
+    const r = rects[i]!;
+    const bw = r.x1 - r.x0 + 1;
+    const bh = r.y1 - r.y0 + 1;
+    if (bw <= 0 || bh <= 0) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = bw;
+    canvas.height = bh;
+    const cg = canvas.getContext('2d');
+    if (!cg) return null;
+    const out = cg.createImageData(bw, bh);
+    for (let y = r.y0; y <= r.y1; y++) {
+      for (let x = r.x0; x <= r.x1; x++) {
+        const src = y * iw + x;
+        if (slot[src]! !== i) continue;
+        const so = src * 4;
+        const to = ((y - r.y0) * bw + (x - r.x0)) * 4;
+        out.data[to] = px[so]!;
+        out.data[to + 1] = px[so + 1]!;
+        out.data[to + 2] = px[so + 2]!;
+        out.data[to + 3] = px[so + 3]!;
+      }
+    }
+    cg.putImageData(out, 0, 0);
+    // `ink*` = 彩色字芯的框（不含按 BFS 吞进来的白描边）：星标影子按它取基准尺寸，
+    // 两张章的描边厚度不一样，用整块框会让 FC 的影子比 AP 大一圈
+    const ink = parts[i]!;
+    return {
+      canvas,
+      nx: r.x0 / iw,
+      ny: r.y0 / ih,
+      nw: bw / iw,
+      nh: bh / ih,
+      inkW: (ink.x1 - ink.x0 + 1) / iw,
+    };
+  });
+
+  const glyphs: GlyphSprite[] = [];
+  let star: GlyphSprite | null = null;
+  parts.forEach((p, i) => {
+    const sprite = sprites[i] ?? null;
+    if (!sprite) return;
+    if (p.star) star = sprite;
+    else glyphs.push(sprite);
+  });
+  if (glyphs.length < 2) return null;
+  return { glyphs, star };
+}
 
 /**
  * 中央章（大号材质）：`ap` = 用户自抠的 `stamp-ap`、`fc` = `stamp-fc`（**暂缺**）；
@@ -311,37 +560,54 @@ function wordLayer(input: EndingFrameInput, wPx: number): WordLayer | null {
   const ih = img ? img.naturalHeight || img.height : 0;
   const aspect = iw > 0 && ih > 0 ? ih / iw : WORD_ASPECT;
   const h = Math.max(1, Math.round(w * aspect));
-  const layer = document.createElement('canvas');
-  layer.width = w;
-  layer.height = h;
-  const mask = document.createElement('canvas');
-  mask.width = w;
-  mask.height = h;
-  const g = layer.getContext('2d');
-  if (!g) return null;
 
-  if (img) {
-    g.drawImage(img, 0, 0, w, h);
-  } else {
-    // 缺中央章材质（FC 大号至今没有；AP 缺安装包时同理）⇒ **纯字**（票 52 Q12：缺件不造假徽章）
-    const text = input.stamp === 'ap' ? 'ALL PERFECT!' : 'FULL COMBO';
-    let px = h * 0.84;
-    const maxW = w * 0.94;
-    for (let i = 0; i < 80; i++) {
+  // 逐字母：能拆就拆（星标从字母层里摘出来，交给 `drawStampStar` 单独演）
+  const split = img ? glyphSplit(input.stamp, img) : null;
+  let layer: HTMLCanvasElement | null = null;
+  let mask: HTMLCanvasElement | null = null;
+
+  if (!split) {
+    layer = document.createElement('canvas');
+    layer.width = w;
+    layer.height = h;
+    mask = document.createElement('canvas');
+    mask.width = w;
+    mask.height = h;
+    const g = layer.getContext('2d');
+    if (!g) return null;
+
+    if (img) {
+      g.drawImage(img, 0, 0, w, h);
+    } else {
+      // 缺中央章材质（FC 大号至今没有；AP 缺安装包时同理）⇒ **纯字**（票 52 Q12：缺件不造假徽章）
+      const text = input.stamp === 'ap' ? 'ALL PERFECT!' : 'FULL COMBO';
+      let px = h * 0.84;
+      const maxW = w * 0.94;
+      for (let i = 0; i < 80; i++) {
+        g.font = `800 ${px}px ${HEADER_SANS}`;
+        if (g.measureText(text).width <= maxW || px <= h * 0.3) break;
+        px -= Math.max(1, h * 0.02);
+      }
       g.font = `800 ${px}px ${HEADER_SANS}`;
-      if (g.measureText(text).width <= maxW || px <= h * 0.3) break;
-      px -= Math.max(1, h * 0.02);
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.shadowColor = 'rgba(150, 230, 255, 0.8)';
+      g.shadowBlur = h * 0.14;
+      g.fillStyle = '#ffffff';
+      g.fillText(text, w / 2, h / 2 + h * 0.02);
     }
-    g.font = `800 ${px}px ${HEADER_SANS}`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.shadowColor = 'rgba(150, 230, 255, 0.8)';
-    g.shadowBlur = h * 0.14;
-    g.fillStyle = '#ffffff';
-    g.fillText(text, w / 2, h / 2 + h * 0.02);
   }
 
-  wordCache = { stamp: input.stamp, img, w, h, layer, mask };
+  wordCache = {
+    stamp: input.stamp,
+    img,
+    w,
+    h,
+    glyphs: split?.glyphs ?? [],
+    star: split?.star ?? null,
+    layer,
+    mask,
+  };
   return wordCache;
 }
 
@@ -368,10 +634,10 @@ function drawStage(
 // ---------------------------------------------------------------- 中央章
 
 /**
- * 章字样：羽化擦入（软边 + 轻微上浮 / 缩放）→ 停满强度 → 淡出。
+ * 章字样 → 停满强度 → 淡出。
  *
- * 擦入用 `destination-in` + **绝对坐标**渐变（`pos−feather → pos`，两侧由 canvas 自动夹住）：
- * 早期版本按进度分档构造渐变，`p ≈ 0` 那一帧会退化成整幅渐变 —— 看起来就是"闪一下"。
+ * 入场走**逐字母**（`drawGlyphWave`）：字形从上方落下来，一个一个从左到右。
+ * 拆字失败 / 缺件走纯字时退回老路径 `drawWordWipe`（整块羽化擦入）。
  */
 function drawStampWord(
   ctx: CanvasRenderingContext2D,
@@ -388,12 +654,100 @@ function drawStampWord(
     elapsed >= fadeStart ? 1 - smooth((elapsed - fadeStart) / Math.max(0.01, u.spec.stampOut)) : 1;
   if (alpha <= 0.003) return;
 
-  const g = word.mask.getContext('2d');
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(u.w / 2, u.hp('stampY'));
+
+  // 字块后面的柔光（不是星，不遮挡笔画）
+  if (u.spec.wordGlow > 0.001 && p < 0.85) {
+    const glowA = u.spec.wordGlow * (1 - smooth((p - 0.5) / 0.35)) * 0.55;
+    if (glowA > 0.002) {
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, word.w * 0.55);
+      gr.addColorStop(0, `rgba(190,240,255,${glowA})`);
+      gr.addColorStop(1, 'rgba(190,240,255,0)');
+      ctx.fillStyle = gr;
+      ctx.fillRect(-word.w * 0.6, -word.h * 0.9, word.w * 1.2, word.h * 1.8);
+    }
+  }
+
+  if (word.glyphs.length >= 2) {
+    drawGlyphWave(ctx, u, word, elapsed, alpha);
+    drawStampStar(ctx, u, word, elapsed, alpha);
+  } else {
+    drawWordWipe(ctx, u, word, p);
+  }
+  ctx.restore();
+}
+
+/**
+ * 逐字母落位：一枚枚字形像**排队**一样从上方滑进各自的位置。
+ *
+ * 队列的读法靠两件事：
+ *   - 位移**线性**（`letterBounce = 0` 时）—— 空中的字块等速下移，间距均匀，看着就是"阶梯"；
+ *   - 透明度**入队即 `letterInAlpha`，落位补齐到 1** —— 队尾的字是"已经出现了但发虚"，
+ *     不是从无到有地淡入；队列长度 = `letterDur / 相邻间隔`（默认 1.3s / 11 字 ≈ 3 枚）。
+ */
+function drawGlyphWave(
+  ctx: CanvasRenderingContext2D,
+  u: EndingUnits,
+  word: WordLayer,
+  elapsed: number,
+  alpha: number,
+): void {
+  const inSec = Math.max(0.05, u.spec.stampIn);
+  const dur = Math.max(0.04, u.spec.letterDur);
+  const span = Math.max(dur, (u.spec.letterSpan / 100) * inSec);
+  const n = word.glyphs.length;
+  const stagger = n > 1 ? (span - dur) / (n - 1) : 0;
+  const drop = (u.spec.letterDrop / 100) * word.h;
+  const bounce = Math.max(0, u.spec.letterBounce);
+  const inAlpha = clamp01(u.spec.letterInAlpha);
+  const halfW = word.w / 2;
+  const halfH = word.h / 2;
+
+  for (let i = 0; i < n; i++) {
+    const q = clamp01((elapsed - i * stagger) / dur);
+    if (q <= 0) continue;
+    // 入队那一瞬间用 12% 的时长淡到 `inAlpha`，之后一路补到 1（落位时不再发虚）
+    const a = inAlpha * smooth(clamp01(q / 0.12));
+    const fade = a + (1 - a) * smooth(q);
+    if (fade <= 0.004) continue;
+    const g = word.glyphs[i]!;
+    // 线性下落 + 尾段回弹（`bounce = 0` 时回弹项恒为 0，纯等速）
+    const rise = drop * (1 - q);
+    const sink = drop * bounce * 0.25 * Math.sin(Math.PI * clamp01((q - 0.7) / 0.3));
+    ctx.globalAlpha = alpha * fade;
+    ctx.drawImage(
+      g.canvas,
+      g.nx * word.w - halfW,
+      g.ny * word.h - halfH - rise + sink,
+      g.nw * word.w,
+      g.nh * word.h,
+    );
+  }
+}
+
+/**
+ * 章字样：羽化擦入（软边 + 轻微上浮 / 缩放）→ 停满强度 → 淡出。
+ *
+ * 擦入用 `destination-in` + **绝对坐标**渐变（`pos−feather → pos`，两侧由 canvas 自动夹住）：
+ * 早期版本按进度分档构造渐变，`p ≈ 0` 那一帧会退化成整幅渐变 —— 看起来就是"闪一下"。
+ */
+function drawWordWipe(
+  ctx: CanvasRenderingContext2D,
+  u: EndingUnits,
+  word: WordLayer,
+  p: number,
+): void {
+  const mask = word.mask;
+  const layer = word.layer;
+  if (!mask || !layer) return;
+  const g = mask.getContext('2d');
   if (!g) return;
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.globalCompositeOperation = 'source-over';
   g.clearRect(0, 0, word.w, word.h);
-  g.drawImage(word.layer, 0, 0);
+  g.drawImage(layer, 0, 0);
 
   const feather = word.w * 0.26;
   const pos = smooth(p) * (word.w + feather);
@@ -408,26 +762,207 @@ function drawStampWord(
   const easeIn = easeOutCubic(p);
   const scale = 0.97 + 0.03 * easeIn;
   const lift = (1 - easeIn) * u.h * 0.012;
-
   ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.translate(u.w / 2, u.hp('stampY') + lift);
+  ctx.translate(0, lift);
   ctx.scale(scale, scale);
+  ctx.drawImage(mask, -word.w / 2, -word.h / 2);
+  ctx.restore();
+}
 
-  // 字块后面的柔光（不是星，不遮挡笔画）
-  if (u.spec.wordGlow > 0.001 && p < 0.85) {
-    const glowA = u.spec.wordGlow * (1 - smooth((p - 0.5) / 0.35)) * 0.55;
-    if (glowA > 0.002) {
-      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, word.w * 0.55);
-      gr.addColorStop(0, `rgba(190,240,255,${glowA})`);
-      gr.addColorStop(1, 'rgba(190,240,255,0)');
-      ctx.fillStyle = gr;
-      ctx.fillRect(-word.w * 0.6, -word.h * 0.9, word.w * 1.2, word.h * 1.8);
+/** 星贴图的代表色（`ghostTint = auto` 时用）：饱和² × 不透明度加权平均，再往白里混 30% */
+const starTints = new WeakMap<HTMLCanvasElement, string>();
+
+function starTint(canvas: HTMLCanvasElement): string {
+  const hit = starTints.get(canvas);
+  if (hit) return hit;
+  let color = 'rgb(255,255,255)';
+  const g = canvas.getContext('2d');
+  if (g) {
+    const { width: w, height: h } = canvas;
+    const data = g.getImageData(0, 0, w, h).data;
+    let r = 0;
+    let gg = 0;
+    let b = 0;
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const a = data[i + 3]!;
+      if (a < 200) continue;
+      const cr = data[i]!;
+      const cg = data[i + 1]!;
+      const cb = data[i + 2]!;
+      const mx = Math.max(cr, cg, cb);
+      if (mx <= 0) continue;
+      const sat = (mx - Math.min(cr, cg, cb)) / mx;
+      if (sat < 0.25) continue;
+      const k = (a / 255) * sat * sat;
+      r += cr * k;
+      gg += cg * k;
+      b += cb * k;
+      sum += k;
+    }
+    if (sum > 0) {
+      // 提亮：往白里混 —— 影子是压在字块上的，不能比字还深
+      const lift = (c: number): number => Math.round(c / sum + (255 - c / sum) * 0.3);
+      color = `rgb(${lift(r)}, ${lift(gg)}, ${lift(b)})`;
     }
   }
+  starTints.set(canvas, color);
+  return color;
+}
 
-  ctx.drawImage(word.mask, -word.w / 2, -word.h / 2);
+/**
+ * 纯色圆角五角星：**矢量画**，不放大贴图，所以放到 10× 边缘也是硬的。
+ *
+ * 圆角是逐顶点 `quadraticCurveTo` 磨出来的，**只 fill 不 stroke** ——
+ * 同色描边在半透明处会二次叠加，星会显出一圈更深的边。
+ */
+function drawSolidStar(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  rot: number,
+  color: string,
+  alpha: number,
+): void {
+  if (alpha <= 0.004 || size <= 1) return;
+  const outer = size / 2;
+  const inner = outer * 0.45;
+  const round = outer * 0.12;
+  const pts: Array<[number, number]> = [];
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? outer : inner;
+    const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+    pts.push([Math.cos(ang) * rad, Math.sin(ang) * rad]);
+  }
+  const along = (from: [number, number], to: [number, number], d: number): [number, number] => {
+    const dx = to[0] - from[0];
+    const dy = to[1] - from[1];
+    const len = Math.hypot(dx, dy) || 1;
+    return [from[0] + (dx / len) * d, from[1] + (dy / len) * d];
+  };
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(cx, cy);
+  if (rot) ctx.rotate(rot);
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const cur = pts[i]!;
+    const prev = pts[(i + pts.length - 1) % pts.length]!;
+    const next = pts[(i + 1) % pts.length]!;
+    // 切线长度同时受"圆角半径"和"相邻边长"约束，否则相邻角会互相啃掉
+    const r = Math.min(round, Math.hypot(cur[0] - prev[0], cur[1] - prev[1]) * 0.4);
+    const a = along(cur, prev, r);
+    const b = along(cur, next, r);
+    if (i === 0) ctx.moveTo(a[0], a[1]);
+    else ctx.lineTo(a[0], a[1]);
+    ctx.quadraticCurveTo(cur[0], cur[1], b[0], b[1]);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
   ctx.restore();
+}
+
+/**
+ * `!` 下面那颗星：正中出现（变大 + 旋转）→ 飞到原位（缩小 + 转正）→ 落位。
+ *
+ * 两处"影子"材质不同：
+ *   - 起飞瞬间那枚是**纯色圆角五角星**（`ghostTint`，默认按星的代表色自动取），
+ *     继续变大 + 继续旋转后淡出；
+ *   - 落位之后那枚**仍用原图贴图**（星本身就这么小，放大量也小），只放大、不旋转。
+ */
+function drawStampStar(
+  ctx: CanvasRenderingContext2D,
+  u: EndingUnits,
+  word: WordLayer,
+  elapsed: number,
+  alpha: number,
+): void {
+  const star = word.star;
+  if (!star) return;
+  const tint = u.spec.ghostTint && u.spec.ghostTint !== 'auto' ? u.spec.ghostTint : starTint(star.canvas);
+  const sw = star.nw * word.w;
+  const sh = star.nh * word.h;
+  /** 影子基准 = 字芯宽（不含白描边）：AP / FC 的描边厚度不同，用整块框 FC 会大一圈 */
+  const inkSize = Math.max(1, star.inkW * word.w);
+  // 终态位置 = 原图里那个位置（落定后与"!"重新拼回同一张图）
+  const homeX = (star.nx + star.nw / 2) * word.w - word.w / 2;
+  const homeY = (star.ny + star.nh / 2) * word.h - word.h / 2;
+
+  const inSec = Math.max(0.05, u.spec.stampIn);
+  const at = Math.max(0, (u.spec.starAt / 100) * inSec);
+  const growDur = Math.max(0.02, (u.spec.starGrow / 100) * inSec);
+  const flyDur = Math.max(0.02, (u.spec.starFly / 100) * inSec);
+  const growEnd = at + growDur;
+  // 变大结束 → 起飞之间可以留一段停顿（0 = 立刻走）
+  const flyStart = growEnd + (Math.max(0, u.spec.starHold) / 100) * inSec;
+  const landAt = flyStart + flyDur;
+  const big = Math.max(0.2, u.spec.starBig);
+  const spin = (u.spec.starSpin * Math.PI) / 180;
+
+  const paint = (cx: number, cy: number, scale: number, rot: number, a: number): void => {
+    if (a <= 0.004 || scale <= 0.001) return;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(cx, cy);
+    if (rot) ctx.rotate(rot);
+    ctx.drawImage(star.canvas, (-sw * scale) / 2, (-sh * scale) / 2, sw * scale, sh * scale);
+    ctx.restore();
+  };
+
+  // 落位之后：外围继续冒影子（放大量比飞行时小，且不转）
+  if (elapsed >= landAt) {
+    const pulses = Math.max(0, Math.round(u.spec.landPulses));
+    const dur = Math.max(0.05, u.spec.landDur);
+    for (let i = 0; i < pulses; i++) {
+      const q = (elapsed - landAt - i * dur * 0.72) / dur;
+      if (q < 0 || q >= 1) continue;
+      const e = easeOutCubic(q);
+      paint(
+        homeX,
+        homeY,
+        1 + (Math.max(1, u.spec.landGrow) - 1) * e,
+        0,
+        alpha * u.spec.landAlpha * (1 - smooth(q)),
+      );
+    }
+    paint(homeX, homeY, 1, 0, alpha);
+    return;
+  }
+
+  // 飞行前：字块正中变大 + 旋转
+  if (elapsed < growEnd) {
+    if (elapsed < at) return;
+    const q = (elapsed - at) / growDur;
+    // 用 smooth 而不是 easeOutCubic：后者 60% 的时长就已经长到 95%，
+    // 尾段看着像"停住了"，会和 `starHold` 叠成一段说不清来源的停顿
+    const e = smooth(q);
+    paint(0, 0, Math.max(0.02, big * e), spin * e, alpha * smooth(clamp01(q / 0.22)));
+    return;
+  }
+
+  // 起飞瞬间留在正中的残余影子：纯色圆角星，继续变大 + 继续旋转 + 淡出
+  const gq = (elapsed - flyStart) / Math.max(0.02, u.spec.ghostDur);
+  if (gq < 1) {
+    const ge = easeOutCubic(gq);
+    const ghostTo = Math.max(big, u.spec.ghostGrow);
+    drawSolidStar(
+      ctx,
+      0,
+      0,
+      inkSize * (big + (ghostTo - big) * ge),
+      spin + ((u.spec.ghostSpin * Math.PI) / 180) * ge,
+      tint,
+      // 头 8% 淡入：起步那一瞬主星还压在正中，直接满不透明会露出"两枚星错位"
+      alpha * u.spec.ghostAlpha * smooth(clamp01(gq / 0.08)) * (1 - smooth(gq)),
+    );
+  }
+
+  // 飞行：正中 → `!` 正下方，逐渐缩回终态，旋转同步转正
+  // 用 easeOut：起步就动，停顿只由 `starHold` 决定（easeInOut 自带一段"没动"的错觉）
+  const f = easeOutCubic((elapsed - flyStart) / flyDur);
+  paint(homeX * f, homeY * f, big + (1 - big) * f, spin * (1 - f), alpha);
 }
 
 interface EndingParticle {

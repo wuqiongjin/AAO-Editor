@@ -207,3 +207,30 @@ describe('52 · 只在导出里演 + 设置 / 弹窗接线', () => {
     expect(stage).not.toMatch(/drawEndingFrameAt|video\/ending|endingSpec/);
   });
 });
+
+describe('54 · 中央章入场分层（逐字母 + 星标单飞）', () => {
+  it('三层齐备：字形切块 / 逐字母波 / 星标单画，缺图仍退回整块擦入', () => {
+    // 切块的产物与用法都在同一份绘制里；`drawWordWipe` 是缺件 / 拆不开的兜底，不能删
+    expect(frame).toMatch(/function splitImage\(/);
+    expect(frame).toMatch(/function drawGlyphWave\(/);
+    expect(frame).toMatch(/function drawStampStar\(/);
+    expect(frame).toMatch(/function drawWordWipe\(/);
+    // 星标从字母层摘出去，否则会跟着某个字一起落
+    expect(frame).toMatch(/if \(p\.star\) star = sprite;/);
+  });
+
+  it('星标影子按**字芯**取基准（FC 描边比 AP 厚，用整块框会大一圈）', () => {
+    expect(frame).toMatch(/inkW/);
+    expect(frame).toMatch(/inkSize \* \(big \+ \(ghostTo - big\) \* ge\)/);
+    // 飞行影子是纯色矢量星，落位影子才是原图贴图
+    expect(frame).toMatch(/drawSolidStar\(/);
+    expect(frame).toMatch(/paint\(homeX, homeY, 1, 0, alpha\)/);
+  });
+
+  it('时间轴有三段可调：变大 → 停顿（`starHold`）→ 飞行，且飞行不再带缓坡', () => {
+    expect(spec).toMatch(/starHold: 0,/);
+    expect(frame).toMatch(/const flyStart = growEnd \+ \(Math\.max\(0, u\.spec\.starHold\) \/ 100\) \* inSec;/);
+    // 「变大」用 smooth：easeOutCubic 会让 60% 的时长就长到 95%，尾段读作"停住了"
+    expect(frame).toMatch(/const e = smooth\(q\);/);
+  });
+});
