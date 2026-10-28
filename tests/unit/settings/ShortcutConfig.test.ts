@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getDefaultConfig, resolveAction, buildBindingIndex, setFunctionBinding,
   bindingTakenByOther, loadConfig, formatKey, categoryShortcuts, functionMode,
+  maskFunctionBinding, bindingToRestore, pruneShortcutMasks, type ShortcutMasks,
 } from '@/src/chart/config/ShortcutConfig';
 
 const keyEvent = (key: string, ctrl = false, shift = false): KeyboardEvent =>
@@ -235,5 +236,54 @@ describe('切页功能（app 作用域）', () => {
     expect(cfg.pageProjects).toBeNull();
     // 去重后仍有 38 个绑定、38 个索引项；剩下的 7 个切页键里只有它一个退让
     expect(buildBindingIndex(cfg).size).toBe(Object.values(cfg).filter(Boolean).length);
+  });
+});
+
+// issue 178（2026-10-28 用户定案 Q1=A）：屏蔽 ≠ 丢配置。屏蔽瞬间把键位记进「屏蔽前键位」，
+// 重新启用写回它；没有记录（旧存档 / 系统去重造成）才回落出厂默认。
+describe('屏蔽前的键位（issue 178）', () => {
+  it('屏蔽把当前键位记进记录，再置 null', () => {
+    const cfg = getDefaultConfig();
+    setFunctionBinding(cfg, 'switchSingle', 'h');
+    const last: ShortcutMasks = {};
+    maskFunctionBinding(cfg, last, 'switchSingle');
+    expect(cfg.switchSingle).toBeNull();
+    expect(last.switchSingle).toBe('h');
+  });
+
+  it('重复屏蔽不覆盖已有记录（已屏蔽时没有当前键位可记）', () => {
+    const cfg = getDefaultConfig();
+    setFunctionBinding(cfg, 'switchSingle', 'h');
+    const last: ShortcutMasks = {};
+    maskFunctionBinding(cfg, last, 'switchSingle');
+    maskFunctionBinding(cfg, last, 'switchSingle');
+    expect(last.switchSingle).toBe('h');
+  });
+
+  it('重新启用优先上次键位；没有记录回落出厂默认', () => {
+    const last: ShortcutMasks = { switchSingle: 'h' };
+    expect(bindingToRestore('switchSingle', last)).toBe('h');
+    expect(bindingToRestore('switchFlick', last)).toBe(getDefaultConfig().switchFlick);
+  });
+
+  it('记录只服务启用：不进绑定索引、不占用键位', () => {
+    const cfg = getDefaultConfig();
+    setFunctionBinding(cfg, 'switchSingle', 'h');
+    const last: ShortcutMasks = {};
+    maskFunctionBinding(cfg, last, 'switchSingle');
+    expect(buildBindingIndex(cfg).has('h')).toBe(false);
+    expect(bindingTakenByOther(cfg, 'switchFlick', 'h')).toBeNull();
+  });
+
+  it('修剪只保留仍在屏蔽态的条目：启用 / 恢复默认后旧记录自动失效', () => {
+    const cfg = getDefaultConfig();
+    setFunctionBinding(cfg, 'switchSingle', 'h');
+    const last: ShortcutMasks = {};
+    maskFunctionBinding(cfg, last, 'switchSingle');
+    expect(pruneShortcutMasks(last, cfg)).toEqual({ switchSingle: 'h' });
+
+    // 重新启用之后该条不再是"屏蔽前"记录
+    setFunctionBinding(cfg, 'switchSingle', last.switchSingle ?? 'f');
+    expect(pruneShortcutMasks(last, cfg)).toEqual({});
   });
 });

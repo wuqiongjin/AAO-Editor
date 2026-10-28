@@ -5,7 +5,7 @@
 // 迁移策略：
 // - 旧 bangdream.shortcuts.v1 仍可读（一次性回填到新 settings.shortcuts），不再写入。
 // - 旧版 schema（仅有 {schemaVersion, audio.keySet}）已包含 audio 段，load 时按字段合并。
-import { getDefaultConfig, loadConfig, type ShortcutConfig } from './ShortcutConfig';
+import { FUNCTIONS, getDefaultConfig, loadConfig, type ShortcutConfig, type ShortcutMasks } from './ShortcutConfig';
 import { normalizeProjectSortKey, type ProjectSortKey } from '../../project/projectSort';
 import { normalizeSongSort, SONG_SORT_DEFAULT, type SongSort } from '../../community/bestdori/songs';
 import { DEFAULT_ACTIVE_KEY_SOUND_SET_ID, isKnownKeySoundSetId } from '../../audio/KeySound';
@@ -42,6 +42,20 @@ export function normalizeUiFontStack(raw: unknown, fallback: UiFontStackId = 'ge
   return (UI_FONT_STACK_IDS as readonly string[]).includes(raw as string) ? (raw as UiFontStackId) : fallback;
 }
 
+/**
+ * 「屏蔽前的键位」归一化（issue 178）：只认注册表里存在的功能 id，值须为非空字符串并小写化；
+ * 未知 id / 空串 / 非字符串一律丢弃——这份记录只服务"重新启用"，脏值宁可没有。
+ */
+export function normalizeShortcutMasks(raw: unknown): ShortcutMasks {
+  const out: ShortcutMasks = {};
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  for (const f of FUNCTIONS) {
+    const v = src[f.id];
+    if (typeof v === 'string' && v.trim() !== '') out[f.id] = v.trim().toLowerCase();
+  }
+  return out;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   theme: 'light' | 'dark' | 'system';
@@ -64,6 +78,13 @@ export interface AppSettings {
     projectList: { width: number };
   };
   shortcuts: ShortcutConfig;
+  /**
+   * 屏蔽前的键位（issue 178，用户 2026-10-28 定案 Q1=A）：`FunctionId → 屏蔽瞬间的绑定串`。
+   * `shortcuts` 里置 `null` 的表达力不够——自定义键位会被就地覆盖，重新启用只能回落出厂默认；
+   * 这份附属记录让"屏蔽 = 暂停"成立。additive，不 bump schemaVersion；缺段 = 没有历史（旧存档）。
+   * **不参与**绑定索引与冲突检测（屏蔽期间该键仍算空闲，Q3 定案）。
+   */
+  shortcutLast: ShortcutMasks;
   audio: {
     keySet: string;
     /** 节奏图示 SE 音量（键音独立音量，0..1，0=静音），issue 39 #7 */
@@ -393,6 +414,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
       projectList: { width: PROJECT_LIST_WIDTH.default },
     },
     shortcuts: getDefaultConfig(),
+    shortcutLast: {},
     audio: { keySet: DEFAULT_ACTIVE_KEY_SOUND_SET_ID, seVolume: 1, volume: 1 },
     display: {
       noteSize: 1,
@@ -477,6 +499,8 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     },
     // 段内合并：若新 settings 里没有 shortcuts，则沿用 defaults 整体；之后由调用方尝试从旧 key 补齐
     shortcuts: defaults.shortcuts,
+    // 屏蔽前的键位（issue 178）：逐条白名单归一化，缺段 / 脏值 = 没有历史（重新启用回落出厂默认）
+    shortcutLast: normalizeShortcutMasks(obj.shortcutLast),
     audio: {
       // issue 29 删占位包：未知 id（含历史 'placeholder'/'bangdream'）归一化回落默认包，避免脏 id 驻留持久层
       keySet: typeof audio.keySet === 'string' && isKnownKeySoundSetId(audio.keySet) ? audio.keySet : defaults.audio.keySet,
@@ -630,6 +654,7 @@ export function updateSettings(
     autoCheck: boolean;
     layout: AppSettings['layout'];
     shortcuts: AppSettings['shortcuts'];
+    shortcutLast: AppSettings['shortcutLast'];
     audio: Partial<AppSettings['audio']>;
     display: Partial<AppSettings['display']>;
     visual: Partial<AppSettings['visual']>;
@@ -649,6 +674,7 @@ export function updateSettings(
     autoCheck: patch.autoCheck ?? prev.autoCheck,
     layout: patch.layout ?? prev.layout,
     shortcuts: patch.shortcuts ?? prev.shortcuts,
+    shortcutLast: patch.shortcutLast ? normalizeShortcutMasks(patch.shortcutLast) : prev.shortcutLast,
     audio: { ...prev.audio, ...(patch.audio ?? {}) },
     display: { ...prev.display, ...(patch.display ?? {}) },
     visual: { ...prev.visual, ...(patch.visual ?? {}) },

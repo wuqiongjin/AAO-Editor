@@ -4,19 +4,21 @@ import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
-  formatKey, normalizeKeyEvent, setCapturingShortcut, type FunctionId,
+  formatKey, normalizeKeyEvent, setCapturingShortcut, maskFunctionBinding,
+  bindingToRestore, type FunctionId,
 } from '../../chart/config/ShortcutConfig';
 import {
   INDEX_FILTERS, type IndexFilterId,
   filterFunctions, shortcutTableEmptyKind, restoreDefaultsInFilter,
 } from '../../settings/shortcutIndexFilter';
 import { useConfig } from '../../app/ProviderTree';
-import { showToast } from '../../ui/Toast';
 import { t, type MessageKey } from '../../i18n';
 
-// 快捷键页（issue 28 + issue 44 + issue 121 + issue 177）：
+// 快捷键页（issue 28 + issue 44 + issue 121 + issue 177 + issue 178）：
 //   - 侧栏「索引筛选」粗桶筛表（≠ ADR-0002 tooltip 类别）；默认「全部」，不写入设置对象；
 //   - 切页七功能与画布功能同表（归「系统」），同样可改键 / 可屏蔽 / 同一套冲突检测；
+//   - 屏蔽 = 暂停：屏蔽前的键位记进 `settings.shortcutLast`，重新启用写回它（issue 178）；
+//   - 目标键被占用时不抢占、也不干留在屏蔽态——就地打开记录器改键，确认即完成启用；
 //   - 搜索 ∩ 当前桶；空结果走 EmptyState；
 //   - Body 走 mode="fill"（表格自身滚）；导入/导出在「设置 → 配置数据」。
 
@@ -39,12 +41,18 @@ function comboFromKeyEvent(e: KeyboardEvent): string | null {
  * 独立的快捷键记录弹窗（类 VSCode）：Enter 确认、Esc 取消。
  * `onCommit` 返回 null = 已写入；返回字符串 = 冲突原因（**弹窗不关**，就地提示，草稿保留可重按）。
  */
-function ShortcutRecorder({ id, onCommit, onClose }: {
-  id: FunctionId; onCommit: (binding: string) => string | null; onClose: () => void;
+function ShortcutRecorder({ id, initialBinding, initialConflict, onCommit, onClose }: {
+  id: FunctionId;
+  /** 预填键位：从「启用」转入就地改键时 = 屏蔽前的键位（issue 178） */
+  initialBinding?: string;
+  /** 预置冲突提示：打开时该键已被占用，不必等用户再按一次才报错 */
+  initialConflict?: string;
+  onCommit: (binding: string) => string | null;
+  onClose: () => void;
 }) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<string | null>(null);
-  const draftRef = useRef<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(initialBinding ?? null);
+  const [conflict, setConflict] = useState<string | null>(initialConflict ?? null);
+  const draftRef = useRef<string | null>(initialBinding ?? null);
 
   useEffect(() => {
     setCapturingShortcut(true);
@@ -103,7 +111,12 @@ export default function ShortcutsPage() {
   const config = settings.shortcuts;
   const [query, setQuery] = useState('');
   const [indexFilter, setIndexFilter] = useState<IndexFilterId>('all');
-  const [editingId, setEditingId] = useState<FunctionId | null>(null);
+  /** 记录弹窗目标；`initialBinding` / `initialConflict` 只在"启用撞键"转入时有值（issue 178） */
+  const [editing, setEditing] = useState<{
+    id: FunctionId;
+    initialBinding?: string;
+    initialConflict?: string;
+  } | null>(null);
   const shortcutTableRef = useRef<HTMLDivElement>(null);
 
   // issue 127：换桶重挂表体，但滚动容器仍是 .shortcut-table → 须显式回顶；搜索只滤行、保持 scrollTop。
@@ -135,36 +148,38 @@ export default function ShortcutsPage() {
     return indexFilter === 'all' ? t('shortcuts.resetAll') : t('shortcuts.resetBucket');
   }, [searchActive, indexFilter]);
 
+  /** 冲突文案（改键弹窗与启用撞键共用一套） */
+  const conflictText = (binding: string, other: FunctionId): string =>
+    t('shortcuts.conflict', { key: formatKey(binding), label: t(functionById(other).label as MessageKey) });
+
   /** 返回 null = 已写入；返回字符串 = 冲突原因，交给记录弹窗就地显示（弹窗不关） */
   const commit = (id: FunctionId, binding: string): string | null => {
     const next = { ...config };
     const conflict = setFunctionBinding(next, id, binding);
-    if (conflict) {
-      return t('shortcuts.conflict', { key: formatKey(binding), label: t(functionById(conflict).label as MessageKey) });
-    }
+    if (conflict) return conflictText(binding, conflict);
     setShortcutConfig(next);
     return null;
   };
 
   /**
-   * 启用 / 屏蔽。启用同样要过冲突检测：屏蔽期间出厂键可能已被别的功能占走
-   * 直接写默认键会造成两行同键、按键静默归后写者。
-   * 冲突时保持屏蔽并提示占用者——与改键同一套文案。
+   * 启用 / 屏蔽（issue 178，用户 2026-10-28 定案）：
+   * - 屏蔽 = 暂停：当前键位记进 `shortcutLast` 再置 null；
+   * - 启用 = 恢复**屏蔽前**的键位（无记录才回落出厂默认）；
+   * - 要恢复的键已被占用（Q2=C）：不抢占、也不干留在屏蔽态 —— 打开记录器预填该键并报冲突，
+   *   用户改键确认即写入并同时完成启用；取消则保持屏蔽。
    */
   const setEnabled = (id: FunctionId, enabled: boolean) => {
     const next = { ...config };
     if (!enabled) {
-      next[id] = null;
-      setShortcutConfig(next);
+      const last = { ...settings.shortcutLast };
+      maskFunctionBinding(next, last, id);
+      setShortcutConfig(next, last);
       return;
     }
-    const binding = getDefaultConfig()[id];
-    const conflict = binding ? setFunctionBinding(next, id, binding) : null;
+    const binding = bindingToRestore(id, settings.shortcutLast);
+    const conflict = setFunctionBinding(next, id, binding);
     if (conflict) {
-      showToast(t('shortcuts.conflict', {
-        key: formatKey(binding),
-        label: t(functionById(conflict).label as MessageKey),
-      }), 'warn');
+      setEditing({ id, initialBinding: binding, initialConflict: conflictText(binding, conflict) });
       return;
     }
     setShortcutConfig(next);
@@ -225,7 +240,7 @@ export default function ShortcutsPage() {
                 onDoubleClick={(e) => {
                   // 双击整行打开编辑；双击「启用」开关 / 键位按钮不重复触发（它们各自有单击/双击语义）
                   if ((e.target as HTMLElement).closest('button')) return;
-                  setEditingId(f.id);
+                  setEditing({ id: f.id });
                 }}
               >
                 <span className="shortcut-group">{t(`tool.cat.${f.category}` as MessageKey)}</span>
@@ -234,7 +249,7 @@ export default function ShortcutsPage() {
                   <button
                     className="key-binding"
                     type="button"
-                    onClick={() => setEditingId(f.id)}
+                    onClick={() => setEditing({ id: f.id })}
                     title={t('shortcuts.clickToEdit')}
                   >
                     {formatKey(config[f.id] as string).split('+').map((part, k) => (
@@ -250,7 +265,7 @@ export default function ShortcutsPage() {
                 <button
                   className="edit-binding"
                   type="button"
-                  onClick={() => setEditingId(f.id)}
+                  onClick={() => setEditing({ id: f.id })}
                   title={t('shortcuts.edit')}
                   aria-label={t('shortcuts.editAria', { label: t(f.label as MessageKey) })}
                 ><Pencil size={14} /></button>
@@ -290,11 +305,13 @@ export default function ShortcutsPage() {
         </div>
       </section>
 
-      {editingId && (
+      {editing && (
         <ShortcutRecorder
-          id={editingId}
-          onCommit={(binding) => commit(editingId, binding)}
-          onClose={() => setEditingId(null)}
+          id={editing.id}
+          initialBinding={editing.initialBinding}
+          initialConflict={editing.initialConflict}
+          onCommit={(binding) => commit(editing.id, binding)}
+          onClose={() => setEditing(null)}
         />
       )}
       </AppPageShell.Body>

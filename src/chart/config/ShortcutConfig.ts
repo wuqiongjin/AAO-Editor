@@ -294,6 +294,35 @@ export function setFunctionBinding(cfg: ShortcutConfig, id: FunctionId, binding:
   return null;
 }
 
+/**
+ * 「屏蔽前的键位」（issue 178，用户 2026-10-28 定案 Q1=A）：FunctionId → 屏蔽瞬间的绑定串。
+ * 屏蔽只把配置值置 `null` 会丢掉用户的自定义键位，故在屏蔽时另记一份，重新启用时写回。
+ * **只服务启用**：不参与绑定索引、不占用键位（屏蔽期间该键仍可被别的功能拿走，Q3 定案）；
+ * 持久化在 `settings.shortcutLast`（additive，不 bump schemaVersion）。
+ */
+export type ShortcutMasks = Partial<Record<FunctionId, string>>;
+
+/** 屏蔽：把当前键位记进 masks 再置 null；原本已屏蔽（没有当前键位）时保留已有记录 */
+export function maskFunctionBinding(cfg: ShortcutConfig, masks: ShortcutMasks, id: FunctionId): void {
+  const current = cfg[id];
+  if (current) masks[id] = current;
+  cfg[id] = null;
+}
+
+/** 重新启用的目标键：优先屏蔽前键位；没有记录（旧存档 / 载入去重造成）回落出厂默认 */
+export function bindingToRestore(id: FunctionId, masks: ShortcutMasks): string {
+  return masks[id] ?? getDefaultConfig()[id] ?? functionById(id).binding;
+}
+
+/** 只保留仍在屏蔽态的条目：启用 / 恢复默认后旧记录自动失效，避免下次屏蔽时被当成"上次键位" */
+export function pruneShortcutMasks(masks: ShortcutMasks, cfg: ShortcutConfig): ShortcutMasks {
+  const out: ShortcutMasks = {};
+  for (const [id, binding] of Object.entries(masks) as [FunctionId, string][]) {
+    if (binding && cfg[id] === null) out[id] = binding;
+  }
+  return out;
+}
+
 /** 导出配置为 JSON 字符串 */
 export function exportConfig(cfg: ShortcutConfig): string {
   return JSON.stringify(cfg, null, 2);

@@ -3,7 +3,7 @@
 // Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
 import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
-import { getDefaultConfig, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
+import { getDefaultConfig, pruneShortcutMasks, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
 import { syncAssetCachePolicy } from '../../community/assetCachePolicy';
@@ -20,7 +20,11 @@ function noteSettingsChange(keys: string[]): void {
 
 export interface ConfigContextValue {
   settings: AppSettings;
-  setShortcutConfig: (next: ShortcutConfig) => void;
+  /**
+   * 写快捷键配置。`shortcutLast`（issue 178：屏蔽前的键位）与 `shortcuts` 同一笔写回，
+   * 不传则保留原值——屏蔽 / 启用必须原子，否则会短暂出现"记录已改、配置未改"。
+   */
+  setShortcutConfig: (next: ShortcutConfig, shortcutLast?: AppSettings['shortcutLast']) => void;
   setKeySetId: (id: string) => void;
   setTheme: (theme: AppSettings['theme']) => void;
   setUiLanguage: (uiLanguage: AppSettings['uiLanguage']) => void;
@@ -77,11 +81,17 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     return loaded;
   });
 
-  const setShortcutConfig = useCallback((next: ShortcutConfig) => {
+  const setShortcutConfig = useCallback((next: ShortcutConfig, shortcutLast?: AppSettings['shortcutLast']) => {
     setSettings(prev => {
-      return persistSettings(updateSettings(prev, { shortcuts: next }));
+      // 记录只保留"当前仍被屏蔽"的条目（启用 / 恢复默认即刻失效）——不变量收在唯一写入口，
+      // 调用点不必各自剪，漏一处就会让旧自定义键在下次启用时复活。
+      const merged = updateSettings(prev, {
+        shortcuts: next,
+        shortcutLast: pruneShortcutMasks(shortcutLast ?? prev.shortcutLast, next),
+      });
+      return persistSettings(merged);
     });
-    noteSettingsChange(['shortcuts']);
+    noteSettingsChange(shortcutLast ? ['shortcuts', 'shortcutLast'] : ['shortcuts']);
   }, []);
 
   const setKeySetId = useCallback((id: string) => {
