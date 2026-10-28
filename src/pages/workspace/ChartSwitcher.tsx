@@ -153,7 +153,13 @@ export default function ChartSwitcher() {
             ))}
             <div className="chart-switcher__sep" />
             <ProjectMenuItem icon={<Copy size={14} />} label={t('workspace.switcher.copyCurrent')} note={t('workspace.switcher.copyNote')} onClick={() => { void copyChart(); setOpenMenu(false); }} />
-            <ProjectMenuItem icon={<Pencil size={14} />} label={t('workspace.switcher.editCurrent')} onClick={() => { setChartInfo({ chart: cur }); setOpenMenu(false); }} />
+            <ProjectMenuItem
+              icon={<Pencil size={14} />}
+              label={t('workspace.switcher.editCurrent')}
+              disabled={uploaded}
+              note={uploaded ? t('projects.editChartDisabled') : undefined}
+              onClick={() => { if (!uploaded) { setChartInfo({ chart: cur }); setOpenMenu(false); } }}
+            />
             <ProjectMenuItem icon={<Plus size={14} />} label={t('projects.addChart')} onClick={() => { setChartInfo({ chart: null }); setOpenMenu(false); }} />
             {/* 音频管理入口（票 15 定案 5）：不带作用域 = 去当前工程的音频页（与左栏「音频」同义），
                 留在这里是因为"我要管这个工程的音频"这个念头发生在工作台里。 */}

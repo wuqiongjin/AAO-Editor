@@ -214,7 +214,15 @@ export function ProjectDetail({
                         <Upload size={12} />{t(up ? 'projects.publish.update' : 'projects.publish.action')}
                       </button>
                     )}
-                    <button type="button" className="pp-icon-btn" title={t('projects.editChart')} onClick={() => onChartForm({ project: sel, chart: c })}><Pencil size={14} /></button>
+                    <button
+                      type="button"
+                      className="pp-icon-btn"
+                      disabled={up}
+                      title={up ? t('projects.editChartDisabled') : t('projects.editChart')}
+                      onClick={() => { if (!up) onChartForm({ project: sel, chart: c }); }}
+                    >
+                      <Pencil size={14} />
+                    </button>
                     <button
                       type="button"
                       className="pp-icon-btn"

@@ -14,7 +14,7 @@ export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..'
 
 /** 读仓库内任意文件（相对仓库根） */
 export function readSource(rel: string): string {
-  return readFileSync(join(repoRoot, rel), 'utf-8');
+  return readFileSync(join(repoRoot, rel), 'utf-8').replace(/\r\n/g, '\n');
 }
 
 /** 去掉行注释与块注释，避免注释里的示例代码污染断言 */

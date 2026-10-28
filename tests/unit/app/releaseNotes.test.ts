@@ -73,4 +73,10 @@ describe('发行说明 markdown 子集解析（ADR-0021 §2 产品内渲染）',
       ]],
     });
   });
+
+  it('章节标题带 emoji 图标：正确作为文本节点进入 heading kids', () => {
+    const blocks = parseReleaseNotes('## 🚀 新增与改进\n### 🌐 文档站');
+    expect(blocks[0]).toEqual({ t: 'heading', level: 2, kids: [{ t: 'text', v: '🚀 新增与改进' }] });
+    expect(blocks[1]).toEqual({ t: 'heading', level: 3, kids: [{ t: 'text', v: '🌐 文档站' }] });
+  });
 });

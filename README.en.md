@@ -1,8 +1,19 @@
-# AAO Editor
+<p align="center">
+  <img src="./src/assets/brand/app-logo.png" alt="AAO Editor Logo" width="100" height="100" />
+</p>
 
-**[中文](./README.md)** · English
+<h1 align="center">AAO Editor</h1>
 
-**AAO Editor** (short for **Advanced Arrangement Organizer**) is a desktop-grade chart editor built for BanG Dream custom chart authors. From starting a project and editing the chart, to previewing it and exporting a sheet image or a gameplay video — every step of charting happens in one app.
+<p align="center">
+  <strong>Advanced Arrangement Organizer</strong><br />
+  A desktop-grade chart editor built for BanG Dream! custom chart authors
+</p>
+
+<p align="center">
+  <a href="./README.md">简体中文</a> · English
+</p>
+
+From starting a project and editing the chart, to previewing it and exporting a sheet image or a gameplay video — every step of charting happens in one app.
 
 ![Project hub](./docs/media/readme/project-hub.png)
 

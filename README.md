@@ -1,8 +1,19 @@
-# AAO Editor
+<p align="center">
+  <img src="./src/assets/brand/app-logo.png" alt="AAO Editor Logo" width="100" height="100" />
+</p>
 
-**[English](./README.en.md)** · 简体中文
+<h1 align="center">AAO Editor</h1>
 
-**AAO Editor**（全称 **Advanced Arrangement Organizer**）是一款为 BanG Dream 自制谱作者打造的桌面级谱面编辑器。从新建工程、编辑谱面、预览试听，到导出谱面图和游戏实录视频——制谱的每一步都在一个应用里完成。
+<p align="center">
+  <strong>Advanced Arrangement Organizer</strong><br />
+  一款为 BanG Dream! 自制谱作者打造的桌面级谱面编辑器
+</p>
+
+<p align="center">
+  <a href="./README.en.md">English</a> · 简体中文
+</p>
+
+从新建工程、编辑谱面、预览试听，到导出谱面图和游戏实录视频——制谱的每一步都在一个应用里完成。
 
 ![工程启动台](./docs/media/readme/project-hub.png)
 

@@ -205,10 +205,10 @@ function AudioSection({ active }: { active: boolean }) {
         <div
           className="audio-locked-banner"
           role="alert"
-          title={lockSummary.fullList ?? undefined}
+          title={lockSummary.fullList ?? lockSummary.text ?? undefined}
         >
           <Lock size={15} />
-          <span>{t('projects.audioLockedNamed', { charts: lockSummary.text })}</span>
+          <span>{t('projects.audioLockedNamed')}</span>
         </div>
       )}
 

@@ -48,13 +48,13 @@ describe('票 04 · 在线版首访说明', () => {
     expect(localStorage.getItem(WEB_NOTICE_KEY)).toBe('1');
   });
 
-  it('点遮罩（弹窗唯一的第三个出口）也算关掉并记账', () => {
+  it('点遮罩不关闭弹窗：确保用户知晓在线版受限，只能通过按钮或 Esc 明确关闭', () => {
     render(<WebNoticeHost />);
     const scrim = document.querySelector('.dialog__scrim');
     expect(scrim).not.toBeNull();
     fireEvent.mouseDown(scrim!);
-    expect(screen.queryByRole('heading', { name: '在线版说明' })).toBeNull();
-    expect(localStorage.getItem(WEB_NOTICE_KEY)).toBe('1');
+    expect(screen.getByRole('heading', { name: '在线版说明' })).toBeInTheDocument();
+    expect(localStorage.getItem(WEB_NOTICE_KEY)).toBeNull();
   });
 
   it('桌面运行时（有 electronAPI）：一次都不出现', () => {

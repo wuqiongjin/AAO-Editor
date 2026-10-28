@@ -69,7 +69,6 @@ export function ChartInfoDialog({
         </>
       )}
     >
-      {locked && <p className="dialog__message">{t('projects.uploadedReadonly')}</p>}
       <label className="dialog-field">
         <span>{t('projects.chartName')}</span>
         <input value={title} placeholder={displayProjectName(project)} disabled={locked} onChange={(e) => setTitle(e.target.value)} />

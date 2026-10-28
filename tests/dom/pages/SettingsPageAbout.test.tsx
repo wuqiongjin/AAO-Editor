@@ -170,7 +170,7 @@ describe('ADR-0021 · 设置页关于', () => {
     await screen.findByRole('button', { name: '检查更新' });
     await waitFor(() => {
       expect(toastSpy).toHaveBeenCalledWith(
-        '检查失败，可能是网络问题，可以尝试将下载源替换为 CNB。',
+        '检查更新失败，可能是网络问题，可以尝试将下载源替换为 CNB。',
         'danger',
       );
     });
@@ -305,10 +305,10 @@ describe('ADR-0021 · 设置页关于', () => {
     fireEvent.click(screen.getByRole('button', { name: '关于' }));
     fireEvent.click(await screen.findByRole('button', { name: '检查更新' }));
     await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(
-      '检查失败，可能是网络问题，可以尝试将下载源替换为 CNB。',
+      '检查更新失败，可能是网络问题，可以尝试将下载源替换为 CNB。',
       'danger',
     ));
-    expect(screen.queryAllByText(/检查失败，可能是网络问题/)).toHaveLength(0);
+    expect(screen.queryAllByText(/检查更新失败，可能是网络问题/)).toHaveLength(0);
     toastSpy.mockRestore();
   });
 
@@ -339,7 +339,7 @@ describe('ADR-0021 · 设置页关于', () => {
       errorMessage: 'net::ERR_CONNECTION_RESET',
     });
     await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(
-      '检查失败，可能是网络问题，可以尝试将下载源替换为 CNB。',
+      '检查更新失败，可能是网络问题，可以尝试将下载源替换为 CNB。',
       'danger',
     ));
     toastSpy.mockRestore();

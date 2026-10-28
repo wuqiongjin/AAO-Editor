@@ -154,27 +154,28 @@ describe('票 15 · 音频页 = 工程音频的唯一管理入口（作用域版
       lockedProject('pB', 'Beta'),
     ], { scope: { projectId: 'pB' }, openId: 'pA' });
 
-    // 锁定横幅点名是哪张谱面（票 15 定案 6）
+    // 锁定横幅显示中性提示，详细谱面名单挂 title 悬停提示
     const banner = await screen.findByRole('alert');
-    expect(banner).toHaveTextContent('已上传谱面 Beta（Expert 27），音频与时长已锁定');
+    expect(banner).toHaveTextContent('当前工程存在已上传的谱面，音频与时长已锁定。');
+    expect(banner).toHaveAttribute('title', 'Beta（Expert 27）');
     expect(screen.getByRole('button', { name: '更换音频' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '清除' })).toBeDisabled();
     expect(screen.getByDisplayValue('120')).toHaveAttribute('readonly');
   });
 
-  it('三张已上传谱面：横幅全量点名，不截断（票 50 #4 边界）', async () => {
+  it('三张已上传谱面：横幅显示中性提示，全量名单挂 title 悬停提示', async () => {
     await mountPage([multiLockedProject('p3', 'Triple', 3)], { scope: { projectId: 'p3' } });
 
     const banner = await screen.findByRole('alert');
-    expect(banner).toHaveTextContent('已上传谱面 甲谱（Expert 27）、乙谱（Expert 28）、丙谱（Expert 29），音频与时长已锁定');
-    expect(banner).not.toHaveAttribute('title');
+    expect(banner).toHaveTextContent('当前工程存在已上传的谱面，音频与时长已锁定。');
+    expect(banner).toHaveAttribute('title', '甲谱（Expert 27）、乙谱（Expert 28）、丙谱（Expert 29）');
   });
 
-  it('四张已上传谱面：点名封顶前 3 张 + 「等 N 张」，全量名单挂 title 悬停提示（票 50 #4）', async () => {
+  it('四张已上传谱面：横幅显示中性提示，全量名单挂 title 悬停提示', async () => {
     await mountPage([multiLockedProject('p4', 'Quad', 4)], { scope: { projectId: 'p4' } });
 
     const banner = await screen.findByRole('alert');
-    expect(banner).toHaveTextContent('已上传谱面 甲谱（Expert 27）、乙谱（Expert 28）、丙谱（Expert 29）等 4 张，音频与时长已锁定');
+    expect(banner).toHaveTextContent('当前工程存在已上传的谱面，音频与时长已锁定。');
     // 丁谱不占版面但点得到名：title 里是全量名单
     expect(banner).toHaveAttribute('title', '甲谱（Expert 27）、乙谱（Expert 28）、丙谱（Expert 29）、丁谱（Expert 30）');
   });

@@ -71,8 +71,8 @@ describe('chart-projects 06: 只读闸门与音频锁静态装配锁测', () => 
   it('i18n: 中英文翻译齐备', () => {
     const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json'));
     const en = JSON.parse(readSource('src/i18n/messages/en.json'));
-    expect(zh['workspace.readonlyPrompt']).toBe('已上传的谱面不能修改，复制这张谱面来改？');
-    expect(zh['workspace.readonlyCopyBtn']).toBe('复制这张谱面');
+    expect(zh['workspace.readonlyPrompt']).toBe('已上传谱面本体不可修改');
+    expect(zh['workspace.readonlyCopyBtn']).toBe('复制并编辑');
     expect(zh['audio.lockedPrompt']).toBe('复制这个工程或新建工程后再换音频');
     expect(en['workspace.readonlyPrompt']).toBeTruthy();
     expect(en['workspace.readonlyCopyBtn']).toBeTruthy();

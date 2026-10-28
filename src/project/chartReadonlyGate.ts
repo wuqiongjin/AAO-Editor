@@ -81,7 +81,7 @@ export function checkChartEditAllowed(chart: { upload: ChartUploadRecord | null 
     return {
       allowed: false,
       rejected: 'uploaded_readonly',
-      message: '已上传的谱面不能修改，复制这张谱面来改？',
+      message: '已上传谱面本体不可修改',
     };
   }
   return { allowed: true };

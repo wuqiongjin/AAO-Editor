@@ -19,8 +19,8 @@ describe('issue 05 · README 双语布线与 LICENSE 锁测', () => {
   it('README.md 与 README.en.md 同时存在且互为语言入口', () => {
     expect(existsSync(join(root, 'README.md'))).toBe(true);
     expect(existsSync(join(root, 'README.en.md'))).toBe(true);
-    expect(zh).toContain('](./README.en.md)');
-    expect(en).toContain('](./README.md)');
+    expect(zh).toMatch(/(\]\(\.\/README\.en\.md\)|href="\.\/README\.en\.md")/);
+    expect(en).toMatch(/(\]\(\.\/README\.md\)|href="\.\/README\.md")/);
   });
 
   it('两语言版章节数量一致（防单侧漂移）', () => {
