@@ -131,7 +131,7 @@ bash scripts/dev.sh   # 启动开发服务器（统一处理文件描述符上�
 ## 文档
 
 - 领域术语与规则：[`CONTEXT.md`](./CONTEXT.md)；架构决策记录：[`docs/adr/`](./docs/adr/)
-- 产品使用文档站：`<占位：docs-site 上线后回填>`
+- 产品主页：[wuqiongjin.github.io/AAO-Editor](https://wuqiongjin.github.io/AAO-Editor/)；使用文档：[guide](https://wuqiongjin.github.io/AAO-Editor/guide/)
 - 问题反馈：[GitHub Issues](https://github.com/wuqiongjin/AAO-Editor/issues)
 
 ## 许可证

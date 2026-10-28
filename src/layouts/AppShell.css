@@ -124,13 +124,86 @@
   color: var(--accent-text);
 }
 
+/* ---- 导航作者块（票 18；2026-10-28 二次改版）----
+   贴底的一档署名，与页面项之间隔一道细线 —— 它不是一个页面，别混进导航项那串。
+   两态各归各的：展开态只有一行小字（无图标），折叠态只有一枚 GitHub 标记。
+   为什么不给折叠态配 User 图标：那看着像"账号/登录"，而工程页侧栏已有 Bestdori 账号区。
+   `margin-top: auto` 住分隔线：它把「分隔线 + 作者块 + 折叠钮」这一组压到底。 */
+.app-nav-divider {
+  flex: 0 0 auto;
+  width: 100%;
+  height: 1px;
+  margin-top: auto;
+  margin-bottom: 8px;
+  background: var(--border-faint);
+}
+
+.app-author {
+  position: relative;
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-subtle);
+  padding: 0 10px;
+  text-decoration: none;
+  transition: background-color 120ms var(--ease), color 120ms var(--ease);
+}
+
+.app-author:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 标记默认不出现：只有折叠态（导航收成图标栏）才需要它替文字说话 */
+.app-author__mark {
+  display: none;
+  flex: 0 0 auto;
+}
+
+.app-author__text {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 5px;
+  overflow: hidden;
+  /* 比 `--text-2xs`（11px）小 1px：156px 的导航列里，11px 会让这行字贴着 hover 箭头的边。
+     仍跟 `--ui-type-scale` 缩放，只动这一档的字面量。 */
+  font-size: calc(10px * var(--ui-type-scale));
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.app-author__role {
+  color: var(--text-subtle);
+}
+
+.app-author__name {
+  color: var(--text-muted);
+}
+
+/* 箭头绝对定位：它 hover 才出现，不占正文宽度（占一格就会把名字挤短） */
+.app-author__arrow {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 120ms var(--ease);
+}
+
+.app-author:hover .app-author__arrow {
+  opacity: 1;
+}
+
 .app-nav-toggle {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
   min-height: 34px;
   align-items: center;
   gap: 9px;
-  margin-top: auto;
+  margin-top: 4px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
@@ -183,6 +256,27 @@
 
 .app-shell.is-nav-collapsed .app-nav-toggle {
   grid-template-columns: 1fr;
+}
+
+/* 折叠态：文字与箭头退场，只剩一枚 GitHub 标记（绝不留 User 图标 —— 那像账号入口） */
+.app-shell.is-nav-collapsed .app-nav-divider {
+  width: 26px;
+}
+
+.app-shell.is-nav-collapsed .app-author {
+  width: 38px;
+  min-height: 34px;
+  justify-content: center;
+  padding: 0;
+}
+
+.app-shell.is-nav-collapsed .app-author__mark {
+  display: block;
+}
+
+.app-shell.is-nav-collapsed .app-author__text,
+.app-shell.is-nav-collapsed .app-author__arrow {
+  display: none;
 }
 
 .app-shell.is-nav-collapsed .app-nav-item span,
@@ -2154,6 +2248,59 @@ button.skin-pill {
   color: var(--text);
 }
 
+/* 产品入口（票 18，2026-10-28 验收改版）：身份卡内的**一行紧凑 chip**。
+   原先四行各占 46px（连分隔线近 190px），四个地址把关于页撑得要滚 —— 一行 chip 只有 28px，
+   且与身份卡合成"产品信息"这一块。窄窗口自然换行，不另做折叠。 */
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+}
+
+.about-link {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  padding: 0 9px;
+  text-decoration: none;
+  font-size: var(--text-2xs);
+  transition:
+    background-color 120ms var(--ease),
+    border-color 120ms var(--ease),
+    color 120ms var(--ease);
+}
+
+.about-link:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.about-link__label {
+  white-space: nowrap;
+}
+
+/* 箭头常显但压低：它是"这个入口会离开应用"的提示，hover 才抬起来 */
+.about-link__arrow {
+  flex: 0 0 auto;
+  margin-left: 1px;
+  color: var(--text-subtle);
+  opacity: 0.6;
+  transition: color 120ms var(--ease), opacity 120ms var(--ease);
+}
+
+.about-link:hover .about-link__arrow {
+  color: var(--accent-text);
+  opacity: 1;
+}
+
 .about-identity + .settings-row:not(.settings-row--diagnostics) {
   border-top: 0;
 }
@@ -2675,6 +2822,27 @@ button.skin-pill {
     max-width: 0;
     overflow: hidden;
     pointer-events: none;
+  }
+
+  /* 这一档是"物理收窄"而不是 is-nav-collapsed：作者块要跟着收，否则 52px 里塞得下名字 */
+  .app-shell .app-nav-divider {
+    width: 26px;
+  }
+
+  .app-shell .app-author {
+    width: 38px;
+    min-height: 34px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .app-shell .app-author__mark {
+    display: block;
+  }
+
+  .app-shell .app-author__text,
+  .app-shell .app-author__arrow {
+    display: none;
   }
 }
 

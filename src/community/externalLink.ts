@@ -8,24 +8,19 @@
  *
  * 三条口径（与票 07 的「出口唯一 + 域名白名单」同族）：
  *   1. **零参数**：URL 由 `bestdori/endpoints.ts` 自己取，调用方递不进任意地址；
- *   2. **校验在主进程**（`electron/externalLink.cjs`）：只放行社区平台自己与其子域，其余拒绝；
- *   3. 没有桥（静态演示版）= 没有这个能力，返回 `false` 不报错（账号区本来就不渲染，Q11）。
+ *   2. **校验在主进程**（`electron/externalLink.cjs`）：本函数只产站点首页，别的地址由主进程
+ *      按白名单拒 —— 票 18 起那份白名单还含产品自有站点，与这条社区出口无关；
+ *   3. 没有桥（静态演示版 = 没有账号能力）= 返回 `false` 不报错（账号区本来就不渲染，Q11）。
+ *      注意这里**不退化成 `window.open`**：在线版没有账号能力，这条链接本就不该有。
+ *      产品入口（票 18）那条出口另有降级，见 `src/app/openExternal.ts`。
  *
- * 界面侧仍保留 `<a href>`（可复制 / 键盘可达 / 无障碍），点击**拦掉默认行为**改走这条出口。
+ * 桥的读取与打开动作在 `src/app/openExternal.ts`（票 18 起两处共用同一份桥形状）——
+ * 这里保留零参数的社区语义，只借它的「认桥」那一半。
+ *
+ * 界面侧仍保留 `<a href>`（可复制 / 键盘可达），点击**拦掉默认行为**改走这条出口。
  */
 import { siteHomeUrl } from './bestdori/endpoints';
-
-/** preload 暴露的站外链接桥（本仓惯例：桥形状由消费方就近声明，没有集中 d.ts） */
-export interface ExternalLinkBridge {
-  openExternal(url: string): Promise<boolean>;
-}
-
-/** 读桥；浏览器里（没有 window / 没有 electronAPI）返回 null */
-export function getExternalLinkBridge(): ExternalLinkBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { shell?: ExternalLinkBridge } }).electronAPI;
-  return api?.shell ?? null;
-}
+import { getExternalLinkBridge } from '../app/openExternal';
 
 /**
  * 打开社区平台的站点首页。**零参数**：URL 从这里（`endpoints.ts`）产生，调用方塞不进别的地址。

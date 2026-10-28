@@ -48,3 +48,4 @@
 - [15 CNB 国内副本镜像 API 集成](./issues/15-CNB国内副本镜像API集成.md) — resolved（2026-10-21~22 三轮验收逐层剥开：404 = 端点多插一层路径前缀（CNB 路由一律 `/{repo}/-/…`，且 GET 的 404 被当「release 不存在」吞掉，POST 创建才暴露）；406 = Accept 未带版本化媒体类型；400 = SDK 的 upload_releases + asset-upload-confirmation 是旧口径（响应无 token，确认 URL 拼出 undefined）。终态 = cnbcool/attachments 插件 TS/Go 两版交叉验证的全链：asset-upload-url 发起 → PUT 直传 → verify_url 回认；第 3 轮验收通过，用户确认）
 - [16 下载源：CNB 与 GitHub](./issues/16-下载源CNB与GitHub.md) — resolved（关于选择器 + CNB 匿名 generic feed：运行时 `setFeedURL`，镜像改写 `latest*.yml`）
 - [17 检查与本地包两轴](./issues/17-检查与本地包两轴.md) — resolved（2026-10-25 用户验收：远端/本地包分轴；立即重启跟包走，检查不踩碎）
+- [18 产品信息与作者入口](./issues/18-产品信息与作者入口.md) — resolved（2026-10-28 定案 + 两轮验收改版：关于页入口 = **身份卡内一行紧凑 chip**（产品主页 / 使用文档 / GitHub 仓库 / 问题反馈，URL 只进 tooltip，四行 190px → 42px）；导航作者块 = 分隔线 + **折叠态 GitHub 标记**（禁 User 图标，会被误读成账号入口）/ **展开态一行小字无图标**，tooltip 说「打开 wuqiongjin 的 GitHub 主页」；桌面端独立产品白名单（与社区白名单分开）、在线版 window.open；博客不进首版。本地提交 e6b7e71，未推远端）

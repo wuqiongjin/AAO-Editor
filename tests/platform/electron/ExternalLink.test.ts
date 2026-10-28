@@ -6,8 +6,9 @@
 //   ② 非站点 URL（其它站 / 子域伪装 / 非 https / 非字符串）一律拒绝，且**一次都不调** openExternal；
 //   ③ 域名事实只有一份：白名单取自 communityNet.cjs，main.cjs 只接线、自己不认域名。
 import { describe, expect, it } from 'vitest';
-import { isSiteUrl, registerExternalLinkIpc } from '@/electron/externalLink.cjs';
+import { isProductUrl, isSiteUrl, registerExternalLinkIpc } from '@/electron/externalLink.cjs';
 import { siteHomeUrl } from '@/src/community/bestdori/endpoints';
+import { PRODUCT_LINKS } from '@/src/app/productLinks';
 import { readSource, readStripped } from '@/tests/support/source';
 
 const PRELOAD = 'electron/preload.js';
@@ -122,5 +123,41 @@ describe('票 39 · 站外链接的接线事实', () => {
     expect(external).not.toMatch(/bestdori\.com|https?:\/\//);
     // 界面侧保留 <a href>（可复制 / 键盘可达）：两条入口都指站点首页
     expect(readStripped('src/pages/projects/components/SignInDialog.tsx')).toMatch(/siteHomeUrl\(\)/);
+  });
+});
+
+// 票 18：产品自有站点（关于页四行 + 导航作者块）。与社区那条**同一座桥、不同一份白名单**：
+// 社区白名单是网络出口的信任边界（票 07），产品域名混进去等于顺手放宽它。
+describe('票 18 · 产品入口（自有站点白名单）', () => {
+  const PRODUCT = Object.values(PRODUCT_LINKS);
+
+  it('五个产品地址都放行：同一个出口，一次一条', async () => {
+    const { handler, calls } = makeExit();
+
+    for (const url of PRODUCT) {
+      await expect(handler(null, url), url).resolves.toBe(true);
+    }
+    expect(calls).toEqual(PRODUCT);
+  });
+
+  it('只认自家两域：子域伪装 / 路径伪装 / 非 https 一律拒，且一次都不 open', async () => {
+    const { handler, calls } = makeExit();
+
+    for (const url of [
+      'https://github.com.evil.example/',
+      'https://evil.example/github.com',
+      'https://wuqiongjin.github.io.evil.example/',
+      'http://github.com/wuqiongjin/AAO-Editor',   // 只有 https 出得去
+      'javascript:void(0)',
+    ]) {
+      await expect(handler(null, url), url).rejects.toThrow();
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it('两份白名单互不覆盖', () => {
+    for (const url of PRODUCT) expect(isSiteUrl(url), url).toBe(false);
+    expect(isProductUrl(siteHomeUrl())).toBe(false);
+    expect(isProductUrl('https://github.com/wuqiongjin/AAO-Editor/blob/main/README.md')).toBe(true);
   });
 });

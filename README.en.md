@@ -131,7 +131,7 @@ Common commands: `npm test` (unit tests + static lock tests), `npm run build` (w
 ## Documentation
 
 - Domain terminology and rules: [`CONTEXT.md`](./CONTEXT.md); architecture decision records: [`docs/adr/`](./docs/adr/)
-- Product documentation site: `<placeholder: to be filled when the docs site goes live>`
+- Product home: [wuqiongjin.github.io/AAO-Editor](https://wuqiongjin.github.io/AAO-Editor/); documentation: [guide](https://wuqiongjin.github.io/AAO-Editor/guide/)
 - Issue tracker: [GitHub Issues](https://github.com/wuqiongjin/AAO-Editor/issues)
 
 ## License

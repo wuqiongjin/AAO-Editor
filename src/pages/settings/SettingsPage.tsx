@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Download, FolderOpen, FolderSearch, FolderSync, Github, Info, MonitorCog, RefreshCw, RotateCw, Trash2, Upload } from 'lucide-react';
+import { BookOpen, Check, Download, ExternalLink, FolderOpen, FolderSearch, FolderSync, Github, House, Info, MessageCircleQuestion, MonitorCog, RefreshCw, RotateCw, Trash2, Upload } from 'lucide-react';
 import appLogo from '../../assets/brand/app-logo.png';
 import AppPageShell from '../../layouts/AppPageShell';
 import { useConfig } from '../../app/ProviderTree';
@@ -26,9 +26,22 @@ import {
 import { toastAppUpdateResult } from '../../app/appUpdateFeedback';
 import CnbMark from '../../ui/CnbMark';
 import { exportDiagnostics, getDiagnosticsExportBridge } from '../../diagnostics/exportDiagnostics';
+import { PRODUCT_LINKS, shortUrl } from '../../app/productLinks';
+import ExternalLinkAnchor from '../../ui/ExternalLinkAnchor';
 
 // 设置页：接入 AppPageShell（Sidebar 扁平导航 + Body 设置详情），修改立即生效并持久化。
 type Section = 'appearance' | 'data' | 'about';
+
+/**
+ * 关于页的四条产品入口（票 18）。顺序即叙事：先「去哪看产品」，再「去哪看代码」。
+ * 地址只从 `productLinks.ts` 取 —— 这一页不出现任何裸 URL（锁测会拦）。
+ */
+const ABOUT_LINKS: Array<{ url: string; icon: typeof House; labelKey: MessageKey }> = [
+  { url: PRODUCT_LINKS.home, icon: House, labelKey: 'settings.about.links.home' },
+  { url: PRODUCT_LINKS.guide, icon: BookOpen, labelKey: 'settings.about.links.guide' },
+  { url: PRODUCT_LINKS.repository, icon: Github, labelKey: 'settings.about.links.repository' },
+  { url: PRODUCT_LINKS.issues, icon: MessageCircleQuestion, labelKey: 'settings.about.links.issues' },
+];
 
 const THEME_OPTIONS: Array<{ value: AppSettings['theme']; labelKey: MessageKey; swatch: string }> = [
   { value: 'light', labelKey: 'settings.theme.light', swatch: 'light' },
@@ -194,6 +207,20 @@ function AboutSection({
             <WebVersionNote compact />
           </div>
         )}
+        {/* 产品入口（票 18，2026-10-28 验收改版）：四行改成**身份卡内的一行紧凑入口**。
+            为什么不再各占一行：四行 46px 的行体（连同分隔线近 190px）把关于页撑得要滚，
+            而它们只是四个地址 —— 信息密度决定了一行 chip 就够，且与身份卡合成"产品信息"
+            这一块，不再和下面的设置行抢层级。地址只进 tooltip（去掉协议），
+            点击拦默认行为走统一出口（见 ui/ExternalLinkAnchor）。 */}
+        <div className="about-links">
+          {ABOUT_LINKS.map(({ url, icon: Icon, labelKey }) => (
+            <ExternalLinkAnchor key={labelKey} className="about-link" href={url} title={shortUrl(url)}>
+              <Icon size={14} strokeWidth={1.7} aria-hidden />
+              <span className="about-link__label">{t(labelKey)}</span>
+              <ExternalLink className="about-link__arrow" size={11} strokeWidth={1.8} aria-hidden />
+            </ExternalLinkAnchor>
+          ))}
+        </div>
       </div>
       {packaged && (
         <>

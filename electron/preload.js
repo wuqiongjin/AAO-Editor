@@ -61,7 +61,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 票 39：站外链接的唯一出口 —— 注册 / 找回密码这类「去站点」的入口开系统浏览器
     // （仓里既有的 <a target="_blank"> 在 Electron 里会开应用内无地址栏窗口 = 错形态）。
     // 与上面几条零入参桥不同：这条**必须收 URL**，所以放不放行由主进程校验
-    // （electron/externalLink.cjs 只放行社区平台及其子域），renderer 递不进任意地址。
+    // （electron/externalLink.cjs 按两份白名单放行：社区平台 + 产品自有站点，其余一律拒），
+    // renderer 递不进任意地址。
     shell: {
         openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
     },

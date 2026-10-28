@@ -1,9 +1,11 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import appLogo from '../assets/brand/app-logo.png';
 import { t, type MessageKey } from '../i18n';
-import { ChevronsLeft, ChevronsRight, Eye, FolderOpen, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
+import { ArrowUpRight, ChevronsLeft, ChevronsRight, Eye, FolderOpen, Github, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
 import { PAGE_NAV } from './pageNav';
 import type { PageScope } from './pageScope';
+import { AUTHOR_NAME, PRODUCT_LINKS } from '../app/productLinks';
+import ExternalLinkAnchor from '../ui/ExternalLinkAnchor';
 
 // 应用级导航（issue 28）：跨页持久、可折叠（默认折叠）。
 // 工作台页：与左侧工具面板合成同一左列（顶部导航、下方工具）；非工作台页：独立左列导航栏。
@@ -74,6 +76,26 @@ export function AppNav() {
           );
         })}
       </nav>
+      {/* 作者块（票 18；2026-10-28 二次改版，推翻第一版）：
+          - 折叠态只给 GitHub 标记，**不用 User 图标** —— 那看着像账号/登录入口（工程页侧栏已有
+            Bestdori 账号区），而这里点开的是作者主页；
+          - 展开态只给一行小字，**不配图标**：156px 里再挤一个图标列，名字就会被顶到箭头位上
+            （第一版就是这么叠字的）；
+          - 与页面项之间隔一道细线 —— 它不是一个页面，别混进导航项那串；
+          - tooltip 说的是"点了会发生什么"（打开谁的 GitHub 主页），不是"这是谁"。 */}
+      <span className="app-nav-divider" aria-hidden />
+      <ExternalLinkAnchor
+        className="app-author"
+        href={PRODUCT_LINKS.author}
+        title={t('nav.author.title', { name: AUTHOR_NAME })}
+      >
+        <Github className="app-author__mark" size={18} strokeWidth={1.7} aria-hidden />
+        <span className="app-author__text">
+          <span className="app-author__role">{t('nav.author.role')}</span>
+          <span className="app-author__name">{AUTHOR_NAME}</span>
+        </span>
+        <ArrowUpRight className="app-author__arrow" size={12} strokeWidth={1.9} aria-hidden />
+      </ExternalLinkAnchor>
       <button
         className="app-nav-toggle"
         type="button"
