@@ -16,7 +16,7 @@ A **chart project** is one song: project info, audio, cover, and multiple charts
 
 - Manage every chart of the song, inspect cover and audio, and enter each chart's workspace.
 - **Chart status** is derived: no upload record and not marked complete is *unfinished*; marked complete is *completed*; having an upload record is *uploaded*.
-- **Uploaded charts are read-only**: you can view, preview, and play them, but any edit entry tells you to **copy this chart** first. A copy carries no status and can be published again.
+- **The chart itself is read-only once uploaded**: you can view, preview, and play it, but the note-editing entry tells you to **copy this chart** first. A copy carries no status and can be published again. **Difficulty, level and tags** can still be changed from the **Update** dialog in project detail.
 - A project keeps at least one chart. Deleting a project also deletes its audio, cover, and all charts, behind a confirmation. Posts already published to the community are unaffected.
 
 ## Editing and slides

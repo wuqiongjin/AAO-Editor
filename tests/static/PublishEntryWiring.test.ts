@@ -4,7 +4,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'path';
 import { describe, expect, it } from 'vitest';
-import { readStripped, repoRoot } from '@/tests/support/source';
+import { readSource, readStripped, repoRoot, sourceFiles } from '@/tests/support/source';
 
 const publishDialog = readStripped('src/pages/projects/components/PublishDialog.tsx');
 const publishDialogCss = readStripped('src/pages/projects/components/PublishDialog.css');
@@ -28,8 +28,9 @@ describe('票 11 · 发布弹窗走既有弹窗壳', () => {
 describe('票 11 · 发布入口的接线', () => {
   it('入口在工程详情（ADR-0015 §4：上传链路不归工程管理页管，它作入口）', () => {
     expect(projectDetail).toMatch(/onPublishChart/);
-    expect(projectDetail).toMatch(/t\(up \? 'projects\.publish\.communityPost' : 'projects\.publish\.action'\)/);
-    // 票 51：已发谱面仍有入口（已发布），不再卸掉
+    // 票 54：已发态按钮给动作词「更新」，不给状态词
+    expect(projectDetail).toMatch(/t\(up \? 'projects\.publish\.update' : 'projects\.publish\.action'\)/);
+    // 票 51：已发谱面仍有入口，不再卸掉
     expect(projectDetail).toMatch(/\{publishEntry && \(/);
     expect(projectDetail).not.toMatch(/publishEntry && !up/);
     // 票 41：灰化 why 不占列表行；未登录要点得开（aria-disabled，不是原生 disabled）
@@ -63,6 +64,51 @@ describe('票 11 · 发布入口的接线', () => {
     };
     walk('src/community');
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('票 54 · 已发布态的文案口径', () => {
+  it('弹窗标题：未发「发布谱面」、已发「更新谱面」（标题说这张窗干什么）', () => {
+    expect(publishDialog).toMatch(/t\(published \? 'projects\.publish\.updateTitle' : 'projects\.publish\.title'\)/);
+    expect(publishDialog).not.toMatch(/projects\.publish\.communityPost/);
+  });
+
+  it('communityPost 键退役：全仓 src 与两份字典里都不再有它（键名与文案两头不靠）', () => {
+    // 全仓扫源文件：任何一个再引用这个键都红（不只这两个组件）
+    const hits = sourceFiles('src').filter((rel) => /communityPost/.test(readSource(rel)));
+    expect(hits).toEqual([]);
+    const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
+    const en = JSON.parse(readSource('src/i18n/messages/en.json')) as Record<string, string>;
+    expect(Object.keys(zh)).not.toContain('projects.publish.communityPost');
+    expect(Object.keys(en)).not.toContain('projects.publish.communityPost');
+    // 文案值也锁住：字典漂移（改成别的词）要红
+    expect(zh['projects.publish.updateTitle']).toBe('更新谱面');
+    expect(en['projects.publish.updateTitle']).toBe('Update chart');
+  });
+
+  it('「已发布就不能改」的说法不能回潮：README / 文档站与 already 文案都说「谱面本体只读、元数据可改」', () => {
+    const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
+    const en = JSON.parse(readSource('src/i18n/messages/en.json')) as Record<string, string>;
+    // already 文案：点明 diff / level / tags 还能改（票 51 起的口径）
+    expect(zh['projects.publish.err.already']).toContain('更新');
+    expect(en['projects.publish.err.already']).toContain('Update');
+
+    // 四份对外文档：旧说法一律不许再出现
+    const docs: Array<[string, string[]]> = [
+      ['README.md', ['已发布的谱面只读', '已上传谱面只读']],
+      ['README.en.md', ['published charts are read-only', 'Uploaded charts are read-only']],
+      ['docs-site/guide/features.md', ['已上传的谱面只读']],
+      ['docs-site/en/guide/features.md', ['Uploaded charts are read-only']],
+    ];
+    for (const [file, stale] of docs) {
+      const text = readSource(file);
+      for (const phrase of stale) expect(text, `${file} 仍写着旧口径「${phrase}」`).not.toContain(phrase);
+    }
+    // 反向：新口径要在场（否则等于把这段说明删了）
+    expect(readSource('README.md')).toContain('更新');
+    expect(readSource('README.en.md')).toContain('Update');
+    expect(readSource('docs-site/guide/features.md')).toContain('更新');
+    expect(readSource('docs-site/en/guide/features.md')).toContain('Update');
   });
 });
 

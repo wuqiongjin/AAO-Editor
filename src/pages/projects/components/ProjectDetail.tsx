@@ -192,7 +192,8 @@ export function ProjectDetail({
                     <button type="button" className="pp-btn pp-btn--sm" onClick={() => onPreviewChart(c.id)}>
                       <Eye size={12} />{t('projects.previewChart')}
                     </button>
-                    {/* 发布入口（票 11 / 51）：未发「发布」、已发「已发布」（同一张弹窗改 diff/level/tags）。
+                    {/* 发布入口（票 11 / 51 / 54）：未发「发布」、已发「更新」（同一张弹窗改 diff/level/tags）。
+                        按钮位置只给动作词——「已发布」这类状态由行内「已上传」徽标说，不抢按钮的语义。
                         写能力被挡时禁用（说明见上面那一行）。 */}
                     {publishEntry && (
                       <button
@@ -210,7 +211,7 @@ export function ProjectDetail({
                           onPublishChart(c);
                         }}
                       >
-                        <Upload size={12} />{t(up ? 'projects.publish.communityPost' : 'projects.publish.action')}
+                        <Upload size={12} />{t(up ? 'projects.publish.update' : 'projects.publish.action')}
                       </button>
                     )}
                     <button type="button" className="pp-icon-btn" title={t('projects.editChart')} onClick={() => onChartForm({ project: sel, chart: c })}><Pencil size={14} /></button>

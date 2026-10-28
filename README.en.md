@@ -30,7 +30,7 @@ A **chart project** is one song: project info, audio, cover art and multiple cha
 **Project detail**
 
 - Inside a song, manage every chart (difficulty / level), review cover art and audio, and open each chart's **workspace** from here.
-- **Chart status** is derived automatically (in progress / completed / uploaded). Uploaded charts are read-only — duplicate first, then edit the copy.
+- **Chart status** is derived automatically (in progress / completed / uploaded). An uploaded chart's **notes** are read-only — duplicate first, then edit the copy (difficulty / level / tags can still be changed from the **Update** dialog).
 
 ![Project detail: multiple charts under one song](./docs/media/readme/project-detail.png)
 
@@ -81,7 +81,7 @@ A **chart project** is one song: project info, audio, cover art and multiple cha
 
 - Browse the **official song catalog** and **community charts**: search, preview, import by difficulty, with audio and cover art brought along.
 - Create a project directly from an official chart or a community post — the chart code lands in the editor as-is.
-- Authorize your account to **publish** charts to the community; published charts are read-only, and revisions go through a duplicate.
+- Authorize your account to **publish** charts to the community; a published chart's **notes** can't be changed (duplicate it to revise them), while difficulty / level / tags can still be updated from the **Update** dialog.
 
 > <!-- TODO(local capture): song picker / account authorization & upload screenshots -->
 

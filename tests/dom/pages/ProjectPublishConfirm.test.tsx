@@ -5,7 +5,8 @@
 //   ③ 入参形状：标题按站点口径解析（谱面名称 → 工程名称）、song 按曲目来源、
 //      谱面代码原样递出（sanitize 在能力层，UI 不碰）；
 //   ④ custom 曲目打开时就备上传引用；读不到 = 发布不可用（就地一行，不静默）；
-//   ⑤ 失败就地内联在弹窗里（不 Toast、不关窗）；已发布过的谱面直接禁用。
+//   ⑤ 失败就地内联在弹窗里（不 Toast、不关窗）；**已发布过的谱面不再禁用**，而是进「更新」态
+//      （标题「更新谱面」、主按钮「更新」、无二次确认）——票 51 起的口径。
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -189,9 +190,11 @@ describe('票 11 · 发布弹窗：必填预检与确认门', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('已发布过的谱面：标题改「已发布」，主按钮是「更新」，不再挡成已发布错误', async () => {
+  it('已发布过的谱面：标题改「更新谱面」，主按钮是「更新」，不再挡成已发布错误', async () => {
     renderDialog({ chart: makeChart({ upload: { postId: 254203, at: AT } }) });
-    expect(screen.getByRole('heading', { name: '已发布' })).toBeInTheDocument();
+    // 票 54：标题说「这张窗干什么」（更新谱面），不拿状态词当标题
+    expect(screen.getByRole('heading', { name: '更新谱面' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '已发布' })).toBeNull();
     expect(screen.getByRole('button', { name: '更新' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: '发布' })).toBeNull();
     expect(screen.queryByText(/这张谱面已经发布过了/)).toBeNull();

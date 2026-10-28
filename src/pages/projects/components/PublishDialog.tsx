@@ -8,6 +8,8 @@
 //   ④ 描述草稿持久化（Q3 / 票 51 Q13）：草稿记在谱面工程记录里，复制谱面一并带上，发布成功后保留；
 //   ⑤ 预检与一次性确认：预检纯函数 precheckPublish，缺项就地标红与空槽展示，确认窗复用 ConfirmDialog；
 //   ⑥ 票 50：确认问句独立成行（#1）、失败展示升级为告警区块（#2）——重试仍过确认门，不猜平台拒绝成因。
+//   ⑦ 票 54：已发态标题「更新谱面」（未发「发布谱面」）——标题说这张窗干什么，不拿状态词当标题；
+//      谱面行按钮同步改「更新」，「已发布」这类状态交给行内「已上传」徽标。
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CircleAlert, Music2, Wand2, X } from 'lucide-react';
 import { formatValidationError, type ChartCodeNote, type ValidationError } from '../../../chart/editing/ChartConverter';
@@ -467,7 +469,7 @@ export function PublishDialog(props: {
   const head = (
     <div className="ppc-head">
       <div className="ppc-head__title">
-        <h3 className="dialog__title">{t(published ? 'projects.publish.communityPost' : 'projects.publish.title')}</h3>
+        <h3 className="dialog__title">{t(published ? 'projects.publish.updateTitle' : 'projects.publish.title')}</h3>
         <HelpHint text={t(published ? 'projects.publish.editHint' : 'projects.publish.helpHint')} placement="down" />
       </div>
       {profile && (
