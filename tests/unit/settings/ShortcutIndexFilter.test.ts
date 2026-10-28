@@ -4,10 +4,8 @@ import { describe, it, expect } from 'vitest';
 import { FUNCTIONS, getDefaultConfig } from '@/src/chart/config/ShortcutConfig';
 import {
   INDEX_FILTERS,
-  PAGE_SWITCH_ROWS,
   bucketForCategory,
   filterFunctions,
-  filterPageSwitchRows,
   shortcutTableEmptyKind,
   restoreDefaultsInFilter,
 } from '@/src/settings/shortcutIndexFilter';
@@ -17,9 +15,10 @@ import { stripComments, readSource } from '@/tests/support/source';
 
 
 describe('issue 121 · 索引筛选桶归属', () => {
-  it('切页行恰好 7 条（chart-preview 02 起含预览），且都归系统', () => {
-    expect(PAGE_SWITCH_ROWS).toHaveLength(7);
-    expect(PAGE_SWITCH_ROWS.every((row) => row.bucket === 'system')).toBe(true);
+  it('切页七功能在表内（issue 177），且都归系统', () => {
+    const pages = FUNCTIONS.filter((f) => f.scope === 'app');
+    expect(pages).toHaveLength(7);
+    expect(pages.every((f) => bucketForCategory(f.category) === 'system')).toBe(true);
   });
 
   it('每条 FunctionId 恰好落入一个非「全部」桶，「其它」默认空', () => {
@@ -43,6 +42,7 @@ describe('issue 121 · 索引筛选桶归属', () => {
       copy: 'editTools', paste: 'editTools', cut: 'editTools', delete: 'editTools',
       mirror: 'editTools', noteCode: 'editTools', undo: 'editTools', redo: 'editTools',
       play: 'playback',
+      navigation: 'system',
     };
     for (const f of FUNCTIONS) {
       expect(bucketForCategory(f.category), f.id).toBe(expected[f.category]);
@@ -62,20 +62,13 @@ describe('issue 121 · 搜索 ∩ 桶', () => {
   it('桶=播放 + 搜索「单键」→ 空', () => {
     const cfg = getDefaultConfig();
     expect(filterFunctions(FUNCTIONS, 'playback', '单键', cfg)).toEqual([]);
-    expect(filterPageSwitchRows(PAGE_SWITCH_ROWS, 'playback', '单键')).toEqual([]);
   });
 
   it('空态：其它=空桶；播放+「单键」=搜索空', () => {
     const cfg = getDefaultConfig();
-    const otherHits =
-      filterFunctions(FUNCTIONS, 'other', '', cfg).length +
-      filterPageSwitchRows(PAGE_SWITCH_ROWS, 'other', '').length;
-    const playHits =
-      filterFunctions(FUNCTIONS, 'playback', '', cfg).length +
-      filterPageSwitchRows(PAGE_SWITCH_ROWS, 'playback', '').length;
-    const playSearchHits =
-      filterFunctions(FUNCTIONS, 'playback', '单键', cfg).length +
-      filterPageSwitchRows(PAGE_SWITCH_ROWS, 'playback', '单键').length;
+    const otherHits = filterFunctions(FUNCTIONS, 'other', '', cfg).length;
+    const playHits = filterFunctions(FUNCTIONS, 'playback', '', cfg).length;
+    const playSearchHits = filterFunctions(FUNCTIONS, 'playback', '单键', cfg).length;
     expect(shortcutTableEmptyKind(otherHits, otherHits)).toBe('empty-bucket');
     expect(shortcutTableEmptyKind(playHits, playSearchHits)).toBe('empty-search');
   });

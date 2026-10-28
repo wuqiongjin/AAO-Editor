@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PAGE_NAV } from '@/src/layouts/pageNav';
 import { PAGE_REGISTRY } from '@/src/pages/PageRegistry';
-import { PAGE_SWITCH_ROWS } from '@/src/settings/shortcutIndexFilter';
+import { FUNCTIONS } from '@/src/chart/config/ShortcutConfig';
 import { readStripped, repoRoot } from '@/tests/support/source';
 
 /** dir 下全部源码文件（相对仓库根的路径） */
@@ -52,19 +52,21 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
 
     const navIds = PAGE_NAV.map((item) => item.id);
     expect(navIds).toEqual(PAGE_ORDER);
-    expect(PAGE_NAV.find((item) => item.id === 'preview')).toMatchObject({ shortcut: '⇧⌘3', key: '3' });
+    expect(PAGE_NAV.find((item) => item.id === 'preview')).toMatchObject({ functionId: 'pagePreview' });
 
     expect(Object.keys(PAGE_REGISTRY).sort()).toEqual([...navIds].sort());
     expect(readStripped('src/pages/PageRegistry.tsx')).toContain("lazy(() => import('./preview/PreviewPage'))");
   });
 
-  it('切页快捷键表跟着预览页多一行（Ctrl/⌘+Shift+3），与 PAGE_NAV 同序同键', () => {
-    expect(PAGE_SWITCH_ROWS.map((row) => row.label)).toEqual([
+  it('切页键表跟着预览页多一项（pagePreview · Alt+4），与 PAGE_NAV 同序同键', () => {
+    const pages = FUNCTIONS.filter((f) => f.scope === 'app');
+    expect(pages.map((f) => f.label)).toEqual([
       'pageSwitch.projects', 'pageSwitch.workspace', 'pageSwitch.audio', 'pageSwitch.preview',
       'pageSwitch.assets', 'pageSwitch.shortcuts', 'pageSwitch.settings',
     ]);
-    expect(PAGE_SWITCH_ROWS[3].combo).toBe('Ctrl/⌘+Shift+3');
-    expect(PAGE_SWITCH_ROWS).toHaveLength(PAGE_NAV.length);
+    expect(pages[3].id).toBe('pagePreview');
+    expect(pages[3].binding).toBe('alt+4');
+    expect(pages).toHaveLength(PAGE_NAV.length);
   });
 
   it('进预览页不 ensure 当前工程：NEEDS_CURRENT_PROJECT 仍只有工作台', () => {

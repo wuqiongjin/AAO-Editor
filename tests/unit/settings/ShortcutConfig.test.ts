@@ -178,3 +178,62 @@ describe('展示辅助', () => {
     expect(index.get('f')).toBe('switchSingle');
   });
 });
+
+// issue 177（2026-10-28 用户定案）：切页键进同一注册表，默认 Alt+1..7。
+describe('切页功能（app 作用域）', () => {
+  const altDigit = (digit: number, init: Partial<KeyboardEvent> = {}): KeyboardEvent =>
+    ({ key: String(digit), code: `Digit${digit}`, altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, ...init } as KeyboardEvent);
+
+  it('七个切页功能都是 app 作用域、归 navigation 类别，默认 Alt+1..7 且全表不撞键', () => {
+    const total = Object.keys(getDefaultConfig()).length;
+    const appDefs = [
+      ['pageProjects', 'alt+1'], ['pageWorkspace', 'alt+2'], ['pageAudio', 'alt+3'], ['pagePreview', 'alt+4'],
+      ['pageAssets', 'alt+5'], ['pageShortcuts', 'alt+6'], ['pageSettings', 'alt+7'],
+    ] as const;
+    const cfg = getDefaultConfig();
+    for (const [id, binding] of appDefs) {
+      expect(cfg[id], id).toBe(binding);
+    }
+    // 一键一功能是**全局**的（跨画布/切页两个作用域）
+    expect(buildBindingIndex(cfg).size).toBe(total);
+  });
+
+  it('resolveAction 按作用域分流：画布分发不认切页键，反之亦然', () => {
+    const cfg = getDefaultConfig();
+    expect(resolveAction(altDigit(1), cfg)).toBe('pageProjects');
+    expect(resolveAction(altDigit(1), cfg, 'app')).toBe('pageProjects');
+    expect(resolveAction(altDigit(1), cfg, 'canvas')).toBeNull();
+    expect(resolveAction(keyEvent('f'), cfg, 'app')).toBeNull();
+  });
+
+  it('macOS 上 ⌥1 的 e.key 是合成字符「¡」，仍按 e.code 命中 alt+1', () => {
+    const cfg = getDefaultConfig();
+    expect(resolveAction(altDigit(1, { key: '¡' }), cfg, 'app')).toBe('pageProjects');
+  });
+
+  it('切页键可屏蔽：置 null 后不命中', () => {
+    const cfg = getDefaultConfig();
+    expect(setFunctionBinding(cfg, 'pageAssets', null)).toBeNull();
+    expect(resolveAction(altDigit(5), cfg, 'app')).toBeNull();
+  });
+
+  it('切页键与画布键互相占用时拒绝（同一命名空间）', () => {
+    const cfg = getDefaultConfig();
+    expect(setFunctionBinding(cfg, 'switchFlick', 'alt+1')).toBe('pageProjects');
+    expect(setFunctionBinding(cfg, 'pageSettings', 'f')).toBe('switchSingle');
+  });
+
+  it('functionMode 对切页功能返回 null（不属于切换/执行任何一档）', () => {
+    expect(functionMode('pageProjects')).toBeNull();
+    expect(functionMode('switchSingle')).toBe('switch');
+    expect(functionMode('undo')).toBe('exec');
+  });
+
+  it('载入去重：画布功能占着页面默认键时，页面键退让为屏蔽（表序优先）', () => {
+    const cfg = loadConfig({ getItem: () => JSON.stringify({ switchSingle: 'alt+1' }) });
+    expect(cfg.switchSingle).toBe('alt+1');
+    expect(cfg.pageProjects).toBeNull();
+    // 去重后仍有 38 个绑定、38 个索引项；剩下的 7 个切页键里只有它一个退让
+    expect(buildBindingIndex(cfg).size).toBe(Object.values(cfg).filter(Boolean).length);
+  });
+});

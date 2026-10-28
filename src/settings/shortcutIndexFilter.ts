@@ -17,6 +17,8 @@ export const INDEX_FILTERS: ReadonlyArray<{ id: IndexFilterId; label: MessageKey
 /** tooltip 类别 → 粗桶。未入表的新类别落「其它」。 */
 const CATEGORY_TO_BUCKET: Readonly<Record<string, Exclude<IndexFilterId, 'all' | 'other'>>> = {
   layout: 'system',
+  // 切页七功能（issue 177）：应用级，归「系统」；与其它功能同表、同改键规则
+  navigation: 'system',
   mouse: 'noteTools',
   bpm: 'noteTools',
   single: 'noteTools',
@@ -41,17 +43,6 @@ export function bucketForCategory(category: string): Exclude<IndexFilterId, 'all
   return CATEGORY_TO_BUCKET[category] ?? 'other';
 }
 
-/** 切页七行：进表、只读、归系统，与 PAGE_NAV 同序同键。不进 FunctionId 注册表。 */
-export const PAGE_SWITCH_ROWS: ReadonlyArray<{ label: MessageKey; combo: string; bucket: 'system' }> = [
-  { label: 'pageSwitch.projects', combo: 'Ctrl/⌘+Shift+0', bucket: 'system' },
-  { label: 'pageSwitch.workspace', combo: 'Ctrl/⌘+Shift+1', bucket: 'system' },
-  { label: 'pageSwitch.audio', combo: 'Ctrl/⌘+Shift+2', bucket: 'system' },
-  { label: 'pageSwitch.preview', combo: 'Ctrl/⌘+Shift+3', bucket: 'system' },
-  { label: 'pageSwitch.assets', combo: 'Ctrl/⌘+Shift+4', bucket: 'system' },
-  { label: 'pageSwitch.shortcuts', combo: 'Ctrl/⌘+Shift+5', bucket: 'system' },
-  { label: 'pageSwitch.settings', combo: 'Ctrl/⌘+Shift+6', bucket: 'system' },
-];
-
 function matchesSearch(haystacks: Array<string | null | undefined>, q: string): boolean {
   if (!q) return true;
   return haystacks.some((h) => h != null && h.toLowerCase().includes(q));
@@ -70,18 +61,6 @@ export function filterFunctions(
   });
 }
 
-export function filterPageSwitchRows(
-  rows: typeof PAGE_SWITCH_ROWS,
-  filter: IndexFilterId,
-  query: string,
-): Array<(typeof PAGE_SWITCH_ROWS)[number]> {
-  const q = query.trim().toLowerCase();
-  return rows.filter((row) => {
-    if (filter !== 'all' && row.bucket !== filter) return false;
-    return matchesSearch([t(row.label), row.combo], q);
-  });
-}
-
 /** 表空：桶里本来就没有条目，还是当前搜索筛没了。空桶优先于搜索空。 */
 export function shortcutTableEmptyKind(
   bucketHits: number,
@@ -93,9 +72,10 @@ export function shortcutTableEmptyKind(
 }
 
 /**
- * 「恢复默认」跟当前索引筛选：全部 = 整表出厂；其它桶只重置该桶可改 FunctionId。
- * issue 150：非空 onlyIds（搜索可见可改行）时只重置该集合，仍走桶外卸占用逻辑。
- * 切页七行不在配置里。若桶外功能占着本桶出厂键，先卸掉以免一键两功能。
+ * 「恢复默认」跟当前索引筛选：全部 = 整表出厂；其它桶只重置该桶 FunctionId。
+ * issue 150：非空 onlyIds（搜索可见行）时只重置该集合，仍走桶外卸占用逻辑。
+ * 切页七功能也在表内（归「系统」），不再有"配置外的行"这个例外。
+ * 若桶外功能占着本桶出厂键，先卸掉以免一键两功能。
  */
 export function restoreDefaultsInFilter(
   cfg: ShortcutConfig,

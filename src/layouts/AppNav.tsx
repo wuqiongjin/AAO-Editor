@@ -2,6 +2,8 @@ import { createContext, useContext, type ReactNode } from 'react';
 import appLogo from '../assets/brand/app-logo.png';
 import { t, type MessageKey } from '../i18n';
 import { ArrowUpRight, ChevronsLeft, ChevronsRight, Eye, FolderOpen, Github, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
+import { formatKey } from '../chart/config/ShortcutConfig';
+import { useConfig } from '../app/ProviderTree';
 import { PAGE_NAV } from './pageNav';
 import type { PageScope } from './pageScope';
 import { AUTHOR_NAME, PRODUCT_LINKS } from '../app/productLinks';
@@ -51,15 +53,19 @@ export function AppNavProvider({ value, children }: { value: AppNavValue; childr
 
 export function AppNav() {
   const { activePage, setActivePage, navCollapsed, setNavCollapsed } = useAppNav();
+  // 键位从设置派生（可改 / 可屏蔽）；null = 用户屏蔽了该页的快捷键，此时不显示提示。
+  const { settings } = useConfig();
   return (
     <>
       <div className="app-mark" title={t('app.fullName')} aria-label={t('app.markAria')}>
         <img src={appLogo} alt={t('app.name')} className="app-mark-img" />
       </div>
       <nav className="app-nav-items">
-        {PAGE_NAV.map(({ id, shortcut }) => {
+        {PAGE_NAV.map(({ id, functionId }) => {
           const { labelKey, icon: Icon } = NAV_META[id];
           const label = t(labelKey);
+          const binding = settings.shortcuts[functionId];
+          const hint = binding ? formatKey(binding) : '';
           return (
             <button
               key={id}
@@ -67,11 +73,13 @@ export function AppNav() {
               type="button"
               onClick={() => setActivePage(id)}
               aria-current={activePage === id ? 'page' : undefined}
-              title={`${label} · ${shortcut}`}
+              title={hint ? `${label} · ${hint}` : label}
+              // 键盘用户在 focus 时就该看到，不必等 hover（CSS 同理）
+              aria-keyshortcuts={binding ?? undefined}
             >
               <Icon size={19} strokeWidth={1.8} />
               <span>{label}</span>
-              <kbd>{shortcut}</kbd>
+              {hint && <kbd>{hint}</kbd>}
             </button>
           );
         })}

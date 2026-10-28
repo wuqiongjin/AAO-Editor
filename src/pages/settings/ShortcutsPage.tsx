@@ -4,18 +4,19 @@ import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
-  formatKey, setCapturingShortcut, type FunctionId,
+  formatKey, normalizeKeyEvent, setCapturingShortcut, type FunctionId,
 } from '../../chart/config/ShortcutConfig';
 import {
-  INDEX_FILTERS, PAGE_SWITCH_ROWS, type IndexFilterId,
-  filterFunctions, filterPageSwitchRows, shortcutTableEmptyKind, restoreDefaultsInFilter,
+  INDEX_FILTERS, type IndexFilterId,
+  filterFunctions, shortcutTableEmptyKind, restoreDefaultsInFilter,
 } from '../../settings/shortcutIndexFilter';
 import { useConfig } from '../../app/ProviderTree';
+import { showToast } from '../../ui/Toast';
 import { t, type MessageKey } from '../../i18n';
 
-// 快捷键页（issue 28 + issue 44 + issue 121）：
+// 快捷键页（issue 28 + issue 44 + issue 121 + issue 177）：
 //   - 侧栏「索引筛选」粗桶筛表（≠ ADR-0002 tooltip 类别）；默认「全部」，不写入设置对象；
-//   - 切页六行进表、归系统、不可改键（无页头重复只读区）；
+//   - 切页七功能与画布功能同表（归「系统」），同样可改键 / 可屏蔽 / 同一套冲突检测；
 //   - 搜索 ∩ 当前桶；空结果走 EmptyState；
 //   - Body 走 mode="fill"（表格自身滚）；导入/导出在「设置 → 配置数据」。
 
@@ -28,48 +29,21 @@ const INDEX_FILTER_ICONS: Record<IndexFilterId, ComponentType<{ size?: number }>
   other: Ellipsis,
 };
 
-/**
- * 把可能含「/」备选的组合串展开为一条条完整快捷键。
- * 例：'Ctrl/⌘+Shift+1' → [['Ctrl','Shift','1'], ['⌘','Shift','1']]
- * 即一个功能支持多个（可互相替换的）快捷键时，各自生成一个独立键块。
- */
-function expandCombo(combo: string): string[][] {
-  return combo
-    .split('+')
-    .map(seg => seg.split('/'))
-    .reduce<string[][]>((acc, alts) => alts.flatMap(alt => acc.map(prefix => [...prefix, alt])), [[]]);
-}
-
-/** 把一组按键渲染为「键块 + 键块 + 键块」；加号作为键间分隔、不渲染进键块内部 */
-function KeyChips({ parts }: { parts: string[] }) {
-  return (
-    <>
-      {parts.map((p, i) => (
-        <Fragment key={i}>
-          {i > 0 && <span className="combo-plus" aria-hidden="true">+</span>}
-          <kbd>{p}</kbd>
-        </Fragment>
-      ))}
-    </>
-  );
-}
-
 /** 由按键事件构建规范绑定串（小写）；纯修饰键返回 null。 */
-function comboFromKeyEvent(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): string | null {
+function comboFromKeyEvent(e: KeyboardEvent): string | null {
   if (['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) return null;
-  const mods: string[] = [];
-  if (e.ctrlKey || e.metaKey) mods.push('ctrl');
-  if (e.altKey) mods.push('alt');
-  if (e.shiftKey) mods.push('shift');
-  const main = e.key === ' ' ? ' ' : e.key.toLowerCase();
-  return [...mods, main].join('+');
+  return normalizeKeyEvent(e);
 }
 
-/** 独立的快捷键记录弹窗（类 VSCode）：Enter 确认、Esc 取消。 */
-function ShortcutRecorder({ id, onCommit, onCancel }: {
-  id: FunctionId; onCommit: (binding: string) => void; onCancel: () => void;
+/**
+ * 独立的快捷键记录弹窗（类 VSCode）：Enter 确认、Esc 取消。
+ * `onCommit` 返回 null = 已写入；返回字符串 = 冲突原因（**弹窗不关**，就地提示，草稿保留可重按）。
+ */
+function ShortcutRecorder({ id, onCommit, onClose }: {
+  id: FunctionId; onCommit: (binding: string) => string | null; onClose: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<string | null>(null);
   const draftRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -78,18 +52,21 @@ function ShortcutRecorder({ id, onCommit, onCancel }: {
       e.preventDefault();
       e.stopPropagation();
       if (e.key === 'Enter') {
-        if (draftRef.current) onCommit(draftRef.current);
-        onCancel();
+        if (!draftRef.current) return;
+        const err = onCommit(draftRef.current);
+        if (err) setConflict(err);
+        else onClose();
         return;
       }
       if (e.key === 'Escape') {
-        onCancel();
+        onClose();
         return;
       }
       const combo = comboFromKeyEvent(e);
       if (combo) {
         draftRef.current = combo;
         setDraft(combo);
+        setConflict(null);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -103,16 +80,18 @@ function ShortcutRecorder({ id, onCommit, onCancel }: {
   return (
     <div
       className="shortcut-recorder"
-      onClick={onCancel}
+      onClick={onClose}
     >
       <div
         className="shortcut-recorder__panel"
         onClick={e => e.stopPropagation()}
       >
-        <div className="shortcut-recorder__keys">
+        <div className={`shortcut-recorder__keys${conflict ? ' is-conflict' : ''}`}>
           {draft ? formatKey(draft) : '…'}
         </div>
-        <div className="shortcut-recorder__hint">{t('shortcuts.recorder.hint')}</div>
+        {conflict
+          ? <div className="shortcut-recorder__error" role="alert">{conflict}</div>
+          : <div className="shortcut-recorder__hint">{t('shortcuts.recorder.hint')}</div>}
         <div className="shortcut-recorder__meta">{t('shortcuts.recorder.meta', { label: t(functionById(id).label as MessageKey) })}</div>
       </div>
     </div>
@@ -124,7 +103,6 @@ export default function ShortcutsPage() {
   const config = settings.shortcuts;
   const [query, setQuery] = useState('');
   const [indexFilter, setIndexFilter] = useState<IndexFilterId>('all');
-  const [error, setError] = useState<{ id: FunctionId; msg: string } | null>(null);
   const [editingId, setEditingId] = useState<FunctionId | null>(null);
   const shortcutTableRef = useRef<HTMLDivElement>(null);
 
@@ -138,18 +116,10 @@ export default function ShortcutsPage() {
     [indexFilter, query, config],
   );
 
-  // 切页：只读进表、归系统；搜索 ∩ 当前桶
-  const visiblePageSwitch = useMemo(
-    () => filterPageSwitchRows(PAGE_SWITCH_ROWS, indexFilter, query),
-    [indexFilter, query],
-  );
-
   const emptyKind = useMemo(() => {
-    const bucketHits =
-      filterFunctions(FUNCTIONS, indexFilter, '', config).length +
-      filterPageSwitchRows(PAGE_SWITCH_ROWS, indexFilter, '').length;
-    return shortcutTableEmptyKind(bucketHits, visible.length + visiblePageSwitch.length);
-  }, [indexFilter, config, visible.length, visiblePageSwitch.length]);
+    const bucketHits = filterFunctions(FUNCTIONS, indexFilter, '', config).length;
+    return shortcutTableEmptyKind(bucketHits, visible.length);
+  }, [indexFilter, config, visible.length]);
 
   const searchActive = query.trim().length > 0;
 
@@ -165,21 +135,38 @@ export default function ShortcutsPage() {
     return indexFilter === 'all' ? t('shortcuts.resetAll') : t('shortcuts.resetBucket');
   }, [searchActive, indexFilter]);
 
-  const commit = (id: FunctionId, binding: string) => {
+  /** 返回 null = 已写入；返回字符串 = 冲突原因，交给记录弹窗就地显示（弹窗不关） */
+  const commit = (id: FunctionId, binding: string): string | null => {
     const next = { ...config };
     const conflict = setFunctionBinding(next, id, binding);
     if (conflict) {
-      setError({ id, msg: t('shortcuts.conflict', { key: formatKey(binding), label: t(functionById(conflict).label as MessageKey) }) });
-      return;
+      return t('shortcuts.conflict', { key: formatKey(binding), label: t(functionById(conflict).label as MessageKey) });
     }
-    setError(null);
     setShortcutConfig(next);
+    return null;
   };
 
+  /**
+   * 启用 / 屏蔽。启用同样要过冲突检测：屏蔽期间出厂键可能已被别的功能占走
+   * 直接写默认键会造成两行同键、按键静默归后写者。
+   * 冲突时保持屏蔽并提示占用者——与改键同一套文案。
+   */
   const setEnabled = (id: FunctionId, enabled: boolean) => {
     const next = { ...config };
-    next[id] = enabled ? getDefaultConfig()[id] : null;
-    setError(null);
+    if (!enabled) {
+      next[id] = null;
+      setShortcutConfig(next);
+      return;
+    }
+    const binding = getDefaultConfig()[id];
+    const conflict = binding ? setFunctionBinding(next, id, binding) : null;
+    if (conflict) {
+      showToast(t('shortcuts.conflict', {
+        key: formatKey(binding),
+        label: t(functionById(conflict).label as MessageKey),
+      }), 'warn');
+      return;
+    }
     setShortcutConfig(next);
   };
 
@@ -215,14 +202,11 @@ export default function ShortcutsPage() {
             disabled={restorableCount === 0}
             title={resetTitle}
             onClick={() => {
-              setError(null);
               const onlyIds = searchActive ? visible.map((f) => f.id) : undefined;
               setShortcutConfig(restoreDefaultsInFilter(config, indexFilter, FUNCTIONS, getDefaultConfig(), onlyIds));
             }}
           ><RotateCcw size={15} />{t('shortcuts.reset')}</button>
         </div>
-
-        {error && <div className="shortcut-error">{error.msg}</div>}
 
         <div ref={shortcutTableRef} className="shortcut-table" role="table" aria-label={t('shortcuts.tableAria')}>
           <div className="shortcut-row shortcut-head" role="row">
@@ -231,24 +215,6 @@ export default function ShortcutsPage() {
 
           {/* 换桶才重挂，复用其它页 app-stagger；搜索只滤行、不重播。工具栏不在此。 */}
           <div key={indexFilter} className="shortcut-table-body app-stagger">
-          {/* 应用级（切页）快捷键：只读展示，固定绑定、不支持自定义/启用/修改 */}
-          {visiblePageSwitch.map((s) => (
-            <div className="shortcut-row is-system" role="row" key={s.label}>
-              <span className="shortcut-group">{t('shortcuts.system')}</span>
-              <strong>{t(s.label)}</strong>
-              {/* 每个可替换的快捷键各成一个独立键块（如 Ctrl+Shift+1 与 ⌘+Shift+1），并排在同一行 */}
-              <div className="sys-keybindings">
-                {expandCombo(s.combo).map((parts, i) => (
-                  <span className="key-binding is-disabled" key={i} title={t('shortcuts.fixedTitle', { label: t(s.label) })}>
-                    <KeyChips parts={parts} />
-                  </span>
-                ))}
-              </div>
-              <span aria-hidden="true" />
-              <span aria-hidden="true" />
-            </div>
-          ))}
-
           {visible.map((f) => {
             const bound = config[f.id] !== null;
             return (
@@ -270,7 +236,6 @@ export default function ShortcutsPage() {
                     type="button"
                     onClick={() => setEditingId(f.id)}
                     title={t('shortcuts.clickToEdit')}
-                    style={error?.id === f.id ? { borderColor: 'var(--danger)', color: 'var(--danger-text)' } : undefined}
                   >
                     {formatKey(config[f.id] as string).split('+').map((part, k) => (
                       <Fragment key={k}>
@@ -285,9 +250,8 @@ export default function ShortcutsPage() {
                 <button
                   className="edit-binding"
                   type="button"
-                  disabled={!bound}
-                  onClick={() => bound && setEditingId(f.id)}
-                  title={bound ? t('shortcuts.edit') : t('shortcuts.editDisabled')}
+                  onClick={() => setEditingId(f.id)}
+                  title={t('shortcuts.edit')}
                   aria-label={t('shortcuts.editAria', { label: t(f.label as MessageKey) })}
                 ><Pencil size={14} /></button>
                 <label style={{ display: 'flex', justifyContent: 'center' }}>
@@ -330,7 +294,7 @@ export default function ShortcutsPage() {
         <ShortcutRecorder
           id={editingId}
           onCommit={(binding) => commit(editingId, binding)}
-          onCancel={() => setEditingId(null)}
+          onClose={() => setEditingId(null)}
         />
       )}
       </AppPageShell.Body>

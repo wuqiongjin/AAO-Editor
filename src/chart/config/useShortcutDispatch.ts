@@ -10,7 +10,7 @@
 //   - Esc 关闭左右面板（与原实现一致：两个都未折叠时各自折叠一次）
 //   - only 未列出的绑定放行原生行为（预览页只认 play，issue 22 Q2；工作台不传 = 全接管）
 import { useEffect } from 'react';
-import { resolveAction, isCapturingShortcut, type FunctionId, type ShortcutConfig } from './ShortcutConfig';
+import { resolveAction, isCapturingShortcut, isEditableTarget, type FunctionId, type ShortcutConfig } from './ShortcutConfig';
 
 export interface UseShortcutDispatchOptions {
   /** 当前快捷键配置（来自 ConfigContext.settings.shortcuts） */
@@ -34,15 +34,14 @@ export function useShortcutDispatch(opts: UseShortcutDispatchOptions): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!active) return;
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
+      if (isEditableTarget(e.target)) return;
       if (isCapturingShortcut()) return;
       if (e.key === 'Escape') {
         onEscape?.();
         return;
       }
-      const fn = resolveAction(e, shortcutConfig);
+      // 只认画布功能：切页（app 作用域）由 AppShell 分发，别在这里被吞成"未处理"
+      const fn = resolveAction(e, shortcutConfig, 'canvas');
       if (!fn) return;
       if (only && !only.includes(fn)) return;
       e.preventDefault();

@@ -1,5 +1,5 @@
 // 工程管理页（chart-projects 04 / ADR-0015 §2）：一层两个视图。
-// 默认工程启动台；点封面进工程详情。保活挂载，⇧⌘0 回来停在离开前那一层。
+// 默认工程启动台；点封面进工程详情。保活挂载，用切页快捷键（默认 Alt+1）回来停在离开前那一层。
 // 本文件只留：双视图调度 + state / handlers + 弹窗编排；两个视图与弹窗分别住在 components/。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';

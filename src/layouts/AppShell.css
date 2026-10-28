@@ -113,11 +113,21 @@
 
 /* 选中态图标不缩放——保持与未选中态尺寸一致 */
 
+/* 键位提示：默认不显示，hover / focus / 当前页时淡入（issue 177）。
+   常驻 7 枚 9px 小字把整列扫得很碎，而数字本身没有记忆锚点。 */
 .app-nav-item kbd {
   color: var(--text-subtle);
   font-family: var(--font-mono);
-  font-size: calc(9px * var(--ui-type-scale));
+  font-size: calc(10px * var(--ui-type-scale));
   font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.app-nav-item:hover kbd,
+.app-nav-item:focus-visible kbd,
+.app-nav-item.is-active kbd {
+  opacity: 1;
 }
 
 .app-nav-item.is-active kbd {
@@ -2630,16 +2640,6 @@ button.skin-pill {
   border-bottom: 0;
 }
 
-/* 系统级（切页）快捷键：只读、置灰，无操作区 */
-.shortcut-row.is-system {
-  background: color-mix(in srgb, var(--bg-inset) 55%, transparent);
-}
-
-.shortcut-row.is-system .shortcut-group,
-.shortcut-row.is-system strong {
-  color: var(--text-muted);
-}
-
 .shortcut-head {
   position: sticky;
   top: 0;
@@ -2676,15 +2676,6 @@ button.skin-pill {
 .edit-binding:disabled {
   cursor: not-allowed;
   opacity: 0.2;
-}
-
-/* 系统级快捷键：多套等价组合并排一排，不换行（换行会被 52px 行高裁切） */
-.sys-keybindings {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
 }
 
 /* 组合键之间的加号分隔符：独立于键块，淡色小字 */
@@ -2774,6 +2765,20 @@ button.skin-pill {
   margin-bottom: 16px;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
+}
+
+/* 冲突态：刚按下的组合标红，跟下面的冲突文案成对 */
+.shortcut-recorder__keys.is-conflict {
+  color: var(--danger-text);
+}
+
+/* 冲突就地提示：留在弹窗里、贴着键位块，用户不用回忆刚才按了什么（改键失败不再关闭弹窗） */
+.shortcut-recorder__error {
+  margin-top: 10px;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--danger-text);
+  max-width: 360px;
 }
 
 .shortcut-recorder__hint {

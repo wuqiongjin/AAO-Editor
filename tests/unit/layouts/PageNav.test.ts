@@ -1,51 +1,55 @@
-// chart-projects 03：启动落点与切页快捷键。页面注册表是单一真相源。
+// issue 177：页面注册表只保留「位次 + 功能 id」，键位的唯一真相源是 ShortcutConfig。
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PAGE_ID, PAGE_NAV } from '@/src/layouts/pageNav';
-import { PAGE_SWITCH_ROWS } from '@/src/settings/shortcutIndexFilter';
+import { FUNCTIONS } from '@/src/chart/config/ShortcutConfig';
 import { readStripped } from '@/tests/support/source';
 
-describe('PAGE_NAV · 启动落点与 ⇧⌘0..6', () => {
-  it('工程管理页是第一项、启动默认落点，快捷键 ⇧⌘0；预览紧随音频页 ⇧⌘3，其后三页各顺延一位', () => {
+const PAGE_ORDER = ['projects', 'workspace', 'audio', 'preview', 'assets', 'shortcuts', 'settings'];
+
+describe('PAGE_NAV · 位次与切页功能接线', () => {
+  it('工程管理页是第一项、启动默认落点；预览紧随音频页（2026-09-30 用户验收拍板）', () => {
     expect(DEFAULT_PAGE_ID).toBe('projects');
-    expect(PAGE_NAV.map((p) => [p.id, p.shortcut, p.key])).toEqual([
-      ['projects', '⇧⌘0', '0'],
-      ['workspace', '⇧⌘1', '1'],
-      ['audio', '⇧⌘2', '2'],
-      // chart-preview 02（ADR-0016 §4）：预览页紧随音频页（2026-09-30 用户验收拍板）
-      ['preview', '⇧⌘3', '3'],
-      ['assets', '⇧⌘4', '4'],
-      ['shortcuts', '⇧⌘5', '5'],
-      ['settings', '⇧⌘6', '6'],
-    ]);
+    expect(PAGE_NAV.map((p) => p.id)).toEqual(PAGE_ORDER);
   });
 
-  it('快捷键页切页行与 PAGE_NAV 同序同键', () => {
-    expect(PAGE_SWITCH_ROWS.map((row) => [row.label, row.combo])).toEqual([
-      ['pageSwitch.projects', 'Ctrl/⌘+Shift+0'],
-      ['pageSwitch.workspace', 'Ctrl/⌘+Shift+1'],
-      ['pageSwitch.audio', 'Ctrl/⌘+Shift+2'],
-      ['pageSwitch.preview', 'Ctrl/⌘+Shift+3'],
-      ['pageSwitch.assets', 'Ctrl/⌘+Shift+4'],
-      ['pageSwitch.shortcuts', 'Ctrl/⌘+Shift+5'],
-      ['pageSwitch.settings', 'Ctrl/⌘+Shift+6'],
+  it('七页各挂一个 app 作用域的切页功能，默认 Alt+1..7 与位次同序', () => {
+    expect(PAGE_NAV.map((p) => p.functionId)).toEqual([
+      'pageProjects', 'pageWorkspace', 'pageAudio', 'pagePreview',
+      'pageAssets', 'pageShortcuts', 'pageSettings',
     ]);
-    expect(PAGE_SWITCH_ROWS.every((row) => row.bucket === 'system')).toBe(true);
+    PAGE_NAV.forEach((item, i) => {
+      const def = FUNCTIONS.find((f) => f.id === item.functionId);
+      expect(def, item.id).toBeDefined();
+      expect(def?.scope).toBe('app');
+      expect(def?.category).toBe('navigation');
+      expect(def?.binding).toBe(`alt+${i + 1}`);
+    });
+  });
+
+  it('键位不再写死在注册表里：不再有 ⇧⌘ 展示串，也没有供事件匹配的 key 字段', () => {
+    const src = readStripped('src/layouts/pageNav.ts');
+    expect(src).not.toContain('⇧⌘');
+    expect(src).not.toMatch(/\bkey\s*:/);
+    expect(src).not.toMatch(/\bshortcut\s*:/);
   });
 });
 
 describe('PAGE_NAV · 应用壳接线', () => {
-  it('AppShell 默认落在工程管理页，并用 PAGE_NAV 切页，不再按原型 URL 门控', () => {
+  it('AppShell 默认落在工程管理页，切页走 app 作用域解析，不再按 e.key 硬比对', () => {
     const src = readStripped('src/layouts/AppShell.tsx');
     expect(src).toMatch(/useState<PageId>\(\(\)\s*=>\s*DEFAULT_PAGE_ID\)/);
     expect(src).toContain('PAGE_NAV');
+    expect(src).toMatch(/resolveAction\(e, settings\.shortcuts, 'app'\)/);
+    expect(src).toContain('isEditableTarget');
+    expect(src).not.toMatch(/e\.key\s*===\s*'0'/);
     expect(src).not.toMatch(/isProjectsPrototype/);
   });
 
-  it('AppNav 全量渲染 PAGE_NAV，工程管理页不再藏在原型开关后', () => {
+  it('AppNav 从 settings.shortcuts 派生提示，屏蔽（null）时不渲染 kbd', () => {
     const src = readStripped('src/layouts/AppNav.tsx');
-    expect(src).toContain('PAGE_NAV');
-    expect(src).not.toMatch(/isProjectsPrototype/);
-    expect(src).not.toMatch(/i\.id\s*!==\s*'projects'/);
+    expect(src).toContain('settings.shortcuts[functionId]');
+    expect(src).toMatch(/\{hint && <kbd>/);
+    expect(src).not.toMatch(/item\.shortcut/);
   });
 
   it('PageRegistry 无条件注册工程管理页', () => {

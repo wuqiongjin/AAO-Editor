@@ -173,6 +173,7 @@
 - **174 工作台顶栏长歌名与右簇重叠**（[174](./issues/174-工作台顶栏长歌名与右簇重叠.md)，`Type: bug`，resolved）—— **根因** = `.chart-switcher__current` `flex-shrink:0` + nowrap + overflow visible，窄列时盖住 BPM/缩放；issue 170 只瘦右簇。**改成什么** = current/crumb 可缩 + 谱面名 ellipsis，宽屏不 grow；锁测静态 CSS（几何探针已删）。
 - **175 工作台顶栏只读改为锁图标**（[175](./issues/175-工作台顶栏只读改为锁图标.md)，`Type: feature`，resolved）—— **定了什么** = 拆掉只读芯片与顶栏复制键；切换钮内锁图标；复制留菜单 + 改谱浮条。
 - **176 切换器当前钮色块带等级去 Easy**（[176](./issues/176-切换器当前钮色块带等级去Easy.md)，`Type: feature`，resolved）—— **定了什么** = `[EZ 1] 谱面名`；预览同一套。**验收修订** = 空名仍回落工程名，不只出色块。
+- **177 导航栏键位提示与切页键可自定义**（[177](./issues/177-导航栏键位提示与切页键可自定义.md)，`Type: grilling`，resolved）—— **定了什么** = 侧栏提示改渐进显示（hover / focus / 当前页）；默认键 `⇧⌘0..6` → `Alt+1..7`（macOS 截图键冲突 + 0 起点反直觉）；切页七功能进注册表、与画布功能同一命名空间（重复即拒绝、不设优先级）、可改可屏蔽；冲突弹窗不关、就地报错。三处并行字面量收敛为 `settings.shortcuts` 一处。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

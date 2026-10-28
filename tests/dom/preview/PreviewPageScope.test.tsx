@@ -13,7 +13,7 @@
 //   另有：页面内换谱面只改这一屏，不写作用域、不动当前工程。
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 
 vi.mock('@/src/pages/PageRegistry', async () => {
   const React = await import('react');
@@ -146,8 +146,13 @@ async function mountShell(
   return { backend, ctx };
 }
 
-/** 左栏导航项：可访问名 = 「标签⇧⌘N」（名字里带快捷键），带上 `⇧⌘` 才不会被页内同前缀的按钮撞上 */
-const navButton = (label: string) => screen.getByRole('button', { name: new RegExp(`^${label}⇧⌘`) });
+/**
+ * 左栏导航项：限定在「应用页面导航」landmark 里按标签前缀找，避免与页内同前缀的按钮撞名。
+ * 不再借快捷键文本做区分——键位可自定义，名字里带什么取决于用户设置。
+ */
+const navButton = (label: string) =>
+  within(screen.getByRole('complementary', { name: '应用页面导航' }))
+    .getByRole('button', { name: new RegExp(`^${label}`) });
 /** 作用域条触发钮（可访问名带作用域工程名） */
 const scopeTrigger = () => screen.getByRole('button', { name: /^作用域工程：/ });
 /** 谱面切换器触发钮（可访问名带"这一屏在看的那张谱面"的标题） */

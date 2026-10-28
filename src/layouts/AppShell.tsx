@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppNavProvider, AppNav, type AppNavValue, type PageId } from './AppNav';
 import { showToast } from '../ui/Toast';
 import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
-import { isCapturingShortcut } from '../chart/config/ShortcutConfig';
+import { isCapturingShortcut, isEditableTarget, resolveAction } from '../chart/config/ShortcutConfig';
 import { useConfig } from '../app/ProviderTree';
 import { t } from '../i18n';
 import { DEFAULT_PAGE_ID, PAGE_NAV } from './pageNav';
@@ -74,20 +74,23 @@ export default function AppShell() {
     return () => { cancelled = true; };
   }, [pageScope, catalogEpoch, store]);
 
-  // 应用级切页快捷键：Ctrl/⌘+Shift+0（工程）与 1..6（照 PAGE_NAV）。
-  // 记录快捷键弹窗打开时（isCapturingShortcut）放行，避免误切页。
+  // 应用级切页快捷键（issue 177）：键位来自 settings.shortcuts 的 app 作用域功能，
+  // 默认 Alt+1..7，可改键 / 可屏蔽 / 与画布功能共用一套冲突检测。
+  // 放行条件：录制弹窗打开中；焦点在输入控件里（⌥+数字 是合法输入字符，不能抢）。
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
       if (isCapturingShortcut()) return;
-      const next = PAGE_NAV.find((item) => item.key === e.key);
+      if (isEditableTarget(e.target)) return;
+      const fn = resolveAction(e, settings.shortcuts, 'app');
+      if (!fn) return;
+      const next = PAGE_NAV.find((item) => item.functionId === fn);
       if (!next) return;
       e.preventDefault();
       setActivePage(next.id);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [setActivePage]);
+  }, [settings.shortcuts, setActivePage]);
 
   useEffect(() => {
     if (!NEEDS_CURRENT_PROJECT.has(activePage)) return;
