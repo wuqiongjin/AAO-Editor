@@ -22,6 +22,7 @@ import {
   type PublishOutcome,
   type PublishStage,
 } from '../../community/bestdori/publish';
+import { getCommunityAccount } from '../../community/bestdori/account';
 import { createCommunityTransport } from '../../community/electronTransport';
 import type { ChartDifficulty, ChartProject, ProjectChart } from '../../project/ChartProject';
 import { mutateProject, type ProjectMutationStore } from '../../project/ChartProjectRecord';
@@ -76,15 +77,23 @@ export function usePublishEntry(deps: PublishEntryDeps): PublishEntry {
   ): Promise<PublishOutcome> => {
     const current = target;
     if (!current) return { ok: false, failure: 'unknown' };
+    const currentUsername = getCommunityAccount().getSession().account?.username;
     const outcome = await publishChart(
       {
         transport: transport ?? createCommunityTransport(),
         onStage,
+        username: currentUsername,
         writeUploadRecord: async (record) => {
+          const author = record.username ?? currentUsername;
+          const uploadRecord = {
+            postId: record.postId,
+            at: record.at,
+            ...(author ? { username: author } : {}),
+          };
           const result = await mutateProject(
             { store, flush, notify },
             current.project.id,
-            (loaded) => recordChartUpload(loaded, current.chart.id, record),
+            (loaded) => recordChartUpload(loaded, current.chart.id, uploadRecord),
           );
           return result.status === 'saved';
         },

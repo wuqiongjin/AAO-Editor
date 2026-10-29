@@ -355,6 +355,17 @@ describe('票 42 Q3 · 发布描述草稿持久化', () => {
     expect(uploaded!.charts[0].upload).toEqual({ postId: 12345, at: 200 });
     expect(uploaded!.charts[0].publishDraft).toBe('发后只读展示');
   });
+
+  it('recordChartUpload：支持带 username 记录所有者，重复调用被拒', () => {
+    const base = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const uploaded = recordChartUpload(base, 'c1', { postId: 12345, at: 200, username: 'moca_coffee' });
+    expect(uploaded).not.toBeNull();
+    expect(uploaded!.charts[0].upload).toEqual({ postId: 12345, at: 200, username: 'moca_coffee' });
+
+    // 重复调用被拒（只写一次）
+    const second = recordChartUpload(uploaded!, 'c1', { postId: 99999, at: 300 });
+    expect(second).toBeNull();
+  });
 });
 
 describe('票 51 · 标签落在谱面记录上', () => {
@@ -479,7 +490,7 @@ describe('toggleChartCompleted · 完成标记切换与已上传只读（票 41 
     const p = createBlankProject({ id: 'p1', chartId: 'c1', now: 100, name: 'FIRE BIRD', diff: 3 });
     const two = duplicateChartInProject(p, 'c1', { chartId: 'c2', now: 100 }, untitled);
 
-    const after = toggleChartCompleted(two, 'c1', 200);
+    const after = toggleChartCompleted(two!, 'c1', 200);
     expect(after.charts[0].completed).toBe(true);
     expect(after.charts[1].completed).toBe(false);
   });

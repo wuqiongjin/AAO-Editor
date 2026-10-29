@@ -74,10 +74,10 @@ function fakeTransport(routes: Record<string, Route>) {
 
 /** 上传记录写入的假接缝：记下每次调用；`accept` 控制第 n 次能不能写进去 */
 function fakeRecorder(accept: (n: number) => boolean = () => true) {
-  const calls: { postId: number; at: number }[] = [];
+  const calls: { postId: number; at: number; username?: string }[] = [];
   return {
     calls,
-    write: async (record: { postId: number; at: number }) => {
+    write: async (record: { postId: number; at: number; username?: string }) => {
       calls.push(record);
       return accept(calls.length);
     },
@@ -120,8 +120,8 @@ function makeInput(overrides: Partial<PublishInput> = {}): PublishInput {
 async function run(
   routes: Record<string, Route>,
   input: PublishInput,
-  options: { accept?: (n: number) => boolean; now?: number } = {},
-): Promise<{ outcome: PublishOutcome; requests: CommunityRequest[]; writes: { postId: number; at: number }[] }> {
+  options: { accept?: (n: number) => boolean; now?: number; username?: string } = {},
+): Promise<{ outcome: PublishOutcome; requests: CommunityRequest[]; writes: { postId: number; at: number; username?: string }[] }> {
   const transport = fakeTransport(routes);
   const recorder = fakeRecorder(options.accept);
   const sleeps: number[] = [];
@@ -131,6 +131,7 @@ async function run(
       writeUploadRecord: recorder.write,
       now: () => options.now ?? 1_700_000_000_000,
       sleep: async (ms) => { sleeps.push(ms); },
+      username: options.username,
     },
     input,
   );
@@ -394,6 +395,17 @@ describe('票 11 · 发帖与上传记录', () => {
 
     expect(outcome).toEqual({ ok: true, postId: 254203, recordWritten: true });
     expect(writes).toEqual([{ postId: 254203, at: 1_700_000_000_000 }]);
+  });
+
+  it('发帖成功后写一次上传记录（带 username 时一并写入，铺路所有权判断）', async () => {
+    const { outcome, writes } = await run(
+      { [POST_URL]: { result: true, id: 254205 } },
+      makeInput(),
+      { now: 1_700_000_000_000, username: 'moca_coffee' },
+    );
+
+    expect(outcome).toEqual({ ok: true, postId: 254205, recordWritten: true });
+    expect(writes).toEqual([{ postId: 254205, at: 1_700_000_000_000, username: 'moca_coffee' }]);
   });
 
   it('重复调用被拒：已发布过的谱面直接拒，零网络、零写入', async () => {

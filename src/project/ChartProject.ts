@@ -29,6 +29,8 @@ export type SongSource =
 export interface ChartUploadRecord {
   postId: number;
   at: number;
+  /** 上传者账号名（铺路：多账号与所有权判断用，可选以兼容历史记录） */
+  username?: string;
 }
 
 /** 社区帖标签（票 51）：自由文本芯片，wire 形态 `{type:"text", data}` */

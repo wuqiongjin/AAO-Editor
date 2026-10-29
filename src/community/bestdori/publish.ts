@@ -192,12 +192,14 @@ export interface PublishDeps {
    * 发布成功后的上传记录写入（页面用 mutateProject + recordChartUpload 装配）。
    * 回 false = 没写进去（已被拒 / 谱面没了）—— 帖子已经在平台上，结果仍是 ok。
    */
-  writeUploadRecord: (record: { postId: number; at: number }) => Promise<boolean>;
+  writeUploadRecord: (record: { postId: number; at: number; username?: string }) => Promise<boolean>;
   now?: () => number;
   /** 上传状态轮询的等待（测试注入假时钟） */
   sleep?: (ms: number) => Promise<void>;
   /** 阶段回报（弹窗的「正在上传音频…」那一行） */
   onStage?: (stage: PublishStage) => void;
+  /** 上传者账号名（铺路：多账号与所有权判断） */
+  username?: string;
 }
 
 /** 统一错误域 → 发布失败立档（界面只认这个，不认平台码） */
@@ -498,7 +500,11 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
     deps.onStage?.('record');
     let recordWritten = false;
     try {
-      recordWritten = await deps.writeUploadRecord({ postId, at: (deps.now ?? Date.now)() });
+      recordWritten = await deps.writeUploadRecord({
+        postId,
+        at: (deps.now ?? Date.now)(),
+        ...(deps.username ? { username: deps.username } : {}),
+      });
     } catch {
       // 记账失败不推翻「帖子已发」这个事实（见上面的口径）
       recordWritten = false;
