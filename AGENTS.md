@@ -23,6 +23,12 @@ Single-context layout — `CONTEXT.md` + `docs/adr/` + `docs/research/` at the r
   - 若未设置 `CNB_VSCODE_PROXY_URI`（本地 / 普通远程开发）：Vite 绑定 `0.0.0.0:5173`，直接访问 `http://localhost:5173/`。
 - 启动后先 `curl -s -o /dev/null -w "%{http_code}" <访问地址>` 确认服务就绪，再把地址提供给用户。
 
+## Cloud Agent
+
+- Node.js 22 与 npm 即可。依赖：仓库根 `npm ci`，文档站 `npm ci --prefix docs-site`。
+- 皮肤 / 键音 / 仿真场素材在私有镜像里，不进 git。`node scripts/assets-sync.mjs` 会读 `ASSETS_TOKEN` 或 `CNB_TOKEN`（也认 `~/.cnb/.env.local`）。没有令牌时 clone 会失败；这时用 `node scripts/ci/ci-stub-gen.mjs`，并保证 `public/assets/skins`、`public/assets/sim`、`src/assets/audio/keysounds` 非空（空目录放一个占位文件即可），`bash scripts/dev.sh`、`npm test`、`npm run build` 都能跑。这些目录都在 `.gitignore`。注册表带 `CI-STUB` 时，只对真快照有效的测试会跳过。
+- 编辑器入口仍是 `bash scripts/dev.sh`（5173）。文档站是 `bash scripts/docs-dev.sh`（4300），不随编辑器一起启动。
+
 ## 文档站（`docs-site/` · VitePress）
 
 - 启动开发服务器一律用 `bash scripts/docs-dev.sh`（或根目录 `npm run docs:dev`），不要只在 `docs-site/` 里裸跑 `npm run dev`（默认会占 5173 且不会打印云环境对外 URL）。
