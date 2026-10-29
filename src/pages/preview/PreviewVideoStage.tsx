@@ -16,6 +16,7 @@ import { useShortcutDispatch } from '../../chart/config/useShortcutDispatch';
 import { notesEqual } from '../../chart/editing/NotesEqual';
 import { t } from '../../i18n';
 import PlayBar from '../../playback/PlayBar';
+import { PLAYBACK_HUD_PERIOD_MS } from '../../playback/usePlaybackCoordinator';
 import { resolveCanvasDpr } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import IconButton from '../../ui/IconButton';
@@ -327,6 +328,8 @@ export default function PreviewVideoStage({
     const canvas = canvasRef.current;
     const currentAssets = assets;
     if (!ready || !canvas || !currentAssets) return;
+    let lastHudCommitMs = -Infinity;
+    let lastPlaying = false;
     const pb = createSimPlayback({
       canvas,
       audio,
@@ -338,8 +341,17 @@ export default function PreviewVideoStage({
       density,
       initialSeconds,
       onTick: (seconds, playing) => {
-        setTick((prev) => (prev.seconds === seconds && prev.playing === playing ? prev : { seconds, playing }));
-        onSecondsChange?.(seconds);
+        const now = performance.now();
+        // chart-preview 57：与工作台 usePlaybackCoordinator 同口径，播放期 HUD（时间码 + 进度条）与父级
+        // onSecondsChange（PreviewPage state）一并节流到 80ms，避免每帧 rAF 触发 PreviewPage →
+        // PreviewVideoStage → PlayBar 整树 React 重渲与画布帧预算争抢；
+        // 起停切换与暂停态（seek / 停在末帧）立即提交，保证按钮态、定位与切页进度保存零延迟。
+        if (!playing || playing !== lastPlaying || now - lastHudCommitMs >= PLAYBACK_HUD_PERIOD_MS) {
+          lastHudCommitMs = now;
+          lastPlaying = playing;
+          setTick((prev) => (prev.seconds === seconds && prev.playing === playing ? prev : { seconds, playing }));
+          onSecondsChange?.(seconds);
+        }
       },
     });
     playbackRef.current = pb;

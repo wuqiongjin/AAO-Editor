@@ -163,7 +163,7 @@
 - **164 片段收藏**（[164](./issues/164-片段收藏.md)，`Type: grilling`，open）—— 用户收藏音符配置、在任何可编辑谱面画布粘贴；术语定为「片段」（不叫「配置」）；与剪贴板并存。存什么、存哪、怎么收藏与粘贴待 grill。
 - **165 首次播放卡顿**（[165](./issues/165-首次播放卡顿.md)，`Type: bug`，resolved）—— 解决后台音频异步解码打断播放时钟导致停滞、瓦片冷启动光栅化与初次加载误触发防抖落盘。
 - **166 冷启动打开工作台视口停在非开头位置**（[166](./issues/166-冷启动打开工作台视口停在非开头位置.md)，`Type: bug`，claimed，第一步已实现待验收）—— **改成什么** = 打开/恢复谱面显式归零到 beat 0（置底发生在工程恢复之前 + 置底未登记回声 + 锚点被旧 scrollY 污染）。
-- **167 首个音符抵线卡顿**（[167](./issues/167-首个音符抵线卡顿.md)，`Type: bug`，resolved）—— **改成什么** = 静止期主动靶向预热全谱首个实体非空瓦片（提前消化图集 mip 链），播放期瓦片补建链 16ms 节流防连环宏任务打穿帧预算。
+- **167 首个音符抵线卡顿**（[167](./issues/167-首个音符抵线卡顿.md)，`Type: bug`，resolved）—— **改成什么** = 静止期主动靶向预热全谱首个实体非空瓦片（提前消化图集 mip 链），播放期瓦片补建链 16ms 节流防连环宏任务打穿帧预算。*（冷机真实音频与动态预览首音符跟进见 [179](./issues/179-冷启动首次播放首音符与BGM出声同刻卡顿.md) 与 [chart-preview/57](../chart-preview/issues/57-动态预览首次播放首音符入场与抵线卡顿.md)。）*
 - **168 工作台播放条支持双击时间输入秒数跳转**（[168](./issues/168-工作台播放条支持双击时间输入秒数跳转.md)，`Type: bug`，resolved）—— **改成什么** = WorkspacePage 移除 `canEditTime={!canPlay}` 限制，改为无条件允许双击时间码编辑跳转，行为与动态预览对齐。已实现。
 - **169 窗口最大化或切工程后画布与容器脱节留黑边**（[169](./issues/169-窗口最大化或切工程后画布与容器脱节留黑边.md)，`Type: bug`，resolved）—— **改成什么** = 增强 `useSurfaceSize` 具备 DOM 节点更替自愈重绑、前台激活校准与 `window.resize` 兜底测量；`ChartCodeEditorProvider` 接入 props 重置。*（原编号 166，与上面 main 侧 2026-10-11 开票的 166 撞号，合入 main 时改号。）*
 - **170 工作台顶栏紧凑化与画布显示浮层迁移**（[170](./issues/170-工作台顶栏紧凑化与画布显示浮层迁移.md)，`Type: feature`，resolved）—— **改成什么** = 顶栏右侧新增 `SlidersHorizontal` 单图标按钮（26px）展开画布显示浮层面板；缩放控件整合为微型胶囊 `[ – | 100% | + ]`，BPM 收紧为紧凑标签，瘦身节约顶栏空间。**已实现**（2026-10-14）。
@@ -175,6 +175,7 @@
 - **176 切换器当前钮色块带等级去 Easy**（[176](./issues/176-切换器当前钮色块带等级去Easy.md)，`Type: feature`，resolved）—— **定了什么** = `[EZ 1] 谱面名`；预览同一套。**验收修订** = 空名仍回落工程名，不只出色块。
 - **177 导航栏键位提示与切页键可自定义**（[177](./issues/177-导航栏键位提示与切页键可自定义.md)，`Type: grilling`，resolved）—— **定了什么** = 侧栏提示改渐进显示（hover / focus / 当前页）；默认键 `⇧⌘0..6` → `Alt+1..7`（macOS 截图键冲突 + 0 起点反直觉）；切页七功能进注册表、与画布功能同一命名空间（重复即拒绝、不设优先级）、可改可屏蔽；冲突弹窗不关、就地报错。三处并行字面量收敛为 `settings.shortcuts` 一处。
 - **178 屏蔽快捷键后重新启用会丢失自定义键位**（[178](./issues/178-屏蔽后重新启用恢复上次键位.md)，`Type: grilling`，resolved）—— **定了什么** = 重新启用恢复**屏蔽前**的键位（`settings.shortcutLast`，无记录回落默认、不追溯旧存档）；要恢复的键已被占用时不抢占、就地打开记录器预填并报冲突，用户改键即完成启用；屏蔽期间仍释放该键。ADR-0002 §5 / ADR-0003 §6 已同步。
+- **179 冷启动首次播放首音符与 BGM 出声同刻卡顿**（[179](./issues/179-冷启动首次播放首音符与BGM出声同刻卡顿.md)，`Type: bug`，resolved）—— **根因** = BanG Dream BGM 前导静音结束与首音符抵线同刻，触发 WebAudio `seGain` 首次混音与冷机 PCM 缺页 / OS 音频栈唤醒，叠加工作台 `firstNonEmptyTileIdOf` 仅预热单块 `firstTile`（漏 `firstTile+1`）、SP 滑条 `bandStripStyle` 首次同步 `getImageData` 读回与深层 Mipmap 懒构建（动态预览侧同刻三重懒初始化见 [chart-preview/57](../chart-preview/issues/57-动态预览首次播放首音符入场与抵线卡顿.md)）。**改成什么** = 音频解码后 `touchAudioBuffer` 预触碰全声道 4KB PCM 页 + 首次 `play()` 发送 `primeAudioGraph`（64 帧 `-120 dBFS`）提前唤醒 `seBus` 与 OS 音频管线 + `setKeySetId` 同 `id` 幂等；工作台静止期预热扩至 `[lo, hi+2]` 与 `[firstTile, firstTile+2]` + 图片加载期 `warmupImageMips` 预建 1..5 级 Mipmap + `warmupBandStripStyles` 预采样滑条带贴图。关联 101 / 165 / 167。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

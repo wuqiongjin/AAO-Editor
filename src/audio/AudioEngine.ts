@@ -13,6 +13,7 @@ import {
   sampleSrcFor,
   scheduleKeySample,
   scheduleKeyTone,
+  touchAudioBuffer,
 } from './keySoundSamples';
 
 export type PlaybackState = 'idle' | 'ready' | 'playing' | 'paused';
@@ -52,6 +53,10 @@ export class AudioEngine {
   private keySetId = '';
   /** 当前激活素材包（ADR-0004 §7）；null = chunk 未加载完成/加载失败（走振荡器兜底） */
   private keySet: KeySoundSet | null = null;
+  /** 当前 keySetId 是否正在异步加载中（防相同 id 重复 setOptions 把已就绪或加载中的 keySet 清空） */
+  private keySetLoading = false;
+  /** 是否已向音频混合图注入过非零微脉冲预热（issue 179） */
+  private audioGraphPrimed = false;
   /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
   private schedTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -85,15 +90,22 @@ export class AudioEngine {
    * 切换激活素材包（issue 29）：动态 import 本包差异采样 chunk → 解码全部采样。
    * 进入工作台 / 切包时即预热；play() 不再 await（issue 101）。加载完成前 keySet 为 null，playTick 走振荡器兜底。
    * 快速连点切换包安全：只有最后一次切换的结果会挂载（id 竞态判定）。
+   * 同 id 幂等（issue 179）：已就绪或同 id 正在加载时不重复置空 `keySet`，避免 `setOptions` 重跑冲掉键音包。
    */
   setKeySetId(id: string): void {
+    if (this.keySetId === id && (this.keySet !== null || this.keySetLoading)) return;
     this.keySetId = id;
     this.keySet = null;
+    this.keySetLoading = true;
     void (async () => {
-      const set = await loadKeySoundSet(id);
-      if (this.keySetId !== id) return; // 加载途中又切了包：丢弃过期结果
-      this.keySet = set;
-      await this.preloadKeySet(set);
+      try {
+        const set = await loadKeySoundSet(id);
+        if (this.keySetId !== id) return; // 加载途中又切了包：丢弃过期结果
+        this.keySet = set;
+        await this.preloadKeySet(set);
+      } finally {
+        if (this.keySetId === id) this.keySetLoading = false;
+      }
     })().catch(() => undefined); // chunk/解码失败：保持振荡器兜底（与旧"占位包"行为等价，不弹错）
   }
 
@@ -181,12 +193,47 @@ export class AudioEngine {
     return this.ctx;
   }
 
+  /**
+   * 预热 `seGain → masterGain → destination` 音频混合链路与系统音频硬件（issue 179）：
+   * Windows WASAPI / Chromium AudioService 对全零静音缓冲会做零值跳过优化，直到首个非零样本到达
+   * （BGM 前导静音结束或首个键音触发）才真正激活重采样器与硬件输出流，导致与首音符画面同刻卡顿。
+   * 在首次 `play()` 起播瞬间向 `seBus()` 发送一帧 64 样本、幅值 1e-6（-120 dBFS，人耳不可闻但非零）
+   * 的微脉冲，把音频图与系统声卡唤醒锁定在点击播放的起播帧，而非落到首个音符时刻。
+   */
+  private primeAudioGraph(ctx: AudioContext): void {
+    if (this.audioGraphPrimed) return;
+    this.audioGraphPrimed = true;
+    if (typeof ctx.createBuffer !== 'function' || typeof ctx.createBufferSource !== 'function') return;
+    try {
+      const rate = ctx.sampleRate || 48000;
+      const buf = ctx.createBuffer(1, 64, rate);
+      const ch = typeof buf.getChannelData === 'function' ? buf.getChannelData(0) : null;
+      if (ch) {
+        for (let i = 0; i < ch.length; i++) ch[i] = 1e-6;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(this.seBus());
+      src.onended = () => {
+        try {
+          src.disconnect();
+        } catch {
+          /* ignore */
+        }
+      };
+      src.start(ctx.currentTime);
+    } catch {
+      /* 测试替身或上下文未就绪时静默跳过 */
+    }
+  }
+
   /** 解码文件（ArrayBuffer → decodeAudioData），并复位播放进度（若已在播放中则平滑接入，防打断卡顿） */
   async load(file: File): Promise<void> {
     const ctx = this.ensureCtx();
     const gen = ++this.loadGen;
     const arrayBuffer = await file.arrayBuffer();
     const decoded = await ctx.decodeAudioData(arrayBuffer);
+    touchAudioBuffer(decoded);
     if (gen !== this.loadGen) return;
 
     this.buffer = decoded;
@@ -225,6 +272,29 @@ export class AudioEngine {
     this.state = 'idle';
   }
 
+  /** 释放引擎持有的 `AudioContext` 与节点（动态预览卸载 / 重建引擎时调用，防底层硬件句柄累积） */
+  dispose(): void {
+    this.clear();
+    try {
+      this.seGain?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.masterGain?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    this.seGain = null;
+    this.masterGain = null;
+    this.audioGraphPrimed = false;
+    const ctx = this.ctx;
+    this.ctx = null;
+    if (ctx && typeof ctx.close === 'function') {
+      void Promise.resolve(ctx.close()).catch(() => undefined);
+    }
+  }
+
   /** 依赖音：同步最新的按键事件（谱面编辑/BPM 变化时调用） */
   setChart(notes: ChartNote[], beatDisplay: number): void {
     const bpmEvents = getBpmEvents(notes);
@@ -243,6 +313,7 @@ export class AudioEngine {
       }
     }
     this.stopCurrent();
+    this.primeAudioGraph(ctx);
     if (this.buffer) {
       const src = ctx.createBufferSource();
       src.buffer = this.buffer;

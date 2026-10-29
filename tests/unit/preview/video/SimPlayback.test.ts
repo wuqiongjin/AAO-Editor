@@ -181,5 +181,30 @@ describe('createSimPlayback · 初始进度与异步解码保持（issue 35）',
 
     pb.dispose();
   });
+
+  it('chart-preview 57 · rAF tick 主动推进 engine.tick() 且 dispose() 释放底层 AudioContext', async () => {
+    const closeSpy = vi.fn(() => Promise.resolve());
+    (MockAudioContext.prototype as unknown as { close?: () => Promise<void> }).close = closeSpy;
+    const tickSpy = vi.spyOn(
+      (await import('@/src/audio/AudioEngine')).AudioEngine.prototype,
+      'tick',
+    );
+    try {
+      const { pb } = makePlayback(10);
+      await startPlaying(pb);
+      expect(rafCb).toBeTruthy();
+
+      tickSpy.mockClear();
+      const frame = rafCb!;
+      rafCb = null;
+      frame(16);
+      expect(tickSpy).toHaveBeenCalledTimes(1);
+
+      pb.dispose();
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (MockAudioContext.prototype as unknown as { close?: () => Promise<void> }).close;
+    }
+  });
 });
 

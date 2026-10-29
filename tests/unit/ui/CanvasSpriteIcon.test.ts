@@ -117,4 +117,46 @@ describe('issue 96 · drawSingle 走 mip 源（node 环境无 DOM canvas → 直
         expect(drawCalls).toHaveLength(1);
         expect(drawCalls[0].dW).toBeCloseTo(18, 6);
     });
+
+    it('issue 179 / chart-preview 57 · warmupImageMips 在加载期一次性建齐 1..5 级 mip 位图，渲染期零新建 canvas', () => {
+        let createdCanvases = 0;
+        const createCanvas = () => {
+            createdCanvases++;
+            return {
+                width: 0,
+                height: 0,
+                getContext: () => ({
+                    imageSmoothingEnabled: true,
+                    imageSmoothingQuality: 'high' as ImageSmoothingQuality,
+                    drawImage: () => undefined,
+                }),
+            } as unknown as HTMLCanvasElement;
+        };
+
+        const bigImg = { width: 2048, height: 1024 } as HTMLImageElement;
+        (CanvasSpriteIcon as unknown as { imageCache: Map<string, HTMLImageElement> }).imageCache.set('big-atlas', bigImg);
+        CanvasSpriteIcon.warmupImageMips(bigImg, undefined, createCanvas);
+        expect(createdCanvases).toBe(5); // 1/2, 1/4, 1/8, 1/16, 1/32 五级全部就位
+
+        // 再次调用 warmupImageMips 直接命中 mipChain 缓存，零新建 canvas
+        createdCanvases = 0;
+        CanvasSpriteIcon.warmupImageMips(bigImg, undefined, createCanvas);
+        expect(createdCanvases).toBe(0);
+
+        const { ctx, drawCalls } = makeCtx();
+        const sprite = new CanvasSpriteIcon();
+        // 模拟动态预览音符从远处入场（depth ≈ 0.1 → 1.0）连续跨过多档缩放，全部直接从 mipChain 读取已缓存级位图
+        for (const s of [0.1, 0.2, 0.4, 0.8, 1.0]) {
+            sprite.render(ctx, {
+                src: 'big-atlas', x: 0, y: 0, w: 308, h: 120,
+                canvasX: 100, canvasY: 100, canvasSize: 36, scale: s,
+            });
+        }
+        expect(drawCalls).toHaveLength(5);
+        // 最小缩放档 (s=0.1, dW=3.6) 源宽从 308 缩到 ~38.5（级 3），证明命中了预热后的 mip 位图而非原图兜底
+        expect(drawCalls[0].sw).toBeLessThan(308);
+        expect(createdCanvases).toBe(0);
+    });
 });
+
+

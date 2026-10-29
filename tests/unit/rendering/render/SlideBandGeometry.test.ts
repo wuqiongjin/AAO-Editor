@@ -428,3 +428,44 @@ describe('回折切分 splitBandAtFolds（issue 09 验收反馈 #1：自叠环�
     expect(splitBandAtFolds(pts)).toEqual([pts]);
   });
 });
+
+describe('issue 179 · warmupBandStripStyles 滑条连接带贴图预采样', () => {
+  it('复用 CanvasSpriteIcon 已缓存贴图一次性预采样，后续调用命中 STRIP_STYLE_CACHE 零 getImageData 回读', async () => {
+    const { warmupBandStripStyles } = await import('@/src/rendering/render');
+    const { default: CanvasSpriteIcon } = await import('@/src/ui/CanvasSpriteIcon');
+    let getImageDataCalls = 0;
+    const createCanvas = () => ({
+      width: 0,
+      height: 0,
+      getContext: () => ({
+        drawImage: () => undefined,
+        getImageData: (_x: number, _y: number, w: number, h: number) => {
+          getImageDataCalls++;
+          const data = new Uint8ClampedArray(w * h * 4);
+          data.fill(180);
+          return { data };
+        },
+      }),
+    } as unknown as HTMLCanvasElement);
+
+    const bandA = { width: 16, height: 16, naturalWidth: 16, naturalHeight: 16 } as HTMLImageElement;
+    const bandB = { width: 16, height: 16, naturalWidth: 16, naturalHeight: 16 } as HTMLImageElement;
+    const cache = (CanvasSpriteIcon as unknown as { imageCache: Map<string, HTMLImageElement> }).imageCache;
+    cache.set('test-band-normal', bandA);
+    cache.set('test-band-sp', bandB);
+
+    const icons = {
+      slideBand: { src: 'test-band-normal', x: 0, y: 0, w: 16, h: 16 },
+      slideBandSp: { src: 'test-band-sp', x: 0, y: 0, w: 16, h: 16 },
+    };
+    warmupBandStripStyles(icons, createCanvas);
+    expect(getImageDataCalls).toBe(2);
+
+    // 再次调用直接命中 STRIP_STYLE_CACHE，零 getImageData 像素回读
+    getImageDataCalls = 0;
+    warmupBandStripStyles(icons, createCanvas);
+    expect(getImageDataCalls).toBe(0);
+  });
+});
+
+

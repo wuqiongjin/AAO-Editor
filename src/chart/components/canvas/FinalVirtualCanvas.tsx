@@ -17,7 +17,7 @@ import { useEditing, useUI, usePlayback, useConfig } from '../../../app/Provider
 import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import {
   createRenderTarget, resolveCanvasDpr, normalizeBackgroundOpacity, findItemAt, findBpmLineAt,
-  displayOptionsFromSettings,
+  displayOptionsFromSettings, warmupBandStripStyles,
   type FrameView, type RenderTarget, type ViewportState,
 } from '../../../rendering';
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
@@ -208,6 +208,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs())
             .catch((e) => console.warn('[FinalVirtualCanvas] 音符皮肤图片预热失败（按缺图渲染）:', e))
             .then(() => {
+                warmupBandStripStyles(noteIcons);
                 if (!cancelled) setSkinVersion(v => v + 1);
             });
         return () => { cancelled = true; };

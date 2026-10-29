@@ -238,3 +238,38 @@ describe('sampleCenterColor', () => {
     expect(sampleCenterColor(null)).toBeNull();
   });
 });
+
+describe('chart-preview 57 · loadImageElement 预解码', () => {
+  it('onload 后若支持 img.decode() 则等待解码完成再 resolve，decode 失败也不阻断', async () => {
+    const { loadImageElement } = await import('@/src/preview/video/sim/simAssets');
+    let decoded = false;
+    const prevImage = (globalThis as { Image?: unknown }).Image;
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      private _src = '';
+      decode() {
+        return new Promise<void>((r) => {
+          decoded = true;
+          r();
+        });
+      }
+      set src(v: string) {
+        this._src = v;
+        this.onload?.();
+      }
+      get src() {
+        return this._src;
+      }
+    }
+    (globalThis as { Image?: unknown }).Image = FakeImage;
+    try {
+      const img = await loadImageElement('/assets/sim/sprites/jp/particles.png');
+      expect(decoded).toBe(true);
+      expect(img.src).toBe('/assets/sim/sprites/jp/particles.png');
+    } finally {
+      if (prevImage === undefined) delete (globalThis as { Image?: unknown }).Image;
+      else (globalThis as { Image?: unknown }).Image = prevImage;
+    }
+  });
+});

@@ -25,6 +25,7 @@ import {
   SIM_EMPTY_REGISTRY_FILES,
   type SimAssetPackKind,
 } from './simAssetPacks';
+import { warmupSimSprites } from './simSprites';
 /**
  * 仿真场素材根（Vite 把 `public/` 挂在站点根，dev 的前缀就是 `/`）。
  *
@@ -197,7 +198,13 @@ export function emptySimAssets(): SimAssets {
 export function loadImageElement(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
+    img.onload = () => {
+      if (typeof img.decode === 'function') {
+        img.decode().catch(() => undefined).then(() => resolve(img));
+      } else {
+        resolve(img);
+      }
+    };
     img.onerror = () => reject(new Error(`图片加载失败: ${src}`));
     img.src = src;
   });
@@ -340,6 +347,8 @@ async function probeSimServers(opts: {
       loadImage(spriteUrls.combo).catch(() => null),
       loadImage(spriteUrls.particles).catch(() => null),
     ]);
+    const sprites = digits && combo && particles ? { digits, combo, particles } : null;
+    warmupSimSprites(sprites, [background, field, playLine]);
     return {
       background,
       field,
@@ -348,7 +357,7 @@ async function probeSimServers(opts: {
       bandColorSp: (bandSpImg ? sampleColor(bandSpImg) : null) ?? SIM_BAND_COLORS.sp,
       bandMaterial: sampleBandMaterial(bandImg) ?? { ...SIM_BAND_MATERIAL },
       bandMaterialSp: sampleBandMaterial(bandSpImg) ?? { ...SIM_BAND_MATERIAL_SP },
-      sprites: digits && combo && particles ? { digits, combo, particles } : null,
+      sprites,
       missing: false,
       server,
     };

@@ -24,7 +24,7 @@ import { GRID_STYLES, GRID_TIER_ORDER, gridBpmLineColor, gridBpmNegativeColor, g
 import { SELECTION_COLORS, SELECTION_OUTLINE } from './selectionStyle';
 import type { ActiveNoteIcons, DirGroupVisual } from './skin/noteSkin';
 import type { FrameView, RenderCtx } from './types';
-import type { SpriteIconConfig } from '../ui/CanvasSpriteIcon';
+import CanvasSpriteIcon, { type SpriteIconConfig } from '../ui/CanvasSpriteIcon';
 
 /**
  * 音符 / 滑条结点**选款**真正读到的输入：图标集 + 细分档 + 色觉辅助与镜向两个开关。
@@ -958,15 +958,16 @@ const STRIP_STYLE_DEFAULT: BandStripStyle = {
   profile: [0.38, 0.38, 0.39, 0.40, 0.41, 0.43, 0.45, 0.48, 0.52, 0.56, 0.61, 0.67, 0.74, 0.82, 0.89, 0.62, 0.25],
 };
 
-function bandStripStyle(band: SpriteIconConfig): BandStripStyle {
+function bandStripStyle(band: SpriteIconConfig, createCanvas?: () => HTMLCanvasElement | null): BandStripStyle {
   const cached = STRIP_STYLE_CACHE.get(band.src);
   if (cached) return cached;
-  if (typeof Image === 'undefined') return STRIP_STYLE_DEFAULT; // 无 DOM（node 单测/SSR）→ 实测常量兜底剖面
   const sample = (img: HTMLImageElement) => {
+    if (!createCanvas && typeof document === 'undefined') return;
     try {
-      const w = img.naturalWidth, h = img.naturalHeight;
+      const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
       if (!w || !h) return;
-      const cv = document.createElement('canvas');
+      const cv = createCanvas ? createCanvas() : document.createElement('canvas');
+      if (!cv) return;
       cv.width = w; cv.height = h;
       const cx = cv.getContext('2d');
       if (!cx) return;
@@ -994,14 +995,33 @@ function bandStripStyle(band: SpriteIconConfig): BandStripStyle {
       STRIP_STYLE_CACHE.set(band.src, { color: `rgb(${r},${g},${b})`, rgb: [r, g, b], profile });
     } catch { /* 采样失败保持兜底/上次值 */ }
   };
+  const preloaded = CanvasSpriteIcon.getCachedImage(band.src);
+  if (preloaded && (preloaded.naturalWidth || preloaded.width) > 0) {
+    sample(preloaded);
+    return STRIP_STYLE_CACHE.get(band.src) ?? STRIP_STYLE_DEFAULT;
+  }
+  if (typeof Image === 'undefined') return STRIP_STYLE_DEFAULT; // 无 DOM（node 单测/SSR）→ 实测常量兜底剖面
   const img = new Image();
   img.src = band.src;
-  if (img.complete && img.naturalWidth > 0) {
+  if (img.complete && (img.naturalWidth || img.width) > 0) {
     sample(img);
     return STRIP_STYLE_CACHE.get(band.src) ?? STRIP_STYLE_DEFAULT;
   }
   img.decode?.().then(() => sample(img)).catch(() => undefined);
   return STRIP_STYLE_DEFAULT;
+}
+
+/**
+ * 预采样当前音符皮肤的普通 / SP 连接带横截面剖面（issue 179）：
+ * 在皮肤图集预加载完成时提前写入 `STRIP_STYLE_CACHE`，消除首次绘制含 hidden 滑条瓦片时
+ * 在渲染热路径内同步新建 canvas + getImageData 回读 GPU 像素的突发卡顿。
+ */
+export function warmupBandStripStyles(
+  icons: Pick<ActiveNoteIcons, 'slideBand' | 'slideBandSp'>,
+  createCanvas?: () => HTMLCanvasElement | null,
+): void {
+  bandStripStyle(icons.slideBand, createCanvas);
+  bandStripStyle(icons.slideBandSp, createCanvas);
 }
 
 /** 当前画布在 CSS 空间的可见矩形（逆变换；无位图尺寸则不裁，走整条 bbox）。issue 138 */

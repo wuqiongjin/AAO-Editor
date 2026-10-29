@@ -161,4 +161,59 @@ describe('AudioEngine · 播放速率（chart-preview 20）', () => {
     engine.setPlaybackRate(4 + SIM_PLAYBACK_RATE_STEP); // 再往上一档 ⇒ 钳回上限
     expect(engine.playbackRate).toBe(4);
   });
+
+  it('issue 179 · load 解码后预触碰各声道 PCM 页，首次 play 预热音频混合图且不干扰 BGM source', async () => {
+    const ch0 = new Float32Array(2049);
+    const ch1 = new Float32Array(2049);
+    const getChannelData = vi.fn((ch: number) => (ch === 0 ? ch0 : ch1));
+    const primerBuffers: Float32Array[] = [];
+    const closeSpy = vi.fn(() => Promise.resolve());
+
+    class PrimedMockAudioContext extends MockAudioContext {
+      sampleRate = 48000;
+      override decodeAudioData(): Promise<AudioBuffer> {
+        return Promise.resolve({
+          duration: 30,
+          numberOfChannels: 2,
+          getChannelData,
+        } as unknown as AudioBuffer);
+      }
+      createBuffer(_ch: number, len: number): AudioBuffer {
+        const arr = new Float32Array(len);
+        primerBuffers.push(arr);
+        return {
+          duration: len / 48000,
+          numberOfChannels: 1,
+          getChannelData: () => arr,
+        } as unknown as AudioBuffer;
+      }
+      close = closeSpy;
+    }
+
+    (window as unknown as { AudioContext: unknown }).AudioContext = PrimedMockAudioContext;
+    const engine = new AudioEngine();
+
+    await engine.load(new File([new Uint8Array(8)], 'bgm.mp3'));
+    expect(getChannelData).toHaveBeenCalledWith(0);
+    expect(getChannelData).toHaveBeenCalledWith(1);
+
+    await engine.play();
+    const ctx = engineCtx(engine);
+    // 首次 play 先跑 1 次微脉冲预热（非零 1e-6），紧接着启动 BGM source（位于 sources 末尾）
+    expect(primerBuffers).toHaveLength(1);
+    expect(primerBuffers[0]![0]).toBeCloseTo(1e-6, 10);
+    expect(ctx.sources).toHaveLength(2);
+    engine.setPlaybackRate(1.5);
+    expect(ctx.sources.at(-1)!.playbackRate.value).toBe(1.5);
+
+    // 同 id 重复调用 setKeySetId 幂等，不会把已挂载的 keySet 置回 null
+    const fakeSet = { id: 'skin00', samples: {} };
+    (engine as unknown as { keySetId: string; keySet: unknown }).keySetId = 'skin00';
+    (engine as unknown as { keySetId: string; keySet: unknown }).keySet = fakeSet;
+    engine.setKeySetId('skin00');
+    expect((engine as unknown as { keySet: unknown }).keySet).toBe(fakeSet);
+
+    engine.dispose();
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
 });

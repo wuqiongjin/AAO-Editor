@@ -29,6 +29,7 @@ const calls = vi.hoisted(() => ({
   seek: vi.fn(),
   setDuration: vi.fn(),
   dispose: vi.fn(),
+  lastOnTick: null as ((seconds: number, playing: boolean) => void) | null,
 }));
 
 vi.mock('@/src/preview', async (importOriginal) => {
@@ -48,9 +49,11 @@ vi.mock('@/src/preview', async (importOriginal) => {
       missing: false,
       server: 'jp',
     })),
-    createSimPlayback: vi.fn((opts?: { initialSeconds?: number }) => {
+    createSimPlayback: vi.fn((opts?: { initialSeconds?: number; onTick?: (seconds: number, playing: boolean) => void }) => {
+      calls.lastOnTick = opts?.onTick ?? null;
       if (opts?.initialSeconds && opts.initialSeconds > 0) {
         calls.seek(opts.initialSeconds);
+        opts.onTick?.(opts.initialSeconds, false);
       }
       return {
         setFrame: calls.setFrame,
@@ -452,5 +455,53 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
     expect(calls.pause).toHaveBeenCalled();
     expect(calls.seek).toHaveBeenCalledWith(0);
     expect(onSecondsChange).toHaveBeenCalledWith(0);
+  });
+
+  it('chart-preview 57 · 播放期 onTick 按 80ms 节流 PlayBar HUD 与 onSecondsChange，起停切换与暂停态立即提交', async () => {
+    const { act } = await import('@testing-library/react');
+    const onSecondsChange = vi.fn();
+    let now = 1000;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      await renderStage({ onSecondsChange });
+      expect(calls.lastOnTick).toBeTypeOf('function');
+      onSecondsChange.mockClear();
+
+      // 1. 起播切换（false -> true）：立即提交 1.0s
+      act(() => {
+        calls.lastOnTick!(1.0, true);
+      });
+      expect(seekTrack().getAttribute('aria-valuenow')).toBe('1');
+      expect(onSecondsChange).toHaveBeenCalledTimes(1);
+      expect(onSecondsChange).toHaveBeenLastCalledWith(1.0);
+
+      // 2. 播放中仅过 16ms（< 80ms）：PlayBar HUD 与父级 onSecondsChange 均被节流，不触发 60Hz 重渲
+      now = 1016;
+      act(() => {
+        calls.lastOnTick!(2.0, true);
+      });
+      expect(onSecondsChange).toHaveBeenCalledTimes(1);
+      expect(seekTrack().getAttribute('aria-valuenow')).toBe('1');
+
+      // 3. 满 80ms（1080ms）：PlayBar HUD 与 onSecondsChange 同步更新到 3.0s
+      now = 1080;
+      act(() => {
+        calls.lastOnTick!(3.0, true);
+      });
+      expect(seekTrack().getAttribute('aria-valuenow')).toBe('3');
+      expect(onSecondsChange).toHaveBeenCalledTimes(2);
+      expect(onSecondsChange).toHaveBeenLastCalledWith(3.0);
+
+      // 4. 暂停态（playing = false）：即使仅过 5ms 也立即提交
+      now = 1085;
+      act(() => {
+        calls.lastOnTick!(4.0, false);
+      });
+      expect(seekTrack().getAttribute('aria-valuenow')).toBe('4');
+      expect(onSecondsChange).toHaveBeenCalledTimes(3);
+      expect(onSecondsChange).toHaveBeenLastCalledWith(4.0);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });

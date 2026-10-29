@@ -9,7 +9,10 @@
  * - `inkLeft/inkRight`：方向滑键等精灵框内可见墨迹相对矩形左右边的**源像素缩进**，
  *   供「同时点击连接线」等以墨迹真实边缘定位（消除连接线头与图标间的空隙，issue 40 关联 BUG）。
  */
-import { mipLevelFor, mipDims } from './canvasSpriteMips';
+import { MIP_MIN_DIM, mipLevelFor, mipDims } from './canvasSpriteMips';
+
+/** 预热 mip 链的默认最大级数（覆盖 2048×1024 图集在动态预览远处 depth≈0.1 与工作台最小缩放下的全部采样级 1..5） */
+export const PREWARM_MIP_LEVEL = 5;
 
 export interface SpriteIconConfig {
     src: string;
@@ -74,17 +77,24 @@ export default class CanvasSpriteIcon {
      * 取第 L 级减半位图（增量构建：级 i 由级 i−1 再减半得到）。
      * 任何失败（无 DOM / canvas 不可用 / 绘制异常）→ null，调用方原图直绘兜底（vitest node 环境即走此路）。
      */
-    private static getMipLevelSource(img: HTMLImageElement, level: number): CanvasImageSource | null {
-        if (level <= 0 || typeof document === 'undefined') return null;
+    private static getMipLevelSource(
+        img: HTMLImageElement,
+        level: number,
+        createCanvas?: () => HTMLCanvasElement | null,
+    ): CanvasImageSource | null {
+        if (level <= 0) return null;
         try {
             let chain = CanvasSpriteIcon.mipChains.get(img);
+            if (chain && chain[level]) return chain[level]!;
+            if (!createCanvas && typeof document === 'undefined') return null;
             if (!chain) { chain = [img]; CanvasSpriteIcon.mipChains.set(img, chain); }
             for (let i = chain.length; i <= level; i++) {
                 const prev = chain[i - 1];
                 const pw = (prev as { width: number }).width;
                 const ph = (prev as { height: number }).height;
                 const { w, h } = mipDims(pw, ph, 1);
-                const cv = document.createElement('canvas');
+                const cv = createCanvas ? createCanvas() : document.createElement('canvas');
+                if (!cv) return null;
                 cv.width = w; cv.height = h;
                 const cctx = cv.getContext('2d');
                 if (!cctx) return null;
@@ -96,6 +106,27 @@ export default class CanvasSpriteIcon {
             return chain[level] ?? null;
         } catch {
             return null;
+        }
+    }
+
+    /**
+     * 预热源图的 mip 位图链（issue 179 / chart-preview 57）：
+     * 在图片加载完成时一次性把 1..maxLevel 级减半位图构建完毕（顺带触发源图首次 drawImage GPU 上传），
+     * 消除动态预览首音符在远处入场（depth≈0.1→1.0 连续跨越 level 4→3→2→1）或工作台音符瓦片首次构建时
+     * 在播放 rAF 帧内同步 allocate + high-quality 降采样大图集的突发卡顿。
+     */
+    public static warmupImageMips(
+        img: HTMLImageElement,
+        maxLevel = PREWARM_MIP_LEVEL,
+        createCanvas?: () => HTMLCanvasElement | null,
+    ): void {
+        const w = img.width || img.naturalWidth;
+        const h = img.height || img.naturalHeight;
+        if (!(w > 0) || !(h > 0) || maxLevel <= 0) return;
+        const cap = Math.floor(Math.log2(Math.min(w, h) / MIP_MIN_DIM));
+        const target = Math.max(0, Math.min(maxLevel, cap));
+        if (target > 0) {
+            CanvasSpriteIcon.getMipLevelSource(img, target, createCanvas);
         }
     }
 
@@ -116,8 +147,16 @@ export default class CanvasSpriteIcon {
             const img = new Image();
             img.onload = () => {
                 CanvasSpriteIcon.imageCache.set(url, img);
-                CanvasSpriteIcon.loadingPromises.delete(url);
-                resolve(img);
+                const finish = () => {
+                    CanvasSpriteIcon.warmupImageMips(img);
+                    CanvasSpriteIcon.loadingPromises.delete(url);
+                    resolve(img);
+                };
+                if (typeof img.decode === 'function') {
+                    img.decode().catch(() => undefined).then(finish);
+                } else {
+                    finish();
+                }
             };
             img.onerror = (e) => {
                 CanvasSpriteIcon.loadingPromises.delete(url);
@@ -131,7 +170,7 @@ export default class CanvasSpriteIcon {
         return p;
     }
 
-    private static getImageSync(url: string): HTMLImageElement | null {
+    public static getCachedImage(url: string): HTMLImageElement | null {
         return CanvasSpriteIcon.imageCache.get(url) ?? null;
     }
 
@@ -152,7 +191,7 @@ export default class CanvasSpriteIcon {
         ctx: CanvasRenderingContext2D,
         cfg: { src: string; x: number; y: number; w: number; h: number; canvasX: number; canvasY: number; canvasW: number; canvasH: number; overallScale?: number; scaleX?: number; scaleY?: number; }
     ) {
-        const img = CanvasSpriteIcon.getImageSync(cfg.src);
+        const img = CanvasSpriteIcon.getCachedImage(cfg.src);
         if (!img) {
             CanvasSpriteIcon.loadImage(cfg.src).catch(() => undefined);
             return false;

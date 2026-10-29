@@ -95,6 +95,31 @@ export function scheduleKeyTone(
 }
 
 /**
+ * 预触碰 `AudioBuffer` 各声道全部虚拟内存页（issue 179）：
+ * `decodeAudioData` 解码完的长 BGM / 采样以 `Float32Array` 持有，在冷启动后首次发声时刻若由音频渲染线程
+ * 才逐页触发缺页或驱动缓冲区激活，会与画面首音符同刻抢占资源；解码完成时按 4KB 页步长（1024 个 float32）
+ * 扫读一遍各声道样本，把缺页前移到加载阶段。
+ */
+export function touchAudioBuffer(buffer: AudioBuffer | null | undefined): void {
+  if (!buffer || typeof buffer.getChannelData !== 'function') return;
+  const channels = buffer.numberOfChannels ?? 0;
+  let acc = 0;
+  for (let ch = 0; ch < channels; ch++) {
+    try {
+      const data = buffer.getChannelData(ch);
+      if (!data) continue;
+      for (let i = 0; i < data.length; i += 1024) {
+        acc += data[i]!;
+      }
+      if (data.length > 0) acc += data[data.length - 1]!;
+    } catch {
+      /* 忽略测试替身或只读异常 */
+    }
+  }
+  void acc;
+}
+
+/**
  * 真实采样缓存：src → 已解码 `AudioBuffer`。
  *
  * 全仓**共享一份**（`keySoundBank`）：实时引擎与离线音轨渲染器都从它取，
@@ -120,6 +145,7 @@ export class KeySoundSampleBank {
       const res = await fetch(src);
       if (!res.ok) throw new Error(`音效加载失败: ${src}`);
       const decoded = await ctx.decodeAudioData(await res.arrayBuffer());
+      touchAudioBuffer(decoded);
       this.cache.set(src, decoded);
       return decoded;
     })();

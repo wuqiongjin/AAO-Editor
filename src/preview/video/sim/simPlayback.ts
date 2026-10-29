@@ -178,6 +178,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
   function tick(): void {
     rafId = null;
     if (disposed) return;
+    engine.tick();
     const seconds = engine.getSeconds();
     if (seconds >= duration) {
       stopAtEnd();
@@ -255,8 +256,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     dispose(): void {
       disposed = true;
       stopRaf();
-      engine.pause();
-      engine.clear();
+      engine.dispose();
       frame = null;
     },
   };

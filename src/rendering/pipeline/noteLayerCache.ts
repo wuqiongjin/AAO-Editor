@@ -557,12 +557,16 @@ export function createNoteLayerCache(): NoteLayerCache {
       enqueuePlayingTiles(prefetch, rc, es);
     } else {
       // issue 165：静止时预热视口上方瓦片，避免首次开播向上滚动时触碰未建瓦片卡顿
-      // issue 167：静止时靶向预热全谱首个实体音符所在的瓦片，消除开播后首音符抵线时的突发冷建
+      // issue 167 / 179：静止时将视口上方预热窗口对齐到播放期的 [lo, hi + 2]，并把全谱首个实体音符
+      // 所在瓦片及其后继窗口 [firstTile, firstTile + 2] 一并预热，消除首音符从进入视口到抵达判定线
+      // 全程触发相邻非空瓦片突发冷建的卡顿
       const prefetch: number[] = [];
-      for (let id = lo; id <= hi + 1; id++) prefetch.push(id);
+      for (let id = lo; id <= hi + 2; id++) prefetch.push(id);
       const firstTile = firstNonEmptyTileIdOf(rc);
-      if (firstTile !== null && !prefetch.includes(firstTile)) {
-        prefetch.push(firstTile);
+      if (firstTile !== null) {
+        for (let id = firstTile; id <= firstTile + 2; id++) {
+          if (!prefetch.includes(id)) prefetch.push(id);
+        }
       }
       enqueuePlayingTiles(prefetch, rc, es);
     }

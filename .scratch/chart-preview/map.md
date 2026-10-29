@@ -99,6 +99,7 @@
 - [49 皮肤显示名接入官方命名映射](./issues/49-皮肤显示名接入官方命名映射.md) — **done（2026-10-22 应用侧实现并提交；取件侧升级后自动生效）**：三类皮肤（音符 / 轨道 / 背景）显示名接官方命名 API 分层（官方 > 社区 fallback > 包 ID），中文取 cn 服条目优先、回退 en→jp；新模块 `skinDisplayName.ts` 查表（空服/null/NBSP 变体跳过），设置仍存包 ID 零迁移。锁测见票内 Comments + ADR-0018 §6
 - 预览谱面切换器当前钮拼法随 [basic-editor 176](../basic-editor/issues/176-切换器当前钮色块带等级去Easy.md)：**`[EZ 1] 谱面名`**，等级进色块、不再跟在标题后。
 - [56 仿真场「轨道」缩略图辨识度](./issues/56-仿真场轨道包缩略图辨识度.md) — **已实现待验收（2026-10-29，Q1=D + Q6=P1）**：根因 = 透明底轨道贴图缩成 64×26 + `cover` + 浅色底；修法 = 设置视图只留「当前选择」行、格子进二级选择器（面板唯一滚动）+ 完整比例 / 深色底 + hover 大预览；二轮按反馈改 4 列等宽（`minmax(0,1fr)`）。快照 `skinName` 由取件仓补，本票不碰。
+- [57 动态预览首次播放首音符入场与抵线卡顿](./issues/57-动态预览首次播放首音符入场与抵线卡顿.md) — **resolved（2026-10-29）**：根因 = ① 首音符远端入场帧（`a=0.05`）同步构建深层 Mipmap（`level 3/4`）；② 首音符抵线帧 `drawSpriteEffect` + `drawCombo` 整场首次执行，单帧内同步解码 `particles.png`（1024×1024）/`digits.png`/`combo.png` 并同步新建/合成 5 张 256×256 离屏 Canvas（`circleCache` + `tileCache`）上传 GPU；③ 叠加共享音频冷态（见 [basic-editor/179](../basic-editor/issues/179-冷启动首次播放首音符与BGM出声同刻卡顿.md)）、`SimPlayback.dispose` 未关 `AudioContext` 及 `onTick` 60Hz 无节流刷新两层 React 状态。修法 = `loadImageElement` 等待 `img.decode()` + `warmupSimSprites` 预建 6 枚径向渐变圆与 `SIM_WARMUP_TILE_SPECS` 全部 15 枚染色图块并离屏 `drawImage` 预热 + `CanvasSpriteIcon.warmupImageMips` 预建 1..5 级 Mipmap；`simPlayback` rAF 推进 `engine.tick()`、`dispose()` 调 `engine.dispose()` 关闭 `AudioContext`；`PreviewVideoStage` 播放期按 `80ms`（`PLAYBACK_HUD_PERIOD_MS`）同时节流 `setTick` 与 `onSecondsChange`。
 
 ## Fog
 

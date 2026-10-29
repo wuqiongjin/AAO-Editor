@@ -333,3 +333,53 @@ describe('drawSimFrameAt · 方向键与连按', () => {
     expect(tileDraws(calls, sprites.particles).filter((d) => d.sy === at(2, 1).sy)).toEqual([]);
   });
 });
+
+describe('chart-preview 57 · warmupSimSprites 打击特效图块与径向渐变圆预热', () => {
+  it('warmupSimSprites 一次性预建全部 6 枚渐变圆 + 15 枚染色图块，后续重复预热或采样命中缓存零新建离屏 canvas', async () => {
+    const {
+      warmupSimSprites,
+      SIM_WARMUP_TILE_SPECS,
+      particleTile,
+      radialCircle,
+      radialCircleOf,
+    } = await import('@/src/preview/video/sim/simSprites');
+    const { SIM_EFFECT_TINTS } = await import('@/src/preview/video/sim/simGeometry');
+
+    let createdCanvases = 0;
+    const createOffscreen = (size: number) => {
+      createdCanvases++;
+      return {
+        canvas: { width: size, height: size } as unknown as CanvasImageSource,
+        ctx: {
+          globalCompositeOperation: 'source-over',
+          fillStyle: '',
+          drawImage: () => undefined,
+          fillRect: () => undefined,
+          createRadialGradient: () => ({ addColorStop: () => undefined } as unknown as CanvasGradient),
+        } as unknown as CanvasRenderingContext2D,
+      };
+    };
+
+
+    const tiles = new Map<string, CanvasImageSource>();
+    const circles = new Map<string, CanvasImageSource>();
+
+    warmupSimSprites(sprites, [], { createOffscreen, tiles, circles });
+    expect(circles.size).toBe(6); // white / tap / flick / skill / directionalL / directionalR
+    expect(tiles.size).toBe(SIM_WARMUP_TILE_SPECS.length); // 15 枚染色图块 + connectionRing
+    expect(createdCanvases).toBeGreaterThanOrEqual(21);
+
+    // 再次调用粒子图块与径向渐变圆读取（对应首音符抵线帧全部打击特效命中），全部命中缓存，零新建离屏 canvas
+    createdCanvases = 0;
+    for (const [[col, row], tint] of SIM_WARMUP_TILE_SPECS) {
+      const res = particleTile(sprites, col, row, tint, createOffscreen, tiles);
+      expect(res.source).not.toBe(sprites.particles);
+    }
+    expect(radialCircle('rgba(255, 255, 255, 1)', 'rgba(255, 255, 255, 0)', createOffscreen, circles)).not.toBeNull();
+    for (const tint of Object.values(SIM_EFFECT_TINTS)) {
+      expect(radialCircleOf(tint, createOffscreen, circles)).not.toBeNull();
+    }
+    expect(createdCanvases).toBe(0);
+  });
+});
+
