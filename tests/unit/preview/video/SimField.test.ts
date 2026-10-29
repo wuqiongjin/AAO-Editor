@@ -485,6 +485,45 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     const dest = calls.find(([k, args]) => k === 'drawImage' && args[0] === background)!;
     expect({ x: dest[1][1], y: dest[1][2], w: dest[1][3], h: dest[1][4] }).toEqual(backgroundRect(frame.metrics));
   });
+
+  it('背景亮度（票 43）：黑罩落在**背景图之后、场地图之前**，只压背景层', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const background = { naturalWidth: 2048, naturalHeight: 1024 } as HTMLImageElement;
+    const field = { naturalWidth: 1160, naturalHeight: 610 } as HTMLImageElement;
+    const notes = [single(2, 3)];
+    const frame: SimFrameInput = {
+      ...frameOf(notes, spriteIcon),
+      // 亮度 0.4 ⇒ 黑罩 alpha = 0.6
+      scene: { ...scene(notes), bgBrightness: 0.4 },
+      assets: { ...emptySimAssets(), missing: false, background, field, playLine: null },
+    };
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 0);
+
+    const bgIdx = calls.findIndex(([k, args]) => k === 'drawImage' && args[0] === background);
+    const dimIdx = calls.findIndex(([k, args]) => k === 'fillStyle' && args[0] === 'rgba(0, 0, 0, 0.6)');
+    const fieldIdx = calls.findIndex(([k, args]) => k === 'drawImage' && args[0] === field);
+    expect(bgIdx).toBeGreaterThan(-1);
+    expect(dimIdx).toBeGreaterThan(bgIdx);
+    expect(fieldIdx).toBeGreaterThan(dimIdx);
+  });
+
+  it('背景亮度 = 1（默认）不叠黑罩；没有背景图也不压（缺素材空态不被无故压黑）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const notes = [single(2, 3)];
+    const background = { naturalWidth: 2048, naturalHeight: 1024 } as HTMLImageElement;
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, { ...frameOf(notes, spriteIcon), assets: { ...emptySimAssets(), background } }, 0);
+    expect(calls.some(([k, args]) => k === 'fillStyle' && String(args[0]).startsWith('rgba(0, 0, 0,'))).toBe(false);
+
+    const noImg = recordingCtx();
+    drawSimFrameAt(noImg.proxy, {
+      ...frameOf(notes, spriteIcon),
+      scene: { ...scene(notes), bgBrightness: 0 },
+      assets: emptySimAssets(),
+    }, 0);
+    expect(noImg.calls.some(([k, args]) => k === 'fillStyle' && String(args[0]).startsWith('rgba(0, 0, 0,'))).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------- issue 45 锁测

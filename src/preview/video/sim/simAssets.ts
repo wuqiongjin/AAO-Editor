@@ -189,8 +189,12 @@ export function emptySimAssets(): SimAssets {
   };
 }
 
-/** 默认图片加载（与 `CanvasSpriteIcon` 各自持缓存：场地图只在这儿用，不进精灵图集） */
-function loadImageElement(src: string): Promise<HTMLImageElement> {
+/**
+ * 默认图片加载（与 `CanvasSpriteIcon` 各自持缓存：场地图只在这儿用，不进精灵图集）。
+ * 导出给预览面板的 hover 大预览复用 —— 那边只多一层"同 URL 不重复 new Image"的缓存，
+ * 不另写第三份 `new Image()`。
+ */
+export function loadImageElement(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);

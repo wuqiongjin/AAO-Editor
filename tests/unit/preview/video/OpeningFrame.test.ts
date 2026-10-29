@@ -194,6 +194,13 @@ describe('chart-preview 30 · 场地的两层（③ 背景 / ④ 轨道）', () 
     expect(drawn[0][1][0]).toBe(imgs.background);
   });
 
+  it('③ 背景亮度（票 43）：只有背景层压暗，层集合仍是那一张背景图', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawOpeningFieldBackground(proxy, m, imgs, 0.5);
+    expect(propValues(calls, 'fillStyle')).toContain('rgba(0, 0, 0, 0.5)');
+    expect(calls.filter(([k]) => k === 'drawImage').map(([, a]) => a[0])).toEqual([imgs.background]);
+  });
+
   it('④ 画**整块轨道** = 场地图 + 判定线，两张一起（一张都不能只画判定线）', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawOpeningTrack(proxy, m, imgs, 1);

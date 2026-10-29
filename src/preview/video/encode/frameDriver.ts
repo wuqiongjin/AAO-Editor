@@ -107,7 +107,8 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
       // ③ 入场过渡 / ④ 轨道淡入：只画场地的分层（背景 → 轨道），**不进 drawSimFrameAt**
       // （负秒下它会画出正在接近的音符 / 带体，不是干净的场地）
       ctx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);
-      drawOpeningFieldBackground(ctx, metrics, frame.assets);
+      // 背景亮度（票 43）与正片同一份 scene：开场③段也压暗，导出物才与预览一致
+      drawOpeningFieldBackground(ctx, metrics, frame.assets, frame.scene.bgBrightness);
       drawOpeningTrack(ctx, metrics, frame.assets, openingTrackAlphaAt(t));
       if (seg === 'fadeOut') {
         ctx.setTransform(1, 0, 0, 1, 0, 0);

@@ -313,6 +313,15 @@ export interface PreviewSettings {
    * 等同音符速度 / 镜向，是"我看着舒服"）。口径同 `bgPackId`。
    */
   fieldPackId: string;
+  /**
+   * 表演背景**亮度**（chart-preview 43 · ADR-0018 §5）：`1` = 原图，只向下压暗
+   * （绘制层叠 `alpha = 1 − 亮度` 的黑罩，数学上等价于 RGB × 亮度），**只压背景层**，
+   * 不动场地图 / 判定线 / 音符。白名单与步长见 `BG_BRIGHTNESS_RANGE`。
+   *
+   * 归属 = 应用级（ADR-0018 §3"观看偏好"）；实时预览 + 视频导出 + 开场③段共用同一份
+   * `SimScene.bgBrightness` ⇒ 三处画面一致。
+   */
+  bgBrightness: number;
 }
 
 /**
@@ -326,6 +335,28 @@ export interface PreviewSettings {
  * （现代游戏是 1..12，1..11 是老版本）。
  */
 export const SIM_NOTE_SPEED_RANGE = { min: 1, max: 12, step: 0.1, fallback: 9.5 } as const;
+
+/**
+ * 表演背景亮度档（票 43）：`0..1`，步长 `0.05`，**1 = 原图**。
+ *
+ * **只压暗、不提亮**（ADR-0018 §5：提亮会把画面洗白，刚需是"亮背景压暗以便看清音符"）——
+ * 所以上界就是 1，不做 >1 的提亮区。默认 **0.7**（用户 2026-10-29 实测验收定档：
+ * 压到 70% 既压住亮背景，又不把暗部吃掉）。
+ */
+export const BG_BRIGHTNESS_RANGE = { min: 0, max: 1, step: 0.05, fallback: 0.7 } as const;
+
+/** 背景亮度归一化（读写同一个白名单；快照值对齐步长，写法照 `normalizeNoteSpeed`） */
+export function normalizeBgBrightness(
+  raw: unknown,
+  fallback: number = BG_BRIGHTNESS_RANGE.fallback,
+): number {
+  const { min, max, step } = BG_BRIGHTNESS_RANGE;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
+  // 吸附走 `× (1/step)`：0.05 不能被二进制精确表示（与音符速度档同因）
+  const inv = 1 / step;
+  const snapped = Math.round(raw * inv) / inv;
+  return Math.min(max, Math.max(min, snapped));
+}
 
 /** Time 标记间隔（秒）——照 Bestdori 的 `chartTime`：off / 1s / 2s / 5s / 10s（chart-preview 08） */
 export type PreviewTimeMarkInterval = 'off' | 1 | 2 | 5 | 10;
@@ -350,6 +381,8 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
   // 表演背景 / 场地皮肤包各默认 skin00（ADR-0018 §1；非法 ID 读盘时归一化回落）
   bgPackId: SIM_DEFAULT_PACK_IDS.background,
   fieldPackId: SIM_DEFAULT_PACK_IDS.field,
+  // 背景亮度默认 0.7（用户 2026-10-29 验收定档；1 = 原图）
+  bgBrightness: BG_BRIGHTNESS_RANGE.fallback,
 };
 
 /** 音符速度档归一化（读写同一个白名单；快照值对齐步长） */
@@ -546,6 +579,8 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       // 快照缩水后残留的旧选择）静默回落默认 skin00 —— "列表即真相"
       bgPackId: normalizeSimAssetPackId('background', preview.bgPackId),
       fieldPackId: normalizeSimAssetPackId('field', preview.fieldPackId),
+      // 脏值 / 缺字段回落默认（老设置 additive，不 bump）
+      bgBrightness: normalizeBgBrightness(preview.bgBrightness, defaults.preview.bgBrightness),
     },
     // 导出信息字段（chart-preview 14）：逐字段布尔归一化，缺字段 / 脏值回落默认档
     export: normalizeExportFields(exportRaw, defaults.export),

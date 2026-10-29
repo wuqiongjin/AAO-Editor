@@ -10,8 +10,8 @@
 //   - **轨道 = 场地图 + 判定线两张一起**（用户第六轮原话："不单单只判定线，还有后面这大块
 //     空间的轨道都要一起过渡"）；三张图的矩形直接复用 `simGeometry`，不抄第二份。
 import type { SimFieldMetrics } from '../sim/simGeometry';
-import { backgroundRect, fieldImageRect, playLineRect } from '../sim/simGeometry';
-import { SIM_FALLBACK_BG } from '../sim/simField';
+import { fieldImageRect, playLineRect } from '../sim/simGeometry';
+import { drawSimBackground } from '../sim/simField';
 import { drawOpeningDecor } from './openingDecor';
 import type { OpeningItemId } from './openingItems';
 import { HEADER_SANS } from '../../fontStack';
@@ -334,20 +334,19 @@ export function drawOpeningFrameAt(
 
 /**
  * ③ 只有**表演背景图**这一层（bgskin 主图；文件名按包 ID 查清单 —— `liveBG_normal.png` /
- * `liveBG.png` 两种命名并存，chart-preview 41 起不硬编码）
+ * `liveBG.png` 两种命名并存，chart-preview 41 起不硬编码）。
+ *
+ * `brightness` = `settings.preview.bgBrightness`（票 43）：开场③段与正片共用同一个背景绘制函数，
+ * 亮度必须在这里也落一次，否则"导出开场是原图、正片是压暗"。
  */
 export function drawOpeningFieldBackground(
   ctx: CanvasRenderingContext2D,
   m: SimFieldMetrics,
   imgs: OpeningFieldImages,
+  brightness: number = 1,
 ): void {
   ctx.save();
-  ctx.fillStyle = SIM_FALLBACK_BG;
-  ctx.fillRect(0, 0, m.w, m.h);
-  if (imgs.background) {
-    const r = backgroundRect(m);
-    ctx.drawImage(imgs.background, r.x, r.y, r.w, r.h);
-  }
+  drawSimBackground(ctx, m, imgs.background, brightness);
   ctx.restore();
 }
 

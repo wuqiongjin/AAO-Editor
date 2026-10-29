@@ -452,18 +452,118 @@
   gap: 1px;
 }
 
-/* ---- 仿真场素材包缩略图网格（chart-preview 41 · ADR-0018 §1）----
-   背景 / 轨道两个独立选择器：一格 = 一张素材自身缩成的缩略图 + 包 ID（辨识交给缩略图，
-   不人工起名）。轨道 33 包全列会顶穿面板 ⇒ 网格自带限高 + 内部滚动（面板那层
-   `overflow-y` 仍然在，管的是组与组之间）。 */
+/* ---- 仿真场素材包选择器（chart-preview 41 · 票 56）----
+   设置视图只留一行「当前选择」；格子只出现在二级选择器视图里，且不自带滚动 ——
+   面板是唯一的滚动容器（33 格塞进设置列表会形成嵌套滚动，滚轮被网格吃掉）。
+
+   缩略图底色固定走 `--canvas-bg`（固定深色，两主题一致），不吃主题的 `--bg-inset`：
+   轨道素材是透明底的扇形轨道面，浅色底会把两侧描边 / 辉光冲淡成同一个灰楔子。
+   图片按素材自身比例 `contain` 完整缩小，不再 `cover` 裁上下。 */
+.pdp__pack-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 行内缩略只有 44×24：用 cover 让扇形铺满（contain 会留下大片透明边，
+   在浅色主题里就是一块黑框）；深色底与网格一致 */
+.pdp__pack-current-thumb {
+  display: block;
+  width: 44px;
+  height: 24px;
+  flex: 0 0 44px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--canvas-bg);
+}
+
+.pdp__pack-current-thumb.is-empty {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+}
+
+.pdp__pack-current-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdp__pack-change {
+  flex: 0 0 auto;
+}
+
+/* 二级选择器视图：标题（返回 + 类别）→ 网格；整块由面板滚 */
+.pdp__picker {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 头部是一条**有版式的返航条**：返回是"‹ 返回"文字钮（不是裸图标），
+   下面一条分隔线把标题区与网格分开 —— 裸图标 + 默认按钮框在深色浮层里很突兀 */
+.pdp__picker-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding: 2px 6px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pdp__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 22px;
+  padding: 0 6px 0 2px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pdp__back:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pdp__back:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
+.pdp__picker-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
 .pdp__pack-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
   gap: 4px;
-  max-height: 152px;
-  overflow-y: auto;
-  /* 网格内部滚动条别抢焦点轮廓：item 自带 focus 样式 */
-  overscroll-behavior: contain;
+  /* 轨道格子的最小内容宽来自替换元素（图片固有宽度），不归零就会把
+     `1fr` 轨道撑成不等宽 + 横向溢出（票 56 二轮反馈 #2 / #3） */
+  min-width: 0;
+}
+
+/* 轨道 33 包：4 列（~77×61），33 个正好 9 行、面板不出现滚动条；
+   背景 4 包：2 列大图（~152×74）。`minmax(0, 1fr)` 是"等宽轨道"的硬保证。 */
+.pdp__pack-grid--field {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pdp__pack-grid--background {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .pdp__pack-item {
@@ -471,13 +571,13 @@
   flex-direction: column;
   align-items: stretch;
   gap: 2px;
+  min-width: 0;
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-inset);
   color: var(--text-muted);
   cursor: pointer;
-  /* 缩略图按素材自身比例裁切（场地图 1160×610 / 背景 2048×1024 都是宽幅） */
   font-family: inherit;
 }
 
@@ -500,10 +600,16 @@
 .pdp__pack-item img {
   display: block;
   width: 100%;
-  height: 26px;
-  object-fit: cover;
+  aspect-ratio: 1160 / 610;
+  object-fit: contain;
   border-radius: calc(var(--radius-sm) - 1px);
-  background: var(--bg-hover);
+  background: var(--canvas-bg);
+}
+
+/* 背景主图本身就是 2:1 不透明大图：比例一致，铺满即无裁切 */
+.pdp__pack-grid--background .pdp__pack-item img {
+  aspect-ratio: 2 / 1;
+  object-fit: cover;
 }
 
 .pdp__pack-id {
@@ -512,6 +618,39 @@
   font-weight: 600;
   text-align: center;
   /* 显示名可能较长（如 Poppin'Party的按键条皮肤）：单行省略，全文在 title 里 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* hover / focus 大预览（票 56 Q1=D）：浮在面板左侧，pointer-events 全关（不抢 hover） */
+.pdp__preview {
+  position: fixed;
+  z-index: 10001;
+  width: 300px;
+  padding: 4px 4px 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+
+.pdp__preview-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1334 / 750;
+  border-radius: var(--radius-sm);
+  background: var(--canvas-bg);
+}
+
+.pdp__preview-name {
+  display: block;
+  padding: 3px 2px 1px;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -75,6 +75,8 @@ export const EXPORT_MARKERS: PreviewSettings = {
   // 仿真场素材包（chart-preview 41）同理：宽图导出不画仿真场，填默认包只为满足设置形状
   bgPackId: DEFAULT_PREVIEW_SETTINGS.bgPackId,
   fieldPackId: DEFAULT_PREVIEW_SETTINGS.fieldPackId,
+  // 背景亮度（票 43）同理：宽图不画背景层，填默认值只为满足设置形状
+  bgBrightness: DEFAULT_PREVIEW_SETTINGS.bgBrightness,
 };
 /** 导出图片的 MIME / 扩展名 */
 export const SHEET_IMAGE_MIME = 'image/png';

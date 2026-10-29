@@ -353,77 +353,149 @@ describe('chart-preview 24 · 音符速度档（1..12 / 步长 0.1 / 可手动�
   });
 });
 
-describe('chart-preview 41 · 仿真场素材包选择器（背景 / 轨道）', () => {
-  /** 两个独立选择器（ADR-0018 §1）：行标签「背景」/「轨道」，分组 aria-label 用全称 */
-  const bgGrid = () => within(panel()).getByRole('group', { name: '表演背景' });
-  const fieldGrid = () => within(panel()).getByRole('group', { name: '场地皮肤包' });
+describe('chart-preview 56 · 素材包选择器（二级视图 + hover 大预览）', () => {
+  /** 两个独立选择器（ADR-0018 §1）：设置视图一行「更换」，格子进二级视图 */
   const bgPack = (id: string) => listSimBackgroundPacks().find((p) => p.id === id)!;
   const fieldPack = (id: string) => listSimFieldPacks().find((p) => p.id === id)!;
+  const bgRow = () => within(panel()).getByRole('button', { name: '更换背景' });
+  const fieldRow = () => within(panel()).getByRole('button', { name: '更换轨道' });
+  const openPicker = (kind: 'background' | 'field') =>
+    fireEvent.click(kind === 'background' ? bgRow() : fieldRow());
+  const back = () => fireEvent.click(within(panel()).getByRole('button', { name: '返回' }));
+  const pickerGrid = (full: string) => within(panel()).getByRole('group', { name: full });
   /** 格钮可及名 = 显示名（官方命名选服 / 背景包取 i18n 名，issue 49） */
-  const bgBtn = (id: string) => within(bgGrid()).getByRole('button', { name: simPackDisplayName(bgPack(id), 'background') });
-  const fieldBtn = (id: string) => within(fieldGrid()).getByRole('button', { name: simPackDisplayName(fieldPack(id), 'field') });
+  const bgBtn = (id: string) => within(pickerGrid('表演背景'))
+    .getByRole('button', { name: simPackDisplayName(bgPack(id), 'background') });
+  const fieldBtn = (id: string) => within(pickerGrid('场地皮肤包'))
+    .getByRole('button', { name: simPackDisplayName(fieldPack(id), 'field') });
 
-  it('动态形态有两行缩略图网格：显示名 = 选服后的名（背景包不出日文），tooltip 只留显示名，缩略 = 素材自身 URL', () => {
+  it('设置视图只有两行「当前选择」（缩略 + 显示名 + 更换），网格不在设置流里', () => {
     setupDynamic();
     expect(within(panel()).getByText('背景')).toBeInTheDocument();
     expect(within(panel()).getByText('轨道')).toBeInTheDocument();
-    // 网格内容以取件侧清单为唯一来源（不抄字面量）：本机快照 / CI 桩都列得出 skin00
+    // 33 格不再进设置流 —— 嵌套滚动是"滚轮被吃掉"的根因（票 56 追加症状）
+    expect(within(panel()).queryByRole('group', { name: '表演背景' })).toBeNull();
+    expect(within(panel()).queryByRole('group', { name: '场地皮肤包' })).toBeNull();
+    // 行上直接显示当前包（选服后的显示名）；按 title 取——轨道皮肤的官方名可能与
+    // 「音符皮肤」那行的名字撞字（都是「按键条皮肤00」）
+    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('skin00'), 'background'))).toBeInTheDocument();
+    expect(within(panel()).getByTitle(simPackDisplayName(fieldPack('skin00'), 'field'))).toBeInTheDocument();
+    expect(bgRow()).toBeInTheDocument();
+    expect(fieldRow()).toBeInTheDocument();
+  });
+
+  it('背景选择器：列全部包、显示名 + tooltip、缩略 = 素材自身 URL；点格落盘且不碰轨道', () => {
+    setupDynamic();
+    openPicker('background');
     const bgPacks = listSimBackgroundPacks();
-    const fieldPacks = listSimFieldPacks();
     expect(bgPacks.length).toBeGreaterThan(0);
-    expect(fieldPacks.length).toBeGreaterThan(0);
     for (const pack of bgPacks) {
       const display = simPackDisplayName(pack, 'background');
-      expect(within(bgGrid()).getByRole('button', { name: display }))
-        .toHaveAttribute('title', display);
-    }
-    for (const pack of fieldPacks) {
-      const display = simPackDisplayName(pack, 'field');
-      expect(within(fieldGrid()).getByRole('button', { name: display }))
-        .toHaveAttribute('title', display);
+      expect(bgBtn(pack.id)).toHaveAttribute('title', display);
     }
     // 背景 skin00：官方名五服同值日文 → 显示 i18n 中文名，不出原始日文（用户 2026-10-22 反馈）
-    expect(within(bgGrid()).getByText('默认背景')).toBeInTheDocument();
-    expect(within(bgGrid()).queryByText('デフォルト背景')).toBeNull();
+    expect(within(pickerGrid('表演背景')).getByText('默认背景')).toBeInTheDocument();
+    expect(within(pickerGrid('表演背景')).queryByText('デフォルト背景')).toBeNull();
     // 缩略从素材自身缩放生成（不额外抓图）：src 落在该包的运行时素材树路径上
-    const thumb = within(bgGrid()).getByRole('button', { name: simPackDisplayName(bgPacks[0], 'background') }).querySelector('img');
+    const thumb = bgBtn(bgPacks[0].id).querySelector('img');
     expect(thumb?.getAttribute('src')).toContain(`/bgskin/jp/${bgPacks[0].id}_rip/`);
+
+    // 点一个**非默认**包：落盘的就是它，另一个选择器没被碰；仍停选择器里（可连着比较）
+    fireEvent.click(bgBtn('skin_miku'));
+    expect(stored().preview.bgPackId).toBe('skin_miku');
+    expect(stored().preview.fieldPackId).toBe('skin00');
+    expect(pickerGrid('表演背景')).toBeInTheDocument();
   });
 
-  it('展示序：编号包在前（默认 skin00 第一格）、主题包在后（用户 2026-10-22 反馈）', () => {
+  it('轨道选择器：展示序 = 编号包在前（默认 skin00 第一格）、主题包在后；点格写 fieldPackId', () => {
     setupDynamic();
+    openPicker('field');
     // 注入清单里主题包 skin_maid 写在编号包之前 → 渲染序仍是编号包在前
     expect(listSimFieldPacks().map((p) => p.id)).toEqual(['skin00', 'skin05', 'skin_maid']);
-    expect(listSimBackgroundPacks().map((p) => p.id)).toEqual(['skin00', 'skin_miku']);
-  });
-
-  it('默认选中 skin00（两个选择器各自）；点一格写 settings.preview 对应字段', () => {
-    setupDynamic();
-    // 默认包 = skin00（ADR-0018 §1）；编号包排在前，它在两个网格的第一格
     expect(fieldBtn('skin00')).toHaveAttribute('aria-pressed', 'true');
-    expect(bgBtn('skin00')).toHaveAttribute('aria-pressed', 'true');
 
-    // 点一个**非默认**包：落盘的就是它，另一个选择器没被碰
-    const other = bgPack('skin_miku');
-    expect(other).toBeTruthy();
-    fireEvent.click(bgBtn(other.id));
-    expect(stored().preview.bgPackId).toBe(other.id);
-    expect(stored().preview.fieldPackId).toBe('skin00');
-  });
-
-  it('存了清单里没有的旧包 ID：高亮回落默认格，点它落盘归一化结果', () => {
-    setupDynamic({ preview: { bgPackId: 'skin_已消失' } });
-
-    const fallback = bgBtn('skin00');
-    expect(fallback).toHaveAttribute('aria-pressed', 'true'); // 归一化后的高亮，不占"缺失"行
-    fireEvent.click(fallback);
+    fireEvent.click(fieldBtn('skin_maid'));
+    expect(stored().preview.fieldPackId).toBe('skin_maid');
     expect(stored().preview.bgPackId).toBe('skin00');
   });
 
-  it('静态形态没有这两个选择器（仿真场专属，画布不画背景）', () => {
-    setup();
-    expect(within(panel()).queryByRole('group', { name: '表演背景' })).toBeNull();
+  it('进选择器焦点落在当前选中格；返回 / Esc 先回设置视图（焦点还给「更换」钮），再 Esc 才关面板', () => {
+    setupDynamic();
+    openPicker('field');
+    expect(pickerGrid('场地皮肤包')).toBeInTheDocument();
+    // 「更换」钮已卸载：焦点必须送进选择器，否则掉到 body、Tab 会走出弹窗
+    expect(fieldBtn('skin00')).toHaveFocus();
+    back();
     expect(within(panel()).queryByRole('group', { name: '场地皮肤包' })).toBeNull();
+    expect(fieldRow()).toHaveFocus();
+
+    openPicker('field');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(within(panel()).queryByRole('group', { name: '场地皮肤包' })).toBeNull();
+    expect(fieldRow()).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('存了清单里没有的旧包 ID：行上显示归一化后的默认名；选择器里默认格高亮', () => {
+    setupDynamic({ preview: { bgPackId: 'skin_已消失' } });
+    expect(within(panel()).getByTitle(simPackDisplayName(bgPack('skin00'), 'background'))).toBeInTheDocument();
+
+    openPicker('background');
+    expect(bgBtn('skin00')).toHaveAttribute('aria-pressed', 'true'); // 归一化后的高亮，不占"缺失"行
+    fireEvent.click(bgBtn('skin00'));
+    expect(stored().preview.bgPackId).toBe('skin00');
+  });
+
+  it('hover / focus 一格浮出大预览（名字 = 该包显示名），移开即收', () => {
+    setupDynamic();
+    openPicker('field');
+    // hover 只预览，不写设置（写盘只由点格触发）：直接比落盘字符串
+    const before = localStorage.getItem(SETTINGS_KEY);
+    fireEvent.mouseOver(fieldBtn('skin05'), { relatedTarget: document.body });
+    const preview = document.querySelector('.pdp__preview');
+    expect(preview).not.toBeNull();
+    expect(preview!.textContent).toContain(simPackDisplayName(fieldPack('skin05'), 'field'));
+    expect(localStorage.getItem(SETTINGS_KEY)).toBe(before);
+
+    fireEvent.mouseOut(fieldBtn('skin05'), { relatedTarget: document.body });
+    expect(document.querySelector('.pdp__preview')).toBeNull();
+  });
+
+  it('选择器打开时点遮罩：整个面板关闭（不是退回设置视图）', () => {
+    setupDynamic();
+    openPicker('background');
+    expect(pickerGrid('表演背景')).toBeInTheDocument();
+
+    fireEvent.click(scrim());
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('静态形态没有这两行（仿真场专属，画布不画背景）', () => {
+    setup();
+    expect(within(panel()).queryByRole('button', { name: '更换背景' })).toBeNull();
+    expect(within(panel()).queryByRole('button', { name: '更换轨道' })).toBeNull();
+  });
+});
+
+describe('chart-preview 43 · 背景亮度', () => {
+  const brightnessSlider = () => within(panel()).getByRole('slider', { name: '背景亮度' });
+
+  it('默认 70%、区间 0..100、步长 5；拖动写 settings.preview.bgBrightness', () => {
+    setupDynamic();
+    expect(brightnessSlider()).toHaveValue('70');
+    expect(brightnessSlider()).toHaveAttribute('min', '0');
+    expect(brightnessSlider()).toHaveAttribute('max', '100');
+    expect(brightnessSlider()).toHaveAttribute('step', '5');
+
+    fireEvent.change(brightnessSlider(), { target: { value: '35' } });
+    expect(stored().preview.bgBrightness).toBeCloseTo(0.35, 6);
+  });
+
+  it('静态形态没有这一项（仿真场专属）', () => {
+    setup();
+    expect(within(panel()).queryByRole('slider', { name: '背景亮度' })).toBeNull();
   });
 });
 

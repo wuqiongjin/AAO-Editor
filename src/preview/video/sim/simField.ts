@@ -110,6 +110,12 @@ export interface SimScene {
   bgPackId?: string;
   /** `settings.preview.fieldPackId`：场地皮肤包（轨道）ID；口径同 `bgPackId` */
   fieldPackId?: string;
+  /**
+   * `settings.preview.bgBrightness`：表演背景亮度（chart-preview 43 · ADR-0018 §5）。
+   * **可选**（缺省 = 1 = 原图）：只影响背景层的黑罩，场地图 / 判定线 / 音符不动；
+   * 实时预览 / 视频导出 / 开场第③段走同一份 scene ⇒ 三处画面一致。
+   */
+  bgBrightness?: number;
 }
 
 /** 一个会过线的元素（单键 / 方向键 / 滑条可见结点）；已含镜向与精灵选款 */
@@ -388,16 +394,24 @@ export function drawSimFrameAt(ctx: CanvasRenderingContext2D, input: SimFrameInp
  * 三张图的矩形都来自 `simGeometry`（**素材按设计 px 1:1**，见 `fieldImageRect` 的注释）——
  * 拉满画布会让素材自带的轨道标记 / 车道线与音符错位（chart-preview 18 问题 4）；
  * 背景此前走"cover 居中裁两侧"，也不是 Bestdori 的取景（票 23 #2③ → `backgroundRect`）。
+ *
+ * 三层抽到 `drawFieldLayers`：**设置面板的 hover 大预览也画这三层**（票 56 Q1=D），
+ * 预览与正片必须同一份几何与层序，不另写一份。
  */
 function drawField(ctx: CanvasRenderingContext2D, input: SimFrameInput): void {
-  const { metrics: m, assets } = input;
   ctx.save();
-  ctx.fillStyle = SIM_FALLBACK_BG;
-  ctx.fillRect(0, 0, m.w, m.h);
-  if (assets.background) {
-    const r = backgroundRect(m);
-    ctx.drawImage(assets.background, r.x, r.y, r.w, r.h);
-  }
+  drawFieldLayers(ctx, input.metrics, input.assets, input.scene.bgBrightness);
+  ctx.restore();
+}
+
+/** 场地三图 + 背景亮度黑罩（`brightness` 缺省 = 1 = 原图） */
+export function drawFieldLayers(
+  ctx: CanvasRenderingContext2D,
+  m: SimFieldMetrics,
+  assets: Pick<SimFrameAssets, 'background' | 'field' | 'playLine'>,
+  brightness: number = 1,
+): void {
+  drawSimBackground(ctx, m, assets.background, brightness);
   if (assets.field) {
     const r = fieldImageRect(m);
     ctx.drawImage(assets.field, r.x, r.y, r.w, r.h);
@@ -406,7 +420,35 @@ function drawField(ctx: CanvasRenderingContext2D, input: SimFrameInput): void {
     const r = playLineRect(m);
     ctx.drawImage(assets.playLine, r.x, r.y, r.w, r.h);
   }
-  ctx.restore();
+}
+
+/**
+ * 背景层：兜底底色 → 背景图 → 亮度黑罩（chart-preview 43 · ADR-0018 §5）。
+ *
+ * 黑罩 `alpha = 1 − 亮度`（`out = in × (1 − α)` 数学上就是 RGB × 亮度），**紧跟在背景图之后**
+ * 落笔 ⇒ 只压背景，场地图 / 判定线 / 音符画在其后、不受影响。没有背景图时不压
+ * （没有东西可压，兜底底色保持原样；缺素材空态也不该被无故压黑）。
+ *
+ * 动画段 / 视频导出 / 面板预览都走这里 —— "只压暗、只压背景层"只有这一处实现。
+ */
+export function drawSimBackground(
+  ctx: CanvasRenderingContext2D,
+  m: SimFieldMetrics,
+  img: CanvasImageSource | null,
+  brightness: number = 1,
+): void {
+  ctx.fillStyle = SIM_FALLBACK_BG;
+  ctx.fillRect(0, 0, m.w, m.h);
+  if (!img) return;
+  const r = backgroundRect(m);
+  ctx.drawImage(img, r.x, r.y, r.w, r.h);
+  // 非有限值按"原图"（不是按 0：那会把整屏压黑）
+  const level = Number.isFinite(brightness) ? Math.min(1, Math.max(0, brightness)) : 1;
+  const dim = 1 - level;
+  if (dim > 0) {
+    ctx.fillStyle = `rgba(0, 0, 0, ${dim})`;
+    ctx.fillRect(0, 0, m.w, m.h);
+  }
 }
 
 /**

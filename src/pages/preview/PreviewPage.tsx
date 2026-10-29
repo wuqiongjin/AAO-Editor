@@ -175,6 +175,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       mirror: settings.preview.mirror,
       bgPackId: settings.preview.bgPackId,
       fieldPackId: settings.preview.fieldPackId,
+      // 背景亮度（票 43）：随 scene 走 ⇒ 实时预览 / 视频导出 / 开场③段同一份
+      bgBrightness: settings.preview.bgBrightness,
     };
   }, [project, chart, settings.display, settings.preview, beatDisplay]);
 

@@ -5,12 +5,14 @@
 // 等于把作者画布的全量网格搬进预览面板）。
 import { describe, expect, it } from 'vitest';
 import {
+  BG_BRIGHTNESS_RANGE,
   DEFAULT_PREVIEW_SETTINGS,
   PREVIEW_BEAT_MARK_DIVISIONS,
   PREVIEW_TIME_MARK_INTERVALS,
   SIM_NOTE_SPEED_RANGE,
   defaultSettings,
   loadSettings,
+  normalizeBgBrightness,
   updateSettings,
 } from '@/src/chart/config/AppSettings';
 import { SIM_DEFAULT_PACK_IDS } from '@/src/preview/video/sim/simAssetPacks';
@@ -30,6 +32,8 @@ describe('chart-preview 08 · 预览标注设置', () => {
       // 仿真场素材包（chart-preview 41 · ADR-0018 §1：各默认 skin00）
       bgPackId: SIM_DEFAULT_PACK_IDS.background,
       fieldPackId: SIM_DEFAULT_PACK_IDS.field,
+      // 背景亮度（票 43）：默认 0.7（用户 2026-10-29 验收定档；1 = 原图）
+      bgBrightness: 0.7,
     });
   });
 
@@ -42,7 +46,23 @@ describe('chart-preview 08 · 预览标注设置', () => {
       // 种子没给素材包 ⇒ 补默认（chart-preview 41，additive 不 bump schemaVersion）
       bgPackId: SIM_DEFAULT_PACK_IDS.background,
       fieldPackId: SIM_DEFAULT_PACK_IDS.field,
+      // 种子没给亮度 ⇒ 补默认 0.7（票 43，additive 不 bump）
+      bgBrightness: 0.7,
     });
+  });
+
+  it('背景亮度档（票 43）：0..1 吸附 0.05，越界 / 脏值归一', () => {
+    expect(BG_BRIGHTNESS_RANGE).toEqual({ min: 0, max: 1, step: 0.05, fallback: 0.7 });
+    const of = (bgBrightness: unknown) =>
+      loadSettings(settingsStorageOf({ preview: { bgBrightness } })).preview.bgBrightness;
+    expect(of(0.35)).toBeCloseTo(0.35, 6);
+    // 0.5 是 0.05 的整数倍；落盘里常见的 0.333 会被吸到 0.35
+    expect(of(0.333)).toBeCloseTo(0.35, 6);
+    expect(of(-1)).toBe(0);
+    expect(of(2)).toBe(1);
+    expect(of('dim')).toBe(0.7);
+    expect(of(Number.NaN)).toBe(0.7);
+    expect(normalizeBgBrightness(undefined, 0.8)).toBe(0.8);
   });
 
   // 音符速度档（chart-preview 24：1..12 步长 0.1）的范围 / 步长 / 吸附锁测单开在
