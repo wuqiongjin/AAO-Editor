@@ -4,6 +4,10 @@
 // 这条线守的是「打开弹窗 / 在代码框里打字」主线程时间的**纯 JS 部分**（浏览器侧的 textarea 布局另有
 // 数量级更大的常量成本，见票内实测）。这里钉住的是：不得让这段纯函数退化成 O(n²)
 // （比如在校验里对每条音符再扫一遍全谱），以及不得引入数量级变慢的写法。
+//
+// 计时口径（test-infra 02）：进程 CPU 时间 + 多次取最小，见 `tests/support/perfTiming.ts`。
+// 单样本墙钟会把「进程被抢占」算成函数成本 —— 实测同一函数空载中位数 0.5ms、8× 抢占下单样本
+// 最大 78.7ms，曾经让 60ms 预算随机红（CI 82.96ms）。
 import { describe, it, expect } from 'vitest';
 import {
   convertNotesToChartCode,
@@ -11,6 +15,7 @@ import {
   parseCodeText,
 } from '@/src/chart/editing/ChartConverter';
 import type { ChartNote } from '@/src/chart/types';
+import { minCpuMs } from '@/tests/support/perfTiming';
 
 /** 混合谱面：单键 / 左右方向键 / 8 结点滑条（含 hidden），第 0 拍一条 BPM */
 function makeChart(notes: number): ChartNote[] {
@@ -31,13 +36,12 @@ function makeChart(notes: number): ChartNote[] {
   return out;
 }
 
-/** 单次计时；先跑一轮预热，避免把首次 JIT 计进去 */
-function timeIt(fn: () => unknown): number {
-  fn();
-  const t0 = performance.now();
-  fn();
-  return performance.now() - t0;
-}
+// 预算按 CPU 最小值定：实测空载 min ≈ convert 0.4ms / stringify 1.4ms / parse 5.0ms。
+// 这几条是**灾难性退化**的护栏（convert 约 50×、stringify 约 14×、parse 约 10× 才会红），
+// O(n²) 这类结构性退化由下面的「规模 10 倍」用例看守 —— 调阈值前先想清楚守的是哪一类。
+const CONVERT_BUDGET_MS = 20;
+const STRINGIFY_BUDGET_MS = 20;
+const PARSE_BUDGET_MS = 50;
 
 const BIG = 5000;
 const SMALL = 500;
@@ -64,23 +68,23 @@ describe('谱面代码 · 大谱面预算（5000 音符）', () => {
     expect(JSON.stringify(bigCode, null, 4).split('\n').length).toBeGreaterThan(lines * 5);
   });
 
-  it('notes → 谱面代码（含 beat 稳定排序）在 60ms 内', () => {
-    expect(timeIt(() => convertNotesToChartCode(big))).toBeLessThan(60);
+  it('notes → 谱面代码（含 beat 稳定排序）在 20ms 内（CPU 时间最小值）', () => {
+    expect(minCpuMs(() => convertNotesToChartCode(big))).toBeLessThan(CONVERT_BUDGET_MS);
   });
 
-  it('序列化成文本（每条音符一行）在 60ms 内', () => {
-    expect(timeIt(() => chartCodeToCompactJSON(bigCode))).toBeLessThan(60);
+  it('序列化成文本（每条音符一行）在 20ms 内（CPU 时间最小值）', () => {
+    expect(minCpuMs(() => chartCodeToCompactJSON(bigCode))).toBeLessThan(STRINGIFY_BUDGET_MS);
   });
 
-  it('全量 parse + 逐条校验在 120ms 内', () => {
-    expect(timeIt(() => parseCodeText(bigJson))).toBeLessThan(120);
+  it('全量 parse + 逐条校验在 50ms 内（CPU 时间最小值）', () => {
+    expect(minCpuMs(() => parseCodeText(bigJson))).toBeLessThan(PARSE_BUDGET_MS);
   });
 
   it('规模 10 倍 → 耗时同量级增长（抓 O(n²) 退化）', () => {
     const small = makeChart(SMALL);
     const smallJson = chartCodeToCompactJSON(convertNotesToChartCode(small));
-    const smallMs = timeIt(() => parseCodeText(smallJson));
-    const bigMs = timeIt(() => parseCodeText(bigJson));
+    const smallMs = minCpuMs(() => parseCodeText(smallJson));
+    const bigMs = minCpuMs(() => parseCodeText(bigJson));
     // 线性 = 10x；平方 = 100x。留到 25x 足够宽松又足以抓住平方退化。
     expect(bigMs).toBeLessThan(Math.max(20, smallMs * 25));
   });

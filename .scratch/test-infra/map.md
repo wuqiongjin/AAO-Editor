@@ -17,3 +17,4 @@
 ## Notes
 
 - 01 进工程详情的 DOM 测试与目录加载竞态（bug，**resolved 2026-10-23**，待门禁连续绿）：等待信号从「全部工程」标题（pending 态也渲染）改为等 `.pb-card[data-project-id]`（pending 占位卡 class 也是 `pb-card`，选择器必须带属性），15 处同模式一并收敛；验收口径与证据见票内 Comments。
+- 02 perf 用例单样本墙钟断言偶发假红（bug，**resolved 2026-10-29**，待门禁连续绿）：`ChartCodeScale` 82.96ms / `HighZoom` 5s 超时同轮红，根因 = 单样本 `performance.now()` 把抢占算进成本（空载中位数 0.5ms，8× 抢占下 max 78.7ms）+ 拿 vitest 默认 5s 当性能预算 + perf 与全量并行跑无隔离；**改成什么** = 新增 `tests/support/perfTiming.ts`（CPU 时间 min-of-N，照 173），`ChartCodeScale` 四条预算改 CPU 最小值、`HighZoom` 重活改 min-of-3 + 显式 30s 超时并删掉无用重复 raster；8× 抢占连跑 6/6 绿。

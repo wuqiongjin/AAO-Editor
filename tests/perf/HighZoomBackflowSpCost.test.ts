@@ -1,4 +1,5 @@
 // issue 140：高倍倒流 SP 扫描线仍贵；播放热身只 blit。谱面 = tests/support/perfBackflowPlayback 合成 fixture。
+// 计时口径（test-infra 02）：CPU 时间最小值 + 显式 liveness 超时，不拿默认 5s 当性能预算。
 import { describe, it, expect } from 'vitest';
 import { ChartGeometry, LANE_WIDTH } from '@/src/chart/geometry/ChartGeometry';
 import { makeCoords } from '@/src/rendering/coords';
@@ -18,6 +19,7 @@ import {
   BACKFLOW_RASTER_PROFILE, BACKFLOW_RASTER_RGB, PERF_PLAYBACK_BEAT_DISPLAY, PERF_PLAYBACK_DPR,
   PERF_PLAYBACK_SURFACE, buildBackflowPlaybackNotes, geometryForBackflowPlayback,
 } from '@/tests/support/perfBackflowPlayback';
+import { minCpuMs } from '@/tests/support/perfTiming';
 
 const SURFACE = PERF_PLAYBACK_SURFACE;
 const BEAT_DISPLAY = PERF_PLAYBACK_BEAT_DISPLAY;
@@ -56,46 +58,46 @@ function collectSpJobs(
   return { vis: vis.length, jobs };
 }
 
-function rasterJobs(
+/** 一趟 raster 的像素量（只量工作量，时间另计） */
+function rasterPx(
   jobs: RasterJob[],
   sx: number,
   sy: number,
   clip: { minX: number; minY: number; maxX: number; maxY: number },
-) {
+): number {
   let px = 0;
-  const t0 = performance.now();
   for (const j of jobs) {
     const r = rasterBandRuns({
       runs: j.runs, half: j.half, profile: PROFILE, rgb: RGB, sx, sy, baseAlpha: 1, clipCss: clip,
     });
     if (r) px += r.bw * r.bh;
   }
-  return { ms: performance.now() - t0, px };
+  return px;
 }
 
 describe('issue 140 · 高倍倒流 SP 成本', () => {
   const notes = buildBackflowPlaybackNotes();
 
+  // 成本按**进程 CPU 时间的最小值**计（`tests/support/perfTiming.ts`）：墙钟在多 worker 抢占下
+  // 会被放大数倍，曾把这条用例顶过默认 5s 超时（test-infra 02）。像素量只与几何有关，不需重测。
   it('es=3 折返扫描线比非折返贵、比 es=1 像素多', () => {
     const g1 = geometryForBackflowPlayback(notes, 1);
     const g3 = geometryForBackflowPlayback(notes, 3);
     const viewClip = { minX: 0, minY: 0, maxX: SURFACE.w, maxY: SURFACE.h };
 
-    const measure = (g: ChartGeometry, scale: number, seconds: number) => {
-      const jobs = collectSpJobs(notes, g, new PlaybackScrollModel(g, g.effectiveScale(scale)).scrollYForSeconds(seconds), scale).jobs;
-      const px = rasterJobs(jobs, DPR, DPR, viewClip).px;
-      const t1 = performance.now();
-      for (let i = 0; i < 8; i++) rasterJobs(jobs, DPR, DPR, viewClip);
-      return { px, avg8Ms: (performance.now() - t1) / 8, es: g.effectiveScale(scale) };
-    };
+    const jobsAt = (g: ChartGeometry, scale: number, seconds: number) => collectSpJobs(
+      notes, g, new PlaybackScrollModel(g, g.effectiveScale(scale)).scrollYForSeconds(seconds), scale,
+    ).jobs;
+    const costMs = (jobs: RasterJob[]) => minCpuMs(() => rasterPx(jobs, DPR, DPR, viewClip), 3);
 
-    const es1 = measure(g1, 1, 5);
-    const es3 = measure(g3, 3, 5);
-    const t30 = measure(g3, 3, 30);
-    expect(es3.es).toBeGreaterThan(2.5);
-    expect(es3.avg8Ms).toBeGreaterThan(t30.avg8Ms);
-    expect(es3.px).toBeGreaterThan(es1.px);
-  });
+    const es1Jobs = jobsAt(g1, 1, 5);
+    const es3Jobs = jobsAt(g3, 3, 5);
+    const t30Jobs = jobsAt(g3, 3, 30);
+
+    expect(g3.effectiveScale(3)).toBeGreaterThan(2.5);
+    expect(costMs(es3Jobs)).toBeGreaterThan(costMs(t30Jobs));
+    expect(rasterPx(es3Jobs, DPR, DPR, viewClip)).toBeGreaterThan(rasterPx(es1Jobs, DPR, DPR, viewClip));
+  }, 30_000);
 
   it('es=3 折返播放热身后 rebuilt=0，裁切 blit 面积 ≤ 视口 × 瓦片张数', () => {
     const g = geometryForBackflowPlayback(notes, 3);
