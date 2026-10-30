@@ -1,5 +1,5 @@
-// 工作台窄工具轨（issue 177 Q2 / Q10 / Q11，票 180）：固定宽、不折叠、不拖宽；15 键 5 组。
-// 节拍吸附在顶栏（票 178）、曲线配置在画布左上角胶囊（票 179）、撤销 / 重做与谱面代码在顶栏。
+// 工作台窄工具轨（issue 180 Q2 / Q10 / Q11，票 183）：固定宽、不折叠、不拖宽；15 键 5 组。
+// 节拍吸附在顶栏（票 181）、曲线配置在画布左上角胶囊（票 182）、撤销 / 重做与谱面代码在顶栏。
 import { memo, useMemo, type ReactNode } from 'react';
 import { MousePointer2, Music, Copy, Scissors, Clipboard, Trash2, FlipHorizontal2, FileCode } from 'lucide-react';
 import NoteIconGlyph from '../../rendering/primitives/NoteIconGlyph';

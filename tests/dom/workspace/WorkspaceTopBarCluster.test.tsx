@@ -43,7 +43,7 @@ describe('issue 170 · 工作台顶栏右簇紧凑化与交互', () => {
     seedZhSettings();
   });
 
-  it('顶栏右簇渲染：缩放微型胶囊、画布显示入口均正常挂载且高度规范；BPM 标签已撤（票 180）', () => {
+  it('顶栏右簇渲染：缩放微型胶囊、画布显示入口均正常挂载且高度规范；BPM 标签已撤（票 183）', () => {
     const { container } = renderWorkspace();
 
     const cluster = container.querySelector('.ws-topbar-right');

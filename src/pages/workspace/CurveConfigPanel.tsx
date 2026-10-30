@@ -1,4 +1,4 @@
-// 曲线工具配置面板（issue 114：从 Toolbar 抽出 + 表驱动；票 179：改为带标签的四行，画布胶囊复用）。
+// 曲线工具配置面板（issue 114：从 Toolbar 抽出 + 表驱动；票 182：改为带标签的四行，画布胶囊复用）。
 import {
   CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES,
   type CurvePrecision, type EasingFamily, type EasingType,

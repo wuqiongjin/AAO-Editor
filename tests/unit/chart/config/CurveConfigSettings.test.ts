@@ -17,7 +17,7 @@ import { repoRoot, stripComments, readSource } from '@/tests/support/source';
 import { settingsMemStorage as memStorage } from '@/tests/support/storage';
 
 const panelSrc = stripComments(readSource('src/pages/workspace/CurveConfigPanel.tsx'));
-// 票 179 / 180：曲线配置住进画布左上角胶囊，工具轨不再内联任何配置项
+// 票 182 / 183：曲线配置住进画布左上角胶囊，工具轨不再内联任何配置项
 const capsuleSrc = stripComments(readSource('src/pages/workspace/CurveOptionsCapsule.tsx'));
 const railSrc = stripComments(readSource('src/pages/workspace/WorkspaceToolRail.tsx'));
 

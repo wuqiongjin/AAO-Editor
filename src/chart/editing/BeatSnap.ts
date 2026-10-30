@@ -1,4 +1,4 @@
-// 节拍吸附档位（issue 177 Q5 / Q16，实现票 178）：编辑落点按 1/N 拍吸附，N 即 `beatDisplay`。
+// 节拍吸附档位（issue 180 Q5 / Q16，实现票 181）：编辑落点按 1/N 拍吸附，N 即 `beatDisplay`。
 // 全局一份、跨会话沿用（`settings.beatSnap`，与 `settings.curve` 同属"我的习惯"，不随谱面工程走）。
 // 改档不会移动既有音符：放置写的是小数拍 + `subBeat: 0`，N 只决定新落点与画布细分线。
 

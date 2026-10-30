@@ -70,7 +70,7 @@ export interface AppSettings {
   autoCheck: boolean;
   layout: {
     /**
-     * 工作台片段库抽屉（issue 177 Q14 / 票 180）：开合态与宽度跨会话，默认收起。
+     * 工作台片段库抽屉（issue 180 Q14 / 票 183）：开合态与宽度跨会话，默认收起。
      * 旧版工作台左右面板（`leftPanel` / `rightPanel`）随换壳删除，读盘时丢弃。
      */
     patternDrawer: { open: boolean; width: number };
@@ -142,12 +142,12 @@ export interface AppSettings {
    */
   curve: CurveConfig;
   /**
-   * 节拍吸附档位 1/N 的 N（issue 177 Q6 / 票 178）：与 `curve` 同属"我的习惯"——全局一份、跨会话沿用。
+   * 节拍吸附档位 1/N 的 N（issue 180 Q6 / 票 181）：与 `curve` 同属"我的习惯"——全局一份、跨会话沿用。
    * 1–192 整数，缺字段 / 脏值经 `normalizeBeatSnap` 回落 4。additive 字段，不 bump schemaVersion。
    */
   beatSnap: number;
   /**
-   * 工作台播放条（issue 177 Q25 / 票 179）：`markerButton` = 时间码旁的播放起点按钮显不显示，默认开。
+   * 工作台播放条（issue 180 Q25 / 票 182）：`markerButton` = 时间码旁的播放起点按钮显不显示，默认开。
    * 与 `display`（画布显示项）分段：显示面板「恢复默认」只重置画布那段。additive，不 bump schemaVersion。
    */
   playbar: { markerButton: boolean };
@@ -424,7 +424,7 @@ const STORAGE_KEY = 'aao.settings.v1';
 /** 谱面时长上限（秒）：30 分钟，防误输入把画布撑爆（issue 28 第 2 轮 P6） */
 export const MAX_DURATION_SECONDS = 1800;
 
-/** 片段库抽屉宽度（票 180）：下限在这里夹，上限 32vw 交给 CSS `max-width`（随视口瞬时生效，issue 87 口径） */
+/** 片段库抽屉宽度（票 183）：下限在这里夹，上限 32vw 交给 CSS `max-width`（随视口瞬时生效，issue 87 口径） */
 export const PATTERN_DRAWER_WIDTH = { min: 220, default: 300 } as const;
 
 export function clampPatternDrawerWidth(value: unknown): number {

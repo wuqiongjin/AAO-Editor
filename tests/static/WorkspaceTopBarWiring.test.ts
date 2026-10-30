@@ -8,7 +8,7 @@ function readStripped(relPath: string): string {
 }
 
 describe('issue 170 · 工作台顶栏架构与静态接线约束', () => {
-  // 票 180：顶栏抽成 WorkspaceTopBar 组件；BPM 标签撤掉（当前 BPM 在画布左下读数，票 179）
+  // 票 183：顶栏抽成 WorkspaceTopBar 组件；BPM 标签撤掉（当前 BPM 在画布左下读数，票 182）
   it('WorkspaceTopBar 接入紧凑右簇：缩放微型胶囊 + WorkspaceDisplayPanel；页面只挂组件', () => {
     const ws = readStripped('src/pages/workspace/WorkspacePage.tsx');
     expect(ws).toContain("import WorkspaceTopBar from './WorkspaceTopBar';");

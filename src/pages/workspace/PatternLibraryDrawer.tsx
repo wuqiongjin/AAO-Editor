@@ -1,4 +1,4 @@
-// 片段库抽屉外壳（issue 177 Q1 / Q8 / Q14，票 180）：展开占布局（不压画布）、左缘可拖宽、收起完全消失。
+// 片段库抽屉外壳（issue 180 Q1 / Q8 / Q14，票 183）：展开占布局（不压画布）、左缘可拖宽、收起完全消失。
 // 片段内容（收藏 / 缩略图 / 拖回谱面）归 issue 164，这里只有标题、空状态与「收藏选区」占位。
 import { memo, useEffect, useRef, useState } from 'react';
 import { BookmarkPlus, LibraryBig, X } from 'lucide-react';

@@ -53,9 +53,9 @@ export interface ConfigContextValue {
   setBackgroundSkin: (patch: { enabled?: boolean; opacity?: number; fit?: 'cover' | 'contain'; scope?: 'outsideTrack' | 'fullCanvas' }) => void;
   /** 曲线工具配置（issue 114）：整份写回 settings.curve 并持久化（跨会话沿用上次值） */
   setCurveConfig: (config: CurveConfig) => void;
-  /** 节拍吸附档位（票 178）：写回 settings.beatSnap 并持久化（跨会话沿用上次值） */
+  /** 节拍吸附档位（票 181）：写回 settings.beatSnap 并持久化（跨会话沿用上次值） */
   setBeatSnap: (beatSnap: number) => void;
-  /** 工作台播放条（票 179）：段内浅合并写回 settings.playbar 并持久化 */
+  /** 工作台播放条（票 182）：段内浅合并写回 settings.playbar 并持久化 */
   setPlaybar: (patch: Partial<AppSettings['playbar']>) => void;
   /** 工程启动台排序（issue 19 #4）：字段级写回 settings.projects.sort 并持久化 */
   setProjectSort: (sort: AppSettings['projects']['sort']) => void;
@@ -141,7 +141,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     noteSettingsChange(['autoCheck']);
   }, []);
 
-  // 片段库抽屉（票 180）：只改 layout.patternDrawer（段内浅合并），不动工程列表宽度
+  // 片段库抽屉（票 183）：只改 layout.patternDrawer（段内浅合并），不动工程列表宽度
   const setPatternDrawer = useCallback((patch: Partial<AppSettings['layout']['patternDrawer']>) => {
     setSettings(prev => {
       const patternDrawer = { ...prev.layout.patternDrawer, ...patch };
@@ -224,7 +224,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     noteSettingsChange(['curve']);
   }, []);
 
-  // 节拍吸附档位（票 178）：与曲线配置同范式；引用稳定理由同上（UIProvider 直接透传）
+  // 节拍吸附档位（票 181）：与曲线配置同范式；引用稳定理由同上（UIProvider 直接透传）
   const setBeatSnap = useCallback((beatSnap: number) => {
     setSettings(prev => {
       return persistSettings(updateSettings(prev, { beatSnap }));

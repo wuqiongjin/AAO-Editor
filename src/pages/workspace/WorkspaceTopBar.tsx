@@ -1,5 +1,5 @@
-// 工作台顶栏（issue 170 → 票 180 换壳）：项目切换器 + 撤销 / 重做；右簇 = 吸附｜缩放｜显示设置｜谱面代码｜片段库。
-// 当前 BPM 进了画布左下读数（票 179），顶栏不再重复。
+// 工作台顶栏（issue 170 → 票 183 换壳）：项目切换器 + 撤销 / 重做；右簇 = 吸附｜缩放｜显示设置｜谱面代码｜片段库。
+// 当前 BPM 进了画布左下读数（票 182），顶栏不再重复。
 import { Braces, LibraryBig, Minus, Plus, Redo2, Undo2 } from 'lucide-react';
 import ChartSwitcher from './ChartSwitcher';
 import BeatSnapCapsule from './BeatSnapCapsule';

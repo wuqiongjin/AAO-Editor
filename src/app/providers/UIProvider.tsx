@@ -2,7 +2,7 @@
 // 注：鼠标悬停位置**不在此 Provider**（候选 3，2026-09-10 移出）—— 谱面光标是「画布 px × viewport」
 // 的派生值，缓存进 context state 会在滚动/缩放后落到旧拍；现由画布按 hoverPos 用时现算，
 // 并通过 ref 出口 getCursorChartPos() 提供给需要的一方。
-// 票 180：旧版左右面板（宽度 / 折叠 / 拖拽分隔条）随换壳删除；片段库抽屉的开合与宽度存 settings.layout.patternDrawer。
+// 票 183：旧版左右面板（宽度 / 折叠 / 拖拽分隔条）随换壳删除；片段库抽屉的开合与宽度存 settings.layout.patternDrawer。
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { useConfig } from './ConfigProvider';
@@ -36,7 +36,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   // issue 114：曲线配置持久化于 settings.curve（全局一份、跨会话沿用），**单一真相在 ConfigContext**。
   // 本 Provider 不另存副本：否则「设置导入」走 ConfigContext 的 `setAllSettings` 整体替换 settings 后，
   // 这里的副本不会跟着变——曲线配置面板与画笔采样步长（`step = 1 / curveConfig.precision`）会继续用旧值。
-  // 票 178：节拍吸附档位同理，单一真相在 settings.beatSnap。
+  // 票 181：节拍吸附档位同理，单一真相在 settings.beatSnap。
   const { settings, setCurveConfig: persistCurveConfig, setBeatSnap } = useConfig();
   const curveConfig = settings.curve;
   const beatDisplay = settings.beatSnap;

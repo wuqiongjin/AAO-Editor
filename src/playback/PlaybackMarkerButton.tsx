@@ -1,4 +1,4 @@
-// 播放条时间码旁的播放起点按钮（issue 177 Q13 / Q25，票 179）：设了起点才出现，点 = 跳回并播放。
+// 播放条时间码旁的播放起点按钮（issue 180 Q13 / Q25，票 182）：设了起点才出现，点 = 跳回并播放。
 // 起点从「无」变「有」时弹入 + 一圈光晕，让用户注意到播放条多了个东西；挪动起点不重播。
 import { memo, useState } from 'react';
 import playbackMarkerSvgUrl from '../assets/playback-marker/flag.svg?url';

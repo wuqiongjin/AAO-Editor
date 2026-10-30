@@ -34,7 +34,7 @@ export interface PlayBarProps {
   variant?: PlayBarVariant;
   /** 倍速控件 slot（预览专属）：不传就不渲染 */
   rateSlot?: ReactNode;
-  /** 时间码右侧 slot（工作台的播放起点按钮，票 179）：不传就不渲染 */
+  /** 时间码右侧 slot（工作台的播放起点按钮，票 182）：不传就不渲染 */
   timeSlot?: ReactNode;
   onTogglePlay: () => void;
   onVolumeChange: (v: number) => void;

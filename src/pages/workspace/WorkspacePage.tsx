@@ -48,7 +48,7 @@ const DRAWER_TOGGLE_GUARD_MS = 320;
  *   - 音频桥接     → useAudioBridge
  *   - 持久化       → useChartProjectPersistence
  *   - 快捷键       → useShortcutDispatch
- * 外壳件（票 180）：WorkspaceToolRail / WorkspaceTopBar / PatternLibraryDrawer 各自直读 hooks。
+ * 外壳件（票 183）：WorkspaceToolRail / WorkspaceTopBar / PatternLibraryDrawer 各自直读 hooks。
  * 子组件按域直读 hooks；此处只剩：消费四域、串联视口会话与聚焦 hook、布局 JSX。
  */
 const Editor: React.FC<EditorProps> = ({ active = true }) => {
@@ -405,7 +405,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'redo': redo(); break;
       case 'play': handleTogglePlay(); break;
       case 'jumpToMarker': jumpToMarker(); break;
-      // ADR-0008 §7：从 Esc 摘除的独立功能（默认 Ctrl+Shift+B）；票 180 起只开合片段库抽屉
+      // ADR-0008 §7：从 Esc 摘除的独立功能（默认 Ctrl+Shift+B）；票 183 起只开合片段库抽屉
       //（工具轨固定不折叠，177 Q11）
       case 'toggleSidebar': setPatternDrawer({ open: !drawerOpen }); break;
     }
@@ -419,7 +419,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     runFunction,
     // Esc 五档链（ADR-0008 §7 / issue 135）：① 弹窗 capture 自消费；②–⑤ 由
     // resolveEscapeTarget 唯一裁决，此处只消费一档并执行。② 取消后保持工具态与选区。
-    // 侧栏折叠已从此链摘除 → toggleSidebar（issue 59 §2：Ctrl+Shift+B；票 180 起开合片段库）。
+    // 侧栏折叠已从此链摘除 → toggleSidebar（issue 59 §2：Ctrl+Shift+B；票 183 起开合片段库）。
     onEscape: useCallback(() => {
       const canvas = virtualCanvasRef.current;
       const flags = canvas?.getEscapeFlags?.() ?? {

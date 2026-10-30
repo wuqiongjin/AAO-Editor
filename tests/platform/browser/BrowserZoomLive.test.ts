@@ -8,7 +8,7 @@
 //    - 提交走 `flushSync`（与容器同帧 —— 实测错位帧 56 → 0）；
 //    - **视口夹取走 CSS `max-width: vw`**，且 Editor 不用 `innerWidth` 算侧边宽度 ——
 //      夹取若回到 JS + width 过渡，就会重现"面板慢慢让位 → 画布先抢占左右栏区域再被回弹挤回"
-//     （用户 2026-09-11 复报的症状；票 180 起对象是片段库抽屉）。
+//     （用户 2026-09-11 复报的症状；票 183 起对象是片段库抽屉）。
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -78,7 +78,7 @@ describe('issue 87 · 接线结构断言（防把缩放信号拆掉）', () => {
     expect(surfaceSrc).toMatch(/flushSync\(\(\)\s*=>\s*setSurface\(/);
   });
 
-  // 票 180：左右面板换成片段库抽屉，夹取口径原样继承到抽屉（工具轨固定 52px，无夹取）
+  // 票 183：左右面板换成片段库抽屉，夹取口径原样继承到抽屉（工具轨固定 52px，无夹取）
   it('抽屉的视口夹取走 CSS `max-width: vw`，且宽度不做 transition（缩放时瞬时生效，不产生"面板慢慢让位"）', () => {
     const css = readFileSync(join(root, 'src/pages/workspace/PatternLibraryDrawer.css'), 'utf-8');
     const drawer = css.match(/\.pld\s*\{[^}]*\}/)?.[0] ?? '';

@@ -1,4 +1,4 @@
-// 顶栏节拍吸附胶囊（issue 177 Q4 / Q5 / Q16，票 178）：胶囊显示「1/N」，滚轮步进，
+// 顶栏节拍吸附胶囊（issue 180 Q4 / Q5 / Q16，票 181）：胶囊显示「1/N」，滚轮步进，
 // 点击弹出 4×3 预设网格 + 底部自定义输入。不设快捷键（177 Q7：细分是低频操作）。
 import { useEffect, useRef, useState } from 'react';
 import { Magnet } from 'lucide-react';

@@ -1,4 +1,4 @@
-// 画布左上角的曲线选项胶囊（issue 177 Q15，票 179）：曲线持工具态时出现，显示当前配置摘要；
+// 画布左上角的曲线选项胶囊（issue 180 Q15，票 182）：曲线持工具态时出现，显示当前配置摘要；
 // 点开 = 四行表单，点外面 / Esc 收回，切走工具即消失，没有关闭钮。
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';

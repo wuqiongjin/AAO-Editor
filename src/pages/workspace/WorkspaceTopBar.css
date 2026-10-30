@@ -1,4 +1,4 @@
-/* 工作台顶栏（issue 170 右簇紧凑化 → 票 180 换壳：岛屿圆角由 WorkspacePage.css 切） */
+/* 工作台顶栏（issue 170 右簇紧凑化 → 票 183 换壳：岛屿圆角由 WorkspacePage.css 切） */
 
 .ws-topbar {
   height: var(--topbar-h);

@@ -151,7 +151,7 @@ describe('applyProjectSwitch · 切工程编辑态', () => {
     const restore = src.slice(src.indexOf('handleProjectRestore'));
     expect(restore.slice(0, restore.indexOf('}, ['))).toMatch(/resetNotes\(chart\.notes/);
     expect(src).not.toMatch(/isProjectsPrototype/);
-    // 票 180：切换器随顶栏抽进 WorkspaceTopBar，页面挂顶栏
+    // 票 183：切换器随顶栏抽进 WorkspaceTopBar，页面挂顶栏
     expect(src).toMatch(/<WorkspaceTopBar \/>/);
     expect(readStripped('src/pages/workspace/WorkspaceTopBar.tsx')).toMatch(/<ChartSwitcher \/>/);
   });

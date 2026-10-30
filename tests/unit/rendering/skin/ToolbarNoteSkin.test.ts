@@ -22,7 +22,7 @@ import { repoRoot, stripComments, readSource } from '@/tests/support/source';
 
 /** 去注释后再断言：注释里会解释性地提到 legacy / SpriteIcon / 素材路径等旧名 */
 
-// 票 180：左栏 Toolbar 换成窄工具轨，音符工具图标随之搬家（经 `glyph(item)` 统一出 NoteIconGlyph）
+// 票 183：左栏 Toolbar 换成窄工具轨，音符工具图标随之搬家（经 `glyph(item)` 统一出 NoteIconGlyph）
 const toolbarSrc = stripComments(readSource('src/pages/workspace/WorkspaceToolRail.tsx'));
 const glyphHelperLine = toolbarSrc.split('\n').find((l) => l.includes('const glyph =')) ?? '';
 const glyphSrc = stripComments(readSource('src/rendering/primitives/NoteIconGlyph.tsx'));
@@ -247,7 +247,7 @@ describe('issue 114 · 曲线工具图标 = 一段弯的 SP 带（无端点）',
 });
 
 describe('issue 91 · 工具栏字形尺寸 + 滑条构图统一（band:结点 = 30:36）', () => {
-  // 票 180：工具轨按钮 40×40，字形从左栏的 28px 收到 26px（177 原型定稿）
+  // 票 183：工具轨按钮 40×40，字形从左栏的 28px 收到 26px（180 原型定稿）
   it('音符工具与曲线工具的 NoteIconGlyph 统一 size={26}（同一个 glyph 出口）', () => {
     expect(glyphHelperLine).toContain('size={26}');
   });

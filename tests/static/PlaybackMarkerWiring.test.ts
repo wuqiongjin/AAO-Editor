@@ -1,7 +1,7 @@
 // issue 152 锁测：画布旗帜与播放条起点按钮**共享同一份 SVG**、回跳派发接线在、
 // 回跳路径不再做拍→秒换算。这些都是"组件接线 / 资源复用"，单测碰不到，
 // 故按 EditorAudioSessionRefactor 的惯例用静态源码断言看守。
-// 票 180：右侧状态卡片随换壳删除，旗帜图标的另一处使用方改为播放条按钮（票 179）。
+// 票 183：右侧状态卡片随换壳删除，旗帜图标的另一处使用方改为播放条按钮（票 182）。
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
