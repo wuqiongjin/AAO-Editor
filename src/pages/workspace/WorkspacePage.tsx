@@ -177,6 +177,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 库状态活在页面而不是抽屉里：抽屉可以没开，快捷键照样要能收藏（且不能各持一份整库）。
   const patternLibrary = usePatternLibrary();
   const { canSave: canSaveSelection, save: saveSelection } = useSaveSelectionPattern(patternLibrary);
+  // issue 188：抽屉是 memo 组件，回调身份保持稳定，避免播放期 80ms 时间码连带整块重渲
+  const handleSaveSelection = useCallback(() => { void saveSelection(); }, [saveSelection]);
 
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
@@ -544,7 +546,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           library={patternLibrary}
           canSaveSelection={canSaveSelection}
           readOnly={isReadOnly}
-          onSaveSelection={() => void saveSelection()}
+          onSaveSelection={handleSaveSelection}
           // 186 二轮：同一张卡再点 = 退出粘贴态（回指针）；高亮由 `activePatternId` 决定
           onPastePattern={ui.togglePatternPaste}
           activePatternId={ui.patternPaste?.id ?? null}

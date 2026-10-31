@@ -50,6 +50,9 @@ describe('issue 188 · 播放期 80ms HUD 更新与工作台重组件隔离', ()
   const playbackProvider = readStripped('src/app/providers/PlaybackProvider.tsx');
   // 票 180 换壳后，旧 Toolbar / NoteInfoPanel / PlaybackMarkerCard 已由工具轨 / 片段库抽屉 / 播放起点按钮接替
   const toolRail = readStripped('src/pages/workspace/WorkspaceToolRail.tsx');
+  const topBar = readStripped('src/pages/workspace/WorkspaceTopBar.tsx');
+  const curveCapsule = readStripped('src/pages/workspace/CurveOptionsCapsule.tsx');
+  const pastePill = readStripped('src/pages/workspace/PatternPastePill.tsx');
   const patternDrawer = readStripped('src/pages/workspace/PatternLibraryDrawer.tsx');
   const switcher = readStripped('src/pages/workspace/ChartSwitcher.tsx');
   const displayPanel = readStripped('src/pages/workspace/WorkspaceDisplayPanel.tsx');
@@ -66,8 +69,11 @@ describe('issue 188 · 播放期 80ms HUD 更新与工作台重组件隔离', ()
     expect(canvas).toMatch(/memo\(\s*FinalVirtualCanvas\s*\)|memo\(\s*forwardRef/);
   });
 
-  it('工作台工具轨 / 片段库抽屉 / 顶栏与播放起点子组件均用 memo 包裹，避免 Editor 80ms 传递 playheadSeconds 时连带整树重跑', () => {
+  it('工作台工具轨 / 顶栏 / 画布胶囊 / 片段库抽屉 / 播放起点子组件均用 memo 包裹，避免 Editor 80ms 传递 playheadSeconds 时连带整树重跑', () => {
     expect(toolRail).toMatch(/memo\(/);
+    expect(topBar).toMatch(/memo\(/);
+    expect(curveCapsule).toMatch(/memo\(/);
+    expect(pastePill).toMatch(/memo\(/);
     expect(patternDrawer).toMatch(/memo\(/);
     expect(switcher).toMatch(/memo\(/);
     expect(displayPanel).toMatch(/memo\(/);

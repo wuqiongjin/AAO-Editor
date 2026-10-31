@@ -1,5 +1,6 @@
 // 工作台顶栏（issue 170 → 票 183 换壳）：项目切换器 + 撤销 / 重做；右簇 = 吸附｜缩放｜显示设置｜谱面代码｜片段库。
 // 当前 BPM 进了画布左下读数（票 182），顶栏不再重复。
+import { memo } from 'react';
 import { Braces, LibraryBig, Minus, Plus, Redo2, Undo2 } from 'lucide-react';
 import ChartSwitcher from './ChartSwitcher';
 import BeatSnapCapsule from './BeatSnapCapsule';
@@ -52,7 +53,7 @@ function ZoomCapsule() {
   );
 }
 
-export default function WorkspaceTopBar() {
+export default memo(function WorkspaceTopBar() {
   const { canUndo, canRedo, undo, redo } = useEditing();
   const { settings, setPatternDrawer } = useConfig();
   // issue 37 / 59 §2：谱面代码永远打开**完整**谱面，不看选区、不进工具轴（与「音符代码」工具各司其职）
@@ -114,4 +115,4 @@ export default function WorkspaceTopBar() {
       </div>
     </header>
   );
-}
+});

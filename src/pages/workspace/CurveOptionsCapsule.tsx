@@ -1,6 +1,7 @@
 // 画布左上角的曲线选项胶囊（issue 180 Q15，票 182）：曲线持工具态时出现，显示当前配置摘要；
 // 点开 = 四行表单，点外面 / Esc 收回，切走工具即消失，没有关闭钮。
 // 展开行为与片段粘贴胶囊共用 `useCanvasCapsule`，外壳样式共用 `CanvasCapsule.css`。
+import { memo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useUI } from '../../app/ProviderTree';
 import { t } from '../../i18n';
@@ -10,7 +11,7 @@ import { useCanvasCapsule } from './useCanvasCapsule';
 import './CanvasCapsule.css';
 import './CurveOptionsCapsule.css';
 
-export default function CurveOptionsCapsule() {
+export default memo(function CurveOptionsCapsule() {
   const { armedTool, curveConfig, setCurveConfig } = useUI();
   const visible = armedTool === 'curve';
   const { open, toggle, rootRef, pillRef } = useCanvasCapsule(visible);
@@ -39,4 +40,4 @@ export default function CurveOptionsCapsule() {
       )}
     </div>
   );
-}
+});

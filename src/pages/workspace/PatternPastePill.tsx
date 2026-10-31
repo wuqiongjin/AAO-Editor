@@ -5,6 +5,7 @@
 // 文案口径（186 二轮定案）：`含 BPM (120 → 180)` / `不含 BPM` —— 直接显示会带过去的速度跨度，
 // 不再写"含 BPM 变化 · n"（那条计数既读不懂、也不回答"会带什么速度"）。
 // 片段是哪一条由画布上的幽灵预览回答（含即将写入的 BPM 虚线），故胶囊不显示片段名。
+import { memo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useUI } from '../../app/ProviderTree';
 import { patternBpmRange } from '../../chart/patterns/library';
@@ -14,7 +15,7 @@ import { useCanvasCapsule } from './useCanvasCapsule';
 import './CanvasCapsule.css';
 import './PatternPastePill.css';
 
-export default function PatternPastePill() {
+export default memo(function PatternPastePill() {
   const { armedTool, patternPaste, patternPasteWithBpm, setPatternPasteWithBpm } = useUI();
   const visible = armedTool === 'paste' && patternPaste !== null;
   const { open, toggle, dismiss, rootRef, pillRef } = useCanvasCapsule(visible);
@@ -79,4 +80,4 @@ export default function PatternPastePill() {
       )}
     </div>
   );
-}
+});
