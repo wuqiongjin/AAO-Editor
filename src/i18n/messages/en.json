@@ -809,6 +809,7 @@
   "patternLibrary.loadFailedHint": "Nothing will be written this session, so your existing patterns stay intact. Reopen the page to try again.",
   "patternLibrary.thumbnail": "Thumbnail of “{{name}}”",
   "patternLibrary.badge.bpm": "BPM",
+  "patternLibrary.cardStats": "{{notes}} notes · {{beats}} beats",
   "patternLibrary.readonlyCard": "Uploaded charts cannot receive patterns; saving a selection still works",
   "patternLibrary.rename": "Rename pattern",
   "patternLibrary.pasteCardAria": "Paste “{{name}}” onto the chart",

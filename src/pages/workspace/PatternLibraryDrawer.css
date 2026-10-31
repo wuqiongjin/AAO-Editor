@@ -278,6 +278,18 @@
   white-space: nowrap;
 }
 
+/* 统计行（issue 190）：徽标下方的派生小字（音符数 · 拍数），弱于名字与徽标。
+   颜色取 muted 而非 subtle：11px 下 subtle 对卡片底对比度不足，会读成残留文本。 */
+.pld-card__stats {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 常驻动作入口：一直可见（hover 才出现的按钮等于靠运气发现），低对比度不抢名字 */
 .pld-card__more {
   position: absolute;

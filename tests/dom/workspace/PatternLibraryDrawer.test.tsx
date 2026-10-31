@@ -101,6 +101,18 @@ const seedLibrary = () => [
     id: 'p2',
     name: '折返花活',
     createdAt: 200,
+    // issue 190 统计夹具：单键 1 + 滑条非 hidden 结点 2 = 3 音符；拍数 0 → 8.5（hidden 结点仍在跨度内）
+    notes: [
+      { type: 'Single', beat: 0, lane: 0 },
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 2, lane: 1 },
+          { beat: 6.5, lane: 2, hidden: true },
+          { beat: 8.5, lane: 3 },
+        ],
+      },
+    ],
     bpmContext: { startBpm: 120, events: [{ deltaBeat: 1, bpm: -120 }, { deltaBeat: 2, bpm: 120 }] },
   }),
 ];
@@ -451,5 +463,61 @@ describe('issue 186 · 点卡片进片段粘贴态', () => {
     await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
     expect(card('折返花活')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getAllByRole('listitem')[0]).not.toHaveClass('is-active');
+  });
+});
+
+describe('issue 190 · 卡片统计行', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('徽标下方显示「N 音符 · N 拍」，hidden 结点不计音符数但计拍数', async () => {
+    setup({ seed: seedLibrary() });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    // 倒序：折返花活 = 单键 1 + 滑条可击打结点 2 = 3 音符；8.5 − 0 = 8.5 拍
+    expect(screen.getByText('3 音符 · 8.5 拍')).toHaveClass('pld-card__stats');
+    expect(screen.getByText('1 音符 · 0 拍')).toBeInTheDocument();
+  });
+
+  it('就地改名只替换名字行，统计行保持', async () => {
+    setup({ seed: seedLibrary() });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    fireEvent.doubleClick(screen.getByText('折返花活'));
+    expect(screen.getByRole('textbox', { name: '重命名片段' })).toBeInTheDocument();
+
+    const topCard = screen.getAllByRole('listitem')[0]!;
+    expect(topCard).toHaveTextContent('3 音符 · 8.5 拍');
+    expect(topCard).toHaveTextContent('BPM 120 → -120');
+  });
+
+  it('统计行不抢 ⋯ 菜单：动作入口仍可点开', async () => {
+    setup({ seed: seedLibrary() });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+    expect(screen.getByText('3 音符 · 8.5 拍')).toBeInTheDocument();
+
+    openCardMenu(0);
+    expect(screen.getByRole('menu', { name: '片段操作' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: '导出片段' })).toBeEnabled();
+  });
+
+  it('空片段 / 只有 BPM 的脏数据：显示「0 音符 · 0 拍」，不抛错', async () => {
+    setup({
+      seed: [
+        makePattern({ id: 'empty', name: '空片段', createdAt: 100, notes: [] }),
+        makePattern({
+          id: 'bpm-only',
+          name: '只有 BPM',
+          createdAt: 200,
+          notes: [{ type: 'BPM', beat: 0, bpm: 120 }],
+        }),
+      ],
+    });
+    await waitFor(() => expect(screen.getByText('只有 BPM')).toBeInTheDocument());
+
+    const cards = screen.getAllByRole('listitem');
+    expect(cards[0]).toHaveTextContent('0 音符 · 0 拍');
+    expect(cards[1]).toHaveTextContent('0 音符 · 0 拍');
   });
 });

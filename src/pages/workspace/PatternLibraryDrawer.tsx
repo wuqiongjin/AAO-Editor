@@ -2,7 +2,8 @@
 //
 // 外壳口径（183）：展开占布局（不压画布）、左缘可拖宽、收起完全消失。
 // 内容口径（185 / 164 定案 §3）：
-// - 卡片 = 缩略图 + 名字 + 徽标（`BPM 120 → 180`，负值数字危险色）+ 常驻 ⋯ 菜单（导出 —— 动作落 187 / 删除）；
+// - 卡片 = 缩略图 + 名字 + 徽标（`BPM 120 → 180`，负值数字危险色）+ 统计行
+//   （`12 音符 · 10 拍`，派生值，见 `chart/patterns/stats`）+ 常驻 ⋯ 菜单（导出 —— 动作落 187 / 删除）；
 // - 点卡片 = 进片段粘贴态（186），被选中的那张高亮；再点同一张 = 退出（回指针）；
 // - 顶部常驻搜索：按名字子串过滤（不区分大小写）；「库里没有片段」「搜索无匹配」「库读不出来」是三套空态；
 // - 收藏时间倒序（最新在最上，排序是库的口径，本组件不重排）；
@@ -18,6 +19,7 @@ import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
 import { formatKey } from '../../chart/config/ShortcutConfig';
 import type { PatternImportStrategy } from '../../chart/patterns/importConflict';
 import { filterPatternsByName, patternBpmRange } from '../../chart/patterns/library';
+import { formatPatternBeatSpan, patternStats } from '../../chart/patterns/stats';
 import {
   pickPatternFile,
   readPatternFileText,
@@ -316,6 +318,7 @@ export default memo(function PatternLibraryDrawer({
           <ul className="pld__list">
             {visible.map((pattern) => {
               const range = patternBpmRange(pattern);
+              const stats = patternStats(pattern);
               const active = !readOnly && activePatternId === pattern.id;
               return (
                 <li
@@ -381,6 +384,13 @@ export default memo(function PatternLibraryDrawer({
                         <span className="pld-badge">
                           {t('patternLibrary.badge.bpm')} <BpmRange start={range.start} peak={range.peak} />
                         </span>
+                      </span>
+                      {/* 统计行（issue 190）：派生值、不进载荷；名字超长仍只省略名字 */}
+                      <span className="pld-card__stats">
+                        {t('patternLibrary.cardStats', {
+                          notes: stats.noteCount,
+                          beats: formatPatternBeatSpan(stats.beatSpan),
+                        })}
                       </span>
                     </div>
                   </div>
