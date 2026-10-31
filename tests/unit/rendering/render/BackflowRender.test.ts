@@ -248,8 +248,9 @@ describe('issue 105 · 渲染口径（静态源码断言）', () => {
   const renderSrc = readFileSync(join(repoRoot, 'src/rendering/render.ts'), 'utf-8');
 
   it('负值取色只有一个消费点，且按 bpm 正负分派（「横线不换色」由上面的行为断言看守）', () => {
-    expect(renderSrc.match(/gridBpmNegativeColor\(/g)).toHaveLength(1); // render.ts 内仅 renderBpmLabels 调用
-    expect(renderSrc).toMatch(/bpm < 0 \? negativeColor : positiveColor/);
+    // 唯一决定处 = `bpmLabelColor`：实线数值与片段粘贴的幽灵数值都从这里取色
+    expect(renderSrc.match(/gridBpmNegativeColor\(/g)).toHaveLength(1);
+    expect(renderSrc).toMatch(/bpm < 0 \? gridBpmNegativeColor\(preset\) : gridThemeBpmColor\(preset\)/);
   });
 
   it('折返自叠沿用 ADR-0009 §5 口径：SP 带条走 splitBandAtFolds + 逐行光栅', () => {
