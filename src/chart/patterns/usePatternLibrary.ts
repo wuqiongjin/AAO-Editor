@@ -13,6 +13,12 @@ import { t } from '../../i18n';
 import { showToast } from '../../ui/Toast';
 import type { ChartNote, SelectionItem } from '../types';
 import { capturePattern } from './capture';
+import {
+  planPatternImport,
+  previewPatternImport,
+  type PatternImportPreview,
+  type PatternImportStrategy,
+} from './importConflict';
 import { appendNewPattern, removePatternFromLibrary, renamePatternInLibrary, sortPatternsNewestFirst } from './library';
 import { PatternStore } from './PatternStore';
 import { parsePatternsFile } from './share';
@@ -22,9 +28,26 @@ export type PatternLibraryStatus = 'loading' | 'ready' | 'error';
 
 export type PatternImportFailureReason = 'not-ready' | 'bad-file' | 'write-failed';
 
-/** 导入结果：`ok` 时的两个计数就是反馈要说的「N 条 / 跳过 M 条」 */
+/**
+ * 解析完成、尚未落盘的导入计划（189）：弹层确认后才交给 `applyImport`。
+ * `patterns` 已由 `parsePatternsFile` 重发 id；`preview` 是默认「跳过」口径的计数与冲突清单。
+ */
+export interface PatternImportPreparation {
+  patterns: Pattern[];
+  invalidCount: number;
+  preview: PatternImportPreview;
+}
+
+export type PatternImportPreparationResult =
+  | { ok: true; preparation: PatternImportPreparation }
+  | { ok: false; reason: Exclude<PatternImportFailureReason, 'write-failed'>; message?: string };
+
+/**
+ * 导入结果：`imported` = 实际写入库的条目数（含覆盖 / 保留两者），
+ * `skipped` = 坏条目数，`skippedExisting` = 因内容已存在而跳过的条目数。
+ */
 export type PatternImportResult =
-  | { ok: true; imported: number; skipped: number }
+  | { ok: true; imported: number; skipped: number; skippedExisting: number }
   | { ok: false; reason: PatternImportFailureReason; message?: string };
 
 export interface PatternLibraryApi {
@@ -41,10 +64,18 @@ export interface PatternLibraryApi {
   rename: (id: string, name: string) => Promise<boolean>;
   remove: (id: string) => Promise<void>;
   /**
-   * 分享文件文本 → 合并进库（**只合并、不替换**；id 已由 `parsePatternsFile` 重发）。
-   * 整包坏 / 版本不认识 / 读失败 / 落盘失败 → `ok: false`；坏条目只计价、不阻断。
+   * 分享文件文本 → 解析 + 冲突预览（**不写盘**）。整包坏 / 版本不认识 / 读失败 → `ok: false`；
+   * 坏条目只计数、不阻断。弹层确认策略后交给 `applyImport`。
    */
-  importFromText: (text: string) => Promise<PatternImportResult>;
+  prepareImport: (text: string) => Promise<PatternImportPreparationResult>;
+  /**
+   * 把已解析的导入计划按策略合并进库（**只合并、不替换**）：覆盖保留本地身份，
+   * 跳过不写盘，保留两者追加新 id。落盘失败 → `ok: false`（commit 已回滚并 toast）。
+   */
+  applyImport: (
+    preparation: PatternImportPreparation,
+    strategy: PatternImportStrategy,
+  ) => Promise<PatternImportResult>;
 }
 
 /** `store` 只在测试里注入；生产按环境自动选后端（`PatternStore` 默认构造） */
@@ -124,11 +155,11 @@ export function usePatternLibrary(store?: PatternStore): PatternLibraryApi {
   }, [commit]);
 
   /**
-   * 导入分享文件（issue 187）：解析在 184 的 `share` 层，这里只做「等载入 → 合并 → 整库落盘」。
-   * 三条拒绝线：读失败（不许写）、整包解析失败（不动库）、落盘失败（commit 已回滚并 toast）。
-   * 坏条目跳过不算失败 —— 好条目照常进来，计数交回界面报数。
+   * 导入第一步（189）：解析 + 按当前库的排序算冲突预览，**不写盘**。
+   * 三条拒绝线：读失败（不许写）、整包解析失败（不动库）；好条目 / 坏条目都只计数。
+   * 解析仍在 184 的 `share` 层（逐条校验 + 新 id），判重与动作在 `importConflict`。
    */
-  const importFromText = useCallback(async (text: string): Promise<PatternImportResult> => {
+  const prepareImport = useCallback(async (text: string): Promise<PatternImportPreparationResult> => {
     await loadedRef.current;
     if (!writableRef.current) {
       return { ok: false, reason: 'not-ready', message: t('patternLibrary.import.notReady') };
@@ -137,18 +168,52 @@ export function usePatternLibrary(store?: PatternStore): PatternLibraryApi {
     if (!parsed.ok) {
       return { ok: false, reason: 'bad-file', message: parsed.message };
     }
-    const imported = parsed.patterns.length;
-    if (imported === 0) {
-      // 整包都坏 / 空库文件：没有可写的东西，不产生一次无意义的整库落盘
-      return { ok: true, imported: 0, skipped: parsed.skipped.length };
+    const preview = previewPatternImport(patternsRef.current, parsed.patterns, parsed.skipped.length);
+    return {
+      ok: true,
+      preparation: {
+        patterns: parsed.patterns,
+        invalidCount: parsed.skipped.length,
+        preview,
+      },
+    };
+  }, []);
+
+  /**
+   * 导入第二步（189）：按弹层选定的策略合并 → 整库落盘。
+   * - 全部被跳过（`imported === 0`）：不产生无意义的整库落盘；
+   * - 覆盖：保留本地 `id / createdAt` 等身份字段，只换名字（`planPatternImport`）；
+   * - 落盘失败：`commit` 已回滚并 toast，返回 `write-failed` 由界面避免重复报错。
+   */
+  const applyImport = useCallback(async (
+    preparation: PatternImportPreparation,
+    strategy: PatternImportStrategy,
+  ): Promise<PatternImportResult> => {
+    await loadedRef.current;
+    if (!writableRef.current) {
+      return { ok: false, reason: 'not-ready', message: t('patternLibrary.import.notReady') };
     }
-    const ok = await commit(sortPatternsNewestFirst([...patternsRef.current, ...parsed.patterns]));
+    const plan = planPatternImport(patternsRef.current, preparation.patterns, strategy);
+    if (plan.imported === 0) {
+      return {
+        ok: true,
+        imported: 0,
+        skipped: preparation.invalidCount,
+        skippedExisting: plan.skippedExisting,
+      };
+    }
+    const ok = await commit(sortPatternsNewestFirst(plan.patterns));
     if (!ok) return { ok: false, reason: 'write-failed' };
-    return { ok: true, imported, skipped: parsed.skipped.length };
+    return {
+      ok: true,
+      imported: plan.imported,
+      skipped: preparation.invalidCount,
+      skippedExisting: plan.skippedExisting,
+    };
   }, [commit]);
 
   return useMemo(
-    () => ({ patterns, status, addFromSelection, rename, remove, importFromText }),
-    [patterns, status, addFromSelection, rename, remove, importFromText],
+    () => ({ patterns, status, addFromSelection, rename, remove, prepareImport, applyImport }),
+    [patterns, status, addFromSelection, rename, remove, prepareImport, applyImport],
   );
 }

@@ -8,6 +8,7 @@ import {
   serializePatterns,
   type PatternExportFile,
 } from '@/src/chart/patterns/share';
+import { planPatternImport } from '@/src/chart/patterns/importConflict';
 import type { Pattern } from '@/src/chart/patterns/types';
 
 function pattern(overrides: Partial<Pattern> = {}): Pattern {
@@ -147,13 +148,68 @@ describe('parsePatternsFile · 逐条校验与导入语义', () => {
     expect(new Set(ids).size).toBe(2);
   });
 
-  it('允许重名：两条同名片段都导入，不报错、不改写名字', () => {
+  it('允许重名：两条同名但内容不同的片段都导入，不报错、不改写名字', () => {
     const result = parsePatternsFile(
-      serializePatterns([pattern({ name: '我的花活' }), pattern({ name: '我的花活' })]),
+      serializePatterns([
+        pattern({ name: '我的花活', notes: [{ type: 'Single', beat: 1, lane: 2 } as ChartNote] }),
+        pattern({ name: '我的花活', notes: [{ type: 'Single', beat: 2, lane: 3 } as ChartNote] }),
+      ]),
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.skipped).toEqual([]);
     expect(result.patterns.map((p) => p.name)).toEqual(['我的花活', '我的花活']);
+    // 同名不是冲突：合并策略把两条都保留
+    const plan = planPatternImport([], result.patterns, 'skip');
+    expect(plan.imported).toBe(2);
+    expect(plan.targets).toEqual([]);
+  });
+
+  it('导出 → 再导入同一份库：内容全部命中，默认跳过不新增', () => {
+    const library = [
+      pattern({ id: 'a', name: '片段 A', createdAt: 1 }),
+      pattern({
+        id: 'b',
+        name: '片段 B',
+        createdAt: 2,
+        notes: [{ type: 'Single', beat: 1, lane: 4 } as ChartNote],
+        bpmContext: { startBpm: 120, events: [{ deltaBeat: 2, bpm: 180 }] },
+      }),
+    ];
+    const result = parsePatternsFile(serializePatterns(library));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const plan = planPatternImport(library, result.patterns, 'skip');
+    expect(plan.imported).toBe(0);
+    expect(plan.skippedExisting).toBe(2);
+    expect(plan.patterns).toEqual(library);
+    expect(plan.targets.map((target) => target.targetId)).toEqual(['a', 'b']);
+  });
+
+  it('解析本身不判重：同内容不同名进来仍是两条，冲突在库层按内容指纹识别', () => {
+    const local = pattern({ id: 'local', name: '本地名' });
+    const result = parsePatternsFile(
+      serializePatterns([pattern({ id: 'source', name: '导入名', createdAt: 2 })]),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.patterns).toHaveLength(1);
+    expect(result.patterns[0]!.id).not.toBe('source');
+
+    const plan = planPatternImport([local], result.patterns, 'skip');
+    expect(plan.targets).toEqual([{
+      importIndex: 0,
+      importName: '导入名',
+      targetId: 'local',
+      targetName: '本地名',
+    }]);
+  });
+
+  it('信封不携带本地冲突策略 / 合并结果（只导出片段本体）', () => {
+    const doc = JSON.parse(serializePatterns([pattern()])) as Record<string, unknown>;
+    expect(Object.keys(doc).sort()).toEqual(['exportedAt', 'patterns', 'schemaVersion']);
+    expect(doc).not.toHaveProperty('strategy');
+    expect(doc).not.toHaveProperty('conflicts');
   });
 });

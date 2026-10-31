@@ -16,6 +16,7 @@ import { BookmarkPlus, LibraryBig, Search, X } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
 import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
 import { formatKey } from '../../chart/config/ShortcutConfig';
+import type { PatternImportStrategy } from '../../chart/patterns/importConflict';
 import { filterPatternsByName, patternBpmRange } from '../../chart/patterns/library';
 import {
   pickPatternFile,
@@ -24,12 +25,17 @@ import {
   saveSinglePatternFile,
 } from '../../chart/patterns/shareFile';
 import type { Pattern } from '../../chart/patterns/types';
-import type { PatternLibraryApi } from '../../chart/patterns/usePatternLibrary';
+import type {
+  PatternImportPreparation,
+  PatternImportResult,
+  PatternLibraryApi,
+} from '../../chart/patterns/usePatternLibrary';
 import { t } from '../../i18n';
 import ConfirmDialog from '../../ui/ConfirmDialog';
 import { showToast } from '../../ui/Toast';
 import BpmRange from './BpmRange';
 import PatternCardMenu from './PatternCardMenu';
+import PatternImportDialog from './PatternImportDialog';
 import PatternLibraryMenu from './PatternLibraryMenu';
 import PatternThumbnail from './PatternThumbnail';
 import './PatternLibraryDrawer.css';
@@ -99,6 +105,8 @@ export default memo(function PatternLibraryDrawer({
   // 就地改名（一次只编辑一条；草稿与目标分开存）
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Pattern | null>(null);
+  /** 已解析、待确认策略的导入计划（189）：取消 / 关闭即丢弃，不写盘 */
+  const [pendingImport, setPendingImport] = useState<PatternImportPreparation | null>(null);
   // Esc 取消后输入框卸载可能补发一次 blur：别让"取消"被 blur 又提交回去（同 BPM 就地编辑口径）
   const renameCancelledRef = useRef(false);
 
@@ -160,7 +168,38 @@ export default memo(function PatternLibraryDrawer({
     }
   };
 
-  /* 导入（187）：选文件 → 读文本 → 库层合并落盘；反馈按实际结果报数 */
+  /**
+   * 导入反馈（189）：导入 / 坏条目 / 已存在分开报数。
+   * 全部被跳过时也要说清「0 条导入、N 条已存在」，别只弹一句冷冰冰的 0。
+   */
+  const reportImport = (result: PatternImportResult) => {
+    if (!result.ok) {
+      // 落盘失败已由库层 toast 并回滚；这里不重复报错
+      if (result.reason === 'write-failed') return;
+      showToast(result.message ?? t('patternLibrary.import.badFile'), 'danger');
+      return;
+    }
+    if (result.imported === 0 && result.skipped === 0 && result.skippedExisting === 0) {
+      showToast(t('patternLibrary.import.empty'), 'info');
+      return;
+    }
+    if (result.skippedExisting > 0) {
+      showToast(t('patternLibrary.import.duplicates', {
+        imported: result.imported,
+        skipped: result.skipped + result.skippedExisting,
+        existing: result.skippedExisting,
+      }), result.imported === 0 ? 'warn' : 'info');
+      return;
+    }
+    if (result.skipped > 0) {
+      showToast(t('patternLibrary.import.partial', { imported: result.imported, skipped: result.skipped }), 'warn');
+      return;
+    }
+    showToast(t('patternLibrary.import.success', { imported: result.imported }), 'success');
+  };
+
+  /* 导入（187 / 189）：选文件 → 读文本 → 解析 + 冲突预览 → 弹层确认策略 → 才落盘。
+     取消 / 关闭弹层 = 不写盘；没有好条目时连弹层都不开（三选一也无事可做）。 */
   const importLibrary = async () => {
     const file = await pickPatternFile();
     if (!file) return;
@@ -173,22 +212,24 @@ export default memo(function PatternLibraryDrawer({
       return;
     }
 
-    const result = await library.importFromText(text);
-    if (!result.ok) {
-      // 落盘失败已由库层 toast 并回滚；这里不重复报错
-      if (result.reason === 'write-failed') return;
-      showToast(result.message ?? t('patternLibrary.import.badFile'), 'danger');
+    const prepared = await library.prepareImport(text);
+    if (!prepared.ok) {
+      showToast(prepared.message ?? t('patternLibrary.import.badFile'), 'danger');
       return;
     }
-    if (result.imported === 0 && result.skipped === 0) {
-      showToast(t('patternLibrary.import.empty'), 'info');
+    if (prepared.preparation.preview.valid === 0) {
+      // 空文件 / 整包都是坏条目：没有可写的东西，直接报数（不产生无意义的落盘）
+      reportImport(await library.applyImport(prepared.preparation, 'skip'));
       return;
     }
-    if (result.skipped > 0) {
-      showToast(t('patternLibrary.import.partial', { imported: result.imported, skipped: result.skipped }), 'warn');
-      return;
-    }
-    showToast(t('patternLibrary.import.success', { imported: result.imported }), 'success');
+    setPendingImport(prepared.preparation);
+  };
+
+  const confirmImport = async (strategy: PatternImportStrategy) => {
+    const preparation = pendingImport;
+    if (!preparation) return;
+    setPendingImport(null);
+    reportImport(await library.applyImport(preparation, strategy));
   };
 
   return (
@@ -383,6 +424,15 @@ export default memo(function PatternLibraryDrawer({
             setPendingDelete(null);
             void library.remove(target.id);
           }}
+        />
+      )}
+
+      {/* 导入确认（189）：取消 / 关闭 = 不写盘；确认才走库层合并 */}
+      {pendingImport && (
+        <PatternImportDialog
+          preview={pendingImport.preview}
+          onCancel={() => setPendingImport(null)}
+          onConfirm={(strategy) => void confirmImport(strategy)}
         />
       )}
     </aside>

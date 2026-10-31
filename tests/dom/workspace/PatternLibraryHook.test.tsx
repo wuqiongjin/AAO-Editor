@@ -73,13 +73,65 @@ describe('issue 185 · usePatternLibrary', () => {
     const { result } = renderHook(() => usePatternLibrary(store));
     await waitFor(() => expect(result.current.status).toBe('error'));
 
-    let outcome: Awaited<ReturnType<typeof result.current.importFromText>> | null = null;
+    let outcome: Awaited<ReturnType<typeof result.current.prepareImport>> | null = null;
     await act(async () => {
-      outcome = await result.current.importFromText(serializePatterns([makePattern({ name: '外来片段' })]));
+      outcome = await result.current.prepareImport(serializePatterns([makePattern({ name: '外来片段' })]));
     });
     expect(outcome).toMatchObject({ ok: false, reason: 'not-ready' });
     expect(saves).toBe(0);
     expect(result.current.patterns).toEqual([]);
+  });
+
+  it('导入拆两段：prepare 只解析不写盘，apply 才合并落盘', async () => {
+    dismissToast();
+    const memory = makeMemoryPatternStore([makePattern({ id: 'p1', name: '片段 1', createdAt: 1 })]);
+    const { result } = renderHook(() => usePatternLibrary(memory.store));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    const text = serializePatterns([makePattern({
+      id: 'imp',
+      name: '外来片段',
+      createdAt: 500,
+      notes: [{ type: 'Single', beat: 0, lane: 1 }],
+    })]);
+    let prepared: Awaited<ReturnType<typeof result.current.prepareImport>> | null = null;
+    await act(async () => { prepared = await result.current.prepareImport(text); });
+    expect(prepared).toMatchObject({
+      ok: true,
+      preparation: { preview: { total: 1, newCount: 1, duplicateCount: 0 } },
+    });
+    expect(memory.saves).toBe(0);
+
+    let applied: Awaited<ReturnType<typeof result.current.applyImport>> | null = null;
+    await act(async () => {
+      if (!prepared?.ok) return;
+      applied = await result.current.applyImport(prepared.preparation, 'skip');
+    });
+    expect(applied).toMatchObject({ ok: true, imported: 1, skipped: 0, skippedExisting: 0 });
+    expect(memory.saves).toBe(1);
+    expect(memory.disk.map((pattern) => pattern.name)).toEqual(['外来片段', '片段 1']);
+    expect(memory.disk.map((pattern) => pattern.id)).not.toContain('imp');
+  });
+
+  it('全部重复 + 默认跳过：apply 不产生整库落盘', async () => {
+    dismissToast();
+    const memory = makeMemoryPatternStore([makePattern({ id: 'p1', name: '片段 1' })]);
+    const { result } = renderHook(() => usePatternLibrary(memory.store));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    const text = serializePatterns([makePattern({ id: 'imp', name: '外来名' })]);
+    let prepared: Awaited<ReturnType<typeof result.current.prepareImport>> | null = null;
+    await act(async () => { prepared = await result.current.prepareImport(text); });
+    expect(prepared).toMatchObject({ ok: true, preparation: { preview: { duplicateCount: 1 } } });
+
+    let applied: Awaited<ReturnType<typeof result.current.applyImport>> | null = null;
+    await act(async () => {
+      if (!prepared?.ok) return;
+      applied = await result.current.applyImport(prepared.preparation, 'skip');
+    });
+    expect(applied).toMatchObject({ ok: true, imported: 0, skippedExisting: 1 });
+    expect(memory.saves).toBe(0);
+    expect(memory.disk[0]!.name).toBe('片段 1');
   });
 
   it('空选区 → null，且不写盘', async () => {

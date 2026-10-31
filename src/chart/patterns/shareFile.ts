@@ -4,7 +4,8 @@
 //     Electron 走 preload 桥（系统保存对话框，**取消 = 什么都不发生**），
 //     浏览器降级 Blob + `<a download>`。
 // 读：两环境同一路 `<input type="file">`（`accept=".json,application/json"`）。
-// 解析 / 合并语义在 184 的 `share.ts` 与 `usePatternLibrary.importFromText`，这里只管文件。
+// 解析 / 合并语义在 184 的 `share.ts` 与 `usePatternLibrary` 的导入两段
+// （`prepareImport` 解析预览 / `applyImport` 按策略落盘），这里只管文件。
 import { serializePatterns } from './share';
 import type { Pattern } from './types';
 

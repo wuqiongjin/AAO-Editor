@@ -21,6 +21,7 @@ const chartInfoDialog = readStripped('src/project/ui/ChartInfoDialog.tsx');
 const codeModal = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.tsx');
 const codeModalCss = readStripped('src/chart/components/code-editor/ChartCodeEditorModal.css');
 const toast = readStripped('src/ui/Toast.tsx');
+const patternImportDialogCss = readStripped('src/pages/workspace/PatternImportDialog.css');
 
 /** hex 色值或 rgb/rgba() —— 样式里出现任何一个都说明色值绕过 token 了 */
 const HARD_CODED_COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
@@ -32,6 +33,7 @@ const HARD_CODED_COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\(/;
  * 弹窗内容随 architecture-refactor 01 拆解分住三处：页面（编排）/ ProjectDialogs（两个表单弹窗）/
  * ProjectBits（卡片菜单与难度徽标浮层 —— 原也在 ProjectsPage 里，一并纳入扫描）。
  * 票 11 的发布弹窗（PublishDialog）同族：同一个壳、同一套 token。
+ * 票 189 的导入确认弹层（PatternImportDialog.css）同族：新增内容也要进这份清单。
  */
 const DIALOG_SOURCES: [string, string][] = [
   ['ui/Dialog.tsx', shell],
@@ -45,6 +47,7 @@ const DIALOG_SOURCES: [string, string][] = [
   ['project/ui/ChartInfoDialog.tsx', chartInfoDialog],
   ['chart/.../ChartCodeEditorModal.tsx', codeModal],
   ['chart/.../ChartCodeEditorModal.css', codeModalCss],
+  ['pages/workspace/PatternImportDialog.css', patternImportDialogCss],
 ];
 
 /** src 下的 .ts/.tsx/.css（原型页除外：那是用完即弃的第三套壳，本来就不该进 main） */
