@@ -57,6 +57,25 @@ describe('ShortcutConfig 默认配置', () => {
     const cfg = loadConfig({ getItem: () => JSON.stringify({ switchCurve: 'c' }) });
     expect(cfg.switchCurve).toBe('w');
   });
+
+  // issue 185 / ADR-0023 §4：收藏选区 = 新的执行类功能（默认 Ctrl+Shift+D）
+  it('默认含 收藏片段（Ctrl+Shift+D），且不与任何功能相撞', () => {
+    const cfg = getDefaultConfig();
+    expect(cfg.execSavePattern).toBe('ctrl+shift+d');
+    expect(buildBindingIndex(cfg).size).toBe(Object.keys(cfg).length);
+    expect(resolveAction(keyEvent('d', true, true), cfg)).toBe('execSavePattern');
+    expect(functionMode('execSavePattern')).toBe('exec');
+  });
+
+  it('收藏片段的键位可改、也可被别的功能抢占（冲突拒绝）', () => {
+    const cfg = getDefaultConfig();
+    expect(setFunctionBinding(cfg, 'execSavePattern', 'ctrl+shift+p')).toBeNull();
+    expect(cfg.execSavePattern).toBe('ctrl+shift+p');
+
+    const conflict = setFunctionBinding(cfg, 'execSavePattern', cfg.undo!);
+    expect(conflict).toBe('undo');
+    expect(cfg.execSavePattern).toBe('ctrl+shift+p');
+  });
 });
 
 describe('resolveAction 按键解析', () => {

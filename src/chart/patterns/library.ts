@@ -1,0 +1,68 @@
+// 片段库的内存视图操作（issue 185 / 164 定案 §3）：
+// 排序、搜索、改名、删除都只产出**新数组**，落盘一律交给 `PatternStore.saveAll`
+// （唯一写入口在 `usePatternLibrary`，这里不碰存储）。
+import type { Pattern } from './types';
+
+/**
+ * 收藏时间倒序（最新在最上）。同一毫秒内的两条按 id 定序 ——
+ * 排序必须是全序，否则每次渲染都可能换位。
+ */
+export function sortPatternsNewestFirst(patterns: readonly Pattern[]): Pattern[] {
+  return [...patterns].sort((a, b) => (b.createdAt - a.createdAt) || a.id.localeCompare(b.id));
+}
+
+/** 名字子串过滤（不区分大小写）；空查询 / 全空白 = 不过滤（返回全部，含顺序） */
+export function filterPatternsByName(patterns: readonly Pattern[], query: string): Pattern[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...patterns];
+  return patterns.filter((pattern) => pattern.name.toLowerCase().includes(q));
+}
+
+/**
+ * 改名的规范化：首尾空白去掉；**空名（或纯空白）拒绝**，返回 null。
+ * 超长不截断 —— 名字是标签，存原文，显示时由 CSS 省略（164 定案 §3）。
+ */
+export function normalizePatternName(raw: string): string | null {
+  const name = raw.trim();
+  return name === '' ? null : name;
+}
+
+/**
+ * 改名（不可变）：id 不存在 / 新名被拒绝 → 返回 null（调用方据此不写盘）。
+ * 名字没变也返回 null —— 不产生一次无意义的整库落盘。
+ */
+export function renamePatternInLibrary(
+  patterns: readonly Pattern[],
+  id: string,
+  rawName: string,
+): Pattern[] | null {
+  const name = normalizePatternName(rawName);
+  if (name === null) return null;
+  const index = patterns.findIndex((pattern) => pattern.id === id);
+  if (index < 0) return null;
+  if (patterns[index]!.name === name) return null;
+  const next = [...patterns];
+  next[index] = { ...next[index]!, name };
+  return next;
+}
+
+/** 删除（不可变）：id 不存在 → 返回 null（不写盘）；不建撤销栈（164 定案 §3） */
+export function removePatternFromLibrary(patterns: readonly Pattern[], id: string): Pattern[] | null {
+  const index = patterns.findIndex((pattern) => pattern.id === id);
+  if (index < 0) return null;
+  return patterns.filter((_, i) => i !== index);
+}
+
+/**
+ * 卡片徽标口径：
+ * - `changes` = 跨度内 BPM 事件条数（`bpmContext.events.length`，即「含 BPM 变化 · n」的 n）；
+ * - `backflow` = 片段**含有倒流区**：起点生效 BPM 为负（起点就在倒流区内），
+ *   或跨度内某条事件为负（从这条起进入倒流区）。ADR-0010：倒流区 = 从 `bpm < 0` 起到下一条 `bpm > 0`。
+ */
+export function patternBpmSummary(pattern: Pattern): { changes: number; backflow: boolean } {
+  const { startBpm, events } = pattern.bpmContext;
+  return {
+    changes: events.length,
+    backflow: startBpm < 0 || events.some((event) => event.bpm < 0),
+  };
+}

@@ -41,6 +41,8 @@ describe('issue 121 · 索引筛选桶归属', () => {
       skill: 'noteTools', ldirectional: 'noteTools', rdirectional: 'noteTools', slide: 'noteTools', curve: 'noteTools',
       copy: 'editTools', paste: 'editTools', cut: 'editTools', delete: 'editTools',
       mirror: 'editTools', noteCode: 'editTools', undo: 'editTools', redo: 'editTools',
+      // issue 185：收藏选区 = 动作类编辑命令
+      pattern: 'editTools',
       play: 'playback',
       navigation: 'system',
     };

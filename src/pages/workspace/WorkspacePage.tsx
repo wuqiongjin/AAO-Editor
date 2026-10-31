@@ -27,6 +27,8 @@ import { useAppNav } from '../../layouts/AppNav';
 import type { ProjectAudioDeps } from '../../audio/projectAudio';
 import AudioAnomalyBanner from './AudioAnomalyBanner';
 import { useAudioAnomaly } from './useAudioAnomaly';
+import { usePatternLibrary } from '../../chart/patterns/usePatternLibrary';
+import { useSaveSelectionPattern } from './useSaveSelectionPattern';
 import { t } from '../../i18n';
 import { CrashBoundaryHost } from '../../diagnostics/CrashBoundary';
 
@@ -169,6 +171,11 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       if (projectId != null) setActivePage('audio', { scope: { projectId } });
     }, [projectId, setActivePage]),
   });
+
+  // === 片段库（issue 185）===
+  // 库状态活在页面而不是抽屉里：抽屉可以没开，快捷键照样要能收藏（且不能各持一份整库）。
+  const patternLibrary = usePatternLibrary();
+  const saveSelectionPattern = useSaveSelectionPattern(patternLibrary);
 
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
@@ -388,6 +395,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'switchCurve': setArmedTool('curve'); break;
       case 'execCurve': virtualCanvasRef.current?.execCurve?.(); break;
       case 'switchMouse': setArmedTool(null); break;
+      // issue 185：收藏选区为片段。**故意不进 `CHART_EDIT_FUNCTIONS`** —— 它读的是选区、
+      // 不写谱面，只读（已上传）谱面也允许；上面的闸门判断因此不会拦它。
+      case 'execSavePattern': void saveSelectionPattern(); break;
       case 'execCopy': copy(); break;
       // §2.1（六轮）：空剪贴板 → 粘贴态是纯空转（无预览、单击无事发生），
       // 与工具栏按钮同步：不进态。键鼠一致（避免"界面无、键盘有"的错位）。
@@ -409,7 +419,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       //（工具轨固定不折叠，177 Q11）
       case 'toggleSidebar': setPatternDrawer({ open: !drawerOpen }); break;
     }
-  }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, handleTogglePlay, jumpToMarker,
+  }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelectionPattern, undo, redo, handleTogglePlay, jumpToMarker,
       setPatternDrawer, drawerOpen]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
@@ -527,7 +537,14 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         />
       </div>
 
-      {drawerOpen && <PatternLibraryDrawer onResizingChange={onDrawerResizingChange} />}
+      {drawerOpen && (
+        <PatternLibraryDrawer
+          library={patternLibrary}
+          readOnly={isReadOnly}
+          onSaveSelection={() => void saveSelectionPattern()}
+          onResizingChange={onDrawerResizingChange}
+        />
+      )}
     </div>
     {showReadonlyToast && createPortal(
       <div className="readonly-toast" role="alert">
