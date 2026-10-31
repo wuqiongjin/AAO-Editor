@@ -1,5 +1,5 @@
 // issue 187 · 片段分享文件名（ADR-0023 §3「分享」）：
-// 整库 `aao-patterns-YYYYMMDD.json`；单条 `<片段名>.aao-pattern.json`。
+// 整库 `aao-patterns-YYYYMMDD-HHmmss.json`；单条 `<片段名>.aao-pattern.json`。
 // 名字里的非法文件名字符替换为 `_`，**不改库里存的名字**。
 import { describe, expect, it } from 'vitest';
 import { parsePatternsFile, serializePatterns } from '@/src/chart/patterns/share';
@@ -9,10 +9,15 @@ import {
 } from '@/src/chart/patterns/shareFile';
 import { makePattern } from '@/tests/support/patterns';
 
-describe('整库导出文件名 · aao-patterns-YYYYMMDD.json', () => {
-  it('按本地日期给八位日期（月 / 日补零）', () => {
-    expect(patternLibraryExportFilename(new Date(2026, 9, 31))).toBe('aao-patterns-20261031.json');
-    expect(patternLibraryExportFilename(new Date(2026, 0, 5))).toBe('aao-patterns-20260105.json');
+describe('整库导出文件名 · aao-patterns-YYYYMMDD-HHmmss.json', () => {
+  it('按本地日期 + 时间（各段补零）', () => {
+    expect(patternLibraryExportFilename(new Date(2026, 9, 31, 21, 5, 6))).toBe('aao-patterns-20261031-210506.json');
+    expect(patternLibraryExportFilename(new Date(2026, 0, 5, 0, 0, 0))).toBe('aao-patterns-20260105-000000.json');
+  });
+
+  it('同一天不同时刻导出 → 文件名不同（不靠浏览器加 (1) 区分快照）', () => {
+    expect(patternLibraryExportFilename(new Date(2026, 9, 31, 10, 0, 0)))
+      .not.toBe(patternLibraryExportFilename(new Date(2026, 9, 31, 11, 30, 0)));
   });
 });
 

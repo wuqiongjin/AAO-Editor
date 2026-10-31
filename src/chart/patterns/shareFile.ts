@@ -12,12 +12,15 @@ import type { Pattern } from './types';
 export const PATTERN_FILE_ACCEPT = '.json,application/json';
 
 /**
- * 整库导出的文件名：`aao-patterns-YYYYMMDD.json`。
- * 日期按**本地**日历（用户看到的是自己那天的日期，不是 UTC 的明天 / 昨天）。
+ * 整库导出的文件名：`aao-patterns-YYYYMMDD-HHmmss.json`。
+ * 日期 + 时间都按**本地**时钟（用户看到的是自己那一刻，不是 UTC 的明天 / 昨天）；
+ * 带时间是为了同一天多次导出有不同文件名，不靠浏览器的「(1)」或系统覆盖确认来区分快照。
  */
 export function patternLibraryExportFilename(now: Date = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `aao-patterns-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}.json`;
+  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `aao-patterns-${date}-${time}.json`;
 }
 
 /** 各平台文件名的非法字符。控制字符按码点判（照 `community/bestdori/assetNames` 先例，不进正则） */

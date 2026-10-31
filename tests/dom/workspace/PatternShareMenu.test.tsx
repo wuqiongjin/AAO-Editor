@@ -83,7 +83,7 @@ describe('issue 187 · 抽屉头 ⋯ = 整库导入导出', () => {
     expect(screen.getByRole('menuitem', { name: '导入片段库' })).toBeEnabled();
   });
 
-  it('导出整库：文件名 aao-patterns-YYYYMMDD.json，内容是整库', async () => {
+  it('导出整库：文件名 aao-patterns-YYYYMMDD-HHmmss.json，内容是整库', async () => {
     const memory = setup();
     await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
 
@@ -92,7 +92,7 @@ describe('issue 187 · 抽屉头 ⋯ = 整库导入导出', () => {
 
     await waitFor(() => expect(saveAs).toHaveBeenCalledTimes(1));
     const payload = saveAs.mock.calls[0]![0] as { json: string; suggestedName: string };
-    expect(payload.suggestedName).toMatch(/^aao-patterns-\d{8}\.json$/);
+    expect(payload.suggestedName).toMatch(/^aao-patterns-\d{8}-\d{6}\.json$/);
     const doc = JSON.parse(payload.json) as { schemaVersion: number; patterns: { name: string }[] };
     expect(doc.schemaVersion).toBe(1);
     expect(doc.patterns.map((pattern) => pattern.name)).toEqual(['折返花活', '片段 1']);

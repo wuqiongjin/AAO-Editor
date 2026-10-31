@@ -81,6 +81,22 @@ describe('parsePatternsFile · 整包拒绝', () => {
     if (result.ok) return;
     expect(result.reason).toBe('invalid-envelope');
   });
+
+  it('缺少 / 非数字 schemaVersion → invalid-envelope，不把 undefined 当版本号', () => {
+    for (const doc of [
+      { exportedAt: 'x', patterns: [pattern()] },
+      { schemaVersion: null, exportedAt: 'x', patterns: [pattern()] },
+      { schemaVersion: '1', exportedAt: 'x', patterns: [pattern()] },
+      { schemaVersion: {}, exportedAt: 'x', patterns: [pattern()] },
+    ]) {
+      const result = parsePatternsFile(JSON.stringify(doc));
+      expect(result.ok).toBe(false);
+      if (result.ok) continue;
+      expect(result.reason).toBe('invalid-envelope');
+      expect(result.message).toBe('片段文件无法解析');
+      expect(result.message).not.toContain('undefined');
+    }
+  });
 });
 
 describe('parsePatternsFile · 逐条校验与导入语义', () => {

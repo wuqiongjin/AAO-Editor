@@ -69,12 +69,18 @@ export function parsePatternsFile(text: string): ParsePatternsResult {
   }
 
   const envelope = doc as { schemaVersion?: unknown; patterns?: unknown };
-  if (envelope.schemaVersion !== PATTERN_EXPORT_SCHEMA_VERSION) {
+  // 版本字段缺失 / 不是数字 → 这压根不是一份可识别的片段信封（报「无法解析」，
+  // 不能把 undefined / null / "[object Object]" 当版本号吐给用户）。
+  const version = envelope.schemaVersion;
+  if (typeof version !== 'number' || !Number.isFinite(version)) {
+    return { ok: false, reason: 'invalid-envelope', message: t('patternLibrary.import.badFile') };
+  }
+  if (version !== PATTERN_EXPORT_SCHEMA_VERSION) {
     return {
       ok: false,
       reason: 'unsupported-version',
-      message: t('patternLibrary.import.badVersion', { version: String(envelope.schemaVersion) }),
-      version: envelope.schemaVersion,
+      message: t('patternLibrary.import.badVersion', { version: String(version) }),
+      version,
     };
   }
   if (!Array.isArray(envelope.patterns)) {
