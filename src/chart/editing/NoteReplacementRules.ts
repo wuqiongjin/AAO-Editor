@@ -604,7 +604,10 @@ export function pasteChartNotes(
     /** 谱面末端边界（issue 73）；不传 = 不校验（仅供纯逻辑单测） */
     bounds?: { chartEndBeat: number; beatDisplay?: number }
 ): { newNotes: ChartNote[]; newStartIndex: number; written: number[]; rejected?: 'past-end' } {
-    const pasted = shiftGroupToAnchor(clipboard, anchorBeat, anchorLane).map(legalizePasteLanes);
+    // beatDisplay 必须传下去：带 subBeat 的结点要按**真实拍位**算组左上角，否则锚点被低估、
+    // 内容溢出到光标之后 —— 幽灵预览走的是 `shiftGroupToAnchor(…, rc.beatDisplay)`，
+    // 两处口径不一致就是"预览与落点对不上"（issue 186 顺带修）。
+    const pasted = shiftGroupToAnchor(clipboard, anchorBeat, anchorLane, bounds?.beatDisplay).map(legalizePasteLanes);
     // issue 73：**整组**越界即拒绝（此前只校验锚点，组尾可以越出 END）。
     // 想放下请先延长谱面长度（调音频时长）—— 用户 2026-09-10 拍板。
     if (bounds && pasted.length > 0

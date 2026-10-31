@@ -18,6 +18,7 @@ import {
   type SlidePoint,
 } from './ToolActionMatrix';
 import { placeSpanWithCombination, type CurveConfig, type CurveDraft } from './CurveTool';
+import type { PatternPasteRequest } from '../patterns/paste';
 import { buildPenSlide } from './SpanCurve';
 import {
   snapChartPos,
@@ -83,6 +84,8 @@ export interface GestureWorld {
   viewport: ViewportState;
   surface: SurfaceSize;
   clipboard: ChartNote[];
+  /** issue 186：非 null 时粘贴的负载改取自该片段（点卡片进态），剪贴板原样不动 */
+  pastePattern: PatternPasteRequest | null;
   slideBuffer: SlidePoint | null;
   curveDraft: CurveDraft | null;
   curveConfig: CurveConfig;
@@ -639,6 +642,7 @@ export class GestureSession {
         slideBuffer: w.slideBuffer,
         lastBpm: w.lastBpm,
         clipboard: w.clipboard,
+        pastePattern: w.pastePattern,
         chartEndBeat: w.chartEndBeat,
         beatDisplay: w.beatDisplay,
         selectedItems: w.selectedItems,

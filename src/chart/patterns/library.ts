@@ -69,15 +69,32 @@ export function appendNewPattern(
 }
 
 /**
- * 卡片徽标口径：
- * - `changes` = 跨度内 BPM 事件条数（`bpmContext.events.length`，即「含 BPM 变化 · n」的 n）；
- * - `backflow` = 片段**含有倒流区**：起点生效 BPM 为负（起点就在倒流区内），
- *   或跨度内某条事件为负（从这条起进入倒流区）。ADR-0010：倒流区 = 从 `bpm < 0` 起到下一条 `bpm > 0`。
+ * 卡片徽标 / 胶囊摘要的**唯一口径**：起点生效 BPM + 峰值（issue 186 二轮定案）。
+ *
+ * 为什么取**峰值**而不是末值：`120 → 180 → 120` 按末值会读成"120 → 120"（像没变化），
+ * 按峰值读成"120 → 180" —— 信息不丢，且首尾不同（最常见）时两者结果一致。
+ * 峰值 = 与起点**差值绝对值最大**的那条事件值（取到它才算"这段里的速度跨度"）。
+ *
+ * `peak === null` = 跨度内没有任何改变速度的事件（只有起点一个值）。
+ * 负值（倒流区，ADR-0010）不另设标记 —— 由显示侧给负的那个数字上危险色表达。
  */
-export function patternBpmSummary(pattern: Pattern): { changes: number; backflow: boolean } {
+export interface PatternBpmRange {
+  /** 起点生效 BPM（片段第一枚音符所在处的速度） */
+  start: number;
+  /** 与起点差值最大的那条事件值；`null` = 跨度内没有改速事件（只有起点一个值） */
+  peak: number | null;
+}
+
+export function patternBpmRange(pattern: Pattern): PatternBpmRange {
   const { startBpm, events } = pattern.bpmContext;
-  return {
-    changes: events.length,
-    backflow: startBpm < 0 || events.some((event) => event.bpm < 0),
-  };
+  let peak: number | null = null;
+  let widest = 0;
+  for (const event of events) {
+    const delta = Math.abs(event.bpm - startBpm);
+    if (delta > widest) {
+      widest = delta;
+      peak = event.bpm;
+    }
+  }
+  return { start: startBpm, peak };
 }

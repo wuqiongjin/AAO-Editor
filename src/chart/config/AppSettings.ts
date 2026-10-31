@@ -147,6 +147,12 @@ export interface AppSettings {
    */
   beatSnap: number;
   /**
+   * 片段粘贴模式（issue 186 / ADR-0023 §2）：`withBpm` = 含 BPM（默认）还是不含 BPM。
+   * 只是**偏好**（"我上次怎么贴的"），与 `beatSnap` 同属"我的习惯"；**片段数据本身不进设置对象**
+   * （ADR-0023 §3 只约束后者）。additive 字段，不 bump schemaVersion；缺字段 / 脏值回落 true。
+   */
+  patternPaste: { withBpm: boolean };
+  /**
    * 工作台播放条（issue 180 Q25 / 票 182）：`markerButton` = 时间码旁的播放起点按钮显不显示，默认开。
    * 与 `display`（画布显示项）分段：显示面板「恢复默认」只重置画布那段。additive，不 bump schemaVersion。
    */
@@ -478,6 +484,8 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
     beatSnap: DEFAULT_BEAT_SNAP,
+    // 片段粘贴默认「含 BPM」（ADR-0023 §2）
+    patternPaste: { withBpm: true },
     playbar: { markerButton: true },
     projects: { sort: 'lastOpened', importWithChart: true, songSort: { ...SONG_SORT_DEFAULT } },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
@@ -498,6 +506,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   const preview = (obj.preview && typeof obj.preview === 'object' ? obj.preview : {}) as Record<string, unknown>;
   const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, unknown>;
   const playbar = (obj.playbar && typeof obj.playbar === 'object' ? obj.playbar : {}) as Record<string, unknown>;
+  const patternPaste = (obj.patternPaste && typeof obj.patternPaste === 'object' ? obj.patternPaste : {}) as Record<string, unknown>;
   const exportRaw = (obj.export && typeof obj.export === 'object' ? obj.export : {}) as Record<string, unknown>;
   const visual = (obj.visual && typeof obj.visual === 'object' ? obj.visual : {}) as Record<string, unknown>;
   const rawNoteSkin = (visual.noteSkin && typeof visual.noteSkin === 'object' ? visual.noteSkin : {}) as Record<string, unknown>;
@@ -566,6 +575,10 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
     beatSnap: normalizeBeatSnap(obj.beatSnap),
+    // 片段粘贴模式（issue 186）：只认布尔，缺字段 / 脏值 = 带 BPM（默认档）
+    patternPaste: {
+      withBpm: typeof patternPaste.withBpm === 'boolean' ? patternPaste.withBpm : defaults.patternPaste.withBpm,
+    },
     playbar: {
       markerButton: typeof playbar.markerButton === 'boolean' ? playbar.markerButton : defaults.playbar.markerButton,
     },
@@ -709,6 +722,7 @@ export function updateSettings(
     visual: Partial<AppSettings['visual']>;
     curve?: CurveConfig;
     beatSnap?: number;
+    patternPaste?: Partial<AppSettings['patternPaste']>;
     playbar?: Partial<AppSettings['playbar']>;
     projects?: Partial<AppSettings['projects']>;
     preview?: Partial<AppSettings['preview']>;
@@ -731,6 +745,10 @@ export function updateSettings(
     visual: { ...prev.visual, ...(patch.visual ?? {}) },
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
     beatSnap: patch.beatSnap !== undefined ? normalizeBeatSnap(patch.beatSnap) : prev.beatSnap,
+    // 段内浅合并；非布尔值不写入（脏值不会顶掉上一次的有效偏好）
+    patternPaste: {
+      withBpm: typeof patch.patternPaste?.withBpm === 'boolean' ? patch.patternPaste.withBpm : prev.patternPaste.withBpm,
+    },
     playbar: { ...prev.playbar, ...(patch.playbar ?? {}) },
     projects: { ...prev.projects, ...(patch.projects ?? {}) },
     preview: { ...prev.preview, ...(patch.preview ?? {}) },

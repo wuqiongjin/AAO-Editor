@@ -10,6 +10,7 @@ import {
 } from './NoteReplacementRules';
 import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
 import { combineSelectionIntoSlide, compareAbsorbable } from './SlideCombination';
+import { buildPatternPastePayload, type PatternPasteRequest } from '../patterns/paste';
 import { curveBoxOps, curveToolClickOps, type CurveConfig, type CurveDraft } from './CurveTool';
 // 对象视图目标（issue 59 §4）在 NoteCodeOps 定义（回写走同一类型），转出供 op 与调用方使用
 import { noteCodeTargetForHit, type NoteCodeTarget } from './NoteCodeOps';
@@ -47,6 +48,13 @@ const isActionTool = (tool: MatrixTool): tool is 'delete' | 'mirror' =>
 /** 命中的是否是一条**已有** BPM 线（issue 56 Q14=A：单击 BPM 线默认无效果，只有删除/音符代码两个例外） */
 const hitIsBpm = (notes: ChartNote[], hit: SelectionItem | null): boolean =>
   hit !== null && hit.kind === 'note' && notes[hit.noteIndex]?.type === 'BPM';
+
+/**
+ * 能否进选区（issue 71：BPM / System / Opaque 不是音符，选中无意义）。
+ * 剪贴板路径天然不会产出它们，片段粘贴会连 BPM 一起写进去 —— 故产物转选区时统一过这一道。
+ */
+const isSelectableNote = (n: ChartNote | undefined): boolean =>
+  n !== undefined && n.type !== 'BPM' && n.type !== 'System' && n.type !== 'Opaque';
 
 const samePos = (a: SlidePoint, b: SlidePoint) =>
   a.beat === b.beat && (a.subBeat || 0) === (b.subBeat || 0);
@@ -143,6 +151,11 @@ export interface ClickInput {
   slideBuffer: SlidePoint | null;
   lastBpm: number;
   clipboard: ChartNote[];
+  /**
+   * issue 186 / ADR-0023 §4：粘贴的**另一个负载来源** —— 片段。
+   * 非 null 时 paste 行改用该片段而非剪贴板（点卡片进态），落点规则一字不改。
+   */
+  pastePattern?: PatternPasteRequest | null;
   /** 谱面末端（ADR-0005 §5）；issue 73：粘贴按**整组**校验末端，与放置同口径 */
   chartEndBeat: number;
   /** 子拍细分（subBeat 的单位分母）；粘贴的末端校验需要它折算真实拍位 */
@@ -156,7 +169,7 @@ export interface ClickInput {
 
 /** §2 单击矩阵（工具族行 × 音符/空白列）；指针行不走此函数（指针行在画布侧 selectItemAtPoint） */
 export function clickOps(input: ClickInput): MatrixOp[] {
-  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard, chartEndBeat, beatDisplay, selectedItems } = input;
+  const { tool, notes, hit, pos, slideBuffer, lastBpm, clipboard, pastePattern, chartEndBeat, beatDisplay, selectedItems } = input;
   // §2 原则 6：**非指针态单击画布 = 新意图 → 清空选区**，与落点是否合法、动作是否生效无关
   // （含"点轨道外/谱面末端外"这种非法落点：动作按 §1 无事发生，但选中态照样取消——
   // 用户点了画布，注意力已经转移；选中态留着只是噪音）。
@@ -210,13 +223,23 @@ export function clickOps(input: ClickInput): MatrixOp[] {
   if (tool === 'paste') {
     // §2.1：粘贴作用于位置 —— 剪贴板组的包围盒左上角对齐到该落点（锚点语义归 shiftGroupToAnchor）。
     // 持工具态**驻留**（矩阵只产出 op，不清 armedTool）→ 连续粘贴；粘贴产物成为新选区。
-    if (!pos || clipboard.length === 0) return [clearSel]; // 非法落点/空剪贴板：只清选区
+    if (!pos) return [clearSel]; // 非法落点：只清选区（§2 原则 6）
+    // issue 186：负载来源有两个 —— 剪贴板（工具轨 / 快捷键）或某个片段（点卡片）。
+    // 两者走**同一条 paste 行**：锚点、lane 夹取、越末端整组拒绝、同拍原位替换全在 pasteChartNotes 里，
+    // 片段侧只多一步"要不要连 BPM 一起构造"（ADR-0023 §2）。
+    const payload = pastePattern
+      ? buildPatternPastePayload(pastePattern, { anchorBeat: pos.beat, targetNotes: notes, beatDisplay })
+      : clipboard;
+    if (payload.length === 0) return [clearSel]; // 空剪贴板 / 空片段：只清选区
     // 选区 = 实际写入/改动的下标（重叠替换与拆条会让下标不连续，不能用 newStartIndex+i）
-    const { newNotes, written, rejected } = pasteChartNotes(notes, clipboard, pos.beat, pos.lane,
+    const { newNotes, written, rejected } = pasteChartNotes(notes, payload, pos.beat, pos.lane,
       { chartEndBeat, beatDisplay });
     // issue 73：整组越出谱面末端 → 拒绝整组（只清选区，不写谱面）
     if (rejected) return [clearSel];
-    const items = written.map(i => ({ kind: 'note' as const, noteIndex: i }));
+    // BPM / System 不进选区（issue 71）：剪贴板里本来就没有它们，但片段粘贴会把 BPM 一起写进去
+    const items = written
+      .filter(i => isSelectableNote(newNotes[i]))
+      .map(i => ({ kind: 'note' as const, noteIndex: i }));
     return [{ t: 'setNotes', notes: newNotes }, { t: 'setSelection', items }];
   }
   if (tool === 'noteCode') {

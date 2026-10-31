@@ -169,7 +169,12 @@ const noteMaxLane = (n: ChartNote) => {
   return Math.max(...(vis.length > 0 ? vis : n.connections).map(c => c.lane));
 };
 
-const groupMinBeat = (clip: ChartNote[], beatDisplay: number) => {
+/**
+ * 组的**真实最小拍位** = 粘贴锚点对齐的那条边（BPM/System/Opaque 不参与，见 `isLaned`）。
+ * 导出给片段粘贴用（issue 186）：片段的速度语境要落在"片段起点对齐到落点"之后的位置上，
+ * 得知道锚点会把组挪多少 —— 与 `shiftGroupToAnchor` 同一份口径，不另算一套。
+ */
+export const groupMinBeat = (clip: ChartNote[], beatDisplay: number) => {
   const laned = clip.filter(isLaned);
   return Math.min(...(laned.length > 0 ? laned : clip).map(n => noteMinBeat(n, beatDisplay)));
 };

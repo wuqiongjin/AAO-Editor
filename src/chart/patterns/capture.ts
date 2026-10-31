@@ -5,10 +5,9 @@
 //    —— 原谱 overlay 的语境是「这一份谱面代码」，片段要跨工程长期存活，带过去会变幽灵字段。
 // 2. 速度语境 = 起点生效 BPM（稳定排序后最后一条 `beat ≤ minBeat`）+ `(minBeat, maxBeat]` 内事件
 //    （相对 `minBeat` 记 `deltaBeat`，起拍那条就是 `startBpm`，不重复存）。
-import { DEFAULT_BPM } from '../../audio/AudioTiming';
-import type { BpmNote, ChartNote, SelectionItem } from '../types';
+import type { ChartNote, SelectionItem } from '../types';
 import { copySelection } from '../editing/SelectionEditing';
-import { indexOfPrecedingBpm } from '../editing/BpmPredecessor';
+import { effectiveBpmAt } from './PasteBpmDecision';
 import type { PatternBpmEvent, PatternPayload } from './types';
 
 /** 递归剥掉任意层级的 `source`（音符本体 + 滑条连接点 + 将来嵌套结构一视同仁）。 */
@@ -44,14 +43,6 @@ function collectBeats(notes: readonly ChartNote[]): number[] {
     if (Number.isFinite(note.beat)) beats.push(note.beat);
   }
   return beats;
-}
-
-/** 起点生效 BPM：稳定排序后最后一条 `beat ≤ minBeat` 的 BPM 值（谱面必有 beat 0 的 BPM）。 */
-function resolveStartBpm(notes: readonly ChartNote[], minBeat: number): number {
-  const index = indexOfPrecedingBpm(notes, minBeat);
-  if (index < 0) return DEFAULT_BPM;
-  const value = (notes[index] as BpmNote).bpm;
-  return Number.isFinite(value) ? value : DEFAULT_BPM;
 }
 
 /** 跨度内 `(minBeat, maxBeat]` 的事件，按 beat 升序（稳定排序，同拍保持数组序）。 */
@@ -92,7 +83,8 @@ export function capturePattern(
   return {
     notes: captured,
     bpmContext: {
-      startBpm: resolveStartBpm(notes, minBeat),
+      // 与粘贴侧"目标落点生效 BPM"同一个函数（不是各算一套）：采集的是源谱面在 minBeat 处的生效值
+      startBpm: effectiveBpmAt(notes, minBeat),
       events: resolveEvents(notes, minBeat, maxBeat),
     },
   };
