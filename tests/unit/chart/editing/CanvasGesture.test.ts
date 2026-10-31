@@ -610,6 +610,26 @@ describe('marqueeRect 框选矩形', () => {
     expect(r2.x1).toBeCloseTo(r1.x1, 6);             // 水平不滚动 → x 不变
   });
 
+  it('issue 197：缩放时起点以 pos 锚定 —— 变尺度下选框起点反解回的谱面 pos 严格恒等', () => {
+    const { geometry, viewport } = makeDeps(notes);
+    const v = geometry.canvasToVirtual(200, 300, viewport);
+    const pos = geometry.posOfVirtualY(v.y, viewport.scale);
+    const base = { start: { vx: v.x, pos }, curCanvas: { x: 400, y: 500 }, surface: TEST_SURFACE };
+
+    const r1 = marqueeRect({ ...base, deps: { geometry, viewport } });
+    const zoomed = { ...viewport, scale: 1.5 };
+    const r2 = marqueeRect({ ...base, deps: { geometry, viewport: zoomed } });
+
+    // 起点反解回的 pos 必须严格恒等（即对应同一谱面时间点）
+    const vBack1 = geometry.canvasToVirtual(r1.x1, r1.y1, viewport);
+    const posBack1 = geometry.posOfVirtualY(vBack1.y, viewport.scale);
+
+    const vBack2 = geometry.canvasToVirtual(r2.x1, r2.y1, zoomed);
+    const posBack2 = geometry.posOfVirtualY(vBack2.y, zoomed.scale);
+
+    expect(posBack2).toBeCloseTo(posBack1, 5);
+  });
+
   it('issue 63：光标端钳进渲染面（光标拖出画布，矩形不越界、松手照常结算）', () => {
     const { geometry, viewport } = makeDeps(notes);
     const v = geometry.canvasToVirtual(200, 300, viewport);

@@ -331,6 +331,64 @@ describe('GestureSession · 框选通路（不变量 5 / 18）', () => {
     expect(after.y1).not.toBeCloseTo(before.y1, 5);
     expect(after.y2).toBeCloseTo(before.y2, 5);
   });
+
+  it('issue 197：按住原地不动缩放时，不应起框（保持 null），松手点击位置对齐当前光标', () => {
+    const notes = [bpmNote(0, 120)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const a = at(2, 40);
+    press(s, a, virt); // 按住但未移动
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 缩放到 1.5 倍
+    const zoomed = { ...world.viewport, scale: 1.5 };
+    s.bindWorld({ ...world, viewport: zoomed });
+    s.onViewportChange(zoomed, world.geometry, world.surface);
+
+    // 未移动过阈值，缩放后绝不可凭空出现选框
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 原地松手，点击应在当前光标处或原点，而不是飞到几百像素外
+    const clickSpy = vi.fn();
+    (s as any).clickAt = clickSpy;
+    s.end(up(a));
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    const [clickX, clickY] = clickSpy.mock.calls[0];
+    expect(clickX).toBeCloseTo(a.x, 1);
+    expect(clickY).toBeCloseTo(a.y, 1);
+  });
+
+  it('issue 197：框选中缩放，起点严格锚定按下时的谱面拍点与轨道，不发生反向形变', () => {
+    const notes = [bpmNote(0, 120)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const a = at(1, 48);
+    const b = at(4, 52);
+    press(s, a, virt);
+    s.move(b); // 移动拉出选框
+    expect(s.getSnapshot().selectionBox).not.toBeNull();
+
+    // 缩放到 1.5 倍
+    const zoomed = { ...world.viewport, scale: 1.5 };
+    s.bindWorld({ ...world, viewport: zoomed });
+    s.onViewportChange(zoomed, world.geometry, world.surface);
+
+    const box = s.getSnapshot().selectionBox!;
+    // 计算 a 点在 1.5 倍下的真实画布位置
+    const expectedA = world.geometry.virtualToCanvas(
+      world.geometry.noteVirtualX(1),
+      world.geometry.noteVirtualY(48, 0, zoomed.scale, BEAT_DISPLAY),
+      zoomed,
+    );
+
+    // 选框起点 x1, y1 必须精确对齐 a 点在新缩放下画布位置
+    expect(box.x1).toBeCloseTo(expectedA.x, 1);
+    expect(box.y1).toBeCloseTo(expectedA.y, 1);
+  });
 });
 
 describe('GestureSession · Slide 两击（不变量 10）', () => {

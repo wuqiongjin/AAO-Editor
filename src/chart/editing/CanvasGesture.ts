@@ -613,17 +613,21 @@ export function hasMovedBeyondThreshold(
 
 /**
  * 框选矩形（画布坐标）。
- * bug 32：起点以**虚拟坐标**锚定谱面时刻/轨道 —— 拖拽过程中即使滚动，起点对应的拍点也不漂移
- * （"长截图"式选区）；光标端再钳进渲染面（issue 63：画布外松手也照常结算，所见即所得）。
+ * bug 32：起点以**谱面物理量**（vx + pos）锚定时刻/轨道 —— 拖拽过程中无论滚动还是缩放，
+ * 起点对应的拍点/轨道都不漂移（"长截图"式选区）；光标端再钳进渲染面（issue 63）。
+ * issue 197：若提供 start.pos，优先由 virtualYOfPos 求得当前 scale 下的 virtualY，彻底修复缩放反向形变。
  */
 export function marqueeRect(input: {
-    start: { vx: number; vy: number };
+    start: { vx: number; vy?: number; pos?: number };
     curCanvas: { x: number; y: number };
     deps: GeometryView;
     surface: SurfaceBounds;
 }): { x1: number; y1: number; x2: number; y2: number } {
     const { geometry, viewport } = input.deps;
-    const p1 = geometry.virtualToCanvas(input.start.vx, input.start.vy, viewport);
+    const vy = input.start.pos !== undefined
+        ? geometry.virtualYOfPos(input.start.pos, viewport.scale)
+        : (input.start.vy ?? 0);
+    const p1 = geometry.virtualToCanvas(input.start.vx, vy, viewport);
     const cur = geometry.canvasToVirtual(input.curCanvas.x, input.curCanvas.y, viewport);
     const p2c = geometry.virtualToCanvas(cur.x, cur.y, viewport);
     const p2 = clampToSurface(input.surface, p2c.x, p2c.y);

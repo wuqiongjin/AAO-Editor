@@ -159,7 +159,7 @@ export class GestureSession {
   private listeners = new Set<GestureSessionListener>();
   private snap: GestureSnapshot = emptySnapshot();
 
-  private start: { x: number; y: number; vx: number; vy: number } | null = null;
+  private start: { x: number; y: number; vx: number; vy: number; pos: number } | null = null;
   private moved = false;
   private cancelled = false;
   /** 手势进行中最后一次输入的画布坐标（拖拽/框选/画笔共用这一份） */
@@ -209,10 +209,12 @@ export class GestureSession {
 
   begin(input: GestureBeginInput): GestureResult {
     this.cancelled = false;
+    const w = this.requireWorld();
+    const pos = w.geometry.posOfVirtualY(input.vy, w.viewport.scale);
     if (input.button === 2) {
       // issue 158：右键也记按下点 + 接管 window，才能过 8px 起框；不启拖拽。
       this.clearPenTimer();
-      this.start = { x: input.x, y: input.y, vx: input.vx, vy: input.vy };
+      this.start = { x: input.x, y: input.y, vx: input.vx, vy: input.vy, pos };
       this.moved = false;
       this.pointerPx = { x: input.x, y: input.y };
       this.drag = null;
@@ -233,7 +235,7 @@ export class GestureSession {
     }
     this.clearPenTimer();
     this.patchSnap({ dragGhost: null, penPreview: null, penActive: false, selectionBox: null });
-    this.start = { x: input.x, y: input.y, vx: input.vx, vy: input.vy };
+    this.start = { x: input.x, y: input.y, vx: input.vx, vy: input.vy, pos };
     this.moved = false;
     this.pointerPx = { x: input.x, y: input.y };
     this.drag = null;
@@ -336,7 +338,8 @@ export class GestureSession {
     if (intent === 'commitBox' && box) return this.result(this.commitBox(box));
     if (intent === 'click') {
       const w = this.requireWorld();
-      const p = w.geometry.virtualToCanvas(start.vx, start.vy, w.viewport);
+      const vy = w.geometry.virtualYOfPos(start.pos, w.viewport.scale);
+      const p = w.geometry.virtualToCanvas(start.vx, vy, w.viewport);
       return this.result(this.clickAt(p.x, p.y, e));
     }
     return this.result();
@@ -371,17 +374,32 @@ export class GestureSession {
       this.world = { ...this.world, viewport, geometry, surface };
     }
     const w = this.world;
-    if (!w || !this.start || !this.moved) return this.result();
+    if (!w || !this.start) return this.result();
     const cursor = this.pointerPx;
+
+    // issue 197：若尚未越过阈值（原地按住未移动），缩放不产生选框；
+    // 同步将起点重锚定到当前光标处的最新谱面位置，防止后续移动或松手时发生坐标突跳。
+    if (!this.moved) {
+      if (cursor) {
+        const v = geometry.canvasToVirtual(cursor.x, cursor.y, viewport);
+        const pos = geometry.posOfVirtualY(v.y, viewport.scale);
+        this.start = { x: cursor.x, y: cursor.y, vx: v.x, vy: v.y, pos };
+      }
+      return this.result();
+    }
+
     if (cursor && !this.drag) {
-      this.patchSnap({
-        selectionBox: marqueeRect({
-          start: { vx: this.start.vx, vy: this.start.vy },
-          curCanvas: cursor,
-          deps: { geometry, viewport },
-          surface,
-        }),
-      });
+      const isMarquee = this.snap.rightButtonHeld || (!this.pen && canStartMarquee(w.armedTool));
+      if (isMarquee) {
+        this.patchSnap({
+          selectionBox: marqueeRect({
+            start: this.start,
+            curCanvas: cursor,
+            deps: { geometry, viewport },
+            surface,
+          }),
+        });
+      }
       return this.result();
     }
     const drag = this.drag;
