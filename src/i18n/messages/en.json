@@ -812,6 +812,7 @@
   "patternLibrary.badge.backflow": "Backflow",
   "patternLibrary.readonlyCard": "Uploaded charts cannot receive patterns; saving a selection still works",
   "patternLibrary.rename": "Rename pattern",
+  "patternLibrary.actions": "Pattern actions",
   "patternLibrary.export": "Export pattern",
   "patternLibrary.exportSoon": "Pattern export is coming soon",
   "patternLibrary.delete": "Delete pattern",

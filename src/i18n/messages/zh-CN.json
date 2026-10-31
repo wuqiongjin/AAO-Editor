@@ -812,6 +812,7 @@
   "patternLibrary.badge.backflow": "含倒流",
   "patternLibrary.readonlyCard": "已上传的谱面不能粘贴片段；收藏选区不受影响",
   "patternLibrary.rename": "重命名片段",
+  "patternLibrary.actions": "片段操作",
   "patternLibrary.export": "导出片段",
   "patternLibrary.exportSoon": "片段导出即将推出",
   "patternLibrary.delete": "删除片段",

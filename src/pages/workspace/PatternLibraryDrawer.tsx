@@ -9,7 +9,7 @@
 // - 删除走既有 `sm` 确认弹窗，立即删、不建撤销栈；
 // - 只读谱面：**卡片置灰**（贴入被拦，186），但「收藏选区」照常可用 —— 收藏读的是选区、不写谱面。
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { BookmarkPlus, FileDown, LibraryBig, Search, Trash2, X } from 'lucide-react';
+import { BookmarkPlus, LibraryBig, Search, X } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
 import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
 import { formatKey } from '../../chart/config/ShortcutConfig';
@@ -18,6 +18,7 @@ import type { Pattern } from '../../chart/patterns/types';
 import type { PatternLibraryApi } from '../../chart/patterns/usePatternLibrary';
 import { t } from '../../i18n';
 import ConfirmDialog from '../../ui/ConfirmDialog';
+import PatternCardMenu from './PatternCardMenu';
 import PatternThumbnail from './PatternThumbnail';
 import './PatternLibraryDrawer.css';
 
@@ -227,27 +228,9 @@ export default memo(function PatternLibraryDrawer({
                     </span>
                   </div>
 
-                  {/* hover 菜单：导出动作落 187，这里先置灰占位（与 183 的占位口径一致） */}
-                  <div className="pld-card__actions">
-                    <button
-                      type="button"
-                      className="pld-card__action"
-                      aria-label={t('patternLibrary.export')}
-                      title={t('patternLibrary.exportSoon')}
-                      disabled
-                    >
-                      <FileDown size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      className="pld-card__action pld-card__action--danger"
-                      aria-label={t('patternLibrary.delete')}
-                      title={t('patternLibrary.delete')}
-                      onClick={() => setPendingDelete(pattern)}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  {/* 常驻 ⋯ 菜单：入口一直可见（hover 才出现的按钮等于靠运气发现），
+                      菜单里放导出（187 占位）与删除；卡片主体留给 186 的点击粘贴 */}
+                  <PatternCardMenu onDelete={() => setPendingDelete(pattern)} />
                 </li>
               );
             })}

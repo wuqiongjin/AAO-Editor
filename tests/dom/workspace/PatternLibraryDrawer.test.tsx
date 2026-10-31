@@ -77,6 +77,8 @@ function setup(opts: {
 const drawer = () => screen.getByRole('complementary', { name: '片段库' });
 const saveButton = () => screen.getByRole('button', { name: '收藏选区' });
 const cardNames = () => screen.getAllByRole('listitem').map((item) => item.textContent ?? '');
+/** 常驻 ⋯ 是卡片动作的唯一入口（2026-10-31 验收：不再靠 hover 才出现） */
+const openCardMenu = (index = 0) => fireEvent.click(screen.getAllByRole('button', { name: '片段操作' })[index]!);
 const readonlyTitle = '已上传的谱面不能粘贴片段；收藏选区不受影响';
 const storedDrawer = () =>
   (JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as { layout: { patternDrawer?: { open: boolean; width: number } } })
@@ -203,13 +205,31 @@ describe('issue 185 · 卡片', () => {
     expect(names[1]).toContain('片段 1');
   });
 
-  it('导出入口占位：菜单项在但禁用（动作落 187）', async () => {
+  it('动作入口常驻可见（不用 hover）；导出项在菜单里但禁用（动作落 187）', async () => {
     setup({ seed: seedLibrary() });
     await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
-    for (const button of screen.getAllByRole('button', { name: '导出片段' })) {
-      expect(button).toBeDisabled();
-      expect(button).toHaveAttribute('title', '片段导出即将推出');
-    }
+
+    // 两张卡各有一枚 ⋯，且没有任何 hover 前置动作
+    expect(screen.getAllByRole('button', { name: '片段操作' })).toHaveLength(2);
+
+    openCardMenu(0);
+    expect(screen.getByRole('menu', { name: '片段操作' })).toBeInTheDocument();
+    const exportItem = screen.getByRole('menuitem', { name: '导出片段' });
+    expect(exportItem).toBeDisabled();
+    expect(exportItem).toHaveAttribute('title', '片段导出即将推出');
+  });
+
+  it('菜单：Esc / 点遮罩都能关掉', async () => {
+    setup({ seed: seedLibrary() });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    openCardMenu(0);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+    openCardMenu(0);
+    fireEvent.click(document.querySelector('.pld-menu__scrim')!);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 });
 
@@ -302,7 +322,8 @@ describe('issue 185 · 删除', () => {
     const memory = setup({ seed: seedLibrary() });
     await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
 
-    fireEvent.click(screen.getAllByRole('button', { name: '删除片段' })[0]!);
+    openCardMenu(0);
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除片段' }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     expect(screen.getByText('删除「折返花活」？')).toBeInTheDocument();
 
@@ -315,7 +336,8 @@ describe('issue 185 · 删除', () => {
     const memory = setup({ seed: seedLibrary() });
     await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
 
-    fireEvent.click(screen.getAllByRole('button', { name: '删除片段' })[0]!);
+    openCardMenu(0);
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除片段' }));
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();

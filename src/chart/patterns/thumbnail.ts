@@ -1,16 +1,18 @@
-// 片段缩略图的**取景与画法**（issue 185 / ADR-0023 Consequences）。
+// 片段缩略图的**取景**（issue 185 / ADR-0023 Consequences；2026-10-31 验收改为真实音符皮肤）。
 //
 // 两条硬口径：
 // 1. **按布局轴取景**，不按 beat 跨度归一化 —— 倒流片段会折返（同一段 y 被来回扫），
 //    用 beat 线性映射会把折返压平成一条直线。这里走 `ChartGeometry` 的 `BpmTimeline`（画布同一份
 //    正向映射）拿每件元素的**布局坐标 pos**，再按 pos 的极值取景。
-// 2. 缩略图是**卡片尺寸的形状速写**，不存位图。整条画布渲染（`renderChart` / `FrameView`）要求
-//    等比缩放：一段 8 拍的片段在布局轴上是 7 车道 × 几千虚拟 px 的细条，塞进 240×90 的卡片只剩
-//    20px 宽的窄带、音符糊成一团。故这里走**非等比取景**：纵向由布局轴定，横向按车道铺满 ——
-//    形状（含折返）与相对拍距仍与画布一致。
-// 纯函数（无 DOM）：场景构建与绘制分开，`drawPatternThumbnail` 只吃 2d 上下文，可喂假 ctx 单测。
+// 2. 缩略图是**卡片尺寸的形状速写**：整条画布渲染（`renderChart` / `FrameView`）只支持等比缩放，
+//    而 1 拍 = 220 虚拟 px、7 轨只有 210 虚拟 px 宽 —— 88×56 的卡片要装下 8 拍片段，等比缩完
+//    轨道只剩 6.7px。故这里**非等比取景**：纵向由布局轴定、横向按车道铺满（形状与相对拍距不变）。
+//
+// 音符本体**不复刻形状**：由 `thumbnailPaint` 用当前音符皮肤的真实精灵按点贴图（2026-10-31 验收：
+// 自绘的方块/横条把单键、滑键、技能键画成了一个样）。
+// 本文件是纯几何（无 DOM、无皮肤注册表），node 可直接单测。
 import { BEAT_HEIGHT, ChartGeometry, LANES, LANE_WIDTH } from '../geometry/ChartGeometry';
-import { displayConnections } from '../editing/SlideSegments';
+import { displayConnections, slideUsesSpBand } from '../editing/SlideSegments';
 import type { ChartNote } from '../types';
 import type { Pattern } from './types';
 
@@ -25,18 +27,48 @@ export interface ThumbnailPoint {
   y: number;
 }
 
+/**
+ * 一个要贴精灵的点位。**取款只给身份，不给款式** —— 款式由绘制侧按与画布同一套选款
+ * （`singleIconConfig` / `slideNodeIconConfig`）从当前音符皮肤解析。
+ */
+export interface ThumbnailMark {
+  x: number;
+  y: number;
+  lane: number;
+  /**
+   * 方向键整组：**只出一个点**（锚点轨中心），组内各轨本体与最外侧箭头由
+   * `renderDirGroup` 一次画完 —— 自己按轨摆散点会画成互不相连的几个小块。
+   */
+  dirSide?: 'L' | 'R';
+  dirLength?: number;
+  flick?: boolean;
+  skill?: boolean;
+  /** 滑条结点：端点（首/尾）另画端帽款；中间结点按 among 款 */
+  endpoint?: 'first' | 'last';
+}
+
+export interface ThumbnailSpan {
+  /**
+   * 中心线：按画布同一份点序（`displayConnections`：稳定排序 + 掐首尾 hidden）。
+   * **倒流折返就体现在这里**：同一 x 段上 y 去而复返。
+   */
+  points: ThumbnailPoint[];
+  /**
+   * 是否 SP 材质（ADR-0009 §5 / issue 157：整条传染 —— 源 connections 任一 hidden 即整条 SP）。
+   * 材质剖面由绘制侧按 `slideBandSp` / `slideBand` 选，缩略图不再自己调色。
+   */
+  sp: boolean;
+}
+
 export interface PatternThumbnailScene {
   /** 7 条车道的 x 区间（缩略图坐标系），画背景用 */
   lanes: { x: number; w: number }[];
-  /** 键型音符（单键 / 方向键根点）中心 */
-  taps: ThumbnailPoint[];
-  /** 方向键：横跨整组的一条线段 */
-  bars: { x1: number; x2: number; y: number }[];
-  /**
-   * 滑条 / 长条：按画布同一份点序（`displayConnections`：稳定排序 + 掐首尾 hidden）的折线。
-   * **倒流折返就体现在这里**：同一 x 段上 y 去而复返。
-   */
-  spans: ThumbnailPoint[][];
+  /** 滑条 / 长条的中心线 + 材质归属 */
+  spans: ThumbnailSpan[];
+  /** 滑条结点（hidden 不出点；端点/中间结点分开标） */
+  slideMarks: ThumbnailMark[];
+  /** 键型音符（单键 / 滑键 / 技能键 / 方向键逐轨） */
+  keyMarks: ThumbnailMark[];
   /** 跨度内 BPM 事件的参考线 y（"这里换过速"） */
   bpmLines: number[];
 }
@@ -46,14 +78,6 @@ const PAD_X = 3;
 const PAD_Y = 5;
 
 const LANE_VIRTUAL_WIDTH = LANES * LANE_WIDTH;
-
-/**
- * 参与取景的实体音符（BPM / System / Opaque 不进缩略图）。
- * 判据只看 `notePoints` —— 音符类型的枚举只写一份，别在这里再列一遍。
- */
-function hittableNotes(notes: readonly ChartNote[]): ChartNote[] {
-  return notes.filter((note) => notePoints(note).length > 0);
-}
 
 /** 全部连接点（含 hidden：它们仍在跨度内，决定取景高度）；非实体音符 → 空数组 */
 function notePoints(note: ChartNote): { beat: number; lane: number }[] {
@@ -107,7 +131,8 @@ export function buildPatternThumbnailScene(pattern: Pattern, size: ThumbnailSize
   const lanes = Array.from({ length: LANES }, (_, index) => ({ x: laneX(index), w: laneW }));
   const centerX = (lane: number) => laneX(lane) + laneW / 2;
 
-  const notes = hittableNotes(pattern.notes);
+  // BPM / System / Opaque 不进缩略图：判据只看"有没有连接点"，类型枚举不在这里再列一遍
+  const notes = pattern.notes.filter((note) => notePoints(note).length > 0);
   const { geometry, minBeat } = patternGeometry(pattern, notes);
   const posOf = (beat: number) => geometry.timeline.positionOfBeat(beat);
 
@@ -128,29 +153,48 @@ export function buildPatternThumbnailScene(pattern: Pattern, size: ThumbnailSize
   const span = posMax - posMin;
   const yOfPos = (pos: number) => PAD_Y + ((posMax - pos) / span) * innerH;
 
-  const taps: ThumbnailPoint[] = [];
-  const bars: { x1: number; x2: number; y: number }[] = [];
-  const spans: ThumbnailPoint[][] = [];
+  const spans: ThumbnailSpan[] = [];
+  const slideMarks: ThumbnailMark[] = [];
+  const keyMarks: ThumbnailMark[] = [];
 
   for (const note of notes) {
     if (note.type === 'Single') {
-      taps.push({ x: centerX(note.lane), y: yOfPos(posOf(note.beat)) });
+      keyMarks.push({
+        x: centerX(note.lane), y: yOfPos(posOf(note.beat)), lane: note.lane,
+        flick: note.flick === true, skill: note.skill === true,
+      });
       continue;
     }
     if (note.type === 'LDirectional' || note.type === 'RDirectional') {
-      const y = yOfPos(posOf(note.beat));
-      const sign = note.type === 'LDirectional' ? -1 : 1;
-      const length = note.length > 0 ? Math.ceil(note.length) : 1;
-      taps.push({ x: centerX(note.lane), y });
-      // 组尾同样夹进轨道：越界那截在缩略图里没有信息量
-      const tail = Math.min(LANES - 1, Math.max(0, note.lane + sign * (length - 1)));
-      bars.push({ x1: centerX(Math.min(note.lane, tail)), x2: centerX(Math.max(note.lane, tail)), y });
+      const side = note.type === 'LDirectional' ? 'L' : 'R';
+      // 只出一个组锚点：覆盖轨与外侧箭头的组合几何交给 `renderDirGroup`（画布同一份）
+      const lane = Math.min(LANES - 1, Math.max(0, note.lane));
+      keyMarks.push({
+        x: centerX(lane), y: yOfPos(posOf(note.beat)), lane,
+        dirSide: side, dirLength: note.length,
+        flick: note.flick === true, skill: note.skill === true,
+      });
       continue;
     }
     if (note.type === 'Slide' || note.type === 'Long') {
       const { conns } = displayConnections(note.connections);
       if (conns.length === 0) continue;
-      spans.push(conns.map((conn) => ({ x: centerX(conn.lane), y: yOfPos(posOf(conn.beat)) })));
+      spans.push({
+        points: conns.map((conn) => ({ x: centerX(conn.lane), y: yOfPos(posOf(conn.beat)) })),
+        sp: slideUsesSpBand(note.connections),
+      });
+      conns.forEach((conn, index) => {
+        if (conn.hidden) return; // 与画布同口径：重合衔接点不画图标
+        slideMarks.push({
+          x: centerX(conn.lane),
+          y: yOfPos(posOf(conn.beat)),
+          lane: conn.lane,
+          flick: conn.flick === true,
+          skill: conn.skill === true,
+          ...(index === 0 ? { endpoint: 'first' as const } : {}),
+          ...(index === conns.length - 1 ? { endpoint: 'last' as const } : {}),
+        });
+      });
     }
   }
 
@@ -159,98 +203,5 @@ export function buildPatternThumbnailScene(pattern: Pattern, size: ThumbnailSize
     // deltaBeat 相对片段起点（= `minBeat`，与 capture 同口径）
     .map((event) => yOfPos(posOf(minBeat + event.deltaBeat)));
 
-  return { lanes, taps, bars, spans, bpmLines };
-}
-
-/* ------------------------------------------------------------------ */
-/* 绘制                                                                 */
-/* ------------------------------------------------------------------ */
-
-/**
- * 缩略图固定深色（谱面画布本身就是固定深色，卡片不跟主题换底）。
- * `background` 与 `src/app/styles/tokens.css` 的 `--canvas-bg` 同值 —— canvas 画不了 var()，
- * 这里是本模块唯一一份字面色（改主题底色时两处一起改）。
- */
-export const THUMBNAIL_COLORS = {
-  background: '#0c0e11',
-  lane: 'rgba(255, 255, 255, 0.045)',
-  bpm: 'rgba(255, 255, 255, 0.16)',
-  note: '#7cc9ff',
-  span: '#4ee0a0',
-} as const;
-
-/** 把场景画进给定尺寸的 2d 上下文（CSS 像素坐标系，调用方负责 dpr 变换） */
-export function drawPatternThumbnail(
-  ctx: CanvasRenderingContext2D,
-  scene: PatternThumbnailScene,
-  size: ThumbnailSize,
-): void {
-  ctx.fillStyle = THUMBNAIL_COLORS.background;
-  ctx.fillRect(0, 0, size.w, size.h);
-
-  for (const lane of scene.lanes) {
-    ctx.fillStyle = THUMBNAIL_COLORS.lane;
-    ctx.fillRect(lane.x, 0, lane.w, size.h);
-  }
-
-  // BPM 事件参考线：虚线，画在音符之下
-  if (scene.bpmLines.length > 0) {
-    ctx.save();
-    ctx.strokeStyle = THUMBNAIL_COLORS.bpm;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 3]);
-    for (const y of scene.bpmLines) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(size.w, y);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  const laneW = scene.lanes[0]?.w ?? 4;
-  const noteSize = Math.max(2.5, Math.min(5, laneW * 0.55));
-
-  // 滑条 / 长条：折线（折返在 y 上原样可见）
-  const spanWidth = Math.max(1.2, Math.min(3, laneW * 0.18));
-  ctx.save();
-  ctx.strokeStyle = THUMBNAIL_COLORS.span;
-  ctx.lineWidth = spanWidth;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  for (const span of scene.spans) {
-    if (span.length === 1) {
-      const point = span[0]!;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, spanWidth / 2, 0, Math.PI * 2);
-      ctx.fillStyle = THUMBNAIL_COLORS.span;
-      ctx.fill();
-      continue;
-    }
-    ctx.beginPath();
-    span.forEach((point, index) => {
-      if (index === 0) ctx.moveTo(point.x, point.y);
-      else ctx.lineTo(point.x, point.y);
-    });
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // 方向键：整组一条横线
-  ctx.save();
-  ctx.strokeStyle = THUMBNAIL_COLORS.note;
-  ctx.lineWidth = Math.max(1.5, noteSize * 0.6);
-  ctx.lineCap = 'round';
-  for (const bar of scene.bars) {
-    ctx.beginPath();
-    ctx.moveTo(bar.x1, bar.y);
-    ctx.lineTo(bar.x2, bar.y);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  ctx.fillStyle = THUMBNAIL_COLORS.note;
-  for (const tap of scene.taps) {
-    ctx.fillRect(tap.x - noteSize / 2, tap.y - noteSize / 2, noteSize, noteSize);
-  }
+  return { lanes, spans, slideMarks, keyMarks, bpmLines };
 }

@@ -617,14 +617,26 @@ export const dirSideOf = (rc: IconChoiceCtx, isLeft: boolean): 'L' | 'R' =>
  * 绘制方向键整组（issue 29 视觉修订 2026-08-24）：N 条覆盖轨道各贴一枚扁平本体 +
  * note_flick_top_l/r 箭头组合到最外侧（几何由构建期墨迹推导，见 noteSkin.ts）。
  * 本体轨道间距只随视口 scale（贴轨道）；箭头重叠量随 spriteScale（随 noteSize 等比）。
+ *
+ * **导出**（issue 185）：片段缩略图要画"组合形态"的方向键 —— 自己按轨摆散点会画成几个互不相连的
+ * 小块（用户 2026-10-31 验收指出）。抽成只吃 `spriteIcon` + 缩放的结构参数，两处共用同一份组合几何。
  */
-function renderDirGroup(ctx: CanvasRenderingContext2D, rc: RenderCtx, group: DirGroupVisual, anchorX: number, anchorY: number, spriteScale: number) {
+export function renderDirGroup(
+  ctx: CanvasRenderingContext2D,
+  spriteIcon: Pick<CanvasSpriteIcon, 'render'>,
+  group: DirGroupVisual,
+  anchorX: number,
+  anchorY: number,
+  spriteScale: number,
+  /** 本体逐轨偏移的换算（默认 = 调用方视口 scale；缩略图传自己的"每虚拟 px 的屏幕 px"） */
+  viewportScale: number = 1,
+) {
   // 预览镜像（chart-preview 08）：整组连箭头一起翻到另一侧 —— **锚点**由 Coords 镜像（lane → 6-lane）、
   // **侧别**由 dirSideOf 互换（组内偏移/箭头朝向是相对锚点定义的，随侧别自然翻过去，别再取反一次）。
   for (const b of group.bodies) {
-    rc.spriteIcon.render(ctx, {
+    spriteIcon.render(ctx, {
       ...b.config,
-      canvasX: anchorX + b.offsetVirtualX * rc.viewport.scale,
+      canvasX: anchorX + b.offsetVirtualX * viewportScale,
       canvasY: anchorY,
       canvasSize: DIRECTIONAL_ICON_SIZE, canvasWidth: DIRECTIONAL_ICON_SIZE,
       canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
@@ -633,9 +645,9 @@ function renderDirGroup(ctx: CanvasRenderingContext2D, rc: RenderCtx, group: Dir
   }
   const cv = group.chevron;
   if (cv) {
-    rc.spriteIcon.render(ctx, {
+    spriteIcon.render(ctx, {
       ...cv.config,
-      canvasX: anchorX + cv.offsetVirtualX * rc.viewport.scale + cv.extraDesignX * spriteScale,
+      canvasX: anchorX + cv.offsetVirtualX * viewportScale + cv.extraDesignX * spriteScale,
       canvasY: anchorY,
       canvasSize: DIRECTIONAL_ICON_SIZE, canvasWidth: cv.drawW, canvasHeight: cv.drawH,
       scale: spriteScale, renderLayer: 'main',
@@ -710,7 +722,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
       // issue 29：N 条覆盖轨道扁平本体 + 最外侧箭头（dirGroup 几何由墨迹推导）
       const len = note.length;
-      renderDirGroup(ctx, rc, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), canvasPos.x, canvasPos.y, spriteScale);
+      renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), canvasPos.x, canvasPos.y, spriteScale, rc.viewport.scale);
     }
   });
 
@@ -930,7 +942,7 @@ export function renderSpanBands(
       pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
     }
     if (sp.end - sp.start > 1) {
-      renderSpBandStrip(ctx, pts, half, band, alpha);
+      renderBandStrip(ctx, pts, half, band, alpha);
     } else {
       drawBandQuad(ctx, rc, pts[0]!, pts[1]!, half, band, alpha);
     }
@@ -1057,26 +1069,33 @@ function canvasClipCss(
  * 结点图标与普通带贴图，SP 带体保持剖面本体亮度，slideOpacity 经 alpha 参数生效）。
  * node 环境（单测/SSR）无 DOM/变换 → 静默跳过；离屏画布模块级复用，尺寸只增不减。
  */
-function renderSpBandStrip(
+/**
+ * 带体光栅化（材质 = 采样截面：中心暗、亮缘、软边；回折切分后逐行合成 = 自叠更亮）。
+ *
+ * **导出**（issue 185）：片段缩略图复用同一份材质 —— 自己用实心多边形画会变成一块死绿、
+ * 且普通带与 SP 带长得一模一样（用户 2026-10-31 验收指出）。材质由 `band` 决定：
+ * 传 `slideBandSp` 就是 SP 的剖面。返回是否画出（无 DOM / 无变换时 false，调用方可退多边形）。
+ */
+export function renderBandStrip(
   ctx: CanvasRenderingContext2D,
   pts: { x: number; y: number }[],
   half: number,
   band: SpriteIconConfig,
   alpha?: number,
-) {
-  if (typeof document === "undefined" || typeof ctx.getTransform !== "function") return;
+): boolean {
+  if (typeof document === "undefined" || typeof ctx.getTransform !== "function") return false;
   const st = bandStripStyle(band);
   const t = ctx.getTransform();
   const sx = t.a, sy = t.d;
-  if (!sx || !sy) return;
+  if (!sx || !sy) return false;
   // 回折（导入谱拍位倒退）切成 y 单调 run：逐行光栅天然处理自叠（同像素两臂 screen 合成 = 叠亮）
   const runs = splitBandAtFolds(pts);
   const clipCss = canvasClipCss(ctx, sx, sy, t.e, t.f);
   const raster = rasterBandRuns({ runs, half, profile: st.profile, rgb: st.rgb, sx, sy, baseAlpha: alpha ?? 1, clipCss });
-  if (!raster) return;
+  if (!raster) return false;
   const off = ensureRasterScratch(raster.bw, raster.bh);
   const octx = off.getContext("2d");
-  if (!octx) return;
+  if (!octx) return false;
   octx.clearRect(0, 0, raster.bw, raster.bh);
   const img = octx.createImageData(raster.bw, raster.bh);
   img.data.set(raster.data);
@@ -1086,6 +1105,7 @@ function renderSpBandStrip(
   ctx.globalAlpha = 1;
   ctx.drawImage(off, 0, 0, raster.bw, raster.bh, raster.bxDev, raster.byDev, raster.bw, raster.bh);
   ctx.restore();
+  return true;
 }
 
 let rasterScratch: HTMLCanvasElement | null = null;
@@ -1134,7 +1154,7 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
     // issue 29：与 renderNotes 同构（扁平本体 ×N + 外侧箭头）；侧别交给 dirSideOf（镜像会互换）
     const len = note.length;
-    renderDirGroup(ctx, rc, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), cpt.x, cpt.y, rc.viewport.scale);
+    renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), cpt.x, cpt.y, rc.viewport.scale, rc.viewport.scale);
   } else if (note.type === "Slide" || note.type === "Long") {
     renderSlideGhost(ctx, c, rc, note);
   }
