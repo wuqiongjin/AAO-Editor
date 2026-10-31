@@ -198,6 +198,78 @@ export function tileBlitRect(tileId: number, es: number, refScale: number, ancho
 }
 
 /**
+ * 单块瓦片位图的**估算字节数**（issue 195）：与 `renderTile` 同一口径
+ * （宽 = surface.w，高 = TILE_PX·es，dpr 上限 TILE_DPR_CAP，RGBA 4B/px）。
+ * 用于在预取前按 64MiB 预算做容量规划；空瓦片实际 0 字节，这里按满块保守估计。
+ */
+export function tileBytesFor(surfaceW: number, es: number, dpr: number): number {
+  const tileDpr = Math.min(dpr, TILE_DPR_CAP);
+  const { w, h } = bufferSizeFor({ w: Math.max(0, surfaceW), h: Math.max(0, TILE_PX * es) }, tileDpr);
+  return w * h * 4;
+}
+
+/** 当前 surface/es 下 64MiB 预算能容纳的整块瓦片数（至少 1，封顶 MAX_TILES） */
+export function maxTilesForBudget(surfaceW: number, es: number, dpr: number): number {
+  const bytes = tileBytesFor(surfaceW, es, dpr);
+  if (bytes <= 0) return MAX_TILES;
+  return Math.max(1, Math.min(MAX_TILES, Math.floor(BYTES_BUDGET / bytes)));
+}
+
+/**
+ * 瓦片是否与**实际视口**相交（issue 195）：与 `tileBlitRect` 同一映射，
+ * **不含** `VIEWPORT_PADDING` 外扩。用于区分「本帧必须画出来的块」与「padding 预热块」。
+ */
+export function tileIntersectsViewport(tileId: number, es: number, anchorY: number, viewH: number): boolean {
+  const h = TILE_PX * es;
+  const top = anchorY - (tileId + 1) * h;
+  return top + h > 0 && top < viewH;
+}
+
+export interface PrefetchPlanInput {
+  lo: number;
+  hi: number;
+  firstTile: number | null;
+  surfaceW: number;
+  surfaceH: number;
+  es: number;
+  dpr: number;
+  /** 与 `draw` 同口径：`(chartEndVirtualY − scrollY)·es + surface.h` */
+  anchorY: number;
+}
+
+/**
+ * 静止/播放帧的预取计划（issue 195）：**先保证视口覆盖块**，再按预算塞入
+ * 「向上 2 块 → padding → 首音符窗口」；超出预算的远端预热（尤其高倍下的
+ * `firstTile..+4`）直接让位，避免 `evictOverBudget` 在预取和视口块之间来回互杀。
+ *
+ * 顺序即队列顺序：视口缺块最先补；预算不足时优先保住播放方向的 `hi+1/hi+2`，
+ * 而不是把容量花在看不见的远端首音符窗口。视口块即使数量超过预算也全部保留
+ * （`evictOverBudget` 另有视口保护，正确性优先于 64MiB 软上限）。
+ */
+export function planPrefetchTiles(input: PrefetchPlanInput): number[] {
+  const { lo, hi, firstTile, surfaceW, surfaceH, es, dpr, anchorY } = input;
+  const max = maxTilesForBudget(surfaceW, es, dpr);
+  const out: number[] = [];
+  const add = (id: number) => {
+    if (id < 0 || out.length >= max || out.includes(id)) return;
+    out.push(id);
+  };
+  // 1) 本帧必须出像素的视口覆盖块（不裁剪；通常 1~2 块）
+  for (let id = lo; id <= hi; id++) {
+    if (tileIntersectsViewport(id, es, anchorY, surfaceH) && !out.includes(id)) out.push(id);
+  }
+  // 2) 播放滚动方向的前瞻：视口上方 2 块
+  for (let id = hi + 1; id <= hi + 2; id++) add(id);
+  // 3) 视口 padding 内剩余块（近处，优先于远端首音符）
+  for (let id = lo; id <= hi; id++) add(id);
+  // 4) 全谱首个实体音符窗口（issue 167/179/188）：预算够才加
+  if (firstTile !== null) {
+    for (let id = firstTile; id <= firstTile + 4; id++) add(id);
+  }
+  return out;
+}
+
+/**
  * 把瓦片 dest 矩形裁到视口再映射到位图源矩形（issue 140）。
  * 高倍下 cssH = TILE_PX·es 可超过视口一倍多；整张 blit 会把屏外像素也送去缩放。
  */
@@ -281,6 +353,9 @@ export function createNoteLayerCache(): NoteLayerCache {
    *  旧行为下预算被抢占吃光时，id 更大（视口上方）的瓦片帧帧排在后面 → 整个手势期都轮不到，
    *  松手 settle 时集中重建 = 「糊 → 清晰整批替换」跳变。null = 没有积压。 */
   let rebuildCursor: number | null = null;
+  /** issue 195：本帧与**实际视口**相交的瓦片 id —— 淘汰时优先保护，避免暂停帧重建 padding 块时
+   *  把唯一覆盖视口的块挤掉（那会得到 `blitted=0` 的整屏空白帧）。 */
+  let protectedTiles: ReadonlySet<number> = new Set();
 
   function drainOnePlayingTile() {
     const snap = playTileSnap;
@@ -331,6 +406,7 @@ export function createNoteLayerCache(): NoteLayerCache {
     tiles.clear();
     basis = null;
     rebuildCursor = null;
+    protectedTiles = new Set();
     lastNoteLayerStats = { layerMode: 'tiles', rebuilt: 0, blitted: 0, lo: 0, hi: -1, blitCssPx: 0, backlog: 0 };
     playTileQueue.length = 0;
     playTileSnap = null;
@@ -375,11 +451,16 @@ export function createNoteLayerCache(): NoteLayerCache {
   function evictOverBudget() {
     let total = 0;
     for (const t of tiles.values()) total += t.bytes;
-    while (total > BYTES_BUDGET || tiles.size > MAX_TILES) {
-      const oldest = tiles.keys().next();
-      if (oldest.done) break;
-      total -= tiles.get(oldest.value)?.bytes ?? 0;
-      tiles.delete(oldest.value);
+    if (total <= BYTES_BUDGET && tiles.size <= MAX_TILES) return;
+    // issue 195：先淘汰非视口块；视口覆盖块即使让总量略超 64MiB 软上限也保留 ——
+    // 正确性优先（否则暂停帧重建 padding 块会把唯一出像素的块挤掉，整屏空白一瞬）。
+    for (const id of [...tiles.keys()]) {
+      if (total <= BYTES_BUDGET && tiles.size <= MAX_TILES) break;
+      if (protectedTiles.has(id)) continue;
+      const t = tiles.get(id);
+      if (!t) continue;
+      total -= t.bytes;
+      tiles.delete(id);
     }
   }
 
@@ -449,6 +530,7 @@ export function createNoteLayerCache(): NoteLayerCache {
         basis = null;
       }
       rebuildCursor = null;
+      protectedTiles = new Set();
       const c = makeCoords(rc.geometry, rc.viewport, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
       const vis = rc.geometry.visibleNotes(rc.notes, rc.viewport, rc.beatDisplay);
       renderNotes(ctx, c, rc, vis);
@@ -472,6 +554,7 @@ export function createNoteLayerCache(): NoteLayerCache {
       mirror: rc.display?.mirror === true,
       verticalRatio: rc.geometry.verticalRatio,
     };
+    let fullInvalidated = false;
     if (
       !basis || basis.chartEndVirtualY !== nb.chartEndVirtualY || basis.beatDisplay !== nb.beatDisplay ||
       basis.dpr !== nb.dpr || basis.skinVersion !== nb.skinVersion ||
@@ -486,6 +569,8 @@ export function createNoteLayerCache(): NoteLayerCache {
       // 注意：surface 宽高与 geometry 实例不在失效依据内（issue 36 F3a，见 basis 注释）。
       tiles.clear();
       basis = nb;
+      // 全量失效帧保持旧口径：本帧把 [lo,hi] 全部同步重建（一次性事件，非 hover 热路径）。
+      fullInvalidated = true;
     } else if (basis.notes !== nb.notes) {
       // F3：notes 引用变化 → 结构共享 diff，仅失效覆盖变更拍区间的瓦片
       const diff = diffNotes(basis.notes, rc.notes, rc.beatDisplay);
@@ -496,6 +581,13 @@ export function createNoteLayerCache(): NoteLayerCache {
 
     const { posMin, posMax } = posRangeOf(rc);
     const { lo, hi } = tileIndexRange(posMin, posMax);
+    // issue 195：anchorY 与 blit 同一口径；先算视口覆盖块并登记为淘汰保护对象。
+    const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
+    const viewIds: number[] = [];
+    for (let id = lo; id <= hi; id++) {
+      if (tileIntersectsViewport(id, es, anchorY, rc.surface.h)) viewIds.push(id);
+    }
+    protectedTiles = new Set(viewIds);
 
     let rebuilt = 0, blitted = 0, staleBlit = false, blitCssPx = 0;
     const prevSmooth = ctx.imageSmoothingEnabled;
@@ -510,7 +602,14 @@ export function createNoteLayerCache(): NoteLayerCache {
       // 打脏的让位给队列（`enqueuePlayingTiles` 已把它排进去），本帧 blit 旧位图过渡、不留下空白帧。
       for (let id = lo; id <= hi; id++) {
         const t = tiles.get(id);
-        if (!t || t.dirty) { pending.push(id); continue; }
+        const onScreen = viewIds.includes(id);
+        const dirty = t?.dirty === true;
+        // issue 195：非手势的静止帧只在**视口覆盖块**上同步补 missing/stale；padding 块不要求本帧像素，
+        // 交给预取队列。否则鼠标移动触发的暂停帧会为了补 padding 块把视口块挤出预算 → 整层音符空白一瞬。
+        // 打脏块仍保留同步语义（issue 146：停止播放后编辑内容立即换新），并有视口保护兜底；
+        // basis 全量失效帧也保持旧口径（一次性事件，不算 hover 热路径）。
+        if (!rc.zoomGesture && !fullInvalidated && !onScreen && !dirty) continue;
+        if (!t || dirty) { pending.push(id); continue; }
         if (!t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL) pending.push(id);
       }
     }
@@ -547,7 +646,6 @@ export function createNoteLayerCache(): NoteLayerCache {
     }
 
     // ---- 2) blit：用本帧重建后的瓦片（顺序 lo→hi，旧的"重建即 blit"语义不变） ----
-    const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
     for (let id = lo; id <= hi; id++) {
       const t = tiles.get(id);
       if (!t) continue;
@@ -563,25 +661,18 @@ export function createNoteLayerCache(): NoteLayerCache {
     }
     ctx.imageSmoothingEnabled = prevSmooth;
     ctx.imageSmoothingQuality = prevQuality;
-    if (rc.playing) {
-      const prefetch: number[] = [];
-      for (let id = lo; id <= hi + 2; id++) prefetch.push(id);
-      enqueuePlayingTiles(prefetch, rc, es);
-    } else {
-      // issue 165：静止时预热视口上方瓦片，避免首次开播向上滚动时触碰未建瓦片卡顿
-      // issue 167 / 179 / 188：静止时将视口上方预热窗口对齐到播放期的 [lo, hi + 2]，并把全谱首个实体音符
-      // 所在瓦片及其后继窗口 [firstTile, firstTile + 4] 一并预热（首音符从入场到抵线跨越 ~2.15 块瓦片，
-      // 抵线帧的 hi + 2 前瞻落在 firstTile + 4），消除首音符从进入视口到抵达判定线全程触发 renderTile 宏任务的卡顿
-      const prefetch: number[] = [];
-      for (let id = lo; id <= hi + 2; id++) prefetch.push(id);
-      const firstTile = firstNonEmptyTileIdOf(rc);
-      if (firstTile !== null) {
-        for (let id = firstTile; id <= firstTile + 4; id++) {
-          if (!prefetch.includes(id)) prefetch.push(id);
-        }
-      }
-      enqueuePlayingTiles(prefetch, rc, es);
-    }
+    // 预取统一走预算规划（issue 195）：
+    // - issue 165/167/179/188：保留向上 hi+1/hi+2 前瞻与首音符 `[firstTile, firstTile+4]` 窗口；
+    // - 但高倍下瓦片字节随 es 增长（240% ≈16.3MiB/块，64MiB 只容 3 块），先保证视口覆盖块，
+    //   余量才给前瞻/padding/首音符窗口，避免「预取把视口块挤掉」的持续互杀。
+    // - 顺序 = 队列顺序：视口缺块最先补；预算不足时远端首音符窗口直接让位。
+    enqueuePlayingTiles(planPrefetchTiles({
+      lo, hi,
+      // 播放帧沿用旧口径：不重复做首音符扫描（静止期已预热）；静止帧才补首音符窗口。
+      firstTile: rc.playing ? null : firstNonEmptyTileIdOf(rc),
+      surfaceW: rc.surface.w, surfaceH: rc.surface.h,
+      es, dpr: rc.dpr, anchorY,
+    }), rc, es);
     // F1：选中/hover 叠加层（瓦片不含选中态，O(选中∩可见) 逐帧绘制，与瓦片 blit 逐像素对齐）
     // issue 67：`|| rc.selectionBox` —— 框选手势期间 selectedItems 还是空的（选区要等 mouseup）、
     // hoverItem 也常为 null，漏了这一项会让"框选实时预览"整个不画（首版就栽在这里）。
