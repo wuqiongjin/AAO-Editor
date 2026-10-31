@@ -15,9 +15,17 @@ import type { ChartNote, SelectionItem } from '../types';
 import { capturePattern } from './capture';
 import { appendNewPattern, removePatternFromLibrary, renamePatternInLibrary, sortPatternsNewestFirst } from './library';
 import { PatternStore } from './PatternStore';
+import { parsePatternsFile } from './share';
 import type { Pattern } from './types';
 
 export type PatternLibraryStatus = 'loading' | 'ready' | 'error';
+
+export type PatternImportFailureReason = 'not-ready' | 'bad-file' | 'write-failed';
+
+/** 导入结果：`ok` 时的两个计数就是反馈要说的「N 条 / 跳过 M 条」 */
+export type PatternImportResult =
+  | { ok: true; imported: number; skipped: number }
+  | { ok: false; reason: PatternImportFailureReason; message?: string };
 
 export interface PatternLibraryApi {
   /** 已按收藏时间倒序（最新在最上） */
@@ -32,6 +40,11 @@ export interface PatternLibraryApi {
   /** 改名；空名 / 没变 / 未载入成功 / 落盘失败 → false */
   rename: (id: string, name: string) => Promise<boolean>;
   remove: (id: string) => Promise<void>;
+  /**
+   * 分享文件文本 → 合并进库（**只合并、不替换**；id 已由 `parsePatternsFile` 重发）。
+   * 整包坏 / 版本不认识 / 读失败 / 落盘失败 → `ok: false`；坏条目只计价、不阻断。
+   */
+  importFromText: (text: string) => Promise<PatternImportResult>;
 }
 
 /** `store` 只在测试里注入；生产按环境自动选后端（`PatternStore` 默认构造） */
@@ -110,8 +123,32 @@ export function usePatternLibrary(store?: PatternStore): PatternLibraryApi {
     if (next) await commit(next);
   }, [commit]);
 
+  /**
+   * 导入分享文件（issue 187）：解析在 184 的 `share` 层，这里只做「等载入 → 合并 → 整库落盘」。
+   * 三条拒绝线：读失败（不许写）、整包解析失败（不动库）、落盘失败（commit 已回滚并 toast）。
+   * 坏条目跳过不算失败 —— 好条目照常进来，计数交回界面报数。
+   */
+  const importFromText = useCallback(async (text: string): Promise<PatternImportResult> => {
+    await loadedRef.current;
+    if (!writableRef.current) {
+      return { ok: false, reason: 'not-ready', message: t('patternLibrary.import.notReady') };
+    }
+    const parsed = parsePatternsFile(text);
+    if (!parsed.ok) {
+      return { ok: false, reason: 'bad-file', message: parsed.message };
+    }
+    const imported = parsed.patterns.length;
+    if (imported === 0) {
+      // 整包都坏 / 空库文件：没有可写的东西，不产生一次无意义的整库落盘
+      return { ok: true, imported: 0, skipped: parsed.skipped.length };
+    }
+    const ok = await commit(sortPatternsNewestFirst([...patternsRef.current, ...parsed.patterns]));
+    if (!ok) return { ok: false, reason: 'write-failed' };
+    return { ok: true, imported, skipped: parsed.skipped.length };
+  }, [commit]);
+
   return useMemo(
-    () => ({ patterns, status, addFromSelection, rename, remove }),
-    [patterns, status, addFromSelection, rename, remove],
+    () => ({ patterns, status, addFromSelection, rename, remove, importFromText }),
+    [patterns, status, addFromSelection, rename, remove, importFromText],
   );
 }

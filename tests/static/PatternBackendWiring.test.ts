@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { readStripped } from '@/tests/support/source';
 
 const storeSrc = readStripped('src/chart/patterns/PatternStore.ts');
+const shareFileSrc = readStripped('src/chart/patterns/shareFile.ts');
 const dataRootSrc = readStripped('electron/dataRoot.cjs');
 const mainSrc = readStripped('electron/main.cjs');
 const preloadSrc = readStripped('electron/preload.js');
@@ -43,5 +44,28 @@ describe('片段库 · preload 第三条数据根桥', () => {
     expect(preloadSrc).toMatch(/patternLibrary\s*:/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]patternLibrary:load['"]\s*\)/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]patternLibrary:saveAll['"],\s*patterns\s*\)/);
+  });
+});
+
+describe('片段库 · 分享文件另存桥（issue 187）', () => {
+  it('渲染侧：有桥走桥，无桥降级 Blob 下载', () => {
+    expect(shareFileSrc).toMatch(/electronAPI[\s\S]{0,160}patternLibrary/);
+    expect(shareFileSrc).toMatch(/bridge\.saveAs\(/);
+    expect(shareFileSrc).toMatch(/createObjectURL/);
+  });
+
+  it('主进程：patternLibrary:saveAs 弹系统保存对话框并写回文本', () => {
+    expect(mainSrc).toMatch(/['"]patternLibrary:saveAs['"]/);
+    expect(mainSrc).toMatch(/dialog\.showSaveDialog/);
+    expect(mainSrc).toMatch(/fs\.promises\.writeFile\(result\.filePath,\s*json/);
+  });
+
+  it('preload 暴露 patternLibrary.saveAs', () => {
+    expect(preloadSrc).toMatch(/invoke\(\s*['"]patternLibrary:saveAs['"],\s*payload\s*\)/);
+  });
+
+  it('读文件两环境同一路：input[type=file] + 票面 accept', () => {
+    expect(shareFileSrc).toMatch(/input\.type = 'file'/);
+    expect(shareFileSrc).toMatch(/PATTERN_FILE_ACCEPT = ['"].json,application\/json['"]/);
   });
 });

@@ -43,7 +43,8 @@
   font-size: var(--text-sm);
 }
 
-.pld__close {
+.pld__close,
+.pld__head-more {
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -56,7 +57,9 @@
   cursor: pointer;
 }
 
-.pld__close:hover {
+.pld__close:hover,
+.pld__head-more:hover,
+.pld__head-more[aria-expanded='true'] {
   background: var(--bg-hover);
   color: var(--text);
 }

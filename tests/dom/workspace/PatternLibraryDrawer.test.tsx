@@ -222,7 +222,7 @@ describe('issue 185 · 卡片', () => {
     expect(screen.queryByText('含倒流')).not.toBeInTheDocument();
   });
 
-  it('动作入口常驻可见（不用 hover）；导出项在菜单里但禁用（动作落 187）', async () => {
+  it('动作入口常驻可见（不用 hover）；导出项可用（动作落 187）', async () => {
     setup({ seed: seedLibrary() });
     await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
 
@@ -231,9 +231,7 @@ describe('issue 185 · 卡片', () => {
 
     openCardMenu(0);
     expect(screen.getByRole('menu', { name: '片段操作' })).toBeInTheDocument();
-    const exportItem = screen.getByRole('menuitem', { name: '导出片段' });
-    expect(exportItem).toBeDisabled();
-    expect(exportItem).toHaveAttribute('title', '片段导出即将推出');
+    expect(screen.getByRole('menuitem', { name: '导出片段' })).toBeEnabled();
   });
 
   it('菜单：Esc / 点遮罩都能关掉', async () => {

@@ -9,18 +9,28 @@
 // - 双击名字就地改名（Enter 提交 / Esc 取消，与 BPM 数字同一套词汇；空名拒绝、超长只截显示）；
 // - 删除走既有 `sm` 确认弹窗，立即删、不建撤销栈；
 // - 只读谱面：**卡片置灰**（贴入被拦，186），但「收藏选区」照常可用 —— 收藏读的是选区、不写谱面。
+// - 导入导出（187）：抽屉头 ⋯ = 整库；卡片 ⋯ = 单条。读文件两环境同一路（`<input type="file">`），
+//   写文件 Electron 走桥 / 浏览器下载；**取消保存什么都不发生**。
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { BookmarkPlus, LibraryBig, Search, X } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
 import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
 import { formatKey } from '../../chart/config/ShortcutConfig';
 import { filterPatternsByName, patternBpmRange } from '../../chart/patterns/library';
+import {
+  pickPatternFile,
+  readPatternFileText,
+  savePatternLibraryFile,
+  saveSinglePatternFile,
+} from '../../chart/patterns/shareFile';
 import type { Pattern } from '../../chart/patterns/types';
 import type { PatternLibraryApi } from '../../chart/patterns/usePatternLibrary';
 import { t } from '../../i18n';
 import ConfirmDialog from '../../ui/ConfirmDialog';
+import { showToast } from '../../ui/Toast';
 import BpmRange from './BpmRange';
 import PatternCardMenu from './PatternCardMenu';
+import PatternLibraryMenu from './PatternLibraryMenu';
 import PatternThumbnail from './PatternThumbnail';
 import './PatternLibraryDrawer.css';
 
@@ -122,6 +132,65 @@ export default memo(function PatternLibraryDrawer({
 
   const saveKey = formatKey(settings.shortcuts.execSavePattern);
 
+  // 导出项置灰的真实原因：载入中 / 读失败 / 空库三套，别一律说成「空库」
+  const exportDisabledHint = library.status === 'loading'
+    ? t('patternLibrary.exportLoading')
+    : library.status === 'error'
+      ? t('patternLibrary.exportLoadFailed')
+      : library.patterns.length === 0
+        ? t('patternLibrary.exportUnavailable')
+        : undefined;
+
+  /* 整库导出（187）：取消对话框 = 什么都不发生；桥报错才提示，成功不打扰 */
+  const exportLibrary = async () => {
+    if (library.status !== 'ready' || library.patterns.length === 0) return;
+    try {
+      await savePatternLibraryFile(library.patterns);
+    } catch {
+      showToast(t('patternLibrary.exportFailed'), 'danger');
+    }
+  };
+
+  /* 单条导出（187）：信封里只有这一条，名字不改库里的 */
+  const exportPattern = async (pattern: Pattern) => {
+    try {
+      await saveSinglePatternFile(pattern);
+    } catch {
+      showToast(t('patternLibrary.exportFailed'), 'danger');
+    }
+  };
+
+  /* 导入（187）：选文件 → 读文本 → 库层合并落盘；反馈按实际结果报数 */
+  const importLibrary = async () => {
+    const file = await pickPatternFile();
+    if (!file) return;
+
+    let text: string;
+    try {
+      text = await readPatternFileText(file);
+    } catch {
+      showToast(t('patternLibrary.import.badFile'), 'danger');
+      return;
+    }
+
+    const result = await library.importFromText(text);
+    if (!result.ok) {
+      // 落盘失败已由库层 toast 并回滚；这里不重复报错
+      if (result.reason === 'write-failed') return;
+      showToast(result.message ?? t('patternLibrary.import.badFile'), 'danger');
+      return;
+    }
+    if (result.imported === 0 && result.skipped === 0) {
+      showToast(t('patternLibrary.import.empty'), 'info');
+      return;
+    }
+    if (result.skipped > 0) {
+      showToast(t('patternLibrary.import.partial', { imported: result.imported, skipped: result.skipped }), 'warn');
+      return;
+    }
+    showToast(t('patternLibrary.import.success', { imported: result.imported }), 'success');
+  };
+
   return (
     <aside className="pld ws-island" aria-label={t('patternLibrary.title')} style={{ width }}>
       <div
@@ -138,6 +207,13 @@ export default memo(function PatternLibraryDrawer({
 
       <header className="pld__head">
         <span className="pld__title">{t('patternLibrary.title')}</span>
+        {/* 整库导入导出（187）：空库 / 未载入完成时导出项置灰 */}
+        <PatternLibraryMenu
+          canExport={library.status === 'ready' && library.patterns.length > 0}
+          exportDisabledHint={exportDisabledHint}
+          onExport={() => void exportLibrary()}
+          onImport={() => void importLibrary()}
+        />
         <button
           type="button"
           className="pld__close"
@@ -269,8 +345,11 @@ export default memo(function PatternLibraryDrawer({
                   </div>
 
                   {/* 常驻 ⋯ 菜单：入口一直可见（hover 才出现的按钮等于靠运气发现），
-                      菜单里放导出（187 占位）与删除；卡片主体留给 186 的点击粘贴 */}
-                  <PatternCardMenu onDelete={() => setPendingDelete(pattern)} />
+                      菜单里放单条导出（187）与删除；卡片主体留给 186 的点击粘贴 */}
+                  <PatternCardMenu
+                    onExport={() => void exportPattern(pattern)}
+                    onDelete={() => setPendingDelete(pattern)}
+                  />
                 </li>
               );
             })}

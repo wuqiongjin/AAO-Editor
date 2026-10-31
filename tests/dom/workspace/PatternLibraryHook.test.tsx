@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest';
 import { describe, expect, it } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { PatternStore, type PatternLibraryBackend } from '@/src/chart/patterns/PatternStore';
+import { serializePatterns } from '@/src/chart/patterns/share';
 import { usePatternLibrary } from '@/src/chart/patterns/usePatternLibrary';
 import type { Pattern } from '@/src/chart/patterns/types';
 import type { ChartNote, SelectionItem } from '@/src/chart/types';
@@ -58,6 +59,25 @@ describe('issue 185 · usePatternLibrary', () => {
     expect(renamed).toBe(false);
 
     await act(async () => { await result.current.remove('p1'); });
+    expect(saves).toBe(0);
+    expect(result.current.patterns).toEqual([]);
+  });
+
+  it('读失败：导入同样拒绝（不会把原库整份抹掉）', async () => {
+    dismissToast();
+    let saves = 0;
+    const store = new PatternStore({
+      load: async () => { throw new Error('blocked'); },
+      saveAll: async () => { saves += 1; },
+    });
+    const { result } = renderHook(() => usePatternLibrary(store));
+    await waitFor(() => expect(result.current.status).toBe('error'));
+
+    let outcome: Awaited<ReturnType<typeof result.current.importFromText>> | null = null;
+    await act(async () => {
+      outcome = await result.current.importFromText(serializePatterns([makePattern({ name: '外来片段' })]));
+    });
+    expect(outcome).toMatchObject({ ok: false, reason: 'not-ready' });
     expect(saves).toBe(0);
     expect(result.current.patterns).toEqual([]);
   });

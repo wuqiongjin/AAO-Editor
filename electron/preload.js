@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     patternLibrary: {
         load: () => ipcRenderer.invoke('patternLibrary:load'),
         saveAll: (patterns) => ipcRenderer.invoke('patternLibrary:saveAll', patterns),
+        // issue 187：整库 / 单条导出。每次弹系统保存对话框，不记路径；取消 → { cancelled: true }。
+        saveAs: (payload) => ipcRenderer.invoke('patternLibrary:saveAs', payload),
     },
     // issue 126：窗体 OS 标题栏跟 settings.theme（nativeTheme / backgroundColor）。
     windowChrome: {
