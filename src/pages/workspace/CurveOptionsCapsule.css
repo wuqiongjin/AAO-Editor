@@ -1,67 +1,6 @@
-/* 画布左上角曲线选项胶囊（票 182）：岛屿外观，浮在画布区左上角 */
-
-.coc {
-  position: absolute;
-  top: 10px;
-  left: 12px;
-  z-index: 22;
-  overflow: hidden;
-  background: var(--bg-elevated);
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  animation: coc-pop 140ms var(--ease);
-}
-
-@keyframes coc-pop {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
-}
-
-.coc__pill {
-  height: 30px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px 0 6px;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.coc__pill:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -2px;
-}
-
-.coc__tag {
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.coc__sum {
-  font-variant-numeric: tabular-nums;
-}
-
-.coc__chev {
-  color: var(--text-subtle);
-  transition: transform var(--dur-fast) var(--ease);
-}
-
-.coc.is-open .coc__chev {
-  transform: rotate(180deg);
-}
+/* 画布左上角曲线选项胶囊（票 182）：外壳见 CanvasCapsule.css，这里只有面板内部。 */
 
 .coc__body {
   min-width: 220px;
   padding: 8px 10px 10px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }

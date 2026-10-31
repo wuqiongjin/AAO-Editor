@@ -5,6 +5,7 @@ import WorkspaceTopBar from './WorkspaceTopBar';
 import WorkspaceToolRail from './WorkspaceToolRail';
 import PatternLibraryDrawer from './PatternLibraryDrawer';
 import CurveOptionsCapsule from './CurveOptionsCapsule';
+import PatternPastePill from './PatternPastePill';
 import './WorkspacePage.css';
 import { ChartCodeEditorProvider } from '../../chart/components/code-editor/ChartCodeEditorProvider';
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
@@ -513,6 +514,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
               />
             </CrashBoundaryHost>
             <CurveOptionsCapsule />
+            <PatternPastePill />
           </div>
         </div>
         <PlayBar
@@ -543,6 +545,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           canSaveSelection={canSaveSelection}
           readOnly={isReadOnly}
           onSaveSelection={() => void saveSelection()}
+          // 186 二轮：同一张卡再点 = 退出粘贴态（回指针）；高亮由 `activePatternId` 决定
+          onPastePattern={ui.togglePatternPaste}
+          activePatternId={ui.patternPaste?.id ?? null}
           onResizingChange={onDrawerResizingChange}
         />
       )}

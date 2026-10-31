@@ -181,6 +181,33 @@
   opacity: 0.5;
 }
 
+/* 当前粘贴来源（issue 186 二轮）：这张卡就是画布上正在贴的那一段，再点一次即退出 */
+.pld-card.is-active {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* 卡片主体 = 粘贴热区（issue 186）：缩略图 + 名字 + 徽标整块可点。
+   用 div 而不是 <button>（里面还有改名输入框），故光标与焦点环自己画。 */
+.pld-card__hit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pld-card.is-readonly .pld-card__hit {
+  cursor: default;
+}
+
+.pld-card__hit:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .pld-card__thumb {
   flex-shrink: 0;
   width: 88px;
@@ -242,16 +269,10 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-inset);
-  color: var(--text-subtle);
+  color: var(--text-muted);
   font-size: var(--text-2xs);
   line-height: 1.6;
   white-space: nowrap;
-}
-
-.pld-badge--backflow {
-  border-color: transparent;
-  background: var(--accent-soft);
-  color: var(--accent-text);
 }
 
 /* 常驻动作入口：一直可见（hover 才出现的按钮等于靠运气发现），低对比度不抢名字 */

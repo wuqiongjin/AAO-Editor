@@ -24,7 +24,7 @@ interface RailTool {
 }
 
 export default memo(function WorkspaceToolRail() {
-  const { armedTool, setArmedTool } = useUI();
+  const { armedTool, setArmedTool, patternPaste } = useUI();
   const { settings } = useConfig();
   const { clipboard, selectedItems, copy, cut } = useEditing();
   // issue 86：音符图标直接读当前音符皮肤 → 与素材页 / 画布同一套素材与绘制器，换肤即时联动
@@ -50,8 +50,9 @@ export default memo(function WorkspaceToolRail() {
     [
       { id: 'copy', icon: <Copy size={17} />, labelKey: 'tool.copy', action: copy, disabled: !hasSelection, disabledTip: t('toolbar.copyNeedsSelection') },
       { id: 'cut', icon: <Scissors size={17} />, labelKey: 'tool.cut', action: cut, disabled: !hasSelection, disabledTip: t('toolbar.cutNeedsSelection') },
-      // §2.1（六轮）：粘贴 = 持工具态；空剪贴板 = 不可进态（唯一"前提缺失即完全空转"的工具），`V` 键同步
-      { id: 'paste', icon: <Clipboard size={17} />, labelKey: 'tool.paste', disabled: clipboard.length === 0, disabledTip: t('toolbar.pasteEmpty') },
+      // §2.1（六轮）：粘贴 = 持工具态；空剪贴板 = 不可进态（唯一"前提缺失即完全空转"的工具），`V` 键同步。
+      // issue 186：片段粘贴态下这个钮仍是"回剪贴板来源"的唯一入口（ADR-0023 §4），故不能因剪贴板为空而置灰。
+      { id: 'paste', icon: <Clipboard size={17} />, labelKey: 'tool.paste', disabled: clipboard.length === 0 && !patternPaste, disabledTip: t('toolbar.pasteEmpty') },
     ],
     [
       { id: 'delete', icon: <Trash2 size={17} />, labelKey: 'tool.delete', danger: true },
@@ -66,6 +67,13 @@ export default memo(function WorkspaceToolRail() {
   const armOrRelease = (tool: RailTool) => {
     if (tool.action) { tool.action(); return; }
     if (tool.id === 'mouse') { setArmedTool(null); return; }
+    // issue 186 / ADR-0023 §4：片段粘贴态下再点「粘贴」= 回剪贴板来源，而不是退出工具。
+    // 例外的例外：剪贴板为空时「回剪贴板」= 纯空转，而 ADR-0008 §2.1 明令空剪贴板不进粘贴态，
+    // 故这一击退到指针（既守 ADR，也不留一个点了没反应的持工具态）。
+    if (tool.id === 'paste' && patternPaste) {
+      setArmedTool(clipboard.length > 0 ? 'paste' : null);
+      return;
+    }
     // 退出三出口之一（§2 原则 3）：点击当前高亮工具 = 落回指针
     setArmedTool(armedTool === tool.id ? null : (tool.id as ArmedTool));
   };

@@ -26,6 +26,7 @@ import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rende
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../rendering/gutterLabels';
 import { useBackgroundSkin } from '../../../rendering/skin/useBackgroundSkin';
 import { countChartNotes, countNotesUpToBeat } from '../../editing/NoteEditing';
+import { buildPatternPastePayload } from '../../patterns/paste';
 import { parseBpmInput } from '../../editing/BpmInput';
 import { t } from '../../../i18n';
 import {
@@ -174,7 +175,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         handleNotesChange,
     } = useEditing();
     // armedTool = 持工具态（ADR-0008 §1）：null = 指针底态；选区与工具解耦、常驻不清
-    const { armedTool, beatDisplay, scale, setScale, curveConfig } = useUI();
+    // issue 186：patternPaste = 片段粘贴态（点卡片进态）——粘贴的负载改取自该片段，剪贴板原样不动
+    const { armedTool, beatDisplay, scale, setScale, curveConfig, patternPaste, patternPasteWithBpm } = useUI();
+    const pastePattern = useMemo(
+        () => (armedTool === 'paste' && patternPaste ? { pattern: patternPaste, withBpm: patternPasteWithBpm } : null),
+        [armedTool, patternPaste, patternPasteWithBpm],
+    );
+    // 幽灵预览的载荷按落点现算（渲染层只收这个回调，不认识片段域）
+    const pastePayloadAt = useMemo(
+        () => (pastePattern
+            ? (anchorBeat: number) => buildPatternPastePayload(pastePattern, { anchorBeat, targetNotes: notes, beatDisplay })
+            : null),
+        [pastePattern, notes, beatDisplay],
+    );
     const { setMarker: setMarkerContext, isPlaying } = usePlaybackState();
     // issue 59 §2/§3：「音符代码」工具点击 → 打开该音符的代码弹窗（与「谱面代码」按钮共用同一弹窗）
     const { openNoteCode } = useChartCodeEditor();
@@ -432,7 +445,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     session.bindWorld({
         notes, selectedItems, armedTool, beatDisplay, chartEndBeat,
-        geometry, viewport, surface: surf, clipboard,
+        geometry, viewport, surface: surf, clipboard, pastePattern,
         slideBuffer: bufferPoint, curveDraft, curveConfig,
         lastBpm: lastBpmRef.current, noteSize: display.noteSize,
         hitPlaybackMarker, hitBpmGutter, expandedBpmGroupKey,
@@ -595,6 +608,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 : null,
             hoverItem,
             clipboard,
+            // issue 186：片段粘贴态的幽灵载荷（含将写入的 BPM 线）按落点现算，见 pastePayloadAt
+            pastePayloadAt,
             markerSeconds,
             markerHovered,
             armedTool,
@@ -619,7 +634,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         target.renderFrame(view);
-    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, displayOptions, display.imageQuality, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
+    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, pastePayloadAt, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, displayOptions, display.imageQuality, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
     renderCanvasRef.current = renderCanvas;
 
     useEffect(() => {
@@ -806,7 +821,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             applyOps(clickOps({
                 tool: 'paste', notes, hit: null,
                 pos: { beat: cursor.beat, lane: cursor.lane },
-                slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
+                slideBuffer: null, lastBpm: lastBpmRef.current, clipboard, pastePattern,
                 chartEndBeat, beatDisplay, selectedItems,
             }));
         },

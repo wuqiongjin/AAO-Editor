@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   filterPatternsByName,
   normalizePatternName,
-  patternBpmSummary,
+  patternBpmRange,
   removePatternFromLibrary,
   renamePatternInLibrary,
   sortPatternsNewestFirst,
@@ -120,30 +120,43 @@ describe('issue 185 · 删除', () => {
   });
 });
 
-describe('issue 185 · 卡片徽标', () => {
-  it('含 BPM 变化 · n：n = 跨度内事件条数', () => {
+describe('issue 186 · 卡片 / 胶囊的速度跨度', () => {
+  it('无事件 → 只有起点，没有峰值（显示成 `BPM 120`）', () => {
+    expect(patternBpmRange(makePattern())).toEqual({ start: 120, peak: null });
+  });
+
+  it('峰值 = 与起点差值最大的那条事件（不是末条）', () => {
     const pattern = makePattern({
       bpmContext: {
         startBpm: 120,
         events: [{ deltaBeat: 1, bpm: 200 }, { deltaBeat: 2, bpm: -120 }],
       },
     });
-    expect(patternBpmSummary(pattern)).toEqual({ changes: 2, backflow: true });
+    // |−120−120| = 240 > |200−120| = 80 → 峰值取 −120（也说明负值同样是"跨度"而不是特例）
+    expect(patternBpmRange(pattern)).toEqual({ start: 120, peak: -120 });
   });
 
-  it('无事件、起点为正 → 无徽标', () => {
-    expect(patternBpmSummary(makePattern())).toEqual({ changes: 0, backflow: false });
-  });
-
-  it('起点生效 BPM 为负 = 起点就在倒流区 → 含倒流', () => {
-    const pattern = makePattern({ bpmContext: { startBpm: -120, events: [] } });
-    expect(patternBpmSummary(pattern)).toEqual({ changes: 0, backflow: true });
-  });
-
-  it('只有负事件也算含倒流（从那一条起进入倒流区）', () => {
+  it('先升后回：末条回到起点也不算"没变化"', () => {
     const pattern = makePattern({
-      bpmContext: { startBpm: 120, events: [{ deltaBeat: 4, bpm: -60 }] },
+      bpmContext: { startBpm: 120, events: [{ deltaBeat: 1, bpm: 180 }, { deltaBeat: 2, bpm: 120 }] },
     });
-    expect(patternBpmSummary(pattern)).toEqual({ changes: 1, backflow: true });
+    expect(patternBpmRange(pattern)).toEqual({ start: 120, peak: 180 });
+  });
+
+  it('降速：峰值就是那个更低的值', () => {
+    const pattern = makePattern({ bpmContext: { startBpm: 180, events: [{ deltaBeat: 2, bpm: 90 }] } });
+    expect(patternBpmRange(pattern)).toEqual({ start: 180, peak: 90 });
+  });
+
+  it('并列峰值取**先出现**的那条（差值相同不换手）', () => {
+    const pattern = makePattern({
+      bpmContext: { startBpm: 120, events: [{ deltaBeat: 1, bpm: 60 }, { deltaBeat: 2, bpm: 180 }] },
+    });
+    expect(patternBpmRange(pattern)).toEqual({ start: 120, peak: 60 });
+  });
+
+  it('事件与起点同值 → 仍视为没有跨度（峰值 null）', () => {
+    const pattern = makePattern({ bpmContext: { startBpm: 120, events: [{ deltaBeat: 2, bpm: 120 }] } });
+    expect(patternBpmRange(pattern)).toEqual({ start: 120, peak: null });
   });
 });

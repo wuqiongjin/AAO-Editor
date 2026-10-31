@@ -2,7 +2,8 @@
 //
 // 外壳口径（183）：展开占布局（不压画布）、左缘可拖宽、收起完全消失。
 // 内容口径（185 / 164 定案 §3）：
-// - 卡片 = 缩略图 + 名字 + 徽标（含 BPM 变化 · n / 含倒流）+ hover 菜单（导出 —— 动作落 187 / 删除）；
+// - 卡片 = 缩略图 + 名字 + 徽标（`BPM 120 → 180`，负值数字危险色）+ 常驻 ⋯ 菜单（导出 —— 动作落 187 / 删除）；
+// - 点卡片 = 进片段粘贴态（186），被选中的那张高亮；再点同一张 = 退出（回指针）；
 // - 顶部常驻搜索：按名字子串过滤（不区分大小写）；「库里没有片段」「搜索无匹配」「库读不出来」是三套空态；
 // - 收藏时间倒序（最新在最上，排序是库的口径，本组件不重排）；
 // - 双击名字就地改名（Enter 提交 / Esc 取消，与 BPM 数字同一套词汇；空名拒绝、超长只截显示）；
@@ -13,11 +14,12 @@ import { BookmarkPlus, LibraryBig, Search, X } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
 import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
 import { formatKey } from '../../chart/config/ShortcutConfig';
-import { filterPatternsByName, patternBpmSummary } from '../../chart/patterns/library';
+import { filterPatternsByName, patternBpmRange } from '../../chart/patterns/library';
 import type { Pattern } from '../../chart/patterns/types';
 import type { PatternLibraryApi } from '../../chart/patterns/usePatternLibrary';
 import { t } from '../../i18n';
 import ConfirmDialog from '../../ui/ConfirmDialog';
+import BpmRange from './BpmRange';
 import PatternCardMenu from './PatternCardMenu';
 import PatternThumbnail from './PatternThumbnail';
 import './PatternLibraryDrawer.css';
@@ -31,12 +33,17 @@ interface PatternLibraryDrawerProps {
   readOnly?: boolean;
   /** footer「收藏选区」：与 `execSavePattern` 同一条路径（选区 → 落库 → toast） */
   onSaveSelection: () => void;
+  /** 点卡片 = 进/退片段粘贴持工具态（issue 186：同一张再点即退出）；只读时卡片不进态 */
+  onPastePattern: (pattern: Pattern) => void;
+  /** 当前承载粘贴负载的片段 id：那张卡片高亮 + `aria-pressed`（null = 无） */
+  activePatternId?: string | null;
   /** 拖宽开始 / 结束：页面据此暂停画布实时重绘（与旧面板拖拽同口径） */
   onResizingChange?: (resizing: boolean) => void;
 }
 
 export default memo(function PatternLibraryDrawer({
-  library, canSaveSelection, readOnly = false, onSaveSelection, onResizingChange,
+  library, canSaveSelection, readOnly = false, onSaveSelection, onPastePattern,
+  activePatternId = null, onResizingChange,
 }: PatternLibraryDrawerProps) {
   const { settings, setPatternDrawer } = useConfig();
   const storedWidth = settings.layout.patternDrawer.width;
@@ -100,6 +107,17 @@ export default memo(function PatternLibraryDrawer({
     setRenaming(null);
     // 空名 / 没改 → 库里拒绝，界面安静回退
     void library.rename(id, draft);
+  };
+
+  /**
+   * 点卡片 / 回车 = 进/退片段粘贴持工具态（issue 186）。
+   * 只读谱面**不进态**（置灰的卡片不做无反馈的空转，也不弹只读提示——说明已在 tooltip 里）；
+   * 改名中输入框的点击不触发（它和卡片同一层）。
+   * `detail > 1` 是双击的第二击：改名走双击，第二击不再动工具态（否则一次双击会把刚进的态又退掉）。
+   */
+  const onPasteCard = (pattern: Pattern, detail = 1) => {
+    if (readOnly || renaming?.id === pattern.id || detail > 1) return;
+    onPastePattern(pattern);
   };
 
   const saveKey = formatKey(settings.shortcuts.execSavePattern);
@@ -180,52 +198,74 @@ export default memo(function PatternLibraryDrawer({
         ) : (
           <ul className="pld__list">
             {visible.map((pattern) => {
-              const summary = patternBpmSummary(pattern);
+              const range = patternBpmRange(pattern);
+              const active = !readOnly && activePatternId === pattern.id;
               return (
                 <li
                   key={pattern.id}
-                  className={`pld-card${readOnly ? ' is-readonly' : ''}`}
+                  className={`pld-card${readOnly ? ' is-readonly' : ''}${active ? ' is-active' : ''}`}
                   title={readOnly ? t('patternLibrary.readonlyCard') : undefined}
                 >
-                  <div className="pld-card__thumb">
-                    <PatternThumbnail pattern={pattern} />
-                  </div>
+                  {/* 卡片主体 = 粘贴热区（issue 186：点卡片进片段粘贴持工具态）。
+                      用 div + role 而不是 <button>：改名输入框与 ⋯ 菜单都在这一层里，嵌套按钮非法。
+                      只读谱面：置灰 + aria-disabled，点击不进态（贴入仍由画布三道闸门兜底）。 */}
+                  <div
+                    className="pld-card__hit"
+                    role="button"
+                    tabIndex={readOnly ? -1 : 0}
+                    aria-disabled={readOnly || undefined}
+                    aria-pressed={active}
+                    aria-label={t('patternLibrary.pasteCardAria', { name: pattern.name })}
+                    onClick={(e) => onPasteCard(pattern, e.detail)}
+                    onKeyDown={(e) => {
+                      // 焦点在改名输入框时不抢 Enter（e.target !== currentTarget）
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key !== 'Enter' && e.key !== ' ') return;
+                      e.preventDefault();
+                      onPasteCard(pattern);
+                    }}
+                  >
+                    <div className="pld-card__thumb">
+                      <PatternThumbnail pattern={pattern} />
+                    </div>
 
-                  <div className="pld-card__main">
-                    {renaming?.id === pattern.id ? (
-                      <input
-                        className="pld-card__name-input"
-                        aria-label={t('patternLibrary.rename')}
-                        value={renaming.draft}
-                        autoFocus
-                        onChange={(e) => setRenaming({ id: pattern.id, draft: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') { e.preventDefault(); commitRename(); return; }
-                          if (e.key === 'Escape') {
-                            e.preventDefault();
-                            renameCancelledRef.current = true;
-                            setRenaming(null);
-                          }
-                        }}
-                        onBlur={commitRename}
-                      />
-                    ) : (
-                      <span
-                        className="pld-card__name"
-                        title={pattern.name}
-                        onDoubleClick={() => startRename(pattern)}
-                      >
-                        {pattern.name}
+                    <div className="pld-card__main">
+                      {renaming?.id === pattern.id ? (
+                        <input
+                          className="pld-card__name-input"
+                          aria-label={t('patternLibrary.rename')}
+                          value={renaming.draft}
+                          autoFocus
+                          onChange={(e) => setRenaming({ id: pattern.id, draft: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { e.preventDefault(); commitRename(); return; }
+                            if (e.key === 'Escape') {
+                              e.preventDefault();
+                              renameCancelledRef.current = true;
+                              setRenaming(null);
+                            }
+                          }}
+                          onBlur={commitRename}
+                        />
+                      ) : (
+                        <span
+                          className="pld-card__name"
+                          title={pattern.name}
+                          // 名字也是卡片的一部分：单击照常切卡（issue 186 二轮用户反馈：只有名字区域点不动）。
+                          // 双击 = 就地改名（185），第二击由 `onPasteCard` 的 `detail > 1` 挡掉。
+                          onDoubleClick={() => startRename(pattern)}
+                        >
+                          {pattern.name}
+                        </span>
+                      )}
+                      <span className="pld-card__badges">
+                        {/* 徽标 = 速度跨度（issue 186 二轮）：`BPM 120 → 180`；没有变化事件时只有 `BPM 120`。
+                            负值由 BpmRange 单独上危险色，不再另挂「倒流」徽标（少一个字、也更醒目）。 */}
+                        <span className="pld-badge">
+                          {t('patternLibrary.badge.bpm')} <BpmRange start={range.start} peak={range.peak} />
+                        </span>
                       </span>
-                    )}
-                    <span className="pld-card__badges">
-                      {summary.changes > 0 && (
-                        <span className="pld-badge">{t('patternLibrary.badge.bpmChanges', { n: summary.changes })}</span>
-                      )}
-                      {summary.backflow && (
-                        <span className="pld-badge pld-badge--backflow">{t('patternLibrary.badge.backflow')}</span>
-                      )}
-                    </span>
+                    </div>
                   </div>
 
                   {/* 常驻 ⋯ 菜单：入口一直可见（hover 才出现的按钮等于靠运气发现），

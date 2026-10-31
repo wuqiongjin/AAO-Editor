@@ -29,6 +29,25 @@ function SelectOne() {
   );
 }
 
+/** issue 186：点片段卡片 = 进片段粘贴持工具态（此处用探针模拟抽屉的那次回调） */
+function PastePattern() {
+  const { togglePatternPaste } = useUI();
+  return (
+    <button
+      type="button"
+      onClick={() => togglePatternPaste({
+        id: 'p1',
+        name: '片段 1',
+        createdAt: 1,
+        notes: [{ type: 'Single', beat: 0, lane: 3 }],
+        bpmContext: { startBpm: 120, events: [] },
+      })}
+    >
+      paste-pattern
+    </button>
+  );
+}
+
 function setup() {
   seedZhSettings();
   render(
@@ -36,6 +55,7 @@ function setup() {
       <UIProvider>
         <EditingProvider>
           <SelectOne />
+          <PastePattern />
           <ArmedProbe />
           <WorkspaceToolRail />
         </EditingProvider>
@@ -112,5 +132,38 @@ describe('issue 180 · 工作台窄工具轨', () => {
     setup();
     expect(tool('粘贴')).toBeDisabled();
     expect(within(tool('粘贴')).getByRole('tooltip')).toHaveTextContent('剪贴板为空');
+  });
+});
+
+describe('issue 186 · 片段粘贴态下的「粘贴」钮', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('剪贴板非空 → 回剪贴板来源（仍持粘贴工具，不退出）', () => {
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'select-one' }));
+    fireEvent.click(tool('复制'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'paste-pattern' }));
+    expect(armed()).toBe('paste');
+    expect(tool('粘贴')).toBeEnabled();
+
+    fireEvent.click(tool('粘贴'));
+    expect(armed()).toBe('paste'); // 只是换了负载来源
+    // 已是纯剪贴板态 → 再点一次 = 落回指针（§2 原则 3）
+    fireEvent.click(tool('粘贴'));
+    expect(armed()).toBe('pointer');
+  });
+
+  it('剪贴板为空 → 这一击退到指针（空剪贴板不进粘贴态，ADR-0008 §2.1）', () => {
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'paste-pattern' }));
+    expect(armed()).toBe('paste');
+    // 片段态下钮不能置灰，否则「回剪贴板」与「高亮退出」两条出口都没了
+    expect(tool('粘贴')).toBeEnabled();
+
+    fireEvent.click(tool('粘贴'));
+    expect(armed()).toBe('pointer');
   });
 });

@@ -2,7 +2,7 @@
 // issue 185 锁测：片段库抽屉（卡片 / 缩略图 / 搜索 / 改名 / 删除 / 收藏按钮）+ 183 外壳回归。
 import '@testing-library/jest-dom/vitest';
 import { useEffect } from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { EditingProvider, useEditing } from '@/src/app/providers/EditingProvider';
@@ -38,7 +38,14 @@ function SeedSelection() {
 }
 
 /** 抽屉 + 真实库 hook（内存后端）+ 真实收藏路径：断言的是"界面 → 库"的整条链 */
-function Harness({ store, readOnly = false }: { store: PatternStore; readOnly?: boolean }) {
+function Harness({
+  store, readOnly = false, onPaste = () => {}, activePatternId = null,
+}: {
+  store: PatternStore;
+  readOnly?: boolean;
+  onPaste?: (pattern: ReturnType<typeof makePattern>) => void;
+  activePatternId?: string | null;
+}) {
   const library = usePatternLibrary(store);
   const { canSave, save } = useSaveSelectionPattern(library);
   return (
@@ -47,6 +54,8 @@ function Harness({ store, readOnly = false }: { store: PatternStore; readOnly?: 
       canSaveSelection={canSave}
       readOnly={readOnly}
       onSaveSelection={() => void save()}
+      onPastePattern={onPaste}
+      activePatternId={activePatternId}
     />
   );
 }
@@ -56,6 +65,8 @@ function setup(opts: {
   readOnly?: boolean;
   withSelection?: boolean;
   loadFails?: boolean;
+  onPaste?: (pattern: ReturnType<typeof makePattern>) => void;
+  activePatternId?: string | null;
 } = {}) {
   seedZhSettings({ layout: { patternDrawer: { open: true, width: 300 } } });
   const memory = makeMemoryPatternStore(opts.seed ?? []);
@@ -67,7 +78,7 @@ function setup(opts: {
     <ConfigProvider>
       <EditingProvider>
         {opts.withSelection && <SeedSelection />}
-        <Harness store={store} readOnly={opts.readOnly} />
+        <Harness store={store} readOnly={opts.readOnly} onPaste={opts.onPaste} activePatternId={opts.activePatternId} />
       </EditingProvider>
     </ConfigProvider>,
   );
@@ -195,14 +206,20 @@ describe('issue 185 · 卡片', () => {
 
     // 三元素：名字、徽标、缩略图（读屏名带片段名，故按 role 查得到）
     expect(screen.getByText('片段 1')).toBeInTheDocument();
-    expect(screen.getByText('含 BPM 变化 · 2')).toBeInTheDocument();
-    expect(screen.getByText('含倒流')).toBeInTheDocument();
     expect(screen.getAllByRole('img', { name: /的缩略图/ })).toHaveLength(2);
 
     // 倒序：最新的「折返花活」在最上
     const names = cardNames();
     expect(names[0]).toContain('折返花活');
     expect(names[1]).toContain('片段 1');
+
+    // 徽标 = 速度跨度（issue 186 二轮）：无变化只有起点；有变化给「起点 → 峰值」
+    const cards = screen.getAllByRole('listitem');
+    expect(cards[0]).toHaveTextContent('BPM 120 → -120');
+    expect(cards[1]).toHaveTextContent('BPM 120');
+    // 负值只给那个数字上危险色；「含倒流」徽标已删
+    expect(screen.getByText('-120')).toHaveClass('is-negative');
+    expect(screen.queryByText('含倒流')).not.toBeInTheDocument();
   });
 
   it('动作入口常驻可见（不用 hover）；导出项在菜单里但禁用（动作落 187）', async () => {
@@ -369,5 +386,72 @@ describe('issue 185 · 只读谱面', () => {
     setup({ seed: seedLibrary() });
     await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
     expect(screen.queryAllByTitle(readonlyTitle)).toHaveLength(0);
+  });
+});
+
+describe('issue 186 · 点卡片进片段粘贴态', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  const card = (name: string) => screen.getByRole('button', { name: `把「${name}」贴到画布` });
+
+  it('点卡片：回调带上该片段；不写库', async () => {
+    const onPaste = vi.fn();
+    const memory = setup({ seed: seedLibrary(), onPaste });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    fireEvent.click(card('折返花活'));
+
+    expect(onPaste).toHaveBeenCalledTimes(1);
+    expect(onPaste.mock.calls[0]![0]).toMatchObject({ id: 'p2', name: '折返花活' });
+    expect(memory.saves).toBe(0);
+  });
+
+  it('名字也是卡片热区：单击切卡；双击改名时第二击不再切一次', async () => {
+    const onPaste = vi.fn();
+    setup({ seed: seedLibrary(), onPaste });
+    await waitFor(() => expect(screen.getByText('片段 1')).toBeInTheDocument());
+
+    // 单击名字 = 点卡片（issue 186 二轮：以前这块点不动）
+    fireEvent.click(screen.getByText('片段 1'));
+    expect(onPaste).toHaveBeenCalledTimes(1);
+
+    // 双击：第一击切卡，第二击（detail=2）被挡掉，dblclick 开改名
+    const name = screen.getByText('片段 1');
+    fireEvent.click(name, { detail: 1 });
+    fireEvent.click(name, { detail: 2 });
+    fireEvent.doubleClick(name);
+    expect(onPaste).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('textbox', { name: '重命名片段' })).toBeInTheDocument();
+  });
+
+  it('只读谱面：卡片置灰（aria-disabled）且点击不进态', async () => {
+    const onPaste = vi.fn();
+    setup({ seed: seedLibrary(), readOnly: true, onPaste });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    const hit = card('折返花活');
+    expect(hit).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(hit);
+    expect(onPaste).not.toHaveBeenCalled();
+  });
+
+  it('当前粘贴来源的卡片高亮（aria-pressed），其余为 false', async () => {
+    setup({ seed: seedLibrary(), activePatternId: 'p2' });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    expect(card('折返花活')).toHaveAttribute('aria-pressed', 'true');
+    expect(card('片段 1')).toHaveAttribute('aria-pressed', 'false');
+    // 高亮落在卡片那一层（CSS 只认 .pld-card.is-active）
+    expect(screen.getAllByRole('listitem')[0]).toHaveClass('is-active');
+    expect(screen.getAllByRole('listitem')[1]).not.toHaveClass('is-active');
+  });
+
+  it('只读谱面不会把卡片标成"当前来源"（哪怕 id 巧合）', async () => {
+    setup({ seed: seedLibrary(), readOnly: true, activePatternId: 'p2' });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+    expect(card('折返花活')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getAllByRole('listitem')[0]).not.toHaveClass('is-active');
   });
 });
