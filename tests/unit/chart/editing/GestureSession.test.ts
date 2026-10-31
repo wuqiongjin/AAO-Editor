@@ -332,7 +332,7 @@ describe('GestureSession · 框选通路（不变量 5 / 18）', () => {
     expect(after.y2).toBeCloseTo(before.y2, 5);
   });
 
-  it('issue 197：按住原地不动缩放时，不应起框（保持 null），松手点击位置对齐当前光标', () => {
+  it('issue 197：按住原地不动缩放时，不应起框（保持 null），松手安全取消单击（无误触）', () => {
     const notes = [bpmNote(0, 120)];
     const { world, at, virt } = worldOf(notes);
     const { host } = makeHost();
@@ -350,14 +350,56 @@ describe('GestureSession · 框选通路（不变量 5 / 18）', () => {
     // 未移动过阈值，缩放后绝不可凭空出现选框
     expect(s.getSnapshot().selectionBox).toBeNull();
 
-    // 原地松手，点击应在当前光标处或原点，而不是飞到几百像素外
+    // 方案 1（安全取消）：原地松手，应当 abort click，不触发单击动作（无放置/删除/选区）
     const clickSpy = vi.fn();
     (s as any).clickAt = clickSpy;
-    s.end(up(a));
-    expect(clickSpy).toHaveBeenCalledTimes(1);
-    const [clickX, clickY] = clickSpy.mock.calls[0];
-    expect(clickX).toBeCloseTo(a.x, 1);
-    expect(clickY).toBeCloseTo(a.y, 1);
+    const r = s.end(up(a));
+    expect(clickSpy).not.toHaveBeenCalled();
+    expect(r.ops).toHaveLength(0);
+  });
+
+  it('issue 197：右键按住原地不动缩放时，松手安全取消点删（无误触）', () => {
+    const notes = [bpmNote(0, 120), single(2, 40)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const a = at(2, 40);
+    press(s, a, virt, { button: 2 });
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 缩放到 1.5 倍
+    const zoomed = { ...world.viewport, scale: 1.5 };
+    s.bindWorld({ ...world, viewport: zoomed });
+    s.onViewportChange(zoomed, world.geometry, world.surface);
+
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 方案 1（安全取消）：右键松手不执行点删
+    const r = s.end(up(a, { button: 2 }));
+    expect(r.ops).toHaveLength(0);
+  });
+
+  it('issue 197：按住原地不动缩放后，若继续移动拖拽，正常进入框选', () => {
+    const notes = [bpmNote(0, 120)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const a = at(2, 40);
+    press(s, a, virt);
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 缩放到 1.5 倍
+    const zoomed = { ...world.viewport, scale: 1.5 };
+    s.bindWorld({ ...world, viewport: zoomed });
+    s.onViewportChange(zoomed, world.geometry, world.surface);
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 移动超过阈值起框
+    const b = { x: a.x + 20, y: a.y + 20 };
+    s.move(b);
+    expect(s.getSnapshot().selectionBox).not.toBeNull();
   });
 
   it('issue 197：框选中缩放，起点严格锚定按下时的谱面拍点与轨道，不发生反向形变', () => {

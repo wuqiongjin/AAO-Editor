@@ -9,7 +9,7 @@ import { bpmLabelBox, layoutBpmGutter, bpmCoincidentKey, GUTTER_LABEL_FONT_PX } 
 import {
   snapChartPos, hitPlaybackMarkerAt, hitBpmLabelAt, hitBpmGutterAt, nextBpmGutterAction,
   resolvePressIntent, resolveReleaseIntent, resolveClickPlan,
-  isInsideSurface, clampToSurface, hasMovedBeyondThreshold, marqueeRect,
+  isInsideSurface, clampToSurface, hasMovedBeyondThreshold, marqueeRect, anchorToCanvas,
   canStartMarquee, resolveBoxPlan,
   isPastChartEnd, canPlaceAtCursor, resolveExecNoteCodeHit, freezeGestureCursor,
   penExitCrossing, penCursorAt, resolveEscapeTarget,
@@ -628,6 +628,16 @@ describe('marqueeRect 框选矩形', () => {
     const posBack2 = geometry.posOfVirtualY(vBack2.y, zoomed.scale);
 
     expect(posBack2).toBeCloseTo(posBack1, 5);
+  });
+
+  it('issue 197：anchorToCanvas 在有 pos 时优先使用 pos 换算当前 scale 下的虚拟 Y', () => {
+    const { geometry, viewport } = makeDeps(notes);
+    const pos = 1000;
+    const vyCurrent = geometry.virtualYOfPos(pos, viewport.scale);
+    const expected = geometry.virtualToCanvas(150, vyCurrent, viewport);
+    const pt = anchorToCanvas({ vx: 150, pos }, { geometry, viewport });
+    expect(pt.x).toBeCloseTo(expected.x, 6);
+    expect(pt.y).toBeCloseTo(expected.y, 6);
   });
 
   it('issue 63：光标端钳进渲染面（光标拖出画布，矩形不越界、松手照常结算）', () => {

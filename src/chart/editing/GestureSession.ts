@@ -27,6 +27,7 @@ import {
   resolveClickPlan,
   hasMovedBeyondThreshold,
   marqueeRect,
+  anchorToCanvas,
   canStartMarquee,
   resolveBoxPlan,
   penCursorAt,
@@ -147,6 +148,14 @@ const emptySnapshot = (): GestureSnapshot => ({
   cursorStyle: '',
 });
 
+export interface GestureStartAnchor {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  pos: number;
+}
+
 export type GestureSessionListener = (snapshot: GestureSnapshot) => void;
 
 /**
@@ -159,9 +168,11 @@ export class GestureSession {
   private listeners = new Set<GestureSessionListener>();
   private snap: GestureSnapshot = emptySnapshot();
 
-  private start: { x: number; y: number; vx: number; vy: number; pos: number } | null = null;
+  private start: GestureStartAnchor | null = null;
   private moved = false;
   private cancelled = false;
+  /** issue 197（方案 1，用户拍板）：按下期间若触发视口缩放/滚动，抬手作废本次单击（abort click） */
+  private viewportChangedDuringPress = false;
   /** 手势进行中最后一次输入的画布坐标（拖拽/框选/画笔共用这一份） */
   private pointerPx: { x: number; y: number } | null = null;
 
@@ -209,6 +220,7 @@ export class GestureSession {
 
   begin(input: GestureBeginInput): GestureResult {
     this.cancelled = false;
+    this.viewportChangedDuringPress = false;
     const w = this.requireWorld();
     const pos = w.geometry.posOfVirtualY(input.vy, w.viewport.scale);
     if (input.button === 2) {
@@ -310,6 +322,7 @@ export class GestureSession {
     const box = this.snap.selectionBox;
     const drag = this.drag;
     const pen = this.pen;
+    const viewportChanged = this.viewportChangedDuringPress;
     const intent = resolveReleaseIntent({
       e, start, moved, drag, box, pen: pen !== null,
     });
@@ -320,6 +333,7 @@ export class GestureSession {
     this.pen = null;
     this.pointerPx = null;
     this.moved = false;
+    this.viewportChangedDuringPress = false;
     this.clearPenTimer();
     this.host.setCursor('');
     this.patchSnap({
@@ -337,9 +351,11 @@ export class GestureSession {
     if (intent === 'commitDrag' && drag) return this.result(this.commitDrag(drag, e));
     if (intent === 'commitBox' && box) return this.result(this.commitBox(box));
     if (intent === 'click') {
+      // issue 197（方案 1，用户拍板）：按下期间若发生视口变化且未移动（未产生拖拽/选框），
+      // 抬手安全作废本次单击（abort click），防止用户缩放视口后误触放置/删除/选区。
+      if (viewportChanged) return this.result();
       const w = this.requireWorld();
-      const vy = w.geometry.virtualYOfPos(start.pos, w.viewport.scale);
-      const p = w.geometry.virtualToCanvas(start.vx, vy, w.viewport);
+      const p = anchorToCanvas(start, { geometry: w.geometry, viewport: w.viewport });
       return this.result(this.clickAt(p.x, p.y, e));
     }
     return this.result();
@@ -354,6 +370,7 @@ export class GestureSession {
     this.dragFrozen = null;
     this.start = null;
     this.moved = false;
+    this.viewportChangedDuringPress = false;
     this.pointerPx = null;
     this.clearPenTimer();
     this.host.setCursor('');
@@ -375,6 +392,7 @@ export class GestureSession {
     }
     const w = this.world;
     if (!w || !this.start) return this.result();
+    this.viewportChangedDuringPress = true;
     const cursor = this.pointerPx;
 
     // issue 197：若尚未越过阈值（原地按住未移动），缩放不产生选框；
@@ -439,9 +457,11 @@ export class GestureSession {
 
   private commitRightUp(e: GestureEndInput | null): GestureResult {
     const box = this.snap.selectionBox;
+    const viewportChanged = this.viewportChangedDuringPress;
     this.start = null;
     this.moved = false;
     this.pointerPx = null;
+    this.viewportChangedDuringPress = false;
     this.host.setCursor('');
     this.patchSnap({
       rightButtonHeld: false,
@@ -463,6 +483,8 @@ export class GestureSession {
       const bpmInBox = computeBpmLinesInBox(box, boxDeps);
       return this.result(boxSelectOps('delete', w.notes, items, bpmInBox, w.curveConfig, w.beatDisplay));
     }
+    // issue 197（方案 1，用户拍板）：右键按下期间若发生视口变化且无选框，抬手安全作废点删
+    if (viewportChanged) return this.result();
     const hit = findItemAt(e.x, e.y, this.hitDeps()) ?? findBpmLineAt(e.x, e.y, this.hitDeps());
     if (!hit) return this.result();
     return this.result([
