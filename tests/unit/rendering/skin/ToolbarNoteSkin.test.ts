@@ -27,6 +27,13 @@ const toolbarSrc = stripComments(readSource('src/pages/workspace/WorkspaceToolRa
 const glyphHelperLine = toolbarSrc.split('\n').find((l) => l.includes('const glyph =')) ?? '';
 const glyphSrc = stripComments(readSource('src/rendering/primitives/NoteIconGlyph.tsx'));
 
+/** 从工具轨源码取 NoteIconGlyph 的 size（避免测试里再抄一份数字，尺寸断言与实现同源） */
+function toolbarGlyphSize(): number {
+  const matched = glyphHelperLine.match(/size=\{(\d+)\}/);
+  if (!matched) throw new Error('WorkspaceToolRail 未找到 NoteIconGlyph size={…}');
+  return Number(matched[1]);
+}
+
 /** 递归收集目录下的 .ts / .tsx 文件（跳过 node_modules；目录不存在返回空——tools/ 已随 chore 895c3361 从 git 移除，fresh clone 没有它） */
 function walkTs(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -246,12 +253,27 @@ describe('issue 114 · 曲线工具图标 = 一段弯的 SP 带（无端点）',
   });
 });
 
-describe('issue 91 · 工具栏字形尺寸 + 滑条构图统一（band:结点 = 30:36）', () => {
-  // 票 183：工具轨按钮 40×40，字形从左栏的 28px 收到 26px（180 原型定稿）
-  it('音符工具与曲线工具的 NoteIconGlyph 统一 size={26}（同一个 glyph 出口）', () => {
-    expect(glyphHelperLine).toContain('size={26}');
+describe('issue 194 · 工具轨字形尺寸（28px，与 main 对齐）', () => {
+  // 183 曾把工具轨字形收到 26px；26 在 dpr 1.25 / 1.75 下画布物理盒落半像素 → 台阶锯齿（194）。
+  // 28 是 4 的倍数，常见 dpr 下画布盒都是整数物理像素（main 已验证的基线）。
+  it('音符工具与曲线工具的 NoteIconGlyph 统一 size={28}（同一个 glyph 出口）', () => {
+    expect(glyphHelperLine).toContain('size={28}');
   });
 
+  it('字形盒 × 常见 dpr 必须是整数物理像素（挡住 26/27 类半像素回归）', () => {
+    const size = toolbarGlyphSize();
+    const items: ToolGlyphItem[] = ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide', 'curve'];
+    for (const item of items) {
+      const box = glyphBox(ICONS, item, size);
+      for (const dpr of [1, 1.25, 1.5, 1.75, 2]) {
+        expect(Number.isInteger(box.w * dpr), `${item} 宽 ${box.w}×${dpr}px 落在半像素`).toBe(true);
+        expect(Number.isInteger(box.h * dpr), `${item} 高 ${box.h}×${dpr}px 落在半像素`).toBe(true);
+      }
+    }
+  });
+});
+
+describe('issue 91 · 滑条构图统一（band:结点 = 30:36）', () => {
   it('工具栏滑条字形（只画"段"）：band 纵向铺满，宽 = 键型本体宽 × 30/36', () => {
     for (const size of [18, 28, 32]) {
       const g = slideGlyphGeometry(size);

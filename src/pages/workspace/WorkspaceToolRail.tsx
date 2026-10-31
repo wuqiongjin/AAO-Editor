@@ -34,7 +34,9 @@ export default memo(function WorkspaceToolRail() {
   );
 
   const hasSelection = selectedItems.length > 0;
-  const glyph = (item: ToolGlyphItem) => <NoteIconGlyph icons={noteIcons} item={item} size={26} />;
+  // issue 194：字形用 28px（与 main 一致）。28 是 4 的倍数，dpr 1.25 / 1.75 下画布盒
+  // 仍是整数物理像素；183 的 26px 会落在半像素，方向键边缘出现台阶锯齿。
+  const glyph = (item: ToolGlyphItem) => <NoteIconGlyph icons={noteIcons} item={item} size={28} />;
   const groups: RailTool[][] = [
     [{ id: 'mouse', icon: <MousePointer2 size={18} />, labelKey: 'tool.pointer' }],
     [
