@@ -49,8 +49,8 @@ export const UPLOAD_FILE_FIELD = 'file';
 /** 平台「这份字节已经上传过」的业务码（内容寻址的复用信号，不是错误） */
 const ALREADY_UPLOADED_CODE = 'ALREADY_UPLOADED';
 
-/** 上传状态轮询：间隔与次数（wrapper 口径「最多重试 5 次」的放宽版；未就绪就明说，不静默成功） */
-const UPLOAD_STATUS_ATTEMPTS = 10;
+/** 上传状态轮询：间隔与次数（票 55 放宽至 30 次约 30~45s，适应音频后台转码分析；未就绪明说，不静默成功） */
+const UPLOAD_STATUS_ATTEMPTS = 30;
 const UPLOAD_STATUS_INTERVAL_MS = 1000;
 
 /** 一个待上传文件的引用（页面从 projectStore.uploadRefs 拿；字节不过 IPC） */
@@ -258,20 +258,28 @@ async function uploadBinaryFile(
       headers: { ...bestdoriHeaders(), 'content-type': 'application/json' },
       body: JSON.stringify({ ver: BESTDORI_UPLOAD_VER, hash: file.hash, size: file.size }),
       timeoutMs: BESTDORI_BINARY_TIMEOUT_MS,
+      silentPlatformCodes: [ALREADY_UPLOADED_CODE],
     });
   } catch (error) {
     if (!isAlreadyUploaded(error)) throw error;
     return uploadedFileUrl(file.hash);
   }
 
-  const uploaded = await transport.requestJson({
-    url: uploadUrl(),
-    method: 'POST',
-    headers: bestdoriHeaders(),
-    // 字节不过 IPC：渲染侧只递路径，主进程读文件拼 multipart（见 communityNet.cjs）
-    multipart: { field: UPLOAD_FILE_FIELD, filePath: file.path, fileName: file.fileName },
-    timeoutMs: BESTDORI_BINARY_TIMEOUT_MS,
-  });
+  let uploaded: unknown;
+  try {
+    uploaded = await transport.requestJson({
+      url: uploadUrl(),
+      method: 'POST',
+      headers: bestdoriHeaders(),
+      // 字节不过 IPC：渲染侧只递路径，主进程读文件拼 multipart（见 communityNet.cjs）
+      multipart: { field: UPLOAD_FILE_FIELD, filePath: file.path, fileName: file.fileName },
+      timeoutMs: BESTDORI_BINARY_TIMEOUT_MS,
+      silentPlatformCodes: [ALREADY_UPLOADED_CODE],
+    });
+  } catch (error) {
+    if (!isAlreadyUploaded(error)) throw error;
+    return uploadedFileUrl(file.hash);
+  }
   const hash = uploadedHashOf(uploaded, file.hash);
 
   for (let attempt = 0; attempt < UPLOAD_STATUS_ATTEMPTS; attempt += 1) {
@@ -282,6 +290,7 @@ async function uploadBinaryFile(
         method: 'GET',
         headers: bestdoriHeaders(),
         timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+        revalidate: true,
       }),
       { policy: BESTDORI_RETRY_POLICY },
     );

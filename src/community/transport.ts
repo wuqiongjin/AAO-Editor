@@ -137,6 +137,11 @@ export interface CommunityRequest {
    * `body` 必须省略；上传是写路径，不进缓存、不套退避。
    */
   multipart?: MultipartUpload;
+  /**
+   * 预期内的业务平台码列表（如内容寻址去重复用的 'ALREADY_UPLOADED'）。
+   * 命中时不作为非预期错误写入 errors 日志，交由调用方自行分支处理（票 55）。
+   */
+  silentPlatformCodes?: string[];
 }
 
 /** multipart 上传描述（`file` 字段；平台侧字段名固定，见 publish.ts） */

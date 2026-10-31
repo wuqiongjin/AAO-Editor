@@ -18,10 +18,20 @@ import {
   type StagedBinary,
 } from './transport';
 
-/** 出口抛错时落盘。`unsupported-runtime` 是预期降级，不写 errors 日志。 */
-function logCommunityError(error: unknown): void {
+/**
+ * 出口抛错时落盘。
+ * - `unsupported-runtime` 是预期降级，不写 errors 日志。
+ * - `req.silentPlatformCodes` 包含的平台业务码是调用方预期的分支（如内容寻址去重复用），不写 errors 日志（票 55）。
+ */
+function logCommunityError(error: unknown, req?: CommunityRequest): void {
   if (!isCommunityError(error)) return;
   if (error.kind === 'unsupported-runtime') return;
+  if (
+    error.platformCode !== undefined &&
+    req?.silentPlatformCodes?.includes(error.platformCode)
+  ) {
+    return;
+  }
   logger.error('[community]', error.message, communityErrorLogExtra(error));
 }
 
@@ -114,7 +124,7 @@ export class ElectronCommunityTransport implements CommunityTransport {
     }
     if (!result.ok) {
       const error = new CommunityError(result.error.message, result.error);
-      logCommunityError(error);
+      logCommunityError(error, req);
       throw error;
     }
     return result;

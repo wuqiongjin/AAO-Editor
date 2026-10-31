@@ -99,6 +99,8 @@ const DEFAULT_ACCEPT = { json: 'application/json', text: 'text/plain', binary: '
  *     既免得反复打平台，也不把一张网页钉死 30 天（平台后来补上的素材还能取到）；
  *   - 例外：**会话身份**（`GET /api/user/me`，票 40）不进缓存 —— 键是 URL、不含 Cookie，
  *     换账号会把上一份资料当成新鲜副本；曲库 / 帖子列表仍按 URL 缓存；
+ *   - 例外：**上传状态轮询**（`GET /api/upload/status/`，票 55）不进缓存 —— 动态轮询接口，
+ *     首发通常为 processing，缓存 24h 会导致后续重试读本地旧值死锁超时；
  *   - `revalidate: true`（用户主动刷新，票 09）：跳过缓存读、真打一发并写回。
  * 条目回收（30 天未用 / 1GB 上限）在 assetCache.sweep() 里，网关只负责存与取。
  */
@@ -109,6 +111,15 @@ const FALLBACK_FRESH_MS = 60 * 60 * 1000;
 function isSessionIdentityUrl(rawUrl) {
     try {
         return new URL(rawUrl).pathname === '/api/user/me';
+    } catch {
+        return false;
+    }
+}
+
+/** 动态上传状态轮询不能按 URL 缓存（票 55）：首包通常为 processing，缓存会导致后续轮询全部读旧值死锁 */
+function isUploadStatusUrl(rawUrl) {
+    try {
+        return new URL(rawUrl).pathname.startsWith('/api/upload/status/');
     } catch {
         return false;
     }
@@ -533,7 +544,7 @@ function createCommunityGateway(options) {
         if (assetCache == null) return null;
         if (req.method !== 'GET' && !req.cacheable) return null;
         if (req.revalidate) return null;
-        if (isSessionIdentityUrl(req.url)) return null;
+        if (isSessionIdentityUrl(req.url) || isUploadStatusUrl(req.url)) return null;
         const kind = cacheKindOf(req);
         const entry = await assetCache.lookup({ url: req.cacheKey, kind });
         if (entry == null) return null;
@@ -586,7 +597,7 @@ function createCommunityGateway(options) {
         if (assetCache == null) return;
         // 只有「缓存许可」的请求才写：GET 的 json / text 与显式声明 cacheable 的读型 POST
         if (req.method !== 'GET' && !req.cacheable) return;
-        if (isSessionIdentityUrl(req.url)) return;
+        if (isSessionIdentityUrl(req.url) || isUploadStatusUrl(req.url)) return;
         try {
             await assetCache.store({
                 url: req.cacheKey,

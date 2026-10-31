@@ -767,6 +767,23 @@ describe('票 14 · 素材缓存命中：GET 不碰网络', () => {
     });
   });
 
+  it('票 55 · GET /api/upload/status/{hash} 不进 json 缓存（状态轮询按 URL 缓存会导致后续重试死锁）', async () => {
+    await withTmpCache(async (dir) => {
+      let status = 'processing';
+      const { gateway, fetch } = gatewayWith(
+        () => response({ body: { result: true, status } }),
+        { dir },
+      );
+      const statusUrl = 'https://bestdori.com/api/upload/status/0123456789abcdef0123456789abcdef01234567';
+
+      await expect(gateway.request({ url: statusUrl })).resolves.toMatchObject({ data: { status: 'processing' } });
+      status = 'available';
+      await expect(gateway.request({ url: statusUrl })).resolves.toMatchObject({ data: { status: 'available' } });
+      expect(fetch.calls).toHaveLength(2);
+      expect(readdirSync(dir).filter((name) => name !== 'index.json')).toHaveLength(0);
+    });
+  });
+
   it('POST 默认不进缓存（发帖 / 登录都是写）', async () => {
     await withTmpCache(async (dir) => {
       const { gateway, fetch } = gatewayWith(() => response({ body: { result: true } }), { dir });

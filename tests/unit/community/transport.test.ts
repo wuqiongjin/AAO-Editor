@@ -222,6 +222,20 @@ describe('票 05 · 社区失败落盘（出口抛错时）', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it('票 55 · silentPlatformCodes 声明的业务码属于预期分支，不记入 logger.error（避免误报错误）', async () => {
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const { bridge } = fakeBridge(
+      failWire('invalid-response', { httpStatus: 200, platformCode: 'ALREADY_UPLOADED' }),
+    );
+    await expect(
+      new ElectronCommunityTransport(bridge).requestJson({
+        url: 'https://bestdori.com/api/upload/prepare',
+        silentPlatformCodes: ['ALREADY_UPLOADED'],
+      }),
+    ).rejects.toMatchObject({ platformCode: 'ALREADY_UPLOADED' });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('可重试失败每次 send 都落一行（中间失败也写）', async () => {
     const spy = vi.spyOn(logger, 'error').mockImplementation(() => {});
     const { bridge } = fakeBridge(failWire('timeout'), failWire('timeout'), failWire('timeout'));

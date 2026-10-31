@@ -221,7 +221,7 @@ describe('票 11 · 三步二进制上传', () => {
     expect(requests.filter((r) => r.url === statusUrl(hash))).toHaveLength(3);
   });
 
-  it('status 一直不就绪：次数用完报 invalid-response，不发帖', async () => {
+  it('status 一直不就绪：次数用完报 invalid-response，不发帖（放宽至 30 次且带 revalidate）', async () => {
     const hash = 'e'.repeat(40);
     const { outcome, requests } = await run(
       {
@@ -234,8 +234,29 @@ describe('票 11 · 三步二进制上传', () => {
     );
 
     expect(outcome).toEqual({ ok: false, failure: 'rejected' });
-    expect(requests.filter((r) => r.url === statusUrl(hash))).toHaveLength(10);
+    const statusReqs = requests.filter((r) => r.url === statusUrl(hash));
+    expect(statusReqs).toHaveLength(30);
+    expect(statusReqs.every((r) => r.revalidate === true)).toBe(true);
     expect(requests.some((r) => r.url === POST_URL)).toBe(false);
+  });
+
+  it('upload（第二步）遇 ALREADY_UPLOADED：跳过轮询，直接回引用地址', async () => {
+    const { outcome, requests } = await run(
+      {
+        [PREPARE_URL]: { result: true },
+        [UPLOAD_URL]: platformError('invalid-response', 'ALREADY_UPLOADED'),
+        [statusUrl(FILE_AUDIO.hash)]: { status: 'available' },
+        [POST_URL]: { result: true, id: 254203 },
+      },
+      makeInput({ song: { kind: 'custom', audio: FILE_AUDIO, cover: null } }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    expect(requests.map((r) => r.url)).toEqual([PREPARE_URL, UPLOAD_URL, POST_URL]);
+    expect(postBodyOf(requests).song).toEqual({
+      type: 'custom',
+      audio: uploadedFileUrl(FILE_AUDIO.hash),
+    });
   });
 
   it('bandori 帖零上传：不发 prepare / upload / status', async () => {
@@ -252,7 +273,7 @@ describe('票 11 · 三步二进制上传', () => {
     const withCover = await run(
       {
         [PREPARE_URL]: { result: true },
-        [UPLOAD_URL]: (req) => ({ hash: req.multipart?.fileName === FILE_COVER.fileName ? hashCover : hashAudio }),
+        [UPLOAD_URL]: (req: CommunityRequest) => ({ hash: req.multipart?.fileName === FILE_COVER.fileName ? hashCover : hashAudio }),
         [statusUrl(hashAudio)]: { status: 'available' },
         [statusUrl(hashCover)]: { status: 'available' },
         [POST_URL]: { result: true, id: 2 },
