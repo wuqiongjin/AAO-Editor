@@ -98,7 +98,7 @@ A **chart project** is one song: project info, audio, cover art and multiple cha
 
 ### Simulation field playback and video export
 
-- **Game-style simulation field**: notes that scale along the approach model, hit effects, combo digits and hold rings; field skins and performance backgrounds are selectable.
+- **Game-style simulation field**: notes that scale along the approach model, hit effects, combo digits and hold rings; field skins and performance backgrounds are selectable, with background brightness adjustment and lane asset previews.
 - **Real-time playback**: 0.25× – 2× speed; with audio you get BGM + key sounds, without audio a synthetic timeline drives playback.
 - **Offline video export**: frame-by-frame rendering with WebCodecs encoding — MP4 / WebM, 1080p / 720p, optional mute; a fixed 5-second song info opening (cover + difficulty + title + band) is prepended to every video.
 

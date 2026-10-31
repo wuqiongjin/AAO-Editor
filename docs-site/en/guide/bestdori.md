@@ -44,7 +44,7 @@ Before publishing, be sure: **once posted, the chart itself can't be edited or d
 
 ## Upload records and read-only charts
 
-- Project detail's **Upload records** lists the posts this project published, with post IDs.
+- Project detail's **Upload records** lists the posts this project published, with post IDs and the publishing username (to distinguish ownership across multiple accounts).
 - A chart with an upload record shows as *uploaded* and becomes **read-only** in the editor: you can view, preview, and play it, and every edit entry asks you to copy the chart first.
 - A copy carries no upload state; edit it freely and publish it as a new chart.
 

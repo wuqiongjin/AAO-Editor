@@ -85,7 +85,8 @@ The workspace edits one chart of the current project: toolbar on the left, track
 **Simulation playback**
 
 - Plays like the game: scaled notes, hit effects, combo numbers, simultaneous-hit rings.
-- Field skin pack and performance background are chosen independently — **use the packs actually listed in the preview** (assets change between versions).
+- Field skin pack and performance background are chosen independently — **use the packs actually listed in the preview** (assets change between versions); the lane asset picker displays in a 4-column grid with live hover and focus previews.
+- Background brightness is adjustable 0%–100% (default 70%), dimming the background to enhance note visibility across both live playback and video export.
 - Note speed is adjustable 1–12 (default 9.5) and only affects the dynamic view.
 - Speed presets run 0.25×–2×; custom input is clamped to 0.1×–4×.
 
