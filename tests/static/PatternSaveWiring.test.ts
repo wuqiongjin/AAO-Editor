@@ -1,7 +1,10 @@
 // issue 185 静态锁：收藏选区这条链的**接线事实**（组件行为测不到的部分）。
 // 1. `execSavePattern` 不属于谱面修改类功能 —— 收藏读的是选区、不写谱面，只读谱面也允许；
-// 2. 工作台真的把它分发出去，并把库 + 只读态交给抽屉；
-// 3. 抽屉的收藏按钮只按**选区**置灰，绝不被只读态一起灰掉。
+// 2. 工作台真的把它分发出去，并把库 + 只读态 + "有没有选区" 交给抽屉；
+// 3. 库状态活在页面（抽屉关着也能收藏），不是抽屉自持。
+//
+// 「收藏按钮只按选区置灰」「只读卡片带说明」这些是**组件行为**，由
+// `tests/dom/workspace/PatternLibraryDrawer.test.tsx` 锁，这里不逐字读源码行。
 import { describe, expect, it } from 'vitest';
 import { CHART_EDIT_FUNCTIONS } from '@/src/project/chartReadonlyGate';
 import { FUNCTIONS, getDefaultConfig, resolveAction } from '@/src/chart/config/ShortcutConfig';
@@ -32,11 +35,12 @@ describe('issue 185 · 工作台接线', () => {
 
   it('分发 execSavePattern 到同一个收藏入口', () => {
     expect(page).toContain("case 'execSavePattern'");
-    expect(page).toContain('saveSelectionPattern');
+    expect(page).toContain('saveSelection');
   });
 
-  it('抽屉拿到页面持有的库与只读态', () => {
+  it('抽屉拿到页面持有的库、只读态、选区可收藏态与收藏回调', () => {
     expect(page).toMatch(/<PatternLibraryDrawer[\s\S]*?library=\{patternLibrary\}/);
+    expect(page).toMatch(/<PatternLibraryDrawer[\s\S]*?canSaveSelection=\{canSaveSelection\}/);
     expect(page).toMatch(/<PatternLibraryDrawer[\s\S]*?readOnly=\{isReadOnly\}/);
     expect(page).toMatch(/<PatternLibraryDrawer[\s\S]*?onSaveSelection=/);
   });
@@ -44,21 +48,5 @@ describe('issue 185 · 工作台接线', () => {
   it('库状态活在页面（抽屉关着也能收藏），不是抽屉自持', () => {
     expect(page).toContain('usePatternLibrary()');
     expect(page).toContain('useSaveSelectionPattern(patternLibrary)');
-  });
-});
-
-describe('issue 185 · 抽屉的置灰口径', () => {
-  const drawer = readStripped('src/pages/workspace/PatternLibraryDrawer.tsx');
-
-  it('收藏按钮只看选区', () => {
-    expect(drawer).toContain('const canSave = selectedItems.length > 0;');
-    expect(drawer).toContain('disabled={!canSave}');
-    // 只读态不得出现在收藏按钮的禁用条件里（"两者不能一起灰"）
-    expect(drawer).not.toMatch(/disabled=\{[^}]*readOnly[^}]*\}/);
-  });
-
-  it('只读态作用在卡片上（贴入被拦，186）', () => {
-    expect(drawer).toContain('is-readonly');
-    expect(drawer).toContain('patternLibrary.readonlyCard');
   });
 });

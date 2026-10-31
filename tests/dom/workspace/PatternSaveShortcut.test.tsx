@@ -39,17 +39,17 @@ function SeedSelection({ withSelection }: { withSelection: boolean }) {
  */
 function ShortcutHarness({ store }: { store: PatternStore }) {
   const library = usePatternLibrary(store);
-  const saveSelection = useSaveSelectionPattern(library);
+  const { save } = useSaveSelectionPattern(library);
   const { settings } = useConfig();
   const runFunction = useCallback((fn: FunctionId) => {
-    if (fn === 'execSavePattern') void saveSelection();
-  }, [saveSelection]);
+    if (fn === 'execSavePattern') void save();
+  }, [save]);
   useShortcutDispatch({ shortcutConfig: settings.shortcuts, active: true, runFunction, onEscape: () => {} });
 
   return (
     <>
       <span>{`drawer:${settings.layout.patternDrawer.open ? 'open' : 'closed'}`}</span>
-      <span data-testid="library-count">{`count:${library.patterns.length}`}</span>
+      <span>{`count:${library.patterns.length}`}</span>
     </>
   );
 }
@@ -88,7 +88,7 @@ describe('issue 185 · 收藏快捷键', () => {
     expect(memory.disk[0]!.notes).toHaveLength(1);
     // 载荷带速度语境（片段 = 音符 + 语境，不是裸音符）
     expect(memory.disk[0]!.bpmContext.startBpm).toBe(120);
-    expect(screen.getByTestId('library-count')).toHaveTextContent('count:1');
+    expect(screen.getByText('count:1')).toBeInTheDocument();
   });
 
   it('无选区：无事发生（不写盘、不提示）', async () => {

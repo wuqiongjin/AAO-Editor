@@ -39,6 +39,29 @@ describe('issue 185 · usePatternLibrary', () => {
     expect(disk.map((pattern) => pattern.name)).toEqual(['片段 1', '旧片段']);
   });
 
+  it('读失败：不冒充空库，且拒绝一切写入（不会把原库整份抹掉）', async () => {
+    dismissToast();
+    let saves = 0;
+    const store = new PatternStore({
+      load: async () => { throw new Error('blocked'); },
+      saveAll: async () => { saves += 1; },
+    });
+    const { result } = renderHook(() => usePatternLibrary(store));
+    await waitFor(() => expect(result.current.status).toBe('error'));
+
+    let saved: Pattern | null = makePattern();
+    await act(async () => { saved = await result.current.addFromSelection(NOTES, SELECTION); });
+    expect(saved).toBeNull();
+
+    let renamed = true;
+    await act(async () => { renamed = await result.current.rename('p1', '新名'); });
+    expect(renamed).toBe(false);
+
+    await act(async () => { await result.current.remove('p1'); });
+    expect(saves).toBe(0);
+    expect(result.current.patterns).toEqual([]);
+  });
+
   it('空选区 → null，且不写盘', async () => {
     dismissToast();
     const memory = makeMemoryPatternStore();

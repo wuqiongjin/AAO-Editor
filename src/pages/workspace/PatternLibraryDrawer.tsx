@@ -3,17 +3,17 @@
 // 外壳口径（183）：展开占布局（不压画布）、左缘可拖宽、收起完全消失。
 // 内容口径（185 / 164 定案 §3）：
 // - 卡片 = 缩略图 + 名字 + 徽标（含 BPM 变化 · n / 含倒流）+ hover 菜单（导出 —— 动作落 187 / 删除）；
-// - 顶部常驻搜索：按名字子串过滤（不区分大小写）；「库里没有片段」与「搜索无匹配」是两套空态；
-// - 收藏时间倒序（最新在最上）；
+// - 顶部常驻搜索：按名字子串过滤（不区分大小写）；「库里没有片段」「搜索无匹配」「库读不出来」是三套空态；
+// - 收藏时间倒序（最新在最上，排序是库的口径，本组件不重排）；
 // - 双击名字就地改名（Enter 提交 / Esc 取消，与 BPM 数字同一套词汇；空名拒绝、超长只截显示）；
 // - 删除走既有 `sm` 确认弹窗，立即删、不建撤销栈；
 // - 只读谱面：**卡片置灰**（贴入被拦，186），但「收藏选区」照常可用 —— 收藏读的是选区、不写谱面。
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { BookmarkPlus, FileDown, LibraryBig, Search, Trash2, X } from 'lucide-react';
-import { useConfig, useEditing } from '../../app/ProviderTree';
+import { useConfig } from '../../app/ProviderTree';
 import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
 import { formatKey } from '../../chart/config/ShortcutConfig';
-import { filterPatternsByName, patternBpmSummary, sortPatternsNewestFirst } from '../../chart/patterns/library';
+import { filterPatternsByName, patternBpmSummary } from '../../chart/patterns/library';
 import type { Pattern } from '../../chart/patterns/types';
 import type { PatternLibraryApi } from '../../chart/patterns/usePatternLibrary';
 import { t } from '../../i18n';
@@ -24,6 +24,8 @@ import './PatternLibraryDrawer.css';
 interface PatternLibraryDrawerProps {
   /** 库状态与写入口（活在 WorkspacePage：抽屉没开也能用快捷键收藏） */
   library: PatternLibraryApi;
+  /** 当前有选区 → 「收藏选区」可点（与快捷键同一判据，由页面给出） */
+  canSaveSelection: boolean;
   /** 已上传谱面只读：卡片置灰；「收藏选区」不禁用 */
   readOnly?: boolean;
   /** footer「收藏选区」：与 `execSavePattern` 同一条路径（选区 → 落库 → toast） */
@@ -33,10 +35,9 @@ interface PatternLibraryDrawerProps {
 }
 
 export default memo(function PatternLibraryDrawer({
-  library, readOnly = false, onSaveSelection, onResizingChange,
+  library, canSaveSelection, readOnly = false, onSaveSelection, onResizingChange,
 }: PatternLibraryDrawerProps) {
   const { settings, setPatternDrawer } = useConfig();
-  const { selectedItems } = useEditing();
   const storedWidth = settings.layout.patternDrawer.width;
   // 拖动中只改本地宽度，松手才写设置：每帧写 localStorage + 广播设置变更不划算
   const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -73,10 +74,9 @@ export default memo(function PatternLibraryDrawer({
     };
   }, [resizing, setPatternDrawer]);
 
-  // 搜索只筛显示，不改库（排序是库口径：收藏时间倒序）
+  // 搜索只筛显示，不改库
   const [query, setQuery] = useState('');
-  const ordered = useMemo(() => sortPatternsNewestFirst(library.patterns), [library.patterns]);
-  const visible = useMemo(() => filterPatternsByName(ordered, query), [ordered, query]);
+  const visible = useMemo(() => filterPatternsByName(library.patterns, query), [library.patterns, query]);
 
   // 就地改名（一次只编辑一条；草稿与目标分开存）
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
@@ -101,7 +101,6 @@ export default memo(function PatternLibraryDrawer({
     void library.rename(id, draft);
   };
 
-  const canSave = selectedItems.length > 0;
   const saveKey = formatKey(settings.shortcuts.execSavePattern);
 
   return (
@@ -158,6 +157,13 @@ export default memo(function PatternLibraryDrawer({
         {library.status === 'loading' ? (
           // 载入中不是空库：显示"还没有收藏"会误导（有片段的库也会先闪一下这句）
           <div className="pld__body-placeholder" aria-busy="true" />
+        ) : library.status === 'error' ? (
+          // 读不出来也不是空库：如实说，并提示这轮不写入（防止覆盖原库）
+          <div className="pld__empty">
+            <LibraryBig size={28} aria-hidden />
+            <b>{t('patternLibrary.loadFailedTitle')}</b>
+            <span>{t('patternLibrary.loadFailedHint')}</span>
+          </div>
         ) : library.patterns.length === 0 ? (
           <div className="pld__empty">
             <LibraryBig size={28} aria-hidden />
@@ -253,9 +259,11 @@ export default memo(function PatternLibraryDrawer({
         <button
           type="button"
           className="pld__save"
-          disabled={!canSave}
+          disabled={!canSaveSelection}
           onClick={onSaveSelection}
-          title={canSave ? `${t('patternLibrary.save')} (${saveKey})` : t('patternLibrary.saveNeedsSelection')}
+          title={canSaveSelection
+            ? `${t('patternLibrary.save')} (${saveKey})`
+            : t('patternLibrary.saveNeedsSelection')}
         >
           <BookmarkPlus size={15} aria-hidden />
           {t('patternLibrary.save')}

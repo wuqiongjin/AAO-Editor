@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { buildPatternThumbnailScene, drawPatternThumbnail } from '../../chart/patterns/thumbnail';
 import type { Pattern } from '../../chart/patterns/types';
+import { t } from '../../i18n';
 
 export default function PatternThumbnail({ pattern }: { pattern: Pattern }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -33,5 +34,13 @@ export default function PatternThumbnail({ pattern }: { pattern: Pattern }) {
     return () => observer.disconnect();
   }, [pattern]);
 
-  return <canvas ref={canvasRef} className="pld-card__thumb-canvas" aria-hidden="true" />;
+  // 缩略图是卡片的第三元素（形状速写），对读屏给一句话而不是一串无名像素
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pld-card__thumb-canvas"
+      role="img"
+      aria-label={t('patternLibrary.thumbnail', { name: pattern.name })}
+    />
+  );
 }

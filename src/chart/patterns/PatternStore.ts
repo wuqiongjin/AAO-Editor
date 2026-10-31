@@ -8,7 +8,7 @@
 // v1 单文件全量；将来分片只换实现，不动语义。
 import type { ChartNote, SelectionItem } from '../types';
 import { capturePattern } from './capture';
-import { createPattern } from './naming';
+import { appendNewPattern } from './library';
 import { libraryDocFromPatterns, patternsFromLibraryDoc } from './record';
 import {
   PATTERN_LIBRARY_BACKUP_THRESHOLD_BYTES,
@@ -146,10 +146,10 @@ export class PatternStore {
     return this.backend.saveAll(patterns);
   }
 
-  /** 采集产物 → 领 id / 起名 → 追加整库落盘。 */
+  /** 采集产物 → 领 id / 起名 → 追加整库落盘（追加口径唯一实现在 `appendNewPattern`）。 */
   async add(existing: readonly Pattern[], payload: PatternPayload, now?: number): Promise<Pattern> {
-    const pattern = createPattern(payload, existing, now);
-    await this.backend.saveAll([...existing, pattern]);
+    const { patterns, pattern } = appendNewPattern(existing, payload, now);
+    await this.backend.saveAll(patterns);
     return pattern;
   }
 

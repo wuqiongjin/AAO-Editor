@@ -187,7 +187,8 @@
   height: 56px;
   overflow: hidden;
   border-radius: var(--radius-sm);
-  background: #0d1117;
+  /* 画布底（缩略图本身由 canvas 铺底，这里只是首帧/无 canvas 时的兜底，故取同一枚令牌） */
+  background: var(--canvas-bg);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
 }
 

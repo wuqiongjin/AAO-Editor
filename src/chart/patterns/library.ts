@@ -1,7 +1,8 @@
 // 片段库的内存视图操作（issue 185 / 164 定案 §3）：
 // 排序、搜索、改名、删除都只产出**新数组**，落盘一律交给 `PatternStore.saveAll`
 // （唯一写入口在 `usePatternLibrary`，这里不碰存储）。
-import type { Pattern } from './types';
+import { createPattern } from './naming';
+import type { Pattern, PatternPayload } from './types';
 
 /**
  * 收藏时间倒序（最新在最上）。同一毫秒内的两条按 id 定序 ——
@@ -51,6 +52,20 @@ export function removePatternFromLibrary(patterns: readonly Pattern[], id: strin
   const index = patterns.findIndex((pattern) => pattern.id === id);
   if (index < 0) return null;
   return patterns.filter((_, i) => i !== index);
+}
+
+/**
+ * 新片段的**唯一追加口径**：领 id / 起名（`createPattern`）后接在库尾。
+ * 排序不在这里做 —— 落盘顺序不是语义，界面按 `sortPatternsNewestFirst` 排。
+ * 存储门面（`PatternStore.add`）与 React 接缝（`usePatternLibrary`）共用这一份，不各写一遍。
+ */
+export function appendNewPattern(
+  patterns: readonly Pattern[],
+  payload: PatternPayload,
+  now?: number,
+): { patterns: Pattern[]; pattern: Pattern } {
+  const pattern = createPattern(payload, patterns, now);
+  return { patterns: [...patterns, pattern], pattern };
 }
 
 /**

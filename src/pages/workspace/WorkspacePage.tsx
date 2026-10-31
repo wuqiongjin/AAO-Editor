@@ -175,7 +175,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // === 片段库（issue 185）===
   // 库状态活在页面而不是抽屉里：抽屉可以没开，快捷键照样要能收藏（且不能各持一份整库）。
   const patternLibrary = usePatternLibrary();
-  const saveSelectionPattern = useSaveSelectionPattern(patternLibrary);
+  const { canSave: canSaveSelection, save: saveSelection } = useSaveSelectionPattern(patternLibrary);
 
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
@@ -397,7 +397,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'switchMouse': setArmedTool(null); break;
       // issue 185：收藏选区为片段。**故意不进 `CHART_EDIT_FUNCTIONS`** —— 它读的是选区、
       // 不写谱面，只读（已上传）谱面也允许；上面的闸门判断因此不会拦它。
-      case 'execSavePattern': void saveSelectionPattern(); break;
+      case 'execSavePattern': void saveSelection(); break;
       case 'execCopy': copy(); break;
       // §2.1（六轮）：空剪贴板 → 粘贴态是纯空转（无预览、单击无事发生），
       // 与工具栏按钮同步：不进态。键鼠一致（避免"界面无、键盘有"的错位）。
@@ -419,7 +419,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       //（工具轨固定不折叠，177 Q11）
       case 'toggleSidebar': setPatternDrawer({ open: !drawerOpen }); break;
     }
-  }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelectionPattern, undo, redo, handleTogglePlay, jumpToMarker,
+  }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelection, undo, redo, handleTogglePlay, jumpToMarker,
       setPatternDrawer, drawerOpen]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
@@ -540,8 +540,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       {drawerOpen && (
         <PatternLibraryDrawer
           library={patternLibrary}
+          canSaveSelection={canSaveSelection}
           readOnly={isReadOnly}
-          onSaveSelection={() => void saveSelectionPattern()}
+          onSaveSelection={() => void saveSelection()}
           onResizingChange={onDrawerResizingChange}
         />
       )}

@@ -47,14 +47,15 @@ const PAD_Y = 5;
 
 const LANE_VIRTUAL_WIDTH = LANES * LANE_WIDTH;
 
-/** 片段里所有参与取景的实体音符（BPM / System / Opaque 不进缩略图） */
+/**
+ * 参与取景的实体音符（BPM / System / Opaque 不进缩略图）。
+ * 判据只看 `notePoints` —— 音符类型的枚举只写一份，别在这里再列一遍。
+ */
 function hittableNotes(notes: readonly ChartNote[]): ChartNote[] {
-  return notes.filter((note) =>
-    note.type === 'Single' || note.type === 'LDirectional' || note.type === 'RDirectional'
-    || note.type === 'Slide' || note.type === 'Long');
+  return notes.filter((note) => notePoints(note).length > 0);
 }
 
-/** 全部连接点（含 hidden：它们仍在跨度内，决定取景高度） */
+/** 全部连接点（含 hidden：它们仍在跨度内，决定取景高度）；非实体音符 → 空数组 */
 function notePoints(note: ChartNote): { beat: number; lane: number }[] {
   if (note.type === 'Slide' || note.type === 'Long') {
     return note.connections.map((conn) => ({ beat: conn.beat, lane: conn.lane }));
@@ -165,9 +166,13 @@ export function buildPatternThumbnailScene(pattern: Pattern, size: ThumbnailSize
 /* 绘制                                                                 */
 /* ------------------------------------------------------------------ */
 
-/** 缩略图固定深色（谱面画布本身就是固定深色，卡片不跟主题换底） */
+/**
+ * 缩略图固定深色（谱面画布本身就是固定深色，卡片不跟主题换底）。
+ * `background` 与 `src/app/styles/tokens.css` 的 `--canvas-bg` 同值 —— canvas 画不了 var()，
+ * 这里是本模块唯一一份字面色（改主题底色时两处一起改）。
+ */
 export const THUMBNAIL_COLORS = {
-  background: '#0d1117',
+  background: '#0c0e11',
   lane: 'rgba(255, 255, 255, 0.045)',
   bpm: 'rgba(255, 255, 255, 0.16)',
   note: '#7cc9ff',

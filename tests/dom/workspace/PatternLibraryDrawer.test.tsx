@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { EditingProvider, useEditing } from '@/src/app/providers/EditingProvider';
-import type { PatternStore } from '@/src/chart/patterns/PatternStore';
+import { PatternStore } from '@/src/chart/patterns/PatternStore';
 import { usePatternLibrary } from '@/src/chart/patterns/usePatternLibrary';
 import type { ChartNote, SelectionItem } from '@/src/chart/types';
 import PatternLibraryDrawer from '@/src/pages/workspace/PatternLibraryDrawer';
@@ -40,24 +40,34 @@ function SeedSelection() {
 /** 抽屉 + 真实库 hook（内存后端）+ 真实收藏路径：断言的是"界面 → 库"的整条链 */
 function Harness({ store, readOnly = false }: { store: PatternStore; readOnly?: boolean }) {
   const library = usePatternLibrary(store);
-  const saveSelection = useSaveSelectionPattern(library);
+  const { canSave, save } = useSaveSelectionPattern(library);
   return (
     <PatternLibraryDrawer
       library={library}
+      canSaveSelection={canSave}
       readOnly={readOnly}
-      onSaveSelection={() => void saveSelection()}
+      onSaveSelection={() => void save()}
     />
   );
 }
 
-function setup(opts: { seed?: ReturnType<typeof makePattern>[]; readOnly?: boolean; withSelection?: boolean } = {}) {
+function setup(opts: {
+  seed?: ReturnType<typeof makePattern>[];
+  readOnly?: boolean;
+  withSelection?: boolean;
+  loadFails?: boolean;
+} = {}) {
   seedZhSettings({ layout: { patternDrawer: { open: true, width: 300 } } });
   const memory = makeMemoryPatternStore(opts.seed ?? []);
+  // 读失败的后端：load 直接抛（IndexedDB 被占 / 文件读不出来）
+  const store = opts.loadFails
+    ? new PatternStore({ load: async () => { throw new Error('blocked'); }, saveAll: memory.store.saveAll.bind(memory.store) })
+    : memory.store;
   render(
     <ConfigProvider>
       <EditingProvider>
         {opts.withSelection && <SeedSelection />}
-        <Harness store={memory.store} readOnly={opts.readOnly} />
+        <Harness store={store} readOnly={opts.readOnly} />
       </EditingProvider>
     </ConfigProvider>,
   );
@@ -139,6 +149,16 @@ describe('issue 185 · 空态与收藏入口', () => {
     expect(screen.queryByText('还没有收藏的片段')).not.toBeInTheDocument();
   });
 
+  it('读失败：如实说读不出来，不冒充空库（且这轮不写入）', async () => {
+    const memory = setup({ loadFails: true, withSelection: true });
+    await waitFor(() => expect(screen.getByText('片段库读不出来')).toBeInTheDocument());
+    expect(screen.queryByText('还没有收藏的片段')).not.toBeInTheDocument();
+
+    fireEvent.click(saveButton());
+    // 写盘次数是"没有覆盖原库"的硬指标
+    await waitFor(() => expect(memory.saves).toBe(0));
+  });
+
   it('有选区 → 收藏按钮可用，点一次即入库（新片段出现在列表里）', async () => {
     const memory = setup({ withSelection: true });
     await waitFor(() => expect(screen.getByText('还没有收藏的片段')).toBeInTheDocument());
@@ -171,11 +191,11 @@ describe('issue 185 · 卡片', () => {
     setup({ seed: seedLibrary() });
     await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
 
-    // 三元素：名字、徽标、缩略图画布
+    // 三元素：名字、徽标、缩略图（读屏名带片段名，故按 role 查得到）
     expect(screen.getByText('片段 1')).toBeInTheDocument();
     expect(screen.getByText('含 BPM 变化 · 2')).toBeInTheDocument();
     expect(screen.getByText('含倒流')).toBeInTheDocument();
-    expect(document.querySelectorAll('canvas')).toHaveLength(2);
+    expect(screen.getAllByRole('img', { name: /的缩略图/ })).toHaveLength(2);
 
     // 倒序：最新的「折返花活」在最上
     const names = cardNames();
@@ -314,7 +334,8 @@ describe('issue 185 · 只读谱面', () => {
     const memory = setup({ seed: seedLibrary(), readOnly: true, withSelection: true });
     await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
 
-    // 置灰 = 卡片本身带只读说明（贴入被拦，186）；不是把整条收藏链路一起灰掉
+    // 置灰 = 卡片本身带只读说明（tooltip 是 164 §3 定下的说明位，贴入被拦见 186）；
+    // 不是把整条收藏链路一起灰掉
     expect(screen.getAllByTitle(readonlyTitle)).toHaveLength(2);
 
     expect(saveButton()).toBeEnabled();
