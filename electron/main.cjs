@@ -55,6 +55,11 @@ const {
     uploadRefs,
     setAppLog,
 } = require('./projectStore.cjs');
+const {
+    loadPatternLibrary,
+    savePatternLibrary,
+    setAppLog: setPatternLibraryAppLog,
+} = require('./patternLibrary.cjs');
 const { t, setActiveUiLanguage } = require('./i18n.cjs');
 const { autoUpdater } = require('electron-updater');
 const { createAppUpdater, registerAppUpdateIpc } = require('./appUpdate.cjs');
@@ -81,6 +86,7 @@ function currentDataRoot() {
 const appLog = createAppLog({ userData: () => userDataDir() });
 registerAppLogIpc(ipcMain, appLog);
 setAppLog(appLog);
+setPatternLibraryAppLog(appLog);
 registerDiagnosticsExportIpc(ipcMain, {
     logsDir: () => path.join(userDataDir(), 'logs'),
     dataRoot: () => currentDataRoot(),
@@ -205,6 +211,17 @@ function registerBackgroundSkinIpc() {
     });
 }
 registerBackgroundSkinIpc();
+
+// ---------------------------------------------------------------------------
+// 片段库（issue 184 / ADR-0023 §3）：<数据根>/patterns.json，独立于工程与设置。
+// 文件损坏由 patternLibrary.cjs 改名 `.broken` 备份后按空库处理；首次无文件不落盘。
+// ---------------------------------------------------------------------------
+function registerPatternLibraryIpc() {
+    ipcMain.handle('patternLibrary:load', () => loadPatternLibrary(currentDataRoot()));
+    ipcMain.handle('patternLibrary:saveAll', (_event, patterns) =>
+        savePatternLibrary(currentDataRoot(), patterns));
+}
+registerPatternLibraryIpc();
 
 // ---------------------------------------------------------------------------
 // 谱面代码另存为（issue 118）：每次 dialog，不记路径。
