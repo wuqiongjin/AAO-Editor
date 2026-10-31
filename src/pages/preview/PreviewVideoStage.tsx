@@ -323,6 +323,9 @@ export default function PreviewVideoStage({
   );
   const ready = metrics != null && assets != null && !assets.missing;
 
+  const onSecondsChangeRef = useRef(onSecondsChange);
+  onSecondsChangeRef.current = onSecondsChange;
+
   // ---------------- 回放：只在「音频身份」或「素材」变化时重建（引擎不随设置面板抖） ----------------
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -330,6 +333,8 @@ export default function PreviewVideoStage({
     if (!ready || !canvas || !currentAssets) return;
     let lastHudCommitMs = -Infinity;
     let lastPlaying = false;
+    let latestSeconds = initialSeconds ?? 0;
+    let latestPlaying = false;
     const pb = createSimPlayback({
       canvas,
       audio,
@@ -341,22 +346,29 @@ export default function PreviewVideoStage({
       density,
       initialSeconds,
       onTick: (seconds, playing) => {
+        latestSeconds = seconds;
+        latestPlaying = playing;
         const now = performance.now();
-        // chart-preview 57：与工作台 usePlaybackCoordinator 同口径，播放期 HUD（时间码 + 进度条）与父级
-        // onSecondsChange（PreviewPage state）一并节流到 80ms，避免每帧 rAF 触发 PreviewPage →
-        // PreviewVideoStage → PlayBar 整树 React 重渲与画布帧预算争抢；
-        // 起停切换与暂停态（seek / 停在末帧）立即提交，保证按钮态、定位与切页进度保存零延迟。
+        // chart-preview 57 / issue 188：播放期本组件内部 HUD（PlayBar）按 80ms 节流；
+        // 父级 onSecondsChange（PreviewPage state）在 playing=true 期间绝不触发（否则每 80ms 引发
+        // PreviewPage → ScopePicker / PreviewDisplayPanel / VideoExportControl 整页 React 重渲，与画布 rAF 抢帧预算），
+        // 仅在暂停态（!playing：暂停 / seek / 播完停在末帧）或播放途中切模式卸载时回写父级记忆进度。
         if (!playing || playing !== lastPlaying || now - lastHudCommitMs >= PLAYBACK_HUD_PERIOD_MS) {
           lastHudCommitMs = now;
           lastPlaying = playing;
           setTick((prev) => (prev.seconds === seconds && prev.playing === playing ? prev : { seconds, playing }));
-          onSecondsChange?.(seconds);
+          if (!playing) {
+            onSecondsChangeRef.current?.(seconds);
+          }
         }
       },
     });
     playbackRef.current = pb;
     return () => {
       playbackRef.current = null;
+      if (latestPlaying) {
+        onSecondsChangeRef.current?.(latestSeconds);
+      }
       pb.dispose();
     };
     // 只有音频身份与素材进场会重建引擎：keySetId / seVolume / density 走下面的 setOptions

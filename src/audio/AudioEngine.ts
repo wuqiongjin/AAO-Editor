@@ -55,8 +55,11 @@ export class AudioEngine {
   private keySet: KeySoundSet | null = null;
   /** 当前 keySetId 是否正在异步加载中（防相同 id 重复 setOptions 把已就绪或加载中的 keySet 清空） */
   private keySetLoading = false;
-  /** 是否已向音频混合图注入过非零微脉冲预热（issue 179） */
-  private audioGraphPrimed = false;
+  /** 持续低幅值循环保活源與缓冲（issue 179 / 188：防 Chromium SilentSinkSuspender 30s 休眠与前导静音全零跳过） */
+  private keepaliveSource: AudioBufferSourceNode | null = null;
+  private keepaliveBuffer: AudioBuffer | null = null;
+  /** 最近一次暂停/停止的墙钟毫秒（长时静置后复播时强制重建保活流以唤醒可能休眠的 OS 音频端点） */
+  private lastPausePerfMs: number | null = null;
   /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
   private schedTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -176,6 +179,33 @@ export class AudioEngine {
     else this.seVolume = v; // ctx 未建时暂存，ensureCtx 创建 seGain 时应用
   }
 
+  /** 用户手势（pointerdown / keydown）早于 click/空格开播触发：在手势按下瞬间提前恢复 AudioContext 并刷新保活流，消除 play() → 首帧 rAF 的起播抖动（issue 188） */
+  private gestureListenerAttached = false;
+  private readonly onUserGesture = (): void => {
+    const ctx = this.ctx;
+    if (!ctx || this.state === 'playing') return;
+    if (ctx.state === 'suspended') {
+      void Promise.resolve(ctx.resume()).catch(() => undefined);
+    }
+    this.primeAudioGraph(ctx);
+  };
+
+  private attachGesturePrewarm(): void {
+    if (this.gestureListenerAttached) return;
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+    this.gestureListenerAttached = true;
+    window.addEventListener('pointerdown', this.onUserGesture, { capture: true, passive: true });
+    window.addEventListener('keydown', this.onUserGesture, { capture: true, passive: true });
+  }
+
+  private detachGesturePrewarm(): void {
+    if (!this.gestureListenerAttached) return;
+    this.gestureListenerAttached = false;
+    if (typeof window === 'undefined' || typeof window.removeEventListener !== 'function') return;
+    window.removeEventListener('pointerdown', this.onUserGesture, true);
+    window.removeEventListener('keydown', this.onUserGesture, true);
+  }
+
   private ensureCtx(): AudioContext {
     if (!this.ctx) {
       const Ctor =
@@ -189,42 +219,69 @@ export class AudioEngine {
       this.seGain = this.ctx.createGain();
       this.seGain.gain.value = this.seVolume;
       this.seGain.connect(this.masterGain);
+      this.attachGesturePrewarm();
     }
     return this.ctx;
   }
 
   /**
-   * 预热 `seGain → masterGain → destination` 音频混合链路与系统音频硬件（issue 179）：
-   * Windows WASAPI / Chromium AudioService 对全零静音缓冲会做零值跳过优化，直到首个非零样本到达
-   * （BGM 前导静音结束或首个键音触发）才真正激活重采样器与硬件输出流，导致与首音符画面同刻卡顿。
-   * 在首次 `play()` 起播瞬间向 `seBus()` 发送一帧 64 样本、幅值 1e-6（-120 dBFS，人耳不可闻但非零）
-   * 的微脉冲，把音频图与系统声卡唤醒锁定在点击播放的起播帧，而非落到首个音符时刻。
+   * 持续保活 `seGain → masterGain → destination` 音频混合链路与系统音频硬件（issue 179 / 188）：
+   * 1. Chromium `SilentSinkSuspender` 在连续 30s 全零输出后会暂停底层 `AudioRendererSink` 并切至 `FakeAudioWorker`，
+   *    Windows WASAPI / 声卡驱动也会在全零或暂停后进入省电休眠（D3），直到首个非零样本到达才唤醒硬件流。
+   * 2. 179 的单次 64 样本 `1e-6` 微脉冲既低于 16-bit PCM 1 LSB（`3.05e-5`）量化台阶，又在脉冲结束后立即落回
+   *    BGM 的 2.8s~5.5s 全零前导静音，且 `audioGraphPrimed` 单次锁使长时静置后复播完全短路。
+   * 3. 现改为挂载 1024 样本、幅值 `1/16384`（精确 `2 LSB @ 16-bit` / `-84.3 dBFS`，零直流偏置余弦波，人耳不可闻但
+   *    高于 16-bit 量化台阶与零值检测）的循环保活源，同时连入 `seBus()` 与 `ctx.destination`（不受 `seVolume=0` 影响）；
+   *    若暂停静置满 10s 后复播，主动重建保活源以唤醒可能休眠的 OS 音频端点。
    */
   private primeAudioGraph(ctx: AudioContext): void {
-    if (this.audioGraphPrimed) return;
-    this.audioGraphPrimed = true;
+    const now = performance.now();
+    const idleExpired =
+      this.lastPausePerfMs !== null && now - this.lastPausePerfMs >= 10_000;
+    if (this.keepaliveSource && !idleExpired) return;
+    this.stopKeepalive();
     if (typeof ctx.createBuffer !== 'function' || typeof ctx.createBufferSource !== 'function') return;
     try {
       const rate = ctx.sampleRate || 48000;
-      const buf = ctx.createBuffer(1, 64, rate);
-      const ch = typeof buf.getChannelData === 'function' ? buf.getChannelData(0) : null;
-      if (ch) {
-        for (let i = 0; i < ch.length; i++) ch[i] = 1e-6;
+      let buf = this.keepaliveBuffer;
+      if (!buf) {
+        const len = 1024;
+        const amp = 1 / 16384; // 精确 2 LSB @ 16-bit PCM (-84.3 dBFS)，IEEE-754 float32 无舍入误差
+        buf = ctx.createBuffer(1, len, rate);
+        const ch = typeof buf.getChannelData === 'function' ? buf.getChannelData(0) : null;
+        if (ch) {
+          for (let i = 0; i < ch.length; i++) {
+            ch[i] = amp * Math.cos((2 * Math.PI * i) / len);
+          }
+        }
+        this.keepaliveBuffer = buf;
       }
       const src = ctx.createBufferSource();
       src.buffer = buf;
+      src.loop = true;
       src.connect(this.seBus());
-      src.onended = () => {
-        try {
-          src.disconnect();
-        } catch {
-          /* ignore */
-        }
-      };
+      src.connect(ctx.destination);
       src.start(ctx.currentTime);
+      this.keepaliveSource = src;
+      this.lastPausePerfMs = null;
     } catch {
       /* 测试替身或上下文未就绪时静默跳过 */
     }
+  }
+
+  private stopKeepalive(): void {
+    if (!this.keepaliveSource) return;
+    try {
+      this.keepaliveSource.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.keepaliveSource.disconnect();
+    } catch {
+      /* ignore */
+    }
+    this.keepaliveSource = null;
   }
 
   /** 解码文件（ArrayBuffer → decodeAudioData），并复位播放进度（若已在播放中则平滑接入，防打断卡顿） */
@@ -269,12 +326,17 @@ export class AudioEngine {
     this.stopScheduler();
     this.buffer = null;
     this.offsetSeconds = 0;
+    this.lastPausePerfMs = performance.now();
     this.state = 'idle';
   }
 
   /** 释放引擎持有的 `AudioContext` 与节点（动态预览卸载 / 重建引擎时调用，防底层硬件句柄累积） */
   dispose(): void {
     this.clear();
+    this.detachGesturePrewarm();
+    this.stopKeepalive();
+    this.keepaliveBuffer = null;
+    this.lastPausePerfMs = null;
     try {
       this.seGain?.disconnect();
     } catch {
@@ -287,7 +349,6 @@ export class AudioEngine {
     }
     this.seGain = null;
     this.masterGain = null;
-    this.audioGraphPrimed = false;
     const ctx = this.ctx;
     this.ctx = null;
     if (ctx && typeof ctx.close === 'function') {
@@ -340,6 +401,7 @@ export class AudioEngine {
     this.stopCurrent();
     this.cancelScheduled();
     this.stopScheduler();
+    this.lastPausePerfMs = performance.now();
     this.state = 'paused';
   }
 
@@ -349,6 +411,7 @@ export class AudioEngine {
     this.stopCurrent();
     this.cancelScheduled();
     this.stopScheduler();
+    this.lastPausePerfMs = performance.now();
     this.state = this.buffer ? 'ready' : 'idle';
   }
 

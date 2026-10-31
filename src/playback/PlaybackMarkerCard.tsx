@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import playbackMarkerSvgUrl from '../assets/playback-marker/flag.svg?url';
 import { formatKey } from '../chart/config/ShortcutConfig';
 import { formatTimePrecise } from '../chart/geometry/TimeFormat';
@@ -10,7 +11,7 @@ interface PlaybackMarkerCardProps {
   onJump: () => void;
 }
 
-export default function PlaybackMarkerCard({ seconds, shortcut, onJump }: PlaybackMarkerCardProps) {
+export default memo(function PlaybackMarkerCard({ seconds, shortcut, onJump }: PlaybackMarkerCardProps) {
   if (seconds === null) {
     return (
       <div className="playback-marker-card is-empty">
@@ -46,4 +47,4 @@ export default function PlaybackMarkerCard({ seconds, shortcut, onJump }: Playba
       </span>
     </div>
   );
-}
+});

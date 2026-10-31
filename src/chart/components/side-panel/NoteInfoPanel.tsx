@@ -1,12 +1,13 @@
 // NoteInfoPanel（ADR-0003 §7）：右侧「音符信息」面板。
 // 只负责「选中音符」域：数量、删除/镜像（issue 149：去掉 per-note 详情列表）。
 // issue 37：谱面代码编辑器已改为按需弹窗（入口移至左侧工具栏「编辑」分组），此处不再占位。
+import { memo } from 'react';
 import { useEditing } from '../../../app/ProviderTree';
 import { selectionNoteIndices } from '../../editing/SelectionEditing';
 import ActionBtn from '../../../ui/ActionBtn';
 import { t, tPlural } from '../../../i18n';
 
-export default function NoteInfoPanel() {
+export default memo(function NoteInfoPanel() {
     const { selectedItems, deleteSelected, mirror } = useEditing();
     const selectedNotes = selectionNoteIndices(selectedItems);
 
@@ -52,4 +53,4 @@ export default function NoteInfoPanel() {
             </div>
         </div>
     );
-}
+});

@@ -305,13 +305,23 @@ export function createNoteLayerCache(): NoteLayerCache {
     }, delay);
   }
 
+  /** issue 188：命中瓦片时刷新 Map 插入序为 MRU，使 evictOverBudget 真正按 LRU 淘汰而非 FIFO */
+  function touchTile(id: number, t: Tile) {
+    tiles.delete(id);
+    tiles.set(id, t);
+  }
+
   function enqueuePlayingTiles(ids: number[], rc: RenderCtx, es: number) {
     playTileSnap = { rc, es };
     for (const id of ids) {
       if (id < 0) continue;
       // issue 146：存在但未打脏的才跳过；打脏的要进队列换下来。
+      // issue 188：已命中的活跃/靶向预热瓦片同步刷新为 MRU，防止漫游后被 FIFO 提前淘汰。
       const cur = tiles.get(id);
-      if (cur && !cur.dirty) continue;
+      if (cur && !cur.dirty) {
+        touchTile(id, cur);
+        continue;
+      }
       if (!playTileQueue.includes(id)) playTileQueue.push(id);
     }
     schedulePlayTileDrain();
@@ -540,7 +550,9 @@ export function createNoteLayerCache(): NoteLayerCache {
     const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
     for (let id = lo; id <= hi; id++) {
       const t = tiles.get(id);
-      if (!t || t.empty || !t.canvas) continue;
+      if (!t) continue;
+      touchTile(id, t);
+      if (t.empty || !t.canvas) continue;
       if (Math.abs(es / t.refScale - 1) > STALE_TOL) staleBlit = true;
       const r = tileBlitRect(id, es, t.refScale, anchorY, rc.surface.w, t.surfaceW);
       const clipped = clipTileDrawRect(r, rc.surface.w, rc.surface.h, t.canvas.width, t.canvas.height);
@@ -557,14 +569,14 @@ export function createNoteLayerCache(): NoteLayerCache {
       enqueuePlayingTiles(prefetch, rc, es);
     } else {
       // issue 165：静止时预热视口上方瓦片，避免首次开播向上滚动时触碰未建瓦片卡顿
-      // issue 167 / 179：静止时将视口上方预热窗口对齐到播放期的 [lo, hi + 2]，并把全谱首个实体音符
-      // 所在瓦片及其后继窗口 [firstTile, firstTile + 2] 一并预热，消除首音符从进入视口到抵达判定线
-      // 全程触发相邻非空瓦片突发冷建的卡顿
+      // issue 167 / 179 / 188：静止时将视口上方预热窗口对齐到播放期的 [lo, hi + 2]，并把全谱首个实体音符
+      // 所在瓦片及其后继窗口 [firstTile, firstTile + 4] 一并预热（首音符从入场到抵线跨越 ~2.15 块瓦片，
+      // 抵线帧的 hi + 2 前瞻落在 firstTile + 4），消除首音符从进入视口到抵达判定线全程触发 renderTile 宏任务的卡顿
       const prefetch: number[] = [];
       for (let id = lo; id <= hi + 2; id++) prefetch.push(id);
       const firstTile = firstNonEmptyTileIdOf(rc);
       if (firstTile !== null) {
-        for (let id = firstTile; id <= firstTile + 2; id++) {
+        for (let id = firstTile; id <= firstTile + 4; id++) {
           if (!prefetch.includes(id)) prefetch.push(id);
         }
       }

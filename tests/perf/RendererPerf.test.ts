@@ -696,23 +696,25 @@ describe('issue 101 · 换肤全量失效后的播放滚动帧', () => {
   });
 });
 
-describe('issue 167 / 179 · 首个音符抵线卡顿防范（静止期靶向预热与播放期节流）', () => {
-  it('静止期自动将视口上方 [lo, hi+2] 及全谱首个实体音符窗口 [firstTile, firstTile+2] 加入预热队列并建好', () => {
+describe('issue 167 / 179 / 188 · 首个音符抵线卡顿防范（静止期靶向预热、播放期节流与 LRU 保活）', () => {
+  it('静止期自动将视口上方 [lo, hi+2] 及全谱首个实体音符窗口 [firstTile, firstTile+4] 加入预热队列并建好（覆盖首音符抵线时的 hi+2 预取前瞻）', () => {
     vi.restoreAllMocks();
     const chartEndBeat = 100;
-    // 首个音符在 beat 20（pos = 4400，瓦片 8），紧邻后续音符落在瓦片 9、10
+    // 首个音符在 beat 20（pos = 4400，瓦片 8），后续音符一路覆盖到瓦片 12（firstTile+4）
     const notes: ChartNote[] = [
       { type: 'BPM', beat: 0, bpm: 120 },
       { type: 'Single', lane: 3, beat: 20, subBeat: 0 },
       { type: 'Single', lane: 4, beat: 23, subBeat: 0 },
       { type: 'Single', lane: 2, beat: 26, subBeat: 0 },
+      { type: 'Single', lane: 1, beat: 28, subBeat: 0 },
+      { type: 'Single', lane: 5, beat: 30, subBeat: 0 },
     ];
     const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
     const counters: Counters = { drawImage: 0, spriteRenders: 0 };
     const ctx = makeCountingCtx(counters);
     const noteLayer = createNoteLayerCache();
     const es = 1;
-    // 视口在底部 0 拍（此时视口在瓦片 0~2 左右，瓦片 8~10 远在视口之外）
+    // 视口在底部 0 拍（此时视口在瓦片 0~2 左右，瓦片 8~12 远在视口之外）
     const scrollY = g.chartEndVirtualY;
 
     noteLayer.__setCanvasFactoryForTests(() => {
@@ -726,17 +728,52 @@ describe('issue 167 / 179 · 首个音符抵线卡顿防范（静止期靶向预
     // 静止帧绘制
     noteLayer.draw(ctx, rc);
 
-    // 同步 flush 队列后：视口上方 hi+2 以及首音符连续窗口 [firstTile, firstTile+2] 必须均已建好
+    // 同步 flush 队列后：视口上方 hi+2 以及首音符连续窗口 [firstTile, firstTile+4] 必须均已建好
     noteLayer.__flushPlayingTileQueueForTests();
     const tiles = noteLayer.__getTilesForTests();
     const firstTileId = Math.floor((20 * 220) / TILE_PX); // 8
     expect(tiles.has(hi + 2)).toBe(true);
-    expect(tiles.has(firstTileId)).toBe(true);
-    expect(tiles.has(firstTileId + 1)).toBe(true);
-    expect(tiles.has(firstTileId + 2)).toBe(true);
-    expect(tiles.get(firstTileId)?.empty).toBe(false);
-    expect(tiles.get(firstTileId + 1)?.empty).toBe(false);
-    expect(tiles.get(firstTileId + 2)?.empty).toBe(false);
+    for (let offset = 0; offset <= 4; offset++) {
+      expect(tiles.has(firstTileId + offset)).toBe(true);
+      expect(tiles.get(firstTileId + offset)?.empty).toBe(false);
+    }
+  });
+
+  it('LRU 淘汰保护：漫游浏览后回到起点命中缓存瓦片，会将其刷新为 MRU，后续新增瓦片淘汰时不误杀刚命中的起点瓦片', () => {
+    vi.restoreAllMocks();
+    const chartEndBeat = 400;
+    const notes = makeDenseNotes(1200, chartEndBeat);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const noteLayer = createNoteLayerCache();
+    const es = 1;
+
+    const makeDprRc = (scrollY: number) => ({
+      ...makeRc(g, notes, chartEndBeat, es, scrollY, false, counters),
+      dpr: 2,
+    });
+
+    noteLayer.__setCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
+
+    // 1. 先在起点（scrollY = chartEndVirtualY，对应 tile 0..2）渲染并排空预热
+    const startRc = makeDprRc(g.chartEndVirtualY);
+    noteLayer.draw(ctx, startRc);
+    noteLayer.__flushPlayingTileQueueForTests();
+    const tile0Before = noteLayer.__getTilesForTests().get(0);
+    expect(tile0Before).toBeDefined();
+
+    // 2. 滚到中段构建少量瓦片（未超预算，tile 0 仍在缓存中但处于 FIFO 最老位置）
+    const midScrollY = scrollYForCenterBeat(g, 80, es);
+    noteLayer.draw(ctx, makeDprRc(midScrollY));
+    noteLayer.__flushPlayingTileQueueForTests();
+    expect(noteLayer.__getTilesForTests().get(0)).toBe(tile0Before);
+
+    // 3. 回到起点命中缓存中的 tile 0（不重建，但必须刷新其 LRU 位置到 Map 尾部）
+    noteLayer.draw(ctx, startRc);
+    expect(noteLayer.__getLastNoteLayerStats().rebuilt).toBe(0);
+    const keysAfterHit = [...noteLayer.__getTilesForTests().keys()];
+    expect(keysAfterHit.indexOf(0)).toBeGreaterThan(0);
   });
 
   it('播放期补建节流为 16ms，静止期排空为 0ms（防连环同步光栅打穿帧预算）', () => {

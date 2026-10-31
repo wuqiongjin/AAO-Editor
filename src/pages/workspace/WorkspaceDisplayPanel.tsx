@@ -1,5 +1,5 @@
 // 工作台顶栏画布显示浮层面板（issue 170）
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
@@ -110,7 +110,7 @@ function Percent({
   );
 }
 
-export default function WorkspaceDisplayPanel() {
+export default memo(function WorkspaceDisplayPanel() {
   const { settings, setDisplay } = useConfig();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -328,4 +328,4 @@ export default function WorkspaceDisplayPanel() {
       )}
     </div>
   );
-}
+});

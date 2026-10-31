@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import {
   Music,
   MousePointer,
@@ -39,7 +39,7 @@ const toolCategory: Record<string, string> = {
 
 // 曲线工具配置项的选项表已随面板抽到 `CurveConfigPanel.tsx`（issue 114）。
 
-export default function Toolbar() {
+export default memo(function Toolbar() {
   const editing = useEditing();
   const ui = useUI();
   const { settings } = useConfig();
@@ -204,4 +204,4 @@ export default function Toolbar() {
       </div>
     </div>
   );
-}
+});

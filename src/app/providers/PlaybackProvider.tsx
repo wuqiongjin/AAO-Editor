@@ -4,7 +4,7 @@
 // Editor 仍是播放编排者（RAF 循环、音频解码、键音切换），本 Context 仅承载状态与最薄的 setter。
 // chart-preview 22 起 PlayBar 本身不再直读本 Context：工作台在页面层取值后经 props 传入
 // （预览页的播放条是同一个组件、接自己那份回放状态，两处共用外观与交互、不共用数据源）。
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { DEFAULT_CHART_DURATION_SECONDS } from '../../audio/chartDuration';
 
 export interface PlaybackContextValue {
@@ -25,7 +25,10 @@ export interface PlaybackContextValue {
   setMarker: (seconds: number | null) => void;
 }
 
-const PlaybackContext = createContext<PlaybackContextValue | null>(null);
+export type PlaybackStateContextValue = Omit<PlaybackContextValue, 'currentSeconds'>;
+
+const PlaybackStateContext = createContext<PlaybackStateContextValue | null>(null);
+const PlaybackSecondsContext = createContext<number>(0);
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -35,24 +38,43 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [volume, setVolume] = useState(0.8);
   const [markerSeconds, setMarkerSecondsState] = useState<number | null>(null);
 
-  const setMarker = (seconds: number | null) => {
+  const setMarker = useCallback((seconds: number | null) => {
     setMarkerSecondsState(seconds);
-  };
+  }, []);
 
-  const value: PlaybackContextValue = {
+  const stateValue = useMemo<PlaybackStateContextValue>(() => ({
     isPlaying, setIsPlaying,
     canPlay, setCanPlay,
-    currentSeconds, setCurrentSeconds,
+    setCurrentSeconds,
     duration, setDuration,
     volume, setVolume,
     markerSeconds,
     setMarker,
-  };
-  return <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>;
+  }), [isPlaying, canPlay, duration, volume, markerSeconds, setMarker]);
+
+  return (
+    <PlaybackStateContext.Provider value={stateValue}>
+      <PlaybackSecondsContext.Provider value={currentSeconds}>
+        {children}
+      </PlaybackSecondsContext.Provider>
+    </PlaybackStateContext.Provider>
+  );
+}
+
+/**
+ * issue 188：只订阅播放静态/控制状态（isPlaying / canPlay / duration / volume / markerSeconds），
+ * 不订阅 80ms 节流刷新的 currentSeconds，避免画布主体等重组件在播放期周期性重渲染。
+ */
+export function usePlaybackState(): PlaybackStateContextValue {
+  const ctx = useContext(PlaybackStateContext);
+  if (!ctx) throw new Error('usePlaybackState must be used within PlaybackProvider');
+  return ctx;
 }
 
 export function usePlayback(): PlaybackContextValue {
-  const ctx = useContext(PlaybackContext);
-  if (!ctx) throw new Error('usePlayback must be used within PlaybackProvider');
-  return ctx;
+  const state = useContext(PlaybackStateContext);
+  const currentSeconds = useContext(PlaybackSecondsContext);
+  if (!state) throw new Error('usePlayback must be used within PlaybackProvider');
+  return useMemo(() => ({ ...state, currentSeconds }), [state, currentSeconds]);
 }
+

@@ -1,5 +1,5 @@
-import { Fragment, useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import type { BpmNote } from "../../types";
+import { Fragment, memo, useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
+import type { BpmNote, ChartNote } from "../../types";
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import {
   clickOps, execSlideOps, execBpmOps,
@@ -13,7 +13,7 @@ import {
   LANES, LANE_WIDTH,
   TRACK_CHROME_TOTAL, type ChartGeometry, type SurfaceSize,
 } from '../../geometry/ChartGeometry';
-import { useEditing, useUI, usePlayback, useConfig } from '../../../app/ProviderTree';
+import { useEditing, useUI, usePlayback, usePlaybackState, useConfig } from '../../../app/ProviderTree';
 import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import {
   createRenderTarget, resolveCanvasDpr, normalizeBackgroundOpacity, findItemAt, findBpmLineAt,
@@ -34,6 +34,39 @@ import {
   canPlaceAtCursor, resolveExecNoteCodeHit,
 } from '../../editing/CanvasGesture';
 import { formatTimePrecise } from '../../geometry/TimeFormat';
+
+// 画布实时信息叠加（issue 22 / issue 188）：判定线处精确时间（左下）+ 已过判定线音符数（右下）。
+// 独立子组件消费 currentSeconds，使 80ms 时间码节流更新只重渲本轻量 HUD，不触发整张画布重渲染。
+const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
+    geometry,
+    notes,
+}: {
+    geometry: ChartGeometry;
+    notes: ChartNote[];
+}) {
+    const { currentSeconds } = usePlayback();
+    const playheadBeat = useMemo(
+        () => geometry.beatOfSeconds(currentSeconds),
+        [geometry, currentSeconds],
+    );
+    const passedNoteCount = useMemo(
+        () => countNotesUpToBeat(notes, playheadBeat),
+        [notes, playheadBeat],
+    );
+    return (
+        <div style={{
+            position: 'absolute', left: 0, right: 0, bottom: 8,
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+            pointerEvents: 'none', zIndex: 20, padding: '0 12px',
+            fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
+            fontSize: 'var(--text-sm)', color: 'rgba(230,236,239,0.75)',
+            textShadow: '0 1px 2px rgba(0,0,0,0.8)',
+        }}>
+            <span>{formatTimePrecise(currentSeconds)}</span>
+            <span title={t('canvas.passedNotes')}>♪ {passedNoteCount}</span>
+        </div>
+    );
+});
 
 interface FinalVirtualCanvasProps {
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
@@ -142,7 +175,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     } = useEditing();
     // armedTool = 持工具态（ADR-0008 §1）：null = 指针底态；选区与工具解耦、常驻不清
     const { armedTool, beatDisplay, scale, setScale, curveConfig } = useUI();
-    const { setMarker: setMarkerContext, currentSeconds, isPlaying } = usePlayback();
+    const { setMarker: setMarkerContext, isPlaying } = usePlaybackState();
     // issue 59 §2/§3：「音符代码」工具点击 → 打开该音符的代码弹窗（与「谱面代码」按钮共用同一弹窗）
     const { openNoteCode } = useChartCodeEditor();
     // issue 39 功能设置·画布显示：纵向比例进 geometry（重建），其余渲染参数经 RenderCtx 注入渲染器
@@ -885,17 +918,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }
     }, [viewport.scrollY, viewport.virtualHeight, onScrollChange]);
 
-    // 画布实时信息叠加（issue 22）：判定线处精确时间（左下）+ 已过判定线音符数（右下）。
-    // 判定线 = 画布底边，故叠加层贴 bottom 置于其上；pointerEvents:none 不干扰画布交互。
-    const playheadBeat = useMemo(
-        () => geometry.beatOfSeconds(currentSeconds),
-        [geometry, currentSeconds],
-    );
-    const passedNoteCount = useMemo(
-        () => countNotesUpToBeat(notes, playheadBeat),
-        [notes, playheadBeat],
-    );
-
     // ADR-0008 §5：BPM 就地编辑输入框定位——覆盖在沟槽数字上（与 layoutGutterLabel 同款锚定：
     // 右缘 = 轨道左外缘 − 8px；纵向跟错开后的数字走，钉线不钳进画布）
     let bpmInputBox: { left: number; top: number; width: number; height: number; fontPx: number } | null = null;
@@ -1081,21 +1103,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                     )}
                 </div>
 
-                {/* 画布实时信息叠加层（issue 22）：常显，不拦截指针 */}
-                <div style={{
-                    position: 'absolute', left: 0, right: 0, bottom: 8,
-                    display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
-                    pointerEvents: 'none', zIndex: 20, padding: '0 12px',
-                    fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums',
-                    fontSize: 'var(--text-sm)', color: 'rgba(230,236,239,0.75)',
-                    textShadow: '0 1px 2px rgba(0,0,0,0.8)',
-                }}>
-                    <span>{formatTimePrecise(currentSeconds)}</span>
-                    <span title={t('canvas.passedNotes')}>♪ {passedNoteCount}</span>
-                </div>
+                {/* 画布实时信息叠加层（issue 22 / issue 188）：常显，不拦截指针 */}
+                <CanvasPlayheadHud geometry={geometry} notes={notes} />
             </div>
         </div>
     );
 });
 
-export default FinalVirtualCanvas;
+export default memo(FinalVirtualCanvas);

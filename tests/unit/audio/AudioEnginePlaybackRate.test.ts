@@ -162,7 +162,7 @@ describe('AudioEngine · 播放速率（chart-preview 20）', () => {
     expect(engine.playbackRate).toBe(4);
   });
 
-  it('issue 179 · load 解码后预触碰各声道 PCM 页，首次 play 预热音频混合图且不干扰 BGM source', async () => {
+  it('issue 179 / 188 · load 预触碰 PCM 页，play 挂载高于 16-bit 量化下限的循环保活源，且长时静置后复播重新唤醒', async () => {
     const ch0 = new Float32Array(2049);
     const ch1 = new Float32Array(2049);
     const getChannelData = vi.fn((ch: number) => (ch === 0 ? ch0 : ch1));
@@ -197,14 +197,35 @@ describe('AudioEngine · 播放速率（chart-preview 20）', () => {
     expect(getChannelData).toHaveBeenCalledWith(0);
     expect(getChannelData).toHaveBeenCalledWith(1);
 
+    nowSpy.mockReturnValue(1000);
     await engine.play();
     const ctx = engineCtx(engine);
-    // 首次 play 先跑 1 次微脉冲预热（非零 1e-6），紧接着启动 BGM source（位于 sources 末尾）
-    expect(primerBuffers).toHaveLength(1);
-    expect(primerBuffers[0]![0]).toBeCloseTo(1e-6, 10);
+    // 保活源必须开启 loop=true，且首样本幅值高于 16-bit 1 LSB (3.05e-5)，紧接着启动 BGM source（位于 sources 末尾）
+    expect(primerBuffers.length).toBeGreaterThanOrEqual(1);
+    expect(primerBuffers[0]![0]).toBeGreaterThanOrEqual(1 / 16384);
+    const firstKeepaliveSrc = ctx.sources[0]! as MockBufferSourceNode & { loop?: boolean };
+    expect(firstKeepaliveSrc.loop).toBe(true);
+    expect(firstKeepaliveSrc.connect).toHaveBeenCalledWith(ctx.destination);
     expect(ctx.sources).toHaveLength(2);
     engine.setPlaybackRate(1.5);
     expect(ctx.sources.at(-1)!.playbackRate.value).toBe(1.5);
+
+    // 暂停并静置超过 30s（SilentSinkSuspender 阈值）后再次 play：不能被单次布尔锁短路，应重新唤醒保活源
+    engine.pause();
+    const sourcesBeforeIdlePlay = ctx.sources.length;
+    nowSpy.mockReturnValue(35_000);
+    await engine.play();
+    expect(ctx.sources.length).toBe(sourcesBeforeIdlePlay + 2); // 新保活源 + 新 BGM source
+    expect(firstKeepaliveSrc.stop).toHaveBeenCalled();
+
+    // 再次暂停并静置超过 10s，用户按下鼠标（pointerdown 早于 click 触发 play）：提前在 pointerdown 阶段完成保活流重建
+    engine.pause();
+    const sourcesBeforePointerDown = ctx.sources.length;
+    nowSpy.mockReturnValue(50_000);
+    window.dispatchEvent(new Event('pointerdown'));
+    expect(ctx.sources.length).toBe(sourcesBeforePointerDown + 1); // pointerdown 已提前重建保活源
+    await engine.play();
+    expect(ctx.sources.length).toBe(sourcesBeforePointerDown + 2); // play() 直接复用刚预热的保活源，仅新增 BGM source
 
     // 同 id 重复调用 setKeySetId 幂等，不会把已挂载的 keySet 置回 null
     const fakeSet = { id: 'skin00', samples: {} };

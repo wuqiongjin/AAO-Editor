@@ -1,5 +1,5 @@
 // 工作台谱面切换器（chart-projects 05 / ADR-0015）：面包屑下拉「工程名称 / 当前谱面 ▾」。
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Copy, Eye, FolderOpen, Lock, Music2, Pencil, Plus } from 'lucide-react';
 import { useAppNav } from '../../layouts/AppNav';
@@ -32,7 +32,7 @@ import {
 import '../projects/ProjectsPage.css';
 import './ChartSwitcher.css';
 
-export default function ChartSwitcher() {
+export default memo(function ChartSwitcher() {
   const { setActivePage } = useAppNav();
   const {
     projectId, chartId, store, catalogEpoch, open, notifyCatalogChanged, flushPersist, waitForRestore,
@@ -212,4 +212,4 @@ export default function ChartSwitcher() {
       )}
     </div>
   );
-}
+});

@@ -45,3 +45,32 @@ describe('issue 139 · 播放 RAF 不进 React', () => {
     expect(playIf![0]).toMatch(/renderCanvas|paint/);
   });
 });
+
+describe('issue 188 · 播放期 80ms HUD 更新与工作台重组件隔离', () => {
+  const playbackProvider = readStripped('src/app/providers/PlaybackProvider.tsx');
+  const toolbar = readStripped('src/pages/workspace/Toolbar.tsx');
+  const noteInfo = readStripped('src/chart/components/side-panel/NoteInfoPanel.tsx');
+  const switcher = readStripped('src/pages/workspace/ChartSwitcher.tsx');
+  const displayPanel = readStripped('src/pages/workspace/WorkspaceDisplayPanel.tsx');
+  const markerCard = readStripped('src/playback/PlaybackMarkerCard.tsx');
+
+  it('PlaybackProvider 拆分 PlaybackStateContext 与 currentSeconds，提供 usePlaybackState 免受 80ms 时间码重渲染', () => {
+    expect(playbackProvider).toContain('PlaybackStateContext');
+    expect(playbackProvider).toContain('export function usePlaybackState');
+  });
+
+  it('FinalVirtualCanvas 主体走 usePlaybackState + memo，底部时间码 HUD 抽为独立子组件 CanvasPlayheadHud', () => {
+    expect(canvas).toContain('usePlaybackState()');
+    expect(canvas).toContain('CanvasPlayheadHud');
+    expect(canvas).toMatch(/memo\(\s*FinalVirtualCanvas\s*\)|memo\(\s*forwardRef/);
+  });
+
+  it('工作台侧栏与顶栏子组件均用 memo 包裹，避免 Editor 80ms 传递 playheadSeconds 时连带整树重跑', () => {
+    expect(toolbar).toMatch(/memo\(/);
+    expect(noteInfo).toMatch(/memo\(/);
+    expect(switcher).toMatch(/memo\(/);
+    expect(displayPanel).toMatch(/memo\(/);
+    expect(markerCard).toMatch(/memo\(/);
+  });
+});
+
