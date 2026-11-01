@@ -213,6 +213,7 @@ describe('issue 189 · 冲突：跳过（默认）', () => {
     // Esc 由 Dialog 壳的 window capture 监听关闭
     importFile(conflictFile);
     await findDialog();
+    await waitFor(() => expect(screen.getByRole('button', { name: '导入' })).toHaveFocus());
     fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog', { name: /^导入片段/ })).not.toBeInTheDocument());
     expect(memory.saves).toBe(0);
