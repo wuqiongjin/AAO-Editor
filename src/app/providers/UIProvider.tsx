@@ -3,7 +3,7 @@
 // 的派生值，缓存进 context state 会在滚动/缩放后落到旧拍；现由画布按 hoverPos 用时现算，
 // 并通过 ref 出口 getCursorChartPos() 提供给需要的一方。
 // 票 183：旧版左右面板（宽度 / 折叠 / 拖拽分隔条）随换壳删除；片段库抽屉的开合与宽度存 settings.layout.patternDrawer。
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import type { Pattern } from '../../chart/patterns/types';
 import {
@@ -72,17 +72,33 @@ export function UIProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const value: UIContextValue = {
+  const value = useMemo<UIContextValue>(() => ({
     armedTool: toolState.armedTool,
     setArmedTool,
     patternPaste: toolState.pattern,
     togglePatternPaste,
     patternPasteWithBpm,
     setPatternPasteWithBpm,
-    curveConfig, setCurveConfig: persistCurveConfig,
-    scale, setScale,
-    beatDisplay, setBeatDisplay: setBeatSnap,
-  };
+    curveConfig,
+    setCurveConfig: persistCurveConfig,
+    scale,
+    setScale,
+    beatDisplay,
+    setBeatDisplay: setBeatSnap,
+  }), [
+    toolState.armedTool,
+    setArmedTool,
+    toolState.pattern,
+    togglePatternPaste,
+    patternPasteWithBpm,
+    setPatternPasteWithBpm,
+    curveConfig,
+    persistCurveConfig,
+    scale,
+    setScale,
+    beatDisplay,
+    setBeatSnap,
+  ]);
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>;
 }

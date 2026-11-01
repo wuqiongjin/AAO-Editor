@@ -54,12 +54,18 @@ export function patternBeatSpan(pattern: PatternNotes): number {
   return max >= min ? max - min : 0;
 }
 
-/** 同时取两个派生值（卡片只遍历一次调用点；值本身仍是纯函数结果）。 */
+const statsCache = new WeakMap<PatternNotes, PatternStats>();
+
+/** 同时取两个派生值（卡片只遍历一次调用点；值本身仍是纯函数结果，带 WeakMap 引用级缓存）。 */
 export function patternStats(pattern: PatternNotes): PatternStats {
-  return {
+  const cached = statsCache.get(pattern);
+  if (cached) return cached;
+  const result: PatternStats = {
     noteCount: patternNoteCount(pattern),
     beatSpan: patternBeatSpan(pattern),
   };
+  statsCache.set(pattern, result);
+  return result;
 }
 
 /**

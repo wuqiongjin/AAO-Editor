@@ -86,5 +86,14 @@ describe('issue 188 · 播放期 80ms HUD 更新与工作台重组件隔离', ()
     expect(displayPanel).toMatch(/memo\(/);
     expect(markerButton).toMatch(/memo\(/);
   });
+
+  it('issue 207 · WorkspacePage 传递给 PatternLibraryDrawer 的 props 不得含有内联箭头函数，避免破坏 memo 拦截', () => {
+    const wsPage = readStripped('src/pages/workspace/WorkspacePage.tsx');
+    const drawerMount = wsPage.slice(
+      wsPage.indexOf('<PatternLibraryDrawer'),
+      wsPage.indexOf('/>', wsPage.indexOf('<PatternLibraryDrawer')),
+    );
+    expect(drawerMount).not.toMatch(/on\w+=\{\s*\([^)]*\)\s*=>/);
+  });
 });
 

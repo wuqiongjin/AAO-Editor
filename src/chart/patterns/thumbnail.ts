@@ -118,11 +118,23 @@ function patternGeometry(
   };
 }
 
+const sceneCache = new WeakMap<Pattern, Map<string, PatternThumbnailScene>>();
+
 /**
  * 构建缩略图场景：纵向按**布局坐标极值**取景（折返深度照实画），横向按车道铺满。
  * 空片段（无实体音符）→ 空场景（只有车道底），调用方不必特判。
+ * 带 WeakMap 引用级场景缓存，同一 pattern 与尺寸只计算一次几何。
  */
 export function buildPatternThumbnailScene(pattern: Pattern, size: ThumbnailSize): PatternThumbnailScene {
+  const cacheKey = `${size.w}x${size.h}`;
+  let sizeMap = sceneCache.get(pattern);
+  if (!sizeMap) {
+    sizeMap = new Map();
+    sceneCache.set(pattern, sizeMap);
+  }
+  const cached = sizeMap.get(cacheKey);
+  if (cached) return cached;
+
   const innerW = Math.max(1, size.w - 2 * PAD_X);
   const innerH = Math.max(1, size.h - 2 * PAD_Y);
 
@@ -203,5 +215,7 @@ export function buildPatternThumbnailScene(pattern: Pattern, size: ThumbnailSize
     // deltaBeat 相对片段起点（= `minBeat`，与 capture 同口径）
     .map((event) => yOfPos(posOf(minBeat + event.deltaBeat)));
 
-  return { lanes, spans, slideMarks, keyMarks, bpmLines };
+  const scene: PatternThumbnailScene = { lanes, spans, slideMarks, keyMarks, bpmLines };
+  sizeMap.set(cacheKey, scene);
+  return scene;
 }

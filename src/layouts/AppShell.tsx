@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppNavProvider, AppNav, type AppNavValue, type PageId } from './AppNav';
 import { showToast } from '../ui/Toast';
 import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
@@ -97,7 +97,10 @@ export default function AppShell() {
     void ensure();
   }, [activePage, ensure]);
 
-  const navValue = { activePage, setActivePage, pageScope, navCollapsed, setNavCollapsed };
+  const navValue = useMemo<AppNavValue>(
+    () => ({ activePage, setActivePage, pageScope, navCollapsed, setNavCollapsed }),
+    [activePage, setActivePage, pageScope, navCollapsed, setNavCollapsed],
+  );
 
   return (
     <AppNavProvider value={navValue}>

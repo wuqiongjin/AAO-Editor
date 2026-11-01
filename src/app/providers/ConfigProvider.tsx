@@ -1,7 +1,7 @@
 // ConfigContext（ADR-0003 §7.3）：统一 versioned settings JSON（ADR-0003 §6）。
 // 承载：theme / layout / shortcuts / audio，按字段写回（updateSettings）。
 // Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
-import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useMemo, useState, type ReactNode } from 'react';
 import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, clampPatternDrawerWidth, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
 import { getDefaultConfig, pruneShortcutMasks, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
@@ -78,7 +78,7 @@ export interface ConfigContextValue {
   setCachePolicy: (patch: Partial<AppSettings['cachePolicy']>) => void;
 }
 
-const ConfigContext = createContext<ConfigContextValue | null>(null);
+export const ConfigContext = createContext<ConfigContextValue | null>(null);
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -314,7 +314,63 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setPatternDrawer, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setBeatSnap, setPatternPasteWithBpm, setPatternLibrarySort, setPlaybar, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
+  const value = useMemo<ConfigContextValue>(() => ({
+    settings,
+    setShortcutConfig,
+    setKeySetId,
+    setTheme,
+    setUiLanguage,
+    setUiTypeScale,
+    setUiFontStack,
+    setAutoCheck,
+    setPatternDrawer,
+    setDisplay,
+    setPreview,
+    setExport,
+    setSeVolume,
+    setAudioVolume,
+    setNoteSkin,
+    setBackgroundSkin,
+    setCurveConfig,
+    setBeatSnap,
+    setPatternPasteWithBpm,
+    setPatternLibrarySort,
+    setPlaybar,
+    setProjectSort,
+    setImportWithChart,
+    setSongSort,
+    setProjectListWidth,
+    setAllSettings,
+    setCachePolicy,
+  }), [
+    settings,
+    setShortcutConfig,
+    setKeySetId,
+    setTheme,
+    setUiLanguage,
+    setUiTypeScale,
+    setUiFontStack,
+    setAutoCheck,
+    setPatternDrawer,
+    setDisplay,
+    setPreview,
+    setExport,
+    setSeVolume,
+    setAudioVolume,
+    setNoteSkin,
+    setBackgroundSkin,
+    setCurveConfig,
+    setBeatSnap,
+    setPatternPasteWithBpm,
+    setPatternLibrarySort,
+    setPlaybar,
+    setProjectSort,
+    setImportWithChart,
+    setSongSort,
+    setProjectListWidth,
+    setAllSettings,
+    setCachePolicy,
+  ]);
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

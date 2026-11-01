@@ -1,6 +1,6 @@
 // EditingContext（ADR-0003 §7.1）：谱面数据与编辑——notes / history / selection / clipboard，
 // 以及编辑操作（复制/剪切/粘贴/删除/镜像/编辑工具态）。放置走 ToolActionMatrix.clickOps。
-import { createContext, useContext, useCallback, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ChartNote, SelectionItem } from '../../chart/types';
 import type { ChartPosition } from '../../types/chart';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../../chart/editing/SelectionEditing';
@@ -167,17 +167,49 @@ export function EditingProvider({ children }: { children: ReactNode }) {
     handleNotesChange(mirrorSelection(notes, selectedItems));
   }, [notes, selectedItems, handleNotesChange]);
 
-  const value: EditingContextValue = {
-    notes, history, historyIndex,
+  const value = useMemo<EditingContextValue>(() => ({
+    notes,
+    history,
+    historyIndex,
     canUndo: historyIndex > 0,
     canRedo: historyIndex < history.length - 1,
-    selectedItems, clipboard,
-    setNotes, resetNotes, setSelectedItems, setClipboard,
-    handleNotesChange, undo, redo,
-    copy, cut, deleteSelected, mirror,
-    chartCodeFidelity, applyChartCodeToCanvas,
+    selectedItems,
+    clipboard,
+    setNotes,
+    resetNotes,
+    setSelectedItems,
+    setClipboard,
+    handleNotesChange,
+    undo,
+    redo,
+    copy,
+    cut,
+    deleteSelected,
+    mirror,
+    chartCodeFidelity,
+    applyChartCodeToCanvas,
     setReadonlyGate,
-  };
+  }), [
+    notes,
+    history,
+    historyIndex,
+    selectedItems,
+    clipboard,
+    setNotes,
+    resetNotes,
+    setSelectedItems,
+    setClipboard,
+    handleNotesChange,
+    undo,
+    redo,
+    copy,
+    cut,
+    deleteSelected,
+    mirror,
+    chartCodeFidelity,
+    applyChartCodeToCanvas,
+    setReadonlyGate,
+  ]);
 
   return <EditingContext.Provider value={value}>{children}</EditingContext.Provider>;
 }

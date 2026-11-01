@@ -256,7 +256,11 @@ export interface PatternBpmRange {
   peak: number | null;
 }
 
+const bpmRangeCache = new WeakMap<Pattern, PatternBpmRange>();
+
 export function patternBpmRange(pattern: Pattern): PatternBpmRange {
+  const cached = bpmRangeCache.get(pattern);
+  if (cached) return cached;
   const { startBpm, events } = pattern.bpmContext;
   let peak: number | null = null;
   let widest = 0;
@@ -267,5 +271,7 @@ export function patternBpmRange(pattern: Pattern): PatternBpmRange {
       peak = event.bpm;
     }
   }
-  return { start: startBpm, peak };
+  const result: PatternBpmRange = { start: startBpm, peak };
+  bpmRangeCache.set(pattern, result);
+  return result;
 }

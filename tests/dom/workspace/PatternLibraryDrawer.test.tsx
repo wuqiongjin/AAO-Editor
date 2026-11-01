@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
 // issue 185 锁测：片段库抽屉（卡片 / 缩略图 / 搜索 / 改名 / 删除 / 收藏按钮）+ 183 外壳回归。
 import '@testing-library/jest-dom/vitest';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { ConfigProvider, useConfig } from '@/src/app/providers/ConfigProvider';
+import { ProviderTree } from '@/src/app/ProviderTree';
 import { EditingProvider, useEditing } from '@/src/app/providers/EditingProvider';
 import { PatternStore } from '@/src/chart/patterns/PatternStore';
 import { usePatternLibrary } from '@/src/chart/patterns/usePatternLibrary';
 import type { ChartNote, SelectionItem } from '@/src/chart/types';
-import PatternLibraryDrawer from '@/src/pages/workspace/PatternLibraryDrawer';
+import { PageSlot } from '@/src/pages/PageRegistry';
+import PatternLibraryDrawer, { PatternCard } from '@/src/pages/workspace/PatternLibraryDrawer';
+import PatternThumbnail from '@/src/pages/workspace/PatternThumbnail';
 import { useSaveSelectionPattern } from '@/src/pages/workspace/useSaveSelectionPattern';
 import { stubPageShellEnv } from '@/tests/support/domEnv';
 import { makeMemoryPatternStore, makePattern } from '@/tests/support/patterns';
@@ -810,4 +813,206 @@ describe('issue 192 · 片段排序（视图偏好与 UI 切换）', () => {
     expect(screen.getByRole('checkbox', { name: '片段 2' })).toHaveAttribute('aria-checked', 'false');
   });
 });
+
+describe('issue 207 · 渲染隔离与 memo 保护', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('PatternThumbnail 与 PatternCard 均经过 React.memo 包装，避免抽屉局部状态变化时全部组件重跑', () => {
+    expect((PatternThumbnail as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for('react.memo'));
+    expect((PatternCard as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for('react.memo'));
+  });
+
+  it('PatternCard 经过 React.memo 包装且传递稳定回调，单张卡片状态变化时不牵连其他卡片重渲', async () => {
+    const memory = makeMemoryPatternStore([
+      makePattern({ id: 'p1', name: '片段 1' }),
+      makePattern({ id: 'p2', name: '片段 2' }),
+    ]);
+    const store = memory.store;
+
+    const originalCardType = (PatternCard as unknown as { type: React.ComponentType<any> }).type;
+    const cardRenderSpy = vi.fn(originalCardType);
+    (PatternCard as unknown as { type: React.ComponentType<any> }).type = cardRenderSpy;
+
+    function CardHarness() {
+      const [activeId, setActiveId] = useState<string | null>(null);
+      const library = usePatternLibrary(store);
+      return (
+        <div>
+          <button type="button" onClick={() => setActiveId('p1')}>激活片段1</button>
+          <PatternLibraryDrawer
+            library={library}
+            canSaveSelection={false}
+            readOnly={false}
+            onSaveSelection={() => {}}
+            onPastePattern={() => {}}
+            onExitPaste={() => {}}
+            activePatternId={activeId}
+          />
+        </div>
+      );
+    }
+
+    try {
+      render(
+        <ConfigProvider>
+          <EditingProvider>
+            <CardHarness />
+          </EditingProvider>
+        </ConfigProvider>,
+      );
+
+      await waitFor(() => expect(screen.getByText('片段 1')).toBeInTheDocument());
+      expect(screen.getByText('片段 2')).toBeInTheDocument();
+
+      const initialCalls = cardRenderSpy.mock.calls.length;
+      expect(initialCalls).toBeGreaterThanOrEqual(2);
+
+      cardRenderSpy.mockClear();
+
+      // 激活 p1：仅 p1 的 active 状态变化（false -> true），p2 属性完全没变
+      fireEvent.click(screen.getByRole('button', { name: '激活片段1' }));
+
+      // p1 必定重新渲染
+      await waitFor(() => {
+        const renderedPatterns = cardRenderSpy.mock.calls.map((call) => call[0]?.pattern?.id);
+        expect(renderedPatterns).toContain('p1');
+        // memo 拦截成功：p2 未受波及，没有重新渲染！
+        expect(renderedPatterns).not.toContain('p2');
+      });
+    } finally {
+      (PatternCard as unknown as { type: React.ComponentType<any> }).type = originalCardType;
+    }
+  });
+
+  it('父组件高频更新无关状态时，稳定 props 的 PatternLibraryDrawer 不发生多余重渲染', async () => {
+    const memory = makeMemoryPatternStore([makePattern({ id: 'p1', name: '片段 1' })]);
+    const store = memory.store;
+
+    let parentRenders = 0;
+    let tickParent: () => void = () => {};
+
+    const originalType = (PatternLibraryDrawer as unknown as { type: React.ComponentType<any> }).type;
+    const renderSpy = vi.fn(originalType);
+    (PatternLibraryDrawer as unknown as { type: React.ComponentType<any> }).type = renderSpy;
+
+    function ParentHarness() {
+      const [seconds, setSeconds] = useState(0);
+      parentRenders++;
+      tickParent = () => setSeconds((s) => s + 0.08);
+
+      const library = usePatternLibrary(store);
+      const { canSave, save } = useSaveSelectionPattern(library);
+      const handleSave = useCallback(() => { void save(); }, [save]);
+      const handlePaste = useCallback(() => {}, []);
+      const handleExitPaste = useCallback(() => {}, []);
+      const handleResizing = useCallback(() => {}, []);
+
+      return (
+        <PatternLibraryDrawer
+          library={library}
+          canSaveSelection={canSave}
+          readOnly={false}
+          onSaveSelection={handleSave}
+          onPastePattern={handlePaste}
+          onExitPaste={handleExitPaste}
+          onResizingChange={handleResizing}
+        />
+      );
+    }
+
+    try {
+      render(
+        <ConfigProvider>
+          <EditingProvider>
+            <ParentHarness />
+          </EditingProvider>
+        </ConfigProvider>,
+      );
+
+      await waitFor(() => expect(screen.getByText('片段 1')).toBeInTheDocument());
+
+      const initialParentRenders = parentRenders;
+      const initialDrawerRenders = renderSpy.mock.calls.length;
+
+      // 模拟播放时钟 3 次 tick（独立提交）
+      act(() => { tickParent(); });
+      act(() => { tickParent(); });
+      act(() => { tickParent(); });
+
+      expect(parentRenders).toBe(initialParentRenders + 3);
+      // memo 成功拦截：抽屉自身函数调用次数保持不变，不随父级时间码重跑
+      expect(renderSpy.mock.calls.length).toBe(initialDrawerRenders);
+      expect(screen.getByText('片段 1')).toBeInTheDocument();
+    } finally {
+      (PatternLibraryDrawer as unknown as { type: React.ComponentType<any> }).type = originalType;
+    }
+  });
+
+  it('缩略图支持 IntersectionObserver 懒绘制，卡片挂载时接入视口观察者', async () => {
+    const observedElements: Element[] = [];
+    class MockIntersectionObserver {
+      constructor(_callback: IntersectionObserverCallback) {}
+      observe(el: Element) { observedElements.push(el); }
+      unobserve() {}
+      disconnect() {}
+    }
+
+    const originalIO = (window as unknown as { IntersectionObserver?: unknown }).IntersectionObserver;
+    (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = MockIntersectionObserver;
+
+    try {
+      setup({ seed: [makePattern({ id: 'p1', name: '片段 1' }), makePattern({ id: 'p2', name: '片段 2' })] });
+      await waitFor(() => expect(screen.getByText('片段 1')).toBeInTheDocument());
+      expect(observedElements.length).toBe(2);
+    } finally {
+      (window as unknown as { IntersectionObserver?: unknown }).IntersectionObserver = originalIO;
+    }
+  });
+
+  it('InactiveConfigBoundary 拦截：在后台保活挂载（active: false）的页面在工作台抽屉开合时不受 Config 广播波及而发生重渲', async () => {
+    let inactivePageRenders = 0;
+    function MockInactivePage({ active }: { active?: boolean }) {
+      useConfig();
+      inactivePageRenders++;
+      return <div data-testid="mock-inactive-page">{`active:${active}`}</div>;
+    }
+
+    function Harness() {
+      const { setPatternDrawer } = useConfig();
+      return (
+        <div>
+          <button type="button" onClick={() => setPatternDrawer({ open: true })}>打开抽屉</button>
+          <PageSlot id="projects" active={false} />
+        </div>
+      );
+    }
+
+    // 将 PAGE_REGISTRY 中的 projects 临时替换为带计数的组件
+    const { PAGE_REGISTRY } = await import('@/src/pages/PageRegistry');
+    const originalPage = PAGE_REGISTRY.projects;
+    PAGE_REGISTRY.projects = MockInactivePage as any;
+
+    try {
+      render(
+        <ProviderTree>
+          <Harness />
+        </ProviderTree>,
+      );
+
+      expect(screen.getByTestId('mock-inactive-page')).toBeInTheDocument();
+      const initialRenders = inactivePageRenders;
+
+      // 触发 setPatternDrawer 更新全局 settings
+      fireEvent.click(screen.getByRole('button', { name: '打开抽屉' }));
+
+      // 验证后台失活页面被 InactiveConfigBoundary 拦截，完全没有多余重渲
+      expect(inactivePageRenders).toBe(initialRenders);
+    } finally {
+      PAGE_REGISTRY.projects = originalPage;
+    }
+  });
+});
+
 

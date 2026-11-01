@@ -179,6 +179,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const { canSave: canSaveSelection, save: saveSelection } = useSaveSelectionPattern(patternLibrary);
   // issue 188：抽屉是 memo 组件，回调身份保持稳定，避免播放期 80ms 时间码连带整块重渲
   const handleSaveSelection = useCallback(() => { void saveSelection(); }, [saveSelection]);
+  // issue 207：退出粘贴态回调保持稳定，避免播放期 80ms 时间码连带整块重渲（破坏 drawer memo 隔离）
+  const uiRef = useRef(ui);
+  uiRef.current = ui;
+  const handleExitPaste = useCallback(() => {
+    if (uiRef.current.patternPaste) uiRef.current.setArmedTool(null);
+  }, []);
 
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
@@ -551,7 +557,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           onSaveSelection={handleSaveSelection}
           // 186 二轮：同一张卡再点 = 退出粘贴态（回指针）；高亮由 `activePatternId` 决定
           onPastePattern={ui.togglePatternPaste}
-          onExitPaste={() => { if (ui.patternPaste) ui.setArmedTool(null); }}
+          onExitPaste={handleExitPaste}
           activePatternId={ui.patternPaste?.id ?? null}
           onResizingChange={onDrawerResizingChange}
         />
