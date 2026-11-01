@@ -183,6 +183,7 @@
 - **196 框选批量删滑条中间结点时顺带执行「删段」**（[196](./issues/196-框选批量删SP滑条中间结点连带清空段内hidden.md)，`Type: grilling`，resolved）—— **根因** = 框住一条段的两个端点必然把整段也塞进选区（`computeItemsInBox`），删除时 `slideNode`（转 hidden）与 `slideRegion`（拆条 / 清段内 hidden）叠加：SP 段丢采样点 → 曲线拉直；普通滑条因"先转 hidden 再拆"命中 `splitSlideHiddenAware` 的 `vis.length <= 2 → return []` → 整条消失。**定了什么** = A′：region 所属逻辑段两端结点都在同批 `slideNode` 条目里时，该 region 在删除中不生效（单击 / 右键点带子删段照旧）；顺带删掉已被 issue 80 取代的那条早退规则；ADR-0001 §6.2 补一句优先级。已实现并锁测（`SlideBatchNodeDelete.test.ts`）。
 - **197 框选按住时缩放选框反向形变与幽灵框**（[197](./issues/197-框选按住时缩放选框反向形变与幽灵框.md)，`Type: bug`，resolved）—— **根因** = `virtualY` 含 `baseline(scale)`，非恒定物理量；判定线锚定缩放让起点在变尺度反解时被暴力乘上 `es_new/es_old`，与音符沿判定线运动方向完全相反。**改成什么** = 选框起点由 `(lane, beat/pos)` 真谱面量锚定。已实现并锁测。
 - **190 片段卡片音符数与拍数**（[190](./issues/190-片段卡片音符数与拍数.md)，`Type: feature`，resolved）—— **改成什么** = 卡片徽标下新增派生统计行 `N 音符 · N 拍`；音符数复用 `countChartNotes`，拍数按 capture 包围盒口径（滑条 / 长条含 hidden 连接点，BPM / System / Opaque 不计）；不进载荷 / 存储 / 分享。
+- **198 播放中框选选区锁定画布上边缘**（[198](./issues/198-播放中框选选区锁定画布上边缘.md)，`Type: bug`，resolved）—— **根因** = 播放循环为 60 FPS 性能绕过 React `setViewport` 直接改 `scrollYRef`，但 `session.bindWorld` 绑入陈旧 `viewport` 且 `setScrollY` 未驱动手势视口更新；`marqueeRect` 重算起点时减去陈旧的大 `scrollY` 导致 $p_1.y \ll 0$，画布裁切呈现两顶点死死吸附上边缘。**改成什么** = 统一绑入实时视口 `liveViewport()` + 播放帧手势激活时同步驱动 `onViewportChange` + 绘制直读 `session.getSnapshot()`。已实现并锁测。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

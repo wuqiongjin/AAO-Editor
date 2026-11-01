@@ -44,6 +44,13 @@ describe('issue 139 · 播放 RAF 不进 React', () => {
     expect(playIf![0]).not.toContain('setViewport');
     expect(playIf![0]).toMatch(/renderCanvas|paint/);
   });
+
+  it('issue 198：播放中 setScrollY 同步通知手势内核视口变化且 bindWorld 绑 liveViewport', () => {
+    const playIf = setScrollYBody.match(/if\s*\(\s*playbackActiveRef\.current\)\s*\{[\s\S]*?return;?\s*\}/);
+    expect(playIf).not.toBeNull();
+    expect(playIf![0]).toMatch(/session\.onViewportChange/);
+    expect(canvas).toMatch(/session\.bindWorld\([\s\S]*?viewport:\s*liveViewport\(\)/);
+  });
 });
 
 describe('issue 188 · 播放期 80ms HUD 更新与工作台重组件隔离', () => {

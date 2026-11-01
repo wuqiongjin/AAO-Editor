@@ -445,7 +445,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     session.bindWorld({
         notes, selectedItems, armedTool, beatDisplay, chartEndBeat,
-        geometry, viewport, surface: surf, clipboard, pastePattern,
+        geometry, viewport: liveViewport(), surface: surf, clipboard, pastePattern,
         slideBuffer: bufferPoint, curveDraft, curveConfig,
         lastBpm: lastBpmRef.current, noteSize: display.noteSize,
         hitPlaybackMarker, hitBpmGutter, expandedBpmGroupKey,
@@ -478,7 +478,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // notes 等由每次渲染的 bindWorld 保持最新；本 effect 只在视口几何变化时转发。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟视口/几何/渲染面
     useEffect(() => {
-        session.onViewportChange(viewport, geometry, surf);
+        session.onViewportChange(liveViewport(), geometry, surf);
     }, [viewport, geometry, surf]);
 
     const syncHover = (mouseX: number, mouseY: number) => {
@@ -589,6 +589,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             target.configure({ surface: surf, dpr });
         }
 
+        const sessionSnap = session.getSnapshot();
         const view: FrameView = {
             geometry,
             viewport: vp,
@@ -596,7 +597,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             chartEndBeat,
             notes,
             selectedItems,
-            selectionBox: gestureSnap.selectionBox,
+            selectionBox: sessionSnap.selectionBox,
             slideBuffer,
             hoverPos,
             frozenCursor: lastLegalPxRef.current
@@ -616,11 +617,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             // issue 143 补修：就地编辑中的那条 BPM 不画沟槽数值（让位给下面的 HTML 输入框）
             bpmEditBeat: bpmEdit?.beat ?? null,
             expandedBpmGroupKey,
-            rightButtonHeld: gestureSnap.rightButtonHeld,
-            dragGhost: gestureSnap.dragGhost,
+            rightButtonHeld: sessionSnap.rightButtonHeld,
+            dragGhost: sessionSnap.dragGhost,
             curveDraft, curveConfig, // issue 09 S2：曲线工具预览
-            penPreview: gestureSnap.penPreview,
-            penActive: gestureSnap.penActive,
+            penPreview: sessionSnap.penPreview,
+            penActive: sessionSnap.penActive,
             spriteIcon: spriteIcon.current,
             noteIcons,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
@@ -727,6 +728,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / viewport.scale, scrollY));
             scrollYRef.current = newScrollY;
             if (playbackActiveRef.current) {
+                // issue 198：播放帧同步通知手势内核实时视口，避免框选起点/落点基于陈旧 React viewport 计算出负数
+                session.onViewportChange(liveViewport(), geometry, surf);
                 renderCanvasRef.current();
                 return;
             }

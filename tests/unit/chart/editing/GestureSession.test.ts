@@ -431,6 +431,96 @@ describe('GestureSession · 框选通路（不变量 5 / 18）', () => {
     expect(box.x1).toBeCloseTo(expectedA.x, 1);
     expect(box.y1).toBeCloseTo(expectedA.y, 1);
   });
+
+  it('issue 198：播放推进时（scrollY 减小）进行框选，选框起点不锁死画布顶端（y1 >= 0），且随视口滚动平滑延伸', () => {
+    const notes = [bpmNote(0, 120), single(2, 40), single(3, 42)];
+    const { world } = worldOf(notes, { surface: TALL_SURFACE });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+
+    // 假设初始视口停留在开头（较大 scrollY）
+    const initialVp = { ...world.viewport, scrollY: 10000 };
+    s.bindWorld({ ...world, viewport: initialVp });
+
+    // 播放向前推进，scrollY 减少至 8000
+    const playingVp = { ...world.viewport, scrollY: 8000 };
+    s.onViewportChange(playingVp, world.geometry, world.surface);
+
+    // 用户在空白处 (lane 1, beat 38) 按下鼠标开始框选
+    const p = world.geometry.virtualToCanvas(
+      world.geometry.noteVirtualX(1),
+      world.geometry.noteVirtualY(38, 0, playingVp.scale, BEAT_DISPLAY),
+      playingVp,
+    );
+    const v = world.geometry.canvasToVirtual(p.x, p.y, playingVp);
+    press(s, p, () => v);
+
+    // 鼠标移动越过 8px
+    s.move({ x: p.x + 20, y: p.y + 20 });
+    const box1 = s.getSnapshot().selectionBox!;
+    expect(box1).not.toBeNull();
+    // 选框起点 y1 绝不可因陈旧视口减法飞窜成负数（吸附顶边 y=0）
+    expect(box1.y1).toBeGreaterThanOrEqual(0);
+    expect(box1.y1).toBeCloseTo(p.y, 1);
+    expect(box1.y2).toBeCloseTo(p.y + 20, 1);
+
+    // 播放继续推进，scrollY 再减少 200px
+    const playingVp2 = { ...world.viewport, scrollY: 7800 };
+    s.onViewportChange(playingVp2, world.geometry, world.surface);
+
+    // 选框应在原地按住不动时随谱面向上推进（画布像素 Y 坐标向下移 200px）而自然延展
+    const box2 = s.getSnapshot().selectionBox!;
+    expect(box2.y1).toBeCloseTo(p.y + 200, 1);
+    expect(box2.y2).toBeCloseTo(p.y + 20, 1);
+  });
+
+  it('issue 198：播放推进时框选松手，commitBox 反解出的选区不含陈旧视口跨越的历史音符', () => {
+    const notes = [
+      bpmNote(0, 120),
+      single(2, 5),  // 历史音符（已被播放滚出屏幕）
+      single(2, 40), // 目标框选音符
+    ];
+    const { world } = worldOf(notes, { surface: TALL_SURFACE });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+
+    // 1. 播放开始前初始视口停留在谱面较早位置（较大 scrollY = 12000）
+    const initialVp = { ...world.viewport, scrollY: 12000 };
+    s.bindWorld({ ...world, viewport: initialVp });
+
+    // 2. 播放向前推进至 8000（此时 single(2, 5) 已滚出屏幕，single(2, 40) 进入视口）
+    const playingVp1 = { ...world.viewport, scrollY: 8000 };
+    s.onViewportChange(playingVp1, world.geometry, world.surface);
+
+    // 在空白处 (lane 1, beat 38) 按下
+    const a = world.geometry.virtualToCanvas(
+      world.geometry.noteVirtualX(1),
+      world.geometry.noteVirtualY(38, 0, playingVp1.scale, BEAT_DISPLAY),
+      playingVp1,
+    );
+    const va = world.geometry.canvasToVirtual(a.x, a.y, playingVp1);
+    press(s, a, () => va);
+
+    // 3. 拖拽过程中播放继续推进至 7600
+    const playingVp2 = { ...world.viewport, scrollY: 7600 };
+    s.onViewportChange(playingVp2, world.geometry, world.surface);
+
+    // 鼠标在当前视口下拖拽到 (lane 3, beat 42) 圈住 single(2, 40)
+    const b = world.geometry.virtualToCanvas(
+      world.geometry.noteVirtualX(3),
+      world.geometry.noteVirtualY(42, 0, playingVp2.scale, BEAT_DISPLAY),
+      playingVp2,
+    );
+    s.move(b);
+
+    // 4. 松手结算
+    const r = s.end(up(b));
+    const sel = r.ops.find((op) => op.t === 'setSelection');
+    expect(sel).toBeDefined();
+    if (sel?.t !== 'setSelection') throw new Error('expected setSelection');
+    // 只选中了 noteIndex: 2（即 single(2, 40)），绝不因视口脱节漏选或误选历史音符
+    expect(sel.items).toEqual([{ kind: 'note', noteIndex: 2 }]);
+  });
 });
 
 describe('GestureSession · Slide 两击（不变量 10）', () => {
