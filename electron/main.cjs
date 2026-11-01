@@ -241,7 +241,7 @@ async function saveJsonWithDialog(event, payload, { channel, titleKey, fallbackN
 }
 
 // ---------------------------------------------------------------------------
-// 片段库（issue 184 / ADR-0023 §3）：<数据根>/patterns.json，独立于工程与设置。
+// 片段库（issue 184 / 208 / ADR-0023 §3）：<数据根>/patterns/patterns.json，独立于工程与设置。
 // 文件损坏由 patternLibrary.cjs 改名 `.broken` 备份后按空库处理；首次无文件不落盘。
 // issue 187：分享导出走 `patternLibrary:saveAs`（每次 dialog、不记路径）；
 // 取消对话框返回 { cancelled: true }，渲染侧据此什么都不做。

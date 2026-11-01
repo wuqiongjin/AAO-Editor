@@ -27,9 +27,12 @@ describe('片段库 · 两条后端都被引用', () => {
 });
 
 describe('片段库 · Electron 数据根文件', () => {
-  it('文件名为 patterns.json，路径函数挂在数据根布局模块', () => {
+  it('文件名为 patterns.json，位于 patterns 目录，路径函数挂在数据根布局模块', () => {
+    expect(dataRootSrc).toMatch(/PATTERNS_DIRNAME\s*=\s*['"]patterns['"]/);
     expect(dataRootSrc).toMatch(/PATTERNS_FILENAME\s*=\s*['"]patterns\.json['"]/);
+    expect(dataRootSrc).toMatch(/function patternsDir\(dataRoot\)/);
     expect(dataRootSrc).toMatch(/function patternLibraryPath\(dataRoot\)/);
+    expect(dataRootSrc).toMatch(/patternsDir,/);
     expect(dataRootSrc).toMatch(/patternLibraryPath,/);
   });
 

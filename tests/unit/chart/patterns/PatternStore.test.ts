@@ -5,7 +5,13 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChartNote } from '@/src/chart/types';
-import { PATTERNS_FILENAME, patternLibraryPath } from '@/electron/dataRoot.cjs';
+import {
+  PATTERNS_DIRNAME,
+  PATTERNS_FILENAME,
+  ensureDataRootLayoutSync,
+  patternLibraryPath,
+  patternsDir,
+} from '@/electron/dataRoot.cjs';
 import { loadPatternLibrary, savePatternLibrary } from '@/electron/patternLibrary.cjs';
 import {
   ElectronFilePatternLibraryBackend,
@@ -179,9 +185,23 @@ describe('IndexedDB 后端 · 单 record 往返', () => {
 });
 
 describe('Electron 真文件后端 · 数据根布局与损坏兜底', () => {
-  it('片段库固定落在 <数据根>/patterns.json', () => {
+  it('片段库固定落在 <数据根>/patterns/patterns.json', () => {
     expect(PATTERNS_FILENAME).toBe('patterns.json');
-    expect(patternLibraryPath(join('/tmp', 'data-root'))).toBe(join('/tmp', 'data-root', 'patterns.json'));
+    expect(PATTERNS_DIRNAME).toBe('patterns');
+    expect(patternsDir(join('/tmp', 'data-root'))).toBe(join('/tmp', 'data-root', 'patterns'));
+    expect(patternLibraryPath(join('/tmp', 'data-root'))).toBe(
+      join('/tmp', 'data-root', 'patterns', 'patterns.json'),
+    );
+  });
+
+  it('ensureDataRootLayoutSync 确保 patterns/ 目录创建', () => {
+    const root = tmpDir('aao-patterns-layout-');
+    try {
+      ensureDataRootLayoutSync(root);
+      expect(existsSync(patternsDir(root))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('文件不存在：load 回 null，且不落盘', async () => {
@@ -194,15 +214,18 @@ describe('Electron 真文件后端 · 数据根布局与损坏兜底', () => {
     }
   });
 
-  it('文件损坏：回空库、原文件改名 .broken 保留原内容', async () => {
+  it('文件损坏：回空库、原文件改名 .broken 保留原内容且不污染数据根', async () => {
     const root = tmpDir('aao-patterns-broken-');
     try {
+      ensureDataRootLayoutSync(root);
       const original = '{ not json';
       writeFileSync(patternLibraryPath(root), original);
 
       await expect(loadPatternLibrary(root)).resolves.toBeNull();
       expect(existsSync(patternLibraryPath(root))).toBe(false);
       expect(readFileSync(`${patternLibraryPath(root)}.broken`, 'utf8')).toBe(original);
+      // 数据根顶层无 .broken 污染
+      expect(existsSync(join(root, 'patterns.json.broken'))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -211,6 +234,7 @@ describe('Electron 真文件后端 · 数据根布局与损坏兜底', () => {
   it('已有 .broken 时序号后缀不覆盖上一份备份', async () => {
     const root = tmpDir('aao-patterns-broken-twice-');
     try {
+      ensureDataRootLayoutSync(root);
       writeFileSync(`${patternLibraryPath(root)}.broken`, 'older');
       writeFileSync(patternLibraryPath(root), '{ not json');
 
@@ -225,6 +249,7 @@ describe('Electron 真文件后端 · 数据根布局与损坏兜底', () => {
   it('schema 不认识也走同一备份口径（不静默覆盖）', async () => {
     const root = tmpDir('aao-patterns-version-');
     try {
+      ensureDataRootLayoutSync(root);
       const original = JSON.stringify({ schemaVersion: 2, patterns: [] });
       writeFileSync(patternLibraryPath(root), original);
 

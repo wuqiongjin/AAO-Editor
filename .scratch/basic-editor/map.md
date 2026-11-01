@@ -193,6 +193,7 @@
 - **205 画布与预览设置浮层条目重构与三端对齐**（[205](./issues/205-画布与预览设置浮层条目重构与三端对齐.md)，`Type: grilling`，resolved）—— **定了什么** = 动态预览彻底剥离二维画布专属无效项并去画布化，重构为「舞台与仿真/音符与画质/音符皮肤」并接入 SE 音量；静态预览扩充 1/3、1/6、1/12 三连音节拍线；工作台顺化条目次序并新增音符皮肤对标；两预览弹窗补齐两步确认恢复默认重置。
 - **206 显示面板切语言选项文案残留与选项窄收敛**（[206](./issues/206-显示面板切语言选项文案残留与选项窄收敛.md)，`Type: bug`，resolved）—— **根因** = `PreviewDisplayPanel` 与 `WorkspaceDisplayPanel` 中选项列表使用空依赖 `useMemo` 缓存 `t()`，切语言后保活实例未重求值。**改成什么** = 清除小数组不必要的 `useMemo`，提取窄收敛同质选项常量 `displayPanelOptions.ts`，补齐 DOM 挂载态切语言锁测。
 - **207 展开片段库播放掉帧与memo穿透**（[207](./issues/207-展开片段库播放掉帧与memo穿透.md)，`Type: bug`，resolved）—— **根因** = `WorkspacePage` 向 `PatternLibraryDrawer` 传入内联箭头函数 `onExitPaste` 破坏 `memo` 隔离，导致 80ms 播放时钟引发 12.5Hz 级联全量重渲与重算；缩略图未 `memo`。**改成什么** = 包装稳定 `useCallback` 恢复 `memo` 拦截，缩略图补 `memo`，静态与 DOM 锁测防退化。
+- **208 片段库文件收纳至专属子目录**（[208](./issues/208-片段库文件收纳至专属子目录.md)，`Type: chore`，resolved）—— 数据根下 `<数据根>/patterns.json` 收纳至专属子目录 `<数据根>/patterns/patterns.json`，规范数据根纯目录布局并收敛 `.broken` 备份。已实现并全量锁测。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

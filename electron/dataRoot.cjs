@@ -12,7 +12,8 @@ const COMMUNITY_CACHE_DIRNAME = 'community';
 /** 07 的「下载暂存」目录名：14 起退役（缓存接手），只用于启动时清旧数据根里的残留 */
 const LEGACY_DOWNLOADS_DIRNAME = 'downloads';
 const BACKGROUND_SKIN_RELATIVE = path.join(ASSETS_DIRNAME, 'background-skin.bin');
-/** 片段库（issue 184 / ADR-0023 §3）：<数据根>/patterns.json，独立于工程与设置 */
+/** 片段库（issue 184 / 208 / ADR-0023 §3）：<数据根>/patterns/patterns.json，独立于工程与设置 */
+const PATTERNS_DIRNAME = 'patterns';
 const PATTERNS_FILENAME = 'patterns.json';
 
 function dataRootUnderParent(parent) {
@@ -31,13 +32,17 @@ function assetsDir(dataRoot) {
     return path.join(dataRoot, ASSETS_DIRNAME);
 }
 
+function patternsDir(dataRoot) {
+    return path.join(dataRoot, PATTERNS_DIRNAME);
+}
+
 function backgroundSkinPath(dataRoot) {
     return path.join(dataRoot, BACKGROUND_SKIN_RELATIVE);
 }
 
-/** 片段库文件路径（<数据根>/patterns.json，issue 184） */
+/** 片段库文件路径（<数据根>/patterns/patterns.json，issue 184 / 208） */
 function patternLibraryPath(dataRoot) {
-    return path.join(dataRoot, PATTERNS_FILENAME);
+    return path.join(patternsDir(dataRoot), PATTERNS_FILENAME);
 }
 
 /** 社区素材缓存目录（<数据根>/cache/community/）—— 社区音频 / 封面 / 索引的落点（票 14） */
@@ -54,6 +59,7 @@ function ensureDataRootLayoutSync(dataRoot) {
     fs.mkdirSync(projectsDir(dataRoot), { recursive: true });
     fs.mkdirSync(assetsDir(dataRoot), { recursive: true });
     fs.mkdirSync(cacheDir(dataRoot), { recursive: true });
+    fs.mkdirSync(patternsDir(dataRoot), { recursive: true });
 }
 
 /** 清掉 07 时代下载暂存的残留目录（票 14：暂存退役、缓存接手）。尽力而为，清不掉不影响功能。 */
@@ -228,12 +234,14 @@ module.exports = {
     COMMUNITY_CACHE_DIRNAME,
     LEGACY_DOWNLOADS_DIRNAME,
     BACKGROUND_SKIN_RELATIVE,
+    PATTERNS_DIRNAME,
     PATTERNS_FILENAME,
     defaultDataRoot,
     dataRootUnderParent,
     projectsDir,
     assetsDir,
     cacheDir,
+    patternsDir,
     legacyDownloadsDir,
     removeLegacyDownloads,
     backgroundSkinPath,

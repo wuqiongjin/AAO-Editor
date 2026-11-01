@@ -1,7 +1,7 @@
 // 片段库存储（issue 184 / ADR-0023 §3）。
 //
 // 后端按环境自动切换（照 `src/project/ChartProject.ts` 的 `autoDetectBackend` 先例）：
-//   Electron → 数据根下 `patterns.json`（主进程文件后端，preload 桥 `electronAPI.patternLibrary`）
+//   Electron → 数据根下 `patterns/patterns.json`（主进程文件后端，preload 桥 `electronAPI.patternLibrary`）
 //   浏览器   → IndexedDB 独立库（单 record 存整份）
 //
 // 与设置对象的关系：**不进 settings、不随设置 JSON 导入导出**——片段是用户素材，不是习惯。
