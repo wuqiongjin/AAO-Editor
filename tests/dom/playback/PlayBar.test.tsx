@@ -66,6 +66,17 @@ describe('播放条（PlayBar）· 工作台口径', () => {
     expect(screen.getByLabelText(t('audio.lockedPrompt'))).toBeTruthy();
   });
 
+  it('时间码精度支持：timePrecision 为 standard 时输出 1 位，centisecond 时 2 位，millisecond 时输出 3 位毫秒', () => {
+    const { props, rerender } = renderBar({ currentSeconds: 5.456, duration: 65, timePrecision: 'standard' });
+    expect(screen.getByText('00:05.4')).toBeTruthy();
+
+    rerender(<PlayBar {...props} timePrecision="centisecond" />);
+    expect(screen.getByText('00:05.45')).toBeTruthy();
+
+    rerender(<PlayBar {...props} timePrecision="millisecond" />);
+    expect(screen.getByText('00:05.456')).toBeTruthy();
+  });
+
   it('拖拽 seek：按下即定位、拖动跟手、抬手后不再跟随', () => {
     const { props } = renderBar({ duration: 60 });
     const track = seekSlider();

@@ -10,6 +10,8 @@ import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 interface StoredSettings {
   display: Record<string, unknown>;
+  audio: Record<string, unknown>;
+  playbar: Record<string, unknown>;
 }
 
 function setup() {
@@ -37,6 +39,9 @@ const gridStyleSelect = () => within(panel()).getByRole('combobox', { name: '轨
 const lineShapeTiersSwitch = () => within(panel()).getByRole('switch', { name: '线形分层' });
 const gridOpacitySlider = () => within(panel()).getByRole('slider', { name: '轨道线透明度' });
 const labelScaleSlider = () => within(panel()).getByRole('slider', { name: '文字大小' });
+const timePrecisionSelect = () => within(panel()).getByRole('combobox', { name: '时间显示精度' });
+const seVolumeSlider = () => within(panel()).getByRole('slider', { name: '节奏图示 SE 音量' });
+const invertWheelSwitch = () => within(panel()).getByRole('switch', { name: '反转滚轮方向' });
 const resetBtn = () => within(panel()).getByRole('button', { name: '恢复默认' });
 
 describe('issue 170 · 工作台画布显示浮层面板', () => {
@@ -61,13 +66,13 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(btn).not.toHaveTextContent('画布显示');
   });
 
-  it('点击弹出浮层：包含完整的 10 项画布呈现项与出厂默认初值', () => {
+  it('点击弹出浮层：包含完整的 11 项画布呈现项与出厂默认初值', () => {
     setup();
     expect(panel()).toBeInTheDocument();
     expect(trigger()).toHaveAttribute('aria-expanded', 'true');
     expect(trigger()).toHaveClass('is-active');
 
-    // 10 项全部存在且值与 defaultSettings 一致
+    // 画布项存在且值与 defaultSettings 一致
     const defaults = defaultSettings().display;
     expect(noteSizeSlider()).toHaveValue(String(Math.round(defaults.noteSize * 100)));
     expect(slideOpacitySlider()).toHaveValue(String(Math.round(defaults.slideOpacity * 100)));
@@ -79,6 +84,9 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(lineShapeTiersSwitch()).toHaveAttribute('aria-checked', String(defaults.lineShapeTiers));
     expect(gridOpacitySlider()).toHaveValue(String(Math.round(defaults.gridOpacity * 100)));
     expect(labelScaleSlider()).toHaveValue(String(Math.round(defaults.labelScale * 100)));
+    expect(timePrecisionSelect()).toHaveValue(defaults.timePrecision);
+    expect(seVolumeSlider()).toHaveValue(String(Math.round(defaultSettings().audio.seVolume * 100)));
+    expect(invertWheelSwitch()).toHaveAttribute('aria-checked', String(defaults.invertWheel));
     expect(resetBtn()).toBeInTheDocument();
   });
 
@@ -119,16 +127,37 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
 
     fireEvent.change(gridStyleSelect(), { target: { value: 'amber' } });
     expect(stored().display.gridStyle).toBe('amber');
+
+    // 调整时间显示精度（3档测试）
+    fireEvent.change(timePrecisionSelect(), { target: { value: 'centisecond' } });
+    expect(stored().display.timePrecision).toBe('centisecond');
+    fireEvent.change(timePrecisionSelect(), { target: { value: 'millisecond' } });
+    expect(stored().display.timePrecision).toBe('millisecond');
+
+    // 调整 SE 音量
+    fireEvent.change(seVolumeSlider(), { target: { value: '75' } });
+    expect(stored().audio.seVolume).toBe(0.75);
+
+    // 调整反转滚轮
+    fireEvent.click(invertWheelSwitch());
+    expect(stored().display.invertWheel).toBe(true);
   });
 
-  it('恢复出厂默认：带二次确认；确认后全量重置为默认值', () => {
+  it('恢复出厂默认：带二次确认；确认后重置画布与显示项，不重置音频与播放条', () => {
     setup();
 
-    // 先改动两项
+    // 先改动画布项、音频 SE 音量与播放条按钮
     fireEvent.change(noteSizeSlider(), { target: { value: '160' } });
     fireEvent.change(gridStyleSelect(), { target: { value: 'cyan' } });
+    fireEvent.change(timePrecisionSelect(), { target: { value: 'millisecond' } });
+    fireEvent.click(invertWheelSwitch());
+    fireEvent.change(seVolumeSlider(), { target: { value: '70' } });
+
     expect(stored().display.noteSize).toBe(1.6);
     expect(stored().display.gridStyle).toBe('cyan');
+    expect(stored().display.timePrecision).toBe('millisecond');
+    expect(stored().display.invertWheel).toBe(true);
+    expect(stored().audio.seVolume).toBe(0.7);
 
     // 点恢复默认，弹出二次确认
     fireEvent.click(resetBtn());
@@ -140,7 +169,8 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     // 点取消，维持自定义值
     fireEvent.click(cancelBtn);
     expect(stored().display.noteSize).toBe(1.6);
-    expect(stored().display.gridStyle).toBe('cyan');
+    expect(stored().display.timePrecision).toBe('millisecond');
+    expect(stored().audio.seVolume).toBe(0.7);
 
     // 再次点恢复默认并确认
     fireEvent.click(resetBtn());
@@ -150,24 +180,41 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(stored().display.noteSize).toBe(defaults.noteSize);
     expect(stored().display.gridStyle).toBe(defaults.gridStyle);
     expect(stored().display.slideOpacity).toBe(defaults.slideOpacity);
+    expect(stored().display.timePrecision).toBe('standard');
+    expect(stored().display.invertWheel).toBe(false);
+    // 音频 SE 音量保持用户设置不变
+    expect(stored().audio.seVolume).toBe(0.7);
   });
 
-  it('issue 179：画布组之后、「恢复默认」之前是「播放条」组；开关默认开、写盘；恢复默认不动它', () => {
+  it('issue 200：浮层按「画布 / 播放与音频 / 操作偏好」三组排布；修改各组项正常写盘；恢复默认仅重置画布段', () => {
     setup();
-    const canvasGroup = within(panel()).getByRole('region', { name: '画布显示' });
-    const playbarGroup = within(panel()).getByRole('region', { name: '播放条' });
-    expect(canvasGroup.compareDocumentPosition(playbarGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(playbarGroup.compareDocumentPosition(resetBtn()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const canvasGroup = within(panel()).getByRole('region', { name: '画布' });
+    const playbackAudioGroup = within(panel()).getByRole('region', { name: '播放与音频' });
+    const preferencesGroup = within(panel()).getByRole('region', { name: '操作偏好' });
 
-    const markerSwitch = within(playbarGroup).getByRole('switch', { name: '显示播放起点按钮' });
+    expect(canvasGroup.compareDocumentPosition(playbackAudioGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(playbackAudioGroup.compareDocumentPosition(preferencesGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(preferencesGroup.compareDocumentPosition(resetBtn()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const markerSwitch = within(playbackAudioGroup).getByRole('switch', { name: '显示播放起点按钮' });
     expect(markerSwitch).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(markerSwitch);
-    const playbar = () => (JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as { playbar: { markerButton: boolean } }).playbar;
-    expect(playbar().markerButton).toBe(false);
+    expect(stored().playbar.markerButton).toBe(false);
+
+    const seSlider = within(playbackAudioGroup).getByRole('slider', { name: '节奏图示 SE 音量' });
+    fireEvent.change(seSlider, { target: { value: '85' } });
+    expect(stored().audio.seVolume).toBe(0.85);
+
+    const invertSwitch = within(preferencesGroup).getByRole('switch', { name: '反转滚轮方向' });
+    expect(invertSwitch).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(invertSwitch);
+    expect(stored().display.invertWheel).toBe(true);
 
     fireEvent.click(resetBtn());
     fireEvent.click(within(panel()).getByRole('button', { name: '确认恢复' }));
-    expect(playbar().markerButton).toBe(false);
+    expect(stored().playbar.markerButton).toBe(false);
+    expect(stored().audio.seVolume).toBe(0.85);
+    expect(stored().display.invertWheel).toBe(false);
   });
 
   it('关闭行为：Esc 键收起面板并将焦点还给触发钮；点击遮罩收起面板', () => {

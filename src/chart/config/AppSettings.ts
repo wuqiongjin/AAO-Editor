@@ -16,6 +16,10 @@ import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '..
 import { DEFAULT_BEAT_SNAP, normalizeBeatSnap } from '../../chart/editing/BeatSnap';
 import { DEFAULT_PATTERN_SORT, normalizePatternSort, type PatternSortPreference } from '../patterns/library';
 import { detectOsLanguageTag, resolveUiLanguage, type UiLanguage } from '../../i18n/resolveUiLanguage';
+import { type TimePrecision } from '../geometry/TimeFormat';
+
+export type { TimePrecision } from '../geometry/TimeFormat';
+export const TIME_PRECISIONS: readonly TimePrecision[] = ['standard', 'centisecond', 'millisecond'] as const;
 
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */
 export const DEFAULT_BACKGROUND_OPACITY = 0.55;
@@ -122,6 +126,10 @@ export interface AppSettings {
     gridOpacity: number;
     /** 谱面文字大小系数（issue 51 第二轮 Q1=A）：0.5..3，默认 1（基准 14px/11px 已上调） */
     labelScale: number;
+    /** 时间显示精度（issue 200）：'standard' (0.1s) | 'millisecond' (0.001s)，默认 standard */
+    timePrecision: TimePrecision;
+    /** 滚轮反转（issue 200）：是否反转时间轴纵向滚动方向，默认 false */
+    invertWheel: boolean;
   };
   /** 素材域（issue 29 音符皮肤）：六条目 → 皮肤包 id。包合法性由 renderer/noteSkin.ts 归一化（缺省/非法回退默认包） */
   visual: {
@@ -487,6 +495,8 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
       lineShapeTiers: false,
       gridOpacity: 0.8,
       labelScale: 1,
+      timePrecision: 'standard',
+      invertWheel: false,
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
@@ -581,6 +591,10 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       lineShapeTiers: typeof display.lineShapeTiers === 'boolean' ? display.lineShapeTiers : defaults.display.lineShapeTiers,
       gridOpacity: clamp(display.gridOpacity, 0.1, 1, defaults.display.gridOpacity),
       labelScale: clamp(display.labelScale, 0.5, 3, defaults.display.labelScale),
+      timePrecision: (TIME_PRECISIONS as readonly unknown[]).includes(display.timePrecision)
+        ? (display.timePrecision as TimePrecision)
+        : defaults.display.timePrecision,
+      invertWheel: typeof display.invertWheel === 'boolean' ? display.invertWheel : defaults.display.invertWheel,
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),

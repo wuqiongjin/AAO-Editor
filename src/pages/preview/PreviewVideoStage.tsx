@@ -220,6 +220,8 @@ export interface PreviewVideoStageProps {
   imageQuality: string;
   /** 音符皮肤（`settings.visual.noteSkin`） */
   noteSkin: AppSettings['visual']['noteSkin'];
+  /** 时间显示精度（issue 200）：由页面从 `settings.display.timePrecision` 传 */
+  timePrecision?: AppSettings['display']['timePrecision'];
   /** 快捷键配置（空格页面级接管 play，issue 22 Q2）：由页面从 `settings.shortcuts` 传 */
   shortcuts: ShortcutConfig;
   /** 当前看哪张谱面（切谱面重置秒数） */
@@ -241,6 +243,7 @@ export default function PreviewVideoStage({
   onVolumeChange,
   imageQuality,
   noteSkin,
+  timePrecision,
   shortcuts,
   chartId,
   initialSeconds,
@@ -472,6 +475,7 @@ export default function PreviewVideoStage({
         duration={duration}
         volume={volume}
         canEditTime
+        timePrecision={timePrecision}
         shortcutKey={formatKey(shortcuts.play)}
         rateSlot={<PlaybackRate value={rate} onChange={setRate} />}
         onTogglePlay={togglePlay}

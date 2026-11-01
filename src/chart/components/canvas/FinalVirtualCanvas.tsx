@@ -681,19 +681,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 不再另挂一套 mouseup，避免与 window 手势双提交。
 
     const handleWheel = useCallback((e: WheelEvent) => {
-        // issue 110：**Shift+滚轮 = 纵向滚动**（浏览器把它映射成横向 → 被容器的 overflowX:hidden 吃掉）。
-        // 放在画布这里处理，是因为本监听器是 passive:false —— 能 preventDefault 掉原生横向滚动，
-        // 于是"转回纵向"不会与原生滚动叠加成双倍；滚动量取 |deltaX| / |deltaY| 的较大者（跨平台：
-        // 有些平台做横向映射、有些保留 deltaY），统一归一到纵向。
-        if (e.shiftKey) {
-            const host = scrollHostRef?.current;
-            if (!host) return;
-            const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-            if (delta === 0) return;
-            e.preventDefault();
-            host.scrollTop += delta;
-            return;
-        }
         // Ctrl+滚轮 = 缩放；普通滚动交给父容器（原生）
         if (e.ctrlKey) {
             e.preventDefault();
@@ -717,9 +704,38 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             zoomGestureUntilRef.current = performance.now() + 240;
             if (zoomSettleTimerRef.current !== undefined) clearTimeout(zoomSettleTimerRef.current);
             zoomSettleTimerRef.current = window.setTimeout(() => setRenderTick(t => t + 1), 250);
+            return;
+        }
+
+        const invert = display.invertWheel ?? false;
+
+        // issue 110：**Shift+滚轮 = 纵向滚动**（浏览器把它映射成横向 → 被容器的 overflowX:hidden 吃掉）。
+        // 放在画布这里处理，是因为本监听器是 passive:false —— 能 preventDefault 掉原生横向滚动，
+        // 于是"转回纵向"不会与原生滚动叠加成双倍；滚动量取 |deltaX| / |deltaY| 的较大者（跨平台：
+        // 有些平台做横向映射、有些保留 deltaY），统一归一到纵向。
+        // issue 200：invertWheel 开启时，与普通滚动同频反转。
+        if (e.shiftKey) {
+            const host = scrollHostRef?.current;
+            if (!host) return;
+            const rawDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            if (rawDelta === 0) return;
+            e.preventDefault();
+            const delta = invert ? -rawDelta : rawDelta;
+            host.scrollTop += delta;
+            return;
+        }
+
+        // issue 200：开启滚轮反转时，拦截普通纵向滚动并取反（仅作用于纵向 deltaY，不劫持触控板横向手势）
+        if (invert) {
+            const host = scrollHostRef?.current;
+            if (!host) return;
+            if (e.deltaY === 0) return;
+            e.preventDefault();
+            host.scrollTop -= e.deltaY;
+            return;
         }
         // 普通滚轮滚动由父容器处理，不在这里处理
-    }, [geometry, viewport, setScale]);
+    }, [geometry, viewport, setScale, display.invertWheel, scrollHostRef]);
 
     // 暴露方法给父组件（候选 1 收窄 + ADR-0008 执行键入口；factory 每次渲染重建 → 闭包恒新）
     useImperativeHandle(ref, () => ({

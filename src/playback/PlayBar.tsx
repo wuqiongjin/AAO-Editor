@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Volume2, VolumeX, Play, Pause, Lock } from "lucide-react";
-import { formatTimePrecise, formatTimeWhole, parseTimeInput } from '../chart/geometry/TimeFormat';
+import { formatTimePrecise, formatTimeWhole, parseTimeInput, type TimePrecision } from '../chart/geometry/TimeFormat';
 import { t } from '../i18n';
 import './PlayBar.css';
 
@@ -36,6 +36,8 @@ export interface PlayBarProps {
   rateSlot?: ReactNode;
   /** 时间码右侧 slot（工作台的播放起点按钮，票 182）：不传就不渲染 */
   timeSlot?: ReactNode;
+  /** 时间显示精度（issue 200）：标准 0.1s / 高 0.01s / 毫秒 0.001s */
+  timePrecision?: TimePrecision;
   onTogglePlay: () => void;
   onVolumeChange: (v: number) => void;
   /** 进度条 seek（点击/拖动/时间码双击编辑）：目标秒→引擎定位，暂停不自动播（ADR-0004 + issue 22） */
@@ -54,6 +56,7 @@ export default function PlayBar({
   variant = 'workspace',
   rateSlot,
   timeSlot,
+  timePrecision = 'standard',
   onTogglePlay,
   onVolumeChange,
   onSeek,
@@ -71,7 +74,7 @@ export default function PlayBar({
 
   const beginEditTime = () => {
     if (!canEditTime) return;
-    const initial = formatTimePrecise(currentSeconds);
+    const initial = formatTimePrecise(currentSeconds, timePrecision);
     initialDraftRef.current = initial;
     isDirtyRef.current = false;
     cancelledRef.current = false;
@@ -162,7 +165,7 @@ export default function PlayBar({
             onDoubleClick={beginEditTime}
             title={canEditTime ? t('play.editTime') : undefined}
             className={`play-bar__time-current${canEditTime ? ' is-editable' : ''}`}
-          >{formatTimePrecise(currentSeconds)}</span>
+          >{formatTimePrecise(currentSeconds, timePrecision)}</span>
         )}
         <span
           className="play-bar__time-total"

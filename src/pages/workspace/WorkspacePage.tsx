@@ -528,10 +528,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           canEditTime
           seekNoCursor={!canPlay && ctxIsPlaying}
           shortcutKey={formatKey(shortcutConfig.play)}
+          timePrecision={settings.display.timePrecision}
           timeSlot={settings.playbar.markerButton && (
             <PlaybackMarkerButton
               seconds={markerSeconds}
               shortcut={shortcutConfig.jumpToMarker}
+              timePrecision={settings.display.timePrecision}
               onJump={jumpToMarker}
             />
           )}

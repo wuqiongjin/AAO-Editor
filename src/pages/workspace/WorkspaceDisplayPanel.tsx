@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { createPortal } from 'react-dom';
 import { RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
-import { defaultSettings, type AppSettings } from '../../chart/config/AppSettings';
+import { defaultSettings, type AppSettings, type TimePrecision } from '../../chart/config/AppSettings';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { t, type MessageKey } from '../../i18n';
 import './WorkspaceDisplayPanel.css';
@@ -86,12 +86,13 @@ function Select<T extends string | number>({
 }
 
 function Percent({
-  value, label, min, max, onChange,
+  value, label, min, max, step = 10, onChange,
 }: {
   value: number;
   label: string;
   min: number;
   max: number;
+  step?: number;
   onChange: (v: number) => void;
 }) {
   return (
@@ -100,7 +101,7 @@ function Percent({
         type="range"
         min={min}
         max={max}
-        step={10}
+        step={step}
         value={Math.round(value * 100)}
         aria-label={label}
         onChange={(e) => onChange(Number(e.target.value) / 100)}
@@ -111,7 +112,7 @@ function Percent({
 }
 
 export default memo(function WorkspaceDisplayPanel() {
-  const { settings, setDisplay, setPlaybar } = useConfig();
+  const { settings, setDisplay, setPlaybar, setSeVolume } = useConfig();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -172,6 +173,11 @@ export default memo(function WorkspaceDisplayPanel() {
 
   const qualityOptions = useMemo(() => QUALITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
   const gridOptions = useMemo(() => GRID_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
+  const precisionOptions = useMemo<ReadonlyArray<{ value: TimePrecision; label: string }>>(() => [
+    { value: 'standard', label: t('settings.timePrecision.standard') },
+    { value: 'centisecond', label: t('settings.timePrecision.centisecond') },
+    { value: 'millisecond', label: t('settings.timePrecision.millisecond') },
+  ], []);
 
   const handleReset = () => {
     setDisplay(defaultSettings().display);
@@ -202,9 +208,9 @@ export default memo(function WorkspaceDisplayPanel() {
             role="dialog"
             aria-label={t('workspace.displaySettings')}
           >
-            <section className="wdp__group" aria-label={t('settings.section.canvas')}>
+            <section className="wdp__group" aria-label={t('workspace.displayGroup.canvas')}>
               <div className="wdp__group-head">
-                <h3 className="wdp__group-title">{t('settings.section.canvas')}</h3>
+                <h3 className="wdp__group-title">{t('workspace.displayGroup.canvas')}</h3>
               </div>
               <Row label={t('settings.noteSize')}>
                 <Percent
@@ -288,17 +294,48 @@ export default memo(function WorkspaceDisplayPanel() {
                   onChange={(labelScale) => setDisplay({ labelScale })}
                 />
               </Row>
+              <Row label={t('settings.timePrecision')}>
+                <Select<TimePrecision>
+                  label={t('settings.timePrecision')}
+                  value={display.timePrecision}
+                  options={precisionOptions}
+                  onChange={(timePrecision) => setDisplay({ timePrecision })}
+                />
+              </Row>
             </section>
 
-            <section className="wdp__group" aria-label={t('workspace.playbar')}>
+            <section className="wdp__group" aria-label={t('workspace.displayGroup.playbackAndAudio')}>
               <div className="wdp__group-head">
-                <h3 className="wdp__group-title">{t('workspace.playbar')}</h3>
+                <h3 className="wdp__group-title">{t('workspace.displayGroup.playbackAndAudio')}</h3>
               </div>
               <Row label={t('workspace.playbar.markerButton')}>
                 <Toggle
                   label={t('workspace.playbar.markerButton')}
                   checked={settings.playbar.markerButton}
                   onChange={(markerButton) => setPlaybar({ markerButton })}
+                />
+              </Row>
+              <Row label={t('settings.seVolume')}>
+                <Percent
+                  label={t('settings.seVolume')}
+                  value={settings.audio.seVolume}
+                  min={0}
+                  max={100}
+                  step={5}
+                  onChange={(seVolume) => setSeVolume(seVolume)}
+                />
+              </Row>
+            </section>
+
+            <section className="wdp__group" aria-label={t('workspace.displayGroup.preferences')}>
+              <div className="wdp__group-head">
+                <h3 className="wdp__group-title">{t('workspace.displayGroup.preferences')}</h3>
+              </div>
+              <Row label={t('settings.invertWheel')}>
+                <Toggle
+                  label={t('settings.invertWheel')}
+                  checked={display.invertWheel}
+                  onChange={(invertWheel) => setDisplay({ invertWheel })}
                 />
               </Row>
             </section>

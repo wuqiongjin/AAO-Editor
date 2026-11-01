@@ -3,17 +3,23 @@
 import { memo, useState } from 'react';
 import playbackMarkerSvgUrl from '../assets/playback-marker/flag.svg?url';
 import { formatKey } from '../chart/config/ShortcutConfig';
-import { formatTimePrecise } from '../chart/geometry/TimeFormat';
+import { formatTimePrecise, type TimePrecision } from '../chart/geometry/TimeFormat';
 import { t } from '../i18n';
 import './PlaybackMarkerButton.css';
 
 interface PlaybackMarkerButtonProps {
   seconds: number | null;
   shortcut: string | null;
+  timePrecision?: TimePrecision;
   onJump: () => void;
 }
 
-export default memo(function PlaybackMarkerButton({ seconds, shortcut, onJump }: PlaybackMarkerButtonProps) {
+export default memo(function PlaybackMarkerButton({
+  seconds,
+  shortcut,
+  timePrecision = 'standard',
+  onJump,
+}: PlaybackMarkerButtonProps) {
   const [prevSeconds, setPrevSeconds] = useState(seconds);
   const [isNew, setIsNew] = useState(false);
   if (prevSeconds !== seconds) {
@@ -33,7 +39,7 @@ export default memo(function PlaybackMarkerButton({ seconds, shortcut, onJump }:
       onAnimationEnd={() => setIsNew(false)}
     >
       <img src={playbackMarkerSvgUrl} alt="" draggable={false} />
-      <span>{formatTimePrecise(seconds)}</span>
+      <span>{formatTimePrecise(seconds, timePrecision)}</span>
     </button>
   );
 });

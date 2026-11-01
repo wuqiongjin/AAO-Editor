@@ -168,6 +168,8 @@ export interface RenderDisplayOptions {
   gridOpacity?: number;
   /** 谱面文字大小系数（issue 51 第二轮 Q1=A）：0.5..3，作用于 BPM 数值/END/实时信息 */
   labelScale?: number;
+  /** 时间显示精度（issue 200）：'standard' (0.1s) | 'centisecond' (0.01s) | 'millisecond' (0.001s) */
+  timePrecision?: 'standard' | 'centisecond' | 'millisecond';
   /**
    * 网格**横线**细节档：画到第几级细分。取值 = 该拍内约分分母的上限
    * （`gridDivisionOf`：`1` = 只整拍线、`4` = 到十六分音符中的 1/4，依此类推）；

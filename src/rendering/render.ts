@@ -1739,7 +1739,7 @@ export function renderHoverInfo(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   const count = countNotesUpToBeat(rc.notes, c.virtualYToBeat(virtualY));
   const font = HOVER_INFO_FONT(effectiveLabelScale);
   const fontPx = HOVER_INFO_FONT_PX * effectiveLabelScale;
-  const timeText = formatInMinuteTime(seconds);
+  const timeText = formatInMinuteTime(seconds, rc.display?.timePrecision);
   const countText = `♪ ${count}`;
   const gap = Math.max(2, Math.round(HOVER_INFO_GAP_PX * es));
   ctx.save();

@@ -29,6 +29,17 @@ describe('issue 179 · 播放起点按钮', () => {
     expect(onJump).toHaveBeenCalledTimes(1);
   });
 
+  it('跟随 timePrecision 渲染对应精度时间码', () => {
+    const { rerender } = render(<PlaybackMarkerButton seconds={12.345} shortcut="Shift+Space" onJump={vi.fn()} />);
+    expect(btn()).toHaveTextContent('00:12.3');
+
+    rerender(<PlaybackMarkerButton seconds={12.345} shortcut="Shift+Space" timePrecision="centisecond" onJump={vi.fn()} />);
+    expect(btn()).toHaveTextContent('00:12.34');
+
+    rerender(<PlaybackMarkerButton seconds={12.345} shortcut="Shift+Space" timePrecision="millisecond" onJump={vi.fn()} />);
+    expect(btn()).toHaveTextContent('00:12.345');
+  });
+
   it('只在「无 → 有」时播出现动效；动效播完即摘；挪动起点不重播', () => {
     const props = { shortcut: 'Shift+Space', onJump: vi.fn() };
     const { rerender } = render(<PlaybackMarkerButton seconds={null} {...props} />);

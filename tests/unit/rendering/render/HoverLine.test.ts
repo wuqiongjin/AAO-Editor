@@ -7,25 +7,24 @@ import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
 import { makeRecordingCtx } from '@/tests/support/canvas';
 
-describe('formatInMinuteTime 分内时间（issue 54）', () => {
-  it('基本格式：SS.ss 两位小数、分钟位省略', () => {
-    expect(formatInMinuteTime(0)).toBe('00.00');
-    expect(formatInMinuteTime(5.5)).toBe('05.50');
-    expect(formatInMinuteTime(59.99)).toBe('59.99');
-    expect(formatInMinuteTime(12.345)).toBe('12.35'); // 四舍五入到厘秒
+describe('formatInMinuteTime 分内时间（issue 54 / issue 200）', () => {
+  it('基本格式：默认标准档 SS.s 一位小数、分钟位省略', () => {
+    expect(formatInMinuteTime(0)).toBe('00.0');
+    expect(formatInMinuteTime(5.5)).toBe('05.5');
+    expect(formatInMinuteTime(12.345)).toBe('12.3');
+    expect(formatInMinuteTime(12.345, 'centisecond')).toBe('12.35'); // 高精度档两位小数
   });
 
-  it('mod 60 循环：1 分钟后重置为 00.00，59.996+ 回绕', () => {
-    expect(formatInMinuteTime(60)).toBe('00.00');
-    expect(formatInMinuteTime(119.99)).toBe('59.99');
-    expect(formatInMinuteTime(59.996)).toBe('00.00'); // 四舍五入 60.00 → 回绕
-    expect(formatInMinuteTime(121.5)).toBe('01.50');
+  it('mod 60 循环：1 分钟后重置为 00.0，59.96+ 回绕', () => {
+    expect(formatInMinuteTime(60)).toBe('00.0');
+    expect(formatInMinuteTime(119.96)).toBe('00.0'); // 四舍五入到 120.0 → 回绕
+    expect(formatInMinuteTime(121.5)).toBe('01.5');
   });
 
-  it('负值与非有限值按 00.00 处理', () => {
-    expect(formatInMinuteTime(-0.5)).toBe('00.00');
-    expect(formatInMinuteTime(NaN)).toBe('00.00');
-    expect(formatInMinuteTime(Infinity)).toBe('00.00');
+  it('负值与非有限值按 00.0 处理', () => {
+    expect(formatInMinuteTime(-0.5)).toBe('00.0');
+    expect(formatInMinuteTime(NaN)).toBe('00.0');
+    expect(formatInMinuteTime(Infinity)).toBe('00.0');
   });
 });
 
@@ -73,15 +72,36 @@ describe('renderHoverLine / renderHoverInfo（issue 54）', () => {
     const texts = calls.filter(([k]) => k === 'fillText') as [string, [string, number, number]][];
     expect(texts.length).toBe(2);
     const [timeText, countText] = texts.map(t => t[1][0]) as [string, string];
-    expect(timeText).toBe('01.00'); // beat 2 @120bpm = 1.0s（分内时间）
+    expect(timeText).toBe('01.0'); // beat 2 @120bpm = 1.0s（分内时间，标准 1 位小数）
     expect(countText).toBe('♪ 1'); // 恰好在线上的音符计入（beat2 无音符，beat1 已过 → 1 条；beat3 未到）
     const aligns = calls.filter(([k]) => k === 'textAlign').map(([, v]) => v[0]);
     expect(aligns).toEqual(['right', 'left']);
   });
 
+  it('高精度档：display.timePrecision 为 centisecond 时输出 2 位小数 SS.ss', () => {
+    const { c, rc } = makeRc({ cx: 100, cy: 460 });
+    rc.display = { timePrecision: 'centisecond' } as RenderCtx['display'];
+    const { proxy, calls } = makeRecordingCtx();
+    renderHoverInfo(proxy, c, rc);
+    const texts = calls.filter(([k]) => k === 'fillText') as [string, [string, number, number]][];
+    const [timeText] = texts.map(t => t[1][0]) as [string, string];
+    expect(timeText).toBe('01.00');
+  });
+
+  it('毫秒档：display.timePrecision 为 millisecond 时输出 3 位小数 SS.sss', () => {
+    const { c, rc } = makeRc({ cx: 100, cy: 460 });
+    rc.display = { timePrecision: 'millisecond' } as RenderCtx['display'];
+    const { proxy, calls } = makeRecordingCtx();
+    renderHoverInfo(proxy, c, rc);
+    const texts = calls.filter(([k]) => k === 'fillText') as [string, [string, number, number]][];
+    const [timeText] = texts.map(t => t[1][0]) as [string, string];
+    expect(timeText).toBe('01.000');
+  });
+
   it('连续跟随：非整拍 Y 的读数按连续 beat 计算（不吸附）', () => {
     // cy=40 → pos = 2660 − (1760+40) = 860 → beat ≈ 3.909：时间 1.9545s → "01.95"；beat1、beat3 已过 → ♪ 2
     const { c, rc } = makeRc({ cx: 100, cy: 40 });
+    rc.display = { timePrecision: 'centisecond' } as RenderCtx['display'];
     const { proxy, calls } = makeRecordingCtx();
     renderHoverInfo(proxy, c, rc);
     const texts = calls.filter(([k]) => k === 'fillText') as [string, [string, number, number]][];
