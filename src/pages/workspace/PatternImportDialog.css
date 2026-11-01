@@ -1,0 +1,162 @@
+/* 片段导入确认弹层（issue 189）：计数条 + 重复清单 + 三选一策略。
+   全部用既有 design token；弹窗壳（遮罩 / 头尾色带 / 动效）由 ui/Dialog 提供。 */
+.pid-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.pid-head .dialog__title {
+  margin: 0;
+}
+
+.pid-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pid-stat {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 计数按语义分色：新增绿 / 重复琥珀 / 坏条目红；为 0 时退回中性灰，避免满屏告警色。 */
+.pid-stat--new {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  background: color-mix(in srgb, var(--success) 12%, var(--bg-inset));
+  color: var(--success);
+}
+
+.pid-stat--duplicate {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+  background: color-mix(in srgb, var(--warning) 12%, var(--bg-inset));
+  color: var(--warning-text);
+}
+
+.pid-stat--invalid {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-inset));
+  color: var(--danger-text);
+}
+
+.pid-stat.is-zero {
+  border-color: var(--border);
+  background: var(--bg-inset);
+  color: var(--text-muted);
+}
+
+.pid-conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pid-conflicts__title {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.pid-conflicts__list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 168px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+
+.pid-conflict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  font-size: var(--text-xs);
+  color: var(--text);
+}
+
+.pid-conflict__names {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pid-note {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.pid-strategies {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.pid-strategies__legend {
+  padding: 0;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.pid-strategy {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pid-strategy:hover {
+  background: var(--bg-hover);
+}
+
+.pid-strategy.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pid-strategy input {
+  flex-shrink: 0;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.pid-strategy__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pid-strategy__text b {
+  color: var(--text);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.pid-strategy__text small {
+  color: var(--text-subtle);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
+}

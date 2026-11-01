@@ -22,8 +22,17 @@ import { repoRoot, stripComments, readSource } from '@/tests/support/source';
 
 /** 去注释后再断言：注释里会解释性地提到 legacy / SpriteIcon / 素材路径等旧名 */
 
-const toolbarSrc = stripComments(readSource('src/pages/workspace/Toolbar.tsx'));
+// 票 183：左栏 Toolbar 换成窄工具轨，音符工具图标随之搬家（经 `glyph(item)` 统一出 NoteIconGlyph）
+const toolbarSrc = stripComments(readSource('src/pages/workspace/WorkspaceToolRail.tsx'));
+const glyphHelperLine = toolbarSrc.split('\n').find((l) => l.includes('const glyph =')) ?? '';
 const glyphSrc = stripComments(readSource('src/rendering/primitives/NoteIconGlyph.tsx'));
+
+/** 从工具轨源码取 NoteIconGlyph 的 size（避免测试里再抄一份数字，尺寸断言与实现同源） */
+function toolbarGlyphSize(): number {
+  const matched = glyphHelperLine.match(/size=\{(\d+)\}/);
+  if (!matched) throw new Error('WorkspaceToolRail 未找到 NoteIconGlyph size={…}');
+  return Number(matched[1]);
+}
 
 /** 递归收集目录下的 .ts / .tsx 文件（跳过 node_modules；目录不存在返回空——tools/ 已随 chore 895c3361 从 git 移除，fresh clone 没有它） */
 function walkTs(dir: string): string[] {
@@ -56,21 +65,21 @@ describe('issue 86 · 工具栏音符图标接入音符皮肤域', () => {
   });
 
   it('六个音符工具项都换成皮肤字形画布（不是 lucide 图标）', () => {
+    expect(glyphHelperLine).toContain('NoteIconGlyph');
     for (const item of ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide']) {
-      expect(toolbarSrc).toContain(`item="${item}"`);
+      expect(toolbarSrc).toContain(`glyph('${item}')`);
     }
   });
 
   // issue 114：曲线工具原本是唯一用 lucide `Spline` 的图标（与"画 SP 绿条"的语义也不符）
   it('曲线工具图标改用皮肤字形（lucide Spline 退场）', () => {
-    const line = toolbarSrc.split('\n').find((l) => l.includes('item="curve"')) ?? '';
-    expect(line, '工具栏 curve 项应走 NoteIconGlyph').toContain('NoteIconGlyph');
+    expect(toolbarSrc).toContain(`glyph('curve')`);
     expect(toolbarSrc).not.toMatch(/\bSpline\b/);
   });
 
   it('镜像工具改用 FlipHorizontal2（原 RotateCcw 语义不符）', () => {
     expect(toolbarSrc).not.toContain('RotateCcw');
-    const mirrorLine = toolbarSrc.split('\n').find((l) => l.includes("t('tool.mirror')") && l.includes('armOrRelease')) ?? '';
+    const mirrorLine = toolbarSrc.split('\n').find((l) => l.includes("'tool.mirror'")) ?? '';
     expect(mirrorLine).toContain('FlipHorizontal2');
   });
 });
@@ -244,14 +253,27 @@ describe('issue 114 · 曲线工具图标 = 一段弯的 SP 带（无端点）',
   });
 });
 
-describe('issue 91 · 工具栏 28px + 滑条构图统一（band:结点 = 30:36）', () => {
-  it('六个音符工具项 + 曲线工具的 NoteIconGlyph 全部 size={28}', () => {
-    for (const item of ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide', 'curve']) {
-      const line = toolbarSrc.split('\n').find((l) => l.includes(`item="${item}"`)) ?? '';
-      expect(line, item).toContain('size={28}');
-    }
+describe('issue 194 · 工具轨字形尺寸（28px，与 main 对齐）', () => {
+  // 183 曾把工具轨字形收到 26px；26 在 dpr 1.25 / 1.75 下画布物理盒落半像素 → 台阶锯齿（194）。
+  // 28 是 4 的倍数，常见 dpr 下画布盒都是整数物理像素（main 已验证的基线）。
+  it('音符工具与曲线工具的 NoteIconGlyph 统一 size={28}（同一个 glyph 出口）', () => {
+    expect(glyphHelperLine).toContain('size={28}');
   });
 
+  it('字形盒 × 常见 dpr 必须是整数物理像素（挡住 26/27 类半像素回归）', () => {
+    const size = toolbarGlyphSize();
+    const items: ToolGlyphItem[] = ['tap', 'flick', 'skill', 'dirL', 'dirR', 'slide', 'curve'];
+    for (const item of items) {
+      const box = glyphBox(ICONS, item, size);
+      for (const dpr of [1, 1.25, 1.5, 1.75, 2]) {
+        expect(Number.isInteger(box.w * dpr), `${item} 宽 ${box.w}×${dpr}px 落在半像素`).toBe(true);
+        expect(Number.isInteger(box.h * dpr), `${item} 高 ${box.h}×${dpr}px 落在半像素`).toBe(true);
+      }
+    }
+  });
+});
+
+describe('issue 91 · 滑条构图统一（band:结点 = 30:36）', () => {
   it('工具栏滑条字形（只画"段"）：band 纵向铺满，宽 = 键型本体宽 × 30/36', () => {
     for (const size of [18, 28, 32]) {
       const g = slideGlyphGeometry(size);

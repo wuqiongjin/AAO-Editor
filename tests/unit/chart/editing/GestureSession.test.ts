@@ -331,6 +331,196 @@ describe('GestureSession · 框选通路（不变量 5 / 18）', () => {
     expect(after.y1).not.toBeCloseTo(before.y1, 5);
     expect(after.y2).toBeCloseTo(before.y2, 5);
   });
+
+  it('issue 197：按住原地不动缩放时，不应起框（保持 null），松手安全取消单击（无误触）', () => {
+    const notes = [bpmNote(0, 120)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const a = at(2, 40);
+    press(s, a, virt); // 按住但未移动
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 缩放到 1.5 倍
+    const zoomed = { ...world.viewport, scale: 1.5 };
+    s.bindWorld({ ...world, viewport: zoomed });
+    s.onViewportChange(zoomed, world.geometry, world.surface);
+
+    // 未移动过阈值，缩放后绝不可凭空出现选框
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 方案 1（安全取消）：原地松手，应当 abort click，不触发单击动作（无放置/删除/选区）
+    const clickSpy = vi.fn();
+    (s as any).clickAt = clickSpy;
+    const r = s.end(up(a));
+    expect(clickSpy).not.toHaveBeenCalled();
+    expect(r.ops).toHaveLength(0);
+  });
+
+  it('issue 197：右键按住原地不动缩放时，松手安全取消点删（无误触）', () => {
+    const notes = [bpmNote(0, 120), single(2, 40)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const a = at(2, 40);
+    press(s, a, virt, { button: 2 });
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 缩放到 1.5 倍
+    const zoomed = { ...world.viewport, scale: 1.5 };
+    s.bindWorld({ ...world, viewport: zoomed });
+    s.onViewportChange(zoomed, world.geometry, world.surface);
+
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 方案 1（安全取消）：右键松手不执行点删
+    const r = s.end(up(a, { button: 2 }));
+    expect(r.ops).toHaveLength(0);
+  });
+
+  it('issue 197：按住原地不动缩放后，若继续移动拖拽，正常进入框选', () => {
+    const notes = [bpmNote(0, 120)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const a = at(2, 40);
+    press(s, a, virt);
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 缩放到 1.5 倍
+    const zoomed = { ...world.viewport, scale: 1.5 };
+    s.bindWorld({ ...world, viewport: zoomed });
+    s.onViewportChange(zoomed, world.geometry, world.surface);
+    expect(s.getSnapshot().selectionBox).toBeNull();
+
+    // 移动超过阈值起框
+    const b = { x: a.x + 20, y: a.y + 20 };
+    s.move(b);
+    expect(s.getSnapshot().selectionBox).not.toBeNull();
+  });
+
+  it('issue 197：框选中缩放，起点严格锚定按下时的谱面拍点与轨道，不发生反向形变', () => {
+    const notes = [bpmNote(0, 120)];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const a = at(1, 48);
+    const b = at(4, 52);
+    press(s, a, virt);
+    s.move(b); // 移动拉出选框
+    expect(s.getSnapshot().selectionBox).not.toBeNull();
+
+    // 缩放到 1.5 倍
+    const zoomed = { ...world.viewport, scale: 1.5 };
+    s.bindWorld({ ...world, viewport: zoomed });
+    s.onViewportChange(zoomed, world.geometry, world.surface);
+
+    const box = s.getSnapshot().selectionBox!;
+    // 计算 a 点在 1.5 倍下的真实画布位置
+    const expectedA = world.geometry.virtualToCanvas(
+      world.geometry.noteVirtualX(1),
+      world.geometry.noteVirtualY(48, 0, zoomed.scale, BEAT_DISPLAY),
+      zoomed,
+    );
+
+    // 选框起点 x1, y1 必须精确对齐 a 点在新缩放下画布位置
+    expect(box.x1).toBeCloseTo(expectedA.x, 1);
+    expect(box.y1).toBeCloseTo(expectedA.y, 1);
+  });
+
+  it('issue 198：播放推进时（scrollY 减小）进行框选，选框起点不锁死画布顶端（y1 >= 0），且随视口滚动平滑延伸', () => {
+    const notes = [bpmNote(0, 120), single(2, 40), single(3, 42)];
+    const { world } = worldOf(notes, { surface: TALL_SURFACE });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+
+    // 假设初始视口停留在开头（较大 scrollY）
+    const initialVp = { ...world.viewport, scrollY: 10000 };
+    s.bindWorld({ ...world, viewport: initialVp });
+
+    // 播放向前推进，scrollY 减少至 8000
+    const playingVp = { ...world.viewport, scrollY: 8000 };
+    s.onViewportChange(playingVp, world.geometry, world.surface);
+
+    // 用户在空白处 (lane 1, beat 38) 按下鼠标开始框选
+    const p = world.geometry.virtualToCanvas(
+      world.geometry.noteVirtualX(1),
+      world.geometry.noteVirtualY(38, 0, playingVp.scale, BEAT_DISPLAY),
+      playingVp,
+    );
+    const v = world.geometry.canvasToVirtual(p.x, p.y, playingVp);
+    press(s, p, () => v);
+
+    // 鼠标移动越过 8px
+    s.move({ x: p.x + 20, y: p.y + 20 });
+    const box1 = s.getSnapshot().selectionBox!;
+    expect(box1).not.toBeNull();
+    // 选框起点 y1 绝不可因陈旧视口减法飞窜成负数（吸附顶边 y=0）
+    expect(box1.y1).toBeGreaterThanOrEqual(0);
+    expect(box1.y1).toBeCloseTo(p.y, 1);
+    expect(box1.y2).toBeCloseTo(p.y + 20, 1);
+
+    // 播放继续推进，scrollY 再减少 200px
+    const playingVp2 = { ...world.viewport, scrollY: 7800 };
+    s.onViewportChange(playingVp2, world.geometry, world.surface);
+
+    // 选框应在原地按住不动时随谱面向上推进（画布像素 Y 坐标向下移 200px）而自然延展
+    const box2 = s.getSnapshot().selectionBox!;
+    expect(box2.y1).toBeCloseTo(p.y + 200, 1);
+    expect(box2.y2).toBeCloseTo(p.y + 20, 1);
+  });
+
+  it('issue 198：播放推进时框选松手，commitBox 反解出的选区不含陈旧视口跨越的历史音符', () => {
+    const notes = [
+      bpmNote(0, 120),
+      single(2, 5),  // 历史音符（已被播放滚出屏幕）
+      single(2, 40), // 目标框选音符
+    ];
+    const { world } = worldOf(notes, { surface: TALL_SURFACE });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+
+    // 1. 播放开始前初始视口停留在谱面较早位置（较大 scrollY = 12000）
+    const initialVp = { ...world.viewport, scrollY: 12000 };
+    s.bindWorld({ ...world, viewport: initialVp });
+
+    // 2. 播放向前推进至 8000（此时 single(2, 5) 已滚出屏幕，single(2, 40) 进入视口）
+    const playingVp1 = { ...world.viewport, scrollY: 8000 };
+    s.onViewportChange(playingVp1, world.geometry, world.surface);
+
+    // 在空白处 (lane 1, beat 38) 按下
+    const a = world.geometry.virtualToCanvas(
+      world.geometry.noteVirtualX(1),
+      world.geometry.noteVirtualY(38, 0, playingVp1.scale, BEAT_DISPLAY),
+      playingVp1,
+    );
+    const va = world.geometry.canvasToVirtual(a.x, a.y, playingVp1);
+    press(s, a, () => va);
+
+    // 3. 拖拽过程中播放继续推进至 7600
+    const playingVp2 = { ...world.viewport, scrollY: 7600 };
+    s.onViewportChange(playingVp2, world.geometry, world.surface);
+
+    // 鼠标在当前视口下拖拽到 (lane 3, beat 42) 圈住 single(2, 40)
+    const b = world.geometry.virtualToCanvas(
+      world.geometry.noteVirtualX(3),
+      world.geometry.noteVirtualY(42, 0, playingVp2.scale, BEAT_DISPLAY),
+      playingVp2,
+    );
+    s.move(b);
+
+    // 4. 松手结算
+    const r = s.end(up(b));
+    const sel = r.ops.find((op) => op.t === 'setSelection');
+    expect(sel).toBeDefined();
+    if (sel?.t !== 'setSelection') throw new Error('expected setSelection');
+    // 只选中了 noteIndex: 2（即 single(2, 40)），绝不因视口脱节漏选或误选历史音符
+    expect(sel.items).toEqual([{ kind: 'note', noteIndex: 2 }]);
+  });
 });
 
 describe('GestureSession · Slide 两击（不变量 10）', () => {
@@ -592,3 +782,102 @@ describe('GestureSession · 右键双模态（issue 158）', () => {
     expect(setNotes.notes.some((n) => n.type === 'Single')).toBe(false);
   });
 });
+
+describe('issue 203 · 拖段捏形与 Alt 实时切换', () => {
+  const slideNote: ChartNote = {
+    type: 'Slide',
+    connections: [{ beat: 50, lane: 2 }, { beat: 52, lane: 2 }],
+  };
+
+  it('拖动滑条段：默认走圆滑捏形，按住 Alt 切换为三角捏形（无指针移动时即刻重算幽灵）', () => {
+    const notes = [bpmNote(0, 120), slideNote];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p0 = at(2, 51);
+    const p1 = at(4, 51);
+    press(s, p0, virt);
+    expect(s.isDragging()).toBe(true);
+    s.move(p1);
+    const smoothGhost = s.getSnapshot().dragGhost;
+    expect(smoothGhost).not.toBeNull();
+    const smoothSlide = smoothGhost![0] as SlideNote;
+
+    // Alt 按下 -> 实时切换为三角捏形
+    s.onAltChange(true);
+    const triGhost = s.getSnapshot().dragGhost;
+    expect(triGhost).not.toBeNull();
+    const triSlide = triGhost![0] as SlideNote;
+    // 两者形态不同（圆滑贝塞尔鼓包 vs 三角折线）
+    expect(smoothSlide.connections.map(c => c.lane)).not.toEqual(triSlide.connections.map(c => c.lane));
+
+    // Alt 松开 -> 恢复圆滑捏形
+    s.onAltChange(false);
+    const restoredGhost = s.getSnapshot().dragGhost;
+    const restoredSlide = restoredGhost![0] as SlideNote;
+    expect(restoredSlide.connections.map(c => c.lane)).toEqual(smoothSlide.connections.map(c => c.lane));
+
+    // 抬手提交
+    const r = s.end(up(p1));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    const committed = setNotes.notes.find((n) => n.type === 'Slide') as SlideNote;
+    expect(committed.connections.map(c => c.lane)).toEqual(smoothSlide.connections.map(c => c.lane));
+  });
+
+  it('pinchMode 为 triangle 时：默认三角捏形，按住 Alt 切换为圆滑捏形', () => {
+    // 先获取默认 smooth 下的 smooth 和 triangle 参考连线
+    const notesRef = [bpmNote(0, 120), slideNote];
+    const { world: worldRef, at: atRef, virt: virtRef } = worldOf(notesRef);
+    const { host: hostRef } = makeHost();
+    const sRef = new GestureSession(hostRef);
+    sRef.bindWorld(worldRef);
+    const p0 = atRef(2, 51);
+    const p1 = atRef(4, 51);
+    press(sRef, p0, virtRef);
+    sRef.move(p1);
+    const refSmoothLanes = (sRef.getSnapshot().dragGhost![0] as SlideNote).connections.map((c) => c.lane);
+    sRef.onAltChange(true);
+    const refTriangleLanes = (sRef.getSnapshot().dragGhost![0] as SlideNote).connections.map((c) => c.lane);
+    expect(refSmoothLanes).not.toEqual(refTriangleLanes);
+
+    // 在 pinchMode: 'triangle' 下测试：默认应为 refTriangleLanes，按住 Alt 应为 refSmoothLanes
+    const notes = [bpmNote(0, 120), slideNote];
+    const { world, at, virt } = worldOf(notes, { pinchMode: 'triangle' });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p0Tri = at(2, 51);
+    const p1Tri = at(4, 51);
+    press(s, p0Tri, virt);
+    s.move(p1Tri);
+    const triGhost = s.getSnapshot().dragGhost;
+    expect(triGhost).not.toBeNull();
+    const triSlide = triGhost![0] as SlideNote;
+    expect(triSlide.connections.map((c) => c.lane)).toEqual(refTriangleLanes);
+
+    // Alt 按下 -> 反转为圆滑捏形
+    s.onAltChange(true);
+    const smoothGhost = s.getSnapshot().dragGhost;
+    expect(smoothGhost).not.toBeNull();
+    const smoothSlide = smoothGhost![0] as SlideNote;
+    expect(smoothSlide.connections.map((c) => c.lane)).toEqual(refSmoothLanes);
+
+    // Alt 松开 -> 恢复三角捏形
+    s.onAltChange(false);
+    const restoredGhost = s.getSnapshot().dragGhost;
+    const restoredSlide = restoredGhost![0] as SlideNote;
+    expect(restoredSlide.connections.map((c) => c.lane)).toEqual(refTriangleLanes);
+
+    // 抬手提交为三角捏形
+    const r = s.end(up(p1Tri));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    const committed = setNotes.notes.find((n) => n.type === 'Slide') as SlideNote;
+    expect(committed.connections.map((c) => c.lane)).toEqual(refTriangleLanes);
+  });
+});
+

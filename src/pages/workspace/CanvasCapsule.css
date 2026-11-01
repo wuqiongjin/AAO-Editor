@@ -1,0 +1,72 @@
+/* 画布左上角选项胶囊的**共用外壳**（issue 180 Q15 曲线胶囊 / issue 186 片段粘贴胶囊）。
+   两枚胶囊互斥出现（一个只在曲线态、一个只在片段粘贴态），共用同一个位置与同一套外观；
+   各自文件只写面板内部（表单 / 选项）。
+
+   口径（180 Q15 定案）：浮在画布区左上角、无关闭钮、点外面或 Esc 收回、切走工具即消失。 */
+
+.ccap {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 22;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  animation: ccap-pop 140ms var(--ease);
+}
+
+@keyframes ccap-pop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.ccap__pill {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 6px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ccap__pill:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+/* 胶囊开头的工具标签（「曲线」/「粘贴」） */
+.ccap__tag {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 当前值摘要（数字走等宽数字位，变化时不抖） */
+.ccap__sum {
+  font-variant-numeric: tabular-nums;
+}
+
+.ccap__chev {
+  color: var(--text-subtle);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.ccap.is-open .ccap__chev {
+  transform: rotate(180deg);
+}
+
+/* 展开后的面板：上缘一条分隔线，其余留白由各胶囊自己定 */
+.ccap__body {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}

@@ -1,0 +1,46 @@
+/* 画布左上角片段粘贴胶囊（issue 186）：外壳（位置 / 外观 / 胶囊按钮 / 面板边框 / 动画）
+   见 CanvasCapsule.css，这里只有"两档模式"这部分面板内部。 */
+
+.ppp__body {
+  min-width: 200px;
+  padding: 8px;
+}
+
+.ppp__modes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ppp__chip {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.ppp__chip:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.ppp__chip.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.ppp__chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}

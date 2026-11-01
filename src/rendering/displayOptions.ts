@@ -16,5 +16,6 @@ export function displayOptionsFromSettings(display: AppSettings['display']): Ren
     lineShapeTiers: display.lineShapeTiers,
     gridOpacity: display.gridOpacity,
     labelScale: display.labelScale,
+    timePrecision: display.timePrecision,
   };
 }

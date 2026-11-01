@@ -13,7 +13,16 @@ import { NOTE_SKIN_DEFAULT_SELECTION } from '../../rendering/skin/gen/noteSkinRe
 import { SIM_DEFAULT_PACK_IDS, normalizeSimAssetPackId } from '../../preview/video/sim/simAssetPacks';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/CurveTool';
+import { DEFAULT_BEAT_SNAP, normalizeBeatSnap } from '../../chart/editing/BeatSnap';
+import { DEFAULT_PATTERN_SORT, normalizePatternSort, type PatternSortPreference } from '../patterns/library';
 import { detectOsLanguageTag, resolveUiLanguage, type UiLanguage } from '../../i18n/resolveUiLanguage';
+import { type TimePrecision } from '../geometry/TimeFormat';
+
+export type { TimePrecision } from '../geometry/TimeFormat';
+export const TIME_PRECISIONS: readonly TimePrecision[] = ['standard', 'centisecond', 'millisecond'] as const;
+
+export type PinchMode = 'smooth' | 'triangle';
+export const PINCH_MODES: readonly PinchMode[] = ['smooth', 'triangle'] as const;
 
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */
 export const DEFAULT_BACKGROUND_OPACITY = 0.55;
@@ -68,12 +77,14 @@ export interface AppSettings {
   /** 启动时自动检查更新（ADR-0021）。additive，不 bump schemaVersion；默认开 */
   autoCheck: boolean;
   layout: {
-    leftPanel: { width: number; collapsed: boolean };
-    rightPanel: { width: number; collapsed: boolean };
+    /**
+     * 工作台片段库抽屉（issue 180 Q14 / 票 183）：开合态与宽度跨会话，默认收起。
+     * 旧版工作台左右面板（`leftPanel` / `rightPanel`）随换壳删除，读盘时丢弃。
+     */
+    patternDrawer: { open: boolean; width: number };
     /**
      * 工程详情页左栏（工程列表）宽度，issue 23 #2。additive，不 bump schemaVersion。
-     * 与 leftPanel/rightPanel（工作台面板）是**两套独立的分栏**：工作台那套绑 UIProvider +
-     * 内联 CSS 变量、夹取随视口；这一套是 CSS Grid、夹取为绝对区间（见 PROJECT_LIST_WIDTH）。
+     * 与工作台抽屉是**两套独立的分栏**：夹取为绝对区间（见 PROJECT_LIST_WIDTH）。
      */
     projectList: { width: number };
   };
@@ -118,6 +129,12 @@ export interface AppSettings {
     gridOpacity: number;
     /** 谱面文字大小系数（issue 51 第二轮 Q1=A）：0.5..3，默认 1（基准 14px/11px 已上调） */
     labelScale: number;
+    /** 时间显示精度（issue 200）：'standard' (0.1s) | 'millisecond' (0.001s)，默认 standard */
+    timePrecision: TimePrecision;
+    /** 滚轮反转（issue 200）：是否反转时间轴纵向滚动方向，默认 false */
+    invertWheel: boolean;
+    /** 滑条拖拽变形风格（issue 204）：'smooth' (圆滑曲线) | 'triangle' (三角拉弓)，默认 smooth */
+    pinchMode: PinchMode;
   };
   /** 素材域（issue 29 音符皮肤）：六条目 → 皮肤包 id。包合法性由 renderer/noteSkin.ts 归一化（缺省/非法回退默认包） */
   visual: {
@@ -138,6 +155,28 @@ export interface AppSettings {
    * 缺段/脏值经 `normalizeCurveConfig` 归一化回落。
    */
   curve: CurveConfig;
+  /**
+   * 节拍吸附档位 1/N 的 N（issue 180 Q6 / 票 181）：与 `curve` 同属"我的习惯"——全局一份、跨会话沿用。
+   * 1–192 整数，缺字段 / 脏值经 `normalizeBeatSnap` 回落 4。additive 字段，不 bump schemaVersion。
+   */
+  beatSnap: number;
+  /**
+   * 片段粘贴模式（issue 186 / ADR-0023 §2）：`withBpm` = 含 BPM（默认）还是不含 BPM。
+   * 只是**偏好**（"我上次怎么贴的"），与 `beatSnap` 同属"我的习惯"；**片段数据本身不进设置对象**
+   * （ADR-0023 §3 只约束后者）。additive 字段，不 bump schemaVersion；缺字段 / 脏值回落 true。
+   */
+  patternPaste: { withBpm: boolean };
+  /**
+   * 片段库偏好（issue 192）：抽屉内片段排序方式（键与方向）。
+   * 与 `patternPaste` 同属"我的习惯"；additive 字段，不 bump schemaVersion；
+   * 缺字段 / 未知 key / 非法 direction 回落默认（createdAt desc）。
+   */
+  patternLibrary: { sort: PatternSortPreference };
+  /**
+   * 工作台播放条（issue 180 Q25 / 票 182）：`markerButton` = 时间码旁的播放起点按钮显不显示，默认开。
+   * 与 `display`（画布显示项）分段：显示面板「恢复默认」只重置画布那段。additive，不 bump schemaVersion。
+   */
+  playbar: { markerButton: boolean };
   /**
    * 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28
    * ；官方选曲面板排序 票 31）。
@@ -360,11 +399,13 @@ export function normalizeBgBrightness(
 
 /** Time 标记间隔（秒）——照 Bestdori 的 `chartTime`：off / 1s / 2s / 5s / 10s（chart-preview 08） */
 export type PreviewTimeMarkInterval = 'off' | 1 | 2 | 5 | 10;
-/** Beat 标记细分档 —— 照 Bestdori 的 `chartBeat`：off / 1/1 / 1/2 / 1/3 / 1/4 / 1/6（chart-preview 08） */
-export type PreviewBeatMarkDivision = 'off' | 1 | 2 | 3 | 4 | 6;
+/** Beat 标记细分档 —— off / 1/1 / 1/2 / 1/3 / 1/4 / 1/6 / 1/8 / 1/12 / 1/16 */
+export type PreviewBeatMarkDivision = 'off' | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16;
 /** 预览标注白名单（归一化与 UI 选项共用同一份，免得两处各列一遍） */
 export const PREVIEW_TIME_MARK_INTERVALS: readonly PreviewTimeMarkInterval[] = ['off', 1, 2, 5, 10];
-export const PREVIEW_BEAT_MARK_DIVISIONS: readonly PreviewBeatMarkDivision[] = ['off', 1, 2, 3, 4, 6];
+export const PREVIEW_BEAT_MARK_DIVISIONS: readonly PreviewBeatMarkDivision[] = [
+  'off', 1, 2, 3, 4, 6, 8, 12, 16,
+];
 /**
  * 预览标注默认档（用户 2026-09-30 二轮定案）：BPM 标记开、时间标记 5 秒、节拍线 1/1、
  * Combo 标记关、不镜像。
@@ -411,8 +452,13 @@ const STORAGE_KEY = 'aao.settings.v1';
 /** 谱面时长上限（秒）：30 分钟，防误输入把画布撑爆（issue 28 第 2 轮 P6） */
 export const MAX_DURATION_SECONDS = 1800;
 
-/** 工作台左右面板的默认宽度上限（issue 97：左右同口径同宽） */
-export const DEFAULT_PANEL_WIDTH = 300;
+/** 片段库抽屉宽度（票 183）：下限在这里夹，上限 32vw 交给 CSS `max-width`（随视口瞬时生效，issue 87 口径） */
+export const PATTERN_DRAWER_WIDTH = { min: 220, default: 300 } as const;
+
+export function clampPatternDrawerWidth(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return PATTERN_DRAWER_WIDTH.default;
+  return Math.max(PATTERN_DRAWER_WIDTH.min, Math.round(value));
+}
 
 /**
  * 工程详情页左栏（工程列表）宽度的绝对区间，issue 23 #2。
@@ -428,11 +474,6 @@ export function clampProjectListWidth(value: unknown): number {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
-/** 默认面板宽度：窄视口随 20vw 收缩，宽屏封顶 DEFAULT_PANEL_WIDTH（issue 12 / issue 97 起左右同一公式） */
-export function defaultPanelWidth(innerWidth: number): number {
-  return Math.min(DEFAULT_PANEL_WIDTH, Math.round(innerWidth * 0.20));
-}
-
 export function defaultSettings(osLanguage: string = detectOsLanguageTag()): AppSettings {
   return {
     schemaVersion: 1,
@@ -442,8 +483,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     uiFontStack: 'geist',
     autoCheck: true,
     layout: {
-      leftPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
-      rightPanel: { width: DEFAULT_PANEL_WIDTH, collapsed: false },
+      patternDrawer: { open: false, width: PATTERN_DRAWER_WIDTH.default },
       projectList: { width: PROJECT_LIST_WIDTH.default },
     },
     shortcuts: getDefaultConfig(),
@@ -462,9 +502,18 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
       lineShapeTiers: false,
       gridOpacity: 0.8,
       labelScale: 1,
+      timePrecision: 'standard',
+      invertWheel: false,
+      pinchMode: 'smooth',
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
+    beatSnap: DEFAULT_BEAT_SNAP,
+    // 片段粘贴默认「含 BPM」（ADR-0023 §2）
+    patternPaste: { withBpm: true },
+    // 片段库排序默认「最新收藏在前」（issue 192）
+    patternLibrary: { sort: { ...DEFAULT_PATTERN_SORT } },
+    playbar: { markerButton: true },
     projects: { sort: 'lastOpened', importWithChart: true, songSort: { ...SONG_SORT_DEFAULT } },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
     export: { ...DEFAULT_EXPORT_FIELDS },
@@ -478,12 +527,14 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   const obj = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
   const audio = (obj.audio && typeof obj.audio === 'object' ? obj.audio : {}) as Record<string, unknown>;
   const layout = (obj.layout && typeof obj.layout === 'object' ? obj.layout : {}) as Record<string, unknown>;
-  const leftPanel = (layout.leftPanel && typeof layout.leftPanel === 'object' ? layout.leftPanel : {}) as Record<string, unknown>;
-  const rightPanel = (layout.rightPanel && typeof layout.rightPanel === 'object' ? layout.rightPanel : {}) as Record<string, unknown>;
+  const patternDrawer = (layout.patternDrawer && typeof layout.patternDrawer === 'object' ? layout.patternDrawer : {}) as Record<string, unknown>;
   const projectList = (layout.projectList && typeof layout.projectList === 'object' ? layout.projectList : {}) as Record<string, unknown>;
   const display = (obj.display && typeof obj.display === 'object' ? obj.display : {}) as Record<string, unknown>;
   const preview = (obj.preview && typeof obj.preview === 'object' ? obj.preview : {}) as Record<string, unknown>;
   const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, unknown>;
+  const playbar = (obj.playbar && typeof obj.playbar === 'object' ? obj.playbar : {}) as Record<string, unknown>;
+  const patternPaste = (obj.patternPaste && typeof obj.patternPaste === 'object' ? obj.patternPaste : {}) as Record<string, unknown>;
+  const patternLibrary = (obj.patternLibrary && typeof obj.patternLibrary === 'object' ? obj.patternLibrary : {}) as Record<string, unknown>;
   const exportRaw = (obj.export && typeof obj.export === 'object' ? obj.export : {}) as Record<string, unknown>;
   const visual = (obj.visual && typeof obj.visual === 'object' ? obj.visual : {}) as Record<string, unknown>;
   const rawNoteSkin = (visual.noteSkin && typeof visual.noteSkin === 'object' ? visual.noteSkin : {}) as Record<string, unknown>;
@@ -520,13 +571,9 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     uiFontStack: normalizeUiFontStack(obj.uiFontStack, defaults.uiFontStack),
     autoCheck: typeof obj.autoCheck === 'boolean' ? obj.autoCheck : defaults.autoCheck,
     layout: {
-      leftPanel: {
-        width: typeof leftPanel.width === 'number' && leftPanel.width > 0 ? leftPanel.width : defaults.layout.leftPanel.width,
-        collapsed: typeof leftPanel.collapsed === 'boolean' ? leftPanel.collapsed : defaults.layout.leftPanel.collapsed,
-      },
-      rightPanel: {
-        width: typeof rightPanel.width === 'number' && rightPanel.width > 0 ? rightPanel.width : defaults.layout.rightPanel.width,
-        collapsed: typeof rightPanel.collapsed === 'boolean' ? rightPanel.collapsed : defaults.layout.rightPanel.collapsed,
+      patternDrawer: {
+        open: typeof patternDrawer.open === 'boolean' ? patternDrawer.open : defaults.layout.patternDrawer.open,
+        width: clampPatternDrawerWidth(patternDrawer.width),
       },
       projectList: { width: clampProjectListWidth(projectList.width) },
     },
@@ -552,9 +599,28 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       lineShapeTiers: typeof display.lineShapeTiers === 'boolean' ? display.lineShapeTiers : defaults.display.lineShapeTiers,
       gridOpacity: clamp(display.gridOpacity, 0.1, 1, defaults.display.gridOpacity),
       labelScale: clamp(display.labelScale, 0.5, 3, defaults.display.labelScale),
+      timePrecision: (TIME_PRECISIONS as readonly unknown[]).includes(display.timePrecision)
+        ? (display.timePrecision as TimePrecision)
+        : defaults.display.timePrecision,
+      invertWheel: typeof display.invertWheel === 'boolean' ? display.invertWheel : defaults.display.invertWheel,
+      pinchMode: (PINCH_MODES as readonly unknown[]).includes(display.pinchMode)
+        ? (display.pinchMode as PinchMode)
+        : defaults.display.pinchMode,
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
+    beatSnap: normalizeBeatSnap(obj.beatSnap),
+    // 片段粘贴模式（issue 186）：只认布尔，缺字段 / 脏值 = 带 BPM（默认档）
+    patternPaste: {
+      withBpm: typeof patternPaste.withBpm === 'boolean' ? patternPaste.withBpm : defaults.patternPaste.withBpm,
+    },
+    // 片段库偏好（issue 192）：缺字段 / 非法值回落默认档（createdAt desc）
+    patternLibrary: {
+      sort: normalizePatternSort(patternLibrary.sort, defaults.patternLibrary.sort),
+    },
+    playbar: {
+      markerButton: typeof playbar.markerButton === 'boolean' ? playbar.markerButton : defaults.playbar.markerButton,
+    },
     // 工程管理页配置（启动台排序 issue 19 #4；同步导入谱面代码 issue 28；官方选曲面板排序 票 31）
     projects: {
       sort: normalizeProjectSortKey(projects.sort, defaults.projects.sort),
@@ -694,6 +760,10 @@ export function updateSettings(
     display: Partial<AppSettings['display']>;
     visual: Partial<AppSettings['visual']>;
     curve?: CurveConfig;
+    beatSnap?: number;
+    patternPaste?: Partial<AppSettings['patternPaste']>;
+    patternLibrary?: Partial<AppSettings['patternLibrary']>;
+    playbar?: Partial<AppSettings['playbar']>;
     projects?: Partial<AppSettings['projects']>;
     preview?: Partial<AppSettings['preview']>;
     export?: Partial<AppSettings['export']>;
@@ -714,6 +784,16 @@ export function updateSettings(
     display: { ...prev.display, ...(patch.display ?? {}) },
     visual: { ...prev.visual, ...(patch.visual ?? {}) },
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
+    beatSnap: patch.beatSnap !== undefined ? normalizeBeatSnap(patch.beatSnap) : prev.beatSnap,
+    // 段内浅合并；非布尔值不写入（脏值不会顶掉上一次的有效偏好）
+    patternPaste: {
+      withBpm: typeof patch.patternPaste?.withBpm === 'boolean' ? patch.patternPaste.withBpm : prev.patternPaste.withBpm,
+    },
+    // 片段库偏好（issue 192）：段内浅合并
+    patternLibrary: {
+      sort: patch.patternLibrary?.sort ? normalizePatternSort(patch.patternLibrary.sort, prev.patternLibrary.sort) : prev.patternLibrary.sort,
+    },
+    playbar: { ...prev.playbar, ...(patch.playbar ?? {}) },
     projects: { ...prev.projects, ...(patch.projects ?? {}) },
     preview: { ...prev.preview, ...(patch.preview ?? {}) },
     // `opening` 是嵌套对象：段内浅合并会把 `items` 整个抹掉（改 `enabled` 就丢三项开关）

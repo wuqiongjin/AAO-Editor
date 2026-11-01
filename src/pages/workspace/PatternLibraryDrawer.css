@@ -1,0 +1,562 @@
+/* 片段库抽屉（票 183 外壳 + issue 185 内容）：
+   宽度由 JS 注入（可拖），上限随视口由 CSS 夹（issue 87 口径：缩放 / 改窗即时生效） */
+.pld {
+  position: relative;
+  flex-shrink: 0;
+  min-width: 220px;
+  max-width: 32vw;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: pld-slide 180ms var(--ease);
+}
+
+.pld__resizer {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 5px;
+  cursor: col-resize;
+  border-radius: 3px;
+  z-index: 2;
+}
+
+.pld__resizer:hover,
+.pld__resizer.is-dragging {
+  background: var(--accent);
+}
+
+.pld__head {
+  height: var(--topbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.pld__title {
+  flex: 1;
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+.pld__close,
+.pld__head-more {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pld__close:hover,
+.pld__head-more:hover,
+.pld__head-more[aria-expanded='true'] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 常驻搜索与排序：顶部一行，随抽屉宽度伸缩（issue 192） */
+.pld__search-row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 10px 2px;
+}
+
+.pld__search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+
+.pld__sort-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+
+.pld__sort-btn:hover:not(:disabled),
+.pld__sort-btn[aria-expanded='true'] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pld__sort-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pld__search:focus-within {
+  border-color: var(--accent);
+}
+
+.pld__search-icon {
+  flex-shrink: 0;
+  color: var(--text-subtle);
+}
+
+.pld__search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-xs);
+}
+
+.pld__search-input::placeholder {
+  color: var(--text-subtle);
+}
+
+.pld__search-clear {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+
+.pld__search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 列表区：唯一滚动容器；头 / 搜索 / 页脚都钉住 */
+.pld__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 8px 8px;
+}
+
+.pld__body-placeholder {
+  height: 100%;
+}
+
+.pld__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pld__empty {
+  height: 100%;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.pld__empty b {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* 卡片：缩略图 + 名字 + 徽标；hover 出右上角动作菜单 */
+.pld-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+.pld-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+/* 只读谱面：卡片置灰（贴入被拦，issue 186）——「收藏选区」不受影响，故只压卡片这一层 */
+.pld-card.is-readonly {
+  opacity: 0.5;
+}
+
+/* 当前粘贴来源（issue 186 二轮）：这张卡就是画布上正在贴的那一段，再点一次即退出 */
+.pld-card.is-active {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* 卡片主体 = 粘贴热区（issue 186）：缩略图 + 名字 + 徽标整块可点。
+   用 div 而不是 <button>（里面还有改名输入框），故光标与焦点环自己画。 */
+.pld-card__hit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pld-card.is-readonly .pld-card__hit {
+  cursor: default;
+}
+
+.pld-card__hit:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.pld-card__thumb {
+  flex-shrink: 0;
+  width: 88px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  /* 画布底（缩略图本身由 canvas 铺底，这里只是首帧/无 canvas 时的兜底，故取同一枚令牌） */
+  background: var(--canvas-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.pld-card__thumb-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pld-card__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* 给右上角 ⋯ 让出位置：名字再长也不会藏到按钮底下 */
+  padding-right: 30px;
+}
+
+.pld-card__name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* 名字旁的小 pin 图标（仅状态，不可点，issue 191） */
+.pld-card__pin {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.pld-card__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pld-card__name-input {
+  width: 100%;
+  min-width: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  outline: none;
+  background: var(--bg-inset);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.pld-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pld-badge {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+/* 统计行（issue 190）：徽标下方的派生小字（音符数 · 拍数），弱于名字与徽标。
+   颜色取 muted 而非 subtle：11px 下 subtle 对卡片底对比度不足，会读成残留文本。 */
+.pld-card__stats {
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 常驻动作入口：一直可见（hover 才出现的按钮等于靠运气发现），低对比度不抢名字 */
+.pld-card__more {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+
+.pld-card__more:hover,
+.pld-card__more[aria-expanded='true'] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* 卡片菜单：portal + fixed（抽屉列表是滚动容器，绝对定位会被底部裁掉） */
+.pld-menu__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+
+.pld-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 148px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+.pld-menu__item {
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pld-menu__item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.pld-menu__item:disabled {
+  color: var(--text-subtle);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pld-menu__item--danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.pld-menu--sort {
+  min-width: 136px;
+}
+
+.pld-menu__item-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.pld__foot {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.pld__save {
+  width: 100%;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pld__save:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.pld__save:disabled {
+  border-color: transparent;
+  color: var(--text-subtle);
+  cursor: not-allowed;
+}
+
+/* 选择模式（issue 193） */
+.pld-card.is-selected {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.pld-card__checkbox {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-inset);
+  color: #fff;
+  transition: all 120ms ease;
+}
+
+.pld-card__checkbox.is-checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 底部选区工具条（issue 193） */
+.pld-sel-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pld-sel-bar__info {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: var(--text-xs);
+}
+
+.pld-sel-bar__count {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pld-sel-bar__hidden {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+}
+
+.pld-sel-bar__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.pld-sel-bar__btn {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pld-sel-bar__btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.pld-sel-bar__btn--danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.pld-sel-bar__btn:disabled {
+  opacity: 0.45;
+  border-color: transparent;
+  color: var(--text-subtle);
+  cursor: not-allowed;
+}
+
+@keyframes pld-slide {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pld { animation: none; }
+}

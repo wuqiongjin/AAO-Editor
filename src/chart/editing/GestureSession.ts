@@ -18,6 +18,8 @@ import {
   type SlidePoint,
 } from './ToolActionMatrix';
 import { placeSpanWithCombination, type CurveConfig, type CurveDraft } from './CurveTool';
+import type { PinchMode } from '../config/AppSettings';
+import type { PatternPasteRequest } from '../patterns/paste';
 import { buildPenSlide } from './SpanCurve';
 import {
   snapChartPos,
@@ -26,6 +28,7 @@ import {
   resolveClickPlan,
   hasMovedBeyondThreshold,
   marqueeRect,
+  anchorToCanvas,
   canStartMarquee,
   resolveBoxPlan,
   penCursorAt,
@@ -51,6 +54,14 @@ const DRAG_THRESHOLD_PX = 4;
  * 4px 时持工具态放音符手一抖就越线，松手走 commitBox → 那一击的放置被吃掉（框内有音符时还会变成批量换型）。
  */
 const MARQUEE_THRESHOLD_PX = 8;
+
+const hasDragMovement = (d: DragDelta | null): d is DragDelta => {
+  if (!d) return false;
+  if (d.dBeat !== 0 || d.dLane !== 0) return true;
+  if (d.exactDLane !== undefined && d.exactDLane !== 0) return true;
+  if (d.pinchCursor && (d.pinchCursor.curBeat !== d.pinchCursor.pressBeat || d.pinchCursor.curLane !== d.pinchCursor.pressLane)) return true;
+  return false;
+};
 
 export type GestureOp =
   | MatrixOp
@@ -83,6 +94,8 @@ export interface GestureWorld {
   viewport: ViewportState;
   surface: SurfaceSize;
   clipboard: ChartNote[];
+  /** issue 186：非 null 时粘贴的负载改取自该片段（点卡片进态），剪贴板原样不动 */
+  pastePattern: PatternPasteRequest | null;
   slideBuffer: SlidePoint | null;
   curveDraft: CurveDraft | null;
   curveConfig: CurveConfig;
@@ -91,6 +104,8 @@ export interface GestureWorld {
   hitPlaybackMarker: (cx: number, cy: number) => boolean;
   hitBpmGutter: (cx: number, cy: number) => BpmGutterHit | null;
   expandedBpmGroupKey: number | null;
+  /** issue 204：滑条拖拽变形风格，默认 'smooth' */
+  pinchMode?: PinchMode;
 }
 
 export interface GestureBeginInput {
@@ -107,6 +122,7 @@ export interface GestureBeginInput {
 export interface GestureMoveInput {
   x: number;
   y: number;
+  altKey?: boolean;
 }
 
 export interface GestureEndInput {
@@ -116,6 +132,7 @@ export interface GestureEndInput {
   shiftKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
+  altKey?: boolean;
 }
 
 export interface GestureSessionHost {
@@ -144,6 +161,14 @@ const emptySnapshot = (): GestureSnapshot => ({
   cursorStyle: '',
 });
 
+export interface GestureStartAnchor {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  pos: number;
+}
+
 export type GestureSessionListener = (snapshot: GestureSnapshot) => void;
 
 /**
@@ -156,9 +181,11 @@ export class GestureSession {
   private listeners = new Set<GestureSessionListener>();
   private snap: GestureSnapshot = emptySnapshot();
 
-  private start: { x: number; y: number; vx: number; vy: number } | null = null;
+  private start: GestureStartAnchor | null = null;
   private moved = false;
   private cancelled = false;
+  /** issue 197（方案 1，用户拍板）：按下期间若触发视口缩放/滚动，抬手作废本次单击（abort click） */
+  private viewportChangedDuringPress = false;
   /** 手势进行中最后一次输入的画布坐标（拖拽/框选/画笔共用这一份） */
   private pointerPx: { x: number; y: number } | null = null;
 
@@ -166,6 +193,8 @@ export class GestureSession {
   private dragFrozen: { notes: ChartNote[]; items: SelectionItem[] } | null = null;
   private pen: PenState | null = null;
   private penHoldTimer: number | null = null;
+  /** issue 203：拖拽期间是否按住 Alt（用于圆滑捏形 ↔ 三角捏形实时切换） */
+  private altHeld = false;
 
   constructor(host: GestureSessionHost) {
     this.host = host;
@@ -199,6 +228,45 @@ export class GestureSession {
     return this.start !== null;
   }
 
+  /** 正在拖拽音符/段 */
+  isDragging(): boolean {
+    return this.drag !== null;
+  }
+
+  /** issue 203：是否正在对滑条段进行捏形拖拽 */
+  isPinchDragging(): boolean {
+    return this.drag !== null && this.drag.items.length === 1 && this.drag.items[0]!.kind === 'slideRegion';
+  }
+
+  /**
+   * issue 203：拖拽中按下或松开 Alt（Q6 实时切换，仅对 slideRegion 捏形生效）
+   */
+  onAltChange(altKey: boolean): GestureResult {
+    this.altHeld = altKey;
+    if (!this.isPinchDragging() || !this.pointerPx) return this.result();
+    this.updateDragState(this.pointerPx.x, this.pointerPx.y, altKey);
+    return this.result();
+  }
+
+  private updateDragState(cx: number, cy: number, altKey = this.altHeld): void {
+    if (!this.drag) return;
+    const w = this.requireWorld();
+    const d = this.dragDelta(cx, cy, this.drag, altKey);
+    if (hasDragMovement(d)) {
+      const r = planDragMove(w.notes, this.drag.items, d, {
+        chartEndBeat: w.chartEndBeat,
+        beatDisplay: w.beatDisplay,
+      });
+      if (r.ok) {
+        const ghost = r.ghost;
+        this.patchSnap({
+          dragGhost: !ghost || ghost.length === 0 ? null : ghost,
+        });
+        this.dragFrozen = { notes: r.notes, items: r.items };
+      }
+    }
+  }
+
   destroy(): void {
     this.clearPenTimer();
     this.host.detachWindow();
@@ -206,10 +274,14 @@ export class GestureSession {
 
   begin(input: GestureBeginInput): GestureResult {
     this.cancelled = false;
+    this.altHeld = false;
+    this.viewportChangedDuringPress = false;
+    const w = this.requireWorld();
+    const pos = w.geometry.posOfVirtualY(input.vy, w.viewport.scale);
     if (input.button === 2) {
       // issue 158：右键也记按下点 + 接管 window，才能过 8px 起框；不启拖拽。
       this.clearPenTimer();
-      this.start = { x: input.x, y: input.y, vx: input.vx, vy: input.vy };
+      this.start = { x: input.x, y: input.y, vx: input.vx, vy: input.vy, pos };
       this.moved = false;
       this.pointerPx = { x: input.x, y: input.y };
       this.drag = null;
@@ -230,7 +302,7 @@ export class GestureSession {
     }
     this.clearPenTimer();
     this.patchSnap({ dragGhost: null, penPreview: null, penActive: false, selectionBox: null });
-    this.start = { x: input.x, y: input.y, vx: input.vx, vy: input.vy };
+    this.start = { x: input.x, y: input.y, vx: input.vx, vy: input.vy, pos };
     this.moved = false;
     this.pointerPx = { x: input.x, y: input.y };
     this.drag = null;
@@ -256,20 +328,8 @@ export class GestureSession {
     if (this.drag) {
       this.host.setCursor('grabbing');
       this.patchSnap({ cursorStyle: 'grabbing' });
-      const d = this.dragDelta(input.x, input.y, this.drag);
-      if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
-        const r = planDragMove(w.notes, this.drag.items, d, {
-          chartEndBeat: w.chartEndBeat,
-          beatDisplay: w.beatDisplay,
-        });
-        if (r.ok) {
-          const ghost = r.ghost;
-          this.patchSnap({
-            dragGhost: d.dBeat === 0 && d.dLane === 0 || !ghost || ghost.length === 0 ? null : ghost,
-          });
-          this.dragFrozen = { notes: r.notes, items: r.items };
-        }
-      }
+      if (input.altKey !== undefined) this.altHeld = input.altKey;
+      this.updateDragState(input.x, input.y, this.altHeld);
       return this.result();
     }
     if (this.pen) {
@@ -305,6 +365,7 @@ export class GestureSession {
     const box = this.snap.selectionBox;
     const drag = this.drag;
     const pen = this.pen;
+    const viewportChanged = this.viewportChangedDuringPress;
     const intent = resolveReleaseIntent({
       e, start, moved, drag, box, pen: pen !== null,
     });
@@ -315,6 +376,7 @@ export class GestureSession {
     this.pen = null;
     this.pointerPx = null;
     this.moved = false;
+    this.viewportChangedDuringPress = false;
     this.clearPenTimer();
     this.host.setCursor('');
     this.patchSnap({
@@ -332,8 +394,11 @@ export class GestureSession {
     if (intent === 'commitDrag' && drag) return this.result(this.commitDrag(drag, e));
     if (intent === 'commitBox' && box) return this.result(this.commitBox(box));
     if (intent === 'click') {
+      // issue 197（方案 1，用户拍板）：按下期间若发生视口变化且未移动（未产生拖拽/选框），
+      // 抬手安全作废本次单击（abort click），防止用户缩放视口后误触放置/删除/选区。
+      if (viewportChanged) return this.result();
       const w = this.requireWorld();
-      const p = w.geometry.virtualToCanvas(start.vx, start.vy, w.viewport);
+      const p = anchorToCanvas(start, { geometry: w.geometry, viewport: w.viewport });
       return this.result(this.clickAt(p.x, p.y, e));
     }
     return this.result();
@@ -348,6 +413,7 @@ export class GestureSession {
     this.dragFrozen = null;
     this.start = null;
     this.moved = false;
+    this.viewportChangedDuringPress = false;
     this.pointerPx = null;
     this.clearPenTimer();
     this.host.setCursor('');
@@ -368,34 +434,38 @@ export class GestureSession {
       this.world = { ...this.world, viewport, geometry, surface };
     }
     const w = this.world;
-    if (!w || !this.start || !this.moved) return this.result();
+    if (!w || !this.start) return this.result();
+    this.viewportChangedDuringPress = true;
     const cursor = this.pointerPx;
+
+    // issue 197：若尚未越过阈值（原地按住未移动），缩放不产生选框；
+    // 同步将起点重锚定到当前光标处的最新谱面位置，防止后续移动或松手时发生坐标突跳。
+    if (!this.moved) {
+      if (cursor) {
+        const v = geometry.canvasToVirtual(cursor.x, cursor.y, viewport);
+        const pos = geometry.posOfVirtualY(v.y, viewport.scale);
+        this.start = { x: cursor.x, y: cursor.y, vx: v.x, vy: v.y, pos };
+      }
+      return this.result();
+    }
+
     if (cursor && !this.drag) {
-      this.patchSnap({
-        selectionBox: marqueeRect({
-          start: { vx: this.start.vx, vy: this.start.vy },
-          curCanvas: cursor,
-          deps: { geometry, viewport },
-          surface,
-        }),
-      });
+      const isMarquee = this.snap.rightButtonHeld || (!this.pen && canStartMarquee(w.armedTool));
+      if (isMarquee) {
+        this.patchSnap({
+          selectionBox: marqueeRect({
+            start: this.start,
+            curCanvas: cursor,
+            deps: { geometry, viewport },
+            surface,
+          }),
+        });
+      }
       return this.result();
     }
     const drag = this.drag;
     if (!drag || !cursor) return this.result();
-    const d = this.dragDelta(cursor.x, cursor.y, drag);
-    if (!d || (d.dBeat === 0 && d.dLane === 0)) return this.result();
-    const r = planDragMove(w.notes, drag.items, d, {
-      chartEndBeat: w.chartEndBeat,
-      beatDisplay: w.beatDisplay,
-    });
-    if (r.ok) {
-      const ghost = r.ghost;
-      this.patchSnap({
-        dragGhost: d.dBeat === 0 && d.dLane === 0 || !ghost || ghost.length === 0 ? null : ghost,
-      });
-      this.dragFrozen = { notes: r.notes, items: r.items };
-    }
+    this.updateDragState(cursor.x, cursor.y, this.altHeld);
     return this.result();
   }
 
@@ -418,9 +488,11 @@ export class GestureSession {
 
   private commitRightUp(e: GestureEndInput | null): GestureResult {
     const box = this.snap.selectionBox;
+    const viewportChanged = this.viewportChangedDuringPress;
     this.start = null;
     this.moved = false;
     this.pointerPx = null;
+    this.viewportChangedDuringPress = false;
     this.host.setCursor('');
     this.patchSnap({
       rightButtonHeld: false,
@@ -442,6 +514,8 @@ export class GestureSession {
       const bpmInBox = computeBpmLinesInBox(box, boxDeps);
       return this.result(boxSelectOps('delete', w.notes, items, bpmInBox, w.curveConfig, w.beatDisplay));
     }
+    // issue 197（方案 1，用户拍板）：右键按下期间若发生视口变化且无选框，抬手安全作废点删
+    if (viewportChanged) return this.result();
     const hit = findItemAt(e.x, e.y, this.hitDeps()) ?? findBpmLineAt(e.x, e.y, this.hitDeps());
     if (!hit) return this.result();
     return this.result([
@@ -556,7 +630,8 @@ export class GestureSession {
 
   private commitDrag(drag: DragAnchor, e: GestureEndInput): GestureOp[] {
     const w = this.requireWorld();
-    const d = this.dragDelta(e.x, e.y, drag);
+    const altKey = e.altKey ?? this.altHeld;
+    const d = this.dragDelta(e.x, e.y, drag, altKey);
     const frozen = this.dragFrozen;
     this.dragFrozen = null;
     if (!d && frozen) {
@@ -565,7 +640,7 @@ export class GestureSession {
         { t: 'setSelection', items: frozen.items },
       ];
     }
-    if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
+    if (hasDragMovement(d)) {
       const r = planDragMove(w.notes, drag.items, d, {
         chartEndBeat: w.chartEndBeat,
         beatDisplay: w.beatDisplay,
@@ -639,6 +714,7 @@ export class GestureSession {
         slideBuffer: w.slideBuffer,
         lastBpm: w.lastBpm,
         clipboard: w.clipboard,
+        pastePattern: w.pastePattern,
         chartEndBeat: w.chartEndBeat,
         beatDisplay: w.beatDisplay,
         selectedItems: w.selectedItems,
@@ -648,12 +724,20 @@ export class GestureSession {
     ];
   }
 
-  private dragDelta(mx: number, my: number, drag: DragAnchor | null): DragDelta | null {
+  private dragDelta(mx: number, my: number, drag: DragAnchor | null, altKey = this.altHeld): DragDelta | null {
     if (!drag) return null;
     const w = this.requireWorld();
     const cur = this.snapPos(mx, my, true);
     if (!cur) return null;
     const rawCurBeat = w.geometry.layerBeatFromCanvas(my, w.viewport, drag.layerSegment);
+    const rawCurLane = w.geometry.continuousLaneFromCanvas(mx, w.viewport);
+    const pressLane = drag.rawPressLane ?? drag.pressLane;
+    const isRegion = drag.items.length === 1 && drag.items[0]!.kind === 'slideRegion';
+    const defaultMode = w.pinchMode ?? 'smooth';
+    const pinchMode: PinchMode = altKey
+      ? (defaultMode === 'smooth' ? 'triangle' : 'smooth')
+      : defaultMode;
+
     return {
       dBeat: dragDeltaBeat({
         anchorBeat: drag.anchorBeat,
@@ -663,6 +747,16 @@ export class GestureSession {
       }),
       dLane: cur.lane - drag.pressLane,
       grabBeat: drag.rawPressBeat,
+      ...(isRegion ? {
+        pinchMode,
+        pinchCursor: {
+          pressBeat: drag.rawPressBeat,
+          pressLane,
+          curBeat: rawCurBeat,
+          curLane: rawCurLane,
+        },
+        exactDLane: rawCurLane - pressLane,
+      } : {}),
     };
   }
 

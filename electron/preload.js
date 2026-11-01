@@ -35,6 +35,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
         put: (bytes) => ipcRenderer.invoke('backgroundSkin:put', bytes),
         clear: () => ipcRenderer.invoke('backgroundSkin:clear'),
     },
+    // issue 184 / ADR-0023 §3：片段库独立存储（数据根下 patterns.json），不进设置对象。
+    // load 无文件 → null；文件损坏由主进程改名 `.broken` 备份后也回 null。saveAll 收片段数组、全量写。
+    patternLibrary: {
+        load: () => ipcRenderer.invoke('patternLibrary:load'),
+        saveAll: (patterns) => ipcRenderer.invoke('patternLibrary:saveAll', patterns),
+        // issue 187：整库 / 单条导出。每次弹系统保存对话框，不记路径；取消 → { cancelled: true }。
+        saveAs: (payload) => ipcRenderer.invoke('patternLibrary:saveAs', payload),
+    },
     // issue 126：窗体 OS 标题栏跟 settings.theme（nativeTheme / backgroundColor）。
     windowChrome: {
         sync: (payload) => ipcRenderer.invoke('windowChrome:sync', payload),

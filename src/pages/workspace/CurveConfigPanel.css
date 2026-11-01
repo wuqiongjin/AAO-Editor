@@ -1,0 +1,36 @@
+/* 曲线配置四行表单（票 182） */
+
+.ccp {
+  display: grid;
+  gap: 6px;
+}
+
+.ccp__row {
+  display: grid;
+  grid-template-columns: minmax(44px, max-content) 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.ccp__select {
+  height: 26px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.ccp__select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.ccp__select:disabled {
+  opacity: 0.45;
+}

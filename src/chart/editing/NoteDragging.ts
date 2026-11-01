@@ -10,7 +10,7 @@ import { mergeChainWithSlides } from './SlideCombination';
 import { applyPlacement, keyToolIdOf } from './NoteReplacementRules';
 import { slideSpans } from './SlideSegments';
 import { isCanvasHiddenConn } from './NoteEditing';
-import { bendSpan, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams } from './SpanCurve';
+import { bendSpan, smoothBendSpan, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams, type SmoothPinchCursor } from './SpanCurve';
 import type { CurvePrecision } from './Easing';
 
 /**
@@ -54,7 +54,7 @@ export function itemTrueBeat(notes: readonly ChartNote[], item: SelectionItem, b
     return conn ? conn.beat + (conn.subBeat && conn.subBeat > 0 ? conn.subBeat / bd : 0) : null;
   }
   if (item.kind === 'slideRegion') {
-    // issue 09 S3（ADR-0009 §4；issue 108 拉弓 → 捏形）：区域可拖 = 捏形；锚拍取段起点（bend 只吃 dLane，beat 分量忽略）
+    // issue 09 S3 / issue 108 / issue 203：区域可拖 = 捏形（圆滑/三角两形态）；锚拍取段起点（只改 lane 形态，beat 分量不改变点拍位）
     if (n.type !== 'Slide' && n.type !== 'Long') return null;
     const conn = (n as SlideNote).connections[item.connIndex];
     return conn ? conn.beat + (conn.subBeat && conn.subBeat > 0 ? conn.subBeat / bd : 0) : null;
@@ -79,6 +79,22 @@ export interface DragDelta {
    * 只被"拖段（slideRegion）"消费；缺省 = 段中点（旧拉弓行为）。
    */
   grabBeat?: number;
+  /**
+   * issue 203：捏形模式（支持 pinch 与 pinchMode 别名）。
+   * 'smooth' = 默认圆滑捏形（对标 Windows 画图曲线）
+   * 'triangle' = Alt+拖 三角捏形
+   * 缺省时：若提供了 pinchCursor 则为 'smooth'，否则保持兼容走 'triangle'。
+   */
+  pinchMode?: 'smooth' | 'triangle';
+  pinch?: 'smooth' | 'triangle';
+  /**
+   * issue 203：圆滑捏形所需的光标位置（未量化拍位 + 连续 lane）。
+   */
+  pinchCursor?: SmoothPinchCursor;
+  /**
+   * issue 203：连续 lane 位移（用于 Alt 三角捏形，小数 dLane）。
+   */
+  exactDLane?: number;
 }
 
 export interface DragMoveResult {
@@ -100,10 +116,17 @@ const isSlideish = (n: ChartNote): n is SlideNote | LongNote => n.type === 'Slid
 const TOTAL_LANES = 7; // 与 NoteEditing.TOTAL_LANES 一致（此处内联避免引动历史模块）
 const EPS = 1e-6;
 
-/** 从 from 朝 dir（±1）找最近的**可见**结点（issue 09 S3：hidden 不作被拖结点的移动边界） */
-function nearestVisible(conns: ConnectionNote[], from: number, dir: -1 | 1): ConnectionNote | undefined {
+/** 从 from 朝 dir（±1）找最近的**可见**结点（issue 09 S3：hidden 不作边界；issue 202：组拖时跳过移动集合中的兄弟结点） */
+function nearestVisible(
+  conns: ConnectionNote[],
+  from: number,
+  dir: -1 | 1,
+  skipIndices?: Set<number>,
+): ConnectionNote | undefined {
   for (let k = from + dir; k >= 0 && k < conns.length; k += dir) {
-    if (!conns[k]!.hidden) return conns[k];
+    if (conns[k]!.hidden) continue;
+    if (skipIndices && skipIndices.has(k)) continue;
+    return conns[k];
   }
   return undefined;
 }
@@ -161,20 +184,36 @@ export function planDragMove(
   const noChange: DragMoveResult = { ok: false, notes, items: [], reason: 'unsupported' };
   const fail = (reason: 'out-of-bounds' | 'collision' | 'unsupported'): DragMoveResult =>
     ({ ok: false, notes, items: [], reason });
-  if (delta.dBeat === 0 && delta.dLane === 0) return { ok: true, notes, items, ghost: undefined };
+
+  const isRegionDrag = items.length === 1 && items[0]!.kind === 'slideRegion';
+  const hasRegionMovement = isRegionDrag && (
+    (delta.pinchCursor && (delta.pinchCursor.curBeat !== delta.pinchCursor.pressBeat || delta.pinchCursor.curLane !== delta.pinchCursor.pressLane)) ||
+    (delta.exactDLane !== undefined && delta.exactDLane !== 0)
+  );
+
+  if (delta.dBeat === 0 && delta.dLane === 0 && !hasRegionMovement) {
+    return { ok: true, notes, items, ghost: undefined };
+  }
   const beatDisplay = bounds.beatDisplay > 0 ? bounds.beatDisplay : 1;
 
-  // issue 09 S3（ADR-0009 §4；**issue 108 改"拉弓变形"为"捏形"**）：**单独拖一个滑条段 = 捏形**——
-  // lane 方向拨弯（beat 分量忽略）、两端可见结点锚定、段内 hidden 按**以抓取点为峰值的分段线性
-  // 权重**跟随（抓取点 = delta.grabBeat，按下锁定；缺省 = 段中点 = 旧拉弓）；普通段拨弯 = 自动补
-  // 采样点转化（Q10=B）；被拨段参数清除（一动就自由化）。混合选区不 bend（region 条目按不可拖处理）。
+  // issue 09 S3 / issue 108 / issue 203：单独拖一个滑条段 = 捏形
+  // 默认（或 pinchMode === 'smooth' 且传了 pinchCursor）= 圆滑捏形（对标 Windows 画图曲线）
+  // pinchMode === 'triangle'（或缺省 pinchCursor）= 三角捏形（Alt+拖；支持连续小数 exactDLane）
   if (items.length === 1 && items[0]!.kind === 'slideRegion') {
     const it = items[0]!;
     const n = notes[it.noteIndex];
     if (!n || !isSlideish(n)) return noChange;
-    if (delta.dLane === 0) return { ok: true, notes, items, ghost: undefined };
-    const bent = bendSpan(n as SlideNote | LongNote, it.connIndex, delta.dLane, beatDisplay, bounds.bendPrecision ?? 16, delta.grabBeat);
-    if (bent === (n as SlideNote | LongNote)) return noChange;
+    const mode = delta.pinch ?? delta.pinchMode ?? (delta.pinchCursor ? 'smooth' : 'triangle');
+    const effectiveDLane = delta.exactDLane ?? delta.dLane;
+    if (mode === 'triangle' && effectiveDLane === 0) {
+      return { ok: true, notes, items: [it], ghost: undefined };
+    }
+    const bent = mode === 'smooth' && delta.pinchCursor
+      ? smoothBendSpan(n as SlideNote | LongNote, it.connIndex, delta.pinchCursor, beatDisplay, bounds.bendPrecision ?? 16)
+      : bendSpan(n as SlideNote | LongNote, it.connIndex, effectiveDLane, beatDisplay, bounds.bendPrecision ?? 16, delta.grabBeat);
+    if (bent === (n as SlideNote | LongNote)) {
+      return { ok: true, notes, items: [it], ghost: undefined };
+    }
     const newNotes = notes.map((x, i) => (i === it.noteIndex ? (bent as ChartNote) : x));
     return { ok: true, notes: newNotes, items: [it], ghost: [bent as ChartNote] };
   }
@@ -280,11 +319,14 @@ export function planDragMove(
           const c = conns[ci];
           // issue 09 S3：邻居序校验只看**可见**邻居——段内 hidden 采样点随后会被重投影/重映射
           // 重建，不能作为被拖可见结点的移动边界（否则缓动段端点只能在一格采样内挪动）
-          const prev = nearestVisible(conns, ci, -1);
-          const next = nearestVisible(conns, ci, +1);
-          // 结点必须严格保持在前后可见邻居之间（防交叉/退化段；端点只有单侧约束）
-          if (prev && sumBeat(c.beat, c.subBeat || 0, beatDisplay) <= sumBeat(prev.beat, prev.subBeat || 0, beatDisplay) + EPS) return fail('out-of-bounds');
-          if (next && sumBeat(c.beat, c.subBeat || 0, beatDisplay) >= sumBeat(next.beat, next.subBeat || 0, beatDisplay) - EPS) return fail('out-of-bounds');
+          // issue 202：组拖时跳过同在移动集合中的兄弟结点（组内互免，由整体边界约束）；
+          // 时序边界从严格开区间放宽为弱序单调（允许 <= / >= 同拍，同拍同轨由 step ③ 的 collision 拦截）
+          const prev = nearestVisible(conns, ci, -1, plan.conns);
+          const next = nearestVisible(conns, ci, +1, plan.conns);
+          // 结点必须保持在前后未动可见邻居之间（弱序单调保序，防逆序倒流；端点只有单侧约束）
+          const curBeat = sumBeat(c.beat, c.subBeat || 0, beatDisplay);
+          if (prev && curBeat < sumBeat(prev.beat, prev.subBeat || 0, beatDisplay) - EPS) return fail('out-of-bounds');
+          if (next && curBeat > sumBeat(next.beat, next.subBeat || 0, beatDisplay) + EPS) return fail('out-of-bounds');
         }
       }
       moved.set(i, { ...n, connections: conns });

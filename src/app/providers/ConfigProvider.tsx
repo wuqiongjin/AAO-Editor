@@ -2,7 +2,7 @@
 // 承载：theme / layout / shortcuts / audio，按字段写回（updateSettings）。
 // Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
 import { createContext, useContext, useCallback, useState, type ReactNode } from 'react';
-import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
+import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, clampPatternDrawerWidth, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
 import { getDefaultConfig, pruneShortcutMasks, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
@@ -35,7 +35,7 @@ export interface ConfigContextValue {
   /** 启动自动检查（ADR-0021）：写入设置对象 */
   setAutoCheck: (autoCheck: boolean) => void;
   /** 布局（面板宽/折叠，ADR-0003 §6）：字段级写回并持久化 */
-  setLayout: (layout: AppSettings['layout']) => void;
+  setPatternDrawer: (patch: Partial<AppSettings['layout']['patternDrawer']>) => void;
   /** 画布显示参数（issue 39 功能设置·画布显示）：字段级写回并持久化 */
   setDisplay: (patch: Partial<AppSettings['display']>) => void;
   /** 预览标注（chart-preview 08）：字段级写回并持久化（预览页的面板与设置页「画布显示」各改各的段） */
@@ -53,6 +53,14 @@ export interface ConfigContextValue {
   setBackgroundSkin: (patch: { enabled?: boolean; opacity?: number; fit?: 'cover' | 'contain'; scope?: 'outsideTrack' | 'fullCanvas' }) => void;
   /** 曲线工具配置（issue 114）：整份写回 settings.curve 并持久化（跨会话沿用上次值） */
   setCurveConfig: (config: CurveConfig) => void;
+  /** 节拍吸附档位（票 181）：写回 settings.beatSnap 并持久化（跨会话沿用上次值） */
+  setBeatSnap: (beatSnap: number) => void;
+  /** 片段粘贴模式（issue 186）：写回 settings.patternPaste.withBpm 并持久化（记住上次选择） */
+  setPatternPasteWithBpm: (withBpm: boolean) => void;
+  /** 片段库排序（issue 192）：写回 settings.patternLibrary.sort 并持久化 */
+  setPatternLibrarySort: (sort: AppSettings['patternLibrary']['sort']) => void;
+  /** 工作台播放条（票 182）：段内浅合并写回 settings.playbar 并持久化 */
+  setPlaybar: (patch: Partial<AppSettings['playbar']>) => void;
   /** 工程启动台排序（issue 19 #4）：字段级写回 settings.projects.sort 并持久化 */
   setProjectSort: (sort: AppSettings['projects']['sort']) => void;
   /** 同步导入谱面代码（票 28）：字段级写回 settings.projects.importWithChart 并持久化 */
@@ -137,10 +145,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     noteSettingsChange(['autoCheck']);
   }, []);
 
-  // 布局 setter 需保持引用稳定（Editor 的持久化 effect 依赖它做 deps；不稳定会导致无限重渲染）
-  const setLayout = useCallback((layout: AppSettings['layout']) => {
+  // 片段库抽屉（票 183）：只改 layout.patternDrawer（段内浅合并），不动工程列表宽度
+  const setPatternDrawer = useCallback((patch: Partial<AppSettings['layout']['patternDrawer']>) => {
     setSettings(prev => {
-      return persistSettings(updateSettings(prev, { layout }));
+      const patternDrawer = { ...prev.layout.patternDrawer, ...patch };
+      return persistSettings(updateSettings(prev, {
+        layout: { ...prev.layout, patternDrawer: { open: patternDrawer.open, width: clampPatternDrawerWidth(patternDrawer.width) } },
+      }));
     });
     noteSettingsChange(['layout']);
   }, []);
@@ -217,6 +228,37 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     noteSettingsChange(['curve']);
   }, []);
 
+  // 节拍吸附档位（票 181）：与曲线配置同范式；引用稳定理由同上（UIProvider 直接透传）
+  const setBeatSnap = useCallback((beatSnap: number) => {
+    setSettings(prev => {
+      return persistSettings(updateSettings(prev, { beatSnap }));
+    });
+    noteSettingsChange(['beatSnap']);
+  }, []);
+
+  // 片段粘贴模式（issue 186）：与节拍吸附同范式——引用稳定（UIProvider 直接透传）
+  const setPatternPasteWithBpm = useCallback((withBpm: boolean) => {
+    setSettings(prev => {
+      return persistSettings(updateSettings(prev, { patternPaste: { withBpm } }));
+    });
+    noteSettingsChange(['patternPaste']);
+  }, []);
+
+  // 片段库排序（issue 192）：写回 settings.patternLibrary.sort 并持久化
+  const setPatternLibrarySort = useCallback((sort: AppSettings['patternLibrary']['sort']) => {
+    setSettings(prev => {
+      return persistSettings(updateSettings(prev, { patternLibrary: { sort } }));
+    });
+    noteSettingsChange(['patternLibrary']);
+  }, []);
+
+  const setPlaybar = useCallback((patch: Partial<AppSettings['playbar']>) => {
+    setSettings(prev => {
+      return persistSettings(updateSettings(prev, { playbar: patch }));
+    });
+    noteSettingsChange(['playbar']);
+  }, []);
+
   // 启动台排序（issue 19 #4）：与皮肤/键音同范式——字段级写回、立即生效并持久化
   const setProjectSort = useCallback((sort: AppSettings['projects']['sort']) => {
     setSettings(prev => {
@@ -241,9 +283,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     noteSettingsChange(['projects']);
   }, []);
 
-  // 工程详情页左栏宽度（issue 23 #2）：只改 layout.projectList，不整对象覆写 ——
-  // setLayout 会带上 leftPanel/rightPanel 的**旧值**，而那两个归工作台的 UIContext 管，
-  // 从这里整写会把工作台刚拖的宽度打回去。
+  // 工程详情页左栏宽度（issue 23 #2）：只改 layout.projectList，不动工作台抽屉
   const setProjectListWidth = useCallback((width: number) => {
     setSettings(prev => {
       return persistSettings(updateSettings(prev, {
@@ -274,7 +314,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setLayout, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setPatternDrawer, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setBeatSnap, setPatternPasteWithBpm, setPatternLibrarySort, setPlaybar, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

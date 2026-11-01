@@ -2,8 +2,8 @@
 // 从组件闭包中提出为依赖注入的纯函数。组件每次 RAF 组装 view，`frameFor(target, view)`
 // 装配成帧、`renderChart(target, view)` 一次调用出帧。
 // 本模块不含任何 React 状态；性能热路径（视口剔除/缓存/增量重绘）将来在此落地。
-import type { ChartNote, SelectionItem, SlideNote } from '../chart/types';
-import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type ChartGeometry, type GeometryViewport } from '../chart/geometry/ChartGeometry';
+import type { BpmNote, ChartNote, SelectionItem, SlideNote } from '../chart/types';
+import { ChartGeometry, LANES, LANE_WIDTH, TRACK_CHROME_TOTAL, type GeometryViewport } from '../chart/geometry/ChartGeometry';
 import type { BpmBeatRange } from '../chart/geometry/BpmTimeline';
 import { isPastChartEnd, trueBeat } from '../chart/editing/ChartEndBounds';
 import { indexOfTrailingNegativeBpm } from '../chart/editing/BpmTail';
@@ -617,14 +617,26 @@ export const dirSideOf = (rc: IconChoiceCtx, isLeft: boolean): 'L' | 'R' =>
  * 绘制方向键整组（issue 29 视觉修订 2026-08-24）：N 条覆盖轨道各贴一枚扁平本体 +
  * note_flick_top_l/r 箭头组合到最外侧（几何由构建期墨迹推导，见 noteSkin.ts）。
  * 本体轨道间距只随视口 scale（贴轨道）；箭头重叠量随 spriteScale（随 noteSize 等比）。
+ *
+ * **导出**（issue 185）：片段缩略图要画"组合形态"的方向键 —— 自己按轨摆散点会画成几个互不相连的
+ * 小块（用户 2026-10-31 验收指出）。抽成只吃 `spriteIcon` + 缩放的结构参数，两处共用同一份组合几何。
  */
-function renderDirGroup(ctx: CanvasRenderingContext2D, rc: RenderCtx, group: DirGroupVisual, anchorX: number, anchorY: number, spriteScale: number) {
+export function renderDirGroup(
+  ctx: CanvasRenderingContext2D,
+  spriteIcon: Pick<CanvasSpriteIcon, 'render'>,
+  group: DirGroupVisual,
+  anchorX: number,
+  anchorY: number,
+  spriteScale: number,
+  /** 本体逐轨偏移的换算（默认 = 调用方视口 scale；缩略图传自己的"每虚拟 px 的屏幕 px"） */
+  viewportScale: number = 1,
+) {
   // 预览镜像（chart-preview 08）：整组连箭头一起翻到另一侧 —— **锚点**由 Coords 镜像（lane → 6-lane）、
   // **侧别**由 dirSideOf 互换（组内偏移/箭头朝向是相对锚点定义的，随侧别自然翻过去，别再取反一次）。
   for (const b of group.bodies) {
-    rc.spriteIcon.render(ctx, {
+    spriteIcon.render(ctx, {
       ...b.config,
-      canvasX: anchorX + b.offsetVirtualX * rc.viewport.scale,
+      canvasX: anchorX + b.offsetVirtualX * viewportScale,
       canvasY: anchorY,
       canvasSize: DIRECTIONAL_ICON_SIZE, canvasWidth: DIRECTIONAL_ICON_SIZE,
       canvasHeight: DIRECTIONAL_ICON_SIZE * DIRECTIONAL_HEIGHT_SCALE,
@@ -633,9 +645,9 @@ function renderDirGroup(ctx: CanvasRenderingContext2D, rc: RenderCtx, group: Dir
   }
   const cv = group.chevron;
   if (cv) {
-    rc.spriteIcon.render(ctx, {
+    spriteIcon.render(ctx, {
       ...cv.config,
-      canvasX: anchorX + cv.offsetVirtualX * rc.viewport.scale + cv.extraDesignX * spriteScale,
+      canvasX: anchorX + cv.offsetVirtualX * viewportScale + cv.extraDesignX * spriteScale,
       canvasY: anchorY,
       canvasSize: DIRECTIONAL_ICON_SIZE, canvasWidth: cv.drawW, canvasHeight: cv.drawH,
       scale: spriteScale, renderLayer: 'main',
@@ -710,7 +722,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       const canvasPos = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, subBeat));
       // issue 29：N 条覆盖轨道扁平本体 + 最外侧箭头（dirGroup 几何由墨迹推导）
       const len = note.length;
-      renderDirGroup(ctx, rc, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), canvasPos.x, canvasPos.y, spriteScale);
+      renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), canvasPos.x, canvasPos.y, spriteScale, rc.viewport.scale);
     }
   });
 
@@ -930,7 +942,7 @@ export function renderSpanBands(
       pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
     }
     if (sp.end - sp.start > 1) {
-      renderSpBandStrip(ctx, pts, half, band, alpha);
+      renderBandStrip(ctx, pts, half, band, alpha);
     } else {
       drawBandQuad(ctx, rc, pts[0]!, pts[1]!, half, band, alpha);
     }
@@ -1057,26 +1069,33 @@ function canvasClipCss(
  * 结点图标与普通带贴图，SP 带体保持剖面本体亮度，slideOpacity 经 alpha 参数生效）。
  * node 环境（单测/SSR）无 DOM/变换 → 静默跳过；离屏画布模块级复用，尺寸只增不减。
  */
-function renderSpBandStrip(
+/**
+ * 带体光栅化（材质 = 采样截面：中心暗、亮缘、软边；回折切分后逐行合成 = 自叠更亮）。
+ *
+ * **导出**（issue 185）：片段缩略图复用同一份材质 —— 自己用实心多边形画会变成一块死绿、
+ * 且普通带与 SP 带长得一模一样（用户 2026-10-31 验收指出）。材质由 `band` 决定：
+ * 传 `slideBandSp` 就是 SP 的剖面。返回是否画出（无 DOM / 无变换时 false，调用方可退多边形）。
+ */
+export function renderBandStrip(
   ctx: CanvasRenderingContext2D,
   pts: { x: number; y: number }[],
   half: number,
   band: SpriteIconConfig,
   alpha?: number,
-) {
-  if (typeof document === "undefined" || typeof ctx.getTransform !== "function") return;
+): boolean {
+  if (typeof document === "undefined" || typeof ctx.getTransform !== "function") return false;
   const st = bandStripStyle(band);
   const t = ctx.getTransform();
   const sx = t.a, sy = t.d;
-  if (!sx || !sy) return;
+  if (!sx || !sy) return false;
   // 回折（导入谱拍位倒退）切成 y 单调 run：逐行光栅天然处理自叠（同像素两臂 screen 合成 = 叠亮）
   const runs = splitBandAtFolds(pts);
   const clipCss = canvasClipCss(ctx, sx, sy, t.e, t.f);
   const raster = rasterBandRuns({ runs, half, profile: st.profile, rgb: st.rgb, sx, sy, baseAlpha: alpha ?? 1, clipCss });
-  if (!raster) return;
+  if (!raster) return false;
   const off = ensureRasterScratch(raster.bw, raster.bh);
   const octx = off.getContext("2d");
-  if (!octx) return;
+  if (!octx) return false;
   octx.clearRect(0, 0, raster.bw, raster.bh);
   const img = octx.createImageData(raster.bw, raster.bh);
   img.data.set(raster.data);
@@ -1086,6 +1105,7 @@ function renderSpBandStrip(
   ctx.globalAlpha = 1;
   ctx.drawImage(off, 0, 0, raster.bw, raster.bh, raster.bxDev, raster.byDev, raster.bw, raster.bh);
   ctx.restore();
+  return true;
 }
 
 let rasterScratch: HTMLCanvasElement | null = null;
@@ -1134,7 +1154,7 @@ function renderNoteGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
     const cpt = c.virtualToCanvas(c.getNoteVirtualX(note.lane), c.getNoteVirtualY(note.beat, note.subBeat || 0));
     // issue 29：与 renderNotes 同构（扁平本体 ×N + 外侧箭头）；侧别交给 dirSideOf（镜像会互换）
     const len = note.length;
-    renderDirGroup(ctx, rc, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), cpt.x, cpt.y, rc.viewport.scale);
+    renderDirGroup(ctx, rc.spriteIcon, icons.dirGroup(dirSideOf(rc, note.type === "LDirectional"), len), cpt.x, cpt.y, rc.viewport.scale, rc.viewport.scale);
   } else if (note.type === "Slide" || note.type === "Long") {
     renderSlideGhost(ctx, c, rc, note);
   }
@@ -1288,12 +1308,25 @@ export function renderToolPreview(ctx: CanvasRenderingContext2D, c: Coords, rc: 
     return;
   }
 
-  if (rc.armedTool === 'paste' && rc.clipboard && rc.clipboard.length > 0) {
-    // 传入 beatDisplay：带 subBeat 的剪贴板结点才能按真实拍位锚定（与粘贴执行路径一致）
-    const shifted = shiftGroupToAnchor(rc.clipboard, pos.preciseBeat, pos.lane, rc.beatDisplay);
-    for (const n of shifted) renderNoteGhost(ctx, c, rc, n);
-    ctx.restore();
-    return;
+  if (rc.armedTool === 'paste') {
+    // issue 186：片段粘贴态下负载由组件注入的回调**按当前落点现算**（带 BPM 时"同速不写线"
+    // 取决于落点处的生效 BPM），幽灵拿到的与真正落子同一份载荷，预览才不会骗人。
+    const group = rc.pastePayloadAt ? rc.pastePayloadAt(pos.preciseBeat) : rc.clipboard;
+    if (group && group.length > 0) {
+      // 传入 beatDisplay：带 subBeat 的剪贴板结点才能按真实拍位锚定（与粘贴执行路径一致）
+      const shifted = shiftGroupToAnchor(group, pos.preciseBeat, pos.lane, rc.beatDisplay);
+      // 幽灵的 **y 必须按"落子后"的时间线算**：BPM 一写进去，后半段的布局就变了。
+      // 倒流区片段尤其明显 —— 不合并 BPM 的话幽灵永远朝正方向延伸，折返形状完全出不来
+      //（落子结果是折的、预览是直的，用户 2026-10-31 报的就是这条）。
+      const bpmGhosts = shifted.filter((n): n is BpmNote => n.type === 'BPM');
+      const ghostCoords = bpmGhosts.length > 0 ? makeCoords(previewGeometry(rc, bpmGhosts), rc.viewport, rc.beatDisplay, rc.notes) : c;
+      for (const n of shifted) {
+        if (n.type === 'BPM') renderBpmGhost(ctx, ghostCoords, rc, n);
+        else renderNoteGhost(ctx, ghostCoords, rc, n);
+      }
+      ctx.restore();
+      return;
+    }
   }
 
   if (rc.armedTool === 'mirror') {
@@ -1320,6 +1353,70 @@ export function renderDragGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   ctx.save();
   ctx.globalAlpha = 0.5;
   for (const n of rc.dragGhost) renderNoteGhost(ctx, c, rc, n);
+  ctx.restore();
+}
+
+/** 片段粘贴的 BPM 幽灵色（issue 186）：中性白 —— 压得住"预览"的强度，又不至于像选中亮黄那样抢戏 */
+const BPM_GHOST_COLOR = 'rgba(255, 255, 255, 0.86)';
+
+/**
+ * 把"即将写入的 BPM"并进谱面 BPM 表，得到**落子后**的布局几何（issue 186 三段）。
+ *
+ * 只借用它的 `timeline`（beat → 布局坐标）：`chartEndVirtualY` 由谱面**秒数**决定、与 BPM 无关，
+ * 所以基线不动，纯 y 映射变 —— 正是幽灵要的"这一步之后会变成什么样"。
+ * 同拍由片段覆盖（与 `pasteChartNotes` 的同拍原位替换同口径）。
+ * 开销 = 一次 O(BPM 事件数) 的时间线构建，且只在"确实要写 BPM"的帧上发生。
+ */
+function previewGeometry(rc: RenderCtx, bpmGhosts: readonly BpmNote[]): ChartGeometry {
+  const patched = new Set(bpmGhosts.map((n) => n.beat));
+  const merged: BpmNote[] = [
+    ...(rc.notes.filter((n): n is BpmNote => n.type === 'BPM' && !patched.has(n.beat))),
+    ...bpmGhosts,
+  ].sort((a, b) => a.beat - b.beat);
+  return new ChartGeometry(merged, { seconds: rc.geometry.chartLengthSeconds }, rc.surface, rc.geometry.verticalRatio);
+}
+
+/**
+ * 片段粘贴的 BPM 幽灵（issue 186 二~五轮）：一条**中性虚线** + 沟槽里的数值。
+ *
+ * 数值**永远与线同行居中**，且直接复用实线数值那条渲染链（同字号、同沟槽间距、同配色，
+ * 连撞行时的错开都不做）—— 用户 2026-10-31 定案：重叠不可怕，两枚数字字体与位置一模一样时
+ * 反而读得清（就是"这条会被改成这个值"的观感）；任何"让行"机制都会带来跳变，不做。
+ *
+ * 线本身仍是幽灵档：中性白虚线，与实线那枚弱紫分得开。
+ */
+function renderBpmGhost(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: BpmNote) {
+  const es = rc.viewport.scale;
+  const y = c.virtualToCanvas(0, c.getNoteVirtualY(note.beat)).y;
+  if (y < -50 || y > rc.surface.h + 50) return;
+  const { trackBgX, trackBgWidth } = c.trackGeometry(es);
+
+  // 线：幽灵档（中性白虚，α 只压线，不压下面的数字）
+  ctx.save();
+  ctx.globalAlpha = 0.8;
+  ctx.strokeStyle = BPM_GHOST_COLOR;
+  ctx.lineWidth = Math.max(1, 1.5 * es);
+  ctx.setLineDash([6 * es, 4 * es]);
+  ctx.beginPath();
+  ctx.moveTo(trackBgX, y);
+  ctx.lineTo(trackBgX + trackBgWidth, y);
+  ctx.stroke();
+  ctx.restore();
+
+  // 数值：与 renderBpmLabels 走**同一条**布局/绘制链（唯一差别是没有末条负值警示色）。
+  // alpha 必须回到 1：工具预览层整体是 0.35（幽灵档），数值若跟着压暗，就变成"旧值上面浮着
+  // 一层淡影"，与"同一个位置换个值"的观感正好相反。
+  // 就地编辑那一条不画（与实线数值同一豁免，否则两个值叠在同一行）。
+  if (rc.bpmEditBeat != null && Math.abs(note.beat - rc.bpmEditBeat) < 1e-9) return;
+  const userLabelScale = rc.display?.labelScale ?? 1;
+  const fontPx = Math.round(GUTTER_LABEL_FONT_PX * userLabelScale * es);
+  const labelY = bpmLabelAnchorY(note.beat, y, fontPx, rc.surface.h);
+  if (!bpmGutterYIntersectsCanvas(labelY, fontPx, rc.surface.h)) return;
+  const preset = normalizeGridStyle(rc.display?.gridStyle);
+  const gl = layoutGutterLabel(c, es, labelY, 'centered', 'bpm', userLabelScale);
+  ctx.save();
+  ctx.globalAlpha = 1;
+  drawGutterLabel(ctx, gl, String(note.bpm), bpmLabelColor(note.bpm, preset));
   ctx.restore();
 }
 
@@ -1353,6 +1450,20 @@ export function renderBpmLines(ctx: CanvasRenderingContext2D, c: Coords, rc: Ren
 }
 
 /**
+ * BPM 数值配色 —— **唯一决定处**（issue 105 锁的"负值取色只有一个消费点"）：
+ * 末条非法负 → 警示色；负值 → 该主题的倒流色；其余 → 主题主色。
+ * 片段粘贴的幽灵数值也走这里：与实线数值同色，重叠时读起来才像"这个值会被替换成它"。
+ */
+function bpmLabelColor(
+  bpm: number,
+  preset: ReturnType<typeof normalizeGridStyle>,
+  warning = false,
+): string {
+  if (warning) return BPM_TAIL_WARNING_COLOR;
+  return bpm < 0 ? gridBpmNegativeColor(preset) : gridThemeBpmColor(preset);
+}
+
+/**
  * 渲染 BPM 数值（issue 51 + 第二轮修订）：仅数值（不带 "BPM" 前缀），内带锚定
  * （贴轨道左外缘 8px）、默认垂直居中于线；撞 y 时纵向错开（issue 159）。
  * 字号 = 21px × labelScale。同位组（线 y 相同）折成摘要；展开后钉线错开、画布裁切。
@@ -1363,11 +1474,10 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   // drawGutterLabel 会自己隐藏；这里省掉整套布局与测量）
   if (rc.display?.gutterLabels === false) return;
   const preset = normalizeGridStyle(rc.display?.gridStyle);
-  const positiveColor = gridThemeBpmColor(preset);
   // issue 105 修法 1：**负值（倒流区）数值换色** —— 倒流区唯一的视觉标识（不做区域底纹）。
   // 作用域 = 只作用于数值文字；横线走 `gridBpmLineColor`（issue 163）。
   // 折返带里正/负事件在画布上常常同位（同一 y 逆序排列），数值色是区分两者的唯一线索。
-  const negativeColor = gridBpmNegativeColor(preset);
+  // 具体取色统一在 `bpmLabelColor`（唯一决定处）。
   // issue 142：末条 BPM 为负（导出后 Bestdori 打不开）→ 数值改**警示色**并附 `!`，
   // 与「倒流区负值」（只换倒流色、无后缀）区分开 —— 两者语义不同：后者是合法写法，前者是打不开的谱。
   const tailIdx = indexOfTrailingNegativeBpm(rc.notes);
@@ -1382,8 +1492,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
     fontPx,
     expandedKey,
   );
-  const colorOf = (bpm: number, noteIndex?: number) =>
-    noteIndex === tailIdx ? BPM_TAIL_WARNING_COLOR : (bpm < 0 ? negativeColor : positiveColor);
+  const colorOf = (bpm: number, noteIndex?: number) => bpmLabelColor(bpm, preset, noteIndex === tailIdx);
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, rc.surface.w, rc.surface.h);
@@ -1401,7 +1510,7 @@ export function renderBpmLabels(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
         const n = rc.notes[i];
         return i === tailIdx && n && n.type === 'BPM' && (n as ChartNote & { bpm: number }).bpm === bpm;
       });
-      return warning ? BPM_TAIL_WARNING_COLOR : (bpm < 0 ? negativeColor : positiveColor);
+      return bpmLabelColor(bpm, preset, warning);
     });
   }
   for (const num of layoutModel.numerals) {
@@ -1630,7 +1739,7 @@ export function renderHoverInfo(ctx: CanvasRenderingContext2D, c: Coords, rc: Re
   const count = countNotesUpToBeat(rc.notes, c.virtualYToBeat(virtualY));
   const font = HOVER_INFO_FONT(effectiveLabelScale);
   const fontPx = HOVER_INFO_FONT_PX * effectiveLabelScale;
-  const timeText = formatInMinuteTime(seconds);
+  const timeText = formatInMinuteTime(seconds, rc.display?.timePrecision);
   const countText = `♪ ${count}`;
   const gap = Math.max(2, Math.round(HOVER_INFO_GAP_PX * es));
   ctx.save();

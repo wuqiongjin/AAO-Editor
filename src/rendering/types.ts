@@ -70,6 +70,12 @@ export interface RenderCtx {
   hoverItem?: SelectionItem | null;
   clipboard: ChartNote[];
   /**
+   * issue 186：片段粘贴态的**预览载荷**（给 `anchorBeat` 现算一组要贴的音符，含将写入的 BPM）。
+   * 为什么是回调而不是数组：带 BPM 时"同速不写线"取决于落点处的生效 BPM，换个拍位就可能是
+   * 另一组 BPM 线，载荷必须按当前落点现算。渲染层因此不必认识片段域（`RenderingConvergence` 锁）。
+   */
+  pastePayloadAt?: ((anchorBeat: number) => ChartNote[]) | null;
+  /**
    * 播放起点（issue 152 / ADR-0004 §4）：**时间轴锚定**，存秒不存拍 —— 布局轴就是秒，
    * 存拍会在放置（y→拍 多值取解）与显示/回跳（拍→秒）两端各绕一次 BPM 换算。
    */
@@ -162,6 +168,8 @@ export interface RenderDisplayOptions {
   gridOpacity?: number;
   /** 谱面文字大小系数（issue 51 第二轮 Q1=A）：0.5..3，作用于 BPM 数值/END/实时信息 */
   labelScale?: number;
+  /** 时间显示精度（issue 200）：'standard' (0.1s) | 'centisecond' (0.01s) | 'millisecond' (0.001s) */
+  timePrecision?: 'standard' | 'centisecond' | 'millisecond';
   /**
    * 网格**横线**细节档：画到第几级细分。取值 = 该拍内约分分母的上限
    * （`gridDivisionOf`：`1` = 只整拍线、`4` = 到十六分音符中的 1/4，依此类推）；

@@ -336,6 +336,7 @@
   color: var(--text-muted);
   font-size: var(--text-xs);
   line-height: 1.55;
+  white-space: pre-line;
   animation: dialog-in var(--dur-fast) var(--ease);
 }
 .dialog-field__popover::after {

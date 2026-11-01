@@ -1,4 +1,52 @@
-/* 工作台顶栏右侧紧凑控件簇（issue 170） */
+/* 工作台顶栏（issue 170 右簇紧凑化 → 票 183 换壳：岛屿圆角由 WorkspacePage.css 切） */
+
+.ws-topbar {
+  height: var(--topbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.ws-topbar-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 无框图标钮（撤销 / 重做）：与右簇带框控件区分「编辑历史」与「视口 / 面板」 */
+.ws-topbar-ghost-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.ws-topbar-ghost-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.ws-topbar-ghost-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ws-topbar-ghost-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
 
 .ws-topbar-right {
   margin-left: auto;
@@ -8,53 +56,13 @@
   flex-shrink: 0;
 }
 
-/* 分隔线：分隔元信息（BPM）与视口控制交互组件 */
+/* 分隔线：视口控制（吸附 / 缩放 / 显示）与面板入口（谱面代码 / 片段库）之间 */
 .ws-topbar-divider {
   width: 1px;
   height: 14px;
   background-color: color-mix(in srgb, var(--border) 70%, transparent);
   margin: 0 1px;
   flex-shrink: 0;
-}
-
-/* BPM 紧凑 Meta 标签展示：高度 26px，融入顶栏背景 */
-.ws-topbar-bpm {
-  height: 26px;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  border-radius: var(--radius-md);
-  background-color: var(--bg-elevated);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-  user-select: none;
-  transition:
-    background-color var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease);
-}
-
-.ws-topbar-bpm:hover {
-  border-color: var(--border-strong);
-}
-
-.ws-topbar-bpm__prefix {
-  color: var(--text-subtle);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  margin-right: 4px;
-}
-
-.ws-topbar-bpm__val {
-  color: var(--text);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 
 /* 缩放一体化微型胶囊：[ – | 100% | + ]，高度 26px，融入顶栏背景 */

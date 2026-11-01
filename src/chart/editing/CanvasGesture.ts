@@ -18,7 +18,7 @@ import { draggableFromItems, itemTrueBeat } from './NoteDragging';
 import { isPastChartEnd } from './ChartEndBounds';
 import { sameSelectionItem, type MatrixTool } from './ToolActionMatrix';
 import { GUTTER_LABEL_FONT_PX, bpmLabelBox, layoutBpmGutter, bpmLabelAnchorY } from '../../rendering/gutterLabels';
-import { LANE_WIDTH } from '../geometry/ChartGeometry';
+import { LANE_WIDTH, type GeometryPoint } from '../geometry/ChartGeometry';
 import { PLAYBACK_MARKER_HIT_TOLERANCE_PX } from '../../rendering/playbackMarker';
 
 /** 沟槽文字宽度测量（画布侧注入：带 canvas ctx 精确测量；测试侧注入等宽估算）。 */
@@ -206,6 +206,10 @@ export interface DragAnchor {
      * `rawPressBeat` 与后续 `rawCurBeat` 都按本层换算，二者同层才可比。
      */
     layerSegment: number;
+    /**
+     * 按下时光标的连续 lane（issue 203：未吸附，以第 0 轨中心为 0……第 6 轨中心为 6）。
+     */
+    rawPressLane?: number;
 }
 
 export type PressIntent =
@@ -268,10 +272,11 @@ export function resolvePressIntent(input: {
     // 也按该层换算，与拖拽中的换算同层（倒流区里「同一个 y」各层的拍不同，跨层相减会算错位移）
     const layerSegment = input.deps.geometry.timeline.segmentIndexAtBeat(anchorBeat);
     const rawPressBeat = input.deps.geometry.layerBeatFromCanvas(input.cy, input.deps.viewport, layerSegment);
+    const rawPressLane = input.deps.geometry.continuousLaneFromCanvas(input.cx, input.deps.viewport);
 
     return {
         kind: 'drag',
-        anchor: { items, pressLane: p.lane, anchorBeat, rawPressBeat, layerSegment },
+        anchor: { items, pressLane: p.lane, anchorBeat, rawPressBeat, layerSegment, rawPressLane },
     };
 }
 
@@ -612,18 +617,33 @@ export function hasMovedBeyondThreshold(
 }
 
 /**
+ * 将手势锚点（含谱面绝对量 pos 与横向 vx）转为当前视口下的画布像素坐标。
+ * issue 197：消除 marqueeRect 与 GestureSession.end 之间的重复换算。
+ */
+export function anchorToCanvas(
+    anchor: { vx: number; vy?: number; pos?: number },
+    deps: GeometryView,
+): GeometryPoint {
+    const vy = anchor.pos !== undefined
+        ? deps.geometry.virtualYOfPos(anchor.pos, deps.viewport.scale)
+        : (anchor.vy ?? 0);
+    return deps.geometry.virtualToCanvas(anchor.vx, vy, deps.viewport);
+}
+
+/**
  * 框选矩形（画布坐标）。
- * bug 32：起点以**虚拟坐标**锚定谱面时刻/轨道 —— 拖拽过程中即使滚动，起点对应的拍点也不漂移
- * （"长截图"式选区）；光标端再钳进渲染面（issue 63：画布外松手也照常结算，所见即所得）。
+ * bug 32：起点以**谱面物理量**（vx + pos）锚定时刻/轨道 —— 拖拽过程中无论滚动还是缩放，
+ * 起点对应的拍点/轨道都不漂移（"长截图"式选区）；光标端再钳进渲染面（issue 63）。
+ * issue 197：若提供 start.pos，优先由 virtualYOfPos 求得当前 scale 下的 virtualY，彻底修复缩放反向形变。
  */
 export function marqueeRect(input: {
-    start: { vx: number; vy: number };
+    start: { vx: number; vy?: number; pos?: number };
     curCanvas: { x: number; y: number };
     deps: GeometryView;
     surface: SurfaceBounds;
 }): { x1: number; y1: number; x2: number; y2: number } {
     const { geometry, viewport } = input.deps;
-    const p1 = geometry.virtualToCanvas(input.start.vx, input.start.vy, viewport);
+    const p1 = anchorToCanvas(input.start, input.deps);
     const cur = geometry.canvasToVirtual(input.curCanvas.x, input.curCanvas.y, viewport);
     const p2c = geometry.virtualToCanvas(cur.x, cur.y, viewport);
     const p2 = clampToSurface(input.surface, p2c.x, p2c.y);

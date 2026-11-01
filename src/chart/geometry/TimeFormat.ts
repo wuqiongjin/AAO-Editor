@@ -1,13 +1,21 @@
 // 播放时间码格式化（issue 22 画布左下角高精度时间 + 播放条）。
 // 分离纯函数以便单测。
 
-/** 精确到 0.1 秒：mm:ss.s（如 01:23.4） */
-export function formatTimePrecise(seconds: number): string {
-  const s = Math.max(0, seconds);
-  const mm = Math.floor(s / 60).toString().padStart(2, '0');
-  const ss = Math.floor(s % 60).toString().padStart(2, '0');
-  const ds = Math.floor((s % 1) * 10);
-  return `${mm}:${ss}.${ds}`;
+export type TimePrecision = 'standard' | 'centisecond' | 'millisecond';
+
+/** 精确到 0.1 秒（standard，如 01:23.4）、0.01 秒（centisecond，如 01:23.45）或毫秒（millisecond，如 01:23.456） */
+export function formatTimePrecise(
+  seconds: number,
+  precision: TimePrecision = 'standard',
+): string {
+  const s = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
+  const decimals = precision === 'millisecond' ? 3 : precision === 'centisecond' ? 2 : 1;
+  const factor = precision === 'millisecond' ? 1000 : precision === 'centisecond' ? 100 : 10;
+  const totalUnits = Math.floor(s * factor + 1e-4);
+  const mm = Math.floor(totalUnits / (60 * factor)).toString().padStart(2, '0');
+  const ss = Math.floor((totalUnits % (60 * factor)) / factor).toString().padStart(2, '0');
+  const frac = (totalUnits % factor).toString().padStart(decimals, '0');
+  return `${mm}:${ss}.${frac}`;
 }
 
 /** 整秒：mm:ss（如 01:23），用于播放条右侧总时长 */
@@ -19,14 +27,21 @@ export function formatTimeWhole(seconds: number): string {
 }
 
 /**
- * 分内时间（issue 54 实时显示线左沟槽）：`SS.ss`（秒.厘秒，两位小数），00.00–59.99 循环（mod 60），
- * 不含分钟位。与完整时间码互补：范围小（<1 分钟）但精度更高。负值/非有限值按 00.00 处理。
+ * 分内时间（issue 54 实时显示线左沟槽）：`SS.s`（0.1s 标准 1 位小数）、`SS.ss`（0.01s 2 位小数）或 `SS.sss`（0.001s 毫秒 3 位小数），
+ * 00.0–59.9 循环（mod 60），不含分钟位。负值/非有限值按 00.0 / 00.00 / 00.000 处理。
  */
-export function formatInMinuteTime(seconds: number): string {
-  if (!Number.isFinite(seconds)) return '00.00';
-  let v = Math.round((Math.max(0, seconds) % 60) * 100) / 100;
-  if (v >= 60) v = 0; // 59.996+ 四舍五入到 60.00 → 回绕 00.00
-  return v.toFixed(2).padStart(5, '0');
+export function formatInMinuteTime(
+  seconds: number,
+  precision: TimePrecision = 'standard',
+): string {
+  const decimals = precision === 'millisecond' ? 3 : precision === 'centisecond' ? 2 : 1;
+  const factor = precision === 'millisecond' ? 1000 : precision === 'centisecond' ? 100 : 10;
+  if (!Number.isFinite(seconds)) {
+    return '00.'.padEnd(decimals + 3, '0');
+  }
+  let v = Math.round((Math.max(0, seconds) % 60) * factor) / factor;
+  if (v >= 60) v = 0; // 四舍五入到 60 → 回绕
+  return v.toFixed(decimals).padStart(decimals + 3, '0');
 }
 
 /**

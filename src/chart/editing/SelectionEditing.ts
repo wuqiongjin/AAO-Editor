@@ -53,6 +53,24 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
   const nodeToHidden = new Map<number, Set<number>>(); // noteIndex -> 需原位转 hidden 的 connIndex 集合（issue 92）
   const splitAfter = new Map<number, Set<number>>(); // noteIndex -> 需在该 connIndex 之后拆分的集合（区域）
 
+  const addConn = (map: Map<number, Set<number>>, noteIdx: number, connIdx: number) => {
+    let set = map.get(noteIdx);
+    if (!set) {
+      set = new Set<number>();
+      map.set(noteIdx, set);
+    }
+    set.add(connIdx);
+  };
+
+  // issue 196（A′ 规则）：先索引 slideNode。同一次批量条目中若某段的两端结点都被选中为 slideNode，
+  // 则该段必然是框选副产物，忽略该 region（不拆条、不清 hidden）。
+  const selectedNodes = new Map<number, Set<number>>();
+  for (const it of items) {
+    if (it.kind === 'slideNode') {
+      addConn(selectedNodes, it.noteIndex, it.connIndex);
+    }
+  }
+
   for (const it of items) {
     if (it.kind === 'note') {
       fullRemove.add(it.noteIndex);
@@ -66,13 +84,9 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
         && it.connIndex < slide.connections.length - 1
         && !slide.connections[it.connIndex]?.hidden;
       if (isMiddleVisible) {
-        const set = nodeToHidden.get(it.noteIndex) ?? new Set<number>();
-        set.add(it.connIndex);
-        nodeToHidden.set(it.noteIndex, set);
+        addConn(nodeToHidden, it.noteIndex, it.connIndex);
       } else {
-        const set = nodeRemove.get(it.noteIndex) ?? new Set<number>();
-        set.add(it.connIndex);
-        nodeRemove.set(it.noteIndex, set);
+        addConn(nodeRemove, it.noteIndex, it.connIndex);
       }
     } else {
       // slideRegion（issue 80 定案）：**段内含 hidden → 只清掉段内的 hidden**，段本身保留、两端点直连；
@@ -81,17 +95,22 @@ function removeSelection(notes: ChartNote[], items: SelectionItem[]): ChartNote[
       const target = notes[it.noteIndex];
       const slide = target && isSlide(target) ? target : null;
       const sp = slide ? regionIdentity(slide.connections, it.connIndex)?.span ?? null : null;
-      if (slide && sp && sp.end - sp.start > 1) {
-        const hidden = nodeRemove.get(it.noteIndex) ?? new Set<number>();
-        for (let k = sp.start + 1; k < sp.end; k++) {
-          if (slide.connections[k]?.hidden) hidden.add(k);
+
+      // issue 196（A′ 规则）：两端可见结点都被作为 slideNode 选中 → 忽略该 region 条目
+      if (sp) {
+        const nodesInSlide = selectedNodes.get(it.noteIndex);
+        if (nodesInSlide && nodesInSlide.has(sp.start) && nodesInSlide.has(sp.end)) {
+          continue;
         }
-        nodeRemove.set(it.noteIndex, hidden);
+      }
+
+      if (slide && sp && sp.end - sp.start > 1) {
+        for (let k = sp.start + 1; k < sp.end; k++) {
+          if (slide.connections[k]?.hidden) addConn(nodeRemove, it.noteIndex, k);
+        }
         continue;
       }
-      const set = splitAfter.get(it.noteIndex) ?? new Set<number>();
-      set.add(it.connIndex);
-      splitAfter.set(it.noteIndex, set);
+      addConn(splitAfter, it.noteIndex, it.connIndex);
     }
   }
 
@@ -181,8 +200,8 @@ function materializeSegmentSafe(
  * 含 hidden 结点的滑条拆分：hidden 对"段"**透明**（issue 77 #9）。
  *
  * - `[A, hidden, B]` 视作**一整段** A→B（两个 region 下标都归到同一条可见链分界）；
- * - 只有一段（可见结点 ≤ 2）时删这段 = **删整条**（用户 2026-09-10 定案：不该被 hidden 切成两截）；
- * - 被删段内的 hidden 随段一起消失；hidden 永不成为新段的首/尾。
+ * - 删含 hidden 的段已在 removeSelection 被 issue 80 截获转为清 hidden；
+ * - 被删段内的 hidden 随段一起消失；hidden 永不成为新段的首/尾（materializeSegmentSafe 收口）。
  */
 function splitSlideHiddenAware(
   note: SlideNote,
@@ -199,7 +218,6 @@ function splitSlideHiddenAware(
     for (let k = 0; k <= ci && k < conns.length; k++) if (!conns[k].hidden) v++;
     if (v >= 0 && v <= vis.length - 2) bounds.add(v);
   }
-  if (bounds.size > 0 && vis.length <= 2) return []; // 只有一段 → 整条删
 
   // ② 被移除的结点 + 被删段内的 hidden；切分点 = 该段的**可见**末端
   const dropped = new Set<number>(nodeRemove);

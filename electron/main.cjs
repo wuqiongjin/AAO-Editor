@@ -55,6 +55,11 @@ const {
     uploadRefs,
     setAppLog,
 } = require('./projectStore.cjs');
+const {
+    loadPatternLibrary,
+    savePatternLibrary,
+    setAppLog: setPatternLibraryAppLog,
+} = require('./patternLibrary.cjs');
 const { t, setActiveUiLanguage } = require('./i18n.cjs');
 const { autoUpdater } = require('electron-updater');
 const { createAppUpdater, registerAppUpdateIpc } = require('./appUpdate.cjs');
@@ -81,6 +86,7 @@ function currentDataRoot() {
 const appLog = createAppLog({ userData: () => userDataDir() });
 registerAppLogIpc(ipcMain, appLog);
 setAppLog(appLog);
+setPatternLibraryAppLog(appLog);
 registerDiagnosticsExportIpc(ipcMain, {
     logsDir: () => path.join(userDataDir(), 'logs'),
     dataRoot: () => currentDataRoot(),
@@ -206,33 +212,64 @@ function registerBackgroundSkinIpc() {
 }
 registerBackgroundSkinIpc();
 
+/**
+ * JSON 文本另存为（issue 118 / 187）：每次弹系统保存对话框，不记路径。
+ * defaultPath 只用 basename —— 渲染侧即使传入带目录的 suggestedName 也无法写进记忆。
+ * 取消 → { cancelled: true }；写盘失败抛给渲染侧（取消不是错误）。
+ */
+async function saveJsonWithDialog(event, payload, { channel, titleKey, fallbackName }) {
+    const json = payload && payload.json;
+    if (typeof json !== 'string') {
+        throw new Error(`${channel} 需要 json 字符串`);
+    }
+    const rawName = payload && payload.suggestedName;
+    const suggestedName =
+        typeof rawName === 'string' && rawName.length > 0
+            ? path.basename(rawName)
+            : fallbackName;
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showSaveDialog(win ?? undefined, {
+        title: t(titleKey),
+        defaultPath: suggestedName,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (result.canceled || !result.filePath) {
+        return { cancelled: true };
+    }
+    await fs.promises.writeFile(result.filePath, json, 'utf8');
+    return { cancelled: false };
+}
+
+// ---------------------------------------------------------------------------
+// 片段库（issue 184 / ADR-0023 §3）：<数据根>/patterns.json，独立于工程与设置。
+// 文件损坏由 patternLibrary.cjs 改名 `.broken` 备份后按空库处理；首次无文件不落盘。
+// issue 187：分享导出走 `patternLibrary:saveAs`（每次 dialog、不记路径）；
+// 取消对话框返回 { cancelled: true }，渲染侧据此什么都不做。
+// ---------------------------------------------------------------------------
+function registerPatternLibraryIpc() {
+    ipcMain.handle('patternLibrary:load', () => loadPatternLibrary(currentDataRoot()));
+    ipcMain.handle('patternLibrary:saveAll', (_event, patterns) =>
+        savePatternLibrary(currentDataRoot(), patterns));
+    ipcMain.handle('patternLibrary:saveAs', (event, payload) =>
+        saveJsonWithDialog(event, payload, {
+            channel: 'patternLibrary:saveAs',
+            titleKey: 'electron.exportPatterns',
+            fallbackName: 'aao-patterns.json',
+        }));
+}
+registerPatternLibraryIpc();
+
 // ---------------------------------------------------------------------------
 // 谱面代码另存为（issue 118）：每次 dialog，不记路径。
 // defaultPath 只用 basename，渲染侧即使传入带目录的 suggestedName 也无法写进记忆。
 // ---------------------------------------------------------------------------
 function registerChartCodeExportIpc() {
-    ipcMain.handle('chartCode:saveAs', async (event, payload) => {
-        const json = payload && payload.json;
-        if (typeof json !== 'string') {
-            throw new Error('chartCode:saveAs 需要 json 字符串');
-        }
-        const rawName = payload && payload.suggestedName;
-        const suggestedName =
-            typeof rawName === 'string' && rawName.length > 0
-                ? path.basename(rawName)
-                : 'chart.json';
-        const win = BrowserWindow.fromWebContents(event.sender);
-        const result = await dialog.showSaveDialog(win ?? undefined, {
-            title: t('electron.exportChart'),
-            defaultPath: suggestedName,
-            filters: [{ name: 'JSON', extensions: ['json'] }],
-        });
-        if (result.canceled || !result.filePath) {
-            return { cancelled: true };
-        }
-        await fs.promises.writeFile(result.filePath, json, 'utf8');
-        return { cancelled: false };
-    });
+    ipcMain.handle('chartCode:saveAs', (event, payload) =>
+        saveJsonWithDialog(event, payload, {
+            channel: 'chartCode:saveAs',
+            titleKey: 'electron.exportChart',
+            fallbackName: 'chart.json',
+        }));
 }
 registerChartCodeExportIpc();
 

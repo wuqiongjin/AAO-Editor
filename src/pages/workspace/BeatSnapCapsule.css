@@ -1,0 +1,167 @@
+/* 顶栏节拍吸附胶囊（票 181）：胶囊与缩放胶囊同高同框，弹出面板 4×3 网格 */
+
+.bsc {
+  position: relative;
+}
+
+.bsc__pill {
+  height: 26px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-elevated);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.bsc__pill:hover {
+  border-color: var(--border-strong);
+}
+
+.bsc__pill.is-open {
+  border-color: var(--accent);
+}
+
+.bsc__pill:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.bsc__icon {
+  color: var(--text-subtle);
+}
+
+.bsc__val {
+  min-width: 26px;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.bsc__pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 232px;
+  padding: 10px;
+  box-sizing: border-box;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  animation: bsc-pop 140ms var(--ease);
+}
+
+@keyframes bsc-pop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.bsc__title {
+  margin: 0 2px 8px;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-subtle);
+}
+
+.bsc__presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.bsc__chip {
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.bsc__chip:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.bsc__chip.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.bsc__chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.bsc__custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  font-size: 12px;
+}
+
+.bsc__custom-label {
+  color: var(--text-muted);
+}
+
+.bsc__input {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.bsc__input:focus-within {
+  border-color: var(--accent);
+}
+
+.bsc__input.is-invalid {
+  border-color: var(--danger);
+}
+
+.bsc__input input {
+  width: 40px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.bsc__hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-subtle);
+}
+
+.bsc__input.is-invalid + .bsc__hint {
+  color: var(--danger-text);
+}

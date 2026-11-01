@@ -6,9 +6,9 @@
 // ② 结构断言（三处"接线"，单测跑不到，照 `EditorAudioSessionRefactor.test.ts` 惯例防回归）：
 //    - `useSurfaceSize` 把探针并入 merger 的 live 探针；
 //    - 提交走 `flushSync`（与容器同帧 —— 实测错位帧 56 → 0）；
-//    - **视口夹取走 CSS `max-width: vw`**，且 Editor 不再用 `innerWidth` 算面板宽度 ——
-//      夹取若回到 JS 就会走 `.ws-panel` 的 `transition: width 200ms`，重现"面板慢慢让位 →
-//      画布先抢占左右栏区域再被回弹挤回"（用户 2026-09-11 复报的症状）。
+//    - **视口夹取走 CSS `max-width: vw`**，且 Editor 不用 `innerWidth` 算侧边宽度 ——
+//      夹取若回到 JS + width 过渡，就会重现"面板慢慢让位 → 画布先抢占左右栏区域再被回弹挤回"
+//     （用户 2026-09-11 复报的症状；票 183 起对象是片段库抽屉）。
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -78,21 +78,17 @@ describe('issue 87 · 接线结构断言（防把缩放信号拆掉）', () => {
     expect(surfaceSrc).toMatch(/flushSync\(\(\)\s*=>\s*setSurface\(/);
   });
 
-  it('视口夹取走 CSS `max-width: vw`（不在 transition 列表 → 缩放时瞬时生效，不产生"面板慢慢让位"）', () => {
-    const css = readFileSync(join(root, 'src/layouts/AppShell.css'), 'utf-8');
-    const left = css.match(/\.ws-panel-left\s*\{[^}]*\}/)?.[0] ?? '';
-    const right = css.match(/\.ws-panel-right\s*\{[^}]*\}/)?.[0] ?? '';
-    expect(left).toMatch(/max-width:\s*30vw/);
-    expect(right).toMatch(/max-width:\s*24vw/);
-    // 面板宽度不能被 `transition: width` 之外的机制拖慢：夹取一旦回到 JS（innerWidth 参与计算），
-    // 又会走 `.ws-panel` 的 200ms width 过渡 → 画布"先抢占再回弹"复现。
-    expect(editorSrc).not.toMatch(/innerWidth\s*\*\s*0\.(3|24)/);
-    expect(editorSrc).not.toContain('effectiveLeftW');
-    expect(editorSrc).not.toContain('effectiveRightW');
+  // 票 183：左右面板换成片段库抽屉，夹取口径原样继承到抽屉（工具轨固定 52px，无夹取）
+  it('抽屉的视口夹取走 CSS `max-width: vw`，且宽度不做 transition（缩放时瞬时生效，不产生"面板慢慢让位"）', () => {
+    const css = readFileSync(join(root, 'src/pages/workspace/PatternLibraryDrawer.css'), 'utf-8');
+    const drawer = css.match(/\.pld\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(drawer).toMatch(/max-width:\s*32vw/);
+    expect(drawer).not.toMatch(/transition:[^;]*width/);
+    expect(editorSrc).not.toMatch(/innerWidth/);
   });
 
-  it('Editor 只注入用户宽度（夹取已交给 CSS）', () => {
-    expect(editorSrc).toContain('${leftPanelWidth}px');
-    expect(editorSrc).toContain('${rightPanelWidth}px');
+  it('抽屉只注入用户宽度（夹取已交给 CSS）', () => {
+    const drawerSrc = readFileSync(join(root, 'src/pages/workspace/PatternLibraryDrawer.tsx'), 'utf-8');
+    expect(drawerSrc).toMatch(/style=\{\{\s*width\s*\}\}/);
   });
 });

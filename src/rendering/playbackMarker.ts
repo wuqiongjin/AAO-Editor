@@ -2,7 +2,7 @@
  * 播放起点旗帜的**尺寸真源**（issue 152）。
  *
  * 真源分层：`src/assets/playback-marker/flag.svg` 是设计稿（只定义 viewBox 内的构图比例），
- * 本文件把设计稿坐标折算成屏幕像素，画布旗帜、右侧卡片图标、命中 clip-path、单测断言
+ * 本文件把设计稿坐标折算成屏幕像素，画布旗帜、命中 clip-path、单测断言
  * 一律引用这里的常数——不再各自抄一份数字。
  *
  * 画布旗帜尺寸对 `PLAYBACK_MARKER_CANVAS_SCALE` 是常量倍率，因此**恒定屏幕像素**：
@@ -15,10 +15,6 @@ export const PLAYBACK_MARKER_VIEWBOX_HEIGHT = 130;
 
 /** 画布旗帜相对 SVG 设计稿的固定缩放 → 约 40×43px（三轮定案）。 */
 export const PLAYBACK_MARKER_CANVAS_SCALE = 0.33;
-
-/** 右侧状态卡片上的缩小旗帜（比画布旗帜小一档）。 */
-export const PLAYBACK_MARKER_CARD_WIDTH = 28;
-export const PLAYBACK_MARKER_CARD_HEIGHT = 30;
 
 /** 标记线的命中容差（屏幕像素，固定值，不随缩放）。 */
 export const PLAYBACK_MARKER_HIT_TOLERANCE_PX = 10;

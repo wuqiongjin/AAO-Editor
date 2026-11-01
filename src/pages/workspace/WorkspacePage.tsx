@@ -1,24 +1,21 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, PanelLeftOpen, PanelRightOpen, Trash2, Minus, Plus, Lock, Copy, X } from 'lucide-react';
-import Toolbar from './Toolbar';
-import ChartSwitcher from './ChartSwitcher';
-import WorkspaceDisplayPanel from './WorkspaceDisplayPanel';
-import './WorkspaceTopBar.css';
+import { Lock, Copy, X } from 'lucide-react';
+import WorkspaceTopBar from './WorkspaceTopBar';
+import WorkspaceToolRail from './WorkspaceToolRail';
+import PatternLibraryDrawer from './PatternLibraryDrawer';
+import CurveOptionsCapsule from './CurveOptionsCapsule';
+import PatternPastePill from './PatternPastePill';
+import './WorkspacePage.css';
 import { ChartCodeEditorProvider } from '../../chart/components/code-editor/ChartCodeEditorProvider';
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
-import NoteInfoPanel from '../../chart/components/side-panel/NoteInfoPanel';
-import IconButton from '../../ui/IconButton';
 import { formatKey, type FunctionId } from '../../chart/config/ShortcutConfig';
-import { DEFAULT_BPM } from '../../audio/AudioTiming';
 import PlayBar from '../../playback/PlayBar';
-import PlaybackMarkerCard from '../../playback/PlaybackMarkerCard';
+import PlaybackMarkerButton from '../../playback/PlaybackMarkerButton';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
-import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { useAudioBridge } from '../../audio/useAudioBridge';
 import { useChartViewSession } from '../../playback/useChartViewSession';
 import { useChartProjectPersistence } from '../../project/useChartProjectPersistence';
-import { useLayoutPersistence } from '../../chart/layout/useLayoutPersistence';
 import { useShortcutDispatch } from '../../chart/config/useShortcutDispatch';
 import { resolveEscapeTarget } from '../../chart/editing/CanvasGesture';
 import { isChartReadonly, isChartEditFunction } from '../../project/chartReadonlyGate';
@@ -31,6 +28,8 @@ import { useAppNav } from '../../layouts/AppNav';
 import type { ProjectAudioDeps } from '../../audio/projectAudio';
 import AudioAnomalyBanner from './AudioAnomalyBanner';
 import { useAudioAnomaly } from './useAudioAnomaly';
+import { usePatternLibrary } from '../../chart/patterns/usePatternLibrary';
+import { useSaveSelectionPattern } from './useSaveSelectionPattern';
 import { t } from '../../i18n';
 import { CrashBoundaryHost } from '../../diagnostics/CrashBoundary';
 
@@ -40,11 +39,10 @@ interface EditorProps {
 }
 
 /**
- * 面板宽度过渡的守卫时长（ms）：覆盖 .ws-panel 的 `width 200ms` 过渡并留尾随结算余量。
- * 展开/收起侧栏时置位，期间渲染面测量进入实时模式（逐帧提交），消除过渡后半段
- * 画布缓冲被 CSS 拉伸造成的"轨道瞬间偏宽再回弹"。见 SurfaceSizeMerger.live。
+ * 片段库抽屉开合后的守卫时长（ms）：开合瞬间画布列宽跳变，期间渲染面测量进入实时模式（逐帧提交），
+ * 免得合并器节流窗口里画布缓冲被 CSS 拉伸、轨道"瞬间偏宽再回弹"。见 SurfaceSizeMerger.live。
  */
-const PANEL_TRANSITION_GUARD_MS = 320;
+const DRAWER_TOGGLE_GUARD_MS = 320;
 
 /**
  * Editor（架构深化评审候选 2 收口 + 候选 4 收口 + ADR-0003 §7）：只保留【布局 + 分发】职责。
@@ -52,8 +50,8 @@ const PANEL_TRANSITION_GUARD_MS = 320;
  *   - 谱面视口会话 → useChartViewSession
  *   - 音频桥接     → useAudioBridge
  *   - 持久化       → useChartProjectPersistence
- *   - 布局持久化   → useLayoutPersistence
  *   - 快捷键       → useShortcutDispatch
+ * 外壳件（票 183）：WorkspaceToolRail / WorkspaceTopBar / PatternLibraryDrawer 各自直读 hooks。
  * 子组件按域直读 hooks；此处只剩：消费四域、串联视口会话与聚焦 hook、布局 JSX。
  */
 const Editor: React.FC<EditorProps> = ({ active = true }) => {
@@ -66,14 +64,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // issue 73：paste 已从本处移除 —— 粘贴的唯一入口是画布（工具单击 / execPaste），
   // 避免再有一条绕过矩阵、没有末端校验的粘贴通路。
   const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, deleteSelected, mirror, undo, redo, resetNotes, chartCodeFidelity } = editing;
-  const {
-    armedTool, setArmedTool,
-    scale, setScale,
-    beatDisplay,
-    leftPanelWidth, rightPanelWidth, leftCollapsed, rightCollapsed,
-    isDragging, startDrag, toggleLeftPanel, toggleRightPanel,
-  } = ui;
-  const { settings, setLayout } = config;
+  const { armedTool, setArmedTool, scale, beatDisplay } = ui;
+  const { settings, setPatternDrawer } = config;
+  const drawerOpen = settings.layout.patternDrawer.open;
   const shortcutConfig = settings.shortcuts;
   const {
     setIsPlaying, setCanPlay,
@@ -90,28 +83,22 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setMarker,
   } = playback;
 
-  // 音符数统计（issue 36）
-  const noteCount = useMemo(() => countChartNotes(notes), [notes]);
-
   // 谱面画布容器 + 画布句柄 ref（候选 4：会话的 DOM 锚点，页面只负责挂到 JSX / 传进会话）
   const chartAreaRef = useRef<HTMLDivElement>(null);
   const virtualCanvasRef = useRef<FinalVirtualCanvasHandle>(null);
 
   // 渲染面测量实时门控（候选 2 语义原样保留，由会话经 live 注入 useSurfaceSize）：
-  // 展开/收起侧栏（.ws-panel width 200ms 过渡）或拖拽改宽面板期间，令测量逐帧提交，
-  // 使画布缓冲始终贴合容器实时宽度——否则合并器在过渡后半段冻结提交，缓冲被 CSS 拉伸，
-  // 轨道出现"瞬间偏宽再回弹"（同一根因也影响拖拽）。窗口 resize 不触发此门控，保留原节流。
-  // 面板宽度只注入**用户值**：视口夹取（防面板吃掉整个视口）已交给 CSS 的 `max-width: vw`
-  //（AppShell.css，issue 87）—— 夹取不再是 JS 计算 + 200ms width 过渡，而是瞬时生效，
-  // 所以这里不再需要在 innerWidth 变化时进实时通道。
-  const isDraggingRef = useRef(isDragging);
-  isDraggingRef.current = isDragging;
-  const panelAnimUntilRef = useRef(0);
+  // 开合片段库抽屉或拖宽抽屉期间，令测量逐帧提交，使画布缓冲始终贴合容器实时宽度——
+  // 否则合并器节流窗口里缓冲被 CSS 拉伸，轨道出现"瞬间偏宽再回弹"。窗口 resize 不触发此门控，保留原节流。
+  // 抽屉宽度只注入**用户值**：视口夹取交给 CSS 的 `max-width: 32vw`（issue 87 口径，瞬时生效）。
+  const drawerResizingRef = useRef(false);
+  const onDrawerResizingChange = useCallback((resizing: boolean) => { drawerResizingRef.current = resizing; }, []);
+  const drawerAnimUntilRef = useRef(0);
   useEffect(() => {
-    panelAnimUntilRef.current = performance.now() + PANEL_TRANSITION_GUARD_MS;
-  }, [leftCollapsed, rightCollapsed]);
+    drawerAnimUntilRef.current = performance.now() + DRAWER_TOGGLE_GUARD_MS;
+  }, [drawerOpen]);
   const surfaceLive = useCallback(
-    () => isDraggingRef.current !== null || performance.now() < panelAnimUntilRef.current,
+    () => drawerResizingRef.current || performance.now() < drawerAnimUntilRef.current,
     [],
   );
 
@@ -142,13 +129,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onChartDurationChange: setSessionChartDuration,
   });
   const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker, stopPlayback, resetToStart } = viewSession;
-
-  // 当前播放头所在区间的 BPM（顶栏实时区）
-  // issue 134：与 HUD playheadBeat 同 geometry；最大 beat 解所在段（ADR-0010 结论 5）
-  const currentRegionBpm = useMemo(() => {
-    const events = geometry.bpmEvents;
-    return events[geometry.segmentIndexOfSeconds(playheadSeconds)]?.bpm ?? DEFAULT_BPM;
-  }, [geometry, playheadSeconds]);
 
   // === 会话流 3：音频桥接（订阅 session 变化，副作用单向写回 PlaybackContext） ===
   // 单一稳定回调：避免 useAudioBridge 内部 useEffect 因新引用反复触发
@@ -192,6 +172,13 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       if (projectId != null) setActivePage('audio', { scope: { projectId } });
     }, [projectId, setActivePage]),
   });
+
+  // === 片段库（issue 185）===
+  // 库状态活在页面而不是抽屉里：抽屉可以没开，快捷键照样要能收藏（且不能各持一份整库）。
+  const patternLibrary = usePatternLibrary();
+  const { canSave: canSaveSelection, save: saveSelection } = useSaveSelectionPattern(patternLibrary);
+  // issue 188：抽屉是 memo 组件，回调身份保持稳定，避免播放期 80ms 时间码连带整块重渲
+  const handleSaveSelection = useCallback(() => { void saveSelection(); }, [saveSelection]);
 
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
@@ -327,9 +314,6 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     return () => registerPersistFlush(null);
   }, [registerPersistFlush]);
 
-  // === 会话流 5：布局持久化（issue 22 §6 / ADR-0003 §6） ===
-  useLayoutPersistence({ settings, ui, setLayout });
-
   // 谱面/BPM 变化时同步按键音事件（issue 36：编辑中防抖 300ms；播放中改谱即时）。
   // issue 101：不把 isPlaying 放进 deps——开播翻转本身不得同步跑全谱 getBpmEvents+buildKeyEvents。
   const keysPlayingRef = useRef(isPlaying);
@@ -414,6 +398,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'switchCurve': setArmedTool('curve'); break;
       case 'execCurve': virtualCanvasRef.current?.execCurve?.(); break;
       case 'switchMouse': setArmedTool(null); break;
+      // issue 185：收藏选区为片段。**故意不进 `CHART_EDIT_FUNCTIONS`** —— 它读的是选区、
+      // 不写谱面，只读（已上传）谱面也允许；上面的闸门判断因此不会拦它。
+      case 'execSavePattern': void saveSelection(); break;
       case 'execCopy': copy(); break;
       // §2.1（六轮）：空剪贴板 → 粘贴态是纯空转（无预览、单击无事发生），
       // 与工具栏按钮同步：不进态。键鼠一致（避免"界面无、键盘有"的错位）。
@@ -431,22 +418,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'redo': redo(); break;
       case 'play': handleTogglePlay(); break;
       case 'jumpToMarker': jumpToMarker(); break;
-      case 'toggleSidebar': {
-        // ADR-0008 §7：侧栏折叠从 Esc 摘除 → 独立功能（issue 59 §2 起默认键为 Ctrl+Shift+B，
-        // Ctrl+B 已让给「执行-音符代码」），两侧同折同展
-        const anyCollapsed = leftCollapsed || rightCollapsed;
-        if (anyCollapsed) {
-          if (leftCollapsed) toggleLeftPanel();
-          if (rightCollapsed) toggleRightPanel();
-        } else {
-          toggleLeftPanel();
-          toggleRightPanel();
-        }
-        break;
-      }
+      // ADR-0008 §7：从 Esc 摘除的独立功能（默认 Ctrl+Shift+B）；票 183 起只开合片段库抽屉
+      //（工具轨固定不折叠，177 Q11）
+      case 'toggleSidebar': setPatternDrawer({ open: !drawerOpen }); break;
     }
-  }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, undo, redo, handleTogglePlay, jumpToMarker,
-      leftCollapsed, rightCollapsed, toggleLeftPanel, toggleRightPanel]);
+  }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelection, undo, redo, handleTogglePlay, jumpToMarker,
+      setPatternDrawer, drawerOpen]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
   useShortcutDispatch({
@@ -455,7 +432,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     runFunction,
     // Esc 五档链（ADR-0008 §7 / issue 135）：① 弹窗 capture 自消费；②–⑤ 由
     // resolveEscapeTarget 唯一裁决，此处只消费一档并执行。② 取消后保持工具态与选区。
-    // 侧栏折叠已从此链摘除 → toggleSidebar（issue 59 §2：Ctrl+Shift+B）。
+    // 侧栏折叠已从此链摘除 → toggleSidebar（issue 59 §2：Ctrl+Shift+B；票 183 起开合片段库）。
     onEscape: useCallback(() => {
       const canvas = virtualCanvasRef.current;
       const flags = canvas?.getEscapeFlags?.() ?? {
@@ -479,96 +456,16 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // Editor 不消费 dismissError（音频页已直接调 session）；chartEndKey 归谱面视口会话内部消费（候选 4）
 
   return (
-    // issue 59 §2：弹窗打开态提到 Editor ——「谱面代码」按钮（工具栏）与「音符代码」工具（画布）
+    // issue 59 §2：弹窗打开态提到 Editor ——「谱面代码」按钮（顶栏）与「音符代码」工具（画布）
     // 共用同一个弹窗组件，故 target 必须挂在两者共同的祖先上。
     // workspaceProject.test.ts 契约：切工程时谱面代码弹窗随当前工程卸载 (key={projectId})
     // issue 169：useSurfaceSize 现已具备 DOM 替换追踪与 active 校准能力，即便 key remount 亦能平稳追踪尺寸
     <ChartCodeEditorProvider key={projectId ?? 'none'} projectId={projectId} readOnly={isReadOnly} onReadonlyReject={triggerReadonlyPrompt}>
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', backgroundColor: 'var(--bg)' }}>
-      {/* 左侧工具栏列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}
-      <div
-        className={`ws-panel ws-panel-left${leftCollapsed ? ' is-collapsed' : ''}`}
-        style={{
-          // expanded 宽度由 JS 注入（用户可拖拽 leftPanelWidth），folded 宽度与视口夹取由 CSS 管
-          '--ws-left-w': `${leftPanelWidth}px`,
-        } as React.CSSProperties}
-      >
-        <div className="ws-panel__body">
-          <div className="ws-panel__body-scroll">
-            <Toolbar />
-          </div>
-        </div>
-        <div
-          onMouseDown={(e) => { e.preventDefault(); startDrag('left'); }}
-          className={`ws-panel__resizer${isDragging === 'left' ? ' is-dragging' : ''}`}
-          data-side="left"
-        />
-        <div className="ws-panel__toggle">
-          <IconButton width="auto" icon={<PanelRightOpen size={16} />} title={t('toolbar.expandLeft')} onClick={toggleLeftPanel} />
-        </div>
-      </div>
+    <div className="ws-shell">
+      <WorkspaceToolRail />
 
-      {/* 中间谱面画布区域 */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--canvas-bg)', minWidth: 0 }}>
-        {/* 顶部控制栏 */}
-        <div style={{
-          height: 'var(--topbar-h)',
-          backgroundColor: 'var(--bg)',
-          borderBottom: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 var(--space-3)',
-          gap: 'var(--space-3)',
-          flexShrink: 0
-        }}>
-          <ChartSwitcher />
-
-          <div className="ws-topbar-right">
-            <span className="ws-topbar-bpm" title={`BPM: ${currentRegionBpm}`}>
-              <span className="ws-topbar-bpm__prefix">BPM</span>
-              <b className="ws-topbar-bpm__val">{currentRegionBpm}</b>
-            </span>
-
-            <span className="ws-topbar-divider" />
-
-            <div
-              className="ws-zoom-capsule"
-              onWheel={(e) => {
-                e.preventDefault();
-                const delta = e.deltaY < 0 ? 0.1 : -0.1;
-                setScale(prev => Math.min(3, Math.max(Math.round((prev + delta) * 10) / 10, 0.1)));
-              }}
-            >
-              <button
-                type="button"
-                className="ws-zoom-capsule__btn"
-                title={t('editor.zoomOut')}
-                aria-label={t('editor.zoomOut')}
-                onClick={() => setScale(prev => Math.max(prev - 0.1, 0.1))}
-              >
-                <Minus size={12} strokeWidth={2} />
-              </button>
-              <span
-                className="ws-zoom-capsule__val"
-                onDoubleClick={() => setScale(1)}
-                title={t('editor.zoomReset')}
-              >
-                {Math.round(scale * 100)}%
-              </span>
-              <button
-                type="button"
-                className="ws-zoom-capsule__btn"
-                title={t('editor.zoomIn')}
-                aria-label={t('editor.zoomIn')}
-                onClick={() => setScale(prev => Math.min(prev + 0.1, 3))}
-              >
-                <Plus size={12} strokeWidth={2} />
-              </button>
-            </div>
-
-            <WorkspaceDisplayPanel />
-          </div>
-        </div>
+      <div className="ws-canvas-col">
+        <WorkspaceTopBar />
 
         {/* 33 票：音频资源异常横幅（丢失 / 被替换）——hydrate 路径检出，动作收口 projectAudio */}
         {audioAnomaly.anomaly && (
@@ -583,13 +480,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
         )}
 
         {/* 谱面画布滚动容器 */}
-        <div ref={chartAreaRef} style={{
-          flex: 1,
-          overflow: 'auto',
-          overflowX: 'hidden',
-          backgroundColor: 'var(--canvas-bg)',
-          position: 'relative'
-        }} onScroll={viewSession.onScrollbarScroll}>
+        <div ref={chartAreaRef} className="ws-chart-area" onScroll={viewSession.onScrollbarScroll}>
           <div className="virtual-content" style={{
             position: 'absolute',
             top: 0,
@@ -624,6 +515,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
                 onReadonlyReject={triggerReadonlyPrompt}
               />
             </CrashBoundaryHost>
+            <CurveOptionsCapsule />
+            <PatternPastePill />
           </div>
         </div>
         <PlayBar
@@ -635,53 +528,34 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           canEditTime
           seekNoCursor={!canPlay && ctxIsPlaying}
           shortcutKey={formatKey(shortcutConfig.play)}
+          timePrecision={settings.display.timePrecision}
+          timeSlot={settings.playbar.markerButton && (
+            <PlaybackMarkerButton
+              seconds={markerSeconds}
+              shortcut={shortcutConfig.jumpToMarker}
+              timePrecision={settings.display.timePrecision}
+              onJump={jumpToMarker}
+            />
+          )}
           onTogglePlay={handleTogglePlay}
           onVolumeChange={handleVolumeChange}
           onSeek={seek}
         />
       </div>
 
-      {/* 右侧信息面板列（折叠态由 .is-collapsed 驱动 CSS 过渡） */}
-      <div
-        className={`ws-panel ws-panel-right${rightCollapsed ? ' is-collapsed' : ''}`}
-        style={{
-          '--ws-right-w': `${rightPanelWidth}px`,
-        } as React.CSSProperties}
-      >
-        <div className="ws-panel__toggle">
-          <IconButton width="auto" icon={<PanelLeftOpen size={16} />} title={t('editor.expandRight')} onClick={toggleRightPanel} />
-        </div>
-        <div className="ws-panel__body">
-          <div className="ws-panel__body-header">
-            <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{t('editor.notes')}</span>
-            <span title={t('editor.noteCount')} style={{
-              backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)', padding: '0 var(--space-2)',
-              fontSize: 'var(--text-xs)', fontVariantNumeric: 'tabular-nums', color: 'var(--text)',
-            }}>{noteCount}</span>
-            {selectedItems.length > 0 && (
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-text)' }}>{t('editor.selectedCount', { count: selectedItems.length })}</span>
-            )}
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-              <IconButton width="auto" size="sm" danger icon={<Trash2 size={14} />} title={t('editor.deleteSelected')} onClick={deleteSelectedNotes} />
-              <IconButton width="auto" size="sm" icon={<ChevronRight size={14} />} title={t('editor.collapseRight')} onClick={toggleRightPanel} />
-            </div>
-          </div>
-          <div className="ws-panel__body-scroll">
-            <NoteInfoPanel />
-          </div>
-          <PlaybackMarkerCard
-            seconds={markerSeconds}
-            shortcut={shortcutConfig.jumpToMarker}
-            onJump={jumpToMarker}
-          />
-        </div>
-        <div
-          onMouseDown={(e) => { e.preventDefault(); startDrag('right'); }}
-          className={`ws-panel__resizer${isDragging === 'right' ? ' is-dragging' : ''}`}
-          data-side="right"
+      {drawerOpen && (
+        <PatternLibraryDrawer
+          library={patternLibrary}
+          canSaveSelection={canSaveSelection}
+          readOnly={isReadOnly}
+          onSaveSelection={handleSaveSelection}
+          // 186 二轮：同一张卡再点 = 退出粘贴态（回指针）；高亮由 `activePatternId` 决定
+          onPastePattern={ui.togglePatternPaste}
+          onExitPaste={() => { if (ui.patternPaste) ui.setArmedTool(null); }}
+          activePatternId={ui.patternPaste?.id ?? null}
+          onResizingChange={onDrawerResizingChange}
         />
-      </div>
+      )}
     </div>
     {showReadonlyToast && createPortal(
       <div className="readonly-toast" role="alert">

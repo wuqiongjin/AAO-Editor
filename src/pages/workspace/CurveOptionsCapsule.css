@@ -1,0 +1,6 @@
+/* 画布左上角曲线选项胶囊（票 182）：外壳见 CanvasCapsule.css，这里只有面板内部。 */
+
+.coc__body {
+  min-width: 220px;
+  padding: 8px 10px 10px;
+}

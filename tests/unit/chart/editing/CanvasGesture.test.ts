@@ -9,7 +9,7 @@ import { bpmLabelBox, layoutBpmGutter, bpmCoincidentKey, GUTTER_LABEL_FONT_PX } 
 import {
   snapChartPos, hitPlaybackMarkerAt, hitBpmLabelAt, hitBpmGutterAt, nextBpmGutterAction,
   resolvePressIntent, resolveReleaseIntent, resolveClickPlan,
-  isInsideSurface, clampToSurface, hasMovedBeyondThreshold, marqueeRect,
+  isInsideSurface, clampToSurface, hasMovedBeyondThreshold, marqueeRect, anchorToCanvas,
   canStartMarquee, resolveBoxPlan,
   isPastChartEnd, canPlaceAtCursor, resolveExecNoteCodeHit, freezeGestureCursor,
   penExitCrossing, penCursorAt, resolveEscapeTarget,
@@ -261,13 +261,34 @@ describe('resolvePressIntent 按下意图仲裁', () => {
     });
   };
 
-  it('指针态按到单键 → drag，锚点拍位 = 被按住对象的真实拍位', () => {
+  it('指针态按到单键 → drag，锚点拍位 = 被按住对象的真实拍位，且记录 rawPressLane（issue 203）', () => {
     const r = press({});
     expect(r.kind).toBe('drag');
     if (r.kind !== 'drag') return;
     expect(r.anchor.anchorBeat).toBeCloseTo(50, 6);
     expect(r.anchor.pressLane).toBe(2);
+    expect(r.anchor.rawPressLane).toBeCloseTo(2, 6);
     expect(r.anchor.items).toEqual([{ kind: 'note', noteIndex: 1 }]);
+  });
+
+  it('按在音符偏离中心处 → rawPressLane 记录未吸附连续轨号（issue 203 Q3）', () => {
+    const { deps, at } = makeDeps(notes);
+    const p = at(2, 50);
+    const r = resolvePressIntent({
+      cx: p.x + 10,
+      cy: p.y,
+      armedTool: null,
+      shiftKey: false,
+      onMarker: false,
+      deps,
+      selectedItems: [],
+      chartEndBeat: 100,
+    });
+    expect(r.kind).toBe('drag');
+    if (r.kind !== 'drag') return;
+    expect(r.anchor.pressLane).toBe(2);
+    expect(r.anchor.rawPressLane).toBeCloseTo(deps.geometry.continuousLaneFromCanvas(p.x + 10, deps.viewport), 6);
+    expect(r.anchor.rawPressLane).toBeGreaterThan(2);
   });
 
   it('§6 三轮修订：任意持工具态 Shift+按住音符 = 移动', () => {
@@ -608,6 +629,36 @@ describe('marqueeRect 框选矩形', () => {
     const es = geometry.effectiveScale(viewport.scale);
     expect(r1.y1 - r2.y1).toBeCloseTo(600 * es, 6); // scrollY +600 → 起点画布 y 上移
     expect(r2.x1).toBeCloseTo(r1.x1, 6);             // 水平不滚动 → x 不变
+  });
+
+  it('issue 197：缩放时起点以 pos 锚定 —— 变尺度下选框起点反解回的谱面 pos 严格恒等', () => {
+    const { geometry, viewport } = makeDeps(notes);
+    const v = geometry.canvasToVirtual(200, 300, viewport);
+    const pos = geometry.posOfVirtualY(v.y, viewport.scale);
+    const base = { start: { vx: v.x, pos }, curCanvas: { x: 400, y: 500 }, surface: TEST_SURFACE };
+
+    const r1 = marqueeRect({ ...base, deps: { geometry, viewport } });
+    const zoomed = { ...viewport, scale: 1.5 };
+    const r2 = marqueeRect({ ...base, deps: { geometry, viewport: zoomed } });
+
+    // 起点反解回的 pos 必须严格恒等（即对应同一谱面时间点）
+    const vBack1 = geometry.canvasToVirtual(r1.x1, r1.y1, viewport);
+    const posBack1 = geometry.posOfVirtualY(vBack1.y, viewport.scale);
+
+    const vBack2 = geometry.canvasToVirtual(r2.x1, r2.y1, zoomed);
+    const posBack2 = geometry.posOfVirtualY(vBack2.y, zoomed.scale);
+
+    expect(posBack2).toBeCloseTo(posBack1, 5);
+  });
+
+  it('issue 197：anchorToCanvas 在有 pos 时优先使用 pos 换算当前 scale 下的虚拟 Y', () => {
+    const { geometry, viewport } = makeDeps(notes);
+    const pos = 1000;
+    const vyCurrent = geometry.virtualYOfPos(pos, viewport.scale);
+    const expected = geometry.virtualToCanvas(150, vyCurrent, viewport);
+    const pt = anchorToCanvas({ vx: 150, pos }, { geometry, viewport });
+    expect(pt.x).toBeCloseTo(expected.x, 6);
+    expect(pt.y).toBeCloseTo(expected.y, 6);
   });
 
   it('issue 63：光标端钳进渲染面（光标拖出画布，矩形不越界、松手照常结算）', () => {

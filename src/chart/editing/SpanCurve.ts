@@ -240,9 +240,9 @@ function grabRatioOf(
 }
 
 /**
- * 捏形（issue 09 S3 / ADR-0009 §4，**2026-09-16 由"拉弓变形"改为"捏形"**）：
+ * 三角捏形（issue 09 S3 / ADR-0009 §4，**2026-09-16 由"拉弓变形"改为"捏形"**；issue 203 起为 `Alt+拖` 形态）：
  * 拖该滑条的某段（region）= **lane 方向拨弯**——两端可见结点锚定不动，段内 hidden 点按
- * **以抓取点为峰值的分段线性权重**跟随 `dLane` 位移；beat 不动（时间单向）。
+ * **以抓取点为峰值的分段线性权重**跟随 `dLane` 位移（`dLane` 可为小数，issue 203 Q7）；beat 不动（时间单向）。
  * `grabBeat` = 按下时锁定的抓取点拍位（缺省 = 段中点 = 旧拉弓）。
  * **拨弯即转化（Q10=B）**：普通段（无 hidden）先按 `precision` 栅格补直线上采样点再弯，
  * 就地成为自由段（SP 段）。
@@ -259,15 +259,44 @@ export function bendSpan(
   grabBeat?: number,
 ): SlideNote | LongNote {
   if (dLane === 0) return slide;
+  const ctx = bendContext(slide, connIndex, beatDisplay, precision);
+  if (!ctx) return slide;
+  const { fromBeat, toBeat, sampled } = ctx;
+  const grabT = grabRatioOf(sampled, fromBeat, toBeat, grabBeat, beatDisplay);
+  const middle = sampled.map((p) => {
+    const t = (connTrueBeat(p, beatDisplay) - fromBeat) / (toBeat - fromBeat);
+    const w = pinchWeight(t, grabT);
+    return { ...p, lane: clamp(p.lane + dLane * w, 0, 6) };
+  });
+  return commitBend(slide, ctx, middle);
+}
+
+/** 捏形的段上下文：段识别 + 两端拍位 + 段内参与变形的采样点（普通段 = 弦上补点） */
+interface BendContext {
+  span: ConnSpan;
+  ordinal: number;
+  fromBeat: number;
+  toBeat: number;
+  /** 段内既有 hidden（数组序）或普通段新补的采样点；非空 */
+  sampled: ConnectionNote[];
+}
+
+/** 段不存在 / 零或负跨度 / 段内补不出采样点 → null（调用方返回原引用，不制造"无变化的 undo 步"） */
+function bendContext(
+  slide: SlideNote | LongNote,
+  connIndex: number,
+  beatDisplay: number,
+  precision: CurvePrecision,
+): BendContext | null {
   const conns = slide.connections;
   const id = regionIdentity(conns, connIndex);
-  if (!id) return slide;
+  if (!id) return null;
   const sp = id.span;
   const from = conns[sp.start]!;
   const to = conns[sp.end]!;
   const fromBeat = connTrueBeat(from, beatDisplay);
   const toBeat = connTrueBeat(to, beatDisplay);
-  if (!(toBeat > fromBeat)) return slide;
+  if (!(toBeat > fromBeat)) return null;
 
   // 段内既有 hidden + （普通段时）新补的采样点，一起参与捏形
   const inserted: ConnectionNote[] = sp.end - sp.start === 1
@@ -287,23 +316,122 @@ export function bendSpan(
       })()
     : [];
   const sampled = [...conns.slice(sp.start + 1, sp.end), ...inserted];
-  // 段内一个采样点都没有（段极短 → 补点也是 0）→ 无从捏形：返回原引用，不制造"无变化的 undo 步"
-  if (sampled.length === 0) return slide;
-  const grabT = grabRatioOf(sampled, fromBeat, toBeat, grabBeat, beatDisplay);
-  const middle = sampled.map((p) => {
-    const t = (connTrueBeat(p, beatDisplay) - fromBeat) / (toBeat - fromBeat);
-    const w = pinchWeight(t, grabT);
-    return { ...p, lane: clamp(p.lane + dLane * w, 0, 6) };
-  });
-  const connections = [...conns.slice(0, sp.start + 1), ...middle, ...conns.slice(sp.end)];
+  // 段内一个采样点都没有（段极短 → 补点也是 0）→ 无从捏形
+  if (sampled.length === 0) return null;
+  return { span: sp, ordinal: id.ordinal, fromBeat, toBeat, sampled };
+}
 
-  // 一动就自由化：清除被拨段的参数（可见数不变，其余段参数保留）
-  const spanOrdinal = id.ordinal;
+/** 把变形后的段内点写回，并"一动就自由化"：清除被拨段的参数（可见数不变，其余段参数保留） */
+function commitBend(slide: SlideNote | LongNote, ctx: BendContext, middle: ConnectionNote[]): SlideNote | LongNote {
+  const conns = slide.connections;
+  const connections = [...conns.slice(0, ctx.span.start + 1), ...middle, ...conns.slice(ctx.span.end)];
   const bySpan = { ...effectiveSpanParams(slide) };
-  if (spanOrdinal >= 0) delete bySpan[spanOrdinal];
+  if (ctx.ordinal >= 0) delete bySpan[ctx.ordinal];
   const hasParams = Object.keys(bySpan).length > 0;
   // 注意 spanParams 必须显式覆写（undefined 也在内）：`...slide` 会把旧参数原样带回
   return { ...slide, connections, spanParams: hasParams ? { visibleCount: countVisibleNodes(connections), bySpan } : undefined };
+}
+
+/** 圆滑捏形的光标输入：按下与当前光标的**未量化拍位**与**连续 lane**（同一拍层） */
+export interface SmoothPinchCursor {
+  pressBeat: number;
+  pressLane: number;
+  curBeat: number;
+  curLane: number;
+}
+
+/** 控制点拍钳在段内的内缩比例（issue 203 Q9：越界 = 贴端点的急弯钩子，不贴死端点避免 h 发散） */
+export const SMOOTH_PINCH_INSET = 0.02;
+
+/**
+ * 圆滑捏形（issue 203 / ADR-0009 §4 2026-11-01 修订，默认拖段形态，对标 Windows 画图曲线）：
+ * 在 (拍, lane 位移) 平面上叠加一个**三次贝塞尔鼓包** `P0=(起拍,0)、P1=P2=(c,h)、P3=(终拍,0)`：
+ * - 控制点拍 `c` = 当前光标拍（钳在段内、留 `SMOOTH_PINCH_INSET` 内缩）；
+ * - `h` 取闭式解使变形后曲线在拍 `c` 处**恰穿过光标**（按下时光标离线的偏移先扣除，起拖不跳）；
+ * - 越出 `0..6` → **整体等比缩小**鼓包使其刚好贴边（不逐点削平，保持圆滑）。
+ * 每次都从传入快照 + 当前光标计算（路径无关）。beat 不动、两端锚定、拨弯即转化、一动就自由化同三角捏形。
+ * 无可见变化 → 原引用。
+ */
+export function smoothBendSpan(
+  slide: SlideNote | LongNote,
+  connIndex: number,
+  cursor: SmoothPinchCursor,
+  beatDisplay: number,
+  precision: CurvePrecision = 16,
+): SlideNote | LongNote {
+  const ctx = bendContext(slide, connIndex, beatDisplay, precision);
+  if (!ctx) return slide;
+  const { fromBeat, toBeat, sampled } = ctx;
+  const conns = slide.connections;
+  const shape = laneProfile(
+    { beat: fromBeat, lane: conns[ctx.span.start]!.lane },
+    sampled.map((p) => ({ beat: connTrueBeat(p, beatDisplay), lane: p.lane })),
+    { beat: toBeat, lane: conns[ctx.span.end]!.lane },
+  );
+  const span = toBeat - fromBeat;
+  const ctrlBeat = clamp(cursor.curBeat, fromBeat + SMOOTH_PINCH_INSET * span, toBeat - SMOOTH_PINCH_INSET * span);
+  const offset = cursor.pressLane - shape(clamp(cursor.pressBeat, fromBeat, toBeat));
+  const kAt = (b: number) => bumpBasis(fromBeat, ctrlBeat, toBeat, b);
+  const peakHeight = (cursor.curLane - offset - shape(ctrlBeat)) / kAt(ctrlBeat);
+  if (!Number.isFinite(peakHeight) || peakHeight === 0) return slide;
+
+  const disp = sampled.map((p) => peakHeight * kAt(connTrueBeat(p, beatDisplay)));
+  // 贴边：最大 boundaryScale ∈ [0,1] 使 lane + boundaryScale·disp 全部落在 0..6
+  let boundaryScale = 1;
+  sampled.forEach((p, i) => {
+    const dispLane = disp[i]!;
+    if (dispLane > 0 && p.lane + dispLane > 6) boundaryScale = Math.min(boundaryScale, Math.max(0, (6 - p.lane) / dispLane));
+    if (dispLane < 0 && p.lane + dispLane < 0) boundaryScale = Math.min(boundaryScale, Math.max(0, -p.lane / dispLane));
+  });
+  if (boundaryScale === 0) return slide;
+  const middle = sampled.map((p, i) => ({ ...p, lane: clamp(p.lane + boundaryScale * disp[i]!, 0, 6) }));
+  return commitBend(slide, ctx, middle);
+}
+
+/**
+ * 原形 lane 剖面 `L(b)`：两端可见结点 + 段内采样点按拍稳定排序后逐段线性插值（拍域外钳到端点）。
+ * 同拍点取数组序最后一个（零宽跳变，插值退化）。
+ */
+function laneProfile(
+  from: { beat: number; lane: number },
+  middle: { beat: number; lane: number }[],
+  to: { beat: number; lane: number },
+): (b: number) => number {
+  const pts = [from, ...[...middle].sort((a, b) => a.beat - b.beat), to];
+  return (b: number) => {
+    if (b <= pts[0]!.beat) return pts[0]!.lane;
+    for (let i = 1; i < pts.length; i++) {
+      if (b <= pts[i]!.beat) {
+        // 同拍点取数组序最后一个（零宽跳变，插值退化）
+        while (i + 1 < pts.length && pts[i + 1]!.beat <= b) {
+          i++;
+        }
+        const cur = pts[i]!;
+        const prev = pts[i - 1]!;
+        const w = cur.beat - prev.beat;
+        return w > 0 ? prev.lane + ((cur.lane - prev.lane) * (b - prev.beat)) / w : cur.lane;
+      }
+    }
+    return pts[pts.length - 1]!.lane;
+  };
+}
+
+/**
+ * 鼓包基函数 `k(b) = 3t(1−t)`，其中 `t` 解 `x(t) = B0(1−t)³ + 3c·t(1−t) + B1·t³ = b`
+ * （两控制点重合于拍 `c ∈ [B0,B1]` ⇒ `x` 单调，二分求解）。鼓包位移 = `h · k(b)`。
+ */
+function bumpBasis(b0: number, c: number, b1: number, b: number): number {
+  const x = (t: number) => b0 * (1 - t) ** 3 + 3 * c * t * (1 - t) + b1 * t ** 3;
+  if (b <= b0 || b >= b1) return 0;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    if (x(mid) < b) lo = mid;
+    else hi = mid;
+  }
+  const t = (lo + hi) / 2;
+  return 3 * t * (1 - t);
 }
 
 /**

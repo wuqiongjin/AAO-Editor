@@ -1,0 +1,54 @@
+/* 播放条时间码旁的播放起点按钮（票 182） */
+
+.playback-marker-btn {
+  height: 24px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 0 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+
+.playback-marker-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.playback-marker-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.playback-marker-btn img {
+  width: 10px;
+  height: 14px;
+}
+
+/* 出现动效：弹入 + 一圈光晕（三圈版用户嫌闪太多，177 Q25） */
+.playback-marker-btn.is-new {
+  animation: playback-marker-btn-in 900ms var(--ease);
+}
+
+@keyframes playback-marker-btn-in {
+  0% { transform: scale(0.4); opacity: 0; box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  25% { transform: scale(1.1); opacity: 1; border-color: var(--accent); }
+  40% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  100% { box-shadow: 0 0 0 9px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playback-marker-btn.is-new {
+    animation: none;
+  }
+}

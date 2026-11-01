@@ -12,6 +12,8 @@ const COMMUNITY_CACHE_DIRNAME = 'community';
 /** 07 的「下载暂存」目录名：14 起退役（缓存接手），只用于启动时清旧数据根里的残留 */
 const LEGACY_DOWNLOADS_DIRNAME = 'downloads';
 const BACKGROUND_SKIN_RELATIVE = path.join(ASSETS_DIRNAME, 'background-skin.bin');
+/** 片段库（issue 184 / ADR-0023 §3）：<数据根>/patterns.json，独立于工程与设置 */
+const PATTERNS_FILENAME = 'patterns.json';
 
 function dataRootUnderParent(parent) {
     return path.join(path.resolve(parent), DATA_DIRNAME);
@@ -31,6 +33,11 @@ function assetsDir(dataRoot) {
 
 function backgroundSkinPath(dataRoot) {
     return path.join(dataRoot, BACKGROUND_SKIN_RELATIVE);
+}
+
+/** 片段库文件路径（<数据根>/patterns.json，issue 184） */
+function patternLibraryPath(dataRoot) {
+    return path.join(dataRoot, PATTERNS_FILENAME);
 }
 
 /** 社区素材缓存目录（<数据根>/cache/community/）—— 社区音频 / 封面 / 索引的落点（票 14） */
@@ -221,6 +228,7 @@ module.exports = {
     COMMUNITY_CACHE_DIRNAME,
     LEGACY_DOWNLOADS_DIRNAME,
     BACKGROUND_SKIN_RELATIVE,
+    PATTERNS_FILENAME,
     defaultDataRoot,
     dataRootUnderParent,
     projectsDir,
@@ -229,6 +237,7 @@ module.exports = {
     legacyDownloadsDir,
     removeLegacyDownloads,
     backgroundSkinPath,
+    patternLibraryPath,
     ensureDataRootLayoutSync,
     safeProjectId,
     projectDir,

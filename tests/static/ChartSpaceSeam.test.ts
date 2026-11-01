@@ -6,6 +6,7 @@ const space = readStripped('src/chart/geometry/ChartSpace.ts');
 const canvas = readStripped('src/chart/components/canvas/FinalVirtualCanvas.tsx');
 const scroll = readStripped('src/playback/useScrollModel.ts');
 const editor = readStripped('src/pages/workspace/WorkspacePage.tsx');
+const geometrySrc = readStripped('src/chart/geometry/ChartGeometry.ts');
 // architecture-refactor/09（候选 4）：useChartSpace 的装配搬进谱面视口会话，断言随宿主改锚；语义未动。
 const viewSession = readStripped('src/playback/useChartViewSession.ts');
 
@@ -26,7 +27,10 @@ describe('一份 ChartGeometry 生命周期（issue 134）', () => {
   it('HUD 读 geometry 最大 beat 解，不旁路 secondsToBeat', () => {
     expect(canvas).toMatch(/beatOfSeconds\s*\(/);
     expect(canvas).not.toMatch(/secondsToBeat\s*\(/);
-    expect(editor).toMatch(/segmentIndexOfSeconds\s*\(/);
+    // issue 179：判定线 BPM 读数收口到 ChartGeometry.bpmAtSeconds（同一最大 beat 解所在段）
+    expect(canvas).toMatch(/geometry\.bpmAtSeconds\s*\(/);
+    const bpmAt = geometrySrc.slice(geometrySrc.indexOf('bpmAtSeconds(seconds'));
+    expect(bpmAt.slice(0, bpmAt.indexOf('}'))).toMatch(/segmentIndexOfSeconds\s*\(/);
     expect(editor).not.toMatch(/secondsSegmentIndex\s*\(/);
   });
 });

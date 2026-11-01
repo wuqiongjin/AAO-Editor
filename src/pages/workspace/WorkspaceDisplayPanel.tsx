@@ -2,22 +2,28 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { useOptionalAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
-import { defaultSettings, type AppSettings } from '../../chart/config/AppSettings';
-import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
-import { t, type MessageKey } from '../../i18n';
+import { defaultSettings, type AppSettings, type PinchMode, type TimePrecision } from '../../chart/config/AppSettings';
+import type { GridStylePreset } from '../../rendering/gridStyle';
+import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
+import HelpHint from '../../ui/HelpHint';
+import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
+import { buildGridOptions, buildQualityOptions } from '../displayPanelOptions';
 import './WorkspaceDisplayPanel.css';
 
-/** 画质档选项（映射至 settings.imageQuality.* 键） */
-const QUALITY_OPTIONS: ReadonlyArray<{ value: AppSettings['display']['imageQuality']; labelKey: MessageKey }> =
-  (['smooth', 'standard', 'hd'] as const).map((value) => ({
-    value,
-    labelKey: `settings.imageQuality.${value}` as MessageKey,
-  }));
+/** 时间精度选项（映射至 settings.timePrecision.* 键） */
+const TIME_PRECISION_OPTIONS: ReadonlyArray<{ value: TimePrecision; labelKey: MessageKey }> = [
+  { value: 'standard', labelKey: 'settings.timePrecision.standard' },
+  { value: 'centisecond', labelKey: 'settings.timePrecision.centisecond' },
+  { value: 'millisecond', labelKey: 'settings.timePrecision.millisecond' },
+];
 
-/** 轨道颜色主题选项（从 GRID_STYLE_PRESETS 派生） */
-const GRID_OPTIONS: ReadonlyArray<{ value: GridStylePreset; labelKey: MessageKey }> =
-  GRID_STYLE_PRESETS.map((value) => ({ value, labelKey: `settings.gridStyle.${value}` as MessageKey }));
+/** 滑条拖拽变形风格选项（映射至 settings.pinchMode.* 键） */
+const PINCH_MODE_OPTIONS: ReadonlyArray<{ value: PinchMode; labelKey: MessageKey }> = [
+  { value: 'smooth', labelKey: 'settings.pinchMode.smooth' },
+  { value: 'triangle', labelKey: 'settings.pinchMode.triangle' },
+];
 
 /** 面板内容宽 */
 const PANEL_W = 320;
@@ -34,11 +40,14 @@ export function panelLayoutFor(rect: { right: number; bottom: number }) {
   return { top: rect.bottom + 3, left };
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function Row({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
   return (
     <div className="wdp__row">
       <div className="wdp__row-text">
-        <strong>{label}</strong>
+        <strong className={hint ? 'wdp__row-label--with-hint' : undefined}>
+          {label}
+          {hint}
+        </strong>
       </div>
       {children}
     </div>
@@ -86,12 +95,13 @@ function Select<T extends string | number>({
 }
 
 function Percent({
-  value, label, min, max, onChange,
+  value, label, min, max, step = 10, onChange,
 }: {
   value: number;
   label: string;
   min: number;
   max: number;
+  step?: number;
   onChange: (v: number) => void;
 }) {
   return (
@@ -100,7 +110,7 @@ function Percent({
         type="range"
         min={min}
         max={max}
-        step={10}
+        step={step}
         value={Math.round(value * 100)}
         aria-label={label}
         onChange={(e) => onChange(Number(e.target.value) / 100)}
@@ -111,7 +121,7 @@ function Percent({
 }
 
 export default memo(function WorkspaceDisplayPanel() {
-  const { settings, setDisplay } = useConfig();
+  const { settings, setDisplay, setPlaybar, setSeVolume } = useConfig();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -169,9 +179,17 @@ export default memo(function WorkspaceDisplayPanel() {
   }, [open, close]);
 
   const { display } = settings;
+  const nav = useOptionalAppNav();
+  const lang = getActiveUiLanguage();
+  const skinName = useMemo(() => {
+    void lang;
+    return noteSkinPresetLabel(normalizeNoteSkinSelection(settings.visual?.noteSkin)) ?? t('preview.display.skin.custom');
+  }, [settings.visual?.noteSkin, lang]);
 
-  const qualityOptions = useMemo(() => QUALITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
-  const gridOptions = useMemo(() => GRID_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
+  const qualityOptions = buildQualityOptions();
+  const gridOptions = buildGridOptions();
+  const precisionOptions = TIME_PRECISION_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }));
+  const pinchModeOptions = PINCH_MODE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }));
 
   const handleReset = () => {
     setDisplay(defaultSettings().display);
@@ -202,9 +220,9 @@ export default memo(function WorkspaceDisplayPanel() {
             role="dialog"
             aria-label={t('workspace.displaySettings')}
           >
-            <section className="wdp__group" aria-label={t('settings.section.canvas')}>
+            <section className="wdp__group" aria-label={t('workspace.displayGroup.canvas')}>
               <div className="wdp__group-head">
-                <h3 className="wdp__group-title">{t('settings.section.canvas')}</h3>
+                <h3 className="wdp__group-title">{t('workspace.displayGroup.canvas')}</h3>
               </div>
               <Row label={t('settings.noteSize')}>
                 <Percent
@@ -247,27 +265,12 @@ export default memo(function WorkspaceDisplayPanel() {
                   onChange={(verticalRatio) => setDisplay({ verticalRatio })}
                 />
               </Row>
-              <Row label={t('settings.imageQuality')}>
-                <Select<AppSettings['display']['imageQuality']>
-                  label={t('settings.imageQuality')}
-                  value={display.imageQuality}
-                  options={qualityOptions}
-                  onChange={(imageQuality) => setDisplay({ imageQuality })}
-                />
-              </Row>
               <Row label={t('settings.gridStyle')}>
                 <Select<GridStylePreset>
                   label={t('settings.gridStyle')}
                   value={display.gridStyle}
                   options={gridOptions}
                   onChange={(gridStyle) => setDisplay({ gridStyle })}
-                />
-              </Row>
-              <Row label={t('settings.lineShapeTiers')}>
-                <Toggle
-                  label={t('settings.lineShapeTiers')}
-                  checked={display.lineShapeTiers}
-                  onChange={(lineShapeTiers) => setDisplay({ lineShapeTiers })}
                 />
               </Row>
               <Row label={t('settings.gridOpacity')}>
@@ -279,6 +282,13 @@ export default memo(function WorkspaceDisplayPanel() {
                   onChange={(gridOpacity) => setDisplay({ gridOpacity })}
                 />
               </Row>
+              <Row label={t('settings.lineShapeTiers')}>
+                <Toggle
+                  label={t('settings.lineShapeTiers')}
+                  checked={display.lineShapeTiers}
+                  onChange={(lineShapeTiers) => setDisplay({ lineShapeTiers })}
+                />
+              </Row>
               <Row label={t('settings.labelScale')}>
                 <Percent
                   label={t('settings.labelScale')}
@@ -288,40 +298,118 @@ export default memo(function WorkspaceDisplayPanel() {
                   onChange={(labelScale) => setDisplay({ labelScale })}
                 />
               </Row>
-
-              <div className="wdp__reset-row">
-                {!confirmingReset ? (
-                  <button
-                    type="button"
-                    className="action-btn wdp__reset-btn"
-                    onClick={() => setConfirmingReset(true)}
-                  >
-                    <RotateCcw size={13} />
-                    <span>{t('settings.reset')}</span>
-                  </button>
-                ) : (
-                  <div className="wdp__reset-confirm">
-                    <span className="wdp__reset-prompt">{t('settings.reset.confirm', { hint: '' })}</span>
-                    <div className="wdp__reset-actions">
-                      <button
-                        type="button"
-                        className="action-btn action-btn--danger"
-                        onClick={handleReset}
-                      >
-                        {t('settings.reset.confirmBtn')}
-                      </button>
-                      <button
-                        type="button"
-                        className="action-btn"
-                        onClick={() => setConfirmingReset(false)}
-                      >
-                        {t('settings.reset.cancel')}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <Row label={t('settings.timePrecision')}>
+                <Select<TimePrecision>
+                  label={t('settings.timePrecision')}
+                  value={display.timePrecision}
+                  options={precisionOptions}
+                  onChange={(timePrecision) => setDisplay({ timePrecision })}
+                />
+              </Row>
+              <Row label={t('settings.imageQuality')}>
+                <Select<AppSettings['display']['imageQuality']>
+                  label={t('settings.imageQuality')}
+                  value={display.imageQuality}
+                  options={qualityOptions}
+                  onChange={(imageQuality) => setDisplay({ imageQuality })}
+                />
+              </Row>
             </section>
+
+            <section className="wdp__group" aria-label={t('workspace.displayGroup.playbackAndAudio')}>
+              <div className="wdp__group-head">
+                <h3 className="wdp__group-title">{t('workspace.displayGroup.playbackAndAudio')}</h3>
+              </div>
+              <Row label={t('workspace.playbar.markerButton')}>
+                <Toggle
+                  label={t('workspace.playbar.markerButton')}
+                  checked={settings.playbar.markerButton}
+                  onChange={(markerButton) => setPlaybar({ markerButton })}
+                />
+              </Row>
+              <Row label={t('settings.seVolume')}>
+                <Percent
+                  label={t('settings.seVolume')}
+                  value={settings.audio.seVolume}
+                  min={0}
+                  max={100}
+                  step={5}
+                  onChange={(seVolume) => setSeVolume(seVolume)}
+                />
+              </Row>
+            </section>
+
+            <section className="wdp__group" aria-label={t('workspace.displayGroup.preferences')}>
+              <div className="wdp__group-head">
+                <h3 className="wdp__group-title">{t('workspace.displayGroup.preferences')}</h3>
+              </div>
+              <Row label={t('settings.invertWheel')}>
+                <Toggle
+                  label={t('settings.invertWheel')}
+                  checked={display.invertWheel}
+                  onChange={(invertWheel) => setDisplay({ invertWheel })}
+                />
+              </Row>
+              <Row
+                label={t('settings.pinchMode')}
+                hint={<HelpHint text={t('settings.pinchMode.hint')} placement="up" />}
+              >
+                <Select<PinchMode>
+                  label={t('settings.pinchMode')}
+                  value={display.pinchMode}
+                  options={pinchModeOptions}
+                  onChange={(pinchMode) => setDisplay({ pinchMode })}
+                />
+              </Row>
+            </section>
+
+            <section className="wdp__group" aria-label={t('workspace.displayGroup.skin')}>
+              <div className="wdp__group-head">
+                <h3 className="wdp__group-title">{t('workspace.displayGroup.skin')}</h3>
+              </div>
+              <Row label={skinName}>
+                <button
+                  type="button"
+                  className="action-btn wdp__skin-open"
+                  onClick={() => { close(); nav?.setActivePage('assets'); }}
+                >
+                  {t('preview.display.skin.open')}
+                </button>
+              </Row>
+            </section>
+
+            <div className="wdp__reset-row">
+              {!confirmingReset ? (
+                <button
+                  type="button"
+                  className="action-btn wdp__reset-btn"
+                  onClick={() => setConfirmingReset(true)}
+                >
+                  <RotateCcw size={13} />
+                  <span>{t('settings.reset')}</span>
+                </button>
+              ) : (
+                <div className="wdp__reset-confirm">
+                  <span className="wdp__reset-prompt">{t('settings.reset.confirm', { hint: '' })}</span>
+                  <div className="wdp__reset-actions">
+                    <button
+                      type="button"
+                      className="action-btn action-btn--danger"
+                      onClick={handleReset}
+                    >
+                      {t('settings.reset.confirmBtn')}
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn"
+                      onClick={() => setConfirmingReset(false)}
+                    >
+                      {t('settings.reset.cancel')}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </>,
         document.body,

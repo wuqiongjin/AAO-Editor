@@ -36,6 +36,8 @@ const CATEGORY_TO_BUCKET: Readonly<Record<string, Exclude<IndexFilterId, 'all' |
   noteCode: 'editTools',
   undo: 'editTools',
   redo: 'editTools',
+  // issue 185：收藏选区（execSavePattern）＝动作类编辑命令，与 copy / cut 同桶
+  pattern: 'editTools',
   play: 'playback',
 };
 

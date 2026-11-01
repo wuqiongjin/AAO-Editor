@@ -349,3 +349,16 @@ describe('firstNotePosition（issue 167 首实体音符定位）', () => {
   });
 });
 
+
+describe('bpmAtSeconds（issue 179：判定线处 BPM，顶栏与画布读数共用）', () => {
+  it('取秒所在段的 BPM；120 → 第 4 拍（2 秒）起 180', () => {
+    const g = new ChartGeometry([{ beat: 0, bpm: 120 }, { beat: 4, bpm: 180 }], { endBeat: 16 }, surface());
+    expect(g.bpmAtSeconds(1)).toBe(120);
+    expect(g.bpmAtSeconds(3)).toBe(180);
+  });
+
+  it('谱面没有 BPM 事件时回落默认 120', () => {
+    const g = new ChartGeometry([], { endBeat: 16 }, surface());
+    expect(g.bpmAtSeconds(5)).toBe(120);
+  });
+});

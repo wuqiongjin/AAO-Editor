@@ -29,6 +29,9 @@ export type FunctionId =
   // issue 59 §2：音符代码 = 持工具态（点谁看谁）；Ctrl+B = 打开光标处音符的代码（不切工具的快捷版）
   | 'switchNoteCode' | 'execNoteCode'
   | 'switchMouse'
+  // issue 185 / ADR-0023 §4：收藏选区为片段。**读的是选区、不写谱面** —— 故不进
+  // `CHART_EDIT_FUNCTIONS`，已上传（只读）谱面照常可用。
+  | 'execSavePattern'
   | 'toggleSidebar'
   | 'undo' | 'redo' | 'play' | 'jumpToMarker'
   // 切页（issue 177，2026-10-28 用户定案）：应用级功能进同一注册表，
@@ -84,6 +87,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'switchNoteCode',     label: 'shortcut.fn.switchNoteCode',     category: 'noteCode', binding: 'b' },
   { id: 'execNoteCode',       label: 'shortcut.fn.execNoteCode',       category: 'noteCode', binding: 'ctrl+b' },
   { id: 'switchMouse',        label: 'shortcut.fn.switchMouse',        category: 'mouse', binding: 'r' },
+  { id: 'execSavePattern',    label: 'shortcut.fn.execSavePattern',    category: 'pattern', binding: 'ctrl+shift+d' },
   { id: 'toggleSidebar',      label: 'shortcut.fn.toggleSidebar',      category: 'layout', binding: 'ctrl+shift+b' },
   { id: 'undo',               label: 'shortcut.fn.undo',               category: 'undo', binding: 'ctrl+z' },
   { id: 'redo',               label: 'shortcut.fn.redo',               category: 'redo', binding: 'ctrl+y' },

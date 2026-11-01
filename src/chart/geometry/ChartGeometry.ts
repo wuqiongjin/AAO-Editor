@@ -5,6 +5,7 @@
 // 坐标系（issue 11）：虚拟坐标（X 原点=轨道内容左缘，Y 自下而上、beat 0 在判定线）↔ 画布坐标。
 import type { ChartNote } from '../types';
 import { trueBeat } from '../editing/ChartEndBounds';
+import { DEFAULT_BPM } from '../../audio/AudioTiming';
 import { BpmTimeline, type BpmBeatRange, type BpmBeatSolution, type BpmTimelineEvent } from './BpmTimeline';
 
 export const LANES = 7;
@@ -222,6 +223,11 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
     return this.timeline.maxBeatSolutionOf(seconds * this.virtualPxPerSecond).segmentIndex;
   }
 
+  /** 秒 → 所在段的 BPM（判定线读数）；谱面没有 BPM 事件时回落 DEFAULT_BPM */
+  bpmAtSeconds(seconds: number): number {
+    return this.bpmEvents[this.segmentIndexOfSeconds(seconds)]?.bpm ?? DEFAULT_BPM;
+  }
+
   /**
    * 虚拟Y → **全部拍解**（各层各一个，ADR-0010 结论 5）。需要"拍"的地方必须显式选解：
    * 空白处新增取 `maxBeatSolutionOf`（= `virtualYToBeat`），拖拽锚定被拖元素的层（`layerBeatFromCanvas`）。
@@ -304,6 +310,16 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   noteVirtualY(beat: number, subBeat: number, scale: number, beatDisplay: number): number {
     const preciseBeat = beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
     return this.beatToVirtualY(preciseBeat, scale);
+  }
+
+  /**
+   * 画布 X → 连续轨道坐标（未吸附，以第 0 轨中心为 0、第 1 轨中心为 1……第 6 轨中心为 6）。
+   * 用于 issue 203 圆滑捏形与小数 lane 拖拽（所见即所点，光标与曲线中心对齐）。
+   */
+  continuousLaneFromCanvas(cx: number, viewport: GeometryViewport): number {
+    const { trackBgX } = this.trackGeometry(viewport.scale);
+    const es = this.effectiveScale(viewport.scale);
+    return (cx - trackBgX) / (LANE_WIDTH * es) - 0.5;
   }
 
   /**

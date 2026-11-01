@@ -1,0 +1,26 @@
+/* 片段速度跨度（issue 186 二轮）：卡片徽标与胶囊共用。 */
+.bpm-range {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bpm-range__arrow {
+  color: var(--text-subtle);
+  font-size: 0.8em;
+  font-weight: 400;
+}
+
+/* 数字比周围的"BPM"标签重一档：`120 → -120` 里的负号才不会跟箭头糊成一团 */
+.bpm-range__value {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* 负值（倒流区，ADR-0010）：只给这一个数字上危险色，比整枚徽标变色更醒目、也少一个字 */
+.bpm-range__value.is-negative {
+  color: var(--danger);
+  font-weight: 700;
+}

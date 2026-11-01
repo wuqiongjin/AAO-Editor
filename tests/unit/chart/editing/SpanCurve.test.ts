@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import type { ConnectionNote, SlideNote, SpanEasingParam } from '@/src/chart/types';
 import {
   bakeEasingPoints, bakeSpanPoints, bendSpan, buildChainedSlide, buildPenSlide, effectiveSpanParams,
-  regenerateSpan, remapFreeSpanHidden, reprojectSpanParams, connTrueBeat, pinchWeight,
+  regenerateSpan, remapFreeSpanHidden, reprojectSpanParams, connTrueBeat, pinchWeight, smoothBendSpan,
 } from '@/src/chart/editing/SpanCurve';
 import { convertNotesToChartCode, convertChartCodeToNotes, validateChartCode } from '@/src/chart/editing/ChartConverter';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
@@ -377,3 +377,135 @@ describe('issue 09 S4 · 形状模板（ADR-0009 §2 三来源之三）', () => 
     expect(once.connections.filter((c) => c.hidden).length).toBeGreaterThan(0); // 点集是唯一真相
   });
 });
+
+describe('issue 203 · 圆滑捏形（贝塞尔鼓包 / 穿过光标 / ADR-0009 §4 2026-11-01 修订）', () => {
+  const plain = (): SlideNote => ({ type: 'Slide', connections: [{ beat: 1, lane: 2 }, { beat: 2, lane: 2 }] });
+  const laneAt = (s: SlideNote, beat: number) =>
+    s.connections.find((c) => Math.abs(c.beat - beat) < 1e-9)!.lane;
+
+  it('直线段抓中点上拉：曲线穿过光标（中点 lane = 光标 lane）、两端锚定、beat 落在 1/16 栅格', () => {
+    const s = smoothBendSpan(plain(), 0, { pressBeat: 1.5, pressLane: 2, curBeat: 1.5, curLane: 4 }, 4) as SlideNote;
+    expect(laneAt(s, 1.5)).toBeCloseTo(4, 6);
+    expect(s.connections[0]!.lane).toBe(2);
+    expect(s.connections.at(-1)!.lane).toBe(2);
+    const hidden = s.connections.filter((c) => c.hidden);
+    expect(hidden).toHaveLength(15);
+    hidden.forEach((c, i) => expect(c.beat).toBeCloseTo(1 + (i + 1) / 16, 12));
+    expect(s.spanParams).toBeUndefined();
+  });
+
+  /** 相邻拍步 lane 二阶差分的最大绝对值（尖角 = 大） */
+  const maxSecondDiff = (s: SlideNote) => {
+    const l = s.connections.map((c) => c.lane);
+    let m = 0;
+    for (let i = 1; i < l.length - 1; i++) m = Math.max(m, Math.abs(l[i + 1]! - 2 * l[i]! + l[i - 1]!));
+    return m;
+  };
+
+  it('无尖角：同样把中点拉到 lane 4，峰值处二阶差分远小于三角捏形', () => {
+    const smooth = smoothBendSpan(plain(), 0, { pressBeat: 1.5, pressLane: 2, curBeat: 1.5, curLane: 4 }, 4) as SlideNote;
+    const tri = bendSpan(plain(), 0, 2, 4, 16, 1.5) as SlideNote;
+    expect(laneAt(tri, 1.5)).toBeCloseTo(4, 9);
+    expect(maxSecondDiff(smooth)).toBeLessThan(maxSecondDiff(tri) / 3);
+  });
+
+  it('峰值随光标拍走（不固定拖拽点）：按在中点、拖到 1.25 → 曲线穿过 (1.25, 4)，左侧高于右侧', () => {
+    const s = smoothBendSpan(plain(), 0, { pressBeat: 1.5, pressLane: 2, curBeat: 1.25, curLane: 4 }, 4) as SlideNote;
+    expect(laneAt(s, 1.25)).toBeCloseTo(4, 6);
+    expect(laneAt(s, 1.25)).toBeGreaterThan(laneAt(s, 1.75));
+  });
+
+  it('光标沿原线移动 → 无变化（原引用）；按下点偏离线 0.3 不会起拖即跳', () => {
+    const base = plain();
+    expect(smoothBendSpan(base, 0, { pressBeat: 1.5, pressLane: 2, curBeat: 1.8, curLane: 2 }, 4)).toBe(base);
+    expect(smoothBendSpan(base, 0, { pressBeat: 1.5, pressLane: 2.3, curBeat: 1.5, curLane: 2.3 }, 4)).toBe(base);
+    const s = smoothBendSpan(base, 0, { pressBeat: 1.5, pressLane: 2.3, curBeat: 1.5, curLane: 4.3 }, 4) as SlideNote;
+    expect(laneAt(s, 1.5)).toBeCloseTo(4, 6);
+  });
+
+  it('贴边等比缩小：拉过 lane 6 → 最高点恰为 6、无平台，形状与未触边时同比例', () => {
+    const base: SlideNote = { type: 'Slide', connections: [{ beat: 1, lane: 5 }, { beat: 2, lane: 5 }] };
+    const over = smoothBendSpan(base, 0, { pressBeat: 1.5, pressLane: 5, curBeat: 1.5, curLane: 9 }, 4) as SlideNote;
+    const lanes = over.connections.map((c) => c.lane);
+    expect(Math.max(...lanes)).toBeCloseTo(6, 9);
+    expect(lanes.filter((l) => Math.abs(l - 6) < 1e-9)).toHaveLength(1);
+    const under = smoothBendSpan(base, 0, { pressBeat: 1.5, pressLane: 5, curBeat: 1.5, curLane: 5.5 }, 4) as SlideNote;
+    const ratio = (s: SlideNote) => (laneAt(s, 1.25) - 5) / (laneAt(s, 1.5) - 5);
+    expect(ratio(over)).toBeCloseTo(ratio(under), 9);
+  });
+
+  it('光标拍越过段终点 → 钳到段内成贴端点的钩子：无 NaN、端点不动、靠终点侧鼓得更高', () => {
+    const s = smoothBendSpan(plain(), 0, { pressBeat: 1.5, pressLane: 2, curBeat: 5, curLane: 3 }, 4) as SlideNote;
+    expect(s.connections.every((c) => Number.isFinite(c.lane))).toBe(true);
+    expect(s.connections[0]!.lane).toBe(2);
+    expect(s.connections.at(-1)!.lane).toBe(2);
+    expect(laneAt(s, 1 + 15 / 16)).toBeGreaterThan(laneAt(s, 1 + 1 / 16));
+  });
+
+  it('路径无关：同一快照 + 同一光标，结果恒定', () => {
+    const cur = { pressBeat: 1.5, pressLane: 2, curBeat: 1.3, curLane: 3.7 };
+    const a = smoothBendSpan(plain(), 0, cur, 4) as SlideNote;
+    const b = smoothBendSpan(plain(), 0, cur, 4) as SlideNote;
+    expect(b.connections).toEqual(a.connections);
+  });
+
+  it('自由段细节保留：锯齿形叠加鼓包后，每点位移同号且 beat 不变', () => {
+    const conns: ConnectionNote[] = [{ beat: 1, lane: 2 }];
+    for (let p = 1; p < 16; p++) conns.push({ beat: 1 + p / 16, lane: p % 2 ? 2.5 : 2, hidden: true });
+    conns.push({ beat: 2, lane: 2 });
+    const zig: SlideNote = { type: 'Slide', connections: conns };
+    const s = smoothBendSpan(zig, 0, { pressBeat: 1.5, pressLane: 2, curBeat: 1.5, curLane: 3 }, 4) as SlideNote;
+    const d = s.connections.map((c, i) => c.lane - conns[i]!.lane);
+    expect(d.slice(1, -1).every((x) => x > 0)).toBe(true);
+    expect(s.connections.map((c) => c.beat)).toEqual(conns.map((c) => c.beat));
+  });
+
+  it('一动就自由化：被捏段参数清除、其余段参数保留', () => {
+    const two = buildChainedSlide(
+      [{ beat: 1, lane: 0 }, { beat: 2, lane: 2 }, { beat: 3, lane: 4 }],
+      { 0: param(), 1: param({ family: 'sine', type: 'out' }) },
+      4,
+    );
+    const s = smoothBendSpan(two, 16, { pressBeat: 2.5, pressLane: 3, curBeat: 2.5, curLane: 5 }, 4) as SlideNote;
+    expect(effectiveSpanParams(s)[1]).toBeUndefined();
+    expect(effectiveSpanParams(s)[0]).toEqual(param());
+  });
+
+  it('三角捏形（Alt）接受小数 dLane（lane 连续，issue 203 Q7）', () => {
+    const s = bendSpan(plain(), 0, 0.5, 4, 16, 1.5) as SlideNote;
+    expect(laneAt(s, 1.5)).toBeCloseTo(2.5, 9);
+  });
+
+  it('直线段 + 鼓包与参考三次贝塞尔逐点一致（仿射等价性，ADR-0009 §4）', () => {
+    // 直线段 1拍到3拍，初始 lane 1
+    const base: SlideNote = { type: 'Slide', connections: [{ beat: 1, lane: 1 }, { beat: 3, lane: 1 }] };
+    // 光标按在 2 拍，拖到 (1.8, 4.5)
+    const cursor = { pressBeat: 2, pressLane: 1, curBeat: 1.8, curLane: 4.5 };
+    const bent = smoothBendSpan(base, 0, cursor, 4) as SlideNote;
+
+    const b0 = 1;
+    const b1 = 3;
+    const c = 1.8;
+    const solveT = (beat: number): number => {
+      let low = 0;
+      let high = 1;
+      for (let i = 0; i < 40; i++) {
+        const mid = (low + high) / 2;
+        const x = b0 * (1 - mid) ** 3 + 3 * c * mid * (1 - mid) + b1 * mid ** 3;
+        if (x < beat) low = mid;
+        else high = mid;
+      }
+      return (low + high) / 2;
+    };
+    const tc = solveT(c);
+    const kc = 3 * tc * (1 - tc);
+    const h = (cursor.curLane - 1) / kc;
+
+    for (const conn of bent.connections) {
+      const t = solveT(conn.beat);
+      const expectedLane = 1 + h * (3 * t * (1 - t));
+      expect(conn.lane).toBeCloseTo(expectedLane, 5);
+    }
+  });
+});
+

@@ -1,6 +1,7 @@
-// issue 152 锁测：画布旗帜与右侧卡片**共享同一份 SVG**、回跳派发接线在、
+// issue 152 锁测：画布旗帜与播放条起点按钮**共享同一份 SVG**、回跳派发接线在、
 // 回跳路径不再做拍→秒换算。这些都是"组件接线 / 资源复用"，单测碰不到，
 // 故按 EditorAudioSessionRefactor 的惯例用静态源码断言看守。
+// 票 183：右侧状态卡片随换壳删除，旗帜图标的另一处使用方改为播放条按钮（票 182）。
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -10,31 +11,29 @@ const read = (rel: string) => readFileSync(join(repoRoot, rel), 'utf-8');
 const strip = (s: string) => s.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
 const canvas = strip(read('src/chart/components/canvas/FinalVirtualCanvas.tsx'));
-const card = strip(read('src/playback/PlaybackMarkerCard.tsx'));
+const button = strip(read('src/playback/PlaybackMarkerButton.tsx'));
 const coordinator = strip(read('src/playback/usePlaybackCoordinator.ts'));
 const editor = strip(read('src/pages/workspace/WorkspacePage.tsx'));
 
 const SVG_SPEC = 'assets/playback-marker/flag.svg';
 
 describe('播放起点共享 SVG 资源（issue 152 锁测）', () => {
-  it('画布旗帜与状态卡片引入同一个 SVG 文件', () => {
+  it('画布旗帜与播放条起点按钮引入同一个 SVG 文件', () => {
     expect(canvas).toContain(SVG_SPEC);
-    expect(card).toContain(SVG_SPEC);
+    expect(button).toContain(SVG_SPEC);
   });
 
   it('两处都是 ?url 引入（走浏览器解码缓存，不逐帧解析 SVG）', () => {
     expect(canvas).toMatch(/flag\.svg\?url/);
-    expect(card).toMatch(/flag\.svg\?url/);
+    expect(button).toMatch(/flag\.svg\?url/);
   });
 
-  it('卡片秒数与播放条同口径（复用 TimeFormat.formatTimePrecise，不自己 toFixed）', () => {
-    expect(card).toContain('formatTimePrecise');
-    expect(card).not.toMatch(/toFixed/);
+  it('按钮秒数与播放条同口径（复用 TimeFormat.formatTimePrecise，不自己 toFixed）', () => {
+    expect(button).toContain('formatTimePrecise');
+    expect(button).not.toMatch(/toFixed/);
   });
 
-  it('卡片尺寸取自 playbackMarker 常数（真源唯一，不在 CSS/组件里另抄一份）', () => {
-    expect(card).toContain('PLAYBACK_MARKER_CARD_WIDTH');
-    expect(card).toContain('PLAYBACK_MARKER_CARD_HEIGHT');
+  it('画布旗帜尺寸取自 playbackMarker 常数（真源唯一，不在组件里另抄一份）', () => {
     expect(canvas).toContain('PLAYBACK_MARKER_LAYOUT');
     expect(canvas).toContain('PLAYBACK_MARKER_CLIP_PATH');
   });
@@ -69,3 +68,37 @@ describe('回跳播放接线（ADR-0004 §4 / issue 152）', () => {
     expect(editor).toMatch(/case 'jumpToMarker':\s*jumpToMarker\(\)/);
   });
 });
+
+describe('标记点体系文案一致性（issue 201 锁测）', () => {
+  const zhRaw = read('src/i18n/messages/zh-CN.json');
+  const enRaw = read('src/i18n/messages/en.json');
+  const zh = JSON.parse(zhRaw);
+  const en = JSON.parse(enRaw);
+
+  it('中文文案全链路切换为标记点体系', () => {
+    expect(zh['shortcut.fn.jumpToMarker']).toBe('回到标记点并播放');
+    expect(zh['editor.markerJumpTooltip']).toBe('跳转到标记点并播放 · 快捷键：{{key}}');
+    expect(zh['editor.markerJumpAria']).toBe('跳转到标记点并播放');
+    expect(zh['editor.markerDeleteAria']).toBe('标记点，双击删除');
+    expect(zh['workspace.playbar.markerButton']).toBe('显示标记点跳转按钮');
+  });
+
+  it('英文文案全链路切换为 marker 体系', () => {
+    expect(en['shortcut.fn.jumpToMarker']).toBe('Jump to marker and play');
+    expect(en['editor.markerJumpTooltip']).toBe('Jump to marker and play · Shortcut: {{key}}');
+    expect(en['editor.markerJumpAria']).toBe('Jump to marker and play');
+    expect(en['editor.markerDeleteAria']).toBe('Playback marker, double click to delete');
+    expect(en['workspace.playbar.markerButton']).toBe('Show jump to marker button');
+  });
+
+  it('i18n 字典无遗留的“播放起点”或“playback start”歧义文案', () => {
+    expect(zhRaw).not.toContain('播放起点');
+    expect(enRaw.toLowerCase()).not.toContain('playback start');
+  });
+
+  it('快捷键注册表映射到最新文案键', () => {
+    const shortcutConfig = read('src/chart/config/ShortcutConfig.ts');
+    expect(shortcutConfig).toMatch(/id:\s*'jumpToMarker',\s*label:\s*'shortcut\.fn\.jumpToMarker'/);
+  });
+});
+

@@ -25,7 +25,8 @@ import { PLAYBACK_MARKER_LAYOUT, PLAYBACK_MARKER_CLIP_PATH } from '../../../rend
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rendering/skin/noteSkin';
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../rendering/gutterLabels';
 import { useBackgroundSkin } from '../../../rendering/skin/useBackgroundSkin';
-import { countNotesUpToBeat } from '../../editing/NoteEditing';
+import { countChartNotes, countNotesUpToBeat } from '../../editing/NoteEditing';
+import { buildPatternPastePayload } from '../../patterns/paste';
 import { parseBpmInput } from '../../editing/BpmInput';
 import { t } from '../../../i18n';
 import {
@@ -33,9 +34,7 @@ import {
   isInsideSurface,
   canPlaceAtCursor, resolveExecNoteCodeHit,
 } from '../../editing/CanvasGesture';
-import { formatTimePrecise } from '../../geometry/TimeFormat';
-
-// 画布实时信息叠加（issue 22 / issue 188）：判定线处精确时间（左下）+ 已过判定线音符数（右下）。
+// 画布实时信息叠加（issue 22 / issue 179 / issue 188）：判定线处 BPM（左下）+ 已过 / 总数（右下）。
 // 独立子组件消费 currentSeconds，使 80ms 时间码节流更新只重渲本轻量 HUD，不触发整张画布重渲染。
 const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
     geometry,
@@ -53,8 +52,10 @@ const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
         () => countNotesUpToBeat(notes, playheadBeat),
         [notes, playheadBeat],
     );
+    const totalNoteCount = useMemo(() => countChartNotes(notes), [notes]);
+    const playheadBpm = geometry.bpmAtSeconds(currentSeconds);
     return (
-        <div style={{
+        <div data-testid="canvas-readout" style={{
             position: 'absolute', left: 0, right: 0, bottom: 8,
             display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
             pointerEvents: 'none', zIndex: 20, padding: '0 12px',
@@ -62,8 +63,8 @@ const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
             fontSize: 'var(--text-sm)', color: 'rgba(230,236,239,0.75)',
             textShadow: '0 1px 2px rgba(0,0,0,0.8)',
         }}>
-            <span>{formatTimePrecise(currentSeconds)}</span>
-            <span title={t('canvas.passedNotes')}>♪ {passedNoteCount}</span>
+            <span title={`BPM: ${playheadBpm}`}>BPM {playheadBpm}</span>
+            <span title={t('canvas.passedNotes')}>♪ {passedNoteCount} / {totalNoteCount}</span>
         </div>
     );
 });
@@ -174,7 +175,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         handleNotesChange,
     } = useEditing();
     // armedTool = 持工具态（ADR-0008 §1）：null = 指针底态；选区与工具解耦、常驻不清
-    const { armedTool, beatDisplay, scale, setScale, curveConfig } = useUI();
+    // issue 186：patternPaste = 片段粘贴态（点卡片进态）——粘贴的负载改取自该片段，剪贴板原样不动
+    const { armedTool, beatDisplay, scale, setScale, curveConfig, patternPaste, patternPasteWithBpm } = useUI();
+    const pastePattern = useMemo(
+        () => (armedTool === 'paste' && patternPaste ? { pattern: patternPaste, withBpm: patternPasteWithBpm } : null),
+        [armedTool, patternPaste, patternPasteWithBpm],
+    );
+    // 幽灵预览的载荷按落点现算（渲染层只收这个回调，不认识片段域）
+    const pastePayloadAt = useMemo(
+        () => (pastePattern
+            ? (anchorBeat: number) => buildPatternPastePayload(pastePattern, { anchorBeat, targetNotes: notes, beatDisplay })
+            : null),
+        [pastePattern, notes, beatDisplay],
+    );
     const { setMarker: setMarkerContext, isPlaying } = usePlaybackState();
     // issue 59 §2/§3：「音符代码」工具点击 → 打开该音符的代码弹窗（与「谱面代码」按钮共用同一弹窗）
     const { openNoteCode } = useChartCodeEditor();
@@ -432,30 +445,50 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     session.bindWorld({
         notes, selectedItems, armedTool, beatDisplay, chartEndBeat,
-        geometry, viewport, surface: surf, clipboard,
+        geometry, viewport: liveViewport(), surface: surf, clipboard, pastePattern,
         slideBuffer: bufferPoint, curveDraft, curveConfig,
         lastBpm: lastBpmRef.current, noteSize: display.noteSize,
         hitPlaybackMarker, hitBpmGutter, expandedBpmGroupKey,
+        pinchMode: display.pinchMode,
     });
 
     // ---------------- issue 63：手势期间的隐式指针捕获 ----------------
     const gestureHandlersRef = useRef<{
-        move: (e: { clientX: number; clientY: number }) => void;
-        up: (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean } | null) => void;
+        move: (e: { clientX: number; clientY: number; altKey?: boolean }) => void;
+        up: (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean } | null) => void;
     }>({ move: () => { /* 首个手势开始前不会被调用 */ }, up: () => { } });
     const onWindowMove = useCallback((e: MouseEvent) => gestureHandlersRef.current.move(e), []);
     const onWindowUp = useCallback((e: MouseEvent) => gestureHandlersRef.current.up(e), []);
     const onWindowBlur = useCallback(() => gestureHandlersRef.current.up(null), []);
+
+    // issue 203：拖拽期间 Alt 按下/松开吞掉默认行为（Windows 菜单栏焦点）并实时切换捏形形态
+    const onWindowKeyDown = useCallback((e: KeyboardEvent) => {
+        if (e.key === 'Alt' && session.isPinchDragging()) {
+            e.preventDefault();
+            applyGesture(session.onAltChange(true));
+        }
+    }, [session]);
+    const onWindowKeyUp = useCallback((e: KeyboardEvent) => {
+        if (e.key === 'Alt' && session.isPinchDragging()) {
+            e.preventDefault();
+            applyGesture(session.onAltChange(false));
+        }
+    }, [session]);
+
     const attachWindowGesture = useCallback(() => {
         window.addEventListener('mousemove', onWindowMove);
         window.addEventListener('mouseup', onWindowUp);
         window.addEventListener('blur', onWindowBlur);
-    }, [onWindowMove, onWindowUp, onWindowBlur]);
+        window.addEventListener('keydown', onWindowKeyDown);
+        window.addEventListener('keyup', onWindowKeyUp);
+    }, [onWindowMove, onWindowUp, onWindowBlur, onWindowKeyDown, onWindowKeyUp]);
     const detachWindowGesture = useCallback(() => {
         window.removeEventListener('mousemove', onWindowMove);
         window.removeEventListener('mouseup', onWindowUp);
         window.removeEventListener('blur', onWindowBlur);
-    }, [onWindowMove, onWindowUp, onWindowBlur]);
+        window.removeEventListener('keydown', onWindowKeyDown);
+        window.removeEventListener('keyup', onWindowKeyUp);
+    }, [onWindowMove, onWindowUp, onWindowBlur, onWindowKeyDown, onWindowKeyUp]);
     sessionHostRef.current.attachWindow = attachWindowGesture;
     sessionHostRef.current.detachWindow = detachWindowGesture;
     useEffect(() => detachWindowGesture, [detachWindowGesture]);
@@ -465,7 +498,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // notes 等由每次渲染的 bindWorld 保持最新；本 effect 只在视口几何变化时转发。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟视口/几何/渲染面
     useEffect(() => {
-        session.onViewportChange(viewport, geometry, surf);
+        session.onViewportChange(liveViewport(), geometry, surf);
     }, [viewport, geometry, surf]);
 
     const syncHover = (mouseX: number, mouseY: number) => {
@@ -488,21 +521,22 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }));
     };
 
-    const handlePointerMove = (e: { clientX: number; clientY: number }) => {
+    const handlePointerMove = (e: { clientX: number; clientY: number; altKey?: boolean }) => {
         const canvasPos = cssToCanvas(e);
         if (!canvasPos) return;
         syncHover(canvasPos.x, canvasPos.y);
         // Q12：标记线附近的命中带也点亮 hover（与删除双击同一范围，所见即所点）
         setMarkerLineHovered(hitPlaybackMarker(canvasPos.x, canvasPos.y));
-        applyGesture(session.move({ x: canvasPos.x, y: canvasPos.y }));
+        applyGesture(session.move({ x: canvasPos.x, y: canvasPos.y, altKey: e.altKey }));
     };
 
-    const handlePointerUp = (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean } | null) => {
+    const handlePointerUp = (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean } | null) => {
         if (!e) { applyGesture(session.end(null)); return; }
         const pos = cssToCanvas(e);
         applyGesture(session.end(pos ? {
             x: pos.x, y: pos.y, button: e.button,
             shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey,
+            altKey: e.altKey,
         } : null));
     };
 
@@ -576,6 +610,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             target.configure({ surface: surf, dpr });
         }
 
+        const sessionSnap = session.getSnapshot();
         const view: FrameView = {
             geometry,
             viewport: vp,
@@ -583,7 +618,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             chartEndBeat,
             notes,
             selectedItems,
-            selectionBox: gestureSnap.selectionBox,
+            selectionBox: sessionSnap.selectionBox,
             slideBuffer,
             hoverPos,
             frozenCursor: lastLegalPxRef.current
@@ -595,17 +630,19 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                 : null,
             hoverItem,
             clipboard,
+            // issue 186：片段粘贴态的幽灵载荷（含将写入的 BPM 线）按落点现算，见 pastePayloadAt
+            pastePayloadAt,
             markerSeconds,
             markerHovered,
             armedTool,
             // issue 143 补修：就地编辑中的那条 BPM 不画沟槽数值（让位给下面的 HTML 输入框）
             bpmEditBeat: bpmEdit?.beat ?? null,
             expandedBpmGroupKey,
-            rightButtonHeld: gestureSnap.rightButtonHeld,
-            dragGhost: gestureSnap.dragGhost,
+            rightButtonHeld: sessionSnap.rightButtonHeld,
+            dragGhost: sessionSnap.dragGhost,
             curveDraft, curveConfig, // issue 09 S2：曲线工具预览
-            penPreview: gestureSnap.penPreview,
-            penActive: gestureSnap.penActive,
+            penPreview: sessionSnap.penPreview,
+            penActive: sessionSnap.penActive,
             spriteIcon: spriteIcon.current,
             noteIcons,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
@@ -619,7 +656,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         target.renderFrame(view);
-    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, displayOptions, display.imageQuality, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
+    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, pastePayloadAt, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, displayOptions, display.imageQuality, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
     renderCanvasRef.current = renderCanvas;
 
     useEffect(() => {
@@ -665,19 +702,6 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 不再另挂一套 mouseup，避免与 window 手势双提交。
 
     const handleWheel = useCallback((e: WheelEvent) => {
-        // issue 110：**Shift+滚轮 = 纵向滚动**（浏览器把它映射成横向 → 被容器的 overflowX:hidden 吃掉）。
-        // 放在画布这里处理，是因为本监听器是 passive:false —— 能 preventDefault 掉原生横向滚动，
-        // 于是"转回纵向"不会与原生滚动叠加成双倍；滚动量取 |deltaX| / |deltaY| 的较大者（跨平台：
-        // 有些平台做横向映射、有些保留 deltaY），统一归一到纵向。
-        if (e.shiftKey) {
-            const host = scrollHostRef?.current;
-            if (!host) return;
-            const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-            if (delta === 0) return;
-            e.preventDefault();
-            host.scrollTop += delta;
-            return;
-        }
         // Ctrl+滚轮 = 缩放；普通滚动交给父容器（原生）
         if (e.ctrlKey) {
             e.preventDefault();
@@ -701,9 +725,38 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             zoomGestureUntilRef.current = performance.now() + 240;
             if (zoomSettleTimerRef.current !== undefined) clearTimeout(zoomSettleTimerRef.current);
             zoomSettleTimerRef.current = window.setTimeout(() => setRenderTick(t => t + 1), 250);
+            return;
+        }
+
+        const invert = display.invertWheel ?? false;
+
+        // issue 110：**Shift+滚轮 = 纵向滚动**（浏览器把它映射成横向 → 被容器的 overflowX:hidden 吃掉）。
+        // 放在画布这里处理，是因为本监听器是 passive:false —— 能 preventDefault 掉原生横向滚动，
+        // 于是"转回纵向"不会与原生滚动叠加成双倍；滚动量取 |deltaX| / |deltaY| 的较大者（跨平台：
+        // 有些平台做横向映射、有些保留 deltaY），统一归一到纵向。
+        // issue 200：invertWheel 开启时，与普通滚动同频反转。
+        if (e.shiftKey) {
+            const host = scrollHostRef?.current;
+            if (!host) return;
+            const rawDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            if (rawDelta === 0) return;
+            e.preventDefault();
+            const delta = invert ? -rawDelta : rawDelta;
+            host.scrollTop += delta;
+            return;
+        }
+
+        // issue 200：开启滚轮反转时，拦截普通纵向滚动并取反（仅作用于纵向 deltaY，不劫持触控板横向手势）
+        if (invert) {
+            const host = scrollHostRef?.current;
+            if (!host) return;
+            if (e.deltaY === 0) return;
+            e.preventDefault();
+            host.scrollTop -= e.deltaY;
+            return;
         }
         // 普通滚轮滚动由父容器处理，不在这里处理
-    }, [geometry, viewport, setScale]);
+    }, [geometry, viewport, setScale, display.invertWheel, scrollHostRef]);
 
     // 暴露方法给父组件（候选 1 收窄 + ADR-0008 执行键入口；factory 每次渲染重建 → 闭包恒新）
     useImperativeHandle(ref, () => ({
@@ -712,6 +765,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / viewport.scale, scrollY));
             scrollYRef.current = newScrollY;
             if (playbackActiveRef.current) {
+                // issue 198：播放帧同步通知手势内核实时视口，避免框选起点/落点基于陈旧 React viewport 计算出负数
+                session.onViewportChange(liveViewport(), geometry, surf);
                 renderCanvasRef.current();
                 return;
             }
@@ -806,7 +861,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             applyOps(clickOps({
                 tool: 'paste', notes, hit: null,
                 pos: { beat: cursor.beat, lane: cursor.lane },
-                slideBuffer: null, lastBpm: lastBpmRef.current, clipboard,
+                slideBuffer: null, lastBpm: lastBpmRef.current, clipboard, pastePattern,
                 chartEndBeat, beatDisplay, selectedItems,
             }));
         },
@@ -1103,7 +1158,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                     )}
                 </div>
 
-                {/* 画布实时信息叠加层（issue 22 / issue 188）：常显，不拦截指针 */}
+                {/* 画布实时信息叠加层（issue 22 / issue 188）：常显，不拦截指针。
+                    issue 179：左下 = 判定线处 BPM（时间与播放条时间码重复，已删），右下 = 已过 / 总数 */}
                 <CanvasPlayheadHud geometry={geometry} notes={notes} />
             </div>
         </div>

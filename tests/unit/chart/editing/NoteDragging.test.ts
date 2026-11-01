@@ -745,3 +745,202 @@ describe('planDragMove · 整组刚体贴墙（与粘贴同口径）', () => {
     expect((r.notes[1] as { lane: number }).lane).toBe(6);
   });
 });
+
+describe('planDragMove · 同拍中间结点拖动与弱序时序（issue 202）', () => {
+  const userSlide = (): ChartNote => ({
+    type: 'Slide',
+    connections: [
+      { beat: 0.5, lane: 5, subBeat: 0 },
+      { beat: 0.75, lane: 2, subBeat: 0 },
+      { beat: 0.75, lane: 5, subBeat: 0 },
+      { beat: 1, lane: 1, subBeat: 0 },
+      { beat: 1, lane: 4, subBeat: 0 },
+      { beat: 1.25, lane: 3, subBeat: 0 },
+    ],
+  });
+
+  const nodeItem = (ci: number): SelectionItem => ({ kind: 'slideNode', noteIndex: 0, connIndex: ci });
+
+  it('用例 1（本绿条 4 个中间结点单拖横向变轨）', () => {
+    // 结点 1: (0.75, 2) -> lane 3
+    const r1 = planDragMove([userSlide()], [nodeItem(1)], { dBeat: 0, dLane: 1 }, B);
+    expect(r1.ok).toBe(true);
+    expect((r1.notes[0] as SlideNote).connections[1].lane).toBe(3);
+    expect((r1.notes[0] as SlideNote).connections[1].beat).toBe(0.75);
+
+    // 结点 2: (0.75, 5) -> lane 4
+    const r2 = planDragMove([userSlide()], [nodeItem(2)], { dBeat: 0, dLane: -1 }, B);
+    expect(r2.ok).toBe(true);
+    expect((r2.notes[0] as SlideNote).connections[2].lane).toBe(4);
+
+    // 结点 3: (1, 1) -> lane 2
+    const r3 = planDragMove([userSlide()], [nodeItem(3)], { dBeat: 0, dLane: 1 }, B);
+    expect(r3.ok).toBe(true);
+    expect((r3.notes[0] as SlideNote).connections[3].lane).toBe(2);
+
+    // 结点 4: (1, 4) -> lane 3
+    const r4 = planDragMove([userSlide()], [nodeItem(4)], { dBeat: 0, dLane: -1 }, B);
+    expect(r4.ok).toBe(true);
+    expect((r4.notes[0] as SlideNote).connections[4].lane).toBe(3);
+  });
+
+  it('用例 2（本绿条同拍同轨碰撞回弹 · 策略 A）', () => {
+    // 结点 1: (0.75, 2) 移到 lane 5（撞同拍结点 2 的轨道）-> collision
+    const r1 = planDragMove([userSlide()], [nodeItem(1)], { dBeat: 0, dLane: 3 }, B);
+    expect(r1.ok).toBe(false);
+    expect(r1.reason).toBe('collision');
+
+    // 结点 2: (0.75, 5) 移到 lane 2（撞同拍结点 1 的轨道）-> collision
+    const r2 = planDragMove([userSlide()], [nodeItem(2)], { dBeat: 0, dLane: -3 }, B);
+    expect(r2.ok).toBe(false);
+    expect(r2.reason).toBe('collision');
+  });
+
+  it('用例 3（本绿条纵向弱序边界）', () => {
+    const B8 = { chartEndBeat: 16, beatDisplay: 8 };
+
+    // 结点 1 移至 0.625（合法开阔区）
+    const rValid = planDragMove([userSlide()], [nodeItem(1)], { dBeat: -0.125, dLane: 0 }, B8);
+    expect(rValid.ok).toBe(true);
+    expect((rValid.notes[0] as SlideNote).connections[1].beat).toBe(0.625);
+
+    // 结点 1 移至 0.5 (lane 2)，与结点 0 (0.5, lane 5) 同拍不同轨 -> 允许拖成同拍 (Q3)
+    const rSameBeat = planDragMove([userSlide()], [nodeItem(1)], { dBeat: -0.25, dLane: 0 }, B8);
+    expect(rSameBeat.ok).toBe(true);
+    expect((rSameBeat.notes[0] as SlideNote).connections[1].beat).toBe(0.5);
+
+    // 结点 1 移至 0.5 (lane 5)，撞结点 0 (0.5, lane 5) -> collision
+    const rCol = planDragMove([userSlide()], [nodeItem(1)], { dBeat: -0.25, dLane: 3 }, B8);
+    expect(rCol.ok).toBe(false);
+    expect(rCol.reason).toBe('collision');
+
+    // 结点 1 移至 0.375（越过结点 0 beat 0.5）-> out-of-bounds
+    const rUnder = planDragMove([userSlide()], [nodeItem(1)], { dBeat: -0.375, dLane: 0 }, B8);
+    expect(rUnder.ok).toBe(false);
+    expect(rUnder.reason).toBe('out-of-bounds');
+
+    // 结点 1 移至 0.875（越过同拍伙伴结点 2 beat 0.75）-> out-of-bounds
+    const rOver = planDragMove([userSlide()], [nodeItem(1)], { dBeat: 0.125, dLane: 0 }, B8);
+    expect(rOver.ok).toBe(false);
+    expect(rOver.reason).toBe('out-of-bounds');
+  });
+
+  it('用例 4（多选组拖联动 · Q4 组内互免）', () => {
+    const B8 = { chartEndBeat: 16, beatDisplay: 8 };
+    const items = [nodeItem(1), nodeItem(2)];
+
+    // 组拖横向平移 (+1 轨)：(0.75, 2)->3, (0.75, 5)->6
+    const rLane = planDragMove([userSlide()], items, { dBeat: 0, dLane: 1 }, B8);
+    expect(rLane.ok).toBe(true);
+    expect((rLane.notes[0] as SlideNote).connections[1].lane).toBe(3);
+    expect((rLane.notes[0] as SlideNote).connections[2].lane).toBe(6);
+
+    // 组拖纵向平移 (+0.125 拍)：(0.75, 2)->0.875, (0.75, 5)->0.875
+    const rBeat = planDragMove([userSlide()], items, { dBeat: 0.125, dLane: 0 }, B8);
+    expect(rBeat.ok).toBe(true);
+    expect((rBeat.notes[0] as SlideNote).connections[1].beat).toBe(0.875);
+    expect((rBeat.notes[0] as SlideNote).connections[2].beat).toBe(0.875);
+
+    // 组拖越过外部后邻居结点 3 (beat 1) -> out-of-bounds
+    const rOver = planDragMove([userSlide()], items, { dBeat: 0.375, dLane: 0 }, B8);
+    expect(rOver.ok).toBe(false);
+    expect(rOver.reason).toBe('out-of-bounds');
+  });
+
+  it('用例 5（普通滑条吸附成同拍 · Q3 允许）', () => {
+    const s = slide(1, 1, 2, 2, 3, 3);
+    // 将中间结点 (2, 2) 拖至 beat 1 (lane 4)
+    const r = planDragMove([s], [nodeItem(1)], { dBeat: -1, dLane: 2 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as SlideNote).connections.map(c => [c.beat, c.lane])).toEqual([[1, 1], [1, 4], [3, 3]]);
+
+    // 若拖至 beat 1 (lane 1)，与端点重叠同轨 -> collision
+    const rCol = planDragMove([s], [nodeItem(1)], { dBeat: -1, dLane: -1 }, B);
+    expect(rCol.ok).toBe(false);
+    expect(rCol.reason).toBe('collision');
+  });
+});
+
+describe('issue 203 · planDragMove 拖段圆滑与三角模式派发', () => {
+  const plainSlide = (): ChartNote => ({
+    type: 'Slide',
+    connections: [{ beat: 1, lane: 2, subBeat: 0 }, { beat: 2, lane: 2, subBeat: 0 }],
+  } as ChartNote);
+
+  it('默认或 pinchMode=smooth 传入 pinchCursor 时派发圆滑捏形，曲线穿过光标且无尖角', () => {
+    const notes = [plainSlide()];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }],
+      {
+        dBeat: 0,
+        dLane: 0,
+        pinchCursor: { pressBeat: 1.5, pressLane: 2, curBeat: 1.5, curLane: 3.5 },
+      },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.ghost).toBeDefined();
+    const s = r.notes[0] as SlideNote;
+    const mid = s.connections.find(c => Math.abs(c.beat - 1.5) < 1e-9)!;
+    expect(mid.lane).toBeCloseTo(3.5, 6);
+  });
+
+  it('连续小数 lane 拖动：即使整轨 dLane=0，只要 pinchCursor 有偏移仍能产生幽灵', () => {
+    const notes = [plainSlide()];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }],
+      {
+        dBeat: 0,
+        dLane: 0,
+        pinchCursor: { pressBeat: 1.5, pressLane: 2, curBeat: 1.5, curLane: 2.4 },
+      },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.ghost).toBeDefined();
+    const s = r.notes[0] as SlideNote;
+    const mid = s.connections.find(c => Math.abs(c.beat - 1.5) < 1e-9)!;
+    expect(mid.lane).toBeCloseTo(2.4, 6);
+  });
+
+  it('pinchMode=triangle 派发三角捏形，支持小数 exactDLane', () => {
+    const notes = [plainSlide()];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }],
+      {
+        dBeat: 0,
+        dLane: 0,
+        pinchMode: 'triangle',
+        exactDLane: 1.5,
+        grabBeat: 1.5,
+      },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    const mid = s.connections.find(c => Math.abs(c.beat - 1.5) < 1e-9)!;
+    expect(mid.lane).toBeCloseTo(3.5, 9); // 2 + 1.5
+  });
+
+  it('非 slideRegion（如普通音符拖拽）不受 pinchMode/pinchCursor 干扰，保持整数 dLane 行为', () => {
+    const notes: ChartNote[] = [single(1, 2)];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'note', noteIndex: 0 }],
+      {
+        dBeat: 1,
+        dLane: 2,
+        pinchMode: 'smooth',
+        pinchCursor: { pressBeat: 1, pressLane: 2, curBeat: 2, curLane: 4 },
+      },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.notes[0]).toMatchObject({ beat: 2, lane: 4 });
+  });
+});
+
+
