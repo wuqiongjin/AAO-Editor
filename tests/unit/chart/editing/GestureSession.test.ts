@@ -826,5 +826,58 @@ describe('issue 203 · 拖段捏形与 Alt 实时切换', () => {
     const committed = setNotes.notes.find((n) => n.type === 'Slide') as SlideNote;
     expect(committed.connections.map(c => c.lane)).toEqual(smoothSlide.connections.map(c => c.lane));
   });
+
+  it('pinchMode 为 triangle 时：默认三角捏形，按住 Alt 切换为圆滑捏形', () => {
+    // 先获取默认 smooth 下的 smooth 和 triangle 参考连线
+    const notesRef = [bpmNote(0, 120), slideNote];
+    const { world: worldRef, at: atRef, virt: virtRef } = worldOf(notesRef);
+    const { host: hostRef } = makeHost();
+    const sRef = new GestureSession(hostRef);
+    sRef.bindWorld(worldRef);
+    const p0 = atRef(2, 51);
+    const p1 = atRef(4, 51);
+    press(sRef, p0, virtRef);
+    sRef.move(p1);
+    const refSmoothLanes = (sRef.getSnapshot().dragGhost![0] as SlideNote).connections.map((c) => c.lane);
+    sRef.onAltChange(true);
+    const refTriangleLanes = (sRef.getSnapshot().dragGhost![0] as SlideNote).connections.map((c) => c.lane);
+    expect(refSmoothLanes).not.toEqual(refTriangleLanes);
+
+    // 在 pinchMode: 'triangle' 下测试：默认应为 refTriangleLanes，按住 Alt 应为 refSmoothLanes
+    const notes = [bpmNote(0, 120), slideNote];
+    const { world, at, virt } = worldOf(notes, { pinchMode: 'triangle' });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p0Tri = at(2, 51);
+    const p1Tri = at(4, 51);
+    press(s, p0Tri, virt);
+    s.move(p1Tri);
+    const triGhost = s.getSnapshot().dragGhost;
+    expect(triGhost).not.toBeNull();
+    const triSlide = triGhost![0] as SlideNote;
+    expect(triSlide.connections.map((c) => c.lane)).toEqual(refTriangleLanes);
+
+    // Alt 按下 -> 反转为圆滑捏形
+    s.onAltChange(true);
+    const smoothGhost = s.getSnapshot().dragGhost;
+    expect(smoothGhost).not.toBeNull();
+    const smoothSlide = smoothGhost![0] as SlideNote;
+    expect(smoothSlide.connections.map((c) => c.lane)).toEqual(refSmoothLanes);
+
+    // Alt 松开 -> 恢复三角捏形
+    s.onAltChange(false);
+    const restoredGhost = s.getSnapshot().dragGhost;
+    const restoredSlide = restoredGhost![0] as SlideNote;
+    expect(restoredSlide.connections.map((c) => c.lane)).toEqual(refTriangleLanes);
+
+    // 抬手提交为三角捏形
+    const r = s.end(up(p1Tri));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    const committed = setNotes.notes.find((n) => n.type === 'Slide') as SlideNote;
+    expect(committed.connections.map((c) => c.lane)).toEqual(refTriangleLanes);
+  });
 });
 

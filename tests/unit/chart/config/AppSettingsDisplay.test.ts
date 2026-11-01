@@ -82,3 +82,59 @@ describe('issue 200 · settings.display 扩展（timePrecision & invertWheel）'
     expect(options.timePrecision).toBe('millisecond');
   });
 });
+
+describe('issue 204 · settings.display 扩展（pinchMode 滑条拖拽变形风格）', () => {
+  it('出厂默认：pinchMode 为 smooth', () => {
+    const defaults = defaultSettings().display;
+    expect(defaults.pinchMode).toBe('smooth');
+  });
+
+  it('老设置文件缺省字段时回退到 smooth', () => {
+    const st = memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: { noteSize: 1.2 },
+    }));
+    const loaded = loadSettings(st);
+    expect(loaded.display.pinchMode).toBe('smooth');
+  });
+
+  it('非法值归一化回退：pinchMode 仅认 smooth/triangle，其余回退 smooth', () => {
+    const st = memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: {
+        pinchMode: 'invalid_mode',
+      },
+    }));
+    const loaded = loadSettings(st);
+    expect(loaded.display.pinchMode).toBe('smooth');
+
+    const validTriangle = loadSettings(memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: { pinchMode: 'triangle' },
+    })));
+    expect(validTriangle.display.pinchMode).toBe('triangle');
+  });
+
+  it('有效配置往返持久化保真', () => {
+    const st = memStorage();
+    const next: AppSettings = {
+      ...defaultSettings(),
+      display: {
+        ...defaultSettings().display,
+        pinchMode: 'triangle',
+      },
+    };
+    saveSettings(next, st);
+    const loaded = loadSettings(st);
+    expect(loaded.display.pinchMode).toBe('triangle');
+  });
+
+  it('updateSettings 增量合并，不抹除 display 其它字段', () => {
+    const base = defaultSettings();
+    const updated = updateSettings(base, {
+      display: { pinchMode: 'triangle' },
+    });
+    expect(updated.display.pinchMode).toBe('triangle');
+    expect(updated.display.noteSize).toBe(base.display.noteSize);
+  });
+});

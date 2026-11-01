@@ -54,6 +54,7 @@
   box-sizing: border-box;
   max-height: min(72vh, 640px);
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 6px;
   background-color: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
   backdrop-filter: blur(12px);
@@ -110,6 +111,12 @@
   font-weight: 600;
 }
 
+.wdp__row-label--with-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* 面板内的滑杆与下拉框样式 */
 .wdp__panel .slider-control {
   flex: 0 0 148px;
@@ -134,6 +141,17 @@
   min-height: 28px;
   max-width: 132px;
   font-size: var(--text-xs);
+}
+
+/* 操作偏好气泡：微调宽度与偏移，箭头精准对齐 ? 按钮居中，在 320px 面板内完整呈现不截断 */
+.wdp__panel .dialog-field__popover {
+  width: 220px;
+  left: -80px;
+}
+
+.wdp__panel .dialog-field__popover::after,
+.wdp__panel .dialog-field__popover::before {
+  left: 88px;
 }
 
 /* 恢复默认底部行：固定稳定高度，二次确认切换 0 抖动 0 收缩 */

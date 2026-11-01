@@ -42,6 +42,8 @@ const labelScaleSlider = () => within(panel()).getByRole('slider', { name: '文�
 const timePrecisionSelect = () => within(panel()).getByRole('combobox', { name: '时间显示精度' });
 const seVolumeSlider = () => within(panel()).getByRole('slider', { name: '节奏图示 SE 音量' });
 const invertWheelSwitch = () => within(panel()).getByRole('switch', { name: '反转滚轮方向' });
+const pinchModeSelect = () => within(panel()).getByRole('combobox', { name: '滑条拖拽变形风格' });
+const pinchModeHelpBtn = () => within(panel()).getByRole('button', { name: /设置在画布上直接拖拽滑条连接段时的默认形态/ });
 const resetBtn = () => within(panel()).getByRole('button', { name: '恢复默认' });
 
 describe('issue 170 · 工作台画布显示浮层面板', () => {
@@ -87,6 +89,8 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(timePrecisionSelect()).toHaveValue(defaults.timePrecision);
     expect(seVolumeSlider()).toHaveValue(String(Math.round(defaultSettings().audio.seVolume * 100)));
     expect(invertWheelSwitch()).toHaveAttribute('aria-checked', String(defaults.invertWheel));
+    expect(pinchModeSelect()).toHaveValue(defaults.pinchMode);
+    expect(pinchModeHelpBtn()).toBeInTheDocument();
     expect(resetBtn()).toBeInTheDocument();
   });
 
@@ -141,6 +145,10 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     // 调整反转滚轮
     fireEvent.click(invertWheelSwitch());
     expect(stored().display.invertWheel).toBe(true);
+
+    // 调整滑条拖拽变形风格
+    fireEvent.change(pinchModeSelect(), { target: { value: 'triangle' } });
+    expect(stored().display.pinchMode).toBe('triangle');
   });
 
   it('恢复出厂默认：带二次确认；确认后重置画布与显示项，不重置音频与播放条', () => {
@@ -151,12 +159,14 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     fireEvent.change(gridStyleSelect(), { target: { value: 'cyan' } });
     fireEvent.change(timePrecisionSelect(), { target: { value: 'millisecond' } });
     fireEvent.click(invertWheelSwitch());
+    fireEvent.change(pinchModeSelect(), { target: { value: 'triangle' } });
     fireEvent.change(seVolumeSlider(), { target: { value: '70' } });
 
     expect(stored().display.noteSize).toBe(1.6);
     expect(stored().display.gridStyle).toBe('cyan');
     expect(stored().display.timePrecision).toBe('millisecond');
     expect(stored().display.invertWheel).toBe(true);
+    expect(stored().display.pinchMode).toBe('triangle');
     expect(stored().audio.seVolume).toBe(0.7);
 
     // 点恢复默认，弹出二次确认
@@ -170,6 +180,7 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     fireEvent.click(cancelBtn);
     expect(stored().display.noteSize).toBe(1.6);
     expect(stored().display.timePrecision).toBe('millisecond');
+    expect(stored().display.pinchMode).toBe('triangle');
     expect(stored().audio.seVolume).toBe(0.7);
 
     // 再次点恢复默认并确认
@@ -182,8 +193,41 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(stored().display.slideOpacity).toBe(defaults.slideOpacity);
     expect(stored().display.timePrecision).toBe('standard');
     expect(stored().display.invertWheel).toBe(false);
+    expect(stored().display.pinchMode).toBe('smooth');
     // 音频 SE 音量保持用户设置不变
     expect(stored().audio.seVolume).toBe(0.7);
+  });
+
+  it('issue 204 · 滑条拖拽变形风格配置项与帮助气泡展开收起', () => {
+    setup();
+    const select = pinchModeSelect();
+    expect(select).toBeInTheDocument();
+    expect(select).toHaveValue('smooth');
+
+    const options = within(select).getAllByRole('option');
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveValue('smooth');
+    expect(options[0]).toHaveTextContent('圆滑曲线');
+    expect(options[1]).toHaveValue('triangle');
+    expect(options[1]).toHaveTextContent('三角拉弓');
+
+    // 帮助气泡交互
+    const helpBtn = pinchModeHelpBtn();
+    expect(helpBtn).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    // 点击打开帮助气泡
+    fireEvent.click(helpBtn);
+    expect(helpBtn).toHaveAttribute('aria-expanded', 'true');
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toBeInTheDocument();
+    expect(tooltip).toHaveTextContent('直接拖拽滑条连接段时的默认形态');
+    expect(tooltip).toHaveTextContent('Alt');
+
+    // 再次点击收起帮助气泡
+    fireEvent.click(helpBtn);
+    expect(helpBtn).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
 
   it('issue 200：浮层按「画布 / 播放与音频 / 操作偏好」三组排布；修改各组项正常写盘；恢复默认仅重置画布段', () => {

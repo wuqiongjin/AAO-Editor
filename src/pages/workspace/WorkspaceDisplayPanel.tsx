@@ -3,8 +3,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { createPortal } from 'react-dom';
 import { RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
-import { defaultSettings, type AppSettings, type TimePrecision } from '../../chart/config/AppSettings';
+import { defaultSettings, type AppSettings, type PinchMode, type TimePrecision } from '../../chart/config/AppSettings';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
+import HelpHint from '../../ui/HelpHint';
 import { t, type MessageKey } from '../../i18n';
 import './WorkspaceDisplayPanel.css';
 
@@ -18,6 +19,12 @@ const QUALITY_OPTIONS: ReadonlyArray<{ value: AppSettings['display']['imageQuali
 /** 轨道颜色主题选项（从 GRID_STYLE_PRESETS 派生） */
 const GRID_OPTIONS: ReadonlyArray<{ value: GridStylePreset; labelKey: MessageKey }> =
   GRID_STYLE_PRESETS.map((value) => ({ value, labelKey: `settings.gridStyle.${value}` as MessageKey }));
+
+/** 滑条拖拽变形风格选项（映射至 settings.pinchMode.* 键） */
+const PINCH_MODE_OPTIONS: ReadonlyArray<{ value: PinchMode; labelKey: MessageKey }> = [
+  { value: 'smooth', labelKey: 'settings.pinchMode.smooth' },
+  { value: 'triangle', labelKey: 'settings.pinchMode.triangle' },
+];
 
 /** 面板内容宽 */
 const PANEL_W = 320;
@@ -34,11 +41,14 @@ export function panelLayoutFor(rect: { right: number; bottom: number }) {
   return { top: rect.bottom + 3, left };
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function Row({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
   return (
     <div className="wdp__row">
       <div className="wdp__row-text">
-        <strong>{label}</strong>
+        <strong className={hint ? 'wdp__row-label--with-hint' : undefined}>
+          {label}
+          {hint}
+        </strong>
       </div>
       {children}
     </div>
@@ -178,6 +188,10 @@ export default memo(function WorkspaceDisplayPanel() {
     { value: 'centisecond', label: t('settings.timePrecision.centisecond') },
     { value: 'millisecond', label: t('settings.timePrecision.millisecond') },
   ], []);
+  const pinchModeOptions = useMemo(
+    () => PINCH_MODE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+    [],
+  );
 
   const handleReset = () => {
     setDisplay(defaultSettings().display);
@@ -336,6 +350,17 @@ export default memo(function WorkspaceDisplayPanel() {
                   label={t('settings.invertWheel')}
                   checked={display.invertWheel}
                   onChange={(invertWheel) => setDisplay({ invertWheel })}
+                />
+              </Row>
+              <Row
+                label={t('settings.pinchMode')}
+                hint={<HelpHint text={t('settings.pinchMode.hint')} placement="up" />}
+              >
+                <Select<PinchMode>
+                  label={t('settings.pinchMode')}
+                  value={display.pinchMode}
+                  options={pinchModeOptions}
+                  onChange={(pinchMode) => setDisplay({ pinchMode })}
                 />
               </Row>
             </section>

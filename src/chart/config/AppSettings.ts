@@ -21,6 +21,9 @@ import { type TimePrecision } from '../geometry/TimeFormat';
 export type { TimePrecision } from '../geometry/TimeFormat';
 export const TIME_PRECISIONS: readonly TimePrecision[] = ['standard', 'centisecond', 'millisecond'] as const;
 
+export type PinchMode = 'smooth' | 'triangle';
+export const PINCH_MODES: readonly PinchMode[] = ['smooth', 'triangle'] as const;
+
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */
 export const DEFAULT_BACKGROUND_OPACITY = 0.55;
 /** 背景填充方式缺省：cover 铺满裁剪 */
@@ -130,6 +133,8 @@ export interface AppSettings {
     timePrecision: TimePrecision;
     /** 滚轮反转（issue 200）：是否反转时间轴纵向滚动方向，默认 false */
     invertWheel: boolean;
+    /** 滑条拖拽变形风格（issue 204）：'smooth' (圆滑曲线) | 'triangle' (三角拉弓)，默认 smooth */
+    pinchMode: PinchMode;
   };
   /** 素材域（issue 29 音符皮肤）：六条目 → 皮肤包 id。包合法性由 renderer/noteSkin.ts 归一化（缺省/非法回退默认包） */
   visual: {
@@ -497,6 +502,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
       labelScale: 1,
       timePrecision: 'standard',
       invertWheel: false,
+      pinchMode: 'smooth',
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
@@ -595,6 +601,9 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
         ? (display.timePrecision as TimePrecision)
         : defaults.display.timePrecision,
       invertWheel: typeof display.invertWheel === 'boolean' ? display.invertWheel : defaults.display.invertWheel,
+      pinchMode: (PINCH_MODES as readonly unknown[]).includes(display.pinchMode)
+        ? (display.pinchMode as PinchMode)
+        : defaults.display.pinchMode,
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),

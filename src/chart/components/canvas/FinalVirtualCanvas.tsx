@@ -449,6 +449,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         slideBuffer: bufferPoint, curveDraft, curveConfig,
         lastBpm: lastBpmRef.current, noteSize: display.noteSize,
         hitPlaybackMarker, hitBpmGutter, expandedBpmGroupKey,
+        pinchMode: display.pinchMode,
     });
 
     // ---------------- issue 63：手势期间的隐式指针捕获 ----------------

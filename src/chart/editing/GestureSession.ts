@@ -18,6 +18,7 @@ import {
   type SlidePoint,
 } from './ToolActionMatrix';
 import { placeSpanWithCombination, type CurveConfig, type CurveDraft } from './CurveTool';
+import type { PinchMode } from '../config/AppSettings';
 import type { PatternPasteRequest } from '../patterns/paste';
 import { buildPenSlide } from './SpanCurve';
 import {
@@ -103,6 +104,8 @@ export interface GestureWorld {
   hitPlaybackMarker: (cx: number, cy: number) => boolean;
   hitBpmGutter: (cx: number, cy: number) => BpmGutterHit | null;
   expandedBpmGroupKey: number | null;
+  /** issue 204：滑条拖拽变形风格，默认 'smooth' */
+  pinchMode?: PinchMode;
 }
 
 export interface GestureBeginInput {
@@ -730,6 +733,10 @@ export class GestureSession {
     const rawCurLane = w.geometry.continuousLaneFromCanvas(mx, w.viewport);
     const pressLane = drag.rawPressLane ?? drag.pressLane;
     const isRegion = drag.items.length === 1 && drag.items[0]!.kind === 'slideRegion';
+    const defaultMode = w.pinchMode ?? 'smooth';
+    const pinchMode: PinchMode = altKey
+      ? (defaultMode === 'smooth' ? 'triangle' : 'smooth')
+      : defaultMode;
 
     return {
       dBeat: dragDeltaBeat({
@@ -741,7 +748,7 @@ export class GestureSession {
       dLane: cur.lane - drag.pressLane,
       grabBeat: drag.rawPressBeat,
       ...(isRegion ? {
-        pinchMode: altKey ? 'triangle' as const : 'smooth' as const,
+        pinchMode,
         pinchCursor: {
           pressBeat: drag.rawPressBeat,
           pressLane,
