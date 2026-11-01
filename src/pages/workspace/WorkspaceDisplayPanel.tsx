@@ -2,11 +2,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { useOptionalAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
 import { defaultSettings, type AppSettings, type PinchMode, type TimePrecision } from '../../chart/config/AppSettings';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
+import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
 import HelpHint from '../../ui/HelpHint';
-import { t, type MessageKey } from '../../i18n';
+import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
 import './WorkspaceDisplayPanel.css';
 
 /** 画质档选项（映射至 settings.imageQuality.* 键） */
@@ -180,6 +182,12 @@ export default memo(function WorkspaceDisplayPanel() {
   }, [open, close]);
 
   const { display } = settings;
+  const nav = useOptionalAppNav();
+  const lang = getActiveUiLanguage();
+  const skinName = useMemo(
+    () => noteSkinPresetLabel(normalizeNoteSkinSelection(settings.visual?.noteSkin)) ?? t('preview.display.skin.custom'),
+    [settings.visual?.noteSkin, lang],
+  );
 
   const qualityOptions = useMemo(() => QUALITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
   const gridOptions = useMemo(() => GRID_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
@@ -267,27 +275,12 @@ export default memo(function WorkspaceDisplayPanel() {
                   onChange={(verticalRatio) => setDisplay({ verticalRatio })}
                 />
               </Row>
-              <Row label={t('settings.imageQuality')}>
-                <Select<AppSettings['display']['imageQuality']>
-                  label={t('settings.imageQuality')}
-                  value={display.imageQuality}
-                  options={qualityOptions}
-                  onChange={(imageQuality) => setDisplay({ imageQuality })}
-                />
-              </Row>
               <Row label={t('settings.gridStyle')}>
                 <Select<GridStylePreset>
                   label={t('settings.gridStyle')}
                   value={display.gridStyle}
                   options={gridOptions}
                   onChange={(gridStyle) => setDisplay({ gridStyle })}
-                />
-              </Row>
-              <Row label={t('settings.lineShapeTiers')}>
-                <Toggle
-                  label={t('settings.lineShapeTiers')}
-                  checked={display.lineShapeTiers}
-                  onChange={(lineShapeTiers) => setDisplay({ lineShapeTiers })}
                 />
               </Row>
               <Row label={t('settings.gridOpacity')}>
@@ -297,6 +290,13 @@ export default memo(function WorkspaceDisplayPanel() {
                   min={10}
                   max={100}
                   onChange={(gridOpacity) => setDisplay({ gridOpacity })}
+                />
+              </Row>
+              <Row label={t('settings.lineShapeTiers')}>
+                <Toggle
+                  label={t('settings.lineShapeTiers')}
+                  checked={display.lineShapeTiers}
+                  onChange={(lineShapeTiers) => setDisplay({ lineShapeTiers })}
                 />
               </Row>
               <Row label={t('settings.labelScale')}>
@@ -314,6 +314,14 @@ export default memo(function WorkspaceDisplayPanel() {
                   value={display.timePrecision}
                   options={precisionOptions}
                   onChange={(timePrecision) => setDisplay({ timePrecision })}
+                />
+              </Row>
+              <Row label={t('settings.imageQuality')}>
+                <Select<AppSettings['display']['imageQuality']>
+                  label={t('settings.imageQuality')}
+                  value={display.imageQuality}
+                  options={qualityOptions}
+                  onChange={(imageQuality) => setDisplay({ imageQuality })}
                 />
               </Row>
             </section>
@@ -362,6 +370,21 @@ export default memo(function WorkspaceDisplayPanel() {
                   options={pinchModeOptions}
                   onChange={(pinchMode) => setDisplay({ pinchMode })}
                 />
+              </Row>
+            </section>
+
+            <section className="wdp__group" aria-label={t('workspace.displayGroup.skin')}>
+              <div className="wdp__group-head">
+                <h3 className="wdp__group-title">{t('workspace.displayGroup.skin')}</h3>
+              </div>
+              <Row label={skinName}>
+                <button
+                  type="button"
+                  className="action-btn wdp__skin-open"
+                  onClick={() => { close(); nav?.setActivePage('assets'); }}
+                >
+                  {t('preview.display.skin.open')}
+                </button>
               </Row>
             </section>
 

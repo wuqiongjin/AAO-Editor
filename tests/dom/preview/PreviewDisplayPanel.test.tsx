@@ -69,10 +69,11 @@ interface StoredSettings {
   display: Record<string, unknown>;
   preview: Record<string, unknown>;
   export: Record<string, unknown>;
+  audio?: Record<string, unknown>;
 }
 
-function setup() {
-  seedZhSettings();
+function setup(patch: Record<string, unknown> = {}) {
+  seedZhSettings(patch);
   const setActivePage = vi.fn();
   const nav: AppNavValue = {
     activePage: 'preview', setActivePage, pageScope: null,
@@ -584,5 +585,86 @@ describe('issue 29 · 面板定位（盒宽对齐 + 开着时伸缩跟随）', (
 
     expect(panelLeft()).toBe(1180 - BOX_W - MARGIN);
     expect(panelLeft() + BOX_W).toBeLessThanOrEqual(1180 - MARGIN);
+  });
+});
+
+describe('issue 205 · 画布与预览设置浮层条目重构与三端对齐', () => {
+  it('静态预览：节拍线下拉选项扩充至 9 档（包含 1/3、1/6、1/12），选择后正确落盘', () => {
+    setup();
+    const options = within(beatSelect()).getAllByRole('option');
+    expect(options).toHaveLength(9);
+    expect(options.map((o) => o.textContent)).toEqual([
+      '关闭', '1/1', '1/2', '1/3', '1/4', '1/6', '1/8', '1/12', '1/16',
+    ]);
+
+    fireEvent.change(beatSelect(), { target: { value: '3' } });
+    expect(stored().preview.beatMarks).toBe(3);
+
+    fireEvent.change(beatSelect(), { target: { value: '12' } });
+    expect(stored().preview.beatMarks).toBe(12);
+  });
+
+  it('静态预览：底部具备两步确认恢复默认重置按钮（且不冲掉动态仿真设置）', () => {
+    setup({ preview: { beatMarks: 6, noteSpeed: 10.5 } });
+    expect(stored().preview.beatMarks).toBe(6);
+    expect(stored().preview.noteSpeed).toBe(10.5);
+
+    const resetBtn = within(panel()).getByRole('button', { name: '恢复默认' });
+    expect(resetBtn).toBeInTheDocument();
+    fireEvent.click(resetBtn);
+
+    const confirmBtn = within(panel()).getByRole('button', { name: '确认恢复' });
+    expect(confirmBtn).toBeInTheDocument();
+    fireEvent.click(confirmBtn);
+
+    expect(stored().preview.beatMarks).toBe(1); // 回落默认 1/1
+    expect(stored().preview.noteSpeed).toBe(10.5); // 动态项未被冲掉
+  });
+
+  it('动态预览：彻底剥离画布概念，按「舞台与仿真」和「音符与画质」组织，剔除无效 2D 项并接入 SE 音量', () => {
+    setupDynamic({ preview: { beatMarks: 12, noteSpeed: 11.0 } });
+
+    // 旧组名「画布显示」与「仿真场」不再存在
+    expect(within(panel()).queryByRole('region', { name: '画布显示' })).toBeNull();
+    expect(within(panel()).queryByRole('region', { name: '仿真场' })).toBeNull();
+
+    // 新组名存在
+    const stageGroup = within(panel()).getByRole('region', { name: '舞台与仿真' });
+    const notesGroup = within(panel()).getByRole('region', { name: '音符与画质' });
+    const skinGroup = within(panel()).getByRole('region', { name: '音符皮肤' });
+    expect(stageGroup).toBeInTheDocument();
+    expect(notesGroup).toBeInTheDocument();
+    expect(skinGroup).toBeInTheDocument();
+
+    // 无效项彻底被移除
+    expect(within(panel()).queryByRole('slider', { name: '纵向比例' })).toBeNull();
+    expect(within(panel()).queryByRole('combobox', { name: '轨道颜色' })).toBeNull();
+    expect(within(panel()).queryByRole('slider', { name: '轨道线透明度' })).toBeNull();
+
+    // 舞台与仿真组内包含音符速度、镜像、SE 音量、背景亮度、背景包、轨道包
+    expect(within(stageGroup).getByRole('spinbutton', { name: '音符速度' })).toBeInTheDocument();
+    expect(within(stageGroup).getByRole('switch', { name: '镜向' })).toBeInTheDocument();
+    const seSlider = within(stageGroup).getByRole('slider', { name: '节奏图示 SE 音量' });
+    expect(seSlider).toBeInTheDocument();
+    expect(within(stageGroup).getByRole('slider', { name: '背景亮度' })).toBeInTheDocument();
+
+    // 调节 SE 音量
+    fireEvent.change(seSlider, { target: { value: '85' } });
+    expect(stored().audio?.seVolume).toBe(0.85);
+
+    // 音符与画质组内包含音符大小、长压透明度、同时点击线、色觉辅助、图像品质
+    expect(within(notesGroup).getByRole('slider', { name: '节奏图示大小' })).toBeInTheDocument();
+    expect(within(notesGroup).getByRole('slider', { name: '长压线不透明度' })).toBeInTheDocument();
+    expect(within(notesGroup).getByRole('switch', { name: '同时点击线' })).toBeInTheDocument();
+    expect(within(notesGroup).getByRole('switch', { name: '色觉辅助' })).toBeInTheDocument();
+    expect(within(notesGroup).getByRole('combobox', { name: '图像品质' })).toBeInTheDocument();
+
+    // 动态预览重置：恢复动态项与 SE 音量，但不冲掉静态节拍线等标注项
+    const resetBtn = within(panel()).getByRole('button', { name: '恢复默认' });
+    fireEvent.click(resetBtn);
+    fireEvent.click(within(panel()).getByRole('button', { name: '确认恢复' }));
+    expect(stored().audio?.seVolume).toBe(defaultSettings().audio.seVolume);
+    expect(stored().preview.noteSpeed).toBe(defaultSettings().preview.noteSpeed);
+    expect(stored().preview.beatMarks).toBe(12); // 静态预览项未被冲掉
   });
 });

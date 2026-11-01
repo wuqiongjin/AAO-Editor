@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 // issue 170：工作台顶栏「画布显示」浮层面板行为锁
 import '@testing-library/jest-dom/vitest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { AppNavProvider } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import WorkspaceDisplayPanel from '@/src/pages/workspace/WorkspaceDisplayPanel';
 import { defaultSettings } from '@/src/chart/config/AppSettings';
@@ -276,6 +277,49 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
 
     // 点遮罩关
     fireEvent.click(scrim());
+    expect(screen.queryByRole('dialog', { name: '画布显示设置' })).not.toBeInTheDocument();
+  });
+
+  it('issue 205：新增音符皮肤分组与跳转，画布项按音符→轨道网格→读数画质顺化', () => {
+    seedZhSettings();
+    const setActivePage = vi.fn();
+    render(
+      <AppNavProvider value={{ activePage: 'workspace', setActivePage, pageScope: null, navCollapsed: false, setNavCollapsed: vi.fn() }}>
+        <ConfigProvider>
+          <WorkspaceDisplayPanel />
+        </ConfigProvider>
+      </AppNavProvider>,
+    );
+    fireEvent.click(trigger());
+
+    // 检查四个分组次序：画布 -> 播放与音频 -> 操作偏好 -> 音符皮肤
+    const canvasGroup = within(panel()).getByRole('region', { name: '画布' });
+    const audioGroup = within(panel()).getByRole('region', { name: '播放与音频' });
+    const prefGroup = within(panel()).getByRole('region', { name: '操作偏好' });
+    const skinGroup = within(panel()).getByRole('region', { name: '音符皮肤' });
+
+    expect(canvasGroup.compareDocumentPosition(audioGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(audioGroup.compareDocumentPosition(prefGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(prefGroup.compareDocumentPosition(skinGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(skinGroup.compareDocumentPosition(resetBtn()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // 画布项次序：音符外观 (noteSize, slideOpacity, dual, colorAssist) -> 轨道与网格 (verticalRatio, gridStyle, gridOpacity, lineShapeTiers) -> 读数与画质 (labelScale, timePrecision, imageQuality)
+    expect(noteSizeSlider().compareDocumentPosition(slideOpacitySlider()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(slideOpacitySlider().compareDocumentPosition(dualSwitch()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dualSwitch().compareDocumentPosition(colorAssistSwitch()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(colorAssistSwitch().compareDocumentPosition(verticalRatioSlider()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(verticalRatioSlider().compareDocumentPosition(gridStyleSelect()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(gridStyleSelect().compareDocumentPosition(gridOpacitySlider()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(gridOpacitySlider().compareDocumentPosition(lineShapeTiersSwitch()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(lineShapeTiersSwitch().compareDocumentPosition(labelScaleSlider()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(labelScaleSlider().compareDocumentPosition(timePrecisionSelect()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(timePrecisionSelect().compareDocumentPosition(qualitySelect()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // 音符皮肤跳转
+    const skinOpenBtn = within(skinGroup).getByRole('button', { name: '去素材页' });
+    expect(skinOpenBtn).toBeInTheDocument();
+    fireEvent.click(skinOpenBtn);
+    expect(setActivePage).toHaveBeenCalledWith('assets');
     expect(screen.queryByRole('dialog', { name: '画布显示设置' })).not.toBeInTheDocument();
   });
 });

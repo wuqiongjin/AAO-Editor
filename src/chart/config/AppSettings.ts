@@ -399,11 +399,13 @@ export function normalizeBgBrightness(
 
 /** Time 标记间隔（秒）——照 Bestdori 的 `chartTime`：off / 1s / 2s / 5s / 10s（chart-preview 08） */
 export type PreviewTimeMarkInterval = 'off' | 1 | 2 | 5 | 10;
-/** Beat 标记细分档 —— 照 Bestdori 的 `chartBeat`：off / 1/1 / 1/2 / 1/3 / 1/4 / 1/6（chart-preview 08） */
-export type PreviewBeatMarkDivision = 'off' | 1 | 2 | 3 | 4 | 6;
+/** Beat 标记细分档 —— off / 1/1 / 1/2 / 1/3 / 1/4 / 1/6 / 1/8 / 1/12 / 1/16 */
+export type PreviewBeatMarkDivision = 'off' | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16;
 /** 预览标注白名单（归一化与 UI 选项共用同一份，免得两处各列一遍） */
 export const PREVIEW_TIME_MARK_INTERVALS: readonly PreviewTimeMarkInterval[] = ['off', 1, 2, 5, 10];
-export const PREVIEW_BEAT_MARK_DIVISIONS: readonly PreviewBeatMarkDivision[] = ['off', 1, 2, 3, 4, 6];
+export const PREVIEW_BEAT_MARK_DIVISIONS: readonly PreviewBeatMarkDivision[] = [
+  'off', 1, 2, 3, 4, 6, 8, 12, 16,
+];
 /**
  * 预览标注默认档（用户 2026-09-30 二轮定案）：BPM 标记开、时间标记 5 秒、节拍线 1/1、
  * Combo 标记关、不镜像。

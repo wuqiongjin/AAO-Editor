@@ -47,6 +47,10 @@ export function useAppNav(): AppNavValue {
   return ctx;
 }
 
+export function useOptionalAppNav(): AppNavValue | null {
+  return useContext(AppNavContext);
+}
+
 export function AppNavProvider({ value, children }: { value: AppNavValue; children: ReactNode }) {
   return <AppNavContext.Provider value={value}>{children}</AppNavContext.Provider>;
 }

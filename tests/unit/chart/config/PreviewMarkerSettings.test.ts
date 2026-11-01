@@ -88,7 +88,20 @@ describe('chart-preview 08 · 预览标注设置', () => {
 
   it('白名单本身与 UI 选项同源（加档位时只改一处）', () => {
     expect(PREVIEW_TIME_MARK_INTERVALS).toEqual(['off', 1, 2, 5, 10]);
-    expect(PREVIEW_BEAT_MARK_DIVISIONS).toEqual(['off', 1, 2, 3, 4, 6]);
+    expect(PREVIEW_BEAT_MARK_DIVISIONS).toEqual(['off', 1, 2, 3, 4, 6, 8, 12, 16]);
+  });
+
+  it('节拍线细分档位（issue 205）：全白名单值正常读回，非法值回落默认 1', () => {
+    for (const division of PREVIEW_BEAT_MARK_DIVISIONS) {
+      const loaded = loadSettings(settingsStorageOf({ preview: { beatMarks: division } }));
+      expect(loaded.preview.beatMarks).toBe(division);
+    }
+    // 非法值：非白名单数值、字符串数字、分数形式、对象或空
+    const invalidValues = [0, -1, 5, 7, 9, 24, '3', '1/3', 'beats', null, undefined, {}];
+    for (const invalid of invalidValues) {
+      const loaded = loadSettings(settingsStorageOf({ preview: { beatMarks: invalid } }));
+      expect(loaded.preview.beatMarks).toBe(DEFAULT_PREVIEW_SETTINGS.beatMarks);
+    }
   });
 
   it('updateSettings 段内浅合并：只改一个档位不会清掉另外几个', () => {

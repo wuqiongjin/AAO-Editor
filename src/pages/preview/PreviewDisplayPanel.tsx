@@ -9,13 +9,16 @@
 // `.slider-value` / `.switch` / `.select-control`（设置页同一套词汇，不新造样式），只有行版式是面板自己的。
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
-import { useAppNav } from '../../layouts/AppNav';
+import { useOptionalAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
 import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
-import type { AppSettings, PreviewBeatMarkDivision, PreviewTimeMarkInterval } from '../../chart/config/AppSettings';
 import {
+  defaultSettings,
+  type AppSettings,
+  type PreviewBeatMarkDivision,
+  type PreviewTimeMarkInterval,
   PREVIEW_BEAT_MARK_DIVISIONS,
   PREVIEW_TIME_MARK_INTERVALS,
   SIM_NOTE_SPEED_RANGE,
@@ -541,10 +544,11 @@ export interface PreviewDisplayPanelProps {
 }
 
 export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayPanelProps) {
-  const { settings, setDisplay, setPreview } = useConfig();
-  const { setActivePage } = useAppNav();
+  const { settings, setDisplay, setPreview, setSeVolume } = useConfig();
+  const nav = useOptionalAppNav();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [confirmingReset, setConfirmingReset] = useState(false);
   /** 二级选择器视图（票 56 Q6=P1）：null = 设置视图 */
   const [picker, setPicker] = useState<SimAssetPackKind | null>(null);
   /** 选择器里 hover / focus 的包（大预览用） */
@@ -562,7 +566,32 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
     setOpen(false);
     setPicker(null);
     setHovered(null);
+    setConfirmingReset(false);
   }, []);
+
+  const handleReset = () => {
+    const d = defaultSettings();
+    setDisplay(d.display);
+    if (mode === 'static') {
+      setPreview({
+        bpmMarks: d.preview.bpmMarks,
+        timeMarks: d.preview.timeMarks,
+        beatMarks: d.preview.beatMarks,
+        comboMarks: d.preview.comboMarks,
+        mirror: d.preview.mirror,
+      });
+    } else {
+      setPreview({
+        noteSpeed: d.preview.noteSpeed,
+        mirror: d.preview.mirror,
+        bgBrightness: d.preview.bgBrightness,
+        bgPackId: d.preview.bgPackId,
+        fieldPackId: d.preview.fieldPackId,
+      });
+      setSeVolume(d.audio.seVolume);
+    }
+    setConfirmingReset(false);
+  };
 
   /** 量触发钮定面板位；打开前与开着时窗口伸缩都走它（算式见 panelLayoutFor） */
   const computePos = useCallback(() => {
@@ -755,163 +784,232 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
               </div>
             ) : (
               <>
-                {/* 两组形态各一组"这一屏自己特有的"：静态 = 标记（只有预览面板会画），
-                    动态 = 仿真场（音符速度 + 镜向）。两组的其余部分共用。 */}
                 {mode === 'static' ? (
-              <section className="pdp__group" aria-label={t('preview.display.group.marks')}>
-                <h3 className="pdp__group-title">{t('preview.display.group.marks')}</h3>
-                <Row label={t('preview.display.bpmMarks')}>
-                  <Toggle
-                    label={t('preview.display.bpmMarks')}
-                    checked={preview.bpmMarks}
-                    onChange={(bpmMarks) => setPreview({ bpmMarks })}
-                  />
-                </Row>
-                <Row label={t('preview.display.timeMarks')}>
-                  <Select<PreviewTimeMarkInterval>
-                    label={t('preview.display.timeMarks')}
-                    value={preview.timeMarks}
-                    options={timeOptions}
-                    onChange={(timeMarks) => setPreview({ timeMarks })}
-                  />
-                </Row>
-                <Row label={t('preview.display.beatMarks')}>
-                  <Select<PreviewBeatMarkDivision>
-                    label={t('preview.display.beatMarks')}
-                    value={preview.beatMarks}
-                    options={beatOptions}
-                    onChange={(beatMarks) => setPreview({ beatMarks })}
-                  />
-                </Row>
-                <Row label={t('preview.display.comboMarks')}>
-                  <Toggle
-                    label={t('preview.display.comboMarks')}
-                    checked={preview.comboMarks}
-                    onChange={(comboMarks) => setPreview({ comboMarks })}
-                  />
-                </Row>
-                <Row label={t('preview.display.mirror')}>
-                  <Toggle
-                    label={t('preview.display.mirror')}
-                    checked={preview.mirror}
-                    onChange={(mirror) => setPreview({ mirror })}
-                  />
-                </Row>
-              </section>
-            ) : (
-              <section className="pdp__group" aria-label={t('preview.display.group.sim')}>
-                <h3 className="pdp__group-title">{t('preview.display.group.sim')}</h3>
-                {/* 音符速度 = 接近模型的唯一档（档位 1..12 步长 0.1；T = 分段映射：n ≤ 11 → (12 − n)/2、
-                   n > 11 → (16 − n)/10 秒，越大越快，见 `approachSeconds`）。
-                    它自己就是一整行（上段标签 + 数字框 + 步进，下段滑杆），故不再套 `Row` */}
-                <NoteSpeed
-                  label={t('preview.display.noteSpeed')}
-                  value={preview.noteSpeed}
-                  onChange={(noteSpeed) => setPreview({ noteSpeed })}
-                />
-                {/* 镜向与静态那张同一个开关（`settings.preview.mirror`）：整轨镜像含方向箭头翻面 */}
-                <Row label={t('preview.display.mirror')}>
-                  <Toggle
-                    label={t('preview.display.mirror')}
-                    checked={preview.mirror}
-                    onChange={(mirror) => setPreview({ mirror })}
-                  />
-                </Row>
-                {/* 背景亮度（票 43）：100% = 原图，只向下压暗；只压背景层，不动轨道 / 音符 */}
-                <Row label={t('preview.display.bgBrightness')}>
-                  <Percent
-                    label={t('preview.display.bgBrightness')}
-                    value={preview.bgBrightness}
-                    min={0}
-                    max={100}
-                    step={5}
-                    onChange={(bgBrightness) => setPreview({ bgBrightness })}
-                  />
-                </Row>
-                {/* 表演背景 / 场地皮肤包（41）：两个独立选择器。设置视图只留一行「当前选择」，
-                    格子进二级选择器（票 56 Q6=P1）—— 33 个包塞在设置列表里会形成嵌套滚动，
-                    滚轮会被网格吃掉；挑背景仍从本面板进（定案 #4） */}
-                <SimPackRow
-                  kind="background"
-                  label={t(PACK_LABEL_KEYS.background.label)}
-                  value={preview.bgPackId}
-                  buttonRef={(el) => { rowRefs.current.background = el; }}
-                  onOpen={() => openPicker('background')}
-                />
-                <SimPackRow
-                  kind="field"
-                  label={t(PACK_LABEL_KEYS.field.label)}
-                  value={preview.fieldPackId}
-                  buttonRef={(el) => { rowRefs.current.field = el; }}
-                  onOpen={() => openPicker('field')}
-                />
-              </section>
-            )}
+                  <>
+                    <section className="pdp__group" aria-label={t('preview.display.group.marks')}>
+                      <h3 className="pdp__group-title">{t('preview.display.group.marks')}</h3>
+                      <Row label={t('preview.display.bpmMarks')}>
+                        <Toggle
+                          label={t('preview.display.bpmMarks')}
+                          checked={preview.bpmMarks}
+                          onChange={(bpmMarks) => setPreview({ bpmMarks })}
+                        />
+                      </Row>
+                      <Row label={t('preview.display.timeMarks')}>
+                        <Select<PreviewTimeMarkInterval>
+                          label={t('preview.display.timeMarks')}
+                          value={preview.timeMarks}
+                          options={timeOptions}
+                          onChange={(timeMarks) => setPreview({ timeMarks })}
+                        />
+                      </Row>
+                      <Row label={t('preview.display.beatMarks')}>
+                        <Select<PreviewBeatMarkDivision>
+                          label={t('preview.display.beatMarks')}
+                          value={preview.beatMarks}
+                          options={beatOptions}
+                          onChange={(beatMarks) => setPreview({ beatMarks })}
+                        />
+                      </Row>
+                      <Row label={t('preview.display.comboMarks')}>
+                        <Toggle
+                          label={t('preview.display.comboMarks')}
+                          checked={preview.comboMarks}
+                          onChange={(comboMarks) => setPreview({ comboMarks })}
+                        />
+                      </Row>
+                      <Row label={t('preview.display.mirror')}>
+                        <Toggle
+                          label={t('preview.display.mirror')}
+                          checked={preview.mirror}
+                          onChange={(mirror) => setPreview({ mirror })}
+                        />
+                      </Row>
+                    </section>
 
-            {/* 选项顺序照设置页「画布显示」那一节（同一份数据的两个入口，顺序也一致更好认） */}
-            <section className="pdp__group" aria-label={t('preview.display.group.canvas')}>
-              <h3 className="pdp__group-title">{t('preview.display.group.canvas')}</h3>
-              <Row label={t('settings.noteSize')}>
-                <Percent label={t('settings.noteSize')} value={display.noteSize} min={10} max={200}
-                  onChange={(noteSize) => setDisplay({ noteSize })} />
-              </Row>
-              <Row label={t('settings.slideOpacity')}>
-                <Percent label={t('settings.slideOpacity')} value={display.slideOpacity} min={10} max={100}
-                  onChange={(slideOpacity) => setDisplay({ slideOpacity })} />
-              </Row>
-              <Row label={t('settings.simultaneousClickLines')}>
-                <Toggle
-                  label={t('settings.simultaneousClickLines')}
-                  checked={display.simultaneousClickLines}
-                  onChange={(simultaneousClickLines) => setDisplay({ simultaneousClickLines })}
-                />
-              </Row>
-              <Row label={t('settings.colorAssist')}>
-                <Toggle
-                  label={t('settings.colorAssist')}
-                  checked={display.colorAssist}
-                  onChange={(colorAssist) => setDisplay({ colorAssist })}
-                />
-              </Row>
-              <Row label={t('settings.verticalRatio')}>
-                <Percent label={t('settings.verticalRatio')} value={display.verticalRatio} min={50} max={200}
-                  onChange={(verticalRatio) => setDisplay({ verticalRatio })} />
-              </Row>
-              <Row label={t('settings.imageQuality')}>
-                <Select<AppSettings['display']['imageQuality']>
-                  label={t('settings.imageQuality')}
-                  value={display.imageQuality}
-                  options={qualityOptions}
-                  onChange={(imageQuality) => setDisplay({ imageQuality })}
-                />
-              </Row>
-              <Row label={t('settings.gridStyle')}>
-                <Select<GridStylePreset>
-                  label={t('settings.gridStyle')}
-                  value={display.gridStyle}
-                  options={gridOptions}
-                  onChange={(gridStyle) => setDisplay({ gridStyle })}
-                />
-              </Row>
-              <Row label={t('settings.gridOpacity')}>
-                <Percent label={t('settings.gridOpacity')} value={display.gridOpacity} min={10} max={100}
-                  onChange={(gridOpacity) => setDisplay({ gridOpacity })} />
-              </Row>
-              {/* 文字大小 / 线形分层不进本面板（用户 2026-09-30 三轮定案：对预览作用不大，设置页仍可改） */}
-            </section>
+                    <section className="pdp__group" aria-label={t('preview.display.group.canvas')}>
+                      <h3 className="pdp__group-title">{t('preview.display.group.canvas')}</h3>
+                      <Row label={t('settings.noteSize')}>
+                        <Percent label={t('settings.noteSize')} value={display.noteSize} min={10} max={200}
+                          onChange={(noteSize) => setDisplay({ noteSize })} />
+                      </Row>
+                      <Row label={t('settings.slideOpacity')}>
+                        <Percent label={t('settings.slideOpacity')} value={display.slideOpacity} min={10} max={100}
+                          onChange={(slideOpacity) => setDisplay({ slideOpacity })} />
+                      </Row>
+                      <Row label={t('settings.simultaneousClickLines')}>
+                        <Toggle
+                          label={t('settings.simultaneousClickLines')}
+                          checked={display.simultaneousClickLines}
+                          onChange={(simultaneousClickLines) => setDisplay({ simultaneousClickLines })}
+                        />
+                      </Row>
+                      <Row label={t('settings.colorAssist')}>
+                        <Toggle
+                          label={t('settings.colorAssist')}
+                          checked={display.colorAssist}
+                          onChange={(colorAssist) => setDisplay({ colorAssist })}
+                        />
+                      </Row>
+                      <Row label={t('settings.verticalRatio')}>
+                        <Percent label={t('settings.verticalRatio')} value={display.verticalRatio} min={50} max={200}
+                          onChange={(verticalRatio) => setDisplay({ verticalRatio })} />
+                      </Row>
+                      <Row label={t('settings.imageQuality')}>
+                        <Select<AppSettings['display']['imageQuality']>
+                          label={t('settings.imageQuality')}
+                          value={display.imageQuality}
+                          options={qualityOptions}
+                          onChange={(imageQuality) => setDisplay({ imageQuality })}
+                        />
+                      </Row>
+                      <Row label={t('settings.gridStyle')}>
+                        <Select<GridStylePreset>
+                          label={t('settings.gridStyle')}
+                          value={display.gridStyle}
+                          options={gridOptions}
+                          onChange={(gridStyle) => setDisplay({ gridStyle })}
+                        />
+                      </Row>
+                      <Row label={t('settings.gridOpacity')}>
+                        <Percent label={t('settings.gridOpacity')} value={display.gridOpacity} min={10} max={100}
+                          onChange={(gridOpacity) => setDisplay({ gridOpacity })} />
+                      </Row>
+                    </section>
+                  </>
+                ) : (
+                  <>
+                    <section className="pdp__group" aria-label={t('preview.display.group.stage')}>
+                      <h3 className="pdp__group-title">{t('preview.display.group.stage')}</h3>
+                      <NoteSpeed
+                        label={t('preview.display.noteSpeed')}
+                        value={preview.noteSpeed}
+                        onChange={(noteSpeed) => setPreview({ noteSpeed })}
+                      />
+                      <Row label={t('preview.display.mirror')}>
+                        <Toggle
+                          label={t('preview.display.mirror')}
+                          checked={preview.mirror}
+                          onChange={(mirror) => setPreview({ mirror })}
+                        />
+                      </Row>
+                      <Row label={t('settings.seVolume')}>
+                        <Percent
+                          label={t('settings.seVolume')}
+                          value={settings.audio.seVolume}
+                          min={0}
+                          max={100}
+                          step={5}
+                          onChange={(seVolume) => setSeVolume(seVolume)}
+                        />
+                      </Row>
+                      <Row label={t('preview.display.bgBrightness')}>
+                        <Percent
+                          label={t('preview.display.bgBrightness')}
+                          value={preview.bgBrightness}
+                          min={0}
+                          max={100}
+                          step={5}
+                          onChange={(bgBrightness) => setPreview({ bgBrightness })}
+                        />
+                      </Row>
+                      <SimPackRow
+                        kind="background"
+                        label={t(PACK_LABEL_KEYS.background.label)}
+                        value={preview.bgPackId}
+                        buttonRef={(el) => { rowRefs.current.background = el; }}
+                        onOpen={() => openPicker('background')}
+                      />
+                      <SimPackRow
+                        kind="field"
+                        label={t(PACK_LABEL_KEYS.field.label)}
+                        value={preview.fieldPackId}
+                        buttonRef={(el) => { rowRefs.current.field = el; }}
+                        onOpen={() => openPicker('field')}
+                      />
+                    </section>
 
-            <section className="pdp__group" aria-label={t('preview.display.group.skin')}>
-              <h3 className="pdp__group-title">{t('preview.display.group.skin')}</h3>
-              <Row label={skinName}>
-                <button
-                  type="button"
-                  className="action-btn pdp__skin-open"
-                  onClick={() => { close(); setActivePage('assets'); }}
-                >
-                  {t('preview.display.skin.open')}
-                </button>
-              </Row>
-            </section>
+                    <section className="pdp__group" aria-label={t('preview.display.group.notesAndQuality')}>
+                      <h3 className="pdp__group-title">{t('preview.display.group.notesAndQuality')}</h3>
+                      <Row label={t('settings.noteSize')}>
+                        <Percent label={t('settings.noteSize')} value={display.noteSize} min={10} max={200}
+                          onChange={(noteSize) => setDisplay({ noteSize })} />
+                      </Row>
+                      <Row label={t('settings.slideOpacity')}>
+                        <Percent label={t('settings.slideOpacity')} value={display.slideOpacity} min={10} max={100}
+                          onChange={(slideOpacity) => setDisplay({ slideOpacity })} />
+                      </Row>
+                      <Row label={t('settings.simultaneousClickLines')}>
+                        <Toggle
+                          label={t('settings.simultaneousClickLines')}
+                          checked={display.simultaneousClickLines}
+                          onChange={(simultaneousClickLines) => setDisplay({ simultaneousClickLines })}
+                        />
+                      </Row>
+                      <Row label={t('settings.colorAssist')}>
+                        <Toggle
+                          label={t('settings.colorAssist')}
+                          checked={display.colorAssist}
+                          onChange={(colorAssist) => setDisplay({ colorAssist })}
+                        />
+                      </Row>
+                      <Row label={t('settings.imageQuality')}>
+                        <Select<AppSettings['display']['imageQuality']>
+                          label={t('settings.imageQuality')}
+                          value={display.imageQuality}
+                          options={qualityOptions}
+                          onChange={(imageQuality) => setDisplay({ imageQuality })}
+                        />
+                      </Row>
+                    </section>
+                  </>
+                )}
+
+                <section className="pdp__group" aria-label={t('preview.display.group.skin')}>
+                  <h3 className="pdp__group-title">{t('preview.display.group.skin')}</h3>
+                  <Row label={skinName}>
+                    <button
+                      type="button"
+                      className="action-btn pdp__skin-open"
+                      onClick={() => { close(); nav?.setActivePage('assets'); }}
+                    >
+                      {t('preview.display.skin.open')}
+                    </button>
+                  </Row>
+                </section>
+
+                <div className="pdp__reset-row">
+                  {!confirmingReset ? (
+                    <button
+                      type="button"
+                      className="action-btn pdp__reset-btn"
+                      onClick={() => setConfirmingReset(true)}
+                    >
+                      <RotateCcw size={13} />
+                      <span>{t('settings.reset')}</span>
+                    </button>
+                  ) : (
+                    <div className="pdp__reset-confirm">
+                      <span className="pdp__reset-prompt">{t('settings.reset.confirm', { hint: '' })}</span>
+                      <div className="pdp__reset-actions">
+                        <button
+                          type="button"
+                          className="action-btn action-btn--danger"
+                          onClick={handleReset}
+                        >
+                          {t('settings.reset.confirmBtn')}
+                        </button>
+                        <button
+                          type="button"
+                          className="action-btn"
+                          onClick={() => setConfirmingReset(false)}
+                        >
+                          {t('settings.reset.cancel')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
