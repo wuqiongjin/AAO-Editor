@@ -191,7 +191,9 @@
 - **203 圆滑捏形（对标画图曲线）**（[203](./issues/203-圆滑捏形-对标画图曲线.md)，`Type: grilling`，resolved）—— **定了什么** = 拖段默认圆滑贝塞尔鼓包、峰值随光标、曲线穿过光标、lane 连续、贴边等比缩小；Alt+拖实时切换为旧三角捏形（逐点 clamp）；修订 ADR-0009 §4 与 issue 108。
 - **204 滑条捏形默认风格配置与帮助气泡**（[204](./issues/204-滑条捏形默认风格配置与帮助气泡.md)，`Type: feature`，open）—— 工作台顶栏操作偏好新增「滑条拖拽变形风格」（圆滑曲线 vs 三角拉弓）+ 问号气泡提示 Alt 实时切换，碰壁不加额外弹窗。
 - **205 画布与预览设置浮层条目重构与三端对齐**（[205](./issues/205-画布与预览设置浮层条目重构与三端对齐.md)，`Type: grilling`，resolved）—— **定了什么** = 动态预览彻底剥离二维画布专属无效项并去画布化，重构为「舞台与仿真/音符与画质/音符皮肤」并接入 SE 音量；静态预览扩充 1/3、1/6、1/12 三连音节拍线；工作台顺化条目次序并新增音符皮肤对标；两预览弹窗补齐两步确认恢复默认重置。
+- **206 显示面板切语言选项文案残留与选项窄收敛**（[206](./issues/206-显示面板切语言选项文案残留与选项窄收敛.md)，`Type: bug`，resolved）—— **根因** = `PreviewDisplayPanel` 与 `WorkspaceDisplayPanel` 中选项列表使用空依赖 `useMemo` 缓存 `t()`，切语言后保活实例未重求值。**改成什么** = 清除小数组不必要的 `useMemo`，提取窄收敛同质选项常量 `displayPanelOptions.ts`，补齐 DOM 挂载态切语言锁测。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
+
 
 
 ## Not yet specified

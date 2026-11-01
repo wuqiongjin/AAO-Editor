@@ -5,22 +5,19 @@ import { RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { useOptionalAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
 import { defaultSettings, type AppSettings, type PinchMode, type TimePrecision } from '../../chart/config/AppSettings';
-import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
+import type { GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
 import HelpHint from '../../ui/HelpHint';
 import { getActiveUiLanguage, t, type MessageKey } from '../../i18n';
+import { buildGridOptions, buildQualityOptions } from '../displayPanelOptions';
 import './WorkspaceDisplayPanel.css';
 
-/** 画质档选项（映射至 settings.imageQuality.* 键） */
-const QUALITY_OPTIONS: ReadonlyArray<{ value: AppSettings['display']['imageQuality']; labelKey: MessageKey }> =
-  (['smooth', 'standard', 'hd'] as const).map((value) => ({
-    value,
-    labelKey: `settings.imageQuality.${value}` as MessageKey,
-  }));
-
-/** 轨道颜色主题选项（从 GRID_STYLE_PRESETS 派生） */
-const GRID_OPTIONS: ReadonlyArray<{ value: GridStylePreset; labelKey: MessageKey }> =
-  GRID_STYLE_PRESETS.map((value) => ({ value, labelKey: `settings.gridStyle.${value}` as MessageKey }));
+/** 时间精度选项（映射至 settings.timePrecision.* 键） */
+const TIME_PRECISION_OPTIONS: ReadonlyArray<{ value: TimePrecision; labelKey: MessageKey }> = [
+  { value: 'standard', labelKey: 'settings.timePrecision.standard' },
+  { value: 'centisecond', labelKey: 'settings.timePrecision.centisecond' },
+  { value: 'millisecond', labelKey: 'settings.timePrecision.millisecond' },
+];
 
 /** 滑条拖拽变形风格选项（映射至 settings.pinchMode.* 键） */
 const PINCH_MODE_OPTIONS: ReadonlyArray<{ value: PinchMode; labelKey: MessageKey }> = [
@@ -184,22 +181,15 @@ export default memo(function WorkspaceDisplayPanel() {
   const { display } = settings;
   const nav = useOptionalAppNav();
   const lang = getActiveUiLanguage();
-  const skinName = useMemo(
-    () => noteSkinPresetLabel(normalizeNoteSkinSelection(settings.visual?.noteSkin)) ?? t('preview.display.skin.custom'),
-    [settings.visual?.noteSkin, lang],
-  );
+  const skinName = useMemo(() => {
+    void lang;
+    return noteSkinPresetLabel(normalizeNoteSkinSelection(settings.visual?.noteSkin)) ?? t('preview.display.skin.custom');
+  }, [settings.visual?.noteSkin, lang]);
 
-  const qualityOptions = useMemo(() => QUALITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
-  const gridOptions = useMemo(() => GRID_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
-  const precisionOptions = useMemo<ReadonlyArray<{ value: TimePrecision; label: string }>>(() => [
-    { value: 'standard', label: t('settings.timePrecision.standard') },
-    { value: 'centisecond', label: t('settings.timePrecision.centisecond') },
-    { value: 'millisecond', label: t('settings.timePrecision.millisecond') },
-  ], []);
-  const pinchModeOptions = useMemo(
-    () => PINCH_MODE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
-    [],
-  );
+  const qualityOptions = buildQualityOptions();
+  const gridOptions = buildGridOptions();
+  const precisionOptions = TIME_PRECISION_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }));
+  const pinchModeOptions = PINCH_MODE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }));
 
   const handleReset = () => {
     setDisplay(defaultSettings().display);

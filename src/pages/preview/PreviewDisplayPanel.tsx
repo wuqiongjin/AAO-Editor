@@ -24,7 +24,7 @@ import {
   SIM_NOTE_SPEED_RANGE,
   normalizeNoteSpeed,
 } from '../../chart/config/AppSettings';
-import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
+import type { GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
 import {
   SIM_ASSET_SERVERS,
@@ -45,17 +45,7 @@ import type { PreviewMode } from '../../preview';
 // 浮层复用菜单壳（与 ScopePicker 同因：`.pp-menu__*` 定义在 ProjectsPage.css，别指望那一页先挂载）
 import '../projects/ProjectsPage.css';
 import './PreviewPage.css';
-
-/** 画质档（选项从 AppSettings 的联合派生，映射回设置页同一批 i18n key） */
-const QUALITY_OPTIONS: ReadonlyArray<{ value: AppSettings['display']['imageQuality']; labelKey: MessageKey }> =
-  (['smooth', 'standard', 'hd'] as const).map((value) => ({
-    value,
-    labelKey: `settings.imageQuality.${value}` as MessageKey,
-  }));
-
-/** 轨道颜色主题：选项直接从白名单常量派生（`GRID_STYLE_PRESETS` 是单一来源） */
-const GRID_OPTIONS: ReadonlyArray<{ value: GridStylePreset; labelKey: MessageKey }> =
-  GRID_STYLE_PRESETS.map((value) => ({ value, labelKey: `settings.gridStyle.${value}` as MessageKey }));
+import { buildGridOptions, buildQualityOptions } from '../displayPanelOptions';
 
 /** 两个素材包选择器的文案（设置行的标签 / 选择器分组的全称，两处共用一份） */
 const PACK_LABEL_KEYS: Record<SimAssetPackKind, { label: MessageKey; full: MessageKey }> = {
@@ -703,27 +693,21 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
   const { display, preview } = settings;
   // 显示名按当前界面语言选服（issue 49）→ 依赖里带 lang：运行中切语言当场换名
   const lang = getActiveUiLanguage();
-  const skinName = useMemo(
-    () => noteSkinPresetLabel(normalizeNoteSkinSelection(settings.visual?.noteSkin)) ?? t('preview.display.skin.custom'),
-    [settings.visual?.noteSkin, lang],
-  );
+  const skinName = useMemo(() => {
+    void lang;
+    return noteSkinPresetLabel(normalizeNoteSkinSelection(settings.visual?.noteSkin)) ?? t('preview.display.skin.custom');
+  }, [settings.visual?.noteSkin, lang]);
 
-  const timeOptions = useMemo(
-    () => PREVIEW_TIME_MARK_INTERVALS.map((v) => ({
-      value: v,
-      label: v === 'off' ? t('preview.display.off') : t('preview.display.seconds', { count: v }),
-    })),
-    [],
-  );
-  const beatOptions = useMemo(
-    () => PREVIEW_BEAT_MARK_DIVISIONS.map((v) => ({
-      value: v,
-      label: v === 'off' ? t('preview.display.off') : `1/${v}`,
-    })),
-    [],
-  );
-  const qualityOptions = useMemo(() => QUALITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
-  const gridOptions = useMemo(() => GRID_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })), []);
+  const timeOptions = PREVIEW_TIME_MARK_INTERVALS.map((v) => ({
+    value: v,
+    label: v === 'off' ? t('preview.display.off') : t('preview.display.seconds', { count: v }),
+  }));
+  const beatOptions = PREVIEW_BEAT_MARK_DIVISIONS.map((v) => ({
+    value: v,
+    label: v === 'off' ? t('preview.display.off') : `1/${v}`,
+  }));
+  const qualityOptions = buildQualityOptions();
+  const gridOptions = buildGridOptions();
 
   return (
     <div className="pdp">

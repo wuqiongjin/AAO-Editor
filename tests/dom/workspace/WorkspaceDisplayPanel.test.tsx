@@ -7,6 +7,7 @@ import { AppNavProvider } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import WorkspaceDisplayPanel from '@/src/pages/workspace/WorkspaceDisplayPanel';
 import { defaultSettings } from '@/src/chart/config/AppSettings';
+import { setActiveUiLanguage } from '@/src/i18n';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 interface StoredSettings {
@@ -321,5 +322,56 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     fireEvent.click(skinOpenBtn);
     expect(setActivePage).toHaveBeenCalledWith('assets');
     expect(screen.queryByRole('dialog', { name: '画布显示设置' })).not.toBeInTheDocument();
+  });
+
+  it('issue 206：运行中切界面语言，下拉选项文案（画质 / 轨道颜色 / 时间精度 / 变形风格）立即更新为对应语言', () => {
+    setup();
+
+    // 1. 中文状态下各下拉选项文案
+    const qSelect = qualitySelect();
+    const gSelect = gridStyleSelect();
+    const tpSelect = timePrecisionSelect();
+    const pmSelect = pinchModeSelect();
+
+    expect(within(qSelect).getByRole('option', { name: '标准' })).toBeInTheDocument();
+    expect(within(qSelect).getByRole('option', { name: '流畅' })).toBeInTheDocument();
+    expect(within(qSelect).getByRole('option', { name: '高清' })).toBeInTheDocument();
+
+    expect(within(gSelect).getByRole('option', { name: '灰阶' })).toBeInTheDocument();
+    expect(within(gSelect).getByRole('option', { name: '多彩' })).toBeInTheDocument();
+
+    expect(within(tpSelect).getByRole('option', { name: '0.1 秒' })).toBeInTheDocument();
+    expect(within(tpSelect).getByRole('option', { name: '0.01 秒' })).toBeInTheDocument();
+    expect(within(tpSelect).getByRole('option', { name: '0.001 秒' })).toBeInTheDocument();
+
+    expect(within(pmSelect).getByRole('option', { name: '圆滑曲线' })).toBeInTheDocument();
+    expect(within(pmSelect).getByRole('option', { name: '三角拉弓' })).toBeInTheDocument();
+
+    // 2. 切换语言为 en 并触发重渲（模拟运行时切语言）
+    setActiveUiLanguage('en');
+    fireEvent.click(dualSwitch());
+
+    // 3. 英文状态下各下拉选项文案立即更新
+    const panelEn = screen.getByRole('dialog');
+    const qSelectEn = within(panelEn).getByRole('combobox', { name: 'Image quality' });
+    const gSelectEn = within(panelEn).getByRole('combobox', { name: 'Lane colors' });
+    const tpSelectEn = within(panelEn).getByRole('combobox', { name: 'Time display precision' });
+    const pmSelectEn = within(panelEn).getByRole('combobox', { name: 'Slide Pinch Mode' });
+
+    expect(within(qSelectEn).getByRole('option', { name: 'Standard' })).toBeInTheDocument();
+    expect(within(qSelectEn).getByRole('option', { name: 'Smooth' })).toBeInTheDocument();
+    expect(within(qSelectEn).getByRole('option', { name: 'HD' })).toBeInTheDocument();
+
+    expect(within(gSelectEn).getByRole('option', { name: 'Mono' })).toBeInTheDocument();
+    expect(within(gSelectEn).getByRole('option', { name: 'Vivid' })).toBeInTheDocument();
+
+    expect(within(tpSelectEn).getByRole('option', { name: '0.1s' })).toBeInTheDocument();
+    expect(within(tpSelectEn).getByRole('option', { name: '0.01s' })).toBeInTheDocument();
+    expect(within(tpSelectEn).getByRole('option', { name: '0.001s' })).toBeInTheDocument();
+
+    expect(within(pmSelectEn).getByRole('option', { name: 'Smooth Curve' })).toBeInTheDocument();
+    expect(within(pmSelectEn).getByRole('option', { name: 'Triangle Pull' })).toBeInTheDocument();
+
+    setActiveUiLanguage('zh-CN');
   });
 });

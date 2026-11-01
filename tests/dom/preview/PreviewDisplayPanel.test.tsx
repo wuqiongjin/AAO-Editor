@@ -165,6 +165,47 @@ describe('chart-preview 08 · 面板打开与默认档', () => {
 
     setActiveUiLanguage('zh-CN'); // 还原，避免污染同文件后续用例
   });
+
+  it('issue 206：运行中切界面语言，下拉选项文案（时间标记 / 节拍线 / 画质 / 轨道颜色）立即更新为对应语言', () => {
+    setup();
+
+    // 1. 中文状态下各下拉选项文案
+    const tSel = timeSelect();
+    const bSel = beatSelect();
+    const qSel = qualitySelect();
+    const gSel = within(panel()).getByRole('combobox', { name: '轨道颜色' });
+
+    expect(within(tSel).getByRole('option', { name: '关闭' })).toBeInTheDocument();
+    expect(within(tSel).getByRole('option', { name: '1 秒' })).toBeInTheDocument();
+    expect(within(bSel).getByRole('option', { name: '关闭' })).toBeInTheDocument();
+    expect(within(bSel).getByRole('option', { name: '1/1' })).toBeInTheDocument();
+    expect(within(qSel).getByRole('option', { name: '标准' })).toBeInTheDocument();
+    expect(within(qSel).getByRole('option', { name: '流畅' })).toBeInTheDocument();
+    expect(within(gSel).getByRole('option', { name: '灰阶' })).toBeInTheDocument();
+    expect(within(gSel).getByRole('option', { name: '多彩' })).toBeInTheDocument();
+
+    // 2. 切语言为 en 并触发重渲
+    setActiveUiLanguage('en');
+    fireEvent.click(mirrorSwitch());
+
+    // 3. 英文状态下各下拉选项文案立即更新
+    const panelEn = screen.getByRole('dialog');
+    const tSelEn = within(panelEn).getByRole('combobox', { name: 'Time markers' });
+    const bSelEn = within(panelEn).getByRole('combobox', { name: 'Beat lines' });
+    const qSelEn = within(panelEn).getByRole('combobox', { name: 'Image quality' });
+    const gSelEn = within(panelEn).getByRole('combobox', { name: 'Lane colors' });
+
+    expect(within(tSelEn).getByRole('option', { name: 'Off' })).toBeInTheDocument();
+    expect(within(tSelEn).getByRole('option', { name: '1s' })).toBeInTheDocument();
+    expect(within(bSelEn).getByRole('option', { name: 'Off' })).toBeInTheDocument();
+    expect(within(bSelEn).getByRole('option', { name: '1/1' })).toBeInTheDocument();
+    expect(within(qSelEn).getByRole('option', { name: 'Standard' })).toBeInTheDocument();
+    expect(within(qSelEn).getByRole('option', { name: 'Smooth' })).toBeInTheDocument();
+    expect(within(gSelEn).getByRole('option', { name: 'Mono' })).toBeInTheDocument();
+    expect(within(gSelEn).getByRole('option', { name: 'Vivid' })).toBeInTheDocument();
+
+    setActiveUiLanguage('zh-CN');
+  });
 });
 
 describe('chart-preview 08 · 标记项落 settings.preview', () => {
