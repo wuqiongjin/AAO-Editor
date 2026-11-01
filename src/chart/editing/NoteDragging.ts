@@ -100,10 +100,17 @@ const isSlideish = (n: ChartNote): n is SlideNote | LongNote => n.type === 'Slid
 const TOTAL_LANES = 7; // 与 NoteEditing.TOTAL_LANES 一致（此处内联避免引动历史模块）
 const EPS = 1e-6;
 
-/** 从 from 朝 dir（±1）找最近的**可见**结点（issue 09 S3：hidden 不作被拖结点的移动边界） */
-function nearestVisible(conns: ConnectionNote[], from: number, dir: -1 | 1): ConnectionNote | undefined {
+/** 从 from 朝 dir（±1）找最近的**可见**结点（issue 09 S3：hidden 不作边界；issue 202：组拖时跳过移动集合中的兄弟结点） */
+function nearestVisible(
+  conns: ConnectionNote[],
+  from: number,
+  dir: -1 | 1,
+  skipIndices?: Set<number>,
+): ConnectionNote | undefined {
   for (let k = from + dir; k >= 0 && k < conns.length; k += dir) {
-    if (!conns[k]!.hidden) return conns[k];
+    if (conns[k]!.hidden) continue;
+    if (skipIndices && skipIndices.has(k)) continue;
+    return conns[k];
   }
   return undefined;
 }
@@ -280,11 +287,14 @@ export function planDragMove(
           const c = conns[ci];
           // issue 09 S3：邻居序校验只看**可见**邻居——段内 hidden 采样点随后会被重投影/重映射
           // 重建，不能作为被拖可见结点的移动边界（否则缓动段端点只能在一格采样内挪动）
-          const prev = nearestVisible(conns, ci, -1);
-          const next = nearestVisible(conns, ci, +1);
-          // 结点必须严格保持在前后可见邻居之间（防交叉/退化段；端点只有单侧约束）
-          if (prev && sumBeat(c.beat, c.subBeat || 0, beatDisplay) <= sumBeat(prev.beat, prev.subBeat || 0, beatDisplay) + EPS) return fail('out-of-bounds');
-          if (next && sumBeat(c.beat, c.subBeat || 0, beatDisplay) >= sumBeat(next.beat, next.subBeat || 0, beatDisplay) - EPS) return fail('out-of-bounds');
+          // issue 202：组拖时跳过同在移动集合中的兄弟结点（组内互免，由整体边界约束）；
+          // 时序边界从严格开区间放宽为弱序单调（允许 <= / >= 同拍，同拍同轨由 step ③ 的 collision 拦截）
+          const prev = nearestVisible(conns, ci, -1, plan.conns);
+          const next = nearestVisible(conns, ci, +1, plan.conns);
+          // 结点必须保持在前后未动可见邻居之间（弱序单调保序，防逆序倒流；端点只有单侧约束）
+          const curBeat = sumBeat(c.beat, c.subBeat || 0, beatDisplay);
+          if (prev && curBeat < sumBeat(prev.beat, prev.subBeat || 0, beatDisplay) - EPS) return fail('out-of-bounds');
+          if (next && curBeat > sumBeat(next.beat, next.subBeat || 0, beatDisplay) + EPS) return fail('out-of-bounds');
         }
       }
       moved.set(i, { ...n, connections: conns });

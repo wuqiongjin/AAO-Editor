@@ -187,6 +187,7 @@
 - **199 播放中缩放音符瓦片无法重建致材质发糊**（[199](./issues/199-播放中缩放音符瓦片无法重建致材质发糊.md)，`Type: bug`，resolved）—— **根因** = 播放态同步重建被 `!rc.playing` 阻断，而异步预取队列 `enqueuePlayingTiles` 的 `if (cur && !cur.dirty) continue` 漏检 `refScale` 过期；播放中先缩小到小比例（如 10%）生成并缓存了高 Mip 级（4×2px）粗糙瓦片，随后放大回弹时该 stale 瓦片遭遇死锁永不更新，且被 blit 中心拉伸放大近 7 倍，导致严重马赛克。**改成什么** = 异步预取队列与消费出队补齐 `isTileStale` 判定，16~32ms 内无缝平滑替换视口 stale 瓦片。已实现并锁测（`PlaybackZoomTileRefresh.test.ts` 4 例全绿）。
 - **200 工作台偏好与交互项扩展**（[200](./issues/200-工作台偏好与交互项扩展.md)，`Type: feature`，open）—— **定了什么** = 滚轮反转仅反转纵向时间轴（含 Shift 协同）；时间精度联动 PlayBar 与悬停线支持毫秒档（0.001s）；顶栏设置浮层分三组并接入 SE 音量。
 - **201 回到播放起点更名为标记点体系**（[201](./issues/201-回到播放起点更名为标记点体系.md)，`Type: chore`，open）—— **改成什么** = 全链路消除“回到播放起点”歧义文案，统一更名为“标记点 / 回到标记点并播放”，中英文与无障碍提示全量对齐。
+- **202 Slide 同拍中间结点无法拖动移动**（[202](./issues/202-Slide同拍中间结点无法拖动移动.md)，`Type: grilling`，resolved）—— 放宽中间结点时序为弱序单调（允许同拍）；同拍内自由变轨但同轨回弹防误触（策略 A）；允许普通结点拖成同拍；组拖组内互免。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
