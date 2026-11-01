@@ -357,13 +357,18 @@ export function createNoteLayerCache(): NoteLayerCache {
    *  把唯一覆盖视口的块挤掉（那会得到 `blitted=0` 的整屏空白帧）。 */
   let protectedTiles: ReadonlySet<number> = new Set();
 
+  function isTileStale(t: Tile, es: number): boolean {
+    return !t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL;
+  }
+
   function drainOnePlayingTile() {
     const snap = playTileSnap;
     const id = playTileQueue.shift();
     if (id === undefined || !snap) return;
     const cur = tiles.get(id);
     // issue 146：不再是「只有没建过的才补」——打脏的也要换下来，否则旧音符一直挂着。
-    if (cur && !cur.dirty) return;
+    // issue 199：尺度过期的瓦片（stale）也必须换下来，否则播放中缩放后锁定在旧 scale 发糊。
+    if (cur && !cur.dirty && !isTileStale(cur, snap.es)) return;
     renderTile(id, snap.rc, snap.es);
   }
 
@@ -392,8 +397,9 @@ export function createNoteLayerCache(): NoteLayerCache {
       if (id < 0) continue;
       // issue 146：存在但未打脏的才跳过；打脏的要进队列换下来。
       // issue 188：已命中的活跃/靶向预热瓦片同步刷新为 MRU，防止漫游后被 FIFO 提前淘汰。
+      // issue 199：尺度过期（stale）的瓦片同样不能跳过，排入队列异步平滑换新。
       const cur = tiles.get(id);
-      if (cur && !cur.dirty) {
+      if (cur && !cur.dirty && !isTileStale(cur, es)) {
         touchTile(id, cur);
         continue;
       }
@@ -610,7 +616,7 @@ export function createNoteLayerCache(): NoteLayerCache {
         // basis 全量失效帧也保持旧口径（一次性事件，不算 hover 热路径）。
         if (!rc.zoomGesture && !fullInvalidated && !onScreen && !dirty) continue;
         if (!t || dirty) { pending.push(id); continue; }
-        if (!t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL) pending.push(id);
+        if (isTileStale(t, es)) pending.push(id);
       }
     }
     if (pending.length > 0) {
@@ -651,7 +657,7 @@ export function createNoteLayerCache(): NoteLayerCache {
       if (!t) continue;
       touchTile(id, t);
       if (t.empty || !t.canvas) continue;
-      if (Math.abs(es / t.refScale - 1) > STALE_TOL) staleBlit = true;
+      if (isTileStale(t, es)) staleBlit = true;
       const r = tileBlitRect(id, es, t.refScale, anchorY, rc.surface.w, t.surfaceW);
       const clipped = clipTileDrawRect(r, rc.surface.w, rc.surface.h, t.canvas.width, t.canvas.height);
       if (!clipped) continue;
