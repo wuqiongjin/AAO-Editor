@@ -18,7 +18,7 @@ import { useConfig } from '../../app/ProviderTree';
 import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
 import { formatKey } from '../../chart/config/ShortcutConfig';
 import type { PatternImportStrategy } from '../../chart/patterns/importConflict';
-import { filterPatternsByName, isPatternPinned, patternBpmRange } from '../../chart/patterns/library';
+import { filterPatternsByName, isPatternPinned, patternBpmRange, sortPatterns } from '../../chart/patterns/library';
 import {
   getPatternSelectionStats,
   selectAllVisiblePatterns,
@@ -45,6 +45,7 @@ import BpmRange from './BpmRange';
 import PatternCardMenu from './PatternCardMenu';
 import PatternImportDialog from './PatternImportDialog';
 import PatternLibraryMenu from './PatternLibraryMenu';
+import PatternLibrarySortMenu from './PatternLibrarySortMenu';
 import PatternSelectionBar from './PatternSelectionBar';
 import PatternThumbnail from './PatternThumbnail';
 import './PatternLibraryDrawer.css';
@@ -72,7 +73,7 @@ export default memo(function PatternLibraryDrawer({
   library, canSaveSelection, readOnly = false, onSaveSelection, onPastePattern,
   onExitPaste, activePatternId = null, onResizingChange,
 }: PatternLibraryDrawerProps) {
-  const { settings, setPatternDrawer } = useConfig();
+  const { settings, setPatternDrawer, setPatternLibrarySort } = useConfig();
   const storedWidth = settings.layout.patternDrawer.width;
   // 拖动中只改本地宽度，松手才写设置：每帧写 localStorage + 广播设置变更不划算
   const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -109,9 +110,13 @@ export default memo(function PatternLibraryDrawer({
     };
   }, [resizing, setPatternDrawer]);
 
-  // 搜索只筛显示，不改库
+  // 先按搜索词过滤，再按视图偏好排序，不改库（issue 192）
   const [query, setQuery] = useState('');
-  const visible = useMemo(() => filterPatternsByName(library.patterns, query), [library.patterns, query]);
+  const filtered = useMemo(() => filterPatternsByName(library.patterns, query), [library.patterns, query]);
+  const visible = useMemo(
+    () => sortPatterns(filtered, settings.patternLibrary.sort, settings.uiLanguage),
+    [filtered, settings.patternLibrary.sort, settings.uiLanguage],
+  );
 
   // 就地改名（一次只编辑一条；草稿与目标分开存）
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
@@ -356,27 +361,33 @@ export default memo(function PatternLibraryDrawer({
         </button>
       </header>
 
-      <div className="pld__search">
-        <Search size={13} className="pld__search-icon" aria-hidden />
-        <input
-          type="text"
-          className="pld__search-input"
-          value={query}
-          placeholder={t('patternLibrary.search')}
-          aria-label={t('patternLibrary.search')}
-          onChange={(e) => setQuery(e.target.value)}
+      <div className="pld__search-row">
+        <div className="pld__search">
+          <Search size={13} className="pld__search-icon" aria-hidden />
+          <input
+            type="text"
+            className="pld__search-input"
+            value={query}
+            placeholder={t('patternLibrary.search')}
+            aria-label={t('patternLibrary.search')}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {query !== '' && (
+            <button
+              type="button"
+              className="pld__search-clear"
+              onClick={() => setQuery('')}
+              aria-label={t('patternLibrary.searchClear')}
+              title={t('patternLibrary.searchClear')}
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+        <PatternLibrarySortMenu
+          value={settings.patternLibrary.sort}
+          onChange={setPatternLibrarySort}
         />
-        {query !== '' && (
-          <button
-            type="button"
-            className="pld__search-clear"
-            onClick={() => setQuery('')}
-            aria-label={t('patternLibrary.searchClear')}
-            title={t('patternLibrary.searchClear')}
-          >
-            <X size={12} />
-          </button>
-        )}
       </div>
 
       <div className="pld__body">

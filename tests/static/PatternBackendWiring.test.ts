@@ -21,7 +21,8 @@ describe('片段库 · 两条后端都被引用', () => {
 
   it('片段库自选后端，不依赖设置对象 / localStorage', () => {
     expect(storeSrc).not.toMatch(/localStorage/);
-    expect(readStripped('src/chart/config/AppSettings.ts')).not.toMatch(/patternLibrary|patterns\.json/);
+    // 片段数据本身不进设置对象（ADR-0023 §3）；仅视图排序偏好（issue 192）在 patternLibrary.sort
+    expect(readStripped('src/chart/config/AppSettings.ts')).not.toMatch(/Pattern\[\]|patterns\.json/);
   });
 });
 

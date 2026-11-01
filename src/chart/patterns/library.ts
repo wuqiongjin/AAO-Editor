@@ -2,7 +2,41 @@
 // 排序、搜索、改名、删除都只产出**新数组**，落盘一律交给 `PatternStore.saveAll`
 // （唯一写入口在 `usePatternLibrary`，这里不碰存储）。
 import { createPattern } from './naming';
+import { patternBeatSpan, patternNoteCount } from './stats';
 import type { Pattern, PatternPayload } from './types';
+
+export type PatternSortKey = 'createdAt' | 'name' | 'noteCount' | 'beatSpan';
+export type PatternSortDirection = 'asc' | 'desc';
+
+export interface PatternSortPreference {
+  key: PatternSortKey;
+  direction: PatternSortDirection;
+}
+
+export const DEFAULT_PATTERN_SORT: PatternSortPreference = {
+  key: 'createdAt',
+  direction: 'desc',
+};
+
+export const PATTERN_SORT_KEYS: readonly PatternSortKey[] = ['createdAt', 'name', 'noteCount', 'beatSpan'];
+export const PATTERN_SORT_DIRECTIONS: readonly PatternSortDirection[] = ['asc', 'desc'];
+
+export function normalizePatternSortKey(raw: unknown, fallback: PatternSortKey = 'createdAt'): PatternSortKey {
+  return PATTERN_SORT_KEYS.includes(raw as PatternSortKey) ? (raw as PatternSortKey) : fallback;
+}
+
+export function normalizePatternSortDirection(raw: unknown, fallback: PatternSortDirection = 'desc'): PatternSortDirection {
+  return PATTERN_SORT_DIRECTIONS.includes(raw as PatternSortDirection) ? (raw as PatternSortDirection) : fallback;
+}
+
+export function normalizePatternSort(raw: unknown, fallback: PatternSortPreference = DEFAULT_PATTERN_SORT): PatternSortPreference {
+  if (!raw || typeof raw !== 'object') return fallback;
+  const obj = raw as Record<string, unknown>;
+  return {
+    key: normalizePatternSortKey(obj.key, fallback.key),
+    direction: normalizePatternSortDirection(obj.direction, fallback.direction),
+  };
+}
 
 /** 片段是否处于置顶态（issue 191）。 */
 export function isPatternPinned(pattern: Pattern): boolean {
@@ -12,18 +46,19 @@ export function isPatternPinned(pattern: Pattern): boolean {
 /** 剥掉本地置顶偏好（issue 191）：取消置顶、读脏数据、分享导出共用。 */
 export function stripPatternPinned(pattern: Pattern): Pattern {
   if ('pinnedAt' in pattern) {
-    const { pinnedAt: _pinnedAt, ...rest } = pattern;
-    return rest as Pattern;
+    const copy = { ...pattern };
+    delete (copy as { pinnedAt?: number }).pinnedAt;
+    return copy;
   }
   return pattern;
 }
 
 /**
- * 片段排序（issue 185 / 191）：
+ * 片段基线排序（issue 185 / 191 存储基线）：
  * - 置顶组始终在最前；
  * - 置顶组内按 `pinnedAt` 倒序（最近置顶的更靠上），同值按 `createdAt` 倒序，再同按 id 全序；
  * - 未置顶组按 `createdAt` 倒序（最新在最上），同值按 id 全序。
- * 排序是全序，保证渲染与往返恒定。纯函数，不修改原数组。
+ * 供存储加载与落盘保持一致。纯函数，不修改原数组。
  */
 export function sortPatternsNewestFirst(patterns: readonly Pattern[]): Pattern[] {
   return [...patterns].sort((a, b) => {
@@ -34,6 +69,78 @@ export function sortPatternsNewestFirst(patterns: readonly Pattern[]): Pattern[]
       return b.pinnedAt! - a.pinnedAt!;
     }
     return (b.createdAt - a.createdAt) || a.id.localeCompare(b.id);
+  });
+}
+
+/**
+ * 片段多维排序（issue 192）：
+ * - 置顶组始终在最前；
+ * - 组内按当前排序键 / 方向排（全序，主键相同时按 a.id.localeCompare(b.id) 兜底）；
+ * - 名称排序用 Intl.Collator（按指定 locale 或当前界面语言、numeric: true、sensitivity: 'base'）；
+ * - 音符数 / 拍数复用 stats 派生函数；
+ * - 纯函数，不修改原数组。
+ */
+export function sortPatterns(
+  patterns: readonly Pattern[],
+  sort: PatternSortPreference = DEFAULT_PATTERN_SORT,
+  locale?: string,
+): Pattern[] {
+  if (patterns.length <= 1) return [...patterns];
+
+  const collator = new Intl.Collator(locale, { numeric: true, sensitivity: 'base' });
+
+  // 避免在比较过程中重复计算音符数 / 拍数
+  let noteCountCache: Map<string, number> | null = null;
+  let beatSpanCache: Map<string, number> | null = null;
+
+  const getNoteCount = (p: Pattern): number => {
+    if (!noteCountCache) noteCountCache = new Map();
+    let val = noteCountCache.get(p.id);
+    if (val === undefined) {
+      val = patternNoteCount(p);
+      noteCountCache.set(p.id, val);
+    }
+    return val;
+  };
+
+  const getBeatSpan = (p: Pattern): number => {
+    if (!beatSpanCache) beatSpanCache = new Map();
+    let val = beatSpanCache.get(p.id);
+    if (val === undefined) {
+      val = patternBeatSpan(p);
+      beatSpanCache.set(p.id, val);
+    }
+    return val;
+  };
+
+  return [...patterns].sort((a, b) => {
+    const aPinned = isPatternPinned(a);
+    const bPinned = isPatternPinned(b);
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+
+    let primary = 0;
+    switch (sort.key) {
+      case 'name':
+        primary = collator.compare(a.name, b.name);
+        break;
+      case 'noteCount':
+        primary = getNoteCount(a) - getNoteCount(b);
+        break;
+      case 'beatSpan':
+        primary = getBeatSpan(a) - getBeatSpan(b);
+        break;
+      case 'createdAt':
+      default:
+        primary = a.createdAt - b.createdAt;
+        break;
+    }
+
+    if (primary !== 0) {
+      return sort.direction === 'desc' ? -primary : primary;
+    }
+
+    // 全序兜底：同主键按 id 字典序升序
+    return a.id.localeCompare(b.id);
   });
 }
 

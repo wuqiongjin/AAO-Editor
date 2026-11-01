@@ -14,6 +14,7 @@ import { SIM_DEFAULT_PACK_IDS, normalizeSimAssetPackId } from '../../preview/vid
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/CurveTool';
 import { DEFAULT_BEAT_SNAP, normalizeBeatSnap } from '../../chart/editing/BeatSnap';
+import { DEFAULT_PATTERN_SORT, normalizePatternSort, type PatternSortPreference } from '../patterns/library';
 import { detectOsLanguageTag, resolveUiLanguage, type UiLanguage } from '../../i18n/resolveUiLanguage';
 
 /** 背景皮肤默认不透明度（issue 29 修订 2026-08-27）：55% ≈ 首版"满图 + 固定 0.45 暗色遮罩"的最终亮度，观感连续 */
@@ -152,6 +153,12 @@ export interface AppSettings {
    * （ADR-0023 §3 只约束后者）。additive 字段，不 bump schemaVersion；缺字段 / 脏值回落 true。
    */
   patternPaste: { withBpm: boolean };
+  /**
+   * 片段库偏好（issue 192）：抽屉内片段排序方式（键与方向）。
+   * 与 `patternPaste` 同属"我的习惯"；additive 字段，不 bump schemaVersion；
+   * 缺字段 / 未知 key / 非法 direction 回落默认（createdAt desc）。
+   */
+  patternLibrary: { sort: PatternSortPreference };
   /**
    * 工作台播放条（issue 180 Q25 / 票 182）：`markerButton` = 时间码旁的播放起点按钮显不显示，默认开。
    * 与 `display`（画布显示项）分段：显示面板「恢复默认」只重置画布那段。additive，不 bump schemaVersion。
@@ -486,6 +493,8 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     beatSnap: DEFAULT_BEAT_SNAP,
     // 片段粘贴默认「含 BPM」（ADR-0023 §2）
     patternPaste: { withBpm: true },
+    // 片段库排序默认「最新收藏在前」（issue 192）
+    patternLibrary: { sort: { ...DEFAULT_PATTERN_SORT } },
     playbar: { markerButton: true },
     projects: { sort: 'lastOpened', importWithChart: true, songSort: { ...SONG_SORT_DEFAULT } },
     preview: { ...DEFAULT_PREVIEW_SETTINGS },
@@ -507,6 +516,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
   const projects = (obj.projects && typeof obj.projects === 'object' ? obj.projects : {}) as Record<string, unknown>;
   const playbar = (obj.playbar && typeof obj.playbar === 'object' ? obj.playbar : {}) as Record<string, unknown>;
   const patternPaste = (obj.patternPaste && typeof obj.patternPaste === 'object' ? obj.patternPaste : {}) as Record<string, unknown>;
+  const patternLibrary = (obj.patternLibrary && typeof obj.patternLibrary === 'object' ? obj.patternLibrary : {}) as Record<string, unknown>;
   const exportRaw = (obj.export && typeof obj.export === 'object' ? obj.export : {}) as Record<string, unknown>;
   const visual = (obj.visual && typeof obj.visual === 'object' ? obj.visual : {}) as Record<string, unknown>;
   const rawNoteSkin = (visual.noteSkin && typeof visual.noteSkin === 'object' ? visual.noteSkin : {}) as Record<string, unknown>;
@@ -578,6 +588,10 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     // 片段粘贴模式（issue 186）：只认布尔，缺字段 / 脏值 = 带 BPM（默认档）
     patternPaste: {
       withBpm: typeof patternPaste.withBpm === 'boolean' ? patternPaste.withBpm : defaults.patternPaste.withBpm,
+    },
+    // 片段库偏好（issue 192）：缺字段 / 非法值回落默认档（createdAt desc）
+    patternLibrary: {
+      sort: normalizePatternSort(patternLibrary.sort, defaults.patternLibrary.sort),
     },
     playbar: {
       markerButton: typeof playbar.markerButton === 'boolean' ? playbar.markerButton : defaults.playbar.markerButton,
@@ -723,6 +737,7 @@ export function updateSettings(
     curve?: CurveConfig;
     beatSnap?: number;
     patternPaste?: Partial<AppSettings['patternPaste']>;
+    patternLibrary?: Partial<AppSettings['patternLibrary']>;
     playbar?: Partial<AppSettings['playbar']>;
     projects?: Partial<AppSettings['projects']>;
     preview?: Partial<AppSettings['preview']>;
@@ -748,6 +763,10 @@ export function updateSettings(
     // 段内浅合并；非布尔值不写入（脏值不会顶掉上一次的有效偏好）
     patternPaste: {
       withBpm: typeof patch.patternPaste?.withBpm === 'boolean' ? patch.patternPaste.withBpm : prev.patternPaste.withBpm,
+    },
+    // 片段库偏好（issue 192）：段内浅合并
+    patternLibrary: {
+      sort: patch.patternLibrary?.sort ? normalizePatternSort(patch.patternLibrary.sort, prev.patternLibrary.sort) : prev.patternLibrary.sort,
     },
     playbar: { ...prev.playbar, ...(patch.playbar ?? {}) },
     projects: { ...prev.projects, ...(patch.projects ?? {}) },

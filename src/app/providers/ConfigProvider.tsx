@@ -57,6 +57,8 @@ export interface ConfigContextValue {
   setBeatSnap: (beatSnap: number) => void;
   /** 片段粘贴模式（issue 186）：写回 settings.patternPaste.withBpm 并持久化（记住上次选择） */
   setPatternPasteWithBpm: (withBpm: boolean) => void;
+  /** 片段库排序（issue 192）：写回 settings.patternLibrary.sort 并持久化 */
+  setPatternLibrarySort: (sort: AppSettings['patternLibrary']['sort']) => void;
   /** 工作台播放条（票 182）：段内浅合并写回 settings.playbar 并持久化 */
   setPlaybar: (patch: Partial<AppSettings['playbar']>) => void;
   /** 工程启动台排序（issue 19 #4）：字段级写回 settings.projects.sort 并持久化 */
@@ -242,6 +244,14 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     noteSettingsChange(['patternPaste']);
   }, []);
 
+  // 片段库排序（issue 192）：写回 settings.patternLibrary.sort 并持久化
+  const setPatternLibrarySort = useCallback((sort: AppSettings['patternLibrary']['sort']) => {
+    setSettings(prev => {
+      return persistSettings(updateSettings(prev, { patternLibrary: { sort } }));
+    });
+    noteSettingsChange(['patternLibrary']);
+  }, []);
+
   const setPlaybar = useCallback((patch: Partial<AppSettings['playbar']>) => {
     setSettings(prev => {
       return persistSettings(updateSettings(prev, { playbar: patch }));
@@ -304,7 +314,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
 
-  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setPatternDrawer, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setBeatSnap, setPatternPasteWithBpm, setPlaybar, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
+  const value: ConfigContextValue = { settings, setShortcutConfig, setKeySetId, setTheme, setUiLanguage, setUiTypeScale, setUiFontStack, setAutoCheck, setPatternDrawer, setDisplay, setPreview, setExport, setSeVolume, setAudioVolume, setNoteSkin, setBackgroundSkin, setCurveConfig, setBeatSnap, setPatternPasteWithBpm, setPatternLibrarySort, setPlaybar, setProjectSort, setImportWithChart, setSongSort, setProjectListWidth, setAllSettings, setCachePolicy };
   return <ConfigContext.Provider value={value}>{children}</ConfigContext.Provider>;
 }
 

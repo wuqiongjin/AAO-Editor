@@ -642,3 +642,172 @@ describe('issue 193 · footer 状态切换（选择模式切换与恢复）', ()
   });
 });
 
+describe('issue 192 · 片段排序（视图偏好与 UI 切换）', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  const sortSeed = () => [
+    makePattern({
+      id: 'p1',
+      name: '片段 10',
+      createdAt: 100,
+      notes: [
+        { type: 'Single', beat: 0, lane: 0 },
+        { type: 'Single', beat: 1, lane: 1 },
+      ], // 2 音符，跨度 1
+    }),
+    makePattern({
+      id: 'p2',
+      name: '片段 2',
+      createdAt: 300,
+      notes: [
+        { type: 'Single', beat: 0, lane: 0 },
+      ], // 1 音符，跨度 0
+    }),
+    makePattern({
+      id: 'p3',
+      name: '片段 1',
+      createdAt: 200,
+      pinnedAt: 50,
+      notes: [
+        { type: 'Single', beat: 0, lane: 0 },
+        { type: 'Single', beat: 4, lane: 1 },
+        { type: 'Single', beat: 8, lane: 2 },
+      ], // 3 音符，跨度 8
+    }),
+  ];
+
+  it('排序按钮存在，点击展开浮层菜单，列出 8 项且当前项（最新收藏）打勾', async () => {
+    setup({ seed: sortSeed() });
+    await waitFor(() => expect(screen.getByText('片段 10')).toBeInTheDocument());
+
+    const sortBtn = screen.getByRole('button', { name: '排序片段' });
+    expect(sortBtn).toBeInTheDocument();
+    fireEvent.click(sortBtn);
+
+    const menu = screen.getByRole('menu', { name: '排序片段' });
+    expect(menu).toBeInTheDocument();
+
+    const items = screen.getAllByRole('menuitemradio');
+    expect(items.map((item) => item.textContent?.trim())).toEqual([
+      '最新收藏',
+      '最早收藏',
+      '名称 A→Z',
+      '名称 Z→A',
+      '音符 多→少',
+      '音符 少→多',
+      '拍数 多→少',
+      '拍数 少→多',
+    ]);
+
+    // 默认最新收藏打勾
+    expect(items[0]).toHaveAttribute('aria-checked', 'true');
+    expect(items[1]).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('切换排序后顺序变化、当前项打勾更新，且不触发片段库写盘（只写设置）', async () => {
+    const memory = setup({ seed: sortSeed() });
+    await waitFor(() => expect(screen.getByText('片段 10')).toBeInTheDocument());
+
+    // 初始顺序：置顶的 p3 在前；未置顶按 createdAt 倒序：p2 (300) > p1 (100)
+    let names = cardNames();
+    expect(names[0]).toContain('片段 1');
+    expect(names[1]).toContain('片段 2');
+    expect(names[2]).toContain('片段 10');
+
+    // 点开排序菜单切「最早收藏」
+    fireEvent.click(screen.getByRole('button', { name: '排序片段' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /最早收藏/ }));
+
+    // 置顶依然在最前，未置顶变为 createdAt 升序：p1 (100) < p2 (300)
+    names = cardNames();
+    expect(names[0]).toContain('片段 1');
+    expect(names[1]).toContain('片段 10');
+    expect(names[2]).toContain('片段 2');
+
+    // 静态锁：切换排序不触发片段库 saveAll
+    expect(memory.saves).toBe(0);
+
+    // 设置对象中已持久化
+    const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY)!);
+    expect(stored.patternLibrary.sort).toEqual({ key: 'createdAt', direction: 'asc' });
+
+    // 再次点开菜单，最早收藏打勾
+    fireEvent.click(screen.getByRole('button', { name: '排序片段' }));
+    expect(screen.getByRole('menuitemradio', { name: /最早收藏/ })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('按名称自然数字序排序，置顶组依然优先', async () => {
+    setup({ seed: sortSeed() });
+    await waitFor(() => expect(screen.getByText('片段 10')).toBeInTheDocument());
+
+    // 切「名称 A→Z」
+    fireEvent.click(screen.getByRole('button', { name: '排序片段' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /名称 A→Z/ }));
+
+    // 置顶的「片段 1」仍排在最前；未置顶中「片段 2」排在「片段 10」前（自然数字序）
+    const names = cardNames();
+    expect(names[0]).toContain('片段 1');
+    expect(names[1]).toContain('片段 2');
+    expect(names[2]).toContain('片段 10');
+  });
+
+  it('按音符数排序', async () => {
+    setup({ seed: sortSeed() });
+    await waitFor(() => expect(screen.getByText('片段 10')).toBeInTheDocument());
+
+    // 切「音符 少→多」
+    fireEvent.click(screen.getByRole('button', { name: '排序片段' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /音符 少→多/ }));
+
+    // p3 为置顶（3 音符）仍在最前；未置顶中 p2 (1 音符) < p1 (2 音符)
+    const names = cardNames();
+    expect(names[0]).toContain('片段 1');
+    expect(names[1]).toContain('片段 2');
+    expect(names[2]).toContain('片段 10');
+  });
+
+  it('搜索过滤与排序组合：搜索不改变排序偏好', async () => {
+    setup({ seed: sortSeed() });
+    await waitFor(() => expect(screen.getByText('片段 10')).toBeInTheDocument());
+
+    // 切「最早收藏」
+    fireEvent.click(screen.getByRole('button', { name: '排序片段' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /最早收藏/ }));
+
+    // 搜索输入「片段 1」：匹配 p1 (片段 10) 和 p3 (片段 1)
+    const search = screen.getByRole('textbox', { name: '搜索片段名字' });
+    fireEvent.change(search, { target: { value: '片段 1' } });
+
+    // p3 置顶在最前，之后是 p1
+    const names = cardNames();
+    expect(names).toHaveLength(2);
+    expect(names[0]).toContain('片段 1');
+    expect(names[1]).toContain('片段 10');
+  });
+
+  it('选择模式下排序按钮依然可用且不丢失选择状态', async () => {
+    setup({ seed: sortSeed() });
+    await waitFor(() => expect(screen.getByText('片段 10')).toBeInTheDocument());
+
+    // 进入选择模式
+    fireEvent.click(screen.getByRole('button', { name: '片段库操作' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '选择片段' }));
+
+    // 勾选 p1 (片段 10)
+    fireEvent.click(screen.getByRole('checkbox', { name: '片段 10' }));
+    expect(screen.getByRole('checkbox', { name: '片段 10' })).toHaveAttribute('aria-checked', 'true');
+
+    // 排序按钮仍可用，切「最早收藏」
+    const sortBtn = screen.getByRole('button', { name: '排序片段' });
+    expect(sortBtn).toBeEnabled();
+    fireEvent.click(sortBtn);
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /最早收藏/ }));
+
+    // 重新排序后，勾选状态依然保持
+    expect(screen.getByRole('checkbox', { name: '片段 10' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('checkbox', { name: '片段 2' })).toHaveAttribute('aria-checked', 'false');
+  });
+});
+

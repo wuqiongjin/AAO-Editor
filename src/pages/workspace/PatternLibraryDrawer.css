@@ -64,18 +64,52 @@
   color: var(--text);
 }
 
-/* 常驻搜索：顶部一行，随抽屉宽度伸缩 */
-.pld__search {
+/* 常驻搜索与排序：顶部一行，随抽屉宽度伸缩（issue 192） */
+.pld__search-row {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
   margin: 8px 10px 2px;
+}
+
+.pld__search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 0;
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-inset);
+}
+
+.pld__sort-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+
+.pld__sort-btn:hover:not(:disabled),
+.pld__sort-btn[aria-expanded='true'] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.pld__sort-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .pld__search:focus-within {
@@ -377,6 +411,20 @@
 
 .pld-menu__item--danger:hover:not(:disabled) {
   color: var(--danger);
+}
+
+.pld-menu--sort {
+  min-width: 136px;
+}
+
+.pld-menu__item-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--accent);
 }
 
 .pld__foot {
