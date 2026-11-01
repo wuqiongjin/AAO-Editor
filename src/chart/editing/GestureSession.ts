@@ -54,6 +54,14 @@ const DRAG_THRESHOLD_PX = 4;
  */
 const MARQUEE_THRESHOLD_PX = 8;
 
+const hasDragMovement = (d: DragDelta | null): d is DragDelta => {
+  if (!d) return false;
+  if (d.dBeat !== 0 || d.dLane !== 0) return true;
+  if (d.exactDLane !== undefined && d.exactDLane !== 0) return true;
+  if (d.pinchCursor && (d.pinchCursor.curBeat !== d.pinchCursor.pressBeat || d.pinchCursor.curLane !== d.pinchCursor.pressLane)) return true;
+  return false;
+};
+
 export type GestureOp =
   | MatrixOp
   | { t: 'closeBpmEditor' }
@@ -111,6 +119,7 @@ export interface GestureBeginInput {
 export interface GestureMoveInput {
   x: number;
   y: number;
+  altKey?: boolean;
 }
 
 export interface GestureEndInput {
@@ -120,6 +129,7 @@ export interface GestureEndInput {
   shiftKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
+  altKey?: boolean;
 }
 
 export interface GestureSessionHost {
@@ -180,6 +190,8 @@ export class GestureSession {
   private dragFrozen: { notes: ChartNote[]; items: SelectionItem[] } | null = null;
   private pen: PenState | null = null;
   private penHoldTimer: number | null = null;
+  /** issue 203：拖拽期间是否按住 Alt（用于圆滑捏形 ↔ 三角捏形实时切换） */
+  private altHeld = false;
 
   constructor(host: GestureSessionHost) {
     this.host = host;
@@ -213,6 +225,45 @@ export class GestureSession {
     return this.start !== null;
   }
 
+  /** 正在拖拽音符/段 */
+  isDragging(): boolean {
+    return this.drag !== null;
+  }
+
+  /** issue 203：是否正在对滑条段进行捏形拖拽 */
+  isPinchDragging(): boolean {
+    return this.drag !== null && this.drag.items.length === 1 && this.drag.items[0]!.kind === 'slideRegion';
+  }
+
+  /**
+   * issue 203：拖拽中按下或松开 Alt（Q6 实时切换，仅对 slideRegion 捏形生效）
+   */
+  onAltChange(altKey: boolean): GestureResult {
+    this.altHeld = altKey;
+    if (!this.isPinchDragging() || !this.pointerPx) return this.result();
+    this.updateDragState(this.pointerPx.x, this.pointerPx.y, altKey);
+    return this.result();
+  }
+
+  private updateDragState(cx: number, cy: number, altKey = this.altHeld): void {
+    if (!this.drag) return;
+    const w = this.requireWorld();
+    const d = this.dragDelta(cx, cy, this.drag, altKey);
+    if (hasDragMovement(d)) {
+      const r = planDragMove(w.notes, this.drag.items, d, {
+        chartEndBeat: w.chartEndBeat,
+        beatDisplay: w.beatDisplay,
+      });
+      if (r.ok) {
+        const ghost = r.ghost;
+        this.patchSnap({
+          dragGhost: !ghost || ghost.length === 0 ? null : ghost,
+        });
+        this.dragFrozen = { notes: r.notes, items: r.items };
+      }
+    }
+  }
+
   destroy(): void {
     this.clearPenTimer();
     this.host.detachWindow();
@@ -220,6 +271,7 @@ export class GestureSession {
 
   begin(input: GestureBeginInput): GestureResult {
     this.cancelled = false;
+    this.altHeld = false;
     this.viewportChangedDuringPress = false;
     const w = this.requireWorld();
     const pos = w.geometry.posOfVirtualY(input.vy, w.viewport.scale);
@@ -273,20 +325,8 @@ export class GestureSession {
     if (this.drag) {
       this.host.setCursor('grabbing');
       this.patchSnap({ cursorStyle: 'grabbing' });
-      const d = this.dragDelta(input.x, input.y, this.drag);
-      if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
-        const r = planDragMove(w.notes, this.drag.items, d, {
-          chartEndBeat: w.chartEndBeat,
-          beatDisplay: w.beatDisplay,
-        });
-        if (r.ok) {
-          const ghost = r.ghost;
-          this.patchSnap({
-            dragGhost: d.dBeat === 0 && d.dLane === 0 || !ghost || ghost.length === 0 ? null : ghost,
-          });
-          this.dragFrozen = { notes: r.notes, items: r.items };
-        }
-      }
+      if (input.altKey !== undefined) this.altHeld = input.altKey;
+      this.updateDragState(input.x, input.y, this.altHeld);
       return this.result();
     }
     if (this.pen) {
@@ -422,19 +462,7 @@ export class GestureSession {
     }
     const drag = this.drag;
     if (!drag || !cursor) return this.result();
-    const d = this.dragDelta(cursor.x, cursor.y, drag);
-    if (!d || (d.dBeat === 0 && d.dLane === 0)) return this.result();
-    const r = planDragMove(w.notes, drag.items, d, {
-      chartEndBeat: w.chartEndBeat,
-      beatDisplay: w.beatDisplay,
-    });
-    if (r.ok) {
-      const ghost = r.ghost;
-      this.patchSnap({
-        dragGhost: d.dBeat === 0 && d.dLane === 0 || !ghost || ghost.length === 0 ? null : ghost,
-      });
-      this.dragFrozen = { notes: r.notes, items: r.items };
-    }
+    this.updateDragState(cursor.x, cursor.y, this.altHeld);
     return this.result();
   }
 
@@ -599,7 +627,8 @@ export class GestureSession {
 
   private commitDrag(drag: DragAnchor, e: GestureEndInput): GestureOp[] {
     const w = this.requireWorld();
-    const d = this.dragDelta(e.x, e.y, drag);
+    const altKey = e.altKey ?? this.altHeld;
+    const d = this.dragDelta(e.x, e.y, drag, altKey);
     const frozen = this.dragFrozen;
     this.dragFrozen = null;
     if (!d && frozen) {
@@ -608,7 +637,7 @@ export class GestureSession {
         { t: 'setSelection', items: frozen.items },
       ];
     }
-    if (d && (d.dBeat !== 0 || d.dLane !== 0)) {
+    if (hasDragMovement(d)) {
       const r = planDragMove(w.notes, drag.items, d, {
         chartEndBeat: w.chartEndBeat,
         beatDisplay: w.beatDisplay,
@@ -692,12 +721,16 @@ export class GestureSession {
     ];
   }
 
-  private dragDelta(mx: number, my: number, drag: DragAnchor | null): DragDelta | null {
+  private dragDelta(mx: number, my: number, drag: DragAnchor | null, altKey = this.altHeld): DragDelta | null {
     if (!drag) return null;
     const w = this.requireWorld();
     const cur = this.snapPos(mx, my, true);
     if (!cur) return null;
     const rawCurBeat = w.geometry.layerBeatFromCanvas(my, w.viewport, drag.layerSegment);
+    const rawCurLane = w.geometry.continuousLaneFromCanvas(mx, w.viewport);
+    const pressLane = drag.rawPressLane ?? drag.pressLane;
+    const isRegion = drag.items.length === 1 && drag.items[0]!.kind === 'slideRegion';
+
     return {
       dBeat: dragDeltaBeat({
         anchorBeat: drag.anchorBeat,
@@ -707,6 +740,16 @@ export class GestureSession {
       }),
       dLane: cur.lane - drag.pressLane,
       grabBeat: drag.rawPressBeat,
+      ...(isRegion ? {
+        pinchMode: altKey ? 'triangle' as const : 'smooth' as const,
+        pinchCursor: {
+          pressBeat: drag.rawPressBeat,
+          pressLane,
+          curBeat: rawCurBeat,
+          curLane: rawCurLane,
+        },
+        exactDLane: rawCurLane - pressLane,
+      } : {}),
     };
   }
 

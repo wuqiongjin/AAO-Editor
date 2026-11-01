@@ -782,3 +782,49 @@ describe('GestureSession · 右键双模态（issue 158）', () => {
     expect(setNotes.notes.some((n) => n.type === 'Single')).toBe(false);
   });
 });
+
+describe('issue 203 · 拖段捏形与 Alt 实时切换', () => {
+  const slideNote: ChartNote = {
+    type: 'Slide',
+    connections: [{ beat: 50, lane: 2 }, { beat: 52, lane: 2 }],
+  };
+
+  it('拖动滑条段：默认走圆滑捏形，按住 Alt 切换为三角捏形（无指针移动时即刻重算幽灵）', () => {
+    const notes = [bpmNote(0, 120), slideNote];
+    const { world, at, virt } = worldOf(notes);
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+    const p0 = at(2, 51);
+    const p1 = at(4, 51);
+    press(s, p0, virt);
+    expect(s.isDragging()).toBe(true);
+    s.move(p1);
+    const smoothGhost = s.getSnapshot().dragGhost;
+    expect(smoothGhost).not.toBeNull();
+    const smoothSlide = smoothGhost![0] as SlideNote;
+
+    // Alt 按下 -> 实时切换为三角捏形
+    s.onAltChange(true);
+    const triGhost = s.getSnapshot().dragGhost;
+    expect(triGhost).not.toBeNull();
+    const triSlide = triGhost![0] as SlideNote;
+    // 两者形态不同（圆滑贝塞尔鼓包 vs 三角折线）
+    expect(smoothSlide.connections.map(c => c.lane)).not.toEqual(triSlide.connections.map(c => c.lane));
+
+    // Alt 松开 -> 恢复圆滑捏形
+    s.onAltChange(false);
+    const restoredGhost = s.getSnapshot().dragGhost;
+    const restoredSlide = restoredGhost![0] as SlideNote;
+    expect(restoredSlide.connections.map(c => c.lane)).toEqual(smoothSlide.connections.map(c => c.lane));
+
+    // 抬手提交
+    const r = s.end(up(p1));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    const committed = setNotes.notes.find((n) => n.type === 'Slide') as SlideNote;
+    expect(committed.connections.map(c => c.lane)).toEqual(smoothSlide.connections.map(c => c.lane));
+  });
+});
+

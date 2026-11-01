@@ -313,6 +313,16 @@ trackGeometry(scale: number): { totalTrackWidth: number; trackStartX: number; tr
   }
 
   /**
+   * 画布 X → 连续轨道坐标（未吸附，以第 0 轨中心为 0、第 1 轨中心为 1……第 6 轨中心为 6）。
+   * 用于 issue 203 圆滑捏形与小数 lane 拖拽（所见即所点，光标与曲线中心对齐）。
+   */
+  continuousLaneFromCanvas(cx: number, viewport: GeometryViewport): number {
+    const { trackBgX } = this.trackGeometry(viewport.scale);
+    const es = this.effectiveScale(viewport.scale);
+    return (cx - trackBgX) / (LANE_WIDTH * es) - 0.5;
+  }
+
+  /**
    * 画布坐标 → lane/beat（用于命中与圈选）；负拍返回 null。
    * 倒流区里「y → 拍」多值：此处取 **最大 beat 解**（ADR-0010 结论 5，与制谱器编辑器逐操作等价），
    * 即"空白处新增/光标读数"的默认口径；拖拽的层内换算走 `layerBeatFromCanvas`。

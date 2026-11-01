@@ -453,22 +453,41 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
 
     // ---------------- issue 63：手势期间的隐式指针捕获 ----------------
     const gestureHandlersRef = useRef<{
-        move: (e: { clientX: number; clientY: number }) => void;
-        up: (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean } | null) => void;
+        move: (e: { clientX: number; clientY: number; altKey?: boolean }) => void;
+        up: (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean } | null) => void;
     }>({ move: () => { /* 首个手势开始前不会被调用 */ }, up: () => { } });
     const onWindowMove = useCallback((e: MouseEvent) => gestureHandlersRef.current.move(e), []);
     const onWindowUp = useCallback((e: MouseEvent) => gestureHandlersRef.current.up(e), []);
     const onWindowBlur = useCallback(() => gestureHandlersRef.current.up(null), []);
+
+    // issue 203：拖拽期间 Alt 按下/松开吞掉默认行为（Windows 菜单栏焦点）并实时切换捏形形态
+    const onWindowKeyDown = useCallback((e: KeyboardEvent) => {
+        if (e.key === 'Alt' && session.isPinchDragging()) {
+            e.preventDefault();
+            applyGesture(session.onAltChange(true));
+        }
+    }, [session]);
+    const onWindowKeyUp = useCallback((e: KeyboardEvent) => {
+        if (e.key === 'Alt' && session.isPinchDragging()) {
+            e.preventDefault();
+            applyGesture(session.onAltChange(false));
+        }
+    }, [session]);
+
     const attachWindowGesture = useCallback(() => {
         window.addEventListener('mousemove', onWindowMove);
         window.addEventListener('mouseup', onWindowUp);
         window.addEventListener('blur', onWindowBlur);
-    }, [onWindowMove, onWindowUp, onWindowBlur]);
+        window.addEventListener('keydown', onWindowKeyDown);
+        window.addEventListener('keyup', onWindowKeyUp);
+    }, [onWindowMove, onWindowUp, onWindowBlur, onWindowKeyDown, onWindowKeyUp]);
     const detachWindowGesture = useCallback(() => {
         window.removeEventListener('mousemove', onWindowMove);
         window.removeEventListener('mouseup', onWindowUp);
         window.removeEventListener('blur', onWindowBlur);
-    }, [onWindowMove, onWindowUp, onWindowBlur]);
+        window.removeEventListener('keydown', onWindowKeyDown);
+        window.removeEventListener('keyup', onWindowKeyUp);
+    }, [onWindowMove, onWindowUp, onWindowBlur, onWindowKeyDown, onWindowKeyUp]);
     sessionHostRef.current.attachWindow = attachWindowGesture;
     sessionHostRef.current.detachWindow = detachWindowGesture;
     useEffect(() => detachWindowGesture, [detachWindowGesture]);
@@ -501,21 +520,22 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }));
     };
 
-    const handlePointerMove = (e: { clientX: number; clientY: number }) => {
+    const handlePointerMove = (e: { clientX: number; clientY: number; altKey?: boolean }) => {
         const canvasPos = cssToCanvas(e);
         if (!canvasPos) return;
         syncHover(canvasPos.x, canvasPos.y);
         // Q12：标记线附近的命中带也点亮 hover（与删除双击同一范围，所见即所点）
         setMarkerLineHovered(hitPlaybackMarker(canvasPos.x, canvasPos.y));
-        applyGesture(session.move({ x: canvasPos.x, y: canvasPos.y }));
+        applyGesture(session.move({ x: canvasPos.x, y: canvasPos.y, altKey: e.altKey }));
     };
 
-    const handlePointerUp = (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean } | null) => {
+    const handlePointerUp = (e: { clientX: number; clientY: number; button?: number; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean } | null) => {
         if (!e) { applyGesture(session.end(null)); return; }
         const pos = cssToCanvas(e);
         applyGesture(session.end(pos ? {
             x: pos.x, y: pos.y, button: e.button,
             shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey,
+            altKey: e.altKey,
         } : null));
     };
 

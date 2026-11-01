@@ -206,6 +206,10 @@ export interface DragAnchor {
      * `rawPressBeat` 与后续 `rawCurBeat` 都按本层换算，二者同层才可比。
      */
     layerSegment: number;
+    /**
+     * 按下时光标的连续 lane（issue 203：未吸附，以第 0 轨中心为 0……第 6 轨中心为 6）。
+     */
+    rawPressLane?: number;
 }
 
 export type PressIntent =
@@ -268,10 +272,11 @@ export function resolvePressIntent(input: {
     // 也按该层换算，与拖拽中的换算同层（倒流区里「同一个 y」各层的拍不同，跨层相减会算错位移）
     const layerSegment = input.deps.geometry.timeline.segmentIndexAtBeat(anchorBeat);
     const rawPressBeat = input.deps.geometry.layerBeatFromCanvas(input.cy, input.deps.viewport, layerSegment);
+    const rawPressLane = input.deps.geometry.continuousLaneFromCanvas(input.cx, input.deps.viewport);
 
     return {
         kind: 'drag',
-        anchor: { items, pressLane: p.lane, anchorBeat, rawPressBeat, layerSegment },
+        anchor: { items, pressLane: p.lane, anchorBeat, rawPressBeat, layerSegment, rawPressLane },
     };
 }
 

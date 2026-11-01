@@ -261,13 +261,34 @@ describe('resolvePressIntent 按下意图仲裁', () => {
     });
   };
 
-  it('指针态按到单键 → drag，锚点拍位 = 被按住对象的真实拍位', () => {
+  it('指针态按到单键 → drag，锚点拍位 = 被按住对象的真实拍位，且记录 rawPressLane（issue 203）', () => {
     const r = press({});
     expect(r.kind).toBe('drag');
     if (r.kind !== 'drag') return;
     expect(r.anchor.anchorBeat).toBeCloseTo(50, 6);
     expect(r.anchor.pressLane).toBe(2);
+    expect(r.anchor.rawPressLane).toBeCloseTo(2, 6);
     expect(r.anchor.items).toEqual([{ kind: 'note', noteIndex: 1 }]);
+  });
+
+  it('按在音符偏离中心处 → rawPressLane 记录未吸附连续轨号（issue 203 Q3）', () => {
+    const { deps, at } = makeDeps(notes);
+    const p = at(2, 50);
+    const r = resolvePressIntent({
+      cx: p.x + 10,
+      cy: p.y,
+      armedTool: null,
+      shiftKey: false,
+      onMarker: false,
+      deps,
+      selectedItems: [],
+      chartEndBeat: 100,
+    });
+    expect(r.kind).toBe('drag');
+    if (r.kind !== 'drag') return;
+    expect(r.anchor.pressLane).toBe(2);
+    expect(r.anchor.rawPressLane).toBeCloseTo(deps.geometry.continuousLaneFromCanvas(p.x + 10, deps.viewport), 6);
+    expect(r.anchor.rawPressLane).toBeGreaterThan(2);
   });
 
   it('§6 三轮修订：任意持工具态 Shift+按住音符 = 移动', () => {

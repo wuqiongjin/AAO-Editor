@@ -861,3 +861,86 @@ describe('planDragMove · 同拍中间结点拖动与弱序时序（issue 202）
   });
 });
 
+describe('issue 203 · planDragMove 拖段圆滑与三角模式派发', () => {
+  const plainSlide = (): ChartNote => ({
+    type: 'Slide',
+    connections: [{ beat: 1, lane: 2, subBeat: 0 }, { beat: 2, lane: 2, subBeat: 0 }],
+  } as ChartNote);
+
+  it('默认或 pinchMode=smooth 传入 pinchCursor 时派发圆滑捏形，曲线穿过光标且无尖角', () => {
+    const notes = [plainSlide()];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }],
+      {
+        dBeat: 0,
+        dLane: 0,
+        pinchCursor: { pressBeat: 1.5, pressLane: 2, curBeat: 1.5, curLane: 3.5 },
+      },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.ghost).toBeDefined();
+    const s = r.notes[0] as SlideNote;
+    const mid = s.connections.find(c => Math.abs(c.beat - 1.5) < 1e-9)!;
+    expect(mid.lane).toBeCloseTo(3.5, 6);
+  });
+
+  it('连续小数 lane 拖动：即使整轨 dLane=0，只要 pinchCursor 有偏移仍能产生幽灵', () => {
+    const notes = [plainSlide()];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }],
+      {
+        dBeat: 0,
+        dLane: 0,
+        pinchCursor: { pressBeat: 1.5, pressLane: 2, curBeat: 1.5, curLane: 2.4 },
+      },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.ghost).toBeDefined();
+    const s = r.notes[0] as SlideNote;
+    const mid = s.connections.find(c => Math.abs(c.beat - 1.5) < 1e-9)!;
+    expect(mid.lane).toBeCloseTo(2.4, 6);
+  });
+
+  it('pinchMode=triangle 派发三角捏形，支持小数 exactDLane', () => {
+    const notes = [plainSlide()];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'slideRegion', noteIndex: 0, connIndex: 0 }],
+      {
+        dBeat: 0,
+        dLane: 0,
+        pinchMode: 'triangle',
+        exactDLane: 1.5,
+        grabBeat: 1.5,
+      },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    const mid = s.connections.find(c => Math.abs(c.beat - 1.5) < 1e-9)!;
+    expect(mid.lane).toBeCloseTo(3.5, 9); // 2 + 1.5
+  });
+
+  it('非 slideRegion（如普通音符拖拽）不受 pinchMode/pinchCursor 干扰，保持整数 dLane 行为', () => {
+    const notes: ChartNote[] = [single(1, 2)];
+    const r = planDragMove(
+      notes,
+      [{ kind: 'note', noteIndex: 0 }],
+      {
+        dBeat: 1,
+        dLane: 2,
+        pinchMode: 'smooth',
+        pinchCursor: { pressBeat: 1, pressLane: 2, curBeat: 2, curLane: 4 },
+      },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.notes[0]).toMatchObject({ beat: 2, lane: 4 });
+  });
+});
+
+
