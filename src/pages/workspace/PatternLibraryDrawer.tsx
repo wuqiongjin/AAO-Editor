@@ -13,17 +13,23 @@
 // - 导入导出（187）：抽屉头 ⋯ = 整库；卡片 ⋯ = 单条。读文件两环境同一路（`<input type="file">`），
 //   写文件 Electron 走桥 / 浏览器下载；**取消保存什么都不发生**。
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { BookmarkPlus, LibraryBig, Pin, Search, X } from 'lucide-react';
+import { BookmarkPlus, Check, LibraryBig, Pin, Search, X } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
 import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
 import { formatKey } from '../../chart/config/ShortcutConfig';
 import type { PatternImportStrategy } from '../../chart/patterns/importConflict';
 import { filterPatternsByName, isPatternPinned, patternBpmRange } from '../../chart/patterns/library';
+import {
+  getPatternSelectionStats,
+  selectAllVisiblePatterns,
+  togglePatternSelection,
+} from '../../chart/patterns/selection';
 import { formatPatternBeatSpan, patternStats } from '../../chart/patterns/stats';
 import {
   pickPatternFile,
   readPatternFileText,
   savePatternLibraryFile,
+  saveSelectedPatternsFile,
   saveSinglePatternFile,
 } from '../../chart/patterns/shareFile';
 import type { Pattern } from '../../chart/patterns/types';
@@ -39,6 +45,7 @@ import BpmRange from './BpmRange';
 import PatternCardMenu from './PatternCardMenu';
 import PatternImportDialog from './PatternImportDialog';
 import PatternLibraryMenu from './PatternLibraryMenu';
+import PatternSelectionBar from './PatternSelectionBar';
 import PatternThumbnail from './PatternThumbnail';
 import './PatternLibraryDrawer.css';
 
@@ -53,6 +60,8 @@ interface PatternLibraryDrawerProps {
   onSaveSelection: () => void;
   /** 点卡片 = 进/退片段粘贴持工具态（issue 186：同一张再点即退出）；只读时卡片不进态 */
   onPastePattern: (pattern: Pattern) => void;
+  /** 进入选择模式时退出片段粘贴态（回指针，issue 193） */
+  onExitPaste?: () => void;
   /** 当前承载粘贴负载的片段 id：那张卡片高亮 + `aria-pressed`（null = 无） */
   activePatternId?: string | null;
   /** 拖宽开始 / 结束：页面据此暂停画布实时重绘（与旧面板拖拽同口径） */
@@ -61,7 +70,7 @@ interface PatternLibraryDrawerProps {
 
 export default memo(function PatternLibraryDrawer({
   library, canSaveSelection, readOnly = false, onSaveSelection, onPastePattern,
-  activePatternId = null, onResizingChange,
+  onExitPaste, activePatternId = null, onResizingChange,
 }: PatternLibraryDrawerProps) {
   const { settings, setPatternDrawer } = useConfig();
   const storedWidth = settings.layout.patternDrawer.width;
@@ -112,7 +121,40 @@ export default memo(function PatternLibraryDrawer({
   // Esc 取消后输入框卸载可能补发一次 blur：别让"取消"被 blur 又提交回去（同 BPM 就地编辑口径）
   const renameCancelledRef = useRef(false);
 
+  // 选择模式（issue 193）
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [pendingBatchDelete, setPendingBatchDelete] = useState(false);
+
+  const enterSelectionMode = () => {
+    onExitPaste?.();
+    setRenaming(null);
+    setSelectedIds(new Set());
+    setSelectionMode(true);
+  };
+
+  const exitSelectionMode = () => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  };
+
+  // Esc 键退出选择模式（有弹窗时交给弹窗自行处理）
+  useEffect(() => {
+    if (!selectionMode) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (pendingBatchDelete || pendingDelete || pendingImport) return;
+        e.preventDefault();
+        e.stopPropagation();
+        exitSelectionMode();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectionMode, pendingBatchDelete, pendingDelete, pendingImport]);
+
   const startRename = (pattern: Pattern) => {
+    if (selectionMode) return;
     renameCancelledRef.current = false;
     setRenaming({ id: pattern.id, draft: pattern.name });
   };
@@ -130,14 +172,48 @@ export default memo(function PatternLibraryDrawer({
   };
 
   /**
-   * 点卡片 / 回车 = 进/退片段粘贴持工具态（issue 186）。
-   * 只读谱面**不进态**（置灰的卡片不做无反馈的空转，也不弹只读提示——说明已在 tooltip 里）；
+   * 点卡片 / 回车：
+   * - 选择模式：勾选 / 取消勾选（不进粘贴态，只读谱面也允许勾选）；
+   * - 普通浏览：进/退片段粘贴持工具态（issue 186）。只读谱面不进态。
    * 改名中输入框的点击不触发（它和卡片同一层）。
-   * `detail > 1` 是双击的第二击：改名走双击，第二击不再动工具态（否则一次双击会把刚进的态又退掉）。
+   * `detail > 1` 是双击的第二击：改名走双击，第二击不再动工具态。
    */
-  const onPasteCard = (pattern: Pattern, detail = 1) => {
+  const onCardClick = (pattern: Pattern, detail = 1) => {
+    if (selectionMode) {
+      setSelectedIds((prev) => togglePatternSelection(prev, pattern.id));
+      return;
+    }
     if (readOnly || renaming?.id === pattern.id || detail > 1) return;
     onPastePattern(pattern);
+  };
+
+  const selectionStats = useMemo(
+    () => getPatternSelectionStats(selectedIds, visible),
+    [selectedIds, visible],
+  );
+
+  const selectAllVisible = () => {
+    setSelectedIds((prev) => selectAllVisiblePatterns(prev, visible));
+  };
+
+  /* 批量导出（193）：统一信封，文件名以 aao-patterns-selected-<count>-YYYYMMDD-HHmmss.json 命名 */
+  const exportSelected = async () => {
+    if (selectedIds.size === 0) return;
+    const snapshot = library.patterns.filter((p) => selectedIds.has(p.id));
+    try {
+      await saveSelectedPatternsFile(snapshot);
+    } catch {
+      showToast(t('patternLibrary.exportFailed'), 'danger');
+    }
+  };
+
+  /* 批量删除（193）：一次整库 commit，成功后清空选择并退出选择模式 */
+  const executeBatchDelete = async () => {
+    const ids = Array.from(selectedIds);
+    const ok = await library.removeMany(ids);
+    if (ok) {
+      exitSelectionMode();
+    }
   };
 
   const saveKey = formatKey(settings.shortcuts.execSavePattern);
@@ -235,7 +311,7 @@ export default memo(function PatternLibraryDrawer({
   };
 
   return (
-    <aside className="pld ws-island" aria-label={t('patternLibrary.title')} style={{ width }}>
+    <aside className={`pld ws-island${selectionMode ? ' pld--selection-mode' : ''}`} aria-label={t('patternLibrary.title')} style={{ width }}>
       <div
         className={`pld__resizer${resizing ? ' is-dragging' : ''}`}
         role="separator"
@@ -250,17 +326,29 @@ export default memo(function PatternLibraryDrawer({
 
       <header className="pld__head">
         <span className="pld__title">{t('patternLibrary.title')}</span>
-        {/* 整库导入导出（187）：空库 / 未载入完成时导出项置灰 */}
+        {/* 整库导入导出（187）与选择模式切换（193） */}
         <PatternLibraryMenu
           canExport={library.status === 'ready' && library.patterns.length > 0}
           exportDisabledHint={exportDisabledHint}
+          selectionMode={selectionMode}
+          canSelect={library.status === 'ready' && library.patterns.length > 0}
+          onToggleSelectionMode={() => {
+            if (selectionMode) {
+              exitSelectionMode();
+            } else {
+              enterSelectionMode();
+            }
+          }}
           onExport={() => void exportLibrary()}
           onImport={() => void importLibrary()}
         />
         <button
           type="button"
           className="pld__close"
-          onClick={() => setPatternDrawer({ open: false })}
+          onClick={() => {
+            exitSelectionMode();
+            setPatternDrawer({ open: false });
+          }}
           aria-label={t('patternLibrary.close')}
           title={t('patternLibrary.close')}
         >
@@ -319,33 +407,41 @@ export default memo(function PatternLibraryDrawer({
             {visible.map((pattern) => {
               const range = patternBpmRange(pattern);
               const stats = patternStats(pattern);
-              const active = !readOnly && activePatternId === pattern.id;
+              const active = !readOnly && !selectionMode && activePatternId === pattern.id;
+              const isSelected = selectionMode && selectedIds.has(pattern.id);
               const isPinned = isPatternPinned(pattern);
               return (
                 <li
                   key={pattern.id}
-                  className={`pld-card${readOnly ? ' is-readonly' : ''}${active ? ' is-active' : ''}`}
-                  title={readOnly ? t('patternLibrary.readonlyCard') : undefined}
+                  className={`pld-card${readOnly && !selectionMode ? ' is-readonly' : ''}${active ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}`}
+                  title={readOnly && !selectionMode ? t('patternLibrary.readonlyCard') : undefined}
                 >
-                  {/* 卡片主体 = 粘贴热区（issue 186：点卡片进片段粘贴持工具态）。
-                      用 div + role 而不是 <button>：改名输入框与 ⋯ 菜单都在这一层里，嵌套按钮非法。
-                      只读谱面：置灰 + aria-disabled，点击不进态（贴入仍由画布三道闸门兜底）。 */}
+                  {/* 卡片主体：普通模式点卡片进粘贴态（186）；选择模式点卡片切换勾选（193） */}
                   <div
                     className="pld-card__hit"
-                    role="button"
-                    tabIndex={readOnly ? -1 : 0}
-                    aria-disabled={readOnly || undefined}
-                    aria-pressed={active}
-                    aria-label={t('patternLibrary.pasteCardAria', { name: pattern.name })}
-                    onClick={(e) => onPasteCard(pattern, e.detail)}
+                    role={selectionMode ? 'checkbox' : 'button'}
+                    tabIndex={readOnly && !selectionMode ? -1 : 0}
+                    aria-disabled={(!selectionMode && readOnly) || undefined}
+                    aria-pressed={selectionMode ? undefined : active}
+                    aria-checked={selectionMode ? isSelected : undefined}
+                    aria-label={selectionMode
+                      ? pattern.name
+                      : t('patternLibrary.pasteCardAria', { name: pattern.name })
+                    }
+                    onClick={(e) => onCardClick(pattern, e.detail)}
                     onKeyDown={(e) => {
                       // 焦点在改名输入框时不抢 Enter（e.target !== currentTarget）
                       if (e.target !== e.currentTarget) return;
                       if (e.key !== 'Enter' && e.key !== ' ') return;
                       e.preventDefault();
-                      onPasteCard(pattern);
+                      onCardClick(pattern);
                     }}
                   >
+                    {selectionMode && (
+                      <span className={`pld-card__checkbox${isSelected ? ' is-checked' : ''}`} aria-hidden>
+                        {isSelected && <Check size={11} strokeWidth={3} />}
+                      </span>
+                    )}
                     <div className="pld-card__thumb">
                       <PatternThumbnail pattern={pattern} />
                     </div>
@@ -382,8 +478,7 @@ export default memo(function PatternLibraryDrawer({
                           <span
                             className="pld-card__name"
                             title={pattern.name}
-                            // 名字也是卡片的一部分：单击照常切卡（issue 186 二轮用户反馈：只有名字区域点不动）。
-                            // 双击 = 就地改名（185），第二击由 `onPasteCard` 的 `detail > 1` 挡掉。
+                            // 名字也是卡片的一部分：单击照常切卡。双击改名在选择模式下禁用。
                             onDoubleClick={() => startRename(pattern)}
                           >
                             {pattern.name}
@@ -391,13 +486,12 @@ export default memo(function PatternLibraryDrawer({
                         )}
                       </div>
                       <span className="pld-card__badges">
-                        {/* 徽标 = 速度跨度（issue 186 二轮）：`BPM 120 → 180`；没有变化事件时只有 `BPM 120`。
-                            负值由 BpmRange 单独上危险色，不再另挂「倒流」徽标（少一个字、也更醒目）。 */}
+                        {/* 徽标 = 速度跨度（issue 186 二轮）：`BPM 120 → 180` */}
                         <span className="pld-badge">
                           {t('patternLibrary.badge.bpm')} <BpmRange start={range.start} peak={range.peak} />
                         </span>
                       </span>
-                      {/* 统计行（issue 190）：派生值、不进载荷；名字超长仍只省略名字 */}
+                      {/* 统计行（issue 190）：派生值、不进载荷 */}
                       <span className="pld-card__stats">
                         {t('patternLibrary.cardStats', {
                           notes: stats.noteCount,
@@ -407,14 +501,15 @@ export default memo(function PatternLibraryDrawer({
                     </div>
                   </div>
 
-                  {/* 常驻 ⋯ 菜单：入口一直可见（hover 才出现的按钮等于靠运气发现），
-                      菜单里放置顶（191）、单条导出（187）与删除；卡片主体留给 186 的点击粘贴 */}
-                  <PatternCardMenu
-                    isPinned={isPinned}
-                    onTogglePin={() => void library.setPinned(pattern.id, !isPinned)}
-                    onExport={() => void exportPattern(pattern)}
-                    onDelete={() => setPendingDelete(pattern)}
-                  />
+                  {/* 常驻 ⋯ 菜单在选择模式下隐藏（193） */}
+                  {!selectionMode && (
+                    <PatternCardMenu
+                      isPinned={isPinned}
+                      onTogglePin={() => void library.setPinned(pattern.id, !isPinned)}
+                      onExport={() => void exportPattern(pattern)}
+                      onDelete={() => setPendingDelete(pattern)}
+                    />
+                  )}
                 </li>
               );
             })}
@@ -423,18 +518,30 @@ export default memo(function PatternLibraryDrawer({
       </div>
 
       <footer className="pld__foot">
-        <button
-          type="button"
-          className="pld__save"
-          disabled={!canSaveSelection}
-          onClick={onSaveSelection}
-          title={canSaveSelection
-            ? `${t('patternLibrary.save')} (${saveKey})`
-            : t('patternLibrary.saveNeedsSelection')}
-        >
-          <BookmarkPlus size={15} aria-hidden />
-          {t('patternLibrary.save')}
-        </button>
+        {selectionMode ? (
+          <PatternSelectionBar
+            selectedCount={selectionStats.total}
+            hiddenCount={selectionStats.hidden}
+            canSelectAll={visible.length > 0}
+            onSelectAll={selectAllVisible}
+            onExport={() => void exportSelected()}
+            onDelete={() => setPendingBatchDelete(true)}
+            onExit={exitSelectionMode}
+          />
+        ) : (
+          <button
+            type="button"
+            className="pld__save"
+            disabled={!canSaveSelection}
+            onClick={onSaveSelection}
+            title={canSaveSelection
+              ? `${t('patternLibrary.save')} (${saveKey})`
+              : t('patternLibrary.saveNeedsSelection')}
+          >
+            <BookmarkPlus size={15} aria-hidden />
+            {t('patternLibrary.save')}
+          </button>
+        )}
       </footer>
 
       {pendingDelete && (
@@ -447,6 +554,19 @@ export default memo(function PatternLibraryDrawer({
             const target = pendingDelete;
             setPendingDelete(null);
             void library.remove(target.id);
+          }}
+        />
+      )}
+
+      {pendingBatchDelete && (
+        <ConfirmDialog
+          title={t('patternLibrary.deleteSelectedConfirm', { count: selectedIds.size })}
+          message={t('patternLibrary.deleteSelectedWarning')}
+          confirmLabel={t('ui.delete')}
+          onCancel={() => setPendingBatchDelete(false)}
+          onConfirm={() => {
+            setPendingBatchDelete(false);
+            void executeBatchDelete();
           }}
         />
       )}

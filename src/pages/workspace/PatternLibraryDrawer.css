@@ -414,6 +414,96 @@
   cursor: not-allowed;
 }
 
+/* 选择模式（issue 193） */
+.pld-card.is-selected {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.pld-card__checkbox {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-inset);
+  color: #fff;
+  transition: all 120ms ease;
+}
+
+.pld-card__checkbox.is-checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 底部选区工具条（issue 193） */
+.pld-sel-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pld-sel-bar__info {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: var(--text-xs);
+}
+
+.pld-sel-bar__count {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pld-sel-bar__hidden {
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+}
+
+.pld-sel-bar__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.pld-sel-bar__btn {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pld-sel-bar__btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.pld-sel-bar__btn--danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.pld-sel-bar__btn:disabled {
+  opacity: 0.45;
+  border-color: transparent;
+  color: var(--text-subtle);
+  cursor: not-allowed;
+}
+
 @keyframes pld-slide {
   from { opacity: 0; transform: translateX(12px); }
   to { opacity: 1; transform: none; }

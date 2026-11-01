@@ -549,6 +549,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           onSaveSelection={handleSaveSelection}
           // 186 二轮：同一张卡再点 = 退出粘贴态（回指针）；高亮由 `activePatternId` 决定
           onPastePattern={ui.togglePatternPaste}
+          onExitPaste={() => { if (ui.patternPaste) ui.setArmedTool(null); }}
           activePatternId={ui.patternPaste?.id ?? null}
           onResizingChange={onDrawerResizingChange}
         />

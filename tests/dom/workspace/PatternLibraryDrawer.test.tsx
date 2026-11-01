@@ -612,3 +612,33 @@ describe('issue 191 · 片段置顶', () => {
     expect(memory.saves).toBe(1);
   });
 });
+
+describe('issue 193 · footer 状态切换（选择模式切换与恢复）', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('普通模式 footer「收藏选区」仍可用；选择模式 footer 切换为工具条；退出后恢复', async () => {
+    setup({ seed: seedLibrary(), withSelection: true });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    // 普通模式：收藏选区可用
+    expect(saveButton()).toBeEnabled();
+
+    // 抽屉头 ⋯ 进入选择模式
+    fireEvent.click(screen.getByRole('button', { name: '片段库操作' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '选择片段' }));
+
+    // footer 切换为选择工具条，收藏按钮消失
+    expect(screen.queryByRole('button', { name: '收藏选区' })).not.toBeInTheDocument();
+    expect(screen.getByRole('toolbar')).toBeInTheDocument();
+
+    // 退出选择模式
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    // 恢复为普通模式 footer，收藏选区仍可用
+    expect(saveButton()).toBeEnabled();
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+  });
+});
+

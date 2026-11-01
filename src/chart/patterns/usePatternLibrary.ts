@@ -22,6 +22,7 @@ import {
 import {
   appendNewPattern,
   removePatternFromLibrary,
+  removePatternsFromLibrary,
   renamePatternInLibrary,
   setPatternPinnedInLibrary,
   sortPatternsNewestFirst,
@@ -69,6 +70,8 @@ export interface PatternLibraryApi {
   /** 改名；空名 / 没变 / 未载入成功 / 落盘失败 → false */
   rename: (id: string, name: string) => Promise<boolean>;
   remove: (id: string) => Promise<void>;
+  /** 批量删除（issue 193）：一次 commit 整库落盘；失败回滚并 toast；返回是否成功落盘 */
+  removeMany: (ids: readonly string[] | ReadonlySet<string>) => Promise<boolean>;
   /** 置顶 / 取消置顶（issue 191）；id 不存在 / 状态未变 / 未载入成功 / 落盘失败 → false */
   setPinned: (id: string, pinned: boolean) => Promise<boolean>;
   /**
@@ -162,6 +165,14 @@ export function usePatternLibrary(store?: PatternStore): PatternLibraryApi {
     if (next) await commit(next);
   }, [commit]);
 
+  const removeMany = useCallback(async (
+    ids: readonly string[] | ReadonlySet<string>,
+  ): Promise<boolean> => {
+    const next = removePatternsFromLibrary(patternsRef.current, ids);
+    if (!next) return false;
+    return commit(next);
+  }, [commit]);
+
   const setPinned = useCallback(async (id: string, pinned: boolean): Promise<boolean> => {
     await loadedRef.current;
     if (!writableRef.current) return false;
@@ -229,7 +240,7 @@ export function usePatternLibrary(store?: PatternStore): PatternLibraryApi {
   }, [commit]);
 
   return useMemo(
-    () => ({ patterns, status, addFromSelection, rename, remove, setPinned, prepareImport, applyImport }),
-    [patterns, status, addFromSelection, rename, remove, setPinned, prepareImport, applyImport],
+    () => ({ patterns, status, addFromSelection, rename, remove, removeMany, setPinned, prepareImport, applyImport }),
+    [patterns, status, addFromSelection, rename, remove, removeMany, setPinned, prepareImport, applyImport],
   );
 }

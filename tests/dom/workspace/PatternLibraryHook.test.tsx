@@ -258,4 +258,60 @@ describe('issue 185 · usePatternLibrary', () => {
       expect(result.current.patterns.find((p) => p.id === 'p1')?.pinnedAt).toBeUndefined();
     });
   });
+
+  describe('issue 193 · removeMany', () => {
+    it('批量删除选中的片段：一次 commit 整库落盘，返回 true', async () => {
+      dismissToast();
+      const p1 = makePattern({ id: 'p1', name: '片段 1' });
+      const p2 = makePattern({ id: 'p2', name: '片段 2' });
+      const p3 = makePattern({ id: 'p3', name: '片段 3' });
+      const memory = makeMemoryPatternStore([p1, p2, p3]);
+      const { result } = renderHook(() => usePatternLibrary(memory.store));
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      let ok = false;
+      await act(async () => { ok = await result.current.removeMany(['p1', 'p3']); });
+      expect(ok).toBe(true);
+      expect(memory.saves).toBe(1);
+      expect(result.current.patterns.map((p) => p.id)).toEqual(['p2']);
+      expect(memory.disk.map((p) => p.id)).toEqual(['p2']);
+    });
+
+    it('无匹配 / 空集合：不产生落盘，返回 false', async () => {
+      dismissToast();
+      const p1 = makePattern({ id: 'p1', name: '片段 1' });
+      const memory = makeMemoryPatternStore([p1]);
+      const { result } = renderHook(() => usePatternLibrary(memory.store));
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      let ok = true;
+      await act(async () => { ok = await result.current.removeMany(['nope']); });
+      expect(ok).toBe(false);
+      expect(memory.saves).toBe(0);
+
+      await act(async () => { ok = await result.current.removeMany([]); });
+      expect(ok).toBe(false);
+      expect(memory.saves).toBe(0);
+      expect(result.current.patterns).toHaveLength(1);
+    });
+
+    it('落盘失败：回滚原状态并返回 false', async () => {
+      dismissToast();
+      const seed = [
+        makePattern({ id: 'p1', name: '片段 1' }),
+        makePattern({ id: 'p2', name: '片段 2' }),
+      ];
+      const store = new PatternStore({
+        load: async () => seed,
+        saveAll: async () => { throw new Error('disk error'); },
+      });
+      const { result } = renderHook(() => usePatternLibrary(store));
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      let ok = true;
+      await act(async () => { ok = await result.current.removeMany(['p1']); });
+      expect(ok).toBe(false);
+      expect(result.current.patterns.map((p) => p.id)).toEqual(['p1', 'p2']);
+    });
+  });
 });

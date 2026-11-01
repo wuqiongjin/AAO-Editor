@@ -3,7 +3,7 @@
 // 分工写死（185 验收）：整库导入导出的家在这里；单条导出在卡片的 ⋯ 菜单。
 // 浮层走 `useAnchoredMenu`（与卡片 ⋯ 同一套定位 / Esc / 回焦 —— 抽屉列表是滚动容器，必须 portal + fixed）。
 import { createPortal } from 'react-dom';
-import { FileDown, FileUp, MoreHorizontal } from 'lucide-react';
+import { CheckSquare, FileDown, FileUp, MoreHorizontal } from 'lucide-react';
 import { t } from '../../i18n';
 import { useAnchoredMenu } from './useAnchoredMenu';
 
@@ -14,10 +14,17 @@ interface PatternLibraryMenuProps {
   exportDisabledHint?: string;
   onExport: () => void;
   onImport: () => void;
+  /** 是否处于选择模式（issue 193） */
+  selectionMode?: boolean;
+  /** 是否允许进入选择模式（ready 且 patterns.length > 0） */
+  canSelect?: boolean;
+  /** 切换进入 / 退出选择模式 */
+  onToggleSelectionMode?: () => void;
 }
 
 export default function PatternLibraryMenu({
   canExport, exportDisabledHint, onExport, onImport,
+  selectionMode = false, canSelect = false, onToggleSelectionMode,
 }: PatternLibraryMenuProps) {
   const { open, pos, triggerRef, hide, toggle } = useAnchoredMenu();
 
@@ -40,6 +47,18 @@ export default function PatternLibraryMenu({
         <>
           <span className="pld-menu__scrim" onClick={hide} />
           <div className="pld-menu" role="menu" aria-label={t('patternLibrary.libraryActions')} style={pos}>
+            {onToggleSelectionMode && (
+              <button
+                type="button"
+                role="menuitem"
+                className="pld-menu__item"
+                disabled={!selectionMode && !canSelect}
+                onClick={() => { hide(); onToggleSelectionMode(); }}
+              >
+                <CheckSquare size={13} aria-hidden />
+                {selectionMode ? t('patternLibrary.exitSelection') : t('patternLibrary.selectPatterns')}
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"

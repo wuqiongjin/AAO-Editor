@@ -78,3 +78,21 @@ describe('片段库 · 分享导出剥离本地偏好（issue 191）', () => {
     expect(readStripped('src/chart/patterns/library.ts')).toMatch(/stripPatternPinned[\s\S]{0,120}pinnedAt/);
   });
 });
+
+describe('片段库 · 批量删除与批量导出架构锁（issue 193）', () => {
+  it('批量导出仍走同一 serializePatterns 信封，不新增第二种格式', () => {
+    expect(shareFileSrc).toMatch(/function saveSelectedPatternsFile/);
+    expect(shareFileSrc).toMatch(/savePatternsWithFilename\(\s*patterns,\s*patternSelectedExportFilename/);
+    expect(shareFileSrc).toMatch(/serializePatterns\(patterns,\s*now\)/);
+  });
+
+  it('批量删除不新增第二个写入口，仍只经 commit', () => {
+    const hookSrc = readStripped('src/chart/patterns/usePatternLibrary.ts');
+    expect(hookSrc).toMatch(/removeMany\s*=\s*useCallback/);
+    expect(hookSrc).toMatch(/removePatternsFromLibrary/);
+    expect(hookSrc).toMatch(/commit\(next\)/);
+    const removeManyBody = hookSrc.match(/removeMany\s*=\s*useCallback[\s\S]*?\}, \[commit\]\)/)?.[0] ?? '';
+    expect(removeManyBody).toContain('commit(next)');
+    expect(removeManyBody).not.toContain('resolved.saveAll');
+  });
+});

@@ -12,16 +12,37 @@ import type { Pattern } from './types';
 /** 文件选择框的 accept：扩展名 + MIME 两套写法都带上（不同系统认不同一套） */
 export const PATTERN_FILE_ACCEPT = '.json,application/json';
 
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+/** 格式化本地日期 YYYYMMDD（补零） */
+function formatLocalDateYYYYMMDD(date: Date): string {
+  return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}`;
+}
+
+/** 格式化本地时间 HHmmss（补零） */
+function formatLocalTimeHHmmss(date: Date): string {
+  return `${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`;
+}
+
 /**
  * 整库导出的文件名：`aao-patterns-YYYYMMDD-HHmmss.json`。
  * 日期 + 时间都按**本地**时钟（用户看到的是自己那一刻，不是 UTC 的明天 / 昨天）；
  * 带时间是为了同一天多次导出有不同文件名，不靠浏览器的「(1)」或系统覆盖确认来区分快照。
  */
 export function patternLibraryExportFilename(now: Date = new Date()): string {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
-  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const date = formatLocalDateYYYYMMDD(now);
+  const time = formatLocalTimeHHmmss(now);
   return `aao-patterns-${date}-${time}.json`;
+}
+
+/**
+ * 批量导出的文件名：`aao-patterns-selected-<count>-YYYYMMDD-HHmmss.json`（issue 193 方案 B）。
+ * count 为选中的条数；日期与时间按本地时钟（各段补零），带时间避免同日多次导出文件名冲突。
+ */
+export function patternSelectedExportFilename(count: number, now: Date = new Date()): string {
+  const date = formatLocalDateYYYYMMDD(now);
+  const time = formatLocalTimeHHmmss(now);
+  return `aao-patterns-selected-${count}-${date}-${time}.json`;
 }
 
 /** 各平台文件名的非法字符。控制字符按码点判（照 `community/bestdori/assetNames` 先例，不进正则） */
@@ -98,6 +119,14 @@ export function savePatternLibraryFile(
   now: Date = new Date(),
 ): Promise<void> {
   return savePatternsWithFilename(patterns, patternLibraryExportFilename(now), now);
+}
+
+/** 批量导出（issue 193）：统一信封，文件名以 aao-patterns-selected-<count>-YYYYMMDD-HHmmss.json 命名。 */
+export function saveSelectedPatternsFile(
+  patterns: readonly Pattern[],
+  now: Date = new Date(),
+): Promise<void> {
+  return savePatternsWithFilename(patterns, patternSelectedExportFilename(patterns.length, now), now);
 }
 
 /** 单条导出：文件名由片段名清洗而来（信封里仍是原名字）。 */

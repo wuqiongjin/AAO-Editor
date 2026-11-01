@@ -6,6 +6,7 @@ import { parsePatternsFile, serializePatterns } from '@/src/chart/patterns/share
 import {
   patternExportFilename,
   patternLibraryExportFilename,
+  patternSelectedExportFilename,
 } from '@/src/chart/patterns/shareFile';
 import { makePattern } from '@/tests/support/patterns';
 
@@ -18,6 +19,24 @@ describe('整库导出文件名 · aao-patterns-YYYYMMDD-HHmmss.json', () => {
   it('同一天不同时刻导出 → 文件名不同（不靠浏览器加 (1) 区分快照）', () => {
     expect(patternLibraryExportFilename(new Date(2026, 9, 31, 10, 0, 0)))
       .not.toBe(patternLibraryExportFilename(new Date(2026, 9, 31, 11, 30, 0)));
+  });
+});
+
+describe('批量导出文件名 · aao-patterns-selected-<count>-YYYYMMDD-HHmmss.json', () => {
+  it('按条数、本地日期与时间（各段补零，格式 aao-patterns-selected-<count>-YYYYMMDD-HHmmss.json）', () => {
+    expect(patternSelectedExportFilename(3, new Date(2026, 9, 31, 21, 5, 6))).toBe(
+      'aao-patterns-selected-3-20261031-210506.json',
+    );
+    expect(patternSelectedExportFilename(10, new Date(2026, 0, 5, 0, 0, 0))).toBe(
+      'aao-patterns-selected-10-20260105-000000.json',
+    );
+  });
+
+  it('同一天不同时刻或不同条数导出 → 文件名不同', () => {
+    expect(patternSelectedExportFilename(3, new Date(2026, 9, 31, 10, 0, 0)))
+      .not.toBe(patternSelectedExportFilename(3, new Date(2026, 9, 31, 11, 30, 0)));
+    expect(patternSelectedExportFilename(2, new Date(2026, 9, 31, 10, 0, 0)))
+      .not.toBe(patternSelectedExportFilename(5, new Date(2026, 9, 31, 10, 0, 0)));
   });
 });
 

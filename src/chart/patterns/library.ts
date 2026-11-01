@@ -80,6 +80,22 @@ export function removePatternFromLibrary(patterns: readonly Pattern[], id: strin
 }
 
 /**
+ * 批量删除（不可变，issue 193）：
+ * - id 集合为空 / 库为空 / 没有任何匹配 → 返回 null（不产生无意义落盘）；
+ * - 命中时产出新数组；一次操作只走一次整库 commit。
+ */
+export function removePatternsFromLibrary(
+  patterns: readonly Pattern[],
+  idsToRemove: ReadonlySet<string> | readonly string[],
+): Pattern[] | null {
+  const idSet = idsToRemove instanceof Set ? idsToRemove : new Set(idsToRemove);
+  if (idSet.size === 0 || patterns.length === 0) return null;
+  const next = patterns.filter((pattern) => !idSet.has(pattern.id));
+  if (next.length === patterns.length) return null;
+  return next;
+}
+
+/**
  * 置顶 / 取消置顶（不可变，issue 191）：
  * - id 不存在 → 返回 null（不写盘）；
  * - 状态未改变（已置顶时再置顶、未置顶时再取消）→ 返回 null（不产生无意义整库落盘）；
