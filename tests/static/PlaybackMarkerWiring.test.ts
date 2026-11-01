@@ -68,3 +68,37 @@ describe('回跳播放接线（ADR-0004 §4 / issue 152）', () => {
     expect(editor).toMatch(/case 'jumpToMarker':\s*jumpToMarker\(\)/);
   });
 });
+
+describe('标记点体系文案一致性（issue 201 锁测）', () => {
+  const zhRaw = read('src/i18n/messages/zh-CN.json');
+  const enRaw = read('src/i18n/messages/en.json');
+  const zh = JSON.parse(zhRaw);
+  const en = JSON.parse(enRaw);
+
+  it('中文文案全链路切换为标记点体系', () => {
+    expect(zh['shortcut.fn.jumpToMarker']).toBe('回到标记点并播放');
+    expect(zh['editor.markerJumpTooltip']).toBe('跳转到标记点并播放 · 快捷键：{{key}}');
+    expect(zh['editor.markerJumpAria']).toBe('跳转到标记点并播放');
+    expect(zh['editor.markerDeleteAria']).toBe('标记点，双击删除');
+    expect(zh['workspace.playbar.markerButton']).toBe('显示标记点跳转按钮');
+  });
+
+  it('英文文案全链路切换为 marker 体系', () => {
+    expect(en['shortcut.fn.jumpToMarker']).toBe('Jump to marker and play');
+    expect(en['editor.markerJumpTooltip']).toBe('Jump to marker and play · Shortcut: {{key}}');
+    expect(en['editor.markerJumpAria']).toBe('Jump to marker and play');
+    expect(en['editor.markerDeleteAria']).toBe('Playback marker, double click to delete');
+    expect(en['workspace.playbar.markerButton']).toBe('Show jump to marker button');
+  });
+
+  it('i18n 字典无遗留的“播放起点”或“playback start”歧义文案', () => {
+    expect(zhRaw).not.toContain('播放起点');
+    expect(enRaw.toLowerCase()).not.toContain('playback start');
+  });
+
+  it('快捷键注册表映射到最新文案键', () => {
+    const shortcutConfig = read('src/chart/config/ShortcutConfig.ts');
+    expect(shortcutConfig).toMatch(/id:\s*'jumpToMarker',\s*label:\s*'shortcut\.fn\.jumpToMarker'/);
+  });
+});
+

@@ -38,7 +38,7 @@ function renderWorkspace() {
 }
 
 const playBar = () => document.querySelector('.play-bar') as HTMLElement;
-const markerBtn = () => within(playBar()).queryByRole('button', { name: '跳转到播放起点并播放' });
+const markerBtn = () => within(playBar()).queryByRole('button', { name: '跳转到标记点并播放' });
 
 describe('issue 179 · 工作台播放条的播放起点按钮', () => {
   beforeEach(() => {
@@ -48,7 +48,7 @@ describe('issue 179 · 工作台播放条的播放起点按钮', () => {
   it('设了起点 → 按钮出现在播放条里、紧跟时间码', async () => {
     seedZhSettings();
     renderWorkspace();
-    const btn = await within(playBar()).findByRole('button', { name: '跳转到播放起点并播放' });
+    const btn = await within(playBar()).findByRole('button', { name: '跳转到标记点并播放' });
     expect(playBar().querySelector('.play-bar__time')?.nextElementSibling).toBe(btn);
   });
 

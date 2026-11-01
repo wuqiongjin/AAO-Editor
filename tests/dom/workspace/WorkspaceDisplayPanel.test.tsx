@@ -196,7 +196,7 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(playbackAudioGroup.compareDocumentPosition(preferencesGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(preferencesGroup.compareDocumentPosition(resetBtn()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    const markerSwitch = within(playbackAudioGroup).getByRole('switch', { name: '显示播放起点按钮' });
+    const markerSwitch = within(playbackAudioGroup).getByRole('switch', { name: '显示标记点跳转按钮' });
     expect(markerSwitch).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(markerSwitch);
     expect(stored().playbar.markerButton).toBe(false);
