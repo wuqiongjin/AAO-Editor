@@ -238,7 +238,24 @@
   padding-right: 30px;
 }
 
+.pld-card__name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* 名字旁的小 pin 图标（仅状态，不可点，issue 191） */
+.pld-card__pin {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
 .pld-card__name {
+  flex: 1;
+  min-width: 0;
   font-size: var(--text-xs);
   font-weight: 600;
   color: var(--text);

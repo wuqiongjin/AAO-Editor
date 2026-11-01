@@ -9,6 +9,7 @@ import {
   type PatternBpmContext,
   type PatternLibraryDoc,
 } from './types';
+import { stripPatternPinned } from './library';
 
 export type PatternInvalidReason =
   | 'not-an-object'
@@ -101,7 +102,15 @@ export function patternsFromLibraryDoc(doc: unknown): Pattern[] {
   if (doc.schemaVersion !== PATTERN_LIBRARY_SCHEMA_VERSION) return [];
   const patterns = doc.patterns;
   if (!Array.isArray(patterns)) return [];
-  return patterns.filter(isPatternValue);
+  return patterns.filter(isPatternValue).map((pattern) => {
+    if ('pinnedAt' in pattern) {
+      if (isFiniteNumber(pattern.pinnedAt)) {
+        return { ...pattern, pinnedAt: pattern.pinnedAt };
+      }
+      return stripPatternPinned(pattern);
+    }
+    return pattern;
+  });
 }
 
 export function libraryDocFromPatterns(patterns: readonly Pattern[]): PatternLibraryDoc {

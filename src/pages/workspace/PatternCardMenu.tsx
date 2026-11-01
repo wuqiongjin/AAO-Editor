@@ -6,11 +6,13 @@
 //
 // 浮层用 portal + fixed：抽屉列表是滚动容器，绝对定位的菜单会在底部被裁掉。
 import { createPortal } from 'react-dom';
-import { FileDown, MoreHorizontal, Trash2 } from 'lucide-react';
+import { FileDown, MoreHorizontal, Pin, PinOff, Trash2 } from 'lucide-react';
 import { t } from '../../i18n';
 import { useAnchoredMenu } from './useAnchoredMenu';
 
-export default function PatternCardMenu({ onExport, onDelete }: {
+export default function PatternCardMenu({ isPinned, onTogglePin, onExport, onDelete }: {
+  isPinned: boolean;
+  onTogglePin: () => void;
   /** 导出该条（issue 187）：写文件由抽屉 / `shareFile` 负责，菜单只管触发 */
   onExport: () => void;
   onDelete: () => void;
@@ -36,6 +38,15 @@ export default function PatternCardMenu({ onExport, onDelete }: {
         <>
           <span className="pld-menu__scrim" onClick={hide} />
           <div className="pld-menu" role="menu" aria-label={t('patternLibrary.actions')} style={pos}>
+            <button
+              type="button"
+              role="menuitem"
+              className="pld-menu__item"
+              onClick={() => { hide(); onTogglePin(); }}
+            >
+              {isPinned ? <PinOff size={13} aria-hidden /> : <Pin size={13} aria-hidden />}
+              {isPinned ? t('patternLibrary.unpin') : t('patternLibrary.pin')}
+            </button>
             <button
               type="button"
               role="menuitem"

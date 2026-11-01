@@ -5,6 +5,7 @@
 // 逐条校验：坏条目收集成清单随结果返回，不整包失败；整包版本不认识才整包拒绝并说明。
 import { t } from '../../i18n/t';
 import { patternInvalidReason, type PatternInvalidReason } from './record';
+import { stripPatternPinned } from './library';
 import type { Pattern } from './types';
 
 export const PATTERN_EXPORT_SCHEMA_VERSION = 1;
@@ -35,12 +36,17 @@ export type ParsePatternsResult =
       version?: unknown;
     };
 
-/** 整库 / 单条导出共用：信封 + ISO 时间戳 + 片段本体（**不含缩略图**，缩略图是实渲染）。 */
+/** 剥掉本地视图偏好（如 pinnedAt，issue 191）：置顶是本地状态，不进分享信封。 */
+function stripLocalPreferences(pattern: Pattern): Pattern {
+  return stripPatternPinned(pattern);
+}
+
+/** 整库 / 单条导出共用：信封 + ISO 时间戳 + 片段本体（**不含缩略图**，缩略图是实渲染；**剥掉 pinnedAt**）。 */
 export function serializePatterns(patterns: readonly Pattern[], now: Date = new Date()): string {
   const doc: PatternExportFile = {
     schemaVersion: PATTERN_EXPORT_SCHEMA_VERSION,
     exportedAt: now.toISOString(),
-    patterns: [...patterns],
+    patterns: patterns.map(stripLocalPreferences),
   };
   return JSON.stringify(doc);
 }
@@ -95,7 +101,8 @@ export function parsePatternsFile(text: string): ParsePatternsResult {
       skipped.push({ index, name: readName(entry), reason });
       return;
     }
-    patterns.push({ ...(entry as Pattern), id: crypto.randomUUID() });
+    const clean = stripLocalPreferences(entry as Pattern);
+    patterns.push({ ...clean, id: crypto.randomUUID() });
   });
 
   return { ok: true, patterns, skipped };

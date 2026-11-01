@@ -58,6 +58,10 @@ describe('issue 185 · usePatternLibrary', () => {
     await act(async () => { renamed = await result.current.rename('p1', '新名'); });
     expect(renamed).toBe(false);
 
+    let pinned = true;
+    await act(async () => { pinned = await result.current.setPinned('p1', true); });
+    expect(pinned).toBe(false);
+
     await act(async () => { await result.current.remove('p1'); });
     expect(saves).toBe(0);
     expect(result.current.patterns).toEqual([]);
@@ -184,5 +188,74 @@ describe('issue 185 · usePatternLibrary', () => {
     expect(ok).toBe(false);
     expect(memory.saves).toBe(0);
     expect(memory.disk[0]!.name).toBe('片段 1');
+  });
+
+  describe('issue 191 · setPinned', () => {
+    it('置顶成功整库落盘并重排（置顶优先），取消置顶回原位', async () => {
+      dismissToast();
+      const p1 = makePattern({ id: 'p1', name: '片段 1', createdAt: 100 });
+      const p2 = makePattern({ id: 'p2', name: '片段 2', createdAt: 200 });
+      const memory = makeMemoryPatternStore([p1, p2]);
+      const { result } = renderHook(() => usePatternLibrary(memory.store));
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      // 初始按 createdAt 倒序：p2 在前
+      expect(result.current.patterns.map((p) => p.id)).toEqual(['p2', 'p1']);
+
+      // 置顶 p1：落盘并排到最前
+      let ok = false;
+      await act(async () => { ok = await result.current.setPinned('p1', true); });
+      expect(ok).toBe(true);
+      expect(memory.saves).toBe(1);
+      expect(result.current.patterns.map((p) => p.id)).toEqual(['p1', 'p2']);
+      expect(typeof memory.disk.find((p) => p.id === 'p1')?.pinnedAt).toBe('number');
+
+      // 取消置顶 p1：落盘并回到原有位置（p2 在前）
+      await act(async () => { ok = await result.current.setPinned('p1', false); });
+      expect(ok).toBe(true);
+      expect(memory.saves).toBe(2);
+      expect(result.current.patterns.map((p) => p.id)).toEqual(['p2', 'p1']);
+      expect(memory.disk.find((p) => p.id === 'p1')?.pinnedAt).toBeUndefined();
+    });
+
+    it('不存在 id / 状态未改变返回 false 且不写盘', async () => {
+      dismissToast();
+      const p1 = makePattern({ id: 'p1', name: '片段 1', createdAt: 100 });
+      const memory = makeMemoryPatternStore([p1]);
+      const { result } = renderHook(() => usePatternLibrary(memory.store));
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      let ok = true;
+      await act(async () => { ok = await result.current.setPinned('nope', true); });
+      expect(ok).toBe(false);
+      expect(memory.saves).toBe(0);
+
+      // 已未置顶，再次取消置顶 → false
+      await act(async () => { ok = await result.current.setPinned('p1', false); });
+      expect(ok).toBe(false);
+      expect(memory.saves).toBe(0);
+    });
+
+    it('落盘失败：回滚原状态（不留下界面置顶而磁盘没有的分裂）并返回 false', async () => {
+      dismissToast();
+      const seed = [
+        makePattern({ id: 'p1', name: '片段 1', createdAt: 100 }),
+        makePattern({ id: 'p2', name: '片段 2', createdAt: 200 }),
+      ];
+      const store = new PatternStore({
+        load: async () => seed,
+        saveAll: async () => { throw new Error('disk full'); },
+      });
+      const { result } = renderHook(() => usePatternLibrary(store));
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      let ok = true;
+      await act(async () => { ok = await result.current.setPinned('p1', true); });
+      expect(ok).toBe(false);
+
+      // 界面与内存状态回滚：p1 仍未置顶，排序仍是 ['p2', 'p1']
+      expect(result.current.patterns.map((p) => p.id)).toEqual(['p2', 'p1']);
+      expect(result.current.patterns.find((p) => p.id === 'p1')?.pinnedAt).toBeUndefined();
+    });
   });
 });

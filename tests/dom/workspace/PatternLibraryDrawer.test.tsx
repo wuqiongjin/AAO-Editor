@@ -521,3 +521,94 @@ describe('issue 190 · 卡片统计行', () => {
     expect(cards[1]).toHaveTextContent('0 音符 · 0 拍');
   });
 });
+
+describe('issue 191 · 片段置顶', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('⋯ 菜单置顶 / 取消：状态变更且名字旁显示/隐藏 pin 图标', async () => {
+    const memory = setup({ seed: seedLibrary() });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    // 初始两张都未置顶：无 pin 图标
+    expect(screen.queryByTitle('已置顶')).not.toBeInTheDocument();
+
+    // 打开第一张卡的 ⋯ 菜单，点击「置顶片段」
+    openCardMenu(0);
+    const pinItem = screen.getByRole('menuitem', { name: '置顶片段' });
+    fireEvent.click(pinItem);
+
+    // 卡片名字旁出现 pin 图标
+    await waitFor(() => expect(screen.getByTitle('已置顶')).toBeInTheDocument());
+    expect(memory.disk.find((p) => p.name === '折返花活')?.pinnedAt).toBeTypeOf('number');
+
+    // 再次打开该卡 ⋯ 菜单，项变成「取消置顶」
+    openCardMenu(0);
+    const unpinItem = screen.getByRole('menuitem', { name: '取消置顶' });
+    fireEvent.click(unpinItem);
+
+    // pin 图标消失，字段删除
+    await waitFor(() => expect(screen.queryByTitle('已置顶')).not.toBeInTheDocument());
+    expect(memory.disk.find((p) => p.name === '折返花活')?.pinnedAt).toBeUndefined();
+  });
+
+  it('置顶后排到最上；取消置顶回到原位', async () => {
+    setup({ seed: seedLibrary() });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    // 初始：折返花活 (createdAt: 200) 在前，片段 1 (createdAt: 100) 在后
+    expect(cardNames()[0]).toContain('折返花活');
+    expect(cardNames()[1]).toContain('片段 1');
+
+    // 置顶后面的「片段 1」
+    openCardMenu(1);
+    fireEvent.click(screen.getByRole('menuitem', { name: '置顶片段' }));
+
+    // 「片段 1」排到最前
+    await waitFor(() => expect(cardNames()[0]).toContain('片段 1'));
+    expect(cardNames()[1]).toContain('折返花活');
+
+    // 取消「片段 1」置顶：回到末尾
+    openCardMenu(0);
+    fireEvent.click(screen.getByRole('menuitem', { name: '取消置顶' }));
+    await waitFor(() => expect(cardNames()[0]).toContain('折返花活'));
+    expect(cardNames()[1]).toContain('片段 1');
+  });
+
+  it('搜索过滤后仍置顶优先', async () => {
+    setup({
+      seed: [
+        makePattern({ id: 'p1', name: '花活 A', createdAt: 300 }),
+        makePattern({ id: 'p2', name: '花活 B', createdAt: 100, pinnedAt: 500 }),
+        makePattern({ id: 'p3', name: '花活 C', createdAt: 200 }),
+      ],
+    });
+    await waitFor(() => expect(screen.getByText('花活 B')).toBeInTheDocument());
+
+    const search = screen.getByRole('textbox', { name: '搜索片段名字' });
+    fireEvent.change(search, { target: { value: '花活' } });
+
+    // 搜索结果中，置顶的「花活 B」仍在最前
+    const names = cardNames();
+    expect(names[0]).toContain('花活 B');
+    expect(names[1]).toContain('花活 A');
+    expect(names[2]).toContain('花活 C');
+  });
+
+  it('只读态下置顶仍可用（不写谱面）', async () => {
+    const memory = setup({ readOnly: true, seed: seedLibrary() });
+    await waitFor(() => expect(screen.getByText('折返花活')).toBeInTheDocument());
+
+    // 打开 ⋯ 菜单并置顶「片段 1」
+    openCardMenu(1);
+    const pinBtn = screen.getByRole('menuitem', { name: '置顶片段' });
+    expect(pinBtn).toBeEnabled();
+    fireEvent.click(pinBtn);
+
+    // 成功置顶并排序更新
+    await waitFor(() => expect(cardNames()[0]).toContain('片段 1'));
+    expect(screen.getByTitle('已置顶')).toBeInTheDocument();
+    expect(memory.saves).toBe(1);
+  });
+});

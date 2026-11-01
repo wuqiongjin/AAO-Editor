@@ -6,6 +6,7 @@ import { readStripped } from '@/tests/support/source';
 
 const storeSrc = readStripped('src/chart/patterns/PatternStore.ts');
 const shareFileSrc = readStripped('src/chart/patterns/shareFile.ts');
+const shareSrc = readStripped('src/chart/patterns/share.ts');
 const dataRootSrc = readStripped('electron/dataRoot.cjs');
 const mainSrc = readStripped('electron/main.cjs');
 const preloadSrc = readStripped('electron/preload.js');
@@ -67,5 +68,13 @@ describe('片段库 · 分享文件另存桥（issue 187）', () => {
   it('读文件两环境同一路：input[type=file] + 票面 accept', () => {
     expect(shareFileSrc).toMatch(/input\.type = 'file'/);
     expect(shareFileSrc).toMatch(/PATTERN_FILE_ACCEPT = ['"].json,application\/json['"]/);
+  });
+});
+
+describe('片段库 · 分享导出剥离本地偏好（issue 191）', () => {
+  it('serializePatterns 路径剥掉 pinnedAt，防止置顶随分享外泄', () => {
+    expect(shareSrc).toMatch(/stripPatternPinned/);
+    expect(shareSrc).toMatch(/serializePatterns[\s\S]{0,250}stripLocalPreferences/);
+    expect(readStripped('src/chart/patterns/library.ts')).toMatch(/stripPatternPinned[\s\S]{0,120}pinnedAt/);
   });
 });

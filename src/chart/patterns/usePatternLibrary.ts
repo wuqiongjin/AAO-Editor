@@ -19,7 +19,13 @@ import {
   type PatternImportPreview,
   type PatternImportStrategy,
 } from './importConflict';
-import { appendNewPattern, removePatternFromLibrary, renamePatternInLibrary, sortPatternsNewestFirst } from './library';
+import {
+  appendNewPattern,
+  removePatternFromLibrary,
+  renamePatternInLibrary,
+  setPatternPinnedInLibrary,
+  sortPatternsNewestFirst,
+} from './library';
 import { PatternStore } from './PatternStore';
 import { parsePatternsFile } from './share';
 import type { Pattern } from './types';
@@ -63,6 +69,8 @@ export interface PatternLibraryApi {
   /** 改名；空名 / 没变 / 未载入成功 / 落盘失败 → false */
   rename: (id: string, name: string) => Promise<boolean>;
   remove: (id: string) => Promise<void>;
+  /** 置顶 / 取消置顶（issue 191）；id 不存在 / 状态未变 / 未载入成功 / 落盘失败 → false */
+  setPinned: (id: string, pinned: boolean) => Promise<boolean>;
   /**
    * 分享文件文本 → 解析 + 冲突预览（**不写盘**）。整包坏 / 版本不认识 / 读失败 → `ok: false`；
    * 坏条目只计数、不阻断。弹层确认策略后交给 `applyImport`。
@@ -154,6 +162,14 @@ export function usePatternLibrary(store?: PatternStore): PatternLibraryApi {
     if (next) await commit(next);
   }, [commit]);
 
+  const setPinned = useCallback(async (id: string, pinned: boolean): Promise<boolean> => {
+    await loadedRef.current;
+    if (!writableRef.current) return false;
+    const next = setPatternPinnedInLibrary(patternsRef.current, id, pinned);
+    if (!next) return false;
+    return commit(sortPatternsNewestFirst(next));
+  }, [commit]);
+
   /**
    * 导入第一步（189）：解析 + 按当前库的排序算冲突预览，**不写盘**。
    * 三条拒绝线：读失败（不许写）、整包解析失败（不动库）；好条目 / 坏条目都只计数。
@@ -213,7 +229,7 @@ export function usePatternLibrary(store?: PatternStore): PatternLibraryApi {
   }, [commit]);
 
   return useMemo(
-    () => ({ patterns, status, addFromSelection, rename, remove, prepareImport, applyImport }),
-    [patterns, status, addFromSelection, rename, remove, prepareImport, applyImport],
+    () => ({ patterns, status, addFromSelection, rename, remove, setPinned, prepareImport, applyImport }),
+    [patterns, status, addFromSelection, rename, remove, setPinned, prepareImport, applyImport],
   );
 }

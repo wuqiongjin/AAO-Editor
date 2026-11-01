@@ -131,6 +131,33 @@ describe('Electron 文件后端 · 桥往返', () => {
     );
     await expect(backend.load()).resolves.toEqual([]);
   });
+
+  it('issue 191 · 库文件里的 pinnedAt 正常读回', async () => {
+    const memory = makeMemoryBridge({
+      schemaVersion: 1,
+      patterns: [pattern({ id: 'p1', pinnedAt: 1700000000000 })],
+    });
+    const backend = new ElectronFilePatternLibraryBackend(memory.bridge);
+    const loaded = await backend.load();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]!.pinnedAt).toBe(1700000000000);
+  });
+
+  it('issue 191 · 非法 pinnedAt 按未置顶处理且不丢整条', async () => {
+    const invalidValues = ['not-a-number', NaN, Infinity, -Infinity, null, {}, []];
+    for (const bad of invalidValues) {
+      const memory = makeMemoryBridge({
+        schemaVersion: 1,
+        patterns: [{ ...pattern({ id: 'p1', name: '好条目' }), pinnedAt: bad }],
+      });
+      const backend = new ElectronFilePatternLibraryBackend(memory.bridge);
+      const loaded = await backend.load();
+      expect(loaded).toHaveLength(1);
+      expect(loaded[0]!.name).toBe('好条目');
+      expect(loaded[0]!.pinnedAt).toBeUndefined();
+      expect('pinnedAt' in loaded[0]!).toBe(false);
+    }
+  });
 });
 
 describe('IndexedDB 后端 · 单 record 往返', () => {

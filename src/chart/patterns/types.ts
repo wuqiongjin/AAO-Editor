@@ -34,6 +34,8 @@ export interface Pattern {
   /** `copySelection` 的形态归一产物，`source` 已递归剥掉 */
   notes: ChartNote[];
   bpmContext: PatternBpmContext;
+  /** 本地置顶时间戳（毫秒）；未置顶时不存 / undefined（issue 191） */
+  pinnedAt?: number;
 }
 
 /** 采集产物：还没有名字 / id（命名与领 id 在 PatternStore）。 */

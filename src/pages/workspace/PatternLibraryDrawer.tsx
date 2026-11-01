@@ -13,12 +13,12 @@
 // - 导入导出（187）：抽屉头 ⋯ = 整库；卡片 ⋯ = 单条。读文件两环境同一路（`<input type="file">`），
 //   写文件 Electron 走桥 / 浏览器下载；**取消保存什么都不发生**。
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { BookmarkPlus, LibraryBig, Search, X } from 'lucide-react';
+import { BookmarkPlus, LibraryBig, Pin, Search, X } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
 import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
 import { formatKey } from '../../chart/config/ShortcutConfig';
 import type { PatternImportStrategy } from '../../chart/patterns/importConflict';
-import { filterPatternsByName, patternBpmRange } from '../../chart/patterns/library';
+import { filterPatternsByName, isPatternPinned, patternBpmRange } from '../../chart/patterns/library';
 import { formatPatternBeatSpan, patternStats } from '../../chart/patterns/stats';
 import {
   pickPatternFile,
@@ -320,6 +320,7 @@ export default memo(function PatternLibraryDrawer({
               const range = patternBpmRange(pattern);
               const stats = patternStats(pattern);
               const active = !readOnly && activePatternId === pattern.id;
+              const isPinned = isPatternPinned(pattern);
               return (
                 <li
                   key={pattern.id}
@@ -350,34 +351,45 @@ export default memo(function PatternLibraryDrawer({
                     </div>
 
                     <div className="pld-card__main">
-                      {renaming?.id === pattern.id ? (
-                        <input
-                          className="pld-card__name-input"
-                          aria-label={t('patternLibrary.rename')}
-                          value={renaming.draft}
-                          autoFocus
-                          onChange={(e) => setRenaming({ id: pattern.id, draft: e.target.value })}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { e.preventDefault(); commitRename(); return; }
-                            if (e.key === 'Escape') {
-                              e.preventDefault();
-                              renameCancelledRef.current = true;
-                              setRenaming(null);
-                            }
-                          }}
-                          onBlur={commitRename}
-                        />
-                      ) : (
-                        <span
-                          className="pld-card__name"
-                          title={pattern.name}
-                          // 名字也是卡片的一部分：单击照常切卡（issue 186 二轮用户反馈：只有名字区域点不动）。
-                          // 双击 = 就地改名（185），第二击由 `onPasteCard` 的 `detail > 1` 挡掉。
-                          onDoubleClick={() => startRename(pattern)}
-                        >
-                          {pattern.name}
-                        </span>
-                      )}
+                      <div className="pld-card__name-row">
+                        {isPinned && (
+                          <span
+                            className="pld-card__pin"
+                            aria-label={t('patternLibrary.pinned')}
+                            title={t('patternLibrary.pinned')}
+                          >
+                            <Pin size={11} aria-hidden />
+                          </span>
+                        )}
+                        {renaming?.id === pattern.id ? (
+                          <input
+                            className="pld-card__name-input"
+                            aria-label={t('patternLibrary.rename')}
+                            value={renaming.draft}
+                            autoFocus
+                            onChange={(e) => setRenaming({ id: pattern.id, draft: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); commitRename(); return; }
+                              if (e.key === 'Escape') {
+                                e.preventDefault();
+                                renameCancelledRef.current = true;
+                                setRenaming(null);
+                              }
+                            }}
+                            onBlur={commitRename}
+                          />
+                        ) : (
+                          <span
+                            className="pld-card__name"
+                            title={pattern.name}
+                            // 名字也是卡片的一部分：单击照常切卡（issue 186 二轮用户反馈：只有名字区域点不动）。
+                            // 双击 = 就地改名（185），第二击由 `onPasteCard` 的 `detail > 1` 挡掉。
+                            onDoubleClick={() => startRename(pattern)}
+                          >
+                            {pattern.name}
+                          </span>
+                        )}
+                      </div>
                       <span className="pld-card__badges">
                         {/* 徽标 = 速度跨度（issue 186 二轮）：`BPM 120 → 180`；没有变化事件时只有 `BPM 120`。
                             负值由 BpmRange 单独上危险色，不再另挂「倒流」徽标（少一个字、也更醒目）。 */}
@@ -396,8 +408,10 @@ export default memo(function PatternLibraryDrawer({
                   </div>
 
                   {/* 常驻 ⋯ 菜单：入口一直可见（hover 才出现的按钮等于靠运气发现），
-                      菜单里放单条导出（187）与删除；卡片主体留给 186 的点击粘贴 */}
+                      菜单里放置顶（191）、单条导出（187）与删除；卡片主体留给 186 的点击粘贴 */}
                   <PatternCardMenu
+                    isPinned={isPinned}
+                    onTogglePin={() => void library.setPinned(pattern.id, !isPinned)}
                     onExport={() => void exportPattern(pattern)}
                     onDelete={() => setPendingDelete(pattern)}
                   />

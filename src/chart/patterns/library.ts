@@ -4,12 +4,37 @@
 import { createPattern } from './naming';
 import type { Pattern, PatternPayload } from './types';
 
+/** 片段是否处于置顶态（issue 191）。 */
+export function isPatternPinned(pattern: Pattern): boolean {
+  return typeof pattern.pinnedAt === 'number' && Number.isFinite(pattern.pinnedAt);
+}
+
+/** 剥掉本地置顶偏好（issue 191）：取消置顶、读脏数据、分享导出共用。 */
+export function stripPatternPinned(pattern: Pattern): Pattern {
+  if ('pinnedAt' in pattern) {
+    const { pinnedAt: _pinnedAt, ...rest } = pattern;
+    return rest as Pattern;
+  }
+  return pattern;
+}
+
 /**
- * 收藏时间倒序（最新在最上）。同一毫秒内的两条按 id 定序 ——
- * 排序必须是全序，否则每次渲染都可能换位。
+ * 片段排序（issue 185 / 191）：
+ * - 置顶组始终在最前；
+ * - 置顶组内按 `pinnedAt` 倒序（最近置顶的更靠上），同值按 `createdAt` 倒序，再同按 id 全序；
+ * - 未置顶组按 `createdAt` 倒序（最新在最上），同值按 id 全序。
+ * 排序是全序，保证渲染与往返恒定。纯函数，不修改原数组。
  */
 export function sortPatternsNewestFirst(patterns: readonly Pattern[]): Pattern[] {
-  return [...patterns].sort((a, b) => (b.createdAt - a.createdAt) || a.id.localeCompare(b.id));
+  return [...patterns].sort((a, b) => {
+    const aPinned = isPatternPinned(a);
+    const bPinned = isPatternPinned(b);
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    if (aPinned && bPinned && a.pinnedAt !== b.pinnedAt) {
+      return b.pinnedAt! - a.pinnedAt!;
+    }
+    return (b.createdAt - a.createdAt) || a.id.localeCompare(b.id);
+  });
 }
 
 /** 名字子串过滤（不区分大小写）；空查询 / 全空白 = 不过滤（返回全部，含顺序） */
@@ -52,6 +77,29 @@ export function removePatternFromLibrary(patterns: readonly Pattern[], id: strin
   const index = patterns.findIndex((pattern) => pattern.id === id);
   if (index < 0) return null;
   return patterns.filter((_, i) => i !== index);
+}
+
+/**
+ * 置顶 / 取消置顶（不可变，issue 191）：
+ * - id 不存在 → 返回 null（不写盘）；
+ * - 状态未改变（已置顶时再置顶、未置顶时再取消）→ 返回 null（不产生无意义整库落盘）；
+ * - 置顶：记录 `pinnedAt: now ?? Date.now()`；
+ * - 取消置顶：删除 `pinnedAt` 字段。
+ */
+export function setPatternPinnedInLibrary(
+  patterns: readonly Pattern[],
+  id: string,
+  pinned: boolean,
+  now?: number,
+): Pattern[] | null {
+  const index = patterns.findIndex((pattern) => pattern.id === id);
+  if (index < 0) return null;
+  const current = patterns[index]!;
+  if (pinned === isPatternPinned(current)) return null;
+
+  const next = [...patterns];
+  next[index] = pinned ? { ...current, pinnedAt: now ?? Date.now() } : stripPatternPinned(current);
+  return next;
 }
 
 /**

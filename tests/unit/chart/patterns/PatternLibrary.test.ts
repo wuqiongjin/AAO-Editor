@@ -7,6 +7,7 @@ import {
   patternBpmRange,
   removePatternFromLibrary,
   renamePatternInLibrary,
+  setPatternPinnedInLibrary,
   sortPatternsNewestFirst,
 } from '@/src/chart/patterns/library';
 import { makePattern } from '@/tests/support/patterns';
@@ -38,6 +39,82 @@ describe('issue 185 · 排序', () => {
     ];
     sortPatternsNewestFirst(patterns);
     expect(patterns.map((p) => p.id)).toEqual(['a', 'b']);
+  });
+
+  it('issue 191 · 置顶组优先：置顶条目始终在未置顶条目前', () => {
+    const patterns = [
+      makePattern({ id: 'unpinned-late', createdAt: 500 }),
+      makePattern({ id: 'pinned-early', createdAt: 100, pinnedAt: 50 }),
+      makePattern({ id: 'unpinned-mid', createdAt: 300 }),
+    ];
+    expect(sortPatternsNewestFirst(patterns).map((p) => p.id))
+      .toEqual(['pinned-early', 'unpinned-late', 'unpinned-mid']);
+  });
+
+  it('issue 191 · 多个置顶按 pinnedAt 倒序（最近置顶的更靠上）', () => {
+    const patterns = [
+      makePattern({ id: 'p1', pinnedAt: 100, createdAt: 500 }),
+      makePattern({ id: 'p2', pinnedAt: 300, createdAt: 100 }),
+      makePattern({ id: 'p3', pinnedAt: 200, createdAt: 200 }),
+    ];
+    expect(sortPatternsNewestFirst(patterns).map((p) => p.id))
+      .toEqual(['p2', 'p3', 'p1']);
+  });
+
+  it('issue 191 · 取消置顶回原位（按 createdAt 回到未置顶队列正确位置）', () => {
+    const list = [
+      makePattern({ id: 'p1', createdAt: 100, pinnedAt: 500 }),
+      makePattern({ id: 'p2', createdAt: 300 }),
+      makePattern({ id: 'p3', createdAt: 200 }),
+    ];
+    // p1 置顶时排最前
+    expect(sortPatternsNewestFirst(list).map((p) => p.id)).toEqual(['p1', 'p2', 'p3']);
+
+    // 取消 p1 置顶后，回到 createdAt: 100 的末尾
+    const unpinned = setPatternPinnedInLibrary(list, 'p1', false)!;
+    expect(sortPatternsNewestFirst(unpinned).map((p) => p.id)).toEqual(['p2', 'p3', 'p1']);
+  });
+
+  it('issue 191 · 置顶同 pinnedAt 按 createdAt 倒序，再同按 id 全序', () => {
+    const patterns = [
+      makePattern({ id: 'b', pinnedAt: 100, createdAt: 200 }),
+      makePattern({ id: 'a', pinnedAt: 100, createdAt: 200 }),
+      makePattern({ id: 'c', pinnedAt: 100, createdAt: 300 }),
+    ];
+    expect(sortPatternsNewestFirst(patterns).map((p) => p.id)).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('issue 191 · 置顶操作（setPatternPinnedInLibrary）', () => {
+  const patterns = [
+    makePattern({ id: 'p1', name: '片段 1' }),
+    makePattern({ id: 'p2', name: '片段 2', pinnedAt: 100 }),
+  ];
+
+  it('置顶：记录指定时间戳', () => {
+    const next = setPatternPinnedInLibrary(patterns, 'p1', true, 12345)!;
+    expect(next[0]!.pinnedAt).toBe(12345);
+    expect(next[1]!.pinnedAt).toBe(100);
+  });
+
+  it('取消置顶：彻底删除 pinnedAt 字段', () => {
+    const next = setPatternPinnedInLibrary(patterns, 'p2', false)!;
+    expect(next[1]!.pinnedAt).toBeUndefined();
+    expect('pinnedAt' in next[1]!).toBe(false);
+  });
+
+  it('id 不存在 → null', () => {
+    expect(setPatternPinnedInLibrary(patterns, 'nope', true)).toBeNull();
+  });
+
+  it('状态未改变 → null（已置顶再置顶、未置顶再取消）', () => {
+    expect(setPatternPinnedInLibrary(patterns, 'p1', false)).toBeNull();
+    expect(setPatternPinnedInLibrary(patterns, 'p2', true)).toBeNull();
+  });
+
+  it('不动原数组', () => {
+    setPatternPinnedInLibrary(patterns, 'p1', true, 100);
+    expect(patterns[0]!.pinnedAt).toBeUndefined();
   });
 });
 

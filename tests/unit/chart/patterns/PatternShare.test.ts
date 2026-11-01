@@ -212,4 +212,52 @@ describe('parsePatternsFile · 逐条校验与导入语义', () => {
     expect(doc).not.toHaveProperty('strategy');
     expect(doc).not.toHaveProperty('conflicts');
   });
+
+  it('issue 191 · 导出信封不含 pinnedAt（置顶是本地偏好，不随文件外泄）', () => {
+    const doc = JSON.parse(
+      serializePatterns([pattern({ id: 'p1', pinnedAt: 123456789 })]),
+    ) as PatternExportFile;
+
+    expect(doc.patterns[0]).not.toHaveProperty('pinnedAt');
+  });
+
+  it('issue 191 · 导入文件若外带来 pinnedAt 会被剥掉（不落到本地库）', () => {
+    const external = {
+      schemaVersion: 1,
+      exportedAt: '2026-11-01T00:00:00.000Z',
+      patterns: [{
+        ...pattern({ name: '外来条目' }),
+        pinnedAt: 999999999,
+      }],
+    };
+
+    const result = parsePatternsFile(JSON.stringify(external));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.patterns[0]!.name).toBe('外来条目');
+    expect(result.patterns[0]!.pinnedAt).toBeUndefined();
+    expect('pinnedAt' in result.patterns[0]!).toBe(false);
+  });
+
+  it('issue 191 · round-trip：除了 pinnedAt 被剥掉，其余字段原样回来', () => {
+    const source = pattern({
+      pinnedAt: 55555,
+      notes: [{ type: 'Single', beat: 2, lane: 3 } as ChartNote],
+      bpmContext: { startBpm: 140, events: [] },
+    });
+
+    const parsed = parsePatternsFile(serializePatterns([source]));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.patterns[0]).toMatchObject({
+      name: source.name,
+      createdAt: source.createdAt,
+      notes: source.notes,
+      bpmContext: source.bpmContext,
+    });
+    expect(parsed.patterns[0]!.pinnedAt).toBeUndefined();
+    expect('pinnedAt' in parsed.patterns[0]!).toBe(false);
+  });
 });
