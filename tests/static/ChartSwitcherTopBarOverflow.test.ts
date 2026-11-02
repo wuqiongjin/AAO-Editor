@@ -61,3 +61,44 @@ describe('issue 176 · 当前谱面钮色块带等级、标题不再写 Easy', (
   });
 });
 
+describe('issue 209 · 顶栏工程名与切换器自适应及下拉箭头动效', () => {
+  it('工程名 crumb 具备响应式自适应天花板且包含专用 crumb-name 进行 ellipsis 截断', () => {
+    const css = readStripped(CSS);
+    const crumb = block(css, '.chart-switcher__crumb');
+    expect(crumb).toMatch(/max-width:\s*min\(360px,\s*28vw\)/);
+    expect(crumb).toMatch(/min-width:\s*0/);
+    expect(crumb).toMatch(/flex-shrink:\s*1/);
+
+    const crumbName = block(css, '.chart-switcher__crumb-name');
+    expect(crumbName).toMatch(/min-width:\s*0/);
+    expect(crumbName).toMatch(/overflow:\s*hidden/);
+    expect(crumbName).toMatch(/text-overflow:\s*ellipsis/);
+    expect(crumbName).toMatch(/white-space:\s*nowrap/);
+
+    const current = block(css, '.chart-switcher__current');
+    expect(current).toMatch(/max-width:\s*min\(440px,\s*34vw\)/);
+  });
+
+  it('ChartSwitcher 把工程名包进 crumb-name，且 title 携带工程满名与返回指引', () => {
+    const tsx = readStripped(TSX);
+    expect(tsx).toMatch(/className="chart-switcher__crumb-name"/);
+    expect(tsx).toMatch(/title=\{crumbTitle\}/);
+    expect(tsx).toMatch(/displayProjectName\(project\)[\s\S]*?workspace\.switcher\.crumbTitle/);
+  });
+
+  it('ChartSwitcher 下拉箭头具备旋转动效类名且符合全站动效规范', () => {
+    const css = readStripped(CSS);
+    const tsx = readStripped(TSX);
+
+    expect(tsx).toMatch(/className=\{`chart-switcher__caret\$\{openMenu \? ' is-open' : ''\}`\}/);
+
+    const caret = block(css, '.chart-switcher__caret');
+    expect(caret).toMatch(/transition:\s*transform var\(--dur-fast\) var\(--ease\)/);
+
+    const caretOpen = block(css, '.chart-switcher__caret.is-open');
+    expect(caretOpen).toMatch(/transform:\s*rotate\(180deg\)/);
+
+    expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*?\.chart-switcher__caret\s*\{[\s\S]*?transition:\s*none;/);
+  });
+});
+

@@ -194,6 +194,7 @@
 - **206 显示面板切语言选项文案残留与选项窄收敛**（[206](./issues/206-显示面板切语言选项文案残留与选项窄收敛.md)，`Type: bug`，resolved）—— **根因** = `PreviewDisplayPanel` 与 `WorkspaceDisplayPanel` 中选项列表使用空依赖 `useMemo` 缓存 `t()`，切语言后保活实例未重求值。**改成什么** = 清除小数组不必要的 `useMemo`，提取窄收敛同质选项常量 `displayPanelOptions.ts`，补齐 DOM 挂载态切语言锁测。
 - **207 展开片段库播放掉帧与memo穿透**（[207](./issues/207-展开片段库播放掉帧与memo穿透.md)，`Type: bug`，resolved）—— **根因** = `WorkspacePage` 向 `PatternLibraryDrawer` 传入内联箭头函数 `onExitPaste` 破坏 `memo` 隔离，导致 80ms 播放时钟引发 12.5Hz 级联全量重渲与重算；缩略图未 `memo`。**改成什么** = 包装稳定 `useCallback` 恢复 `memo` 拦截，缩略图补 `memo`，静态与 DOM 锁测防退化。
 - **208 片段库文件收纳至专属子目录**（[208](./issues/208-片段库文件收纳至专属子目录.md)，`Type: chore`，resolved）—— 数据根下 `<数据根>/patterns.json` 收纳至专属子目录 `<数据根>/patterns/patterns.json`，规范数据根纯目录布局并收敛 `.broken` 备份。已实现并全量锁测。
+- **209 工作台顶栏谱面工程与谱面切换器样式与自适应优化**（[209](./issues/209-工作台顶栏谱面工程与谱面切换器样式与自适应优化.md)，`Type: grilling`，resolved）—— **定了什么** = 工程名包入专用 span 输出稳定省略号且 title 带完整工程名；下拉箭头补齐 180° 翻转交互（.chart-switcher__caret.is-open）；工程名 min(360px, 28vw) 与当前谱面 min(440px, 34vw) 响应式弹性让宽；撤销重做保持原位。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

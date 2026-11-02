@@ -97,6 +97,7 @@ export default memo(function ChartSwitcher() {
   const currentTitle = uploaded
     ? `${switchLabel} · ${t('workspace.switcher.uploaded')}`
     : switchLabel;
+  const crumbTitle = `${displayProjectName(project)} · ${t('workspace.switcher.crumbTitle')}`;
 
   const toggle = () => {
     if (!openMenu && btnRef.current) {
@@ -111,17 +112,17 @@ export default memo(function ChartSwitcher() {
       <button
         type="button"
         className="chart-switcher__crumb"
-        title={t('workspace.switcher.crumbTitle')}
+        title={crumbTitle}
         onClick={() => setActivePage('projects')}
       >
-        {displayProjectName(project)}
+        <span className="chart-switcher__crumb-name">{displayProjectName(project)}</span>
       </button>
       <span className="pp-muted">/</span>
       <button ref={btnRef} type="button" className="chart-switcher__current" title={currentTitle} aria-expanded={openMenu} aria-haspopup="listbox" onClick={toggle}>
         <span className="pp-pill__diff" style={{ background: DIFF_COLORS[cur.diff] }}>{pillLabel}</span>
         <span className="chart-switcher__current-name">{switchLabel}</span>
         {uploaded && <Lock size={12} className="chart-switcher__lock" aria-hidden />}
-        <ChevronDown size={14} />
+        <ChevronDown size={14} className={`chart-switcher__caret${openMenu ? ' is-open' : ''}`} aria-hidden />
       </button>
       {openMenu && createPortal(
         <>
