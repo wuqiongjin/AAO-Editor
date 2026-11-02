@@ -23,7 +23,11 @@ From starting a project and editing the chart, to previewing it and exporting a 
 
 Get desktop installers from **[GitHub Releases](https://github.com/wuqiongjin/AAO-Editor/releases)** (Windows NSIS / macOS DMG / Linux AppImage, built with electron-builder). For networks with limited GitHub access, the same installers are mirrored to **[CNB Releases](https://cnb.cool/AsterPicker/AAO-Editor/-/releases)** shortly after each release. If in-app update checks cannot reach GitHub, install once from CNB, then set **Download source** to CNB in Settings → About.
 
-Installers are not code-signed yet: on macOS, right-click (or Ctrl-click) the app and choose "Open" the first time; on Windows, if SmartScreen appears, choose "Run anyway".
+Installers are not commercially code-signed yet: on Windows, if SmartScreen appears, choose "More info" → "Run anyway"; on macOS, if prompted that the app "is damaged and can't be opened" or blocked by Gatekeeper, run the following command in Terminal to clear the quarantine attribute:
+
+```bash
+sudo xattr -rd com.apple.quarantine "/Applications/AAO Editor.app"
+```
 
 AAO Editor is a non-profit, fan-made tool and the app bundle includes BanG Dream! game assets. Please read the [unofficial fan tool notice](#unofficial-fan-tool-notice) for copyright and disclaimer details before installing.
 

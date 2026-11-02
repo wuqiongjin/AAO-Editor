@@ -23,7 +23,11 @@
 
 桌面安装包见 **[GitHub Releases](https://github.com/wuqiongjin/AAO-Editor/releases)**（Windows NSIS / macOS DMG / Linux AppImage，由 electron-builder 打包）；国内网络也可从 **[CNB Releases](https://cnb.cool/AsterPicker/AAO-Editor/-/releases)** 下载同一批安装包（发布后自动同步，略晚于 GitHub）。若应用内检查更新打不开 GitHub，可先从 CNB 手装一次，再在设置 → 关于里把**下载源**改为 CNB。
 
-安装包暂未做代码签名：macOS 首次打开请右键（或按住 Ctrl 点按）选「打开」；Windows 若弹出 SmartScreen 提示，点「仍要运行」即可。
+安装包暂未做商业代码签名：Windows 若弹出 SmartScreen 提示，点「更多信息」→「仍要运行」即可；macOS 若提示「已损坏，无法打开」或被 Gatekeeper 拦截，请在终端执行以下命令解除隔离属性：
+
+```bash
+sudo xattr -rd com.apple.quarantine "/Applications/AAO Editor.app"
+```
 
 本应用为非营利粉丝自制工具，安装包内含 BanG Dream! 相关游戏素材。使用前请阅读 [非官方声明](#非官方声明) 中的版权与免责说明。
 

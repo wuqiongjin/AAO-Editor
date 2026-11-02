@@ -23,7 +23,10 @@ AAO Editor 提供 Windows、macOS、Linux 三个平台的桌面安装包。不�
 ### macOS
 
 1. 打开 `.dmg`，把 AAO Editor 拖进「应用程序」。
-2. 首次打开不要双击：在「应用程序」里右键（或按住 Control 点按）图标，选「打开」，再在弹窗里点一次「打开」。
+2. 若首次打开提示「已损坏，无法打开」或被 Gatekeeper 拦截，请打开终端（Terminal）执行以下命令解除隔离属性：
+   ```bash
+   sudo xattr -rd com.apple.quarantine "/Applications/AAO Editor.app"
+   ```
 3. 之后双击图标即可正常启动。
 
 ### Linux
@@ -41,7 +44,7 @@ chmod +x AAO-Editor-*.AppImage
 
 安装包暂未做代码签名与公证，系统会按未签名应用处理，这是预期的：
 
-- **macOS**：首次打开会提示应用来自身份不明的开发者。用上面的右键 →「打开」放行一次即可，之后不再拦截。
+- **macOS**：首次打开可能会提示「已损坏，无法打开」或来自身份不明的开发者。按上方说明在终端执行 `sudo xattr -rd com.apple.quarantine "/Applications/AAO Editor.app"` 放行一次即可，之后不再拦截。
 - **Windows**：SmartScreen 会提示已保护你的电脑。点「更多信息」→「仍要运行」。
 
 ## 首次打开

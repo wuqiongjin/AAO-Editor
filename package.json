@@ -114,7 +114,10 @@
           ]
         }
       ],
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
     },
     "win": {
       "target": "nsis",

@@ -23,7 +23,10 @@ Installers are published on [GitHub Releases](https://github.com/wuqiongjin/AAO-
 ### macOS
 
 1. Open the `.dmg` and drag AAO Editor into **Applications**.
-2. Don't double-click the first time: in **Applications**, right-click (or Control-click) the icon, choose **Open**, then confirm with **Open** once more.
+2. If prompted on first launch that the app "is damaged and can't be opened" or blocked by Gatekeeper, run the following command in Terminal to clear the quarantine attribute:
+   ```bash
+   sudo xattr -rd com.apple.quarantine "/Applications/AAO Editor.app"
+   ```
 3. After that, double-clicking works normally.
 
 ### Linux
@@ -41,7 +44,7 @@ You can also right-click the file → Properties → Permissions → **Allow exe
 
 The installers are not code-signed or notarized yet, so the OS treats them as unsigned apps. That is expected:
 
-- **macOS**: the first launch warns that the app is from an unidentified developer. Allow it once with right-click → **Open**; it won't ask again.
+- **macOS**: on first launch, macOS may report that the app is damaged or from an unidentified developer. Run `sudo xattr -rd com.apple.quarantine "/Applications/AAO Editor.app"` in Terminal once as described above; it won't be blocked again.
 - **Windows**: SmartScreen shows the protected-PC warning. Choose **More info** → **Run anyway**.
 
 ## First launch

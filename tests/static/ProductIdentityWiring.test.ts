@@ -96,3 +96,55 @@ describe('issue 04 · AAO Editor 产品品牌与元数据整改锁测', () => {
     expect(pkg.build?.linux?.icon).toBe('public/icon.png');
   });
 });
+
+describe('issue 19 · macOS 未签名与 Apple Silicon ad-hoc 签名及指引锁测', () => {
+  const root = repoRoot;
+
+  it('package.json 显式配置 macOS ad-hoc 签名与关闭加固运行时，满足 Apple Silicon 原生架构要求', () => {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+    expect(pkg.build?.mac?.identity).toBe('-');
+    expect(pkg.build?.mac?.hardenedRuntime).toBe(false);
+    expect(pkg.build?.mac?.gatekeeperAssess).toBe(false);
+  });
+
+  it('README.md, README.en.md, RELEASE_NOTES.md 与文档站中的 macOS 安装提示包含 xattr / quarantine 引导，且无已失效的右键打开残留', () => {
+    const read = (p: string) => readFileSync(join(root, p), 'utf-8');
+    const zhReadme = read('README.md');
+    const enReadme = read('README.en.md');
+    const releaseNotes = read('RELEASE_NOTES.md');
+    const zhDocsInstall = read('docs-site/guide/install.md');
+    const enDocsInstall = read('docs-site/en/guide/install.md');
+
+    for (const [name, content] of [
+      ['README.md', zhReadme],
+      ['README.en.md', enReadme],
+      ['RELEASE_NOTES.md', releaseNotes],
+      ['docs-site/guide/install.md', zhDocsInstall],
+      ['docs-site/en/guide/install.md', enDocsInstall],
+    ] as const) {
+      expect(content, `${name} 必须包含 xattr 指引`).toContain('xattr');
+      expect(content, `${name} 必须包含 com.apple.quarantine 属性名`).toContain('com.apple.quarantine');
+    }
+
+    // 负锁：macOS 引导段落中不得出现已失效的「右键」或「Ctrl / Control」打开提示
+    const macRegex = /右键.*打开|right-click.*open|ctrl-click.*open|control-click.*open/i;
+
+    const zhReadmeMac = zhReadme.slice(zhReadme.indexOf('macOS'));
+    expect(zhReadmeMac.slice(0, zhReadmeMac.indexOf('\n\n'))).not.toMatch(macRegex);
+
+    const enReadmeMac = enReadme.slice(enReadme.indexOf('on macOS'));
+    expect(enReadmeMac.slice(0, enReadmeMac.indexOf('\n\n'))).not.toMatch(macRegex);
+
+    const releaseNotesMac = releaseNotes.slice(releaseNotes.indexOf('macOS'));
+    expect(releaseNotesMac.slice(0, releaseNotesMac.indexOf('\n'))).not.toMatch(macRegex);
+
+    const zhDocsMac = (zhDocsInstall.match(/### macOS([\s\S]*?)### Linux/)?.[1] ?? '') +
+      (zhDocsInstall.match(/- \*\*macOS\*\*：[^\n]*/)?.[0] ?? '');
+    expect(zhDocsMac).not.toMatch(macRegex);
+
+    const enDocsMac = (enDocsInstall.match(/### macOS([\s\S]*?)### Linux/)?.[1] ?? '') +
+      (enDocsInstall.match(/- \*\*macOS\*\*:[^\n]*/)?.[0] ?? '');
+    expect(enDocsMac).not.toMatch(macRegex);
+  });
+});
+

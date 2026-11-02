@@ -18,5 +18,5 @@
 
 ## ⚠️ 注意事项
 
-- 安装包暂未做代码签名：macOS 首次打开请右键选「打开」；Windows 弹出 SmartScreen 请点「仍要运行」。
+- 安装包暂未做商业代码签名：Windows 弹出 SmartScreen 请点「更多信息」→「仍要运行」；macOS 若提示「已损坏，无法打开」或被 Gatekeeper 拦截，请在终端执行 `sudo xattr -rd com.apple.quarantine "/Applications/AAO Editor.app"` 解除隔离属性。
 - 本工具为非营利粉丝自制软件，代码以 MIT 协议开源，游戏素材版权归官方所有。
