@@ -67,6 +67,8 @@ const { loadUpdateSourceSync, loadReadyVersionSync, patchAppStateSync } = requir
 const { createAppLog, registerAppLogIpc } = require('./appLog.cjs');
 const { registerDiagnosticsExportIpc } = require('./diagnosticsExport.cjs');
 const { writeFileAtomic } = require('./atomicWrite.cjs');
+const { setupApplicationMenu } = require('./applicationMenu.cjs');
+const { handleWindowAllClosed, handleActivate } = require('./lifecycle.cjs');
 
 // ---------------------------------------------------------------------------
 // 谱面工程文件后端（ADR-0015）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
@@ -424,6 +426,8 @@ function resolveAppIcon() {
     return undefined;
 }
 
+let mainWindow = null;
+
 function createWindow() {
     const minWidth = MIN_WINDOW_WIDTH;
     const minHeight = MIN_WINDOW_HEIGHT;
@@ -433,7 +437,7 @@ function createWindow() {
     const appIcon = resolveAppIcon();
 
     // 创建浏览器窗口
-    const mainWindow = new BrowserWindow({
+    const win = new BrowserWindow({
         title: 'AAO Editor',
         width,
         height,
@@ -450,43 +454,43 @@ function createWindow() {
         backgroundColor: chromeBackgroundFor(initialAppearance),
         show: false // 先不显示，等加载完成后再显示
     });
+    mainWindow = win;
 
-    attachWin32CaptionHoverMitigation(mainWindow, () =>
+    attachWin32CaptionHoverMitigation(win, () =>
         chromeBackgroundFor(resolvedAppearance(currentAppTheme, nativeTheme.shouldUseDarkColors)),
     );
-    applyBrowserWindowChrome(mainWindow, currentAppTheme, nativeTheme);
+    applyBrowserWindowChrome(win, currentAppTheme, nativeTheme);
 
     // 加载应用
     if (isDev) {
         // 开发环境：连接到Vite开发服务器
-        mainWindow.loadURL('http://localhost:5173');
-        mainWindow.webContents.openDevTools();
+        win.loadURL('http://localhost:5173');
+        win.webContents.openDevTools();
     } else {
         // 生产环境：加载构建后的文件
-        mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+        win.loadFile(path.join(__dirname, '../dist/index.html'));
     }
 
     // 窗口准备好后显示
-    mainWindow.once('ready-to-show', () => {
+    win.once('ready-to-show', () => {
         if (saved.isMaximized) {
-            mainWindow.maximize();
+            win.maximize();
         }
-        mainWindow.show();
+        win.show();
     });
 
-    mainWindow.on('close', () => {
-        saveWindowStateSync(app.getPath('userData'), snapshotFromBrowserWindow(mainWindow));
+    win.on('close', () => {
+        saveWindowStateSync(app.getPath('userData'), snapshotFromBrowserWindow(win));
     });
 
-    // 当窗口被关闭时
-    mainWindow.on('closed', () => {
-        // 在macOS上，应用通常会保持活跃状态，直到用户使用Cmd + Q明确退出
-        if (process.platform !== 'darwin') {
-            app.quit();
+    // 当窗口被关闭时，清理引用
+    win.on('closed', () => {
+        if (mainWindow === win) {
+            mainWindow = null;
         }
     });
 
-    return mainWindow;
+    return win;
 }
 
 // 本机素材协议（票 15）：scheme 特权必须在 app ready **之前**登记（Electron 的硬要求），
@@ -495,7 +499,7 @@ registerAssetSchemePrivileges(protocol);
 
 // 当Electron完成初始化并准备创建浏览器窗口时调用此方法
 app.whenReady().then(() => {
-    Menu.setApplicationMenu(null);
+    setupApplicationMenu(process.platform, app.name, Menu);
     // 只读协议：媒体标签按 URL 读素材缓存里的缩略图（不联网；缺图回 404，界面自己降级）
     registerAssetProtocol(protocol, assetCache);
     // 素材缓存（票 14）：启动扫一遍（30 天未用 / 1GB 上限 / 崩溃残留的半截文件）。
@@ -513,17 +517,15 @@ app.whenReady().then(() => {
     // 在macOS上，当点击dock图标并且没有其他窗口打开时，
     // 通常在应用程序中重新创建一个窗口
     app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
-        }
+        handleActivate({
+            getWindows: () => BrowserWindow.getAllWindows(),
+            createWindow,
+            getMainWindow: () => mainWindow,
+        });
     });
 });
 
 // 当所有窗口都被关闭时退出应用
 app.on('window-all-closed', () => {
-    // 在macOS上，除非用户用Cmd + Q确定地退出，
-    // 否则绝大部分应用及其菜单栏会保持激活
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
+    handleWindowAllClosed(process.platform, app);
 });

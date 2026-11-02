@@ -1,7 +1,7 @@
 # 211 · macOS应用生命周期与关闭退出处理
 
 Type: bug
-Status: open
+Status: resolved
 
 ## 来源
 
@@ -44,3 +44,13 @@ AAO Editor 点击红叉关闭后，它仍然会在后台常驻运行，无法通
 2. **锁测**：
    - `tests/static/ElectronMenuPlatform.test.ts`：静态断言 `electron/main.cjs` 在 `darwin` 平台下不执行抹除退出菜单的逻辑；
    - `tests/unit/electronLifecycle.test.ts`：验证 macOS 窗口全部关闭时的退出/保活逻辑符合预期。
+
+## Answer
+
+2026-11-02 实现：
+- 经过对齐，采用方案 B（遵循 macOS 规范，窗口关闭后保留主进程，支持 Dock 点击重建窗口，Cmd+Q 显式退出）。
+- 新增 `electron/applicationMenu.cjs`：按平台分流菜单配置。macOS (`darwin`) 安装原生极简应用菜单（包含应用主菜单 `About`、`Services`、`Hide`、`HideOthers`、`Unhide`、`Quit Cmd+Q`，以及编辑菜单 `Undo`、`Redo`、`Cut`、`Copy`、`Paste`、`SelectAll`）；Windows / Linux 继续保持 `Menu.setApplicationMenu(null)` 沉浸式风格。
+- 新增 `electron/lifecycle.cjs` 与主进程集成：提取平台收敛纯逻辑，在 Windows / Linux 上窗口全关触发 `app.quit()`；在 macOS 上保持后台进程，点击 Dock 图标时通过 `handleActivate` 优雅恢复或重建主窗口。窗口关闭时清空 `mainWindow` 引用并连带销毁 Chromium WebContents 渲染进程及音频资源。
+- 锁测：新增 `tests/static/ElectronMenuPlatform.test.ts`（静态锁）与 `tests/unit/electronLifecycle.test.ts`（单测）；全量 385 个测试文件（4302 测试用例）及 `npm run build` 全部通过。
+
+## Comments
