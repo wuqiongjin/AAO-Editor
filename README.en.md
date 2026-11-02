@@ -57,10 +57,11 @@ A **chart project** is one song: project info, audio, cover art and multiple cha
 
 ### Professional chart editing
 
+- **Compact tool rail & island workspace**: compact sidebar tool rail maximizing canvas space; beat snap upgraded to top-bar capsule (1/1–1/192 and custom); curve config gathered into dynamic on-canvas capsule; standardized marker system.
+- **Pattern library system**: one-click snippet collection (Ctrl+Shift+D), real-note-skin thumbnails, smart pasting with BPM context, pinning & multi-attribute sorting, full-library and single-pattern import/export.
 - **All note types**: tap / flick / skill / directional (left / right) / slide / long; BPM events and negative-BPM backflow regions are first-class.
-- **Deep slide editing**: add or remove nodes, split, combine endpoints, hidden nodes (SP spans), mirror whole slides; same-beat groups follow the author's ordering.
+- **Deep slide editing & smooth curvature shaping**: add or remove nodes, split, combine endpoints, hidden nodes (SP spans), same-beat middle node movement; drag reshaping defaults to smooth Bezier curvature, with Alt for real-time triangle bow shaping.
 - **SP curve tool**: 10 easing families × 4 interpolation types with three sampling precisions; drag on empty canvas for the **freeform brush** that samples along your path in real time — bending a slide becomes drawing a curve instead of hand-placing hidden nodes.
-- **Beat snapping** (1/1 – 1/16) and overwrite rules follow community conventions; placing, dragging and pasting share one set of semantics.
 - **Shortcut system**: every function is bound to exactly one key ("switch / Ctrl+execute"), conflicts are rejected, and everything is rebindable.
 - **Chart code is Bestdori-style JSON**: open the full chart code at any time to inspect or edit it; unknown fields and extension data are preserved verbatim.
 

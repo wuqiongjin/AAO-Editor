@@ -21,17 +21,19 @@ A **chart project** is one song: project info, audio, cover, and multiple charts
 
 ## Editing and slides
 
-The workspace edits one chart of the current project: toolbar on the left, track in the middle, note info and playback controls on the right.
+The workspace edits one chart of the current project, featuring a new compact tool rail and floating island shell for maximum canvas visibility. The top bar houses the beat snap capsule, while the right side provides a drawer-style pattern library, note info, and playback controls.
 
 **Note types and placement**
 
 - Full set: single, flick, skill, left/right directional, slide, long. BPM lines and negative-BPM backflow regions are supported natively.
 - Note tools are modal: pick one, then click the track to place. Single, flick, and skill replace each other; placing a directional note repeatedly on the same spot cycles its width 1→2→3 lanes.
-- **Snap**: 1/1, 1/2, 1/3, 1/4, 1/6, 1/8, 1/12, 1/16 — default 1/4. Placement, dragging, and pasting share the same snap; changing the snap never re-flows existing notes.
+- **Snap**: 1/1 to 1/192 presets and custom snapping — default 1/4. Placement, dragging, and pasting share the same snap; changing the snap never re-flows existing notes.
 - Slides take two clicks: start node, then completion. Clicking the same beat again cancels. Dropping a directional note on a slide node splits it into two slides.
 
-**Deep slide editing**
+**Deep slide editing & smooth shaping**
 
+- **Smooth curvature shaping**: dragging a slide segment defaults to smooth Bezier curvature (passing naturally through cursor and scaling proportionally near edges); hold Alt to switch back to classic triangle bow shaping. The default style is configurable in settings.
+- **Same-beat node movement**: middle slide nodes on the same beat can be freely moved horizontally without locking up.
 - Delete tool on a middle node turns it into a **hidden node** (the basis of SP segments); on an endpoint it removes the node.
 - Delete tool on a connecting band **splits** the slide at that segment.
 - Slide tool marquee, or Ctrl+E: **combine** selected endpoints into one slide.
@@ -43,12 +45,19 @@ The workspace edits one chart of the current project: toolbar on the left, track
 - 10 easing families (Sine / Quad / Cubic / Quart / Quint / Expo / Circ / Back / Elastic / Bounce) × 4 types (In / Out / In-Out / Out-In).
 - Three sampling precisions: 1/16, 1/32, or 1/64 per beat.
 - Shape templates (S-curve, double wave, shake bar, arc, heart) and easing are mutually exclusive: picking a template disables family / type / precision.
+- Curve configuration is gathered into a dynamic options capsule at the top-left of the canvas.
 
-**Selection, playback, history**
+**Pattern library**
+
+- **Collect and browse**: select notes and press Ctrl+Shift+D to save a snippet; the dedicated drawer displays real-skin note thumbnails alongside note/beat counts.
+- **Smart pasting**: click a snippet card to enter paste mode (without polluting the system clipboard), supporting "With BPM" and "Notes only" modes; ghost preview renders destination notes and dashed BPM lines in real time, avoiding redundant duplicate lines.
+- **Manage and share**: snippet pinning, multi-attribute sorting (time, name, beats, notes), single/full library export (.json share envelope), conflict resolution dialog on import, and multi-selection batch actions.
+
+**Selection, playback, markers**
 
 - Marquee, drag, copy / paste / cut, delete, and mirror all act on the selection; undo / redo covers edits and canvas operations.
 - Space plays / pauses. With no audio, double-click the timecode in the playback bar and type `mm:ss` to set the chart length directly.
-- Double-click the empty gutter left of the track to place a **playback start marker**. It is pinned to a time in seconds, so BPM changes don't move it.
+- Double-click the empty gutter left of the track to place a **marker**. It is pinned to a time in seconds, so BPM changes don't move it. Press Ctrl+Space to jump to the marker and play.
 
 **Chart code**
 
@@ -57,12 +66,13 @@ The workspace edits one chart of the current project: toolbar on the left, track
 - Unknown fields and extension data are preserved: they are written back verbatim, so nothing drifts from the community format.
 - Unapplied drafts are never exported. **Save as** writes the original source text when the code hasn't been touched by canvas edits.
 
-**Shortcuts**
+**Shortcuts & preferences**
 
 - The Shortcuts page lists every function with exactly one key. Rebinding rejects conflicts, and each function can be temporarily disabled.
-- Page switching: Ctrl+Shift+1…6 for workspace, audio, preview, assets, shortcuts, settings; Ctrl+Shift+0 returns to the project manager.
-- Common defaults: Space play / pause, Ctrl+Space jump to the playback marker, Ctrl+Z / Ctrl+Y undo / redo, Ctrl+Shift+B collapse the sidebar.
+- Page switching: Alt+1…7 for workspace, audio, preview, assets, shortcuts, settings, etc.
+- Common defaults: Space play / pause, Ctrl+Space jump to marker and play, Ctrl+Shift+D collect snippet, Ctrl+Z / Ctrl+Y undo / redo.
 - Note tools: F single, G flick, A skill, S left directional, D right directional, E slide, W curve, R pointer, T delete, Q mirror, V paste.
+- Workspace preferences: slide drag shaping style (smooth curve / triangle bow), scroll direction inversion, 3-tier time precision (0.1s / 0.01s / 0.001s), and independent SE volume control.
 - The shortcut table writes the modifier as Ctrl; on macOS that's ⌘.
 
 ## Preview and chart images
