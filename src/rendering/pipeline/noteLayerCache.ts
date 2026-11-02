@@ -47,9 +47,20 @@ const GESTURE_TILE_COST_CAP_MS = 8;
 const BYTES_BUDGET = 64 * 1024 * 1024;
 /** 瓦片数量上限（兜底，正常情况下字节预算先生效） */
 const MAX_TILES = 64;
-/** 瓦片位图 dpr 上限（issue 36）：瓦片只承载音符精灵（无文字），1.5 倍 dpr 在高分屏几乎不可辨，
- *  相比 2.0 内存 -44%、瓦片重建填充也快 ~44%（密集谱下放置延迟同步受益）；主画布仍按完整 dpr。 */
-const TILE_DPR_CAP = 1.5;
+/** 瓦片位图 dpr 上限（issue 212）：开放 2.0x 整数倍光栅化，对齐 Retina 2.0x 标准屏与 Windows 各常用 DPI（1.0/1.25/1.5/1.75/2.0），
+ *  消除 1.5x 上限在 2.0x 画布上的 1.333x 放大失真与重采样模糊；
+ *  配合 LRU 瓦片数量上限与 64MiB 显存预算，防范超大视口爆显存。 */
+export const TILE_DPR_CAP = 2.0;
+
+/**
+ * 瓦片有效 DPR（issue 212）：
+ * - 对 2.0x 及以下屏幕开放完整 DPR（含 Retina 2.0x 与 Windows 125%/150%/175%/200%），
+ *   使瓦片位图与主画布物理像素达到 1:1 直绘，彻底消除非整数缩放拉伸；
+ * - 超过 2.0x（如 3.0x/4.0x 超高分屏）封顶为 2.0x，防范超大视口爆显存。
+ */
+export function getEffectiveDpr(dpr: number): number {
+  return Math.min(Math.max(1, dpr), TILE_DPR_CAP);
+}
 
 interface Tile {
   canvas: HTMLCanvasElement | OffscreenCanvas | null;
@@ -203,7 +214,7 @@ export function tileBlitRect(tileId: number, es: number, refScale: number, ancho
  * 用于在预取前按 64MiB 预算做容量规划；空瓦片实际 0 字节，这里按满块保守估计。
  */
 export function tileBytesFor(surfaceW: number, es: number, dpr: number): number {
-  const tileDpr = Math.min(dpr, TILE_DPR_CAP);
+  const tileDpr = getEffectiveDpr(dpr);
   const { w, h } = bufferSizeFor({ w: Math.max(0, surfaceW), h: Math.max(0, TILE_PX * es) }, tileDpr);
   return w * h * 4;
 }
@@ -489,9 +500,8 @@ export function createNoteLayerCache(): NoteLayerCache {
     // 位图与主画布同宽（cssW = rc.surface.w），无需左右外扩（装饰器/选中圈均在 surface 内）
     const cssW = rc.surface.w;
     const canvas = createTileCanvas();
-    // issue 36：瓦片 dpr 上限 1.5（内存与重建成本同时下降；主画布 blit 时按 CSS 尺寸 1:1 绘制）。
-    // 需要"瓦片与画布同密度"的用法（预览面板 / 宽图导出）走 `rc.directNotes` 直渲，不再走瓦片。
-    const tileDpr = Math.min(rc.dpr, TILE_DPR_CAP);
+    // issue 212：瓦片有效 dpr 走 getEffectiveDpr，Retina 2.0x 与 Windows 100%~200% 开放 1:1 直通，消除 1.333x 放大失真。
+    const tileDpr = getEffectiveDpr(rc.dpr);
     // buffer = css × dpr，尺寸口径走 rasterScale 唯一处
     const { w: bw, h: bh } = bufferSizeFor({ w: cssW, h: cssH }, tileDpr);
     canvas.width = bw;
@@ -503,9 +513,7 @@ export function createNoteLayerCache(): NoteLayerCache {
     // 按实际比例绘制后内容恰好填满整数位图，blit（目标高 = cssH）逐像素精确，瓦片接缝数学不动。
     tctx.setTransform(bw / cssW, 0, 0, bh / cssH, 0, 0);
     // issue 40（渲染质量）：瓦片承载音符精灵，与主画布同一平滑策略（显式置 true，与默认一致不改观感）。
-    // 瓦片 dpr 权衡（issue 36 定 1.5 + 本 issue 复核）：瓦片只有精灵、无文字，1.5 dpr 高分屏几乎不可辨，
-    // 相对 2.0 内存 -44%、重建填充快 ~44%（密集谱放置延迟受益）；主画布仍按完整 dpr。若要更清晰需同步
-    // 上调 TILE_DPR_CAP 并接受内存/重建成本上升——属观感变更，需用户确认后再动。
+    // issue 212：开放 Retina 2.0x 瓦片直通，1:1 绘制无需二次拉伸，配合 64MiB 预算与 LRU 保护显存。
     tctx.imageSmoothingEnabled = true;
     // issue 40：与主画布同用高阶滤波，压低缩小时精灵边缘的子像素混色/杂色
     tctx.imageSmoothingQuality = 'high';

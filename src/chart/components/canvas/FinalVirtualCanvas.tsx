@@ -1045,8 +1045,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                             backgroundColor: '#000000',
                             display: 'block',
                             userSelect: 'none',
-                            boxSizing: 'border-box', // issue 50：border 算进尺寸，避免比父级宽 2px 触发 overflow
-                            border: '1px solid #333',
+                            // issue 212：去除 border 改用 outline，避免 border-box 导致 CSS 内容盒比 surf 缩小 2px
+                            // 进而引发全局 0.998x 双线性模糊插值。outline 不挤占盒模型内容空间，严格保证 1:1 直通，
+                            // 且完全不参与布局排版，严格守住 issue 50 不变量（不超尺寸触发父级溢出或滚动条）。
+                            outline: '1px solid #333',
+                            boxSizing: 'content-box',
                             // ADR-0006 §1：canvas 缓冲 = surface × dpr（renderChart 设置）；React 不触碰缓冲属性
                             // （不在 JSX 里写 width={surf.w} 作为 HTML 属性，那会重设缓冲并触发错帧）。
                             // CSS 尺寸改为跟随 surf 本身（而非 100%）：缓冲 = surf×dpr，若 CSS 盒 = 容器实时宽（100%），

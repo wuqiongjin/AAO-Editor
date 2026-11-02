@@ -1,7 +1,21 @@
 # 212 · Retina高分屏画布渲染清晰度与像素对齐
 
 Type: bug
-Status: open
+Status: closed
+
+## 验证与验收
+
+1. **消除 Canvas 内容盒 0.998x 缩放**：
+   - [FinalVirtualCanvas.tsx](file:///d:/Company/WorkSpace/MocaCoffee/bangdream-editor/src/chart/components/canvas/FinalVirtualCanvas.tsx) `<canvas>` 移除 `border`，改用 `outline: '1px solid #333'` 与 `boxSizing: 'content-box'`；
+   - 彻底解决 CSS 内容盒尺寸被挤压 2px 问题，保证 `surf.w/h` 1:1 直通底层位图物理分辨率；
+   - `outline` 不参与布局排版，严格守住 Issue 50 不变量（绝不溢出产生 1px 滚动条或死循环）。
+2. **自适应整数阶梯倍率（对齐 Retina 2.0x）**：
+   - [noteLayerCache.ts](file:///d:/Company/WorkSpace/MocaCoffee/bangdream-editor/src/rendering/pipeline/noteLayerCache.ts) 导出 `TILE_DPR_CAP = 2.0` 与 `getEffectiveDpr` 算法；
+   - Windows 100%、125%、150%、175%、200% 与 macOS Retina 2.0x 均开放 1:1 物理直通，消除 1.333x 放大失真；超高分屏（3x/4x）安全封顶 2.0x。
+3. **测试覆盖**：
+   - `tests/unit/FinalVirtualCanvas.test.ts` 全绿通过（验证 CSS 盒模型与 backing store 比例）；
+   - `tests/unit/noteLayerCache.dpr.test.ts` 全绿通过（验证 DPR=2.0 下瓦片生成与 1:1 绘制比例）；
+   - `tests/unit/rendering/cache/HighZoomPausedHover.test.ts` 更新 DPR=2.0 显存预算断言并全绿通过。
 
 ## 来源
 

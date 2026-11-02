@@ -1,6 +1,6 @@
 // issue 10 性能测试：密集音符（3000-5000）下缩放流畅性保障。
 // node 环境用 stub ctx 计量 JS 侧开销与调用次数（真实光栅化由浏览器 ?perf=1 基线覆盖）。
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ChartGeometry, LANES } from '@/src/chart/geometry/ChartGeometry';
 import { renderChart, visibleBeatRanges } from '@/src/rendering/render';
 import { findItemAt } from '@/src/rendering/hitTest/hitTest';
@@ -808,6 +808,7 @@ describe('issue 167 / 179 / 188 · 首个音符抵线卡顿防范（静止期靶
     noteLayer.draw(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters, SURFACE, { playing: true }));
     expect(timeoutDelays.length).toBeGreaterThan(0);
     expect(timeoutDelays[timeoutDelays.length - 1]).toBe(16);
+    noteLayer.reset();
   });
 });
 

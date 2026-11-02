@@ -93,10 +93,11 @@ function fakeTile(bytes: number) {
 }
 
 describe('issue 195 · 瓦片预算规划', () => {
-  it('240% 下单块 ≈16.3MiB，64MiB 预算只能容 3 块；视口块判定不含 padding', () => {
-    // 1550 宽 × round(512·2.4·1.5) 高 × 4B = 17,139,900B
-    expect(tileBytesFor(SURFACE.w, ES, DPR)).toBe(17_139_900);
-    expect(maxTilesForBudget(SURFACE.w, ES, DPR)).toBe(3);
+  it('240% 下单块 ≈29.1MiB，64MiB 预算只能容 2 块；视口块判定不含 padding', () => {
+    // issue 212：Retina 2.0x 下瓦片按 2.0x 光栅化（原 1.5x 封顶已上调）
+    // 1550·2 宽 (3100) × round(512·2.4·2.0) 高 (2458) × 4B = 30,479,200B
+    expect(tileBytesFor(SURFACE.w, ES, DPR)).toBe(30_479_200);
+    expect(maxTilesForBudget(SURFACE.w, ES, DPR)).toBe(2);
 
     const g = makeGeometry();
     const rc = makeRc(g);
@@ -106,7 +107,7 @@ describe('issue 195 · 瓦片预算规划', () => {
     expect(tileIntersectsViewport(5, ES, anchorY, SURFACE.h)).toBe(false);
   });
 
-  it('预取规划受预算约束：视口块优先，余量给向上 2 块；远端首音符窗口高倍下让位', () => {
+  it('预取规划受预算约束：视口块优先，余量给向上 1 块；远端首音符窗口高倍下让位', () => {
     const g = makeGeometry();
     const rc = makeRc(g);
     const anchorY = anchorYOf(rc);
@@ -115,9 +116,11 @@ describe('issue 195 · 瓦片预算规划', () => {
       surfaceW: SURFACE.w, surfaceH: SURFACE.h,
       es: ES, dpr: DPR, anchorY,
     });
-    expect(plan).toHaveLength(3);
+    // 64MiB 预算能容 2 块：视口块优先（4），余量给向上 1 块（6）；其余（7、padding、首音符）让位
+    expect(plan).toHaveLength(2);
     expect(plan).toContain(4);         // 视口覆盖块
-    expect(plan).toEqual(expect.arrayContaining([6, 7])); // 向上 2 块
+    expect(plan).toContain(6);         // 向上 1 块
+    expect(plan).not.toContain(7);     // 向上第 2 块让位
     expect(plan).not.toContain(3);     // padding 让位
     expect(plan).not.toContain(0);     // 远端首音符窗口让位
   });
