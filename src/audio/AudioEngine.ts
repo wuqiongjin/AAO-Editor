@@ -55,11 +55,16 @@ export class AudioEngine {
   private keySet: KeySoundSet | null = null;
   /** 当前 keySetId 是否正在异步加载中（防相同 id 重复 setOptions 把已就绪或加载中的 keySet 清空） */
   private keySetLoading = false;
-  /** 持续低幅值循环保活源與缓冲（issue 179 / 188：防 Chromium SilentSinkSuspender 30s 休眠与前导静音全零跳过） */
+  /** 单次低幅值保活脉冲源与缓冲（issue 179 / 188 / 210：防 Chromium 与 WASAPI 30s 休眠与前导静音全零跳过；单次微脉冲不循环） */
   private keepaliveSource: AudioBufferSourceNode | null = null;
   private keepaliveBuffer: AudioBuffer | null = null;
   /** 最近一次暂停/停止的墙钟毫秒（长时静置后复播时强制重建保活流以唤醒可能休眠的 OS 音频端点） */
   private lastPausePerfMs: number | null = null;
+  /** 最近一次保活脉冲发出的墙钟毫秒（防高频按键/手势产生连环多余脉冲） */
+  private lastPrimePerfMs: number | null = null;
+  /** 空闲挂起定时器（issue 210：非播放态下连续 30s 无交互/音效则优雅 suspend AudioContext，释放 macOS PreventUserIdleSystemSleep 电源锁） */
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly IDLE_SUSPEND_DELAY_MS = 30_000;
   /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
   private schedTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -118,6 +123,7 @@ export class AudioEngine {
    */
   async previewKeySample(setId: string, kind: KeySoundKind, tier?: number): Promise<void> {
     const ctx = this.ensureCtx();
+    this.scheduleIdleSuspend();
     // 试听通常由用户点击触发，是放行 AudioContext 的手势
     if (ctx.state === 'suspended') {
       try {
@@ -184,6 +190,7 @@ export class AudioEngine {
   private readonly onUserGesture = (): void => {
     const ctx = this.ctx;
     if (!ctx || this.state === 'playing') return;
+    this.scheduleIdleSuspend();
     if (ctx.state === 'suspended') {
       void Promise.resolve(ctx.resume()).catch(() => undefined);
     }
@@ -220,25 +227,28 @@ export class AudioEngine {
       this.seGain.gain.value = this.seVolume;
       this.seGain.connect(this.masterGain);
       this.attachGesturePrewarm();
+      this.scheduleIdleSuspend();
     }
     return this.ctx;
   }
 
   /**
-   * 持续保活 `seGain → masterGain → destination` 音频混合链路与系统音频硬件（issue 179 / 188）：
-   * 1. Chromium `SilentSinkSuspender` 在连续 30s 全零输出后会暂停底层 `AudioRendererSink` 并切至 `FakeAudioWorker`，
-   *    Windows WASAPI / 声卡驱动也会在全零或暂停后进入省电休眠（D3），直到首个非零样本到达才唤醒硬件流。
-   * 2. 179 的单次 64 样本 `1e-6` 微脉冲既低于 16-bit PCM 1 LSB（`3.05e-5`）量化台阶，又在脉冲结束后立即落回
-   *    BGM 的 2.8s~5.5s 全零前导静音，且 `audioGraphPrimed` 单次锁使长时静置后复播完全短路。
-   * 3. 现改为挂载 1024 样本、幅值 `1/16384`（精确 `2 LSB @ 16-bit` / `-84.3 dBFS`，零直流偏置余弦波，人耳不可闻但
-   *    高于 16-bit 量化台阶与零值检测）的循环保活源，同时连入 `seBus()` 与 `ctx.destination`（不受 `seVolume=0` 影响）；
-   *    若暂停静置满 10s 后复播，主动重建保活源以唤醒可能休眠的 OS 音频端点。
+   * 唤醒 `seGain → masterGain → destination` 音频混合链路与系统音频硬件（issue 179 / 188 / 210）：
+   * 1. Chromium 与 Windows WASAPI / 声卡驱动在全零或暂停后会进入省电休眠（D3），直到首个非零样本到达才唤醒硬件流。
+   * 2. issue 188 曾用常驻死循环源（src.loop = true）保活，但在 macOS 下导致持续占用 CoreAudio 硬件流，
+   *    持有 PreventUserIdleSystemSleep 电源锁并完全禁用 App Nap，造成静置能耗飙升至数千（issue 210）。
+   * 3. 现改为单次非循环短脉冲（1024 样本约 21ms，幅值 1/16384 = 2 LSB @ 16-bit / -84.3 dBFS 余弦波，高于 16-bit 量化台阶且人耳不可闻），
+   *    同时连入 seBus() 与 ctx.destination，按需唤醒硬件并在播放完毕后自然脱开，严禁常驻 loop。
+   *    若暂停静置满 10s 或上下文被挂起后复播/交互，主动发送短脉冲以唤醒可能休眠的 OS 音频端点。
    */
   private primeAudioGraph(ctx: AudioContext): void {
     const now = performance.now();
     const idleExpired =
       this.lastPausePerfMs !== null && now - this.lastPausePerfMs >= 10_000;
-    if (this.keepaliveSource && !idleExpired) return;
+    const justPrimed =
+      this.lastPrimePerfMs !== null && now - this.lastPrimePerfMs < 10_000;
+    const isSuspended = ctx.state === 'suspended';
+    if (!idleExpired && !isSuspended && (this.keepaliveSource || justPrimed)) return;
     this.stopKeepalive();
     if (typeof ctx.createBuffer !== 'function' || typeof ctx.createBufferSource !== 'function') return;
     try {
@@ -258,14 +268,45 @@ export class AudioEngine {
       }
       const src = ctx.createBufferSource();
       src.buffer = buf;
-      src.loop = true;
+      src.loop = false; // issue 210：严禁死循环常驻，单次短脉冲唤醒硬件
       src.connect(this.seBus());
       src.connect(ctx.destination);
       src.start(ctx.currentTime);
+      src.onended = () => {
+        try {
+          src.disconnect();
+        } catch {
+          /* ignore */
+        }
+        if (this.keepaliveSource === src) {
+          this.keepaliveSource = null;
+        }
+      };
       this.keepaliveSource = src;
+      this.lastPrimePerfMs = now;
       this.lastPausePerfMs = null;
     } catch {
       /* 测试替身或上下文未就绪时静默跳过 */
+    }
+  }
+
+  private scheduleIdleSuspend(): void {
+    this.clearIdleSuspend();
+    if (this.state === 'playing' || !this.ctx) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      if (this.ctx && this.state !== 'playing' && this.ctx.state === 'running') {
+        if (typeof this.ctx.suspend === 'function') {
+          void Promise.resolve(this.ctx.suspend()).catch(() => undefined);
+        }
+      }
+    }, AudioEngine.IDLE_SUSPEND_DELAY_MS);
+  }
+
+  private clearIdleSuspend(): void {
+    if (this.idleTimer !== null) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
     }
   }
 
@@ -328,15 +369,18 @@ export class AudioEngine {
     this.offsetSeconds = 0;
     this.lastPausePerfMs = performance.now();
     this.state = 'idle';
+    this.scheduleIdleSuspend();
   }
 
   /** 释放引擎持有的 `AudioContext` 与节点（动态预览卸载 / 重建引擎时调用，防底层硬件句柄累积） */
   dispose(): void {
     this.clear();
+    this.clearIdleSuspend();
     this.detachGesturePrewarm();
     this.stopKeepalive();
     this.keepaliveBuffer = null;
     this.lastPausePerfMs = null;
+    this.lastPrimePerfMs = null;
     try {
       this.seGain?.disconnect();
     } catch {
@@ -366,6 +410,7 @@ export class AudioEngine {
   async play(): Promise<void> {
     if (this.state === 'playing') return;
     const ctx = this.ensureCtx(); // 播放是用户手势（点按钮/按空格），放行 AudioContext
+    this.clearIdleSuspend();
     if (ctx.state === 'suspended') {
       try {
         await ctx.resume();
@@ -403,6 +448,7 @@ export class AudioEngine {
     this.stopScheduler();
     this.lastPausePerfMs = performance.now();
     this.state = 'paused';
+    this.scheduleIdleSuspend();
   }
 
   /** 停止并回到开头 */
@@ -413,6 +459,7 @@ export class AudioEngine {
     this.stopScheduler();
     this.lastPausePerfMs = performance.now();
     this.state = this.buffer ? 'ready' : 'idle';
+    this.scheduleIdleSuspend();
   }
 
   /**

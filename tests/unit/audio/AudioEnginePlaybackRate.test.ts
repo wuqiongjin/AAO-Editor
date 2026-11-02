@@ -162,7 +162,7 @@ describe('AudioEngine · 播放速率（chart-preview 20）', () => {
     expect(engine.playbackRate).toBe(4);
   });
 
-  it('issue 179 / 188 · load 预触碰 PCM 页，play 挂载高于 16-bit 量化下限的循环保活源，且长时静置后复播重新唤醒', async () => {
+  it('issue 179 / 188 / 210 · load 预触碰 PCM 页，play 挂载高于 16-bit 量化下限的单次短脉冲保活源（严禁常驻 loop），且长时静置后复播重新唤醒', async () => {
     const ch0 = new Float32Array(2049);
     const ch1 = new Float32Array(2049);
     const getChannelData = vi.fn((ch: number) => (ch === 0 ? ch0 : ch1));
@@ -200,11 +200,11 @@ describe('AudioEngine · 播放速率（chart-preview 20）', () => {
     nowSpy.mockReturnValue(1000);
     await engine.play();
     const ctx = engineCtx(engine);
-    // 保活源必须开启 loop=true，且首样本幅值高于 16-bit 1 LSB (3.05e-5)，紧接着启动 BGM source（位于 sources 末尾）
+    // 保活源严禁死循环（issue 210：防 CoreAudio 持续高采样率轮询及阻止休眠），单次短脉冲幅值高于 16-bit 1 LSB (3.05e-5)，紧接着启动 BGM source（位于 sources 末尾）
     expect(primerBuffers.length).toBeGreaterThanOrEqual(1);
     expect(primerBuffers[0]![0]).toBeGreaterThanOrEqual(1 / 16384);
     const firstKeepaliveSrc = ctx.sources[0]! as MockBufferSourceNode & { loop?: boolean };
-    expect(firstKeepaliveSrc.loop).toBe(true);
+    expect(firstKeepaliveSrc.loop).toBeFalsy();
     expect(firstKeepaliveSrc.connect).toHaveBeenCalledWith(ctx.destination);
     expect(ctx.sources).toHaveLength(2);
     engine.setPlaybackRate(1.5);

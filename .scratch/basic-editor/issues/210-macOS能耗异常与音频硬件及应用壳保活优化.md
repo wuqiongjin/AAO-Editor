@@ -1,7 +1,7 @@
 # 210 · macOS能耗异常与音频硬件及应用壳保活优化
 
 Type: bug
-Status: open
+Status: resolved
 
 ## 来源
 
