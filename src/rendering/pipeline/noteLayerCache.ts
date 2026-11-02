@@ -35,13 +35,100 @@ export const TILE_PX = 512;
 const MAX_CACHE_ES = 3;
 /** |es/refScale − 1| 超过该值视为 stale，需要（手势结束后）高清重建 */
 const STALE_TOL = 0.02;
-/** 手势帧的重建时间预算（ms）：预算内把 stale 瓦片逐帧现建（轻谱 1-2 帧内全部转新、无"糊→清晰"跳变），
+/** 默认基准帧间隔（ms）：标准 60Hz 屏（1000 / 60 ≈ 16.67ms） */
+export const DEFAULT_FRAME_INTERVAL_MS = 1000 / 60;
+/** 60Hz 默认手势重建时间预算（ms）：预算内把 stale 瓦片逐帧现建（轻谱 1-2 帧内全部转新、无"糊→清晰"跳变），
  *  超预算退回比例 blit；重谱逐帧锐化、单帧成本有界。 */
-const GESTURE_REBUILD_BUDGET_MS = 4;
-/** 单块重建成本上限（ms，issue 173）：一块瓦片的实测建造成本超过它，本帧立刻收手（余下的留到后续帧）。
+export const BASE_GESTURE_REBUILD_BUDGET_MS = 4;
+/** 60Hz 默认单块重建成本上限（ms，issue 173）：一块瓦片的实测建造成本超过它，本帧立刻收手（余下的留到后续帧）。
  *  正常机器单块 ≈0.3~0.5ms，永不触发；只在进程被抢占 / 极慢机上生效，把"一帧连建 N 块"
  *  的最坏帧成本从「不可控」压到「预算 + 一块」。 */
-const GESTURE_TILE_COST_CAP_MS = 8;
+export const BASE_GESTURE_TILE_COST_CAP_MS = 8;
+
+/**
+ * 帧率自适应瓦片排水延迟计算（issue 213）：
+ * - 静止期 delay 恒为 0（最快速度在空闲期排空）；
+ * - 播放期：
+ *   - 60Hz（>12ms）：保持既有 16ms（~1 帧）延时，保护低性能设备不变量；
+ *   - 高刷屏（<=12ms，如 90Hz/120Hz/144Hz/240Hz）：
+ *     缩短至 Math.max(1, Math.min(4, Math.floor(frameInterval / 2)))，消除跨帧饥饿断层。
+ */
+export function computeDrainDelay(frameInterval: number, isPlaying: boolean): number {
+  if (!isPlaying) return 0;
+  if (frameInterval > 12) return 16;
+  return Math.max(1, Math.min(4, Math.floor(frameInterval / 2)));
+}
+
+/**
+ * 帧率自适应手势重建预算与单块上限计算（issue 213）：
+ * - 单片重建预算不超过当前帧预算的 25%（60Hz 下 4.0ms，120Hz 下约 2.08ms）；
+ * - 单块成本上限不超过当前帧预算的 50%（60Hz 下 8.0ms，120Hz 下约 4.16ms），防止单块瓦片耗尽单帧预算。
+ */
+export function computeRebuildBudget(frameInterval: number): { gestureBudgetMs: number; tileCostCapMs: number } {
+  return {
+    gestureBudgetMs: Math.min(BASE_GESTURE_REBUILD_BUDGET_MS, frameInterval * 0.25),
+    tileCostCapMs: Math.min(BASE_GESTURE_TILE_COST_CAP_MS, frameInterval * 0.5),
+  };
+}
+
+/**
+ * 根据实测 rAF 帧间隔归一化到离散标准刷新率档位（issue 213）：
+ * - 240Hz：~4.17ms（<= 5.2ms）
+ * - 144Hz：~6.94ms（5.2ms ~ 7.5ms）
+ * - 120Hz：~8.33ms（7.5ms ~ 10.0ms，Apple ProMotion / Windows 120Hz）
+ * - 90Hz：~11.11ms（10.0ms ~ 13.5ms）
+ * - 60Hz：~16.67ms（> 13.5ms，标准屏基线）
+ */
+export function classifyRefreshInterval(measuredDeltaMs: number): number {
+  if (measuredDeltaMs <= 5.2) return 1000 / 240;
+  if (measuredDeltaMs <= 7.5) return 1000 / 144;
+  if (measuredDeltaMs <= 10.0) return 1000 / 120;
+  if (measuredDeltaMs <= 13.5) return 1000 / 90;
+  return DEFAULT_FRAME_INTERVAL_MS;
+}
+
+/**
+ * 屏幕物理刷新率动态平滑估算器（issue 213）：
+ * - 接收连续 rAF timestamp，过滤极端异常值（休眠/切标签）；
+ * - 维护滑动窗口中位数，防止单帧卡顿（hitch）导致刷新率跳变（flapping）；
+ * - 只有当多次测量稳定指向新档位时，才触发回调。
+ */
+export class RefreshRateEstimator {
+  private prevTime: number | null = null;
+  private readonly samples: number[] = [];
+  private currentInterval = DEFAULT_FRAME_INTERVAL_MS;
+  private readonly onIntervalChange?: (intervalMs: number) => void;
+
+  constructor(onIntervalChange?: (intervalMs: number) => void) {
+    this.onIntervalChange = onIntervalChange;
+  }
+
+  sample(timestamp: number): number {
+    if (this.prevTime !== null) {
+      const delta = timestamp - this.prevTime;
+      // 过滤休眠、卡死、切标签等极端异常值（> 40ms 或 < 3ms）
+      if (delta >= 3 && delta <= 40) {
+        this.samples.push(delta);
+        if (this.samples.length > 8) this.samples.shift();
+        if (this.samples.length >= 5) {
+          const sorted = [...this.samples].sort((a, b) => a - b);
+          const median = sorted[Math.floor(sorted.length / 2)];
+          const classified = classifyRefreshInterval(median);
+          if (classified !== this.currentInterval) {
+            this.currentInterval = classified;
+            this.onIntervalChange?.(classified);
+          }
+        }
+      }
+    }
+    this.prevTime = timestamp;
+    return this.currentInterval;
+  }
+
+  getInterval(): number {
+    return this.currentInterval;
+  }
+}
 /** 瓦片总内存预算（字节，按 RGBA 4B/px 估算），超出按插入序淘汰。
  *  issue 36：96MB → 64MB（密集谱下瓦片缓存是常驻内存增量的主体；配合瓦片 dpr 上限下调） */
 const BYTES_BUDGET = 64 * 1024 * 1024;
@@ -93,6 +180,10 @@ export interface NoteLayerCache {
   draw(ctx: CanvasRenderingContext2D, rc: RenderCtx): void;
   /** 丢弃全部瓦片与失效依据（播放队列一并清空）。 */
   reset(): void;
+  /** 设置当前屏幕帧间隔（ms，issue 213 由 rAF 采样注入） */
+  setFrameInterval(intervalMs: number): void;
+  /** 获取当前生效的帧间隔（ms） */
+  getFrameInterval(): number;
   /** 测试注入点：瓦片位图工厂（浏览器用 canvas，测试可注入假实现）。 */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 假位图只需形状兼容（见 tests/support/canvas.ts）
   __setCanvasFactoryForTests(factory: () => any): void;
@@ -329,6 +420,18 @@ export function createNoteLayerCache(): NoteLayerCache {
   const playTileQueue: number[] = [];
   let playTileSnap: { rc: RenderCtx; es: number } | null = null;
   let playTileTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 当前屏幕帧间隔（ms，issue 213）：默认 16.67ms（60Hz 基线），由 rAF 采样注入 */
+  let frameInterval = DEFAULT_FRAME_INTERVAL_MS;
+
+  function setFrameInterval(intervalMs: number) {
+    if (Number.isFinite(intervalMs) && intervalMs > 0) {
+      frameInterval = intervalMs;
+    }
+  }
+
+  function getFrameInterval(): number {
+    return frameInterval;
+  }
 
   /**
    * 缓存失效依据（issue 35 + issue 36 F3a）：
@@ -386,9 +489,9 @@ export function createNoteLayerCache(): NoteLayerCache {
   function schedulePlayTileDrain() {
     if (playTileTimer !== null || playTileQueue.length === 0) return;
     const isPlaying = playTileSnap?.rc.playing === true;
-    // issue 167：播放期单帧至多补建 1 块实体瓦片，将下一次补建延后 16ms（~1 帧），防连环同步光栅打穿帧预算；
+    // issue 167 / issue 213：播放期根据屏幕帧率自适应排水延迟（120Hz 下为 4ms 消除饥饿，60Hz 下保持 16ms 保护既有不变量）；
     // 静止期 delay 恒为 0，以最快速度在空闲期排空预热队列。
-    const delay = isPlaying ? 16 : 0;
+    const delay = computeDrainDelay(frameInterval, isPlaying);
     playTileTimer = setTimeout(() => {
       playTileTimer = null;
       drainOnePlayingTile();
@@ -636,7 +739,8 @@ export function createNoteLayerCache(): NoteLayerCache {
         const next = at >= 0 ? at : pending.findIndex((id) => id >= rebuildCursor!);
         startIdx = next >= 0 ? next : 0;
       }
-      const budgetEnd = rc.zoomGesture ? performance.now() + GESTURE_REBUILD_BUDGET_MS : Infinity;
+      const { gestureBudgetMs, tileCostCapMs } = computeRebuildBudget(frameInterval);
+      const budgetEnd = rc.zoomGesture ? performance.now() + gestureBudgetMs : Infinity;
       let deferred: number | null = null;
       for (let k = 0; k < pending.length; k++) {
         const id = pending[(startIdx + k) % pending.length];
@@ -647,7 +751,7 @@ export function createNoteLayerCache(): NoteLayerCache {
         rebuilt++;
         // 单块成本上限**只对手势帧**生效：手势期是"锐化速度换帧时间"；settle / 静止帧要的是
         // 一次收尾（预算本来就是 Infinity），在这里收手会让瓦片永远停在旧的 es 上。
-        if (rc.zoomGesture && performance.now() - t0 > GESTURE_TILE_COST_CAP_MS) {
+        if (rc.zoomGesture && performance.now() - t0 > tileCostCapMs) {
           // 单块就超支：本帧不再建，下一帧从它的下一块接着来（保证轮转，不会饿死高 id）
           deferred = pending[(startIdx + k + 1) % pending.length];
           break;
@@ -713,6 +817,8 @@ export function createNoteLayerCache(): NoteLayerCache {
   return {
     draw,
     reset,
+    setFrameInterval,
+    getFrameInterval,
     __setCanvasFactoryForTests,
     __getTilesForTests: () => tiles,
     __getLastNoteLayerStats: () => lastNoteLayerStats,

@@ -18,6 +18,7 @@ import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import {
   createRenderTarget, resolveCanvasDpr, normalizeBackgroundOpacity, findItemAt, findBpmLineAt,
   displayOptionsFromSettings, warmupBandStripStyles,
+  RefreshRateEstimator, DEFAULT_FRAME_INTERVAL_MS,
   type FrameView, type RenderTarget, type ViewportState,
 } from '../../../rendering';
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
@@ -102,6 +103,8 @@ export interface FinalVirtualCanvasHandle {
   setScrollY: (scrollY: number) => void;
   /** issue 101：播放 RAF 启动/停止时同步打标，避免首帧仍走无预算的静止重建。 */
   setPlaybackActive?: (active: boolean) => void;
+  /** issue 213：由外部 rAF 循环或测试注入当前屏幕帧间隔（ms），驱动瓦片调度器按 60Hz/120Hz/144Hz 自适应 */
+  setFrameInterval?: (intervalMs: number) => void;
   /** 播放起点（ADR-0004 §4）：Editor 经此做回跳。**秒**（时间轴锚定，issue 152）。 */
   getMarkerSeconds?: () => number | null;
   /** Esc 快照（issue 135）：手势四旗 + 锚点；选区 / 持工具态由 Editor 填进 resolveEscapeTarget。 */
@@ -240,6 +243,31 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const renderCanvasRef = useRef<() => void>(() => {});
     // 渲染目标（候选 3）：本画布的 surface / dpr / 两层离屏缓存的所有者；surface 或画质变化只 configure，不重建
     const targetRef = useRef<RenderTarget | null>(null);
+    // issue 213：当前物理屏幕帧间隔（默认 16.67ms / 60Hz），由挂载期 rAF 探测与播放循环权威注入
+    const frameIntervalRef = useRef<number>(DEFAULT_FRAME_INTERVAL_MS);
+
+    // issue 213：挂载时通过 rAF 采样迅速确定屏幕物理刷新率档位（60Hz/90Hz/120Hz/144Hz/240Hz）
+    useEffect(() => {
+        let rafId: number | null = null;
+        let samplesCount = 0;
+        const estimator = new RefreshRateEstimator((classified) => {
+            frameIntervalRef.current = classified;
+            targetRef.current?.configure({ frameInterval: classified });
+        });
+
+        const measure = (time: number) => {
+            estimator.sample(time);
+            samplesCount++;
+            if (samplesCount < 8) {
+                rafId = requestAnimationFrame(measure);
+            }
+        };
+
+        rafId = requestAnimationFrame(measure);
+        return () => {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+        };
+    }, []);
     // ADR-0008 §5：BPM 就地编辑（无模态打断）。默认值 = 上一次放置所设的值（初始 120）
     const lastBpmRef = useRef(120);
     const [bpmEdit, setBpmEdit] = useState<{ beat: number; value: string } | null>(null);
@@ -604,10 +632,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const dpr = resolveCanvasDpr(display.imageQuality);
         let target = targetRef.current;
         if (!target || target.canvas !== canvas) {
-            target = createRenderTarget({ canvas, surface: surf, dpr });
+            target = createRenderTarget({ canvas, surface: surf, dpr, frameInterval: frameIntervalRef.current });
             targetRef.current = target;
         } else {
-            target.configure({ surface: surf, dpr });
+            target.configure({ surface: surf, dpr, frameInterval: frameIntervalRef.current });
         }
 
         const sessionSnap = session.getSnapshot();
@@ -785,6 +813,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                         : { ...prev, scrollY: scrollYRef.current }
                 ));
             }
+        },
+        // issue 213：外部显式设置帧间隔（ms），驱动瓦片调度器按 60Hz/120Hz/144Hz 自适应
+        setFrameInterval: (intervalMs: number) => {
+            frameIntervalRef.current = intervalMs;
+            targetRef.current?.configure({ frameInterval: intervalMs });
         },
         // 起点标记访问（ADR-0004 §4）：Editor 经此做回跳
         getMarkerSeconds: () => markerSeconds,

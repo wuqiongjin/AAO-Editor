@@ -198,7 +198,7 @@
 - **210 macOS能耗异常与音频硬件及应用壳保活优化**（[210](./issues/210-macOS能耗异常与音频硬件及应用壳保活优化.md)，`Type: bug`，resolved）—— **根因** = `AudioEngine` 余弦波死循环保活阻止系统休眠并禁用 App Nap，非激活页面 `opacity:0` 未脱离合成树。**改成什么** = 短脉冲唤醒（严禁 loop）+ 30s 空闲挂起（`suspend`），非激活页 `visibility:hidden`。已实现并全量锁测。
 - **211 macOS应用生命周期与关闭退出处理**（[211](./issues/211-macOS应用生命周期与关闭退出处理.md)，`Type: bug`，resolved）—— **根因** = `Menu.setApplicationMenu(null)` 抹除 macOS 退出菜单与 Cmd+Q，单窗口关闭未做退出与音频释放。**改成什么** = 抽离 `electron/applicationMenu.cjs` 与 `lifecycle.cjs`，macOS 保留基础应用主菜单（关于/隐藏/Cmd+Q）与编辑菜单，窗口关闭保留进程并支持 Dock 点击唤醒重建窗口，已全量锁测。
 - **212 Retina高分屏画布渲染清晰度与像素对齐**（[212](./issues/212-Retina高分屏画布渲染清晰度与像素对齐.md)，`Type: bug`，open）—— **根因** = `<canvas>` border-box 导致 0.998x 内容盒挤压插值，瓦片 `TILE_DPR_CAP = 1.5` 导致 2.0x 屏幕二次非整数拉伸发糊。**改成什么** = 边框移出 canvas 恢复 1:1 内容盒，瓦片支持 2.0x 整数阶梯。
-- **213 高刷屏120Hz播放卡顿与帧调度优化**（[213](./issues/213-高刷屏120Hz播放卡顿与帧调度优化.md)，`Type: bug`，open）—— **根因** = 瓦片排空延迟按 60Hz 硬编码 16ms 导致 120Hz 下严重饥饿与同步渲染降级，每帧同步写 DOM `scrollTop` 导致合成器颠簸。**改成什么** = 自适应刷新率排空与单片时间预算，播放态滚动解耦平滑。
+- **213 高刷屏120Hz播放卡顿与帧调度优化**（[213](./issues/213-高刷屏120Hz播放卡顿与帧调度优化.md)，`Type: bug`，resolved）—— **根因** = 瓦片排空延迟按 60Hz 硬编码 16ms 导致 120Hz 下严重饥饿与同步渲染降级，每帧同步写 DOM `scrollTop` 导致合成器颠簸。**改成什么** = 屏幕刷新率 rAF 权威采样与自适应排空延时，单片/手势时间片预算缩放，DOM `scrollTop` 约 30fps 降频与停止即时吸附。已全量锁测。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

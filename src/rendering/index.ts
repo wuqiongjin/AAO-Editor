@@ -5,7 +5,7 @@
 export { renderChart, frameFor, renderGrid, renderNotes, renderPlaybackMarker, renderSelectionBox, renderSelectionOverlay, renderSlideBuffer, renderToolPreview, renderBpmLabels, renderTimeMarks, renderComboMarks, warmupBandStripStyles } from './render';
 export { createRenderTarget, type RenderTarget, type RenderTargetOptions } from './RenderTarget';
 export { createStaticLayerCache, normalizeBackgroundOpacity, type StaticLayerCache } from './pipeline/staticLayerCache';
-export { createNoteLayerCache, type NoteLayerCache } from './pipeline/noteLayerCache';
+export { createNoteLayerCache, classifyRefreshInterval, RefreshRateEstimator, DEFAULT_FRAME_INTERVAL_MS, type NoteLayerCache } from './pipeline/noteLayerCache';
 export { resolveCanvasDpr, bufferSizeFor, imageQualityDensity, imageQualitySupersample } from './rasterScale';
 export { displayOptionsFromSettings } from './displayOptions';
 export { makeCoords, type Coords } from './coords';
