@@ -31,13 +31,9 @@ import { PublishDialog } from './components/PublishDialog';
 import { usePublishEntry } from './usePublishEntry';
 import type { OfficialSongSelection } from './components/OfficialSongPanel';
 import type { CommunityPostSelection } from './components/CommunityPostPanel';
-import { importOfficialSong, isImportCancelled, officialApplyErrorText, officialErrorText, type OfficialImportStage } from './officialImport';
-import {
-  communityApplyErrorText,
-  communityErrorText,
-  importCommunityPost,
-  type CommunityImportStage,
-} from './communityImport';
+import { createOfficialImportSource, officialApplyErrorText, officialErrorText } from './officialImport';
+import { communityApplyErrorText, communityErrorText, createCommunityImportSource } from './communityImport';
+import { importChart, isImportCancelled, type ImportResult, type ImportStage } from './chartImport';
 import { ProjectStartView } from './components/ProjectHub';
 import { NewProjectButton } from './components/NewProjectButton';
 import { ProjectDetail } from './components/ProjectDetail';
@@ -64,7 +60,9 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   // 视图切换方向（issue 19 #1）：进详情从右滑入、回主页从左滑入；详情内换工程不重放动画（见视图包裹层 key）
   const [navDir, setNavDir] = useState<'forward' | 'back'>('forward');
   // 社区平台出口（票 07）：静态演示版没有 → 官方 / 社区两支入口整体隐藏（ADR-0011 §1 / 票 12）
-  const communityTransport = useMemo(() => createCommunityTransport(), []);
+  const communityTransport = useMemo(() => createCommunityTransport(), []); // 导入序列在 chartImport；源工厂只闭包 transport
+  const officialImportSource = useMemo(() => createOfficialImportSource(communityTransport), [communityTransport]);
+  const communityImportSource = useMemo(() => createCommunityImportSource(communityTransport), [communityTransport]);
   const importSources = hasCommunityNet();
 
   // 社区会话的启动校验（票 10）：有出口才还原加密会话并查一次 me（细节见 hook）
@@ -210,14 +208,15 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   // 与另两支同落点（issue 23 #1）：留在工程管理页、新工程成为当前工程、不跳工作台。
   const importOfficial = useCallback(async (
     selection: OfficialSongSelection,
-    onStage: (stage: OfficialImportStage) => void,
+    onStage: (stage: ImportStage) => void,
     signal?: AbortSignal,
   ): Promise<OfficialImportReply> => {
     await flushPersist();
-    let result: Awaited<ReturnType<typeof importOfficialSong>>;
+    let result: ImportResult;
     try {
-      result = await importOfficialSong(
-        { store, transport: communityTransport, notifyCatalogChanged, onStage, signal },
+      result = await importChart(
+        officialImportSource,
+        { store, notifyCatalogChanged, onStage, signal },
         {
           song: selection.song,
           detail: selection.detail,
@@ -246,7 +245,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     await setCurrent(result.project.id, result.chartId);
     if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
     return { ok: true, warnings };
-  }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
+  }, [flushPersist, store, officialImportSource, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
   // 「从社区谱面导入」（票 09）：帖子素材缓存 → 帖子详情（谱面原文，带上谱面时必达）→ Apply 闸门
   // → 落盘 → 切到新工程详情。落点与官方那支同口径（issue 23 #1）；
@@ -254,14 +253,15 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   // `withChart` = 预览栏那颗「同步导入谱面」芯片（默认开；关掉 = 只建工程 + 音频 + 封面）。
   const importCommunity = useCallback(async (
     selection: CommunityPostSelection,
-    onStage: (stage: CommunityImportStage) => void,
+    onStage: (stage: ImportStage) => void,
     signal?: AbortSignal,
   ): Promise<OfficialImportReply> => {
     await flushPersist();
-    let result: Awaited<ReturnType<typeof importCommunityPost>>;
+    let result: ImportResult;
     try {
-      result = await importCommunityPost(
-        { store, transport: communityTransport, notifyCatalogChanged, onStage, signal },
+      result = await importChart(
+        communityImportSource,
+        { store, notifyCatalogChanged, onStage, signal },
         { post: selection.post, song: selection.song, detail: selection.detail, withChart: selection.withChart },
       );
     } catch (error) {
@@ -283,7 +283,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     await setCurrent(result.project.id, result.chartId);
     if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
     return { ok: true, warnings };
-  }, [flushPersist, store, communityTransport, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
+  }, [flushPersist, store, communityImportSource, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
   // 发布（票 11/42）：入口状态与编排在 usePublishEntry（页面 500 行纪律），这里只挂 hook
   const publish = usePublishEntry({

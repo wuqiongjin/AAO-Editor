@@ -13,11 +13,11 @@ import { describe, expect, it } from 'vitest';
 import { CommunityError } from '@/src/community/transport';
 import { toPostCandidate, toSongCandidates, type PostCandidate } from '@/src/community/bestdori/mapping';
 import type { ChartProject, ProjectBinarySources } from '@/src/project/ChartProject';
+import { importChart, type ImportStore } from '@/src/pages/projects/chartImport';
 import {
   communityApplyErrorText,
   communityErrorText,
-  importCommunityPost,
-  type CommunityImportStore,
+  createCommunityImportSource,
 } from '@/src/pages/projects/communityImport';
 import { makeFakeCommunityTransport } from '@/tests/support/communityTransport';
 
@@ -91,7 +91,7 @@ function post(raw: unknown): PostCandidate {
 function recordingStore() {
   const writes: { project: ChartProject; staged?: ProjectBinarySources }[] = [];
   const disk = new Map<string, ChartProject>();
-  const store: CommunityImportStore = {
+  const store: ImportStore = {
     save: async (project, staged) => {
       writes.push({ project, staged });
       disk.set(project.id, project);
@@ -114,15 +114,16 @@ function deps(overrides: Overrides = {}) {
   });
   let notified = 0;
   const stages: string[] = [];
+  const source = createCommunityImportSource(transport);
   const run = (
     input: PostCandidate,
     extra: { song?: typeof BANDORI_SONG; detail?: { bgmId: string; lengthSeconds: number }; withChart?: boolean } = {},
   ) => {
     const { withChart = true, ...rest } = extra;
-    return importCommunityPost(
+    return importChart(
+      source,
       {
         store,
-        transport,
         notifyCatalogChanged: () => { notified += 1; },
         onStage: (stage) => stages.push(stage),
         newIds: () => ({ projectId: 'pNew1', chartId: 'cNew1' }),

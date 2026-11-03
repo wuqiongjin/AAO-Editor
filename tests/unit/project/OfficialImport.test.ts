@@ -13,11 +13,8 @@ import { readStripped } from '@/tests/support/source';
 import type { SongCandidate } from '@/src/community/bestdori/mapping';
 import { toSongCandidates } from '@/src/community/bestdori/mapping';
 import type { ChartProject, ProjectBinarySources } from '@/src/project/ChartProject';
-import {
-  importOfficialSong,
-  officialErrorText,
-  type OfficialImportStore,
-} from '@/src/pages/projects/officialImport';
+import { importChart, type ImportStore } from '@/src/pages/projects/chartImport';
+import { createOfficialImportSource, officialErrorText } from '@/src/pages/projects/officialImport';
 import { makeFakeCommunityTransport } from '@/tests/support/communityTransport';
 
 const NOW = 1_700_000_000_000;
@@ -73,7 +70,7 @@ function song(): SongCandidate {
 function recordingStore() {
   const writes: { project: ChartProject; staged?: ProjectBinarySources }[] = [];
   const disk = new Map<string, ChartProject>();
-  const store: OfficialImportStore = {
+  const store: ImportStore = {
     save: async (project, staged) => {
       writes.push({ project, staged });
       disk.set(project.id, project);
@@ -95,15 +92,16 @@ function deps(overrides: { binary?: Record<string, typeof STAGED_AUDIO | typeof 
   });
   let notified = 0;
   const stages: string[] = [];
+  const source = createOfficialImportSource(transport);
   return {
     writes,
     disk,
     stages,
     transport,
-    run: (withChart: boolean, diff: 'expert' | 'special' = 'special') => importOfficialSong(
+    run: (withChart: boolean, diff: 'expert' | 'special' = 'special') => importChart(
+      source,
       {
         store,
-        transport,
         notifyCatalogChanged: () => { notified += 1; },
         onStage: (stage) => stages.push(stage),
         newIds: () => ({ projectId: 'pNew1', chartId: 'cNew1' }),
@@ -220,10 +218,10 @@ describe('票 08 · 素材缺失与闸门拒绝', () => {
       binary: { [AUDIO_URL]: STAGED_AUDIO, [JACKET_URL]: STAGED_COVER },
     });
 
-    const result = await importOfficialSong(
+    const result = await importChart(
+      createOfficialImportSource(transport),
       {
         store,
-        transport,
         notifyCatalogChanged: () => {},
         newIds: () => ({ projectId: 'pNew1', chartId: 'cNew1' }),
         now: () => NOW,
@@ -249,10 +247,10 @@ describe('票 08 · 时长跟随实际音频', () => {
       return project ? { ...project, audioBlob: new Blob([new Uint8Array([1, 2, 3])]) } : null;
     };
 
-    const result = await importOfficialSong(
+    const result = await importChart(
+      createOfficialImportSource(transport),
       {
         store,
-        transport,
         notifyCatalogChanged: () => {},
         newIds: () => ({ projectId: 'pNew1', chartId: 'cNew1' }),
         now: () => NOW,
@@ -355,10 +353,10 @@ describe('票 26 · 素材失败时的降级语义', () => {
     const transport = makeFakeCommunityTransport({
       binary: { [AUDIO_URL]: STAGED_AUDIO, [JACKET_URL]: STAGED_COVER },
     });
-    await expect(importOfficialSong(
+    await expect(importChart(
+      createOfficialImportSource(transport),
       {
         store,
-        transport,
         notifyCatalogChanged: () => undefined,
         signal: abort.signal,
         newIds: () => ({ projectId: 'pNew1', chartId: 'cNew1' }),
