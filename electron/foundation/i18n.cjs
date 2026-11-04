@@ -52,9 +52,18 @@ function t(key, vars) {
     return key;
 }
 
+/** 渲染侧切语言时同步主进程字典（对话框标题等 i18n key 走 t）。 */
+function registerI18nIpc(ipcMain) {
+    ipcMain.handle('i18n:setLanguage', async (_event, locale) => {
+        setActiveUiLanguage(locale);
+        return true;
+    });
+}
+
 module.exports = {
     t,
     setActiveUiLanguage,
     getActiveUiLanguage,
     isUiLanguage,
+    registerI18nIpc,
 };

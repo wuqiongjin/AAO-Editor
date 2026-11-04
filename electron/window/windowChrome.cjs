@@ -91,6 +91,33 @@ function attachWin32CaptionHoverMitigation(win, getBackgroundColor) {
     win.on('focus', nudge);
 }
 
+/** @type {AppTheme} 渲染侧经 windowChrome:sync 推来的当前主题（装配根不持有这份状态）。 */
+let currentAppTheme = 'system';
+
+function getCurrentAppTheme() {
+    return currentAppTheme;
+}
+
+/** nativeTheme 源 + 所有已开窗的 backgroundColor 一起对齐当前主题。 */
+function syncAllWindowsChrome(deps) {
+    applyNativeThemeSource(currentAppTheme, deps.nativeTheme);
+    for (const win of deps.BrowserWindow.getAllWindows()) {
+        applyBrowserWindowChrome(win, currentAppTheme, deps.nativeTheme);
+    }
+}
+
+/**
+ * 窗体 OS chrome 通道（issue 126）：渲染进程经 windowChrome:sync 推送 light/dark/system。
+ * @param {{ handle: Function }} ipcMain
+ */
+function registerWindowChromeIpc(ipcMain, deps) {
+    ipcMain.handle('windowChrome:sync', async (_event, payload) => {
+        currentAppTheme = normalizeAppTheme(payload && payload.theme);
+        syncAllWindowsChrome(deps);
+        return true;
+    });
+}
+
 module.exports = {
     LIGHT_BG,
     DARK_BG,
@@ -100,4 +127,7 @@ module.exports = {
     applyNativeThemeSource,
     applyBrowserWindowChrome,
     attachWin32CaptionHoverMitigation,
+    getCurrentAppTheme,
+    syncAllWindowsChrome,
+    registerWindowChromeIpc,
 };

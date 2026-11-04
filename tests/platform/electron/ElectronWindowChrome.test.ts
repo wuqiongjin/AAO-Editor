@@ -7,10 +7,10 @@ import {
   normalizeAppTheme,
   resolvedAppearance,
 } from '@/electron/window/windowChrome.cjs';
-import { stripComments, readSource } from '@/tests/support/source';
+import { stripComments, readSource, readSources } from '@/tests/support/source';
 
 
-const mainSrc = stripComments(readSource('electron/main.cjs'));
+const mainSrc = readSources(['electron/main.cjs', 'electron/window/windowChrome.cjs', 'electron/window/createWindow.cjs'], true);
 const preloadSrc = stripComments(readSource('electron/preload.js'));
 const themeSrc = stripComments(readSource('src/app/styles/theme.ts'));
 

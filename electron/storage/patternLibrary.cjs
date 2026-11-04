@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { patternLibraryPath } = require('./dataRoot.cjs');
 const { writeFileAtomic } = require('../foundation/atomicWrite.cjs');
+const { saveJsonWithDialog } = require('../foundation/saveDialog.cjs');
 
 const SCHEMA_VERSION = 1;
 
@@ -109,9 +110,30 @@ async function savePatternLibrary(dataRoot, patterns) {
     return true;
 }
 
+/**
+ * 片段库通道（issue 184 / 208 / 187）：读 / 全量写 / 分享另存。
+ * 另存每次弹系统保存对话框、不记路径；取消返回 { cancelled: true }。
+ * @param {{ handle: Function }} ipcMain
+ */
+function registerPatternLibraryIpc(ipcMain, deps) {
+    const currentDataRoot = deps.currentDataRoot;
+
+    ipcMain.handle('patternLibrary:load', () => loadPatternLibrary(currentDataRoot()));
+    ipcMain.handle('patternLibrary:saveAll', (_event, patterns) =>
+        savePatternLibrary(currentDataRoot(), patterns));
+    ipcMain.handle('patternLibrary:saveAs', (event, payload) =>
+        saveJsonWithDialog(event, payload, {
+            channel: 'patternLibrary:saveAs',
+            titleKey: 'electron.exportPatterns',
+            fallbackName: 'aao-patterns.json',
+            filters: [{ name: 'JSON', extensions: ['json'] }],
+        }, deps));
+}
+
 module.exports = {
     SCHEMA_VERSION,
     setAppLog,
     loadPatternLibrary,
     savePatternLibrary,
+    registerPatternLibraryIpc,
 };

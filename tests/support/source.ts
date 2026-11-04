@@ -28,6 +28,17 @@ export function readStripped(rel: string): string {
 }
 
 /**
+ * 按**显式文件列表**拼接源码文本（装配根 + 恰好相关的域模块）。
+ *
+ * 接线事实可能横跨多个文件，但每条静态锁自己列清单、不扫全树：全文负锁
+ * （`not.toMatch`）的射程才不会被无关模块污染。列表顺序即拼接顺序。
+ * `strip` 为 true 时逐份去注释，与 `readStripped` 同口径。
+ */
+export function readSources(rels: string[], strip = false): string {
+  return rels.map((rel) => (strip ? readStripped(rel) : readSource(rel))).join('\n');
+}
+
+/**
  * 一棵目录下的全部 `.ts/.tsx`（相对**仓库根**的路径，分隔符统一 `/`）。
  *
  * 收在这里而不是各测试文件各写一份：多条静态锁都要"扫一棵源码树"，

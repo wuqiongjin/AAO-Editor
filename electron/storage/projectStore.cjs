@@ -216,6 +216,23 @@ async function uploadRefs(dataRoot, rawId) {
     return out;
 }
 
+/**
+ * 工程文件通道（装配根只调本入口，数据根每次现取 —— 用户可以在运行时搬家）。
+ * @param {{ handle: Function }} ipcMain
+ * @param {{ currentDataRoot: () => string }} deps
+ */
+function registerProjectStoreIpc(ipcMain, deps) {
+    const currentDataRoot = deps.currentDataRoot;
+
+    ipcMain.handle('project:get', (_event, rawId) => getProject(currentDataRoot(), rawId));
+    ipcMain.handle('project:put', (_event, payload) => putProject(currentDataRoot(), payload));
+    ipcMain.handle('project:list', () => listProjects(currentDataRoot()));
+    ipcMain.handle('project:delete', (_event, rawId) => deleteProject(currentDataRoot(), rawId));
+    // 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1）。
+    // 二进制不过 IPC：字节留在主进程，渲染侧只拿「事实」去凑 prepare 与 multipart。
+    ipcMain.handle('project:uploadRefs', (_event, rawId) => uploadRefs(currentDataRoot(), rawId));
+}
+
 module.exports = {
     SCHEMA_VERSION,
     getProject,
@@ -224,4 +241,5 @@ module.exports = {
     deleteProject,
     uploadRefs,
     setAppLog,
+    registerProjectStoreIpc,
 };

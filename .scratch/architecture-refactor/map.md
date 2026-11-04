@@ -51,7 +51,7 @@
 - [09 谱面视口会话从页面里搬出来](./issues/09-谱面视口会话从页面里搬出来.md) — 已解决（2026-09-29 落地：视口装配收进 `src/playback/useChartViewSession.ts`，页面只消费会话；+ dom 行为锁 + 全仓唯一调用点锁。候选 4 收口完成，待用户页面验收）
 - [10 谱面时长语义收一处](./issues/10-谱面时长语义收一处.md) — 已解决（2026-09-29 落地：默认 30 与夹取收进 `src/audio/chartDuration.ts`，五处默认 + 五处夹取改走它；候选 5 的「时长那一半」收口完成）
 - [11 导入编排收口](./issues/11-导入编排收口.md) — 已解决（2026-11-03 候选 1：新增 `chartImport.ts` 拥有整条导入序列，official/community 退成源工厂 + error text；细节与门禁见票内）
-- [12 electron 目录按能力域收敛](./issues/12-主进程能力域目录收敛.md) — 结论已定（2026-11-04：`electron/` 收成 7 个能力域子目录 + 根位装配根/桥，两提交）
+- [12 electron 目录按能力域收敛](./issues/12-主进程能力域目录收敛.md) — 已解决（2026-11-05 两提交落地：`electron/` 收成 7 个能力域子目录 + 根位装配根/桥，19 条内联 IPC 归位 15 个注册入口；细节与门禁见票内）
 - 【第二轮其余候选 · 未开票】候选 5 的剩下一半「解码结果交出 AudioBuffer」（dir 4；调用方是 `ai-enhancement` 的 onset / BPM 票，两者 `Status: open`，届时再领）· 候选 6「桥接探测收成一个平台接缝」（dir 1，Speculative；调用方是 Bestdori 网络面，届时再领）
 
 ## Fog

@@ -226,6 +226,80 @@ async function claimDataRoot(opts) {
     return { ok: true, unchanged: false };
 }
 
+/**
+ * 数据根通道（issue 117）：只读当前路径；搬家与认领分开，失败不切根。
+ * electron 依赖与数据根读取全部由装配根注入，本 module 不自行 require('electron')。
+ * @param {{ handle: Function }} ipcMain
+ */
+function registerDataRootIpc(ipcMain, deps) {
+    const currentDataRoot = deps.currentDataRoot;
+    const { shell, dialog, BrowserWindow, t, userDataDir } = deps;
+
+    ipcMain.handle('dataRoot:get', async () => ({ path: currentDataRoot() }));
+
+    ipcMain.handle('dataRoot:open', async () => {
+        const root = currentDataRoot();
+        try {
+            const errMsg = await shell.openPath(root);
+            if (errMsg) {
+                return { ok: false, message: errMsg, path: root };
+            }
+            return { ok: true, path: root };
+        } catch (err) {
+            return { ok: false, message: err?.message || String(err), path: root };
+        }
+    });
+
+    ipcMain.handle('dataRoot:change', async (event) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        const result = await dialog.showOpenDialog(win ?? undefined, {
+            title: t('electron.changeDataRoot'),
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        if (result.canceled || !result.filePaths || !result.filePaths[0]) {
+            return { ok: true, cancelled: true, path: currentDataRoot() };
+        }
+        const moved = await moveDataRoot({
+            userData: userDataDir(),
+            fromRoot: currentDataRoot(),
+            toRoot: result.filePaths[0],
+        });
+        if (!moved.ok) {
+            return {
+                ok: false,
+                cancelled: false,
+                path: currentDataRoot(),
+                message: moved.message || t('electron.moveFail'),
+            };
+        }
+        return { ok: true, cancelled: false, path: currentDataRoot() };
+    });
+
+    ipcMain.handle('dataRoot:claim', async (event) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        const result = await dialog.showOpenDialog(win ?? undefined, {
+            title: t('electron.claimDataRoot'),
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        if (result.canceled || !result.filePaths || !result.filePaths[0]) {
+            return { ok: true, cancelled: true, path: currentDataRoot() };
+        }
+        const claimed = await claimDataRoot({
+            userData: userDataDir(),
+            toRoot: result.filePaths[0],
+        });
+        if (!claimed.ok) {
+            return {
+                ok: false,
+                cancelled: false,
+                path: currentDataRoot(),
+                message: claimed.message || t('electron.claimFail'),
+            };
+        }
+        return { ok: true, cancelled: false, path: currentDataRoot() };
+    });
+}
+
 module.exports = {
     DATA_DIRNAME,
     PROJECTS_DIRNAME,
@@ -256,4 +330,5 @@ module.exports = {
     resolveMoveDestRoot,
     moveDataRoot,
     claimDataRoot,
+    registerDataRootIpc,
 };

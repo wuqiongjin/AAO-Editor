@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { readStripped } from '@/tests/support/source';
+import { readSources, readStripped } from '@/tests/support/source';
 
-const mainSrc = readStripped('electron/main.cjs');
+const mainSrc = readSources(['electron/main.cjs'], true);
 const appMenuSrc = readStripped('electron/window/applicationMenu.cjs');
 const lifecycleSrc = readStripped('electron/window/lifecycle.cjs');
 

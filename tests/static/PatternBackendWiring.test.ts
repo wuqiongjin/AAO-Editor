@@ -2,13 +2,13 @@
 // 单测覆盖不到「主进程 / preload / 渲染侧自动选择」这条跨进程缝，用源码断言钉住（照
 // EditorAudioSessionRefactor.test.ts 惯例）。
 import { describe, expect, it } from 'vitest';
-import { readStripped } from '@/tests/support/source';
+import { readSources, readStripped } from '@/tests/support/source';
 
 const storeSrc = readStripped('src/chart/patterns/PatternStore.ts');
 const shareFileSrc = readStripped('src/chart/patterns/shareFile.ts');
 const shareSrc = readStripped('src/chart/patterns/share.ts');
 const dataRootSrc = readStripped('electron/storage/dataRoot.cjs');
-const mainSrc = readStripped('electron/main.cjs');
+const mainSrc = readSources(['electron/main.cjs', 'electron/storage/patternLibrary.cjs', 'electron/foundation/saveDialog.cjs'], true);
 const preloadSrc = readStripped('electron/preload.js');
 
 describe('片段库 · 两条后端都被引用', () => {

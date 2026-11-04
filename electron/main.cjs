@@ -1,33 +1,27 @@
+// 装配根：只负责 require 域模块、构造 deps、调 15 个 register*Ipc 入口、编排 app 生命周期。
+// 域内 module 不自行取跨域依赖；preload.js 与资源路径按文件名在这里解析后注入。
 const { app, BrowserWindow, Menu, ipcMain, dialog, nativeTheme, net, protocol, nativeImage, shell, safeStorage } = require('electron');
 const path = require('path');
-const fs = require('fs');
 const os = require('os');
+const { autoUpdater } = require('electron-updater');
 const isDev = process.env.NODE_ENV === 'development';
 const {
-    MIN_WINDOW_WIDTH,
-    MIN_WINDOW_HEIGHT,
-    loadWindowStateSync,
-    saveWindowStateSync,
-    snapshotFromBrowserWindow,
-    browserWindowCreateOptions,
-} = require('./window/windowState.cjs');
-const {
-    normalizeAppTheme,
-    resolvedAppearance,
-    chromeBackgroundFor,
-    applyNativeThemeSource,
-    applyBrowserWindowChrome,
-    attachWin32CaptionHoverMitigation,
-} = require('./window/windowChrome.cjs');
-const {
-    claimDataRoot,
     loadDataRootSync,
-    moveDataRoot,
-    backgroundSkinPath,
     cacheDir,
     projectsDir,
     removeLegacyDownloads,
+    registerDataRootIpc,
 } = require('./storage/dataRoot.cjs');
+const {
+    setAppLog,
+    registerProjectStoreIpc,
+} = require('./storage/projectStore.cjs');
+const {
+    setAppLog: setPatternLibraryAppLog,
+    registerPatternLibraryIpc,
+} = require('./storage/patternLibrary.cjs');
+const { registerChartCodeExportIpc } = require('./storage/chartCodeExport.cjs');
+const { loadUpdateSourceSync, loadReadyVersionSync, patchAppStateSync } = require('./storage/appState.cjs');
 const {
     createCommunityGateway,
     registerCommunityNetIpc,
@@ -47,34 +41,20 @@ const {
     registerAssetProtocol,
 } = require('./assets/assetProtocol.cjs');
 const { createThumbMaker } = require('./assets/assetThumbnails.cjs');
-const {
-    getProject,
-    putProject,
-    listProjects,
-    deleteProject,
-    uploadRefs,
-    setAppLog,
-} = require('./storage/projectStore.cjs');
-const {
-    loadPatternLibrary,
-    savePatternLibrary,
-    setAppLog: setPatternLibraryAppLog,
-} = require('./storage/patternLibrary.cjs');
-const { t, setActiveUiLanguage } = require('./foundation/i18n.cjs');
-const { autoUpdater } = require('electron-updater');
-const { createAppUpdater, registerAppUpdateIpc } = require('./update/appUpdate.cjs');
-const { loadUpdateSourceSync, loadReadyVersionSync, patchAppStateSync } = require('./storage/appState.cjs');
+const { registerBackgroundSkinIpc } = require('./assets/backgroundSkin.cjs');
+const { registerPreviewIpc } = require('./assets/previewExport.cjs');
+const { t, registerI18nIpc } = require('./foundation/i18n.cjs');
 const { createAppLog, registerAppLogIpc } = require('./diagnostics/appLog.cjs');
 const { registerDiagnosticsExportIpc } = require('./diagnostics/diagnosticsExport.cjs');
-const { writeFileAtomic } = require('./foundation/atomicWrite.cjs');
+const { createAppUpdater, registerAppUpdateIpc } = require('./update/appUpdate.cjs');
+const {
+    getCurrentAppTheme,
+    syncAllWindowsChrome,
+    registerWindowChromeIpc,
+} = require('./window/windowChrome.cjs');
+const { createWindowFactory } = require('./window/createWindow.cjs');
 const { setupApplicationMenu } = require('./window/applicationMenu.cjs');
 const { handleWindowAllClosed, handleActivate } = require('./window/lifecycle.cjs');
-
-// ---------------------------------------------------------------------------
-// 谱面工程文件后端（ADR-0015）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}
-// 默认数据根 = userData/data；当前根记在 userData/app-state.json。
-// 旧「一份 notes」工程不读、不删。封面/音频与 JSON 分离，仅 intent=set 时重写字节。
-// ---------------------------------------------------------------------------
 
 function userDataDir() {
     return app.getPath('userData');
@@ -84,7 +64,27 @@ function currentDataRoot() {
     return loadDataRootSync(userDataDir());
 }
 
-// ADR-0019 / 票 01：userData/logs/，不跟数据根走。主进程失败可直接 appLog.write / appendTrail。
+/** 另存对话框共用的 electron 依赖（foundation/saveDialog.cjs 不自行 require('electron')）。 */
+const saveDialogDeps = { BrowserWindow, dialog, t };
+
+/** OS chrome 只需要这两个 electron 对象；窗口创建另取一份更宽的 deps。 */
+const chromeDeps = { BrowserWindow, nativeTheme };
+
+/** 窗体的全部外部依赖：状态、资源路径、electron 对象都在这里注入。 */
+const windowDeps = {
+    ...chromeDeps,
+    app,
+    isDev,
+    publicDir: path.join(__dirname, '../public'),
+    distDir: path.join(__dirname, '../dist'),
+    indexHtml: path.join(__dirname, '../dist/index.html'),
+    preload: path.join(__dirname, 'preload.js'),
+    getCurrentAppTheme,
+};
+
+// ---------------------------------------------------------------------------
+// 1. 日志 / 诊断（ADR-0019 / 票 01 / 票 04）：userData/logs/，不跟数据根走。
+// ---------------------------------------------------------------------------
 const appLog = createAppLog({ userData: () => userDataDir() });
 registerAppLogIpc(ipcMain, appLog);
 setAppLog(appLog);
@@ -104,270 +104,31 @@ registerDiagnosticsExportIpc(ipcMain, {
     t,
 });
 
-function registerProjectStoreIpc() {
-    ipcMain.handle('project:get', (_event, rawId) => getProject(currentDataRoot(), rawId));
-    ipcMain.handle('project:put', (_event, payload) => putProject(currentDataRoot(), payload));
-    ipcMain.handle('project:list', () => listProjects(currentDataRoot()));
-    ipcMain.handle('project:delete', (_event, rawId) => deleteProject(currentDataRoot(), rawId));
-    // 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1）。
-    // 二进制不过 IPC：字节留在主进程，渲染侧只拿「事实」去凑 prepare 与 multipart。
-    ipcMain.handle('project:uploadRefs', (_event, rawId) => uploadRefs(currentDataRoot(), rawId));
-}
-registerProjectStoreIpc();
+// ---------------------------------------------------------------------------
+// 2. 工程 / 数据根 / 皮肤 / 片段库 / 另存（ADR-0015 / issue 117 / 118 / 184 / 187）。
+// 数据根每次现取 —— 用户可以运行时搬家；对话框每次弹、不记路径。
+// ---------------------------------------------------------------------------
+registerProjectStoreIpc(ipcMain, { currentDataRoot });
+registerDataRootIpc(ipcMain, { currentDataRoot, userDataDir, shell, dialog, BrowserWindow, t });
+registerBackgroundSkinIpc(ipcMain, { currentDataRoot });
+registerPatternLibraryIpc(ipcMain, { ...saveDialogDeps, currentDataRoot });
+registerChartCodeExportIpc(ipcMain, saveDialogDeps);
+registerPreviewIpc(ipcMain, saveDialogDeps);
 
 // ---------------------------------------------------------------------------
-// 数据根（issue 117）：只读当前路径；搬家与认领分开，失败不切根。
+// 3. 窗体 OS chrome 与语言（issue 126 / 128）：主题状态留在 window/windowChrome.cjs。
 // ---------------------------------------------------------------------------
-function registerDataRootIpc() {
-    ipcMain.handle('dataRoot:get', async () => ({ path: currentDataRoot() }));
-
-    ipcMain.handle('dataRoot:open', async () => {
-        const root = currentDataRoot();
-        try {
-            const errMsg = await shell.openPath(root);
-            if (errMsg) {
-                return { ok: false, message: errMsg, path: root };
-            }
-            return { ok: true, path: root };
-        } catch (err) {
-            return { ok: false, message: err?.message || String(err), path: root };
-        }
-    });
-
-    ipcMain.handle('dataRoot:change', async (event) => {
-        const win = BrowserWindow.fromWebContents(event.sender);
-        const result = await dialog.showOpenDialog(win ?? undefined, {
-            title: t('electron.changeDataRoot'),
-            properties: ['openDirectory', 'createDirectory'],
-        });
-        if (result.canceled || !result.filePaths || !result.filePaths[0]) {
-            return { ok: true, cancelled: true, path: currentDataRoot() };
-        }
-        const moved = await moveDataRoot({
-            userData: userDataDir(),
-            fromRoot: currentDataRoot(),
-            toRoot: result.filePaths[0],
-        });
-        if (!moved.ok) {
-            return {
-                ok: false,
-                cancelled: false,
-                path: currentDataRoot(),
-                message: moved.message || t('electron.moveFail'),
-            };
-        }
-        return { ok: true, cancelled: false, path: currentDataRoot() };
-    });
-
-    ipcMain.handle('dataRoot:claim', async (event) => {
-        const win = BrowserWindow.fromWebContents(event.sender);
-        const result = await dialog.showOpenDialog(win ?? undefined, {
-            title: t('electron.claimDataRoot'),
-            properties: ['openDirectory', 'createDirectory'],
-        });
-        if (result.canceled || !result.filePaths || !result.filePaths[0]) {
-            return { ok: true, cancelled: true, path: currentDataRoot() };
-        }
-        const claimed = await claimDataRoot({
-            userData: userDataDir(),
-            toRoot: result.filePaths[0],
-        });
-        if (!claimed.ok) {
-            return {
-                ok: false,
-                cancelled: false,
-                path: currentDataRoot(),
-                message: claimed.message || t('electron.claimFail'),
-            };
-        }
-        return { ok: true, cancelled: false, path: currentDataRoot() };
-    });
-}
-registerDataRootIpc();
+registerWindowChromeIpc(ipcMain, chromeDeps);
+registerI18nIpc(ipcMain);
 
 // ---------------------------------------------------------------------------
-// 背景皮肤文件（issue 117）：<数据根>/assets/background-skin.bin
-// ---------------------------------------------------------------------------
-function registerBackgroundSkinIpc() {
-    ipcMain.handle('backgroundSkin:get', async () => {
-        try {
-            return await fs.promises.readFile(backgroundSkinPath(currentDataRoot()));
-        } catch {
-            return null;
-        }
-    });
-
-    ipcMain.handle('backgroundSkin:put', async (_event, bytes) => {
-        if (!(bytes instanceof Uint8Array)) {
-            throw new Error('backgroundSkin:put 需要字节');
-        }
-        const filePath = backgroundSkinPath(currentDataRoot());
-        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-        await writeFileAtomic(filePath, Buffer.from(bytes));
-        return true;
-    });
-
-    ipcMain.handle('backgroundSkin:clear', async () => {
-        await fs.promises.rm(backgroundSkinPath(currentDataRoot()), { force: true });
-        return true;
-    });
-}
-registerBackgroundSkinIpc();
-
-/**
- * JSON 文本另存为（issue 118 / 187）：每次弹系统保存对话框，不记路径。
- * defaultPath 只用 basename —— 渲染侧即使传入带目录的 suggestedName 也无法写进记忆。
- * 取消 → { cancelled: true }；写盘失败抛给渲染侧（取消不是错误）。
- */
-async function saveJsonWithDialog(event, payload, { channel, titleKey, fallbackName }) {
-    const json = payload && payload.json;
-    if (typeof json !== 'string') {
-        throw new Error(`${channel} 需要 json 字符串`);
-    }
-    const rawName = payload && payload.suggestedName;
-    const suggestedName =
-        typeof rawName === 'string' && rawName.length > 0
-            ? path.basename(rawName)
-            : fallbackName;
-    const win = BrowserWindow.fromWebContents(event.sender);
-    const result = await dialog.showSaveDialog(win ?? undefined, {
-        title: t(titleKey),
-        defaultPath: suggestedName,
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-    });
-    if (result.canceled || !result.filePath) {
-        return { cancelled: true };
-    }
-    await fs.promises.writeFile(result.filePath, json, 'utf8');
-    return { cancelled: false };
-}
-
-// ---------------------------------------------------------------------------
-// 片段库（issue 184 / 208 / ADR-0023 §3）：<数据根>/patterns/patterns.json，独立于工程与设置。
-// 文件损坏由 patternLibrary.cjs 改名 `.broken` 备份后按空库处理；首次无文件不落盘。
-// issue 187：分享导出走 `patternLibrary:saveAs`（每次 dialog、不记路径）；
-// 取消对话框返回 { cancelled: true }，渲染侧据此什么都不做。
-// ---------------------------------------------------------------------------
-function registerPatternLibraryIpc() {
-    ipcMain.handle('patternLibrary:load', () => loadPatternLibrary(currentDataRoot()));
-    ipcMain.handle('patternLibrary:saveAll', (_event, patterns) =>
-        savePatternLibrary(currentDataRoot(), patterns));
-    ipcMain.handle('patternLibrary:saveAs', (event, payload) =>
-        saveJsonWithDialog(event, payload, {
-            channel: 'patternLibrary:saveAs',
-            titleKey: 'electron.exportPatterns',
-            fallbackName: 'aao-patterns.json',
-        }));
-}
-registerPatternLibraryIpc();
-
-// ---------------------------------------------------------------------------
-// 谱面代码另存为（issue 118）：每次 dialog，不记路径。
-// defaultPath 只用 basename，渲染侧即使传入带目录的 suggestedName 也无法写进记忆。
-// ---------------------------------------------------------------------------
-function registerChartCodeExportIpc() {
-    ipcMain.handle('chartCode:saveAs', (event, payload) =>
-        saveJsonWithDialog(event, payload, {
-            channel: 'chartCode:saveAs',
-            titleKey: 'electron.exportChart',
-            fallbackName: 'chart.json',
-        }));
-}
-registerChartCodeExportIpc();
-
-// ---------------------------------------------------------------------------
-// 二进制另存（chart-preview 03）：宽图 PNG（07 的视频导出复用同一通道）。
-// 收 { bytes: Uint8Array, suggestedName, mime }；每次 dialog、不记路径；
-// defaultPath 只用 basename（渲染侧即使传带目录的名字也写不进记忆）。
-// ---------------------------------------------------------------------------
-/** mime → [对话框过滤器名, 扩展名]；生产者 = 宽图 PNG（03）与视频导出（07） */
-function binaryFilter(mime) {
-    if (mime === 'image/webp') return { label: 'WebP', ext: 'webp' };
-    if (mime === 'video/mp4') return { label: 'MP4', ext: 'mp4' };
-    if (mime === 'video/webm') return { label: 'WebM', ext: 'webm' };
-    return { label: 'PNG', ext: 'png' };
-}
-
-/** mime → 对话框标题的 i18n key（宽图 = 谱面图，视频 = 回放视频） */
-function binaryDialogTitleKey(mime) {
-    return mime === 'video/mp4' || mime === 'video/webm' ? 'electron.exportVideo' : 'electron.exportSheet';
-}
-
-function registerPreviewIpc() {
-    ipcMain.handle('preview:saveBinary', async (event, payload) => {
-        const bytes = payload && payload.bytes;
-        if (!(bytes instanceof Uint8Array)) {
-            throw new Error('preview:saveBinary 需要字节');
-        }
-        const mime = payload && payload.mime;
-        const { label, ext } = binaryFilter(mime);
-        const rawName = payload && payload.suggestedName;
-        const suggestedName =
-            typeof rawName === 'string' && rawName.length > 0
-                ? path.basename(rawName)
-                : `export.${ext}`;
-        const win = BrowserWindow.fromWebContents(event.sender);
-        const result = await dialog.showSaveDialog(win ?? undefined, {
-            title: t(binaryDialogTitleKey(mime)),
-            defaultPath: suggestedName,
-            filters: [{ name: label, extensions: [ext] }],
-        });
-        if (result.canceled || !result.filePath) {
-            return { cancelled: true };
-        }
-        // 整块写完，不做流式：宽图上百 MB（30 分钟谱）、视频几十 MB~数百 MB 都走同一条路。
-        // 07 落地时按票面「若需分块 / 流式，同票扩展」评估过：先跑通整块，真机遇到大文件再动这里
-        await fs.promises.writeFile(result.filePath, Buffer.from(bytes));
-        return { cancelled: false };
-    });
-}
-registerPreviewIpc();
-
-// ---------------------------------------------------------------------------
-// 窗体 OS chrome 与 settings.theme（issue 126）：nativeTheme + backgroundColor；
-// 渲染进程经 windowChrome:sync 推送 light/dark/system。
-// ---------------------------------------------------------------------------
-
-/** @type {'light' | 'dark' | 'system'} */
-let currentAppTheme = 'system';
-
-function syncAllWindowsChrome() {
-    applyNativeThemeSource(currentAppTheme, nativeTheme);
-    for (const win of BrowserWindow.getAllWindows()) {
-        applyBrowserWindowChrome(win, currentAppTheme, nativeTheme);
-    }
-}
-
-function registerWindowChromeIpc() {
-    ipcMain.handle('windowChrome:sync', async (_event, payload) => {
-        currentAppTheme = normalizeAppTheme(payload && payload.theme);
-        syncAllWindowsChrome();
-        return true;
-    });
-}
-registerWindowChromeIpc();
-
-function registerI18nIpc() {
-    ipcMain.handle('i18n:setLanguage', async (_event, locale) => {
-        setActiveUiLanguage(locale);
-        return true;
-    });
-}
-registerI18nIpc();
-
-// ---------------------------------------------------------------------------
-// 站外链接出口（票 39 Q47；票 18 起含产品自有站点）：注册 / 找回密码、关于页四行入口、
-// 导航作者块都开**系统浏览器**。校验（两份白名单：社区平台 + 产品站点）与 handler 都在
-// externalLink.cjs —— 那里能跑真函数测试；这里只接线，与社区网络 / 会话 / 素材缓存同形。
+// 4. 站外链接（票 39 Q47）：校验与 handler 都在 externalLink.cjs，这里只接线。
 // ---------------------------------------------------------------------------
 registerExternalLinkIpc(ipcMain, shell);
 
 // ---------------------------------------------------------------------------
-// 社区平台网络面（bestdori-integration 07 + 14）：主进程只做发 HTTP / 管 Cookie / 限流 /
-// 素材缓存（ADR-0011 §2、issue 06 薄主进程）。端点、领域转换、搜索都在 renderer；
-// 二进制落 <数据根>/cache/community/（素材缓存，跨启动复用）后只回路径。
-// 缓存目录每次现取 —— 数据根可以被用户搬家。
-// 缩略图（票 15）：图片进缓存时顺手产 96×96（nativeImage 由这里注入，见 assetThumbnails.cjs）。
+// 5. 社区平台网络面（07 + 14 / ADR-0011 §2）：主进程只发 HTTP / 管 Cookie / 限流 /
+// 素材缓存，端点与领域转换都在 renderer。缓存目录每次现取，不跟设置走。
 // ---------------------------------------------------------------------------
 const makeThumb = createThumbMaker(nativeImage);
 const assetCache = createAssetCache({
@@ -375,25 +136,26 @@ const assetCache = createAssetCache({
     makeThumb,
 });
 const communityGateway = createCommunityGateway({
-    // net.fetch 只能在 app ready 之后调用；这里只是包一层，加载期不发任何请求。
+    // 只能在 app ready 之后调用；这里只是包一层，加载期不发任何请求。
     fetchImpl: (url, init) => net.fetch(url, init),
-    // 发布（票 11）：multipart 上传只准读**工程目录**里的文件（音频 / 封面）。
-    // 每次现取 —— 数据根可以被用户搬家；不给就是「一个都不许传」。
+    // 发布（票 11）：multipart 上传只准读工程目录里的文件（音频 / 封面）。
     uploadRoots: () => [projectsDir(currentDataRoot())],
     assetCache,
 });
 registerCommunityNetIpc(ipcMain, communityGateway);
 registerAssetCacheIpc(ipcMain, assetCache);
 
-// 会话 Cookie 的加密持久化（票 10）：落到 **userData** 下，**不跟数据根走** ——
-// 数据根是用户数据（可搬家 / 可拷贝 / 可分享），凭据是本机的事（与 app-state.json 同级）。
-// safeStorage 只在 app ready 之后可用，所以 store 只记「怎么取路径」，加解密都在请求时现做。
+// 会话 Cookie 的加密持久化（票 10）：落到 userData 下，不跟数据根走。
+// safeStorage 只在 app ready 之后可用，store 只记「怎么取路径」，加解密都在请求时现做。
 const communitySessionStore = createSessionStore({
     safeStorage,
     filePath: () => sessionFilePath(userDataDir()),
 });
 registerCommunitySessionIpc(ipcMain, { gateway: communityGateway, store: communitySessionStore });
 
+// ---------------------------------------------------------------------------
+// 6. 应用更新（票 09）：更新源与就绪版本读写 app-state.json。
+// ---------------------------------------------------------------------------
 registerAppUpdateIpc(ipcMain, createAppUpdater({
     isPackaged: () => app.isPackaged,
     getVersion: () => app.getVersion(),
@@ -409,95 +171,12 @@ registerAppUpdateIpc(ipcMain, createAppUpdater({
     },
 }));
 
-// ---------------------------------------------------------------------------
-// 主窗体几何记忆（issue 119 / 117）：userData/app-state.json 的 window 字段。
-// 不进 settings / 导出配置；不记位置（多屏）。
-// ---------------------------------------------------------------------------
-
-function resolveAppIcon() {
-    const filename = process.platform === 'win32' ? 'favicon.ico' : 'icon.png';
-    const candidateDirs = isDev
-        ? [path.join(__dirname, '../public'), path.join(__dirname, '../dist')]
-        : [path.join(__dirname, '../dist'), path.join(__dirname, '../public')];
-    for (const dir of candidateDirs) {
-        const full = path.join(dir, filename);
-        if (fs.existsSync(full)) return full;
-    }
-    return undefined;
-}
-
-let mainWindow = null;
-
-function createWindow() {
-    const minWidth = MIN_WINDOW_WIDTH;
-    const minHeight = MIN_WINDOW_HEIGHT;
-    const saved = loadWindowStateSync(app.getPath('userData'));
-    const { width, height } = browserWindowCreateOptions(saved, { minWidth, minHeight });
-    const initialAppearance = resolvedAppearance(currentAppTheme, nativeTheme.shouldUseDarkColors);
-    const appIcon = resolveAppIcon();
-
-    // 创建浏览器窗口
-    const win = new BrowserWindow({
-        title: 'AAO Editor',
-        width,
-        height,
-        minWidth,
-        minHeight,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            enableRemoteModule: false,
-            preload: path.join(__dirname, 'preload.js')
-        },
-        icon: appIcon, // 应用图标
-        titleBarStyle: 'default',
-        backgroundColor: chromeBackgroundFor(initialAppearance),
-        show: false // 先不显示，等加载完成后再显示
-    });
-    mainWindow = win;
-
-    attachWin32CaptionHoverMitigation(win, () =>
-        chromeBackgroundFor(resolvedAppearance(currentAppTheme, nativeTheme.shouldUseDarkColors)),
-    );
-    applyBrowserWindowChrome(win, currentAppTheme, nativeTheme);
-
-    // 加载应用
-    if (isDev) {
-        // 开发环境：连接到Vite开发服务器
-        win.loadURL('http://localhost:5173');
-        win.webContents.openDevTools();
-    } else {
-        // 生产环境：加载构建后的文件
-        win.loadFile(path.join(__dirname, '../dist/index.html'));
-    }
-
-    // 窗口准备好后显示
-    win.once('ready-to-show', () => {
-        if (saved.isMaximized) {
-            win.maximize();
-        }
-        win.show();
-    });
-
-    win.on('close', () => {
-        saveWindowStateSync(app.getPath('userData'), snapshotFromBrowserWindow(win));
-    });
-
-    // 当窗口被关闭时，清理引用
-    win.on('closed', () => {
-        if (mainWindow === win) {
-            mainWindow = null;
-        }
-    });
-
-    return win;
-}
+const { createWindow, getMainWindow } = createWindowFactory(windowDeps);
 
 // 本机素材协议（票 15）：scheme 特权必须在 app ready **之前**登记（Electron 的硬要求），
-// 处理器本身在 ready 之后挂（见下）。渲染侧用它的 URL 形参见 src/community/assetUrls.ts。
+// 处理器本身在 ready 之后挂（见下）。
 registerAssetSchemePrivileges(protocol);
 
-// 当Electron完成初始化并准备创建浏览器窗口时调用此方法
 app.whenReady().then(() => {
     setupApplicationMenu(process.platform, app.name, Menu);
     // 只读协议：媒体标签按 URL 读素材缓存里的缩略图（不联网；缺图回 404，界面自己降级）
@@ -508,24 +187,22 @@ app.whenReady().then(() => {
     // 07 的下载暂存退役（票 14）：旧数据根里若还留着 downloads/，顺手清掉。
     void removeLegacyDownloads(currentDataRoot());
     nativeTheme.on('updated', () => {
-        if (currentAppTheme === 'system') {
-            syncAllWindowsChrome();
+        if (getCurrentAppTheme() === 'system') {
+            syncAllWindowsChrome(chromeDeps);
         }
     });
     createWindow();
 
-    // 在macOS上，当点击dock图标并且没有其他窗口打开时，
-    // 通常在应用程序中重新创建一个窗口
+    // macOS 上点击 dock 图标且没有其他窗口打开时，重新创建一个窗口
     app.on('activate', () => {
         handleActivate({
             getWindows: () => BrowserWindow.getAllWindows(),
             createWindow,
-            getMainWindow: () => mainWindow,
+            getMainWindow,
         });
     });
 });
 
-// 当所有窗口都被关闭时退出应用
 app.on('window-all-closed', () => {
     handleWindowAllClosed(process.platform, app);
 });

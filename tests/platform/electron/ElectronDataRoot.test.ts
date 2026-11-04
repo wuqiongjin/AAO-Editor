@@ -19,7 +19,7 @@ import {
   saveDataRootSync,
 } from '@/electron/storage/dataRoot.cjs';
 import { loadWindowStateSync, saveWindowStateSync } from '@/electron/window/windowState.cjs';
-import { stripComments, readSource } from '@/tests/support/source';
+import { stripComments, readSource, readSources } from '@/tests/support/source';
 import { tmpDir } from '@/tests/support/fs';
 
 
@@ -335,7 +335,7 @@ describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () =>
   });
 
   it('主进程/preload 接线：打开、搬家与认领分开；背景图走数据根固定文件', () => {
-    const mainSrc = stripComments(readSource('electron/main.cjs'));
+    const mainSrc = readSources(['electron/main.cjs', 'electron/storage/dataRoot.cjs', 'electron/assets/backgroundSkin.cjs'], true);
     const preloadSrc = stripComments(readSource('electron/preload.js'));
     expect(preloadSrc).toMatch(/dataRoot\s*:/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]dataRoot:open['"]/);

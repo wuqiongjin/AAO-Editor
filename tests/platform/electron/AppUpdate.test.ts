@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createAppUpdater, registerAppUpdateIpc, stripNotes } from '@/electron/update/appUpdate.cjs';
 import { APP_VERSION } from '@/src/app/appVersion';
-import { readSource, readStripped } from '@/tests/support/source';
+import { readSource, readSources, readStripped } from '@/tests/support/source';
 
 function fakeIpcMain() {
   const handlers = new Map<string, () => unknown>();
@@ -123,7 +123,7 @@ describe('ADR-0021 · 主进程应用更新', () => {
     expect(handlers.has('appUpdate:check')).toBe(true);
     expect(handlers.has('appUpdate:install')).toBe(true);
 
-    const mainSrc = readStripped('electron/main.cjs');
+    const mainSrc = readSources(['electron/main.cjs'], true);
     expect(mainSrc).toMatch(/registerAppUpdateIpc/);
     expect(mainSrc).toMatch(/electron-updater/);
 

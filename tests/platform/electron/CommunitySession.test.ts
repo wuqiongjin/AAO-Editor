@@ -24,10 +24,10 @@ import {
   type CommunitySessionBridge,
 } from '@/src/community/sessionPersistence';
 import { CommunityError, type CommunityTransport } from '@/src/community/transport';
-import { readSource, readStripped } from '@/tests/support/source';
+import { readSource, readSources, readStripped } from '@/tests/support/source';
 import { tmpDir } from '@/tests/support/fs';
 
-const mainSrc = readStripped('electron/main.cjs');
+const mainSrc = readSources(['electron/main.cjs'], true);
 const sessionSrc = readStripped('electron/community/communitySession.cjs');
 
 /** 假 safeStorage：base64 当「加密」（真机是 DPAPI / Keychain）。够用来锁「明文没落盘」这条 */

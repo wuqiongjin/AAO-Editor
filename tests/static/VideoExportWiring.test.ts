@@ -8,7 +8,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readSource, readStripped, repoRoot } from '@/tests/support/source';
+import { readSource, readSources, readStripped, repoRoot } from '@/tests/support/source';
 
 const ENCODE_DIR = 'src/preview/video/encode';
 
@@ -33,7 +33,7 @@ const page = readStripped('src/pages/preview/PreviewPage.tsx');
 const control = readStripped('src/pages/preview/VideoExportControl.tsx');
 const engine = readStripped('src/audio/AudioEngine.ts');
 const keySamples = readStripped('src/audio/keySoundSamples.ts');
-const main = readStripped('electron/main.cjs');
+const main = readSources(['electron/main.cjs', 'electron/assets/previewExport.cjs'], true);
 const pkg = readSource('package.json');
 
 describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）', () => {

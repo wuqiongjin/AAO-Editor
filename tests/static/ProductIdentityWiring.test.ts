@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { repoRoot, readSource, stripComments } from '@/tests/support/source';
+import { repoRoot, readSource, readSources, stripComments } from '@/tests/support/source';
 
 describe('issue 04 · AAO Editor 产品品牌与元数据整改锁测', () => {
   const root = repoRoot;
@@ -74,7 +74,7 @@ describe('issue 04 · AAO Editor 产品品牌与元数据整改锁测', () => {
   });
 
   it('Electron 主进程设置窗口标题与多平台图标路径', () => {
-    const mainSrc = readSource('electron/main.cjs');
+    const mainSrc = readSources(['electron/main.cjs', 'electron/window/createWindow.cjs']);
     expect(mainSrc).toContain("title: 'AAO Editor'");
     expect(mainSrc).toContain('resolveAppIcon');
     expect(mainSrc).toContain('favicon.ico');

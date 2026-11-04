@@ -31,10 +31,10 @@ import {
   BESTDORI_USER_AGENT,
 } from '@/src/community/bestdori/endpoints';
 import { backoffDelayMs } from '@/src/community/rateLimit';
-import { readSource, readStripped } from '@/tests/support/source';
+import { readSource, readSources, readStripped } from '@/tests/support/source';
 import { tmpDir } from '@/tests/support/fs';
 
-const mainSrc = readStripped('electron/main.cjs');
+const mainSrc = readSources(['electron/main.cjs', 'electron/storage/projectStore.cjs', 'electron/window/createWindow.cjs'], true);
 const preloadSrc = readStripped('electron/preload.js');
 const gatewaySrc = readStripped('electron/community/communityNet.cjs');
 const assetCacheSrc = readStripped('electron/assets/assetCache.cjs');

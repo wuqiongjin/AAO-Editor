@@ -2,10 +2,10 @@
 // 手法照 ChartCodeExportSaveAs.test.ts：读源码做字符串断言（preload / main / 渲染侧桥 / 降级分支），
 // 外加两条本票特有的口径锁：色值一律走 token、导出不读窗口。
 import { describe, expect, it } from 'vitest';
-import { readSource, readStripped } from '@/tests/support/source';
+import { readSource, readSources, readStripped } from '@/tests/support/source';
 
 const preloadSrc = readStripped('electron/preload.js');
-const mainSrc = readStripped('electron/main.cjs');
+const mainSrc = readSources(['electron/main.cjs', 'electron/assets/previewExport.cjs', 'electron/foundation/saveDialog.cjs'], true);
 const saveBinarySrc = readStripped('src/preview/static/saveBinary.ts');
 const exportSrc = readStripped('src/preview/static/exportPanels.ts');
 const viewSrc = readStripped('src/preview/static/StaticPreviewView.tsx');

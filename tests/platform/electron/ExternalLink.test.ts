@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { isProductUrl, isSiteUrl, registerExternalLinkIpc } from '@/electron/community/externalLink.cjs';
 import { siteHomeUrl } from '@/src/community/bestdori/endpoints';
 import { PRODUCT_LINKS } from '@/src/app/productLinks';
-import { readSource, readStripped } from '@/tests/support/source';
+import { readSource, readSources, readStripped } from '@/tests/support/source';
 
 const PRELOAD = 'electron/preload.js';
 const MAIN = 'electron/main.cjs';
@@ -98,7 +98,7 @@ describe('票 39 · 站外链接出口（主进程校验）', () => {
 
 describe('票 39 · 站外链接的接线事实', () => {
   const preloadSrc = readStripped(PRELOAD);
-  const mainSrc = readStripped(MAIN);
+  const mainSrc = readSources([MAIN], true);
   const linkSrc = readStripped(EXTERNAL_LINK);
 
   it('preload 只多这一条桥：一条 shell.openExternal，带 URL 入参', () => {
