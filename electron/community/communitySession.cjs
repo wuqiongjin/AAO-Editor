@@ -22,7 +22,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { writeFileAtomic } = require('./atomicWrite.cjs');
+const { writeFileAtomic } = require('../foundation/atomicWrite.cjs');
 
 /** 会话文件名（落在 userData 下，与 app-state.json 同级） */
 const SESSION_FILENAME = 'community-session.bin';

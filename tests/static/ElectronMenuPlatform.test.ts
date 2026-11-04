@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { readStripped } from '@/tests/support/source';
 
 const mainSrc = readStripped('electron/main.cjs');
-const appMenuSrc = readStripped('electron/applicationMenu.cjs');
-const lifecycleSrc = readStripped('electron/lifecycle.cjs');
+const appMenuSrc = readStripped('electron/window/applicationMenu.cjs');
+const lifecycleSrc = readStripped('electron/window/lifecycle.cjs');
 
 describe('issue 211 · macOS 菜单与生命周期静态锁测', () => {
   it('main.cjs 严禁无条件执行 Menu.setApplicationMenu(null)', () => {
@@ -13,9 +13,9 @@ describe('issue 211 · macOS 菜单与生命周期静态锁测', () => {
   });
 
   it('main.cjs 正确引用 applicationMenu 与 lifecycle 模块进行平台分流', () => {
-    expect(mainSrc).toMatch(/require\(['"]\.\/applicationMenu\.cjs['"]\)/);
+    expect(mainSrc).toMatch(/require\(['"]\.\/window\/applicationMenu\.cjs['"]\)/);
     expect(mainSrc).toMatch(/setupApplicationMenu\(/);
-    expect(mainSrc).toMatch(/require\(['"]\.\/lifecycle\.cjs['"]\)/);
+    expect(mainSrc).toMatch(/require\(['"]\.\/window\/lifecycle\.cjs['"]\)/);
     expect(mainSrc).toMatch(/handleWindowAllClosed\(/);
     expect(mainSrc).toMatch(/handleActivate\(/);
   });

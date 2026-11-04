@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createAppUpdater, registerAppUpdateIpc, stripNotes } from '@/electron/appUpdate.cjs';
+import { createAppUpdater, registerAppUpdateIpc, stripNotes } from '@/electron/update/appUpdate.cjs';
 import { APP_VERSION } from '@/src/app/appVersion';
 import { readSource, readStripped } from '@/tests/support/source';
 

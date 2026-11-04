@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { writeFileAtomicSync } = require('./atomicWrite.cjs');
+const { writeFileAtomicSync } = require('../foundation/atomicWrite.cjs');
 
 const APP_STATE_FILENAME = 'app-state.json';
 

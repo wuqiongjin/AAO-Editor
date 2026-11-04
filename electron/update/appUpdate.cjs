@@ -4,7 +4,7 @@
  * 发版原址仍是 GitHub；运行时按本机 updateSource setFeedURL（两边都 generic）。
  */
 
-const { normalizeUpdateSource } = require('./appState.cjs');
+const { normalizeUpdateSource } = require('../storage/appState.cjs');
 const {
     CNB_SLUG,
     cnbGenericFeedUrlForTag,

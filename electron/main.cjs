@@ -10,7 +10,7 @@ const {
     saveWindowStateSync,
     snapshotFromBrowserWindow,
     browserWindowCreateOptions,
-} = require('./windowState.cjs');
+} = require('./window/windowState.cjs');
 const {
     normalizeAppTheme,
     resolvedAppearance,
@@ -18,7 +18,7 @@ const {
     applyNativeThemeSource,
     applyBrowserWindowChrome,
     attachWin32CaptionHoverMitigation,
-} = require('./windowChrome.cjs');
+} = require('./window/windowChrome.cjs');
 const {
     claimDataRoot,
     loadDataRootSync,
@@ -27,26 +27,26 @@ const {
     cacheDir,
     projectsDir,
     removeLegacyDownloads,
-} = require('./dataRoot.cjs');
+} = require('./storage/dataRoot.cjs');
 const {
     createCommunityGateway,
     registerCommunityNetIpc,
-} = require('./communityNet.cjs');
-const { registerExternalLinkIpc } = require('./externalLink.cjs');
+} = require('./community/communityNet.cjs');
+const { registerExternalLinkIpc } = require('./community/externalLink.cjs');
 const {
     sessionFilePath,
     createSessionStore,
     registerCommunitySessionIpc,
-} = require('./communitySession.cjs');
+} = require('./community/communitySession.cjs');
 const {
     createAssetCache,
     registerAssetCacheIpc,
-} = require('./assetCache.cjs');
+} = require('./assets/assetCache.cjs');
 const {
     registerAssetSchemePrivileges,
     registerAssetProtocol,
-} = require('./assetProtocol.cjs');
-const { createThumbMaker } = require('./assetThumbnails.cjs');
+} = require('./assets/assetProtocol.cjs');
+const { createThumbMaker } = require('./assets/assetThumbnails.cjs');
 const {
     getProject,
     putProject,
@@ -54,21 +54,21 @@ const {
     deleteProject,
     uploadRefs,
     setAppLog,
-} = require('./projectStore.cjs');
+} = require('./storage/projectStore.cjs');
 const {
     loadPatternLibrary,
     savePatternLibrary,
     setAppLog: setPatternLibraryAppLog,
-} = require('./patternLibrary.cjs');
-const { t, setActiveUiLanguage } = require('./i18n.cjs');
+} = require('./storage/patternLibrary.cjs');
+const { t, setActiveUiLanguage } = require('./foundation/i18n.cjs');
 const { autoUpdater } = require('electron-updater');
-const { createAppUpdater, registerAppUpdateIpc } = require('./appUpdate.cjs');
-const { loadUpdateSourceSync, loadReadyVersionSync, patchAppStateSync } = require('./appState.cjs');
-const { createAppLog, registerAppLogIpc } = require('./appLog.cjs');
-const { registerDiagnosticsExportIpc } = require('./diagnosticsExport.cjs');
-const { writeFileAtomic } = require('./atomicWrite.cjs');
-const { setupApplicationMenu } = require('./applicationMenu.cjs');
-const { handleWindowAllClosed, handleActivate } = require('./lifecycle.cjs');
+const { createAppUpdater, registerAppUpdateIpc } = require('./update/appUpdate.cjs');
+const { loadUpdateSourceSync, loadReadyVersionSync, patchAppStateSync } = require('./storage/appState.cjs');
+const { createAppLog, registerAppLogIpc } = require('./diagnostics/appLog.cjs');
+const { registerDiagnosticsExportIpc } = require('./diagnostics/diagnosticsExport.cjs');
+const { writeFileAtomic } = require('./foundation/atomicWrite.cjs');
+const { setupApplicationMenu } = require('./window/applicationMenu.cjs');
+const { handleWindowAllClosed, handleActivate } = require('./window/lifecycle.cjs');
 
 // ---------------------------------------------------------------------------
 // 谱面工程文件后端（ADR-0015）：<数据根>/projects/<id>/{project.json, audio.bin, cover.bin}

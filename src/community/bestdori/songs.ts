@@ -285,7 +285,7 @@ export function jacketPreviewUrl(song: SongCandidate): string {
 
 /**
  * 行内缩略图的本机 URL（票 15）：读的是素材缓存里那张 96×96（原图进缓存时顺手产出的，见
- * `electron/assetThumbnails.cjs`）。**用之前得先把封面收进缓存**（`ensureOfficialCoverCached`），
+ * `electron/assets/assetThumbnails.cjs`）。**用之前得先把封面收进缓存**（`ensureOfficialCoverCached`），
  * 否则协议回 404、行内降级成图标。
  */
 export function jacketThumbUrl(song: SongCandidate): string {

@@ -22,7 +22,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { createCookieJar } = require('./communityCookies.cjs');
-const { isPathInside } = require('./dataRoot.cjs');
+const { isPathInside } = require('../storage/dataRoot.cjs');
 
 /**
  * 读型 POST 的缓存键后缀：body 的短哈希（sha1 前 16 位）。

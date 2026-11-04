@@ -48,7 +48,7 @@ function jsonableExtra(extra: unknown): unknown {
   }
 }
 
-/** 行格式。主进程 `electron/appLog.cjs` 有一份同形实现（渲染进程不能 import electron/）。 */
+/** 行格式。主进程 `electron/diagnostics/appLog.cjs` 有一份同形实现（渲染进程不能 import electron/）。 */
 export function formatLogLine(
   level: LogLevel,
   module: string,

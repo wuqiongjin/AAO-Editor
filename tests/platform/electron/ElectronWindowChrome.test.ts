@@ -6,7 +6,7 @@ import {
   chromeBackgroundFor,
   normalizeAppTheme,
   resolvedAppearance,
-} from '@/electron/windowChrome.cjs';
+} from '@/electron/window/windowChrome.cjs';
 import { stripComments, readSource } from '@/tests/support/source';
 
 

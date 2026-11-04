@@ -11,7 +11,7 @@ import {
   POLICY_MIN_BYTES,
   createAssetCache,
   registerAssetCacheIpc,
-} from '@/electron/assetCache.cjs';
+} from '@/electron/assets/assetCache.cjs';
 import { tmpDir } from '@/tests/support/fs';
 
 const DAY = 24 * 60 * 60 * 1000;

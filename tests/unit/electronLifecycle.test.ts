@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildDarwinMenuTemplate,
   setupApplicationMenu,
-} from '@/electron/applicationMenu.cjs';
+} from '@/electron/window/applicationMenu.cjs';
 import {
   handleActivate,
   handleWindowAllClosed,
-} from '@/electron/lifecycle.cjs';
+} from '@/electron/window/lifecycle.cjs';
 
 describe('issue 211 · electron/applicationMenu 平台菜单', () => {
   it('buildDarwinMenuTemplate 包含 App 主菜单与编辑菜单，不含冗余 View/Window 菜单', () => {

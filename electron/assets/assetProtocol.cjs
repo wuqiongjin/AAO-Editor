@@ -17,7 +17,7 @@
  */
 const fs = require('fs');
 
-/** 唯一允许的素材主机（与 electron/communityNet.cjs 的 ALLOWED_HOSTS 同值） */
+/** 唯一允许的素材主机（与 electron/community/communityNet.cjs 的 ALLOWED_HOSTS 同值） */
 const ALLOWED_HOSTS = ['bestdori.com'];
 const ASSET_SCHEME = 'aao-asset';
 /** 缩略图那一支的 host（票 15） */

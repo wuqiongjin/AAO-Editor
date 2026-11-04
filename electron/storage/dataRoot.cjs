@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { patchAppStateSync, readAppStateRawSync } = require('./appState.cjs');
-const { t } = require('./i18n.cjs');
+const { t } = require('../foundation/i18n.cjs');
 
 const DATA_DIRNAME = 'data';
 const PROJECTS_DIRNAME = 'projects';

@@ -1,4 +1,4 @@
-const { patchAppStateSync, readAppStateRawSync } = require('./appState.cjs');
+const { patchAppStateSync, readAppStateRawSync } = require('../storage/appState.cjs');
 
 const DEFAULT_WINDOW_WIDTH = 1260;
 const DEFAULT_WINDOW_HEIGHT = 800;

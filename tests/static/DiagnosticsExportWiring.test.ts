@@ -5,7 +5,7 @@ import { readStripped, repoRoot, sourceFiles } from '@/tests/support/source';
 const ASSEMBLER_FILES = [
   'src/diagnostics/sanitizeDiagnosticsPayload.ts',
   'src/diagnostics/exportDiagnostics.ts',
-  'electron/diagnosticsExport.cjs',
+  'electron/diagnostics/diagnosticsExport.cjs',
 ];
 
 const CREDENTIAL_LEAK = /community-session\.bin|safeStorage|cookieJar|communitySession/i;
@@ -32,7 +32,7 @@ describe('票 04 · 诊断包接线与凭据红线', () => {
       return m![1]!;
     };
     const renderer = keyOf('src/diagnostics/sanitizeDiagnosticsPayload.ts');
-    const main = keyOf('electron/diagnosticsExport.cjs');
+    const main = keyOf('electron/diagnostics/diagnosticsExport.cjs');
     expect(renderer).toBe(main);
     expect(renderer).toMatch(/password/);
   });

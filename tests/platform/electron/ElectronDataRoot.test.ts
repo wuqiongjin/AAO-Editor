@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { APP_STATE_FILENAME, appStateFilePath } from '@/electron/appState.cjs';
+import { APP_STATE_FILENAME, appStateFilePath } from '@/electron/storage/appState.cjs';
 import {
   BACKGROUND_SKIN_RELATIVE,
   assetsDir,
@@ -17,8 +17,8 @@ import {
   resolveMoveDestRoot,
   safeProjectId,
   saveDataRootSync,
-} from '@/electron/dataRoot.cjs';
-import { loadWindowStateSync, saveWindowStateSync } from '@/electron/windowState.cjs';
+} from '@/electron/storage/dataRoot.cjs';
+import { loadWindowStateSync, saveWindowStateSync } from '@/electron/window/windowState.cjs';
 import { stripComments, readSource } from '@/tests/support/source';
 import { tmpDir } from '@/tests/support/fs';
 

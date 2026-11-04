@@ -41,7 +41,7 @@ tests/
 │       └── skin/       音符皮肤与字形
 │
 ├── platform/           依赖具体平台的测试（脱离该平台即无意义）
-│   ├── electron/       electron/*.cjs 主进程纯函数 + 数据根 / 窗体状态 / IPC 桥
+│   ├── electron/       根位 main.cjs / preload.js + 子目录 .cjs 主进程纯函数 + 数据根 / 窗体状态 / IPC 桥
 │   └── browser/        浏览器专属行为（如 dpr 缩放探针）
 │
 ├── perf/               性能回归：断言"调用次数 / 重建块数"，不断言像素
@@ -74,7 +74,7 @@ tests/
 
 ```ts
 import { renderChart } from '@/src/rendering/render';
-import { loadWindowStateSync } from '@/electron/windowState.cjs';
+import { loadWindowStateSync } from '@/electron/window/windowState.cjs';
 import { repoRoot } from '@/tests/support/source';
 ```
 

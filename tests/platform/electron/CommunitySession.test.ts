@@ -15,8 +15,8 @@ import {
   createSessionStore,
   registerCommunitySessionIpc,
   sessionFilePath,
-} from '@/electron/communitySession.cjs';
-import { createCommunityGateway } from '@/electron/communityNet.cjs';
+} from '@/electron/community/communitySession.cjs';
+import { createCommunityGateway } from '@/electron/community/communityNet.cjs';
 import { createCommunityAccount } from '@/src/community/bestdori/account';
 import { userLoginUrl } from '@/src/community/bestdori/endpoints';
 import {
@@ -28,7 +28,7 @@ import { readSource, readStripped } from '@/tests/support/source';
 import { tmpDir } from '@/tests/support/fs';
 
 const mainSrc = readStripped('electron/main.cjs');
-const sessionSrc = readStripped('electron/communitySession.cjs');
+const sessionSrc = readStripped('electron/community/communitySession.cjs');
 
 /** 假 safeStorage：base64 当「加密」（真机是 DPAPI / Keychain）。够用来锁「明文没落盘」这条 */
 function fakeSafeStorage(available = true) {
@@ -353,7 +353,7 @@ describe('票 10 · 接线事实（主进程 + CJS 单向依赖）', () => {
 
   it('会话模块不 require electron（safeStorage 由 main 注入，便于平台测试跑真函数）', () => {
     expect(sessionSrc).not.toMatch(/require\(\s*['"]electron['"]\s*\)/);
-    expect(readSource('electron/communitySession.cjs')).not.toMatch(/from '@\/src|require\(['"]\.\.\/src/);
+    expect(readSource('electron/community/communitySession.cjs')).not.toMatch(/from '@\/src|require\(['"]\.\.\/src/);
   });
 
   it('加解密只在请求时现做（safeStorage 在 app ready 之前不可用，加载期不许碰）', () => {

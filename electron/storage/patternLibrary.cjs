@@ -8,7 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { patternLibraryPath } = require('./dataRoot.cjs');
-const { writeFileAtomic } = require('./atomicWrite.cjs');
+const { writeFileAtomic } = require('../foundation/atomicWrite.cjs');
 
 const SCHEMA_VERSION = 1;
 

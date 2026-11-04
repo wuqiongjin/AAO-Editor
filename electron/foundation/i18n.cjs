@@ -2,9 +2,9 @@ const fs = require('fs');
 const path = require('path');
 
 function messagesDir() {
-    const fromSrc = path.join(__dirname, '../src/i18n/messages');
+    const fromSrc = path.join(__dirname, '../../src/i18n/messages');
     if (fs.existsSync(fromSrc)) return fromSrc;
-    return path.join(__dirname, 'messages');
+    return path.join(__dirname, '../messages');
 }
 
 function loadDict(file) {

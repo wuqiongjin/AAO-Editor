@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { cacheDir, ensureDataRootLayoutSync, legacyDownloadsDir } from '@/electron/dataRoot.cjs';
+import { cacheDir, ensureDataRootLayoutSync, legacyDownloadsDir } from '@/electron/storage/dataRoot.cjs';
 import {
   SCHEMA_VERSION,
   deleteProject,
@@ -12,7 +12,7 @@ import {
   putProject,
   setAppLog,
   uploadRefs,
-} from '@/electron/projectStore.cjs';
+} from '@/electron/storage/projectStore.cjs';
 import { tmpDir } from '@/tests/support/fs';
 
 const chart = {

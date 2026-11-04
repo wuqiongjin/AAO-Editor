@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const JSZip = require('jszip/dist/jszip.min.js');
 const { MAX_AGE_DAYS, parseManaged, utcDayNumber, stampDayNumber } = require('./appLog.cjs');
-const { writeFileAtomic } = require('./atomicWrite.cjs');
+const { writeFileAtomic } = require('../foundation/atomicWrite.cjs');
 
 // 与 src/diagnostics/sanitizeDiagnosticsPayload.ts 的键名表一致（tests/static/DiagnosticsExportWiring.test.ts 钉住）。
 const SENSITIVE_KEY = /token|cookie|session|password|authorization|secret|credential|apiKey/i;

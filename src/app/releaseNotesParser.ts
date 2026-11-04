@@ -3,7 +3,7 @@
 // 标题 / 列表 / 粗斜体 / 行内代码 / 引用几样——为它引渲染器 + 一套样式不划算，且子集行为可锁。
 // 安全口径：只产数据结构、组件侧只拼 React 元素，全程不走 dangerouslySetInnerHTML；
 // HTML 标签按纯文本显示（主进程 stripNotes 已剥过一层，这里是兜底）。
-// 链接不渲染成 <a>：应用唯一的站外出口是社区域名白名单（electron/externalLink.cjs），
+// 链接不渲染成 <a>：应用唯一的站外出口是社区域名白名单（electron/community/externalLink.cjs），
 // 发行说明里的链接（issue / commit 引用）不在其列——按纯文本显示，不为它加宽出口。
 
 export type Inline =

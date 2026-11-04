@@ -93,7 +93,7 @@ describe('issue 128 · 不引进 i18next', () => {
       readSource('src/i18n/t.ts'),
       readSource('src/i18n/resolveUiLanguage.ts'),
       readSource('src/chart/config/AppSettings.ts'),
-      readSource('electron/i18n.cjs'),
+      readSource('electron/foundation/i18n.cjs'),
     ].join('\n');
     expect(src).not.toMatch(/i18next/);
   });

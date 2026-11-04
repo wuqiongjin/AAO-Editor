@@ -15,8 +15,8 @@ import {
   parseWindowStateJson,
   saveWindowStateSync,
   serializeWindowState,
-} from '@/electron/windowState.cjs';
-import { APP_STATE_FILENAME, appStateFilePath } from '@/electron/appState.cjs';
+} from '@/electron/window/windowState.cjs';
+import { APP_STATE_FILENAME, appStateFilePath } from '@/electron/storage/appState.cjs';
 import { stripComments, readSource } from '@/tests/support/source';
 
 

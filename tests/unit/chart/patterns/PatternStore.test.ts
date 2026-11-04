@@ -11,8 +11,8 @@ import {
   ensureDataRootLayoutSync,
   patternLibraryPath,
   patternsDir,
-} from '@/electron/dataRoot.cjs';
-import { loadPatternLibrary, savePatternLibrary } from '@/electron/patternLibrary.cjs';
+} from '@/electron/storage/dataRoot.cjs';
+import { loadPatternLibrary, savePatternLibrary } from '@/electron/storage/patternLibrary.cjs';
 import {
   ElectronFilePatternLibraryBackend,
   IndexedDbPatternLibraryBackend,

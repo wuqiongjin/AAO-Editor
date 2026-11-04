@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { writeFileAtomic, writeFileAtomicSync } from '@/electron/atomicWrite.cjs';
+import { writeFileAtomic, writeFileAtomicSync } from '@/electron/foundation/atomicWrite.cjs';
 import { tmpDir } from '@/tests/support/fs';
 
 /** 目标文件旁边遗留的临时文件（`.tmp-<pid>-<ts>`） */
@@ -35,7 +35,7 @@ describe('atomicWrite · 临时文件 + rename', () => {
   });
 
   it('Windows 锁冲突路径：源码含 EPERM 重试（cover.bin 被预览占用时的替换）', () => {
-    const src = readFileSync(join(process.cwd(), 'electron/atomicWrite.cjs'), 'utf8');
+    const src = readFileSync(join(process.cwd(), 'electron/foundation/atomicWrite.cjs'), 'utf8');
     expect(src).toMatch(/EPERM/);
     expect(src).toMatch(/renameOver/);
     expect(src).toMatch(/WIN_RENAME_TRIES/);

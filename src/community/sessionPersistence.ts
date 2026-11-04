@@ -1,7 +1,7 @@
 /**
  * 会话 Cookie 的**持久化接缝**（bestdori-integration 10；ADR-0011 §3 凭据红线）。
  *
- * 谁在哪：Cookie 值只住在主进程（`electron/communityCookies.cjs` 的内存 jar + `communitySession.cjs`
+ * 谁在哪：Cookie 值只住在主进程（`electron/community/communityCookies.cjs` 的内存 jar + `communitySession.cjs`
  * 的 safeStorage 加密文件），renderer 从头到尾看不到它。这里只有**三条**通道，一条也不多
  * （凭据面的接口越小越好；「本机能不能加密」不必单开一条 —— `persist()` 的成败就是答案）：
  *

@@ -6,14 +6,14 @@
 //   ② 非站点 URL（其它站 / 子域伪装 / 非 https / 非字符串）一律拒绝，且**一次都不调** openExternal；
 //   ③ 域名事实只有一份：白名单取自 communityNet.cjs，main.cjs 只接线、自己不认域名。
 import { describe, expect, it } from 'vitest';
-import { isProductUrl, isSiteUrl, registerExternalLinkIpc } from '@/electron/externalLink.cjs';
+import { isProductUrl, isSiteUrl, registerExternalLinkIpc } from '@/electron/community/externalLink.cjs';
 import { siteHomeUrl } from '@/src/community/bestdori/endpoints';
 import { PRODUCT_LINKS } from '@/src/app/productLinks';
 import { readSource, readStripped } from '@/tests/support/source';
 
 const PRELOAD = 'electron/preload.js';
 const MAIN = 'electron/main.cjs';
-const EXTERNAL_LINK = 'electron/externalLink.cjs';
+const EXTERNAL_LINK = 'electron/community/externalLink.cjs';
 
 /** 假 ipcMain：收下注册进来的 handler，测试直接调它（跨进程语义的进程内替身） */
 function fakeIpcMain() {

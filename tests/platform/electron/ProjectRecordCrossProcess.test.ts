@@ -6,8 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { safeProjectId } from '@/electron/dataRoot.cjs';
-import { SCHEMA_VERSION, getProject, putProject } from '@/electron/projectStore.cjs';
+import { safeProjectId } from '@/electron/storage/dataRoot.cjs';
+import { SCHEMA_VERSION, getProject, putProject } from '@/electron/storage/projectStore.cjs';
 import {
   PROJECT_SCHEMA_VERSION,
   assertValidProjectId,

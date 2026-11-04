@@ -13,8 +13,8 @@ import {
   parseThumbRequest,
   registerAssetProtocol,
   registerAssetSchemePrivileges,
-} from '@/electron/assetProtocol.cjs';
-import { createAssetCache } from '@/electron/assetCache.cjs';
+} from '@/electron/assets/assetProtocol.cjs';
+import { createAssetCache } from '@/electron/assets/assetCache.cjs';
 import {
   ASSET_SCHEME as RENDERER_SCHEME,
   ASSET_RAW_HOST,

@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { cacheDir, isPathInside, projectDir, projectsDir, safeProjectId } = require('./dataRoot.cjs');
-const { writeFileAtomic, renameOver } = require('./atomicWrite.cjs');
+const { writeFileAtomic, renameOver } = require('../foundation/atomicWrite.cjs');
 
 const SCHEMA_VERSION = 1;
 

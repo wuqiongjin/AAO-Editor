@@ -7,7 +7,7 @@ import { readStripped } from '@/tests/support/source';
 const storeSrc = readStripped('src/chart/patterns/PatternStore.ts');
 const shareFileSrc = readStripped('src/chart/patterns/shareFile.ts');
 const shareSrc = readStripped('src/chart/patterns/share.ts');
-const dataRootSrc = readStripped('electron/dataRoot.cjs');
+const dataRootSrc = readStripped('electron/storage/dataRoot.cjs');
 const mainSrc = readStripped('electron/main.cjs');
 const preloadSrc = readStripped('electron/preload.js');
 

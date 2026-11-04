@@ -26,7 +26,7 @@ const SIGN_IN_DIALOG = 'src/pages/projects/components/SignInDialog.tsx';
  */
 const SANITIZE_KEY_TABLE = 'src/diagnostics/sanitizeDiagnosticsPayload.ts';
 const SESSION_BRIDGE = 'src/community/sessionPersistence.ts';
-const SESSION_MAIN = 'electron/communitySession.cjs';
+const SESSION_MAIN = 'electron/community/communitySession.cjs';
 const PRELOAD = 'electron/preload.js';
 const MAIN = 'electron/main.cjs';
 const SETTINGS = 'src/chart/config/AppSettings.ts';

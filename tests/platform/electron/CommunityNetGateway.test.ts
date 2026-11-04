@@ -4,8 +4,8 @@
 import { existsSync, readFileSync, readdirSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createAssetCache } from '@/electron/assetCache.cjs';
-import { createCookieJar } from '@/electron/communityCookies.cjs';
+import { createAssetCache } from '@/electron/assets/assetCache.cjs';
+import { createCookieJar } from '@/electron/community/communityCookies.cjs';
 import {
   ALLOWED_HOSTS,
   ASSET_CONCURRENCY,
@@ -15,7 +15,7 @@ import {
   MAX_UPLOAD_FILE_BYTES,
   MIN_REQUEST_INTERVAL_MS,
   createCommunityGateway,
-} from '@/electron/communityNet.cjs';
+} from '@/electron/community/communityNet.cjs';
 import { tmpDir } from '@/tests/support/fs';
 
 type FetchCall = { url: string; init: any };

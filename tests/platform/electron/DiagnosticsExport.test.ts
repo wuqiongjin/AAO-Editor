@@ -6,7 +6,7 @@ import {
   diagnosticsArchiveName,
   diagnosticsZipFiles,
   registerDiagnosticsExportIpc,
-} from '@/electron/diagnosticsExport.cjs';
+} from '@/electron/diagnostics/diagnosticsExport.cjs';
 import { tmpDir } from '@/tests/support/fs';
 
 const NOW = new Date(2026, 9, 19, 16, 5, 7);
