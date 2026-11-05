@@ -7,6 +7,7 @@
 // 与设置对象的关系：**不进 settings、不随设置 JSON 导入导出**——片段是用户素材，不是习惯。
 // v1 单文件全量；将来分片只换实现，不动语义。
 import type { ChartNote, SelectionItem } from '../types';
+import { getElectronAPI, type ElectronPatternLibraryBridge } from '../../app/electronBridge';
 import { capturePattern } from './capture';
 import { appendNewPattern } from './library';
 import { libraryDocFromPatterns, patternsFromLibraryDoc } from './record';
@@ -89,12 +90,7 @@ export class IndexedDbPatternLibraryBackend implements PatternLibraryBackend {
 /* Electron 文件后端（桌面版）                                          */
 /* ------------------------------------------------------------------ */
 
-/** preload 注入的片段库桥（`electronAPI.patternLibrary`；ADR-0023 §3 的第三条数据根桥） */
-export interface ElectronPatternLibraryBridge {
-  /** 文件不存在 / 损坏（主进程已把坏文件改名 `.broken`）→ null */
-  load(): Promise<unknown>;
-  saveAll(patterns: readonly Pattern[]): Promise<unknown>;
-}
+export type { ElectronPatternLibraryBridge } from '../../app/electronBridge';
 
 export class ElectronFilePatternLibraryBackend implements PatternLibraryBackend {
   private bridge: ElectronPatternLibraryBridge;
@@ -113,9 +109,7 @@ export class ElectronFilePatternLibraryBackend implements PatternLibraryBackend 
 }
 
 function getElectronPatternBridge(): ElectronPatternLibraryBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { patternLibrary?: ElectronPatternLibraryBridge } }).electronAPI;
-  return api?.patternLibrary ?? null;
+  return getElectronAPI()?.patternLibrary ?? null;
 }
 
 /**

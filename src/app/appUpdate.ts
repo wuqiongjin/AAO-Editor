@@ -1,4 +1,5 @@
 import { APP_VERSION } from './appVersion';
+import { getElectronAPI, type AppUpdateBridge } from './electronBridge';
 import { logger } from '../diagnostics/logger';
 import { trail } from '../diagnostics/trail';
 import { toastAppUpdateResult } from './appUpdateFeedback';
@@ -32,18 +33,10 @@ export const IDLE_APP_UPDATE: AppUpdateState = {
   updateSource: 'github',
 };
 
-interface AppUpdateBridge {
-  getState(): Promise<AppUpdateState>;
-  check(): Promise<AppUpdateState>;
-  download?(): Promise<AppUpdateState>;
-  install(): Promise<AppUpdateState>;
-  setUpdateSource?(source: UpdateSource): Promise<AppUpdateState & { ok?: boolean }>;
-  onEvent(cb: (state: AppUpdateState) => void): () => void;
-}
+/* 桥形状由 ./electronBridge 唯一声明 */
 
 export function getAppUpdateBridge(): AppUpdateBridge | undefined {
-  if (typeof window === 'undefined') return undefined;
-  return (window as unknown as { electronAPI?: { appUpdate?: AppUpdateBridge } }).electronAPI?.appUpdate;
+  return getElectronAPI()?.appUpdate;
 }
 
 type Listener = (state: AppUpdateState) => void;

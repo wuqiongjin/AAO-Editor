@@ -61,15 +61,7 @@ export interface ProjectListItem {
   cover?: Uint8Array | null;
 }
 
-/** preload 注入的桥（electronAPI.projectStore） */
-export interface ElectronProjectBridge {
-  get(id: string): Promise<ProjectGetWire | null>;
-  put(payload: ProjectPutWire): Promise<unknown>;
-  list(): Promise<ProjectListItem[]>;
-  delete(id: string): Promise<unknown>;
-  /** 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1；字节不过 IPC） */
-  uploadRefs(id: string): Promise<ProjectUploadRefs | null>;
-}
+export type { ElectronProjectBridge } from '../app/electronBridge';
 
 /**
  * 一个待上传文件的**引用**（票 11）：主进程侧的路径、字节数与 SHA-1。

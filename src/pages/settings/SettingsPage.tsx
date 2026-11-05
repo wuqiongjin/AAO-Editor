@@ -3,6 +3,8 @@ import { BookOpen, Check, Download, ExternalLink, FolderOpen, FolderSearch, Fold
 import appLogo from '../../assets/brand/app-logo.png';
 import AppPageShell from '../../layouts/AppPageShell';
 import { useConfig } from '../../app/ProviderTree';
+import { getElectronAPI } from '../../app/electronBridge';
+import type { AssetCacheBridge, AssetCacheStats, DataRootBridge } from '../../app/electronBridge';
 import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import { CACHE_POLICY_RANGE, loadSettings } from '../../chart/config/AppSettings';
 import type { AppSettings } from '../../chart/config/AppSettings';
@@ -55,33 +57,13 @@ const UI_FONT_STACK_OPTIONS: Array<{ value: AppSettings['uiFontStack']; labelKey
   { value: 'noto', labelKey: 'settings.uiFont.noto' },
 ];
 
-interface DataRootBridge {
-  get(): Promise<{ path: string }>;
-  open(): Promise<{ ok: boolean; path: string; message?: string }>;
-  change(): Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>;
-  claim(): Promise<{ ok: boolean; cancelled?: boolean; path: string; message?: string }>;
-}
-
 function getDataRootBridge(): DataRootBridge | undefined {
-  if (typeof window === 'undefined') return undefined;
-  return (window as unknown as { electronAPI?: { dataRoot?: DataRootBridge } }).electronAPI?.dataRoot;
+  return getElectronAPI()?.dataRoot;
 }
 
 /** 社区素材缓存（票 14）：只开占用查询与清除两条，没有别的面 */
-interface AssetCacheStats {
-  totalBytes: number;
-  count: number;
-  byKind: Record<string, { bytes: number; count: number }>;
-}
-
-interface AssetCacheBridge {
-  stats(): Promise<AssetCacheStats>;
-  clear(): Promise<{ freedBytes: number }>;
-}
-
 function getAssetCacheBridge(): AssetCacheBridge | undefined {
-  if (typeof window === 'undefined') return undefined;
-  return (window as unknown as { electronAPI?: { assetCache?: AssetCacheBridge } }).electronAPI?.assetCache;
+  return getElectronAPI()?.assetCache;
 }
 
 /** 字节 → 人看的（B / KB / MB / GB，一位小数） */

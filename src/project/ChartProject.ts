@@ -7,6 +7,7 @@
 //   audio.bin / cover.bin = 与 JSON 分离的字节（仅在 set 时重写）
 // 记录形状、映射（工程 ↔ wire / stored）与唯一写入口在 ChartProjectRecord.ts（架构评审候选 2）。
 import type { ChartNote } from '../chart/types';
+import { getElectronAPI } from '../app/electronBridge';
 import {
   assertValidProjectId,
   canReplaceStoredProject,
@@ -233,9 +234,7 @@ export class IndexedDbProjectBackend implements ChartProjectBackend {
 /* ------------------------------------------------------------------ */
 
 function getElectronProjectBridge(): ElectronProjectBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { projectStore?: ElectronProjectBridge } }).electronAPI;
-  return api?.projectStore ?? null;
+  return getElectronAPI()?.projectStore ?? null;
 }
 
 /**

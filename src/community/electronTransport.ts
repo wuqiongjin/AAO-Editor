@@ -7,6 +7,7 @@
  * 能力层据此降级（ADR-0011 §1），不是白屏、也不是循环报错。
  */
 import { logger } from '../diagnostics/logger';
+import { getElectronAPI, type CommunityNetBridge } from '../app/electronBridge';
 import {
   CommunityError,
   communityErrorLogExtra,
@@ -35,16 +36,11 @@ function logCommunityError(error: unknown, req?: CommunityRequest): void {
   logger.error('[community]', error.message, communityErrorLogExtra(error));
 }
 
-/** preload 暴露的网络桥（本仓惯例：桥形状由消费方就近声明，没有集中 d.ts） */
-export interface CommunityNetBridge {
-  request(payload: CommunityRequest): Promise<CommunityWireResult>;
-}
+export type { CommunityNetBridge } from '../app/electronBridge';
 
 /** 读桥；浏览器里（没有 window / 没有 electronAPI）返回 null */
 export function getCommunityNetBridge(): CommunityNetBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { communityNet?: CommunityNetBridge } }).electronAPI;
-  return api?.communityNet ?? null;
+  return getElectronAPI()?.communityNet ?? null;
 }
 
 /**

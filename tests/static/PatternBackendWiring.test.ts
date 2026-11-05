@@ -16,7 +16,7 @@ describe('片段库 · 两条后端都被引用', () => {
     expect(storeSrc).toMatch(/function autoDetectPatternBackend\(\)/);
     expect(storeSrc).toMatch(/new ElectronFilePatternLibraryBackend\(bridge\)/);
     expect(storeSrc).toMatch(/new IndexedDbPatternLibraryBackend\(\)/);
-    expect(storeSrc).toMatch(/electronAPI[\s\S]{0,120}patternLibrary/);
+    // 票 13：二选一后端的实际行为见 tests/dom/app/ElectronBridge.test.ts
   });
 
   it('片段库自选后端，不依赖设置对象 / localStorage', () => {
@@ -54,7 +54,7 @@ describe('片段库 · preload 第三条数据根桥', () => {
 
 describe('片段库 · 分享文件另存桥（issue 187）', () => {
   it('渲染侧：有桥走桥，无桥降级 Blob 下载', () => {
-    expect(shareFileSrc).toMatch(/electronAPI[\s\S]{0,160}patternLibrary/);
+    // 票 13：有桥走 saveAs 的行为见 tests/dom/app/ElectronBridge.test.ts
     expect(shareFileSrc).toMatch(/bridge\.saveAs\(/);
     expect(shareFileSrc).toMatch(/createObjectURL/);
   });

@@ -43,8 +43,8 @@ describe('chart-preview 03 · 二进制另存通道（preload → main）', () =
     expect(saveBinarySrc).toMatch(/bytes:\s*Uint8Array/);
     expect(saveBinarySrc).toMatch(/suggestedName:\s*string/);
     expect(saveBinarySrc).toMatch(/mime:\s*string/);
-    // 桥的形状在本模块自己声明（本仓惯例：无集中 d.ts）
-    expect(saveBinarySrc).toMatch(/electronAPI/);
+    // 票 13：桥形状收拢到 src/app/electronBridge.ts，取桥与降级改由
+    // tests/dom/app/ElectronBridge.test.ts 的行为断言看守，不再锁消费方源码字面量。
   });
 
   it('浏览器降级：Blob + <a download>（照 exportChartCode 先例）', () => {

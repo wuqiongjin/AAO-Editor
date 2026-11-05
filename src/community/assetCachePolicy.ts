@@ -5,6 +5,7 @@
  * 与「手动清除」都不归设置管（票 14 定案）。静态演示版没有这条桥：静默跳过。
  */
 import type { AssetCachePolicy } from '../chart/config/AppSettings';
+import { getElectronAPI } from '../app/electronBridge';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MEGABYTE = 1024 * 1024;
@@ -15,6 +16,7 @@ export interface AssetCachePolicyPayload {
   maxBytes: number;
 }
 
+
 export function toAssetCachePolicyPayload(policy: AssetCachePolicy): AssetCachePolicyPayload {
   return {
     maxAgeMs: policy.maxIdleDays * DAY_MS,
@@ -22,14 +24,10 @@ export function toAssetCachePolicyPayload(policy: AssetCachePolicy): AssetCacheP
   };
 }
 
+
 /** 把当前策略推给主进程；桥不在（静态演示版）就什么也不做 */
 export function syncAssetCachePolicy(policy: AssetCachePolicy): void {
-  if (typeof window === 'undefined') return;
-  const configure = (
-    window as unknown as {
-      electronAPI?: { assetCache?: { configure?: (payload: AssetCachePolicyPayload) => Promise<unknown> } };
-    }
-  ).electronAPI?.assetCache?.configure;
+  const configure = getElectronAPI()?.assetCache?.configure;
   if (configure == null) return;
   void configure(toAssetCachePolicyPayload(policy)).catch(() => undefined);
 }

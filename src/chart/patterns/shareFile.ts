@@ -7,6 +7,7 @@
 // 解析 / 合并语义在 184 的 `share.ts` 与 `usePatternLibrary` 的导入两段
 // （`prepareImport` 解析预览 / `applyImport` 按策略落盘），这里只管文件。
 import { serializePatterns } from './share';
+import { getElectronAPI, type PatternFileSaveBridge } from '../../app/electronBridge';
 import type { Pattern } from './types';
 
 /** 文件选择框的 accept：扩展名 + MIME 两套写法都带上（不同系统认不同一套） */
@@ -72,15 +73,10 @@ export function patternExportFilename(name: string): string {
 /* 写文件                                                              */
 /* ------------------------------------------------------------------ */
 
-/** preload 注入的片段库另存桥（`electronAPI.patternLibrary.saveAs`） */
-export interface PatternFileSaveBridge {
-  saveAs(payload: { json: string; suggestedName: string }): Promise<{ cancelled: boolean }>;
-}
+export type { PatternFileSaveBridge } from '../../app/electronBridge';
 
 function getPatternSaveBridge(): PatternFileSaveBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { patternLibrary?: Partial<PatternFileSaveBridge> } }).electronAPI;
-  const bridge = api?.patternLibrary;
+  const bridge = getElectronAPI()?.patternLibrary;
   return typeof bridge?.saveAs === 'function' ? (bridge as PatternFileSaveBridge) : null;
 }
 
