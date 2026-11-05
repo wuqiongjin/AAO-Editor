@@ -71,25 +71,27 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     isPlayingRef.current = false;
     setIsPlayingState(false);
     scrollModel?.setPlaying(false);
-    canvasRef.current?.setPlaybackActive?.(false);
     if (playbackRafRef.current !== undefined) {
       cancelAnimationFrame(playbackRafRef.current);
       playbackRafRef.current = undefined;
     }
     engine?.pause();
     if (engine) {
-      const sec = engine.getSeconds();
+      const sec = Math.min(engine.getSeconds(), durationRef.current);
       setCurrentSeconds(sec);
-      // issue 213: 停止播放时 DOM scrollTop 立即 100% 同步吸附，杜绝位置残留与回弹（保持 issue 75 / 134 不变量）
+      // issue 213 / 214: 停止播放时 DOM scrollTop 与画布 scrollY 立即 100% 同步吸附，杜绝位置残留与回弹（保持 issue 75 / 134 不变量）
       const container = scrollContainerRef.current as HTMLDivElement | null;
-      if (container && scrollModel) {
-        const maxScroll = container.scrollHeight - container.clientHeight;
-        const { scrollTop } = scrollModel.scrollTargetForSeconds(sec, maxScroll);
-        if (Math.abs(scrollTop - container.scrollTop) > 0.5) {
+      const canvas = canvasRef.current;
+      if (scrollModel) {
+        const maxScroll = container ? container.scrollHeight - container.clientHeight : 0;
+        const { scrollY, scrollTop } = scrollModel.scrollTargetForSeconds(sec, maxScroll);
+        canvas?.setScrollY(scrollY);
+        if (container && (scrollTop === 0 || Math.abs(scrollTop - container.scrollTop) > 0.5)) {
           container.scrollTop = scrollTop;
         }
       }
     }
+    canvasRef.current?.setPlaybackActive?.(false);
     setIsPlaying(false);
   }, [engine, scrollModel, setIsPlaying, setCurrentSeconds, canvasRef, scrollContainerRef]);
 
@@ -119,7 +121,6 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
         setCurrentSeconds(current);
       }
       if (current >= durationRef.current) {
-        setCurrentSeconds(current);
         stopPlayback();
         return;
       }
