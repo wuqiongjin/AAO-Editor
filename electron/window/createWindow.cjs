@@ -55,6 +55,7 @@ function createWindowFactory(deps) {
                 nodeIntegration: false,
                 contextIsolation: true,
                 enableRemoteModule: false,
+                backgroundThrottling: false,
                 preload: deps.preload,
             },
             icon: appIcon,

@@ -177,6 +177,17 @@ const { createWindow, getMainWindow } = createWindowFactory(windowDeps);
 // 处理器本身在 ready 之后挂（见下）。
 registerAssetSchemePrivileges(protocol);
 
+// issue 215：Windows 平台禁用 DirectComposition，避免与 QQ NT 等 D3D11 硬件加速应用在 Alt+Tab 快速切换时
+// 因 Windows DWM 多平面叠加层（MPO / Hardware Overlays）图层抢占与重建导致 IDXGISwapChain::Present 阻塞、丢帧与视觉跳变。
+// 同时禁用原生窗口遮挡计算与后台节流，保证窗口在后台或半遮挡切换时合成管线持续平稳。
+if (process.platform === 'win32' && app && app.commandLine && typeof app.commandLine.appendSwitch === 'function') {
+    app.commandLine.appendSwitch('disable-direct-composition');
+    app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,IntensiveWakeUpThrottling');
+    app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+    app.commandLine.appendSwitch('disable-renderer-backgrounding');
+    app.commandLine.appendSwitch('disable-background-timer-throttling');
+}
+
 app.whenReady().then(() => {
     setupApplicationMenu(process.platform, app.name, Menu);
     // 只读协议：媒体标签按 URL 读素材缓存里的缩略图（不联网；缺图回 404，界面自己降级）

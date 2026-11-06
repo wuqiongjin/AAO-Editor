@@ -55,4 +55,11 @@ describe('issue 126 · 主进程 / preload / 渲染侧接线', () => {
     expect(themeSrc).toMatch(/windowChrome/);
     expect(themeSrc).toMatch(/dataset\.theme\s*=\s*resolveTheme/);
   });
+
+  it('issue 215 · Windows 平台禁用 DirectComposition 与原生遮挡节流，避免 Alt+Tab 切换时 DWM 硬件图层竞争导致丢帧', () => {
+    expect(mainSrc).toMatch(/disable-direct-composition/);
+    expect(mainSrc).toMatch(/CalculateNativeWinOcclusion/);
+    expect(mainSrc).toMatch(/disable-backgrounding-occluded-windows/);
+    expect(mainSrc).toMatch(/backgroundThrottling:\s*false/);
+  });
 });

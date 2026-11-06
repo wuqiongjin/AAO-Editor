@@ -200,6 +200,7 @@
 - **212 Retina高分屏画布渲染清晰度与像素对齐**（[212](./issues/212-Retina高分屏画布渲染清晰度与像素对齐.md)，`Type: bug`，open）—— **根因** = `<canvas>` border-box 导致 0.998x 内容盒挤压插值，瓦片 `TILE_DPR_CAP = 1.5` 导致 2.0x 屏幕二次非整数拉伸发糊。**改成什么** = 边框移出 canvas 恢复 1:1 内容盒，瓦片支持 2.0x 整数阶梯。
 - **213 高刷屏120Hz播放卡顿与帧调度优化**（[213](./issues/213-高刷屏120Hz播放卡顿与帧调度优化.md)，`Type: bug`，resolved）—— **根因** = 瓦片排空延迟按 60Hz 硬编码 16ms 导致 120Hz 下严重饥饿与同步渲染降级，每帧同步写 DOM `scrollTop` 导致合成器颠簸。**改成什么** = 屏幕刷新率 rAF 权威采样与自适应排空延时，单片/手势时间片预算缩放，DOM `scrollTop` 约 30fps 降频与停止即时吸附。已全量锁测。
 - **214 播放完毕END线未贴底与滚动吸附**（[214](./issues/214-播放完毕END线未贴底与滚动吸附.md)，`Type: bug`，resolved）—— **根因** = 播放自然到期当帧跳过 `canvas.setScrollY`，`stopPlayback()` 仅同步写入 `scrollTop` 且提前冻结视口，残留微小缝隙直到手动滚动补齐。**改成什么** = 自然结束与 `stopPlayback` 保持画布与滚动容器同源对齐终点，先落地终态再退出播放态。已全量锁测。
+- **215 窗口切回前台谱面下落加速与卡顿**（[215](./issues/215-窗口切回前台谱面下落加速与卡顿.md)，`Type: bug`，resolved）—— **根因** = 在 Windows 平台使用 `Alt+Tab` 快速切换 QQ NT 等 D3D11 硬件加速窗口时，Windows DWM 多平面叠加层（MPO / Hardware Overlays）图层频繁抢占与重建，导致 `IDXGISwapChain::Present` 阻塞（每次阻塞丢失 2~4 个 VSync 周期），合成器停发画面造成 33~66ms 停滞后单帧暴冲 29px+ 下落与加速度感。**改成什么** = Windows 平台（`process.platform === 'win32'`）注入 `disable-direct-composition`，绕开 DWM MPO 硬件图层竞争，退回稳定标准交换链翻转模型；彻底清理假想时钟补偿与多余缓存代码，保持极简。已真机实测 83 次 Hitch 归零并全量锁测。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

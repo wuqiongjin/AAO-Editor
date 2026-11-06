@@ -46,49 +46,41 @@ function applyNativeThemeSource(appTheme, nativeTheme) {
     nativeTheme.themeSource = normalizeAppTheme(appTheme);
 }
 
+/** @type {WeakMap< object, string >} 记录窗口已应用的背景色，避免同色重复调用 setBackgroundColor 触发根表面全量失效（issue 215） */
+const appliedWindowBg = new WeakMap();
+
 /**
  * @param {import('electron').BrowserWindow} win
  * @param {AppTheme} appTheme
  * @param {{ shouldUseDarkColors: boolean }} nativeTheme
- * @param {string} [platform]
+ * @param {string} [_platform]
  */
-function applyBrowserWindowChrome(win, appTheme, nativeTheme, platform = process.platform) {
+function applyBrowserWindowChrome(win, appTheme, nativeTheme, _platform = process.platform) {
     const theme = normalizeAppTheme(appTheme);
     const appearance = resolvedAppearance(theme, nativeTheme.shouldUseDarkColors);
     const bg = chromeBackgroundFor(appearance);
-    win.setBackgroundColor(bg);
-    if (platform === 'win32') {
-        nudgeWin32CaptionChrome(win, bg);
-    }
-}
-
-/**
- * Win caption hover 偶发粘滞：尝试在失焦/获焦时用同色 backgroundColor 触发 DWM 重绘。
- * 无法根除时记为已知限制（issue 126）；不自绘标题栏。
- *
- * @param {import('electron').BrowserWindow} win
- * @param {string} bg
- */
-function nudgeWin32CaptionChrome(win, bg) {
-    win.setBackgroundColor(bg);
-}
-
-/**
- * @param {import('electron').BrowserWindow} win
- * @param {() => string} getBackgroundColor
- */
-function attachWin32CaptionHoverMitigation(win, getBackgroundColor) {
-    if (process.platform !== 'win32') {
-        return;
-    }
-    const nudge = () => {
-        const bg = getBackgroundColor();
-        if (bg) {
-            nudgeWin32CaptionChrome(win, bg);
+    if (win && typeof win === 'object') {
+        if (appliedWindowBg.get(win) === bg) {
+            return;
         }
-    };
-    win.on('blur', nudge);
-    win.on('focus', nudge);
+        appliedWindowBg.set(win, bg);
+    }
+    win.setBackgroundColor(bg);
+}
+
+/**
+ * issue 126 / issue 215：
+ * 原先在每次 blur / focus 时调用 `win.setBackgroundColor(bg)` 试图刷新 Win32 标题栏按钮 hover 态，
+ * 但 Perfetto Trace 证实 `setBackgroundColor` 会导致 Chromium `ui::Compositor` 根窗口表面全量失效
+ * （`dirty_rect: 0,0 FullWindow`），在快速 `Alt+Tab` 切换 D3D11/DirectComposition 窗口（如 QQ NT）时
+ * 严重加剧 DWM 硬件覆盖层（Overlay）重建与 `CrGpuMain` `Swap throttled` 卡顿。
+ * 故不再在 blur / focus 热路径中强刷窗口背景色。
+ *
+ * @param {import('electron').BrowserWindow} _win
+ * @param {() => string} _getBackgroundColor
+ */
+function attachWin32CaptionHoverMitigation(_win, _getBackgroundColor) {
+    // no-op（保留导出签名以兼容 createWindow.cjs 调用方）
 }
 
 /** @type {AppTheme} 渲染侧经 windowChrome:sync 推来的当前主题（装配根不持有这份状态）。 */
