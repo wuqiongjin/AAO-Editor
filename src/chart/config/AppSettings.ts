@@ -744,32 +744,32 @@ export function saveSettings(settings: AppSettings, storage: Pick<Storage, 'setI
   // M2 收口：旧快捷键 key 不再写，避免双份
 }
 
+/** 字段级写回的 patch 形状：与 `updateSettings` / `commitSettings` 共用一份声明。 */
+export type SettingsPatch = Partial<{
+  theme: AppSettings['theme'];
+  uiLanguage: UiLanguage;
+  uiTypeScale: number;
+  uiFontStack: UiFontStackId;
+  autoCheck: boolean;
+  layout: AppSettings['layout'];
+  shortcuts: AppSettings['shortcuts'];
+  shortcutLast: AppSettings['shortcutLast'];
+  audio: Partial<AppSettings['audio']>;
+  display: Partial<AppSettings['display']>;
+  visual: Partial<AppSettings['visual']>;
+  curve?: CurveConfig;
+  beatSnap?: number;
+  patternPaste?: Partial<AppSettings['patternPaste']>;
+  patternLibrary?: Partial<AppSettings['patternLibrary']>;
+  playbar?: Partial<AppSettings['playbar']>;
+  projects?: Partial<AppSettings['projects']>;
+  preview?: Partial<AppSettings['preview']>;
+  export?: Partial<AppSettings['export']>;
+  cachePolicy?: Partial<AppSettings['cachePolicy']>;
+}>;
+
 /** 字段级更新助手：M2 收口，ConfigContext 改用此函数做单字段写回，避免重读+整对象覆盖。 */
-export function updateSettings(
-  prev: AppSettings,
-  patch: Partial<{
-    theme: AppSettings['theme'];
-    uiLanguage: UiLanguage;
-    uiTypeScale: number;
-    uiFontStack: UiFontStackId;
-    autoCheck: boolean;
-    layout: AppSettings['layout'];
-    shortcuts: AppSettings['shortcuts'];
-    shortcutLast: AppSettings['shortcutLast'];
-    audio: Partial<AppSettings['audio']>;
-    display: Partial<AppSettings['display']>;
-    visual: Partial<AppSettings['visual']>;
-    curve?: CurveConfig;
-    beatSnap?: number;
-    patternPaste?: Partial<AppSettings['patternPaste']>;
-    patternLibrary?: Partial<AppSettings['patternLibrary']>;
-    playbar?: Partial<AppSettings['playbar']>;
-    projects?: Partial<AppSettings['projects']>;
-    preview?: Partial<AppSettings['preview']>;
-    export?: Partial<AppSettings['export']>;
-    cachePolicy?: Partial<AppSettings['cachePolicy']>;
-  }>,
-): AppSettings {
+export function updateSettings(prev: AppSettings, patch: SettingsPatch): AppSettings {
   return {
     schemaVersion: 1,
     theme: patch.theme ?? prev.theme,
@@ -808,6 +808,31 @@ export function updateSettings(
       ? normalizeCachePolicy({ ...prev.cachePolicy, ...patch.cachePolicy }, prev.cachePolicy)
       : prev.cachePolicy,
   };
+}
+
+/**
+ * 14 票：设置对象字段级写回的唯一入口。变换 / 归一化 / 落盘是不可拆的一笔，
+ * 调用方只交 patch —— 漏一次落盘就静默丢写的问题由 implementation 吸收。
+ * 整体替换（导入）见 `replaceSettings`，两者共用 `saveSettings` 这一处落盘。
+ * storage 可注入，供行为断言同时观察返回的新对象与落盘内容。
+ */
+export function commitSettings(
+  prev: AppSettings,
+  patch: SettingsPatch,
+  storage: Pick<Storage, 'setItem'> = localStorage,
+): AppSettings {
+  const next = updateSettings(prev, patch);
+  saveSettings(next, storage);
+  return next;
+}
+
+/** 整体替换（导入 / 恢复配置）：对象已经过校验，不再走字段级归一化，但落盘仍只此一处。 */
+export function replaceSettings(
+  next: AppSettings,
+  storage: Pick<Storage, 'setItem'> = localStorage,
+): AppSettings {
+  saveSettings(next, storage);
+  return next;
 }
 
 /** 开场设置的**两层**合并：`enabled` 取新值，`items` 逐项合并（未提的项保持原值） */

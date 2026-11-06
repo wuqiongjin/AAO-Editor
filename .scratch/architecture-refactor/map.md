@@ -37,6 +37,7 @@
 - [2026-09-29 候选 3 口径（用户拍板）]：① `renderFrameAt(target, chart, T)` **不落本票**（唯一调用者 `chart-preview/01` 未开工，照 04⑤ / 06⑤ 先例不预埋）；② `frameFor(target, view)` 的 view 取**最小面** = 现 `RenderCtx` 去掉 target 拥有的 `surface`/`dpr`，不顺手搬组件派生计算。
 - [2026-09-29 候选 4 口径（用户 2026-09-29 拍板 · 二选确认）]：按 review 的 after 面抽会话 module（含播放 RAF），音频与持久化不进会话；`seconds` 以 `onSecondsChange` 回调兑现（PlaybackContext 仍是唯一真相源，不造第二份、不做直通字段 —— 08 复审 Middle Man 先例）。
 - [2026-11-03 候选 1 grill 定案]：两支谱面导入收进一个 `chartImport` core（trail / stage / abort / Apply / save / probe / notify 一处），`officialImport` / `communityImport` 退成源工厂 + error text；一个公共入口 `importChart(source, deps, input)`、deps 不含 transport；零行为变化（既有导入测试断言原样）、UI 接线不外扩；与候选 2 解耦，票 11。**实现分支按用户拍板直接落 `fix/basic-editor/macOS-210-213`，不另切。**
+- [2026-11-06 第三轮候选选领]：2026-11-04 架构评审 7 候选中，01 / 02 已由票 12 / 13 落地；余下 03（搬设置 / 片段目录）、04（`scripts/` 路径真相）、06（仿真场 barrel）与在飞 `chart-preview` 09 / 31 / 42 相交或评 Speculative，07（95 个文本锁全量行为化）经票 13 Q4 明确否决。用户确认领**候选 5「`ConfigContext` 停止做 shallow setter façade」**，开 14 号票；与候选 3 的顺序 = 先原地加深成唯一写回入口、后搬目录，避免同一批路径锁改两遍。
 
 ## Frontier
 
@@ -53,6 +54,7 @@
 - [11 导入编排收口](./issues/11-导入编排收口.md) — 已解决（2026-11-03 候选 1：新增 `chartImport.ts` 拥有整条导入序列，official/community 退成源工厂 + error text；细节与门禁见票内）
 - [12 electron 目录按能力域收敛](./issues/12-主进程能力域目录收敛.md) — 已解决（2026-11-05 两提交落地：`electron/` 收成 7 个能力域子目录 + 根位装配根/桥，19 条内联 IPC 归位 15 个注册入口；细节与门禁见票内）
 - [13 electronAPI 桥声明收拢](./issues/13-electronAPI桥声明收拢.md) — 已解决（2026-11-05 单提交落地：18 个消费方的桥形状收进 `src/app/electronBridge.ts` 唯一声明处，4 条源码文本锁换成行为断言、渲染域白名单精确放行一条；两提交经用户复核合并，细节与门禁见票内）
+- [14 设置对象写回收口](./issues/14-设置对象写回收口.md) — 已解决（2026-11-06 单提交落地：26 个 setter 退成接线，字段级写回收进 `AppSettings.ts` 的 `commitSettings`，落盘只在 module 一处；新增 3 个测试文件 / 8 例，396 文件 / 4369 用例全绿；T3 / T4 两处实现口径补正与门禁见票内）
 - 【第二轮其余候选 · 未开票】候选 5 的剩下一半「解码结果交出 AudioBuffer」（dir 4；调用方是 `ai-enhancement` 的 onset / BPM 票，两者 `Status: open`，届时再领）· 候选 6「桥接探测收成一个平台接缝」（dir 1，Speculative；调用方是 Bestdori 网络面，届时再领）
 
 ## Fog
