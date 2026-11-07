@@ -222,12 +222,15 @@ describe('planDragMove（ADR-0008 §6）', () => {
     expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[3, 2], [5, 3]]);
   });
 
-  it('端点延伸/收缩合法；越过另一邻居 → 回弹', () => {
+  it('端点延伸/收缩合法；越过另一邻居（issue 220 自动重排颠倒）', () => {
     const notes: ChartNote[] = [slide(2, 1, 4, 2)];
     const shrink: SelectionItem = { kind: 'slideNode', noteIndex: 0, connIndex: 0 };
     expect(planDragMove(notes, [shrink], { dBeat: 1, dLane: 0 }, B).ok).toBe(true);
-    // 起点越过终点（2→5 > 4）→ 失败
-    expect(planDragMove(notes, [shrink], { dBeat: 3, dLane: 0 }, B).ok).toBe(false);
+    // 起点越过终点（2→5 > 4）→ issue 220：成功并重排为 [4, 5]，选区下标重映射至 1
+    const r = planDragMove(notes, [shrink], { dBeat: 3, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    expect((r.notes[0] as SlideNote).connections.map(c => [c.beat, c.lane])).toEqual([[4, 2], [5, 1]]);
+    expect(r.items[0]).toMatchObject({ connIndex: 1 });
   });
 
   it('中间结点改形状：lane 自由、beat 保持邻居之间', () => {
@@ -814,15 +817,19 @@ describe('planDragMove · 同拍中间结点拖动与弱序时序（issue 202）
     expect(rCol.ok).toBe(false);
     expect(rCol.reason).toBe('collision');
 
-    // 结点 1 移至 0.375（越过结点 0 beat 0.5）-> out-of-bounds
+    // 结点 1 移至 0.375（越过结点 0 beat 0.5）-> issue 220：允许跨越并自动重排
     const rUnder = planDragMove([userSlide()], [nodeItem(1)], { dBeat: -0.375, dLane: 0 }, B8);
-    expect(rUnder.ok).toBe(false);
-    expect(rUnder.reason).toBe('out-of-bounds');
+    expect(rUnder.ok).toBe(true);
+    expect((rUnder.notes[0] as SlideNote).connections[0].beat).toBe(0.375);
+    expect((rUnder.notes[0] as SlideNote).connections[1].beat).toBe(0.5);
+    expect(rUnder.items[0]).toMatchObject({ connIndex: 0 });
 
-    // 结点 1 移至 0.875（越过同拍伙伴结点 2 beat 0.75）-> out-of-bounds
+    // 结点 1 移至 0.875（越过同拍伙伴结点 2 beat 0.75）-> issue 220：允许跨越并自动重排
     const rOver = planDragMove([userSlide()], [nodeItem(1)], { dBeat: 0.125, dLane: 0 }, B8);
-    expect(rOver.ok).toBe(false);
-    expect(rOver.reason).toBe('out-of-bounds');
+    expect(rOver.ok).toBe(true);
+    expect((rOver.notes[0] as SlideNote).connections[1].beat).toBe(0.75);
+    expect((rOver.notes[0] as SlideNote).connections[2].beat).toBe(0.875);
+    expect(rOver.items[0]).toMatchObject({ connIndex: 2 });
   });
 
   it('用例 4（多选组拖联动 · Q4 组内互免）', () => {
@@ -841,10 +848,12 @@ describe('planDragMove · 同拍中间结点拖动与弱序时序（issue 202）
     expect((rBeat.notes[0] as SlideNote).connections[1].beat).toBe(0.875);
     expect((rBeat.notes[0] as SlideNote).connections[2].beat).toBe(0.875);
 
-    // 组拖越过外部后邻居结点 3 (beat 1) -> out-of-bounds
+    // 组拖越过外部后邻居结点 3 (beat 1) -> issue 220：允许跨越并自动重排
     const rOver = planDragMove([userSlide()], items, { dBeat: 0.375, dLane: 0 }, B8);
-    expect(rOver.ok).toBe(false);
-    expect(rOver.reason).toBe('out-of-bounds');
+    expect(rOver.ok).toBe(true);
+    const connsOver = (rOver.notes[0] as SlideNote).connections;
+    expect(connsOver.map(c => c.beat)).toEqual([0.5, 1, 1, 1.125, 1.125, 1.25]);
+    expect(rOver.items).toMatchObject([{ connIndex: 3 }, { connIndex: 4 }]);
   });
 
   it('用例 5（普通滑条吸附成同拍 · Q3 允许）', () => {
@@ -944,3 +953,251 @@ describe('issue 203 · planDragMove 拖段圆滑与三角模式派发', () => {
 });
 
 
+
+describe('issue 220 · Slide 结点拖拽跨越邻居与自动重排', () => {
+  const issueSlide = (): ChartNote => ({
+    type: 'Slide',
+    connections: [
+      { beat: 4, lane: 2, subBeat: 0 },
+      { beat: 6, lane: 0, subBeat: 0 },
+      { beat: 6, lane: 3, subBeat: 0, flick: true },
+    ],
+  });
+
+  const nodeItem = (ci: number): SelectionItem => ({ kind: 'slideNode', noteIndex: 0, connIndex: ci });
+
+  it('用户诉求场景：中间结点 6/L0 向上拖至 beat 7，跨越尾端点 6/L3 并自动重排', () => {
+    const notes = [issueSlide()];
+    const r = planDragMove(notes, [nodeItem(1)], { dBeat: 1, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    // 重排为 4/L2 -> 6/L3 -> 7/L0
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[4, 2], [6, 3], [7, 0]]);
+    // 属性各自保留（Q2 对齐 Bestdori）：6/L3 仍保留 flick，7/L0 无 flick
+    expect(s.connections[1].flick).toBe(true);
+    expect(s.connections[2].flick).toBeUndefined();
+    // 选区条目跟踪至新下标 2
+    expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 2 }]);
+    // 幽灵与结果一致
+    expect(r.ghost).toBeDefined();
+    expect((r.ghost![0] as SlideNote).connections).toEqual(s.connections);
+  });
+
+  it('中间结点 6/L0 向下拖至 beat 3，跨越首端点 4/L2 并自动重排为新起点', () => {
+    const notes = [issueSlide()];
+    const r = planDragMove(notes, [nodeItem(1)], { dBeat: -3, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    // 重排为 3/L1 -> 4/L2 -> 6/L3
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[3, 1], [4, 2], [6, 3]]);
+    // 选区条目跟踪至新下标 0
+    expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }]);
+    expect(s.connections[2].flick).toBe(true);
+  });
+
+  it('尾端点 8/L3 向下拖至 beat 5，跨越中间点 6/L0 成为中间结点（保留 flick 属性）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 4, lane: 2, subBeat: 0 },
+        { beat: 6, lane: 0, subBeat: 0 },
+        { beat: 8, lane: 3, subBeat: 0, flick: true },
+      ],
+    }];
+    const r = planDragMove(notes, [nodeItem(2)], { dBeat: -3, dLane: -2 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    // 重排为 4/L2 -> 5/L1 -> 6/L0
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[4, 2], [5, 1], [6, 0]]);
+    // 原尾端点变成中间结点，其内部属性仍然保留 flick: true（Q2 Bestdori 同构）
+    expect(s.connections[1].flick).toBe(true);
+    expect(s.connections[2].flick).toBeUndefined();
+    // 选区跟踪至新下标 1
+    expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
+  });
+
+  it('首端点 4/L2 向上拖至 beat 7，跨越中间点 6/L0 成为中间结点', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 4, lane: 2, subBeat: 0 },
+        { beat: 6, lane: 0, subBeat: 0 },
+        { beat: 8, lane: 3, subBeat: 0 },
+      ],
+    }];
+    const r = planDragMove(notes, [nodeItem(0)], { dBeat: 3, dLane: 0 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    // 重排为 6/L0 -> 7/L2 -> 8/L3
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[6, 0], [7, 2], [8, 3]]);
+    expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 1 }]);
+  });
+
+  it('拖动吸附至同拍不同轨：按原相对数组序稳定排序', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 4, lane: 2, subBeat: 0 },
+        { beat: 6, lane: 0, subBeat: 0 },
+        { beat: 8, lane: 3, subBeat: 0 },
+      ],
+    }];
+    // 将结点 0 (beat 4) 拖至 beat 6 (lane 4)
+    const r = planDragMove(notes, [nodeItem(0)], { dBeat: 2, dLane: 2 }, B);
+    expect(r.ok).toBe(true);
+    const s = r.notes[0] as SlideNote;
+    // 原 index 0 与原 index 1 同在 beat 6，稳定排序按原数组序 0 在前：(6, 4) -> (6, 0) -> (8, 3)
+    expect(s.connections.map(c => [c.beat, c.lane])).toEqual([[6, 4], [6, 0], [8, 3]]);
+    expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }]);
+  });
+
+  it('拖动吸附至同拍同轨：碰撞回弹（策略 A）', () => {
+    const notes = [issueSlide()];
+    // 将结点 0 (4, 2) 拖至 beat 6, lane 0（撞结点 1）
+    const r = planDragMove(notes, [nodeItem(0)], { dBeat: 2, dLane: -2 }, B);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('collision');
+  });
+
+  describe('SP 绿条跨越（对标 Bestdori 行为，永不丢弃 hidden 点，保持 SP 绿条）', () => {
+    const bestdoriInitialSlide = (): ChartNote => ({
+      type: 'Slide',
+      connections: [
+        { beat: 12, lane: 2 },
+        { beat: 12.046875, lane: 2.9528668647301797, hidden: true },
+        { beat: 12.09375, lane: 3.789213562373095, hidden: true },
+        { beat: 12.140625, lane: 4.410259065022574, hidden: true },
+        { beat: 12.1875, lane: 4.75, hidden: true },
+        { beat: 12.234375, lane: 4.785259065022574, hidden: true },
+        { beat: 12.28125, lane: 4.539213562373095, hidden: true },
+        { beat: 12.328125, lane: 4.077866864730179, hidden: true },
+        { beat: 12.375, lane: 3.5, hidden: true },
+        { beat: 12.421875, lane: 2.9221331352698208, hidden: true },
+        { beat: 12.46875, lane: 2.460786437626905, hidden: true },
+        { beat: 12.515625, lane: 2.214740934977427, hidden: true },
+        { beat: 12.5625, lane: 2.25, hidden: true },
+        { beat: 12.609375, lane: 2.589740934977427, hidden: true },
+        { beat: 12.65625, lane: 3.210786437626904, hidden: true },
+        { beat: 12.703125, lane: 4.047133135269819, hidden: true },
+        { beat: 12.75, lane: 5 }, // B
+        { beat: 13, lane: 5 },    // C
+      ],
+    });
+
+    const B16 = { chartEndBeat: 16, beatDisplay: 64 };
+
+    it('Bestdori 分支 1（B > C）：中间点 B(12.75, 5) 拖至 13.25, lane 3（越过 C(13, 5)）', () => {
+      const notes = [bestdoriInitialSlide()];
+      // B 是 index 16，位移 dBeat: +0.5, dLane: -2 -> (13.25, 3)
+      const r = planDragMove(notes, [nodeItem(16)], { dBeat: 0.5, dLane: -2 }, B16);
+      expect(r.ok).toBe(true);
+      const s = r.notes[0] as SlideNote;
+
+      // 18 个点完整保留（15 个 hidden 点全部都在，不丢弃）
+      expect(s.connections.length).toBe(18);
+      // 端点 C(13, 5) 穿插进入第 13 位
+      expect(s.connections[13]).toMatchObject({ beat: 13, lane: 5 });
+      // 尾端点 B(13.25, 3) 移至最末位
+      expect(s.connections[17]).toMatchObject({ beat: 13.25, lane: 3 });
+
+      // 采样点坐标与 Bestdori 产出逐点一致（浮点精度 1e-9）
+      expect(s.connections[1].beat).toBeCloseTo(12.078125, 9);
+      expect(s.connections[1].lane).toBeCloseTo(2.8278668647301797, 9);
+      expect(s.connections[6].beat).toBeCloseTo(12.46875, 9);
+      expect(s.connections[6].lane).toBeCloseTo(3.789213562373095, 9);
+      expect(s.connections[12].beat).toBeCloseTo(12.9375, 9);
+      expect(s.connections[12].lane).toBeCloseTo(0.75, 9);
+      expect(s.connections[14].beat).toBeCloseTo(13.015625, 9);
+      expect(s.connections[14].lane).toBeCloseTo(0.964740934977427, 9);
+      expect(s.connections[16].beat).toBeCloseTo(13.171875, 9);
+      expect(s.connections[16].lane).toBeCloseTo(2.172133135269819, 9);
+
+      // 选区条目跟踪至新下标 17
+      expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 17 }]);
+    });
+
+    it('Bestdori 分支 2（C < B）：端点 C(13, 5) 拖至 12.25, lane 6（穿插进 A 与 B 之间）', () => {
+      const notes = [bestdoriInitialSlide()];
+      // C 是 index 17，位移 dBeat: -0.75, dLane: +1 -> (12.25, 6)
+      const r = planDragMove(notes, [nodeItem(17)], { dBeat: -0.75, dLane: 1 }, B16);
+      expect(r.ok).toBe(true);
+      const s = r.notes[0] as SlideNote;
+
+      expect(s.connections.length).toBe(18);
+      // C(12.25, 6) 排序在第 6 位（插在 12.234375 与 12.28125 之间）
+      expect(s.connections[6]).toMatchObject({ beat: 12.25, lane: 6 });
+      expect(s.connections[17]).toMatchObject({ beat: 12.75, lane: 5 });
+      // 其余 hidden 点完全不变
+      expect(s.connections[1].beat).toBeCloseTo(12.046875, 9);
+      expect(s.connections[5].beat).toBeCloseTo(12.234375, 9);
+      expect(s.connections[7].beat).toBeCloseTo(12.28125, 9);
+
+      // 选区条目跟踪至新下标 6
+      expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 6 }]);
+    });
+
+    it('Bestdori 分支 3（C < A）：端点 C(13, 5) 拖至 11.75, lane 5（拖到 A 之前）', () => {
+      const notes = [bestdoriInitialSlide()];
+      // C 是 index 17，位移 dBeat: -1.25, dLane: 0 -> (11.75, 5)
+      const r = planDragMove(notes, [nodeItem(17)], { dBeat: -1.25, dLane: 0 }, B16);
+      expect(r.ok).toBe(true);
+      const s = r.notes[0] as SlideNote;
+
+      expect(s.connections.length).toBe(18);
+      // C 成为首端点
+      expect(s.connections[0]).toMatchObject({ beat: 11.75, lane: 5 });
+      expect(s.connections[1]).toMatchObject({ beat: 12, lane: 2 });
+      expect(s.connections[17]).toMatchObject({ beat: 12.75, lane: 5 });
+
+      // 选区条目跟踪至新下标 0
+      expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }]);
+    });
+
+    it('场景 1（两端点 SP 曲线反向拖拽）：终点拖到起点之前，hidden 曲线点完整保留并反向拉伸', () => {
+      const conns: ConnectionNote[] = [
+        { beat: 1, lane: 2, subBeat: 0 },
+      ];
+      for (let p = 1; p < 16; p++) {
+        conns.push({ beat: 1 + p / 16, lane: 2, subBeat: 0, hidden: true });
+      }
+      conns.push({ beat: 2, lane: 2, subBeat: 0 });
+
+      const curveSlide: ChartNote = {
+        type: 'Slide',
+        connections: conns,
+      };
+
+      // 拖动尾端点 (connIndex 16) 向下跨越至 0.5（跨越首端点 beat 1）
+      const rCross = planDragMove([curveSlide], [nodeItem(16)], { dBeat: -1.5, dLane: 0 }, B);
+      expect(rCross.ok).toBe(true);
+      const s = rCross.notes[0] as SlideNote;
+
+      // 15 个 hidden 采样点全部保留，总点数 17
+      expect(s.connections.length).toBe(17);
+      // 重排后 0.5 成为新起点，1.0 成为新终点
+      expect(s.connections[0].beat).toBe(0.5);
+      expect(s.connections[16].beat).toBe(1);
+      // 中间所有 hidden 点均介于 0.5 与 1 之间
+      for (let i = 1; i < 16; i++) {
+        expect(s.connections[i].hidden).toBe(true);
+        expect(s.connections[i].beat).toBeGreaterThan(0.5);
+        expect(s.connections[i].beat).toBeLessThan(1);
+      }
+      // 选区条目跟踪至新下标 0
+      expect(rCross.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }]);
+    });
+  });
+
+  it('超出谱面起止时间：out-of-bounds 回弹', () => {
+    const notes = [issueSlide()];
+    // 拖至负拍位
+    const rNeg = planDragMove(notes, [nodeItem(0)], { dBeat: -5, dLane: 0 }, B);
+    expect(rNeg.ok).toBe(false);
+    expect(rNeg.reason).toBe('out-of-bounds');
+
+    // 拖至超出 chartEndBeat (16)
+    const rOver = planDragMove(notes, [nodeItem(2)], { dBeat: 11, dLane: 0 }, B);
+    expect(rOver.ok).toBe(false);
+    expect(rOver.reason).toBe('out-of-bounds');
+  });
+});

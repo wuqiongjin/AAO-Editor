@@ -116,20 +116,6 @@ const isSlideish = (n: ChartNote): n is SlideNote | LongNote => n.type === 'Slid
 const TOTAL_LANES = 7; // 与 NoteEditing.TOTAL_LANES 一致（此处内联避免引动历史模块）
 const EPS = 1e-6;
 
-/** 从 from 朝 dir（±1）找最近的**可见**结点（issue 09 S3：hidden 不作边界；issue 202：组拖时跳过移动集合中的兄弟结点） */
-function nearestVisible(
-  conns: ConnectionNote[],
-  from: number,
-  dir: -1 | 1,
-  skipIndices?: Set<number>,
-): ConnectionNote | undefined {
-  for (let k = from + dir; k >= 0 && k < conns.length; k += dir) {
-    if (conns[k]!.hidden) continue;
-    if (skipIndices && skipIndices.has(k)) continue;
-    return conns[k];
-  }
-  return undefined;
-}
 
 /**
  * 重烘焙（拖端点 → `reprojectSpanParams`）只增删段内 **hidden** 点 → 可见结点的**序数**不变、
@@ -157,6 +143,27 @@ const posKey = (beat: number, subBeat: number, lane: number) => `${beat}|${subBe
  */
 const sumBeat = (beat: number, subBeat: number, beatDisplay: number) =>
   beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
+
+/**
+ * 对受动可见结点相邻的自由段（未被参数化缓动接管的段）中的 hidden 采样点执行几何仿射拉伸。
+ */
+function remapAdjacentFreeSpans(
+  conns: ConnectionNote[],
+  prevConns: ConnectionNote[],
+  spans: ReturnType<typeof slideSpans>,
+  movedVisible: number[],
+  beatDisplay: number,
+  shouldSkipSpan?: (spanIndex: number) => boolean,
+): ConnectionNote[] {
+  let conns2 = conns;
+  for (let s = 0; s < spans.length; s++) {
+    const sp = spans[s]!;
+    const adjacent = movedVisible.some(ci => ci === sp.start || ci === sp.end);
+    if (!adjacent || shouldSkipSpan?.(s)) continue;
+    conns2 = remapFreeSpanHidden(conns2, prevConns, sp, beatDisplay);
+  }
+  return conns2;
+}
 
 /** 工作数组元素：note + 其在入参 notes 中的原下标（覆盖/接合会增删元素，靠它重映射选区） */
 interface Tagged { note: ChartNote; orig: number }
@@ -314,51 +321,89 @@ export function planDragMove(
         }
         if (!inBeat(c.beat, c.subBeat || 0)) return fail('out-of-bounds');
       }
-      if (plan.kind !== 'whole') {
-        for (const ci of plan.conns) {
-          const c = conns[ci];
-          // issue 09 S3：邻居序校验只看**可见**邻居——段内 hidden 采样点随后会被重投影/重映射
-          // 重建，不能作为被拖可见结点的移动边界（否则缓动段端点只能在一格采样内挪动）
-          // issue 202：组拖时跳过同在移动集合中的兄弟结点（组内互免，由整体边界约束）；
-          // 时序边界从严格开区间放宽为弱序单调（允许 <= / >= 同拍，同拍同轨由 step ③ 的 collision 拦截）
-          const prev = nearestVisible(conns, ci, -1, plan.conns);
-          const next = nearestVisible(conns, ci, +1, plan.conns);
-          // 结点必须保持在前后未动可见邻居之间（弱序单调保序，防逆序倒流；端点只有单侧约束）
-          const curBeat = sumBeat(c.beat, c.subBeat || 0, beatDisplay);
-          if (prev && curBeat < sumBeat(prev.beat, prev.subBeat || 0, beatDisplay) - EPS) return fail('out-of-bounds');
-          if (next && curBeat > sumBeat(next.beat, next.subBeat || 0, beatDisplay) + EPS) return fail('out-of-bounds');
-        }
-      }
-      moved.set(i, { ...n, connections: conns });
-      // issue 09 S3（ADR-0009 §4 拖端点/结点 = 移动意图，非改形）：
-      // - 邻接被拖可见结点的**缓动段**：按原参数对新端点重烘焙（参数保留）
-      // - 邻接的**自由段**：段内 hidden 相对形态保持、整体拉伸重映射
-      // 整条移动（whole） = 平移保形，无需处理。
       if (plan.kind === 'nodes') {
         const prevConns = (n as SlideNote | LongNote).connections;
         const bySpan = effectiveSpanParams(n as SlideNote | LongNote);
         const movedVisible = [...plan.conns].filter(ci => !prevConns[ci]?.hidden);
-        if (movedVisible.length > 0) {
-          let conns2 = conns;
-          const spans = slideSpans(conns2);
-          for (let s = 0; s < spans.length; s++) {
-            const sp = spans[s]!;
-            const adjacent = movedVisible.some(ci => ci === sp.start || ci === sp.end);
-            if (!adjacent || bySpan[s]) continue;
-            conns2 = remapFreeSpanHidden(conns2, prevConns, sp, beatDisplay);
-          }
-          let m: SlideNote | LongNote = { ...(moved.get(i) as SlideNote | LongNote), connections: conns2 };
-          m = reprojectSpanParams(m, beatDisplay);
-          moved.set(i, m as ChartNote);
-          // 验收反馈 #4：重烘焙增删 hidden → 被拖可见结点的下标可能整体平移。
-          // ② 的占位表按**原下标**让位（不能动 plan.conns），故下标换算单独记账：
-          // ③ 落点裁决按新数组取被拖结点，④ 选区回写换成新 connIndex。
-          if (m.connections !== conns) {
-            const map = new Map<number, number>();
-            for (const ci of plan.conns) map.set(ci, remapVisibleIndex(m.connections, conns, ci));
-            connIdxRemap.set(i, map);
+
+        // issue 220：允许跨越邻居结点。检查可见结点是否发生拓扑颠倒（跨越）：
+        const origVisIndices: number[] = [];
+        for (let k = 0; k < prevConns.length; k++) {
+          if (!isCanvasHiddenConn(prevConns[k]!)) origVisIndices.push(k);
+        }
+
+        let hasCrossing = false;
+        for (let k = 0; k < origVisIndices.length - 1; k++) {
+          const idxA = origVisIndices[k]!;
+          const idxB = origVisIndices[k + 1]!;
+          const beatA = sumBeat(conns[idxA]!.beat, conns[idxA]!.subBeat || 0, beatDisplay);
+          const beatB = sumBeat(conns[idxB]!.beat, conns[idxB]!.subBeat || 0, beatDisplay);
+          if (beatA > beatB + EPS) {
+            hasCrossing = true;
+            break;
           }
         }
+
+        if (hasCrossing) {
+          // issue 220（对齐 Bestdori）：结点发生跨越
+          // 1. 若移动的可见结点相邻曲线段，该段内的 hidden 采样点通过 remapFreeSpanHidden 做几何相对拉伸
+          let conns2 = conns;
+          if (movedVisible.length > 0) {
+            conns2 = remapAdjacentFreeSpans(conns, prevConns, slideSpans(prevConns), movedVisible, beatDisplay);
+          }
+
+          // 2. 全部结点（可见点 + hidden 采样点）完整保留，按 beat 升序统一稳定排序
+          //    跨越的可见点自然穿插到对应拍位的采样点之间或两端（完全等同于 Bestdori 分支 1、2、3）
+          const tagged = conns2.map((c, origIdx) => ({ conn: c, origIdx }));
+          tagged.sort((a, b) => {
+            const beatA = sumBeat(a.conn.beat, a.conn.subBeat || 0, beatDisplay);
+            const beatB = sumBeat(b.conn.beat, b.conn.subBeat || 0, beatDisplay);
+            const diff = beatA - beatB;
+            if (Math.abs(diff) > EPS) return diff;
+            return a.origIdx - b.origIdx; // 稳定排序：同拍保持原相对数组顺序
+          });
+
+          const finalConns: ConnectionNote[] = tagged.map(t => t.conn);
+          const map = new Map<number, number>();
+          tagged.forEach((t, newIdx) => {
+            map.set(t.origIdx, newIdx);
+          });
+          connIdxRemap.set(i, map);
+
+          const m: SlideNote | LongNote = {
+            ...(n as SlideNote | LongNote),
+            connections: finalConns,
+          };
+          // 跨越后段结构被打乱重组，原按旧序数绑定的 spanParams 清空，转为自由点集段（Free Span），所有 hidden 点 100% 保留
+          delete (m as { spanParams?: unknown }).spanParams;
+          moved.set(i, m as ChartNote);
+        } else {
+          // 未发生可见跨越：沿用既有逻辑（重烘焙缓动段 / 拉伸自由段）
+          moved.set(i, { ...n, connections: conns });
+          if (movedVisible.length > 0) {
+            const conns2 = remapAdjacentFreeSpans(
+              conns,
+              prevConns,
+              slideSpans(conns),
+              movedVisible,
+              beatDisplay,
+              s => !!bySpan[s],
+            );
+            let m: SlideNote | LongNote = { ...(moved.get(i) as SlideNote | LongNote), connections: conns2 };
+            m = reprojectSpanParams(m, beatDisplay);
+            moved.set(i, m as ChartNote);
+
+            // 验收反馈 #4：重烘焙增删 hidden → 被拖可见结点的下标可能整体平移。
+            if (m.connections !== conns) {
+              const map = new Map<number, number>();
+              for (const ci of plan.conns) map.set(ci, remapVisibleIndex(m.connections, conns, ci));
+              connIdxRemap.set(i, map);
+            }
+          }
+        }
+      } else {
+        // plan.kind === 'whole'：整条移动，平移保形
+        moved.set(i, { ...n, connections: conns });
       }
     }
   }
