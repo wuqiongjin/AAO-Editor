@@ -4,6 +4,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { buildNoteCode, applyNoteCode, noteCodeTargetForHit, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText, type NoteCodeTarget } from '@/src/chart/editing/NoteCodeOps';
 import { convertNotesToChartCode, type ChartCodeNote } from '@/src/chart/editing/ChartConverter';
+import { createChartEditingState, commitNotes } from '@/src/chart/editing/ChartEditingState';
+import { currentHistory } from '@/src/chart/editing/History';
 import type { ChartNote, SlideNote } from '@/src/chart/types';
 import { repoRoot } from '@/tests/support/source';
 
@@ -515,5 +517,66 @@ describe('issue 94 · 弹窗接线断言（初值/校验/应用三处都走裸�
         expect(modalSrc).toContain('applyNoteCode(notes, target, coerced.code)');
         expect(modalSrc).not.toContain('applyNoteCode(notes, target, parsedCode)');
         // 「同一份文本只解析一次」的接线事实由 tests/static/ChartCodeParseOnce.test.ts 统一锁，此处不重复
+    });
+});
+
+describe('issue 221 · 对象视图回写自定义属性与跨类型属性（端到端经过 commitNotes）', () => {
+    test('单音符回写自定义属性与跨类型字段 → 经过 commitNotes 成功压栈并在 buildNoteCode 读出', () => {
+        const initialNotes: ChartNote[] = [bpm(0, 120), single(1, 2)];
+        let state = createChartEditingState(initialNotes);
+
+        const r = applyNoteCode(initialNotes, whole(1), [{
+            beat: 1, lane: 2, type: 'Single',
+            customAttr: 'test_val', direction: 'Left', width: 2,
+        } as any]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+
+        state = commitNotes(state, r.notes);
+        const curr = currentHistory(state.history);
+        expect(curr[1].source).toEqual({
+            beat: 1, lane: 2, type: 'Single',
+            customAttr: 'test_val', direction: 'Left', width: 2,
+        });
+
+        // 再次作为初值读出
+        const back = buildNoteCode(curr, whole(1));
+        expect(back).toEqual([{
+            beat: 1, lane: 2, type: 'Single',
+            customAttr: 'test_val', direction: 'Left', width: 2,
+        }]);
+    });
+
+    test('滑条结点回写自定义属性与跨类型字段 → 经过 commitNotes 成功压栈并在 buildNoteCode 读出', () => {
+        const initialNotes: ChartNote[] = [
+            bpm(0, 120),
+            slide([{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }]),
+        ];
+        let state = createChartEditingState(initialNotes);
+
+        const r = applyNoteCode(initialNotes, node(1, 0), [{
+            beat: 1, lane: 1, type: 'Single',
+            customAttr: 'node_val', direction: 'Right', width: 3,
+        } as any]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+
+        state = commitNotes(state, r.notes);
+        const curr = currentHistory(state.history);
+        const back = buildNoteCode(curr, node(1, 0));
+        expect(back).toEqual([{
+            beat: 1, lane: 1, type: 'Single',
+            customAttr: 'node_val', direction: 'Right', width: 3,
+        }]);
+    });
+
+    test('单音符回写时当 beat 相同保留原 subBeat', () => {
+        const initialNotes: ChartNote[] = [bpm(0, 120), { type: 'Single', beat: 1, lane: 2, subBeat: 0.25 }];
+        const r = applyNoteCode(initialNotes, whole(1), [{
+            beat: 1, lane: 2, type: 'Single', customAttr: 123,
+        } as any]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        expect((r.notes[1] as any).subBeat).toBe(0.25);
     });
 });

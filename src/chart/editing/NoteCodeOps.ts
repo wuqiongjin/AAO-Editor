@@ -204,6 +204,10 @@ export function applyNoteCode(
     if (!converted) {
         return fail({ noteIndex: target.noteIndex, reason: t('noteCode.convertFail') });
     }
+    // issue 221：subBeat 代码侧无从表达：若 beat 与原音符一致且原音符有 subBeat，保留原值（同结点口径）
+    if ('subBeat' in note && note.subBeat && 'beat' in converted && converted.beat === (note as { beat: number }).beat) {
+        (converted as { subBeat?: number }).subBeat = note.subBeat;
+    }
     const newNotes = notes.map((n, i) => (i === target.noteIndex ? converted : n));
     // ADR-0001 保底：单音符编辑也不得把谱面拖进"无初始 BPM"的非法态（原本就没有则不追究）
     if (hasBeat0BpmNote(notes) && !hasBeat0BpmNote(newNotes)) {
