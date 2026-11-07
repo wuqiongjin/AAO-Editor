@@ -27,6 +27,28 @@ describe('issue 106 · 可见结点不足的处置（visibleEnds / 退化滑条�
   });
 });
 
+describe('issue 219 · Slide 同拍多结点端点判定（visibleEnds 与 displayConnections 投影首尾同源）', () => {
+  it('尾部存在同拍多结点：端点指向原数组最后一项（不论轨序）', () => {
+    // [4/L2, 6/L3, 6/L0] 预期端点为 6/L0 (下标 2)
+    expect(visibleEnds([c(4, 2), c(6, 3), c(6, 0)])).toEqual({ first: 0, last: 2 });
+    // [4/L2, 6/L0, 6/L3] 预期端点为 6/L3 (下标 2)
+    expect(visibleEnds([c(4, 2), c(6, 0), c(6, 3)])).toEqual({ first: 0, last: 2 });
+  });
+
+  it('头部存在同拍多结点：起点指向原数组第一项', () => {
+    expect(visibleEnds([c(4, 2), c(4, 5), c(6, 0)])).toEqual({ first: 0, last: 2 });
+    expect(visibleEnds([c(4, 5), c(4, 2), c(6, 0)])).toEqual({ first: 0, last: 2 });
+  });
+
+  it('非单调点序下同拍多结点：端点严格对齐 displayConnections 投影首尾', () => {
+    // 3/6 → 2/6 → 3/4 投影为 2/6(1) → 3/6(0) → 3/4(2)，首为 1，尾为 2
+    expect(visibleEnds([c(3, 6), c(2, 6), c(3, 4)])).toEqual({ first: 1, last: 2 });
+    // 尾部同拍且带首尾 hidden
+    expect(visibleEnds([c(1, 0, true), c(4, 2), c(6, 3), c(6, 0)])).toEqual({ first: 1, last: 3 });
+    expect(visibleEnds([c(4, 2), c(6, 3), c(6, 0, true)])).toEqual({ first: 0, last: 1 });
+  });
+});
+
 describe('issue 106 · 显示投影 displayConnections（稳定排序 + 掐首尾 hidden）', () => {
   it('合法滑条（点序单调 + 首尾可见）→ 恒等快路径：返回原数组引用、下标即原下标', () => {
     const conns: ConnectionNote[] = [c(1, 0), c(1.5, 2, true), c(2, 6)];
