@@ -206,6 +206,7 @@
 - **218 判定线向上偏移设置项**（[218](./issues/218-判定线向上偏移设置项.md)，`Type: grilling`，open）—— **定了什么**（用户 2026-11-07 Q1/Q2 = OK）= 恢复可见判定线、线下方继续画已过线音符、判定 / 播放时刻锚新线 y；只工作台、全局 `settings.display`、默认 0 CSS px、静态预览 / 谱面图 / 仿真场豁免。**根因** = ADR-0006 取消 60px 偏移 + 票 50 删绘制后，`surface.h` 成了兼「判定时刻 / 裁切边 / 滚动基线 / 读数界线」四种语义的坐标系基线；须先修订 ADR-0004 §1 / ADR-0006 §2 再动代码。**Q8=OK**：上限 0..40% 画布高的实时滑杆、放「画布」组、顺序 = 先 throwaway prototype → 再 ADR → 最后代码。Q6/Q9 已拍板 ⇒ 本批四问 frontier 为空，下一步 = 原型 → ADR → 代码。
 - **219 Slide 同拍多结点端点误判**（[219](./issues/219-Slide同拍多结点端点误判.md)，`Type: bug`，resolved）—— **根因** = `visibleEnds` 循环判定用严格大于号 `>` 导致同拍多结点时 `last` 停在首个同拍结点；**改成什么** = 对齐 `displayConnections` 投影首尾（`isDisplayIdentity` 快路径零分配）。已全量锁测。
 - **220 Slide 结点拖拽跨越邻居与自动重排**（[220](./issues/220-Slide结点拖拽跨越邻居与自动重排.md)，Type: grilling，resolved）—— **定了什么** = 放宽时序限制允许端点与中间结点跨越可见邻居，拖拽后按 beat 升序稳定自动重排 connections（同拍保序），各结点 flick/skill 属性原样保留（Bestdori 同构），跨越时清除曲线 spanParams 与 hidden 点退化为直线段。
+- **221 对齐 Bestdori 谱面代码自定义属性保真与滑条首结点 flick 渲染忽略**（[221](./issues/221-对齐Bestdori谱面代码自定义属性保真与滑条首结点flick渲染忽略.md)，`Type: bug`，resolved）—— **改成什么** = 保持无 type 对象报错拦截不变；对象视图（单音符/滑条结点代码）打通 `source` 往返透传自定义与跨类型冗余属性；画布渲染修正 `isFirst` 结点误画 flick 图标与箭头装饰，仅 `isLast` 呈现滑键。已全量锁测。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

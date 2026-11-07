@@ -131,6 +131,20 @@ describe('buildKeyEvents', () => {
     expect(events[2].time).toBeCloseTo(1);
   });
 
+  it('滑条首结点带 flick 时忽略 flick 音效（issue 221：首结点只发 slide 音）', () => {
+    const notes: ChartNote[] = [
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 0, lane: 0, flick: true },
+          { beat: 1, lane: 1 },
+        ],
+      },
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.map(e => e.kind)).toEqual(['slide', 'slide']);
+  });
+
   it('方向键按组合长度 length 分档采样（1/2/3）', () => {
     const notes: ChartNote[] = [
       { type: 'LDirectional', lane: 0, beat: 0, subBeat: 0, length: 1 },

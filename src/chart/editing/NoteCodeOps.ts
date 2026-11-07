@@ -77,7 +77,10 @@ export function buildNoteCode(notes: readonly ChartNote[], target: NoteCodeTarge
         if (conn.hidden) projection.hidden = true;
         if (conn.flick) projection.flick = true;
         if (conn.skill) projection.skill = true;
-        return [projection];
+        if (conn.charge) projection.charge = true;
+        // issue 221：滑条结点携带的 source 自定义属性/跨类型属性叠入初值
+        const full = conn.source ? { ...conn.source, ...projection } : projection;
+        return [full as ChartCodeNote];
     }
 
     // 整条：走权威序列化（System / Opaque 各一条）
@@ -154,6 +157,9 @@ export function applyNoteCode(
         // issue 106：首/尾结点写 hidden 不再拒（外部数据按实机口径处置——画布投影掐首尾 hidden、
         // 可见 1 → 按单键显示、可见 0 → 画布无效果）。数据照原样回写，不做静默修正。
         // 只写 beat/lane/flick/skill/hidden；subBeat 代码侧无从表达，保留原值（不静默改位置）
+        // issue 221：结点投影已知字段外的一切自定义属性 / 跨类型属性保留进 source（且剥除 type）。
+        const KNOWN_NODE_PROJECTION = ['beat', 'lane', 'type', 'hidden', 'flick', 'skill', 'charge'];
+        const extraKeys = Object.keys(c).filter(k => !KNOWN_NODE_PROJECTION.includes(k));
         const next: ConnectionNote = {
             ...conn,
             beat: c.beat,
@@ -161,6 +167,18 @@ export function applyNoteCode(
             hidden: c.hidden,
             flick: c.flick,
             skill: c.skill,
+            charge: c.charge,
+        };
+        if (!c.hidden) delete next.hidden;
+        if (!c.flick) delete next.flick;
+        if (!c.skill) delete next.skill;
+        if (!c.charge) delete next.charge;
+        if (extraKeys.length > 0) {
+            const srcObj: Record<string, unknown> = { ...c };
+            delete srcObj.type;
+            next.source = srcObj;
+        } else {
+            delete next.source;
         };
         const connections = note.connections.map((x, i) => (i === target.connIndex ? next : x));
         return { ok: true, notes: notes.map((n, i) => (i === target.noteIndex ? { ...note, connections } : n)) };

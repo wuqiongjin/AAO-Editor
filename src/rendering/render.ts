@@ -305,7 +305,8 @@ export function slideNodeIconConfig(rc: IconChoiceCtx, conn: { lane: number; fli
   // issue 147：端点同时带 flick + skill 时按**与单键同一份优先级**（flick 胜出）。
   // 此前这里 skill 在 spread 顺序上盖住 flick，与 `singleIconConfig` 相反 —— 两端点出现
   // 「技能键底图」而单键出现「滑键 + 箭头」，同一份标记在两种音符上表现不一致。
-  if (conn.flick) return { ...base, ...icons.flickFor(conn.lane) };
+  // issue 221：flick 只有尾端点（isLast）才渲染；起始端点（isFirst）与中间结点均忽略 flick（对齐实机与 Bestdori）。
+  if (isLast && conn.flick) return { ...base, ...icons.flickFor(conn.lane) };
   if (conn.skill) return { ...base, ...icons.skillFor(conn.lane) };
   return base;
 }
@@ -785,7 +786,8 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   if (dec) {
     connections.forEach((conn, i) => {
       // issue 145 #3：与主精灵同口径 —— 中间结点的 flick 不画箭头（只端点补）
-      if (!conn.flick || !(i === ends.first || i === ends.last)) return;
+      // issue 145 #3 / issue 221：与主精灵同口径 —— 只有尾端点才画 flick 箭头
+      if (!conn.flick || i !== ends.last) return;
       const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
       const flickCfg = icons.flickFor(conn.lane);
       rc.spriteIcon.renderDecorator(ctx, {

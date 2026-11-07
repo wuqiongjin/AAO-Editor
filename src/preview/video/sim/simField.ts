@@ -302,12 +302,12 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
             time,
             lane,
             // issue 145 #3：flick/skill 只有端点才表现；中间结点一律普通款
-            kind: conn.flick && isEnd ? 'flick' : conn.skill && isEnd ? 'skill' : 'slide',
+            kind: conn.flick && i === lastIdx ? 'flick' : conn.skill && isEnd ? 'skill' : 'slide',
             length: 1,
             dirSide: null,
             dirLanes: null,
             icon: slideNodeIconConfig(iconCtx, { ...conn, lane }, i === 0, i === lastIdx),
-            flickDecorator: conn.flick === true && isEnd,
+            flickDecorator: conn.flick === true && i === lastIdx,
           });
         }
         if (isEnd && conn.beat >= 0) addToGroup(trueBeat(conn.beat, conn.subBeat, beatDisplay), lane);

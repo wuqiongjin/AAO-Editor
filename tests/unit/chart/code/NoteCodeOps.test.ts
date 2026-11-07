@@ -3,7 +3,7 @@ import { describe, test, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { buildNoteCode, applyNoteCode, noteCodeTargetForHit, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText, type NoteCodeTarget } from '@/src/chart/editing/NoteCodeOps';
-import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
+import { convertNotesToChartCode, type ChartCodeNote } from '@/src/chart/editing/ChartConverter';
 import type { ChartNote, SlideNote } from '@/src/chart/types';
 import { repoRoot } from '@/tests/support/source';
 
@@ -44,6 +44,19 @@ describe('§4 buildNoteCode 初值', () => {
         ])];
         expect(buildNoteCode(ns, node(0, 1))).toEqual([{ beat: 2, lane: 3, type: 'Single', hidden: true, skill: true }]);
         expect(buildNoteCode(ns, node(0, 2))).toEqual([{ beat: 3, lane: 6, type: 'Single', flick: true }]);
+    });
+
+    test('滑条结点携带 source 自定义属性或跨类型属性 → 初值投影包含这些属性（issue 221）', () => {
+        const ns: ChartNote[] = [{
+            type: 'Slide',
+            connections: [
+                { beat: 1, lane: 0, source: { beat: 1, lane: 0, customField: 'hello', width: 2 } },
+                { beat: 2, lane: 3 },
+            ],
+        }];
+        expect(buildNoteCode(ns, node(0, 0))).toEqual([
+            { beat: 1, lane: 0, type: 'Single', customField: 'hello', width: 2 },
+        ]);
     });
 
     test('目标不存在 / 非滑条给结点下标 → null；System 整条可投影', () => {
@@ -169,6 +182,54 @@ describe('§5 applyNoteCode 滑条结点', () => {
         expect(r.ok).toBe(true);
         if (!r.ok) return;
         expect((r.notes[2] as SlideNote).connections[1].hidden).toBe(true);
+    });
+
+    test('滑条结点回写自定义属性与跨类型属性 → 保留在 connection.source 且不污染 type（issue 221）', () => {
+        const ns: ChartNote[] = [
+            { beat: 0, type: 'BPM', bpm: 120 },
+            {
+                type: 'Slide',
+                connections: [
+                    { beat: 1, lane: 2 },
+                    { beat: 2, lane: 3 },
+                ],
+            },
+        ];
+        const r = applyNoteCode(ns, node(1, 0), [
+            { beat: 1, lane: 2, type: 'Single', customField: 123, direction: 'Left', width: 2 } as any,
+        ]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const conn = (r.notes[1] as SlideNote).connections[0];
+        expect(conn.source).toEqual({
+            beat: 1, lane: 2, customField: 123, direction: 'Left', width: 2,
+        });
+        // 导出检验：不能把 type:"Single" 写入 Slide 的 connection
+        const back = convertNotesToChartCode(r.notes);
+        const backSlide = back[1] as any;
+        expect(backSlide.connections[0]).toEqual({
+            beat: 1, lane: 2, customField: 123, direction: 'Left', width: 2,
+        });
+        expect(backSlide.connections[0].type).toBeUndefined();
+    });
+
+    test('滑条结点若删除了自定义属性 → 回写后 source 被清除（issue 221）', () => {
+        const ns: ChartNote[] = [
+            { beat: 0, type: 'BPM', bpm: 120 },
+            {
+                type: 'Slide',
+                connections: [
+                    { beat: 1, lane: 2, source: { beat: 1, lane: 2, customField: 123 } },
+                    { beat: 2, lane: 3 },
+                ],
+            },
+        ];
+        // 仅保留标准 Single 字段
+        const r = applyNoteCode(ns, node(1, 0), [{ beat: 1, lane: 2, type: 'Single' }]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const conn = (r.notes[1] as SlideNote).connections[0];
+        expect(conn.source).toBeUndefined();
     });
 
     test('目标音符/结点不存在 → 报错不回写', () => {

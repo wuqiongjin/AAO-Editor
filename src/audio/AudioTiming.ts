@@ -124,9 +124,12 @@ export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvent
       }
       case 'Slide':
       case 'Long':
-        for (const conn of note.connections) {
+        for (let i = 0; i < note.connections.length; i++) {
+          const conn = note.connections[i]!;
           if (conn.hidden || conn.beat < 0) continue;
-          const kind: KeySoundEvent['kind'] = conn.flick ? 'flick' : conn.skill ? 'skill' : 'slide';
+          // issue 221: 首结点忽略 flick（只当普通滑条起点发声）
+          const isStart = i === 0 && note.connections.length > 1;
+          const kind: KeySoundEvent['kind'] = (conn.flick && !isStart) ? 'flick' : conn.skill ? 'skill' : 'slide';
           push(conn.beat, conn.lane, kind, conn.subBeat);
         }
         break;
