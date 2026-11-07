@@ -1,7 +1,7 @@
 // 工作台与预览页「显示面板」同质下拉选项的收敛常量（issue 206）
 // 范围窄收敛：严格限制于显示面板内部（WorkspaceDisplayPanel & PreviewDisplayPanel），
 // 不扩散至工程页 / 选曲页等业务面板。
-import type { AppSettings } from '../chart/config/AppSettings';
+import type { AppSettings } from '../settings/AppSettings';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../rendering/gridStyle';
 import { t, type MessageKey } from '../i18n';
 

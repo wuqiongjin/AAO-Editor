@@ -151,7 +151,7 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
 
   it('音符速度档：白名单与默认值只在设置域，仿真场不另写一份', () => {
     const geometry = readStripped(GEOMETRY);
-    expect(geometry).toMatch(/\{\s*normalizeNoteSpeed\s*\}\s*from\s*'\.\.\/\.\.\/\.\.\/chart\/config\/AppSettings'/);
+    expect(geometry).toMatch(/\{\s*normalizeNoteSpeed\s*\}\s*from\s*'\.\.\/\.\.\/\.\.\/settings\/AppSettings'/);
     const offenders = simFiles.filter((f) => /\b9\.5\b/.test(readStripped(f)));
     expect(offenders).toEqual([]);
   });

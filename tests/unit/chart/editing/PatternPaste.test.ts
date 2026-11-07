@@ -3,7 +3,7 @@
 // 全走既有 `pasteChartNotes` —— 故本文件一半在锁"带不带 BPM"，一半在锁"与剪贴板粘贴同输入同输出"。
 import { describe, expect, it } from 'vitest';
 import { clickOps, type ClickInput } from '@/src/chart/editing/ToolActionMatrix';
-import type { Pattern } from '@/src/chart/patterns/types';
+import type { Pattern } from '@/src/patterns/types';
 import type { ChartNote } from '@/src/chart/types';
 
 const single = (beat: number, lane: number): ChartNote => ({ type: 'Single', beat, lane });

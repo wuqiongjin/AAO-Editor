@@ -2,7 +2,7 @@
 // 只改 --font-sans 与 --ui-type-scale（tokens.css 的 --text-* 乘该比例）。
 // --font-mono 不随字体档切换。
 import { useEffect } from 'react';
-import type { AppSettings, UiFontStackId } from '../../chart/config/AppSettings';
+import type { AppSettings, UiFontStackId } from '../../settings/AppSettings';
 
 /** 三档无衬线回退链（不打包 CJK webfont；缺族名由浏览器静默走下一档） */
 export const UI_FONT_SANS_STACKS: Record<UiFontStackId, string> = {

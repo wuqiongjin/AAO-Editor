@@ -7,7 +7,7 @@
 // - 同名但内容不同不是冲突，只在清单下方提示一句；
 // - 没有重复条目时整块隐藏策略区（三选一没有意义）。
 import { useState } from 'react';
-import type { PatternImportPreview, PatternImportStrategy } from '../../chart/patterns/importConflict';
+import type { PatternImportPreview, PatternImportStrategy } from '../../patterns/importConflict';
 import { t, type MessageKey } from '../../i18n';
 import ActionBtn from '../../ui/ActionBtn';
 import Dialog from '../../ui/Dialog';

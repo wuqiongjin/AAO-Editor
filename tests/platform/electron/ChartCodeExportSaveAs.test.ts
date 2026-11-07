@@ -15,7 +15,7 @@ const modalSrc = stripComments(readSource('src/chart/components/code-editor/Char
 const exportSrc = stripComments(readSource('src/project/exportChartCode.ts'));
 const mainSrc = readSources(['electron/main.cjs', 'electron/storage/chartCodeExport.cjs', 'electron/foundation/saveDialog.cjs'], true);
 const preloadSrc = stripComments(readSource('electron/preload.js'));
-const settingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));
+const settingsSrc = stripComments(readSource('src/settings/AppSettings.ts'));
 
 describe('issue 118 · 导出文本来自画布 notes', () => {
   // issue 102：整份落盘形态 = 与弹窗显示同一份「每条音符一行」紧凑文本（覆盖 issue 118 的 4 空格口径）。

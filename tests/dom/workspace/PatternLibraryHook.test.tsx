@@ -4,10 +4,10 @@
 import '@testing-library/jest-dom/vitest';
 import { describe, expect, it } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { PatternStore, type PatternLibraryBackend } from '@/src/chart/patterns/PatternStore';
-import { serializePatterns } from '@/src/chart/patterns/share';
-import { usePatternLibrary } from '@/src/chart/patterns/usePatternLibrary';
-import type { Pattern } from '@/src/chart/patterns/types';
+import { PatternStore, type PatternLibraryBackend } from '@/src/patterns/PatternStore';
+import { serializePatterns } from '@/src/patterns/share';
+import { usePatternLibrary } from '@/src/patterns/usePatternLibrary';
+import type { Pattern } from '@/src/patterns/types';
 import type { ChartNote, SelectionItem } from '@/src/chart/types';
 import { dismissToast } from '@/src/ui/Toast';
 import { makeMemoryPatternStore, makePattern } from '@/tests/support/patterns';

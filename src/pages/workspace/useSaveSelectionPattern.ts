@@ -8,7 +8,7 @@
 // `canSave` 与 `save` 同源给出：按钮置灰与快捷键的判据必须是同一个（两处各读一次选区必然漂）。
 import { useCallback, useRef } from 'react';
 import { useEditing } from '../../app/ProviderTree';
-import type { PatternLibraryApi } from '../../chart/patterns/usePatternLibrary';
+import type { PatternLibraryApi } from '../../patterns/usePatternLibrary';
 import { t } from '../../i18n';
 import { showToast } from '../../ui/Toast';
 

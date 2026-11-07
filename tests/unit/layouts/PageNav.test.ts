@@ -1,7 +1,7 @@
 // issue 177：页面注册表只保留「位次 + 功能 id」，键位的唯一真相源是 ShortcutConfig。
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PAGE_ID, PAGE_NAV } from '@/src/layouts/pageNav';
-import { FUNCTIONS } from '@/src/chart/config/ShortcutConfig';
+import { FUNCTIONS } from '@/src/settings/ShortcutConfig';
 import { readStripped } from '@/tests/support/source';
 
 const PAGE_ORDER = ['projects', 'workspace', 'audio', 'preview', 'assets', 'shortcuts', 'settings'];

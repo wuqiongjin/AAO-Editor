@@ -10,9 +10,9 @@
 //     的 `useShortcutDispatch` 页面级接管（只认 play，Q2）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Gauge } from 'lucide-react';
-import type { AppSettings } from '../../chart/config/AppSettings';
-import { formatKey, type FunctionId, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
-import { useShortcutDispatch } from '../../chart/config/useShortcutDispatch';
+import type { AppSettings } from '../../settings/AppSettings';
+import { formatKey, type FunctionId, type ShortcutConfig } from '../../settings/ShortcutConfig';
+import { useShortcutDispatch } from '../../settings/useShortcutDispatch';
 import { notesEqual } from '../../chart/editing/NotesEqual';
 import { t } from '../../i18n';
 import PlayBar from '../../playback/PlayBar';

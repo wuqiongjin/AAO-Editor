@@ -4,7 +4,7 @@
  * 只推**回收参数**（多久没用算闲置、总量上限），别的都不推 —— 缓存内容、鲜度（24h 后台刷新）
  * 与「手动清除」都不归设置管（票 14 定案）。静态演示版没有这条桥：静默跳过。
  */
-import type { AssetCachePolicy } from '../chart/config/AppSettings';
+import type { AssetCachePolicy } from '../settings/AppSettings';
 import { getElectronAPI } from '../app/electronBridge';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

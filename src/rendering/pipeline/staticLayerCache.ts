@@ -10,7 +10,7 @@
 import { renderTrackChrome, renderGridBeatLines, renderBoundLines } from '../render';
 import { makeCoords } from '../coords';
 import { bufferSizeFor } from '../rasterScale';
-import { DEFAULT_BACKGROUND_OPACITY } from '../../chart/config/AppSettings';
+import { DEFAULT_BACKGROUND_OPACITY } from '../../settings/AppSettings';
 import type { GridDetail, RenderCtx } from '../types';
 import type { BpmTimelineEvent } from '../../chart/geometry/BpmTimeline';
 import type { GridStylePreset } from '../gridStyle';

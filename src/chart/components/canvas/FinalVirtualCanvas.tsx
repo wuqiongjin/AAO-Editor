@@ -27,7 +27,7 @@ import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rende
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../rendering/gutterLabels';
 import { useBackgroundSkin } from '../../../rendering/skin/useBackgroundSkin';
 import { countChartNotes, countNotesUpToBeat } from '../../editing/NoteEditing';
-import { buildPatternPastePayload } from '../../patterns/paste';
+import { buildPatternPastePayload } from '../../../patterns/paste';
 import { parseBpmInput } from '../../editing/BpmInput';
 import { t } from '../../../i18n';
 import {

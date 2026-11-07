@@ -313,7 +313,7 @@ describe('issue 117 · 认领已有数据根', () => {
 
 describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () => {
   it('AppSettings 无数据根字段', () => {
-    const settingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));
+    const settingsSrc = stripComments(readSource('src/settings/AppSettings.ts'));
     expect(settingsSrc).not.toMatch(/dataRoot|data-root|保存位置/);
   });
 

@@ -6,7 +6,7 @@
 // **非模态**（票面：长谱导出不得阻塞页面交互）：没有 scrim，页面其余部分照样能点。
 // 取消不是 AbortController —— 域那一层是逐帧循环，靠 `isCancelled` 轮询在帧边界上退出来。
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AppSettings } from '../../chart/config/AppSettings';
+import type { AppSettings } from '../../settings/AppSettings';
 import { t } from '../../i18n';
 import { logger } from '../../diagnostics/logger';
 import { trail } from '../../diagnostics/trail';

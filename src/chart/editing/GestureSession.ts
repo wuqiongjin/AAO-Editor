@@ -18,8 +18,8 @@ import {
   type SlidePoint,
 } from './ToolActionMatrix';
 import { placeSpanWithCombination, type CurveConfig, type CurveDraft } from './CurveTool';
-import type { PinchMode } from '../config/AppSettings';
-import type { PatternPasteRequest } from '../patterns/paste';
+import type { PinchMode } from '../../settings/AppSettings';
+import type { PatternPasteRequest } from '../../patterns/paste';
 import { buildPenSlide } from './SpanCurve';
 import {
   snapChartPos,

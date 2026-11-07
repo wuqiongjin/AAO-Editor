@@ -12,7 +12,7 @@ import NoteSkinPreview from '../../rendering/skin/NoteSkinPreview';
 import NoteSkinPresetThumbnail from '../../rendering/skin/NoteSkinPresetThumbnail';
 import { backgroundSkinStore } from '../../rendering/skin/backgroundSkin';
 import { useBackgroundSkin } from '../../rendering/skin/useBackgroundSkin';
-import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../../chart/config/AppSettings';
+import { DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE } from '../../settings/AppSettings';
 import { t, type MessageKey } from '../../i18n';
 import { logger } from '../../diagnostics/logger';
 

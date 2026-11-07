@@ -7,8 +7,8 @@ import {
   clampProjectListWidth, clampPatternDrawerWidth,
   DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE,
   type AppSettings, type SettingsPatch,
-} from '../../chart/config/AppSettings';
-import { getDefaultConfig, pruneShortcutMasks, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
+} from '../../settings/AppSettings';
+import { getDefaultConfig, pruneShortcutMasks, type ShortcutConfig } from '../../settings/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
 import { syncAssetCachePolicy } from '../../community/assetCachePolicy';

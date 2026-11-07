@@ -4,12 +4,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getElectronAPI } from '@/src/app/electronBridge';
 import { hasDesktopRuntime } from '@/src/app/webNotice';
-import { savePatternLibraryFile } from '@/src/chart/patterns/shareFile';
+import { savePatternLibraryFile } from '@/src/patterns/shareFile';
 import {
   ElectronFilePatternLibraryBackend,
   IndexedDbPatternLibraryBackend,
   autoDetectPatternBackend,
-} from '@/src/chart/patterns/PatternStore';
+} from '@/src/patterns/PatternStore';
 import {
   ElectronCommunityTransport,
   getCommunityNetBridge,

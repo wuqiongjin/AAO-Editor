@@ -12,7 +12,7 @@ import { t } from '../../i18n';
 import { displayOptionsFromSettings } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
-import type { PreviewSettings } from '../../chart/config/AppSettings';
+import type { PreviewSettings } from '../../settings/AppSettings';
 import { DEFAULT_PREVIEW_MARKERS, resolvePreviewDisplay } from './displayProfile';
 import {
   MIN_PANEL_H,

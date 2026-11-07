@@ -6,7 +6,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { AppNavProvider } from '@/src/layouts/AppNav';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import WorkspaceDisplayPanel from '@/src/pages/workspace/WorkspaceDisplayPanel';
-import { defaultSettings } from '@/src/chart/config/AppSettings';
+import { defaultSettings } from '@/src/settings/AppSettings';
 import { setActiveUiLanguage } from '@/src/i18n';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 

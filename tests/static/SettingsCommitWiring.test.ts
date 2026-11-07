@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { readStripped } from '@/tests/support/source';
 
 const PROVIDER = 'src/app/providers/ConfigProvider.tsx';
-const MODULE = 'src/chart/config/AppSettings.ts';
+const MODULE = 'src/settings/AppSettings.ts';
 
 describe('14 · 唯一写回入口接线', () => {
   it('Provider 不自己落盘 / 变换，落盘只在 module 一处，轨迹只由一个 helper 定义', () => {

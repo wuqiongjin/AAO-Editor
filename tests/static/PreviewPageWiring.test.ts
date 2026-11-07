@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PAGE_NAV } from '@/src/layouts/pageNav';
 import { PAGE_REGISTRY } from '@/src/pages/PageRegistry';
-import { FUNCTIONS } from '@/src/chart/config/ShortcutConfig';
+import { FUNCTIONS } from '@/src/settings/ShortcutConfig';
 import { readStripped, repoRoot } from '@/tests/support/source';
 
 /** dir 下全部源码文件（相对仓库根的路径） */

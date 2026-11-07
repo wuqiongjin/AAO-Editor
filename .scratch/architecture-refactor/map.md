@@ -38,6 +38,7 @@
 - [2026-09-29 候选 4 口径（用户 2026-09-29 拍板 · 二选确认）]：按 review 的 after 面抽会话 module（含播放 RAF），音频与持久化不进会话；`seconds` 以 `onSecondsChange` 回调兑现（PlaybackContext 仍是唯一真相源，不造第二份、不做直通字段 —— 08 复审 Middle Man 先例）。
 - [2026-11-03 候选 1 grill 定案]：两支谱面导入收进一个 `chartImport` core（trail / stage / abort / Apply / save / probe / notify 一处），`officialImport` / `communityImport` 退成源工厂 + error text；一个公共入口 `importChart(source, deps, input)`、deps 不含 transport；零行为变化（既有导入测试断言原样）、UI 接线不外扩；与候选 2 解耦，票 11。**实现分支按用户拍板直接落 `fix/basic-editor/macOS-210-213`，不另切。**
 - [2026-11-06 第三轮候选选领]：2026-11-04 架构评审 7 候选中，01 / 02 已由票 12 / 13 落地；余下 03（搬设置 / 片段目录）、04（`scripts/` 路径真相）、06（仿真场 barrel）与在飞 `chart-preview` 09 / 31 / 42 相交或评 Speculative，07（95 个文本锁全量行为化）经票 13 Q4 明确否决。用户确认领**候选 5「`ConfigContext` 停止做 shallow setter façade」**，开 14 号票；与候选 3 的顺序 = 先原地加深成唯一写回入口、后搬目录，避免同一批路径锁改两遍。
+- [2026-11-07 票 16 定案 · 第二轮「不改目录」口径的例外]：设置对象与片段收藏升为顶层 `src/settings/` / `src/patterns/`，`chart/` 纯化回谱面与编辑核心；`src/chart/config/` 3 件（含评审漏列的 `useShortcutDispatch.ts`）与 `src/chart/patterns/` 16 件并入两域、单文件 `src/settings/` 域消失；ADR / `CONTEXT.md` 不回写（ADR-0023 §3 已覆盖归属）；接受 `patterns/ → app/electronBridge` 为合法单向依赖，win 记作「域归属摆正」而非「反向 import 消失」。细节与门禁见票 16。
 
 ## Frontier
 
@@ -56,7 +57,7 @@
 - [13 electronAPI 桥声明收拢](./issues/13-electronAPI桥声明收拢.md) — 已解决（2026-11-05 单提交落地：18 个消费方的桥形状收进 `src/app/electronBridge.ts` 唯一声明处，4 条源码文本锁换成行为断言、渲染域白名单精确放行一条；两提交经用户复核合并，细节与门禁见票内）
 - [14 设置对象写回收口](./issues/14-设置对象写回收口.md) — 已解决（2026-11-06 单提交落地：26 个 setter 退成接线，字段级写回收进 `AppSettings.ts` 的 `commitSettings`，落盘只在 module 一处；新增 3 个测试文件 / 8 例，396 文件 / 4369 用例全绿；T3 / T4 两处实现口径补正与门禁见票内）
 - [15 删空壳types域与一次性探针](./issues/15-删空壳types域与一次性探针.md) — 已解决（2026-11-07 单提交落地：`ChartPosition` 并进 `chart/types.ts`、`src/types/` 空壳域消失、零引用探针 `first-note-hitch-probe.mjs` 删除；零行为变化、零新增断言，四连门禁改前后增量 0；细节与基线更正见票内）
-- [16 设置对象与片段收藏提为顶层能力域](./issues/16-设置对象与片段收藏提为顶层能力域.md) — open（2026-11-07 开票；第三轮 Top recommendation 候选 01 + 05，前置票 14 已解除；T1/T2 事实偏差与 Q1–Q7 待 grill，实现排在 15 之后）
+- [16 设置对象与片段收藏提为顶层能力域](./issues/16-设置对象与片段收藏提为顶层能力域.md) — 已解决（2026-11-07 两轮 grill 定案后单提交落地：51 个 rename 分入 `src/settings/` / `src/patterns/` 与 `tests/unit/{settings,patterns}/`，旧目录消失、路径锁逐条同步；新增落点静态锁 3 例，401 文件 / 4398 用例全绿；细节与门禁见票内）
 - 【第二轮其余候选 · 未开票】候选 5 的剩下一半「解码结果交出 AudioBuffer」（dir 4；调用方是 `ai-enhancement` 的 onset / BPM 票，两者 `Status: open`，届时再领）· 候选 6「桥接探测收成一个平台接缝」（dir 1，Speculative；调用方是 Bestdori 网络面，届时再领）
 
 ## Fog

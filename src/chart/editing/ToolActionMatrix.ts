@@ -10,7 +10,7 @@ import {
 } from './NoteReplacementRules';
 import { deleteSelection, mirrorSelection, remapSelection } from './SelectionEditing';
 import { combineSelectionIntoSlide, compareAbsorbable } from './SlideCombination';
-import { buildPatternPastePayload, type PatternPasteRequest } from '../patterns/paste';
+import { buildPatternPastePayload, type PatternPasteRequest } from '../../patterns/paste';
 import { curveBoxOps, curveToolClickOps, type CurveConfig, type CurveDraft } from './CurveTool';
 // 对象视图目标（issue 59 §4）在 NoteCodeOps 定义（回写走同一类型），转出供 op 与调用方使用
 import { noteCodeTargetForHit, type NoteCodeTarget } from './NoteCodeOps';

@@ -2,7 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import appLogo from '../assets/brand/app-logo.png';
 import { t, type MessageKey } from '../i18n';
 import { ArrowUpRight, ChevronsLeft, ChevronsRight, Eye, FolderOpen, Github, Keyboard, LayoutDashboard, Layers, Music2, Settings2 } from 'lucide-react';
-import { formatKey } from '../chart/config/ShortcutConfig';
+import { formatKey } from '../settings/ShortcutConfig';
 import { useConfig } from '../app/ProviderTree';
 import { PAGE_NAV } from './pageNav';
 import type { PageScope } from './pageScope';

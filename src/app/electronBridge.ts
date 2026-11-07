@@ -9,8 +9,8 @@
  *
  * 载荷形状仍由各域自己拥有（业务契约），这里只 import type 引用，不复制第二份。
  */
-import type { AppSettings } from '../chart/config/AppSettings';
-import type { Pattern } from '../chart/patterns/types';
+import type { AppSettings } from '../settings/AppSettings';
+import type { Pattern } from '../patterns/types';
 import type { AssetCachePolicyPayload } from '../community/assetCachePolicy';
 import type { CommunityRequest, CommunityWireResult } from '../community/transport';
 import type { DiagnosticsExportPayload } from '../diagnostics/exportDiagnostics';

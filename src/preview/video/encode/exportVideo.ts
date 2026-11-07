@@ -4,7 +4,7 @@
 //
 // 页面只调这一个入口（`runVideoExport`）；进度 / 取消 / 失败态都从回调与返回值里出，
 // 页面不做第二份编排（`tests/static/VideoExportWiring.test.ts` 锁"画面只经 drawSimFrameAt"）。
-import type { AppSettings } from '../../../chart/config/AppSettings';
+import type { AppSettings } from '../../../settings/AppSettings';
 import { getBpmEvents, buildKeyEvents } from '../../../audio/AudioTiming';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';

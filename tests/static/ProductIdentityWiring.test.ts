@@ -38,11 +38,11 @@ describe('issue 04 · AAO Editor 产品品牌与元数据整改锁测', () => {
   });
 
   it('核心持久化键与数据库名称统一收敛为 aao.* 命名空间', () => {
-    const appSettingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));
+    const appSettingsSrc = stripComments(readSource('src/settings/AppSettings.ts'));
     expect(appSettingsSrc).toContain("STORAGE_KEY = 'aao.settings.v1'");
     expect(appSettingsSrc).not.toContain("STORAGE_KEY = 'bangdream.settings.v1'");
 
-    const shortcutSrc = stripComments(readSource('src/chart/config/ShortcutConfig.ts'));
+    const shortcutSrc = stripComments(readSource('src/settings/ShortcutConfig.ts'));
     expect(shortcutSrc).toContain("STORAGE_KEY = 'aao.shortcuts.v1'");
     expect(shortcutSrc).not.toContain("STORAGE_KEY = 'bangdream.shortcuts.v1'");
 

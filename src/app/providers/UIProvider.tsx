@@ -5,7 +5,7 @@
 // 票 183：旧版左右面板（宽度 / 折叠 / 拖拽分隔条）随换壳删除；片段库抽屉的开合与宽度存 settings.layout.patternDrawer。
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
-import type { Pattern } from '../../chart/patterns/types';
+import type { Pattern } from '../../patterns/types';
 import {
   POINTER_TOOL_STATE, withArmedTool, withPatternPasteToggled, type ArmedToolState,
 } from '../armedToolState';

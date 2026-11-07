@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppNavProvider, AppNav, type AppNavValue, type PageId } from './AppNav';
 import { showToast } from '../ui/Toast';
 import { PageSlot, PAGE_REGISTRY } from '../pages/PageRegistry';
-import { isCapturingShortcut, isEditableTarget, resolveAction } from '../chart/config/ShortcutConfig';
+import { isCapturingShortcut, isEditableTarget, resolveAction } from '../settings/ShortcutConfig';
 import { useConfig } from '../app/ProviderTree';
 import { t } from '../i18n';
 import { DEFAULT_PAGE_ID, PAGE_NAV } from './pageNav';

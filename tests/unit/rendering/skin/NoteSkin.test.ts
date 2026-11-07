@@ -16,7 +16,7 @@ import {
 import { LANE_WIDTH } from '@/src/chart/geometry/ChartGeometry';
 import { readPackSkinName } from '@/src/rendering/skin/skinDisplayName';
 import type { SpriteIconConfig } from '@/src/ui/CanvasSpriteIcon';
-import { defaultSettings, loadSettings, updateSettings } from '@/src/chart/config/AppSettings';
+import { defaultSettings, loadSettings, updateSettings } from '@/src/settings/AppSettings';
 
 const notePacks = NOTE_SKIN_PACKS.filter((p): p is NoteSkinPackNote => p.kind === 'note');
 const dirPacks = NOTE_SKIN_PACKS.filter((p): p is NoteSkinPackDirectional => p.kind === 'directional');

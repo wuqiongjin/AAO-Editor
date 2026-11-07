@@ -7,7 +7,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { ConfigProvider, useConfig, type ConfigContextValue } from '@/src/app/providers/ConfigProvider';
-import { getDefaultConfig } from '@/src/chart/config/ShortcutConfig';
+import { getDefaultConfig } from '@/src/settings/ShortcutConfig';
 import * as AssetCachePolicy from '@/src/community/assetCachePolicy';
 import { trail } from '@/src/diagnostics/trail';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';

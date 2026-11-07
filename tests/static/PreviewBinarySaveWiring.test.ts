@@ -213,7 +213,7 @@ describe('chart-preview 14 · 导出图文版头带（封面区 + 信息区 + �
   const panelLayoutSrc = readStripped('src/preview/static/panelLayout.ts');
   const pageSrc = readStripped('src/pages/preview/PreviewPage.tsx');
   const displayPanelSrc = readStripped('src/pages/preview/PreviewDisplayPanel.tsx');
-  const appSettingsSrc = readStripped('src/chart/config/AppSettings.ts');
+  const appSettingsSrc = readStripped('src/settings/AppSettings.ts');
 
   it('头带高 440 是常量真源（= 392 封面 + 上下各 24）；改它必须同步复算宽图面积上限', () => {
     expect(sheetHeaderSrc).toMatch(/EXPORT_HEADER_H\s*=\s*440/);

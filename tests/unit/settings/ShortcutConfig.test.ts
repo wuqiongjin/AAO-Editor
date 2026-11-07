@@ -3,7 +3,7 @@ import {
   getDefaultConfig, resolveAction, buildBindingIndex, setFunctionBinding,
   bindingTakenByOther, loadConfig, formatKey, categoryShortcuts, functionMode,
   maskFunctionBinding, bindingToRestore, pruneShortcutMasks, type ShortcutMasks,
-} from '@/src/chart/config/ShortcutConfig';
+} from '@/src/settings/ShortcutConfig';
 
 const keyEvent = (key: string, ctrl = false, shift = false): KeyboardEvent =>
   ({ key, ctrlKey: ctrl, metaKey: false, shiftKey: shift } as KeyboardEvent);

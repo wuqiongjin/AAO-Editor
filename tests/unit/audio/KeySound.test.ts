@@ -11,7 +11,7 @@ import {
   KEY_SOUND_DEFAULT_TONES,
 } from '@/src/audio/KeySound';
 import { KEY_SOUND_KINDS } from '@/src/audio/KeySoundMeta';
-import { loadSettings } from '@/src/chart/config/AppSettings';
+import { loadSettings } from '@/src/settings/AppSettings';
 import { settingsStorageOf as storageWith } from '@/tests/support/storage';
 
 describe('KeySound 注册表（skin00–03 普通包入库）', () => {

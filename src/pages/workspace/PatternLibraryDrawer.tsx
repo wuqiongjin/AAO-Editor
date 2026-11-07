@@ -3,7 +3,7 @@
 // 外壳口径（183）：展开占布局（不压画布）、左缘可拖宽、收起完全消失。
 // 内容口径（185 / 164 定案 §3）：
 // - 卡片 = 缩略图 + 名字 + 徽标（`BPM 120 → 180`，负值数字危险色）+ 统计行
-//   （`12 音符 · 10 拍`，派生值，见 `chart/patterns/stats`）+ 常驻 ⋯ 菜单（导出 —— 动作落 187 / 删除）；
+//   （`12 音符 · 10 拍`，派生值，见 `src/patterns/stats`）+ 常驻 ⋯ 菜单（导出 —— 动作落 187 / 删除）；
 // - 点卡片 = 进片段粘贴态（186），被选中的那张高亮；再点同一张 = 退出（回指针）；
 // - 顶部常驻搜索：按名字子串过滤（不区分大小写）；「库里没有片段」「搜索无匹配」「库读不出来」是三套空态；
 // - 收藏时间倒序（最新在最上，排序是库的口径，本组件不重排）；
@@ -15,30 +15,30 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookmarkPlus, Check, LibraryBig, Pin, Search, X } from 'lucide-react';
 import { useConfig } from '../../app/ProviderTree';
-import { PATTERN_DRAWER_WIDTH } from '../../chart/config/AppSettings';
-import { formatKey } from '../../chart/config/ShortcutConfig';
+import { PATTERN_DRAWER_WIDTH } from '../../settings/AppSettings';
+import { formatKey } from '../../settings/ShortcutConfig';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection, type ActiveNoteIcons } from '../../rendering/skin/noteSkin';
-import type { PatternImportStrategy } from '../../chart/patterns/importConflict';
-import { filterPatternsByName, isPatternPinned, patternBpmRange, sortPatterns } from '../../chart/patterns/library';
+import type { PatternImportStrategy } from '../../patterns/importConflict';
+import { filterPatternsByName, isPatternPinned, patternBpmRange, sortPatterns } from '../../patterns/library';
 import {
   getPatternSelectionStats,
   selectAllVisiblePatterns,
   togglePatternSelection,
-} from '../../chart/patterns/selection';
-import { formatPatternBeatSpan, patternStats } from '../../chart/patterns/stats';
+} from '../../patterns/selection';
+import { formatPatternBeatSpan, patternStats } from '../../patterns/stats';
 import {
   pickPatternFile,
   readPatternFileText,
   savePatternLibraryFile,
   saveSelectedPatternsFile,
   saveSinglePatternFile,
-} from '../../chart/patterns/shareFile';
-import type { Pattern } from '../../chart/patterns/types';
+} from '../../patterns/shareFile';
+import type { Pattern } from '../../patterns/types';
 import type {
   PatternImportPreparation,
   PatternImportResult,
   PatternLibraryApi,
-} from '../../chart/patterns/usePatternLibrary';
+} from '../../patterns/usePatternLibrary';
 import { t } from '../../i18n';
 import ConfirmDialog from '../../ui/ConfirmDialog';
 import { showToast } from '../../ui/Toast';

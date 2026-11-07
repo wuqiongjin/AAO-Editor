@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import StaticExportControl from '@/src/pages/preview/StaticExportControl';
-import { DEFAULT_EXPORT_FIELDS, defaultSettings } from '@/src/chart/config/AppSettings';
+import { DEFAULT_EXPORT_FIELDS, defaultSettings } from '@/src/settings/AppSettings';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 import type { SheetPlan } from '@/src/preview';
 

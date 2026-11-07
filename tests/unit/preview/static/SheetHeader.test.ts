@@ -4,7 +4,7 @@
 // 像素级观感走真机核对（票面验收点），不在这里赌 canvas mock。
 import { describe, expect, it, vi } from 'vitest';
 import { t } from '@/src/i18n';
-import { DEFAULT_EXPORT_FIELDS, type ExportFieldSettings } from '@/src/chart/config/AppSettings';
+import { DEFAULT_EXPORT_FIELDS, type ExportFieldSettings } from '@/src/settings/AppSettings';
 import {
   EXPORT_HEADER_H,
   HEADER_COVER_MAX,

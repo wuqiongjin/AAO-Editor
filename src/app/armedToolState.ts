@@ -6,7 +6,7 @@
 // 2. **切任何工具 = 回剪贴板来源**：包括"此态下再点工具轨「粘贴」"（ADR-0023 §4）；
 // 3. `pattern !== null` ⇒ `armedTool === 'paste'`：由下面的联合类型直接表达，
 //    `{ armedTool: null, pattern }` 这种形状编译就过不去。
-import type { Pattern } from '../chart/patterns/types';
+import type { Pattern } from '../patterns/types';
 import type { ArmedTool } from './providers/UIProvider';
 
 export type ArmedToolState =

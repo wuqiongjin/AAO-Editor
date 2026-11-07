@@ -31,7 +31,7 @@ import {
 import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { notesEqual } from '../../chart/editing/NotesEqual';
 import type { ChartNote } from '../../chart/types';
-import { mergeOpening } from '../../chart/config/AppSettings';
+import { mergeOpening } from '../../settings/AppSettings';
 import { getBpmEvents } from '../../audio/AudioTiming';
 import {
   chartEffectiveTitle,

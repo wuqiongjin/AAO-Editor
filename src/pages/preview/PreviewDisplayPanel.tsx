@@ -23,7 +23,7 @@ import {
   PREVIEW_TIME_MARK_INTERVALS,
   SIM_NOTE_SPEED_RANGE,
   normalizeNoteSpeed,
-} from '../../chart/config/AppSettings';
+} from '../../settings/AppSettings';
 import type { GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
 import {

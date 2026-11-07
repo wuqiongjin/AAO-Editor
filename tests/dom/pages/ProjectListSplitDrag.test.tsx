@@ -11,7 +11,7 @@ import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { AppNavProvider, type PageId } from '@/src/layouts/AppNav';
 import ProjectsPage from '@/src/pages/projects/ProjectsPage';
 import { ChartProjectStore, type ChartProject, type ProjectChart } from '@/src/project/ChartProject';
-import { PROJECT_LIST_WIDTH, loadSettings } from '@/src/chart/config/AppSettings';
+import { PROJECT_LIST_WIDTH, loadSettings } from '@/src/settings/AppSettings';
 import { makeMemoryProjectBackend, renderWithProviders } from '@/tests/support/providers';
 import { seedZhSettings, SETTINGS_KEY } from '@/tests/support/storage';
 

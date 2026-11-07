@@ -72,9 +72,9 @@ vi.mock('@/src/preview', async (importOriginal) => {
 
 import PreviewVideoStage from '@/src/pages/preview/PreviewVideoStage';
 import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimPlaybackAudio, type SimScene } from '@/src/preview';
-import { getDefaultConfig } from '@/src/chart/config/ShortcutConfig';
+import { getDefaultConfig } from '@/src/settings/ShortcutConfig';
 import { t } from '@/src/i18n';
-import type { AppSettings } from '@/src/chart/config/AppSettings';
+import type { AppSettings } from '@/src/settings/AppSettings';
 
 const scene: SimScene = {
   notes: [],

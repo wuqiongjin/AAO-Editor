@@ -1,7 +1,7 @@
 // 快捷键页「索引筛选」粗桶（issue 121）。
 // 与 ADR-0002 的 category（tooltip 细分组：单键 / 复制 / …）分名、分表，禁止混用。
 import { t, type MessageKey } from '../i18n';
-import { FUNCTIONS, getDefaultConfig, type FunctionDef, type FunctionId, type ShortcutConfig } from '../chart/config/ShortcutConfig';
+import { FUNCTIONS, getDefaultConfig, type FunctionDef, type FunctionId, type ShortcutConfig } from './ShortcutConfig';
 
 export type IndexFilterId = 'all' | 'system' | 'noteTools' | 'editTools' | 'playback' | 'other';
 

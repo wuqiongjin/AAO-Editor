@@ -6,7 +6,7 @@
 //
 // 本表只记「位次 + 快捷键功能 id」。键位归 `ShortcutConfig` 的 app 作用域功能（pageProjects…），
 // 展示、分发、查重都从 settings.shortcuts 派生，这里不得再写键位字面量。
-import type { FunctionId } from '../chart/config/ShortcutConfig';
+import type { FunctionId } from '../settings/ShortcutConfig';
 import type { PageId } from './AppNav';
 
 export interface PageNavItem {

@@ -13,7 +13,7 @@
 //
 // 本模块只依赖零 import 的尺寸叶子模块与设置白名单常量，不碰 DOM / canvas。
 import { NOTE_SKIN_GEOMETRY } from '../../../rendering/skin/noteSkin';
-import { normalizeNoteSpeed } from '../../../chart/config/AppSettings';
+import { normalizeNoteSpeed } from '../../../settings/AppSettings';
 import { TOTAL_LANES, mirrorLane as mirrorLaneOf } from '../../../chart/editing/NoteEditing';
 import type { KeySoundKind } from '../../../audio/KeySound';
 

@@ -5,7 +5,7 @@ import { MousePointer2, Music, Copy, Scissors, Clipboard, Trash2, FlipHorizontal
 import NoteIconGlyph from '../../rendering/primitives/NoteIconGlyph';
 import type { ToolGlyphItem } from '../../rendering/primitives/noteGlyph';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
-import { categoryShortcuts } from '../../chart/config/ShortcutConfig';
+import { categoryShortcuts } from '../../settings/ShortcutConfig';
 import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
 import type { ArmedTool } from '../../app/providers/UIProvider';
 import { t, type MessageKey } from '../../i18n';

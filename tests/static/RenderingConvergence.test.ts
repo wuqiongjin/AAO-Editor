@@ -113,13 +113,15 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
   });
 
   it('渲染层只回指 chart 的数据 / 几何 / 编辑 / 配置与两个既有叶子依赖，不反依 UI 组件层', () => {
-    // 白名单 = src/rendering 自身 + chart（数据类型 / 几何 / 编辑算法 / 配置 / 计时，
+    // 白名单 = src/rendering 自身 + chart（数据类型 / 几何 / 编辑算法 / 计时，
     // **不含 chart/components 的画布 React 组件**）+ 画图标（ui/CanvasSpriteIcon）+ 出文案（i18n）
     // + 装载失败落盘（diagnostics/logger，票 05；与 i18n 同属横切叶子）
-    // + 桥声明模块取桥（app/electronBridge，票 13；只持有桥形状与一次 window cast，不是 UI 组件）。
+    // + 桥声明模块取桥（app/electronBridge，票 13；只持有桥形状与一次 window cast，不是 UI 组件）
+    // + 设置对象（票 16 后由 chart/config 升为顶层 src/settings/，仍只回指数据层）。
     const ALLOWED_OUTSIDE = [
       /^src\/chart\/(types|perf)$/,
-      /^src\/chart\/(geometry|editing|config)\//,
+      /^src\/chart\/(geometry|editing)\//,
+      /^src\/settings\/AppSettings$/,
       /^src\/ui\/CanvasSpriteIcon$/,
       /^src\/i18n(\/index)?$/,
       /^src\/diagnostics\/logger$/,

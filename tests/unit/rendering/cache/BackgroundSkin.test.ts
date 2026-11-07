@@ -8,7 +8,7 @@ import { BackgroundSkinStore, backgroundSkinStore, createElectronBackgroundPersi
 import {
   defaultSettings, loadSettings, updateSettings,
   DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE,
-} from '@/src/chart/config/AppSettings';
+} from '@/src/settings/AppSettings';
 
 // ---------------- 1) cover 几何 ----------------
 

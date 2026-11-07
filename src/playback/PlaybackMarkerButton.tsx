@@ -2,7 +2,7 @@
 // 起点从「无」变「有」时弹入 + 一圈光晕，让用户注意到播放条多了个东西；挪动起点不重播。
 import { memo, useState } from 'react';
 import playbackMarkerSvgUrl from '../assets/playback-marker/flag.svg?url';
-import { formatKey } from '../chart/config/ShortcutConfig';
+import { formatKey } from '../settings/ShortcutConfig';
 import { formatTimePrecise, type TimePrecision } from '../chart/geometry/TimeFormat';
 import { t } from '../i18n';
 import './PlaybackMarkerButton.css';

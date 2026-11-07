@@ -29,7 +29,7 @@ const SESSION_BRIDGE = 'src/community/sessionPersistence.ts';
 const SESSION_MAIN = 'electron/community/communitySession.cjs';
 const PRELOAD = 'electron/preload.js';
 const MAIN = 'electron/main.cjs';
-const SETTINGS = 'src/chart/config/AppSettings.ts';
+const SETTINGS = 'src/settings/AppSettings.ts';
 
 /** 会话那条通道的三条 invoke（一条都不许带参数） */
 const SESSION_CHANNELS = [

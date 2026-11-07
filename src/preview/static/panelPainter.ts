@@ -8,7 +8,7 @@
 // 面板里画的**就是**编辑器那套渲染（`renderChart` / `RenderTarget`）：不新写第二种画笔（ADR-0016 §2）。
 import { createRenderTarget, bufferSizeFor, imageQualitySupersample, type FrameView, type HoverPos, type RenderDisplayOptions } from '../../rendering';
 import { LANES, LANE_WIDTH, TRACK_CHROME_TOTAL } from '../../chart/geometry/ChartGeometry';
-import type { AppSettings } from '../../chart/config/AppSettings';
+import type { AppSettings } from '../../settings/AppSettings';
 import type { ChartNote, SelectionItem } from '../../chart/types';
 import type { ActiveNoteIcons } from '../../rendering/skin/noteSkin';
 import type CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';

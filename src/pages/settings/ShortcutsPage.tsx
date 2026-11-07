@@ -7,7 +7,7 @@ import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, normalizeKeyEvent, setCapturingShortcut, maskFunctionBinding,
   bindingToRestore, type FunctionId,
-} from '../../chart/config/ShortcutConfig';
+} from '../../settings/ShortcutConfig';
 import {
   INDEX_FILTERS, type IndexFilterId,
   filterFunctions, shortcutTableEmptyKind, restoreDefaultsInFilter,

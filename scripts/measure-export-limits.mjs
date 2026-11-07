@@ -335,7 +335,7 @@ if (want('sheet')) {
           const [converter, exportMod, settingsMod, timing, spriteMod] = await Promise.all([
             import('/src/chart/editing/ChartConverter.ts'),
             import('/src/preview/static/exportPanels.ts'),
-            import('/src/chart/config/AppSettings.ts'),
+            import('/src/settings/AppSettings.ts'),
             import('/src/audio/AudioTiming.ts'),
             import('/src/ui/CanvasSpriteIcon.tsx'),
           ]);
@@ -446,7 +446,7 @@ if (want('sim')) {
         import('/src/rendering/skin/noteSkin.ts'),
         import('/src/ui/CanvasSpriteIcon.tsx'),
         import('/src/chart/editing/ChartConverter.ts'),
-        import('/src/chart/config/AppSettings.ts'),
+        import('/src/settings/AppSettings.ts'),
         import('/src/audio/AudioTiming.ts'),
       ]);
       const CanvasSpriteIcon = spriteMod.default;
@@ -836,7 +836,7 @@ if (want('codecs')) {
         import('/src/rendering/skin/noteSkin.ts'),
         import('/src/ui/CanvasSpriteIcon.tsx'),
         import('/src/chart/editing/ChartConverter.ts'),
-        import('/src/chart/config/AppSettings.ts'),
+        import('/src/settings/AppSettings.ts'),
         import('/src/audio/AudioTiming.ts'),
       ]);
       const CanvasSpriteIcon = spriteMod.default;
@@ -956,7 +956,7 @@ if (want('recorder')) {
         import('/src/rendering/skin/noteSkin.ts'),
         import('/src/ui/CanvasSpriteIcon.tsx'),
         import('/src/chart/editing/ChartConverter.ts'),
-        import('/src/chart/config/AppSettings.ts'),
+        import('/src/settings/AppSettings.ts'),
       ]);
       const CanvasSpriteIcon = spriteMod.default;
       const parsed = converter.parseCodeText(codeText);
