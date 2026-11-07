@@ -55,6 +55,8 @@
 - [12 electron 目录按能力域收敛](./issues/12-主进程能力域目录收敛.md) — 已解决（2026-11-05 两提交落地：`electron/` 收成 7 个能力域子目录 + 根位装配根/桥，19 条内联 IPC 归位 15 个注册入口；细节与门禁见票内）
 - [13 electronAPI 桥声明收拢](./issues/13-electronAPI桥声明收拢.md) — 已解决（2026-11-05 单提交落地：18 个消费方的桥形状收进 `src/app/electronBridge.ts` 唯一声明处，4 条源码文本锁换成行为断言、渲染域白名单精确放行一条；两提交经用户复核合并，细节与门禁见票内）
 - [14 设置对象写回收口](./issues/14-设置对象写回收口.md) — 已解决（2026-11-06 单提交落地：26 个 setter 退成接线，字段级写回收进 `AppSettings.ts` 的 `commitSettings`，落盘只在 module 一处；新增 3 个测试文件 / 8 例，396 文件 / 4369 用例全绿；T3 / T4 两处实现口径补正与门禁见票内）
+- [15 删空壳types域与一次性探针](./issues/15-删空壳types域与一次性探针.md) — 已解决（2026-11-07 单提交落地：`ChartPosition` 并进 `chart/types.ts`、`src/types/` 空壳域消失、零引用探针 `first-note-hitch-probe.mjs` 删除；零行为变化、零新增断言，四连门禁改前后增量 0；细节与基线更正见票内）
+- [16 设置对象与片段收藏提为顶层能力域](./issues/16-设置对象与片段收藏提为顶层能力域.md) — open（2026-11-07 开票；第三轮 Top recommendation 候选 01 + 05，前置票 14 已解除；T1/T2 事实偏差与 Q1–Q7 待 grill，实现排在 15 之后）
 - 【第二轮其余候选 · 未开票】候选 5 的剩下一半「解码结果交出 AudioBuffer」（dir 4；调用方是 `ai-enhancement` 的 onset / BPM 票，两者 `Status: open`，届时再领）· 候选 6「桥接探测收成一个平台接缝」（dir 1，Speculative；调用方是 Bestdori 网络面，届时再领）
 
 ## Fog

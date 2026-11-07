@@ -1,8 +1,7 @@
 // EditingContext（ADR-0003 §7.1）：谱面数据与编辑——notes / history / selection / clipboard，
 // 以及编辑操作（复制/剪切/粘贴/删除/镜像/编辑工具态）。放置走 ToolActionMatrix.clickOps。
 import { createContext, useContext, useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { ChartNote, SelectionItem } from '../../chart/types';
-import type { ChartPosition } from '../../types/chart';
+import type { ChartNote, ChartPosition, SelectionItem } from '../../chart/types';
 import { deleteSelection, copySelection, cutSelection, mirrorSelection } from '../../chart/editing/SelectionEditing';
 import { currentHistory } from '../../chart/editing/History';
 import {
