@@ -13,7 +13,7 @@ import { NOTE_SKIN_DEFAULT_SELECTION } from '../../rendering/skin/gen/noteSkinRe
 import { SIM_DEFAULT_PACK_IDS, normalizeSimAssetPackId } from '../../preview/video/sim/simAssetPacks';
 import { GRID_STYLE_PRESETS, type GridStylePreset } from '../../rendering/gridStyle';
 import { DEFAULT_CURVE_CONFIG, normalizeCurveConfig, type CurveConfig } from '../../chart/editing/CurveTool';
-import { DEFAULT_BEAT_SNAP, normalizeBeatSnap } from '../../chart/editing/BeatSnap';
+import { DEFAULT_BEAT_SNAP, normalizeBeatSnap, DEFAULT_BEAT_SNAP_CYCLE_LIST, normalizeBeatSnapCycleList } from '../../chart/editing/BeatSnap';
 import { DEFAULT_PATTERN_SORT, normalizePatternSort, type PatternSortPreference } from '../patterns/library';
 import { detectOsLanguageTag, resolveUiLanguage, type UiLanguage } from '../../i18n/resolveUiLanguage';
 import { type TimePrecision } from '../geometry/TimeFormat';
@@ -160,6 +160,11 @@ export interface AppSettings {
    * 1–192 整数，缺字段 / 脏值经 `normalizeBeatSnap` 回落 4。additive 字段，不 bump schemaVersion。
    */
   beatSnap: number;
+  /**
+   * 节拍吸附常用循环列表（issue 216）：与 beatSnap 同属偏好设置。
+   * 1–192 升序去重整数数组，缺字段 / 脏值回落 [4, 8, 12, 16]。additive 字段，不 bump schemaVersion。
+   */
+  beatSnapCycleList: number[];
   /**
    * 片段粘贴模式（issue 186 / ADR-0023 §2）：`withBpm` = 含 BPM（默认）还是不含 BPM。
    * 只是**偏好**（"我上次怎么贴的"），与 `beatSnap` 同属"我的习惯"；**片段数据本身不进设置对象**
@@ -509,6 +514,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
     beatSnap: DEFAULT_BEAT_SNAP,
+    beatSnapCycleList: [...DEFAULT_BEAT_SNAP_CYCLE_LIST],
     // 片段粘贴默认「含 BPM」（ADR-0023 §2）
     patternPaste: { withBpm: true },
     // 片段库排序默认「最新收藏在前」（issue 192）
@@ -610,6 +616,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),
     beatSnap: normalizeBeatSnap(obj.beatSnap),
+    beatSnapCycleList: normalizeBeatSnapCycleList(obj.beatSnapCycleList),
     // 片段粘贴模式（issue 186）：只认布尔，缺字段 / 脏值 = 带 BPM（默认档）
     patternPaste: {
       withBpm: typeof patternPaste.withBpm === 'boolean' ? patternPaste.withBpm : defaults.patternPaste.withBpm,
@@ -759,6 +766,7 @@ export type SettingsPatch = Partial<{
   visual: Partial<AppSettings['visual']>;
   curve?: CurveConfig;
   beatSnap?: number;
+  beatSnapCycleList?: number[];
   patternPaste?: Partial<AppSettings['patternPaste']>;
   patternLibrary?: Partial<AppSettings['patternLibrary']>;
   playbar?: Partial<AppSettings['playbar']>;
@@ -785,6 +793,7 @@ export function updateSettings(prev: AppSettings, patch: SettingsPatch): AppSett
     visual: { ...prev.visual, ...(patch.visual ?? {}) },
     curve: patch.curve ? normalizeCurveConfig(patch.curve) : prev.curve,
     beatSnap: patch.beatSnap !== undefined ? normalizeBeatSnap(patch.beatSnap) : prev.beatSnap,
+    beatSnapCycleList: patch.beatSnapCycleList !== undefined ? normalizeBeatSnapCycleList(patch.beatSnapCycleList) : prev.beatSnapCycleList,
     // 段内浅合并；非布尔值不写入（脏值不会顶掉上一次的有效偏好）
     patternPaste: {
       withBpm: typeof patch.patternPaste?.withBpm === 'boolean' ? patch.patternPaste.withBpm : prev.patternPaste.withBpm,

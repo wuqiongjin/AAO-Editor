@@ -43,6 +43,8 @@ describe('issue 121 · 索引筛选桶归属', () => {
       mirror: 'editTools', noteCode: 'editTools', undo: 'editTools', redo: 'editTools',
       // issue 185：收藏选区 = 动作类编辑命令
       pattern: 'editTools',
+      // issue 216：节拍吸附快捷键 = 编辑工具
+      snap: 'editTools',
       play: 'playback',
       navigation: 'system',
     };

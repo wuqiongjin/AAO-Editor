@@ -68,6 +68,8 @@ export interface ConfigContextValue {
   setCurveConfig: (config: CurveConfig) => void;
   /** 节拍吸附档位（票 181）：写回 settings.beatSnap 并持久化（跨会话沿用上次值） */
   setBeatSnap: (beatSnap: number) => void;
+  /** 节拍吸附常用循环列表（issue 216）：写回 settings.beatSnapCycleList 并持久化 */
+  setBeatSnapCycleList: (list: number[]) => void;
   /** 片段粘贴模式（issue 186）：写回 settings.patternPaste.withBpm 并持久化（记住上次选择） */
   setPatternPasteWithBpm: (withBpm: boolean) => void;
   /** 片段库排序（issue 192）：写回 settings.patternLibrary.sort 并持久化 */
@@ -215,6 +217,11 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     commit({ beatSnap });
   }, [commit]);
 
+  // 节拍吸附常用循环列表（issue 216）：写回 settings.beatSnapCycleList 并持久化
+  const setBeatSnapCycleList = useCallback((list: number[]) => {
+    commit({ beatSnapCycleList: list });
+  }, [commit]);
+
   // 片段粘贴模式（issue 186）：与节拍吸附同范式——引用稳定（UIProvider 直接透传）
   const setPatternPasteWithBpm = useCallback((withBpm: boolean) => {
     commit({ patternPaste: { withBpm } });
@@ -287,6 +294,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setBackgroundSkin,
     setCurveConfig,
     setBeatSnap,
+    setBeatSnapCycleList,
     setPatternPasteWithBpm,
     setPatternLibrarySort,
     setPlaybar,
@@ -315,6 +323,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setBackgroundSkin,
     setCurveConfig,
     setBeatSnap,
+    setBeatSnapCycleList,
     setPatternPasteWithBpm,
     setPatternLibrarySort,
     setPlaybar,

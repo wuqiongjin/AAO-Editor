@@ -18,6 +18,7 @@ import { useChartViewSession } from '../../playback/useChartViewSession';
 import { useChartProjectPersistence } from '../../project/useChartProjectPersistence';
 import { useShortcutDispatch } from '../../chart/config/useShortcutDispatch';
 import { resolveEscapeTarget } from '../../chart/editing/CanvasGesture';
+import { stepBeatSnap, cycleBeatSnap } from '../../chart/editing/BeatSnap';
 import { isChartReadonly, isChartEditFunction } from '../../project/chartReadonlyGate';
 import { isProjectAudioLocked } from '../../project/workspaceProject';
 import { duplicateChartInProject } from '../../project/projectCatalog';
@@ -64,7 +65,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // issue 73：paste 已从本处移除 —— 粘贴的唯一入口是画布（工具单击 / execPaste），
   // 避免再有一条绕过矩阵、没有末端校验的粘贴通路。
   const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, deleteSelected, mirror, undo, redo, resetNotes, chartCodeFidelity } = editing;
-  const { armedTool, setArmedTool, scale, beatDisplay } = ui;
+  const { armedTool, setArmedTool, scale, beatDisplay, setBeatDisplay } = ui;
   const { settings, setPatternDrawer } = config;
   const drawerOpen = settings.layout.patternDrawer.open;
   const shortcutConfig = settings.shortcuts;
@@ -427,9 +428,13 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       // ADR-0008 §7：从 Esc 摘除的独立功能（默认 Ctrl+Shift+B）；票 183 起只开合片段库抽屉
       //（工具轨固定不折叠，177 Q11）
       case 'toggleSidebar': setPatternDrawer({ open: !drawerOpen }); break;
+      // issue 216：节拍吸附快捷键（增大细分 / 减小细分 / 常用档位循环）
+      case 'beatSnapNext': setBeatDisplay(stepBeatSnap(beatDisplay, 1)); break;
+      case 'beatSnapPrev': setBeatDisplay(stepBeatSnap(beatDisplay, -1)); break;
+      case 'beatSnapCycle': setBeatDisplay(cycleBeatSnap(beatDisplay, settings.beatSnapCycleList)); break;
     }
   }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelection, undo, redo, handleTogglePlay, jumpToMarker,
-      setPatternDrawer, drawerOpen]);
+      setPatternDrawer, drawerOpen, setBeatDisplay, beatDisplay, settings.beatSnapCycleList]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
   useShortcutDispatch({

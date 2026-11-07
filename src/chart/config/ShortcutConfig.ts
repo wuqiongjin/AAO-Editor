@@ -34,6 +34,8 @@ export type FunctionId =
   | 'execSavePattern'
   | 'toggleSidebar'
   | 'undo' | 'redo' | 'play' | 'jumpToMarker'
+  // issue 216：节拍吸附快捷键（增大细分 / 减小细分 / 常用档位循环），出厂未绑定（binding: null）
+  | 'beatSnapNext' | 'beatSnapPrev' | 'beatSnapCycle'
   // 切页（issue 177，2026-10-28 用户定案）：应用级功能进同一注册表，
   // 改键 / 冲突检测 / 屏蔽 / 导入导出全部复用同一套。
   | 'pageProjects' | 'pageWorkspace' | 'pageAudio' | 'pagePreview'
@@ -53,8 +55,8 @@ export interface FunctionDef {
   label: string;
   /** 展示分组类别（tooltip 按类别合并 切换/执行） */
   category: string;
-  /** 该功能绑定的单个键，小写规范形式，如 'f' / 'ctrl+f' / ' '（空格） */
-  binding: string;
+  /** 该功能绑定的单个键，小写规范形式，如 'f' / 'ctrl+f' / ' '（空格）；null 表示出厂未绑定 */
+  binding: string | null;
   /** 缺省 = 'canvas' */
   scope?: FunctionScope;
 }
@@ -93,6 +95,10 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'redo',               label: 'shortcut.fn.redo',               category: 'redo', binding: 'ctrl+y' },
   { id: 'play',               label: 'shortcut.fn.play',               category: 'play', binding: ' ' },
   { id: 'jumpToMarker',       label: 'shortcut.fn.jumpToMarker',       category: 'play', binding: 'ctrl+ ' },
+  // 节拍吸附（issue 216，双轨制 Q1=A）：出厂默认 null（零冲突），偏好用户在设置页自行绑定
+  { id: 'beatSnapNext',       label: 'shortcut.fn.beatSnapNext',       category: 'snap', binding: null },
+  { id: 'beatSnapPrev',       label: 'shortcut.fn.beatSnapPrev',       category: 'snap', binding: null },
+  { id: 'beatSnapCycle',      label: 'shortcut.fn.beatSnapCycle',      category: 'snap', binding: null },
   // 切页默认键 Alt+1..7（1 起、与侧栏位次一一对应）。**不要改回 ⇧⌘0..6**：
   // macOS 的 ⇧⌘3/4/5 是系统截图/录屏、⇧⌘6 是 Touch Bar 截图，事件先被系统吃掉，应用收不到。
   // 放在表尾还有一个含义：载入时去重按表序优先，画布功能（用户显式改过的键）不会被页面默认键顶掉。
@@ -201,9 +207,9 @@ const STORAGE_KEY = 'aao.shortcuts.v1';
  * 用户真正改过的键位（≠ 旧默认）一律保留。
  */
 const SUPERSEDED_DEFAULTS: Partial<Record<FunctionId, { old: string; current: string }>> = {
-  toggleSidebar: { old: 'ctrl+b', current: functionById('toggleSidebar').binding },
+  toggleSidebar: { old: 'ctrl+b', current: functionById('toggleSidebar').binding! },
   // issue 09 验收反馈 #9：曲线切换键 C → W（执行键 Shift+W 为新增项，不涉及旧存档）
-  switchCurve: { old: 'c', current: functionById('switchCurve').binding },
+  switchCurve: { old: 'c', current: functionById('switchCurve').binding! },
 };
 
 function repairStaleBindings(cfg: ShortcutConfig): ShortcutConfig {
@@ -313,9 +319,9 @@ export function maskFunctionBinding(cfg: ShortcutConfig, masks: ShortcutMasks, i
   cfg[id] = null;
 }
 
-/** 重新启用的目标键：优先屏蔽前键位；没有记录（旧存档 / 载入去重造成）回落出厂默认 */
-export function bindingToRestore(id: FunctionId, masks: ShortcutMasks): string {
-  return masks[id] ?? getDefaultConfig()[id] ?? functionById(id).binding;
+/** 重新启用的目标键：优先屏蔽前键位；没有记录（旧存档 / 载入去重造成）回落出厂默认（未绑定则为 null） */
+export function bindingToRestore(id: FunctionId, masks: ShortcutMasks): string | null {
+  return masks[id] ?? getDefaultConfig()[id] ?? functionById(id).binding ?? null;
 }
 
 /** 只保留仍在屏蔽态的条目：启用 / 恢复默认后旧记录自动失效，避免下次屏蔽时被当成"上次键位" */
