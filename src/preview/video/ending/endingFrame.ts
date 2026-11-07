@@ -1,7 +1,7 @@
-// 结尾段的**一帧绘制**（chart-preview 52）：中央章（字样 + 5 波粒子）→ 黑幕转场 → 结算画面。
+// 结尾段的**一帧绘制**（chart-preview 52 / 55）：中央章（字样 + 多波粒子）→ 黑幕转场 → 结算画面。
 //
 // 版式照票 52「最终版式」的整份 JSON（参数在 `endingSpec.ts`），绘制顺序照原型
-// `public/proto/ending.html` 的 `draw()`：
+// `public/proto/scenes.html` 的 `render()`：
 //
 //   ① 舞台（= **仿真场末帧**，取景沿用 `simField` 的 `backgroundRect`；轨道 / 判定线仍在）
 //   ② 章：粒子（画在字样**后面**）→ 字样逐字母落下（`!` 下的星标从正中飞出）
@@ -50,7 +50,7 @@ export interface EndingStageInput {
 
 /** 结尾段的**内容面**（封面已解码；场地由出帧层补成 `EndingFrameInput`） */
 export interface EndingContentInput {
-  /** 中央章形态：`clear` = 无章（也不放粒子） */
+  /** 中央章形态：`clear` = 无章、无角标（票 55 起**仍放普通烟花**） */
   stamp: EndingStamp;
   /** 顶栏曲名 */
   title: string;
@@ -117,14 +117,51 @@ const BADGE_INK_W = 57;
 /** `tex_parSet_fever.png` 里的实心五角星（粒子母图） */
 const PAR_STAR = [153, 278, 79, 76] as const;
 
-/** 5 波爆炸的配色池（`palette: 'cycle'` 按波次轮换，看得出层次） */
+/**
+ * `palette` 切到 `warm` / `cool` / `pink` / `mix` 时用的 4 套固定配色，每套 5 色。
+ * 默认 `cycle` 不走这里，走 `ENDING_SPEC.burstC1..5`（原型里可取色）。
+ */
 const PALETTES = {
-  warm: ['#ffe27a', '#ffb36b', '#fff3cf', '#ff8f5e'],
-  cool: ['#8fe9ff', '#7df0c8', '#ffffff', '#bcd4ff'],
-  pink: ['#ff9fd2', '#d7a4ff', '#ffffff', '#ffc2e6'],
-  mix: ['#ffe25a', '#7df0c8', '#ffffff', '#ff9fd2'],
+  warm: ['#ffe27a', '#ffb36b', '#fff3cf', '#ff8f5e', '#ffd05a'],
+  cool: ['#8fe9ff', '#7df0c8', '#bcd4ff', '#a8b8ff', '#ffffff'],
+  pink: ['#ff9fd2', '#d7a4ff', '#ffc2e6', '#e3b0ff', '#ffffff'],
+  mix: ['#ffe25a', '#7df0c8', '#ff9fd2', '#8fe9ff', '#ffffff'],
 } as const;
-const WAVE_PALETTE = ['cool', 'warm', 'pink', 'mix', 'cool'] as const;
+
+function burstPool(spec: EndingSpec): readonly string[] {
+  const style = spec.palette;
+  if (style !== 'cycle') return PALETTES[style] ?? PALETTES.mix;
+  return [spec.burstC1, spec.burstC2, spec.burstC3, spec.burstC4, spec.burstC5];
+}
+
+/** 颜色解析：同时接 `#rrggbb` / `#rgb` / `rgb(...)` / `rgba(...)` */
+function parseColor(color: string): [number, number, number] {
+  const s = color.trim();
+  if (s.startsWith('#')) {
+    const h = s.slice(1);
+    const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+    const n = Number.parseInt(v, 16);
+    if (Number.isFinite(n)) return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const m = s.match(/rgba?\(([^)]+)\)/);
+  if (m) {
+    const p = m[1]!.split(',').map((x) => Number.parseFloat(x));
+    return [p[0] ?? 255, p[1] ?? 255, p[2] ?? 255];
+  }
+  return [255, 255, 255];
+}
+
+/** 影子星的代表色往深处压一点，用作双层烟花的彩色本体（票 55 E10） */
+function shadeColor(color: string, k: number): string {
+  const [r, g, b] = parseColor(color);
+  const f = (v: number): number => Math.round(clamp01((v * k) / 255) * 255);
+  return `rgb(${f(r)}, ${f(g)}, ${f(b)})`;
+}
+
+function rgbaOf(color: string, alpha: number): string {
+  const [r, g, b] = parseColor(color);
+  return `rgba(${r},${g},${b},${clamp01(alpha)})`;
+}
 
 // ---------------------------------------------------------------- 小工具
 
@@ -296,10 +333,14 @@ interface GlyphSprite {
   inkW: number;
 }
 
-/** 拆字结果：从左到右的字形（不含星标）+ 星标 */
+/** 拆字结果：从左到右的字形（不含星标、不含 `!`）+ 星标 + `!` */
 interface GlyphSplit {
   glyphs: GlyphSprite[];
   star: GlyphSprite | null;
+  /** `!`（闪电 + 圆点，在图上粘成一枚）—— 从字母队列摘出，单独演飞镖式入场 */
+  bang: GlyphSprite | null;
+  /** 摘出 `!` 之前的字形数：字母队列仍按它算 stagger，前面的时序一帧不改 */
+  waveCount: number;
 }
 
 /** 章字样层（原图或纯字）+ 擦入用的遮罩层 */
@@ -312,6 +353,10 @@ interface WordLayer {
   glyphs: GlyphSprite[];
   /** 逐字母用：`!` 下面那颗星（缺件 / 拆不开 = null） */
   star: GlyphSprite | null;
+  /** 逐字母用：单独演的 `!`（拆不出 = null，退回老路径随队列落） */
+  bang: GlyphSprite | null;
+  /** 含 `!` 在内的原字形数，用来冻结字母队列时序 */
+  waveCount: number;
   /** 整块烘焙层（纯字兜底 / 拆不开时走擦入用；逐字母路径不用） */
   layer: HTMLCanvasElement | null;
   mask: HTMLCanvasElement | null;
@@ -525,7 +570,15 @@ function splitImage(img: CanvasImageSource): GlyphSplit | null {
     else glyphs.push(sprite);
   });
   if (glyphs.length < 2) return null;
-  return { glyphs, star };
+
+  // `!`（闪电 + 圆点）粘成一枚、排在队列最右。把它从字母层摘出去单独演（票 55），
+  // 但 `waveCount` 记的是摘之前的枚数 —— 字母队列的 stagger 照旧，前面的字一帧不差。
+  let bang: GlyphSprite | null = null;
+  if (glyphs.length >= 3) {
+    const last = glyphs[glyphs.length - 1]!;
+    if (last.nx > 0.78) bang = glyphs.pop()!;
+  }
+  return { glyphs, star, bang, waveCount: glyphs.length + (bang ? 1 : 0) };
 }
 
 /**
@@ -605,6 +658,8 @@ function wordLayer(input: EndingFrameInput, wPx: number): WordLayer | null {
     h,
     glyphs: split?.glyphs ?? [],
     star: split?.star ?? null,
+    bang: split?.bang ?? null,
+    waveCount: split?.waveCount ?? 0,
     layer,
     mask,
   };
@@ -670,9 +725,13 @@ function drawStampWord(
     }
   }
 
-  if (word.glyphs.length >= 2) {
+  // `waveCount` 是摘出 `!` 之前的枚数：判定「能否拆」仍按原口径，别把摘字误判成拆不开
+  if (word.waveCount >= 2) {
+    // 层级：双层烟花在字样后面（票 55 E9）
+    drawStampHalo(ctx, u, word, elapsed, alpha);
     drawGlyphWave(ctx, u, word, elapsed, alpha);
     drawStampStar(ctx, u, word, elapsed, alpha);
+    drawStampBang(ctx, u, word, elapsed, alpha);
   } else {
     drawWordWipe(ctx, u, word, p);
   }
@@ -697,7 +756,8 @@ function drawGlyphWave(
   const inSec = Math.max(0.05, u.spec.stampIn);
   const dur = Math.max(0.04, u.spec.letterDur);
   const span = Math.max(dur, (u.spec.letterSpan / 100) * inSec);
-  const n = word.glyphs.length;
+  // 队列长度含被摘出去的 `!`：stagger 仍按原枚数算，前面字母的时序一帧不改
+  const n = Math.max(word.glyphs.length, word.waveCount || 0);
   const stagger = n > 1 ? (span - dur) / (n - 1) : 0;
   const drop = (u.spec.letterDrop / 100) * word.h;
   const bounce = Math.max(0, u.spec.letterBounce);
@@ -705,7 +765,7 @@ function drawGlyphWave(
   const halfW = word.w / 2;
   const halfH = word.h / 2;
 
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < word.glyphs.length; i++) {
     const q = clamp01((elapsed - i * stagger) / dur);
     if (q <= 0) continue;
     // 入队那一瞬间用 12% 的时长淡到 `inAlpha`，之后一路补到 1（落位时不再发虚）
@@ -882,24 +942,24 @@ function drawStampStar(
   const star = word.star;
   if (!star) return;
   const tint = u.spec.ghostTint && u.spec.ghostTint !== 'auto' ? u.spec.ghostTint : starTint(star.canvas);
-  const sw = star.nw * word.w;
-  const sh = star.nh * word.h;
-  /** 影子基准 = 字芯宽（不含白描边）：AP / FC 的描边厚度不同，用整块框 FC 会大一圈 */
-  const inkSize = Math.max(1, star.inkW * word.w);
+  /**
+   * 星标基准按**字块高**定，不按各图自己的 `inkW`：两张章里那颗小星原图不等大
+   * （字芯宽 AP 69px / FC 62px），按图取会让 FC 的落位星 / 影子星 / 两层烟花整圈小一圈。
+   * `norm` 把各图的星贴片拉到同一基准，AP ≈ 1×、FC ≈ 1.11×。
+   */
+  const inkSize = Math.max(1, word.h * u.spec.starSizeRef);
+  const norm = inkSize / Math.max(1, star.inkW * word.w);
+  const sw = star.nw * word.w * norm;
+  const sh = star.nh * word.h * norm;
   // 终态位置 = 原图里那个位置（落定后与"!"重新拼回同一张图）
   const homeX = (star.nx + star.nw / 2) * word.w - word.w / 2;
   const homeY = (star.ny + star.nh / 2) * word.h - word.h / 2;
 
-  const inSec = Math.max(0.05, u.spec.stampIn);
-  const at = Math.max(0, (u.spec.starAt / 100) * inSec);
-  const growDur = Math.max(0.02, (u.spec.starGrow / 100) * inSec);
-  const flyDur = Math.max(0.02, (u.spec.starFly / 100) * inSec);
-  const growEnd = at + growDur;
-  // 变大结束 → 起飞之间可以留一段停顿（0 = 立刻走）
-  const flyStart = growEnd + (Math.max(0, u.spec.starHold) / 100) * inSec;
-  const landAt = flyStart + flyDur;
-  const big = Math.max(0.2, u.spec.starBig);
-  const spin = (u.spec.starSpin * Math.PI) / 180;
+  // 与 `!`、两层烟花共用同一份时间轴：改 `stampIn` / `starGrow` 时不会再各自漂
+  const T = starTimeline(u);
+  const { at, growDur, growEnd, flyStart, flyDur, landAt, ghostDur } = T;
+  const big = T.big;
+  const spin = T.spin;
 
   const paint = (cx: number, cy: number, scale: number, rot: number, a: number): void => {
     if (a <= 0.004 || scale <= 0.001) return;
@@ -943,7 +1003,7 @@ function drawStampStar(
   }
 
   // 起飞瞬间留在正中的残余影子：纯色圆角星，继续变大 + 继续旋转 + 淡出
-  const gq = (elapsed - flyStart) / Math.max(0.02, u.spec.ghostDur);
+  const gq = (elapsed - flyStart) / ghostDur;
   if (gq < 1) {
     const ge = easeOutCubic(gq);
     const ghostTo = Math.max(big, u.spec.ghostGrow);
@@ -963,6 +1023,257 @@ function drawStampStar(
   // 用 easeOut：起步就动，停顿只由 `starHold` 决定（easeInOut 自带一段"没动"的错觉）
   const f = easeOutCubic((elapsed - flyStart) / flyDur);
   paint(homeX * f, homeY * f, big + (1 - big) * f, spin * (1 - f), alpha);
+}
+
+/** 星标 / 影子星 / `!` / 两层烟花**共用**的时间轴：只有这一处推导 `landAt` */
+interface StarTimeline {
+  at: number;
+  growDur: number;
+  growEnd: number;
+  flyStart: number;
+  flyDur: number;
+  landAt: number;
+  big: number;
+  spin: number;
+  ghostDur: number;
+}
+
+function starTimeline(u: EndingUnits): StarTimeline {
+  const inSec = Math.max(0.05, u.spec.stampIn);
+  const at = Math.max(0, (u.spec.starAt / 100) * inSec);
+  const growDur = Math.max(0.02, (u.spec.starGrow / 100) * inSec);
+  const flyDur = Math.max(0.02, (u.spec.starFly / 100) * inSec);
+  const growEnd = at + growDur;
+  const flyStart = growEnd + (Math.max(0, u.spec.starHold) / 100) * inSec;
+  return {
+    at,
+    growDur,
+    growEnd,
+    flyStart,
+    flyDur,
+    landAt: flyStart + flyDur,
+    big: Math.max(0.2, u.spec.starBig),
+    spin: (u.spec.starSpin * Math.PI) / 180,
+    ghostDur: Math.max(0.02, u.spec.ghostDur),
+  };
+}
+
+/**
+ * `!` 的飞镖式入场（票 55）：不进字母队列，锚在星标落定前后。
+ * 支点取字形左下角而不是中心，才有「镖尖插住、镖尾还在晃」的观感。
+ */
+function drawStampBang(
+  ctx: CanvasRenderingContext2D,
+  u: EndingUnits,
+  word: WordLayer,
+  elapsed: number,
+  alpha: number,
+): void {
+  const g = word.bang;
+  if (!g) return;
+  const T = starTimeline(u);
+  const start = T.landAt + u.spec.bangAt;
+  const wipe = Math.max(0.02, u.spec.bangWipe);
+  const settle = Math.max(0.02, u.spec.bangSettle);
+  const age = elapsed - start;
+  if (age < 0) return;
+
+  const gw = g.nw * word.w;
+  const gh = g.nh * word.h;
+  // `drawStampWord` 已把原点移到字块中心，下面都是字块相对坐标
+  const px = g.nx * word.w - word.w / 2;
+  const py = (g.ny + g.nh) * word.h - word.h / 2;
+  const fromX = u.hp('bangFromX');
+  const fromY = u.hp('bangFromY');
+  const overX = u.hp('bangOverX');
+  const overY = u.hp('bangOverY');
+
+  let dx = 0;
+  let dy = 0;
+  let rot = 0;
+  let a = alpha;
+  if (age < wipe) {
+    const q = clamp01(age / wipe);
+    const e = easeOutCubic(q);
+    dx = fromX + (-overX - fromX) * e;
+    dy = -fromY + (overY + fromY) * e;
+    a = alpha * smooth(clamp01(q / 0.4));
+  } else {
+    const q = clamp01((age - wipe) / settle);
+    const e = easeOutCubic(q);
+    dx = -overX * (1 - e);
+    dy = overY * (1 - e);
+    const decay = Math.pow(1 - q, Math.max(0.05, u.spec.bangDamp));
+    rot =
+      ((u.spec.bangWobble * Math.PI) / 180) *
+      decay *
+      Math.sin(q * Math.PI * 2 * Math.max(0.5, u.spec.bangWobbles));
+  }
+
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.translate(px + dx, py + dy);
+  if (rot) ctx.rotate(rot);
+  ctx.drawImage(g.canvas, 0, -gh, gw, gh);
+  ctx.restore();
+}
+
+/**
+ * 菱形层本体：不是正规菱形，四条边往外鼓（「鼓起来肚子」）。
+ * 菱形自身不旋转（票 55 E10）。
+ */
+function drawBulgeDiamond(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+  color: string,
+  alpha: number,
+  bulge: number,
+): void {
+  if (alpha <= 0.004 || w <= 0 || h <= 0) return;
+  const hw = w / 2;
+  const hh = h / 2;
+  // 一条二次曲线给不出「四个尖 + 鼓肚子」：控制点往外推会把尖磨圆，往里收又没肚子。
+  // 改三次：靠尖的那个控制点几乎沿切线走（保住尖角），靠中段的那个往外推（鼓出肚子）。
+  const near = 0.34;
+  const far = 0.6 + 0.35 * bulge;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(cx, cy);
+  ctx.beginPath();
+  ctx.moveTo(0, -hh);
+  ctx.bezierCurveTo(hw * near, -hh * far, hw * far, -hh * near, hw, 0);
+  ctx.bezierCurveTo(hw * far, hh * near, hw * near, hh * far, 0, hh);
+  ctx.bezierCurveTo(-hw * near, hh * far, -hw * far, hh * near, -hw, 0);
+  ctx.bezierCurveTo(-hw * far, -hh * near, -hw * near, -hh * far, 0, -hh);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * 中心的两层烟花：都画在**字样后面**（票 55 E9，层级跟普通烟花一样）。
+ * 菱形层是从中心扩散的另一层爆炸，**不是**影子星的顶点（用户第三轮更正）。
+ * 两层彩色本体都取「影子星颜色压深一点」，另一种是纯白。
+ */
+function drawStampHalo(
+  ctx: CanvasRenderingContext2D,
+  u: EndingUnits,
+  word: WordLayer,
+  elapsed: number,
+  alpha: number,
+): void {
+  const star = word.star;
+  if (u.spec.haloOn < 0.5 || !star) return;
+  const T = starTimeline(u);
+  const tint =
+    u.spec.ghostTint && u.spec.ghostTint !== 'auto' ? u.spec.ghostTint : starTint(star.canvas);
+  const ink = shadeColor(tint, clamp01(u.spec.haloDarken));
+  const white = '#ffffff';
+  // 与 `drawStampStar` 同一个归一化基准：AP / FC 的两层烟花才会一样大
+  const inkSize = Math.max(1, word.h * u.spec.starSizeRef);
+
+  // ① 外围圆环
+  const age = elapsed - T.flyStart;
+  const total = T.ghostDur + Math.max(0, u.spec.haloSurvive);
+  if (age >= 0 && age <= total) {
+    // 终点取 `haloGrow` 而不是 `ghostGrow`：影子星长到 10× 时早已淡出画外
+    const ghostTo = Math.max(T.big, u.spec.haloGrow);
+    const ge = easeOutCubic(clamp01(age / T.ghostDur));
+    const starSize = inkSize * (T.big + (ghostTo - T.big) * ge);
+    const rot = T.spin + ((u.spec.ghostSpin * Math.PI) / 180) * ge;
+    const fadeIn = smooth(clamp01(age / (total * 0.12)));
+    const fadeOut =
+      1 - smooth(clamp01((age - T.ghostDur * 0.6) / Math.max(0.02, total - T.ghostDur * 0.6)));
+    const a = alpha * u.spec.haloAlpha * fadeIn * fadeOut;
+    if (a > 0.004) {
+      const ringR = (starSize / 2) * u.spec.haloRingRadius;
+      const ringW = Math.max(1, u.hp('haloRingWidth'));
+      ctx.save();
+      ctx.globalAlpha = a * u.spec.haloRingAlpha;
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = ringW;
+      ctx.beginPath();
+      ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      const n = Math.max(0, Math.round(u.spec.haloRingStars));
+      const starR = ringR * (1 + u.spec.haloRingOffset) + ringW * 0.8;
+      const ringStarPx = u.hp('haloRingStarSize');
+      for (let i = 0; i < n; i++) {
+        const ang = -Math.PI / 2 + (i / Math.max(1, n)) * Math.PI * 2 + rot * 0.35;
+        drawSolidStar(
+          ctx,
+          Math.cos(ang) * starR,
+          Math.sin(ang) * starR,
+          ringStarPx,
+          0,
+          i % 2 ? white : ink,
+          a * 0.9,
+        );
+      }
+    }
+  }
+
+  // ② 菱形爆炸
+  const diaAt = T.flyStart + Math.max(0, u.spec.haloDiaAt);
+  const diaDur = Math.max(0.02, u.spec.haloDiaDur);
+  const diaFade = Math.max(0.02, u.spec.haloDiaFade);
+  const diaAge = elapsed - diaAt;
+  // 淡出起点与扩散重叠（票 55 第四轮）：旧口径「先到位、再淡」用户不要。
+  const fadeAt = clamp01(u.spec.haloDiaFadeAt) * diaDur;
+  if (diaAge < 0 || diaAge > fadeAt + diaFade) return;
+  const dq = clamp01(diaAge / diaDur);
+  const R = inkSize * (u.spec.haloDiaFrom + (u.spec.haloDiaTo - u.spec.haloDiaFrom) * easeOutCubic(dq));
+  const appear = smooth(clamp01(diaAge / (diaDur * 0.25)));
+  // 线性衰减而不是 smooth：smooth 起步太平，会在最外侧"停"一小段，看着仍像到位后才淡
+  const vanish = Math.pow(1 - clamp01((diaAge - fadeAt) / diaFade), 1.15);
+  const da = alpha * u.spec.haloAlpha * appear * vanish;
+  if (da <= 0.004) return;
+
+  const n = Math.max(0, Math.round(u.spec.haloDiaCount));
+  const jitter = clamp01(u.spec.haloDiaJitter);
+  const layout = u.spec.haloDiaLayout;
+  // 固定种子：导出逐帧可复现
+  const rnd = mulberry32(Math.round(u.spec.haloDiaSeed) * 7919 + n * 31);
+  const diaH = u.hp('haloDiaSize');
+  const spokes = 6;
+  const perSpoke = Math.max(1, Math.ceil(n / spokes));
+  for (let i = 0; i < n; i++) {
+    let ang: number;
+    let rk: number;
+    if (layout === 'scatter') {
+      ang = rnd() * Math.PI * 2;
+      rk = 0.55 + 0.45 * rnd();
+    } else if (layout === 'spokes') {
+      const g = i % spokes;
+      const k = Math.floor(i / spokes);
+      ang = -Math.PI / 2 + (g / spokes) * Math.PI * 2 + (rnd() - 0.5) * 0.35;
+      rk = 0.35 + 0.65 * (k / Math.max(1, perSpoke - 1));
+    } else {
+      ang =
+        -Math.PI / 2 +
+        (i / Math.max(1, n)) * Math.PI * 2 +
+        (rnd() - 0.5) * ((Math.PI * 2) / Math.max(1, n)) * jitter * 2;
+      rk = 1;
+    }
+    const rr = R * (rk + (rnd() - 0.5) * 2 * jitter * 0.22);
+    const sizeK = 0.72 + rnd() * 0.56;
+    drawBulgeDiamond(
+      ctx,
+      Math.cos(ang) * rr,
+      Math.sin(ang) * rr,
+      diaH * 0.72 * sizeK,
+      diaH * sizeK,
+      i % 2 ? white : ink,
+      da * (0.7 + 0.3 * rnd()),
+      0.9,
+    );
+  }
 }
 
 interface EndingParticle {
@@ -1005,20 +1316,32 @@ function starSprite(img: CanvasImageSource, color: string): HTMLCanvasElement | 
   return canvas;
 }
 
-function paletteFor(wave: number, spec: EndingSpec): readonly string[] {
-  const style = spec.palette;
-  if (style !== 'cycle') return PALETTES[style];
-  return PALETTES[WAVE_PALETTE[wave] ?? 'mix'];
+interface BurstWave {
+  wave: number;
+  at: number;
+  points: Array<[number, number]>;
+  /** 每个爆点各自的起爆时刻（错峰，不再一口气齐爆） */
+  ats: number[];
+  /** 每个爆点单色：波里有几点就出现几色，5 点波才凑齐 5 色 */
+  colors: string[];
+  /** 每个爆点的星数 */
+  n: number;
+  speed: number;
 }
 
-/** 齐爆的散点位置：绕画面中心的椭圆上均匀分布（避开正中，免得全被字块挡住） */
-function scatterPoints(n: number, seed: number, u: EndingUnits): Array<[number, number]> {
+/** 散点位置：绕画面中心的椭圆上均布（避开正中，免得全被字块挡住），各波错相位 */
+function scatterPoints(
+  n: number,
+  seed: number,
+  u: EndingUnits,
+  phase = 0,
+): Array<[number, number]> {
   const rnd = mulberry32(seed);
   const pts: Array<[number, number]> = [];
-  const rx = u.w * 0.335;
-  const ry = u.h * 0.3;
+  const rx = u.w * (u.spec.burstScatterX / 100);
+  const ry = u.h * (u.spec.burstScatterY / 100);
   for (let i = 0; i < n; i++) {
-    const ang = -Math.PI / 2 + (i / n) * Math.PI * 2 + (rnd() - 0.5) * 0.28;
+    const ang = -Math.PI / 2 + phase + (i / n) * Math.PI * 2 + (rnd() - 0.5) * u.spec.burstJitter;
     pts.push([
       u.w / 2 + Math.cos(ang) * rx * (0.86 + rnd() * 0.22),
       u.hp('stampY') + Math.sin(ang) * ry * (0.86 + rnd() * 0.22),
@@ -1027,64 +1350,82 @@ function scatterPoints(n: number, seed: number, u: EndingUnits): Array<[number, 
   return pts;
 }
 
-/** 5 波爆点：中心 → 24% / 42% 各一处 → 62% 起 4 处齐爆 → 80% 起 5 处齐爆 */
-function burstWaves(u: EndingUnits): Array<{
-  wave: number;
-  at: number;
-  points: Array<[number, number]>;
-  n: number;
-  speed: number;
-}> {
-  const count = u.spec.partCount;
-  return [
-    { wave: 0, at: 0.02 * u.spec.stampDur, points: [[u.w / 2, u.hp('stampY')]], n: count, speed: 1 },
+/** 最多 6 波；用哪几波由 `burstWaveCount` 定，时刻 / 点数读 `burst2..6At/Points`。 */
+function burstWaves(u: EndingUnits): BurstWave[] {
+  const s = u.spec;
+  const count = Math.max(0, s.partCount) * Math.max(0, s.burstDensity);
+  const pool = burstPool(s);
+  const defs: Array<{
+    at: number;
+    points: Array<[number, number]>;
+    n: number;
+    speed: number;
+  }> = [
+    { at: 0.02 * s.stampDur, points: [[u.w / 2, u.hp('stampY')]], n: count, speed: 1 },
     {
-      wave: 1,
-      at: (u.spec.burst2At / 100) * u.spec.stampDur,
+      at: (s.burst2At / 100) * s.stampDur,
       points: [[u.wp('burst2X'), u.hp('burst2Y')]],
-      n: count * 0.46,
+      n: count * 0.6,
       speed: 0.86,
     },
     {
-      wave: 2,
-      at: (u.spec.burst3At / 100) * u.spec.stampDur,
+      at: (s.burst3At / 100) * s.stampDur,
       points: [[u.wp('burst3X'), u.hp('burst3Y')]],
-      n: count * 0.4,
+      n: count * 0.55,
       speed: 0.8,
     },
     {
-      wave: 3,
-      at: (u.spec.burst4At / 100) * u.spec.stampDur,
-      points: scatterPoints(Math.max(1, Math.round(u.spec.burst4Points)), 41, u),
-      n: count * 0.3,
+      at: (s.burst4At / 100) * s.stampDur,
+      points: scatterPoints(Math.max(1, Math.round(s.burst4Points)), 41, u, 0),
+      n: count * 0.34,
       speed: 0.72,
     },
     {
-      wave: 4,
-      at: (u.spec.burst5At / 100) * u.spec.stampDur,
-      points: scatterPoints(Math.max(1, Math.round(u.spec.burst5Points)), 97, u),
-      n: count * 0.26,
-      speed: 0.66,
+      at: (s.burst5At / 100) * s.stampDur,
+      points: scatterPoints(Math.max(1, Math.round(s.burst5Points)), 97, u, 0.35),
+      n: count * 0.3,
+      speed: 0.68,
+    },
+    {
+      at: (s.burst6At / 100) * s.stampDur,
+      points: scatterPoints(Math.max(1, Math.round(s.burst6Points)), 151, u, 0.7),
+      n: count * 0.34,
+      speed: 0.64,
     },
   ];
+  const waves = Math.max(1, Math.min(defs.length, Math.round(s.burstWaveCount)));
+  const stagger = Math.max(0, s.burstStagger);
+  return defs.slice(0, waves).map(
+    (d, gi): BurstWave => ({
+      wave: gi,
+      at: d.at,
+      points: d.points,
+      ats: d.points.map((_, pi) => d.at + pi * stagger),
+      colors: d.points.map((_, pi) => pool[(gi + pi) % pool.length] ?? '#ffffff'),
+      n: d.n,
+      speed: d.speed,
+    }),
+  );
 }
 
 let particleCache: { key: string; list: EndingParticle[] } | null = null;
 
 function particles(u: EndingUnits): EndingParticle[] {
-  const key = `${u.w}x${u.h}`;
+  // key 必须带上 spec：否则同分辨率下调 `partCount` / `burst*` 会复用旧表，滑杆看着没反应
+  const key = `${u.w}x${u.h}|${JSON.stringify(u.spec)}`;
   if (particleCache && particleCache.key === key) return particleCache.list;
   const out: EndingParticle[] = [];
   burstWaves(u).forEach((grp, gi) => {
-    const colors = paletteFor(grp.wave, u.spec);
     grp.points.forEach((pt, pi) => {
       const rnd = mulberry32(3000 + gi * 131 + pi * 17);
       const count = Math.max(1, Math.round(grp.n));
+      // 一个爆点一种颜色：整点所有星星共用它，不再点内混色
+      const color = grp.colors[pi] ?? '#ffffff';
+      const at = grp.ats[pi] ?? grp.at;
       for (let i = 0; i < count; i++) {
         const ang = rnd() * Math.PI * 2;
         // 同一组共用一个减速度 ⇒ 扩散成一圈（烟花），而不是一团随机散点
         const sp = (960 + rnd() * 380) * u.spec.partSpeed * grp.speed;
-        const color = colors[Math.floor(rnd() * colors.length)] ?? '#ffffff';
         out.push({
           ox: pt[0],
           oy: pt[1],
@@ -1093,9 +1434,9 @@ function particles(u: EndingUnits): EndingParticle[] {
           size: u.hp('partSize') * (0.65 + rnd() * 0.6) * (grp.wave >= 3 ? 0.85 : 1),
           color,
           spin: (rnd() - 0.5) * 7,
-          life: 0.78 + rnd() * 0.22,
+          life: Math.max(0.05, u.spec.partLife) + rnd() * 0.35,
           delay: rnd() * 0.04,
-          at: grp.at,
+          at,
           drag: 1.75,
         });
       }
@@ -1124,7 +1465,7 @@ function drawParticles(
   for (const p of list) {
     const age = elapsed - p.at - p.delay;
     if (age < 0 || age > p.life) continue;
-    const fade = Math.pow(1 - age / p.life, 1.15);
+    const fade = Math.pow(1 - age / p.life, Math.max(0.05, u.spec.partFadePow));
     const size = p.size * (0.6 + 0.4 * (1 - age / p.life));
     const [x, y] = at(p, age);
     const [px, py] = at(p, Math.max(0, age - 0.06));
@@ -1149,20 +1490,20 @@ function drawParticles(
   }
   ctx.restore();
 
-  // 起爆闪：每组爆点后 ~0.26s 的一团柔光
   for (const grp of burstWaves(u)) {
-    const age = elapsed - grp.at;
-    if (age < 0 || age > 0.26) continue;
-    for (const pt of grp.points) {
+    grp.points.forEach((pt, pi) => {
+      const age = elapsed - (grp.ats[pi] ?? grp.at);
+      if (age < 0 || age > 0.26) return;
       const a = Math.pow(1 - age / 0.26, 2) * 0.2;
       const r = u.hp('partSize') * (3 + age * 26);
+      const color = grp.colors[pi] ?? '#ffffff';
       const gr = ctx.createRadialGradient(pt[0], pt[1], 0, pt[0], pt[1], r);
-      gr.addColorStop(0, `rgba(255,248,224,${a})`);
-      gr.addColorStop(0.45, `rgba(190,235,255,${a * 0.45})`);
-      gr.addColorStop(1, 'rgba(190,235,255,0)');
+      gr.addColorStop(0, rgbaOf(color, a));
+      gr.addColorStop(0.45, rgbaOf(color, a * 0.45));
+      gr.addColorStop(1, rgbaOf(color, 0));
       ctx.fillStyle = gr;
       ctx.fillRect(pt[0] - r, pt[1] - r, r * 2, r * 2);
-    }
+    });
   }
 }
 
@@ -1441,7 +1782,9 @@ function drawAp(
 ): void {
   if (input.stamp === 'clear' || a <= 0.002) return;
   const r = comboRect(card, u);
-  const h = u.hp('apH');
+  // AP / FC 各自倍率：原始两图同为 40px 高，但 256×40 与 221×40 的视觉分量不同（票 55 B）
+  const scale = input.stamp === 'ap' ? u.spec.markApScale : u.spec.markFcScale;
+  const h = u.hp('apH') * Math.max(0.05, scale);
   const cx = r.x + r.w / 2 + u.hp('apDX');
   const cy = r.y + r.h + u.hp('apGap') + h / 2;
   const sc = 0.9 + 0.1 * a;
@@ -1581,16 +1924,18 @@ export function drawEndingFrameAt(
   ctx.fillRect(0, 0, w, h);
   drawStage(ctx, u, input, t);
 
+  // CLEAR 没有中央章 / 影子星，但**要有普通烟花**（票 55 C：沿用同一套波表与配色）
+  const bursts = spec.clearBurst > 0.5 || input.stamp !== 'clear';
   if (t < spec.stampDur) {
-    if (input.stamp !== 'clear') {
+    if (bursts) {
       // 粒子画在字样**后面**：火花从徽章背后炸开，不糊住笔画
       drawParticles(ctx, u, input, t);
-      drawStampWord(ctx, u, input, t);
     }
+    if (input.stamp !== 'clear') drawStampWord(ctx, u, input, t);
   } else {
     const e = t - spec.stampDur;
     // 最后一波余烬延续到幕布升起前
-    if (input.stamp !== 'clear' && e < EMBERS_SECONDS) drawParticles(ctx, u, input, t);
+    if (bursts && e < EMBERS_SECONDS) drawParticles(ctx, u, input, t);
     drawSettlement(ctx, u, input, e);
     const a = curtainAlpha(e, spec.transDur);
     if (a > 0.001) {

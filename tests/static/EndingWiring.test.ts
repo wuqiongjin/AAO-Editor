@@ -168,8 +168,9 @@ describe('52 · 缺游戏素材 = 留空 / 纯字（不画假徽章）', () => {
     expect(frame).toMatch(/ctx\.fillText\('MAX'/);
   });
 
-  it('普通 Clear = 无章：章段不画字、不放粒子', () => {
-    expect(frame).toMatch(/if \(input\.stamp !== 'clear'\) \{/);
+  it('普通 Clear = 无章：章段不画字、结算不画角标（票 55 起仍放普通烟花）', () => {
+    expect(frame).toMatch(/if \(input\.stamp !== 'clear'\) drawStampWord\(/);
+    expect(frame).toMatch(/const bursts = spec\.clearBurst > 0\.5 \|\| input\.stamp !== 'clear';/);
     expect(frame).toMatch(/input\.stamp === 'clear' \|\| a <= 0\.002/);
   });
 });
@@ -232,5 +233,61 @@ describe('54 · 中央章入场分层（逐字母 + 星标单飞）', () => {
     expect(frame).toMatch(/const flyStart = growEnd \+ \(Math\.max\(0, u\.spec\.starHold\) \/ 100\) \* inSec;/);
     // 「变大」用 smooth：easeOutCubic 会让 60% 的时长就长到 95%，尾段读作"停住了"
     expect(frame).toMatch(/const e = smooth\(q\);/);
+  });
+});
+
+describe('55 · 结束中央章烟花与 `!` 飞镖式入场', () => {
+  it('`!` 从字母层摘出，字母队列仍按原枚数算 stagger（前面的字时序不变）', () => {
+    expect(frame).toMatch(/if \(last\.nx > 0\.78\) bang = glyphs\.pop\(\)!;/);
+    expect(frame).toMatch(/waveCount: glyphs\.length \+ \(bang \? 1 : 0\)/);
+    expect(frame).toMatch(/const n = Math\.max\(word\.glyphs\.length, word\.waveCount \|\| 0\);/);
+    expect(frame).toMatch(/function drawStampBang\(/);
+  });
+
+  it('`!` 以字形左下角为支点摇摆，过冲后逐渐退回终位', () => {
+    expect(frame).toMatch(/const py = \(g\.ny \+ g\.nh\) \* word\.h - word\.h \/ 2;/);
+    expect(frame).toMatch(/Math\.sin\(q \* Math\.PI \* 2 \* Math\.max\(0\.5, u\.spec\.bangWobbles\)\)/);
+  });
+
+  it('双层烟花跟纯色影子星同起、随它长大外扩，并比它多活一段', () => {
+    expect(frame).toMatch(/function drawStampHalo\(/);
+    expect(frame).toMatch(/function drawBulgeDiamond\(/);
+    expect(frame).toMatch(/const total = T\.ghostDur \+ Math\.max\(0, u\.spec\.haloSurvive\);/);
+    expect(frame).toMatch(/const starSize = inkSize \* \(T\.big \+ \(ghostTo - T\.big\) \* ge\);/);
+  });
+
+  it('星标按字块高归一化（修 FC 星星比 AP 小），环外缘星尺寸独立可调', () => {
+    expect(frame).toMatch(/const inkSize = Math\.max\(1, word\.h \* u\.spec\.starSizeRef\);/);
+    expect(frame).toMatch(/const norm = inkSize \/ Math\.max\(1, star\.inkW \* word\.w\);/);
+    expect(frame).toMatch(/const ringStarPx = u\.hp\('haloRingStarSize'\);/);
+  });
+
+  it('菱形层 = 中心晚起快扩的另一层爆炸；环形随机排布、种子可调，不再按顶点分扇区', () => {
+    expect(frame).toMatch(/const diaAt = T\.flyStart \+ Math\.max\(0, u\.spec\.haloDiaAt\);/);
+    expect(frame).toMatch(/easeOutCubic\(dq\)/);
+    expect(frame).toMatch(/mulberry32\(Math\.round\(u\.spec\.haloDiaSeed\)/);
+    expect(frame).toMatch(/layout === 'scatter'/);
+    expect(frame).not.toMatch(/haloVertexPer|haloVertexRadius|haloVertexSpread/);
+  });
+
+  it('菱形淡出与向外扩散同时开始（不再到位后才淡），起点可调', () => {
+    expect(frame).toMatch(/const fadeAt = clamp01\(u\.spec\.haloDiaFadeAt\) \* diaDur;/);
+    expect(frame).toMatch(/const vanish = Math\.pow\(1 - clamp01\(\(diaAge - fadeAt\) \/ diaFade\), 1\.15\);/);
+    expect(spec).toMatch(/haloDiaFadeAt: 0,/);
+  });
+
+  it('普通烟花：5 色池 / 单色爆点 / 逐点错峰 / CLEAR 也放 / 缓存键含 spec', () => {
+    expect(frame).toMatch(/function burstPool\(/);
+    expect(frame).toMatch(/ats: d\.points\.map\(\(_, pi\) => d\.at \+ pi \* stagger\)/);
+    expect(frame).toMatch(/const color = grp\.colors\[pi\] \?\? '#ffffff';/);
+    expect(frame).toMatch(/JSON\.stringify\(u\.spec\)/);
+    expect(frame).toMatch(/const bursts = spec\.clearBurst > 0\.5 \|\| input\.stamp !== 'clear';/);
+  });
+
+  it('星标 / `!` / 两层烟花共用一份 `starTimeline`（landAt 不再各算一遍）', () => {
+    // 三处绘制都消费同一份：改 stampIn / starGrow 时不会互相漂
+    expect(frame.match(/const T = starTimeline\(u\);/g)).toHaveLength(3);
+    expect(frame).toMatch(/const \{ at, growDur, growEnd, flyStart, flyDur, landAt, ghostDur \} = T;/);
+    expect(frame.match(/function starTimeline\(/g)).toHaveLength(1);
   });
 });

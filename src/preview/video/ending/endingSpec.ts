@@ -14,7 +14,7 @@ export type EndingStamp = 'ap' | 'fc' | 'clear';
 /** 中央章候选（导出弹窗「结算形态」三档；顺序即 UI 顺序） */
 export const ENDING_STAMPS: readonly EndingStamp[] = ['ap', 'fc', 'clear'];
 
-/** 爆炸配色（`cycle` = 暖 / 冷 / 粉紫 / 混合 按波次轮换） */
+/** 爆炸配色（`cycle` = 用 5 个 `burstC*` 自定义色；其余 = 内置 5 色预设） */
 export type EndingPalette = 'cycle' | 'warm' | 'cool' | 'pink' | 'mix';
 
 /**
@@ -73,6 +73,9 @@ export const ENDING_SPEC = {
   apH: 5,
   apGap: 4.05,
   apDX: 0.1,
+  /** 结算角标 AP / FC 各自倍率（2026-11-07 票 55：原本共用 `apH` 高度，AP 看着偏大） */
+  markApScale: 0.88,
+  markFcScale: 1,
   // 封面
   coverSize: 45,
   coverX: 21.2,
@@ -90,21 +93,47 @@ export const ENDING_SPEC = {
   /** 入场总时长（秒）：逐字母落位 + 星标飞行的整条时间轴都按它缩放 */
   stampIn: 1.3,
   stampOut: 0.25,
-  partCount: 56,
+  partCount: 65,
   partSize: 3.5,
   partSpeed: 1,
+  /** `cycle` = 用下面 5 个 `burstC*` 自定义色；其余 = 内置 5 色池 */
   palette: 'cycle' as EndingPalette,
-  burst2At: 24,
+  burst2At: 26,
   burst2X: 34,
   burst2Y: 62,
-  burst3At: 42,
+  burst3At: 32,
   burst3X: 66,
   burst3Y: 36,
-  burst4At: 62,
+  burst4At: 52,
   burst4Points: 4,
-  burst5At: 80,
+  burst5At: 66,
   burst5Points: 5,
   wordGlow: 0,
+  // 2026-11-07（票 55）· 普通烟花（一爆点一色）
+  burstC1: '#ffe27a' as string,
+  burstC2: '#8fe9ff' as string,
+  burstC3: '#ff9fd2' as string,
+  burstC4: '#9dffc4' as string,
+  burstC5: '#ffffff' as string,
+  /** 波数（最多 6 波） */
+  burstWaveCount: 6,
+  /** 同一波内相邻爆点的起爆间隔（秒）—— 0 = 一口气齐爆 */
+  burstStagger: 0.075,
+  /** 每爆点星数的总倍率 */
+  burstDensity: 1,
+  /** 单颗粒子寿命基数（秒）—— 拉长才看得出波与波的重叠 */
+  partLife: 1.05,
+  /** 粒子淡出曲线指数（越小，尾段越亮、重叠越明显） */
+  partFadePow: 0.85,
+  /** 散点椭圆横 / 纵半径（%W / %H） */
+  burstScatterX: 33.5,
+  burstScatterY: 30,
+  /** 散点角度抖动（弧度） */
+  burstJitter: 0.28,
+  burst6At: 78,
+  burst6Points: 2,
+  /** CLEAR 形态也放普通烟花（沿用同一套波表 / 配色） */
+  clearBurst: 1,
   // 中央章入场（2026-10-28）：字母像排队一样阶梯落下 + `!` 下的星标从正中飞出。
   // 时间类凡是 `%stampIn` 的，都随「入场总时长」等比缩放，改一个数不用逐个调。
   /** 字母依次落位的跨度（%stampIn；首字起点 → 末字落定） */
@@ -147,6 +176,73 @@ export const ENDING_SPEC = {
   landDur: 0.4,
   /** 落位后影子连续出现的次数 */
   landPulses: 1,
+  // 2026-11-07（票 55）· `!` 飞镖式入场
+  /** 起场时刻相对星标落定的偏移（秒；负值 = 星还没落定就开始） */
+  bangAt: -0.2,
+  /** 从右上滑到过冲点的用时（秒） */
+  bangWipe: 0.22,
+  /** 摇摆 + 退回终位的用时（秒） */
+  bangSettle: 0.46,
+  /** 起点相对终位偏右 / 偏上（%H） */
+  bangFromX: 6,
+  bangFromY: 5,
+  /** 过冲点相对终位偏左 / 偏下（%H） */
+  bangOverX: 1.6,
+  bangOverY: 1,
+  /** 摇摆幅度（度） */
+  bangWobble: 9,
+  /** 摇摆来回次数 */
+  bangWobbles: 2,
+  /** 摇摆阻尼指数（越大衰减越快） */
+  bangDamp: 2.2,
+  /**
+   * 星标尺寸归一化基准（× 字块高，2026-11-07 修 FC BUG）。
+   * `stamp-ap` / `stamp-fc` 里那颗小星原图就不等大（彩色字芯 69px vs 62px），
+   * 按各自 `inkW` 取尺寸会让 FC 的落位星、纯色影子星、外环、菱形整圈都比 AP 小一圈。
+   * 统一按字块高定基准，再按各图的 `inkW` 反算缩放，AP ≈ 1×、FC ≈ 1.11×。
+   */
+  starSizeRef: 0.37,
+  // 2026-11-07（票 55 第三轮）· 中心两层烟花
+  haloOn: 1,
+  haloAlpha: 1,
+  /** 外围层比影子星多存活的时长（秒） */
+  haloSurvive: 0.3,
+  /** 外围层跟随影子星长到的倍数（× 星标基准）；不直接取 `ghostGrow` —— 10× 时早已淡出画外 */
+  haloGrow: 9,
+  /** 烟花色彩 = 影子星颜色 × 此系数（比影子星深一点）；另一种是纯白 */
+  haloDarken: 0.9,
+  /** 外围大圆环半径（× 影子星外接半径） */
+  haloRingRadius: 1.65,
+  /** 圆环线宽（%H，有实体宽度，不是细线） */
+  haloRingWidth: 0.9,
+  haloRingAlpha: 0.85,
+  /** 环外缘的星点数 */
+  haloRingStars: 32,
+  /** 环外缘星点的大小（%H）—— 与普通爆炸烟花同形状，只是尺寸独立可调 */
+  haloRingStarSize: 6.8,
+  /** 星点离环外缘的距离（× 环半径，不贴合） */
+  haloRingOffset: 0.07,
+  /** 菱形层的菱形个数 */
+  haloDiaCount: 24,
+  /** 菱形高度（%H） */
+  haloDiaSize: 3,
+  /** 起爆时刻（秒，相对影子星起飞 `flyStart`） */
+  haloDiaAt: 0.2,
+  /** 由中心向外扩散的用时（秒）—— 短 = 快 */
+  haloDiaDur: 0.3,
+  /** 淡出起点（占扩散用时的比例）：0 = 一起飞就淡、1 = 到最外侧才淡（票 55 第四轮定案） */
+  haloDiaFadeAt: 0,
+  /** 淡出用时（秒，从 `haloDiaFadeAt` 那个时刻起算） */
+  haloDiaFade: 0.5,
+  /** 起始 / 终点半径（× 星标基准尺寸） */
+  haloDiaFrom: 0.35,
+  haloDiaTo: 8.5,
+  /** 排布规则：`ring` 均匀环 / `spokes` 放射条带 / `scatter` 环带内全随机 */
+  haloDiaLayout: 'ring' as string,
+  /** 排布随机种子（拖到看着顺眼的那组；同种子导出可复现） */
+  haloDiaSeed: 135,
+  /** 随机强度 0..1（角度 + 半径 + 尺寸） */
+  haloDiaJitter: 0.18,
   // 舞台两层在结尾段里的收场（秒，相对结尾段起点）：
   //   - combo `dur = 0` ⇒ **瞬时消失**（结尾段第一帧就不画），游戏里也是打完就收；
   //   - 轨道 1.0s 慢慢退，结算只剩背景（2026-10-27 原型回填）。
@@ -176,7 +272,7 @@ export type EndingUnitKey = {
   [K in EndingSpecKey]: (typeof ENDING_SPEC)[K] extends number ? K : never;
 }[EndingSpecKey];
 
-/** ① 中央章（含 5 波粒子） */
+/** ① 中央章（含多波粒子，波数由 `burstWaveCount` 定） */
 export const ENDING_STAMP_SECONDS = ENDING_SPEC.stampDur;
 /** ② 黑幕转场（盖黑 → 停一拍 → 抬幕，组件逐个入场藏在幕布后） */
 export const ENDING_TRANS_SECONDS = ENDING_SPEC.transDur;

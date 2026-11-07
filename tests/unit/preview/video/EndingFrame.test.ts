@@ -14,6 +14,7 @@ import {
   endingUnits,
   type EndingAssets,
   type EndingFrameInput,
+  type EndingSpec,
 } from '@/src/preview/video/ending';
 import { drawEndingFrameAt } from '@/src/preview/video/ending/endingFrame';
 import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
@@ -162,19 +163,19 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       stampY: 50.5,
       stampIn: 1.3,
       stampOut: 0.25,
-      partCount: 56,
+      partCount: 65,
       partSize: 3.5,
       partSpeed: 1,
       palette: 'cycle',
-      burst2At: 24,
+      burst2At: 26,
       burst2X: 34,
       burst2Y: 62,
-      burst3At: 42,
+      burst3At: 32,
       burst3X: 66,
       burst3Y: 36,
-      burst4At: 62,
+      burst4At: 52,
       burst4Points: 4,
-      burst5At: 80,
+      burst5At: 66,
       burst5Points: 5,
       wordGlow: 0,
       // 2026-10-28 追加：中央章逐字母入场 + `!` 下的星标（时间类除 ghost/land 的秒数外都是 %stampIn）
@@ -203,6 +204,58 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       comboFadeDur: 0,
       trackFadeAt: 0,
       trackFadeDur: 1,
+      // 2026-11-07（票 55，第三轮默认值 = 用户交回的调参 JSON）
+      markApScale: 0.88,
+      markFcScale: 1,
+      burstC1: '#ffe27a',
+      burstC2: '#8fe9ff',
+      burstC3: '#ff9fd2',
+      burstC4: '#9dffc4',
+      burstC5: '#ffffff',
+      burstWaveCount: 6,
+      burstStagger: 0.075,
+      burstDensity: 1,
+      partLife: 1.05,
+      partFadePow: 0.85,
+      burstScatterX: 33.5,
+      burstScatterY: 30,
+      burstJitter: 0.28,
+      burst6At: 78,
+      burst6Points: 2,
+      clearBurst: 1,
+      bangAt: -0.2,
+      bangWipe: 0.22,
+      bangSettle: 0.46,
+      bangFromX: 6,
+      bangFromY: 5,
+      bangOverX: 1.6,
+      bangOverY: 1,
+      bangWobble: 9,
+      bangWobbles: 2,
+      bangDamp: 2.2,
+      starSizeRef: 0.37,
+      haloOn: 1,
+      haloAlpha: 1,
+      haloSurvive: 0.3,
+      haloGrow: 9,
+      haloDarken: 0.9,
+      haloRingRadius: 1.65,
+      haloRingWidth: 0.9,
+      haloRingAlpha: 0.85,
+      haloRingStars: 32,
+      haloRingStarSize: 6.8,
+      haloRingOffset: 0.07,
+      haloDiaCount: 24,
+      haloDiaSize: 3,
+      haloDiaAt: 0.2,
+      haloDiaDur: 0.3,
+      haloDiaFadeAt: 0,
+      haloDiaFade: 0.5,
+      haloDiaFrom: 0.35,
+      haloDiaTo: 8.5,
+      haloDiaLayout: 'ring',
+      haloDiaSeed: 135,
+      haloDiaJitter: 0.18,
     });
   });
 
@@ -322,12 +375,48 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(onlySmall).toContain(markAp);
   });
 
-  it('`clear`（普通 Clear）**无章**：章段不画字、也不放粒子', () => {
-    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
-    drawEndingFrameAt(proxy, 1920, 1080, frameInput({ stamp: 'clear' }), 1.0);
-    expect(texts(calls)).toEqual([]);
-    // 章段只该有兜底底色那一笔（无粒子、无字块）
-    expect(calls.filter(([k]) => k === 'drawImage')).toEqual([]);
+  /**
+   * 票 55 定案 C：CLEAR **只补普通烟花**，仍不画章字样与结算角标。
+   * 旧版只断言「什么都没画」，靠 `NO_ASSETS.particles = null` 让 `drawParticles` 提前 return
+   * 才假绿 —— 这里给一张粒子假图，真正验证「有画」以及 `clearBurst` 关得掉。
+   * node 环境没有 document ⇒ `starSprite()` 返回 null、贴图画不出来，但拖尾的 `stroke` 仍在。
+   */
+  it('`clear` 无章、无角标，但章段**放普通烟花**（票 55 定案 C）', () => {
+    const particles = { width: 512, height: 512 } as unknown as HTMLImageElement;
+    const withParticles = { ...NO_ASSETS, particles };
+    const draw = (over: Partial<EndingFrameInput>, spec?: Partial<EndingSpec>) => {
+      const { proxy, calls } = makeRecordingCtx({
+        measureText: measureTextOk,
+        createRadialGradient: () => ({ addColorStop: () => undefined }),
+      });
+      drawEndingFrameAt(proxy, 1920, 1080, frameInput(over), 1.0, spec);
+      return calls;
+    };
+    const strokes = (calls: RecordedCall[]) => calls.filter(([k]) => k === 'stroke').length;
+
+    const active = draw({ stamp: 'clear', assets: withParticles });
+    expect(strokes(active)).toBeGreaterThan(0);
+    // 缺件 / 关掉开关 ⇒ 一笔粒子都不放
+    expect(strokes(draw({ stamp: 'clear' }))).toBe(0);
+    expect(strokes(draw({ stamp: 'clear', assets: withParticles }, { clearBurst: 0 }))).toBe(0);
+    // 但中央章字样与结算角标都不画
+    expect(texts(active)).toEqual([]);
+    expect(active.filter(([k]) => k === 'drawImage')).toEqual([]);
+  });
+
+  it('AP / FC / CLEAR 三态在章段都放普通烟花', () => {
+    const particles = { width: 512, height: 512 } as unknown as HTMLImageElement;
+    for (const stamp of ENDING_STAMPS) {
+      const { proxy, calls } = makeRecordingCtx({
+        measureText: measureTextOk,
+        createRadialGradient: () => ({ addColorStop: () => undefined }),
+      });
+      drawEndingFrameAt(
+        proxy, 1920, 1080,
+        frameInput({ stamp, assets: { ...NO_ASSETS, particles } }), 1.0,
+      );
+      expect(calls.filter(([k]) => k === 'stroke').length, `${stamp} 应有粒子拖尾`).toBeGreaterThan(0);
+    }
   });
 
   it('黑幕转场：盖到全黑那一拍整帧压黑（转场段内 alpha 递减、抬完不再画）', () => {
