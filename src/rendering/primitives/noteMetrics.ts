@@ -17,7 +17,7 @@ export const DIRECTIONAL_ICON_SIZE = 45;
 /** 音符墨迹高度比例（墨迹高 = 宽度 × 本值）：音符是"扁"的，纵向判定必须按墨迹而非宽度算 */
 export const NOTE_HEIGHT_SCALE = 0.6;
 export const SLIDE_HEIGHT_SCALE = 0.6;
-export const DIRECTIONAL_HEIGHT_SCALE = 0.33;
+export const DIRECTIONAL_HEIGHT_SCALE = 0.36;
 
 /**
  * 滑条连接带宽度（虚拟单位）—— 真实画布 renderSegmentBand 的带宽口径（= 轨道宽 `ChartGeometry.LANE_WIDTH`）。

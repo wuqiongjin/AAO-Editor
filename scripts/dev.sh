@@ -54,7 +54,7 @@ kill_port "$PORT"
 # CNB 云环境的对外访问网址：绕开 VSCode 端口转发隧道，避免刷新无限转圈
 PROXY_URL="${CNB_VSCODE_PROXY_URI:-}"
 if [ -n "$PROXY_URL" ]; then
-  PUBLIC_URL="${PROXY_URL//\{\{port\}\}/$PORT}"
+  PUBLIC_URL=$(echo "$PROXY_URL" | sed "s/{{port}}/$PORT/g")
   echo "==> 对外访问地址（CNB 代理，绕开 VSCode 转发隧道，端口 ${PORT}）："
   echo "    $PUBLIC_URL"
 fi

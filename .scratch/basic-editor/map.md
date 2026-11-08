@@ -207,6 +207,7 @@
 - **219 Slide 同拍多结点端点误判**（[219](./issues/219-Slide同拍多结点端点误判.md)，`Type: bug`，resolved）—— **根因** = `visibleEnds` 循环判定用严格大于号 `>` 导致同拍多结点时 `last` 停在首个同拍结点；**改成什么** = 对齐 `displayConnections` 投影首尾（`isDisplayIdentity` 快路径零分配）。已全量锁测。
 - **220 Slide 结点拖拽跨越邻居与自动重排**（[220](./issues/220-Slide结点拖拽跨越邻居与自动重排.md)，Type: grilling，resolved）—— **定了什么** = 放宽时序限制允许端点与中间结点跨越可见邻居，拖拽后按 beat 升序稳定自动重排 connections（同拍保序），各结点 flick/skill 属性原样保留（Bestdori 同构），跨越时清除曲线 spanParams 与 hidden 点退化为直线段。
 - **221 对齐 Bestdori 谱面代码自定义属性保真与滑条首结点 flick 渲染忽略**（[221](./issues/221-对齐Bestdori谱面代码自定义属性保真与滑条首结点flick渲染忽略.md)，`Type: bug`，resolved）—— **改成什么** = 保持无 type 对象报错拦截不变；对象视图（单音符/滑条结点代码）打通 `source` 往返透传自定义与跨类型冗余属性；画布渲染修正 `isFirst` 结点误画 flick 图标与箭头装饰，仅 `isLast` 呈现滑键。已全量锁测。
+- **222 音符素材显示与跨缩放跨DPR渲染抗畸变根治**（[222](./issues/222-音符素材显示与跨缩放跨DPR渲染抗畸变根治.md)，Type: grilling，resolved）—— **定了什么** = 内存按需图元切片解耦（带 4px 纯净 Padding + 独立 Mip 链彻底消除 Atlas Bleeding 渗色）；瓦片 Blit 浮点 DPI 与缩放自适应平滑；方向滑键咬合几何修复（INTO_BODY 覆盖原厂空心白圈）；收紧 dirL/dirR 矩形并清洗透明底深青色；Playwright 跨 DPI × 缩放全矩阵视觉测试分层守卫（常规测试微断言 ~1s，快照独立命令 ~2s）。已全量锁测。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

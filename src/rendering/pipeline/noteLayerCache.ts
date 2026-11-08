@@ -149,6 +149,47 @@ export function getEffectiveDpr(dpr: number): number {
   return Math.min(Math.max(1, dpr), TILE_DPR_CAP);
 }
 
+export interface TileBlitSmoothingParams {
+  dpr: number;
+  tileDpr: number;
+  es: number;
+  refScale: number;
+  surfaceW: number;
+  tileW: number;
+  dx?: number;
+  dy?: number;
+  dw?: number;
+  dh?: number;
+  sx?: number;
+  sy?: number;
+  sw?: number;
+  sh?: number;
+}
+
+/**
+ * issue 222（抗畸变根治）：瓦片 blit 自适应平滑策略
+ * - 浮点 DPR（Windows 125%/150%/175% 等）或缩放拉伸态（手势期 es !== refScale）下，强制开启高阶滤波平滑，消除亚像素锯齿与黑斑；
+ * - 仅当物理像素严格 1:1 整数对齐（如标准 1.0x 或 Retina 2.0x 且无缩放拉伸）时，才关闭平滑以最大化填充性能。
+ */
+export function shouldEnableTileBlitSmoothing(p: TileBlitSmoothingParams): boolean {
+  if (p.dx !== undefined && Math.abs(p.dx - Math.round(p.dx)) > 1e-4) return true;
+  if (p.dy !== undefined && Math.abs(p.dy - Math.round(p.dy)) > 1e-4) return true;
+  if (p.dw !== undefined && Math.abs(p.dw - Math.round(p.dw)) > 1e-4) return true;
+  if (p.dh !== undefined && Math.abs(p.dh - Math.round(p.dh)) > 1e-4) return true;
+  if (p.sx !== undefined && Math.abs(p.sx - Math.round(p.sx)) > 1e-4) return true;
+  if (p.sy !== undefined && Math.abs(p.sy - Math.round(p.sy)) > 1e-4) return true;
+  if (p.sw !== undefined && Math.abs(p.sw - Math.round(p.sw)) > 1e-4) return true;
+  if (p.sh !== undefined && Math.abs(p.sh - Math.round(p.sh)) > 1e-4) return true;
+  const isDprInteger = Math.abs(p.dpr - Math.round(p.dpr)) < 1e-5;
+  const isTileDprInteger = Math.abs(p.tileDpr - Math.round(p.tileDpr)) < 1e-5;
+  if (!isDprInteger || !isTileDprInteger) return true;
+  if (Math.abs(p.dpr - p.tileDpr) > 1e-5) return true;
+  if (Math.abs(p.es - p.refScale) > 1e-5) return true;
+  if (Math.abs(p.surfaceW - p.tileW) > 1e-5) return true;
+  return false;
+}
+
+
 interface Tile {
   canvas: HTMLCanvasElement | OffscreenCanvas | null;
   refScale: number;
@@ -709,8 +750,6 @@ export function createNoteLayerCache(): NoteLayerCache {
     let rebuilt = 0, blitted = 0, staleBlit = false, blitCssPx = 0;
     const prevSmooth = ctx.imageSmoothingEnabled;
     const prevQuality = ctx.imageSmoothingQuality;
-    // 瓦片里精灵已烘焙；播放 1:1 CSS 仍会因 tile dpr 1.5 vs 主画布 dpr 被放大，关掉高阶滤波减填充。
-    ctx.imageSmoothingEnabled = false;
 
     // ---- 1) 先重建（issue 173：游标轮转 + 单块成本上限），blit 再统一取本帧最新瓦片 ----
     const pending: number[] = [];
@@ -773,6 +812,25 @@ export function createNoteLayerCache(): NoteLayerCache {
       const r = tileBlitRect(id, es, t.refScale, anchorY, rc.surface.w, t.surfaceW);
       const clipped = clipTileDrawRect(r, rc.surface.w, rc.surface.h, t.canvas.width, t.canvas.height);
       if (!clipped) continue;
+      // issue 222：瓦片 blit 自适应平滑（浮点 DPI / 缩放拉伸开启 high，仅整数 1:1 关闭）
+      const smooth = shouldEnableTileBlitSmoothing({
+        dpr: rc.dpr,
+        tileDpr: getEffectiveDpr(rc.dpr),
+        es,
+        refScale: t.refScale,
+        surfaceW: rc.surface.w,
+        tileW: t.surfaceW,
+        dx: clipped.dx,
+        dy: clipped.dy,
+        dw: clipped.dw,
+        dh: clipped.dh,
+        sx: clipped.sx,
+        sy: clipped.sy,
+        sw: clipped.sw,
+        sh: clipped.sh,
+      });
+      ctx.imageSmoothingEnabled = smooth;
+      if (smooth) ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(t.canvas, clipped.sx, clipped.sy, clipped.sw, clipped.sh, clipped.dx, clipped.dy, clipped.dw, clipped.dh);
       blitted++;
       blitCssPx += clipped.dw * clipped.dh;

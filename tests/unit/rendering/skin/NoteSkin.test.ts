@@ -247,6 +247,11 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
     expect(icons.dirGroup('L', 0).bodies).toHaveLength(0);
   });
 
+  it('issue 29/222：方向键外侧箭头咬合量对齐（保持官方 3px 紧密咬合标准）', () => {
+    // 维持 Bestdori 官方实机基准（3px 紧密咬合，箭头内凹自然包裹本体尖端，严禁脱节分离）
+    expect(NOTE_SKIN_GEOMETRY.DIR_CHEVRON_INTO_BODY).toBe(3);
+  });
+
   it('dirGroup：方向键装饰箭头与本体部分重叠（用户 2026-08-25 第 2/3 轮反馈，参照图2 穿越观感）', () => {
     // 不变式（dirGroup 注释）：箭头中线 = 本体远缘 - sign * DIR_CHEVRON_INTO_BODY
     //   化简：L 方向 (sign=-1) 箭头中线 = -DIR_BODY_HALF_W + INTO_BODY
