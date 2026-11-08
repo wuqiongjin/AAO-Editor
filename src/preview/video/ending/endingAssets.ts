@@ -35,6 +35,11 @@ export interface EndingAssets {
    * 切图坐标在 `endingFrame.BADGE_SPRITES`（2026-10-27 用户指认，同一张韩服图集）。
    */
   menu: HTMLImageElement | null;
+  /**
+   * `stageskin/normal/RhythmGameUI.png`：结算 Score 行左侧的**圆星章**
+   * （`HUD_SPRITES.medal = [7,421,29,30]`，票 64）。缺件留空，不画假章。
+   */
+  rhythmGameUI: HTMLImageElement | null;
 }
 
 /** 素材一个都没有（缺件常态：素材不在安装包里） */
@@ -47,6 +52,7 @@ export const EMPTY_ENDING_ASSETS: EndingAssets = {
   particles: null,
   maxCombo: null,
   menu: null,
+  rhythmGameUI: null,
 };
 
 /** 八件素材的 URL（路径形状只在这里拼一次） */
@@ -60,6 +66,7 @@ export function endingAssetUrls(): Record<keyof EndingAssets, string> {
     particles: `${ENDING_ASSET_BASE}/stageskin/normal/tex_parSet_fever.png`,
     maxCombo: `${ENDING_ASSET_BASE}/result/max-combo.png`,
     menu: `${ENDING_ASSET_BASE}/atlas/MenuAtlas.png`,
+    rhythmGameUI: `${ENDING_ASSET_BASE}/stageskin/normal/RhythmGameUI.png`,
   };
 }
 
@@ -84,7 +91,7 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
 export async function loadEndingAssets(opts: EndingAssetLoadOptions = {}): Promise<EndingAssets> {
   const { loadImage = loadImageElement } = opts;
   const urls = endingAssetUrls();
-  const [stampAp, stampFc, markAp, markFc, judge, particles, maxCombo, menu] = await Promise.all([
+  const [stampAp, stampFc, markAp, markFc, judge, particles, maxCombo, menu, rhythmGameUI] = await Promise.all([
     loadImage(urls.stampAp).catch(() => null),
     loadImage(urls.stampFc).catch(() => null),
     loadImage(urls.markAp).catch(() => null),
@@ -93,6 +100,7 @@ export async function loadEndingAssets(opts: EndingAssetLoadOptions = {}): Promi
     loadImage(urls.particles).catch(() => null),
     loadImage(urls.maxCombo).catch(() => null),
     loadImage(urls.menu).catch(() => null),
+    loadImage(urls.rhythmGameUI).catch(() => null),
   ]);
-  return { stampAp, stampFc, markAp, markFc, judge, particles, maxCombo, menu };
+  return { stampAp, stampFc, markAp, markFc, judge, particles, maxCombo, menu, rhythmGameUI };
 }

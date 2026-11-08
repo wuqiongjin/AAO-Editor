@@ -81,8 +81,26 @@ import {
   type SimBandRasterScale,
 } from './simBandRaster';
 import { digitRect, particleTile, radialCircleOf, type TileSource } from './simSprites';
-import type { SimSprites } from './simAssets';
-import { SIM_JUDGE, judgeSprite, judgeStateAt, type SimJudgeStyle } from './simHud';
+import { EMPTY_SIM_HUD_ASSETS, type SimHudAssets, type SimSprites } from './simAssets';
+import {
+  HUD_SPRITES,
+  LETTER_TEXTS,
+  LIFE_MAX,
+  SCORE_MAX,
+  SCORE_TIERS,
+  SIM_HUD,
+  SIM_JUDGE,
+  comboApActive,
+  formatScore,
+  judgeSprite,
+  judgeStateAt,
+  plusAgesAt,
+  scoreAt,
+  scoreIncrement,
+  scoreTierAt,
+  type SimJudgeStyle,
+} from './simHud';
+import { HEADER_SANS } from '../../fontStack';
 
 /** 缺素材时的场地底色（近黑，与游戏场地暗部同族） */
 export const SIM_FALLBACK_BG = '#0d1017';
@@ -113,6 +131,12 @@ export interface SimScene {
    * **可选**，缺省 `true`（Auto 恒 PERFECT ⇒ 一直是 AP 态）；关掉就是游戏常态的纯白数字。
    */
   apCombo?: boolean;
+  /**
+   * `settings.preview.autoMode`（票 62）：AUTO 模式，**可选，缺省 `true`**。
+   * 开 = 判定字切 AUTO 格 + 显示 `AUTO LIVE` + combo 不叠 AP 辉光；关 = PERFECT 格 + 无提示。
+   * 随 scene 走 ⇒ 实时预览与视频导出同一份（不做手动打歌）。
+   */
+  autoMode?: boolean;
   /**
    * `settings.preview.bgPackId`：表演背景包 ID（chart-preview 41 · ADR-0018）。
    * **可选**（缺省 = 默认 `skin00`）：只喂 `loadSimAssets` 取文件名，画面不直接消费；
@@ -221,8 +245,10 @@ export interface SimFrameAssets {
   bandRasterSp: SimBandRasterMaterial;
   /** Bestdori 自家精灵（combo / 特效）；null = 回落自绘（chart-preview 21） */
   sprites: SimSprites | null;
-  /** 判定图集（chart-preview 51）；null = 判定字走纯字占位 */
+  /** 判定图集（chart-preview 51/62）；null = 判定字走纯字占位 */
   judge: HTMLImageElement | null;
+  /** 打歌 HUD 顶栏（62/63）；逐件 null = 那一处留空 / 纯字 */
+  hud: SimHudAssets;
 }
 
 export interface SimFrameInput {
@@ -483,18 +509,24 @@ export function drawSimFrameAt(
   layers?: SimFrameLayers,
 ): void {
   const { chart, metrics } = input;
+  const autoMode = input.scene.autoMode ?? true;
   drawField(ctx, input, layers?.backgroundAlpha ?? 1, layers?.trackAlpha ?? 1);
   drawBands(ctx, input, seconds);
   if (input.scene.simultaneousClickLines) drawSimultaneousLines(ctx, input, seconds);
   drawElements(ctx, input, seconds);
   drawEffects(ctx, input, seconds);
-  // 判定字（51）在 combo 之下：两条 HUD 不重叠，先字后数只为免得字块压在数字上
-  if (layers?.judge !== null) {
-    drawJudgement(ctx, metrics, chart, seconds, input.assets.judge, layers?.judge);
+  // 顶栏 HUD（62/63）画在判定字 / combo 之前：它是背景上的常驻层，不压字也不压数。
+  // 结尾段把舞台按谱面末帧重画一次，那里只要场地，传 `hud: false` 收掉整层。
+  if (layers?.hud !== false) {
+    drawTopBar(ctx, metrics, chart, seconds, input.assets.hud, autoMode);
   }
-  // AP 态（`settings.preview.apCombo`，默认开）由场景带进来；调用方仍可逐帧覆盖
+  // 判定字（51/62）在 combo 之下：两条 HUD 不重叠，先字后数只为免得字块压在数字上
+  if (layers?.judge !== null) {
+    drawJudgement(ctx, metrics, chart, seconds, input.assets.judge, autoMode, layers?.judge);
+  }
+  // AP 态（`settings.preview.apCombo`，默认开）由场景带进来；AUTO 下强制素白
   drawCombo(ctx, metrics, chart, seconds, input.assets.sprites, layers?.comboAlpha ?? 1, {
-    ap: input.scene.apCombo ?? true,
+    ap: comboApActive(input.scene.apCombo ?? true, autoMode),
     ...layers?.combo,
   });
 }
@@ -513,6 +545,8 @@ export interface SimFrameLayers {
   comboAlpha?: number;
   /** 判定字样式（`null` = 不画） */
   judge?: Partial<SimJudgeStyle> | null;
+  /** 打歌 HUD 顶栏（`false` = 不画；结尾段的舞台用它） */
+  hud?: boolean;
   /** combo 样式 */
   combo?: Partial<SimComboStyle>;
 }
@@ -1126,12 +1160,349 @@ function drawLaneFlash(ctx: CanvasRenderingContext2D, m: SimFieldMetrics, lane: 
   ctx.restore();
 }
 
+/** 缺 HUD 素材时的空槽（与 `emptySimAssets()` 同一份；手工拼的 fake frame 也走得过） */
+const EMPTY_HUD: SimHudAssets = EMPTY_SIM_HUD_ASSETS;
+
+/** 小圆角矩形路径（槽不是胶囊；`bandRadius` 是 × 槽高） */
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, r: number,
+): void {
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
 /**
- * 判定字（chart-preview 51）：每音一条、**位置固定**在场中央（0.497W × 判定线上 0.092H）。
+ * 组件横向 4 切片：星章 / 绿心 / 右端圆角固定，中间两段按原宽比例分掉剩余宽度。
+ * **内部切点必须取整** —— `drawImage` 画在小数 x 时左列会按覆盖率与背景混合，相邻两块各混
+ * 一次就是一条透出背景的竖线（原型第八轮修掉的那两条）；外沿保留抗锯齿。
+ */
+function sliceX(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  src: readonly [number, number, number, number],
+  dx: number, dy: number, dw: number, dh: number,
+  slices: readonly { sx: number; sw: number; flex: boolean }[],
+  ky: number,
+): void {
+  const fixed = slices.filter((p) => !p.flex).reduce((a, p) => a + p.sw, 0) * ky;
+  const flexTotal = slices.filter((p) => p.flex).reduce((a, p) => a + p.sw, 0) || 1;
+  const flexSpace = Math.max(0, dw - fixed);
+  const edges = [dx];
+  let acc = dx;
+  for (let i = 0; i < slices.length; i++) {
+    const p = slices[i]!;
+    acc += p.flex ? (p.sw / flexTotal) * flexSpace : p.sw * ky;
+    edges.push(i === slices.length - 1 ? dx + dw : Math.round(acc));
+  }
+  for (let i = 0; i < slices.length; i++) {
+    const p = slices[i]!;
+    const x0 = edges[i]!;
+    const w0 = edges[i + 1]! - x0;
+    if (w0 <= 0) continue;
+    ctx.drawImage(img, p.sx, src[1], p.sw, src[3], x0, dy, w0, dh);
+  }
+}
+
+/** 分数组件几何：外框 + 空灰带（都按图片比例从 `boxH` 推） */
+function scoreGeom(s: number): {
+  x: number; y: number; w: number; h: number; ky: number;
+  band: { x: number; y: number; w: number; h: number };
+} {
+  const x = SIM_HUD.boxX * s;
+  const y = SIM_HUD.boxY * s;
+  const w = SIM_HUD.boxW * s;
+  const h = SIM_HUD.boxH * s;
+  const ky = h / HUD_SPRITES.scoreBar[3];
+  const b = HUD_SPRITES.scoreBand;
+  return {
+    x, y, w, h, ky,
+    band: {
+      x: x + b.x * ky,
+      y: y + b.y * ky,
+      w: w - (HUD_SPRITES.scoreBar[2] - b.x - b.w) * ky - b.x * ky,
+      h: b.h * ky,
+    },
+  };
+}
+
+function drawScoreBox(
+  ctx: CanvasRenderingContext2D,
+  hud: SimHudAssets,
+  s: number,
+  seconds: number,
+  score: number,
+  inc: number,
+  ages: number[],
+): void {
+  const { x, y, w, h, ky, band } = scoreGeom(s);
+
+  // 1) 整块分数组件；缺件只降级成描边框，不画假组件 / 不留白块
+  if (!hud.scoreBar) {
+    ctx.strokeStyle = 'rgba(255,255,255,.35)';
+    ctx.lineWidth = 2 * s;
+    roundRectPath(ctx, x, y, w, h, 18 * s);
+    ctx.stroke();
+  } else {
+    sliceX(ctx, hud.scoreBar, HUD_SPRITES.scoreBar, x, y, w, h, HUD_SPRITES.scoreSlices, ky);
+  }
+
+  const tierIndex = scoreTierAt(score);
+  const tier = SCORE_TIERS[tierIndex];
+  const frac = clamp01((score / SCORE_MAX) * SIM_HUD.fillScale);
+  const fillW = Math.max(band.h * 1.7, band.w * frac);
+  const br = Math.max(0, Math.min(0.5, SIM_HUD.bandRadius)) * band.h;
+
+  // 2) 空槽里画填充条：从**官方渐变条 A** 取该档窗口拉伸（左端永远留一颗，0 分也不"消失"）
+  if (hud.rhythmGameUI) {
+    ctx.save();
+    roundRectPath(ctx, band.x, band.y, Math.max(fillW, band.h * 1.2), band.h, br);
+    ctx.clip();
+    const bar = HUD_SPRITES.barA;
+    const f0 = Math.min(tier.from, tier.to);
+    const f1 = Math.max(tier.from, tier.to);
+    ctx.drawImage(
+      hud.rhythmGameUI,
+      bar[0] + bar[2] * f0, bar[1], Math.max(1, bar[2] * (f1 - f0)), bar[3],
+      band.x, band.y, fillW, band.h,
+    );
+    // 3) SS+ 档：官方四芒星左→右流动、循环（S-SS 与 SS+ 共用同一条，只 SS+ 叠这层）
+    if (tierIndex === SCORE_TIERS.length - 1 && hud.fever) {
+      drawStarFlow(ctx, hud.fever, band, fillW, seconds, s);
+    }
+    ctx.restore();
+  }
+
+  // 4) 等级字母 + ▽ 刻度（自绘；画在裁剪之外，刻度往下推才不会被裁掉）
+  drawLetters(ctx, band, s);
+  // 5) 7 位定宽分数（占位字：前导零灰、有效位洋红）
+  drawDigits(ctx, x, y, w, h, s, score);
+  // 6) `+增量`：多条并存、各绘各的相位，越往右越不透明
+  drawPlus(ctx, x, w, s, inc, ages);
+}
+
+/** 灰带上的 C / B / A / S / SS + ▽：官方图集没有这套字母 / 刻度，Canvas 自绘 */
+function drawLetters(
+  ctx: CanvasRenderingContext2D,
+  band: { x: number; y: number; w: number; h: number },
+  s: number,
+): void {
+  const lh = Math.min(SIM_HUD.letterH * s, band.h * 0.66);
+  const fontPx = lh / 0.72;
+  const tickH = Math.max(2.5 * s, band.h * 0.13);
+  const tickW = tickH * 1.35;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${fontPx}px ${HEADER_SANS}`;
+  for (let i = 0; i < LETTER_TEXTS.length; i++) {
+    const cx = band.x + SIM_HUD.thresholds[i]! * band.w;
+    const cy = band.y + band.h * 0.38 + SIM_HUD.letterDY * s;
+    ctx.globalAlpha = SIM_HUD.letterAlpha;
+    ctx.lineWidth = Math.max(1.2, fontPx * 0.13);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = SIM_HUD.letterEdge;
+    ctx.strokeText(LETTER_TEXTS[i]!, cx, cy);
+    ctx.fillStyle = SIM_HUD.letterColor;
+    ctx.fillText(LETTER_TEXTS[i]!, cx, cy);
+
+    const ty = band.y + band.h * 0.84 + SIM_HUD.tickGap * s;
+    ctx.globalAlpha = SIM_HUD.letterAlpha * 0.92;
+    ctx.beginPath();
+    ctx.moveTo(cx - tickW / 2, ty - tickH / 2);
+    ctx.lineTo(cx + tickW / 2, ty - tickH / 2);
+    ctx.lineTo(cx, ty + tickH / 2);
+    ctx.closePath();
+    ctx.fillStyle = SIM_HUD.letterColor;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** 7 位定宽（官方没有 0–9 精灵表，先用 HEADER_SANS 占位） */
+function drawDigits(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, s: number, score: number,
+): void {
+  const px = SIM_HUD.digitFont * s;
+  const text = formatScore(score);
+  const live = String(Math.round(Math.max(0, Math.min(SCORE_MAX, score)))).length;
+  const lead = Math.max(0, text.length - live);
+  ctx.save();
+  ctx.font = `700 ${px}px ${HEADER_SANS}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  let cx = x + w * SIM_HUD.digitDX;
+  const cy = y + h * SIM_HUD.digitDY;
+  for (let i = 0; i < text.length; i++) {
+    ctx.fillStyle = i < lead ? SIM_HUD.zeroColor : SIM_HUD.liveColor;
+    ctx.fillText(text[i]!, cx, cy);
+    const measured = ctx.measureText(text[i]!);
+    const adv = measured && Number.isFinite(measured.width) ? measured.width : px * 0.62;
+    cx += adv + SIM_HUD.digitTrack * s;
+  }
+  ctx.restore();
+}
+
+/** 每命中一次 `+<本次增量>`，从分数组件下方左侧弹到右侧边缘后淡出 */
+function drawPlus(
+  ctx: CanvasRenderingContext2D,
+  x: number, w: number, s: number, inc: number, ages: number[],
+): void {
+  if (inc <= 0 || ages.length === 0) return;
+  ctx.save();
+  ctx.font = `800 ${SIM_HUD.plusFont * s}px ${HEADER_SANS}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(2, SIM_HUD.plusFont * s * 0.14);
+  for (const age of ages) {
+    if (!(age >= 0 && age < SIM_HUD.plusDur)) continue;
+    const p = age / SIM_HUD.plusDur;
+    const ease = 1 - (1 - p) * (1 - p);
+    const px = x + w * SIM_HUD.plusX + ease * SIM_HUD.plusDX * w;
+    const py = SIM_HUD.plusY * s - p * SIM_HUD.plusRise * s;
+    ctx.globalAlpha = clamp01(0.05 + p / Math.max(0.05, SIM_HUD.plusFadeFrac));
+    ctx.strokeStyle = 'rgba(20,24,32,.5)';
+    ctx.strokeText(`+${inc}`, px, py);
+    ctx.fillStyle = SIM_HUD.plusColor;
+    ctx.fillText(`+${inc}`, px, py);
+  }
+  ctx.restore();
+}
+
+/** SS+ 星点层：官方四芒星，大小不一、错相位、左→右循环 */
+function drawStarFlow(
+  ctx: CanvasRenderingContext2D,
+  fever: HTMLImageElement,
+  band: { x: number; y: number; w: number; h: number },
+  fillW: number,
+  seconds: number,
+  s: number,
+): void {
+  const n = Math.max(1, Math.round(SIM_HUD.starCount));
+  const span = Math.max(1, fillW);
+  const box = HUD_SPRITES.star;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  roundRectPath(ctx, band.x, band.y, Math.max(fillW, band.h * 2), band.h,
+    Math.max(0, Math.min(0.5, SIM_HUD.bandRadius)) * band.h);
+  ctx.clip();
+  for (let i = 0; i < n; i++) {
+    const speed = 0.22 + (((i * 37) % 11) / 11) * 0.26;
+    const phase = (seconds * speed * SIM_HUD.starSpeed + i / n) % 1;
+    const sz = SIM_HUD.starSize * s * (0.55 + (((i * 53) % 7) / 7) * 0.95);
+    const sx = band.x + phase * span - sz * 0.5;
+    const sy = band.y + band.h * (0.18 + (((i * 29) % 5) / 5) * 0.64) - sz * 0.5;
+    ctx.globalAlpha = SIM_HUD.starAlpha;
+    ctx.drawImage(fever, box[0], box[1], box[2], box[3], sx, sy, sz, sz);
+  }
+  ctx.restore();
+}
+
+/** 生命组件：恒满 1000/1000（预览无伤）；绿色填充是色块，图集没有独立 gauge */
+function drawLife(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number): void {
+  const x = SIM_HUD.lifeX * s;
+  const y = SIM_HUD.lifeY * s;
+  const w = SIM_HUD.lifeW * s;
+  const h = SIM_HUD.lifeH * s;
+  const ky = h / HUD_SPRITES.lifeBar[3];
+  if (!hud.lifeBar) {
+    ctx.strokeStyle = 'rgba(255,255,255,.35)';
+    ctx.lineWidth = 2 * s;
+    roundRectPath(ctx, x, y, w, h, h * 0.2);
+    ctx.stroke();
+  } else {
+    sliceX(ctx, hud.lifeBar, HUD_SPRITES.lifeBar, x, y, w, h, HUD_SPRITES.lifeSlices, ky);
+  }
+
+  const b = HUD_SPRITES.lifeBand;
+  const gx = x + b.x * ky;
+  const gy = y + b.y * ky;
+  const gw = w - (HUD_SPRITES.lifeBar[2] - b.x - b.w) * ky - b.x * ky;
+  const gh = b.h * ky;
+  if (gw > 1) {
+    ctx.save();
+    roundRectPath(ctx, gx, gy, gw, gh, Math.min(0.5, SIM_HUD.bandRadius) * gh);
+    ctx.clip();
+    ctx.fillStyle = '#5ecf52';
+    ctx.fillRect(gx, gy, gw, gh);
+    ctx.fillStyle = 'rgba(255,255,255,.45)';
+    ctx.fillRect(gx, gy, gw, Math.max(1, gh * 0.16));
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.font = `800 ${SIM_HUD.lifeFont * s}px ${HEADER_SANS}`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#3cb44a';
+  ctx.fillText(`${LIFE_MAX}/${LIFE_MAX}`, x + w - 14 * ky, y + h * 0.79);
+  ctx.restore();
+}
+
+/** 游戏内暂停钮：只作视觉，不接点击（实时预览仍用底部 PlayBar） */
+function drawPause(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number): void {
+  if (!hud.rhythmGameUI) return;
+  const p = HUD_SPRITES.pause;
+  ctx.drawImage(
+    hud.rhythmGameUI, p[0], p[1], p[2], p[3],
+    SIM_HUD.pauseX * s, SIM_HUD.pauseY * s, SIM_HUD.pauseW * s, SIM_HUD.pauseH * s,
+  );
+}
+
+/**
+ * `AUTO LIVE` 胶囊（票 62）：用户自备 `hud/auto-live.png`（512×113），
+ * 落在 `(36, 150) 278×51`（1920 设计坐标），**只与 autoMode 挂钩**。
+ * 缺件留空 —— 不画自造字样，也不拿判定字顶替。
+ */
+function drawAutoLive(
+  ctx: CanvasRenderingContext2D,
+  m: SimFieldMetrics,
+  assets: SimHudAssets,
+  autoMode: boolean,
+): void {
+  if (!autoMode || !assets.autoLive) return;
+  const s = m.w / 1920;
+  const w = SIM_HUD.autoW * s;
+  const h = (113 / 512) * w;
+  ctx.drawImage(assets.autoLive, 0, 0, 512, 113,
+    SIM_HUD.autoX * s, SIM_HUD.autoY * s, w, h);
+}
+
+/** 打歌 HUD 顶栏（票 63）：分数框 → 生命 → 暂停钮 → AUTO LIVE → 判定字 → combo。 */
+function drawTopBar(
+  ctx: CanvasRenderingContext2D,
+  m: SimFieldMetrics,
+  chart: SimChart,
+  seconds: number,
+  assets: SimHudAssets,
+  autoMode: boolean,
+): void {
+  const hud = assets ?? EMPTY_HUD;
+  const s = m.w / 1920;
+  const score = scoreAt(chart, seconds);
+  const inc = scoreIncrement(chart.hitTimes.length);
+  ctx.save();
+  ctx.textBaseline = 'middle';
+  drawScoreBox(ctx, hud, s, seconds, score, inc, plusAgesAt(chart, seconds, SIM_HUD.plusDur));
+  drawLife(ctx, hud, s);
+  drawPause(ctx, hud, s);
+  drawAutoLive(ctx, m, hud, autoMode);
+  ctx.restore();
+}
+
+/**
+ * 判定字（chart-preview 51 / 62）：每音一条、**位置固定**在场中央（0.497W × 判定线上 0.10H）。
  *
- * - Auto 永远 PERFECT ⇒ 只出 PERFECT 那一格（`judgeAt` 取最近一次命中）；
- * - 缺 `judgeskin` ⇒ **纯字** "PERFECT"（Q12：留空或纯字，不画假徽章）；
- * - 不做上浮 / 弹跳：实机 30fps 跟踪 1s 未见位移（只有淡入淡出）。
+ * - AUTO 开 = `judge_auto`、关 = `judge_perfect`（只有两档，不接漏判档）；
+ * - 缺 `judgeskin` ⇒ **纯字**（Q12：留空或纯字，不画假徽章）；
+ * - `stacked`（上一字还没消失又打中）不重新淡入，避免每音"灭一下再亮"。
  */
 function drawJudgement(
   ctx: CanvasRenderingContext2D,
@@ -1139,6 +1510,7 @@ function drawJudgement(
   chart: SimChart,
   seconds: number,
   judge: HTMLImageElement | null,
+  auto: boolean,
   style?: Partial<SimJudgeStyle>,
 ): void {
   const js: SimJudgeStyle = { ...SIM_JUDGE, ...style };
@@ -1160,7 +1532,7 @@ function drawJudgement(
   ctx.save();
   ctx.globalAlpha = alpha;
   if (judge) {
-    const box = judgeSprite();
+    const box = judgeSprite(auto);
     const w = (h * box.w) / box.h;
     ctx.drawImage(judge, box.x, box.y, box.w, box.h, cx - w / 2, cy - h / 2, w, h);
   } else {
@@ -1172,7 +1544,7 @@ function drawJudgement(
     ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
     ctx.shadowBlur = h * 0.18;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('PERFECT', cx, cy);
+    ctx.fillText(auto ? 'AUTO' : 'PERFECT', cx, cy);
     (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '0px';
   }
   ctx.restore();

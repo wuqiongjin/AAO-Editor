@@ -11,18 +11,20 @@ import { readStripped } from '@/tests/support/source';
 
 const field = readStripped('src/preview/video/sim/simField.ts');
 const hud = readStripped('src/preview/video/sim/simHud.ts');
-const sprites = readStripped('src/preview/video/sim/simSprites.ts');
 const assets = readStripped('src/preview/video/sim/simAssets.ts');
 
 describe('51 · 判定字画在仿真场帧里（预览 / 导出同一份）', () => {
-  it('出帧入口里先画判定字再画 combo（HUD 两件都在 `drawSimFrameAt` 这一条路上）', () => {
+  it('出帧入口里顶栏 → 判定字 → combo（HUD 三件都在 `drawSimFrameAt` 这一条路上）', () => {
+    expect(field).toMatch(/if \(layers\?\.hud !== false\) \{/);
+    expect(field).toMatch(/drawTopBar\(ctx, metrics, chart, seconds, input\.assets\.hud, autoMode\)/);
     expect(field).toMatch(
-      /drawJudgement\(ctx, metrics, chart, seconds, input\.assets\.judge, layers\?\.judge\)/,
+      /drawJudgement\(ctx, metrics, chart, seconds, input\.assets\.judge, autoMode, layers\?\.judge\)/,
     );
-    // AP 态由场景带入（`settings.preview.apCombo`），调用方仍可逐帧覆盖
+    // AP 态由场景带入（`settings.preview.apCombo`），AUTO 下强制素白
     expect(field).toMatch(
-      /drawCombo\(ctx, metrics, chart, seconds, input\.assets\.sprites, layers\?\.comboAlpha \?\? 1, \{\s*ap: input\.scene\.apCombo \?\? true,/,
+      /drawCombo\(ctx, metrics, chart, seconds, input\.assets\.sprites, layers\?\.comboAlpha \?\? 1, \{\s*ap: comboApActive\(input\.scene\.apCombo \?\? true, autoMode\),/,
     );
+    expect(field.indexOf('drawTopBar(ctx')).toBeLessThan(field.indexOf('drawJudgement(ctx'));
     // combo 在判定字之后调（免得字块压在数字上）
     expect(field.indexOf('drawJudgement(ctx')).toBeLessThan(field.indexOf('drawCombo(ctx'));
   });
@@ -37,17 +39,21 @@ describe('51 · 判定字画在仿真场帧里（预览 / 导出同一份）', (
     expect(judgement).not.toMatch(/laneCenterX|elementPoint|mirrorLane/);
   });
 
-  it('Auto 永远 PERFECT：只切 PERFECT 那一格，不按漏判分档', () => {
+  it('AUTO / PERFECT 两档共用同一条判定链，不按漏判分档、不自造 `AUTO PLAY`', () => {
     expect(hud).toMatch(/life: number = SIM_JUDGE\.life,/);
     expect(hud).toMatch(/return judgeStateAt\(chart, seconds, life\)\?\.age \?\? null;/);
-    // 停留时长可由调用方覆盖（结尾段 / 原型调参），但判定只有 PERFECT 一档
+    expect(hud).toMatch(/auto: \{ x: 289, y: 177, w: 205, h: 79 \}/);
+    expect(hud).toMatch(/return auto \? JUDGE_BOXES\.auto : JUDGE_BOXES\.perfect;/);
+    // 停留时长可由调用方覆盖（结尾段 / 原型调参），但只有两档
     expect(field).toMatch(/judgeStateAt\(chart, seconds, js\.life\)/);
-    expect(field).toMatch(/const box = judgeSprite\(\);/);
-    expect(field).not.toMatch(/judge_great|judge_miss|judge_auto/);
+    expect(field).toMatch(/const box = judgeSprite\(auto\);/);
+    expect(field).toMatch(/const autoMode = input\.scene\.autoMode \?\? true;/);
+    expect(field).not.toMatch(/judge_great|judge_miss|AUTO PLAY|judgeAutoPlay/);
+    expect(hud).not.toMatch(/AUTO PLAY/);
   });
 
-  it('缺 `judgeskin` ⇒ 纯字 "PERFECT"（Q12：留空或纯字，不画假徽章）', () => {
-    expect(field).toMatch(/ctx\.fillText\('PERFECT', cx, cy\)/);
+  it('缺 `judgeskin` ⇒ 纯字（Q12：留空或纯字，不画假徽章）', () => {
+    expect(field).toMatch(/ctx\.fillText\(auto \? 'AUTO' : 'PERFECT', cx, cy\)/);
     expect(assets).toMatch(/loadImage\(simJudgeUrl\(\)\)\.catch\(\(\) => null\)/);
     expect(assets).toMatch(/judge: HTMLImageElement \| null/);
     // 缺判定图集**不置 missing**（场地照画、判定字退纯字）
@@ -75,7 +81,7 @@ describe('52 · AP combo（按 `.cache/Combo-Style.mov` 重做：白芯 + 渐变
     expect(field).toMatch(/globalCompositeOperation = 'destination-out'/);
     expect(field).toMatch(/globalCompositeOperation = 'source-in'/);
     // 白芯最后压回中间
-    expect(field).toMatch(/g\.globalCompositeOperation = 'source-over';\n  g\.drawImage\(white, pad, pad\)/);
+    expect(field).toMatch(/g\.globalCompositeOperation = 'source-over';\n {2}g\.drawImage\(white, pad, pad\)/);
     // 旧的白色描边（用户点名要删的那圈白）不许回来
     expect(field).not.toMatch(/strokeStyle = '#ffffff'/);
   });
@@ -131,9 +137,10 @@ describe('52 · AP combo（按 `.cache/Combo-Style.mov` 重做：白芯 + 渐变
     expect(field).toMatch(/const alpha = fadeInA \* fadeOutA;/);
   });
 
-  it('combo 的 AP 态由 `settings.preview.apCombo` 决定（缺省 = 开）', () => {
-    expect(field).toMatch(/ap: input\.scene\.apCombo \?\? true,/);
+  it('combo 的 AP 态由 `settings.preview.apCombo` 与 `autoMode` 共同决定（缺省 = 开 / AUTO 开）', () => {
+    expect(field).toMatch(/ap: comboApActive\(input\.scene\.apCombo \?\? true, autoMode\),/);
     expect(field).toMatch(/apCombo\?: boolean;/);
+    expect(hud).toMatch(/return apCombo && !autoMode;/);
   });
 
   it('判定字也"弹一下"（与 combo 同一条 `comboPopScale` 曲线）', () => {
@@ -148,14 +155,56 @@ describe('52 · AP combo（按 `.cache/Combo-Style.mov` 重做：白芯 + 渐变
   });
 });
 
+describe('63 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一分）', () => {
+  it('取景坐标照 `README.txt` §六，逐件来自官方图集 / 用户自备件', () => {
+    expect(hud).toMatch(/barA: \[1, 393, 661, 22\]/);
+    expect(hud).toMatch(/pause: \[828, 318, 63, 60\]/);
+    expect(hud).toMatch(/star: \[0, 266, 110, 100\]/);
+    expect(hud).toMatch(/scoreBand: \{ x: 64, y: 10, w: 521, h: 41 \}/);
+    expect(hud).toMatch(/lifeBand: \{ x: 78, y: 9, w: 451, h: 50 \}/);
+    expect(field).toMatch(/HUD_SPRITES\.barA/);
+    expect(field).toMatch(/HUD_SPRITES\.star/);
+  });
+
+  it('分数 = floor(满分 × 已命中 / 总数)，最后一音补齐；7 位定宽', () => {
+    expect(hud).toMatch(/if \(hits >= total\) return SCORE_MAX;/);
+    expect(hud).toMatch(/return Math\.floor\(\(SCORE_MAX \* hits\) \/ total\);/);
+    expect(hud).toMatch(/padStart\(SCORE_DIGITS, '0'\)/);
+    expect(field).toMatch(/scoreAt\(chart, seconds\)/);
+  });
+
+  it('6 档条一律取官方渐变条 A 的窗口；`+增量` 与 SS+ 星点按时间轴走', () => {
+    expect(field).toMatch(/const tierIndex = scoreTierAt\(score\);/);
+    expect(field).toMatch(/const tier = SCORE_TIERS\[tierIndex\];/);
+    expect(field).toMatch(/plusAgesAt\(chart, seconds, SIM_HUD\.plusDur\)/);
+    expect(field).toMatch(/HUD_SPRITES\.star/);
+    // 不许自造 `AUTO PLAY` 字样，也不许拿程序化径向渐变冒充官方分数条
+    expect(field).not.toMatch(/AUTO PLAY/);
+    expect(hud).not.toMatch(/AUTO PLAY/);
+  });
+
+  it('缺 `score-bar` / `life-bar` 只降级描边框，不抛错、不画假组件', () => {
+    expect(field).toMatch(/if \(!hud\.scoreBar\) \{/);
+    expect(field).toMatch(/if \(!hud\.lifeBar\) \{/);
+    expect(field).toMatch(/if \(!autoMode \|\| !assets\.autoLive\) return;/);
+  });
+});
+
 describe('51 · 素材路径与既有素材树同一条规则', () => {
   it('判定图集在 `assets/game-ui/judgeskin/skin00/judge.png`（拼 BASE_URL，file:// 下也能读）', () => {
     expect(assets).toMatch(/GAME_UI_ASSET_BASE = `\$\{import\.meta\.env\.BASE_URL\}assets\/game-ui`/);
     expect(assets).toMatch(/`\$\{GAME_UI_ASSET_BASE\}\/judgeskin\/skin00\/judge\.png`/);
   });
 
-  it('本期不做开关 / 不做档位（Auto 恒 PERFECT；「未来可配置」只是登记）', () => {
-    expect(hud).not.toMatch(/setting|enabled|toggle/i);
+  it('AUTO 提示只读用户自备 `auto-live.png`（缺件留空，不画自造字样）', () => {
+    expect(assets).toMatch(/autoLive: `\$\{GAME_UI_ASSET_BASE\}\/hud\/auto-live\.png`/);
+    expect(field).toMatch(/if \(!autoMode \|\| !assets\.autoLive\) return;/);
+    expect(field).toMatch(/ctx\.drawImage\(assets\.autoLive, 0, 0, 512, 113,/);
     expect(field).not.toMatch(/judgeEnabled|apComboEnabled/);
+  });
+
+  it('判定字不做档位开关（只有 AUTO / PERFECT 两档，其余四档 / FAST / SLOW 不接）', () => {
+    expect(hud).not.toMatch(/setting|enabled|toggle/i);
+    expect(hud).not.toMatch(/judge_great|judge_miss|fast|slow/i);
   });
 });

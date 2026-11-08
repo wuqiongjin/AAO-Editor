@@ -55,10 +55,57 @@ const SIM_SPRITE_CATEGORY = 'sprites';
  */
 export const GAME_UI_ASSET_BASE = `${import.meta.env.BASE_URL}assets/game-ui`;
 
-/** 判定图集 URL（`judgeskin/skin00/judge.png`；Auto 只用 PERFECT 那一格） */
+/** 判定图集 URL（`judgeskin/skin00/judge.png`；票 62 起 PERFECT / AUTO 两格） */
 export function simJudgeUrl(): string {
   return `${GAME_UI_ASSET_BASE}/judgeskin/skin00/judge.png`;
 }
+
+/**
+ * 打歌 HUD 顶栏素材（票 62 / 63）。与判定图集同一条边界：**不入 git / 不进安装包**，
+ * 读不到 = 那一处留空或纯字，不置 `missing`（场地照画）。
+ *
+ * `scoreBar` / `lifeBar` / `autoLive` 是用户自备件（已抠底），其余是官方图集切图。
+ * 取景坐标在 `simHud.HUD_SPRITES`，清单见 `public/assets/game-ui/README.txt` §六。
+ */
+export interface SimHudUrls {
+  rhythmGameUI: string;
+  fever: string;
+  autoLive: string;
+  scoreBar: string;
+  lifeBar: string;
+}
+
+export function simHudUrls(): SimHudUrls {
+  return {
+    rhythmGameUI: `${GAME_UI_ASSET_BASE}/stageskin/normal/RhythmGameUI.png`,
+    fever: `${GAME_UI_ASSET_BASE}/stageskin/normal/tex_parSet_fever.png`,
+    autoLive: `${GAME_UI_ASSET_BASE}/hud/auto-live.png`,
+    scoreBar: `${GAME_UI_ASSET_BASE}/hud/score-bar.png`,
+    lifeBar: `${GAME_UI_ASSET_BASE}/hud/life-bar.png`,
+  };
+}
+
+/** 已就绪的 HUD 素材；逐件独立降级（缺哪件那处留空 / 纯字，不整组作废） */
+export interface SimHudAssets {
+  /** 官方图集：6 档渐变条 / 暂停钮 / 结算圆星章 */
+  rhythmGameUI: HTMLImageElement | null;
+  /** 官方粒子图集：SS+ 档四芒星 */
+  fever: HTMLImageElement | null;
+  /** 用户自备：`AUTO LIVE` 胶囊（仅 AUTO 模式显示） */
+  autoLive: HTMLImageElement | null;
+  /** 用户自备：整块分数组件 */
+  scoreBar: HTMLImageElement | null;
+  /** 用户自备：整块生命组件 */
+  lifeBar: HTMLImageElement | null;
+}
+
+export const EMPTY_SIM_HUD_ASSETS: SimHudAssets = {
+  rhythmGameUI: null,
+  fever: null,
+  autoLive: null,
+  scoreBar: null,
+  lifeBar: null,
+};
 
 /**
  * 两个独立选择器传进来的包 ID（chart-preview 41；`settings.preview.bgPackId` / `fieldPackId`）。
@@ -175,8 +222,10 @@ export interface SimAssets {
   bandRasterSp: SimBandRasterMaterial;
   /** Bestdori 自家精灵（combo / 特效）：缺 = null → 回落自绘（chart-preview 21，**不置 missing**） */
   sprites: SimSprites | null;
-  /** 判定图集（51）：缺 = null → 判定字走纯字（**不置 missing**） */
+  /** 判定图集（51/62）：缺 = null → 判定字走纯字（**不置 missing**） */
   judge: HTMLImageElement | null;
+  /** 打歌 HUD 顶栏（62/63）：逐件缺 = null → 那处留空 / 纯字（**不置 missing**） */
+  hud: SimHudAssets;
   /** 缺素材：跑过归档脚本才能有（空态由页面画，这里只报事实） */
   missing: boolean;
   /** 命中的服务器目录（缺素材 = null） */
@@ -217,6 +266,7 @@ export function emptySimAssets(): SimAssets {
     bandRasterSp: SIM_BAND_RASTER_MATERIAL_SP,
     sprites: null,
     judge: null,
+    hud: { ...EMPTY_SIM_HUD_ASSETS },
     missing: true,
     server: null,
   };
@@ -337,7 +387,11 @@ async function probeSimServers(opts: {
       continue; // 这个服务器目录没归档（或没摆选中的场地图）：换下一个
     }
     const spriteUrls = simSpriteUrls(server);
-    const [background, playLine, bandImg, bandSpImg, digits, combo, particles, judge] = await Promise.all([
+    const hudUrls = simHudUrls();
+    const [
+      background, playLine, bandImg, bandSpImg, digits, combo, particles, judge,
+      rhythmGameUI, fever, autoLive, scoreBar, lifeBar,
+    ] = await Promise.all([
       loadImage(urls.background).catch(() => null),
       loadImage(urls.playLine).catch(() => null),
       bandSrc ? loadImage(bandSrc).catch(() => null) : Promise.resolve(null),
@@ -346,10 +400,17 @@ async function probeSimServers(opts: {
       loadImage(spriteUrls.digits).catch(() => null),
       loadImage(spriteUrls.combo).catch(() => null),
       loadImage(spriteUrls.particles).catch(() => null),
-      // 判定图集（51）：缺席只是"判定字走纯字"，不影响场地
+      // 判定图集（51/62）：缺席只是"判定字走纯字"，不影响场地
       loadImage(simJudgeUrl()).catch(() => null),
+      // 打歌 HUD 顶栏（62/63）：逐件缺席只让那一处降级，不影响场地也不置 missing
+      loadImage(hudUrls.rhythmGameUI).catch(() => null),
+      loadImage(hudUrls.fever).catch(() => null),
+      loadImage(hudUrls.autoLive).catch(() => null),
+      loadImage(hudUrls.scoreBar).catch(() => null),
+      loadImage(hudUrls.lifeBar).catch(() => null),
     ]);
     const sprites = digits && combo && particles ? { digits, combo, particles } : null;
+    const hud: SimHudAssets = { rhythmGameUI, fever, autoLive, scoreBar, lifeBar };
     warmupSimSprites(sprites, [background, field, playLine]);
     // 65：普通 / SP 带体各读一次，标量材质、17 点剖面、纵向曲线、体色同源（无第二次回读）；
     // LUT 在这里展开好，帧循环只读数组。
@@ -366,6 +427,7 @@ async function probeSimServers(opts: {
       bandRaster: buildSimBandRasterMaterial(bandSample, false),
       bandRasterSp: buildSimBandRasterMaterial(bandSpSample, true),
       sprites,
+      hud,
       judge,
       missing: false,
       server,

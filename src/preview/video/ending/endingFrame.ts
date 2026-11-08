@@ -17,6 +17,7 @@
 //     就收不掉了）；UI 层与仿真场互不共享画笔。
 import { HEADER_SANS } from '../../fontStack';
 import { drawSimFrameAt, SIM_FALLBACK_BG, type SimFrameInput } from '../sim/simField';
+import { HUD_SPRITES, scoreRankAt, type ScoreRank } from '../sim/simHud';
 import { drawSquareCover, openingPlaceholderCover } from '../opening/openingFrame';
 import {
   ENDING_SPEC,
@@ -66,6 +67,8 @@ export interface EndingContentInput {
   coverHue: number;
   counts: EndingCounts;
   maxCombo: number;
+  /** 归一最终分（票 64：0–1,000,000；AUTO 全 PERFECT = 满分） */
+  score: number;
   assets: EndingAssets;
 }
 
@@ -80,6 +83,17 @@ export interface EndingFrameInput extends EndingContentInput {
 const WORD_ASPECT = 187 / 1028;
 /** 幕布抬起后最后一次粒子余烬的时长（秒） */
 const EMBERS_SECONDS = 0.55;
+
+/**
+ * 结算 Score 行的标签（票 64 定稿）：**固定 `Score`、不做多语言**。
+ * 官方图集里没有这两个字，由 Canvas 按曲名同一条字体链自绘（用户明确开的唯一文字例外）。
+ */
+const RESULT_LABEL = 'Score';
+
+/** 官方 `MenuAtlas` 里已经定位的大号字母切图；其余 10 档缺切图 ⇒ 纯字降级，不许伪造 */
+const RANK_LETTER_SPRITES: Partial<Record<ScoreRank, readonly [number, number, number, number]>> = {
+  SS: HUD_SPRITES.rankLetter,
+};
 
 /** 结算白卡的五档顺序 */
 const ROWS = ['PERFECT', 'GREAT', 'GOOD', 'BAD', 'MISS'] as const;
@@ -680,8 +694,9 @@ function drawStage(
   drawSimFrameAt(ctx, stage.frame, stage.seconds, {
     trackAlpha: layerAlpha(elapsed, u.spec.trackFadeAt, u.spec.trackFadeDur),
     comboAlpha: layerAlpha(elapsed, u.spec.comboFadeAt, u.spec.comboFadeDur),
-    // 结尾段不画判定字：那是打歌时的东西
+    // 结尾段不画判定字 / 打歌顶栏：那是打歌时的东西，结算只剩舞台
     judge: null,
+    hud: false,
   });
   ctx.restore();
 }
@@ -1539,7 +1554,7 @@ function comboRect(card: CardRect, u: EndingUnits): { x: number; y: number; w: n
   };
 }
 
-/** 顶栏：星徽 + 难度 + 曲名 + Lv（**没有** SS / 得分 / 排名） */
+/** 顶栏：星徽 + 难度 + 曲名 + Lv（票 64 起右上另有一枚 SCORE RANK 徽章） */
 function drawBar(ctx: CanvasRenderingContext2D, u: EndingUnits, input: EndingFrameInput): void {
   const x = u.wp('barX');
   const y = u.hp('barY');
@@ -1602,8 +1617,113 @@ function drawBar(ctx: CanvasRenderingContext2D, u: EndingUnits, input: EndingFra
 }
 
 /**
+ * 白卡首行（票 64）：圆星章 + 固定 `Score` + 归一最终分 + 点线分隔。
+ * 位置按卡宽等比（`u.hp` 在 16:9 帧上与原型 `card.w/720` 等价）；
+ * 圆星章缺件就**留空**（不画假章），标签 / 分数按用户定案自绘。
+ */
+function drawResultRow(
+  ctx: CanvasRenderingContext2D,
+  u: EndingUnits,
+  input: EndingFrameInput,
+  card: CardRect,
+  alpha: number,
+): void {
+  if (alpha <= 0.002) return;
+  const padX = u.hp('resultPadX');
+  const rowH = u.hp('resultRowH');
+  const fpx = u.hp('resultFont');
+  const cy = card.top + rowH * 0.5 + u.hp('resultRowDY');
+  const medalH = fpx * 1.15;
+  const tx = card.left + padX + medalH + fpx * 0.3;
+  const sx = card.left + card.w - padX;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textBaseline = 'middle';
+  const img = input.assets.rhythmGameUI;
+  if (img) {
+    const m = HUD_SPRITES.medal;
+    ctx.drawImage(img, m[0], m[1], m[2], m[3], card.left + padX, cy - medalH / 2, medalH, medalH);
+  }
+  ctx.textAlign = 'left';
+  ctx.font = `600 ${fpx}px ${HEADER_SANS}`;
+  ctx.fillStyle = '#3b3b3b';
+  ctx.fillText(RESULT_LABEL, tx, cy + 1);
+
+  // 分数：整串右对齐、粉字白描边、无前导零
+  ctx.textAlign = 'right';
+  ctx.font = `800 ${u.hp('resultScoreFont')}px ${HEADER_SANS}`;
+  ctx.lineWidth = Math.max(2, fpx * 0.14);
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#ffffff';
+  ctx.strokeText(String(input.score), sx, cy + 1);
+  ctx.fillStyle = '#e8417f';
+  ctx.fillText(String(input.score), sx, cy + 1);
+
+  const dy = card.top + rowH - fpx * 0.76;
+  const dot = Math.max(1.5, fpx * 0.1);
+  ctx.fillStyle = '#cfcfcf';
+  for (let x = card.left + padX; x < card.left + card.w - padX; x += dot * 2.6) {
+    ctx.beginPath();
+    ctx.arc(x, dy, dot * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/**
+ * 右上 SCORE RANK 徽章（票 64）：官方 `MenuAtlas` 太阳纹圆盘 + 大号字母 + `SCORE RANK` 缎带。
+ * 11 档与打歌 6 档独立；只有 SS 的大号字母切图已登记，其余档 / 缺图集走**纯字**降级。
+ */
+function drawRankBadge(
+  ctx: CanvasRenderingContext2D,
+  u: EndingUnits,
+  input: EndingFrameInput,
+  alpha: number,
+): void {
+  if (alpha <= 0.002) return;
+  const rank = scoreRankAt(input.score);
+  const menu = input.assets.menu;
+  const size = u.wp('rankSize');
+  const x = u.w - u.wp('rankRight') - size;
+  const y = u.wp('rankTop');
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${size * 0.34}px ${HEADER_SANS}`;
+  ctx.fillStyle = '#3b3b3b';
+  if (!menu) {
+    ctx.fillText(rank, x + size / 2, y + size / 2);
+    ctx.restore();
+    return;
+  }
+
+  const d = HUD_SPRITES.rankDisc;
+  const dh = (d[3] / d[2]) * size;
+  ctx.drawImage(menu, d[0], d[1], d[2], d[3], x, y, size, dh);
+
+  const letter = RANK_LETTER_SPRITES[rank];
+  const lw = size * u.spec.rankLetterScale;
+  if (letter) {
+    const lh = (letter[3] / letter[2]) * lw;
+    ctx.drawImage(menu, letter[0], letter[1], letter[2], letter[3],
+      x + (size - lw) / 2, y + (dh - lh) / 2, lw, lh);
+  } else {
+    ctx.fillText(rank, x + size / 2, y + dh / 2);
+  }
+
+  const rb = HUD_SPRITES.ribbon;
+  const rw = u.wp('ribbonW');
+  const rh = (rb[3] / rb[2]) * rw;
+  ctx.drawImage(menu, rb[0], rb[1], rb[2], rb[3],
+    x + (size - rw) / 2, y + dh + u.wp('ribbonBelow'), rw, rh);
+  ctx.restore();
+}
+
+/**
  * 白卡 + 内部件各自入场：
- * `cardA` 卡体、`rowAt(i)` 每一行、`comboA` MAX 盒、`apA` AP 标。
+ * `cardA` 卡体、`rowAt(i)` 每一行、`comboA` MAX 盒、`apA` AP 标、`scoreP` Score 行。
  */
 function drawCard(
   ctx: CanvasRenderingContext2D,
@@ -1614,6 +1734,7 @@ function drawCard(
   rowAt: (index: number) => number,
   comboA: number,
   apA: number,
+  scoreP: number,
 ): void {
   if (cardA > 0.002) {
     ctx.save();
@@ -1636,6 +1757,8 @@ function drawCard(
     ctx.restore();
   }
 
+  // Score 行在五行判定之前画：它占的是卡片顶部那一行，时序与卡片本体同一把尺
+  drawResultRow(ctx, u, input, card, scoreP);
   drawCombo(ctx, u, input, card, comboA);
   drawAp(ctx, u, input, card, apA);
 }
@@ -1833,6 +1956,10 @@ function drawSettlement(
   const rowAt = (i: number): number => at(row0 + i * rowStep, row0 + i * rowStep + 0.26);
   const comboP = at(0.42, 0.66);
   const apP = at(0.56, 0.8);
+  // 票 64：Score 行与 SCORE RANK 徽章各占入场轴的一段（卡片本体 0.08→0.32、五行 0.26→0.52）。
+  // 生产里黑幕是在 drawSettlement **之后**盖的，所以这两件天然画在幕下，不必再乘一次 alpha。
+  const scoreP = at(u.spec.resultInAt / 100, (u.spec.resultInAt + u.spec.resultInDur) / 100);
+  const rankP = at(u.spec.rankInAt / 100, (u.spec.rankInAt + u.spec.rankInDur) / 100);
 
   const cover = input.cover ?? openingPlaceholderCover(input.coverHue);
   const bleed = cover ? bleedCanvas(cover, u) : null;
@@ -1861,8 +1988,10 @@ function drawSettlement(
   ctx.translate(cx, cy + (1 - cardP) * u.h * 0.03);
   ctx.scale(s, s);
   ctx.translate(-cx, -cy);
-  drawCard(ctx, u, input, card, cardP, rowAt, comboP, apP);
+  drawCard(ctx, u, input, card, cardP, rowAt, comboP, apP, scoreP);
   ctx.restore();
+  // 徽章画在整帧右上角（不随白卡缩放），单独一条淡入
+  drawRankBadge(ctx, u, input, rankP);
 }
 
 /** 封面实体：白框 + 投影 + 方形裁切（左半幅的"舞台道具"） */

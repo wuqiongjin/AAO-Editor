@@ -124,6 +124,8 @@ export interface EndingInput {
   counts: EndingCounts;
   /** MAX COMBO（= 音符总数） */
   maxCombo: number;
+  /** 归一最终分（票 64：0–1,000,000；AUTO 全 PERFECT = 满分） */
+  score: number;
 }
 
 /**
@@ -412,6 +414,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
           coverHue: req.ending.coverHue,
           counts: req.ending.counts,
           maxCombo: req.ending.maxCombo,
+          score: req.ending.score,
           assets: endingAssets,
         }
       : null;

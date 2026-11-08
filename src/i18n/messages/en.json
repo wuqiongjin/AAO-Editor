@@ -572,6 +572,7 @@
   "preview.display.comboMarks": "Combo markers",
   "preview.display.mirror": "Mirror",
   "preview.display.apCombo": "PERFECT display",
+  "preview.display.autoMode": "AUTO mode",
   "preview.display.off": "Off",
   "preview.display.seconds": "{{count}}s",
   "preview.display.group.skin": "Note skin",

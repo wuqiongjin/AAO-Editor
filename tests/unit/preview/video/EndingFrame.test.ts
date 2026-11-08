@@ -37,6 +37,7 @@ const NO_ASSETS: EndingAssets = {
   particles: null,
   maxCombo: null,
   menu: null,
+  rhythmGameUI: null,
 };
 
 /**
@@ -54,6 +55,8 @@ function frameInput(over: Partial<EndingFrameInput> = {}): EndingFrameInput {
     coverHue: 268,
     counts: { perfect: 667, great: 0, good: 0, bad: 0, miss: 0 },
     maxCombo: 667,
+    /** 归一最终分（AUTO 全 PERFECT） */
+    score: 1_000_000,
     assets: NO_ASSETS,
     stage: {
       seconds: 120,
@@ -108,7 +111,8 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       resultDur: 2.95,
       barX: 8.25,
       barY: 12.9,
-      barW: 85,
+      // 票 64：顶栏收窄给右上 SCORE RANK 让位
+      barW: 74,
       barH: 5.2,
       barR: 0.8,
       starSize: 4,
@@ -127,7 +131,8 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       cardW: 66.7,
       cardTop: 32,
       cardR: 1,
-      rowFirst: 5.6,
+      // 票 64：白卡首行让给 Score 行
+      rowFirst: 12,
       rowPitch: 5.9,
       labelH: 4.6,
       labelX: 2.5,
@@ -140,7 +145,8 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       lineOffset: 2.1,
       padBottom: 3.5,
       comboX: 40,
-      comboY: 5,
+      // 随 rowFirst 同差值下移，否则 MAX COMBO 压住 Score 行
+      comboY: 11.4,
       comboW: 20,
       comboH: 18.2,
       comboDark: 0.575,
@@ -256,6 +262,23 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       haloDiaLayout: 'ring',
       haloDiaSeed: 135,
       haloDiaJitter: 0.18,
+      // 票 64 · Score 行（%H / 卡宽等比；时间键是 %入场轴 q）
+      resultFont: 3.15,
+      resultScoreFont: 3.7,
+      resultPadX: 1.48,
+      resultRowH: 8.89,
+      resultRowDY: -1.11,
+      resultInAt: 24,
+      resultInDur: 24,
+      // 票 64 · SCORE RANK 徽章（%W，原型按帧宽缩）
+      rankSize: 8.125,
+      rankRight: 7.8125,
+      rankTop: 6.5625,
+      rankLetterScale: 0.6,
+      ribbonW: 10.4167,
+      ribbonBelow: 0.2083,
+      rankInAt: 20,
+      rankInDur: 20,
     });
   });
 
@@ -286,7 +309,7 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(fillRects(calls)[0]).toEqual([0, 0, 1920, 1080]);
   });
 
-  it('结算：顶栏写难度 / 曲名 / Lv（没有 SS、得分、排名）', () => {
+  it('结算：顶栏写难度 / 曲名 / Lv，白卡首行是固定 `Score` + 归一最终分（票 64）', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawEndingFrameAt(proxy, 1920, 1080, frameInput(), ENDING_SECONDS - 0.1);
     const t = texts(calls);
@@ -296,8 +319,49 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(t).toContain('Lv.');
     expect(t).toContain('MAX');
     expect(t).toContain('COMBO');
-    // 结算从判定区起：得分 / 排名 / SS 一律不画
-    expect(t.join('')).not.toMatch(/SCORE|RANK|SS/);
+    // 标签固定 `Score`（不做 i18n）；分数是无前导零的归一分
+    expect(t).toContain('Score');
+    expect(t).toContain('1000000');
+    expect(t).not.toContain('得分');
+    // 缺 `MenuAtlas` ⇒ rank 走纯字降级，不画自造 `AUTO PLAY` 字样
+    expect(t).toContain('SS+');
+    expect(t.join('')).not.toContain('AUTO PLAY');
+  });
+
+  it('票 64 · Score 行在卡片入场那一段就淡入（不是五行判完才出现）', () => {
+    const early = makeRecordingCtx({ measureText: measureTextOk });
+    drawEndingFrameAt(early.proxy, 1920, 1080, frameInput(), ENDING_STAMP_SECONDS + 0.5);
+    expect(texts(early.calls)).not.toContain('Score');
+    const settle = makeRecordingCtx({ measureText: measureTextOk });
+    drawEndingFrameAt(settle.proxy, 1920, 1080, frameInput(), ENDING_SECONDS - 0.1);
+    expect(texts(settle.calls)).toContain('Score');
+  });
+
+  it('票 64 · 有 `RhythmGameUI.png` 时 Score 行贴官方圆星章（缺件留空，不画假章）', () => {
+    const rhythmGameUI = { naturalWidth: 1024, naturalHeight: 1024 } as unknown as HTMLImageElement;
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawEndingFrameAt(
+      proxy, 1920, 1080,
+      frameInput({ assets: { ...NO_ASSETS, rhythmGameUI } }), ENDING_SECONDS - 0.1,
+    );
+    const hit = calls.filter(([k]) => k === 'drawImage')
+      .map(([, a]) => a as unknown[]).find((a) => a[0] === rhythmGameUI);
+    expect(hit?.slice(1, 5)).toEqual([7, 421, 29, 30]);
+  });
+
+  it('票 64 · 有 `MenuAtlas.png` 时右上徽章 = 太阳纹盘 + 字母层 + SCORE RANK 缎带', () => {
+    const menu = { naturalWidth: 2048, naturalHeight: 2048 } as unknown as HTMLImageElement;
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawEndingFrameAt(
+      proxy, 1920, 1080,
+      frameInput({ assets: { ...NO_ASSETS, menu } }), ENDING_SECONDS - 0.1,
+    );
+    const boxes = calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === menu)
+      .map(([, a]) => (a as unknown[]).slice(1, 5));
+    expect(boxes).toContainEqual([1080, 1286, 140, 132]); // 太阳纹盘
+    expect(boxes).toContainEqual([1375, 855, 190, 35]); // SCORE RANK 缎带
+    // 只有 SS 一档的大号字母切图登记在册；满分 SS+ 走纯字降级
+    expect(texts(calls)).not.toContain('SS');
   });
 
   it('五行判定 + MAX COMBO 的计数照 `counts` / `maxCombo` 画（四位补零）', () => {

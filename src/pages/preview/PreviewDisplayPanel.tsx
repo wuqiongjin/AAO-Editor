@@ -886,6 +886,15 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                           onChange={(apCombo) => setPreview({ apCombo })}
                         />
                       </Row>
+                      {/* AUTO 模式（62，2026-11-08）：开 = 判定字 AUTO + AUTO LIVE 提示，
+                          关 = PERFECT + AP 态。同一份 scene ⇒ 实时预览与导出一致 */}
+                      <Row label={t('preview.display.autoMode')}>
+                        <Toggle
+                          label={t('preview.display.autoMode')}
+                          checked={preview.autoMode}
+                          onChange={(autoMode) => setPreview({ autoMode })}
+                        />
+                      </Row>
                       <Row label={t('settings.seVolume')}>
                         <Percent
                           label={t('settings.seVolume')}

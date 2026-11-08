@@ -41,6 +41,7 @@ export {
   SIM_DEFAULT_PACK_IDS,
   SIM_PLAYBACK_RATE_PRESETS,
   SIM_PLAYBACK_RATE_STEP,
+  SCORE_MAX,
   approachA,
   approachOf,
   approachSeconds,

@@ -28,10 +28,10 @@ export const ENDING_SPEC = {
   stampDur: 3,
   transDur: 1.55,
   resultDur: 2.95,
-  // 顶栏
+  // 顶栏（票 64：收窄给右上 SCORE RANK 徽章让位）
   barX: 8.25,
   barY: 12.9,
-  barW: 85,
+  barW: 74,
   barH: 5.2,
   barR: 0.8,
   starSize: 4,
@@ -46,12 +46,12 @@ export const ENDING_SPEC = {
   lvRight: 2.35,
   lvNumFont: 2.35,
   lvLabelFont: 2.35,
-  // 白卡
+  // 白卡（票 64：首行让给 Score 行，五行判定整体下移）
   cardRight: 12,
   cardW: 66.7,
   cardTop: 32,
   cardR: 1,
-  rowFirst: 5.6,
+  rowFirst: 12,
   rowPitch: 5.9,
   labelH: 4.6,
   labelX: 2.5,
@@ -64,7 +64,8 @@ export const ENDING_SPEC = {
   lineOffset: 2.1,
   padBottom: 3.5,
   comboX: 40,
-  comboY: 5,
+  /** 随 `rowFirst` 同差值下移（5 → 11.4），否则 MAX COMBO 压住 Score 行 */
+  comboY: 11.4,
   comboW: 20,
   comboH: 18.2,
   comboDark: 0.575,
@@ -250,6 +251,36 @@ export const ENDING_SPEC = {
   comboFadeDur: 0,
   trackFadeAt: 0,
   trackFadeDur: 1,
+  // 票 64 · 结算 Score 行（原型定稿 2026-11-08；几何按 %H，时间键是 %入场轴 q）
+  /** 「Score」标签字号（%H；原型 34px @1080p） */
+  resultFont: 3.15,
+  /** 分数字号（%H；原型 40px @1080p） */
+  resultScoreFont: 3.7,
+  /** 卡内左右内距（%H；原型 16 × 卡宽/720） */
+  resultPadX: 1.48,
+  /** Score 行高（%H；原型 96 × 卡宽/720） */
+  resultRowH: 8.89,
+  /** 整行上下微调（%H；原型 −12 × 卡宽/720，负数 = 更贴卡片上沿） */
+  resultRowDY: -1.11,
+  /** 行出现的时刻 / 淡入跨度（%入场轴 q，与 `drawSettlement` 的 `at()` 同一把尺） */
+  resultInAt: 24,
+  resultInDur: 24,
+  // 票 64 · 右上 SCORE RANK 徽章（原型按帧宽缩 ⇒ 一律 %W）
+  /** 太阳纹圆盘宽（%W；原型 156px @1920） */
+  rankSize: 8.125,
+  /** 距右缘（%W；原型 150px） */
+  rankRight: 7.8125,
+  /** 距上缘（%W；原型 126px） */
+  rankTop: 6.5625,
+  /** 字母层相对圆盘的倍率 */
+  rankLetterScale: 0.6,
+  /** 缎带宽（%W；原型 200px） */
+  ribbonW: 10.4167,
+  /** 缎带离圆盘下沿（%W；原型 4px） */
+  ribbonBelow: 0.2083,
+  /** 徽章单独的出现时刻 / 淡入跨度（%入场轴 q） */
+  rankInAt: 20,
+  rankInDur: 20,
 } as const;
 
 /**

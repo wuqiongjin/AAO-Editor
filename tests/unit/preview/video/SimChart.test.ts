@@ -217,7 +217,7 @@ describe('drawSimFrameAt · 一帧绘制', () => {
     const f = frameOf([single(2, 3), slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5, hidden: true }, { beat: 6, lane: 1 }])]);
     const { proxy, calls } = recordingCtx();
     for (const seconds of [0, 0.5, 1.2, 2, 2.05, 3, 3.2, 10]) {
-      expect(() => drawSimFrameAt(proxy, f, seconds)).not.toThrow();
+      expect(() => drawSimFrameAt(proxy, f, seconds, { hud: false })).not.toThrow();
     }
     expect(propValues(calls, 'fillStyle')).toContain(SIM_FALLBACK_BG); // 场地底色铺满
     expect(fillTexts(calls).map(([, [text]]) => text)).toContain('COMBO'); // HUD 是自绘文本
@@ -226,12 +226,12 @@ describe('drawSimFrameAt · 一帧绘制', () => {
   it('combo 只数已过线的：命中前不写，命中后写当前值', () => {
     const f = frameOf([single(1, 3), single(2, 0)]);
     const before = recordingCtx();
-    drawSimFrameAt(before.proxy, f, 0.4);
+    drawSimFrameAt(before.proxy, f, 0.4, { hud: false });
     expect(fillTexts(before.calls)).toHaveLength(0);
 
     const after = recordingCtx();
     // 判定字停留 1s（2026-10-27 定稿）⇒ 取 2.0s，判定字已经收掉，只剩 combo 两件
-    drawSimFrameAt(after.proxy, f, 2.0);
+    drawSimFrameAt(after.proxy, f, 2.0, { hud: false });
     expect(fillTexts(after.calls).map(([, [text]]) => text)).toEqual(['2', 'COMBO']);
   });
 });

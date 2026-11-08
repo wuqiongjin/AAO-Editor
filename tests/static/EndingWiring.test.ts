@@ -103,8 +103,9 @@ describe('52 · 章的背景 = 仿真场末帧（不照搬原型的 bgskin 裁�
     expect(frame).toMatch(/drawSimFrameAt\(ctx, stage\.frame, stage\.seconds, \{/);
     expect(frame).toMatch(/trackAlpha: layerAlpha\(elapsed, u\.spec\.trackFadeAt, u\.spec\.trackFadeDur\)/);
     expect(frame).toMatch(/comboAlpha: layerAlpha\(elapsed, u\.spec\.comboFadeAt, u\.spec\.comboFadeDur\)/);
-    // 结尾段不画判定字（那是打歌时的东西）
+    // 结尾段不画判定字 / 打歌顶栏（那是打歌时的东西）
     expect(frame).toMatch(/judge: null,/);
+    expect(frame).toMatch(/hud: false,/);
     expect(frameDriver).toMatch(/seconds: chartSeconds/);
     expect(frameDriver).toMatch(/x: geometry\.field\.x/);
     expect(frameDriver).toMatch(/y: geometry\.field\.y/);
@@ -122,7 +123,7 @@ describe('52 · 章的背景 = 仿真场末帧（不照搬原型的 bgskin 裁�
 });
 
 describe('52 · 缺游戏素材 = 留空 / 纯字（不画假徽章）', () => {
-  it('八件素材逐件兜底（读不到 = null，不整组作废、不抛错）', () => {
+  it('九件素材逐件兜底（读不到 = null，不整组作废、不抛错）', () => {
     expect(assets).toMatch(/stampAp: HTMLImageElement \| null/);
     expect(assets).toMatch(/stampFc: HTMLImageElement \| null/);
     expect(assets).toMatch(/markAp: HTMLImageElement \| null/);
@@ -131,6 +132,7 @@ describe('52 · 缺游戏素材 = 留空 / 纯字（不画假徽章）', () => {
     expect(assets).toMatch(/particles: HTMLImageElement \| null/);
     expect(assets).toMatch(/maxCombo: HTMLImageElement \| null/);
     expect(assets).toMatch(/menu: HTMLImageElement \| null/);
+    expect(assets).toMatch(/rhythmGameUI: HTMLImageElement \| null/);
     expect(assets).toMatch(/loadImage\(urls\.stampAp\)\.catch\(\(\) => null\)/);
     expect(assets).toMatch(/EMPTY_ENDING_ASSETS/);
   });
@@ -158,8 +160,8 @@ describe('52 · 缺游戏素材 = 留空 / 纯字（不画假徽章）', () => {
     expect(frame).toMatch(/clear: \[275, 230, 47, 45\]/);
     // 比例尺由最大那格定死（不是每格各自缩到同高）
     expect(frame).toMatch(/const k = u\.hp\('starSize'\) \/ BADGE_INK_W;/);
-    // 换回旧图集那三格视为回归
-    expect(frame).not.toMatch(/RhythmGameUI|badgeStar|star-64/);
+    // 换回旧图集那三格视为回归（`RhythmGameUI` 现在只切 Score 行的圆星章，不是星徽）
+    expect(frame).not.toMatch(/badgeStar|star-64/);
   });
 
   it('MAX COMBO：有韩服真件时直接贴图，缺件才画两行文字', () => {
@@ -289,5 +291,42 @@ describe('55 · 结束中央章烟花与 `!` 飞镖式入场', () => {
     expect(frame.match(/const T = starTimeline\(u\);/g)).toHaveLength(3);
     expect(frame).toMatch(/const \{ at, growDur, growEnd, flyStart, flyDur, landAt, ghostDur \} = T;/);
     expect(frame.match(/function starTimeline\(/g)).toHaveLength(1);
+  });
+});
+
+describe('64 · 结算 Score 行 + SCORE RANK 徽章（推翻 ADR-0016 §5.2）', () => {
+  it('三项版式常量必须一起改：顶栏 74%W / 首行 12%H / MAX COMBO 同步下移', () => {
+    expect(spec).toMatch(/barW: 74,/);
+    expect(spec).toMatch(/rowFirst: 12,/);
+    expect(spec).toMatch(/comboY: 11\.4,/);
+  });
+
+  it('标签固定 `Score`（不做 i18n）；得分 = 归一最终分，从数据面一路接进 `EndingFrameInput`', () => {
+    expect(frame).toMatch(/const RESULT_LABEL = 'Score';/);
+    expect(frame).toMatch(/ctx\.fillText\(RESULT_LABEL, tx, cy \+ 1\)/);
+    expect(frame).toMatch(/ctx\.fillText\(String\(input\.score\), sx, cy \+ 1\)/);
+    expect(exportVideo).toMatch(/score: req\.ending\.score/);
+    expect(page).toMatch(/score: SCORE_MAX/);
+    expect(frame).not.toMatch(/preview\.ending\.score|i18n/);
+  });
+
+  it('SCORE RANK = 官方 11 档，与打歌 6 档独立；缺切图 / 缺图集走纯字降级', () => {
+    expect(frame).toMatch(/scoreRankAt\(input\.score\)/);
+    expect(frame).toMatch(/HUD_SPRITES\.rankDisc/);
+    expect(frame).toMatch(/HUD_SPRITES\.ribbon/);
+    expect(frame).toMatch(/RANK_LETTER_SPRITES\[rank\]/);
+    expect(frame).toMatch(/ctx\.fillText\(rank,/);
+    // 顶栏星徽仍只认 MenuAtlas 三格，不拿 RhythmGameUI 冒充
+    expect(frame).toMatch(/ap: \[116, 218, 57, 55\]/);
+    expect(frame).toMatch(/HUD_SPRITES\.medal/);
+  });
+
+  it('出场时机复用结算入场的 `q` 尺（行 24%/24%、徽章 20%/20%），不是判完五行才出现', () => {
+    expect(spec).toMatch(/resultInAt: 24,/);
+    expect(spec).toMatch(/resultInDur: 24,/);
+    expect(spec).toMatch(/rankInAt: 20,/);
+    expect(spec).toMatch(/rankInDur: 20,/);
+    expect(frame).toMatch(/drawResultRow\(ctx, u, input, card, scoreP\)/);
+    expect(frame).toMatch(/drawRankBadge\(ctx, u, input, rankP\)/);
   });
 });

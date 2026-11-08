@@ -570,6 +570,7 @@
   "preview.display.comboMarks": "Combo 标记",
   "preview.display.mirror": "镜向",
   "preview.display.apCombo": "PERFECT 显示状态",
+  "preview.display.autoMode": "AUTO 模式",
   "preview.display.off": "关闭",
   "preview.display.seconds": "{{count}} 秒",
   "preview.display.group.skin": "音符皮肤",

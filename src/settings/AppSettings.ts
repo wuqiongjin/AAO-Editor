@@ -376,6 +376,13 @@ export interface PreviewSettings {
    */
   apCombo: boolean;
   /**
+   * **AUTO 模式**（chart-preview 62，2026-11-08 定案）：默认**开**。
+   * 开 = 打歌判定字切官方 `judge_auto` + 显示用户自备 `AUTO LIVE` 胶囊 + combo 不叠 AP 辉光；
+   * 关 = 判定字回 `judge_perfect`、不显示胶囊、combo 按 `apCombo` 走 AP 态。
+   * 结算画面与分数口径都**不**跟这个开关变。实时预览与导出视频读同一个值。
+   */
+  autoMode: boolean;
+  /**
    * 仿真场音符速度档（chart-preview 05；照 Bestdori `simNoteSpeed`）：
    * 只作用于动态预览，决定接近模型的 T = 游戏分段映射（票 48）：n ≤ 11 → (12 − n)/2、
    * n > 11 → (16 − n)/10 秒（口径来源 = sonolus-bandori-engine `note.duration`）。
@@ -460,6 +467,8 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettings = {
   comboMarks: true,
   mirror: false,
   apCombo: true,
+  // AUTO 模式默认开（票 62 Q5）；旧数据缺字段也回落开，不静默换掉观感
+  autoMode: true,
   noteSpeed: SIM_NOTE_SPEED_RANGE.fallback,
   // 表演背景 / 场地皮肤包各默认 skin00（ADR-0018 §1；非法 ID 读盘时归一化回落）
   bgPackId: SIM_DEFAULT_PACK_IDS.background,
@@ -687,6 +696,8 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       comboMarks: typeof preview.comboMarks === 'boolean' ? preview.comboMarks : defaults.preview.comboMarks,
       mirror: typeof preview.mirror === 'boolean' ? preview.mirror : defaults.preview.mirror,
       apCombo: typeof preview.apCombo === 'boolean' ? preview.apCombo : defaults.preview.apCombo,
+      // AUTO 模式（票 62）：additive，缺字段 / 脏值一律回落默认开
+      autoMode: typeof preview.autoMode === 'boolean' ? preview.autoMode : defaults.preview.autoMode,
       noteSpeed: normalizeNoteSpeed(preview.noteSpeed, defaults.preview.noteSpeed),
       // 仿真场素材包（chart-preview 41）：按取件侧包清单归一化，清单里没有的 ID（含脏值 /
       // 快照缩水后残留的旧选择）静默回落默认 skin00 —— "列表即真相"

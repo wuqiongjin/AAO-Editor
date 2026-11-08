@@ -32,6 +32,7 @@ import {
   sampleCenterColor,
   simAssetPackThumbUrl,
   simAssetUrls,
+  simHudUrls,
   simJudgeUrl,
   simSpriteUrls,
 } from '@/src/preview/video/sim/simAssets';
@@ -146,6 +147,44 @@ describe('loadSimAssets · 判定图集（chart-preview 51）', () => {
     });
     expect(assets.judge).toBeNull();
     expect(assets.missing).toBe(false);
+  });
+});
+
+describe('打歌 HUD 顶栏素材（chart-preview 62 / 63）', () => {
+  const hud = simHudUrls();
+
+  it('五件都在 `assets/game-ui/` 下（拼 BASE_URL，file:// 下也能读）', () => {
+    expect(hud).toEqual({
+      rhythmGameUI: `${GAME_UI_ASSET_BASE}/stageskin/normal/RhythmGameUI.png`,
+      fever: `${GAME_UI_ASSET_BASE}/stageskin/normal/tex_parSet_fever.png`,
+      autoLive: `${GAME_UI_ASSET_BASE}/hud/auto-live.png`,
+      scoreBar: `${GAME_UI_ASSET_BASE}/hud/score-bar.png`,
+      lifeBar: `${GAME_UI_ASSET_BASE}/hud/life-bar.png`,
+    });
+  });
+
+  it('五件齐了逐件给图；缺件各自为 null，**不**置 missing（那一处留空 / 纯字）', async () => {
+    const jp = simAssetUrls('jp');
+    const all = Object.values(hud);
+    const full = await loadSimAssets({
+      servers: ['jp'],
+      loadImage: fakeLoader((src) => src === jp.field || all.includes(src)).load,
+    });
+    expect(full.missing).toBe(false);
+    expect(full.hud.scoreBar?.src).toBe(hud.scoreBar);
+    expect(full.hud.lifeBar?.src).toBe(hud.lifeBar);
+    expect(full.hud.autoLive?.src).toBe(hud.autoLive);
+    expect(full.hud.rhythmGameUI?.src).toBe(hud.rhythmGameUI);
+    expect(full.hud.fever?.src).toBe(hud.fever);
+
+    const partial = await loadSimAssets({
+      servers: ['jp'],
+      loadImage: fakeLoader((src) => src === jp.field || src === hud.autoLive).load,
+    });
+    expect(partial.hud.autoLive?.src).toBe(hud.autoLive);
+    expect(partial.hud.scoreBar).toBeNull();
+    expect(partial.hud.lifeBar).toBeNull();
+    expect(partial.missing).toBe(false);
   });
 });
 

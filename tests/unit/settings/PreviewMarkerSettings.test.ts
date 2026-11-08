@@ -29,6 +29,8 @@ describe('chart-preview 08 · 预览标注设置', () => {
       mirror: false,
       // PERFECT 显示状态（chart-preview 51；2026-10-27 用户定案默认开 = AP combo）
       apCombo: true,
+      // AUTO 模式（票 62；2026-11-08 定案默认开）
+      autoMode: true,
       // 仿真场音符速度（chart-preview 05；用户 2026-10-07 定案 9.5）
       noteSpeed: 9.5,
       // 仿真场素材包（chart-preview 41 · ADR-0018 §1：各默认 skin00）
@@ -45,7 +47,7 @@ describe('chart-preview 08 · 预览标注设置', () => {
     }));
     expect(loaded.preview).toEqual({
       bpmMarks: false, timeMarks: 1, beatMarks: 4, comboMarks: true, mirror: true,
-      apCombo: true, noteSpeed: 7.5,
+      apCombo: true, autoMode: true, noteSpeed: 7.5,
       // 种子没给素材包 ⇒ 补默认（chart-preview 41，additive 不 bump schemaVersion）
       bgPackId: SIM_DEFAULT_PACK_IDS.background,
       fieldPackId: SIM_DEFAULT_PACK_IDS.field,
@@ -92,6 +94,14 @@ describe('chart-preview 08 · 预览标注设置', () => {
   it('白名单本身与 UI 选项同源（加档位时只改一处）', () => {
     expect(PREVIEW_TIME_MARK_INTERVALS).toEqual(['off', 1, 2, 5, 10]);
     expect(PREVIEW_BEAT_MARK_DIVISIONS).toEqual(['off', 1, 2, 3, 4, 6, 8, 12, 16]);
+  });
+
+  it('票 62 · AUTO 模式：默认开、布尔原样读回、脏值回落开（旧数据不得被静默关掉）', () => {
+    expect(DEFAULT_PREVIEW_SETTINGS.autoMode).toBe(true);
+    expect(loadSettings(settingsStorageOf({ preview: { autoMode: false } })).preview.autoMode).toBe(false);
+    expect(loadSettings(settingsStorageOf({ preview: { autoMode: 'off' } })).preview.autoMode).toBe(true);
+    expect(loadSettings(settingsStorageOf({ display: { noteSize: 1 } })).preview.autoMode).toBe(true);
+    expect(updateSettings(defaultSettings(), { preview: { autoMode: false } }).preview.autoMode).toBe(false);
   });
 
   it('节拍线细分档位（issue 205）：全白名单值正常读回，非法值回落默认 1', () => {
