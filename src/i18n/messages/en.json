@@ -973,7 +973,7 @@
   "shape.wave": "Wave ×2",
   "shape.zigzag": "Zigzag",
   "shape.arc": "Arc",
-  "shape.heart": "Heart (two-arc approx.)",
+  "shape.heart": "Half-heart arc",
   "play.toggle": "Play / pause ({{key}})",
   "play.timeInput": "Type mm:ss or mm:ss.s and press Enter (clamped to chart length)",
   "play.editTime": "Double-click to edit playhead",

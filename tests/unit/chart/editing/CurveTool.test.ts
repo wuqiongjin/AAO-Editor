@@ -360,6 +360,7 @@ describe('issue 09 · curveChainClickOps 边界', () => {
 
 describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
   const TPL: CurveConfig = { family: 'sine', type: 'inOut', precision: 16, templateId: 's-curve' };
+  const expectedLen = shapeTemplateById('s-curve')!.sample ? shapeTemplateById('s-curve')!.sample!(2).length : shapeTemplateById('s-curve')!.points.length;
 
   it('第二击落子 = 按模板点列烘焙，参数记 SpanTemplateParam（缓动字段被忽略）', () => {
     const afterFirst = input({ pos: { beat: 1, lane: 2 }, curveConfig: TPL });
@@ -368,9 +369,9 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
     const setNotes = ops.find((o) => o.t === 'setNotes') as { t: 'setNotes'; notes: ChartNote[] };
     const slide = setNotes.notes[1] as SlideNote;
     const hiddens = slide.connections.filter((c) => c.hidden);
-    expect(hiddens.length).toBe(shapeTemplateById('s-curve')!.points.length);
+    expect(hiddens.length).toBe(expectedLen);
     // S 形：off 过零两处（t=0.5 处 lane 回到弦上）；两端 off=0
-    expect(effectiveSpanParams(slide)[0]).toEqual({ kind: 'template', templateId: 's-curve' });
+    expect(effectiveSpanParams(slide)[0]).toEqual({ kind: 'template', templateId: 's-curve', precision: 16 });
   });
 
   it('点已有段 = 应用当前模板（与缓动同一条重应用路径）', () => {
@@ -383,8 +384,8 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
     });
     const setNotes = ops[0] as { t: 'setNotes'; notes: ChartNote[] };
     const edited = setNotes.notes[1] as SlideNote;
-    expect(effectiveSpanParams(edited)[0]).toEqual({ kind: 'template', templateId: 's-curve' });
-    expect(edited.connections.filter((c) => c.hidden).length).toBe(shapeTemplateById('s-curve')!.points.length);
+    expect(effectiveSpanParams(edited)[0]).toEqual({ kind: 'template', templateId: 's-curve', precision: 16 });
+    expect(edited.connections.filter((c) => c.hidden).length).toBe(expectedLen);
   });
 });
 

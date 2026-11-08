@@ -974,7 +974,7 @@
   "shape.wave": "波浪 ×2",
   "shape.zigzag": "震动条",
   "shape.arc": "大弧",
-  "shape.heart": "心形（双弧近似）",
+  "shape.heart": "半心弧",
 
   "play.toggle": "播放/暂停（{{key}}）",
   "play.timeInput": "输入 mm:ss 或 mm:ss.s 后回车（最大谱面长度，秒）",

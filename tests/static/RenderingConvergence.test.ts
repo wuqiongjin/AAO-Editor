@@ -142,7 +142,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
     expect(entries('tests/unit')).toContain('rendering');
     expect(entries('tests/unit')).not.toContain('visual');
     // 08 票补 FrameBuilder.test.ts（帧构建者 + dpr/尺寸解析）到域根
-    expect(entries('tests/unit/rendering')).toEqual(['FrameBuilder.test.ts', 'cache', 'hitTest', 'render', 'skin']);
+    expect(entries('tests/unit/rendering')).toEqual(['FrameBuilder.test.ts', 'NoteVisualMicroHarness.test.ts', 'SpriteDecoupling.test.ts', 'cache', 'hitTest', 'render', 'skin']);
     // 注册表生成脚本已随素材迁到外部快照仓库（release-pipeline 02），主仓只消费；生成路径由快照仓库自锁。
   });
 });

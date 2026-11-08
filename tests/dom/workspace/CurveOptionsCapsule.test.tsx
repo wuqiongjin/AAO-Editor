@@ -59,7 +59,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(pill()).toHaveTextContent('波浪 ×2');
   });
 
-  it('点开 = 四行带标签表单；改一项写盘；选了模板时前三项置灰', () => {
+  it('点开 = 四行带标签表单；改一项写盘；选了连续模板时缓动置灰但精度可用，zigzag 则精度置灰', () => {
     setup();
     arm('curve');
     expect(queryForm()).not.toBeInTheDocument();
@@ -74,8 +74,10 @@ describe('issue 179 · 曲线选项胶囊', () => {
     fireEvent.change(within(form()).getByRole('combobox', { name: '模板' }), { target: { value: 'wave' } });
     expect(within(form()).getByRole('combobox', { name: '缓动族' })).toBeDisabled();
     expect(within(form()).getByRole('combobox', { name: '缓动型' })).toBeDisabled();
-    expect(within(form()).getByRole('combobox', { name: '精度' })).toBeDisabled();
+    expect(within(form()).getByRole('combobox', { name: '精度' })).toBeEnabled();
     expect(within(form()).getByRole('combobox', { name: '模板' })).toBeEnabled();
+    fireEvent.change(within(form()).getByRole('combobox', { name: '模板' }), { target: { value: 'zigzag' } });
+    expect(within(form()).getByRole('combobox', { name: '精度' })).toBeDisabled();
   });
 
   it('切走工具再切回：先出收起的胶囊，不残留上次展开的表单', () => {

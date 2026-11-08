@@ -152,6 +152,27 @@ describe('issue 09 · reprojectSpanParams（端点拖动 = 重投影，参数保
     expect(seg1Mid.lane).toBeCloseTo(1 / 3, 6);
   });
 
+  it('模板段端点拖拽重投影：保留 templateId 与 precision 并按新跨度重采样', () => {
+    const tplParam: SpanParam = { kind: 'template', templateId: 's-curve', precision: 64 };
+    const slide = buildChainedSlide(
+      [{ beat: 1, lane: 0 }, { beat: 2, lane: 0 }],
+      { 0: tplParam },
+      4,
+    );
+    // 初始 1 拍 64 档保底 64 份细分 -> 63 个 hidden 点
+    expect(slide.connections.filter((c) => c.hidden)).toHaveLength(63);
+
+    // 拖动终点至 beat 3（跨度由 1 拍变更为 2 拍）
+    const moved: SlideNote = {
+      ...slide,
+      connections: slide.connections.map((c) => (!c.hidden && c.beat === 2 ? { ...c, beat: 3 } : c)),
+    };
+    const out = reprojectSpanParams(moved, 4) as SlideNote;
+    expect(effectiveSpanParams(out)[0]).toEqual(tplParam);
+    // 2 拍 × 64 精度 = 128 份细分 -> 127 个 hidden 点
+    expect(out.connections.filter((c) => c.hidden)).toHaveLength(127);
+  });
+
   it('无参数的滑条 → 原样返回（自由段不动）', () => {
     const base: SlideNote = {
       type: 'Slide',
@@ -345,7 +366,7 @@ describe('issue 09 S4 · 形状模板（ADR-0009 §2 三来源之三）', () => 
   it('bakeSpanPoints 派发：template 参数按库内点列生成 hidden 采样（beat 单调、lane = 弦 + off×2 轨）', () => {
     const tp = shapeTemplateById('arc')!;
     const pts = bakeSpanPoints({ lane: 0 }, { lane: 0 }, 1, 3, { kind: 'template', templateId: 'arc' });
-    expect(pts.length).toBe(tp.points.length);
+    expect(pts.length).toBe(tp.sample ? tp.sample(2).length : tp.points.length);
     expect(pts.every((p) => p.hidden === true)).toBe(true);
     // 弧顶：t=0.5 → off=1 → lane = 0 + 0×0.5 + 1×2 = 2
     const mid = pts.find((p) => Math.abs(p.beat - 2) < 1e-9)!;
@@ -358,7 +379,8 @@ describe('issue 09 S4 · 形状模板（ADR-0009 §2 三来源之三）', () => 
   it('模板段 regenerateSpan：换模板 = 替换采样点并记录新 id；未知模板 id 退化为直线（不抛错）', () => {
     const base: SlideNote = { type: 'Slide', connections: [{ beat: 1, lane: 0 }, { beat: 2, lane: 0 }] };
     const once = regenerateSpan(base, 0, { kind: 'template', templateId: 'wave' }, 4) as SlideNote;
-    expect(once.connections.filter((c) => c.hidden).length).toBe(shapeTemplateById('wave')!.points.length);
+    const expectedWaveHidden = shapeTemplateById('wave')!.sample ? shapeTemplateById('wave')!.sample!(1).length : shapeTemplateById('wave')!.points.length;
+    expect(once.connections.filter((c) => c.hidden).length).toBe(expectedWaveHidden);
     expect(effectiveSpanParams(once)[0]).toEqual({ kind: 'template', templateId: 'wave' });
     const twice = regenerateSpan(once, 0, { kind: 'easing', family: 'quad', type: 'in', precision: 16 }, 4) as SlideNote;
     expect(twice.spanParams?.bySpan[0]).toEqual({ kind: 'easing', family: 'quad', type: 'in', precision: 16 });
