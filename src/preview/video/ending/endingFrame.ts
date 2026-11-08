@@ -67,7 +67,7 @@ export interface EndingContentInput {
   coverHue: number;
   counts: EndingCounts;
   maxCombo: number;
-  /** 归一最终分（票 64：0–1,000,000；AUTO 全 PERFECT = 满分） */
+  /** 归一最终分（票 73：0–1,000,000；AUTO 全 PERFECT = 满分） */
   score: number;
   assets: EndingAssets;
 }
@@ -85,7 +85,7 @@ const WORD_ASPECT = 187 / 1028;
 const EMBERS_SECONDS = 0.55;
 
 /**
- * 结算 Score 行的标签（票 64 定稿）：**固定 `Score`、不做多语言**。
+ * 结算 Score 行的标签（票 73 定稿）：**固定 `Score`、不做多语言**。
  * 官方图集里没有这两个字，由 Canvas 按曲名同一条字体链自绘（用户明确开的唯一文字例外）。
  */
 const RESULT_LABEL = 'Score';
@@ -1554,7 +1554,7 @@ function comboRect(card: CardRect, u: EndingUnits): { x: number; y: number; w: n
   };
 }
 
-/** 顶栏：星徽 + 难度 + 曲名 + Lv（票 64 起右上另有一枚 SCORE RANK 徽章） */
+/** 顶栏：星徽 + 难度 + 曲名 + Lv（票 73 起右上另有一枚 SCORE RANK 徽章） */
 function drawBar(ctx: CanvasRenderingContext2D, u: EndingUnits, input: EndingFrameInput): void {
   const x = u.wp('barX');
   const y = u.hp('barY');
@@ -1617,7 +1617,7 @@ function drawBar(ctx: CanvasRenderingContext2D, u: EndingUnits, input: EndingFra
 }
 
 /**
- * 白卡首行（票 64）：圆星章 + 固定 `Score` + 归一最终分 + 点线分隔。
+ * 白卡首行（票 73）：圆星章 + 固定 `Score` + 归一最终分 + 点线分隔。
  * 位置按卡宽等比（`u.hp` 在 16:9 帧上与原型 `card.w/720` 等价）；
  * 圆星章缺件就**留空**（不画假章），标签 / 分数按用户定案自绘。
  */
@@ -1672,7 +1672,7 @@ function drawResultRow(
 }
 
 /**
- * 右上 SCORE RANK 徽章（票 64）：官方 `MenuAtlas` 太阳纹圆盘 + 大号字母 + `SCORE RANK` 缎带。
+ * 右上 SCORE RANK 徽章（票 73）：官方 `MenuAtlas` 太阳纹圆盘 + 大号字母 + `SCORE RANK` 缎带。
  * 11 档与打歌 6 档独立；只有 SS 的大号字母切图已登记，其余档 / 缺图集走**纯字**降级。
  */
 function drawRankBadge(
@@ -1956,7 +1956,7 @@ function drawSettlement(
   const rowAt = (i: number): number => at(row0 + i * rowStep, row0 + i * rowStep + 0.26);
   const comboP = at(0.42, 0.66);
   const apP = at(0.56, 0.8);
-  // 票 64：Score 行与 SCORE RANK 徽章各占入场轴的一段（卡片本体 0.08→0.32、五行 0.26→0.52）。
+  // 票 73：Score 行与 SCORE RANK 徽章各占入场轴的一段（卡片本体 0.08→0.32、五行 0.26→0.52）。
   // 生产里黑幕是在 drawSettlement **之后**盖的，所以这两件天然画在幕下，不必再乘一次 alpha。
   const scoreP = at(u.spec.resultInAt / 100, (u.spec.resultInAt + u.spec.resultInDur) / 100);
   const rankP = at(u.spec.rankInAt / 100, (u.spec.rankInAt + u.spec.rankInDur) / 100);

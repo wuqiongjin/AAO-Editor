@@ -1,12 +1,16 @@
-// 仿真场 HUD 的**判定字 + AP combo 态 + 归一分**（chart-preview 51 / 62 / 63）。
+// 仿真场 HUD 的**判定字 + AP combo 态 + 归一分**（chart-preview 51 / 71 / 72）。
 //
 // 对标实机（ガルパ），不对标 Bestdori / Sonolus。三条口径：
-//   - **AUTO 两档**（票 62，2026-11-08 定案）：AUTO 开 = 判定字切 `judge_auto`、combo 保持素白；
-//     AUTO 关 = 判定字切 `judge_perfect`、combo 走 AP 变色。只接这两档，预览不做手动打歌。
+//   - **AUTO 两档**（票 71；2026-11-08 验收修订）：AUTO 开 = 判定字切 `judge_auto` + `AUTO LIVE`；
+//     AUTO 关 = `judge_perfect`、无胶囊。**combo 的 AP 态只由 `apCombo` 决定，与 AUTO 无关**。
+//     只接这两档，预览不做手动打歌。
 //   - **判定字位置固定**：场地水平中线 × 判定线上方 0.092H（实机 t012 / t030 复核 —— 字**不跟轨道**
 //     左右移动，双轨同时命中也只有一条）。
-//   - **归一分**（票 63 Q14）：满分 1,000,000、单音符得分 = 满分 / 可击打物总数、最后一音补齐满分。
+//   - **归一分**（票 72 Q14）：满分 1,000,000、单音符得分 = 满分 / 可击打物总数、最后一音补齐满分。
 //     这是本仓预览的归一上限，不是游戏官方满分（实机分数随总力变化）。
+//   - **`+增量` 逐命中**（票 72 Q22「我要的就是每次增量」）：窗口内每次命中各画一条 `+inc`，
+//     **不设条数上限、不合并**（2026-11-09 用户验收：合并机制实机没有，已回退）。
+//     位移 / 亮度 / 渐隐等观感参数仍可在原型里调，见 `SIM_HUD.plus*`。
 //
 // 这里只给"什么时候、什么颜色、多少分"的纯函数；绘制在 `simField`（那一层才有场地度量与画笔）。
 import type { SimChart } from './simField';
@@ -50,7 +54,7 @@ export const SIM_JUDGE: SimJudgeStyle = {
 };
 
 /**
- * `judgeskin/skin00/judge.png` 的**两档**切图（票 62 定案；坐标见
+ * `judgeskin/skin00/judge.png` 的**两档**切图（票 71 定案；坐标见
  * `public/assets/game-ui/README.txt` §六）。图集里其余六格是判定图标，预览不接。
  */
 export interface JudgeBox { x: number; y: number; w: number; h: number }
@@ -64,9 +68,12 @@ export function judgeSprite(auto: boolean = false): JudgeBox {
   return auto ? JUDGE_BOXES.auto : JUDGE_BOXES.perfect;
 }
 
-/** AUTO 下不存在「全 PERFECT」⇒ 不叠 AP 辉光；关掉 AUTO 才认 `settings.preview.apCombo`。 */
-export function comboApActive(apCombo: boolean, autoMode: boolean): boolean {
-  return apCombo && !autoMode;
+/**
+ * combo 的 AP 态**只**由 `settings.preview.apCombo` 决定（2026-11-08 验收定案）：
+ * AUTO 模式不参与，两个开关彼此独立。保留函数是为了让「谁决定 AP 态」只有一个出处。
+ */
+export function comboApActive(apCombo: boolean): boolean {
+  return apCombo;
 }
 
 /**
@@ -113,16 +120,16 @@ export function judgeStateAt(
   return null;
 }
 
-// ---------------------------------------------------------------- 归一分（票 63 / 64）
+// ---------------------------------------------------------------- 归一分（票 72 / 73）
 
 /** 本仓预览的**归一上限**（不是游戏官方满分：实机分数随总力 / 卡组 / 技能变化） */
 export const SCORE_MAX = 1_000_000;
-/** 7 位定宽：`0002571` → `1000000`（票 63 Q10 / Q14） */
+/** 7 位定宽：`0002571` → `1000000`（票 72 Q10 / Q14） */
 export const SCORE_DIGITS = 7;
 /** 生命恒满（预览无伤，AUTO 不掉血） */
 export const LIFE_MAX = 1000;
 
-/** 6 档分数条 = 官方渐变条 A 上的一段窗口（票 63「定稿」§2，材质 B 已废弃） */
+/** 6 档分数条 = 官方渐变条 A 上的一段窗口（票 72「定稿」§2，材质 B 已废弃） */
 export const SCORE_TIERS = [
   { id: 'C-', from: 0, to: 0.16 },
   { id: 'C-B', from: 0.02, to: 0.3 },
@@ -137,7 +144,7 @@ export const SCORE_TIER_THRESHOLDS = [0.06, 0.27, 0.48, 0.69, 0.9] as const;
 export const LETTER_TEXTS = ['C', 'B', 'A', 'S', 'SS'] as const;
 
 /**
- * 结算 score-rank 的**官方 11 档**（票 64 Q24），与打歌 6 档不是同一套。
+ * 结算 score-rank 的**官方 11 档**（票 73 Q24），与打歌 6 档不是同一套。
  * 阈值 = `score / SCORE_MAX` 的百分比映射；**本轮实现口径（待验收）**：原型只挂了 SS 一档，
  * 阈值与其余 10 档大号字母切图都还没逐档定位，故这里先取十等分、缺切图的档走纯字降级。
  */
@@ -146,7 +153,7 @@ export type ScoreRank = (typeof SCORE_RANKS)[number];
 export const SCORE_RANK_THRESHOLDS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] as const;
 
 /**
- * 官方切图 / 用户自备件的取景（票 62 / 63 / 64「定稿」，清单见
+ * 官方切图 / 用户自备件的取景（票 71 / 72 / 73「定稿」，清单见
  * `public/assets/game-ui/README.txt` §六）。`scoreBar` / `lifeBar` 是抠底后的原图尺寸。
  */
 export const HUD_SPRITES = {
@@ -192,11 +199,23 @@ export const SIM_HUD = {
   zeroColor: '#c9c9c9', liveColor: '#e8417f',
   letterH: 13, letterAlpha: 0.75, letterColor: '#ffffff', letterEdge: 'rgba(40,46,58,.55)',
   letterDY: 7, tickGap: 0,
+  /** ▽ 刻度图标高（1920 设计 px，随 `s` 缩放；宽 = 高 × 1.35）。原为随灰带高度的固定魔数，现可在原型里单独调 */
+  tickH: 4.24,
   lifeX: 1458, lifeY: 38, lifeW: 350, lifeH: 82, lifeFont: 22,
+  /** 实机生命 gauge（2026-11-08 用户截图取样）：上段亮绿 / 下段深绿，中间短过渡 */
+  lifeGaugeTop: '#6eff69', lifeGaugeBottom: '#47aa43', lifeGaugeSplit: 0.46,
   pauseX: 1822, pauseY: 38, pauseW: 82, pauseH: 82,
   autoX: 36, autoY: 150, autoW: 278,
-  plusDur: 0.85, plusFadeFrac: 0.35, plusX: 0.42, plusY: 112, plusDX: 0.42,
-  plusRise: 0, plusFont: 35, plusColor: '#eef4f8',
+  /** `+增量`：窗口内**每次命中各一条**（不设上限、不合并）；其余都是可调观感参数。
+   *  默认档 = 用户 2026-11-09 给的原型快照（见票 72 第四批后记）。 */
+  plusDur: 0.5, plusFadeFrac: 0.35, plusFadeOutFrac: 0.2,
+  /** 刚命中那一瞬也有底亮度（实机那串字是亮白的） */
+  plusBaseAlpha: 0.85,
+  /** 起点 / 位移（设计坐标；`plusY` 与 `plusRise` 由原型调档，默认不上浮） */
+  plusX: 0.45, plusY: 122, plusDX: 0.34, plusRise: 0,
+  /** 逐条错开（默认 0 = 所有命中走同一条轨迹，实机口径）；X 是 ×框宽、Y 是设计 px，原型里可调 */
+  plusSpreadX: 0, plusSpreadY: 0,
+  plusFont: 35, plusColor: '#eef4f8',
   starCount: 12, starSpeed: 1, starSize: 17, starAlpha: 0.9,
   thresholds: SCORE_TIER_THRESHOLDS,
 } as const;
@@ -213,7 +232,7 @@ function countHitsUpTo(sorted: readonly number[], value: number): number {
   return lo;
 }
 
-/** 归一分：线性累计、最后一音补齐到满分（票 63 Q14） */
+/** 归一分：线性累计、最后一音补齐到满分（票 72 Q14） */
 export function scoreForHits(hits: number, total: number): number {
   if (total <= 0 || hits <= 0) return 0;
   if (hits >= total) return SCORE_MAX;
@@ -226,7 +245,7 @@ export function scoreAt(chart: SimChart, seconds: number): number {
   return scoreForHits(countHitsUpTo(chart.hitTimes, seconds), total);
 }
 
-/** 每命中一次的增量 = `floor(满分 / 可击打物总数)`（票 63 Q22） */
+/** 每命中一次的增量 = `floor(满分 / 可击打物总数)`（票 72 Q22） */
 export function scoreIncrement(total: number): number {
   return total > 0 ? Math.floor(SCORE_MAX / total) : 0;
 }
@@ -257,7 +276,13 @@ export function scoreRankAt(score: number): ScoreRank {
   return SCORE_RANKS[i]!;
 }
 
-/** 还在屏幕上的 `+增量`：各条自己的年龄（秒，升序） */
+/**
+ * 还在屏幕上的 `+增量`（票 72 Q22「我要的就是每次增量」）：
+ * 窗口 `(seconds-duration, seconds]` 里**每一次命中各一条**，返回各自的年龄（秒，升序）。
+ *
+ * 2026-11-09 用户验收：**不设条数上限、不合并** —— 限流合并是实机没有的机制，已回退；
+ * 高密度谱面的观感交给 `SIM_HUD.plus*` 位移 / 亮度参数在原型里调，不改命中语义。
+ */
 export function plusAgesAt(chart: SimChart, seconds: number, duration: number): number[] {
   if (duration <= 0) return [];
   const hits = chart.hitTimes;

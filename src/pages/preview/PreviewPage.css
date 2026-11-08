@@ -1060,7 +1060,7 @@
   border-radius: var(--radius-sm);
 }
 
-/* 行内的只读取值（如「结算形态 · ALL PERFECT」）：借 `.pvex__note` 的字色 / 字号，
+/* 行内说明（如导出弹窗的说明行）：借 `.pvex__note` 的字色 / 字号，
    但去掉它作为独立段落的上下外边距，否则会把这行撑歪。 */
 .pvex__row > .pvex__note {
   margin: 0;

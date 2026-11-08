@@ -193,20 +193,20 @@ export interface VideoExportOpeningView {
 }
 
 /**
- * 结尾画面的设置视图（chart-preview 52）：只有总开关。
+ * 结尾画面的设置视图（chart-preview 52）：总开关 + 结算形态下拉。
  *
- * 「结算形态」三档（ALL PERFECT / FULL COMBO / 普通 Clear）**2026-10-27 用户拍板暂时不上弹窗**
- * —— 目前没有"按实际漏判算形态"的诉求，固定按默认档（ALL PERFECT）出；形态仍是渲染层 / 音效
- * 的输入（`settings.export.ending.stamp`），等要了再把下拉接回来。
+ * 三档（ALL PERFECT / FULL COMBO / CLEAR）都能选（2026-11-09 用户验收：CLEAR 正式支持）。
+ * `clear` = 普通 Clear：无中央章、无角标，但仍有金星徽与普通烟花。形态是渲染层 / 音效的
+ * 输入（`settings.export.ending.stamp`）；默认仍是 AP。
  */
 export interface VideoExportEndingView {
   enabled: boolean;
-  /** 结算形态：`ap` = ALL PERFECT、`fc` = FULL COMBO（2026-10-27 用户：这两个要能选） */
+  /** 结算形态：`ap` = ALL PERFECT、`fc` = FULL COMBO、`clear` = 普通 Clear */
   stamp: EndingStamp;
 }
 
-/** 弹窗里「结算形态」只给这两档（2026-10-27 用户拍板；`clear` 没有章，暂不暴露） */
-const ENDING_STAMP_CHOICES = ['ap', 'fc'] as const satisfies readonly EndingStamp[];
+/** 弹窗里「结算形态」三档全暴露（与 `ENDING_STAMP_IDS` 归一化白名单同序） */
+const ENDING_STAMP_CHOICES = ['ap', 'fc', 'clear'] as const satisfies readonly EndingStamp[];
 
 export interface VideoExportControlProps {
   /** 没有可导出的谱面 / 素材未就绪 */

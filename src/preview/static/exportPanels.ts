@@ -71,8 +71,9 @@ export const EXPORT_MARKERS: PreviewSettings = {
   mirror: false,
   // 宽图导出不画仿真场 HUD，同理只为满足设置形状
   apCombo: true,
-  // AUTO 模式（票 62）同理：宽图不画打歌画面，填默认只为满足设置形状
+  // AUTO 模式 / 分数条与生命条显示（票 71/72）同理：宽图不画打歌画面，填默认只为满足设置形状
   autoMode: DEFAULT_PREVIEW_SETTINGS.autoMode,
+  showGameUi: DEFAULT_PREVIEW_SETTINGS.showGameUi,
   // 导出图与音符速度无关（那是动态形态的旋钮）：填默认档只为满足设置形状，
   // 面板出图根本不读它 —— 07 的视频导出走仿真场自己那份 `SimScene`。
   noteSpeed: SIM_NOTE_SPEED_RANGE.fallback,

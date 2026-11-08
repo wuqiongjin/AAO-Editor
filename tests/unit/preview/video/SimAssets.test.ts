@@ -150,7 +150,7 @@ describe('loadSimAssets · 判定图集（chart-preview 51）', () => {
   });
 });
 
-describe('打歌 HUD 顶栏素材（chart-preview 62 / 63）', () => {
+describe('打歌 HUD 顶栏素材（chart-preview 71 / 72）', () => {
   const hud = simHudUrls();
 
   it('五件都在 `assets/game-ui/` 下（拼 BASE_URL，file:// 下也能读）', () => {

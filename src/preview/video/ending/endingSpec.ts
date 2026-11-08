@@ -28,7 +28,7 @@ export const ENDING_SPEC = {
   stampDur: 3,
   transDur: 1.55,
   resultDur: 2.95,
-  // 顶栏（票 64：收窄给右上 SCORE RANK 徽章让位）
+  // 顶栏（票 73：收窄给右上 SCORE RANK 徽章让位）
   barX: 8.25,
   barY: 12.9,
   barW: 74,
@@ -46,7 +46,7 @@ export const ENDING_SPEC = {
   lvRight: 2.35,
   lvNumFont: 2.35,
   lvLabelFont: 2.35,
-  // 白卡（票 64：首行让给 Score 行，五行判定整体下移）
+  // 白卡（票 73：首行让给 Score 行，五行判定整体下移）
   cardRight: 12,
   cardW: 66.7,
   cardTop: 32,
@@ -251,7 +251,7 @@ export const ENDING_SPEC = {
   comboFadeDur: 0,
   trackFadeAt: 0,
   trackFadeDur: 1,
-  // 票 64 · 结算 Score 行（原型定稿 2026-11-08；几何按 %H，时间键是 %入场轴 q）
+  // 票 73 · 结算 Score 行（原型定稿 2026-11-08；几何按 %H，时间键是 %入场轴 q）
   /** 「Score」标签字号（%H；原型 34px @1080p） */
   resultFont: 3.15,
   /** 分数字号（%H；原型 40px @1080p） */
@@ -265,7 +265,7 @@ export const ENDING_SPEC = {
   /** 行出现的时刻 / 淡入跨度（%入场轴 q，与 `drawSettlement` 的 `at()` 同一把尺） */
   resultInAt: 24,
   resultInDur: 24,
-  // 票 64 · 右上 SCORE RANK 徽章（原型按帧宽缩 ⇒ 一律 %W）
+  // 票 73 · 右上 SCORE RANK 徽章（原型按帧宽缩 ⇒ 一律 %W）
   /** 太阳纹圆盘宽（%W；原型 156px @1920） */
   rankSize: 8.125,
   /** 距右缘（%W；原型 150px） */

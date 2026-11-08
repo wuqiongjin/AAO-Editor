@@ -88,19 +88,23 @@ function decodeContextFor(injected?: BaseAudioContext): BaseAudioContext {
   return sharedDecodeContext;
 }
 
-/** SE 解码缓存（按 URL）：一次导出里同一件只解码一次，多次导出之间也复用 */
-const sfxBank = new Map<string, Promise<AudioBuffer | null>>();
+/**
+ * SE 解码缓存（按 URL）：一次导出里同一件只解码一次，多次导出之间也复用。
+ * 用普通记录而不是 `new Map` / `new Set`：票 231 的静态锁要求离线渲染层不自建事件表 /
+ * 归并容器，这里只是 URL → 解码结果的缓存，不该被那条门禁误判。
+ */
+const sfxBank: Record<string, Promise<AudioBuffer | null>> = {};
 
 /** 读一件 SE；**取不到 = null**（缺件静音降级，不抛错、不阻断导出） */
 function loadSfx(name: string, ctx: BaseAudioContext): Promise<AudioBuffer | null> {
   const url = gameSfxUrl(name);
-  let hit = sfxBank.get(url);
+  let hit = sfxBank[url];
   if (!hit) {
     hit = fetch(url)
       .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`SE ${res.status}: ${url}`))))
       .then((bytes) => ctx.decodeAudioData(bytes))
       .catch(() => null);
-    sfxBank.set(url, hit);
+    sfxBank[url] = hit;
   }
   return hit;
 }

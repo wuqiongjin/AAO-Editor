@@ -706,6 +706,23 @@ describe('issue 205 · 画布与预览设置浮层条目重构与三端对齐', 
     fireEvent.click(within(panel()).getByRole('button', { name: '确认恢复' }));
     expect(stored().audio?.seVolume).toBe(defaultSettings().audio.seVolume);
     expect(stored().preview.noteSpeed).toBe(defaultSettings().preview.noteSpeed);
+    expect(stored().preview.showGameUi).toBe(defaultSettings().preview.showGameUi);
     expect(stored().preview.beatMarks).toBe(12); // 静态预览项未被冲掉
+  });
+
+  it('动态预览：顶栏只留一枚自解释的总开关「分数条与生命条显示」，不挂 ? 提示（票 72 验收）', () => {
+    setupDynamic({ preview: { noteSpeed: 11.0 } });
+    expect(within(panel()).queryByRole('region', { name: 'HUD 组件' })).not.toBeInTheDocument();
+    for (const label of ['分数组件', '生命组件', '暂停钮', 'AUTO LIVE 提示']) {
+      expect(within(panel()).queryByRole('switch', { name: label })).not.toBeInTheDocument();
+    }
+    expect(within(panel()).queryByRole('switch', { name: '显示顶部状态栏' })).not.toBeInTheDocument();
+    expect(within(panel()).queryByRole('button', { name: /同时控制分数框/ })).not.toBeInTheDocument();
+    const sw = within(panel()).getByRole('switch', { name: '分数条与生命条显示' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(sw);
+    expect(stored().preview.showGameUi).toBe(false);
+    expect(stored().preview.hudScore).toBeUndefined();
+    expect(stored().preview.autoMode).toBe(false);
   });
 });

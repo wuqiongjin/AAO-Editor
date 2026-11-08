@@ -19,6 +19,7 @@ import {
   type SimScene,
 } from '@/src/preview/video/sim/simField';
 import { emptySimAssets } from '@/src/preview/video/sim/simAssets';
+import { LETTER_TEXTS, SIM_HUD, scoreIncrement } from '@/src/preview/video/sim/simHud';
 import {
   approachSeconds,
   backgroundRect,
@@ -252,16 +253,22 @@ describe('drawSimFrameAt · Bestdori 精灵（chart-preview 21）', () => {
     const sources = calls.filter(([k]) => k === 'drawImage').map(([, args]) => args[0]);
     expect(sources).toContain(sprites.digits);
     expect(sources).toContain(sprites.combo);
-    // combo 不走文本回落；判定字（51/62）这份 assets 没给 judgeskin ⇒ 纯字占位，不算进来
-    expect(calls.filter(([k, a]) => k === 'fillText' && (a as unknown[])[0] !== 'AUTO')).toEqual([]);
+    // combo 不走文本回落；判定字（51/71）这份 assets 没给 judgeskin ⇒ 纯字占位，不算进来
+    // 2026-11-08 验收：AUTO 默认关，纯字是 PERFECT
+    expect(calls.filter(([k, a]) => k === 'fillText'
+      && !['AUTO', 'PERFECT'].includes((a as unknown[])[0] as string))).toEqual([]);
   });
 
-  // 51 / 62：判定字走 judgeskin 的一格，位置钉在场中央（不跟轨道）
-  it('判定字（62）：AUTO 默认开时切 AUTO 那一格，字心 0.497W × 判定线上 0.10H', () => {
+  // 51 / 71：判定字走 judgeskin 的一格，位置钉在场中央（不跟轨道）
+  it('判定字（71）：AUTO 开时切 AUTO 那一格，字心 0.497W × 判定线上 0.10H', () => {
     const { spriteIcon } = makeRecordingSprite();
     const judge = { width: 512, height: 256, naturalWidth: 512, naturalHeight: 256 } as unknown as HTMLImageElement;
     const base = withSprites([single(2, 3)], spriteIcon, null);
-    const frame: SimFrameInput = { ...base, assets: { ...base.assets, judge } };
+    const frame: SimFrameInput = {
+      ...base,
+      scene: { ...base.scene, autoMode: true },
+      assets: { ...base.assets, judge },
+    };
     const { proxy, calls } = recordingCtx();
     drawSimFrameAt(proxy, frame, 1.05, { hud: false }); // 命中后 0.05s
 
@@ -277,10 +284,22 @@ describe('drawSimFrameAt · Bestdori 精灵（chart-preview 21）', () => {
     expect(dh).toBeCloseTo(m.h * 0.08 * comboPopScale(0.05), 5);
     expect(dh).toBeLessThanOrEqual(m.h * 0.08 * 1.1 + 1e-9);
     // 有图集就不该再画纯字
-    expect(calls.filter(([k, a]) => k === 'fillText' && (a as unknown[])[0] === 'PERFECT')).toEqual([]);
+    expect(calls.filter(([k, a]) => k === 'fillText'
+      && ['AUTO', 'PERFECT'].includes((a as unknown[])[0] as string))).toEqual([]);
   });
 
-  it('判定字（62）：`autoMode: false` 回到 PERFECT 那一格（两档共用同一条绘制链）', () => {
+  it('判定字（71 · 2026-11-08 验收）：未设置 `autoMode` 时默认关 ⇒ 切 PERFECT 那一格', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const judge = { width: 512, height: 256, naturalWidth: 512, naturalHeight: 256 } as unknown as HTMLImageElement;
+    const base = withSprites([single(2, 3)], spriteIcon, null);
+    const frame: SimFrameInput = { ...base, assets: { ...base.assets, judge } };
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1.05, { hud: false });
+    const hit = calls.filter(([k]) => k === 'drawImage').map(([, a]) => a as unknown[]).find((a) => a[0] === judge);
+    expect(hit?.slice(1, 5)).toEqual([0, 177, 287, 79]);
+  });
+
+  it('判定字（71）：`autoMode: false` 回到 PERFECT 那一格（两档共用同一条绘制链）', () => {
     const { spriteIcon } = makeRecordingSprite();
     const judge = { width: 512, height: 256, naturalWidth: 512, naturalHeight: 256 } as unknown as HTMLImageElement;
     const base = withSprites([single(2, 3)], spriteIcon, null);
@@ -908,7 +927,7 @@ const fakeHud = (over: Partial<SimHudAssets> = {}): SimHudAssets => {
 };
 const NO_HUD = fakeHud({ rhythmGameUI: null, fever: null, autoLive: null, scoreBar: null, lifeBar: null });
 
-const hudFrame = (notes: ChartNote[], hud: SimHudAssets, autoMode = true): SimFrameInput => {
+const hudFrame = (notes: ChartNote[], hud: SimHudAssets, autoMode = false): SimFrameInput => {
   const { spriteIcon } = makeRecordingSprite();
   const f = frameOf(notes, spriteIcon);
   return { ...f, scene: { ...f.scene, autoMode }, assets: { ...f.assets, hud } };
@@ -916,7 +935,7 @@ const hudFrame = (notes: ChartNote[], hud: SimHudAssets, autoMode = true): SimFr
 
 const drawnTexts = (calls: RecordedCall[]) => fillTexts(calls).map(([, [text]]) => text);
 
-describe('drawSimFrameAt · 打歌 HUD 顶栏（票 62 / 63）', () => {
+describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
   it('顶栏五件全缺：7 位分数 / 等级字母 / 生命计数照画，降级描边框不抛错、不自造字样', () => {
     const { proxy, calls } = recordingCtx();
     expect(() => drawSimFrameAt(proxy, hudFrame([single(2, 3)], NO_HUD), 1.2)).not.toThrow();
@@ -937,9 +956,28 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 62 / 63）', () => {
     expect(drawnTexts(calls)).not.toContain('1000/1000');
   });
 
+  it('▽ 刻度三角形按 SIM_HUD.tickH 画（5 枚顶点间距 = tickH × s）', () => {
+    const frame = hudFrame([single(2, 3)], NO_HUD);
+    const s = frame.metrics.w / 1920;
+    const tickH = SIM_HUD.tickH * s;
+    const tickW = tickH * 1.35;
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1.2);
+    let ticks = 0;
+    for (let i = 0; i < calls.length - 2; i++) {
+      if (calls[i]![0] !== 'moveTo' || calls[i + 1]![0] !== 'lineTo' || calls[i + 2]![0] !== 'lineTo') continue;
+      const [x0, y0] = calls[i]![1] as number[];
+      const [x1, y1] = calls[i + 1]![1] as number[];
+      const [x2, y2] = calls[i + 2]![1] as number[];
+      if (Math.abs(y1 - y0) < 1e-6 && Math.abs(x1 - x0 - tickW) < 1e-6
+        && Math.abs(y2 - y0 - tickH) < 1e-6 && Math.abs(x2 - x0 - tickW / 2) < 1e-6) ticks++;
+    }
+    expect(ticks).toBe(LETTER_TEXTS.length);
+  });
+
   it('AUTO LIVE 胶囊只在 autoMode 开时画，落在 (36,150) 278×51', () => {
     const autoLive = fakeHud().autoLive;
-    const frame = hudFrame([single(2, 3)], { ...NO_HUD, autoLive });
+    const frame = hudFrame([single(2, 3)], { ...NO_HUD, autoLive }, true);
     const { proxy, calls } = recordingCtx();
     drawSimFrameAt(proxy, frame, 1.2);
     const hit = calls.filter(([k]) => k === 'drawImage')
@@ -957,7 +995,7 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 62 / 63）', () => {
     expect(r.calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === autoLive)).toEqual([]);
   });
 
-  it('分数组件走 4 切片，内部切点取整（不出现透背景的竖线）', () => {
+  it('分数组件走 4 切片，切点对齐物理像素列 + 相邻片同源重叠（不出现透背景的竖线）', () => {
     const scoreBar = fakeHud().scoreBar;
     const frame = hudFrame([single(2, 3)], { ...NO_HUD, scoreBar });
     const { proxy, calls } = recordingCtx();
@@ -965,17 +1003,64 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 62 / 63）', () => {
     const draws = calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === scoreBar)
       .map(([, a]) => a as unknown[]);
     expect(draws).toHaveLength(4);
-    expect(draws.map((a) => a[1])).toEqual([0, 60, 250, 560]);
+    // 源区左右各多带一个物理像素（同源 bleed），起点仍在原切图坐标附近
+    const starts = [0, 60, 250, 560];
+    draws.forEach((a, i) => expect(Math.abs((a[1] as number) - starts[i]!)).toBeLessThan(3));
     for (const d of draws.slice(1)) expect(Number.isInteger(d[5])).toBe(true);
   });
 
-  it('`+增量` = 满分 / 可击打物总数，命中后 0.85s 内可见', () => {
+  it('非整数 CTM（dpr 1.25）下内部切点仍落在整数物理像素列上', () => {
+    const a = 1.25;
+    const { proxy, calls } = makeRecordingCtx({
+      getTransform: () => ({ a, b: 0, c: 0, d: a, e: 0, f: 0 }),
+      createLinearGradient: () => ({ addColorStop: () => undefined }),
+    });
+    const scoreBar = fakeHud().scoreBar;
+    const frame = hudFrame([single(2, 3)], { ...NO_HUD, scoreBar });
+    drawSimFrameAt(proxy, frame, 1.2);
+    const draws = calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === scoreBar)
+      .map(([, v]) => v as unknown[]);
+    expect(draws).toHaveLength(4);
+    // 第 2..4 片的左沿 = 切点 − 1/a；乘回 a 必须是整数设备列
+    for (const d of draws.slice(1)) expect(Number.isInteger((d[5] as number) * a)).toBe(true);
+  });
+
+  it('0 分（首音命中前）分数条是空槽：不画官方渐变条、不叠四芒星；命中后恢复', () => {
+    const hud = fakeHud();
+    const frame = hudFrame([single(2, 3)], hud); // 120 BPM ⇒ 命中在 1s
+    const barDraws = (c: RecordedCall[]) => c.filter(([k, v]) =>
+      k === 'drawImage' && (v as unknown[])[0] === hud.rhythmGameUI && (v as unknown[])[2] === 393);
+    const zero = recordingCtx();
+    drawSimFrameAt(zero.proxy, frame, 0.2);
+    expect(barDraws(zero.calls)).toEqual([]);
+    expect(zero.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.fever)).toEqual([]);
+    // 分数组件本身照画，只是槽里是空的
+    expect(zero.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.scoreBar))
+      .toHaveLength(4);
+    const hit = recordingCtx();
+    drawSimFrameAt(hit.proxy, frame, 1.2);
+    expect(barDraws(hit.calls)).toHaveLength(1);
+  });
+
+  it('`+增量` = 满分 / 可击打物总数，命中后停留时长内可见', () => {
     const { proxy, calls } = recordingCtx();
     drawSimFrameAt(proxy, hudFrame([single(2, 3), single(4, 0)], NO_HUD), 1.2);
     expect(drawnTexts(calls)).toContain('+500000');
     const late = recordingCtx();
     drawSimFrameAt(late.proxy, hudFrame([single(2, 3)], NO_HUD), 2.0);
     expect(drawnTexts(late.calls)).not.toContain('+1000000');
+  });
+
+  it('高密度谱面：窗口内每次命中各画一条 +inc，不设上限、不合并（2026-11-09 回退）', () => {
+    const notes = Array.from({ length: 12 }, (_, i) => single(2 + i * 0.2, 3));
+    const inc = scoreIncrement(notes.length);
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, hudFrame(notes, NO_HUD), 2.0);
+    const plus = drawnTexts(calls).filter((text) => text.startsWith('+'));
+    // 120 BPM ⇒ 命中在 1.0..2.1s；默认 plusDur 0.5 ⇒ 窗口 (1.5, 2.0] 共 5 次 ⇒ 5 条同值文本
+    expect(plus).toHaveLength(5);
+    expect(new Set(plus)).toEqual(new Set([`+${inc}`]));
+    expect(plus.reduce((sum, text) => sum + Number(text.slice(1)), 0)).toBe(inc * 5);
   });
 
   it('SS+ 档：填充条取官方渐变条 A 整段，并叠 12 枚四芒星流动', () => {
@@ -988,5 +1073,43 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 62 / 63）', () => {
       .map(([, a]) => a as unknown[]).find((a) => a.length === 9 && a[2] === 393);
     expect(bar?.slice(1, 5)).toEqual([1, 393, 661, 22]);
     expect(calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.fever)).toHaveLength(12);
+  });
+
+  it('生命 gauge 按实机截图：上亮绿 / 下深绿两段渐变，不再切洋红色块', () => {
+    const stops: [number, string][] = [];
+    const { proxy, calls } = makeRecordingCtx({
+      createLinearGradient: () => ({
+        addColorStop: (p: number, c: string) => { stops.push([p, c]); },
+      }),
+    });
+    const hud = fakeHud();
+    drawSimFrameAt(proxy, hudFrame([single(2, 3)], hud), 1.2);
+    expect(stops).toEqual(expect.arrayContaining([
+      [0, SIM_HUD.lifeGaugeTop],
+      [SIM_HUD.lifeGaugeSplit, SIM_HUD.lifeGaugeTop],
+      [1, SIM_HUD.lifeGaugeBottom],
+    ]));
+    const boxes = calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.rhythmGameUI)
+      .map(([, v]) => (v as unknown[]).slice(1, 5));
+    expect(boxes).not.toContainEqual([303, 112, 39, 22]);
+    expect(boxes).not.toContainEqual([360, 123, 39, 22]);
+  });
+
+  it('顶部状态栏只用一枚总开关：关掉时四件全收，缺省照画', () => {
+    const hud = fakeHud();
+    const base = hudFrame([single(2, 3)], hud, true);
+    const off: SimFrameInput = { ...base, scene: { ...base.scene, showGameUi: false } };
+    const offRec = recordingCtx();
+    drawSimFrameAt(offRec.proxy, off, 1.2);
+    for (const img of [hud.scoreBar, hud.lifeBar, hud.rhythmGameUI, hud.autoLive]) {
+      expect(offRec.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === img)).toEqual([]);
+    }
+    expect(drawnTexts(offRec.calls)).not.toContain('1000/1000');
+
+    const on = recordingCtx();
+    drawSimFrameAt(on.proxy, base, 1.2);
+    expect(on.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.scoreBar)).toHaveLength(4);
+    expect(on.calls.filter(([k, v]) => k === 'drawImage' && (v as unknown[])[0] === hud.lifeBar)).toHaveLength(4);
+    expect(drawnTexts(on.calls)).toContain('1000/1000');
   });
 });

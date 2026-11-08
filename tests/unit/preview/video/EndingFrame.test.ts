@@ -111,7 +111,7 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       resultDur: 2.95,
       barX: 8.25,
       barY: 12.9,
-      // 票 64：顶栏收窄给右上 SCORE RANK 让位
+      // 票 73：顶栏收窄给右上 SCORE RANK 让位
       barW: 74,
       barH: 5.2,
       barR: 0.8,
@@ -131,7 +131,7 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       cardW: 66.7,
       cardTop: 32,
       cardR: 1,
-      // 票 64：白卡首行让给 Score 行
+      // 票 73：白卡首行让给 Score 行
       rowFirst: 12,
       rowPitch: 5.9,
       labelH: 4.6,
@@ -262,7 +262,7 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       haloDiaLayout: 'ring',
       haloDiaSeed: 135,
       haloDiaJitter: 0.18,
-      // 票 64 · Score 行（%H / 卡宽等比；时间键是 %入场轴 q）
+      // 票 73 · Score 行（%H / 卡宽等比；时间键是 %入场轴 q）
       resultFont: 3.15,
       resultScoreFont: 3.7,
       resultPadX: 1.48,
@@ -270,7 +270,7 @@ describe('chart-preview 52 · 定稿参数表（用户 2026-10-26 · 原型 v9�
       resultRowDY: -1.11,
       resultInAt: 24,
       resultInDur: 24,
-      // 票 64 · SCORE RANK 徽章（%W，原型按帧宽缩）
+      // 票 73 · SCORE RANK 徽章（%W，原型按帧宽缩）
       rankSize: 8.125,
       rankRight: 7.8125,
       rankTop: 6.5625,
@@ -309,7 +309,7 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(fillRects(calls)[0]).toEqual([0, 0, 1920, 1080]);
   });
 
-  it('结算：顶栏写难度 / 曲名 / Lv，白卡首行是固定 `Score` + 归一最终分（票 64）', () => {
+  it('结算：顶栏写难度 / 曲名 / Lv，白卡首行是固定 `Score` + 归一最终分（票 73）', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawEndingFrameAt(proxy, 1920, 1080, frameInput(), ENDING_SECONDS - 0.1);
     const t = texts(calls);
@@ -328,7 +328,7 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(t.join('')).not.toContain('AUTO PLAY');
   });
 
-  it('票 64 · Score 行在卡片入场那一段就淡入（不是五行判完才出现）', () => {
+  it('票 73 · Score 行在卡片入场那一段就淡入（不是五行判完才出现）', () => {
     const early = makeRecordingCtx({ measureText: measureTextOk });
     drawEndingFrameAt(early.proxy, 1920, 1080, frameInput(), ENDING_STAMP_SECONDS + 0.5);
     expect(texts(early.calls)).not.toContain('Score');
@@ -337,7 +337,7 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(texts(settle.calls)).toContain('Score');
   });
 
-  it('票 64 · 有 `RhythmGameUI.png` 时 Score 行贴官方圆星章（缺件留空，不画假章）', () => {
+  it('票 73 · 有 `RhythmGameUI.png` 时 Score 行贴官方圆星章（缺件留空，不画假章）', () => {
     const rhythmGameUI = { naturalWidth: 1024, naturalHeight: 1024 } as unknown as HTMLImageElement;
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawEndingFrameAt(
@@ -349,7 +349,7 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(hit?.slice(1, 5)).toEqual([7, 421, 29, 30]);
   });
 
-  it('票 64 · 有 `MenuAtlas.png` 时右上徽章 = 太阳纹盘 + 字母层 + SCORE RANK 缎带', () => {
+  it('票 73 · 有 `MenuAtlas.png` 时右上徽章 = 太阳纹盘 + 字母层 + SCORE RANK 缎带', () => {
     const menu = { naturalWidth: 2048, naturalHeight: 2048 } as unknown as HTMLImageElement;
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawEndingFrameAt(

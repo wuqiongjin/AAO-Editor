@@ -37,7 +37,7 @@ export interface EndingAssets {
   menu: HTMLImageElement | null;
   /**
    * `stageskin/normal/RhythmGameUI.png`：结算 Score 行左侧的**圆星章**
-   * （`HUD_SPRITES.medal = [7,421,29,30]`，票 64）。缺件留空，不画假章。
+   * （`HUD_SPRITES.medal = [7,421,29,30]`，票 73）。缺件留空，不画假章。
    */
   rhythmGameUI: HTMLImageElement | null;
 }

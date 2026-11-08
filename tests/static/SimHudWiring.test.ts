@@ -12,17 +12,22 @@ import { readStripped } from '@/tests/support/source';
 const field = readStripped('src/preview/video/sim/simField.ts');
 const hud = readStripped('src/preview/video/sim/simHud.ts');
 const assets = readStripped('src/preview/video/sim/simAssets.ts');
+const panel = readStripped('src/pages/preview/PreviewDisplayPanel.tsx');
+const protoHud = readStripped('public/proto/hudProto.js');
+const protoScenes = readStripped('public/proto/scenes.html');
+const zh = readStripped('src/i18n/messages/zh-CN.json');
+const en = readStripped('src/i18n/messages/en.json');
 
 describe('51 · 判定字画在仿真场帧里（预览 / 导出同一份）', () => {
   it('出帧入口里顶栏 → 判定字 → combo（HUD 三件都在 `drawSimFrameAt` 这一条路上）', () => {
-    expect(field).toMatch(/if \(layers\?\.hud !== false\) \{/);
+    expect(field).toMatch(/if \(layers\?\.hud !== false && showGameUi\) \{/);
     expect(field).toMatch(/drawTopBar\(ctx, metrics, chart, seconds, input\.assets\.hud, autoMode\)/);
     expect(field).toMatch(
       /drawJudgement\(ctx, metrics, chart, seconds, input\.assets\.judge, autoMode, layers\?\.judge\)/,
     );
-    // AP 态由场景带入（`settings.preview.apCombo`），AUTO 下强制素白
+    // AP 态由场景带入（`settings.preview.apCombo`），与 AUTO 无关
     expect(field).toMatch(
-      /drawCombo\(ctx, metrics, chart, seconds, input\.assets\.sprites, layers\?\.comboAlpha \?\? 1, \{\s*ap: comboApActive\(input\.scene\.apCombo \?\? true, autoMode\),/,
+      /drawCombo\(ctx, metrics, chart, seconds, input\.assets\.sprites, layers\?\.comboAlpha \?\? 1, \{\s*ap: comboApActive\(input\.scene\.apCombo \?\? true\),/,
     );
     expect(field.indexOf('drawTopBar(ctx')).toBeLessThan(field.indexOf('drawJudgement(ctx'));
     // combo 在判定字之后调（免得字块压在数字上）
@@ -47,7 +52,7 @@ describe('51 · 判定字画在仿真场帧里（预览 / 导出同一份）', (
     // 停留时长可由调用方覆盖（结尾段 / 原型调参），但只有两档
     expect(field).toMatch(/judgeStateAt\(chart, seconds, js\.life\)/);
     expect(field).toMatch(/const box = judgeSprite\(auto\);/);
-    expect(field).toMatch(/const autoMode = input\.scene\.autoMode \?\? true;/);
+    expect(field).toMatch(/const autoMode = input\.scene\.autoMode \?\? false;/);
     expect(field).not.toMatch(/judge_great|judge_miss|AUTO PLAY|judgeAutoPlay/);
     expect(hud).not.toMatch(/AUTO PLAY/);
   });
@@ -137,10 +142,11 @@ describe('52 · AP combo（按 `.cache/Combo-Style.mov` 重做：白芯 + 渐变
     expect(field).toMatch(/const alpha = fadeInA \* fadeOutA;/);
   });
 
-  it('combo 的 AP 态由 `settings.preview.apCombo` 与 `autoMode` 共同决定（缺省 = 开 / AUTO 开）', () => {
-    expect(field).toMatch(/ap: comboApActive\(input\.scene\.apCombo \?\? true, autoMode\),/);
+  it('2026-11-08 验收：combo 的 AP 态**只**由 `apCombo` 决定，AUTO 不参与', () => {
+    expect(field).toMatch(/ap: comboApActive\(input\.scene\.apCombo \?\? true\),/);
     expect(field).toMatch(/apCombo\?: boolean;/);
-    expect(hud).toMatch(/return apCombo && !autoMode;/);
+    expect(hud).toMatch(/return apCombo;/);
+    expect(hud).not.toMatch(/apCombo && !autoMode/);
   });
 
   it('判定字也"弹一下"（与 combo 同一条 `comboPopScale` 曲线）', () => {
@@ -155,7 +161,7 @@ describe('52 · AP combo（按 `.cache/Combo-Style.mov` 重做：白芯 + 渐变
   });
 });
 
-describe('63 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一分）', () => {
+describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一分）', () => {
   it('取景坐标照 `README.txt` §六，逐件来自官方图集 / 用户自备件', () => {
     expect(hud).toMatch(/barA: \[1, 393, 661, 22\]/);
     expect(hud).toMatch(/pause: \[828, 318, 63, 60\]/);
@@ -187,6 +193,77 @@ describe('63 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     expect(field).toMatch(/if \(!hud\.scoreBar\) \{/);
     expect(field).toMatch(/if \(!hud\.lifeBar\) \{/);
     expect(field).toMatch(/if \(!autoMode \|\| !assets\.autoLive\) return;/);
+  });
+
+  it('验收修正 · 两条竖线：切点对齐**物理像素列** + 相邻切片同源重叠（不只按 CSS 取整）', () => {
+    expect(field).toMatch(/ctx\.getTransform\(\)/);
+    expect(field).toMatch(/Math\.round\(v \* a \+ e\)/);
+    expect(field).toMatch(/snap\(acc\)/);
+    expect(field).toMatch(/w0 \+ left \+ right, dh/);
+  });
+
+  it('验收修正 · 0 分时分数条必须是空槽（不留左端底珠、不叠星点）', () => {
+    expect(field).toMatch(/const fillW = frac <= 0 \? 0 : Math\.max\(band\.h \* 1\.7, band\.w \* frac\)/);
+    expect(field).toMatch(/if \(hud\.rhythmGameUI && fillW > 0\)/);
+  });
+
+  it('验收修正 · 生命 gauge 按实机截图走亮绿 / 深绿两段渐变，不用洋红色块', () => {
+    expect(hud).toMatch(/lifeGaugeTop: '#6eff69'/);
+    expect(hud).toMatch(/lifeGaugeBottom: '#47aa43'/);
+    expect(field).toMatch(/SIM_HUD\.lifeGaugeTop/);
+    expect(field).toMatch(/SIM_HUD\.lifeGaugeBottom/);
+    expect(field).not.toMatch(/lifeGaugePink|lifeGaugeGreen|lifeGaugePinkFrac/);
+  });
+
+  it('验收修正 · 顶栏只留一枚总开关，「分数条与生命条显示」自解释、不挂 ? 提示', () => {
+    expect(field).toMatch(/const showGameUi = input\.scene\.showGameUi \?\? true/);
+    expect(field).toMatch(/if \(layers\?\.hud !== false && showGameUi\)/);
+    expect(field).not.toMatch(/SimHudRegions|hudScore|hudLife|hudPause|hudAutoLive/);
+    expect(panel).toMatch(/preview\.display\.showGameUi/);
+    expect(panel).not.toMatch(/preview\.display\.showGameUi\.hint|HelpHint|pdp__row-label--with-hint/);
+    expect(panel).not.toMatch(/preview\.display\.group\.hud|HUD 组件/);
+    expect(zh).toMatch(/"preview\.display\.showGameUi": "分数条与生命条显示"/);
+    expect(en).toMatch(/"preview\.display\.showGameUi": "Score & life bars display"/);
+    expect(zh).not.toMatch(/preview\.display\.showGameUi\.hint/);
+    expect(en).not.toMatch(/preview\.display\.showGameUi\.hint/);
+  });
+
+  it('验收修正 · `+增量` 回退合并、恢复逐命中；位移类参数生产 / 原型仍可调', () => {
+    expect(hud).toMatch(/export function plusAgesAt\(chart: SimChart, seconds: number, duration: number\)/);
+    expect(hud).not.toMatch(/plusBurstsAt|SimPlusBurst|plusMaxCount|PLUS_EPS/);
+    expect(field).toMatch(/const text = `\+\$\{inc\}`;/);
+    expect(field).not.toMatch(/b\.hits \* inc/);
+    expect(protoScenes).toMatch(/function plusAgesAt\(sec\)/);
+    expect(protoScenes).not.toMatch(/function plusBurstsAt|k: 'plusMaxCount'/);
+    // 用户明确要保留的观感旋钮：底亮度 / 渐隐 / 位移 / 逐条错开 / 密集演示
+    // 2026-11-09 快照定档：dur .5 / X .45 / Y 122 / rise 0，生产与原型同名同值
+    for (const src of [hud, protoHud]) {
+      expect(src).toMatch(/plusBaseAlpha: 0\.85/);
+      expect(src).toMatch(/plusFadeOutFrac: 0\.2/);
+      expect(src).toMatch(/plusDur: 0\.5/);
+      expect(src).toMatch(/plusX: 0\.45/);
+      expect(src).toMatch(/plusY: 122/);
+      expect(src).toMatch(/plusRise: 0/);
+      expect(src).toMatch(/plusSpreadX: 0/);
+      expect(src).toMatch(/plusSpreadY: 0/);
+    }
+    expect(protoHud).toMatch(/plusDemoRate: 14/);
+    expect(protoScenes).toMatch(/Math\.min\(5\.3, chartSeconds\)/);
+    expect(field).toMatch(/i \* SIM_HUD\.plusSpreadX/);
+    expect(field).toMatch(/SIM_HUD\.plusBaseAlpha/);
+    expect(protoScenes).toMatch(/k: 'plusDemo'/);
+    expect(protoScenes).toMatch(/k: 'plusBaseAlpha'/);
+    expect(protoScenes).toMatch(/k: 'plusSpreadX'/);
+  });
+
+  it('验收修正 · ▽ 刻度图标大小可调：生产 / 原型同名同值', () => {
+    expect(hud).toMatch(/tickH: 4\.24/);
+    expect(field).toMatch(/SIM_HUD\.tickH \* s/);
+    expect(protoHud).toMatch(/tickH: 4\.24/);
+    expect(protoHud).toMatch(/HUD\.tickH \* s/);
+    expect(protoScenes).toMatch(/k: 'tickH', label: '刻度图标大小'/);
+    expect(field).not.toMatch(/Math\.max\(2\.5 \* s, band\.h \* 0\.13\)/);
+    expect(protoHud).not.toMatch(/Math\.max\(2\.5 \* s, band\.h \* 0\.13\)/);
   });
 });
 

@@ -1,8 +1,8 @@
-# 64 · 结算画面分数适配（SCORE RANK 图标 + 得分行）
+# 73 · 结算画面分数适配（SCORE RANK 图标 + 得分行）
 
 Type: grilling
-Status: resolved（**2026-11-08 已实现**：Score 行 + SCORE RANK 徽章 + 三项版式常量；依赖 63 的归一分已接通）
-Blocked by: 63
+Status: resolved（**2026-11-08 已实现**：Score 行 + SCORE RANK 徽章 + 三项版式常量；依赖 72 的归一分已接通）
+Blocked by: 72
 
 **来源**：2026-11-08 用户额外第 2 点，原文「结算画面，也需要同步适配分数相关内容组件，包括 (可以参考 tmp/result-score.png)：a) 右上角的 score-rank 图标 b) 结算面板中的 "得分" 和 具体的分数。」
 **调研**：`tmp/result-score.png`、`docs/research/gbp-ui-assets.md` §10.2、`docs/adr/0016-谱面预览与游戏仿真导出.md` §5.2、`docs/research/gbp-live-recording-BV1BDapzbEdX.md` §6、票 52。
@@ -15,17 +15,17 @@ Blocked by: 63
 
 1. ADR-0016 §5.2 / 票 52 Q6 明写「结算 = 顶栏…**不画 SS / 得分 / 排名**」，依据是 `docs/research/gbp-live-cinematic.md:92`「分数 / 等级 / 编成 / 奖励无法从谱面单独算真」。
 2. `tests/unit/preview/video/EndingFrame.test.ts:289-300` 用 `expect(t.join('')).not.toMatch(/SCORE|RANK|SS/)` 主动锁死；`EndingFrameInput` 只有 `counts` / `maxCombo`，**没有 score 字段**；`endingAssets` 八槽位没有 score-rank 槽。
-3. 票 63 Q14 已定「1,000,000 归一分」⇒ 结算要显示得分就得把归一分数接进 `EndingFrameInput`，并同步改 ADR / CONTEXT / 锁测。
+3. 票 72 Q14 已定「1,000,000 归一分」⇒ 结算要显示得分就得把归一分数接进 `EndingFrameInput`，并同步改 ADR / CONTEXT / 锁测。
 
 ## 素材现状（2026-11-08 目视）
 
 - `tmp/result-score.png`（2388×1668）：右上 = 大号 SS 徽章（圆形放射光芒 + 绿紫 S + 绿色 `SCORE RANK` 缎带）；白卡顶部 = 圆形星章 +「得分」+ 大号青字粉描边数字（`2830…`），下接虚线与五行判定。
 - **Q23 用户指出并已复核**：官方 `atlas/MenuAtlas.png` 里**有整套** `D / C / C+ / B / B+ / A / A+ / S / S+ / SS / SS+` 大号字母徽章与 `SCORE RANK` / `MULTI SCORE RANK` 缎带，另有小号一套（用户推测取大的那套）。定位见 `docs/research/gbp-ui-assets.md` §10.3 ⇒ score-rank 图标与缎带**全用官方素材，无需自备件**。仅「得分」二字（简中标签）尚未在本地官方图集定位。
-- 票 63 Q13 定案：`tmp/` 只作辨识依据、不得截取 ⇒ 这些件要么在官方图集里定位，要么由用户补官方切图 / 登记为用户自备件（如 `score-characters.png` 那样）。
+- 票 72 Q13 定案：`tmp/` 只作辨识依据、不得截取 ⇒ 这些件要么在官方图集里定位，要么由用户补官方切图 / 登记为用户自备件（如 `score-characters.png` 那样）。
 
 ## 定案（用户 2026-11-08 · grill 第 7 轮）
 
-1. **Q23 素材**：官方 `atlas/MenuAtlas.png` 里有整套 `D / C / C+ / B / B+ / A / A+ / S / S+ / SS / SS+` 大号徽章 + `SCORE RANK` / `MULTI SCORE RANK` 缎带（另有小号一套，按用户推测取**大号**），逐档在原型里并排挑（票 63 Q19 口径）。定位见 `docs/research/gbp-ui-assets.md` §10.3 ⇒ **不需要自备件**。
+1. **Q23 素材**：官方 `atlas/MenuAtlas.png` 里有整套 `D / C / C+ / B / B+ / A / A+ / S / S+ / SS / SS+` 大号徽章 + `SCORE RANK` / `MULTI SCORE RANK` 缎带（另有小号一套，按用户推测取**大号**），逐档在原型里并排挑（票 72 Q19 口径）。定位见 `docs/research/gbp-ui-assets.md` §10.3 ⇒ **不需要自备件**。
 2. **新发现的口径差**：这 11 档是**结算 score-rank 档位**，与打歌分数条的 6 档区间不是同一套，不能混用（见 Q24）。
 
 ## 定案（用户 2026-11-08 · grill 第 8 轮）
@@ -34,7 +34,7 @@ Blocked by: 63
 2. **Q25 = OK（用户拍板自绘）**：「得分」标签**允许自己绘制**（原话「这个"得分"可以自己绘制…还得区分多语言…这个字体和结算页面的歌曲名称的字体是一个」）⇒ 走 i18n 多语言（`src/i18n/messages/{zh-CN,en}.json`，按 `preview.ending.score` 风格新增键），Canvas `fillText` 用 `HEADER_SANS`（`src/preview/fontStack.ts`，与 `endingFrame.ts:1590` 曲名同一条字体链），不用图片、不引入第二套字体。这是「不伪造」边界里用户明确开的**唯一文字例外**。
 3. 确认推翻 ADR-0016 §5.2「不画 SS / 得分 / 排名」与票 52 Q6，同步改 `CONTEXT.md`「视频导出」词条与 `tests/unit/preview/video/EndingFrame.test.ts:289-300` 的 `not.toMatch(/SCORE|RANK|SS/)` 反断言。
 
-**本票待拍板问题已收口**；三张票（62 / 63 / 64）均收口。原计划的「Q11 HUD 调参原型」已于同日完成并定稿，见下节。
+**本票待拍板问题已收口**；三张票（71 / 72 / 73）均收口。原计划的「Q11 HUD 调参原型」已于同日完成并定稿，见下节。
 
 ## 定稿（2026-11-08 · 原型验收通过，可直接开工）
 
@@ -108,7 +108,7 @@ Blocked by: 63
 
 ## Comments
 
-- 2026-11-08 开票：从票 63 拆出（不同模块 / 不同定案），分数口径依赖票 63 Q14。只读盘点，未改 `src/`。
+- 2026-11-08 开票：从票 72 拆出（不同模块 / 不同定案），分数口径依赖票 72 Q14。只读盘点，未改 `src/`。
 - 2026-11-08 grill 第 7 轮：Q23 用户指出 `MenuAtlas.png` 有整套 `D…SS+` 徽章与 `SCORE RANK` 缎带，逐象限复核成立（大号 `C+` 约 `x950–1050, y770–865`；大号 `B/S/C` 在 `y≈1024–1100` 一排；另有一套小号，按用户推测取大号），详见 `docs/research/gbp-ui-assets.md` §10.3。发现 11 档 rank 与打歌 6 档不同套 ⇒ 第 8 轮待 Q24 / Q25。
 - 2026-11-08 grill 第 8 轮：Q24 = OK（11 档 rank、阈值按归一分映射、得分 = `1000000`）；Q25 用户拍板「得分」**自绘 + 多语言**（理由：官方应该也是自绘、字体同结算曲名）⇒ i18n 新键 + `HEADER_SANS`。核对：`src/preview/fontStack.ts` 的 `HEADER_SANS` 正是 `endingFrame.ts:1590` 曲名用的那条链，i18n 仅 `zh-CN` / `en` 两份。本票收口。
 - 2026-11-08 原型重构：结算「得分」行不再另开页面，作为 `scenes.html` 结尾 tab 的一层叠在 `drawEndingFrameAt` 真帧上（绘制在 `/proto/hudProto.js` 的 `drawEndingScore`）。落地口径：圆星章复用打歌分数组件那枚；「得分」`HEADER_SANS` + i18n；分数右对齐 + 点线下移；右上 = `MenuAtlas` 太阳纹圆盘（`[1089,1289,136,126]`）+ 大号 SS（`[1303,969,86,82]`）+ `SCORE RANK` 缎带（`[1375,855,190,35]`）。**顺带发现两处必须一起改的生产常量**：`ENDING_SPEC.rowFirst` 5.6 → 14.5（%H，给得分行让位）、`comboY` 同步下移同样差值、`barW` 85 → 74.6（%W，否则右上徽章压住顶栏）。

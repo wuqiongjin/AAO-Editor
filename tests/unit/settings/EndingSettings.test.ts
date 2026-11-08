@@ -46,6 +46,15 @@ describe('chart-preview 52 · 归一化（缺字段回落、脏值不混进来�
     normalizeEnding({ enabled: false, stamp: 'clear' });
     expect(JSON.stringify(DEFAULT_EXPORT_FIELDS.ending)).toBe(before);
   });
+
+  it('CLEAR 是正式档位：归一化、段内写回、存档往返都不回落 ap（2026-11-09 验收）', () => {
+    expect(normalizeEnding({ stamp: 'clear' })).toEqual({ enabled: true, stamp: 'clear' });
+    expect(updateSettings(defaultSettings(), {
+      export: { ending: { ...DEFAULT_ENDING, stamp: 'clear' } },
+    }).export.ending).toEqual({ enabled: true, stamp: 'clear' });
+    expect(loadSettings(settingsStorageOf({ export: { ending: { enabled: false, stamp: 'clear' } } }))
+      .export.ending).toEqual({ enabled: false, stamp: 'clear' });
+  });
 });
 
 describe('chart-preview 52 · 段内写回（改一项不抹掉另一项）', () => {

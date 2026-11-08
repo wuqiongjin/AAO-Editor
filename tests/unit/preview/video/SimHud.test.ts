@@ -81,16 +81,14 @@ describe('chart-preview 51 · 判定字（每音一条、位置固定）', () =>
   });
 });
 
-describe('chart-preview 62 · AUTO 模式只改判定字 / AUTO LIVE / AP 辉光', () => {
-  it('AUTO 下不存在「全 PERFECT」⇒ combo 保持素白；关掉 AUTO 才认 apCombo', () => {
-    expect(comboApActive(true, true)).toBe(false);
-    expect(comboApActive(false, true)).toBe(false);
-    expect(comboApActive(true, false)).toBe(true);
-    expect(comboApActive(false, false)).toBe(false);
+describe('chart-preview 71 · AUTO 只改判定字 / AUTO LIVE；AP 态与它无关', () => {
+  it('2026-11-08 验收：combo 的 AP 态只认 `apCombo`，AUTO 不再干预', () => {
+    expect(comboApActive(true)).toBe(true);
+    expect(comboApActive(false)).toBe(false);
   });
 });
 
-describe('chart-preview 63 · 归一分（1,000,000 / 7 位定宽）', () => {
+describe('chart-preview 72 · 归一分（1,000,000 / 7 位定宽）', () => {
   it('满分与位数是定值，格式化夹在 [0, 满分]', () => {
     expect(SCORE_MAX).toBe(1_000_000);
     expect(SCORE_DIGITS).toBe(7);
@@ -139,6 +137,31 @@ describe('chart-preview 63 · 归一分（1,000,000 / 7 位定宽）', () => {
     expect(scoreTierAt(950_000)).toBe(5);
   });
 
+  it('▽ 刻度图标大小可独立调：默认 4.24 设计 px（= 原固定魔数在 1920 帧下的值）', () => {
+    expect(SIM_HUD.tickH).toBe(4.24);
+  });
+
+  it('2026-11-09 原型快照定档：`+增量` 的生产默认档', () => {
+    expect({
+      plusDur: SIM_HUD.plusDur,
+      plusFadeFrac: SIM_HUD.plusFadeFrac,
+      plusFadeOutFrac: SIM_HUD.plusFadeOutFrac,
+      plusBaseAlpha: SIM_HUD.plusBaseAlpha,
+      plusX: SIM_HUD.plusX,
+      plusY: SIM_HUD.plusY,
+      plusDX: SIM_HUD.plusDX,
+      plusRise: SIM_HUD.plusRise,
+      plusSpreadX: SIM_HUD.plusSpreadX,
+      plusSpreadY: SIM_HUD.plusSpreadY,
+      plusFont: SIM_HUD.plusFont,
+      plusColor: SIM_HUD.plusColor,
+    }).toEqual({
+      plusDur: 0.5, plusFadeFrac: 0.35, plusFadeOutFrac: 0.2, plusBaseAlpha: 0.85,
+      plusX: 0.45, plusY: 122, plusDX: 0.34, plusRise: 0,
+      plusSpreadX: 0, plusSpreadY: 0, plusFont: 35, plusColor: '#eef4f8',
+    });
+  });
+
   it('结算 11 档 score-rank 与打歌 6 档**不是同一套**，按归一分映射', () => {
     expect(SCORE_RANKS).toEqual(['D', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+', 'SS', 'SS+']);
     expect(SCORE_RANK_THRESHOLDS).toHaveLength(SCORE_RANKS.length);
@@ -149,12 +172,14 @@ describe('chart-preview 63 · 归一分（1,000,000 / 7 位定宽）', () => {
     expect(scoreRankAt(SCORE_MAX)).toBe('SS+');
   });
 
-  it('`+增量` 多条并存：各算各的年龄，超出时长就退场', () => {
-    const c = chart([1, 1.3, 1.6]);
+  it('`+增量` 逐命中各一条：不设上限、不合并，超出时长就退场', () => {
+    const c = chart([1, 1.1, 1.2, 1.3, 1.4, 1.5]);
     const rounded = (v: number[]) => v.map((n) => Number(n.toFixed(3)));
-    expect(rounded(plusAgesAt(c, 1.7, 0.85))).toEqual([0.7, 0.4, 0.1]);
-    expect(rounded(plusAgesAt(c, 2.0, 0.85))).toEqual([0.7, 0.4]);
+    // 6 次命中都在窗口里 ⇒ 6 条，一条不少（2026-11-09 回退限流合并）
+    expect(rounded(plusAgesAt(c, 1.6, 0.85))).toEqual([0.6, 0.5, 0.4, 0.3, 0.2, 0.1]);
+    expect(rounded(plusAgesAt(c, 2.0, 0.85))).toEqual([0.8, 0.7, 0.6, 0.5]);
     expect(plusAgesAt(c, 1.0, 0.85)).toEqual([0]);
     expect(plusAgesAt(c, 0.9, 0.85)).toEqual([]);
+    expect(plusAgesAt(c, 1.6, 0)).toEqual([]);
   });
 });

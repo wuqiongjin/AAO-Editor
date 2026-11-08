@@ -1,4 +1,4 @@
-# 62 · 支持 AUTO（打歌 AUTO 显示 / 结算 AUTO 标记）
+# 71 · 支持 AUTO（打歌 AUTO 显示 / 结算 AUTO 标记）
 
 Type: grilling
 Status: resolved（**2026-11-08 已实现**：AUTO 两档判定字 / AUTO LIVE 提示 / AP 辉光关断，实时预览与导出同一份）
@@ -34,7 +34,7 @@ Blocked by: —
 2. **Q6 = OK**：结算顶栏星徽固定 **ALL PERFECT 虹彩星**（`BADGE_SPRITES.ap` = `116,218 57×55`），与 AUTO 模式开关无关；`HUB-sample` 分数组件里那枚圆形星章按截图中的灰色未点亮态处理、不跟结算形态联动。
 3. 判定档范围照第 1 轮定案：只 `PERFECT` / `AUTO`，**不**接 `GREAT / GOOD / BAD / MISS / FAST / SLOW`；结算画面不加 AUTO 文字。
 
-本票的待拍板问题已收口；顶栏素材 / 数值 / 组件范围（Q7–Q9）归票 63。
+本票的待拍板问题已收口；顶栏素材 / 数值 / 组件范围（Q7–Q9）归票 72。
 （原型已于同日完成并定稿，见下节「定稿」。）
 
 ## 定稿（2026-11-08 · 原型验收通过）
@@ -45,16 +45,16 @@ Blocked by: —
 2. **AUTO LIVE 胶囊**：`hud/auto-live.png`，落在 `(36, 150) 278×51`，只与 `autoMode` 挂钩。
 3. **AP 特效**：`comboStyle().ap = comboAP && !autoMode` —— AUTO 下不存在「全 PERFECT」，
    所以 combo 保持素白、不叠彩虹辉光。
-4. **结算**：仍固定 AP 虹彩星徽 + ALL PERFECT 章（AUTO 不改结算），与票 52 / 64 一致。
+4. **结算**：仍固定 AP 虹彩星徽 + ALL PERFECT 章（AUTO 不改结算），与票 52 / 73 一致。
 5. **验收**：切换 `autoMode` 只应改变判定字与 AUTO LIVE 两处，其余图层逐像素不变。
-6. 素材坐标 / 顶栏其余三件见票 63「定稿」§1（本票只引用，不重复登记）。
+6. 素材坐标 / 顶栏其余三件见票 72「定稿」§1（本票只引用，不重复登记）。
 
 ## 实现落点（定案后才动，本轮不改代码）
 
 - `src/preview/video/sim/{simHud,simField,simAssets}.ts`：判定字切格 + AUTO 状态入口 + 素材槽位。
 - `src/preview/video/ending/{endingFrame,endingAssets}.ts`、`src/settings/AppSettings.ts`：结算 AUTO 标记 / 形态。
 - `docs/adr/0016-谱面预览与游戏仿真导出.md` §1.2 / §5.2 / §6、`CONTEXT.md`「仿真场」「PERFECT 显示状态」词条（与既有 ADR 冲突须显式标注，见 `docs/agents/domain.md`）。
-- 顶栏 AUTO 提示的**位置**归票 63；本票只定「显示什么、什么时候显示」。
+- 顶栏 AUTO 提示的**位置**归票 72；本票只定「显示什么、什么时候显示」。
 
 ## 锁测（定案后哪些用例会红 / 要新增）
 
@@ -64,9 +64,10 @@ Blocked by: —
 
 ## Comments
 
-- 2026-11-08 开票：只读盘点完成，未改 `src/`。素材目视结论见 `docs/research/gbp-ui-assets.md` §8.1。与票 63 分工：本票管 AUTO 语义与 AUTO 显示，票 63 管顶栏 HUD 组件与布局。
+- 2026-11-08 开票：只读盘点完成，未改 `src/`。素材目视结论见 `docs/research/gbp-ui-assets.md` §8.1。与票 72 分工：本票管 AUTO 语义与 AUTO 显示，票 72 管顶栏 HUD 组件与布局。
 - 2026-11-08 grill 第 1 轮：用户澄清 Q1 问的是「打歌时每个音符的判定显示」，`judge.png` 全是判定图标、预览只需 PERFECT / AUTO 两档；结算可无 AUTO 文字、星徽倾向 ALL PERFECT。Q2 / Q3 = OK，Q4 补 `HUB-sample.png` 与 `auto-live.png`（见 §9）。第 2 轮待 Q5 / Q6。
-- 2026-11-08 grill 第 2 轮：Q5 / Q6 = OK（AUTO 模式开关默认开、判定字两档、结算固定 AP 虹彩星）。本票待拍板问题收口，Q7–Q9 归票 63。
+- 2026-11-08 grill 第 2 轮：Q5 / Q6 = OK（AUTO 模式开关默认开、判定字两档、结算固定 AP 虹彩星）。本票待拍板问题收口，Q7–Q9 归票 72。
 - 2026-11-08 grill 第 3 轮：Q12 = OK —— AUTO 开时**只**换判定字（`judge_auto`）+ 显示 `AUTO LIVE` 提示；AP combo 变色、结算全 PERFECT 内译与 AP 章全部保持现状（票内原先那条「其余不变」的假设已获确认）。
 - 2026-11-08 **实现**（TDD 先红后绿）：`settings.preview.autoMode` additive 默认开 + 动态组开关（i18n `preview.display.autoMode`）；`SimScene.autoMode` 随 scene 走；`simHud.JUDGE_BOXES` 两格 + `judgeSprite(auto)` + `comboApActive()`；`simField.drawJudgement` 按档切格 / 缺图集纯字 `AUTO`；`simAssets.simHudUrls()` 五件逐件兜底（缺件不置 `missing`）；`drawAutoLive` 落 `(36,150) 278×51`、只在 AUTO 开时画。结算**不加** AUTO 文字、星徽仍固定 AP 虹彩星。锁测：`SimHud.test.ts`（两档切图 / comboApActive）、`SimHudWiring.test.ts`（禁用自造 `AUTO PLAY` / 缺件降级 / AUTO 提示挂接）、`SimField.test.ts`（AUTO 胶囊位置与开关）、`PreviewMarkerSettings.test.ts`（默认 / 归一化）。`npx tsc -b` 干净、全量 408 文件 / 4556 例绿。
 - 口径澄清：原型「定稿」§3 `comboStyle().ap = comboAP && !autoMode`（AUTO 下 combo 素白）与较早的 Q12「AP combo 保持现状」冲突；实现按**定稿**（原型验收通过那一组）执行，并写进 ADR-0016 §1.2。待用户验收确认。
+- **2026-11-08 用户验收裁定（推翻上面两条旧口径）**：① `autoMode` **默认关**（推翻 Q5 与实现项的「默认开」）；② **AUTO 不影响 PERFECT 显示状态** —— 按 Q12「AP combo 保持现状」执行，`comboApActive(apCombo)` 只认 `apCombo`，原型的 `comboAP && !autoMode` 作废。改动：`AppSettings` / `DEFAULT_PREVIEW_SETTINGS` / 归一化 / `SimScene` 缺省 `false`、`simHud.comboApActive` 单参、`simField.drawSimFrameAt`、`PreviewDisplayPanel` 注释与重置白名单、`hudProto.HUD.autoMode=false`、`scenes.html comboStyle()`；ADR-0016 §1.2 / §6 与 CONTEXT「预览标注」同步。锁测：`SimHud.test.ts`（单参）、`SimHudWiring.test.ts`（`?? false` / `return apCombo`）、`SimField.test.ts`（未设置时切 PERFECT 格）、`PreviewMarkerSettings.test.ts`（默认关 / 脏值回落关）。

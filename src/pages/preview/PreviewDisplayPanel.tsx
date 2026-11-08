@@ -124,7 +124,9 @@ function packPreviewLayout(panel: { top: number; left: number }) {
  * `disabled` = 整行置灰不可点（2026-10-06：头带总开关关掉时信息区字段保留勾选但不可改 ——
  * 保留勾选是为了再开时原样回来，置灰是为了说明"现在改它没用"）。
  */
-function Row({ label, disabled = false, children }: { label: string; disabled?: boolean; children: ReactNode }) {
+function Row({ label, disabled = false, children }: {
+  label: string; disabled?: boolean; children: ReactNode;
+}) {
   return (
     <div className={`pdp__row${disabled ? ' is-disabled' : ''}`}>
       <div className="pdp__row-text">
@@ -574,6 +576,9 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
       setPreview({
         noteSpeed: d.preview.noteSpeed,
         mirror: d.preview.mirror,
+        apCombo: d.preview.apCombo,
+        autoMode: d.preview.autoMode,
+        showGameUi: d.preview.showGameUi,
         bgBrightness: d.preview.bgBrightness,
         bgPackId: d.preview.bgPackId,
         fieldPackId: d.preview.fieldPackId,
@@ -886,13 +891,21 @@ export default function PreviewDisplayPanel({ mode = 'static' }: PreviewDisplayP
                           onChange={(apCombo) => setPreview({ apCombo })}
                         />
                       </Row>
-                      {/* AUTO 模式（62，2026-11-08）：开 = 判定字 AUTO + AUTO LIVE 提示，
-                          关 = PERFECT + AP 态。同一份 scene ⇒ 实时预览与导出一致 */}
+                      {/* AUTO 模式（71；2026-11-08 验收：默认关、不影响 PERFECT 显示状态）：
+                          开 = 判定字 AUTO + AUTO LIVE 提示，关 = PERFECT + 无胶囊 */}
                       <Row label={t('preview.display.autoMode')}>
                         <Toggle
                           label={t('preview.display.autoMode')}
                           checked={preview.autoMode}
                           onChange={(autoMode) => setPreview({ autoMode })}
+                        />
+                      </Row>
+                      {/* 顶栏只留一枚总开关：标签自解释，试一下即懂，不再挂 ? 提示；不用 HUD 行话 */}
+                      <Row label={t('preview.display.showGameUi')}>
+                        <Toggle
+                          label={t('preview.display.showGameUi')}
+                          checked={preview.showGameUi}
+                          onChange={(showGameUi) => setPreview({ showGameUi })}
                         />
                       </Row>
                       <Row label={t('settings.seVolume')}>

@@ -4,7 +4,7 @@
 //   ② 记录每个 source 的 start / stop 与包络事件，供断言。
 // 现场：开场人潮素材 7.105s > 开场段 6.75s ⇒ 必走截断分支（旧代码在这里先 stop 后 start）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderAudioTrack, type AudioTrack } from '@/src/preview/video/encode/renderAudioTrack';
+import { renderAudioTrack, type AudioTrackResult } from '@/src/preview/video/encode/renderAudioTrack';
 import { OPENING_SECONDS } from '@/src/preview/video/opening/openingSpec';
 import { endingSfxCues, openingSfxCues, type SfxCue } from '@/src/preview/video/sfx';
 
@@ -102,7 +102,7 @@ function decodeContext(): BaseAudioContext {
   } as unknown as BaseAudioContext;
 }
 
-function renderSfx(sfx: readonly SfxCue[]): Promise<AudioTrack | null> {
+function renderSfx(sfx: readonly SfxCue[]): Promise<AudioTrackResult> {
   return renderAudioTrack({
     durationSeconds: 30,
     openingSeconds: OPENING_SECONDS,

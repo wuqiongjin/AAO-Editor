@@ -604,9 +604,9 @@ describe('失败态 · 明确文案，不静默', () => {
   });
 
   // 52：结尾画面与开场同一形制（总开关 + 缩进子项），子项是「结算形态」三档下拉
-  it('52 · 结尾画面组：总开关 + 结算形态（ALL PERFECT / FULL COMBO）', () => {
+  it('52 · 结尾画面组：总开关 + 结算形态（ALL PERFECT / FULL COMBO / CLEAR）', () => {
     const onEndingChange = vi.fn();
-    const view = (over: Partial<{ enabled: boolean; stamp: 'ap' | 'fc' }> = {}) => (
+    const view = (over: Partial<{ enabled: boolean; stamp: 'ap' | 'fc' | 'clear' }> = {}) => (
       <VideoExportControl
         spec={spec}
         ending={{ enabled: true, stamp: 'ap', ...over }}
@@ -630,12 +630,13 @@ describe('失败态 · 明确文案，不静默', () => {
       t('preview.video.export.ending.note', { seconds: 7.5 }),
     );
 
-    // 形态是可改的两档（用户 2026-10-27：AP / FC 都要能选；clear 没有章，不暴露）
+    // 形态三档都可改（2026-11-09 用户验收：CLEAR 正式支持）
     const stampSelect = screen.getByLabelText(t('preview.video.export.ending.stamp'));
     expect(stampSelect).toBeInTheDocument();
     expect([...stampSelect.querySelectorAll('option')].map((o) => o.getAttribute('value'))).toEqual([
       'ap',
       'fc',
+      'clear',
     ]);
 
     // 关掉后子项置灰（与开场那组同一套行为）
@@ -651,5 +652,11 @@ describe('失败态 · 明确文案，不静默', () => {
       target: { value: 'fc' },
     });
     expect(onEndingChange).toHaveBeenCalledWith({ stamp: 'fc' });
+
+    // 选 CLEAR 也写回 stamp（无章形态，渲染层已支持）
+    fireEvent.change(screen.getByLabelText(t('preview.video.export.ending.stamp')), {
+      target: { value: 'clear' },
+    });
+    expect(onEndingChange).toHaveBeenCalledWith({ stamp: 'clear' });
   });
 });

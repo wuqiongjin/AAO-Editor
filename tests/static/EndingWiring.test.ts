@@ -4,7 +4,7 @@
 //   ① 结尾段是**纯后置**（开场 5.0 若开 + 谱面 + 7.5），音轨一样长（短了音画错位）；
 //   ② 章铺**仿真场末帧**（不是原型那种 bgskin cover 裁切），UI 画在**整帧**上；
 //   ③ 缺游戏素材 = 留空 / 纯字，**不画假徽章**；AP / FC 各有**两套**材质（章用大的、结算用小的）；
-//   ④ 只在导出里演（实时预览不接后置段），导出弹窗有「结尾画面」组（**只有总开关**）；
+//   ④ 只在导出里演（实时预览不接后置段），导出弹窗有「结尾画面」组（总开关 + 三档形态下拉）；
 //   ⑤ 两端的声：开场人潮 0s 起、结尾章两层同起（具体 SE 名只在 `sfx.ts` 里）。
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,6 +25,8 @@ const control = readStripped('src/pages/preview/VideoExportControl.tsx');
 const page = readStripped('src/pages/preview/PreviewPage.tsx');
 const hook = readStripped('src/pages/preview/useVideoExport.ts');
 const settings = readStripped('src/settings/AppSettings.ts');
+const zh = readStripped('src/i18n/messages/zh-CN.json');
+const en = readStripped('src/i18n/messages/en.json');
 
 describe('52 · 结尾段是纯后置（不占谱面时间、不与谱面重叠）', () => {
   it('模块落点：参数表 / 素材 / 一帧绘制 / barrel', () => {
@@ -193,13 +195,15 @@ describe('52 · 只在导出里演 + 设置 / 弹窗接线', () => {
     expect(hook).toMatch(/ending: args\.ending \?\? null/);
   });
 
-  it('导出弹窗的「结尾画面」组：总开关 + 结算形态两档（AP / FC）', () => {
+  it('导出弹窗的「结尾画面」组：总开关 + 结算形态三档（AP / FC / CLEAR）', () => {
     expect(control).toMatch(/preview\.video\.export\.ending'/);
     expect(control).toMatch(/onEndingChange\(\{ enabled: v \}\)/);
-    // 只暴露两档：`clear` 没有中央章，暂不给入口
-    expect(control).toMatch(/const ENDING_STAMP_CHOICES = \['ap', 'fc'\] as const/);
+    // 2026-11-09 用户验收：CLEAR 正式暴露（渲染层 clear 分支早已存在）
+    expect(control).toMatch(/const ENDING_STAMP_CHOICES = \['ap', 'fc', 'clear'\] as const/);
     expect(control).toMatch(/onEndingChange\(\{ stamp \}\)/);
     expect(page).toMatch(/ending=\{settings\.export\.ending\}/);
+    expect(zh).toMatch(/"preview\.video\.export\.ending\.stamp\.clear": "CLEAR"/);
+    expect(en).toMatch(/"preview\.video\.export\.ending\.stamp\.clear": "CLEAR"/);
   });
 
   it('实时预览不接后置段（只在导出里演）：回放层不 import ending', () => {
@@ -294,7 +298,7 @@ describe('55 · 结束中央章烟花与 `!` 飞镖式入场', () => {
   });
 });
 
-describe('64 · 结算 Score 行 + SCORE RANK 徽章（推翻 ADR-0016 §5.2）', () => {
+describe('73 · 结算 Score 行 + SCORE RANK 徽章（推翻 ADR-0016 §5.2）', () => {
   it('三项版式常量必须一起改：顶栏 74%W / 首行 12%H / MAX COMBO 同步下移', () => {
     expect(spec).toMatch(/barW: 74,/);
     expect(spec).toMatch(/rowFirst: 12,/);

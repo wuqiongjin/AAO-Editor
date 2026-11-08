@@ -192,8 +192,10 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       colorAssist: settings.display.colorAssist,
       mirror: settings.preview.mirror,
       apCombo: settings.preview.apCombo,
-      // AUTO 模式（票 62）：随 scene 走 ⇒ 实时预览 / 视频导出 / 开场③段同一份
+      // AUTO 模式（票 71）：随 scene 走 ⇒ 实时预览 / 视频导出 / 开场③段同一份
       autoMode: settings.preview.autoMode,
+      // 顶部状态栏总开关（2026-11-08 验收）：同一份 scene ⇒ 三处画面一致
+      showGameUi: settings.preview.showGameUi,
       bgPackId: settings.preview.bgPackId,
       fieldPackId: settings.preview.fieldPackId,
       // 背景亮度（票 43）：随 scene 走 ⇒ 实时预览 / 视频导出 / 开场③段同一份
@@ -299,7 +301,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       coverHue: projectCoverHue(project?.id ?? chart.id),
       counts: { perfect: noteCount, great: 0, good: 0, bad: 0, miss: 0 },
       maxCombo: noteCount,
-      // 归一最终分（票 64）：全部命中 ⇒ 满分；这是预览的归一上限，不是游戏官方分数
+      // 归一最终分（票 73）：全部命中 ⇒ 满分；这是预览的归一上限，不是游戏官方分数
       score: SCORE_MAX,
     };
   }, [chart, project, settings.export.ending]);

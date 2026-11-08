@@ -55,13 +55,13 @@ const SIM_SPRITE_CATEGORY = 'sprites';
  */
 export const GAME_UI_ASSET_BASE = `${import.meta.env.BASE_URL}assets/game-ui`;
 
-/** 判定图集 URL（`judgeskin/skin00/judge.png`；票 62 起 PERFECT / AUTO 两格） */
+/** 判定图集 URL（`judgeskin/skin00/judge.png`；票 71 起 PERFECT / AUTO 两格） */
 export function simJudgeUrl(): string {
   return `${GAME_UI_ASSET_BASE}/judgeskin/skin00/judge.png`;
 }
 
 /**
- * 打歌 HUD 顶栏素材（票 62 / 63）。与判定图集同一条边界：**不入 git / 不进安装包**，
+ * 打歌 HUD 顶栏素材（票 71 / 72）。与判定图集同一条边界：**不入 git / 不进安装包**，
  * 读不到 = 那一处留空或纯字，不置 `missing`（场地照画）。
  *
  * `scoreBar` / `lifeBar` / `autoLive` 是用户自备件（已抠底），其余是官方图集切图。
@@ -222,9 +222,9 @@ export interface SimAssets {
   bandRasterSp: SimBandRasterMaterial;
   /** Bestdori 自家精灵（combo / 特效）：缺 = null → 回落自绘（chart-preview 21，**不置 missing**） */
   sprites: SimSprites | null;
-  /** 判定图集（51/62）：缺 = null → 判定字走纯字（**不置 missing**） */
+  /** 判定图集（51/71）：缺 = null → 判定字走纯字（**不置 missing**） */
   judge: HTMLImageElement | null;
-  /** 打歌 HUD 顶栏（62/63）：逐件缺 = null → 那处留空 / 纯字（**不置 missing**） */
+  /** 打歌 HUD 顶栏（71/72）：逐件缺 = null → 那处留空 / 纯字（**不置 missing**） */
   hud: SimHudAssets;
   /** 缺素材：跑过归档脚本才能有（空态由页面画，这里只报事实） */
   missing: boolean;
@@ -400,9 +400,9 @@ async function probeSimServers(opts: {
       loadImage(spriteUrls.digits).catch(() => null),
       loadImage(spriteUrls.combo).catch(() => null),
       loadImage(spriteUrls.particles).catch(() => null),
-      // 判定图集（51/62）：缺席只是"判定字走纯字"，不影响场地
+      // 判定图集（51/71）：缺席只是"判定字走纯字"，不影响场地
       loadImage(simJudgeUrl()).catch(() => null),
-      // 打歌 HUD 顶栏（62/63）：逐件缺席只让那一处降级，不影响场地也不置 missing
+      // 打歌 HUD 顶栏（71/72）：逐件缺席只让那一处降级，不影响场地也不置 missing
       loadImage(hudUrls.rhythmGameUI).catch(() => null),
       loadImage(hudUrls.fever).catch(() => null),
       loadImage(hudUrls.autoLive).catch(() => null),
