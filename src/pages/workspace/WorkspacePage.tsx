@@ -114,6 +114,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 渲染面 / 几何 / 滚动重锚 / 播放 RAF 收进 src/playback/useChartViewSession.ts —— 工作台与
   // 将来的预览页 consume 同一 interface。播放头秒数与播放状态仍写回 PlaybackContext（唯一真相源），
   // 会话不持第二份（见会话头注）。
+  const judgeLineOffsetRatio = settings.display.judgeLineOffsetRatio ?? 0;
   const setSessionChartDuration = useCallback((sec: number) => audioSession.setChartDuration(sec), [audioSession]);
   const viewSession = useChartViewSession({
     containerRef: chartAreaRef,
@@ -128,6 +129,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onSecondsChange: setCurrentSeconds,
     onPlayingChange: setIsPlaying,
     onChartDurationChange: setSessionChartDuration,
+    judgeLineOffsetRatio,
   });
   const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker, stopPlayback, resetToStart } = viewSession;
 
@@ -524,6 +526,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
                 active={active}
                 readOnly={isReadOnly}
                 onReadonlyReject={triggerReadonlyPrompt}
+                judgeLineOffsetY={surface && judgeLineOffsetRatio > 0 ? Math.round(judgeLineOffsetRatio * surface.h) : undefined}
               />
             </CrashBoundaryHost>
             <CurveOptionsCapsule />

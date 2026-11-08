@@ -71,6 +71,8 @@ const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
 });
 
 interface FinalVirtualCanvasProps {
+  /** issue 218 判定线向上偏移（CSS px） */
+  judgeLineOffsetY?: number;
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
   onScrollChange?: (scrollY: number, virtualHeight: number) => void;
   /**
@@ -153,7 +155,12 @@ const MIN_SCALE = 0.1;
  * mousemove 位移 ≥4px 进入拖拽（指针态按下音符 = 移动幽灵，其余 = 框选）；
  * 全部点击/框选动作在 mouseup 分发——原 handleClick 删除，避免与全态框选双触发。
  */
+/** 计算判定线向上偏移折算的虚拟 px */
+const offsetVirtualY = (offsetPx: number | undefined, scale: number) =>
+    (offsetPx != null && offsetPx > 0 && scale > 0 ? offsetPx / scale : 0);
+
 const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanvasProps>(({
+    judgeLineOffsetY,
     onScrollChange,
     scrollHostRef,
     geometry,
@@ -198,7 +205,13 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const { settings } = useConfig();
     const display = settings.display;
     // 画布显示参数（issue 39 / chart-preview 03）：映射的唯一实现在 rendering/displayOptions —— 预览面板叠同一层
-    const displayOptions = useMemo(() => displayOptionsFromSettings(display), [display]);
+    const displayOptions = useMemo(() => {
+        const base = displayOptionsFromSettings(display);
+        if (judgeLineOffsetY != null) {
+            base.judgeLineOffsetY = judgeLineOffsetY;
+        }
+        return base;
+    }, [display, judgeLineOffsetY]);
     // 音符皮肤（issue 29）：六条目选择 → 归一化（缺省/非法回退默认包）→ 图标集；引用稳定，仅选择变化时重建
     const noteSkin = useMemo(() => normalizeNoteSkinSelection(settings.visual?.noteSkin), [settings.visual?.noteSkin]);
     const noteIcons = useMemo(() => buildActiveNoteIcons(noteSkin), [noteSkin]);
@@ -736,17 +749,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * zoomFactor));
             const effNewScale = geometry.effectiveScale(newScale);
-            // issue 144：钳住不动就别改数字 —— 否则窄画布上「想放大」会把工具栏的 100% 打成 88%
-            // （画面其实没变，只是被 fitWidth 钳住），数字掉了但什么也没发生。
+            // issue 144：钳住不动不改数字
             if (Math.abs(effNewScale - viewport.scale) < 1e-9) return;
-            // 缩放锚定判定线（issue 90）：scrollY 保持不变——底边（判定线）处的谱面位置缩放时原地不动，
-            // 与工具栏 ±/百分比缩放（只 setScale）完全同口径。不再以光标为锚：光标锚曾使 scrollY 随缩放
-            // 大幅变化（∝ 光标到判定线的距离），放大了「滚动条回写在缩放提交窗口内用陈旧值覆写」的回弹竞态
-            // （越靠上部越明显、判定线处恒为 0）。
-            setViewport(prev => ({
-                ...prev,
-                scale: effNewScale // 视图 scale 恒等于 effectiveScale（ADR-0006 Q4=A）
-            }));
+            // issue 90/218：缩放锚定判定线
+            const off = judgeLineOffsetY ?? 0;
+            const sy = off > 0 ? viewport.scrollY + off * (1 / effNewScale - 1 / viewport.scale) : viewport.scrollY;
+            setViewport(prev => ({ ...prev, scrollY: sy, scale: effNewScale }));
             // 回写工具栏缩放数字（issue 10 回归修复）：ui.scale 与 viewport.scale 保持同一生效值
             setScale(effNewScale);
             // 缩放手势窗口（issue 10）：手势中瓦片只按比例 blit；停止 250ms 后 settle 一次高清重渲
@@ -790,7 +798,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     useImperativeHandle(ref, () => ({
         setScrollY: (scrollY: number) => {
             const scaledBounds = getScaledVirtualBounds(viewport.scale);
-            const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / viewport.scale, scrollY));
+            const offsetVirtual = offsetVirtualY(judgeLineOffsetY, viewport.scale);
+            const newScrollY = Math.max(scaledBounds.minY + offsetVirtual, Math.min(scaledBounds.maxY - surf.h / viewport.scale + offsetVirtual, scrollY));
             scrollYRef.current = newScrollY;
             if (playbackActiveRef.current) {
                 // issue 198：播放帧同步通知手势内核实时视口，避免框选起点/落点基于陈旧 React viewport 计算出负数
@@ -800,7 +809,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             }
             setViewport(prev => {
                 const bounds = getScaledVirtualBounds(prev.scale);
-                const clamped = Math.max(bounds.minY, Math.min(bounds.maxY - surf.h / prev.scale, scrollY));
+                const prevOffsetVirtual = offsetVirtualY(judgeLineOffsetY, prev.scale);
+                const clamped = Math.max(bounds.minY + prevOffsetVirtual, Math.min(bounds.maxY - surf.h / prev.scale + prevOffsetVirtual, scrollY));
                 return Math.abs(prev.scrollY - clamped) < 1e-9 ? prev : { ...prev, scrollY: clamped };
             });
         },
@@ -968,7 +978,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const es = geometry.effectiveScale(viewport.scale);
         const totalVirtualHeight = chartEndVirtualY + surf.h / es;
         const scaledBounds = getScaledVirtualBounds(viewport.scale);
-        const initialScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / es, totalVirtualHeight - surf.h / es));
+        const initOffsetVirtual = offsetVirtualY(judgeLineOffsetY, es);
+        const initialScrollY = Math.max(scaledBounds.minY + initOffsetVirtual, Math.min(scaledBounds.maxY - surf.h / es + initOffsetVirtual, totalVirtualHeight - surf.h / es + initOffsetVirtual));
         setViewport(prev => ({
             ...prev,
             scrollY: initialScrollY,
@@ -986,7 +997,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 值未变时返回 prev，与上方 [scale] effect 的守卫同款。
     useEffect(() => {
         const effective = geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)));
-        setViewport(prev => (Math.abs(prev.scale - effective) > 1e-9 ? { ...prev, scale: effective } : prev));
+        setViewport(prev => {
+            if (Math.abs(prev.scale - effective) <= 1e-9) return prev;
+            const off = judgeLineOffsetY ?? 0;
+            const sy = off > 0 ? prev.scrollY + off * (1 / effective - 1 / prev.scale) : prev.scrollY;
+            return { ...prev, scale: effective, scrollY: sy };
+        });
         // 候选 3-b（2026-09-10）：`ui.scale` 是"用户请求值"，被钳制时它就与生效值分家 ——
         // 工具栏数字虚高（显示 300%、画面停在 263%），且点「-」要先把虚高的那截消耗掉画面才动
         // （死行程，用户已复现）。此处把生效值回写，使两者恒等 —— `:743` 的 ctrl+滚轮路径
@@ -997,7 +1013,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 画布**连 1× 都装不下**（fitScale < 1，窄窗/高系统缩放）时**不回写** ——
         // 那不是用户的缩放意图，是窗口太窄；数字保持用户请求值（默认 100%），否则一打开就显示 88%。
         if (Math.abs(effective - scale) > 1e-9 && geometry.fitScale() >= 1) setScale(effective);
-    }, [scale, geometry, setScale]);
+    }, [scale, geometry, setScale, judgeLineOffsetY]);
 
     // 通知滚动变化
     useEffect(() => {

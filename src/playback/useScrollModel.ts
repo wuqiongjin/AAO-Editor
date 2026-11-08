@@ -18,6 +18,7 @@ export interface UseScrollModelOptions {
   geometry: ChartGeometry;
   scale: number;
   chartEndKey: string;
+  judgeLineOffsetPx?: number;
 }
 
 export interface UseScrollModelReturn {
@@ -70,6 +71,7 @@ export function useScrollModel(opts: UseScrollModelOptions): UseScrollModelRetur
   // issue 166 RC-1：待重锚随几何**同帧**置位（在 configure 里），不再走 effect ——
   // 子画布的上报会抢在消费方 effect 之前，effect 置位挡不住锚点污染（详见 configure 注释）。
   scrollModel.configure(geometry, scale, chartEndKey);
+  scrollModel.setJudgeLineOffset(opts.judgeLineOffsetPx ?? 0);
 
   return {
     scrollModel,

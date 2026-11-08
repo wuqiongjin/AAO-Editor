@@ -1116,5 +1116,7 @@
   "community.account.err.rateLimited": "Too many attempts. Please try again later.",
   "community.account.err.accountUnavailable": "This account can't sign in right now. Try again later or use a different account.",
   "community.account.err.unavailable": "Community features are unavailable right now",
-  "community.account.err.generic": "Sign-in failed. Please try again later."
+  "community.account.err.generic": "Sign-in failed. Please try again later.",
+  "settings.judgeLineOffset": "Judge line offset",
+  "settings.judgeLineOffset.hint": "Adjust the upward offset of the judgment line relative to the canvas bottom (0%~40%) to provide visual margin for passed notes"
 }

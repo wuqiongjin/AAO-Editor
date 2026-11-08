@@ -135,6 +135,8 @@ export interface AppSettings {
     invertWheel: boolean;
     /** 滑条拖拽变形风格（issue 204）：'smooth' (圆滑曲线) | 'triangle' (三角拉弓)，默认 smooth */
     pinchMode: PinchMode;
+    /** 判定线向上偏移比例（issue 218）：0..0.4 画布高，默认 0 = 贴底原样 */
+    judgeLineOffsetRatio: number;
   };
   /** 素材域（issue 29 音符皮肤）：六条目 → 皮肤包 id。包合法性由 renderer/noteSkin.ts 归一化（缺省/非法回退默认包） */
   visual: {
@@ -510,6 +512,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
       timePrecision: 'standard',
       invertWheel: false,
       pinchMode: 'smooth',
+      judgeLineOffsetRatio: 0,
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
     curve: { ...DEFAULT_CURVE_CONFIG },
@@ -612,6 +615,7 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       pinchMode: (PINCH_MODES as readonly unknown[]).includes(display.pinchMode)
         ? (display.pinchMode as PinchMode)
         : defaults.display.pinchMode,
+      judgeLineOffsetRatio: clamp(display.judgeLineOffsetRatio, 0, 0.4, defaults.display.judgeLineOffsetRatio),
     },
     visual: { noteSkin, backgroundSkin },
     curve: normalizeCurveConfig(obj.curve),

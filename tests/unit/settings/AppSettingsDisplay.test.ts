@@ -138,3 +138,72 @@ describe('issue 204 · settings.display 扩展（pinchMode 滑条拖拽变形风
     expect(updated.display.noteSize).toBe(base.display.noteSize);
   });
 });
+
+describe('issue 218 · settings.display 扩展（judgeLineOffsetRatio 判定线向上偏移）', () => {
+  it('出厂默认：judgeLineOffsetRatio 为 0（贴底原样）', () => {
+    const defaults = defaultSettings().display;
+    expect(defaults.judgeLineOffsetRatio).toBe(0);
+  });
+
+  it('老设置文件缺省字段时回退到 0', () => {
+    const st = memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: { noteSize: 1.2 },
+    }));
+    const loaded = loadSettings(st);
+    expect(loaded.display.judgeLineOffsetRatio).toBe(0);
+  });
+
+  it('合法数值与边界钳制：clamp 在 [0, 0.4] 之间', () => {
+    // 正常合法值 0.2
+    const s1 = loadSettings(memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: { judgeLineOffsetRatio: 0.2 },
+    })));
+    expect(s1.display.judgeLineOffsetRatio).toBe(0.2);
+
+    // 负数钳制到 0
+    const sNeg = loadSettings(memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: { judgeLineOffsetRatio: -0.1 },
+    })));
+    expect(sNeg.display.judgeLineOffsetRatio).toBe(0);
+
+    // 超过 0.4 钳制到 0.4
+    const sOver = loadSettings(memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: { judgeLineOffsetRatio: 0.5 },
+    })));
+    expect(sOver.display.judgeLineOffsetRatio).toBe(0.4);
+
+    // 非数值（NaN/字符串）回退到默认 0
+    const sInvalid = loadSettings(memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: { judgeLineOffsetRatio: 'invalid' },
+    })));
+    expect(sInvalid.display.judgeLineOffsetRatio).toBe(0);
+  });
+
+  it('有效配置往返持久化保真', () => {
+    const st = memStorage();
+    const next: AppSettings = {
+      ...defaultSettings(),
+      display: {
+        ...defaultSettings().display,
+        judgeLineOffsetRatio: 0.25,
+      },
+    };
+    saveSettings(next, st);
+    const loaded = loadSettings(st);
+    expect(loaded.display.judgeLineOffsetRatio).toBe(0.25);
+  });
+
+  it('updateSettings 增量合并，不抹除 display 其它字段', () => {
+    const base = defaultSettings();
+    const updated = updateSettings(base, {
+      display: { judgeLineOffsetRatio: 0.3 },
+    });
+    expect(updated.display.judgeLineOffsetRatio).toBe(0.3);
+    expect(updated.display.noteSize).toBe(base.display.noteSize);
+  });
+});

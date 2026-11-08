@@ -197,6 +197,8 @@ export interface RenderDisplayOptions {
    * （`lane → 6 - lane`）、方向键整组连同箭头一起翻到另一侧。缺省 `false` = 编辑器现状（编辑器不设本字段）。
    */
   mirror?: boolean;
+  /** issue 218 判定线向上偏移：判定线距离画布底边偏移量（CSS px） */
+  judgeLineOffsetY?: number;
 }
 
 /** 网格细节档（`RenderDisplayOptions.gridDetail` 的取值；静态层失效依据与预览档共用本类型） */

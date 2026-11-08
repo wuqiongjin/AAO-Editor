@@ -1123,5 +1123,7 @@
   "community.account.err.rateLimited": "尝试过于频繁，请稍后再试",
   "community.account.err.accountUnavailable": "该账号暂时无法登录，请稍后再试或换一个账号",
   "community.account.err.unavailable": "社区功能当前不可用",
-  "community.account.err.generic": "登录失败，请稍后重试"
+  "community.account.err.generic": "登录失败，请稍后重试",
+  "settings.judgeLineOffset": "判定线偏移",
+  "settings.judgeLineOffset.hint": "调整判定线相对画布底部的向上偏移量（0%~40%），给已过线音符预留可视余量"
 }

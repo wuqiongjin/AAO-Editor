@@ -46,6 +46,7 @@ const seVolumeSlider = () => within(panel()).getByRole('slider', { name: '节奏
 const invertWheelSwitch = () => within(panel()).getByRole('switch', { name: '反转滚轮方向' });
 const pinchModeSelect = () => within(panel()).getByRole('combobox', { name: '滑条拖拽变形风格' });
 const pinchModeHelpBtn = () => within(panel()).getByRole('button', { name: /设置在画布上直接拖拽滑条连接段时的默认形态/ });
+const judgeLineOffsetSlider = () => within(panel()).getByRole('slider', { name: '判定线偏移' });
 const resetBtn = () => within(panel()).getByRole('button', { name: '恢复默认' });
 
 describe('issue 170 · 工作台画布显示浮层面板', () => {
@@ -373,5 +374,21 @@ describe('issue 170 · 工作台画布显示浮层面板', () => {
     expect(within(pmSelectEn).getByRole('option', { name: 'Triangle Pull' })).toBeInTheDocument();
 
     setActiveUiLanguage('zh-CN');
+  });
+
+  it('issue 218：判定线向上偏移滑杆默认 0，调节后持久化写盘，恢复默认重置回 0', () => {
+    setup();
+    const slider = judgeLineOffsetSlider();
+    expect(slider).toBeInTheDocument();
+    expect(slider).toHaveValue('0');
+
+    // 拖动滑块至 25%
+    fireEvent.change(slider, { target: { value: '25' } });
+    expect(stored().display.judgeLineOffsetRatio).toBe(0.25);
+
+    // 恢复默认
+    fireEvent.click(resetBtn());
+    fireEvent.click(within(panel()).getByRole('button', { name: '确认恢复' }));
+    expect(stored().display.judgeLineOffsetRatio).toBe(0);
   });
 });
