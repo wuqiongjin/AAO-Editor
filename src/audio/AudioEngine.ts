@@ -404,7 +404,11 @@ export class AudioEngine {
   setChart(notes: ChartNote[], beatDisplay: number): void {
     const bpmEvents = getBpmEvents(notes);
     this.keyEvents = buildKeyEvents(notes, beatDisplay, bpmEvents);
+    this.cancelScheduled();
     this.rewindKeyIndex();
+    if (this.state === 'playing') {
+      this.tick();
+    }
   }
 
   async play(): Promise<void> {
@@ -571,7 +575,7 @@ export class AudioEngine {
   }
 
   private rewindKeyIndex(): void {
-    const playhead = this.offsetSeconds;
+    const playhead = this.getSeconds();
     let i = 0;
     while (i < this.keyEvents.length && this.keyEvents[i].time < playhead) {
       i++;

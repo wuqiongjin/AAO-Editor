@@ -131,7 +131,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onChartDurationChange: setSessionChartDuration,
     judgeLineOffsetRatio,
   });
-  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker, stopPlayback, resetToStart } = viewSession;
+  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker: sessionJumpToMarker, stopPlayback, resetToStart } = viewSession;
 
   // === 会话流 3：音频桥接（订阅 session 变化，副作用单向写回 PlaybackContext） ===
   // 单一稳定回调：避免 useAudioBridge 内部 useEffect 因新引用反复触发
@@ -323,14 +323,29 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     return () => registerPersistFlush(null);
   }, [registerPersistFlush]);
 
-  // 谱面/BPM 变化时同步按键音事件（issue 36：编辑中防抖 300ms；播放中改谱即时）。
-  // issue 101：不把 isPlaying 放进 deps——开播翻转本身不得同步跑全谱 getBpmEvents+buildKeyEvents。
+  // 谱面/BPM 变化时同步按键音事件（issue 36：编辑中防抖 300ms；播放中改谱即时；
+  // issue 226：开播时若有在途未决同步必须立即 flush，彻底杜绝携陈旧谱面提前调度 2 秒）。
+  // issue 101：平时开播依然 0 开销（无在途同步时不重复跑全谱构建）。
   const keysPlayingRef = useRef(isPlaying);
   keysPlayingRef.current = isPlaying;
+  const pendingKeysTimerRef = useRef<number | null>(null);
+  const pendingChartParamsRef = useRef<{ notes: typeof notes; beatDisplay: number } | null>(null);
+  const flushPendingKeysSync = useCallback(() => {
+    if (pendingKeysTimerRef.current !== null) {
+      window.clearTimeout(pendingKeysTimerRef.current);
+      pendingKeysTimerRef.current = null;
+    }
+    if (pendingChartParamsRef.current && engine) {
+      engine.setChart(pendingChartParamsRef.current.notes, pendingChartParamsRef.current.beatDisplay);
+      pendingChartParamsRef.current = null;
+    }
+  }, [engine]);
   useEffect(() => {
+    pendingChartParamsRef.current = { notes, beatDisplay };
     const delay = keysPlayingRef.current ? 0 : 300;
-    const t = window.setTimeout(() => engine?.setChart(notes, beatDisplay), delay);
-    return () => window.clearTimeout(t);
+    const t = window.setTimeout(flushPendingKeysSync, delay);
+    pendingKeysTimerRef.current = t;
+    return () => { window.clearTimeout(t); pendingKeysTimerRef.current = null; };
   }, [notes, beatDisplay, engine]);
 
   // 画布 onScrollChange / `.virtual-content` 高度写入 / 首次置底 / 比例位回写 / 按秒重锚 /
@@ -377,8 +392,14 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   const handleTogglePlay = useCallback(() => {
     if (!persistence.isSettled) return;
+    flushPendingKeysSync();
     togglePlay();
-  }, [persistence, togglePlay]);
+  }, [persistence, flushPendingKeysSync, togglePlay]);
+
+  const jumpToMarker = useCallback(() => {
+    flushPendingKeysSync();
+    sessionJumpToMarker();
+  }, [flushPendingKeysSync, sessionJumpToMarker]);
 
   // 具体功能分发（ADR-0002 + ADR-0008 §3）：切换功能 = 持工具态；执行功能 = 光标处瞬时执行（不占工具态）。
   // BPM/Slide 执行键按 §3 修订语义经画布 ref 执行（就地编辑 / slideBuffer 双入口共用）。

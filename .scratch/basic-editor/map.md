@@ -211,6 +211,7 @@
 - **223 曲线工具连续模板自适应采样消除折角**（[223](./issues/223-曲线工具连续模板自适应采样消除折角.md)，Type: grilling，resolved）—— **定了什么** = 连续数学模板（S形/波浪/大弧/半心弧）解开精度选择（1/16、1/32、1/64）+ 档位递进智能保底（1/16保底32、1/32保底48、1/64保底64，wave翻倍，arc减半），均匀 t 细分根除窄空间（如 1 拍）与长跨度下的波峰波谷尖锐折角棱角，且避免硬编码导致谱面代码体积膨胀；震动条（zigzag）保持固定 25 点离散点列防失真并保持精度置灰；ShapeTemplate 扩展可选 `sample(span, precision)` 动态生成器，SpanTemplateParam 记录精度并在重投影与重应用中持久化；原「心形」更名为「半心弧」（单向平滑外凸，配合镜像拼接整颗爱心）。已全量锁测。
 - **224 粘贴重叠音符保真与防自消**（[224](./issues/224-粘贴重叠音符保真与防自消.md)，`Type: grilling`，resolved）—— **定了什么** = 剪贴板/片段库负载自身重叠时完整保留全部落子（阻断同批次音符自相残杀与误删），单音符普通粘贴继续走 ADR-0001 覆盖规则（普通操作绝不创造重叠）；严密防范粘贴至滑条端点时的重复拆条或标记污染。已全量锁测。
 - **225 模板与缓动滑条镜像后拖动反向弹回缺陷**（[225](./issues/225-模板与缓动滑条镜像后拖动反弹缺陷.md)，Type: grilling，resolved）—— **定了什么** = SpanTemplateParam 补充 mirrored 镜像状态标记并在烘焙中取反 offset，移除水平镜像对 flipEasingType 的错误调用；收敛 mirrorSelection 框选镜像参数同步；框选全可见结点复制保真 spanParams；音符代码子段回写执行“一动就自由化”转自由段。
+- **226 删除音符后快速播放残留发声与引擎同步竞态**（[226](./issues/226-删除音符后快速播放残留发声与引擎同步竞态.md)，Type: bug，resolved）—— **改成什么** = 开播时立即 flush 在途谱面同步防抖，阻断陈旧谱面提前调度；AudioEngine.setChart 补齐 cancelScheduled 并在播放中重定位游标至 getSeconds()。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 
