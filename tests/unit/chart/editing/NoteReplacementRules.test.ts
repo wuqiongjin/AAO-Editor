@@ -593,3 +593,18 @@ describe('batchApplyKeyType（框内逐个应用 ADR-0001 替换规则）', () =
     expect(notes).toEqual(snap);
   });
 });
+
+describe('applyPlacement · 放置到既有重叠音符位置（issue 224 对齐 Bestdori 完全替换）', () => {
+  it('放置新单键到已有两个重叠单键的位置 → 彻底清除原有的两个单键，仅保留新放置的单键', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 2, lane: 3, subBeat: 0, skill: true },
+      { type: 'Single', beat: 2, lane: 3, subBeat: 0, flick: true },
+    ];
+    const r = handleNoteReplacement(notes, 2, 3, 0, 'Single');
+    expect(r.shouldReplace).toBe(true);
+    expect(r.newNotes).toHaveLength(1);
+    expect(r.newNotes[0]).toMatchObject({ type: 'Single', beat: 2, lane: 3 });
+    expect((r.newNotes[0] as any).skill).toBeUndefined();
+    expect((r.newNotes[0] as any).flick).toBeUndefined();
+  });
+});

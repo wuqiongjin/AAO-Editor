@@ -172,3 +172,24 @@ describe('issue 186 · 落点规则全部沿用既有粘贴', () => {
     }))).toEqual([{ t: 'setSelection', items: [] }]);
   });
 });
+
+
+describe('issue 224 · 片段库粘贴重叠音符保真', () => {
+  it('片段库自身含重叠音符粘贴到空白处：两者均保留', () => {
+    const pattern = makePattern({
+      notes: [
+        single(2, 3),
+        { type: 'Single', beat: 2, lane: 3, flick: true },
+      ],
+    });
+    const ops = clickOps(input({
+      notes: [bpm(0, 120)],
+      pos: { beat: 8, lane: 3 },
+      pastePattern: { pattern, withBpm: false },
+    }));
+    const result = notesOnly(pastedNotes(ops));
+    expect(result).toHaveLength(2);
+    expect(result.some(n => (n as any).flick === true)).toBe(true);
+    expect(result.some(n => !(n as any).flick)).toBe(true);
+  });
+});

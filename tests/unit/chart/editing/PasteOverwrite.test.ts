@@ -238,3 +238,138 @@ describe('pasteChartNotes · ADR-0014 粘贴合法化 lane', () => {
     expect(s.connections.map(c => c.lane)).toEqual([0, -0.5, 1]);
   });
 });
+
+
+describe('pasteChartNotes · issue 224 剪贴板自带重叠音符保真（防自消）', () => {
+  it('剪贴板自带重叠单键 [A, B] 粘贴到空白处：两者均保留，不发生自相残杀', () => {
+    const clipboard: ChartNote[] = [
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0 },
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0, flick: true },
+    ];
+    const r = pasteChartNotes([], clipboard, 5, 1);
+    expect(r.newNotes).toHaveLength(2);
+    expect(r.newNotes.some(n => (n as any).flick === true)).toBe(true);
+    expect(r.newNotes.some(n => !(n as any).flick)).toBe(true);
+  });
+
+  it('剪贴板自带 [Single, Slide] 重叠粘贴到空白处：两者均保留，单键不被删除或忽略', () => {
+    const clipboard: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 1, subBeat: 0 },
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 1, lane: 1, subBeat: 0 },
+          { beat: 2, lane: 2, subBeat: 0 },
+        ],
+      } as ChartNote,
+    ];
+    const r = pasteChartNotes([], clipboard, 1, 1);
+    expect(r.newNotes).toHaveLength(2);
+    expect(r.newNotes.some(n => n.type === 'Single')).toBe(true);
+    expect(r.newNotes.some(n => n.type === 'Slide')).toBe(true);
+  });
+
+  it('剪贴板自带 [Slide, Single] 重叠（反序）粘贴到空白处：两者均保留', () => {
+    const clipboard: ChartNote[] = [
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 1, lane: 1, subBeat: 0 },
+          { beat: 2, lane: 2, subBeat: 0 },
+        ],
+      } as ChartNote,
+      { type: 'Single', beat: 1, lane: 1, subBeat: 0 },
+    ];
+    const r = pasteChartNotes([], clipboard, 1, 1);
+    expect(r.newNotes).toHaveLength(2);
+    expect(r.newNotes.some(n => n.type === 'Single')).toBe(true);
+    expect(r.newNotes.some(n => n.type === 'Slide')).toBe(true);
+  });
+
+  it('普通复制 1 个单键粘贴到已有单键：保持既有 ADR-0001 覆盖，不创造重叠', () => {
+    const notes: ChartNote[] = [{ type: 'Single', beat: 5, lane: 1, subBeat: 0 }];
+    const clipboard: ChartNote[] = [{ type: 'Single', beat: 5, lane: 1, subBeat: 0, flick: true }];
+    const r = pasteChartNotes(notes, clipboard, 5, 1);
+    expect(r.newNotes).toHaveLength(1);
+    expect(r.newNotes[0]).toMatchObject({ type: 'Single', beat: 5, lane: 1, flick: true });
+  });
+
+  it('剪贴板自带重叠 [A, B] 粘贴到已有单键 X：X 被覆盖，且 A、B 两者均保留', () => {
+    const notes: ChartNote[] = [{ type: 'Single', beat: 5, lane: 1, subBeat: 0, skill: true }];
+    const clipboard: ChartNote[] = [
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0 },
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0, flick: true },
+    ];
+    const r = pasteChartNotes(notes, clipboard, 5, 1);
+    expect(r.newNotes).toHaveLength(2);
+    expect(r.newNotes.some(n => (n as any).skill)).toBe(false);
+    expect(r.newNotes.some(n => !(n as any).flick)).toBe(true);
+    expect(r.newNotes.some(n => (n as any).flick === true)).toBe(true);
+  });
+
+  it('剪贴板自带重叠 [A, B] 粘贴到既有多个重叠单键 [X1, X2] 处 → 完全清除 X1 和 X2，保留 A 和 B', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0, skill: true },
+      { type: 'LDirectional', beat: 5, lane: 1, subBeat: 0, length: 2 },
+    ];
+    const clipboard: ChartNote[] = [
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0 },
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0, flick: true },
+    ];
+    const r = pasteChartNotes(notes, clipboard, 5, 1);
+    expect(r.newNotes).toHaveLength(2);
+    expect(r.newNotes.some(n => (n as any).skill)).toBe(false);
+    expect(r.newNotes.some(n => n.type === 'LDirectional')).toBe(false);
+    expect(r.newNotes.some(n => (n as any).flick === true)).toBe(true);
+  });
+
+  it('场景 C（对齐 Bestdori）：剪贴板自带重叠 [Single, Flick] 粘贴到 2 结点滑条端点 → 拆条（另一端退化为单键，无滑条剩余，粘贴音符独立落子）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 1, lane: 1, subBeat: 0 },
+        { beat: 2, lane: 1, subBeat: 0 },
+      ],
+    } as ChartNote];
+    const clipboard: ChartNote[] = [
+      { type: 'Single', beat: 2, lane: 1, subBeat: 0 },
+      { type: 'Single', beat: 2, lane: 1, subBeat: 0, flick: true },
+    ];
+    const r = pasteChartNotes(notes, clipboard, 2, 1);
+    expect(r.newNotes.filter(n => n.type === 'Slide')).toHaveLength(0);
+    expect(r.newNotes.filter(n => n.type === 'Single')).toHaveLength(3); // beat 1 一个退化单键，beat 2 两个粘贴单键
+  });
+
+  it('场景 C（对齐 Bestdori）：剪贴板自带重叠 [Single, Flick] 粘贴到 3 结点滑条中间结点 → 拆条（中间断开，两侧退化为单键）', () => {
+    const notes: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 1, lane: 1, subBeat: 0 },
+        { beat: 2, lane: 1, subBeat: 0 },
+        { beat: 3, lane: 1, subBeat: 0 },
+      ],
+    } as ChartNote];
+    const clipboard: ChartNote[] = [
+      { type: 'Single', beat: 2, lane: 1, subBeat: 0 },
+      { type: 'Single', beat: 2, lane: 1, subBeat: 0, flick: true },
+    ];
+    const r = pasteChartNotes(notes, clipboard, 2, 1);
+    expect(r.newNotes.filter(n => n.type === 'Slide')).toHaveLength(0);
+    expect(r.newNotes.filter(n => n.type === 'Single')).toHaveLength(4); // beat 1 和 beat 3 退化单键，beat 2 两个粘贴单键
+  });
+
+  it('剪贴板单个单键 A 粘贴到已有多个重叠单键 [X1, X2] 处 → 彻底清除 X1 和 X2，仅保留 A', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0, skill: true },
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0, flick: true },
+    ];
+    const clipboard: ChartNote[] = [
+      { type: 'Single', beat: 5, lane: 1, subBeat: 0 },
+    ];
+    const r = pasteChartNotes(notes, clipboard, 5, 1);
+    expect(r.newNotes).toHaveLength(1);
+    expect(r.newNotes[0]).toMatchObject({ beat: 5, lane: 1 });
+    expect((r.newNotes[0] as any).skill).toBeUndefined();
+    expect((r.newNotes[0] as any).flick).toBeUndefined();
+  });
+});

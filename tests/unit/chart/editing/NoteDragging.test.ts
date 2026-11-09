@@ -83,10 +83,11 @@ describe('planDragMove · 落点撞滑条结点 = 放置规则（issue 76）', (
     expect(r.ok).toBe(false);
   });
 
-  it('组拖两件落**同一个**落点 → 回弹（claimed 互撞，与单规则无关）', () => {
+  it('组拖预存重叠音符落滑条端点 → 拆条并完全替换，不回弹（issue 224 对齐 Bestdori）', () => {
     const notes: ChartNote[] = [skill(1, 1), skill(1, 1 + 0), slide(3, 1, 5, 1)];
     const r = planDragMove(notes, noteSel(0, 1), { dBeat: 2, dLane: 0 }, B);
-    expect(r.ok).toBe(false);
+    expect(r.ok).toBe(true);
+    expect(r.notes).toHaveLength(3); // 拆条退化的 Single(5,1) + 2 个落地的 skill(3,1)
   });
 
   it('覆盖落点也有**幽灵**：ghost = 被拖音符的落点形态（issue 76 二轮）', () => {
@@ -1200,4 +1201,119 @@ describe('issue 220 · Slide 结点拖拽跨越邻居与自动重排', () => {
     expect(rOver.ok).toBe(false);
     expect(rOver.reason).toBe('out-of-bounds');
   });
+});
+
+describe('planDragMove · 框选预存重叠音符整组拖拽（issue 224）', () => {
+  it('框选两个预存重叠单键，平移到空位 → ok: true，不发生 collision 回弹', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0 },
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0, flick: true },
+    ];
+    const items: SelectionItem[] = [
+      { kind: 'note', noteIndex: 0 },
+      { kind: 'note', noteIndex: 1 },
+    ];
+    const r = planDragMove(notes, items, { dBeat: 1, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    expect(r.notes).toHaveLength(2);
+    expect(r.notes[0]).toMatchObject({ beat: 2, lane: 3 });
+    expect(r.notes[0].flick).toBeUndefined();
+    expect(r.notes[1]).toMatchObject({ beat: 2, lane: 3, flick: true });
+    expect(r.items).toHaveLength(2);
+  });
+
+  it('框选两个预存重叠单键，平移到既有单键位置 → 既有单键被覆盖替换', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0 },
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0, flick: true },
+      { type: 'Single', beat: 2, lane: 3, subBeat: 0 }, // 目标位置既有单键
+    ];
+    const items: SelectionItem[] = [
+      { kind: 'note', noteIndex: 0 },
+      { kind: 'note', noteIndex: 1 },
+    ];
+    const r = planDragMove(notes, items, { dBeat: 1, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    // 既有单键被替换，只保留拖拽过来的 2 个重叠单键
+    expect(r.notes).toHaveLength(2);
+    expect(r.notes[0]).toMatchObject({ beat: 2, lane: 3 });
+    expect(r.notes[1]).toMatchObject({ beat: 2, lane: 3, flick: true });
+  });
+  it('框选两个预存重叠单键，平移到既有滑条端点 → 滑条拆条，拖拽重叠单键落子', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0 },
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0, flick: true },
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 2, lane: 3, subBeat: 0 },
+          { beat: 3, lane: 3, subBeat: 0 },
+        ],
+      },
+    ];
+    const items: SelectionItem[] = [
+      { kind: 'note', noteIndex: 0 },
+      { kind: 'note', noteIndex: 1 },
+    ];
+    const r = planDragMove(notes, items, { dBeat: 1, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    // 滑条端点被拆，剩下一个退化单键 (3, 3)，以及落地的两个重叠单键 (2, 3)
+    expect(r.notes).toHaveLength(3);
+    const at23 = r.notes.filter(n => (n as any).beat === 2 && (n as any).lane === 3);
+    expect(at23).toHaveLength(2);
+    const at33 = r.notes.filter(n => (n as any).beat === 3 && (n as any).lane === 3);
+    expect(at33).toHaveLength(1);
+    expect(at33[0].type).toBe('Single');
+  });
+
+  it('框选两个预存重叠单键，平移到既有滑条中间结点 → 滑条拆为两段', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0 },
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0, flick: true },
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 1.5, lane: 3, subBeat: 0 },
+          { beat: 2, lane: 3, subBeat: 0 },
+          { beat: 3, lane: 3, subBeat: 0 },
+        ],
+      },
+    ];
+    const items: SelectionItem[] = [
+      { kind: 'note', noteIndex: 0 },
+      { kind: 'note', noteIndex: 1 },
+    ];
+    const r = planDragMove(notes, items, { dBeat: 1, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    // 中间结点被拆，首尾两端各退化为单键 (1.5, 3) 和 (3, 3)，以及落地的两个重叠单键 (2, 3)
+    expect(r.notes).toHaveLength(4);
+    const at23 = r.notes.filter(n => (n as any).beat === 2 && (n as any).lane === 3);
+    expect(at23).toHaveLength(2);
+  });
+
+  it('拖拽单个单键到既有多重重叠音符（单键+滑条端点）位置 → 完全替换既有重叠组', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0 },
+      { type: 'Single', beat: 2, lane: 3, subBeat: 0 },
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 2, lane: 3, subBeat: 0 },
+          { beat: 4, lane: 3, subBeat: 0 },
+        ],
+      },
+    ];
+    const items: SelectionItem[] = [{ kind: 'note', noteIndex: 0 }];
+    const r = planDragMove(notes, items, { dBeat: 1, dLane: 1 }, B);
+    expect(r.ok).toBe(true);
+    // (2, 3) 的既有单键被移除，滑条端点被拆（剩余 (4, 3) 退化为单键），落地的单个单键占据 (2, 3)
+    expect(r.notes).toHaveLength(2);
+    const at23 = r.notes.filter(n => (n as any).beat === 2 && (n as any).lane === 3);
+    expect(at23).toHaveLength(1);
+    expect(at23[0]).toMatchObject({ beat: 2, lane: 3, type: 'Single' });
+    const at43 = r.notes.filter(n => (n as any).beat === 4 && (n as any).lane === 3);
+    expect(at43).toHaveLength(1);
+    expect(at43[0]).toMatchObject({ beat: 4, lane: 3, type: 'Single' });
+  });
+
 });
