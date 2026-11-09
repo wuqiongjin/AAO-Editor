@@ -2,6 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import type { ChartNote, SelectionItem, SlideNote } from '@/src/chart/types';
 import { planDragMove, draggableFromItems, dragDeltaBeat, itemTrueBeat } from '@/src/chart/editing/NoteDragging';
+import { buildChainedSlide } from '@/src/chart/editing/SpanCurve';
+import { mirrorNote } from '@/src/chart/editing/NoteEditing';
 
 const single = (beat: number, lane: number): ChartNote =>
   ({ type: 'Single', beat, lane, subBeat: 0 } as ChartNote);
@@ -1316,4 +1318,40 @@ describe('planDragMove · 框选预存重叠音符整组拖拽（issue 224）', 
     expect(at43[0]).toMatchObject({ beat: 4, lane: 3, type: 'Single' });
   });
 
+});
+
+describe('issue 225 · planDragMove 拖动镜像后的模板滑条端点保持镜像侧', () => {
+  it('镜像模板滑条（arc）后拖动端点：planDragMove 重新烘焙的采样点保持在镜像侧', () => {
+    // 初始 arc 模板（弧线向右拱起，lane > 1）
+    const slideNote = buildChainedSlide(
+      [{ beat: 1, lane: 1 }, { beat: 3, lane: 1 }],
+      { 0: { kind: 'template', templateId: 'arc', precision: 16 } },
+      4,
+    );
+    // 镜像：lane 1 -> 5，弧线向左拱起（lane < 5）
+    const mirrored = mirrorNote(slideNote) as SlideNote;
+    const notes = [mirrored];
+    // 拖动终点（nodeIndex: 0, connIndex: mirrored.connections.length - 1），位移 dBeat: +1, dLane: 0
+    const endConnIndex = mirrored.connections.length - 1;
+    const r = planDragMove(
+      notes,
+      [{ kind: 'slideNode', noteIndex: 0, connIndex: endConnIndex }],
+      { dBeat: 1, dLane: 0 },
+      B,
+    );
+    expect(r.ok).toBe(true);
+    const resultSlide = r.notes[0] as SlideNote;
+    // 终点移至 beat 4
+    expect(resultSlide.connections[resultSlide.connections.length - 1].beat).toBe(4);
+    // 重投影后的内部采样点（如中点 beat 2.5）依然向左拱起（lane < 5），不能反弹
+    const mid = resultSlide.connections.find((c) => c.hidden && Math.abs(c.beat - 2.5) < 1e-5)!;
+    expect(mid).toBeDefined();
+    expect(mid.lane).toBeLessThan(5);
+    expect(resultSlide.spanParams?.bySpan[0]).toEqual({
+      kind: 'template',
+      templateId: 'arc',
+      precision: 16,
+      mirrored: true,
+    });
+  });
 });

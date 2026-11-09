@@ -1,7 +1,8 @@
-import type { ChartNote, SelectionItem, SlideNote, SpanParam } from '../types';
+import type { ChartNote, SelectionItem, SlideNote, SpanParam, SlideSpanParams } from '../types';
 import { connectionToNote } from './SlideCombination';
 import { spanConnIndices, regionIdentity, slideSpans } from './SlideSegments';
 import { mirrorNote, mirrorLane } from './NoteEditing';
+import { effectiveSpanParams, mirrorSpanParam } from './SpanCurve';
 import { DEFAULT_BPM } from '../../audio/AudioTiming';
 
 /**
@@ -332,13 +333,14 @@ export function mirrorSelection(notes: ChartNote[], items: SelectionItem[]): Cha
       const connections = note.connections.map((c, ci) =>
         covered.has(ci) ? { ...c, lane: mirrorLane(c.lane) } : c
       );
-      let spanParams = note.spanParams;
-      if (note.spanParams?.bySpan) {
+      let spanParams: SlideSpanParams | undefined = undefined;
+      const effective = effectiveSpanParams(note);
+      if (Object.keys(effective).length > 0) {
         const spans = slideSpans(note.connections);
         const newBySpan: Record<number, SpanParam> = {};
         for (let ordinal = 0; ordinal < spans.length; ordinal++) {
           const sp = spans[ordinal]!;
-          const param = note.spanParams.bySpan[ordinal];
+          const param = effective[ordinal];
           if (!param) continue;
 
           let coveredCount = 0;
@@ -349,11 +351,7 @@ export function mirrorSelection(notes: ChartNote[], items: SelectionItem[]): Cha
 
           if (coveredCount === totalCount) {
             // 整段被镜像
-            if (param.kind === 'template') {
-              newBySpan[ordinal] = { ...param, mirrored: !param.mirrored };
-            } else {
-              newBySpan[ordinal] = { ...param };
-            }
+            newBySpan[ordinal] = mirrorSpanParam(param);
           } else if (coveredCount === 0) {
             // 整段未受影响
             newBySpan[ordinal] = { ...param };
@@ -362,7 +360,7 @@ export function mirrorSelection(notes: ChartNote[], items: SelectionItem[]): Cha
           }
         }
         spanParams = Object.keys(newBySpan).length > 0
-          ? { visibleCount: note.spanParams.visibleCount, bySpan: newBySpan }
+          ? { visibleCount: note.spanParams!.visibleCount, bySpan: newBySpan }
           : undefined;
       }
 

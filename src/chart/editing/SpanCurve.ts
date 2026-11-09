@@ -91,6 +91,40 @@ export function effectiveSpanParams(slide: SlideNote | LongNote): Record<number,
 }
 
 /**
+ * 水平镜像单段参数（issue 225 / ADR-0009 §4）：
+ * - 模板段：翻转 mirrored 状态（mirrored: !p.mirrored）；
+ * - 缓动段：保持原缓动原型不变（时间单调递增，水平镜像严禁 flipEasingType）。
+ */
+export function mirrorSpanParam(param: SpanParam): SpanParam {
+  if (param.kind === 'template') {
+    return { ...param, mirrored: !param.mirrored };
+  }
+  return { ...param };
+}
+
+/**
+ * 安全剔除指定段参数（一动就自由化 / ADR-0009 §1 一致性规则）：
+ * 基于 effectiveSpanParams 守卫，若可见结点数不符则返回 undefined；
+ * 否则剔除指定 ordinal，若仍有其余段参数则维持原 visibleCount 打包，否则返回 undefined。
+ */
+export function pruneSpanParam(slide: SlideNote | LongNote, ordinal: number): SlideSpanParams | undefined {
+  const effective = effectiveSpanParams(slide);
+  if (Object.keys(effective).length === 0) return undefined;
+  const bySpan: Record<number, SpanParam> = {};
+  for (const [k, v] of Object.entries(effective)) {
+    const ord = Number(k);
+    if (ord !== ordinal) {
+      bySpan[ord] = v;
+    }
+  }
+  if (Object.keys(bySpan).length === 0) return undefined;
+  return {
+    visibleCount: countVisibleNodes(slide.connections),
+    bySpan,
+  };
+}
+
+/**
  * 组一条"链式草稿"滑条：可见锚点 + 各段按 params[序数] 烘焙（缺参数的段 = 直线）。
  * 曲线工具放置链与渲染预览共用（同一确定性重建，避免增量拼接的状态漂移）。
  */

@@ -1,4 +1,5 @@
 import type { ChartNote, ConnectionNote } from '../types';
+import { effectiveSpanParams, mirrorSpanParam } from './SpanCurve';
 
 
 /** 画布上当 hidden：标记 hidden，或负 beat（ADR-0014：不画不键音，仍计 combo） */
@@ -122,16 +123,15 @@ export const mirrorNote = (n: ChartNote): ChartNote => {
       return { ...n, lane: mirrorLane(n.lane), type: "LDirectional" };
     case "Slide":
     case "Long": {
-      const sp = n.spanParams;
-      const bySpan = sp
-        ? Object.fromEntries(Object.entries(sp.bySpan).map(([k, p]) => [
-            k, p.kind === 'template' ? { ...p, mirrored: !p.mirrored } : p,
-          ]))
+      const effective = effectiveSpanParams(n);
+      const hasEffective = Object.keys(effective).length > 0;
+      const bySpan = hasEffective
+        ? Object.fromEntries(Object.entries(effective).map(([k, p]) => [k, mirrorSpanParam(p)]))
         : undefined;
       return {
         ...n,
         connections: n.connections.map(c => ({ ...c, lane: mirrorLane(c.lane) })),
-        ...(bySpan ? { spanParams: { ...sp!, bySpan } } : {}),
+        ...(bySpan ? { spanParams: { visibleCount: n.spanParams!.visibleCount, bySpan } } : {}),
       };
     }
     case "BPM":

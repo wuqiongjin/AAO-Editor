@@ -391,6 +391,40 @@ describe('issue 93 · applySegmentCode 子段回写（可编辑回写）', () =>
         expect(resSlide.spanParams?.bySpan[0]).toBeUndefined();
         expect(resSlide.spanParams?.bySpan[1]).toBeDefined();
     });
+
+    test('子段回写若增删可见结点：整条拓扑重组，全部 spanParams 失效清空（issue 225 / ADR-0009 §1）', () => {
+        const slideWithParams: SlideNote = {
+            type: 'Slide',
+            connections: [
+                { beat: 0, lane: 1 },
+                { beat: 2, lane: 1 },
+                { beat: 4, lane: 5 },
+            ],
+            spanParams: {
+                visibleCount: 3,
+                bySpan: {
+                    0: { kind: 'template', templateId: 'arc', precision: 16 },
+                    1: { kind: 'easing', family: 'quad', type: 'in', precision: 16 },
+                },
+            },
+        };
+        const notes = [slideWithParams];
+        const target: NoteCodeTarget = { noteIndex: 0, span: { start: 0, end: 1 } };
+        // 在该段中间增加一个可见结点（lane 3, 非 hidden）
+        const code: ChartCodeNote[] = [{
+            type: 'Slide',
+            connections: [
+                { beat: 0, lane: 1 },
+                { beat: 1, lane: 3 },
+                { beat: 2, lane: 1 },
+            ],
+        }];
+        const r = applyNoteCode(notes, target, code);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const resSlide = r.notes[0] as SlideNote;
+        expect(resSlide.spanParams).toBeUndefined();
+    });
 });
 
 describe('issue 93 · noteCodeTargetForHit 命中 → target 口径', () => {

@@ -4,6 +4,7 @@ import type { ConnectionNote, SlideNote, SpanEasingParam } from '@/src/chart/typ
 import {
   bakeEasingPoints, bakeSpanPoints, bendSpan, buildChainedSlide, buildPenSlide, effectiveSpanParams,
   regenerateSpan, remapFreeSpanHidden, reprojectSpanParams, connTrueBeat, pinchWeight, smoothBendSpan,
+  mirrorSpanParam, pruneSpanParam,
 } from '@/src/chart/editing/SpanCurve';
 import { convertNotesToChartCode, convertChartCodeToNotes, validateChartCode } from '@/src/chart/editing/ChartConverter';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
@@ -586,3 +587,44 @@ describe('issue 203 · 圆滑捏形（贝塞尔鼓包 / 穿过光标 / ADR-0009 
   });
 });
 
+
+describe('issue 225 · mirrorSpanParam & pruneSpanParam 工具函数', () => {
+  it('mirrorSpanParam：模板段翻转 mirrored，缓动段保持原样', () => {
+    expect(mirrorSpanParam({ kind: 'template', templateId: 'arc', precision: 16 })).toEqual({
+      kind: 'template', templateId: 'arc', precision: 16, mirrored: true,
+    });
+    expect(mirrorSpanParam({ kind: 'template', templateId: 'arc', precision: 16, mirrored: true })).toEqual({
+      kind: 'template', templateId: 'arc', precision: 16, mirrored: false,
+    });
+    expect(mirrorSpanParam(param({ family: 'quad', type: 'in' }))).toEqual(
+      param({ family: 'quad', type: 'in' })
+    );
+  });
+
+  it('pruneSpanParam：安全删除指定段参数，维持 visibleCount', () => {
+    const s: SlideNote = {
+      type: 'Slide',
+      connections: [{ beat: 0, lane: 0 }, { beat: 1, lane: 1 }, { beat: 2, lane: 2 }],
+      spanParams: {
+        visibleCount: 3,
+        bySpan: { 0: param(), 1: param() },
+      },
+    };
+    const pruned = pruneSpanParam(s, 0);
+    expect(pruned).toEqual({
+      visibleCount: 3,
+      bySpan: { 1: param() },
+    });
+    expect(pruneSpanParam(s, 1)?.bySpan[0]).toBeDefined();
+    // 删完全部段 -> undefined
+    const sSingle: SlideNote = {
+      type: 'Slide',
+      connections: [{ beat: 0, lane: 0 }, { beat: 1, lane: 1 }],
+      spanParams: {
+        visibleCount: 2,
+        bySpan: { 0: param() },
+      },
+    };
+    expect(pruneSpanParam(sSingle, 0)).toBeUndefined();
+  });
+});
