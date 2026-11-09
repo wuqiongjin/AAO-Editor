@@ -155,13 +155,15 @@ export function bakeTemplatePoints(
   toBeat: number,
   template: ShapeTemplate,
   precision: CurvePrecision = 16,
+  mirrored = false,
 ): ConnectionNote[] {
   const span = toBeat - fromBeat;
   if (!(span > 0)) return [];
   const pts = template.sample ? template.sample(span, precision) : template.points;
+  const sign = mirrored ? -1 : 1;
   return pts.map(({ t, off }) => ({
     beat: fromBeat + t * span,
-    lane: Math.min(Math.max(from.lane + (to.lane - from.lane) * t + off * TEMPLATE_AMPLITUDE, 0), 6),
+    lane: Math.min(Math.max(from.lane + (to.lane - from.lane) * t + sign * off * TEMPLATE_AMPLITUDE, 0), 6),
     hidden: true as const,
   }));
 }
@@ -176,5 +178,5 @@ export function bakeTemplateParam(
 ): ConnectionNote[] {
   const tp = shapeTemplateById(param.templateId);
   if (!tp) return [];
-  return bakeTemplatePoints(from, to, fromBeat, toBeat, tp, param.precision ?? 16);
+  return bakeTemplatePoints(from, to, fromBeat, toBeat, tp, param.precision ?? 16, !!param.mirrored);
 }

@@ -1,5 +1,5 @@
 import type { ChartNote, ConnectionNote } from '../types';
-import { flipEasingType } from './Easing';
+
 
 /** 画布上当 hidden：标记 hidden，或负 beat（ADR-0014：不画不键音，仍计 combo） */
 export function isCanvasHiddenConn(c: Pick<ConnectionNote, 'hidden' | 'beat'>): boolean {
@@ -111,7 +111,7 @@ export const comboNodePreciseBeats = (
 // 对单个音符做左右镜像：lane 翻转 + 方向键 L↔R 翻转 + 滑条端点 lane 同步；BPM/System 不参与。
 // issue 09 S3（ADR-0009 §4）：SP 解析段同步做缓动**型翻转**（In↔Out / In-Out↔Out-In，族不变）——
 // 点集镜像后只有翻转的型才能重烘焙出同一形状（否则拖端点重投影会把形状"弹回"未镜像态）；
-// 模板段点列左右对称翻转天然成立、自由段无参数，均不动。
+// issue 225（ADR-0009 2026-11-09 修订）：模板段记录 param.mirrored: !p.mirrored；缓动段参数保持不变；自由段无参数。
 export const mirrorNote = (n: ChartNote): ChartNote => {
   switch (n.type) {
     case "Single":
@@ -125,7 +125,7 @@ export const mirrorNote = (n: ChartNote): ChartNote => {
       const sp = n.spanParams;
       const bySpan = sp
         ? Object.fromEntries(Object.entries(sp.bySpan).map(([k, p]) => [
-            k, p.kind === 'easing' ? { ...p, type: flipEasingType(p.type) } : p,
+            k, p.kind === 'template' ? { ...p, mirrored: !p.mirrored } : p,
           ]))
         : undefined;
       return {

@@ -501,8 +501,8 @@ describe('issue 09 S3 补 · 镜像 = 解析段缓动型翻转（ADR-0009 §4 �
     // 点集镜像
     expect(out.connections.every(c => c.lane === mirrorLane((notes[0] as SlideNote).connections.find(x => x.beat === c.beat)!.lane))).toBe(true);
     // 参数型翻转、族/精度不变
-    expect(out.spanParams?.bySpan[0]).toEqual({ kind: 'easing', family: 'quad', type: 'out', precision: 16 });
-    expect(out.spanParams?.bySpan[1]).toEqual({ kind: 'easing', family: 'sine', type: 'inOut', precision: 32 });
+    expect(out.spanParams?.bySpan[0]).toEqual({ kind: 'easing', family: 'quad', type: 'in', precision: 16 });
+    expect(out.spanParams?.bySpan[1]).toEqual({ kind: 'easing', family: 'sine', type: 'outIn', precision: 32 });
     // 模板段原样
     const withTpl: ChartNote[] = [{
       type: 'Slide',
@@ -510,7 +510,7 @@ describe('issue 09 S3 补 · 镜像 = 解析段缓动型翻转（ADR-0009 §4 �
       spanParams: { visibleCount: 2, bySpan: { 0: { kind: 'template', templateId: 's-curve' } } },
     }];
     const out2 = mirrorNote(withTpl[0]!) as SlideNote;
-    expect(out2.spanParams?.bySpan[0]).toEqual({ kind: 'template', templateId: 's-curve' });
+    expect(out2.spanParams?.bySpan[0]).toEqual({ kind: 'template', templateId: 's-curve', mirrored: true });
   });
 });
 

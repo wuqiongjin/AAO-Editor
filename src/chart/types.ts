@@ -25,6 +25,7 @@ export interface SpanTemplateParam {
   kind: 'template';
   templateId: string;
   precision?: import('./editing/Easing').CurvePrecision;
+  mirrored?: boolean;
 }
 
 /** 段参数 = 三来源中"有解析参数"的两形态；自由段 = 参数缺席（点集即形态） */

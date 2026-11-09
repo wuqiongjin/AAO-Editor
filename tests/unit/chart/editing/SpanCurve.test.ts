@@ -7,6 +7,7 @@ import {
 } from '@/src/chart/editing/SpanCurve';
 import { convertNotesToChartCode, convertChartCodeToNotes, validateChartCode } from '@/src/chart/editing/ChartConverter';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
+import { mirrorNote } from '@/src/chart/editing/NoteEditing';
 
 const param = (over: Partial<SpanEasingParam> = {}): SpanEasingParam => ({
   kind: 'easing',
@@ -179,6 +180,60 @@ describe('issue 09 · reprojectSpanParams（端点拖动 = 重投影，参数保
       connections: [{ beat: 1, lane: 0 }, { beat: 1.5, lane: 2, hidden: true }, { beat: 2, lane: 4 }],
     };
     expect(reprojectSpanParams(base, 4)).toBe(base);
+  });
+
+  it('模板段水平镜像后再拖动端点：保持镜像方向，不强制镜像回去（issue 225）', () => {
+    // 初始 arc 模板（弧线向右拱起，lane 增加）
+    const slide = buildChainedSlide(
+      [{ beat: 1, lane: 1 }, { beat: 3, lane: 1 }],
+      { 0: { kind: 'template', templateId: 'arc', precision: 16 } },
+      4,
+    );
+    const midInitial = slide.connections.find((c) => c.hidden && Math.abs(c.beat - 2) < 1e-6)!;
+    expect(midInitial.lane).toBeGreaterThan(1); // 向右拱起
+
+    // 水平镜像：1 -> 5，弧线应该向左拱起（lane < 5）
+    const mirrored = mirrorNote(slide) as SlideNote;
+    const midMirrored = mirrored.connections.find((c) => c.hidden && Math.abs(c.beat - 2) < 1e-6)!;
+    expect(midMirrored.lane).toBeLessThan(5);
+
+    // 拖动终点至 beat 4（触发重投影）
+    const moved: SlideNote = {
+      ...mirrored,
+      connections: mirrored.connections.map((c) => (!c.hidden && c.beat === 3 ? { ...c, beat: 4 } : c)),
+    };
+    const out = reprojectSpanParams(moved, 4) as SlideNote;
+    // 重投影后，中间采样点依然必须向左拱起（lane < 5），不能反弹向右拱起
+    const midReprojected = out.connections.find((c) => c.hidden && Math.abs(c.beat - 2.5) < 1e-6)!;
+    expect(midReprojected.lane).toBeLessThan(5);
+    expect(effectiveSpanParams(out)[0]).toEqual({
+      kind: 'template',
+      templateId: 'arc',
+      precision: 16,
+      mirrored: true,
+    });
+  });
+
+  it('缓动段水平镜像后再拖动端点：保持原缓动原型重投影，不反弹（issue 225）', () => {
+    const slide = buildChainedSlide(
+      [{ beat: 1, lane: 0 }, { beat: 2, lane: 4 }],
+      { 0: param({ family: 'quad', type: 'in' }) },
+      4,
+    );
+    const mirrored = mirrorNote(slide) as SlideNote;
+    expect(effectiveSpanParams(mirrored)[0]).toEqual(param({ family: 'quad', type: 'in' }));
+
+    // 拖动终点至 beat 3
+    const moved: SlideNote = {
+      ...mirrored,
+      connections: mirrored.connections.map((c) => (!c.hidden && c.beat === 2 ? { ...c, beat: 3 } : c)),
+    };
+    const out = reprojectSpanParams(moved, 4) as SlideNote;
+    expect(effectiveSpanParams(out)[0]).toEqual(param({ family: 'quad', type: 'in' }));
+    // 镜像后起点 lane=6，终点 lane=2。quad/in 从 6 下降到 2。
+    // 中点 beat 2 (半程) 的 lane: 6 + (2 - 6)*(0.5)^2 = 6 - 4*0.25 = 5.0
+    const mid = out.connections.find((c) => c.hidden && Math.abs(c.beat - 2) < 1e-6)!;
+    expect(mid.lane).toBeCloseTo(5.0, 6);
   });
 });
 

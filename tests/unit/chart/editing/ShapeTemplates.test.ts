@@ -128,4 +128,27 @@ describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精�
       expect(baked[i]!.beat).toBeGreaterThan(baked[i - 1]!.beat);
     }
   });
+
+  it('issue 225 · bakeTemplateParam 响应 param.mirrored 进行水平镜像烘焙', () => {
+    // 默认（mirrored: false / undefined）：大弧向右凸出（lane > 3）
+    const normalBaked = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+      kind: 'template', templateId: 'arc', precision: 16,
+    });
+    const normalMaxLane = Math.max(...normalBaked.map((c) => c.lane));
+    expect(normalMaxLane).toBeCloseTo(5, 6);
+
+    // mirrored: true：大弧向左凸出（lane < 3，峰值在 lane 1）
+    const mirroredBaked = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+      kind: 'template', templateId: 'arc', precision: 16, mirrored: true,
+    });
+    const mirroredMinLane = Math.min(...mirroredBaked.map((c) => c.lane));
+    expect(mirroredMinLane).toBeCloseTo(1, 6);
+
+    // 对称性：normalBaked 与 mirroredBaked 各点关于 lane 3 严格镜像
+    expect(normalBaked).toHaveLength(mirroredBaked.length);
+    for (let i = 0; i < normalBaked.length; i++) {
+      expect(normalBaked[i]!.beat).toBeCloseTo(mirroredBaked[i]!.beat, 6);
+      expect(normalBaked[i]!.lane + mirroredBaked[i]!.lane).toBeCloseTo(6, 6);
+    }
+  });
 });

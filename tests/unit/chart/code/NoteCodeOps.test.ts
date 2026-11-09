@@ -352,9 +352,44 @@ describe('issue 93 · applySegmentCode 子段回写（可编辑回写）', () =>
         expect(applyNoteCode(segNotes, seg, shrink).ok).toBe(true);
         // 目标段失效（越界）
         expect(applyNoteCode(segNotes, segTarget(1, 3, 9), segTargetCode()).ok).toBe(false);
-        function segTargetCode(): ChartCodeNote[] {
-            return [{ type: 'Slide', connections: [{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }] }];
-        }
+        function segTargetCode(): ChartCodeNote[] { return [{ type: 'Slide', connections: [{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }] }]; }
+        
+    });
+
+    test('子段回写一动就自由化：回写的段从 spanParams.bySpan 中移除（issue 225 / Q4=A）', () => {
+        const slideWithParams: SlideNote = {
+            type: 'Slide',
+            connections: [
+                { beat: 0, lane: 1 },
+                { beat: 1, lane: 2, hidden: true },
+                { beat: 2, lane: 1 },
+                { beat: 3, lane: 3, hidden: true },
+                { beat: 4, lane: 5 },
+            ],
+            spanParams: {
+                visibleCount: 3,
+                bySpan: {
+                    0: { kind: 'template', templateId: 'arc', precision: 16 },
+                    1: { kind: 'easing', family: 'quad', type: 'in', precision: 16 },
+                },
+            },
+        };
+        const notes = [slideWithParams];
+        const target: NoteCodeTarget = { noteIndex: 0, span: { start: 0, end: 2 } };
+        const code: ChartCodeNote[] = [{
+            type: 'Slide',
+            connections: [
+                { beat: 0, lane: 1 },
+                { beat: 1, lane: 4, hidden: true },
+                { beat: 2, lane: 1 },
+            ],
+        }];
+        const r = applyNoteCode(notes, target, code);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const resSlide = r.notes[0] as SlideNote;
+        expect(resSlide.spanParams?.bySpan[0]).toBeUndefined();
+        expect(resSlide.spanParams?.bySpan[1]).toBeDefined();
     });
 });
 

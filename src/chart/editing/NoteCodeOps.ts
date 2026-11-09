@@ -13,10 +13,11 @@
 //   - 结点：只接受 type:"Single" → 写回该 connection 的 beat/lane/flick/skill/hidden
 //   - 子段（issue 93）：恰好 1 条合法 Slide → 段 connections 整体替换回宿主滑条（段代码/整条双重校验）
 //   - 非法一律报错 + 不回写，不静默修正、不静默忽略
-import type { ChartNote, ConnectionNote, SelectionItem } from '../types';
+import type { ChartNote, ConnectionNote, SelectionItem, SlideNote } from '../types';
 import { t } from '../../i18n';
 import { isSlide } from './SelectionEditing';
 import { slideSpans, regionIdentity } from './SlideSegments';
+import { countVisibleNodes } from './SpanCurve';
 import {
     convertNotesToChartCode, convertChartCodeToNotes, validateChartCode, hasBeat0BpmNote, parseCodeRaw,
     type ChartCodeNote, type ChartCodeSingle, type ValidationError,
@@ -181,7 +182,25 @@ export function applyNoteCode(
             delete next.source;
         };
         const connections = note.connections.map((x, i) => (i === target.connIndex ? next : x));
-        return { ok: true, notes: notes.map((n, i) => (i === target.noteIndex ? { ...note, connections } : n)) };
+        let spanParams = note.spanParams;
+        if (note.spanParams?.bySpan && (conn.beat !== next.beat || conn.lane !== next.lane || conn.hidden !== next.hidden)) {
+            const spans = slideSpans(note.connections);
+            const ordinal = spans.findIndex(s => target.connIndex! >= s.start && target.connIndex! <= s.end);
+            if (ordinal >= 0) {
+                const bySpan = { ...note.spanParams.bySpan };
+                delete bySpan[ordinal];
+                spanParams = Object.keys(bySpan).length > 0
+                    ? { visibleCount: countVisibleNodes(connections), bySpan }
+                    : undefined;
+            }
+        }
+        const updatedSlide: SlideNote = { ...note, connections };
+        if (spanParams) {
+            updatedSlide.spanParams = spanParams;
+        } else {
+            delete updatedSlide.spanParams;
+        }
+        return { ok: true, notes: notes.map((n, i) => (i === target.noteIndex ? updatedSlide : n)) };
     }
 
     // 整条音符：恰好 1 条 + 合法 + 字段集与 type 匹配（校验已覆盖）
@@ -259,10 +278,28 @@ function applySegmentCode(
     }
     const origSeg = note.connections.slice(start, end + 1);
     const merged: ConnectionNote[] = segCode.connections.map((c, i) => ({ ...c, subBeat: origSeg[i]?.subBeat }));
-    const newNote: ChartNote = {
+    const newConns = [...note.connections.slice(0, start), ...merged, ...note.connections.slice(end + 1)];
+    let spanParams = note.spanParams;
+    if (note.spanParams?.bySpan) {
+        const spans = slideSpans(note.connections);
+        const ordinal = spans.findIndex(s => s.start === start && s.end === end);
+        if (ordinal >= 0) {
+            const bySpan = { ...note.spanParams.bySpan };
+            delete bySpan[ordinal];
+            spanParams = Object.keys(bySpan).length > 0
+                ? { visibleCount: countVisibleNodes(newConns), bySpan }
+                : undefined;
+        }
+    }
+    const newNote: SlideNote = {
         ...note,
-        connections: [...note.connections.slice(0, start), ...merged, ...note.connections.slice(end + 1)],
+        connections: newConns,
     };
+    if (spanParams) {
+        newNote.spanParams = spanParams;
+    } else {
+        delete newNote.spanParams;
+    }
     // 替换后的整条滑条仍须通过校验（issue 106 起可见结点不足 / 首尾 hidden 不再拦；issue 103：片段口径）
     const wholeCheck = validateChartCode(convertNotesToChartCode([newNote]), { fragment: true });
     if (wholeCheck.errors.length > 0) return { ok: false, errors: liftErrors(wholeCheck.errors, target.noteIndex) };
