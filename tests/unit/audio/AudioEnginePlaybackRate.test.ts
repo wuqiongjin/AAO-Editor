@@ -35,6 +35,8 @@ class MockAudioContext {
   sources: MockBufferSourceNode[] = [];
   /** 每次按键音（振荡器兜底）的 start 时刻 */
   oscStarts: number[] = [];
+  /** 与 oscStarts 一一对应：该节点是否被「手动 cancel」（无参 stop()）撤销 —— 区别于自然结束的 stop(when) */
+  oscRecords: Array<{ when: number; cancelled: boolean }> = [];
 
   createGain() {
     return new MockGainNode();
@@ -47,13 +49,15 @@ class MockAudioContext {
   }
 
   createOscillator() {
+    const rec = { when: 0, cancelled: false };
+    this.oscRecords.push(rec);
     return {
       type: 'sine',
       frequency: { value: 440 },
       connect: vi.fn(),
       disconnect: vi.fn(),
-      start: (when: number) => { this.oscStarts.push(when); },
-      stop: vi.fn(),
+      start: (when: number) => { rec.when = when; this.oscStarts.push(when); },
+      stop: (when?: number) => { if (when === undefined) rec.cancelled = true; },
     };
   }
 
@@ -161,6 +165,96 @@ describe('AudioEngine · 播放速率（chart-preview 20）', () => {
     (engine as unknown as { tick: () => void }).tick();
     expect(ctx.oscStarts).toHaveLength(1);
     expect(ctx.oscStarts[0]!).toBeCloseTo(0.5, 6); // (1 − 0) / 2
+  });
+
+  // chart-preview 58 验收回修（既有问题：动态预览同样复现）：键音提前 ~2s 预排到 AudioContext
+  // 时间线上，播放中改速率若只换时钟与 BGM，那批已 start(when) 的节点仍按**旧**速率的墙钟时刻
+  // 发声（"2× 余音"），且 keyIndex 已越过新 horizon，调度器在播放头追上前不再补排（"静默一段"）。
+  it.each([
+    {
+      title: '2× → 1×',
+      from: 2,
+      preStarts: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
+      to: 1,
+      freshStarts: [0.5, 1, 1.5, 2],
+    },
+    {
+      title: '1× → 0.25×',
+      from: 1,
+      preStarts: [0.5, 1, 1.5, 2],
+      to: 0.25,
+      freshStarts: [2],
+    },
+  ])('播放中改速率（$title）：撤销旧速率预排键音并按新速率重排', async ({ from, preStarts, to, freshStarts }) => {
+    const engine = new AudioEngine();
+    engine.setChart(
+      [
+        { type: 'BPM', beat: 0, bpm: 120 },
+        { type: 'Single', beat: 1, lane: 3 }, // 0.5s
+        { type: 'Single', beat: 2, lane: 3 }, // 1.0s
+        { type: 'Single', beat: 3, lane: 3 }, // 1.5s
+        { type: 'Single', beat: 4, lane: 3 }, // 2.0s
+        { type: 'Single', beat: 5, lane: 3 }, // 2.5s
+        { type: 'Single', beat: 6, lane: 3 }, // 3.0s
+        { type: 'Single', beat: 7, lane: 3 }, // 3.5s
+        { type: 'Single', beat: 8, lane: 3 }, // 4.0s
+      ],
+      4,
+    );
+    await engine.play();
+    const ctx = engineCtx(engine);
+
+    // 旧速率把 horizon（= 2s 墙钟 × 速率）内的键音预排到时间线上；播放头钉在 0
+    if (from !== 1) engine.setPlaybackRate(from);
+    engine.tick();
+    expect(ctx.oscStarts).toEqual(preStarts);
+    const oldRecords = ctx.oscRecords.slice();
+    expect(oldRecords).toHaveLength(preStarts.length);
+
+    // 播放中改速率：这些键音还没发声
+    engine.setPlaybackRate(to);
+
+    // ① 旧速率那批预排键音必须被撤销（否则仍按旧节奏发声）
+    for (const rec of oldRecords) expect(rec.cancelled).toBe(true);
+
+    // ② 游标回到播放头、按新速率立即补排（否则调度器空转 = 突然没声音 / 过一会才好）
+    expect(ctx.oscStarts.slice(preStarts.length)).toEqual(freshStarts);
+
+    engine.dispose();
+  });
+
+  // 上面两条把播放头钉在 0；这里补用户 repro 的「先 2× 播一段时间再调回 1×」：
+  // 播放头非 0 时的重锚（offsetSeconds/startCtxSecond/startPerfSecond）不能跳位置，预排撤销与重排照样成立。
+  it('播放中改速率（播放头已推进）：位置不跳、旧预排撤销、按新速率重排', async () => {
+    const engine = new AudioEngine();
+    engine.setChart(
+      [
+        { type: 'BPM', beat: 0, bpm: 120 },
+        ...[2, 4, 6, 8, 10, 12, 14, 16, 18, 20].map((beat) => ({ type: 'Single' as const, beat, lane: 3 })),
+      ],
+      4,
+    );
+    await engine.play(); // 无 buffer → 合成时间线，startPerfSecond = 0
+    const ctx = engineCtx(engine);
+
+    engine.setPlaybackRate(2); // 2× 预排 1..4s（墙钟 0.5/1/1.5/2）
+    expect(ctx.oscStarts).toEqual([0.5, 1, 1.5, 2]);
+
+    nowSpy.mockReturnValue(2000); // 墙钟走 2s ⇒ 2× 下谱面播放头 = 4s
+    ctx.currentTime = 2;
+    expect(engine.getSeconds()).toBeCloseTo(4, 6);
+    engine.tick(); // 再预排 5..8s（墙钟 2.5/3/3.5/4）
+    const oldRecords = ctx.oscRecords.slice();
+    expect(oldRecords).toHaveLength(8);
+
+    engine.setPlaybackRate(1);
+    expect(engine.getSeconds()).toBeCloseTo(4, 6); // 改速率当刻不跳位置
+    for (const rec of oldRecords) expect(rec.cancelled).toBe(true);
+    // 按 1× 从 4s 续排：horizon = 6s ⇒ 4s / 5s / 6s 三枚（rewindKeyIndex 是 `< playhead` 严格小于，
+    // 恰在播放头的 4s 那枚也重排），墙钟 = 2 + (t − 4)/1 = 2 / 3 / 4
+    expect(ctx.oscStarts.slice(8)).toEqual([2, 3, 4]);
+
+    engine.dispose();
   });
 
   it('速率钳制在引擎允许区间内，每一档常用倍速都合法', () => {

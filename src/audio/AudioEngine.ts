@@ -158,6 +158,8 @@ export class AudioEngine {
    * 播放速率（chart-preview 20；播放器给 0.5/0.75/1/1.5/2 五档）。
    * 三处一起缩放才不会有"音画不同步"：BGM 的 `playbackRate`、两条时钟的经过时间（`getSeconds`）、
    * 键音调度（`tick` 里把谱面秒差除以速率换成墙钟秒差）。**播放中改速率不跳位置**。
+   * 键音提前 ~2s 预排到 AudioContext 时间线上，改速率还要撤销旧速率那批预排、把游标回到播放头
+   * 并按新速率立即补排（同 `setChart` 口径），否则"旧速率余音 + 静默一段"（chart-preview 58 验收回修）。
    */
   setPlaybackRate(rate: number): void {
     if (!Number.isFinite(rate)) return;
@@ -171,6 +173,13 @@ export class AudioEngine {
     }
     this.rate = next;
     if (this.source) this.source.playbackRate.value = next;
+    if (this.state === 'playing') {
+      // 已 start(when) 的键音节点仍钉在旧速率的墙钟时刻，且 keyIndex 已越过新 horizon：
+      // 不撤销 / 不回退游标，就会先按旧节奏发一段、再空转到播放头追上才补排。
+      this.cancelScheduled();
+      this.rewindKeyIndex();
+      this.tick();
+    }
   }
 
   /** 当前播放速率（1 = 原速） */
