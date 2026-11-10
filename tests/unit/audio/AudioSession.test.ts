@@ -20,6 +20,7 @@ class FakeAudioEngine {
   setKeySetCalls: string[] = [];
   setVolumeCalls: number[] = [];
   setSeVolumeCalls: number[] = [];
+  setPlaybackRateCalls: number[] = [];
   setChartCalls: { notes: unknown; beatDisplay: number }[] = [];
   // 控制 load 何时 resolve（用于竞态测试）
   loadDelayMs = 0;
@@ -48,6 +49,9 @@ class FakeAudioEngine {
   }
   setSeVolume(volume: number): void {
     this.setSeVolumeCalls.push(volume);
+  }
+  setPlaybackRate(rate: number): void {
+    this.setPlaybackRateCalls.push(rate);
   }
   setChart(notes: unknown, beatDisplay: number): void {
     this.setChartCalls.push({ notes, beatDisplay });
@@ -456,5 +460,14 @@ describe('AudioSession · 引擎透传（getEngine / setVolume）', () => {
     const before = s.getVolume();
     s.setVolume(Number.NaN);
     expect(s.getVolume()).toBe(before);
+  });
+
+  it('setPlaybackRate（chart-preview 58 工作台通道）：原样转发到引擎，不另持一份', () => {
+    const { fake, factory } = makeFactory();
+    const s = new AudioSession({ engineFactory: factory, keySetId: 'skin01', seVolume: 1 });
+    expect(fake.setPlaybackRateCalls).toEqual([]);
+    s.setPlaybackRate(2);
+    s.setPlaybackRate(0.5);
+    expect(fake.setPlaybackRateCalls).toEqual([2, 0.5]);
   });
 });

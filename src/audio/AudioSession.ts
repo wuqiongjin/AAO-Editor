@@ -309,6 +309,15 @@ export class AudioSession {
     return this._volume;
   }
 
+  /**
+   * 改播放倍速（chart-preview 58）：工作台把共享倍速值转发到引擎。
+   * 值的唯一真相源在 `src/playback/playbackRateState`（本次运行的内存态，不落设置），本方法只透传，
+   * 不另持一份、不写 snapshot；引擎侧两条时钟 / BGM / 键音调度一起缩放，播放中改速率不跳位置。
+   */
+  setPlaybackRate(rate: number): void {
+    this.engine.setPlaybackRate(rate);
+  }
+
   // ===== 设置变更（keySet / seVolume） =====
 
   /** 切换激活素材包（音频页点击素材包卡片时调用） */

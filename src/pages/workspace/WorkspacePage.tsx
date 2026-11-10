@@ -11,6 +11,8 @@ import { ChartCodeEditorProvider } from '../../chart/components/code-editor/Char
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
 import { formatKey, type FunctionId } from '../../settings/ShortcutConfig';
 import PlayBar from '../../playback/PlayBar';
+import PlaybackRate from '../../playback/PlaybackRate';
+import { usePlaybackRate } from '../../playback/playbackRateState';
 import PlaybackMarkerButton from '../../playback/PlaybackMarkerButton';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
 import { useAudioBridge } from '../../audio/useAudioBridge';
@@ -109,6 +111,14 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const [audioSnap, audioSession] = useAudioSession();
   // 引擎：session 单例，跨页面保活期间不重建
   const engine = audioSession.getEngine();
+
+  // 倍速（chart-preview 58）：值是 `src/playback` 的共享内存单点，两处播放条都读它；
+  // 工作台这一侧把它转发到自己的引擎（AudioSession → AudioEngine）—— 即便值是从预览侧改的，
+  // 这个订阅同样会把它同步过来。不另起时钟、不另算秒，倍速只经引擎一处缩放。
+  const [rate, setRate] = usePlaybackRate();
+  useEffect(() => {
+    audioSession.setPlaybackRate(rate);
+  }, [rate, audioSession]);
 
   // === 谱面视口会话（架构深化评审候选 4 收口） ===
   // 渲染面 / 几何 / 滚动重锚 / 播放 RAF 收进 src/playback/useChartViewSession.ts —— 工作台与
@@ -564,6 +574,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           seekNoCursor={!canPlay && ctxIsPlaying}
           shortcutKey={formatKey(shortcutConfig.play)}
           timePrecision={settings.display.timePrecision}
+          rateSlot={<PlaybackRate value={rate} onChange={setRate} />}
           timeSlot={settings.playbar.markerButton && (
             <PlaybackMarkerButton
               seconds={markerSeconds}

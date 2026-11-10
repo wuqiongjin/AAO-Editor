@@ -9,7 +9,7 @@ import './PlayBar.css';
 // - 数据入口全部走 props（不再直读 Playback / AudioSession / Config），两处消费方各自接线；
 // - 外壳分两个变体（issue 22 Q1）：`play-bar--workspace` 工作台页底栏 / `play-bar--preview`
 //   预览舞台底部一行 —— 只共用内部排布，不共用外壳几何；
-// - 倍速是可选 slot（`rateSlot`，预览专属的票 20 控件）：不传就不渲染。
+// - 倍速是可选 slot（`rateSlot`，票 20 控件；58 起工作台 / 预览两处共用）：不传就不渲染。
 
 export type PlayBarVariant = 'workspace' | 'preview';
 
@@ -32,7 +32,7 @@ export interface PlayBarProps {
   shortcutKey: string;
   /** 外壳变体：工作台页底栏（默认）/ 预览舞台底部一行（issue 22） */
   variant?: PlayBarVariant;
-  /** 倍速控件 slot（预览专属）：不传就不渲染 */
+  /** 倍速控件 slot（58 起两处共用）：不传就不渲染 */
   rateSlot?: ReactNode;
   /** 时间码右侧 slot（工作台的播放起点按钮，票 182）：不传就不渲染 */
   timeSlot?: ReactNode;
@@ -215,7 +215,7 @@ export default function PlayBar({
         </div>
       </div>
 
-      {/* 倍速 slot（预览专属）：不传就不占位（工作台没有这一件） */}
+      {/* 倍速 slot：不传就不占位（58 起两处都传） */}
       {rateSlot}
 
       {/* 音量 */}

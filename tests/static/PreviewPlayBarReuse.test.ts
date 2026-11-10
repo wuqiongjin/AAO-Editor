@@ -41,6 +41,20 @@ describe('chart-preview 22 · 预览播放条复用工作台 PlayBar', () => {
     expect(ws).not.toMatch(/canEditTime=\{!canPlay\}/);
     expect(ws).toMatch(/seekNoCursor=\{!canPlay && ctxIsPlaying\}/);
     expect(ws).toMatch(/shortcutKey=\{formatKey\(shortcutConfig\.play\)\}/);
+    // 58：工作台也传 rateSlot（此前"预览专属、工作台不传"的口径已改）
+    expect(ws).toMatch(/rateSlot=\{<PlaybackRate/);
+  });
+
+  it('倍速值一个共享单点：两处 rateSlot 都读 usePlaybackRate，工作台经 AudioSession 转发引擎', () => {
+    const shared = readStripped('src/playback/playbackRateState.ts');
+    expect(shared).toMatch(/useSyncExternalStore/);   // 实时同步的共享内存单点
+    expect(shared).toMatch(/PLAYBACK_RATE_RANGE/);    // 区间以引擎为唯一真相源
+    expect(stage).toMatch(/usePlaybackRate\(\)/);
+    expect(stage).not.toMatch(/useState<number>\(1\)/); // 撤掉预览侧页面内私有 state
+    expect(ws).toMatch(/usePlaybackRate\(\)/);
+    expect(ws).toMatch(/audioSession\.setPlaybackRate\(rate\)/);
+    const session = readStripped('src/audio/AudioSession.ts');
+    expect(session).toMatch(/setPlaybackRate\(rate: number\)/);
   });
 
   it('预览页只接管 play 这一个功能键（Q2），其余绑定放行原生行为', () => {

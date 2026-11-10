@@ -4,6 +4,7 @@
 // `playbackRate`；③ 键音调度（谱面秒差 ÷ 速率 = 墙钟秒差）。另外：**播放中改速率不跳位置**。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PLAYBACK_RATE_RANGE, AudioEngine } from '@/src/audio/AudioEngine';
+import { AudioSession } from '@/src/audio/AudioSession';
 import { SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP } from '@/src/preview/video/sim/simPlayback';
 
 class MockGainNode {
@@ -100,6 +101,33 @@ describe('AudioEngine · 播放速率（chart-preview 20）', () => {
 
     ctx.currentTime = 12; // 再走 2s 墙钟
     expect(engine.getSeconds()).toBeCloseTo(14, 6); // 2s × 2 倍速 = 4 谱面秒
+  });
+
+  it('工作台侧（chart-preview 58）：AudioSession 转发后 rate=1 行为逐位不变、改速率不跳位置', async () => {
+    // 隔离无关异步：构造 session 时的 setKeySetId 会触发素材包动态加载，本例只关心倍速通道
+    const keySpy = vi.spyOn(AudioEngine.prototype, 'setKeySetId').mockImplementation(() => {});
+    try {
+      const engine = new AudioEngine();
+      const session = new AudioSession({ engineFactory: () => engine, keySetId: 'skin00', seVolume: 1 });
+      await engine.load(new File([new Uint8Array([1])], 'a.mp3', { type: 'audio/mpeg' }));
+      await engine.play();
+      const ctx = engineCtx(engine);
+
+      ctx.currentTime = 10;
+      expect(engine.playbackRate).toBe(1);             // rate=1 行为逐位不变
+      expect(engine.getSeconds()).toBeCloseTo(10, 6); // 原速：墙钟 10s = 谱面 10s
+
+      session.setPlaybackRate(2);                     // 工作台通道：共享值 → AudioSession → 引擎
+      expect(engine.playbackRate).toBe(2);
+      expect(engine.getSeconds()).toBeCloseTo(10, 6); // 改速率不跳位置
+      expect(ctx.sources.at(-1)!.playbackRate.value).toBe(2);
+
+      ctx.currentTime = 12;
+      expect(engine.getSeconds()).toBeCloseTo(14, 6); // 之后按 2× 推进
+      engine.dispose();
+    } finally {
+      keySpy.mockRestore();
+    }
   });
 
   it('无音频（合成时间线）：同样按速率推进，且位置连续', async () => {

@@ -75,6 +75,7 @@ import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP,
 import { getDefaultConfig } from '@/src/settings/ShortcutConfig';
 import { t } from '@/src/i18n';
 import type { AppSettings } from '@/src/settings/AppSettings';
+import { resetPlaybackRate } from '@/src/playback/playbackRateState';
 
 const scene: SimScene = {
   notes: [],
@@ -152,6 +153,9 @@ const currentTime = () => screen.getByTitle(t('play.editTime'));
 const timeInput = () => screen.queryByRole('textbox');
 
 beforeEach(() => {
+  // 58：倍速值改由模块级共享单点持有（不再是每次挂载的 useState(1)），
+  // 逐例复位回 1×，保住"每个用例从原速起步"的旧语义与用例间隔离。
+  resetPlaybackRate();
   calls.setOptions.mockClear();
   calls.setFrame.mockClear();
   calls.play.mockClear();

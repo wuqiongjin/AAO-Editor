@@ -93,39 +93,47 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
     expect(geometry).toMatch(/PLAY_LINE_RATIO = \{ w: 1\.35 \}/);
   });
 
-  it('播放器控件（chart-preview 20）：音量 / 倍速都走 simPlayback.setOptions，不自己摸引擎', () => {
+  it('播放器控件（chart-preview 20 / 58）：音量 / 倍速都走 simPlayback.setOptions，不自己摸引擎', () => {
     const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
     expect(stage).toMatch(/setOptions\(\{\s*density,\s*seVolume,\s*keySetId,\s*volume,\s*rate\s*\}\)/);
     // 回放那一层的循环能力还在，但 UI 不再传它（"不需要回到开头和循环的按钮"）
     expect(stage).not.toMatch(/setOptions\(\{[^}]*loop/);
     expect(stage).not.toMatch(/restart\(/);
     expect(stage).not.toMatch(/preview\.video\.(restart|loop)/);
-    // 倍速：不用原生 select，档位表 / 步长 / 越界钳回都从预览域来
+    // 58：倍速值不再放页面内私有 useState，改读共享单点；档位 / 步长 / 归一化随控件抽到 src/playback/
     expect(stage).not.toMatch(/<select/);
-    expect(stage).toMatch(/SIM_PLAYBACK_RATE_STEP/);
-    expect(stage).toMatch(/SIM_PLAYBACK_RATE_PRESETS/);
-    expect(stage).toMatch(/normalizePlaybackRate\(raw,/);
-    // 音量落设置（`settings.audio.volume`），倍速是页面内 state
+    expect(stage).toMatch(/usePlaybackRate\(\)/);
+    expect(stage).not.toMatch(/useState<number>\(1\)/);
+    const shared = readStripped('src/playback/playbackRateState.ts');
+    expect(shared).toMatch(/SIM_PLAYBACK_RATE_PRESETS/);
+    expect(shared).toMatch(/SIM_PLAYBACK_RATE_STEP/);
+    expect(shared).toMatch(/function normalizePlaybackRate\(raw/);
+    expect(shared).toMatch(/useSyncExternalStore/); // 两处实时同步的共享内存单点
+    expect(shared).toMatch(/PLAYBACK_RATE_RANGE/);   // 区间仍以引擎为唯一真相源
+    // 音量落设置（`settings.audio.volume`）
     expect(stage).toMatch(/onVolumeChange/);
     const page = readStripped('src/pages/preview/PreviewPage.tsx');
     expect(page).toMatch(/volume=\{settings\.audio\.volume\}/);
     expect(page).toMatch(/onVolumeChange=\{setAudioVolume\}/);
+    // simPlayback 只把常量按旧名回抽给预览域 barrel（对象引用不变），本地不再另立一份
+    const playback = readStripped(`${SIM_DIR}/simPlayback.ts`);
+    expect(playback).toMatch(/from '\.\.\/\.\.\/\.\.\/playback\/playbackRateState'/);
     // 循环 / 回开头已随 issue 22 收掉（零 UI 消费方）：回放那一层不再留这份能力，
     // 到谱面长度一律停在末帧（ADR-0005 第一性）
-    const playback = readStripped(`${SIM_DIR}/simPlayback.ts`);
     expect(playback).not.toMatch(/\bloop\b/);
     expect(playback).not.toMatch(/\brestart\b/);
   });
 
   it('倍速面板是一列（不是横排），且按 max-content 撑开（不是靠 min-width 卡住）', () => {
-    const css = readStripped('src/pages/preview/PreviewPage.css');
+    // 58：`pv-rate` 一族样式随控件搬到 src/playback/PlaybackRate.css（工作台 / 预览共用）
+    const css = readStripped('src/playback/PlaybackRate.css');
     expect(css).toMatch(/\.pv-rate__panel \{[\s\S]*?flex-direction: column/);
     expect(css).not.toMatch(/\.pv-rate__presets/);
     // 绝对定位会按"可用宽度"（= 触钮那点宽度）收缩：不给 max-content，最宽那行会顶出右缘
     expect(css).toMatch(/\.pv-rate__panel \{[\s\S]*?width: max-content/);
-    const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
-    expect(stage).not.toMatch(/pv-rate__presets/);
-    expect(stage).toMatch(/className="pv-rate__panel"/);
+    const control = readStripped('src/playback/PlaybackRate.tsx');
+    expect(control).not.toMatch(/pv-rate__presets/);
+    expect(control).toMatch(/className="pv-rate__panel"/);
   });
 
   it('Bestdori 自家精灵走同一条运行时素材树（chart-preview 21）：三张 PNG 都在 `assets/sim/sprites/` 下', () => {
