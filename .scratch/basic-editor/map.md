@@ -212,6 +212,9 @@
 - **224 粘贴重叠音符保真与防自消**（[224](./issues/224-粘贴重叠音符保真与防自消.md)，`Type: grilling`，resolved）—— **定了什么** = 剪贴板/片段库负载自身重叠时完整保留全部落子（阻断同批次音符自相残杀与误删），单音符普通粘贴继续走 ADR-0001 覆盖规则（普通操作绝不创造重叠）；严密防范粘贴至滑条端点时的重复拆条或标记污染。已全量锁测。
 - **225 模板与缓动滑条镜像后拖动反向弹回缺陷**（[225](./issues/225-模板与缓动滑条镜像后拖动反弹缺陷.md)，Type: grilling，resolved）—— **定了什么** = SpanTemplateParam 补充 mirrored 镜像状态标记并在烘焙中取反 offset，移除水平镜像对 flipEasingType 的错误调用；收敛 mirrorSelection 框选镜像参数同步；框选全可见结点复制保真 spanParams；音符代码子段回写执行“一动就自由化”转自由段。
 - **226 删除音符后快速播放残留发声与引擎同步竞态**（[226](./issues/226-删除音符后快速播放残留发声与引擎同步竞态.md)，Type: bug，resolved）—— **改成什么** = 开播时立即 flush 在途谱面同步防抖，阻断陈旧谱面提前调度；AudioEngine.setChart 补齐 cancelScheduled 并在播放中重定位游标至 getSeconds()。
+- **227 音符代码弹窗对象视图应用无 toast**（[227](./issues/227-音符代码弹窗对象视图应用无toast.md)，`Type: bug`，resolved）—— **根因** = `handleApply` 对象视图成功分支只 `handleNotesChange + close`，缺 `commitApply` 那条 `applyOk` success toast；toast 是 body portal、非被弹窗吞掉。**改成什么** = 对象视图成功回写后补同款 success toast（`chartCode.applyOk`），两条出口对齐。用户 2026-11-11 确认「应用后自动关闭」差异不重开定案（issue 59 已定），本票只修 toast。
+- **228 超出 END 线的音符越往外越糊**（[228](./issues/228-超出END线的音符越往外越糊.md)，`Type: research`，open / 待复现）—— **补充线索** = 谱面时长缩短后 `beat>chartEndBeat` 音符残留 END 外、间歇发糊（1-2 次，无法稳定复现）。**收窄候选** = 高 tileId 瓦片 stale `refScale` 拉伸 + issue 222 自适应平滑（拉伸变平滑模糊而非马赛克），`k` 越大越糊；已排除蒙版（218 只在底部条带）。用户 2026-11-11 定：**暂只记录现象，待未来复现再查根因**，不改代码。
+- **229 Ctrl+左键整条选中与框选整条选中拖动表现不一致**（[229](./issues/229-整条滑条选中态Shift拖动只拖光标子件.md)，`Type: bug`，resolved）—— **根因** = 框选（`computeItemsInBox`）选区 = 多条 `slideNode`+`slideRegion` ⇒ 组拖整体平移；Ctrl+左键（`pointerClickSelection`）选区 = 单条 `{kind:'note'}` ⇒ `resolvePressIntent` 两条件都不满足 ⇒ 退化单拖光标子件。外观一样、内部表示不同。**定案（用户 2026-11-11）** = 按方案实现：`resolvePressIntent` 补 `coveredByWholeNote`，整条选中态交给 `whole` 刚体平移（拖段不捏形）。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

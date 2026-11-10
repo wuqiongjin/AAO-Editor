@@ -325,6 +325,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                 const r = applyNoteCode(notes, target, coerced.code);
                 if (!r.ok) { rejectNoteApply(r.errors); return; }
                 handleNotesChange(r.notes);
+                showToast(t('chartCode.applyOk'), 'success'); // issue 227：与完整视图 commitApply 同款成功反馈
                 close(); // 对象视图是"点谁看谁"，回写即完成
                 return;
             }

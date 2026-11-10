@@ -381,6 +381,68 @@ describe('resolvePressIntent 按下意图仲裁', () => {
     expect(r.kind).toBe('drag');
     if (r.kind === 'drag') expect(r.anchor.items).toEqual([{ kind: 'slideRegion', noteIndex: 1, connIndex: 0 }]);
   });
+
+  // ── issue 229：Ctrl+左键整条选中（单条 {kind:'note'}）与框选整条选中（多条 slideNode+slideRegion）
+  //    两种「整条滑条被选中」必须走同一条拖动路径（整条刚体平移，拖段不捏形）──
+  const slideDeps229 = () => {
+    const slideNotes: ChartNote[] = [bpmNote(0, 120), {
+      type: 'Slide', connections: [{ beat: 50, lane: 1 }, { beat: 54, lane: 4 }],
+    }];
+    const { deps, geometry, viewport } = makeDeps(slideNotes);
+    const a = geometry.virtualToCanvas(geometry.noteVirtualX(1), geometry.noteVirtualY(50, 0, 1, BEAT_DISPLAY), viewport);
+    const b = geometry.virtualToCanvas(geometry.noteVirtualX(4), geometry.noteVirtualY(54, 0, 1, BEAT_DISPLAY), viewport);
+    return { deps, node: a, region: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+  };
+
+  it('issue 229 对照①：框选整条滑条（多条 slideNode+slideRegion）→ 组拖整体平移（回归基线）', () => {
+    const { deps, region } = slideDeps229();
+    const sel: SelectionItem[] = [
+      { kind: 'slideNode', noteIndex: 1, connIndex: 0 },
+      { kind: 'slideRegion', noteIndex: 1, connIndex: 0 },
+      { kind: 'slideNode', noteIndex: 1, connIndex: 1 },
+    ];
+    const r = resolvePressIntent({
+      cx: region.x, cy: region.y, armedTool: null, shiftKey: false, onMarker: false,
+      deps, selectedItems: sel, chartEndBeat: 100,
+    });
+    expect(r.kind).toBe('drag');
+    if (r.kind !== 'drag') return;
+    expect(r.anchor.items).toEqual(sel);
+    expect(r.anchor.items.some(it => it.kind === 'slideRegion')).toBe(true);
+  });
+
+  it('issue 229 对照②：Ctrl+左键整条选中（单条 {kind:note}）+ 按在结点 → 整条平移（不退化单拖）', () => {
+    const { deps, node } = slideDeps229();
+    const sel: SelectionItem[] = [{ kind: 'note', noteIndex: 1 }];
+    const r = resolvePressIntent({
+      cx: node.x, cy: node.y, armedTool: null, shiftKey: false, onMarker: false,
+      deps, selectedItems: sel, chartEndBeat: 100,
+    });
+    expect(r.kind).toBe('drag');
+    if (r.kind !== 'drag') return;
+    expect(r.anchor.items).toEqual(sel);             // 交给 planDragMove 的 whole 计划
+    expect(r.anchor.anchorBeat).toBeCloseTo(50, 6);  // 锚点仍取光标命中的结点
+  });
+
+  it('issue 229 对照③：Ctrl+左键整条选中 + 按在段 → 整条平移、不捏形', () => {
+    const { deps, region } = slideDeps229();
+    const sel: SelectionItem[] = [{ kind: 'note', noteIndex: 1 }];
+    const r = resolvePressIntent({
+      cx: region.x, cy: region.y, armedTool: null, shiftKey: false, onMarker: false,
+      deps, selectedItems: sel, chartEndBeat: 100,
+    });
+    expect(r.kind).toBe('drag');
+    if (r.kind !== 'drag') return;
+    expect(r.anchor.items).toEqual(sel);
+    expect(r.anchor.items.some(it => it.kind === 'slideRegion')).toBe(false); // 不进捏形分支
+  });
+
+  it('issue 229 守卫：单键单条选中（hit 同 kind=note）→ 仍单拖命中项，不被整条规则误伤', () => {
+    const r = press({ selectedItems: [{ kind: 'note', noteIndex: 1 }] });
+    expect(r.kind).toBe('drag');
+    if (r.kind !== 'drag') return;
+    expect(r.anchor.items).toEqual([{ kind: 'note', noteIndex: 1 }]);
+  });
 });
 
 // ─────────────────────────── resolveReleaseIntent：抬手优先级表（issue 63） ───────────────────────────

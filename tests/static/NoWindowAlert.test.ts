@@ -54,9 +54,10 @@ describe('issue 17 · 原生提示弹窗清零', () => {
     expect(files.length).toBeGreaterThan(100);
   });
 
-  it('谱面代码弹窗的 8 处提示全接了 showToast', () => {
-    // 应用成功 / 应用失败 / 校验不过（两条）/ 缺第 0 拍 BPM / 复制成功 / 复制失败 / 另存失败
-    expect(toastCalls(codeModal)).toBe(8);
+  it('谱面代码弹窗的 9 处提示全接了 showToast', () => {
+    // 应用成功（完整视图 commitApply）/ 应用成功（对象视图·issue 227）/ 应用失败 /
+    // 校验不过（两条）/ 缺第 0 拍 BPM / 复制成功 / 复制失败 / 另存失败
+    expect(toastCalls(codeModal)).toBe(9);
     expect(codeModal).toMatch(/showToast\(t\('chartCode\.applyOk'\), 'success'\)/);
     expect(codeModal).toMatch(/showToast\(t\('chartCode\.needBpm0'\), 'danger'\)/);
   });

@@ -253,9 +253,18 @@ export function resolvePressIntent(input: {
 
     const hit = findItemAt(input.cx, input.cy, input.deps);
     if (!hit) return marquee;
-    // 命中 ∈ 选区且选区 ≥2 → 组拖（共用同一 delta），否则单拖命中项
+    // 命中 ∈ 选区且选区 ≥2 → 组拖（共用同一 delta），否则单拖命中项。
+    // issue 229：Ctrl+左键把整条滑条选中时选区是**单条 {kind:'note'}**，与光标命中的
+    // slideNode/slideRegion 不同 kind，按字面判「命中 ∈ 选区」会退化成只拖光标那个子件，
+    // 与框选整条滑条（选区为多条 slideNode+slideRegion）的整体平移表现不一致。
+    // 故命中项属于选区里某条整条音符时也按组拖处理，source 取整片选区 → planDragMove 的
+    // {kind:'whole'} 刚体平移；拖段因此不进捏形分支，与框选态一致。
+    const coveredByWholeNote = hit.kind !== 'note' && input.selectedItems.some(
+        it => it.kind === 'note' && it.noteIndex === hit.noteIndex,
+    );
     const inSelection = input.selectedItems.some(it => sameSelectionItem(it, hit));
-    const source = inSelection && input.selectedItems.length >= 2 ? input.selectedItems : [hit];
+    const group = coveredByWholeNote || (inSelection && input.selectedItems.length >= 2);
+    const source = group ? input.selectedItems : [hit];
     const items = draggableFromItems(input.deps.notes, source);
     if (items.length === 0) return marquee; // BPM/System/区域等非可拖对象 → 退回框选
 
@@ -263,8 +272,10 @@ export function resolvePressIntent(input: {
     const p = snapChartPos(input.deps, input.chartEndBeat, input.cx, input.cy, true);
     if (!p) return marquee;
 
-    // issue 61：量化基准取**被按住那件对象**的真实拍位（按到滑条区域等不可拖条目时回退集合首件）
-    const anchor = items.some(it => sameSelectionItem(it, hit)) ? hit : items[0]!;
+    // issue 61：量化基准取**被按住那件对象**的真实拍位（按到滑条区域等不可拖条目时回退集合首件）。
+    // issue 229：整条选中态下 source 是 {kind:'note'}、hit 不在 items 里，但量化基准仍要取
+    // 光标命中的那个结点/段，与框选态同口径（否则会拿滑条首结点拍位当基准）。
+    const anchor = coveredByWholeNote || items.some(it => sameSelectionItem(it, hit)) ? hit : items[0]!;
     const anchorBeat = itemTrueBeat(input.deps.notes, anchor, input.deps.beatDisplay);
     if (anchorBeat === null) return marquee;
 
