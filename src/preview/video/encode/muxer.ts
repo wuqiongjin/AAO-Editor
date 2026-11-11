@@ -39,6 +39,14 @@ import { audioChunkFrames } from './renderAudioTrack';
 const MAX_ENCODE_QUEUE = 32;
 
 /**
+ * 周期关键帧的间隔（秒，票 63）。`latencyMode:'quality'` 让编码器自己挑 GOP，静态场景实测
+ * 300 帧 / 5s 只吐 1 个 key chunk ⇒ 拖进度条 / 剪辑刮擦 / 缩略图都要从第 0 帧解码。
+ * 每 2s 强制一次（60fps = 120 帧）把最坏解码量从整片压到 2s；再密会让关键帧体积吃掉码率。
+ * `createVideoSink` 是 MP4 / WebM 共用的 ⇒ 两个容器一起受益。
+ */
+const KEY_FRAME_INTERVAL_SECONDS = 2;
+
+/**
  * 等这么久**没有任何输出**就认定"它不会自己吐"，用 `flush()` 逼它吐（见 `createEncodeGate`）。
  *
  * 1 s 是"单帧编码慢于 1 秒"的分界：健康编码器 1080p 一帧也就几十毫秒量级，正常不会触发；
@@ -345,8 +353,14 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
       : Promise.resolve(),
   );
 
-  /** 已入队帧数：首帧必须是关键帧，其余交给编码器自己挑 */
+  /** 已入队帧数：首帧 + 每 2s 强制关键帧，其余交给编码器自己挑 */
   let queuedFrames = 0;
+  /**
+   * 按**帧数**取模而不是按 `frame.timestamp`：导出本来就是固定帧率逐帧出帧
+   * （`frameDriver` 的 `frameTimestampUs`），`queuedFrames` 已在数帧，少一处浮点/时间戳分歧。
+   * 上游 `buildExportTimeline` 保证 fps 有限且 > 0。
+   */
+  const keyFrameIntervalFrames = Math.max(1, Math.round(opts.fps * KEY_FRAME_INTERVAL_SECONDS));
   /** 取消：等背压时也要查（否则导出挂在最后一帧、取消钮形同虚设） */
   const isCancelled = (): boolean => opts.isCancelled?.() === true;
   const cancelledNow = (): boolean => {
@@ -374,7 +388,7 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
       await videoGate.wait();
       if (cancelledNow()) throw new Error('导出已取消');
       if (closed || failure) throw failure ?? new Error('导出已取消');
-      videoEncoder.encode(frame, { keyFrame: queuedFrames === 0 });
+      videoEncoder.encode(frame, { keyFrame: queuedFrames % keyFrameIntervalFrames === 0 });
       queuedFrames++;
       videoInFlight++;
     },
