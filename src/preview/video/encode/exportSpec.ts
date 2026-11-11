@@ -284,8 +284,42 @@ export function resolveExportGeometry(tier: VideoTier): ExportGeometry {
   };
 }
 
-/** 导出文件的基础名（扩展名按当选容器补；`t()` 的插值在调用侧做） */
+/** 各平台文件名的非法字符（票 62）。控制字符按码点判，不进正则 */
+const ILLEGAL_FILENAME_CHARS: ReadonlySet<string> = new Set(['\\', '/', ':', '*', '?', '"', '<', '>', '|']);
+
+/** Windows 保留设备名（大小写不敏感，按第一个点之前那段判） */
+const WINDOWS_RESERVED_NAMES: ReadonlySet<string> = new Set([
+  'CON', 'PRN', 'AUX', 'NUL',
+  ...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
+  ...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`),
+]);
+
+/**
+ * 曲名 → 可落盘的导出文件名 stem（票 62，就地实现，不抽共享模块）。
+ * 与片段分享 / 主进程落盘入口同口径，由 `ExportFileName.test.ts` /
+ * `PatternFileName.test.ts` / `SaveDialogFileName.test.ts` 三处行为测锁一致。
+ */
+function sanitizeFileNameStem(name: string, fallback: string): string {
+  let out = '';
+  for (const ch of name.trim()) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += ILLEGAL_FILENAME_CHARS.has(ch) || code <= 0x1f || code === 0x7f ? '_' : ch;
+  }
+  out = out.replace(/[. ]+$/, '');
+  if (!out) return fallback;
+  const head = out.split('.')[0]!.trim().toUpperCase();
+  return WINDOWS_RESERVED_NAMES.has(head) ? `_${out}` : out;
+}
+
+/** 清洗后为空时回落的基础名（域层不引 i18n，给一个语言无关的常量） */
+const VIDEO_EXPORT_FALLBACK_STEM = 'video';
+
+/**
+ * 导出文件的基础名（扩展名按当选容器补；`t()` 的插值在调用侧做）。
+ * stem 先过就地清洗（票 62）：非法字符不再留到写盘那一刻才被 `writeFile` 判 EINVAL。
+ */
 export function videoExportBasename(base: string, extension: string): string {
   const ext = extension.replace(/^\./, '');
-  return `${base}.${ext}`;
+  const stem = sanitizeFileNameStem(base, VIDEO_EXPORT_FALLBACK_STEM);
+  return `${stem}.${ext}`;
 }

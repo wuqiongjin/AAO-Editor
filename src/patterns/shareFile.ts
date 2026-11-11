@@ -46,27 +46,39 @@ export function patternSelectedExportFilename(count: number, now: Date = new Dat
   return `aao-patterns-selected-${count}-${date}-${time}.json`;
 }
 
-/** 各平台文件名的非法字符。控制字符按码点判（照 `community/bestdori/assetNames` 先例，不进正则） */
+/** 各平台文件名的非法字符（票 62）。控制字符按码点判，不进正则 */
 const ILLEGAL_FILENAME_CHARS: ReadonlySet<string> = new Set(['\\', '/', ':', '*', '?', '"', '<', '>', '|']);
 
-/** 非法字符替换为 `_`（替换不删除：「A/B」删掉斜杆会粘成「AB」） */
-function replaceIllegalFileNameChars(name: string): string {
+/** Windows 保留设备名（大小写不敏感，按第一个点之前那段判） */
+const WINDOWS_RESERVED_NAMES: ReadonlySet<string> = new Set([
+  'CON', 'PRN', 'AUX', 'NUL',
+  ...Array.from({ length: 9 }, (_, i) => `COM${i + 1}`),
+  ...Array.from({ length: 9 }, (_, i) => `LPT${i + 1}`),
+]);
+
+/**
+ * 片段名 → 可落盘的文件名 stem（票 62，就地实现，不抽共享模块）。
+ * 与视频导出 / 主进程落盘入口同口径，由 `PatternFileName.test.ts` /
+ * `ExportFileName.test.ts` / `SaveDialogFileName.test.ts` 三处行为测锁一致。
+ */
+function sanitizeFileNameStem(name: string, fallback: string): string {
   let out = '';
-  for (const ch of name) {
+  for (const ch of name.trim()) {
     const code = ch.codePointAt(0) ?? 0;
     out += ILLEGAL_FILENAME_CHARS.has(ch) || code <= 0x1f || code === 0x7f ? '_' : ch;
   }
-  return out;
+  out = out.replace(/[. ]+$/, '');
+  if (!out) return fallback;
+  const head = out.split('.')[0]!.trim().toUpperCase();
+  return WINDOWS_RESERVED_NAMES.has(head) ? `_${out}` : out;
 }
 
 /**
  * 单条导出的文件名：`<片段名>.aao-pattern.json`。
- * 名字里的非法文件名字符替换为 `_`；**不改库里存的名字**（清洗只发生在拼文件名这一刻）。
- * 末尾的点 / 空格也去掉（Windows 不接受这类文件名）；清洗后为空则回落 `pattern`。
+ * 清洗只发生在拼文件名这一刻，**不改库里存的名字**。
  */
 export function patternExportFilename(name: string): string {
-  const stem = replaceIllegalFileNameChars(name.trim()).replace(/[. ]+$/, '');
-  return `${stem || 'pattern'}.aao-pattern.json`;
+  return `${sanitizeFileNameStem(name, 'pattern')}.aao-pattern.json`;
 }
 
 /* ------------------------------------------------------------------ */

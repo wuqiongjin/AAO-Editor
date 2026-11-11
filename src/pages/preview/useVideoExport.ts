@@ -7,7 +7,7 @@
 // 取消不是 AbortController —— 域那一层是逐帧循环，靠 `isCancelled` 轮询在帧边界上退出来。
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppSettings } from '../../settings/AppSettings';
-import { t } from '../../i18n';
+import { t, type MessageKey } from '../../i18n';
 import { logger } from '../../diagnostics/logger';
 import { trail } from '../../diagnostics/trail';
 import {
@@ -94,10 +94,13 @@ export function exportDoneText(outcome: VideoExportOutcome): string {
 export function noticeFor(outcome: VideoExportOutcome): VideoExportNotice | null {
   if (!outcome.ok) {
     if (outcome.unsupported) return { text: t('preview.video.export.unsupported'), tone: 'danger' };
-    return {
-      text: t(outcome.failure === 'assets' ? 'preview.video.export.failedAssets' : 'preview.video.export.failed'),
-      tone: 'danger',
-    };
+    const failedKey: MessageKey =
+      outcome.failure === 'assets'
+        ? 'preview.video.export.failedAssets'
+        : outcome.failure === 'save'
+          ? 'preview.video.export.failedSave'
+          : 'preview.video.export.failed';
+    return { text: t(failedKey), tone: 'danger' };
   }
   if (outcome.cancelled) return { text: t('preview.video.export.cancelled'), tone: 'warn' };
   return null;

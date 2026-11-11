@@ -637,6 +637,7 @@
   "preview.video.export.unsupported": "这台电脑导不出视频。请换用最新版 Chrome / Edge 浏览器或桌面客户端重试。",
   "preview.video.export.failed": "导出失败",
   "preview.video.export.failedAssets": "本地还没有仿真场素材。先回预览页按提示取一次件，再重新导出。",
+  "preview.video.export.failedSave": "保存视频文件失败。请确认目标文件夹可写、磁盘空间充足，或另选一个位置后重试。",
   "preview.video.export.cancelled": "已取消导出",
   "preview.video.export.done": "视频已导出",
   "preview.video.export.doneWith": "视频已导出（{{container}}）",

@@ -332,6 +332,29 @@ describe('07 · 导出面板的用词与跟随（2026-10-10 验收回修；三�
   });
 });
 
+describe('票 62 · 写盘失败单独成档（不再混进 unknown）', () => {
+  const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
+  const en = JSON.parse(readSource('src/i18n/messages/en.json')) as Record<string, string>;
+  const hook = readStripped('src/pages/preview/useVideoExport.ts');
+
+  it('域层把 saveBinaryAs 单独 try/catch，写盘失败回 failure: save', () => {
+    expect(exportVideo).toMatch(/failure: 'save', container: target\.container/);
+    // 编码段的 unknown 仍在（不是被 save 顶掉）
+    expect(exportVideo).toMatch(/failure: 'unknown', container: target\.container/);
+  });
+
+  it('可照做的保存失败文案走 i18n，两个语言都补齐', () => {
+    expect(zh['preview.video.export.failedSave']).toBeTruthy();
+    expect(en['preview.video.export.failedSave']).toBeTruthy();
+    expect(hook).toMatch(/preview\.video\.export\.failedSave/);
+  });
+
+  it('文件名换算仍只有一份，且清洗在域内就地实现', () => {
+    expect(exportVideo).toMatch(/videoExportBasename\(req\.suggestedBaseName, spec\.extension\)/);
+    expect(readStripped('src/preview/video/encode/exportSpec.ts')).toMatch(/sanitizeFileNameStem/);
+  });
+});
+
 describe('07 · 代码评审回修（2026-10-10）：文案与文件名各只有一份', () => {
   const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
   const hook = readStripped('src/pages/preview/useVideoExport.ts');

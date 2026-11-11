@@ -418,6 +418,17 @@ describe('失败态 · 明确文案，不静默', () => {
     expect(result.current.notice?.tone).toBe('danger');
   });
 
+  it('票 62 · 写盘失败单独成档：给一句可照做的保存失败文案（不是通用「导出失败」）', async () => {
+    const run = vi.fn(async () => outcome({ ok: false, failure: 'save' }));
+    const { result } = renderHook(() => useVideoExport(args, run));
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.notice?.text).toBe(t('preview.video.export.failedSave'));
+    expect(result.current.notice?.text).not.toBe(t('preview.video.export.failed'));
+    expect(result.current.notice?.tone).toBe('danger');
+  });
+
   it('取消是"已取消"，不是失败（两种结局文案不同）', async () => {
     const run = vi.fn(async () => outcome({ ok: true, cancelled: true }));
     const { result } = renderHook(() => useVideoExport(args, run));

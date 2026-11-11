@@ -639,6 +639,7 @@
   "preview.video.export.unsupported": "This computer can't export video. Please try again with the latest Chrome / Edge or the desktop app.",
   "preview.video.export.failed": "Export failed",
   "preview.video.export.failedAssets": "The simulation assets aren't available locally yet. Load them on the preview page, then export again.",
+  "preview.video.export.failedSave": "Couldn't save the video file. Check that the destination folder is writable and has enough free space, or pick another location and try again.",
   "preview.video.export.cancelled": "Export cancelled",
   "preview.video.export.done": "Video exported",
   "preview.video.export.doneWith": "Video exported ({{container}})",

@@ -56,6 +56,12 @@ describe('单条导出文件名 · <片段名>.aao-pattern.json', () => {
     expect(patternExportFilename('末尾点.')).toBe('末尾点.aao-pattern.json');
   });
 
+  it('票 62：Windows 保留设备名前置 _（与视频导出 / 主进程落盘同一口径，由行为测锁一致）', () => {
+    expect(patternExportFilename('CON')).toBe('_CON.aao-pattern.json');
+    expect(patternExportFilename('nul')).toBe('_nul.aao-pattern.json');
+    expect(patternExportFilename('COM1')).toBe('_COM1.aao-pattern.json');
+  });
+
   it('只清洗文件名，信封里的片段名保持原样', () => {
     const source = makePattern({ name: 'a/b' });
     const doc = parsePatternsFile(serializePatterns([source]));

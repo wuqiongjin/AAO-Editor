@@ -109,10 +109,11 @@ export interface OpeningInput {
 }
 
 /**
- * 失败档：`'assets'` = 仿真场素材没就绪（用户有得照做）；`'unknown'` = 其余（原始错误只进 console）。
+ * 失败档：`'assets'` = 仿真场素材没就绪（用户有得照做）；`'save'` = 落盘 / 写盘失败（用户可换位置
+ * / 查权限 / 查空间重试，票 62）；`'unknown'` = 其余（原始错误只进 console）。
  * 域层只回档位、不产出用户可见文字 —— 文案由 UI 走 i18n（域不引 i18n，也不漏中文进英文界面）。
  */
-export type VideoExportFailure = 'assets' | 'unknown';
+export type VideoExportFailure = 'assets' | 'save' | 'unknown';
 
 export interface VideoExportOutcome {
   ok: boolean;
@@ -342,20 +343,28 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     req.onProgress?.({ phase: 'muxing', frame: timeline.frameCount, totalFrames: timeline.frameCount });
     const bytes = await sink.finish();
     const spec = CONTAINER_SPECS[target.container];
-    const saved = await saveBinaryAs({
-      bytes,
-      suggestedName: videoExportBasename(req.suggestedBaseName, spec.extension),
-      mime: spec.mime,
-    });
-    // 系统保存对话框里取消 = 用户取消（不是失败）
-    return done({
-      ok: true,
-      cancelled: saved.cancelled,
-      bytes: saved.cancelled ? 0 : bytes.byteLength,
-      container: target.container,
-      videoCodec: target.support.videoCodec,
-      audioCodec: track ? target.audioCodec : null,
-    });
+    // 落盘单独成段：文件名在统一入口已清洗（票 62），写盘失败自己一档，
+    // 不再混进编码段的 unknown —— UI 据此给得出「换位置 / 查权限 / 查空间」的可照做文案。
+    try {
+      const saved = await saveBinaryAs({
+        bytes,
+        suggestedName: videoExportBasename(req.suggestedBaseName, spec.extension),
+        mime: spec.mime,
+      });
+      // 系统保存对话框里取消 = 用户取消（不是失败）
+      return done({
+        ok: true,
+        cancelled: saved.cancelled,
+        bytes: saved.cancelled ? 0 : bytes.byteLength,
+        container: target.container,
+        videoCodec: target.support.videoCodec,
+        audioCodec: track ? target.audioCodec : null,
+      });
+    } catch (err) {
+      // finish() 已产出字节并收尾 sink（内部已 abort），这里不必再 abort
+      logger.error('[preview]', '保存视频文件失败', err);
+      return done({ ok: false, failure: 'save', container: target.container });
+    }
   } catch (err) {
     sink.abort();
     // 取消也会从这里出来（sink 在等背压时点取消 → 抛错），那是取消不是失败
