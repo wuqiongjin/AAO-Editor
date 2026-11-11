@@ -34,6 +34,8 @@ export type FunctionId =
   | 'execSavePattern'
   | 'toggleSidebar'
   | 'undo' | 'redo' | 'play' | 'jumpToMarker'
+  // issue 230：倍速 / 音量快捷键（作用于播放态、可逆、结果即时可见；对齐 Bestdori 键位）
+  | 'rateDown' | 'rateUp' | 'volumeDown' | 'volumeUp'
   // issue 216：节拍吸附快捷键（增大细分 / 减小细分 / 常用档位循环），出厂未绑定（binding: null）
   | 'beatSnapNext' | 'beatSnapPrev' | 'beatSnapCycle'
   // 切页（issue 177，2026-10-28 用户定案）：应用级功能进同一注册表，
@@ -95,13 +97,19 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'redo',               label: 'shortcut.fn.redo',               category: 'redo', binding: 'ctrl+y' },
   { id: 'play',               label: 'shortcut.fn.play',               category: 'play', binding: ' ' },
   { id: 'jumpToMarker',       label: 'shortcut.fn.jumpToMarker',       category: 'play', binding: 'ctrl+ ' },
+  // 倍速 / 音量（issue 230）：category 'play' 复用现成的 playback 索引桶；四键均为出厂默认裸键，
+  // 与出厂默认表零冲突（由 getDefaultConfig() 零冲突单测锁死）。位置不再有「去重优先」含义。
+  { id: 'rateDown',           label: 'shortcut.fn.rateDown',           category: 'play', binding: ',' },
+  { id: 'rateUp',             label: 'shortcut.fn.rateUp',             category: 'play', binding: '.' },
+  { id: 'volumeDown',         label: 'shortcut.fn.volumeDown',         category: 'play', binding: ';' },
+  { id: 'volumeUp',           label: 'shortcut.fn.volumeUp',           category: 'play', binding: "'" },
   // 节拍吸附（issue 216，双轨制 Q1=A）：出厂默认 null（零冲突），偏好用户在设置页自行绑定
   { id: 'beatSnapNext',       label: 'shortcut.fn.beatSnapNext',       category: 'snap', binding: null },
   { id: 'beatSnapPrev',       label: 'shortcut.fn.beatSnapPrev',       category: 'snap', binding: null },
   { id: 'beatSnapCycle',      label: 'shortcut.fn.beatSnapCycle',      category: 'snap', binding: null },
   // 切页默认键 Alt+1..7（1 起、与侧栏位次一一对应）。**不要改回 ⇧⌘0..6**：
   // macOS 的 ⇧⌘3/4/5 是系统截图/录屏、⇧⌘6 是 Touch Bar 截图，事件先被系统吃掉，应用收不到。
-  // 放在表尾还有一个含义：载入时去重按表序优先，画布功能（用户显式改过的键）不会被页面默认键顶掉。
+  // 表尾只是历史排布：载入时去重不再看表序，改按「用户快照里出现过的功能优先」（issue 230）。
   { id: 'pageProjects',  label: 'pageSwitch.projects',  category: 'navigation', binding: 'alt+1', scope: 'app' },
   { id: 'pageWorkspace', label: 'pageSwitch.workspace', category: 'navigation', binding: 'alt+2', scope: 'app' },
   { id: 'pageAudio',     label: 'pageSwitch.audio',     category: 'navigation', binding: 'alt+3', scope: 'app' },
@@ -220,17 +228,31 @@ function repairStaleBindings(cfg: ShortcutConfig): ShortcutConfig {
 }
 
 /**
- * 载入时去重：一份配置里同一组合只能归一个功能——**跨作用域也一样**（否则 Alt+1 既切页又切工具）。
- * 冲突时按 FUNCTIONS 表序优先（画布功能在前、页面在后），后出现的退让成 null（显示为「已屏蔽」），
- * 让用户在快捷键页看得见并能重新指派，而不是按键静默跑到另一个功能上。
+ * 载入时去重（issue 230 修订）：一份配置里同一组合只能归一个功能——**跨作用域也一样**。
+ *
+ * 长期契约 = **用户设置永远优先**：新增内置默认键绝不抢占用户已占用的键。
+ * - 判定口径 B：以用户快照 `parsed` 的 **key 集合**分流 —— 出现过的 id = 老功能，
+ *   没出现过的 = 本次新增（其键必然来自出厂默认）。**不看用户改没改过**（值恰好等于出厂默认也算老功能），
+ *   因此无需 diff 元数据、无需 bump `schemaVersion`。
+ * - 键位撞车时老功能保住键、新增功能退让成 `null`（显示为「已屏蔽」，快捷键页点「启用」可当场改绑）；
+ *   即便新增功能在 `FUNCTIONS` 表里排在前面也一样 —— **表序优先 ≠ 用户优先**。
+ * - 两边都是老功能（脏存档 / 导入）时仍按表序保留第一个，保证一键不多功能。
+ * - 两边都是新增（两个出厂默认互撞）由 `getDefaultConfig()` 的零冲突单测在开发期锁死，此处不兜底。
  */
-function dedupeBindings(cfg: ShortcutConfig): ShortcutConfig {
-  const seen = new Set<string>();
+function dedupeBindings(cfg: ShortcutConfig, existingIds: ReadonlySet<string>): ShortcutConfig {
+  const seen = new Map<string, FunctionId>();
   for (const f of FUNCTIONS) {
     const b = cfg[f.id];
     if (!b) continue;
-    if (seen.has(b)) cfg[f.id] = null;
-    else seen.add(b);
+    const owner = seen.get(b);
+    if (!owner) { seen.set(b, f.id); continue; }
+    if (!existingIds.has(owner) && existingIds.has(f.id)) {
+      // 先到的新增功能退让给后到的老功能（不能用表序把老功能顶掉）
+      cfg[owner] = null;
+      seen.set(b, f.id);
+    } else {
+      cfg[f.id] = null;
+    }
   }
   return cfg;
 }
@@ -242,13 +264,15 @@ export function loadConfig(storage: Pick<Storage, 'getItem'> = localStorage): Sh
     const raw = storage.getItem(STORAGE_KEY);
     if (!raw) return defaults;
     const parsed = JSON.parse(raw) as Partial<ShortcutConfig>;
+    // 快照里出现过的 id = 老功能；缺席的 id 是本次新增，其键来自出厂默认、撞车时退让。
+    const existingIds = new Set(Object.keys(parsed));
     const cfg = getDefaultConfig();
     for (const f of FUNCTIONS) {
       const v = parsed[f.id];
       if (v === null) cfg[f.id] = null; // 显式屏蔽
       else if (typeof v === 'string') cfg[f.id] = v.toLowerCase();
     }
-    return dedupeBindings(repairStaleBindings(cfg));
+    return dedupeBindings(repairStaleBindings(cfg), existingIds);
   } catch {
     return defaults;
   }

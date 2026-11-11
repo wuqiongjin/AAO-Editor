@@ -72,7 +72,7 @@ vi.mock('@/src/preview', async (importOriginal) => {
 
 import PreviewVideoStage from '@/src/pages/preview/PreviewVideoStage';
 import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimPlaybackAudio, type SimScene } from '@/src/preview';
-import { getDefaultConfig } from '@/src/settings/ShortcutConfig';
+import { getDefaultConfig, setCapturingShortcut } from '@/src/settings/ShortcutConfig';
 import { t } from '@/src/i18n';
 import type { AppSettings } from '@/src/settings/AppSettings';
 import { resetPlaybackRate } from '@/src/playback/playbackRateState';
@@ -459,6 +459,83 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
     expect(calls.pause).toHaveBeenCalled();
     expect(calls.seek).toHaveBeenCalledWith(0);
     expect(onSecondsChange).toHaveBeenCalledWith(0);
+  });
+
+  // ===== issue 230 · 倍速 / 音量快捷键 =====
+  describe('倍速 / 音量快捷键（issue 230）', () => {
+    it('预览页 PLAY_ONLY 放行四键：, / . 改倍速，; / 单引号改音量', async () => {
+      const { onVolumeChange } = await renderStage({ volume: 0.5 });
+      fireEvent.keyDown(window, { key: '.' });
+      expect(lastRate()).toBe(1.25);
+      fireEvent.keyDown(window, { key: ',' });
+      expect(lastRate()).toBe(1);
+      fireEvent.keyDown(window, { key: "'" });
+      expect(onVolumeChange).toHaveBeenCalledWith(0.55);
+      fireEvent.keyDown(window, { key: ';' });
+      expect(onVolumeChange).toHaveBeenCalledWith(0.45);
+    });
+
+    it('连按累计：父级把新音量回灌后，下一次按键从新值接着走（与工作台同源）', async () => {
+      const { onVolumeChange, rerender } = await renderStage({ volume: 0.5 });
+      fireEvent.keyDown(window, { key: "'" });
+      expect(onVolumeChange).toHaveBeenLastCalledWith(0.55);
+
+      rerender(
+        <PreviewVideoStage
+          active
+          scene={scene}
+          duration={12}
+          audio={null}
+          keySetId="skin00"
+          seVolume={1}
+          volume={0.55}
+          onVolumeChange={onVolumeChange}
+          imageQuality="high"
+          noteSkin={'default' as AppSettings['visual']['noteSkin']}
+          shortcuts={SHORTCUTS}
+          chartId={null}
+          initialSeconds={0}
+        />,
+      );
+      fireEvent.keyDown(window, { key: "'" });
+      expect(onVolumeChange).toHaveBeenLastCalledWith(0.6);
+    });
+
+    it('e.repeat: true 按住不连发（四个键都不触发）', async () => {
+      const { onVolumeChange } = await renderStage({ volume: 0.5 });
+      for (const key of [',', '.', ';', "'"]) {
+        fireEvent.keyDown(window, { key, repeat: true });
+      }
+      expect(calls.setOptions).not.toHaveBeenCalled();
+      expect(onVolumeChange).not.toHaveBeenCalled();
+    });
+
+    it('其余绑定仍放行原生：f 不 preventDefault，空格 play 照旧接管', async () => {
+      await renderStage();
+      expect(fireEvent.keyDown(window, { key: 'f' })).toBe(true);
+      expect(fireEvent.keyDown(window, { key: ' ' })).toBe(false);
+      expect(calls.play).toHaveBeenCalledTimes(1);
+    });
+
+    it('焦点在倍速输入框时四键放行原生输入', async () => {
+      await renderStage();
+      openPanel();
+      for (const key of [',', '.', ';', "'"]) {
+        fireEvent.keyDown(customInput(), { key });
+      }
+      expect(calls.setOptions).not.toHaveBeenCalled();
+    });
+
+    it('录制快捷键期间放行（预览页不误触发）', async () => {
+      await renderStage();
+      setCapturingShortcut(true);
+      try {
+        for (const key of [',', '.', ';', "'"]) fireEvent.keyDown(window, { key });
+        expect(calls.setOptions).not.toHaveBeenCalled();
+      } finally {
+        setCapturingShortcut(false);
+      }
+    });
   });
 
   it('chart-preview 57 / issue 188 · 播放期 onTick 按 80ms 节流 PlayBar HUD 且不触发父级 onSecondsChange，暂停或卸载时才回写父级', async () => {

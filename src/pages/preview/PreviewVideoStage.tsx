@@ -16,7 +16,12 @@ import { notesEqual } from '../../chart/editing/NotesEqual';
 import { t } from '../../i18n';
 import PlayBar from '../../playback/PlayBar';
 import PlaybackRate from '../../playback/PlaybackRate';
-import { usePlaybackRate } from '../../playback/playbackRateState';
+import { getPlaybackRate, usePlaybackRate } from '../../playback/playbackRateState';
+import {
+  PLAYBACK_SHORTCUT_IDS,
+  stepAudioVolume,
+  stepPlaybackRatePreset,
+} from '../../playback/playbackShortcuts';
 import { PLAYBACK_HUD_PERIOD_MS } from '../../playback/usePlaybackCoordinator';
 import { resolveCanvasDpr } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
@@ -33,8 +38,11 @@ import {
   type SimScene,
 } from '../../preview';
 
-/** 预览页只接管 play 这一个功能键（issue 22 Q2）：其余绑定放行原生行为，不吞浏览器键（引用稳定） */
-const PLAY_ONLY: readonly FunctionId[] = ['play'];
+/**
+ * 预览页只接管 play + 四个倍速 / 音量键（issue 22 Q2 / issue 230）：其余绑定放行原生行为，
+ * 不吞浏览器键（引用稳定）。倍速 / 音量在这页也必须有反应 —— 状态与工作台同源，按了没用会被当成坏掉。
+ */
+const PLAY_ONLY: readonly FunctionId[] = ['play', ...PLAYBACK_SHORTCUT_IDS];
 
 export interface PreviewVideoStageProps {
   /**
@@ -107,6 +115,9 @@ export default function PreviewVideoStage({
    * 循环能力还在，只是没有 UI 调它。
    */
   const [rate, setRate] = usePlaybackRate();
+  // issue 230：快捷键读「此刻」的主音量，不把 runFunction 挂到每次改值的重渲染上
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
 
   const noteIcons = useMemo(() => buildActiveNoteIcons(normalizeNoteSkinSelection(noteSkin)), [noteSkin]);
   // 实时画布位图密度：画布那套口径（min(设备像素比, 档位)）——逐帧直绘，不叠超采样；
@@ -272,9 +283,17 @@ export default function PreviewVideoStage({
     shortcutConfig: shortcuts,
     active,
     only: PLAY_ONLY,
+    noRepeat: PLAYBACK_SHORTCUT_IDS,
     runFunction: useCallback((fn: FunctionId) => {
-      if (fn === 'play') togglePlay();
-    }, [togglePlay]),
+      switch (fn) {
+        case 'play': togglePlay(); break;
+        // issue 230：与工作台同一套预设档 / 步长；倍速读共享单点，音量写回 settings.audio.volume
+        case 'rateDown': setRate(stepPlaybackRatePreset(getPlaybackRate(), -1)); break;
+        case 'rateUp': setRate(stepPlaybackRatePreset(getPlaybackRate(), 1)); break;
+        case 'volumeDown': onVolumeChange(stepAudioVolume(volumeRef.current, -1)); break;
+        case 'volumeUp': onVolumeChange(stepAudioVolume(volumeRef.current, 1)); break;
+      }
+    }, [togglePlay, setRate, onVolumeChange]),
   });
 
   if (assets?.missing) {

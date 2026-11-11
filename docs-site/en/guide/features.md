@@ -71,6 +71,7 @@ The workspace edits one chart of the current project, featuring a new compact to
 - The Shortcuts page lists every function with exactly one key. Rebinding rejects conflicts, and each function can be temporarily disabled.
 - Page switching: Alt+1…7 for workspace, audio, preview, assets, shortcuts, settings, etc.
 - Common defaults: Space play / pause, Ctrl+Space jump to marker and play, Ctrl+Shift+D collect snippet, Ctrl+Z / Ctrl+Y undo / redo.
+- Playback controls: `,` rate down and `.` rate up (step through the seven 0.25×–2× presets, stopping at the ends), `;` volume −0.05 and `'` volume +0.05 (clamped to 0–1). Works in both the workspace and the live preview; holding a key does not auto-repeat. Feedback comes from the `1×` readout and the volume slider on the playback bar. If a key was already taken in an older profile, the new function yields to "disabled" — enable it on the Shortcuts page to rebind.
 - Note tools: F single, G flick, A skill, S left directional, D right directional, E slide, W curve, R pointer, T delete, Q mirror, V paste.
 - Workspace preferences: slide drag shaping style (smooth curve / triangle bow), scroll direction inversion, 3-tier time precision (0.1s / 0.01s / 0.001s), and independent SE volume control.
 - The shortcut table writes the modifier as Ctrl; on macOS that's ⌘.

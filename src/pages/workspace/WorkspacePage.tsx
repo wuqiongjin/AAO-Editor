@@ -12,7 +12,12 @@ import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/c
 import { formatKey, type FunctionId } from '../../settings/ShortcutConfig';
 import PlayBar from '../../playback/PlayBar';
 import PlaybackRate from '../../playback/PlaybackRate';
-import { usePlaybackRate } from '../../playback/playbackRateState';
+import { getPlaybackRate, usePlaybackRate } from '../../playback/playbackRateState';
+import {
+  PLAYBACK_SHORTCUT_IDS,
+  stepAudioVolume,
+  stepPlaybackRatePreset,
+} from '../../playback/playbackShortcuts';
 import PlaybackMarkerButton from '../../playback/PlaybackMarkerButton';
 import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
 import { useAudioBridge } from '../../audio/useAudioBridge';
@@ -366,6 +371,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setAudioVolume(v);
     audioSession.setVolume(v);
   }, [setAudioVolume, audioSession]);
+  // issue 230：快捷键读「此刻」的主音量，不把 runFunction 挂到每次改值的重渲染上
+  const volumeRef = useRef(settings.audio.volume);
+  volumeRef.current = settings.audio.volume;
 
   // 页面壳表面契约（issue 28 Q16）：工作台失活时自动暂停
   useEffect(() => {
@@ -463,15 +471,22 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'beatSnapNext': setBeatDisplay(stepBeatSnap(beatDisplay, 1)); break;
       case 'beatSnapPrev': setBeatDisplay(stepBeatSnap(beatDisplay, -1)); break;
       case 'beatSnapCycle': setBeatDisplay(cycleBeatSnap(beatDisplay, settings.beatSnapCycleList)); break;
+      // issue 230：倍速按 7 档预设跳（封顶 2×）、音量每次 0.05；两者端点停住、按住不连发。
+      // 倍速读共享内存单点的当前值（不把 rate 塞进回调依赖），音量走统一入口 handleVolumeChange。
+      case 'rateDown': setRate(stepPlaybackRatePreset(getPlaybackRate(), -1)); break;
+      case 'rateUp': setRate(stepPlaybackRatePreset(getPlaybackRate(), 1)); break;
+      case 'volumeDown': handleVolumeChange(stepAudioVolume(volumeRef.current, -1)); break;
+      case 'volumeUp': handleVolumeChange(stepAudioVolume(volumeRef.current, 1)); break;
     }
   }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelection, undo, redo, handleTogglePlay, jumpToMarker,
-      setPatternDrawer, drawerOpen, setBeatDisplay, beatDisplay, settings.beatSnapCycleList]);
+      setPatternDrawer, drawerOpen, setBeatDisplay, beatDisplay, settings.beatSnapCycleList, setRate, handleVolumeChange]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
   useShortcutDispatch({
     shortcutConfig,
     active,
     runFunction,
+    noRepeat: PLAYBACK_SHORTCUT_IDS,
     // Esc 五档链（ADR-0008 §7 / issue 135）：① 弹窗 capture 自消费；②–⑤ 由
     // resolveEscapeTarget 唯一裁决，此处只消费一档并执行。② 取消后保持工具态与选区。
     // 侧栏折叠已从此链摘除 → toggleSidebar（issue 59 §2：Ctrl+Shift+B；票 183 起开合片段库）。

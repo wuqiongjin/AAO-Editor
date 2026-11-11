@@ -252,11 +252,11 @@ describe('切页功能（app 作用域）', () => {
     expect(functionMode('undo')).toBe('exec');
   });
 
-  it('载入去重：画布功能占着页面默认键时，页面键退让为屏蔽（表序优先）', () => {
+  it('载入去重：快照里已有的画布功能占着新增页面默认键时，页面键退让为屏蔽（issue 230 起 = 用户优先，非表序）', () => {
     const cfg = loadConfig({ getItem: () => JSON.stringify({ switchSingle: 'alt+1' }) });
     expect(cfg.switchSingle).toBe('alt+1');
     expect(cfg.pageProjects).toBeNull();
-    // 去重后仍有 38 个绑定、38 个索引项；剩下的 7 个切页键里只有它一个退让
+    // 去重后索引项与绑定数仍然一一对应；剩下的切页键里只有它一个退让
     expect(buildBindingIndex(cfg).size).toBe(Object.values(cfg).filter(Boolean).length);
   });
 });

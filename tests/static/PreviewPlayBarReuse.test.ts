@@ -64,8 +64,9 @@ describe('chart-preview 22 · 预览播放条复用工作台 PlayBar', () => {
     expect(session).toMatch(/setPlaybackRate\(rate: number\)/);
   });
 
-  it('预览页只接管 play 这一个功能键（Q2），其余绑定放行原生行为', () => {
+  it('预览页只接管 play + 倍速/音量四键（Q2 / issue 230），其余绑定放行原生行为', () => {
     expect(stage).toMatch(/only: PLAY_ONLY/);
-    expect(stage).toMatch(/const PLAY_ONLY: readonly FunctionId\[\] = \['play'\]/);
+    expect(stage).toMatch(/const PLAY_ONLY: readonly FunctionId\[\] = \['play', \.\.\.PLAYBACK_SHORTCUT_IDS\]/);
+    expect(stage).toMatch(/noRepeat: PLAYBACK_SHORTCUT_IDS/);
   });
 });
