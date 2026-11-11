@@ -1,6 +1,7 @@
 // PlaybackContext（ADR-0003 §7 之外的「播放编排」状态）：
-// AudioEngine 仍由 Editor 持有并通过 ref 暴露，但播放相关状态（isPlaying / canPlay / currentSeconds / duration / volume）
+// AudioEngine 仍由 Editor 持有并通过 ref 暴露，但播放相关状态（isPlaying / canPlay / currentSeconds / duration）
 // 在 Toolbar 与工作台各处之间共享——避免 Editor 反复作为 prop relay。
+// 主音量（票 60）不在本 Context：三处播放条统一读写 settings.audio.volume（跨重启记住）。
 // Editor 仍是播放编排者（RAF 循环、音频解码、键音切换），本 Context 仅承载状态与最薄的 setter。
 // chart-preview 22 起 PlayBar 本身不再直读本 Context：工作台在页面层取值后经 props 传入
 // （预览页的播放条是同一个组件、接自己那份回放状态，两处共用外观与交互、不共用数据源）。
@@ -16,8 +17,6 @@ export interface PlaybackContextValue {
   setCurrentSeconds: (v: number) => void;
   duration: number;
   setDuration: (v: number) => void;
-  volume: number;
-  setVolume: (v: number) => void;
   // 注：`hasMarker` 派生字段已删（2026-09-10，issue 70 切片 9）—— 全仓无人消费，
   // 需要判空直接用 `markerSeconds !== null`，不必多一份派生 state。
   // issue 152：起点是**时间轴锚定**，单位就是秒（不是拍，也不再需要拍→秒换算）。
@@ -35,7 +34,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [canPlay, setCanPlay] = useState(false);
   const [currentSeconds, setCurrentSeconds] = useState(0);
   const [duration, setDuration] = useState(DEFAULT_CHART_DURATION_SECONDS);
-  const [volume, setVolume] = useState(0.8);
   const [markerSeconds, setMarkerSecondsState] = useState<number | null>(null);
 
   const setMarker = useCallback((seconds: number | null) => {
@@ -47,10 +45,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     canPlay, setCanPlay,
     setCurrentSeconds,
     duration, setDuration,
-    volume, setVolume,
     markerSeconds,
     setMarker,
-  }), [isPlaying, canPlay, duration, volume, markerSeconds, setMarker]);
+  }), [isPlaying, canPlay, duration, markerSeconds, setMarker]);
 
   return (
     <PlaybackStateContext.Provider value={stateValue}>
@@ -62,7 +59,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * issue 188：只订阅播放静态/控制状态（isPlaying / canPlay / duration / volume / markerSeconds），
+ * issue 188：只订阅播放静态/控制状态（isPlaying / canPlay / duration / markerSeconds），
  * 不订阅 80ms 节流刷新的 currentSeconds，避免画布主体等重组件在播放期周期性重渲染。
  */
 export function usePlaybackState(): PlaybackStateContextValue {

@@ -34,7 +34,7 @@ describe('chart-preview 22 · 预览播放条复用工作台 PlayBar', () => {
     expect(ws).toMatch(/isPlaying=\{ctxIsPlaying\}/);
     expect(ws).toMatch(/currentSeconds=\{playheadSeconds\}/);
     expect(ws).toMatch(/duration=\{ctxDuration\}/);
-    expect(ws).toMatch(/volume=\{ctxVolume\}/);
+    expect(ws).toMatch(/volume=\{settings\.audio\.volume\}/);
     expect(ws).toMatch(/audioLocked=\{audioSnap\.audioLocked\}/);
     // 行为口径：工作台与动态预览对齐，均允许双击时间码编辑定位（issue 168）；播放中掩手形光标照旧
     expect(ws).toMatch(/canEditTime/);
@@ -43,6 +43,13 @@ describe('chart-preview 22 · 预览播放条复用工作台 PlayBar', () => {
     expect(ws).toMatch(/shortcutKey=\{formatKey\(shortcutConfig\.play\)\}/);
     // 58：工作台也传 rateSlot（此前"预览专属、工作台不传"的口径已改）
     expect(ws).toMatch(/rateSlot=\{<PlaybackRate/);
+  });
+
+  it('票 60 · 两处主音量同源：动态预览也读 settings.audio.volume（工作台见上一条）', () => {
+    const page = readStripped('src/pages/preview/PreviewPage.tsx');
+    expect(page).toMatch(/volume=\{settings\.audio\.volume\}/);
+    // 工作台那条在「数据入口」用例已断言；这里补一道负锁，防旧的页面内 0.8 口径回潮
+    expect(ws).not.toMatch(/volume=\{ctxVolume\}/);
   });
 
   it('倍速值一个共享单点：两处 rateSlot 都读 usePlaybackRate，工作台经 AudioSession 转发引擎', () => {

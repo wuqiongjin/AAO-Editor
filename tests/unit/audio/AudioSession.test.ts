@@ -87,11 +87,11 @@ describe('AudioSession · 构造', () => {
     expect(fake.setKeySetCalls).toEqual(['skin00']);
   });
 
-  it('chartDuration 缺省 = 30；volume 缺省 = 0.8；均被 clamp 到合法范围', () => {
+  it('chartDuration 缺省 = 30；volume 缺省 = 1（对齐 settings.audio.volume 出厂值，票 60）；均被 clamp 到合法范围', () => {
     const { factory } = makeFactory();
     const s = new AudioSession({ engineFactory: factory, keySetId: 'skin01', seVolume: 1 });
     expect(s.getSnapshot().chartDuration).toBe(30);
-    expect(s.getVolume()).toBe(0.8);
+    expect(s.getVolume()).toBe(1);
   });
 
   it('NaN / Infinity 会被安全 fallback（不污染状态）', () => {
@@ -103,10 +103,10 @@ describe('AudioSession · 构造', () => {
       chartDuration: Number.POSITIVE_INFINITY,
       volume: Number.NaN,
     });
-    // NaN/Inf 走 fallback：seVolume=1（默认值）, chartDuration=30, volume=0.8
+    // NaN/Inf 走 fallback：seVolume=1（默认值）, chartDuration=30, volume=1
     expect(s.getSnapshot().seVolume).toBe(1);
     expect(s.getSnapshot().chartDuration).toBe(30);
-    expect(s.getVolume()).toBe(0.8);
+    expect(s.getVolume()).toBe(1);
   });
 });
 
@@ -381,6 +381,22 @@ describe('AudioSession · 设置变更（keySet / seVolume）', () => {
     expect(s.getSnapshot().seVolume).toBe(0.3);
     expect(fake.setKeySetCalls).toEqual(['skin00', 'skin01']);
     expect(fake.setSeVolumeCalls[fake.setSeVolumeCalls.length - 1]).toBe(0.3);
+  });
+
+  it('票 60：syncSettingsFromConfig 收主音量并转发到引擎（主音量不进 snapshot，故不 emit）', () => {
+    const { fake, factory } = makeFactory();
+    const s = new AudioSession({ engineFactory: factory, keySetId: 'skin00', seVolume: 1, volume: 1 });
+    expect(fake.setVolumeCalls).toEqual([1]); // 构造时把 A 的初值挂到引擎
+    s.syncSettingsFromConfig('skin00', 1, 0.3);
+    expect(s.getVolume()).toBe(0.3);
+    expect(fake.setVolumeCalls[fake.setVolumeCalls.length - 1]).toBe(0.3);
+    // 仅主音量变化（keySet / seVolume 不变）：只同步引擎，不制造一次无字段变化的快照通知
+    const events: AudioSessionSnapshot[] = [];
+    s.subscribe((snap) => events.push(snap));
+    s.syncSettingsFromConfig('skin00', 1, 0.6);
+    expect(s.getVolume()).toBe(0.6);
+    expect(fake.setVolumeCalls[fake.setVolumeCalls.length - 1]).toBe(0.6);
+    expect(events).toHaveLength(0);
   });
 });
 

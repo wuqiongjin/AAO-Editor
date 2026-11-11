@@ -68,19 +68,17 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 避免再有一条绕过矩阵、没有末端校验的粘贴通路。
   const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, deleteSelected, mirror, undo, redo, resetNotes, chartCodeFidelity } = editing;
   const { armedTool, setArmedTool, scale, beatDisplay, setBeatDisplay } = ui;
-  const { settings, setPatternDrawer } = config;
+  const { settings, setPatternDrawer, setAudioVolume } = config;
   const drawerOpen = settings.layout.patternDrawer.open;
   const shortcutConfig = settings.shortcuts;
   const {
     setIsPlaying, setCanPlay,
     setCurrentSeconds,
     duration: ctxDuration, setDuration: setCtxDuration,
-    setVolume: setCtxVolume,
     currentSeconds: playheadSeconds,
-    // 播放条（issue 22）props 化的数据入口：isPlaying / volume / canPlay 由页面从
-    // PlaybackContext 取出后显式传入（组件不再直读 context）——值与旧实现同一份真相源
+    // 播放条（issue 22）props 化的数据入口：isPlaying / canPlay 由页面从 PlaybackContext
+    // 取出后显式传入（组件不再直读 context）；主音量（票 60）改从 settings 直读，不进本 Context
     isPlaying: ctxIsPlaying,
-    volume: ctxVolume,
     canPlay,
     markerSeconds,
     setMarker,
@@ -362,12 +360,12 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 滚动条回声识别 —— 全部收进谱面视口会话（候选 4，src/playback/useChartViewSession.ts）；
   // 页面只把会话的 onCanvasScrollChange / onScrollbarScroll / virtualHeight 接进下方 JSX。
 
-  // 播放条：音量（架构深化评审候选 3：主音量由 session.setVolume 转发，避免绕过 session；
-  // PlaybackContext.volume 仍为 UI 状态，由 setCtxVolume 维护；session 是底层真相源）
+  // 播放条主音量（票 60 统一）：读写 settings.audio.volume（A，存盘、跨重启记住），
+  // 三处播放条同一份值；引擎仍只经 session 即时转发。撤掉了 PlaybackContext 那份独立 0.8。
   const handleVolumeChange = useCallback((v: number) => {
-    setCtxVolume(v);
+    setAudioVolume(v);
     audioSession.setVolume(v);
-  }, [setCtxVolume, audioSession]);
+  }, [setAudioVolume, audioSession]);
 
   // 页面壳表面契约（issue 28 Q16）：工作台失活时自动暂停
   useEffect(() => {
@@ -568,7 +566,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           isPlaying={ctxIsPlaying}
           currentSeconds={playheadSeconds}
           duration={ctxDuration}
-          volume={ctxVolume}
+          volume={settings.audio.volume}
           audioLocked={audioSnap.audioLocked}
           canEditTime
           seekNoCursor={!canPlay && ctxIsPlaying}

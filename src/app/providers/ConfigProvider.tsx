@@ -180,8 +180,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     commit({ audio: { seVolume: volume } });
   }, [commit]);
 
-  // 播放器主音量（chart-preview 20）：与 setSeVolume 同范式（段内浅合并 + 整份写盘）。
-  // 入口在动态预览的播放条；工作台那档页面内主音量不读它（两者刻意分开）
+  // 全局主音量（chart-preview 20 起、票 60 统一）：与 setSeVolume 同范式（段内浅合并 + 整份写盘）。
+  // 入口 = 动态预览 / 工作台 / 导入详情试听条三处播放条（共读写同一份，跨重启记住）
   const setAudioVolume = useCallback((volume: number) => {
     commit({ audio: { volume } });
   }, [commit]);

@@ -8,7 +8,8 @@
 // 有音频放 BGM + 键音，无音频走合成时间线；作用域切到非当前工程也照样有正确的声源。
 // 键音 = 同一份事件表（引擎的 `setChart` 内部就是 `AudioTiming.buildKeyEvents`，含"beat < 0 不键音"
 // 与 hidden 结点不计）+ 同一份采样加载与音量口径（`settings.audio`）。
-// 主音量不落设置（工作台那档是页面内状态），故这里用引擎默认 1（导出侧同一口径，07 不再改）。
+// 主音量由 `settings.audio.volume`（票 60 起三处播放条共读写）经 `opts.volume` / `setOptions` 传入；
+// 没传时回落引擎默认 1（其出厂值也是 1；导出侧同一口径，07 不再改）。
 import { AudioEngine } from '../../../audio/AudioEngine';
 import type { ChartNote } from '../../../chart/types';
 import { drawSimFrameAt, type SimFrameInput } from './simField';
