@@ -106,7 +106,7 @@ describe('ElectronFileProjectBackend · 保存意图', () => {
     let failNext = false;
     t.put.mockImplementation(async (p) => {
       if (failNext) throw new Error('ipc down');
-      t.puts.push(p);
+      t.puts.push({ ...p, doc: JSON.parse(p.doc) });
     });
     const b = new ElectronFileProjectBackend(t.bridge);
 
@@ -182,7 +182,7 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
     const t = makeMemoryProjectBridge();
     await t.bridge.put({
       id: 'pSong1',
-      doc: {
+      doc: JSON.stringify({
         schemaVersion: PROJECT_SCHEMA_VERSION,
         name: null,
         artist: null,
@@ -194,7 +194,7 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
         coverName: null,
         audioIntent: 'set',
         coverIntent: 'cleared',
-      },
+      }),
       audio: new Uint8Array([9, 9]),
     });
     const b = new ElectronFileProjectBackend(t.bridge);

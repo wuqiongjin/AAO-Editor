@@ -225,7 +225,17 @@ function registerProjectStoreIpc(ipcMain, deps) {
     const currentDataRoot = deps.currentDataRoot;
 
     ipcMain.handle('project:get', (_event, rawId) => getProject(currentDataRoot(), rawId));
-    ipcMain.handle('project:put', (_event, payload) => putProject(currentDataRoot(), payload));
+    ipcMain.handle('project:put', (_event, payload) => {
+        // issue 232：在渲染侧编码后传文本，嵌套对象不跨 contextBridge / IPC。
+        // 解析与闸门在任何文件副作用之前；路径、旧记录保护和素材 intent 仍由 putProject 执行。
+        if (typeof payload?.doc !== 'string') throw new Error('project:put doc 必须是 JSON 文本');
+        const doc = JSON.parse(payload.doc);
+        if (!isCurrentDoc(doc)) throw new Error('project:put 工程文档 schema 无效');
+        if (![doc.audioIntent, doc.coverIntent].every((intent) => ['set', 'keep', 'cleared'].includes(intent))) {
+            throw new Error('project:put 素材 intent 无效');
+        }
+        return putProject(currentDataRoot(), { ...payload, doc });
+    });
     ipcMain.handle('project:list', () => listProjects(currentDataRoot()));
     ipcMain.handle('project:delete', (_event, rawId) => deleteProject(currentDataRoot(), rawId));
     // 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1）。

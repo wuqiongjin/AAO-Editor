@@ -1,8 +1,9 @@
-// issue 232：回滚到播放过的区间开头处进行批量删除或撤回后，离开当前视口的远端失效瓦片必须直接淘汰，
-// 不得作为 dirty 滞留在缓存中，避免开播时引发后台排水风暴与旧位图闪烁。
-import { describe, it, expect, beforeEach } from 'vitest';
+// issue 232 上轮保留的瓦片优化：只验证失效策略，不作为自动保存卡顿的回归测试。
+// 坐标必须经真实播放模型转换；scrollY=0 是谱尾，不能用它代表开头。
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
-import { createNoteLayerCache, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
+import { PlaybackScrollModel } from '@/src/playback/PlaybackScrollModel';
+import { createNoteLayerCache, diffNotes, tileIntersectsViewport, type NoteLayerCache } from '@/src/rendering/pipeline/noteLayerCache';
 import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
 import { makeNoopCtx } from '@/tests/support/canvas';
@@ -45,74 +46,75 @@ function makeRc(g: ChartGeometry, notes: ChartNote[], scrollY: number, playing: 
   };
 }
 
-describe('issue 232 · 回滚编辑远端瓦片即时淘汰与开播防卡顿', () => {
+describe('回到真实 0 秒编辑 · 瓦片失效策略', () => {
   let cache: NoteLayerCache;
 
   beforeEach(() => {
     cache = createNoteLayerCache();
     cache.__setCanvasFactoryForTests(() => ({
-      width: 0,
-      height: 0,
-      getContext: () => makeNoopCtx(),
+      width: 0, height: 0, getContext: () => makeNoopCtx(),
     }));
   });
+  afterEach(() => cache.reset());
 
-  it('播放后回滚到开头进行区间删除：视口内瓦片重建，视口外远端瓦片彻底淘汰不残留为 dirty', () => {
+  function warmAndRewind(notes: ChartNote[], g: ChartGeometry) {
+    const model = new PlaybackScrollModel(g, ES);
+    const yStart = model.scrollYForSeconds(0);
+    expect(yStart).toBe(52800);
+    // 独立用几何反算判定线，避免测试再把谱尾当成 0 秒。
+    expect(g.virtualYToSeconds(yStart + SURFACE.h / ES, ES)).toBeCloseTo(0);
+    expect(model.secondsForScrollY(0)).toBe(120);
+    cache.draw(CTX, makeRc(g, notes, yStart, false));
+    cache.__flushPlayingTileQueueForTests();
+    cache.draw(CTX, makeRc(g, notes, model.scrollYForSeconds(4), true));
+    cache.__flushPlayingTileQueueForTests();
+    cache.draw(CTX, makeRc(g, notes, yStart, false));
+    // 真正 0 秒时 anchorY=surface.h；不靠猜测 tile 0/1/6 的身份。
+    const anchorY = (g.chartEndVirtualY - yStart) * ES + SURFACE.h;
+    const tiles = cache.__getTilesForTests();
+    const visible = [...tiles.keys()].filter(id => tileIntersectsViewport(id, ES, anchorY, SURFACE.h));
+    const remote = [...tiles.keys()].filter(id => !tileIntersectsViewport(id, ES, anchorY, SURFACE.h));
+    expect(visible.length).toBeGreaterThan(0);
+    expect(remote.length).toBeGreaterThan(0);
+    return { yStart, visible, remote };
+  }
+
+  it('区间删除 0–15 秒：远端失效块淘汰，可见块在暂停帧立即重建', () => {
     const notes = makeNotes();
     const g = geometry();
-    // 0s 开头处的 scrollY（置底）
-    const yStart = 0;
-
-    // 1. 模拟在开头 0s 渲染首帧
-    cache.draw(CTX, makeRc(g, notes, yStart, false));
-    cache.__flushPlayingTileQueueForTests();
-
-    // 2. 模拟播放一段，滚动向前推进，生成多个瓦片
-    const yPlayed = g.beatToVirtualY(40, ES);
-    cache.draw(CTX, makeRc(g, notes, yPlayed, true));
-    cache.__flushPlayingTileQueueForTests();
-
-    const tilesMap = cache.__getTilesForTests();
-    const cachedIds = [...tilesMap.keys()];
-    expect(cachedIds.length).toBeGreaterThan(2);
-
-    // 3. 回滚到开头 0s
-    cache.draw(CTX, makeRc(g, notes, yStart, false));
-
-    // 4. 批量删除 0s~40s 区间的音符（区间修改）
-    const editedNotes = notes.filter((n) => n.beat === 0 || n.beat > 30);
-    cache.draw(CTX, makeRc(g, editedNotes, yStart, false));
-
-    // 检查缓存状态：
-    // - 当前视口内的瓦片（比如 0、1）应该存在且 dirty 为 false（已同步重建）
-    // - 视口外的远端瓦片（比如此前播放时缓存的高 tileId）不应滞留为 dirty，应被彻底 delete 淘汰
-    for (const [id, t] of tilesMap.entries()) {
-      expect(t.dirty).toBeFalsy();
+    const { yStart, visible, remote } = warmAndRewind(notes, g);
+    // 120 BPM 下 beat 30 = 15 秒；覆盖刚播放过的远端瓦片，确实命中 range 分支。
+    const edited = notes.filter(n => n.type === 'BPM' || (n.type === 'Single' && n.beat > 30));
+    expect(diffNotes(notes, edited, BEAT_DISPLAY)).toEqual({ kind: 'range', minBeat: 1, maxBeat: 30 });
+    const tiles = cache.__getTilesForTests();
+    const previous = new Map(visible.map(id => [id, tiles.get(id)]));
+    cache.draw(CTX, makeRc(g, edited, yStart, false));
+    for (const id of remote) expect(tiles.has(id), `远端瓦片 ${id}`).toBe(false);
+    for (const id of visible) {
+      expect(tiles.has(id)).toBe(true);
+      expect(tiles.get(id)).not.toBe(previous.get(id));
+      expect(tiles.get(id)!.dirty).toBeFalsy();
     }
-
-    // 此前播放生成的远端瓦片（不在当前视口内）应该已被淘汰，数量显著减少
-    const remainingIds = [...tilesMap.keys()];
-    expect(remainingIds.length).toBeLessThan(cachedIds.length);
   });
 
-  it('整份换引用（undo / redo 形态）回滚：视口外旧瓦片同样淘汰，不留滞留脏瓦片', () => {
+  it('整份换引用：full 分支淘汰远端，播放帧保留可见旧块直到队列替换', () => {
     const notes = makeNotes();
     const g = geometry();
-    const yStart = 0;
-
-    // 模拟播放一段生成多块瓦片
-    const yPlayed = g.beatToVirtualY(40, ES);
-    cache.draw(CTX, makeRc(g, notes, yPlayed, true));
+    const { yStart, visible, remote } = warmAndRewind(notes, g);
+    const replaced = notes.map(n => ({ ...n }));
+    expect(diffNotes(notes, replaced, BEAT_DISPLAY)).toEqual({ kind: 'full' });
+    const tiles = cache.__getTilesForTests();
+    const previous = new Map(visible.map(id => [id, tiles.get(id)]));
+    cache.draw(CTX, makeRc(g, replaced, yStart, true));
+    for (const id of remote) expect(tiles.has(id), `远端瓦片 ${id}`).toBe(false);
+    for (const id of visible) {
+      expect(tiles.get(id)).toBe(previous.get(id));
+      expect(tiles.get(id)!.dirty).toBe(true);
+    }
     cache.__flushPlayingTileQueueForTests();
-    expect(cache.__getTilesForTests().size).toBeGreaterThan(2);
-
-    // 回滚到开头 0s 并整份替换（触发 diff.kind === 'full'）
-    const replaced = notes.map((n) => ({ ...n }));
-    cache.draw(CTX, makeRc(g, replaced, yStart, false));
-
-    const tilesMap = cache.__getTilesForTests();
-    for (const [id, t] of tilesMap.entries()) {
-      expect(t.dirty).toBeFalsy();
+    for (const id of visible) {
+      expect(tiles.get(id)).not.toBe(previous.get(id));
+      expect(tiles.get(id)!.dirty).toBeFalsy();
     }
   });
 });

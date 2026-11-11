@@ -4,6 +4,7 @@ import type {
   ElectronProjectBridge,
   ProjectGetWire,
   ProjectPutWire,
+  ProjectWriteDoc,
 } from '@/src/project/ChartProjectRecord';
 
 export type MemoryDiskRecord = {
@@ -14,7 +15,7 @@ export type MemoryDiskRecord = {
 
 export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRecord]> = []) {
   const disk = new Map<string, MemoryDiskRecord>(initial);
-  const puts: ProjectPutWire[] = [];
+  const puts: (Omit<ProjectPutWire, 'doc'> & { doc: ProjectWriteDoc })[] = [];
   /** 「这份素材是从下载暂存拷进来的」：真实主进程会读文件，内存桥没有 fs，只记路径 */
   const staged = new Map<string, { audio?: string; cover?: string }>();
   /** 「盘上现在有没有这份 bin」：主进程 put 的第三步（fileExists）就是它 */
@@ -30,7 +31,8 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
     } as unknown as ProjectGetWire;
   });
 
-  const put = vi.fn(async (payload: ProjectPutWire) => {
+  const put = vi.fn(async (wire: ProjectPutWire) => {
+    const payload = { ...wire, doc: JSON.parse(wire.doc) as ProjectWriteDoc };
     puts.push(payload);
     const prev = disk.get(payload.id);
     const seen = staged.get(payload.id) ?? {};
@@ -82,6 +84,6 @@ export function makeMemoryProjectBridge(initial: Iterable<[string, MemoryDiskRec
     disk.delete(id);
   });
 
-  const bridge: ElectronProjectBridge = { get, put, list, delete: deleteProject };
+  const bridge: ElectronProjectBridge = { get, put, list, delete: deleteProject, uploadRefs: async () => null };
   return { bridge, disk, puts, get, put };
 }
