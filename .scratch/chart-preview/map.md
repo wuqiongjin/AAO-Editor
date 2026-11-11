@@ -108,6 +108,7 @@
 
 - [62 视频导出文件名带符号无法正常导出](./issues/62-视频导出文件名带符号无法导出.md) — **resolved 实现（2026-11-11 已实现，待真机验收）**：**改成什么** = 渲染侧 `suggestedName` 与主进程 `defaultPath` / 写盘目标统一清洗非法字符（`sanitizeFileNameStem`，两边同口径），写盘失败单列 `save` 档给可照做文案；静态宽图 / 谱面代码同源一并受益
 - [63 MP4 导出在部分播放器 / 剪辑软件卡顿或无法加载](./issues/63-MP4导出在部分播放器与剪辑软件卡顿或无法加载.md) — **resolved（2026-11-12 实现 + 随机访问用户真机复验通过；盒结构 / 报障软件逐项清单待做）**：① 无周期关键帧（静态场景 5s 仅 1 个 IDR，MP4/WebM 共用 sink）= 本票要修的缺陷；② 无 AAC 平台手选 MP4 产出 mp4+Opus = `CONTEXT.md:218` 既定行为、已有面板提示，按用户 2026-11-11 确认不自动转 WebM、本票不动。已排除 fastStart / L5.1 / VFR / ctts；**改成什么（2026-11-12 已实现）** = `createVideoSink.addFrame` 每 2s 强制一次关键帧（`fps × 2` 帧，首帧仍是 key），MP4 / WebM 共用 sink 一起受益；mp4+Opus 定案不动
+- [64 视频导出立刻「导出失败」：chunk.duration 非法](./issues/64-视频导出chunk-duration非法.md) — **resolved 实现（2026-11-12 已实现，待 Edge 真机验收）**：**改成什么** = `withValidDuration` 用 Proxy 把非法的视频 / 音频 chunk.duration 兜成帧间隔（不重建 chunk）+ `VideoFrame` 补 duration + `fail()` 当刻落日志（与票 63 同源）
 
 ## Fog
 

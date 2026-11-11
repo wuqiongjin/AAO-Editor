@@ -231,6 +231,18 @@ export function frameTimestampUs(timeline: ExportTimeline, k: number): number {
 }
 
 /**
+ * 一帧的时长（微秒，票 64）：喂 `VideoFrame.duration`，也是 `chunk.duration` 缺省时的回退值。
+ *
+ * `EncodedVideoChunk.duration` 在 WebCodecs 里是可选属性：Chromium 在输入帧不给 duration 时
+ * 输出 0，Edge 会输出非有限数 —— 后者会被 `mp4-muxer` 的 `addVideoChunkRaw` 直接判非法。
+ * 统一从这里取，别在出帧 / 封装两侧各写一份。
+ */
+export function frameDurationUs(fps: number): number {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : EXPORT_FPS;
+  return Math.max(1, Math.round(1_000_000 / safeFps));
+}
+
+/**
  * 离线音轨的帧数（喂 `OfflineAudioContext` 的长度）。
  * 与视频对齐：同样按 `durationSeconds` 向上取整，**不早停**（末尾那半帧留着），
  * 也不因帧数取整而多出来（音频按秒算，不按帧算）。

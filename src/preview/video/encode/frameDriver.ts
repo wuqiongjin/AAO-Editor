@@ -22,6 +22,7 @@ import {
   type OpeningFrameInput,
 } from '../opening';
 import {
+  frameDurationUs,
   frameSecondsAt,
   frameTimestampUs,
   type ExportGeometry,
@@ -84,6 +85,7 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
 
   const metrics: SimFieldMetrics = fieldMetrics(geometry.field.w, geometry.field.h);
   const input: SimFrameInput = { ...frame, metrics };
+  const duration = frameDurationUs(timeline.fps);
   let rendered = 0;
 
   for (let k = 0; k < timeline.frameCount; k++) {
@@ -116,7 +118,10 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
       }
     }
 
-    const vf = new VideoFrame(canvas, { timestamp: frameTimestampUs(timeline, k) });
+    const vf = new VideoFrame(canvas, {
+      timestamp: frameTimestampUs(timeline, k),
+      duration,
+    });
     try {
       await onFrame(vf, k);
     } finally {
