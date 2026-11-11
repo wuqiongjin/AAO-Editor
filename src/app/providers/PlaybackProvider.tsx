@@ -68,6 +68,14 @@ export function usePlaybackState(): PlaybackStateContextValue {
   return ctx;
 }
 
+/**
+ * issue 188 / issue 232：只订阅 80ms 节流刷新的 currentSeconds，供播放条 / HUD 等轻量展示组件直读，
+ * 避免父级容器（如 WorkspacePage）连带重渲染。
+ */
+export function usePlaybackSeconds(): number {
+  return useContext(PlaybackSecondsContext);
+}
+
 export function usePlayback(): PlaybackContextValue {
   const state = useContext(PlaybackStateContext);
   const currentSeconds = useContext(PlaybackSecondsContext);

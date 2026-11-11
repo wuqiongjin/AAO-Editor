@@ -598,15 +598,36 @@ export function createNoteLayerCache(): NoteLayerCache {
     // 删除就等于「接下来若干帧这块瓦片没有任何像素」；而 margin = (VIEWPORT_PADDING+48)/es ≈ 248
     // pos px 常常覆盖全部可见内容瓦片 → 用户看到的是**整屏音符消失一瞬**，任何编辑动作都触发。
     // 打脏后本帧仍 blit 上一版位图（内容不新但连续），队列异步重建完换下。
+    // issue 232：仅与视口相交的可见块打脏保留；对于离开当前视口的远端失效瓦片，直接 delete 淘汰，
+    // 杜绝回滚后编辑将远端瓦片滞留为 dirty，在随后开播时引发排空风暴与旧音符残影闪烁。
+    const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
     for (let id = lo; id <= hi; id++) {
       const t = tiles.get(id);
-      if (t) t.dirty = true;
+      if (t) {
+        if (tileIntersectsViewport(id, es, anchorY, rc.surface.h)) {
+          t.dirty = true;
+        } else {
+          tiles.delete(id);
+          const qIdx = playTileQueue.indexOf(id);
+          if (qIdx !== -1) playTileQueue.splice(qIdx, 1);
+        }
+      }
     }
   }
 
-  /** issue 146：变更收敛不到拍区间（undo/redo 整份换引用等）—— 与上面同口径，全部打脏而非清空 */
-  function markAllTilesDirty() {
-    for (const t of tiles.values()) t.dirty = true;
+  /** issue 146 / 232：变更收敛不到拍区间（undo/redo 整份换引用等）—— 视口内打脏，视口外直接淘汰 */
+  function markAllTilesDirty(rc: RenderCtx) {
+    const es = rc.viewport.scale;
+    const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
+    for (const [id, t] of [...tiles.entries()]) {
+      if (tileIntersectsViewport(id, es, anchorY, rc.surface.h)) {
+        t.dirty = true;
+      } else {
+        tiles.delete(id);
+        const qIdx = playTileQueue.indexOf(id);
+        if (qIdx !== -1) playTileQueue.splice(qIdx, 1);
+      }
+    }
   }
 
   function evictOverBudget() {
@@ -732,7 +753,7 @@ export function createNoteLayerCache(): NoteLayerCache {
     } else if (basis.notes !== nb.notes) {
       // F3：notes 引用变化 → 结构共享 diff，仅失效覆盖变更拍区间的瓦片
       const diff = diffNotes(basis.notes, rc.notes, rc.beatDisplay);
-      if (diff.kind === 'full') markAllTilesDirty();                                     // issue 146：不清空
+      if (diff.kind === 'full') markAllTilesDirty(rc);                                     // issue 146：不清空
       else if (diff.kind === 'range') invalidateTilesForBeatRange(diff.minBeat, diff.maxBeat, rc);
       basis = nb;
     }

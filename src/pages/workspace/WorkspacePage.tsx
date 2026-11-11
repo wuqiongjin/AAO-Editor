@@ -10,7 +10,7 @@ import './WorkspacePage.css';
 import { ChartCodeEditorProvider } from '../../chart/components/code-editor/ChartCodeEditorProvider';
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
 import { formatKey, type FunctionId } from '../../settings/ShortcutConfig';
-import PlayBar from '../../playback/PlayBar';
+import WorkspacePlayBar from './WorkspacePlayBar';
 import PlaybackRate from '../../playback/PlaybackRate';
 import { getPlaybackRate, usePlaybackRate } from '../../playback/playbackRateState';
 import {
@@ -19,7 +19,7 @@ import {
   stepPlaybackRatePreset,
 } from '../../playback/playbackShortcuts';
 import PlaybackMarkerButton from '../../playback/PlaybackMarkerButton';
-import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
+import { useEditing, useUI, useConfig, usePlaybackState, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
 import { useAudioBridge } from '../../audio/useAudioBridge';
 import { useChartViewSession } from '../../playback/useChartViewSession';
 import { useChartProjectPersistence } from '../../project/useChartProjectPersistence';
@@ -67,7 +67,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const editing = useEditing();
   const ui = useUI();
   const config = useConfig();
-  const playback = usePlayback();
+  // issue 232：消费 usePlaybackState()，不消费 80ms 高频更新的 currentSeconds，避免播放期整页重渲染
+  const playback = usePlaybackState();
 
   // issue 73：paste 已从本处移除 —— 粘贴的唯一入口是画布（工具单击 / execPaste），
   // 避免再有一条绕过矩阵、没有末端校验的粘贴通路。
@@ -80,8 +81,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     setIsPlaying, setCanPlay,
     setCurrentSeconds,
     duration: ctxDuration, setDuration: setCtxDuration,
-    currentSeconds: playheadSeconds,
-    // 播放条（issue 22）props 化的数据入口：isPlaying / canPlay 由页面从 PlaybackContext
+    // 播放条（issue 22 / issue 232）props 化的数据入口：isPlaying / canPlay 由页面从 PlaybackContext
     // 取出后显式传入（组件不再直读 context）；主音量（票 60）改从 settings 直读，不进本 Context
     isPlaying: ctxIsPlaying,
     canPlay,
@@ -577,9 +577,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
             <PatternPastePill />
           </div>
         </div>
-        <PlayBar
+        <WorkspacePlayBar
           isPlaying={ctxIsPlaying}
-          currentSeconds={playheadSeconds}
           duration={ctxDuration}
           volume={settings.audio.volume}
           audioLocked={audioSnap.audioLocked}
