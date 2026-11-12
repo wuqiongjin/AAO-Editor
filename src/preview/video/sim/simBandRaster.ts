@@ -294,24 +294,53 @@ export function makeSimBandRasterBuffer(cw: number, ch: number, rx: number, ry: 
   return { cw, ch, rx, ry, bytes, view: new Uint32Array(bytes.buffer) };
 }
 
-/** 四边形 → 连续中心线结点（首点取 a 边中点，之后每段取 b 边中点；共享结点不重复） */
-function nodesOf(quads: readonly SimPoint[][]): SimBandNode[] {
-  const nodes: SimBandNode[] = [];
-  for (let i = 0; i < quads.length; i++) {
-    const q = quads[i]!;
-    if (i === 0) {
-      nodes.push({ x: (q[0]!.x + q[1]!.x) / 2, y: q[0]!.y, half: Math.abs(q[1]!.x - q[0]!.x) / 2 });
+/** 共享结点的判定阈值（CSS px）：同一结点由同一组 `(lane, A)` 算出，只会有浮点末位差 */
+const SIM_BAND_CHAIN_EPS = 0.5;
+
+/**
+ * 四边形 → 若干条**首尾相接**的中心线链（首点取 a 边中点，之后每段取 b 边中点；共享结点不重复）。
+ *
+ * 倒流折返谱里，可见窗口会掐掉折点上的同刻换轨段（以及已过线 / 未进场的段）：掐掉后
+ * `quads[i]` 的 a 边与 `quads[i-1]` 的 b 边在屏幕上并不重合。此时若仍拼成一条链，就会
+ * 画出一条根本不存在的满高斜带、并把真实那一臂的端点弄丢（每段被"接到上一段的轨位"）。
+ * 这里按屏幕坐标判重合，不重合即**断链**，让每一段各自从自己的 a 边起画。
+ * 正常谱（含首尾相接的折返 V）恒只有一条链，行为与断链前逐像素一致。
+ */
+export function simBandCenterlineChains(quads: readonly SimPoint[][]): SimBandNode[][] {
+  const chains: SimBandNode[][] = [];
+  let nodes: SimBandNode[] = [];
+  let prevBx = 0;
+  let prevBy = 0;
+  for (const q of quads) {
+    const ax = (q[0]!.x + q[1]!.x) / 2;
+    const ay = q[0]!.y;
+    const ahalf = Math.abs(q[1]!.x - q[0]!.x) / 2;
+    const b: SimBandNode = {
+      x: (q[3]!.x + q[2]!.x) / 2,
+      y: q[3]!.y,
+      half: Math.abs(q[2]!.x - q[3]!.x) / 2,
+    };
+    if (nodes.length === 0) {
+      nodes.push({ x: ax, y: ay, half: ahalf });
+    } else if (Math.abs(ax - prevBx) > SIM_BAND_CHAIN_EPS || Math.abs(ay - prevBy) > SIM_BAND_CHAIN_EPS) {
+      chains.push(nodes);
+      nodes = [{ x: ax, y: ay, half: ahalf }];
     }
-    nodes.push({ x: (q[3]!.x + q[2]!.x) / 2, y: q[3]!.y, half: Math.abs(q[2]!.x - q[3]!.x) / 2 });
+    nodes.push(b);
+    prevBx = b.x;
+    prevBy = b.y;
   }
-  return nodes;
+  if (nodes.length >= 2) chains.push(nodes);
+  return chains;
 }
 
 /**
  * 把整帧所有可见滑条光栅进**同一张缓冲**。
  *
- * - 每条滑条先按 `splitBandAtFolds` 切成 y 单调 run（倒流区折返的两臂各自扫，像素内
- *   `1−(1−a₁)(1−a₂)` 合成 ⇒ issue 45 的「不抵消成洞」与 issue 46 的「自叠 / 交叉叠亮」同源）；
+ * - 每条滑条先按 `simBandCenterlineChains` 在**不共享端点处断链**（可见窗口掐掉的折点
+ *   不会再被接成幻影斜带），再按 `splitBandAtFolds` 把各链切成 y 单调 run（倒流区折返的
+ *   两臂各自扫，像素内 `1−(1−a₁)(1−a₂)` 合成 ⇒ issue 45 的「不抵消成洞」与 issue 46 的
+ *   「自叠 / 交叉叠亮」同源）；
  * - 纵向因子按**整条** `[y0,y1]` 求一次（不是每个逻辑段，避免结点竹节；票 65 定案 #3）；
  * - 每条 run 只扫自己的 y 区间（逐条 bbox 限幅），内循环无函数调用、Uint32 单次写入；
  * - 不同滑条真重叠时 RGB 取后写者 = 谱面数组序「后放置者在上」，α 用 screen 叠亮。
@@ -331,18 +360,21 @@ export function rasterSimBandGroups(
     const cross = mat.cross;
     const along = mat.longitudinal;
     const color = mat.color;
-    const nodes = nodesOf(group.quads);
-    if (nodes.length < 2) continue;
+    const chains = simBandCenterlineChains(group.quads);
     let y0 = Infinity;
     let y1 = -Infinity;
-    for (const n of nodes) {
-      if (n.y < y0) y0 = n.y;
-      if (n.y > y1) y1 = n.y;
+    // 纵向因子仍按**整条可见带体**求一次（断链只切几何，不重置相位；票 65 定案 #3）
+    for (const nodes of chains) {
+      for (const n of nodes) {
+        if (n.y < y0) y0 = n.y;
+        if (n.y > y1) y1 = n.y;
+      }
     }
     const span = y1 - y0;
     if (span < 1e-6) continue;
-    // `splitBandAtFolds` 只切片、不改元素 ⇒ 结点上的 half 原样带进每个 run
-    const runs = splitBandAtFolds(nodes) as SimBandNode[][];
+    // `splitBandAtFolds` 只切片、不改元素 ⇒ 结点上的 half 原样带进每个 run；
+    // 每条链各自切 run，折返两臂仍在同一缓冲里 screen 叠亮
+    const runs = chains.flatMap((nodes) => splitBandAtFolds(nodes)) as SimBandNode[][];
     for (const raw of runs) {
       const run = raw[0]!.y > raw[raw.length - 1]!.y ? [...raw].reverse() : raw;
       const jStart = Math.max(0, Math.floor(run[0]!.y * ry));

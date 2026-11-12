@@ -19,11 +19,12 @@ import {
   SIM_BAND_LOD_EXIT_LOW_PIXELS,
   nextSimBandRasterLodState,
   simBandCoverageCss,
+  simBandCenterlineChains,
   type SimBandRasterGroup,
   type SimBandRasterLodState,
   type SimBandRasterMaterial,
 } from '@/src/preview/video/sim/simBandRaster';
-import { bandQuad, fieldMetrics } from '@/src/preview/video/sim/simGeometry';
+import { bandQuad, fieldMetrics, type SimPoint } from '@/src/preview/video/sim/simGeometry';
 import { sampleProfileAt } from '@/src/rendering/slideBandGeometry';
 
 const m = fieldMetrics(1334, 750);
@@ -223,6 +224,42 @@ describe('65 · 逐像素光栅（沿整条中心线连续求值）', () => {
     const cx = Math.floor(m.centerX * 0.5);
     const y = 200;
     expect(alphaAt(folded, cx, y)).toBeGreaterThan(alphaAt(forward, cx, y) + 0.05);
+  });
+
+  it('倒流折返 + 折点被可见窗口掐掉：断链，不把相邻两臂接成幻影斜带', () => {
+    // 复刻 dzilas 150030 第一段倒流区（s≈8）的可见四边形：4 条臂各成一进一出 V，
+    // 折点上的同刻换轨段（t=12.8，在接近窗口外）已被剔除 ⇒ 相邻臂顶端不重合
+    const quads: SimPoint[][] = [];
+    for (const lane of [6, 4, 2, 0]) {
+      quads.push([...bandQuad(m, { lane, a: 0.05 }, { lane, a: 1 }, 1)]);
+      quads.push([...bandQuad(m, { lane, a: 1 }, { lane, a: 0.05 }, 1)]);
+    }
+    const chains = simBandCenterlineChains(quads);
+    expect(chains).toHaveLength(4);
+    chains.forEach((chain, i) => {
+      const lane = [6, 4, 2, 0][i]!;
+      // 每条链的首结点必须是**本臂**顶端轨位；旧画法会拿上一臂的顶端接缝
+      expect(chain).toHaveLength(3);
+      expect(chain[0]!.y).toBeCloseTo(m.laneHeight * 0.05, 5);
+      expect(chain[0]!.x).toBeCloseTo(m.centerX + (lane - 3) * m.laneWidth * 0.05, 5);
+    });
+    // 正常谱（首尾相接的多段直带 / 曲线）恒一条链，画质口径不变
+    expect(simBandCenterlineChains(straightBand(24).quads)).toHaveLength(1);
+  });
+
+  it('断链后不画出跨轨的幻影带，两条真臂各自仍在', () => {
+    const vertical = (cx0: number, y0: number, cx1: number, y1: number): SimPoint[] => [
+      { x: cx0 - 20, y: y0 }, { x: cx0 + 20, y: y0 },
+      { x: cx1 + 20, y: y1 }, { x: cx1 - 20, y: y1 },
+    ];
+    // 两臂不共享端点：旧画法会把 (200,600) 直接连到 (900,100)，
+    // 在场地正中扫出一条两臂都不经过的斜带
+    const quads = [vertical(200, 100, 200, 600), vertical(900, 600, 900, 100)];
+    const buf = render([{ slide: 0, sp: true, quads }]);
+    const y = Math.round(350 * 0.5);
+    expect(alphaAt(buf, Math.round(550 * 0.5), y)).toBe(0); // 幻影斜带中线
+    expect(alphaAt(buf, Math.round(200 * 0.5), y)).toBeGreaterThan(0.05);
+    expect(alphaAt(buf, Math.round(900 * 0.5), y)).toBeGreaterThan(0.05);
   });
 
   it('缓冲尺寸只随光栅比例变化（50% 光栅 = 场地 × 比例 × 0.5）', () => {
