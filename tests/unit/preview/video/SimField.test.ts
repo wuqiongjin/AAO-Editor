@@ -34,9 +34,7 @@ import {
   SIM_BAND_RASTER_MATERIAL_SP,
   SIM_BAND_RASTER_SCALE,
   SIM_BAND_RASTER_SCALE_FULL,
-  SIM_BAND_LOD_ENTER_LOW_PIXELS,
   __setSimBandRasterCanvasFactoryForTests,
-  simBandCoverageCss,
   type SimBandRasterGroup,
   type SimBandRasterScale,
 } from '@/src/preview/video/sim/simBandRaster';
@@ -92,8 +90,8 @@ function makeRecordingSprite() {
   return { spriteIcon, draws };
 }
 
-/** `'lod'` = 不带显式比例（实时逐帧自适应）；数字 = 固定该档（导出固定 100%） */
-function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon, scale: SimBandRasterScale | 'lod' = SIM_BAND_RASTER_SCALE): SimFrameInput {
+/** 缺省走真实的实时路径；导出测试显式给 100%，避免测试替身掩盖默认档位回归。 */
+function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon, scale?: SimBandRasterScale): SimFrameInput {
   const frame = {
     scene: scene(notes),
     chart: buildSimChart(scene(notes), icons),
@@ -102,7 +100,7 @@ function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon, scale: SimBan
     noteIcons: icons,
     spriteIcon,
   };
-  return scale === 'lod' ? frame : { ...frame, bandRasterScale: scale };
+  return scale === undefined ? frame : { ...frame, bandRasterScale: scale };
 }
 
 /** 记录型 ctx：补一个合法变换（65 的带体光栅按它换算设备像素密度） */
@@ -735,10 +733,10 @@ const smoothingAtBlit = (calls: RecordedCall[]): unknown => {
   }
   return undefined;
 };
-/** 30 条同时可见、相互重叠的竖直带 ⇒ 扫描量远超降档阈值 */
+/** 30 条同时可见、相互重叠的竖直带，用于密集带体回归。 */
 const denseBands = (): ChartNote[] => Array.from({ length: 30 }, () => verticalSlide());
 
-describe('drawSimFrameAt · 带体光栅分档（chart-preview 66）', () => {
+describe('drawSimFrameAt · 实时固定 50% / 导出 100%（chart-preview 66）', () => {
   it('显式比例：100% 建全尺寸缓冲且不放平滑；50% 建半尺寸缓冲并双线性放大', () => {
     const { spriteIcon } = makeRecordingSprite();
     const full = drawnFrame(frameOf([verticalSlide()], spriteIcon, SIM_BAND_RASTER_SCALE_FULL), 1.5);
@@ -754,38 +752,41 @@ describe('drawSimFrameAt · 带体光栅分档（chart-preview 66）', () => {
     expect(smoothingAtBlit(low.calls)).toBe(true);
   });
 
-  it('实时缺省（无显式比例）：稀疏谱 100%、密集谱 50%', () => {
+  it.each([1, 1.25, 1.5, 2])('实时缺省：density=%s 时稀疏和密集带体都固定 50%', (density) => {
     const { spriteIcon } = makeRecordingSprite();
-    const sparse = frameOf([verticalSlide()], spriteIcon, 'lod');
-    const dense = frameOf(denseBands(), spriteIcon, 'lod');
-    // 先确认造出来的语料确实越过阈值，断言才有意义
-    expect(simBandCoverageCss(groupsAt(sparse, 1.5))).toBeLessThan(SIM_BAND_LOD_ENTER_LOW_PIXELS);
-    expect(simBandCoverageCss(groupsAt(dense, 1.5))).toBeGreaterThan(SIM_BAND_LOD_ENTER_LOW_PIXELS);
-    expect(drawnFrame(sparse, 1.5).image.width).toBe(fieldMetrics(1334, 750).w);
-    expect(drawnFrame(dense, 1.5).image.width)
-      .toBe(Math.round(fieldMetrics(1334, 750).w * SIM_BAND_RASTER_SCALE));
+    for (const notes of [[verticalSlide()], denseBands()]) {
+      const frame = frameOf(notes, spriteIcon);
+      const drawn = drawnFrame(frame, 1.5, { getTransform: () => ({ a: density, d: density, e: 0, f: 0 }) });
+      expect(drawn.image.width).toBe(Math.round(frame.metrics.w * density * 0.5));
+      expect(drawn.image.height).toBe(Math.round(frame.metrics.h * density * 0.5));
+      expect(smoothingAtBlit(drawn.calls)).toBe(true);
+    }
   });
 
-  it('导出显式 100% 覆盖 LOD：同一份密集谱仍画全分辨率缓冲', () => {
+  it.each(['sparse', 'dense'])('导出显式 100%%：%s 带体仍画全分辨率缓冲', (kind) => {
     const { spriteIcon } = makeRecordingSprite();
-    const exported = drawnFrame(frameOf(denseBands(), spriteIcon, SIM_BAND_RASTER_SCALE_FULL), 1.5);
+    const notes = kind === 'dense' ? denseBands() : [verticalSlide()];
+    const exported = drawnFrame(frameOf(notes, spriteIcon, SIM_BAND_RASTER_SCALE_FULL), 1.5);
     expect(exported.image.width).toBe(fieldMetrics(1334, 750).w);
+    expect(exported.image.height).toBe(fieldMetrics(1334, 750).h);
     expect(smoothingAtBlit(exported.calls)).toBe(false);
   });
 
-  it('同一画布连续帧：密度抖动不来回重建缓冲（滞回生效）', () => {
+  it('同一画布：稀疏入场、空白、密集段和恢复稀疏都复用半尺寸缓冲', () => {
     const { spriteIcon } = makeRecordingSprite();
     const { proxy } = recordingCtx();
-    const dense = frameOf(denseBands(), spriteIcon, 'lod');
-    const moderate = frameOf([verticalSlide()], spriteIcon, 'lod');
-    drawSimFrameAt(proxy, dense, 1.5); // 首帧进入 50%
-    const widths: number[] = [];
-    for (let i = 0; i < 12; i++) {
-      drawSimFrameAt(proxy, i % 2 === 0 ? dense : moderate, 1.5);
-      widths.push(lastScratch!.image!.width);
+    const sparse = frameOf([verticalSlide()], spriteIcon);
+    const dense = frameOf(denseBands(), spriteIcon);
+    drawSimFrameAt(proxy, sparse, 1.5);
+    const scratch = lastScratch!;
+    const image = scratch.image!;
+    expect(image.width).toBe(Math.round(sparse.metrics.w * 0.5));
+    for (const [frame, seconds] of [[sparse, 0], [dense, 1.5], [sparse, 1.5]] as const) {
+      drawSimFrameAt(proxy, frame, seconds);
+      expect(lastScratch).toBe(scratch);
+      expect(scratch.image).toBe(image);
     }
-    expect(new Set(widths).size).toBe(1);
-    expect(widths[0]).toBe(Math.round(fieldMetrics(1334, 750).w * SIM_BAND_RASTER_SCALE));
+    expect(scratch.calls.filter(([name]) => name === 'createImageData')).toHaveLength(1);
   });
 });
 

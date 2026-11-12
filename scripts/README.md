@@ -105,7 +105,7 @@ GitHub 侧门禁（ADR-0022 §9）：`ci.yml` 只在 `pull_request → main` 上
 | `sim-shot.mjs` | 仿真场像素验收（chart-preview 05）：建工程 → 贴样例谱 → 预览页切「动态预览」→ 抓**场地 canvas 原生位图**（暂停 / 播放中 / seek 中段 / seek 末段）+ 页面截图，打印场地比例与位图尺寸；素材缺席时打印 04 的空态与获取命令（同需 playwright + dev server） |
 | `verify-backflow-band-fill.mjs` | issue 45：倒流区带体填充的位图验收（单测锁测的**替代证据**——记录型 ctx 不光栅化，nonzero 抵消只在光栅阶段显形）：载入 dzilas 150030 → 动态预览 → 暂停态 seek 到倒流区内若干秒（默认 5.0/8.0/11.0/12.5）→ 抓 `.pv-field__canvas` 位图，用 node 侧**真实 `drawSimFrameAt`** 算出的期望四边形逐条采样中线（带体色族）；`--label` + 另一个 worktree 的 dev server 可做修前 / 修后 A/B（需 esbuild + playwright + dev server；谱面在本地语料 `docs/resource/`，可用参数覆盖） |
 | `verify-band-material.mjs` | issue 46：动态预览带体材质 / 叠亮的位图验收（零外部语料——脚本内造两条同轨错时竖滑条）：动态预览 seek 到 1.5s → 抓 `.pv-field__canvas` → 按体色反算 α，断言单层半透明、双层重叠更亮、亮缘比中线亮（需 playwright + dev server） |
-| `verify-sim-band-raster.mjs` | chart-preview 65/66：带体逐像素材质的浏览器像素验收（单测锁测的**替代证据**）：dev server 空壳页直调 `loadSimAssets` / `drawSimFrameAt`，12 条断言锁横截面中心 / 亮缘 / 软边、无段间横纹、纵向整条一次、皮肤切换、交叉叠亮、与内联 B 复算同图剖面一致，加票 66 的 100% 不做双线性放大 / 显式档位缓冲尺寸 / 实时 LOD 稀疏 100% 密集 50% / 导出固定 100%（`draw(notes, assets, scale)` 第三参给数字钉档、省略走 LOD；需 playwright + dev server；`--url` 缺省取云环境代理地址） |
+| `verify-sim-band-raster.mjs` | chart-preview 65/66：带体逐像素材质的浏览器像素验收（单测锁测的**替代证据**）：dev server 空壳页直调 `loadSimAssets` / `drawSimFrameAt`，12 条断言锁横截面中心 / 亮缘 / 软边、无段间横纹、纵向整条一次、皮肤切换、交叉叠亮、与内联 B 复算同图剖面一致，加票 66 的 100% 不做双线性放大 / 显式档位缓冲尺寸 / 实时稀疏 / 密集均固定 50% / 导出固定 100%（`draw(notes, assets, scale)` 第三参给数字钉档、省略固定 50%；需 playwright + dev server；`--url` 缺省取云环境代理地址） |
 
 一次性 Playwright 探针历史上在迭代后已删除；需要浏览器实测时优先 vitest / 手工清单，或按 issue 说明临时写脚本（不必长期留在本目录）。
 票 65 的压测探针 `bench-sim-band-raster.mjs`、视觉原型 HTML 与用户提供的两张实机截图均为**本地一次性文件，不入库**（忽略规则见 `.gitignore`）；复算命令与结论留在 `docs/research/chart-preview-sim-slide-band-material.md`。

@@ -225,8 +225,8 @@ export interface SimFrameInput {
   noteIcons: ActiveNoteIcons;
   spriteIcon: CanvasSpriteIcon;
   /**
-   * 带体光栅比例（票 66）：**显式给**（离线导出固定 1）→ 该帧按它画、不进 LOD；
-   * 省略 → 实时每帧按可见带体覆盖量在 100% / 50% 两档间自适应。
+   * 带体光栅比例（票 66）：离线导出显式固定 1；实时省略时固定 0.5。
+   * 覆盖面积 LOD 漏算整图清零 / 复制 / 回写，真实谱全屏超预算仍不降档，已撤下。
    * 实时与导出仍共用同一份 `drawSimFrameAt`，只是输入不同（ADR-0016 §5）。
    */
   bandRasterScale?: SimBandRasterScale;
@@ -471,8 +471,8 @@ export function drawSimBackground(
  * **沿整条中心线连续求值**的逐像素光栅 —— 横截面 α 取皮肤贴图 17 点剖面（与画布同一口径），
  * 纵向曲线按整条一次（普通带两端实中间虚、SP 纵向恒定），半宽随接近值 A 逐点变化。
  * 一帧只写一张共享 RGBA 缓冲：一次 `putImageData` + 一次 `drawImage`；实时预览与视频导出
- * 共用这里的 `drawSimFrameAt`（ADR-0016 §5）。票 66 起光栅比例按帧分档：实时按可见带体量
- * 自适应 100% / 50%，导出在 `frameDriver` 显式给 1；几何、分组、叠亮口径均不变。
+ * 共用这里的 `drawSimFrameAt`（ADR-0016 §5）。票 66 补修后实时固定 50%，
+ * 导出在 `frameDriver` 显式给 1；几何、分组、叠亮口径均不变。
  *
  * 65 之前是「常数体 α + 3% 亮缘薄四边形」平涂，且把同材质全谱并成一条路径 ⇒ 段接缝、
  * 曲线暗缝、SP 绿条与游戏材质不符（原型 B 的暗缝指标 4.0 vs 现状 25.3，research §5）。
@@ -527,7 +527,7 @@ function drawBands(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds:
     assets.bandRasterSp ?? SIM_BAND_RASTER_MATERIAL_SP,
     alpha,
     metrics,
-    // 票 66：导出在 frameDriver 里显式给 1（成片最锐）；实时省略 ⇒ 按可见带体量自适应
+    // 票 66：导出在 frameDriver 里显式给 1（成片最锐）；实时省略 ⇒ 固定 0.5
     input.bandRasterScale,
   );
 }

@@ -4,13 +4,13 @@
  * 与画布的关系：横截面口径（`|x−cx|/half` 的连续 α 剖面）、17 点等距采样、回折切分
  * (`splitBandAtFolds`) 全部复用 `rendering/slideBandGeometry`，不在本文件另立一套；
  * 仿真场多出来的两件事单独留在这里 —— ① 半宽随接近值 A **逐点变化**（画布是常数半宽），
- * ② 光栅分辨率分档 + 一张共享缓冲一次回写（实时与导出共用同一份 `drawSimFrameAt`）。
+ * ② 实时固定 50%、导出固定 100% + 一张共享缓冲一次回写（共用 `drawSimFrameAt`）。
  *
  * 为什么必须逐像素：原型实测（research §5）「按段生成渐变」必然在接缝处不连续（C 边缘阶梯、
  * D 相位重置），只有沿整条中心线连续求值才对得上游戏实机的 SP 绿条。
- * 为什么分档（票 66）：50% 光栅 + `imageSmoothingQuality='high'` 的 2× 放大把亮缘过渡
- * 抹宽一倍，用户实机反馈「边缘糊」。调研 §6 的 100% / 50% 成本差 3~4×，故实时按每帧
- * 可见带体量走 100% / 50% 两档（8ms 预算 + EMA 滞回），导出离线无实时时钟 ⇒ 固定 100%。
+ * 为什么实时固定 50%（票 66 补修）：覆盖面积 LOD 漏算整张缓冲的清零 / 复制 / 回写，
+ * 真实谱全屏播放已超帧预算仍不降档；当前实现恢复 50% 保留实时余量。
+ * 导出离线逐帧可等待，显式给 100% 保留锐度。实测与限制见 research 的实时光栅回归调查。
  * 25% 画质、75% 中间档、拆层补锐均被否决（票 66「本轮实现口径」）。
  *
  * 材质在 `loadSimAssets` 阶段一次 `getImageData` 取样并展开成 LUT，帧循环里只读数组：
@@ -27,26 +27,12 @@ export const SIM_BAND_PROFILE_POINTS = 17;
 export const SIM_BAND_CROSS_LUT_SIZE = 1025;
 /** 纵向 LUT 项数：u = i/256，含两端 */
 export const SIM_BAND_LONGITUDINAL_LUT_SIZE = 257;
-/**
- * 光栅低档 = 设备像素 × 0.5（票 65 的固定值；票 66 起它只是 LOD 的低档，不再是默认）。
- * 实时常规谱走 `SIM_BAND_RASTER_SCALE_FULL`，只有一帧带体多到算不动才降到这一档。
- */
+/** 实时默认光栅 = 设备像素 × 0.5（票 66 性能补修：覆盖面积不足以预测整图开销） */
 export const SIM_BAND_RASTER_SCALE = 0.5;
-/** 光栅全档 = 设备像素 1:1（导出固定、实时常规谱） */
+/** 导出光栅 = 设备像素 1:1（离线逐帧，显式指定） */
 export const SIM_BAND_RASTER_SCALE_FULL = 1;
 /** 票 66 定死的两档；75% 等中间档已否决（非整数重采样有伪影），不给任意比例留口子 */
 export type SimBandRasterScale = typeof SIM_BAND_RASTER_SCALE_FULL | typeof SIM_BAND_RASTER_SCALE;
-/**
- * 8ms 材质层预算对应的「100% 光栅预计像素」（票 66 四档实测拟合，详见
- * `docs/research/chart-preview-sim-slide-band-material.md` §10）。
- */
-export const SIM_BAND_LOD_BUDGET_PIXELS = 800_000;
-/** 滞回上阈：100% 档的 EMA 超过它才降 50%（预算 +12.5% 余量，别贴着预算切） */
-export const SIM_BAND_LOD_ENTER_LOW_PIXELS = SIM_BAND_LOD_BUDGET_PIXELS * 1.125;
-/** 滞回下阈：50% 档的 EMA 低于它才回 100%（预算 −18.75%；中间是死区，避免锐度闪） */
-export const SIM_BAND_LOD_EXIT_LOW_PIXELS = SIM_BAND_LOD_BUDGET_PIXELS * 0.8125;
-/** EMA 平滑系数：约 10 帧时间常数（60fps ≈ 0.17s） */
-const SIM_BAND_LOD_EMA_ALPHA = 0.1;
 
 /** Uint32 视图的字节序（浏览器基本都是小端；大端平台换一套打包/取 α 的位运算） */
 const LITTLE_ENDIAN = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
@@ -203,61 +189,6 @@ export function readSimBandImage(
   } catch {
     return null; // 画布被污染 / 上下文不可用：兜底材质顶上
   }
-}
-
-// ───────────────────────────── 光栅分档（票 66） ─────────────────────────────
-
-/**
- * 一帧可见带体在**场地 CSS 坐标**下的覆盖面积（Σ 梯形面积 = Σ 2·half·|dy|）。
- * 它是扫描线内核要访问的像素数的解析估计（按 100% 光栅），再乘
- * `(设备像素密度 × 光栅比例)²` 就是该档的预计成本；不用跑一遍内核就能判定档位。
- * 同拍水平段（|dy| = 0）面积为 0，与 `drawBandQuad` 的零面积判据一致。
- */
-export function simBandCoverageCss(groups: readonly SimBandRasterGroup[]): number {
-  let area = 0;
-  for (const group of groups) {
-    for (const q of group.quads) {
-      const w0 = Math.abs(q[1]!.x - q[0]!.x);
-      const w1 = Math.abs(q[2]!.x - q[3]!.x);
-      area += ((w0 + w1) / 2) * Math.abs(q[3]!.y - q[0]!.y);
-    }
-  }
-  return area;
-}
-
-/** 每个画布一份的 LOD 状态（实时逐帧推进；导出给显式比例、不进这条状态机） */
-export interface SimBandRasterLodState {
-  /** EMA 平滑后的「100% 口径压力像素」 */
-  pixels: number;
-  /** 当前光栅档位 */
-  scale: SimBandRasterScale;
-}
-
-/**
- * 逐帧推进 LOD：EMA 平滑 + 双阈值滞回。
- * 首帧（含 seek 后的第一帧）直接以真实覆盖量起算，否则 seek 进密集段会连着十几帧
- * 按 100% 硬扛；之后靠 EMA 把帧间抖动压住，靠上下阈避免锐度来回跳。
- * `densityX/Y` 取画布变换的缩放（实时 = `min(设备 DPR, 画质档)`，导出恒 1），
- * 连续值 1 / 1.25 / 1.5 / 2 都走同一条公式，不给 dpr2 单写分支。
- *
- * 压力值**恒按 100% 口径**算（`coverageCss × densityX × densityY`），不乘 `scale²`：
- * 阈值本来就是从 100% 成本标定的；若乘上当前档位，降到 50% 的下一帧压力立刻掉到 1/4，
- * 会当场弹回 100% 再降回来，滞回就失去意义。当前档位只影响绘制，不影响压力。
- */
-export function nextSimBandRasterLodState(
-  prev: SimBandRasterLodState,
-  coverageCss: number,
-  densityX: number,
-  densityY: number,
-): SimBandRasterLodState {
-  const fullScalePixels = coverageCss * densityX * densityY;
-  const pixels = prev.pixels <= 0
-    ? fullScalePixels
-    : prev.pixels + (fullScalePixels - prev.pixels) * SIM_BAND_LOD_EMA_ALPHA;
-  const scale = prev.scale === SIM_BAND_RASTER_SCALE_FULL
-    ? (pixels > SIM_BAND_LOD_ENTER_LOW_PIXELS ? SIM_BAND_RASTER_SCALE : SIM_BAND_RASTER_SCALE_FULL)
-    : (pixels < SIM_BAND_LOD_EXIT_LOW_PIXELS ? SIM_BAND_RASTER_SCALE_FULL : SIM_BAND_RASTER_SCALE);
-  return { pixels, scale };
 }
 
 // ───────────────────────────── 逐像素光栅内核 ─────────────────────────────
@@ -435,21 +366,6 @@ interface SimBandRasterScratch {
 
 /** 每个 ctx 一份缓冲（实时预览 / 视频导出各一张画布，互不顶掉尺寸） */
 const SCRATCH = new WeakMap<CanvasRenderingContext2D, SimBandRasterScratch>();
-/** 每个实时 ctx 一份 LOD 状态（导出给显式比例，不进这张表） */
-const LOD = new WeakMap<CanvasRenderingContext2D, SimBandRasterLodState>();
-
-/** 显式比例优先（导出）；否则按这一帧的可见带体量推进 LOD 状态机 */
-function resolveSimBandRasterScale(
-  ctx: CanvasRenderingContext2D,
-  groups: readonly SimBandRasterGroup[],
-  sx: number,
-  sy: number,
-): SimBandRasterScale {
-  const prev = LOD.get(ctx) ?? { pixels: 0, scale: SIM_BAND_RASTER_SCALE_FULL };
-  const next = nextSimBandRasterLodState(prev, simBandCoverageCss(groups), sx, sy);
-  LOD.set(ctx, next);
-  return next.scale;
-}
 
 /**
  * 离屏画布工厂的测试替身。node 单测没有 DOM，靠它把「一次 putImageData / 一次 drawImage」
@@ -489,8 +405,8 @@ function ensureScratch(ctx: CanvasRenderingContext2D, cw: number, ch: number, rx
  * `ctx` 的变换是「场地 CSS 坐标 → 设备像素」：`simPlayback` 为缩放、`frameDriver` 为平移，
  * 故回贴目标取 `(t.e, t.f, metrics.w × t.a, metrics.h × t.d)`，两条链路共用这一份换算。
  *
- * `requestedScale`（票 66）：给定时该帧固定该档（导出恒 1），省略时按每帧可见带体量
- * 走 100% / 50% 自适应。放大倍数 = `1/scale`，故只有低档才需要开双线性平滑。
+ * `scale`（票 66）：实时缺省固定 0.5，导出显式给 1。
+ * 放大倍数 = `1/scale`，故只有实时半分辨率才需要开双线性平滑。
  */
 export function drawSimBandRaster(
   ctx: CanvasRenderingContext2D,
@@ -499,17 +415,14 @@ export function drawSimBandRaster(
   sp: SimBandRasterMaterial,
   baseAlpha: number,
   metrics: SimFieldMetrics,
-  requestedScale?: SimBandRasterScale,
+  scale: SimBandRasterScale = SIM_BAND_RASTER_SCALE,
 ): boolean {
+  if (groups.length === 0 || baseAlpha <= 0) return false;
   const t = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
   const sx = t && Number.isFinite(t.a) && t.a > 0 ? t.a : 1;
   const sy = t && Number.isFinite(t.d) && t.d > 0 ? t.d : 1;
   const tx = t && Number.isFinite(t.e) ? t.e : 0;
   const ty = t && Number.isFinite(t.f) ? t.f : 0;
-  // 空带体帧也要推进 EMA（覆盖量 0 ⇒ 压力往下衰减），否则长时间无带体后 seek 进密集段
-  // 会拿旧的高压值起算。放在 early-return 之前是有意的。
-  const scale = requestedScale ?? resolveSimBandRasterScale(ctx, groups, sx, sy);
-  if (groups.length === 0 || baseAlpha <= 0) return false;
   const rx = sx * scale;
   const ry = sy * scale;
   const cw = Math.max(1, Math.round(metrics.w * rx));

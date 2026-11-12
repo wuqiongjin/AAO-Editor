@@ -9,7 +9,7 @@
 //   ① 横截面中心 / 亮缘 / 软边 α；② 无段间横行条纹；③ 普通带纵向两端实中间虚、
 //      SP 纵向恒定；④ 皮肤切换跟随；⑤ 交叉叠亮；⑥ 与内联 B 复算同位剖面一致；
 //   ⑦ 100% 不做 2× 双线性放大、横截面更贴近逐像素真值（票 65 漏测的「糊」）；
-//   ⑧ 显式档位缓冲尺寸；⑨ 实时 LOD 稀疏 100% / 密集 50%；⑩ 导出固定 100%。
+//   ⑧ 显式档位缓冲尺寸；⑨ 实时稀疏 / 密集均固定 50%；⑩ 导出固定 100%。
 //
 // 用法（需先 `bash scripts/dev.sh`；云环境自动取 CNB_VSCODE_PROXY_URI 的 5173 端口）：
 //   node scripts/verify-sim-band-raster.mjs [--url=<对外访问地址>]
@@ -24,7 +24,7 @@ const opt = (name, dflt) => {
 // 云环境（AGENTS.md）：CNB_VSCODE_PROXY_URI 形如 https://<id>-{{port}}.cnb.run ⇒ 换 5173；
 // 本地 / 普通远程开发走 localhost。一律先 `bash scripts/dev.sh` 起服务。
 const proxy = process.env.CNB_VSCODE_PROXY_URI;
-const url = opt('url', proxy ? proxy.replace('{{port}}', '5173') : 'http://127.0.0.1:5173/');
+const url = opt('url', proxy ? proxy.replace('{{port}}', '5173') : 'http://localhost:5173/');
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
@@ -88,11 +88,11 @@ const out = await page.evaluate(async () => {
 
   /**
    * 用产品出帧函数画一帧，返回 RGBA 位图、该秒的带体分组与**实际选中的光栅缓冲尺寸**。
-   * `scale`：数字 = 显式固定该档（导出恒 1）；'lod' = 省略字段，走实时逐帧自适应。
+   * `scale`：数字 = 显式固定该档（导出恒 1）；省略 = 实时固定 0.5。
    * 缓冲尺寸从 9 参数 `drawImage` 的源画布读出（带体层唯一那笔回贴），
    * 属公开 ctx 行为，不依赖模块内部状态，也不给产品代码加测试钩子。
    */
-  const draw = (notes, assets, scale = 'lod') => {
+  const draw = (notes, assets, scale) => {
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -111,7 +111,7 @@ const out = await page.evaluate(async () => {
     const scene = sceneOf(notes);
     const chart = field.buildSimChart(scene, noteIcons);
     const frame = { chart, scene, metrics: m, assets, noteIcons, spriteIcon: noopSprite };
-    if (scale !== 'lod') frame.bandRasterScale = scale;
+    if (scale !== undefined) frame.bandRasterScale = scale;
     field.drawSimFrameAt(ctx, frame, SECONDS);
     return {
       data: ctx.getImageData(0, 0, W, H).data,
@@ -159,7 +159,7 @@ const out = await page.evaluate(async () => {
   };
 
   // ---------------------------------------------------------------- 产品像素
-  // 票 65 的既有 8 条断言按 50% 标定（票 66 之前是固定档），显式钉住以免被 LOD 改口径
+  // 票 65 的既有 8 条断言按实时 50% 标定，显式钉档便于与导出 100% 对比。
   const LOW = 0.5, FULL = 1;
   const sp = draw([spSlide()], skin00, LOW);
   const normal = draw([normalSlide()], skin00, LOW);
@@ -236,7 +236,7 @@ const out = await page.evaluate(async () => {
     lutDiff = Math.max(lutDiff, Math.abs(skin00.bandRasterSp.cross[i] - skin05.bandRasterSp.cross[i]));
   }
 
-  // ---------------------------------------------------------------- 票 66：边缘锐度 + LOD
+  // ---------------------------------------------------------------- 票 66：导出锐度 + 实时固定 50%
   /** 右半边亮缘峰 → α 掉到峰值 5% 以下的过渡宽度（设备 px）与逐像素最大斜率 */
   const edgeMetrics = (data, rgbG, y) => {
     const a = (x) => alphaOf(data, x, y, rgbG);
@@ -264,14 +264,13 @@ const out = await page.evaluate(async () => {
     return sum / n;
   };
   const fullFrame = draw([spSlide()], skin00, FULL);
-  const lodSparse = draw([spSlide()], skin00);
+  const realtimeSparse = draw([spSlide()], skin00);
   const denseNotes = Array.from({ length: 30 }, () => spSlide());
-  const lodDense = draw(denseNotes, skin00);
-  const lodDenseFull = draw(denseNotes, skin00, FULL);
+  const realtimeDense = draw(denseNotes, skin00);
+  const exportedDense = draw(denseNotes, skin00, FULL);
   return {
     canvas: `${W}×${H}`,
     fieldW: W,
-    lodThreshold: rasterMod.SIM_BAND_LOD_ENTER_LOW_PIXELS,
     edgeFull: edgeMetrics(fullFrame.data, rgbGSp, Y),
     edgeLow: edgeMetrics(sp.data, rgbGSp, Y),
     truthErrorFull: truthError(fullFrame.data, rgbGSp),
@@ -279,12 +278,11 @@ const out = await page.evaluate(async () => {
     sizes: {
       full: fullFrame.rasterSize,
       low: sp.rasterSize,
-      lodSparse: lodSparse.rasterSize,
-      lodDense: lodDense.rasterSize,
-      lodDenseFull: lodDenseFull.rasterSize,
+      realtimeSparse: realtimeSparse.rasterSize,
+      realtimeDense: realtimeDense.rasterSize,
+      exportedDense: exportedDense.rasterSize,
     },
     smoothing: { full: fullFrame.smoothing, low: sp.smoothing },
-    denseCoverage: rasterMod.simBandCoverageCss(lodDense.groups),
     singleCenter: spRow.center,
     singlePeak: spRow.peak,
     peakOffset: Math.abs(spRow.peakX - CX),
@@ -358,15 +356,13 @@ const checks = [
   ['显式档位：100% 建全尺寸缓冲、50% 建半尺寸缓冲',
     out.sizes.full?.[0] === out.fieldW && out.sizes.low?.[0] === Math.round(out.fieldW * 0.5),
     `100%=${out.sizes.full?.join('×')} / 50%=${out.sizes.low?.join('×')}（场地 ${out.fieldW}）`],
-  ['实时 LOD：稀疏谱缺省 100%、密集谱降 50%',
-    out.sizes.lodSparse?.[0] === out.fieldW
-      && out.sizes.lodDense?.[0] === Math.round(out.fieldW * 0.5)
-      && out.denseCoverage > out.lodThreshold,
-    `稀疏=${out.sizes.lodSparse?.join('×')} / 密集=${out.sizes.lodDense?.join('×')}；` +
-    `密集覆盖=${Math.round(out.denseCoverage)}px² > 阈值 ${out.lodThreshold}`],
+  ['实时固定 50%：稀疏与密集带体均建半尺寸缓冲',
+    out.sizes.realtimeSparse?.[0] === Math.round(out.fieldW * 0.5)
+      && out.sizes.realtimeDense?.[0] === Math.round(out.fieldW * 0.5),
+    `稀疏=${out.sizes.realtimeSparse?.join('×')} / 密集=${out.sizes.realtimeDense?.join('×')}`],
   ['导出固定 100%：同一份密集谱显式给 1 仍走全分辨率',
-    out.sizes.lodDenseFull?.[0] === out.fieldW,
-    `导出=${out.sizes.lodDenseFull?.join('×')}（实时同谱=${out.sizes.lodDense?.join('×')}）`],
+    out.sizes.exportedDense?.[0] === out.fieldW,
+    `导出=${out.sizes.exportedDense?.join('×')}（实时同谱=${out.sizes.realtimeDense?.join('×')}）`],
 ];
 
 let failures = 0;
