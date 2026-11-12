@@ -8,6 +8,7 @@ import type { AppSettings } from '../../../settings/AppSettings';
 import { getBpmEvents, buildKeyEvents } from '../../../audio/AudioTiming';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
+import { prepareSimNoteSprites } from '../sim/prepareSimNoteSprites';
 import { saveBinaryAs } from '../../static/saveBinary';
 import { buildSimChart, loadSimAssets, type SimFrameInput, type SimPlaybackAudio, type SimScene } from '../sim';
 import {
@@ -234,7 +235,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
       bandSpSrc: noteIcons.slideBandSp.src,
       packs: { field: req.scene.fieldPackId, background: req.scene.bgPackId },
     }),
-    CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs()).catch(() => undefined),
+    prepareSimNoteSprites(noteIcons).catch(() => undefined),
   ]);
   if (assets.missing) {
     return done({ ok: false, failure: 'assets' });

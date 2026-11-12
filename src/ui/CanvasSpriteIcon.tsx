@@ -9,7 +9,7 @@
  * - `inkLeft/inkRight`：方向滑键等精灵框内可见墨迹相对矩形左右边的**源像素缩进**，
  *   供「同时点击连接线」等以墨迹真实边缘定位（消除连接线头与图标间的空隙，issue 40 关联 BUG）。
  */
-import { getDecoupledSprite, getDecoupledDrawSource, decoupledMipLevelFor } from './spriteDecoupling';
+import { getDecoupledSprite, getDecoupledDrawSource, getDecoupledMipLevel, decoupledMipLevelFor } from './spriteDecoupling';
 import { MIP_MIN_DIM, mipLevelFor, mipDims } from './canvasSpriteMips';
 
 /** 预热 mip 链的默认最大级数（覆盖 2048×1024 图集在动态预览远处 depth≈0.1 与工作台最小缩放下的全部采样级 1..5） */
@@ -136,12 +136,37 @@ export default class CanvasSpriteIcon {
         return Promise.all(ps);
     }
 
-    private static loadImage(url: string): Promise<HTMLImageElement> {
-        if (CanvasSpriteIcon.imageCache.has(url)) {
-            return Promise.resolve(CanvasSpriteIcon.imageCache.get(url)!);
+    /** 准备实际绘制使用的独立切片，共用 drawSingle 的裁剪、清洗、padding 与缓存。 */
+    public static async ensureSpritesLoaded(configs: readonly SpriteIconConfig[]): Promise<void> {
+        const bySource = new Map<string, SpriteIconConfig[]>();
+        for (const cfg of configs) {
+            const list = bySource.get(cfg.src) ?? [];
+            list.push(cfg);
+            bySource.set(cfg.src, list);
         }
+        const results = await Promise.allSettled([...bySource].map(async ([src, list]) => {
+            const img = await CanvasSpriteIcon.loadImage(src);
+            for (const cfg of list) {
+                const rect = CanvasSpriteIcon.computeSrcRect(img, cfg);
+                if (!rect || rect.sw <= 0 || rect.sh <= 0) continue;
+                const sprite = getDecoupledSprite(img, { x: rect.sx, y: rect.sy, w: rect.sw, h: rect.sh });
+                if (sprite) {
+                    // 与 decoupledMipLevelFor 的尺寸上限一致，覆盖任意透视深度/画布密度。
+                    getDecoupledMipLevel(sprite, Math.floor(Math.log2(Math.min(rect.sw, rect.sh))));
+                }
+            }
+        }));
+        // 缺图时仍等待其他源的准备结束，调用方才可安全进入降级播放。
+        const failed = results.find(result => result.status === 'rejected');
+        if (failed?.status === 'rejected') throw failed.reason;
+    }
+
+    private static loadImage(url: string): Promise<HTMLImageElement> {
         if (CanvasSpriteIcon.loadingPromises.has(url)) {
             return Promise.resolve(CanvasSpriteIcon.loadingPromises.get(url)!);
+        }
+        if (CanvasSpriteIcon.imageCache.has(url)) {
+            return Promise.resolve(CanvasSpriteIcon.imageCache.get(url)!);
         }
 
         const p = new Promise<HTMLImageElement>((resolve, reject) => {

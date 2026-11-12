@@ -26,6 +26,7 @@ import { PLAYBACK_HUD_PERIOD_MS } from '../../playback/usePlaybackCoordinator';
 import { resolveCanvasDpr } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
+import { prepareSimNoteSprites } from '../../preview/video/sim/prepareSimNoteSprites';
 import {
   buildSimChart,
   createSimPlayback,
@@ -120,16 +121,22 @@ export default function PreviewVideoStage({
   volumeRef.current = volume;
 
   const noteIcons = useMemo(() => buildActiveNoteIcons(normalizeNoteSkinSelection(noteSkin)), [noteSkin]);
+  const [preparedIcons, setPreparedIcons] = useState<typeof noteIcons | null>(null);
   // 实时画布位图密度：画布那套口径（min(设备像素比, 档位)）——逐帧直绘，不叠超采样；
   // 导出侧的固定档由 07 显式给，不跟这里走
   const density = resolveCanvasDpr(imageQuality);
 
-  // 音符皮肤图集预热（与静态预览同一套）
+  // 开播前准备当前皮肤的独立切片与 mip（含按住端帽、方向键与挂件）。
   useEffect(() => {
     let cancelled = false;
-    void CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs())
+    void prepareSimNoteSprites(noteIcons)
       .catch((e) => console.warn('[preview] 仿真场音符皮肤预热失败（按缺图渲染）:', e))
-      .then(() => { if (!cancelled) setSkinVersion((v) => v + 1); });
+      .then(() => {
+        if (!cancelled) {
+          setPreparedIcons(noteIcons);
+          setSkinVersion((v) => v + 1);
+        }
+      });
     return () => { cancelled = true; };
   }, [noteIcons]);
 
@@ -176,7 +183,7 @@ export default function PreviewVideoStage({
     () => (hostSize.w > 0 && hostSize.h > 0 ? fitDesignSurface(hostSize.w, hostSize.h) : null),
     [hostSize.w, hostSize.h],
   );
-  const ready = metrics != null && assets != null && !assets.missing;
+  const ready = metrics != null && assets != null && !assets.missing && preparedIcons === noteIcons;
 
   const onSecondsChangeRef = useRef(onSecondsChange);
   onSecondsChangeRef.current = onSecondsChange;

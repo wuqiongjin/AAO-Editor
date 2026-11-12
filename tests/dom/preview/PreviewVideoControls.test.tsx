@@ -36,6 +36,11 @@ const calls = vi.hoisted(() => ({
   lastOnTick: null as ((seconds: number, playing: boolean) => void) | null,
 }));
 
+// 本文件验证控件接线；真实皮肤准备由 CanvasSpriteIcon 与浏览器回放回归覆盖。
+vi.mock('@/src/preview/video/sim/prepareSimNoteSprites', () => ({
+  prepareSimNoteSprites: vi.fn(async () => undefined),
+}));
+
 vi.mock('@/src/preview', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/src/preview')>();
   return {
@@ -77,6 +82,7 @@ vi.mock('@/src/preview', async (importOriginal) => {
 });
 
 import PreviewVideoStage from '@/src/pages/preview/PreviewVideoStage';
+import { prepareSimNoteSprites } from '@/src/preview/video/sim/prepareSimNoteSprites';
 import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimPlaybackAudio, type SimScene } from '@/src/preview';
 import { getDefaultConfig, setCapturingShortcut } from '@/src/settings/ShortcutConfig';
 import { t } from '@/src/i18n';
@@ -169,6 +175,20 @@ beforeEach(() => {
 });
 
 describe('动态预览播放条 · 播放器控件（chart-preview 20）', () => {
+  it('chart-preview 68：皮肤切片未准备完成时不创建回放，完成后才接入播放', async () => {
+    const { act } = await import('@testing-library/react');
+    let finish!: () => void;
+    const prepared = new Promise<void>(resolve => { finish = resolve; });
+    vi.mocked(prepareSimNoteSprites).mockClear();
+    vi.mocked(prepareSimNoteSprites).mockReturnValueOnce(prepared);
+    const rendering = renderStage();
+    await waitFor(() => expect(prepareSimNoteSprites).toHaveBeenCalled());
+    expect(calls.setFrame).not.toHaveBeenCalled();
+    await act(async () => { finish(); await prepared; });
+    await rendering;
+    expect(calls.setFrame).toHaveBeenCalled();
+  });
+
   it('倍速：触钮是播放条那一排的同款图标钮（图标 + 当前倍速），面板是点开才有的', async () => {
     await renderStage();
     expect(trigger().textContent).toBe('1×');
