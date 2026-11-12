@@ -56,14 +56,31 @@ export function secondsSegmentIndex(events: BpmEvent[], seconds: number): number
   return secondsTimeline(events).maxBeatSolutionOf(seconds).segmentIndex;
 }
 
-/** 按键音事件：每个"会出声"的音符（普通/方向/滑条结点）平铺为音频秒，按时间升序 */
+/**
+ * 发声计划表里的一条：某时刻要触发的一份采样。
+ * 谱面音符 / 滑条非 hidden 结点**逐结点计入**，同刻同采样的多次触发归并成一条（issue 231 Q9）；
+ * 归并只减触发次数，不删谱面音符、不屏蔽结点、不静音。
+ */
 export interface KeySoundEvent {
   time: number;
-  lane: number;
   /** 击打样式（ADR-0004 §7：按键音素材包按此分类） */
   kind: KeySoundKind;
   /** 方向键：组合长度 length(1..3)，选对应分档采样（issue 18）；其余样式无 */
   tier?: number;
+}
+
+/**
+ * 「同一份发音」的等价键（issue 231 Q5′/Q9）：按**解析后的采样文件**判同，不按 kind / tier 判同。
+ * 四个素材包里 `tap` 与 `slide` 都解析到同一份 perfect.mp3，方向键 1/2/3 档各一份文件，
+ * `flick` / `skill` 各一份 ⇒ 共 6 类。`buildKeyEvents` 拿不到运行时 keySet，故把这份共享关系
+ * 静态化在这里；`KeySound.test.ts` 有守约用例钉住「四包 tap ≡ slide」这个前提。
+ * 采样未就绪时的振荡器兜底音色按 `kind` 取（`KEY_SOUND_DEFAULT_TONES`），故 `tap ≡ slide`
+ * 这一组在兜底路径保留组内首条的音色；真实采样路径不受影响（issue 231 不统一兜底音色）。
+ */
+function sampleEquivalenceKey(kind: KeySoundKind, tier?: number): string {
+  if (kind === 'directional') return `directional-${tier ?? 1}`;
+  if (kind === 'tap' || kind === 'slide') return 'perfect';
+  return kind;
 }
 
 /**
@@ -105,21 +122,21 @@ export function maxNoteEndSeconds(notes: ChartNote[], beatDisplay: number, bpmEv
 
 export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): KeySoundEvent[] {
   const out: KeySoundEvent[] = [];
-  const push = (beat: number, lane: number, kind: KeySoundEvent['kind'], subBeat?: number, tier?: number) => {
+  const push = (beat: number, kind: KeySoundEvent['kind'], subBeat?: number, tier?: number) => {
     const preciseBeat = beat + (subBeat ?? 0) / beatDisplay;
-    out.push({ time: beatToSeconds(bpmEvents, preciseBeat), lane, kind, tier });
+    out.push({ time: beatToSeconds(bpmEvents, preciseBeat), kind, tier });
   };
   for (const note of notes) {
     switch (note.type) {
       case 'Single':
         if (note.beat < 0) break;
-        push(note.beat, note.lane, note.flick ? 'flick' : note.skill ? 'skill' : 'tap', note.subBeat);
+        push(note.beat, note.flick ? 'flick' : note.skill ? 'skill' : 'tap', note.subBeat);
         break;
       case 'LDirectional':
       case 'RDirectional': {
         if (note.beat < 0) break;
         const tier = Math.min(3, Math.max(1, note.length > 3 ? 3 : note.length));
-        push(note.beat, note.lane, 'directional', note.subBeat, tier);
+        push(note.beat, 'directional', note.subBeat, tier);
         break;
       }
       case 'Slide':
@@ -130,7 +147,7 @@ export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvent
           // issue 221: 首结点忽略 flick（只当普通滑条起点发声）
           const isStart = i === 0 && note.connections.length > 1;
           const kind: KeySoundEvent['kind'] = (conn.flick && !isStart) ? 'flick' : conn.skill ? 'skill' : 'slide';
-          push(conn.beat, conn.lane, kind, conn.subBeat);
+          push(conn.beat, kind, conn.subBeat);
         }
         break;
       default:
@@ -138,5 +155,20 @@ export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvent
     }
   }
   out.sort((a, b) => a.time - b.time);
-  return out;
+  // 同刻（严格相等 time）+ 同一份采样的多条触发归并为一条发声计划，组内仍发声一次；
+  // 不同采样各发一次。不加容差、不按 beat 分组、不按轨道区分（issue 231 Q9/Q10）。
+  const plan: KeySoundEvent[] = [];
+  let groupTime = NaN;
+  let groupKeys = new Set<string>();
+  for (const evt of out) {
+    if (evt.time !== groupTime) {
+      groupTime = evt.time;
+      groupKeys = new Set<string>();
+    }
+    const key = sampleEquivalenceKey(evt.kind, evt.tier);
+    if (groupKeys.has(key)) continue;
+    groupKeys.add(key);
+    plan.push(evt);
+  }
+  return plan;
 }

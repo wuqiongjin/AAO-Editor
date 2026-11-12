@@ -1,7 +1,8 @@
 // 音频播放引擎（渲染进程 Web Audio，ticket 03 定案 + ADR-0004 修订）：
 // - 播放：AudioContext + AudioBufferSourceNode（精确 seek，不用 HTMLAudioElement）
 // - 解码：渲染进程 decodeAudioData（SongUploader → File → ArrayBuffer → decode，不动主进程）
-// - 按键音：RAF 驱动 tick()，提前 ~100ms 预调度；每次新建 oscillator（Web Audio 禁止复停 oscillator）
+// - 按键音：setInterval(200ms) + rAF 双驱动 tick()，提前 2.0s 预调度；每次新建 AudioBufferSourceNode
+//   播共享采样（采样未就绪才用振荡器兜底）；同刻同采样的多次触发已在 buildKeyEvents 建表时归并（issue 231）
 // - 双时钟（ADR-0004 §2）：有音频 = AudioContext 时间线；无音频 = performance.now + RAF 合成时间线，照常"播放谱面"
 import type { ChartNote } from '../chart/types';
 import { getBpmEvents, buildKeyEvents, type KeySoundEvent } from './AudioTiming';
