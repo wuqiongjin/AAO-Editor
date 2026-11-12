@@ -612,6 +612,7 @@
   "preview.video.export.title": "导出视频",
   "preview.video.export.start": "开始导出",
   "preview.video.export.cancel": "取消",
+  "preview.video.export.cancelling": "正在取消…",
   "preview.video.export.hint": "导出仿真场回放视频（{{w}} × {{h}} · {{fps}}fps）",
   "preview.video.export.tier": "清晰度",
   "preview.video.export.tier.1080p": "1080p",

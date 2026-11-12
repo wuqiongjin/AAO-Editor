@@ -12,6 +12,7 @@ import { loadKeySoundSet } from '../../../audio/KeySound';
 import { sampleSrcFor, scheduleKeySample, scheduleKeyTone, keySoundBank } from '../../../audio/keySoundSamples';
 import type { KeySoundEvent } from '../../../audio/AudioTiming';
 import { EXPORT_AUDIO_CHANNELS, EXPORT_AUDIO_SAMPLE_RATE, audioFramesFor } from './exportSpec';
+import { yieldToMainThread } from '../../static/exportPanels';
 
 export interface AudioTrackRequest {
   /** 谱面长度（秒，ADR-0005） */
@@ -37,7 +38,19 @@ export interface AudioTrackRequest {
   channels?: number;
   /** 解码上下文（注入用；默认新建一个 `AudioContext`） */
   decodeContext?: BaseAudioContext;
+  /** 取消判定（票 67）：调度循环与离线渲染都要能中途退出来 */
+  isCancelled?: () => boolean;
 }
+
+/**
+ * 取消的返回值，与 `null`（静音导出）区分开：编排层据此直接回「已取消」，
+ * 不会把取消当成"这条导出没有音轨"继续往下编码。
+ */
+export const AUDIO_TRACK_CANCELLED = Symbol('audio-track-cancelled');
+export type AudioTrackResult = AudioTrack | typeof AUDIO_TRACK_CANCELLED | null;
+
+/** 每调度这么多条键音让出一次主线程（缓存命中的 await 只是微任务，不 yield 输入事件） */
+const KEY_EVENT_YIELD_EVERY = 64;
 
 export interface AudioTrack {
   /** 渲染结果（长度 = `audioFramesFor(durationSeconds, sampleRate)`） */
@@ -64,9 +77,13 @@ function decodeContextFor(injected?: BaseAudioContext): BaseAudioContext {
 /**
  * 渲染一条离线音轨。
  *
- * 返回 `null` = 静音导出（调用方据此把容器配成"无音轨"，省掉 `AudioEncoder`）。
+ * 返回 `null` = 静音导出（调用方据此把容器配成"无音轨"，省掉 `AudioEncoder`）；
+ * `AUDIO_TRACK_CANCELLED` = 中途取消，调用方据此直接回「已取消」（票 67）。
  */
-export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTrack | null> {
+export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTrackResult> {
+  const cancelled = (): boolean => req.isCancelled?.() === true;
+  // 取消优先于静音：已取消就该回哨兵，不能回一个会被当成"这条没有音轨"的 null
+  if (cancelled()) return AUDIO_TRACK_CANCELLED;
   if (req.muted) return null;
   const sampleRate = req.sampleRate ?? EXPORT_AUDIO_SAMPLE_RATE;
   const channels = req.channels ?? EXPORT_AUDIO_CHANNELS;
@@ -92,8 +109,18 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
 
   if (req.keyEvents.length > 0) {
     const decodeCtx = decodeContextFor(req.decodeContext);
-    const set = await loadKeySoundSet(req.keySetId);
+    const set = await raceCancellation(loadKeySoundSet(req.keySetId), cancelled);
+    if (set === AUDIO_TRACK_CANCELLED) return AUDIO_TRACK_CANCELLED;
+    let processed = 0;
     for (const evt of req.keyEvents) {
+      if (cancelled()) return AUDIO_TRACK_CANCELLED;
+      // 采样缓存命中时的 await 只产生微任务：长谱几千条事件会挤进同一个宏任务，
+      // 输入事件与重绘都排不上队（票 67 现场）⇒ 分批让出主线程。
+      if (processed > 0 && processed % KEY_EVENT_YIELD_EVERY === 0) {
+        await yieldToMainThread();
+        if (cancelled()) return AUDIO_TRACK_CANCELLED;
+      }
+      processed++;
       // 轨外不调度：负时刻（倒流区把 beat 折成负秒）与超过谱面长度的都落不到这条轨上
       if (!Number.isFinite(evt.time) || evt.time < 0 || evt.time >= req.durationSeconds) continue;
       const sample = set.samples[evt.kind];
@@ -108,8 +135,41 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
     }
   }
 
-  const buffer = await ctx.startRendering();
-  return { buffer, sampleRate, numberOfChannels: channels, frames };
+  if (cancelled()) return AUDIO_TRACK_CANCELLED;
+  const rendered = await raceCancellation(ctx.startRendering(), cancelled);
+  if (rendered === AUDIO_TRACK_CANCELLED) return AUDIO_TRACK_CANCELLED;
+  return { buffer: rendered, sampleRate, numberOfChannels: channels, frames };
+}
+
+/** 取消轮询间隔：没有 abort 的浏览器 Promise 只能尽早不再等它 */
+const CANCEL_POLL_MS = 25;
+
+/**
+ * 与取消轮询赛跑（票 67）：`startRendering()` / `decodeAudioData()` / 首次动态 import
+ * 都没有 abort，取消命中就丢弃 work 的结果立刻返回，不等它 resolve。
+ * work 自己仍会在浏览器内部线程跑完，但调用方不再被它拖住。
+ */
+export async function raceCancellation<T>(
+  work: Promise<T>,
+  cancelled: () => boolean,
+): Promise<T | typeof AUDIO_TRACK_CANCELLED> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<typeof AUDIO_TRACK_CANCELLED>((resolve) => {
+        const poll = (): void => {
+          if (cancelled()) { resolve(AUDIO_TRACK_CANCELLED); return; }
+          timer = setTimeout(poll, CANCEL_POLL_MS);
+        };
+        poll();
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    // 取消先赢时 work 可能稍后才 reject：挂一个空 catch，免得变成未处理的拒绝
+    void work.catch(() => undefined);
+  }
 }
 
 /** 把渲染出的音轨切成编码器要的块（20 ms/块：Opus 的常用帧长） */

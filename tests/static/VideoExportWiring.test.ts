@@ -429,3 +429,48 @@ describe('30 · 视频开场是纯前置段（不占谱面时间、不与前奏�
     expect(frameDriver).toMatch(/openingSegmentAt\(t\)/);
   });
 });
+
+// 67：audio 段曾经零检查点 + 长任务不让出主线程，点取消要等到下一个阶段才生效。
+describe('67 · 取消在合成声音阶段就能生效（不拖到下一阶段）', () => {
+  const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
+  const en = JSON.parse(readSource('src/i18n/messages/en.json')) as Record<string, string>;
+  const hook = readStripped('src/pages/preview/useVideoExport.ts');
+  const run = exportVideo.slice(exportVideo.indexOf('export async function runVideoExport'));
+
+  it('点了取消当帧有反馈：两种语言都有文案，进度卡换文案并锁住取消钮', () => {
+    expect(zh['preview.video.export.cancelling']).toBeTruthy();
+    expect(en['preview.video.export.cancelling']).toBeTruthy();
+    expect(control).toMatch(/cancelling \? t\('preview\.video\.export\.cancelling'\) : phaseText\(progress\)/);
+    expect(control).toMatch(/disabled=\{cancelling\}/);
+    expect(page).toMatch(/cancelling=\{videoExport\.cancelling\}/);
+    expect(hook).toMatch(/setCancelling\(true\)/);
+  });
+
+  it('离线音轨收取消信号：键音循环分批让出，等渲染时轮询取消', () => {
+    expect(renderAudio).toMatch(/yieldToMainThread\(\)/);
+    expect(renderAudio).toMatch(/from '\.\.\/\.\.\/static\/exportPanels'/);
+    expect(renderAudio).toMatch(/Promise\.race\(\[/);
+    expect(exportVideo).toMatch(/isCancelled: req\.isCancelled,/);
+    expect(exportVideo).toMatch(/rendered === AUDIO_TRACK_CANCELLED \|\| cancelled\(\)/);
+  });
+
+  it('audio 段前后都有取消检查点，且上报进度后先让出一拍再干同步长活', () => {
+    const targetIdx = run.indexOf('await resolveTarget(');
+    const audioIdx = run.indexOf("phase: 'audio'");
+    const renderIdx = run.indexOf('await renderAudioTrack(');
+    const sinkIdx = run.indexOf('await createVideoSink(');
+    const framesIdx = run.indexOf('driveExportFrames(');
+    expect(targetIdx).toBeGreaterThan(-1);
+    expect(audioIdx).toBeGreaterThan(targetIdx);
+    expect(renderIdx).toBeGreaterThan(audioIdx);
+    expect(sinkIdx).toBeGreaterThan(renderIdx);
+    expect(framesIdx).toBeGreaterThan(sinkIdx);
+    // 探完编码器 → 报 audio 之间也有一次，别把取消拖进下一段
+    expect(run.slice(targetIdx, audioIdx)).toMatch(/cancelled\(\)/);
+    const audioSegment = run.slice(audioIdx, renderIdx);
+    expect(audioSegment).toMatch(/yieldToMainThread\(\)/);
+    expect(audioSegment.match(/cancelled\(\)/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(run.slice(renderIdx, sinkIdx)).toMatch(/cancelled\(\)/);
+    expect(run.slice(sinkIdx, framesIdx)).toMatch(/cancelled\(\)/);
+  });
+});

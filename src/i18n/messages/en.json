@@ -614,6 +614,7 @@
   "preview.video.export.title": "Export video",
   "preview.video.export.start": "Start export",
   "preview.video.export.cancel": "Cancel",
+  "preview.video.export.cancelling": "Cancelling…",
   "preview.video.export.hint": "Export the simulation-field replay as video ({{w}} × {{h}} · {{fps}}fps)",
   "preview.video.export.tier": "Quality",
   "preview.video.export.tier.1080p": "1080p",

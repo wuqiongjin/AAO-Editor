@@ -401,6 +401,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                     onStart={() => void handleVideoExport()}
                     onCancel={videoExport.cancel}
                     progress={videoExport.progress}
+                    cancelling={videoExport.cancelling}
                     notice={videoExport.notice}
                     onDismissNotice={videoExport.dismissNotice}
                     support={videoExport.support}

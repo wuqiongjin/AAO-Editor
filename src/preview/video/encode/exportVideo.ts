@@ -10,6 +10,7 @@ import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rende
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import { prepareSimNoteSprites } from '../sim/prepareSimNoteSprites';
 import { saveBinaryAs } from '../../static/saveBinary';
+import { yieldToMainThread } from '../../static/exportPanels';
 import { buildSimChart, loadSimAssets, type SimFrameInput, type SimPlaybackAudio, type SimScene } from '../sim';
 import {
   OPENING_SECONDS,
@@ -27,7 +28,7 @@ import {
   probeContainer,
   type ContainerSupport,
 } from './muxer';
-import { decodeBgmBytes, renderAudioTrack } from './renderAudioTrack';
+import { AUDIO_TRACK_CANCELLED, decodeBgmBytes, raceCancellation, renderAudioTrack } from './renderAudioTrack';
 import { logger } from '../../../diagnostics/logger';
 import {
   AAC_AUDIO_CODECS,
@@ -257,21 +258,32 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   if (!target.support.ok) {
     return done({ ok: false, unsupported: true, container: target.container });
   }
+  if (cancelled()) return done({ ok: true, cancelled: true });
 
   // ---------------- 离线音轨 ----------------
   req.onProgress?.({ phase: 'audio', frame: 0, totalFrames: timeline.frameCount });
+  // 先让「正在合成声音…」画出来（票 67）：派生谱面是同步长活，不让出的话
+  // 点取消的输入事件要排到它结束才被派发，取消就落到了下一个阶段。
+  await yieldToMainThread();
+  if (cancelled()) return done({ ok: true, cancelled: true });
   const chart = buildSimChart(req.scene, noteIcons);
   const keyEvents = buildKeyEvents(req.scene.notes, req.scene.beatDisplay, getBpmEvents(req.scene.notes));
+  if (cancelled()) return done({ ok: true, cancelled: true });
   let bgm: AudioBuffer | null = null;
   if (req.audio && !req.muted) {
     try {
-      bgm = await decodeBgmBytes(await req.audio.blob.arrayBuffer());
+      const bytes = await req.audio.blob.arrayBuffer();
+      // 解码在浏览器内部线程，没有 abort：取消命中就别再等它（票 67 验收①带 BGM 中长谱）
+      const decoded = await raceCancellation(decodeBgmBytes(bytes), cancelled);
+      if (decoded === AUDIO_TRACK_CANCELLED) return done({ ok: true, cancelled: true });
+      bgm = decoded;
     } catch {
       // 解码失败 = 按无 BGM 导（键音还在），不整票失败（与实时回放"解码失败按无音频"同口径）
       bgm = null;
     }
   }
-  const track = await renderAudioTrack({
+  if (cancelled()) return done({ ok: true, cancelled: true });
+  const rendered = await renderAudioTrack({
     durationSeconds: req.durationSeconds,
     openingSeconds,
     keyEvents,
@@ -280,8 +292,10 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     volume: req.volume,
     seVolume: req.seVolume,
     muted: req.muted,
+    isCancelled: req.isCancelled,
   });
-  if (cancelled()) return done({ ok: true, cancelled: true });
+  if (rendered === AUDIO_TRACK_CANCELLED || cancelled()) return done({ ok: true, cancelled: true });
+  const track = rendered;
 
   // ---------------- 编码 + 逐帧出帧 ----------------
   const sink = await createVideoSink({
@@ -296,6 +310,10 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     // 取消要能穿透背压与切音轨（chart-preview 33：那两处都可能停住）
     isCancelled: req.isCancelled,
   });
+  if (cancelled()) {
+    sink.abort();
+    return done({ ok: true, cancelled: true, container: target.container });
+  }
 
   try {
     const frame: Omit<SimFrameInput, 'metrics'> = {

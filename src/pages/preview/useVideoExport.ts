@@ -66,6 +66,8 @@ export interface VideoExportController {
   /** 结果文案（失败 / 编码器不可用 / 已取消）；null = 没有 */
   notice: VideoExportNotice | null;
   busy: boolean;
+  /** 已点取消、域层还在收尾：进度卡据此立刻给反馈（票 67） */
+  cancelling: boolean;
   /** 本机实际会用的编码组合（null = 还没探）；**按需**探，不在挂载时白跑一次 isConfigSupported */
   support: VideoExportSupport | null;
   probing: boolean;
@@ -118,6 +120,7 @@ export function useVideoExport(
   const [progress, setProgress] = useState<VideoExportProgress | null>(null);
   const [notice, setNotice] = useState<VideoExportNotice | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [support, setSupport] = useState<VideoExportSupport | null>(null);
   const [probing, setProbing] = useState(false);
   const cancelledRef = useRef(false);
@@ -164,11 +167,14 @@ export function useVideoExport(
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;
+    // 域层还在收尾（audio 段 / 背压），先把「已收到」画出来，别让点击像没点上
+    setCancelling(true);
   }, []);
 
   const start = useCallback(async () => {
     if (busy || args.scene == null) return;
     cancelledRef.current = false;
+    setCancelling(false);
     setBusy(true);
     updateNotice(null);
     setProgress({ phase: 'assets', frame: 0, totalFrames: 0 });
@@ -218,9 +224,13 @@ export function useVideoExport(
       return undefined;
     } finally {
       setBusy(false);
+      setCancelling(false);
       setProgress(null);
     }
   }, [args, busy, run, spec, updateNotice]);
 
-  return { spec, setSpec, progress, notice, busy, support, probing, probe, start, cancel, dismissNotice };
+  return {
+    spec, setSpec, progress, notice, busy, cancelling,
+    support, probing, probe, start, cancel, dismissNotice,
+  };
 }
