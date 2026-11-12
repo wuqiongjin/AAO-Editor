@@ -84,7 +84,9 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
   if (!ctx) throw new Error('导出失败：离屏画布不可用（无法创建 2d 上下文）');
 
   const metrics: SimFieldMetrics = fieldMetrics(geometry.field.w, geometry.field.h);
-  const input: SimFrameInput = { ...frame, metrics };
+  // 票 66：导出离线逐帧、无实时时钟 ⇒ 显式固定 100% 光栅（成片最锐）；
+  // 实时侧不带这个字段，按每帧可见带体量走 100% / 50% 自适应。
+  const input: SimFrameInput = { ...frame, metrics, bandRasterScale: 1 };
   const duration = frameDurationUs(timeline.fps);
   let rendered = 0;
 

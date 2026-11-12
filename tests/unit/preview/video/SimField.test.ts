@@ -33,8 +33,12 @@ import {
   SIM_BAND_RASTER_MATERIAL,
   SIM_BAND_RASTER_MATERIAL_SP,
   SIM_BAND_RASTER_SCALE,
+  SIM_BAND_RASTER_SCALE_FULL,
+  SIM_BAND_LOD_ENTER_LOW_PIXELS,
   __setSimBandRasterCanvasFactoryForTests,
+  simBandCoverageCss,
   type SimBandRasterGroup,
+  type SimBandRasterScale,
 } from '@/src/preview/video/sim/simBandRaster';
 import { splitBandAtFolds } from '@/src/rendering/slideBandGeometry';
 import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
@@ -88,8 +92,9 @@ function makeRecordingSprite() {
   return { spriteIcon, draws };
 }
 
-function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon): SimFrameInput {
-  return {
+/** `'lod'` = 不带显式比例（实时逐帧自适应）；数字 = 固定该档（导出固定 100%） */
+function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon, scale: SimBandRasterScale | 'lod' = SIM_BAND_RASTER_SCALE): SimFrameInput {
+  const frame = {
     scene: scene(notes),
     chart: buildSimChart(scene(notes), icons),
     metrics: fieldMetrics(1334, 750),
@@ -97,6 +102,7 @@ function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon): SimFrameInpu
     noteIcons: icons,
     spriteIcon,
   };
+  return scale === 'lod' ? frame : { ...frame, bandRasterScale: scale };
 }
 
 /** 记录型 ctx：补一个合法变换（65 的带体光栅按它换算设备像素密度） */
@@ -138,7 +144,7 @@ beforeAll(() => {
 });
 afterAll(() => __setSimBandRasterCanvasFactoryForTests(null));
 
-/** 65：出帧后直接读回写的 RGBA（缓冲恒按「场地 × 变换缩放 × 50%」建） */
+/** 65/66：出帧后直接读回写的 RGBA（缓冲 = 场地 × 变换缩放 × 该帧档位） */
 function drawnFrame(frame: SimFrameInput, seconds: number, overrides: Record<string, (...args: unknown[]) => unknown> = {}) {
   const { proxy, calls } = recordingCtx(overrides);
   drawSimFrameAt(proxy, frame, seconds);
@@ -718,6 +724,68 @@ describe('drawSimFrameAt · 带体逐像素光栅（chart-preview 65）', () => 
     const single = alphaAt(one.image, CX, ROW);
     expect(alphaAt(two.image, CX, ROW)).toBeGreaterThan(single + 0.1);
     expect(rgbAt(two.image, CX, ROW)).toEqual([...SIM_BAND_RASTER_MATERIAL.rgb]); // 后写者的体色
+  });
+});
+
+/** 回贴那一笔之前的 imageSmoothingEnabled（票 66：100% 不放大 ⇒ 不该开双线性） */
+const smoothingAtBlit = (calls: RecordedCall[]): unknown => {
+  const i = calls.findIndex(([k, args]) => k === 'drawImage' && args.length === 9);
+  for (let j = i - 1; j >= 0; j--) {
+    if (calls[j]![0] === 'imageSmoothingEnabled') return calls[j]![1][0];
+  }
+  return undefined;
+};
+/** 30 条同时可见、相互重叠的竖直带 ⇒ 扫描量远超降档阈值 */
+const denseBands = (): ChartNote[] => Array.from({ length: 30 }, () => verticalSlide());
+
+describe('drawSimFrameAt · 带体光栅分档（chart-preview 66）', () => {
+  it('显式比例：100% 建全尺寸缓冲且不放平滑；50% 建半尺寸缓冲并双线性放大', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const full = drawnFrame(frameOf([verticalSlide()], spriteIcon, SIM_BAND_RASTER_SCALE_FULL), 1.5);
+    expect(full.image.width).toBe(fieldMetrics(1334, 750).w);
+    expect(full.image.height).toBe(fieldMetrics(1334, 750).h);
+    expect(smoothingAtBlit(full.calls)).toBe(false);
+    const blits = full.calls.filter(([k, args]) => k === 'drawImage' && args.length === 9);
+    expect(blits).toHaveLength(1);
+    expect(blits[0]![1].slice(5, 9)).toEqual([0, 0, fieldMetrics(1334, 750).w, fieldMetrics(1334, 750).h]);
+
+    const low = drawnFrame(frameOf([verticalSlide()], spriteIcon, SIM_BAND_RASTER_SCALE), 1.5);
+    expect(low.image.width).toBe(Math.round(fieldMetrics(1334, 750).w * SIM_BAND_RASTER_SCALE));
+    expect(smoothingAtBlit(low.calls)).toBe(true);
+  });
+
+  it('实时缺省（无显式比例）：稀疏谱 100%、密集谱 50%', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const sparse = frameOf([verticalSlide()], spriteIcon, 'lod');
+    const dense = frameOf(denseBands(), spriteIcon, 'lod');
+    // 先确认造出来的语料确实越过阈值，断言才有意义
+    expect(simBandCoverageCss(groupsAt(sparse, 1.5))).toBeLessThan(SIM_BAND_LOD_ENTER_LOW_PIXELS);
+    expect(simBandCoverageCss(groupsAt(dense, 1.5))).toBeGreaterThan(SIM_BAND_LOD_ENTER_LOW_PIXELS);
+    expect(drawnFrame(sparse, 1.5).image.width).toBe(fieldMetrics(1334, 750).w);
+    expect(drawnFrame(dense, 1.5).image.width)
+      .toBe(Math.round(fieldMetrics(1334, 750).w * SIM_BAND_RASTER_SCALE));
+  });
+
+  it('导出显式 100% 覆盖 LOD：同一份密集谱仍画全分辨率缓冲', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const exported = drawnFrame(frameOf(denseBands(), spriteIcon, SIM_BAND_RASTER_SCALE_FULL), 1.5);
+    expect(exported.image.width).toBe(fieldMetrics(1334, 750).w);
+    expect(smoothingAtBlit(exported.calls)).toBe(false);
+  });
+
+  it('同一画布连续帧：密度抖动不来回重建缓冲（滞回生效）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy } = recordingCtx();
+    const dense = frameOf(denseBands(), spriteIcon, 'lod');
+    const moderate = frameOf([verticalSlide()], spriteIcon, 'lod');
+    drawSimFrameAt(proxy, dense, 1.5); // 首帧进入 50%
+    const widths: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      drawSimFrameAt(proxy, i % 2 === 0 ? dense : moderate, 1.5);
+      widths.push(lastScratch!.image!.width);
+    }
+    expect(new Set(widths).size).toBe(1);
+    expect(widths[0]).toBe(Math.round(fieldMetrics(1334, 750).w * SIM_BAND_RASTER_SCALE));
   });
 });
 

@@ -42,6 +42,13 @@ describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）
     expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - \(req\.openingSeconds \?\? 0\)\)/);
   });
 
+  it('66 · 导出固定 100% 光栅：离线逐帧显式给比例，不走实时 LOD', () => {
+    // 票 66：导出离线无实时时钟，成片要最锐；实时侧省略该字段按可见带体量自适应
+    expect(frameDriver).toMatch(/const input: SimFrameInput = \{[^}]*bandRasterScale: 1/);
+    // 显式比例只改输入，不改唯一出帧入口（上面的精确字符串断言继续绿）
+    expect(frameDriver).not.toMatch(/drawSimFrameAt\(ctx, \{/);
+  });
+
   it('开场段的画面不进 drawSimFrameAt（③ / ④ 走场地的分层绘制）', () => {
     expect(frameDriver).toMatch(/openingSegmentAt\(t\)/);
     expect(frameDriver).toMatch(/drawOpeningFieldBackground\(/);

@@ -13,7 +13,14 @@ import {
   SIM_BAND_RASTER_MATERIAL,
   SIM_BAND_RASTER_MATERIAL_SP,
   SIM_BAND_RASTER_SCALE,
+  SIM_BAND_RASTER_SCALE_FULL,
+  SIM_BAND_LOD_BUDGET_PIXELS,
+  SIM_BAND_LOD_ENTER_LOW_PIXELS,
+  SIM_BAND_LOD_EXIT_LOW_PIXELS,
+  nextSimBandRasterLodState,
+  simBandCoverageCss,
   type SimBandRasterGroup,
+  type SimBandRasterLodState,
   type SimBandRasterMaterial,
 } from '@/src/preview/video/sim/simBandRaster';
 import { bandQuad, fieldMetrics } from '@/src/preview/video/sim/simGeometry';
@@ -143,7 +150,9 @@ describe('65 · 带体贴图一次采样（17 点剖面 / 纵向 / 体色）', (
     expect(SIM_BAND_RASTER_MATERIAL_SP.cross[896]).toBeGreaterThan(
       SIM_BAND_RASTER_MATERIAL_SP.cross[0]!,
     );
+    // 票 66：0.5 不再是「固定默认」，只是 LOD 的低档；常规谱 / 导出走 1
     expect(SIM_BAND_RASTER_SCALE).toBe(0.5);
+    expect(SIM_BAND_RASTER_SCALE_FULL).toBe(1);
   });
 });
 
@@ -223,5 +232,75 @@ describe('65 · 逐像素光栅（沿整条中心线连续求值）', () => {
     const small = render([straightBand(4)], 0.8, 0.5);
     expect(small.cw).toBe(Math.round(m.w * 0.5));
     expect(small.ch).toBe(Math.round(m.h * 0.5));
+  });
+});
+
+describe('66 · 光栅分档（每帧可见带体量 → 100% / 50%）', () => {
+  const fresh = (): SimBandRasterLodState => ({ pixels: 0, scale: SIM_BAND_RASTER_SCALE_FULL });
+  /** 从初始态连续喂 num 帧同一覆盖量，返回最后一次的档位 */
+  const settle = (coverage: number, dx: number, dy: number, num: number) => {
+    let s = fresh();
+    for (let i = 0; i < num; i++) s = nextSimBandRasterLodState(s, coverage, dx, dy);
+    return s.scale;
+  };
+
+  it('覆盖面积 = 各四边形梯形面积之和（与扫描线像素数同量级）', () => {
+    // 上底 20、下底 20、高 10 的梯形 ⇒ 200 CSS px²；同拍水平段面积为 0
+    const group: SimBandRasterGroup = {
+      slide: 0, sp: false,
+      quads: [
+        [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 10 }, { x: 10, y: 10 }],
+        [{ x: 0, y: 20 }, { x: 20, y: 20 }, { x: 20, y: 20 }, { x: 0, y: 20 }],
+      ],
+    };
+    expect(simBandCoverageCss([group])).toBe(200);
+    expect(simBandCoverageCss([])).toBe(0);
+    // 同一条直带：覆盖量与分段数无关（连续中心线，不按逻辑段重复计）
+    const coarse = simBandCoverageCss([straightBand(4)]);
+    const fine = simBandCoverageCss([straightBand(24)]);
+    expect(fine).toBeCloseTo(coarse, 4);
+  });
+
+  it('8ms 预算 ≈ 80 万像素；常规谱全分辨率、压力谱降 50%', () => {
+    expect(SIM_BAND_LOD_BUDGET_PIXELS).toBe(800_000);
+    expect(SIM_BAND_LOD_ENTER_LOW_PIXELS).toBeGreaterThan(SIM_BAND_LOD_BUDGET_PIXELS);
+    expect(SIM_BAND_LOD_EXIT_LOW_PIXELS).toBeLessThan(SIM_BAND_LOD_BUDGET_PIXELS);
+    expect(settle(484_000, 1, 1, 8)).toBe(SIM_BAND_RASTER_SCALE_FULL);
+    expect(settle(1_014_000, 1, 1, 8)).toBe(SIM_BAND_RASTER_SCALE);
+    expect(settle(2_564_000, 1, 1, 8)).toBe(SIM_BAND_RASTER_SCALE);
+  });
+
+  it('双阈值滞回：落在 65 万~90 万之间保持当前档，不来回切', () => {
+    let s = fresh();
+    // 从全档起，夹在滞回带里的值不会降档
+    for (let i = 0; i < 20; i++) s = nextSimBandRasterLodState(s, 800_000, 1, 1);
+    expect(s.scale).toBe(SIM_BAND_RASTER_SCALE_FULL);
+    // 越过 90 万才降；之后夹在滞回带里不回升
+    s = nextSimBandRasterLodState(s, 2_000_000, 1, 1);
+    expect(s.scale).toBe(SIM_BAND_RASTER_SCALE);
+    for (let i = 0; i < 20; i++) s = nextSimBandRasterLodState(s, 700_000, 1, 1);
+    expect(s.scale).toBe(SIM_BAND_RASTER_SCALE);
+    // 低到 65 万以下并稳定后才回到全档
+    for (let i = 0; i < 8; i++) s = nextSimBandRasterLodState(s, 500_000, 1, 1);
+    expect(s.scale).toBe(SIM_BAND_RASTER_SCALE_FULL);
+  });
+
+  it('EMA 平滑：帧间剧烈抖动不触发每帧切档', () => {
+    let s = fresh();
+    for (let i = 0; i < 3; i++) s = nextSimBandRasterLodState(s, 700_000, 1, 1);
+    const scales: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      s = nextSimBandRasterLodState(s, i % 2 === 0 ? 1_200_000 : 400_000, 1, 1);
+      scales.push(s.scale);
+    }
+    expect(new Set(scales).size).toBe(1);
+    expect(scales[0]).toBe(SIM_BAND_RASTER_SCALE_FULL);
+  });
+
+  it('density 连续值进成本公式：同一覆盖量在高画质档更早降档', () => {
+    expect(settle(500_000, 1, 1, 8)).toBe(SIM_BAND_RASTER_SCALE_FULL);
+    expect(settle(500_000, 1.25, 1.25, 8)).toBe(SIM_BAND_RASTER_SCALE_FULL);
+    expect(settle(500_000, 1.5, 1.5, 8)).toBe(SIM_BAND_RASTER_SCALE);
+    expect(settle(500_000, 2, 2, 8)).toBe(SIM_BAND_RASTER_SCALE);
   });
 });

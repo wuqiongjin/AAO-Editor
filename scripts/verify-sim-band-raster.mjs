@@ -5,9 +5,11 @@
 // import **产品代码本身**（`loadSimAssets` / `drawSimFrameAt` / `visibleSimBandGroups`），
 // 用真 canvas 出帧，逐像素反算有效 α，并与内联 B 复算（逐像素剖面真值）同位比对。
 //
-// 验收项（票 65「锁测」④，共 8 条断言）：
+// 验收项（票 65「锁测」④ 8 条 + 票 66「锁测」③ 4 条 = 12 条断言）：
 //   ① 横截面中心 / 亮缘 / 软边 α；② 无段间横行条纹；③ 普通带纵向两端实中间虚、
-//      SP 纵向恒定；④ 皮肤切换跟随；⑤ 交叉叠亮；⑥ 与内联 B 复算同位剖面一致。
+//      SP 纵向恒定；④ 皮肤切换跟随；⑤ 交叉叠亮；⑥ 与内联 B 复算同位剖面一致；
+//   ⑦ 100% 不做 2× 双线性放大、横截面更贴近逐像素真值（票 65 漏测的「糊」）；
+//   ⑧ 显式档位缓冲尺寸；⑨ 实时 LOD 稀疏 100% / 密集 50%；⑩ 导出固定 100%。
 //
 // 用法（需先 `bash scripts/dev.sh`；云环境自动取 CNB_VSCODE_PROXY_URI 的 5173 端口）：
 //   node scripts/verify-sim-band-raster.mjs [--url=<对外访问地址>]
@@ -84,18 +86,38 @@ const out = await page.evaluate(async () => {
   const skin05 = await loadAssets('skin05');
   if (skin00.missing) return { missing: true };
 
-  /** 用产品出帧函数画一帧，返回 RGBA 位图与该秒的带体分组 */
-  const draw = (notes, assets) => {
+  /**
+   * 用产品出帧函数画一帧，返回 RGBA 位图、该秒的带体分组与**实际选中的光栅缓冲尺寸**。
+   * `scale`：数字 = 显式固定该档（导出恒 1）；'lod' = 省略字段，走实时逐帧自适应。
+   * 缓冲尺寸从 9 参数 `drawImage` 的源画布读出（带体层唯一那笔回贴），
+   * 属公开 ctx 行为，不依赖模块内部状态，也不给产品代码加测试钩子。
+   */
+  const draw = (notes, assets, scale = 'lod') => {
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    let rasterSize = null;
+    let smoothingAtBlit = null;
+    const origDrawImage = ctx.drawImage;
+    ctx.drawImage = function (...args) {
+      if (rasterSize === null && args.length === 9 && args[0] && typeof args[0].width === 'number') {
+        rasterSize = [args[0].width, args[0].height];
+        // 带体层在回贴前刚设过 imageSmoothingEnabled：读到它就是这次放大用的插值开关
+        smoothingAtBlit = ctx.imageSmoothingEnabled;
+      }
+      return origDrawImage.apply(this, args);
+    };
     const scene = sceneOf(notes);
     const chart = field.buildSimChart(scene, noteIcons);
-    field.drawSimFrameAt(ctx, { chart, scene, metrics: m, assets, noteIcons, spriteIcon: noopSprite }, SECONDS);
+    const frame = { chart, scene, metrics: m, assets, noteIcons, spriteIcon: noopSprite };
+    if (scale !== 'lod') frame.bandRasterScale = scale;
+    field.drawSimFrameAt(ctx, frame, SECONDS);
     return {
       data: ctx.getImageData(0, 0, W, H).data,
       groups: field.visibleSimBandGroups(chart, scene, m, SECONDS),
+      rasterSize,
+      smoothing: smoothingAtBlit,
     };
   };
   /** 绿通道反算带体有效 α（底色 = 近黑，体色取该材质采样出的 RGB） */
@@ -137,10 +159,12 @@ const out = await page.evaluate(async () => {
   };
 
   // ---------------------------------------------------------------- 产品像素
-  const sp = draw([spSlide()], skin00);
-  const normal = draw([normalSlide()], skin00);
-  const cross = draw([spSlide(), spSlide()], skin00);
-  const otherSkin = draw([spSlide()], skin05);
+  // 票 65 的既有 8 条断言按 50% 标定（票 66 之前是固定档），显式钉住以免被 LOD 改口径
+  const LOW = 0.5, FULL = 1;
+  const sp = draw([spSlide()], skin00, LOW);
+  const normal = draw([normalSlide()], skin00, LOW);
+  const cross = draw([spSlide(), spSlide()], skin00, LOW);
+  const otherSkin = draw([spSlide()], skin05, LOW);
   const rgbGSp = skin00.bandRasterSp.rgb[1];
   const rgbGNormal = skin00.bandRaster.rgb[1];
   const rgbGSp05 = skin05.bandRasterSp.rgb[1];
@@ -211,8 +235,56 @@ const out = await page.evaluate(async () => {
   for (let i = 0; i < skin00.bandRasterSp.cross.length; i++) {
     lutDiff = Math.max(lutDiff, Math.abs(skin00.bandRasterSp.cross[i] - skin05.bandRasterSp.cross[i]));
   }
+
+  // ---------------------------------------------------------------- 票 66：边缘锐度 + LOD
+  /** 右半边亮缘峰 → α 掉到峰值 5% 以下的过渡宽度（设备 px）与逐像素最大斜率 */
+  const edgeMetrics = (data, rgbG, y) => {
+    const a = (x) => alphaOf(data, x, y, rgbG);
+    let peak = 0, peakX = CX;
+    for (let x = CX; x <= CX + 90; x++) {
+      const v = a(x);
+      if (v > peak) { peak = v; peakX = x; }
+    }
+    let outer = peakX, slope = 0, halo = 0;
+    for (let x = peakX; x <= CX + 120; x++) {
+      if (a(x) > peak * 0.05) outer = x;
+      slope = Math.max(slope, Math.abs(a(x + 1) - a(x)));
+    }
+    // 外圈软边能量：50% 的 2× 双线性会把未预乘 RGBA 与透明像素混在一起，抹暗最外几像素
+    for (let x = peakX + 4; x <= peakX + 10; x++) halo += a(x);
+    return { width: outer - peakX, slope, peak, halo };
+  };
+  /** 与内联 B（100% 逐像素真值）整条横截面的平均绝对误差 */
+  const truthError = (data, rgbG) => {
+    let sum = 0, n = 0;
+    for (let x = CX - 90; x <= CX + 90; x++) {
+      sum += Math.abs(alphaOf(data, x, Y, rgbG) - bAlpha(x, Y));
+      n++;
+    }
+    return sum / n;
+  };
+  const fullFrame = draw([spSlide()], skin00, FULL);
+  const lodSparse = draw([spSlide()], skin00);
+  const denseNotes = Array.from({ length: 30 }, () => spSlide());
+  const lodDense = draw(denseNotes, skin00);
+  const lodDenseFull = draw(denseNotes, skin00, FULL);
   return {
     canvas: `${W}×${H}`,
+    fieldW: W,
+    lodThreshold: rasterMod.SIM_BAND_LOD_ENTER_LOW_PIXELS,
+    edgeFull: edgeMetrics(fullFrame.data, rgbGSp, Y),
+    edgeLow: edgeMetrics(sp.data, rgbGSp, Y),
+    truthErrorFull: truthError(fullFrame.data, rgbGSp),
+    truthErrorLow: truthError(sp.data, rgbGSp),
+    sizes: {
+      full: fullFrame.rasterSize,
+      low: sp.rasterSize,
+      lodSparse: lodSparse.rasterSize,
+      lodDense: lodDense.rasterSize,
+      lodDenseFull: lodDenseFull.rasterSize,
+    },
+    smoothing: { full: fullFrame.smoothing, low: sp.smoothing },
+    denseCoverage: rasterMod.simBandCoverageCss(lodDense.groups),
     singleCenter: spRow.center,
     singlePeak: spRow.peak,
     peakOffset: Math.abs(spRow.peakX - CX),
@@ -271,10 +343,34 @@ const checks = [
       && Math.abs(out.productShape.edge - out.inlineBShape.edge) < 0.2,
     `产品 中心/峰=${out.productShape.center.toFixed(3)} 边/峰=${out.productShape.edge.toFixed(3)}；` +
     `内联 B 中心/峰=${out.inlineBShape.center.toFixed(3)} 边/峰=${out.inlineBShape.edge.toFixed(3)}`],
+  // ── 票 66：用户报的「边缘糊」此前没被归一化剖面断言抓到。
+  // 实测直带横截面的过渡宽度 / 斜率两档几乎相同（50% 6px/0.210 vs 100% 6px/0.190），
+  // 所以断言改为可证伪的三项：① 100% 根本不做双线性放大；② 与内联 B 逐像素真值的
+  // 整条剖面误差更小；③ 外圈软边没被 2× 放大抹暗。宽度 / 斜率留作诊断打印。
+  ['100% 不经 2× 双线性放大，边缘更贴近逐像素真值',
+    out.smoothing.full === false && out.smoothing.low === true
+      && out.truthErrorFull < out.truthErrorLow * 0.9
+      && out.edgeFull.halo > out.edgeLow.halo,
+    `插值 50%=${out.smoothing.low} / 100%=${out.smoothing.full}；` +
+    `真值误差 ${out.truthErrorLow.toFixed(4)} → ${out.truthErrorFull.toFixed(4)}；` +
+    `外圈软边 ${out.edgeLow.halo.toFixed(3)} → ${out.edgeFull.halo.toFixed(3)}；` +
+    `过渡宽 ${out.edgeLow.width}/${out.edgeFull.width}px 斜率 ${out.edgeLow.slope.toFixed(3)}/${out.edgeFull.slope.toFixed(3)}`],
+  ['显式档位：100% 建全尺寸缓冲、50% 建半尺寸缓冲',
+    out.sizes.full?.[0] === out.fieldW && out.sizes.low?.[0] === Math.round(out.fieldW * 0.5),
+    `100%=${out.sizes.full?.join('×')} / 50%=${out.sizes.low?.join('×')}（场地 ${out.fieldW}）`],
+  ['实时 LOD：稀疏谱缺省 100%、密集谱降 50%',
+    out.sizes.lodSparse?.[0] === out.fieldW
+      && out.sizes.lodDense?.[0] === Math.round(out.fieldW * 0.5)
+      && out.denseCoverage > out.lodThreshold,
+    `稀疏=${out.sizes.lodSparse?.join('×')} / 密集=${out.sizes.lodDense?.join('×')}；` +
+    `密集覆盖=${Math.round(out.denseCoverage)}px² > 阈值 ${out.lodThreshold}`],
+  ['导出固定 100%：同一份密集谱显式给 1 仍走全分辨率',
+    out.sizes.lodDenseFull?.[0] === out.fieldW,
+    `导出=${out.sizes.lodDenseFull?.join('×')}（实时同谱=${out.sizes.lodDense?.join('×')}）`],
 ];
 
 let failures = 0;
-console.log(`[band65] ${url} canvas=${out.canvas}`);
+console.log(`[band65/66] ${url} canvas=${out.canvas}`);
 for (const [name, ok, detail] of checks) {
   if (!ok) failures++;
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}  ${detail}`);
