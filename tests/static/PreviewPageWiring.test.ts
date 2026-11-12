@@ -196,6 +196,7 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'index.ts',
       'simAssetPacks.ts',
       'simAssets.ts',
+      'simBandRaster.ts', // 65：带体贴图剖面 / LUT / 一张共享缓冲的逐像素光栅
       'simField.ts',
       'simGeometry.ts',
       'simPlayback.ts',

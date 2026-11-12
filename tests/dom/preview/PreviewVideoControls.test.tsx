@@ -20,6 +20,10 @@ import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SIM_BAND_MATERIAL, SIM_BAND_MATERIAL_SP } from '@/src/preview/video/sim/simGeometry';
+import {
+  SIM_BAND_RASTER_MATERIAL,
+  SIM_BAND_RASTER_MATERIAL_SP,
+} from '@/src/preview/video/sim/simBandRaster';
 
 const calls = vi.hoisted(() => ({
   setOptions: vi.fn(),
@@ -45,6 +49,8 @@ vi.mock('@/src/preview', async (importOriginal) => {
       bandColorSp: '#8fe6c0',
       bandMaterial: { ...SIM_BAND_MATERIAL },
       bandMaterialSp: { ...SIM_BAND_MATERIAL_SP },
+      bandRaster: SIM_BAND_RASTER_MATERIAL,
+      bandRasterSp: SIM_BAND_RASTER_MATERIAL_SP,
       sprites: null,
       missing: false,
       server: 'jp',

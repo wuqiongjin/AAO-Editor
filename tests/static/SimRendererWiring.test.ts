@@ -17,11 +17,12 @@ const GEOMETRY = `${SIM_DIR}/simGeometry.ts`;
 const CANVAS_ENTRY = /\b(renderChart|createRenderTarget|frameFor|createPanelPainter|createStaticLayerCache|createNoteLayerCache|renderSheet|exportSheetAs)\b/;
 
 describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
-  it('仿真场四个模块都在（几何 / 一帧绘制 / 素材 / 回放）', () => {
+  it('仿真场模块清单完整（几何 / 一帧绘制 / 素材 / 带体光栅 / 回放 / 出口）', () => {
     expect(simFiles).toEqual(expect.arrayContaining([
       `${SIM_DIR}/simGeometry.ts`,
       `${SIM_DIR}/simField.ts`,
       `${SIM_DIR}/simAssets.ts`,
+      `${SIM_DIR}/simBandRaster.ts`,
       `${SIM_DIR}/simPlayback.ts`,
       `${SIM_DIR}/index.ts`,
     ]));
@@ -74,7 +75,13 @@ describe('chart-preview 05 · 仿真场的依赖方向与素材通道', () => {
   it('设计面算术只在 simGeometry 一处（别的仿真场模块不写 1334 / 154 / 0.82）', () => {
     const offenders = simFiles
       .filter((f) => f !== GEOMETRY)
-      .filter((f) => /\b1334\b|\b154\b|\b0\.82\b/.test(readStripped(f)));
+      .filter((f) => {
+        let src = readStripped(f);
+        // 65：`simBandRaster` 的兜底剖面是 skin00 贴图的 17 个 α 采样，第 15 个恰为 0.82，
+        // 是材质数据不是设计面比例；只豁免「数组里的 0.82,」，1334 / 154 与其余 0.82 用法照查。
+        if (f.endsWith('/simBandRaster.ts')) src = src.replace(/0\.82(?=\s*,)/g, 'profileAlpha');
+        return /\b1334\b|\b154\b|\b0\.82\b/.test(src);
+      });
     expect(offenders).toEqual([]);
     const geometry = readStripped(GEOMETRY);
     expect(geometry).toMatch(/DESIGN_SURFACE = \{ w: 1334, h: 750 \}/);

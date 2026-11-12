@@ -41,7 +41,3 @@ dist-ssr
 # 调试 / 验收截图与原型视觉存档：临时文件，仅本地留存，不入库
 shots/
 *-screenshots/
-
-# 视觉守卫快照
-*-snapshots/
-.scratch/visual-snapshots/

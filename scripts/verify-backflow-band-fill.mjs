@@ -7,9 +7,10 @@
 //
 // 做什么：载入 dzilas 150030（真实倒流区谱面：225 BPM，beat 48/108/168/228 起各有一段 −225
 // 回折）→ 动态预览 → 暂停态 seek 到倒流区内若干秒（5.0 / 8.0 / 11.0 / 12.5）→ 抓
-// `.pv-field__canvas` 位图。期望带体四边形由**真实 drawSimFrameAt**（node 侧记录型 ctx，设计面
-// 1334×750）算出，按画布缩放映射到位图：每条四边形的**中线**（两腰中点连线）采样，像素必须落在
-// 带体色族（绿：g 显著大于 r/b）里。修前：重合反向对抵消成洞 ⇒ 中线采不到绿 ⇒ 红。
+// `.pv-field__canvas` 位图。期望带体四边形由产品代码自己的 `visibleSimBandGroups`（node 侧设计面
+// 1334×750；chart-preview 65 起带体一次光栅回贴，不再经记录型 ctx 的路径）算出，按画布缩放映射到
+// 位图：每条四边形的**中线**（两腰中点连线）采样，像素必须落在带体色族（绿：g 显著大于 r/b）里。
+// 修前：重合反向对抵消成洞 ⇒ 中线采不到绿 ⇒ 红。
 //
 // 用法（需 dev server + playwright）：
 //   node scripts/verify-backflow-band-fill.mjs [谱面JSON路径] [--url=http://127.0.0.1:5173/] [--label=after]
@@ -68,12 +69,12 @@ const stubBinary = {
 // 场景字段取**应用新设置的默认值**（`AppSettings.ts` 的 `DEFAULT_PREVIEW_SETTINGS` /
 // `DEFAULT_APP_SETTINGS.display` + `UIProvider.tsx` 的 `beatDisplay` 初值 4）——与浏览器里那份
 // settings 同源，否则接近窗口 T 对不上，可见四边形集合就错位。（那两处默认值变时这里要同步。）
-// （`simAssets` 不进打包：它模块顶层读 Vite 专有的 `import.meta.env`，node 侧跑不了；
-// 而 simField 只按 type 引它——空素材替身照它的 `emptySimAssets` 字面值在下面重建一份。）
+// （`simAssets` 不进打包：它模块顶层读 Vite 专有的 `import.meta.env`；65 起 node 侧只调
+// 纯分组函数，根本不需要素材对象，`visibleSimBandGroups` 连 ctx 都不碰。）
 const ENTRY = `
-export { buildSimChart, drawSimFrameAt } from './src/preview/video/sim/simField';
+export { buildSimChart, drawSimFrameAt, visibleSimBandGroups } from './src/preview/video/sim/simField';
 export { buildActiveNoteIcons, normalizeNoteSkinSelection } from './src/rendering/skin/noteSkin';
-export { fieldMetrics, SIM_BAND_COLORS, SIM_BAND_MATERIAL, SIM_BAND_MATERIAL_SP } from './src/preview/video/sim/simGeometry';
+export { fieldMetrics } from './src/preview/video/sim/simGeometry';
 `;
 const bundled = await esbuild.build({
   stdin: { contents: ENTRY, resolveDir: process.cwd(), loader: 'ts' },
@@ -82,64 +83,9 @@ const bundled = await esbuild.build({
 });
 const sim = await import('data:text/javascript;base64,' + Buffer.from(bundled.outputFiles[0].text).toString('base64'));
 
-/** 照 `simAssets.emptySimAssets` 的字面值（node 侧没有图：带体色走 SIM_BAND_COLORS 兜底） */
-const emptySimAssets = () => ({
-  background: null,
-  field: null,
-  playLine: null,
-  bandColor: sim.SIM_BAND_COLORS.band,
-  bandColorSp: sim.SIM_BAND_COLORS.sp,
-  bandMaterial: sim.SIM_BAND_MATERIAL,
-  bandMaterialSp: sim.SIM_BAND_MATERIAL_SP,
-  sprites: null,
-  missing: true,
-  server: null,
-});
-
-/** 记录型假 2d context（与 tests/support/canvas.ts 同口径：属性赋值与方法调用都录进 calls） */
-function makeRecordingCtx() {
-  const calls = [];
-  const overrides = {
-    // 轨道闪的渐变（drawLaneFlash）：记录型 ctx 不光栅化，给个能接 addColorStop 的桩
-    createLinearGradient: () => ({ addColorStop: () => undefined }),
-  };
-  const proxy = new Proxy({}, {
-    get(_t, prop) {
-      const key = String(prop);
-      if (key === 'canvas') return { width: 0, height: 0 };
-      if (key in overrides) return overrides[key];
-      if (key === 'save' || key === 'restore') return () => { calls.push([key, []]); };
-      return (...args) => { calls.push([key, args]); };
-    },
-    set(_t, prop, value) { calls.push([String(prop), [value]]); return true; },
-  });
-  return { proxy, calls };
-}
-
-/**
- * 从记录里切出带体填充批次（fillStyle 为带体色的 beginPath…fill），与单测锁测同一取法。
- * issue 46 起带体还有亮缘 `stroke` 与它的裁剪路径 `clip`：两者也是路径终点，必须把当前
- * 点集切走，否则亮缘的点会被算进下一个 fill 批次。
- */
-function bandQuadsOf(calls) {
-  const bandColors = new Set([sim.SIM_BAND_COLORS.band, sim.SIM_BAND_COLORS.sp]);
-  const batches = [];
-  let cur = null;
-  let quads = [];
-  let fillStyle = '';
-  for (const [k, args] of calls) {
-    if (k === 'fillStyle') fillStyle = String(args[0]);
-    else if (k === 'moveTo') { cur = [{ x: args[0], y: args[1] }]; quads.push(cur); }
-    else if (k === 'lineTo' && cur) cur.push({ x: args[0], y: args[1] });
-    else if (k === 'fill' || k === 'stroke' || k === 'clip') {
-      if (k === 'fill' && quads.length > 0 && bandColors.has(fillStyle)) batches.push(quads);
-      quads = [];
-      cur = null;
-    }
-  }
-  return batches;
-}
-
+// ───────────────────── node 侧：该秒应可见的带体四边形 ─────────────────────
+// chart-preview 65 起带体不再经 ctx 路径（一次 putImageData 光栅回贴），记录型 ctx 取不到
+// 四边形；改调产品代码自己的 `visibleSimBandGroups`（出帧函数用的同一份分组 / 可见窗口）。
 const signedArea = (pts) => {
   let s = 0;
   for (let i = 0; i < pts.length; i++) {
@@ -163,18 +109,12 @@ const scene = {
 const icons = sim.buildActiveNoteIcons(sim.normalizeNoteSkinSelection({}));
 const chart = sim.buildSimChart(scene, icons);
 const metrics = sim.fieldMetrics(1334, 750);
-const noopSprite = { render() {}, renderDecorator() {} };
 
-/** 该秒应可见的带体四边形（设计 px）：真 drawSimFrameAt 记录型 ctx，零面积（同拍水平段）剔除 */
+/** 该秒应可见的带体四边形（设计 px）：零面积（同拍水平段）剔除 */
 function expectedQuads(seconds) {
-  const { proxy, calls } = makeRecordingCtx();
-  sim.drawSimFrameAt(proxy, {
-    scene, chart, metrics,
-    assets: emptySimAssets(),
-    noteIcons: icons,
-    spriteIcon: noopSprite,
-  }, seconds);
-  return bandQuadsOf(calls).flat().filter((q) => Math.abs(signedArea(q)) > 1);
+  return sim.visibleSimBandGroups(chart, scene, metrics, seconds)
+    .flatMap((g) => g.quads)
+    .filter((q) => Math.abs(signedArea(q)) > 1);
 }
 
 // ───────────────────── 浏览器侧：载入 → seek → 抓位图 → 中线采样 ─────────────────────
@@ -186,6 +126,9 @@ page.on('console', (m) => { if (m.type() === 'error') console.log('[console.erro
 console.log(`[${label}] ${url} chart=${chartPath} seek=[${SEEK_SECONDS.join(', ')}]s viewport=${viewport}`);
 await page.goto(url, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(800);
+// 云环境首启有「在线版说明」弹层（桌面版没有）：不关掉会挡住首个按钮
+const notice = page.getByRole('button', { name: '我已知晓' });
+if (await notice.count()) await notice.first().click();
 
 // 1. 新建工程（空态 → 创建第一个工程；名称 → 创建）
 await page.getByRole('button', { name: '创建第一个工程' }).first().click();

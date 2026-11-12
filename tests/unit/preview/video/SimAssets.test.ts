@@ -34,6 +34,10 @@ import {
   simSpriteUrls,
 } from '@/src/preview/video/sim/simAssets';
 import { SIM_BAND_COLORS, SIM_BAND_MATERIAL, SIM_BAND_MATERIAL_SP } from '@/src/preview/video/sim/simGeometry';
+import {
+  SIM_BAND_RASTER_MATERIAL,
+  SIM_BAND_RASTER_MATERIAL_SP,
+} from '@/src/preview/video/sim/simBandRaster';
 
 const okImage = (src: string) => ({ naturalWidth: 8, naturalHeight: 8, src } as unknown as HTMLImageElement);
 
@@ -230,6 +234,88 @@ describe('loadSimAssets · 包选择透传（chart-preview 41）', () => {
     expect(assets.field).not.toBeNull();
     expect(assets.background).toBeNull();
     expect(assets.playLine).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- chart-preview 65 锁测
+
+/** 假取样画布：8×8 均匀贴图，α 由 `levelOf(src)` 决定（模拟换肤 / 普通 vs SP 两张图） */
+function fakeSampleCanvas(levelOf: (src: string) => number, reads: string[]) {
+  return () => {
+    let src = '';
+    const ctx = {
+      drawImage: (img: HTMLImageElement) => { src = img.src; },
+      getImageData: (_x: number, _y: number, w: number, h: number) => {
+        reads.push(src);
+        const data = new Uint8ClampedArray(w * h * 4);
+        const level = levelOf(src);
+        for (let i = 0; i < w * h; i++) {
+          data[i * 4] = 11;
+          data[i * 4 + 1] = 22;
+          data[i * 4 + 2] = 33;
+          data[i * 4 + 3] = level;
+        }
+        return { data };
+      },
+    };
+    return { width: 0, height: 0, getContext: () => ctx } as unknown as HTMLCanvasElement;
+  };
+}
+
+describe('chart-preview 65 · 带体 17 点剖面 / 纵向 LUT 预加载', () => {
+  const BAND = '/assets/skins/skin00/longNoteLine.png';
+  const BAND_SP = '/assets/skins/skin00/longNoteLine2.png';
+
+  it('一次 getImageData 同时喂标量材质与光栅 LUT：剖面 / 体色来自皮肤图', async () => {
+    const jp = simAssetUrls('jp');
+    const reads: string[] = [];
+    const assets = await loadSimAssets({
+      servers: ['jp'],
+      bandSrc: BAND,
+      bandSpSrc: BAND_SP,
+      loadImage: fakeLoader((src) => src === jp.field || src === BAND || src === BAND_SP).load,
+      createSampleCanvas: fakeSampleCanvas((src) => (src.includes('Line2') ? 100 : 180), reads),
+    });
+    expect(reads).toEqual([BAND, BAND_SP]); // 两张图各回读一次，没有为剖面二次回读
+    expect(assets.bandRaster.cross[0]).toBeCloseTo(180 / 255, 5);
+    expect(assets.bandRasterSp.cross[0]).toBeCloseTo(100 / 255, 5);
+    expect(assets.bandRaster.rgb).toEqual([11, 22, 33]);
+    expect(assets.bandMaterial.rimAlpha).toBeCloseTo(180 / 255, 5);
+    expect(assets.bandMaterialSp.rimAlpha).toBeCloseTo(100 / 255, 5);
+    // 均匀贴图 ⇒ 纵向因子恒 1（SP 贴图本就纵向恒定）
+    expect([...assets.bandRaster.longitudinal].every((v) => Math.abs(v - 1) < 1e-6)).toBe(true);
+  });
+
+  it('换肤跟随：同一 src 换一份贴图 ⇒ 剖面与 LUT 跟着变', async () => {
+    const jp = simAssetUrls('jp');
+    const load = (level: number) => loadSimAssets({
+      servers: ['jp'],
+      bandSrc: BAND,
+      loadImage: fakeLoader((src) => src === jp.field || src === BAND).load,
+      createSampleCanvas: fakeSampleCanvas(() => level, []),
+    });
+    const a = await load(200);
+    const b = await load(60);
+    expect(a.bandRaster.cross[0]).toBeCloseTo(200 / 255, 5);
+    expect(b.bandRaster.cross[0]).toBeCloseTo(60 / 255, 5);
+    expect(a.bandRaster.rgb).toEqual(b.bandRaster.rgb);
+    expect(a.bandRaster.cross[512]).not.toBe(b.bandRaster.cross[512]);
+  });
+
+  it('无 DOM / 缺图 → 回落 skin00 实测兜底剖面（普通 / SP 两份）', async () => {
+    const jp = simAssetUrls('jp');
+    const assets = await loadSimAssets({
+      servers: ['jp'],
+      bandSrc: BAND,
+      loadImage: fakeLoader((src) => src === jp.field || src === BAND).load,
+    });
+    expect(assets.bandRaster.cross[0]).toBe(SIM_BAND_RASTER_MATERIAL.cross[0]);
+    expect(assets.bandRaster.rgb).toEqual(SIM_BAND_RASTER_MATERIAL.rgb);
+    expect(assets.bandRasterSp.cross[0]).toBe(SIM_BAND_RASTER_MATERIAL_SP.cross[0]);
+    expect(assets.bandRasterSp.longitudinal.every((v) => v === 1)).toBe(true);
+    // 空态也自带兜底材质（页面画空态，帧输入仍可安全出帧）
+    expect(emptySimAssets().bandRaster).toBe(SIM_BAND_RASTER_MATERIAL);
+    expect(emptySimAssets().bandRasterSp).toBe(SIM_BAND_RASTER_MATERIAL_SP);
   });
 });
 
