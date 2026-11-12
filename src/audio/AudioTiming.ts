@@ -67,6 +67,12 @@ export interface KeySoundEvent {
   kind: KeySoundKind;
   /** 方向键：组合长度 length(1..3)，选对应分档采样（issue 18）；其余样式无 */
   tier?: number;
+  /**
+   * 该条发声的峰值缩放系数（issue 231 后续修订）：同刻还留着 N 份**不同**采样时为 `1/√N`，
+   * 让多押与单声听感响度相当；单声（N=1）省略即 `1`。
+   * 只作用于这一时刻这一组，不改其它时刻、不改总线音量（无动态压缩的 pumping）。
+   */
+  gain?: number;
 }
 
 /**
@@ -169,6 +175,19 @@ export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvent
     if (groupKeys.has(key)) continue;
     groupKeys.add(key);
     plan.push(evt);
+  }
+  // 同刻不同采样的响度归一（issue 231 后续修订）：归并后一个时刻可能仍留着 N 份不同采样，
+  // 叠加能量约按 √N 增长，实测比单声响 +3.5~+13.3 dB。给该组每条乘 1/√N 让响度相当：
+  // 只作用于这一组自己的增益，不改其它时刻 ⇒ 单声恒为 1，无「后随单声变小」。
+  // plan 已按 time 升序，同刻严格相等且连续。
+  for (let i = 0; i < plan.length;) {
+    let j = i + 1;
+    while (j < plan.length && plan[j]!.time === plan[i]!.time) j++;
+    if (j - i > 1) {
+      const gain = 1 / Math.sqrt(j - i);
+      for (let k = i; k < j; k++) plan[k]!.gain = gain;
+    }
+    i = j;
   }
   return plan;
 }

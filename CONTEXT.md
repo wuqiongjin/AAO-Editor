@@ -253,7 +253,8 @@
 | 击打样式 | KeySoundKind | `{ tap, flick, skill, slide, directional }` 五类（与 `KeySoundSet.samples` 一一对应） |
 | 同刻键音事件 | Same-instant key-sound event | 时间轴上**同一时刻**的一组键音事件；「同刻」按时间轴秒判定，不按作者轴 beat。归并口径见「同刻归并」。_Avoid_: 同拍多押、同拍键音（「同拍分组」已指滑条 connections 内 beat 全等的一串结点） |
 | 同刻归并 | Same-instant key-sound merge | 同刻键音事件里**同一份发音**的多次触发合并为一条发声计划、**组内仍发声一次**；按严格相等的时间轴秒 + 解析后的采样文件判同（6 类等价键，四包 `tap ≡ slide` 共用 `perfect.mp3`）；事件表是发声计划表，只减触发次数，不删谱面音符 / 不屏蔽结点 / 不静音。落在 `AudioTiming.buildKeyEvents` 一处，实时 / 仿真 / 导出共用（ADR-0004 §7、ADR-0016 §5）。_Avoid_: 同拍去重、按 `kind` 去重、同刻只留一声、把归并写成「结点不发声」 |
-| 押数 | Chord size | 同一时刻的击打点数量，**由画面表达**；键音不另做可听表达（不做 per-lane 音高 / pan / humanize / 按押数换采样），同刻归并不抹掉押数、也不加限幅或增益补偿。_Avoid_: 把「键音更响 / 更厚」当作押数信息 |
+| 同刻响度归一 | Same-instant loudness normalisation | 归并后同一时刻若仍有 N 份**不同**采样，各份峰值乘 `1/√N`，使多押与单声听感响度相当；系数在建表时算好随事件透传，只作用于该时刻这一组。不做总线 limiter / 动态压缩。_Avoid_: 总线限幅、`1/N` 过度补偿、按押数换采样、把响度差当作押数信息 |
+| 押数 | Chord size | 同一时刻的击打点数量，**由画面表达**；键音不另做可听表达（不做 per-lane 音高 / pan / humanize / 按押数换采样），同刻归并不抹掉押数，同刻响度归一也不是把押数做成可听信息。_Avoid_: 把「键音更响 / 更厚」当作押数信息 |
 
 ## 视觉素材域（issue 29）
 

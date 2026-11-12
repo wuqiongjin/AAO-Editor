@@ -101,8 +101,10 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
       const buffer = src ? await keySoundBank.load(src, decodeCtx).catch(() => undefined) : undefined;
       // 键音整体后移开场段长度（过滤仍按**谱面时间** `[0, duration)` 判）
       const at = evt.time + offset;
-      if (buffer) scheduleKeySample(ctx, se, buffer, at);
-      else scheduleKeyTone(ctx, se, evt.kind, sample, at);
+      // 同刻响度归一系数由事件表算好，离线侧只透传（不在这里另算 / 另挂总线限幅）
+      const gainScale = evt.gain ?? 1;
+      if (buffer) scheduleKeySample(ctx, se, buffer, at, gainScale);
+      else scheduleKeyTone(ctx, se, evt.kind, sample, at, gainScale);
     }
   }
 

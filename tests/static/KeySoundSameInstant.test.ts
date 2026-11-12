@@ -41,14 +41,30 @@ describe('issue 231 · 三条链路共用一份发声计划表', () => {
   });
 });
 
-describe('issue 231 · 音频侧不读 lane、不新增限幅', () => {
+describe('issue 231 · 音频侧不读 lane、不新增总线限幅', () => {
   it('KeySoundEvent 与建表层都不再携带 lane（Q15）', () => {
     expect(timing).not.toMatch(/\blane\b/);
   });
 
-  it('实时 / 离线 / 共享发声层都不挂 DynamicsCompressor（Q11 砍掉限幅）', () => {
+  it('实时 / 离线 / 共享发声层都不挂 DynamicsCompressor（不做总线 limiter）', () => {
     for (const src of [engine, renderAudio, keySamples]) {
       expect(src).not.toMatch(/createDynamicsCompressor|DynamicsCompressor/);
     }
+  });
+});
+
+describe('issue 231 后续修订 · 同刻响度归一只在建表层算一次', () => {
+  it('1/√N 只在 AudioTiming 计算，发声层与两条播放链路都不另算', () => {
+    expect(timing).toMatch(/1 \/ Math\.sqrt\(/);
+    for (const src of [engine, renderAudio, keySamples]) {
+      expect(src).not.toMatch(/Math\.sqrt\(/);
+    }
+  });
+
+  it('实时与离线都把事件表的 gain 透传给共享发声层', () => {
+    expect(engine).toMatch(/evt\.gain \?\? 1/);
+    expect(renderAudio).toMatch(/evt\.gain \?\? 1/);
+    expect(keySamples).toMatch(/0\.9 \* gainScale/);
+    expect(keySamples).toMatch(/0\.12 \* gainScale/);
   });
 });

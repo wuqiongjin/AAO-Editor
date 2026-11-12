@@ -2,7 +2,8 @@
 // - 播放：AudioContext + AudioBufferSourceNode（精确 seek，不用 HTMLAudioElement）
 // - 解码：渲染进程 decodeAudioData（SongUploader → File → ArrayBuffer → decode，不动主进程）
 // - 按键音：setInterval(200ms) + rAF 双驱动 tick()，提前 2.0s 预调度；每次新建 AudioBufferSourceNode
-//   播共享采样（采样未就绪才用振荡器兜底）；同刻同采样的多次触发已在 buildKeyEvents 建表时归并（issue 231）
+//   播共享采样（采样未就绪才用振荡器兜底）；同刻同采样的多次触发已在 buildKeyEvents 建表时归并、
+//   同刻不同采样的 1/√N 响度归一系数也随事件表算好，本层只透传（issue 231 后续修订）
 // - 双时钟（ADR-0004 §2）：有音频 = AudioContext 时间线；无音频 = performance.now + RAF 合成时间线，照常"播放谱面"
 import type { ChartNote } from '../chart/types';
 import { getBpmEvents, buildKeyEvents, type KeySoundEvent } from './AudioTiming';
@@ -531,13 +532,13 @@ export class AudioEngine {
     while (this.keyIndex < this.keyEvents.length && this.keyEvents[this.keyIndex].time <= horizon) {
       const evt = this.keyEvents[this.keyIndex];
       if (evt.time >= playhead) {
-        this.playTick(ctx.currentTime + (evt.time - playhead) / this.rate, evt.kind, evt.tier);
+        this.playTick(ctx.currentTime + (evt.time - playhead) / this.rate, evt.kind, evt.tier, evt.gain ?? 1);
       }
       this.keyIndex++;
     }
   }
 
-  private playTick(when: number, kind: KeySoundKind, tier?: number): void {
+  private playTick(when: number, kind: KeySoundKind, tier?: number, gainScale = 1): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const sample = this.keySet?.samples[kind];
@@ -545,14 +546,14 @@ export class AudioEngine {
     if (src) {
       const buf = keySoundBank.get(src);
       if (buf) {
-        const node = scheduleKeySample(ctx, this.seBus(), buf, when, () => this.scheduled.delete(node));
+        const node = scheduleKeySample(ctx, this.seBus(), buf, when, gainScale, () => this.scheduled.delete(node));
         this.scheduled.add(node);
         return;
       }
       // 采样未就绪：异步补充加载（本次振荡器兜底，避免无声）
       void keySoundBank.load(src, ctx).catch(() => undefined);
     }
-    const node = scheduleKeyTone(ctx, this.seBus(), kind, sample, when, () => this.scheduled.delete(node));
+    const node = scheduleKeyTone(ctx, this.seBus(), kind, sample, when, gainScale, () => this.scheduled.delete(node));
     this.scheduled.add(node);
   }
 
