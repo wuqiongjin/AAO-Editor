@@ -6,6 +6,7 @@ const renderSrc = readStripped('src/rendering/render.ts');
 
 describe('renderSpBandStrip · issue 138 clip 接线', () => {
   it('rasterBandRuns 调用带 clipCss（来自当前画布变换）', () => {
-    expect(renderSrc).toMatch(/rasterBandRuns\(\{[^}]*clipCss/);
+    expect(renderSrc).toMatch(/rasterize:.*= rasterBandRuns/);
+    expect(renderSrc).toMatch(/rasterize\(\{[^}]*clipCss/);
   });
 });

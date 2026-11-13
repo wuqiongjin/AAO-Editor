@@ -7,6 +7,7 @@ import type CanvasSpriteIcon from '../ui/CanvasSpriteIcon';
 import type { ActiveNoteIcons } from './skin/noteSkin';
 import type { GridStylePreset } from './gridStyle';
 import type { CurveConfig, CurveDraft } from '../chart/editing/CurveTool';
+import type { BandRaster, BandRasterInput } from './slideBandGeometry';
 
 /** 视口状态（虚拟尺寸 + 滚动 + 缩放） */
 export interface ViewportState {
@@ -56,6 +57,8 @@ export interface RenderCtx {
    * 2. 共享瓦片表在"每面板一个窗口"的用法下命中率极低，重建 + blit 纯属白付。
    */
   directNotes?: boolean;
+  /** 瓦片预取注入已分片计算的带体；缺省复用同步像素算法。只作用于本次绘制。 */
+  rasterizeBand?: (input: BandRasterInput) => BandRaster | null;
   beatDisplay: number;
   chartEndBeat: number;
   notes: ChartNote[];

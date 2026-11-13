@@ -686,12 +686,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   }
   // issue 160：滑条两轮 — 先全谱段（后放置者在上），再全谱可见结点 + flick 挂件。
   // 不再一条 renderSlideBody 原子画完，否则后放滑条的段会盖住先放端点。
-  visibleNotes.forEach(({ note }) => {
-    if (note.type !== "Slide" && note.type !== "Long") return;
-    const connections = (note as SlideNote).connections;
-    if (visibleEnds(connections).first < 0) return;
-    renderSpanBands(ctx, c, rc, connections, rc.display?.slideOpacity ?? 1);
-  });
+  renderNoteBands(ctx, c, rc, visibleNotes);
   visibleNotes.forEach(({ note }) => {
     if (note.type === "Slide" || note.type === "Long") {
       renderSlideBody(ctx, c, rc, note);
@@ -748,6 +743,15 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
       };
       rc.spriteIcon.renderDecorator(ctx, anchor, dec, spriteScale);
     }
+  });
+}
+
+/** 与 renderNotes 同一带体遍历；瓦片预取先收集光栅输入，完成后按原顺序绘制。 */
+export function renderNoteBands(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  visibleNotes.forEach(({ note }) => {
+    if (note.type !== 'Slide' && note.type !== 'Long') return;
+    if (visibleEnds(note.connections).first < 0) return;
+    renderSpanBands(ctx, c, rc, note.connections, rc.display?.slideOpacity ?? 1);
   });
 }
 
@@ -944,7 +948,7 @@ export function renderSpanBands(
       pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
     }
     if (sp.end - sp.start > 1) {
-      renderBandStrip(ctx, pts, half, band, alpha);
+      renderBandStrip(ctx, pts, half, band, alpha, rc.rasterizeBand);
     } else {
       drawBandQuad(ctx, rc, pts[0]!, pts[1]!, half, band, alpha);
     }
@@ -1084,6 +1088,7 @@ export function renderBandStrip(
   half: number,
   band: SpriteIconConfig,
   alpha?: number,
+  rasterize: NonNullable<RenderCtx['rasterizeBand']> = rasterBandRuns,
 ): boolean {
   if (typeof document === "undefined" || typeof ctx.getTransform !== "function") return false;
   const st = bandStripStyle(band);
@@ -1093,7 +1098,7 @@ export function renderBandStrip(
   // 回折（导入谱拍位倒退）切成 y 单调 run：逐行光栅天然处理自叠（同像素两臂 screen 合成 = 叠亮）
   const runs = splitBandAtFolds(pts);
   const clipCss = canvasClipCss(ctx, sx, sy, t.e, t.f);
-  const raster = rasterBandRuns({ runs, half, profile: st.profile, rgb: st.rgb, sx, sy, baseAlpha: alpha ?? 1, clipCss });
+  const raster = rasterize({ runs, half, profile: st.profile, rgb: st.rgb, sx, sy, baseAlpha: alpha ?? 1, clipCss });
   if (!raster) return false;
   const off = ensureRasterScratch(raster.bw, raster.bh);
   const octx = off.getContext("2d");

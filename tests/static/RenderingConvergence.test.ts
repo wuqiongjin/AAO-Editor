@@ -4,10 +4,10 @@
 // 渲染层反手 import 页面 / 播放 / 工程层、生成脚本把注册表写回旧位置"这类回潮 ——
 // 落点是结构事实，只能按源码路径 / import 形态断言。
 // 手法照 PagesConvergence.test.ts：扫全仓源码 + 解析 import specifier。
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readSource, readStripped, repoRoot } from '@/tests/support/source';
+import { readStripped, repoRoot } from '@/tests/support/source';
 
 /** dir 下全部源码文件（相对仓库根的路径） */
 function sourceFiles(dir: string, re = /\.(ts|tsx|css)$/): string[] {
@@ -80,7 +80,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
     ]);
     // 四个桶逐文件点名（skin/gen 是快照仓库产出的目录，不入本仓 —— release-pipeline 02）
     expect(entries('src/rendering/primitives')).toEqual(['NoteIconGlyph.tsx', 'noteGlyph.ts', 'noteMetrics.ts']);
-    expect(entries('src/rendering/pipeline')).toEqual(['noteLayerCache.ts', 'staticLayerCache.ts']);
+    expect(entries('src/rendering/pipeline')).toEqual(['bandRasterScheduler.ts', 'noteLayerCache.ts', 'staticLayerCache.ts']);
     expect(entries('src/rendering/hitTest')).toEqual(['hitTest.ts']);
     expect(entries('src/rendering/skin')).toEqual([
       'NoteSkinPresetThumbnail.tsx',

@@ -20,7 +20,7 @@
 //
 // 候选 3（缓存有主）：本缓存是**实例**（`createNoteLayerCache`），不再是模块级可变单例 ——
 // 工作台画布与离屏导出 / 未来预览各持一份，互不顶掉（见 `../RenderTarget`）。
-import { renderNotes, renderSelectionOverlay } from '../render';
+import { renderNoteBands, renderNotes, renderSelectionOverlay } from '../render';
 import { makeCoords } from '../coords';
 import { bufferSizeFor } from '../rasterScale';
 import type { RenderCtx } from '../types';
@@ -28,6 +28,8 @@ import { VIEWPORT_PADDING, type GeometryBounds } from '../../chart/geometry/Char
 import type { BpmTimelineEvent } from '../../chart/geometry/BpmTimeline';
 import type { ChartNote, SlideNote } from '../../chart/types';
 import { perf } from '../../chart/perf';
+import { rasterizeBandsCooperatively } from './bandRasterScheduler';
+import type { BandRasterInput } from '../slideBandGeometry';
 
 /** 瓦片的 pos 空间高度（timeline 像素） */
 export const TILE_PX = 512;
@@ -452,7 +454,8 @@ function createTileCanvasDefault() {
  * 创建一个音符瓦片缓存实例（候选 3）：瓦片表 / 失效依据 / 播放瓦片队列与计时器 / 统计全在实例内，
  * 不与其它渲染目标共享 —— 见 `../RenderTarget`。
  */
-export function createNoteLayerCache(): NoteLayerCache {
+export function createNoteLayerCache(options: { rasterizeBands?: typeof rasterizeBandsCooperatively } = {}): NoteLayerCache {
+  const rasterizeBands = options.rasterizeBands ?? rasterizeBandsCooperatively;
   /* eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试注入点：假位图只需结构兼容 */
   let createTileCanvas: () => any = createTileCanvasDefault;
   const tiles = new Map<number, Tile>();
@@ -461,6 +464,12 @@ export function createNoteLayerCache(): NoteLayerCache {
   const playTileQueue: number[] = [];
   let playTileSnap: { rc: RenderCtx; es: number } | null = null;
   let playTileTimer: ReturnType<typeof setTimeout> | null = null;
+  let tileBuild: { id: number; cancelled: boolean } | null = null;
+
+  function cancelTileBuild() {
+    if (tileBuild) tileBuild.cancelled = true;
+    tileBuild = null;
+  }
   /** 当前屏幕帧间隔（ms，issue 213）：默认 16.67ms（60Hz 基线），由 rAF 采样注入 */
   let frameInterval = DEFAULT_FRAME_INTERVAL_MS;
 
@@ -516,7 +525,8 @@ export function createNoteLayerCache(): NoteLayerCache {
     return !t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL;
   }
 
-  function drainOnePlayingTile() {
+  function drainOnePlayingTile(synchronous = false) {
+    if (tileBuild) return;
     const snap = playTileSnap;
     const id = playTileQueue.shift();
     if (id === undefined || !snap) return;
@@ -524,11 +534,36 @@ export function createNoteLayerCache(): NoteLayerCache {
     // issue 146：不再是「只有没建过的才补」——打脏的也要换下来，否则旧音符一直挂着。
     // issue 199：尺度过期的瓦片（stale）也必须换下来，否则播放中缩放后锁定在旧 scale 发糊。
     if (cur && !cur.dirty && !isTileStale(cur, snap.es)) return;
-    renderTile(id, snap.rc, snap.es);
+    if (synchronous) { renderTile(id, snap.rc, snap.es); return; }
+    const job = { id, cancelled: false };
+    tileBuild = job;
+    const prepared = prepareTile(id, snap.rc, snap.es);
+    const inputs = prepared.collect();
+    if (inputs.length === 0) {
+      prepared.draw();
+      commitTile(id, prepared.tile);
+      tileBuild = null;
+      return;
+    }
+    void rasterizeBands(inputs, {
+      budgetMs: Math.min(2, frameInterval * 0.25),
+      isCancelled: () => job.cancelled,
+    }).then(rasters => {
+      if (job.cancelled || !rasters) return;
+      let next = 0;
+      prepared.draw(() => rasters[next++] ?? null);
+      commitTile(id, prepared.tile);
+    }).catch(error => {
+      console.error('Failed to prepare chart tile', error);
+    }).finally(() => {
+      if (tileBuild !== job) return;
+      tileBuild = null;
+      schedulePlayTileDrain();
+    });
   }
 
   function schedulePlayTileDrain() {
-    if (playTileTimer !== null || playTileQueue.length === 0) return;
+    if (playTileTimer !== null || tileBuild || playTileQueue.length === 0) return;
     const isPlaying = playTileSnap?.rc.playing === true;
     // issue 167 / issue 213：播放期根据屏幕帧率自适应排水延迟（120Hz 下为 4ms 消除饥饿，60Hz 下保持 16ms 保护既有不变量）；
     // 静止期 delay 恒为 0，以最快速度在空闲期排空预热队列。
@@ -558,12 +593,13 @@ export function createNoteLayerCache(): NoteLayerCache {
         touchTile(id, cur);
         continue;
       }
-      if (!playTileQueue.includes(id)) playTileQueue.push(id);
+      if (tileBuild?.id !== id && !playTileQueue.includes(id)) playTileQueue.push(id);
     }
     schedulePlayTileDrain();
   }
 
   function reset() {
+    cancelTileBuild();
     tiles.clear();
     basis = null;
     rebuildCursor = null;
@@ -647,8 +683,11 @@ export function createNoteLayerCache(): NoteLayerCache {
   }
 
   /** 以 es 渲染一块瓦片（含上下 VIEWPORT_PADDING 外扩，跨瓦片音符在相邻瓦片重复绘制 → 无缝拼接） */
-  function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
-    tiles.delete(tileId);
+  function prepareTile(tileId: number, rc: RenderCtx, es: number): {
+    tile: Tile;
+    collect: () => BandRasterInput[];
+    draw: (rasterizeBand?: RenderCtx['rasterizeBand']) => void;
+  } {
     const p0 = tileId * TILE_PX, p1 = p0 + TILE_PX;
     const cssH = TILE_PX * es;
     // 伪视口：让瓦片 pos 区间 [p0, p1] 恰好映射到瓦片画布 [0, cssH]
@@ -659,8 +698,7 @@ export function createNoteLayerCache(): NoteLayerCache {
     const vis = rc.geometry.visibleNotes(rc.notes, vp, rc.beatDisplay, bounds);
     if (vis.length === 0) {
       const empty: Tile = { canvas: null, refScale: es, surfaceW: rc.surface.w, bytes: 0, empty: true };
-      tiles.set(tileId, empty);
-      return empty;
+      return { tile: empty, collect: () => [], draw: () => {} };
     }
     // 位图与主画布同宽（cssW = rc.surface.w），无需左右外扩（装饰器/选中圈均在 surface 内）
     const cssW = rc.surface.w;
@@ -686,11 +724,34 @@ export function createNoteLayerCache(): NoteLayerCache {
     const fakeRc: RenderCtx = { ...rc, viewport: vp, surface: fakeSurface };
     const c = makeCoords(rc.geometry, vp, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
     // F1：瓦片不含选中态（选中/hover 高亮由主画布叠加层绘制，选择变化不再重建瓦片）
-    renderNotes(tctx, c, fakeRc, vis);
     const tile: Tile = { canvas, refScale: es, surfaceW: cssW, bytes: bw * bh * 4, empty: false };
+    return {
+      tile,
+      collect() {
+        const inputs: BandRasterInput[] = [];
+        renderNoteBands(tctx, c, {
+          ...fakeRc,
+          rasterizeBand(input) { inputs.push(input); return null; },
+        }, vis);
+        // 收集期间普通四边形仍沿原绘制路径；只在整块像素就绪后发布瓦片。
+        tctx.clearRect(0, 0, cssW, cssH);
+        return inputs;
+      },
+      draw(rasterizeBand) { renderNotes(tctx, c, { ...fakeRc, rasterizeBand }, vis); },
+    };
+  }
+
+  function commitTile(tileId: number, tile: Tile): Tile {
+    tiles.delete(tileId);
     tiles.set(tileId, tile);
     evictOverBudget();
     return tile;
+  }
+
+  function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
+    const prepared = prepareTile(tileId, rc, es);
+    prepared.draw();
+    return commitTile(tileId, prepared.tile);
   }
 
   /**
@@ -701,6 +762,12 @@ export function createNoteLayerCache(): NoteLayerCache {
    *   （超预算的残余先按比例 blit，settle 帧兜底收尾）。
    */
   function draw(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
+    // 每帧只更新滚动不影响带体；几何/内容变化则取消旧分片，防止迟到结果覆盖新画面。
+    const previous = playTileSnap?.rc;
+    if (previous && (previous.playing !== rc.playing || previous.directNotes !== rc.directNotes ||
+      previous.viewport.scale !== rc.viewport.scale || previous.surface.w !== rc.surface.w || previous.surface.h !== rc.surface.h)) {
+      cancelTileBuild();
+    }
     const es = rc.viewport.scale;
     if (rc.directNotes || es > MAX_CACHE_ES) {
       // 直渲并丢掉瓦片（缩回瓦片模式时会全量重建）
@@ -747,10 +814,12 @@ export function createNoteLayerCache(): NoteLayerCache {
       // 时间线内容/节拍显示/dpr/皮肤/音符大小/长压线不透明度/同时点击线/色觉辅助/镜像/纵向比例变化 → pos 空间或位图语义变化，全量失效。
       // 注意：surface 宽高与 geometry 实例不在失效依据内（issue 36 F3a，见 basis 注释）。
       tiles.clear();
+      cancelTileBuild();
       basis = nb;
       // 全量失效帧保持旧口径：本帧把 [lo,hi] 全部同步重建（一次性事件，非 hover 热路径）。
       fullInvalidated = true;
     } else if (basis.notes !== nb.notes) {
+      cancelTileBuild();
       // F3：notes 引用变化 → 结构共享 diff，仅失效覆盖变更拍区间的瓦片
       const diff = diffNotes(basis.notes, rc.notes, rc.beatDisplay);
       if (diff.kind === 'full') markAllTilesDirty(rc);                                     // issue 146：不清空
@@ -882,11 +951,13 @@ export function createNoteLayerCache(): NoteLayerCache {
   }
 
   function __flushPlayingTileQueueForTests() {
+    if (tileBuild) playTileQueue.unshift(tileBuild.id);
+    cancelTileBuild();
     if (playTileTimer !== null) {
       clearTimeout(playTileTimer);
       playTileTimer = null;
     }
-    while (playTileQueue.length > 0) drainOnePlayingTile();
+    while (playTileQueue.length > 0) drainOnePlayingTile(true);
   }
 
   function __setCanvasFactoryForTests(factory: () => unknown) {

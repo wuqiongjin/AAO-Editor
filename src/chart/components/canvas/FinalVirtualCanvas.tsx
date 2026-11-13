@@ -258,6 +258,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const renderCanvasRef = useRef<() => void>(() => {});
     // 渲染目标（候选 3）：本画布的 surface / dpr / 两层离屏缓存的所有者；surface 或画质变化只 configure，不重建
     const targetRef = useRef<RenderTarget | null>(null);
+    useEffect(() => () => { targetRef.current?.noteLayer.reset(); }, []);
     // issue 213：当前物理屏幕帧间隔（默认 16.67ms / 60Hz），由挂载期 rAF 探测与播放循环权威注入
     const frameIntervalRef = useRef<number>(DEFAULT_FRAME_INTERVAL_MS);
 
