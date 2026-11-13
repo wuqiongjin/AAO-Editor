@@ -30,9 +30,8 @@ describe('chart-preview 22 · 预览播放条复用工作台 PlayBar', () => {
     expect(bar).toMatch(/play-bar--\$\{variant\}/); // 外壳两档变体由它自己拼
   });
 
-  it('工作台接线：数据入口逐条显式传入（票 22「拨接不变」的可读版本）', () => {
+  it('工作台接线：数据入口逐条显式传入（票 22；票 232 起时间码由 WorkspacePlayBar 自读）', () => {
     expect(ws).toMatch(/isPlaying=\{ctxIsPlaying\}/);
-    expect(ws).toMatch(/currentSeconds=\{playheadSeconds\}/);
     expect(ws).toMatch(/duration=\{ctxDuration\}/);
     expect(ws).toMatch(/volume=\{settings\.audio\.volume\}/);
     expect(ws).toMatch(/audioLocked=\{audioSnap\.audioLocked\}/);
@@ -43,6 +42,15 @@ describe('chart-preview 22 · 预览播放条复用工作台 PlayBar', () => {
     expect(ws).toMatch(/shortcutKey=\{formatKey\(shortcutConfig\.play\)\}/);
     // 58：工作台也传 rateSlot（此前"预览专属、工作台不传"的口径已改）
     expect(ws).toMatch(/rateSlot=\{<PlaybackRate/);
+  });
+
+  it('票 232 · 80ms 时间码由 WorkspacePlayBar 自读，工作台页不消费也不再传 currentSeconds', () => {
+    const wrapper = readStripped('src/pages/workspace/WorkspacePlayBar.tsx');
+    expect(ws).toMatch(/<WorkspacePlayBar/);
+    expect(ws).not.toMatch(/currentSeconds=/);
+    expect(ws).toMatch(/usePlaybackState\(\)/);
+    expect(wrapper).toMatch(/usePlaybackSeconds\(\)/);
+    expect(wrapper).toMatch(/<PlayBar \{\.\.\.props\} currentSeconds=\{currentSeconds\}/);
   });
 
   it('票 60 · 两处主音量同源：动态预览也读 settings.audio.volume（工作台见上一条）', () => {
