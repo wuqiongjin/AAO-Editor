@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createAppLog, planLogRotation, registerAppLogIpc } from '@/electron/appLog.cjs';
+import { createAppLog, planLogRotation, registerAppLogIpc } from '@/electron/diagnostics/appLog.cjs';
 import { tmpDir } from '@/tests/support/fs';
 
 const MB = 1024 * 1024;

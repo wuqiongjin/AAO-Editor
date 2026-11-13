@@ -4,10 +4,10 @@
 // 渲染层反手 import 页面 / 播放 / 工程层、生成脚本把注册表写回旧位置"这类回潮 ——
 // 落点是结构事实，只能按源码路径 / import 形态断言。
 // 手法照 PagesConvergence.test.ts：扫全仓源码 + 解析 import specifier。
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readSource, readStripped, repoRoot } from '@/tests/support/source';
+import { readStripped, repoRoot } from '@/tests/support/source';
 
 /** dir 下全部源码文件（相对仓库根的路径） */
 function sourceFiles(dir: string, re = /\.(ts|tsx|css)$/): string[] {
@@ -80,7 +80,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
     ]);
     // 四个桶逐文件点名（skin/gen 是快照仓库产出的目录，不入本仓 —— release-pipeline 02）
     expect(entries('src/rendering/primitives')).toEqual(['NoteIconGlyph.tsx', 'noteGlyph.ts', 'noteMetrics.ts']);
-    expect(entries('src/rendering/pipeline')).toEqual(['noteLayerCache.ts', 'staticLayerCache.ts']);
+    expect(entries('src/rendering/pipeline')).toEqual(['bandRasterScheduler.ts', 'noteLayerCache.ts', 'staticLayerCache.ts']);
     expect(entries('src/rendering/hitTest')).toEqual(['hitTest.ts']);
     expect(entries('src/rendering/skin')).toEqual([
       'NoteSkinPresetThumbnail.tsx',
@@ -113,15 +113,19 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
   });
 
   it('渲染层只回指 chart 的数据 / 几何 / 编辑 / 配置与两个既有叶子依赖，不反依 UI 组件层', () => {
-    // 白名单 = src/rendering 自身 + chart（数据类型 / 几何 / 编辑算法 / 配置 / 计时，
+    // 白名单 = src/rendering 自身 + chart（数据类型 / 几何 / 编辑算法 / 计时，
     // **不含 chart/components 的画布 React 组件**）+ 画图标（ui/CanvasSpriteIcon）+ 出文案（i18n）
-    // + 装载失败落盘（diagnostics/logger，票 05；与 i18n 同属横切叶子）。
+    // + 装载失败落盘（diagnostics/logger，票 05；与 i18n 同属横切叶子）
+    // + 桥声明模块取桥（app/electronBridge，票 13；只持有桥形状与一次 window cast，不是 UI 组件）
+    // + 设置对象（票 16 后由 chart/config 升为顶层 src/settings/，仍只回指数据层）。
     const ALLOWED_OUTSIDE = [
       /^src\/chart\/(types|perf)$/,
-      /^src\/chart\/(geometry|editing|config)\//,
+      /^src\/chart\/(geometry|editing)\//,
+      /^src\/settings\/AppSettings$/,
       /^src\/ui\/CanvasSpriteIcon$/,
       /^src\/i18n(\/index)?$/,
       /^src\/diagnostics\/logger$/,
+      /^src\/app\/electronBridge$/,
     ];
     const offenders: string[] = [];
     for (const file of srcFiles.filter((f) => f.startsWith('src/rendering/'))) {
@@ -138,7 +142,7 @@ describe('architecture-refactor 03 · 渲染层收敛为 src/rendering 的落点
     expect(entries('tests/unit')).toContain('rendering');
     expect(entries('tests/unit')).not.toContain('visual');
     // 08 票补 FrameBuilder.test.ts（帧构建者 + dpr/尺寸解析）到域根
-    expect(entries('tests/unit/rendering')).toEqual(['FrameBuilder.test.ts', 'cache', 'hitTest', 'render', 'skin']);
+    expect(entries('tests/unit/rendering')).toEqual(['FrameBuilder.test.ts', 'NoteVisualMicroHarness.test.ts', 'SpriteDecoupling.test.ts', 'cache', 'hitTest', 'render', 'skin']);
     // 注册表生成脚本已随素材迁到外部快照仓库（release-pipeline 02），主仓只消费；生成路径由快照仓库自锁。
   });
 });

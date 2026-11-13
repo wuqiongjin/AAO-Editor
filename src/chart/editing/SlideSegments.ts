@@ -79,19 +79,19 @@ export function displayConnections(conns: SlideNote['connections']): {
  * 端点款图标的判据（`renderSlideBody` / 选中描边 / 幽灵三处共用）：首尾"不得 hidden"原本由校验兜住，
  * issue 106 起外部数据不再整份拒收 → 判据必须按"可见"而不是"数组下标 0 / 末位"；
  * **只剩 1 个可见结点**（退化滑条）时 first === last → 该结点按单键（端点）款画，与实机同形。
+ *
+ * issue 219：严格与 `displayConnections` 投影首尾同源（消灭手写循环的严格大于号带来的同拍组端点误判）；
+ * `isDisplayIdentity` 快路径下首为 0、尾为 n - 1（全 hidden / 空数组为 -1），热路径零分配。
  */
 export function visibleEnds(conns: SlideNote['connections']): { first: number; last: number } {
-  let first = -1;
-  let last = -1;
-  for (let i = 0; i < conns.length; i++) {
-    const conn = conns[i]!;
-    if (isCanvasHiddenConn(conn)) continue;
-    // 端点 = beat 最小 / 最大者（与 `displayConnections` 投影后的首尾同源；非单调点序下
-    // 数组序的首尾未必是画布上的两端 → 带子的真端点会被画成中间款）
-    if (first < 0 || conn.beat < conns[first]!.beat) first = i;
-    if (last < 0 || conn.beat > conns[last]!.beat) last = i;
+  const n = conns.length;
+  if (n === 0) return { first: -1, last: -1 };
+  if (isDisplayIdentity(conns)) {
+    return { first: 0, last: n - 1 };
   }
-  return { first, last };
+  const { src } = displayConnections(conns);
+  if (src.length === 0) return { first: -1, last: -1 };
+  return { first: src[0]!, last: src[src.length - 1]! };
 }
 
 export interface DisplaySlideRegion extends ConnSpan {

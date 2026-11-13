@@ -1,7 +1,7 @@
 // issue 121 锁测：快捷键页侧栏「索引筛选」是粗桶（≠ ADR-0002 tooltip 类别），
 // 切页六行进表归系统；搜索 ∩ 当前桶；筛选态不写入 AppSettings。
 import { describe, it, expect } from 'vitest';
-import { FUNCTIONS, getDefaultConfig } from '@/src/chart/config/ShortcutConfig';
+import { FUNCTIONS, getDefaultConfig } from '@/src/settings/ShortcutConfig';
 import {
   INDEX_FILTERS,
   bucketForCategory,
@@ -10,7 +10,7 @@ import {
   restoreDefaultsInFilter,
 } from '@/src/settings/shortcutIndexFilter';
 import { t } from '@/src/i18n';
-import { defaultSettings } from '@/src/chart/config/AppSettings';
+import { defaultSettings } from '@/src/settings/AppSettings';
 import { stripComments, readSource } from '@/tests/support/source';
 
 
@@ -43,6 +43,8 @@ describe('issue 121 · 索引筛选桶归属', () => {
       mirror: 'editTools', noteCode: 'editTools', undo: 'editTools', redo: 'editTools',
       // issue 185：收藏选区 = 动作类编辑命令
       pattern: 'editTools',
+      // issue 216：节拍吸附快捷键 = 编辑工具
+      snap: 'editTools',
       play: 'playback',
       navigation: 'system',
     };
@@ -124,7 +126,7 @@ describe('issue 121 · 筛选不写入设置对象', () => {
     const keys = Object.keys(defaultSettings());
     expect(keys).not.toContain('shortcutIndexFilter');
     expect(keys).not.toContain('indexFilter');
-    const src = stripComments(readSource('src/chart/config/AppSettings.ts'));
+    const src = stripComments(readSource('src/settings/AppSettings.ts'));
     expect(src).not.toMatch(/indexFilter|shortcutIndexFilter|IndexFilterId/);
   });
 

@@ -3,18 +3,21 @@ import {
   getDefaultConfig, resolveAction, buildBindingIndex, setFunctionBinding,
   bindingTakenByOther, loadConfig, formatKey, categoryShortcuts, functionMode,
   maskFunctionBinding, bindingToRestore, pruneShortcutMasks, type ShortcutMasks,
-} from '@/src/chart/config/ShortcutConfig';
+} from '@/src/settings/ShortcutConfig';
 
 const keyEvent = (key: string, ctrl = false, shift = false): KeyboardEvent =>
   ({ key, ctrlKey: ctrl, metaKey: false, shiftKey: shift } as KeyboardEvent);
 
+const boundCountOf = (cfg: Record<string, string | null>): number =>
+  Object.values(cfg).filter((b) => b !== null).length;
+
 describe('ShortcutConfig 默认配置', () => {
-  it('每功能恰好一个键', () => {
+  it('每功能单键或出厂未绑定（null）', () => {
     const cfg = getDefaultConfig();
     const ids = Object.keys(cfg) as (keyof typeof cfg)[];
     expect(ids.length).toBeGreaterThan(0);
     for (const id of ids) {
-      expect(typeof cfg[id]).toBe('string');
+      expect(cfg[id] === null || typeof cfg[id] === 'string').toBe(true);
     }
   });
 
@@ -38,8 +41,8 @@ describe('ShortcutConfig 默认配置', () => {
     expect(cfg.switchNoteCode).toBe('b');
     expect(cfg.execNoteCode).toBe('ctrl+b');
     expect(cfg.toggleSidebar).toBe('ctrl+shift+b');
-    // 一键一功能：新键位不与既有功能相撞
-    expect(buildBindingIndex(cfg).size).toBe(Object.keys(cfg).length);
+    // 一键一功能：新键位不与既有功能相撞（已绑定项无冲突）
+    expect(buildBindingIndex(cfg).size).toBe(boundCountOf(cfg));
   });
 
   // issue 09 验收反馈 #9：曲线切换 C→W（C 与 Ctrl+C 一指之差易误切）、新增执行键 Shift+W
@@ -48,7 +51,7 @@ describe('ShortcutConfig 默认配置', () => {
     const cfg = getDefaultConfig();
     expect(cfg.switchCurve).toBe('w');
     expect(cfg.execCurve).toBe('shift+w');
-    expect(buildBindingIndex(cfg).size).toBe(Object.keys(cfg).length);
+    expect(buildBindingIndex(cfg).size).toBe(boundCountOf(cfg));
     expect(resolveAction(keyEvent('w'), cfg)).toBe('switchCurve');
     expect(resolveAction(keyEvent('w', false, true), cfg)).toBe('execCurve');
   });
@@ -62,7 +65,7 @@ describe('ShortcutConfig 默认配置', () => {
   it('默认含 片段收藏（Ctrl+Shift+D），且不与任何功能相撞', () => {
     const cfg = getDefaultConfig();
     expect(cfg.execSavePattern).toBe('ctrl+shift+d');
-    expect(buildBindingIndex(cfg).size).toBe(Object.keys(cfg).length);
+    expect(buildBindingIndex(cfg).size).toBe(boundCountOf(cfg));
     expect(resolveAction(keyEvent('d', true, true), cfg)).toBe('execSavePattern');
     expect(functionMode('execSavePattern')).toBe('exec');
   });
@@ -144,8 +147,8 @@ describe('冲突检测', () => {
     const cfg = loadConfig({ getItem: () => JSON.stringify({ toggleSidebar: 'ctrl+b' }) });
     expect(cfg.toggleSidebar).toBe('ctrl+shift+b');
     expect(cfg.execNoteCode).toBe('ctrl+b');
-    // 修复后不得再有撞键
-    expect(buildBindingIndex(cfg).size).toBe(Object.keys(cfg).length);
+    // 修复后不得再有撞键（所有非空绑定无冲突）
+    expect(buildBindingIndex(cfg).size).toBe(boundCountOf(cfg));
   });
 
   it('用户真正改过的 toggleSidebar 键位不受修复影响', () => {
@@ -193,8 +196,9 @@ describe('展示辅助', () => {
   });
 
   it('buildBindingIndex 一键一功能', () => {
-    const index = buildBindingIndex(getDefaultConfig());
-    expect(index.size).toBe(Object.keys(getDefaultConfig()).length);
+    const dft = getDefaultConfig();
+    const index = buildBindingIndex(dft);
+    expect(index.size).toBe(boundCountOf(dft));
     expect(index.get('f')).toBe('switchSingle');
   });
 });
@@ -205,7 +209,6 @@ describe('切页功能（app 作用域）', () => {
     ({ key: String(digit), code: `Digit${digit}`, altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, ...init } as KeyboardEvent);
 
   it('七个切页功能都是 app 作用域、归 navigation 类别，默认 Alt+1..7 且全表不撞键', () => {
-    const total = Object.keys(getDefaultConfig()).length;
     const appDefs = [
       ['pageProjects', 'alt+1'], ['pageWorkspace', 'alt+2'], ['pageAudio', 'alt+3'], ['pagePreview', 'alt+4'],
       ['pageAssets', 'alt+5'], ['pageShortcuts', 'alt+6'], ['pageSettings', 'alt+7'],
@@ -215,7 +218,7 @@ describe('切页功能（app 作用域）', () => {
       expect(cfg[id], id).toBe(binding);
     }
     // 一键一功能是**全局**的（跨画布/切页两个作用域）
-    expect(buildBindingIndex(cfg).size).toBe(total);
+    expect(buildBindingIndex(cfg).size).toBe(boundCountOf(cfg));
   });
 
   it('resolveAction 按作用域分流：画布分发不认切页键，反之亦然', () => {
@@ -249,11 +252,11 @@ describe('切页功能（app 作用域）', () => {
     expect(functionMode('undo')).toBe('exec');
   });
 
-  it('载入去重：画布功能占着页面默认键时，页面键退让为屏蔽（表序优先）', () => {
+  it('载入去重：快照里已有的画布功能占着新增页面默认键时，页面键退让为屏蔽（issue 230 起 = 用户优先，非表序）', () => {
     const cfg = loadConfig({ getItem: () => JSON.stringify({ switchSingle: 'alt+1' }) });
     expect(cfg.switchSingle).toBe('alt+1');
     expect(cfg.pageProjects).toBeNull();
-    // 去重后仍有 38 个绑定、38 个索引项；剩下的 7 个切页键里只有它一个退让
+    // 去重后索引项与绑定数仍然一一对应；剩下的切页键里只有它一个退让
     expect(buildBindingIndex(cfg).size).toBe(Object.values(cfg).filter(Boolean).length);
   });
 });

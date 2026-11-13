@@ -8,6 +8,7 @@ import { chartCodeExportText, EMPTY_CHART_CODE_FIDELITY, type ChartCodeFidelity 
 import { buildNoteCode, noteViewCodeToJSON, type NoteCodeTarget } from '../chart/editing/NoteCodeOps';
 import type { ChartNote } from '../chart/types';
 import { trail } from '../diagnostics/trail';
+import { getElectronAPI, type ChartCodeExportBridge } from '../app/electronBridge';
 
 export const CHART_CODE_EXPORT_FILENAME = 'chart.json';
 /** 对象视图另存为的推荐名（带音符下标，连续存多条不会互相覆盖） */
@@ -17,9 +18,7 @@ export function noteCodeExportFilename(target: NoteCodeTarget): string {
     : `note-${target.noteIndex}.json`;
 }
 
-export interface ChartCodeExportBridge {
-  saveAs(payload: { json: string; suggestedName: string }): Promise<{ cancelled: boolean }>;
-}
+export type { ChartCodeExportBridge } from '../app/electronBridge';
 
 /**
  * 对象视图的导出文本：只含当前层的那一小段（整条音符 / 滑条子段 / 滑条结点）。
@@ -31,9 +30,7 @@ export function noteCodeExportText(notes: readonly ChartNote[], target: NoteCode
 }
 
 function getExportBridge(): ChartCodeExportBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { chartCodeExport?: ChartCodeExportBridge } }).electronAPI;
-  return api?.chartCodeExport ?? null;
+  return getElectronAPI()?.chartCodeExport ?? null;
 }
 
 function downloadJson(filename: string, text: string): void {

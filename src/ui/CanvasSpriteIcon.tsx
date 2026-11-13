@@ -9,6 +9,7 @@
  * - `inkLeft/inkRight`：方向滑键等精灵框内可见墨迹相对矩形左右边的**源像素缩进**，
  *   供「同时点击连接线」等以墨迹真实边缘定位（消除连接线头与图标间的空隙，issue 40 关联 BUG）。
  */
+import { getDecoupledSprite, getDecoupledDrawSource, getDecoupledMipLevel, decoupledMipLevelFor } from './spriteDecoupling';
 import { MIP_MIN_DIM, mipLevelFor, mipDims } from './canvasSpriteMips';
 
 /** 预热 mip 链的默认最大级数（覆盖 2048×1024 图集在动态预览远处 depth≈0.1 与工作台最小缩放下的全部采样级 1..5） */
@@ -135,12 +136,44 @@ export default class CanvasSpriteIcon {
         return Promise.all(ps);
     }
 
-    private static loadImage(url: string): Promise<HTMLImageElement> {
-        if (CanvasSpriteIcon.imageCache.has(url)) {
-            return Promise.resolve(CanvasSpriteIcon.imageCache.get(url)!);
+    /** 检查这批皮肤图片是否全部已解码就绪，避免重复挂载静态预览时白刷一次 skinVersion 重绘面板 */
+    public static areImagesReady(urls: readonly string[]): boolean {
+        return urls.every(
+            (u) => CanvasSpriteIcon.imageCache.has(u) && !CanvasSpriteIcon.loadingPromises.has(u),
+        );
+    }
+
+    /** 准备实际绘制使用的独立切片，共用 drawSingle 的裁剪、清洗、padding 与缓存。 */
+    public static async ensureSpritesLoaded(configs: readonly SpriteIconConfig[]): Promise<void> {
+        const bySource = new Map<string, SpriteIconConfig[]>();
+        for (const cfg of configs) {
+            const list = bySource.get(cfg.src) ?? [];
+            list.push(cfg);
+            bySource.set(cfg.src, list);
         }
+        const results = await Promise.allSettled([...bySource].map(async ([src, list]) => {
+            const img = await CanvasSpriteIcon.loadImage(src);
+            for (const cfg of list) {
+                const rect = CanvasSpriteIcon.computeSrcRect(img, cfg);
+                if (!rect || rect.sw <= 0 || rect.sh <= 0) continue;
+                const sprite = getDecoupledSprite(img, { x: rect.sx, y: rect.sy, w: rect.sw, h: rect.sh });
+                if (sprite) {
+                    // 与 decoupledMipLevelFor 的尺寸上限一致，覆盖任意透视深度/画布密度。
+                    getDecoupledMipLevel(sprite, Math.floor(Math.log2(Math.min(rect.sw, rect.sh))));
+                }
+            }
+        }));
+        // 缺图时仍等待其他源的准备结束，调用方才可安全进入降级播放。
+        const failed = results.find(result => result.status === 'rejected');
+        if (failed?.status === 'rejected') throw failed.reason;
+    }
+
+    private static loadImage(url: string): Promise<HTMLImageElement> {
         if (CanvasSpriteIcon.loadingPromises.has(url)) {
             return Promise.resolve(CanvasSpriteIcon.loadingPromises.get(url)!);
+        }
+        if (CanvasSpriteIcon.imageCache.has(url)) {
+            return Promise.resolve(CanvasSpriteIcon.imageCache.get(url)!);
         }
 
         const p = new Promise<HTMLImageElement>((resolve, reject) => {
@@ -207,21 +240,38 @@ export default class CanvasSpriteIcon {
         const dx = cfg.canvasX - dW / 2;
         const dy = cfg.canvasY - dH / 2;
 
-        // issue 96：大幅缩小先取多级减半位图，把「一步大降采样」拆成「级位图 + ≤2× 平滑缩放」。
-        // 目标尺寸按 ctx 变换折算到设备像素（瓦片 tileDpr / 主画布 dpr 同口径）；
-        // 级位图构建失败（node 测试环境等）→ 原图直绘兜底，目标矩形不变。
-        let source: CanvasImageSource = img;
         let level = 0;
+        let ctxScale = 1;
         try {
             const t = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
-            const ctxScale = t ? (Math.hypot(t.a, t.b) || 1) : 1;
+            ctxScale = t ? (Math.hypot(t.a, t.b) || 1) : 1;
             level = mipLevelFor(rect.sw, rect.sh, dW * ctxScale, dH * ctxScale);
+        } catch { /* getTransform 不可用等 */ }
+
+        // issue 222（抗畸变根治）：尝试使用带 4px 纯净 Padding 的独立解耦图元位图及专属 Mip 链
+        // 彻底消除整张大图集全局降采样导致的邻近精灵渗色与背景深青色杂色污染（Atlas Bleeding）
+        const decoupled = getDecoupledSprite(img, { x: rect.sx, y: rect.sy, w: rect.sw, h: rect.sh });
+        if (decoupled) {
+            const decoupledLevel = decoupledMipLevelFor(rect.sw, rect.sh, dW * ctxScale, dH * ctxScale);
+            const { source, sx, sy, sw, sh } = getDecoupledDrawSource(decoupled, decoupledLevel);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            try {
+                ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dW, dH);
+            } catch (e) {
+                console.warn('[CanvasSpriteIcon] drawImage decoupled failed', e);
+            }
+            return true;
+        }
+
+        // 无 DOM 或解耦不可用时（node 单元测试环境等）原图直绘兜底
+        let source: CanvasImageSource = img;
+        try {
             if (level > 0) {
                 const mip = CanvasSpriteIcon.getMipLevelSource(img, level);
                 if (mip) source = mip;
             }
-        } catch { /* getTransform 不可用等 → 原图直绘 */ }
-        // 源矩形按级位图 / 原图的尺寸比例折算，并钳在级位图边界内
+        } catch { /* 原图直绘 */ }
         const mipW = (source as { width: number }).width;
         const mipH = (source as { height: number }).height;
         const kx = mipW / img.width;

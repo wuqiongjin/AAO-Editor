@@ -281,3 +281,20 @@ describe('chart-preview 23 · 动态形态全屏：播放条留在台上', () =>
     await waitFor(() => expect(stage()).not.toHaveClass('is-palette-swap'));
   });
 });
+
+describe('票 69 · 切动态形态先见舞台骨架', () => {
+  /** 播放条的进度条（PlayBar 一挂上就有；页级骨架那一帧还没有） */
+  const progress = () => screen.queryByRole('slider', { name: t('play.progress') });
+
+  it('点「动态预览」当帧有加载文案、仿真场还没挂载；等过一帧才接上播放条', async () => {
+    mountPreview();
+    await waitFor(() => expect(chartTrigger()).toHaveTextContent('Alpha 1'));
+
+    fireEvent.click(screen.getByRole('button', { name: '动态预览' }));
+    expect(screen.getByText(t('preview.video.loading'))).toBeInTheDocument();
+    expect(progress()).toBeNull(); // 页级骨架，不是舞台自己的加载态
+
+    await waitFor(() => expect(progress()).not.toBeNull());
+    expect(screen.getByRole('button', { name: '动态预览' })).toHaveAttribute('aria-pressed', 'true');
+  });
+});

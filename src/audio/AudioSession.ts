@@ -1,5 +1,5 @@
 // AudioSession（架构深化评审候选 3 深模块）：把"音频域"收敛成单一接缝。
-// 拥有：引擎 + 音频文件 + 时长同步 + 键音素材包 + SE 音量 + 持久化钩子。
+// 拥有：引擎 + 音频文件 + 时长同步 + 键音素材包 + SE 音量 + 主音量（镜像 settings.audio.volume）+ 持久化钩子。
 // 音频页与工作台（播放条 / Editor）都朝它调用——AudioPageContext 桥接消失。
 //
 // 设计原则：
@@ -88,7 +88,9 @@ export class AudioSession {
   private _audioLoadGeneration = 0;
   private _keySetId: string;
   private _seVolume: number;
-  private _volume: number; // 主音量（与 SE 音量分离；唯一真相源 = 本字段；engine 是镜像）
+  // 主音量（票 60）：镜像 settings.audio.volume（A，存盘）——经 AudioSessionRoot 注入/同步进来，
+  // 不再是工作台独立的 0.8。engine 是它的下游镜像；与 SE 音量分离。
+  private _volume: number;
 
   // 持久化钩子（调用方注入 saveNow）
   private persistNow: () => void | Promise<void> = () => {};
@@ -122,7 +124,7 @@ export class AudioSession {
     seVolume: number;
     /** 初始谱面时长（秒，默认 30；上限 MAX_DURATION_SECONDS） */
     chartDuration?: number;
-    /** 初始主音量（0..1，默认 0.8 与 PlaybackContext 默认对齐） */
+    /** 初始主音量（0..1，来自 settings.audio.volume；缺省回落 1 对齐其出厂值） */
     volume?: number;
   }) {
     this.factory = opts.engineFactory ?? defaultFactory;
@@ -131,7 +133,7 @@ export class AudioSession {
     this._keySetId = keySoundSetEntryById(opts.keySetId).id;
     this._seVolume = clampFinite(opts.seVolume, 0, 1, 1);
     this._chartDuration = clampChartDuration(opts.chartDuration ?? DEFAULT_CHART_DURATION_SECONDS);
-    this._volume = clampFinite(opts.volume ?? 0.8, 0, 1, 0.8);
+    this._volume = clampFinite(opts.volume ?? 1, 0, 1, 1);
 
     // 构造时把初始音量/SE 音量/素材挂到引擎
     this.engine.setVolume(this._volume);
@@ -309,6 +311,15 @@ export class AudioSession {
     return this._volume;
   }
 
+  /**
+   * 改播放倍速（chart-preview 58）：工作台把共享倍速值转发到引擎。
+   * 值的唯一真相源在 `src/playback/playbackRateState`（本次运行的内存态，不落设置），本方法只透传，
+   * 不另持一份、不写 snapshot；引擎侧两条时钟 / BGM / 键音调度一起缩放，播放中改速率不跳位置。
+   */
+  setPlaybackRate(rate: number): void {
+    this.engine.setPlaybackRate(rate);
+  }
+
   // ===== 设置变更（keySet / seVolume） =====
 
   /** 切换激活素材包（音频页点击素材包卡片时调用） */
@@ -341,11 +352,12 @@ export class AudioSession {
   }
 
   /**
-   * 外部 settings 变化时同步进来（Editor 挂载 / settings 从存储加载完成后调用一次）。
-   * 仅同步到引擎（不 emit），由调用方决定何时触发 snapshot。
-   * 注意：构造时已经把初始值挂到引擎了，正常情况下 settings 与构造时一致 → 本方法早退。
+   * 外部 settings 变化时同步进来（AudioSessionRoot 的 effect：settings 加载 / 改设置 / 跨页改）。
+   * keySet / seVolume 是 snapshot 字段 → 变了才 emit；主音量（票 60）不在 snapshot 里，
+   * 只同步到引擎、不 emit（播放条直读 settings，订阅方无需为音量变化重渲染）。
+   * 构造时已把 A 的初值挂到引擎，正常情况下 settings 与构造时一致 → 本方法早退。
    */
-  syncSettingsFromConfig(rawKeySetId: string, seVolume: number): void {
+  syncSettingsFromConfig(rawKeySetId: string, seVolume: number, volume?: number): void {
     const keySetId = keySoundSetEntryById(rawKeySetId).id;
     const kChanged = this._keySetId !== keySetId;
     const sChanged = this._seVolume !== seVolume;
@@ -357,6 +369,15 @@ export class AudioSession {
       const v = clampFinite(seVolume, 0, 1, this._seVolume);
       this._seVolume = v;
       this.engine.setSeVolume(v);
+    }
+    // 票 60：主音量跟随 settings.audio.volume（A）。它是引擎前置增益的镜像、不进 snapshot，
+    // 故仅同步引擎、不 emit；工作台滑杆另经 session.setVolume 即时转发同一值。
+    if (volume !== undefined) {
+      const v = clampFinite(volume, 0, 1, this._volume);
+      if (this._volume !== v) {
+        this._volume = v;
+        this.engine.setVolume(v);
+      }
     }
     if (kChanged || sChanged) this.emit();
   }

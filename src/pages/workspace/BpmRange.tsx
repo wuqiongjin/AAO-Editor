@@ -4,7 +4,7 @@
 // 负值只给**那个数字**上危险色（ADR-0010 的倒流语义靠颜色表达，不再单设「倒流」徽标）。
 // 不给整枚跨度和 aria-label：它总是嵌在"BPM …"或"含 BPM (…) "里，另起一句读屏文案
 // 反而会盖掉父级按钮的可读名字（读屏会念成"含 BPM (速度 120 到 180)"）。
-import type { PatternBpmRange } from '../../chart/patterns/library';
+import type { PatternBpmRange } from '../../patterns/library';
 import './BpmRange.css';
 
 export type BpmRangeProps = PatternBpmRange;

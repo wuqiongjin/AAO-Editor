@@ -8,14 +8,14 @@
 import { describe, it, expect } from 'vitest';
 import { noteCodeExportText, noteCodeExportFilename } from '@/src/project/exportChartCode';
 import type { ChartNote } from '@/src/chart/types';
-import { stripComments, readSource } from '@/tests/support/source';
+import { stripComments, readSource, readSources } from '@/tests/support/source';
 
 
 const modalSrc = stripComments(readSource('src/chart/components/code-editor/ChartCodeEditorModal.tsx'));
 const exportSrc = stripComments(readSource('src/project/exportChartCode.ts'));
-const mainSrc = stripComments(readSource('electron/main.cjs'));
+const mainSrc = readSources(['electron/main.cjs', 'electron/storage/chartCodeExport.cjs', 'electron/foundation/saveDialog.cjs'], true);
 const preloadSrc = stripComments(readSource('electron/preload.js'));
-const settingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));
+const settingsSrc = stripComments(readSource('src/settings/AppSettings.ts'));
 
 describe('issue 118 · 导出文本来自画布 notes', () => {
   // issue 102：整份落盘形态 = 与弹窗显示同一份「每条音符一行」紧凑文本（覆盖 issue 118 的 4 空格口径）。

@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 import { HelpCircle, ImageDown } from 'lucide-react';
 import IconButton from '../../ui/IconButton';
 import { t, type MessageKey } from '../../i18n';
-import { EXPORT_FIELD_KEYS } from '../../chart/config/AppSettings';
+import { EXPORT_FIELD_KEYS } from '../../settings/AppSettings';
 import { useConfig } from '../../app/ProviderTree';
 import type { SheetPlan } from '../../preview';
 // 面板定位与「显示」面板/视频导出共用同一份（同一块浮层壳，盒宽口径必须一致，见 issue 29）

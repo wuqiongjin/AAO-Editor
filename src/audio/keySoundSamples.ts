@@ -9,7 +9,9 @@
 //   - 采样路径解析：方向键按 tier 分档（`tierSrcs`），其余用 `src`；
 //   - 真实采样：0.9 峰值 + 末尾极短淡出（不用整体指数包络 —— 那会把 0.748s 的 perfect.mp3
 //     提前压到近静音，听感"被掐断"）；
-//   - 振荡器兜底：0.12 峰值 + 指数衰减 `KEY_SOUND_DURATION`（0.06s）。
+//   - 振荡器兜底：0.12 峰值 + 指数衰减 `KEY_SOUND_DURATION`（0.06s）；
+//   - 同刻响度归一：`gainScale` 由事件表（`buildKeyEvents`）按 `1/√N` 算好后透传，只缩放本条
+//     发声自己的峰值，不碰总线音量；缺省 1（单声 / 素材页试听）。
 import { KEY_SOUND_DEFAULT_TONES, type KeySoundKind, type KeySoundSample, type KeySoundSet } from './KeySound';
 
 /** 单个按键音时长（秒；振荡器兜底那一路的寿命） */
@@ -31,12 +33,14 @@ export function sampleSrcFor(
 /**
  * 真实采样的发声：短包络防爆音 + 让采样按自身自然衰减播完（见文件头口径）。
  * `dest` 是汇入点（实时 = 引擎的 `seGain`，离线 = 离线上下文里同一位置的 SE gain）。
+ * `gainScale` 只缩放这一声自己的峰值，由事件表按同刻份数算好透传（缺省 1）。
  */
 export function scheduleKeySample(
   ctx: BaseAudioContext,
   dest: AudioNode,
   buffer: AudioBuffer,
   when: number,
+  gainScale = 1,
   onEnded?: () => void,
 ): AudioScheduledSourceNode {
   const src = ctx.createBufferSource();
@@ -44,12 +48,13 @@ export function scheduleKeySample(
   const gain = ctx.createGain();
   src.connect(gain);
   gain.connect(dest);
+  const peak = 0.9 * gainScale;
   const now = ctx.currentTime;
   gain.gain.cancelScheduledValues(now);
   gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.linearRampToValueAtTime(0.9, when + 0.004);
+  gain.gain.linearRampToValueAtTime(peak, when + 0.004);
   const endFade = Math.min(0.03, buffer.duration / 2);
-  gain.gain.setValueAtTime(0.9, when + (buffer.duration - endFade));
+  gain.gain.setValueAtTime(peak, when + (buffer.duration - endFade));
   gain.gain.linearRampToValueAtTime(0.0001, when + buffer.duration);
   src.onended = () => {
     src.disconnect();
@@ -63,6 +68,7 @@ export function scheduleKeySample(
 /**
  * 振荡器兜底（素材包未加载 / 加载失败 / 采样缺失 —— 保证按键有反馈声）：
  * 频率与波形取采样自带的 `frequency` / `oscillatorType`，缺省回落 `KEY_SOUND_DEFAULT_TONES`。
+ * `gainScale` 与真实采样同口径，缺省 1。
  */
 export function scheduleKeyTone(
   ctx: BaseAudioContext,
@@ -70,6 +76,7 @@ export function scheduleKeyTone(
   kind: KeySoundKind,
   sample: KeySoundSample | undefined,
   when: number,
+  gainScale = 1,
   onEnded?: () => void,
 ): AudioScheduledSourceNode {
   const osc = ctx.createOscillator();
@@ -82,7 +89,7 @@ export function scheduleKeyTone(
   const now = ctx.currentTime;
   gain.gain.cancelScheduledValues(now);
   gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.linearRampToValueAtTime(0.12, when + 0.004);
+  gain.gain.linearRampToValueAtTime(0.12 * gainScale, when + 0.004);
   gain.gain.exponentialRampToValueAtTime(0.0001, when + KEY_SOUND_DURATION);
   osc.onended = () => {
     osc.disconnect();

@@ -2,13 +2,13 @@
 // 单测覆盖不到「主进程 / preload / 渲染侧自动选择」这条跨进程缝，用源码断言钉住（照
 // EditorAudioSessionRefactor.test.ts 惯例）。
 import { describe, expect, it } from 'vitest';
-import { readStripped } from '@/tests/support/source';
+import { readSources, readStripped } from '@/tests/support/source';
 
-const storeSrc = readStripped('src/chart/patterns/PatternStore.ts');
-const shareFileSrc = readStripped('src/chart/patterns/shareFile.ts');
-const shareSrc = readStripped('src/chart/patterns/share.ts');
-const dataRootSrc = readStripped('electron/dataRoot.cjs');
-const mainSrc = readStripped('electron/main.cjs');
+const storeSrc = readStripped('src/patterns/PatternStore.ts');
+const shareFileSrc = readStripped('src/patterns/shareFile.ts');
+const shareSrc = readStripped('src/patterns/share.ts');
+const dataRootSrc = readStripped('electron/storage/dataRoot.cjs');
+const mainSrc = readSources(['electron/main.cjs', 'electron/storage/patternLibrary.cjs', 'electron/foundation/saveDialog.cjs'], true);
 const preloadSrc = readStripped('electron/preload.js');
 
 describe('片段库 · 两条后端都被引用', () => {
@@ -16,13 +16,13 @@ describe('片段库 · 两条后端都被引用', () => {
     expect(storeSrc).toMatch(/function autoDetectPatternBackend\(\)/);
     expect(storeSrc).toMatch(/new ElectronFilePatternLibraryBackend\(bridge\)/);
     expect(storeSrc).toMatch(/new IndexedDbPatternLibraryBackend\(\)/);
-    expect(storeSrc).toMatch(/electronAPI[\s\S]{0,120}patternLibrary/);
+    // 票 13：二选一后端的实际行为见 tests/dom/app/ElectronBridge.test.ts
   });
 
   it('片段库自选后端，不依赖设置对象 / localStorage', () => {
     expect(storeSrc).not.toMatch(/localStorage/);
     // 片段数据本身不进设置对象（ADR-0023 §3）；仅视图排序偏好（issue 192）在 patternLibrary.sort
-    expect(readStripped('src/chart/config/AppSettings.ts')).not.toMatch(/Pattern\[\]|patterns\.json/);
+    expect(readStripped('src/settings/AppSettings.ts')).not.toMatch(/Pattern\[\]|patterns\.json/);
   });
 });
 
@@ -54,7 +54,7 @@ describe('片段库 · preload 第三条数据根桥', () => {
 
 describe('片段库 · 分享文件另存桥（issue 187）', () => {
   it('渲染侧：有桥走桥，无桥降级 Blob 下载', () => {
-    expect(shareFileSrc).toMatch(/electronAPI[\s\S]{0,160}patternLibrary/);
+    // 票 13：有桥走 saveAs 的行为见 tests/dom/app/ElectronBridge.test.ts
     expect(shareFileSrc).toMatch(/bridge\.saveAs\(/);
     expect(shareFileSrc).toMatch(/createObjectURL/);
   });
@@ -79,7 +79,7 @@ describe('片段库 · 分享导出剥离本地偏好（issue 191）', () => {
   it('serializePatterns 路径剥掉 pinnedAt，防止置顶随分享外泄', () => {
     expect(shareSrc).toMatch(/stripPatternPinned/);
     expect(shareSrc).toMatch(/serializePatterns[\s\S]{0,250}stripLocalPreferences/);
-    expect(readStripped('src/chart/patterns/library.ts')).toMatch(/stripPatternPinned[\s\S]{0,120}pinnedAt/);
+    expect(readStripped('src/patterns/library.ts')).toMatch(/stripPatternPinned[\s\S]{0,120}pinnedAt/);
   });
 });
 
@@ -91,7 +91,7 @@ describe('片段库 · 批量删除与批量导出架构锁（issue 193）', () 
   });
 
   it('批量删除不新增第二个写入口，仍只经 commit', () => {
-    const hookSrc = readStripped('src/chart/patterns/usePatternLibrary.ts');
+    const hookSrc = readStripped('src/patterns/usePatternLibrary.ts');
     expect(hookSrc).toMatch(/removeMany\s*=\s*useCallback/);
     expect(hookSrc).toMatch(/removePatternsFromLibrary/);
     expect(hookSrc).toMatch(/commit\(next\)/);

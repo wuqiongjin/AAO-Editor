@@ -20,6 +20,10 @@ import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SIM_BAND_MATERIAL, SIM_BAND_MATERIAL_SP } from '@/src/preview/video/sim/simGeometry';
+import {
+  SIM_BAND_RASTER_MATERIAL,
+  SIM_BAND_RASTER_MATERIAL_SP,
+} from '@/src/preview/video/sim/simBandRaster';
 
 const calls = vi.hoisted(() => ({
   setOptions: vi.fn(),
@@ -31,6 +35,27 @@ const calls = vi.hoisted(() => ({
   dispose: vi.fn(),
   lastOnTick: null as ((seconds: number, playing: boolean) => void) | null,
 }));
+
+/** 票 69：每次 BPM 派生发生时，加载文案是否已提交到 DOM（不是"屏幕上看得见"） */
+const derivationTiming = vi.hoisted(() => ({ pendingVisible: [] as boolean[] }));
+
+// 本文件验证控件接线；真实皮肤准备由 CanvasSpriteIcon 与浏览器回放回归覆盖。
+vi.mock('@/src/preview/video/sim/prepareSimNoteSprites', () => ({
+  prepareSimNoteSprites: vi.fn(async () => undefined),
+}));
+
+// 谱面派生入口的探针：只在「调用那一刻」记一笔 DOM 状态，其余行为全走真身。
+// jsdom 没有真实绘制，能观测到的首帧时序是「React 提交 DOM」与「派生函数被调用」的先后。
+vi.mock('@/src/audio/AudioTiming', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/src/audio/AudioTiming')>();
+  return {
+    ...actual,
+    getBpmEvents: vi.fn((notes: ChartNote[]) => {
+      derivationTiming.pendingVisible.push(screen.queryByText(t('preview.video.loading')) != null);
+      return actual.getBpmEvents(notes);
+    }),
+  };
+});
 
 vi.mock('@/src/preview', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/src/preview')>();
@@ -45,6 +70,8 @@ vi.mock('@/src/preview', async (importOriginal) => {
       bandColorSp: '#8fe6c0',
       bandMaterial: { ...SIM_BAND_MATERIAL },
       bandMaterialSp: { ...SIM_BAND_MATERIAL_SP },
+      bandRaster: SIM_BAND_RASTER_MATERIAL,
+      bandRasterSp: SIM_BAND_RASTER_MATERIAL_SP,
       sprites: null,
       missing: false,
       server: 'jp',
@@ -71,10 +98,13 @@ vi.mock('@/src/preview', async (importOriginal) => {
 });
 
 import PreviewVideoStage from '@/src/pages/preview/PreviewVideoStage';
+import type { ChartNote } from '@/src/chart/types';
+import { prepareSimNoteSprites } from '@/src/preview/video/sim/prepareSimNoteSprites';
 import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimPlaybackAudio, type SimScene } from '@/src/preview';
-import { getDefaultConfig } from '@/src/chart/config/ShortcutConfig';
+import { getDefaultConfig, setCapturingShortcut } from '@/src/settings/ShortcutConfig';
 import { t } from '@/src/i18n';
-import type { AppSettings } from '@/src/chart/config/AppSettings';
+import type { AppSettings } from '@/src/settings/AppSettings';
+import { resetPlaybackRate } from '@/src/playback/playbackRateState';
 
 const scene: SimScene = {
   notes: [],
@@ -152,6 +182,9 @@ const currentTime = () => screen.getByTitle(t('play.editTime'));
 const timeInput = () => screen.queryByRole('textbox');
 
 beforeEach(() => {
+  // 58：倍速值改由模块级共享单点持有（不再是每次挂载的 useState(1)），
+  // 逐例复位回 1×，保住"每个用例从原速起步"的旧语义与用例间隔离。
+  resetPlaybackRate();
   calls.setOptions.mockClear();
   calls.setFrame.mockClear();
   calls.play.mockClear();
@@ -159,6 +192,59 @@ beforeEach(() => {
 });
 
 describe('动态预览播放条 · 播放器控件（chart-preview 20）', () => {
+  it('票 69：长谱派生不在首帧 render 里跑，加载文案先于派生提交到 DOM', async () => {
+    const longNotes: ChartNote[] = Array.from({ length: 2400 }, (_, i) => ({
+      type: 'Single', beat: i * 0.25, lane: i % 7,
+    }) as ChartNote);
+    // 多段 BPM：逐音符重建时间线是票 69 的 CPU 热点，长谱派生才有得让出
+    for (let k = 0; k < 32; k++) {
+      longNotes.push({ type: 'BPM', beat: k * 20, bpm: k % 2 === 0 ? 120 : 140 } as ChartNote);
+    }
+    derivationTiming.pendingVisible.length = 0;
+
+    render(
+      <PreviewVideoStage
+        active
+        scene={{ ...scene, notes: longNotes }}
+        duration={12}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={vi.fn()}
+        imageQuality="high"
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+      />,
+    );
+
+    // 同步 useMemo(buildSimChart) 会在 DOM 提交前就调 getBpmEvents ⇒ 加载文案根本没机会出现。
+    // 派生挪进 effect 后，第一次 BPM 派生发生时文案已在 DOM 里（jsdom 只能验提交先后，
+    // "屏幕上真的画出来"归票内手工验收）。
+    expect(derivationTiming.pendingVisible.length).toBeGreaterThan(0);
+    expect(derivationTiming.pendingVisible[0]).toBe(true);
+    expect(screen.getByText(t('preview.video.loading'))).toBeInTheDocument();
+    expect(calls.setFrame).not.toHaveBeenCalled();
+
+    // 分批派生跑完 → 画面接上回放，加载态才退场
+    await waitFor(() => expect(calls.setFrame).toHaveBeenCalled());
+    expect(screen.getByRole('img', { name: t('preview.video.aria') })).toBeInTheDocument();
+  });
+
+  it('chart-preview 68：皮肤切片未准备完成时不创建回放，完成后才接入播放', async () => {
+    const { act } = await import('@testing-library/react');
+    let finish!: () => void;
+    const prepared = new Promise<void>(resolve => { finish = resolve; });
+    vi.mocked(prepareSimNoteSprites).mockClear();
+    vi.mocked(prepareSimNoteSprites).mockReturnValueOnce(prepared);
+    const rendering = renderStage();
+    await waitFor(() => expect(prepareSimNoteSprites).toHaveBeenCalled());
+    expect(calls.setFrame).not.toHaveBeenCalled();
+    await act(async () => { finish(); await prepared; });
+    await rendering;
+    expect(calls.setFrame).toHaveBeenCalled();
+  });
+
   it('倍速：触钮是播放条那一排的同款图标钮（图标 + 当前倍速），面板是点开才有的', async () => {
     await renderStage();
     expect(trigger().textContent).toBe('1×');
@@ -457,6 +543,83 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
     expect(onSecondsChange).toHaveBeenCalledWith(0);
   });
 
+  // ===== issue 230 · 倍速 / 音量快捷键 =====
+  describe('倍速 / 音量快捷键（issue 230）', () => {
+    it('预览页 PLAY_ONLY 放行四键：, / . 改倍速，; / 单引号改音量', async () => {
+      const { onVolumeChange } = await renderStage({ volume: 0.5 });
+      fireEvent.keyDown(window, { key: '.' });
+      expect(lastRate()).toBe(1.25);
+      fireEvent.keyDown(window, { key: ',' });
+      expect(lastRate()).toBe(1);
+      fireEvent.keyDown(window, { key: "'" });
+      expect(onVolumeChange).toHaveBeenCalledWith(0.55);
+      fireEvent.keyDown(window, { key: ';' });
+      expect(onVolumeChange).toHaveBeenCalledWith(0.45);
+    });
+
+    it('连按累计：父级把新音量回灌后，下一次按键从新值接着走（与工作台同源）', async () => {
+      const { onVolumeChange, rerender } = await renderStage({ volume: 0.5 });
+      fireEvent.keyDown(window, { key: "'" });
+      expect(onVolumeChange).toHaveBeenLastCalledWith(0.55);
+
+      rerender(
+        <PreviewVideoStage
+          active
+          scene={scene}
+          duration={12}
+          audio={null}
+          keySetId="skin00"
+          seVolume={1}
+          volume={0.55}
+          onVolumeChange={onVolumeChange}
+          imageQuality="high"
+          noteSkin={'default' as AppSettings['visual']['noteSkin']}
+          shortcuts={SHORTCUTS}
+          chartId={null}
+          initialSeconds={0}
+        />,
+      );
+      fireEvent.keyDown(window, { key: "'" });
+      expect(onVolumeChange).toHaveBeenLastCalledWith(0.6);
+    });
+
+    it('e.repeat: true 按住不连发（四个键都不触发）', async () => {
+      const { onVolumeChange } = await renderStage({ volume: 0.5 });
+      for (const key of [',', '.', ';', "'"]) {
+        fireEvent.keyDown(window, { key, repeat: true });
+      }
+      expect(calls.setOptions).not.toHaveBeenCalled();
+      expect(onVolumeChange).not.toHaveBeenCalled();
+    });
+
+    it('其余绑定仍放行原生：f 不 preventDefault，空格 play 照旧接管', async () => {
+      await renderStage();
+      expect(fireEvent.keyDown(window, { key: 'f' })).toBe(true);
+      expect(fireEvent.keyDown(window, { key: ' ' })).toBe(false);
+      expect(calls.play).toHaveBeenCalledTimes(1);
+    });
+
+    it('焦点在倍速输入框时四键放行原生输入', async () => {
+      await renderStage();
+      openPanel();
+      for (const key of [',', '.', ';', "'"]) {
+        fireEvent.keyDown(customInput(), { key });
+      }
+      expect(calls.setOptions).not.toHaveBeenCalled();
+    });
+
+    it('录制快捷键期间放行（预览页不误触发）', async () => {
+      await renderStage();
+      setCapturingShortcut(true);
+      try {
+        for (const key of [',', '.', ';', "'"]) fireEvent.keyDown(window, { key });
+        expect(calls.setOptions).not.toHaveBeenCalled();
+      } finally {
+        setCapturingShortcut(false);
+      }
+    });
+  });
+
   it('chart-preview 57 / issue 188 · 播放期 onTick 按 80ms 节流 PlayBar HUD 且不触发父级 onSecondsChange，暂停或卸载时才回写父级', async () => {
     const { act } = await import('@testing-library/react');
     const onSecondsChange = vi.fn();
@@ -511,5 +674,65 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
     } finally {
       nowSpy.mockRestore();
     }
+  });
+
+  it('票 69 复验整改：改谱时 seek(0) 先执行，直到分片派生并推帧 pb.setFrame 后才触发 onSyncComplete', async () => {
+    const longNotes: ChartNote[] = Array.from({ length: 2400 }, (_, i) => ({
+      type: 'Single', beat: i * 0.25, lane: i % 7,
+    }) as ChartNote);
+    const onSyncComplete = vi.fn();
+    const token1 = { dataVersion: 1, chartId: 'c1' };
+    const token2 = { dataVersion: 2, chartId: 'c1' };
+    const { rerender } = render(
+      <PreviewVideoStage
+        active
+        scene={{ ...scene, notes: [{ type: 'Single', beat: 1, lane: 0 }] }}
+        chartId="c1"
+        initialSeconds={12}
+        duration={30}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={vi.fn()}
+        imageQuality="high"
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+        syncToken={token1}
+        onSyncComplete={onSyncComplete}
+      />,
+    );
+    await waitFor(() => expect(onSyncComplete).toHaveBeenCalledWith(token1));
+
+    onSyncComplete.mockClear();
+    calls.seek.mockClear();
+    calls.setFrame.mockClear();
+
+    // 模拟工作台改谱后的新 scene + 新 syncToken：seek(0) 会立即跑，但分片派生未完前不得提前撤罩
+    rerender(
+      <PreviewVideoStage
+        active
+        scene={{ ...scene, notes: longNotes }}
+        chartId="c1"
+        initialSeconds={12}
+        duration={30}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={vi.fn()}
+        imageQuality="high"
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+        syncToken={token2}
+        onSyncComplete={onSyncComplete}
+      />,
+    );
+
+    expect(calls.seek).toHaveBeenCalledWith(0);
+    expect(onSyncComplete).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(onSyncComplete).toHaveBeenCalledWith(token2));
+    expect(calls.setFrame).toHaveBeenCalled();
   });
 });

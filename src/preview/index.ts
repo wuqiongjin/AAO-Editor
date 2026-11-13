@@ -18,6 +18,7 @@ export {
   planSheet,
   renderSheet,
   waitForPaint,
+  yieldToMainThread,
 } from './static';
 export type {
   PanelLayout,
@@ -44,6 +45,7 @@ export {
   approachOf,
   approachSeconds,
   buildSimChart,
+  buildSimChartInChunks,
   createSimPlayback,
   drawSimFrameAt,
   emptySimAssets,

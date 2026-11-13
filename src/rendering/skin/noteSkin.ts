@@ -56,6 +56,7 @@ export const NOTE_SKIN_GEOMETRY = {
    *  更大值（如 15）会让外缘明显外露、像两个独立元素。 */
   DIR_BODY_HALF_W: 22.5,
   DIR_CHEVRON_INK_H: 16,
+  // 方向键箭头咬合量（issue 29 · 2026-08-25 定案）：3px 紧贴咬合，箭头内凹自然包裹本体尖端
   DIR_CHEVRON_INTO_BODY: 3,
 } as const;
 

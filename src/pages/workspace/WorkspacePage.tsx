@@ -9,15 +9,23 @@ import PatternPastePill from './PatternPastePill';
 import './WorkspacePage.css';
 import { ChartCodeEditorProvider } from '../../chart/components/code-editor/ChartCodeEditorProvider';
 import FinalVirtualCanvas, { type FinalVirtualCanvasHandle } from '../../chart/components/canvas/FinalVirtualCanvas';
-import { formatKey, type FunctionId } from '../../chart/config/ShortcutConfig';
-import PlayBar from '../../playback/PlayBar';
+import { formatKey, type FunctionId } from '../../settings/ShortcutConfig';
+import WorkspacePlayBar from './WorkspacePlayBar';
+import PlaybackRate from '../../playback/PlaybackRate';
+import { getPlaybackRate, usePlaybackRate } from '../../playback/playbackRateState';
+import {
+  PLAYBACK_SHORTCUT_IDS,
+  stepAudioVolume,
+  stepPlaybackRatePreset,
+} from '../../playback/playbackShortcuts';
 import PlaybackMarkerButton from '../../playback/PlaybackMarkerButton';
-import { useEditing, useUI, useConfig, usePlayback, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
+import { useEditing, useUI, useConfig, usePlaybackState, useAudioSession, useCurrentProject } from '../../app/ProviderTree';
 import { useAudioBridge } from '../../audio/useAudioBridge';
 import { useChartViewSession } from '../../playback/useChartViewSession';
 import { useChartProjectPersistence } from '../../project/useChartProjectPersistence';
-import { useShortcutDispatch } from '../../chart/config/useShortcutDispatch';
+import { useShortcutDispatch } from '../../settings/useShortcutDispatch';
 import { resolveEscapeTarget } from '../../chart/editing/CanvasGesture';
+import { stepBeatSnap, cycleBeatSnap } from '../../chart/editing/BeatSnap';
 import { isChartReadonly, isChartEditFunction } from '../../project/chartReadonlyGate';
 import { isProjectAudioLocked } from '../../project/workspaceProject';
 import { duplicateChartInProject } from '../../project/projectCatalog';
@@ -28,7 +36,7 @@ import { useAppNav } from '../../layouts/AppNav';
 import type { ProjectAudioDeps } from '../../audio/projectAudio';
 import AudioAnomalyBanner from './AudioAnomalyBanner';
 import { useAudioAnomaly } from './useAudioAnomaly';
-import { usePatternLibrary } from '../../chart/patterns/usePatternLibrary';
+import { usePatternLibrary } from '../../patterns/usePatternLibrary';
 import { useSaveSelectionPattern } from './useSaveSelectionPattern';
 import { t } from '../../i18n';
 import { CrashBoundaryHost } from '../../diagnostics/CrashBoundary';
@@ -59,25 +67,23 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   const editing = useEditing();
   const ui = useUI();
   const config = useConfig();
-  const playback = usePlayback();
+  // issue 232：消费 usePlaybackState()，不消费 80ms 高频更新的 currentSeconds，避免播放期整页重渲染
+  const playback = usePlaybackState();
 
   // issue 73：paste 已从本处移除 —— 粘贴的唯一入口是画布（工具单击 / execPaste），
   // 避免再有一条绕过矩阵、没有末端校验的粘贴通路。
   const { notes, selectedItems, setSelectedItems, clipboard, copy, cut, deleteSelected, mirror, undo, redo, resetNotes, chartCodeFidelity } = editing;
-  const { armedTool, setArmedTool, scale, beatDisplay } = ui;
-  const { settings, setPatternDrawer } = config;
+  const { armedTool, setArmedTool, scale, beatDisplay, setBeatDisplay } = ui;
+  const { settings, setPatternDrawer, setAudioVolume } = config;
   const drawerOpen = settings.layout.patternDrawer.open;
   const shortcutConfig = settings.shortcuts;
   const {
     setIsPlaying, setCanPlay,
     setCurrentSeconds,
     duration: ctxDuration, setDuration: setCtxDuration,
-    setVolume: setCtxVolume,
-    currentSeconds: playheadSeconds,
-    // 播放条（issue 22）props 化的数据入口：isPlaying / volume / canPlay 由页面从
-    // PlaybackContext 取出后显式传入（组件不再直读 context）——值与旧实现同一份真相源
+    // 播放条（issue 22 / issue 232）props 化的数据入口：isPlaying / canPlay 由页面从 PlaybackContext
+    // 取出后显式传入（组件不再直读 context）；主音量（票 60）改从 settings 直读，不进本 Context
     isPlaying: ctxIsPlaying,
-    volume: ctxVolume,
     canPlay,
     markerSeconds,
     setMarker,
@@ -109,10 +115,19 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // 引擎：session 单例，跨页面保活期间不重建
   const engine = audioSession.getEngine();
 
+  // 倍速（chart-preview 58）：值是 `src/playback` 的共享内存单点，两处播放条都读它；
+  // 工作台这一侧把它转发到自己的引擎（AudioSession → AudioEngine）—— 即便值是从预览侧改的，
+  // 这个订阅同样会把它同步过来。不另起时钟、不另算秒，倍速只经引擎一处缩放。
+  const [rate, setRate] = usePlaybackRate();
+  useEffect(() => {
+    audioSession.setPlaybackRate(rate);
+  }, [rate, audioSession]);
+
   // === 谱面视口会话（架构深化评审候选 4 收口） ===
   // 渲染面 / 几何 / 滚动重锚 / 播放 RAF 收进 src/playback/useChartViewSession.ts —— 工作台与
   // 将来的预览页 consume 同一 interface。播放头秒数与播放状态仍写回 PlaybackContext（唯一真相源），
   // 会话不持第二份（见会话头注）。
+  const judgeLineOffsetRatio = settings.display.judgeLineOffsetRatio ?? 0;
   const setSessionChartDuration = useCallback((sec: number) => audioSession.setChartDuration(sec), [audioSession]);
   const viewSession = useChartViewSession({
     containerRef: chartAreaRef,
@@ -127,8 +142,9 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onSecondsChange: setCurrentSeconds,
     onPlayingChange: setIsPlaying,
     onChartDurationChange: setSessionChartDuration,
+    judgeLineOffsetRatio,
   });
-  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker, stopPlayback, resetToStart } = viewSession;
+  const { surface, geometry, virtualHeight, isPlaying, togglePlay, seek, jumpToMarker: sessionJumpToMarker, stopPlayback, resetToStart } = viewSession;
 
   // === 会话流 3：音频桥接（订阅 session 变化，副作用单向写回 PlaybackContext） ===
   // 单一稳定回调：避免 useAudioBridge 内部 useEffect 因新引用反复触发
@@ -150,7 +166,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     [audioSnap.audioName, audioSession],
   );
 
-  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged, flushPersist } = useCurrentProject();
+  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged, notifyProjectEdited, flushPersist } = useCurrentProject();
   const { setActivePage } = useAppNav();
 
   // === 33 票：音频资源异常的检测与对齐（工作台 hydrate 路径） ===
@@ -300,6 +316,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onRestore: handleProjectRestore,
     onRecordAudioChanged: handleRecordAudioChanged,
     registerRestoreWaiter,
+    onProjectEdited: notifyProjectEdited,
   });
   const persistNow = useCallback(() => persistence.saveNow(), [persistence]);
   useEffect(() => {
@@ -320,26 +337,44 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     return () => registerPersistFlush(null);
   }, [registerPersistFlush]);
 
-  // 谱面/BPM 变化时同步按键音事件（issue 36：编辑中防抖 300ms；播放中改谱即时）。
-  // issue 101：不把 isPlaying 放进 deps——开播翻转本身不得同步跑全谱 getBpmEvents+buildKeyEvents。
+  // 谱面/BPM 变化时同步按键音事件（issue 36：编辑中防抖 300ms；播放中改谱即时；
+  // issue 226：开播时若有在途未决同步必须立即 flush，彻底杜绝携陈旧谱面提前调度 2 秒）。
+  // issue 101：平时开播依然 0 开销（无在途同步时不重复跑全谱构建）。
   const keysPlayingRef = useRef(isPlaying);
   keysPlayingRef.current = isPlaying;
+  const pendingKeysTimerRef = useRef<number | null>(null);
+  const pendingChartParamsRef = useRef<{ notes: typeof notes; beatDisplay: number } | null>(null);
+  const flushPendingKeysSync = useCallback(() => {
+    if (pendingKeysTimerRef.current !== null) {
+      window.clearTimeout(pendingKeysTimerRef.current);
+      pendingKeysTimerRef.current = null;
+    }
+    if (pendingChartParamsRef.current && engine) {
+      engine.setChart(pendingChartParamsRef.current.notes, pendingChartParamsRef.current.beatDisplay);
+      pendingChartParamsRef.current = null;
+    }
+  }, [engine]);
   useEffect(() => {
+    pendingChartParamsRef.current = { notes, beatDisplay };
     const delay = keysPlayingRef.current ? 0 : 300;
-    const t = window.setTimeout(() => engine?.setChart(notes, beatDisplay), delay);
-    return () => window.clearTimeout(t);
+    const t = window.setTimeout(flushPendingKeysSync, delay);
+    pendingKeysTimerRef.current = t;
+    return () => { window.clearTimeout(t); pendingKeysTimerRef.current = null; };
   }, [notes, beatDisplay, engine]);
 
   // 画布 onScrollChange / `.virtual-content` 高度写入 / 首次置底 / 比例位回写 / 按秒重锚 /
   // 滚动条回声识别 —— 全部收进谱面视口会话（候选 4，src/playback/useChartViewSession.ts）；
   // 页面只把会话的 onCanvasScrollChange / onScrollbarScroll / virtualHeight 接进下方 JSX。
 
-  // 播放条：音量（架构深化评审候选 3：主音量由 session.setVolume 转发，避免绕过 session；
-  // PlaybackContext.volume 仍为 UI 状态，由 setCtxVolume 维护；session 是底层真相源）
+  // 播放条主音量（票 60 统一）：读写 settings.audio.volume（A，存盘、跨重启记住），
+  // 三处播放条同一份值；引擎仍只经 session 即时转发。撤掉了 PlaybackContext 那份独立 0.8。
   const handleVolumeChange = useCallback((v: number) => {
-    setCtxVolume(v);
+    setAudioVolume(v);
     audioSession.setVolume(v);
-  }, [setCtxVolume, audioSession]);
+  }, [setAudioVolume, audioSession]);
+  // issue 230：快捷键读「此刻」的主音量，不把 runFunction 挂到每次改值的重渲染上
+  const volumeRef = useRef(settings.audio.volume);
+  volumeRef.current = settings.audio.volume;
 
   // 页面壳表面契约（issue 28 Q16）：工作台失活时自动暂停
   useEffect(() => {
@@ -374,8 +409,14 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
 
   const handleTogglePlay = useCallback(() => {
     if (!persistence.isSettled) return;
+    flushPendingKeysSync();
     togglePlay();
-  }, [persistence, togglePlay]);
+  }, [persistence, flushPendingKeysSync, togglePlay]);
+
+  const jumpToMarker = useCallback(() => {
+    flushPendingKeysSync();
+    sessionJumpToMarker();
+  }, [flushPendingKeysSync, sessionJumpToMarker]);
 
   // 具体功能分发（ADR-0002 + ADR-0008 §3）：切换功能 = 持工具态；执行功能 = 光标处瞬时执行（不占工具态）。
   // BPM/Slide 执行键按 §3 修订语义经画布 ref 执行（就地编辑 / slideBuffer 双入口共用）。
@@ -427,15 +468,26 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       // ADR-0008 §7：从 Esc 摘除的独立功能（默认 Ctrl+Shift+B）；票 183 起只开合片段库抽屉
       //（工具轨固定不折叠，177 Q11）
       case 'toggleSidebar': setPatternDrawer({ open: !drawerOpen }); break;
+      // issue 216：节拍吸附快捷键（增大细分 / 减小细分 / 常用档位循环）
+      case 'beatSnapNext': setBeatDisplay(stepBeatSnap(beatDisplay, 1)); break;
+      case 'beatSnapPrev': setBeatDisplay(stepBeatSnap(beatDisplay, -1)); break;
+      case 'beatSnapCycle': setBeatDisplay(cycleBeatSnap(beatDisplay, settings.beatSnapCycleList)); break;
+      // issue 230：倍速按 7 档预设跳（封顶 2×）、音量每次 0.05；两者端点停住、按住不连发。
+      // 倍速读共享内存单点的当前值（不把 rate 塞进回调依赖），音量走统一入口 handleVolumeChange。
+      case 'rateDown': setRate(stepPlaybackRatePreset(getPlaybackRate(), -1)); break;
+      case 'rateUp': setRate(stepPlaybackRatePreset(getPlaybackRate(), 1)); break;
+      case 'volumeDown': handleVolumeChange(stepAudioVolume(volumeRef.current, -1)); break;
+      case 'volumeUp': handleVolumeChange(stepAudioVolume(volumeRef.current, 1)); break;
     }
   }, [isReadOnly, triggerReadonlyPrompt, setArmedTool, clipboard.length, pasteAtCursor, copy, cut, deleteSelectedNotes, mirror, saveSelection, undo, redo, handleTogglePlay, jumpToMarker,
-      setPatternDrawer, drawerOpen]);
+      setPatternDrawer, drawerOpen, setBeatDisplay, beatDisplay, settings.beatSnapCycleList, setRate, handleVolumeChange]);
 
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
   useShortcutDispatch({
     shortcutConfig,
     active,
     runFunction,
+    noRepeat: PLAYBACK_SHORTCUT_IDS,
     // Esc 五档链（ADR-0008 §7 / issue 135）：① 弹窗 capture 自消费；②–⑤ 由
     // resolveEscapeTarget 唯一裁决，此处只消费一档并执行。② 取消后保持工具态与选区。
     // 侧栏折叠已从此链摘除 → toggleSidebar（issue 59 §2：Ctrl+Shift+B；票 183 起开合片段库）。
@@ -519,22 +571,23 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
                 active={active}
                 readOnly={isReadOnly}
                 onReadonlyReject={triggerReadonlyPrompt}
+                judgeLineOffsetY={surface && judgeLineOffsetRatio > 0 ? Math.round(judgeLineOffsetRatio * surface.h) : undefined}
               />
             </CrashBoundaryHost>
             <CurveOptionsCapsule />
             <PatternPastePill />
           </div>
         </div>
-        <PlayBar
+        <WorkspacePlayBar
           isPlaying={ctxIsPlaying}
-          currentSeconds={playheadSeconds}
           duration={ctxDuration}
-          volume={ctxVolume}
+          volume={settings.audio.volume}
           audioLocked={audioSnap.audioLocked}
           canEditTime
           seekNoCursor={!canPlay && ctxIsPlaying}
           shortcutKey={formatKey(shortcutConfig.play)}
           timePrecision={settings.display.timePrecision}
+          rateSlot={<PlaybackRate value={rate} onChange={setRate} />}
           timeSlot={settings.playbar.markerButton && (
             <PlaybackMarkerButton
               seconds={markerSeconds}

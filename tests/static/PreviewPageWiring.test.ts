@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PAGE_NAV } from '@/src/layouts/pageNav';
 import { PAGE_REGISTRY } from '@/src/pages/PageRegistry';
-import { FUNCTIONS } from '@/src/chart/config/ShortcutConfig';
+import { FUNCTIONS } from '@/src/settings/ShortcutConfig';
 import { readStripped, repoRoot } from '@/tests/support/source';
 
 /** dir 下全部源码文件（相对仓库根的路径） */
@@ -153,6 +153,34 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(page).toMatch(/classList\.toggle\('is-palette-swap'/);
   });
 
+  it('票 69：切动态形态先等绘制，长谱派生分批让出主线程', () => {
+    const page = readStripped('src/pages/preview/PreviewPage.tsx');
+    const stage = readStripped('src/pages/preview/PreviewVideoStage.tsx');
+
+    // 切模式这一支：加载态先提交 → await waitForPaint() → 才挂仿真场（setMode）
+    const switchBlock = page.slice(
+      page.indexOf('const switchMode'),
+      page.indexOf('onClick={() => void switchMode'),
+    );
+    expect(switchBlock).toMatch(/setPendingMode\(/);
+    const wait = switchBlock.indexOf('await waitForPaint()');
+    const flip = switchBlock.indexOf('setMode(next)');
+    expect(wait).toBeGreaterThan(-1);
+    expect(flip).toBeGreaterThan(wait);
+    expect(page).toMatch(/preview\.video\.loading/);
+
+    // 舞台：派生挪进 effect 的分批驱动，不再有同步 useMemo(buildSimChart)
+    expect(stage).toMatch(/buildSimChartInChunks\(/);
+    expect(stage).toMatch(/yieldToMainThread/);
+    expect(stage).not.toMatch(/useMemo\(\(\) => buildSimChart/);
+    expect(stage).toContain('onSyncComplete');
+
+    // 直切保活动态形态的更新遮罩（与静态共享 .preview-stage__paint-pending）
+    expect(page).toContain('videoSyncToken');
+    expect(page).toContain('videoPaintPending');
+    expect(page).toContain('preview.video.updating');
+  });
+
   it('动态形态把底部留白收一档让给场地（chart-preview 19：contain 下画面变大的唯一来源是高度）', () => {
     const src = readStripped('src/pages/preview/PreviewPage.tsx');
     expect(src).toMatch(/preview-page\$\{mode === 'video' \? ' is-video' : ''\}/);
@@ -194,8 +222,10 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
     expect(entries('src/preview/video/sim')).toEqual([
       'gen',
       'index.ts',
+      'prepareSimNoteSprites.ts', // 68：开播前准备独立音符切片与 mip（含按住端帽和挂件）
       'simAssetPacks.ts',
       'simAssets.ts',
+      'simBandRaster.ts', // 65：带体贴图剖面 / LUT / 一张共享缓冲的逐像素光栅
       'simField.ts',
       'simGeometry.ts',
       'simPlayback.ts',

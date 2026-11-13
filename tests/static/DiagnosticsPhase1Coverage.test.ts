@@ -1,7 +1,7 @@
 // 票 05：第一阶段失败路径必须接到 logger / 主进程 sink。
 // 不锁「src/ 无裸 console.*」——噪音级 warn 可以仍留 console。
 import { describe, expect, it } from 'vitest';
-import { readStripped } from '@/tests/support/source';
+import { readSources, readStripped } from '@/tests/support/source';
 
 function src(rel: string) {
   return readStripped(rel);
@@ -59,7 +59,7 @@ describe('票 05 · 表内失败路径调用 logger', () => {
 
 describe('票 05 · 主进程工程存储走 appLog sink', () => {
   it('projectStore 三条降级 warn 改调 sink（未注入时才退回 console.warn）', () => {
-    const store = src('electron/projectStore.cjs');
+    const store = src('electron/storage/projectStore.cjs');
     expect(store).toMatch(/storeWarn\('project\.json 解析失败/);
     expect(store).toMatch(/storeWarn\(`\$\{fileName\} 缺失，按无数据处理:/);
     expect(store).toMatch(/function setAppLog/);
@@ -67,7 +67,7 @@ describe('票 05 · 主进程工程存储走 appLog sink', () => {
   });
 
   it('main.cjs 把 appLog 注入 projectStore', () => {
-    const main = src('electron/main.cjs');
+    const main = readSources(['electron/main.cjs'], true);
     expect(main).toMatch(/setAppLog\(appLog\)/);
   });
 });

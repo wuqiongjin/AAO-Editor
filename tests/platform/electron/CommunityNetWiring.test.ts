@@ -10,15 +10,15 @@ import {
   JSON_TIMEOUT_MS,
   createCommunityGateway,
   registerCommunityNetIpc,
-} from '@/electron/communityNet.cjs';
+} from '@/electron/community/communityNet.cjs';
 import {
   CACHE_DIRNAME,
   cacheDir,
   legacyDownloadsDir,
   loadDataRootSync,
   removeLegacyDownloads,
-} from '@/electron/dataRoot.cjs';
-import { ASSET_SCHEME, THUMB_HOST } from '@/electron/assetProtocol.cjs';
+} from '@/electron/storage/dataRoot.cjs';
+import { ASSET_SCHEME, THUMB_HOST } from '@/electron/assets/assetProtocol.cjs';
 import {
   ASSET_SCHEME as RENDERER_ASSET_SCHEME,
   ASSET_THUMB_HOST as RENDERER_THUMB_HOST,
@@ -31,13 +31,13 @@ import {
   BESTDORI_USER_AGENT,
 } from '@/src/community/bestdori/endpoints';
 import { backoffDelayMs } from '@/src/community/rateLimit';
-import { readSource, readStripped } from '@/tests/support/source';
+import { readSource, readSources, readStripped } from '@/tests/support/source';
 import { tmpDir } from '@/tests/support/fs';
 
-const mainSrc = readStripped('electron/main.cjs');
+const mainSrc = readSources(['electron/main.cjs', 'electron/storage/projectStore.cjs', 'electron/window/createWindow.cjs'], true);
 const preloadSrc = readStripped('electron/preload.js');
-const gatewaySrc = readStripped('electron/communityNet.cjs');
-const assetCacheSrc = readStripped('electron/assetCache.cjs');
+const gatewaySrc = readStripped('electron/community/communityNet.cjs');
+const assetCacheSrc = readStripped('electron/assets/assetCache.cjs');
 
 type IpcListener = (event: unknown, payload: unknown) => unknown;
 
@@ -198,13 +198,13 @@ describe('票 15 · 本机素材协议接线（aao-asset://）', () => {
   it('缩略图产出器接在缓存上，nativeImage 由 main 注入（协议 / 缓存模块不 require electron）', () => {
     expect(mainSrc).toMatch(/const makeThumb = createThumbMaker\(nativeImage\);/);
     expect(mainSrc).toMatch(/makeThumb,/);
-    for (const file of ['electron/assetProtocol.cjs', 'electron/assetThumbnails.cjs', 'electron/assetCache.cjs']) {
+    for (const file of ['electron/assets/assetProtocol.cjs', 'electron/assets/assetThumbnails.cjs', 'electron/assets/assetCache.cjs']) {
       expect(readStripped(file), file).not.toMatch(/require\(\s*['"]electron['"]\s*\)/);
     }
   });
 
   it('协议是只读的：不联网、不自己取数（取数仍归网关）', () => {
-    const protocolSrc = readStripped('electron/assetProtocol.cjs');
+    const protocolSrc = readStripped('electron/assets/assetProtocol.cjs');
     expect(protocolSrc).not.toMatch(/fetch\s*\(/);
     expect(protocolSrc).not.toMatch(/communityNet|net\.fetch/);
     expect(protocolSrc).toMatch(/kind:\s*'binary'/);
@@ -250,7 +250,7 @@ describe('票 11 · 上传接线（multipart + uploadRefs）', () => {
 
 describe('票 07 · 源码事实', () => {
   it('网关不 import renderer 侧的东西（CJS 单向依赖）', () => {
-    expect(readSource('electron/communityNet.cjs')).not.toMatch(/from '@\/src|require\(['"]\.\.\/src/);
+    expect(readSource('electron/community/communityNet.cjs')).not.toMatch(/from '@\/src|require\(['"]\.\.\/src/);
   });
 
   it('响应校验点都在（非 2xx / 非 JSON / 业务码 / Set-Cookie）', () => {

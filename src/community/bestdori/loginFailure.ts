@@ -1,7 +1,7 @@
 /**
  * 登录失败的**中立翻译层**（票 39 Q43 / Q44）。
  *
- * 为什么要有这一层：网关（`electron/communityNet.cjs`）把平台的业务码翻成统一错误域的 `kind` +
+ * 为什么要有这一层：网关（`electron/community/communityNet.cjs`）把平台的业务码翻成统一错误域的 `kind` +
  * `platformCode`，而**界面不该认识平台码** —— 那是平台实现细节（与 `mapping.ts` 同一条纪律：
  * 「平台形状 → 中立领域对象」，只不过这里翻的是失败而不是资料）。
  *

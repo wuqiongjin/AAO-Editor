@@ -19,7 +19,7 @@
 // 图里恒定深色（导出物是一张独立图片，与界面主题无关，照 `selectionStyle` 的画布配色惯例：
 // 独立常量，不接 CSS 设计令牌）。
 import { t } from '../../i18n';
-import type { ExportFieldSettings } from '../../chart/config/AppSettings';
+import type { ExportFieldSettings } from '../../settings/AppSettings';
 import { formatTimeCompact } from '../../chart/geometry/TimeFormat';
 import { HEADER_SANS as headerSans } from '../fontStack';
 

@@ -11,6 +11,7 @@
 // 可测性：持久化 / 解码 / URL 工厂三个端口可注入（默认 IndexedDB + createImageBitmap + objectURL），
 // 纯逻辑（修订号推进、快照引用稳定、异常传播）可在 node 测试环境覆盖。
 import { logger } from '../../diagnostics/logger';
+import { getElectronAPI, type BackgroundSkinFileBridge } from '../../app/electronBridge';
 
 /** 背景皮肤快照：渲染器与素材页共读；引用仅在真实变化时更替（useSyncExternalStore 兼容） */
 export interface BackgroundSkinSnapshot {
@@ -98,17 +99,10 @@ async function defaultDecode(blob: Blob) {
   return { source: bmp as unknown, width: bmp.width, height: bmp.height };
 }
 
-/** preload 注入的背景图文件桥（electronAPI.backgroundSkin） */
-export interface BackgroundSkinFileBridge {
-  get(): Promise<Uint8Array | null>;
-  put(bytes: Uint8Array): Promise<unknown>;
-  clear(): Promise<unknown>;
-}
+export type { BackgroundSkinFileBridge } from '../../app/electronBridge';
 
 function getElectronBackgroundBridge(): BackgroundSkinFileBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { backgroundSkin?: BackgroundSkinFileBridge } }).electronAPI;
-  return api?.backgroundSkin ?? null;
+  return getElectronAPI()?.backgroundSkin ?? null;
 }
 
 /** Electron：文件优先；文件空时从 IndexedDB 静默迁入一次（原库保留作备份） */

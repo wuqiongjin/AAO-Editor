@@ -1,10 +1,12 @@
 // 音频播放引擎（渲染进程 Web Audio，ticket 03 定案 + ADR-0004 修订）：
 // - 播放：AudioContext + AudioBufferSourceNode（精确 seek，不用 HTMLAudioElement）
 // - 解码：渲染进程 decodeAudioData（SongUploader → File → ArrayBuffer → decode，不动主进程）
-// - 按键音：RAF 驱动 tick()，提前 ~100ms 预调度；每次新建 oscillator（Web Audio 禁止复停 oscillator）
+// - 按键音：setInterval(200ms) + rAF 双驱动 tick()，提前 2.0s 预调度；每次新建 AudioBufferSourceNode
+//   播共享采样（采样未就绪才用振荡器兜底）；同刻同采样的多次触发已在 buildKeyEvents 建表时归并、
+//   同刻不同采样的 1/√N 响度归一系数也随事件表算好，本层只透传（issue 231 后续修订）
 // - 双时钟（ADR-0004 §2）：有音频 = AudioContext 时间线；无音频 = performance.now + RAF 合成时间线，照常"播放谱面"
 import type { ChartNote } from '../chart/types';
-import { getBpmEvents, buildKeyEvents, type KeySoundEvent } from './AudioTiming';
+import { getBpmEvents, buildKeyEvents, type BpmEvent, type KeySoundEvent } from './AudioTiming';
 import { loadKeySoundSet, type KeySoundSet, type KeySoundKind } from './KeySound';
 // chart-preview 07：采样加载与发声已抽到 `keySoundSamples`（离线音轨要用同一份口径），
 // 本引擎只是它的一个消费方 —— 键音的音量 / 包络 / 采样路径解析都不在这里定义
@@ -55,11 +57,16 @@ export class AudioEngine {
   private keySet: KeySoundSet | null = null;
   /** 当前 keySetId 是否正在异步加载中（防相同 id 重复 setOptions 把已就绪或加载中的 keySet 清空） */
   private keySetLoading = false;
-  /** 持续低幅值循环保活源與缓冲（issue 179 / 188：防 Chromium SilentSinkSuspender 30s 休眠与前导静音全零跳过） */
+  /** 单次低幅值保活脉冲源与缓冲（issue 179 / 188 / 210：防 Chromium 与 WASAPI 30s 休眠与前导静音全零跳过；单次微脉冲不循环） */
   private keepaliveSource: AudioBufferSourceNode | null = null;
   private keepaliveBuffer: AudioBuffer | null = null;
   /** 最近一次暂停/停止的墙钟毫秒（长时静置后复播时强制重建保活流以唤醒可能休眠的 OS 音频端点） */
   private lastPausePerfMs: number | null = null;
+  /** 最近一次保活脉冲发出的墙钟毫秒（防高频按键/手势产生连环多余脉冲） */
+  private lastPrimePerfMs: number | null = null;
+  /** 空闲挂起定时器（issue 210：非播放态下连续 30s 无交互/音效则优雅 suspend AudioContext，释放 macOS PreventUserIdleSystemSleep 电源锁） */
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly IDLE_SUSPEND_DELAY_MS = 30_000;
   /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
   private schedTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -118,6 +125,7 @@ export class AudioEngine {
    */
   async previewKeySample(setId: string, kind: KeySoundKind, tier?: number): Promise<void> {
     const ctx = this.ensureCtx();
+    this.scheduleIdleSuspend();
     // 试听通常由用户点击触发，是放行 AudioContext 的手势
     if (ctx.state === 'suspended') {
       try {
@@ -152,6 +160,8 @@ export class AudioEngine {
    * 播放速率（chart-preview 20；播放器给 0.5/0.75/1/1.5/2 五档）。
    * 三处一起缩放才不会有"音画不同步"：BGM 的 `playbackRate`、两条时钟的经过时间（`getSeconds`）、
    * 键音调度（`tick` 里把谱面秒差除以速率换成墙钟秒差）。**播放中改速率不跳位置**。
+   * 键音提前 ~2s 预排到 AudioContext 时间线上，改速率还要撤销旧速率那批预排、把游标回到播放头
+   * 并按新速率立即补排（同 `setChart` 口径），否则"旧速率余音 + 静默一段"（chart-preview 58 验收回修）。
    */
   setPlaybackRate(rate: number): void {
     if (!Number.isFinite(rate)) return;
@@ -165,6 +175,13 @@ export class AudioEngine {
     }
     this.rate = next;
     if (this.source) this.source.playbackRate.value = next;
+    if (this.state === 'playing') {
+      // 已 start(when) 的键音节点仍钉在旧速率的墙钟时刻，且 keyIndex 已越过新 horizon：
+      // 不撤销 / 不回退游标，就会先按旧节奏发一段、再空转到播放头追上才补排。
+      this.cancelScheduled();
+      this.rewindKeyIndex();
+      this.tick();
+    }
   }
 
   /** 当前播放速率（1 = 原速） */
@@ -184,6 +201,7 @@ export class AudioEngine {
   private readonly onUserGesture = (): void => {
     const ctx = this.ctx;
     if (!ctx || this.state === 'playing') return;
+    this.scheduleIdleSuspend();
     if (ctx.state === 'suspended') {
       void Promise.resolve(ctx.resume()).catch(() => undefined);
     }
@@ -220,25 +238,28 @@ export class AudioEngine {
       this.seGain.gain.value = this.seVolume;
       this.seGain.connect(this.masterGain);
       this.attachGesturePrewarm();
+      this.scheduleIdleSuspend();
     }
     return this.ctx;
   }
 
   /**
-   * 持续保活 `seGain → masterGain → destination` 音频混合链路与系统音频硬件（issue 179 / 188）：
-   * 1. Chromium `SilentSinkSuspender` 在连续 30s 全零输出后会暂停底层 `AudioRendererSink` 并切至 `FakeAudioWorker`，
-   *    Windows WASAPI / 声卡驱动也会在全零或暂停后进入省电休眠（D3），直到首个非零样本到达才唤醒硬件流。
-   * 2. 179 的单次 64 样本 `1e-6` 微脉冲既低于 16-bit PCM 1 LSB（`3.05e-5`）量化台阶，又在脉冲结束后立即落回
-   *    BGM 的 2.8s~5.5s 全零前导静音，且 `audioGraphPrimed` 单次锁使长时静置后复播完全短路。
-   * 3. 现改为挂载 1024 样本、幅值 `1/16384`（精确 `2 LSB @ 16-bit` / `-84.3 dBFS`，零直流偏置余弦波，人耳不可闻但
-   *    高于 16-bit 量化台阶与零值检测）的循环保活源，同时连入 `seBus()` 与 `ctx.destination`（不受 `seVolume=0` 影响）；
-   *    若暂停静置满 10s 后复播，主动重建保活源以唤醒可能休眠的 OS 音频端点。
+   * 唤醒 `seGain → masterGain → destination` 音频混合链路与系统音频硬件（issue 179 / 188 / 210）：
+   * 1. Chromium 与 Windows WASAPI / 声卡驱动在全零或暂停后会进入省电休眠（D3），直到首个非零样本到达才唤醒硬件流。
+   * 2. issue 188 曾用常驻死循环源（src.loop = true）保活，但在 macOS 下导致持续占用 CoreAudio 硬件流，
+   *    持有 PreventUserIdleSystemSleep 电源锁并完全禁用 App Nap，造成静置能耗飙升至数千（issue 210）。
+   * 3. 现改为单次非循环短脉冲（1024 样本约 21ms，幅值 1/16384 = 2 LSB @ 16-bit / -84.3 dBFS 余弦波，高于 16-bit 量化台阶且人耳不可闻），
+   *    同时连入 seBus() 与 ctx.destination，按需唤醒硬件并在播放完毕后自然脱开，严禁常驻 loop。
+   *    若暂停静置满 10s 或上下文被挂起后复播/交互，主动发送短脉冲以唤醒可能休眠的 OS 音频端点。
    */
   private primeAudioGraph(ctx: AudioContext): void {
     const now = performance.now();
     const idleExpired =
       this.lastPausePerfMs !== null && now - this.lastPausePerfMs >= 10_000;
-    if (this.keepaliveSource && !idleExpired) return;
+    const justPrimed =
+      this.lastPrimePerfMs !== null && now - this.lastPrimePerfMs < 10_000;
+    const isSuspended = ctx.state === 'suspended';
+    if (!idleExpired && !isSuspended && (this.keepaliveSource || justPrimed)) return;
     this.stopKeepalive();
     if (typeof ctx.createBuffer !== 'function' || typeof ctx.createBufferSource !== 'function') return;
     try {
@@ -258,14 +279,45 @@ export class AudioEngine {
       }
       const src = ctx.createBufferSource();
       src.buffer = buf;
-      src.loop = true;
+      src.loop = false; // issue 210：严禁死循环常驻，单次短脉冲唤醒硬件
       src.connect(this.seBus());
       src.connect(ctx.destination);
       src.start(ctx.currentTime);
+      src.onended = () => {
+        try {
+          src.disconnect();
+        } catch {
+          /* ignore */
+        }
+        if (this.keepaliveSource === src) {
+          this.keepaliveSource = null;
+        }
+      };
       this.keepaliveSource = src;
+      this.lastPrimePerfMs = now;
       this.lastPausePerfMs = null;
     } catch {
       /* 测试替身或上下文未就绪时静默跳过 */
+    }
+  }
+
+  private scheduleIdleSuspend(): void {
+    this.clearIdleSuspend();
+    if (this.state === 'playing' || !this.ctx) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      if (this.ctx && this.state !== 'playing' && this.ctx.state === 'running') {
+        if (typeof this.ctx.suspend === 'function') {
+          void Promise.resolve(this.ctx.suspend()).catch(() => undefined);
+        }
+      }
+    }, AudioEngine.IDLE_SUSPEND_DELAY_MS);
+  }
+
+  private clearIdleSuspend(): void {
+    if (this.idleTimer !== null) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
     }
   }
 
@@ -328,15 +380,18 @@ export class AudioEngine {
     this.offsetSeconds = 0;
     this.lastPausePerfMs = performance.now();
     this.state = 'idle';
+    this.scheduleIdleSuspend();
   }
 
   /** 释放引擎持有的 `AudioContext` 与节点（动态预览卸载 / 重建引擎时调用，防底层硬件句柄累积） */
   dispose(): void {
     this.clear();
+    this.clearIdleSuspend();
     this.detachGesturePrewarm();
     this.stopKeepalive();
     this.keepaliveBuffer = null;
     this.lastPausePerfMs = null;
+    this.lastPrimePerfMs = null;
     try {
       this.seGain?.disconnect();
     } catch {
@@ -356,16 +411,23 @@ export class AudioEngine {
     }
   }
 
-  /** 依赖音：同步最新的按键事件（谱面编辑/BPM 变化时调用） */
-  setChart(notes: ChartNote[], beatDisplay: number): void {
-    const bpmEvents = getBpmEvents(notes);
+  /**
+   * 依赖音：同步最新的按键事件（谱面编辑/BPM 变化时调用）。
+   * 票 69：`bpmEvents` 可由画面派生层传同一份（缺省才自己从 notes 提取）。
+   */
+  setChart(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[] = getBpmEvents(notes)): void {
     this.keyEvents = buildKeyEvents(notes, beatDisplay, bpmEvents);
+    this.cancelScheduled();
     this.rewindKeyIndex();
+    if (this.state === 'playing') {
+      this.tick();
+    }
   }
 
   async play(): Promise<void> {
     if (this.state === 'playing') return;
     const ctx = this.ensureCtx(); // 播放是用户手势（点按钮/按空格），放行 AudioContext
+    this.clearIdleSuspend();
     if (ctx.state === 'suspended') {
       try {
         await ctx.resume();
@@ -403,6 +465,7 @@ export class AudioEngine {
     this.stopScheduler();
     this.lastPausePerfMs = performance.now();
     this.state = 'paused';
+    this.scheduleIdleSuspend();
   }
 
   /** 停止并回到开头 */
@@ -413,6 +476,7 @@ export class AudioEngine {
     this.stopScheduler();
     this.lastPausePerfMs = performance.now();
     this.state = this.buffer ? 'ready' : 'idle';
+    this.scheduleIdleSuspend();
   }
 
   /**
@@ -470,13 +534,13 @@ export class AudioEngine {
     while (this.keyIndex < this.keyEvents.length && this.keyEvents[this.keyIndex].time <= horizon) {
       const evt = this.keyEvents[this.keyIndex];
       if (evt.time >= playhead) {
-        this.playTick(ctx.currentTime + (evt.time - playhead) / this.rate, evt.kind, evt.tier);
+        this.playTick(ctx.currentTime + (evt.time - playhead) / this.rate, evt.kind, evt.tier, evt.gain ?? 1);
       }
       this.keyIndex++;
     }
   }
 
-  private playTick(when: number, kind: KeySoundKind, tier?: number): void {
+  private playTick(when: number, kind: KeySoundKind, tier?: number, gainScale = 1): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const sample = this.keySet?.samples[kind];
@@ -484,14 +548,14 @@ export class AudioEngine {
     if (src) {
       const buf = keySoundBank.get(src);
       if (buf) {
-        const node = scheduleKeySample(ctx, this.seBus(), buf, when, () => this.scheduled.delete(node));
+        const node = scheduleKeySample(ctx, this.seBus(), buf, when, gainScale, () => this.scheduled.delete(node));
         this.scheduled.add(node);
         return;
       }
       // 采样未就绪：异步补充加载（本次振荡器兜底，避免无声）
       void keySoundBank.load(src, ctx).catch(() => undefined);
     }
-    const node = scheduleKeyTone(ctx, this.seBus(), kind, sample, when, () => this.scheduled.delete(node));
+    const node = scheduleKeyTone(ctx, this.seBus(), kind, sample, when, gainScale, () => this.scheduled.delete(node));
     this.scheduled.add(node);
   }
 
@@ -524,7 +588,7 @@ export class AudioEngine {
   }
 
   private rewindKeyIndex(): void {
-    const playhead = this.offsetSeconds;
+    const playhead = this.getSeconds();
     let i = 0;
     while (i < this.keyEvents.length && this.keyEvents[i].time < playhead) {
       i++;

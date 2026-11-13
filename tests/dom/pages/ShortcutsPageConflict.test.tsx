@@ -158,4 +158,21 @@ describe('issue 177/178 · 切页行、改键冲突与重新启用', () => {
     expect(document.querySelector('.shortcut-recorder')).toBeNull();
     expect(rowOf('切换到工程').textContent).toContain('已屏蔽');
   });
+
+  // issue 230：升级时新增内置默认键撞用户既有绑定 → 新功能静默退让为 null（一次性、无元数据）。
+  // 受影响用户靠快捷键页自己发现：点「启用」→ 回落出厂默认键 → setFunctionBinding 撞车 →
+  // 打开录制弹窗预填该键并显示冲突文案（现有路径已覆盖，不为本需求新增常显说明）。
+  it('老存档占着「,」：倍速降一档未绑定，点「启用」预填 , 并报占用者', () => {
+    seedZhSettings({ shortcuts: { switchSingle: ',' } });
+    mountPage();
+
+    const row = rowOf('倍速降一档');
+    expect(row.textContent).toContain('已屏蔽');
+
+    fireEvent.click(within(row).getByRole('button', { name: '启用倍速降一档' }));
+    expect(document.querySelector('.shortcut-recorder')).not.toBeNull();
+    expect(document.querySelector('.shortcut-recorder__keys')?.textContent).toBe(',');
+    expect(screen.getByRole('alert').textContent).toContain('切换-单键');
+    expect(rowOf('倍速降一档').textContent).toContain('已屏蔽');
+  });
 });

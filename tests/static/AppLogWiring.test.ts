@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readStripped, repoRoot, sourceFiles } from '@/tests/support/source';
+import { readSources, readStripped, repoRoot, sourceFiles } from '@/tests/support/source';
 
-const mainSrc = readStripped('electron/main.cjs');
+const mainSrc = readSources(['electron/main.cjs'], true);
 const preloadSrc = readStripped('electron/preload.js');
 const FS_IMPORT = /(?:from\s+['"](?:node:)?fs(?:\/promises)?['"]|require\(\s*['"](?:node:)?fs(?:\/promises)?['"]\))/;
 

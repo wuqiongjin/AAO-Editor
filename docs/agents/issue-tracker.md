@@ -4,6 +4,8 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 
 调研产出（端点实测、方案成本对照、复算脚本）放 `docs/research/`，不要堆进 `issues/`。票内只留结论与指向该目录的链接。
 
+**Research 与 bug 追查的分工（2026-11-13）**：`docs/research/` 面向**跨票可复用**的事实与模型（外部 API、材质成本曲线、可复算命令）。单次 bug 的症状链、Playwright 表、分阶段验收与结论边界默认写在票内（`## Comments` 或 `## 调查与复现`）；一次性探针脚本与原始 JSON 放 `.scratch/diagnostics/`（不入库）。只有结论会被多票引用、或测量方法本身要长期保留时，才升格或**并入既有主题** research（例如带体线 `chart-preview-sim-slide-band-material.md`），**不为每张 bug 票新建** research 文件。
+
 ## Conventions
 
 - One feature per directory: `.scratch/<feature-slug>/`

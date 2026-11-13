@@ -1,7 +1,8 @@
 // issue 57 bug4：谱面快照语义相等 + 条件压栈——无变化的重复放置不再占用撤销栈。
+// issue 221：对齐 source 自定义字段与 charge 属性保真，避免属性修改被历史去重吞掉。
 import { describe, it, expect } from 'vitest';
 import type { ChartNote } from '@/src/chart/types';
-import { noteEqual, notesEqual } from '@/src/chart/editing/NotesEqual';
+import { noteEqual, notesEqual, sourceEqual } from '@/src/chart/editing/NotesEqual';
 import {
   createHistory, pushHistory, pushHistoryIfChanged, currentHistory, canRedo, undoHistory, redoHistory,
 } from '@/src/chart/editing/History';
@@ -10,6 +11,27 @@ import { handleNoteReplacement } from '@/src/chart/editing/NoteReplacementRules'
 const bpm0: ChartNote = { beat: 0, type: 'BPM', bpm: 120 };
 const single = (beat: number, lane: number, extra: Partial<ChartNote> = {}): ChartNote =>
   ({ beat, lane, type: 'Single', ...extra } as ChartNote);
+
+describe('sourceEqual（未知字段/自定义属性/跨类型字段）', () => {
+  it('undefined 与空对象视为等价', () => {
+    expect(sourceEqual(undefined, undefined)).toBe(true);
+    expect(sourceEqual({}, undefined)).toBe(true);
+    expect(sourceEqual(undefined, {})).toBe(true);
+    expect(sourceEqual({}, {})).toBe(true);
+  });
+
+  it('相同键值与不同键序判定相等', () => {
+    expect(sourceEqual({ a: 1, b: 'x' }, { b: 'x', a: 1 })).toBe(true);
+    expect(sourceEqual({ a: [1, 2], b: { c: true } }, { a: [1, 2], b: { c: true } })).toBe(true);
+  });
+
+  it('字段增删改判定不等', () => {
+    expect(sourceEqual({ a: 1 }, undefined)).toBe(false);
+    expect(sourceEqual(undefined, { a: 1 })).toBe(false);
+    expect(sourceEqual({ a: 1 }, { a: 2 })).toBe(false);
+    expect(sourceEqual({ a: 1 }, { a: 1, b: 2 })).toBe(false);
+  });
+});
 
 describe('noteEqual（语义相等，键缺省 === 假值）', () => {
   it('subBeat 缺省 ≡ 0；键序不同也相等', () => {
@@ -25,6 +47,21 @@ describe('noteEqual（语义相等，键缺省 === 假值）', () => {
     expect(noteEqual(single(4, 2, { flick: true }), single(4, 2))).toBe(false);
     expect(noteEqual(single(4, 2, { skill: true }), single(4, 2, { flick: true }))).toBe(false);
     expect(noteEqual(single(4, 2), { beat: 4, lane: 2, type: 'LDirectional', length: 1 } as ChartNote)).toBe(false);
+  });
+  it('charge 属性差异 → 不等（issue 221）', () => {
+    expect(noteEqual(single(4, 2), single(4, 2, { charge: true }))).toBe(false);
+    expect(noteEqual(single(4, 2, { charge: true }), single(4, 2, { charge: false }))).toBe(false);
+  });
+  it('source 属性差异 → 不等（issue 221）', () => {
+    const withCustom = single(4, 2, { source: { beat: 4, lane: 2, customAttr: 123 } });
+    expect(noteEqual(single(4, 2), withCustom)).toBe(false);
+
+    const withCrossType = single(4, 2, { source: { beat: 4, lane: 2, direction: 'Left', width: 2 } });
+    expect(noteEqual(single(4, 2), withCrossType)).toBe(false);
+    expect(noteEqual(withCustom, withCrossType)).toBe(false);
+
+    const sameCrossType = single(4, 2, { source: { beat: 4, lane: 2, direction: 'Left', width: 2 } });
+    expect(noteEqual(withCrossType, sameCrossType)).toBe(true);
   });
   it('方向键 length 差异 → 不等（length+1 是真实改动，不能被去重吞掉）', () => {
     expect(noteEqual(
@@ -52,13 +89,32 @@ describe('noteEqual（语义相等，键缺省 === 假值）', () => {
       { type: 'Slide', connections: [{ ...c1, flick: true, hidden: false }, { ...c2, subBeat: 0 }] },
     )).toBe(true);
   });
-  it('BPM/System 字段比较', () => {
+  it('滑条结点 source / charge 差异 → 不等（issue 221）', () => {
+    const c1 = { beat: 1, lane: 0 }, c2 = { beat: 2, lane: 3 };
+    const withConnSource = {
+      type: 'Slide' as const,
+      connections: [{ ...c1, source: { beat: 1, lane: 0, custom: 'x' } }, c2],
+    };
+    expect(noteEqual({ type: 'Slide', connections: [c1, c2] }, withConnSource)).toBe(false);
+
+    const withConnCharge = {
+      type: 'Slide' as const,
+      connections: [{ ...c1, charge: true }, c2],
+    };
+    expect(noteEqual({ type: 'Slide', connections: [c1, c2] }, withConnCharge)).toBe(false);
+  });
+  it('BPM/System 字段比较（含 source）', () => {
     expect(noteEqual(bpm0, { beat: 0, type: 'BPM', bpm: 120 })).toBe(true);
     expect(noteEqual(bpm0, { beat: 0, type: 'BPM', bpm: 180 })).toBe(false);
+    expect(noteEqual(bpm0, { beat: 0, type: 'BPM', bpm: 120, source: { extra: 1 } })).toBe(false);
     expect(noteEqual(
       { beat: 0, type: 'System', data: 'a' },
       { beat: 0, type: 'System', data: 'a' },
     )).toBe(true);
+    expect(noteEqual(
+      { beat: 0, type: 'System', data: 'a' },
+      { beat: 0, type: 'System', data: 'a', source: { extra: 1 } },
+    )).toBe(false);
   });
 });
 
@@ -86,6 +142,14 @@ describe('notesEqual + pushHistoryIfChanged（历史去重）', () => {
     h = pushHistoryIfChanged(h, [bpm0, single(4, 2)], notesEqual);
     h = pushHistoryIfChanged(h, [bpm0, single(4, 2), single(8, 3)], notesEqual);
     expect(currentHistory(h)).toHaveLength(3);
+  });
+
+  it('仅修改自定义字段或跨类型属性（beat/lane 不变）→ 必须压栈，不能被历史去重吞掉（issue 221）', () => {
+    let h = createHistory<ChartNote[]>([bpm0, single(4, 2)]);
+    const withCustom = [bpm0, single(4, 2, { source: { beat: 4, lane: 2, customField: 'hello', width: 2 } })];
+    h = pushHistoryIfChanged(h, withCustom, notesEqual);
+    expect(h.stack).toHaveLength(2);
+    expect(currentHistory(h)[1].source).toEqual({ beat: 4, lane: 2, customField: 'hello', width: 2 });
   });
 
   it('场景回归：同位置重复放置同一单键 → 一次 Ctrl+Z 即退掉该音符', () => {

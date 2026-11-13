@@ -30,21 +30,51 @@ describe('chart-preview 22 · 预览播放条复用工作台 PlayBar', () => {
     expect(bar).toMatch(/play-bar--\$\{variant\}/); // 外壳两档变体由它自己拼
   });
 
-  it('工作台接线：数据入口逐条显式传入（票 22「拨接不变」的可读版本）', () => {
+  it('工作台接线：数据入口逐条显式传入（票 22；票 232 起时间码由 WorkspacePlayBar 自读）', () => {
     expect(ws).toMatch(/isPlaying=\{ctxIsPlaying\}/);
-    expect(ws).toMatch(/currentSeconds=\{playheadSeconds\}/);
     expect(ws).toMatch(/duration=\{ctxDuration\}/);
-    expect(ws).toMatch(/volume=\{ctxVolume\}/);
+    expect(ws).toMatch(/volume=\{settings\.audio\.volume\}/);
     expect(ws).toMatch(/audioLocked=\{audioSnap\.audioLocked\}/);
     // 行为口径：工作台与动态预览对齐，均允许双击时间码编辑定位（issue 168）；播放中掩手形光标照旧
     expect(ws).toMatch(/canEditTime/);
     expect(ws).not.toMatch(/canEditTime=\{!canPlay\}/);
     expect(ws).toMatch(/seekNoCursor=\{!canPlay && ctxIsPlaying\}/);
     expect(ws).toMatch(/shortcutKey=\{formatKey\(shortcutConfig\.play\)\}/);
+    // 58：工作台也传 rateSlot（此前"预览专属、工作台不传"的口径已改）
+    expect(ws).toMatch(/rateSlot=\{<PlaybackRate/);
   });
 
-  it('预览页只接管 play 这一个功能键（Q2），其余绑定放行原生行为', () => {
+  it('票 232 · 80ms 时间码由 WorkspacePlayBar 自读，工作台页不消费也不再传 currentSeconds', () => {
+    const wrapper = readStripped('src/pages/workspace/WorkspacePlayBar.tsx');
+    expect(ws).toMatch(/<WorkspacePlayBar/);
+    expect(ws).not.toMatch(/currentSeconds=/);
+    expect(ws).toMatch(/usePlaybackState\(\)/);
+    expect(wrapper).toMatch(/usePlaybackSeconds\(\)/);
+    expect(wrapper).toMatch(/<PlayBar \{\.\.\.props\} currentSeconds=\{currentSeconds\}/);
+  });
+
+  it('票 60 · 两处主音量同源：动态预览也读 settings.audio.volume（工作台见上一条）', () => {
+    const page = readStripped('src/pages/preview/PreviewPage.tsx');
+    expect(page).toMatch(/volume=\{settings\.audio\.volume\}/);
+    // 工作台那条在「数据入口」用例已断言；这里补一道负锁，防旧的页面内 0.8 口径回潮
+    expect(ws).not.toMatch(/volume=\{ctxVolume\}/);
+  });
+
+  it('倍速值一个共享单点：两处 rateSlot 都读 usePlaybackRate，工作台经 AudioSession 转发引擎', () => {
+    const shared = readStripped('src/playback/playbackRateState.ts');
+    expect(shared).toMatch(/useSyncExternalStore/);   // 实时同步的共享内存单点
+    expect(shared).toMatch(/PLAYBACK_RATE_RANGE/);    // 区间以引擎为唯一真相源
+    expect(stage).toMatch(/usePlaybackRate\(\)/);
+    expect(stage).not.toMatch(/useState<number>\(1\)/); // 撤掉预览侧页面内私有 state
+    expect(ws).toMatch(/usePlaybackRate\(\)/);
+    expect(ws).toMatch(/audioSession\.setPlaybackRate\(rate\)/);
+    const session = readStripped('src/audio/AudioSession.ts');
+    expect(session).toMatch(/setPlaybackRate\(rate: number\)/);
+  });
+
+  it('预览页只接管 play + 倍速/音量四键（Q2 / issue 230），其余绑定放行原生行为', () => {
     expect(stage).toMatch(/only: PLAY_ONLY/);
-    expect(stage).toMatch(/const PLAY_ONLY: readonly FunctionId\[\] = \['play'\]/);
+    expect(stage).toMatch(/const PLAY_ONLY: readonly FunctionId\[\] = \['play', \.\.\.PLAYBACK_SHORTCUT_IDS\]/);
+    expect(stage).toMatch(/noRepeat: PLAYBACK_SHORTCUT_IDS/);
   });
 });

@@ -4,12 +4,13 @@
 // combo 与键音同一份事件表（`AudioTiming.buildKeyEvents`）、镜向含方向箭头翻面。
 import { describe, expect, it } from 'vitest';
 import type { ChartNote, SingleNote, SlideNote } from '@/src/chart/types';
-import { beatToSeconds, getBpmEvents } from '@/src/audio/AudioTiming';
+import { beatSecondsAt, beatToSeconds, getBpmEvents } from '@/src/audio/AudioTiming';
 import { comboNodePreciseBeats } from '@/src/chart/editing/NoteEditing';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import CanvasSpriteIcon from '@/src/ui/CanvasSpriteIcon';
 import {
   buildSimChart,
+  buildSimChartInChunks,
   drawSimFrameAt,
   simComboAt,
   SIM_FALLBACK_BG,
@@ -231,5 +232,51 @@ describe('drawSimFrameAt · 一帧绘制', () => {
     const after = recordingCtx();
     drawSimFrameAt(after.proxy, f, 1.6);
     expect(fillTexts(after.calls).map(([, [text]]) => text)).toEqual(['2', 'COMBO']);
+  });
+});
+
+describe('票 69 · 分批派生与 BPM 复用', () => {
+  const mixed: ChartNote[] = [
+    { type: 'BPM', beat: 0, bpm: 120 } as ChartNote,
+    { type: 'BPM', beat: 8, bpm: 150 } as ChartNote,
+    single(1, 0),
+    single(2, 3, { flick: true }),
+    slide([{ beat: 3, lane: 1 }, { beat: 4, lane: 4, hidden: true }, { beat: 5, lane: 6 }]),
+    single(10, 2, { subBeat: 2 }),
+  ];
+
+  it('分批派生与同步派生逐字段等价（同一份 scene / BPM 事件）', async () => {
+    const sc = scene(mixed);
+    const bpmEvents = getBpmEvents(sc.notes);
+    let yields = 0;
+    const chunked = await buildSimChartInChunks(sc, icons, {
+      bpmEvents,
+      chunkNotes: 2,
+      yieldNow: async () => { yields += 1; },
+    });
+    expect(chunked).toEqual(buildSimChart(sc, icons, bpmEvents));
+    expect(yields).toBeGreaterThan(1); // 确实分片了，不是一口气跑完
+  });
+
+  it('作废的派生返回 null，且不再继续跑后续块', async () => {
+    let cancelled = false;
+    let yields = 0;
+    const result = await buildSimChartInChunks(scene(mixed), icons, {
+      chunkNotes: 2,
+      yieldNow: async () => { yields += 1; cancelled = true; },
+      isCancelled: () => cancelled,
+    });
+    expect(result).toBeNull();
+    expect(yields).toBe(1);
+  });
+
+  it('显式传入 BPM 事件与内部提取等价；复用时间线与逐次 beatToSeconds 同值', () => {
+    const sc = scene(mixed);
+    const events = getBpmEvents(sc.notes);
+    expect(buildSimChart(sc, icons, events)).toEqual(buildSimChart(sc, icons));
+    const secondsOf = beatSecondsAt(events);
+    for (const beat of [0, 1.5, 7.25, 12, 42]) {
+      expect(secondsOf(beat)).toBe(beatToSeconds(events, beat));
+    }
   });
 });

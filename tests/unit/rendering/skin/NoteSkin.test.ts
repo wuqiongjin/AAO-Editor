@@ -16,7 +16,7 @@ import {
 import { LANE_WIDTH } from '@/src/chart/geometry/ChartGeometry';
 import { readPackSkinName } from '@/src/rendering/skin/skinDisplayName';
 import type { SpriteIconConfig } from '@/src/ui/CanvasSpriteIcon';
-import { defaultSettings, loadSettings, updateSettings } from '@/src/chart/config/AppSettings';
+import { defaultSettings, loadSettings, updateSettings } from '@/src/settings/AppSettings';
 
 const notePacks = NOTE_SKIN_PACKS.filter((p): p is NoteSkinPackNote => p.kind === 'note');
 const dirPacks = NOTE_SKIN_PACKS.filter((p): p is NoteSkinPackDirectional => p.kind === 'directional');
@@ -245,6 +245,11 @@ describe('buildActiveNoteIcons（扁平化 + 墨迹组合，2026-08-24 视觉修
     expect(icons.dirGroup('R', 4.25).chevron!.offsetVirtualX).toBeCloseTo(3.25 * LANE_WIDTH, 8);
     expect(icons.dirGroup('R', 0.25).bodies).toHaveLength(1);
     expect(icons.dirGroup('L', 0).bodies).toHaveLength(0);
+  });
+
+  it('issue 29/222：方向键外侧箭头咬合量对齐（保持官方 3px 紧密咬合标准）', () => {
+    // 维持 Bestdori 官方实机基准（3px 紧密咬合，箭头内凹自然包裹本体尖端，严禁脱节分离）
+    expect(NOTE_SKIN_GEOMETRY.DIR_CHEVRON_INTO_BODY).toBe(3);
   });
 
   it('dirGroup：方向键装饰箭头与本体部分重叠（用户 2026-08-25 第 2/3 轮反馈，参照图2 穿越观感）', () => {

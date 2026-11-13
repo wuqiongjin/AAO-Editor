@@ -3,7 +3,9 @@ import { describe, test, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { buildNoteCode, applyNoteCode, noteCodeTargetForHit, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText, type NoteCodeTarget } from '@/src/chart/editing/NoteCodeOps';
-import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
+import { convertNotesToChartCode, type ChartCodeNote } from '@/src/chart/editing/ChartConverter';
+import { createChartEditingState, commitNotes } from '@/src/chart/editing/ChartEditingState';
+import { currentHistory } from '@/src/chart/editing/History';
 import type { ChartNote, SlideNote } from '@/src/chart/types';
 import { repoRoot } from '@/tests/support/source';
 
@@ -44,6 +46,19 @@ describe('§4 buildNoteCode 初值', () => {
         ])];
         expect(buildNoteCode(ns, node(0, 1))).toEqual([{ beat: 2, lane: 3, type: 'Single', hidden: true, skill: true }]);
         expect(buildNoteCode(ns, node(0, 2))).toEqual([{ beat: 3, lane: 6, type: 'Single', flick: true }]);
+    });
+
+    test('滑条结点携带 source 自定义属性或跨类型属性 → 初值投影包含这些属性（issue 221）', () => {
+        const ns: ChartNote[] = [{
+            type: 'Slide',
+            connections: [
+                { beat: 1, lane: 0, source: { beat: 1, lane: 0, customField: 'hello', width: 2 } },
+                { beat: 2, lane: 3 },
+            ],
+        }];
+        expect(buildNoteCode(ns, node(0, 0))).toEqual([
+            { beat: 1, lane: 0, type: 'Single', customField: 'hello', width: 2 },
+        ]);
     });
 
     test('目标不存在 / 非滑条给结点下标 → null；System 整条可投影', () => {
@@ -171,6 +186,54 @@ describe('§5 applyNoteCode 滑条结点', () => {
         expect((r.notes[2] as SlideNote).connections[1].hidden).toBe(true);
     });
 
+    test('滑条结点回写自定义属性与跨类型属性 → 保留在 connection.source 且不污染 type（issue 221）', () => {
+        const ns: ChartNote[] = [
+            { beat: 0, type: 'BPM', bpm: 120 },
+            {
+                type: 'Slide',
+                connections: [
+                    { beat: 1, lane: 2 },
+                    { beat: 2, lane: 3 },
+                ],
+            },
+        ];
+        const r = applyNoteCode(ns, node(1, 0), [
+            { beat: 1, lane: 2, type: 'Single', customField: 123, direction: 'Left', width: 2 } as any,
+        ]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const conn = (r.notes[1] as SlideNote).connections[0];
+        expect(conn.source).toEqual({
+            beat: 1, lane: 2, customField: 123, direction: 'Left', width: 2,
+        });
+        // 导出检验：不能把 type:"Single" 写入 Slide 的 connection
+        const back = convertNotesToChartCode(r.notes);
+        const backSlide = back[1] as any;
+        expect(backSlide.connections[0]).toEqual({
+            beat: 1, lane: 2, customField: 123, direction: 'Left', width: 2,
+        });
+        expect(backSlide.connections[0].type).toBeUndefined();
+    });
+
+    test('滑条结点若删除了自定义属性 → 回写后 source 被清除（issue 221）', () => {
+        const ns: ChartNote[] = [
+            { beat: 0, type: 'BPM', bpm: 120 },
+            {
+                type: 'Slide',
+                connections: [
+                    { beat: 1, lane: 2, source: { beat: 1, lane: 2, customField: 123 } },
+                    { beat: 2, lane: 3 },
+                ],
+            },
+        ];
+        // 仅保留标准 Single 字段
+        const r = applyNoteCode(ns, node(1, 0), [{ beat: 1, lane: 2, type: 'Single' }]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const conn = (r.notes[1] as SlideNote).connections[0];
+        expect(conn.source).toBeUndefined();
+    });
+
     test('目标音符/结点不存在 → 报错不回写', () => {
         expect(applyNoteCode(notes, node(99, 0), [{ beat: 1, lane: 1, type: 'Single' }]).ok).toBe(false);
         expect(applyNoteCode(notes, node(2, 9), [{ beat: 1, lane: 1, type: 'Single' }]).ok).toBe(false);
@@ -289,9 +352,78 @@ describe('issue 93 · applySegmentCode 子段回写（可编辑回写）', () =>
         expect(applyNoteCode(segNotes, seg, shrink).ok).toBe(true);
         // 目标段失效（越界）
         expect(applyNoteCode(segNotes, segTarget(1, 3, 9), segTargetCode()).ok).toBe(false);
-        function segTargetCode(): ChartCodeNote[] {
-            return [{ type: 'Slide', connections: [{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }] }];
-        }
+        function segTargetCode(): ChartCodeNote[] { return [{ type: 'Slide', connections: [{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }] }]; }
+        
+    });
+
+    test('子段回写一动就自由化：回写的段从 spanParams.bySpan 中移除（issue 225 / Q4=A）', () => {
+        const slideWithParams: SlideNote = {
+            type: 'Slide',
+            connections: [
+                { beat: 0, lane: 1 },
+                { beat: 1, lane: 2, hidden: true },
+                { beat: 2, lane: 1 },
+                { beat: 3, lane: 3, hidden: true },
+                { beat: 4, lane: 5 },
+            ],
+            spanParams: {
+                visibleCount: 3,
+                bySpan: {
+                    0: { kind: 'template', templateId: 'arc', precision: 16 },
+                    1: { kind: 'easing', family: 'quad', type: 'in', precision: 16 },
+                },
+            },
+        };
+        const notes = [slideWithParams];
+        const target: NoteCodeTarget = { noteIndex: 0, span: { start: 0, end: 2 } };
+        const code: ChartCodeNote[] = [{
+            type: 'Slide',
+            connections: [
+                { beat: 0, lane: 1 },
+                { beat: 1, lane: 4, hidden: true },
+                { beat: 2, lane: 1 },
+            ],
+        }];
+        const r = applyNoteCode(notes, target, code);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const resSlide = r.notes[0] as SlideNote;
+        expect(resSlide.spanParams?.bySpan[0]).toBeUndefined();
+        expect(resSlide.spanParams?.bySpan[1]).toBeDefined();
+    });
+
+    test('子段回写若增删可见结点：整条拓扑重组，全部 spanParams 失效清空（issue 225 / ADR-0009 §1）', () => {
+        const slideWithParams: SlideNote = {
+            type: 'Slide',
+            connections: [
+                { beat: 0, lane: 1 },
+                { beat: 2, lane: 1 },
+                { beat: 4, lane: 5 },
+            ],
+            spanParams: {
+                visibleCount: 3,
+                bySpan: {
+                    0: { kind: 'template', templateId: 'arc', precision: 16 },
+                    1: { kind: 'easing', family: 'quad', type: 'in', precision: 16 },
+                },
+            },
+        };
+        const notes = [slideWithParams];
+        const target: NoteCodeTarget = { noteIndex: 0, span: { start: 0, end: 1 } };
+        // 在该段中间增加一个可见结点（lane 3, 非 hidden）
+        const code: ChartCodeNote[] = [{
+            type: 'Slide',
+            connections: [
+                { beat: 0, lane: 1 },
+                { beat: 1, lane: 3 },
+                { beat: 2, lane: 1 },
+            ],
+        }];
+        const r = applyNoteCode(notes, target, code);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const resSlide = r.notes[0] as SlideNote;
+        expect(resSlide.spanParams).toBeUndefined();
     });
 });
 
@@ -454,5 +586,66 @@ describe('issue 94 · 弹窗接线断言（初值/校验/应用三处都走裸�
         expect(modalSrc).toContain('applyNoteCode(notes, target, coerced.code)');
         expect(modalSrc).not.toContain('applyNoteCode(notes, target, parsedCode)');
         // 「同一份文本只解析一次」的接线事实由 tests/static/ChartCodeParseOnce.test.ts 统一锁，此处不重复
+    });
+});
+
+describe('issue 221 · 对象视图回写自定义属性与跨类型属性（端到端经过 commitNotes）', () => {
+    test('单音符回写自定义属性与跨类型字段 → 经过 commitNotes 成功压栈并在 buildNoteCode 读出', () => {
+        const initialNotes: ChartNote[] = [bpm(0, 120), single(1, 2)];
+        let state = createChartEditingState(initialNotes);
+
+        const r = applyNoteCode(initialNotes, whole(1), [{
+            beat: 1, lane: 2, type: 'Single',
+            customAttr: 'test_val', direction: 'Left', width: 2,
+        } as any]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+
+        state = commitNotes(state, r.notes);
+        const curr = currentHistory(state.history);
+        expect(curr[1].source).toEqual({
+            beat: 1, lane: 2, type: 'Single',
+            customAttr: 'test_val', direction: 'Left', width: 2,
+        });
+
+        // 再次作为初值读出
+        const back = buildNoteCode(curr, whole(1));
+        expect(back).toEqual([{
+            beat: 1, lane: 2, type: 'Single',
+            customAttr: 'test_val', direction: 'Left', width: 2,
+        }]);
+    });
+
+    test('滑条结点回写自定义属性与跨类型字段 → 经过 commitNotes 成功压栈并在 buildNoteCode 读出', () => {
+        const initialNotes: ChartNote[] = [
+            bpm(0, 120),
+            slide([{ beat: 1, lane: 1 }, { beat: 2, lane: 2 }]),
+        ];
+        let state = createChartEditingState(initialNotes);
+
+        const r = applyNoteCode(initialNotes, node(1, 0), [{
+            beat: 1, lane: 1, type: 'Single',
+            customAttr: 'node_val', direction: 'Right', width: 3,
+        } as any]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+
+        state = commitNotes(state, r.notes);
+        const curr = currentHistory(state.history);
+        const back = buildNoteCode(curr, node(1, 0));
+        expect(back).toEqual([{
+            beat: 1, lane: 1, type: 'Single',
+            customAttr: 'node_val', direction: 'Right', width: 3,
+        }]);
+    });
+
+    test('单音符回写时当 beat 相同保留原 subBeat', () => {
+        const initialNotes: ChartNote[] = [bpm(0, 120), { type: 'Single', beat: 1, lane: 2, subBeat: 0.25 }];
+        const r = applyNoteCode(initialNotes, whole(1), [{
+            beat: 1, lane: 2, type: 'Single', customAttr: 123,
+        } as any]);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        expect((r.notes[1] as any).subBeat).toBe(0.25);
     });
 });

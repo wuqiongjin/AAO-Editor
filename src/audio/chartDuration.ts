@@ -11,7 +11,7 @@
 // （issue 28 P6：30 分钟），下界沿用 `AudioSession` 一路在用的 0.1。
 //
 // 注：`AudioSession` 的 `clampFinite` 留着 —— 它服务 [0,1] 的音量 / SE 口径，不是时长口径。
-import { MAX_DURATION_SECONDS } from '../chart/config/AppSettings';
+import { MAX_DURATION_SECONDS } from '../settings/AppSettings';
 
 /** 无音频时的默认谱面长度（秒，ADR-0005 §4：可手动改并持久化） */
 export const DEFAULT_CHART_DURATION_SECONDS = 30;

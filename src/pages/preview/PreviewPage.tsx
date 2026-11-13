@@ -31,7 +31,7 @@ import {
 import { countChartNotes } from '../../chart/editing/NoteEditing';
 import { notesEqual } from '../../chart/editing/NotesEqual';
 import type { ChartNote } from '../../chart/types';
-import { mergeOpening } from '../../chart/config/AppSettings';
+import { mergeOpening } from '../../settings/AppSettings';
 import { getBpmEvents } from '../../audio/AudioTiming';
 import {
   chartEffectiveTitle,
@@ -45,7 +45,7 @@ import { t, type MessageKey } from '../../i18n';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
 import PreviewStaticToolbar, { PreviewEnterFullscreenButton, PreviewExitFullscreenButton } from './PreviewStaticToolbar';
 import PreviewDisplayPanel from './PreviewDisplayPanel';
-import PreviewVideoStage from './PreviewVideoStage';
+import PreviewVideoStage, { type VideoSyncToken } from './PreviewVideoStage';
 import VideoExportControl from './VideoExportControl';
 import { usePreviewScope } from './usePreviewScope';
 import { useVideoExport, exportDoneText } from './useVideoExport';
@@ -62,7 +62,11 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   const { settings, setAudioVolume, setExport } = useConfig();
   const { beatDisplay } = useUI();
   const [mode, setMode] = useState<PreviewMode>('static');
-  const { scopeId, currentId, project, options, loading, chartId, pickChart } = usePreviewScope(active);
+  /** 票 69：切动态形态前先让加载态 / 骨架画出来，再挂载仿真场 */
+  const [pendingMode, setPendingMode] = useState<PreviewMode | null>(null);
+  /** 等待那一帧里连点 / 点回静态：只有最后一次点按的令牌有权落地 */
+  const switchTokenRef = useRef(0);
+  const { scopeId, currentId, project, options, loading, chartId, pickChart, dataVersion, checking } = usePreviewScope(active);
 
   // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
   const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
@@ -159,6 +163,18 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     };
   }, [project, chart, settings.display, settings.visual?.noteSkin, beatDisplay]);
 
+  // 票 70：激活那一帧就盖住保活页的旧画布。
+  // `checking` 由 hook 在 layout 阶段置位（paint 前），盖住 flushPersist + store.get() 这段异步读盘；
+  // 读回来若没换代就撤掉（常态切回只多一层覆盖，不重画、不出图），真换代则由
+  // `staticPaintDeferred` 继续撑到可见面板分批出完。缩放 / 显示档换代两者都不动。
+  const [ackedPaintVersion, setAckedPaintVersion] = useState(0);
+  const handleStaticPainted = useCallback((version: number) => {
+    setAckedPaintVersion((prev) => Math.max(prev, version));
+  }, []);
+  const staticPaintDeferred = dataVersion > ackedPaintVersion;
+  const staticVisible = mode === 'static' && pendingMode !== 'video';
+  const staticPaintPending = staticVisible && scene != null && (checking || staticPaintDeferred);
+
   // 动态形态要画的那份谱面（票 05）：仿真场的画面输入 = 谱面 + 作者设置（音符速度 / 镜向 /
   // 背景包 / 轨道包来自 `settings.preview`，其余是画布共享项 `settings.display`——与静态预览同一份数据）。
   // 背景 / 轨道包（41）随 scene 走 ⇒ 实时预览、视频导出、开场第③段三处画面一致（ADR-0018 §5）。
@@ -179,6 +195,23 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       bgBrightness: settings.preview.bgBrightness,
     };
   }, [project, chart, settings.display, settings.preview, beatDisplay]);
+
+  // 票 69 复验整改：保活在动态形态时若工作台改了谱再直切回来（不经过静态预览），
+  // 在 checking 与 (dataVersion, chartId) 异步分片派生完成并推入 pb.setFrame 前遮住整个舞台，
+  // 防止用户看见编辑前旧帧、PlayBar 游标突跳回 00:00.0 及旧谱第 0 秒闪回；未编辑与调设置项零遮罩。
+  const videoVisible = mode === 'video' && pendingMode !== 'video';
+  const hasVideoScene = videoScene != null;
+  const videoSyncToken = useMemo<VideoSyncToken | null>(
+    () => (hasVideoScene ? { dataVersion, chartId: chartId ?? null } : null),
+    [hasVideoScene, dataVersion, chartId],
+  );
+  const [ackedVideoToken, setAckedVideoToken] = useState<VideoSyncToken | null>(null);
+  useEffect(() => {
+    if (!videoVisible || videoSyncToken == null) setAckedVideoToken(null);
+  }, [videoVisible, videoSyncToken]);
+  const videoSyncDeferred = ackedVideoToken != null && videoSyncToken != null && ackedVideoToken !== videoSyncToken;
+  const videoPaintPending = videoVisible && hasVideoScene && (checking || videoSyncDeferred);
+  const stagePaintPending = staticPaintPending || videoPaintPending;
 
   // 仿真场的声源 = **作用域工程**自己的音频（票 05 定案：仿真场自持引擎；作用域切到非当前工程也有声）
   // 缓存稳定引用：切页重读 IndexedDB 时相同 Blob 不换对象，避免无谓重建引擎与重新解码
@@ -311,6 +344,31 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     }
   }, [scene, chart, exporting, project, settings.export]);
 
+  /**
+   * 票 69：切到动态形态会挂载仿真场，首帧那段谱面派生 / 首帧光栅是同步长活。
+   * 先把舞台的加载态提交并真正画出来（`waitForPaint` = rAF + 帧后宏任务），再 setMode；
+   * 静态形态没有这一步，直接切。连点由 ref 挡住，不会排起两轮形态切换。
+   */
+  const switchMode = useCallback((next: PreviewMode) => {
+    if (next === mode && pendingMode == null) return;
+    const token = ++switchTokenRef.current;
+    if (next === 'static') {
+      // 等待那一帧里点回静态：连加载态一起收掉，旧的异步切换作废
+      setPendingMode(null);
+      setMode('static');
+      return;
+    }
+    setPendingMode(next);
+    void (async () => {
+      try {
+        await waitForPaint();
+        if (switchTokenRef.current === token) setMode(next);
+      } finally {
+        if (switchTokenRef.current === token) setPendingMode(null);
+      }
+    })();
+  }, [mode, pendingMode]);
+
   return (
     // 票 10：自渲染全幅壳（页头 → 工具栏 → 舞台），把宽高让给画面；
     // 原左侧模式侧栏随之撤销，模式切换升为页头（2026-10-02 用户验收）。
@@ -327,7 +385,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               type="button"
               className={`preview-modes__btn${mode === m.id ? ' is-active' : ''}`}
               aria-pressed={mode === m.id}
-              onClick={() => setMode(m.id)}
+              onClick={() => void switchMode(m.id)}
             >
               <m.icon size={18} aria-hidden />
               {t(m.labelKey)}
@@ -401,6 +459,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                     onStart={() => void handleVideoExport()}
                     onCancel={videoExport.cancel}
                     progress={videoExport.progress}
+                    cancelling={videoExport.cancelling}
                     notice={videoExport.notice}
                     onDismissNotice={videoExport.dismissNotice}
                     support={videoExport.support}
@@ -418,8 +477,28 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
             className={`preview-stage${(mode === 'static' && scene) || (mode === 'video' && videoScene) ? ' is-filled' : ''}`}
             data-mode={mode}
           >
-            {mode === 'static' && scene ? (
-              <StaticPreviewView scene={scene} zoom={zoom} markers={settings.preview} onZoom={setZoom} />
+            {/* 票 70 复验整改：切换到动态形态时静态画布保活隐藏（不卸载 DOM、不销毁位图），
+                点回静态时直接显形，零重绘零卡顿。 */}
+            {scene && (
+              <div
+                className={staticVisible ? 'preview-stage__static' : 'preview-stage__static is-hidden'}
+                aria-hidden={!staticVisible || undefined}
+              >
+                <StaticPreviewView
+                  scene={scene}
+                  zoom={zoom}
+                  markers={settings.preview}
+                  onZoom={setZoom}
+                  visible={active && staticVisible}
+                  paintVersion={dataVersion}
+                  deferPaint={staticPaintDeferred}
+                  onPaintComplete={handleStaticPainted}
+                />
+              </div>
+            )}
+            {pendingMode === 'video' && videoScene ? (
+              // 票 69：切形态那一帧先见加载态，仿真场（及其谱面派生）在下一帧才挂载
+              <p className="preview-stage__pending">{t('preview.video.loading')}</p>
             ) : mode === 'video' && videoScene ? (
               <PreviewVideoStage
                 active={active}
@@ -438,11 +517,20 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 timePrecision={settings.display.timePrecision}
                 // 空格（play）页面级接管（issue 22 Q2）：配置从设置域取，预览条那层不直读 context
                 shortcuts={settings.shortcuts}
+                syncToken={videoSyncToken}
+                onSyncComplete={setAckedVideoToken}
               />
-            ) : (
+            ) : mode === 'static' && scene ? null : (
               <p className="preview-stage__pending">
                 {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.empty')}
               </p>
+            )}
+            {/* 票 70 / 票 69 复验整改：数据换代期间盖住保活舞台的陈旧画面，直到静态分批出图或动态分片派生推帧确认 */}
+            {stagePaintPending && (
+              <div className="preview-stage__paint-pending" role="status" aria-live="polite">
+                <span className="preview-stage__paint-spinner" aria-hidden="true" />
+                {t(videoPaintPending ? 'preview.video.updating' : 'preview.static.loading')}
+              </div>
             )}
             {/* 浮层**不看画面**（issue 12）：谱面没音符时也要有出口 —— 否则全屏下除 Esc 无路可走 */}
             {fullscreen && (

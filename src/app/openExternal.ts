@@ -11,15 +11,13 @@
  *     社区链接在浏览器里本来就不该有（没有账号能力，`openCommunitySite` 返回 false），
  *     而产品入口在在线版同样要能点 —— 所以这条有降级。
  */
-export interface ExternalLinkBridge {
-  openExternal(url: string): Promise<boolean>;
-}
+import { getElectronAPI, type ExternalLinkBridge } from './electronBridge';
 
-/** 读桥；浏览器 / SSR（没有 window）返回 null。桥形状由消费方就近声明，没有集中 d.ts。 */
+export type { ExternalLinkBridge } from './electronBridge';
+
+/** 读桥；浏览器 / SSR（没有 window）返回 null。 */
 export function getExternalLinkBridge(): ExternalLinkBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { shell?: ExternalLinkBridge } }).electronAPI;
-  return api?.shell ?? null;
+  return getElectronAPI()?.shell ?? null;
 }
 
 /**

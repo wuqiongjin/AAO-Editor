@@ -48,7 +48,8 @@ export class PlaybackScrollModel {
   private playing = false;          // 播放中 RAF 独占滚动，重锚让位
   private anchorSeconds = 0;        // 「判定线处秒数」实时锚点
   private pendingAnchorKey: string | null = null; // 待重锚标记（chartEndKey）
-  private lastChartEndKey: string | null = null;  // 最近注入的末端 key（issue 166 RC-1：置位与几何同帧）
+  private lastChartEndKey: string | null = null;
+  judgeLineOffsetPx: number = 0;  // 最近注入的末端 key（issue 166 RC-1：置位与几何同帧）
 
   constructor(geometry: ChartGeometry, scale: number) {
     this.geometry = geometry;
@@ -73,25 +74,44 @@ export class PlaybackScrollModel {
     }
   }
 
-  // ---------------- 三域互映：seconds ↔ scrollY ↔ scrollTop ----------------
-
-  /** 谱面末端虚拟高度 = 可滚 scrollY 上限（= 原 getVirtualHeight / getMaxScrollY 的钳制上界）。 */
-  maxCanvasScrollY(): number {
-    return this.geometry.chartEndVirtualY;
+  setJudgeLineOffset(offsetPx: number): void {
+    const offsetChanged = this.judgeLineOffsetPx !== offsetPx;
+    this.judgeLineOffsetPx = offsetPx;
+    if (offsetChanged && this.initialized && !this.playing) {
+      this.pendingAnchorKey = 'offset:' + offsetPx;
+    }
   }
 
-  /** 判定线=画布底边：scrollY=0 时判定线在末端，scrollY=chartEndY 时判定线在 beat0。 */
+  // ---------------- 三域互映：seconds ↔ scrollY ↔ scrollTop ----------------
+
+  /** 虚拟位移偏移量（判定线向上偏移折算为虚拟 px） */
+  offsetVirtualY(): number {
+    const es = this.effectiveScale();
+    return this.judgeLineOffsetPx > 0 && es > 0 ? this.judgeLineOffsetPx / es : 0;
+  }
+
+  /** 谱面末端虚拟高度 = 可滚 scrollY 上限（起点 beat 0 落在判定线）。 */
+  maxCanvasScrollY(): number {
+    return this.geometry.chartEndVirtualY + this.offsetVirtualY();
+  }
+
+  /** 可滚 scrollY 下限（终点 chartEnd 落在判定线）。 */
+  minCanvasScrollY(): number {
+    return this.offsetVirtualY();
+  }
+
+  /** 判定线锚定：scrollY=minCanvasScrollY 时判定线在末端，scrollY=maxCanvasScrollY 时判定线在 beat0。 */
   scrollYForSeconds(seconds: number): number {
-    const raw = this.geometry.chartEndVirtualY - seconds * this.geometry.virtualPxPerSecond;
-    return clamp(raw, 0, this.maxCanvasScrollY());
+    const raw = this.maxCanvasScrollY() - seconds * this.geometry.virtualPxPerSecond;
+    return clamp(raw, this.minCanvasScrollY(), this.maxCanvasScrollY());
   }
 
   /** scrollY → 判定线处秒数（与 scrollYForSeconds 互逆，纯线性）。 */
   secondsForScrollY(scrollY: number): number {
-    const clamped = clamp(scrollY, 0, this.maxCanvasScrollY());
+    const clamped = clamp(scrollY, this.minCanvasScrollY(), this.maxCanvasScrollY());
     const density = this.geometry.virtualPxPerSecond;
     if (!(density > 0)) return 0; // 退化几何（纵向比例 0）→ 不给 NaN/Infinity
-    return (this.geometry.chartEndVirtualY - clamped) / density;
+    return (this.maxCanvasScrollY() - clamped) / density;
   }
 
   /**
@@ -106,8 +126,7 @@ export class PlaybackScrollModel {
 
   /** 谱面实际可滚范围（top=末端、bottom=起点，无空白）。 */
   scrollRange(): ScrollRange {
-    const bottom = this.maxCanvasScrollY();
-    return { top: 0, bottom };
+    return { top: this.minCanvasScrollY(), bottom: this.maxCanvasScrollY() };
   }
 
   /** 虚拟总高（scrollHeight 基准，Editor 的 .virtual-content 高度）。 */

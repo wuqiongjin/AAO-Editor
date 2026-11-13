@@ -7,7 +7,7 @@
 // `tests/dom/workspace/PatternLibraryDrawer.test.tsx` 锁，这里不逐字读源码行。
 import { describe, expect, it } from 'vitest';
 import { CHART_EDIT_FUNCTIONS } from '@/src/project/chartReadonlyGate';
-import { FUNCTIONS, getDefaultConfig, resolveAction } from '@/src/chart/config/ShortcutConfig';
+import { FUNCTIONS, getDefaultConfig, resolveAction } from '@/src/settings/ShortcutConfig';
 import { readStripped } from '@/tests/support/source';
 
 describe('issue 185 · execSavePattern 的闸门归属', () => {

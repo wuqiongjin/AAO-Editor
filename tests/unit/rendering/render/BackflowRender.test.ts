@@ -23,7 +23,7 @@ import { gridBpmLineColor, gridBpmNegativeColor, gridThemeBpmColor } from '@/src
 import type { BpmTimelineEvent } from '@/src/chart/geometry/BpmTimeline';
 import type { ChartNote } from '@/src/chart/types';
 import type { RenderCtx } from '@/src/rendering/types';
-import { makeRecordingCtx, fillTexts, type RecordedCall } from '@/tests/support/canvas';
+import { makeRecordingCtx, type RecordedCall } from '@/tests/support/canvas';
 import { repoRoot } from '@/tests/support/source';
 
 const FOLD: BpmTimelineEvent[] = [{ beat: 0, bpm: 120 }, { beat: 5, bpm: -240 }, { beat: 6.5, bpm: 120 }];
@@ -257,7 +257,8 @@ describe('issue 105 · 渲染口径（静态源码断言）', () => {
     // 修法 3 本轮确认「已由 issue 09 八轮落地、无需改码」——故这里锁的是**该通路仍在用**
     //（真渲染路径 `renderSpBandStrip` 需要 DOM 变换，node 环境测不到，见「已知边界」）
     expect(renderSrc).toMatch(/splitBandAtFolds\(pts\)/);
-    expect(renderSrc).toMatch(/rasterBandRuns\(\{\s*runs,/);
+    expect(renderSrc).toMatch(/rasterize:.*= rasterBandRuns/);
+    expect(renderSrc).toMatch(/rasterize\(\{\s*runs,/);
   });
 
   it('网格枚举由布局坐标派生（visibleBeatRanges），逐拍独立求 y（无单调假定）', () => {

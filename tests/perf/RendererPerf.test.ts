@@ -1,6 +1,6 @@
 // issue 10 性能测试：密集音符（3000-5000）下缩放流畅性保障。
 // node 环境用 stub ctx 计量 JS 侧开销与调用次数（真实光栅化由浏览器 ?perf=1 基线覆盖）。
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ChartGeometry, LANES } from '@/src/chart/geometry/ChartGeometry';
 import { renderChart, visibleBeatRanges } from '@/src/rendering/render';
 import { findItemAt } from '@/src/rendering/hitTest/hitTest';
@@ -808,6 +808,71 @@ describe('issue 167 / 179 / 188 · 首个音符抵线卡顿防范（静止期靶
     noteLayer.draw(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters, SURFACE, { playing: true }));
     expect(timeoutDelays.length).toBeGreaterThan(0);
     expect(timeoutDelays[timeoutDelays.length - 1]).toBe(16);
+    noteLayer.reset();
+  });
+
+  it('issue 213：120Hz 高刷下播放期补建节流自适应缩短为 4ms（消除跨两帧断层）', () => {
+    vi.restoreAllMocks();
+    const chartEndBeat = 100;
+    const notes: ChartNote[] = [
+      { type: 'Single', lane: 3, beat: 10, subBeat: 0 },
+    ];
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
+    const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+    const ctx = makeCountingCtx(counters);
+    const noteLayer = createNoteLayerCache();
+    noteLayer.setFrameInterval(8.33); // 120Hz 注入
+    const es = 1;
+    const scrollY = g.chartEndVirtualY;
+
+    const timeoutDelays: number[] = [];
+    const origSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: any, delay?: number, ...args: any[]) => {
+      timeoutDelays.push(delay ?? 0);
+      return origSetTimeout(fn, delay, ...args);
+    }) as any);
+
+    noteLayer.draw(ctx, makeRc(g, notes, chartEndBeat, es, scrollY, false, counters, SURFACE, { playing: true }));
+    expect(timeoutDelays.length).toBeGreaterThan(0);
+    expect(timeoutDelays[timeoutDelays.length - 1]).toBe(4);
+    noteLayer.reset();
+  });
+
+  it('issue 213：密集音符 120Hz 连续播放 5 秒（600 帧），99th 分位单帧耗时稳定在 8.0ms 预算内', () => {
+    vi.restoreAllMocks();
+    const chartEndBeat = 500;
+    // 5000 个密集音符，极高密度
+    const notes = makeDenseNotes(5000, chartEndBeat);
+    const g = new ChartGeometry(bpm120, { endBeat: chartEndBeat }, SURFACE);
+    const noteLayer = createNoteLayerCache();
+    noteLayer.setFrameInterval(8.33); // 120Hz 注入
+    noteLayer.__setCanvasFactoryForTests(() => makeCanvasStub({ drawImage: 0, spriteRenders: 0 }));
+
+    const es = 1;
+    const totalFrames = 600; // 5 秒 @ 120Hz
+    const frameTimesMs: number[] = [];
+    let scrollY = g.chartEndVirtualY;
+    const stepPerFrame = (g.virtualPxPerSecond * 5) / totalFrames; // 5 秒移动距离
+
+    // 初始静止预热
+    const rc0 = makeRc(g, notes, chartEndBeat, es, scrollY, false, { drawImage: 0, spriteRenders: 0 });
+    noteLayer.draw(makeCountingCtx({ drawImage: 0, spriteRenders: 0 }), rc0);
+    noteLayer.__flushPlayingTileQueueForTests();
+
+    for (let f = 0; f < totalFrames; f++) {
+      scrollY -= stepPerFrame;
+      const counters: Counters = { drawImage: 0, spriteRenders: 0 };
+      const ctx = makeCountingCtx(counters);
+      const rc = makeRc(g, notes, chartEndBeat, es, scrollY, false, counters, SURFACE, { playing: true });
+      const t0 = performance.now();
+      noteLayer.draw(ctx, rc);
+      const elapsed = performance.now() - t0;
+      frameTimesMs.push(elapsed);
+    }
+
+    frameTimesMs.sort((a, b) => a - b);
+    const p99 = frameTimesMs[Math.floor(totalFrames * 0.99)];
+    expect(p99).toBeLessThan(8.0);
   });
 });
 

@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     platform: process.platform,
     versions: process.versions,
     // 谱面工程文件后端：渲染进程经此桥把工程数据落到数据根文件。
-    // get 返回 { doc, audio, cover } 或 null（无数据 / 旧 schema）；put 见 ChartProject.ts。
+    // get 返回 { doc, audio, cover } 或 null；put 的 doc 是已编码 JSON 文本（issue 232）。
     projectStore: {
         get: (id) => ipcRenderer.invoke('project:get', id),
         put: (payload) => ipcRenderer.invoke('project:put', payload),
@@ -51,7 +51,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         setLanguage: (locale) => ipcRenderer.invoke('i18n:setLanguage', locale),
     },
     // bestdori-integration 07 + 14：社区平台的唯一网络出口。renderer 只递 URL + 方法 + 载荷，
-    // 主机白名单 / 限流 / Cookie / 素材缓存全在主进程（electron/communityNet.cjs + assetCache.cjs）；
+    // 主机白名单 / 限流 / Cookie / 素材缓存全在主进程（electron/community/communityNet.cjs + electron/assets/assetCache.cjs）；
     // 二进制落素材缓存（<数据根>/cache/community/），只回路径不回字节。
     // 浏览器侧没有这条桥 = 静态演示版，能力层降级为「平台不可用」。
     communityNet: {
@@ -69,7 +69,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 票 39：站外链接的唯一出口 —— 注册 / 找回密码这类「去站点」的入口开系统浏览器
     // （仓里既有的 <a target="_blank"> 在 Electron 里会开应用内无地址栏窗口 = 错形态）。
     // 与上面几条零入参桥不同：这条**必须收 URL**，所以放不放行由主进程校验
-    // （electron/externalLink.cjs 按两份白名单放行：社区平台 + 产品自有站点，其余一律拒），
+    // （electron/community/externalLink.cjs 按两份白名单放行：社区平台 + 产品自有站点，其余一律拒），
     // renderer 递不进任意地址。
     shell: {
         openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),

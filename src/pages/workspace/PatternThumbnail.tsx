@@ -1,6 +1,6 @@
 // 片段缩略图（issue 185 / 207 优化）：由 `notes` + `bpmContext` **实渲染**，不存位图（ADR-0023 §1）。
 // 音符本体贴当前音符皮肤的**真实精灵**（2026-10-31 验收）；取景/贴点口径见
-// `chart/patterns/thumbnail`（纯几何）与 `thumbnailPaint`（纯绘制）。这里只管画布尺寸、dpr、
+// `src/patterns/thumbnail`（纯几何）与 `thumbnailPaint`（纯绘制）。这里只管画布尺寸、dpr、
 // 皮肤解析与重绘时机。
 //
 // issue 207 性能重构：
@@ -10,9 +10,9 @@
 // 3. 异步排队（requestAnimationFrame）：首帧交还给抽屉进场动画与谱面播放 RAF，次帧再上色；
 // 4. 单例共享精灵与 WeakMap 几何缓存。
 import { memo, useEffect, useRef } from 'react';
-import { buildPatternThumbnailScene } from '../../chart/patterns/thumbnail';
-import { drawPatternThumbnail } from '../../chart/patterns/thumbnailPaint';
-import type { Pattern } from '../../chart/patterns/types';
+import { buildPatternThumbnailScene } from '../../patterns/thumbnail';
+import { drawPatternThumbnail } from '../../patterns/thumbnailPaint';
+import type { Pattern } from '../../patterns/types';
 import type { ActiveNoteIcons } from '../../rendering/skin/noteSkin';
 import { t } from '../../i18n';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';

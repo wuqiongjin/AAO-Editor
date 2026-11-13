@@ -20,11 +20,13 @@ import {
   CONTAINER_SPECS,
   EXPORT_AUDIO_CHANNELS,
   EXPORT_AUDIO_SAMPLE_RATE,
+  frameDurationUs,
   muxerAudioCodecFor,
   type ContainerSpec,
   type VideoContainer,
 } from './exportSpec';
 import { audioChunkFrames } from './renderAudioTrack';
+import { logger } from '../../../diagnostics/logger';
 
 /**
  * 在途帧上限（常驻）：**已交给编码器、还没吐出来**的帧最多这么多。
@@ -37,6 +39,14 @@ import { audioChunkFrames } from './renderAudioTrack';
  * （页面白屏 + 导出失败），同一份活在 Chromium 上峰值只有 9。**等一拍 ≠ 等编码器。**
  */
 const MAX_ENCODE_QUEUE = 32;
+
+/**
+ * 周期关键帧的间隔（秒，票 63）。`latencyMode:'quality'` 让编码器自己挑 GOP，静态场景实测
+ * 300 帧 / 5s 只吐 1 个 key chunk ⇒ 拖进度条 / 剪辑刮擦 / 缩略图都要从第 0 帧解码。
+ * 每 2s 强制一次（60fps = 120 帧）把最坏解码量从整片压到 2s；再密会让关键帧体积吃掉码率。
+ * `createVideoSink` 是 MP4 / WebM 共用的 ⇒ 两个容器一起受益。
+ */
+const KEY_FRAME_INTERVAL_SECONDS = 2;
 
 /**
  * 等这么久**没有任何输出**就认定"它不会自己吐"，用 `flush()` 逼它吐（见 `createEncodeGate`）。
@@ -209,6 +219,34 @@ interface MuxerModule {
   ArrayBufferTarget: new () => { buffer: ArrayBuffer };
 }
 
+/**
+ * 交给封装库之前把 `chunk.duration` 兜成合法值（票 64）。
+ *
+ * WebCodecs 的 `EncodedVideoChunk.duration` / `EncodedAudioChunk.duration` 是**可选**属性：
+ * 输入帧不给 duration 时，Chromium 输出 0、Edge 输出 undefined / null。`mp4-muxer@5.2.2`
+ * 的 `addVideoChunkRaw` / `addAudioChunkRaw` 断言「有限非负实数」，缺一个就整票失败；
+ * 0 虽能过断言，写进 MP4 却是全帧零时长（票 63 的播放异常同源）⇒ 一并回退。
+ *
+ * 用 Proxy 覆盖这一次读取而不是重建 chunk：保留原对象身份（`instanceof EncodedVideoChunk`
+ * 要过）、不碰 `copyTo` 的字节，也不要求环境里有 chunk 构造器。合法的 > 0 值原样返回。
+ * WebM 不读 duration，包装无副作用。
+ */
+export function withValidDuration<T extends EncodedVideoChunk | EncodedAudioChunk>(
+  chunk: T,
+  fallbackUs: number,
+): T {
+  const d = chunk.duration;
+  if (typeof d === 'number' && Number.isFinite(d) && d > 0) return chunk;
+  return new Proxy(chunk, {
+    get(target, prop) {
+      if (prop === 'duration') return fallbackUs;
+      const value = Reflect.get(target, prop);
+      // 原生 chunk 的方法要求 this 是真 chunk，不能让 Proxy 顶上去
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 
 /**
  * 建一条编码 / 封装的槽。
@@ -240,6 +278,12 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
   if (opts.spec.id === 'mp4') muxerOptions.fastStart = 'in-memory';
   const muxer = new mod.Muxer(muxerOptions);
 
+  /** 帧间隔（μs）：chunk.duration 缺省 / 非法时的回退值；音频按一块的采样数折算（票 64） */
+  const frameUs = frameDurationUs(opts.fps);
+  const audioChunkUs = opts.audio
+    ? Math.max(1, Math.round((audioChunkFrames(opts.audio.sampleRate) * 1_000_000) / opts.audio.sampleRate))
+    : frameUs;
+
   let closed = false;
   let failure: Error | null = null;
 
@@ -253,6 +297,15 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
   let videoGate: ReturnType<typeof createEncodeGate> | null = null;
   let audioGate: ReturnType<typeof createEncodeGate> | null = null;
   const fail = (e: Error) => {
+    if (failure === null) {
+      // 原始错误在当刻就落日志：别只留到编排层兜底 catch 的那一行（票 64）
+      logger.error('[preview]', '编码/封装失败', {
+        container: opts.spec.id,
+        videoCodec: opts.videoCodec,
+        message: e.message,
+        stack: e.stack,
+      });
+    }
     failure ??= e;
     // 出错也必须把等背压的放行，否则调用方永远挂在这里
     videoGate?.close();
@@ -265,7 +318,7 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
       videoInFlight = Math.max(0, videoInFlight - 1);
       videoGate?.output();
       try {
-        muxer.addVideoChunk(chunk, meta);
+        muxer.addVideoChunk(withValidDuration(chunk, frameUs), meta);
       } catch (e) {
         fail(e instanceof Error ? e : new Error(String(e)));
       }
@@ -289,7 +342,7 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
           audioInFlight = Math.max(0, audioInFlight - 1);
           audioGate?.output();
           try {
-            muxer.addAudioChunk(chunk, meta);
+            muxer.addAudioChunk(withValidDuration(chunk, audioChunkUs), meta);
           } catch (e) {
             fail(e instanceof Error ? e : new Error(String(e)));
           }
@@ -345,8 +398,14 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
       : Promise.resolve(),
   );
 
-  /** 已入队帧数：首帧必须是关键帧，其余交给编码器自己挑 */
+  /** 已入队帧数：首帧 + 每 2s 强制关键帧，其余交给编码器自己挑 */
   let queuedFrames = 0;
+  /**
+   * 按**帧数**取模而不是按 `frame.timestamp`：导出本来就是固定帧率逐帧出帧
+   * （`frameDriver` 的 `frameTimestampUs`），`queuedFrames` 已在数帧，少一处浮点/时间戳分歧。
+   * 上游 `buildExportTimeline` 保证 fps 有限且 > 0。
+   */
+  const keyFrameIntervalFrames = Math.max(1, Math.round(opts.fps * KEY_FRAME_INTERVAL_SECONDS));
   /** 取消：等背压时也要查（否则导出挂在最后一帧、取消钮形同虚设） */
   const isCancelled = (): boolean => opts.isCancelled?.() === true;
   const cancelledNow = (): boolean => {
@@ -374,7 +433,7 @@ export async function createVideoSink(opts: VideoSinkOptions): Promise<VideoSink
       await videoGate.wait();
       if (cancelledNow()) throw new Error('导出已取消');
       if (closed || failure) throw failure ?? new Error('导出已取消');
-      videoEncoder.encode(frame, { keyFrame: queuedFrames === 0 });
+      videoEncoder.encode(frame, { keyFrame: queuedFrames % keyFrameIntervalFrames === 0 });
       queuedFrames++;
       videoInFlight++;
     },

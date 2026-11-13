@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { UIProvider, useUI } from '@/src/app/providers/UIProvider';
-import type { Pattern } from '@/src/chart/patterns/types';
+import type { Pattern } from '@/src/patterns/types';
 import PatternPastePill from '@/src/pages/workspace/PatternPastePill';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 

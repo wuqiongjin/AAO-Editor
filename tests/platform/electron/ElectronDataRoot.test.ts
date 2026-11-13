@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { APP_STATE_FILENAME, appStateFilePath } from '@/electron/appState.cjs';
+import { APP_STATE_FILENAME, appStateFilePath } from '@/electron/storage/appState.cjs';
 import {
   BACKGROUND_SKIN_RELATIVE,
   assetsDir,
@@ -17,9 +17,9 @@ import {
   resolveMoveDestRoot,
   safeProjectId,
   saveDataRootSync,
-} from '@/electron/dataRoot.cjs';
-import { loadWindowStateSync, saveWindowStateSync } from '@/electron/windowState.cjs';
-import { stripComments, readSource } from '@/tests/support/source';
+} from '@/electron/storage/dataRoot.cjs';
+import { loadWindowStateSync, saveWindowStateSync } from '@/electron/window/windowState.cjs';
+import { stripComments, readSource, readSources } from '@/tests/support/source';
 import { tmpDir } from '@/tests/support/fs';
 
 
@@ -313,7 +313,7 @@ describe('issue 117 · 认领已有数据根', () => {
 
 describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () => {
   it('AppSettings 无数据根字段', () => {
-    const settingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));
+    const settingsSrc = stripComments(readSource('src/settings/AppSettings.ts'));
     expect(settingsSrc).not.toMatch(/dataRoot|data-root|保存位置/);
   });
 
@@ -335,7 +335,7 @@ describe('issue 117 · 不进设置 / 导出；入口仅 Electron 门控', () =>
   });
 
   it('主进程/preload 接线：打开、搬家与认领分开；背景图走数据根固定文件', () => {
-    const mainSrc = stripComments(readSource('electron/main.cjs'));
+    const mainSrc = readSources(['electron/main.cjs', 'electron/storage/dataRoot.cjs', 'electron/assets/backgroundSkin.cjs'], true);
     const preloadSrc = stripComments(readSource('electron/preload.js'));
     expect(preloadSrc).toMatch(/dataRoot\s*:/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]dataRoot:open['"]/);

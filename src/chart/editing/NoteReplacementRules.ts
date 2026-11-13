@@ -31,9 +31,11 @@ export function findNoteIndexAt(
     beat: number,
     lane: number,
     subBeat: number,
+    filter?: (note: ChartNote) => boolean,
 ): number {
     const sb = subBeat || 0;
     return notes.findIndex(n => {
+        if (filter && !filter(n)) return false;
         if (n.type === "Single" || n.type === "LDirectional" || n.type === "RDirectional") {
             return n.beat === beat && n.lane === lane && (n.subBeat || 0) === sb;
         }
@@ -78,7 +80,7 @@ export interface PlacementIntent {
  * ADR-0001 覆盖的公开入口。调用方只报意图，本模块答 notes。
  */
 export function applyPlacement(notes: ChartNote[], intent: PlacementIntent): NoteReplacementResult {
-    const newNotes = [...notes];
+    let newNotes = [...notes];
     let newNoteType = intent.tool;
     const { beat, lane, subBeat, source } = intent;
 
@@ -87,16 +89,44 @@ export function applyPlacement(notes: ChartNote[], intent: PlacementIntent): Not
         newNoteType = "Single";
     }
 
-    const existingNoteIndex = findNoteIndexAt(newNotes, beat, lane, subBeat);
+    const sb = subBeat || 0;
 
-    if (existingNoteIndex !== -1) {
-        const existingNote = newNotes[existingNoteIndex];
-        if (existingNote.type === "Slide" || existingNote.type === "Long") {
-            return handleSlideNoteReplacement(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType, source);
+    // 检查该坐标上有多少个既有音符（普通音符或滑条结点）
+    let matchCount = 0;
+    let singleIdx = -1;
+    let slideIdx = -1;
+    for (let i = 0; i < newNotes.length; i++) {
+        const n = newNotes[i];
+        if (n.type === "Single" || n.type === "LDirectional" || n.type === "RDirectional") {
+            if (n.beat === beat && n.lane === lane && (n.subBeat || 0) === sb) {
+                matchCount++;
+                singleIdx = i;
+            }
+        } else if (n.type === "Slide" || n.type === "Long") {
+            const hasConn = (n as SlideNote).connections.some(
+                c => !c.hidden && c.beat === beat && c.lane === lane && (c.subBeat || 0) === sb
+            );
+            if (hasConn) {
+                matchCount++;
+                slideIdx = i;
+            }
         }
-        return handleSingleAndDirectionalReplacement(newNotes, existingNoteIndex, beat, lane, subBeat, newNoteType);
     }
-    return addNewNote(newNotes, beat, lane, subBeat, newNoteType);
+
+    // issue 224: 若该坐标存在多于 1 个既有音符（预存重叠音符），执行完全替换（对齐 Bestdori）
+    if (matchCount > 1) {
+        cleanReplacePosition(newNotes, beat, lane, sb);
+        return addNewNote(newNotes, beat, lane, sb, newNoteType, source);
+    }
+
+    if (matchCount === 1) {
+        if (slideIdx !== -1) {
+            return handleSlideNoteReplacement(newNotes, slideIdx, beat, lane, sb, newNoteType, source);
+        }
+        return handleSingleAndDirectionalReplacement(newNotes, singleIdx, beat, lane, sb, newNoteType);
+    }
+
+    return addNewNote(newNotes, beat, lane, sb, newNoteType);
 }
 
 /** @deprecated 行为测薄包装；生产调用点走 `applyPlacement`（issue 133） */
@@ -254,6 +284,101 @@ function handleSlideNoteReplacement(
  *               **继承它的 length / flick / skill**（移动口径：拖过去的东西原样落地）；
  *               不传（工具点击）→ 恒 length=1、无标记（放置口径，ADR §1.1 一致）。
  */
+/**
+ * 从滑条中拆除指定连接点，并将剩余部分按 ADR-0001 §1.2 规则转换为短滑条或退化单键（不追加独立音符）
+ */
+export function splitSlideRemoveNode(
+    newNotes: ChartNote[],
+    slideIndex: number,
+    connectionIndex: number,
+): void {
+    const existingNote = newNotes[slideIndex] as SlideNote;
+    const conns = existingNote.connections;
+    const slideType = (existingNote.type as string) === "Long" ? "Long" : "Slide";
+
+    newNotes.splice(slideIndex, 1);
+    const isStartPoint = connectionIndex === 0;
+    const isEndPoint = connectionIndex === conns.length - 1;
+
+    if (isEndPoint) {
+        const remaining = conns.slice(0, connectionIndex);
+        if (remaining.length === 1) {
+            newNotes.push(connectionToNote(remaining[0]));
+        } else if (remaining.length >= 2) {
+            newNotes.push({ type: slideType, connections: remaining });
+        }
+        return;
+    }
+
+    if (isStartPoint) {
+        const remaining = conns.slice(connectionIndex + 1);
+        if (remaining.length === 1) {
+            newNotes.push(connectionToNote(remaining[0]));
+        } else if (remaining.length >= 2) {
+            newNotes.push({ type: slideType, connections: remaining });
+        }
+        return;
+    }
+
+    const left = conns.slice(0, connectionIndex);
+    const right = conns.slice(connectionIndex + 1);
+    if (left.length === 1) {
+        newNotes.push(connectionToNote(left[0]));
+    } else if (left.length >= 2) {
+        newNotes.push({ type: slideType, connections: left });
+    }
+    if (right.length === 1) {
+        newNotes.push(connectionToNote(right[0]));
+    } else if (right.length >= 2) {
+        newNotes.push({ type: slideType, connections: right });
+    }
+}
+
+/**
+ * issue 224: 对齐 Bestdori 完全替换规则（Clean Slate）。
+ * 彻底清除指定坐标上的所有既有音符；若该坐标处于滑条结点上，拆解该滑条。
+ * @returns 是否有既有音符被清理或滑条被拆解
+ */
+export function cleanReplacePosition(
+    newNotes: ChartNote[],
+    beat: number,
+    lane: number,
+    subBeat: number,
+    filter?: (note: ChartNote) => boolean,
+): boolean {
+    const sb = subBeat || 0;
+    let modified = false;
+
+    // 1. 拆解途径该坐标的既有滑条结点
+    for (let i = newNotes.length - 1; i >= 0; i--) {
+        const n = newNotes[i];
+        if (filter && !filter(n)) continue;
+        if (n.type === "Slide" || n.type === "Long") {
+            const connIdx = (n as SlideNote).connections.findIndex(
+                c => !c.hidden && c.beat === beat && c.lane === lane && (c.subBeat || 0) === sb
+            );
+            if (connIdx !== -1) {
+                splitSlideRemoveNode(newNotes, i, connIdx);
+                modified = true;
+            }
+        }
+    }
+
+    // 2. 清理该坐标上的所有普通键型音符
+    for (let i = newNotes.length - 1; i >= 0; i--) {
+        const n = newNotes[i];
+        if (filter && !filter(n)) continue;
+        if (n.type === "Single" || n.type === "LDirectional" || n.type === "RDirectional") {
+            if (n.beat === beat && n.lane === lane && (n.subBeat || 0) === sb) {
+                newNotes.splice(i, 1);
+                modified = true;
+            }
+        }
+    }
+
+    return modified;
+}
+
 function splitSlideAtNode(
     newNotes: ChartNote[],
     existingNoteIndex: number,
@@ -266,7 +391,6 @@ function splitSlideAtNode(
 ): NoteReplacementResult {
     const existingNote = newNotes[existingNoteIndex] as SlideNote;
     const conns = existingNote.connections;
-    const slideType = (existingNote.type as string) === "Long" ? "Long" : "Slide";
     const directionalType = (newNoteType === "ldirectional" ? "LDirectional" : "RDirectional") as "LDirectional" | "RDirectional";
     const srcDir = source && (source.type === "LDirectional" || source.type === "RDirectional") ? source : null;
     const independentNote = {
@@ -280,51 +404,12 @@ function splitSlideAtNode(
         ...(srcDir?.skill ? { skill: true } : {}),
     };
 
-    // 移除原滑条（不就地变异原对象，改用构造的新片段）
-    newNotes.splice(existingNoteIndex, 1);
     const isStartPoint = connectionIndex === 0;
     const isEndPoint = connectionIndex === conns.length - 1;
 
-    if (isEndPoint) {
-        // 去掉尾部端点，相邻中间节点升级为新端点；仅剩 1 个结点（另一端）时退化为独立音符（ADR 1.2.2）
-        const remaining = conns.slice(0, connectionIndex);
-        if (remaining.length === 1) {
-            newNotes.push(connectionToNote(remaining[0]));
-        } else if (remaining.length >= 2) {
-            newNotes.push({ type: slideType, connections: remaining });
-        }
-        newNotes.push(independentNote);
-        return { shouldReplace: true, newNotes, message: "端点方向键拆条" };
-    }
-
-    if (isStartPoint) {
-        // 去掉头部端点，相邻中间节点升级为新端点；仅剩 1 个结点（另一端）时退化为独立音符（ADR 1.2.2）
-        const remaining = conns.slice(connectionIndex + 1);
-        if (remaining.length === 1) {
-            newNotes.push(connectionToNote(remaining[0]));
-        } else if (remaining.length >= 2) {
-            newNotes.push({ type: slideType, connections: remaining });
-        }
-        newNotes.push(independentNote);
-        return { shouldReplace: true, newNotes, message: "端点方向键拆条" };
-    }
-
-    // 中间节点：拆成两侧两条（左段 [起点..前一中间节点]、右段 [后一中间节点..终点]）；
-    // 某一侧仅剩 1 个结点（无相邻滑条结点）时，该结点退化为独立音符（ADR 1.2.1）
-    const left = conns.slice(0, connectionIndex);
-    const right = conns.slice(connectionIndex + 1);
-    if (left.length === 1) {
-        newNotes.push(connectionToNote(left[0]));
-    } else if (left.length >= 2) {
-        newNotes.push({ type: slideType, connections: left });
-    }
-    if (right.length === 1) {
-        newNotes.push(connectionToNote(right[0]));
-    } else if (right.length >= 2) {
-        newNotes.push({ type: slideType, connections: right });
-    }
+    splitSlideRemoveNode(newNotes, existingNoteIndex, connectionIndex);
     newNotes.push(independentNote);
-    return { shouldReplace: true, newNotes, message: "中间节点方向键拆条" };
+    return { shouldReplace: true, newNotes, message: isEndPoint || isStartPoint ? "端点方向键拆条" : "中间节点方向键拆条" };
 }
 
 /**
@@ -457,18 +542,22 @@ function addNewNote(
     beat: number,
     lane: number,
     subBeat: number,
-    newNoteType: string
+    newNoteType: string,
+    source?: ChartNote,
 ): NoteReplacementResult {
-    if (newNoteType === "Single") {
-        newNotes.push({ beat, lane, subBeat, type: "Single" });
-    } else if (newNoteType === "flick") {
-        newNotes.push({ beat, lane, subBeat, type: "Single", flick: true });
-    } else if (newNoteType === "skill") {
-        newNotes.push({ beat, lane, subBeat, type: "Single", skill: true });
-    } else if (newNoteType === "ldirectional") {
-        newNotes.push({ beat, lane, subBeat, type: "LDirectional", length: 1 });
-    } else if (newNoteType === "rdirectional") {
-        newNotes.push({ beat, lane, subBeat, type: "RDirectional", length: 1 });
+    const isSingleish = newNoteType === "Single" || newNoteType === "flick" || newNoteType === "skill";
+    if (isSingleish) {
+        const note: ChartNote = { beat, lane, subBeat, type: "Single" };
+        if (newNoteType === "flick" || (source && source.type === "Single" && source.flick)) (note as any).flick = true;
+        if (newNoteType === "skill" || (source && source.type === "Single" && source.skill)) (note as any).skill = true;
+        newNotes.push(note);
+    } else if (newNoteType === "ldirectional" || newNoteType === "rdirectional") {
+        const type = newNoteType === "ldirectional" ? "LDirectional" : "RDirectional";
+        const srcLen = source && 'length' in source && typeof source.length === 'number' ? source.length : 1;
+        const note: ChartNote = { beat, lane, subBeat, type, length: srcLen };
+        if (source && 'flick' in source && source.flick) (note as any).flick = true;
+        if (source && 'skill' in source && source.skill) (note as any).skill = true;
+        newNotes.push(note);
     }
 
     return { shouldReplace: true, newNotes, message: "添加新音符" };
@@ -616,25 +705,52 @@ export function pasteChartNotes(
     }
     let newNotes = [...notes];
     const newStartIndex = newNotes.length;
+    const pastedNotesSet = new Set<ChartNote>();
+    const targetedOriginalPositions = new Set<string>();
+    const posKey = (b: number, l: number, sb: number) => `${b}|${l}|${sb}`;
+
+    // 预统计每个坐标上粘贴的普通音符数量（用于识别剪贴板自带重叠）
+    const incomingByPos = new Map<string, number>();
+    for (const note of pasted) {
+        if (note.type === "Single" || note.type === "LDirectional" || note.type === "RDirectional") {
+            const k = posKey((note as any).beat, (note as any).lane, (note as any).subBeat || 0);
+            incomingByPos.set(k, (incomingByPos.get(k) || 0) + 1);
+        }
+    }
 
     for (const note of pasted) {
         // 滑条/长条：独立实体粘贴（ADR §6.3 不与既有滑条组合）；按"滑条放置"语义清理其连接点覆盖的普通音符
         if (note.type === "Slide" || note.type === "Long") {
             for (const conn of (note as SlideNote).connections) {
-                removeOverlappedNotes(newNotes, conn);
+                const ck = posKey(conn.beat, conn.lane, conn.subBeat || 0);
+                targetedOriginalPositions.add(ck);
+                // issue 224: 只清理原谱面上的普通音符，绝不清理本次同批次已粘贴的音符
+                for (let i = newNotes.length - 1; i >= 0; i--) {
+                    const n = newNotes[i];
+                    if (pastedNotesSet.has(n)) continue;
+                    if (n.type === "Single" || n.type === "LDirectional" || n.type === "RDirectional") {
+                        if (n.beat === conn.beat && n.lane === conn.lane && (n.subBeat || 0) === (conn.subBeat || 0)) {
+                            newNotes.splice(i, 1);
+                        }
+                    }
+                }
             }
-            newNotes.push(structuredClone(note));
+            const clonedSlide = structuredClone(note);
+            newNotes.push(clonedSlide);
+            pastedNotesSet.add(clonedSlide);
             continue;
         }
 
         // BPM/System/Opaque：覆盖规则不适用；同位置直接替换，否则新增
         if (note.type === "BPM" || note.type === "System" || note.type === "Opaque") {
             const idx = newNotes.findIndex(n => n.type === note.type && n.beat === note.beat);
+            const cloned = structuredClone(note);
             if (idx !== -1) {
-                newNotes[idx] = structuredClone(note);
+                newNotes[idx] = cloned;
             } else {
-                newNotes.push(structuredClone(note));
+                newNotes.push(cloned);
             }
+            pastedNotesSet.add(cloned);
             continue;
         }
 
@@ -642,22 +758,70 @@ export function pasteChartNotes(
         const beat: number = (note as { beat: number }).beat;
         const lane: number = (note as { lane: number }).lane;
         const subBeat: number = (note as { subBeat?: number }).subBeat || 0;
+        const key = posKey(beat, lane, subBeat);
+
+        // issue 224: 若该坐标已被本次粘贴的同批次前序音符处理过（剪贴板自带重叠），
+        // 不再对原谱面执行二次覆盖/拆条，直接作为独立音符落子，保留两者。
+        if (targetedOriginalPositions.has(key)) {
+            const cloned = structuredClone(note);
+            newNotes.push(cloned);
+            pastedNotesSet.add(cloned);
+            continue;
+        }
+        targetedOriginalPositions.add(key);
+
+        const incomingCount = incomingByPos.get(key) || 1;
+
+        // 计算原谱面在该坐标上存在的音符数量（过滤掉本次已粘贴的音符）
+        let existingMatchCount = 0;
+        for (const n of newNotes) {
+            if (pastedNotesSet.has(n)) continue;
+            if (n.type === "Single" || n.type === "LDirectional" || n.type === "RDirectional") {
+                if (n.beat === beat && n.lane === lane && (n.subBeat || 0) === subBeat) {
+                    existingMatchCount++;
+                }
+            } else if (n.type === "Slide" || n.type === "Long") {
+                const hasConn = (n as SlideNote).connections.some(
+                    c => !c.hidden && c.beat === beat && c.lane === lane && (c.subBeat || 0) === subBeat
+                );
+                if (hasConn) {
+                    existingMatchCount++;
+                }
+            }
+        }
+
+        // issue 224: 若剪贴板自带重叠，或原谱面已存在多个重叠音符，走完全替换（对齐 Bestdori）
+        if (incomingCount > 1 || existingMatchCount > 1) {
+            cleanReplacePosition(newNotes, beat, lane, subBeat, n => !pastedNotesSet.has(n));
+            const cloned = structuredClone(note);
+            newNotes.push(cloned);
+            pastedNotesSet.add(cloned);
+            continue;
+        }
 
         // 查找同位置既有音符（含滑条结点）（候选 4 归一：与 handleNoteReplacement 共用 findNoteIndexAt）
-        const existingIndex = findNoteIndexAt(newNotes, beat, lane, subBeat);
+        const existingIndex = findNoteIndexAt(newNotes, beat, lane, subBeat, n => !pastedNotesSet.has(n));
 
         if (existingIndex === -1) {
             // 空位：原样粘贴（保留 flick/skill/length 标记）
-            newNotes.push(structuredClone(note));
+            const cloned = structuredClone(note);
+            newNotes.push(cloned);
+            pastedNotesSet.add(cloned);
             continue;
         }
 
         // 有既有音符：应用覆盖替换规则（ADR §1）
         const tool = keyToolIdOf(note); // 与拖拽路径同一份映射（issue 130）
-        // issue 130：来源件 = 剪贴板音符本身 —— 拆条产物继承它的 length / flick / skill，
-        // 与拖拽路径同一份实现（此前粘贴侧有一段事后 findIndex 回填，拖拽侧没有，故两口径分裂）
+        const beforeApply = new Set(newNotes);
         const result = applyPlacement(newNotes, { beat, lane, subBeat, tool, source: note });
-        if (result.shouldReplace) newNotes = result.newNotes;
+        if (result.shouldReplace) {
+            newNotes = result.newNotes;
+            for (const n of newNotes) {
+                if (!beforeApply.has(n)) {
+                    pastedNotesSet.add(n);
+                }
+            }
+        }
     }
 
     // 实际写入/改动的下标：新数组里引用不在原数组中的那些（新增或替换产生的新对象，含拆条产物）

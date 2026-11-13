@@ -1,0 +1,128 @@
+# 分支自测打包 workflow：手动 dispatch → 单平台 / 全平台构建 → 上传 Artifacts 供下载自测。
+# 与 release.yml（正式发版）严格隔离：
+# 1. 合入 main 后，任意新分支均可在 GitHub Actions 界面手动选择该分支进行自测打包。
+# 2. 支持单选 macos / windows / linux 或 all（全平台），节省等待时间与 Actions 配额。
+# 3. 不要求 tag，不校验 version，不修改/发布 GitHub Release，不更新 latest.yml（避免污染自动更新）。
+# 4. 运行 npm run electron:dist（自带 --publish=never）。
+# 5. 产物通过 actions/upload-artifact 上传，可在 Actions 运行页面直接下载安装包。
+name: Build Test Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '构建目标平台'
+        required: true
+        type: choice
+        default: 'macos'
+        options:
+          - macos
+          - windows
+          - linux
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: Build macOS (.dmg)
+    if: inputs.platform == 'macos' || inputs.platform == 'all'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 缓存 electron 二进制
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: 安装依赖
+        run: npm ci
+      - name: 取素材
+        env:
+          ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
+        run: bash scripts/ci/ci-assets.sh
+      - name: 构建 macOS 安装包（不发布）
+        run: npm run electron:dist
+      - name: 上传 macOS 安装包 (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: aao-editor-macos
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  build-windows:
+    name: Build Windows (.exe)
+    if: inputs.platform == 'windows' || inputs.platform == 'all'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 缓存 electron 二进制
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/AppData/Local/electron/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: 安装依赖
+        run: npm ci
+      - name: 取素材
+        env:
+          ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
+        run: bash scripts/ci/ci-assets.sh
+      - name: 构建 Windows 安装包（不发布）
+        run: npm run electron:dist
+      - name: 上传 Windows 安装包 (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: aao-editor-windows
+          path: |
+            release/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  build-linux:
+    name: Build Linux (.AppImage)
+    if: inputs.platform == 'linux' || inputs.platform == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 缓存 electron 二进制
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: 安装依赖
+        run: npm ci
+      - name: 取素材
+        env:
+          ASSETS_SOURCE: ${{ secrets.ASSETS_SOURCE }}
+        run: bash scripts/ci/ci-assets.sh
+      - name: 构建 Linux 安装包（不发布）
+        run: npm run electron:dist
+      - name: 上传 Linux 安装包 (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: aao-editor-linux
+          path: |
+            release/*.AppImage
+          if-no-files-found: error
+          retention-days: 7

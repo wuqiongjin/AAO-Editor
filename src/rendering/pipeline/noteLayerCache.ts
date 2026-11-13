@@ -20,7 +20,7 @@
 //
 // 候选 3（缓存有主）：本缓存是**实例**（`createNoteLayerCache`），不再是模块级可变单例 ——
 // 工作台画布与离屏导出 / 未来预览各持一份，互不顶掉（见 `../RenderTarget`）。
-import { renderNotes, renderSelectionOverlay } from '../render';
+import { renderNoteBands, renderNotes, renderSelectionOverlay } from '../render';
 import { makeCoords } from '../coords';
 import { bufferSizeFor } from '../rasterScale';
 import type { RenderCtx } from '../types';
@@ -28,6 +28,8 @@ import { VIEWPORT_PADDING, type GeometryBounds } from '../../chart/geometry/Char
 import type { BpmTimelineEvent } from '../../chart/geometry/BpmTimeline';
 import type { ChartNote, SlideNote } from '../../chart/types';
 import { perf } from '../../chart/perf';
+import { rasterizeBandsCooperatively } from './bandRasterScheduler';
+import type { BandRasterInput } from '../slideBandGeometry';
 
 /** 瓦片的 pos 空间高度（timeline 像素） */
 export const TILE_PX = 512;
@@ -35,21 +37,160 @@ export const TILE_PX = 512;
 const MAX_CACHE_ES = 3;
 /** |es/refScale − 1| 超过该值视为 stale，需要（手势结束后）高清重建 */
 const STALE_TOL = 0.02;
-/** 手势帧的重建时间预算（ms）：预算内把 stale 瓦片逐帧现建（轻谱 1-2 帧内全部转新、无"糊→清晰"跳变），
+/** 默认基准帧间隔（ms）：标准 60Hz 屏（1000 / 60 ≈ 16.67ms） */
+export const DEFAULT_FRAME_INTERVAL_MS = 1000 / 60;
+/** 60Hz 默认手势重建时间预算（ms）：预算内把 stale 瓦片逐帧现建（轻谱 1-2 帧内全部转新、无"糊→清晰"跳变），
  *  超预算退回比例 blit；重谱逐帧锐化、单帧成本有界。 */
-const GESTURE_REBUILD_BUDGET_MS = 4;
-/** 单块重建成本上限（ms，issue 173）：一块瓦片的实测建造成本超过它，本帧立刻收手（余下的留到后续帧）。
+export const BASE_GESTURE_REBUILD_BUDGET_MS = 4;
+/** 60Hz 默认单块重建成本上限（ms，issue 173）：一块瓦片的实测建造成本超过它，本帧立刻收手（余下的留到后续帧）。
  *  正常机器单块 ≈0.3~0.5ms，永不触发；只在进程被抢占 / 极慢机上生效，把"一帧连建 N 块"
  *  的最坏帧成本从「不可控」压到「预算 + 一块」。 */
-const GESTURE_TILE_COST_CAP_MS = 8;
+export const BASE_GESTURE_TILE_COST_CAP_MS = 8;
+
+/**
+ * 帧率自适应瓦片排水延迟计算（issue 213）：
+ * - 静止期 delay 恒为 0（最快速度在空闲期排空）；
+ * - 播放期：
+ *   - 60Hz（>12ms）：保持既有 16ms（~1 帧）延时，保护低性能设备不变量；
+ *   - 高刷屏（<=12ms，如 90Hz/120Hz/144Hz/240Hz）：
+ *     缩短至 Math.max(1, Math.min(4, Math.floor(frameInterval / 2)))，消除跨帧饥饿断层。
+ */
+export function computeDrainDelay(frameInterval: number, isPlaying: boolean): number {
+  if (!isPlaying) return 0;
+  if (frameInterval > 12) return 16;
+  return Math.max(1, Math.min(4, Math.floor(frameInterval / 2)));
+}
+
+/**
+ * 帧率自适应手势重建预算与单块上限计算（issue 213）：
+ * - 单片重建预算不超过当前帧预算的 25%（60Hz 下 4.0ms，120Hz 下约 2.08ms）；
+ * - 单块成本上限不超过当前帧预算的 50%（60Hz 下 8.0ms，120Hz 下约 4.16ms），防止单块瓦片耗尽单帧预算。
+ */
+export function computeRebuildBudget(frameInterval: number): { gestureBudgetMs: number; tileCostCapMs: number } {
+  return {
+    gestureBudgetMs: Math.min(BASE_GESTURE_REBUILD_BUDGET_MS, frameInterval * 0.25),
+    tileCostCapMs: Math.min(BASE_GESTURE_TILE_COST_CAP_MS, frameInterval * 0.5),
+  };
+}
+
+/**
+ * 根据实测 rAF 帧间隔归一化到离散标准刷新率档位（issue 213）：
+ * - 240Hz：~4.17ms（<= 5.2ms）
+ * - 144Hz：~6.94ms（5.2ms ~ 7.5ms）
+ * - 120Hz：~8.33ms（7.5ms ~ 10.0ms，Apple ProMotion / Windows 120Hz）
+ * - 90Hz：~11.11ms（10.0ms ~ 13.5ms）
+ * - 60Hz：~16.67ms（> 13.5ms，标准屏基线）
+ */
+export function classifyRefreshInterval(measuredDeltaMs: number): number {
+  if (measuredDeltaMs <= 5.2) return 1000 / 240;
+  if (measuredDeltaMs <= 7.5) return 1000 / 144;
+  if (measuredDeltaMs <= 10.0) return 1000 / 120;
+  if (measuredDeltaMs <= 13.5) return 1000 / 90;
+  return DEFAULT_FRAME_INTERVAL_MS;
+}
+
+/**
+ * 屏幕物理刷新率动态平滑估算器（issue 213）：
+ * - 接收连续 rAF timestamp，过滤极端异常值（休眠/切标签）；
+ * - 维护滑动窗口中位数，防止单帧卡顿（hitch）导致刷新率跳变（flapping）；
+ * - 只有当多次测量稳定指向新档位时，才触发回调。
+ */
+export class RefreshRateEstimator {
+  private prevTime: number | null = null;
+  private readonly samples: number[] = [];
+  private currentInterval = DEFAULT_FRAME_INTERVAL_MS;
+  private readonly onIntervalChange?: (intervalMs: number) => void;
+
+  constructor(onIntervalChange?: (intervalMs: number) => void) {
+    this.onIntervalChange = onIntervalChange;
+  }
+
+  sample(timestamp: number): number {
+    if (this.prevTime !== null) {
+      const delta = timestamp - this.prevTime;
+      // 过滤休眠、卡死、切标签等极端异常值（> 40ms 或 < 3ms）
+      if (delta >= 3 && delta <= 40) {
+        this.samples.push(delta);
+        if (this.samples.length > 8) this.samples.shift();
+        if (this.samples.length >= 5) {
+          const sorted = [...this.samples].sort((a, b) => a - b);
+          const median = sorted[Math.floor(sorted.length / 2)];
+          const classified = classifyRefreshInterval(median);
+          if (classified !== this.currentInterval) {
+            this.currentInterval = classified;
+            this.onIntervalChange?.(classified);
+          }
+        }
+      }
+    }
+    this.prevTime = timestamp;
+    return this.currentInterval;
+  }
+
+  getInterval(): number {
+    return this.currentInterval;
+  }
+}
 /** 瓦片总内存预算（字节，按 RGBA 4B/px 估算），超出按插入序淘汰。
  *  issue 36：96MB → 64MB（密集谱下瓦片缓存是常驻内存增量的主体；配合瓦片 dpr 上限下调） */
 const BYTES_BUDGET = 64 * 1024 * 1024;
 /** 瓦片数量上限（兜底，正常情况下字节预算先生效） */
 const MAX_TILES = 64;
-/** 瓦片位图 dpr 上限（issue 36）：瓦片只承载音符精灵（无文字），1.5 倍 dpr 在高分屏几乎不可辨，
- *  相比 2.0 内存 -44%、瓦片重建填充也快 ~44%（密集谱下放置延迟同步受益）；主画布仍按完整 dpr。 */
-const TILE_DPR_CAP = 1.5;
+/** 瓦片位图 dpr 上限（issue 212）：开放 2.0x 整数倍光栅化，对齐 Retina 2.0x 标准屏与 Windows 各常用 DPI（1.0/1.25/1.5/1.75/2.0），
+ *  消除 1.5x 上限在 2.0x 画布上的 1.333x 放大失真与重采样模糊；
+ *  配合 LRU 瓦片数量上限与 64MiB 显存预算，防范超大视口爆显存。 */
+export const TILE_DPR_CAP = 2.0;
+
+/**
+ * 瓦片有效 DPR（issue 212）：
+ * - 对 2.0x 及以下屏幕开放完整 DPR（含 Retina 2.0x 与 Windows 125%/150%/175%/200%），
+ *   使瓦片位图与主画布物理像素达到 1:1 直绘，彻底消除非整数缩放拉伸；
+ * - 超过 2.0x（如 3.0x/4.0x 超高分屏）封顶为 2.0x，防范超大视口爆显存。
+ */
+export function getEffectiveDpr(dpr: number): number {
+  return Math.min(Math.max(1, dpr), TILE_DPR_CAP);
+}
+
+export interface TileBlitSmoothingParams {
+  dpr: number;
+  tileDpr: number;
+  es: number;
+  refScale: number;
+  surfaceW: number;
+  tileW: number;
+  dx?: number;
+  dy?: number;
+  dw?: number;
+  dh?: number;
+  sx?: number;
+  sy?: number;
+  sw?: number;
+  sh?: number;
+}
+
+/**
+ * issue 222（抗畸变根治）：瓦片 blit 自适应平滑策略
+ * - 浮点 DPR（Windows 125%/150%/175% 等）或缩放拉伸态（手势期 es !== refScale）下，强制开启高阶滤波平滑，消除亚像素锯齿与黑斑；
+ * - 仅当物理像素严格 1:1 整数对齐（如标准 1.0x 或 Retina 2.0x 且无缩放拉伸）时，才关闭平滑以最大化填充性能。
+ */
+export function shouldEnableTileBlitSmoothing(p: TileBlitSmoothingParams): boolean {
+  if (p.dx !== undefined && Math.abs(p.dx - Math.round(p.dx)) > 1e-4) return true;
+  if (p.dy !== undefined && Math.abs(p.dy - Math.round(p.dy)) > 1e-4) return true;
+  if (p.dw !== undefined && Math.abs(p.dw - Math.round(p.dw)) > 1e-4) return true;
+  if (p.dh !== undefined && Math.abs(p.dh - Math.round(p.dh)) > 1e-4) return true;
+  if (p.sx !== undefined && Math.abs(p.sx - Math.round(p.sx)) > 1e-4) return true;
+  if (p.sy !== undefined && Math.abs(p.sy - Math.round(p.sy)) > 1e-4) return true;
+  if (p.sw !== undefined && Math.abs(p.sw - Math.round(p.sw)) > 1e-4) return true;
+  if (p.sh !== undefined && Math.abs(p.sh - Math.round(p.sh)) > 1e-4) return true;
+  const isDprInteger = Math.abs(p.dpr - Math.round(p.dpr)) < 1e-5;
+  const isTileDprInteger = Math.abs(p.tileDpr - Math.round(p.tileDpr)) < 1e-5;
+  if (!isDprInteger || !isTileDprInteger) return true;
+  if (Math.abs(p.dpr - p.tileDpr) > 1e-5) return true;
+  if (Math.abs(p.es - p.refScale) > 1e-5) return true;
+  if (Math.abs(p.surfaceW - p.tileW) > 1e-5) return true;
+  return false;
+}
+
 
 interface Tile {
   canvas: HTMLCanvasElement | OffscreenCanvas | null;
@@ -82,6 +223,10 @@ export interface NoteLayerCache {
   draw(ctx: CanvasRenderingContext2D, rc: RenderCtx): void;
   /** 丢弃全部瓦片与失效依据（播放队列一并清空）。 */
   reset(): void;
+  /** 设置当前屏幕帧间隔（ms，issue 213 由 rAF 采样注入） */
+  setFrameInterval(intervalMs: number): void;
+  /** 获取当前生效的帧间隔（ms） */
+  getFrameInterval(): number;
   /** 测试注入点：瓦片位图工厂（浏览器用 canvas，测试可注入假实现）。 */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 假位图只需形状兼容（见 tests/support/canvas.ts）
   __setCanvasFactoryForTests(factory: () => any): void;
@@ -203,7 +348,7 @@ export function tileBlitRect(tileId: number, es: number, refScale: number, ancho
  * 用于在预取前按 64MiB 预算做容量规划；空瓦片实际 0 字节，这里按满块保守估计。
  */
 export function tileBytesFor(surfaceW: number, es: number, dpr: number): number {
-  const tileDpr = Math.min(dpr, TILE_DPR_CAP);
+  const tileDpr = getEffectiveDpr(dpr);
   const { w, h } = bufferSizeFor({ w: Math.max(0, surfaceW), h: Math.max(0, TILE_PX * es) }, tileDpr);
   return w * h * 4;
 }
@@ -309,7 +454,8 @@ function createTileCanvasDefault() {
  * 创建一个音符瓦片缓存实例（候选 3）：瓦片表 / 失效依据 / 播放瓦片队列与计时器 / 统计全在实例内，
  * 不与其它渲染目标共享 —— 见 `../RenderTarget`。
  */
-export function createNoteLayerCache(): NoteLayerCache {
+export function createNoteLayerCache(options: { rasterizeBands?: typeof rasterizeBandsCooperatively } = {}): NoteLayerCache {
+  const rasterizeBands = options.rasterizeBands ?? rasterizeBandsCooperatively;
   /* eslint-disable-next-line @typescript-eslint/no-explicit-any -- 测试注入点：假位图只需结构兼容 */
   let createTileCanvas: () => any = createTileCanvasDefault;
   const tiles = new Map<number, Tile>();
@@ -318,6 +464,24 @@ export function createNoteLayerCache(): NoteLayerCache {
   const playTileQueue: number[] = [];
   let playTileSnap: { rc: RenderCtx; es: number } | null = null;
   let playTileTimer: ReturnType<typeof setTimeout> | null = null;
+  let tileBuild: { id: number; cancelled: boolean } | null = null;
+
+  function cancelTileBuild() {
+    if (tileBuild) tileBuild.cancelled = true;
+    tileBuild = null;
+  }
+  /** 当前屏幕帧间隔（ms，issue 213）：默认 16.67ms（60Hz 基线），由 rAF 采样注入 */
+  let frameInterval = DEFAULT_FRAME_INTERVAL_MS;
+
+  function setFrameInterval(intervalMs: number) {
+    if (Number.isFinite(intervalMs) && intervalMs > 0) {
+      frameInterval = intervalMs;
+    }
+  }
+
+  function getFrameInterval(): number {
+    return frameInterval;
+  }
 
   /**
    * 缓存失效依据（issue 35 + issue 36 F3a）：
@@ -361,7 +525,8 @@ export function createNoteLayerCache(): NoteLayerCache {
     return !t.empty && Math.abs(es / t.refScale - 1) > STALE_TOL;
   }
 
-  function drainOnePlayingTile() {
+  function drainOnePlayingTile(synchronous = false) {
+    if (tileBuild) return;
     const snap = playTileSnap;
     const id = playTileQueue.shift();
     if (id === undefined || !snap) return;
@@ -369,15 +534,40 @@ export function createNoteLayerCache(): NoteLayerCache {
     // issue 146：不再是「只有没建过的才补」——打脏的也要换下来，否则旧音符一直挂着。
     // issue 199：尺度过期的瓦片（stale）也必须换下来，否则播放中缩放后锁定在旧 scale 发糊。
     if (cur && !cur.dirty && !isTileStale(cur, snap.es)) return;
-    renderTile(id, snap.rc, snap.es);
+    if (synchronous) { renderTile(id, snap.rc, snap.es); return; }
+    const job = { id, cancelled: false };
+    tileBuild = job;
+    const prepared = prepareTile(id, snap.rc, snap.es);
+    const inputs = prepared.collect();
+    if (inputs.length === 0) {
+      prepared.draw();
+      commitTile(id, prepared.tile);
+      tileBuild = null;
+      return;
+    }
+    void rasterizeBands(inputs, {
+      budgetMs: Math.min(2, frameInterval * 0.25),
+      isCancelled: () => job.cancelled,
+    }).then(rasters => {
+      if (job.cancelled || !rasters) return;
+      let next = 0;
+      prepared.draw(() => rasters[next++] ?? null);
+      commitTile(id, prepared.tile);
+    }).catch(error => {
+      console.error('Failed to prepare chart tile', error);
+    }).finally(() => {
+      if (tileBuild !== job) return;
+      tileBuild = null;
+      schedulePlayTileDrain();
+    });
   }
 
   function schedulePlayTileDrain() {
-    if (playTileTimer !== null || playTileQueue.length === 0) return;
+    if (playTileTimer !== null || tileBuild || playTileQueue.length === 0) return;
     const isPlaying = playTileSnap?.rc.playing === true;
-    // issue 167：播放期单帧至多补建 1 块实体瓦片，将下一次补建延后 16ms（~1 帧），防连环同步光栅打穿帧预算；
+    // issue 167 / issue 213：播放期根据屏幕帧率自适应排水延迟（120Hz 下为 4ms 消除饥饿，60Hz 下保持 16ms 保护既有不变量）；
     // 静止期 delay 恒为 0，以最快速度在空闲期排空预热队列。
-    const delay = isPlaying ? 16 : 0;
+    const delay = computeDrainDelay(frameInterval, isPlaying);
     playTileTimer = setTimeout(() => {
       playTileTimer = null;
       drainOnePlayingTile();
@@ -403,12 +593,13 @@ export function createNoteLayerCache(): NoteLayerCache {
         touchTile(id, cur);
         continue;
       }
-      if (!playTileQueue.includes(id)) playTileQueue.push(id);
+      if (tileBuild?.id !== id && !playTileQueue.includes(id)) playTileQueue.push(id);
     }
     schedulePlayTileDrain();
   }
 
   function reset() {
+    cancelTileBuild();
     tiles.clear();
     basis = null;
     rebuildCursor = null;
@@ -443,15 +634,36 @@ export function createNoteLayerCache(): NoteLayerCache {
     // 删除就等于「接下来若干帧这块瓦片没有任何像素」；而 margin = (VIEWPORT_PADDING+48)/es ≈ 248
     // pos px 常常覆盖全部可见内容瓦片 → 用户看到的是**整屏音符消失一瞬**，任何编辑动作都触发。
     // 打脏后本帧仍 blit 上一版位图（内容不新但连续），队列异步重建完换下。
+    // issue 232：仅与视口相交的可见块打脏保留；对于离开当前视口的远端失效瓦片，直接 delete 淘汰，
+    // 杜绝回滚后编辑将远端瓦片滞留为 dirty，在随后开播时引发排空风暴与旧音符残影闪烁。
+    const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
     for (let id = lo; id <= hi; id++) {
       const t = tiles.get(id);
-      if (t) t.dirty = true;
+      if (t) {
+        if (tileIntersectsViewport(id, es, anchorY, rc.surface.h)) {
+          t.dirty = true;
+        } else {
+          tiles.delete(id);
+          const qIdx = playTileQueue.indexOf(id);
+          if (qIdx !== -1) playTileQueue.splice(qIdx, 1);
+        }
+      }
     }
   }
 
-  /** issue 146：变更收敛不到拍区间（undo/redo 整份换引用等）—— 与上面同口径，全部打脏而非清空 */
-  function markAllTilesDirty() {
-    for (const t of tiles.values()) t.dirty = true;
+  /** issue 146 / 232：变更收敛不到拍区间（undo/redo 整份换引用等）—— 视口内打脏，视口外直接淘汰 */
+  function markAllTilesDirty(rc: RenderCtx) {
+    const es = rc.viewport.scale;
+    const anchorY = (rc.geometry.chartEndVirtualY - rc.viewport.scrollY) * es + rc.surface.h;
+    for (const [id, t] of [...tiles.entries()]) {
+      if (tileIntersectsViewport(id, es, anchorY, rc.surface.h)) {
+        t.dirty = true;
+      } else {
+        tiles.delete(id);
+        const qIdx = playTileQueue.indexOf(id);
+        if (qIdx !== -1) playTileQueue.splice(qIdx, 1);
+      }
+    }
   }
 
   function evictOverBudget() {
@@ -471,8 +683,11 @@ export function createNoteLayerCache(): NoteLayerCache {
   }
 
   /** 以 es 渲染一块瓦片（含上下 VIEWPORT_PADDING 外扩，跨瓦片音符在相邻瓦片重复绘制 → 无缝拼接） */
-  function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
-    tiles.delete(tileId);
+  function prepareTile(tileId: number, rc: RenderCtx, es: number): {
+    tile: Tile;
+    collect: () => BandRasterInput[];
+    draw: (rasterizeBand?: RenderCtx['rasterizeBand']) => void;
+  } {
     const p0 = tileId * TILE_PX, p1 = p0 + TILE_PX;
     const cssH = TILE_PX * es;
     // 伪视口：让瓦片 pos 区间 [p0, p1] 恰好映射到瓦片画布 [0, cssH]
@@ -483,15 +698,13 @@ export function createNoteLayerCache(): NoteLayerCache {
     const vis = rc.geometry.visibleNotes(rc.notes, vp, rc.beatDisplay, bounds);
     if (vis.length === 0) {
       const empty: Tile = { canvas: null, refScale: es, surfaceW: rc.surface.w, bytes: 0, empty: true };
-      tiles.set(tileId, empty);
-      return empty;
+      return { tile: empty, collect: () => [], draw: () => {} };
     }
     // 位图与主画布同宽（cssW = rc.surface.w），无需左右外扩（装饰器/选中圈均在 surface 内）
     const cssW = rc.surface.w;
     const canvas = createTileCanvas();
-    // issue 36：瓦片 dpr 上限 1.5（内存与重建成本同时下降；主画布 blit 时按 CSS 尺寸 1:1 绘制）。
-    // 需要"瓦片与画布同密度"的用法（预览面板 / 宽图导出）走 `rc.directNotes` 直渲，不再走瓦片。
-    const tileDpr = Math.min(rc.dpr, TILE_DPR_CAP);
+    // issue 212：瓦片有效 dpr 走 getEffectiveDpr，Retina 2.0x 与 Windows 100%~200% 开放 1:1 直通，消除 1.333x 放大失真。
+    const tileDpr = getEffectiveDpr(rc.dpr);
     // buffer = css × dpr，尺寸口径走 rasterScale 唯一处
     const { w: bw, h: bh } = bufferSizeFor({ w: cssW, h: cssH }, tileDpr);
     canvas.width = bw;
@@ -503,9 +716,7 @@ export function createNoteLayerCache(): NoteLayerCache {
     // 按实际比例绘制后内容恰好填满整数位图，blit（目标高 = cssH）逐像素精确，瓦片接缝数学不动。
     tctx.setTransform(bw / cssW, 0, 0, bh / cssH, 0, 0);
     // issue 40（渲染质量）：瓦片承载音符精灵，与主画布同一平滑策略（显式置 true，与默认一致不改观感）。
-    // 瓦片 dpr 权衡（issue 36 定 1.5 + 本 issue 复核）：瓦片只有精灵、无文字，1.5 dpr 高分屏几乎不可辨，
-    // 相对 2.0 内存 -44%、重建填充快 ~44%（密集谱放置延迟受益）；主画布仍按完整 dpr。若要更清晰需同步
-    // 上调 TILE_DPR_CAP 并接受内存/重建成本上升——属观感变更，需用户确认后再动。
+    // issue 212：开放 Retina 2.0x 瓦片直通，1:1 绘制无需二次拉伸，配合 64MiB 预算与 LRU 保护显存。
     tctx.imageSmoothingEnabled = true;
     // issue 40：与主画布同用高阶滤波，压低缩小时精灵边缘的子像素混色/杂色
     tctx.imageSmoothingQuality = 'high';
@@ -513,11 +724,34 @@ export function createNoteLayerCache(): NoteLayerCache {
     const fakeRc: RenderCtx = { ...rc, viewport: vp, surface: fakeSurface };
     const c = makeCoords(rc.geometry, vp, rc.beatDisplay, rc.notes, rc.display?.mirror === true);
     // F1：瓦片不含选中态（选中/hover 高亮由主画布叠加层绘制，选择变化不再重建瓦片）
-    renderNotes(tctx, c, fakeRc, vis);
     const tile: Tile = { canvas, refScale: es, surfaceW: cssW, bytes: bw * bh * 4, empty: false };
+    return {
+      tile,
+      collect() {
+        const inputs: BandRasterInput[] = [];
+        renderNoteBands(tctx, c, {
+          ...fakeRc,
+          rasterizeBand(input) { inputs.push(input); return null; },
+        }, vis);
+        // 收集期间普通四边形仍沿原绘制路径；只在整块像素就绪后发布瓦片。
+        tctx.clearRect(0, 0, cssW, cssH);
+        return inputs;
+      },
+      draw(rasterizeBand) { renderNotes(tctx, c, { ...fakeRc, rasterizeBand }, vis); },
+    };
+  }
+
+  function commitTile(tileId: number, tile: Tile): Tile {
+    tiles.delete(tileId);
     tiles.set(tileId, tile);
     evictOverBudget();
     return tile;
+  }
+
+  function renderTile(tileId: number, rc: RenderCtx, es: number): Tile {
+    const prepared = prepareTile(tileId, rc, es);
+    prepared.draw();
+    return commitTile(tileId, prepared.tile);
   }
 
   /**
@@ -528,6 +762,12 @@ export function createNoteLayerCache(): NoteLayerCache {
    *   （超预算的残余先按比例 blit，settle 帧兜底收尾）。
    */
   function draw(ctx: CanvasRenderingContext2D, rc: RenderCtx) {
+    // 每帧只更新滚动不影响带体；几何/内容变化则取消旧分片，防止迟到结果覆盖新画面。
+    const previous = playTileSnap?.rc;
+    if (previous && (previous.playing !== rc.playing || previous.directNotes !== rc.directNotes ||
+      previous.viewport.scale !== rc.viewport.scale || previous.surface.w !== rc.surface.w || previous.surface.h !== rc.surface.h)) {
+      cancelTileBuild();
+    }
     const es = rc.viewport.scale;
     if (rc.directNotes || es > MAX_CACHE_ES) {
       // 直渲并丢掉瓦片（缩回瓦片模式时会全量重建）
@@ -574,13 +814,15 @@ export function createNoteLayerCache(): NoteLayerCache {
       // 时间线内容/节拍显示/dpr/皮肤/音符大小/长压线不透明度/同时点击线/色觉辅助/镜像/纵向比例变化 → pos 空间或位图语义变化，全量失效。
       // 注意：surface 宽高与 geometry 实例不在失效依据内（issue 36 F3a，见 basis 注释）。
       tiles.clear();
+      cancelTileBuild();
       basis = nb;
       // 全量失效帧保持旧口径：本帧把 [lo,hi] 全部同步重建（一次性事件，非 hover 热路径）。
       fullInvalidated = true;
     } else if (basis.notes !== nb.notes) {
+      cancelTileBuild();
       // F3：notes 引用变化 → 结构共享 diff，仅失效覆盖变更拍区间的瓦片
       const diff = diffNotes(basis.notes, rc.notes, rc.beatDisplay);
-      if (diff.kind === 'full') markAllTilesDirty();                                     // issue 146：不清空
+      if (diff.kind === 'full') markAllTilesDirty(rc);                                     // issue 146：不清空
       else if (diff.kind === 'range') invalidateTilesForBeatRange(diff.minBeat, diff.maxBeat, rc);
       basis = nb;
     }
@@ -598,8 +840,6 @@ export function createNoteLayerCache(): NoteLayerCache {
     let rebuilt = 0, blitted = 0, staleBlit = false, blitCssPx = 0;
     const prevSmooth = ctx.imageSmoothingEnabled;
     const prevQuality = ctx.imageSmoothingQuality;
-    // 瓦片里精灵已烘焙；播放 1:1 CSS 仍会因 tile dpr 1.5 vs 主画布 dpr 被放大，关掉高阶滤波减填充。
-    ctx.imageSmoothingEnabled = false;
 
     // ---- 1) 先重建（issue 173：游标轮转 + 单块成本上限），blit 再统一取本帧最新瓦片 ----
     const pending: number[] = [];
@@ -628,7 +868,8 @@ export function createNoteLayerCache(): NoteLayerCache {
         const next = at >= 0 ? at : pending.findIndex((id) => id >= rebuildCursor!);
         startIdx = next >= 0 ? next : 0;
       }
-      const budgetEnd = rc.zoomGesture ? performance.now() + GESTURE_REBUILD_BUDGET_MS : Infinity;
+      const { gestureBudgetMs, tileCostCapMs } = computeRebuildBudget(frameInterval);
+      const budgetEnd = rc.zoomGesture ? performance.now() + gestureBudgetMs : Infinity;
       let deferred: number | null = null;
       for (let k = 0; k < pending.length; k++) {
         const id = pending[(startIdx + k) % pending.length];
@@ -639,7 +880,7 @@ export function createNoteLayerCache(): NoteLayerCache {
         rebuilt++;
         // 单块成本上限**只对手势帧**生效：手势期是"锐化速度换帧时间"；settle / 静止帧要的是
         // 一次收尾（预算本来就是 Infinity），在这里收手会让瓦片永远停在旧的 es 上。
-        if (rc.zoomGesture && performance.now() - t0 > GESTURE_TILE_COST_CAP_MS) {
+        if (rc.zoomGesture && performance.now() - t0 > tileCostCapMs) {
           // 单块就超支：本帧不再建，下一帧从它的下一块接着来（保证轮转，不会饿死高 id）
           deferred = pending[(startIdx + k + 1) % pending.length];
           break;
@@ -661,6 +902,25 @@ export function createNoteLayerCache(): NoteLayerCache {
       const r = tileBlitRect(id, es, t.refScale, anchorY, rc.surface.w, t.surfaceW);
       const clipped = clipTileDrawRect(r, rc.surface.w, rc.surface.h, t.canvas.width, t.canvas.height);
       if (!clipped) continue;
+      // issue 222：瓦片 blit 自适应平滑（浮点 DPI / 缩放拉伸开启 high，仅整数 1:1 关闭）
+      const smooth = shouldEnableTileBlitSmoothing({
+        dpr: rc.dpr,
+        tileDpr: getEffectiveDpr(rc.dpr),
+        es,
+        refScale: t.refScale,
+        surfaceW: rc.surface.w,
+        tileW: t.surfaceW,
+        dx: clipped.dx,
+        dy: clipped.dy,
+        dw: clipped.dw,
+        dh: clipped.dh,
+        sx: clipped.sx,
+        sy: clipped.sy,
+        sw: clipped.sw,
+        sh: clipped.sh,
+      });
+      ctx.imageSmoothingEnabled = smooth;
+      if (smooth) ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(t.canvas, clipped.sx, clipped.sy, clipped.sw, clipped.sh, clipped.dx, clipped.dy, clipped.dw, clipped.dh);
       blitted++;
       blitCssPx += clipped.dw * clipped.dh;
@@ -691,11 +951,13 @@ export function createNoteLayerCache(): NoteLayerCache {
   }
 
   function __flushPlayingTileQueueForTests() {
+    if (tileBuild) playTileQueue.unshift(tileBuild.id);
+    cancelTileBuild();
     if (playTileTimer !== null) {
       clearTimeout(playTileTimer);
       playTileTimer = null;
     }
-    while (playTileQueue.length > 0) drainOnePlayingTile();
+    while (playTileQueue.length > 0) drainOnePlayingTile(true);
   }
 
   function __setCanvasFactoryForTests(factory: () => unknown) {
@@ -705,6 +967,8 @@ export function createNoteLayerCache(): NoteLayerCache {
   return {
     draw,
     reset,
+    setFrameInterval,
+    getFrameInterval,
     __setCanvasFactoryForTests,
     __getTilesForTests: () => tiles,
     __getLastNoteLayerStats: () => lastNoteLayerStats,

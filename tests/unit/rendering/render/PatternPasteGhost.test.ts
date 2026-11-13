@@ -4,8 +4,8 @@
 // ③ 数值与线同行居中、走实线数值同一条布局链（用户定案：不做让行、不偏离线）。
 import { describe, expect, it } from 'vitest';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
-import { buildPatternPastePayload } from '@/src/chart/patterns/paste';
-import type { Pattern } from '@/src/chart/patterns/types';
+import { buildPatternPastePayload } from '@/src/patterns/paste';
+import type { Pattern } from '@/src/patterns/types';
 import type { ChartNote } from '@/src/chart/types';
 import { makeCoords } from '@/src/rendering/coords';
 import { renderToolPreview } from '@/src/rendering/render';

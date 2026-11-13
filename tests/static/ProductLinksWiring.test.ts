@@ -7,7 +7,7 @@
 //   ④ 主进程产品白名单与社区白名单**不是同一份** —— 社区那份是网络出口的信任边界。
 import { describe, expect, it } from 'vitest';
 import { AUTHOR_NAME, PRODUCT_LINKS, shortUrl } from '@/src/app/productLinks';
-import { isProductUrl, isSiteUrl } from '@/electron/externalLink.cjs';
+import { isProductUrl, isSiteUrl } from '@/electron/community/externalLink.cjs';
 import { readSource, readStripped } from '@/tests/support/source';
 
 /** 产品对外的五个入口（改地址只该改 productLinks.ts，所以这里再抄一份当断言） */
@@ -22,8 +22,8 @@ const EXPECTED = {
 const PAGE = readStripped('src/pages/settings/SettingsPage.tsx');
 const NAV = readStripped('src/layouts/AppNav.tsx');
 const CSS = readStripped('src/layouts/AppShell.css');
-const LINK_CJS = readSource('electron/externalLink.cjs');
-const COMMUNITY_CJS = readSource('electron/communityNet.cjs');
+const LINK_CJS = readSource('electron/community/externalLink.cjs');
+const COMMUNITY_CJS = readSource('electron/community/communityNet.cjs');
 
 function dict(rel: string): Record<string, string> {
   return JSON.parse(readSource(rel)) as Record<string, string>;

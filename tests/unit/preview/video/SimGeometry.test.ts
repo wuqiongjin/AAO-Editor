@@ -2,7 +2,7 @@
 // 锁的是票面「画面要素」表里的算术：A(t_note) = 1、A(t_note − T) = 0.05（渐近值）、
 // lane → x（含 mirror 的符号）、带体四边形顶点顺序、noteSpeed 档位 → T、设计面窄 / 宽下的钳制。
 import { describe, expect, it } from 'vitest';
-import { SIM_NOTE_SPEED_RANGE } from '@/src/chart/config/AppSettings';
+import { SIM_NOTE_SPEED_RANGE } from '@/src/settings/AppSettings';
 import { NOTE_SKIN_GEOMETRY } from '@/src/rendering/skin/noteSkin';
 import {
   APPROACH,

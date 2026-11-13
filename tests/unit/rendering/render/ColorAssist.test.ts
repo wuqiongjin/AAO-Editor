@@ -9,7 +9,7 @@ import { buildActiveNoteIcons, normalizeNoteSkinSelection, FLAT_LANE } from '@/s
 import { isHalfBeatAligned, renderNotes } from '@/src/rendering/render';
 import { makeCoords } from '@/src/rendering/coords';
 import { ChartGeometry } from '@/src/chart/geometry/ChartGeometry';
-import { defaultSettings } from '@/src/chart/config/AppSettings';
+import { defaultSettings } from '@/src/settings/AppSettings';
 import type { RenderCtx } from '@/src/rendering/types';
 import type { ChartNote } from '@/src/chart/types';
 import { makeNoopCtx } from '@/tests/support/canvas';

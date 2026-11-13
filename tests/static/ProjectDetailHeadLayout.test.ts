@@ -27,7 +27,7 @@
 // 这里锁的是"这几条声明不许被悄悄改成反面"。
 import { describe, expect, it } from 'vitest';
 import { readSource, readStripped } from '@/tests/support/source';
-import { PROJECT_LIST_WIDTH } from '@/src/chart/config/AppSettings';
+import { PROJECT_LIST_WIDTH } from '@/src/settings/AppSettings';
 
 const css = readSource('src/pages/projects/ProjectsPage.css');
 

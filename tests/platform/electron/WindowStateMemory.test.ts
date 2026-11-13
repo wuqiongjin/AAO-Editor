@@ -15,13 +15,13 @@ import {
   parseWindowStateJson,
   saveWindowStateSync,
   serializeWindowState,
-} from '@/electron/windowState.cjs';
-import { APP_STATE_FILENAME, appStateFilePath } from '@/electron/appState.cjs';
-import { stripComments, readSource } from '@/tests/support/source';
+} from '@/electron/window/windowState.cjs';
+import { APP_STATE_FILENAME, appStateFilePath } from '@/electron/storage/appState.cjs';
+import { stripComments, readSource, readSources } from '@/tests/support/source';
 
 
-const mainSrc = stripComments(readSource('electron/main.cjs'));
-const settingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));
+const mainSrc = readSources(['electron/main.cjs', 'electron/window/createWindow.cjs'], true);
+const settingsSrc = stripComments(readSource('src/settings/AppSettings.ts'));
 const settingsPageSrc = stripComments(readSource('src/pages/settings/SettingsPage.tsx'));
 
 describe('issue 119 · 纯函数 normalize / 序列化', () => {

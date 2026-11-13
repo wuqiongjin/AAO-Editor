@@ -6,7 +6,7 @@
  *
  *   1. `CommunityTransport` —— 能力层（08 曲库 / 09 社区帖 / 10 会话 / 11 发布）注入它收发，
  *      单测注入假出口（不碰网络）。它的**唯一实现**是 `electronTransport.ts` 里那条走 IPC 的。
- *   2. 跨进程载荷形状 —— 与主进程实现 `electron/communityNet.cjs` 是同一份契约（改一边要改另一边）。
+ *   2. 跨进程载荷形状 —— 与主进程实现 `electron/community/communityNet.cjs` 是同一份契约（改一边要改另一边）。
  *   3. 统一错误域 `CommunityError` —— 离线 / 超时 / 限流 / 未授权 / 平台不支持 / 响应非法，
  *      外加三类网关自保（非 2xx / 载荷被拒 / 缓存写失败）。
  *

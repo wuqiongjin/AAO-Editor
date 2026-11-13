@@ -4,7 +4,7 @@
 //
 // 单测为什么够：出帧是纯函数（`drawSimFrameAt(ctx, frame, seconds)`）——把精灵换成记录替身，
 // 就能看清"这一秒画了哪些元素、画在哪个矩形"；**光栅观感**仍归 `scripts/sim-shot.mjs` 的位图人工核对。
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hasAssetSnapshot } from '@/tests/support/assetSnapshot';
 import type { ChartNote, SingleNote, SlideNote } from '@/src/chart/types';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
@@ -14,6 +14,7 @@ import {
   buildSimChart,
   drawSimFrameAt,
   SIM_FALLBACK_BG,
+  visibleSimBandGroups,
   type SimFrameInput,
   type SimScene,
 } from '@/src/preview/video/sim/simField';
@@ -27,10 +28,17 @@ import {
   playLineRect,
   simDualLineThickness,
   simNoteRect,
-  SIM_BAND_COLORS,
-  SIM_BAND_MATERIAL,
-  SIM_BAND_MATERIAL_SP,
 } from '@/src/preview/video/sim/simGeometry';
+import {
+  SIM_BAND_RASTER_MATERIAL,
+  SIM_BAND_RASTER_MATERIAL_SP,
+  SIM_BAND_RASTER_SCALE,
+  SIM_BAND_RASTER_SCALE_FULL,
+  __setSimBandRasterCanvasFactoryForTests,
+  type SimBandRasterGroup,
+  type SimBandRasterScale,
+} from '@/src/preview/video/sim/simBandRaster';
+import { splitBandAtFolds } from '@/src/rendering/slideBandGeometry';
 import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
 
 const icons = buildActiveNoteIcons(normalizeNoteSkinSelection({}));
@@ -82,8 +90,9 @@ function makeRecordingSprite() {
   return { spriteIcon, draws };
 }
 
-function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon): SimFrameInput {
-  return {
+/** 缺省走真实的实时路径；导出测试显式给 100%，避免测试替身掩盖默认档位回归。 */
+function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon, scale?: SimBandRasterScale): SimFrameInput {
+  const frame = {
     scene: scene(notes),
     chart: buildSimChart(scene(notes), icons),
     metrics: fieldMetrics(1334, 750),
@@ -91,9 +100,64 @@ function frameOf(notes: ChartNote[], spriteIcon: CanvasSpriteIcon): SimFrameInpu
     noteIcons: icons,
     spriteIcon,
   };
+  return scale === undefined ? frame : { ...frame, bandRasterScale: scale };
 }
 
-const recordingCtx = () => makeRecordingCtx({ createLinearGradient: () => ({ addColorStop: () => undefined }) });
+/** 记录型 ctx：补一个合法变换（65 的带体光栅按它换算设备像素密度） */
+const recordingCtx = (overrides: Record<string, (...args: unknown[]) => unknown> = {}) => makeRecordingCtx({
+  createLinearGradient: () => ({ addColorStop: () => undefined }),
+  getTransform: () => ({ a: 1, d: 1, e: 0, f: 0 }),
+  ...overrides,
+});
+
+/** 65：离屏 RGBA 缓冲的假画布（记录 createImageData / putImageData，能直接读像素） */
+interface FakeScratch {
+  width: number;
+  height: number;
+  image: { width: number; height: number; data: Uint8ClampedArray } | null;
+  calls: RecordedCall[];
+}
+let lastScratch: FakeScratch | null = null;
+
+beforeAll(() => {
+  __setSimBandRasterCanvasFactoryForTests(() => {
+    const scratch: FakeScratch = { width: 0, height: 0, image: null, calls: [] };
+    lastScratch = scratch;
+    const canvas = {
+      get width() { return scratch.width; },
+      set width(v: number) { scratch.width = v; },
+      get height() { return scratch.height; },
+      set height(v: number) { scratch.height = v; },
+      getContext: () => ({
+        createImageData: (w: number, h: number) => {
+          scratch.calls.push(['createImageData', [w, h]]);
+          scratch.image = { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+          return scratch.image;
+        },
+        putImageData: (img: unknown) => { scratch.calls.push(['putImageData', [img]]); },
+      }),
+    };
+    return canvas as unknown as HTMLCanvasElement;
+  });
+});
+afterAll(() => __setSimBandRasterCanvasFactoryForTests(null));
+
+/** 65/66：出帧后直接读回写的 RGBA（缓冲 = 场地 × 变换缩放 × 该帧档位） */
+function drawnFrame(frame: SimFrameInput, seconds: number, overrides: Record<string, (...args: unknown[]) => unknown> = {}) {
+  const { proxy, calls } = recordingCtx(overrides);
+  drawSimFrameAt(proxy, frame, seconds);
+  const scratch = lastScratch!;
+  return { calls, scratch, image: scratch.image! };
+}
+const alphaAt = (image: { width: number; data: Uint8ClampedArray }, x: number, y: number): number =>
+  image.data[(y * image.width + x) * 4 + 3]! / 255;
+const rgbAt = (image: { width: number; data: Uint8ClampedArray }, x: number, y: number): number[] => {
+  const p = (y * image.width + x) * 4;
+  return [image.data[p]!, image.data[p + 1]!, image.data[p + 2]!];
+};
+/** 出帧函数里的可见带体分组（同一份可见窗口 / 过线端插值，几何断言都从它取） */
+const groupsAt = (frame: SimFrameInput, seconds: number): SimBandRasterGroup[] =>
+  visibleSimBandGroups(frame.chart, frame.scene, frame.metrics, seconds);
 
 /** 默认 120 BPM：beat → 秒 = beat / 2；noteSpeed 9.5 ≤ 11 ⇒ T = (12 − noteSpeed)/2 = 1.25s */
 const T = approachSeconds(9.5);
@@ -144,12 +208,11 @@ describe('drawSimFrameAt · 音符的可见窗口（问题 5）', () => {
   it('带体的时间窗口没被改坏：接近中照画、整段过线后不画', () => {
     const { spriteIcon } = makeRecordingSprite();
     const frame = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5 }])], spriteIcon);
-    const approaching = recordingCtx();
-    drawSimFrameAt(approaching.proxy, frame, 1.5); // 带体末端 2s（还没过线）
-    expect(propValues(approaching.calls, 'fillStyle')).toContain(SIM_BAND_COLORS.band);
-    const passed = recordingCtx();
-    drawSimFrameAt(passed.proxy, frame, 2.5); // 整段已过线
-    expect(propValues(passed.calls, 'fillStyle')).not.toContain(SIM_BAND_COLORS.band);
+    // 65：带体不再进 ctx 路径，改从出帧的分组函数读（同一份可见窗口）
+    expect(groupsAt(frame, 1.5)).toHaveLength(1); // 带体末端 2s（还没过线）
+    expect(groupsAt(frame, 2.5)).toHaveLength(0); // 整段已过线
+    const { calls } = drawnFrame(frame, 1.5);
+    expect(calls.filter(([k]) => k === 'fillRect').length).toBeGreaterThan(0); // 场地底色仍在
   });
 
   it('打击特效仍只画命中后 0.32s 内的（窗口没被改坏）', () => {
@@ -265,12 +328,9 @@ describe('drawSimFrameAt · 场地三图的矩形（问题 4）', () => {
   });
 });
 
-/** 帧里**最先**那批路径命令（`fillPolys`：一个四边形 = moveTo + 3×lineTo）——带体排在音符 / 特效之前 */
-function firstVertices(calls: RecordedCall[]): { x: number; y: number }[] {
-  return calls
-    .filter(([k]) => k === 'moveTo' || k === 'lineTo')
-    .slice(0, 4)
-    .map(([, args]) => ({ x: args[0] as number, y: args[1] as number }));
+/** 65：带体四边形不再经 ctx 路径，直接从出帧分组取（顶点序仍是 a 左/右 → b 右/左） */
+function firstVertices(frame: SimFrameInput, seconds: number): { x: number; y: number }[] {
+  return groupsAt(frame, seconds)[0]!.quads[0]!;
 }
 
 /** 四边形 a 边（头两个顶点）的中点 —— 即"过线那一端"的接触点 */
@@ -288,9 +348,9 @@ describe('drawSimFrameAt · 带体过线端沿带子行进（票 23 #1）', () =
     // 末结点还没到线（2.0s）"的区间里，且已出首结点的命中特效窗（0.32s）⇒ 路径命令只剩带体那一个四边形
     const frame = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5 }])], spriteIcon);
     const centers = [1.4, 1.5, 1.6].map((seconds) => {
-      const { proxy, calls } = recordingCtx();
+      const { proxy } = recordingCtx();
       drawSimFrameAt(proxy, frame, seconds);
-      const vertices = firstVertices(calls);
+      const vertices = firstVertices(frame, seconds);
       expect(vertices).toHaveLength(4);
       // 过线端钉在场地判定线上（A = 1）
       expect(vertices[0]!.y).toBeCloseTo(frame.metrics.laneHeight, 6);
@@ -312,10 +372,10 @@ describe('drawSimFrameAt · 带体过线端沿带子行进（票 23 #1）', () =
   it('t1 === t0（同刻两点）：不除零、不出 NaN，两端各守自己的轨位', () => {
     const { spriteIcon } = makeRecordingSprite();
     const frame = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 2, lane: 5 }])], spriteIcon);
-    const { proxy, calls } = recordingCtx();
+    const { proxy } = recordingCtx();
     drawSimFrameAt(proxy, frame, 1); // 同刻两点：这一秒正好双双压线
 
-    const vertices = firstVertices(calls);
+    const vertices = firstVertices(frame, 1);
     expect(vertices).toHaveLength(4);
     for (const p of vertices) {
       expect(Number.isFinite(p.x)).toBe(true);
@@ -340,7 +400,7 @@ describe('drawSimFrameAt · 带体过线端沿带子行进（票 23 #1）', () =
     const { proxy, calls } = recordingCtx();
     drawSimFrameAt(proxy, frame, 1.7);
 
-    const bandX = aEdgeCenterX(firstVertices(calls));
+    const bandX = aEdgeCenterX(firstVertices(frame, 1.7));
     expect(bandX).toBeCloseTo(laneX(2.8), 4);
     // 按住环 = 连按特效那枚 `connectionRing`（图像 = particles，左缘为正 —— 另两枚旋转环以 0,0 为中心）
     const ring = calls.find(([k, args]) =>
@@ -526,7 +586,7 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
   });
 });
 
-// ---------------------------------------------------------------- issue 45 锁测
+// ---------------------------------------------------------------- issue 45 / 46 / 47 锁测（65 起改按新画法断言）
 
 /** BPM 事件（负 BPM = 倒流折返：其后的 beat 时间往回走） */
 const bpm = (beat: number, value: number): ChartNote => ({ type: 'BPM', beat, bpm: value });
@@ -546,238 +606,248 @@ function signedArea(pts: { x: number; y: number }[]): number {
 const quadKey = (q: { x: number; y: number }[]) =>
   q.map((p) => `${p.x.toFixed(6)},${p.y.toFixed(6)}`).sort().join(' ');
 
-/**
- * 从记录里切出**带体填充批次**：fillStyle 为带体色（普通 / SP）的那些 beginPath…fill。
- * 一个批次 = 一次 `ctx.fill()` 的一条路径，`alpha` = 该笔的 globalAlpha：
- * - 体（`alpha` = 体剖面 × slideOpacity）：同一条滑条的全部四边形在一条路径里
- *   （防接缝 / 绕向归一的性质）；
- * - 自叠加亮层：同一条滑条真正重叠的区域再补一层（`alpha` 与体相同）；
- * - 亮缘：两侧长边的薄四边形，`alpha` 更高（`alpha` 与体不同 ⇒ 可据此区分）。
- */
-function bandBatches(calls: RecordedCall[]): { quads: { x: number; y: number }[][]; alpha: number }[] {
-  const batches: { quads: { x: number; y: number }[][]; alpha: number }[] = [];
-  let cur: { x: number; y: number }[] | null = null;
-  let quads: { x: number; y: number }[][] = [];
-  let fillStyle = '';
-  let alpha = 1;
-  for (const [k, args] of calls) {
-    if (k === 'fillStyle') fillStyle = String(args[0]);
-    else if (k === 'globalAlpha') alpha = Number(args[0]);
-    else if (k === 'moveTo') {
-      cur = [{ x: args[0] as number, y: args[1] as number }];
-      quads.push(cur);
-    } else if (k === 'lineTo' && cur) {
-      cur.push({ x: args[0] as number, y: args[1] as number });
-    } else if (k === 'fill' || k === 'stroke' || k === 'clip') {
-      if (k === 'fill' && quads.length > 0 && (fillStyle === SIM_BAND_COLORS.band || fillStyle === SIM_BAND_COLORS.sp)) {
-        batches.push({ quads, alpha });
-      }
-      quads = [];
-      cur = null;
-    }
+/** 与光栅内核同口径把四边形折成中心线点（独立构造，锁"折返被切两臂"这条几何事实） */
+function nodesFromQuads(quads: { x: number; y: number }[][]): { x: number; y: number }[] {
+  const nodes: { x: number; y: number }[] = [];
+  for (let i = 0; i < quads.length; i++) {
+    const q = quads[i]!;
+    if (i === 0) nodes.push({ x: (q[0]!.x + q[1]!.x) / 2, y: q[0]!.y });
+    nodes.push({ x: (q[3]!.x + q[2]!.x) / 2, y: q[3]!.y });
   }
-  return batches;
+  return nodes;
 }
 
-/** 体 / 自叠层的批次（α = 体剖面 × slideOpacity）；亮缘批次的 α 更高，据此剔除 */
-function bodyBatches(calls: RecordedCall[]): { quads: { x: number; y: number }[][]; alpha: number }[] {
-  const body = SIM_BAND_MATERIAL.bodyAlpha * 0.8; // frameOf 的 scene：普通带 × slideOpacity 0.8
-  return bandBatches(calls).filter((b) => Math.abs(b.alpha - body) < 1e-12);
-}
+/** lane 3 的竖直滑条：像素采样时中心线恒在 x = centerX，半宽只随 A 变 */
+const verticalSlide = () => slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 3 }]);
+/** 含 hidden 中间结点 ⇒ 整条传染 SP（ADR-0009 §5） */
+const verticalSpSlide = () => slide([
+  { beat: 0, lane: 3 }, { beat: 2, lane: 3, hidden: true }, { beat: 4, lane: 3 },
+]);
 
-/**
- * 四边形在**同一条边**上的宽度：同一 y 上左右两点的水平距离。
- * 斜边平移后 bbox 会更宽，故不能直接量 bbox（亮缘宽度 / 段宽都用它）。
- */
-function widthAtSameY(q: { x: number; y: number }[]): number {
-  for (let i = 0; i < q.length; i++) {
-    for (let j = i + 1; j < q.length; j++) {
-      if (Math.abs(q[i]!.y - q[j]!.y) < 1e-9) return Math.abs(q[i]!.x - q[j]!.x);
+const CX = Math.floor(fieldMetrics(1334, 750).centerX * SIM_BAND_RASTER_SCALE);
+const ROW = 250;
+
+describe('drawSimFrameAt · 带体逐像素光栅（chart-preview 65）', () => {
+  it('每帧 1 次 putImageData + 1 次 drawImage 回贴；缓冲 = 场地 × 50%', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const frame = frameOf([verticalSlide()], spriteIcon);
+    const { calls, scratch, image } = drawnFrame(frame, 1.5);
+    expect(scratch.calls.filter(([k]) => k === 'putImageData')).toHaveLength(1);
+    // 回贴 = 唯一那笔 9 参数 drawImage（src, sx, sy, sw, sh, dx, dy, dw, dh）
+    const blits = calls.filter(([k, args]) => k === 'drawImage' && args.length === 9);
+    expect(blits).toHaveLength(1);
+    expect(blits[0]![1].slice(5, 9)).toEqual([0, 0, frame.metrics.w, frame.metrics.h]);
+    expect(image.width).toBe(Math.round(frame.metrics.w * SIM_BAND_RASTER_SCALE));
+    expect(image.height).toBe(Math.round(frame.metrics.h * SIM_BAND_RASTER_SCALE));
+  });
+
+  it('缓冲尺寸随 metrics / 变换缩放；导出链路的平移落在回贴目标上', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const frame = frameOf([verticalSlide()], spriteIcon);
+    const smaller = drawnFrame({ ...frame, metrics: fieldMetrics(667, 375) }, 1.5);
+    expect(smaller.image.width).toBe(Math.round(667 * SIM_BAND_RASTER_SCALE));
+    expect(smaller.image.height).toBe(Math.round(375 * SIM_BAND_RASTER_SCALE));
+
+    // frameDriver 的 ctx：缩放 1 + 平移 (field.x, field.y)；这里用 2× 缩放验证两轴都吃到
+    const scaled = drawnFrame(frame, 1.5, { getTransform: () => ({ a: 2, d: 2, e: 10, f: 20 }) });
+    expect(scaled.image.width).toBe(Math.round(1334 * 2 * SIM_BAND_RASTER_SCALE));
+    expect(scaled.image.height).toBe(Math.round(750 * 2 * SIM_BAND_RASTER_SCALE));
+    const blits = scaled.calls.filter(([k, args]) => k === 'drawImage' && args.length === 9);
+    expect(blits[0]![1].slice(5, 9)).toEqual([10, 20, 1334 * 2, 750 * 2]);
+  });
+
+  it('横截面来自皮肤贴图剖面：中心暗 / 亮缘亮 / 最外软边回落，不是平涂', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { image } = drawnFrame(frameOf([verticalSlide()], spriteIcon), 1.5);
+    const center = alphaAt(image, CX, ROW);
+    let peak = { alpha: 0, x: 0 };
+    for (let x = CX - 60; x <= CX + 60; x++) {
+      const a = alphaAt(image, x, ROW);
+      if (a > peak.alpha) peak = { alpha: a, x };
     }
-  }
-  return NaN;
-}
-
-describe('drawSimFrameAt · 带体批次的绕向归一（issue 45：倒流区带体填充自抵消）', () => {
-  const batchesAt = (notes: ChartNote[], seconds: number) => {
-    const { spriteIcon } = makeRecordingSprite();
-    const { proxy, calls } = recordingCtx();
-    drawSimFrameAt(proxy, frameOf(notes, spriteIcon), seconds);
-    return bodyBatches(calls);
-  };
-
-  it('倒流折返：同一段物理带子的两个反向段归一后绕向一致（修前一正一负 ⇒ nonzero 抵消成洞）', () => {
-    // 负 BPM 折返：t(4)=2.0s、t(8)=0.0s（beat 8 比 beat 4 先过线）、t(12)=2.0s。
-    // 滑条 6→6→6 跨折返点：段(4→8) 与 段(8→12) 是**同一条 lane 6 竖带**（点集相同）、
-    // 顶点绕向相反。修前并入同一条路径一次 nonzero fill ⇒ 缠绕数 0 ⇒ 互相抵消成洞，
-    // 整个倒流区滑条不显示（而逐段单独绘制的连按特效照常——与用户所见一致）。
-    const notes = [
-      bpm(0, 120), bpm(4, -120), bpm(8, 120),
-      slide([{ beat: 4, lane: 6 }, { beat: 8, lane: 6 }, { beat: 12, lane: 6 }]),
-    ];
-    for (const seconds of [0.5, 1.0, 1.5]) {
-      const batches = batchesAt(notes, seconds);
-      // 体仍并成一条路径一次 fill（防接缝 + 绕向归一不退回逐段 fill）；
-      // 第二条 = issue 46 的自叠加亮层：两段几何重合 ⇒ 重叠区再补一层（画布那边是逐像素合成）。
-      expect(batches).toHaveLength(2);
-      const quads = batches[0]!.quads;
-      expect(quads).toHaveLength(2);
-      // 两枚几何重合（同一段物理带子）：点集相同、修前顶点序互为反向
-      expect(quadKey(quads[0]!)).toBe(quadKey(quads[1]!));
-      // 修前：一正一负 ⇒ 下面两条红；修后：两枚同向（与正向流一致，≤ 0）⇒ 绿
-      for (const q of quads) expect(signedArea(q)).toBeLessThanOrEqual(0);
-      // 反向那枚被反序后，两条的顶点序完全相同（重合带子不再抵消）
-      expect(quads[0]).toEqual(quads[1]);
-      // 自叠加亮层盖的正是同一块几何（不是整条再涂一遍）
-      expect(batches[1]!.quads).toHaveLength(1);
-      expect(quadKey(batches[1]!.quads[0]!)).toBe(quadKey(quads[0]!));
-    }
+    expect(center).toBeGreaterThan(0.1);
+    expect(center).toBeLessThan(0.8);
+    expect(peak.alpha).toBeGreaterThan(center * 1.5);
+    expect(Math.abs(peak.x - CX)).toBeGreaterThan(5);
+    expect(alphaAt(image, CX + 30, ROW)).toBeLessThan(peak.alpha); // 最外软边
   });
 
-  it('同拍反向水平段：6→4 与 4→6 同拍也并成一条路径，绕向断言同样成立', () => {
-    // 票面列的第二个触发场景。同拍 ⇒ 两端同时刻 ⇒ 同 A ⇒ 四边形退化成**零面积**线段
-    // （浏览器探针实测：零面积四边形单独 / 反向成对都不填充，见票 Comments）——所以本
-    // fixture 锁的是结构不变量：两段仍并成一条路径、批次内绕向一致。哪天同拍端不再退化
-    // （或有人把合并路径拆回逐段 fill），这条红。
-    const notes = [bpm(0, 120), slide([{ beat: 2, lane: 6 }, { beat: 2, lane: 4 }, { beat: 2, lane: 6 }])];
-    const batches = batchesAt(notes, 0.75);
-    expect(batches).toHaveLength(1);
-    const quads = batches[0]!.quads;
-    expect(quads).toHaveLength(2);
-    // 6→4 与 4→6 是同一条水平线段的两个方向：点集相同
-    expect(quadKey(quads[0]!)).toBe(quadKey(quads[1]!));
-    // 同拍水平段退化成零面积（绕向断言对零面积恒成立，防的是"将来不再退化"）
-    for (const q of quads) expect(Math.abs(signedArea(q))).toBeCloseTo(0, 6);
-  });
-});
-
-// ---------------------------------------------------------------- issue 46 锁测
-
-describe('drawSimFrameAt · 带体材质与叠亮（issue 46）', () => {
-  it('体半透明（剖面体 α × slideOpacity）+ 同色亮缘铺在两条长边内侧（不再是单色平涂）', () => {
+  it('slideOpacity 线性作用于像素 α（不是图层 globalAlpha）', () => {
     const { spriteIcon } = makeRecordingSprite();
-    const { proxy, calls } = recordingCtx();
-    drawSimFrameAt(
-      proxy,
-      frameOf([slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5 }])], spriteIcon),
-      1.5,
-    );
-    const opacity = 0.8; // frameOf 的 scene
-    const body = SIM_BAND_MATERIAL.bodyAlpha * opacity;
-    const rimTarget = Math.min(1, SIM_BAND_MATERIAL.rimAlpha * opacity);
-    const rim = (rimTarget - body) / (1 - body);
-    const batches = bandBatches(calls);
-    const bodyBatch = batches.filter((b) => Math.abs(b.alpha - body) < 1e-12);
-    const rimBatch = batches.filter((b) => Math.abs(b.alpha - rim) < 1e-9);
-    expect(bodyBatch).toHaveLength(1);
-    expect(bodyBatch[0]!.quads).toHaveLength(1);
-    // 亮缘：一笔填充、两块薄四边形（左右各一），宽度 ≈ 半宽 × 0.03
-    expect(rimBatch).toHaveLength(1);
-    expect(rimBatch[0]!.quads).toHaveLength(2);
-    const quad = bodyBatch[0]!.quads[0]!;
-    // 左右亮缘各含体的一个角（与体同源顶点，水平内缩；绕向归一后顶点序可能反）
-    const hasPoint = (q: { x: number; y: number }[], p: { x: number; y: number }) =>
-      q.some((v) => Math.abs(v.x - p.x) < 1e-9 && Math.abs(v.y - p.y) < 1e-9);
-    expect(hasPoint(rimBatch[0]!.quads[0]!, quad[0]!)).toBe(true);
-    expect(hasPoint(rimBatch[0]!.quads[1]!, quad[1]!)).toBe(true);
-    // 亮缘宽度 = 同一 y 上内外两条边的水平距离（`widthAtSameY`；不能直接量 bbox）
-    const half = (Math.abs(quad[1]!.x - quad[0]!.x) + Math.abs(quad[2]!.x - quad[3]!.x)) / 4;
-    for (const q of rimBatch[0]!.quads) {
-      expect(widthAtSameY(q)).toBeCloseTo(half * SIM_BAND_MATERIAL.rimFrac, 6);
-    }
+    const frame = frameOf([verticalSlide()], spriteIcon);
+    const full = drawnFrame(frame, 1.5);
+    const low = drawnFrame({ ...frame, scene: { ...frame.scene, slideOpacity: 0.4 } }, 1.5);
+    expect(alphaAt(low.image, CX, ROW)).toBeCloseTo(alphaAt(full.image, CX, ROW) / 2, 2);
   });
 
-  it('低 slideOpacity 下亮缘仍比体亮（看叠合后的目标 α，不是图层 α）', () => {
+  it('普通 / SP 各取自己的预加载材质；缺图（材质字段不在）回落 skin00 兜底剖面', () => {
     const { spriteIcon } = makeRecordingSprite();
-    const { proxy, calls } = recordingCtx();
-    const base = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5 }])], spriteIcon);
-    const frame = { ...base, scene: { ...base.scene, slideOpacity: 0.2 } };
-    drawSimFrameAt(proxy, frame, 1.5);
-    const body = SIM_BAND_MATERIAL.bodyAlpha * 0.2;
-    const rimTarget = SIM_BAND_MATERIAL.rimAlpha * 0.2;
-    const rimLayer = (rimTarget - body) / (1 - body);
-    const composite = 1 - (1 - body) * (1 - rimLayer);
-    expect(composite).toBeCloseTo(rimTarget, 10);
-    expect(composite).toBeGreaterThan(body);
-    const alphas = propValues(calls, 'globalAlpha').map(Number);
-    expect(alphas.some((a) => Math.abs(a - body) < 1e-9)).toBe(true);
-    expect(alphas.some((a) => Math.abs(a - rimLayer) < 1e-9)).toBe(true);
+    const zeroCross = new Float32Array(1025);
+    const normal = frameOf([verticalSlide()], spriteIcon);
+    const sp = frameOf([verticalSpSlide()], spriteIcon);
+    expect(groupsAt(normal, 1.5)[0]!.sp).toBe(false);
+    expect(groupsAt(sp, 1.5)[0]!.sp).toBe(true);
+    const noBandPixels = (image: { data: Uint8ClampedArray }) =>
+      !image.data.some((v, i) => i % 4 === 3 && v > 0);
+    // 把普通材质清零：SP 帧不受影响；反过来清零 SP：普通帧不受影响
+    expect(noBandPixels(drawnFrame({
+      ...sp, assets: { ...emptySimAssets(), bandRaster: { ...SIM_BAND_RASTER_MATERIAL, cross: zeroCross } },
+    }, 1.5).image)).toBe(false);
+    expect(noBandPixels(drawnFrame({
+      ...sp, assets: { ...emptySimAssets(), bandRasterSp: { ...SIM_BAND_RASTER_MATERIAL_SP, cross: zeroCross } },
+    }, 1.5).image)).toBe(true);
+    // 完全不带材质字段（外部构造的 frame）⇒ 兜底剖面照画，不抛错
+    const bare = {
+      ...normal,
+      assets: { ...emptySimAssets(), bandRaster: undefined, bandRasterSp: undefined } as unknown as SimFrameInput['assets'],
+    };
+    expect(alphaAt(drawnFrame(bare, 1.5).image, CX, ROW)).toBeGreaterThan(0.1);
   });
 
-  it('SP 带体用 SP 剖面，与普通带区分', () => {
+  it('两条滑条交叉：按谱面数组序分组（后放置者在上），重叠处像素叠亮', () => {
     const { spriteIcon } = makeRecordingSprite();
-    const { proxy, calls } = recordingCtx();
-    // 含 hidden 中间结点 ⇒ 整条传染 SP（ADR-0009 §5）
-    drawSimFrameAt(
-      proxy,
-      frameOf([slide([{ beat: 0, lane: 3 }, { beat: 2, lane: 4, hidden: true }, { beat: 4, lane: 5 }])], spriteIcon),
-      1.5,
-    );
-    const alphas = propValues(calls, 'globalAlpha').map(Number);
-    expect(alphas.some((a) => Math.abs(a - SIM_BAND_MATERIAL_SP.bodyAlpha * 0.8) < 1e-9)).toBe(true);
-    expect(alphas.some((a) => Math.abs(a - SIM_BAND_MATERIAL.bodyAlpha * 0.8) < 1e-9)).toBe(false);
-  });
-
-  it('两条滑条交叉：各自一条体路径（跨滑条二次合成的前提），按谱面数组序画（后放置者在上）', () => {
-    const { spriteIcon } = makeRecordingSprite();
-    const { proxy, calls } = recordingCtx();
-    // 两条 timing 相同、轨向相反而交叉的滑条：1.5s 时两条都在判定线上方中段
     const frame = frameOf([
       slide([{ beat: 0, lane: 3 }, { beat: 4, lane: 5 }]),
       slide([{ beat: 0, lane: 5 }, { beat: 4, lane: 3 }]),
     ], spriteIcon);
-    drawSimFrameAt(proxy, frame, 1.5);
-    const batches = bodyBatches(calls);
-    // 旧实现：同材质全谱并成一条路径 ⇒ 只有 1 个批次、重叠处只填一次
-    expect(batches).toHaveLength(2);
-    expect(batches.map((b) => b.quads.length)).toEqual([1, 1]);
-    // 批次顺序 = 谱面数组序：先放的那条 a 边中心在 lane 4.5，后放的在 lane 3.5
-    const centerX = (q: { x: number }[]) => (q[0]!.x + q[1]!.x) / 2;
-    expect(centerX(batches[0]!.quads[0]!)).toBeCloseTo(laneCenterX(frame.metrics, 4.5, 1), 4);
-    expect(centerX(batches[1]!.quads[0]!)).toBeCloseTo(laneCenterX(frame.metrics, 3.5, 1), 4);
+    const groups = groupsAt(frame, 1.5);
+    expect(groups).toHaveLength(2);
+    expect(groups.map((g) => g.quads.length)).toEqual([1, 1]);
+    const centerX = (q: { x: number; y: number }[]) => (q[0]!.x + q[1]!.x) / 2;
+    expect(centerX(groups[0]!.quads[0]!)).toBeCloseTo(laneCenterX(frame.metrics, 4.5, 1), 4);
+    expect(centerX(groups[1]!.quads[0]!)).toBeCloseTo(laneCenterX(frame.metrics, 3.5, 1), 4);
+
+    const one = drawnFrame(frameOf([verticalSlide()], spriteIcon), 1.5);
+    const two = drawnFrame({ ...frameOf([verticalSlide(), verticalSlide()], spriteIcon) }, 1.5);
+    const single = alphaAt(one.image, CX, ROW);
+    expect(alphaAt(two.image, CX, ROW)).toBeGreaterThan(single + 0.1);
+    expect(rgbAt(two.image, CX, ROW)).toEqual([...SIM_BAND_RASTER_MATERIAL.rgb]); // 后写者的体色
   });
 });
 
-// ---------------------------------------------------------------- issue 47 锁测
+/** 回贴那一笔之前的 imageSmoothingEnabled（票 66：100% 不放大 ⇒ 不该开双线性） */
+const smoothingAtBlit = (calls: RecordedCall[]): unknown => {
+  const i = calls.findIndex(([k, args]) => k === 'drawImage' && args.length === 9);
+  for (let j = i - 1; j >= 0; j--) {
+    if (calls[j]![0] === 'imageSmoothingEnabled') return calls[j]![1][0];
+  }
+  return undefined;
+};
+/** 30 条同时可见、相互重叠的竖直带，用于密集带体回归。 */
+const denseBands = (): ChartNote[] => Array.from({ length: 30 }, () => verticalSlide());
 
-describe('drawSimFrameAt · 节奏图示大小对滑条段生效（issue 47）', () => {
-  /** 体批次里第一块四边形的 a 边宽（同一 y 上左右两点的水平距离） */
-  const bodyAEdgeWidth = (quads: { x: number; y: number }[][]) => {
-    const q = quads[0]!;
-    return Math.abs(q[1]!.x - q[0]!.x);
-  };
-
-  it('noteSize=2：段宽跟着翻倍（修前恒 1 lane —— 只有结点变大）', () => {
+describe('drawSimFrameAt · 实时固定 50% / 导出 100%（chart-preview 66）', () => {
+  it('显式比例：100% 建全尺寸缓冲且不放平滑；50% 建半尺寸缓冲并双线性放大', () => {
     const { spriteIcon } = makeRecordingSprite();
-    const { proxy, calls } = recordingCtx();
-    // 同刻两点（两端 A 都是 1）：A 不参与差异，段宽只由 noteSize 决定
-    const base = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 2, lane: 5 }])], spriteIcon);
-    const frame = { ...base, scene: { ...base.scene, noteSize: 2 } };
-    drawSimFrameAt(proxy, frame, 1);
-    const batches = bodyBatches(calls);
-    expect(batches).toHaveLength(1);
-    expect(bodyAEdgeWidth(batches[0]!.quads)).toBeCloseTo(frame.metrics.laneWidth * 2, 6);
+    const full = drawnFrame(frameOf([verticalSlide()], spriteIcon, SIM_BAND_RASTER_SCALE_FULL), 1.5);
+    expect(full.image.width).toBe(fieldMetrics(1334, 750).w);
+    expect(full.image.height).toBe(fieldMetrics(1334, 750).h);
+    expect(smoothingAtBlit(full.calls)).toBe(false);
+    const blits = full.calls.filter(([k, args]) => k === 'drawImage' && args.length === 9);
+    expect(blits).toHaveLength(1);
+    expect(blits[0]![1].slice(5, 9)).toEqual([0, 0, fieldMetrics(1334, 750).w, fieldMetrics(1334, 750).h]);
+
+    const low = drawnFrame(frameOf([verticalSlide()], spriteIcon, SIM_BAND_RASTER_SCALE), 1.5);
+    expect(low.image.width).toBe(Math.round(fieldMetrics(1334, 750).w * SIM_BAND_RASTER_SCALE));
+    expect(smoothingAtBlit(low.calls)).toBe(true);
   });
 
-  it('亮缘宽度随段宽一起变（半宽 × rimFrac），不会在放大后变成发丝线', () => {
+  it.each([1, 1.25, 1.5, 2])('实时缺省：density=%s 时稀疏和密集带体都固定 50%', (density) => {
     const { spriteIcon } = makeRecordingSprite();
-    const { proxy, calls } = recordingCtx();
-    const base = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 4, lane: 5 }])], spriteIcon);
-    const frame = { ...base, scene: { ...base.scene, noteSize: 2 } };
-    drawSimFrameAt(proxy, frame, 1.5);
-    const body = SIM_BAND_MATERIAL.bodyAlpha * 0.8;
-    const rimTarget = Math.min(1, SIM_BAND_MATERIAL.rimAlpha * 0.8);
-    const rim = (rimTarget - body) / (1 - body);
-    const rimBatch = bandBatches(calls).filter((b) => Math.abs(b.alpha - rim) < 1e-9);
-    expect(rimBatch).toHaveLength(1);
-    // 亮缘宽度 = 该段两端的**平均半宽** × rimFrac（`bandRimQuads` 的口径）：直接从体四边形
-    // 量 a 边 / b 边的宽度，不另算 A —— 锁的是"亮缘跟着段宽走"，而不是复述一遍公式。
-    const bodyQuad = bodyBatches(calls)[0]!.quads[0]!;
-    const avgHalf = (Math.abs(bodyQuad[1]!.x - bodyQuad[0]!.x) + Math.abs(bodyQuad[2]!.x - bodyQuad[3]!.x)) / 4;
-    expect(avgHalf).toBeGreaterThan(frame.metrics.laneWidth / 2); // 确实吃过 noteSize
-    const want = avgHalf * SIM_BAND_MATERIAL.rimFrac;
-    for (const q of rimBatch[0]!.quads) {
-      expect(widthAtSameY(q)).toBeCloseTo(want, 6);
+    for (const notes of [[verticalSlide()], denseBands()]) {
+      const frame = frameOf(notes, spriteIcon);
+      const drawn = drawnFrame(frame, 1.5, { getTransform: () => ({ a: density, d: density, e: 0, f: 0 }) });
+      expect(drawn.image.width).toBe(Math.round(frame.metrics.w * density * 0.5));
+      expect(drawn.image.height).toBe(Math.round(frame.metrics.h * density * 0.5));
+      expect(smoothingAtBlit(drawn.calls)).toBe(true);
     }
   });
+
+  it.each(['sparse', 'dense'])('导出显式 100%%：%s 带体仍画全分辨率缓冲', (kind) => {
+    const { spriteIcon } = makeRecordingSprite();
+    const notes = kind === 'dense' ? denseBands() : [verticalSlide()];
+    const exported = drawnFrame(frameOf(notes, spriteIcon, SIM_BAND_RASTER_SCALE_FULL), 1.5);
+    expect(exported.image.width).toBe(fieldMetrics(1334, 750).w);
+    expect(exported.image.height).toBe(fieldMetrics(1334, 750).h);
+    expect(smoothingAtBlit(exported.calls)).toBe(false);
+  });
+
+  it('同一画布：稀疏入场、空白、密集段和恢复稀疏都复用半尺寸缓冲', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const { proxy } = recordingCtx();
+    const sparse = frameOf([verticalSlide()], spriteIcon);
+    const dense = frameOf(denseBands(), spriteIcon);
+    drawSimFrameAt(proxy, sparse, 1.5);
+    const scratch = lastScratch!;
+    const image = scratch.image!;
+    expect(image.width).toBe(Math.round(sparse.metrics.w * 0.5));
+    for (const [frame, seconds] of [[sparse, 0], [dense, 1.5], [sparse, 1.5]] as const) {
+      drawSimFrameAt(proxy, frame, seconds);
+      expect(lastScratch).toBe(scratch);
+      expect(scratch.image).toBe(image);
+    }
+    expect(scratch.calls.filter(([name]) => name === 'createImageData')).toHaveLength(1);
+  });
 });
+
+describe('drawSimFrameAt · 几何不变量未动（issue 45 / 47）', () => {
+  it('倒流折返：两组几何重合的反向四边形仍并成一条滑条，光栅按 y 单调切成两臂（像素内叠亮，不成洞）', () => {
+    const notes = [
+      bpm(0, 120), bpm(4, -120), bpm(8, 120),
+      slide([{ beat: 4, lane: 6 }, { beat: 8, lane: 6 }, { beat: 12, lane: 6 }]),
+    ];
+    const { spriteIcon } = makeRecordingSprite();
+    const frame = frameOf(notes, spriteIcon);
+    for (const seconds of [0.5, 1.0, 1.5]) {
+      const groups = groupsAt(frame, seconds);
+      expect(groups).toHaveLength(1);
+      const quads = groups[0]!.quads;
+      expect(quads).toHaveLength(2);
+      expect(quadKey(quads[0]!)).toBe(quadKey(quads[1]!));
+      // 65 起不再靠 nonzero 绕向归一：两臂由 splitBandAtFolds 各自成 run
+      expect(splitBandAtFolds(nodesFromQuads(quads))).toHaveLength(2);
+      const { image } = drawnFrame(frame, seconds);
+      expect(image.data.some((v, i) => i % 4 === 3 && v > 0)).toBe(true); // 没有抵消成洞
+    }
+  });
+
+  it('同拍反向水平段：两段仍并成一组，零面积（退化）结构不变', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const notes = [bpm(0, 120), slide([{ beat: 2, lane: 6 }, { beat: 2, lane: 4 }, { beat: 2, lane: 6 }])];
+    const groups = groupsAt(frameOf(notes, spriteIcon), 0.75);
+    expect(groups).toHaveLength(1);
+    const quads = groups[0]!.quads;
+    expect(quads).toHaveLength(2);
+    expect(quadKey(quads[0]!)).toBe(quadKey(quads[1]!));
+    for (const q of quads) expect(Math.abs(signedArea(q))).toBeCloseTo(0, 6);
+  });
+
+  it('noteSize=2：段宽跟着翻倍（画布 / 端点同一口径）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const frame = frameOf([slide([{ beat: 2, lane: 3 }, { beat: 2, lane: 5 }])], spriteIcon);
+    const bigger = { ...frame, scene: { ...frame.scene, noteSize: 2 } };
+    const q = groupsAt(bigger, 1)[0]!.quads[0]!;
+    expect(Math.abs(q[1]!.x - q[0]!.x)).toBeCloseTo(frame.metrics.laneWidth * 2, 6);
+  });
+
+  it('亮缘随段宽一起放大（峰位 ∝ 半宽），不会在放大后变成发丝线', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const frame = frameOf([verticalSlide()], spriteIcon);
+    const peakOffset = (image: { width: number; data: Uint8ClampedArray }) => {
+      let best = 0;
+      let at = CX;
+      for (let x = CX - 80; x <= CX + 80; x++) {
+        const a = alphaAt(image, x, ROW);
+        if (a > best) {
+          best = a;
+          at = x;
+        }
+      }
+      return Math.abs(at - CX);
+    };
+    const one = drawnFrame(frame, 1.5);
+    const two = drawnFrame({ ...frame, scene: { ...frame.scene, noteSize: 2 } }, 1.5);
+    expect(peakOffset(two.image)).toBeGreaterThan(peakOffset(one.image) * 1.5);
+  });
+});
+

@@ -13,7 +13,7 @@
 //
 // 本模块只依赖零 import 的尺寸叶子模块与设置白名单常量，不碰 DOM / canvas。
 import { NOTE_SKIN_GEOMETRY } from '../../../rendering/skin/noteSkin';
-import { normalizeNoteSpeed } from '../../../chart/config/AppSettings';
+import { normalizeNoteSpeed } from '../../../settings/AppSettings';
 import { TOTAL_LANES, mirrorLane as mirrorLaneOf } from '../../../chart/editing/NoteEditing';
 import type { KeySoundKind } from '../../../audio/KeySound';
 
@@ -403,16 +403,15 @@ export const SIM_EFFECT_COLORS = {
 
 /**
  * 带体兜底色（皮肤带体图取不到色时）：游戏绿条同族。
- * 正常路径是**取皮肤带体图的中心像素**作体色 / 亮缘色（票面「带体」一行允许"颜色取皮肤带体图或
- * 采样中心色"）；issue 46 起体部 α 与亮缘按贴图横截面剖面近似（见 `simField.drawBandGroup`），
- * 几何仍是四边形填充，不做贴图透视变换。
+ * 65 起动态预览的逐像素光栅材质在 `simBandRaster` 里另有一份 skin00 实测兜底剖面，
+ * 取不到贴图时这里仍是**缺图空态 / 兼容字段**的体色来源（与那份剖面的 RGB 同源）。
  */
 export const SIM_BAND_COLORS = { band: '#5fd68a', sp: '#8fe6c0' } as const;
 
 /**
- * 带体材质（皮肤带体图横截面剖面；`simAssets` 读图时采样填充，取不到 = 下面两个兜底常量）。
- * 剖面口径与画布 SP 条带同源（ADR-0009 五轮：带贴图运行时采样、弃手工近似）——
- * 这里只取"体部平均 α + 亮缘峰值 α"两个标量，逐像素 17 点剖面留给画布（动态预览不做逐像素光栅）。
+ * 带体的**标量**材质（皮肤带体图横截面采样：`simAssets` 读图时填充，取不到 = 下面两个兜底常量）。
+ * 65 之前动态预览靠这两个标量平涂；65 起画面改走 `simBandRaster` 的 17 点逐像素剖面，
+ * 本结构保留为兼容字段（与剖面共用同一次 `getImageData`，不额外回读），不再是绘制口径。
  */
 export interface SimBandMaterial {
   /** 体部 α（中心区域的列平均不透明度） */

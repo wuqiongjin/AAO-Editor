@@ -13,6 +13,10 @@ export interface CurrentProjectContextValue {
   open: (projectId: string, chartId?: string) => Promise<{ project: ChartProject; chart: ProjectChart }>;
   reset: () => void;
   notifyCatalogChanged: () => void;
+  /** 仅标记某工程在工作台发生了内容编辑（ref 计数，不触发 Provider 重渲） */
+  notifyProjectEdited: (projectId: string) => void;
+  /** 查询某工程的内容编辑代次（用于预览激活时判断本地视图是否陈旧） */
+  getProjectEditEpoch: (projectId: string) => number;
   registerPersistFlush: (fn: (() => Promise<void>) | null) => void;
   flushPersist: () => Promise<void>;
   registerRestoreWaiter: (fn: ((targetProjectId?: string, targetChartId?: string) => Promise<void>) | null) => void;
@@ -54,6 +58,20 @@ export function CurrentProjectProvider({
   const [projectId, setProjectId] = useState<string | null>(() => sessionRef.current!.projectId);
   const [chartId, setChartId] = useState<string | null>(() => sessionRef.current!.chartId);
   const [catalogEpoch, setCatalogEpoch] = useState(0);
+  const projectEditEpochRef = useRef<Map<string, number>>(new Map());
+
+  const notifyProjectEdited = useCallback((editedProjectId: string) => {
+    if (!editedProjectId) return;
+    projectEditEpochRef.current.set(
+      editedProjectId,
+      (projectEditEpochRef.current.get(editedProjectId) ?? 0) + 1,
+    );
+  }, []);
+
+  const getProjectEditEpoch = useCallback(
+    (targetProjectId: string) => projectEditEpochRef.current.get(targetProjectId) ?? 0,
+    [],
+  );
 
   // 启动预载目录（issue 29）：本 Provider 在应用启动时即挂载，早于各页 lazy chunk 加载 ——
   // 先发起一次 list()，工程页挂载时要么已就绪、要么共享同一个进行中 Promise（去重在 ChartProjectStore）。
@@ -114,6 +132,8 @@ export function CurrentProjectProvider({
       open,
       reset,
       notifyCatalogChanged,
+      notifyProjectEdited,
+      getProjectEditEpoch,
       registerPersistFlush,
       flushPersist,
       registerRestoreWaiter,
@@ -127,6 +147,8 @@ export function CurrentProjectProvider({
       open,
       reset,
       notifyCatalogChanged,
+      notifyProjectEdited,
+      getProjectEditEpoch,
       registerPersistFlush,
       flushPersist,
       registerRestoreWaiter,

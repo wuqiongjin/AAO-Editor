@@ -4,7 +4,7 @@ import {
   cnbGenericFeedUrlForTag,
   cnbReleasesListUrl,
   pickLatestCnbReleaseTag,
-} from '@/electron/cnbFeed.cjs';
+} from '@/electron/update/cnbFeed.cjs';
 
 describe('CNB 运行时 feed：真实 tag，不用 latest 这个假 tag', () => {
   it('公开列表 URL 走网页 JSON，不打 api.cnb', () => {

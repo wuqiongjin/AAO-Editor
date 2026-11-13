@@ -4,7 +4,7 @@
  * 为什么集中：地址是**会变的事实**（站点迁 Cloudflare、仓库换组织），散在页面里就是一次改五处。
  * 与 `community/bestdori/endpoints.ts` 同一条纪律 —— 域名只住一处。
  *
- * 主进程还有一份"镜像"（`electron/externalLink.cjs` 的 `PRODUCT_HOSTS`）：那边只认主机名，
+ * 主进程还有一份"镜像"（`electron/community/externalLink.cjs` 的 `PRODUCT_HOSTS`）：那边只认主机名，
  * 因为它要做的是**放行判定**，不关心路径。改域名要两边一起改，`tests/static/ProductLinksWiring`
  * 会拦。
  */

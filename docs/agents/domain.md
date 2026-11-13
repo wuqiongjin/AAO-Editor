@@ -7,7 +7,7 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`CONTEXT.md`** at the repo root, or
 - **`CONTEXT-MAP.md`** at the repo root if it exists — it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
-- **`docs/research/`** — 调研笔记与实测报告（例如 Bestdori API、i18n 成本）。不是决策；决策仍以 ADR 为准。
+- **`docs/research/`** — 调研笔记与实测报告（例如 Bestdori API、i18n 成本、带体光栅成本模型）。不是决策；决策仍以 ADR 为准。单次 bug 追查默认落在 issue + 本机 diagnostics，见 `docs/agents/issue-tracker.md`「Research 与 bug 追查的分工」。
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 

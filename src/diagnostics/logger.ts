@@ -4,6 +4,8 @@
  * 真正埋点归票 02，这里只提供 trail.append。
  */
 
+import { getElectronAPI, type LogBridge } from '../app/electronBridge';
+
 export type LogLevel = 'error' | 'warn' | 'info';
 
 export interface LogWritePayload {
@@ -14,10 +16,7 @@ export interface LogWritePayload {
   ts: string;
 }
 
-export interface LogBridge {
-  write(payload: LogWritePayload): unknown;
-  trail(event: unknown): unknown;
-}
+export type { LogBridge } from '../app/electronBridge';
 
 export interface Logger {
   /**
@@ -32,9 +31,7 @@ export interface Logger {
 }
 
 function getLogBridge(): LogBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { log?: LogBridge } }).electronAPI;
-  return api?.log ?? null;
+  return getElectronAPI()?.log ?? null;
 }
 
 function jsonableExtra(extra: unknown): unknown {
@@ -48,7 +45,7 @@ function jsonableExtra(extra: unknown): unknown {
   }
 }
 
-/** 行格式。主进程 `electron/appLog.cjs` 有一份同形实现（渲染进程不能 import electron/）。 */
+/** 行格式。主进程 `electron/diagnostics/appLog.cjs` 有一份同形实现（渲染进程不能 import electron/）。 */
 export function formatLogLine(
   level: LogLevel,
   module: string,

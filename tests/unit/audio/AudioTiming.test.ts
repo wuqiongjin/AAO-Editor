@@ -76,8 +76,8 @@ describe('buildKeyEvents', () => {
     ];
     const events = buildKeyEvents(notes, 4, bpm120);
     expect(events).toEqual([
-      { time: 0, lane: 0, kind: 'tap' },
-      { time: 0.5, lane: 3, kind: 'tap' },
+      { time: 0, kind: 'tap' },
+      { time: 0.5, kind: 'tap' },
     ]);
   });
 
@@ -94,9 +94,9 @@ describe('buildKeyEvents', () => {
     ];
     const events = buildKeyEvents(notes, 4, bpm120);
     expect(events).toHaveLength(3);
-    expect(events[0]).toEqual({ time: 0, lane: 0, kind: 'slide' });
-    expect(events[1]).toEqual({ time: 0.5, lane: 3, kind: 'slide' });
-    expect(events[2]).toEqual({ time: 1, lane: 1, kind: 'directional', tier: 1 });
+    expect(events[0]).toEqual({ time: 0, kind: 'slide' });
+    expect(events[1]).toEqual({ time: 0.5, kind: 'slide' });
+    expect(events[2]).toEqual({ time: 1, kind: 'directional', tier: 1 });
   });
 
   it('hidden 连接结点不发声（SP 绿条/新型滑条中间隐藏点）', () => {
@@ -131,6 +131,20 @@ describe('buildKeyEvents', () => {
     expect(events[2].time).toBeCloseTo(1);
   });
 
+  it('滑条首结点带 flick 时忽略 flick 音效（issue 221：首结点只发 slide 音）', () => {
+    const notes: ChartNote[] = [
+      {
+        type: 'Slide',
+        connections: [
+          { beat: 0, lane: 0, flick: true },
+          { beat: 1, lane: 1 },
+        ],
+      },
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.map(e => e.kind)).toEqual(['slide', 'slide']);
+  });
+
   it('方向键按组合长度 length 分档采样（1/2/3）', () => {
     const notes: ChartNote[] = [
       { type: 'LDirectional', lane: 0, beat: 0, subBeat: 0, length: 1 },
@@ -156,6 +170,171 @@ describe('buildKeyEvents', () => {
     expect(buildKeyEvents(notes, 4, bpm120)[0].time).toBeCloseTo(0.25);
     // beatDisplay=8：precise = 2/8 = 0.25 拍 → 0.125s
     expect(buildKeyEvents(notes, 8, bpm120)[0].time).toBeCloseTo(0.125);
+  });
+});
+
+describe('buildKeyEvents · 同刻键音事件按采样归并（issue 231 定案 Q9/Q10）', () => {
+  const bpm120: BpmEvent[] = [{ beat: 0, bpm: 120 }];
+
+  it('同刻多押：同一份采样的 N 次触发归并为一条发声计划，组内仍发声一次', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 0, subBeat: 0 },
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0 },
+      { type: 'Single', beat: 1, lane: 4, subBeat: 0 },
+    ];
+    expect(buildKeyEvents(notes, 4, bpm120)).toEqual([{ time: 0.5, kind: 'tap' }]);
+  });
+
+  it('完全相同的音符只归并触发次数：谱面音符不删、也不静音', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 2, lane: 3, subBeat: 0 },
+      { type: 'Single', beat: 2, lane: 3, subBeat: 0 },
+    ];
+    expect(buildKeyEvents(notes, 4, bpm120)).toEqual([{ time: 1, kind: 'tap' }]);
+    expect(notes).toHaveLength(2); // 事件表是发声计划表，不回写谱面
+  });
+
+  it('tap 与 slide 同刻解析到同一份采样 → 归并（按采样判同，不按 kind）', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 0, subBeat: 0 },
+      { type: 'Slide', connections: [{ beat: 1, lane: 2 }] },
+    ];
+    expect(buildKeyEvents(notes, 4, bpm120)).toEqual([{ time: 0.5, kind: 'tap' }]);
+  });
+
+  it('同刻 6 类采样等价键各发一次：tap/slide 合并，flick/skill/directional 1-3 档各保留', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 0, subBeat: 0 },                  // tap
+      { type: 'Single', beat: 1, lane: 1, subBeat: 0, flick: true },     // flick
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0, skill: true },     // skill
+      { type: 'LDirectional', beat: 1, lane: 3, subBeat: 0, length: 1 }, // 方向键 1 档
+      { type: 'LDirectional', beat: 1, lane: 4, subBeat: 0, length: 2 }, // 方向键 2 档
+      { type: 'RDirectional', beat: 1, lane: 5, subBeat: 0, length: 3 }, // 方向键 3 档
+      { type: 'Slide', connections: [{ beat: 1, lane: 6 }] },            // slide ≡ tap
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.map(e => `${e.kind}:${e.tier ?? ''}`).sort()).toEqual([
+      'directional:1', 'directional:2', 'directional:3', 'flick:', 'skill:', 'tap:',
+    ]);
+    expect(events.every(e => e.time === 0.5)).toBe(true);
+  });
+
+  it('滑条同拍结点逐结点计入、同刻同采样归并；带 flick 的结点按不同采样各发一次', () => {
+    const connections = [
+      { beat: 1, lane: 0 },
+      { beat: 1, lane: 1, flick: true },
+      { beat: 1, lane: 2 },
+    ];
+    const notes: ChartNote[] = [{ type: 'Slide', connections }];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.map(e => e.kind).sort()).toEqual(['flick', 'slide']);
+    expect(events.every(e => e.time === 0.5)).toBe(true);
+    expect(connections).toHaveLength(3); // 归并没删谱面结点
+
+    // 把其中一个结点挪开一拍：3 个结点各进表，证明「逐结点计入」而非只保留首结点
+    const spread: ChartNote[] = [{
+      type: 'Slide',
+      connections: [
+        { beat: 1, lane: 0 },
+        { beat: 1, lane: 1, flick: true },
+        { beat: 2, lane: 2 },
+      ],
+    }];
+    expect(buildKeyEvents(spread, 4, bpm120).map(e => e.time)).toEqual([0.5, 0.5, 1]);
+  });
+
+  it('同刻 = 严格 time 相等：近邻时刻不归并（不加容差）', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 0, subBeat: 0 }, // 1 拍 → 0.5s
+      { type: 'Single', beat: 1, lane: 1, subBeat: 1 }, // 1.25 拍 → 0.625s
+    ];
+    expect(buildKeyEvents(notes, 4, bpm120).map(e => e.time)).toEqual([0.5, 0.625]);
+  });
+
+  it('同刻按时间轴秒判定：不同 beat 但换算到同一秒仍归并', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 0, lane: 0, subBeat: 4 }, // 0 + 4/4 = 1 拍 → 0.5s
+      { type: 'Single', beat: 1, lane: 3, subBeat: 0 }, // 1 拍 → 0.5s
+    ];
+    expect(buildKeyEvents(notes, 4, bpm120)).toEqual([{ time: 0.5, kind: 'tap' }]);
+  });
+
+  it('归并后仍按时间升序，且每个时刻组内仍各发一次', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 2, lane: 0, subBeat: 0 },
+      { type: 'Single', beat: 2, lane: 1, subBeat: 0, flick: true },
+      { type: 'Single', beat: 1, lane: 2, subBeat: 0 },
+      { type: 'Single', beat: 1, lane: 3, subBeat: 0 },
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.map(e => e.time)).toEqual([0.5, 1, 1]);
+    expect(events.map(e => e.kind)).toEqual(['tap', 'tap', 'flick']);
+  });
+});
+
+describe('buildKeyEvents · 同刻不同采样的响度归一（issue 231 后续修订）', () => {
+  const bpm120: BpmEvent[] = [{ beat: 0, bpm: 120 }];
+
+  it('单声不写 gain（=1）：单个 tap 与同刻多押归并后的单条完全一致', () => {
+    const single = buildKeyEvents([{ type: 'Single', beat: 1, lane: 0 }], 4, bpm120);
+    const merged = buildKeyEvents([
+      { type: 'Single', beat: 1, lane: 0 },
+      { type: 'Single', beat: 1, lane: 2 },
+      { type: 'Single', beat: 1, lane: 4 },
+    ], 4, bpm120);
+    expect(single).toEqual([{ time: 0.5, kind: 'tap' }]);
+    expect(merged).toEqual(single); // 归并后 N=1，不应因「押数」变小声
+  });
+
+  it('同刻 N 份不同采样各带 1/√N，组内一致', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 0 },                  // tap
+      { type: 'Single', beat: 1, lane: 1, flick: true },     // flick
+      { type: 'Single', beat: 1, lane: 2, skill: true },     // skill
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events).toHaveLength(3);
+    expect(events.every(e => e.time === 0.5)).toBe(true);
+    expect(events.every(e => e.gain === 1 / Math.sqrt(3))).toBe(true);
+  });
+
+  it('6 类等价键同刻：N=6，gain = 1/√6', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 0 },
+      { type: 'Single', beat: 1, lane: 1, flick: true },
+      { type: 'Single', beat: 1, lane: 2, skill: true },
+      { type: 'LDirectional', beat: 1, lane: 3, length: 1 },
+      { type: 'LDirectional', beat: 1, lane: 4, length: 2 },
+      { type: 'RDirectional', beat: 1, lane: 5, length: 3 },
+      { type: 'Slide', connections: [{ beat: 1, lane: 6 }] }, // slide ≡ tap 被归并
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events).toHaveLength(6);
+    expect(events.every(e => e.gain === 1 / Math.sqrt(6))).toBe(true);
+  });
+
+  it('归一只作用于该时刻这一组：前后时刻的单声都不带 gain', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 0, lane: 0 },                                    // t=0 单声
+      { type: 'Single', beat: 1, lane: 1 },                                    // t=0.5 tap
+      { type: 'Single', beat: 1, lane: 2, flick: true },                       // t=0.5 flick
+      { type: 'Single', beat: 2, lane: 3 },                                    // t=1 单声
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.map(e => e.time)).toEqual([0, 0.5, 0.5, 1]);
+    expect(events[0]!.gain).toBeUndefined();
+    expect(events[1]!.gain).toBeCloseTo(1 / Math.sqrt(2));
+    expect(events[2]!.gain).toBeCloseTo(1 / Math.sqrt(2));
+    expect(events[3]!.gain).toBeUndefined();
+  });
+
+  it('近邻时刻（严格 time 不等）不参与同一组，各自不带 gain', () => {
+    const notes: ChartNote[] = [
+      { type: 'Single', beat: 1, lane: 0, subBeat: 0 },                 // 0.5s tap
+      { type: 'Single', beat: 1, lane: 1, subBeat: 1, flick: true },     // 0.625s flick
+    ];
+    const events = buildKeyEvents(notes, 4, bpm120);
+    expect(events.every(e => e.gain === undefined)).toBe(true);
   });
 });
 

@@ -4,9 +4,11 @@ import type { ConnectionNote, SlideNote, SpanEasingParam } from '@/src/chart/typ
 import {
   bakeEasingPoints, bakeSpanPoints, bendSpan, buildChainedSlide, buildPenSlide, effectiveSpanParams,
   regenerateSpan, remapFreeSpanHidden, reprojectSpanParams, connTrueBeat, pinchWeight, smoothBendSpan,
+  mirrorSpanParam, pruneSpanParam,
 } from '@/src/chart/editing/SpanCurve';
 import { convertNotesToChartCode, convertChartCodeToNotes, validateChartCode } from '@/src/chart/editing/ChartConverter';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
+import { mirrorNote } from '@/src/chart/editing/NoteEditing';
 
 const param = (over: Partial<SpanEasingParam> = {}): SpanEasingParam => ({
   kind: 'easing',
@@ -152,12 +154,87 @@ describe('issue 09 · reprojectSpanParams（端点拖动 = 重投影，参数保
     expect(seg1Mid.lane).toBeCloseTo(1 / 3, 6);
   });
 
+  it('模板段端点拖拽重投影：保留 templateId 与 precision 并按新跨度重采样', () => {
+    const tplParam: SpanParam = { kind: 'template', templateId: 's-curve', precision: 64 };
+    const slide = buildChainedSlide(
+      [{ beat: 1, lane: 0 }, { beat: 2, lane: 0 }],
+      { 0: tplParam },
+      4,
+    );
+    // 初始 1 拍 64 档保底 64 份细分 -> 63 个 hidden 点
+    expect(slide.connections.filter((c) => c.hidden)).toHaveLength(63);
+
+    // 拖动终点至 beat 3（跨度由 1 拍变更为 2 拍）
+    const moved: SlideNote = {
+      ...slide,
+      connections: slide.connections.map((c) => (!c.hidden && c.beat === 2 ? { ...c, beat: 3 } : c)),
+    };
+    const out = reprojectSpanParams(moved, 4) as SlideNote;
+    expect(effectiveSpanParams(out)[0]).toEqual(tplParam);
+    // 2 拍 × 64 精度 = 128 份细分 -> 127 个 hidden 点
+    expect(out.connections.filter((c) => c.hidden)).toHaveLength(127);
+  });
+
   it('无参数的滑条 → 原样返回（自由段不动）', () => {
     const base: SlideNote = {
       type: 'Slide',
       connections: [{ beat: 1, lane: 0 }, { beat: 1.5, lane: 2, hidden: true }, { beat: 2, lane: 4 }],
     };
     expect(reprojectSpanParams(base, 4)).toBe(base);
+  });
+
+  it('模板段水平镜像后再拖动端点：保持镜像方向，不强制镜像回去（issue 225）', () => {
+    // 初始 arc 模板（弧线向右拱起，lane 增加）
+    const slide = buildChainedSlide(
+      [{ beat: 1, lane: 1 }, { beat: 3, lane: 1 }],
+      { 0: { kind: 'template', templateId: 'arc', precision: 16 } },
+      4,
+    );
+    const midInitial = slide.connections.find((c) => c.hidden && Math.abs(c.beat - 2) < 1e-6)!;
+    expect(midInitial.lane).toBeGreaterThan(1); // 向右拱起
+
+    // 水平镜像：1 -> 5，弧线应该向左拱起（lane < 5）
+    const mirrored = mirrorNote(slide) as SlideNote;
+    const midMirrored = mirrored.connections.find((c) => c.hidden && Math.abs(c.beat - 2) < 1e-6)!;
+    expect(midMirrored.lane).toBeLessThan(5);
+
+    // 拖动终点至 beat 4（触发重投影）
+    const moved: SlideNote = {
+      ...mirrored,
+      connections: mirrored.connections.map((c) => (!c.hidden && c.beat === 3 ? { ...c, beat: 4 } : c)),
+    };
+    const out = reprojectSpanParams(moved, 4) as SlideNote;
+    // 重投影后，中间采样点依然必须向左拱起（lane < 5），不能反弹向右拱起
+    const midReprojected = out.connections.find((c) => c.hidden && Math.abs(c.beat - 2.5) < 1e-6)!;
+    expect(midReprojected.lane).toBeLessThan(5);
+    expect(effectiveSpanParams(out)[0]).toEqual({
+      kind: 'template',
+      templateId: 'arc',
+      precision: 16,
+      mirrored: true,
+    });
+  });
+
+  it('缓动段水平镜像后再拖动端点：保持原缓动原型重投影，不反弹（issue 225）', () => {
+    const slide = buildChainedSlide(
+      [{ beat: 1, lane: 0 }, { beat: 2, lane: 4 }],
+      { 0: param({ family: 'quad', type: 'in' }) },
+      4,
+    );
+    const mirrored = mirrorNote(slide) as SlideNote;
+    expect(effectiveSpanParams(mirrored)[0]).toEqual(param({ family: 'quad', type: 'in' }));
+
+    // 拖动终点至 beat 3
+    const moved: SlideNote = {
+      ...mirrored,
+      connections: mirrored.connections.map((c) => (!c.hidden && c.beat === 2 ? { ...c, beat: 3 } : c)),
+    };
+    const out = reprojectSpanParams(moved, 4) as SlideNote;
+    expect(effectiveSpanParams(out)[0]).toEqual(param({ family: 'quad', type: 'in' }));
+    // 镜像后起点 lane=6，终点 lane=2。quad/in 从 6 下降到 2。
+    // 中点 beat 2 (半程) 的 lane: 6 + (2 - 6)*(0.5)^2 = 6 - 4*0.25 = 5.0
+    const mid = out.connections.find((c) => c.hidden && Math.abs(c.beat - 2) < 1e-6)!;
+    expect(mid.lane).toBeCloseTo(5.0, 6);
   });
 });
 
@@ -345,7 +422,7 @@ describe('issue 09 S4 · 形状模板（ADR-0009 §2 三来源之三）', () => 
   it('bakeSpanPoints 派发：template 参数按库内点列生成 hidden 采样（beat 单调、lane = 弦 + off×2 轨）', () => {
     const tp = shapeTemplateById('arc')!;
     const pts = bakeSpanPoints({ lane: 0 }, { lane: 0 }, 1, 3, { kind: 'template', templateId: 'arc' });
-    expect(pts.length).toBe(tp.points.length);
+    expect(pts.length).toBe(tp.sample ? tp.sample(2).length : tp.points.length);
     expect(pts.every((p) => p.hidden === true)).toBe(true);
     // 弧顶：t=0.5 → off=1 → lane = 0 + 0×0.5 + 1×2 = 2
     const mid = pts.find((p) => Math.abs(p.beat - 2) < 1e-9)!;
@@ -358,7 +435,8 @@ describe('issue 09 S4 · 形状模板（ADR-0009 §2 三来源之三）', () => 
   it('模板段 regenerateSpan：换模板 = 替换采样点并记录新 id；未知模板 id 退化为直线（不抛错）', () => {
     const base: SlideNote = { type: 'Slide', connections: [{ beat: 1, lane: 0 }, { beat: 2, lane: 0 }] };
     const once = regenerateSpan(base, 0, { kind: 'template', templateId: 'wave' }, 4) as SlideNote;
-    expect(once.connections.filter((c) => c.hidden).length).toBe(shapeTemplateById('wave')!.points.length);
+    const expectedWaveHidden = shapeTemplateById('wave')!.sample ? shapeTemplateById('wave')!.sample!(1).length : shapeTemplateById('wave')!.points.length;
+    expect(once.connections.filter((c) => c.hidden).length).toBe(expectedWaveHidden);
     expect(effectiveSpanParams(once)[0]).toEqual({ kind: 'template', templateId: 'wave' });
     const twice = regenerateSpan(once, 0, { kind: 'easing', family: 'quad', type: 'in', precision: 16 }, 4) as SlideNote;
     expect(twice.spanParams?.bySpan[0]).toEqual({ kind: 'easing', family: 'quad', type: 'in', precision: 16 });
@@ -509,3 +587,44 @@ describe('issue 203 · 圆滑捏形（贝塞尔鼓包 / 穿过光标 / ADR-0009 
   });
 });
 
+
+describe('issue 225 · mirrorSpanParam & pruneSpanParam 工具函数', () => {
+  it('mirrorSpanParam：模板段翻转 mirrored，缓动段保持原样', () => {
+    expect(mirrorSpanParam({ kind: 'template', templateId: 'arc', precision: 16 })).toEqual({
+      kind: 'template', templateId: 'arc', precision: 16, mirrored: true,
+    });
+    expect(mirrorSpanParam({ kind: 'template', templateId: 'arc', precision: 16, mirrored: true })).toEqual({
+      kind: 'template', templateId: 'arc', precision: 16, mirrored: false,
+    });
+    expect(mirrorSpanParam(param({ family: 'quad', type: 'in' }))).toEqual(
+      param({ family: 'quad', type: 'in' })
+    );
+  });
+
+  it('pruneSpanParam：安全删除指定段参数，维持 visibleCount', () => {
+    const s: SlideNote = {
+      type: 'Slide',
+      connections: [{ beat: 0, lane: 0 }, { beat: 1, lane: 1 }, { beat: 2, lane: 2 }],
+      spanParams: {
+        visibleCount: 3,
+        bySpan: { 0: param(), 1: param() },
+      },
+    };
+    const pruned = pruneSpanParam(s, 0);
+    expect(pruned).toEqual({
+      visibleCount: 3,
+      bySpan: { 1: param() },
+    });
+    expect(pruneSpanParam(s, 1)?.bySpan[0]).toBeDefined();
+    // 删完全部段 -> undefined
+    const sSingle: SlideNote = {
+      type: 'Slide',
+      connections: [{ beat: 0, lane: 0 }, { beat: 1, lane: 1 }],
+      spanParams: {
+        visibleCount: 2,
+        bySpan: { 0: param() },
+      },
+    };
+    expect(pruneSpanParam(sSingle, 0)).toBeUndefined();
+  });
+});

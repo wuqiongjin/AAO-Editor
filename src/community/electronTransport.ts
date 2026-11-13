@@ -2,11 +2,12 @@
  * 走 IPC 的社区出口 —— 全仓**唯一**的 `CommunityTransport` 实现（票 07 锁测：出口唯一）。
  *
  * 它自己不发网络：只把载荷递给 `window.electronAPI.communityNet`（preload 白名单里那一条），
- * 由主进程网关（`electron/communityNet.cjs`）发出去，并把统一错误域翻回来。
+ * 由主进程网关（`electron/community/communityNet.cjs`）发出去，并把统一错误域翻回来。
  * 没有这条桥 = 静态演示版 / 浏览器 → `kind === 'none'`，请求抛 `unsupported-runtime`；
  * 能力层据此降级（ADR-0011 §1），不是白屏、也不是循环报错。
  */
 import { logger } from '../diagnostics/logger';
+import { getElectronAPI, type CommunityNetBridge } from '../app/electronBridge';
 import {
   CommunityError,
   communityErrorLogExtra,
@@ -35,16 +36,11 @@ function logCommunityError(error: unknown, req?: CommunityRequest): void {
   logger.error('[community]', error.message, communityErrorLogExtra(error));
 }
 
-/** preload 暴露的网络桥（本仓惯例：桥形状由消费方就近声明，没有集中 d.ts） */
-export interface CommunityNetBridge {
-  request(payload: CommunityRequest): Promise<CommunityWireResult>;
-}
+export type { CommunityNetBridge } from '../app/electronBridge';
 
 /** 读桥；浏览器里（没有 window / 没有 electronAPI）返回 null */
 export function getCommunityNetBridge(): CommunityNetBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { communityNet?: CommunityNetBridge } }).electronAPI;
-  return api?.communityNet ?? null;
+  return getElectronAPI()?.communityNet ?? null;
 }
 
 /**

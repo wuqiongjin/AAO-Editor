@@ -24,7 +24,7 @@ import {
 // 导出档常量从真源 import（不抄一份数）：改档时本文件的"3 分钟谱不越上限"按新值重算
 import { EXPORT_DPR, EXPORT_ES, EXPORT_PANEL_H, exportHeaderHeight, planSheet } from '@/src/preview/static/exportPanels';
 import { EXPORT_HEADER_H } from '@/src/preview/static/sheetHeader';
-import { defaultSettings } from '@/src/chart/config/AppSettings';
+import { defaultSettings } from '@/src/settings/AppSettings';
 
 const BPM120: ChartNote[] = [{ type: 'BPM', beat: 0, bpm: 120 }];
 /** 120bpm：1 拍 = 0.5s；440 虚拟 px/秒 */

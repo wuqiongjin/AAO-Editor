@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { useOptionalAppNav } from '../../layouts/AppNav';
 import { useConfig } from '../../app/ProviderTree';
-import { defaultSettings, type AppSettings, type PinchMode, type TimePrecision } from '../../chart/config/AppSettings';
+import { defaultSettings, type AppSettings, type PinchMode, type TimePrecision } from '../../settings/AppSettings';
 import type { GridStylePreset } from '../../rendering/gridStyle';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '../../rendering/skin/noteSkin';
 import HelpHint from '../../ui/HelpHint';
@@ -122,7 +122,7 @@ function Percent({
 
 export default memo(function WorkspaceDisplayPanel() {
   const { settings, setDisplay, setPlaybar, setSeVolume } = useConfig();
-  const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const [confirmingReset, setConfirmingReset] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -263,6 +263,19 @@ export default memo(function WorkspaceDisplayPanel() {
                   min={50}
                   max={200}
                   onChange={(verticalRatio) => setDisplay({ verticalRatio })}
+                />
+              </Row>
+              <Row
+                label={t('settings.judgeLineOffset')}
+                hint={<HelpHint text={t('settings.judgeLineOffset.hint')} placement="down" />}
+              >
+                <Percent
+                  label={t('settings.judgeLineOffset')}
+                  value={display.judgeLineOffsetRatio}
+                  min={0}
+                  max={40}
+                  step={1}
+                  onChange={(v) => setDisplay({ judgeLineOffsetRatio: v })}
                 />
               </Row>
               <Row label={t('settings.gridStyle')}>

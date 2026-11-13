@@ -65,9 +65,15 @@ describe('useChartProjectPersistence · 落盘实例生命周期（issue 64）',
 // ——依赖抖动（时长/音频同步、切 tab flush）也重戳，谱面行「N 分钟前」被读成「上次编辑」，
 // 还污染 hub「最近修改」排序键（projectLastModified = max(charts.lastModified)）。
 // 钉法：戳机口径不许内联回 hook，必须走 stampChartModified；模块自身必须保留条件判断。
+// 票 70 起 hasProjectContentChanged 会只读比较 lastModified 判断「记录是否真变」（编辑代次通知）：
+// 读不算戳机，故负锁从「不出现字样」收窄为「不自行写戳」，另加一条正向锁守住只读形态。
 describe('useChartProjectPersistence · lastModified 条件戳（issue 35）', () => {
-  it('hook 内不再出现任何 lastModified 字样（戳机口径收口到 chartModifiedStamp）', () => {
-    expect(codeOnly).not.toMatch(/lastModified/);
+  it('hook 内不得自行写 lastModified 戳（戳机口径收口到 chartModifiedStamp；只读比较允许）', () => {
+    expect(codeOnly).not.toMatch(/lastModified\s*[:=]/);
+  });
+
+  it('lastModified 只作为记录内容变化判据被读取比较（不参与改写）', () => {
+    expect(codeOnly).toMatch(/chart\.lastModified !== prevChart\.lastModified/);
   });
 
   it('谱面记录改写道经 stampChartModified（条件戳的唯一入口）', () => {

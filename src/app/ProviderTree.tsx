@@ -2,7 +2,7 @@
 // 装配跨域根状态 Provider。
 // 装配顺序：Config（最外层，主题/快捷键几乎被所有 Provider 依赖）
 //        → CurrentProject（当前工程会话，进工作台/音频页时 ensure）
-//        → AudioSessionRoot（音频会话深模块的 React 入口，需读 useConfig() 拿 keySet/seVolume）
+//        → AudioSessionRoot（音频会话深模块的 React 入口，需读 useConfig() 拿 keySet/seVolume/volume）
 //        → Playback（播放编排状态）
 //        → UI（工作台 UI 状态）
 //        → Editing（最内层，选区/历史最终被画布消费）
@@ -24,7 +24,7 @@ export { useUI } from './providers/UIProvider';
 export type { UIContextValue } from './providers/UIProvider';
 export { useEditing } from './providers/EditingProvider';
 export type { EditingContextValue } from './providers/EditingProvider';
-export { usePlayback, usePlaybackState } from './providers/PlaybackProvider';
+export { usePlayback, usePlaybackState, usePlaybackSeconds } from './providers/PlaybackProvider';
 export type { PlaybackContextValue, PlaybackStateContextValue } from './providers/PlaybackProvider';
 export { useAudioSession } from './providers/AudioSessionProvider';
 export { useCurrentProject } from './providers/CurrentProjectProvider';

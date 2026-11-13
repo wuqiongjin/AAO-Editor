@@ -14,7 +14,7 @@
 //   ⑤ 凭据文件不跟数据根走（数据根可搬家 / 可分享），也不进设置对象，且**凭据模块的 import 面里
 //      没有任何持久化出口**（名字正则挡不住改名绕道，import 面能）。
 import { describe, expect, it } from 'vitest';
-import { readSource, readStripped, sourceFiles } from '@/tests/support/source';
+import { readSource, readSources, readStripped, sourceFiles } from '@/tests/support/source';
 
 const ACCOUNT_MODULE = 'src/community/bestdori/account.ts';
 /** 登录弹窗：白名单的第二处（票 39 Q9），它只把凭据递给 `account.login()` 的参数 */
@@ -26,10 +26,10 @@ const SIGN_IN_DIALOG = 'src/pages/projects/components/SignInDialog.tsx';
  */
 const SANITIZE_KEY_TABLE = 'src/diagnostics/sanitizeDiagnosticsPayload.ts';
 const SESSION_BRIDGE = 'src/community/sessionPersistence.ts';
-const SESSION_MAIN = 'electron/communitySession.cjs';
+const SESSION_MAIN = 'electron/community/communitySession.cjs';
 const PRELOAD = 'electron/preload.js';
 const MAIN = 'electron/main.cjs';
-const SETTINGS = 'src/chart/config/AppSettings.ts';
+const SETTINGS = 'src/settings/AppSettings.ts';
 
 /** 会话那条通道的三条 invoke（一条都不许带参数） */
 const SESSION_CHANNELS = [
@@ -165,7 +165,7 @@ describe('票 10 · 会话通道零入参（递不进凭据）', () => {
 
 describe('票 10 · 凭据落点与降级', () => {
   it('会话文件落在 userData 下、**不跟数据根走**（数据根可以被搬家 / 拷贝 / 分享）', () => {
-    expect(readStripped(MAIN)).toMatch(/sessionFilePath\(userDataDir\(\)\)/);
+    expect(readSources([MAIN], true)).toMatch(/sessionFilePath\(userDataDir\(\)\)/);
     expect(readStripped(SESSION_MAIN)).not.toMatch(/dataRoot/);
   });
 

@@ -9,7 +9,7 @@ import type { ChartProject, ProjectChart } from '@/src/project/ChartProject';
 import { PROJECT_SCHEMA_VERSION } from '@/src/project/ChartProjectRecord';
 import type { ChartNote } from '@/src/chart/types';
 import { makeMemoryProjectBridge } from '@/tests/support/memoryProjectBridge';
-import { readStripped } from '@/tests/support/source';
+import { readSources, readStripped } from '@/tests/support/source';
 
 const note = { beat: 4, lane: 3, type: 'Single' } as ChartNote;
 
@@ -106,7 +106,7 @@ describe('ElectronFileProjectBackend · 保存意图', () => {
     let failNext = false;
     t.put.mockImplementation(async (p) => {
       if (failNext) throw new Error('ipc down');
-      t.puts.push(p);
+      t.puts.push({ ...p, doc: JSON.parse(p.doc) });
     });
     const b = new ElectronFileProjectBackend(t.bridge);
 
@@ -182,7 +182,7 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
     const t = makeMemoryProjectBridge();
     await t.bridge.put({
       id: 'pSong1',
-      doc: {
+      doc: JSON.stringify({
         schemaVersion: PROJECT_SCHEMA_VERSION,
         name: null,
         artist: null,
@@ -194,7 +194,7 @@ describe('ElectronFileProjectBackend · 读取与多工程', () => {
         coverName: null,
         audioIntent: 'set',
         coverIntent: 'cleared',
-      },
+      }),
       audio: new Uint8Array([9, 9]),
     });
     const b = new ElectronFileProjectBackend(t.bridge);
@@ -312,6 +312,6 @@ describe('安全与门面', () => {
     const src = readStripped('src/project/ChartProject.ts');
     expect(src).not.toMatch(/ensureMigratedOnce/);
     expect(src).not.toMatch(/legacyRead/);
-    expect(readStripped('electron/main.cjs')).not.toMatch(/首启迁移/);
+    expect(readSources(['electron/main.cjs'], true)).not.toMatch(/首启迁移/);
   });
 });

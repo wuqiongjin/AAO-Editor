@@ -6,7 +6,7 @@
 // - 当前选中项左侧打勾（Check 图标）。
 import { createPortal } from 'react-dom';
 import { ArrowUpDown, Check } from 'lucide-react';
-import type { PatternSortDirection, PatternSortKey, PatternSortPreference } from '../../chart/patterns/library';
+import type { PatternSortDirection, PatternSortKey, PatternSortPreference } from '../../patterns/library';
 import { t, type MessageKey } from '../../i18n';
 import { useAnchoredMenu } from './useAnchoredMenu';
 

@@ -6,14 +6,14 @@
  * 不是「某条能力桥在不在」（那是 `community/electronTransport.ts` 那种按能力判的口径）：
  * 说的是「这是桌面运行时的应用」还是「这是浏览器里的应用」。
  */
+import { getElectronAPI } from './electronBridge';
 
 /** 首访说明的记账键：按 `aao.<域>.v1` 惯例，v1 是结构版本，不跟应用版本走 */
 export const WEB_NOTICE_KEY = 'aao.webNotice.v1';
 
 /** 有没有桌面运行时（preload 注入了任意一条桥；浏览器里恒为 false） */
 export function hasDesktopRuntime(): boolean {
-  if (typeof window === 'undefined') return false;
-  return Boolean((window as unknown as { electronAPI?: unknown }).electronAPI);
+  return Boolean(getElectronAPI());
 }
 
 /** 这台浏览器还没看过首访说明 */

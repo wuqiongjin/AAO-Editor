@@ -11,12 +11,18 @@
 // 包清单（`./simAssetPacks` → `./gen/simAssetPacks.gen`）取文件名；非法 / 不在清单里的 ID
 // 静默回落默认 `skin00`（"列表即真相"，见 simAssetPacks.ts）。
 import {
-  clamp01,
   SIM_BAND_COLORS,
   SIM_BAND_MATERIAL,
   SIM_BAND_MATERIAL_SP,
   type SimBandMaterial,
 } from './simGeometry';
+import {
+  buildSimBandRasterMaterial,
+  readSimBandImage,
+  SIM_BAND_RASTER_MATERIAL,
+  SIM_BAND_RASTER_MATERIAL_SP,
+  type SimBandRasterMaterial,
+} from './simBandRaster';
 import {
   findSimBackgroundPack,
   findSimFieldPack,
@@ -148,6 +154,13 @@ export interface SimAssets {
   /** 带体材质（皮肤带体图横截面采样：体 α / 亮缘 α；取不到 = 兜底常量） */
   bandMaterial: SimBandMaterial;
   bandMaterialSp: SimBandMaterial;
+  /**
+   * 带体的逐像素光栅材质（chart-preview 65）：17 点横截面 + 纵向曲线 + 体色，
+   * 在这里一次性展开成 LUT；缺图 / 无 DOM = skin00 实测兜底剖面。
+   * 与 `bandMaterial` 共用**同一次 `getImageData`**（`readSimBandImage`）。
+   */
+  bandRaster: SimBandRasterMaterial;
+  bandRasterSp: SimBandRasterMaterial;
   /** Bestdori 自家精灵（combo / 特效）：缺 = null → 回落自绘（chart-preview 21，**不置 missing**） */
   sprites: SimSprites | null;
   /** 缺素材：跑过归档脚本才能有（空态由页面画，这里只报事实） */
@@ -172,6 +185,8 @@ export interface SimAssetLoadOptions {
   loadImage?: (src: string) => Promise<HTMLImageElement>;
   /** 取色（测试注入替身；缺省读 1×1 离屏画布） */
   sampleColor?: (img: HTMLImageElement) => string | null;
+  /** 带体贴图取样的离屏画布工厂（测试注入；缺省 `document.createElement('canvas')`） */
+  createSampleCanvas?: () => HTMLCanvasElement | null;
 }
 
 /** 缺素材时的站点素材占位（页面据此画空态，不画半个场地） */
@@ -184,6 +199,8 @@ export function emptySimAssets(): SimAssets {
     bandColorSp: SIM_BAND_COLORS.sp,
     bandMaterial: { ...SIM_BAND_MATERIAL },
     bandMaterialSp: { ...SIM_BAND_MATERIAL_SP },
+    bandRaster: SIM_BAND_RASTER_MATERIAL,
+    bandRasterSp: SIM_BAND_RASTER_MATERIAL_SP,
     sprites: null,
     missing: true,
     server: null,
@@ -230,51 +247,17 @@ export function sampleCenterColor(img: HTMLImageElement | null): string | null {
 }
 
 /**
- * 读带体图的横截面剖面：中心区域列平均 α = 体部，最亮列 = 亮缘峰值
- * （与画布 `render.bandStripStyle` 同一口径 —— ADR-0009 五轮：剖面走贴图运行时采样、
- * 不手工近似；换肤时体 / 亮缘的透明度自动跟随皮肤，兜底常量只服务缺图环境）。
+ * 旧的标量材质（体部平均 α + 亮缘峰值 α）——口径一字不改，只是改为委托给
+ * `readSimBandImage`：那边的**一次 `getImageData`** 同时给出标量材质、17 点剖面、纵向曲线和
+ * 体色，`loadSimAssets` 走的就是同一份像素（chart-preview 65，不再为剖面二次回读）。
  * `rimFrac` 不从粗剖面推（峰值位置混着外侧 AA 衰减，推出来会偏宽）：沿用兜底常量。
  * 无 DOM / 无 2d 上下文 / 跨域污染 → null（调用方走兜底材质）。
  */
-export function sampleBandMaterial(img: HTMLImageElement | null): SimBandMaterial | null {
-  if (!img || typeof document === 'undefined') return null;
-  try {
-    const w = img.naturalWidth || img.width;
-    const h = img.naturalHeight || img.height;
-    if (!w || !h) return null;
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.drawImage(img, 0, 0);
-    const d = ctx.getImageData(0, 0, w, h).data;
-    const colAvg = (x: number) => {
-      const xx = Math.max(0, Math.min(w - 1, x));
-      let s = 0;
-      for (let y = 0; y < h; y++) s += d[(y * w + xx) * 4 + 3];
-      return s / h / 255;
-    };
-    const mid = w >> 1;
-    const lo = Math.floor(mid - w * 0.3);
-    const hi = Math.ceil(mid + w * 0.3);
-    let bodySum = 0;
-    let bodyN = 0;
-    for (let x = lo; x <= hi; x++) {
-      bodySum += colAvg(x);
-      bodyN++;
-    }
-    const bodyAlpha = bodyN > 0 ? bodySum / bodyN : colAvg(mid);
-    let rimAlpha = 0;
-    for (let x = 1; x < w - 1; x++) rimAlpha = Math.max(rimAlpha, colAvg(x));
-    return {
-      bodyAlpha: clamp01(bodyAlpha),
-      rimAlpha: clamp01(rimAlpha),
-      rimFrac: SIM_BAND_MATERIAL.rimFrac,
-    };
-  } catch {
-    return null;
-  }
+export function sampleBandMaterial(
+  img: HTMLImageElement | null,
+  createCanvas?: () => HTMLCanvasElement | null,
+): SimBandMaterial | null {
+  return readSimBandImage(img, createCanvas)?.material ?? null;
 }
 
 /**
@@ -295,10 +278,11 @@ export async function loadSimAssets(opts: SimAssetLoadOptions = {}): Promise<Sim
     packs,
     loadImage = loadImageElement,
     sampleColor = sampleCenterColor,
+    createSampleCanvas,
   } = opts;
 
   const probe = (selection: Required<SimAssetPackSelection>) => probeSimServers({
-    servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor,
+    servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor, createSampleCanvas,
   });
   const selected: Required<SimAssetPackSelection> = {
     field: normalizeSimAssetPackId('field', packs?.field),
@@ -326,8 +310,9 @@ async function probeSimServers(opts: {
   bandSpSrc: string | null;
   loadImage: (src: string) => Promise<HTMLImageElement>;
   sampleColor: (img: HTMLImageElement) => string | null;
+  createSampleCanvas?: () => HTMLCanvasElement | null;
 }): Promise<SimAssets | null> {
-  const { servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor } = opts;
+  const { servers, selection, bandSrc, bandSpSrc, loadImage, sampleColor, createSampleCanvas } = opts;
   for (const server of servers) {
     const urls = simAssetUrls(server, selection);
     let field: HTMLImageElement;
@@ -349,14 +334,20 @@ async function probeSimServers(opts: {
     ]);
     const sprites = digits && combo && particles ? { digits, combo, particles } : null;
     warmupSimSprites(sprites, [background, field, playLine]);
+    // 65：普通 / SP 带体各读一次，标量材质、17 点剖面、纵向曲线、体色同源（无第二次回读）；
+    // LUT 在这里展开好，帧循环只读数组。
+    const bandSample = readSimBandImage(bandImg, createSampleCanvas);
+    const bandSpSample = readSimBandImage(bandSpImg, createSampleCanvas);
     return {
       background,
       field,
       playLine,
       bandColor: (bandImg ? sampleColor(bandImg) : null) ?? SIM_BAND_COLORS.band,
       bandColorSp: (bandSpImg ? sampleColor(bandSpImg) : null) ?? SIM_BAND_COLORS.sp,
-      bandMaterial: sampleBandMaterial(bandImg) ?? { ...SIM_BAND_MATERIAL },
-      bandMaterialSp: sampleBandMaterial(bandSpImg) ?? { ...SIM_BAND_MATERIAL_SP },
+      bandMaterial: bandSample?.material ?? { ...SIM_BAND_MATERIAL },
+      bandMaterialSp: bandSpSample?.material ?? { ...SIM_BAND_MATERIAL_SP },
+      bandRaster: buildSimBandRasterMaterial(bandSample, false),
+      bandRasterSp: buildSimBandRasterMaterial(bandSpSample, true),
       sprites,
       missing: false,
       server,

@@ -1,12 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { AppWindow, Ellipsis, Inbox, List, Music2, Pencil, Play, RotateCcw, Search, SearchX, SquarePen } from 'lucide-react';
+import { AppWindow, Ellipsis, Inbox, List, Music2, Pencil, Play, RotateCcw, Search, SearchX, Settings, SquarePen } from 'lucide-react';
 import AppPageShell from '../../layouts/AppPageShell';
 import EmptyState from '../../ui/EmptyState';
+import BeatSnapCycleConfigModal from './BeatSnapCycleConfigModal';
 import {
   FUNCTIONS, functionById, setFunctionBinding, getDefaultConfig,
   formatKey, normalizeKeyEvent, setCapturingShortcut, maskFunctionBinding,
   bindingToRestore, type FunctionId,
-} from '../../chart/config/ShortcutConfig';
+} from '../../settings/ShortcutConfig';
 import {
   INDEX_FILTERS, type IndexFilterId,
   filterFunctions, shortcutTableEmptyKind, restoreDefaultsInFilter,
@@ -117,6 +118,7 @@ export default function ShortcutsPage() {
     initialBinding?: string;
     initialConflict?: string;
   } | null>(null);
+  const [cycleConfigOpen, setCycleConfigOpen] = useState(false);
   const shortcutTableRef = useRef<HTMLDivElement>(null);
 
   // issue 127：换桶重挂表体，但滚动容器仍是 .shortcut-table → 须显式回顶；搜索只滤行、保持 scrollTop。
@@ -177,6 +179,11 @@ export default function ShortcutsPage() {
       return;
     }
     const binding = bindingToRestore(id, settings.shortcutLast);
+    if (!binding) {
+      // issue 216：出厂未绑定（binding: null）且无历史记录时，启用开关直接唤起录制弹窗供用户设键
+      setEditing({ id });
+      return;
+    }
     const conflict = setFunctionBinding(next, id, binding);
     if (conflict) {
       setEditing({ id, initialBinding: binding, initialConflict: conflictText(binding, conflict) });
@@ -244,7 +251,23 @@ export default function ShortcutsPage() {
                 }}
               >
                 <span className="shortcut-group">{t(`tool.cat.${f.category}` as MessageKey)}</span>
-                <strong>{t(f.label as MessageKey)}</strong>
+                <strong className="shortcut-fn-name">
+                  <span>{t(f.label as MessageKey)}</span>
+                  {f.id === 'beatSnapCycle' && (
+                    <button
+                      className="shortcut-gear-btn"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCycleConfigOpen(true);
+                      }}
+                      title={t('shortcuts.beatSnapCycle.config')}
+                      aria-label={t('shortcuts.beatSnapCycle.configAria')}
+                    >
+                      <Settings size={13} />
+                    </button>
+                  )}
+                </strong>
                 {bound ? (
                   <button
                     className="key-binding"
@@ -269,14 +292,14 @@ export default function ShortcutsPage() {
                   title={t('shortcuts.edit')}
                   aria-label={t('shortcuts.editAria', { label: t(f.label as MessageKey) })}
                 ><Pencil size={14} /></button>
-                <label style={{ display: 'flex', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
                   <button
                     className={`switch compact${bound ? ' is-on' : ''}`}
                     type="button"
                     aria-label={bound ? t('shortcuts.disableAria', { label: t(f.label as MessageKey) }) : t('shortcuts.enableAria', { label: t(f.label as MessageKey) })}
                     onClick={() => setEnabled(f.id, !bound)}
                   ><span /></button>
-                </label>
+                </div>
               </div>
             );
           })}
@@ -313,6 +336,10 @@ export default function ShortcutsPage() {
           onCommit={(binding) => commit(editing.id, binding)}
           onClose={() => setEditing(null)}
         />
+      )}
+
+      {cycleConfigOpen && (
+        <BeatSnapCycleConfigModal onClose={() => setCycleConfigOpen(false)} />
       )}
       </AppPageShell.Body>
     </AppPageShell>

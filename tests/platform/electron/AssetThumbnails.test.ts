@@ -3,8 +3,8 @@
 import { readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { THUMB_SIZE, createThumbMaker, squareCrop } from '@/electron/assetThumbnails.cjs';
-import { createAssetCache } from '@/electron/assetCache.cjs';
+import { THUMB_SIZE, createThumbMaker, squareCrop } from '@/electron/assets/assetThumbnails.cjs';
+import { createAssetCache } from '@/electron/assets/assetCache.cjs';
 import { tmpDir } from '@/tests/support/fs';
 import { readSource } from '@/tests/support/source';
 

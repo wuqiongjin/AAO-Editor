@@ -320,14 +320,16 @@
   position: absolute;
   inset: 0;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
   min-width: 0;
   min-height: 0;
-  transition: opacity 130ms var(--ease);
+  transition: opacity 130ms var(--ease), visibility 130ms var(--ease);
 }
 
 .app-page.is-active {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 
@@ -2694,6 +2696,39 @@ button.skin-pill {
 .shortcut-row strong {
   font-size: 12px;
   font-weight: 650;
+}
+
+/* 表格功能名旁配置齿轮按钮（issue 216） */
+.shortcut-fn-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.shortcut-gear-btn {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.6;
+  padding: 0;
+  transition: background-color 120ms var(--ease), color 120ms var(--ease), opacity 120ms var(--ease);
+}
+
+.shortcut-gear-btn:hover:not(:disabled),
+.shortcut-gear-btn:focus-visible:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--accent-text);
+  border-color: var(--border);
+  opacity: 1;
 }
 
 .shortcut-row.disabled {

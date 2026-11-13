@@ -17,7 +17,8 @@
 import { describe, expect, it } from 'vitest';
 import { cssRuleBody, readStripped } from '@/tests/support/source';
 
-const CSS = 'src/pages/preview/PreviewPage.css';
+// chart-preview 58：倍速控件（含按压态）抽到 src/playback/PlaybackRate.{tsx,css}，两处播放条共用
+const CSS = 'src/playback/PlaybackRate.css';
 const UI_CSS = 'src/ui/ui.css';
 /** 触钮的按压态规则（`:not(:disabled)` 只为压过 `.icon-btn:hover:not(:disabled)` 的按压底色） */
 const PRESS_SELECTOR = '.pv-rate .icon-btn:active';
@@ -33,7 +34,7 @@ describe('chart-preview 28 · 倍速触钮按压时图标不许位移', () => {
     const body = cssRuleBody(readStripped(CSS), PRESS_SELECTOR) ?? '';
     expect(body).toMatch(/background-color:/);
     // 色值必须来自当前态的 token（`color-mix` 混 `--bg-hover` / `--text`）：全屏台上态才跟着换，
-    // 也不能落硬编码色值（PreviewPage.css 的口径）
+    // 也不能落硬编码色值（共用控件 CSS 的口径）
     expect(body).toMatch(/color-mix\([^)]*var\(--bg-hover\)[^)]*var\(--text\)/);
   });
 

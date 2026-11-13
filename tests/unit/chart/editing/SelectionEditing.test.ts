@@ -143,6 +143,51 @@ describe('copySelection', () => {
     expect(out).toHaveLength(1);
     expect((out[0] as any).connections).toHaveLength(4);
   });
+
+  it('框选覆盖全部可见结点时保留 spanParams（issue 225 / Q3=A）', () => {
+    const s: ChartNote = {
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0 },
+        { beat: 1, lane: 1, hidden: true },
+        { beat: 2, lane: 2 },
+      ],
+      spanParams: {
+        visibleCount: 2,
+        bySpan: { 0: { kind: 'template', templateId: 'arc', precision: 16 } },
+      },
+    };
+    const out = copySelection([s], [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 0 },
+      { kind: 'slideNode', noteIndex: 0, connIndex: 2 },
+    ]);
+    expect(out).toHaveLength(1);
+    const copied = out[0] as any;
+    expect(copied.spanParams).toBeDefined();
+    expect(copied.spanParams.bySpan[0].templateId).toBe('arc');
+  });
+
+  it('框选仅覆盖部分可见结点时不保留 spanParams（转为自由段）', () => {
+    const s: ChartNote = {
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 0 },
+        { beat: 1, lane: 1 },
+        { beat: 2, lane: 2 },
+      ],
+      spanParams: {
+        visibleCount: 3,
+        bySpan: { 0: { kind: 'template', templateId: 'arc', precision: 16 } },
+      },
+    };
+    const out = copySelection([s], [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 0 },
+      { kind: 'slideNode', noteIndex: 0, connIndex: 1 },
+    ]);
+    expect(out).toHaveLength(1);
+    const copied = out[0] as any;
+    expect(copied.spanParams).toBeUndefined();
+  });
 });
 
 describe('cutSelection', () => {
@@ -184,6 +229,52 @@ describe('mirrorSelection', () => {
     const out = mirrorSelection([slide()], [{ kind: 'note', noteIndex: 0 }]);
     const s = out[0] as any;
     expect(s.connections.map((c: any) => c.lane)).toEqual([6, 5, 4, 3]);
+  });
+
+  it('框选整条滑条（包含结点或区域）镜像时翻转 template 的 mirrored 状态（issue 225）', () => {
+    const s: ChartNote = {
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 1 },
+        { beat: 1, lane: 2, hidden: true },
+        { beat: 2, lane: 1 },
+      ],
+      spanParams: {
+        visibleCount: 2,
+        bySpan: { 0: { kind: 'template', templateId: 'arc', precision: 16 } },
+      },
+    };
+    const out = mirrorSelection([s], [
+      { kind: 'slideRegion', noteIndex: 0, connIndex: 0 },
+    ]);
+    const res = out[0] as any;
+    expect(res.connections[0].lane).toBe(5);
+    expect(res.connections[1].lane).toBe(4);
+    expect(res.connections[2].lane).toBe(5);
+    expect(res.spanParams.bySpan[0].mirrored).toBe(true);
+  });
+
+  it('部分结点镜像（结构被破坏）时清除受损段的 spanParams（issue 225）', () => {
+    const s: ChartNote = {
+      type: 'Slide',
+      connections: [
+        { beat: 0, lane: 1 },
+        { beat: 1, lane: 2, hidden: true },
+        { beat: 2, lane: 1 },
+      ],
+      spanParams: {
+        visibleCount: 2,
+        bySpan: { 0: { kind: 'template', templateId: 'arc', precision: 16 } },
+      },
+    };
+    // 仅镜像起点
+    const out = mirrorSelection([s], [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 0 },
+    ]);
+    const res = out[0] as any;
+    expect(res.connections[0].lane).toBe(5);
+    expect(res.connections[1].lane).toBe(2);
+    expect(res.spanParams).toBeUndefined();
   });
 });
 

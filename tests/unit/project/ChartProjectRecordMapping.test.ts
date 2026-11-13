@@ -133,7 +133,7 @@ describe('06 · 一份映射：同一套断言跑两条存储表示', () => {
 
   it('两条表示的字段集合对称（加字段只改一处时，漏掉任一侧就红）', () => {
     const p = richProject();
-    const wire = recordFromProject(p, 'keep', 'cleared') as unknown as Record<string, unknown>;
+    const wire = JSON.parse(recordFromProject(p, 'keep', 'cleared')) as Record<string, unknown>;
     const stored = storedFromProject(p) as unknown as Record<string, unknown>;
 
     const WIRE_META = new Set(['schemaVersion', 'audioIntent', 'coverIntent']);
@@ -146,7 +146,7 @@ describe('06 · 一份映射：同一套断言跑两条存储表示', () => {
 
   it('wire doc 带 schemaVersion、不带 id；stored record 带 id + schemaVersion（存储形状不变）', () => {
     const p = richProject();
-    const wire = recordFromProject(p, 'set', 'cleared');
+    const wire = JSON.parse(recordFromProject(p, 'set', 'cleared'));
     const stored = storedFromProject(p);
 
     expect(wire.schemaVersion).toBe(PROJECT_SCHEMA_VERSION);

@@ -7,7 +7,7 @@ import {
   DEFAULT_OPENING_ITEMS,
   OPENING_ITEM_IDS,
   type OpeningItemId,
-} from '../../../chart/config/AppSettings';
+} from '../../../settings/AppSettings';
 
 export { OPENING_ITEM_IDS, DEFAULT_OPENING_ITEMS };
 export type { OpeningItemId };

@@ -6,6 +6,7 @@
 //
 // 本测试锁住 render.ts 源码结构,确保 renderSlideBody 内部对 conn.flick 显式调
 // spriteIcon.renderDecorator 并传入 flickTopDecorator,防止以后回退到无装饰状态。
+// issue 221：Slide/Long 首端点（起笔）不画 flick 装饰（flick 箭头仅属于尾端点 ends.last）。
 import { describe, it, expect } from 'vitest';
 import { readSource } from '@/tests/support/source';
 
@@ -35,14 +36,14 @@ describe('renderSlideBody flick 装饰箭头', () => {
     expect(recent, 'renderDecorator 调用应被 if (!conn.flick …) 守卫').toMatch(/if\s*\(\s*!\s*conn\.flick\b/);
   });
 
-  it('装饰箭头只给**端点**补（issue 145 #3：中间结点的 flick 不画箭头）', () => {
+  it('装饰箭头只给**尾端点**补（issue 221：首端点与中间结点的 flick 不画箭头）', () => {
     const body = renderSlideBodySource(src);
     const decCall = body.match(/spriteIcon\.renderDecorator\s*\(/);
     expect(decCall).toBeTruthy();
     const recent = body.slice(0, decCall!.index!).slice(-300);
-    // 与 slideNodeIconConfig 同口径：守卫里必须出现端点判定（ends.first / ends.last）
-    expect(recent, 'renderDecorator 守卫应含端点判定').toMatch(/ends\.first/);
-    expect(recent, 'renderDecorator 守卫应含端点判定').toMatch(/ends\.last/);
+    // 与 slideNodeIconConfig 同口径：守卫里必须只对 ends.last 补箭头
+    expect(recent, 'renderDecorator 守卫应含尾端点判定').toMatch(/ends\.last/);
+    expect(recent, 'renderDecorator 守卫不应含首端点 ends.first').not.toMatch(/ends\.first/);
   });
 
   it('renderSlideBody 内应使用 icons.flickTopDecorator 作为装饰器源', () => {

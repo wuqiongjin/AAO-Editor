@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { readStripped, repoRoot } from '@/tests/support/source';
+import { readStripped, repoRoot, stripComments } from '@/tests/support/source';
 
 const editorSrc = readFileSync(
   join(repoRoot, 'src/pages/workspace/WorkspacePage.tsx'),
@@ -56,9 +56,16 @@ describe('Editor.tsx · 候选 3 收口（音频域 ref 环消解）', () => {
     expect(codeOnly).toMatch(/\},\s*\[virtualHeight,\s*chartEndKey\]\)/);
   });
 
-  it('主音量改走 session.setVolume（候选 3 收口后由 session 转发）', () => {
-    expect(editorSrc).toMatch(/audioSession\.setVolume\(/);
-    expect(editorSrc).not.toMatch(/audioSession\.setEngineVolume\(/);
+  it('票 60：主音量接线改走 settings，仍只经 session 转发到引擎', () => {
+    const codeOnly = stripComments(editorSrc);
+    // 撤掉 PlaybackContext 那份内存态：滑杆写 settings.audio.volume（跨重启记住），播放条读同一份
+    expect(codeOnly).toMatch(/setAudioVolume\(/);
+    expect(codeOnly).toMatch(/settings\.audio\.volume/);
+    expect(codeOnly).not.toMatch(/setCtxVolume|ctxVolume/);
+    // 引擎仍只经 session 转发；页面不直连 engine.setVolume
+    expect(codeOnly).toMatch(/audioSession\.setVolume\(/);
+    expect(codeOnly).not.toMatch(/engine\.setVolume\(/);
+    expect(codeOnly).not.toMatch(/audioSession\.setEngineVolume\(/);
   });
 });
 

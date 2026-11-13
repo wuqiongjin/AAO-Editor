@@ -6,8 +6,8 @@
 // **非模态**（票面：长谱导出不得阻塞页面交互）：没有 scrim，页面其余部分照样能点。
 // 取消不是 AbortController —— 域那一层是逐帧循环，靠 `isCancelled` 轮询在帧边界上退出来。
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AppSettings } from '../../chart/config/AppSettings';
-import { t } from '../../i18n';
+import type { AppSettings } from '../../settings/AppSettings';
+import { t, type MessageKey } from '../../i18n';
 import { logger } from '../../diagnostics/logger';
 import { trail } from '../../diagnostics/trail';
 import {
@@ -66,6 +66,8 @@ export interface VideoExportController {
   /** 结果文案（失败 / 编码器不可用 / 已取消）；null = 没有 */
   notice: VideoExportNotice | null;
   busy: boolean;
+  /** 已点取消、域层还在收尾：进度卡据此立刻给反馈（票 67） */
+  cancelling: boolean;
   /** 本机实际会用的编码组合（null = 还没探）；**按需**探，不在挂载时白跑一次 isConfigSupported */
   support: VideoExportSupport | null;
   probing: boolean;
@@ -94,10 +96,13 @@ export function exportDoneText(outcome: VideoExportOutcome): string {
 export function noticeFor(outcome: VideoExportOutcome): VideoExportNotice | null {
   if (!outcome.ok) {
     if (outcome.unsupported) return { text: t('preview.video.export.unsupported'), tone: 'danger' };
-    return {
-      text: t(outcome.failure === 'assets' ? 'preview.video.export.failedAssets' : 'preview.video.export.failed'),
-      tone: 'danger',
-    };
+    const failedKey: MessageKey =
+      outcome.failure === 'assets'
+        ? 'preview.video.export.failedAssets'
+        : outcome.failure === 'save'
+          ? 'preview.video.export.failedSave'
+          : 'preview.video.export.failed';
+    return { text: t(failedKey), tone: 'danger' };
   }
   if (outcome.cancelled) return { text: t('preview.video.export.cancelled'), tone: 'warn' };
   return null;
@@ -115,6 +120,7 @@ export function useVideoExport(
   const [progress, setProgress] = useState<VideoExportProgress | null>(null);
   const [notice, setNotice] = useState<VideoExportNotice | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [support, setSupport] = useState<VideoExportSupport | null>(null);
   const [probing, setProbing] = useState(false);
   const cancelledRef = useRef(false);
@@ -161,11 +167,14 @@ export function useVideoExport(
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;
+    // 域层还在收尾（audio 段 / 背压），先把「已收到」画出来，别让点击像没点上
+    setCancelling(true);
   }, []);
 
   const start = useCallback(async () => {
     if (busy || args.scene == null) return;
     cancelledRef.current = false;
+    setCancelling(false);
     setBusy(true);
     updateNotice(null);
     setProgress({ phase: 'assets', frame: 0, totalFrames: 0 });
@@ -215,9 +224,13 @@ export function useVideoExport(
       return undefined;
     } finally {
       setBusy(false);
+      setCancelling(false);
       setProgress(null);
     }
   }, [args, busy, run, spec, updateNotice]);
 
-  return { spec, setSpec, progress, notice, busy, support, probing, probe, start, cancel, dismissNotice };
+  return {
+    spec, setSpec, progress, notice, busy, cancelling,
+    support, probing, probe, start, cancel, dismissNotice,
+  };
 }

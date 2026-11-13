@@ -1,7 +1,8 @@
-import type { ChartNote, SelectionItem, SlideNote } from '../types';
+import type { ChartNote, SelectionItem, SlideNote, SpanParam, SlideSpanParams } from '../types';
 import { connectionToNote } from './SlideCombination';
-import { spanConnIndices, regionIdentity } from './SlideSegments';
+import { spanConnIndices, regionIdentity, slideSpans } from './SlideSegments';
 import { mirrorNote, mirrorLane } from './NoteEditing';
+import { effectiveSpanParams, mirrorSpanParam } from './SpanCurve';
 import { DEFAULT_BPM } from '../../audio/AudioTiming';
 
 /**
@@ -279,7 +280,12 @@ export function copySelection(notes: ChartNote[], items: SelectionItem[]): Chart
         const min = Math.min(...covered);
         const max = Math.max(...covered);
         const conns = note.connections.slice(min, max + 1).map(c => ({ ...c }));
-        out.push({ type: 'Slide', connections: conns } as SlideNote);
+        const copiedSlide: SlideNote = { type: note.type, connections: conns } as SlideNote;
+        const vis = visibleConnIndices(note.connections);
+        if (note.spanParams && vis.length > 0 && vis.every(vi => covered.has(vi))) {
+          copiedSlide.spanParams = structuredClone(note.spanParams);
+        }
+        out.push(copiedSlide);
       }
     } else {
       // 非滑条音符：仅 kind 'note' 有效
@@ -327,7 +333,44 @@ export function mirrorSelection(notes: ChartNote[], items: SelectionItem[]): Cha
       const connections = note.connections.map((c, ci) =>
         covered.has(ci) ? { ...c, lane: mirrorLane(c.lane) } : c
       );
-      newNotes[noteIndex] = { ...note, connections };
+      let spanParams: SlideSpanParams | undefined = undefined;
+      const effective = effectiveSpanParams(note);
+      if (Object.keys(effective).length > 0) {
+        const spans = slideSpans(note.connections);
+        const newBySpan: Record<number, SpanParam> = {};
+        for (let ordinal = 0; ordinal < spans.length; ordinal++) {
+          const sp = spans[ordinal]!;
+          const param = effective[ordinal];
+          if (!param) continue;
+
+          let coveredCount = 0;
+          const totalCount = sp.end - sp.start + 1;
+          for (let k = sp.start; k <= sp.end; k++) {
+            if (covered.has(k)) coveredCount++;
+          }
+
+          if (coveredCount === totalCount) {
+            // 整段被镜像
+            newBySpan[ordinal] = mirrorSpanParam(param);
+          } else if (coveredCount === 0) {
+            // 整段未受影响
+            newBySpan[ordinal] = { ...param };
+          } else {
+            // 部分被镜像（结构被破坏）：转为自由段，清除该段参数
+          }
+        }
+        spanParams = Object.keys(newBySpan).length > 0
+          ? { visibleCount: note.spanParams!.visibleCount, bySpan: newBySpan }
+          : undefined;
+      }
+
+      const updatedSlide: SlideNote = { ...note, connections };
+      if (spanParams) {
+        updatedSlide.spanParams = spanParams;
+      } else {
+        delete updatedSlide.spanParams;
+      }
+      newNotes[noteIndex] = updatedSlide;
     } else {
       newNotes[noteIndex] = mirrorNote(note);
     }

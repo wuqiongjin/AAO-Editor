@@ -247,6 +247,7 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     // 工作台的真实画像是"注册一个 flush 回调"（useChartProjectPersistence）；这里注入替身记账它
     // 相对读的次序——防抖落地**不通知目录**，不 flush 的话这次访问会整趟停在旧记录上
     ctx.current!.registerPersistFlush(async () => { log.push('flush'); });
+    ctx.current!.notifyProjectEdited('pA');
 
     log.length = 0;
     fireEvent.click(navButton('预览'));
@@ -350,8 +351,124 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     expect(staticBtn).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '动态预览' })).toHaveAttribute('aria-pressed', 'false');
 
-    // 切到动态预览：这一屏的形态跟着走
+    // 切到动态预览（票 69）：先让加载态 / 骨架画出来，再挂载仿真场。
+    // 同步 setMode 会把长谱派生挤在按钮那一帧里 ⇒ 点完当帧形态不得已经翻转。
     fireEvent.click(screen.getByRole('button', { name: '动态预览' }));
-    expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video');
+    expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('static');
+    expect(screen.getByRole('button', { name: '动态预览' })).toHaveAttribute('aria-pressed', 'false');
+
+    // 等过一帧：形态才跟着走，且按钮的当选态同步
+    await waitFor(() => expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video'));
+    expect(screen.getByRole('button', { name: '动态预览' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('票 70 复验整改：未编辑从他页切回预览时不重读、不 flush、不弹更新遮罩', async () => {
+    const log: string[] = [];
+    const { ctx } = await mountShell(tracedBackend(seed(), log), { projectId: 'pA', chartId: 'c-a1' });
+    ctx.current!.registerPersistFlush(async () => { log.push('flush'); });
+
+    log.length = 0;
+    fireEvent.click(navButton('预览'));
+    await waitFor(() => expect(scopeTrigger()).toHaveTextContent('Alpha'));
+    expect(log).toEqual(['list', 'get:pA']);
+
+    fireEvent.click(navButton('设置'));
+    log.length = 0;
+    fireEvent.click(navButton('预览'));
+    await act(async () => {});
+
+    expect(log).toEqual([]);
+    expect(document.querySelector('.preview-stage__paint-pending')).toBeNull();
+
+    fireEvent.click(navButton('工作台'));
+    await act(async () => {});
+    log.length = 0;
+    fireEvent.click(navButton('预览'));
+    await act(async () => {});
+
+    expect(log).toEqual([]);
+    expect(document.querySelector('.preview-stage__paint-pending')).toBeNull();
+  });
+
+  it('票 70 复验整改：动态切回静态时保持 StaticPreviewView 保活挂载，不卸载重来', async () => {
+    const populated = makeMemoryProjectBackend([
+      project('pA', 'Alpha', [
+        { ...chart('c-a1', 'Alpha 1', 3), notes: [{ type: 'BPM', beat: 0, bpm: 120 }, { type: 'Single', beat: 1, lane: 0 }] },
+        chart('c-a2', 'Alpha 2', 4),
+      ]),
+    ]);
+    await mountShell(populated, { projectId: 'pA', chartId: 'c-a1' });
+    fireEvent.click(navButton('预览'));
+    await waitFor(() => expect(document.querySelector('.spv-host')).not.toBeNull());
+    const hostBefore = document.querySelector('.spv-host');
+
+    fireEvent.click(screen.getByRole('button', { name: '动态预览' }));
+    await waitFor(() => expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video'));
+    const staticWrap = document.querySelector('.preview-stage__static');
+    expect(staticWrap).toHaveClass('is-hidden');
+    expect(staticWrap).toHaveAttribute('aria-hidden', 'true');
+    expect(document.querySelector('.spv-host')).toBe(hostBefore);
+
+    fireEvent.click(screen.getByRole('button', { name: '静态预览' }));
+    await waitFor(() => expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('static'));
+    expect(document.querySelector('.preview-stage__static')).not.toHaveClass('is-hidden');
+    expect(document.querySelector('.spv-host')).toBe(hostBefore);
+  });
+
+  it('票 69 复验整改：保活在动态形态时未编辑切回零遮罩；工作台改谱后直切回立即盖出更新遮罩', async () => {
+    const populated = makeMemoryProjectBackend([
+      project('pA', 'Alpha', [
+        { ...chart('c-a1', 'Alpha 1', 3), notes: [{ type: 'BPM', beat: 0, bpm: 120 }, { type: 'Single', beat: 1, lane: 0 }] },
+      ]),
+    ]);
+    let releaseGet!: () => void;
+    let holdGet = false;
+    const rawGet = populated.get.bind(populated);
+    const controlled: MemoryProjectBackend = {
+      ...populated,
+      get: async (id) => {
+        if (holdGet) {
+          await new Promise<void>((r) => { releaseGet = r; });
+        }
+        return rawGet(id);
+      },
+    };
+    const { ctx } = await mountShell(controlled, { projectId: 'pA', chartId: 'c-a1' });
+
+    fireEvent.click(navButton('预览'));
+    await waitFor(() => expect(scopeTrigger()).toHaveTextContent('Alpha'));
+    fireEvent.click(screen.getByRole('button', { name: '动态预览' }));
+    await waitFor(() => expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video'));
+
+    // 未编辑从工作台直切回动态预览：零遮罩
+    fireEvent.click(navButton('工作台'));
+    await act(async () => {});
+    fireEvent.click(navButton('预览'));
+    await act(async () => {});
+    expect(document.querySelector('.preview-stage__paint-pending')).toBeNull();
+
+    // 工作台改谱后再直切回动态预览：异步重读在飞期间首帧立即盖住旧画面，读回后撤下
+    fireEvent.click(navButton('工作台'));
+    await act(async () => {});
+    holdGet = true;
+    const prevRec = populated.disk.get('pA')!;
+    populated.disk.set('pA', {
+      ...prevRec,
+      charts: [{
+        ...prevRec.charts[0],
+        notes: [...prevRec.charts[0].notes, { type: 'Single', beat: 2, lane: 3 }],
+      }],
+    });
+    ctx.current!.notifyProjectEdited('pA');
+    fireEvent.click(navButton('预览'));
+
+    const overlay = document.querySelector('.preview-stage__paint-pending');
+    expect(overlay).not.toBeNull();
+    expect(overlay).toHaveTextContent('正在更新动态预览…');
+
+    await waitFor(() => expect(releaseGet).toBeTypeOf('function'));
+    holdGet = false;
+    await act(async () => { releaseGet(); });
+    await waitFor(() => expect(document.querySelector('.preview-stage__paint-pending')).toBeNull());
   });
 });

@@ -8,7 +8,7 @@
 import { memo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useUI } from '../../app/ProviderTree';
-import { patternBpmRange } from '../../chart/patterns/library';
+import { patternBpmRange } from '../../patterns/library';
 import { t } from '../../i18n';
 import BpmRange, { formatBpmRange } from './BpmRange';
 import { useCanvasCapsule } from './useCanvasCapsule';

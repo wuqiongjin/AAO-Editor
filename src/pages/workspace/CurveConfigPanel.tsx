@@ -3,7 +3,7 @@ import {
   CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES,
   type CurvePrecision, type EasingFamily, type EasingType,
 } from '../../chart/editing/Easing';
-import { SHAPE_TEMPLATES } from '../../chart/editing/ShapeTemplates';
+import { SHAPE_TEMPLATES, shapeTemplateById } from '../../chart/editing/ShapeTemplates';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { t, type MessageKey } from '../../i18n';
 import { shapeLabel } from './curveLabels';
@@ -28,6 +28,9 @@ export default function CurveConfigPanel({
   onChange: (next: CurveConfig) => void;
 }) {
   const templateActive = config.templateId != null;
+  const currentTemplate = config.templateId ? shapeTemplateById(config.templateId) : undefined;
+  // 连续模板（具备 sample 动态生成器）支持精度调节；离散固定模板（无 sample，如 zigzag）置灰
+  const precisionDisabled = currentTemplate ? !currentTemplate.sample : false;
   const curveFields: readonly CurveFieldDef[] = [
     {
       id: 'family',
@@ -73,7 +76,7 @@ export default function CurveConfigPanel({
           <select
             className="ccp__select"
             value={field.read(config)}
-            disabled={templateActive && field.id !== 'templateId'}
+            disabled={field.id === 'precision' ? precisionDisabled : (templateActive && field.id !== 'templateId')}
             onChange={(e) => onChange(field.write(config, e.target.value))}
           >
             {field.options.map((o) => (

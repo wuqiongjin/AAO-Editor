@@ -5,9 +5,9 @@ import {
   loadReadyVersionSync,
   loadUpdateSourceSync,
   patchAppStateSync,
-} from '@/electron/appState.cjs';
-import { saveDataRootSync, loadDataRootSync, normalizeDataRootPath } from '@/electron/dataRoot.cjs';
-import { saveWindowStateSync, loadWindowStateSync } from '@/electron/windowState.cjs';
+} from '@/electron/storage/appState.cjs';
+import { saveDataRootSync, loadDataRootSync, normalizeDataRootPath } from '@/electron/storage/dataRoot.cjs';
+import { saveWindowStateSync, loadWindowStateSync } from '@/electron/window/windowState.cjs';
 import { tmpDir } from '@/tests/support/fs';
 
 describe('ADR-0021 · app-state.json 下载源', () => {

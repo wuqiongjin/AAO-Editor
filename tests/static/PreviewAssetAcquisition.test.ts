@@ -2,7 +2,7 @@
 // （空态面向打包应用的使用者，`npm run assets:sync` 他跑不了）。
 // 把这条路径的三处落点钉在一起：空态文案（i18n）/ package.json 别名 / scripts README。
 import { describe, expect, it } from 'vitest';
-import { readSource, readStripped } from '@/tests/support/source';
+import { readSource, readSources, readStripped } from '@/tests/support/source';
 
 describe('仿真场素材的取件路径（release-pipeline 02）', () => {
   it('空态文案说清缺什么，且不承诺成因', () => {
@@ -41,7 +41,7 @@ describe('仿真场素材的取件路径（release-pipeline 02）', () => {
     // 这条只锁**环境前提**（源码正则，不在 file:// 下真读图）：Electron 是 loadFile 出来的 file:// 页面，
     // vite 又打相对 base —— 两者一起决定素材前缀必须跟 base（票 03）。
     // 前缀本身怎么写由 AssetsSync / SimRendererWiring 那两条锁；这里不重复断言，免得两套口径打架。
-    expect(readStripped('electron/main.cjs')).toMatch(/loadFile\(/);
+    expect(readSources(['electron/main.cjs', 'electron/window/createWindow.cjs'], true)).toMatch(/loadFile\(/);
     expect(readStripped('vite.config.ts')).toMatch(/base:\s*'\.\/'/);
   });
 });

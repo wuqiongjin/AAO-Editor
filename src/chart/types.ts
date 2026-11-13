@@ -1,3 +1,10 @@
+// H5 收口：唯一位置类型，跨 Editing/UI/FinalVirtualCanvas/ChartGeometry 全栈复用
+// 字段顺序统一为 { beat, lane }，调用点不再有 {lane, beat} / {beat, lane} / {preciseBeat, lane} 的多版本
+export interface ChartPosition {
+  beat: number;
+  lane: number;
+}
+
 export type NoteType = "Single" | "LDirectional" | "RDirectional" | "Slide" | "Long" | "BPM" | "System" | "Opaque";
 
 /** 谱面代码原始对象；一对一编辑时导出 overlay，形态变化丢弃 */
@@ -17,6 +24,8 @@ export interface SpanEasingParam {
 export interface SpanTemplateParam {
   kind: 'template';
   templateId: string;
+  precision?: import('./editing/Easing').CurvePrecision;
+  mirrored?: boolean;
 }
 
 /** 段参数 = 三来源中"有解析参数"的两形态；自由段 = 参数缺席（点集即形态） */

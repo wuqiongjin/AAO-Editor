@@ -79,6 +79,26 @@ describe('issue 153 · 往返保真', () => {
         });
     });
 
+    test('Slide connection 上的自定义键与跨类型键经 notes 再导出仍在（issue 221）', () => {
+        const code = [
+            bpm0,
+            {
+                type: 'Slide',
+                connections: [
+                    { beat: 1, lane: 2, flick: true, customProp: 'hello', width: 2 },
+                    { beat: 2, lane: 3 },
+                ],
+            },
+        ];
+        const notes = convertChartCodeToNotes(code as never);
+        const back = convertNotesToChartCode(notes);
+        const slide = back[1] as any;
+        expect(slide.connections[0]).toMatchObject({
+            beat: 1, lane: 2, flick: true, customProp: 'hello', width: 2,
+        });
+        expect(slide.connections[0].type).toBeUndefined();
+    });
+
     test('direction Other 导出仍是 Other', () => {
         const code = [
             bpm0,

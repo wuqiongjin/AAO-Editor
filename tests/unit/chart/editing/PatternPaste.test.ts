@@ -3,7 +3,7 @@
 // 全走既有 `pasteChartNotes` —— 故本文件一半在锁"带不带 BPM"，一半在锁"与剪贴板粘贴同输入同输出"。
 import { describe, expect, it } from 'vitest';
 import { clickOps, type ClickInput } from '@/src/chart/editing/ToolActionMatrix';
-import type { Pattern } from '@/src/chart/patterns/types';
+import type { Pattern } from '@/src/patterns/types';
 import type { ChartNote } from '@/src/chart/types';
 
 const single = (beat: number, lane: number): ChartNote => ({ type: 'Single', beat, lane });
@@ -170,5 +170,26 @@ describe('issue 186 · 落点规则全部沿用既有粘贴', () => {
       notes: [bpm(0, 120)], pos: null,
       pastePattern: { pattern: makePattern(), withBpm: true },
     }))).toEqual([{ t: 'setSelection', items: [] }]);
+  });
+});
+
+
+describe('issue 224 · 片段库粘贴重叠音符保真', () => {
+  it('片段库自身含重叠音符粘贴到空白处：两者均保留', () => {
+    const pattern = makePattern({
+      notes: [
+        single(2, 3),
+        { type: 'Single', beat: 2, lane: 3, flick: true },
+      ],
+    });
+    const ops = clickOps(input({
+      notes: [bpm(0, 120)],
+      pos: { beat: 8, lane: 3 },
+      pastePattern: { pattern, withBpm: false },
+    }));
+    const result = notesOnly(pastedNotes(ops));
+    expect(result).toHaveLength(2);
+    expect(result.some(n => (n as any).flick === true)).toBe(true);
+    expect(result.some(n => !(n as any).flick)).toBe(true);
   });
 });

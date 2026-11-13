@@ -15,18 +15,17 @@ import { showToast } from '../../../ui/Toast';
 import type { CommunityTransport } from '../../../community/transport';
 import { t, type MessageKey } from '../../../i18n';
 import { formatDuration } from '../projectFormat';
-import type { OfficialImportStage } from '../officialImport';
-import type { CommunityImportStage } from '../communityImport';
+import type { ImportStage } from '../chartImport';
 import { OfficialSongPanel, type OfficialSongSelection } from './OfficialSongPanel';
 import { CommunityPostPanel, type CommunityPostSelection } from './CommunityPostPanel';
 
-/** 导入阶段 → 文案键（与 OfficialImportStage 同一处：漏一个编译不过，别用模板串拼键） */
+/** 导入阶段 → 文案键（与 ImportStage 同一处：漏一个编译不过，别用模板串拼键） */
 const STAGE_KEYS = {
   audio: 'projects.official.stage.audio',
   cover: 'projects.official.stage.cover',
   chart: 'projects.official.stage.chart',
   save: 'projects.official.stage.save',
-} satisfies Record<OfficialImportStage, MessageKey>;
+} satisfies Record<ImportStage, MessageKey>;
 
 /** 社区导入的阶段键（与官方同一组阶段；chart 那句不同——取的是社区谱面） */
 const COMMUNITY_STAGE_KEYS = {
@@ -34,7 +33,7 @@ const COMMUNITY_STAGE_KEYS = {
   cover: 'projects.community.stage.cover',
   chart: 'projects.community.stage.chart',
   save: 'projects.community.stage.save',
-} satisfies Record<CommunityImportStage, MessageKey>;
+} satisfies Record<ImportStage, MessageKey>;
 
 export type NewSource = 'blank' | 'copy' | 'official' | 'community';
 
@@ -56,12 +55,12 @@ export function NewProjectDialog({
   onCopy: (projectId: string) => void;
   onImportOfficial: (
     selection: OfficialSongSelection,
-    onStage: (stage: OfficialImportStage) => void,
+    onStage: (stage: ImportStage) => void,
     signal?: AbortSignal,
   ) => Promise<OfficialImportReply>;
   onImportCommunity: (
     selection: CommunityPostSelection,
-    onStage: (stage: CommunityImportStage) => void,
+    onStage: (stage: ImportStage) => void,
     signal?: AbortSignal,
   ) => Promise<CommunityImportReply>;
   /** 注入点：测试塞假出口；不传走 IPC 出口 */
@@ -77,7 +76,7 @@ export function NewProjectDialog({
   const [official, setOfficial] = useState<OfficialSongSelection | null>(null);
   const [community, setCommunity] = useState<CommunityPostSelection | null>(null);
   // 票 45：导入中可以取消。关窗 / 取消键 abort，编排在落盘前看到 aborted 就不建工程。
-  const [stage, setStage] = useState<OfficialImportStage | null>(null);
+  const [stage, setStage] = useState<ImportStage | null>(null);
   const busy = stage !== null;
   const importAbort = useRef<AbortController | null>(null);
 

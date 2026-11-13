@@ -1,7 +1,7 @@
 // 快捷键页「索引筛选」粗桶（issue 121）。
 // 与 ADR-0002 的 category（tooltip 细分组：单键 / 复制 / …）分名、分表，禁止混用。
 import { t, type MessageKey } from '../i18n';
-import { FUNCTIONS, getDefaultConfig, type FunctionDef, type FunctionId, type ShortcutConfig } from '../chart/config/ShortcutConfig';
+import { FUNCTIONS, getDefaultConfig, type FunctionDef, type FunctionId, type ShortcutConfig } from './ShortcutConfig';
 
 export type IndexFilterId = 'all' | 'system' | 'noteTools' | 'editTools' | 'playback' | 'other';
 
@@ -38,6 +38,8 @@ const CATEGORY_TO_BUCKET: Readonly<Record<string, Exclude<IndexFilterId, 'all' |
   redo: 'editTools',
   // issue 185：收藏选区（execSavePattern）＝动作类编辑命令，与 copy / cut 同桶
   pattern: 'editTools',
+  // issue 216：节拍吸附（beatSnapNext / beatSnapPrev / beatSnapCycle）归入「编辑工具」桶
+  snap: 'editTools',
   play: 'playback',
 };
 

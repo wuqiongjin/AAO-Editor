@@ -6,7 +6,7 @@ import ChartSwitcher from './ChartSwitcher';
 import BeatSnapCapsule from './BeatSnapCapsule';
 import WorkspaceDisplayPanel from './WorkspaceDisplayPanel';
 import { useChartCodeEditor } from '../../chart/components/code-editor/ChartCodeEditorProvider';
-import { formatKey } from '../../chart/config/ShortcutConfig';
+import { formatKey } from '../../settings/ShortcutConfig';
 import { useConfig, useEditing, useUI } from '../../app/ProviderTree';
 import { t } from '../../i18n';
 import './WorkspaceTopBar.css';

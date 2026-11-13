@@ -7,8 +7,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ConfigProvider, useConfig } from '@/src/app/providers/ConfigProvider';
 import { ProviderTree } from '@/src/app/ProviderTree';
 import { EditingProvider, useEditing } from '@/src/app/providers/EditingProvider';
-import { PatternStore } from '@/src/chart/patterns/PatternStore';
-import { usePatternLibrary } from '@/src/chart/patterns/usePatternLibrary';
+import { PatternStore } from '@/src/patterns/PatternStore';
+import { usePatternLibrary } from '@/src/patterns/usePatternLibrary';
 import type { ChartNote, SelectionItem } from '@/src/chart/types';
 import { PageSlot } from '@/src/pages/PageRegistry';
 import PatternLibraryDrawer, { PatternCard } from '@/src/pages/workspace/PatternLibraryDrawer';

@@ -1,7 +1,7 @@
 // 票 07：会话 Cookie jar（主进程内存，renderer 永远拿不到）。
 // 10 接登录时会用 snapshot() / restore() 把它落到 safeStorage；这里锁 jar 自己的语义。
 import { describe, expect, it } from 'vitest';
-import { createCookieJar, parseSetCookie } from '@/electron/communityCookies.cjs';
+import { createCookieJar, parseSetCookie } from '@/electron/community/communityCookies.cjs';
 
 describe('票 07 · Set-Cookie 解析', () => {
   it('域 / 路径 / Max-Age 都认；缺 Domain 时用响应来源主机', () => {

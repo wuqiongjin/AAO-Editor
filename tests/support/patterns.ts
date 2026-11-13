@@ -1,8 +1,8 @@
 // 片段库的测试替身（issue 185）：内存后端 + 片段夹具。
 // 契约与生产同形：`load` 每次给一份深拷贝（近似 IndexedDB / 文件反序列化），
 // `saveAll` 整库覆盖（v1 单文件全量）。
-import { PatternStore, type PatternLibraryBackend } from '@/src/chart/patterns/PatternStore';
-import type { Pattern } from '@/src/chart/patterns/types';
+import { PatternStore, type PatternLibraryBackend } from '@/src/patterns/PatternStore';
+import type { Pattern } from '@/src/patterns/types';
 
 /** 一条片段夹具：默认是「一个单键、120 BPM 无变速」的最小形态 */
 export function makePattern(overrides: Partial<Pattern> = {}): Pattern {

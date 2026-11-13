@@ -12,7 +12,7 @@ import {
   type ChartProjectBackend,
 } from '@/src/project/ChartProject';
 import { createUnnamedProject } from '@/src/project/workspaceProject';
-import { MAX_DURATION_SECONDS } from '@/src/chart/config/AppSettings';
+import { MAX_DURATION_SECONDS } from '@/src/settings/AppSettings';
 import {
   audioBytesLost,
   audioDurationMismatch,

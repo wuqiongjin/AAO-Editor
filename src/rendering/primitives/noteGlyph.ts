@@ -15,13 +15,13 @@
 // 本模块**不写死任何素材坐标**：所有几何都从 `ActiveNoteIcons` 读取 → 换皮肤自动跟随。
 import type CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import type { ActiveNoteIcons, NoteSkinItemId } from '../skin/noteSkin';
-import { SLIDE_BAND_TO_NODE_RATIO } from './noteMetrics';
+import { SLIDE_BAND_TO_NODE_RATIO, DIRECTIONAL_HEIGHT_SCALE } from './noteMetrics';
 
 /** 主音符 / 方向键本体设计尺寸（与 `noteSkin.NOTE_SKIN_GEOMETRY` 同源） */
 const MAIN_W = 36;
 const MAIN_H = 21.6;
 const DIR_W = 45;
-const DIR_H_RATIO = 0.33;
+const DIR_H_RATIO = DIRECTIONAL_HEIGHT_SCALE;
 
 /**
  * 方向键视觉调参（工具栏字形专用，不影响画布/素材页；随目测验收迭代）：

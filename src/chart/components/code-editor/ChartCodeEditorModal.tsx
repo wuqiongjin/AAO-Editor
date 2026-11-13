@@ -20,7 +20,7 @@ import {
     type ValidationError, type ChartCodeNote,
 } from '../../editing/ChartConverter';
 import { buildNoteCode, applyNoteCode, noteViewCodeToJSON, coerceNoteViewCode, validateNoteViewCodeText } from '../../editing/NoteCodeOps';
-import { useEditing, usePlayback, useUI, useAudioSession } from '../../../app/ProviderTree';
+import { useEditing, usePlaybackState, useUI, useAudioSession } from '../../../app/ProviderTree';
 import { t, tPlural } from '../../../i18n';
 import { maxNoteEndSeconds, getBpmEvents } from '../../../audio/AudioTiming';
 import {
@@ -62,7 +62,7 @@ interface Props {
 
 export default function ChartCodeEditorModal({ target, readOnly, onReadonlyReject }: Props) {
     const { notes, handleNotesChange, selectedItems, chartCodeFidelity, applyChartCodeToCanvas } = useEditing();
-    const { canPlay } = usePlayback();
+    const { canPlay } = usePlaybackState();
     // issue 145 #2：谱面时长的单一真相源是 AudioSession，播放条的 duration 只是它的同步下游。
     // 读/写都走 session，否则音频页的数字与这里的判断基准会各说一套。
     const [audioSnap, session] = useAudioSession();
@@ -325,6 +325,7 @@ export default function ChartCodeEditorModal({ target, readOnly, onReadonlyRejec
                 const r = applyNoteCode(notes, target, coerced.code);
                 if (!r.ok) { rejectNoteApply(r.errors); return; }
                 handleNotesChange(r.notes);
+                showToast(t('chartCode.applyOk'), 'success'); // issue 227：与完整视图 commitApply 同款成功反馈
                 close(); // 对象视图是"点谁看谁"，回写即完成
                 return;
             }

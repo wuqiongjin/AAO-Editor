@@ -177,6 +177,15 @@ export interface BandRaster {
  * issue 138：clipCss 把位图裁到可见窗；每个 run 只扫自己的 y 区间。
  */
 export function rasterBandRuns(input: BandRasterInput): BandRaster | null {
+  const job = rasterBandRunsSteps(input);
+  for (;;) {
+    const step = job.next();
+    if (step.done) return step.value;
+  }
+}
+
+/** 同一像素算法的分步入口：每 8 行交还控制权，调用者决定何时让出主线程。 */
+export function* rasterBandRunsSteps(input: BandRasterInput): Generator<void, BandRaster | null> {
   const { runs, half, profile, rgb, sx, sy, baseAlpha, clipCss } = input;
   if (runs.length === 0 || sx <= 0 || sy <= 0 || half <= 0) return null;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -238,6 +247,7 @@ export function rasterBandRuns(input: BandRasterInput): BandRaster | null {
         data[p] = rC; data[p + 1] = gC; data[p + 2] = bC;
         data[p + 3] = Math.round(255 * (1 - (1 - data[p + 3]! / 255) * (1 - a)));
       }
+      if ((j & 7) === 7) yield;
     }
   }
   return { bxDev, byDev, bw, bh, data };

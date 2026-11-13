@@ -4,11 +4,13 @@
 //
 // 页面只调这一个入口（`runVideoExport`）；进度 / 取消 / 失败态都从回调与返回值里出，
 // 页面不做第二份编排（`tests/static/VideoExportWiring.test.ts` 锁"画面只经 drawSimFrameAt"）。
-import type { AppSettings } from '../../../chart/config/AppSettings';
+import type { AppSettings } from '../../../settings/AppSettings';
 import { getBpmEvents, buildKeyEvents } from '../../../audio/AudioTiming';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
+import { prepareSimNoteSprites } from '../sim/prepareSimNoteSprites';
 import { saveBinaryAs } from '../../static/saveBinary';
+import { yieldToMainThread } from '../../static/exportPanels';
 import { buildSimChart, loadSimAssets, type SimFrameInput, type SimPlaybackAudio, type SimScene } from '../sim';
 import {
   OPENING_SECONDS,
@@ -26,7 +28,7 @@ import {
   probeContainer,
   type ContainerSupport,
 } from './muxer';
-import { decodeBgmBytes, renderAudioTrack } from './renderAudioTrack';
+import { AUDIO_TRACK_CANCELLED, decodeBgmBytes, raceCancellation, renderAudioTrack } from './renderAudioTrack';
 import { logger } from '../../../diagnostics/logger';
 import {
   AAC_AUDIO_CODECS,
@@ -109,10 +111,11 @@ export interface OpeningInput {
 }
 
 /**
- * 失败档：`'assets'` = 仿真场素材没就绪（用户有得照做）；`'unknown'` = 其余（原始错误只进 console）。
+ * 失败档：`'assets'` = 仿真场素材没就绪（用户有得照做）；`'save'` = 落盘 / 写盘失败（用户可换位置
+ * / 查权限 / 查空间重试，票 62）；`'unknown'` = 其余（原始错误只进 console）。
  * 域层只回档位、不产出用户可见文字 —— 文案由 UI 走 i18n（域不引 i18n，也不漏中文进英文界面）。
  */
-export type VideoExportFailure = 'assets' | 'unknown';
+export type VideoExportFailure = 'assets' | 'save' | 'unknown';
 
 export interface VideoExportOutcome {
   ok: boolean;
@@ -233,7 +236,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
       bandSpSrc: noteIcons.slideBandSp.src,
       packs: { field: req.scene.fieldPackId, background: req.scene.bgPackId },
     }),
-    CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs()).catch(() => undefined),
+    prepareSimNoteSprites(noteIcons).catch(() => undefined),
   ]);
   if (assets.missing) {
     return done({ ok: false, failure: 'assets' });
@@ -255,21 +258,34 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   if (!target.support.ok) {
     return done({ ok: false, unsupported: true, container: target.container });
   }
+  if (cancelled()) return done({ ok: true, cancelled: true });
 
   // ---------------- 离线音轨 ----------------
   req.onProgress?.({ phase: 'audio', frame: 0, totalFrames: timeline.frameCount });
-  const chart = buildSimChart(req.scene, noteIcons);
-  const keyEvents = buildKeyEvents(req.scene.notes, req.scene.beatDisplay, getBpmEvents(req.scene.notes));
+  // 先让「正在合成声音…」画出来（票 67）：派生谱面是同步长活，不让出的话
+  // 点取消的输入事件要排到它结束才被派发，取消就落到了下一个阶段。
+  await yieldToMainThread();
+  if (cancelled()) return done({ ok: true, cancelled: true });
+  // 票 69：BPM 事件只从谱面提取一次，画面派生与键音事件表共用
+  const bpmEvents = getBpmEvents(req.scene.notes);
+  const chart = buildSimChart(req.scene, noteIcons, bpmEvents);
+  const keyEvents = buildKeyEvents(req.scene.notes, req.scene.beatDisplay, bpmEvents);
+  if (cancelled()) return done({ ok: true, cancelled: true });
   let bgm: AudioBuffer | null = null;
   if (req.audio && !req.muted) {
     try {
-      bgm = await decodeBgmBytes(await req.audio.blob.arrayBuffer());
+      const bytes = await req.audio.blob.arrayBuffer();
+      // 解码在浏览器内部线程，没有 abort：取消命中就别再等它（票 67 验收①带 BGM 中长谱）
+      const decoded = await raceCancellation(decodeBgmBytes(bytes), cancelled);
+      if (decoded === AUDIO_TRACK_CANCELLED) return done({ ok: true, cancelled: true });
+      bgm = decoded;
     } catch {
       // 解码失败 = 按无 BGM 导（键音还在），不整票失败（与实时回放"解码失败按无音频"同口径）
       bgm = null;
     }
   }
-  const track = await renderAudioTrack({
+  if (cancelled()) return done({ ok: true, cancelled: true });
+  const rendered = await renderAudioTrack({
     durationSeconds: req.durationSeconds,
     openingSeconds,
     keyEvents,
@@ -278,8 +294,10 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     volume: req.volume,
     seVolume: req.seVolume,
     muted: req.muted,
+    isCancelled: req.isCancelled,
   });
-  if (cancelled()) return done({ ok: true, cancelled: true });
+  if (rendered === AUDIO_TRACK_CANCELLED || cancelled()) return done({ ok: true, cancelled: true });
+  const track = rendered;
 
   // ---------------- 编码 + 逐帧出帧 ----------------
   const sink = await createVideoSink({
@@ -294,6 +312,10 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     // 取消要能穿透背压与切音轨（chart-preview 33：那两处都可能停住）
     isCancelled: req.isCancelled,
   });
+  if (cancelled()) {
+    sink.abort();
+    return done({ ok: true, cancelled: true, container: target.container });
+  }
 
   try {
     const frame: Omit<SimFrameInput, 'metrics'> = {
@@ -342,20 +364,28 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     req.onProgress?.({ phase: 'muxing', frame: timeline.frameCount, totalFrames: timeline.frameCount });
     const bytes = await sink.finish();
     const spec = CONTAINER_SPECS[target.container];
-    const saved = await saveBinaryAs({
-      bytes,
-      suggestedName: videoExportBasename(req.suggestedBaseName, spec.extension),
-      mime: spec.mime,
-    });
-    // 系统保存对话框里取消 = 用户取消（不是失败）
-    return done({
-      ok: true,
-      cancelled: saved.cancelled,
-      bytes: saved.cancelled ? 0 : bytes.byteLength,
-      container: target.container,
-      videoCodec: target.support.videoCodec,
-      audioCodec: track ? target.audioCodec : null,
-    });
+    // 落盘单独成段：文件名在统一入口已清洗（票 62），写盘失败自己一档，
+    // 不再混进编码段的 unknown —— UI 据此给得出「换位置 / 查权限 / 查空间」的可照做文案。
+    try {
+      const saved = await saveBinaryAs({
+        bytes,
+        suggestedName: videoExportBasename(req.suggestedBaseName, spec.extension),
+        mime: spec.mime,
+      });
+      // 系统保存对话框里取消 = 用户取消（不是失败）
+      return done({
+        ok: true,
+        cancelled: saved.cancelled,
+        bytes: saved.cancelled ? 0 : bytes.byteLength,
+        container: target.container,
+        videoCodec: target.support.videoCodec,
+        audioCodec: track ? target.audioCodec : null,
+      });
+    } catch (err) {
+      // finish() 已产出字节并收尾 sink（内部已 abort），这里不必再 abort
+      logger.error('[preview]', '保存视频文件失败', err);
+      return done({ ok: false, failure: 'save', container: target.container });
+    }
   } catch (err) {
     sink.abort();
     // 取消也会从这里出来（sink 在等背压时点取消 → 抛错），那是取消不是失败

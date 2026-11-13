@@ -20,7 +20,7 @@ import PreviewDisplayPanel from '@/src/pages/preview/PreviewDisplayPanel';
 import { normalizeNoteSkinSelection, noteSkinPresetLabel } from '@/src/rendering/skin/noteSkin';
 import { listSimBackgroundPacks, listSimFieldPacks, simPackDisplayName } from '@/src/preview/video/sim/simAssetPacks';
 import { setActiveUiLanguage } from '@/src/i18n';
-import { DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/chart/config/AppSettings';
+import { DEFAULT_PREVIEW_SETTINGS, defaultSettings } from '@/src/settings/AppSettings';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 // issue 49：显示名走取件侧 skinName 契约字段（五服原样 [jp,en,tw,cn,kr]）。本机真快照

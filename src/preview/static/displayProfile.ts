@@ -5,8 +5,8 @@
 // 面板里画的就是编辑器那套渲染 —— 这里只是把"编辑器装饰"关掉/开回，**不新开第二份绘制**。
 // 新增项一律优先用现有 display 字段表达；确需新开关时才在 `RenderDisplayOptions` 加字段
 // （本域先后加了 gridDetail / gutterLabels / boundLines / timeMarks，都带"缺省 = 编辑器现状"的语义）。
-import type { PreviewSettings } from '../../chart/config/AppSettings';
-import { DEFAULT_PREVIEW_SETTINGS } from '../../chart/config/AppSettings';
+import type { PreviewSettings } from '../../settings/AppSettings';
+import { DEFAULT_PREVIEW_SETTINGS } from '../../settings/AppSettings';
 import type { RenderDisplayOptions } from '../../rendering';
 
 /**

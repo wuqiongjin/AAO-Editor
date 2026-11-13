@@ -2,7 +2,10 @@
 // （preload 暴露 → main 弹系统保存对话框 + 写字节），浏览器降级 `Blob` + `<a download>`
 // （照 `src/project/exportChartCode.ts` 先例）。本票建、07（视频导出）复用。
 //
-// 桥的接口**在本模块自己声明**（本仓惯例：用到桥的模块各自 inline cast，没有集中 d.ts）。
+// 桥的形状由 `src/app/electronBridge.ts` 唯一声明，取桥一律经 `getElectronAPI()`。
+import { getElectronAPI, type PreviewSaveBridge } from '../../app/electronBridge';
+
+export type { PreviewSaveBridge } from '../../app/electronBridge';
 
 export interface SaveBinaryRequest {
   bytes: Uint8Array;
@@ -12,15 +15,9 @@ export interface SaveBinaryRequest {
   mime: string;
 }
 
-export interface PreviewSaveBridge {
-  saveBinary(payload: SaveBinaryRequest): Promise<{ cancelled: boolean }>;
-}
-
 /** 有桥（Electron）就走桥，否则 null（浏览器降级下载） */
 export function getPreviewSaveBridge(): PreviewSaveBridge | null {
-  if (typeof window === 'undefined') return null;
-  const api = (window as unknown as { electronAPI?: { preview?: PreviewSaveBridge } }).electronAPI;
-  return api?.preview ?? null;
+  return getElectronAPI()?.preview ?? null;
 }
 
 /** 浏览器降级：Blob + `<a download>`（不记目录、不问路径） */

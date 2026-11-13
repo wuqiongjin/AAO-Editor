@@ -33,6 +33,9 @@ page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 
 await page.goto(url, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(1200);
+// 云环境首启有「在线版说明」弹层（桌面版没有）：不关掉会挡住首个按钮
+const notice = page.getByRole('button', { name: '我已知晓' });
+if (await notice.count()) await notice.first().click();
 
 await page.getByRole('button', { name: '创建第一个工程' }).first().click();
 await page.getByLabel('工程名称').fill('带体材质验收');

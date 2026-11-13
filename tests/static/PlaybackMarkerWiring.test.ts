@@ -97,7 +97,7 @@ describe('标记点体系文案一致性（issue 201 锁测）', () => {
   });
 
   it('快捷键注册表映射到最新文案键', () => {
-    const shortcutConfig = read('src/chart/config/ShortcutConfig.ts');
+    const shortcutConfig = read('src/settings/ShortcutConfig.ts');
     expect(shortcutConfig).toMatch(/id:\s*'jumpToMarker',\s*label:\s*'shortcut\.fn\.jumpToMarker'/);
   });
 });

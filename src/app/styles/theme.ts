@@ -1,16 +1,14 @@
 // 主题应用（ADR-0003 §5）：把 settings.theme（light/dark/system）解析为
 // document 上的 data-theme（light/dark），并监听系统偏好变化。
 import { useEffect } from 'react';
-import type { AppSettings } from '../../chart/config/AppSettings';
+import type { AppSettings } from '../../settings/AppSettings';
+import { getElectronAPI } from '../electronBridge';
 
 function syncElectronWindowChrome(theme: AppSettings['theme']): void {
-  const sync = (
-    window as unknown as {
-      electronAPI?: { windowChrome?: { sync: (payload: { theme: AppSettings['theme'] }) => void } };
-    }
-  ).electronAPI?.windowChrome?.sync;
+  const sync = getElectronAPI()?.windowChrome?.sync;
   sync?.({ theme });
 }
+
 
 export function resolveTheme(theme: AppSettings['theme']): 'light' | 'dark' {
   if (theme === 'system') {
@@ -18,6 +16,7 @@ export function resolveTheme(theme: AppSettings['theme']): 'light' | 'dark' {
   }
   return theme;
 }
+
 
 /** 将配置主题落到 <html data-theme>，供 tokens.css 选择亮/暗覆盖。 */
 export function useApplyTheme(theme: AppSettings['theme']): void {

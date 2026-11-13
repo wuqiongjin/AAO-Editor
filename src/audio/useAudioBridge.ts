@@ -12,7 +12,7 @@
 // Editor 侧只需改：把"engine 单独持有"改为"取 session.getEngine() 引用"；
 // 把"setCtxDuration 当 setter"改为"session.setChartDuration() + 写回 PlaybackContext"——
 // 让 session 与 PlaybackContext 在 Editor 处单向同步（chartDuration 由 session 决定，PlaybackContext
-// 仍承载 currentSeconds/isPlaying/canPlay/volume 播放编排状态）。
+// 仍承载 currentSeconds/isPlaying/canPlay 播放编排状态；主音量票 60 起改走 settings.audio.volume，不在此）。
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import type { AudioSession } from './AudioSession';
 

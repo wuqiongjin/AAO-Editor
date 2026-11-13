@@ -13,10 +13,11 @@
 //   - 结点：只接受 type:"Single" → 写回该 connection 的 beat/lane/flick/skill/hidden
 //   - 子段（issue 93）：恰好 1 条合法 Slide → 段 connections 整体替换回宿主滑条（段代码/整条双重校验）
 //   - 非法一律报错 + 不回写，不静默修正、不静默忽略
-import type { ChartNote, ConnectionNote, SelectionItem } from '../types';
+import type { ChartNote, ConnectionNote, SelectionItem, SlideNote } from '../types';
 import { t } from '../../i18n';
 import { isSlide } from './SelectionEditing';
 import { slideSpans, regionIdentity } from './SlideSegments';
+import { countVisibleNodes, pruneSpanParam } from './SpanCurve';
 import {
     convertNotesToChartCode, convertChartCodeToNotes, validateChartCode, hasBeat0BpmNote, parseCodeRaw,
     type ChartCodeNote, type ChartCodeSingle, type ValidationError,
@@ -77,7 +78,10 @@ export function buildNoteCode(notes: readonly ChartNote[], target: NoteCodeTarge
         if (conn.hidden) projection.hidden = true;
         if (conn.flick) projection.flick = true;
         if (conn.skill) projection.skill = true;
-        return [projection];
+        if (conn.charge) projection.charge = true;
+        // issue 221：滑条结点携带的 source 自定义属性/跨类型属性叠入初值
+        const full = conn.source ? { ...conn.source, ...projection } : projection;
+        return [full as ChartCodeNote];
     }
 
     // 整条：走权威序列化（System / Opaque 各一条）
@@ -154,6 +158,9 @@ export function applyNoteCode(
         // issue 106：首/尾结点写 hidden 不再拒（外部数据按实机口径处置——画布投影掐首尾 hidden、
         // 可见 1 → 按单键显示、可见 0 → 画布无效果）。数据照原样回写，不做静默修正。
         // 只写 beat/lane/flick/skill/hidden；subBeat 代码侧无从表达，保留原值（不静默改位置）
+        // issue 221：结点投影已知字段外的一切自定义属性 / 跨类型属性保留进 source（且剥除 type）。
+        const KNOWN_NODE_PROJECTION = ['beat', 'lane', 'type', 'hidden', 'flick', 'skill', 'charge'];
+        const extraKeys = Object.keys(c).filter(k => !KNOWN_NODE_PROJECTION.includes(k));
         const next: ConnectionNote = {
             ...conn,
             beat: c.beat,
@@ -161,6 +168,18 @@ export function applyNoteCode(
             hidden: c.hidden,
             flick: c.flick,
             skill: c.skill,
+            charge: c.charge,
+        };
+        if (!c.hidden) delete next.hidden;
+        if (!c.flick) delete next.flick;
+        if (!c.skill) delete next.skill;
+        if (!c.charge) delete next.charge;
+        if (extraKeys.length > 0) {
+            const srcObj: Record<string, unknown> = { ...c };
+            delete srcObj.type;
+            next.source = srcObj;
+        } else {
+            delete next.source;
         };
         const connections = note.connections.map((x, i) => (i === target.connIndex ? next : x));
         return { ok: true, notes: notes.map((n, i) => (i === target.noteIndex ? { ...note, connections } : n)) };
@@ -185,6 +204,10 @@ export function applyNoteCode(
     const [converted] = convertChartCodeToNotes(code);
     if (!converted) {
         return fail({ noteIndex: target.noteIndex, reason: t('noteCode.convertFail') });
+    }
+    // issue 221：subBeat 代码侧无从表达：若 beat 与原音符一致且原音符有 subBeat，保留原值（同结点口径）
+    if ('subBeat' in note && note.subBeat && 'beat' in converted && converted.beat === (note as { beat: number }).beat) {
+        (converted as { subBeat?: number }).subBeat = note.subBeat;
     }
     const newNotes = notes.map((n, i) => (i === target.noteIndex ? converted : n));
     // ADR-0001 保底：单音符编辑也不得把谱面拖进"无初始 BPM"的非法态（原本就没有则不追究）
@@ -237,10 +260,28 @@ function applySegmentCode(
     }
     const origSeg = note.connections.slice(start, end + 1);
     const merged: ConnectionNote[] = segCode.connections.map((c, i) => ({ ...c, subBeat: origSeg[i]?.subBeat }));
-    const newNote: ChartNote = {
+    const newConns = [...note.connections.slice(0, start), ...merged, ...note.connections.slice(end + 1)];
+    const newNote: SlideNote = {
         ...note,
-        connections: [...note.connections.slice(0, start), ...merged, ...note.connections.slice(end + 1)],
+        connections: newConns,
     };
+    if (note.spanParams) {
+        // issue 225 / ADR-0009 §1：子段代码若增删可见结点，整条滑条拓扑重排，全部参数失效
+        if (countVisibleNodes(merged) !== countVisibleNodes(origSeg)) {
+            delete newNote.spanParams;
+        } else {
+            const spans = slideSpans(note.connections);
+            const ordinal = spans.findIndex(s => s.start === start && s.end === end);
+            if (ordinal >= 0) {
+                const pruned = pruneSpanParam(note, ordinal);
+                if (pruned) {
+                    newNote.spanParams = pruned;
+                } else {
+                    delete newNote.spanParams;
+                }
+            }
+        }
+    }
     // 替换后的整条滑条仍须通过校验（issue 106 起可见结点不足 / 首尾 hidden 不再拦；issue 103：片段口径）
     const wholeCheck = validateChartCode(convertNotesToChartCode([newNote]), { fragment: true });
     if (wholeCheck.errors.length > 0) return { ok: false, errors: liftErrors(wholeCheck.errors, target.noteIndex) };

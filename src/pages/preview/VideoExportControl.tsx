@@ -162,6 +162,8 @@ export interface VideoExportControlProps {
   onCancel: () => void;
   /** null = 空闲（进度卡不出现） */
   progress: VideoExportProgress | null;
+  /** 已点取消、域层还在收尾（票 67）：卡片立刻换文案并锁住取消钮 */
+  cancelling?: boolean;
   /** 结果文案（失败 / 编码器不可用 / 已取消） */
   notice: VideoExportNotice | null;
   /** 清除结果文案 */
@@ -181,6 +183,7 @@ export default function VideoExportControl({
   onStart,
   onCancel,
   progress,
+  cancelling = false,
   notice,
   onDismissNotice,
   support = null,
@@ -402,7 +405,9 @@ export default function VideoExportControl({
       {/* 进度卡（非模态）：贴视口右下角，不带 scrim —— 导出期间页面其余部分照样能点 */}
       {busy && progress && createPortal(
         <div className="pvex__card" role="status" aria-live="polite">
-          <span className="pvex__card-text">{phaseText(progress)}</span>
+          <span className="pvex__card-text">
+            {cancelling ? t('preview.video.export.cancelling') : phaseText(progress)}
+          </span>
           {progress.phase === 'frames' && progress.totalFrames > 0 && (
             <progress
               className="pvex__card-bar"
@@ -411,7 +416,12 @@ export default function VideoExportControl({
               aria-label={t('preview.video.export.title')}
             />
           )}
-          <button type="button" className="action-btn pvex__card-cancel" onClick={onCancel}>
+          <button
+            type="button"
+            className="action-btn pvex__card-cancel"
+            onClick={onCancel}
+            disabled={cancelling}
+          >
             {t('preview.video.export.cancel')}
           </button>
         </div>,

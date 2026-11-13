@@ -29,9 +29,9 @@ describe('谱面代码弹窗 · 谱面时长走 session', () => {
     expect(src).toMatch(/session\.setChartDuration\s*\(/);
   });
 
-  it('弹窗不再从 usePlayback 取 setDuration（否则又是一条绕过 session 的通路）', () => {
-    const m = src.match(/const\s*\{[^}]*\}\s*=\s*usePlayback\(\)/);
-    expect(m, '弹窗应消费 usePlayback').toBeTruthy();
+  it('弹窗不再从播放状态取 setDuration（否则又是一条绕过 session 的通路）', () => {
+    const m = src.match(/const\s*\{[^}]*\}\s*=\s*usePlaybackState\(\)/);
+    expect(m, '弹窗应消费 usePlaybackState').toBeTruthy();
     expect(m![0]).not.toMatch(/\bsetDuration\b/);
   });
 });

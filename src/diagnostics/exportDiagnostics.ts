@@ -1,4 +1,5 @@
 import type { ChartProject } from '../project/ChartProject';
+import { getElectronAPI, type DiagnosticsExportBridge } from '../app/electronBridge';
 import { storedFromProject } from '../project/ChartProjectRecord';
 import { logger } from './logger';
 import { sanitizeForDiagnostics } from './sanitizeDiagnosticsPayload';
@@ -11,14 +12,10 @@ export interface DiagnosticsExportPayload {
   chart?: unknown;
 }
 
-export interface DiagnosticsExportBridge {
-  export(payload: DiagnosticsExportPayload): Promise<{ cancelled: boolean }>;
-}
+export type { DiagnosticsExportBridge } from '../app/electronBridge';
 
 export function getDiagnosticsExportBridge(): DiagnosticsExportBridge | undefined {
-  if (typeof window === 'undefined') return undefined;
-  return (window as unknown as { electronAPI?: { diagnostics?: DiagnosticsExportBridge } }).electronAPI
-    ?.diagnostics;
+  return getElectronAPI()?.diagnostics;
 }
 
 /** 工程 JSON 等价物：保留谱面文档，去掉音频 / 封面字节。 */

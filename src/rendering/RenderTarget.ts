@@ -21,6 +21,8 @@ export interface RenderTargetOptions {
   surface: SurfaceSize;
   /** 画布 dpr：工作台经 `resolveCanvasDpr(display.imageQuality, devicePixelRatio)` 现算 */
   dpr: number;
+  /** 屏幕帧间隔（ms，issue 213）：由 rAF 采样注入 noteLayer */
+  frameInterval?: number;
 }
 
 export interface RenderTarget {
@@ -33,8 +35,8 @@ export interface RenderTarget {
   readonly noteLayer: NoteLayerCache;
   /** 画布 2d 上下文（懒解析并缓存；null = 画布不可用，绘制 no-op） */
   context(): CanvasRenderingContext2D | null;
-  /** surface / dpr 变化原地更新（缓存续用或失效由各层既有 basis 决定，不重建 target） */
-  configure(next: { surface?: SurfaceSize; dpr?: number }): void;
+  /** surface / dpr / frameInterval 变化原地更新（缓存续用或失效由各层既有 basis 决定，不重建 target） */
+  configure(next: { surface?: SurfaceSize; dpr?: number; frameInterval?: number }): void;
   /** 一次调用画一帧（帧装配 + 绘制编排都在渲染域内） */
   renderFrame(view: FrameView): void;
 }
@@ -47,6 +49,9 @@ export function createRenderTarget(opts: RenderTargetOptions): RenderTarget {
   let ctx: CanvasRenderingContext2D | null = null;
   const staticLayer = createStaticLayerCache();
   const noteLayer = createNoteLayerCache();
+  if (opts.frameInterval != null) {
+    noteLayer.setFrameInterval(opts.frameInterval);
+  }
 
   const target: RenderTarget = {
     canvas,
@@ -64,6 +69,7 @@ export function createRenderTarget(opts: RenderTargetOptions): RenderTarget {
     configure(next) {
       if (next.surface) surface = next.surface;
       if (next.dpr != null) dpr = next.dpr;
+      if (next.frameInterval != null) noteLayer.setFrameInterval(next.frameInterval);
     },
     renderFrame(view) {
       renderChart(target, view);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { repoRoot, readSource, stripComments } from '@/tests/support/source';
+import { repoRoot, readSource, readSources, stripComments } from '@/tests/support/source';
 
 describe('issue 04 · AAO Editor 产品品牌与元数据整改锁测', () => {
   const root = repoRoot;
@@ -38,11 +38,11 @@ describe('issue 04 · AAO Editor 产品品牌与元数据整改锁测', () => {
   });
 
   it('核心持久化键与数据库名称统一收敛为 aao.* 命名空间', () => {
-    const appSettingsSrc = stripComments(readSource('src/chart/config/AppSettings.ts'));
+    const appSettingsSrc = stripComments(readSource('src/settings/AppSettings.ts'));
     expect(appSettingsSrc).toContain("STORAGE_KEY = 'aao.settings.v1'");
     expect(appSettingsSrc).not.toContain("STORAGE_KEY = 'bangdream.settings.v1'");
 
-    const shortcutSrc = stripComments(readSource('src/chart/config/ShortcutConfig.ts'));
+    const shortcutSrc = stripComments(readSource('src/settings/ShortcutConfig.ts'));
     expect(shortcutSrc).toContain("STORAGE_KEY = 'aao.shortcuts.v1'");
     expect(shortcutSrc).not.toContain("STORAGE_KEY = 'bangdream.shortcuts.v1'");
 
@@ -74,7 +74,7 @@ describe('issue 04 · AAO Editor 产品品牌与元数据整改锁测', () => {
   });
 
   it('Electron 主进程设置窗口标题与多平台图标路径', () => {
-    const mainSrc = readSource('electron/main.cjs');
+    const mainSrc = readSources(['electron/main.cjs', 'electron/window/createWindow.cjs']);
     expect(mainSrc).toContain("title: 'AAO Editor'");
     expect(mainSrc).toContain('resolveAppIcon');
     expect(mainSrc).toContain('favicon.ico');

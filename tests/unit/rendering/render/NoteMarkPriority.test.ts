@@ -3,6 +3,7 @@
 // 用户定案（2026-09-22）：**只有不带 flick 的普通单键**带 `skill: true` 才变成技能键款式；
 // 滑键（flick）自身带 skill 仍是滑键。滑条端点同口径计入。
 // 中间结点不渲染标记（issue 145 #3）、端点承载标记（issue 81）—— 这两条在这里同时当回归锁。
+// issue 221：Slide/Long 首端点忽略 flick 渲染（只当普通端点或技能端点，不画滑键）。
 import { describe, it, expect } from 'vitest';
 import { slideNodeIconConfig, singleIconConfig } from '@/src/rendering/render';
 import type { RenderCtx } from '@/src/rendering/types';
@@ -47,16 +48,19 @@ describe('singleIconConfig · 单键标记优先级', () => {
 });
 
 describe('slideNodeIconConfig · 滑条结点与单键同优先级', () => {
-  it('端点同时带 flick + skill → 换滑键款（修复点：此前会被 skill 盖住）', () => {
-    expect(slideNodeIconConfig(rc, { lane: 3, flick: true, skill: true }, true, false)).toEqual({ tag: 'flick:3' });
+  it('尾端点同时带 flick + skill → 换滑键款（修复点：此前会被 skill 盖住）', () => {
     expect(slideNodeIconConfig(rc, { lane: 3, flick: true, skill: true }, false, true)).toEqual({ tag: 'flick:3' });
   });
 
-  it('端点只带 skill → 换技能键款（issue 81 回归，不放松）', () => {
+  it('首端点同时带 flick + skill → 呈现 skill 款（issue 221：首结点忽略 flick，skill 生效）', () => {
+    expect(slideNodeIconConfig(rc, { lane: 3, flick: true, skill: true }, true, false)).toEqual({ tag: 'skill:3' });
+  });
+
+  it('首端点只带 skill → 换技能键款（issue 81 回归，不放松）', () => {
     expect(slideNodeIconConfig(rc, { lane: 3, skill: true }, true, false)).toEqual({ tag: 'skill:3' });
   });
 
-  it('端点只带 flick → 换滑键款（issue 145 #3 回归，不放松）', () => {
+  it('尾端点只带 flick → 换滑键款（issue 145 #3 回归，不放松）', () => {
     expect(slideNodeIconConfig(rc, { lane: 3, flick: true }, false, true)).toEqual({ tag: 'flick:3' });
   });
 

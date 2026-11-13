@@ -52,6 +52,7 @@ export interface UseChartViewSessionOptions {
   onPlayingChange: (playing: boolean) => void;
   /** 谱面长度变更写回（无音频手动调长，经消费方写自己的真相源） */
   onChartDurationChange?: (sec: number) => void;
+  judgeLineOffsetRatio?: number;
 }
 
 /** 会话的对外面：视口四件 + 两个 DOM 直连 handler，播放面沿用协调器的（不逐字重抄一份）。 */
@@ -80,7 +81,7 @@ export interface ChartViewSession extends UsePlaybackCoordinatorReturn {
 export function useChartViewSession(opts: UseChartViewSessionOptions): ChartViewSession {
   const {
     containerRef, canvasRef, notes, chartDuration, verticalRatio, scale, engine,
-    live, active, onSecondsChange, onPlayingChange, onChartDurationChange,
+    live, active, onSecondsChange, onPlayingChange, onChartDurationChange, judgeLineOffsetRatio,
   } = opts;
 
   // === 流 1：渲染面测量（候选 2 拆出，issue 36 / 38 不变量保留） ===
@@ -88,6 +89,7 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
   // 令测量逐帧提交，使画布缓冲始终贴合容器实时宽度 —— 否则合并器在过渡后半段冻结提交，
   // 缓冲被 CSS 拉伸，轨道出现"瞬间偏宽再回弹"；同一根因也影响拖拽）。
   const surface = useSurfaceSize(containerRef, { live, active });
+  const judgeLineOffsetPx = judgeLineOffsetRatio && surface ? Math.round(judgeLineOffsetRatio * surface.h) : 0;
 
   // === 流 2：布局轴几何唯一生命周期（issue 134：画布 + 滚动模型 bind 同一引用） ===
   const { geometry, chartEndKey } = useChartSpace({
@@ -96,7 +98,7 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
 
   // === 流 3：滚动模型（候选 1 拆出；候选 2 再做生命周期封装） ===
   const { scrollModel, consumePendingReAnchor } = useScrollModel({
-    geometry, scale, chartEndKey,
+    geometry, scale, chartEndKey, judgeLineOffsetPx,
   });
 
   // === 流 4：播放协调（RAF + togglePlay/seek/jumpToMarker） ===
@@ -226,6 +228,17 @@ export function useChartViewSession(opts: UseChartViewSessionOptions): ChartView
     writeScrollTarget(target); // 与归零 / issue 75 同一条同源写入
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtualHeight, chartEndKey]);
+
+  // issue 218：判定线向上偏移调节时，画面同步跟随移动（重锚消费）
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!canvasRef.current || !container) return;
+    const maxScroll = container.scrollHeight - container.clientHeight;
+    const target = consumePendingReAnchor(maxScroll);
+    if (!target) return;
+    writeScrollTarget(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [judgeLineOffsetPx]);
 
   // 滚动条 onScroll：唯一滚动来源；播放中锁定避免双向反馈自锁（ADR-0004 §1 修订）
   const onScrollbarScroll = (e: UIEvent<HTMLDivElement>) => {

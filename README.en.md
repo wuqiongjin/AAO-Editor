@@ -62,7 +62,7 @@ A **chart project** is one song: project info, audio, cover art and multiple cha
 - **All note types**: tap / flick / skill / directional (left / right) / slide / long; BPM events and negative-BPM backflow regions are first-class.
 - **Deep slide editing & smooth curvature shaping**: add or remove nodes, split, combine endpoints, hidden nodes (SP spans), same-beat middle node movement; drag reshaping defaults to smooth Bezier curvature, with Alt for real-time triangle bow shaping.
 - **SP curve tool**: 10 easing families × 4 interpolation types with three sampling precisions; drag on empty canvas for the **freeform brush** that samples along your path in real time — bending a slide becomes drawing a curve instead of hand-placing hidden nodes.
-- **Shortcut system**: every function is bound to exactly one key ("switch / Ctrl+execute"), conflicts are rejected, and everything is rebindable.
+- **Shortcut system**: every function is bound to exactly one key ("switch / Ctrl+execute"), conflicts are rejected, and everything is rebindable. Playback keys: `,` `.` step the playback rate through the 0.25×–2× presets, `;` `'` change the volume by 0.05 — available in both the workspace and the live preview.
 - **Chart code is Bestdori-style JSON**: open the full chart code at any time to inspect or edit it; unknown fields and extension data are preserved verbatim.
 
 ![Workspace](./docs/media/readme/workspace.png)

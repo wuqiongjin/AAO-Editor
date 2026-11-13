@@ -7,7 +7,7 @@
 import type { ChartNote, SelectionItem, SlideNote, LongNote, ConnectionNote } from '../types';
 import { quantizeBeat } from '../geometry/ChartGeometry';
 import { mergeChainWithSlides } from './SlideCombination';
-import { applyPlacement, keyToolIdOf } from './NoteReplacementRules';
+import { applyPlacement, cleanReplacePosition, keyToolIdOf } from './NoteReplacementRules';
 import { slideSpans } from './SlideSegments';
 import { isCanvasHiddenConn } from './NoteEditing';
 import { bendSpan, smoothBendSpan, effectiveSpanParams, remapFreeSpanHidden, reprojectSpanParams, type SmoothPinchCursor } from './SpanCurve';
@@ -116,20 +116,6 @@ const isSlideish = (n: ChartNote): n is SlideNote | LongNote => n.type === 'Slid
 const TOTAL_LANES = 7; // 与 NoteEditing.TOTAL_LANES 一致（此处内联避免引动历史模块）
 const EPS = 1e-6;
 
-/** 从 from 朝 dir（±1）找最近的**可见**结点（issue 09 S3：hidden 不作边界；issue 202：组拖时跳过移动集合中的兄弟结点） */
-function nearestVisible(
-  conns: ConnectionNote[],
-  from: number,
-  dir: -1 | 1,
-  skipIndices?: Set<number>,
-): ConnectionNote | undefined {
-  for (let k = from + dir; k >= 0 && k < conns.length; k += dir) {
-    if (conns[k]!.hidden) continue;
-    if (skipIndices && skipIndices.has(k)) continue;
-    return conns[k];
-  }
-  return undefined;
-}
 
 /**
  * 重烘焙（拖端点 → `reprojectSpanParams`）只增删段内 **hidden** 点 → 可见结点的**序数**不变、
@@ -157,6 +143,27 @@ const posKey = (beat: number, subBeat: number, lane: number) => `${beat}|${subBe
  */
 const sumBeat = (beat: number, subBeat: number, beatDisplay: number) =>
   beat + (subBeat > 0 ? subBeat / beatDisplay : 0);
+
+/**
+ * 对受动可见结点相邻的自由段（未被参数化缓动接管的段）中的 hidden 采样点执行几何仿射拉伸。
+ */
+function remapAdjacentFreeSpans(
+  conns: ConnectionNote[],
+  prevConns: ConnectionNote[],
+  spans: ReturnType<typeof slideSpans>,
+  movedVisible: number[],
+  beatDisplay: number,
+  shouldSkipSpan?: (spanIndex: number) => boolean,
+): ConnectionNote[] {
+  let conns2 = conns;
+  for (let s = 0; s < spans.length; s++) {
+    const sp = spans[s]!;
+    const adjacent = movedVisible.some(ci => ci === sp.start || ci === sp.end);
+    if (!adjacent || shouldSkipSpan?.(s)) continue;
+    conns2 = remapFreeSpanHidden(conns2, prevConns, sp, beatDisplay);
+  }
+  return conns2;
+}
 
 /** 工作数组元素：note + 其在入参 notes 中的原下标（覆盖/接合会增删元素，靠它重映射选区） */
 interface Tagged { note: ChartNote; orig: number }
@@ -314,51 +321,89 @@ export function planDragMove(
         }
         if (!inBeat(c.beat, c.subBeat || 0)) return fail('out-of-bounds');
       }
-      if (plan.kind !== 'whole') {
-        for (const ci of plan.conns) {
-          const c = conns[ci];
-          // issue 09 S3：邻居序校验只看**可见**邻居——段内 hidden 采样点随后会被重投影/重映射
-          // 重建，不能作为被拖可见结点的移动边界（否则缓动段端点只能在一格采样内挪动）
-          // issue 202：组拖时跳过同在移动集合中的兄弟结点（组内互免，由整体边界约束）；
-          // 时序边界从严格开区间放宽为弱序单调（允许 <= / >= 同拍，同拍同轨由 step ③ 的 collision 拦截）
-          const prev = nearestVisible(conns, ci, -1, plan.conns);
-          const next = nearestVisible(conns, ci, +1, plan.conns);
-          // 结点必须保持在前后未动可见邻居之间（弱序单调保序，防逆序倒流；端点只有单侧约束）
-          const curBeat = sumBeat(c.beat, c.subBeat || 0, beatDisplay);
-          if (prev && curBeat < sumBeat(prev.beat, prev.subBeat || 0, beatDisplay) - EPS) return fail('out-of-bounds');
-          if (next && curBeat > sumBeat(next.beat, next.subBeat || 0, beatDisplay) + EPS) return fail('out-of-bounds');
-        }
-      }
-      moved.set(i, { ...n, connections: conns });
-      // issue 09 S3（ADR-0009 §4 拖端点/结点 = 移动意图，非改形）：
-      // - 邻接被拖可见结点的**缓动段**：按原参数对新端点重烘焙（参数保留）
-      // - 邻接的**自由段**：段内 hidden 相对形态保持、整体拉伸重映射
-      // 整条移动（whole） = 平移保形，无需处理。
       if (plan.kind === 'nodes') {
         const prevConns = (n as SlideNote | LongNote).connections;
         const bySpan = effectiveSpanParams(n as SlideNote | LongNote);
         const movedVisible = [...plan.conns].filter(ci => !prevConns[ci]?.hidden);
-        if (movedVisible.length > 0) {
-          let conns2 = conns;
-          const spans = slideSpans(conns2);
-          for (let s = 0; s < spans.length; s++) {
-            const sp = spans[s]!;
-            const adjacent = movedVisible.some(ci => ci === sp.start || ci === sp.end);
-            if (!adjacent || bySpan[s]) continue;
-            conns2 = remapFreeSpanHidden(conns2, prevConns, sp, beatDisplay);
-          }
-          let m: SlideNote | LongNote = { ...(moved.get(i) as SlideNote | LongNote), connections: conns2 };
-          m = reprojectSpanParams(m, beatDisplay);
-          moved.set(i, m as ChartNote);
-          // 验收反馈 #4：重烘焙增删 hidden → 被拖可见结点的下标可能整体平移。
-          // ② 的占位表按**原下标**让位（不能动 plan.conns），故下标换算单独记账：
-          // ③ 落点裁决按新数组取被拖结点，④ 选区回写换成新 connIndex。
-          if (m.connections !== conns) {
-            const map = new Map<number, number>();
-            for (const ci of plan.conns) map.set(ci, remapVisibleIndex(m.connections, conns, ci));
-            connIdxRemap.set(i, map);
+
+        // issue 220：允许跨越邻居结点。检查可见结点是否发生拓扑颠倒（跨越）：
+        const origVisIndices: number[] = [];
+        for (let k = 0; k < prevConns.length; k++) {
+          if (!isCanvasHiddenConn(prevConns[k]!)) origVisIndices.push(k);
+        }
+
+        let hasCrossing = false;
+        for (let k = 0; k < origVisIndices.length - 1; k++) {
+          const idxA = origVisIndices[k]!;
+          const idxB = origVisIndices[k + 1]!;
+          const beatA = sumBeat(conns[idxA]!.beat, conns[idxA]!.subBeat || 0, beatDisplay);
+          const beatB = sumBeat(conns[idxB]!.beat, conns[idxB]!.subBeat || 0, beatDisplay);
+          if (beatA > beatB + EPS) {
+            hasCrossing = true;
+            break;
           }
         }
+
+        if (hasCrossing) {
+          // issue 220（对齐 Bestdori）：结点发生跨越
+          // 1. 若移动的可见结点相邻曲线段，该段内的 hidden 采样点通过 remapFreeSpanHidden 做几何相对拉伸
+          let conns2 = conns;
+          if (movedVisible.length > 0) {
+            conns2 = remapAdjacentFreeSpans(conns, prevConns, slideSpans(prevConns), movedVisible, beatDisplay);
+          }
+
+          // 2. 全部结点（可见点 + hidden 采样点）完整保留，按 beat 升序统一稳定排序
+          //    跨越的可见点自然穿插到对应拍位的采样点之间或两端（完全等同于 Bestdori 分支 1、2、3）
+          const tagged = conns2.map((c, origIdx) => ({ conn: c, origIdx }));
+          tagged.sort((a, b) => {
+            const beatA = sumBeat(a.conn.beat, a.conn.subBeat || 0, beatDisplay);
+            const beatB = sumBeat(b.conn.beat, b.conn.subBeat || 0, beatDisplay);
+            const diff = beatA - beatB;
+            if (Math.abs(diff) > EPS) return diff;
+            return a.origIdx - b.origIdx; // 稳定排序：同拍保持原相对数组顺序
+          });
+
+          const finalConns: ConnectionNote[] = tagged.map(t => t.conn);
+          const map = new Map<number, number>();
+          tagged.forEach((t, newIdx) => {
+            map.set(t.origIdx, newIdx);
+          });
+          connIdxRemap.set(i, map);
+
+          const m: SlideNote | LongNote = {
+            ...(n as SlideNote | LongNote),
+            connections: finalConns,
+          };
+          // 跨越后段结构被打乱重组，原按旧序数绑定的 spanParams 清空，转为自由点集段（Free Span），所有 hidden 点 100% 保留
+          delete (m as { spanParams?: unknown }).spanParams;
+          moved.set(i, m as ChartNote);
+        } else {
+          // 未发生可见跨越：沿用既有逻辑（重烘焙缓动段 / 拉伸自由段）
+          moved.set(i, { ...n, connections: conns });
+          if (movedVisible.length > 0) {
+            const conns2 = remapAdjacentFreeSpans(
+              conns,
+              prevConns,
+              slideSpans(conns),
+              movedVisible,
+              beatDisplay,
+              s => !!bySpan[s],
+            );
+            let m: SlideNote | LongNote = { ...(moved.get(i) as SlideNote | LongNote), connections: conns2 };
+            m = reprojectSpanParams(m, beatDisplay);
+            moved.set(i, m as ChartNote);
+
+            // 验收反馈 #4：重烘焙增删 hidden → 被拖可见结点的下标可能整体平移。
+            if (m.connections !== conns) {
+              const map = new Map<number, number>();
+              for (const ci of plan.conns) map.set(ci, remapVisibleIndex(m.connections, conns, ci));
+              connIdxRemap.set(i, map);
+            }
+          }
+        }
+      } else {
+        // plan.kind === 'whole'：整条移动，平移保形
+        moved.set(i, { ...n, connections: conns });
       }
     }
   }
@@ -372,7 +417,13 @@ export function planDragMove(
   // 优化：先按**落点窗口**做一次纯数值预筛，只为窗口内的对象建表。
   // 正确性：占位键 = `beat|subBeat|lane` **精确相等**才可能命中，故真实拍位落在窗口外的
   // 对象不可能与任何落点键相等 —— 跳过它们是保守超集裁剪，不漏不误判（EPS 只放宽不收紧）。
-  const occ = new Map<string, { orig: number; isKey: boolean; endpoint: boolean }>();
+  // issue 224: occ 支持多重音符列表，确保同坐标既有重叠音符被完全清理
+  const occ = new Map<string, Array<{ orig: number; isKey: boolean; endpoint: boolean }>>();
+  const addToOcc = (key: string, entry: { orig: number; isKey: boolean; endpoint: boolean }) => {
+    const list = occ.get(key);
+    if (!list) occ.set(key, [entry]);
+    else list.push(entry);
+  };
   const inWindow = (beat: number, sub: number) => {
     const b = sumBeat(beat, sub, beatDisplay);
     return b >= winLo - EPS && b <= winHi + EPS;
@@ -382,7 +433,7 @@ export function planDragMove(
     if (isKey(n)) {
       if (plan) return; // 原位置让出
       if (!inWindow(n.beat, n.subBeat || 0)) return;
-      occ.set(posKey(n.beat, n.subBeat || 0, n.lane), { orig: i, isKey: true, endpoint: false });
+      addToOcc(posKey(n.beat, n.subBeat || 0, n.lane), { orig: i, isKey: true, endpoint: false });
     } else if (isSlideish(n)) {
       const last = n.connections.length - 1;
       // 整条都不在窗口内 → 一个键都不必建（先纯数值扫一遍，避免逐结点建键）
@@ -396,16 +447,43 @@ export function planDragMove(
         // issue 77 #8：hidden 结点不占位 —— 它不可见/不可选中/不可 hover（issue 56 A6），
         // 拖任何音符到它所在位置都应被允许（它自己也照旧留在原 connections 里）。
         if (c.hidden) return;
-        occ.set(posKey(c.beat, c.subBeat || 0, c.lane), { orig: i, isKey: false, endpoint: ci === 0 || ci === last });
+        addToOcc(posKey(c.beat, c.subBeat || 0, c.lane), { orig: i, isKey: false, endpoint: ci === 0 || ci === last });
       });
     }
   });
 
   // ③ 落点裁决：可覆盖/可接合 → 记录；不可裁决 → 回弹
-  const claimed = new Set<string>();   // 拖拽件认领的落点（互撞 = 回弹，组内不自覆盖）
+  // issue 224: claimed 记录 destKey -> origKey。若两件目标相同但初始坐标完全一致（预存重叠），豁免 collision 判定
+  const claimed = new Map<string, string>();
   const covered = new Set<number>();   // 被覆盖消耗的音符（notes 原下标）
   const joins: number[] = [];          // 需要走 §3 接合的拖拽滑条（notes 原下标）
   const joinedBy = new Set<number>();  // 已被认领的接合目标（防两件抢同一条）
+  // issue 224: 重叠音符落点或落点存在既有重叠音符/滑条时，执行完全替换与拆条
+  const cleanReplaceCoords = new Map<string, { beat: number; lane: number; subBeat: number }>();
+
+  // 预统计每个落点坐标上的拖拽项数量
+  const incomingByDest = new Map<string, number>();
+  for (const [i, plan] of plans) {
+    const nn = moved.get(i)!;
+    if (isKey(nn)) {
+      const k = posKey(nn.beat, nn.subBeat || 0, nn.lane);
+      incomingByDest.set(k, (incomingByDest.get(k) || 0) + 1);
+    } else if (isSlideish(nn)) {
+      const conns = (nn as SlideNote).connections;
+      const remap = connIdxRemap.get(i);
+      const touched = plan.kind === 'whole'
+        ? conns.map((_, ci) => ci)
+        : [...plan.conns].map(ci => remap?.get(ci) ?? ci);
+      for (const ci of touched) {
+        const c = conns[ci];
+        if (c) {
+          const k = posKey(c.beat, c.subBeat || 0, c.lane);
+          incomingByDest.set(k, (incomingByDest.get(k) || 0) + 1);
+        }
+      }
+    }
+  }
+
   // issue 76：键音符拖到滑条结点 → 交回**放置**规则（ADR-0001 §1.2）。
   // 放置规则会把拖拽件本身消耗掉（技能键/滑键加标记、方向键拆条），故与"移动"是两条不同产物路径。
   // key = 被消耗的拖拽件下标；value = 落点 + 工具 id + 目标滑条下标（同一条滑条只许一次，防规则交叠）。
@@ -415,47 +493,88 @@ export function planDragMove(
   for (const [i, plan] of plans) {
     const nn = moved.get(i)!;
     if (isKey(nn)) {
+      const origN = notes[i] as { beat: number; lane: number; subBeat?: number };
+      const origK = posKey(origN.beat, origN.subBeat || 0, origN.lane);
       const k = posKey(nn.beat, nn.subBeat || 0, nn.lane);
-      if (claimed.has(k)) return fail('collision');
-      claimed.add(k);
-      const t = occ.get(k);
-      if (!t) continue;
-      if (t.isKey) { covered.add(t.orig); continue; } // §1.1 替换：目标被拖拽件取代
+      const prevOrig = claimed.get(k);
+      if (prevOrig !== undefined && prevOrig !== origK) return fail('collision');
+      claimed.set(k, origK);
+
+      const targets = occ.get(k);
+      if (!targets || targets.length === 0) continue;
+
+      const isOverlapAtDest = (incomingByDest.get(k) || 0) > 1 || targets.length > 1;
+      if (isOverlapAtDest) {
+        cleanReplaceCoords.set(k, { beat: nn.beat, lane: nn.lane, subBeat: nn.subBeat || 0 });
+        for (const t of targets) {
+          if (t.isKey) covered.add(t.orig);
+        }
+        continue;
+      }
+
+      if (targets.every(t => t.isKey)) {
+        for (const t of targets) covered.add(t.orig);
+        continue; // §1.1 替换：目标被拖拽件取代（完全替换既有位置上的所有键音符）
+      }
+      const slideTarget = targets.find(t => !t.isKey);
+      if (!slideTarget) continue;
       // issue 76：键音符 → 滑条结点**不再一律回弹**，改由放置规则裁决（与放置同源）：
       //   skill → 首/尾端点加 skill；flick → 尾端点加 flick；方向键 → 起/中/止结点拆条。
       //   放置规则判定为"忽略"的（单键→任意结点、滑键→非尾端点等）→ 仍回弹。
       //   仅**单件**拖拽走这条路径：组内多件同时落滑条会叠多条规则，保持回弹。
       // 同一条滑条上已有另一件要走放置规则 → 回弹（两条规则会互相改变对方的目标，先不支持）
       for (const p of placements.values()) {
-        if (p.targetNote === t.orig) return fail('collision');
+        if (p.targetNote === slideTarget.orig) return fail('collision');
       }
       // 可行性交给应用阶段的 applyPlacement（ADR-0001「忽略」→ collision）；此处只报意图
       placements.set(i, {
         beat: nn.beat, lane: nn.lane, subBeat: nn.subBeat || 0,
-        targetNote: t.orig, src: nn,
+        targetNote: slideTarget.orig, src: nn,
       });
       continue;
     }
     const conns = (nn as SlideNote).connections;
     const last = conns.length - 1;
     const remap = connIdxRemap.get(i);
+    const origConns = (notes[i] as SlideNote).connections;
     const touched = plan.kind === 'whole'
       ? conns.map((_, ci) => ci)
       : [...plan.conns].map(ci => remap?.get(ci) ?? ci); // 验收反馈 #4：重烘焙后按新下标取被拖结点
     for (const ci of touched) {
       const c = conns[ci];
+      let origCi = ci;
+      if (remap) {
+        for (const [o, n] of remap) {
+          if (n === ci) { origCi = o; break; }
+        }
+      }
+      const origC = origConns[origCi] ?? origConns[ci] ?? c;
+      const origK = posKey(origC.beat, origC.subBeat || 0, origC.lane);
       const k = posKey(c.beat, c.subBeat || 0, c.lane);
-      if (claimed.has(k)) return fail('collision');
-      claimed.add(k);
-      const t = occ.get(k);
-      if (!t) continue;
-      if (t.isKey) {
-        if (ci !== 0 && ci !== last) return fail('collision'); // 仅端点覆盖键音符（§6.3 同语义）
-        covered.add(t.orig);
+      const prevOrig = claimed.get(k);
+      if (prevOrig !== undefined && prevOrig !== origK) return fail('collision');
+      claimed.set(k, origK);
+
+      const targets = occ.get(k);
+      if (!targets || targets.length === 0) continue;
+
+      const isOverlapAtDest = (incomingByDest.get(k) || 0) > 1 || targets.length > 1;
+      if (isOverlapAtDest) {
+        cleanReplaceCoords.set(k, { beat: c.beat, lane: c.lane, subBeat: c.subBeat || 0 });
+        for (const t of targets) {
+          if (t.isKey) covered.add(t.orig);
+        }
         continue;
       }
-      if (t.endpoint && (ci === 0 || ci === last) && t.orig !== i && !joinedBy.has(t.orig)) {
-        joinedBy.add(t.orig);
+
+      if (targets.every(t => t.isKey)) {
+        if (ci !== 0 && ci !== last) return fail('collision'); // 仅端点覆盖键音符（§6.3 同语义）
+        for (const t of targets) covered.add(t.orig);
+        continue;
+      }
+      const slideTarget = targets.find(t => !t.isKey);
+      if (slideTarget && slideTarget.endpoint && (ci === 0 || ci === last) && slideTarget.orig !== i && !joinedBy.has(slideTarget.orig)) {
+        joinedBy.add(slideTarget.orig);
         joins.push(i);
         continue;
       }
@@ -464,6 +583,35 @@ export function planDragMove(
   }
 
   // ④ 应用：覆盖消耗 → 端点接合（级联）→ 重映射选区 / 幽灵
+  // issue 224: 若触发了完全替换（重叠音符落点或落点存在既有多重音符/滑条），走 Clean Slate 路径
+  if (cleanReplaceCoords.size > 0) {
+    if (placements.size > 0 || joins.length > 0) return fail('collision');
+    const unmovedNotes: ChartNote[] = [];
+    notes.forEach((n, i) => {
+      if (!plans.has(i) && !covered.has(i)) unmovedNotes.push(n);
+    });
+    for (const coord of cleanReplaceCoords.values()) {
+      cleanReplacePosition(unmovedNotes, coord.beat, coord.lane, coord.subBeat);
+    }
+    const movedEntries: Array<{ orig: number; note: ChartNote }> = [];
+    for (const i of plans.keys()) {
+      movedEntries.push({ orig: i, note: moved.get(i)! });
+    }
+    const newNotes: ChartNote[] = [...unmovedNotes, ...movedEntries.map(m => m.note)];
+    const idxOf = new Map<number, number>();
+    movedEntries.forEach((m, k) => idxOf.set(m.orig, unmovedNotes.length + k));
+    const newItems = dragItems.map(it => {
+      const re = connIdxRemap.get(it.noteIndex);
+      return {
+        ...it,
+        noteIndex: idxOf.get(it.noteIndex) ?? it.noteIndex,
+        ...(re && 'connIndex' in it && re.has(it.connIndex) ? { connIndex: re.get(it.connIndex)! } : {}),
+      } as SelectionItem;
+    });
+    const ghost = [...new Set(newItems.map(it => it.noteIndex))].map(k => newNotes[k]);
+    return { ok: true, notes: newNotes, items: newItems, ghost };
+  }
+
   // issue 76：走放置规则的那条路径 —— 被放置规则吃掉的拖拽件**不落子**（从产物里移除），
   // 其余成员照常移动；幽灵仍画全部拖拽件的落点形态（覆盖/扣入也要有幽灵）。
   if (placements.size > 0) {

@@ -18,6 +18,7 @@ import { useChartCodeEditor } from '../code-editor/ChartCodeEditorProvider';
 import {
   createRenderTarget, resolveCanvasDpr, normalizeBackgroundOpacity, findItemAt, findBpmLineAt,
   displayOptionsFromSettings, warmupBandStripStyles,
+  RefreshRateEstimator, DEFAULT_FRAME_INTERVAL_MS,
   type FrameView, type RenderTarget, type ViewportState,
 } from '../../../rendering';
 import playbackMarkerSvgUrl from '../../../assets/playback-marker/flag.svg?url';
@@ -26,7 +27,7 @@ import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../../rende
 import { BPM_LABEL_GAP_PX, GUTTER_LABEL_FONT_PX, measureGutterLabelWidth, layoutBpmGutter, bpmCoincidentKey, bpmExpandedNumeralsOnCanvas, bpmLabelAnchorY } from '../../../rendering/gutterLabels';
 import { useBackgroundSkin } from '../../../rendering/skin/useBackgroundSkin';
 import { countChartNotes, countNotesUpToBeat } from '../../editing/NoteEditing';
-import { buildPatternPastePayload } from '../../patterns/paste';
+import { buildPatternPastePayload } from '../../../patterns/paste';
 import { parseBpmInput } from '../../editing/BpmInput';
 import { t } from '../../../i18n';
 import {
@@ -70,6 +71,8 @@ const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
 });
 
 interface FinalVirtualCanvasProps {
+  /** issue 218 判定线向上偏移（CSS px） */
+  judgeLineOffsetY?: number;
   // 仅留 onScrollChange（虚拟高度需经 Editor 同步给滚动条容器）；其余状态经 hooks 直读（ADR-0003 §7）
   onScrollChange?: (scrollY: number, virtualHeight: number) => void;
   /**
@@ -102,6 +105,8 @@ export interface FinalVirtualCanvasHandle {
   setScrollY: (scrollY: number) => void;
   /** issue 101：播放 RAF 启动/停止时同步打标，避免首帧仍走无预算的静止重建。 */
   setPlaybackActive?: (active: boolean) => void;
+  /** issue 213：由外部 rAF 循环或测试注入当前屏幕帧间隔（ms），驱动瓦片调度器按 60Hz/120Hz/144Hz 自适应 */
+  setFrameInterval?: (intervalMs: number) => void;
   /** 播放起点（ADR-0004 §4）：Editor 经此做回跳。**秒**（时间轴锚定，issue 152）。 */
   getMarkerSeconds?: () => number | null;
   /** Esc 快照（issue 135）：手势四旗 + 锚点；选区 / 持工具态由 Editor 填进 resolveEscapeTarget。 */
@@ -150,7 +155,12 @@ const MIN_SCALE = 0.1;
  * mousemove 位移 ≥4px 进入拖拽（指针态按下音符 = 移动幽灵，其余 = 框选）；
  * 全部点击/框选动作在 mouseup 分发——原 handleClick 删除，避免与全态框选双触发。
  */
+/** 计算判定线向上偏移折算的虚拟 px */
+const offsetVirtualY = (offsetPx: number | undefined, scale: number) =>
+    (offsetPx != null && offsetPx > 0 && scale > 0 ? offsetPx / scale : 0);
+
 const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanvasProps>(({
+    judgeLineOffsetY,
     onScrollChange,
     scrollHostRef,
     geometry,
@@ -189,13 +199,21 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         [pastePattern, notes, beatDisplay],
     );
     const { setMarker: setMarkerContext, isPlaying } = usePlaybackState();
+    const isPlayingRef = useRef(isPlaying);
+    isPlayingRef.current = isPlaying;
     // issue 59 §2/§3：「音符代码」工具点击 → 打开该音符的代码弹窗（与「谱面代码」按钮共用同一弹窗）
     const { openNoteCode } = useChartCodeEditor();
     // issue 39 功能设置·画布显示：纵向比例进 geometry（重建），其余渲染参数经 RenderCtx 注入渲染器
     const { settings } = useConfig();
     const display = settings.display;
     // 画布显示参数（issue 39 / chart-preview 03）：映射的唯一实现在 rendering/displayOptions —— 预览面板叠同一层
-    const displayOptions = useMemo(() => displayOptionsFromSettings(display), [display]);
+    const displayOptions = useMemo(() => {
+        const base = displayOptionsFromSettings(display);
+        if (judgeLineOffsetY != null) {
+            base.judgeLineOffsetY = judgeLineOffsetY;
+        }
+        return base;
+    }, [display, judgeLineOffsetY]);
     // 音符皮肤（issue 29）：六条目选择 → 归一化（缺省/非法回退默认包）→ 图标集；引用稳定，仅选择变化时重建
     const noteSkin = useMemo(() => normalizeNoteSkinSelection(settings.visual?.noteSkin), [settings.visual?.noteSkin]);
     const noteIcons = useMemo(() => buildActiveNoteIcons(noteSkin), [noteSkin]);
@@ -240,6 +258,32 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     const renderCanvasRef = useRef<() => void>(() => {});
     // 渲染目标（候选 3）：本画布的 surface / dpr / 两层离屏缓存的所有者；surface 或画质变化只 configure，不重建
     const targetRef = useRef<RenderTarget | null>(null);
+    useEffect(() => () => { targetRef.current?.noteLayer.reset(); }, []);
+    // issue 213：当前物理屏幕帧间隔（默认 16.67ms / 60Hz），由挂载期 rAF 探测与播放循环权威注入
+    const frameIntervalRef = useRef<number>(DEFAULT_FRAME_INTERVAL_MS);
+
+    // issue 213：挂载时通过 rAF 采样迅速确定屏幕物理刷新率档位（60Hz/90Hz/120Hz/144Hz/240Hz）
+    useEffect(() => {
+        let rafId: number | null = null;
+        let samplesCount = 0;
+        const estimator = new RefreshRateEstimator((classified) => {
+            frameIntervalRef.current = classified;
+            targetRef.current?.configure({ frameInterval: classified });
+        });
+
+        const measure = (time: number) => {
+            estimator.sample(time);
+            samplesCount++;
+            if (samplesCount < 8) {
+                rafId = requestAnimationFrame(measure);
+            }
+        };
+
+        rafId = requestAnimationFrame(measure);
+        return () => {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+        };
+    }, []);
     // ADR-0008 §5：BPM 就地编辑（无模态打断）。默认值 = 上一次放置所设的值（初始 120）
     const lastBpmRef = useRef(120);
     const [bpmEdit, setBpmEdit] = useState<{ beat: number; value: string } | null>(null);
@@ -604,10 +648,10 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const dpr = resolveCanvasDpr(display.imageQuality);
         let target = targetRef.current;
         if (!target || target.canvas !== canvas) {
-            target = createRenderTarget({ canvas, surface: surf, dpr });
+            target = createRenderTarget({ canvas, surface: surf, dpr, frameInterval: frameIntervalRef.current });
             targetRef.current = target;
         } else {
-            target.configure({ surface: surf, dpr });
+            target.configure({ surface: surf, dpr, frameInterval: frameIntervalRef.current });
         }
 
         const sessionSnap = session.getSnapshot();
@@ -646,7 +690,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             spriteIcon: spriteIcon.current,
             noteIcons,
             zoomGesture: performance.now() < zoomGestureUntilRef.current, // 手势期间瓦片只 blit（issue 10）
-            playing: isPlaying || playbackActiveRef.current, // issue 101：播放滚动帧套瓦片重建预算（ref 覆盖 React 首帧竞态）
+            playing: isPlayingRef.current || playbackActiveRef.current, // issue 101 / issue 232：播放滚动帧套瓦片重建预算（ref 覆盖 React 首帧竞态）
             skinVersion,
             // issue 39：画布显示参数（节奏图示大小/长压线不透明度/同时点击线）
             // issue 51/53 第二轮：轨道颜色主题 + 线形分层开关 + 文字大小系数（进静态层渲染参数）
@@ -656,7 +700,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             background,
         };
         target.renderFrame(view);
-    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, pastePayloadAt, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, displayOptions, display.imageQuality, noteIcons, background, curveDraft, curveConfig, isPlaying, bpmEdit, expandedBpmGroupKey]);
+    }, [notes, selectedItems, viewport, gestureSnap, slideBuffer, beatDisplay, armedTool, hoverPos, hoverItem, clipboard, pastePayloadAt, markerSeconds, markerHovered, skinVersion, geometry, chartEndBeat, renderTick, displayOptions, display.imageQuality, noteIcons, background, curveDraft, curveConfig, bpmEdit, expandedBpmGroupKey]);
     renderCanvasRef.current = renderCanvas;
 
     useEffect(() => {
@@ -708,17 +752,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, viewport.scale * zoomFactor));
             const effNewScale = geometry.effectiveScale(newScale);
-            // issue 144：钳住不动就别改数字 —— 否则窄画布上「想放大」会把工具栏的 100% 打成 88%
-            // （画面其实没变，只是被 fitWidth 钳住），数字掉了但什么也没发生。
+            // issue 144：钳住不动不改数字
             if (Math.abs(effNewScale - viewport.scale) < 1e-9) return;
-            // 缩放锚定判定线（issue 90）：scrollY 保持不变——底边（判定线）处的谱面位置缩放时原地不动，
-            // 与工具栏 ±/百分比缩放（只 setScale）完全同口径。不再以光标为锚：光标锚曾使 scrollY 随缩放
-            // 大幅变化（∝ 光标到判定线的距离），放大了「滚动条回写在缩放提交窗口内用陈旧值覆写」的回弹竞态
-            // （越靠上部越明显、判定线处恒为 0）。
-            setViewport(prev => ({
-                ...prev,
-                scale: effNewScale // 视图 scale 恒等于 effectiveScale（ADR-0006 Q4=A）
-            }));
+            // issue 90/218：缩放锚定判定线
+            const off = judgeLineOffsetY ?? 0;
+            const sy = off > 0 ? viewport.scrollY + off * (1 / effNewScale - 1 / viewport.scale) : viewport.scrollY;
+            setViewport(prev => ({ ...prev, scrollY: sy, scale: effNewScale }));
             // 回写工具栏缩放数字（issue 10 回归修复）：ui.scale 与 viewport.scale 保持同一生效值
             setScale(effNewScale);
             // 缩放手势窗口（issue 10）：手势中瓦片只按比例 blit；停止 250ms 后 settle 一次高清重渲
@@ -762,7 +801,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     useImperativeHandle(ref, () => ({
         setScrollY: (scrollY: number) => {
             const scaledBounds = getScaledVirtualBounds(viewport.scale);
-            const newScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / viewport.scale, scrollY));
+            const offsetVirtual = offsetVirtualY(judgeLineOffsetY, viewport.scale);
+            const newScrollY = Math.max(scaledBounds.minY + offsetVirtual, Math.min(scaledBounds.maxY - surf.h / viewport.scale + offsetVirtual, scrollY));
             scrollYRef.current = newScrollY;
             if (playbackActiveRef.current) {
                 // issue 198：播放帧同步通知手势内核实时视口，避免框选起点/落点基于陈旧 React viewport 计算出负数
@@ -772,7 +812,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
             }
             setViewport(prev => {
                 const bounds = getScaledVirtualBounds(prev.scale);
-                const clamped = Math.max(bounds.minY, Math.min(bounds.maxY - surf.h / prev.scale, scrollY));
+                const prevOffsetVirtual = offsetVirtualY(judgeLineOffsetY, prev.scale);
+                const clamped = Math.max(bounds.minY + prevOffsetVirtual, Math.min(bounds.maxY - surf.h / prev.scale + prevOffsetVirtual, scrollY));
                 return Math.abs(prev.scrollY - clamped) < 1e-9 ? prev : { ...prev, scrollY: clamped };
             });
         },
@@ -785,6 +826,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                         : { ...prev, scrollY: scrollYRef.current }
                 ));
             }
+        },
+        // issue 213：外部显式设置帧间隔（ms），驱动瓦片调度器按 60Hz/120Hz/144Hz 自适应
+        setFrameInterval: (intervalMs: number) => {
+            frameIntervalRef.current = intervalMs;
+            targetRef.current?.configure({ frameInterval: intervalMs });
         },
         // 起点标记访问（ADR-0004 §4）：Editor 经此做回跳
         getMarkerSeconds: () => markerSeconds,
@@ -935,7 +981,8 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         const es = geometry.effectiveScale(viewport.scale);
         const totalVirtualHeight = chartEndVirtualY + surf.h / es;
         const scaledBounds = getScaledVirtualBounds(viewport.scale);
-        const initialScrollY = Math.max(scaledBounds.minY, Math.min(scaledBounds.maxY - surf.h / es, totalVirtualHeight - surf.h / es));
+        const initOffsetVirtual = offsetVirtualY(judgeLineOffsetY, es);
+        const initialScrollY = Math.max(scaledBounds.minY + initOffsetVirtual, Math.min(scaledBounds.maxY - surf.h / es + initOffsetVirtual, totalVirtualHeight - surf.h / es + initOffsetVirtual));
         setViewport(prev => ({
             ...prev,
             scrollY: initialScrollY,
@@ -953,7 +1000,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
     // 值未变时返回 prev，与上方 [scale] effect 的守卫同款。
     useEffect(() => {
         const effective = geometry.effectiveScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)));
-        setViewport(prev => (Math.abs(prev.scale - effective) > 1e-9 ? { ...prev, scale: effective } : prev));
+        setViewport(prev => {
+            if (Math.abs(prev.scale - effective) <= 1e-9) return prev;
+            const off = judgeLineOffsetY ?? 0;
+            const sy = off > 0 ? prev.scrollY + off * (1 / effective - 1 / prev.scale) : prev.scrollY;
+            return { ...prev, scale: effective, scrollY: sy };
+        });
         // 候选 3-b（2026-09-10）：`ui.scale` 是"用户请求值"，被钳制时它就与生效值分家 ——
         // 工具栏数字虚高（显示 300%、画面停在 263%），且点「-」要先把虚高的那截消耗掉画面才动
         // （死行程，用户已复现）。此处把生效值回写，使两者恒等 —— `:743` 的 ctrl+滚轮路径
@@ -964,7 +1016,7 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 画布**连 1× 都装不下**（fitScale < 1，窄窗/高系统缩放）时**不回写** ——
         // 那不是用户的缩放意图，是窗口太窄；数字保持用户请求值（默认 100%），否则一打开就显示 88%。
         if (Math.abs(effective - scale) > 1e-9 && geometry.fitScale() >= 1) setScale(effective);
-    }, [scale, geometry, setScale]);
+    }, [scale, geometry, setScale, judgeLineOffsetY]);
 
     // 通知滚动变化
     useEffect(() => {
@@ -1045,8 +1097,11 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
                             backgroundColor: '#000000',
                             display: 'block',
                             userSelect: 'none',
-                            boxSizing: 'border-box', // issue 50：border 算进尺寸，避免比父级宽 2px 触发 overflow
-                            border: '1px solid #333',
+                            // issue 212：去除 border 改用 outline，避免 border-box 导致 CSS 内容盒比 surf 缩小 2px
+                            // 进而引发全局 0.998x 双线性模糊插值。outline 不挤占盒模型内容空间，严格保证 1:1 直通，
+                            // 且完全不参与布局排版，严格守住 issue 50 不变量（不超尺寸触发父级溢出或滚动条）。
+                            outline: '1px solid #333',
+                            boxSizing: 'content-box',
                             // ADR-0006 §1：canvas 缓冲 = surface × dpr（renderChart 设置）；React 不触碰缓冲属性
                             // （不在 JSX 里写 width={surf.w} 作为 HTML 属性，那会重设缓冲并触发错帧）。
                             // CSS 尺寸改为跟随 surf 本身（而非 100%）：缓冲 = surf×dpr，若 CSS 盒 = 容器实时宽（100%），

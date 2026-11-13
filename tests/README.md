@@ -23,16 +23,16 @@ tests/
 │   ├── audio/          src/audio
 │   ├── chart/
 │   │   ├── code/       谱面代码解析 / 序列化（ChartConverter 一族）
-│   │   ├── config/     AppSettings 相关（面板宽度、曲线配置、界面语言…）
 │   │   ├── editing/    编辑操作纯函数（最大的一组）
 │   │   ├── geometry/   ChartGeometry / BpmTimeline
 │   │   ├── layout/     SurfaceSizeMerger 等布局
 │   │   └── ...
 │   ├── layouts/        src/layouts 外壳几何
 │   ├── pages/          src/pages 页内纯函数（如工程网格方向键）
+│   ├── patterns/       src/patterns 片段收藏（载荷 / 后端 / 分享 / 缩略图）
 │   ├── playback/       播放条 / 滚动模型
 │   ├── project/        src/project 工程域（持久化 / 目录 / 会话 / 只读闸门…）
-│   ├── settings/       快捷键配置与索引筛选
+│   ├── settings/       src/settings 设置对象 / 快捷键配置与索引筛选
 │   ├── ui/             src/ui 通用组件
 │   └── rendering/       ← src/rendering（03 票由 visual/ 更名）
 │       ├── cache/      瓦片 / 静态层缓存
@@ -41,7 +41,7 @@ tests/
 │       └── skin/       音符皮肤与字形
 │
 ├── platform/           依赖具体平台的测试（脱离该平台即无意义）
-│   ├── electron/       electron/*.cjs 主进程纯函数 + 数据根 / 窗体状态 / IPC 桥
+│   ├── electron/       根位 main.cjs / preload.js + 子目录 .cjs 主进程纯函数 + 数据根 / 窗体状态 / IPC 桥
 │   └── browser/        浏览器专属行为（如 dpr 缩放探针）
 │
 ├── perf/               性能回归：断言"调用次数 / 重建块数"，不断言像素
@@ -74,7 +74,7 @@ tests/
 
 ```ts
 import { renderChart } from '@/src/rendering/render';
-import { loadWindowStateSync } from '@/electron/windowState.cjs';
+import { loadWindowStateSync } from '@/electron/window/windowState.cjs';
 import { repoRoot } from '@/tests/support/source';
 ```
 

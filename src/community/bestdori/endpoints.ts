@@ -8,7 +8,7 @@
  * 工程化口径参照 `scripts/lib/bestdori-http.mjs` —— 那份脚本 import 了 `node:fs` / `process`，
  * **只能作口径参照、不可复用**。
  *
- * 端点 / UA / 重试数值都住在这里，但**发请求的**是主进程网关（`electron/communityNet.cjs`）：
+ * 端点 / UA / 重试数值都住在这里，但**发请求的**是主进程网关（`electron/community/communityNet.cjs`）：
  * renderer 只把 URL 递过去，看不到 socket。主进程侧另有一份同值主机白名单（CJS 引不到 TS）。
  */
 import type { RetryPolicy } from '../rateLimit';
@@ -134,7 +134,7 @@ export function isPlatformFallbackPage(contentType: string | null): boolean {
  * 事实依据：docs/research/bestdori-community-upload.md §2（2026-09-24 写路径实测）。
  * 登录成功 = HTTP 200 + `{"result":true}` + `Set-Cookie: token=…`（Cookie 名实测为 `token`）；
  * 失败 = HTTP 200 + `{"result":false,"code":"CREDENTIALS_INVALID"}`（网关按 code 翻成 unauthorized）。
- * Cookie 的解析 / 附着 / 持久化**全在主进程**（electron/communityCookies.cjs + communitySession.cjs），
+ * Cookie 的解析 / 附着 / 持久化**全在主进程**（electron/community/communityCookies.cjs + communitySession.cjs），
  * 这里只有两个 URL —— renderer 经此走 transport，永远看不到 Cookie 的值（ADR-0011 §3 凭据红线）。
  * ------------------------------------------------------------------ */
 

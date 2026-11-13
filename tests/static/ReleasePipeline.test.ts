@@ -253,7 +253,7 @@ describe('release-pipeline 07 · 发布链路静态锁（ADR-0022）', () => {
     expect(feed).not.toContain('/-/releases/download/latest');
     expect(feed).not.toContain('${CNB_WEB}/${slug}/-/releases/latest/download');
     expect(feed).not.toMatch(/CNB_TOKEN|Bearer/);
-    const runtime = readSource('electron/cnbFeed.cjs');
+    const runtime = readSource('electron/update/cnbFeed.cjs');
     expect(runtime).toContain('?format=json');
     expect(runtime).toContain('pickLatestCnbReleaseTag');
   });

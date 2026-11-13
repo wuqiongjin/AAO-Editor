@@ -305,7 +305,8 @@ export function slideNodeIconConfig(rc: IconChoiceCtx, conn: { lane: number; fli
   // issue 147：端点同时带 flick + skill 时按**与单键同一份优先级**（flick 胜出）。
   // 此前这里 skill 在 spread 顺序上盖住 flick，与 `singleIconConfig` 相反 —— 两端点出现
   // 「技能键底图」而单键出现「滑键 + 箭头」，同一份标记在两种音符上表现不一致。
-  if (conn.flick) return { ...base, ...icons.flickFor(conn.lane) };
+  // issue 221：flick 只有尾端点（isLast）才渲染；起始端点（isFirst）与中间结点均忽略 flick（对齐实机与 Bestdori）。
+  if (isLast && conn.flick) return { ...base, ...icons.flickFor(conn.lane) };
   if (conn.skill) return { ...base, ...icons.skillFor(conn.lane) };
   return base;
 }
@@ -685,12 +686,7 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   }
   // issue 160：滑条两轮 — 先全谱段（后放置者在上），再全谱可见结点 + flick 挂件。
   // 不再一条 renderSlideBody 原子画完，否则后放滑条的段会盖住先放端点。
-  visibleNotes.forEach(({ note }) => {
-    if (note.type !== "Slide" && note.type !== "Long") return;
-    const connections = (note as SlideNote).connections;
-    if (visibleEnds(connections).first < 0) return;
-    renderSpanBands(ctx, c, rc, connections, rc.display?.slideOpacity ?? 1);
-  });
+  renderNoteBands(ctx, c, rc, visibleNotes);
   visibleNotes.forEach(({ note }) => {
     if (note.type === "Slide" || note.type === "Long") {
       renderSlideBody(ctx, c, rc, note);
@@ -750,6 +746,15 @@ export function renderNotes(ctx: CanvasRenderingContext2D, c: Coords, rc: Render
   });
 }
 
+/** 与 renderNotes 同一带体遍历；瓦片预取先收集光栅输入，完成后按原顺序绘制。 */
+export function renderNoteBands(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, visibleNotes: { note: ChartNote; index: number }[]) {
+  visibleNotes.forEach(({ note }) => {
+    if (note.type !== 'Slide' && note.type !== 'Long') return;
+    if (visibleEnds(note.connections).first < 0) return;
+    renderSpanBands(ctx, c, rc, note.connections, rc.display?.slideOpacity ?? 1);
+  });
+}
+
 /** 渲染一条滑条/长条的可见结点 + flick 挂件（段由 renderNotes 全谱先画，issue 160） */
 function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx, note: ChartNote) {
   const connections = (note as SlideNote).connections;
@@ -785,7 +790,8 @@ function renderSlideBody(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx
   if (dec) {
     connections.forEach((conn, i) => {
       // issue 145 #3：与主精灵同口径 —— 中间结点的 flick 不画箭头（只端点补）
-      if (!conn.flick || !(i === ends.first || i === ends.last)) return;
+      // issue 145 #3 / issue 221：与主精灵同口径 —— 只有尾端点才画 flick 箭头
+      if (!conn.flick || i !== ends.last) return;
       const pos = c.virtualToCanvas(c.getNoteVirtualX(conn.lane), c.getNoteVirtualY(conn.beat, conn.subBeat || 0));
       const flickCfg = icons.flickFor(conn.lane);
       rc.spriteIcon.renderDecorator(ctx, {
@@ -942,7 +948,7 @@ export function renderSpanBands(
       pts.push(c.virtualToCanvas(c.getNoteVirtualX(cn.lane), c.getNoteVirtualY(cn.beat, cn.subBeat || 0)));
     }
     if (sp.end - sp.start > 1) {
-      renderBandStrip(ctx, pts, half, band, alpha);
+      renderBandStrip(ctx, pts, half, band, alpha, rc.rasterizeBand);
     } else {
       drawBandQuad(ctx, rc, pts[0]!, pts[1]!, half, band, alpha);
     }
@@ -1082,6 +1088,7 @@ export function renderBandStrip(
   half: number,
   band: SpriteIconConfig,
   alpha?: number,
+  rasterize: NonNullable<RenderCtx['rasterizeBand']> = rasterBandRuns,
 ): boolean {
   if (typeof document === "undefined" || typeof ctx.getTransform !== "function") return false;
   const st = bandStripStyle(band);
@@ -1091,7 +1098,7 @@ export function renderBandStrip(
   // 回折（导入谱拍位倒退）切成 y 单调 run：逐行光栅天然处理自叠（同像素两臂 screen 合成 = 叠亮）
   const runs = splitBandAtFolds(pts);
   const clipCss = canvasClipCss(ctx, sx, sy, t.e, t.f);
-  const raster = rasterBandRuns({ runs, half, profile: st.profile, rgb: st.rgb, sx, sy, baseAlpha: alpha ?? 1, clipCss });
+  const raster = rasterize({ runs, half, profile: st.profile, rgb: st.rgb, sx, sy, baseAlpha: alpha ?? 1, clipCss });
   if (!raster) return false;
   const off = ensureRasterScratch(raster.bw, raster.bh);
   const octx = off.getContext("2d");
@@ -1842,9 +1849,105 @@ export function renderSimultaneousClickLines(ctx: CanvasRenderingContext2D, c: C
 }
 
 /**
- * 帧构建（候选 3「一帧只有一个构建者」的唯一装配处）：
- * target 注入它拥有的 surface/dpr，view（画什么）其余字段逐条透传 —— 不深拷贝、不支持手搓的 surface/dpr。
+ * issue 218：判定线向上偏移渲染（定案款：街机光刃 + 徽标双层标尺卡榫端饰 + 香槟金 + 过线半透）
+ * - 0% 贴底时完全隐匿（由底栏自然充当基线，零侵入）；
+ * - >0% 时绘制严格对齐 7 轨绿松石内缘的街机光刃，两侧带徽标定位卡榫；
+ * - 下方施加 50% 柔和暗化半透蒙版，为已过线音符预留可视余量。
  */
+export const JUDGE_THEME_GOLD = {
+  hex: '#ffd54f',
+  rgb: '255, 213, 79',
+  core: '#fffde7',
+};
+
+/** 绘制过线音符柔和半透蒙版（保持约 50% 辨识度，主次分明） */
+export function renderPassedNotesScrim(ctx: CanvasRenderingContext2D, rc: RenderCtx, lineY: number) {
+  const bottom = rc.surface.h;
+  if (bottom <= lineY) return;
+
+  const scrimH = bottom - lineY;
+  ctx.save();
+  const grad = ctx.createLinearGradient(0, lineY, 0, bottom);
+  grad.addColorStop(0, 'rgba(10, 12, 16, 0)');
+  grad.addColorStop(0.25, 'rgba(10, 12, 16, 0.35)');
+  grad.addColorStop(1, 'rgba(10, 12, 16, 0.55)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, lineY, rc.surface.w, scrimH);
+  ctx.restore();
+}
+
+/** 绘制判定线（街机光刃 + 徽标端饰） */
+export function renderJudgmentLine(ctx: CanvasRenderingContext2D, c: Coords, rc: RenderCtx) {
+  const offsetY = rc.display?.judgeLineOffsetY;
+  // 0% 偏移时不渲染判定线，也不渲染暗化蒙版（天然由画布底边与播放栏顶边充当基线）
+  if (offsetY == null || offsetY <= 0) return;
+
+  const es = rc.viewport.scale;
+  const lineY = Math.round(rc.surface.h - offsetY);
+
+  // 1. 过线音符半透暗化蒙版
+  renderPassedNotesScrim(ctx, rc, lineY);
+
+  // 2. 7 轨内缘边界（严格贴合绿松石边框线，0 像素外溢）
+  const { trackBgX, trackBgWidth } = c.trackGeometry(es);
+  const x1 = trackBgX;
+  const x2 = trackBgX + trackBgWidth;
+  const theme = JUDGE_THEME_GOLD;
+
+  ctx.save();
+
+  // 3. 街机光刃垂直柔光光幕
+  const beamH = Math.max(8, 12 * es);
+  const vGrad = ctx.createLinearGradient(0, lineY - beamH, 0, lineY + beamH);
+  vGrad.addColorStop(0, `rgba(${theme.rgb}, 0)`);
+  vGrad.addColorStop(0.35, `rgba(${theme.rgb}, 0.12)`);
+  vGrad.addColorStop(0.5, `rgba(${theme.rgb}, 0.36)`);
+  vGrad.addColorStop(0.65, `rgba(${theme.rgb}, 0.12)`);
+  vGrad.addColorStop(1, `rgba(${theme.rgb}, 0)`);
+  ctx.fillStyle = vGrad;
+  ctx.fillRect(x1, lineY - beamH, x2 - x1, beamH * 2);
+
+  // 4. 外层光晕横线
+  ctx.strokeStyle = `rgba(${theme.rgb}, 0.95)`;
+  ctx.lineWidth = Math.max(2, 2.4 * es);
+  ctx.beginPath();
+  ctx.moveTo(x1, lineY);
+  ctx.lineTo(x2, lineY);
+  ctx.stroke();
+
+  // 5. 内层纯白发光能量核
+  ctx.strokeStyle = theme.core;
+  ctx.lineWidth = Math.max(1, 1.2 * es);
+  ctx.beginPath();
+  ctx.moveTo(x1, lineY);
+  ctx.lineTo(x2, lineY);
+  ctx.stroke();
+
+  // 6. 左右两端「徽标」双层标尺定位卡榫
+  const sH = Math.max(5.5, 7.5 * es);
+  // 外层金辉
+  ctx.strokeStyle = theme.hex;
+  ctx.lineWidth = Math.max(2.5, 3.2 * es);
+  ctx.beginPath();
+  ctx.moveTo(x1, lineY - sH);
+  ctx.lineTo(x1, lineY + sH);
+  ctx.moveTo(x2, lineY - sH);
+  ctx.lineTo(x2, lineY + sH);
+  ctx.stroke();
+
+  // 内层高光芯
+  ctx.strokeStyle = theme.core;
+  ctx.lineWidth = Math.max(1.2, 1.6 * es);
+  ctx.beginPath();
+  ctx.moveTo(x1, lineY - sH + 1);
+  ctx.lineTo(x1, lineY + sH - 1);
+  ctx.moveTo(x2, lineY - sH + 1);
+  ctx.lineTo(x2, lineY + sH - 1);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 export function frameFor(target: RenderTarget, view: FrameView): RenderCtx {
   return { ...view, surface: target.surface, dpr: target.dpr };
 }
@@ -1892,6 +1995,10 @@ export function renderChart(target: RenderTarget, view: FrameView) {
   // 同时点击线只在 renderNotes 内画（进瓦片）。
   // 音符层走离屏瓦片缓存（issue 10）：缩放/滚动帧只 blit 瓦片
   target.noteLayer.draw(ctx, frame);
+  // #218 原型判定线渲染
+  if (frame.display?.judgeLineOffsetY != null) {
+    renderJudgmentLine(ctx, c, frame);
+  }
   // 沟槽标记（chart-preview 08）：Time 在左沟槽、Combo 数字在右沟槽；先画，BPM 数值盖在它上面
   renderTimeMarks(ctx, c, frame);
   renderComboMarks(ctx, c, frame);

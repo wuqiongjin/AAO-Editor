@@ -43,6 +43,45 @@ describe('noteEditing - mirror', () => {
     expect(out[0].lane).toBe(6);
     expect(out[1].lane).toBe(1);
   });
+
+  it('issue 225 · mirrorNote 对模板段翻转 mirrored 状态，对缓动段保持 easingType 不变', () => {
+    const slideWithTpl: ChartNote = {
+      type: 'Slide',
+      connections: [{ beat: 1, lane: 2 }, { beat: 3, lane: 2 }],
+      spanParams: {
+        visibleCount: 2,
+        bySpan: {
+          0: { kind: 'template', templateId: 'arc', precision: 16 },
+        },
+      },
+    };
+    // 第一次镜像：mirrored -> true
+    const m1 = mirrorNote(slideWithTpl) as any;
+    expect(m1.spanParams.bySpan[0]).toEqual({
+      kind: 'template', templateId: 'arc', precision: 16, mirrored: true,
+    });
+    // 第二次镜像：mirrored -> false（自反可逆）
+    const m2 = mirrorNote(m1) as any;
+    expect(m2.spanParams.bySpan[0]).toEqual({
+      kind: 'template', templateId: 'arc', precision: 16, mirrored: false,
+    });
+
+    // 缓动段：水平镜像保持原 family/type/precision，不翻转 In/Out
+    const slideWithEase: ChartNote = {
+      type: 'Slide',
+      connections: [{ beat: 0, lane: 1 }, { beat: 2, lane: 5 }],
+      spanParams: {
+        visibleCount: 2,
+        bySpan: {
+          0: { kind: 'easing', family: 'quad', type: 'in', precision: 16 },
+        },
+      },
+    };
+    const mEase = mirrorNote(slideWithEase) as any;
+    expect(mEase.spanParams.bySpan[0]).toEqual({
+      kind: 'easing', family: 'quad', type: 'in', precision: 16,
+    });
+  });
 });
 
 describe('noteEditing - paste to anchor', () => {

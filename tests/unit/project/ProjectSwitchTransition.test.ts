@@ -199,4 +199,52 @@ describe('Issue 26 · 切谱面进工作台画面残留防回潮测试', () => {
       { restoreAudio: false },
     );
   });
+
+  it('票 70 复验整改：无编辑调用 saveNow()（如工程/音频页 flushPersist）不得误报 onProjectEdited', async () => {
+    const p1 = makeProject('p1', '工程1');
+    const store = new ChartProjectStore(makeMemoryProjectBackend([p1]));
+    const onProjectEdited = vi.fn();
+
+    const { result, rerender } = renderHook(
+      (props: { notes: ChartProject['charts'][number]['notes'] }) =>
+        useChartProjectPersistence({
+          projectId: 'p1',
+          chartId: 'c-p1',
+          store,
+          notes: props.notes,
+          durationSeconds: 60,
+          audioName: null,
+          audioBlob: null,
+          onRestore: () => {},
+          onProjectEdited,
+        }),
+      { initialProps: { notes: [...p1.charts[0].notes] } },
+    );
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    // 模拟 onRestore -> resetNotes 提交新数组引用消费 justRestoredRef（内容相同）
+    rerender({ notes: [...p1.charts[0].notes] });
+    await act(async () => {});
+    expect(onProjectEdited).not.toHaveBeenCalled();
+
+    // stampChartModified 在无改动时仍会返回新对象字面量，flushPersist()->saveNow() 不得误触发编辑标记
+    await act(async () => {
+      await result.current.saveNow();
+      await result.current.saveNow();
+    });
+    expect(onProjectEdited).not.toHaveBeenCalled();
+
+    // 真正新增音符才通知一次，之后再无编辑 saveNow 仍不重复递增
+    rerender({ notes: [...p1.charts[0].notes, { type: 'Single', beat: 1, lane: 0 }] });
+    await act(async () => {});
+    expect(onProjectEdited).toHaveBeenCalledTimes(1);
+    expect(onProjectEdited).toHaveBeenCalledWith('p1');
+
+    await act(async () => {
+      await result.current.saveNow();
+    });
+    expect(onProjectEdited).toHaveBeenCalledTimes(1);
+  });
 });

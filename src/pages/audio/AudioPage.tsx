@@ -12,7 +12,7 @@ import ScopePicker from '../../ui/ScopePicker';
 import ConfirmDialog from '../../ui/ConfirmDialog';
 import { useAppNav } from '../../layouts/AppNav';
 import { useAudioSession } from '../../app/providers/AudioSessionProvider';
-import { MAX_DURATION_SECONDS, defaultSettings } from '../../chart/config/AppSettings';
+import { MAX_DURATION_SECONDS, defaultSettings } from '../../settings/AppSettings';
 import { clampChartDuration } from '../../audio/chartDuration';
 import { KEY_SOUND_SETS, type KeySoundKind } from '../../audio/KeySound';
 import { KEY_SOUND_KINDS } from '../../audio/KeySoundMeta';

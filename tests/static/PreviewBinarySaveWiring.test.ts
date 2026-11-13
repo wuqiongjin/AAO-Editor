@@ -2,10 +2,10 @@
 // 手法照 ChartCodeExportSaveAs.test.ts：读源码做字符串断言（preload / main / 渲染侧桥 / 降级分支），
 // 外加两条本票特有的口径锁：色值一律走 token、导出不读窗口。
 import { describe, expect, it } from 'vitest';
-import { readSource, readStripped } from '@/tests/support/source';
+import { readSource, readSources, readStripped } from '@/tests/support/source';
 
 const preloadSrc = readStripped('electron/preload.js');
-const mainSrc = readStripped('electron/main.cjs');
+const mainSrc = readSources(['electron/main.cjs', 'electron/assets/previewExport.cjs', 'electron/foundation/saveDialog.cjs'], true);
 const saveBinarySrc = readStripped('src/preview/static/saveBinary.ts');
 const exportSrc = readStripped('src/preview/static/exportPanels.ts');
 const viewSrc = readStripped('src/preview/static/StaticPreviewView.tsx');
@@ -43,8 +43,8 @@ describe('chart-preview 03 · 二进制另存通道（preload → main）', () =
     expect(saveBinarySrc).toMatch(/bytes:\s*Uint8Array/);
     expect(saveBinarySrc).toMatch(/suggestedName:\s*string/);
     expect(saveBinarySrc).toMatch(/mime:\s*string/);
-    // 桥的形状在本模块自己声明（本仓惯例：无集中 d.ts）
-    expect(saveBinarySrc).toMatch(/electronAPI/);
+    // 票 13：桥形状收拢到 src/app/electronBridge.ts，取桥与降级改由
+    // tests/dom/app/ElectronBridge.test.ts 的行为断言看守，不再锁消费方源码字面量。
   });
 
   it('浏览器降级：Blob + <a download>（照 exportChartCode 先例）', () => {
@@ -213,7 +213,7 @@ describe('chart-preview 14 · 导出图文版头带（封面区 + 信息区 + �
   const panelLayoutSrc = readStripped('src/preview/static/panelLayout.ts');
   const pageSrc = readStripped('src/pages/preview/PreviewPage.tsx');
   const displayPanelSrc = readStripped('src/pages/preview/PreviewDisplayPanel.tsx');
-  const appSettingsSrc = readStripped('src/chart/config/AppSettings.ts');
+  const appSettingsSrc = readStripped('src/settings/AppSettings.ts');
 
   it('头带高 440 是常量真源（= 392 封面 + 上下各 24）；改它必须同步复算宽图面积上限', () => {
     expect(sheetHeaderSrc).toMatch(/EXPORT_HEADER_H\s*=\s*440/);

@@ -85,7 +85,8 @@ describe('bestdori-integration 07 · 出口唯一', () => {
 
   it('那个实现经 preload 的网络桥出去，自己不开 socket', () => {
     const impl = readStripped(TRANSPORT_IMPL);
-    expect(impl).toMatch(/electronAPI/);
+    // 票 13：取桥与降级行为见 tests/dom/app/ElectronBridge.test.ts
+    // 与 tests/unit/community/transport.test.ts；这里只守「实现类不走 socket」。
     expect(impl).toMatch(/communityNet/);
     expect(impl).not.toMatch(/WebSocket|EventSource|sendBeacon/);
   });

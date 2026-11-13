@@ -9,9 +9,11 @@ import {
   isKnownKeySoundSetId,
   loadKeySoundSet,
   KEY_SOUND_DEFAULT_TONES,
+  type KeySoundKind,
 } from '@/src/audio/KeySound';
+import { sampleSrcFor } from '@/src/audio/keySoundSamples';
 import { KEY_SOUND_KINDS } from '@/src/audio/KeySoundMeta';
-import { loadSettings } from '@/src/chart/config/AppSettings';
+import { loadSettings } from '@/src/settings/AppSettings';
 import { settingsStorageOf as storageWith } from '@/tests/support/storage';
 
 describe('KeySound 注册表（skin00–03 普通包入库）', () => {
@@ -55,6 +57,22 @@ describe('KeySound 注册表（skin00–03 普通包入库）', () => {
       }
       // memoize：重复加载返回同一实例
       expect(await loadKeySoundSet(entry.id)).toBe(set);
+    }
+  });
+
+  // issue 231 Q9 把「同刻同一份发音」静态化为 6 类等价键；这条守约用例钉住它的前提，
+  // 将来某个素材包把 tap / slide 拆成不同文件、或让两类击打共用一份采样时必须回来改口径。
+  it.skipIf(!hasAssetSnapshot)('四包都是 tap ≡ slide 同一份采样，其余 5 类采样互不相同', async () => {
+    for (const entry of KEY_SOUND_SETS) {
+      const set = await loadKeySoundSet(entry.id);
+      const srcOf = (kind: KeySoundKind, tier?: number) => sampleSrcFor(set.samples[kind], kind, tier);
+      expect(srcOf('tap')).toBe(srcOf('slide'));
+      const distinct = [
+        srcOf('flick'), srcOf('skill'),
+        srcOf('directional', 1), srcOf('directional', 2), srcOf('directional', 3),
+      ];
+      expect(new Set(distinct).size).toBe(5);
+      expect(distinct).not.toContain(srcOf('tap'));
     }
   });
 });

@@ -8,7 +8,7 @@ import { clickOps, type MatrixOp } from '@/src/chart/editing/ToolActionMatrix';
 import {
   POINTER_TOOL_STATE, withArmedTool, withPatternPaste, withPatternPasteToggled, type ArmedToolState,
 } from '@/src/app/armedToolState';
-import type { Pattern } from '@/src/chart/patterns/types';
+import type { Pattern } from '@/src/patterns/types';
 import type { ChartNote } from '@/src/chart/types';
 
 const single = (beat: number, lane: number): ChartNote => ({ type: 'Single', beat, lane });

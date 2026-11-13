@@ -1,21 +1,34 @@
 // ConfigContext（ADR-0003 §7.3）：统一 versioned settings JSON（ADR-0003 §6）。
-// 承载：theme / layout / shortcuts / audio，按字段写回（updateSettings）。
-// Editor 只暴露 setShortcutConfig / setKeySetId 两个语义化 setter，底层 updateSettings 维护原子写。
+// 承载：theme / layout / shortcuts / audio 等设置段；React 侧只做接线，
+// 字段级写回全在 `commitSettings` 一处，整体替换（导入）走 `replaceSettings`（14 票）。
 import { createContext, useContext, useCallback, useMemo, useState, type ReactNode } from 'react';
-import { loadSettings, saveSettings, updateSettings, clampProjectListWidth, clampPatternDrawerWidth, DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE, type AppSettings } from '../../chart/config/AppSettings';
-import { getDefaultConfig, pruneShortcutMasks, type ShortcutConfig } from '../../chart/config/ShortcutConfig';
+import {
+  loadSettings, commitSettings, replaceSettings,
+  clampProjectListWidth, clampPatternDrawerWidth,
+  DEFAULT_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_FIT, DEFAULT_BACKGROUND_SCOPE,
+  type AppSettings, type SettingsPatch,
+} from '../../settings/AppSettings';
+import { getDefaultConfig, pruneShortcutMasks, type ShortcutConfig } from '../../settings/ShortcutConfig';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { setActiveUiLanguage } from '../../i18n';
 import { syncAssetCachePolicy } from '../../community/assetCachePolicy';
 import { trail } from '../../diagnostics/trail';
 
-function persistSettings(merged: AppSettings): AppSettings {
-  saveSettings(merged);
-  return merged;
-}
-
 function noteSettingsChange(keys: string[]): void {
   trail.record({ module: 'settings', action: 'change', meta: { keys } });
+}
+
+interface CommitOptions {
+  /** 轨迹里记哪些键；对象 patch 默认由顶层键派生，与旧版逐 setter 手写的键逐字一致。 */
+  keys?: string[];
+  /** 落盘后的即时副作用（目前只有缓存策略要推主进程），仍在 updater 内执行。 */
+  onCommit?: (next: AppSettings) => void;
+}
+
+/** 依赖 prev 的 patch 无法预先知道顶层键：调用方必须显式给 keys，避免静默记空轨迹。 */
+interface CommitFn {
+  (patch: SettingsPatch, options?: CommitOptions): void;
+  (patch: (prev: AppSettings) => SettingsPatch, options: CommitOptions & { keys: string[] }): void;
 }
 
 export interface ConfigContextValue {
@@ -55,6 +68,8 @@ export interface ConfigContextValue {
   setCurveConfig: (config: CurveConfig) => void;
   /** 节拍吸附档位（票 181）：写回 settings.beatSnap 并持久化（跨会话沿用上次值） */
   setBeatSnap: (beatSnap: number) => void;
+  /** 节拍吸附常用循环列表（issue 216）：写回 settings.beatSnapCycleList 并持久化 */
+  setBeatSnapCycleList: (list: number[]) => void;
   /** 片段粘贴模式（issue 186）：写回 settings.patternPaste.withBpm 并持久化（记住上次选择） */
   setPatternPasteWithBpm: (withBpm: boolean) => void;
   /** 片段库排序（issue 192）：写回 settings.patternLibrary.sort 并持久化 */
@@ -89,123 +104,96 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     return loaded;
   });
 
-  const setShortcutConfig = useCallback((next: ShortcutConfig, shortcutLast?: AppSettings['shortcutLast']) => {
+  // 14 票：一次变更的唯一编排。patch 可依赖 prev（如 shortcutLast 剪枝 / 段内浅合并），
+  // 变换 + 归一化 + 落盘由 `commitSettings` 一处完成；轨迹与即时副作用在这里统一收口。
+  const commit = useCallback<CommitFn>((patch: SettingsPatch | ((prev: AppSettings) => SettingsPatch), options: CommitOptions = {}) => {
+    // CommitFn 已保证函数式 patch 必带 keys；此处的 [] 只用于类型收窄，实际不可达。
+    const keys = options.keys ?? (typeof patch === 'function' ? [] : Object.keys(patch));
     setSettings(prev => {
-      // 记录只保留"当前仍被屏蔽"的条目（启用 / 恢复默认即刻失效）——不变量收在唯一写入口，
-      // 调用点不必各自剪，漏一处就会让旧自定义键在下次启用时复活。
-      const merged = updateSettings(prev, {
-        shortcuts: next,
-        shortcutLast: pruneShortcutMasks(shortcutLast ?? prev.shortcutLast, next),
-      });
-      return persistSettings(merged);
+      const resolved = typeof patch === 'function' ? patch(prev) : patch;
+      const next = commitSettings(prev, resolved);
+      options.onCommit?.(next);
+      return next;
     });
-    noteSettingsChange(shortcutLast ? ['shortcuts', 'shortcutLast'] : ['shortcuts']);
+    noteSettingsChange(keys);
   }, []);
+
+  const setShortcutConfig = useCallback((next: ShortcutConfig, shortcutLast?: AppSettings['shortcutLast']) => {
+    // 记录只保留"当前仍被屏蔽"的条目（启用 / 恢复默认即刻失效）——不变量收在唯一写入口，
+    // 调用点不必各自剪，漏一处就会让旧自定义键在下次启用时复活。
+    commit(prev => ({
+      shortcuts: next,
+      shortcutLast: pruneShortcutMasks(shortcutLast ?? prev.shortcutLast, next),
+    }), { keys: shortcutLast ? ['shortcuts', 'shortcutLast'] : ['shortcuts'] });
+  }, [commit]);
 
   const setKeySetId = useCallback((id: string) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { audio: { keySet: id } }));
-    });
-    noteSettingsChange(['audio']);
-  }, []);
+    commit({ audio: { keySet: id } });
+  }, [commit]);
 
   const setTheme = useCallback((theme: AppSettings['theme']) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { theme }));
-    });
-    noteSettingsChange(['theme']);
-  }, []);
+    commit({ theme });
+  }, [commit]);
 
   const setUiLanguage = useCallback((uiLanguage: AppSettings['uiLanguage']) => {
     setActiveUiLanguage(uiLanguage);
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { uiLanguage }));
-    });
-    noteSettingsChange(['uiLanguage']);
-  }, []);
+    commit({ uiLanguage });
+  }, [commit]);
 
   const setUiTypeScale = useCallback((uiTypeScale: number) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { uiTypeScale }));
-    });
-    noteSettingsChange(['uiTypeScale']);
-  }, []);
+    commit({ uiTypeScale });
+  }, [commit]);
 
   const setUiFontStack = useCallback((uiFontStack: AppSettings['uiFontStack']) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { uiFontStack }));
-    });
-    noteSettingsChange(['uiFontStack']);
-  }, []);
+    commit({ uiFontStack });
+  }, [commit]);
 
   const setAutoCheck = useCallback((autoCheck: boolean) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { autoCheck }));
-    });
-    noteSettingsChange(['autoCheck']);
-  }, []);
+    commit({ autoCheck });
+  }, [commit]);
 
   // 片段库抽屉（票 183）：只改 layout.patternDrawer（段内浅合并），不动工程列表宽度
   const setPatternDrawer = useCallback((patch: Partial<AppSettings['layout']['patternDrawer']>) => {
-    setSettings(prev => {
+    commit(prev => {
       const patternDrawer = { ...prev.layout.patternDrawer, ...patch };
-      return persistSettings(updateSettings(prev, {
+      return {
         layout: { ...prev.layout, patternDrawer: { open: patternDrawer.open, width: clampPatternDrawerWidth(patternDrawer.width) } },
-      }));
-    });
-    noteSettingsChange(['layout']);
-  }, []);
+      };
+    }, { keys: ['layout'] });
+  }, [commit]);
 
   const setDisplay = useCallback((patch: Partial<AppSettings['display']>) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { display: patch }));
-    });
-    noteSettingsChange(['display']);
-  }, []);
+    commit({ display: patch });
+  }, [commit]);
 
   // 预览标注（chart-preview 08）：与 setDisplay 同范式（段内浅合并 + 整份写盘）
   const setPreview = useCallback((patch: Partial<AppSettings['preview']>) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { preview: patch }));
-    });
-    noteSettingsChange(['preview']);
-  }, []);
+    commit({ preview: patch });
+  }, [commit]);
 
   // 导出信息字段（chart-preview 14）：与 setPreview 同范式（段内浅合并 + 整份写盘）
   const setExport = useCallback((patch: Partial<AppSettings['export']>) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { export: patch }));
-    });
-    noteSettingsChange(['export']);
-  }, []);
+    commit({ export: patch });
+  }, [commit]);
 
   const setSeVolume = useCallback((volume: number) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { audio: { seVolume: volume } }));
-    });
-    noteSettingsChange(['audio']);
-  }, []);
+    commit({ audio: { seVolume: volume } });
+  }, [commit]);
 
-  // 播放器主音量（chart-preview 20）：与 setSeVolume 同范式（段内浅合并 + 整份写盘）。
-  // 入口在动态预览的播放条；工作台那档页面内主音量不读它（两者刻意分开）
+  // 全局主音量（chart-preview 20 起、票 60 统一）：与 setSeVolume 同范式（段内浅合并 + 整份写盘）。
+  // 入口 = 动态预览 / 工作台 / 导入详情试听条三处播放条（共读写同一份，跨重启记住）
   const setAudioVolume = useCallback((volume: number) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { audio: { volume } }));
-    });
-    noteSettingsChange(['audio']);
-  }, []);
+    commit({ audio: { volume } });
+  }, [commit]);
 
   // 音符皮肤（issue 29）：与键音同范式——字段级写回、立即生效并持久化
   const setNoteSkin = useCallback((patch: Partial<AppSettings['visual']['noteSkin']>) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { visual: { noteSkin: { ...prev.visual.noteSkin, ...patch } } }));
-    });
-    noteSettingsChange(['visual']);
-  }, []);
+    commit(prev => ({ visual: { noteSkin: { ...prev.visual.noteSkin, ...patch } } }), { keys: ['visual'] });
+  }, [commit]);
 
   // 背景皮肤（issue 29 Q4 + 修订）：字段级 patch（enabled/opacity/fit/scope）写回，段内合并保留其余字段
   const setBackgroundSkin = useCallback((patch: { enabled?: boolean; opacity?: number; fit?: 'cover' | 'contain'; scope?: 'outsideTrack' | 'fullCanvas' }) => {
-    setSettings(prev => {
+    commit(prev => {
       const prevBg = prev.visual.backgroundSkin ?? { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE };
       const bg = {
         enabled: prevBg.enabled,
@@ -214,102 +202,75 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         scope: prevBg.scope,
         ...patch,
       };
-      return persistSettings(updateSettings(prev, { visual: { backgroundSkin: bg } }));
-    });
-    noteSettingsChange(['visual']);
-  }, []);
+      return { visual: { backgroundSkin: bg } };
+    }, { keys: ['visual'] });
+  }, [commit]);
 
   // 曲线工具配置（issue 114）：与皮肤/键音同范式——字段级写回、立即生效并持久化。
   // 引用必须稳定：UIProvider 的 setCurveConfig 依赖它做写透（deps 变化会让工具栏每次渲染换新回调）。
   const setCurveConfig = useCallback((config: CurveConfig) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { curve: config }));
-    });
-    noteSettingsChange(['curve']);
-  }, []);
+    commit({ curve: config });
+  }, [commit]);
 
   // 节拍吸附档位（票 181）：与曲线配置同范式；引用稳定理由同上（UIProvider 直接透传）
   const setBeatSnap = useCallback((beatSnap: number) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { beatSnap }));
-    });
-    noteSettingsChange(['beatSnap']);
-  }, []);
+    commit({ beatSnap });
+  }, [commit]);
+
+  // 节拍吸附常用循环列表（issue 216）：写回 settings.beatSnapCycleList 并持久化
+  const setBeatSnapCycleList = useCallback((list: number[]) => {
+    commit({ beatSnapCycleList: list });
+  }, [commit]);
 
   // 片段粘贴模式（issue 186）：与节拍吸附同范式——引用稳定（UIProvider 直接透传）
   const setPatternPasteWithBpm = useCallback((withBpm: boolean) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { patternPaste: { withBpm } }));
-    });
-    noteSettingsChange(['patternPaste']);
-  }, []);
+    commit({ patternPaste: { withBpm } });
+  }, [commit]);
 
   // 片段库排序（issue 192）：写回 settings.patternLibrary.sort 并持久化
   const setPatternLibrarySort = useCallback((sort: AppSettings['patternLibrary']['sort']) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { patternLibrary: { sort } }));
-    });
-    noteSettingsChange(['patternLibrary']);
-  }, []);
+    commit({ patternLibrary: { sort } });
+  }, [commit]);
 
   const setPlaybar = useCallback((patch: Partial<AppSettings['playbar']>) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { playbar: patch }));
-    });
-    noteSettingsChange(['playbar']);
-  }, []);
+    commit({ playbar: patch });
+  }, [commit]);
 
   // 启动台排序（issue 19 #4）：与皮肤/键音同范式——字段级写回、立即生效并持久化
   const setProjectSort = useCallback((sort: AppSettings['projects']['sort']) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { projects: { sort } }));
-    });
-    noteSettingsChange(['projects']);
-  }, []);
+    commit({ projects: { sort } });
+  }, [commit]);
 
   // 同步导入谱面代码（票 28）：字段级写回 settings.projects.importWithChart 并持久化
   const setImportWithChart = useCallback((importWithChart: boolean) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { projects: { importWithChart } }));
-    });
-    noteSettingsChange(['projects']);
-  }, []);
+    commit({ projects: { importWithChart } });
+  }, [commit]);
 
   // 官方选曲面板排序（票 31 验收回修）：键 + 方向一起写回 settings.projects.songSort 并持久化
   const setSongSort = useCallback((songSort: AppSettings['projects']['songSort']) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, { projects: { songSort } }));
-    });
-    noteSettingsChange(['projects']);
-  }, []);
+    commit({ projects: { songSort } });
+  }, [commit]);
 
   // 工程详情页左栏宽度（issue 23 #2）：只改 layout.projectList，不动工作台抽屉
   const setProjectListWidth = useCallback((width: number) => {
-    setSettings(prev => {
-      return persistSettings(updateSettings(prev, {
-        layout: { ...prev.layout, projectList: { width: clampProjectListWidth(width) } },
-      }));
-    });
-    noteSettingsChange(['layout']);
-  }, []);
+    commit(prev => ({
+      layout: { ...prev.layout, projectList: { width: clampProjectListWidth(width) } },
+    }), { keys: ['layout'] });
+  }, [commit]);
 
+  // 整体替换（配置导入）不走字段级归一化；落盘仍在 updater 外，与改前逐字同序。
   const setAllSettings = useCallback((next: AppSettings) => {
     setActiveUiLanguage(next.uiLanguage);
     syncAssetCachePolicy(next.cachePolicy);
-    persistSettings(next);
+    replaceSettings(next);
     setSettings(next);
     noteSettingsChange(Object.keys(next));
   }, []);
 
   // 社区素材缓存回收策略（票 18）：与上面同范式；写完顺手推给主进程（改了就生效）
   const setCachePolicy = useCallback((patch: Partial<AppSettings['cachePolicy']>) => {
-    setSettings(prev => {
-      const merged = persistSettings(updateSettings(prev, { cachePolicy: patch }));
-      syncAssetCachePolicy(merged.cachePolicy);
-      return merged;
-    });
-    noteSettingsChange(['cachePolicy']);
-  }, []);
+    commit({ cachePolicy: patch }, { onCommit: next => syncAssetCachePolicy(next.cachePolicy) });
+  }, [commit]);
 
   // 兼容旧 API 形态（保留 default shortcut config 作为回退）
   void getDefaultConfig;
@@ -333,6 +294,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setBackgroundSkin,
     setCurveConfig,
     setBeatSnap,
+    setBeatSnapCycleList,
     setPatternPasteWithBpm,
     setPatternLibrarySort,
     setPlaybar,
@@ -361,6 +323,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setBackgroundSkin,
     setCurveConfig,
     setBeatSnap,
+    setBeatSnapCycleList,
     setPatternPasteWithBpm,
     setPatternLibrarySort,
     setPlaybar,

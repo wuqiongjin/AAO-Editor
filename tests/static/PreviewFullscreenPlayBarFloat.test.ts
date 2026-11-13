@@ -63,8 +63,10 @@ describe('chart-preview 27 · 全屏播放条浮在画面上（左右黑边 = �
   it('倍速面板仍往上翻（`.pv-rate__panel` 的锚点没被浮起改坏）', () => {
     // 面板的含块是 `.pv-rate` 自己（下面那条断言），所以播放条改定位不影响它；
     // 真机实测面板底 = 触钮顶 − 8px，记在票 27 的 Answer。
-    expect(css).toMatch(/\.pv-rate\s*\{[^}]*position:\s*relative/);
-    expect(css).toMatch(/\.pv-rate__panel\s*\{[^}]*bottom:\s*calc\(100% \+ 8px\)/);
+    // chart-preview 58：`pv-rate` 一族样式随控件搬到 src/playback/PlaybackRate.css（两处播放条共用）。
+    const rateCss = readStripped('src/playback/PlaybackRate.css');
+    expect(rateCss).toMatch(/\.pv-rate\s*\{[^}]*position:\s*relative/);
+    expect(rateCss).toMatch(/\.pv-rate__panel\s*\{[^}]*bottom:\s*calc\(100% \+ 8px\)/);
     // 播放条自己不许再声明一次 position（`absolute` 与 `relative` 双写在同一个块里是死声明）
     const declarations = bodyOf('.preview-stage:fullscreen .play-bar--preview').match(/position:/g) ?? [];
     expect(declarations).toHaveLength(1);

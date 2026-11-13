@@ -14,9 +14,13 @@ import type { AudioEngine } from '../audio/AudioEngine';
 import type { PlaybackScrollModel } from './PlaybackScrollModel';
 import { clampChartDuration } from '../audio/chartDuration';
 import type { FinalVirtualCanvasHandle } from '../chart/components/canvas/FinalVirtualCanvas';
+import { RefreshRateEstimator } from '../rendering';
 
 /** 播放 HUD（时间码 / 进度条 / 画布叠加）写入 React 的周期。约 12.5Hz，票面 10–15Hz。 */
 export const PLAYBACK_HUD_PERIOD_MS = 80;
+
+/** 播放态 DOM 滚动条 scrollTop 同步周期（ms，issue 213）：约 30fps，削减高刷下 75% 的 DOM 重排与合成器颠簸 */
+export const DOM_SCROLL_SYNC_PERIOD_MS = 33;
 
 export interface UsePlaybackCoordinatorOptions {
   /** 引擎单例（Editor 持有） */
@@ -58,6 +62,7 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
   const playbackRafRef = useRef<number | undefined>(undefined);
   const isPlayingRef = useRef(false);
   const lastHudAtRef = useRef(0);
+  const lastScrollSyncAtRef = useRef(0);
   // ctxDuration 走 ref：RAF 循环不依赖 React state 重新创建
   const durationRef = useRef(ctxDuration);
   durationRef.current = ctxDuration;
@@ -66,15 +71,29 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     isPlayingRef.current = false;
     setIsPlayingState(false);
     scrollModel?.setPlaying(false);
-    canvasRef.current?.setPlaybackActive?.(false);
     if (playbackRafRef.current !== undefined) {
       cancelAnimationFrame(playbackRafRef.current);
       playbackRafRef.current = undefined;
     }
     engine?.pause();
-    if (engine) setCurrentSeconds(engine.getSeconds());
+    if (engine) {
+      const sec = Math.min(engine.getSeconds(), durationRef.current);
+      setCurrentSeconds(sec);
+      // issue 213 / 214: 停止播放时 DOM scrollTop 与画布 scrollY 立即 100% 同步吸附，杜绝位置残留与回弹（保持 issue 75 / 134 不变量）
+      const container = scrollContainerRef.current as HTMLDivElement | null;
+      const canvas = canvasRef.current;
+      if (scrollModel) {
+        const maxScroll = container ? container.scrollHeight - container.clientHeight : 0;
+        const { scrollY, scrollTop } = scrollModel.scrollTargetForSeconds(sec, maxScroll);
+        canvas?.setScrollY(scrollY);
+        if (container && (scrollTop === 0 || Math.abs(scrollTop - container.scrollTop) > 0.5)) {
+          container.scrollTop = scrollTop;
+        }
+      }
+    }
+    canvasRef.current?.setPlaybackActive?.(false);
     setIsPlaying(false);
-  }, [engine, scrollModel, setIsPlaying, setCurrentSeconds, canvasRef]);
+  }, [engine, scrollModel, setIsPlaying, setCurrentSeconds, canvasRef, scrollContainerRef]);
 
   const startPlaybackLoop = useCallback(() => {
     if (playbackRafRef.current !== undefined) cancelAnimationFrame(playbackRafRef.current);
@@ -83,8 +102,14 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
     scrollModel?.setPlaying(true);
     canvasRef.current?.setPlaybackActive?.(true);
     lastHudAtRef.current = 0;
-    const loop = () => {
+    lastScrollSyncAtRef.current = 0;
+    const estimator = new RefreshRateEstimator((classified) => {
+      canvasRef.current?.setFrameInterval?.(classified);
+    });
+    const loop = (timestamp: DOMHighResTimeStamp) => {
       if (!isPlayingRef.current) return;
+      // issue 213：播放循环采样物理 rAF 回调时间戳，经滑动窗口中位数滤波识别 60Hz/120Hz/144Hz 并动态注入
+      estimator.sample(timestamp);
       const e = engine;
       const canvas = canvasRef.current;
       const model = scrollModel;
@@ -96,7 +121,6 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
         setCurrentSeconds(current);
       }
       if (current >= durationRef.current) {
-        setCurrentSeconds(current);
         stopPlayback();
         return;
       }
@@ -104,7 +128,9 @@ export function usePlaybackCoordinator(opts: UsePlaybackCoordinatorOptions): Use
       const maxScroll = container ? container.scrollHeight - container.clientHeight : 0;
       const { scrollY, scrollTop } = model.scrollTargetForSeconds(current, maxScroll);
       canvas.setScrollY(scrollY);
-      if (container && Math.abs(scrollTop - container.scrollTop) > 0.5) {
+      // issue 213：DOM scrollTop 降频至约 30fps (~33ms) 同步，消除 120Hz 下高频重排与合成器颠簸
+      if (container && now - lastScrollSyncAtRef.current >= DOM_SCROLL_SYNC_PERIOD_MS && Math.abs(scrollTop - container.scrollTop) > 0.5) {
+        lastScrollSyncAtRef.current = now;
         container.scrollTop = scrollTop;
       }
       e.tick();

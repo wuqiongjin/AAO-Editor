@@ -62,7 +62,7 @@ export function normalizeCurveConfig(raw: unknown): CurveConfig {
 /** 配置 → 段参数（模板优先；S4 起放置/重应用/预览三路共用，保证"所见即所得"） */
 export const spanParamFromCurveConfig = (config: CurveConfig): SpanParam =>
   config.templateId
-    ? { kind: 'template', templateId: config.templateId }
+    ? { kind: 'template', templateId: config.templateId, precision: config.precision }
     : { kind: 'easing', family: config.family, type: config.type, precision: config.precision };
 
 /** 曲线工具链式草稿：可见锚点序列 + 各段参数 + 首段落地后的滑条下标（完整性检查用） */

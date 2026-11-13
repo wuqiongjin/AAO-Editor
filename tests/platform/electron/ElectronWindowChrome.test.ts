@@ -6,11 +6,11 @@ import {
   chromeBackgroundFor,
   normalizeAppTheme,
   resolvedAppearance,
-} from '@/electron/windowChrome.cjs';
-import { stripComments, readSource } from '@/tests/support/source';
+} from '@/electron/window/windowChrome.cjs';
+import { stripComments, readSource, readSources } from '@/tests/support/source';
 
 
-const mainSrc = stripComments(readSource('electron/main.cjs'));
+const mainSrc = readSources(['electron/main.cjs', 'electron/window/windowChrome.cjs', 'electron/window/createWindow.cjs'], true);
 const preloadSrc = stripComments(readSource('electron/preload.js'));
 const themeSrc = stripComments(readSource('src/app/styles/theme.ts'));
 
@@ -54,5 +54,12 @@ describe('issue 126 · 主进程 / preload / 渲染侧接线', () => {
     expect(themeSrc).toMatch(/syncElectronWindowChrome/);
     expect(themeSrc).toMatch(/windowChrome/);
     expect(themeSrc).toMatch(/dataset\.theme\s*=\s*resolveTheme/);
+  });
+
+  it('issue 215 · Windows 平台禁用 DirectComposition 与原生遮挡节流，避免 Alt+Tab 切换时 DWM 硬件图层竞争导致丢帧', () => {
+    expect(mainSrc).toMatch(/disable-direct-composition/);
+    expect(mainSrc).toMatch(/CalculateNativeWinOcclusion/);
+    expect(mainSrc).toMatch(/disable-backgrounding-occluded-windows/);
+    expect(mainSrc).toMatch(/backgroundThrottling:\s*false/);
   });
 });

@@ -14,7 +14,7 @@ import { act, fireEvent, render, renderHook, screen } from '@testing-library/rea
 import { t } from '@/src/i18n';
 import VideoExportControl from '@/src/pages/preview/VideoExportControl';
 import { useVideoExport, type UseVideoExportArgs } from '@/src/pages/preview/useVideoExport';
-import type { VideoExportOutcome, VideoExportSupport } from '@/src/preview';
+import type { VideoExportOutcome, VideoExportRequest, VideoExportSupport } from '@/src/preview';
 import type { VideoExportSpec } from '@/src/pages/preview/useVideoExport';
 
 const outcome = (patch: Partial<VideoExportOutcome>): VideoExportOutcome => ({
@@ -105,6 +105,57 @@ describe('导出进度卡 · 按帧数走 + 可取消', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
     // 导出期间入口本身不可点（防重复起票）
     expect(screen.getByRole('button', { name: t('preview.video.export') })).toBeDisabled();
+  });
+
+  it('票 67 · 点了取消当帧就给「正在取消…」，取消钮不再响应第二次', () => {
+    const onCancel = vi.fn();
+    render(
+      <VideoExportControl
+        spec={spec}
+        onSpecChange={() => undefined}
+        onStart={() => undefined}
+        onCancel={onCancel}
+        progress={{ phase: 'audio', frame: 0, totalFrames: 1800 }}
+        cancelling
+        notice={null}
+      />,
+    );
+    expect(screen.getByText(t('preview.video.export.cancelling'))).toBeInTheDocument();
+    expect(screen.queryByText(t('preview.video.export.phase.audio'))).not.toBeInTheDocument();
+    const cancelBtn = screen.getByRole('button', { name: t('preview.video.export.cancel') });
+    expect(cancelBtn).toBeDisabled();
+    fireEvent.click(cancelBtn);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('票 67 · 从进度卡点「取消」：hook 与卡片联动，当帧换成「正在取消…」', async () => {
+    let finish: ((o: VideoExportOutcome) => void) | undefined;
+    const run = vi.fn(() => new Promise<VideoExportOutcome>((resolve) => { finish = resolve; }));
+    function Harness() {
+      const ctrl = useVideoExport(args, run);
+      return (
+        <VideoExportControl
+          spec={spec}
+          onSpecChange={() => undefined}
+          onStart={() => { void ctrl.start(); }}
+          onCancel={ctrl.cancel}
+          progress={ctrl.progress}
+          cancelling={ctrl.cancelling}
+          notice={ctrl.notice}
+        />
+      );
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: t('preview.video.export.open') }));
+    fireEvent.click(screen.getByRole('button', { name: t('preview.video.export.start') }));
+    // start() 先让出一帧画「导出中」才进域层
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(screen.getByText(t('preview.video.export.phase.assets'))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: t('preview.video.export.cancel') }));
+    expect(screen.getByText(t('preview.video.export.cancelling'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t('preview.video.export.cancel') })).toBeDisabled();
+    await act(async () => { finish?.(outcome({ ok: true, cancelled: true })); });
+    expect(screen.getByText(t('preview.video.export.cancelled'))).toBeInTheDocument();
   });
 
   it('非模态：进度卡不带 scrim（长谱导出不得阻塞页面交互）', () => {
@@ -418,6 +469,17 @@ describe('失败态 · 明确文案，不静默', () => {
     expect(result.current.notice?.tone).toBe('danger');
   });
 
+  it('票 62 · 写盘失败单独成档：给一句可照做的保存失败文案（不是通用「导出失败」）', async () => {
+    const run = vi.fn(async () => outcome({ ok: false, failure: 'save' }));
+    const { result } = renderHook(() => useVideoExport(args, run));
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.notice?.text).toBe(t('preview.video.export.failedSave'));
+    expect(result.current.notice?.text).not.toBe(t('preview.video.export.failed'));
+    expect(result.current.notice?.tone).toBe('danger');
+  });
+
   it('取消是"已取消"，不是失败（两种结局文案不同）', async () => {
     const run = vi.fn(async () => outcome({ ok: true, cancelled: true }));
     const { result } = renderHook(() => useVideoExport(args, run));
@@ -426,6 +488,30 @@ describe('失败态 · 明确文案，不静默', () => {
     });
     expect(result.current.notice?.text).toBe(t('preview.video.export.cancelled'));
     expect(result.current.notice?.tone).toBe('warn');
+  });
+
+  it('票 67 · 取消当帧置 cancelling，并把信号透传到域层的 isCancelled', async () => {
+    let captured: VideoExportRequest | undefined;
+    let finish: ((o: VideoExportOutcome) => void) | undefined;
+    const run = vi.fn((req: VideoExportRequest) => {
+      captured = req;
+      return new Promise<VideoExportOutcome>((resolve) => { finish = resolve; });
+    });
+    const { result } = renderHook(() => useVideoExport(args, run));
+    let startPromise: Promise<VideoExportOutcome | undefined> = Promise.resolve(undefined);
+    act(() => { startPromise = result.current.start(); });
+    // start() 先让出一帧画「导出中」才进域层 ⇒ 等它真正接上再点取消
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(captured?.isCancelled?.()).toBe(false);
+    act(() => { result.current.cancel(); });
+    expect(result.current.cancelling).toBe(true);
+    expect(captured?.isCancelled?.()).toBe(true);
+    expect(result.current.progress).not.toBeNull();
+    act(() => { finish?.(outcome({ ok: true, cancelled: true })); });
+    await act(async () => { await startPromise; });
+    expect(result.current.cancelling).toBe(false);
+    expect(result.current.progress).toBeNull();
+    expect(result.current.notice?.text).toBe(t('preview.video.export.cancelled'));
   });
 
   it('成功不留文案（成功走 toast，不再占一张卡）', async () => {

@@ -67,7 +67,14 @@ describe('issue 38 复验 · persist flush 注册不得被导航提交清空', (
   });
 
   it('hook 的 saveNow 是稳定 useCallback（句柄 churn 是注册竞态的根因）', () => {
-    expect(hookSrc).toMatch(/const saveNow = useCallback\(\(\): Promise<void> => \{[\s\S]*?\}, \[buildProject, ensureMerger\]\)/);
+    expect(hookSrc).toMatch(/const saveNow = useCallback\(\(\): Promise<void> => \{[\s\S]*?\}, \[buildAndNotifyIfEdited, ensureMerger\]\)/);
+  });
+
+  it('票 70 · 编辑代次通知链路同样稳定：buildAndNotifyIfEdited 只依赖 buildProject，回调注入走 ref', () => {
+    expect(hookSrc).toMatch(/const buildAndNotifyIfEdited = useCallback\(\(\): ChartProject \| null => \{[\s\S]*?\}, \[buildProject\]\)/);
+    expect(hookSrc).toMatch(/const onProjectEditedRef = useRef\(opts\.onProjectEdited\)/);
+    expect(hookSrc).toMatch(/onProjectEditedRef\.current = opts\.onProjectEdited/);
+    expect(hookSrc).toMatch(/onProjectEditedRef\.current\?\.\(/);
   });
 
   it('hook 返回值经 useMemo 求稳（调用方以它为 useCallback 依赖，新对象会传导 churn）', () => {

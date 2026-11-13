@@ -8,7 +8,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readSource, readStripped, repoRoot } from '@/tests/support/source';
+import { readSource, readSources, readStripped, repoRoot } from '@/tests/support/source';
 
 const ENCODE_DIR = 'src/preview/video/encode';
 
@@ -33,13 +33,20 @@ const page = readStripped('src/pages/preview/PreviewPage.tsx');
 const control = readStripped('src/pages/preview/VideoExportControl.tsx');
 const engine = readStripped('src/audio/AudioEngine.ts');
 const keySamples = readStripped('src/audio/keySoundSamples.ts');
-const main = readStripped('electron/main.cjs');
+const main = readSources(['electron/main.cjs', 'electron/assets/previewExport.cjs'], true);
 const pkg = readSource('package.json');
 
 describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）', () => {
   // 30 起开场段占掉时间轴最前面那段 ⇒ 谱面秒 = 视频秒 − 开场长度（关掉开场时减 0）
   it('frameDriver 逐帧调 drawSimFrameAt（05 的同一份任意秒出帧）', () => {
     expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - \(req\.openingSeconds \?\? 0\)\)/);
+  });
+
+  it('66 · 导出固定 100% 光栅：离线逐帧显式给比例，覆盖实时 50% 默认值', () => {
+    // 票 66 补修：导出离线无实时时钟，成片要最锐；实时侧省略该字段固定 50%
+    expect(frameDriver).toMatch(/const input: SimFrameInput = \{[^}]*bandRasterScale: 1/);
+    // 显式比例只改输入，不改唯一出帧入口（上面的精确字符串断言继续绿）
+    expect(frameDriver).not.toMatch(/drawSimFrameAt\(ctx, \{/);
   });
 
   it('开场段的画面不进 drawSimFrameAt（③ / ④ 走场地的分层绘制）', () => {
@@ -65,7 +72,7 @@ describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）
   });
 
   it('编排层用 05 的谱面派生表（buildSimChart），不自己把谱面折成元素', () => {
-    expect(exportVideo).toMatch(/buildSimChart\(req\.scene, noteIcons\)/);
+    expect(exportVideo).toMatch(/buildSimChart\(req\.scene, noteIcons, bpmEvents\)/);
     expect(exportVideo).not.toMatch(/type: 'Single'/);
   });
 
@@ -77,7 +84,10 @@ describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）
 
 describe('07 · 离线音轨不另立音量 / 调度口径', () => {
   it('事件表由编排层用 AudioTiming.buildKeyEvents 建（与引擎 setChart 同源）', () => {
-    expect(exportVideo).toMatch(/buildKeyEvents\(req\.scene\.notes, req\.scene\.beatDisplay, getBpmEvents\(req\.scene\.notes\)\)/);
+    // 票 69：BPM 事件只提取一次，画面派生与键音表共用（不再各扫一遍谱面）
+    expect(exportVideo).toMatch(/const bpmEvents = getBpmEvents\(req\.scene\.notes\)/);
+    expect(exportVideo.match(/getBpmEvents\(/g)).toHaveLength(1);
+    expect(exportVideo).toMatch(/buildKeyEvents\(req\.scene\.notes, req\.scene\.beatDisplay, bpmEvents\)/);
   });
 
   it('采样加载与发声都从 audio/keySoundSamples 来（不写第二份包络 / 取文件规则）', () => {
@@ -332,6 +342,29 @@ describe('07 · 导出面板的用词与跟随（2026-10-10 验收回修；三�
   });
 });
 
+describe('票 62 · 写盘失败单独成档（不再混进 unknown）', () => {
+  const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
+  const en = JSON.parse(readSource('src/i18n/messages/en.json')) as Record<string, string>;
+  const hook = readStripped('src/pages/preview/useVideoExport.ts');
+
+  it('域层把 saveBinaryAs 单独 try/catch，写盘失败回 failure: save', () => {
+    expect(exportVideo).toMatch(/failure: 'save', container: target\.container/);
+    // 编码段的 unknown 仍在（不是被 save 顶掉）
+    expect(exportVideo).toMatch(/failure: 'unknown', container: target\.container/);
+  });
+
+  it('可照做的保存失败文案走 i18n，两个语言都补齐', () => {
+    expect(zh['preview.video.export.failedSave']).toBeTruthy();
+    expect(en['preview.video.export.failedSave']).toBeTruthy();
+    expect(hook).toMatch(/preview\.video\.export\.failedSave/);
+  });
+
+  it('文件名换算仍只有一份，且清洗在域内就地实现', () => {
+    expect(exportVideo).toMatch(/videoExportBasename\(req\.suggestedBaseName, spec\.extension\)/);
+    expect(readStripped('src/preview/video/encode/exportSpec.ts')).toMatch(/sanitizeFileNameStem/);
+  });
+});
+
 describe('07 · 代码评审回修（2026-10-10）：文案与文件名各只有一份', () => {
   const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
   const hook = readStripped('src/pages/preview/useVideoExport.ts');
@@ -397,5 +430,50 @@ describe('30 · 视频开场是纯前置段（不占谱面时间、不与前奏�
     expect(frameDriver).toMatch(/drawOpeningFrameAt\(/);
     // 开场段不进 drawSimFrameAt（负秒下它会画出正在接近的音符 / 带体）
     expect(frameDriver).toMatch(/openingSegmentAt\(t\)/);
+  });
+});
+
+// 67：audio 段曾经零检查点 + 长任务不让出主线程，点取消要等到下一个阶段才生效。
+describe('67 · 取消在合成声音阶段就能生效（不拖到下一阶段）', () => {
+  const zh = JSON.parse(readSource('src/i18n/messages/zh-CN.json')) as Record<string, string>;
+  const en = JSON.parse(readSource('src/i18n/messages/en.json')) as Record<string, string>;
+  const hook = readStripped('src/pages/preview/useVideoExport.ts');
+  const run = exportVideo.slice(exportVideo.indexOf('export async function runVideoExport'));
+
+  it('点了取消当帧有反馈：两种语言都有文案，进度卡换文案并锁住取消钮', () => {
+    expect(zh['preview.video.export.cancelling']).toBeTruthy();
+    expect(en['preview.video.export.cancelling']).toBeTruthy();
+    expect(control).toMatch(/cancelling \? t\('preview\.video\.export\.cancelling'\) : phaseText\(progress\)/);
+    expect(control).toMatch(/disabled=\{cancelling\}/);
+    expect(page).toMatch(/cancelling=\{videoExport\.cancelling\}/);
+    expect(hook).toMatch(/setCancelling\(true\)/);
+  });
+
+  it('离线音轨收取消信号：键音循环分批让出，等渲染时轮询取消', () => {
+    expect(renderAudio).toMatch(/yieldToMainThread\(\)/);
+    expect(renderAudio).toMatch(/from '\.\.\/\.\.\/static\/exportPanels'/);
+    expect(renderAudio).toMatch(/Promise\.race\(\[/);
+    expect(exportVideo).toMatch(/isCancelled: req\.isCancelled,/);
+    expect(exportVideo).toMatch(/rendered === AUDIO_TRACK_CANCELLED \|\| cancelled\(\)/);
+  });
+
+  it('audio 段前后都有取消检查点，且上报进度后先让出一拍再干同步长活', () => {
+    const targetIdx = run.indexOf('await resolveTarget(');
+    const audioIdx = run.indexOf("phase: 'audio'");
+    const renderIdx = run.indexOf('await renderAudioTrack(');
+    const sinkIdx = run.indexOf('await createVideoSink(');
+    const framesIdx = run.indexOf('driveExportFrames(');
+    expect(targetIdx).toBeGreaterThan(-1);
+    expect(audioIdx).toBeGreaterThan(targetIdx);
+    expect(renderIdx).toBeGreaterThan(audioIdx);
+    expect(sinkIdx).toBeGreaterThan(renderIdx);
+    expect(framesIdx).toBeGreaterThan(sinkIdx);
+    // 探完编码器 → 报 audio 之间也有一次，别把取消拖进下一段
+    expect(run.slice(targetIdx, audioIdx)).toMatch(/cancelled\(\)/);
+    const audioSegment = run.slice(audioIdx, renderIdx);
+    expect(audioSegment).toMatch(/yieldToMainThread\(\)/);
+    expect(audioSegment.match(/cancelled\(\)/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(run.slice(renderIdx, sinkIdx)).toMatch(/cancelled\(\)/);
+    expect(run.slice(sinkIdx, framesIdx)).toMatch(/cancelled\(\)/);
   });
 });

@@ -1,7 +1,7 @@
 // architecture-refactor/10（架构评审候选 5 的「时长那一半」）：谱面时长的默认与夹取只有一份。
 // 本文件锁**口径本身**（下界 / 上界 / 非有限回落）；调用点归 `tests/static/ChartDurationWiring.test.ts`。
 import { describe, it, expect } from 'vitest';
-import { MAX_DURATION_SECONDS } from '@/src/chart/config/AppSettings';
+import { MAX_DURATION_SECONDS } from '@/src/settings/AppSettings';
 import {
   clampChartDuration, DEFAULT_CHART_DURATION_SECONDS, MIN_CHART_DURATION_SECONDS,
 } from '@/src/audio/chartDuration';

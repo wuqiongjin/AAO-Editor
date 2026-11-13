@@ -30,13 +30,17 @@ export interface ProjectRecordDoc {
   coverPresent: boolean;
 }
 
+/** 写入文档；素材 intent 在主进程落盘时换成 present。 */
+export type ProjectWriteDoc = Omit<ProjectRecordDoc, 'audioPresent' | 'coverPresent'> & {
+  audioIntent: BinaryIntent;
+  coverIntent: BinaryIntent;
+};
+
 /** 渲染进程 → 主进程 put 载荷 */
 export interface ProjectPutWire {
   id: string;
-  doc: Omit<ProjectRecordDoc, 'audioPresent' | 'coverPresent'> & {
-    audioIntent: BinaryIntent;
-    coverIntent: BinaryIntent;
-  };
+  /** issue 232：JSON 文本跨桥，避免 contextBridge 同步遍历整谱嵌套对象。 */
+  doc: string;
   audio?: Uint8Array;
   cover?: Uint8Array;
   /**
@@ -61,15 +65,7 @@ export interface ProjectListItem {
   cover?: Uint8Array | null;
 }
 
-/** preload 注入的桥（electronAPI.projectStore） */
-export interface ElectronProjectBridge {
-  get(id: string): Promise<ProjectGetWire | null>;
-  put(payload: ProjectPutWire): Promise<unknown>;
-  list(): Promise<ProjectListItem[]>;
-  delete(id: string): Promise<unknown>;
-  /** 发布（票 11）：工程音频 / 封面的上传引用（路径 + 字节数 + SHA-1；字节不过 IPC） */
-  uploadRefs(id: string): Promise<ProjectUploadRefs | null>;
-}
+export type { ElectronProjectBridge } from '../app/electronBridge';
 
 /**
  * 一个待上传文件的**引用**（票 11）：主进程侧的路径、字节数与 SHA-1。
@@ -107,7 +103,7 @@ type RecordFieldKey = keyof RecordFields;
 /**
  * 一份字段表，两个方向写在同一行：
  * - `read`：存储 → 工程（对旧记录里可能缺失的**可空字段**兜底）；
- * - `write`：工程 → 存储（写盘规范化，如 charts 深拷贝）。
+ * - `write`：工程 → 文档字段；快照／JSON 规范化统一在记录出口完成。
  * 加字段只动这张表；漏字段或漏写任一方向，`satisfies` 编译期报错。
  */
 const RECORD_FIELDS = {
@@ -141,7 +137,7 @@ const RECORD_FIELDS = {
   },
   charts: {
     read: (raw: unknown): ProjectChart[] => (raw as ProjectChart[] | undefined) ?? [],
-    write: (src: RecordFields): ProjectChart[] => cloneJson(src.charts),
+    write: (src: RecordFields): ProjectChart[] => src.charts,
   },
   audioName: {
     read: (raw: unknown): string | null => (raw as string | null | undefined) ?? null,
@@ -235,17 +231,18 @@ export function projectFromRecord(
   };
 }
 
+/** Electron 出口只编码一次；JSON 文本本身就是独立快照，不先 parse 深拷贝再重新编码。 */
 export function recordFromProject(
   project: ChartProject,
   audioIntent: BinaryIntent,
   coverIntent: BinaryIntent,
 ): ProjectPutWire['doc'] {
-  return {
+  return JSON.stringify({
     schemaVersion: PROJECT_SCHEMA_VERSION,
     ...writeRecordFields(project),
     audioIntent,
     coverIntent,
-  };
+  } satisfies ProjectWriteDoc);
 }
 
 export function projectFromStored(record: unknown): ChartProject | null {
@@ -262,7 +259,7 @@ export function projectFromStored(record: unknown): ChartProject | null {
 export function storedFromProject(project: ChartProject): StoredProjectRecord {
   return {
     id: project.id,
-    ...writeRecordFields(project),
+    ...cloneJson(writeRecordFields(project)),
     ...(project.audioBlob ? { audioBlob: project.audioBlob } : {}),
     ...(project.coverBlob ? { coverBlob: project.coverBlob } : {}),
     schemaVersion: PROJECT_SCHEMA_VERSION,

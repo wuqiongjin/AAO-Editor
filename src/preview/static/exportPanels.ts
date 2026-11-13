@@ -16,7 +16,7 @@
 import { bufferSizeFor, displayOptionsFromSettings } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
-import { SIM_NOTE_SPEED_RANGE, DEFAULT_PREVIEW_SETTINGS, type PreviewSettings } from '../../chart/config/AppSettings';
+import { SIM_NOTE_SPEED_RANGE, DEFAULT_PREVIEW_SETTINGS, type PreviewSettings } from '../../settings/AppSettings';
 import { resolvePreviewDisplay } from './displayProfile';
 import {
   makePanelLayout,

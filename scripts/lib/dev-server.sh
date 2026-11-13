@@ -21,7 +21,9 @@ parse_dev_port() {
   local default_port="$2"
   shift 2
 
-  PORT="${!env_name:-$default_port}"
+  local env_val=""
+  eval "env_val=\"\${$env_name:-}\""
+  PORT="${env_val:-$default_port}"
 
   while [ $# -gt 0 ]; do
     case "$1" in
