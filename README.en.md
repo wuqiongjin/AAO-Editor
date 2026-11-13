@@ -60,9 +60,9 @@ A **chart project** is one song: project info, audio, cover art and multiple cha
 - **Compact tool rail & island workspace**: compact sidebar tool rail maximizing canvas space; beat snap upgraded to top-bar capsule (1/1–1/192 and custom); curve config gathered into dynamic on-canvas capsule; standardized marker system.
 - **Pattern library system**: one-click snippet collection (Ctrl+Shift+D), real-note-skin thumbnails, smart pasting with BPM context, pinning & multi-attribute sorting, full-library and single-pattern import/export.
 - **All note types**: tap / flick / skill / directional (left / right) / slide / long; BPM events and negative-BPM backflow regions are first-class.
-- **Deep slide editing & smooth curvature shaping**: add or remove nodes, split, combine endpoints, hidden nodes (SP spans), same-beat middle node movement; drag reshaping defaults to smooth Bezier curvature, with Alt for real-time triangle bow shaping.
-- **SP curve tool**: 10 easing families × 4 interpolation types with three sampling precisions; drag on empty canvas for the **freeform brush** that samples along your path in real time — bending a slide becomes drawing a curve instead of hand-placing hidden nodes.
-- **Shortcut system**: every function is bound to exactly one key ("switch / Ctrl+execute"), conflicts are rejected, and everything is rebindable. Playback keys: `,` `.` step the playback rate through the 0.25×–2× presets, `;` `'` change the volume by 0.05 — available in both the workspace and the live preview.
+- **Deep slide editing & smooth curvature shaping**: add or remove nodes, split, combine endpoints, hidden nodes (SP spans), same-beat middle node movement, and automatic reordering when dragging a node past its neighbors; drag reshaping defaults to smooth Bezier curvature, with Alt for real-time triangle bow shaping.
+- **SP curve tool**: 10 easing families × 4 interpolation types and smooth continuous shape templates with three sampling precisions; drag on empty canvas for the **freeform brush** that samples along your path in real time — bending a slide becomes drawing a curve instead of hand-placing hidden nodes.
+- **Shortcuts & playback controls**: every function is bound to exactly one key ("switch / Ctrl+execute"), conflicts are rejected, and everything is rebindable, including beat-snap stepping and customizable cycle presets. Playback keys: `,` `.` step the playback rate through the 0.25×–2× presets, `;` `'` change the volume by 0.05 — sharing playback rate and master volume across both the workspace and the live preview.
 - **Chart code is Bestdori-style JSON**: open the full chart code at any time to inspect or edit it; unknown fields and extension data are preserved verbatim.
 
 ![Workspace](./docs/media/readme/workspace.png)
@@ -103,7 +103,7 @@ A **chart project** is one song: project info, audio, cover art and multiple cha
 
 ### Simulation field playback and video export
 
-- **Game-style simulation field**: notes that scale along the approach model, hit effects, combo digits and hold rings; field skins and performance backgrounds are selectable, with background brightness adjustment and lane asset previews.
+- **Game-style simulation field**: notes that scale along the approach model, slide/long bands matching the in-game SP green band texture, hit effects, combo digits and hold rings; field skins and performance backgrounds are selectable, with background brightness adjustment and lane asset previews.
 - **Real-time playback**: 0.25× – 2× speed; with audio you get BGM + key sounds, without audio a synthetic timeline drives playback.
 - **Offline video export**: frame-by-frame rendering with WebCodecs encoding — MP4 / WebM, 1080p / 720p, optional mute; a fixed 5-second song info opening (cover + difficulty + title + band) is prepended to every video.
 

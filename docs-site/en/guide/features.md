@@ -33,7 +33,7 @@ The workspace edits one chart of the current project, featuring a new compact to
 **Deep slide editing & smooth shaping**
 
 - **Smooth curvature shaping**: dragging a slide segment defaults to smooth Bezier curvature (passing naturally through cursor and scaling proportionally near edges); hold Alt to switch back to classic triangle bow shaping. The default style is configurable in settings.
-- **Same-beat node movement**: middle slide nodes on the same beat can be freely moved horizontally without locking up.
+- **Same-beat node movement & neighbor-crossing reorder**: middle slide nodes on the same beat can be freely moved horizontally without locking up, and dragging a slide node past neighboring nodes automatically reorders them.
 - Delete tool on a middle node turns it into a **hidden node** (the basis of SP segments); on an endpoint it removes the node.
 - Delete tool on a connecting band **splits** the slide at that segment.
 - Slide tool marquee, or Ctrl+E: **combine** selected endpoints into one slide.
@@ -44,7 +44,7 @@ The workspace edits one chart of the current project, featuring a new compact to
 
 - 10 easing families (Sine / Quad / Cubic / Quart / Quint / Expo / Circ / Back / Elastic / Bounce) × 4 types (In / Out / In-Out / Out-In).
 - Three sampling precisions: 1/16, 1/32, or 1/64 per beat.
-- Shape templates (S-curve, double wave, shake bar, arc, heart) and easing are mutually exclusive: picking a template disables family / type / precision.
+- Shape templates (S-curve, double wave, shake bar, arc, heart): continuous templates support sampling precision control and smooth out sharp corners, while the discrete shake bar keeps fixed points; picking a template disables easing family / type.
 - Curve configuration is gathered into a dynamic options capsule at the top-left of the canvas.
 
 **Pattern library**
@@ -56,7 +56,7 @@ The workspace edits one chart of the current project, featuring a new compact to
 **Selection, playback, markers**
 
 - Marquee, drag, copy / paste / cut, delete, and mirror all act on the selection; undo / redo covers edits and canvas operations.
-- Space plays / pauses. With no audio, double-click the timecode in the playback bar and type `mm:ss` to set the chart length directly.
+- Space plays / pauses. The workspace playback bar also supports 0.25×–2× playback speed (sharing speed and master volume with dynamic preview); with no audio, double-click the timecode and type `mm:ss` to set the chart length directly.
 - Double-click the empty gutter left of the track to place a **marker**. It is pinned to a time in seconds, so BPM changes don't move it. Press Ctrl+Space to jump to the marker and play.
 
 **Chart code**
@@ -72,6 +72,7 @@ The workspace edits one chart of the current project, featuring a new compact to
 - Page switching: Alt+1…7 for workspace, audio, preview, assets, shortcuts, settings, etc.
 - Common defaults: Space play / pause, Ctrl+Space jump to marker and play, Ctrl+Shift+D collect snippet, Ctrl+Z / Ctrl+Y undo / redo.
 - Playback controls: `,` rate down and `.` rate up (step through the seven 0.25×–2× presets, stopping at the ends), `;` volume −0.05 and `'` volume +0.05 (clamped to 0–1). Works in both the workspace and the live preview; holding a key does not auto-repeat. Feedback comes from the `1×` readout and the volume slider on the playback bar. If a key was already taken in an older profile, the new function yields to "disabled" — enable it on the Shortcuts page to rebind.
+- Beat snap shortcuts: the Shortcuts page adds **Step Denser**, **Step Sparser**, and **Cycle Favorite Snaps** (unbound by default), with a modal to customize the favorite snap divisions to cycle through.
 - Note tools: F single, G flick, A skill, S left directional, D right directional, E slide, W curve, R pointer, T delete, Q mirror, V paste.
 - Workspace preferences: slide drag shaping style (smooth curve / triangle bow), scroll direction inversion, 3-tier time precision (0.1s / 0.01s / 0.001s), and independent SE volume control.
 - The shortcut table writes the modifier as Ctrl; on macOS that's ⌘.
@@ -95,7 +96,7 @@ The workspace edits one chart of the current project, featuring a new compact to
 
 **Simulation playback**
 
-- Plays like the game: scaled notes, hit effects, combo numbers, simultaneous-hit rings.
+- Plays like the game: scaled notes, slide/long bands matching the in-game SP green band texture, hit effects, combo numbers, simultaneous-hit rings.
 - Field skin pack and performance background are chosen independently — **use the packs actually listed in the preview** (assets change between versions); the lane asset picker displays in a 4-column grid with live hover and focus previews.
 - Background brightness is adjustable 0%–100% (default 70%), dimming the background to enhance note visibility across both live playback and video export.
 - Note speed is adjustable 1–12 (default 9.5) and only affects the dynamic view.
@@ -107,7 +108,7 @@ The workspace edits one chart of the current project, featuring a new compact to
 - Format **Auto** prefers MP4 + AAC; if this machine can't encode AAC it falls back to WebM. You can also force MP4 or WebM. Forcing MP4 with only an Opus track warns that some players may not handle it.
 - Audio can be disabled for a silent video.
 - The song-info intro is a fixed 5 seconds (difficulty / title / artist, each toggleable).
-- Export runs in five phases: prepare assets → mix audio → encode audio → render frames → mux the file. It can be cancelled midway.
+- Export runs in five phases: prepare assets → mix audio → render frames → encode audio → mux the file. It can be cancelled midway.
 - Requires WebCodecs. When unsupported, the app suggests the latest Chrome / Edge or the desktop app.
 
 ## Skins and appearance
@@ -135,5 +136,5 @@ The workspace edits one chart of the current project, featuring a new compact to
 
 - Theme: light / dark / follow system. UI language: 简体中文 / English.
 - UI scale 70%–150% (default 100%) and three UI font stacks (Geist / Microsoft YaHei / Noto Sans CJK). These affect the editor chrome only, never the chart canvas.
-- Canvas display group: rhythm icon size, long-hold line opacity, simultaneous-click lines, color assist, vertical ratio, image quality (smooth / standard / HD), track color (mono / amber / cyan / vivid), line shape tiers, track line opacity, label size.
+- Canvas display group: rhythm icon size, long-hold line opacity, simultaneous-click lines, color assist, vertical ratio, judge line offset (0%–40%), image quality (smooth / standard / HD), track color (mono / amber / cyan / vivid), line shape tiers, track line opacity, label size.
 - Each group has **Restore defaults**, which resets that group only.

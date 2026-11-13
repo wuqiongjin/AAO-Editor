@@ -23,10 +23,10 @@ Go to **Audio** and choose **Import audio**, then pick a local file. Any format 
 The toolbar on the left of the workspace holds the pointer, BPM, single, flick, skill, left/right directional, slide, and curve tools, followed by editing tools (copy / cut / paste / delete / mirror / note code / undo / redo).
 
 1. Pick a note type (say, **Single**).
-2. Click on the track; the note lands on the nearest beat line. Snap is chosen in the toolbar (default 1/4, options 1/1 – 1/16).
+2. Click on the track; the note lands on the nearest beat line. Snap is chosen in the top-bar capsule (default 1/4, supporting 1/1 – 1/192 and custom divisions).
 3. Drag notes to move them, or marquee-select a group. The right panel shows the selection count and offers delete / mirror.
 4. Slides take **two clicks**: the first sets the start node, the second completes the slide. To draw a curved band, switch to the **Curve** tool and drag on empty space — that's the brush.
-5. Press Space to play / pause. Double-click the empty gutter left of the track to drop a **playback start marker**, then jump back to it with the shortcut.
+5. Press Space to play / pause. Double-click the empty gutter left of the track to drop a **marker**, then jump back to it with the shortcut.
 
 Changes save automatically; there is no save button.
 
