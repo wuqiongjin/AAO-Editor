@@ -173,6 +173,12 @@ describe('chart-preview 02 · 预览页的壳接线', () => {
     expect(stage).toMatch(/buildSimChartInChunks\(/);
     expect(stage).toMatch(/yieldToMainThread/);
     expect(stage).not.toMatch(/useMemo\(\(\) => buildSimChart/);
+    expect(stage).toContain('onSyncComplete');
+
+    // 直切保活动态形态的更新遮罩（与静态共享 .preview-stage__paint-pending）
+    expect(page).toContain('videoSyncToken');
+    expect(page).toContain('videoPaintPending');
+    expect(page).toContain('preview.video.updating');
   });
 
   it('动态形态把底部留白收一档让给场地（chart-preview 19：contain 下画面变大的唯一来源是高度）', () => {

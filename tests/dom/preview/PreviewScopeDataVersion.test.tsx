@@ -159,6 +159,30 @@ describe('票 70 · usePreviewScope 按需重读与抑制', () => {
     expect(h.getCalls).toBe(2);
     expect(result.current.dataVersion).toBe(2);
   });
+
+  it('票 69 复验整改：重新激活时在 layout 阶段同步重置临时谱面选卡，首帧不闪过旧选卡', async () => {
+    const base = makeProject();
+    h.record = {
+      ...base,
+      charts: [
+        base.charts[0],
+        { ...base.charts[0], id: 'c2', title: 'A2', diff: 3 },
+      ],
+    };
+    const { result, rerender } = renderHook(({ active }) => usePreviewScope(active), {
+      initialProps: { active: true },
+    });
+    await act(async () => {});
+    expect(result.current.chartId).toBe('c1');
+
+    act(() => { result.current.pickChart('c2'); });
+    expect(result.current.chartId).toBe('c2');
+
+    rerender({ active: false });
+    rerender({ active: true });
+    // layout 阶段已复位，不等异步 effect 即可直接拿到默认谱面
+    expect(result.current.chartId).toBe('c1');
+  });
 });
 
 describe('票 70 · samePreviewProject', () => {

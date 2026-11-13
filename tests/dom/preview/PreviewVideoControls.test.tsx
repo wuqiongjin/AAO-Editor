@@ -675,4 +675,64 @@ describe('动态预览播放条 · 与工作台播放器共用（chart-preview 2
       nowSpy.mockRestore();
     }
   });
+
+  it('票 69 复验整改：改谱时 seek(0) 先执行，直到分片派生并推帧 pb.setFrame 后才触发 onSyncComplete', async () => {
+    const longNotes: ChartNote[] = Array.from({ length: 2400 }, (_, i) => ({
+      type: 'Single', beat: i * 0.25, lane: i % 7,
+    }) as ChartNote);
+    const onSyncComplete = vi.fn();
+    const token1 = { dataVersion: 1, chartId: 'c1' };
+    const token2 = { dataVersion: 2, chartId: 'c1' };
+    const { rerender } = render(
+      <PreviewVideoStage
+        active
+        scene={{ ...scene, notes: [{ type: 'Single', beat: 1, lane: 0 }] }}
+        chartId="c1"
+        initialSeconds={12}
+        duration={30}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={vi.fn()}
+        imageQuality="high"
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+        syncToken={token1}
+        onSyncComplete={onSyncComplete}
+      />,
+    );
+    await waitFor(() => expect(onSyncComplete).toHaveBeenCalledWith(token1));
+
+    onSyncComplete.mockClear();
+    calls.seek.mockClear();
+    calls.setFrame.mockClear();
+
+    // 模拟工作台改谱后的新 scene + 新 syncToken：seek(0) 会立即跑，但分片派生未完前不得提前撤罩
+    rerender(
+      <PreviewVideoStage
+        active
+        scene={{ ...scene, notes: longNotes }}
+        chartId="c1"
+        initialSeconds={12}
+        duration={30}
+        audio={null}
+        keySetId="skin00"
+        seVolume={1}
+        volume={1}
+        onVolumeChange={vi.fn()}
+        imageQuality="high"
+        noteSkin={'default' as AppSettings['visual']['noteSkin']}
+        shortcuts={SHORTCUTS}
+        syncToken={token2}
+        onSyncComplete={onSyncComplete}
+      />,
+    );
+
+    expect(calls.seek).toHaveBeenCalledWith(0);
+    expect(onSyncComplete).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(onSyncComplete).toHaveBeenCalledWith(token2));
+    expect(calls.setFrame).toHaveBeenCalled();
+  });
 });

@@ -414,4 +414,61 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     expect(document.querySelector('.preview-stage__static')).not.toHaveClass('is-hidden');
     expect(document.querySelector('.spv-host')).toBe(hostBefore);
   });
+
+  it('票 69 复验整改：保活在动态形态时未编辑切回零遮罩；工作台改谱后直切回立即盖出更新遮罩', async () => {
+    const populated = makeMemoryProjectBackend([
+      project('pA', 'Alpha', [
+        { ...chart('c-a1', 'Alpha 1', 3), notes: [{ type: 'BPM', beat: 0, bpm: 120 }, { type: 'Single', beat: 1, lane: 0 }] },
+      ]),
+    ]);
+    let releaseGet!: () => void;
+    let holdGet = false;
+    const rawGet = populated.get.bind(populated);
+    const controlled: MemoryProjectBackend = {
+      ...populated,
+      get: async (id) => {
+        if (holdGet) {
+          await new Promise<void>((r) => { releaseGet = r; });
+        }
+        return rawGet(id);
+      },
+    };
+    const { ctx } = await mountShell(controlled, { projectId: 'pA', chartId: 'c-a1' });
+
+    fireEvent.click(navButton('预览'));
+    await waitFor(() => expect(scopeTrigger()).toHaveTextContent('Alpha'));
+    fireEvent.click(screen.getByRole('button', { name: '动态预览' }));
+    await waitFor(() => expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video'));
+
+    // 未编辑从工作台直切回动态预览：零遮罩
+    fireEvent.click(navButton('工作台'));
+    await act(async () => {});
+    fireEvent.click(navButton('预览'));
+    await act(async () => {});
+    expect(document.querySelector('.preview-stage__paint-pending')).toBeNull();
+
+    // 工作台改谱后再直切回动态预览：异步重读在飞期间首帧立即盖住旧画面，读回后撤下
+    fireEvent.click(navButton('工作台'));
+    await act(async () => {});
+    holdGet = true;
+    const prevRec = populated.disk.get('pA')!;
+    populated.disk.set('pA', {
+      ...prevRec,
+      charts: [{
+        ...prevRec.charts[0],
+        notes: [...prevRec.charts[0].notes, { type: 'Single', beat: 2, lane: 3 }],
+      }],
+    });
+    ctx.current!.notifyProjectEdited('pA');
+    fireEvent.click(navButton('预览'));
+
+    const overlay = document.querySelector('.preview-stage__paint-pending');
+    expect(overlay).not.toBeNull();
+    expect(overlay).toHaveTextContent('正在更新动态预览…');
+
+    await waitFor(() => expect(releaseGet).toBeTypeOf('function'));
+    holdGet = false;
+    await act(async () => { releaseGet(); });
+    await waitFor(() => expect(document.querySelector('.preview-stage__paint-pending')).toBeNull());
+  });
 });

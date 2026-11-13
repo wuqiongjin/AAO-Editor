@@ -606,6 +606,7 @@
   "preview.static.exportFailed": "Export failed",
   "preview.video.empty": "This chart has no notes yet — draw something first, then come back to replay it.",
   "preview.video.loading": "Reading field assets…",
+  "preview.video.updating": "Updating dynamic preview…",
   "preview.video.aria": "Simulation field replay",
   "preview.video.rate": "Speed",
   "preview.video.rate.custom": "Custom speed",

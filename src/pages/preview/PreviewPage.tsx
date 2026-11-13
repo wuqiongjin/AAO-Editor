@@ -45,7 +45,7 @@ import { t, type MessageKey } from '../../i18n';
 import PreviewChartSwitcher from './PreviewChartSwitcher';
 import PreviewStaticToolbar, { PreviewEnterFullscreenButton, PreviewExitFullscreenButton } from './PreviewStaticToolbar';
 import PreviewDisplayPanel from './PreviewDisplayPanel';
-import PreviewVideoStage from './PreviewVideoStage';
+import PreviewVideoStage, { type VideoSyncToken } from './PreviewVideoStage';
 import VideoExportControl from './VideoExportControl';
 import { usePreviewScope } from './usePreviewScope';
 import { useVideoExport, exportDoneText } from './useVideoExport';
@@ -195,6 +195,23 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       bgBrightness: settings.preview.bgBrightness,
     };
   }, [project, chart, settings.display, settings.preview, beatDisplay]);
+
+  // 票 69 复验整改：保活在动态形态时若工作台改了谱再直切回来（不经过静态预览），
+  // 在 checking 与 (dataVersion, chartId) 异步分片派生完成并推入 pb.setFrame 前遮住整个舞台，
+  // 防止用户看见编辑前旧帧、PlayBar 游标突跳回 00:00.0 及旧谱第 0 秒闪回；未编辑与调设置项零遮罩。
+  const videoVisible = mode === 'video' && pendingMode !== 'video';
+  const hasVideoScene = videoScene != null;
+  const videoSyncToken = useMemo<VideoSyncToken | null>(
+    () => (hasVideoScene ? { dataVersion, chartId: chartId ?? null } : null),
+    [hasVideoScene, dataVersion, chartId],
+  );
+  const [ackedVideoToken, setAckedVideoToken] = useState<VideoSyncToken | null>(null);
+  useEffect(() => {
+    if (!videoVisible || videoSyncToken == null) setAckedVideoToken(null);
+  }, [videoVisible, videoSyncToken]);
+  const videoSyncDeferred = ackedVideoToken != null && videoSyncToken != null && ackedVideoToken !== videoSyncToken;
+  const videoPaintPending = videoVisible && hasVideoScene && (checking || videoSyncDeferred);
+  const stagePaintPending = staticPaintPending || videoPaintPending;
 
   // 仿真场的声源 = **作用域工程**自己的音频（票 05 定案：仿真场自持引擎；作用域切到非当前工程也有声）
   // 缓存稳定引用：切页重读 IndexedDB 时相同 Blob 不换对象，避免无谓重建引擎与重新解码
@@ -500,18 +517,19 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 timePrecision={settings.display.timePrecision}
                 // 空格（play）页面级接管（issue 22 Q2）：配置从设置域取，预览条那层不直读 context
                 shortcuts={settings.shortcuts}
+                syncToken={videoSyncToken}
+                onSyncComplete={setAckedVideoToken}
               />
             ) : mode === 'static' && scene ? null : (
               <p className="preview-stage__pending">
                 {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.empty')}
               </p>
             )}
-            {/* 票 70：数据换代期间盖住保活页的旧画布，直到可见面板分批出完 —— 用户只看见
-                「骨架 → 完整新画面」，不再看见编辑效果一格格被应用、也不吃同步整批出图的卡顿。 */}
-            {staticPaintPending && (
+            {/* 票 70 / 票 69 复验整改：数据换代期间盖住保活舞台的陈旧画面，直到静态分批出图或动态分片派生推帧确认 */}
+            {stagePaintPending && (
               <div className="preview-stage__paint-pending" role="status" aria-live="polite">
                 <span className="preview-stage__paint-spinner" aria-hidden="true" />
-                {t('preview.static.loading')}
+                {t(videoPaintPending ? 'preview.video.updating' : 'preview.static.loading')}
               </div>
             )}
             {/* 浮层**不看画面**（issue 12）：谱面没音符时也要有出口 —— 否则全屏下除 Esc 无路可走 */}

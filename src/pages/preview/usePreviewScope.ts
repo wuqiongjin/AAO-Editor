@@ -130,7 +130,6 @@ export function usePreviewScope(active = true): PreviewScopeState {
   // 只有 scopeId / catalogEpoch / 工作台对该工程的编辑代次（editEpoch）任一变化、或尚未同步过时才读盘；
   // 从设置 / 音频 / 工程或未编辑的工作台切回，零遮罩、零 IO、零重绘。
   type SyncStamp = { scopeId: string; catalogEpoch: number; editEpoch: number; store: unknown };
-  const [activation, setActivation] = useState(0);
   const [syncEpoch, setSyncEpoch] = useState(0);
   const wasActiveRef = useRef(active);
   const activeRef = useRef(active);
@@ -139,14 +138,23 @@ export function usePreviewScope(active = true): PreviewScopeState {
   const syncedRef = useRef<SyncStamp | null>(null);
   const syncedEditByProjectRef = useRef<Map<string, number>>(new Map());
   const optionsEpochRef = useRef<number | null>(null);
+  const scopeChartId = pageScope?.chartId;
+  const prevChartResetRef = useRef<{ scopeId: string | null; scopeChartId: string | undefined } | null>(null);
 
-  // layout 阶段而不是 effect：仅当检测到确实需要更新时，才在 paint 之前把「正在检查」提交到 DOM，
-  // 防止先画出一帧保活页的旧画布再突然更新；无编辑切回则直接放行，零闪烁。
+  // layout 阶段而不是 effect：
+  // 1) 仅当检测到确实需要更新时，在 paint 之前把「正在检查」提交到 DOM，防止先画出一帧保活页旧画布；
+  // 2) 重新激活或作用域入口变更时在 paint 前同步清理页面内临时谱面选卡，避免直切动态预览首帧闪过旧谱面。
   useLayoutEffect(() => {
     const justActivated = active && !wasActiveRef.current;
     wasActiveRef.current = active;
-    if (justActivated) {
-      setActivation((n) => n + 1);
+    const prevReset = prevChartResetRef.current;
+    const scopeEntryChanged =
+      prevReset == null ||
+      prevReset.scopeId !== scopeId ||
+      prevReset.scopeChartId !== scopeChartId;
+    prevChartResetRef.current = { scopeId, scopeChartId };
+    if (justActivated || scopeEntryChanged) {
+      setPickedChartId(null);
     }
     if (!active) return;
     if (scopeId == null) {
@@ -167,7 +175,7 @@ export function usePreviewScope(active = true): PreviewScopeState {
       setChecking(true);
       setSyncEpoch((n) => n + 1);
     }
-  }, [active, scopeId, catalogEpoch, store, getProjectEditEpoch]);
+  }, [active, scopeId, scopeChartId, catalogEpoch, store, getProjectEditEpoch]);
 
   useEffect(() => {
     if (scopeId == null) {
@@ -232,13 +240,7 @@ export function usePreviewScope(active = true): PreviewScopeState {
   const project = fresh?.project ?? null;
   const chartIds = useMemo(() => project?.charts.map((c) => c.id) ?? [], [project]);
 
-  // 入口换了就丢弃页面内的临时选择：入口决定"看什么"（票 22 定案 2）。工程被删二级被清时，
-  // `scopeChartId` 变 undefined 同样走这里，于是自动落回"该工程的当前谱面 ?? 首张"。
-  // `activation` 也在依赖里：左栏入口在"作用域本来就没变"（scope 为 null、工程也没换）时
-  // 不会改动任何 scope state，页面自己看不出这是一次重新进入——但**激活**看得出来
-  // （保活页从隐藏变可见），与本 hook 的数据重读同一个时刻。
-  const scopeChartId = pageScope?.chartId;
-  useEffect(() => { setPickedChartId(null); }, [scopeId, scopeChartId, activation]);
+  // 入口换了或重新激活时已在 layout 阶段清掉临时谱面选卡，这里直接按默认规则解析。
 
   // 二级解析（pageScope）：作用域二级 ?? 该工程的当前谱面 ?? 首张
   const defaultChartId = project != null && scopeId != null

@@ -604,6 +604,7 @@
   "preview.static.exportFailed": "导出失败",
   "preview.video.empty": "这张谱面还没有音符，先画出来再回来回放。",
   "preview.video.loading": "正在读取场地素材…",
+  "preview.video.updating": "正在更新动态预览…",
   "preview.video.aria": "仿真场回放",
   "preview.video.rate": "倍速",
   "preview.video.rate.custom": "自定义倍速",

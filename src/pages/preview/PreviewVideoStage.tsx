@@ -48,6 +48,12 @@ import {
  */
 const PLAY_ONLY: readonly FunctionId[] = ['play', ...PLAYBACK_SHORTCUT_IDS];
 
+/** 票 69 复验整改：动态舞台同步令牌（按对象身份标识一次数据版本与谱面目标） */
+export interface VideoSyncToken {
+  dataVersion: number;
+  chartId: string | null;
+}
+
 /** 票 69：异步派生的结果连带它属于哪份 scene / 皮肤，避免拿到过期表还往回放里推 */
 interface DerivedChart {
   scene: SimScene;
@@ -90,6 +96,9 @@ export interface PreviewVideoStageProps {
   initialSeconds?: number;
   /** 播放秒数变动回调（通知父层记忆最新进度） */
   onSecondsChange?: (seconds: number) => void;
+  /** 票 69 复验整改：调用方给出的同步令牌，在分片派生完成并推入 setFrame 后原样回传以撤下遮罩 */
+  syncToken?: VideoSyncToken | null;
+  onSyncComplete?: (token: VideoSyncToken) => void;
 }
 
 export default function PreviewVideoStage({
@@ -108,6 +117,8 @@ export default function PreviewVideoStage({
   chartId,
   initialSeconds,
   onSecondsChange,
+  syncToken = null,
+  onSyncComplete,
 }: PreviewVideoStageProps) {
   const fieldRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -315,8 +326,9 @@ export default function PreviewVideoStage({
       bpmEvents: derived.bpmEvents,
     };
     pb.setFrame(input);
+    if (syncToken != null) onSyncComplete?.(syncToken);
     // skinVersion 是"图集到位"的信号：它不进 input，但要触发重推（暂停态那帧是缺图画的）
-  }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready]);
+  }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready, syncToken, onSyncComplete]);
 
   const togglePlay = useCallback(() => playbackRef.current?.toggle(), []);
   const seekTo = useCallback((seconds: number) => {
