@@ -68,6 +68,8 @@ export interface StaticPreviewViewProps {
   onPaintComplete?: (version: number) => void;
   /** 测试注入（默认票 16 的真实原语） */
   paintScheduler?: StaticPaintScheduler;
+  /** 票 70 复验整改：动态形态期间保活隐藏；仅可见时测量与出图，切回静态零重绘 */
+  visible?: boolean;
 }
 
 const panelIndexes = (count: number): number[] => Array.from({ length: count }, (_, k) => k);
@@ -82,6 +84,7 @@ export default function StaticPreviewView({
   deferPaint = false,
   onPaintComplete,
   paintScheduler = DEFAULT_PAINT_SCHEDULER,
+  visible = true,
 }: StaticPreviewViewProps) {
   const { notes, chartDuration, verticalRatio, settingsDisplay, noteSkin } = scene;
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -100,8 +103,10 @@ export default function StaticPreviewView({
 
   const noteIcons = useMemo(() => buildActiveNoteIcons(normalizeNoteSkinSelection(noteSkin)), [noteSkin]);
   useEffect(() => {
+    const srcs = noteIcons.preloadSrcs();
+    if (CanvasSpriteIcon.areImagesReady(srcs)) return;
     let cancelled = false;
-    void CanvasSpriteIcon.ensureImagesLoaded(noteIcons.preloadSrcs())
+    void CanvasSpriteIcon.ensureImagesLoaded(srcs)
       .catch((e) => console.warn('[StaticPreview] 音符皮肤图片预热失败（按缺图渲染）:', e))
       .then(() => { if (!cancelled) setSkinVersion((v) => v + 1); });
     return () => { cancelled = true; };
@@ -133,7 +138,12 @@ export default function StaticPreviewView({
   const range = visiblePanelRange(layout, scrollLeft, hostSize.w);
 
   // ---------------- 量容器（jsdom 无布局：ResizeObserver 缺席时靠挂载 / resize / scroll 三条同步路径） ----------------
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const syncFromHost = useCallback(() => {
+    // 隐藏态期间（动态形态留存保活）舞台高度可能变化（例如 .is-video 底部省 8px），
+    // 忽略隐藏期间的测量抖动，等恢复可见再同步一次，避免无谓重算 panelH 重绘全屏画布。
+    if (!visibleRef.current) return;
     const host = hostRef.current;
     if (!host) return;
     const w = host.clientWidth;
@@ -141,7 +151,7 @@ export default function StaticPreviewView({
     setHostSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
     setScrollLeft((prev) => (prev === host.scrollLeft ? prev : host.scrollLeft));
   }, []);
-  useLayoutEffect(() => { syncFromHost(); }, [syncFromHost]);
+  useLayoutEffect(() => { if (visible) syncFromHost(); }, [visible, syncFromHost]);
   useEffect(() => {
     const host = hostRef.current;
     if (!host || typeof ResizeObserver === 'undefined') return;
@@ -258,6 +268,7 @@ export default function StaticPreviewView({
   }, [painter, range.lo, range.hi]);
 
   useLayoutEffect(() => {
+    if (!visible) return;
     // 容器还没测出来（高 0）先不出图：那几张位图既看不见、又会被真实尺寸的画家整批顶掉
     const canPaint = layout.panelCount > 0 && hostSize.h > 0;
     const pending: number[] = [];
@@ -315,7 +326,7 @@ export default function StaticPreviewView({
     })();
     return () => { cancelled = true; };
   }, [painter, paintPanel, range.lo, range.hi, layout.panelCount, hostSize.h,
-      paintVersion, deferPaint, onPaintComplete, paintScheduler]);
+      paintVersion, deferPaint, onPaintComplete, paintScheduler, visible]);
 
   // ---------------- hover：把指针 y 交给渲染域，横线与两侧读数由它画（同一口径） ----------------
   const handleHoverMove = useCallback((panelIndex: number, event: React.MouseEvent<HTMLDivElement>) => {

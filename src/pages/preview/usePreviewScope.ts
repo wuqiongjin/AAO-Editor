@@ -108,7 +108,7 @@ function samePreviewValue(a: unknown, b: unknown): boolean {
 export function usePreviewScope(active = true): PreviewScopeState {
   const { pageScope } = useAppNav();
   const {
-    projectId: currentId, chartId: currentChartId, store, catalogEpoch, flushPersist,
+    projectId: currentId, chartId: currentChartId, store, catalogEpoch, flushPersist, getProjectEditEpoch,
   } = useCurrentProject();
   const scopeId = resolveScopedProjectId(pageScope, currentId);
 
@@ -126,58 +126,97 @@ export function usePreviewScope(active = true): PreviewScopeState {
   // 页面内的临时选择：入口（作用域 / 当前工程）决定"初次看哪张"，之后用户在这一页里换
   const [pickedChartId, setPickedChartId] = useState<string | null>(null);
 
-  // 每次被激活（保活页从隐藏变可见）时重读一次。数据源是**工程记录**，而记录被工作台以
-  // 800ms 防抖落盘——防抖那笔落地时不通知目录，所以只靠 catalogEpoch 的话，本页可能整次访问
-  // 都停在"进来那一刻读到的那份"（照 useAudioScope）。激活是"用户真的在看它了"的时刻。
-  // （读之前还先 flushPersist，见下面的读 effect：进门的这次也读得到工作台刚落笔的编辑。）
+  // 票 70 复验整改：区分「重新进入页面（重置临时谱面选卡）」与「本地数据可能陈旧（才置 checking + 读盘）」。
+  // 只有 scopeId / catalogEpoch / 工作台对该工程的编辑代次（editEpoch）任一变化、或尚未同步过时才读盘；
+  // 从设置 / 音频 / 工程或未编辑的工作台切回，零遮罩、零 IO、零重绘。
+  type SyncStamp = { scopeId: string; catalogEpoch: number; editEpoch: number; store: unknown };
   const [activation, setActivation] = useState(0);
+  const [syncEpoch, setSyncEpoch] = useState(0);
   const wasActiveRef = useRef(active);
-  // layout 阶段而不是 effect：激活那一帧的 paint 之前就要把「正在检查」提交到 DOM，
-  // 否则浏览器先画出一帧保活页的旧画布，异步读盘再快也晚了（票 70 复测：长谱约 200ms）。
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const requestedRef = useRef<SyncStamp | null>(null);
+  const syncedRef = useRef<SyncStamp | null>(null);
+  const syncedEditByProjectRef = useRef<Map<string, number>>(new Map());
+  const optionsEpochRef = useRef<number | null>(null);
+
+  // layout 阶段而不是 effect：仅当检测到确实需要更新时，才在 paint 之前把「正在检查」提交到 DOM，
+  // 防止先画出一帧保活页的旧画布再突然更新；无编辑切回则直接放行，零闪烁。
   useLayoutEffect(() => {
-    if (!(active && !wasActiveRef.current)) {
-      wasActiveRef.current = active;
+    const justActivated = active && !wasActiveRef.current;
+    wasActiveRef.current = active;
+    if (justActivated) {
+      setActivation((n) => n + 1);
+    }
+    if (!active) return;
+    if (scopeId == null) {
+      requestedRef.current = null;
+      syncedRef.current = null;
       return;
     }
-    wasActiveRef.current = true;
-    setChecking(true);
-    setActivation((n) => n + 1);
-  }, [active]);
+    const editEpoch = getProjectEditEpoch?.(scopeId) ?? 0;
+    const baseline = justActivated ? syncedRef.current : requestedRef.current;
+    const isStale =
+      baseline == null ||
+      baseline.scopeId !== scopeId ||
+      baseline.catalogEpoch !== catalogEpoch ||
+      baseline.editEpoch !== editEpoch ||
+      baseline.store !== store;
+    if (isStale) {
+      requestedRef.current = { scopeId, catalogEpoch, editEpoch, store };
+      setChecking(true);
+      setSyncEpoch((n) => n + 1);
+    }
+  }, [active, scopeId, catalogEpoch, store, getProjectEditEpoch]);
 
   useEffect(() => {
     if (scopeId == null) {
+      requestedRef.current = null;
+      syncedRef.current = null;
+      optionsEpochRef.current = null;
       loadedRef.current = null;
       setLoaded(null);
       setOptions([]);
       setChecking(false);
       return;
     }
+    if (!activeRef.current || syncEpoch === 0) return;
+    const targetEditEpoch = requestedRef.current?.scopeId === scopeId
+      ? requestedRef.current.editEpoch
+      : (getProjectEditEpoch?.(scopeId) ?? 0);
+    const prevSyncedEdit = syncedEditByProjectRef.current.get(scopeId) ?? 0;
+    const needsFlush = targetEditEpoch !== prevSyncedEdit;
+    const needOptions = optionsEpochRef.current !== catalogEpoch || syncedRef.current?.store !== store;
     let cancelled = false;
     void (async () => {
-      // 读之前先把当前工程在飞的编辑落盘：记录走工作台的 800ms 防抖，防抖那笔落地时**不通知目录**，
-      // 不 flush 就可能读到"上一版"记录（2026-10-05 验收：重置谱面后切来预览仍见旧音符）。
-      // 对照：音频页 / 工程页在写前都先 flush，这里是"读前"的同一道账。
-      await flushPersist();
-      if (cancelled) return;
-      // 两件一起读：作用对象那条记录（含谱面列表）+ 工程列表（作用域条用）。
-      // 列表读失败不该连累正文——各自兜住，页面照常显示。
+      if (needsFlush) {
+        await flushPersist();
+        if (cancelled) return;
+      }
+      // 仅当目录代次变化或初次加载时刷新作用域列表；工作台编辑谱面时只按 scopeId 读单条工程。
       const [listed, scoped] = await Promise.all([
-        store.list().catch(() => []),
+        needOptions ? store.list().catch(() => []) : Promise.resolve(null),
         store.get(scopeId).catch(() => null),
       ]);
       if (cancelled) return;
-      setOptions(sortProjectsByLastOpened(listed).map((p) => ({
-        id: p.id,
-        name: p.name,
-        artist: p.artist,
-        audioName: p.audioName,
-        locked: isProjectAudioLocked(p),
-      })));
+      if (listed !== null) {
+        optionsEpochRef.current = catalogEpoch;
+        setOptions(sortProjectsByLastOpened(listed).map((p) => ({
+          id: p.id,
+          name: p.name,
+          artist: p.artist,
+          audioName: p.audioName,
+          locked: isProjectAudioLocked(p),
+        })));
+      }
+      const syncedEditEpoch = getProjectEditEpoch?.(scopeId) ?? targetEditEpoch;
+      syncedEditByProjectRef.current.set(scopeId, syncedEditEpoch);
+      syncedRef.current = { scopeId, catalogEpoch, editEpoch: syncedEditEpoch, store };
       // 票 70：内容没变就**不替换** project 身份。保活页的静态画面因此不换代、不重画，
       // 常态切回零成本；真变了才递增 dataVersion，让页面先用骨架盖住旧画布再分批出图。
       const prev = loadedRef.current;
       if (prev && prev.forId === scopeId && samePreviewProject(prev.project, scoped)) {
-        setChecking(false);       // 没换代：骨架到此为止，旧画布其实就是最新画面
+        setChecking(false);
         return;
       }
       const next: Loaded = { forId: scopeId, project: scoped };
@@ -188,8 +227,7 @@ export function usePreviewScope(active = true): PreviewScopeState {
       setChecking(false);
     })();
     return () => { cancelled = true; };
-  }, [scopeId, catalogEpoch, store, activation, flushPersist]);
-
+  }, [scopeId, catalogEpoch, store, syncEpoch, flushPersist, getProjectEditEpoch]);
   const fresh = loaded != null && loaded.forId === scopeId ? loaded : null;
   const project = fresh?.project ?? null;
   const chartIds = useMemo(() => project?.charts.map((c) => c.id) ?? [], [project]);

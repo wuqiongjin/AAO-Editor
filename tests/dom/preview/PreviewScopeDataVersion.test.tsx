@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
-// 票 70 · 激活重读的等价比较：保活页从隐藏变可见时仍会 flushPersist + store.get()，
-// 但「读回来的是新对象」不等于「内容变了」。内容没变就不许换 project 身份（否则 scene 换代 →
-// 画家换代 → 可见面板同步整批重画，长谱上就是用户报的那一小瞬卡顿）；真变了才递增 dataVersion，
-// 由预览页用骨架盖住旧画布、分批重出。
+// 票 70 复验整改：未编辑/未换作用域/未改目录时切回预览，零重读、零 flush、零遮罩；
+// 只有真实发生工作台编辑（editEpoch 递增）或作用域/目录变更时才在 layout 阶段置 checking + 按需重读，
+// 且工作台编辑不再无谓调用 store.list()，语义等价时仍保持 project 身份与 dataVersion 不变。
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChartNote } from '@/src/chart/types';
@@ -13,11 +12,17 @@ import type { ChartProject } from '@/src/project/ChartProject';
 const h = vi.hoisted(() => ({
   record: null as unknown,
   getCalls: 0,
+  listCalls: 0,
+  flushCalls: 0,
+  editEpoch: 0,
   current: {
     projectId: 'pA',
     chartId: 'c1',
     catalogEpoch: 0,
-    flushPersist: async () => {},
+    flushPersist: async () => {
+      h.flushCalls += 1;
+    },
+    getProjectEditEpoch: () => h.editEpoch,
     store: {
       list: async (): Promise<unknown[]> => [],
       get: async (): Promise<unknown> => null,
@@ -67,17 +72,23 @@ function makeProject(notes: ChartNote[] = NOTES): ChartProject {
 
 beforeEach(() => {
   h.getCalls = 0;
+  h.listCalls = 0;
+  h.flushCalls = 0;
+  h.editEpoch = 0;
   h.record = makeProject();
   // 模拟真实后端：每次 get() 都是反序列化出来的**新对象**（内容相同也要新引用）
-  h.current.store.list = async () => [h.record];
+  h.current.store.list = async () => {
+    h.listCalls += 1;
+    return [h.record];
+  };
   h.current.store.get = async () => {
     h.getCalls += 1;
     return structuredClone(h.record);
   };
 });
 
-describe('票 70 · usePreviewScope 激活重读', () => {
-  it('内容没变：仍重读，但 project 身份与 dataVersion 都不动（不换代、不重画、不给骨架）', async () => {
+describe('票 70 · usePreviewScope 按需重读与抑制', () => {
+  it('未编辑、未改目录、未换作用域：切回不重读、不 flush、不置 checking', async () => {
     const { result, rerender } = renderHook(({ active }) => usePreviewScope(active), {
       initialProps: { active: true },
     });
@@ -86,18 +97,23 @@ describe('票 70 · usePreviewScope 激活重读', () => {
     expect(first).not.toBeNull();
     expect(result.current.dataVersion).toBe(1);
     expect(h.getCalls).toBe(1);
+    expect(h.listCalls).toBe(1);
+    expect(h.flushCalls).toBe(0);
 
-    // 去工作台再切回预览：active 翻转触发第二次重读
+    // 去其他页面未做编辑再切回预览：零开销切回
     rerender({ active: false });
     rerender({ active: true });
+    expect(result.current.checking).toBe(false);
     await act(async () => {});
 
-    expect(h.getCalls).toBe(2);                    // 读确实发生了
-    expect(result.current.project).toBe(first);    // 但没提交新对象 → scene/painter 不换代
-    expect(result.current.dataVersion).toBe(1);    // → 预览页不会显示骨架
+    expect(h.getCalls).toBe(1);
+    expect(h.listCalls).toBe(1);
+    expect(h.flushCalls).toBe(0);
+    expect(result.current.project).toBe(first);
+    expect(result.current.dataVersion).toBe(1);
   });
 
-  it('激活瞬间先置 checking（paint 前盖住旧画布），读完成即收掉', async () => {
+  it('发生编辑后激活：layout 阶段立即置 checking、先 flush 再读单条（跳过 store.list）', async () => {
     const { result, rerender } = renderHook(({ active }) => usePreviewScope(active), {
       initialProps: { active: true },
     });
@@ -105,15 +121,21 @@ describe('票 70 · usePreviewScope 激活重读', () => {
     expect(result.current.checking).toBe(false);
 
     rerender({ active: false });
+    h.editEpoch += 1;
     rerender({ active: true });
     // 异步读盘还没回来；此时页面必须已经盖住旧画布
     expect(result.current.checking).toBe(true);
 
     await act(async () => {});
     expect(result.current.checking).toBe(false);
+    expect(h.flushCalls).toBe(1);
+    expect(h.getCalls).toBe(2);
+    expect(h.listCalls).toBe(1);
+    // 内容实际上相同（语义等价）：不提交新 project / 不递增 dataVersion
+    expect(result.current.dataVersion).toBe(1);
   });
 
-  it('内容真变了：交出新 project、dataVersion 递增，且作用域清空再回来不倒退', async () => {
+  it('发生编辑且内容真变了：交出新 project、dataVersion 递增，再切回无编辑保持版本稳定', async () => {
     const { result, rerender } = renderHook(({ active }) => usePreviewScope(active), {
       initialProps: { active: true },
     });
@@ -123,16 +145,18 @@ describe('票 70 · usePreviewScope 激活重读', () => {
 
     h.record = makeProject([...NOTES, { type: 'Single', beat: 5, lane: 6 }]);
     rerender({ active: false });
+    h.editEpoch += 1;
     rerender({ active: true });
     await act(async () => {});
 
     expect(result.current.project).not.toBe(first);
     expect(result.current.dataVersion).toBe(2);
 
-    // 再切一次、内容没变：版本停在 2
+    // 再切一次、无新编辑：不重读、版本停在 2
     rerender({ active: false });
     rerender({ active: true });
     await act(async () => {});
+    expect(h.getCalls).toBe(2);
     expect(result.current.dataVersion).toBe(2);
   });
 });

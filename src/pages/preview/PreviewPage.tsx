@@ -172,7 +172,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     setAckedPaintVersion((prev) => Math.max(prev, version));
   }, []);
   const staticPaintDeferred = dataVersion > ackedPaintVersion;
-  const staticPaintPending = mode === 'static' && scene != null && (checking || staticPaintDeferred);
+  const staticVisible = mode === 'static' && pendingMode !== 'video';
+  const staticPaintPending = staticVisible && scene != null && (checking || staticPaintDeferred);
 
   // 动态形态要画的那份谱面（票 05）：仿真场的画面输入 = 谱面 + 作者设置（音符速度 / 镜向 /
   // 背景包 / 轨道包来自 `settings.preview`，其余是画布共享项 `settings.display`——与静态预览同一份数据）。
@@ -459,19 +460,28 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
             className={`preview-stage${(mode === 'static' && scene) || (mode === 'video' && videoScene) ? ' is-filled' : ''}`}
             data-mode={mode}
           >
+            {/* 票 70 复验整改：切换到动态形态时静态画布保活隐藏（不卸载 DOM、不销毁位图），
+                点回静态时直接显形，零重绘零卡顿。 */}
+            {scene && (
+              <div
+                className={staticVisible ? 'preview-stage__static' : 'preview-stage__static is-hidden'}
+                aria-hidden={!staticVisible || undefined}
+              >
+                <StaticPreviewView
+                  scene={scene}
+                  zoom={zoom}
+                  markers={settings.preview}
+                  onZoom={setZoom}
+                  visible={active && staticVisible}
+                  paintVersion={dataVersion}
+                  deferPaint={staticPaintDeferred}
+                  onPaintComplete={handleStaticPainted}
+                />
+              </div>
+            )}
             {pendingMode === 'video' && videoScene ? (
               // 票 69：切形态那一帧先见加载态，仿真场（及其谱面派生）在下一帧才挂载
               <p className="preview-stage__pending">{t('preview.video.loading')}</p>
-            ) : mode === 'static' && scene ? (
-              <StaticPreviewView
-                scene={scene}
-                zoom={zoom}
-                markers={settings.preview}
-                onZoom={setZoom}
-                paintVersion={dataVersion}
-                deferPaint={staticPaintDeferred}
-                onPaintComplete={handleStaticPainted}
-              />
             ) : mode === 'video' && videoScene ? (
               <PreviewVideoStage
                 active={active}
@@ -491,7 +501,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
                 // 空格（play）页面级接管（issue 22 Q2）：配置从设置域取，预览条那层不直读 context
                 shortcuts={settings.shortcuts}
               />
-            ) : (
+            ) : mode === 'static' && scene ? null : (
               <p className="preview-stage__pending">
                 {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.empty')}
               </p>

@@ -865,6 +865,23 @@
   box-shadow: var(--shadow-md);
 }
 
+/* 票 70 复验整改：静态形态与动态形态之间切回时保活保留画布（visibility 而非 display:none，
+   保证布局宽高与已绘制的 canvas 缓冲完整保留，零重绘）。 */
+.preview-stage__static {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.preview-stage__static.is-hidden {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .preview-stage__pending {
   margin: 0;
   padding: 0 16px;

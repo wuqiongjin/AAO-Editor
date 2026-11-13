@@ -136,6 +136,13 @@ export default class CanvasSpriteIcon {
         return Promise.all(ps);
     }
 
+    /** 检查这批皮肤图片是否全部已解码就绪，避免重复挂载静态预览时白刷一次 skinVersion 重绘面板 */
+    public static areImagesReady(urls: readonly string[]): boolean {
+        return urls.every(
+            (u) => CanvasSpriteIcon.imageCache.has(u) && !CanvasSpriteIcon.loadingPromises.has(u),
+        );
+    }
+
     /** 准备实际绘制使用的独立切片，共用 drawSingle 的裁剪、清洗、padding 与缓存。 */
     public static async ensureSpritesLoaded(configs: readonly SpriteIconConfig[]): Promise<void> {
         const bySource = new Map<string, SpriteIconConfig[]>();

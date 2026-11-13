@@ -247,6 +247,7 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     // 工作台的真实画像是"注册一个 flush 回调"（useChartProjectPersistence）；这里注入替身记账它
     // 相对读的次序——防抖落地**不通知目录**，不 flush 的话这次访问会整趟停在旧记录上
     ctx.current!.registerPersistFlush(async () => { log.push('flush'); });
+    ctx.current!.notifyProjectEdited('pA');
 
     log.length = 0;
     fireEvent.click(navButton('预览'));
@@ -359,5 +360,58 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     // 等过一帧：形态才跟着走，且按钮的当选态同步
     await waitFor(() => expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video'));
     expect(screen.getByRole('button', { name: '动态预览' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('票 70 复验整改：未编辑从他页切回预览时不重读、不 flush、不弹更新遮罩', async () => {
+    const log: string[] = [];
+    const { ctx } = await mountShell(tracedBackend(seed(), log), { projectId: 'pA', chartId: 'c-a1' });
+    ctx.current!.registerPersistFlush(async () => { log.push('flush'); });
+
+    log.length = 0;
+    fireEvent.click(navButton('预览'));
+    await waitFor(() => expect(scopeTrigger()).toHaveTextContent('Alpha'));
+    expect(log).toEqual(['list', 'get:pA']);
+
+    fireEvent.click(navButton('设置'));
+    log.length = 0;
+    fireEvent.click(navButton('预览'));
+    await act(async () => {});
+
+    expect(log).toEqual([]);
+    expect(document.querySelector('.preview-stage__paint-pending')).toBeNull();
+
+    fireEvent.click(navButton('工作台'));
+    await act(async () => {});
+    log.length = 0;
+    fireEvent.click(navButton('预览'));
+    await act(async () => {});
+
+    expect(log).toEqual([]);
+    expect(document.querySelector('.preview-stage__paint-pending')).toBeNull();
+  });
+
+  it('票 70 复验整改：动态切回静态时保持 StaticPreviewView 保活挂载，不卸载重来', async () => {
+    const populated = makeMemoryProjectBackend([
+      project('pA', 'Alpha', [
+        { ...chart('c-a1', 'Alpha 1', 3), notes: [{ type: 'BPM', beat: 0, bpm: 120 }, { type: 'Single', beat: 1, lane: 0 }] },
+        chart('c-a2', 'Alpha 2', 4),
+      ]),
+    ]);
+    await mountShell(populated, { projectId: 'pA', chartId: 'c-a1' });
+    fireEvent.click(navButton('预览'));
+    await waitFor(() => expect(document.querySelector('.spv-host')).not.toBeNull());
+    const hostBefore = document.querySelector('.spv-host');
+
+    fireEvent.click(screen.getByRole('button', { name: '动态预览' }));
+    await waitFor(() => expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video'));
+    const staticWrap = document.querySelector('.preview-stage__static');
+    expect(staticWrap).toHaveClass('is-hidden');
+    expect(staticWrap).toHaveAttribute('aria-hidden', 'true');
+    expect(document.querySelector('.spv-host')).toBe(hostBefore);
+
+    fireEvent.click(screen.getByRole('button', { name: '静态预览' }));
+    await waitFor(() => expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('static'));
+    expect(document.querySelector('.preview-stage__static')).not.toHaveClass('is-hidden');
+    expect(document.querySelector('.spv-host')).toBe(hostBefore);
   });
 });

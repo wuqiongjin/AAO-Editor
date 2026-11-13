@@ -21,6 +21,8 @@ describe('票 70 · 静态预览重画抑制与加载态的接线', () => {
     expect(scope).toContain('setDataVersion((v) => v + 1)');
     // 激活检测必须走 layout 阶段：否则骨架晚一帧，旧画布已经被画出来了
     expect(scope).toMatch(/useLayoutEffect\(\(\) => \{[\s\S]*?setChecking\(true\)/);
+    expect(scope).toContain('getProjectEditEpoch');
+    expect(scope).toContain('optionsEpochRef');
     // 反向：不能退化成「每次读回来都直接 setLoaded({ project: scoped })」
     expect(scope).not.toMatch(/setLoaded\(\{\s*forId: scopeId, project: scoped\s*\}\)/);
   });
@@ -35,6 +37,8 @@ describe('票 70 · 静态预览重画抑制与加载态的接线', () => {
     expect(view).toMatch(/if \(!deferPaint\)/);
     // useLayoutEffect 的同步路径必须留着：换代那一帧不许露出旧位图（issue 11 #2）
     expect(view).toContain('useLayoutEffect');
+    expect(view).toContain('CanvasSpriteIcon.areImagesReady');
+    expect(view).toContain('visible = true');
   });
 
   it('PreviewPage：dataVersion 驱动骨架，骨架盖住旧画布直到出图确认', () => {
@@ -47,7 +51,9 @@ describe('票 70 · 静态预览重画抑制与加载态的接线', () => {
     expect(page).toContain('paintVersion={dataVersion}');
     expect(page).toContain('onPaintComplete={handleStaticPainted}');
     // 骨架必须在渲染期派生，不能用 useEffect 后置（那样静态视图已经同步出完图了）
-    expect(page).toMatch(/const staticPaintPending = mode === 'static'/);
+    expect(page).toMatch(/const staticPaintPending = staticVisible && scene != null &&/);
+    expect(page).toContain('preview-stage__static');
+    expect(page).toContain('visible={active && staticVisible}');
     expect(page).toContain('checking || staticPaintDeferred');
   });
 

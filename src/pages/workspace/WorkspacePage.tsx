@@ -166,7 +166,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     [audioSnap.audioName, audioSession],
   );
 
-  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged, flushPersist } = useCurrentProject();
+  const { projectId, chartId, store, catalogEpoch, registerPersistFlush, registerRestoreWaiter, open, notifyCatalogChanged, notifyProjectEdited, flushPersist } = useCurrentProject();
   const { setActivePage } = useAppNav();
 
   // === 33 票：音频资源异常的检测与对齐（工作台 hydrate 路径） ===
@@ -316,6 +316,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     onRestore: handleProjectRestore,
     onRecordAudioChanged: handleRecordAudioChanged,
     registerRestoreWaiter,
+    onProjectEdited: notifyProjectEdited,
   });
   const persistNow = useCallback(() => persistence.saveNow(), [persistence]);
   useEffect(() => {

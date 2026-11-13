@@ -537,4 +537,17 @@ describe('票 70 · 数据换代的加载骨架与分批出图', () => {
     expect(onPaintComplete).toHaveBeenCalledWith(3);
     expect(s.calls).toHaveLength(0);
   });
+
+  it('票 70 复验整改：visible 切换为 false 后隐藏保留位图；恢复 visible 且参数未变时零重绘', () => {
+    const s = session();
+    s.sync();
+    const before = s.calls.length;
+    expect(before).toBe(4);
+
+    s.rerender({ visible: false });
+    expect(s.calls.length).toBe(before);
+
+    s.rerender({ visible: true });
+    expect(s.calls.length).toBe(before);
+  });
 });

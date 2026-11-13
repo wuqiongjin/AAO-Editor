@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ChartProjectStore, type ChartProject, type ProjectChart } from './ChartProject';
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
-import { stampChartModified } from './chartModifiedStamp';
+import { chartNotesModified, stampChartModified } from './chartModifiedStamp';
 import { isProjectAudioLocked, pickCurrentChart } from './workspaceProject';
 import { AUDIO_DURATION_MISMATCH_TOLERANCE } from '../audio/projectAudio';
 import type { ChartNote } from '../chart/types';
@@ -44,6 +44,25 @@ export interface UseChartProjectPersistenceOptions {
   onRecordAudioChanged?: (project: ChartProject) => void;
   /** 注册等待恢复就绪回调（供 CurrentProjectProvider 串联 enterWorkspace） */
   registerRestoreWaiter?: (fn: ((targetProjectId?: string, targetChartId?: string) => Promise<void>) | null) => void;
+  /** 工程内容确实发生变化并进入防抖/立即落盘时通知上层（用于轻量脏标记，不触发目录重载） */
+  onProjectEdited?: (projectId: string) => void;
+}
+
+function hasProjectContentChanged(prev: ChartProject | null, next: ChartProject): boolean {
+  if (!prev) return true;
+  if (prev.durationSeconds !== next.durationSeconds || prev.audioName !== next.audioName) return true;
+  if (prev.charts.length !== next.charts.length) return true;
+  return next.charts.some((chart, idx) => {
+    const prevChart = prev.charts[idx];
+    // stampChartModified 在无改动时仍会返回新对象字面量，不能直接用引用比较
+    return (
+      chart.id !== prevChart.id ||
+      chart.lastModified !== prevChart.lastModified ||
+      chart.appliedChartCodeText !== prevChart.appliedChartCodeText ||
+      chart.chartCodePristine !== prevChart.chartCodePristine ||
+      chartNotesModified(chart.notes, prevChart.notes)
+    );
+  });
 }
 
 export interface UseChartProjectPersistenceReturn {
@@ -191,10 +210,19 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     return next;
   }, []);
 
+  const buildAndNotifyIfEdited = useCallback((): ChartProject | null => {
+    const prev = projectRef.current;
+    const next = buildProject();
+    if (next && hasProjectContentChanged(prev, next)) onProjectEditedRef.current?.(next.id);
+    return next;
+  }, [buildProject]);
+
   const onRestoreRef = useRef(onRestore);
   onRestoreRef.current = onRestore;
   const onRecordAudioChangedRef = useRef(opts.onRecordAudioChanged);
   onRecordAudioChangedRef.current = opts.onRecordAudioChanged;
+  const onProjectEditedRef = useRef(opts.onProjectEdited);
+  onProjectEditedRef.current = opts.onProjectEdited;
 
   useEffect(() => {
     const wantedProject = projectId;
@@ -291,7 +319,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       justRestoredRef.current = false;
       return;
     }
-    const next = buildProject();
+    const next = buildAndNotifyIfEdited();
     if (!next) return;
     ensureMerger().schedule(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -301,7 +329,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
     if (typeof document === 'undefined') return;
     const flushNow = () => {
       if (!restoreSettledRef.current) return;
-      const next = buildProject();
+      const next = buildAndNotifyIfEdited();
       if (!next) return;
       void ensureMerger().flush(next).catch(() => { /* 静默 */ });
     };
@@ -325,7 +353,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
   // 错在 flush 柄被导航提交的 cleanup 清掉后又晚于激活 effect 才恢复）。
   const saveNow = useCallback((): Promise<void> => {
     if (!restoreSettledRef.current) return Promise.resolve();
-    const next = buildProject();
+    const next = buildAndNotifyIfEdited();
     if (!next) return Promise.resolve();
     const projectId = next.id;
     return ensureMerger().saveNow(next).then(
@@ -337,7 +365,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
         throw err;
       },
     );
-  }, [buildProject, ensureMerger]);
+  }, [buildAndNotifyIfEdited, ensureMerger]);
 
   // 返回对象一并求稳：调用方（WorkspacePage 的 persistNow）以它为 useCallback 依赖，
   // 每渲染一个新对象会把句柄 churn 原样传导到注册 effect 上。
