@@ -449,3 +449,92 @@ describe('chart-preview 03 · 面板内指针 → 布局轴（与画布同一口
     }
   });
 });
+
+// 票 70：记录内容换代时，调用方先用骨架盖住保活页的旧画布，本视图则让出一帧、逐格让出主线程地
+// 出完可见面板，再回传版本号让骨架撤销。常态（缩放 / 滚动 / hover）仍走 paint 前的同步路径。
+describe('票 70 · 数据换代的加载骨架与分批出图', () => {
+  /** 确定性调度器：不依赖 jsdom 的 rAF / scheduler.yield */
+  const makeScheduler = () => ({
+    waitForPaint: vi.fn(async () => {}),
+    yieldToMainThread: vi.fn(async () => {}),
+  });
+  const changedScene = (beat: number) => ({
+    ...BASE_PROPS.scene,
+    notes: [...NOTES, { type: 'Single', beat, lane: 1 } as ChartNote],
+  });
+
+  it('deferPaint：先让出一帧，再逐格让出主线程，出完才回传版本号', async () => {
+    const s = session();
+    s.sync();
+    expect(s.calls.map((c) => c.panel)).toEqual([0, 1, 2, 3]);
+    const before = s.calls.length;
+
+    const onPaintComplete = vi.fn();
+    const paintScheduler = makeScheduler();
+    await act(async () => {
+      s.rerender({
+        deferPaint: true,
+        paintVersion: 7,
+        onPaintComplete,
+        paintScheduler,
+        scene: changedScene(9),
+      });
+    });
+
+    expect(paintScheduler.waitForPaint).toHaveBeenCalledTimes(1);
+    // 一屏 4 格、每格让出一次：格与格之间 3 次，最后一格画完直接确认（不多等一拍）
+    expect(paintScheduler.yieldToMainThread).toHaveBeenCalledTimes(3);
+    expect(s.calls.slice(before).map((c) => c.panel)).toEqual([0, 1, 2, 3]);
+    expect(onPaintComplete).toHaveBeenCalledWith(7);
+  });
+
+  it('分批期间又换代：旧任务被取消，只由最后一次稳定出图确认新版本', async () => {
+    const s = session();
+    s.sync();
+    const before = s.calls.length;
+    const onPaintComplete = vi.fn();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = () => resolve(); });
+    const paintScheduler = { waitForPaint: () => gate, yieldToMainThread: async () => {} };
+
+    act(() => {
+      s.rerender({ deferPaint: true, paintVersion: 5, onPaintComplete, paintScheduler, scene: changedScene(9) });
+    });
+    // 旧任务还卡在 waitForPaint；此刻记录又换了一代
+    act(() => {
+      s.rerender({ deferPaint: true, paintVersion: 6, onPaintComplete, paintScheduler, scene: changedScene(10) });
+    });
+    await act(async () => { release(); await gate; });
+
+    expect(onPaintComplete).toHaveBeenCalledTimes(1);
+    expect(onPaintComplete).toHaveBeenCalledWith(6);
+    expect(s.calls.slice(before).map((c) => c.panel)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('deferPaint 关闭（常态缩放 / 滚动）：仍是 paint 前同步出图，一次都不让出', () => {
+    const s = session();
+    s.sync();
+    const before = s.calls.length;
+    const paintScheduler = makeScheduler();
+    s.rerender({ scene: changedScene(9), paintScheduler });
+
+    expect(paintScheduler.waitForPaint).not.toHaveBeenCalled();
+    expect(paintScheduler.yieldToMainThread).not.toHaveBeenCalled();
+    expect(s.calls.slice(before).map((c) => c.panel)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('容器还没测出高度：不早于 paint 确认、也不出图（骨架不会永久盖着）', async () => {
+    const onPaintComplete = vi.fn();
+    const paintScheduler = makeScheduler();
+    const s = session({
+      height: 0,
+      props: { deferPaint: true, paintVersion: 3, onPaintComplete, paintScheduler },
+    });
+    expect(s.calls).toHaveLength(0);
+
+    await act(async () => {});
+
+    expect(onPaintComplete).toHaveBeenCalledWith(3);
+    expect(s.calls).toHaveLength(0);
+  });
+});

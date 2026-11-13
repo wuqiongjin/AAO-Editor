@@ -47,7 +47,11 @@ export {
   PREVIEW_LABEL_SCALE,
   resolvePreviewDisplay,
 } from './displayProfile';
-export { default as StaticPreviewView, type StaticPreviewViewProps } from './StaticPreviewView';
+export {
+  default as StaticPreviewView,
+  type StaticPaintScheduler,
+  type StaticPreviewViewProps,
+} from './StaticPreviewView';
 export {
   EXPORT_DPR,
   EXPORT_ES,

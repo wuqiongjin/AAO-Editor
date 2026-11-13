@@ -539,6 +539,7 @@
   "preview.static.aria": "Static preview panel row (scrolls horizontally)",
   "preview.static.panel.aria": "Panel {{index}}: {{from}} – {{to}}",
   "preview.static.empty": "This chart has no notes yet — draw something first, then come back for the overview.",
+  "preview.static.loading": "Updating chart overview…",
   "preview.static.zoom": "Zoom",
   "preview.static.zoomHint": "Ctrl/⌘ + wheel does the same",
   "preview.display.open": "Settings",

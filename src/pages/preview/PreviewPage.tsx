@@ -66,7 +66,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   const [pendingMode, setPendingMode] = useState<PreviewMode | null>(null);
   /** 等待那一帧里连点 / 点回静态：只有最后一次点按的令牌有权落地 */
   const switchTokenRef = useRef(0);
-  const { scopeId, currentId, project, options, loading, chartId, pickChart } = usePreviewScope(active);
+  const { scopeId, currentId, project, options, loading, chartId, pickChart, dataVersion, checking } = usePreviewScope(active);
 
   // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
   const chart = useMemo(() => project?.charts.find((c) => c.id === chartId) ?? null, [project, chartId]);
@@ -162,6 +162,17 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       noteSkin: settings.visual?.noteSkin ?? {},
     };
   }, [project, chart, settings.display, settings.visual?.noteSkin, beatDisplay]);
+
+  // 票 70：激活那一帧就盖住保活页的旧画布。
+  // `checking` 由 hook 在 layout 阶段置位（paint 前），盖住 flushPersist + store.get() 这段异步读盘；
+  // 读回来若没换代就撤掉（常态切回只多一层覆盖，不重画、不出图），真换代则由
+  // `staticPaintDeferred` 继续撑到可见面板分批出完。缩放 / 显示档换代两者都不动。
+  const [ackedPaintVersion, setAckedPaintVersion] = useState(0);
+  const handleStaticPainted = useCallback((version: number) => {
+    setAckedPaintVersion((prev) => Math.max(prev, version));
+  }, []);
+  const staticPaintDeferred = dataVersion > ackedPaintVersion;
+  const staticPaintPending = mode === 'static' && scene != null && (checking || staticPaintDeferred);
 
   // 动态形态要画的那份谱面（票 05）：仿真场的画面输入 = 谱面 + 作者设置（音符速度 / 镜向 /
   // 背景包 / 轨道包来自 `settings.preview`，其余是画布共享项 `settings.display`——与静态预览同一份数据）。
@@ -452,7 +463,15 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               // 票 69：切形态那一帧先见加载态，仿真场（及其谱面派生）在下一帧才挂载
               <p className="preview-stage__pending">{t('preview.video.loading')}</p>
             ) : mode === 'static' && scene ? (
-              <StaticPreviewView scene={scene} zoom={zoom} markers={settings.preview} onZoom={setZoom} />
+              <StaticPreviewView
+                scene={scene}
+                zoom={zoom}
+                markers={settings.preview}
+                onZoom={setZoom}
+                paintVersion={dataVersion}
+                deferPaint={staticPaintDeferred}
+                onPaintComplete={handleStaticPainted}
+              />
             ) : mode === 'video' && videoScene ? (
               <PreviewVideoStage
                 active={active}
@@ -476,6 +495,14 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               <p className="preview-stage__pending">
                 {t(mode === 'static' ? 'preview.static.empty' : 'preview.video.empty')}
               </p>
+            )}
+            {/* 票 70：数据换代期间盖住保活页的旧画布，直到可见面板分批出完 —— 用户只看见
+                「骨架 → 完整新画面」，不再看见编辑效果一格格被应用、也不吃同步整批出图的卡顿。 */}
+            {staticPaintPending && (
+              <div className="preview-stage__paint-pending" role="status" aria-live="polite">
+                <span className="preview-stage__paint-spinner" aria-hidden="true" />
+                {t('preview.static.loading')}
+              </div>
             )}
             {/* 浮层**不看画面**（issue 12）：谱面没音符时也要有出口 —— 否则全屏下除 Esc 无路可走 */}
             {fullscreen && (

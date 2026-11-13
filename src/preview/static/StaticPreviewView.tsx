@@ -28,7 +28,22 @@ import {
   type PanelPainterFactory,
   type PanelSceneInput,
 } from './panelPainter';
+import { waitForPaint, yieldToMainThread } from './exportPanels';
 import './StaticPreviewView.css';
+
+/**
+ * 票 70：可见面板出图的主线程让出原语（照票 16 `renderSheet` 的口径）。做成可注入是为了让
+ * DOM 锁测能确定性地推进分批，不依赖 jsdom 的 rAF / scheduler。
+ */
+export interface StaticPaintScheduler {
+  waitForPaint: () => Promise<void>;
+  yieldToMainThread: () => Promise<void>;
+}
+
+const DEFAULT_PAINT_SCHEDULER: StaticPaintScheduler = { waitForPaint, yieldToMainThread };
+
+/** 一屏通常 4~6 格：每格让出一次，把「一格直渲」钉成最长单任务（长谱单格可达数十 ms）。 */
+const PAINT_PANEL_CHUNK = 1;
 
 export interface StaticPreviewViewProps {
   /** 要画的谱面（含细分档与作者画布设置）：与导出共用同一份字段定义 */
@@ -43,6 +58,16 @@ export interface StaticPreviewViewProps {
   /** 预览区内 Ctrl/⌘+滚轮调缩放时回传新值（不传 = 该手势不接管，交给浏览器） */
   onZoom?: (zoom: number) => void;
   painterFactory?: PanelPainterFactory;
+  /**
+   * 票 70：调用方按「记录内容换代」给出的版本号。出图完成后原样回传给 `onPaintComplete`，
+   * 调用方据此撤掉覆盖在旧画布上的骨架。放进依赖里，保证版本变了即使画面没变也会确认一次。
+   */
+  paintVersion?: number;
+  /** true = 调用方正在用骨架盖住旧画布：先让出一帧，再逐格让出主线程地出图 */
+  deferPaint?: boolean;
+  onPaintComplete?: (version: number) => void;
+  /** 测试注入（默认票 16 的真实原语） */
+  paintScheduler?: StaticPaintScheduler;
 }
 
 const panelIndexes = (count: number): number[] => Array.from({ length: count }, (_, k) => k);
@@ -53,6 +78,10 @@ export default function StaticPreviewView({
   markers = DEFAULT_PREVIEW_MARKERS,
   onZoom,
   painterFactory,
+  paintVersion = 0,
+  deferPaint = false,
+  onPaintComplete,
+  paintScheduler = DEFAULT_PAINT_SCHEDULER,
 }: StaticPreviewViewProps) {
   const { notes, chartDuration, verticalRatio, settingsDisplay, noteSkin } = scene;
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -230,11 +259,13 @@ export default function StaticPreviewView({
 
   useLayoutEffect(() => {
     // 容器还没测出来（高 0）先不出图：那几张位图既看不见、又会被真实尺寸的画家整批顶掉
-    if (layout.panelCount <= 0 || hostSize.h <= 0) return;
-    for (let k = range.lo; k <= range.hi; k++) {
-      // 同一画家出过就不再出（"只画还没画过的面板"）；换档后画家换代，这里自然重出
-      if (paintedRef.current.get(k) === painter) continue;
-      paintPanel(k);
+    const canPaint = layout.panelCount > 0 && hostSize.h > 0;
+    const pending: number[] = [];
+    if (canPaint) {
+      for (let k = range.lo; k <= range.hi; k++) {
+        // 同一画家出过就不再出（"只画还没画过的面板"）；换档后画家换代，这里自然重出
+        if (paintedRef.current.get(k) !== painter) pending.push(k);
+      }
     }
     // 面板数变少（换了缩放 / 容器变矮）时清掉尾部记账；DOM 槽由 React 收起，连带它的 canvas
     for (const k of [...paintedRef.current.keys()]) {
@@ -243,7 +274,48 @@ export default function StaticPreviewView({
     for (const k of [...canvasesRef.current.keys()]) {
       if (k >= layout.panelCount) canvasesRef.current.delete(k);
     }
-  }, [painter, paintPanel, range.lo, range.hi, layout.panelCount, hostSize.h]);
+
+    // 常态（缩放 / 显示档 / 滚动换代）保持 paint 前同步出图：换代那一帧不能露出旧位图，
+    // 这正是 issue 11 #2 用 useLayoutEffect 的理由，别为了分批把它挪到 paint 之后。
+    if (!deferPaint) {
+      for (const k of pending) paintPanel(k);
+      return;
+    }
+
+    // 票 70：调用方已用骨架盖住旧画布。容器还没测出来时同步 layout 测量会立刻触发重渲，
+    // 真正的出图由那一次接管；这里挂个「只等一帧再确认」的兜底（测量永不来时不能永久盖着），
+    // 且会被下一次 effect 的 cleanup 取消。
+    if (!canPaint) {
+      let cancelled = false;
+      void (async () => {
+        await paintScheduler.waitForPaint();
+        if (!cancelled) onPaintComplete?.(paintVersion);
+      })();
+      return () => { cancelled = true; };
+    }
+    // 记录换了代但 scene 没变（只有元数据变）时就是这个形状：画面已是最新，立即确认。
+    if (pending.length === 0) {
+      onPaintComplete?.(paintVersion);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      // 先让骨架真正画到屏幕上。图集到位引发的 skinVersion 换代会让 painter 变、effect 重跑，
+      // 旧任务在这里被取消，最终确认由最后一次稳定出图发出 —— 不必在这里再等一次图集。
+      await paintScheduler.waitForPaint();
+      if (cancelled) return;
+      for (let i = 0; i < pending.length; i++) {
+        paintPanel(pending[i]);
+        if ((i + 1) % PAINT_PANEL_CHUNK === 0 && i + 1 < pending.length) {
+          await paintScheduler.yieldToMainThread();
+          if (cancelled) return;
+        }
+      }
+      onPaintComplete?.(paintVersion);
+    })();
+    return () => { cancelled = true; };
+  }, [painter, paintPanel, range.lo, range.hi, layout.panelCount, hostSize.h,
+      paintVersion, deferPaint, onPaintComplete, paintScheduler]);
 
   // ---------------- hover：把指针 y 交给渲染域，横线与两侧读数由它画（同一口径） ----------------
   const handleHoverMove = useCallback((panelIndex: number, event: React.MouseEvent<HTMLDivElement>) => {

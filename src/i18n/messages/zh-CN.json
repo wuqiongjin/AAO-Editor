@@ -537,6 +537,7 @@
   "preview.static.aria": "静态预览面板折行（横向滚动）",
   "preview.static.panel.aria": "面板 {{index}}：{{from}} – {{to}}",
   "preview.static.empty": "这张谱面还没有音符，先画出来再回来看全景。",
+  "preview.static.loading": "正在更新谱面全景…",
   "preview.static.zoom": "缩放",
   "preview.static.zoomHint": "Ctrl/⌘ + 滚轮同款",
   "preview.display.open": "设置",
