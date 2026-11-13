@@ -350,8 +350,14 @@ describe('chart-preview 02 · 预览页的作用域（工程 + 谱面）', () =>
     expect(staticBtn).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '动态预览' })).toHaveAttribute('aria-pressed', 'false');
 
-    // 切到动态预览：这一屏的形态跟着走
+    // 切到动态预览（票 69）：先让加载态 / 骨架画出来，再挂载仿真场。
+    // 同步 setMode 会把长谱派生挤在按钮那一帧里 ⇒ 点完当帧形态不得已经翻转。
     fireEvent.click(screen.getByRole('button', { name: '动态预览' }));
-    expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video');
+    expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('static');
+    expect(screen.getByRole('button', { name: '动态预览' })).toHaveAttribute('aria-pressed', 'false');
+
+    // 等过一帧：形态才跟着走，且按钮的当选态同步
+    await waitFor(() => expect(document.querySelector('.preview-stage')?.getAttribute('data-mode')).toBe('video'));
+    expect(screen.getByRole('button', { name: '动态预览' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

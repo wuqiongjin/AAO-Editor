@@ -266,8 +266,10 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   // 点取消的输入事件要排到它结束才被派发，取消就落到了下一个阶段。
   await yieldToMainThread();
   if (cancelled()) return done({ ok: true, cancelled: true });
-  const chart = buildSimChart(req.scene, noteIcons);
-  const keyEvents = buildKeyEvents(req.scene.notes, req.scene.beatDisplay, getBpmEvents(req.scene.notes));
+  // 票 69：BPM 事件只从谱面提取一次，画面派生与键音事件表共用
+  const bpmEvents = getBpmEvents(req.scene.notes);
+  const chart = buildSimChart(req.scene, noteIcons, bpmEvents);
+  const keyEvents = buildKeyEvents(req.scene.notes, req.scene.beatDisplay, bpmEvents);
   if (cancelled()) return done({ ok: true, cancelled: true });
   let bgm: AudioBuffer | null = null;
   if (req.audio && !req.muted) {

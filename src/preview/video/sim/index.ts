@@ -18,10 +18,12 @@ export {
 } from './simGeometry';
 export {
   buildSimChart,
+  buildSimChartInChunks,
   drawSimFrameAt,
   simComboAt,
   type SimBand,
   type SimChart,
+  type SimChartChunkOptions,
   type SimElement,
   type SimFrameAssets,
   type SimFrameInput,

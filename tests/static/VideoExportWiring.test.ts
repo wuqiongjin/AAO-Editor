@@ -72,7 +72,7 @@ describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）
   });
 
   it('编排层用 05 的谱面派生表（buildSimChart），不自己把谱面折成元素', () => {
-    expect(exportVideo).toMatch(/buildSimChart\(req\.scene, noteIcons\)/);
+    expect(exportVideo).toMatch(/buildSimChart\(req\.scene, noteIcons, bpmEvents\)/);
     expect(exportVideo).not.toMatch(/type: 'Single'/);
   });
 
@@ -84,7 +84,10 @@ describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）
 
 describe('07 · 离线音轨不另立音量 / 调度口径', () => {
   it('事件表由编排层用 AudioTiming.buildKeyEvents 建（与引擎 setChart 同源）', () => {
-    expect(exportVideo).toMatch(/buildKeyEvents\(req\.scene\.notes, req\.scene\.beatDisplay, getBpmEvents\(req\.scene\.notes\)\)/);
+    // 票 69：BPM 事件只提取一次，画面派生与键音表共用（不再各扫一遍谱面）
+    expect(exportVideo).toMatch(/const bpmEvents = getBpmEvents\(req\.scene\.notes\)/);
+    expect(exportVideo.match(/getBpmEvents\(/g)).toHaveLength(1);
+    expect(exportVideo).toMatch(/buildKeyEvents\(req\.scene\.notes, req\.scene\.beatDisplay, bpmEvents\)/);
   });
 
   it('采样加载与发声都从 audio/keySoundSamples 来（不写第二份包络 / 取文件规则）', () => {

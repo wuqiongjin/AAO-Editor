@@ -6,7 +6,7 @@
 //   同刻不同采样的 1/√N 响度归一系数也随事件表算好，本层只透传（issue 231 后续修订）
 // - 双时钟（ADR-0004 §2）：有音频 = AudioContext 时间线；无音频 = performance.now + RAF 合成时间线，照常"播放谱面"
 import type { ChartNote } from '../chart/types';
-import { getBpmEvents, buildKeyEvents, type KeySoundEvent } from './AudioTiming';
+import { getBpmEvents, buildKeyEvents, type BpmEvent, type KeySoundEvent } from './AudioTiming';
 import { loadKeySoundSet, type KeySoundSet, type KeySoundKind } from './KeySound';
 // chart-preview 07：采样加载与发声已抽到 `keySoundSamples`（离线音轨要用同一份口径），
 // 本引擎只是它的一个消费方 —— 键音的音量 / 包络 / 采样路径解析都不在这里定义
@@ -411,9 +411,11 @@ export class AudioEngine {
     }
   }
 
-  /** 依赖音：同步最新的按键事件（谱面编辑/BPM 变化时调用） */
-  setChart(notes: ChartNote[], beatDisplay: number): void {
-    const bpmEvents = getBpmEvents(notes);
+  /**
+   * 依赖音：同步最新的按键事件（谱面编辑/BPM 变化时调用）。
+   * 票 69：`bpmEvents` 可由画面派生层传同一份（缺省才自己从 notes 提取）。
+   */
+  setChart(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[] = getBpmEvents(notes)): void {
     this.keyEvents = buildKeyEvents(notes, beatDisplay, bpmEvents);
     this.cancelScheduled();
     this.rewindKeyIndex();

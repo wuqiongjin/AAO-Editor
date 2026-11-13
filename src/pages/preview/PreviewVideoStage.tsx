@@ -9,6 +9,7 @@
 //     + 进度（可拖）+ 音量；倍速（`src/playback/PlaybackRate`，58 起两处共用）接 `rateSlot`，
 //     值读共享单点 `usePlaybackRate`。空格由本层挂着的 `useShortcutDispatch` 页面级接管（只认 play，Q2）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { getBpmEvents, type BpmEvent } from '../../audio/AudioTiming';
 import type { AppSettings } from '../../settings/AppSettings';
 import { formatKey, type FunctionId, type ShortcutConfig } from '../../settings/ShortcutConfig';
 import { useShortcutDispatch } from '../../settings/useShortcutDispatch';
@@ -24,15 +25,17 @@ import {
 } from '../../playback/playbackShortcuts';
 import { PLAYBACK_HUD_PERIOD_MS } from '../../playback/usePlaybackCoordinator';
 import { resolveCanvasDpr } from '../../rendering';
-import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '../../rendering/skin/noteSkin';
+import { buildActiveNoteIcons, normalizeNoteSkinSelection, type ActiveNoteIcons } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import { prepareSimNoteSprites } from '../../preview/video/sim/prepareSimNoteSprites';
 import {
-  buildSimChart,
+  buildSimChartInChunks,
   createSimPlayback,
   fitDesignSurface,
   loadSimAssets,
+  yieldToMainThread,
   type SimAssets,
+  type SimChart,
   type SimFrameInput,
   type SimPlayback,
   type SimPlaybackAudio,
@@ -44,6 +47,14 @@ import {
  * 不吞浏览器键（引用稳定）。倍速 / 音量在这页也必须有反应 —— 状态与工作台同源，按了没用会被当成坏掉。
  */
 const PLAY_ONLY: readonly FunctionId[] = ['play', ...PLAYBACK_SHORTCUT_IDS];
+
+/** 票 69：异步派生的结果连带它属于哪份 scene / 皮肤，避免拿到过期表还往回放里推 */
+interface DerivedChart {
+  scene: SimScene;
+  noteIcons: ActiveNoteIcons;
+  chart: SimChart;
+  bpmEvents: BpmEvent[];
+}
 
 export interface PreviewVideoStageProps {
   /**
@@ -122,6 +133,8 @@ export default function PreviewVideoStage({
 
   const noteIcons = useMemo(() => buildActiveNoteIcons(normalizeNoteSkinSelection(noteSkin)), [noteSkin]);
   const [preparedIcons, setPreparedIcons] = useState<typeof noteIcons | null>(null);
+  /** 票 69：谱面派生表异步进场 —— 首帧不再被 O(notes) 的同步派生压住 */
+  const [derived, setDerived] = useState<DerivedChart | null>(null);
   // 实时画布位图密度：画布那套口径（min(设备像素比, 档位)）——逐帧直绘，不叠超采样；
   // 导出侧的固定档由 07 显式给，不跟这里走
   const density = resolveCanvasDpr(imageQuality);
@@ -154,8 +167,21 @@ export default function PreviewVideoStage({
     return () => { cancelled = true; };
   }, [noteIcons, scene?.fieldPackId, scene?.bgPackId]);
 
-  // 谱面 → 仿真场派生表（元素 / 带体 / 同时点击线 / combo 时刻）
-  const chart = useMemo(() => buildSimChart(scene, noteIcons), [scene, noteIcons]);
+  // 谱面 → 仿真场派生表（元素 / 带体 / 同时点击线 / combo 时刻）。
+  // 票 69：不再用同步 useMemo —— 挪到 effect 里分批 yieldToMainThread()，让骨架 /「正在读取场地素材…」
+  // 先画出来，长谱派生期间导航、缩放仍可点。BPM 事件只提取一次，画面派生与键音事件表共用。
+  useEffect(() => {
+    let cancelled = false;
+    const bpmEvents = getBpmEvents(scene.notes);
+    void buildSimChartInChunks(scene, noteIcons, {
+      bpmEvents,
+      yieldNow: yieldToMainThread,
+      isCancelled: () => cancelled,
+    }).then((next) => {
+      if (!cancelled && next) setDerived({ scene, noteIcons, chart: next, bpmEvents });
+    });
+    return () => { cancelled = true; };
+  }, [scene, noteIcons]);
 
   // ---------------- 量舞台（jsdom 无布局：ResizeObserver 缺席时靠挂载 / resize 两条同步路径） ----------------
   const syncFromHost = useCallback(() => {
@@ -184,6 +210,11 @@ export default function PreviewVideoStage({
     [hostSize.w, hostSize.h],
   );
   const ready = metrics != null && assets != null && !assets.missing && preparedIcons === noteIcons;
+  // 票 69：派生表没到齐就别把空白画布顶上来（否则加载态会在还没画面时先消失）。
+  // `ready` 本身保持票 05 / 68 的门禁不动，只在它的下游追加「派生表到了」这一条。
+  const chartReady = derived != null;
+  const stageReady = ready && chartReady;
+  const frameReady = ready && derived?.scene === scene && derived?.noteIcons === noteIcons;
 
   const onSecondsChangeRef = useRef(onSecondsChange);
   onSecondsChangeRef.current = onSecondsChange;
@@ -192,7 +223,7 @@ export default function PreviewVideoStage({
   useEffect(() => {
     const canvas = canvasRef.current;
     const currentAssets = assets;
-    if (!ready || !canvas || !currentAssets) return;
+    if (!stageReady || !canvas || !currentAssets) return;
     let lastHudCommitMs = -Infinity;
     let lastPlaying = false;
     let latestSeconds = initialSeconds ?? 0;
@@ -234,18 +265,19 @@ export default function PreviewVideoStage({
       pb.dispose();
     };
     // 只有音频身份与素材进场会重建引擎：keySetId / seVolume / density 走下面的 setOptions
+    // stageReady 是布尔量（派生表首次到位才翻一次），换谱面重新派生不会重建引擎 / 重载音频
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟「音频身份 + 素材进场」：别的旋钮走 setOptions，重建就要重载音频
-  }, [ready, audio, assets]);
+  }, [stageReady, audio, assets]);
 
   // 引擎侧 / 画布侧的旋钮：不重建引擎（重建一次就要把音频重新解码）
   useEffect(() => {
     playbackRef.current?.setOptions({ density, seVolume, keySetId, volume, rate });
-  }, [density, seVolume, keySetId, volume, rate, ready]);
+  }, [density, seVolume, keySetId, volume, rate, stageReady]);
 
   // 谱面长度变化（切谱面 / 换工程）
   useEffect(() => {
     playbackRef.current?.setDuration(duration);
-  }, [duration, ready]);
+  }, [duration, stageReady]);
 
   // 谱面音符内容变化（工作台改谱 / 换谱面代码 / 切谱面）：重置回 00:00:0 并暂停
   const prevNotesRef = useRef(scene.notes);
@@ -267,15 +299,24 @@ export default function PreviewVideoStage({
     if (!active) playbackRef.current?.pause();
   }, [active]);
 
-  // 一帧输入：谱面 / 设置 / 场地尺寸 / 素材任一变化都重推（内部按需重建键音事件表并立即重画）
+  // 一帧输入：谱面 / 设置 / 场地尺寸 / 素材任一变化都重推（内部按需重建键音事件表并立即重画）。
+  // frameReady 还钉住「派生表属于当前 scene / 皮肤」：换谱面重新派生那几帧不推过期的表。
   useEffect(() => {
     const pb = playbackRef.current;
     const spriteIcon = spriteIconRef.current;
-    if (!pb || !spriteIcon || !assets || !metrics || assets.missing) return;
-    const input: SimFrameInput = { chart, scene, metrics, assets, noteIcons, spriteIcon };
+    if (!pb || !frameReady || !derived || !spriteIcon || !assets || !metrics || assets.missing) return;
+    const input: SimFrameInput = {
+      chart: derived.chart,
+      scene,
+      metrics,
+      assets,
+      noteIcons,
+      spriteIcon,
+      bpmEvents: derived.bpmEvents,
+    };
     pb.setFrame(input);
     // skinVersion 是"图集到位"的信号：它不进 input，但要触发重推（暂停态那帧是缺图画的）
-  }, [chart, scene, metrics, assets, noteIcons, skinVersion, ready]);
+  }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready]);
 
   const togglePlay = useCallback(() => playbackRef.current?.toggle(), []);
   const seekTo = useCallback((seconds: number) => {
@@ -319,7 +360,7 @@ export default function PreviewVideoStage({
       {/* 量尺那一层**恒在**：场地尺寸靠它测出来，若"还没测量"就不渲染它，就永远测不出来
           （loading 那一下是叠在场地层里的，不是另一套骨架） */}
       <div className="pv-field" ref={fieldRef}>
-        {ready && metrics ? (
+        {stageReady && metrics ? (
           <canvas
             ref={canvasRef}
             className="pv-field__canvas"

@@ -20,12 +20,13 @@ describe('issue 231 · 三条链路共用一份发声计划表', () => {
   it('buildKeyEvents 只在 AudioTiming 定义一次，实时与导出都调它', () => {
     expect(timing).toMatch(/export function buildKeyEvents\(/);
     expect(engine).toMatch(/this\.keyEvents = buildKeyEvents\(notes, beatDisplay, bpmEvents\)/);
-    expect(exportVideo).toMatch(/buildKeyEvents\(req\.scene\.notes, req\.scene\.beatDisplay, getBpmEvents\(req\.scene\.notes\)\)/);
+    expect(exportVideo).toMatch(/buildKeyEvents\(req\.scene\.notes, req\.scene\.beatDisplay, bpmEvents\)/);
     expect(exportVideo).not.toMatch(/function buildKeyEvents/);
   });
 
   it('仿真场经 engine.setChart 复用实时事件表，画面侧也不另建表', () => {
-    expect(simPlayback).toMatch(/engine\.setChart\(notes, beatDisplay\)/);
+    // 票 69：第三参是画面派生层同一份 BPM 事件（省略时引擎自己提取）
+    expect(simPlayback).toMatch(/engine\.setChart\(notes, beatDisplay, input\.bpmEvents\)/);
     expect(simPlayback).not.toMatch(/buildKeyEvents\(/);
     expect(simField).not.toMatch(/buildKeyEvents\(/);
   });

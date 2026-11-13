@@ -131,7 +131,8 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     if (fedNotes === notes && fedBeatDisplay === beatDisplay) return;
     fedNotes = notes;
     fedBeatDisplay = beatDisplay;
-    engine.setChart(notes, beatDisplay);
+    // 票 69：键音表复用画面派生同一份 BPM 事件（缺省时引擎自己从 notes 提取）
+    engine.setChart(notes, beatDisplay, input.bpmEvents);
   }
 
   function render(): void {

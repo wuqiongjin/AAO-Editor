@@ -38,6 +38,16 @@ export function beatToSeconds(events: BpmEvent[], beat: number): number {
   return secondsTimeline(events).positionOfBeat(beat);
 }
 
+/**
+ * 同一份 BPM 事件上**复用一条时间线**做多次 beat→秒 换算（票 69）。
+ * `beatToSeconds` 每次调用都会新建 `BpmTimeline`（构造是 O(BPM 段数)）：长谱派生逐音符、
+ * 键音事件表逐结点调用就成了 O(n × BPM 段)。整轮派生只调一次本函数，之后逐次查询是 O(log BPM)。
+ */
+export function beatSecondsAt(events: BpmEvent[]): (beat: number) => number {
+  const timeline = secondsTimeline(events);
+  return (beat: number) => timeline.positionOfBeat(beat);
+}
+
 /** 秒 → beat：**最大 beat 解**（倒流区里同一秒有多解的默认口径，ADR-0010 结论 5） */
 export function secondsToBeat(events: BpmEvent[], seconds: number): number {
   return secondsTimeline(events).maxBeatSolutionOf(seconds).beat;
@@ -128,9 +138,11 @@ export function maxNoteEndSeconds(notes: ChartNote[], beatDisplay: number, bpmEv
 
 export function buildKeyEvents(notes: ChartNote[], beatDisplay: number, bpmEvents: BpmEvent[]): KeySoundEvent[] {
   const out: KeySoundEvent[] = [];
+  // 票 69：整张表只用一条时间线（逐结点 new BpmTimeline 是首帧的 CPU 热点之一）
+  const secondsOf = beatSecondsAt(bpmEvents);
   const push = (beat: number, kind: KeySoundEvent['kind'], subBeat?: number, tier?: number) => {
     const preciseBeat = beat + (subBeat ?? 0) / beatDisplay;
-    out.push({ time: beatToSeconds(bpmEvents, preciseBeat), kind, tier });
+    out.push({ time: secondsOf(preciseBeat), kind, tier });
   };
   for (const note of notes) {
     switch (note.type) {

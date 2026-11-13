@@ -31,7 +31,7 @@ import { dirSideOf, singleIconConfig, slideNodeIconConfig, type IconChoiceCtx } 
 import type { ActiveNoteIcons } from '../../../rendering/skin/noteSkin';
 import type CanvasSpriteIcon from '../../../ui/CanvasSpriteIcon';
 import type { SpriteIconConfig } from '../../../ui/CanvasSpriteIcon';
-import { beatToSeconds, getBpmEvents, type BpmEvent } from '../../../audio/AudioTiming';
+import { beatSecondsAt, getBpmEvents, type BpmEvent } from '../../../audio/AudioTiming';
 import type { KeySoundKind } from '../../../audio/KeySound';
 import {
   APPROACH,
@@ -224,6 +224,8 @@ export interface SimFrameInput {
   assets: SimFrameAssets;
   noteIcons: ActiveNoteIcons;
   spriteIcon: CanvasSpriteIcon;
+  /** 票 69：与画面派生共用同一份 BPM 事件（键音事件表不再自己扫一遍谱面） */
+  bpmEvents?: BpmEvent[];
   /**
    * 带体光栅比例（票 66）：离线导出显式固定 1；实时省略时固定 0.5。
    * 覆盖面积 LOD 漏算整图清零 / 复制 / 回写，真实谱全屏超预算仍不降档，已撤下。
@@ -234,17 +236,35 @@ export interface SimFrameInput {
 
 // ---------------------------------------------------------------- 谱面派生
 
-/** 谱面 → 仿真场元素表（纯函数；实时回放与离线导出共用同一份） */
-export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimChart {
+/**
+ * 分批派生的块大小（票 69）：每处理这么多条音符 / combo 结点让出一次主线程。
+ * 取 1024：复用一条时间线后每块只有 1~2ms 的纯 JS 活，长谱（1.2 万音符）也就十余次让出；
+ * 块太小会让 setTimeout(0) 的嵌套钳制（4ms）盖过派生本身，反而拖长切换。
+ */
+export const SIM_CHART_CHUNK_NOTES = 1024;
+
+/**
+ * 谱面 → 仿真场元素表，**可分批驱动**的唯一实现（票 69；实时回放与离线导出共用）。
+ * 派生本身仍是纯逻辑：只在块边界 `yield`，同步消费方一口气跑到 done；实时预览在每个
+ * yield 处让出主线程 ⇒ 长谱派生不再挤成一整段长任务。BPM 事件由调用方给（与键音
+ * 事件表共用一份），整轮只构造一条 `BpmTimeline`（旧的逐音符 `beatToSeconds` 每次都 new）。
+ */
+export function* buildSimChartSteps(
+  scene: SimScene,
+  noteIcons: ActiveNoteIcons,
+  bpmEvents: BpmEvent[],
+  chunkNotes: number = SIM_CHART_CHUNK_NOTES,
+): Generator<void, SimChart, void> {
   const { notes, beatDisplay, mirror } = scene;
-  const bpmEvents: BpmEvent[] = getBpmEvents(notes);
+  const chunk = Math.max(1, Math.floor(chunkNotes));
   const iconCtx: IconChoiceCtx = {
     noteIcons,
     beatDisplay,
     display: { colorAssist: scene.colorAssist, mirror },
   };
+  const secondsOf = beatSecondsAt(bpmEvents);
   const secondsAt = (beat: number, subBeat?: number): number =>
-    beatToSeconds(bpmEvents, trueBeat(beat, subBeat, beatDisplay));
+    secondsOf(trueBeat(beat, subBeat, beatDisplay));
 
   const elements: SimElement[] = [];
   const bands: SimBand[] = [];
@@ -261,9 +281,9 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
     else groups.set(key, [lane]);
   };
 
-  for (const note of notes as ChartNote[]) {
+  const addNote = (note: ChartNote): void => {
     if (note.type === 'Single') {
-      if (note.beat < 0) continue; // ADR-0014：负 beat 不渲染
+      if (note.beat < 0) return; // ADR-0014：负 beat 不渲染
       const lane = mirrorLane(note.lane, mirror);
       elements.push({
         time: secondsAt(note.beat, note.subBeat),
@@ -276,11 +296,11 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
         flickDecorator: note.flick === true,
       });
       addToGroup(trueBeat(note.beat, note.subBeat, beatDisplay), lane);
-      continue;
+      return;
     }
 
     if (note.type === 'LDirectional' || note.type === 'RDirectional') {
-      if (note.beat < 0) continue;
+      if (note.beat < 0) return;
       // 镜向 = 锚点轨对调 + 侧别翻面（`dirSideOf` 与编辑器同一份规则，别再自己取反一次）
       const side = dirSideOf(iconCtx, note.type === 'LDirectional');
       const lane = mirrorLane(note.lane, mirror);
@@ -297,14 +317,14 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
         flickDecorator: false,
       });
       addToGroup(trueBeat(note.beat, note.subBeat, beatDisplay), lane);
-      continue;
+      return;
     }
 
     if (note.type === 'Slide' || note.type === 'Long') {
       const conns = (note as SlideNote).connections;
       // 显示投影（ADR-0009 §2.2）：稳定排序 + 掐首尾 hidden；带体与端点身份都按它
       const projected: ConnectionNote[] = displayConnections(conns).conns;
-      if (projected.length === 0) continue; // 全 hidden：画布上没有任何效果（数据保留）
+      if (projected.length === 0) return; // 全 hidden：画布上没有任何效果（数据保留）
       const slide = slideSeq++;
       const sp = slideUsesSpBand(conns);
       const lastIdx = projected.length - 1;
@@ -341,11 +361,17 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
           sp,
         });
       }
-      continue;
+      return;
     }
     // BPM / System / Opaque：不渲染不发声（与编辑器同口径）
+  };
+
+  for (let i = 0; i < notes.length; i++) {
+    addNote(notes[i] as ChartNote);
+    if ((i + 1) % chunk === 0) yield;
   }
 
+  yield; // 排序是同步长活：让出一拍再开始
   elements.sort((a, b) => a.time - b.time);
   // bands **不排序**：谱面数组序就是绘制序（后放置者在上，与画布 `renderNotes` 同口径）；
   // 同一条滑条的段天然连续，`drawBands` 按 `slide` 分组时不必再找回来。
@@ -355,18 +381,66 @@ export function buildSimChart(scene: SimScene, noteIcons: ActiveNoteIcons): SimC
     .map(([beat, lanes]) => ({ time: secondsAt(beat), lanes: [...lanes].sort((a, b) => a - b) }))
     .sort((a, b) => a.time - b.time);
 
+  // combo 走**画布那份枚举**（单键/方向键各 1、滑条逐非 hidden 结点），不是键音事件表：
+  // `beat < 0` 的击打物不键音、但开播即已过线要计 combo（负 beat 击打物，ADR-0014）。
+  // 按拍枚举 → 折成秒 → 按**播放时钟**排序（倒流区里拍序与秒序不一致）。
+  const hitTimes: number[] = [];
+  const comboBeats = comboNodePreciseBeats(notes, beatDisplay);
+  for (let i = 0; i < comboBeats.length; i++) {
+    hitTimes.push(secondsOf(comboBeats[i]!));
+    if ((i + 1) % chunk === 0) yield;
+  }
+  hitTimes.sort((a, b) => a - b);
+
   return {
     approachS: approachSeconds(scene.noteSpeed),
     elements,
     bands,
     simultaneous,
-    // combo 走**画布那份枚举**（单键/方向键各 1、滑条逐非 hidden 结点），不是键音事件表：
-    // `beat < 0` 的击打物不键音、但开播即已过线要计 combo（负 beat 击打物，ADR-0014）。
-    // 按拍枚举 → 折成秒 → 按**播放时钟**排序（倒流区里拍序与秒序不一致）。
-    hitTimes: comboNodePreciseBeats(notes, beatDisplay)
-      .map((beat) => beatToSeconds(bpmEvents, beat))
-      .sort((a, b) => a - b),
+    hitTimes,
   };
+}
+
+/** 谱面 → 仿真场元素表（纯函数；实时回放与离线导出共用同一份） */
+export function buildSimChart(
+  scene: SimScene,
+  noteIcons: ActiveNoteIcons,
+  bpmEvents: BpmEvent[] = getBpmEvents(scene.notes),
+): SimChart {
+  const steps = buildSimChartSteps(scene, noteIcons, bpmEvents);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+export interface SimChartChunkOptions {
+  /** 让出一拍主线程（复用导出侧 `yieldToMainThread`） */
+  yieldNow: () => Promise<void>;
+  /** 这一轮派生已作废（切谱面 / 换皮肤 / 卸载）⇒ 结果丢弃 */
+  isCancelled?: () => boolean;
+  /** 调用方已算好的 BPM 事件（与键音事件表共用一份，票 69） */
+  bpmEvents?: BpmEvent[];
+  /** 覆盖默认块大小（单测可传小值验证分片） */
+  chunkNotes?: number;
+}
+
+/** 分批派生：块间让出主线程；作废时返回 null（票 69，实时预览走这条） */
+export async function buildSimChartInChunks(
+  scene: SimScene,
+  noteIcons: ActiveNoteIcons,
+  opts: SimChartChunkOptions,
+): Promise<SimChart | null> {
+  const steps = buildSimChartSteps(
+    scene, noteIcons, opts.bpmEvents ?? getBpmEvents(scene.notes), opts.chunkNotes,
+  );
+  let step = steps.next();
+  while (!step.done) {
+    if (opts.isCancelled?.()) return null;
+    await opts.yieldNow();
+    if (opts.isCancelled?.()) return null;
+    step = steps.next();
+  }
+  return step.value;
 }
 
 /** 该秒的 combo 数（口径见 `SimChart.hitTimes`；二分，不每次全量扫） */

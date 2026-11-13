@@ -62,6 +62,10 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   const { settings, setAudioVolume, setExport } = useConfig();
   const { beatDisplay } = useUI();
   const [mode, setMode] = useState<PreviewMode>('static');
+  /** 票 69：切动态形态前先让加载态 / 骨架画出来，再挂载仿真场 */
+  const [pendingMode, setPendingMode] = useState<PreviewMode | null>(null);
+  /** 等待那一帧里连点 / 点回静态：只有最后一次点按的令牌有权落地 */
+  const switchTokenRef = useRef(0);
   const { scopeId, currentId, project, options, loading, chartId, pickChart } = usePreviewScope(active);
 
   // 这一屏在看的那张谱面（渲染只读它：预览不改谱面，也不进编辑会话）
@@ -311,6 +315,31 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
     }
   }, [scene, chart, exporting, project, settings.export]);
 
+  /**
+   * 票 69：切到动态形态会挂载仿真场，首帧那段谱面派生 / 首帧光栅是同步长活。
+   * 先把舞台的加载态提交并真正画出来（`waitForPaint` = rAF + 帧后宏任务），再 setMode；
+   * 静态形态没有这一步，直接切。连点由 ref 挡住，不会排起两轮形态切换。
+   */
+  const switchMode = useCallback((next: PreviewMode) => {
+    if (next === mode && pendingMode == null) return;
+    const token = ++switchTokenRef.current;
+    if (next === 'static') {
+      // 等待那一帧里点回静态：连加载态一起收掉，旧的异步切换作废
+      setPendingMode(null);
+      setMode('static');
+      return;
+    }
+    setPendingMode(next);
+    void (async () => {
+      try {
+        await waitForPaint();
+        if (switchTokenRef.current === token) setMode(next);
+      } finally {
+        if (switchTokenRef.current === token) setPendingMode(null);
+      }
+    })();
+  }, [mode, pendingMode]);
+
   return (
     // 票 10：自渲染全幅壳（页头 → 工具栏 → 舞台），把宽高让给画面；
     // 原左侧模式侧栏随之撤销，模式切换升为页头（2026-10-02 用户验收）。
@@ -327,7 +356,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
               type="button"
               className={`preview-modes__btn${mode === m.id ? ' is-active' : ''}`}
               aria-pressed={mode === m.id}
-              onClick={() => setMode(m.id)}
+              onClick={() => void switchMode(m.id)}
             >
               <m.icon size={18} aria-hidden />
               {t(m.labelKey)}
@@ -419,7 +448,10 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
             className={`preview-stage${(mode === 'static' && scene) || (mode === 'video' && videoScene) ? ' is-filled' : ''}`}
             data-mode={mode}
           >
-            {mode === 'static' && scene ? (
+            {pendingMode === 'video' && videoScene ? (
+              // 票 69：切形态那一帧先见加载态，仿真场（及其谱面派生）在下一帧才挂载
+              <p className="preview-stage__pending">{t('preview.video.loading')}</p>
+            ) : mode === 'static' && scene ? (
               <StaticPreviewView scene={scene} zoom={zoom} markers={settings.preview} onZoom={setZoom} />
             ) : mode === 'video' && videoScene ? (
               <PreviewVideoStage
