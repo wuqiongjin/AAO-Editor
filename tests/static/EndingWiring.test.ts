@@ -1,7 +1,7 @@
 // chart-preview 52 落点锁：结尾段（中央章 → 黑幕转场 → 结算）的**接线事实**。
 //
 // 手法照 VideoExportWiring.test.ts：读源码做字符串断言。锁的是票面 / 交接文档里的硬约定：
-//   ① 结尾段是**纯后置**（开场 5.0 若开 + 谱面 + 7.5），音轨一样长（短了音画错位）；
+//   ① 结尾段是**纯后置**（开场 6.75 若开 + 前导 + 谱面 + 7.5），音轨一样长（短了音画错位）；
 //   ② 章铺**仿真场末帧**（不是原型那种 bgskin cover 裁切），UI 画在**整帧**上；
 //   ③ 缺游戏素材 = 留空 / 纯字，**不画假徽章**；AP / FC 各有**两套**材质（章用大的、结算用小的）；
 //   ④ 只在导出里演（实时预览不接后置段），导出弹窗有「结尾画面」组（总开关 + 三档形态下拉）；
@@ -43,10 +43,10 @@ describe('52 · 结尾段是纯后置（不占谱面时间、不与谱面重叠�
     );
   });
 
-  it('导出总长 = 开场（若开）+ 谱面 + 结尾；关掉结尾就回到旧行为', () => {
+  it('导出总长 = 开场 + 前导 + 谱面 + 结尾；关掉结尾不减前导', () => {
     expect(exportVideo).toMatch(/req\.ending \? ENDING_SECONDS : 0/);
     expect(exportVideo).toMatch(
-      /buildExportTimeline\(\s*\n?\s*req\.durationSeconds \+ openingSeconds \+ endingSeconds/,
+      /buildExportTimeline\(\s*\n?\s*req\.durationSeconds \+ simStartSeconds \+ endingSeconds/,
     );
   });
 
@@ -62,7 +62,7 @@ describe('52 · 两端的声（开场人潮 / 结尾章双声）', () => {
 
   it('编排层组装两张 cue 表：开场人潮 + 结尾章', () => {
     expect(exportVideo).toMatch(/openingSfxCues\(openingSeconds\)/);
-    expect(exportVideo).toMatch(/endingSfxCues\(openingSeconds \+ req\.durationSeconds, req\.ending\.stamp\)/);
+    expect(exportVideo).toMatch(/endingSfxCues\(simStartSeconds \+ req\.durationSeconds, req\.ending\.stamp\)/);
     expect(exportVideo).toMatch(/sfx,/);
     expect(renderAudio).toMatch(/req\.sfx/);
   });
@@ -98,7 +98,7 @@ describe('52 · 章的背景 = 仿真场末帧（不照搬原型的 bgskin 裁�
       /drawEndingFrameAt\(ctx, geometry\.width, geometry\.height, ending, t - endingAt\)/,
     );
     // 谱面段仍是 05 的同一份出帧（encode/ 里 `drawSimFrameAt` 仍只有一处）
-    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - \(req\.openingSeconds \?\? 0\)\)/);
+    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha \}\)/);
   });
 
   it('结尾层的舞台直接调 drawSimFrameAt 画谱面末帧（同一份渲染真相）', () => {

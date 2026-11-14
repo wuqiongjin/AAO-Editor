@@ -2,7 +2,7 @@
 //
 // 三件事在这里定死，别散落到绘制 / 编码里：
 //   ① **开场人潮**：开场段第 0 秒起播 `SE_RHYTHM_GAYA`（游戏里就是这样），到开场段结束
-//      （= BGM 起那刻）淡出掐掉 —— 绝不串进谱面段。
+//      淡出掐掉 —— 票 74 起后面是**静音前导段**，BGM 在 `simStartSeconds` 才起，人潮不跟着延长。
 //   ② **结尾章的声**：两层**同起**在结尾段 `t=0`（章开始入场那一拍）——
 //      固定一层 `SE_RHYTHM_CLEAR_VO`（人声），另一层按结算形态选：
 //      CLEAR → `SE_RHYTHM_CLEAR`、FC / AP → `SE_RHYTHM_FULLCOMBO`。
@@ -31,7 +31,7 @@ export interface SfxCue {
   fadeOut?: number;
 }
 
-/** 开场人潮（7.11s；开场段 6.75s ⇒ 靠 `endAt` + `fadeOut` 收在 BGM 起点） */
+/** 开场人潮（7.11s；开场段 6.75s ⇒ 靠 `endAt` + `fadeOut` 收在开场段末尾） */
 export const OPENING_CROWD_SFX = 'SE_RHYTHM_GAYA';
 /** 开场人潮的淡入 / 淡出（淡出必须落在开场段末尾：用户要求"快结束时音量递减"） */
 export const OPENING_CROWD_FADE_IN = 0.05;
@@ -67,7 +67,7 @@ export function openingSfxCues(openingSeconds: number): SfxCue[] {
   ];
 }
 
-/** 结尾章的声：`atSeconds` = 谱面结束那一刻（结尾段 t=0）；`clear` 也是两层（用户拍板） */
+/** 结尾章的声：`atSeconds` = 谱面结束那一刻（结尾段 t=0 = 前导后的谱面起点 + 谱面时长）；`clear` 也是两层（用户拍板） */
 export function endingSfxCues(atSeconds: number, stamp: EndingStamp): SfxCue[] {
   const bed = stamp === 'fc' || stamp === 'ap' ? ENDING_FULLCOMBO_SFX : ENDING_CLEAR_SFX;
   return [

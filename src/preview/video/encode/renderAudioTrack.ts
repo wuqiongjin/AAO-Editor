@@ -22,10 +22,15 @@ export interface AudioTrackRequest {
   /** 谱面长度（秒，ADR-0005） */
   durationSeconds: number;
   /**
-   * 开场段长度（秒，chart-preview 30）：`> 0` = 轨长 = 它 + 谱面长度，BGM 从它起、
-   * 键音事件整体 + 它 ⇒ 谱面 0 秒落在开场段结束那刻（开场段无 BGM / 无键音）。
+   * 开场段长度（秒，chart-preview 30）：票 74 起**只作旧调用方的回落**——开场人潮在这段末尾收，
+   * 之后是静音前导段，BGM 不再从这里起。
    */
   openingSeconds?: number;
+  /**
+   * 谱面 0 秒在整条音轨的绝对秒（票 74）= 开场段 + 前导补偿。
+   * BGM `start()`、键音偏移与轨长都按它算；不给时回落到 `openingSeconds`。
+   */
+  simStartSeconds?: number;
   /**
    * 结尾段长度（秒，chart-preview 52）：`> 0` = 轨长在谱面之后再留这一段
    * （这段的**声**由 `sfx` 给；轨长必须与视频等长，否则封装时音画错位）。
@@ -113,7 +118,7 @@ function loadSfx(name: string, ctx: BaseAudioContext): Promise<AudioBuffer | nul
  * 按表把 SE 摆进离线轨：`at` 起播 →（可选）`endAt` 截断，最后 `fadeOut` 秒线性降到 0。
  *
  * 包络用 `linearRampToValueAtTime` 而不是直接 `stop`：开场人潮要"快结束时音量递减"，
- * 硬切会在 BGM 起点上留一记爆音。
+ * 硬切会在开场段末尾留一记爆音（票 74 起之后是静音前导段，BGM 在 `simStartSeconds` 才起）。
  */
 async function scheduleSfx(
   ctx: OfflineAudioContext,
@@ -168,9 +173,11 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
   if (req.muted) return null;
   const sampleRate = req.sampleRate ?? EXPORT_AUDIO_SAMPLE_RATE;
   const channels = req.channels ?? EXPORT_AUDIO_CHANNELS;
-  // 开场段在最前面（chart-preview 30）、结尾段在最后（52）：轨长 = 开场 + 谱面 + 结尾，
-  // 与视频同一终点（这两段的声由 `sfx` 补，但轨长一定要够 —— 短了封装时音画就错位）
-  const offset = Number.isFinite(req.openingSeconds) ? Math.max(0, req.openingSeconds!) : 0;
+  // 开场段在最前面（30）、其后是静音前导段（74）、结尾段在最后（52）：
+  // 轨长 = 谱面 0 秒的绝对位置 + 谱面 + 结尾，与视频同一终点
+  // （这两段的声由 `sfx` 补，但轨长一定要够 —— 短了封装时音画就错位）
+  const fallbackOffset = Number.isFinite(req.openingSeconds) ? Math.max(0, req.openingSeconds!) : 0;
+  const offset = Number.isFinite(req.simStartSeconds) ? Math.max(0, req.simStartSeconds!) : fallbackOffset;
   const tail = Number.isFinite(req.endingSeconds) ? Math.max(0, req.endingSeconds!) : 0;
   const frames = audioFramesFor(req.durationSeconds + offset + tail, sampleRate);
   const ctx = new OfflineAudioContext(channels, frames, sampleRate);
@@ -187,7 +194,7 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
     const src = ctx.createBufferSource();
     src.buffer = req.bgm;
     src.connect(master);
-    src.start(offset); // 开场段无声：BGM 从开场段结束那刻起
+    src.start(offset); // 开场段与前导段无声：BGM 从 simStartSeconds 起
   }
 
   if (req.keyEvents.length > 0) {
@@ -209,7 +216,7 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
       const sample = set.samples[evt.kind];
       const src = sampleSrcFor(sample, evt.kind, evt.tier);
       const buffer = src ? await keySoundBank.load(src, decodeCtx).catch(() => undefined) : undefined;
-      // 键音整体后移开场段长度（过滤仍按**谱面时间** `[0, duration)` 判）
+      // 键音整体后移 simStartSeconds（过滤仍按**谱面时间** `[0, duration)` 判）
       const at = evt.time + offset;
       // 同刻响度归一系数由事件表算好，离线侧只透传（不在这里另算 / 另挂总线限幅）
       const gainScale = evt.gain ?? 1;
@@ -218,7 +225,8 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
     }
   }
 
-  // 两端的游戏音效（52）：开场人潮收在 BGM 起点、结尾章双声落在结尾段 t=0。
+  // 两端的游戏音效（52）：开场人潮收在开场段末尾（票 74 起之后是静音前导段），
+  // 结尾章双声落在结尾段 t=0（= simStartSeconds + 谱面时长）。
   // 票 67：SE 的 fetch / decodeAudioData 同样没有 abort，取消命中就别再等它。
   if (req.sfx && req.sfx.length > 0) {
     const scheduled = await raceCancellation(

@@ -16,6 +16,7 @@ import {
   SIM_FALLBACK_BG,
   visibleSimBandGroups,
   type SimFrameInput,
+  type SimFrameLayers,
   type SimScene,
 } from '@/src/preview/video/sim/simField';
 import { emptySimAssets } from '@/src/preview/video/sim/simAssets';
@@ -145,9 +146,14 @@ beforeAll(() => {
 afterAll(() => __setSimBandRasterCanvasFactoryForTests(null));
 
 /** 65/66：出帧后直接读回写的 RGBA（缓冲 = 场地 × 变换缩放 × 该帧档位） */
-function drawnFrame(frame: SimFrameInput, seconds: number, overrides: Record<string, (...args: unknown[]) => unknown> = {}) {
+function drawnFrame(
+  frame: SimFrameInput,
+  seconds: number,
+  overrides: Record<string, (...args: unknown[]) => unknown> = {},
+  layers?: SimFrameLayers,
+) {
   const { proxy, calls } = recordingCtx(overrides);
-  drawSimFrameAt(proxy, frame, seconds);
+  drawSimFrameAt(proxy, frame, seconds, layers);
   const scratch = lastScratch!;
   return { calls, scratch, image: scratch.image! };
 }
@@ -739,6 +745,29 @@ describe('drawSimFrameAt · 带体逐像素光栅（chart-preview 65）', () => 
     const full = drawnFrame(frame, 1.5);
     const low = drawnFrame({ ...frame, scene: { ...frame.scene, slideOpacity: 0.4 } }, 1.5);
     expect(alphaAt(low.image, CX, ROW)).toBeCloseTo(alphaAt(full.image, CX, ROW) / 2, 2);
+  });
+
+  it('票 74 回修 · noteAlpha 让带体像素 α 折半（与 slideOpacity 同一道 baseAlpha）', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const frame = frameOf([verticalSlide()], spriteIcon);
+    const full = drawnFrame(frame, 1.5);
+    const half = drawnFrame(frame, 1.5, {}, { noteAlpha: 0.5 });
+    expect(alphaAt(half.image, CX, ROW)).toBeCloseTo(alphaAt(full.image, CX, ROW) / 2, 2);
+  });
+
+  it('票 74 回修 · noteAlpha 只作用音符 / 双押线精灵，缺省仍是 1', () => {
+    const { spriteIcon, draws } = makeRecordingSprite();
+    const frame = frameOf([single(2, 3)], spriteIcon);
+    const faded = recordingCtx();
+    drawSimFrameAt(faded.proxy, frame, 0.5, { noteAlpha: 0.5 });
+    expect(draws).toHaveLength(1);
+    expect(draws[0]!.alpha).toBe(0.5);
+
+    draws.length = 0;
+    const plain = recordingCtx();
+    drawSimFrameAt(plain.proxy, frame, 0.5);
+    expect(draws).toHaveLength(1);
+    expect(draws[0]!.alpha).toBe(1);
   });
 
   it('普通 / SP 各取自己的预加载材质；缺图（材质字段不在）回落 skin00 兜底剖面', () => {

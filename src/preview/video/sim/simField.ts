@@ -521,9 +521,18 @@ export function drawSimFrameAt(
   const autoMode = input.scene.autoMode ?? false;
   const showGameUi = input.scene.showGameUi ?? true;
   drawField(ctx, input, layers?.backgroundAlpha ?? 1, layers?.trackAlpha ?? 1);
-  drawBands(ctx, input, seconds);
+  // 票 74 回修：noteAlpha 只包住「正在接近」的三层（带体 / 双押线 / 音符）。
+  // 带体走逐像素光栅，自己的 save/restore 会把 globalAlpha 钉成 1 ⇒ 改从 baseAlpha 传进去；
+  // 其余两层是精灵 drawImage，直接借 ctx.globalAlpha；判定线 / 特效 / HUD 全不受影响。
+  const noteAlpha = clamp01(layers?.noteAlpha ?? 1);
+  drawBands(ctx, input, seconds, noteAlpha);
+  if (noteAlpha < 1) {
+    ctx.save();
+    ctx.globalAlpha = noteAlpha;
+  }
   if (input.scene.simultaneousClickLines) drawSimultaneousLines(ctx, input, seconds);
   drawElements(ctx, input, seconds);
+  if (noteAlpha < 1) ctx.restore();
   drawEffects(ctx, input, seconds);
   // 顶栏 HUD（71/72）画在判定字 / combo 之前：它是背景上的常驻层，不压字也不压数。
   // 结尾段把舞台按谱面末帧重画一次，那里只要场地，传 `hud: false` 收掉整层；
@@ -554,6 +563,12 @@ export interface SimFrameLayers {
   trackAlpha?: number;
   /** combo alpha */
   comboAlpha?: number;
+  /**
+   * 音符层（带体 / 双押线 / 音符）alpha（票 74 成片验收回修）。
+   * 只在导出前导段头 15 帧（0.25s @60fps）给 <1，收掉慢速档首音符 A≈0.22 直现的突变；
+   * 缺省 1，实时回放不传 ⇒ 观感不变。
+   */
+  noteAlpha?: number;
   /** 判定字样式（`null` = 不画） */
   judge?: Partial<SimJudgeStyle> | null;
   /** 打歌 HUD 顶栏（`false` = 不画；结尾段的舞台用它） */
@@ -693,9 +708,14 @@ export function visibleSimBandGroups(
   return groups;
 }
 
-function drawBands(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
+function drawBands(
+  ctx: CanvasRenderingContext2D,
+  input: SimFrameInput,
+  seconds: number,
+  noteAlpha = 1,
+): void {
   const { chart, metrics, assets, scene } = input;
-  const alpha = Math.min(1, Math.max(0, scene.slideOpacity));
+  const alpha = clamp01(scene.slideOpacity) * noteAlpha;
   if (alpha <= 0) return;
   const groups = visibleSimBandGroups(chart, scene, metrics, seconds);
   drawSimBandRaster(

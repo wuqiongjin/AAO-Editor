@@ -15,7 +15,7 @@ export const OPENING_HOLD_SECONDS = 2.2;
 export const OPENING_FADE_OUT_SECONDS = 1.75;
 /** ④ 轨道淡入：整块轨道（场地图的扇形车道 + 判定线）浮现 */
 export const OPENING_TRACK_IN_SECONDS = 1.8;
-/** 开场段总长（= 四段之和）；视频总长 = 它 + 谱面时长 */
+/** 开场段总长（= 四段之和）；视频总长 = 它 + 前导补偿（票 74）+ 谱面时长（结尾段另加 7.5s，见 ADR-0016 §5.2） */
 export const OPENING_SECONDS =
   OPENING_FADE_IN_SECONDS + OPENING_HOLD_SECONDS + OPENING_FADE_OUT_SECONDS + OPENING_TRACK_IN_SECONDS;
 

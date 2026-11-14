@@ -88,6 +88,12 @@ describe('chart-preview 30 · 四段时长（用户 2026-10-10 逐段拍板）',
     expect(openingSegmentAt(6.75)).toBe('sim');
     expect(openingSegmentAt(9.9)).toBe('sim');
   });
+
+  it('票 74 · ④ 之后仍是 sim 段（前导补偿帧由 frameDriver 按负秒取）', () => {
+    expect(openingSegmentAt(OPENING_SECONDS - 0.01)).toBe('trackIn');
+    expect(openingSegmentAt(OPENING_SECONDS)).toBe('sim');
+    expect(openingSegmentAt(OPENING_SECONDS + 1.25)).toBe('sim');
+  });
 });
 
 describe('chart-preview 30 · 两段 alpha', () => {

@@ -12,6 +12,8 @@ import type { ChartNote, SingleNote } from '@/src/chart/types';
 import { buildKeyEvents, getBpmEvents } from '@/src/audio/AudioTiming';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import { buildSimChart } from '@/src/preview/video/sim/simField';
+import { approachSeconds } from '@/src/preview/video/sim/simGeometry';
+import { OPENING_SECONDS } from '@/src/preview/video/opening/openingSpec';
 import type { SimScene } from '@/src/preview/video/sim/simField';
 import { probeContainer } from '@/src/preview/video/encode/muxer';
 import { probeVideoExportSupport } from '@/src/preview/video/encode/exportVideo';
@@ -30,6 +32,10 @@ import {
   frameSecondsAt,
   frameTimestampUs,
   isAacCodec,
+  leadInSeconds,
+  leadInNoteAlphaAt,
+  LEAD_IN_CAP_SECONDS,
+  LEAD_IN_NOTE_FADE_FRAMES,
   muxerAudioCodecFor,
   resolveExportGeometry,
   tierOf,
@@ -92,6 +98,93 @@ describe('导出时间线 · 帧数与时间戳', () => {
     expect(buildExportTimeline(0).frameCount).toBe(1);
     expect(buildExportTimeline(-5).frameCount).toBe(1);
     expect(buildExportTimeline(Number.NaN).frameCount).toBe(1);
+  });
+});
+
+describe('票 74 · 开头前导补偿（lead-in）', () => {
+  it('leadIn = min(T, 2s)，按帧对齐（9.5 档 1.25s / 12 档 0.4s / 1 档封顶 2s）', () => {
+    expect(LEAD_IN_CAP_SECONDS).toBe(2);
+    expect(leadInSeconds({ approachS: 1.25 })).toBe(1.25);
+    expect(leadInSeconds({ approachS: 0.4 })).toBe(0.4);
+    expect(leadInSeconds({ approachS: 5.5 })).toBe(2);
+  });
+
+  it('T 与真实谱面派生表同源（buildSimChart 的 approachS）', () => {
+    const chart = buildSimChart(sceneOf([{ type: 'BPM', beat: 0, bpm: 120 }, single(0, 0)]), icons);
+    expect(chart.approachS).toBe(1.25);
+    expect(leadInSeconds(chart)).toBe(1.25);
+  });
+
+  it('非整帧的 T 向上取整到 1/fps；非法值不产生 NaN 帧数', () => {
+    expect(leadInSeconds({ approachS: 1.01 }, 60)).toBe(61 / 60);
+    expect(leadInSeconds({ approachS: 3 }, 30)).toBe(2);
+    expect(leadInSeconds({ approachS: Number.NaN })).toBe(0);
+    expect(leadInSeconds({ approachS: -1 })).toBe(0);
+  });
+
+  it('从 noteSpeed 档驱动 T：1 / 9.5 / 12 档的 leadIn 分别是 2 / 1.25 / 0.4s', () => {
+    expect(approachSeconds(1)).toBe(5.5);
+    expect(approachSeconds(9.5)).toBe(1.25);
+    expect(approachSeconds(12)).toBe(0.4);
+    expect(leadInSeconds({ approachS: approachSeconds(1) })).toBe(2);
+    expect(leadInSeconds({ approachS: approachSeconds(9.5) })).toBe(1.25);
+    expect(leadInSeconds({ approachS: approachSeconds(12) })).toBe(0.4);
+  });
+
+  it('谱面派生表同源且 simStartSeconds 落在整帧上（t = simStart 时谱面秒恰为 0）', () => {
+    for (const speed of [1, 9.5, 12]) {
+      const scene = { ...sceneOf([{ type: 'BPM', beat: 0, bpm: 120 }, single(0, 0)]), noteSpeed: speed };
+      const chart = buildSimChart(scene, icons);
+      const leadIn = leadInSeconds(chart);
+      expect(leadIn).toBeLessThanOrEqual(LEAD_IN_CAP_SECONDS);
+      const simStartSeconds = OPENING_SECONDS + leadIn;
+      expect(chart.approachS).toBe(approachSeconds(speed));
+      expect(simStartSeconds * EXPORT_FPS).toBe(Math.round(simStartSeconds * EXPORT_FPS));
+    }
+  });
+});
+
+describe('票 74 回修 · 前导音符层淡入（15 帧 = 0.25s @60fps）', () => {
+  const N = 15;
+
+  it('淡入长度肉眼可见；只在封顶生效时启用，未封顶档恒为 1', () => {
+    expect(LEAD_IN_NOTE_FADE_FRAMES).toBe(N);
+    expect(N / EXPORT_FPS).toBe(0.25);
+    expect(leadInNoteAlphaAt(0, 2, 5.5)).toBeCloseTo(1 / N, 9);
+    expect(leadInNoteAlphaAt(0, 1.25, 1.25)).toBe(1);
+    expect(leadInNoteAlphaAt(0, 0.4, 0.4)).toBe(1);
+    expect(leadInNoteAlphaAt(0, 0, 5.5)).toBe(1);
+    expect(leadInNoteAlphaAt(0, 2, Number.NaN)).toBe(1);
+  });
+
+  it('线性渐显：首帧 1/N、第 N−1 帧到 1、之后恒 1', () => {
+    const frame = 1 / EXPORT_FPS;
+    expect(leadInNoteAlphaAt(0, 2, 5.5)).toBeCloseTo(1 / N, 9);
+    expect(leadInNoteAlphaAt(frame, 2, 5.5)).toBeCloseTo(2 / N, 9);
+    expect(leadInNoteAlphaAt(7 * frame, 2, 5.5)).toBeCloseTo(8 / N, 9);
+    expect(leadInNoteAlphaAt((N - 1) * frame, 2, 5.5)).toBe(1);
+    expect(leadInNoteAlphaAt(N * frame, 2, 5.5)).toBe(1);
+    // 前导段其余部分 / 谱面正片（elapsed ≥ leadIn）都不再淡
+    expect(leadInNoteAlphaAt(1, 2, 5.5)).toBe(1);
+    expect(leadInNoteAlphaAt(2, 2, 5.5)).toBe(1);
+    expect(leadInNoteAlphaAt(-1, 2, 5.5)).toBeCloseTo(1 / N, 9);
+  });
+
+  it('按 fps 而非固定秒数走；非法 fps 回落 EXPORT_FPS', () => {
+    expect(leadInNoteAlphaAt(0, 2, 5.5, 30)).toBeCloseTo(1 / N, 9);
+    expect(leadInNoteAlphaAt(1 / 30, 2, 5.5, 30)).toBeCloseTo(2 / N, 9);
+    expect(leadInNoteAlphaAt(1 / 60, 2, 5.5, 30)).toBeCloseTo(1 / N, 9);
+    expect(leadInNoteAlphaAt(1 / 60, 2, 5.5, Number.NaN)).toBeCloseTo(2 / N, 9);
+  });
+
+  it('从 noteSpeed 档驱动：只有 1 档淡入，9.5 / 12 档零变化', () => {
+    const alphaAtStart = (speed: number) => {
+      const T = approachSeconds(speed);
+      return leadInNoteAlphaAt(0, leadInSeconds({ approachS: T }), T);
+    };
+    expect(alphaAtStart(1)).toBeCloseTo(1 / N, 9);
+    expect(alphaAtStart(9.5)).toBe(1);
+    expect(alphaAtStart(12)).toBe(1);
   });
 });
 

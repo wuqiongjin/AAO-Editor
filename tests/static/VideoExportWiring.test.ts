@@ -29,6 +29,7 @@ const muxer = file('muxer.ts');
 const renderAudio = file('renderAudioTrack.ts');
 const exportVideo = file('exportVideo.ts');
 const exportSpec = file('exportSpec.ts');
+const simField = readStripped('src/preview/video/sim/simField.ts');
 const page = readStripped('src/pages/preview/PreviewPage.tsx');
 const control = readStripped('src/pages/preview/VideoExportControl.tsx');
 const engine = readStripped('src/audio/AudioEngine.ts');
@@ -37,9 +38,9 @@ const main = readSources(['electron/main.cjs', 'electron/assets/previewExport.cj
 const pkg = readSource('package.json');
 
 describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）', () => {
-  // 30 起开场段占掉时间轴最前面那段 ⇒ 谱面秒 = 视频秒 − 开场长度（关掉开场时减 0）
+  // 票 74 起谱面秒 = 视频秒 − simStartSeconds（开场 + 前导）；开场四段仍画干净场地
   it('frameDriver 逐帧调 drawSimFrameAt（05 的同一份任意秒出帧）', () => {
-    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - \(req\.openingSeconds \?\? 0\)\)/);
+    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha \}\)/);
   });
 
   it('66 · 导出固定 100% 光栅：离线逐帧显式给比例，覆盖实时 50% 默认值', () => {
@@ -405,7 +406,7 @@ describe('07 · 走实时录制的那条路没有回来（离线逐帧是主路�
   });
 });
 
-// 30：导出物最前面多一段**纯前置**开场（5.0s）。这几条盯的是"接线"，观感归原型目视验收。
+// 30：导出物最前面多一段**纯前置**开场（6.75s，票 74 起后接前导补偿）。这几条盯的是"接线"，观感归原型目视验收。
 // 50：堆叠缓出（定案 A 轻推）只动**垫层厚度**，不改版式几何、不改字体
 describe('50 · Opening 堆叠 A 轻推', () => {
   const frame = readStripped('src/preview/video/opening/openingFrame.ts');
@@ -431,16 +432,17 @@ describe('50 · Opening 堆叠 A 轻推', () => {
 });
 
 describe('30 · 视频开场是纯前置段（不占谱面时间、不与前奏重叠）', () => {
-  it('时间轴总长 = 开场 + 谱面时长（关掉开场时就是谱面时长）', () => {
-    // 52 起再叠一段结尾（关掉时 endingSeconds = 0，公式不变）
+  it('时间轴总长 = 开场 + 前导 + 谱面 + 结尾（关掉开场仍有前导）', () => {
+    // 52 起再叠一段结尾（关掉时 endingSeconds = 0，公式不变）；74 起再加 leadIn
     expect(exportVideo).toMatch(
-      /buildExportTimeline\(\s*\n?\s*req\.durationSeconds \+ openingSeconds \+ endingSeconds/,
+      /buildExportTimeline\(\s*\n?\s*req\.durationSeconds \+ simStartSeconds \+ endingSeconds/,
     );
     expect(exportVideo).toMatch(/req\.opening \? OPENING_SECONDS : 0/);
   });
 
-  it('音轨：轨长带上开场、BGM 从开场结束那刻起、键音整体 + 开场', () => {
+  it('音轨：轨长带上开场 + 前导、BGM 与键音整体 + simStartSeconds', () => {
     expect(exportVideo).toMatch(/openingSeconds,/);
+    expect(exportVideo).toMatch(/simStartSeconds,/);
     // 52 起尾部再接一段静音（结尾段），轨长与视频等长
     expect(renderAudio).toMatch(
       /audioFramesFor\(req\.durationSeconds \+ offset \+ tail, sampleRate\)/,
@@ -460,6 +462,59 @@ describe('30 · 视频开场是纯前置段（不占谱面时间、不与前奏�
     expect(frameDriver).toMatch(/drawOpeningFrameAt\(/);
     // 开场段不进 drawSimFrameAt（负秒下它会画出正在接近的音符 / 带体）
     expect(frameDriver).toMatch(/openingSegmentAt\(t\)/);
+  });
+});
+
+describe('74 · 开头前导补偿（lead-in）', () => {
+  it('总长 = 开场 + leadIn + 谱面 + 结尾；谱面 0 秒落在 simStartSeconds', () => {
+    expect(exportSpec).toMatch(/export const LEAD_IN_CAP_SECONDS = 2/);
+    expect(exportSpec).toMatch(/export function leadInSeconds\(/);
+    expect(exportVideo).toMatch(/const leadIn = leadInSeconds\(/);
+    // T 必须由谱面速度档算出来，不写死某一档的秒数
+    expect(exportVideo).toMatch(
+      /leadInSeconds\(\{ approachS: approachSeconds\(req\.scene\.noteSpeed\) \}, EXPORT_FPS\)/,
+    );
+    expect(exportVideo).toMatch(/const simStartSeconds = openingSeconds \+ leadIn/);
+    expect(exportVideo).toMatch(
+      /buildExportTimeline\(\s*\n?\s*req\.durationSeconds \+ simStartSeconds \+ endingSeconds/,
+    );
+    expect(exportVideo).toMatch(/simStartSeconds,/);
+  });
+
+  it('出帧：谱面秒 = t − simStartSeconds（开场 ④ 之后与关开场时都从负秒起）', () => {
+    expect(frameDriver).toMatch(
+      /const simStartSeconds = Math\.max\(0, req\.simStartSeconds \?\? req\.openingSeconds \?\? 0\)/,
+    );
+    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha \}\)/);
+    expect(frameDriver).toMatch(/const seg = req\.opening \? openingSegmentAt\(t\) : 'sim'/);
+    expect(frameDriver).toMatch(/const endingAt = simStartSeconds \+ chartSeconds/);
+    // 结尾舞台仍取谱面 D 秒（票 75 的残留修复留给下一票）
+    expect(frameDriver).toMatch(/seconds: chartSeconds/);
+  });
+
+  it('音轨：BGM / 键音 / 轨长都按 simStartSeconds 后移；人潮仍收在开场段末尾', () => {
+    expect(renderAudio).toMatch(/const offset = Number\.isFinite\(req\.simStartSeconds\)/);
+    expect(exportVideo).toMatch(/openingSfxCues\(openingSeconds\)/);
+    expect(exportVideo).toMatch(
+      /endingSfxCues\(simStartSeconds \+ req\.durationSeconds, req\.ending\.stamp\)/,
+    );
+  });
+
+  it('开场四段仍不进 drawSimFrameAt（干净场地口径不变）', () => {
+    expect(frameDriver).toMatch(/openingSegmentAt\(t\)/);
+    expect(frameDriver).toMatch(/drawOpeningFieldBackground\(/);
+    expect(frameDriver).toMatch(/drawOpeningTrack\(/);
+  });
+
+  it('票 74 回修 · 低速档前导给音符层 0.25s 淡入（不增长时长）', () => {
+    expect(exportSpec).toMatch(/export const LEAD_IN_NOTE_FADE_FRAMES = 15/);
+    expect(exportSpec).toMatch(/export function leadInNoteAlphaAt\(/);
+    expect(frameDriver).toMatch(/leadInNoteAlphaAt\(/);
+    expect(frameDriver).toMatch(/t < simStartSeconds\s*\?/);
+    expect(simField).toMatch(/noteAlpha\?: number/);
+    expect(simField).toMatch(/drawBands\(ctx, input, seconds, noteAlpha\)/);
+    expect(simField).toMatch(/const alpha = clamp01\(scene\.slideOpacity\) \* noteAlpha/);
+    expect(simField).toMatch(/ctx\.globalAlpha = noteAlpha/);
   });
 });
 

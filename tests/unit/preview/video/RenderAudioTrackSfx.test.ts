@@ -4,7 +4,8 @@
 //   ② 记录每个 source 的 start / stop 与包络事件，供断言。
 // 现场：开场人潮素材 7.105s > 开场段 6.75s ⇒ 必走截断分支（旧代码在这里先 stop 后 start）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderAudioTrack, type AudioTrackResult } from '@/src/preview/video/encode/renderAudioTrack';
+import { renderAudioTrack, type AudioTrack, type AudioTrackResult } from '@/src/preview/video/encode/renderAudioTrack';
+import { audioFramesFor } from '@/src/preview/video/encode/exportSpec';
 import { OPENING_SECONDS } from '@/src/preview/video/opening/openingSpec';
 import { endingSfxCues, openingSfxCues, type SfxCue } from '@/src/preview/video/sfx';
 
@@ -163,6 +164,36 @@ describe('53 · SE 调度顺序', () => {
     expect(sources).toHaveLength(3);
     for (const src of sources) expect(callsOf(src)[0].kind).toBe('start');
     // 两端同一条轨：开场人潮 1 条被 endAt 截断，结尾两条自然收尾
+    const stopped = sources.filter((src) => callsOf(src).some((c) => c.kind === 'stop'));
+    expect(stopped).toHaveLength(1);
+    expect(callsOf(stopped[0])[1].when).toBeCloseTo(OPENING_SECONDS, 5);
+  });
+});
+
+describe('74 · 前导补偿后的音轨起点', () => {
+  it('BGM 从 simStartSeconds 起、轨长含开场 + 前导 + 谱面 + 结尾，人潮仍收在开场段末尾', async () => {
+    const leadIn = 1.25;
+    const simStart = OPENING_SECONDS + leadIn;
+    const result = await renderAudioTrack({
+      durationSeconds: 30,
+      openingSeconds: OPENING_SECONDS,
+      simStartSeconds: simStart,
+      endingSeconds: 7.5,
+      sfx: [...openingSfxCues(OPENING_SECONDS), ...endingSfxCues(simStart + 30, 'ap')],
+      keyEvents: [],
+      keySetId: 'test',
+      bgm: { duration: 30 } as unknown as AudioBuffer,
+      volume: 1,
+      seVolume: 1,
+      decodeContext: decodeContext(),
+    });
+    expect(result && typeof result === 'object').toBe(true);
+    const track = result as AudioTrack;
+    expect(track.frames).toBe(audioFramesFor(30 + simStart + 7.5));
+    const starts = calls.filter((c) => c.kind === 'start').map((c) => c.when);
+    expect(starts).toContain(0);
+    expect(starts).toContain(simStart);
+    expect(starts.filter((w) => w === simStart + 30)).toHaveLength(2);
     const stopped = sources.filter((src) => callsOf(src).some((c) => c.kind === 'stop'));
     expect(stopped).toHaveLength(1);
     expect(callsOf(stopped[0])[1].when).toBeCloseTo(OPENING_SECONDS, 5);

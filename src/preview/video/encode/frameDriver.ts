@@ -26,6 +26,7 @@ import {
   frameDurationUs,
   frameSecondsAt,
   frameTimestampUs,
+  leadInNoteAlphaAt,
   type ExportGeometry,
   type ExportTimeline,
 } from './exportSpec';
@@ -43,12 +44,17 @@ export interface FrameDriverRequest {
   geometry: ExportGeometry;
   timeline: ExportTimeline;
   /**
-   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
-   * 非 null 时时间轴最前面 `OPENING_SECONDS` 秒走开场四段，其后是谱面。
+   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧仍是前导负秒、总长 = 前导 + 谱面时长）。
+   * 非 null 时时间轴最前面 `OPENING_SECONDS` 秒走开场四段，其后是前导补偿与谱面。
    */
   opening?: OpeningFrameInput | null;
-  /** 开场段长度（秒）：谱面秒 = 视频秒 − 它。与 `opening` 成对给（关掉开场时是 0） */
+  /** 开场段长度（秒）：仅用于旧调用方回落；票 74 起谱面秒由 `simStartSeconds` 定 */
   openingSeconds?: number;
+  /**
+   * 谱面 0 秒在整条视频里的绝对秒（票 74）= 开场段 + 前导补偿。
+   * 音轨的 BGM / 键音也按它后移；关掉开场时它就是 lead-in 本身。
+   */
+  simStartSeconds?: number;
   /**
    * 结尾画面（chart-preview 52）：`null` = 关掉（时间轴到谱面结束为止）。
    * 非 null 时谱面之后那段（`endingSeconds`）由它画，**场地用谱面末帧**（`drawSimFrameAt` 同一份）。
@@ -98,13 +104,21 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
   const duration = frameDurationUs(timeline.fps);
   let rendered = 0;
 
-  // 结尾段的起点 = 开场 + 谱面（时间轴末段是结尾；关掉时 `endingAt` 落在总长之外，永不命中）
+  // 谱面 0 秒的绝对位置（票 74）= 开场 + 前导。③④ 开场段仍按 `openingSegmentAt(t)` 画干净场地，
+  // 之后到 `simStartSeconds` 之前是负秒前导帧，画面由 `drawSimFrameAt` 自己按可见窗口剔除。
+  const openingSeconds = Math.max(0, req.openingSeconds ?? 0);
+  const simStartSeconds = Math.max(0, req.simStartSeconds ?? req.openingSeconds ?? 0);
+  // 票 74 回修：封顶生效（慢速档）时，前导头 15 帧（0.25s @60fps）给音符层一层极短淡入，收掉 A≈0.22 直现的突变。
+  // 只在帧循环里算 alpha，总长 / 音轨 / 实时回放都不动。
+  const leadIn = Math.max(0, simStartSeconds - openingSeconds);
+  const approachS = input.chart.approachS;
+  // 结尾段的起点 = 谱面 0 秒 + 谱面长度（关掉结尾时 `endingAt` 落在总长之外，永不命中）
   const endingSeconds = req.ending ? Math.max(0, req.endingSeconds ?? 0) : 0;
   const chartSeconds = Math.max(
     0,
-    timeline.durationSeconds - (req.openingSeconds ?? 0) - endingSeconds,
+    timeline.durationSeconds - simStartSeconds - endingSeconds,
   );
-  const endingAt = (req.openingSeconds ?? 0) + chartSeconds;
+  const endingAt = simStartSeconds + chartSeconds;
   // 场地（谱面末帧）按**对象身份**缓存：一次导出只画一次，之后每帧只做位图拷贝
   const ending: EndingFrameInput | null = req.ending
     ? {
@@ -133,8 +147,12 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
     } else if (seg === 'sim') {
       // 谱面段：场地按导出档画在留边中间（transform 是「场地原点」，绘制里一律用场地 CSS 坐标）
       ctx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);
-      // 开场段占掉了时间轴最前面那段 ⇒ 谱面秒 = 视频秒 − 开场长度（见 exportVideo 传进来的 timeline）
-      drawSimFrameAt(ctx, input, t - (req.openingSeconds ?? 0));
+      // 谱面 0 秒落在 `simStartSeconds`；之前的帧是负秒，让第 0 beat 的音符走完接近窗口。
+      // 封顶生效的慢速档：头 15 帧（0.25s @60fps）给音符层 alpha 1/15 → 1，收掉「从无到 A≈0.22」的突变。
+      const noteAlpha = t < simStartSeconds
+        ? leadInNoteAlphaAt(t - openingSeconds, leadIn, approachS, timeline.fps)
+        : 1;
+      drawSimFrameAt(ctx, input, t - simStartSeconds, { noteAlpha });
     } else if (seg === 'fadeIn' || seg === 'hold') {
       // ① 开场淡入 / ② 停留：整块画布画开场画面（一个 alpha 管整屏；`t` 只喂堆叠缓出）
       drawOpeningFrameAt(ctx, geometry.width, geometry.height, req.opening!, openingAlphaAt(t), t);

@@ -265,7 +265,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
   /**
    * 视频开场的**数据面**（chart-preview 30）：与静态那支的 `SheetHeaderInput` 同口径 ——
    * 页面组装、难度色 / 封面色相由页面算好传进去（preview 域不 import 工程域）。
-   * 总开关关掉 ⇒ 传 `null`（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
+   * 总开关关掉 ⇒ 传 `null`（第 0 帧仍是前导负秒、总长 = 前导 + 谱面时长，结尾段另加 7.5s）。
    */
   const openingInput = useMemo<OpeningInput | null>(() => {
     if (chart == null || !settings.export.opening.enabled) return null;

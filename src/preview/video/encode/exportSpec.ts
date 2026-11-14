@@ -16,7 +16,7 @@
 //   - **H.264 的边长必须偶数**：`fitDesignSurface(1920, 1080)` 给的是 1920×1079 →
 //     `isConfigSupported` = false；场地尺寸要自己向下取偶（不是画布尺寸 —— 画布按档位走）。
 //   - 帧率 60；码率按档位给（编码不是瓶颈，别指望降码率提速）。
-import { fitDesignSurface } from '../sim';
+import { fitDesignSurface, type SimChart } from '../sim';
 
 /** 导出帧率（票面规格默认 60fps） */
 export const EXPORT_FPS = 60;
@@ -204,6 +204,59 @@ export interface ExportTimeline {
 
 /** 浮点收味：`duration × fps` 正好落在整数上时（30 × 60）不该被尾数顶到 +1 帧 */
 const FRAME_EPS = 1e-9;
+
+/**
+ * 谱面前导补偿的封顶（秒，票 74 定案）。
+ *
+ * 单独留一个常量 = 成片验收后调参只改这一处：帧循环 / `drawSimFrameAt` / 开场四段 / 素材都不动。
+ * 不取满 `T` 的原因：`approachA` 是指数曲线，T 的前 ~80% 里 A < 0.14 几乎贴在渐近位置，
+ * 慢速档（T = 5.5s）补满只会多出约 4s 近乎静态的画面。
+ */
+export const LEAD_IN_CAP_SECONDS = 2;
+
+/**
+ * 一次导出要在谱面 0 秒之前补多少秒（票 74）。
+ *
+ * `T = chart.approachS`（与 `buildSimChart` / 实时回放同源），取 `min(T, 2s)` 后**向上取整到
+ * `1/fps` 的整数倍**，保证 `simStartSeconds` 与首帧都恰好落在帧边界上。
+ * 关掉开场时这段同样存在：第 0 帧就是 `seconds = -leadIn`。
+ */
+export function leadInSeconds(
+  chart: Pick<SimChart, 'approachS'>,
+  fps: number = EXPORT_FPS,
+): number {
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : EXPORT_FPS;
+  const approach = Number.isFinite(chart.approachS) ? Math.max(0, chart.approachS) : 0;
+  const wanted = Math.min(approach, LEAD_IN_CAP_SECONDS);
+  return Math.max(0, Math.ceil(wanted * safeFps - FRAME_EPS) / safeFps);
+}
+
+/**
+ * 前导首帧收味（票 74 成片验收回修）：封顶生效时给音符层一段肉眼可见的淡入。
+ *
+ * 只在 `leadIn < T`（慢速档）时启用 —— `leadIn == T` 时首音符本来就从 `A≈0.058` 起步，
+ * 不需要淡入。帧数常量单独留口，成片若还嫌突兀只改这里，不动帧循环 / 渲染纯函数。
+ * 初版 2 帧（33ms）用户反馈「肉眼基本不可见」⇒ 2026-11-15 加长到 15 帧（0.25s @60fps）。
+ */
+export const LEAD_IN_NOTE_FADE_FRAMES = 15;
+
+/**
+ * 前导段第 N 帧的音符层 alpha（`1/N → 1` 线性，只走头 `LEAD_IN_NOTE_FADE_FRAMES` 帧）。
+ * **整层** alpha：这 0.25s 里所有已进入可见窗口的音符 / 带体 / 双押线一起渐显；
+ * 谱面正片（`t ≥ simStart`）、前导段其余帧与实时回放恒为 1，不受影响。
+ */
+export function leadInNoteAlphaAt(
+  elapsedSeconds: number,
+  leadIn: number,
+  approachS: number,
+  fps: number = EXPORT_FPS,
+): number {
+  if (!(leadIn > 0) || !(approachS > leadIn + FRAME_EPS)) return 1;
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : EXPORT_FPS;
+  const frame = Math.max(0, Math.floor(elapsedSeconds * safeFps + FRAME_EPS));
+  if (frame >= LEAD_IN_NOTE_FADE_FRAMES) return 1;
+  return Math.max(0, Math.min(1, (frame + 1) / LEAD_IN_NOTE_FADE_FRAMES));
+}
 
 /**
  * 建导出时间线。

@@ -53,12 +53,12 @@ export interface UseVideoExportArgs {
   /** 文件名基础名（不含扩展名） */
   suggestedBaseName: string;
   /**
-   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧即谱面 0 秒、总长 = 谱面时长）。
+   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧仍是前导负秒、总长 = 前导 + 谱面时长（结尾段另加 7.5s））。
    * 由页面按 `settings.export.opening` 组装（难度色由页面传，preview 域不 import 工程域）。
    */
   opening?: OpeningInput | null;
   /**
-   * 结尾画面（chart-preview 52）：`null` = 关掉（播完切末帧、总长 = 开场 + 谱面）。
+   * 结尾画面（chart-preview 52）：`null` = 关掉（播完切末帧、总长 = 开场 + 前导 + 谱面）。
    * 由页面按 `settings.export.ending` 组装（封面 / 判定计数都由页面给）。
    */
   ending?: EndingInput | null;
