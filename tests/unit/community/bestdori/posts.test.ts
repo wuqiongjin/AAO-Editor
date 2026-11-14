@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   clearPostPageCache,
+  commitPostPageCache,
   customAudioName,
   customAudioPreviewUrl,
   customCoverName,
@@ -23,8 +24,11 @@ import {
   fetchPostPage,
   fetchPostSearchPage,
   filterPostCandidates,
+  loadPostPageFromCache,
   mergeIdLookupHit,
   numericPostIdQuery,
+  peekPostPage,
+  postPageInflight,
 } from '@/src/community/bestdori/posts';
 import { toPostCandidate, toPostPage, toPostDetail } from '@/src/community/bestdori/mapping';
 import { isCommunityError, type StagedBinary } from '@/src/community/transport';
@@ -500,5 +504,82 @@ describe('票 09 · 会话内页缓存（重复打开 / 改筛选不再重拉）
     await expect(fetchPostPage(transport, { query: '', offset: 0 })).rejects.toThrow();
     await expect(fetchPostPage(transport, { query: '', offset: 0 })).rejects.toThrow();
     expect(transport.requests).toHaveLength(2);
+  });
+
+  it('票 57 · loadPostPageFromCache 仅读第 0 页 cacheOnly 缓存，commitPostPageCache 写入会话内存缓存', async () => {
+    const transport = makeFakeCommunityTransport({ json: { [LIST_URL]: LIST_PAGE } });
+
+    const page = await loadPostPageFromCache(transport, { query: '', offset: 0 }, { rememberInSession: false });
+    expect(page?.posts).toHaveLength(2);
+    expect(transport.requests[0].cacheOnly).toBe(true);
+    expect(peekPostPage('', 0)).toBeNull();
+
+    // offset > 0 直接回 null，不发请求
+    await expect(loadPostPageFromCache(transport, { query: '', offset: 50 })).resolves.toBeNull();
+    expect(transport.requests).toHaveLength(1);
+
+    commitPostPageCache({ query: '', offset: 0 }, page!);
+    expect(peekPostPage('', 0)?.posts).toHaveLength(2);
+  });
+
+  it('票 57 · fetchPostPage 支持 signal 取消：立即 reject aborted、清掉 inflight 且不写 pageCache', async () => {
+    const controller = new AbortController();
+    const transport = makeFakeCommunityTransport({ json: {} });
+    transport.requestJson = (req) =>
+      new Promise((_resolve, reject) => {
+        req.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+
+    const p = fetchPostPage(transport, { query: '', offset: 0, signal: controller.signal });
+    expect(postPageInflight('', 0)).not.toBeNull();
+
+    controller.abort();
+    await expect(p).rejects.toMatchObject({ kind: 'aborted' });
+    expect(postPageInflight('', 0)).toBeNull();
+    expect(peekPostPage('', 0)).toBeNull();
+  });
+
+  it('票 56 · 帖子音频与封面携带 mediaKind，网关 invalid-response（非 HTML 坏图）直接抛出而不被吞成无图', async () => {
+    const okTransport = makeFakeCommunityTransport({
+      binary: { [COVER_URL]: STAGED_COVER, [AUDIO_URL]: STAGED_AUDIO },
+    });
+    await fetchCustomCover(okTransport, customPost());
+    await fetchCustomAudio(okTransport, customPost());
+    expect(okTransport.requests[0].mediaKind).toBe('image');
+    expect(okTransport.requests[1].mediaKind).toBe('audio');
+
+    const badImgTransport = makeFakeCommunityTransport({});
+    badImgTransport.requestBinary = async () => {
+      throw new (await import('@/src/community/transport')).CommunityError('坏图', {
+        kind: 'invalid-response',
+        message: '坏图',
+      });
+    };
+    await expect(fetchCustomCover(badImgTransport, customPost())).rejects.toMatchObject({ kind: 'invalid-response' });
+
+    const textCoverTransport = makeFakeCommunityTransport({
+      binary: { [COVER_URL]: { path: '/tmp/c.txt', byteLength: 12, contentType: 'text/plain' } },
+    });
+    await expect(fetchCustomCover(textCoverTransport, customPost())).rejects.toMatchObject({ kind: 'invalid-response' });
+  });
+
+  it('票 57 · fetchPostSearchPage 将 signal 透传给并发的 fetchPostIdLookup / fetchPostDetail', async () => {
+    const controller = new AbortController();
+    const transport = makeFakeCommunityTransport({ json: {} });
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    transport.requestJson = (req) => {
+      seenSignals.push(req.signal);
+      return new Promise((_resolve, reject) => {
+        req.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    };
+
+    const p = fetchPostSearchPage(transport, { query: '248468', offset: 0, signal: controller.signal });
+    expect(seenSignals).toHaveLength(2);
+    expect(seenSignals.every((s) => s !== undefined)).toBe(true);
+
+    controller.abort();
+    await expect(p).rejects.toMatchObject({ kind: 'aborted' });
+    expect(seenSignals.every((s) => s?.aborted === true)).toBe(true);
   });
 });

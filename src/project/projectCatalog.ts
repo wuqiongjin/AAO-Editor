@@ -9,6 +9,7 @@ import {
 import type { ChartNote } from '../chart/types';
 import type { ChartDifficulty, ChartProject, ChartTag, ChartUploadRecord, ProjectChart, SongSource } from './ChartProject';
 import { createUnnamedProject, emptyChartNotes } from './workspaceProject';
+import { getBpmEvents, maxNoteEndSeconds } from '../audio/AudioTiming';
 import { clampChartDuration } from '../audio/chartDuration';
 import { t } from '../i18n';
 
@@ -197,7 +198,7 @@ export interface OfficialProjectInput {
   /** 官方曲长（秒）：音频落地后由实际时长校正，先按官方数据起 */
   durationSeconds: number;
   /** 音频名（写进工程记录的显示名；二进制本身走素材缓存，见 ChartProject 的 ProjectBinarySources） */
-  audioName: string;
+  audioName: string | null;
   /** 封面名；这首曲子没有封面时给 null */
   coverName: string | null;
   /** 这张谱面的难度：不勾「带官方谱面」时就是 Expert（3） */
@@ -233,7 +234,11 @@ export function createOfficialProject(input: OfficialProjectInput): OfficialProj
       name: input.name.trim() || null,
       artist: input.artist?.trim() || null,
       source: input.source,
-      durationSeconds: clampChartDuration(input.durationSeconds),
+      durationSeconds: clampChartDuration(
+        input.audioName == null
+          ? Math.max(input.durationSeconds, maxNoteEndSeconds(applied.notes, 1, getBpmEvents(applied.notes)))
+          : input.durationSeconds,
+      ),
       audioName: input.audioName,
       coverName: input.coverName,
       charts: [chart],

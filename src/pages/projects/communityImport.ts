@@ -18,6 +18,7 @@
 import { formatValidationError, type ValidationError } from '../../chart/editing/ChartConverter';
 import type { OfficialSongDetail, PostCandidate, SongCandidate } from '../../community/bestdori/mapping';
 import {
+  customAudioLocalUrl,
   customAudioName,
   customCoverName,
   fetchCustomAudio,
@@ -26,6 +27,7 @@ import {
 } from '../../community/bestdori/posts';
 import {
   audioFileName,
+  audioLocalUrl,
   coverFileName,
   fetchOfficialAudio,
   fetchOfficialCover,
@@ -81,10 +83,18 @@ export function createCommunityImportSource(
       const resolved = bandoriSong(input);
       if (resolved) {
         const staged = await fetchOfficialAudio(transport, resolved.song, resolved.detail);
-        return { path: staged.path, name: audioFileName(resolved.song) };
+        return {
+          path: staged.path,
+          name: audioFileName(resolved.song),
+          rawUrl: audioLocalUrl(resolved.song, resolved.detail),
+        };
       }
       const staged = await fetchCustomAudio(transport, input.post);
-      return { path: staged.path, name: customAudioName(input.post) };
+      return {
+        path: staged.path,
+        name: customAudioName(input.post),
+        rawUrl: customAudioLocalUrl(input.post),
+      };
     },
 
     async cover(input) {
@@ -132,6 +142,9 @@ const KIND_MESSAGE_KEYS: Partial<Record<CommunityErrorKind, MessageKey>> = {
   'rate-limited': 'projects.community.err.rateLimited',
   'unsupported-runtime': 'projects.community.err.desktopOnly',
   'staging-failed': 'projects.community.err.staging',
+  http: 'projects.community.err.http',
+  'invalid-response': 'projects.community.err.invalidResponse',
+  'request-rejected': 'projects.community.err.requestRejected',
 };
 
 export function communityErrorText(error: unknown): string {

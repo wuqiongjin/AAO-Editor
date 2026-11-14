@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 浏览器侧没有这条桥 = 静态演示版，能力层降级为「平台不可用」。
     communityNet: {
         request: (payload) => ipcRenderer.invoke('communityNet:request', payload),
+        cancel: (requestId) => ipcRenderer.invoke('communityNet:cancel', requestId),
     },
     // bestdori-integration 10：会话 Cookie 的加密持久化（safeStorage 在主进程）。
     // 三条通道**都不收也不回凭据**：恢复 / 落盘 / 清除都由主进程从它自己那份内存 jar 做，

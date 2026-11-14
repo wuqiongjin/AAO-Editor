@@ -80,6 +80,7 @@ export interface I18nBridge {
 /* 社区平台唯一网络出口（ADR-0011 §2） */
 export interface CommunityNetBridge {
   request(payload: CommunityRequest): Promise<CommunityWireResult>;
+  cancel?(requestId: string): Promise<void> | void;
 }
 
 export interface CommunitySessionBridge {

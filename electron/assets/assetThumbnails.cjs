@@ -34,13 +34,25 @@ function squareCrop(width, height) {
  *
  * @param {{ createFromBuffer: (bytes: Buffer) => any }} nativeImage
  */
+function decodeValidImage(nativeImage, bytes, contentType) {
+    if (typeof contentType === 'string' && /^text\//i.test(contentType)) return null;
+    const image = nativeImage.createFromBuffer(Buffer.from(bytes));
+    if (image == null || typeof image.isEmpty !== 'function' || image.isEmpty()) return null;
+    const { width, height } = image.getSize();
+    if (!(width > 0) || !(height > 0)) return null;
+    return { image, width, height };
+}
+
+/** 落盘 / 读盘前封面图片可解码性校验（票 56） */
+function createImageValidator(nativeImage) {
+    return (bytes, contentType) => decodeValidImage(nativeImage, bytes, contentType) != null;
+}
+
 function createThumbMaker(nativeImage) {
     return (bytes, contentType) => {
-        if (typeof contentType === 'string' && /^text\//i.test(contentType)) return null;
-        const image = nativeImage.createFromBuffer(Buffer.from(bytes));
-        if (image == null || typeof image.isEmpty !== 'function' || image.isEmpty()) return null;
-        const { width, height } = image.getSize();
-        if (!(width > 0) || !(height > 0)) return null;
+        const decoded = decodeValidImage(nativeImage, bytes, contentType);
+        if (decoded == null) return null;
+        const { image, width, height } = decoded;
         const png = image
             .crop(squareCrop(width, height))
             .resize({ width: THUMB_SIZE, height: THUMB_SIZE, quality: 'good' })
@@ -53,5 +65,6 @@ function createThumbMaker(nativeImage) {
 module.exports = {
     THUMB_SIZE,
     squareCrop,
+    createImageValidator,
     createThumbMaker,
 };

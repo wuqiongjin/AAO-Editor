@@ -272,13 +272,14 @@ describe('票 08 · 时长跟随实际音频', () => {
 // 界面文案按统一错误域的 kind 走 i18n（票 07 口径：message 只作诊断，不当界面文案）。
 describe('票 08 · 失败文案按 kind 走 i18n', () => {
   it('离线 / 限流 / 无出口各有专句，其余兜底一句', () => {
-    const wire = (kind: 'offline' | 'rate-limited' | 'unsupported-runtime' | 'http', message: string) =>
+    const wire = (kind: 'offline' | 'rate-limited' | 'unsupported-runtime' | 'http' | 'cache-miss', message: string) =>
       new CommunityError(message, { kind, message });
 
     expect(officialErrorText(wire('offline', 'connect ECONNREFUSED'))).toBe('连不上官方曲库，检查网络后重试。');
     expect(officialErrorText(wire('rate-limited', 'HTTP 429'))).toBe('官方曲库限流了，稍等一会儿再试。');
     expect(officialErrorText(wire('unsupported-runtime', '没有出口'))).toBe('官方曲库只在桌面版提供。');
-    expect(officialErrorText(wire('http', 'HTTP 500'))).toBe('读取官方曲库失败，请重试。');
+    expect(officialErrorText(wire('http', 'HTTP 500'))).toBe('官方资源请求失败（文件可能已失效），请稍后重试。');
+    expect(officialErrorText(wire('cache-miss', '未命中'))).toBe('读取官方曲库失败，请重试。');
     expect(officialErrorText(new Error('裸异常'))).toBe('读取官方曲库失败，请重试。');
   });
 });
@@ -320,18 +321,48 @@ describe('票 26 · 素材失败时的降级语义', () => {
     expect(chartAttempts).toBe(3);
   });
 
-  it('封面网络失败 → 整笔失败（静默跳过仅限平台无图，见票 08 的回退页用例）', async () => {
+  it('票 56 · 封面网络失败/404 → 不阻断创建，coverStatus: failed 且无 cover.bin', async () => {
     const t = deps();
     t.transport.requestBinary = (req) => req.url === AUDIO_URL
       ? Promise.resolve(STAGED_AUDIO)
       : Promise.reject(new CommunityError('connect ECONNREFUSED', { kind: 'offline', message: 'connect ECONNREFUSED' }));
 
     await withSilentSleep(async () => {
-      await expect(t.run(false)).rejects.toSatisfy(
-        (error: unknown) => isCommunityError(error) && error.kind === 'offline',
+      const result = await t.run(false);
+      expect(result).toEqual(expect.objectContaining({
+        ok: true,
+        coverImported: false,
+        coverStatus: 'failed',
+      }));
+    });
+    expect(t.writes).toHaveLength(1);
+    expect(t.writes[0].project.coverName).toBeNull();
+    expect(t.writes[0].staged?.coverStagedPath).toBeUndefined();
+  });
+
+  it('票 56 · 音频失败：withChart=true 且官方谱面合法 → 无音频降级；双重失败 → 阻断创建', async () => {
+    const degraded = deps();
+    degraded.transport.requestBinary = (req) => req.url === AUDIO_URL
+      ? Promise.reject(new CommunityError('HTTP 404', { kind: 'http', message: 'HTTP 404', httpStatus: 404 }))
+      : Promise.resolve(STAGED_COVER);
+    const okRes = await degraded.run(true, 'special');
+    expect(okRes).toEqual(expect.objectContaining({ ok: true, audioDegraded: true, chartDegraded: false }));
+    expect(degraded.writes[0].project.audioName).toBeNull();
+    expect(degraded.writes[0].staged?.audioStagedPath).toBeUndefined();
+
+    const bothBad = deps();
+    bothBad.transport.requestBinary = (req) => req.url === AUDIO_URL
+      ? Promise.reject(new CommunityError('HTTP 404', { kind: 'http', message: 'HTTP 404', httpStatus: 404 }))
+      : Promise.resolve(STAGED_COVER);
+    bothBad.transport.requestText = async () => {
+      throw new CommunityError('offline', { kind: 'offline', message: 'offline' });
+    };
+    await withSilentSleep(async () => {
+      await expect(bothBad.run(true, 'special')).rejects.toSatisfy(
+        (error: unknown) => isCommunityError(error) && error.kind === 'http',
       );
     });
-    expect(t.writes).toHaveLength(0);
+    expect(bothBad.writes).toHaveLength(0);
   });
 
   it('非网络域（响应非法）不降级：照抛整笔失败，别静默变空谱', async () => {
@@ -372,13 +403,22 @@ describe('票 26 · 素材失败时的降级语义', () => {
     expect(writes).toHaveLength(0);
   });
 
-  it('降级 / 缺封面的警告文案接进了 Toast：ProjectsPage 的映射与 zh/en 键都在', () => {
+  it('降级 / 缺封面 / 音频失效的警告文案接进了 Toast 与错误映射（票 56）', () => {
     const page = readStripped('src/pages/projects/ProjectsPage.tsx');
     expect(page).toContain("if (result.chartDegraded) warnings.push(t('projects.official.warn.chartFallback'))");
-    expect(page).toContain("if (!result.coverImported) warnings.push(t('projects.official.warn.coverMissing'))");
+    expect(page).toContain("if (result.audioDegraded) warnings.push(t('projects.official.warn.audioFallback'))");
+    expect(page).toContain("if (result.coverStatus === 'missing') warnings.push(t('projects.official.warn.coverMissing'))");
+    expect(page).toContain("else if (result.coverStatus === 'failed') warnings.push(t('projects.official.warn.coverFailed'))");
     expect(zhCN['projects.official.warn.chartFallback']).toBe('官方谱面获取失败，已按空白谱面创建，可稍后在谱面代码导入中补。');
     expect(zhCN['projects.official.warn.coverMissing']).toBe('该曲目未提供官方封面，工程未包含封面。');
-    expect(en['projects.official.warn.chartFallback']).toBeTruthy();
-    expect(en['projects.official.warn.coverMissing']).toBeTruthy();
+    expect(zhCN['projects.official.warn.audioFallback']).toBeTruthy();
+    expect(zhCN['projects.official.warn.coverFailed']).toBeTruthy();
+    expect(en['projects.official.warn.audioFallback']).toBeTruthy();
+    expect(en['projects.official.warn.coverFailed']).toBeTruthy();
+
+    for (const kind of ['http', 'invalid-response', 'request-rejected'] as const) {
+      const msg = officialErrorText(new CommunityError(kind, { kind, message: kind }));
+      expect(msg).not.toBe(zhCN['projects.official.err.generic']);
+    }
   });
 });

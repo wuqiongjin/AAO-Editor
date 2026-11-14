@@ -457,6 +457,22 @@
   color: var(--text);
 }
 .off-blank b { font-size: var(--text-sm); font-weight: 600; }
+.off-blank__cancel {
+  height: 28px;
+  padding: 0 12px;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.off-blank__cancel:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
 .off-foot {
   display: flex;
   align-items: center;

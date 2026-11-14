@@ -346,5 +346,34 @@ describe('票 09 · 失败文案', () => {
     expect(communityErrorText(new Error('x'))).toBe('导入社区谱面失败，请重试。');
     expect(communityApplyErrorText([{ noteIndex: -1, reason: '缺少 beat 0 的 BPM' }]))
       .toBe('社区谱面代码过不了 Apply 闸门：谱面代码：缺少 beat 0 的 BPM');
+    for (const kind of ['http', 'invalid-response', 'request-rejected'] as const) {
+      const msg = communityErrorText(new CommunityError(kind, { kind, message: kind }));
+      expect(msg).not.toBe('导入社区谱面失败，请重试。');
+    }
+  });
+
+  it('票 56 · 帖子外链或损坏封面不阻断导入 (coverStatus: failed)；帖子音频失效时随谱面降级或阻断', async () => {
+    const coverFailed = deps();
+    coverFailed.transport.requestBinary = (req) => req.url === AUDIO_URL
+      ? Promise.resolve(STAGED_AUDIO)
+      : Promise.reject(new CommunityError('rejected', { kind: 'request-rejected', message: '外链域名不在白名单' }));
+    const rCover = await coverFailed.run(post(CUSTOM_POST));
+    expect(rCover).toEqual(expect.objectContaining({ ok: true, coverImported: false, coverStatus: 'failed' }));
+    expect(coverFailed.writes[0].project.coverName).toBeNull();
+
+    // custom 帖音频 404 + 带谱面 → 无音频创建，duration >= 30s 且覆盖末音符
+    const audioDegraded = deps();
+    audioDegraded.transport.requestBinary = (req) => req.url === AUDIO_URL
+      ? Promise.reject(new CommunityError('HTTP 404', { kind: 'http', message: 'HTTP 404', httpStatus: 404 }))
+      : Promise.resolve(STAGED_COVER);
+    const rAudio = await audioDegraded.run(post(CUSTOM_POST));
+    expect(rAudio).toEqual(expect.objectContaining({ ok: true, audioDegraded: true }));
+    expect(audioDegraded.writes[0].project.audioName).toBeNull();
+    expect(audioDegraded.writes[0].staged?.audioStagedPath).toBeUndefined();
+    expect(audioDegraded.writes[0].project.durationSeconds).toBeGreaterThanOrEqual(30);
+
+    // 没带谱面 + 音频失效 → 阻断创建
+    await expect(audioDegraded.run(post(CUSTOM_POST), { withChart: false })).rejects.toMatchObject({ kind: 'http' });
+    expect(audioDegraded.writes).toHaveLength(1);
   });
 });

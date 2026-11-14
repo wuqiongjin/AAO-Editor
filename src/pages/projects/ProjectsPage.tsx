@@ -204,8 +204,14 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     await setCurrent(copy.id, copy.charts[0]?.id);
   }, [flushPersist, store, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
 
-  // 「从官方谱面导入」（票 08 + 14）：素材缓存（音频 / 封面，命中即零网络）→ Apply 闸门（勾了才走）→ 落盘 → 切到新工程详情。
-  // 与另两支同落点（issue 23 #1）：留在工程管理页、新工程成为当前工程、不跳工作台。
+  const finishImportedProject = useCallback(async (projectId: string, chartId: string): Promise<void> => {
+    setNewSource(null);
+    goDetailKeepAnimation(projectId);
+    await reload();
+    await setCurrent(projectId, chartId);
+  }, [goDetailKeepAnimation, reload, setCurrent]);
+
+  // 「从官方谱面导入」（票 08 + 14）：留在工程管理页、新工程成为当前工程、不跳工作台。
   const importOfficial = useCallback(async (
     selection: OfficialSongSelection,
     onStage: (stage: ImportStage) => void,
@@ -217,12 +223,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       result = await importChart(
         officialImportSource,
         { store, notifyCatalogChanged, onStage, signal },
-        {
-          song: selection.song,
-          detail: selection.detail,
-          withChart: selection.withChart,
-          diff: selection.diff,
-        },
+        { song: selection.song, detail: selection.detail, withChart: selection.withChart, diff: selection.diff },
       );
     } catch (error) {
       if (isImportCancelled(error)) return { ok: false, message: '', cancelled: true };
@@ -230,27 +231,19 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     }
     if (!result.ok) {
       if (result.reason === 'cancelled') return { ok: false, message: '', cancelled: true };
-      return {
-        ok: false,
-        message: result.reason === 'apply' ? officialApplyErrorText(result.errors) : officialErrorText(result.error),
-      };
+      return { ok: false, message: result.reason === 'apply' ? officialApplyErrorText(result.errors) : officialErrorText(result.error) };
     }
-    // 票 26：建成了但要说一声 —— 谱面降级 / 封面缺失都走 Toast（弹窗此刻已在关）
     const warnings: string[] = [];
     if (result.chartDegraded) warnings.push(t('projects.official.warn.chartFallback'));
-    if (!result.coverImported) warnings.push(t('projects.official.warn.coverMissing'));
-    setNewSource(null);
-    goDetailKeepAnimation(result.project.id);
-    await reload();
-    await setCurrent(result.project.id, result.chartId);
+    if (result.audioDegraded) warnings.push(t('projects.official.warn.audioFallback'));
+    if (result.coverStatus === 'missing') warnings.push(t('projects.official.warn.coverMissing'));
+    else if (result.coverStatus === 'failed') warnings.push(t('projects.official.warn.coverFailed'));
+    await finishImportedProject(result.project.id, result.chartId);
     if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
     return { ok: true, warnings };
-  }, [flushPersist, store, officialImportSource, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
+  }, [flushPersist, store, officialImportSource, notifyCatalogChanged, finishImportedProject]);
 
-  // 「从社区谱面导入」（票 09）：帖子素材缓存 → 帖子详情（谱面原文，带上谱面时必达）→ Apply 闸门
-  // → 落盘 → 切到新工程详情。落点与官方那支同口径（issue 23 #1）；
-  // 工程名称 / 歌手留空（票 09：不转手别人的谱连名字一起转）；
-  // `withChart` = 预览栏那颗「同步导入谱面」芯片（默认开；关掉 = 只建工程 + 音频 + 封面）。
+  // 「从社区谱面导入」（票 09）：落盘 → 切到新工程详情（落点与官方同口径）。
   const importCommunity = useCallback(async (
     selection: CommunityPostSelection,
     onStage: (stage: ImportStage) => void,
@@ -270,20 +263,16 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     }
     if (!result.ok) {
       if (result.reason === 'cancelled') return { ok: false, message: '', cancelled: true };
-      return {
-        ok: false,
-        message: result.reason === 'apply' ? communityApplyErrorText(result.errors) : communityErrorText(result.error),
-      };
+      return { ok: false, message: result.reason === 'apply' ? communityApplyErrorText(result.errors) : communityErrorText(result.error) };
     }
     const warnings: string[] = [];
-    if (!result.coverImported) warnings.push(t('projects.community.warn.coverMissing'));
-    setNewSource(null);
-    goDetailKeepAnimation(result.project.id);
-    await reload();
-    await setCurrent(result.project.id, result.chartId);
+    if (result.audioDegraded) warnings.push(t('projects.community.warn.audioFallback'));
+    if (result.coverStatus === 'missing') warnings.push(t('projects.community.warn.coverMissing'));
+    else if (result.coverStatus === 'failed') warnings.push(t('projects.community.warn.coverFailed'));
+    await finishImportedProject(result.project.id, result.chartId);
     if (warnings.length > 0) showToast(warnings.join('\n'), 'warn');
     return { ok: true, warnings };
-  }, [flushPersist, store, communityImportSource, notifyCatalogChanged, goDetailKeepAnimation, reload, setCurrent]);
+  }, [flushPersist, store, communityImportSource, notifyCatalogChanged, finishImportedProject]);
 
   // 发布（票 11/42）：入口状态与编排在 usePublishEntry（页面 500 行纪律），这里只挂 hook
   const publish = usePublishEntry({

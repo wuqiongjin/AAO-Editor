@@ -20,8 +20,13 @@ import {
   catalogBandOptions,
   filterSongCandidates,
   promoteIdMatches,
+  commitSongCatalogCache,
+  loadSongCatalogFromCache,
+  peekSongCatalog,
+  ensureOfficialCoverCached,
   refreshSongCatalog,
   searchSongCandidates,
+  songCatalogInflight,
   SONG_SORT_KEYS,
   SONG_SORT_NATURAL_DIR,
   sortSongCandidates,
@@ -469,7 +474,8 @@ describe('票 08 · 官方音频 / 封面落下载暂存', () => {
       .resolves.toEqual(noHeaderAudio);
 
     const jacketUrl = 'https://bestdori.com/assets/jp/musicjacket/musicjacket10_rip/assets-star-forassetbundle-startapp-musicjacket-musicjacket10-yes_bang_dream-jacket.png';
-    await expect(fetchOfficialCover(fakeTransport({ binary: { [jacketUrl]: jsonAsAudio } }), candidate(1))).resolves.toBeNull();
+    await expect(fetchOfficialCover(fakeTransport({ binary: { [jacketUrl]: jsonAsAudio } }), candidate(1)))
+      .rejects.toSatisfy((error: unknown) => isCommunityError(error) && error.kind === 'invalid-response');
   });
 
   it('预览直链与下载取同一个 URL（封面 / 试听）', () => {
@@ -501,5 +507,68 @@ describe('票 35 · 官方素材落名（来源前缀 + 曲库 id + 曲名）', 
     expect(audioFileName(candidate(1, 'en'))).toBe('official-1-Yes! BanG_Dream!.mp3');
     // 合作曲（1004）同规则
     expect(coverFileName(candidate(1004))).toBe('official-1004-See the world.png');
+  });
+});
+
+describe('票 57 · 曲库取消与磁盘缓存探查', () => {
+  afterEach(() => clearSongCatalogCache());
+
+  it('loadSongCatalogFromCache 仅当 songs 与 bands 两份缓存同时存在时返回候选，缺任一份回 null', async () => {
+    const songsUrl = 'https://bestdori.com/api/songs/all.5.json';
+    const bandsUrl = 'https://bestdori.com/api/bands/all.1.json';
+
+    // 只有 songs 没有 bands → null
+    const partial = fakeTransport({ json: { [songsUrl]: SONGS_INDEX } });
+    await expect(loadSongCatalogFromCache(partial, 'zh-CN', { rememberInSession: false })).resolves.toBeNull();
+    expect(partial.requests.every((r) => r.cacheOnly === true)).toBe(true);
+    expect(peekSongCatalog('zh-CN')).toBeNull();
+
+    // 两份都存在 → 返回候选；rememberInSession: false 时不写内存缓存
+    const full = fakeTransport({ json: { [songsUrl]: SONGS_INDEX, [bandsUrl]: BANDS_INDEX } });
+    const loaded = await loadSongCatalogFromCache(full, 'zh-CN', { rememberInSession: false });
+    expect(loaded?.map((s) => s.id)).toEqual([1, 1004]);
+    expect(peekSongCatalog('zh-CN')).toBeNull();
+
+    // commitSongCatalogCache 后同会话可秒读，且再拉直接命中内存缓存
+    commitSongCatalogCache(loaded!, 'zh-CN');
+    expect(peekSongCatalog('zh-CN')?.map((s) => s.id)).toEqual([1, 1004]);
+  });
+
+  it('fetchSongCatalog 支持 signal 取消：立即 reject aborted、清掉 inflight 且不写内存缓存', async () => {
+    const controller = new AbortController();
+    const transport = fakeTransport({ json: {} });
+    transport.requestJson = (req) =>
+      new Promise((_resolve, reject) => {
+        req.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+
+    const p = fetchSongCatalog(transport, 'zh-CN', undefined, controller.signal);
+    expect(songCatalogInflight('zh-CN')).not.toBeNull();
+
+    controller.abort();
+    await expect(p).rejects.toMatchObject({ kind: 'aborted' });
+    expect(songCatalogInflight('zh-CN')).toBeNull();
+    expect(peekSongCatalog('zh-CN')).toBeNull();
+  });
+
+  it('票 56 · jacketImage 为空串直接返回 null 不发请求；音频与封面携带 mediaKind', async () => {
+    const emptyJacketSong = { ...candidate(1), jacketImage: '' };
+    const idleTransport = fakeTransport({});
+    await expect(fetchOfficialCover(idleTransport, emptyJacketSong)).resolves.toBeNull();
+    await expect(ensureOfficialCoverCached(idleTransport, emptyJacketSong)).resolves.toBeNull();
+    expect(idleTransport.requests).toHaveLength(0);
+
+    const jacketUrl = jacketPreviewUrl(candidate(1));
+    const audioUrl = 'https://bestdori.com/assets/jp/sound/bgm001_rip/bgm001.mp3';
+    const mediaTransport = fakeTransport({
+      binary: {
+        [jacketUrl]: { path: '/tmp/cover.png', byteLength: 100, contentType: 'image/png' },
+        [audioUrl]: REAL_AUDIO,
+      },
+    });
+    await fetchOfficialCover(mediaTransport, candidate(1));
+    await fetchOfficialAudio(mediaTransport, candidate(1), { bgmId: 'bgm001', lengthSeconds: 120 });
+    expect(mediaTransport.requests[0].mediaKind).toBe('image');
+    expect(mediaTransport.requests[1].mediaKind).toBe('audio');
   });
 });

@@ -314,7 +314,7 @@ describe('票 12 · 新建入口四项归类', () => {
   it('票 27 · 社区导入失败时通过 Toast 报错，不残留 error-banner', async () => {
     const toastSpy = vi.spyOn(ToastModule, 'showToast');
     installFakeBridge((payload) => {
-      if (payload.url === POST_AUDIO_URL) {
+      if (payload.url.includes('/api/post/details')) {
         return { ok: false, error: { kind: 'staging-failed', message: 'disk full' } };
       }
       return undefined;
@@ -663,6 +663,36 @@ describe('票 08 · 从官方谱面导入', () => {
     await waitFor(() => expect(document.querySelector('.off-preview')?.className).not.toMatch(/is-collapsed/));
     const officialSyncBack = within(dialog).getByRole('button', { name: '同步导入谱面' });
     expect(officialSyncBack).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('票 56 · 官方导入封面失效与音频失效均不阻断建工程，并弹出对应 warn Toast', async () => {
+    const toastSpy = vi.spyOn(ToastModule, 'showToast');
+    installFakeBridge((payload) => {
+      if (payload.url.endsWith('.png') || payload.url.endsWith('.mp3')) {
+        return { ok: false, error: { kind: 'http', message: 'HTTP 404', httpStatus: 404 } };
+      }
+      if (payload.url.endsWith('/special.json')) {
+        return { ok: true, responseType: 'text', status: 200, text: JSON.stringify([{ type: 'BPM', bpm: 120, beat: 0 }]) };
+      }
+      return undefined;
+    });
+
+    renderPage();
+    const dialog = await openNewDialog();
+    switchSource(dialog, '从官方谱面导入');
+    await within(dialog).findByText(SONG_TITLE);
+    fireEvent.click(within(dialog).getByRole('option', { name: new RegExp(SONG_TITLE) }));
+    await waitFor(() => expect(document.querySelector('.off-preview')?.className).not.toMatch(/is-collapsed/));
+
+    const create = within(dialog).getByRole('button', { name: '创建' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(
+      toastSpy.mock.calls.some(([msg, tone]) =>
+        tone === 'warn' && String(msg).includes('音频') && String(msg).includes('封面')),
+    ).toBe(true));
+    toastSpy.mockRestore();
   });
 });
 

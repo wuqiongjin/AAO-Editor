@@ -10,6 +10,7 @@
  * 探针失败留初值、二次落盘不重发 stage / notify 都与原两份实现逐条一致。
  */
 import { probeProjectDuration } from '../../audio/projectAudio';
+import { CommunityError } from '../../community/transport';
 import type { AudioBytesDecoder } from '../../audio/probeAudioDuration';
 import type { ValidationError } from '../../chart/editing/ChartConverter';
 import { trail } from '../../diagnostics/trail';
@@ -29,10 +30,14 @@ export type ImportKind = 'official' | 'community';
 /** 导入阶段（弹窗据此出提示文案；网关是一次性请求，没有字节级进度） */
 export type ImportStage = 'audio' | 'cover' | 'chart' | 'save';
 
-/** 源适配器交出的一份暂存素材：缓存路径 + 落进工程后记的名字 */
+/** 封面导入结果：成功 / 平台或帖子未提供 / 拉取或校验失败（均不阻断建工程，票 56） */
+export type CoverImportStatus = 'imported' | 'missing' | 'failed';
+
+/** 源适配器交出的一份暂存素材：缓存路径 + 落进工程后记的名字 + 可选本机协议读取 URL */
 export interface ImportAsset {
   path: string;
   name: string;
+  rawUrl?: string;
 }
 
 /** 谱面原文与它是否走了官方那支的「网络失败降级」 */
@@ -85,8 +90,10 @@ export interface ImportDeps {
   /** 新 id / 时刻（测试注入固定值） */
   newIds?: () => { projectId: string; chartId: string };
   now?: () => number;
-  /** 探音频时长（默认离线探针；测试注入） */
+  /** 落盘前后探测音频时长（默认离线探针；测试注入） */
   probeDuration?: (file: Blob, decode?: AudioBytesDecoder) => Promise<number>;
+  /** 写盘前读取已缓存音频（默认 fetch asset.rawUrl），用于提前解码验真（票 56） */
+  readAudioBlob?: (asset: ImportAsset) => Promise<Blob | null>;
   /** 票 45：关窗 / 取消 = 不建工程 */
   signal?: AbortSignal;
 }
@@ -97,6 +104,10 @@ export type ImportResult =
     project: ChartProject;
     chartId: string;
     coverImported: boolean;
+    /** 区分「平台/帖子未提供(missing)」与「拉取或验真失败(failed)」（票 56） */
+    coverStatus: CoverImportStatus;
+    /** 音频失效且谱面有效时降级为无音频工程（票 56） */
+    audioDegraded: boolean;
     /** 官方谱面网络失败降级；社区恒 false */
     chartDegraded: boolean;
   }
@@ -152,6 +163,30 @@ export async function importChart<Input extends { withChart: boolean }>(
   }
 }
 
+async function defaultReadAudioBlob(asset: ImportAsset): Promise<Blob | null> {
+  if (!asset.rawUrl?.startsWith('aao-asset://') || typeof fetch !== 'function') return null;
+  try {
+    const response = await fetch(asset.rawUrl);
+    return response.ok ? await response.blob() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function probePreSaveAudio(
+  blob: Blob,
+  probeDuration: ImportDeps['probeDuration'],
+): Promise<number> {
+  try {
+    return await probeProjectDuration(blob, probeDuration);
+  } catch {
+    throw new CommunityError('音频解码验证失败', {
+      kind: 'invalid-response',
+      message: '音频解码验证失败',
+    });
+  }
+}
+
 async function runChartImport<Input extends { withChart: boolean }>(
   source: ChartImportSource<Input>,
   deps: ImportDeps,
@@ -166,19 +201,53 @@ async function runChartImport<Input extends { withChart: boolean }>(
 
   throwIfImportAborted(deps.signal);
   deps.onStage?.('audio');
-  const audio = await source.audio(input);
-  staged.audioStagedPath = audio.path;
+  let audio: ImportAsset | null = null;
+  let audioError: unknown = null;
+  let preProbedDuration: number | null = null;
+  try {
+    const candidateAudio = await source.audio(input);
+    const readBlob = deps.readAudioBlob ?? defaultReadAudioBlob;
+    const blob = await readBlob(candidateAudio);
+    if (blob) {
+      // 票 56 Q4=A：写盘前解码验真，不可解码不落 audio.bin
+      preProbedDuration = await probePreSaveAudio(blob, deps.probeDuration);
+    }
+    audio = candidateAudio;
+  } catch (err) {
+    if (isImportCancelled(err) || deps.signal?.aborted) throw err;
+    if (!input.withChart) throw err;
+    audioError = err;
+  }
+  if (audio) staged.audioStagedPath = audio.path;
 
   throwIfImportAborted(deps.signal);
   deps.onStage?.('cover');
-  const cover = await source.cover(input);
-  if (cover) staged.coverStagedPath = cover.path;
+  let cover: ImportAsset | null = null;
+  let coverStatus: CoverImportStatus = 'imported';
+  try {
+    cover = await source.cover(input);
+    if (cover) {
+      staged.coverStagedPath = cover.path;
+      coverStatus = 'imported';
+    } else {
+      coverStatus = 'missing';
+    }
+  } catch (err) {
+    if (isImportCancelled(err) || deps.signal?.aborted) throw err;
+    // 票 56 Q1：任何封面拉取/校验失败均不阻断建工程
+    cover = null;
+    coverStatus = 'failed';
+  }
 
   let chart: ImportChartOutcome | null = null;
   if (input.withChart) {
     throwIfImportAborted(deps.signal);
     deps.onStage?.('chart');
     chart = await source.chart(input);
+  }
+  // 票 56 Q8 ①：音频与官方谱面双重失败 → 不建空壳工程，直接阻断
+  if (audio == null && audioError != null && chart?.degraded) {
+    throw audioError;
   }
 
   const meta = source.projectMeta(input, chart == null ? null : { degraded: chart.degraded });
@@ -187,8 +256,9 @@ async function runChartImport<Input extends { withChart: boolean }>(
     chartId: ids.chartId,
     now,
     ...meta,
+    durationSeconds: preProbedDuration ?? meta.durationSeconds,
     chartCodeText: chart?.codeText ?? '',
-    audioName: audio.name,
+    audioName: audio?.name ?? null,
     coverName: cover?.name ?? null,
   });
   if (!built.ok) return { ok: false, reason: 'apply', errors: built.errors };
@@ -197,17 +267,18 @@ async function runChartImport<Input extends { withChart: boolean }>(
   deps.onStage?.('save');
   await deps.store.save(built.project, staged);
 
-  // 音频刚落地：把初值校正成**实际音频**时长（ADR-0005 §4「有音频 = 音频时长」）。
-  // 探不到就留初值 —— 创建不该因为一次探针失败而回退。
-  const saved = await deps.store.get(built.project.id);
-  if (saved?.audioBlob) {
-    try {
-      const seconds = await probeProjectDuration(saved.audioBlob, deps.probeDuration);
-      if (Math.abs(seconds - saved.durationSeconds) > DURATION_TOLERANCE_SECONDS) {
-        await deps.store.save({ ...saved, durationSeconds: seconds });
+  // 未经写盘前预解码的路径，维持落盘后从 store 读回探针校准时长的旧行为
+  if (audio != null && preProbedDuration == null) {
+    const saved = await deps.store.get(built.project.id);
+    if (saved?.audioBlob) {
+      try {
+        const seconds = await probeProjectDuration(saved.audioBlob, deps.probeDuration);
+        if (Math.abs(seconds - saved.durationSeconds) > DURATION_TOLERANCE_SECONDS) {
+          await deps.store.save({ ...saved, durationSeconds: seconds });
+        }
+      } catch {
+        // 探针失败：初值就是最终值
       }
-    } catch {
-      // 探针失败：初值就是最终值
     }
   }
 
@@ -217,6 +288,8 @@ async function runChartImport<Input extends { withChart: boolean }>(
     project: built.project,
     chartId: built.chart.id,
     coverImported: cover != null,
+    coverStatus,
+    audioDegraded: audio == null,
     chartDegraded: chart?.degraded ?? false,
   };
 }

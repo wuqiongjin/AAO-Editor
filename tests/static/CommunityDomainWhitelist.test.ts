@@ -31,7 +31,11 @@ const XHR = /XMLHttpRequest/;
  * `src/audio/keySoundSamples.ts` 的 `KeySoundSampleBank.load`（实时引擎与离线音轨共用一份），
  * 裸 fetch 随之搬家，这里跟着改指向。
  */
-const LOCAL_FETCH_FILE = 'src/audio/keySoundSamples.ts';
+const LOCAL_FETCH_FILES = [
+  'src/audio/keySoundSamples.ts',
+  // 票 56：导入落盘前通过本机缓存协议（aao-asset://）读取已缓存音频做解码验真
+  'src/pages/projects/chartImport.ts',
+];
 /** 只有这些后缀参与扫描：src 下还有 .mp3 / .png 之类二进制，按文本读会误伤 */
 const TEXT_EXT = /\.(ts|tsx|css|json)$/;
 
@@ -69,13 +73,16 @@ describe('bestdori-integration 07 · 出口唯一', () => {
     expect(sourceFiles().filter((rel) => XHR.test(readStripped(rel)))).toEqual([]);
   });
 
-  it('裸 fetch 只出现在键音采样加载那一处（变量 URL 的绕道也逃不掉）', () => {
+  it('裸 fetch 只出现在键音采样加载与本机缓存协议验真两处（变量 URL 的绕道也逃不掉）', () => {
     const callers = sourceFiles().filter((rel) => BARE_FETCH.test(readStripped(rel)));
-    expect(callers).toEqual([LOCAL_FETCH_FILE]);
-    // 那一处的入参必须是本地资源（data-URI / object URL），不是拼出来的外域地址
-    const sampleLoader = readStripped(LOCAL_FETCH_FILE);
+    expect([...callers].sort()).toEqual([...LOCAL_FETCH_FILES].sort());
+    // 键音采样：本地资源（data-URI / object URL），不是外域地址
+    const sampleLoader = readStripped('src/audio/keySoundSamples.ts');
     expect(sampleLoader).toMatch(/load\(src: string/);
     expect(sampleLoader).not.toMatch(/https?:\/\//);
+    // 导入预解码：严格限定 aao-asset:// 本机协议，绝不碰外域 URL（readStripped 会剥 //，字面量查 readSource）
+    expect(readSource('src/pages/projects/chartImport.ts')).toMatch(/startsWith\('aao-asset:\/\/'\)/);
+    expect(readStripped('src/pages/projects/chartImport.ts')).not.toMatch(/https?:\/\//);
   });
 
   it('CommunityTransport 的实现只有一个，就是走 IPC 那个', () => {

@@ -24,10 +24,10 @@
  */
 import { trail } from '../../diagnostics/trail';
 import { assetRawUrl, assetThumbUrl } from '../assetUrls';
-import { dedupInflight } from '../inflight';
+import { dedupInflight, forwardAbortSignal } from '../inflight';
 import { normalizeLevelWindow } from '../levelWindow';
 import { withRetry, type RetryNotice } from '../rateLimit';
-import { invalidResponse, isCommunityError, isJsonFromCache, markJsonFromCache, type CommunityTransport, type StagedBinary } from '../transport';
+import { abortedRequest, invalidResponse, isJsonFromCache, markJsonFromCache, type CommunityTransport, type StagedBinary } from '../transport';
 import { communityAssetName } from './assetNames';
 import {
   BESTDORI_BINARY_TIMEOUT_MS,
@@ -61,6 +61,8 @@ export interface PostPageQuery {
    * 刷新失败由调用方保留旧数据（不弹错）。
    */
   force?: boolean;
+  /** 取消信号：立即中断网络等待与重试，不写入 pageCache（票 57） */
+  signal?: AbortSignal;
 }
 
 /** 一页帖子候选；`total` 是平台侧过滤后的总数（翻页终点判断用它），`rawCount` 是本页原始条数（offset 游标，含被丢弃的条目） */
@@ -72,7 +74,7 @@ export interface PostPage {
 
 /** 会话内页缓存（key = 查询 + offset）；同一页的并发只发一次，失败不缓存 */
 const pageCache = new Map<string, PostPage>();
-const pageInflight = new Map<string, Promise<PostPage>>();
+const pageInflight = new Map<string, { promise: Promise<PostPage>; abort: () => void }>();
 
 /** 缓存键：查询词 + 谱师（空 = 不限）+ offset —— 三者任一不同就是另一页，不许互相串味 */
 function pageKey(query: string, offset: number, username: string): string {
@@ -85,7 +87,7 @@ function pageKey(query: string, offset: number, username: string): string {
  * 只缓存**命中**：不存在 / 网络失败不落进来（下一次照样能问到）。
  */
 const idLookupCache = new Map<string, PostCandidate>();
-const idLookupInflight = new Map<string, Promise<PostCandidate | null>>();
+const idLookupInflight = new Map<string, { promise: Promise<PostCandidate | null>; abort: () => void }>();
 
 /** 测试与「刷新」用：清掉会话内页缓存（含 id 直查缓存） */
 export function clearPostPageCache(): void {
@@ -100,7 +102,66 @@ export function peekPostPage(query: string, offset: number, username = ''): Post
 }
 
 export function postPageInflight(query: string, offset: number, username = ''): Promise<PostPage> | null {
-  return pageInflight.get(pageKey(query.trim(), Math.max(0, Math.trunc(offset)), username.trim())) ?? null;
+  return pageInflight.get(pageKey(query.trim(), Math.max(0, Math.trunc(offset)), username.trim()))?.promise ?? null;
+}
+
+function postListRequestBody(query: string, offset: number, limit: number, username: string): string {
+  const pageLimit = Math.min(POST_PAGE_LIMIT, Math.max(POST_PAGE_LIMIT_MIN, limit));
+  return JSON.stringify({
+    search: query,
+    categoryName: 'SELF_POST',
+    categoryId: 'chart',
+    order: 'TIME_DESC',
+    limit: pageLimit,
+    offset,
+    username: username === '' ? undefined : username,
+  });
+}
+
+/** 将一页社区帖子写入会话内存缓存（票 57：取消拉取回落缓存后，同会话重开直接命中） */
+export function commitPostPageCache(
+  { query, offset, username }: Pick<PostPageQuery, 'query' | 'offset' | 'username'>,
+  page: PostPage,
+): PostPage {
+  const at = Math.max(0, Math.trunc(offset));
+  const who = (username ?? '').trim();
+  const key = pageKey(query.trim(), at, who);
+  const marked = markJsonFromCache(page);
+  pageCache.set(key, marked);
+  return marked;
+}
+
+/**
+ * 仅从主进程本地磁盘缓存读取社区列表第 0 页（票 57）：
+ * offset > 0 的深页不落盘，直接回 null。
+ */
+export async function loadPostPageFromCache(
+  transport: CommunityTransport,
+  { query, offset, limit = POST_PAGE_LIMIT, username }: Pick<PostPageQuery, 'query' | 'offset' | 'limit' | 'username'>,
+  options: { rememberInSession?: boolean } = {},
+): Promise<PostPage | null> {
+  const at = Math.max(0, Math.trunc(offset));
+  if (at !== 0) return null;
+  const who = (username ?? '').trim();
+  const body = postListRequestBody(query, at, limit, who);
+  try {
+    const raw = await transport.requestJson({
+      url: postListUrl(),
+      method: 'POST',
+      headers: { ...bestdoriHeaders(), 'content-type': 'application/json' },
+      body,
+      timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+      cacheable: true,
+      cacheOnly: true,
+    });
+    const page = toPostPage(raw);
+    if (!page) return null;
+    return options.rememberInSession === false
+      ? markJsonFromCache(page)
+      : commitPostPageCache({ query, offset: at, username: who }, page);
+  } catch {
+    return null;
+  }
 }
 
 export function clearPostIdLookupCache(): void {
@@ -111,8 +172,9 @@ export function clearPostIdLookupCache(): void {
 /** POST post/list 单页原语（列表 / 搜索 / 分页都走它）：会话内缓存 + inflight 去重 */
 export async function fetchPostPage(
   transport: CommunityTransport,
-  { query, offset, limit = POST_PAGE_LIMIT, username, onRetry, force = false }: PostPageQuery,
+  { query, offset, limit = POST_PAGE_LIMIT, username, onRetry, force = false, signal }: PostPageQuery,
 ): Promise<PostPage> {
+  if (signal?.aborted) throw abortedRequest();
   const at = Math.max(0, Math.trunc(offset));
   const who = (username ?? '').trim();
   const key = pageKey(query.trim(), at, who);
@@ -122,23 +184,26 @@ export async function fetchPostPage(
   }
   // 票 44：同一 key 还在飞（含首拉时点刷新）并进这一趟，不另排一队。
   const inflight = pageInflight.get(key);
-  if (inflight) return inflight;
+  if (inflight) {
+    return forwardAbortSignal(inflight.promise, inflight.abort, signal);
+  }
 
-  const pageLimit = Math.min(POST_PAGE_LIMIT, Math.max(POST_PAGE_LIMIT_MIN, limit));
-  const body = JSON.stringify({
-    search: query,
-    categoryName: 'SELF_POST',
-    categoryId: 'chart',
-    order: 'TIME_DESC',
-    limit: pageLimit,
-    offset: at,
-    // 谱师过滤（票 10）：空 = 不限，`JSON.stringify` 会把 `undefined` 整个丢掉，
-    // 所以「没传 username」的请求体与既往逐字相同
-    username: who === '' ? undefined : who,
-  });
+  const controller = new AbortController();
+  let promise: Promise<PostPage>;
+  const clearInflight = () => {
+    if (pageInflight.get(key)?.promise === promise) pageInflight.delete(key);
+  };
+  const abort = () => {
+    clearInflight();
+    controller.abort();
+  };
+  const onOuterAbort = () => abort();
+  signal?.addEventListener('abort', onOuterAbort, { once: true });
+
+  const body = postListRequestBody(query, at, limit, who);
   const started = Date.now();
   trail.record({ module: 'community', action: 'browse-start' });
-  const promise = withRetry(
+  promise = withRetry(
     () => transport.requestJson({
       url: postListUrl(),
       method: 'POST',
@@ -151,9 +216,11 @@ export async function fetchPostPage(
       // **深页不落盘**：offset 随新帖插入整体漂移，跨会话拼两个时刻的快照会把页码语义搞烂。
       ...(at === 0 ? { cacheable: true, freshFirst: true } : {}),
       ...(force ? { revalidate: true } : {}),
+      signal: controller.signal,
     }),
-    { policy: BESTDORI_RETRY_POLICY, onRetry },
+    { policy: BESTDORI_RETRY_POLICY, onRetry, signal: controller.signal },
   ).then((raw) => {
+    if (controller.signal.aborted) throw abortedRequest();
     const page = toPostPage(raw);
     if (!page) throw invalidResponse('帖子列表不是预期形态');
     const stored = isJsonFromCache(raw) ? markJsonFromCache(page) : page;
@@ -174,10 +241,11 @@ export async function fetchPostPage(
     });
     throw err;
   }).finally(() => {
-    if (pageInflight.get(key) === promise) pageInflight.delete(key);
+    signal?.removeEventListener('abort', onOuterAbort);
+    clearInflight();
   });
 
-  pageInflight.set(key, promise);
+  pageInflight.set(key, { promise, abort });
   return promise;
 }
 
@@ -219,25 +287,39 @@ export function numericPostIdQuery(query: string): number | null {
 export function fetchPostIdLookup(
   transport: CommunityTransport,
   query: string,
+  signal?: AbortSignal,
 ): Promise<PostCandidate | null> {
+  if (signal?.aborted) return Promise.resolve(null);
   const postId = numericPostIdQuery(query);
   if (postId == null) return Promise.resolve(null);
   const key = query.trim();
   const cached = idLookupCache.get(key);
   if (cached) return Promise.resolve(cached);
   const inflight = idLookupInflight.get(key);
-  if (inflight) return inflight;
+  if (inflight) return forwardAbortSignal(inflight.promise, inflight.abort, signal);
 
-  const promise = fetchPostDetail(transport, postId)
+  const controller = new AbortController();
+  let promise: Promise<PostCandidate | null>;
+  const clearInflight = () => {
+    if (idLookupInflight.get(key)?.promise === promise) idLookupInflight.delete(key);
+  };
+  const abort = () => {
+    clearInflight();
+    controller.abort();
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+
+  promise = fetchPostDetail(transport, postId, controller.signal)
     .then((detail) => {
       idLookupCache.set(key, detail.post);
       return detail.post;
     })
     .catch(() => null)
     .finally(() => {
-      if (idLookupInflight.get(key) === promise) idLookupInflight.delete(key);
+      signal?.removeEventListener('abort', abort);
+      clearInflight();
     });
-  idLookupInflight.set(key, promise);
+  idLookupInflight.set(key, { promise, abort });
   return promise;
 }
 
@@ -259,7 +341,7 @@ export async function fetchPostSearchPage(
   opts: PostPageQuery,
 ): Promise<PostPage> {
   const [hit, page] = await Promise.all([
-    opts.offset === 0 ? fetchPostIdLookup(transport, opts.query) : Promise.resolve(null),
+    opts.offset === 0 ? fetchPostIdLookup(transport, opts.query, opts.signal) : Promise.resolve(null),
     fetchPostPage(transport, opts),
   ]);
   return mergeIdLookupHit(hit, page);
@@ -269,6 +351,7 @@ export async function fetchPostSearchPage(
 export async function fetchPostDetail(
   transport: CommunityTransport,
   postId: number,
+  signal?: AbortSignal,
 ): Promise<{ post: PostCandidate; chartCodeText: string }> {
   const raw = await withRetry(
     () => transport.requestJson({
@@ -276,8 +359,9 @@ export async function fetchPostDetail(
       method: 'GET',
       headers: bestdoriHeaders(),
       timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+      ...(signal ? { signal } : {}),
     }),
-    { policy: BESTDORI_RETRY_POLICY },
+    { policy: BESTDORI_RETRY_POLICY, signal },
   );
   const detail = toPostDetail(raw, postId);
   if (!detail) throw invalidResponse(`社区帖详情不是预期形态（post ${postId}）`);
@@ -304,53 +388,53 @@ function looksLikeMedia(contentType: string | null, media: 'audio' | 'image'): b
   return /^audio\//i.test(contentType);
 }
 
-async function fetchCustomMedia(
+async function fetchCustomBinary(
   transport: CommunityTransport,
   url: string,
   suggestedName: string,
-  media: 'audio' | 'image',
+  mediaKind: 'audio' | 'image',
   timeoutMs: number = BESTDORI_BINARY_TIMEOUT_MS,
 ): Promise<StagedBinary> {
-  const staged = await withRetry(
+  return withRetry(
     () => transport.requestBinary({
       url,
       method: 'GET',
       headers: bestdoriHeaders('*/*'),
       timeoutMs,
       suggestedName,
+      mediaKind,
     }),
     { policy: BESTDORI_RETRY_POLICY },
   );
-  if (!looksLikeMedia(staged.contentType, media)) {
-    throw invalidResponse(`帖内素材取不到（拿到的不是${media === 'audio' ? '音频' : '图片'}）：${staged.contentType ?? '无 content-type'}`);
+}
+
+/** 帖内音频 → 素材缓存（主线，取不到整笔失败） */
+export async function fetchCustomAudio(transport: CommunityTransport, post: PostCandidate): Promise<StagedBinary> {
+  if (post.song.kind !== 'custom') {
+    throw invalidResponse(`帖子 ${post.postId} 不是 custom 曲目，没有帖内音频`);
+  }
+  const staged = await fetchCustomBinary(transport, post.song.audioUrl, customAudioName(post), 'audio');
+  if (!looksLikeMedia(staged.contentType, 'audio')) {
+    throw invalidResponse(`帖内素材取不到（拿到的不是音频）：${staged.contentType ?? '无 content-type'}`);
   }
   return staged;
 }
 
-/** 帖内音频 → 素材缓存（主线，取不到整笔失败；媒体判定在 fetchCustomMedia 一处做） */
-export function fetchCustomAudio(transport: CommunityTransport, post: PostCandidate): Promise<StagedBinary> {
-  if (post.song.kind !== 'custom') {
-    return Promise.reject(invalidResponse(`帖子 ${post.postId} 不是 custom 曲目，没有帖内音频`));
-  }
-  return fetchCustomMedia(transport, post.song.audioUrl, customAudioName(post), 'audio');
-}
-
 /**
- * 帖内封面 → 素材缓存；帖子没给封面 / 取到的不是图片（SPA 回退页等）都回 **null**
- * （= 这次导入不带封面，同官方曲口径）。不抛错：封面缺失不挡「工程 + 音频 + 谱面」这条主线。
+ * 帖内封面 → 素材缓存；帖子没给封面 / SPA 回退页回 **null**（= 未提供封面）。
+ * 网关返回的 invalid-response（坏图）与网络/HTTP 错误原样抛出，交给导入层做 coverFailed 降级提示（票 56）。
  */
 export async function fetchCustomCover(
   transport: CommunityTransport,
   post: PostCandidate,
 ): Promise<StagedBinary | null> {
   if (post.song.kind !== 'custom' || post.song.coverUrl == null) return null;
-  try {
-    const staged = await fetchCustomMedia(transport, post.song.coverUrl, customCoverName(post), 'image');
-    return staged;
-  } catch (error) {
-    if (isCommunityError(error) && error.kind === 'invalid-response') return null;
-    throw error;
+  const staged = await fetchCustomBinary(transport, post.song.coverUrl, customCoverName(post), 'image');
+  if (isPlatformFallbackPage(staged.contentType)) return null;
+  if (!looksLikeMedia(staged.contentType, 'image')) {
+    throw invalidResponse(`帖内封面不是预期图片类型：post ${post.postId} · ${staged.contentType}`);
   }
+  return staged;
 }
 
 /** 音频落进工程后记的名字：`community-248468-All You Wanted (GBP Edit).mp3`（票 35 统一规则） */
@@ -404,7 +488,8 @@ export function ensureCustomCoverCached(
   if (post.song.kind !== 'custom' || post.song.coverUrl == null) return Promise.resolve(null);
   const coverUrl = post.song.coverUrl;
   return dedupInflight(coverInflight, post.postId, () =>
-    fetchCustomMedia(transport, coverUrl, customCoverName(post), 'image', BESTDORI_COVER_TIMEOUT_MS)
+    fetchCustomBinary(transport, coverUrl, customCoverName(post), 'image', BESTDORI_COVER_TIMEOUT_MS)
+      .then((staged) => (looksLikeMedia(staged.contentType, 'image') ? staged : null))
       .catch(() => null));
 }
 

@@ -27,6 +27,12 @@ interface TestInput {
 interface HarnessOptions {
   /** 不传 = 默认封面；传 null = 平台无图 */
   cover?: { path: string; name: string } | null;
+  /** 封面拉取直接抛错 */
+  coverError?: Error;
+  /** 音频拉取直接抛错 */
+  audioError?: Error;
+  /** 返回给 readAudioBlob 的音频字节 */
+  audioRawBlob?: Blob | null;
   chart?: ImportChartOutcome;
   meta?: ImportProjectMeta;
   /** 在某个源方法返回后立刻 abort，锁 core 的下一个检查点 */
@@ -71,11 +77,13 @@ function harness(options: HarnessOptions = {}) {
     async audio() {
       events.push('audio');
       if (options.abortAt === 'audio') controller.abort();
-      return { path: '/audio.mp3', name: 'audio.mp3' };
+      if (options.audioError) throw options.audioError;
+      return { path: '/audio.mp3', name: 'audio.mp3', ...(options.audioRawBlob ? { rawUrl: 'aao-asset://raw/?url=test' } : {}) };
     },
     async cover() {
       events.push('cover');
       if (options.abortAt === 'cover') controller.abort();
+      if (options.coverError) throw options.coverError;
       return cover;
     },
     async chart() {
@@ -122,6 +130,7 @@ function harness(options: HarnessOptions = {}) {
       events.push('now');
       return NOW;
     },
+    ...(options.audioRawBlob !== undefined ? { readAudioBlob: async () => options.audioRawBlob ?? null } : {}),
     probeDuration: async () => {
       events.push('probe');
       if (options.probe === 'error') throw new Error('probe failed');
@@ -360,5 +369,83 @@ describe('11 · 取消判定', () => {
     expect(isImportCancelled(abort)).toBe(true);
     expect(isImportCancelled(new Error('other'))).toBe(false);
     expect(isImportCancelled(null)).toBe(false);
+  });
+});
+
+describe('票 56 · 资源失效容灾与写盘前验真', () => {
+  it('封面缺失 (null) → coverStatus: missing；封面抛错 → 不阻断创建，coverStatus: failed', async () => {
+    const missing = harness({ cover: null });
+    const resMissing = await missing.run(true);
+    expect(resMissing.ok).toBe(true);
+    if (resMissing.ok) {
+      expect(resMissing.coverImported).toBe(false);
+      expect(resMissing.coverStatus).toBe('missing');
+    }
+    expect(missing.writes[0]!.project.coverName).toBeNull();
+    expect(missing.writes[0]!.staged?.coverStagedPath).toBeUndefined();
+
+    const failed = harness({ coverError: new Error('HTTP 404') });
+    const resFailed = await failed.run(true);
+    expect(resFailed.ok).toBe(true);
+    if (resFailed.ok) {
+      expect(resFailed.coverImported).toBe(false);
+      expect(resFailed.coverStatus).toBe('failed');
+    }
+    expect(failed.writes[0]!.project.coverName).toBeNull();
+    expect(failed.writes[0]!.staged?.coverStagedPath).toBeUndefined();
+    expect(failed.notified()).toBe(1);
+  });
+
+  it('音频失效 + 有效谱面 → 无音频创建 (audioDegraded: true)，时长按 max(初始曲长, maxNoteEndSeconds)', async () => {
+    const chartCode = JSON.stringify([
+      { type: 'BPM', bpm: 120, beat: 0 },
+      { type: 'Single', beat: 360, lane: 1 },
+    ]);
+    const t = harness({
+      audioError: new Error('HTTP 404'),
+      chart: { codeText: chartCode, degraded: false },
+      meta: { ...DEFAULT_META, durationSeconds: 30 },
+    });
+
+    const result = await t.run(true);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.audioDegraded).toBe(true);
+    expect(t.writes[0]!.project.audioName).toBeNull();
+    expect(t.writes[0]!.staged?.audioStagedPath).toBeUndefined();
+    // 120 BPM 下 360 beat = 180 秒 > meta.durationSeconds(30)
+    expect(t.writes[0]!.project.durationSeconds).toBe(180);
+  });
+
+  it('音频失效 + withChart=false → 阻断导入，零写盘；双重失败 (chart.degraded + audioError) → 同样阻断', async () => {
+    const noChart = harness({ audioError: new Error('audio failed') });
+    await expect(noChart.run(false)).rejects.toThrow('audio failed');
+    expect(noChart.writes).toHaveLength(0);
+
+    const doubleFail = harness({
+      audioError: new Error('audio failed'),
+      chart: { codeText: '', degraded: true },
+    });
+    await expect(doubleFail.run(true)).rejects.toThrow('audio failed');
+    expect(doubleFail.writes).toHaveLength(0);
+    expect(doubleFail.notified()).toBe(0);
+  });
+
+  it('写盘前解码验真：readAudioBlob 拿到坏音频时在 save 前降级或阻断，不落坏 audio.bin', async () => {
+    const withValidChart = harness({
+      audioRawBlob: new Blob(['not-audio']),
+      probe: 'error',
+    });
+    const resDegraded = await withValidChart.run(true);
+    expect(resDegraded.ok).toBe(true);
+    if (resDegraded.ok) expect(resDegraded.audioDegraded).toBe(true);
+    expect(withValidChart.writes[0]!.staged?.audioStagedPath).toBeUndefined();
+
+    const withoutChart = harness({
+      audioRawBlob: new Blob(['not-audio']),
+      probe: 'error',
+    });
+    await expect(withoutChart.run(false)).rejects.toMatchObject({ kind: 'invalid-response' });
+    expect(withoutChart.writes).toHaveLength(0);
   });
 });

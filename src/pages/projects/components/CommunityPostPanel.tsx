@@ -26,12 +26,14 @@ import { OFFICIAL_DIFFICULTIES, officialDiffIndex } from '../../../community/bes
 import type { OfficialSongDetail, PostCandidate, SongCandidate } from '../../../community/bestdori/mapping';
 import {
   clearPostIdLookupCache,
+  commitPostPageCache,
   customAudioLocalUrl,
   customAudioPreviewUrl,
   customCoverLocalUrl,
   fetchPostPage,
   fetchPostSearchPage,
   filterPostCandidates,
+  loadPostPageFromCache,
   peekPostPage,
 } from '../../../community/bestdori/posts';
 import {
@@ -42,10 +44,12 @@ import {
   fetchSongDetail,
   jacketLocalUrl,
   jacketPreviewUrl,
+  loadSongCatalogFromCache,
+  peekSongCatalog,
   SONG_LEVEL_FILTER_DEFAULT,
 } from '../../../community/bestdori/songs';
 import { createCommunityTransport } from '../../../community/electronTransport';
-import { isJsonFromCache, type CommunityTransport } from '../../../community/transport';
+import { isCommunityError, isJsonFromCache, type CommunityTransport } from '../../../community/transport';
 import { DIFF_COLORS, DIFF_SHORT } from '../../../project/projectCatalog';
 import { t } from '../../../i18n';
 import CompactAudio from '../../../ui/CompactAudio';
@@ -53,6 +57,7 @@ import LoadingShimmer, { useSlowLoading } from '../../../ui/LoadingShimmer';
 import { showToast } from '../../../ui/Toast';
 import { communityErrorText } from '../communityImport';
 import CommunityPostThumb from './CommunityPostThumb';
+import { useCancelCacheProbe } from './useCancelCacheProbe';
 
 /** 面板交给页面的东西：帖子 + （bandori 帖）选中的曲库候选与歌曲元数据 + 是否带谱面 */
 export interface CommunityPostSelection {
@@ -65,11 +70,8 @@ export interface CommunityPostSelection {
 /** 服务端搜索的防抖（ms）：post/list 一次往返不便宜，别每敲一个字发一发 */
 const SEARCH_DEBOUNCE_MS = 350;
 
-/**
- * 空台多久才改口「网络较慢」（票 44 首版 8s；用户反馈太早 —— 跨境慢链上一次正常往返
- * 就能到 10s 级，提前喊慢像狼来了）。单次尝试本身有 30s 超时，15s 开口离结论还远。
- */
 const SLOW_AFTER_MS = 15_000;
+const CANCEL_AFTER_MS = 2_000;
 
 function formatPostDate(time: number | null): string {
   if (time == null) return '';
@@ -140,7 +142,25 @@ export function CommunityPostPanel({
 
   // 防抖后的防陈旧卫兵：慢响应回来时查询已变，丢弃
   const loadSeq = useRef(0);
-  const [waitSlow, setWaitSlow] = useState(false);
+  const firstAbortRef = useRef<AbortController | null>(null);
+  const catalogAbortRef = useRef<AbortController | null>(null);
+  const activeQueryRef = useRef(activeQuery);
+  activeQueryRef.current = activeQuery;
+
+  const waitingBlank = posts == null && loadError == null && net.kind !== 'none';
+  const probePageCache = useCallback(
+    () => loadPostPageFromCache(net, { query: activeQuery, offset: 0 }, { rememberInSession: false }),
+    [net, activeQuery],
+  );
+  const {
+    waitSlow,
+    cachedReady: diskCachedPage,
+    clearCached: clearDiskCachedPage,
+  } = useCancelCacheProbe(waitingBlank, probePageCache, {
+    slowAfterMs: SLOW_AFTER_MS,
+    cancelAfterMs: CANCEL_AFTER_MS,
+  });
+
   const loadFirst = useCallback((q: string) => {
     if (net.kind === 'none') return;
     const seq = ++loadSeq.current;
@@ -160,10 +180,13 @@ export function CommunityPostPanel({
       setEndReached(false);
       setLoadError(null);
     }
+    const controller = new AbortController();
+    firstAbortRef.current = controller;
+    clearDiskCachedPage();
     setRetrying(false);
     setRefreshing(true);
     // 票 32：首屏走「两路」入口（纯数字查询时并发 id 直查）；深页（loadMore）只走服务端那一页
-    void fetchPostSearchPage(net, { query: q, offset: 0, onRetry: () => setRetrying(true) })
+    void fetchPostSearchPage(net, { query: q, offset: 0, onRetry: () => setRetrying(true), signal: controller.signal })
       .then((page) => {
         if (seq !== loadSeq.current) return;
         setPosts(page.posts);
@@ -177,6 +200,7 @@ export function CommunityPostPanel({
       })
       .catch((error: unknown) => {
         if (seq !== loadSeq.current) return;
+        if (isCommunityError(error) && error.kind === 'aborted') return;
         const fallback = peekPostPage(q, 0);
         if (fallback) {
           setPosts(fallback.posts);
@@ -189,17 +213,25 @@ export function CommunityPostPanel({
         setLoadError(communityErrorText(error));
       })
       .finally(() => {
+        if (firstAbortRef.current === controller) firstAbortRef.current = null;
         if (seq !== loadSeq.current) return;
         setRetrying(false);
         setRefreshing(false);
       });
-  }, [net]);
+  }, [net, clearDiskCachedPage]);
 
   const loadCatalog = useCallback(() => {
     if (net.kind === 'none') return;
-    void fetchSongCatalog(net).then(setCatalog).catch(() => {
+    const controller = new AbortController();
+    catalogAbortRef.current = controller;
+    void fetchSongCatalog(net, undefined, undefined, controller.signal).then((songs) => {
+      if (!controller.signal.aborted) setCatalog(songs);
+    }).catch(() => {
+      if (controller.signal.aborted) return;
       // 曲库失败不挡帖子列表（custom 帖不受影响）；bandori 帖的行退图标、选中退提示
       setCatalog(null);
+    }).finally(() => {
+      if (catalogAbortRef.current === controller) catalogAbortRef.current = null;
     });
   }, [net]);
 
@@ -209,13 +241,26 @@ export function CommunityPostPanel({
     loadCatalog();
   }, [activeQuery, loadFirst, loadCatalog]);
 
-  const waitingBlank = posts == null && loadError == null && net.kind !== 'none';
-  useEffect(() => {
-    setWaitSlow(false);
-    if (!waitingBlank) return;
-    const timer = setTimeout(() => setWaitSlow(true), SLOW_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [waitingBlank]);
+  const cancelToCache = useCallback(() => {
+    if (!diskCachedPage) return;
+    loadSeq.current += 1;
+    firstAbortRef.current?.abort();
+    firstAbortRef.current = null;
+    catalogAbortRef.current?.abort();
+    catalogAbortRef.current = null;
+    const committed = commitPostPageCache({ query: activeQueryRef.current, offset: 0 }, diskCachedPage);
+    setPosts(committed.posts);
+    setRawCount(committed.rawCount);
+    setEndReached(committed.rawCount >= committed.total || committed.posts.length === 0);
+    setLoadError(null);
+    setRefreshing(false);
+    setRetrying(false);
+    clearDiskCachedPage();
+    const cachedSongs = peekSongCatalog();
+    if (cachedSongs) setCatalog(cachedSongs);
+    else void loadSongCatalogFromCache(net).then((c) => { if (c) setCatalog(c); });
+    showToast(t('projects.community.cancelToCache'), 'warn');
+  }, [diskCachedPage, clearDiskCachedPage, net]);
 
   const loadingRef = useRef(false);
 
@@ -555,6 +600,11 @@ export function CommunityPostPanel({
         <div className="off-blank" role="status">
           <i className="off-spinner" aria-hidden />
           <b>{retrying ? t('projects.community.retrying') : activeQuery !== '' ? t('projects.community.searching') : (waitSlow ? t('projects.community.loadingSlow') : t('projects.community.loading'))}</b>
+          {diskCachedPage != null && (
+            <button type="button" className="off-blank__cancel" onClick={cancelToCache}>
+              {t('projects.cancel')}
+            </button>
+          )}
         </div>
       ) : (
         <div className={`off-split${expanded ? '' : ' is-collapsed'}`}>

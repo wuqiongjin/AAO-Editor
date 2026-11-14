@@ -18,3 +18,20 @@ export function dedupInflight<K, T>(
   map.set(key, promise);
   return promise;
 }
+
+/**
+ * 将外部 AbortSignal 转发到已存在的在飞请求，并在 promise 结束时解绑监听（票 57）。
+ */
+export function forwardAbortSignal<T>(
+  promise: Promise<T>,
+  abort: () => void,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    abort();
+    return promise;
+  }
+  signal.addEventListener('abort', abort, { once: true });
+  return promise.finally(() => signal.removeEventListener('abort', abort));
+}

@@ -40,7 +40,7 @@ const {
     registerAssetSchemePrivileges,
     registerAssetProtocol,
 } = require('./assets/assetProtocol.cjs');
-const { createThumbMaker } = require('./assets/assetThumbnails.cjs');
+const { createThumbMaker, createImageValidator } = require('./assets/assetThumbnails.cjs');
 const { registerBackgroundSkinIpc } = require('./assets/backgroundSkin.cjs');
 const { registerPreviewIpc } = require('./assets/previewExport.cjs');
 const { t, registerI18nIpc } = require('./foundation/i18n.cjs');
@@ -140,6 +140,7 @@ const communityGateway = createCommunityGateway({
     fetchImpl: (url, init) => net.fetch(url, init),
     // 发布（票 11）：multipart 上传只准读工程目录里的文件（音频 / 封面）。
     uploadRoots: () => [projectsDir(currentDataRoot())],
+    isValidImage: createImageValidator(nativeImage),
     assetCache,
 });
 registerCommunityNetIpc(ipcMain, communityGateway);

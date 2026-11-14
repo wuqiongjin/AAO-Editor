@@ -9,6 +9,7 @@
 import { logger } from '../diagnostics/logger';
 import { getElectronAPI, type CommunityNetBridge } from '../app/electronBridge';
 import {
+  abortedRequest,
   CommunityError,
   communityErrorLogExtra,
   isCommunityError,
@@ -26,7 +27,7 @@ import {
  */
 function logCommunityError(error: unknown, req?: CommunityRequest): void {
   if (!isCommunityError(error)) return;
-  if (error.kind === 'unsupported-runtime') return;
+  if (error.kind === 'unsupported-runtime' || error.kind === 'aborted' || error.kind === 'cache-miss') return;
   if (
     error.platformCode !== undefined &&
     req?.silentPlatformCodes?.includes(error.platformCode)
@@ -100,15 +101,39 @@ export class ElectronCommunityTransport implements CommunityTransport {
         message: '社区平台只在桌面版提供',
       });
     }
+    const { signal, ...wireBase } = req;
+    if (signal?.aborted) {
+      throw abortedRequest();
+    }
+    const requestId = signal
+      ? (wireBase.requestId ?? `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`)
+      : wireBase.requestId;
+    const wireReq: CommunityRequest = requestId ? { ...wireBase, requestId } : wireBase;
+    const onAbort = signal && requestId
+      ? () => {
+          void Promise.resolve(this.bridge?.cancel?.(requestId)).catch(() => undefined);
+        }
+      : undefined;
+    if (signal && onAbort) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
     let result: CommunityWireResult;
     try {
-      result = await this.bridge.request(req);
+      result = await this.bridge.request(wireReq);
     } catch (error) {
+      if (signal?.aborted) {
+        throw abortedRequest();
+      }
       // 桥本身挂了（通道没注册 / 主进程异常）：出口不可用，不让调用方看到裸异常
       throw new CommunityError(error instanceof Error ? error.message : String(error), {
         kind: 'unsupported-runtime',
         message: '社区网络通道不可用',
       });
+    } finally {
+      if (signal && onAbort) signal.removeEventListener('abort', onAbort);
+    }
+    if (signal?.aborted) {
+      throw abortedRequest();
     }
     if (!result || typeof result !== 'object' || typeof result.ok !== 'boolean') {
       const error = new CommunityError('社区网络桥返回了无法识别的结果', {

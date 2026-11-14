@@ -25,12 +25,14 @@ import {
   audioLocalUrl,
   audioPreviewUrl,
   catalogBandOptions,
+  commitSongCatalogCache,
   ensureOfficialCoverCached,
   fetchSongCatalog,
   fetchSongDetail,
   filterSongCandidates,
   jacketLocalUrl,
   jacketPreviewUrl,
+  loadSongCatalogFromCache,
   peekSongCatalog,
   promoteIdMatches,
   refreshSongCatalog,
@@ -41,7 +43,7 @@ import {
   sortSongCandidates,
 } from '../../../community/bestdori/songs';
 import { createCommunityTransport } from '../../../community/electronTransport';
-import { isJsonFromCache, type CommunityTransport } from '../../../community/transport';
+import { isCommunityError, isJsonFromCache, type CommunityTransport } from '../../../community/transport';
 import { DIFF_COLORS, DIFF_SHORT } from '../../../project/projectCatalog';
 import { t } from '../../../i18n';
 import CompactAudio from '../../../ui/CompactAudio';
@@ -49,6 +51,7 @@ import LoadingShimmer, { useSlowLoading } from '../../../ui/LoadingShimmer';
 import { showToast } from '../../../ui/Toast';
 import { officialErrorText } from '../officialImport';
 import OfficialSongThumb from './OfficialSongThumb';
+import { useCancelCacheProbe } from './useCancelCacheProbe';
 
 /** 选曲面板交给页面的东西：一首歌 + 它的详情 + 两个选项（A 素材默认做，B 谱面内容默认关） */
 export interface OfficialSongSelection {
@@ -79,11 +82,8 @@ const SORT_DIR_LABEL_KEY = {
   desc: 'projects.songSort.dir.desc',
 } as const;
 
-/**
- * 空台多久才改口「网络较慢」（票 44 首版 8s；用户反馈太早 —— 跨境慢链上一次正常往返
- * 就能到 10s 级，提前喊慢像狼来了）。单次尝试本身有 30s 超时，15s 开口离结论还远。
- */
 const SLOW_AFTER_MS = 15_000;
+const CANCEL_AFTER_MS = 2_000;
 
 export function OfficialSongPanel({
   selection,
@@ -130,7 +130,22 @@ export function OfficialSongPanel({
   const [diff, setDiff] = useState<OfficialDifficulty>(selection?.diff ?? 'expert');
   const [retrying, setRetrying] = useState(false);
   const [refreshingCatalog, setRefreshingCatalog] = useState(false);
-  const [waitSlow, setWaitSlow] = useState(false);
+  const catalogAbortRef = useRef<AbortController | null>(null);
+  const catalogLoadSeq = useRef(0);
+
+  const waitingBlank = catalog == null && loadError == null && net.kind !== 'none';
+  const probeCatalogCache = useCallback(
+    () => loadSongCatalogFromCache(net, undefined, { rememberInSession: false }),
+    [net],
+  );
+  const {
+    waitSlow,
+    cachedReady: diskCachedCatalog,
+    clearCached: clearDiskCachedCatalog,
+  } = useCancelCacheProbe(waitingBlank, probeCatalogCache, {
+    slowAfterMs: SLOW_AFTER_MS,
+    cancelAfterMs: CANCEL_AFTER_MS,
+  });
 
   const loadCatalog = useCallback(() => {
     if (net.kind === 'none') return;
@@ -141,11 +156,16 @@ export function OfficialSongPanel({
     }
     const inflight = songCatalogInflight();
     if (peeked && inflight == null) return;
+    const seq = ++catalogLoadSeq.current;
+    const controller = new AbortController();
+    catalogAbortRef.current = controller;
+    clearDiskCachedCatalog();
     setRetrying(false);
     if (peeked == null) setLoadError(null);
     setRefreshingCatalog(true);
-    void fetchSongCatalog(net, undefined, () => setRetrying(true))
+    void fetchSongCatalog(net, undefined, () => setRetrying(true), controller.signal)
       .then((songs) => {
+        if (seq !== catalogLoadSeq.current) return;
         setCatalog(songs);
         setLoadError(null);
         if (isJsonFromCache(songs)) showToast(t('projects.official.loadFailCache'), 'warn');
@@ -153,6 +173,8 @@ export function OfficialSongPanel({
         else showToast(t('projects.official.loadOk'), 'success');
       })
       .catch((error: unknown) => {
+        if (seq !== catalogLoadSeq.current) return;
+        if (isCommunityError(error) && error.kind === 'aborted') return;
         const fallback = peekSongCatalog();
         if (fallback) {
           setCatalog(fallback);
@@ -163,26 +185,36 @@ export function OfficialSongPanel({
         setLoadError(officialErrorText(error));
       })
       .finally(() => {
+        if (catalogAbortRef.current === controller) catalogAbortRef.current = null;
+        if (seq !== catalogLoadSeq.current) return;
         setRefreshingCatalog(false);
         setRetrying(false);
       });
-  }, [net]);
+  }, [net, clearDiskCachedCatalog]);
 
   useEffect(() => { loadCatalog(); }, [loadCatalog]);
 
-  const waitingBlank = catalog == null && loadError == null && net.kind !== 'none';
-  useEffect(() => {
-    setWaitSlow(false);
-    if (!waitingBlank) return;
-    const timer = setTimeout(() => setWaitSlow(true), SLOW_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [waitingBlank]);
+  const cancelToCache = useCallback(() => {
+    if (!diskCachedCatalog) return;
+    catalogLoadSeq.current += 1;
+    catalogAbortRef.current?.abort();
+    catalogAbortRef.current = null;
+    const committed = commitSongCatalogCache(diskCachedCatalog);
+    setCatalog(committed);
+    setLoadError(null);
+    setRefreshingCatalog(false);
+    setRetrying(false);
+    clearDiskCachedCatalog();
+    showToast(t('projects.official.cancelToCache'), 'warn');
+  }, [diskCachedCatalog, clearDiskCachedCatalog]);
 
   const refreshCatalog = useCallback(() => {
     if (net.kind === 'none' || refreshingCatalog) return;
+    const seq = ++catalogLoadSeq.current;
     setRefreshingCatalog(true);
     void refreshSongCatalog(net, undefined, () => setRetrying(true))
       .then((songs) => {
+        if (seq !== catalogLoadSeq.current) return;
         setCatalog(songs);
         setLoadError(null);
         // 刷新撞上还在飞的首拉时会并进同一趟（票 44）：那一趟的结果可能是 freshFirst 的
@@ -191,9 +223,11 @@ export function OfficialSongPanel({
         else showToast(t('projects.official.loadOk'), 'success');
       })
       .catch(() => {
+        if (seq !== catalogLoadSeq.current) return;
         showToast(t('projects.official.refreshFail'), 'danger');
       })
       .finally(() => {
+        if (seq !== catalogLoadSeq.current) return;
         setRefreshingCatalog(false);
         setRetrying(false);
       });
@@ -466,6 +500,11 @@ export function OfficialSongPanel({
         <div className="off-blank" role="status">
           <i className="off-spinner" aria-hidden />
           <b>{retrying ? t('projects.official.retrying') : (waitSlow ? t('projects.official.loadingSlow') : t('projects.official.loading'))}</b>
+          {diskCachedCatalog != null && (
+            <button type="button" className="off-blank__cancel" onClick={cancelToCache}>
+              {t('projects.cancel')}
+            </button>
+          )}
         </div>
       ) : (
         <div className={`off-split${expanded ? '' : ' is-collapsed'}`}>

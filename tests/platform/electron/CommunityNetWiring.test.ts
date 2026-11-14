@@ -62,9 +62,10 @@ const okFetch = async () => ({
 });
 
 describe('票 07 + 14 · preload 白名单：网络一条、缓存两条', () => {
-  it('暴露 communityNet.request，且只走 communityNet:request', () => {
+  it('暴露 communityNet.request 与 cancel，走对应 IPC 通道', () => {
     expect(preloadSrc).toMatch(/communityNet\s*:/);
     expect(preloadSrc).toMatch(/invoke\(\s*['"]communityNet:request['"]/);
+    expect(preloadSrc).toMatch(/invoke\(\s*['"]communityNet:cancel['"]/);
     expect(preloadSrc).toMatch(/exposeInMainWorld\(\s*'electronAPI'/);
     expect(preloadSrc).not.toMatch(/nodeIntegration/);
   });

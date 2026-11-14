@@ -224,6 +224,13 @@ function normalizeRequest(payload, allowedHosts, uploadRoots) {
     const revalidate = payload.revalidate === true;
     // 穿透拉取最新（票 29）：跳过直接读缓存，优先发网络；网络失败时优雅回退本地既有磁盘缓存
     const freshFirst = payload.freshFirst === true;
+    // 仅读缓存（票 57）：面板取消主动拉取或探查缓存存在性，不发网络
+    const cacheOnly = payload.cacheOnly === true;
+    const requestId = typeof payload.requestId === 'string' && payload.requestId.trim() !== ''
+        ? payload.requestId.trim()
+        : null;
+    // 媒体分类标记（票 56）：区分图片/音频以便落盘前验真
+    const mediaKind = payload.mediaKind === 'image' || payload.mediaKind === 'audio' ? payload.mediaKind : null;
 
     return {
         url: rawUrl,
@@ -236,6 +243,9 @@ function normalizeRequest(payload, allowedHosts, uploadRoots) {
         cacheable,
         revalidate,
         freshFirst,
+        cacheOnly,
+        requestId,
+        mediaKind,
         multipart,
         // 缓存键：POST 把 body 一并算进去（同 URL 不同查询体是两份数据）。GET 就是 URL 本身。
         cacheKey: cacheable && method === 'POST' ? `${rawUrl}#${hashCacheKey(body || '')}` : rawUrl,
@@ -353,6 +363,7 @@ function createCommunityGateway(options) {
     const fetchImpl = options && options.fetchImpl;
     if (typeof fetchImpl !== 'function') throw new Error('社区网关需要 fetchImpl（主进程传 net.fetch）');
     const assetCache = (options && options.assetCache) || null;
+    const isValidImage = typeof options?.isValidImage === 'function' ? options.isValidImage : null;
     const cookieJar = options.cookieJar || createCookieJar();
     const allowedHosts = options.hosts || ALLOWED_HOSTS;
     const minIntervalMs = options.minIntervalMs ?? MIN_REQUEST_INTERVAL_MS;
@@ -406,9 +417,33 @@ function createCommunityGateway(options) {
             try {
                 while (queue.length > 0) {
                     const job = queue.shift();
+                    if (job.entry?.aborted) {
+                        job.resolve(fail('aborted', '请求已取消'));
+                        continue;
+                    }
                     try {
                         const waitMs = minIntervalMs - (now() - lastStartedAt);
-                        if (waitMs > 0) await sleep(waitMs);
+                        if (waitMs > 0) {
+                            if (job.entry) {
+                                let unsub = null;
+                                try {
+                                    await Promise.race([
+                                        sleep(waitMs),
+                                        new Promise((resolve) => {
+                                            unsub = job.entry.addAbortListener(resolve);
+                                        }),
+                                    ]);
+                                } finally {
+                                    unsub?.();
+                                }
+                            } else {
+                                await sleep(waitMs);
+                            }
+                        }
+                        if (job.entry?.aborted) {
+                            job.resolve(fail('aborted', '请求已取消'));
+                            continue;
+                        }
                         lastStartedAt = now();
                         job.resolve(await job.task());
                     } catch (error) {
@@ -421,19 +456,54 @@ function createCommunityGateway(options) {
             }
         }
 
-        return function schedule(task, urgent) {
+        return function schedule(task, urgent, entry) {
+            if (entry?.aborted) return Promise.resolve(fail('aborted', '请求已取消'));
             return new Promise((resolve, reject) => {
-                const job = { task, resolve, reject };
+                const job = { task, resolve, reject, urgent: Boolean(urgent), entry };
                 if (urgent) {
                     const index = queue.findIndex((item) => !item.urgent);
-                    if (index < 0) queue.push({ ...job, urgent: true });
-                    else queue.splice(index, 0, { ...job, urgent: true });
+                    if (index < 0) queue.push(job);
+                    else queue.splice(index, 0, job);
                 } else {
-                    queue.push({ ...job, urgent: false });
+                    queue.push(job);
+                }
+                if (entry) {
+                    entry.addAbortListener(() => {
+                        const idx = queue.indexOf(job);
+                        if (idx >= 0) {
+                            queue.splice(idx, 1);
+                            resolve(fail('aborted', '请求已取消'));
+                        }
+                    });
                 }
                 void pump();
             });
         };
+    }
+
+    const activeRequests = new Map();
+
+    function createCancelEntry(requestId) {
+        const listeners = new Set();
+        const entry = {
+            aborted: false,
+            addAbortListener(fn) {
+                if (entry.aborted) {
+                    fn();
+                    return () => {};
+                }
+                listeners.add(fn);
+                return () => listeners.delete(fn);
+            },
+            abort() {
+                if (entry.aborted) return;
+                entry.aborted = true;
+                for (const fn of [...listeners]) fn();
+                listeners.clear();
+            },
+        };
+        if (requestId) activeRequests.set(requestId, entry);
+        return entry;
     }
 
     const apiLane = createApiLane(minIntervalMs);
@@ -442,11 +512,11 @@ function createCommunityGateway(options) {
         minIntervalMs: assetMinIntervalMs,
     });
     /** 素材（静态文件）走素材档，其余走 API 档；me 在 API 档里插队 */
-    const schedule = (req, task) => (
-        req.responseType === 'binary' ? assetLane(task) : apiLane(task, isSessionIdentityUrl(req.url))
+    const schedule = (req, task, entry) => (
+        req.responseType === 'binary' ? assetLane(task) : apiLane(task, isSessionIdentityUrl(req.url), entry)
     );
 
-    async function send(req) {
+    async function send(req, entry) {
         // multipart 上传（票 11）：文件字节在这一步才读进来拼体（renderer 只递过路径），
         // content-type 连 boundary 一起由网关算。读不到 / 越界都在发起之前就拒。
         let body = req.body;
@@ -461,8 +531,20 @@ function createCommunityGateway(options) {
             }
         }
 
+        if (entry?.aborted) return fail('aborted', '请求已取消');
         const controller = new AbortController();
-        const timer = timers.setTimeout(() => controller.abort(), req.timeoutMs);
+        let abortedByUser = false;
+        let abortedByTimeout = false;
+        const removeAbortListener = entry
+            ? entry.addAbortListener(() => {
+                abortedByUser = true;
+                controller.abort();
+            })
+            : () => {};
+        const timer = timers.setTimeout(() => {
+            abortedByTimeout = true;
+            controller.abort();
+        }, req.timeoutMs);
         let response;
         try {
             response = await fetchImpl(req.url, {
@@ -477,11 +559,14 @@ function createCommunityGateway(options) {
                 cache: 'no-store',
             });
         } catch (error) {
-            if (controller.signal.aborted) return fail('timeout', `请求超时（${req.timeoutMs}ms）`);
+            if (abortedByUser || entry?.aborted) return fail('aborted', '请求已取消');
+            if (abortedByTimeout || controller.signal.aborted) return fail('timeout', `请求超时（${req.timeoutMs}ms）`);
             return fail('offline', `连不上社区平台：${errorMessage(error)}`);
         } finally {
             timers.clearTimeout(timer);
+            removeAbortListener();
         }
+        if (abortedByUser || entry?.aborted) return fail('aborted', '请求已取消');
 
         cookieJar.capture(req.url, readSetCookie(response));
 
@@ -554,8 +639,22 @@ function createCommunityGateway(options) {
         }
 
         if (kind === 'binary') {
-            const freshMs = isFallbackHtml(entry.contentType) ? FALLBACK_FRESH_MS : Number.POSITIVE_INFINITY;
+            const fallbackHtml = isFallbackHtml(entry.contentType);
+            const freshMs = fallbackHtml ? FALLBACK_FRESH_MS : Number.POSITIVE_INFINITY;
             if (now() - entry.cachedAt >= freshMs) return null;
+            if (!fallbackHtml && req.mediaKind === 'image' && isValidImage) {
+                let bytes;
+                try {
+                    bytes = await assetCache.read(entry);
+                } catch {
+                    await assetCache.drop(entry);
+                    return null;
+                }
+                if (!isValidImage(bytes, entry.contentType ?? null)) {
+                    await assetCache.drop(entry);
+                    return null;
+                }
+            }
             return {
                 stale: false,
                 result: {
@@ -623,6 +722,15 @@ function createCommunityGateway(options) {
         } catch (error) {
             return fail('offline', `读响应失败：${errorMessage(error)}`, { httpStatus: status });
         }
+        const fallbackHtml = isFallbackHtml(contentType);
+        if (!fallbackHtml && req.mediaKind === 'audio' && bytes.length === 0) {
+            return fail('invalid-response', '音频响应为空', { httpStatus: status });
+        }
+        if (!fallbackHtml && req.mediaKind === 'image') {
+            if (bytes.length === 0 || (isValidImage && !isValidImage(bytes, contentType || null))) {
+                return fail('invalid-response', '图片响应不是合法图片', { httpStatus: status });
+            }
+        }
         try {
             const entry = await assetCache.store({
                 url: req.url,
@@ -659,32 +767,56 @@ function createCommunityGateway(options) {
                 return fail('request-rejected', errorMessage(error));
             }
 
-            // 票 29：优先拉取最新，网络失败时自动回退本地磁盘既有缓存（离线容灾）
-            if (req.freshFirst && !req.revalidate) {
-                const netRes = await schedule(req, () => send(req));
-                if (netRes.ok) return netRes;
-                let fallback = null;
+            // 票 57：仅读本地磁盘缓存（过期也照回，不触发网络或后台补拉）
+            if (req.cacheOnly) {
+                let hit = null;
                 try {
-                    fallback = await readCache({ ...req, freshFirst: false });
+                    hit = await readCache({ ...req, freshFirst: false, revalidate: false });
                 } catch {
-                    fallback = null;
+                    hit = null;
                 }
-                if (fallback != null) return { ...fallback.result, fromCache: true };
-                return netRes;
+                if (hit != null) return { ...hit.result, fromCache: true };
+                return fail('cache-miss', '本地暂无可用缓存');
             }
 
-            let hit = null;
+            const entry = req.requestId ? createCancelEntry(req.requestId) : null;
             try {
-                hit = await readCache(req);
-            } catch {
-                hit = null; // 缓存读不了（目录权限之类）当未命中，主线照走
+                // 票 29：优先拉取最新，网络失败时自动回退本地磁盘既有缓存（离线容灾）
+                if (req.freshFirst && !req.revalidate) {
+                    const netRes = await schedule(req, () => send(req, entry), entry);
+                    if (netRes.ok) return netRes;
+                    if (netRes.error?.kind === 'aborted' || entry?.aborted) return netRes;
+                    let fallback = null;
+                    try {
+                        fallback = await readCache({ ...req, freshFirst: false });
+                    } catch {
+                        fallback = null;
+                    }
+                    if (fallback != null) return { ...fallback.result, fromCache: true };
+                    return netRes;
+                }
+
+                let hit = null;
+                try {
+                    hit = await readCache(req);
+                } catch {
+                    hit = null; // 缓存读不了（目录权限之类）当未命中，主线照走
+                }
+                if (hit == null) return await schedule(req, () => send(req, entry), entry);
+                if (hit.stale) {
+                    // 过期先用旧的：后台补一枪（失败静默 —— 旧副本继续服务，票 14）
+                    void schedule(req, () => send(req, null), null).catch(() => undefined);
+                }
+                return hit.result;
+            } finally {
+                if (req.requestId && entry) activeRequests.delete(req.requestId);
             }
-            if (hit == null) return schedule(req, () => send(req));
-            if (hit.stale) {
-                // 过期先用旧的：后台补一枪（失败静默 —— 旧副本继续服务，票 14）
-                void schedule(req, () => send(req)).catch(() => undefined);
-            }
-            return hit.result;
+        },
+        /** 按 requestId 取消排队或进行中的请求（票 57） */
+        cancel(requestId) {
+            if (typeof requestId !== 'string') return;
+            const entry = activeRequests.get(requestId.trim());
+            if (entry) entry.abort();
         },
         /** 暴露 jar 供 10 接 safeStorage（07 只做内存，main.cjs 不碰它） */
         cookieJar,
@@ -698,6 +830,9 @@ function createCommunityGateway(options) {
  */
 function registerCommunityNetIpc(ipcMain, gateway) {
     ipcMain.handle('communityNet:request', (_event, payload) => gateway.request(payload));
+    ipcMain.handle('communityNet:cancel', (_event, requestId) => {
+        if (typeof gateway.cancel === 'function') gateway.cancel(requestId);
+    });
 }
 
 module.exports = {
