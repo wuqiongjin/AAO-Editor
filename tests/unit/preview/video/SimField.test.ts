@@ -19,7 +19,7 @@ import {
   type SimScene,
 } from '@/src/preview/video/sim/simField';
 import { emptySimAssets } from '@/src/preview/video/sim/simAssets';
-import { LETTER_TEXTS, SIM_HUD, scoreIncrement } from '@/src/preview/video/sim/simHud';
+import { HUD_SPRITES, LETTER_TEXTS, SIM_HUD, plusAgesAt, scoreIncrement } from '@/src/preview/video/sim/simHud';
 import {
   approachSeconds,
   backgroundRect,
@@ -1054,13 +1054,49 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
   it('高密度谱面：窗口内每次命中各画一条 +inc，不设上限、不合并（2026-11-09 回退）', () => {
     const notes = Array.from({ length: 12 }, (_, i) => single(2 + i * 0.2, 3));
     const inc = scoreIncrement(notes.length);
+    const frame = hudFrame(notes, NO_HUD);
     const { proxy, calls } = recordingCtx();
-    drawSimFrameAt(proxy, hudFrame(notes, NO_HUD), 2.0);
+    drawSimFrameAt(proxy, frame, 2.0);
     const plus = drawnTexts(calls).filter((text) => text.startsWith('+'));
-    // 120 BPM ⇒ 命中在 1.0..2.1s；默认 plusDur 0.5 ⇒ 窗口 (1.5, 2.0] 共 5 次 ⇒ 5 条同值文本
-    expect(plus).toHaveLength(5);
+    // 窗口 `(2 - plusDur, 2]` 里每一次命中各一条同值文本；期望条数由同一份
+    // `plusAgesAt` 推（边界按年龄比，别自己拿浮点减法重算），换默认档不必手改数字。
+    const expected = plusAgesAt(frame.chart, 2, SIM_HUD.plusDur).length;
+    expect(plus).toHaveLength(expected);
     expect(new Set(plus)).toEqual(new Set([`+${inc}`]));
-    expect(plus.reduce((sum, text) => sum + Number(text.slice(1)), 0)).toBe(inc * 5);
+    expect(plus.reduce((sum, text) => sum + Number(text.slice(1)), 0)).toBe(inc * expected);
+  });
+
+  it('2026-11-14 · `+增量` 两段运动落到绘制：冲刺到位后只微移并淡出', () => {
+    // 采样两条 `+inc`：一条在冲刺段中点、一条在尾段近末。年龄一律按当前默认档推，
+    // 谱面拍数按「帧时刻 − 想要的年龄」反推（120 BPM ⇒ beat/2 = 秒），换档不必再改谱面。
+    const sec = 2;
+    const { plusDur: dur, plusDashFrac: dashFrac } = SIM_HUD;
+    const youngAge = dur * dashFrac * 0.5;
+    const oldAge = dur * (dashFrac + (1 - dashFrac) * 0.9);
+    const beatOf = (age: number) => (sec - age) * 2;
+    const frame = hudFrame([single(beatOf(oldAge), 3), single(beatOf(youngAge), 3)], NO_HUD);
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, frame, sec);
+    let alpha = 1;
+    const plus: { x: number; alpha: number }[] = [];
+    for (const [k, a] of calls) {
+      if (k === 'globalAlpha') alpha = Number(a[0]);
+      if (k === 'fillText' && String(a[0]).startsWith('+')) plus.push({ x: Number(a[1]), alpha });
+    }
+    expect(plus).toHaveLength(2);
+    const s = frame.metrics.w / 1920;
+    const x = SIM_HUD.boxX * s;
+    const w = SIM_HUD.boxW * s;
+    const rightmost = x + w * (SIM_HUD.plusX + SIM_HUD.plusDX);
+    // `plusAgesAt` 给的是**降序**年龄（最老的在最前）
+    const old = plus[0]!;
+    const young = plus[1]!;
+    // 冲刺段那条还在半途、亮度已近满；尾段那条已越过最右侧、只剩极小的额外位移且正在淡出
+    expect(young.x).toBeLessThan(rightmost);
+    expect(young.alpha).toBeGreaterThan(0.9);
+    expect(old.x).toBeGreaterThan(rightmost);
+    expect(old.x - rightmost).toBeLessThan(w * SIM_HUD.plusDriftDX + 1e-6);
+    expect(old.alpha).toBeLessThan(0.2);
   });
 
   it('SS+ 档：填充条取官方渐变条 A 整段，并叠 12 枚四芒星流动', () => {
@@ -1093,6 +1129,38 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
       .map(([, v]) => (v as unknown[]).slice(1, 5));
     expect(boxes).not.toContainEqual([303, 112, 39, 22]);
     expect(boxes).not.toContainEqual([360, 123, 39, 22]);
+  });
+
+  it('2026-11-14 · 生命填充内缩：露出空槽自带的深色框，渐变也跟着内沿走', () => {
+    const grads: number[][] = [];
+    const { proxy, calls } = makeRecordingCtx({
+      createLinearGradient: (...args) => {
+        grads.push(args as number[]);
+        return { addColorStop: () => undefined };
+      },
+    });
+    const frame = hudFrame([single(2, 3)], fakeHud());
+    drawSimFrameAt(proxy, frame, 1.2);
+
+    const s = frame.metrics.w / 1920;
+    const ky = SIM_HUD.lifeH * s / HUD_SPRITES.lifeBar[3];
+    const b = HUD_SPRITES.lifeBand;
+    const outerX = SIM_HUD.lifeX * s + b.x * ky;
+    const outerY = SIM_HUD.lifeY * s + b.y * ky;
+    const outerW = SIM_HUD.lifeW * s
+      - (HUD_SPRITES.lifeBar[2] - b.x - b.w) * ky - b.x * ky;
+    const outerH = b.h * ky;
+    const d = SIM_HUD.lifeGaugeInset * ky;
+    expect(d).toBeGreaterThan(0); // 0 就退回盖住暗框的旧效果
+
+    const rects = calls.filter(([k]) => k === 'fillRect').map(([, a]) => a as number[]);
+    const near = (got: number[], want: number[]) =>
+      got.length === 4 && got.every((v, i) => Math.abs(v - want[i]!) < 1e-6);
+    expect(rects.some((r) => near(r, [outerX + d, outerY + d, outerW - 2 * d, outerH - 2 * d]))).toBe(true);
+    expect(rects.some((r) => near(r, [outerX, outerY, outerW, outerH]))).toBe(false);
+    // 渐变必须架在内沿上，否则上段亮绿会被 clip 裁掉
+    expect(grads.some((g) => g.length === 4 && Math.abs(g[1]! - (outerY + d)) < 1e-6
+      && Math.abs(g[3]! - (outerY + outerH - d)) < 1e-6)).toBe(true);
   });
 
   it('顶部状态栏只用一枚总开关：关掉时四件全收，缺省照画', () => {

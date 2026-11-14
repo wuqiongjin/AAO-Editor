@@ -10,7 +10,8 @@
 //     这是本仓预览的归一上限，不是游戏官方满分（实机分数随总力变化）。
 //   - **`+增量` 逐命中**（票 72 Q22「我要的就是每次增量」）：窗口内每次命中各画一条 `+inc`，
 //     **不设条数上限、不合并**（2026-11-09 用户验收：合并机制实机没有，已回退）。
-//     位移 / 亮度 / 渐隐等观感参数仍可在原型里调，见 `SIM_HUD.plus*`。
+//     2026-11-14 用户对比实机后重定运动：**先极快地冲到最右侧，再缓慢向右挪一点点并同时淡出**；
+//     那段缓慢右移的用时就是淡出用时，见 `plusMotionAt` 与 `SIM_HUD.plus*`。
 //
 // 这里只给"什么时候、什么颜色、多少分"的纯函数；绘制在 `simField`（那一层才有场地度量与画笔）。
 import type { SimChart } from './simField';
@@ -144,13 +145,14 @@ export const SCORE_TIER_THRESHOLDS = [0.06, 0.27, 0.48, 0.69, 0.9] as const;
 export const LETTER_TEXTS = ['C', 'B', 'A', 'S', 'SS'] as const;
 
 /**
- * 结算 score-rank 的**官方 11 档**（票 73 Q24），与打歌 6 档不是同一套。
- * 阈值 = `score / SCORE_MAX` 的百分比映射；**本轮实现口径（待验收）**：原型只挂了 SS 一档，
- * 阈值与其余 10 档大号字母切图都还没逐档定位，故这里先取十等分、缺切图的档走纯字降级。
+ * 结算 score-rank（票 73 Q24，与打歌 6 档不是同一套）。
+ * **2026-11-14 用户验收定案**：实机结算画面没有 `SS+` 徽章 ⇒ 顶端只到 `SS`，
+ * 共 10 档；图集里那枚 `SS+` 字母不接。阈值 = `score / SCORE_MAX`（十等分），
+ * 缺切图的档走纯字降级（本轮实现口径，除 SS 外的大号字母切图仍未逐档定位）。
  */
-export const SCORE_RANKS = ['D', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+', 'SS', 'SS+'] as const;
+export const SCORE_RANKS = ['D', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+', 'SS'] as const;
 export type ScoreRank = (typeof SCORE_RANKS)[number];
-export const SCORE_RANK_THRESHOLDS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] as const;
+export const SCORE_RANK_THRESHOLDS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] as const;
 
 /**
  * 官方切图 / 用户自备件的取景（票 71 / 72 / 73「定稿」，清单见
@@ -174,6 +176,7 @@ export const HUD_SPRITES = {
     { sx: 258, sw: 230, flex: true },
     { sx: 488, sw: 52, flex: false },
   ],
+  /** 生命空槽的实测 bbox（**含四周那圈深色框**）；填充必须比它内缩，别把暗框盖掉 */
   lifeBand: { x: 78, y: 9, w: 451, h: 50 },
   /** 官方分数条渐变（薄荷→青→蓝→紫→品红→粉→珊瑚→橙）；6 档都从这条取窗口 */
   barA: [1, 393, 661, 22],
@@ -204,18 +207,31 @@ export const SIM_HUD = {
   lifeX: 1458, lifeY: 38, lifeW: 350, lifeH: 82, lifeFont: 22,
   /** 实机生命 gauge（2026-11-08 用户截图取样）：上段亮绿 / 下段深绿，中间短过渡 */
   lifeGaugeTop: '#6eff69', lifeGaugeBottom: '#47aa43', lifeGaugeSplit: 0.46,
+  /**
+   * 填充相对 `lifeBand` 的四边内缩（**素材 px**，life-bar.png 的 540×115 口径）。
+   * 2026-11-14 用户对比实机：绿色填充四周有一圈深色框。素材空槽本来就带这圈框
+   * （左 x78 `#383838`→x82 `#606060`，上 y10 `#3c3c3b`→y14 `#606060`，约 4~5px），
+   * 旧写法把填充铺满整个 bbox ⇒ 暗框被盖掉，绿色像浮在白卡上。设 0 = 回到旧效果。
+   */
+  lifeGaugeInset: 4,
   pauseX: 1822, pauseY: 38, pauseW: 82, pauseH: 82,
   autoX: 36, autoY: 150, autoW: 278,
   /** `+增量`：窗口内**每次命中各一条**（不设上限、不合并）；其余都是可调观感参数。
-   *  默认档 = 用户 2026-11-09 给的原型快照（见票 72 第四批后记）。 */
-  plusDur: 0.5, plusFadeFrac: 0.35, plusFadeOutFrac: 0.2,
+   *  默认档 = 2026-11-14 重定的两段运动 + 用户 2026-11-14 第三版原型快照（见票 72）。 */
+  plusDur: 0.5,
+  /** 冲刺段占整段的比例：这一段里跑完 `plusDX`（很快到达最右侧） */
+  plusDashFrac: 0.2,
+  /** 冲刺段内的渐显占比（×冲刺段时长；实机那串字是亮白的，出场即近满亮度） */
+  plusFadeFrac: 0.35,
+  /** 尾段（= 淡出段）再向右挪的距离（×框宽）；这一段同时把字从不透明淡到全透明 */
+  plusDriftDX: 0.02,
   /** 刚命中那一瞬也有底亮度（实机那串字是亮白的） */
   plusBaseAlpha: 0.85,
   /** 起点 / 位移（设计坐标；`plusY` 与 `plusRise` 由原型调档，默认不上浮） */
-  plusX: 0.45, plusY: 122, plusDX: 0.34, plusRise: 0,
+  plusX: 0.45, plusY: 119, plusDX: 0.37, plusRise: 0,
   /** 逐条错开（默认 0 = 所有命中走同一条轨迹，实机口径）；X 是 ×框宽、Y 是设计 px，原型里可调 */
   plusSpreadX: 0, plusSpreadY: 0,
-  plusFont: 35, plusColor: '#eef4f8',
+  plusFont: 36, plusColor: '#eef4f8',
   starCount: 12, starSpeed: 1, starSize: 17, starAlpha: 0.9,
   thresholds: SCORE_TIER_THRESHOLDS,
 } as const;
@@ -266,7 +282,7 @@ export function scoreTierAt(score: number): number {
   return Math.min(SCORE_TIERS.length - 1, i);
 }
 
-/** 结算 SCORE RANK 的 11 档（与打歌 6 档独立） */
+/** 结算 SCORE RANK 的 10 档（顶端 SS，与打歌 6 档独立） */
 export function scoreRankAt(score: number): ScoreRank {
   const f = Math.max(0, Math.min(1, score / SCORE_MAX));
   let i = 0;
@@ -278,7 +294,7 @@ export function scoreRankAt(score: number): ScoreRank {
 
 /**
  * 还在屏幕上的 `+增量`（票 72 Q22「我要的就是每次增量」）：
- * 窗口 `(seconds-duration, seconds]` 里**每一次命中各一条**，返回各自的年龄（秒，升序）。
+ * 窗口 `(seconds-duration, seconds]` 里**每一次命中各一条**，返回各自的年龄（秒，降序：最老在前）。
  *
  * 2026-11-09 用户验收：**不设条数上限、不合并** —— 限流合并是实机没有的机制，已回退；
  * 高密度谱面的观感交给 `SIM_HUD.plus*` 位移 / 亮度参数在原型里调，不改命中语义。
@@ -293,4 +309,53 @@ export function plusAgesAt(chart: SimChart, seconds: number, duration: number): 
     out.push(age);
   }
   return out.reverse();
+}
+
+// ---------------------------------------------------------------- `+增量` 两段运动（2026-11-14 用户定案）
+
+/** 运动参数（生产取 `SIM_HUD` 子集，原型取 `HUD` 子集；同一条曲线、参数各调各的） */
+export interface PlusMotionParams {
+  /** 整条生命期（秒） */
+  dur: number;
+  /** 冲刺段占整段的比例 (0,1) */
+  dashFrac: number;
+  /** 冲刺段内的渐显占比 (0,1] */
+  fadeFrac: number;
+  /** 冲刺段跑完的横向位移（×分数组件宽） */
+  dx: number;
+  /** 尾段（淡出段）再向右挪的距离（×分数组件宽） */
+  driftDX: number;
+  /** 刚命中那一瞬的底亮度 */
+  baseAlpha: number;
+}
+
+export interface PlusMotion {
+  /** 整段进度 0..1（给 `plusRise` 用） */
+  p: number;
+  /** 横向总位移（×分数组件宽，从起点算） */
+  travel: number;
+  /** 不透明度 0..1 */
+  alpha: number;
+}
+
+/**
+ * 用户 2026-11-14 对比实机后的定案：**两段运动**。
+ *
+ * ① 冲刺：`dashFrac` 这么短的一段时间里用三次 ease-out 跑完 `dx`，很快就到最右侧；
+ * ② 尾段：剩下的整段时间只再向右挪 `driftDX`（一点点），**同时**从不透明线性淡到全透明
+ *    —— 这段缓慢右移的过程本身就是淡出时间，二者不再各设一套参数。
+ */
+export function plusMotionAt(age: number, params: PlusMotionParams): PlusMotion {
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+  const p = clamp01(age / Math.max(0.001, params.dur));
+  const dashFrac = Math.max(0.01, Math.min(0.99, params.dashFrac));
+  const dash = clamp01(p / dashFrac);
+  const drift = clamp01((p - dashFrac) / (1 - dashFrac));
+  const dashEase = 1 - (1 - dash) ** 3;
+  const travel = params.dx * dashEase + params.driftDX * drift;
+  const fadeIn = clamp01(dash / Math.max(0.05, params.fadeFrac));
+  const alpha = clamp01(
+    (params.baseAlpha + (1 - params.baseAlpha) * fadeIn) * (1 - drift),
+  );
+  return { p, travel, alpha };
 }

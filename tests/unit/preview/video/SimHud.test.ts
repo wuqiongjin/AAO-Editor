@@ -21,6 +21,7 @@ import {
   judgeSprite,
   judgeStateAt,
   plusAgesAt,
+  plusMotionAt,
   scoreAt,
   scoreForHits,
   scoreIncrement,
@@ -141,11 +142,17 @@ describe('chart-preview 72 · 归一分（1,000,000 / 7 位定宽）', () => {
     expect(SIM_HUD.tickH).toBe(4.24);
   });
 
-  it('2026-11-09 原型快照定档：`+增量` 的生产默认档', () => {
+  it('2026-11-14 · 生命填充内缩 4 素材 px：露出空槽自带的深色框（0 = 旧效果）', () => {
+    expect(SIM_HUD.lifeGaugeInset).toBe(4);
+    expect(HUD_SPRITES.lifeBand).toEqual({ x: 78, y: 9, w: 451, h: 50 });
+  });
+
+  it('2026-11-14 第三版快照定档：`+增量` 的生产默认档（冲刺占比 + 淡出位移，不再有末尾渐隐占比）', () => {
     expect({
       plusDur: SIM_HUD.plusDur,
+      plusDashFrac: SIM_HUD.plusDashFrac,
       plusFadeFrac: SIM_HUD.plusFadeFrac,
-      plusFadeOutFrac: SIM_HUD.plusFadeOutFrac,
+      plusDriftDX: SIM_HUD.plusDriftDX,
       plusBaseAlpha: SIM_HUD.plusBaseAlpha,
       plusX: SIM_HUD.plusX,
       plusY: SIM_HUD.plusY,
@@ -156,20 +163,50 @@ describe('chart-preview 72 · 归一分（1,000,000 / 7 位定宽）', () => {
       plusFont: SIM_HUD.plusFont,
       plusColor: SIM_HUD.plusColor,
     }).toEqual({
-      plusDur: 0.5, plusFadeFrac: 0.35, plusFadeOutFrac: 0.2, plusBaseAlpha: 0.85,
-      plusX: 0.45, plusY: 122, plusDX: 0.34, plusRise: 0,
-      plusSpreadX: 0, plusSpreadY: 0, plusFont: 35, plusColor: '#eef4f8',
+      plusDur: 0.5, plusDashFrac: 0.2, plusFadeFrac: 0.35, plusDriftDX: 0.02,
+      plusBaseAlpha: 0.85, plusX: 0.45, plusY: 119, plusDX: 0.37, plusRise: 0,
+      plusSpreadX: 0, plusSpreadY: 0, plusFont: 36, plusColor: '#eef4f8',
     });
   });
 
-  it('结算 11 档 score-rank 与打歌 6 档**不是同一套**，按归一分映射', () => {
-    expect(SCORE_RANKS).toEqual(['D', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+', 'SS', 'SS+']);
+  it('结算 10 档 score-rank：实机没有 SS+ 徽章，满分就是 SS（与打歌 6 档独立）', () => {
+    expect(SCORE_RANKS).toEqual(['D', 'C', 'C+', 'B', 'B+', 'A', 'A+', 'S', 'S+', 'SS']);
     expect(SCORE_RANK_THRESHOLDS).toHaveLength(SCORE_RANKS.length);
     expect(scoreRankAt(0)).toBe('D');
     expect(scoreRankAt(150_000)).toBe('C');
     expect(scoreRankAt(550_000)).toBe('A');
-    expect(scoreRankAt(999_999)).toBe('SS');
-    expect(scoreRankAt(SCORE_MAX)).toBe('SS+');
+    expect(scoreRankAt(899_999)).toBe('S+');
+    expect(scoreRankAt(900_000)).toBe('SS');
+    expect(scoreRankAt(SCORE_MAX)).toBe('SS');
+  });
+
+  it('`+增量` 两段运动：很快冲到最右侧，随后只再挪一点点并同时淡出', () => {
+    const params = {
+      dur: SIM_HUD.plusDur,
+      dashFrac: SIM_HUD.plusDashFrac,
+      fadeFrac: SIM_HUD.plusFadeFrac,
+      dx: SIM_HUD.plusDX,
+      driftDX: SIM_HUD.plusDriftDX,
+      baseAlpha: SIM_HUD.plusBaseAlpha,
+    };
+    const at = (age: number) => plusMotionAt(age, params);
+    const start = at(0);
+    // ① 冲刺：`dashFrac` 那一小段时间就跑完几乎全部横向位移（不写死秒数，换默认档不失灵）
+    const arrived = at(params.dur * params.dashFrac);
+    expect(arrived.travel).toBeCloseTo(params.dx, 6);
+    expect(arrived.travel - start.travel).toBeGreaterThan(params.dx * 0.99);
+    expect(arrived.alpha).toBeCloseTo(1, 6);
+    // 冲刺中点已经走掉大半（三次 ease-out，速度前快后慢）
+    expect(at(params.dur * params.dashFrac * 0.5).travel).toBeGreaterThan(params.dx * 0.8);
+    // ② 尾段：只再向右挪 `driftDX` 这么一点点，且这段就是淡出时间
+    const mid = at(params.dur * (params.dashFrac + (1 - params.dashFrac) / 2));
+    const end = at(params.dur);
+    expect(mid.travel - arrived.travel).toBeCloseTo(params.driftDX / 2, 6);
+    expect(end.travel - arrived.travel).toBeCloseTo(params.driftDX, 6);
+    expect(mid.alpha).toBeCloseTo(0.5, 6);
+    expect(end.alpha).toBe(0);
+    // 拖尾期间不再有大幅位移
+    expect(end.travel - arrived.travel).toBeLessThan(params.dx * 0.1);
   });
 
   it('`+增量` 逐命中各一条：不设上限、不合并，超出时长就退场', () => {

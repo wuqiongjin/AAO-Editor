@@ -238,7 +238,7 @@ function ellipsize(ctx: CanvasRenderingContext2D, text: string, maxW: number): s
   return `${out}…`;
 }
 
-/** 计数一律四位（`0667` / `0000`）：前导 0 转灰、末位恒深色是游戏口径 */
+/** 计数一律四位（`0667` / `0000`）：**只有前导 0** 转灰、末位恒深色是游戏口径 */
 function formatCount(value: number): string {
   return String(Math.max(0, Math.trunc(value))).padStart(4, '0');
 }
@@ -1673,7 +1673,8 @@ function drawResultRow(
 
 /**
  * 右上 SCORE RANK 徽章（票 73）：官方 `MenuAtlas` 太阳纹圆盘 + 大号字母 + `SCORE RANK` 缎带。
- * 11 档与打歌 6 档独立；只有 SS 的大号字母切图已登记，其余档 / 缺图集走**纯字**降级。
+ * 10 档（顶端 SS，实机结算没有 SS+ 徽章）与打歌 6 档独立；只有 SS 的大号字母切图已登记，
+ * 其余档 / 缺图集走**纯字**降级。
  */
 function drawRankBadge(
   ctx: CanvasRenderingContext2D,
@@ -1798,7 +1799,10 @@ function drawRow(
   drawCount(ctx, u, value, card.left + u.hp('countRight'), cy + u.hp('countDY'), u.hp('countFont'), 'right');
 }
 
-/** 计数：前导 0 转灰，末位恒深色 */
+/**
+ * 计数：只把**前导 0** 染灰，中间 / 末尾的 0 与有效位同色（2026-11-14 用户验收修正）。
+ * 旧口径写成「所有非末位 0 都灰」，`2083` 的 0 会凭空变灰；全 0 时末位仍保持深色。
+ */
 function drawCount(
   ctx: CanvasRenderingContext2D,
   u: EndingUnits,
@@ -1814,9 +1818,12 @@ function drawCount(
   ctx.textAlign = 'left';
   const widths = [...value].map((ch) => ctx.measureText(ch).width);
   const total = widths.reduce((a, b) => a + b, 0);
+  // 第一个非 0 位之前的 0 才是前导 0；全是 0 时末位恒深色（游戏口径）
+  const firstSignificant = value.search(/[1-9]/);
+  const leadingEnd = firstSignificant < 0 ? Math.max(0, value.length - 1) : firstSignificant;
   let x = align === 'right' ? anchor - total : align === 'center' ? anchor - total / 2 : anchor;
   for (let i = 0; i < value.length; i++) {
-    const isLeadingZero = value[i] === '0' && i < value.length - 1;
+    const isLeadingZero = value[i] === '0' && i < leadingEnd;
     ctx.fillStyle = isLeadingZero ? '#c9c9c9' : '#3b3b3b';
     ctx.fillText(value[i]!, x, cy + 1);
     x += widths[i]!;

@@ -96,6 +96,7 @@ import {
   judgeSprite,
   judgeStateAt,
   plusAgesAt,
+  plusMotionAt,
   scoreAt,
   scoreIncrement,
   scoreTierAt,
@@ -1379,9 +1380,11 @@ function drawDigits(
 
 /**
  * `+增量`（票 72 Q22；2026-11-09 验收回退合并）：窗口内**每次命中各画一条 `+${inc}`**，
- * 不设条数上限、不把多次命中并成一个数字。每条按自己的年龄向右/上飘；
- * `plusSpreadX/Y` 可再逐条错开（默认 0 = 同一条轨迹，实机口径），透明度 = 底亮度 +
- * 渐显 × 末尾渐隐。全部是观感参数，不改命中语义。
+ * 不设条数上限、不把多次命中并成一个数字。
+ *
+ * 2026-11-14 用户定案的两段运动由 `plusMotionAt` 给：极快地冲到最右侧，
+ * 随后缓慢再右移一点点并同时淡出；`plusSpreadX/Y` 可再逐条错开
+ * （默认 0 = 所有命中走同一条轨迹，实机口径）。全部是观感参数，不改命中语义。
  */
 function drawPlus(
   ctx: CanvasRenderingContext2D,
@@ -1395,17 +1398,17 @@ function drawPlus(
   ctx.lineJoin = 'round';
   ctx.lineWidth = Math.max(2, SIM_HUD.plusFont * s * 0.14);
   for (let i = 0; i < ages.length; i++) {
-    const age = ages[i]!;
-    const p = Math.max(0, Math.min(0.999, age / SIM_HUD.plusDur));
-    const ease = 1 - (1 - p) * (1 - p);
-    const px = x + w * (SIM_HUD.plusX + ease * SIM_HUD.plusDX + i * SIM_HUD.plusSpreadX);
-    const py = SIM_HUD.plusY * s - (p * SIM_HUD.plusRise + i * SIM_HUD.plusSpreadY) * s;
-    const fadeIn = clamp01(p / Math.max(0.05, SIM_HUD.plusFadeFrac));
-    const fadeOut = SIM_HUD.plusFadeOutFrac > 0
-      ? clamp01((1 - p) / SIM_HUD.plusFadeOutFrac) : 1;
-    ctx.globalAlpha = clamp01(
-      SIM_HUD.plusBaseAlpha + (1 - SIM_HUD.plusBaseAlpha) * Math.min(fadeIn, fadeOut),
-    );
+    const motion = plusMotionAt(ages[i]!, {
+      dur: SIM_HUD.plusDur,
+      dashFrac: SIM_HUD.plusDashFrac,
+      fadeFrac: SIM_HUD.plusFadeFrac,
+      dx: SIM_HUD.plusDX,
+      driftDX: SIM_HUD.plusDriftDX,
+      baseAlpha: SIM_HUD.plusBaseAlpha,
+    });
+    const px = x + w * (SIM_HUD.plusX + motion.travel + i * SIM_HUD.plusSpreadX);
+    const py = SIM_HUD.plusY * s - (motion.p * SIM_HUD.plusRise + i * SIM_HUD.plusSpreadY) * s;
+    ctx.globalAlpha = motion.alpha;
     const text = `+${inc}`;
     ctx.strokeStyle = 'rgba(20,24,32,.5)';
     ctx.strokeText(text, px, py);
@@ -1449,6 +1452,9 @@ function drawStarFlow(
  * gauge 按 2026-11-08 用户给的实机截图：**上段亮绿 / 下段深绿**、中间一条短过渡的
  * 竖向两段渐变，没有网点也没有洋红层。色值取样自截图（`#6eff69` / `#47aa43`），
  * 参数落 `SIM_HUD`，不依赖任何图集切图。
+ *
+ * 2026-11-14：填充按 `lifeGaugeInset` 从 `lifeBand` 四边内缩，让 `life-bar.png`
+ * 空槽自带的深色框露出来 —— 实机那圈「黑边」就是它，铺满 bbox 会把它盖掉。
  */
 function drawLife(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number): void {
   const x = SIM_HUD.lifeX * s;
@@ -1470,18 +1476,25 @@ function drawLife(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number): 
   const gy = y + b.y * ky;
   const gw = w - (HUD_SPRITES.lifeBar[2] - b.x - b.w) * ky - b.x * ky;
   const gh = b.h * ky;
-  if (gw > 1) {
+  // 内缩到空槽的**内沿**，把素材那圈深色框留给观众；圆角同步收掉一个 inset 才同心
+  const inset = Math.max(0, SIM_HUD.lifeGaugeInset) * ky;
+  const ix = gx + inset;
+  const iy = gy + inset;
+  const iw = gw - 2 * inset;
+  const ih = gh - 2 * inset;
+  const radius = Math.max(0, Math.min(0.5, SIM_HUD.bandRadius) * gh - inset);
+  if (iw > 1 && ih > 1) {
     ctx.save();
-    roundRectPath(ctx, gx, gy, gw, gh, Math.min(0.5, SIM_HUD.bandRadius) * gh);
+    roundRectPath(ctx, ix, iy, iw, ih, radius);
     ctx.clip();
     const split = Math.max(0.05, Math.min(0.95, SIM_HUD.lifeGaugeSplit));
-    const grad = ctx.createLinearGradient(0, gy, 0, gy + gh);
+    const grad = ctx.createLinearGradient(0, iy, 0, iy + ih);
     grad.addColorStop(0, SIM_HUD.lifeGaugeTop);
     grad.addColorStop(split, SIM_HUD.lifeGaugeTop);
     grad.addColorStop(Math.min(1, split + 0.08), SIM_HUD.lifeGaugeBottom);
     grad.addColorStop(1, SIM_HUD.lifeGaugeBottom);
     ctx.fillStyle = grad;
-    ctx.fillRect(gx, gy, gw, gh);
+    ctx.fillRect(ix, iy, iw, ih);
     ctx.restore();
   }
   ctx.save();

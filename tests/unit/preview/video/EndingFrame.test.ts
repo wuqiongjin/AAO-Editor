@@ -323,8 +323,9 @@ describe('chart-preview 52 · 一帧绘制', () => {
     expect(t).toContain('Score');
     expect(t).toContain('1000000');
     expect(t).not.toContain('得分');
-    // 缺 `MenuAtlas` ⇒ rank 走纯字降级，不画自造 `AUTO PLAY` 字样
-    expect(t).toContain('SS+');
+    // 缺 `MenuAtlas` ⇒ rank 走纯字降级；2026-11-14 定案顶端只到 SS，不画实机没有的 SS+
+    expect(t).toContain('SS');
+    expect(t).not.toContain('SS+');
     expect(t.join('')).not.toContain('AUTO PLAY');
   });
 
@@ -360,7 +361,8 @@ describe('chart-preview 52 · 一帧绘制', () => {
       .map(([, a]) => (a as unknown[]).slice(1, 5));
     expect(boxes).toContainEqual([1080, 1286, 140, 132]); // 太阳纹盘
     expect(boxes).toContainEqual([1375, 855, 190, 35]); // SCORE RANK 缎带
-    // 只有 SS 一档的大号字母切图登记在册；满分 SS+ 走纯字降级
+    // 2026-11-14：满分档是 SS（实机没有 SS+ 徽章）⇒ 直接贴已登记的大号 SS 字母切图
+    expect(boxes).toContainEqual([1303, 969, 86, 82]);
     expect(texts(calls)).not.toContain('SS');
   });
 
@@ -380,6 +382,32 @@ describe('chart-preview 52 · 一帧绘制', () => {
     // 前导 0 逐字画（每个数字一笔），末位也算在 4 位里
     expect(t.filter((s) => s === '0').length).toBeGreaterThanOrEqual(3);
     expect(t).toContain('6');
+  });
+
+  it('2026-11-14 验收 · 只有前导 0 染灰：`2083` 的 0 与全 0 的末位都是深色', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawEndingFrameAt(
+      proxy, 1920, 1080,
+      frameInput({
+        counts: { perfect: 2083, great: 0, good: 0, bad: 0, miss: 0 },
+        maxCombo: 2083,
+      }),
+      ENDING_SECONDS - 0.1,
+    );
+    // `drawCount` 每画一位前先设一次 fillStyle ⇒ 逐笔把「字 + 当时的颜色」配起来
+    let color = '';
+    const digits: Array<[string, string]> = [];
+    for (const [k, a] of calls) {
+      if (k === 'fillStyle') color = String(a[0]);
+      if (k === 'fillText' && /^[0-9]$/.test(String(a[0]))) digits.push([String(a[0]), color]);
+    }
+    const groups = Array.from({ length: Math.floor(digits.length / 4) }, (_, i) => digits.slice(i * 4, i * 4 + 4));
+    const DARK = '#3b3b3b';
+    const GRAY = '#c9c9c9';
+    expect(groups).toContainEqual([['2', DARK], ['0', DARK], ['8', DARK], ['3', DARK]]);
+    expect(groups).toContainEqual([['0', GRAY], ['0', GRAY], ['0', GRAY], ['0', DARK]]);
+    // 中间的 0 不许再被误判成前导零
+    expect(digits.filter(([d, c]) => d === '0' && c === GRAY)).toHaveLength(12); // 4 行 0000 × 3
   });
 
   it('MAX COMBO 有韩服真件时贴图（不再用文字拼两行）', () => {

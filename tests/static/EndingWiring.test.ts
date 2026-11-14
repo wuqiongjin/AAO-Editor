@@ -25,6 +25,7 @@ const control = readStripped('src/pages/preview/VideoExportControl.tsx');
 const page = readStripped('src/pages/preview/PreviewPage.tsx');
 const hook = readStripped('src/pages/preview/useVideoExport.ts');
 const settings = readStripped('src/settings/AppSettings.ts');
+const hud = readStripped('src/preview/video/sim/simHud.ts');
 const zh = readStripped('src/i18n/messages/zh-CN.json');
 const en = readStripped('src/i18n/messages/en.json');
 
@@ -314,12 +315,13 @@ describe('73 · 结算 Score 行 + SCORE RANK 徽章（推翻 ADR-0016 §5.2）'
     expect(frame).not.toMatch(/preview\.ending\.score|i18n/);
   });
 
-  it('SCORE RANK = 官方 11 档，与打歌 6 档独立；缺切图 / 缺图集走纯字降级', () => {
+  it('SCORE RANK = 10 档（顶端 SS，实机没有 SS+ 徽章），与打歌 6 档独立；缺切图 / 缺图集走纯字降级', () => {
     expect(frame).toMatch(/scoreRankAt\(input\.score\)/);
     expect(frame).toMatch(/HUD_SPRITES\.rankDisc/);
     expect(frame).toMatch(/HUD_SPRITES\.ribbon/);
     expect(frame).toMatch(/RANK_LETTER_SPRITES\[rank\]/);
     expect(frame).toMatch(/ctx\.fillText\(rank,/);
+    expect(hud).not.toMatch(/'SS', 'SS\+'/); // 结算 rank 表不接图集里那枚 SS+
     // 顶栏星徽仍只认 MenuAtlas 三格，不拿 RhythmGameUI 冒充
     expect(frame).toMatch(/ap: \[116, 218, 57, 55\]/);
     expect(frame).toMatch(/HUD_SPRITES\.medal/);

@@ -215,6 +215,16 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     expect(field).not.toMatch(/lifeGaugePink|lifeGaugeGreen|lifeGaugePinkFrac/);
   });
 
+  it('2026-11-14 · 生命填充内缩露出素材暗框：生产 / 原型同名同值，不再铺满 bbox', () => {
+    // life-bar.png 的空槽自带 4~5 素材 px 深色框；填充必须内缩才看得见
+    for (const src of [hud, protoHud]) expect(src).toMatch(/lifeGaugeInset: 4/);
+    expect(field).toMatch(/SIM_HUD\.lifeGaugeInset/);
+    expect(field).toMatch(/ctx\.fillRect\(ix, iy, iw, ih\)/);
+    expect(field).not.toMatch(/ctx\.fillRect\(gx, gy, gw, gh\)/);
+    expect(protoHud).toMatch(/ctx\.fillRect\(ix, iy, iw \* ratio, ih\)/);
+    expect(protoScenes).toMatch(/k: 'lifeGaugeInset'/);
+  });
+
   it('验收修正 · 顶栏只留一枚总开关，「分数条与生命条显示」自解释、不挂 ? 提示', () => {
     expect(field).toMatch(/const showGameUi = input\.scene\.showGameUi \?\? true/);
     expect(field).toMatch(/if \(layers\?\.hud !== false && showGameUi\)/);
@@ -228,32 +238,51 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     expect(en).not.toMatch(/preview\.display\.showGameUi\.hint/);
   });
 
-  it('验收修正 · `+增量` 回退合并、恢复逐命中；位移类参数生产 / 原型仍可调', () => {
+  it('验收修正 · `+增量` 回退合并、恢复逐命中；两段运动生产 / 原型共用一条曲线', () => {
     expect(hud).toMatch(/export function plusAgesAt\(chart: SimChart, seconds: number, duration: number\)/);
-    expect(hud).not.toMatch(/plusBurstsAt|SimPlusBurst|plusMaxCount|PLUS_EPS/);
+    expect(hud).toMatch(/export function plusMotionAt\(age: number, params: PlusMotionParams\): PlusMotion/);
+    expect(hud).not.toMatch(/plusBurstsAt|SimPlusBurst|plusMaxCount|PLUS_EPS|plusFadeOutFrac/);
     expect(field).toMatch(/const text = `\+\$\{inc\}`;/);
     expect(field).not.toMatch(/b\.hits \* inc/);
     expect(protoScenes).toMatch(/function plusAgesAt\(sec\)/);
     expect(protoScenes).not.toMatch(/function plusBurstsAt|k: 'plusMaxCount'/);
-    // 用户明确要保留的观感旋钮：底亮度 / 渐隐 / 位移 / 逐条错开 / 密集演示
-    // 2026-11-09 快照定档：dur .5 / X .45 / Y 122 / rise 0，生产与原型同名同值
+    // 用户明确要保留的观感旋钮：底亮度 / 位移 / 逐条错开 / 密集演示；
+    // 2026-11-14 定案：冲刺占比 + 淡出位移（右边的缓移过程即淡出），生产与原型同名同值；
+    // 同日第三版快照把 dur .4→.5 / dash .18→.2 / Y 120→119 / DX .34→.37 定为新缺省。
     for (const src of [hud, protoHud]) {
       expect(src).toMatch(/plusBaseAlpha: 0\.85/);
-      expect(src).toMatch(/plusFadeOutFrac: 0\.2/);
+      expect(src).toMatch(/plusDashFrac: 0\.2/);
+      expect(src).toMatch(/plusDriftDX: 0\.02/);
       expect(src).toMatch(/plusDur: 0\.5/);
       expect(src).toMatch(/plusX: 0\.45/);
-      expect(src).toMatch(/plusY: 122/);
+      expect(src).toMatch(/plusDX: 0\.37/);
+      expect(src).toMatch(/plusY: 119/);
+      expect(src).toMatch(/plusFont: 36/);
       expect(src).toMatch(/plusRise: 0/);
       expect(src).toMatch(/plusSpreadX: 0/);
       expect(src).toMatch(/plusSpreadY: 0/);
+      expect(src).toMatch(/plusMotionAt\(/);
     }
-    expect(protoHud).toMatch(/plusDemoRate: 14/);
-    expect(protoScenes).toMatch(/Math\.min\(5\.3, chartSeconds\)/);
+    expect(protoHud).toMatch(/plusDemo: true/);
+    expect(protoHud).toMatch(/plusDemoRate: 15/);
+    expect(protoScenes).toMatch(/Math\.min\(6\.07, chartSeconds\)/);
     expect(field).toMatch(/i \* SIM_HUD\.plusSpreadX/);
-    expect(field).toMatch(/SIM_HUD\.plusBaseAlpha/);
+    expect(field).toMatch(/dashFrac: SIM_HUD\.plusDashFrac/);
+    expect(field).toMatch(/driftDX: SIM_HUD\.plusDriftDX/);
     expect(protoScenes).toMatch(/k: 'plusDemo'/);
     expect(protoScenes).toMatch(/k: 'plusBaseAlpha'/);
+    expect(protoScenes).toMatch(/k: 'plusDashFrac'/);
+    expect(protoScenes).toMatch(/k: 'plusDriftDX'/);
     expect(protoScenes).toMatch(/k: 'plusSpreadX'/);
+  });
+
+  it('2026-11-14 · 结算不再叠两层：原型只走生产一帧，补齐 score 并把旋钮折进 ENDING_SPEC', () => {
+    expect(protoScenes).not.toMatch(/drawEndingScore/);
+    expect(protoHud).not.toMatch(/export function drawEndingScore/);
+    expect(protoScenes).toMatch(/score: 1_000_000/);
+    expect(protoScenes).toMatch(/drawEndingFrameAt\(output, W, H, endingInput, sec, endingSpec\(\)\)/);
+    expect(protoScenes).toMatch(/resultFont: HUD\.resultFont \/ 1080 \* 100/);
+    expect(protoScenes).toMatch(/rankSize: HUD\.rankSize \/ 1920 \* 100/);
   });
 
   it('验收修正 · ▽ 刻度图标大小可调：生产 / 原型同名同值', () => {
