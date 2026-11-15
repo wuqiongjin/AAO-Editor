@@ -19,7 +19,7 @@
 // `combo`，同一开发期直读通道），缺精灵时回落程序化自绘 + 文本（两套都在本文件里）。
 import type { ChartNote, ConnectionNote, SlideNote } from '../../../chart/types';
 import { LANE_WIDTH, directionalLanes } from '../../../chart/geometry/ChartGeometry';
-import { displayConnections, slideUsesSpBand } from '../../../chart/editing/SlideSegments';
+import { displayConnections, slideSpans, slideUsesSpBand } from '../../../chart/editing/SlideSegments';
 import { trueBeat } from '../../../chart/editing/ChartEndBounds';
 import { comboNodePreciseBeats } from '../../../chart/editing/NoteEditing';
 import {
@@ -198,6 +198,12 @@ export interface SimBand {
   lane1: number;
   /** SP 材质（整条传染，ADR-0009 §5） */
   sp: boolean;
+  /**
+   * 按住帽款式：本逻辑段**播放时间上刚经过**的那枚可见结点是不是中间结点。
+   * `false` = 端点款 `note_long`、`true` = 中间结点款 `note_slide_among`；
+   * hidden 采样点对逻辑段透明（`slideSpans` 口径），故段内所有小段共用同一个值。
+   */
+  holdAmong: boolean;
 }
 
 /** 同时点击线的分组：同一拍（同 tick）的一组轨号（已含镜向，升序） */
@@ -370,10 +376,12 @@ export function* buildSimChartSteps(
       const slide = slideSeq++;
       const sp = slideUsesSpBand(conns);
       const lastIdx = projected.length - 1;
+      /** 投影序里的端点身份：首 / 尾可见结点（`displayConnections` 已掐首尾 hidden） */
+      const isEndpointNode = (i: number): boolean => i === 0 || i === lastIdx;
       projected.forEach((conn, i) => {
         const lane = mirrorLane(conn.lane, mirror);
         const time = secondsAt(conn.beat, conn.subBeat);
-        const isEnd = i === 0 || i === lastIdx;
+        const isEnd = isEndpointNode(i);
         if (!conn.hidden && conn.beat >= 0) {
           elements.push({
             time,
@@ -389,19 +397,32 @@ export function* buildSimChartSteps(
         }
         if (isEnd && conn.beat >= 0) addToGroup(trueBeat(conn.beat, conn.subBeat, beatDisplay), lane);
       });
-      // 带体：投影序的相邻两点一段（段内 hidden 采样点就是 SP 曲线的弯，走序照投影）
-      for (let i = 0; i + 1 < projected.length; i++) {
-        const a = projected[i]!;
-        const b = projected[i + 1]!;
-        if (a.beat < 0 && b.beat < 0) continue; // 整段都在负 beat：不渲染
-        bands.push({
-          slide,
-          t0: secondsAt(a.beat, a.subBeat),
-          lane0: mirrorLane(a.lane, mirror),
-          t1: secondsAt(b.beat, b.subBeat),
-          lane1: mirrorLane(b.lane, mirror),
-          sp,
-        });
+      // 带体：投影序的相邻两点一段（段内 hidden 采样点就是 SP 曲线的弯，走序照投影）。
+      // 按住帽按**逻辑段**选款：hidden 采样点对段透明（`slideSpans` 口径），段内所有小段共用
+      // 「播放时间上刚经过的那枚可见结点」的款式（端点身份 = 投影下标 0 / lastIdx）。
+      // 正流区它就是段起点；倒流区（负 BPM）里 t0 > t1，先经过的是秒更小的那一端 ——
+      // 按玩家游玩顺序，不按投影数组序。
+      for (const span of slideSpans(projected)) {
+        const head = projected[span.start]!;
+        const tail = projected[span.end]!;
+        const leadIdx = secondsAt(head.beat, head.subBeat) <= secondsAt(tail.beat, tail.subBeat)
+          ? span.start
+          : span.end;
+        const holdAmong = !isEndpointNode(leadIdx);
+        for (let i = span.start; i < span.end; i++) {
+          const a = projected[i]!;
+          const b = projected[i + 1]!;
+          if (a.beat < 0 && b.beat < 0) continue; // 整段都在负 beat：不渲染
+          bands.push({
+            slide,
+            t0: secondsAt(a.beat, a.subBeat),
+            lane0: mirrorLane(a.lane, mirror),
+            t1: secondsAt(b.beat, b.subBeat),
+            lane1: mirrorLane(b.lane, mirror),
+            sp,
+            holdAmong,
+          });
+        }
       }
       return;
     }
@@ -1072,12 +1093,14 @@ function drawSpriteEffect(
 /**
  * 连按（带体按住）特效（chart-preview 21 + 25 #2/#3；bundle 的 `y.forEach` **三段**）：
  * **正在按住的那一段带子**在判定线上画三笔 ——
- *   ① 滑条端点本体 `note_long`（21 漏誊的一段；票 77 起全轨统一扁平端帽，随接触点走，画在最下层）；
+ *   ① 按住帽本体（21 漏誊的一段；票 77 起全轨统一扁平款，随接触点走，画在最下层）——
+ *      经过中间结点后由 `note_long` 换成中间结点款 `note_slide_among`（`SimBand.holdAmong`）；
  *   ② `connectionRing`（(2,1)，**不染**）；
  *   ③ 一对**反向对转**的 `rotatingRing`（(3,1)，青；1× 与 0.75×），α 恒 1。
  *
  * 命中点 = 段内按秒插值的轨位（照 bundle 的 `L = from.lane + (to.lane − from.lane)·(t − t0)/(t1 − t0)`），
  * 只在 `t ∈ (段起点, 段终点]` 期间给 —— 那一段就是"正被按住"（倒流区里段可能反向，故按 min/max 判）。
+ * 款式只跟**刚经过的可见结点**走，hidden 采样点不切换；两环不随款式变。
  * 旋转角 = `t · 2π`（两环一个正转一个反转）。
  */
 function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, seconds: number): void {
@@ -1098,15 +1121,16 @@ function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, se
     const lane = bandLaneAt(band, seconds);
     const x = laneCenterX(m, lane, 1);
 
-    // ① 端点本体（照 bundle：画在两环**之前**，故被环盖着）：票 77 统一取扁平 `note_long`。
+    // ① 按住帽本体（照 bundle：画在两环**之前**，故被环盖着）：票 77 统一取扁平款，
     // 逐轨 `note_long_<lane>` 自带舞台透视倾角（越靠外轨越歪），与全轨道扁平化定案冲突，不按轨取图。
+    // 经过中间结点后换成 `note_slide_among`；款式由派生期按逻辑段定好，这里只负责取图。
     // 显式锁定 globalAlpha = 1（issue 36）：免受任何外部/命中特效 alpha 残余污染
     ctx.save();
     ctx.globalAlpha = 1;
-    const endpoint = noteIcons.slideEndpointFor(lane);
-    const box = simNoteRect(m, 1, noteSize, simSpriteAspect(endpoint));
+    const holdIcon = band.holdAmong ? noteIcons.slideAmongFor(lane) : noteIcons.slideEndpointFor(lane);
+    const box = simNoteRect(m, 1, noteSize, simSpriteAspect(holdIcon));
     spriteIcon.render(ctx, {
-      ...endpoint,
+      ...holdIcon,
       canvasX: x,
       canvasY: m.laneHeight,
       canvasSize: box.w,

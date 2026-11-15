@@ -619,6 +619,39 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     expect(after.draws).toEqual([]);
   });
 
+  it.skipIf(!hasAssetSnapshot)('经过中间结点后按住帽换中间结点款；hidden 采样点不触发换款', () => {
+    const { spriteIcon, draws } = makeRecordingSprite();
+    const sprites = fakeSprites() as unknown as SimSprites;
+    // A(1s, 头端点) → H(1.5s, hidden) → B(2s, 中间结点) → H(2.5s, hidden) → C(4s, 尾端点)：
+    // 按住窗口依次 (1,1.5] (1.5,2] (2,2.5] (2.5,4]，只在玩家经过 B 之后换款。
+    const frame: SimFrameInput = {
+      ...frameOf([slide([
+        { beat: 2, lane: 0 },
+        { beat: 3, lane: 1, hidden: true },
+        { beat: 4, lane: 2 },
+        { beat: 5, lane: 3, hidden: true },
+        { beat: 8, lane: 4 },
+      ])], spriteIcon),
+      assets: { ...emptySimAssets(), sprites },
+    };
+    const endpoint = icons.slideEndpointFor(3);
+    const among = icons.slideAmongFor(3);
+    // 按住帽恒压判定线上（canvasY = laneHeight）；接近中的结点还在上方（fieldY = laneHeight × A）
+    const capAt = (seconds: number) => {
+      draws.length = 0;
+      drawSimFrameAt(recordingCtx().proxy, frame, seconds);
+      return draws.filter((d) => d.y === frame.metrics.laneHeight);
+    };
+
+    for (const [seconds, want] of [
+      [1.25, endpoint], [1.75, endpoint], [2.25, among], [2.75, among],
+    ] as const) {
+      const caps = capAt(seconds);
+      expect(caps).toHaveLength(1);
+      expect([caps[0]!.sx, caps[0]!.sy, caps[0]!.src]).toEqual([want.x, want.y, want.src]);
+    }
+  });
+
   it('背景按 backgroundRect 的取景矩形画（不再是 cover 居中裁两侧）', () => {
     const { spriteIcon } = makeRecordingSprite();
     const background = { naturalWidth: 2048, naturalHeight: 1024 } as HTMLImageElement;

@@ -187,6 +187,35 @@ describe('buildSimChart · 倒流区（ADR-0010）', () => {
     expect(simComboAt(c, 1.2)).toBe(3);
     expect(simComboAt(c, 1.6)).toBe(4);
   });
+
+  it('按住帽款式按玩家游玩顺序：倒流区取播放秒更小的那一端（票 78）', () => {
+    const c = chartOf(backflow);
+    // 玩家顺序 = beat7(0.5s, 尾端点) → beat6(1s, 中间结点) → beat5(1.5s, 头端点)；
+    // 带表仍按数组序 [[1.5,1],[1,0.5]] ⇒ (0.5,1] 刚过端点、(1,1.5] 刚过中间结点。
+    expect(c.bands.map((b) => [b.t0, b.t1])).toEqual([[1.5, 1], [1, 0.5]]);
+    expect(c.bands.map((b) => b.holdAmong)).toEqual([true, false]);
+  });
+});
+
+describe('buildSimChart · 按住帽款式（票 78）', () => {
+  it('三点滑条：头端点段端点款，经过中间结点后中间款', () => {
+    const c = chartOf([slide([
+      { beat: 2, lane: 0 }, { beat: 4, lane: 2 }, { beat: 8, lane: 6 },
+    ])]);
+    expect(c.bands.map((b) => [b.t0, b.t1])).toEqual([[1, 2], [2, 4]]);
+    expect(c.bands.map((b) => b.holdAmong)).toEqual([false, true]);
+  });
+
+  it('hidden 采样点不触发换款：一个逻辑段里的小段共用同一款', () => {
+    const c = chartOf([slide([
+      { beat: 2, lane: 0 },
+      { beat: 3, lane: 1, hidden: true },
+      { beat: 4, lane: 2 },
+      { beat: 5, lane: 3, hidden: true },
+      { beat: 8, lane: 4 },
+    ])]);
+    expect(c.bands.map((b) => b.holdAmong)).toEqual([false, false, true, true]);
+  });
 });
 
 describe('buildSimChart · 同时点击线', () => {
