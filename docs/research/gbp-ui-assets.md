@@ -1,7 +1,8 @@
 # 邦邦 UI 素材清单（chart-preview 票 50–52 用）
 
-> 2026-10-26 整理。游戏素材**仅供本地研究**：不入 git、不再分发；`public/assets/` 已被 `.gitignore` 忽略。
-> 目录：`public/assets/game-ui/`；用户上传原件放在 `.cache/media/`（未入库）。
+> 2026-10-26 整理，2026-11-15 取件口径更新。`public/assets/game-ui/` **不入 git**（`.gitignore` 已忽略），
+> 但已纳入 `scripts/assets-sync.mjs` 的取件根：由外部快照仓提供、与其它运行时素材一起取件，
+> 取件后随 `dist/` 进安装包与在线版（详见 §11）。用户上传原件放在 `.cache/media/`（未入库）。
 
 ## 1. 官方撕图（Bestdori）
 
@@ -207,3 +208,14 @@ jp / en / tw / cn 的 `stageskin` 里**没有这个文件**（KR 的 normal / ch
 - 大号 `B` / `S` / `C` 等字母徽章集中在 `y ≈ 1024–1100` 一排（右下象限），同区还有 `COMPLETE!` / `NEW RECORD!` / `FULL COMBO` 词标与放射状圆形徽章。
 - 小号 `A` / `B` 等字母徽章另有一套（如 `x 512–1024, y 0–512` 区），印证「多个 SS/S/B」⇒ **按用户推测取大号那套**，逐档在 HUD 原型里并排比对（Q19 定案）。
 - 「得分」二字（简中标签）在 KR `MenuAtlas.png` 里没有 ⇒ 用户 2026-11-08 拍板**自绘 + 走 i18n 多语言 + 用 `HEADER_SANS`**（`src/preview/fontStack.ts`，与结算曲名同一条字体链），不进素材表；见票 73 第 8 轮定案。这是「不伪造」边界里唯一允许的文字例外。
+
+## 11. 2026-11-15：game-ui 纳入运行时资源取件
+
+用户定案：`game-ui` 的「拉取」= 从外部快照仓取件，与 `public/assets/skins` / `sim` **完全同一条链路**，不做特殊排除。
+
+- `scripts/assets-sync.mjs` 的 `ROOTS` 增加 `public/assets/game-ui`（第 7 个根）；`assets:sync` / `assets:check`、`setup.sh` / `dev.sh`、CI 取件与 `assets:check` 门禁自动继承。
+- 快照仓 payload 与「抓取 → 构建 → 摆位」更新入口必须同时纳入该根，否则取件后复校（`assets-sync.mjs` 尾部 `missingRoots()`）会让 CI 失败。
+- `.gitignore` 早已忽略 `/public/assets/game-ui/`；素材仍**不入 git**。
+- Vite 默认 `publicDir` 会把取回的 `public/assets/game-ui/**` 复制进 `dist/assets/game-ui/**`，再随 `package.json build.files` 的 `dist/**/*` 进 Electron 安装包，并随 `deploy-site.yml` 推到在线版。⇒ 本文开头（2026-10-26 版）「仅供本地研究 / 不再分发」、§9 的「不进安装包」，以及票 72 Q2「不纳入 `assets-sync` 与发布物」均**随本次变更失效**；ADR-0016 §6 已加修订注。
+- `src/` 三处素材头注按新口径回写；**缺件降级不变**（图留空 / 纯字、SE 静音、不置 `missing`），取件失败时预览与导出仍可用。
+- §8 的「`public/assets/game-ui/` 当前不存在、取件根不含 game-ui」与 §9 的边界描述，都是 2026-11-08 的当时快照，按事实存档保留：本机两处目录（`.cache/game-ui/` ↔ `public/assets/game-ui/`）靠手工 `rsync` 同步，24 件逐字节一致（`public/assets/game-ui/README.txt` §六）。

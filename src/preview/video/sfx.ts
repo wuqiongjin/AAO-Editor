@@ -9,8 +9,9 @@
 //   ③ **音量只走 `se` 那一条**（`settings.audio.seVolume`），不另开"结尾音量"设置
 //      （用户 2026-10-27：这两处音量只有导出时有用，不需要可调）。
 //
-// 素材在 `public/assets/game-ui/audio/`（本地研究件，**不入 git、不进安装包**）：
-// 取不到就是**静音降级**（不抛错、不阻断导出），口径同图片缺件。
+// 素材在 `public/assets/game-ui/audio/`（**不入 git**，由 `npm run assets:sync` 从外部快照仓
+// 取件，与 `public/assets/sim` 同一条链路）：取不到就是**静音降级**（不抛错、不阻断导出），
+// 口径同图片缺件。
 import type { EndingStamp } from './ending';
 
 /** 游戏 SE 根（`<站点根>/assets/game-ui/audio`） */

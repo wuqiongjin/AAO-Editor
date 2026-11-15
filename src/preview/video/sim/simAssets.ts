@@ -50,8 +50,9 @@ const SIM_SPRITE_CATEGORY = 'sprites';
 
 /**
  * **游戏 UI 素材根**（`chart-preview 51/52`）：判定图集、结算图、中央章字样都在这儿。
- * 与仿真场素材同一套 `public/` 规则（拼 `BASE_URL`），但**不逐服**（`ingameskin` 只有一份），
- * 也不进安装包 ⇒ 读不到 = 那处留空 / 纯字（票 51/52 Q12）。
+ * 与仿真场素材同一套 `public/` 规则（拼 `BASE_URL`），也同一条取件链路
+ * （`npm run assets:sync` 从外部快照仓取件，不入 git），但**不逐服**（`ingameskin` 只有一份）。
+ * 读不到 = 那处留空 / 纯字（票 51/52 Q12），缺件降级口径不变。
  */
 export const GAME_UI_ASSET_BASE = `${import.meta.env.BASE_URL}assets/game-ui`;
 
@@ -61,8 +62,9 @@ export function simJudgeUrl(): string {
 }
 
 /**
- * 打歌 HUD 顶栏素材（票 71 / 72）。与判定图集同一条边界：**不入 git / 不进安装包**，
- * 读不到 = 那一处留空或纯字，不置 `missing`（场地照画）。
+ * 打歌 HUD 顶栏素材（票 71 / 72）。与判定图集同一条边界：**不入 git**，由
+ * `npm run assets:sync` 从外部快照仓取件；读不到 = 那一处留空或纯字，
+ * 不置 `missing`（场地照画）。
  *
  * `scoreBar` / `lifeBar` / `autoLive` 是用户自备件（已抠底），其余是官方图集切图。
  * 取景坐标在 `simHud.HUD_SPRITES`，清单见 `public/assets/game-ui/README.txt` §六。

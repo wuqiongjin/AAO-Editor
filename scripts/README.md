@@ -71,8 +71,8 @@ node scripts/fetch-bestdori-official.mjs 515 expert -o chart.json --audio
 来源地址不直写明文（编码在脚本常量里）；要换来源用环境变量或参数：
 `ASSETS_SOURCE=<本地目录|git 地址> npm run assets:sync`（或 `--from <…>`）。
 
-取回的产物（都在 `.gitignore` 里）：`public/assets/skins/`、`public/assets/sim/`、
-`src/assets/audio/keysounds/`、`src/rendering/skin/gen/`、`src/audio/gen/`。
+取回的产物（都在 `.gitignore` 里）：`public/assets/skins/`、`public/assets/sim/`、`public/assets/game-ui/`、
+`src/assets/audio/keysounds/`、`src/rendering/skin/gen/`、`src/audio/gen/`、`src/preview/video/sim/gen/`。
 仿真场的 URL 约定见 `src/preview/video/sim/simAssets.ts`；口径与决策见
 `.scratch/release-pipeline/issues/02-素材迁出与内部镜像同步.md`。
 
