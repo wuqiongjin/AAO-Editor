@@ -171,6 +171,35 @@ describe('AudioSession · importAudio / clearAudio / dismissError', () => {
     expect(persist).toHaveBeenCalledTimes(1);
   });
 
+  it('issue 238：工程恢复可等待音频准备完成，结算前不能提前放行', async () => {
+    const { fake, factory } = makeFactory();
+    let finish!: () => void;
+    vi.spyOn(fake, 'load').mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    const s = new AudioSession({ engineFactory: factory, keySetId: 'skin00', seVolume: 1 });
+    const ready = s.hydrateFromProject({ audioName: 'a.mp3', audioBlob: new Blob([new Uint8Array([1])]), durationSeconds: 90 });
+    expect(ready).toBeInstanceOf(Promise);
+    expect(s.isLoading).toBe(true);
+    let settled = false;
+    void Promise.resolve(ready).then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    finish();
+    await ready;
+    expect(s.isLoading).toBe(false);
+    expect(s.getSnapshot().audioLoadGeneration).toBe(1);
+    expect(s.getSnapshot().chartDuration).toBe(12.5);
+  });
+
+  it('issue 238：解码失败仍结束准备并保留错误，不让工程恢复无限等待', async () => {
+    const { fake, factory } = makeFactory();
+    vi.spyOn(fake, 'load').mockRejectedValue(new Error('decode failed'));
+    const s = new AudioSession({ engineFactory: factory, keySetId: 'skin00', seVolume: 1 });
+    await expect(s.hydrateFromProject({ audioName: 'bad.mp3', audioBlob: new Blob([new Uint8Array([1])]), durationSeconds: 90 })).resolves.toBeUndefined();
+    expect(s.getSnapshot().audioError).toBe('decode failed');
+    expect(s.isLoading).toBe(false);
+    expect(s.getSnapshot().audioLoadGeneration).toBe(1);
+  });
+
   it('hydrateFromProject 无音频：同步清空、改时长、不 persist', () => {
     const { fake, factory } = makeFactory();
     const s = new AudioSession({ engineFactory: factory, keySetId: 'skin00', seVolume: 1, chartDuration: 12 });

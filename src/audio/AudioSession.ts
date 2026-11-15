@@ -78,12 +78,13 @@ export class AudioSession {
   private engine: AudioEngine;
   private factory: AudioEngineFactory;
 
-  // 内部状态（外部只通过 snapshot 读取）
+  // 内部状态（响应式展示通过 snapshot 读取）
   private _audioName: string | null = null;
   private _audioError: string | null = null;
   private _chartDuration: number;
   private _audioBlob: Blob | null = null;
   private _audioLocked = false;
+  private _loading = false;
   /** 音频负载落定代数（33 票）：加载完成 / 清除 / 解码失败时 +1，见 snapshot 字段注解 */
   private _audioLoadGeneration = 0;
   private _keySetId: string;
@@ -101,6 +102,11 @@ export class AudioSession {
   /** 共享音频与谱面时长锁定态（工程含已上传谱面时锁定，ADR-0015 §4） */
   get isAudioLocked(): boolean {
     return this._audioLocked;
+  }
+
+  /** 当前音频是否仍在准备：不随谱面切换的持久化结算提前清除。 */
+  get isLoading(): boolean {
+    return this._loading;
   }
 
   setAudioLocked(locked: boolean): void {
@@ -187,10 +193,12 @@ export class AudioSession {
     if (this._audioLocked) return;
     this._audioError = null;
     const token = ++this.inFlightToken;
+    this._loading = true;
     this.engine.load(file)
       .then(() => {
         // 若期间被新调用打断（clear / 再 import），丢弃此次结果
         if (token !== this.inFlightToken) return;
+        this._loading = false;
         this._audioName = file.name;
         this._audioBlob = file;
         // bug 34：换音频时无论 canPlay 是否已 true 都直接按新音频时长刷新谱面时长
@@ -204,6 +212,7 @@ export class AudioSession {
       .catch((err: unknown) => {
         if (token !== this.inFlightToken) return;
         // 失败：保持无音频态 + 错误信息
+        this._loading = false;
         this._audioName = null;
         this._audioBlob = null;
         this._audioError = err instanceof Error && err.message ? err.message : t('audio.decodeFallback');
@@ -213,7 +222,7 @@ export class AudioSession {
   }
 
   /**
-   * 切工程时整体替换音频会话：同步写入 blob/时长，解码异步。
+   * 切工程时整体替换音频会话：同步写入 blob/时长，解码异步；返回准备完成的 Promise。
    * 不触发 persistNow——由工程加载路径在恢复结算后统一落盘，以免空会话写进新工程。
    */
   hydrateFromProject(opts: {
@@ -221,30 +230,33 @@ export class AudioSession {
     audioBlob?: Blob;
     durationSeconds: number;
     audioLocked?: boolean;
-  }): void {
+  }): Promise<void> {
     if (opts.audioLocked != null) this._audioLocked = opts.audioLocked;
     const token = ++this.inFlightToken;
     this._audioError = null;
     const duration = clampChartDuration(opts.durationSeconds);
     if (!opts.audioName || !opts.audioBlob) {
+      this._loading = false;
       this.engine.clear();
       this._audioName = null;
       this._audioBlob = null;
       this._chartDuration = duration;
       this._audioLoadGeneration += 1; // 负载落定为「无音频」（33 票：丢失信号的落定时刻）
       this.emit();
-      return;
+      return Promise.resolve();
     }
     this._audioName = opts.audioName;
     this._audioBlob = opts.audioBlob;
     this._chartDuration = duration;
+    this._loading = true;
     this.emit();
     const file = opts.audioBlob instanceof File
       ? opts.audioBlob
       : new File([opts.audioBlob], opts.audioName);
-    this.engine.load(file)
+    return this.engine.load(file)
       .then(() => {
         if (token !== this.inFlightToken) return;
+        this._loading = false;
         const ad = this.engine.duration;
         if (ad != null) this._chartDuration = clampChartDuration(ad);
         this._audioLoadGeneration += 1; // 解码落地（33 票：替换信号只认这一刻的时长）
@@ -252,6 +264,7 @@ export class AudioSession {
       })
       .catch((err: unknown) => {
         if (token !== this.inFlightToken) return;
+        this._loading = false;
         this._audioError = err instanceof Error && err.message ? err.message : t('audio.decodeFallback');
         this._audioLoadGeneration += 1;
         this.emit();
@@ -263,6 +276,7 @@ export class AudioSession {
     if (this._audioLocked) return;
     // 打断任何 in-flight import
     this.inFlightToken++;
+    this._loading = false;
     this.engine.clear();
     this._audioName = null;
     this._audioBlob = null;

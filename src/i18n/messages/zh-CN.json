@@ -319,6 +319,7 @@
   "workspace.switcher.preview": "预览当前谱面",
   "workspace.switcher.crumbTitle": "回工程管理页",
   "workspace.switcher.uploaded": "已上传 · 只读",
+  "workspace.preparing": "正在准备谱面…",
   "workspace.readonlyPrompt": "已上传谱面本体不可修改",
   "workspace.readonlyCopyBtn": "复制并编辑",
   "workspace.switcher.rowMeta": "{{diff}} {{level}} · {{count}} 音符",

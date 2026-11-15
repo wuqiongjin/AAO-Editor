@@ -322,6 +322,7 @@
   "workspace.switcher.preview": "Preview current chart",
   "workspace.switcher.crumbTitle": "Back to projects page",
   "workspace.switcher.uploaded": "Uploaded · read-only",
+  "workspace.preparing": "Preparing chart…",
   "workspace.readonlyPrompt": "Uploaded charts cannot be modified",
   "workspace.readonlyCopyBtn": "Duplicate & Edit",
   "workspace.switcher.rowMeta": "{{diff}} {{level}} · {{count}} notes",

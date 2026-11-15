@@ -170,7 +170,7 @@ export interface TileBlitSmoothingParams {
 
 /**
  * issue 222（抗畸变根治）：瓦片 blit 自适应平滑策略
- * - 浮点 DPR（Windows 125%/150%/175% 等）或缩放拉伸态（手势期 es !== refScale）下，强制开启高阶滤波平滑，消除亚像素锯齿与黑斑；
+ * - 浮点 DPR（Windows 125%/150%/175% 等）或缩放拉伸态（手势期 es !== refScale）下，开启平滑，消除亚像素锯齿与黑斑；
  * - 仅当物理像素严格 1:1 整数对齐（如标准 1.0x 或 Retina 2.0x 且无缩放拉伸）时，才关闭平滑以最大化填充性能。
  */
 export function shouldEnableTileBlitSmoothing(p: TileBlitSmoothingParams): boolean {
@@ -902,7 +902,7 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
       const r = tileBlitRect(id, es, t.refScale, anchorY, rc.surface.w, t.surfaceW);
       const clipped = clipTileDrawRect(r, rc.surface.w, rc.surface.h, t.canvas.width, t.canvas.height);
       if (!clipped) continue;
-      // issue 222：瓦片 blit 自适应平滑（浮点 DPI / 缩放拉伸开启 high，仅整数 1:1 关闭）
+      // issue 222：浮点 DPI / 子像素偏移仍保留平滑，仅整数 1:1 关闭。
       const smooth = shouldEnableTileBlitSmoothing({
         dpr: rc.dpr,
         tileDpr: getEffectiveDpr(rc.dpr),
@@ -920,7 +920,14 @@ export function createNoteLayerCache(options: { rasterizeBands?: typeof rasteriz
         sh: clipped.sh,
       });
       ctx.imageSmoothingEnabled = smooth;
-      if (smooth) ctx.imageSmoothingQuality = 'high';
+      if (smooth) {
+        // issue 238：同密度、同缩放的瓦片只需亚像素插值；部分 GPU 在首次滚动使用 high 时会
+        // 触发额外的 GPU 着色器链接（实测约 65ms）。实际拉伸 / 密度转换仍用 high。
+        // surface 改宽时 tileBlitRect 只把旧瓦片居中平移，不改变其采样密度。
+        const sameResolution = Math.abs(es - t.refScale) < 1e-5
+          && Math.abs(rc.dpr - getEffectiveDpr(rc.dpr)) < 1e-5;
+        ctx.imageSmoothingQuality = sameResolution ? 'medium' : 'high';
+      }
       ctx.drawImage(t.canvas, clipped.sx, clipped.sy, clipped.sw, clipped.sh, clipped.dx, clipped.dy, clipped.dw, clipped.dh);
       blitted++;
       blitCssPx += clipped.dw * clipped.dh;

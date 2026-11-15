@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Lock, Copy, X } from 'lucide-react';
+import { Lock, Copy, X, LoaderCircle } from 'lucide-react';
 import WorkspaceTopBar from './WorkspaceTopBar';
 import WorkspaceToolRail from './WorkspaceToolRail';
 import PatternLibraryDrawer from './PatternLibraryDrawer';
@@ -266,7 +266,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       audioSession.setAudioLocked(audioLocked);
       return;
     }
-    audioSession.hydrateFromProject({
+    const audioReady = audioSession.hydrateFromProject({
       audioName: project.audioName,
       audioBlob: project.audioBlob,
       durationSeconds: project.durationSeconds,
@@ -276,6 +276,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // 33 票：音频资源异常检测落在 hydrate 路径——丢失（半态）这里就判；
     // 替换等解码落地（会话时长落到音频实际值）后由 useAudioAnomaly 的 effect 判。
     audioAnomaly.noteRestoredProject(project, opts);
+    await audioReady;
   }, [resetNotes, setCtxDuration, audioSession, seek, resetToStart, setMarker, audioAnomaly]);
 
   // 记录侧音频变更（票 15 定案 8 的不变量）：音频页按作用域直接写了当前工程记录的音频，
@@ -318,6 +319,26 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     registerRestoreWaiter,
     onProjectEdited: notifyProjectEdited,
   });
+  // issue 238：只在首次恢复 / 换工程时等待真实准备完成；切页保活和同工程切谱不重新等待。
+  // 导航等待器有超时兜底，不能用它判断音频是否已就绪；此处逐帧观察恢复结算，不设固定延时。
+  const [preparation, setPreparation] = useState({ projectId, ready: false });
+  if (preparation.projectId !== projectId) {
+    setPreparation({ projectId, ready: false });
+  }
+  const preparing = preparation.projectId !== projectId || !preparation.ready;
+  useEffect(() => {
+    let frame = 0;
+    const check = () => {
+      if (persistence.isSettled && !audioSession.isLoading) {
+        setPreparation(current => current.projectId === projectId ? { projectId, ready: true } : current);
+      } else {
+        frame = requestAnimationFrame(check);
+      }
+    };
+    check();
+    return () => cancelAnimationFrame(frame);
+  }, [audioSession, persistence, projectId]);
+
   const persistNow = useCallback(() => persistence.saveNow(), [persistence]);
   useEffect(() => {
     audioSession.setPersistNow(persistNow);
@@ -485,7 +506,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   // === 会话流 7：键盘快捷键分发（issue 28 Q16 / ADR-0002） ===
   useShortcutDispatch({
     shortcutConfig,
-    active,
+    active: active && !preparing,
     runFunction,
     noRepeat: PLAYBACK_SHORTCUT_IDS,
     // Esc 五档链（ADR-0008 §7 / issue 135）：① 弹窗 capture 自消费；②–⑤ 由
@@ -519,7 +540,8 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     // workspaceProject.test.ts 契约：切工程时谱面代码弹窗随当前工程卸载 (key={projectId})
     // issue 169：useSurfaceSize 现已具备 DOM 替换追踪与 active 校准能力，即便 key remount 亦能平稳追踪尺寸
     <ChartCodeEditorProvider key={projectId ?? 'none'} projectId={projectId} readOnly={isReadOnly} onReadonlyReject={triggerReadonlyPrompt}>
-    <div className="ws-shell">
+    <div className="ws-loading-host" aria-busy={preparing}>
+    <div className="ws-shell" inert={preparing || undefined} aria-hidden={preparing || undefined}>
       <WorkspaceToolRail />
 
       <div className="ws-canvas-col">
@@ -568,7 +590,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
                 onScrollChange={viewSession.onCanvasScrollChange}
                 geometry={geometry}
                 surface={surface}
-                active={active}
+                active={active && !preparing}
                 readOnly={isReadOnly}
                 onReadonlyReject={triggerReadonlyPrompt}
                 judgeLineOffsetY={surface && judgeLineOffsetRatio > 0 ? Math.round(judgeLineOffsetRatio * surface.h) : undefined}
@@ -615,6 +637,13 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
           onResizingChange={onDrawerResizingChange}
         />
       )}
+    </div>
+    {preparing && (
+      <div className="ws-preparing" role="status">
+        <LoaderCircle className="ws-preparing__spinner" size={20} aria-hidden />
+        <span>{t('workspace.preparing')}</span>
+      </div>
+    )}
     </div>
     {showReadonlyToast && createPortal(
       <div className="readonly-toast" role="alert">
