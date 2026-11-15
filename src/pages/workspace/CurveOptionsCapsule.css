@@ -1,6 +1,23 @@
-/* 画布左上角曲线选项胶囊（票 182）：外壳见 CanvasCapsule.css，这里只有面板内部。 */
+/* 画布左上角曲线选项胶囊（票 182 / issue 235）：外壳见 CanvasCapsule.css，这里只有迷你图标与展开面宽度。 */
+
+.coc {
+  overflow: visible;
+  max-width: min(92vw, 480px);
+}
+
+.coc__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
 
 .coc__body {
-  min-width: 220px;
-  padding: 8px 10px 10px;
+  width: 348px;
+  min-width: 310px;
+  padding: 10px;
 }

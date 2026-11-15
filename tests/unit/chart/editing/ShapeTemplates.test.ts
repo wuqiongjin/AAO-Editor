@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   SHAPE_TEMPLATES,
+  TEMPLATE_CATEGORIES,
+  TEMPLATE_SEGMENTED_MAX_POINTS,
   shapeTemplateById,
   bakeTemplatePoints,
   bakeTemplateParam,
@@ -9,6 +11,7 @@ import {
   adaptiveTemplatePoints,
   halfHeartOffset,
   heartShapeOffset,
+  softElasticOffset,
 } from '@/src/chart/editing/ShapeTemplates';
 
 describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精度控制）', () => {
@@ -64,7 +67,7 @@ describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精�
     expect(pts8x16).toHaveLength(127);
   });
 
-  it('连续模板 (s-curve, wave, arc, heart) 具备 sample 生成器，zigzag 为离散固定点列', () => {
+  it('平滑连续模板具备 sample 且 precisionSensitive=true；zigzag 改自适应齿数与窄幅并响应段密（忽略精度）', () => {
     const sCurve = shapeTemplateById('s-curve')!;
     const wave = shapeTemplateById('wave')!;
     const arc = shapeTemplateById('arc')!;
@@ -75,13 +78,19 @@ describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精�
     expect(wave.sample).toBeDefined();
     expect(arc.sample).toBeDefined();
     expect(heart.sample).toBeDefined();
-    expect(zigzag.sample).toBeUndefined();
+    expect(arc.precisionSensitive).toBe(true);
+    expect(zigzag.precisionSensitive).toBe(false);
+    expect(zigzag.adjustableDensity).toBe(true);
 
-    // zigzag 无论 span 与 precision 如何，bakeTemplatePoints 永远是固定的 24 个采样点 (25 份 - 首尾)
-    const z1 = bakeTemplatePoints({ lane: 1 }, { lane: 3 }, 0, 1, zigzag, 64);
-    const z8 = bakeTemplatePoints({ lane: 1 }, { lane: 3 }, 0, 8, zigzag, 16);
-    expect(z1).toHaveLength(zigzag.points.length);
-    expect(z8).toHaveLength(zigzag.points.length);
+    // zigzag 不随 precision 变化点数，但随拍长与 densityScale 自适应增加齿数
+    const z1p16 = bakeTemplatePoints({ lane: 3 }, { lane: 3 }, 0, 1, zigzag, 16, false, 1, 1);
+    const z1p64 = bakeTemplatePoints({ lane: 3 }, { lane: 3 }, 0, 1, zigzag, 64, false, 1, 1);
+    const z2Dense = bakeTemplatePoints({ lane: 3 }, { lane: 3 }, 0, 2, zigzag, 16, false, 1, 2);
+    expect(z1p16).toHaveLength(z1p64.length);
+    expect(z2Dense.length).toBeGreaterThan(z1p16.length);
+    // 默认窄幅：off = ±0.45 → ±0.9 轨（center=3 → [2.1, 3.9]）
+    expect(Math.max(...z1p16.map((c) => c.lane))).toBeCloseTo(3.9, 6);
+    expect(Math.min(...z1p16.map((c) => c.lane))).toBeCloseTo(2.1, 6);
   });
 
   it('bakeTemplateParam 响应 param.precision', () => {
@@ -149,6 +158,78 @@ describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精�
     for (let i = 0; i < normalBaked.length; i++) {
       expect(normalBaked[i]!.beat).toBeCloseTo(mirroredBaked[i]!.beat, 6);
       expect(normalBaked[i]!.lane + mirroredBaked[i]!.lane).toBeCloseTo(6, 6);
+    }
+  });
+
+  it('issue 235 · 18 款三分组模板目录完整、ID 唯一且全部可合法烘焙', () => {
+    expect(SHAPE_TEMPLATES).toHaveLength(18);
+    expect(new Set(SHAPE_TEMPLATES.map((t) => t.id)).size).toBe(18);
+    expect(TEMPLATE_CATEGORIES).toEqual(['smooth', 'rhythm', 'special']);
+    expect(SHAPE_TEMPLATES.filter((t) => t.category === 'smooth')).toHaveLength(8);
+    expect(SHAPE_TEMPLATES.filter((t) => t.category === 'rhythm')).toHaveLength(4);
+    expect(SHAPE_TEMPLATES.filter((t) => t.category === 'special')).toHaveLength(6);
+
+    for (const tp of SHAPE_TEMPLATES) {
+      const baked = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 1, 3, {
+        kind: 'template', templateId: tp.id, precision: 32, amplitudeScale: 1, densityScale: 1,
+      });
+      expect(baked.length, tp.id).toBeGreaterThan(0);
+      expect(baked.length, `${tp.id} 点数不超上限`).toBeLessThanOrEqual(TEMPLATE_SEGMENTED_MAX_POINTS);
+      for (let i = 0; i < baked.length; i++) {
+        const pt = baked[i]!;
+        expect(Number.isFinite(pt.beat), `${tp.id}[${i}].beat`).toBe(true);
+        expect(Number.isFinite(pt.lane), `${tp.id}[${i}].lane`).toBe(true);
+        expect(pt.lane).toBeGreaterThanOrEqual(0);
+        expect(pt.lane).toBeLessThanOrEqual(6);
+        expect(pt.beat).toBeGreaterThan(1);
+        expect(pt.beat).toBeLessThan(3);
+        if (i > 0) {
+          // 同拍跃迁模板满足弱单调 t[i] >= t[i-1]；普通模板严格递增
+          if (tp.hasZeroBeatJump) expect(pt.beat).toBeGreaterThanOrEqual(baked[i - 1]!.beat - 1e-12);
+          else expect(pt.beat).toBeGreaterThan(baked[i - 1]!.beat);
+        }
+      }
+    }
+  });
+
+  it('issue 235 · soft-elastic 延迟主峰在 t≈0.265 且起止平滑归零；gluten-comb 含同拍跃迁对', () => {
+    expect(softElasticOffset(0)).toBe(0);
+    expect(softElasticOffset(1)).toBe(0);
+    expect(softElasticOffset(0.265)).toBeGreaterThan(0.95);
+    expect(softElasticOffset(0.6)).toBeLessThan(-0.35);
+
+    const comb = bakeTemplateParam({ lane: 2 }, { lane: 0 }, 5, 15, {
+      kind: 'template', templateId: 'gluten-comb', densityScale: 1,
+    });
+    const zeroJumps = comb.filter((pt, idx) => idx > 0 && Math.abs(pt.beat - comb[idx - 1]!.beat) < 1e-9);
+    expect(zeroJumps.length).toBeGreaterThan(0);
+  });
+
+  it('issue 235 · amplitudeScale 线性缩放偏移且安全钳制 0..6；densityScale 缩放段落密度', () => {
+    const small = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+      kind: 'template', templateId: 'arc', precision: 16, amplitudeScale: 0.5,
+    });
+    const large = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+      kind: 'template', templateId: 'arc', precision: 16, amplitudeScale: 1.5,
+    });
+    // base arc amp = 2 lanes: 0.5× → 3+1=4; 1.5× → clamp(3+3,0,6)=6
+    expect(Math.max(...small.map((c) => c.lane))).toBeCloseTo(4, 6);
+    expect(Math.max(...large.map((c) => c.lane))).toBeCloseTo(6, 6);
+
+    const sparse = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+      kind: 'template', templateId: 'chain-square', densityScale: 0.5,
+    });
+    const dense = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+      kind: 'template', templateId: 'chain-square', densityScale: 2,
+    });
+    expect(dense.length).toBeGreaterThan(sparse.length);
+
+    // 极端长段 + 稠密倍率：所有模板（含 gluten-comb）点列严格不越过 256 上限
+    for (const tp of SHAPE_TEMPLATES) {
+      const stress = bakeTemplateParam({ lane: 2 }, { lane: 4 }, 0, 16, {
+        kind: 'template', templateId: tp.id, precision: 64, amplitudeScale: 1.5, densityScale: 2,
+      });
+      expect(stress.length, `${tp.id} stress len`).toBeLessThanOrEqual(TEMPLATE_SEGMENTED_MAX_POINTS);
     }
   });
 });

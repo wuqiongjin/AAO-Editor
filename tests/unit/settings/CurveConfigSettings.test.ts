@@ -34,9 +34,15 @@ function walkTs(dir: string): string[] {
 }
 
 describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
-  it('出厂默认：Sine + In + 1/16 + 不使用模板（默认型由 In-Out 改为 In）', () => {
+  it('出厂默认：Sine + In + 1/16 + 不使用模板 + 右偏/中幅/标准密', () => {
     expect(DEFAULT_CURVE_CONFIG).toEqual({
-      family: 'sine', type: 'in', precision: 16, templateId: null,
+      family: 'sine',
+      type: 'in',
+      precision: 16,
+      templateId: null,
+      templateMirrored: false,
+      templateScale: 1,
+      templateDensity: 1,
     });
     expect(defaultSettings().curve).toEqual(DEFAULT_CURVE_CONFIG);
   });
@@ -56,20 +62,42 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
     expect(loadSettings(st).curve).toEqual(DEFAULT_CURVE_CONFIG);
   });
 
-  it('脏值逐字段归一化：非法族/型/精度与已下线的模板 id 各自回落，合法项保留', () => {
+  it('脏值逐字段归一化：非法族/型/精度与已下线的模板 id / 越界倍率各自回落，合法项保留', () => {
     const st = memStorage(JSON.stringify({
       schemaVersion: 1,
-      curve: { family: 'nope', type: 'sideways', precision: 999, templateId: 'ghost-template' },
+      curve: {
+        family: 'nope',
+        type: 'sideways',
+        precision: 999,
+        templateId: 'ghost-template',
+        templateMirrored: 'yes',
+        templateScale: 99,
+        templateDensity: 3,
+      },
     }));
     expect(loadSettings(st).curve).toEqual(DEFAULT_CURVE_CONFIG);
 
     const keep = memStorage(JSON.stringify({
       schemaVersion: 1,
-      curve: { family: 'elastic', type: 'out', precision: 32, templateId: 'wave' },
+      curve: {
+        family: 'elastic',
+        type: 'out',
+        precision: 32,
+        templateId: 'wave',
+        templateMirrored: true,
+        templateScale: 1.5,
+        templateDensity: 2,
+      },
     }));
     // 模板 id 必须能解析到现存模板，否则回落 null（模板库改名/删项后老设置仍可读）
     expect(loadSettings(keep).curve).toEqual({
-      family: 'elastic', type: 'out', precision: 32, templateId: 'wave',
+      family: 'elastic',
+      type: 'out',
+      precision: 32,
+      templateId: 'wave',
+      templateMirrored: true,
+      templateScale: 1.5,
+      templateDensity: 2,
     });
   });
 
@@ -77,7 +105,15 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
     const st = memStorage();
     const next: AppSettings = {
       ...defaultSettings(),
-      curve: { family: 'cubic', type: 'inOut', precision: 64, templateId: 's-curve' },
+      curve: {
+        family: 'cubic',
+        type: 'inOut',
+        precision: 64,
+        templateId: 's-curve',
+        templateMirrored: true,
+        templateScale: 0.5,
+        templateDensity: 2,
+      },
     };
     saveSettings(next, st);
     expect(loadSettings(st).curve).toEqual(next.curve);
@@ -92,19 +128,19 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
   });
 });
 
-describe('issue 114 · 曲线配置面板（展开序 / 措辞 / 表驱动）', () => {
-  it('展开序 = 缓动族 → 缓动型 → 采样精度 → 形状模板（模板挪到最后）', () => {
-    const at = (id: string) => panelSrc.indexOf(`id: '${id}'`);
-    expect(at('family')).toBeGreaterThan(-1);
-    expect(at('family'), '族在型之前').toBeLessThan(at('type'));
-    expect(at('type'), '型在精度之前').toBeLessThan(at('precision'));
-    expect(at('precision'), '精度在模板之前').toBeLessThan(at('templateId'));
+describe('issue 235 · 图形化曲线配置面板（两段切换 / 缩略图 / 胶囊控件）', () => {
+  it('顶部提供缓动函数 / 形状模板模式切换，模板网格通过 SVG 直观预览', () => {
+    expect(panelSrc).toContain("t('curve.mode.easing')");
+    expect(panelSrc).toContain("t('curve.mode.template')");
+    expect(panelSrc).toContain('MiniTemplateSvg');
+    expect(panelSrc).toContain('MiniEasingSvg');
   });
 
-  it('模板下拉的"不选模板"项 = 「不使用模板」——不提缓动函数（用户看不懂）', () => {
-    expect(panelSrc).toContain("t('curve.noTemplate')");
-    expect(panelSrc).not.toContain('缓动函数');
+  it('面板不使用禁用“不用模板”旧措辞，也不内联硬编码数量括号', () => {
     expect(panelSrc).not.toContain('不用模板');
+    expect(panelSrc).not.toContain('40种');
+    expect(panelSrc).not.toContain('16款');
+    expect(panelSrc).not.toContain('18款');
   });
 
   it('缓动族/型命名：英文首字母大写 + 全角括号中文（多语言只换这两张表）', () => {
@@ -122,15 +158,11 @@ describe('issue 114 · 曲线配置面板（展开序 / 措辞 / 表驱动）', 
     }
   });
 
-  it('面板抽成独立组件 + 表驱动：胶囊挂面板、工具轨与胶囊都不内联曲线配置项', () => {
+  it('面板抽成独立组件：胶囊挂面板，工具轨与胶囊都不内联曲线配置控件', () => {
     expect(capsuleSrc).toContain('CurveConfigPanel');
-    // 只否定旧标识符不够（换名内联回去就绿了）——直接断言四个字段 id 都不在胶囊 / 工具轨里
-    for (const id of ['family', 'type', 'precision', 'templateId']) {
-      expect(capsuleSrc, `曲线配置项 ${id} 不该内联进胶囊`).not.toContain(`id: '${id}'`);
-      expect(railSrc, `曲线配置项 ${id} 不该回到工具轨`).not.toContain(`id: '${id}'`);
-    }
-    for (const id of ['family', 'type', 'precision', 'templateId']) {
-      expect(panelSrc, `曲线配置项 ${id} 应在面板里`).toContain(`id: '${id}'`);
+    for (const marker of ['EASING_FAMILIES', 'SHAPE_TEMPLATES', 'TEMPLATE_SCALES']) {
+      expect(capsuleSrc, `曲线配置 ${marker} 不该内联进胶囊`).not.toContain(marker);
+      expect(railSrc, `曲线配置 ${marker} 不该回到工具轨`).not.toContain(marker);
     }
   });
 });

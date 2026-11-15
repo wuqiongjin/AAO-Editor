@@ -387,6 +387,35 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
     expect(effectiveSpanParams(edited)[0]).toEqual({ kind: 'template', templateId: 's-curve', precision: 16 });
     expect(edited.connections.filter((c) => c.hidden).length).toBe(expectedLen);
   });
+
+  it('issue 235 · CurveConfig 携带偏向/幅度/段密时完整写入 SpanTemplateParam 并烘焙', () => {
+    const rich: CurveConfig = {
+      family: 'sine',
+      type: 'in',
+      precision: 16,
+      templateId: 'zigzag',
+      templateMirrored: true,
+      templateScale: 1.5,
+      templateDensity: 2,
+    };
+    const afterFirst = input({ pos: { beat: 1, lane: 3 }, curveConfig: rich });
+    const draft = (afterFirst[0] as Extract<typeof afterFirst[0], { t: 'setCurveBuffer' }>).draft!;
+    const ops = input({ notes: [bpmAt0], pos: { beat: 3, lane: 3 }, curveDraft: draft, curveConfig: rich });
+    const setNotes = ops.find((o) => o.t === 'setNotes') as { t: 'setNotes'; notes: ChartNote[] };
+    const slide = setNotes.notes[1] as SlideNote;
+    expect(effectiveSpanParams(slide)[0]).toEqual({
+      kind: 'template',
+      templateId: 'zigzag',
+      precision: 16,
+      mirrored: true,
+      amplitudeScale: 1.5,
+      densityScale: 2,
+    });
+    // zigzag default 0.45 * 2 lanes * 1.5 = 1.35 → [1.65, 4.35] around center lane 3
+    const hiddens = slide.connections.filter((c) => c.hidden);
+    expect(Math.max(...hiddens.map((c) => c.lane))).toBeCloseTo(4.35, 6);
+    expect(Math.min(...hiddens.map((c) => c.lane))).toBeCloseTo(1.65, 6);
+  });
 });
 
 describe('issue 09 三轮 · 画笔起手任意位置（重叠绘制起点）', () => {

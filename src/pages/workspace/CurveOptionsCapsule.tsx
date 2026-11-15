@@ -1,11 +1,13 @@
-// 画布左上角的曲线选项胶囊（issue 180 Q15，票 182）：曲线持工具态时出现，显示当前配置摘要；
-// 点开 = 四行表单，点外面 / Esc 收回，切走工具即消失，没有关闭钮。
+// 画布左上角的曲线选项胶囊（issue 180 Q15，票 182，issue 235 迷你 SVG 预览）：曲线持工具态时出现，显示实时图标与摘要；
+// 点开 = 图形化选型面板，点外面 / Esc 收回，切走工具即消失，没有关闭钮。
 // 展开行为与片段粘贴胶囊共用 `useCanvasCapsule`，外壳样式共用 `CanvasCapsule.css`。
 import { memo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useUI } from '../../app/ProviderTree';
+import { shapeTemplateById } from '../../chart/editing/ShapeTemplates';
 import { t } from '../../i18n';
 import CurveConfigPanel from './CurveConfigPanel';
+import { MiniEasingSvg, MiniTemplateSvg } from './CurveMiniSvg';
 import { curveConfigSummary } from './curveLabels';
 import { useCanvasCapsule } from './useCanvasCapsule';
 import './CanvasCapsule.css';
@@ -17,6 +19,8 @@ export default memo(function CurveOptionsCapsule() {
   const { open, toggle, rootRef, pillRef } = useCanvasCapsule(visible);
 
   if (!visible) return null;
+
+  const activeTemplate = curveConfig.templateId ? shapeTemplateById(curveConfig.templateId) : undefined;
 
   return (
     <div className={`ccap coc${open ? ' is-open' : ''}`} ref={rootRef}>
@@ -30,6 +34,25 @@ export default memo(function CurveOptionsCapsule() {
         onClick={toggle}
       >
         <span className="ccap__tag">{t('tool.curve')}</span>
+        <span className="coc__glyph">
+          {activeTemplate ? (
+            <MiniTemplateSvg
+              template={activeTemplate}
+              width={20}
+              height={20}
+              mirrored={!!curveConfig.templateMirrored}
+              ampScale={curveConfig.templateScale ?? 1}
+              densityScale={curveConfig.templateDensity ?? 1}
+            />
+          ) : (
+            <MiniEasingSvg
+              family={curveConfig.family}
+              type={curveConfig.type}
+              width={20}
+              height={20}
+            />
+          )}
+        </span>
         <span className="ccap__sum">{curveConfigSummary(curveConfig)}</span>
         <ChevronDown size={13} className="ccap__chev" />
       </button>

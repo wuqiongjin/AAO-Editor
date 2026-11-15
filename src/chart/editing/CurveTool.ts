@@ -10,7 +10,7 @@ import {
   countVisibleNodes, effectiveSpanParams, regenerateSpan,
 } from './SpanCurve';
 import { CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES, type CurvePrecision, type EasingFamily, type EasingType } from './Easing';
-import { shapeTemplateById } from './ShapeTemplates';
+import { TEMPLATE_DENSITIES, TEMPLATE_SCALES, shapeTemplateById } from './ShapeTemplates';
 import {
   clickOps,
   combineOps,
@@ -28,10 +28,13 @@ export interface CurveConfig {
   type: EasingType;
   precision: CurvePrecision;
   templateId?: string | null;
+  templateMirrored?: boolean;
+  templateScale?: number;
+  templateDensity?: number;
 }
 
 /**
- * 曲线工具出厂默认（issue 114 定案：默认缓动型由 `inOut` 改为 `in`）。
+ * 曲线工具出厂默认（issue 114 定案：默认缓动型由 `inOut` 改为 `in`；issue 235 追加模板三正交默认）。
  * 放本模块——`AppSettings` 需要它做持久化归一化，且不依赖任何 Provider。
  */
 export const DEFAULT_CURVE_CONFIG: CurveConfig = {
@@ -39,7 +42,13 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
   type: 'in',
   precision: 16,
   templateId: null,
+  templateMirrored: false,
+  templateScale: 1,
+  templateDensity: 1,
 };
+
+const pickEnum = <T,>(allowed: readonly T[], raw: unknown, fallback: T): T =>
+  allowed.includes(raw as T) ? (raw as T) : fallback;
 
 /**
  * 持久化归一化（白名单校验 + 缺字段回落）：老设置文件没有 `curve` 段、或存了已下线的模板 id
@@ -48,22 +57,32 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
 export function normalizeCurveConfig(raw: unknown): CurveConfig {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const d = DEFAULT_CURVE_CONFIG;
-  const family = (EASING_FAMILIES as readonly string[]).includes(o.family as string)
-    ? (o.family as EasingFamily) : d.family;
-  const type = (EASING_TYPES as readonly string[]).includes(o.type as string)
-    ? (o.type as EasingType) : d.type;
-  const precision = (CURVE_PRECISIONS as readonly number[]).includes(o.precision as number)
-    ? (o.precision as CurvePrecision) : d.precision;
-  const templateId = typeof o.templateId === 'string' && shapeTemplateById(o.templateId)
-    ? o.templateId : null;
-  return { family, type, precision, templateId };
+  return {
+    family: pickEnum(EASING_FAMILIES, o.family, d.family),
+    type: pickEnum(EASING_TYPES, o.type, d.type),
+    precision: pickEnum(CURVE_PRECISIONS, o.precision, d.precision),
+    templateId: typeof o.templateId === 'string' && shapeTemplateById(o.templateId) ? o.templateId : null,
+    templateMirrored: typeof o.templateMirrored === 'boolean' ? o.templateMirrored : false,
+    templateScale: pickEnum(TEMPLATE_SCALES, o.templateScale, 1),
+    templateDensity: pickEnum(TEMPLATE_DENSITIES, o.templateDensity, 1),
+  };
 }
 
 /** 配置 → 段参数（模板优先；S4 起放置/重应用/预览三路共用，保证"所见即所得"） */
-export const spanParamFromCurveConfig = (config: CurveConfig): SpanParam =>
-  config.templateId
-    ? { kind: 'template', templateId: config.templateId, precision: config.precision }
-    : { kind: 'easing', family: config.family, type: config.type, precision: config.precision };
+export const spanParamFromCurveConfig = (config: CurveConfig): SpanParam => {
+  if (!config.templateId) {
+    return { kind: 'easing', family: config.family, type: config.type, precision: config.precision };
+  }
+  const param: SpanParam = {
+    kind: 'template',
+    templateId: config.templateId,
+    precision: config.precision,
+  };
+  if (config.templateMirrored) param.mirrored = true;
+  if (config.templateScale && config.templateScale !== 1) param.amplitudeScale = config.templateScale;
+  if (config.templateDensity && config.templateDensity !== 1) param.densityScale = config.templateDensity;
+  return param;
+};
 
 /** 曲线工具链式草稿：可见锚点序列 + 各段参数 + 首段落地后的滑条下标（完整性检查用） */
 export interface CurveDraft {

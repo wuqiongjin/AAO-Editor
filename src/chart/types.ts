@@ -26,6 +26,10 @@ export interface SpanTemplateParam {
   templateId: string;
   precision?: import('./editing/Easing').CurvePrecision;
   mirrored?: boolean;
+  /** 幅度倍率（小 0.5 / 中 1 / 大 1.5；缺省兼容老工程回退 1） */
+  amplitudeScale?: number;
+  /** 段密倍率（稀疏 0.5 / 标准 1 / 稠密 2；用于震动/锁链/面筋，缺省回退 1） */
+  densityScale?: number;
 }
 
 /** 段参数 = 三来源中"有解析参数"的两形态；自由段 = 参数缺席（点集即形态） */
