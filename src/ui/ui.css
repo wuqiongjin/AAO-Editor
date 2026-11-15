@@ -210,6 +210,8 @@
 }
 .dialog--sm { width: min(440px, 92vw); }
 .dialog--md { width: min(560px, 92vw); height: auto; }
+/* 宽表单：编辑工程信息需要容下 200px 封面 + 右侧署名卡 + 全宽底部元数据 */
+.dialog--xl { width: min(640px, 92vw); height: auto; }
 .dialog--lg { width: min(920px, 92vw); height: min(640px, 86vh); }
 
 /* ---- 头：标题 + 一行说明（色带） ---- */
@@ -526,16 +528,54 @@
 }
 .dialog-tabs button:disabled svg { color: var(--text-subtle); }
 
-/* 编辑工程信息：左封面方块区 / 右文字字段（适度舒展，32px 规范高度，留白舒适自然） */
-.dialog-edit-grid { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+/* 编辑工程信息（票 79 二次 UI 回修）：200px 封面 + 工程名 / 曲目署名上半区，
+   音频 / 曲目归属单独铺满下半区。封面与右栏高度相近，底部元数据不再挤成窄条。 */
+.dialog-edit-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dialog-edit-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 .dialog-edit-fields { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.dialog-edit-fields .dialog-field { gap: 5px; }
+.dialog-edit-fields .dialog-field { gap: 5px; min-width: 0; }
 .dialog-edit-fields input { height: 32px; padding: 0 10px; font-size: var(--text-sm); }
-/* 票 79：编辑工程信息里的「曲目署名」分组标题（只是一行分隔，不是可输入字段） */
-.dialog-credits-group { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
-/* 弹窗被压到很窄（小窗 / 92vw）时右栏挤不下两个并排字段，退回单栏 */
-@media (max-width: 420px) {
+.dialog-edit-meta-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.dialog-edit-meta-row .dialog-field { min-width: 0; }
+
+/* 曲目署名分组卡：标题只是分区名，不是输入框；四项 2×2 紧凑排布 */
+.dialog-credits-section {
+  min-width: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-inset);
+}
+.dialog-credits-section__title {
+  margin-bottom: 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+.dialog-credits-section__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+/* 曲目归属在底部右半列，帮助气泡向右贴齐，避免被弹窗的 overflow-x 裁掉 */
+.dialog-source-field .dialog-field__popover { left: auto; right: 0; }
+.dialog-source-field .dialog-field__popover::after,
+.dialog-source-field .dialog-field__popover::before { left: auto; right: 14px; }
+
+/* 弹窗被压到很窄（小窗 / 92vw）时两列字段都退回单栏 */
+@media (max-width: 520px) {
   .dialog-edit-grid { grid-template-columns: 1fr; }
+  .dialog-edit-meta-row,
+  .dialog-credits-section__grid { grid-template-columns: 1fr; }
+  .dialog-source-field .dialog-field__popover { left: 0; right: auto; }
+  .dialog-source-field .dialog-field__popover::after,
+  .dialog-source-field .dialog-field__popover::before { left: 60px; right: auto; }
 }
 
 @keyframes dialog-in {

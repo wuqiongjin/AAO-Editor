@@ -8,6 +8,7 @@ import { useState } from 'react';
 import type { ChartDifficulty, ChartProject, ProjectChart } from '../ChartProject';
 import { DIFF_NAMES } from '../projectCatalog';
 import { POST_LEVEL_MAX, POST_LEVEL_MIN } from '../../community/bestdori/endpoints';
+import { defaultCharterCredit } from '../charterCredit';
 import { t } from '../../i18n';
 import ActionBtn from '../../ui/ActionBtn';
 import Dialog from '../../ui/Dialog';
@@ -42,7 +43,10 @@ export interface ChartInfoPatch {
   charterCredit: string | null;
 }
 
-/** 新增谱面：没填谱师署名就**别把字段递下去**，让 `addChartToProject` 落登录账号名默认值。 */
+/**
+ * 新增谱面：已登录时输入框直接预填账号名；**没编辑过且为空**才不把字段递下去，
+ * 让 `addChartToProject` 再兜一次默认值（会话可能刚校验完）；手动清空是显式空值，不回落。
+ */
 export interface ChartInfoAddInput extends Omit<ChartInfoPatch, 'charterCredit'> {
   charterCredit?: string | null;
   codeText: string;
@@ -63,7 +67,10 @@ export function ChartInfoDialog({
   const [diff, setDiff] = useState<ChartDifficulty>(chart?.diff ?? defaultDiff);
   const [level, setLevel] = useState(chart?.level != null ? String(chart.level) : '');
   const [code, setCode] = useState('');
-  const [charterCredit, setCharterCredit] = useState(chart?.charterCredit ?? '');
+  const [charterCredit, setCharterCredit] = useState(() => (
+    chart ? (chart.charterCredit ?? '') : (defaultCharterCredit() ?? '')
+  ));
+  const [creditTouched, setCreditTouched] = useState(false);
   const levelInput = readChartLevelInput(level);
   const save = () => {
     if (!levelInput.persist) return;
@@ -73,8 +80,9 @@ export function ChartInfoDialog({
       onUpdate({ ...base, charterCredit: credit || null });
       return;
     }
-    // 票 79：手动填写 > 登录账号名 > 空。留空 = 没填（不是"清空"），交给创建侧落默认值。
-    onAdd({ ...base, codeText: code, ...(credit ? { charterCredit: credit } : {}) });
+    // 票 79：手动填写 > 登录账号名 > 空。预填过的值原样落盘；未编辑留空交给创建侧兜底。
+    const shouldPassCredit = credit !== '' || creditTouched;
+    onAdd({ ...base, codeText: code, ...(shouldPassCredit ? { charterCredit: credit } : {}) });
   };
   return (
     <Dialog
@@ -102,7 +110,7 @@ export function ChartInfoDialog({
         </label>
         <label className={`dialog-field${levelInput.persist ? '' : ' is-missing'}`}>
           <span>{t('projects.level')}</span>
-          <input value={level} placeholder={t('projects.levelLater')} disabled={locked} inputMode="numeric" onChange={(e) => setLevel(e.target.value)} />
+          <input value={level} placeholder={t('projects.levelPlaceholder')} disabled={locked} inputMode="numeric" onChange={(e) => setLevel(e.target.value)} />
         </label>
       </div>
       {/* 票 79：谱师署名不随「已上传只读」禁用 —— 它是导出画面用的元数据 */}
@@ -111,7 +119,10 @@ export function ChartInfoDialog({
         <input
           value={charterCredit}
           placeholder={t('projects.credit.charterPlaceholder')}
-          onChange={(e) => setCharterCredit(e.target.value)}
+          onChange={(e) => {
+            setCharterCredit(e.target.value);
+            setCreditTouched(true);
+          }}
         />
       </label>
       {!chart && (

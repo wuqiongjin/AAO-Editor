@@ -8,6 +8,7 @@ import { readStripped } from '@/tests/support/source';
 
 const PAGE = readStripped('src/pages/projects/components/ProjectDialogs.tsx');
 const FIELD = readStripped('src/ui/CoverField.tsx');
+const CSS = readStripped('src/ui/ui.css');
 
 describe('chart-projects 12: 编辑工程信息封面字段改为自绘上传区', () => {
   it('EditInfoDialog 所在文件里不再出现任何 type="file" 字面', () => {
@@ -35,7 +36,7 @@ describe('chart-projects 12: 编辑工程信息封面字段改为自绘上传区
 
 describe('chart-projects 30: 编辑工程信息曲目归属改只读与LLSIF下线', () => {
   it('EditInfoDialog 中彻底移除了曲目来源选择框与手输 ID 控件', () => {
-    const editInfoDialogCode = PAGE.match(/export function EditInfoDialog[\s\S]*?^}/m)?.[0] ?? '';
+    const editInfoDialogCode = PAGE.match(/export function EditInfoDialog[\s\S]*?^}$/m)?.[0] ?? '';
     expect(editInfoDialogCode).toBeTruthy();
     expect(editInfoDialogCode).not.toMatch(/<select\b/);
     expect(editInfoDialogCode).not.toMatch(/sourceId/);
@@ -53,5 +54,29 @@ describe('chart-projects 30: 编辑工程信息曲目归属改只读与LLSIF下�
   it('当帮助气泡展开时按 Esc 先收起气泡（通过 handleDialogClose 守卫）', () => {
     expect(PAGE).toMatch(/handleDialogClose/);
     expect(PAGE).toMatch(/showSourceHelpRef/);
+  });
+});
+
+describe('票 79 UI 回修 · 编辑工程信息封面与底栏比例', () => {
+  const editInfoDialogCode = PAGE.match(/export function EditInfoDialog[\s\S]*?^}$/m)?.[0] ?? '';
+
+  it('200px 封面 + 上半区字段，音频 / 曲目归属改全宽底栏', () => {
+    expect(editInfoDialogCode).toBeTruthy();
+    expect(editInfoDialogCode).toMatch(/dialog-edit-main/);
+    expect(editInfoDialogCode).toMatch(/dialog-edit-fields/);
+    expect(editInfoDialogCode).toMatch(/dialog-credits-section/);
+    expect(editInfoDialogCode).toMatch(/dialog-credits-section__grid/);
+    expect(editInfoDialogCode).toMatch(/dialog-edit-meta-row/);
+    expect(editInfoDialogCode).toMatch(/dialog-source-field/);
+    expect(editInfoDialogCode).toMatch(/size="xl"/);
+    expect(CSS).toMatch(/\.dialog-edit-grid\s*\{\s*display: grid;\s*grid-template-columns: 200px/);
+    expect(CSS).toMatch(/\.dialog-edit-fields\s*\{\s*display: flex;/);
+    expect(CSS).toMatch(/\.dialog-edit-meta-row\s*\{/);
+    expect(CSS).toMatch(/\.dialog-credits-section__grid\s*\{/);
+    expect(CSS).toMatch(/\.dialog--xl\s*\{[^}]*min\(640px/);
+  });
+
+  it('作词 / 作曲 / 编曲不放「可稍后填写」占位', () => {
+    expect(editInfoDialogCode).not.toMatch(/projects\.artistLater/);
   });
 });
