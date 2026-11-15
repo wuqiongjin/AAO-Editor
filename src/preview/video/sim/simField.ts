@@ -1072,7 +1072,7 @@ function drawSpriteEffect(
 /**
  * 连按（带体按住）特效（chart-preview 21 + 25 #2/#3；bundle 的 `y.forEach` **三段**）：
  * **正在按住的那一段带子**在判定线上画三笔 ——
- *   ① 滑条端点本体 `note_long_<lane>`（21 漏誊的一段；逐轨精灵，随接触点走，画在最下层）；
+ *   ① 滑条端点本体 `note_long`（21 漏誊的一段；票 77 起全轨统一扁平端帽，随接触点走，画在最下层）；
  *   ② `connectionRing`（(2,1)，**不染**）；
  *   ③ 一对**反向对转**的 `rotatingRing`（(3,1)，青；1× 与 0.75×），α 恒 1。
  *
@@ -1098,11 +1098,12 @@ function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, se
     const lane = bandLaneAt(band, seconds);
     const x = laneCenterX(m, lane, 1);
 
-    // ① 端点本体（照 bundle：画在两环**之前**，故被环盖着）：逐轨 `note_long`，轨位就近取整。
+    // ① 端点本体（照 bundle：画在两环**之前**，故被环盖着）：票 77 统一取扁平 `note_long`。
+    // 逐轨 `note_long_<lane>` 自带舞台透视倾角（越靠外轨越歪），与全轨道扁平化定案冲突，不按轨取图。
     // 显式锁定 globalAlpha = 1（issue 36）：免受任何外部/命中特效 alpha 残余污染
     ctx.save();
     ctx.globalAlpha = 1;
-    const endpoint = noteIcons.slideEndpointLaneFor(lane);
+    const endpoint = noteIcons.slideEndpointFor(lane);
     const box = simNoteRect(m, 1, noteSize, simSpriteAspect(endpoint));
     spriteIcon.render(ctx, {
       ...endpoint,

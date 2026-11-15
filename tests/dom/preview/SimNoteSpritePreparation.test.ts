@@ -5,7 +5,7 @@ import CanvasSpriteIcon, { type SpriteIconConfig } from '@/src/ui/CanvasSpriteIc
 import { buildActiveNoteIcons, DEFAULT_NOTE_SKIN_SELECTION } from '@/src/rendering/skin/noteSkin';
 import { prepareSimNoteSprites } from '@/src/preview/video/sim/prepareSimNoteSprites';
 
-it('chart-preview 68: 准备当前皮肤后，逐轨按住端帽、方向键与挂件首次绘制及全部 mip 均复用缓存', async () => {
+it('chart-preview 68/77: 准备当前皮肤后，扁平按住端帽、逐轨方向键与挂件首次绘制及全部 mip 均复用缓存', async () => {
     const icons = buildActiveNoteIcons(DEFAULT_NOTE_SKIN_SELECTION);
     const loaded: HTMLImageElement[] = [];
     class FakeImage {
@@ -28,7 +28,7 @@ it('chart-preview 68: 准备当前皮肤后，逐轨按住端帽、方向键与�
         const configs: SpriteIconConfig[] = [];
         for (let lane = 0; lane < 7; lane++) {
             configs.push(icons.tapFor(lane), icons.tapVirtualFor(lane), icons.flickFor(lane), icons.skillFor(lane),
-                icons.slideAmongFor(lane), icons.slideEndpointFor(lane), icons.slideEndpointLaneFor(lane));
+                icons.slideAmongFor(lane), icons.slideEndpointFor(lane));
             for (const side of ['L', 'R'] as const) {
                 configs.push(icons.dirLaneFor(side, lane));
                 const arrow = icons.dirGroup(side, 3).chevron;

@@ -559,7 +559,7 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     expect(draws.slice(0, 3).filter((d) => d.sx === edge.x && d.sy === edge.y)).toHaveLength(3);
   });
 
-  it.skipIf(!hasAssetSnapshot)('按住期间接触点画**滑条端点**（票 25 #2：bundle 漏誊的那段 `y.forEach`）', () => {
+  it.skipIf(!hasAssetSnapshot)('按住期间接触点画**滑条端点**（票 25 #2 + 77：全轨统一扁平端帽）', () => {
     const { spriteIcon, draws } = makeRecordingSprite();
     const sprites = fakeSprites() as unknown as SimSprites;
     // lane 0 → 4：1s → 4s。取 2.5s ⇒ 按住位 = lane 2，且末结点（4s）还没进可见窗（T = 1.25s）
@@ -575,15 +575,29 @@ describe('drawSimFrameAt · 音符盒子 / 同时点击线 / 背景取景（票 
     const endpoint = draws[0]!;
     expect(endpoint.x).toBeCloseTo(laneCenterX(frame.metrics, 2, 1), 6); // 随插值轨位走
     expect(endpoint.y).toBeCloseTo(frame.metrics.laneHeight, 6); // 压在判定线上
-    // 逐轨精灵（就近取整 = lane 2），不是扁平轨那张
-    const want = icons.slideEndpointLaneFor(2);
-    expect(endpoint.sx).toBe(want.x);
-    expect(endpoint.sy).toBe(want.y);
-    expect(endpoint.src).toBe(icons.slideEndpointFor(2).src);
+    // 票 77：任意轨位都取 FLAT_LANE 那张；逐轨 note_long_<lane> 自带舞台透视倾角（外轨歪）
+    const flat = icons.slideEndpointFor(3);
+    expect(endpoint.sx).toBe(flat.x);
+    expect(endpoint.sy).toBe(flat.y);
+    expect(endpoint.src).toBe(flat.src);
     // 端点与单键同一个盒子（自然比，noteSize = 1）
     const box = simNoteRect(frame.metrics, 1, 1, 120 / 308);
     expect(endpoint.w).toBeCloseTo(box.w, 6);
     expect(endpoint.h).toBeCloseTo(box.h, 6);
+
+    // 三档轨位（含非整数插值会取到的偏轨）：同一张扁平图（不再随轨位换图），落点仍各自随轨位走
+    for (const lane of [0, 2, 6]) {
+      const rec = makeRecordingSprite();
+      const laneFrame: SimFrameInput = {
+        ...frameOf([slide([{ beat: 2, lane }, { beat: 8, lane }])], rec.spriteIcon),
+        assets: { ...emptySimAssets(), missing: false, sprites },
+      };
+      drawSimFrameAt(recordingCtx().proxy, laneFrame, 2.5);
+      expect(rec.draws).toHaveLength(1);
+      expect(rec.draws[0]!.sx).toBe(flat.x);
+      expect(rec.draws[0]!.sy).toBe(flat.y);
+      expect(rec.draws[0]!.x).toBeCloseTo(laneCenterX(laneFrame.metrics, lane, 1), 6);
+    }
 
     // issue 36：即使在命中特效窗口内（since <= 0.6s），端点本体绘制时的 globalAlpha 恒为 1（不受粒子环污染）
     const duringHit = makeRecordingSprite();
