@@ -61,3 +61,4 @@ Blocked by: —
   - `drawOpeningFrameAt(..., alpha, seconds = Infinity)`：只把垫层露出厚度 `stackD` 从 0 缓出到 `m.stackD`（单层、向右上），装饰剔除矩形跟着走；封面 / 白条 / 徽章 / 文字几何一行未改。`frameDriver` 两处调用补 `t`。
   - 锁测：`tests/unit/preview/video/OpeningFrame.test.ts`（曲线 / 厚度 0 → stackD / 缺省 = 最终版式）、`tests/static/VideoExportWiring.test.ts`（只缩垫层厚度、两处调用都喂 `t`）。
   - 剩余（等用户下次统一）：字体仍为 `HEADER_SANS`（对不上日文丸ゴシック）；实机「纯前置黑底」与本票 5.0 s 不同构，要不要靠拢未定。
+- 2026-11-15 原型定版默认值：只把 opening 封面边长 `coverRatio` 从 `0.48×H` 调为 `0.45×H`；`OPENING_COVER_RATIO` / 1080p 锁测同步（518→486），其余参数不动。`t = 2.634` / `scene = opening` / `stamp = ap` 只是复制 JSON 时的观察帧，不写成启动缺省。

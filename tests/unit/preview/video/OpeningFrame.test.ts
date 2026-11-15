@@ -146,7 +146,7 @@ describe('chart-preview 30 · 一帧绘制', () => {
   it('垫层**只画露出来的 L 形**（第五轮）：不出现一整块纯色方形', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawOpeningFrameAt(proxy, 1920, 1080, frameInput(), 1);
-    const stackSize = 518 + STACK_D - 11; // 封面 + t − i
+    const stackSize = 486 + STACK_D - 11; // 封面 + t − i
     const full = fillRects(calls).filter((r) => r[2] === stackSize && r[3] === stackSize);
     expect(full).toEqual([]);
   });

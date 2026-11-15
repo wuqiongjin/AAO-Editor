@@ -67,8 +67,8 @@ export interface OpeningStack {
 
 // ---------------- 版式比例（照游戏内参考图实测；单位 = 帧高 / 帧宽） ----------------
 
-/** 封面边长 / 帧高（方形，水平居中，不加圆角） */
-export const OPENING_COVER_RATIO = 0.48;
+/** 封面边长 / 帧高（方形，水平居中，不加圆角）；2026-11-15 定版值 0.45 */
+export const OPENING_COVER_RATIO = 0.45;
 /** 堆叠垫层露出厚度 t / 帧高（顶条 + 右条） */
 export const OPENING_STACK_T = 0.011;
 /** 垫层内缩 i / 帧高：垫层方形边长 = 封面 + t − i */

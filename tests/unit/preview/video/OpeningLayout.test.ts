@@ -102,7 +102,7 @@ describe('chart-preview 30 · 比例常量落值（照游戏内参考图实测�
   });
 
   it('方案 B 落值：艺人 0.030 H / 子字段 0.022 H / 行高倍率 1.4', () => {
-    expect(OPENING_COVER_RATIO).toBe(0.48);
+    expect(OPENING_COVER_RATIO).toBe(0.45);
     expect(OPENING_BAND_H).toBe(0.11);
     expect(OPENING_BADGE_FONT).toBe(0.024);
     expect(OPENING_TITLE_FONT).toBe(0.05);
@@ -115,12 +115,12 @@ describe('chart-preview 30 · 比例常量落值（照游戏内参考图实测�
     expect(OPENING_STACK_T).toBeGreaterThan(OPENING_STACK_INSET - 0.002);
   });
 
-  it('1080p 落值：封面 518 / 条高 119 / 徽章高 48', () => {
+  it('1080p 落值：封面 486 / 条高 119 / 徽章高 48', () => {
     const m = openingStackMetrics(1920, 1080, ALL);
-    expect(m.cover).toBe(518);
+    expect(m.cover).toBe(486);
     expect(m.bandH).toBe(119);
     expect(m.badgeH).toBe(48);
-    expect(m.coverX).toBe((1920 - 518) >> 1);
+    expect(m.coverX).toBe((1920 - 486) >> 1);
   });
 });
 
