@@ -17,6 +17,13 @@ import {
   type EndingSpec,
 } from '@/src/preview/video/ending';
 import { drawEndingFrameAt } from '@/src/preview/video/ending/endingFrame';
+import { visibleApproach, SIM_SPRITE_EFFECT_DURATION } from '@/src/preview/video/sim/simGeometry';
+import type { SimChart } from '@/src/preview/video/sim/simField';
+import {
+  ENDING_HIT_LIFE_SECONDS,
+  endingTailSeconds,
+  lastHitSeconds,
+} from '@/src/preview/video/encode/exportSpec';
 import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
 
 const measureTextOk = () => ({ width: 100 });
@@ -305,6 +312,30 @@ describe('chart-preview 52 · %H / %W 换算（按帧高缩放，不按场地）
 // 票 76：HUD 是跨段独立层，结尾段要插在**舞台与烟花之间**：
 // 舞台（含轨道 / 音符 / 打击特效）→ HUD → 加色粒子 → 章字样 → 结算 / 黑幕。
 // 画在整帧最后会压住烟花，画在舞台之前又会被场地盖掉。
+// 票 75：结尾舞台的固定秒要越过最后一击 + 特效寿命，各层按既有窗口自然判空，
+// 不给 SimFrameLayers 加 notes / effects alpha，也不做逐层淡出。
+describe('票 75 · 结算舞台的秒已越过末击寿命窗口', () => {
+  const D = 120;
+  const chart = {
+    approachS: 1.25,
+    elements: [{ time: D }],
+    bands: [{ t0: D - 0.5, t1: D }],
+    simultaneous: [{ time: D - 0.25 }],
+    hitTimes: [D],
+  } as unknown as SimChart;
+  const stageSeconds = D + endingTailSeconds(chart, D);
+
+  it('stage.seconds > lastHit + 0.6；音符可见窗口已判空（Δ > 0）', () => {
+    expect(stageSeconds).toBeGreaterThan(lastHitSeconds(chart)! + SIM_SPRITE_EFFECT_DURATION);
+    expect(stageSeconds - lastHitSeconds(chart)!).toBeGreaterThanOrEqual(ENDING_HIT_LIFE_SECONDS);
+    expect(visibleApproach(stageSeconds, D, chart.approachS)).toBeNull();
+  });
+
+  it('三段结构不动：ENDING_SECONDS 仍为 7.5s', () => {
+    expect(ENDING_SECONDS).toBe(7.5);
+  });
+});
+
 describe('票 76 · 跨段 HUD 插在舞台与烟花之间', () => {
   it('HUD 回调在 drawStage 之后、`lighter` 粒子之前（爆炸压在分数条 / 生命条上）', () => {
     const { proxy, calls } = makeRecordingCtx({

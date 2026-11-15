@@ -17,6 +17,8 @@
 //     `isConfigSupported` = false；场地尺寸要自己向下取偶（不是画布尺寸 —— 画布按档位走）。
 //   - 帧率 60；码率按档位给（编码不是瓶颈，别指望降码率提速）。
 import { fitDesignSurface, type SimChart } from '../sim';
+import { SIM_SPRITE_EFFECT_DURATION } from '../sim/simGeometry';
+import { SIM_JUDGE } from '../sim/simHud';
 
 /** 导出帧率（票面规格默认 60fps） */
 export const EXPORT_FPS = 60;
@@ -258,6 +260,61 @@ export function leadInNoteAlphaAt(
   return Math.max(0, Math.min(1, (frame + 1) / LEAD_IN_NOTE_FADE_FRAMES));
 }
 
+// ---------------------------------------------------------------- 末击收尾补偿（票 75）
+//
+// 谱面段末尾按「最后一个可击打物的绝对秒 + 特效 / 判定字寿命」补一段真实时长，让末击
+// 自然播完再切结算。与开头的 lead-in 不同：tail 是连续量且可能为 0（谱面比音频短就不补），
+// BGM 已结束所以尾段静音，但画面继续推进（特效在衰减）。
+// **公式与 life 只在这里定义一次**：`endingAt` / 总长 / `stage.seconds` / 轨长都由它派生，
+// 成片验收后若仍有残留或尾段偏长，只改 life 或公式，不动帧循环 / 结算三段 / 素材。
+
+/** 末击之后要留的寿命（秒）：打击特效 0.6 与判定字 1.0 取长者 */
+export const ENDING_HIT_LIFE_SECONDS = Math.max(SIM_SPRITE_EFFECT_DURATION, SIM_JUDGE.life);
+
+/** 尾段只需要谱面派生表的这三张表（与 `buildSimChart` 同源，不另折一遍 beat→秒） */
+type TailChart = Pick<SimChart, 'elements' | 'bands' | 'simultaneous'>;
+
+/**
+ * 最后一个可击打物的**绝对秒**：元素表末尾（已按 time 升序）、带体两端点、双押线时刻取最大。
+ * 空谱 / 无有限时刻 ⇒ `null`（没有末击，自然没有要收的尾）。
+ */
+export function lastHitSeconds(chart: TailChart): number | null {
+  let last: number | null = null;
+  const take = (time: number): void => {
+    if (!Number.isFinite(time)) return;
+    if (last === null || time > last) last = time;
+  };
+  const elements = chart.elements;
+  if (elements.length > 0) take(elements[elements.length - 1]!.time);
+  for (const band of chart.bands) {
+    take(band.t0);
+    take(band.t1);
+  }
+  const simultaneous = chart.simultaneous;
+  if (simultaneous.length > 0) take(simultaneous[simultaneous.length - 1]!.time);
+  return last;
+}
+
+/**
+ * 末击收尾补偿 `tail = ceilToFrame(max(0, lastHit + life − D))`（`D` = 谱面长度 = 音频时长）。
+ *
+ * 向上取整到 `1/fps` 整数倍，保证 `endingAt` 与结算第一帧都落在帧边界上；
+ * `lastHit ≤ D − life` 时返回 0（不无条件补时长）。`life` 取 `ENDING_HIT_LIFE_SECONDS`。
+ */
+export function endingTailSeconds(
+  chart: TailChart,
+  durationSeconds: number,
+  fps: number = EXPORT_FPS,
+): number {
+  if (!Number.isFinite(durationSeconds)) return 0;
+  const lastHit = lastHitSeconds(chart);
+  if (lastHit === null) return 0;
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : EXPORT_FPS;
+  const wanted = Math.max(0, lastHit + ENDING_HIT_LIFE_SECONDS - Math.max(0, durationSeconds));
+  if (wanted <= 0) return 0;
+  return Math.max(0, Math.ceil(wanted * safeFps - FRAME_EPS) / safeFps);
+}
+
 // ---------------------------------------------------------------- 跨段 HUD 时序
 //
 // 票 76（原型第四版默认档 2026-11-15）：分数条 / 生命条不再是「谱面段内部的一个布尔开关」，
@@ -269,7 +326,7 @@ export function leadInNoteAlphaAt(
 export interface VideoHudTimeline {
   /** 开场四段结束（`OPENING_SECONDS`）；关开场 = 0 */
   openEnd: number;
-  /** 结尾段起点（谱面末帧）；关结尾时落在总长之外 */
+  /** 结尾段起点（谱面 + 末击尾段之后）；关结尾时落在总长之外 */
   endingAt: number;
   /** 中央章时长（`ENDING_SPEC.stampDur`） */
   stampDur: number;

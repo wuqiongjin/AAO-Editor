@@ -291,7 +291,7 @@ export interface ExportFieldSettings {
 }
 
 /**
- * 视频开场设置（chart-preview 30）：`enabled` 关掉 = 回到"第 0 帧即前导负秒、总长 = 前导 + 谱面时长"；
+ * 视频开场设置（chart-preview 30）：`enabled` 关掉 = 回到"第 0 帧即前导负秒、总长 = 前导 + 谱面时长 + 末击尾段"；
  * 三项信息项 = 难度徽章 / 标题条 / 艺人行（本期不做 credits / 谱师名）。
  */
 export interface OpeningSettings {
@@ -300,7 +300,7 @@ export interface OpeningSettings {
 }
 
 /**
- * 结尾画面设置（chart-preview 52）：`enabled` 关掉 = 回到"播完切末帧、总长 = 开场 + 前导 + 谱面"；
+ * 结尾画面设置（chart-preview 52）：`enabled` 关掉 = 回到"末击尾段播完切末帧、总长 = 开场 + 前导 + 谱面 + 尾段"；
  * `stamp` = 中央章形态三档（Auto 永远 PERFECT，故默认 ALL PERFECT；不是按漏判算的）。
  */
 export interface EndingSettings {

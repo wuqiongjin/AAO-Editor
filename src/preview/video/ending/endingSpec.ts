@@ -309,7 +309,7 @@ export const ENDING_STAMP_SECONDS = ENDING_SPEC.stampDur;
 export const ENDING_TRANS_SECONDS = ENDING_SPEC.transDur;
 /** ③ 结算停留 */
 export const ENDING_RESULT_SECONDS = ENDING_SPEC.resultDur;
-/** 结尾段总长；导出总长 =（开场 6.75，若开）+ 谱面 + 它 */
+/** 结尾段总长；导出总长 =（开场 6.75，若开）+ 前导 + 谱面 + 末击尾段（票 75）+ 它 */
 export const ENDING_SECONDS = ENDING_SPEC.stampDur + ENDING_SPEC.transDur + ENDING_SPEC.resultDur;
 
 /**

@@ -38,6 +38,7 @@ const main = readSources(['electron/main.cjs', 'electron/assets/previewExport.cj
 const pkg = readSource('package.json');
 const protoHud = readStripped('public/proto/hudProto.js');
 const endingFrame = readStripped('src/preview/video/ending/endingFrame.ts');
+const endingSpec = readStripped('src/preview/video/ending/endingSpec.ts');
 
 describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）', () => {
   // 票 74 起谱面秒 = 视频秒 − simStartSeconds（开场 + 前导）；开场四段仍画干净场地
@@ -446,27 +447,28 @@ describe('50 · Opening 堆叠 A 轻推', () => {
 });
 
 describe('30 · 视频开场是纯前置段（不占谱面时间、不与前奏重叠）', () => {
-  it('时间轴总长 = 开场 + 前导 + 谱面 + 结尾（关掉开场仍有前导）', () => {
-    // 52 起再叠一段结尾（关掉时 endingSeconds = 0，公式不变）；74 起再加 leadIn
-    expect(exportVideo).toMatch(
-      /buildExportTimeline\(\s*\n?\s*req\.durationSeconds \+ simStartSeconds \+ endingSeconds/,
-    );
+  it('时间轴总长 = 开场 + 前导 + 谱面 + 末击尾段 + 结尾（关掉开场仍有前导）', () => {
+    // 52 起再叠一段结尾（关掉时 endingSeconds = 0，公式不变）；74 起加 leadIn；75 起加 tail
+    expect(exportVideo).toMatch(/buildExportTimeline\(\s*\n?\s*endingAtSeconds \+ endingSeconds/);
     expect(exportVideo).toMatch(/req\.opening \? OPENING_SECONDS : 0/);
   });
 
-  it('音轨：轨长带上开场 + 前导、BGM 与键音整体 + simStartSeconds', () => {
+  it('音轨：轨长带上开场 + 前导 + 末击尾段、BGM 与键音整体 + simStartSeconds', () => {
     expect(exportVideo).toMatch(/openingSeconds,/);
     expect(exportVideo).toMatch(/simStartSeconds,/);
+    expect(exportVideo).toMatch(/chartTailSeconds,/);
     // 52 起尾部再接一段静音（结尾段），轨长与视频等长
     expect(renderAudio).toMatch(
-      /audioFramesFor\(req\.durationSeconds \+ offset \+ tail, sampleRate\)/,
+      /audioFramesFor\(req\.durationSeconds \+ chartTail \+ offset \+ endingSeconds, sampleRate\)/,
     );
     expect(renderAudio).toMatch(/src\.start\(offset\)/);
     expect(renderAudio).toMatch(/const at = evt\.time \+ offset/);
   });
 
-  it('键音的过滤仍按**谱面时间**判（开场段不产生键音）', () => {
-    expect(renderAudio).toMatch(/evt\.time >= req\.durationSeconds/);
+  it('键音的过滤仍按**谱面时间**判（票 75 起右端点 = D + tail，末拍必发声）', () => {
+    expect(renderAudio).toMatch(/const chartEndSeconds = req\.durationSeconds \+ chartTail/);
+    expect(renderAudio).toMatch(/evt\.time > chartEndSeconds/);
+    expect(renderAudio).not.toMatch(/evt\.time >= req\.durationSeconds/);
     expect(renderAudio).not.toMatch(/evt\.time \+ offset >= req\.durationSeconds \+ offset/);
   });
 
@@ -480,7 +482,7 @@ describe('30 · 视频开场是纯前置段（不占谱面时间、不与前奏�
 });
 
 describe('74 · 开头前导补偿（lead-in）', () => {
-  it('总长 = 开场 + leadIn + 谱面 + 结尾；谱面 0 秒落在 simStartSeconds', () => {
+  it('总长 = 开场 + leadIn + 谱面 + 末击尾段 + 结尾；谱面 0 秒落在 simStartSeconds', () => {
     expect(exportSpec).toMatch(/export const LEAD_IN_CAP_SECONDS = 2/);
     expect(exportSpec).toMatch(/export function leadInSeconds\(/);
     expect(exportVideo).toMatch(/const leadIn = leadInSeconds\(/);
@@ -489,9 +491,7 @@ describe('74 · 开头前导补偿（lead-in）', () => {
       /leadInSeconds\(\{ approachS: approachSeconds\(req\.scene\.noteSpeed\) \}, EXPORT_FPS\)/,
     );
     expect(exportVideo).toMatch(/const simStartSeconds = openingSeconds \+ leadIn/);
-    expect(exportVideo).toMatch(
-      /buildExportTimeline\(\s*\n?\s*req\.durationSeconds \+ simStartSeconds \+ endingSeconds/,
-    );
+    expect(exportVideo).toMatch(/buildExportTimeline\(\s*\n?\s*endingAtSeconds \+ endingSeconds/);
     expect(exportVideo).toMatch(/simStartSeconds,/);
   });
 
@@ -502,16 +502,14 @@ describe('74 · 开头前导补偿（lead-in）', () => {
     expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha, hudAlpha \}\)/);
     expect(frameDriver).toMatch(/const seg = req\.opening \? openingSegmentAt\(t\) : 'sim'/);
     expect(frameDriver).toMatch(/const endingAt = simStartSeconds \+ chartSeconds/);
-    // 结尾舞台仍取谱面 D 秒（票 75 的残留修复留给下一票）
+    // 票 75：总长含 tail ⇒ chartSeconds = D + tail，结尾舞台各层按既有窗口自然判空
     expect(frameDriver).toMatch(/seconds: chartSeconds/);
   });
 
-  it('音轨：BGM / 键音 / 轨长都按 simStartSeconds 后移；人潮仍收在开场段末尾', () => {
+  it('音轨：BGM / 键音 / 轨长都按 simStartSeconds 后移；结尾 SE 落在新 endingAt', () => {
     expect(renderAudio).toMatch(/const offset = Number\.isFinite\(req\.simStartSeconds\)/);
     expect(exportVideo).toMatch(/openingSfxCues\(openingSeconds\)/);
-    expect(exportVideo).toMatch(
-      /endingSfxCues\(simStartSeconds \+ req\.durationSeconds, req\.ending\.stamp\)/,
-    );
+    expect(exportVideo).toMatch(/endingSfxCues\(endingAtSeconds, req\.ending\.stamp\)/);
   });
 
   it('开场四段仍不进 drawSimFrameAt（干净场地口径不变）', () => {
@@ -529,6 +527,43 @@ describe('74 · 开头前导补偿（lead-in）', () => {
     expect(simField).toMatch(/drawBands\(ctx, input, seconds, noteAlpha\)/);
     expect(simField).toMatch(/const alpha = clamp01\(scene\.slideOpacity\) \* noteAlpha/);
     expect(simField).toMatch(/ctx\.globalAlpha = noteAlpha/);
+  });
+});
+
+// 75：末击贴 D 时，旧时间线把「Δ=0 的音符 + 命中特效 + 按住环」冻结在结算下，
+// 末拍键音还被 `evt.time >= D` 吞掉。锁的是 tail 的唯一入口与四处接线。
+describe('75 · 末击收尾补偿（tail）与结算画面残留', () => {
+  it('life / 公式只在 exportSpec 定义一次；endingAt 与总长都由 tail 派生', () => {
+    expect(exportSpec).toMatch(
+      /export const ENDING_HIT_LIFE_SECONDS = Math\.max\(SIM_SPRITE_EFFECT_DURATION, SIM_JUDGE\.life\)/,
+    );
+    expect(exportSpec).toMatch(/export function lastHitSeconds\(/);
+    expect(exportSpec).toMatch(/export function endingTailSeconds\(/);
+    expect(exportVideo).toMatch(
+      /const chartTailSeconds = endingTailSeconds\(chart, req\.durationSeconds, EXPORT_FPS\)/,
+    );
+    expect(exportVideo).toMatch(
+      /const endingAtSeconds = simStartSeconds \+ req\.durationSeconds \+ chartTailSeconds/,
+    );
+    expect(exportVideo).toMatch(/buildExportTimeline\(\s*\n?\s*endingAtSeconds \+ endingSeconds/);
+    expect(frameDriver).toMatch(/const endingAt = simStartSeconds \+ chartSeconds/);
+  });
+
+  it('尾段沿用同一条 seconds = t − simStart（帧循环不新增分支），结尾 SE 落在结算第一帧', () => {
+    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha, hudAlpha \}\)/);
+    expect(frameDriver).toMatch(/t >= endingAt/);
+    expect(exportVideo).toMatch(/endingSfxCues\(endingAtSeconds, req\.ending\.stamp\)/);
+    expect(renderAudio).toMatch(/const chartTail = Number\.isFinite\(req\.chartTailSeconds\)/);
+    expect(renderAudio).toMatch(/const chartEndSeconds = req\.durationSeconds \+ chartTail/);
+  });
+
+  it('结尾舞台固定秒 = D + tail；不给 SimFrameLayers 加 notes / effects alpha，三段 7.5s 不动', () => {
+    expect(frameDriver).toMatch(/seconds: chartSeconds/);
+    expect(simField).not.toMatch(/notesAlpha|effectsAlpha|effectAlpha\?: number/);
+    expect(endingFrame).toMatch(/drawSimFrameAt\(ctx, stage\.frame, stage\.seconds, \{/);
+    expect(endingSpec).toMatch(
+      /ENDING_SECONDS = ENDING_SPEC\.stampDur \+ ENDING_SPEC\.transDur \+ ENDING_SPEC\.resultDur/,
+    );
   });
 });
 

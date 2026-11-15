@@ -4,10 +4,28 @@
 //   ② 记录每个 source 的 start / stop 与包络事件，供断言。
 // 现场：开场人潮素材 7.105s > 开场段 6.75s ⇒ 必走截断分支（旧代码在这里先 stop 后 start）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderAudioTrack, type AudioTrack, type AudioTrackResult } from '@/src/preview/video/encode/renderAudioTrack';
+import { scheduleKeyTone } from '@/src/audio/keySoundSamples';
+import type { KeySoundEvent } from '@/src/audio/AudioTiming';
+import {
+  renderAudioTrack,
+  type AudioTrack,
+  type AudioTrackRequest,
+  type AudioTrackResult,
+} from '@/src/preview/video/encode/renderAudioTrack';
 import { audioFramesFor } from '@/src/preview/video/encode/exportSpec';
 import { OPENING_SECONDS } from '@/src/preview/video/opening/openingSpec';
 import { endingSfxCues, openingSfxCues, type SfxCue } from '@/src/preview/video/sfx';
+
+// 票 75 的键音过滤用例只需「哪几条事件被调度」，采样解码 / 发声本身由既有门禁盯着。
+vi.mock('@/src/audio/KeySound', () => ({
+  loadKeySoundSet: vi.fn(async () => ({ samples: {} })),
+}));
+vi.mock('@/src/audio/keySoundSamples', () => ({
+  sampleSrcFor: vi.fn(() => null),
+  scheduleKeySample: vi.fn(),
+  scheduleKeyTone: vi.fn(),
+  keySoundBank: { load: vi.fn(async () => undefined) },
+}));
 
 /** 开场人潮素材实测时长（秒，`public/assets/game-ui/audio/SE_RHYTHM_GAYA.mp3`） */
 const CROWD_SECONDS = 7.105;
@@ -127,6 +145,7 @@ beforeEach(() => {
   calls = [];
   sources = [];
   nextSourceId = 0;
+  vi.mocked(scheduleKeyTone).mockClear();
   vi.stubGlobal('OfflineAudioContext', FakeOfflineAudioContext);
   vi.stubGlobal(
     'fetch',
@@ -197,5 +216,49 @@ describe('74 · 前导补偿后的音轨起点', () => {
     const stopped = sources.filter((src) => callsOf(src).some((c) => c.kind === 'stop'));
     expect(stopped).toHaveLength(1);
     expect(callsOf(stopped[0])[1].when).toBeCloseTo(OPENING_SECONDS, 5);
+  });
+});
+
+// 票 75：末音符恰在 D（= 音频时长）时，旧过滤 `evt.time >= D` 把键音吞了，
+// 画面却画满强度命中特效。轨外过滤右端点后移到 D + tail，轨长同步。
+describe('票 75 · 末拍键音与 tail 轨长', () => {
+  const D = 30;
+  const offset = 8;
+  const tail = 1;
+
+  const eventAt = (time: number): KeySoundEvent =>
+    ({ time, kind: 'tap', tier: 1, gain: 1 }) as unknown as KeySoundEvent;
+
+  const renderKeys = (times: number[], patch: Partial<AudioTrackRequest> = {}): Promise<AudioTrackResult> =>
+    renderAudioTrack({
+      durationSeconds: D,
+      simStartSeconds: offset,
+      chartTailSeconds: tail,
+      keyEvents: times.map(eventAt),
+      keySetId: 'test',
+      bgm: null,
+      volume: 1,
+      seVolume: 1,
+      decodeContext: decodeContext(),
+      ...patch,
+    });
+
+  /** `scheduleKeyTone(ctx, dest, kind, sample, when, gainScale)` 的第 5 个参数 = 整轨绝对秒 */
+  const scheduledAt = (): number[] =>
+    vi.mocked(scheduleKeyTone).mock.calls.map((c) => c[4] as number);
+
+  it('末拍 evt.time === D 必发声；> D + tail 的轨外事件仍不调度', async () => {
+    await renderKeys([D - 0.5, D, D + 0.5, D + tail + 0.1]);
+    expect(scheduledAt()).toEqual([offset + D - 0.5, offset + D, offset + D + 0.5]);
+  });
+
+  it('tail = 0 时过滤至少放宽到 > D（末拍不再被吞）', async () => {
+    await renderKeys([D, D + 0.5], { chartTailSeconds: 0 });
+    expect(scheduledAt()).toEqual([offset + D]);
+  });
+
+  it('轨长 = 前导 + D + tail + 结尾（与视频同一终点）', async () => {
+    const result = await renderKeys([], { endingSeconds: 7.5 });
+    expect((result as AudioTrack).frames).toBe(audioFramesFor(D + tail + offset + 7.5));
   });
 });

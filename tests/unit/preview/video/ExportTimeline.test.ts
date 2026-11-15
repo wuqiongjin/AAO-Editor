@@ -12,9 +12,11 @@ import type { ChartNote, SingleNote } from '@/src/chart/types';
 import { buildKeyEvents, getBpmEvents } from '@/src/audio/AudioTiming';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
 import { buildSimChart } from '@/src/preview/video/sim/simField';
-import { approachSeconds } from '@/src/preview/video/sim/simGeometry';
+import { approachSeconds, SIM_SPRITE_EFFECT_DURATION } from '@/src/preview/video/sim/simGeometry';
+import { SIM_JUDGE } from '@/src/preview/video/sim/simHud';
+import { ENDING_SECONDS } from '@/src/preview/video/ending/endingSpec';
 import { OPENING_SECONDS } from '@/src/preview/video/opening/openingSpec';
-import type { SimScene } from '@/src/preview/video/sim/simField';
+import type { SimChart, SimScene } from '@/src/preview/video/sim/simField';
 import { probeContainer } from '@/src/preview/video/encode/muxer';
 import { probeVideoExportSupport } from '@/src/preview/video/encode/exportVideo';
 import {
@@ -29,7 +31,10 @@ import {
   audioFramesFor,
   buildExportTimeline,
   candidateOrder,
+  ENDING_HIT_LIFE_SECONDS,
+  endingTailSeconds,
   frameSecondsAt,
+  lastHitSeconds,
   frameTimestampUs,
   isAacCodec,
   leadInSeconds,
@@ -189,6 +194,82 @@ describe('票 74 回修 · 前导音符层淡入（15 帧 = 0.25s @60fps）', ()
     expect(alphaAtStart(1)).toBeCloseTo(1 / N, 9);
     expect(alphaAtStart(9.5)).toBe(1);
     expect(alphaAtStart(12)).toBe(1);
+  });
+});
+
+// 票 75：末击贴 D 时，特效 / 判定字要播完再切结算；谱面比音频短时不补时长。
+// 期望值按票面公式独立算（不复用实现里的算式），改数值只改期望值。
+type TailChart = Pick<SimChart, 'elements' | 'bands' | 'simultaneous'>;
+const chartEndingAt = (t: number, over: Partial<TailChart> = {}): TailChart => ({
+  elements: [{ time: t }] as unknown as TailChart['elements'],
+  bands: [],
+  simultaneous: [],
+  ...over,
+});
+
+describe('票 75 · 末击收尾补偿（tail）', () => {
+  const D = 30;
+
+  it('寿命 = max(打击特效 0.6, 判定字 1.0) = 1.0s', () => {
+    expect(SIM_SPRITE_EFFECT_DURATION).toBe(0.6);
+    expect(SIM_JUDGE.life).toBe(1);
+    expect(ENDING_HIT_LIFE_SECONDS).toBe(1);
+  });
+
+  it('tail = ceilToFrame(max(0, lastHit + life − D))：末击贴 D ⇒ 1s', () => {
+    expect(endingTailSeconds(chartEndingAt(D), D)).toBe(1);
+    expect(endingTailSeconds(chartEndingAt(D - 0.3), D)).toBeCloseTo(0.7, 9);
+    expect(endingTailSeconds(chartEndingAt(D - 1.2), D)).toBe(0);
+    expect(endingTailSeconds(chartEndingAt(D + 0.2), D)).toBeCloseTo(1.2, 9);
+  });
+
+  it('lastHit = 元素末尾 / 带体两端 / 双押线的最大绝对秒（连续量，不是「贴最后 beat」布尔）', () => {
+    const chart = chartEndingAt(20, {
+      bands: [{ t0: 28, t1: 31 }, { t0: 2, t1: 4 }] as unknown as TailChart['bands'],
+      simultaneous: [{ time: 29.5, lanes: [0, 1] }] as unknown as TailChart['simultaneous'],
+    });
+    expect(lastHitSeconds(chart)).toBe(31);
+    expect(endingTailSeconds(chart, D)).toBe(2);
+  });
+
+  it('谱面派生表同源：真实谱的末击绝对秒驱动 tail（不是 beat 序号布尔）', () => {
+    const atEnd: ChartNote[] = [
+      { type: 'BPM', beat: 0, bpm: 120 },
+      single(0, 0),
+      single(60, 3), // 120bpm ⇒ 30s = D
+    ];
+    const chart = buildSimChart(sceneOf(atEnd), icons);
+    expect(lastHitSeconds(chart)).toBe(30);
+    expect(endingTailSeconds(chart, D)).toBe(1);
+
+    const early: ChartNote[] = [
+      { type: 'BPM', beat: 0, bpm: 120 },
+      single(0, 0),
+      single(57.6, 3), // 28.8s = D − 1.2
+    ];
+    const shortChart = buildSimChart(sceneOf(early), icons);
+    expect(lastHitSeconds(shortChart)).toBeCloseTo(28.8, 9);
+    expect(endingTailSeconds(shortChart, D)).toBe(0);
+  });
+
+  it('非整帧向上取整到 1/fps；非法值 / 空谱不产生尾段', () => {
+    expect(endingTailSeconds(chartEndingAt(D - 0.99), D)).toBe(1 / 60);
+    expect(endingTailSeconds(chartEndingAt(D - 0.5), D, 30)).toBeCloseTo(0.5, 9);
+    expect(endingTailSeconds(chartEndingAt(D), D, Number.NaN)).toBe(1);
+    expect(endingTailSeconds(chartEndingAt(Number.NaN), D)).toBe(0);
+    expect(endingTailSeconds(chartEndingAt(D), Number.NaN)).toBe(0);
+    expect(lastHitSeconds({ elements: [], bands: [], simultaneous: [] })).toBeNull();
+    expect(endingTailSeconds({ elements: [], bands: [], simultaneous: [] }, 0)).toBe(0);
+  });
+
+  it('总长只增加 tail；ENDING_SECONDS 仍为 7.5，末帧秒仍在总长之内', () => {
+    const simStart = OPENING_SECONDS + leadInSeconds({ approachS: 1.25 });
+    const tail = endingTailSeconds(chartEndingAt(D), D);
+    const withTail = buildExportTimeline(simStart + D + tail + ENDING_SECONDS);
+    const withoutTail = buildExportTimeline(simStart + D + ENDING_SECONDS);
+    expect(ENDING_SECONDS).toBe(7.5);
+    expect(withTail.frameCount - withoutTail.frameCount).toBe(tail * EXPORT_FPS);
+    expect(frameSecondsAt(withTail, withTail.frameCount - 1)).toBeLessThan(withTail.durationSeconds);
   });
 });
 

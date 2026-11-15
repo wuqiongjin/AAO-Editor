@@ -67,7 +67,7 @@ export function openingSfxCues(openingSeconds: number): SfxCue[] {
   ];
 }
 
-/** 结尾章的声：`atSeconds` = 谱面结束那一刻（结尾段 t=0 = 前导后的谱面起点 + 谱面时长）；`clear` 也是两层（用户拍板） */
+/** 结尾章的声：`atSeconds` = 结尾段 t=0（票 75 起 = 谱面起点 + 谱面时长 + 末击尾段）；`clear` 也是两层（用户拍板） */
 export function endingSfxCues(atSeconds: number, stamp: EndingStamp): SfxCue[] {
   const bed = stamp === 'fc' || stamp === 'ap' ? ENDING_FULLCOMBO_SFX : ENDING_CLEAR_SFX;
   return [

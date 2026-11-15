@@ -45,7 +45,11 @@ export interface EndingCounts {
  */
 export interface EndingStageInput {
   frame: SimFrameInput;
-  /** 那一帧的秒（= 谱面时长） */
+  /**
+   * 舞台取景的固定秒（票 75：= 谱面时长 + 末击尾段 `D + tail`）。
+   * 它已越过最后一击 + 特效 / 判定字寿命 ⇒ 音符 / 命中特效 / 按住环按既有窗口自然判空，
+   * 结算画面下只剩背景 + 轨道（轨道按 `trackFadeDur` 淡出）；不再把末拍冻结在白卡下。
+   */
   seconds: number;
   x: number;
   y: number;
@@ -2045,7 +2049,7 @@ function curtainAlpha(elapsed: number, transDur: number): number {
 // ---------------------------------------------------------------- 入口
 
 /**
- * 画结尾段的第 `elapsed` 秒（从谱面结束那刻起算）。
+ * 画结尾段的第 `elapsed` 秒（从「谱面 + 末击尾段」结束那刻起算，票 75）。
  *
  * **不碰调用方的变换与 alpha**：进出各自 save/restore，内部一律按整帧坐标画
  * （舞台那张离屏图自己在建的时候就按 `stage.x / stage.y` 定位过）。

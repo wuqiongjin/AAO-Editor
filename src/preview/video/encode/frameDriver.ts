@@ -54,7 +54,7 @@ export interface FrameDriverRequest {
   geometry: ExportGeometry;
   timeline: ExportTimeline;
   /**
-   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧仍是前导负秒、总长 = 前导 + 谱面时长）。
+   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧仍是前导负秒、总长 = 前导 + 谱面时长 + 末击尾段）。
    * 非 null 时时间轴最前面 `OPENING_SECONDS` 秒走开场四段，其后是前导补偿与谱面。
    */
   opening?: OpeningFrameInput | null;
@@ -66,8 +66,9 @@ export interface FrameDriverRequest {
    */
   simStartSeconds?: number;
   /**
-   * 结尾画面（chart-preview 52）：`null` = 关掉（时间轴到谱面结束为止）。
-   * 非 null 时谱面之后那段（`endingSeconds`）由它画，**场地用谱面末帧**（`drawSimFrameAt` 同一份）。
+   * 结尾画面（chart-preview 52）：`null` = 关掉（时间轴到谱面 + 末击尾段结束为止）。
+   * 非 null 时其后那段（`endingSeconds`）由它画，**场地用谱面末帧**（`drawSimFrameAt` 同一份）。
+   * 票 75：舞台固定秒 = `D + tail`，所有音符 / 特效 / 按住环已过寿命窗口 ⇒ 结算下零残留。
    */
   ending?: EndingContentInput | null;
   /** 结尾段长度（秒）：与 `ending` 成对给（关掉时是 0） */
@@ -122,7 +123,9 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
   // 只在帧循环里算 alpha，总长 / 音轨 / 实时回放都不动。
   const leadIn = Math.max(0, simStartSeconds - openingSeconds);
   const approachS = input.chart.approachS;
-  // 结尾段的起点 = 谱面 0 秒 + 谱面长度（关掉结尾时 `endingAt` 落在总长之外，永不命中）
+  // 结尾段的起点 = 谱面 0 秒 + 谱面长度 + 末击尾段（票 75：总长已含 tail，故这里自然得出
+  // `chartSeconds = D + tail`；关掉结尾时 `endingAt` 落在总长之外，永不命中）。
+  // 尾段沿用同一条 `seconds = t − simStartSeconds`，帧循环不新增分支。
   const endingSeconds = req.ending ? Math.max(0, req.endingSeconds ?? 0) : 0;
   const chartSeconds = Math.max(
     0,
@@ -156,7 +159,9 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
     hudCtx.restore();
   };
 
-  // 场地（谱面末帧）按**对象身份**缓存：一次导出只画一次，之后每帧只做位图拷贝
+  // 舞台按**同一个固定秒**逐帧重画（没有整帧缓存位图）：票 75 起 `chartSeconds = D + tail`
+  // 越过末击 + 特效 / 判定字寿命，各层按既有窗口自然判空，舞台只剩背景 + 轨道
+  // （轨道按 `trackFadeDur: 1` 淡出）；不给 `SimFrameLayers` 加 notes / effects alpha。
   const ending: EndingFrameInput | null = req.ending
     ? {
         ...req.ending,

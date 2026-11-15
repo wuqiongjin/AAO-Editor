@@ -58,7 +58,7 @@ export interface UseVideoExportArgs {
    */
   opening?: OpeningInput | null;
   /**
-   * 结尾画面（chart-preview 52）：`null` = 关掉（播完切末帧、总长 = 开场 + 前导 + 谱面）。
+   * 结尾画面（chart-preview 52）：`null` = 关掉（末击尾段播完切末帧、总长 = 开场 + 前导 + 谱面 + 尾段）。
    * 由页面按 `settings.export.ending` 组装（封面 / 判定计数都由页面给）。
    */
   ending?: EndingInput | null;

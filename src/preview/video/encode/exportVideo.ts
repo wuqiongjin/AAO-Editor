@@ -45,6 +45,7 @@ import {
   EXPORT_FPS,
   buildExportTimeline,
   candidateOrder,
+  endingTailSeconds,
   leadInSeconds,
   resolveExportGeometry,
   tierOf,
@@ -91,14 +92,14 @@ export interface VideoExportRequest {
   /** 文件名基础名（不含扩展名；扩展名按当选容器补） */
   suggestedBaseName: string;
   /**
-   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧仍是前导负秒、总长 = 前导 + 谱面时长（结尾段另加 7.5s））。
-   * 非 null = 导出物最前面多一段 `OPENING_SECONDS`（6.75s）的纯前置开场；票 74 起开场之后
-   * 还接一段前导补偿（lead-in，静音），谱面 0 秒与音轨起点都落在 `simStartSeconds`。
+   * 视频开场（chart-preview 30）：`null` = 关掉开场（第 0 帧仍是前导负秒、总长 = 前导 + 谱面 + 末击尾段
+   * （结尾段另加 7.5s））。非 null = 导出物最前面多一段 `OPENING_SECONDS`（6.75s）的纯前置开场；
+   * 票 74 起开场之后还接一段前导补偿（lead-in，静音），谱面 0 秒与音轨起点都落在 `simStartSeconds`。
    */
   opening?: OpeningInput | null;
   /**
-   * 结尾画面（chart-preview 52）：`null` = 关掉（谱面播完切末帧，总长 = 开场 + 前导 + 谱面）。
-   * 非 null = 谱面之后多一段 **7.5s**（章 3.0 → 黑幕转场 1.5 → 结算 3.0），音轨尾部是静音。
+   * 结尾画面（chart-preview 52）：`null` = 关掉（末击尾段播完切末帧，总长 = 开场 + 前导 + 谱面 + 尾段）。
+   * 非 null = 其后多一段 **7.5s**（章 3.0 → 黑幕转场 1.5 → 结算 3.0），音轨尾部是静音。
    */
   ending?: EndingInput | null;
   onProgress?: (progress: VideoExportProgress) => void;
@@ -292,13 +293,23 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
   // 开场段是**纯前置**（chart-preview 30）：不与前奏重叠。
   // 票 74：开场之后、谱面 0 秒之前另补一段前导（lead-in）——按 noteSpeed 的接近时长 T 取可见段、
   // 封顶 2s、按帧对齐；这一段画面按负秒取帧、音轨静音。T 与 `buildSimChart` 同源（approachSeconds）。
-  // 结尾段（52）是**纯后置**：谱面之后再占 7.5s，音轨尾部留静音。
+  // 票 75：谱面末尾按「末击 + 特效 / 判定字寿命」补 tail，让最后一击播完再切结算；可能为 0。
+  // 结尾段（52）是**纯后置**：谱面 + 尾段之后再占 7.5s，音轨尾部留静音。
   const openingSeconds = req.opening ? OPENING_SECONDS : 0;
   const endingSeconds = req.ending ? ENDING_SECONDS : 0;
   const leadIn = leadInSeconds({ approachS: approachSeconds(req.scene.noteSpeed) }, EXPORT_FPS);
   const simStartSeconds = openingSeconds + leadIn;
+  // 票 75：tail 要读谱面派生表（元素 / 带体端点 / 双押线的绝对秒），派生提前到规格段。
+  // 派生是同步长活 ⇒ 先让出一拍让进度卡画出来、让取消当帧生效（票 67 口径不回退）。
+  await yieldToMainThread();
+  if (cancelled()) return done({ ok: true, cancelled: true });
+  const bpmEvents = getBpmEvents(req.scene.notes);
+  const chart = buildSimChart(req.scene, noteIcons, bpmEvents);
+  const chartTailSeconds = endingTailSeconds(chart, req.durationSeconds, EXPORT_FPS);
+  // 结尾段起点 = 谱面 0 秒 + 谱面时长 + 末击尾段；帧循环 / 结尾 SE / 轨长都由它派生
+  const endingAtSeconds = simStartSeconds + req.durationSeconds + chartTailSeconds;
   const timeline: ExportTimeline = buildExportTimeline(
-    req.durationSeconds + simStartSeconds + endingSeconds,
+    endingAtSeconds + endingSeconds,
   );
   const geometry = resolveExportGeometry(tier);
   const audioTrackParams = req.muted ? null : DEFAULT_AUDIO_TRACK;
@@ -314,13 +325,11 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
 
   // ---------------- 离线音轨 ----------------
   req.onProgress?.({ phase: 'audio', frame: 0, totalFrames: timeline.frameCount });
-  // 先让「正在合成声音…」画出来（票 67）：派生谱面是同步长活，不让出的话
-  // 点取消的输入事件要排到它结束才被派发，取消就落到了下一个阶段。
+  // 票 67：报完 audio 先让出一拍，键音事件表是同步活，点取消别等它排完才生效。
+  // （谱面派生表已在规格段提前建好，为票 75 的 tail 提供末击绝对秒；那里同样让出一拍。）
   await yieldToMainThread();
   if (cancelled()) return done({ ok: true, cancelled: true });
   // 票 69：BPM 事件只从谱面提取一次，画面派生与键音事件表共用
-  const bpmEvents = getBpmEvents(req.scene.notes);
-  const chart = buildSimChart(req.scene, noteIcons, bpmEvents);
   const keyEvents = buildKeyEvents(req.scene.notes, req.scene.beatDisplay, bpmEvents);
   if (cancelled()) return done({ ok: true, cancelled: true });
   let bgm: AudioBuffer | null = null;
@@ -337,10 +346,10 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
     }
   }
   // 两端的游戏音效（52）：开场人潮从整条轨的 0s 起、收在**开场段末尾**（票 74 起之后是静音前导），
-  // 结尾章两层同起在**谱面结束那刻**（= 结尾段 t=0 = simStartSeconds + 谱面时长，章入场那一拍）
+  // 结尾章两层同起在**结尾段 t=0**（票 75 起 = simStartSeconds + 谱面时长 + 末击 tail，章入场那一拍）
   const sfx: SfxCue[] = [
     ...(req.opening ? openingSfxCues(openingSeconds) : []),
-    ...(req.ending ? endingSfxCues(simStartSeconds + req.durationSeconds, req.ending.stamp) : []),
+    ...(req.ending ? endingSfxCues(endingAtSeconds, req.ending.stamp) : []),
   ];
   // 票 67：进音轨合成前先认一次取消，合成结果也按取消哨兵判定
   if (cancelled()) return done({ ok: true, cancelled: true });
@@ -352,6 +361,7 @@ export async function runVideoExport(req: VideoExportRequest): Promise<VideoExpo
       durationSeconds: req.durationSeconds,
       openingSeconds,
       simStartSeconds,
+      chartTailSeconds,
       endingSeconds,
       sfx,
       keyEvents,

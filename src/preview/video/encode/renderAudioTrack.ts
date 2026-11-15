@@ -32,6 +32,11 @@ export interface AudioTrackRequest {
    */
   simStartSeconds?: number;
   /**
+   * 末击收尾补偿（秒，票 75）：谱面段在 `durationSeconds` 之后多出的尾段。
+   * 轨长与键音轨外过滤的右端点都按它后移；尾段本身静音（BGM 已结束）。
+   */
+  chartTailSeconds?: number;
+  /**
    * 结尾段长度（秒，chart-preview 52）：`> 0` = 轨长在谱面之后再留这一段
    * （这段的**声**由 `sfx` 给；轨长必须与视频等长，否则封装时音画错位）。
    */
@@ -173,13 +178,15 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
   if (req.muted) return null;
   const sampleRate = req.sampleRate ?? EXPORT_AUDIO_SAMPLE_RATE;
   const channels = req.channels ?? EXPORT_AUDIO_CHANNELS;
-  // 开场段在最前面（30）、其后是静音前导段（74）、结尾段在最后（52）：
-  // 轨长 = 谱面 0 秒的绝对位置 + 谱面 + 结尾，与视频同一终点
-  // （这两段的声由 `sfx` 补，但轨长一定要够 —— 短了封装时音画就错位）
+  // 开场段在最前面（30）、其后是静音前导段（74）、末击尾段（75）、结尾段在最后（52）：
+  // 轨长 = 谱面 0 秒的绝对位置 + 谱面 + 末击尾段 + 结尾，与视频同一终点
+  // （这几段的声由 `sfx` 补，但轨长一定要够 —— 短了封装时音画就错位）
   const fallbackOffset = Number.isFinite(req.openingSeconds) ? Math.max(0, req.openingSeconds!) : 0;
   const offset = Number.isFinite(req.simStartSeconds) ? Math.max(0, req.simStartSeconds!) : fallbackOffset;
-  const tail = Number.isFinite(req.endingSeconds) ? Math.max(0, req.endingSeconds!) : 0;
-  const frames = audioFramesFor(req.durationSeconds + offset + tail, sampleRate);
+  const chartTail = Number.isFinite(req.chartTailSeconds) ? Math.max(0, req.chartTailSeconds!) : 0;
+  const endingSeconds = Number.isFinite(req.endingSeconds) ? Math.max(0, req.endingSeconds!) : 0;
+  const chartEndSeconds = req.durationSeconds + chartTail;
+  const frames = audioFramesFor(req.durationSeconds + chartTail + offset + endingSeconds, sampleRate);
   const ctx = new OfflineAudioContext(channels, frames, sampleRate);
 
   // 与实时同一条链：master 是主音量，se 是键音的独立音量（issue 39 #7）
@@ -211,8 +218,10 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
         if (cancelled()) return AUDIO_TRACK_CANCELLED;
       }
       processed++;
-      // 轨外不调度：负时刻（倒流区把 beat 折成负秒）与超过谱面长度的都落不到这条轨上
-      if (!Number.isFinite(evt.time) || evt.time < 0 || evt.time >= req.durationSeconds) continue;
+      // 轨外不调度：负时刻（倒流区把 beat 折成负秒）与超过「谱面 + 末击尾段」的都落不到这条轨上。
+      // 票 75：旧口径 `>= D` 会把恰好落在 D 的末拍键音吞掉（画面却画满命中特效），
+      // 右端点后移到 `D + chartTail` 且改为严格 `>` ⇒ 末拍必发声。不改 buildKeyEvents。
+      if (!Number.isFinite(evt.time) || evt.time < 0 || evt.time > chartEndSeconds) continue;
       const sample = set.samples[evt.kind];
       const src = sampleSrcFor(sample, evt.kind, evt.tier);
       const buffer = src ? await keySoundBank.load(src, decodeCtx).catch(() => undefined) : undefined;
@@ -226,7 +235,7 @@ export async function renderAudioTrack(req: AudioTrackRequest): Promise<AudioTra
   }
 
   // 两端的游戏音效（52）：开场人潮收在开场段末尾（票 74 起之后是静音前导段），
-  // 结尾章双声落在结尾段 t=0（= simStartSeconds + 谱面时长）。
+  // 结尾章双声落在结尾段 t=0（票 75 起 = simStartSeconds + 谱面时长 + 末击尾段）。
   // 票 67：SE 的 fetch / decodeAudioData 同样没有 abort，取消命中就别再等它。
   if (req.sfx && req.sfx.length > 0) {
     const scheduled = await raceCancellation(

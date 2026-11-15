@@ -430,7 +430,7 @@ export default function VideoExportControl({
             )}
 
             {/* 结尾画面（chart-preview 52）：同「曲目信息片头」——总开关 + 缩进子项（结算形态三档）。
-                关掉 = 回到旧行为（播完切末帧、总长 = 开场 + 前导 + 谱面）。 */}
+                关掉 = 回到旧行为（末击尾段播完切末帧、总长 = 开场 + 前导 + 谱面 + 尾段）。 */}
             {ending && onEndingChange && (
               <section className="pvex__group pvex__group--sub">
                 <div className="pvex__group-head">
