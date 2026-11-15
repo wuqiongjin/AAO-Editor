@@ -135,6 +135,8 @@ export interface AppSettings {
     invertWheel: boolean;
     /** 滑条拖拽变形风格（issue 204）：'smooth' (圆滑曲线) | 'triangle' (三角拉弓)，默认 smooth */
     pinchMode: PinchMode;
+    /** 拖动滑条可见结点（含端点）时，是否跳过缓动/模板重烘焙并直接仿射拉伸既有曲线，默认 false */
+    stretchCurveOnNodeDrag: boolean;
     /** 判定线向上偏移比例（issue 218）：0..0.4 画布高，默认 0 = 贴底原样 */
     judgeLineOffsetRatio: number;
   };
@@ -512,6 +514,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
       timePrecision: 'standard',
       invertWheel: false,
       pinchMode: 'smooth',
+      stretchCurveOnNodeDrag: false,
       judgeLineOffsetRatio: 0,
     },
     visual: { noteSkin: { ...NOTE_SKIN_DEFAULT_SELECTION }, backgroundSkin: { enabled: false, opacity: DEFAULT_BACKGROUND_OPACITY, fit: DEFAULT_BACKGROUND_FIT, scope: DEFAULT_BACKGROUND_SCOPE } },
@@ -615,6 +618,9 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
       pinchMode: (PINCH_MODES as readonly unknown[]).includes(display.pinchMode)
         ? (display.pinchMode as PinchMode)
         : defaults.display.pinchMode,
+      stretchCurveOnNodeDrag: typeof display.stretchCurveOnNodeDrag === 'boolean'
+        ? display.stretchCurveOnNodeDrag
+        : defaults.display.stretchCurveOnNodeDrag,
       judgeLineOffsetRatio: clamp(display.judgeLineOffsetRatio, 0, 0.4, defaults.display.judgeLineOffsetRatio),
     },
     visual: { noteSkin, backgroundSkin },

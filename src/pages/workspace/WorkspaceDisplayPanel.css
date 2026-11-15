@@ -143,17 +143,6 @@
   font-size: var(--text-xs);
 }
 
-/* 操作偏好气泡：微调宽度与偏移，箭头精准对齐 ? 按钮居中，在 320px 面板内完整呈现不截断 */
-.wdp__panel .dialog-field__popover {
-  width: 220px;
-  left: -80px;
-}
-
-.wdp__panel .dialog-field__popover::after,
-.wdp__panel .dialog-field__popover::before {
-  left: 88px;
-}
-
 /* 恢复默认底部行：固定稳定高度，二次确认切换 0 抖动 0 收缩 */
 .wdp__reset-row {
   margin-top: 6px;

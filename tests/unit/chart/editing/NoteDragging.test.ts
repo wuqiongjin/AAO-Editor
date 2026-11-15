@@ -1355,3 +1355,179 @@ describe('issue 225 · planDragMove 拖动镜像后的模板滑条端点保持�
     });
   });
 });
+
+describe('planDragMove · stretchCurveOnNodeDrag（拖动滑条结点直接拉伸曲线）', () => {
+  it('默认关闭（stretchCurveOnNodeDrag=false）：拖动缓动滑条终点仍按缓动重烘焙并保留 spanParams', () => {
+    const slideNote = buildChainedSlide(
+      [{ beat: 1, lane: 0 }, { beat: 3, lane: 4 }],
+      { 0: { kind: 'easing', family: 'quad', type: 'in', precision: 16 } },
+      4,
+    );
+    const endIdx = slideNote.connections.length - 1;
+    // 把终点拖回 lane=0，与起点同轨
+    const r = planDragMove(
+      [slideNote],
+      [{ kind: 'slideNode', noteIndex: 0, connIndex: endIdx }],
+      { dBeat: 0, dLane: -4 },
+      { ...B, stretchCurveOnNodeDrag: false },
+    );
+    expect(r.ok).toBe(true);
+    const out = r.notes[0] as SlideNote;
+    expect(out.spanParams?.bySpan[0]).toBeDefined();
+    // 默认按缓动重烘焙：Δlane = 0 → 所有采样点都落回 lane=0 直线
+    expect(out.connections.every((c) => Math.abs(c.lane) < 1e-9)).toBe(true);
+  });
+
+  it('开启后拖动缓动滑条端点：保留既有采样点并仿射拉伸（拖回同轨仍保持弯度），同时清除该段 spanParams', () => {
+    const slideNote = buildChainedSlide(
+      [{ beat: 1, lane: 0 }, { beat: 3, lane: 4 }],
+      { 0: { kind: 'easing', family: 'quad', type: 'in', precision: 16 } },
+      4,
+    );
+    const origHiddenCount = slideNote.connections.filter((c) => c.hidden).length;
+    const endIdx = slideNote.connections.length - 1;
+    // 把终点从 (3, 4) 拖到 (5, 0)（拍差拉长至 4 拍，且拉回同轨 lane=0）
+    const r = planDragMove(
+      [slideNote],
+      [{ kind: 'slideNode', noteIndex: 0, connIndex: endIdx }],
+      { dBeat: 2, dLane: -4 },
+      { ...B, stretchCurveOnNodeDrag: true },
+    );
+    expect(r.ok).toBe(true);
+    const out = r.notes[0] as SlideNote;
+    // 1. 采样点数量不变（未重烘焙）
+    expect(out.connections.filter((c) => c.hidden)).toHaveLength(origHiddenCount);
+    // 2. 清除受影响段的 spanParams
+    expect(out.spanParams).toBeUndefined();
+    // 3. 拍位按新区间 [1, 5] 拉伸，中点从 beat 2 映射到 beat 3，且偏移相对新弦保留弯度（quad/in 中点原在 1 < chord 2 → 偏移 -1）
+    const mid = out.connections[Math.floor(out.connections.length / 2)]!;
+    expect(mid.beat).toBeCloseTo(3, 6);
+    expect(mid.lane).toBeCloseTo(0, 6); // 0 + (-1) 被 clamp 到 0
+    // 测试向上拉大（lane 0->4 拖到 lane 2->4）：中点原偏移 -1，新弦中点 lane=3 → 结果 2（而非 quad/in 重新算出的 2.5）
+    const r2 = planDragMove(
+      [slideNote],
+      [{ kind: 'slideNode', noteIndex: 0, connIndex: 0 }],
+      { dBeat: 0, dLane: 2 },
+      { ...B, stretchCurveOnNodeDrag: true },
+    );
+    const out2 = r2.notes[0] as SlideNote;
+    const mid2 = out2.connections[Math.floor(out2.connections.length / 2)]!;
+    expect(mid2.lane).toBeCloseTo(2, 6);
+    expect(out2.spanParams).toBeUndefined();
+  });
+
+  it('开启后拖动形状模板滑条端点：同样直接仿射拉伸不重采样，并清除该段 spanParams', () => {
+    const slideNote = buildChainedSlide(
+      [{ beat: 1, lane: 2 }, { beat: 2, lane: 2 }],
+      { 0: { kind: 'template', templateId: 's-curve', precision: 64 } },
+      4,
+    );
+    const origHidden = slideNote.connections.filter((c) => c.hidden);
+    const endIdx = slideNote.connections.length - 1;
+    // 拉长至 3 拍（如果重烘焙会从 63 个 hidden 点变成 191 个；直接拉伸应保持 63 个）
+    const r = planDragMove(
+      [slideNote],
+      [{ kind: 'slideNode', noteIndex: 0, connIndex: endIdx }],
+      { dBeat: 2, dLane: 1 },
+      { ...B, stretchCurveOnNodeDrag: true },
+    );
+    expect(r.ok).toBe(true);
+    const out = r.notes[0] as SlideNote;
+    expect(out.connections.filter((c) => c.hidden)).toHaveLength(origHidden.length);
+    expect(out.spanParams).toBeUndefined();
+    expect(out.connections[out.connections.length - 1]).toMatchObject({ beat: 4, lane: 3 });
+  });
+
+  it('多段滑条：拖动中间可见结点仅自由化相邻两段，不相邻的第三段保留 spanParams', () => {
+    const p0 = { kind: 'easing' as const, family: 'sine' as const, type: 'in' as const, precision: 16 as const };
+    const p1 = { kind: 'template' as const, templateId: 'arc', precision: 16 as const };
+    const p2 = { kind: 'easing' as const, family: 'cubic' as const, type: 'out' as const, precision: 16 as const };
+    const slideNote = buildChainedSlide(
+      [{ beat: 1, lane: 1 }, { beat: 3, lane: 3 }, { beat: 5, lane: 1 }, { beat: 7, lane: 5 }],
+      { 0: p0, 1: p1, 2: p2 },
+      4,
+    );
+    // 找到第二个可见结点（beat=3, lane=3）的下标
+    const vis1Idx = slideNote.connections.findIndex((c) => !c.hidden && c.beat === 3);
+    expect(vis1Idx).toBeGreaterThan(0);
+
+    const r = planDragMove(
+      [slideNote],
+      [{ kind: 'slideNode', noteIndex: 0, connIndex: vis1Idx }],
+      { dBeat: 0.5, dLane: 1 },
+      { ...B, stretchCurveOnNodeDrag: true },
+    );
+    expect(r.ok).toBe(true);
+    const out = r.notes[0] as SlideNote;
+    // 相邻的 span 0 与 span 1 被清除自由化；不相邻的 span 2 完整保留
+    expect(out.spanParams).toEqual({
+      visibleCount: 4,
+      bySpan: { 2: p2 },
+    });
+    expect(r.items).toEqual([{ kind: 'slideNode', noteIndex: 0, connIndex: vis1Idx }]);
+  });
+
+  it('开启后整条刚体平移（Ctrl+左键 whole 与框选全可见结点+段）：均不拉伸也不自由化，完整保留几何与 spanParams', () => {
+    const p0 = { kind: 'easing' as const, family: 'quad' as const, type: 'in' as const, precision: 16 as const };
+    const slideNote = buildChainedSlide(
+      [{ beat: 1, lane: 1 }, { beat: 3, lane: 5 }],
+      { 0: p0 },
+      4,
+    );
+    const endIdx = slideNote.connections.length - 1;
+
+    // 1. Ctrl+左键整条选中（kind: 'note' -> whole）
+    const rWhole = planDragMove([slideNote], noteSel(0), { dBeat: 2, dLane: 1 }, { ...B, stretchCurveOnNodeDrag: true });
+    expect(rWhole.ok).toBe(true);
+    const outWhole = rWhole.notes[0] as SlideNote;
+    expect(outWhole.spanParams).toEqual(slideNote.spanParams);
+    expect(outWhole.connections.map((c) => c.lane)).toEqual(slideNote.connections.map((c) => c.lane + 1));
+
+    // 2. 框选整条滑条（全可见结点 + 段 -> nodes）
+    const boxItems: SelectionItem[] = [
+      { kind: 'slideNode', noteIndex: 0, connIndex: 0 },
+      { kind: 'slideRegion', noteIndex: 0, connIndex: 0 },
+      { kind: 'slideNode', noteIndex: 0, connIndex: endIdx },
+    ];
+    const rBox = planDragMove([slideNote], boxItems, { dBeat: 2, dLane: 1 }, { ...B, stretchCurveOnNodeDrag: true });
+    expect(rBox.ok).toBe(true);
+    const outBox = rBox.notes[0] as SlideNote;
+    expect(outBox.spanParams).toEqual(slideNote.spanParams);
+    expect(outBox.connections).toHaveLength(slideNote.connections.length);
+    for (let k = 0; k < slideNote.connections.length; k++) {
+      expect(outBox.connections[k]!.beat).toBeCloseTo(slideNote.connections[k]!.beat + 2, 6);
+      expect(outBox.connections[k]!.lane).toBeCloseTo(slideNote.connections[k]!.lane + 1, 6);
+    }
+  });
+
+  it('开启后多选同一段的两个可见端点一起平移：该段刚体平移并保留 spanParams，仅被单端拉动的相邻段自由化', () => {
+    const p0 = { kind: 'easing' as const, family: 'quad' as const, type: 'in' as const, precision: 16 as const };
+    const p1 = { kind: 'template' as const, templateId: 'arc', precision: 16 as const };
+    const slideNote = buildChainedSlide(
+      [{ beat: 1, lane: 0 }, { beat: 3, lane: 4 }, { beat: 5, lane: 2 }],
+      { 0: p0, 1: p1 },
+      4,
+    );
+    const vis1Idx = slideNote.connections.findIndex((c) => !c.hidden && c.beat === 3);
+
+    const r = planDragMove(
+      [slideNote],
+      [
+        { kind: 'slideNode', noteIndex: 0, connIndex: 0 },
+        { kind: 'slideNode', noteIndex: 0, connIndex: vis1Idx },
+      ],
+      { dBeat: 0.5, dLane: 1 },
+      { ...B, stretchCurveOnNodeDrag: true },
+    );
+    expect(r.ok).toBe(true);
+    const out = r.notes[0] as SlideNote;
+    expect(out.spanParams).toEqual({
+      visibleCount: 3,
+      bySpan: { 0: p0 },
+    });
+    for (let k = 0; k <= vis1Idx; k++) {
+      expect(out.connections[k]!.beat).toBeCloseTo(slideNote.connections[k]!.beat + 0.5, 6);
+      expect(out.connections[k]!.lane).toBeCloseTo(slideNote.connections[k]!.lane + 1, 6);
+    }
+  });
+});

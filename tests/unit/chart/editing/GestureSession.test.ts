@@ -11,9 +11,10 @@ import {
   type GestureEndInput,
 } from '@/src/chart/editing/GestureSession';
 import { DEFAULT_CURVE_CONFIG } from '@/src/chart/editing/CurveTool';
+import { buildChainedSlide } from '@/src/chart/editing/SpanCurve';
 import { actionOnTargetsOps, resolveActionTargets } from '@/src/chart/editing/ToolActionMatrix';
 import { findItemAt } from '@/src/rendering/hitTest/hitTest';
-import type { ChartNote } from '@/src/chart/types';
+import type { ChartNote, SlideNote } from '@/src/chart/types';
 import type { ViewportState } from '@/src/rendering/types';
 
 const bpm120 = [{ beat: 0, bpm: 120 }];
@@ -878,6 +879,40 @@ describe('issue 203 · 拖段捏形与 Alt 实时切换', () => {
     if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
     const committed = setNotes.notes.find((n) => n.type === 'Slide') as SlideNote;
     expect(committed.connections.map((c) => c.lane)).toEqual(refTriangleLanes);
+  });
+
+  it('stretchCurveOnNodeDrag 为 true 时：拖动缓动滑条端点，预览幽灵与提交产物均拉伸原曲线且清除 spanParams', () => {
+    const curveSlide = buildChainedSlide(
+      [{ beat: 50, lane: 1 }, { beat: 52, lane: 5 }],
+      { 0: { kind: 'easing', family: 'quad', type: 'in', precision: 16 } },
+      BEAT_DISPLAY,
+    );
+    const origHiddenCount = curveSlide.connections.filter((c) => c.hidden).length;
+    const notes = [bpmNote(0, 120), curveSlide];
+    const { world, at, virt } = worldOf(notes, { stretchCurveOnNodeDrag: true });
+    const { host } = makeHost();
+    const s = new GestureSession(host);
+    s.bindWorld(world);
+
+    const p0 = at(5, 52);
+    const p1 = at(1, 54);
+    press(s, p0, virt);
+    s.move(p1);
+
+    const ghost = s.getSnapshot().dragGhost;
+    expect(ghost).not.toBeNull();
+    const ghostSlide = ghost![0] as SlideNote;
+    expect(ghostSlide.connections.filter((c) => c.hidden)).toHaveLength(origHiddenCount);
+    expect(ghostSlide.spanParams).toBeUndefined();
+
+    const r = s.end(up(p1));
+    const setNotes = r.ops.find((op) => op.t === 'setNotes');
+    expect(setNotes).toBeDefined();
+    if (setNotes?.t !== 'setNotes') throw new Error('expected setNotes');
+    const committed = setNotes.notes.find((n) => n.type === 'Slide') as SlideNote;
+    expect(committed.connections.filter((c) => c.hidden)).toHaveLength(origHiddenCount);
+    expect(committed.spanParams).toBeUndefined();
+    expect(committed.connections[committed.connections.length - 1]).toMatchObject({ beat: 54, lane: 1 });
   });
 });
 

@@ -115,6 +115,7 @@
   --z-overlay: 100;
   --z-modal: 1000;
   --z-recorder: 1100;
+  --z-popover: 10010; /* 高于浮层菜单（.pp-menu__panel.is-portaled: 10000）与弹窗 */
 
   /* ---- 动效（issue 49 阶段 1：时长收敛 120/200/300） ---- */
   --ease: cubic-bezier(0.4, 0, 0.2, 1);

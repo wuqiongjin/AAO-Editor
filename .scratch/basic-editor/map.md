@@ -221,6 +221,7 @@
 - **233 高缩放播放卡顿根因调查**（[233](./issues/233-谱面画布高缩放播放卡顿根因调查.md)，`Type: research`，调查完成、未修复）—— 同谱 Electron 复现及单变量消融锁定播放期新瓦片的同步带体扫描线计算；300% 单块约 60–100ms，主画布约 1ms；需处理单块任务的连续主线程占用。
 - **234 播放瓦片带体光栅计算分片**（[234](./issues/234-播放瓦片带体光栅计算分片.md)，`Type: chore`，resolved）—— 播放预取改为共享像素算法的约 2ms 分片，保留旧位图至原子替换、取消过期结果；实际 dist 同谱 300% 连续 60 秒无 LongTask / 50ms 以上回调间隔，RGBA 与同步输出一致。
 - **235 曲线工具形状模板扩充与图形化选型**（[235](./issues/235-曲线工具形状模板扩充与图形化选型.md)，`Type: grilling`，resolved / 2026-11-15 已实现）—— **定了什么** = 仅扩内置目录为三分组 18 款（平滑 8 / 节奏 4 / 面筋锁链 6，含 `soft-elastic` 与 `gluten-comb`），保留旧 5 ID；每款自定合理基准幅度 × 全局 `amplitudeScale`（小/中/大）+ `mirrored` 偏向（左/右偏）+ 3 档 `段密`（稀疏/标准/稠密）；`zigzag` 改自适应齿数与窄幅，面筋/锁链用同拍跃迁实现斜切拉丝；配置增量随 `settings.curve` 跨会话持久化不升版本；选型面板改图形化两段切换、分类 + 4 列 SVG 网格、缓动精度胶囊与收起态迷你 SVG。已同步 ADR-0009 十四轮与 CONTEXT。
+- **236 拖动滑条结点直接拉伸曲线**（[236](./issues/236-拖动滑条结点直接拉伸曲线.md)，`Type: feature`，resolved / 2026-11-15 已实现）—— **定了什么** = `settings.display.stretchCurveOnNodeDrag`（默认 `false`），入口在显示浮层「操作偏好」；开启后拖动滑条任意可见结点（含端点）时跳过 `easing` / `template` 重烘焙，改为仿射拉伸既有采样点并仅清除受波及段的 `spanParams`（一动就自由化），组选/整条刚体平移不触发自由化；并顺带将 `HelpHint` 改用 `createPortal` + 视口防溢出定位，解决窄面板内长标题提示气泡右侧被裁切问题。已同步 ADR-0009 并通过全套单测/DOM 锁测。
 - **Type 定义（2026-09-10 定，见 `docs/agents/issue-tracker.md`）**：`bug` / `feature` / `grilling` / `chore` / `research`（旧 `task` 不回改）；**bug/feature 票强制写「锁测」段**（单测 + 覆盖不到时的 Playwright 像素实测 / 静态源码断言）。
 
 

@@ -207,3 +207,43 @@ describe('issue 218 · settings.display 扩展（judgeLineOffsetRatio 判定线�
     expect(updated.display.noteSize).toBe(base.display.noteSize);
   });
 });
+
+describe('settings.display 扩展（stretchCurveOnNodeDrag 拖动滑条结点直接拉伸曲线）', () => {
+  it('出厂默认：stretchCurveOnNodeDrag 为 false（默认关闭）', () => {
+    expect(defaultSettings().display.stretchCurveOnNodeDrag).toBe(false);
+  });
+
+  it('老设置文件缺省或非布尔脏值时回退到 false', () => {
+    const missing = loadSettings(memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: { noteSize: 1.2 },
+    })));
+    expect(missing.display.stretchCurveOnNodeDrag).toBe(false);
+
+    const dirty = loadSettings(memStorage(JSON.stringify({
+      schemaVersion: 1,
+      display: { stretchCurveOnNodeDrag: 'true' },
+    })));
+    expect(dirty.display.stretchCurveOnNodeDrag).toBe(false);
+  });
+
+  it('有效配置往返持久化保真且增量合并保持其它字段不变', () => {
+    const st = memStorage();
+    const next: AppSettings = {
+      ...defaultSettings(),
+      display: {
+        ...defaultSettings().display,
+        stretchCurveOnNodeDrag: true,
+      },
+    };
+    saveSettings(next, st);
+    const loaded = loadSettings(st);
+    expect(loaded.display.stretchCurveOnNodeDrag).toBe(true);
+
+    const updated = updateSettings(defaultSettings(), {
+      display: { stretchCurveOnNodeDrag: true },
+    });
+    expect(updated.display.stretchCurveOnNodeDrag).toBe(true);
+    expect(updated.display.pinchMode).toBe('smooth');
+  });
+});

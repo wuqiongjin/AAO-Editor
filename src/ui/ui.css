@@ -339,11 +339,17 @@
   white-space: pre-line;
   animation: dialog-in var(--dur-fast) var(--ease);
 }
+.dialog-field__popover.is-portaled {
+  position: fixed;
+  z-index: var(--z-popover);
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+}
 .dialog-field__popover::after {
   content: '';
   position: absolute;
   top: 100%;
-  left: 60px;
+  left: var(--help-hint-arrow-left, 60px);
   border: 5px solid transparent;
   border-top-color: var(--border);
 }
@@ -351,7 +357,7 @@
   content: '';
   position: absolute;
   top: calc(100% - 1px);
-  left: 60px;
+  left: var(--help-hint-arrow-left, 60px);
   border: 5px solid transparent;
   border-top-color: var(--bg-elevated);
   z-index: 1;
@@ -367,14 +373,14 @@
 .dialog-field__popover.is-below::after {
   top: auto;
   bottom: 100%;
-  left: 14px;
+  left: var(--help-hint-arrow-left, 14px);
   border-top-color: transparent;
   border-bottom-color: var(--border);
 }
 .dialog-field__popover.is-below::before {
   top: auto;
   bottom: calc(100% - 1px);
-  left: 14px;
+  left: var(--help-hint-arrow-left, 14px);
   border-top-color: transparent;
   border-bottom-color: var(--bg-elevated);
 }

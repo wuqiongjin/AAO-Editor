@@ -106,6 +106,8 @@ export interface GestureWorld {
   expandedBpmGroupKey: number | null;
   /** issue 204：滑条拖拽变形风格，默认 'smooth' */
   pinchMode?: PinchMode;
+  /** 拖动滑条可见结点（含端点）时跳过缓动/模板重烘焙并直接拉伸曲线，默认 false */
+  stretchCurveOnNodeDrag?: boolean;
 }
 
 export interface GestureBeginInput {
@@ -248,15 +250,20 @@ export class GestureSession {
     return this.result();
   }
 
+  private dragMoveBounds(w: GestureWorld) {
+    return {
+      chartEndBeat: w.chartEndBeat,
+      beatDisplay: w.beatDisplay,
+      stretchCurveOnNodeDrag: w.stretchCurveOnNodeDrag,
+    };
+  }
+
   private updateDragState(cx: number, cy: number, altKey = this.altHeld): void {
     if (!this.drag) return;
     const w = this.requireWorld();
     const d = this.dragDelta(cx, cy, this.drag, altKey);
     if (hasDragMovement(d)) {
-      const r = planDragMove(w.notes, this.drag.items, d, {
-        chartEndBeat: w.chartEndBeat,
-        beatDisplay: w.beatDisplay,
-      });
+      const r = planDragMove(w.notes, this.drag.items, d, this.dragMoveBounds(w));
       if (r.ok) {
         const ghost = r.ghost;
         this.patchSnap({
@@ -641,10 +648,7 @@ export class GestureSession {
       ];
     }
     if (hasDragMovement(d)) {
-      const r = planDragMove(w.notes, drag.items, d, {
-        chartEndBeat: w.chartEndBeat,
-        beatDisplay: w.beatDisplay,
-      });
+      const r = planDragMove(w.notes, drag.items, d, this.dragMoveBounds(w));
       if (r.ok) {
         return [
           { t: 'setNotes', notes: r.notes },

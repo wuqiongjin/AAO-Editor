@@ -452,6 +452,8 @@
   "settings.pinchMode.hint": "设置在画布上直接拖拽滑条连接段时的默认形态。\n💡 拖拽过程中按住 Alt 键可实时临时切换为另一种形态。",
   "settings.pinchMode.smooth": "圆滑曲线",
   "settings.pinchMode.triangle": "三角拉弓",
+  "settings.stretchCurveOnNodeDrag": "拖动滑条结点直接拉伸曲线",
+  "settings.stretchCurveOnNodeDrag.hint": "开启后，拖动滑条中的可见结点时（含端点），不再按缓动函数或形状模板重新生成曲线。",
   "settings.reset": "恢复默认",
   "settings.reset.hint": "将画布与偏好全部参数恢复为出厂默认，不影响音频与播放条等其它设置",
   "settings.reset.confirm": "确定恢复？{{hint}}",

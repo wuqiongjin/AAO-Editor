@@ -374,6 +374,16 @@ export default memo(function WorkspaceDisplayPanel() {
                   onChange={(pinchMode) => setDisplay({ pinchMode })}
                 />
               </Row>
+              <Row
+                label={t('settings.stretchCurveOnNodeDrag')}
+                hint={<HelpHint text={t('settings.stretchCurveOnNodeDrag.hint')} placement="up" />}
+              >
+                <Toggle
+                  label={t('settings.stretchCurveOnNodeDrag')}
+                  checked={display.stretchCurveOnNodeDrag}
+                  onChange={(stretchCurveOnNodeDrag) => setDisplay({ stretchCurveOnNodeDrag })}
+                />
+              </Row>
             </section>
 
             <section className="wdp__group" aria-label={t('workspace.displayGroup.skin')}>
