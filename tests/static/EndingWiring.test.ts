@@ -99,7 +99,7 @@ describe('52 · 章的背景 = 仿真场末帧（不照搬原型的 bgskin 裁�
       /drawEndingFrameAt\(ctx, geometry\.width, geometry\.height, ending, t - endingAt,/,
     );
     // 票 76：结尾段把跨段 HUD 交给 drawEndingFrameAt 插在舞台与烟花之间
-    expect(frameDriver).toMatch(/drawHudLayer\(hudCtx, chartSeconds, hudAlpha\)/);
+    expect(frameDriver).toMatch(/drawHudLayer\(hudCtx, chartSeconds, hudAlpha, t - simStartSeconds\)/);
     // 谱面段仍是 05 的同一份出帧（encode/ 里 `drawSimFrameAt` 仍只有一处）
     expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha, hudAlpha \}\)/);
   });

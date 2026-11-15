@@ -64,7 +64,7 @@ describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）
     expect(frameDriver).toMatch(/stampDur: ENDING_SPEC\.stampDur/);
     expect(frameDriver).toMatch(/openEnd: req\.opening \? OPENING_SECONDS : 0/);
     expect(frameDriver).toMatch(/const hudAlpha = videoHudAlphaAt\(t, hudTimeline\)/);
-    expect(frameDriver).toMatch(/drawSimHudLayer\(hudCtx, input, hudSeconds, alpha\)/);
+    expect(frameDriver).toMatch(/drawSimHudLayer\(hudCtx, input, hudSeconds, alpha, flowSeconds \?\? hudSeconds\)/);
     // HUD 内容秒与原型同口径钳到 [-leadIn, chartSeconds]（开场段别拿负得离谱的秒算分数）
     expect(frameDriver).toMatch(/Math\.max\(-leadIn, Math\.min\(chartSeconds, seconds\)\)/);
     // 开场两支（封面 / 场地分层）各画一次；谱面段走 drawSimFrameAt 的 hudAlpha
@@ -659,6 +659,27 @@ describe('76 · 跨段 HUD：生产默认档 = 原型第四版快照', () => {
   it('结尾舞台仍传 hud:false；HUD 只由独立层在舞台与烟花之间画一次', () => {
     expect(endingFrame).toMatch(/hud: false,/);
     expect(endingFrame).toMatch(/hud\?\.\(ctx, w, h\)/);
-    expect(frameDriver).toMatch(/drawHudLayer\(hudCtx, chartSeconds, hudAlpha\)/);
+    expect(frameDriver).toMatch(/drawHudLayer\(hudCtx, chartSeconds, hudAlpha, t - simStartSeconds\)/);
+  });
+});
+
+describe('票 76 回修 · SS+ 星点续动到分数条消失', () => {
+  it('结尾段仍喂内容秒 chartSeconds，另把未钳的连续秒当相位时钟传进独立层', () => {
+    expect(frameDriver).toMatch(/drawHudLayer\(hudCtx, chartSeconds, hudAlpha, t - simStartSeconds\)/);
+    expect(frameDriver).toMatch(/const hudSeconds = Math\.max\(-leadIn, Math\.min\(chartSeconds, seconds\)\)/);
+    expect(frameDriver).toMatch(/flowSeconds\?: number/);
+    expect(frameDriver).toMatch(/drawSimHudLayer\(hudCtx, input, hudSeconds, alpha, flowSeconds \?\? hudSeconds\)/);
+    // 开场两支不传 flowSeconds
+    expect((frameDriver.match(/drawHudLayer\(ctx, t - simStartSeconds, hudAlpha\)/g) ?? []).length).toBe(2);
+  });
+
+  it('相位时钟沿 drawSimHudLayer → drawTopBar → drawScoreBox → drawStarFlow 单走一条线', () => {
+    expect(simField).toMatch(/flowSeconds: number = seconds/);
+    expect(simField).toMatch(/drawScoreBox\(ctx, hud, s, flowSeconds, score, inc/);
+    expect(simField).toMatch(/drawStarFlow\(ctx, hud\.fever, band, fillW, flowSeconds, s, alpha\)/);
+    expect(simField).toMatch(/const phase = \(flowSeconds \* speed \* SIM_HUD\.starSpeed \+ i \/ n\) % 1/);
+    // 内容秒不被相位时钟带跑
+    expect(simField).toMatch(/const score = scoreAt\(chart, seconds\)/);
+    expect(simField).toMatch(/plusAgesAt\(chart, seconds, SIM_HUD\.plusDur\)/);
   });
 });

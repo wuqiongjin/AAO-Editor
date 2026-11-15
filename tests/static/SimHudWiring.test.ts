@@ -299,6 +299,13 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     expect(field).not.toMatch(/Math\.max\(2\.5 \* s, band\.h \* 0\.13\)/);
     expect(protoHud).not.toMatch(/Math\.max\(2\.5 \* s, band\.h \* 0\.13\)/);
   });
+
+  it('票 76 回修 · 原型全片连播与生产同口径：结尾段相位用未钳秒，其余段沿用内容秒', () => {
+    expect(protoHud).toMatch(/alpha = 1, flowSeconds = seconds/);
+    expect(protoHud).toMatch(/const phase = \(flowSeconds \* speed \* HUD\.starSpeed \+ i \/ n\) % 1/);
+    expect(protoScenes).toMatch(/const flowSec = abs >= tl\.endingAt \? abs - tl\.simStart : simSec/);
+    expect(protoScenes).toMatch(/drawSimHud\(ctx, W, H, simSec, plusAgesAt\(simSec\), incPerNote\(\), hudScoreAt\(simSec\), alpha,\s*flowSec\)/);
+  });
 });
 
 describe('51 · 素材路径与既有素材树同一条规则', () => {

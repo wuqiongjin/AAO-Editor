@@ -587,18 +587,20 @@ export interface SimFrameLayers {
 /**
  * 跨段 HUD 独立层（票 76）：开场 / 结尾段不经过 `drawSimFrameAt` 时，用同一个
  * `drawTopBar` 单独画顶栏。`drawSimFrameAt` 自己也走这里同一条绘制路径，不开第二份真相。
+ * `flowSeconds` 只驱动 SS+ 星点相位，与 `seconds`（分数 / `+增量`）分开；缺省 = `seconds`。
  */
 export function drawSimHudLayer(
   ctx: CanvasRenderingContext2D,
   input: SimFrameInput,
   seconds: number,
   alpha: number = 1,
+  flowSeconds: number = seconds,
 ): void {
   if ((input.scene.showGameUi ?? true) === false) return;
   const a = clamp01(alpha);
   if (a <= 0) return;
   drawTopBar(ctx, input.metrics, input.chart, seconds, input.assets.hud,
-    input.scene.autoMode ?? false, a);
+    input.scene.autoMode ?? false, a, flowSeconds);
 }
 
 /**
@@ -1307,7 +1309,7 @@ function drawScoreBox(
   ctx: CanvasRenderingContext2D,
   hud: SimHudAssets,
   s: number,
-  seconds: number,
+  flowSeconds: number,
   score: number,
   inc: number,
   ages: number[],
@@ -1347,7 +1349,7 @@ function drawScoreBox(
     );
     // 3) SS+ 档：官方四芒星左→右流动、循环（S-SS 与 SS+ 共用同一条，只 SS+ 叠这层）
     if (tierIndex === SCORE_TIERS.length - 1 && hud.fever) {
-      drawStarFlow(ctx, hud.fever, band, fillW, seconds, s, alpha);
+      drawStarFlow(ctx, hud.fever, band, fillW, flowSeconds, s, alpha);
     }
     ctx.restore();
   }
@@ -1470,7 +1472,7 @@ function drawStarFlow(
   fever: HTMLImageElement,
   band: { x: number; y: number; w: number; h: number },
   fillW: number,
-  seconds: number,
+  flowSeconds: number,
   s: number,
   alpha: number,
 ): void {
@@ -1484,7 +1486,7 @@ function drawStarFlow(
   ctx.clip();
   for (let i = 0; i < n; i++) {
     const speed = 0.22 + (((i * 37) % 11) / 11) * 0.26;
-    const phase = (seconds * speed * SIM_HUD.starSpeed + i / n) % 1;
+    const phase = (flowSeconds * speed * SIM_HUD.starSpeed + i / n) % 1;
     const sz = SIM_HUD.starSize * s * (0.55 + (((i * 53) % 7) / 7) * 0.95);
     const sx = band.x + phase * span - sz * 0.5;
     const sy = band.y + band.h * (0.18 + (((i * 29) % 5) / 5) * 0.64) - sz * 0.5;
@@ -1593,6 +1595,7 @@ function drawTopBar(
   assets: SimHudAssets,
   autoMode: boolean,
   alpha: number = 1,
+  flowSeconds: number = seconds,
 ): void {
   const hud = assets ?? EMPTY_HUD;
   const s = m.w / 1920;
@@ -1601,7 +1604,7 @@ function drawTopBar(
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.textBaseline = 'middle';
-  drawScoreBox(ctx, hud, s, seconds, score, inc,
+  drawScoreBox(ctx, hud, s, flowSeconds, score, inc,
     plusAgesAt(chart, seconds, SIM_HUD.plusDur), alpha);
   drawLife(ctx, hud, s);
   drawPause(ctx, hud, s);

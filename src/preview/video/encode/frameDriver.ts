@@ -144,18 +144,20 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
   };
 
   /** HUD 按场地原点画（与 `drawSimFrameAt` / 结尾舞台同一套坐标），进出都收好变换与 alpha。
-   *  HUD 内容秒与原型 `drawSeqHud` 同口径钳到 `[-leadIn, chartSeconds]`：开场段不能拿
-   *  负得离谱的秒去算分数 / `+增量`，结尾段停在末帧分数。 */
+   *  内容秒钳到 `[-leadIn, chartSeconds]`：开场别拿负秒算分数，结尾停在末帧分数。
+   *  `flowSeconds` 不能跟着钳位 —— 结尾段要传未钳的 `t - simStartSeconds`，SS+ 星点才会
+   *  一直流到分数条淡没；缺省回落内容秒（票 76 回修）。 */
   const drawHudLayer = (
     hudCtx: CanvasRenderingContext2D,
     seconds: number,
     alpha: number,
+    flowSeconds?: number,
   ): void => {
     if (alpha <= 0) return;
     const hudSeconds = Math.max(-leadIn, Math.min(chartSeconds, seconds));
     hudCtx.save();
     hudCtx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);
-    drawSimHudLayer(hudCtx, input, hudSeconds, alpha);
+    drawSimHudLayer(hudCtx, input, hudSeconds, alpha, flowSeconds ?? hudSeconds);
     hudCtx.restore();
   };
 
@@ -190,7 +192,7 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
       // HUD 交给 drawEndingFrameAt 插在舞台与烟花之间 ⇒ 爆炸压在分数条 / 生命条上面。
       drawEndingFrameAt(ctx, geometry.width, geometry.height, ending, t - endingAt,
         undefined,
-        (hudCtx) => drawHudLayer(hudCtx, chartSeconds, hudAlpha));
+        (hudCtx) => drawHudLayer(hudCtx, chartSeconds, hudAlpha, t - simStartSeconds));
     } else if (seg === 'sim') {
       // 谱面段：场地按导出档画在留边中间（transform 是「场地原点」，绘制里一律用场地 CSS 坐标）
       ctx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);

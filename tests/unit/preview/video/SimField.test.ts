@@ -23,6 +23,11 @@ import {
 import { emptySimAssets } from '@/src/preview/video/sim/simAssets';
 import { HUD_SPRITES, LETTER_TEXTS, SIM_HUD, plusAgesAt, scoreIncrement } from '@/src/preview/video/sim/simHud';
 import {
+  videoHudAlphaAt,
+  videoHudWindows,
+  type VideoHudTimeline,
+} from '@/src/preview/video/encode/exportSpec';
+import {
   approachSeconds,
   backgroundRect,
   comboPopScale,
@@ -1167,6 +1172,61 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
       .map(([, a]) => a as unknown[]).find((a) => a.length === 9 && a[2] === 393);
     expect(bar?.slice(1, 5)).toEqual([1, 393, 661, 22]);
     expect(calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.fever)).toHaveLength(12);
+  });
+
+  it('票 76 回修 · 内容秒冻结时 SS+ 星点仍按独立相位时钟流动，直到分数条完全消失', () => {
+    const hud = fakeHud();
+    const notes = Array.from({ length: 10 }, (_, i) => single((i + 1) * 2, 3));
+    const frame = hudFrame(notes, hud);
+    const starXs = (flowSeconds: number, alpha = 1): number[] => {
+      const { proxy, calls } = recordingCtx();
+      drawSimHudLayer(proxy, frame, 10, alpha, flowSeconds);
+      return calls
+        .filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.fever)
+        .map(([, a]) => (a as unknown[])[5] as number);
+    };
+    const atEnd = starXs(10);
+    expect(atEnd).toHaveLength(12);
+    expect(starXs(10)).toEqual(atEnd);
+    const later = starXs(11.3);
+    expect(later).toHaveLength(12);
+    expect(later.some((x, i) => Math.abs(x - atEnd[i]!) > 1e-6)).toBe(true);
+    expect(starXs(12.1, 0.5)).toHaveLength(12);
+    expect(starXs(12.1, 0)).toHaveLength(0);
+  });
+
+  // WebCodecs 帧循环单测跑不动：用与 frameDriver 同式的时间线把真实 alpha 窗接进绘制层，
+  // 锁住「跟随到分数条完全消失」而非手造 alpha。
+  it('票 76 回修 · 退场窗内星点仍按连续秒流动，alpha 归零那一帧才收干净', () => {
+    const hud = fakeHud();
+    const notes = Array.from({ length: 10 }, (_, i) => single((i + 1) * 2, 3));
+    const frame = hudFrame(notes, hud);
+    const simStart = 8.4;
+    const chartSeconds = 10;                            // 末帧秒：满分 / SS+，与 frameDriver 一样钳住
+    const tl: VideoHudTimeline = {
+      openEnd: 6.75,
+      endingAt: simStart + chartSeconds,
+      stampDur: 3,
+    };
+    const w = videoHudWindows(tl);
+    const mid = (w.outAt + w.outEnd) / 2;
+    const starsAt = (t: number): number[] => {
+      const { proxy, calls } = recordingCtx();
+      drawSimHudLayer(proxy, frame, chartSeconds, videoHudAlphaAt(t, tl), t - simStart);
+      return calls
+        .filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.fever)
+        .map(([, a]) => (a as unknown[])[5] as number);
+    };
+    expect(videoHudAlphaAt(w.outAt, tl)).toBe(1);
+    expect(videoHudAlphaAt(mid, tl)).toBeGreaterThan(0);
+    expect(videoHudAlphaAt(mid, tl)).toBeLessThan(1);
+    expect(videoHudAlphaAt(w.outEnd, tl)).toBe(0);
+    const atOut = starsAt(w.outAt);
+    const atMid = starsAt(mid);
+    expect(atOut).toHaveLength(12);
+    expect(atMid).toHaveLength(12);
+    expect(atMid.some((x, i) => Math.abs(x - atOut[i]!) > 1e-6)).toBe(true);
+    expect(starsAt(w.outEnd)).toHaveLength(0);
   });
 
   it('生命 gauge 按实机截图：上亮绿 / 下深绿两段渐变，不再切洋红色块', () => {
