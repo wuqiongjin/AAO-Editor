@@ -3,16 +3,19 @@
 //   `drawSimFrameAt`（05 的**同一份**任意秒出帧）→ 离屏画布 → `VideoFrame` → 交给编码 / 封装。
 //
 // 三条口径：
-//   - **不开第二份渲染真相**：画面完全由 `drawSimFrameAt` 画（`tests/static/VideoExportWiring.test.ts` 锁）。
+//   - **不开第二份渲染真相**：画面走 `drawSimFrameAt`；票 76 的跨段 HUD 独立层走同文件的
+//     `drawSimHudLayer`（同一个 `drawTopBar`），结尾段走 `drawEndingFrameAt`
+//     （`tests/static/VideoExportWiring.test.ts` 锁）。
 //     导出只换画布与场地尺寸（固定档，**不读窗口、不读 devicePixelRatio**，ADR-0016 §7）。
 //   - **进度按帧数走**（06 §5.4：软光栅下 1080p 端到端约 0.26× 实时，"≈ 歌曲时长"这个估法会
 //     差到 4 倍）；进度与取消都在本模块的循环里。
 //   - **分片让出主线程**（与宽图导出同一份 `yieldToMainThread`）：长谱导出期间页面不掉响应。
 //     worker 那条路（06 §4 末）要给 `CanvasSpriteIcon` 补 ImageBitmap 通路，本票不走。
-import { drawSimFrameAt, SIM_FALLBACK_BG, type SimFrameInput } from '../sim/simField';
+import { drawSimFrameAt, drawSimHudLayer, SIM_FALLBACK_BG, type SimFrameInput } from '../sim/simField';
 import { fieldMetrics, type SimFieldMetrics } from '../sim';
 import { yieldToMainThread } from '../../static/exportPanels';
 import {
+  OPENING_SECONDS,
   drawOpeningFieldBackground,
   drawOpeningFrameAt,
   drawOpeningTrack,
@@ -21,14 +24,21 @@ import {
   openingTrackAlphaAt,
   type OpeningFrameInput,
 } from '../opening';
-import { drawEndingFrameAt, type EndingContentInput, type EndingFrameInput } from '../ending';
+import {
+  drawEndingFrameAt,
+  ENDING_SPEC,
+  type EndingContentInput,
+  type EndingFrameInput,
+} from '../ending';
 import {
   frameDurationUs,
   frameSecondsAt,
   frameTimestampUs,
   leadInNoteAlphaAt,
+  videoHudAlphaAt,
   type ExportGeometry,
   type ExportTimeline,
+  type VideoHudTimeline,
 } from './exportSpec';
 
 /**
@@ -119,6 +129,33 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
     timeline.durationSeconds - simStartSeconds - endingSeconds,
   );
   const endingAt = simStartSeconds + chartSeconds;
+
+  // 票 76：跨段 HUD 的入 / 出锚点按生产常量拼成绝对秒。关开场时开场锚点归 0（入场从第 0 帧起）；
+  // 关结尾时 `endingAt` 落在总长之外，`stampEnd` 自然超尾 ⇒ 末帧仍常驻、不淡出。
+  const hudTimeline: VideoHudTimeline = {
+    // 开场四段由 `openingSegmentAt(t)` 按 `OPENING_TIMING` 常量切，锚点也取同一份常量：
+    // 旧调用方可能只给 `simStartSeconds` 而省掉 `openingSeconds`，那时不能用 0 当转场终点。
+    openEnd: req.opening ? OPENING_SECONDS : 0,
+    endingAt,
+    stampDur: ENDING_SPEC.stampDur,
+  };
+
+  /** HUD 按场地原点画（与 `drawSimFrameAt` / 结尾舞台同一套坐标），进出都收好变换与 alpha。
+   *  HUD 内容秒与原型 `drawSeqHud` 同口径钳到 `[-leadIn, chartSeconds]`：开场段不能拿
+   *  负得离谱的秒去算分数 / `+增量`，结尾段停在末帧分数。 */
+  const drawHudLayer = (
+    hudCtx: CanvasRenderingContext2D,
+    seconds: number,
+    alpha: number,
+  ): void => {
+    if (alpha <= 0) return;
+    const hudSeconds = Math.max(-leadIn, Math.min(chartSeconds, seconds));
+    hudCtx.save();
+    hudCtx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);
+    drawSimHudLayer(hudCtx, input, hudSeconds, alpha);
+    hudCtx.restore();
+  };
+
   // 场地（谱面末帧）按**对象身份**缓存：一次导出只画一次，之后每帧只做位图拷贝
   const ending: EndingFrameInput | null = req.ending
     ? {
@@ -136,14 +173,19 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
     if (req.isCancelled?.()) return { rendered, cancelled: true };
 
     const t = frameSecondsAt(timeline, k);
+    // 票 76：整片只算一次 HUD alpha，三段共用；开场 ③ / ④ 的淡入窗也落在这一条上
+    const hudAlpha = videoHudAlphaAt(t, hudTimeline);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = SIM_FALLBACK_BG;
     ctx.fillRect(0, 0, geometry.width, geometry.height);
 
     const seg = req.opening ? openingSegmentAt(t) : 'sim';
     if (ending && t >= endingAt) {
-      // 结尾段：章铺**谱面末帧**作舞台，UI 按整帧 1920×1080 画（不嵌进场地矩形）
-      drawEndingFrameAt(ctx, geometry.width, geometry.height, ending, t - endingAt);
+      // 结尾段：章铺**谱面末帧**作舞台，UI 按整帧 1920×1080 画（不嵌进场地矩形）。
+      // HUD 交给 drawEndingFrameAt 插在舞台与烟花之间 ⇒ 爆炸压在分数条 / 生命条上面。
+      drawEndingFrameAt(ctx, geometry.width, geometry.height, ending, t - endingAt,
+        undefined,
+        (hudCtx) => drawHudLayer(hudCtx, chartSeconds, hudAlpha));
     } else if (seg === 'sim') {
       // 谱面段：场地按导出档画在留边中间（transform 是「场地原点」，绘制里一律用场地 CSS 坐标）
       ctx.setTransform(1, 0, 0, 1, geometry.field.x, geometry.field.y);
@@ -152,10 +194,11 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
       const noteAlpha = t < simStartSeconds
         ? leadInNoteAlphaAt(t - openingSeconds, leadIn, approachS, timeline.fps)
         : 1;
-      drawSimFrameAt(ctx, input, t - simStartSeconds, { noteAlpha });
+      drawSimFrameAt(ctx, input, t - simStartSeconds, { noteAlpha, hudAlpha });
     } else if (seg === 'fadeIn' || seg === 'hold') {
       // ① 开场淡入 / ② 停留：整块画布画开场画面（一个 alpha 管整屏；`t` 只喂堆叠缓出）
       drawOpeningFrameAt(ctx, geometry.width, geometry.height, req.opening!, openingAlphaAt(t), t);
+      drawHudLayer(ctx, t - simStartSeconds, hudAlpha);
     } else {
       // ③ 入场过渡 / ④ 轨道淡入：只画场地的分层（背景 → 轨道），**不进 drawSimFrameAt**
       // （负秒下它会画出正在接近的音符 / 带体，不是干净的场地）
@@ -167,6 +210,7 @@ export async function driveExportFrames(req: FrameDriverRequest): Promise<FrameD
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         drawOpeningFrameAt(ctx, geometry.width, geometry.height, req.opening!, openingAlphaAt(t), t);
       }
+      drawHudLayer(ctx, t - simStartSeconds, hudAlpha);
     }
 
     const vf = new VideoFrame(canvas, {

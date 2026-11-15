@@ -21,6 +21,7 @@ export {
   buildSimChart,
   buildSimChartInChunks,
   drawSimFrameAt,
+  drawSimHudLayer,
   simComboAt,
   type SimBand,
   type SimComboStyle,

@@ -21,7 +21,12 @@ const en = readStripped('src/i18n/messages/en.json');
 describe('51 · 判定字画在仿真场帧里（预览 / 导出同一份）', () => {
   it('出帧入口里顶栏 → 判定字 → combo（HUD 三件都在 `drawSimFrameAt` 这一条路上）', () => {
     expect(field).toMatch(/if \(layers\?\.hud !== false && showGameUi\) \{/);
-    expect(field).toMatch(/drawTopBar\(ctx, metrics, chart, seconds, input\.assets\.hud, autoMode\)/);
+    // 票 76：顶栏多一个整层 alpha 倍率（缺省 1，实时回放不走淡入淡出）
+    expect(field).toMatch(
+      /drawTopBar\(ctx, metrics, chart, seconds, input\.assets\.hud, autoMode,\s*clamp01\(layers\?\.hudAlpha \?\? 1\)\)/,
+    );
+    expect(field).toMatch(/hudAlpha\?: number/);
+    expect(field).toMatch(/export function drawSimHudLayer\(/);
     expect(field).toMatch(
       /drawJudgement\(ctx, metrics, chart, seconds, input\.assets\.judge, autoMode, layers\?\.judge\)/,
     );

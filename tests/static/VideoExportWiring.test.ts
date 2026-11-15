@@ -36,11 +36,13 @@ const engine = readStripped('src/audio/AudioEngine.ts');
 const keySamples = readStripped('src/audio/keySoundSamples.ts');
 const main = readSources(['electron/main.cjs', 'electron/assets/previewExport.cjs'], true);
 const pkg = readSource('package.json');
+const protoHud = readStripped('public/proto/hudProto.js');
+const endingFrame = readStripped('src/preview/video/ending/endingFrame.ts');
 
 describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）', () => {
   // 票 74 起谱面秒 = 视频秒 − simStartSeconds（开场 + 前导）；开场四段仍画干净场地
   it('frameDriver 逐帧调 drawSimFrameAt（05 的同一份任意秒出帧）', () => {
-    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha \}\)/);
+    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha, hudAlpha \}\)/);
   });
 
   it('66 · 导出固定 100% 光栅：离线逐帧显式给比例，覆盖实时 50% 默认值', () => {
@@ -54,6 +56,18 @@ describe('07 · 画面只经 05 的出帧函数（不开第二份渲染真相）
     expect(frameDriver).toMatch(/openingSegmentAt\(t\)/);
     expect(frameDriver).toMatch(/drawOpeningFieldBackground\(/);
     expect(frameDriver).toMatch(/drawOpeningTrack\(/);
+  });
+
+  it('票 76 · 三段共用一条跨段 HUD alpha，入场窗落在开场 ③ / ④ 也照样画', () => {
+    expect(frameDriver).toMatch(/const hudTimeline: VideoHudTimeline = \{/);
+    expect(frameDriver).toMatch(/stampDur: ENDING_SPEC\.stampDur/);
+    expect(frameDriver).toMatch(/openEnd: req\.opening \? OPENING_SECONDS : 0/);
+    expect(frameDriver).toMatch(/const hudAlpha = videoHudAlphaAt\(t, hudTimeline\)/);
+    expect(frameDriver).toMatch(/drawSimHudLayer\(hudCtx, input, hudSeconds, alpha\)/);
+    // HUD 内容秒与原型同口径钳到 [-leadIn, chartSeconds]（开场段别拿负得离谱的秒算分数）
+    expect(frameDriver).toMatch(/Math\.max\(-leadIn, Math\.min\(chartSeconds, seconds\)\)/);
+    // 开场两支（封面 / 场地分层）各画一次；谱面段走 drawSimFrameAt 的 hudAlpha
+    expect((frameDriver.match(/drawHudLayer\(ctx, t - simStartSeconds, hudAlpha\)/g) ?? []).length).toBe(2);
   });
 
   it('frameDriver 不自己画场地 / 音符 / 特效（只有铺留边那一笔 fillRect）', () => {
@@ -485,7 +499,7 @@ describe('74 · 开头前导补偿（lead-in）', () => {
     expect(frameDriver).toMatch(
       /const simStartSeconds = Math\.max\(0, req\.simStartSeconds \?\? req\.openingSeconds \?\? 0\)/,
     );
-    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha \}\)/);
+    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha, hudAlpha \}\)/);
     expect(frameDriver).toMatch(/const seg = req\.opening \? openingSegmentAt\(t\) : 'sim'/);
     expect(frameDriver).toMatch(/const endingAt = simStartSeconds \+ chartSeconds/);
     // 结尾舞台仍取谱面 D 秒（票 75 的残留修复留给下一票）
@@ -581,5 +595,35 @@ describe('53 · 音轨渲染的失败口径', () => {
     const catchBlock = exportVideo.slice(close, blockEnd);
     expect(catchBlock).toMatch(/logger\.error\('\[preview\]', '导出音轨失败', err\)/);
     expect(catchBlock).toMatch(/failure: 'unknown'/);
+  });
+});
+
+// 票 76：跨段 HUD 时序落生产后，默认档必须与原型第四版快照逐项同值，
+// 且「分数条与生命条显示」这一枚总开关仍同时管住两条出帧路径。
+describe('76 · 跨段 HUD：生产默认档 = 原型第四版快照', () => {
+  it('入场 / 退场时长同名同值；锚点只留在原型调参 UI（原型调完改生产时别只改一边）', () => {
+    expect(exportSpec).toMatch(/inOffset: -2/);
+    expect(exportSpec).toMatch(/inDur: 1/);
+    expect(exportSpec).toMatch(/outOffset: 0/);
+    expect(exportSpec).toMatch(/outDur: 0\.34/);
+    // 生产不再复制黑幕 / 结算入场比例，也不暴露用不到的锚点表
+    expect(exportSpec).not.toMatch(/curtainFull|settlementIn|videoHudAnchorTimes/);
+    expect(protoHud).toMatch(/hudInAnchor: 'transitionEnd'/);
+    expect(protoHud).toMatch(/hudInOffset: -2/);
+    expect(protoHud).toMatch(/hudInDur: 1/);
+    expect(protoHud).toMatch(/hudOutAnchor: 'stampEnd'/);
+    expect(protoHud).toMatch(/hudOutDur: 0\.34/);
+  });
+
+  it('showGameUi 总开关同时管住 drawSimFrameAt 与跨段独立层两条路径', () => {
+    expect(simField).toMatch(/if \(layers\?\.hud !== false && showGameUi\)/);
+    expect(simField).toMatch(/if \(\(input\.scene\.showGameUi \?\? true\) === false\) return/);
+    expect(simField).toMatch(/hudAlpha\?: number/);
+  });
+
+  it('结尾舞台仍传 hud:false；HUD 只由独立层在舞台与烟花之间画一次', () => {
+    expect(endingFrame).toMatch(/hud: false,/);
+    expect(endingFrame).toMatch(/hud\?\.\(ctx, w, h\)/);
+    expect(frameDriver).toMatch(/drawHudLayer\(hudCtx, chartSeconds, hudAlpha\)/);
   });
 });

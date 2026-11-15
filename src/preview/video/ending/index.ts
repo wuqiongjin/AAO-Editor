@@ -28,5 +28,6 @@ export {
   type EndingContentInput,
   type EndingCounts,
   type EndingFrameInput,
+  type EndingHudDrawer,
   type EndingStageInput,
 } from './endingFrame';

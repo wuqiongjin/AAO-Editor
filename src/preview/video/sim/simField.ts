@@ -537,8 +537,10 @@ export function drawSimFrameAt(
   // 顶栏 HUD（71/72）画在判定字 / combo 之前：它是背景上的常驻层，不压字也不压数。
   // 结尾段把舞台按谱面末帧重画一次，那里只要场地，传 `hud: false` 收掉整层；
   // 用户关掉「分数条与生命条显示」时走同一道门。
+  // 票 76：`hudAlpha` 是整层淡入 / 淡出倍率，缺省 1 ⇒ 实时回放观感不变。
   if (layers?.hud !== false && showGameUi) {
-    drawTopBar(ctx, metrics, chart, seconds, input.assets.hud, autoMode);
+    drawTopBar(ctx, metrics, chart, seconds, input.assets.hud, autoMode,
+      clamp01(layers?.hudAlpha ?? 1));
   }
   // 判定字（51/71）在 combo 之下：两条 HUD 不重叠，先字后数只为免得字块压在数字上
   if (layers?.judge !== null) {
@@ -573,8 +575,30 @@ export interface SimFrameLayers {
   judge?: Partial<SimJudgeStyle> | null;
   /** 打歌 HUD 顶栏（`false` = 不画；结尾段的舞台用它） */
   hud?: boolean;
+  /**
+   * 顶栏 HUD **整层** alpha（票 76 跨段独立层的淡入 / 淡出倍率）。
+   * 缺省 1，实时回放不传 ⇒ 观感不变；结尾段由出帧入口按绝对秒算好传进来。
+   */
+  hudAlpha?: number;
   /** combo 样式 */
   combo?: Partial<SimComboStyle>;
+}
+
+/**
+ * 跨段 HUD 独立层（票 76）：开场 / 结尾段不经过 `drawSimFrameAt` 时，用同一个
+ * `drawTopBar` 单独画顶栏。`drawSimFrameAt` 自己也走这里同一条绘制路径，不开第二份真相。
+ */
+export function drawSimHudLayer(
+  ctx: CanvasRenderingContext2D,
+  input: SimFrameInput,
+  seconds: number,
+  alpha: number = 1,
+): void {
+  if ((input.scene.showGameUi ?? true) === false) return;
+  const a = clamp01(alpha);
+  if (a <= 0) return;
+  drawTopBar(ctx, input.metrics, input.chart, seconds, input.assets.hud,
+    input.scene.autoMode ?? false, a);
 }
 
 /**
@@ -1287,6 +1311,7 @@ function drawScoreBox(
   score: number,
   inc: number,
   ages: number[],
+  alpha: number,
 ): void {
   const { x, y, w, h, ky, band } = scoreGeom(s);
 
@@ -1322,17 +1347,17 @@ function drawScoreBox(
     );
     // 3) SS+ 档：官方四芒星左→右流动、循环（S-SS 与 SS+ 共用同一条，只 SS+ 叠这层）
     if (tierIndex === SCORE_TIERS.length - 1 && hud.fever) {
-      drawStarFlow(ctx, hud.fever, band, fillW, seconds, s);
+      drawStarFlow(ctx, hud.fever, band, fillW, seconds, s, alpha);
     }
     ctx.restore();
   }
 
   // 4) 等级字母 + ▽ 刻度（自绘；画在裁剪之外，刻度往下推才不会被裁掉）
-  drawLetters(ctx, band, s);
+  drawLetters(ctx, band, s, alpha);
   // 5) 7 位定宽分数（占位字：前导零灰、有效位洋红）
   drawDigits(ctx, x, y, w, h, s, score);
   // 6) `+增量`：窗口内每次命中各一条 `+inc`（不合并）；位移 / 亮度 / 渐隐按 SIM_HUD.plus* 可调
-  drawPlus(ctx, x, w, s, inc, ages);
+  drawPlus(ctx, x, w, s, inc, ages, alpha);
 }
 
 /** 灰带上的 C / B / A / S / SS + ▽：官方图集没有这套字母 / 刻度，Canvas 自绘 */
@@ -1340,6 +1365,7 @@ function drawLetters(
   ctx: CanvasRenderingContext2D,
   band: { x: number; y: number; w: number; h: number },
   s: number,
+  alpha: number,
 ): void {
   const lh = Math.min(SIM_HUD.letterH * s, band.h * 0.66);
   const fontPx = lh / 0.72;
@@ -1352,7 +1378,7 @@ function drawLetters(
   for (let i = 0; i < LETTER_TEXTS.length; i++) {
     const cx = band.x + SIM_HUD.thresholds[i]! * band.w;
     const cy = band.y + band.h * 0.38 + SIM_HUD.letterDY * s;
-    ctx.globalAlpha = SIM_HUD.letterAlpha;
+    ctx.globalAlpha = SIM_HUD.letterAlpha * alpha;
     ctx.lineWidth = Math.max(1.2, fontPx * 0.13);
     ctx.lineJoin = 'round';
     ctx.strokeStyle = SIM_HUD.letterEdge;
@@ -1361,7 +1387,7 @@ function drawLetters(
     ctx.fillText(LETTER_TEXTS[i]!, cx, cy);
 
     const ty = band.y + band.h * 0.84 + SIM_HUD.tickGap * s;
-    ctx.globalAlpha = SIM_HUD.letterAlpha * 0.92;
+    ctx.globalAlpha = SIM_HUD.letterAlpha * 0.92 * alpha;
     ctx.beginPath();
     ctx.moveTo(cx - tickW / 2, ty - tickH / 2);
     ctx.lineTo(cx + tickW / 2, ty - tickH / 2);
@@ -1408,7 +1434,7 @@ function drawDigits(
  */
 function drawPlus(
   ctx: CanvasRenderingContext2D,
-  x: number, w: number, s: number, inc: number, ages: number[],
+  x: number, w: number, s: number, inc: number, ages: number[], alpha: number,
 ): void {
   if (inc <= 0 || ages.length === 0) return;
   ctx.save();
@@ -1428,7 +1454,7 @@ function drawPlus(
     });
     const px = x + w * (SIM_HUD.plusX + motion.travel + i * SIM_HUD.plusSpreadX);
     const py = SIM_HUD.plusY * s - (motion.p * SIM_HUD.plusRise + i * SIM_HUD.plusSpreadY) * s;
-    ctx.globalAlpha = motion.alpha;
+    ctx.globalAlpha = motion.alpha * alpha;
     const text = `+${inc}`;
     ctx.strokeStyle = 'rgba(20,24,32,.5)';
     ctx.strokeText(text, px, py);
@@ -1446,6 +1472,7 @@ function drawStarFlow(
   fillW: number,
   seconds: number,
   s: number,
+  alpha: number,
 ): void {
   const n = Math.max(1, Math.round(SIM_HUD.starCount));
   const span = Math.max(1, fillW);
@@ -1461,7 +1488,7 @@ function drawStarFlow(
     const sz = SIM_HUD.starSize * s * (0.55 + (((i * 53) % 7) / 7) * 0.95);
     const sx = band.x + phase * span - sz * 0.5;
     const sy = band.y + band.h * (0.18 + (((i * 29) % 5) / 5) * 0.64) - sz * 0.5;
-    ctx.globalAlpha = SIM_HUD.starAlpha;
+    ctx.globalAlpha = SIM_HUD.starAlpha * alpha;
     ctx.drawImage(fever, box[0], box[1], box[2], box[3], sx, sy, sz, sz);
   }
   ctx.restore();
@@ -1555,7 +1582,9 @@ function drawAutoLive(
     SIM_HUD.autoX * s, SIM_HUD.autoY * s, w, h);
 }
 
-/** 打歌 HUD 顶栏（票 72）：整层由 `showGameUi` 收放；顺序 = 分数框 → 生命 → 暂停钮 → AUTO LIVE。 */
+/** 打歌 HUD 顶栏（票 72）：整层由 `showGameUi` 收放；顺序 = 分数框 → 生命 → 暂停钮 → AUTO LIVE。
+ *  票 76：`alpha` 是整层淡入 / 淡出倍率 —— 内部元件各自写 `globalAlpha`，所以除了设 ambient
+ *  还要把倍率乘进那几处，不能只在外层设一次。 */
 function drawTopBar(
   ctx: CanvasRenderingContext2D,
   m: SimFieldMetrics,
@@ -1563,15 +1592,17 @@ function drawTopBar(
   seconds: number,
   assets: SimHudAssets,
   autoMode: boolean,
+  alpha: number = 1,
 ): void {
   const hud = assets ?? EMPTY_HUD;
   const s = m.w / 1920;
   const score = scoreAt(chart, seconds);
   const inc = scoreIncrement(chart.hitTimes.length);
   ctx.save();
+  ctx.globalAlpha = alpha;
   ctx.textBaseline = 'middle';
   drawScoreBox(ctx, hud, s, seconds, score, inc,
-    plusAgesAt(chart, seconds, SIM_HUD.plusDur));
+    plusAgesAt(chart, seconds, SIM_HUD.plusDur), alpha);
   drawLife(ctx, hud, s);
   drawPause(ctx, hud, s);
   drawAutoLive(ctx, m, hud, autoMode);

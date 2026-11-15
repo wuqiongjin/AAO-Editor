@@ -40,6 +40,10 @@ import {
   resolveExportGeometry,
   tierOf,
   videoExportBasename,
+  VIDEO_HUD_TIMING,
+  videoHudAlphaAt,
+  videoHudWindows,
+  type VideoHudTimeline,
 } from '@/src/preview/video/encode/exportSpec';
 
 const icons = buildActiveNoteIcons(normalizeNoteSkinSelection({}));
@@ -468,5 +472,49 @@ describe('倒流区与 beat < 0 · 与画布播放同一口径', () => {
     for (let i = 1; i < chart.hitTimes.length; i++) {
       expect(chart.hitTimes[i]!).toBeGreaterThanOrEqual(chart.hitTimes[i - 1]!);
     }
+  });
+});
+
+// 票 76：分数条 / 生命条提成跨段独立层，入 / 出锚点挂两个转场，不再是段边界硬开关。
+// 下面是按原型第四版默认档（2026-11-15）独立算出的已知值，不复用实现里的公式。
+describe('跨段 HUD 时序 · 入 / 出窗口挂在转场锚点上', () => {
+  // 开场四段 1 + 2.2 + 1.75 + 1.8 = 6.75；谱面末帧 18.4；中央章 3s
+  const tl: VideoHudTimeline = { openEnd: 6.75, endingAt: 18.4, stampDur: 3 };
+
+  it('默认档钉死：转场终点回拨 2s、淡入 1s；章结束淡出 0.34s', () => {
+    expect(VIDEO_HUD_TIMING.inOffset).toBe(-2);
+    expect(VIDEO_HUD_TIMING.inDur).toBe(1);
+    expect(VIDEO_HUD_TIMING.outOffset).toBe(0);
+    expect(VIDEO_HUD_TIMING.outDur).toBe(0.34);
+  });
+
+  it('入场 4.75→5.75s、退场 21.40→21.74s；锚点只取转场终点与章结束', () => {
+    const w = videoHudWindows(tl);
+    expect(w.inAt).toBeCloseTo(4.75, 6);
+    expect(w.inEnd).toBeCloseTo(5.75, 6);
+    expect(w.outAt).toBeCloseTo(21.4, 6);
+    expect(w.outEnd).toBeCloseTo(21.74, 6);
+  });
+
+  it('整层 alpha：开场 0 → 淡入 → 常驻（含前导 / 正片 / 中央章）→ 淡出 → 结算 0', () => {
+    expect(videoHudAlphaAt(0, tl)).toBe(0);
+    expect(videoHudAlphaAt(4.75, tl)).toBe(0);
+    expect(videoHudAlphaAt(5.25, tl)).toBeCloseTo(0.5, 6);
+    expect(videoHudAlphaAt(5.75, tl)).toBe(1);
+    expect(videoHudAlphaAt(8, tl)).toBe(1);
+    expect(videoHudAlphaAt(18.4, tl)).toBe(1);
+    expect(videoHudAlphaAt(21.4, tl)).toBe(1);
+    expect(videoHudAlphaAt(21.57, tl)).toBeCloseTo(0.5, 6);
+    expect(videoHudAlphaAt(21.74, tl)).toBe(0);
+    expect(videoHudAlphaAt(25.9, tl)).toBe(0);
+  });
+
+  it('关开场时入场从 0 开始；关结尾时不淡出（末帧仍常驻）', () => {
+    const noOpening: VideoHudTimeline = { ...tl, openEnd: 0 };
+    const w = videoHudWindows(noOpening);
+    expect(w.inAt).toBe(0);
+    expect(w.inEnd).toBe(1);
+    expect(videoHudAlphaAt(0.5, noOpening)).toBeCloseTo(0.5, 6);
+    expect(videoHudAlphaAt(25.9, { ...tl, endingAt: 100 })).toBe(1);
   });
 });

@@ -302,6 +302,33 @@ describe('chart-preview 52 · %H / %W 换算（按帧高缩放，不按场地）
   });
 });
 
+// 票 76：HUD 是跨段独立层，结尾段要插在**舞台与烟花之间**：
+// 舞台（含轨道 / 音符 / 打击特效）→ HUD → 加色粒子 → 章字样 → 结算 / 黑幕。
+// 画在整帧最后会压住烟花，画在舞台之前又会被场地盖掉。
+describe('票 76 · 跨段 HUD 插在舞台与烟花之间', () => {
+  it('HUD 回调在 drawStage 之后、`lighter` 粒子之前（爆炸压在分数条 / 生命条上）', () => {
+    const { proxy, calls } = makeRecordingCtx({
+      measureText: measureTextOk,
+      createRadialGradient: () => ({ addColorStop: () => undefined }),
+    });
+    const particles = { naturalWidth: 512, naturalHeight: 512 } as unknown as HTMLImageElement;
+    drawEndingFrameAt(
+      proxy, 1920, 1080,
+      frameInput({ assets: { ...NO_ASSETS, particles } }), 1.0,
+      undefined,
+      (c) => { c.lineDashOffset = 424242; },
+    );
+    // frameInput 的舞台原点 = (0, 1)，这个 setTransform 就是 drawStage 那一笔
+    const stage = calls.findIndex(([k, a]) => k === 'setTransform' && a[4] === 0 && a[5] === 1);
+    const hud = calls.findIndex(([k, a]) => k === 'lineDashOffset' && a[0] === 424242);
+    const lighter = calls.findIndex(([k, a]) => k === 'globalCompositeOperation' && a[0] === 'lighter');
+    expect(stage).toBeGreaterThanOrEqual(0);
+    expect(lighter).toBeGreaterThanOrEqual(0);
+    expect(hud).toBeGreaterThan(stage);
+    expect(hud).toBeLessThan(lighter);
+  });
+});
+
 describe('chart-preview 52 · 一帧绘制', () => {
   it('章铺满整帧（场地由仿真场末帧那张离屏图来；node 下只铺兜底底色，不炸）', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });

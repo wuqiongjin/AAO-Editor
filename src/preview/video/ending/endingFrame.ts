@@ -14,7 +14,9 @@
 //     不画假徽章（票 52 Q12）。AP 与 FC 各有**两套**材质（章用大的、结算用小的），互不顶替。
 //   - **不开第二份渲染真相**：章的舞台直接调 `drawSimFrameAt` 画谱面末帧，**分层给 alpha**
 //     （背景 / 轨道+判定线 / combo 各自淡出；不再烤成一张整帧快照 —— 那样 combo 与轨道
-//     就收不掉了）；UI 层与仿真场互不共享画笔。
+//     就收不掉了）；舞台传 `hud: false`，结尾 UI 不自己画仿真场控件。
+//     票 76 唯一例外：可选 `hud` 回调把跨段独立 HUD 层插在舞台与烟花之间
+//     （用户定案「爆炸特效要压在分数条 / 生命条上面」），它复用 `drawSimHudLayer` 同一支画笔。
 import { HEADER_SANS } from '../../fontStack';
 import { drawSimFrameAt, SIM_FALLBACK_BG, type SimFrameInput } from '../sim/simField';
 import { HUD_SPRITES, scoreRankAt, type ScoreRank } from '../sim/simHud';
@@ -76,6 +78,17 @@ export interface EndingContentInput {
 export interface EndingFrameInput extends EndingContentInput {
   stage: EndingStageInput;
 }
+
+/**
+ * 跨段 HUD 独立层（票 76）的绘制回调：由出帧入口按绝对秒算好整层 alpha 后传进来。
+ * 画在**舞台之后、烟花之前** —— 中央章的爆炸 / 余烬要压在分数条 / 生命条上面。
+ * 不传 = 不画（原型 / 旧调用方行为不变）。
+ */
+export type EndingHudDrawer = (
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+) => void;
 
 // ---------------------------------------------------------------- 常量
 
@@ -2045,6 +2058,8 @@ export function drawEndingFrameAt(
   elapsed: number,
   /** 参数表覆盖（原型 / 调参用；缺省 = `ENDING_SPEC`，行为不变） */
   specOverride?: Partial<EndingSpec>,
+  /** 跨段 HUD 独立层（票 76）；画在舞台之后 / 烟花之前，不传就不画 */
+  hud?: EndingHudDrawer,
 ): void {
   const spec: EndingSpec = { ...ENDING_SPEC, ...specOverride };
   const u = endingUnits(w, h, spec);
@@ -2059,6 +2074,9 @@ export function drawEndingFrameAt(
   ctx.fillStyle = SIM_FALLBACK_BG;
   ctx.fillRect(0, 0, w, h);
   drawStage(ctx, u, input, t);
+  // 票 76：HUD 是跨段独立层，这里插在舞台与烟花之间（爆炸 / 章字样 / 黑幕都在它上面）。
+  // 舞台 `drawStage` 自己传 `hud: false`，所以不会出现两份顶栏。
+  hud?.(ctx, w, h);
 
   // CLEAR 没有中央章 / 影子星，但**要有普通烟花**（票 55 C：沿用同一套波表与配色）
   const bursts = spec.clearBurst > 0.5 || input.stamp !== 'clear';

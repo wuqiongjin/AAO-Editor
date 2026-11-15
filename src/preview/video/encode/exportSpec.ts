@@ -258,6 +258,66 @@ export function leadInNoteAlphaAt(
   return Math.max(0, Math.min(1, (frame + 1) / LEAD_IN_NOTE_FADE_FRAMES));
 }
 
+// ---------------------------------------------------------------- 跨段 HUD 时序
+//
+// 票 76（原型第四版默认档 2026-11-15）：分数条 / 生命条不再是「谱面段内部的一个布尔开关」，
+// 而是**跨段独立层**。入 / 出锚点挂在两个转场上，与谱面 0 秒 / `endingAt` 解耦：
+// 开场四段恒 0 → 转场后淡入 → 穿过前导 / 正片 / 中央章恒 1 → 黑幕转场淡出 → 结算 0。
+// 生产只落 `fixed`（修正后）这一条口径；原型里的 `legacy` / `aboveFx` 只供对比，不进生产。
+
+/** 一次导出里 HUD 要挂靠的绝对秒（由 `frameDriver` 按生产常量拼好喂进来） */
+export interface VideoHudTimeline {
+  /** 开场四段结束（`OPENING_SECONDS`）；关开场 = 0 */
+  openEnd: number;
+  /** 结尾段起点（谱面末帧）；关结尾时落在总长之外 */
+  endingAt: number;
+  /** 中央章时长（`ENDING_SPEC.stampDur`） */
+  stampDur: number;
+}
+
+/** 原型第四版默认档：入场锚 = 开场转场终点前 2s、淡入 1s；退场锚 = 中央章结束、淡出 0.34s。
+ *  锚点可换的滑杆只属于原型调参 UI，生产只落定案这两个。 */
+export const VIDEO_HUD_TIMING = {
+  inOffset: -2,
+  inDur: 1,
+  outOffset: 0,
+  /** = 黑幕涨满 0.22 × transDur(1.55)，在结算组件入场前彻底归零 */
+  outDur: 0.34,
+} as const;
+
+export interface VideoHudWindows {
+  inAt: number;
+  inEnd: number;
+  outAt: number;
+  outEnd: number;
+}
+
+const hudClamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+const hudSmooth = (x: number): number => x * x * (3 - 2 * x);
+
+/** 淡入 / 淡出两个窗口（绝对秒）：`openEnd` 与 `endingAt + stampDur` 就是两个锚点 */
+export function videoHudWindows(tl: VideoHudTimeline): VideoHudWindows {
+  const inAt = Math.max(0, tl.openEnd + VIDEO_HUD_TIMING.inOffset);
+  const outAt = Math.max(inAt, tl.endingAt + tl.stampDur + VIDEO_HUD_TIMING.outOffset);
+  return {
+    inAt,
+    inEnd: inAt + VIDEO_HUD_TIMING.inDur,
+    outAt,
+    outEnd: outAt + VIDEO_HUD_TIMING.outDur,
+  };
+}
+
+/** 整层 alpha：开场 0 → 淡入 → 常驻（含前导 / 正片 / 中央章）→ 淡出 → 结算 0 */
+export function videoHudAlphaAt(t: number, tl: VideoHudTimeline): number {
+  const w = videoHudWindows(tl);
+  if (t <= w.inAt || t >= w.outEnd) return 0;
+  const rise = w.inEnd > w.inAt
+    ? hudSmooth(hudClamp01((t - w.inAt) / (w.inEnd - w.inAt))) : 1;
+  const fall = w.outEnd > w.outAt
+    ? 1 - hudSmooth(hudClamp01((t - w.outAt) / (w.outEnd - w.outAt))) : 0;
+  return hudClamp01(Math.min(rise, fall));
+}
+
 /**
  * 建导出时间线。
  *

@@ -13,6 +13,7 @@ import type { SimHudAssets, SimSprites } from '@/src/preview/video/sim/simAssets
 import {
   buildSimChart,
   drawSimFrameAt,
+  drawSimHudLayer,
   SIM_FALLBACK_BG,
   visibleSimBandGroups,
   type SimFrameInput,
@@ -983,6 +984,34 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
     const { proxy, calls } = recordingCtx();
     drawSimFrameAt(proxy, hudFrame([single(2, 3)], NO_HUD), 1.2, { hud: false });
     expect(drawnTexts(calls)).not.toContain('1000/1000');
+  });
+
+  // 票 76：HUD 提成跨段独立层，整层要能淡入 / 淡出。内部几个元件各自写
+  // globalAlpha（等级字母 / ▽刻度 / +增量 / 星点），只在外层设一次会被它们覆盖掉。
+  it('`hudAlpha` 是整层倍率：自写 globalAlpha 的等级字母 / 刻度也一起收', () => {
+    const { proxy, calls } = recordingCtx();
+    drawSimFrameAt(proxy, hudFrame([single(2, 3)], NO_HUD), 1.2, { hudAlpha: 0.5 });
+    const alphas = propValues(calls, 'globalAlpha') as number[];
+    const near = (v: number) => alphas.some((a) => Math.abs(a - v) < 1e-9);
+    expect(near(0.5)).toBe(true);                                  // 外层 ambient
+    expect(near(SIM_HUD.letterAlpha * 0.5)).toBe(true);            // 等级字母
+    expect(near(SIM_HUD.letterAlpha * 0.92 * 0.5)).toBe(true);     // ▽ 刻度
+    const plain = recordingCtx();
+    drawSimFrameAt(plain.proxy, hudFrame([single(2, 3)], NO_HUD), 1.2);
+    expect((propValues(plain.calls, 'globalAlpha') as number[]).some((a) => a === 0.5)).toBe(false);
+  });
+
+  it('`drawSimHudLayer` 单独画顶栏：showGameUi 关掉 / alpha=0 一笔不画', () => {
+    const frame = hudFrame([single(2, 3)], NO_HUD);
+    const { proxy, calls } = recordingCtx();
+    drawSimHudLayer(proxy, frame, 1.2, 0.5);
+    expect(drawnTexts(calls)).toContain('1000/1000');
+    const off = recordingCtx();
+    drawSimHudLayer(off.proxy, { ...frame, scene: { ...frame.scene, showGameUi: false } }, 1.2, 1);
+    expect(drawnTexts(off.calls)).not.toContain('1000/1000');
+    const zero = recordingCtx();
+    drawSimHudLayer(zero.proxy, frame, 1.2, 0);
+    expect(zero.calls.length).toBe(0);
   });
 
   it('▽ 刻度三角形按 SIM_HUD.tickH 画（5 枚顶点间距 = tickH × s）', () => {

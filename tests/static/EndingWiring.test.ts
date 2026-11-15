@@ -95,10 +95,12 @@ describe('52 · 章的背景 = 仿真场末帧（不照搬原型的 bgskin 裁�
   it('frameDriver 在谱面之后切到结尾段，并画在**整帧**上', () => {
     expect(frameDriver).toMatch(/t >= endingAt/);
     expect(frameDriver).toMatch(
-      /drawEndingFrameAt\(ctx, geometry\.width, geometry\.height, ending, t - endingAt\)/,
+      /drawEndingFrameAt\(ctx, geometry\.width, geometry\.height, ending, t - endingAt,/,
     );
+    // 票 76：结尾段把跨段 HUD 交给 drawEndingFrameAt 插在舞台与烟花之间
+    expect(frameDriver).toMatch(/drawHudLayer\(hudCtx, chartSeconds, hudAlpha\)/);
     // 谱面段仍是 05 的同一份出帧（encode/ 里 `drawSimFrameAt` 仍只有一处）
-    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha \}\)/);
+    expect(frameDriver).toMatch(/drawSimFrameAt\(ctx, input, t - simStartSeconds, \{ noteAlpha, hudAlpha \}\)/);
   });
 
   it('结尾层的舞台直接调 drawSimFrameAt 画谱面末帧（同一份渲染真相）', () => {
