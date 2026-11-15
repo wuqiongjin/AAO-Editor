@@ -277,9 +277,11 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
       cover: project?.coverBlob ?? null,
       coverHue: projectCoverHue(project?.id ?? chart.id),
       items: settings.export.opening.items,
-      // 可选的附加字段（作词/作曲/编曲/谱师，chart-preview 39）：
-      // 当前 ChartProject 尚未扩容此 4 个字段（未来扩容时直接透传）；这里留好接线口
-      credits: (project as { credits?: OpeningInput['credits'] })?.credits ?? null,
+      // 票 79：曲目署名接真实工程 / 谱面数据（工程级 3 项 + 谱面级谱师署名）；导出阶段不现取账号名。
+      credits: {
+        lyricist: project?.lyricist ?? null, composer: project?.composer ?? null,
+        arranger: project?.arranger ?? null, charter: chart.charterCredit ?? null,
+      },
     };
   }, [chart, project, settings.export.opening]);
 
@@ -348,6 +350,8 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
         noteCount: countChartNotes(chart.notes),
         bpms: getBpmEvents(chart.notes).map((e) => e.bpm),
         exportedAt: Date.now(),
+        // 票 79：谱师署名（谱面级），第 8 枚 chip 只在 settings.export.charter 开时出现
+        charterCredit: chart.charterCredit ?? null,
         fields: settings.export,
         cover: project?.coverBlob ?? null,
         coverHue: projectCoverHue(project?.id ?? chart.id),

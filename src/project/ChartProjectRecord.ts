@@ -20,9 +20,14 @@ export interface ProjectRecordDoc {
   schemaVersion: typeof PROJECT_SCHEMA_VERSION;
   name: string | null;
   artist: string | null;
+  /** 曲目署名（票 79）：可选以兼容老记录；缺值由 RECORD_FIELDS.read 回落 null */
+  lyricist?: string | null;
+  composer?: string | null;
+  arranger?: string | null;
   source: SongSource;
   durationSeconds: number;
   lastOpened: number;
+  /** 谱师署名在 `ProjectChart` 里，同样可选 */
   charts: ProjectChart[];
   audioName: string | null;
   coverName: string | null;
@@ -106,6 +111,16 @@ type RecordFieldKey = keyof RecordFields;
  * - `write`：工程 → 文档字段；快照／JSON 规范化统一在记录出口完成。
  * 加字段只动这张表；漏字段或漏写任一方向，`satisfies` 编译期报错。
  */
+/** 曲目署名 / 谱师署名（票 79）：只认字符串，缺字段 / 脏值回落空 —— 老记录不迁移。 */
+const readCredit = (raw: unknown): string | null => (typeof raw === 'string' ? raw : null);
+
+/** 谱面数组逐张归一谱师署名；其余字段（含 ADR-0014 的未知字段）原样保留。 */
+function readProjectCharts(raw: unknown): ProjectChart[] {
+  const charts = (raw as ProjectChart[] | undefined) ?? [];
+  if (!Array.isArray(charts)) return [];
+  return charts.map((c) => ({ ...c, charterCredit: readCredit(c?.charterCredit) }));
+}
+
 const RECORD_FIELDS = {
   name: {
     read: (raw: unknown): string | null => (raw as string | null | undefined) ?? null,
@@ -114,6 +129,19 @@ const RECORD_FIELDS = {
   artist: {
     read: (raw: unknown): string | null => (raw as string | null | undefined) ?? null,
     write: (src: RecordFields): string | null => src.artist,
+  },
+  // 曲目署名：工程级三项（票 79），additive，不 bump schemaVersion
+  lyricist: {
+    read: readCredit,
+    write: (src: RecordFields): string | null => src.lyricist ?? null,
+  },
+  composer: {
+    read: readCredit,
+    write: (src: RecordFields): string | null => src.composer ?? null,
+  },
+  arranger: {
+    read: readCredit,
+    write: (src: RecordFields): string | null => src.arranger ?? null,
   },
   source: {
     read: (raw: unknown): SongSource => {
@@ -136,7 +164,7 @@ const RECORD_FIELDS = {
     write: (src: RecordFields): number => src.lastOpened,
   },
   charts: {
-    read: (raw: unknown): ProjectChart[] => (raw as ProjectChart[] | undefined) ?? [],
+    read: readProjectCharts,
     write: (src: RecordFields): ProjectChart[] => src.charts,
   },
   audioName: {

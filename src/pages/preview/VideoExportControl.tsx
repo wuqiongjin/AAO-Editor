@@ -398,7 +398,7 @@ export default function VideoExportControl({
               />
             </Row>
 
-            {/* 曲目信息片头（chart-preview 30）：总开关管整段，下面三行是开场里画哪些信息项。
+            {/* 曲目信息片头（chart-preview 30 / 79）：总开关管整段，下面 7 行是开场里画哪些信息项。
                 关掉时当场置灰（与「导出信息」那一组同一套行为，管什么由这个行为自己说明）。 */}
             {opening && onOpeningChange && (
               <section className="pvex__group pvex__group--sub">

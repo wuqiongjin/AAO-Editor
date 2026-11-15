@@ -299,6 +299,10 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
 }) {
   const [name, setName] = useState(project.name ?? '');
   const [artist, setArtist] = useState(project.artist ?? '');
+  // 曲目署名（票 79）：工程级 3 项；谱师署名在谱面信息弹窗（谱面级）
+  const [lyricist, setLyricist] = useState(project.lyricist ?? '');
+  const [composer, setComposer] = useState(project.composer ?? '');
+  const [arranger, setArranger] = useState(project.arranger ?? '');
   // 封面三态：null 沿用既有 / File 新选 / 'clear' 清除（保存时按此推导 patch 出参）
   const [cover, setCover] = useState<CoverValue>(null);
   // 只管既有封面的 URL：新选的 File 由 CoverField 自己开，同一张图不建两次 objectURL。
@@ -339,6 +343,9 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
   const buildPatch = () => ({
     name,
     artist,
+    lyricist,
+    composer,
+    arranger,
     source: project.source,
     coverName: cover instanceof File ? cover.name : undefined,
     coverBlob: cover instanceof File ? cover : undefined,
@@ -379,9 +386,25 @@ export function EditInfoDialog({ project, onClose, onSave, onOpenAudio }: {
             <span>{t('projects.name')}</span>
             <input value={name} placeholder={untitledProjectLabel()} onChange={(e) => setName(e.target.value)} />
           </label>
+          {/* 曲目署名（票 79 / ADR-0024 §2）：乐队（既有 artist）+ 作词 / 作曲 / 编曲同属工程级 */}
+          <div className="dialog-field dialog-credits-group">
+            <span>{t('projects.credit.group')}</span>
+          </div>
           <label className="dialog-field">
             <span>{t('projects.artist')}</span>
             <input value={artist} placeholder={t('projects.artistMissing')} onChange={(e) => setArtist(e.target.value)} />
+          </label>
+          <label className="dialog-field">
+            <span>{t('projects.credit.lyricist')}</span>
+            <input value={lyricist} placeholder={t('projects.artistLater')} onChange={(e) => setLyricist(e.target.value)} />
+          </label>
+          <label className="dialog-field">
+            <span>{t('projects.credit.composer')}</span>
+            <input value={composer} placeholder={t('projects.artistLater')} onChange={(e) => setComposer(e.target.value)} />
+          </label>
+          <label className="dialog-field">
+            <span>{t('projects.credit.arranger')}</span>
+            <input value={arranger} placeholder={t('projects.artistLater')} onChange={(e) => setArranger(e.target.value)} />
           </label>
 
           {/* 音频信息与管理跳转：整合为通栏音轨条，设置按钮内嵌在右侧；长文件名支持动态往返走马灯 */}

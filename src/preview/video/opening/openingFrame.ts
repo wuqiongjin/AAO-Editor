@@ -13,8 +13,9 @@ import type { SimFieldMetrics } from '../sim/simGeometry';
 import { fieldImageRect, playLineRect } from '../sim/simGeometry';
 import { drawSimBackground } from '../sim/simField';
 import { drawOpeningDecor } from './openingDecor';
-import type { OpeningItemId } from './openingItems';
+import { OPENING_ITEM_IDS, type OpeningItemId } from './openingItems';
 import { HEADER_SANS } from '../../fontStack';
+import { t, type MessageKey } from '../../../i18n';
 import {
   OPENING_BADGE_HEIGHT_FACTOR,
   OPENING_BAND_COLOR,
@@ -31,7 +32,11 @@ import {
   type OpeningTiming,
 } from './openingSpec';
 
-/** 歌曲信息附加字段（全部可选：作词 / 作曲 / 编曲 / 谱师，空项不占位） */
+/**
+ * 歌曲信息附加字段（全部可选：作词 / 作曲 / 编曲 / 谱师，空项不占位）。
+ * 这是**绘制层**的入参（票 39 定的形状）：`charter` 装的是工程里的「谱师署名」，
+ * 不是 Bestdori 社区帖作者（那是 `PostCandidate.charter`）—— 术语边界见 ADR-0024 §1。
+ */
 export interface OpeningCredits {
   /** 作词 */
   lyricist?: string | null;
@@ -39,7 +44,7 @@ export interface OpeningCredits {
   composer?: string | null;
   /** 编曲 */
   arranger?: string | null;
-  /** 谱师 */
+  /** 谱师署名 */
   charter?: string | null;
 }
 
@@ -123,25 +128,36 @@ function drawFittedText(
   inkCentered(ctx, truncateToWidth(ctx, text, maxW), cx, cy);
 }
 
-const CREDIT_FIELDS = [
-  ['lyricist', '作词'],
-  ['composer', '作曲'],
-  ['arranger', '编曲'],
-  ['charter', '谱师'],
-] as const;
+/**
+ * 4 行附加字段的**声明式列表**：key 同时是 `OpeningItemId`（一枚开关 gate 一行）与 credits 键。
+ * 标签走 i18n（票 79 Q13=B）：zh-CN 全角冒号、en 半角冒号空格，模板在
+ * `preview.opening.credit.line`，四个词统一为角色名 Lyricist / Composer / Arranger / Charter。
+ */
+const CREDIT_FIELDS: readonly (readonly [keyof OpeningCredits, MessageKey])[] = [
+  ['lyricist', 'preview.opening.credit.lyricist'],
+  ['composer', 'preview.opening.credit.composer'],
+  ['arranger', 'preview.opening.credit.arranger'],
+  ['charter', 'preview.opening.credit.charter'],
+];
 
 /**
- * 提取有效的附加字段行（空值不占位）。
- * 顺序：作词 → 作曲 → 编曲 → 谱师。
+ * 提取有效的附加字段行（票 79）。
+ * - 顺序固定：作词 → 作曲 → 编曲 → 谱师；
+ * - `items` = 开着的开场信息项（缺省 = 全开）：每枚开关 gate 自己那一行；
+ * - 值为空 / 纯空白 / 该项关掉 ⇒ 不画也不占位（票 39「空项不占位」口径）。
  */
-export function extractCreditLines(credits?: OpeningCredits | null): string[] {
+export function extractCreditLines(
+  credits?: OpeningCredits | null,
+  items: readonly OpeningItemId[] = OPENING_ITEM_IDS,
+): string[] {
   if (!credits) return [];
   const lines: string[] = [];
-  for (const [key, label] of CREDIT_FIELDS) {
+  for (const [key, labelKey] of CREDIT_FIELDS) {
+    if (!items.includes(key)) continue;
     const raw = credits[key];
     const val = typeof raw === 'string' ? raw.trim() : '';
     if (val) {
-      lines.push(`${label}：${val}`);
+      lines.push(t('preview.opening.credit.line', { label: t(labelKey), value: val }));
     }
   }
   return lines;
@@ -272,7 +288,7 @@ export function drawOpeningFrameAt(
   ctx.fillStyle = OPENING_BG;
   ctx.fillRect(0, 0, w, h);
 
-  const creditLines = extractCreditLines(input.credits);
+  const creditLines = extractCreditLines(input.credits, input.items);
   const m = openingStackMetrics(w, h, input.items, creditLines.length, stack.distance);
   const cx = w / 2;
   // 垫层缓出（票 50 · A 轻推）：露出厚度从 0 长到 `stackD`，单层向右上推出

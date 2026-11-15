@@ -10,6 +10,7 @@ import {
   HEADER_COVER_MAX,
   bpmRangeText,
   buildSheetHeaderModel,
+  fitChipTexts,
   formatExportStamp,
   layoutChips,
   layoutInfoStack,
@@ -40,6 +41,7 @@ function input(over: Partial<SheetHeaderInput> = {}): SheetHeaderInput {
     bpms: [120],
     exportedAt: new Date(2026, 9, 6, 21, 30).getTime(),
     fields: fields(),
+    charterCredit: null,
     cover: null,
     coverHue: 200,
     ...over,
@@ -161,6 +163,50 @@ describe('chart-preview 14 · 信息区模型（字段开关 / 回落 / 去重�
   it('音符数千位分隔用 ASCII 逗号（不赌 ICU）', () => {
     const model = buildSheetHeaderModel(input({ noteCount: 1234567, fields: fields({ noteCount: true }) }));
     expect(model.chips).toEqual([{ text: t('preview.export.chip.notes', { count: '1,234,567' }), accent: '#c4b5fd' }]);
+  });
+});
+
+describe('票 79 · 静态头带第 8 枚「谱师」chip', () => {
+  const CHARTER_ACCENT = '#6ee7b7';
+
+  it('开关开且值非空 ⇒ 末位一枚 chip，值原样（联合创作不解析）', () => {
+    const model = buildSheetHeaderModel(input({
+      charterCredit: 'A、B / C',
+      fields: fields({ difficulty: true, charter: true }),
+    }));
+    expect(model.chips).toEqual([
+      { text: 'EXP 32', accent: DIFF_EX_COLOR },
+      { text: t('preview.export.chip.charter', { name: 'A、B / C' }), accent: CHARTER_ACCENT, truncate: true },
+    ]);
+  });
+
+  it('全 8 项开时「谱师」仍排最后；关 / 空 / 纯空白 ⇒ 不画也不占位', () => {
+    const all = buildSheetHeaderModel(input({
+      charterCredit: '千石抚子',
+      fields: {
+        ...fields(), difficulty: true, duration: true, noteCount: true,
+        bpm: true, exportedAt: true, charter: true,
+      },
+    }));
+    expect(all.chips.at(-1)?.text).toBe(t('preview.export.chip.charter', { name: '千石抚子' }));
+
+    expect(buildSheetHeaderModel(input({ fields: fields({ charter: true }) })).chips).toEqual([]);
+    expect(buildSheetHeaderModel(input({ charterCredit: '   ', fields: fields({ charter: true }) })).chips).toEqual([]);
+    expect(buildSheetHeaderModel(input({ charterCredit: '千石抚子', fields: fields() })).chips).toEqual([]);
+  });
+
+  it('只给谱师这枚做超长截断：不再被 packChipRows 整枚跳过，其余 chip 行为不变', () => {
+    const measure = (s: string) => s.length * 10;
+    const long = { text: '谱师：' + 'A'.repeat(40), accent: CHARTER_ACCENT, truncate: true };
+    const fitted = fitChipTexts([long], measure, 300 - 2 * 28);
+    expect(fitted[0].text.length).toBeLessThan(long.text.length);
+    expect(layoutChips(fitted, measure, 0, 300, 300).map((c) => c.text)).toEqual([fitted[0].text]);
+    // 未打标记的 chip 原样：通用打包策略不动
+    expect(fitChipTexts([{ text: 'a'.repeat(40), accent: CHARTER_ACCENT }], measure, 244)[0].text)
+      .toBe('a'.repeat(40));
+    // 两行放满时仍沿用既有「截掉后面的」
+    const eight = ['a', 'b', 'c', 'd', 'e', 'f', 'g', '谱师'].map((text) => ({ text, accent: CHARTER_ACCENT }));
+    expect(layoutChips(eight, measure, 0, 100, 300)).toHaveLength(2);
   });
 });
 

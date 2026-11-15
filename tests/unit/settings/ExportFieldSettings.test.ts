@@ -1,6 +1,6 @@
 // chart-preview 14：导出信息字段开关（`settings.export`）的默认值 / 归一化 / 段内写回。
 //
-// 为什么单测：这一组决定「导出图里写什么」，七项都是布尔 —— 脏值必须静默回落、缺段（旧数据）
+// 为什么单测：这一组决定「导出图里写什么」，八项都是布尔 —— 脏值必须静默回落、缺段（旧数据）
 // 必须补默认（否则导出头带拿到 undefined 当 false 用，用户开了的项会莫名消失）。
 // 与 `settings.preview` 同款 additive 段：不 bump schemaVersion。
 import { describe, expect, it } from 'vitest';
@@ -26,8 +26,16 @@ describe('chart-preview 14 · 导出头带默认档', () => {
       noteCount: false,
       bpm: true,
       exportedAt: false,
-      // 30 起：视频开场（总开关 + 三项信息项）默认全开；与上面 7 个信息区字段**互不跟随**
-      opening: { enabled: true, items: { difficulty: true, title: true, artist: true } },
+      // 79：静态谱师 chip 默认关（不改动老用户既有的出图版式）
+      charter: false,
+      // 30 起 / 79 扩：视频开场 7 项信息项默认全开；与上面 8 个信息区字段**互不跟随**
+      opening: {
+        enabled: true,
+        items: {
+          difficulty: true, title: true, artist: true,
+          lyricist: true, composer: true, arranger: true, charter: true,
+        },
+      },
       // 52 起：结尾画面默认开 + ALL PERFECT（Auto 永远 PERFECT）
       ending: { enabled: true, stamp: 'ap' },
     });
@@ -36,7 +44,7 @@ describe('chart-preview 14 · 导出头带默认档', () => {
 
   it('候选全列 = 信息区字段（不含 enabled / opening / ending）；这三项另算 —— 它们管整段，不是一项字段', () => {
     expect(EXPORT_FIELD_KEYS).toEqual([
-      'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt',
+      'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt', 'charter',
     ]);
     expect(EXPORT_FIELD_KEYS).not.toContain('enabled');
     expect(EXPORT_FIELD_KEYS).not.toContain('opening');
@@ -91,6 +99,26 @@ describe('chart-preview 14 · mergeSettings 归一化', () => {
   it('additive 段：不 bump schemaVersion', () => {
     expect(defaultSettings().schemaVersion).toBe(1);
     expect(stripComments(readSource('src/settings/AppSettings.ts'))).not.toMatch(/schemaVersion:\s*[2-9]/);
+  });
+
+  it('票 79 · 老配置缺 charter 回落默认关；显式开关只影响静态那一项，不碰开场 7 项', () => {
+    const loaded = loadSettings(settingsStorageOf({
+      export: { chartTitle: true, difficulty: true, bpm: true },
+    }));
+    expect(loaded.export.charter).toBe(false);
+    expect(loaded.export.opening.items).toEqual({ ...DEFAULT_EXPORT_FIELDS.opening.items });
+
+    const on = updateSettings(loaded, { export: { charter: true } });
+    expect(on.export.charter).toBe(true);
+    expect(on.export.opening.items).toEqual(loaded.export.opening.items);
+    expect(updateSettings(loaded, {
+      export: {
+        opening: {
+          enabled: true,
+          items: { ...loaded.export.opening.items, charter: false },
+        },
+      },
+    }).export.charter).toBe(false);
   });
 
   it('saveSettings → loadSettings 往返带上 export（配置导入导出同源）', () => {

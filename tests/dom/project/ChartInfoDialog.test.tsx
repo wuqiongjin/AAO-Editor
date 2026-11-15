@@ -66,6 +66,43 @@ describe('票 43 · ChartInfoDialog 等级', () => {
     );
     fireEvent.change(screen.getByPlaceholderText('可稍后填写'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onUpdate).toHaveBeenCalledWith({ title: 'Expert', diff: 3, level: null });
+    expect(onUpdate).toHaveBeenCalledWith({
+      title: 'Expert', diff: 3, level: null,
+      // 票 79：谱师署名随表单一起回传（空 = 清空）
+      charterCredit: null,
+    });
+  });
+});
+
+describe('票 79 · 新增谱面的谱师署名', () => {
+  const renderAdd = () => {
+    const onAdd = vi.fn();
+    render(
+      <ChartInfoDialog
+        project={project}
+        chart={null}
+        onClose={vi.fn()}
+        onAdd={onAdd}
+        onUpdate={vi.fn()}
+      />,
+    );
+    return onAdd;
+  };
+
+  it('留空 ⇒ 不把 charterCredit 递下去，让创建侧落登录账号名默认值', () => {
+    const onAdd = renderAdd();
+    fireEvent.click(screen.getByRole('button', { name: '添加' }));
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onAdd.mock.calls[0][0]).not.toHaveProperty('charterCredit');
+  });
+
+  it('手填 ⇒ 原样递下去（手动填写优先），联合创作的名字不拆', () => {
+    const onAdd = renderAdd();
+    fireEvent.change(
+      screen.getByPlaceholderText('默认用登录账号昵称，可手填（联合创作写一起即可）'),
+      { target: { value: '  A、B / C  ' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: '添加' }));
+    expect(onAdd.mock.calls[0][0].charterCredit).toBe('A、B / C');
   });
 });

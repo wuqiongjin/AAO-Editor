@@ -254,9 +254,9 @@ export function normalizeCachePolicy(
 }
 
 /**
- * 导出头带 + 信息区字段（chart-preview 14，字段候选 2026-10-06 用户拍板；`enabled` 2026-10-06 追加）：
- * 导出图**要不要带头带**（封面区 + 信息区），以及信息区显示哪些项。
- * 七项里没有「谱师姓名」——本票不做（用户拍板：后续票再谈）。
+ * 导出头带 + 信息区字段（chart-preview 14，字段候选 2026-10-06 用户拍板；`enabled` 2026-10-06 追加；
+ * `charter` 2026-11-15 票 79 追加）：导出图**要不要带头带**（封面区 + 信息区），以及信息区显示哪些项。
+ * 八项里「谱师」是票 79 补上的第 8 枚 chip（默认关），值来自谱面的「谱师署名」。
  */
 export interface ExportFieldSettings {
   /**
@@ -279,8 +279,13 @@ export interface ExportFieldSettings {
   /** 导出时间（本地时区，写到分钟） */
   exportedAt: boolean;
   /**
-   * **视频开场**（chart-preview 30）：动态预览导出物最前面那段的总开关 + 信息项开关。
-   * 与上面 7 个「信息区字段」**互不跟随**（那是长图头带的谱面统计信息，这是歌曲信息）。
+   * **谱师**（票 79）：信息区 chips 行末位的一枚 chip，值来自谱面的「谱师署名」。
+   * 默认关 —— 不改动老用户既有的出图版式；开关开但值为空 ⇒ 不画。
+   */
+  charter: boolean;
+  /**
+   * **视频开场**（chart-preview 30 / 79）：动态预览导出物最前面那段的总开关 + 7 项信息项开关。
+   * 与上面 8 个「信息区字段」**互不跟随**（那是长图头带的谱面信息，这是歌曲信息）。
    */
   opening: OpeningSettings;
   /**
@@ -291,8 +296,8 @@ export interface ExportFieldSettings {
 }
 
 /**
- * 视频开场设置（chart-preview 30）：`enabled` 关掉 = 回到"第 0 帧即前导负秒、总长 = 前导 + 谱面时长 + 末击尾段"；
- * 三项信息项 = 难度徽章 / 标题条 / 艺人行（本期不做 credits / 谱师名）。
+ * 视频开场设置（chart-preview 30 / 79）：`enabled` 关掉 = 回到"第 0 帧即前导负秒、总长 = 前导 + 谱面时长 + 末击尾段"；
+ * 7 项信息项 = 难度 / 歌曲标题 / 乐队 / 作词 / 作曲 / 编曲 / 谱师，每枚开关 gate 自己那一行。
  */
 export interface OpeningSettings {
   enabled: boolean;
@@ -318,16 +323,24 @@ export const ENDING_STAMP_IDS: readonly EndingStamp[] = ['ap', 'fc', 'clear'];
 export const DEFAULT_ENDING: EndingSettings = { enabled: true, stamp: 'ap' };
 
 /** 开场信息项的候选全列（声明式：未来加项 = 加一个 id + 默认值 + 文案 + 一处绘制） */
-export const OPENING_ITEM_IDS = ['difficulty', 'title', 'artist'] as const;
+export const OPENING_ITEM_IDS = [
+  'difficulty', 'title', 'artist',
+  // 票 79：曲目署名的 4 行（工程级 3 项 + 谱面级谱师），逐项 gate 绘制层
+  'lyricist', 'composer', 'arranger', 'charter',
+] as const;
 
 /** 开场信息项 id */
 export type OpeningItemId = (typeof OPENING_ITEM_IDS)[number];
 
-/** 开场信息项默认值（**全开**） */
+/** 开场信息项默认值（**全开**；票 79 新增 4 项同样默认开、缺字段回落 true） */
 export const DEFAULT_OPENING_ITEMS: Record<OpeningItemId, boolean> = {
   difficulty: true,
   title: true,
   artist: true,
+  lyricist: true,
+  composer: true,
+  arranger: true,
+  charter: true,
 };
 
 /** 导出信息字段的候选全列（归一化与「导出信息」UI 组共用同一份，免得两处各列一遍） */
@@ -335,12 +348,13 @@ export const EXPORT_FIELD_KEYS: readonly Exclude<
   keyof ExportFieldSettings,
   'enabled' | 'opening' | 'ending'
 >[] = [
-  'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt',
+  'projectName', 'chartTitle', 'difficulty', 'duration', 'noteCount', 'bpm', 'exportedAt', 'charter',
 ];
 
 /**
  * 导出默认档（chart-preview 14，用户 2026-10-06 拍板）：**带头带**（`enabled`），
  * 信息区写 **谱面标题 + 难度等级 + BPM**，其余关（工程名 / 时长 / 音符数 / 导出时间）。
+ * 票 79 新增的「谱师」默认**关**（不改动老用户既有的出图版式）。
  */
 export const DEFAULT_EXPORT_FIELDS: ExportFieldSettings = {
   enabled: true,
@@ -351,6 +365,7 @@ export const DEFAULT_EXPORT_FIELDS: ExportFieldSettings = {
   noteCount: false,
   bpm: true,
   exportedAt: false,
+  charter: false,
   // 视频开场默认全开；**缺字段回落 true**（老用户不得被静默关掉，定案 5）
   opening: { enabled: true, items: { ...DEFAULT_OPENING_ITEMS } },
   // 结尾画面默认开 + ALL PERFECT（票 52 Q8）

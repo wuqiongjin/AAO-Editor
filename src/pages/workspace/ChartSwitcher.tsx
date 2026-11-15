@@ -14,8 +14,8 @@ import {
   DIFF_NAMES,
   DIFF_SHORT,
   diffPillLabel,
+  applyChartInfoPatch,
   duplicateChartInProject,
-  updateChartInfo,
 } from '../../project/projectCatalog';
 import { chartStatus, pickCurrentChart } from '../../project/workspaceProject';
 import { countChartNotes } from '../../chart/editing/NoteEditing';
@@ -206,7 +206,7 @@ export default memo(function ChartSwitcher() {
             })();
           }}
           onUpdate={(patch) => {
-            void mutate((p) => updateChartInfo(p, chartInfo.chart!.id, patch, Date.now()));
+            void mutate((p) => applyChartInfoPatch(p, chartInfo.chart!.id, patch, Date.now()));
             setChartInfo(null);
           }}
         />

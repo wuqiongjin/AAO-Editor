@@ -1,5 +1,9 @@
-// 谱面信息对话框（chart-projects 04 / 05）：新增可贴谱面代码（Apply 闸门在调用方）；已上传只读。
+// 谱面信息对话框（chart-projects 04 / 05；票 79 补谱师署名）：新增可贴谱面代码（Apply 闸门在调用方）。
 // 壳走 ui/Dialog（通用弹窗壳）—— 与新建 / 编辑工程信息、删除确认同一张脸（issue 16）。
+//
+// 票 79：谱师署名是**谱面级元数据**。已上传谱面的本体只读（谱面名称 / 难度 / 等级仍禁用），
+// 但署名与难度 / 等级 / 标签同档、可改 ⇒ 保存按钮在只读态也保留，父级用
+// `applyChartInfoPatch`（updateChartInfo 跳过已上传 + 谱师署名一律可写）各管各的。
 import { useState } from 'react';
 import type { ChartDifficulty, ChartProject, ProjectChart } from '../ChartProject';
 import { DIFF_NAMES } from '../projectCatalog';
@@ -30,6 +34,20 @@ export function readChartLevelInput(raw: string):
   return { persist: true, level: n };
 }
 
+export interface ChartInfoPatch {
+  title: string | null;
+  diff: ChartDifficulty;
+  level: number | null;
+  /** 谱师署名（票 79）：自由文本，联合创作由作者自己写分隔符 */
+  charterCredit: string | null;
+}
+
+/** 新增谱面：没填谱师署名就**别把字段递下去**，让 `addChartToProject` 落登录账号名默认值。 */
+export interface ChartInfoAddInput extends Omit<ChartInfoPatch, 'charterCredit'> {
+  charterCredit?: string | null;
+  codeText: string;
+}
+
 export function ChartInfoDialog({
   project, chart, defaultDiff = 3, onClose, onAdd, onUpdate,
 }: {
@@ -37,22 +55,26 @@ export function ChartInfoDialog({
   chart: ProjectChart | null;
   defaultDiff?: ChartDifficulty;
   onClose: () => void;
-  onAdd: (input: { title: string | null; diff: ChartDifficulty; level: number | null; codeText: string }) => void;
-  onUpdate: (patch: { title: string | null; diff: ChartDifficulty; level: number | null }) => void;
+  onAdd: (input: ChartInfoAddInput) => void;
+  onUpdate: (patch: ChartInfoPatch) => void;
 }) {
   const locked = !!chart?.upload;
   const [title, setTitle] = useState(chart?.title ?? '');
   const [diff, setDiff] = useState<ChartDifficulty>(chart?.diff ?? defaultDiff);
   const [level, setLevel] = useState(chart?.level != null ? String(chart.level) : '');
   const [code, setCode] = useState('');
+  const [charterCredit, setCharterCredit] = useState(chart?.charterCredit ?? '');
   const levelInput = readChartLevelInput(level);
   const save = () => {
     if (!levelInput.persist) return;
+    const base = { title: title.trim() || null, diff, level: levelInput.level };
+    const credit = charterCredit.trim();
     if (chart) {
-      onUpdate({ title: title.trim() || null, diff, level: levelInput.level });
+      onUpdate({ ...base, charterCredit: credit || null });
       return;
     }
-    onAdd({ title: title.trim() || null, diff, level: levelInput.level, codeText: code });
+    // 票 79：手动填写 > 登录账号名 > 空。留空 = 没填（不是"清空"），交给创建侧落默认值。
+    onAdd({ ...base, codeText: code, ...(credit ? { charterCredit: credit } : {}) });
   };
   return (
     <Dialog
@@ -61,11 +83,9 @@ export function ChartInfoDialog({
       footer={(
         <>
           <ActionBtn onClick={onClose}>{t('projects.cancel')}</ActionBtn>
-          {!locked && (
-            <ActionBtn variant="primary" onClick={save} disabled={!levelInput.persist}>
-              {chart ? t('projects.save') : t('projects.add')}
-            </ActionBtn>
-          )}
+          <ActionBtn variant="primary" onClick={save} disabled={!levelInput.persist}>
+            {chart ? t('projects.save') : t('projects.add')}
+          </ActionBtn>
         </>
       )}
     >
@@ -85,6 +105,15 @@ export function ChartInfoDialog({
           <input value={level} placeholder={t('projects.levelLater')} disabled={locked} inputMode="numeric" onChange={(e) => setLevel(e.target.value)} />
         </label>
       </div>
+      {/* 票 79：谱师署名不随「已上传只读」禁用 —— 它是导出画面用的元数据 */}
+      <label className="dialog-field">
+        <span>{t('projects.credit.charter')}</span>
+        <input
+          value={charterCredit}
+          placeholder={t('projects.credit.charterPlaceholder')}
+          onChange={(e) => setCharterCredit(e.target.value)}
+        />
+      </label>
       {!chart && (
         <label className="dialog-field">
           <span>{t('projects.chartCode')}</span>

@@ -31,6 +31,7 @@ import {
   type OpeningItemId,
 } from '@/src/preview/video/opening';
 import { fieldMetrics } from '@/src/preview/video/sim/simGeometry';
+import { getActiveUiLanguage, setActiveUiLanguage } from '@/src/i18n';
 import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
 
 /** 假封面（node 环境没有真图；`drawSquareCover` 只读 width / height） */
@@ -159,7 +160,7 @@ describe('chart-preview 30 · 一帧绘制', () => {
     expect(t).toContain('Roselia');
   });
 
-  it('三项全关 ⇒ 只剩封面（不画徽章 / 白条 / 艺人行，且整块重新垂直居中）', () => {
+  it('七项全关 ⇒ 只剩封面（不画徽章 / 白条 / 艺人行 / credits，且整块重新垂直居中）', () => {
     const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
     drawOpeningFrameAt(proxy, 1920, 1080, frameInput({ items: [] }), 1);
     expect(texts(calls)).toEqual([]);
@@ -269,10 +270,60 @@ describe('chart-preview 50 · 堆叠 A 轻推', () => {
 });
 
 describe('chart-preview 30 · 信息项的有序列表', () => {
-  it('只留开着的项，顺序照 `OPENING_ITEM_IDS`', () => {
+  it('只留开着的项，顺序照 `OPENING_ITEM_IDS`（票 79 起共 7 项）', () => {
     const items = { ...DEFAULT_OPENING_ITEMS, title: false } as Record<OpeningItemId, boolean>;
-    expect(openingItemOrder(items)).toEqual(['difficulty', 'artist']);
+    expect(openingItemOrder(items)).toEqual([
+      'difficulty', 'artist', 'lyricist', 'composer', 'arranger', 'charter',
+    ]);
     expect(openingItemOrder({ ...DEFAULT_OPENING_ITEMS })).toEqual([...OPENING_ITEM_IDS]);
+  });
+});
+
+describe('票 79 · 附加字段逐项 gate + i18n 标签', () => {
+  const allCredits = {
+    lyricist: '織田あすか',
+    composer: '都丸椋太',
+    arranger: '堀川大翼',
+    charter: 'A、B',
+  };
+
+  it('extractCreditLines 只取开着的项；关掉的两行不画也不占位', () => {
+    expect(extractCreditLines(allCredits, ['composer', 'charter'])).toEqual([
+      '作曲：都丸椋太', '谱师：A、B',
+    ]);
+    expect(extractCreditLines(allCredits, [])).toEqual([]);
+    expect(extractCreditLines(null, [...OPENING_ITEM_IDS])).toEqual([]);
+  });
+
+  it('drawOpeningFrameAt：开 2 关 2 只画 2 行，且栈高按 2 行算', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawOpeningFrameAt(proxy, 1920, 1080, frameInput({
+      credits: allCredits,
+      items: ['difficulty', 'title', 'artist', 'composer', 'charter'],
+    }), 1);
+    const t = texts(calls).filter((s) => /作词|作曲|编曲|谱师/.test(s));
+    expect(t).toEqual(['作曲：都丸椋太', '谱师：A、B']);
+  });
+
+  it('联合创作的名字原样一行输出（不解析、不拆行）', () => {
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+    drawOpeningFrameAt(proxy, 1920, 1080, frameInput({
+      credits: { charter: 'A、B / C' },
+      items: [...OPENING_ITEM_IDS],
+    }), 1);
+    expect(texts(calls).filter((s) => /谱师/.test(s))).toEqual(['谱师：A、B / C']);
+  });
+
+  it('英文界面：Lyricist / Composer / Arranger / Charter + 半角冒号空格', () => {
+    const prev = getActiveUiLanguage();
+    setActiveUiLanguage('en');
+    try {
+      expect(extractCreditLines(allCredits, [...OPENING_ITEM_IDS])).toEqual([
+        'Lyricist: 織田あすか', 'Composer: 都丸椋太', 'Arranger: 堀川大翼', 'Charter: A、B',
+      ]);
+    } finally {
+      setActiveUiLanguage(prev);
+    }
   });
 });
 

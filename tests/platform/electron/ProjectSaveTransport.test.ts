@@ -17,6 +17,8 @@ function fixture(): ChartProject {
     charts: [{
       id: 'c1', title: null, diff: 3, level: null, completed: false, upload: null,
       lastModified: 1, chartCodePristine: true,
+      // 票 79：谱师署名随谱面记录跨 JSON 文本往返
+      charterCredit: 'A、B',
       appliedChartCodeText: '[ {"type":"System","data":"未知字段保真"} ]',
       notes: [
         { type: 'BPM', beat: 0, bpm: 120 },

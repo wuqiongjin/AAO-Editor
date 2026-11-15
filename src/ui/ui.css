@@ -531,6 +531,8 @@
 .dialog-edit-fields { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .dialog-edit-fields .dialog-field { gap: 5px; }
 .dialog-edit-fields input { height: 32px; padding: 0 10px; font-size: var(--text-sm); }
+/* 票 79：编辑工程信息里的「曲目署名」分组标题（只是一行分隔，不是可输入字段） */
+.dialog-credits-group { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
 /* 弹窗被压到很窄（小窗 / 92vw）时右栏挤不下两个并排字段，退回单栏 */
 @media (max-width: 420px) {
   .dialog-edit-grid { grid-template-columns: 1fr; }

@@ -56,12 +56,22 @@ export interface ProjectChart {
   publishDraft?: string | null;
   /** 社区帖标签（票 51 Q3/Q8）：空数组合法；复制带走，发布后不清 */
   tags?: ChartTag[];
+  /**
+   * 谱师署名（票 79 / ADR-0024 §2）：谱面级、只服务导出画面，可含多位作者（自由文本）。
+   * 新建谱面时取当前登录账号的 `nickname ?? username` 落值；老谱面缺字段 = 空，只能手填。
+   * **不是** Bestdori 社区帖作者（那是「谱师」），也不会从导入帖的 charter 带入。
+   */
+  charterCredit?: string | null;
 }
 
 export interface ChartProject {
   id: string;
   name: string | null;
   artist: string | null;
+  /** 曲目署名（票 79）：工程级、只服务导出画面；空值不画 */
+  lyricist?: string | null;
+  composer?: string | null;
+  arranger?: string | null;
   source: SongSource;
   durationSeconds: number;
   lastOpened: number;

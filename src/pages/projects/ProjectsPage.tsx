@@ -11,7 +11,7 @@ import { useCurrentProject } from '../../app/providers/CurrentProjectProvider';
 import { newChartId, newProjectId, type ChartDifficulty, type ChartProject, type ProjectChart } from '../../project/ChartProject';
 import { mutateProject } from '../../project/ChartProjectRecord';
 import {
-  addChartToProject, createBlankProject, deleteChartFromProject, duplicateProject, updateChartInfo, updateProjectInfo,
+  addChartToProject, applyChartInfoPatch, createBlankProject, deleteChartFromProject, duplicateProject, updateProjectInfo,
 } from '../../project/projectCatalog';
 import { mostRecentlyOpenedId, sortProjects } from '../../project/projectSort';
 import { ChartInfoDialog } from '../../project/ui/ChartInfoDialog';
@@ -412,7 +412,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
             })();
           }}
           onUpdate={(patch) => {
-            void mutate(chartForm.project.id, (p) => updateChartInfo(p, chartForm.chart!.id, patch, Date.now()));
+            void mutate(chartForm.project.id, (p) => applyChartInfoPatch(p, chartForm.chart!.id, patch, Date.now()));
             setChartForm(null);
           }}
         />

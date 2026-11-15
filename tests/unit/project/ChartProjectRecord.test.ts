@@ -26,6 +26,8 @@ function chart(overrides: Partial<ProjectChart> = {}): ProjectChart {
     lastModified: 1_700_000_000_000,
     appliedChartCodeText: null,
     chartCodePristine: false,
+    // 票 79：谱面级谱师署名也要走记录往返
+    charterCredit: '千石抚子',
     ...overrides,
   };
 }
