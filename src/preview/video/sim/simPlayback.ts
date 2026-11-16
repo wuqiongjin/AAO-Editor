@@ -12,7 +12,7 @@
 // 没传时回落引擎默认 1（其出厂值也是 1；导出侧同一口径，07 不再改）。
 import { AudioEngine } from '../../../audio/AudioEngine';
 import type { ChartNote } from '../../../chart/types';
-import { drawSimFrameAt, type SimFrameInput } from './simField';
+import { drawSimFrameAt, prepareSimComboSprites, type SimFrameInput } from './simField';
 
 // 倍速的区间 / 常用档 / 步长 / 归一化随控件抽到 `src/playback/playbackRateState`（chart-preview 58，
 // 引擎的 PLAYBACK_RATE_RANGE 仍是唯一真相源）。这里按旧名原样再导出，保住预览域 barrel 与
@@ -211,6 +211,15 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
 
   return {
     setFrame(input: SimFrameInput): void {
+      if (disposed) return;
+      // 准备完成后才把新输入交给出帧；同步边界没有可迟到覆盖新尺寸 / 素材的异步结果。
+      try {
+        prepareSimComboSprites(input.metrics, input.assets.sprites);
+      } catch (e) {
+        // 字形回读 / 瓦片不可用时走既有缺精灵画法，不能在热路径中反复重试同一个失败。
+        console.warn('[preview] combo 准备失败（按缺精灵渲染）:', e);
+        input = { ...input, assets: { ...input.assets, sprites: null } };
+      }
       frame = input;
       syncChart(input);
       render();

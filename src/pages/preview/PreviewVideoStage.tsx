@@ -28,6 +28,7 @@ import { resolveCanvasDpr } from '../../rendering';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection, type ActiveNoteIcons } from '../../rendering/skin/noteSkin';
 import CanvasSpriteIcon from '../../ui/CanvasSpriteIcon';
 import { prepareSimNoteSprites } from '../../preview/video/sim/prepareSimNoteSprites';
+import { prepareSimRendering } from '../../preview/video/sim/prepareSimRendering';
 import {
   buildSimChartInChunks,
   createSimPlayback,
@@ -146,6 +147,9 @@ export default function PreviewVideoStage({
   const [preparedIcons, setPreparedIcons] = useState<typeof noteIcons | null>(null);
   /** 票 69：谱面派生表异步进场 —— 首帧不再被 O(notes) 的同步派生压住 */
   const [derived, setDerived] = useState<DerivedChart | null>(null);
+  const [preparedRendering, setPreparedRendering] = useState<{
+    input: SimFrameInput; density: number; audio: SimPlaybackAudio | null; syncToken: VideoSyncToken | null;
+  } | null>(null);
   // 实时画布位图密度：画布那套口径（min(设备像素比, 档位)）——逐帧直绘，不叠超采样；
   // 导出侧的固定档由 07 显式给，不跟这里走
   const density = resolveCanvasDpr(imageQuality);
@@ -226,6 +230,11 @@ export default function PreviewVideoStage({
   const chartReady = derived != null;
   const stageReady = ready && chartReady;
   const frameReady = ready && derived?.scene === scene && derived?.noteIcons === noteIcons;
+  const renderingReady = frameReady && preparedRendering?.input.scene === scene
+    && preparedRendering.input.noteIcons === noteIcons && preparedRendering.input.assets === assets
+    && preparedRendering.input.chart === derived?.chart && preparedRendering.input.metrics === metrics
+    && preparedRendering.density === density && preparedRendering.audio === audio
+    && preparedRendering.syncToken === syncToken;
 
   const onSecondsChangeRef = useRef(onSecondsChange);
   onSecondsChangeRef.current = onSecondsChange;
@@ -325,12 +334,27 @@ export default function PreviewVideoStage({
       spriteIcon,
       bpmEvents: derived.bpmEvents,
     };
-    pb.setFrame(input);
-    if (syncToken != null) onSyncComplete?.(syncToken);
+    let cancelled = false;
+    void prepareSimRendering(input, density, { isCancelled: () => cancelled })
+      .catch((e) => {
+        console.warn('[preview] 仿真场绘制预热失败（按原路径渲染）:', e);
+        return true;
+      })
+      .then((prepared) => {
+        if (cancelled || !prepared) return;
+        pb.setFrame(input);
+        setPreparedRendering({ input, density, audio, syncToken });
+        if (syncToken != null) onSyncComplete?.(syncToken);
+      });
+    return () => { cancelled = true; };
     // skinVersion 是"图集到位"的信号：它不进 input，但要触发重推（暂停态那帧是缺图画的）
-  }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready, syncToken, onSyncComplete]);
+  }, [derived, frameReady, scene, metrics, assets, noteIcons, skinVersion, ready, density, stageReady, audio, syncToken, onSyncComplete]);
 
-  const togglePlay = useCallback(() => playbackRef.current?.toggle(), []);
+  const togglePlay = useCallback(() => {
+    // 未就绪时只允许暂停；HUD 的 playing 可能属于刚被换掉的旧播放器。
+    if (renderingReady) playbackRef.current?.toggle();
+    else playbackRef.current?.pause();
+  }, [renderingReady]);
   const seekTo = useCallback((seconds: number) => {
     playbackRef.current?.seek(seconds);
     onSecondsChange?.(seconds);
@@ -383,6 +407,9 @@ export default function PreviewVideoStage({
         ) : (
           <p className="preview-stage__pending">{t('preview.video.loading')}</p>
         )}
+        {stageReady && !renderingReady ? (
+          <p className="preview-stage__pending pv-field__pending" role="status">{t('preview.video.loading')}</p>
+        ) : null}
       </div>
 
       {/* 播放条（工作台同一件 PlayBar，issue 22）：外壳走 `--preview` 变体（舞台底部一行），

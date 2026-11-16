@@ -1759,7 +1759,7 @@ function glyphInk(
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(rect.sw));
   canvas.height = Math.max(1, Math.round(rect.sh));
-  const g = canvas.getContext('2d');
+  const g = canvas.getContext('2d', { willReadFrequently: true });
   if (!g) return null;
   g.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, canvas.width, canvas.height);
   const { data } = g.getImageData(0, 0, canvas.width, canvas.height);
@@ -1878,6 +1878,25 @@ function glowTile(
   g.fillRect(0, 0, out.width, out.height);
   map.set(key, out);
   return { canvas: out, pad };
+}
+
+/**
+ * 实时回放接入新素材 / 场地尺寸时准备全部 combo 字形（issue 80）。
+ * 不依赖当前秒或 AP 开关：seek 到未见数字、播放中打开 AP 都不能触发墨迹回读 / 瓦片新建。
+ * 与出帧共用缓存及尺寸真源；离线导出仍可按需生成，不增加逐帧工作。
+ */
+export function prepareSimComboSprites(m: SimFieldMetrics, sprites: SimSprites | null): void {
+  if (!sprites) return;
+  const { digitW, digitH, labelW, labelH } = comboMetrics(m);
+  for (let digit = 0; digit < 10; digit++) {
+    const rect = digitRect(sprites, digit);
+    glyphInk(sprites.digits, rect);
+    apTile(sprites.digits, rect, digitW, digitH);
+    glowTile(sprites.digits, rect, digitW, digitH);
+  }
+  const label = { sx: 0, sy: 0, sw: sprites.combo.width, sh: sprites.combo.height };
+  apTile(sprites.combo, label, labelW, labelH, 0.045);
+  glowTile(sprites.combo, label, labelW, labelH, 0.08);
 }
 
 /**

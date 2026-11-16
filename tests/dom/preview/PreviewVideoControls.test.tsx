@@ -43,6 +43,9 @@ const derivationTiming = vi.hoisted(() => ({ pendingVisible: [] as boolean[] }))
 vi.mock('@/src/preview/video/sim/prepareSimNoteSprites', () => ({
   prepareSimNoteSprites: vi.fn(async () => undefined),
 }));
+vi.mock('@/src/preview/video/sim/prepareSimRendering', () => ({
+  prepareSimRendering: vi.fn(async () => true),
+}));
 
 // 谱面派生入口的探针：只在「调用那一刻」记一笔 DOM 状态，其余行为全走真身。
 // jsdom 没有真实绘制，能观测到的首帧时序是「React 提交 DOM」与「派生函数被调用」的先后。
@@ -101,6 +104,7 @@ vi.mock('@/src/preview', async (importOriginal) => {
 import PreviewVideoStage from '@/src/pages/preview/PreviewVideoStage';
 import type { ChartNote } from '@/src/chart/types';
 import { prepareSimNoteSprites } from '@/src/preview/video/sim/prepareSimNoteSprites';
+import { prepareSimRendering } from '@/src/preview/video/sim/prepareSimRendering';
 import { PLAYBACK_RATE_RANGE, SIM_PLAYBACK_RATE_PRESETS, SIM_PLAYBACK_RATE_STEP, type SimPlaybackAudio, type SimScene } from '@/src/preview';
 import { getDefaultConfig, setCapturingShortcut } from '@/src/settings/ShortcutConfig';
 import { t } from '@/src/i18n';
@@ -135,6 +139,7 @@ async function renderStage(opts: {
   initialSeconds?: number;
   onSecondsChange?: (s: number) => void;
   scene?: SimScene;
+  waitForFrame?: boolean;
 } = {}) {
   const {
     volume = 1,
@@ -144,6 +149,7 @@ async function renderStage(opts: {
     initialSeconds = 0,
     onSecondsChange,
     scene: curScene = scene,
+    waitForFrame = true,
   } = opts;
   const onVolumeChange = vi.fn();
   const view = render(
@@ -165,7 +171,7 @@ async function renderStage(opts: {
     />,
   );
   // 素材是异步进场的：等回放真的建起来（控件要接到它上面）
-  await waitFor(() => expect(calls.setFrame).toHaveBeenCalled());
+  if (waitForFrame) await waitFor(() => expect(calls.setFrame).toHaveBeenCalled());
   calls.setOptions.mockClear();
   return { ...view, onVolumeChange };
 }
@@ -244,6 +250,72 @@ describe('动态预览播放条 · 播放器控件（chart-preview 20）', () =>
     await act(async () => { finish(); await prepared; });
     await rendering;
     expect(calls.setFrame).toHaveBeenCalled();
+  });
+
+  it('issue 80：完整绘制尚未准备时显示加载并拦住播放，完成后才推帧及放行', async () => {
+    const { act } = await import('@testing-library/react');
+    let finish!: (ready: boolean) => void;
+    const prepared = new Promise<boolean>(resolve => { finish = resolve; });
+    vi.mocked(prepareSimRendering).mockClear();
+    vi.mocked(prepareSimRendering).mockReturnValueOnce(prepared);
+    const rendering = renderStage();
+    await waitFor(() => expect(prepareSimRendering).toHaveBeenCalled());
+    expect(screen.getByText(t('preview.video.loading'))).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.setFrame).not.toHaveBeenCalled();
+    expect(calls.play).not.toHaveBeenCalled();
+    await act(async () => { finish(true); await prepared; });
+    await rendering;
+    expect(screen.queryByText(t('preview.video.loading'))).toBeNull();
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.play).toHaveBeenCalledOnce();
+  });
+
+  it('issue 80：准备中变更绘制条件，旧任务迟到不能放行新输入，重复播放不重备', async () => {
+    const { act } = await import('@testing-library/react');
+    let finishOld!: (ready: boolean) => void;
+    let finishNew!: (ready: boolean) => void;
+    const oldTask = new Promise<boolean>(resolve => { finishOld = resolve; });
+    const newTask = new Promise<boolean>(resolve => { finishNew = resolve; });
+    vi.mocked(prepareSimRendering).mockClear();
+    vi.mocked(prepareSimRendering).mockReturnValueOnce(oldTask).mockReturnValueOnce(newTask);
+    const view = await renderStage({ waitForFrame: false });
+    await waitFor(() => expect(prepareSimRendering).toHaveBeenCalledOnce());
+    const changed = { ...scene, noteSize: 1.5 };
+    view.rerender(<PreviewVideoStage active scene={changed} duration={12} audio={null}
+      keySetId="skin00" seVolume={1} volume={1} onVolumeChange={view.onVolumeChange}
+      imageQuality="high" noteSkin={'default' as AppSettings['visual']['noteSkin']} shortcuts={SHORTCUTS} />);
+    await waitFor(() => expect(prepareSimRendering).toHaveBeenCalledTimes(2));
+    await act(async () => { finishOld(true); await oldTask; });
+    expect(calls.setFrame).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.play).not.toHaveBeenCalled();
+    await act(async () => { finishNew(true); await newTask; });
+    expect(calls.setFrame.mock.lastCall?.[0].scene).toBe(changed);
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.play).toHaveBeenCalledTimes(2);
+    expect(prepareSimRendering).toHaveBeenCalledTimes(2);
+  });
+
+  it('issue 80：重建播放器后旧的 playing 状态不能绕过新播放器的准备门禁', async () => {
+    const { act } = await import('@testing-library/react');
+    const view = await renderStage();
+    await act(async () => { calls.lastOnTick?.(0, true); });
+    let finish!: (ready: boolean) => void;
+    const task = new Promise<boolean>(resolve => { finish = resolve; });
+    vi.mocked(prepareSimRendering).mockReturnValueOnce(task);
+    const changedAudio = { name: 'new.wav', blob: new Blob() };
+    calls.setFrame.mockClear();
+    view.rerender(<PreviewVideoStage active scene={scene} duration={12} audio={changedAudio}
+      keySetId="skin00" seVolume={1} volume={1} onVolumeChange={view.onVolumeChange}
+      imageQuality="high" noteSkin={'default' as AppSettings['visual']['noteSkin']} shortcuts={SHORTCUTS} />);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(t('preview.video.loading')));
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    expect(calls.play).not.toHaveBeenCalled();
+    expect(calls.setFrame).not.toHaveBeenCalled();
+    await act(async () => { finish(true); await task; });
+    expect(calls.setFrame).toHaveBeenCalledOnce();
   });
 
   it('倍速：触钮是播放条那一排的同款图标钮（图标 + 当前倍速），面板是点开才有的', async () => {

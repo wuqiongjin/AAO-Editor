@@ -952,12 +952,17 @@
 }
 
 .pv-field {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   align-items: center;
   justify-content: center;
   min-height: 0;
   overflow: hidden;
+}
+
+.pv-field__pending {
+  position: absolute;
 }
 
 /* 场地：尺寸由 JS 按设计面 contain 算（`fitDesignSurface`），这里是它的容器。

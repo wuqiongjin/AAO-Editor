@@ -225,6 +225,7 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'gen',
       'index.ts',
       'prepareSimNoteSprites.ts', // 68：开播前准备独立音符切片与 mip（含按住端帽和挂件）
+      'prepareSimRendering.ts', // 80：完整绘制冷路径准备与播放门禁
       'simAssetPacks.ts',
       'simAssets.ts',
       'simBandRaster.ts', // 65：带体贴图剖面 / LUT / 一张共享缓冲的逐像素光栅
