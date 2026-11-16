@@ -4,7 +4,7 @@
 //
 // 单测为什么够：出帧是纯函数（`drawSimFrameAt(ctx, frame, seconds)`）——把精灵换成记录替身，
 // 就能看清"这一秒画了哪些元素、画在哪个矩形"；**光栅观感**仍归 `scripts/sim-shot.mjs` 的位图人工核对。
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { hasAssetSnapshot } from '@/tests/support/assetSnapshot';
 import type { ChartNote, SingleNote, SlideNote } from '@/src/chart/types';
 import { buildActiveNoteIcons, normalizeNoteSkinSelection } from '@/src/rendering/skin/noteSkin';
@@ -748,6 +748,43 @@ const CX = Math.floor(fieldMetrics(1334, 750).centerX * SIM_BAND_RASTER_SCALE);
 const ROW = 250;
 
 describe('drawSimFrameAt · 带体逐像素光栅（chart-preview 65）', () => {
+  it.each([SIM_BAND_RASTER_SCALE, SIM_BAND_RASTER_SCALE_FULL])('带体连续出帧不再复制整张 RGBA（scale=%s）', (scale) => {
+    const { spriteIcon } = makeRecordingSprite();
+    const frame = frameOf([verticalSlide()], spriteIcon, scale);
+    const { proxy } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1.5);
+    const image = lastScratch!.image!;
+    const copy = vi.spyOn(image.data, 'set');
+    try {
+      drawSimFrameAt(proxy, frame, 1.6);
+      drawSimFrameAt(proxy, frame, 1.7);
+      expect(copy.mock.calls.length).toBe(0);
+      expect(lastScratch!.image).toBe(image);
+      expect(image.data.some((v, i) => i % 4 === 3 && v > 0)).toBe(true);
+    } finally {
+      copy.mockRestore();
+    }
+  });
+
+  it.each([SIM_BAND_RASTER_SCALE, SIM_BAND_RASTER_SCALE_FULL])('复用带体像素会清掉旧轨位，且不同画布互不覆盖（scale=%s）', (scale) => {
+    const { spriteIcon } = makeRecordingSprite();
+    const atLane = (lane: number) => frameOf([
+      slide([{ beat: 0, lane }, { beat: 4, lane }]),
+    ], spriteIcon, scale);
+    const { proxy } = recordingCtx();
+    drawSimFrameAt(proxy, atLane(0), 1.5);
+    const reused = lastScratch!.image!;
+    const previous = reused.data.slice();
+    drawSimFrameAt(proxy, atLane(6), 1.5);
+    expect(reused.data.some((v, i) => v !== previous[i])).toBe(true);
+    const current = reused.data.slice();
+    const fresh = drawnFrame(atLane(6), 1.5).image;
+    expect(fresh.data.every((v, i) => v === current[i])).toBe(true);
+    drawSimFrameAt(proxy, atLane(0), 1.5);
+    expect(reused.data.every((v, i) => v === previous[i])).toBe(true);
+    expect(fresh.data.every((v, i) => v === current[i])).toBe(true);
+  });
+
   it('每帧 1 次 putImageData + 1 次 drawImage 回贴；缓冲 = 场地 × 50%', () => {
     const { spriteIcon } = makeRecordingSprite();
     const frame = frameOf([verticalSlide()], spriteIcon);

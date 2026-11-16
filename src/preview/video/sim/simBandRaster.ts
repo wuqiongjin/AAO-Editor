@@ -208,7 +208,7 @@ interface SimBandNode extends BandPoint {
   half: number;
 }
 
-/** 一张共享 RGBA 缓冲（每帧 `view.fill(0)` 清零，尺寸只随场地 / 密度变化） */
+/** 一张共享 RGBA 缓冲（回写路径直接使用 ImageData.data；每帧 `view.fill(0)` 清零） */
 export interface SimBandRasterBuffer {
   cw: number;
   ch: number;
@@ -390,10 +390,15 @@ function ensureScratch(ctx: CanvasRenderingContext2D, cw: number, ch: number, rx
   if (!scratch.offctx || !scratch.canvas) return scratch;
   if (!scratch.buffer || scratch.buffer.cw !== cw || scratch.buffer.ch !== ch
     || scratch.buffer.rx !== rx || scratch.buffer.ry !== ry) {
-    scratch.buffer = makeSimBandRasterBuffer(cw, ch, rx, ry);
     scratch.canvas.width = cw;
     scratch.canvas.height = ch;
     scratch.image = scratch.offctx.createImageData(cw, ch);
+    // 光栅直接写入待回写的 ImageData，避免每帧再复制整张 RGBA，也少持有一份整图数组。
+    const bytes = scratch.image.data;
+    scratch.buffer = {
+      cw, ch, rx, ry, bytes,
+      view: new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4),
+    };
   }
   return scratch;
 }
@@ -433,7 +438,6 @@ export function drawSimBandRaster(
 
   buffer.view.fill(0);
   rasterSimBandGroups(groups, normal, sp, baseAlpha, buffer);
-  image.data.set(buffer.bytes);
   offctx.putImageData(image, 0, 0);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);

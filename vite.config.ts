@@ -21,9 +21,11 @@ export default defineConfig({
     // 云原生/代理环境下，若刷新后出现无限转圈（多为 HMR WebSocket 被代理拦截），
     // 可设置 DISABLE_HMR=1 关闭热更新，页面则始终通过普通 HTTP 刷新，绝不再挂起。
     hmr: process.env.DISABLE_HMR === '1' ? false : undefined,
-    // 容器内 inotify 文件监听常出问题（触发请求挂起/无限转圈），改用轮询
+    // 容器内保留轮询以避开 inotify 问题；Windows 本地用原生事件。
+    // 素材和诊断文件很多，Windows 全树轮询即使空闲也会占满多个 CPU 核，干扰播放。
     watch: {
-      usePolling: true
+      usePolling: process.platform !== 'win32',
+      ignored: ['**/.scratch/**']
     }
   }
 })
