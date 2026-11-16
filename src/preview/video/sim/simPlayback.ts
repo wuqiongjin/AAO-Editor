@@ -147,7 +147,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     // transform 取「位图实际尺寸 / 场地尺寸」（照静态预览面板的同一口径）：
     // 精确写 density 会在取整后留下一点永不消失的重采样
     ctx.setTransform(bw / metrics.w, 0, 0, bh / metrics.h, 0, 0);
-    drawSimFrameAt(ctx, frame, engine.getSeconds());
+    drawSimFrameAt(ctx, frame, Math.min(duration, engine.getVisualSeconds()));
   }
 
   function stopRaf(): void {
