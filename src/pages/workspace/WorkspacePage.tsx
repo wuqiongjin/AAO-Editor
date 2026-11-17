@@ -493,6 +493,15 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
       case 'beatSnapNext': setBeatDisplay(stepBeatSnap(beatDisplay, 1)); break;
       case 'beatSnapPrev': setBeatDisplay(stepBeatSnap(beatDisplay, -1)); break;
       case 'beatSnapCycle': setBeatDisplay(cycleBeatSnap(beatDisplay, settings.beatSnapCycleList)); break;
+      // issue 239：设为 1/N（Bestdori 数字键，不是轮切）
+      case 'beatSnapSet1': setBeatDisplay(1); break;
+      case 'beatSnapSet2': setBeatDisplay(2); break;
+      case 'beatSnapSet3': setBeatDisplay(3); break;
+      case 'beatSnapSet4': setBeatDisplay(4); break;
+      case 'beatSnapSet6': setBeatDisplay(6); break;
+      case 'beatSnapSet8': setBeatDisplay(8); break;
+      case 'beatSnapSet12': setBeatDisplay(12); break;
+      case 'beatSnapSet16': setBeatDisplay(16); break;
       // issue 230：倍速按 7 档预设跳（封顶 2×）、音量每次 0.05；两者端点停住、按住不连发。
       // 倍速读共享内存单点的当前值（不把 rate 塞进回调依赖），音量走统一入口 handleVolumeChange。
       case 'rateDown': setRate(stepPlaybackRatePreset(getPlaybackRate(), -1)); break;

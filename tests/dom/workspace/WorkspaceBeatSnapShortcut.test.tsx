@@ -26,6 +26,14 @@ function BeatSnapShortcutHarness() {
       case 'beatSnapNext': setBeatDisplay(stepBeatSnap(beatDisplay, 1)); break;
       case 'beatSnapPrev': setBeatDisplay(stepBeatSnap(beatDisplay, -1)); break;
       case 'beatSnapCycle': setBeatDisplay(cycleBeatSnap(beatDisplay, settings.beatSnapCycleList)); break;
+      case 'beatSnapSet1': setBeatDisplay(1); break;
+      case 'beatSnapSet2': setBeatDisplay(2); break;
+      case 'beatSnapSet3': setBeatDisplay(3); break;
+      case 'beatSnapSet4': setBeatDisplay(4); break;
+      case 'beatSnapSet6': setBeatDisplay(6); break;
+      case 'beatSnapSet8': setBeatDisplay(8); break;
+      case 'beatSnapSet12': setBeatDisplay(12); break;
+      case 'beatSnapSet16': setBeatDisplay(16); break;
     }
   }, [beatDisplay, setBeatDisplay, settings.beatSnapCycleList]);
 
@@ -187,5 +195,48 @@ describe('issue 216 · 工作台节拍吸附快捷键联动锁测', () => {
     expect(readout()).toBe('4');
 
     input.remove();
+  });
+});
+
+describe('issue 239 · 工作台「设为 1/N」数字键', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('静态装配锁：WorkspacePage 接入八个 beatSnapSet case', () => {
+    const src = readStripped('src/pages/workspace/WorkspacePage.tsx');
+    for (const [id, n] of [
+      ['beatSnapSet1', 1], ['beatSnapSet2', 2], ['beatSnapSet3', 3], ['beatSnapSet4', 4],
+      ['beatSnapSet6', 6], ['beatSnapSet8', 8], ['beatSnapSet12', 12], ['beatSnapSet16', 16],
+    ] as const) {
+      expect(src).toMatch(new RegExp(`case\\s+'${id}':\\s*setBeatDisplay\\(${n}\\);`));
+    }
+  });
+
+  it('按 4 / 9 / 0 设为 1/4、1/12、1/16；已在该档再按仍停住', () => {
+    setup({ beatSnap: 8 });
+    const readout = () => screen.getByTestId('beat-display').textContent;
+    const pill = () => screen.getByRole('button', { name: '节拍吸附' });
+
+    fireEvent.keyDown(window, { key: '4' });
+    expect(readout()).toBe('4');
+    expect(pill()).toHaveTextContent('1/4');
+
+    fireEvent.keyDown(window, { key: '4' });
+    expect(readout()).toBe('4');
+
+    fireEvent.keyDown(window, { key: '9' });
+    expect(readout()).toBe('12');
+    expect(pill()).toHaveTextContent('1/12');
+
+    fireEvent.keyDown(window, { key: '0' });
+    expect(readout()).toBe('16');
+    expect(pill()).toHaveTextContent('1/16');
+  });
+
+  it('胶囊源码不标注出厂数字键', () => {
+    const src = readStripped('src/pages/workspace/BeatSnapCapsule.tsx');
+    expect(src).not.toMatch(/formatKey/);
+    expect(src).not.toMatch(/beatSnapSet/);
   });
 });

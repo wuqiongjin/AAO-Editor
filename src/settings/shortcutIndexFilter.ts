@@ -38,7 +38,7 @@ const CATEGORY_TO_BUCKET: Readonly<Record<string, Exclude<IndexFilterId, 'all' |
   redo: 'editTools',
   // issue 185：收藏选区（execSavePattern）＝动作类编辑命令，与 copy / cut 同桶
   pattern: 'editTools',
-  // issue 216：节拍吸附（beatSnapNext / beatSnapPrev / beatSnapCycle）归入「编辑工具」桶
+  // issue 216 / 239：节拍吸附（步进/循环 + 设为 1/N）归入「编辑工具」桶
   snap: 'editTools',
   play: 'playback',
 };

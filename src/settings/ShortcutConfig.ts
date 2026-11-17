@@ -38,6 +38,9 @@ export type FunctionId =
   | 'rateDown' | 'rateUp' | 'volumeDown' | 'volumeUp'
   // issue 216：节拍吸附快捷键（增大细分 / 减小细分 / 常用档位循环），出厂未绑定（binding: null）
   | 'beatSnapNext' | 'beatSnapPrev' | 'beatSnapCycle'
+  // issue 239：设为 1/N（Bestdori 八档，出厂数字键）
+  | 'beatSnapSet1' | 'beatSnapSet2' | 'beatSnapSet3' | 'beatSnapSet4'
+  | 'beatSnapSet6' | 'beatSnapSet8' | 'beatSnapSet12' | 'beatSnapSet16'
   // 切页（issue 177，2026-10-28 用户定案）：应用级功能进同一注册表，
   // 改键 / 冲突检测 / 屏蔽 / 导入导出全部复用同一套。
   | 'pageProjects' | 'pageWorkspace' | 'pageAudio' | 'pagePreview'
@@ -107,6 +110,15 @@ export const FUNCTIONS: FunctionDef[] = [
   { id: 'beatSnapNext',       label: 'shortcut.fn.beatSnapNext',       category: 'snap', binding: null },
   { id: 'beatSnapPrev',       label: 'shortcut.fn.beatSnapPrev',       category: 'snap', binding: null },
   { id: 'beatSnapCycle',      label: 'shortcut.fn.beatSnapCycle',      category: 'snap', binding: null },
+  // 设为 1/N（issue 239）：出厂抄 Bestdori 数字键；9→1/12、0→1/16；5/7 不占
+  { id: 'beatSnapSet1',       label: 'shortcut.fn.beatSnapSet1',       category: 'snap', binding: '1' },
+  { id: 'beatSnapSet2',       label: 'shortcut.fn.beatSnapSet2',       category: 'snap', binding: '2' },
+  { id: 'beatSnapSet3',       label: 'shortcut.fn.beatSnapSet3',       category: 'snap', binding: '3' },
+  { id: 'beatSnapSet4',       label: 'shortcut.fn.beatSnapSet4',       category: 'snap', binding: '4' },
+  { id: 'beatSnapSet6',       label: 'shortcut.fn.beatSnapSet6',       category: 'snap', binding: '6' },
+  { id: 'beatSnapSet8',       label: 'shortcut.fn.beatSnapSet8',       category: 'snap', binding: '8' },
+  { id: 'beatSnapSet12',      label: 'shortcut.fn.beatSnapSet12',      category: 'snap', binding: '9' },
+  { id: 'beatSnapSet16',      label: 'shortcut.fn.beatSnapSet16',      category: 'snap', binding: '0' },
   // 切页默认键 Alt+1..7（1 起、与侧栏位次一一对应）。**不要改回 ⇧⌘0..6**：
   // macOS 的 ⇧⌘3/4/5 是系统截图/录屏、⇧⌘6 是 Touch Bar 截图，事件先被系统吃掉，应用收不到。
   // 表尾只是历史排布：载入时去重不再看表序，改按「用户快照里出现过的功能优先」（issue 230）。
