@@ -1,5 +1,5 @@
 import { waitForPaint, yieldToMainThread } from '../../static/exportPanels';
-import { drawSimFrameAt, prepareSimComboSprites, type SimFrameInput } from './simField';
+import { drawSimFrameAt, prepareSimComboSprites, type SimFrameInput, type SimFrameLayers } from './simField';
 
 /** 按真实谱面的绘制种类选准备帧，不 seek 播放器、不改变用户的播放位置。 */
 function preparationSeconds(input: SimFrameInput): number[] {
@@ -32,7 +32,11 @@ function preparationSeconds(input: SimFrameInput): number[] {
 export async function prepareSimRendering(
   input: SimFrameInput,
   density: number,
-  opts: { isCancelled?: () => boolean; yieldNow?: () => Promise<void> } = {},
+  opts: {
+    isCancelled?: () => boolean;
+    yieldNow?: () => Promise<void>;
+    bandRenderer?: SimFrameLayers['bandRenderer'];
+  } = {},
 ): Promise<boolean> {
   const cancelled = opts.isCancelled ?? (() => false);
   const yieldNow = opts.yieldNow ?? yieldToMainThread;
@@ -47,13 +51,14 @@ export async function prepareSimRendering(
     const ctx = canvas.getContext('2d');
     const cpu = readback.getContext('2d', { willReadFrequently: true });
     if (!ctx || !cpu) return true; // 与既有缺上下文降级一致，不永久卡在加载态。
-    prepareSimComboSprites(input.metrics, input.assets.sprites);
+    const comboShadows = prepareSimComboSprites(input.metrics, input.assets.sprites, density);
     const probe = { ...input, scene: { ...input.scene, apCombo: true, showGameUi: true } };
+    const layers = { bandRenderer: opts.bandRenderer, comboShadows };
     const times = preparationSeconds(input);
     for (let i = 0; i < times.length; i++) {
       if (cancelled()) return false;
       ctx.setTransform(canvas.width / w, 0, 0, canvas.height / h, 0, 0);
-      drawSimFrameAt(ctx, probe, times[i]!);
+      drawSimFrameAt(ctx, probe, times[i]!, layers);
       cpu.drawImage(canvas, 0, 0);
       cpu.getImageData(0, 0, 1, 1);
       await yieldNow();

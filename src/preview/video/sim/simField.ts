@@ -80,6 +80,7 @@ import {
   type SimBandRasterGroup,
   type SimBandRasterMaterial,
   type SimBandRasterScale,
+  type SimBandRenderer,
 } from './simBandRaster';
 import { digitRect, particleTile, radialCircleOf, type TileSource } from './simSprites';
 import { EMPTY_SIM_HUD_ASSETS, type SimHudAssets, type SimSprites } from './simAssets';
@@ -224,7 +225,8 @@ export interface SimChart {
   /**
    * 全部带体段，**按谱面数组序**（同一条滑条的段连续）。
    * 不做时间排序：绘制序 = 后放置者在上（与画布 `renderNotes` 同口径）；
-   * 两个消费方（`drawBands` / `drawHoldEffects`）都全表遍历，顺序不影响可见窗口。
+   * 两个消费方按派生期建好的时间块跳过离屏段，保留数组序。
+   * 与 elements 的时间排序一样，此派生表随输入重建，不原地编辑。
    */
   bands: SimBand[];
   /** 同时点击线分组，按 time 升序 */
@@ -235,6 +237,48 @@ export interface SimChart {
    * 「负 beat 击打物」），故它们的时刻是负数、`t = 0` 时就已经算进去了。
    */
   hitTimes: number[];
+}
+
+interface SimBandTimeBlock {
+  start: number;
+  end: number;
+  lo: number;
+  hi: number;
+}
+
+// 带体不能按秒重排（交叠处按谱面数组序上色），也不能用只前进的游标（支持任意 seek）。
+// 在派生期给连续小块记 min/max 秒，播放时只进入与窗口相交的块。
+// 倒流段用两端的 min/max；一条很长的段仍会保留，不按起点二分而漏掉跨窗带体。
+const BAND_TIME_BLOCK_SIZE = 64;
+const bandTimeBlocks = new WeakMap<SimBand[], { length: number; blocks: SimBandTimeBlock[] }>();
+
+function indexBandTimes(bands: SimBand[]): void {
+  const blocks: SimBandTimeBlock[] = [];
+  for (let start = 0; start < bands.length; start += BAND_TIME_BLOCK_SIZE) {
+    const end = Math.min(bands.length, start + BAND_TIME_BLOCK_SIZE);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = start; i < end; i++) {
+      const band = bands[i]!;
+      lo = Math.min(lo, band.t0, band.t1);
+      hi = Math.max(hi, band.t0, band.t1);
+    }
+    blocks.push({ start, end, lo, hi });
+  }
+  bandTimeBlocks.set(bands, { length: bands.length, blocks });
+}
+
+function* bandsInWindow(bands: SimBand[], lo: number, hi: number): Generator<SimBand> {
+  const index = bandTimeBlocks.get(bands);
+  // 外部手工构造的派生表仍沿旧路径绘制；不在播放帧里补建索引。
+  if (!index || index.length !== bands.length) {
+    yield* bands;
+    return;
+  }
+  for (const block of index.blocks) {
+    if (block.hi < lo || block.lo > hi) continue;
+    for (let i = block.start; i < block.end; i++) yield bands[i]!;
+  }
 }
 
 /** 一帧要用的素材（缺图 = 不画该层；带体取色缺 = 走兜底色） */
@@ -455,6 +499,8 @@ export function* buildSimChartSteps(
   }
   hitTimes.sort((a, b) => a - b);
 
+  indexBandTimes(bands);
+
   return {
     approachS: approachSeconds(scene.noteSpeed),
     elements,
@@ -546,7 +592,7 @@ export function drawSimFrameAt(
   // 带体走逐像素光栅，自己的 save/restore 会把 globalAlpha 钉成 1 ⇒ 改从 baseAlpha 传进去；
   // 其余两层是精灵 drawImage，直接借 ctx.globalAlpha；判定线 / 特效 / HUD 全不受影响。
   const noteAlpha = clamp01(layers?.noteAlpha ?? 1);
-  drawBands(ctx, input, seconds, noteAlpha);
+  drawBands(ctx, input, seconds, noteAlpha, layers?.bandRenderer);
   if (noteAlpha < 1) {
     ctx.save();
     ctx.globalAlpha = noteAlpha;
@@ -571,7 +617,7 @@ export function drawSimFrameAt(
   drawCombo(ctx, metrics, chart, seconds, input.assets.sprites, layers?.comboAlpha ?? 1, {
     ap: comboApActive(input.scene.apCombo ?? true),
     ...layers?.combo,
-  });
+  }, layers?.comboShadows);
 }
 
 /**
@@ -580,6 +626,8 @@ export function drawSimFrameAt(
  * 全部可选，缺省 = 现有观感（一次画全）。`judge: null` = 这一帧不画判定字。
  */
 export interface SimFrameLayers {
+  /** 实时舞台可选的带体渲染器，显式指定光栅比例的离线帧仍走 CPU。 */
+  bandRenderer?: SimBandRenderer;
   /** 背景（bgskin）alpha */
   backgroundAlpha?: number;
   /** 轨道（场地图 + 判定线）alpha */
@@ -603,6 +651,8 @@ export interface SimFrameLayers {
   hudAlpha?: number;
   /** combo 样式 */
   combo?: Partial<SimComboStyle>;
+  /** 实时预览已准备好的 COMBO 阴影贴图。 */
+  comboShadows?: SimComboShadows;
 }
 
 /**
@@ -731,7 +781,7 @@ export function visibleSimBandGroups(
 ): SimBandRasterGroup[] {
   const T = chart.approachS;
   const groups: SimBandRasterGroup[] = [];
-  for (const band of chart.bands) {
+  for (const band of bandsInWindow(chart.bands, seconds, seconds + T)) {
     const minT = Math.min(band.t0, band.t1);
     const maxT = Math.max(band.t0, band.t1);
     if (maxT < seconds) continue; // 整段已过线
@@ -759,22 +809,18 @@ function drawBands(
   ctx: CanvasRenderingContext2D,
   input: SimFrameInput,
   seconds: number,
-  noteAlpha = 1,
+  noteAlpha: number,
+  renderer?: SimBandRenderer,
 ): void {
   const { chart, metrics, assets, scene } = input;
   const alpha = clamp01(scene.slideOpacity) * noteAlpha;
   if (alpha <= 0) return;
   const groups = visibleSimBandGroups(chart, scene, metrics, seconds);
-  drawSimBandRaster(
-    ctx,
-    groups,
-    assets.bandRaster ?? SIM_BAND_RASTER_MATERIAL,
-    assets.bandRasterSp ?? SIM_BAND_RASTER_MATERIAL_SP,
-    alpha,
-    metrics,
-    // 票 66：导出在 frameDriver 里显式给 1（成片最锐）；实时省略 ⇒ 固定 0.5
-    input.bandRasterScale,
-  );
+  if (groups.length === 0) return;
+  const normal = assets.bandRaster ?? SIM_BAND_RASTER_MATERIAL;
+  const sp = assets.bandRasterSp ?? SIM_BAND_RASTER_MATERIAL_SP;
+  if (input.bandRasterScale === undefined && renderer?.(ctx, groups, normal, sp, alpha, metrics)) return;
+  drawSimBandRaster(ctx, groups, normal, sp, alpha, metrics, input.bandRasterScale);
 }
 
 /**
@@ -1111,7 +1157,7 @@ function drawHoldEffects(ctx: CanvasRenderingContext2D, input: SimFrameInput, se
   const { tile: TILE, size: S, alpha: A } = SIM_SPRITE_EFFECT;
   const ring = particleTile(sprites, TILE.connectionRing[0], TILE.connectionRing[1], null);
   const rotating = particleTile(sprites, TILE.rotatingRing[0], TILE.rotatingRing[1], SIM_EFFECT_TINTS.tap);
-  for (const band of chart.bands) {
+  for (const band of bandsInWindow(chart.bands, seconds, seconds)) {
     const span = band.t1 - band.t0;
     if (span === 0) continue;
     const lo = Math.min(band.t0, band.t1);
@@ -1738,6 +1784,39 @@ const glowTileCache = new WeakMap<CanvasImageSource, Map<string, HTMLCanvasEleme
 /** 每字「墨迹」在切图里的左右边（按 alpha 量一次）—— 居中要靠它，不能按字宽 */
 const inkCache = new WeakMap<CanvasImageSource, Map<string, { left: number; right: number }>>();
 
+interface ComboShadowTile {
+  canvas: HTMLCanvasElement;
+  pad: number;
+  density: number;
+}
+
+interface SimComboShadows {
+  normal: ComboShadowTile | null;
+  ap: ComboShadowTile | null;
+}
+
+// 每张标签源图只保留最近一次准备的尺寸。播放中的舞台持有自己的贴图，
+// 另一舞台或尺寸变化可准备新贴图，不会让现有舞台在出帧时重建。
+const comboShadowCache = new WeakMap<HTMLImageElement, { key: string; shadows: SimComboShadows }>();
+
+function makeComboShadow(
+  img: CanvasImageSource, w: number, h: number, blur: number, density: number,
+): ComboShadowTile | null {
+  const pad = Math.ceil(blur * 1.6);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(w * density) + pad * 2;
+  canvas.height = Math.ceil(h * density) + pad * 2;
+  const g = canvas.getContext('2d', { willReadFrequently: true });
+  if (!g) return null;
+  // 标签本体画在画布外，留在贴图里的只有阴影。2D 的 shadowBlur 以位图像素计。
+  const offset = canvas.width * 2;
+  g.shadowOffsetX = -offset;
+  g.shadowColor = 'rgba(0,0,0,0.5)';
+  g.shadowBlur = blur;
+  g.drawImage(img, pad + offset, pad, w * density, h * density);
+  return { canvas, pad, density };
+}
+
 function tileKey(rect: { sx: number; sy: number; sw: number; sh: number }, tw: number, th: number): string {
   return `${rect.sx},${rect.sy},${rect.sw},${rect.sh}|${tw}x${th}`;
 }
@@ -1885,7 +1964,9 @@ function glowTile(
  * 不依赖当前秒或 AP 开关：seek 到未见数字、播放中打开 AP 都不能触发墨迹回读 / 瓦片新建。
  * 与出帧共用缓存及尺寸真源；离线导出仍可按需生成，不增加逐帧工作。
  */
-export function prepareSimComboSprites(m: SimFieldMetrics, sprites: SimSprites | null): void {
+export function prepareSimComboSprites(
+  m: SimFieldMetrics, sprites: SimSprites | null, density: number,
+): SimComboShadows | undefined {
   if (!sprites) return;
   const { digitW, digitH, labelW, labelH } = comboMetrics(m);
   for (let digit = 0; digit < 10; digit++) {
@@ -1895,8 +1976,19 @@ export function prepareSimComboSprites(m: SimFieldMetrics, sprites: SimSprites |
     glowTile(sprites.digits, rect, digitW, digitH);
   }
   const label = { sx: 0, sy: 0, sw: sprites.combo.width, sh: sprites.combo.height };
-  apTile(sprites.combo, label, labelW, labelH, 0.045);
+  const ap = apTile(sprites.combo, label, labelW, labelH, 0.045);
   glowTile(sprites.combo, label, labelW, labelH, 0.08);
+  if (typeof document === 'undefined') return;
+  const key = `${labelH}|${density}`;
+  const cached = comboShadowCache.get(sprites.combo);
+  if (cached?.key === key) return cached.shadows;
+  const blur = labelH * 0.35;
+  const shadows = {
+    normal: makeComboShadow(sprites.combo, labelW, labelH, blur, density),
+    ap: ap && makeComboShadow(ap.canvas, labelW + ap.pad * 2, labelH + ap.pad * 2, blur, density),
+  };
+  comboShadowCache.set(sprites.combo, { key, shadows });
+  return shadows;
 }
 
 /**
@@ -1911,6 +2003,7 @@ function drawCombo(
   sprites: SimSprites | null,
   alpha = 1,
   style?: Partial<SimComboStyle>,
+  shadows?: SimComboShadows,
 ): void {
   if (alpha <= 0.002) return;
   const combo = simComboAt(chart, seconds);
@@ -2013,14 +2106,22 @@ function drawCombo(
   glowPass('front', 1);
 
   const labelTile = cs.ap ? apTile(sprites.combo, labelRect, labelW, labelH, 0.045) : null;
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = labelH * 0.35;
+  const padPx = (labelTile?.pad ?? 0) * scale;
+  const shadow = labelTile ? shadows?.ap : shadows?.normal;
+  const left = labelLeft - padPx;
+  const topPx = labelTop - padPx;
+  if (shadow) {
+    const k = scale / shadow.density;
+    ctx.drawImage(shadow.canvas, left - shadow.pad * k, topPx - shadow.pad * k,
+      shadow.canvas.width * k, shadow.canvas.height * k);
+  } else {
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = labelH * 0.35;
+  }
   if (labelTile) {
-    const padPx = labelTile.pad * scale;
     ctx.drawImage(
       labelTile.canvas,
-      labelLeft - padPx, labelTop - padPx,
+      left, topPx,
       labelW * scale + padPx * 2, labelH * scale + padPx * 2,
     );
   } else {
@@ -2029,7 +2130,6 @@ function drawCombo(
       labelLeft, labelTop, labelW * scale, labelH * scale,
     );
   }
-  ctx.restore();
   ctx.restore();
 }
 

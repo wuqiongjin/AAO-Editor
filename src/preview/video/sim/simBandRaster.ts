@@ -203,6 +203,16 @@ export interface SimBandRasterGroup {
   quads: SimPoint[][];
 }
 
+/** 返回 false 时，由出帧入口用同一组几何和材质回退到 CPU。 */
+export type SimBandRenderer = (
+  ctx: CanvasRenderingContext2D,
+  groups: readonly SimBandRasterGroup[],
+  normal: SimBandRasterMaterial,
+  sp: SimBandRasterMaterial,
+  opacity: number,
+  metrics: SimFieldMetrics,
+) => boolean;
+
 /** 中心线结点（半宽逐点变化：伪透视下越远的带越窄） */
 interface SimBandNode extends BandPoint {
   half: number;
@@ -362,6 +372,35 @@ interface SimBandRasterScratch {
   offctx: CanvasRenderingContext2D | null;
   buffer: SimBandRasterBuffer | null;
   image: ImageData | null;
+  previousBounds: SimBandRasterBounds | null;
+}
+
+interface SimBandRasterBounds {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** 光栅中心线及线性半宽都在四边形顶点包围盒内；多留一像素覆盖采样边界。 */
+function bandRasterBounds(groups: readonly SimBandRasterGroup[], buf: SimBandRasterBuffer): SimBandRasterBounds {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const group of groups) for (const quad of group.quads) for (const p of quad) {
+    x0 = Math.min(x0, p.x);
+    y0 = Math.min(y0, p.y);
+    x1 = Math.max(x1, p.x);
+    y1 = Math.max(y1, p.y);
+  }
+  const { cw, ch, rx, ry } = buf;
+  const left = Math.max(0, Math.min(cw, Math.floor(x0 * rx) - 1));
+  const top = Math.max(0, Math.min(ch, Math.floor(y0 * ry) - 1));
+  const right = Math.max(0, Math.min(cw, Math.ceil(x1 * rx) + 1));
+  const bottom = Math.max(0, Math.min(ch, Math.ceil(y1 * ry) + 1));
+  // 退化 / 非有限几何沿原整图路径清空，不把零宽脏矩形交给 Canvas。
+  if (![left, top, right, bottom].every(Number.isFinite) || right <= left || bottom <= top) {
+    return { left: 0, top: 0, right: cw, bottom: ch };
+  }
+  return { left, top, right, bottom };
 }
 
 /** 每个 ctx 一份缓冲（实时预览 / 视频导出各一张画布，互不顶掉尺寸） */
@@ -384,7 +423,7 @@ function ensureScratch(ctx: CanvasRenderingContext2D, cw: number, ch: number, rx
     const canvas = canvasFactoryForTests
       ? canvasFactoryForTests()
       : (typeof document !== 'undefined' ? document.createElement('canvas') : null);
-    scratch = { canvas, offctx: canvas?.getContext('2d') ?? null, buffer: null, image: null };
+    scratch = { canvas, offctx: canvas?.getContext('2d') ?? null, buffer: null, image: null, previousBounds: null };
     SCRATCH.set(ctx, scratch);
   }
   if (!scratch.offctx || !scratch.canvas) return scratch;
@@ -393,6 +432,7 @@ function ensureScratch(ctx: CanvasRenderingContext2D, cw: number, ch: number, rx
     scratch.canvas.width = cw;
     scratch.canvas.height = ch;
     scratch.image = scratch.offctx.createImageData(cw, ch);
+    scratch.previousBounds = null;
     // 光栅直接写入待回写的 ImageData，避免每帧再复制整张 RGBA，也少持有一份整图数组。
     const bytes = scratch.image.data;
     scratch.buffer = {
@@ -436,9 +476,23 @@ export function drawSimBandRaster(
   const { offctx, buffer, image, canvas } = scratch;
   if (!offctx || !buffer || !image || !canvas) return false;
 
-  buffer.view.fill(0);
+  const bounds = bandRasterBounds(groups, buffer);
+  const prev = scratch.previousBounds;
+  const dirty = prev ? {
+    left: Math.min(prev.left, bounds.left), top: Math.min(prev.top, bounds.top),
+    right: Math.max(prev.right, bounds.right), bottom: Math.max(prev.bottom, bounds.bottom),
+  } : bounds;
+  // 新旧包围盒的并集必须一起清空 / 回写：横移、seek、消失后再出现都不能留下旧像素。
+  if (dirty.left === 0 && dirty.right === cw) {
+    buffer.view.fill(0, dirty.top * cw, dirty.bottom * cw);
+  } else {
+    for (let row = dirty.top; row < dirty.bottom; row++) {
+      buffer.view.fill(0, row * cw + dirty.left, row * cw + dirty.right);
+    }
+  }
   rasterSimBandGroups(groups, normal, sp, baseAlpha, buffer);
-  offctx.putImageData(image, 0, 0);
+  offctx.putImageData(image, 0, 0, dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
+  scratch.previousBounds = bounds;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;

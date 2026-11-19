@@ -143,7 +143,7 @@ beforeAll(() => {
           scratch.image = { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
           return scratch.image;
         },
-        putImageData: (img: unknown) => { scratch.calls.push(['putImageData', [img]]); },
+        putImageData: (...args: unknown[]) => { scratch.calls.push(['putImageData', args]); },
       }),
     };
     return canvas as unknown as HTMLCanvasElement;
@@ -748,6 +748,54 @@ const CX = Math.floor(fieldMetrics(1334, 750).centerX * SIM_BAND_RASTER_SCALE);
 const ROW = 250;
 
 describe('drawSimFrameAt · 带体逐像素光栅（chart-preview 65）', () => {
+  it.each([SIM_BAND_RASTER_SCALE, SIM_BAND_RASTER_SCALE_FULL] as const)('稀疏带体只回写局部覆盖区域（scale=%s）', (scale) => {
+    const { spriteIcon } = makeRecordingSprite();
+    const frame = frameOf([verticalSlide()], spriteIcon, scale);
+    const { proxy } = recordingCtx();
+    drawSimFrameAt(proxy, frame, 1.5);
+    drawSimFrameAt(proxy, frame, 1.6);
+    const scratch = lastScratch!;
+    const writes = scratch.calls.filter(([key]) => key === 'putImageData');
+    expect(writes).toHaveLength(2);
+    for (const [, args] of writes) {
+      const area = args.length === 7 ? Number(args[5]) * Number(args[6]) : scratch.width * scratch.height;
+      expect(area).toBeLessThan(scratch.width * scratch.height / 4);
+    }
+  });
+
+  it('时间块筛选与原全表路径等价：倒流、跨窗长段、同刻段、边界和回跳保留叠放序', () => {
+    const { spriteIcon, draws } = makeRecordingSprite();
+    const padding = Array.from({ length: 160 }, (_, i) => slide([
+      { beat: 1000 + i * 4, lane: 0 }, { beat: 1002 + i * 4, lane: 6 },
+    ]));
+    const frame = frameOf([
+      { type: 'BPM', beat: 0, bpm: 120 },
+      { type: 'BPM', beat: 16, bpm: -120 },
+      { type: 'BPM', beat: 32, bpm: 120 },
+      ...padding.slice(0, 80),
+      slide([{ beat: 0, lane: 0 }, { beat: 64, lane: 6 }]),
+      slide([{ beat: 8, lane: 6 }, { beat: 20, lane: 0 }, { beat: 40, lane: 5 }]),
+      slide([{ beat: 4, lane: 2 }, { beat: 4, lane: 5 }, { beat: 8, lane: 3 }]),
+      ...padding.slice(80),
+    ], spriteIcon);
+    frame.assets = { ...frame.assets, sprites: fakeSprites() as unknown as SimSprites };
+    // 手工构造的段表保留全表兼容路径，可作已知旧行为的对照。
+    const reference = { ...frame, chart: { ...frame.chart, bands: [...frame.chart.bands] } };
+    for (const seconds of [0, 0.001, 2, 4, 7.999, 8, 8.001, 0.5]) {
+      expect(groupsAt(frame, seconds)).toEqual(groupsAt(reference, seconds));
+      draws.length = 0;
+      const indexed = drawnFrame(frame, seconds);
+      const spriteDraws = [...draws];
+      draws.length = 0;
+      const full = drawnFrame(reference, seconds);
+      expect(draws).toEqual(spriteDraws); // 含按住帽的先后序、款式与位置
+      expect(indexed.image.data.every((v, i) => v === full.image.data[i])).toBe(true);
+      const particles = (calls: RecordedCall[]) => calls.filter(([key, args]) =>
+        key === 'drawImage' && args[0] === frame.assets.sprites!.particles);
+      expect(particles(indexed.calls)).toEqual(particles(full.calls));
+    }
+  });
+
   it.each([SIM_BAND_RASTER_SCALE, SIM_BAND_RASTER_SCALE_FULL])('带体连续出帧不再复制整张 RGBA（scale=%s）', (scale) => {
     const { spriteIcon } = makeRecordingSprite();
     const frame = frameOf([verticalSlide()], spriteIcon, scale);
@@ -917,6 +965,30 @@ const smoothingAtBlit = (calls: RecordedCall[]): unknown => {
 const denseBands = (): ChartNote[] => Array.from({ length: 30 }, () => verticalSlide());
 
 describe('drawSimFrameAt · 实时固定 50% / 导出 100%（chart-preview 66）', () => {
+  it('实时可使用带体渲染器，失败回到 50%，导出仍使用显式的 100%', () => {
+    const { spriteIcon } = makeRecordingSprite();
+    const notes = [verticalSlide()];
+    const frame = frameOf(notes, spriteIcon);
+    const { proxy, calls } = recordingCtx();
+    const bandRenderer = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+    drawSimFrameAt(proxy, frame, 1.5, { bandRenderer });
+    expect(bandRenderer).toHaveBeenCalledTimes(1);
+    const [ctx, groups, normal, sp, opacity, metrics] = bandRenderer.mock.calls[0]!;
+    expect(ctx === proxy).toBe(true);
+    expect(groups).toEqual(groupsAt(frame, 1.5));
+    expect(normal).toBe(frame.assets.bandRaster);
+    expect(sp).toBe(frame.assets.bandRasterSp);
+    expect(opacity).toBe(frame.scene.slideOpacity);
+    expect(metrics).toBe(frame.metrics);
+    expect(calls.filter(([key, args]) => key === 'drawImage' && args.length === 9)).toHaveLength(0);
+
+    const fallback = drawnFrame(frame, 1.5, {}, { bandRenderer });
+    expect(fallback.image.width).toBe(Math.round(frame.metrics.w * SIM_BAND_RASTER_SCALE));
+    const exported = drawnFrame(frameOf(notes, spriteIcon, SIM_BAND_RASTER_SCALE_FULL), 1.5, {}, { bandRenderer });
+    expect(exported.image.width).toBe(frame.metrics.w);
+    expect(bandRenderer).toHaveBeenCalledTimes(2);
+  });
+
   it('显式比例：100% 建全尺寸缓冲且不放平滑；50% 建半尺寸缓冲并双线性放大', () => {
     const { spriteIcon } = makeRecordingSprite();
     const full = drawnFrame(frameOf([verticalSlide()], spriteIcon, SIM_BAND_RASTER_SCALE_FULL), 1.5);

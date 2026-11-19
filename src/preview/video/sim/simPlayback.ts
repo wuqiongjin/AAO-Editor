@@ -12,7 +12,7 @@
 // 没传时回落引擎默认 1（其出厂值也是 1；导出侧同一口径，07 不再改）。
 import { AudioEngine } from '../../../audio/AudioEngine';
 import type { ChartNote } from '../../../chart/types';
-import { drawSimFrameAt, prepareSimComboSprites, type SimFrameInput } from './simField';
+import { drawSimFrameAt, prepareSimComboSprites, type SimFrameInput, type SimFrameLayers } from './simField';
 
 // 倍速的区间 / 常用档 / 步长 / 归一化随控件抽到 `src/playback/playbackRateState`（chart-preview 58，
 // 引擎的 PLAYBACK_RATE_RANGE 仍是唯一真相源）。这里按旧名原样再导出，保住预览域 barrel 与
@@ -46,6 +46,7 @@ export interface SimPlaybackOptions {
    * 导出侧的固定密度由 07 显式给（同 ADR-0016 §7 的"导出与预览解耦"）。
    */
   density: number;
+  bandRenderer?: SimFrameLayers['bandRenderer'];
   /** 播放器主音量（0..1；chart-preview 20；缺省 1） */
   volume?: number;
   /** 播放速率（缺省 1；任意落在 `PLAYBACK_RATE_RANGE` 内的值，步进取 0.25） */
@@ -89,6 +90,7 @@ export interface SimPlayback {
 /** 一次性把当前秒画出来（暂停态、seek 后、外部改设置后都用它） */
 export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
   const { canvas, density: initialDensity } = opts;
+  const layers: SimFrameLayers = { bandRenderer: opts.bandRenderer };
   let density = initialDensity;
   const engine = new AudioEngine();
   let frame: SimFrameInput | null = null;
@@ -135,6 +137,18 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     engine.setChart(notes, beatDisplay, input.bpmEvents);
   }
 
+  function prepareCombo(input: SimFrameInput): SimFrameInput {
+    layers.comboShadows = undefined;
+    try {
+      layers.comboShadows = prepareSimComboSprites(input.metrics, input.assets.sprites, density);
+      return input;
+    } catch (e) {
+      // 字形回读 / 瓦片不可用时走既有缺精灵画法，不能在热路径中反复重试同一个失败。
+      console.warn('[preview] combo 准备失败（按缺精灵渲染）:', e);
+      return { ...input, assets: { ...input.assets, sprites: null } };
+    }
+  }
+
   function render(): void {
     if (disposed || !frame) return;
     const ctx = canvas.getContext('2d');
@@ -147,7 +161,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     // transform 取「位图实际尺寸 / 场地尺寸」（照静态预览面板的同一口径）：
     // 精确写 density 会在取整后留下一点永不消失的重采样
     ctx.setTransform(bw / metrics.w, 0, 0, bh / metrics.h, 0, 0);
-    drawSimFrameAt(ctx, frame, Math.min(duration, engine.getVisualSeconds()));
+    drawSimFrameAt(ctx, frame, Math.min(duration, engine.getVisualSeconds()), layers);
   }
 
   function stopRaf(): void {
@@ -213,20 +227,16 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     setFrame(input: SimFrameInput): void {
       if (disposed) return;
       // 准备完成后才把新输入交给出帧；同步边界没有可迟到覆盖新尺寸 / 素材的异步结果。
-      try {
-        prepareSimComboSprites(input.metrics, input.assets.sprites);
-      } catch (e) {
-        // 字形回读 / 瓦片不可用时走既有缺精灵画法，不能在热路径中反复重试同一个失败。
-        console.warn('[preview] combo 准备失败（按缺精灵渲染）:', e);
-        input = { ...input, assets: { ...input.assets, sprites: null } };
-      }
-      frame = input;
+      frame = prepareCombo(input);
       syncChart(input);
       render();
     },
     setOptions(patch): void {
       if (disposed) return;
-      if (patch.density != null && Number.isFinite(patch.density) && patch.density > 0) density = patch.density;
+      if (patch.density != null && Number.isFinite(patch.density) && patch.density > 0 && patch.density !== density) {
+        density = patch.density;
+        if (frame) frame = prepareCombo(frame);
+      }
       if (patch.seVolume != null) engine.setSeVolume(patch.seVolume);
       if (patch.keySetId != null) engine.setKeySetId(patch.keySetId);
       if (patch.volume != null) engine.setVolume(patch.volume);
@@ -255,6 +265,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
       stopRaf();
       engine.dispose();
       frame = null;
+      layers.comboShadows = undefined;
     },
   };
 }

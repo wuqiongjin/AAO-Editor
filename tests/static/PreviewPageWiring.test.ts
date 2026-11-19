@@ -228,6 +228,7 @@ describe('chart-preview 02 · 预览域骨架与依赖方向', () => {
       'prepareSimRendering.ts', // 80：完整绘制冷路径准备与播放门禁
       'simAssetPacks.ts',
       'simAssets.ts',
+      'simBandGpu.ts',
       'simBandRaster.ts', // 65：带体贴图剖面 / LUT / 一张共享缓冲的逐像素光栅
       'simField.ts',
       'simGeometry.ts',
