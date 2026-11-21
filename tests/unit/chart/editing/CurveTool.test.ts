@@ -24,7 +24,7 @@ function commitPenStroke(
 }
 import { clickOps, boxSelectOps } from '@/src/chart/editing/ToolActionMatrix';
 import {
-  curveChainClickOps, execCurveOps, placeSpanWithCombination, spanParamFromCurveConfig,
+  curveChainClickOps, execCurveOps, normalizeCurveConfig, placeSpanWithCombination, spanParamFromCurveConfig,
   type CurveConfig, type CurveDraft,
 } from '@/src/chart/editing/CurveTool';
 import { effectiveSpanParams, countVisibleNodes } from '@/src/chart/editing/SpanCurve';
@@ -463,6 +463,41 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
       mirrored: true,
       amplitudeScale: 1.5,
       densityScale: 2,
+    });
+  });
+
+  it('issue 243 · baseline 越界钳进 ±200、步长 5；六款独立记忆；默认不写盘', () => {
+    const cleaned = normalizeCurveConfig({
+      templateId: 'zigzag',
+      templateExtras: {
+        zigzag: { baseline: 999 },
+        damped: { baseline: 7 },
+        'gluten-spindle': { baseline: -203 },
+        'gluten-saw': { baseline: 100 },
+        'chain-square': { baseline: -100 },
+        'chain-alt': { baseline: 0 },
+        pulse: { pulsePos: 0 },
+      },
+    });
+    expect(cleaned.templateExtras).toEqual({
+      zigzag: { baseline: 200 },
+      damped: { baseline: 5 },
+      'gluten-spindle': { baseline: -200 },
+      'gluten-saw': { baseline: 100 },
+      'chain-square': { baseline: -100 },
+      pulse: { pulsePos: 0 },
+    });
+
+    expect(spanParamFromCurveConfig({
+      family: 'sine', type: 'in', precision: 16, templateId: 'zigzag',
+      templateExtras: { zigzag: { baseline: 0 }, damped: { baseline: 100 } },
+    })).toEqual({ kind: 'template', templateId: 'zigzag', precision: 16 });
+
+    expect(spanParamFromCurveConfig({
+      family: 'sine', type: 'in', precision: 16, templateId: 'damped',
+      templateExtras: { zigzag: { baseline: 0 }, damped: { baseline: 100 } },
+    })).toEqual({
+      kind: 'template', templateId: 'damped', precision: 16, extra: { baseline: 100 },
     });
   });
 });

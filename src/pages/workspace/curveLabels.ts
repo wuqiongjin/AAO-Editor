@@ -72,6 +72,14 @@ export function curveConfigSummary(c: CurveConfig, opts?: { compact?: boolean })
           const opt = spec.options.find((o) => o.value === val);
           if (opt) parts.push(t(opt.labelKey as MessageKey));
         } else {
+          if (val === spec.defaultValue) continue;
+          if (!isFree) {
+            const preset = spec.presets?.find((p) => p.value === val);
+            if (preset) {
+              parts.push(t(preset.labelKey as MessageKey));
+              continue;
+            }
+          }
           parts.push(formatTemplateNumber(Number(val), spec.unit ?? ''));
         }
       }

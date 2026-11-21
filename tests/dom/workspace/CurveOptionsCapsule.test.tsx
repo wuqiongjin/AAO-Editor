@@ -141,9 +141,15 @@ describe('issue 179 · 曲线选项胶囊', () => {
     fireEvent.click(within(enForm).getByRole('button', { name: 'Stair step' }));
     expect(within(enForm).getByRole('button', { name: 'Sharp' })).toBeInTheDocument();
     fireEvent.click(within(enForm).getByRole('button', { name: 'Pulse' }));
-    expect(within(enForm).getByRole('button', { name: 'Start 0%' })).toBeInTheDocument();
-    expect(within(enForm).getByRole('button', { name: 'Mid 50%' })).toBeInTheDocument();
-    expect(within(enForm).getByRole('button', { name: 'End 100%' })).toBeInTheDocument();
+    expect(within(enForm).getByRole('button', { name: 'Start' })).toBeInTheDocument();
+    expect(within(enForm).getByRole('button', { name: 'Mid' })).toBeInTheDocument();
+    expect(within(enForm).getByRole('button', { name: 'End' })).toBeInTheDocument();
+    expect(within(enForm).queryByRole('button', { name: /0%/ })).not.toBeInTheDocument();
+    fireEvent.click(within(enForm).getByRole('button', { name: 'Zigzag' }));
+    expect(within(enForm).getByRole('button', { name: 'Left' })).toBeInTheDocument();
+    expect(within(enForm).getByRole('button', { name: 'Center' })).toBeInTheDocument();
+    expect(within(enForm).getByRole('button', { name: 'Right' })).toBeInTheDocument();
+    expect(within(enForm).getByText('Baseline')).toBeInTheDocument();
   });
 
   it('issue 240 · 阶梯隐藏偏向/幅度并展示阶跃形态；尖刺支持位置按钮且摘要常显并独立记忆', () => {
@@ -166,18 +172,18 @@ describe('issue 179 · 曲线选项胶囊', () => {
     const stepCardAfter = within(form()).getByRole('button', { name: '阶梯' }).querySelector('svg path')?.getAttribute('d');
     expect(stepCardAfter).not.toBe(stepCardBefore);
 
-    // 切换到尖刺：恢复偏向/幅度，并显示位置按钮；默认 50% 在摘要里常显
+    // 切换到尖刺：恢复偏向/幅度，并显示位置按钮；默认 50% 不占摘要
     fireEvent.click(within(form()).getByRole('button', { name: '尖刺' }));
     expect(within(form()).getByRole('button', { name: '↰ 左偏' })).toBeInTheDocument();
     expect(pill()).toHaveTextContent('尖刺');
     expect(pill()).not.toHaveTextContent('50%');
-    const centerBtn = within(form()).getByRole('button', { name: '居中 50%' });
+    const centerBtn = within(form()).getByRole('button', { name: '居中' });
     expect(centerBtn).toHaveAttribute('aria-pressed', 'true');
 
-    // 点击「起拍 0%」→ 胶囊与卡片 SVG 同步重绘
+    // 点击「起拍」→ 胶囊与卡片 SVG 同步重绘
     const pulseSvgBefore = pill().querySelector('svg path')?.getAttribute('d');
-    fireEvent.click(within(form()).getByRole('button', { name: '起拍 0%' }));
-    expect(within(form()).getByRole('button', { name: '起拍 0%' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(form()).getByRole('button', { name: '起拍' }));
+    expect(within(form()).getByRole('button', { name: '起拍' })).toHaveAttribute('aria-pressed', 'true');
     expect(pill()).toHaveTextContent('尖刺');
     expect(pill()).not.toHaveTextContent('0%');
     expect(pill().querySelector('svg path')?.getAttribute('d')).not.toBe(pulseSvgBefore);
@@ -190,7 +196,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
       pulse: { pulsePos: 0 },
     });
 
-    // 点回「居中 50%」→ 摘要仍常显 50%
+    // 点回「居中」→ 默认专属值仍不占摘要
     fireEvent.click(centerBtn);
     expect(centerBtn).toHaveAttribute('aria-pressed', 'true');
     expect(pill()).toHaveTextContent('尖刺');
@@ -217,6 +223,15 @@ describe('issue 179 · 曲线选项胶囊', () => {
     const p50 = buildTemplateSvgPath(pulse, 46, 48);
     const p0 = buildTemplateSvgPath(pulse, 46, 48, { extra: { pulsePos: 0 } });
     expect(p0.strokePath).not.toBe(p50.strokePath);
+
+    const zigzag = shapeTemplateById('zigzag')!;
+    const z0 = buildTemplateSvgPath(zigzag, 46, 48);
+    const zRight = buildTemplateSvgPath(zigzag, 46, 48, { extra: { baseline: 100 } });
+    expect(zRight.strokePath).not.toBe(z0.strokePath);
+    const xs = (g: { strokePath: string }) =>
+      [...g.strokePath.matchAll(/[\d.]+/g)].map(Number).filter((_, i) => i % 2 === 0);
+    expect(Math.min(...xs(zRight))).toBeGreaterThan(Math.min(...xs(z0)) - 1e-6);
+    expect(Math.min(...xs(zRight))).toBeGreaterThan(22);
   });
 
   it('切走工具再切回：先出收起的胶囊，不残留上次展开的表单', () => {
@@ -270,6 +285,26 @@ describe('issue 179 · 曲线选项胶囊', () => {
       family: 'sine', type: 'in', precision: 16,
       templateId: 'zigzag', templateParamMode: 'preset', templateScale: 1, templateDensity: 3.5,
     }, { compact: true })).toBe('震动条');
+
+    expect(curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16,
+      templateId: 'zigzag', templateParamMode: 'preset',
+      templateExtras: { zigzag: { baseline: -100 } },
+    })).toBe('震动条 · 右偏 · 中 · 标准 · 贴左');
+    expect(curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16,
+      templateId: 'zigzag', templateParamMode: 'preset',
+    })).toBe('震动条 · 右偏 · 中 · 标准');
+    expect(curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16,
+      templateId: 'pulse', templateParamMode: 'preset',
+      templateExtras: { pulse: { pulsePos: 0 } },
+    })).toBe('尖刺 · 右偏 · 中 · 标准 · 起拍');
+    expect(curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16,
+      templateId: 'zigzag', templateParamMode: 'free', templateScale: 1, templateDensity: 1,
+      templateExtras: { zigzag: { baseline: -200 } },
+    })).toBe('震动条 · 右偏 · 1× · 1× · -200%');
   });
 
   it('展开态顶栏只留模板主名；折叠恢复完整摘要', () => {
@@ -420,5 +455,31 @@ describe('issue 179 · 曲线选项胶囊', () => {
     fireEvent.doubleClick(within(form()).getByRole('slider', { name: '位置' }));
     expect(stored().templateExtras?.pulse).toBeUndefined();
     expect(stored().templateMirrored).toBe(true);
+  });
+
+  it('issue 243 · 震动条档位贴左/居中/贴右；自由基线可到 ±200；尖刺档位纯词', () => {
+    setup({ curve: { family: 'sine', type: 'in', precision: 16, templateId: 'zigzag' } });
+    arm('curve');
+    fireEvent.click(pill());
+    expect(within(form()).getByRole('button', { name: '贴左' })).toBeInTheDocument();
+    expect(within(form()).getByRole('button', { name: '居中' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(form()).getByRole('button', { name: '贴右' })).toBeInTheDocument();
+    fireEvent.click(within(form()).getByRole('button', { name: '贴左' }));
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve.templateExtras.zigzag.baseline).toBe(-100);
+
+    fireEvent.click(within(paramModeBar()).getByRole('button', { name: '自由' }));
+    const baselineSlider = within(form()).getByRole('slider', { name: '基线' });
+    expect(baselineSlider).toHaveAttribute('min', '-200');
+    expect(baselineSlider).toHaveAttribute('max', '200');
+    fireEvent.change(baselineSlider, { target: { value: '200' } });
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve.templateExtras.zigzag.baseline).toBe(200);
+
+    fireEvent.click(within(paramModeBar()).getByRole('button', { name: '档位' }));
+    fireEvent.click(within(form()).getByRole('button', { name: '尖刺' }));
+    expect(within(form()).getByRole('button', { name: '起拍' })).toBeInTheDocument();
+    expect(within(form()).getByRole('button', { name: '居中' })).toBeInTheDocument();
+    expect(within(form()).getByRole('button', { name: '尾拍' })).toBeInTheDocument();
+    expect(within(form()).queryByRole('button', { name: /0%/ })).not.toBeInTheDocument();
+    expect(within(form()).queryByRole('button', { name: '贴左' })).not.toBeInTheDocument();
   });
 });

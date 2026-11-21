@@ -1,7 +1,8 @@
 // SP 段形状模板库（issue 09 S4 / ADR-0009 §2 三来源之三；issue 223 连续自适应采样；issue 235 18 款扩充 + 三维参数）——纯函数，零 UI 依赖。
 //
 // 模板 = **归一化相对形状**：点列 { t, off }，t ∈ [0,1] 为段内时间进度（beat 弱单调递增：普通曲线严格递增，同拍跃迁段允许 t[i] === t[i-1]），
-// off 为相对**弦**（两端可见结点连线）的横向偏移比例，套用时 × TEMPLATE_AMPLITUDE(2 轨) × amplitudeScale。
+// off 为相对**弦**（两端可见结点连线）的横向偏移比例；相对弦偏移型套用时
+// × TEMPLATE_AMPLITUDE(2 轨) × amplitudeScale × (sign × off + (baseline/100) × half)。
 // 套用产物 = 密集 hidden 采样点，端点不动；参数记 `SpanTemplateParam`，
 // 与缓动段同走 visibleCount 护栏与"一动就自由化"。
 
@@ -80,6 +81,11 @@ export interface ShapeTemplate {
   hasZeroBeatJump?: boolean;
   /** 模板专属参数声明（用于动态渲染面板控件与持久化校验） */
   extraParams?: readonly TemplateExtraParamSpec[];
+  /**
+   * 绕弦双侧摆动的特征半幅（归一化 |off| 峰值）。声明后烘焙按
+   * `AMP × ampScale × (sign × off + (baseline/100) × oscillationHalf)` 叠加振荡基线偏移。
+   */
+  oscillationHalf?: number;
   /** 默认点列（用于无参数静态兜底） */
   points: { t: number; off: number }[];
   /** 动态采样生成器：平滑类按 precision 细分，分段/面筋/锁链按 densityScale 调节段落密度 */
@@ -256,6 +262,25 @@ const makeContinuousSample = (
 const positiveOrOne = (v?: number) =>
   typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 1;
 
+/** 双侧摆动模板共用的振荡基线偏移专属项（issue 243） */
+export const OSCILLATION_BASELINE_SPEC: Extract<TemplateExtraParamSpec, { kind: 'range' }> = {
+  kind: 'range',
+  key: 'baseline',
+  labelKey: 'curve.extra.baseline',
+  hintKey: 'curve.extra.baselineHint',
+  defaultValue: 0,
+  min: -200,
+  max: 200,
+  step: 5,
+  unit: '%',
+  presets: [
+    { value: -100, labelKey: 'curve.extra.baseline.left' },
+    { value: 0, labelKey: 'curve.extra.baseline.center' },
+    { value: 100, labelKey: 'curve.extra.baseline.right' },
+  ],
+  mirrorValue: (v) => -v,
+};
+
 /** 18 款内置形状模板目录（三分类；老 5 ID 全数保留向后兼容） */
 export const SHAPE_TEMPLATES: ShapeTemplate[] = [
   // === 1. 平滑弧弯（smooth，8 款） ===
@@ -339,6 +364,8 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     category: 'rhythm',
     precisionSensitive: false,
     adjustableDensity: true,
+    oscillationHalf: 0.45,
+    extraParams: [OSCILLATION_BASELINE_SPEC],
     points: [],
     sample: (span, _p, density) => {
       const teeth = Math.max(4, Math.min(TEMPLATE_SEGMENTED_MAX_POINTS, Math.round(span * 16 * positiveOrOne(density))));
@@ -355,6 +382,8 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     category: 'rhythm',
     precisionSensitive: false,
     adjustableDensity: true,
+    oscillationHalf: 0.75,
+    extraParams: [OSCILLATION_BASELINE_SPEC],
     points: [],
     sample: (span, _p, density) => {
       const teeth = Math.max(6, Math.min(TEMPLATE_SEGMENTED_MAX_POINTS, Math.round(span * 16 * positiveOrOne(density))));
@@ -472,6 +501,8 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     category: 'special',
     precisionSensitive: false,
     adjustableDensity: true,
+    oscillationHalf: 0.85,
+    extraParams: [OSCILLATION_BASELINE_SPEC],
     points: [],
     sample: (span, _p, density) => {
       const steps = Math.max(8, Math.min(TEMPLATE_SEGMENTED_MAX_POINTS, Math.round(span * 16 * positiveOrOne(density))));
@@ -491,6 +522,8 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     precisionSensitive: false,
     adjustableDensity: true,
     hasZeroBeatJump: true,
+    oscillationHalf: 0.75,
+    extraParams: [OSCILLATION_BASELINE_SPEC],
     points: [],
     sample: (span, _p, density) => {
       const ribs = Math.max(4, Math.min(128, Math.round(span * 8 * positiveOrOne(density))));
@@ -557,6 +590,8 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     category: 'special',
     precisionSensitive: false,
     adjustableDensity: true,
+    oscillationHalf: 0.55,
+    extraParams: [OSCILLATION_BASELINE_SPEC],
     points: [],
     sample: (span, _p, density) => {
       const links = Math.max(4, Math.min(128, Math.round(span * 8 * positiveOrOne(density))));
@@ -592,6 +627,8 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     precisionSensitive: false,
     adjustableDensity: true,
     hasZeroBeatJump: true,
+    oscillationHalf: 0.6,
+    extraParams: [OSCILLATION_BASELINE_SPEC],
     points: [],
     sample: (span, _p, density) => {
       const segs = Math.max(4, Math.min(128, Math.round(span * 8 * positiveOrOne(density))));
@@ -621,8 +658,26 @@ export const shapeTemplateById = (id: string): ShapeTemplate | undefined =>
   SHAPE_TEMPLATES.find((tp) => tp.id === id);
 
 /**
+ * 相对弦横向偏移量（归一化 off 单位）：`sign × off + (baseline/100) × half`。
+ * 基线加在 sign 外侧，与偏向正交。烘焙与 SVG 预览共用，避免口径分叉。
+ */
+export function relativeChordOffset(
+  off: number,
+  mirrored: boolean,
+  template: ShapeTemplate,
+  extra: Record<string, TemplateExtraValue>,
+): number {
+  const sign = mirrored ? -1 : 1;
+  const baseline = typeof extra.baseline === 'number' ? extra.baseline : 0;
+  const half = template.extraParams?.some((s) => s.key === 'baseline')
+    ? (template.oscillationHalf ?? 0)
+    : 0;
+  return sign * off + (baseline / 100) * half;
+}
+
+/**
  * 套用模板：段两端可见结点之间按点列生成 hidden 采样点（不含端点）。
- * - 相对弦偏移型：lane = 弦插值 + sign × off × TEMPLATE_AMPLITUDE × amplitudeScale，钳制 0..6；
+ * - 相对弦偏移型：lane = 弦插值 + AMP × ampScale × (sign × off + (baseline/100) × half)，钳制 0..6；
  * - 端点插值型：lane = from.lane + (to.lane - from.lane) × off（同轨退化为直线）；
  * beat = t 线性映射（普通曲线严格递增；同拍跃迁模板弱单调递增）。
  */
@@ -658,11 +713,16 @@ export function bakeTemplatePoints(
       hidden: true as const,
     }));
   }
-  const sign = mirrored ? -1 : 1;
   const ampScale = positiveOrOne(amplitudeScale);
   return pts.map(({ t, off }) => ({
     beat: mapBeat(t),
-    lane: clamp(from.lane + (to.lane - from.lane) * t + sign * off * TEMPLATE_AMPLITUDE * ampScale, 0, 6),
+    lane: clamp(
+      from.lane
+        + (to.lane - from.lane) * t
+        + TEMPLATE_AMPLITUDE * ampScale * relativeChordOffset(off, mirrored, template, resolvedExtra),
+      0,
+      6,
+    ),
     hidden: true as const,
   }));
 }

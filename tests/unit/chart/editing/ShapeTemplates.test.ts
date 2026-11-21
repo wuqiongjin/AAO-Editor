@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   SHAPE_TEMPLATES,
+  TEMPLATE_AMPLITUDE,
   TEMPLATE_CATEGORIES,
   TEMPLATE_SEGMENTED_MAX_POINTS,
   shapeTemplateById,
@@ -425,5 +426,85 @@ describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精�
       const firstPeak = reprojected.connections.find((c) => c.hidden && Math.abs(c.lane - 5) < 1e-6);
       expect(firstPeak?.beat).toBeCloseTo(0.5 * (pos / 100), 6);
     }
+  });
+});
+
+const OSCILLATION_IDS = [
+  'zigzag', 'damped', 'gluten-spindle', 'gluten-saw', 'chain-square', 'chain-alt',
+] as const;
+const OSCILLATION_HALVES: Record<(typeof OSCILLATION_IDS)[number], number> = {
+  zigzag: 0.45,
+  damped: 0.75,
+  'gluten-spindle': 0.85,
+  'gluten-saw': 0.75,
+  'chain-square': 0.55,
+  'chain-alt': 0.6,
+};
+
+describe('issue 243 · 振荡基线偏移', () => {
+  it('六款双侧摆动模板声明 baseline；尖刺/阶梯/大弧/梳齿/竹节没有该键', () => {
+    for (const id of OSCILLATION_IDS) {
+      const spec = shapeTemplateById(id)!.extraParams?.find((s) => s.key === 'baseline');
+      expect(spec, id).toMatchObject({
+        kind: 'range',
+        defaultValue: 0,
+        min: -200,
+        max: 200,
+        step: 5,
+        unit: '%',
+      });
+    }
+    for (const id of ['pulse', 'step', 'arc', 'gluten-comb', 'chain-bead'] as const) {
+      expect(shapeTemplateById(id)!.extraParams?.some((s) => s.key === 'baseline')).toBeFalsy();
+    }
+  });
+
+  it('同轨震动条 baseline=100 一侧贴弦且峰峰值不变；200 整串离弦；无 extra 回落 0', () => {
+    const zigzag = shapeTemplateById('zigzag')!;
+    const half = OSCILLATION_HALVES.zigzag;
+    const amp = TEMPLATE_AMPLITUDE;
+    const centered = bakeTemplatePoints({ lane: 3 }, { lane: 3 }, 0, 1, zigzag, 16, false, 1, 1);
+    const stick = bakeTemplatePoints(
+      { lane: 3 }, { lane: 3 }, 0, 1, zigzag, 16, false, 1, 1, { baseline: 100 },
+    );
+    const far = bakeTemplatePoints(
+      { lane: 3 }, { lane: 3 }, 0, 1, zigzag, 16, false, 1, 1, { baseline: 200 },
+    );
+    const missing = bakeTemplatePoints({ lane: 3 }, { lane: 3 }, 0, 1, zigzag);
+
+    const p2p = (pts: { lane: number }[]) =>
+      Math.max(...pts.map((p) => p.lane)) - Math.min(...pts.map((p) => p.lane));
+    expect(p2p(stick)).toBeCloseTo(2 * half * amp, 6);
+    expect(p2p(centered)).toBeCloseTo(2 * half * amp, 6);
+    expect(Math.min(...stick.map((p) => p.lane))).toBeCloseTo(3, 6);
+    expect(Math.max(...stick.map((p) => p.lane))).toBeCloseTo(3 + 2 * half * amp, 6);
+    expect(Math.min(...far.map((p) => p.lane))).toBeGreaterThan(3 + 0.5);
+    expect(missing.map((p) => p.lane)).toEqual(centered.map((p) => p.lane));
+  });
+
+  it('余震尾部 hidden 靠近偏移基线而非弦；偏向只翻齿序不翻贴右方向', () => {
+    const damped = shapeTemplateById('damped')!;
+    const half = OSCILLATION_HALVES.damped;
+    const stick = bakeTemplatePoints(
+      { lane: 3 }, { lane: 3 }, 0, 2, damped, 16, false, 1, 1, { baseline: 100 },
+    );
+    const tail = stick.slice(-4);
+    const baselineLane = 3 + TEMPLATE_AMPLITUDE * half;
+    for (const p of tail) {
+      expect(Math.abs(p.lane - baselineLane)).toBeLessThan(0.35);
+      expect(Math.abs(p.lane - 3)).toBeGreaterThan(0.8);
+    }
+
+    const zigzag = shapeTemplateById('zigzag')!;
+    const right = bakeTemplatePoints(
+      { lane: 3 }, { lane: 3 }, 0, 1, zigzag, 16, false, 1, 1, { baseline: 100 },
+    );
+    const rightMirrored = bakeTemplatePoints(
+      { lane: 3 }, { lane: 3 }, 0, 1, zigzag, 16, true, 1, 1, { baseline: 100 },
+    );
+    expect(Math.min(...right.map((p) => p.lane))).toBeCloseTo(3, 6);
+    expect(Math.min(...rightMirrored.map((p) => p.lane))).toBeCloseTo(3, 6);
+    expect(Math.max(...rightMirrored.map((p) => p.lane))).toBeCloseTo(3 + 2 * 0.45 * TEMPLATE_AMPLITUDE, 6);
+    expect(right.map((p) => p.lane)).not.toEqual(rightMirrored.map((p) => p.lane));
   });
 });

@@ -1,6 +1,7 @@
 // 曲线 / 形状模板的竖向 SVG 几何路径构造器（零 React 依赖，胶囊摘要与面板网格共用）。
 import { easing, type EasingFamily, type EasingType } from '../../chart/editing/Easing';
 import {
+  relativeChordOffset,
   resolveTemplateExtra,
   templateMappingMode,
   type ShapeTemplate,
@@ -47,7 +48,7 @@ export function buildTemplateSvgPath(
     padY?: number;
   },
 ): SvgCurveGeometry {
-  const sign = opts?.mirrored ? -1 : 1;
+  const mirrored = !!opts?.mirrored;
   const ampScale = opts?.ampScale ?? 1;
   const densityScale = opts?.densityScale ?? 1;
   const padX = opts?.padX ?? 6;
@@ -64,7 +65,9 @@ export function buildTemplateSvgPath(
   const x1 = isEndpointInterp ? width - inset : cx;
   const maxSwing = (cx - padX) * 0.88;
   const mapX = (off: number) => Math.max(2, Math.min(width - 2,
-    isEndpointInterp ? x0 + (x1 - x0) * off : cx + off * sign * ampScale * maxSwing,
+    isEndpointInterp
+      ? x0 + (x1 - x0) * off
+      : cx + relativeChordOffset(off, mirrored, tp, resolvedExtra) * ampScale * maxSwing,
   ));
   const startPt: [number, number] = [x0, y0];
   const endPt: [number, number] = [x1, y1];
