@@ -11,8 +11,9 @@ import {
 } from './SpanCurve';
 import { CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES, type CurvePrecision, type EasingFamily, type EasingType } from './Easing';
 import {
-  TEMPLATE_DENSITY_RANGE, TEMPLATE_SCALE_RANGE, clampTemplateNumber,
-  shapeTemplateById, stripDefaultTemplateExtra, templateSupportsAmplitude, templateSupportsMirror,
+  TEMPLATE_BASELINE_RANGE, TEMPLATE_DENSITY_RANGE, TEMPLATE_SCALE_RANGE, clampTemplateNumber,
+  shapeTemplateById, snapTemplateRangeValue, stripDefaultTemplateExtra, templateSupportsAmplitude,
+  templateSupportsBaseline, templateSupportsMirror, type ShapeTemplate,
 } from './ShapeTemplates';
 import {
   clickOps,
@@ -38,6 +39,9 @@ export interface CurveConfig {
   templateMirrored?: boolean;
   templateScale?: number;
   templateDensity?: number;
+  /** 振荡基线百分比（-200…200，步长 5）：与偏向/幅度/段密同层的**跨模板通用单值**，
+   *  切模板不归零；仅声明了 `baseline` 的模板生效。 */
+  templateBaseline?: number;
   templateExtras?: Record<string, Record<string, TemplateExtraValue>>;
 }
 
@@ -54,25 +58,65 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
   templateMirrored: false,
   templateScale: 1,
   templateDensity: 1,
+  templateBaseline: 0,
 };
 
 const pickEnum = <T,>(allowed: readonly T[], raw: unknown, fallback: T): T =>
   allowed.includes(raw as T) ? (raw as T) : fallback;
 
+/** 只把「普通对象」当记录看：数组 / null / 标量一律视为缺失 */
+const asRecord = (raw: unknown): Record<string, unknown> | undefined =>
+  raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+
 function normalizeTemplateExtras(
   raw: unknown,
 ): Record<string, Record<string, TemplateExtraValue>> | undefined {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const extras = asRecord(raw);
+  if (!extras) return undefined;
   const out: Record<string, Record<string, TemplateExtraValue>> = {};
-  for (const [tplId, tplRaw] of Object.entries(raw as Record<string, unknown>)) {
+  for (const [tplId, tplRaw] of Object.entries(extras)) {
     const tp = shapeTemplateById(tplId);
-    if (!tp || !tp.extraParams?.length || !tplRaw || typeof tplRaw !== 'object' || Array.isArray(tplRaw)) {
-      continue;
-    }
-    const cleaned = stripDefaultTemplateExtra(tp, tplRaw as Record<string, unknown>);
+    const ownRaw = asRecord(tplRaw);
+    if (!tp || !tp.extraParams?.length || !ownRaw) continue;
+    // extras 只承载模板自有语义：基线的旧键在此剔除（迁移见 resolveTemplateBaseline）
+    const own = { ...ownRaw };
+    delete own.baseline;
+    const cleaned = stripDefaultTemplateExtra(tp, own);
     if (cleaned) out[tplId] = cleaned;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * 振荡基线归一化：显式字段（跨模板单值）优先；缺省时兼容旧设置里按模板记的
+ * `templateExtras[模板].baseline`——当前模板的记忆值优先，其次按对象键序取第一个非零值。
+ */
+function resolveTemplateBaseline(
+  explicit: unknown,
+  rawExtras: unknown,
+  templateId: string | null,
+): number {
+  const fallback = TEMPLATE_BASELINE_RANGE.defaultValue;
+  if (typeof explicit === 'number' && Number.isFinite(explicit)) {
+    return snapTemplateRangeValue(explicit, TEMPLATE_BASELINE_RANGE);
+  }
+  const extras = asRecord(rawExtras);
+  if (!extras) return fallback;
+  const baselineOf = (tplId: string): number | undefined => {
+    const val = asRecord(extras[tplId])?.baseline;
+    return typeof val === 'number' && Number.isFinite(val) ? val : undefined;
+  };
+  const current = templateId ? baselineOf(templateId) : undefined;
+  if (current !== undefined && current !== fallback) {
+    return snapTemplateRangeValue(current, TEMPLATE_BASELINE_RANGE);
+  }
+  for (const tplId of Object.keys(extras)) {
+    const val = baselineOf(tplId);
+    if (val !== undefined && val !== fallback) {
+      return snapTemplateRangeValue(val, TEMPLATE_BASELINE_RANGE);
+    }
+  }
+  return fallback;
 }
 
 /**
@@ -82,18 +126,34 @@ function normalizeTemplateExtras(
 export function normalizeCurveConfig(raw: unknown): CurveConfig {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const d = DEFAULT_CURVE_CONFIG;
+  const templateId = typeof o.templateId === 'string' && shapeTemplateById(o.templateId) ? o.templateId : null;
   const templateExtras = normalizeTemplateExtras(o.templateExtras);
   return {
     family: pickEnum(EASING_FAMILIES, o.family, d.family),
     type: pickEnum(EASING_TYPES, o.type, d.type),
     precision: pickEnum(CURVE_PRECISIONS, o.precision, d.precision),
-    templateId: typeof o.templateId === 'string' && shapeTemplateById(o.templateId) ? o.templateId : null,
+    templateId,
     templateParamMode: pickEnum(TEMPLATE_PARAM_MODES, o.templateParamMode, d.templateParamMode ?? 'preset'),
     templateMirrored: typeof o.templateMirrored === 'boolean' ? o.templateMirrored : false,
     templateScale: clampTemplateNumber(o.templateScale, TEMPLATE_SCALE_RANGE, 1),
     templateDensity: clampTemplateNumber(o.templateDensity, TEMPLATE_DENSITY_RANGE, 1),
+    templateBaseline: resolveTemplateBaseline(o.templateBaseline, o.templateExtras, templateId),
     ...(templateExtras ? { templateExtras } : {}),
   };
+}
+
+/**
+ * 配置 → 模板额外参数视图：面板 / 摘要 / SVG 预览与段参数共用同一份取值口径。
+ * 振荡基线是跨模板通用单值，在此投影成 `extra.baseline`；模板自有项（如 `pulsePos`）原样透传。
+ * 未声明基线能力的模板不注入该键。
+ */
+export function curveConfigExtraView(
+  template: ShapeTemplate,
+  config: CurveConfig,
+): Record<string, TemplateExtraValue> | undefined {
+  const own = config.templateExtras?.[template.id];
+  if (!templateSupportsBaseline(template)) return own;
+  return { ...own, baseline: config.templateBaseline ?? TEMPLATE_BASELINE_RANGE.defaultValue };
 }
 
 /** 配置 → 段参数（模板优先；S4 起放置/重应用/预览三路共用，保证"所见即所得"） */
@@ -117,7 +177,8 @@ export const spanParamFromCurveConfig = (config: CurveConfig): SpanParam => {
     if (config.templateDensity && config.templateDensity !== 1) param.densityScale = config.templateDensity;
   }
   if (tp) {
-    const extra = stripDefaultTemplateExtra(tp, config.templateExtras?.[tp.id]);
+    // 段上仍写 `extra.baseline`：烘焙与旧谱读取只认段参数，配置层单值在此投影
+    const extra = stripDefaultTemplateExtra(tp, curveConfigExtraView(tp, config));
     if (extra) param.extra = extra;
   }
   return param;

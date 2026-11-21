@@ -6,6 +6,7 @@ import {
 } from '../../chart/editing/Easing';
 import {
   SHAPE_TEMPLATES,
+  TEMPLATE_BASELINE_RANGE,
   TEMPLATE_CATEGORIES,
   TEMPLATE_DENSITIES,
   TEMPLATE_DENSITY_RANGE,
@@ -14,6 +15,7 @@ import {
   clampTemplateNumber,
   resolveTemplateExtra,
   shapeTemplateById,
+  snapTemplateRangeValue,
   stripDefaultTemplateExtra,
   templateSupportsAmplitude,
   templateSupportsMirror,
@@ -22,7 +24,7 @@ import {
   type TemplateNumberRange,
 } from '../../chart/editing/ShapeTemplates';
 import type { TemplateExtraValue } from '../../chart/types';
-import type { CurveConfig } from '../../chart/editing/CurveTool';
+import { curveConfigExtraView, type CurveConfig } from '../../chart/editing/CurveTool';
 import { t, type MessageKey } from '../../i18n';
 import { MiniEasingSvg, MiniTemplateSvg } from './CurveMiniSvg';
 import { formatTemplateNumber, shapeLabel, shapeTooltip } from './curveLabels';
@@ -293,7 +295,7 @@ export default function CurveConfigPanel({
   const showMirror = currentTemplate ? templateSupportsMirror(currentTemplate) : false;
   const showAmplitude = currentTemplate ? templateSupportsAmplitude(currentTemplate) : false;
   const resolvedExtra = currentTemplate
-    ? resolveTemplateExtra(currentTemplate, config.templateExtras?.[currentTemplate.id])
+    ? resolveTemplateExtra(currentTemplate, curveConfigExtraView(currentTemplate, config))
     : {};
 
   const updateExtra = (key: string, value: TemplateExtraValue) => {
@@ -307,6 +309,15 @@ export default function CurveConfigPanel({
     if (Object.keys(nextExtras).length > 0) nextConfig.templateExtras = nextExtras;
     else delete nextConfig.templateExtras;
     onChange(nextConfig);
+  };
+
+  // 振荡基线是跨模板通用单值：写回配置而非按模板 ID 记 extras；范围/步长在出口就收敛
+  const updateExtraParam = (spec: TemplateExtraParamSpec, value: TemplateExtraValue) => {
+    if (spec.key !== 'baseline') {
+      updateExtra(spec.key, value);
+      return;
+    }
+    onChange({ ...config, templateBaseline: snapTemplateRangeValue(value, TEMPLATE_BASELINE_RANGE) });
   };
 
   const filteredTemplates = SHAPE_TEMPLATES.filter(
@@ -375,7 +386,7 @@ export default function CurveConfigPanel({
                     mirrored={mirrored}
                     ampScale={ampScale}
                     densityScale={densityScale}
-                    extra={config.templateExtras?.[tp.id]}
+                    extra={curveConfigExtraView(tp, config)}
                   />
                   <span className="ccp__card-name">{name}</span>
                 </button>
@@ -458,7 +469,7 @@ export default function CurveConfigPanel({
                 spec={spec}
                 isFree={isFreeMode}
                 value={resolvedExtra[spec.key] ?? spec.defaultValue}
-                onChange={(val) => updateExtra(spec.key, val)}
+                onChange={(val) => updateExtraParam(spec, val)}
               />
             ))}
           </div>

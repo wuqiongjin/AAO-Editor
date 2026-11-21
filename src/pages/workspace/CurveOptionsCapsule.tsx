@@ -5,7 +5,7 @@ import { memo, type ReactNode, type RefObject } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useUI } from '../../app/ProviderTree';
 import { shapeTemplateById } from '../../chart/editing/ShapeTemplates';
-import type { CurveConfig } from '../../chart/editing/CurveTool';
+import { curveConfigExtraView, type CurveConfig } from '../../chart/editing/CurveTool';
 import { t } from '../../i18n';
 import CurveConfigPanel from './CurveConfigPanel';
 import { MiniEasingSvg, MiniTemplateSvg } from './CurveMiniSvg';
@@ -97,7 +97,7 @@ export default memo(function CurveOptionsCapsule() {
             mirrored={!!curveConfig.templateMirrored}
             ampScale={curveConfig.templateScale ?? 1}
             densityScale={curveConfig.templateDensity ?? 1}
-            extra={curveConfig.templateExtras?.[activeTemplate.id]}
+            extra={curveConfigExtraView(activeTemplate, curveConfig)}
           />
         ) : (
           <MiniEasingSvg

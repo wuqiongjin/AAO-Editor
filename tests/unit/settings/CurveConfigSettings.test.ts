@@ -34,7 +34,7 @@ function walkTs(dir: string): string[] {
 }
 
 describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
-  it('出厂默认：Sine + In + 1/16 + 不使用模板 + 档位模式 + 右偏/中幅/标准密', () => {
+  it('出厂默认：Sine + In + 1/16 + 不使用模板 + 档位模式 + 右偏/中幅/标准密/基线 0', () => {
     expect(DEFAULT_CURVE_CONFIG).toEqual({
       family: 'sine',
       type: 'in',
@@ -44,6 +44,7 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
       templateMirrored: false,
       templateScale: 1,
       templateDensity: 1,
+      templateBaseline: 0,
     });
     expect(defaultSettings().curve).toEqual(DEFAULT_CURVE_CONFIG);
   });
@@ -102,6 +103,7 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
       templateMirrored: true,
       templateScale: 2.35,
       templateDensity: 3.5,
+      templateBaseline: 0,
     });
   });
 
@@ -162,6 +164,7 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
         templateMirrored: true,
         templateScale: 0.5,
         templateDensity: 2,
+        templateBaseline: 100,
       },
     };
     saveSettings(next, st);

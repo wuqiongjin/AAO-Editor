@@ -6,7 +6,7 @@ import {
   templateSupportsMirror,
   type ShapeTemplate,
 } from '../../chart/editing/ShapeTemplates';
-import type { CurveConfig } from '../../chart/editing/CurveTool';
+import { curveConfigExtraView, type CurveConfig } from '../../chart/editing/CurveTool';
 import { t, type MessageKey } from '../../i18n';
 
 export const shapeLabel = (id: string): string => {
@@ -65,7 +65,7 @@ export function curveConfigSummary(c: CurveConfig, opts?: { compact?: boolean })
       parts.push(formatContinuousParam(c.templateDensity ?? 1, DENSITY_KEYS, isFree));
     }
     if (tp.extraParams?.length) {
-      const resolved = resolveTemplateExtra(tp, c.templateExtras?.[tp.id]);
+      const resolved = resolveTemplateExtra(tp, curveConfigExtraView(tp, c));
       for (const spec of tp.extraParams) {
         const val = resolved[spec.key];
         if (spec.kind === 'choice') {

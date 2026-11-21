@@ -289,7 +289,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
       templateId: 'zigzag', templateParamMode: 'preset',
-      templateExtras: { zigzag: { baseline: -100 } },
+      templateBaseline: -100,
     })).toBe('震动条 · 右偏 · 中 · 标准 · 贴左');
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
@@ -303,7 +303,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
       templateId: 'zigzag', templateParamMode: 'free', templateScale: 1, templateDensity: 1,
-      templateExtras: { zigzag: { baseline: -200 } },
+      templateBaseline: -200,
     })).toBe('震动条 · 右偏 · 1× · 1× · -200%');
   });
 
@@ -457,7 +457,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(stored().templateMirrored).toBe(true);
   });
 
-  it('issue 243 · 震动条档位贴左/居中/贴右；自由基线可到 ±200；尖刺档位纯词', () => {
+  it('issue 244 · 基线跨模板共享：切模板后同一值仍显示并写盘；不声明基线的模板无该行', () => {
     setup({ curve: { family: 'sine', type: 'in', precision: 16, templateId: 'zigzag' } });
     arm('curve');
     fireEvent.click(pill());
@@ -465,15 +465,33 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(within(form()).getByRole('button', { name: '居中' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(form()).getByRole('button', { name: '贴右' })).toBeInTheDocument();
     fireEvent.click(within(form()).getByRole('button', { name: '贴左' }));
-    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve.templateExtras.zigzag.baseline).toBe(-100);
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve.templateBaseline).toBe(-100);
+    // 基线不再按模板 ID 记在 extras 里
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve.templateExtras).toBeUndefined();
 
+    // 切到另一款双侧摆动模板：值不归零
+    fireEvent.click(within(form()).getByRole('button', { name: '余震条' }));
+    expect(within(form()).getByRole('button', { name: '贴左' })).toHaveAttribute('aria-pressed', 'true');
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve.templateBaseline).toBe(-100);
+
+    // 不声明基线的模板：行消失，但值仍保留在配置里
+    fireEvent.click(within(form()).getByRole('button', { name: '尖刺' }));
+    expect(within(form()).queryByRole('button', { name: '贴左' })).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve.templateBaseline).toBe(-100);
+
+    // 切回声明基线的模板：仍读到同一值
+    fireEvent.click(within(form()).getByRole('button', { name: '锁链·方波' }));
+    expect(within(form()).getByRole('button', { name: '贴左' })).toHaveAttribute('aria-pressed', 'true');
+
+    // 自由模式：基线滑块可到 ±200，写盘仍是同一个单值
     fireEvent.click(within(paramModeBar()).getByRole('button', { name: '自由' }));
     const baselineSlider = within(form()).getByRole('slider', { name: '基线' });
     expect(baselineSlider).toHaveAttribute('min', '-200');
     expect(baselineSlider).toHaveAttribute('max', '200');
     fireEvent.change(baselineSlider, { target: { value: '200' } });
-    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve.templateExtras.zigzag.baseline).toBe(200);
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve.templateBaseline).toBe(200);
 
+    // 尖刺档位仍是纯词、且没有基线行
     fireEvent.click(within(paramModeBar()).getByRole('button', { name: '档位' }));
     fireEvent.click(within(form()).getByRole('button', { name: '尖刺' }));
     expect(within(form()).getByRole('button', { name: '起拍' })).toBeInTheDocument();

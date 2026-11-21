@@ -63,6 +63,9 @@ export const TEMPLATE_DENSITIES = [0.5, 1, 2] as const;
 export type TemplateDensity = (typeof TEMPLATE_DENSITIES)[number];
 export const TEMPLATE_DENSITY_RANGE: TemplateNumberRange = { min: 0.25, max: 4, step: 0.05, defaultValue: 1 };
 
+/** 振荡基线范围（相对各模板特征半幅的百分比）：跨模板通用单值，不随模板 ID 分记 */
+export const TEMPLATE_BASELINE_RANGE: TemplateNumberRange = { min: -200, max: 200, step: 5, defaultValue: 0 };
+
 export interface ShapeTemplate {
   id: string;
   label: string;
@@ -118,13 +121,25 @@ export const templateSupportsMirror = (tp: ShapeTemplate): boolean =>
 export const templateSupportsAmplitude = (tp: ShapeTemplate): boolean =>
   tp.supportsAmplitude ?? (templateMappingMode(tp) === 'chord-offset');
 
-function snapRangeValue(spec: Extract<TemplateExtraParamSpec, { kind: 'range' }>, raw: number): number {
-  const clamped = clamp(raw, spec.min, spec.max);
-  if (!(spec.step > 0)) return clamped;
-  const steps = Math.round((clamped - spec.min) / spec.step);
+/** 模板是否声明了「振荡基线」（跨模板通用项；声明即渲染，唯一判定处） */
+export const templateSupportsBaseline = (tp: ShapeTemplate): boolean =>
+  tp.extraParams?.some((spec) => spec.key === 'baseline') ?? false;
+
+type NumericRange = Pick<TemplateNumberRange, 'min' | 'max' | 'step'>;
+
+function snapRangeValue(range: NumericRange, raw: number): number {
+  const clamped = clamp(raw, range.min, range.max);
+  if (!(range.step > 0)) return clamped;
+  const steps = Math.round((clamped - range.min) / range.step);
   // 消除浮点步进误差（如 0.30000000000000004）
-  const snapped = Number((spec.min + steps * spec.step).toFixed(6));
-  return clamp(snapped, spec.min, spec.max);
+  const snapped = Number((range.min + steps * range.step).toFixed(6));
+  return clamp(snapped, range.min, range.max);
+}
+
+/** 按范围钳制并吸附步长；非法值回落范围的默认值（跨模板通用单值的归一化入口） */
+export function snapTemplateRangeValue(raw: unknown, range: TemplateNumberRange): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return range.defaultValue;
+  return snapRangeValue(range, raw);
 }
 
 /** 解析并校验模板专属参数（缺省或非法项回落默认值） */
@@ -262,16 +277,16 @@ const makeContinuousSample = (
 const positiveOrOne = (v?: number) =>
   typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 1;
 
-/** 双侧摆动模板共用的振荡基线偏移专属项（issue 243） */
+/** 双侧摆动模板共用的振荡基线声明：取值源是跨模板单值 `CurveConfig.templateBaseline` */
 export const OSCILLATION_BASELINE_SPEC: Extract<TemplateExtraParamSpec, { kind: 'range' }> = {
   kind: 'range',
   key: 'baseline',
   labelKey: 'curve.extra.baseline',
   hintKey: 'curve.extra.baselineHint',
-  defaultValue: 0,
-  min: -200,
-  max: 200,
-  step: 5,
+  defaultValue: TEMPLATE_BASELINE_RANGE.defaultValue,
+  min: TEMPLATE_BASELINE_RANGE.min,
+  max: TEMPLATE_BASELINE_RANGE.max,
+  step: TEMPLATE_BASELINE_RANGE.step,
   unit: '%',
   presets: [
     { value: -100, labelKey: 'curve.extra.baseline.left' },
@@ -669,9 +684,7 @@ export function relativeChordOffset(
 ): number {
   const sign = mirrored ? -1 : 1;
   const baseline = typeof extra.baseline === 'number' ? extra.baseline : 0;
-  const half = template.extraParams?.some((s) => s.key === 'baseline')
-    ? (template.oscillationHalf ?? 0)
-    : 0;
+  const half = templateSupportsBaseline(template) ? (template.oscillationHalf ?? 0) : 0;
   return sign * off + (baseline / 100) * half;
 }
 

@@ -15,7 +15,8 @@ import {
 } from '@/src/chart/editing/ShapeTemplates';
 import { displayConnections } from '@/src/chart/editing/SlideSegments';
 import { reprojectSpanParams } from '@/src/chart/editing/SpanCurve';
-import type { SlideNote } from '@/src/chart/types';
+import { spanParamFromCurveConfig, type CurveConfig } from '@/src/chart/editing/CurveTool';
+import type { SlideNote, SpanTemplateParam } from '@/src/chart/types';
 
 describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精度控制）', () => {
   it('templateMinPoints: 各精度档位返回对应合理的保底细分数', () => {
@@ -506,5 +507,49 @@ describe('issue 243 · 振荡基线偏移', () => {
     expect(Math.min(...rightMirrored.map((p) => p.lane))).toBeCloseTo(3, 6);
     expect(Math.max(...rightMirrored.map((p) => p.lane))).toBeCloseTo(3 + 2 * 0.45 * TEMPLATE_AMPLITUDE, 6);
     expect(right.map((p) => p.lane)).not.toEqual(rightMirrored.map((p) => p.lane));
+  });
+});
+
+describe('issue 244 · 基线跨模板共享（烘焙结果与 243 逐点一致）', () => {
+  it('同一 templateBaseline = 100 在六款上等价于 extra.baseline = 100：单侧不越弦、整串平移、峰峰值不变', () => {
+    const p2p = (pts: { lane: number }[]) =>
+      Math.max(...pts.map((p) => p.lane)) - Math.min(...pts.map((p) => p.lane));
+
+    for (const id of OSCILLATION_IDS) {
+      const half = OSCILLATION_HALVES[id];
+      const template = shapeTemplateById(id)!;
+      const cfg: CurveConfig = {
+        family: 'sine', type: 'in', precision: 16, templateId: id, templateBaseline: 100,
+      };
+      const viaSingle = bakeTemplateParam(
+        { lane: 3 }, { lane: 3 }, 0, 1,
+        spanParamFromCurveConfig(cfg) as SpanTemplateParam,
+      );
+      const viaExtra = bakeTemplatePoints(
+        { lane: 3 }, { lane: 3 }, 0, 1, template, 16, false, 1, 1, { baseline: 100 },
+      );
+
+      // 244 不得改烘焙结果：单值路径与 243 的 extra 路径逐点相同
+      expect(viaSingle.map((p) => p.lane), id).toEqual(viaExtra.map((p) => p.lane));
+
+      // 该侧贴弦：除包络衰减的余震条外，最低点正好回到弦上（余震条全程不低于弦）
+      const minLane = Math.min(...viaSingle.map((p) => p.lane));
+      if (id === 'damped') expect(minLane, id).toBeGreaterThan(3);
+      else expect(minLane, id).toBeCloseTo(3, 6);
+
+      // 半幅不会顶到 0/6 钳制位：整串平移 2 × half × ampScale，峰峰值与无基线一致
+      const ampScale = 0.5;
+      const shifted = bakeTemplateParam(
+        { lane: 3 }, { lane: 3 }, 0, 1,
+        spanParamFromCurveConfig({ ...cfg, templateScale: ampScale }) as SpanTemplateParam,
+      );
+      const centered = bakeTemplatePoints(
+        { lane: 3 }, { lane: 3 }, 0, 1, template, 16, false, ampScale, 1,
+      );
+      expect(p2p(shifted), id).toBeCloseTo(p2p(centered), 6);
+      shifted.forEach((p, i) => {
+        expect(p.lane - centered[i]!.lane, `${id}#${i}`).toBeCloseTo(2 * half * ampScale, 6);
+      });
+    }
   });
 });

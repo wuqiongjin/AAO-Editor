@@ -24,8 +24,8 @@ function commitPenStroke(
 }
 import { clickOps, boxSelectOps } from '@/src/chart/editing/ToolActionMatrix';
 import {
-  curveChainClickOps, execCurveOps, normalizeCurveConfig, placeSpanWithCombination, spanParamFromCurveConfig,
-  type CurveConfig, type CurveDraft,
+  DEFAULT_CURVE_CONFIG, curveChainClickOps, execCurveOps, normalizeCurveConfig, placeSpanWithCombination,
+  spanParamFromCurveConfig, type CurveConfig, type CurveDraft,
 } from '@/src/chart/editing/CurveTool';
 import { effectiveSpanParams, countVisibleNodes } from '@/src/chart/editing/SpanCurve';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
@@ -466,39 +466,81 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
     });
   });
 
-  it('issue 243 · baseline 越界钳进 ±200、步长 5；六款独立记忆；默认不写盘', () => {
-    const cleaned = normalizeCurveConfig({
-      templateId: 'zigzag',
-      templateExtras: {
-        zigzag: { baseline: 999 },
-        damped: { baseline: 7 },
-        'gluten-spindle': { baseline: -203 },
-        'gluten-saw': { baseline: 100 },
-        'chain-square': { baseline: -100 },
-        'chain-alt': { baseline: 0 },
-        pulse: { pulsePos: 0 },
-      },
-    });
-    expect(cleaned.templateExtras).toEqual({
-      zigzag: { baseline: 200 },
-      damped: { baseline: 5 },
-      'gluten-spindle': { baseline: -200 },
-      'gluten-saw': { baseline: 100 },
-      'chain-square': { baseline: -100 },
-      pulse: { pulsePos: 0 },
-    });
+  it('issue 244 · templateBaseline 越界钳进 ±200、按步长 5 吸附；缺省 0', () => {
+    expect(DEFAULT_CURVE_CONFIG.templateBaseline).toBe(0);
+    expect(normalizeCurveConfig({}).templateBaseline).toBe(0);
+    expect(normalizeCurveConfig({ templateBaseline: 999 }).templateBaseline).toBe(200);
+    expect(normalizeCurveConfig({ templateBaseline: -203 }).templateBaseline).toBe(-200);
+    expect(normalizeCurveConfig({ templateBaseline: 37 }).templateBaseline).toBe(35);
+    expect(normalizeCurveConfig({ templateBaseline: 38 }).templateBaseline).toBe(40);
+    expect(normalizeCurveConfig({ templateBaseline: Number.NaN }).templateBaseline).toBe(0);
+    expect(normalizeCurveConfig({ templateBaseline: '100' }).templateBaseline).toBe(0);
+  });
 
+  it('issue 244 · 切模板不归零：六款双侧摆动模板读到同一个单值', () => {
+    for (const templateId of ['zigzag', 'damped', 'gluten-spindle', 'gluten-saw', 'chain-square', 'chain-alt']) {
+      expect(spanParamFromCurveConfig({
+        family: 'sine', type: 'in', precision: 16, templateId, templateBaseline: 100,
+      }), templateId).toEqual({
+        kind: 'template', templateId, precision: 16, extra: { baseline: 100 },
+      });
+    }
+  });
+
+  it('issue 244 · 默认 0 不写进 SpanParam；未声明基线的模板也不写', () => {
     expect(spanParamFromCurveConfig({
-      family: 'sine', type: 'in', precision: 16, templateId: 'zigzag',
-      templateExtras: { zigzag: { baseline: 0 }, damped: { baseline: 100 } },
+      family: 'sine', type: 'in', precision: 16, templateId: 'zigzag', templateBaseline: 0,
     })).toEqual({ kind: 'template', templateId: 'zigzag', precision: 16 });
 
     expect(spanParamFromCurveConfig({
-      family: 'sine', type: 'in', precision: 16, templateId: 'damped',
-      templateExtras: { zigzag: { baseline: 0 }, damped: { baseline: 100 } },
-    })).toEqual({
-      kind: 'template', templateId: 'damped', precision: 16, extra: { baseline: 100 },
+      family: 'sine', type: 'in', precision: 16, templateId: 'pulse', templateBaseline: 100,
+    })).toEqual({ kind: 'template', templateId: 'pulse', precision: 16 });
+  });
+
+  it('issue 244 · 旧记忆迁移：优先当前模板，其次按对象键序取第一个非零值，并从 extras 清除', () => {
+    const current = normalizeCurveConfig({
+      templateId: 'damped',
+      templateExtras: {
+        zigzag: { baseline: 50 },
+        damped: { baseline: -100 },
+        pulse: { pulsePos: 25 },
+      },
     });
+    expect(current.templateBaseline).toBe(-100);
+    expect(current.templateExtras).toEqual({ pulse: { pulsePos: 25 } });
+
+    // 当前模板没有基线记忆（尖刺不声明）→ 按键序取第一个非零值
+    const byKeyOrder = normalizeCurveConfig({
+      templateId: 'pulse',
+      templateExtras: {
+        'gluten-saw': { baseline: 35 },
+        'chain-alt': { baseline: 100 },
+        pulse: { pulsePos: 25 },
+      },
+    });
+    expect(byKeyOrder.templateBaseline).toBe(35);
+    expect(byKeyOrder.templateExtras).toEqual({ pulse: { pulsePos: 25 } });
+
+    // 只剩基线记忆 → templateExtras 整体退场
+    const onlyBaseline = normalizeCurveConfig({
+      templateId: 'zigzag',
+      templateExtras: { zigzag: { baseline: 60 } },
+    });
+    expect(onlyBaseline.templateBaseline).toBe(60);
+    expect(onlyBaseline.templateExtras).toBeUndefined();
+
+    // 新字段优先于旧记忆
+    expect(normalizeCurveConfig({
+      templateId: 'zigzag',
+      templateBaseline: -50,
+      templateExtras: { zigzag: { baseline: 100 } },
+    })).toMatchObject({ templateBaseline: -50 });
+
+    // 当前模板显式记 0 不阻断「按键序取第一个非零值」
+    expect(normalizeCurveConfig({
+      templateId: 'zigzag',
+      templateExtras: { zigzag: { baseline: 0 }, 'chain-alt': { baseline: 100 } },
+    })).toMatchObject({ templateBaseline: 100 });
   });
 });
 
