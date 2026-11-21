@@ -1025,7 +1025,7 @@
   "curve.extra.pulsePos": "位置",
   "curve.extra.pulsePosHint": "设置每个周期内尖刺峰值位置（0% 贴近起拍以对齐鼓点）",
   "curve.extra.pulsePos.start": "起拍",
-  "curve.extra.pulsePos.center": "居中",
+  "curve.extra.pulsePos.center": "中段",
   "curve.extra.pulsePos.end": "尾拍",
   "curve.extra.baseline": "基线",
   "curve.extra.baselineHint": "把振荡相对弦横向平移（贴左 / 居中 / 贴右）；端点仍钉在弦上",

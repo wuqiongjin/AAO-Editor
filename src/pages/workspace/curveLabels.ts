@@ -35,19 +35,24 @@ const DENSITY_KEYS: Record<number, MessageKey> = {
 export const formatTemplateNumber = (value: number, unit = ''): string =>
   `${Number(value.toFixed(2))}${unit}`;
 
+/** 档位模式命中档位就写词，其余（自由模式，或档位模式下的非预设值）写数值 + 单位。 */
+const formatParamValue = (
+  value: number,
+  presetLabelKey: MessageKey | undefined,
+  isFree: boolean,
+  unit: string,
+): string => (!isFree && presetLabelKey ? t(presetLabelKey) : formatTemplateNumber(value, unit));
+
 const formatContinuousParam = (
   value: number,
   presetKeys: Record<number, MessageKey>,
   isFree: boolean,
-): string => {
-  if (!isFree) {
-    const presetKey = presetKeys[value];
-    if (presetKey) return t(presetKey);
-  }
-  return formatTemplateNumber(value, '×');
-};
+): string => formatParamValue(value, presetKeys[value], isFree, '×');
 
-/** 胶囊摘要：跳过当前模板不支持的通用项，并按参数模式（Q9=1b）展示档位词或数值；缓动模式「族 · 型 · 1/精度」。
+/** 胶囊摘要：跳过当前模板不支持的通用项，并按参数模式展示档位词或数值；缓动模式「族 · 型 · 1/精度」。
+ *  专属数值项连默认档位也占位——摘要要回答「现在是什么档」，藏掉默认值就答不出；
+ *  且各家默认并非都等于「零操作」（基线 `0` 是不偏移、尖刺 `50` 是峰值落在中段），
+ *  共用一条「等于默认就跳过」的规则会把两种语义一起吞掉。
  *  `compact`：形状模板只留主名（展开态顶栏，参数已在面板内）；折叠态走完整拼接。 */
 export function curveConfigSummary(c: CurveConfig, opts?: { compact?: boolean }): string {
   const tp = c.templateId != null ? shapeTemplateById(c.templateId) : undefined;
@@ -72,15 +77,10 @@ export function curveConfigSummary(c: CurveConfig, opts?: { compact?: boolean })
           const opt = spec.options.find((o) => o.value === val);
           if (opt) parts.push(t(opt.labelKey as MessageKey));
         } else {
-          if (val === spec.defaultValue) continue;
-          if (!isFree) {
-            const preset = spec.presets?.find((p) => p.value === val);
-            if (preset) {
-              parts.push(t(preset.labelKey as MessageKey));
-              continue;
-            }
-          }
-          parts.push(formatTemplateNumber(Number(val), spec.unit ?? ''));
+          const preset = isFree ? undefined : spec.presets?.find((p) => p.value === val);
+          parts.push(formatParamValue(
+            Number(val), preset?.labelKey as MessageKey | undefined, isFree, spec.unit ?? '',
+          ));
         }
       }
     }

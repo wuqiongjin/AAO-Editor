@@ -8,7 +8,8 @@ import { UIProvider, useUI, type ArmedTool } from '@/src/app/providers/UIProvide
 import CurveOptionsCapsule from '@/src/pages/workspace/CurveOptionsCapsule';
 import { curveConfigSummary } from '@/src/pages/workspace/curveLabels';
 import { buildTemplateSvgPath } from '@/src/pages/workspace/curveSvg';
-import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
+import { SHAPE_TEMPLATES, shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
+import { DICTS, setActiveUiLanguage } from '@/src/i18n';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 function Arm({ tool }: { tool: ArmedTool | null }) {
@@ -36,6 +37,15 @@ const form = () => screen.getByRole('group', { name: '曲线配置' });
 const queryForm = () => screen.queryByRole('group', { name: '曲线配置' });
 const paramModeBar = () => screen.getByRole('group', { name: '模板参数模式' });
 const queryParamModeBar = () => screen.queryByRole('group', { name: '模板参数模式' });
+
+/** 摘要只在折叠态完整拼接（展开态顶栏只留模板主名）：临时收起读一次再回到展开态 */
+function fullSummary(): string {
+  expect(pill()).toHaveAttribute('aria-expanded', 'true');
+  fireEvent.click(pill());
+  const text = pill().textContent ?? '';
+  fireEvent.click(pill());
+  return text;
+}
 
 describe('issue 179 · 曲线选项胶囊', () => {
   beforeEach(() => {
@@ -163,30 +173,31 @@ describe('issue 179 · 曲线选项胶囊', () => {
     // 偏向与幅度行隐藏
     expect(within(form()).queryByRole('button', { name: '↰ 左偏' })).not.toBeInTheDocument();
     expect(within(form()).queryByRole('button', { name: '小' })).not.toBeInTheDocument();
-    // 阶跃形态胶囊可切换直角并写盘、更新摘要及 DOM SVG 实时重绘
+    // 阶跃形态胶囊可切换直角并写盘、卡片 SVG 实时重绘；收起摘要随之更新
     const stepCardBefore = within(form()).getByRole('button', { name: '阶梯' }).querySelector('svg path')?.getAttribute('d');
     const sharpBtn = within(form()).getByRole('button', { name: '直角' });
     fireEvent.click(sharpBtn);
-    expect(pill()).toHaveTextContent('阶梯');
-    expect(pill()).not.toHaveTextContent('直角');
+    expect(fullSummary()).toContain('阶梯 · 标准 · 直角');
     const stepCardAfter = within(form()).getByRole('button', { name: '阶梯' }).querySelector('svg path')?.getAttribute('d');
     expect(stepCardAfter).not.toBe(stepCardBefore);
 
-    // 切换到尖刺：恢复偏向/幅度，并显示位置按钮；默认 50% 不占摘要
+    // 切换到尖刺：恢复偏向/幅度，并显示位置按钮；默认 50% 也占摘要，写「中段」
     fireEvent.click(within(form()).getByRole('button', { name: '尖刺' }));
     expect(within(form()).getByRole('button', { name: '↰ 左偏' })).toBeInTheDocument();
-    expect(pill()).toHaveTextContent('尖刺');
-    expect(pill()).not.toHaveTextContent('50%');
-    const centerBtn = within(form()).getByRole('button', { name: '居中' });
+    const centerBtn = within(form()).getByRole('button', { name: '中段' });
     expect(centerBtn).toHaveAttribute('aria-pressed', 'true');
+    const pulseDefault = fullSummary();
+    expect(pulseDefault).toContain('尖刺 · 右偏 · 中 · 标准 · 中段');
+    expect(pulseDefault).not.toContain('50%');
 
     // 点击「起拍」→ 胶囊与卡片 SVG 同步重绘
     const pulseSvgBefore = pill().querySelector('svg path')?.getAttribute('d');
     fireEvent.click(within(form()).getByRole('button', { name: '起拍' }));
     expect(within(form()).getByRole('button', { name: '起拍' })).toHaveAttribute('aria-pressed', 'true');
-    expect(pill()).toHaveTextContent('尖刺');
-    expect(pill()).not.toHaveTextContent('0%');
     expect(pill().querySelector('svg path')?.getAttribute('d')).not.toBe(pulseSvgBefore);
+    const pulseStart = fullSummary();
+    expect(pulseStart).toContain('尖刺 · 右偏 · 中 · 标准 · 起拍');
+    expect(pulseStart).not.toContain('0%');
 
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve as {
       templateExtras?: Record<string, Record<string, number | string>>;
@@ -196,17 +207,18 @@ describe('issue 179 · 曲线选项胶囊', () => {
       pulse: { pulsePos: 0 },
     });
 
-    // 点回「居中」→ 默认专属值仍不占摘要
-    fireEvent.click(centerBtn);
-    expect(centerBtn).toHaveAttribute('aria-pressed', 'true');
-    expect(pill()).toHaveTextContent('尖刺');
-    expect(pill()).not.toHaveTextContent('50%');
+    // 点回「中段」→ 默认档位同样占摘要
+    const centerAgain = within(form()).getByRole('button', { name: '中段' });
+    fireEvent.click(centerAgain);
+    expect(centerAgain).toHaveAttribute('aria-pressed', 'true');
+    const pulseBack = fullSummary();
+    expect(pulseBack).toContain('尖刺 · 右偏 · 中 · 标准 · 中段');
+    expect(pulseBack).not.toContain('50%');
 
     // 切回阶梯：仍记住之前的「直角」
     fireEvent.click(within(form()).getByRole('button', { name: '阶梯' }));
     expect(within(form()).getByRole('button', { name: '直角' })).toHaveAttribute('aria-pressed', 'true');
-    expect(pill()).toHaveTextContent('阶梯');
-    expect(pill()).not.toHaveTextContent('直角');
+    expect(fullSummary()).toContain('阶梯 · 标准 · 直角');
   });
 
   it('issue 240 · SVG 预览联动：阶梯走左下→右上斜弦且区分斜坡/直角；尖刺随位置重绘', () => {
@@ -258,12 +270,12 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(queryPill()).toBeInTheDocument();
   });
 
-  it('issue 241 · curveConfigSummary 遵循 Q9=1b（自由模式统一数值；档位模式命中词 / 非预设回落数值）', () => {
+  it('issue 241 · curveConfigSummary：自由模式统一数值；档位模式命中词 / 非预设回落数值（默认值占位见 245）', () => {
     seedZhSettings({});
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
       templateId: 'zigzag', templateParamMode: 'free', templateScale: 1, templateDensity: 2,
-    })).toBe('震动条 · 右偏 · 1× · 2×');
+    })).toBe('震动条 · 右偏 · 1× · 2× · 0%');
 
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
@@ -274,12 +286,12 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
       templateId: 'zigzag', templateParamMode: 'preset', templateScale: 1, templateDensity: 2,
-    })).toBe('震动条 · 右偏 · 中 · 稠密');
+    })).toBe('震动条 · 右偏 · 中 · 稠密 · 居中');
 
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
       templateId: 'zigzag', templateParamMode: 'preset', templateScale: 1, templateDensity: 3.5,
-    })).toBe('震动条 · 右偏 · 中 · 3.5×');
+    })).toBe('震动条 · 右偏 · 中 · 3.5× · 居中');
 
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
@@ -294,7 +306,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
       templateId: 'zigzag', templateParamMode: 'preset',
-    })).toBe('震动条 · 右偏 · 中 · 标准');
+    })).toBe('震动条 · 右偏 · 中 · 标准 · 居中');
     expect(curveConfigSummary({
       family: 'sine', type: 'in', precision: 16,
       templateId: 'pulse', templateParamMode: 'preset',
@@ -307,6 +319,60 @@ describe('issue 179 · 曲线选项胶囊', () => {
     })).toBe('震动条 · 右偏 · 1× · 1× · -200%');
   });
 
+  it('issue 245 · 默认值也占摘要：档位词照写，尖刺默认写「中段」、基线默认写「居中」', () => {
+    setActiveUiLanguage('zh-CN');
+    const base = { family: 'sine', type: 'in', precision: 16 } as const;
+
+    // 尖刺：位置默认 50% 命中「中段」
+    expect(curveConfigSummary({ ...base, templateId: 'pulse', templateParamMode: 'preset' }))
+      .toBe('尖刺 · 右偏 · 中 · 标准 · 中段');
+    // 震动条：基线默认 0 命中「居中」
+    expect(curveConfigSummary({ ...base, templateId: 'zigzag', templateParamMode: 'preset' }))
+      .toBe('震动条 · 右偏 · 中 · 标准 · 居中');
+    // 阶梯：不声明基线，摘要仍是主名 · 段密 · 阶跃形态
+    expect(curveConfigSummary({ ...base, templateId: 'step', templateParamMode: 'preset' }))
+      .toBe('阶梯 · 标准 · 斜坡');
+    // 自由模式：非预设值照旧写数值 + 单位（不被档位词顶替）
+    expect(curveConfigSummary({
+      ...base, templateId: 'pulse', templateParamMode: 'free', templateScale: 1.25,
+      templateExtras: { pulse: { pulsePos: 25 } },
+    })).toBe('尖刺 · 右偏 · 1.25× · 1× · 25%');
+    expect(curveConfigSummary({
+      ...base, templateId: 'zigzag', templateParamMode: 'free', templateBaseline: -200,
+    })).toBe('震动条 · 右偏 · 1× · 1× · -200%');
+  });
+
+  it('issue 245 · 尖刺「居中」改称「中段」避与基线撞词，中文摘要不出现两个「居中」', () => {
+    const zh = DICTS['zh-CN'];
+    const en = DICTS.en;
+    expect(zh['curve.extra.pulsePos.center']).toBe('中段');
+    expect(en['curve.extra.pulsePos.center']).toBe('Mid');
+    expect(zh['curve.extra.baseline.center']).toBe('居中');
+    expect(zh['curve.extra.pulsePosHint']).not.toContain('居中');
+
+    // 键集合与空串：两份消息表逐键对齐（复数类别按各语言自己的 CLDR 出键，不参与 parity）
+    const PLURAL_TAIL = /\.(zero|one|two|few|many)$/;
+    const shared = (key: string) => key !== 'i18n.fallbackProbe' && !PLURAL_TAIL.test(key);
+    const zhKeys = Object.keys(zh).filter(shared);
+    const enKeys = Object.keys(en).filter(shared);
+    expect(zhKeys.length).toBeGreaterThan(0);
+    for (const key of zhKeys) {
+      expect(en[key], `en 缺 ${key}`).toBeDefined();
+      expect(zh[key].trim(), `zh-CN 空句 ${key}`).not.toBe('');
+      expect(en[key].trim(), `en 空句 ${key}`).not.toBe('');
+    }
+    expect(enKeys).toHaveLength(zhKeys.length);
+
+    // 逐模板默认摘要：将来若有模板同时声明基线与尖刺位置，撞词会在这里现形
+    setActiveUiLanguage('zh-CN');
+    const summaries = SHAPE_TEMPLATES.map((tp) => curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16, templateId: tp.id, templateParamMode: 'preset',
+    }));
+    for (const text of summaries) expect(text).not.toContain('居中 · 居中');
+    expect(summaries.some((text) => text.endsWith('居中'))).toBe(true);
+    expect(summaries.some((text) => text.endsWith('中段'))).toBe(true);
+  });
+
   it('展开态顶栏只留模板主名；折叠恢复完整摘要', () => {
     setup({
       curve: {
@@ -315,7 +381,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
       },
     });
     arm('curve');
-    expect(pill()).toHaveTextContent('面筋·斜纹 · 左偏 · 中 · 标准');
+    expect(pill()).toHaveTextContent('面筋·斜纹 · 左偏 · 中 · 标准 · 居中');
     fireEvent.click(pill());
     expect(pill()).toHaveTextContent('面筋·斜纹');
     expect(pill()).not.toHaveTextContent('左偏');
@@ -325,7 +391,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(pill()).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(pill());
     expect(queryForm()).not.toBeInTheDocument();
-    expect(pill()).toHaveTextContent('面筋·斜纹 · 左偏 · 中 · 标准');
+    expect(pill()).toHaveTextContent('面筋·斜纹 · 左偏 · 中 · 标准 · 居中');
     expect(queryParamModeBar()).not.toBeInTheDocument();
   });
 
@@ -495,7 +561,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
     fireEvent.click(within(paramModeBar()).getByRole('button', { name: '档位' }));
     fireEvent.click(within(form()).getByRole('button', { name: '尖刺' }));
     expect(within(form()).getByRole('button', { name: '起拍' })).toBeInTheDocument();
-    expect(within(form()).getByRole('button', { name: '居中' })).toBeInTheDocument();
+    expect(within(form()).getByRole('button', { name: '中段' })).toBeInTheDocument();
     expect(within(form()).getByRole('button', { name: '尾拍' })).toBeInTheDocument();
     expect(within(form()).queryByRole('button', { name: /0%/ })).not.toBeInTheDocument();
     expect(within(form()).queryByRole('button', { name: '贴左' })).not.toBeInTheDocument();
