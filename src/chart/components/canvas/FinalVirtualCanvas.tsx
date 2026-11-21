@@ -35,6 +35,7 @@ import {
   isInsideSurface,
   canPlaceAtCursor, resolveExecNoteCodeHit,
 } from '../../editing/CanvasGesture';
+import { wheelDeltaPx, wheelScrollBoost } from './wheelScroll';
 // 画布实时信息叠加（issue 22 / issue 179 / issue 188）：判定线处 BPM（左下）+ 已过 / 总数（右下）。
 // 独立子组件消费 currentSeconds，使 80ms 时间码节流更新只重渲本轻量 HUD，不触发整张画布重渲染。
 const CanvasPlayheadHud = memo(function CanvasPlayheadHud({
@@ -769,6 +770,12 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         }
 
         const invert = display.invertWheel ?? false;
+        const host = scrollHostRef?.current;
+        if (!host) return;
+        const boost = wheelScrollBoost(geometry.effectiveScale(viewport.scale));
+        // 未缩小、未反转、非 Shift 时保持父容器原生滚动，避免改动默认手感
+        if (!e.shiftKey && !invert && boost === 1) return;
+        const viewportPx = host.clientHeight || host.getBoundingClientRect().height || 1;
 
         // issue 110：**Shift+滚轮 = 纵向滚动**（浏览器把它映射成横向 → 被容器的 overflowX:hidden 吃掉）。
         // 放在画布这里处理，是因为本监听器是 passive:false —— 能 preventDefault 掉原生横向滚动，
@@ -776,26 +783,21 @@ const FinalVirtualCanvas = forwardRef<FinalVirtualCanvasHandle, FinalVirtualCanv
         // 有些平台做横向映射、有些保留 deltaY），统一归一到纵向。
         // issue 200：invertWheel 开启时，与普通滚动同频反转。
         if (e.shiftKey) {
-            const host = scrollHostRef?.current;
-            if (!host) return;
-            const rawDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+            const rawDelta = Math.abs(wheelDeltaPx(raw, e.deltaMode, viewportPx));
             if (rawDelta === 0) return;
             e.preventDefault();
             const delta = invert ? -rawDelta : rawDelta;
-            host.scrollTop += delta;
+            host.scrollTop += delta * boost;
             return;
         }
 
-        // issue 200：开启滚轮反转时，拦截普通纵向滚动并取反（仅作用于纵向 deltaY，不劫持触控板横向手势）
-        if (invert) {
-            const host = scrollHostRef?.current;
-            if (!host) return;
-            if (e.deltaY === 0) return;
-            e.preventDefault();
-            host.scrollTop -= e.deltaY;
-            return;
-        }
-        // 普通滚轮滚动由父容器处理，不在这里处理
+        // 普通纵向滚动：缩小时按 1/scale 加速；invertWheel 只翻方向、不改倍率。
+        // 仅作用于 deltaY，不劫持触控板横向手势。
+        const deltaY = wheelDeltaPx(e.deltaY, e.deltaMode, viewportPx);
+        if (deltaY === 0) return;
+        e.preventDefault();
+        host.scrollTop += (invert ? -deltaY : deltaY) * boost;
     }, [geometry, viewport, setScale, display.invertWheel, scrollHostRef]);
 
     // 暴露方法给父组件（候选 1 收窄 + ADR-0008 执行键入口；factory 每次渲染重建 → 闭包恒新）
