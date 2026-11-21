@@ -237,7 +237,7 @@
 - **244 基线提为跨模板通用配置**（[244](./issues/244-基线提为跨模板通用配置.md)，`Type: grilling`，resolved / 2026-11-21 已实现）—— **定了什么** = 基线从模板专属 extra 提为 `CurveConfig.templateBaseline` 单值（跨模板共享、切模板不归零，旧记忆迁移）；段上仍写 `extra.baseline`，旧谱与烘焙零变化；偏向（1a）经量化后确认**保留现状**，不改 `supportsMirror`。**实现** = ADR-0009 二十轮 + `templateSupportsBaseline` / `curveConfigExtraView`。
 - **245 胶囊摘要默认值占位与「居中」撞词**（[245](./issues/245-胶囊摘要默认值占位与居中撞词.md)，`Type: grilling`，resolved / 2026-11-22 已实现）—— **定了什么** = 修订 243 Q9：`range` 专属项默认值也占摘要（档位写词、否则数值+单位）；尖刺档位词「居中」→「中段」避撞；自由模式 `1× · 1×` 本期不动。
 - **246 曲线胶囊滚轮穿透画布与短窗底部裁切**（[246](./issues/246-曲线胶囊滚轮穿透画布与短窗裁切.md)，`Type: bug`，open）—— 改成什么 = 面板整体当滚轮汇（高度上限 + `coc__body` 内部滚动 + `overscroll-behavior: contain` + 根节点非被动 wheel 吞掉），顺带解决 800×600 末行被裁；`PatternPastePill` 同口径。
-- **247 档位/自由切换配置行 1px 抖动**（[247](./issues/247-档位自由切换配置行1px抖动.md)，`Type: bug`，open）—— 改成什么 = 控件盒高统一 23px + 行 `min-height` 兜底；实测横坐标未变，漂移只在行高逐行累积。
+- **247 档位/自由切换配置行 1px 抖动**（[247](./issues/247-档位自由切换配置行1px抖动.md)，`Type: bug`，resolved / 2026-11-22 已实现）—— 改成什么 = 控件盒高统一 23px + 行 `min-height` 兜底；实测横坐标未变，漂移只在行高逐行累积。
 
 - **248 缩小视图滚轮滚动加速**（[248](./issues/248-缩小视图滚轮滚动加速.md)，`Type: feature`，resolved / 2026-11-21 已实现并锁测，待页面验收）—— 缩小时按 `clamp(1/生效缩放, 1, 4)` 放大每格滚轮位移，Ctrl 缩放与 `invertWheel` 语义不变，未缩小仍走原生滚动；用户同批确认「持续缩放加速」不做。
 ## Not yet specified

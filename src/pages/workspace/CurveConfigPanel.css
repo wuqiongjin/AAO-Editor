@@ -128,11 +128,16 @@
   border-top: 1px solid var(--border);
 }
 
+/* 本行有两套控件：档位模式是 23px 胶囊按钮，自由模式是滑块 + 数值框。两套盒高必须一致、
+   且不低于行高——否则自由行比档位行矮 1px，切换模式时每行都往上收一点、逐行累积成可见错位
+   （实测 4 行累计 2.5px，标签横向不动，所以只在纵向看出来）。滑块仍 18px：改它会动到原生
+   轨道 / 滑块头的画法，由行高 + 居中在行内对齐即可。 */
 .ccp__ctrl-row {
   display: grid;
   grid-template-columns: 52px 1fr;
   align-items: center;
   gap: 6px;
+  min-height: 23px;
 }
 
 .ccp__ctrl-label {
@@ -170,7 +175,7 @@
 
 .ccp__num-input {
   width: 48px;
-  height: 22px;
+  height: 23px;
   padding: 0 5px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
