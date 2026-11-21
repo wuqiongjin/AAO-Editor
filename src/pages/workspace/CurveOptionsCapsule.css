@@ -1,12 +1,17 @@
 /* 画布左上角曲线选项胶囊（票 182 / issue 235）：外壳见 CanvasCapsule.css，这里只有迷你图标与展开面宽度。 */
 
+/* 展开态是「顶栏 + 可滚面板」的竖排：面板吃掉胶囊的余量。胶囊有高度上限（`.ccap` 的 max-height），
+   面板若按内容撑住不肯缩（flex 项默认 min-height: auto），整枚胶囊就会顶破上限、末行落到可视区外。 */
 .coc {
+  display: flex;
+  flex-direction: column;
   overflow: visible;
   max-width: min(92vw, 480px);
 }
 
 .coc__head {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
   min-height: 30px;
@@ -70,6 +75,13 @@
 }
 
 .coc__body {
+  /* 吃剩余高度；`min-height: 0` 是让它在胶囊触到上限时肯缩（flex 项默认 min-height:auto
+     会按内容撑住，面板就顶破上限）。缩下来的部分由面板自己滚，滚到底也不许把滚轮
+     链给画布（overscroll-behavior）。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   width: 348px;
   min-width: 310px;
   padding: 10px;

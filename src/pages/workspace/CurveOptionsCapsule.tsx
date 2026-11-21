@@ -11,6 +11,8 @@ import CurveConfigPanel from './CurveConfigPanel';
 import { MiniEasingSvg, MiniTemplateSvg } from './CurveMiniSvg';
 import { curveConfigSummary } from './curveLabels';
 import { useCanvasCapsule } from './useCanvasCapsule';
+import { useCapsuleMaxHeight } from './useCapsuleMaxHeight';
+import { useCapsuleWheelContainment } from './useCapsuleWheelContainment';
 import './CanvasCapsule.css';
 import './CurveOptionsCapsule.css';
 
@@ -78,6 +80,8 @@ export default memo(function CurveOptionsCapsule() {
   const { armedTool, curveConfig, setCurveConfig } = useUI();
   const visible = armedTool === 'curve';
   const { open, toggle, rootRef, pillRef } = useCanvasCapsule(visible);
+  useCapsuleMaxHeight(rootRef, visible);
+  useCapsuleWheelContainment(rootRef, visible);
 
   if (!visible) return null;
 

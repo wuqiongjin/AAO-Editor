@@ -81,6 +81,8 @@
   gap: 6px;
   max-height: 228px;
   overflow-y: auto;
+  /* 网格滚到端点后，接续滚动由面板（`.coc__body`）自己接 —— 别让浏览器把它链给画布 */
+  overscroll-behavior: contain;
   padding: 2px;
 }
 

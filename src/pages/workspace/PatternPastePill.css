@@ -1,7 +1,17 @@
 /* 画布左上角片段粘贴胶囊（issue 186）：外壳（位置 / 外观 / 胶囊按钮 / 面板边框 / 动画）
    见 CanvasCapsule.css，这里只有"两档模式"这部分面板内部。 */
 
+.ppp {
+  display: flex;
+  flex-direction: column;
+}
+
 .ppp__body {
+  /* 与曲线选项胶囊同一口径：胶囊触到高度上限时由面板自己滚，别把选项裁掉 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   min-width: 200px;
   padding: 8px;
 }

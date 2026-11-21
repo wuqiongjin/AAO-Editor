@@ -111,8 +111,24 @@ export function textFilesUnder(dirs: string[], ext: RegExp, skip = ['node_module
  * 静态锁里要断言"某条规则里有没有某个声明"，用整表正则（`selector[^{]*\{[^}]*…`）会把
  * 后面的规则一起吞进来 —— 这个工具把选择器与其声明块切成一段，断言才落得准。
  * 选择器里的正则元字符（`.` / `:` / `(` / `)` 等）由本函数自行转义，调用方照原样写即可。
+ *
+ * 选择器按**前缀**匹配：`.pv-rate .icon-btn:active` 会命中
+ * `.pv-rate .icon-btn:active:not(:disabled)`。这对"同一钮的按压态"是有意的宽容；
+ * 要整条匹配请用 {@link cssRuleBodyExact}。
  */
 export function cssRuleBody(css: string, selector: string): string | undefined {
   const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return css.match(new RegExp(`${esc}[^{]*\\{([^}]*)\\}`))?.[1];
+}
+
+/**
+ * 同 {@link cssRuleBody}，但选择器必须**整条**匹配：后面紧跟 `{`（只允许空白），
+ * 且前面是规则边界（行首 / 上一条规则的 `}`）。
+ *
+ * 前缀匹配在「一个类名是另一个类名的前缀」时会读错规则：`.coc` 会命中 `.coc__head {`，
+ * 于是断言看着通过、其实落在别的规则上。断言里出现这种短类名时用本函数。
+ */
+export function cssRuleBodyExact(css: string, selector: string): string | undefined {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return css.match(new RegExp(`(?:^|[}\\n])\\s*${esc}\\s*\\{([^}]*)\\}`))?.[1];
 }
