@@ -11,8 +11,8 @@ import {
 } from './SpanCurve';
 import { CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES, type CurvePrecision, type EasingFamily, type EasingType } from './Easing';
 import {
-  TEMPLATE_DENSITIES, TEMPLATE_SCALES, shapeTemplateById,
-  stripDefaultTemplateExtra, templateSupportsAmplitude, templateSupportsMirror,
+  TEMPLATE_DENSITY_RANGE, TEMPLATE_SCALE_RANGE, clampTemplateNumber,
+  shapeTemplateById, stripDefaultTemplateExtra, templateSupportsAmplitude, templateSupportsMirror,
 } from './ShapeTemplates';
 import {
   clickOps,
@@ -24,6 +24,9 @@ import {
   type SnapPos,
 } from './ToolActionMatrix';
 
+export const TEMPLATE_PARAM_MODES = ['preset', 'free'] as const;
+export type TemplateParamMode = (typeof TEMPLATE_PARAM_MODES)[number];
+
 /** 曲线工具当前配置（issue 114 起持久化于 `settings.curve`，全局一份、跨会话沿用；放置与段重应用共用）。
  *  `templateId` 非空 = 形状模板优先（ADR-0009 §2 三来源之三），缓动三字段被忽略。 */
 export interface CurveConfig {
@@ -31,6 +34,7 @@ export interface CurveConfig {
   type: EasingType;
   precision: CurvePrecision;
   templateId?: string | null;
+  templateParamMode?: TemplateParamMode;
   templateMirrored?: boolean;
   templateScale?: number;
   templateDensity?: number;
@@ -38,7 +42,7 @@ export interface CurveConfig {
 }
 
 /**
- * 曲线工具出厂默认（issue 114 定案：默认缓动型由 `inOut` 改为 `in`；issue 235 追加模板三正交默认）。
+ * 曲线工具出厂默认（issue 114 定案：默认缓动型由 `inOut` 改为 `in`；issue 235 追加模板三正交默认；issue 241 追加参数模式默认 `'preset'`）。
  * 放本模块——`AppSettings` 需要它做持久化归一化，且不依赖任何 Provider。
  */
 export const DEFAULT_CURVE_CONFIG: CurveConfig = {
@@ -46,6 +50,7 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
   type: 'in',
   precision: 16,
   templateId: null,
+  templateParamMode: 'preset',
   templateMirrored: false,
   templateScale: 1,
   templateDensity: 1,
@@ -83,9 +88,10 @@ export function normalizeCurveConfig(raw: unknown): CurveConfig {
     type: pickEnum(EASING_TYPES, o.type, d.type),
     precision: pickEnum(CURVE_PRECISIONS, o.precision, d.precision),
     templateId: typeof o.templateId === 'string' && shapeTemplateById(o.templateId) ? o.templateId : null,
+    templateParamMode: pickEnum(TEMPLATE_PARAM_MODES, o.templateParamMode, d.templateParamMode ?? 'preset'),
     templateMirrored: typeof o.templateMirrored === 'boolean' ? o.templateMirrored : false,
-    templateScale: pickEnum(TEMPLATE_SCALES, o.templateScale, 1),
-    templateDensity: pickEnum(TEMPLATE_DENSITIES, o.templateDensity, 1),
+    templateScale: clampTemplateNumber(o.templateScale, TEMPLATE_SCALE_RANGE, 1),
+    templateDensity: clampTemplateNumber(o.templateDensity, TEMPLATE_DENSITY_RANGE, 1),
     ...(templateExtras ? { templateExtras } : {}),
   };
 }

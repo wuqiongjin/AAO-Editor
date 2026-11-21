@@ -6,6 +6,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { UIProvider, useUI, type ArmedTool } from '@/src/app/providers/UIProvider';
 import CurveOptionsCapsule from '@/src/pages/workspace/CurveOptionsCapsule';
+import { curveConfigSummary } from '@/src/pages/workspace/curveLabels';
 import { buildTemplateSvgPath } from '@/src/pages/workspace/curveSvg';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
@@ -33,6 +34,8 @@ const pill = () => screen.getByRole('button', { name: '曲线配置' });
 const queryPill = () => screen.queryByRole('button', { name: '曲线配置' });
 const form = () => screen.getByRole('group', { name: '曲线配置' });
 const queryForm = () => screen.queryByRole('group', { name: '曲线配置' });
+const paramModeBar = () => screen.getByRole('group', { name: '模板参数模式' });
+const queryParamModeBar = () => screen.queryByRole('group', { name: '模板参数模式' });
 
 describe('issue 179 · 曲线选项胶囊', () => {
   beforeEach(() => {
@@ -87,7 +90,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
     // 切到形状模板页：展示 18 张 SVG 缩略图卡，可按分类筛选
     fireEvent.click(within(form()).getByRole('tab', { name: '形状模板' }));
     expect(form().querySelectorAll('.ccp__card')).toHaveLength(18);
-    fireEvent.click(within(form()).getByRole('button', { name: '面筋/锁链' }));
+    fireEvent.click(within(form()).getByRole('tab', { name: '面筋/锁链' }));
     expect(form().querySelectorAll('.ccp__card')).toHaveLength(6);
 
     // 选面筋·梳齿：第 3 排切换为「段密」（稀疏/标准/稠密），修改偏向/幅度/段密均写盘
@@ -100,10 +103,11 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(stored().templateMirrored).toBe(true);
     expect(stored().templateScale).toBe(1.5);
     expect(stored().templateDensity).toBe(2);
-    expect(pill()).toHaveTextContent('面筋·梳齿 · 左偏 · 大 · 稠密');
+    expect(pill()).toHaveTextContent('面筋·梳齿');
+    expect(pill()).not.toHaveTextContent('左偏');
 
     // 切回平滑弧弯大弧：第 3 排还原为「精度」且可切换 1/64 写盘
-    fireEvent.click(within(form()).getByRole('button', { name: '全部' }));
+    fireEvent.click(within(form()).getByRole('tab', { name: '全部' }));
     fireEvent.click(within(form()).getByRole('button', { name: '大弧' }));
     expect(within(form()).getByRole('button', { name: '1/64' })).toBeEnabled();
     fireEvent.click(within(form()).getByRole('button', { name: '1/64' }));
@@ -157,14 +161,16 @@ describe('issue 179 · 曲线选项胶囊', () => {
     const stepCardBefore = within(form()).getByRole('button', { name: '阶梯' }).querySelector('svg path')?.getAttribute('d');
     const sharpBtn = within(form()).getByRole('button', { name: '直角' });
     fireEvent.click(sharpBtn);
-    expect(pill()).toHaveTextContent('阶梯 · 标准 · 直角');
+    expect(pill()).toHaveTextContent('阶梯');
+    expect(pill()).not.toHaveTextContent('直角');
     const stepCardAfter = within(form()).getByRole('button', { name: '阶梯' }).querySelector('svg path')?.getAttribute('d');
     expect(stepCardAfter).not.toBe(stepCardBefore);
 
     // 切换到尖刺：恢复偏向/幅度，并显示位置按钮；默认 50% 在摘要里常显
     fireEvent.click(within(form()).getByRole('button', { name: '尖刺' }));
     expect(within(form()).getByRole('button', { name: '↰ 左偏' })).toBeInTheDocument();
-    expect(pill()).toHaveTextContent('尖刺 · 右偏 · 中 · 标准 · 50%');
+    expect(pill()).toHaveTextContent('尖刺');
+    expect(pill()).not.toHaveTextContent('50%');
     const centerBtn = within(form()).getByRole('button', { name: '居中 50%' });
     expect(centerBtn).toHaveAttribute('aria-pressed', 'true');
 
@@ -172,7 +178,8 @@ describe('issue 179 · 曲线选项胶囊', () => {
     const pulseSvgBefore = pill().querySelector('svg path')?.getAttribute('d');
     fireEvent.click(within(form()).getByRole('button', { name: '起拍 0%' }));
     expect(within(form()).getByRole('button', { name: '起拍 0%' })).toHaveAttribute('aria-pressed', 'true');
-    expect(pill()).toHaveTextContent('尖刺 · 右偏 · 中 · 标准 · 0%');
+    expect(pill()).toHaveTextContent('尖刺');
+    expect(pill()).not.toHaveTextContent('0%');
     expect(pill().querySelector('svg path')?.getAttribute('d')).not.toBe(pulseSvgBefore);
 
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve as {
@@ -186,12 +193,14 @@ describe('issue 179 · 曲线选项胶囊', () => {
     // 点回「居中 50%」→ 摘要仍常显 50%
     fireEvent.click(centerBtn);
     expect(centerBtn).toHaveAttribute('aria-pressed', 'true');
-    expect(pill()).toHaveTextContent('尖刺 · 右偏 · 中 · 标准 · 50%');
+    expect(pill()).toHaveTextContent('尖刺');
+    expect(pill()).not.toHaveTextContent('50%');
 
     // 切回阶梯：仍记住之前的「直角」
     fireEvent.click(within(form()).getByRole('button', { name: '阶梯' }));
     expect(within(form()).getByRole('button', { name: '直角' })).toHaveAttribute('aria-pressed', 'true');
-    expect(pill()).toHaveTextContent('阶梯 · 标准 · 直角');
+    expect(pill()).toHaveTextContent('阶梯');
+    expect(pill()).not.toHaveTextContent('直角');
   });
 
   it('issue 240 · SVG 预览联动：阶梯走左下→右上斜弦且区分斜坡/直角；尖刺随位置重绘', () => {
@@ -232,5 +241,184 @@ describe('issue 179 · 曲线选项胶囊', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(queryForm()).not.toBeInTheDocument();
     expect(queryPill()).toBeInTheDocument();
+  });
+
+  it('issue 241 · curveConfigSummary 遵循 Q9=1b（自由模式统一数值；档位模式命中词 / 非预设回落数值）', () => {
+    seedZhSettings({});
+    expect(curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16,
+      templateId: 'zigzag', templateParamMode: 'free', templateScale: 1, templateDensity: 2,
+    })).toBe('震动条 · 右偏 · 1× · 2×');
+
+    expect(curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16,
+      templateId: 'pulse', templateParamMode: 'free', templateScale: 1.25, templateDensity: 3.5,
+      templateExtras: { pulse: { pulsePos: 25 } },
+    })).toBe('尖刺 · 右偏 · 1.25× · 3.5× · 25%');
+
+    expect(curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16,
+      templateId: 'zigzag', templateParamMode: 'preset', templateScale: 1, templateDensity: 2,
+    })).toBe('震动条 · 右偏 · 中 · 稠密');
+
+    expect(curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16,
+      templateId: 'zigzag', templateParamMode: 'preset', templateScale: 1, templateDensity: 3.5,
+    })).toBe('震动条 · 右偏 · 中 · 3.5×');
+
+    expect(curveConfigSummary({
+      family: 'sine', type: 'in', precision: 16,
+      templateId: 'zigzag', templateParamMode: 'preset', templateScale: 1, templateDensity: 3.5,
+    }, { compact: true })).toBe('震动条');
+  });
+
+  it('展开态顶栏只留模板主名；折叠恢复完整摘要', () => {
+    setup({
+      curve: {
+        family: 'sine', type: 'in', precision: 16,
+        templateId: 'gluten-saw', templateMirrored: true, templateScale: 1, templateDensity: 1,
+      },
+    });
+    arm('curve');
+    expect(pill()).toHaveTextContent('面筋·斜纹 · 左偏 · 中 · 标准');
+    fireEvent.click(pill());
+    expect(pill()).toHaveTextContent('面筋·斜纹');
+    expect(pill()).not.toHaveTextContent('左偏');
+    expect(paramModeBar()).toBeInTheDocument();
+    fireEvent.click(within(paramModeBar()).getByRole('button', { name: '档位' }));
+    expect(form()).toBeInTheDocument();
+    expect(pill()).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(pill());
+    expect(queryForm()).not.toBeInTheDocument();
+    expect(pill()).toHaveTextContent('面筋·斜纹 · 左偏 · 中 · 标准');
+    expect(queryParamModeBar()).not.toBeInTheDocument();
+  });
+
+  it('缓动页展开不显示顶栏参数模式；切到形状模板后出现，切回缓动则消失并恢复族·型·精度', () => {
+    setup();
+    arm('curve');
+    fireEvent.click(pill());
+    expect(queryParamModeBar()).not.toBeInTheDocument();
+    expect(pill()).toHaveTextContent('Sine · In · 1/16');
+    fireEvent.click(within(form()).getByRole('tab', { name: '形状模板' }));
+    expect(paramModeBar()).toBeInTheDocument();
+    expect(pill()).not.toHaveTextContent('Sine · In · 1/16');
+    fireEvent.click(within(form()).getByRole('tab', { name: '缓动函数' }));
+    expect(queryParamModeBar()).not.toBeInTheDocument();
+    expect(pill()).toHaveTextContent('Sine · In · 1/16');
+  });
+
+  it('issue 241 · 顶栏档位/自由切换、连续滑块与数值框交互、Esc 撤销不关胶囊及双击单行复位', () => {
+    setup({ curve: { family: 'sine', type: 'in', precision: 16, templateId: 'pulse' } });
+    arm('curve');
+    fireEvent.click(pill());
+
+    const stored = () => JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve as {
+      templateParamMode: 'preset' | 'free';
+      templateMirrored: boolean;
+      templateScale: number;
+      templateDensity: number;
+      templateExtras?: Record<string, Record<string, number | string>>;
+    };
+
+    // 1. 默认档位；顶栏双段同屏；切自由后幅度/段密/位置变滑块+数值框，偏向保持按钮
+    expect(within(form()).queryByRole('button', { name: '重置' })).not.toBeInTheDocument();
+    expect(within(paramModeBar()).getByRole('button', { name: '档位' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(paramModeBar()).getByRole('button', { name: '自由' })).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(within(paramModeBar()).getByRole('button', { name: '自由' }));
+    expect(stored().templateParamMode).toBe('free');
+    expect(within(paramModeBar()).getByRole('button', { name: '自由' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(form()).getByRole('button', { name: '↰ 左偏' })).toBeInTheDocument();
+    expect(within(form()).getByRole('slider', { name: '幅度' })).toBeInTheDocument();
+    expect(within(form()).getByRole('textbox', { name: '幅度' })).toBeInTheDocument();
+    expect(within(form()).getByRole('slider', { name: '段密' })).toBeInTheDocument();
+    expect(within(form()).getByRole('slider', { name: '位置' })).toBeInTheDocument();
+    expect(pill()).toHaveTextContent('尖刺');
+    expect(pill()).not.toHaveTextContent('50%');
+
+    // 平滑模板（arc）切自由后，精度仍保持三档按钮
+    fireEvent.click(within(form()).getByRole('button', { name: '大弧' }));
+    expect(within(form()).getByRole('button', { name: '1/16' })).toBeInTheDocument();
+    expect(within(form()).queryByRole('slider', { name: '精度' })).not.toBeInTheDocument();
+
+    // 阶梯（step）切自由后，阶跃形态仍保持按钮
+    fireEvent.click(within(form()).getByRole('button', { name: '阶梯' }));
+    expect(within(form()).getByRole('button', { name: '斜坡' })).toBeInTheDocument();
+    expect(within(form()).getByRole('button', { name: '直角' })).toBeInTheDocument();
+
+    // 回到尖刺：测试拖动滑块、数值输入（含越界钳制）、Esc 取消草稿而不关闭胶囊
+    fireEvent.click(within(form()).getByRole('button', { name: '尖刺' }));
+    const svgBefore = pill().querySelector('svg path')?.getAttribute('d');
+
+    fireEvent.change(within(form()).getByRole('slider', { name: '段密' }), { target: { value: '3.5' } });
+    expect(stored().templateDensity).toBe(3.5);
+    expect(pill()).toHaveTextContent('尖刺');
+    expect(pill()).not.toHaveTextContent('3.5');
+    expect(pill().querySelector('svg path')?.getAttribute('d')).not.toBe(svgBefore);
+
+    const scaleInput = within(form()).getByRole('textbox', { name: '幅度' });
+    fireEvent.focus(scaleInput);
+    fireEvent.change(scaleInput, { target: { value: '2.35' } });
+    fireEvent.keyDown(scaleInput, { key: 'Enter' });
+    expect(stored().templateScale).toBe(2.35);
+
+    // 越界输入失焦自动钳制（0.01 -> 0.1）
+    fireEvent.focus(scaleInput);
+    fireEvent.change(scaleInput, { target: { value: '0.01' } });
+    fireEvent.blur(scaleInput);
+    expect(stored().templateScale).toBe(0.1);
+
+    // Esc 仅撤回草稿，绝不关闭整个胶囊
+    const posInput = within(form()).getByRole('textbox', { name: '位置' });
+    fireEvent.focus(posInput);
+    fireEvent.change(posInput, { target: { value: '25' } });
+    fireEvent.keyDown(posInput, { key: 'Escape' });
+    expect(form()).toBeInTheDocument();
+    expect(posInput).toHaveValue('50');
+    expect(stored().templateExtras?.pulse?.pulsePos).toBeUndefined();
+
+    // 真正提交位置 25%
+    fireEvent.focus(posInput);
+    fireEvent.change(posInput, { target: { value: '25' } });
+    fireEvent.keyDown(posInput, { key: 'Enter' });
+    expect(stored().templateExtras?.pulse?.pulsePos).toBe(25);
+
+    // 2. 切回档位模式：3.5× 继续生效，按钮均未高亮且不加多余徽章；点标准立即覆盖
+    fireEvent.click(within(paramModeBar()).getByRole('button', { name: '档位' }));
+    expect(stored().templateParamMode).toBe('preset');
+    expect(within(paramModeBar()).getByRole('button', { name: '档位' })).toHaveAttribute('aria-pressed', 'true');
+    expect(stored().templateDensity).toBe(3.5);
+    expect(within(form()).getByRole('button', { name: '稀疏' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(form()).getByRole('button', { name: '标准' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(form()).getByRole('button', { name: '稠密' })).toHaveAttribute('aria-pressed', 'false');
+    expect(form().querySelector('.ccp__custom-badge')).toBeNull();
+    expect(pill()).toHaveTextContent('尖刺');
+    expect(pill()).not.toHaveTextContent('3.5');
+
+    fireEvent.click(within(form()).getByRole('button', { name: '标准' }));
+    expect(stored().templateDensity).toBe(1);
+    expect(within(form()).getByRole('button', { name: '标准' })).toHaveAttribute('aria-pressed', 'true');
+    expect(pill()).toHaveTextContent('尖刺');
+    expect(pill()).not.toHaveTextContent('标准');
+
+    // 3. 单行双击复位（滑块 & 行标签）仅复位当前这一项，不影响其它连续项或偏向
+    fireEvent.click(within(paramModeBar()).getByRole('button', { name: '自由' }));
+    fireEvent.click(within(form()).getByRole('button', { name: '↰ 左偏' }));
+    expect(stored().templateScale).toBe(0.1);
+    fireEvent.doubleClick(within(form()).getByRole('slider', { name: '幅度' }));
+    expect(stored().templateScale).toBe(1);
+    expect(stored().templateMirrored).toBe(true);
+    expect(stored().templateExtras?.pulse?.pulsePos).toBe(25);
+
+    fireEvent.change(within(form()).getByRole('slider', { name: '段密' }), { target: { value: '2.5' } });
+    expect(stored().templateDensity).toBe(2.5);
+    fireEvent.doubleClick(within(form()).getByText('段密'));
+    expect(stored().templateDensity).toBe(1);
+    expect(stored().templateExtras?.pulse?.pulsePos).toBe(25);
+
+    fireEvent.doubleClick(within(form()).getByRole('slider', { name: '位置' }));
+    expect(stored().templateExtras?.pulse).toBeUndefined();
+    expect(stored().templateMirrored).toBe(true);
   });
 });

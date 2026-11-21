@@ -13,6 +13,8 @@ import {
   softElasticOffset,
 } from '@/src/chart/editing/ShapeTemplates';
 import { displayConnections } from '@/src/chart/editing/SlideSegments';
+import { reprojectSpanParams } from '@/src/chart/editing/SpanCurve';
+import type { SlideNote } from '@/src/chart/types';
 
 describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精度控制）', () => {
   it('templateMinPoints: 各精度档位返回对应合理的保底细分数', () => {
@@ -325,6 +327,103 @@ describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精�
     expect(p5[0]!.lane).toBeCloseTo(5, 6);
     for (let i = 1; i < p5.length; i++) {
       expect(p5[i]!.beat).toBeGreaterThan(p5[i - 1]!.beat);
+    }
+  });
+
+  it('issue 241 · 自由调节范围（0.1..3.0 幅度 / 0.25..4.0 段密）与上限松绑（≤256 点护栏 + pulsePos 任意整数保真）', () => {
+    // 幅度 0.1 / 1.25 / 3.0 线性缩放并安全钳制 0..6
+    for (const amp of [0.1, 1.25, 3.0]) {
+      const pts = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+        kind: 'template', templateId: 'arc', precision: 16, amplitudeScale: amp,
+      });
+      expect(pts.length).toBeGreaterThan(0);
+      const peak = Math.max(...pts.map((p) => p.lane));
+      expect(peak).toBeCloseTo(Math.min(6, 3 + 2 * amp), 6);
+      for (const p of pts) {
+        expect(p.lane).toBeGreaterThanOrEqual(0);
+        expect(p.lane).toBeLessThanOrEqual(6);
+      }
+    }
+
+    // 段密 0.25 / 3.5 / 4.0：4 拍 × 4× 段密时不再被旧 24 上限提前截停
+    const pulse4x = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 4, {
+      kind: 'template', templateId: 'pulse', densityScale: 4, extra: { pulsePos: 25 },
+    });
+    // 4 beats * 2 * 4 = 32 cycles -> > 24 cycles (32 * 3 = 96 pts > old 24 * 3 = 72 pts)
+    expect(pulse4x.length).toBe(96);
+
+    const step4x = bakeTemplateParam({ lane: 1 }, { lane: 5 }, 0, 4, {
+      kind: 'template', templateId: 'step', densityScale: 4,
+    });
+    // 4 beats * 3 * 4 = 48 levels -> (48 - 1) * 2 = 94 pts > old (24 - 1) * 2 = 46 pts
+    expect(step4x.length).toBe(94);
+
+    // 超长跨度 × 4× 段密：所有 18 款模板产出均严格 <= 256、beat 弱单调递增且严格落在段内 (fromBeat, toBeat)（无端点溢出）
+    const checkLongCap = (templateId: string, expectedPts: number) => {
+      const pts = bakeTemplateParam({ lane: 1 }, { lane: 5 }, 0, 32, {
+        kind: 'template', templateId, precision: 64, densityScale: 4.0,
+      });
+      expect(pts.length, `${templateId} 32b × 4×`).toBe(expectedPts);
+      expect(pts.length).toBeLessThanOrEqual(TEMPLATE_SEGMENTED_MAX_POINTS);
+      expect(pts[0]!.beat).toBeGreaterThan(0);
+      expect(pts.at(-1)!.beat).toBeLessThan(32);
+    };
+    checkLongCap('pulse', 80 * 3);         // 80 周期上限 = 240 点
+    checkLongCap('step', (120 - 1) * 2);   // 120 级上限 = 238 点
+    checkLongCap('gluten-saw', 128 * 2);   // 128 循环上限 = 256 点（含 t < 1 防溢出校验）
+    checkLongCap('chain-square', 128 * 2); // 128 循环上限 = 256 点
+    checkLongCap('chain-alt', 128 * 2);    // 128 循环上限 = 256 点
+
+    for (const tp of SHAPE_TEMPLATES) {
+      const from = { lane: templateMappingMode(tp) === 'endpoint-interp' ? 1 : 2 };
+      const to = { lane: templateMappingMode(tp) === 'endpoint-interp' ? 5 : 4 };
+      const pts = bakeTemplateParam(from, to, 0, 32, {
+        kind: 'template', templateId: tp.id, precision: 64, amplitudeScale: 3.0, densityScale: 4.0,
+      });
+      expect(pts.length, `${tp.id} @ 32b × 4×`).toBeGreaterThan(0);
+      expect(pts.length, `${tp.id} @ 32b × 4×`).toBeLessThanOrEqual(TEMPLATE_SEGMENTED_MAX_POINTS);
+      for (let i = 0; i < pts.length; i++) {
+        expect(pts[i]!.beat).toBeGreaterThan(0);
+        expect(pts[i]!.beat).toBeLessThan(32);
+        expect(pts[i]!.lane).toBeGreaterThanOrEqual(0);
+        expect(pts[i]!.lane).toBeLessThanOrEqual(6);
+        if (i > 0) {
+          expect(pts[i]!.beat).toBeGreaterThanOrEqual(pts[i - 1]!.beat - 1e-12);
+        }
+      }
+    }
+
+    // 稀疏段密 0.25× 对比 3.5× / 4.0×
+    const zSparse = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+      kind: 'template', templateId: 'zigzag', densityScale: 0.25,
+    });
+    const zDense = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+      kind: 'template', templateId: 'zigzag', densityScale: 3.5,
+    });
+    expect(zDense.length).toBeGreaterThan(zSparse.length);
+
+    // pulsePos 任意中间整数值（15 / 25 / 75）烘焙与重投影完整保真
+    for (const pos of [15, 25, 75]) {
+      const param = {
+        kind: 'template' as const,
+        templateId: 'pulse',
+        densityScale: 1,
+        extra: { pulsePos: pos },
+      };
+      const slide: SlideNote = {
+        type: 'Slide',
+        connections: [
+          { beat: 0, lane: 3 },
+          ...bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 1, param),
+          { beat: 1, lane: 3 },
+        ],
+        spanParams: { 0: param },
+      };
+      const reprojected = reprojectSpanParams(slide, 4);
+      expect(reprojected.spanParams?.[0]).toEqual(param);
+      // 首周期峰值时间 = (0.5 * pos/100)
+      const firstPeak = reprojected.connections.find((c) => c.hidden && Math.abs(c.lane - 5) < 1e-6);
+      expect(firstPeak?.beat).toBeCloseTo(0.5 * (pos / 100), 6);
     }
   });
 });

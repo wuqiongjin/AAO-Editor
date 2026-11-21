@@ -31,19 +31,38 @@ const DENSITY_KEYS: Record<number, MessageKey> = {
   2: 'curve.density.2',
 };
 
-/** 胶囊摘要：跳过当前模板不支持的通用项，并展示专属项短值；缓动模式「族 · 型 · 1/精度」 */
-export function curveConfigSummary(c: CurveConfig): string {
+/** 规整数值文案（去多余尾零并附带单位，如 `1.00 -> 1×`、`3.50 -> 3.5×`、`25 -> 25%`） */
+export const formatTemplateNumber = (value: number, unit = ''): string =>
+  `${Number(value.toFixed(2))}${unit}`;
+
+const formatContinuousParam = (
+  value: number,
+  presetKeys: Record<number, MessageKey>,
+  isFree: boolean,
+): string => {
+  if (!isFree) {
+    const presetKey = presetKeys[value];
+    if (presetKey) return t(presetKey);
+  }
+  return formatTemplateNumber(value, '×');
+};
+
+/** 胶囊摘要：跳过当前模板不支持的通用项，并按参数模式（Q9=1b）展示档位词或数值；缓动模式「族 · 型 · 1/精度」。
+ *  `compact`：形状模板只留主名（展开态顶栏，参数已在面板内）；折叠态走完整拼接。 */
+export function curveConfigSummary(c: CurveConfig, opts?: { compact?: boolean }): string {
   const tp = c.templateId != null ? shapeTemplateById(c.templateId) : undefined;
   if (tp) {
+    if (opts?.compact) return shapeLabel(tp.id);
+    const isFree = c.templateParamMode === 'free';
     const parts = [shapeLabel(tp.id)];
     if (templateSupportsMirror(tp)) {
       parts.push(t(c.templateMirrored ? 'curve.dirLeft' : 'curve.dirRight'));
     }
     if (templateSupportsAmplitude(tp)) {
-      parts.push(t(SCALE_KEYS[c.templateScale ?? 1] ?? 'curve.scale.1'));
+      parts.push(formatContinuousParam(c.templateScale ?? 1, SCALE_KEYS, isFree));
     }
     if (tp.adjustableDensity) {
-      parts.push(t(DENSITY_KEYS[c.templateDensity ?? 1] ?? 'curve.density.1'));
+      parts.push(formatContinuousParam(c.templateDensity ?? 1, DENSITY_KEYS, isFree));
     }
     if (tp.extraParams?.length) {
       const resolved = resolveTemplateExtra(tp, c.templateExtras?.[tp.id]);
@@ -53,7 +72,7 @@ export function curveConfigSummary(c: CurveConfig): string {
           const opt = spec.options.find((o) => o.value === val);
           if (opt) parts.push(t(opt.labelKey as MessageKey));
         } else {
-          parts.push(`${val}${spec.unit ?? ''}`);
+          parts.push(formatTemplateNumber(Number(val), spec.unit ?? ''));
         }
       }
     }

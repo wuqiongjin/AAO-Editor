@@ -39,29 +39,40 @@
   box-shadow: var(--shadow-sm);
 }
 
-.ccp__cats {
+.ccp__tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 1px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
 }
 
-.ccp__cat {
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
+.ccp__tab {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 26px;
+  padding: 0 2px 5px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  border-radius: 0;
   background: transparent;
   color: var(--text-muted);
   font: inherit;
   font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.ccp__cat.is-active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-text);
+.ccp__tab.is-active {
+  color: var(--text);
   font-weight: 600;
+  border-bottom-color: var(--accent);
 }
 
 .ccp__grid {
@@ -128,6 +139,53 @@
   font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+.ccp__ctrl-label--reset {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ccp__free-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ccp__slider {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.ccp__num-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ccp__num-input {
+  width: 48px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ccp__unit {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  min-width: 11px;
 }
 
 .ccp__pills {
@@ -208,8 +266,10 @@
 .ccp__select:focus-visible,
 .ccp__pill-btn:focus-visible,
 .ccp__card:focus-visible,
-.ccp__cat:focus-visible,
-.ccp__seg-btn:focus-visible {
+.ccp__tab:focus-visible,
+.ccp__seg-btn:focus-visible,
+.ccp__num-input:focus-visible,
+.ccp__slider:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: -1px;
 }

@@ -34,12 +34,13 @@ function walkTs(dir: string): string[] {
 }
 
 describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
-  it('出厂默认：Sine + In + 1/16 + 不使用模板 + 右偏/中幅/标准密', () => {
+  it('出厂默认：Sine + In + 1/16 + 不使用模板 + 档位模式 + 右偏/中幅/标准密', () => {
     expect(DEFAULT_CURVE_CONFIG).toEqual({
       family: 'sine',
       type: 'in',
       precision: 16,
       templateId: null,
+      templateParamMode: 'preset',
       templateMirrored: false,
       templateScale: 1,
       templateDensity: 1,
@@ -62,7 +63,7 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
     expect(loadSettings(st).curve).toEqual(DEFAULT_CURVE_CONFIG);
   });
 
-  it('脏值逐字段归一化：非法族/型/精度与已下线的模板 id / 越界倍率各自回落，合法项保留', () => {
+  it('脏值逐字段归一化：非法族/型/精度与已下线的模板 id / 非法数值各自回落，连续倍率按合法范围钳制，合法项保留', () => {
     const st = memStorage(JSON.stringify({
       schemaVersion: 1,
       curve: {
@@ -70,9 +71,10 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
         type: 'sideways',
         precision: 999,
         templateId: 'ghost-template',
+        templateParamMode: 'bogus',
         templateMirrored: 'yes',
-        templateScale: 99,
-        templateDensity: 3,
+        templateScale: 'invalid',
+        templateDensity: Number.NaN,
       },
     }));
     expect(loadSettings(st).curve).toEqual(DEFAULT_CURVE_CONFIG);
@@ -84,9 +86,10 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
         type: 'out',
         precision: 32,
         templateId: 'wave',
+        templateParamMode: 'free',
         templateMirrored: true,
-        templateScale: 1.5,
-        templateDensity: 2,
+        templateScale: 2.35,
+        templateDensity: 3.5,
       },
     }));
     // 模板 id 必须能解析到现存模板，否则回落 null（模板库改名/删项后老设置仍可读）
@@ -95,9 +98,54 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
       type: 'out',
       precision: 32,
       templateId: 'wave',
+      templateParamMode: 'free',
       templateMirrored: true,
-      templateScale: 1.5,
-      templateDensity: 2,
+      templateScale: 2.35,
+      templateDensity: 3.5,
+    });
+  });
+
+  it('issue 241 · normalizeCurveConfig 保留合法连续倍率、钳制越界值、非法值回落 1 并持久化 templateParamMode', () => {
+    expect(normalizeCurveConfig({
+      templateId: 'zigzag',
+      templateParamMode: 'free',
+      templateScale: 0.25,
+      templateDensity: 3.5,
+    })).toMatchObject({
+      templateId: 'zigzag',
+      templateParamMode: 'free',
+      templateScale: 0.25,
+      templateDensity: 3.5,
+    });
+
+    expect(normalizeCurveConfig({
+      templateScale: 1.356,
+      templateDensity: 4,
+    })).toMatchObject({
+      templateParamMode: 'preset',
+      templateScale: 1.36,
+      templateDensity: 4,
+    });
+
+    // 越界钳制：[0.1, 3.0] 与 [0.25, 4.0]
+    expect(normalizeCurveConfig({ templateScale: -2, templateDensity: 0.05 })).toMatchObject({
+      templateScale: 0.1,
+      templateDensity: 0.25,
+    });
+    expect(normalizeCurveConfig({ templateScale: 99, templateDensity: 12 })).toMatchObject({
+      templateScale: 3,
+      templateDensity: 4,
+    });
+
+    // 非法输入回落 1 与 'preset'
+    expect(normalizeCurveConfig({
+      templateParamMode: 'turbo',
+      templateScale: Infinity,
+      templateDensity: 'dense',
+    })).toMatchObject({
+      templateParamMode: 'preset',
+      templateScale: 1,
+      templateDensity: 1,
     });
   });
 
@@ -110,6 +158,7 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
         type: 'inOut',
         precision: 64,
         templateId: 's-curve',
+        templateParamMode: 'free',
         templateMirrored: true,
         templateScale: 0.5,
         templateDensity: 2,

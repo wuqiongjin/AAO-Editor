@@ -1,4 +1,4 @@
-// 曲线工具配置面板（issue 114 抽出；issue 235 升级为图形化选型：缓动函数 | 形状模板两段切换 + 4 列 SVG 网格 + 偏向/幅度/段密胶囊）。
+// 曲线工具配置面板（issue 114 抽出；issue 235 图形化选型；issue 241 连续参数；展开态档位/自由在胶囊顶栏，分类为下划线 Tab）。
 import { useRef, useState } from 'react';
 import {
   CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES,
@@ -8,7 +8,10 @@ import {
   SHAPE_TEMPLATES,
   TEMPLATE_CATEGORIES,
   TEMPLATE_DENSITIES,
+  TEMPLATE_DENSITY_RANGE,
   TEMPLATE_SCALES,
+  TEMPLATE_SCALE_RANGE,
+  clampTemplateNumber,
   resolveTemplateExtra,
   shapeTemplateById,
   stripDefaultTemplateExtra,
@@ -16,12 +19,13 @@ import {
   templateSupportsMirror,
   type TemplateCategory,
   type TemplateExtraParamSpec,
+  type TemplateNumberRange,
 } from '../../chart/editing/ShapeTemplates';
 import type { TemplateExtraValue } from '../../chart/types';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { t, type MessageKey } from '../../i18n';
 import { MiniEasingSvg, MiniTemplateSvg } from './CurveMiniSvg';
-import { shapeLabel, shapeTooltip } from './curveLabels';
+import { formatTemplateNumber, shapeLabel, shapeTooltip } from './curveLabels';
 import './CurveConfigPanel.css';
 
 function PrecisionPills({
@@ -51,22 +55,202 @@ function PrecisionPills({
   );
 }
 
+function FreeRangeRow({
+  label,
+  hint,
+  value,
+  range,
+  unit,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+  range: TemplateNumberRange;
+  unit: string;
+  onChange: (val: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const skipBlurCommitRef = useRef(false);
+
+  const displayText = draft !== null ? draft : formatTemplateNumber(value);
+  const resetHint = t('curve.freeResetRowHint');
+  const fullHint = hint ? `${hint} (${resetHint})` : resetHint;
+
+  const commitValue = (raw: number) => {
+    const next = clampTemplateNumber(raw, range, value);
+    onChange(range.step >= 1 ? Math.round(next) : next);
+  };
+
+  const commitDraft = () => {
+    if (draft === null) return;
+    const trimmed = draft.trim();
+    const parsed = Number(trimmed);
+    setDraft(null);
+    if (!trimmed || !Number.isFinite(parsed)) return;
+    commitValue(parsed);
+  };
+
+  return (
+    <div className="ccp__ctrl-row" title={fullHint}>
+      <span
+        className="ccp__ctrl-label ccp__ctrl-label--reset"
+        onDoubleClick={() => {
+          setDraft(null);
+          onChange(range.defaultValue);
+        }}
+      >
+        {label}
+      </span>
+      <div className="ccp__free-ctrl">
+        <input
+          type="range"
+          className="ccp__slider"
+          aria-label={label}
+          min={range.min}
+          max={range.max}
+          step={range.step}
+          value={value}
+          onChange={(e) => {
+            setDraft(null);
+            commitValue(Number(e.target.value));
+          }}
+          onDoubleClick={() => {
+            setDraft(null);
+            onChange(range.defaultValue);
+          }}
+        />
+        <div className="ccp__num-wrap">
+          <input
+            ref={inputRef}
+            type="text"
+            inputMode="decimal"
+            className="ccp__num-input"
+            aria-label={label}
+            value={displayText}
+            onFocus={() => setDraft(formatTemplateNumber(value))}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              if (skipBlurCommitRef.current) {
+                skipBlurCommitRef.current = false;
+                setDraft(null);
+                return;
+              }
+              commitDraft();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitDraft();
+                inputRef.current?.blur();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                e.nativeEvent.stopImmediatePropagation?.();
+                skipBlurCommitRef.current = true;
+                setDraft(null);
+                inputRef.current?.blur();
+              }
+            }}
+          />
+          {unit && <span className="ccp__unit" aria-hidden="true">{unit}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface NumberPresetItem {
+  value: number;
+  label: string;
+  tip?: string;
+}
+
+function ContinuousParamRow({
+  isFree,
+  label,
+  hint,
+  value,
+  range,
+  unit,
+  presets,
+  onChange,
+}: {
+  isFree: boolean;
+  label: string;
+  hint?: string;
+  value: number;
+  range: TemplateNumberRange;
+  unit: string;
+  presets: readonly NumberPresetItem[];
+  onChange: (val: number) => void;
+}) {
+  if (isFree) {
+    return (
+      <FreeRangeRow
+        label={label}
+        hint={hint}
+        value={value}
+        range={range}
+        unit={unit}
+        onChange={onChange}
+      />
+    );
+  }
+  return (
+    <div className="ccp__ctrl-row" title={hint}>
+      <span className="ccp__ctrl-label">{label}</span>
+      <div className="ccp__pills" role="group" aria-label={label}>
+        {presets.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            aria-pressed={value === item.value}
+            title={item.tip}
+            className={`ccp__pill-btn${value === item.value ? ' is-active' : ''}`}
+            onClick={() => onChange(item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ExtraParamRow({
   spec,
   value,
+  isFree,
   onChange,
 }: {
   spec: TemplateExtraParamSpec;
   value: TemplateExtraValue;
+  isFree: boolean;
   onChange: (val: TemplateExtraValue) => void;
 }) {
   const label = t(spec.labelKey as MessageKey);
   const hint = spec.hintKey ? t(spec.hintKey as MessageKey) : undefined;
-  const items: readonly { value: TemplateExtraValue; label: string }[] =
-    spec.kind === 'choice'
-      ? spec.options.map((opt) => ({ value: opt.value, label: t(opt.labelKey as MessageKey) }))
-      : (spec.presets ?? []).map((p) => ({ value: p.value, label: t(p.labelKey as MessageKey) }));
-
+  if (spec.kind === 'range') {
+    const presets: NumberPresetItem[] = (spec.presets ?? []).map((p) => ({
+      value: p.value,
+      label: t(p.labelKey as MessageKey),
+    }));
+    return (
+      <ContinuousParamRow
+        isFree={isFree}
+        label={label}
+        hint={hint}
+        value={typeof value === 'number' ? value : spec.defaultValue}
+        range={spec}
+        unit={spec.unit ?? ''}
+        presets={presets}
+        onChange={(v) => onChange(v)}
+      />
+    );
+  }
+  const items = spec.options.map((opt) => ({ value: opt.value, label: t(opt.labelKey as MessageKey) }));
   return (
     <div className="ccp__ctrl-row" title={hint}>
       <span className="ccp__ctrl-label">{label}</span>
@@ -102,6 +286,7 @@ export default function CurveConfigPanel({
 
   const currentTemplate = config.templateId ? shapeTemplateById(config.templateId) : undefined;
   const templateActive = currentTemplate !== undefined;
+  const isFreeMode = config.templateParamMode === 'free';
   const mirrored = !!config.templateMirrored;
   const ampScale = config.templateScale ?? 1;
   const densityScale = config.templateDensity ?? 1;
@@ -116,17 +301,11 @@ export default function CurveConfigPanel({
     const merged = { ...(config.templateExtras?.[currentTemplate.id] ?? {}), [key]: value };
     const stripped = stripDefaultTemplateExtra(currentTemplate, merged);
     const nextExtras = { ...(config.templateExtras ?? {}) };
-    if (stripped) {
-      nextExtras[currentTemplate.id] = stripped;
-    } else {
-      delete nextExtras[currentTemplate.id];
-    }
+    if (stripped) nextExtras[currentTemplate.id] = stripped;
+    else delete nextExtras[currentTemplate.id];
     const nextConfig: CurveConfig = { ...config };
-    if (Object.keys(nextExtras).length > 0) {
-      nextConfig.templateExtras = nextExtras;
-    } else {
-      delete nextConfig.templateExtras;
-    }
+    if (Object.keys(nextExtras).length > 0) nextConfig.templateExtras = nextExtras;
+    else delete nextConfig.templateExtras;
     onChange(nextConfig);
   };
 
@@ -160,14 +339,14 @@ export default function CurveConfigPanel({
 
       {templateActive && currentTemplate ? (
         <>
-          {/* 分类筛选 */}
-          <div className="ccp__cats" role="group" aria-label={t('curve.templateShort')}>
+          <div className="ccp__tabs" role="tablist" aria-label={t('curve.templateShort')}>
             {(['all', ...TEMPLATE_CATEGORIES] as const).map((cat) => (
               <button
                 key={cat}
                 type="button"
-                aria-pressed={catFilter === cat}
-                className={`ccp__cat${catFilter === cat ? ' is-active' : ''}`}
+                role="tab"
+                aria-selected={catFilter === cat}
+                className={`ccp__tab${catFilter === cat ? ' is-active' : ''}`}
                 onClick={() => setCatFilter(cat)}
               >
                 {t(`curve.cat.${cat}` as MessageKey)}
@@ -206,6 +385,7 @@ export default function CurveConfigPanel({
 
           {/* 底部控制区：按模板能力展示 偏向 + 幅度 + 段密/精度 + 模板专属参数 */}
           <div className="ccp__controls">
+
             {showMirror && (
               <div className="ccp__ctrl-row" title={t('curve.dirHint')}>
                 <span className="ccp__ctrl-label">{t('curve.dir')}</span>
@@ -231,43 +411,37 @@ export default function CurveConfigPanel({
             )}
 
             {showAmplitude && (
-              <div className="ccp__ctrl-row" title={t('curve.scaleHint')}>
-                <span className="ccp__ctrl-label">{t('curve.scale')}</span>
-                <div className="ccp__pills" role="group" aria-label={t('curve.scale')}>
-                  {TEMPLATE_SCALES.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      aria-pressed={ampScale === s}
-                      title={t(`curve.scaleTip.${s}` as MessageKey)}
-                      className={`ccp__pill-btn${ampScale === s ? ' is-active' : ''}`}
-                      onClick={() => onChange({ ...config, templateScale: s })}
-                    >
-                      {t(`curve.scale.${s}` as MessageKey)}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <ContinuousParamRow
+                isFree={isFreeMode}
+                label={t('curve.scale')}
+                hint={t('curve.scaleHint')}
+                value={ampScale}
+                range={TEMPLATE_SCALE_RANGE}
+                unit="×"
+                presets={TEMPLATE_SCALES.map((s) => ({
+                  value: s,
+                  label: t(`curve.scale.${s}` as MessageKey),
+                  tip: t(`curve.scaleTip.${s}` as MessageKey),
+                }))}
+                onChange={(s) => onChange({ ...config, templateScale: s })}
+              />
             )}
 
             {currentTemplate.adjustableDensity ? (
-              <div className="ccp__ctrl-row" title={t('curve.densityHint')}>
-                <span className="ccp__ctrl-label">{t('curve.density')}</span>
-                <div className="ccp__pills" role="group" aria-label={t('curve.density')}>
-                  {TEMPLATE_DENSITIES.map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      aria-pressed={densityScale === d}
-                      title={t(`curve.densityTip.${d}` as MessageKey)}
-                      className={`ccp__pill-btn${densityScale === d ? ' is-active' : ''}`}
-                      onClick={() => onChange({ ...config, templateDensity: d })}
-                    >
-                      {t(`curve.density.${d}` as MessageKey)}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <ContinuousParamRow
+                isFree={isFreeMode}
+                label={t('curve.density')}
+                hint={t('curve.densityHint')}
+                value={densityScale}
+                range={TEMPLATE_DENSITY_RANGE}
+                unit="×"
+                presets={TEMPLATE_DENSITIES.map((d) => ({
+                  value: d,
+                  label: t(`curve.density.${d}` as MessageKey),
+                  tip: t(`curve.densityTip.${d}` as MessageKey),
+                }))}
+                onChange={(d) => onChange({ ...config, templateDensity: d })}
+              />
             ) : (
               <div className="ccp__ctrl-row" title={t('curve.precision')}>
                 <span className="ccp__ctrl-label">{t('curve.precisionShort')}</span>
@@ -282,6 +456,7 @@ export default function CurveConfigPanel({
               <ExtraParamRow
                 key={spec.key}
                 spec={spec}
+                isFree={isFreeMode}
                 value={resolvedExtra[spec.key] ?? spec.defaultValue}
                 onChange={(val) => updateExtra(spec.key, val)}
               />

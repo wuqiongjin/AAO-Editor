@@ -37,7 +37,7 @@ export function useCanvasCapsule(visible: boolean): CanvasCapsuleState {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
       e.stopPropagation();
       setOpen(false);
       pillRef.current?.focus();

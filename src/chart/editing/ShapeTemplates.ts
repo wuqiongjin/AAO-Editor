@@ -47,11 +47,20 @@ export type TemplateExtraParamSpec =
 
 export const TEMPLATE_CATEGORIES: readonly TemplateCategory[] = ['smooth', 'rhythm', 'special'];
 
+export interface TemplateNumberRange {
+  readonly min: number;
+  readonly max: number;
+  readonly step: number;
+  readonly defaultValue: number;
+}
+
 export const TEMPLATE_SCALES = [0.5, 1, 1.5] as const;
 export type TemplateScale = (typeof TEMPLATE_SCALES)[number];
+export const TEMPLATE_SCALE_RANGE: TemplateNumberRange = { min: 0.1, max: 3, step: 0.05, defaultValue: 1 };
 
 export const TEMPLATE_DENSITIES = [0.5, 1, 2] as const;
 export type TemplateDensity = (typeof TEMPLATE_DENSITIES)[number];
+export const TEMPLATE_DENSITY_RANGE: TemplateNumberRange = { min: 0.25, max: 4, step: 0.05, defaultValue: 1 };
 
 export interface ShapeTemplate {
   id: string;
@@ -83,6 +92,16 @@ export interface ShapeTemplate {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+/** 连续模板数值规整：有限数值按 [min, max] 钳制并保留两位小数；非法值回落 fallback */
+export function clampTemplateNumber(
+  raw: unknown,
+  range: TemplateNumberRange,
+  fallback = range.defaultValue,
+): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
+  return Number(clamp(raw, range.min, range.max).toFixed(2));
+}
 
 export const templateMappingMode = (tp: ShapeTemplate): TemplateMappingMode =>
   tp.mappingMode ?? 'chord-offset';
@@ -374,7 +393,7 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     ],
     points: [],
     sample: (span, _p, density, extra) => {
-      const count = Math.max(1, Math.min(24, Math.round(span * 2 * positiveOrOne(density))));
+      const count = Math.max(1, Math.min(80, Math.round(span * 2 * positiveOrOne(density))));
       const rawPos = typeof extra?.pulsePos === 'number' && Number.isFinite(extra.pulsePos) ? extra.pulsePos : 50;
       const pos = clamp(rawPos, 0, 100) / 100;
       const hw = 0.2;
@@ -426,7 +445,7 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     ],
     points: [],
     sample: (span, _p, density, extra) => {
-      const levels = Math.max(2, Math.min(24, Math.round(span * 3 * positiveOrOne(density))));
+      const levels = Math.max(2, Math.min(120, Math.round(span * 3 * positiveOrOne(density))));
       const sharp = extra?.stepStyle === 'sharp';
       const out: { t: number; off: number }[] = [];
       const halfSlope = (1 / levels) * 0.1;
@@ -474,7 +493,7 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     hasZeroBeatJump: true,
     points: [],
     sample: (span, _p, density) => {
-      const ribs = Math.max(4, Math.min(96, Math.round(span * 8 * positiveOrOne(density))));
+      const ribs = Math.max(4, Math.min(128, Math.round(span * 8 * positiveOrOne(density))));
       const out: { t: number; off: number }[] = [];
       for (let k = 0; k < ribs; k++) {
         const t0 = k / ribs;
@@ -486,7 +505,7 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
           out.push({ t: 0.002, off: -0.75 });
         }
         if (k === ribs - 1) {
-          out.push({ t: Math.max(t0 + 0.01, t1 - 0.002), off: 0.75 });
+          out.push({ t: Math.min(0.998, Math.max(t0 + 0.002, t1 - 0.002)), off: 0.75 });
         }
       }
       return out;
@@ -540,7 +559,7 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     adjustableDensity: true,
     points: [],
     sample: (span, _p, density) => {
-      const links = Math.max(4, Math.min(96, Math.round(span * 8 * positiveOrOne(density))));
+      const links = Math.max(4, Math.min(128, Math.round(span * 8 * positiveOrOne(density))));
       const out: { t: number; off: number }[] = [];
       for (let k = 0; k < links; k++) {
         const t0 = k / links;
@@ -575,7 +594,7 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     hasZeroBeatJump: true,
     points: [],
     sample: (span, _p, density) => {
-      const segs = Math.max(4, Math.min(96, Math.round(span * 8 * positiveOrOne(density))));
+      const segs = Math.max(4, Math.min(128, Math.round(span * 8 * positiveOrOne(density))));
       const out: { t: number; off: number }[] = [];
       for (let k = 0; k < segs; k++) {
         const t0 = k / segs;
