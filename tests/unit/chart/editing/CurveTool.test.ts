@@ -24,7 +24,7 @@ function commitPenStroke(
 }
 import { clickOps, boxSelectOps } from '@/src/chart/editing/ToolActionMatrix';
 import {
-  curveChainClickOps, execCurveOps, placeSpanWithCombination,
+  curveChainClickOps, execCurveOps, placeSpanWithCombination, spanParamFromCurveConfig,
   type CurveConfig, type CurveDraft,
 } from '@/src/chart/editing/CurveTool';
 import { effectiveSpanParams, countVisibleNodes } from '@/src/chart/editing/SpanCurve';
@@ -415,6 +415,55 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
     const hiddens = slide.connections.filter((c) => c.hidden);
     expect(Math.max(...hiddens.map((c) => c.lane))).toBeCloseTo(4.35, 6);
     expect(Math.min(...hiddens.map((c) => c.lane))).toBeCloseTo(1.65, 6);
+  });
+
+  it('issue 240 · spanParamFromCurveConfig 按模板能力裁剪无效通用项并透传非默认 extra', () => {
+    const baseCfg: CurveConfig = {
+      family: 'sine',
+      type: 'in',
+      precision: 16,
+      templateId: 'step',
+      templateMirrored: true,
+      templateScale: 1.5,
+      templateDensity: 2,
+      templateExtras: {
+        step: { stepStyle: 'sharp' },
+        pulse: { pulsePos: 0 },
+      },
+    };
+    // step 不支持偏向与幅度：mirrored / amplitudeScale 不写入 SpanTemplateParam
+    expect(spanParamFromCurveConfig(baseCfg)).toEqual({
+      kind: 'template',
+      templateId: 'step',
+      precision: 16,
+      densityScale: 2,
+      extra: { stepStyle: 'sharp' },
+    });
+
+    // 切去 pulse：按模板 ID 独立读取 pulse 的 extra，且保留偏向与幅度
+    expect(spanParamFromCurveConfig({ ...baseCfg, templateId: 'pulse' })).toEqual({
+      kind: 'template',
+      templateId: 'pulse',
+      precision: 16,
+      mirrored: true,
+      amplitudeScale: 1.5,
+      densityScale: 2,
+      extra: { pulsePos: 0 },
+    });
+
+    // 专属参数为默认值时省略 extra
+    expect(spanParamFromCurveConfig({
+      ...baseCfg,
+      templateId: 'pulse',
+      templateExtras: { pulse: { pulsePos: 50 } },
+    })).toEqual({
+      kind: 'template',
+      templateId: 'pulse',
+      precision: 16,
+      mirrored: true,
+      amplitudeScale: 1.5,
+      densityScale: 2,
+    });
   });
 });
 

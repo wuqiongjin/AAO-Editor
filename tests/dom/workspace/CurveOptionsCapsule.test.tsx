@@ -6,6 +6,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { ConfigProvider } from '@/src/app/providers/ConfigProvider';
 import { UIProvider, useUI, type ArmedTool } from '@/src/app/providers/UIProvider';
 import CurveOptionsCapsule from '@/src/pages/workspace/CurveOptionsCapsule';
+import { buildTemplateSvgPath } from '@/src/pages/workspace/curveSvg';
+import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
 import { SETTINGS_KEY, seedZhSettings } from '@/tests/support/storage';
 
 function Arm({ tool }: { tool: ArmedTool | null }) {
@@ -130,6 +132,82 @@ describe('issue 179 · 曲线选项胶囊', () => {
       expect(card.textContent?.trim()).not.toMatch(/^(shape\.|No template)/);
       expect(card.getAttribute('title')).not.toMatch(/^shapeTip\./);
     }
+
+    // 英文界面检查新增专属参数控件文案完整
+    fireEvent.click(within(enForm).getByRole('button', { name: 'Stair step' }));
+    expect(within(enForm).getByRole('button', { name: 'Sharp' })).toBeInTheDocument();
+    fireEvent.click(within(enForm).getByRole('button', { name: 'Pulse' }));
+    expect(within(enForm).getByRole('button', { name: 'Start 0%' })).toBeInTheDocument();
+    expect(within(enForm).getByRole('button', { name: 'Mid 50%' })).toBeInTheDocument();
+    expect(within(enForm).getByRole('button', { name: 'End 100%' })).toBeInTheDocument();
+  });
+
+  it('issue 240 · 阶梯隐藏偏向/幅度并展示阶跃形态；尖刺支持位置按钮且摘要常显并独立记忆', () => {
+    setup({ curve: { family: 'sine', type: 'in', precision: 16, templateId: 'step' } });
+    arm('curve');
+    // 阶梯常显阶跃形态；不支持的偏向与幅度跳过
+    expect(pill()).toHaveTextContent('阶梯 · 标准 · 斜坡');
+    expect(pill()).not.toHaveTextContent('右偏');
+
+    fireEvent.click(pill());
+    // 偏向与幅度行隐藏
+    expect(within(form()).queryByRole('button', { name: '↰ 左偏' })).not.toBeInTheDocument();
+    expect(within(form()).queryByRole('button', { name: '小' })).not.toBeInTheDocument();
+    // 阶跃形态胶囊可切换直角并写盘、更新摘要及 DOM SVG 实时重绘
+    const stepCardBefore = within(form()).getByRole('button', { name: '阶梯' }).querySelector('svg path')?.getAttribute('d');
+    const sharpBtn = within(form()).getByRole('button', { name: '直角' });
+    fireEvent.click(sharpBtn);
+    expect(pill()).toHaveTextContent('阶梯 · 标准 · 直角');
+    const stepCardAfter = within(form()).getByRole('button', { name: '阶梯' }).querySelector('svg path')?.getAttribute('d');
+    expect(stepCardAfter).not.toBe(stepCardBefore);
+
+    // 切换到尖刺：恢复偏向/幅度，并显示位置按钮；默认 50% 在摘要里常显
+    fireEvent.click(within(form()).getByRole('button', { name: '尖刺' }));
+    expect(within(form()).getByRole('button', { name: '↰ 左偏' })).toBeInTheDocument();
+    expect(pill()).toHaveTextContent('尖刺 · 右偏 · 中 · 标准 · 50%');
+    const centerBtn = within(form()).getByRole('button', { name: '居中 50%' });
+    expect(centerBtn).toHaveAttribute('aria-pressed', 'true');
+
+    // 点击「起拍 0%」→ 胶囊与卡片 SVG 同步重绘
+    const pulseSvgBefore = pill().querySelector('svg path')?.getAttribute('d');
+    fireEvent.click(within(form()).getByRole('button', { name: '起拍 0%' }));
+    expect(within(form()).getByRole('button', { name: '起拍 0%' })).toHaveAttribute('aria-pressed', 'true');
+    expect(pill()).toHaveTextContent('尖刺 · 右偏 · 中 · 标准 · 0%');
+    expect(pill().querySelector('svg path')?.getAttribute('d')).not.toBe(pulseSvgBefore);
+
+    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve as {
+      templateExtras?: Record<string, Record<string, number | string>>;
+    };
+    expect(stored.templateExtras).toEqual({
+      step: { stepStyle: 'sharp' },
+      pulse: { pulsePos: 0 },
+    });
+
+    // 点回「居中 50%」→ 摘要仍常显 50%
+    fireEvent.click(centerBtn);
+    expect(centerBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(pill()).toHaveTextContent('尖刺 · 右偏 · 中 · 标准 · 50%');
+
+    // 切回阶梯：仍记住之前的「直角」
+    fireEvent.click(within(form()).getByRole('button', { name: '阶梯' }));
+    expect(within(form()).getByRole('button', { name: '直角' })).toHaveAttribute('aria-pressed', 'true');
+    expect(pill()).toHaveTextContent('阶梯 · 标准 · 直角');
+  });
+
+  it('issue 240 · SVG 预览联动：阶梯走左下→右上斜弦且区分斜坡/直角；尖刺随位置重绘', () => {
+    const step = shapeTemplateById('step')!;
+    const sloped = buildTemplateSvgPath(step, 46, 48);
+    const sharp = buildTemplateSvgPath(step, 46, 48, { extra: { stepStyle: 'sharp' } });
+    // endpoint-interp 弦线左下 → 右上
+    expect(sloped.startPt[0]).toBeLessThan(sloped.endPt[0]);
+    expect(sloped.startPt[1]).toBeGreaterThan(sloped.endPt[1]);
+    expect(sloped.bandPolygons).toHaveLength(1);
+    expect(sharp.bandPolygons.length).toBeGreaterThan(1);
+
+    const pulse = shapeTemplateById('pulse')!;
+    const p50 = buildTemplateSvgPath(pulse, 46, 48);
+    const p0 = buildTemplateSvgPath(pulse, 46, 48, { extra: { pulsePos: 0 } });
+    expect(p0.strokePath).not.toBe(p50.strokePath);
   });
 
   it('切走工具再切回：先出收起的胶囊，不残留上次展开的表单', () => {

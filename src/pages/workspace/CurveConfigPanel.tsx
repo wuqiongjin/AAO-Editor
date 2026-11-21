@@ -9,9 +9,15 @@ import {
   TEMPLATE_CATEGORIES,
   TEMPLATE_DENSITIES,
   TEMPLATE_SCALES,
+  resolveTemplateExtra,
   shapeTemplateById,
+  stripDefaultTemplateExtra,
+  templateSupportsAmplitude,
+  templateSupportsMirror,
   type TemplateCategory,
+  type TemplateExtraParamSpec,
 } from '../../chart/editing/ShapeTemplates';
+import type { TemplateExtraValue } from '../../chart/types';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { t, type MessageKey } from '../../i18n';
 import { MiniEasingSvg, MiniTemplateSvg } from './CurveMiniSvg';
@@ -45,6 +51,42 @@ function PrecisionPills({
   );
 }
 
+function ExtraParamRow({
+  spec,
+  value,
+  onChange,
+}: {
+  spec: TemplateExtraParamSpec;
+  value: TemplateExtraValue;
+  onChange: (val: TemplateExtraValue) => void;
+}) {
+  const label = t(spec.labelKey as MessageKey);
+  const hint = spec.hintKey ? t(spec.hintKey as MessageKey) : undefined;
+  const items: readonly { value: TemplateExtraValue; label: string }[] =
+    spec.kind === 'choice'
+      ? spec.options.map((opt) => ({ value: opt.value, label: t(opt.labelKey as MessageKey) }))
+      : (spec.presets ?? []).map((p) => ({ value: p.value, label: t(p.labelKey as MessageKey) }));
+
+  return (
+    <div className="ccp__ctrl-row" title={hint}>
+      <span className="ccp__ctrl-label">{label}</span>
+      <div className="ccp__pills" role="group" aria-label={label}>
+        {items.map((item) => (
+          <button
+            key={String(item.value)}
+            type="button"
+            aria-pressed={value === item.value}
+            className={`ccp__pill-btn${value === item.value ? ' is-active' : ''}`}
+            onClick={() => onChange(item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function CurveConfigPanel({
   config,
   onChange,
@@ -63,6 +105,30 @@ export default function CurveConfigPanel({
   const mirrored = !!config.templateMirrored;
   const ampScale = config.templateScale ?? 1;
   const densityScale = config.templateDensity ?? 1;
+  const showMirror = currentTemplate ? templateSupportsMirror(currentTemplate) : false;
+  const showAmplitude = currentTemplate ? templateSupportsAmplitude(currentTemplate) : false;
+  const resolvedExtra = currentTemplate
+    ? resolveTemplateExtra(currentTemplate, config.templateExtras?.[currentTemplate.id])
+    : {};
+
+  const updateExtra = (key: string, value: TemplateExtraValue) => {
+    if (!currentTemplate) return;
+    const merged = { ...(config.templateExtras?.[currentTemplate.id] ?? {}), [key]: value };
+    const stripped = stripDefaultTemplateExtra(currentTemplate, merged);
+    const nextExtras = { ...(config.templateExtras ?? {}) };
+    if (stripped) {
+      nextExtras[currentTemplate.id] = stripped;
+    } else {
+      delete nextExtras[currentTemplate.id];
+    }
+    const nextConfig: CurveConfig = { ...config };
+    if (Object.keys(nextExtras).length > 0) {
+      nextConfig.templateExtras = nextExtras;
+    } else {
+      delete nextConfig.templateExtras;
+    }
+    onChange(nextConfig);
+  };
 
   const filteredTemplates = SHAPE_TEMPLATES.filter(
     (tp) => catFilter === 'all' || tp.category === catFilter,
@@ -130,6 +196,7 @@ export default function CurveConfigPanel({
                     mirrored={mirrored}
                     ampScale={ampScale}
                     densityScale={densityScale}
+                    extra={config.templateExtras?.[tp.id]}
                   />
                   <span className="ccp__card-name">{name}</span>
                 </button>
@@ -137,47 +204,51 @@ export default function CurveConfigPanel({
             })}
           </div>
 
-          {/* 底部控制区：偏向 + 幅度 + 上下文第 3 行（段密 / 精度） */}
+          {/* 底部控制区：按模板能力展示 偏向 + 幅度 + 段密/精度 + 模板专属参数 */}
           <div className="ccp__controls">
-            <div className="ccp__ctrl-row" title={t('curve.dirHint')}>
-              <span className="ccp__ctrl-label">{t('curve.dir')}</span>
-              <div className="ccp__pills" role="group" aria-label={t('curve.dir')}>
-                <button
-                  type="button"
-                  aria-pressed={mirrored}
-                  className={`ccp__pill-btn${mirrored ? ' is-active' : ''}`}
-                  onClick={() => onChange({ ...config, templateMirrored: true })}
-                >
-                  {`↰ ${t('curve.dirLeft')}`}
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={!mirrored}
-                  className={`ccp__pill-btn${!mirrored ? ' is-active' : ''}`}
-                  onClick={() => onChange({ ...config, templateMirrored: false })}
-                >
-                  {`${t('curve.dirRight')} ↱`}
-                </button>
-              </div>
-            </div>
-
-            <div className="ccp__ctrl-row" title={t('curve.scaleHint')}>
-              <span className="ccp__ctrl-label">{t('curve.scale')}</span>
-              <div className="ccp__pills" role="group" aria-label={t('curve.scale')}>
-                {TEMPLATE_SCALES.map((s) => (
+            {showMirror && (
+              <div className="ccp__ctrl-row" title={t('curve.dirHint')}>
+                <span className="ccp__ctrl-label">{t('curve.dir')}</span>
+                <div className="ccp__pills" role="group" aria-label={t('curve.dir')}>
                   <button
-                    key={s}
                     type="button"
-                    aria-pressed={ampScale === s}
-                    title={t(`curve.scaleTip.${s}` as MessageKey)}
-                    className={`ccp__pill-btn${ampScale === s ? ' is-active' : ''}`}
-                    onClick={() => onChange({ ...config, templateScale: s })}
+                    aria-pressed={mirrored}
+                    className={`ccp__pill-btn${mirrored ? ' is-active' : ''}`}
+                    onClick={() => onChange({ ...config, templateMirrored: true })}
                   >
-                    {t(`curve.scale.${s}` as MessageKey)}
+                    {`↰ ${t('curve.dirLeft')}`}
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    aria-pressed={!mirrored}
+                    className={`ccp__pill-btn${!mirrored ? ' is-active' : ''}`}
+                    onClick={() => onChange({ ...config, templateMirrored: false })}
+                  >
+                    {`${t('curve.dirRight')} ↱`}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+
+            {showAmplitude && (
+              <div className="ccp__ctrl-row" title={t('curve.scaleHint')}>
+                <span className="ccp__ctrl-label">{t('curve.scale')}</span>
+                <div className="ccp__pills" role="group" aria-label={t('curve.scale')}>
+                  {TEMPLATE_SCALES.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      aria-pressed={ampScale === s}
+                      title={t(`curve.scaleTip.${s}` as MessageKey)}
+                      className={`ccp__pill-btn${ampScale === s ? ' is-active' : ''}`}
+                      onClick={() => onChange({ ...config, templateScale: s })}
+                    >
+                      {t(`curve.scale.${s}` as MessageKey)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {currentTemplate.adjustableDensity ? (
               <div className="ccp__ctrl-row" title={t('curve.densityHint')}>
@@ -206,6 +277,15 @@ export default function CurveConfigPanel({
                 />
               </div>
             )}
+
+            {currentTemplate.extraParams?.map((spec) => (
+              <ExtraParamRow
+                key={spec.key}
+                spec={spec}
+                value={resolvedExtra[spec.key] ?? spec.defaultValue}
+                onChange={(val) => updateExtra(spec.key, val)}
+              />
+            ))}
           </div>
         </>
       ) : (

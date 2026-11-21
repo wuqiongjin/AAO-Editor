@@ -1,6 +1,7 @@
 // 曲线与形状模板的共享迷你 SVG 图标组件（收起胶囊、模板卡片、缓动预览台共用）。
 import type { EasingFamily, EasingType } from '../../chart/editing/Easing';
 import type { ShapeTemplate } from '../../chart/editing/ShapeTemplates';
+import type { TemplateExtraValue } from '../../chart/types';
 import { buildEasingSvgPath, buildTemplateSvgPath, type SvgCurveGeometry } from './curveSvg';
 
 function CurveSvgFrame({
@@ -62,6 +63,7 @@ export function MiniTemplateSvg({
   mirrored = false,
   ampScale = 1,
   densityScale = 1,
+  extra,
 }: {
   template: ShapeTemplate;
   width?: number;
@@ -69,11 +71,13 @@ export function MiniTemplateSvg({
   mirrored?: boolean;
   ampScale?: number;
   densityScale?: number;
+  extra?: Record<string, TemplateExtraValue>;
 }) {
   const geometry = buildTemplateSvgPath(template, width, height, {
     mirrored,
     ampScale,
     densityScale,
+    extra,
     padX: 6,
     padY: 5,
   });

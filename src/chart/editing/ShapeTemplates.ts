@@ -5,7 +5,7 @@
 // 套用产物 = 密集 hidden 采样点，端点不动；参数记 `SpanTemplateParam`，
 // 与缓动段同走 visibleCount 护栏与"一动就自由化"。
 
-import type { ConnectionNote, SpanTemplateParam } from '../types';
+import type { ConnectionNote, SpanTemplateParam, TemplateExtraValue } from '../types';
 import type { CurvePrecision } from './Easing';
 
 /** 模板偏移振幅基准：off = ±1 ↔ 横向 ±2 轨 */
@@ -19,6 +19,32 @@ export const TEMPLATE_SEGMENTED_MAX_POINTS = 256;
 
 export type TemplateCategory = 'smooth' | 'rhythm' | 'special';
 
+export type TemplateMappingMode = 'chord-offset' | 'endpoint-interp';
+
+export type TemplateExtraParamSpec =
+  | {
+      kind: 'choice';
+      key: string;
+      labelKey: string;
+      hintKey?: string;
+      defaultValue: string;
+      options: readonly { value: string; labelKey: string }[];
+      mirrorValue?: (value: string) => string;
+    }
+  | {
+      kind: 'range';
+      key: string;
+      labelKey: string;
+      hintKey?: string;
+      defaultValue: number;
+      min: number;
+      max: number;
+      step: number;
+      unit?: string;
+      presets?: readonly { value: number; labelKey: string }[];
+      mirrorValue?: (value: number) => number;
+    };
+
 export const TEMPLATE_CATEGORIES: readonly TemplateCategory[] = ['smooth', 'rhythm', 'special'];
 
 export const TEMPLATE_SCALES = [0.5, 1, 1.5] as const;
@@ -31,12 +57,20 @@ export interface ShapeTemplate {
   id: string;
   label: string;
   category: TemplateCategory;
+  /** 映射模型：'chord-offset'（相对弦偏移，默认）| 'endpoint-interp'（端点插值，同轨退化直线） */
+  mappingMode?: TemplateMappingMode;
+  /** 是否支持「偏向」调节（端点插值型默认 false） */
+  supportsMirror?: boolean;
+  /** 是否支持「幅度」调节（端点插值型默认 false） */
+  supportsAmplitude?: boolean;
   /** 是否响应「精度」档位（1/16, 1/32, 1/64） */
   precisionSensitive: boolean;
   /** 是否响应「段密」档位（稀疏 0.5 / 标准 1 / 稠密 2） */
   adjustableDensity: boolean;
   /** 是否含同拍零高横跳（Δt = 0） */
   hasZeroBeatJump?: boolean;
+  /** 模板专属参数声明（用于动态渲染面板控件与持久化校验） */
+  extraParams?: readonly TemplateExtraParamSpec[];
   /** 默认点列（用于无参数静态兜底） */
   points: { t: number; off: number }[];
   /** 动态采样生成器：平滑类按 precision 细分，分段/面筋/锁链按 densityScale 调节段落密度 */
@@ -44,10 +78,84 @@ export interface ShapeTemplate {
     spanBeats: number,
     precision?: CurvePrecision,
     densityScale?: number,
+    extra?: Record<string, TemplateExtraValue>,
   ) => { t: number; off: number }[];
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+export const templateMappingMode = (tp: ShapeTemplate): TemplateMappingMode =>
+  tp.mappingMode ?? 'chord-offset';
+
+export const templateSupportsMirror = (tp: ShapeTemplate): boolean =>
+  tp.supportsMirror ?? (templateMappingMode(tp) === 'chord-offset');
+
+export const templateSupportsAmplitude = (tp: ShapeTemplate): boolean =>
+  tp.supportsAmplitude ?? (templateMappingMode(tp) === 'chord-offset');
+
+function snapRangeValue(spec: Extract<TemplateExtraParamSpec, { kind: 'range' }>, raw: number): number {
+  const clamped = clamp(raw, spec.min, spec.max);
+  if (!(spec.step > 0)) return clamped;
+  const steps = Math.round((clamped - spec.min) / spec.step);
+  // 消除浮点步进误差（如 0.30000000000000004）
+  const snapped = Number((spec.min + steps * spec.step).toFixed(6));
+  return clamp(snapped, spec.min, spec.max);
+}
+
+/** 解析并校验模板专属参数（缺省或非法项回落默认值） */
+export function resolveTemplateExtra(
+  tp: ShapeTemplate,
+  raw?: Record<string, unknown>,
+): Record<string, TemplateExtraValue> {
+  const out: Record<string, TemplateExtraValue> = {};
+  if (!tp.extraParams?.length) return out;
+  for (const spec of tp.extraParams) {
+    const val = raw?.[spec.key];
+    if (spec.kind === 'choice') {
+      out[spec.key] = typeof val === 'string' && spec.options.some((o) => o.value === val)
+        ? val
+        : spec.defaultValue;
+    } else {
+      out[spec.key] = typeof val === 'number' && Number.isFinite(val)
+        ? snapRangeValue(spec, val)
+        : spec.defaultValue;
+    }
+  }
+  return out;
+}
+
+/** 仅保留合法且偏离默认值的模板专属参数；全为默认时返回 undefined */
+export function stripDefaultTemplateExtra(
+  tp: ShapeTemplate,
+  raw?: Record<string, unknown>,
+): Record<string, TemplateExtraValue> | undefined {
+  if (!tp.extraParams?.length) return undefined;
+  const resolved = resolveTemplateExtra(tp, raw);
+  const out: Record<string, TemplateExtraValue> = {};
+  for (const spec of tp.extraParams) {
+    if (resolved[spec.key] !== spec.defaultValue) {
+      out[spec.key] = resolved[spec.key]!;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** 水平镜像专属参数（按 schema 可选 mirrorValue 钩子变换，未配置则保持原样） */
+export function mirrorTemplateExtra(
+  tp: ShapeTemplate,
+  raw?: Record<string, TemplateExtraValue>,
+): Record<string, TemplateExtraValue> | undefined {
+  if (!tp.extraParams?.length) return undefined;
+  const resolved = resolveTemplateExtra(tp, raw);
+  const next: Record<string, TemplateExtraValue> = {};
+  for (const spec of tp.extraParams) {
+    const val = resolved[spec.key]!;
+    next[spec.key] = spec.kind === 'choice'
+      ? (spec.mirrorValue ? spec.mirrorValue(val as string) : val)
+      : (spec.mirrorValue ? spec.mirrorValue(val as number) : val);
+  }
+  return stripDefaultTemplateExtra(tp, next);
+}
 
 /** 数值生成器：按份数均匀采样 off(t)（首尾自动剔除） */
 function sample(off: (t: number) => number, n: number): { t: number; off: number }[] {
@@ -246,16 +354,50 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     category: 'rhythm',
     precisionSensitive: false,
     adjustableDensity: true,
+    extraParams: [
+      {
+        kind: 'range',
+        key: 'pulsePos',
+        labelKey: 'curve.extra.pulsePos',
+        hintKey: 'curve.extra.pulsePosHint',
+        defaultValue: 50,
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: '%',
+        presets: [
+          { value: 0, labelKey: 'curve.extra.pulsePos.start' },
+          { value: 50, labelKey: 'curve.extra.pulsePos.center' },
+          { value: 100, labelKey: 'curve.extra.pulsePos.end' },
+        ],
+      },
+    ],
     points: [],
-    sample: (span, _p, density) => {
+    sample: (span, _p, density, extra) => {
       const count = Math.max(1, Math.min(24, Math.round(span * 2 * positiveOrOne(density))));
+      const rawPos = typeof extra?.pulsePos === 'number' && Number.isFinite(extra.pulsePos) ? extra.pulsePos : 50;
+      const pos = clamp(rawPos, 0, 100) / 100;
+      const hw = 0.2;
       const out: { t: number; off: number }[] = [];
       for (let k = 0; k < count; k++) {
         const a = k / count;
         const w = 1 / count;
-        out.push({ t: a + w * 0.3, off: 0 });
-        out.push({ t: a + w * 0.5, off: 1 });
-        out.push({ t: a + w * 0.7, off: 0 });
+        const tL = a + w * Math.max(0, pos - hw);
+        const tPeak = a + w * pos;
+        const tR = a + w * Math.min(1, pos + hw);
+        if (pos <= 0) {
+          if (k > 0) out.push({ t: a, off: 0 });
+          out.push({ t: a, off: 1 });
+          out.push({ t: tR, off: 0 });
+        } else if (pos >= 1) {
+          out.push({ t: tL, off: 0 });
+          out.push({ t: a + w, off: 1 });
+          if (k < count - 1) out.push({ t: a + w, off: 0 });
+        } else {
+          if (tL > 1e-9) out.push({ t: tL, off: 0 });
+          out.push({ t: tPeak, off: 1 });
+          if (tR < 1 - 1e-9) out.push({ t: tR, off: 0 });
+        }
       }
       return out;
     },
@@ -264,19 +406,41 @@ export const SHAPE_TEMPLATES: ShapeTemplate[] = [
     id: 'step',
     label: '阶梯',
     category: 'rhythm',
+    mappingMode: 'endpoint-interp',
+    supportsMirror: false,
+    supportsAmplitude: false,
     precisionSensitive: false,
     adjustableDensity: true,
+    extraParams: [
+      {
+        kind: 'choice',
+        key: 'stepStyle',
+        labelKey: 'curve.extra.stepStyle',
+        hintKey: 'curve.extra.stepStyleHint',
+        defaultValue: 'sloped',
+        options: [
+          { value: 'sloped', labelKey: 'curve.extra.stepStyle.sloped' },
+          { value: 'sharp', labelKey: 'curve.extra.stepStyle.sharp' },
+        ],
+      },
+    ],
     points: [],
-    sample: (span, _p, density) => {
+    sample: (span, _p, density, extra) => {
       const levels = Math.max(2, Math.min(24, Math.round(span * 3 * positiveOrOne(density))));
+      const sharp = extra?.stepStyle === 'sharp';
       const out: { t: number; off: number }[] = [];
-      for (let k = 0; k < levels; k++) {
-        const a = k / levels;
+      const halfSlope = (1 / levels) * 0.1;
+      for (let k = 0; k < levels - 1; k++) {
         const b = (k + 1) / levels;
-        const spanL = b - a;
-        const lvl = (k + 1) / levels;
-        out.push({ t: Math.max(0.005, a + spanL * 0.16), off: lvl });
-        out.push({ t: Math.min(0.995, b - spanL * 0.08), off: lvl });
+        const p0 = k / (levels - 1);
+        const p1 = (k + 1) / (levels - 1);
+        if (sharp) {
+          out.push({ t: b, off: p0 });
+          out.push({ t: b, off: p1 });
+        } else {
+          out.push({ t: b - halfSlope, off: p0 });
+          out.push({ t: b + halfSlope, off: p1 });
+        }
       }
       return out;
     },
@@ -439,7 +603,8 @@ export const shapeTemplateById = (id: string): ShapeTemplate | undefined =>
 
 /**
  * 套用模板：段两端可见结点之间按点列生成 hidden 采样点（不含端点）。
- * lane = 弦插值 + sign × off × TEMPLATE_AMPLITUDE × amplitudeScale，钳制 0..6 允许小数；
+ * - 相对弦偏移型：lane = 弦插值 + sign × off × TEMPLATE_AMPLITUDE × amplitudeScale，钳制 0..6；
+ * - 端点插值型：lane = from.lane + (to.lane - from.lane) × off（同轨退化为直线）；
  * beat = t 线性映射（普通曲线严格递增；同拍跃迁模板弱单调递增）。
  */
 export function bakeTemplatePoints(
@@ -452,16 +617,32 @@ export function bakeTemplatePoints(
   mirrored = false,
   amplitudeScale = 1,
   densityScale = 1,
+  extra?: Record<string, TemplateExtraValue>,
 ): ConnectionNote[] {
   const span = toBeat - fromBeat;
   if (!(span > 0)) return [];
+  const mode = templateMappingMode(template);
+  if (mode === 'endpoint-interp' && from.lane === to.lane) {
+    return [];
+  }
+  const resolvedExtra = resolveTemplateExtra(template, extra);
   const pts = template.sample
-    ? template.sample(span, precision, densityScale)
+    ? template.sample(span, precision, densityScale, resolvedExtra)
     : template.points;
+  const mapBeat = (t: number) =>
+    t <= 0 ? fromBeat : t >= 1 ? toBeat : clamp(fromBeat + t * span, fromBeat, toBeat);
+  if (mode === 'endpoint-interp') {
+    const dLane = to.lane - from.lane;
+    return pts.map(({ t, off }) => ({
+      beat: mapBeat(t),
+      lane: clamp(from.lane + dLane * off, 0, 6),
+      hidden: true as const,
+    }));
+  }
   const sign = mirrored ? -1 : 1;
   const ampScale = positiveOrOne(amplitudeScale);
   return pts.map(({ t, off }) => ({
-    beat: fromBeat + t * span,
+    beat: mapBeat(t),
     lane: clamp(from.lane + (to.lane - from.lane) * t + sign * off * TEMPLATE_AMPLITUDE * ampScale, 0, 6),
     hidden: true as const,
   }));
@@ -487,5 +668,6 @@ export function bakeTemplateParam(
     !!param.mirrored,
     param.amplitudeScale ?? 1,
     param.densityScale ?? 1,
+    param.extra,
   );
 }

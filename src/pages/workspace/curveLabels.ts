@@ -1,5 +1,11 @@
 // 曲线配置的展示文案（面板与画布胶囊共用）。
-import { shapeTemplateById, type ShapeTemplate } from '../../chart/editing/ShapeTemplates';
+import {
+  resolveTemplateExtra,
+  shapeTemplateById,
+  templateSupportsAmplitude,
+  templateSupportsMirror,
+  type ShapeTemplate,
+} from '../../chart/editing/ShapeTemplates';
 import type { CurveConfig } from '../../chart/editing/CurveTool';
 import { t, type MessageKey } from '../../i18n';
 
@@ -25,16 +31,33 @@ const DENSITY_KEYS: Record<number, MessageKey> = {
   2: 'curve.density.2',
 };
 
-/** 胶囊摘要：选了模板 =「模板名 · 偏向 · 幅度（· 段密）」；否则「族 · 型 · 1/精度」 */
+/** 胶囊摘要：跳过当前模板不支持的通用项，并展示专属项短值；缓动模式「族 · 型 · 1/精度」 */
 export function curveConfigSummary(c: CurveConfig): string {
   const tp = c.templateId != null ? shapeTemplateById(c.templateId) : undefined;
   if (tp) {
-    const dir = t(c.templateMirrored ? 'curve.dirLeft' : 'curve.dirRight');
-    const sc = t(SCALE_KEYS[c.templateScale ?? 1] ?? 'curve.scale.1');
-    if (tp.adjustableDensity) {
-      return `${shapeLabel(tp.id)} · ${dir} · ${sc} · ${t(DENSITY_KEYS[c.templateDensity ?? 1] ?? 'curve.density.1')}`;
+    const parts = [shapeLabel(tp.id)];
+    if (templateSupportsMirror(tp)) {
+      parts.push(t(c.templateMirrored ? 'curve.dirLeft' : 'curve.dirRight'));
     }
-    return `${shapeLabel(tp.id)} · ${dir} · ${sc}`;
+    if (templateSupportsAmplitude(tp)) {
+      parts.push(t(SCALE_KEYS[c.templateScale ?? 1] ?? 'curve.scale.1'));
+    }
+    if (tp.adjustableDensity) {
+      parts.push(t(DENSITY_KEYS[c.templateDensity ?? 1] ?? 'curve.density.1'));
+    }
+    if (tp.extraParams?.length) {
+      const resolved = resolveTemplateExtra(tp, c.templateExtras?.[tp.id]);
+      for (const spec of tp.extraParams) {
+        const val = resolved[spec.key];
+        if (spec.kind === 'choice') {
+          const opt = spec.options.find((o) => o.value === val);
+          if (opt) parts.push(t(opt.labelKey as MessageKey));
+        } else {
+          parts.push(`${val}${spec.unit ?? ''}`);
+        }
+      }
+    }
+    return parts.join(' · ');
   }
   const family = bare(t(`easing.family.${c.family}` as MessageKey));
   const type = bare(t(`easing.type.${c.type}` as MessageKey));

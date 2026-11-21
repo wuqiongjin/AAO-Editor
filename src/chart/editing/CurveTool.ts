@@ -1,7 +1,7 @@
 // 曲线工具深模块（issue 136 / ADR-0009 §3）：配置、草稿、两击/框选/执行键/点段重应用、带组合落子。
 // 烘焙仍在 SpanCurve（hidden 采样点是唯一真相）。矩阵只调度持工具态行。
 // 单击选区内走曲线框选行（组合 + 刷缓动）；框选/执行键选区≥2 同 `curveBoxOps`。
-import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LongNote, SpanParam } from '../types';
+import type { ChartNote, ConnectionNote, SelectionItem, SlideNote, LongNote, SpanParam, TemplateExtraValue } from '../types';
 import { removeOverlappedNotes } from './NoteReplacementRules';
 import { combineSelectionIntoSlide, compareAbsorbable, mergeChainWithSlides } from './SlideCombination';
 import { slideSpans, regionIdentity } from './SlideSegments';
@@ -10,7 +10,10 @@ import {
   countVisibleNodes, effectiveSpanParams, regenerateSpan,
 } from './SpanCurve';
 import { CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES, type CurvePrecision, type EasingFamily, type EasingType } from './Easing';
-import { TEMPLATE_DENSITIES, TEMPLATE_SCALES, shapeTemplateById } from './ShapeTemplates';
+import {
+  TEMPLATE_DENSITIES, TEMPLATE_SCALES, shapeTemplateById,
+  stripDefaultTemplateExtra, templateSupportsAmplitude, templateSupportsMirror,
+} from './ShapeTemplates';
 import {
   clickOps,
   combineOps,
@@ -31,6 +34,7 @@ export interface CurveConfig {
   templateMirrored?: boolean;
   templateScale?: number;
   templateDensity?: number;
+  templateExtras?: Record<string, Record<string, TemplateExtraValue>>;
 }
 
 /**
@@ -50,6 +54,22 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
 const pickEnum = <T,>(allowed: readonly T[], raw: unknown, fallback: T): T =>
   allowed.includes(raw as T) ? (raw as T) : fallback;
 
+function normalizeTemplateExtras(
+  raw: unknown,
+): Record<string, Record<string, TemplateExtraValue>> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, Record<string, TemplateExtraValue>> = {};
+  for (const [tplId, tplRaw] of Object.entries(raw as Record<string, unknown>)) {
+    const tp = shapeTemplateById(tplId);
+    if (!tp || !tp.extraParams?.length || !tplRaw || typeof tplRaw !== 'object' || Array.isArray(tplRaw)) {
+      continue;
+    }
+    const cleaned = stripDefaultTemplateExtra(tp, tplRaw as Record<string, unknown>);
+    if (cleaned) out[tplId] = cleaned;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /**
  * 持久化归一化（白名单校验 + 缺字段回落）：老设置文件没有 `curve` 段、或存了已下线的模板 id
  * / 非法枚举时，一律回落到出厂默认的那一项，绝不把脏值带进运行时。
@@ -57,6 +77,7 @@ const pickEnum = <T,>(allowed: readonly T[], raw: unknown, fallback: T): T =>
 export function normalizeCurveConfig(raw: unknown): CurveConfig {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const d = DEFAULT_CURVE_CONFIG;
+  const templateExtras = normalizeTemplateExtras(o.templateExtras);
   return {
     family: pickEnum(EASING_FAMILIES, o.family, d.family),
     type: pickEnum(EASING_TYPES, o.type, d.type),
@@ -65,6 +86,7 @@ export function normalizeCurveConfig(raw: unknown): CurveConfig {
     templateMirrored: typeof o.templateMirrored === 'boolean' ? o.templateMirrored : false,
     templateScale: pickEnum(TEMPLATE_SCALES, o.templateScale, 1),
     templateDensity: pickEnum(TEMPLATE_DENSITIES, o.templateDensity, 1),
+    ...(templateExtras ? { templateExtras } : {}),
   };
 }
 
@@ -73,14 +95,25 @@ export const spanParamFromCurveConfig = (config: CurveConfig): SpanParam => {
   if (!config.templateId) {
     return { kind: 'easing', family: config.family, type: config.type, precision: config.precision };
   }
+  const tp = shapeTemplateById(config.templateId);
   const param: SpanParam = {
     kind: 'template',
     templateId: config.templateId,
     precision: config.precision,
   };
-  if (config.templateMirrored) param.mirrored = true;
-  if (config.templateScale && config.templateScale !== 1) param.amplitudeScale = config.templateScale;
-  if (config.templateDensity && config.templateDensity !== 1) param.densityScale = config.templateDensity;
+  if (!tp || templateSupportsMirror(tp)) {
+    if (config.templateMirrored) param.mirrored = true;
+  }
+  if (!tp || templateSupportsAmplitude(tp)) {
+    if (config.templateScale && config.templateScale !== 1) param.amplitudeScale = config.templateScale;
+  }
+  if (!tp || tp.adjustableDensity) {
+    if (config.templateDensity && config.templateDensity !== 1) param.densityScale = config.templateDensity;
+  }
+  if (tp) {
+    const extra = stripDefaultTemplateExtra(tp, config.templateExtras?.[tp.id]);
+    if (extra) param.extra = extra;
+  }
   return param;
 };
 

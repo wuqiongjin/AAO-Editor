@@ -6,13 +6,13 @@ import {
   shapeTemplateById,
   bakeTemplatePoints,
   bakeTemplateParam,
+  templateMappingMode,
   templateMinPoints,
-  templateMinSegments,
   adaptiveTemplatePoints,
-  halfHeartOffset,
   heartShapeOffset,
   softElasticOffset,
 } from '@/src/chart/editing/ShapeTemplates';
+import { displayConnections } from '@/src/chart/editing/SlideSegments';
 
 describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精度控制）', () => {
   it('templateMinPoints: 各精度档位返回对应合理的保底细分数', () => {
@@ -170,7 +170,10 @@ describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精�
     expect(SHAPE_TEMPLATES.filter((t) => t.category === 'special')).toHaveLength(6);
 
     for (const tp of SHAPE_TEMPLATES) {
-      const baked = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 1, 3, {
+      const isEndpointInterp = templateMappingMode(tp) === 'endpoint-interp';
+      const from = { lane: isEndpointInterp ? 1 : 3 };
+      const to = { lane: isEndpointInterp ? 5 : 3 };
+      const baked = bakeTemplateParam(from, to, 1, 3, {
         kind: 'template', templateId: tp.id, precision: 32, amplitudeScale: 1, densityScale: 1,
       });
       expect(baked.length, tp.id).toBeGreaterThan(0);
@@ -230,6 +233,98 @@ describe('issue 223 · 形状模板库与自适应采样（方案 B：响应精�
         kind: 'template', templateId: tp.id, precision: 64, amplitudeScale: 1.5, densityScale: 2,
       });
       expect(stress.length, `${tp.id} stress len`).toBeLessThanOrEqual(TEMPLATE_SEGMENTED_MAX_POINTS);
+    }
+  });
+
+  it('issue 240 · step 阶梯改为端点插值型：单调直达终点无尾端折回，支持 sloped / sharp 切换与同轨退化', () => {
+    const step = shapeTemplateById('step')!;
+    expect(templateMappingMode(step)).toBe('endpoint-interp');
+
+    // 同轨退化为直线（0 个 hidden 点）
+    expect(bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 2, {
+      kind: 'template', templateId: 'step', densityScale: 1,
+    })).toEqual([]);
+
+    // 1 → 5（2 拍）：6 级台阶，严格竖直踏板，单调递增不折回，不受 mirrored/amplitudeScale 干扰
+    const asc = bakeTemplateParam({ lane: 1 }, { lane: 5 }, 0, 2, {
+      kind: 'template', templateId: 'step', mirrored: true, amplitudeScale: 1.5, densityScale: 1,
+    });
+    expect(asc.length).toBe(10); // 6 levels -> 5 transitions * 2 pts
+    expect(asc[0]!.lane).toBeCloseTo(1, 6);
+    expect(asc.at(-1)!.lane).toBeCloseTo(5, 6);
+    for (let i = 1; i < asc.length; i++) {
+      expect(asc[i]!.beat).toBeGreaterThan(asc[i - 1]!.beat);
+      expect(asc[i]!.lane).toBeGreaterThanOrEqual(asc[i - 1]!.lane - 1e-12);
+    }
+
+    // 5 → 1（反向）：单调递减直达 1
+    const desc = bakeTemplateParam({ lane: 5 }, { lane: 1 }, 0, 2, {
+      kind: 'template', templateId: 'step', densityScale: 1,
+    });
+    expect(desc[0]!.lane).toBeCloseTo(5, 6);
+    expect(desc.at(-1)!.lane).toBeCloseTo(1, 6);
+    for (let i = 1; i < desc.length; i++) {
+      expect(desc[i]!.lane).toBeLessThanOrEqual(desc[i - 1]!.lane + 1e-12);
+    }
+
+    // 直角（sharp）：级间 Δbeat = 0 同拍跃阶，经 displayConnections 保序不丢点
+    const sharp = bakeTemplateParam({ lane: 1 }, { lane: 5 }, 0, 2, {
+      kind: 'template', templateId: 'step', densityScale: 1, extra: { stepStyle: 'sharp' },
+    });
+    expect(sharp).toHaveLength(10);
+    const jumps = sharp.filter((pt, idx) => idx > 0 && Math.abs(pt.beat - sharp[idx - 1]!.beat) < 1e-9);
+    expect(jumps).toHaveLength(5);
+    const fullConns = [{ beat: 0, lane: 1 }, ...sharp, { beat: 2, lane: 5 }];
+    expect(displayConnections(fullConns).conns).toHaveLength(fullConns.length);
+  });
+
+  it('issue 240 · pulse 尖刺位置 pulsePos：50% 向后兼容，0%/100% 走 Δbeat=0 对齐鼓点且显示投影完整保留', () => {
+    // 默认 / 50%：1 拍 2 周期（count=2），与旧 [0.3w, 0.5w, 0.7w] 逐点一致
+    const defPts = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 1, {
+      kind: 'template', templateId: 'pulse', densityScale: 1,
+    });
+    const p50 = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 1, {
+      kind: 'template', templateId: 'pulse', densityScale: 1, extra: { pulsePos: 50 },
+    });
+    expect(defPts).toEqual(p50);
+    expect(defPts.map((p) => p.beat)).toEqual([0.15, 0.25, 0.35, 0.65, 0.75, 0.85]);
+
+    // 0%：首周期在起拍 beat=0 同拍瞬间扎出尖刺（lane 5），次周期在 beat=0.5 Δbeat=0 跃迁
+    const p0 = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 1, {
+      kind: 'template', templateId: 'pulse', densityScale: 1, extra: { pulsePos: 0 },
+    });
+    expect(p0[0]).toMatchObject({ beat: 0, lane: 5, hidden: true });
+    expect(p0[1]).toMatchObject({ beat: 0.1, lane: 3, hidden: true });
+    expect(p0[2]).toMatchObject({ beat: 0.5, lane: 3, hidden: true });
+    expect(p0[3]).toMatchObject({ beat: 0.5, lane: 5, hidden: true });
+    const p0Conns = [{ beat: 0, lane: 3 }, ...p0, { beat: 1, lane: 3 }];
+    expect(displayConnections(p0Conns).conns).toHaveLength(p0Conns.length);
+    expect(displayConnections(p0Conns).conns[1]).toMatchObject({ beat: 0, lane: 5, hidden: true });
+
+    // 100%：末周期在终点 beat=1 同拍收口，displayConnections 保留（含非二进制浮点拍不越过 toBeat）
+    const p100 = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 1, {
+      kind: 'template', templateId: 'pulse', densityScale: 1, extra: { pulsePos: 100 },
+    });
+    expect(p100.at(-1)).toMatchObject({ beat: 1, lane: 5, hidden: true });
+    const p100Conns = [{ beat: 0, lane: 3 }, ...p100, { beat: 1, lane: 3 }];
+    expect(displayConnections(p100Conns).conns).toHaveLength(p100Conns.length);
+
+    const floatToBeat = 1.775;
+    const p100Float = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0.725, floatToBeat, {
+      kind: 'template', templateId: 'pulse', densityScale: 1, extra: { pulsePos: 100 },
+    });
+    expect(p100Float.at(-1)!.beat).toBe(floatToBeat);
+    const floatConns = [{ beat: 0.725, lane: 3 }, ...p100Float, { beat: floatToBeat, lane: 3 }];
+    expect(displayConnections(floatConns).conns).toHaveLength(floatConns.length);
+
+    // 5%：贴近起点但保持连续上升斜边（beat 严格递增）
+    const p5 = bakeTemplateParam({ lane: 3 }, { lane: 3 }, 0, 1, {
+      kind: 'template', templateId: 'pulse', densityScale: 1, extra: { pulsePos: 5 },
+    });
+    expect(p5[0]!.beat).toBeCloseTo(0.025, 6);
+    expect(p5[0]!.lane).toBeCloseTo(5, 6);
+    for (let i = 1; i < p5.length; i++) {
+      expect(p5[i]!.beat).toBeGreaterThan(p5[i - 1]!.beat);
     }
   });
 });

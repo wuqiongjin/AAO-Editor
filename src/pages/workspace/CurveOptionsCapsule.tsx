@@ -43,6 +43,7 @@ export default memo(function CurveOptionsCapsule() {
               mirrored={!!curveConfig.templateMirrored}
               ampScale={curveConfig.templateScale ?? 1}
               densityScale={curveConfig.templateDensity ?? 1}
+              extra={curveConfig.templateExtras?.[activeTemplate.id]}
             />
           ) : (
             <MiniEasingSvg

@@ -20,6 +20,8 @@ export interface SpanEasingParam {
   precision: import('./editing/Easing').CurvePrecision;
 }
 
+export type TemplateExtraValue = number | string;
+
 /** 段参数·模板形态（issue 09 S4 / ADR-0009 §2 三来源）：记录模板 id，重生成时按库内点列重烘焙 */
 export interface SpanTemplateParam {
   kind: 'template';
@@ -30,6 +32,8 @@ export interface SpanTemplateParam {
   amplitudeScale?: number;
   /** 段密倍率（稀疏 0.5 / 标准 1 / 稠密 2；用于震动/锁链/面筋，缺省回退 1） */
   densityScale?: number;
+  /** 模板专属参数（issue 240，缺省回退各模板默认值） */
+  extra?: Record<string, TemplateExtraValue>;
 }
 
 /** 段参数 = 三来源中"有解析参数"的两形态；自由段 = 参数缺席（点集即形态） */

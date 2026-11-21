@@ -119,6 +119,48 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
     expect(loadSettings(st).curve).toEqual(next.curve);
   });
 
+  it('issue 240 · normalizeCurveConfig 校验与持久化 templateExtras（剔除无效项与默认值，钳制越界）', () => {
+    const cleaned = normalizeCurveConfig({
+      family: 'sine',
+      type: 'in',
+      precision: 16,
+      templateId: 'pulse',
+      templateExtras: {
+        pulse: { pulsePos: 999, rogue: 'x' },
+        step: { stepStyle: 'sharp' },
+        arc: { bogus: 1 },
+        ghost: { foo: 'bar' },
+      },
+    });
+    expect(cleaned.templateExtras).toEqual({
+      pulse: { pulsePos: 100 },
+      step: { stepStyle: 'sharp' },
+    });
+
+    // 全为默认值 / 无效值时省略 templateExtras
+    const onlyDefaults = normalizeCurveConfig({
+      templateId: 'pulse',
+      templateExtras: {
+        pulse: { pulsePos: 50 },
+        step: { stepStyle: 'invalid' },
+      },
+    });
+    expect(onlyDefaults.templateExtras).toBeUndefined();
+
+    // saveSettings → loadSettings 往返保真
+    const st = memStorage();
+    const withExtras: AppSettings = {
+      ...defaultSettings(),
+      curve: {
+        ...DEFAULT_CURVE_CONFIG,
+        templateId: 'pulse',
+        templateExtras: { pulse: { pulsePos: 0 }, step: { stepStyle: 'sharp' } },
+      },
+    };
+    saveSettings(withExtras, st);
+    expect(loadSettings(st).curve).toEqual(withExtras.curve);
+  });
+
   it('normalizeCurveConfig 对任意垃圾输入都产出完整配置（永不把脏值带进运行时）', () => {
     for (const junk of [undefined, null, 42, 'x', [], { family: null, precision: '16' }]) {
       // 逐字段比对（不只是"precision 在档位里"）——否则"错落到 32"也会绿

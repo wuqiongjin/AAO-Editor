@@ -1,6 +1,11 @@
 // 曲线 / 形状模板的竖向 SVG 几何路径构造器（零 React 依赖，胶囊摘要与面板网格共用）。
 import { easing, type EasingFamily, type EasingType } from '../../chart/editing/Easing';
-import type { ShapeTemplate } from '../../chart/editing/ShapeTemplates';
+import {
+  resolveTemplateExtra,
+  templateMappingMode,
+  type ShapeTemplate,
+} from '../../chart/editing/ShapeTemplates';
+import type { TemplateExtraValue } from '../../chart/types';
 
 export interface SvgCurveGeometry {
   strokePath: string;
@@ -37,6 +42,7 @@ export function buildTemplateSvgPath(
     mirrored?: boolean;
     ampScale?: number;
     densityScale?: number;
+    extra?: Record<string, TemplateExtraValue>;
     padX?: number;
     padY?: number;
   },
@@ -46,18 +52,30 @@ export function buildTemplateSvgPath(
   const densityScale = opts?.densityScale ?? 1;
   const padX = opts?.padX ?? 6;
   const padY = opts?.padY ?? 5;
-  const cx = width / 2;
-  const maxSwing = (width / 2 - padX) * 0.88;
+  const resolvedExtra = resolveTemplateExtra(tp, opts?.extra);
+  const rawPts = tp.sample ? tp.sample(1, 32, densityScale, resolvedExtra) : tp.points;
 
-  const rawPts = tp.sample ? tp.sample(1, 32, densityScale) : tp.points;
+  const y0 = height - padY;
+  const y1 = padY;
+  const isEndpointInterp = templateMappingMode(tp) === 'endpoint-interp';
+  const inset = Math.min(padX + (width > 28 ? 3 : 0), width * 0.25);
+  const cx = width / 2;
+  const x0 = isEndpointInterp ? inset : cx;
+  const x1 = isEndpointInterp ? width - inset : cx;
+  const maxSwing = (cx - padX) * 0.88;
+  const mapX = (off: number) => Math.max(2, Math.min(width - 2,
+    isEndpointInterp ? x0 + (x1 - x0) * off : cx + off * sign * ampScale * maxSwing,
+  ));
+  const startPt: [number, number] = [x0, y0];
+  const endPt: [number, number] = [x1, y1];
   const all: (Pt2D & { t: number })[] = [
-    { t: 0, x: cx, y: height - padY },
+    { t: 0, x: x0, y: y0 },
     ...rawPts.map((p) => ({
       t: p.t,
-      x: Math.max(2, Math.min(width - 2, cx + p.off * sign * ampScale * maxSwing)),
-      y: height - padY - p.t * (height - 2 * padY),
+      x: mapX(p.off),
+      y: y0 - p.t * (y0 - y1),
     })),
-    { t: 1, x: cx, y: padY },
+    { t: 1, x: x1, y: y1 },
   ];
 
   // Δt === 0 时分段，不连接同拍水平跳转线段
@@ -76,7 +94,7 @@ export function buildTemplateSvgPath(
   const halfBand = tp.adjustableDensity
     ? Math.max(1.4, width * 0.05)
     : Math.max(2.0, width * 0.08);
-  return runsToSvgGeometry(runs, halfBand, [cx, height - padY], [cx, padY]);
+  return runsToSvgGeometry(runs, halfBand, startPt, endPt);
 }
 
 /** 为缓动函数生成竖向 SVG 轨迹（左下 → 右上） */
