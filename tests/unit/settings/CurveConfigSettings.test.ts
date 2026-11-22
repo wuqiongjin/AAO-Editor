@@ -34,7 +34,7 @@ function walkTs(dir: string): string[] {
 }
 
 describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
-  it('出厂默认：Sine + In + 1/16 + 不使用模板 + 档位模式 + 右偏/中幅/标准密/基线 0', () => {
+  it('出厂默认：Sine + In + 1/16 + 不使用模板 + 档位模式 + 右偏/中幅/标准密/基线 0 + 分类全部/上次模板 S 形', () => {
     expect(DEFAULT_CURVE_CONFIG).toEqual({
       family: 'sine',
       type: 'in',
@@ -45,6 +45,8 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
       templateScale: 1,
       templateDensity: 1,
       templateBaseline: 0,
+      templateCategory: 'all',
+      lastTemplateId: 's-curve',
     });
     expect(defaultSettings().curve).toEqual(DEFAULT_CURVE_CONFIG);
   });
@@ -104,7 +106,30 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
       templateScale: 2.35,
       templateDensity: 3.5,
       templateBaseline: 0,
+      templateCategory: 'all',
+      // 242 之前落盘的设置只有 templateId：上次模板按生效模板迁移，别退回 S 形
+      lastTemplateId: 'wave',
     });
+  });
+
+  it('issue 242 · 模板分类筛选与上次选用模板：合法值保留，非法/缺失回落，无 lastTemplateId 时按 templateId 迁移', () => {
+    expect(normalizeCurveConfig({
+      templateCategory: 'special',
+      lastTemplateId: 'gluten-comb',
+    })).toMatchObject({ templateCategory: 'special', lastTemplateId: 'gluten-comb' });
+
+    for (const cat of ['all', 'smooth', 'rhythm', 'special'] as const) {
+      expect(normalizeCurveConfig({ templateCategory: cat }).templateCategory).toBe(cat);
+    }
+    // 非法分类回落 all；非法/已下线的模板 ID 回落 S 形（没有可迁移的生效模板时）
+    expect(normalizeCurveConfig({ templateCategory: 'weird', lastTemplateId: 'ghost' }))
+      .toMatchObject({ templateCategory: 'all', lastTemplateId: 's-curve' });
+    expect(normalizeCurveConfig({})).toMatchObject({ templateCategory: 'all', lastTemplateId: 's-curve' });
+
+    // 非法 lastTemplateId 但生效模板合法 → 迁移生效模板
+    expect(normalizeCurveConfig({ templateId: 'zigzag', lastTemplateId: 'ghost' }).lastTemplateId).toBe('zigzag');
+    // 两者都合法却不同：以 lastTemplateId 为准（用户上次点选的模板才是"记住的那个"）
+    expect(normalizeCurveConfig({ templateId: 'arc', lastTemplateId: 'pulse' }).lastTemplateId).toBe('pulse');
   });
 
   it('issue 241 · normalizeCurveConfig 保留合法连续倍率、钳制越界值、非法值回落 1 并持久化 templateParamMode', () => {
@@ -165,6 +190,8 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
         templateScale: 0.5,
         templateDensity: 2,
         templateBaseline: 100,
+        templateCategory: 'smooth',
+        lastTemplateId: 'arc',
       },
     };
     saveSettings(next, st);
@@ -206,6 +233,7 @@ describe('issue 114 · 曲线配置持久化到 settings.curve', () => {
       curve: {
         ...DEFAULT_CURVE_CONFIG,
         templateId: 'pulse',
+        lastTemplateId: 'pulse',
         templateExtras: { pulse: { pulsePos: 0 }, step: { stepStyle: 'sharp' } },
       },
     };

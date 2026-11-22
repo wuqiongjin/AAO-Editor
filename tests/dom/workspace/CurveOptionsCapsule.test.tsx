@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-// issue 179 & issue 235 锁测：画布左上角的曲线选项胶囊（177 Q15 / 235 图形化选型与 18 款模板）
+// issue 179 & issue 235 & issue 242 锁测：画布左上角的曲线选项胶囊
+// （177 Q15 / 235 图形化选型与 18 款模板 / 242 常驻展开与缓动图形化选型）
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
@@ -19,7 +20,12 @@ function Arm({ tool }: { tool: ArmedTool | null }) {
 
 function setup(patch: Record<string, unknown> = {}) {
   seedZhSettings(patch);
-  render(
+  return mount();
+}
+
+/** 不重新播种设置：用于「重新挂载 = 模拟重启」——落盘内容必须原样被读回 */
+function mount() {
+  return render(
     <ConfigProvider>
       <UIProvider>
         <Arm tool="curve" />
@@ -35,8 +41,25 @@ const pill = () => screen.getByRole('button', { name: '曲线配置' });
 const queryPill = () => screen.queryByRole('button', { name: '曲线配置' });
 const form = () => screen.getByRole('group', { name: '曲线配置' });
 const queryForm = () => screen.queryByRole('group', { name: '曲线配置' });
+/** 缓动族 10 张卡：按网格的 aria-label 定位，不钉卡片的 class（中英文标签不同） */
+const easingCards = (scope: HTMLElement, label = '缓动族') =>
+  within(within(scope).getByRole('group', { name: label })).getAllByRole('button');
 const paramModeBar = () => screen.getByRole('group', { name: '模板参数模式' });
 const queryParamModeBar = () => screen.queryByRole('group', { name: '模板参数模式' });
+const storedCurve = () => JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve as {
+  family: string;
+  type: string;
+  precision: number;
+  templateId: string | null;
+  templateCategory?: string;
+  lastTemplateId?: string;
+  templateMirrored: boolean;
+  templateScale: number;
+  templateDensity: number;
+};
+const storedCapsuleOpen = () =>
+  (JSON.parse(localStorage.getItem(SETTINGS_KEY)!) as { layout?: { curveCapsuleOpen?: boolean } })
+    .layout?.curveCapsuleOpen;
 
 /** 摘要只在折叠态完整拼接（展开态顶栏只留模板主名）：临时收起读一次再回到展开态 */
 function fullSummary(): string {
@@ -81,21 +104,13 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(queryForm()).not.toBeInTheDocument();
     fireEvent.click(pill());
 
-    // 缓动模式：缓动族 + 缓动型 2 个下拉框 + 1/16|1/32|1/64 精度胶囊
-    const selects = within(form()).getAllByRole('combobox');
-    expect(selects).toHaveLength(2);
-    fireEvent.change(within(form()).getByRole('combobox', { name: '缓动族' }), { target: { value: 'bounce' } });
+    // 缓动页：无原生下拉框，缓动族改为 10 张实时 SVG 卡片，点选即生效并写盘
+    expect(within(form()).queryAllByRole('combobox')).toHaveLength(0);
+    expect(easingCards(form())).toHaveLength(10);
+    fireEvent.click(within(form()).getByRole('button', { name: /^Bounce/ }));
     fireEvent.click(within(form()).getByRole('button', { name: '1/32' }));
-    const stored = () => JSON.parse(localStorage.getItem(SETTINGS_KEY)!).curve as {
-      family: string;
-      precision: number;
-      templateId: string | null;
-      templateMirrored: boolean;
-      templateScale: number;
-      templateDensity: number;
-    };
-    expect(stored().family).toBe('bounce');
-    expect(stored().precision).toBe(32);
+    expect(storedCurve().family).toBe('bounce');
+    expect(storedCurve().precision).toBe(32);
 
     // 切到形状模板页：展示 18 张 SVG 缩略图卡，可按分类筛选
     fireEvent.click(within(form()).getByRole('tab', { name: '形状模板' }));
@@ -109,10 +124,10 @@ describe('issue 179 · 曲线选项胶囊', () => {
     fireEvent.click(within(form()).getByRole('button', { name: '↰ 左偏' }));
     fireEvent.click(within(form()).getByRole('button', { name: '大' }));
     fireEvent.click(within(form()).getByRole('button', { name: '稠密' }));
-    expect(stored().templateId).toBe('gluten-comb');
-    expect(stored().templateMirrored).toBe(true);
-    expect(stored().templateScale).toBe(1.5);
-    expect(stored().templateDensity).toBe(2);
+    expect(storedCurve().templateId).toBe('gluten-comb');
+    expect(storedCurve().templateMirrored).toBe(true);
+    expect(storedCurve().templateScale).toBe(1.5);
+    expect(storedCurve().templateDensity).toBe(2);
     expect(pill()).toHaveTextContent('面筋·梳齿');
     expect(pill()).not.toHaveTextContent('左偏');
 
@@ -121,7 +136,7 @@ describe('issue 179 · 曲线选项胶囊', () => {
     fireEvent.click(within(form()).getByRole('button', { name: '大弧' }));
     expect(within(form()).getByRole('button', { name: '1/64' })).toBeEnabled();
     fireEvent.click(within(form()).getByRole('button', { name: '1/64' }));
-    expect(stored().precision).toBe(64);
+    expect(storedCurve().precision).toBe(64);
   });
 
   it('英文界面渲染全部 18 款模板与控件且无缺词回退', () => {
@@ -246,28 +261,64 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(Math.min(...xs(zRight))).toBeGreaterThan(22);
   });
 
-  it('切走工具再切回：先出收起的胶囊，不残留上次展开的表单', () => {
-    setup();
+  it('issue 242 · 展开态跨工具切换与跨会话：切走只隐藏整枚胶囊，切回 / 重启都恢复展开', () => {
+    const view = setup();
     arm('curve');
+    // 首次进入曲线工具默认折叠（出厂默认）
+    expect(queryForm()).not.toBeInTheDocument();
+    expect(pill()).toHaveAttribute('aria-expanded', 'false');
+    expect(storedCapsuleOpen()).toBeUndefined();
+
     fireEvent.click(pill());
     expect(form()).toBeInTheDocument();
+    expect(storedCapsuleOpen()).toBe(true);
+
+    // 切走工具：整枚胶囊隐藏，但偏好不被覆写
+    arm('single');
+    expect(queryPill()).not.toBeInTheDocument();
+    expect(storedCapsuleOpen()).toBe(true);
+
+    // 切回：按持久化偏好直接展开
+    arm('curve');
+    expect(form()).toBeInTheDocument();
+    expect(pill()).toHaveAttribute('aria-expanded', 'true');
+
+    // 重新挂载 = 模拟重启：仍按落盘恢复
+    view.unmount();
+    mount();
+    arm('curve');
+    expect(form()).toBeInTheDocument();
+
+    // 手动折叠写盘；切工具再切回保持折叠
+    fireEvent.click(pill());
+    expect(queryForm()).not.toBeInTheDocument();
+    expect(storedCapsuleOpen()).toBe(false);
     arm('single');
     arm('curve');
     expect(queryForm()).not.toBeInTheDocument();
     expect(pill()).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('点外面 / Esc 收回（无关闭钮）', () => {
-    setup();
+  it('issue 242 · 点外部不折叠；Esc 不折叠也不拦截（完整交还画布五档链）', () => {
+    setup({ layout: { curveCapsuleOpen: true } });
     arm('curve');
-    fireEvent.click(pill());
-    fireEvent.mouseDown(document.body);
-    expect(queryForm()).not.toBeInTheDocument();
+    expect(form()).toBeInTheDocument();
 
-    fireEvent.click(pill());
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(queryForm()).not.toBeInTheDocument();
-    expect(queryPill()).toBeInTheDocument();
+    // 点击画布任意处（含 body）都不再自动收起
+    fireEvent.mouseDown(document.body);
+    expect(form()).toBeInTheDocument();
+    expect(pill()).toHaveAttribute('aria-expanded', 'true');
+
+    // Esc 必须原样冒泡到 window：既不能 preventDefault，也不能 stopPropagation
+    const seen: KeyboardEvent[] = [];
+    const onKey = (e: KeyboardEvent) => seen.push(e);
+    window.addEventListener('keydown', onKey);
+    const notPrevented = fireEvent.keyDown(pill(), { key: 'Escape' });
+    window.removeEventListener('keydown', onKey);
+    expect(notPrevented).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.cancelBubble).toBe(false);
+    expect(form()).toBeInTheDocument();
   });
 
   it('issue 241 · curveConfigSummary：自由模式统一数值；档位模式命中词 / 非预设回落数值（默认值占位见 245）', () => {
@@ -565,5 +616,138 @@ describe('issue 179 · 曲线选项胶囊', () => {
     expect(within(form()).getByRole('button', { name: '尾拍' })).toBeInTheDocument();
     expect(within(form()).queryByRole('button', { name: /0%/ })).not.toBeInTheDocument();
     expect(within(form()).queryByRole('button', { name: '贴左' })).not.toBeInTheDocument();
+  });
+
+  it('issue 242 · 缓动页图形化：4 枚缓动型胶囊 + 10 张族卡 + 精度胶囊，切换缓动型联动重绘并写盘', () => {
+    setup();
+    arm('curve');
+    fireEvent.click(pill());
+
+    // 原生下拉框彻底退场
+    expect(within(form()).queryAllByRole('combobox')).toHaveLength(0);
+    for (const name of ['In', 'Out', 'In-Out', 'Out-In']) {
+      expect(within(form()).getByRole('button', { name })).toBeInTheDocument();
+    }
+
+    const cards = () => easingCards(form());
+    expect(cards()).toHaveLength(10);
+    expect(cards().every((card) => card.querySelector('svg path'))).toBe(true);
+
+    // 切换缓动型：10 张卡片的曲线全部实时重绘
+    const before = cards().map((card) => card.querySelector('svg path')!.getAttribute('d'));
+    fireEvent.click(within(form()).getByRole('button', { name: 'In-Out' }));
+    expect(storedCurve().type).toBe('inOut');
+    expect(within(form()).getByRole('button', { name: 'In-Out' })).toHaveAttribute('aria-pressed', 'true');
+    const after = cards().map((card) => card.querySelector('svg path')!.getAttribute('d'));
+    expect(after).not.toEqual(before);
+    for (let i = 0; i < after.length; i++) expect(after[i]).not.toBe(before[i]);
+
+    // 点选缓动族：立即写盘，折叠态摘要同步
+    fireEvent.click(within(form()).getByRole('button', { name: /^Expo/ }));
+    expect(storedCurve().family).toBe('expo');
+    expect(within(form()).getByRole('button', { name: /^Expo/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(pill()).toHaveTextContent('Expo · In-Out · 1/16');
+    expect(within(form()).getByText('精度')).toBeInTheDocument();
+    fireEvent.click(within(form()).getByRole('button', { name: '1/64' }));
+    expect(storedCurve().precision).toBe(64);
+  });
+
+  it('issue 242 · 中文界面族卡两行双语（英文主名 + 中文副名），工具提示给完整双语', () => {
+    setup();
+    arm('curve');
+    fireEvent.click(pill());
+    const sine = within(form()).getByRole('button', { name: /^Sine/ });
+    expect(within(sine).getByText('Sine')).toBeInTheDocument();
+    expect(within(sine).getByText('正弦')).toBeInTheDocument();
+    expect(sine).toHaveAttribute('title', 'Sine（正弦）');
+    expect(within(form()).getByRole('button', { name: 'In-Out' })).toHaveAttribute('title', 'In-Out（缓入缓出）');
+  });
+
+  it('issue 242 · 英文界面族卡单行英文名，无副名与缺词回退', () => {
+    seedZhSettings({ uiLanguage: 'en' });
+    mount();
+    arm('curve');
+    fireEvent.click(screen.getByRole('button', { name: 'Curve' }));
+    const enForm = screen.getByRole('group', { name: 'Curve' });
+    const cards = easingCards(enForm, 'Easing family');
+    expect(cards).toHaveLength(10);
+    expect(cards[0]!.textContent?.trim()).toBe('Sine');
+    expect(cards[0]!.getAttribute('title')).toBe('Sine');
+    for (const card of cards) {
+      expect(card.textContent?.trim()).not.toMatch(/^easing\./);
+      // 单行英文卡：任何 CJK 都算副名回退
+      expect(card.textContent).not.toMatch(/[\u3400-\u9fff]/);
+    }
+  });
+
+  it('issue 242 · 模板分类与上次选用模板跨折叠 / 切工具 / 重启忠实恢复', () => {
+    const first = setup();
+    arm('curve');
+    fireEvent.click(pill());
+    fireEvent.click(within(form()).getByRole('tab', { name: '形状模板' }));
+
+    fireEvent.click(within(form()).getByRole('tab', { name: '面筋/锁链' }));
+    expect(storedCurve().templateCategory).toBe('special');
+    fireEvent.click(within(form()).getByRole('button', { name: '面筋·梳齿' }));
+    expect(storedCurve().templateId).toBe('gluten-comb');
+    expect(storedCurve().lastTemplateId).toBe('gluten-comb');
+
+    // 折叠再展开
+    fireEvent.click(pill());
+    fireEvent.click(pill());
+    expect(within(form()).getByRole('tab', { name: '面筋/锁链' })).toHaveAttribute('aria-selected', 'true');
+
+    // 切走工具再切回
+    arm('single');
+    arm('curve');
+    expect(within(form()).getByRole('tab', { name: '面筋/锁链' })).toHaveAttribute('aria-selected', 'true');
+
+    // 重新挂载（模拟重启）
+    first.unmount();
+    const second = mount();
+    arm('curve');
+    expect(within(form()).getByRole('tab', { name: '面筋/锁链' })).toHaveAttribute('aria-selected', 'true');
+
+    // 切到缓动页 → 重启 → 切回形状模板：恢复上次选用的面筋·梳齿，而非回退 S 形
+    fireEvent.click(within(form()).getByRole('tab', { name: '缓动函数' }));
+    expect(storedCurve().templateId).toBe(null);
+    second.unmount();
+    mount();
+    arm('curve');
+    fireEvent.click(within(form()).getByRole('tab', { name: '形状模板' }));
+    expect(storedCurve().templateId).toBe('gluten-comb');
+    expect(within(form()).getByRole('button', { name: '面筋·梳齿' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('issue 242 · 分类忠实恢复：生效大弧、上次只浏览面筋/锁链，重开仍停在该分类且不改写生效模板', () => {
+    const first = setup();
+    arm('curve');
+    fireEvent.click(pill());
+    fireEvent.click(within(form()).getByRole('tab', { name: '形状模板' }));
+    fireEvent.click(within(form()).getByRole('button', { name: '大弧' }));
+    expect(storedCurve().templateId).toBe('arc');
+
+    // 点分类只是浏览，不选模板
+    fireEvent.click(within(form()).getByRole('tab', { name: '面筋/锁链' }));
+    first.unmount();
+    mount();
+    arm('curve');
+
+    expect(within(form()).getByRole('tab', { name: '面筋/锁链' })).toHaveAttribute('aria-selected', 'true');
+    expect(storedCurve().templateId).toBe('arc');
+    expect(pill()).toHaveTextContent('大弧');
+    expect(within(form()).queryByRole('button', { name: '大弧' })).not.toBeInTheDocument();
+  });
+
+  it('issue 242 · 顶栏档位/自由各说各的：档位=预设，自由=可超范围连续调', () => {
+    setup({ curve: { family: 'sine', type: 'in', precision: 16, templateId: 'pulse' } });
+    arm('curve');
+    fireEvent.click(pill());
+
+    const preset = within(paramModeBar()).getByRole('button', { name: '档位' });
+    const free = within(paramModeBar()).getByRole('button', { name: '自由' });
+    // 共用一个「点击切换…」的含糊提示等于没提示：两个模式调的是同一批参数，差别正在「怎么调」
+    expect(preset).toHaveAttribute('title', '档位：按小 / 中 / 大预设调节');
+    expect(free).toHaveAttribute('title', '自由：滑块连续调节，可超出预设档位范围');
   });
 });

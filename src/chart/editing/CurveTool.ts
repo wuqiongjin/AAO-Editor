@@ -11,7 +11,7 @@ import {
 } from './SpanCurve';
 import { CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES, type CurvePrecision, type EasingFamily, type EasingType } from './Easing';
 import {
-  TEMPLATE_BASELINE_RANGE, TEMPLATE_DENSITY_RANGE, TEMPLATE_SCALE_RANGE, clampTemplateNumber,
+  TEMPLATE_BASELINE_RANGE, TEMPLATE_CATEGORIES, TEMPLATE_DENSITY_RANGE, TEMPLATE_SCALE_RANGE, clampTemplateNumber,
   shapeTemplateById, snapTemplateRangeValue, stripDefaultTemplateExtra, templateSupportsAmplitude,
   templateSupportsBaseline, templateSupportsMirror, type ShapeTemplate,
 } from './ShapeTemplates';
@@ -28,6 +28,16 @@ import {
 export const TEMPLATE_PARAM_MODES = ['preset', 'free'] as const;
 export type TemplateParamMode = (typeof TEMPLATE_PARAM_MODES)[number];
 
+/** 模板页分类筛选的白名单（`all` + 内置分类，单一来源）；issue 242 起随 `settings.curve` 持久化。
+ *  从 `TEMPLATE_CATEGORIES` 派生而不是手抄一遍：加一档分类时 Tab 与归一化必须同时认它，
+ *  否则新 Tab 点下去的值会被 `pickEnum` 当场丢掉、界面弹回「全部」。 */
+export const TEMPLATE_CATEGORY_FILTERS = ['all', ...TEMPLATE_CATEGORIES] as const;
+export type TemplateCategoryFilter = (typeof TEMPLATE_CATEGORY_FILTERS)[number];
+
+/** 「上次选用的模板」的出厂回落（issue 242）。沿用旧面板 ref 的 `s-curve`：
+ *  它是最接近出厂缓动（Sine / In）的平滑形状，首次切到模板页不会跳到突兀的形态。 */
+export const DEFAULT_LAST_TEMPLATE_ID = 's-curve';
+
 /** 曲线工具当前配置（issue 114 起持久化于 `settings.curve`，全局一份、跨会话沿用；放置与段重应用共用）。
  *  `templateId` 非空 = 形状模板优先（ADR-0009 §2 三来源之三），缓动三字段被忽略。 */
 export interface CurveConfig {
@@ -43,10 +53,15 @@ export interface CurveConfig {
    *  切模板不归零；仅声明了 `baseline` 的模板生效。 */
   templateBaseline?: number;
   templateExtras?: Record<string, Record<string, TemplateExtraValue>>;
+  /** 模板页的分类筛选（issue 242）：只影响浏览，不改生效模板；跨会话忠实恢复上次点击的分类 */
+  templateCategory?: TemplateCategoryFilter;
+  /** 上次选用的模板 ID（issue 242）：缓动页把 `templateId` 摘成 null 后，靠它把模板页恢复回来 */
+  lastTemplateId?: string;
 }
 
 /**
- * 曲线工具出厂默认（issue 114 定案：默认缓动型由 `inOut` 改为 `in`；issue 235 追加模板三正交默认；issue 241 追加参数模式默认 `'preset'`）。
+ * 曲线工具出厂默认（issue 114 定案：默认缓动型由 `inOut` 改为 `in`；issue 235 追加模板三正交默认；issue 241 追加参数模式默认 `'preset'`；
+ * issue 242 追加分类筛选与上次模板）。
  * 放本模块——`AppSettings` 需要它做持久化归一化，且不依赖任何 Provider。
  */
 export const DEFAULT_CURVE_CONFIG: CurveConfig = {
@@ -59,6 +74,8 @@ export const DEFAULT_CURVE_CONFIG: CurveConfig = {
   templateScale: 1,
   templateDensity: 1,
   templateBaseline: 0,
+  templateCategory: 'all',
+  lastTemplateId: DEFAULT_LAST_TEMPLATE_ID,
 };
 
 const pickEnum = <T,>(allowed: readonly T[], raw: unknown, fallback: T): T =>
@@ -67,6 +84,25 @@ const pickEnum = <T,>(allowed: readonly T[], raw: unknown, fallback: T): T =>
 /** 只把「普通对象」当记录看：数组 / null / 标量一律视为缺失 */
 const asRecord = (raw: unknown): Record<string, unknown> | undefined =>
   raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+
+/** 能解析到现存内置模板的 ID 才算数（模板库改名 / 删项后老设置不该带出幽灵 id） */
+function validTemplateId(raw: unknown): string | null {
+  return typeof raw === 'string' && shapeTemplateById(raw) ? raw : null;
+}
+
+/**
+ * 「上次选用的模板」的唯一解析口径（面板与归一化共用）：
+ * 显式记忆 > 当前生效模板 > 出厂回落。
+ * 中间一档是 242 之前落盘设置的迁移——那时只有 `templateId`，它同时就是"上次选用的"，
+ * 漏了它会让升级后第一次「缓动 → 模板」把用户的形状悄悄换成 S 形。
+ * 入参收 `unknown`：这里读的就是持久化原值，脏值由本函数自己筛。
+ */
+export function resolveLastTemplateId(raw: {
+  lastTemplateId?: unknown;
+  templateId?: unknown;
+}): string {
+  return validTemplateId(raw.lastTemplateId) ?? validTemplateId(raw.templateId) ?? DEFAULT_LAST_TEMPLATE_ID;
+}
 
 function normalizeTemplateExtras(
   raw: unknown,
@@ -126,7 +162,7 @@ function resolveTemplateBaseline(
 export function normalizeCurveConfig(raw: unknown): CurveConfig {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const d = DEFAULT_CURVE_CONFIG;
-  const templateId = typeof o.templateId === 'string' && shapeTemplateById(o.templateId) ? o.templateId : null;
+  const templateId = validTemplateId(o.templateId);
   const templateExtras = normalizeTemplateExtras(o.templateExtras);
   return {
     family: pickEnum(EASING_FAMILIES, o.family, d.family),
@@ -138,6 +174,8 @@ export function normalizeCurveConfig(raw: unknown): CurveConfig {
     templateScale: clampTemplateNumber(o.templateScale, TEMPLATE_SCALE_RANGE, 1),
     templateDensity: clampTemplateNumber(o.templateDensity, TEMPLATE_DENSITY_RANGE, 1),
     templateBaseline: resolveTemplateBaseline(o.templateBaseline, o.templateExtras, templateId),
+    templateCategory: pickEnum(TEMPLATE_CATEGORY_FILTERS, o.templateCategory, 'all'),
+    lastTemplateId: resolveLastTemplateId({ lastTemplateId: o.lastTemplateId, templateId }),
     ...(templateExtras ? { templateExtras } : {}),
   };
 }

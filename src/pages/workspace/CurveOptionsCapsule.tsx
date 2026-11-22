@@ -1,8 +1,10 @@
 // 画布左上角的曲线选项胶囊（issue 180 Q15，票 182，issue 235 迷你 SVG 预览）：曲线持工具态时出现，显示实时图标与摘要；
 // 点胶囊本体开合（整颗可点）；展开且为形状模板时顶栏只留主名 + 右侧「档位 | 自由」；折叠态拼回完整摘要。
-// 展开行为与片段粘贴胶囊共用 `useCanvasCapsule`，外壳样式共用 `CanvasCapsule.css`。
-import { memo, type ReactNode, type RefObject } from 'react';
+// issue 242：它是**常驻展开**的配置面（不是临时弹层）——点外部 / `Esc` 都不收起，展开态存 `settings.layout.curveCapsuleOpen`
+// 跨会话沿用；切走工具只是整枚隐藏，不覆写偏好。临时弹层那套仍归片段粘贴胶囊（`useCanvasCapsule`）。
+import { memo, useCallback, useRef, type ReactNode, type RefObject } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { useConfig } from '../../app/providers/ConfigProvider';
 import { useUI } from '../../app/ProviderTree';
 import { shapeTemplateById } from '../../chart/editing/ShapeTemplates';
 import { curveConfigExtraView, type CurveConfig } from '../../chart/editing/CurveTool';
@@ -10,7 +12,6 @@ import { t } from '../../i18n';
 import CurveConfigPanel from './CurveConfigPanel';
 import { MiniEasingSvg, MiniTemplateSvg } from './CurveMiniSvg';
 import { curveConfigSummary } from './curveLabels';
-import { useCanvasCapsule } from './useCanvasCapsule';
 import { useCapsuleMaxHeight } from './useCapsuleMaxHeight';
 import { useCapsuleWheelContainment } from './useCapsuleWheelContainment';
 import './CanvasCapsule.css';
@@ -58,7 +59,7 @@ function TemplateParamModeSeg({
         type="button"
         className={`coc__mode-btn${!isFree ? ' is-active' : ''}`}
         aria-pressed={!isFree}
-        title={t('curve.paramModeHint')}
+        title={t('curve.paramMode.presetHint')}
         onClick={() => onChange('preset')}
       >
         {t('curve.paramMode.preset')}
@@ -67,7 +68,7 @@ function TemplateParamModeSeg({
         type="button"
         className={`coc__mode-btn${isFree ? ' is-active' : ''}`}
         aria-pressed={isFree}
-        title={t('curve.paramModeHint')}
+        title={t('curve.paramMode.freeHint')}
         onClick={() => onChange('free')}
       >
         {t('curve.paramMode.free')}
@@ -78,8 +79,12 @@ function TemplateParamModeSeg({
 
 export default memo(function CurveOptionsCapsule() {
   const { armedTool, curveConfig, setCurveConfig } = useUI();
+  const { settings, setCurveCapsuleOpen } = useConfig();
   const visible = armedTool === 'curve';
-  const { open, toggle, rootRef, pillRef } = useCanvasCapsule(visible);
+  const open = settings.layout.curveCapsuleOpen;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLButtonElement>(null);
+  const toggle = useCallback(() => setCurveCapsuleOpen(!open), [open, setCurveCapsuleOpen]);
   useCapsuleMaxHeight(rootRef, visible);
   useCapsuleWheelContainment(rootRef, visible);
 

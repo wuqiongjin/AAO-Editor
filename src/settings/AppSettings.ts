@@ -87,6 +87,12 @@ export interface AppSettings {
      * 与工作台抽屉是**两套独立的分栏**：夹取为绝对区间（见 PROJECT_LIST_WIDTH）。
      */
     projectList: { width: number };
+    /**
+     * 曲线选项胶囊的展开态（issue 242）：曲线工具频繁对照调整，展开后不该被点击画布打断，
+     * 故与临时弹层分道——只有点胶囊顶栏才切换，偏好在切走工具 / 重启后仍沿用。
+     * additive，不 bump schemaVersion；出厂默认折叠，缺字段 / 脏值回落 false。
+     */
+    curveCapsuleOpen: boolean;
   };
   shortcuts: ShortcutConfig;
   /**
@@ -494,6 +500,7 @@ export function defaultSettings(osLanguage: string = detectOsLanguageTag()): App
     layout: {
       patternDrawer: { open: false, width: PATTERN_DRAWER_WIDTH.default },
       projectList: { width: PROJECT_LIST_WIDTH.default },
+      curveCapsuleOpen: false,
     },
     shortcuts: getDefaultConfig(),
     shortcutLast: {},
@@ -588,6 +595,10 @@ function mergeSettings(parsed: unknown, osLanguage: string): AppSettings {
         width: clampPatternDrawerWidth(patternDrawer.width),
       },
       projectList: { width: clampProjectListWidth(projectList.width) },
+      // 曲线选项胶囊展开态（issue 242）：只认布尔，缺字段 / 脏值 = 折叠
+      curveCapsuleOpen: typeof layout.curveCapsuleOpen === 'boolean'
+        ? layout.curveCapsuleOpen
+        : defaults.layout.curveCapsuleOpen,
     },
     // 段内合并：若新 settings 里没有 shortcuts，则沿用 defaults 整体；之后由调用方尝试从旧 key 补齐
     shortcuts: defaults.shortcuts,

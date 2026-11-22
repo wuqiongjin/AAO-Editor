@@ -1,13 +1,12 @@
-// 曲线工具配置面板（issue 114 抽出；issue 235 图形化选型；issue 241 连续参数；展开态档位/自由在胶囊顶栏，分类为下划线 Tab）。
+// 曲线工具配置面板（issue 114 抽出；issue 235 图形化选型；issue 241 连续参数；issue 242 缓动页同为图形化选型）。
 import { useRef, useState } from 'react';
 import {
   CURVE_PRECISIONS, EASING_FAMILIES, EASING_TYPES,
-  type CurvePrecision, type EasingFamily, type EasingType,
+  type CurvePrecision,
 } from '../../chart/editing/Easing';
 import {
   SHAPE_TEMPLATES,
   TEMPLATE_BASELINE_RANGE,
-  TEMPLATE_CATEGORIES,
   TEMPLATE_DENSITIES,
   TEMPLATE_DENSITY_RANGE,
   TEMPLATE_SCALES,
@@ -19,15 +18,20 @@ import {
   stripDefaultTemplateExtra,
   templateSupportsAmplitude,
   templateSupportsMirror,
-  type TemplateCategory,
   type TemplateExtraParamSpec,
   type TemplateNumberRange,
 } from '../../chart/editing/ShapeTemplates';
 import type { TemplateExtraValue } from '../../chart/types';
-import { curveConfigExtraView, type CurveConfig } from '../../chart/editing/CurveTool';
+import {
+  TEMPLATE_CATEGORY_FILTERS, curveConfigExtraView, resolveLastTemplateId,
+  type CurveConfig, type TemplateCategoryFilter,
+} from '../../chart/editing/CurveTool';
 import { t, type MessageKey } from '../../i18n';
 import { MiniEasingSvg, MiniTemplateSvg } from './CurveMiniSvg';
-import { formatTemplateNumber, shapeLabel, shapeTooltip } from './curveLabels';
+import {
+  easingFamilyLabel, easingTypeLabel, easingTypeShort,
+  formatTemplateNumber, shapeLabel, shapeTooltip, splitBilingualLabel,
+} from './curveLabels';
 import './CurveConfigPanel.css';
 
 function PrecisionPills({
@@ -280,11 +284,10 @@ export default function CurveConfigPanel({
   config: CurveConfig;
   onChange: (next: CurveConfig) => void;
 }) {
-  const [catFilter, setCatFilter] = useState<'all' | TemplateCategory>('all');
-  const lastTemplateIdRef = useRef<string>('s-curve');
-  if (config.templateId && shapeTemplateById(config.templateId)) {
-    lastTemplateIdRef.current = config.templateId;
-  }
+  // issue 242：分类筛选与「上次选用的模板」都是常态偏好，随 settings.curve 跨会话——
+  // 组件卸载（胶囊收起 / 切走工具）不该把它们一起丢掉。合法性与迁移口径收在 CurveTool 一处。
+  const category: TemplateCategoryFilter = config.templateCategory ?? 'all';
+  const lastTemplateId = resolveLastTemplateId(config);
 
   const currentTemplate = config.templateId ? shapeTemplateById(config.templateId) : undefined;
   const templateActive = currentTemplate !== undefined;
@@ -321,7 +324,7 @@ export default function CurveConfigPanel({
   };
 
   const filteredTemplates = SHAPE_TEMPLATES.filter(
-    (tp) => catFilter === 'all' || tp.category === catFilter,
+    (tp) => category === 'all' || tp.category === category,
   );
 
   return (
@@ -342,7 +345,7 @@ export default function CurveConfigPanel({
           role="tab"
           aria-selected={templateActive}
           className={`ccp__seg-btn${templateActive ? ' is-active' : ''}`}
-          onClick={() => onChange({ ...config, templateId: currentTemplate?.id ?? lastTemplateIdRef.current })}
+          onClick={() => onChange({ ...config, templateId: currentTemplate?.id ?? lastTemplateId })}
         >
           {t('curve.mode.template')}
         </button>
@@ -351,14 +354,14 @@ export default function CurveConfigPanel({
       {templateActive && currentTemplate ? (
         <>
           <div className="ccp__tabs" role="tablist" aria-label={t('curve.templateShort')}>
-            {(['all', ...TEMPLATE_CATEGORIES] as const).map((cat) => (
+            {TEMPLATE_CATEGORY_FILTERS.map((cat) => (
               <button
                 key={cat}
                 type="button"
                 role="tab"
-                aria-selected={catFilter === cat}
-                className={`ccp__tab${catFilter === cat ? ' is-active' : ''}`}
-                onClick={() => setCatFilter(cat)}
+                aria-selected={category === cat}
+                className={`ccp__tab${category === cat ? ' is-active' : ''}`}
+                onClick={() => onChange({ ...config, templateCategory: cat })}
               >
                 {t(`curve.cat.${cat}` as MessageKey)}
               </button>
@@ -377,7 +380,7 @@ export default function CurveConfigPanel({
                   aria-pressed={active}
                   className={`ccp__card${active ? ' is-active' : ''}`}
                   title={shapeTooltip(tp)}
-                  onClick={() => onChange({ ...config, templateId: tp.id })}
+                  onClick={() => onChange({ ...config, templateId: tp.id, lastTemplateId: tp.id })}
                 >
                   <MiniTemplateSvg
                     template={tp}
@@ -475,43 +478,51 @@ export default function CurveConfigPanel({
           </div>
         </>
       ) : (
-        /* 缓动函数视图：实时轨迹预览 + 族/型下拉 + 精度胶囊 */
-        <div className="ccp__easing-box">
-          <div className="ccp__easing-preview">
-            <MiniEasingSvg family={config.family} type={config.type} width={76} height={96} />
+        /* 缓动函数视图（issue 242）：上排缓动型胶囊 → 5×2 缓动族缩略图网格 → 底部精度 */
+        <div className="ccp__easing">
+          <div className="ccp__pills" role="group" aria-label={t('curve.type')}>
+            {EASING_TYPES.map((tp) => (
+              <button
+                key={tp}
+                type="button"
+                aria-pressed={config.type === tp}
+                title={easingTypeLabel(tp)}
+                className={`ccp__pill-btn${config.type === tp ? ' is-active' : ''}`}
+                onClick={() => onChange({ ...config, type: tp })}
+              >
+                {easingTypeShort(tp)}
+              </button>
+            ))}
           </div>
-          <div className="ccp__easing-form">
-            <label className="ccp__row" title={t('curve.family')}>
-              <span className="ccp__label">{t('curve.family')}</span>
-              <select
-                className="ccp__select"
-                value={config.family}
-                onChange={(e) => onChange({ ...config, family: e.target.value as EasingFamily })}
-              >
-                {EASING_FAMILIES.map((f) => (
-                  <option key={f} value={f}>{t(`easing.family.${f}` as MessageKey)}</option>
-                ))}
-              </select>
-            </label>
-            <label className="ccp__row" title={t('curve.type')}>
-              <span className="ccp__label">{t('curve.type')}</span>
-              <select
-                className="ccp__select"
-                value={config.type}
-                onChange={(e) => onChange({ ...config, type: e.target.value as EasingType })}
-              >
-                {EASING_TYPES.map((tp) => (
-                  <option key={tp} value={tp}>{t(`easing.type.${tp}` as MessageKey)}</option>
-                ))}
-              </select>
-            </label>
-            <div className="ccp__row" title={t('curve.precision')}>
-              <span className="ccp__label">{t('curve.precisionShort')}</span>
-              <PrecisionPills
-                precision={config.precision}
-                onSelect={(p) => onChange({ ...config, precision: p })}
-              />
-            </div>
+
+          <div className="ccp__easing-grid" role="group" aria-label={t('curve.family')}>
+            {EASING_FAMILIES.map((family) => {
+              const label = easingFamilyLabel(family);
+              const { primary, secondary } = splitBilingualLabel(label);
+              const active = config.family === family;
+              return (
+                <button
+                  key={family}
+                  type="button"
+                  aria-pressed={active}
+                  title={label}
+                  className={`ccp__easing-card${active ? ' is-active' : ''}`}
+                  onClick={() => onChange({ ...config, family })}
+                >
+                  <MiniEasingSvg family={family} type={config.type} width={44} height={46} />
+                  <span className="ccp__card-name">{primary}</span>
+                  {secondary && <span className="ccp__card-sub">{secondary}</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="ccp__ctrl-row" title={t('curve.precision')}>
+            <span className="ccp__ctrl-label">{t('curve.precisionShort')}</span>
+            <PrecisionPills
+              precision={config.precision}
+              onSelect={(p) => onChange({ ...config, precision: p })}
+            />
           </div>
         </div>
       )}

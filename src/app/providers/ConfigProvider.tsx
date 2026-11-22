@@ -49,6 +49,8 @@ export interface ConfigContextValue {
   setAutoCheck: (autoCheck: boolean) => void;
   /** 布局（面板宽/折叠，ADR-0003 §6）：字段级写回并持久化 */
   setPatternDrawer: (patch: Partial<AppSettings['layout']['patternDrawer']>) => void;
+  /** 曲线选项胶囊展开态（issue 242）：跨工具切换与跨会话沿用，出厂默认折叠 */
+  setCurveCapsuleOpen: (open: boolean) => void;
   /** 画布显示参数（issue 39 功能设置·画布显示）：字段级写回并持久化 */
   setDisplay: (patch: Partial<AppSettings['display']>) => void;
   /** 预览标注（chart-preview 08）：字段级写回并持久化（预览页的面板与设置页「画布显示」各改各的段） */
@@ -160,6 +162,11 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         layout: { ...prev.layout, patternDrawer: { open: patternDrawer.open, width: clampPatternDrawerWidth(patternDrawer.width) } },
       };
     }, { keys: ['layout'] });
+  }, [commit]);
+
+  // 曲线选项胶囊展开态（issue 242）：只改 layout 这一段；曲线配置本身（settings.curve）不受影响
+  const setCurveCapsuleOpen = useCallback((curveCapsuleOpen: boolean) => {
+    commit(prev => ({ layout: { ...prev.layout, curveCapsuleOpen } }), { keys: ['layout'] });
   }, [commit]);
 
   const setDisplay = useCallback((patch: Partial<AppSettings['display']>) => {
@@ -285,6 +292,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setUiFontStack,
     setAutoCheck,
     setPatternDrawer,
+    setCurveCapsuleOpen,
     setDisplay,
     setPreview,
     setExport,
@@ -314,6 +322,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setUiFontStack,
     setAutoCheck,
     setPatternDrawer,
+    setCurveCapsuleOpen,
     setDisplay,
     setPreview,
     setExport,

@@ -24,8 +24,9 @@ function commitPenStroke(
 }
 import { clickOps, boxSelectOps } from '@/src/chart/editing/ToolActionMatrix';
 import {
-  DEFAULT_CURVE_CONFIG, curveChainClickOps, execCurveOps, normalizeCurveConfig, placeSpanWithCombination,
-  spanParamFromCurveConfig, type CurveConfig, type CurveDraft,
+  DEFAULT_CURVE_CONFIG, DEFAULT_LAST_TEMPLATE_ID, TEMPLATE_CATEGORY_FILTERS,
+  curveChainClickOps, execCurveOps, normalizeCurveConfig, placeSpanWithCombination,
+  resolveLastTemplateId, spanParamFromCurveConfig, type CurveConfig, type CurveDraft,
 } from '@/src/chart/editing/CurveTool';
 import { effectiveSpanParams, countVisibleNodes } from '@/src/chart/editing/SpanCurve';
 import { shapeTemplateById } from '@/src/chart/editing/ShapeTemplates';
@@ -475,6 +476,20 @@ describe('issue 09 S4 · 曲线工具 × 模板（templateId 优先）', () => {
     expect(normalizeCurveConfig({ templateBaseline: 38 }).templateBaseline).toBe(40);
     expect(normalizeCurveConfig({ templateBaseline: Number.NaN }).templateBaseline).toBe(0);
     expect(normalizeCurveConfig({ templateBaseline: '100' }).templateBaseline).toBe(0);
+  });
+
+  it('issue 242 · 模板分类白名单与上次模板解析：缺省/非法回落、旧设置按生效模板迁移', () => {
+    expect(TEMPLATE_CATEGORY_FILTERS).toEqual(['all', 'smooth', 'rhythm', 'special']);
+    expect(normalizeCurveConfig({ templateCategory: 'rhythm' }).templateCategory).toBe('rhythm');
+    expect(normalizeCurveConfig({ templateCategory: 'all' }).templateCategory).toBe('all');
+    expect(normalizeCurveConfig({ templateCategory: 'ghost' }).templateCategory).toBe('all');
+
+    expect(resolveLastTemplateId({ lastTemplateId: 'gluten-comb' })).toBe('gluten-comb');
+    // 242 之前只落 templateId：它同时就是「上次选用的」，不能丢回 S 形
+    expect(resolveLastTemplateId({ templateId: 'arc' })).toBe('arc');
+    expect(resolveLastTemplateId({ lastTemplateId: 'ghost', templateId: 'arc' })).toBe('arc');
+    expect(resolveLastTemplateId({})).toBe(DEFAULT_LAST_TEMPLATE_ID);
+    expect(normalizeCurveConfig({ templateId: 'wave' }).lastTemplateId).toBe('wave');
   });
 
   it('issue 244 · 切模板不归零：六款双侧摆动模板读到同一个单值', () => {

@@ -6,6 +6,7 @@ import {
   templateSupportsMirror,
   type ShapeTemplate,
 } from '../../chart/editing/ShapeTemplates';
+import type { EasingFamily, EasingType } from '../../chart/editing/Easing';
 import { curveConfigExtraView, type CurveConfig } from '../../chart/editing/CurveTool';
 import { t, type MessageKey } from '../../i18n';
 
@@ -16,8 +17,27 @@ export const shapeLabel = (id: string): string => {
 
 export const shapeTooltip = (tp: ShapeTemplate): string => t(`shapeTip.${tp.id}` as MessageKey);
 
-/** 去掉族 / 型标签里的括号释义：「Sine（正弦）」→「Sine」 */
-const bare = (label: string) => label.replace(/（.*?）|\(.*?\)/g, '').trim();
+/**
+ * 「Sine（正弦）」→ `{ primary: 'Sine', secondary: '正弦' }`。
+ * 中文界面的族/型名带括号释义，卡片要拆成主副两行；英文界面本来就只有英文名（无括号），
+ * 于是只有 `primary`、不渲染副行——两处共用同一份拆分口径，免得面板各写一套正则。
+ * 半角括号一并认：字典若哪天写成 `Sine (正弦)`，副行不该整条消失。
+ */
+export function splitBilingualLabel(label: string): { primary: string; secondary?: string } {
+  const match = label.match(/^(.+?)[（(](.+?)[）)]$/);
+  if (!match) return { primary: label.trim() };
+  return { primary: match[1]!.trim(), secondary: match[2]!.trim() };
+}
+
+/** 去掉族 / 型标签里的括号释义：「Sine（正弦）」→「Sine」（摘要与胶囊按钮只放英文短名） */
+const bare = (label: string) => splitBilingualLabel(label).primary;
+
+/** 缓动族 / 缓动型的完整双语标签（tooltip 与无障碍名）；短名见 {@link easingTypeShort} */
+export const easingFamilyLabel = (family: EasingFamily): string => t(`easing.family.${family}` as MessageKey);
+export const easingTypeLabel = (type: EasingType): string => t(`easing.type.${type}` as MessageKey);
+
+/** 缓动型按钮上的英文短名：`In-Out（缓入缓出）` → `In-Out` */
+export const easingTypeShort = (type: EasingType): string => bare(easingTypeLabel(type));
 
 const SCALE_KEYS: Record<number, MessageKey> = {
   0.5: 'curve.scale.0.5',
@@ -86,7 +106,7 @@ export function curveConfigSummary(c: CurveConfig, opts?: { compact?: boolean })
     }
     return parts.join(' · ');
   }
-  const family = bare(t(`easing.family.${c.family}` as MessageKey));
-  const type = bare(t(`easing.type.${c.type}` as MessageKey));
+  const family = bare(easingFamilyLabel(c.family));
+  const type = bare(easingTypeLabel(c.type));
   return `${family} · ${type} · 1/${c.precision}`;
 }
