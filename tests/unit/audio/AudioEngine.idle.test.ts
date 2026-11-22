@@ -33,6 +33,7 @@ class IdleMockAudioContext {
   state: AudioContextState = 'running';
   destination = {};
   sources: MockBufferSourceNode[] = [];
+  gains: MockGainNode[] = [];
   primerBuffers: Float32Array[] = [];
 
   suspend = vi.fn(() => {
@@ -51,8 +52,12 @@ class IdleMockAudioContext {
   });
 
   createGain() {
-    return new MockGainNode();
+    const gain = new MockGainNode();
+    this.gains.push(gain);
+    return gain;
   }
+
+  createAnalyser = vi.fn(() => ({}));
 
   createBufferSource() {
     const src = new MockBufferSourceNode();
@@ -60,11 +65,11 @@ class IdleMockAudioContext {
     return src;
   }
 
-  createBuffer(_ch: number, len: number, _rate: number): AudioBuffer {
+  createBuffer(_ch: number, len: number, rate: number): AudioBuffer {
     const arr = new Float32Array(len);
     this.primerBuffers.push(arr);
     return {
-      duration: len / 48000,
+      duration: len / rate,
       numberOfChannels: 1,
       getChannelData: () => arr,
     } as unknown as AudioBuffer;
@@ -171,5 +176,88 @@ describe('AudioEngine · issue 210 空闲挂起与短脉冲保活机制', () => 
     vi.advanceTimersByTime(35_000);
     expect(ctx.suspend).not.toHaveBeenCalled();
     expect(ctx.close).toHaveBeenCalled();
+  });
+
+  it('前台预览可从长暂停立即继续，退出后恢复空闲挂起', async () => {
+    const engine = new AudioEngine();
+    await engine.play();
+    const ctx = engineCtx(engine)!;
+    engine.setKeepPausedAudioReady(true);
+    engine.pause();
+    const sourcesAtPause = ctx.sources.length;
+    vi.advanceTimersByTime(180_000);
+    expect(ctx.state).toBe('running');
+    expect(ctx.createAnalyser).toHaveBeenCalledTimes(1);
+    const analyser = ctx.createAnalyser.mock.results[0]!.value;
+    expect(ctx.gains[0]!.connect).toHaveBeenCalledWith(analyser);
+    expect(ctx.sources).toHaveLength(sourcesAtPause);
+    await engine.play();
+    expect(ctx.resume).not.toHaveBeenCalled();
+    expect(ctx.gains[0]!.disconnect).toHaveBeenCalledWith(analyser);
+    engine.pause();
+    engine.setKeepPausedAudioReady(false);
+    vi.advanceTimersByTime(30_000);
+    expect(ctx.state).toBe('suspended');
+    engine.dispose();
+  });
+
+  it('长暂停期间换歌会释放原先保留的音频流', async () => {
+    const engine = new AudioEngine();
+    await engine.play();
+    engine.setKeepPausedAudioReady(true);
+    engine.pause();
+    const ctx = engineCtx(engine)!;
+    const file = new File([], 'next.wav');
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => new ArrayBuffer(0) });
+    await engine.load(file);
+    vi.advanceTimersByTime(30_000);
+    expect(ctx.state).toBe('suspended');
+    engine.dispose();
+  });
+
+  it('曲中暂停并在后台挂起后，回到全屏前台时提前接回音频设备，仍停在原处', async () => {
+    const engine = new AudioEngine();
+    try {
+      await engine.play();
+      engine.setKeepPausedAudioReady(true);
+      engine.pause();
+      engine.seek(2);
+      const ctx = engineCtx(engine)!;
+      engine.setKeepPausedAudioReady(false);
+      vi.advanceTimersByTime(180_000);
+      expect(ctx.state).toBe('suspended');
+      const sourceCount = ctx.sources.length;
+      engine.setKeepPausedAudioReady(true);
+      expect(ctx.state).toBe('running');
+      expect(ctx.sources).toHaveLength(sourceCount);
+      expect(engine.isPlaying).toBe(false);
+      expect(engine.getSeconds()).toBe(2);
+      await engine.play();
+      expect(ctx.resume).toHaveBeenCalledTimes(1);
+    } finally {
+      engine.dispose();
+    }
+  });
+
+  it.each([true, false])('后台挂起进行中切回预览，挂起完成时按最终前台状态恢复设备（前台 %s）', async (foreground) => {
+    const engine = new AudioEngine();
+    try {
+      await engine.play();
+      engine.pause();
+      const ctx = engineCtx(engine)!;
+      let finishSuspend!: () => void;
+      ctx.suspend.mockImplementationOnce(() => new Promise(resolve => {
+        finishSuspend = () => { ctx.state = 'suspended'; resolve(); };
+      }));
+      vi.advanceTimersByTime(30_000);
+      engine.setKeepPausedAudioReady(true);
+      if (!foreground) engine.setKeepPausedAudioReady(false);
+      finishSuspend();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ctx.state).toBe(foreground ? 'running' : 'suspended');
+      expect(engine.isPlaying).toBe(false);
+    } finally {
+      engine.dispose();
+    }
   });
 });

@@ -539,6 +539,7 @@ export default function PreviewPage({ active = true }: { active?: boolean }) {
             ) : mode === 'video' && videoScene ? (
               <PreviewVideoStage
                 active={active}
+                fullscreen={fullscreen}
                 scene={videoScene}
                 chartId={chartId}
                 initialSeconds={videoPlaybackSeconds}

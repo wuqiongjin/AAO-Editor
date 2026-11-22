@@ -12,7 +12,7 @@
 // 没传时回落引擎默认 1（其出厂值也是 1；导出侧同一口径，07 不再改）。
 import { AudioEngine } from '../../../audio/AudioEngine';
 import type { ChartNote } from '../../../chart/types';
-import { drawSimFrameAt, prepareSimComboSprites, type SimFrameInput, type SimFrameLayers } from './simField';
+import { drawSimFrameAt, prepareSimComboSprites, prepareSimFieldBitmap, prepareSimLifeGauge, type SimFrameInput, type SimFrameLayers } from './simField';
 
 // 倍速的区间 / 常用档 / 步长 / 归一化随控件抽到 `src/playback/playbackRateState`（chart-preview 58，
 // 引擎的 PLAYBACK_RATE_RANGE 仍是唯一真相源）。这里按旧名原样再导出，保住预览域 barrel 与
@@ -82,6 +82,7 @@ export interface SimPlayback {
   seek(seconds: number): void;
   /** 换谱面长度（切谱面时；播放中会被新的终点截住） */
   setDuration(seconds: number): void;
+  setKeepPausedAudioReady(keep: boolean): void;
   /** 立即重画当前秒（暂停态改设置 / 换尺寸后） */
   render(): void;
   dispose(): void;
@@ -92,6 +93,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
   const { canvas, density: initialDensity } = opts;
   const layers: SimFrameLayers = { bandRenderer: opts.bandRenderer };
   let density = initialDensity;
+  let fieldBitmapDensity = 0;
   const engine = new AudioEngine();
   let frame: SimFrameInput | null = null;
   let rafId: number | null = null;
@@ -137,7 +139,14 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     engine.setChart(notes, beatDisplay, input.bpmEvents);
   }
 
-  function prepareCombo(input: SimFrameInput): SimFrameInput {
+  function prepareFrame(input: SimFrameInput): SimFrameInput {
+    if (!frame || frame.metrics !== input.metrics || frame.assets !== input.assets ||
+      frame.scene.bgBrightness !== input.scene.bgBrightness || fieldBitmapDensity !== density) {
+      layers.fieldBitmap?.close();
+      layers.fieldBitmap = prepareSimFieldBitmap(input, density);
+      fieldBitmapDensity = density;
+    }
+    layers.lifeGauge = input.scene.showGameUi === false ? undefined : prepareSimLifeGauge(input.metrics, density);
     layers.comboShadows = undefined;
     try {
       layers.comboShadows = prepareSimComboSprites(input.metrics, input.assets.sprites, density);
@@ -227,7 +236,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     setFrame(input: SimFrameInput): void {
       if (disposed) return;
       // 准备完成后才把新输入交给出帧；同步边界没有可迟到覆盖新尺寸 / 素材的异步结果。
-      frame = prepareCombo(input);
+      frame = prepareFrame(input);
       syncChart(input);
       render();
     },
@@ -235,7 +244,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
       if (disposed) return;
       if (patch.density != null && Number.isFinite(patch.density) && patch.density > 0 && patch.density !== density) {
         density = patch.density;
-        if (frame) frame = prepareCombo(frame);
+        if (frame) frame = prepareFrame(frame);
       }
       if (patch.seVolume != null) engine.setSeVolume(patch.seVolume);
       if (patch.keySetId != null) engine.setKeySetId(patch.keySetId);
@@ -245,6 +254,7 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
     },
     play,
     pause,
+    setKeepPausedAudioReady: keep => engine.setKeepPausedAudioReady(keep),
     toggle(): void {
       if (engine.isPlaying) pause();
       else play();
@@ -265,6 +275,9 @@ export function createSimPlayback(opts: SimPlaybackOptions): SimPlayback {
       stopRaf();
       engine.dispose();
       frame = null;
+      layers.fieldBitmap?.close();
+      layers.fieldBitmap = undefined;
+      layers.lifeGauge = undefined;
       layers.comboShadows = undefined;
     },
   };

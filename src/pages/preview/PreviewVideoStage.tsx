@@ -10,6 +10,7 @@
 //     值读共享单点 `usePlaybackRate`。空格由本层挂着的 `useShortcutDispatch` 页面级接管（只认 play，Q2）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { getBpmEvents, type BpmEvent } from '../../audio/AudioTiming';
+import { getElectronAPI } from '../../app/electronBridge';
 import type { AppSettings } from '../../settings/AppSettings';
 import { formatKey, type FunctionId, type ShortcutConfig } from '../../settings/ShortcutConfig';
 import { useShortcutDispatch } from '../../settings/useShortcutDispatch';
@@ -70,6 +71,7 @@ export interface PreviewVideoStageProps {
    * 失活就**停声**：仿真场自持引擎，切走不停就会和工作台 / 音频页的播放叠在一起。
    */
   active?: boolean;
+  fullscreen?: boolean;
   /** 谱面 + 作者设置（页面 useMemo 构建；谱面或设置变 → 派生表重建） */
   scene: SimScene;
   /** 谱面长度（秒，ADR-0005 第一性）：播到这里停住 */
@@ -105,6 +107,7 @@ export interface PreviewVideoStageProps {
 
 export default function PreviewVideoStage({
   active = true,
+  fullscreen = false,
   scene,
   duration,
   audio,
@@ -295,6 +298,24 @@ export default function PreviewVideoStage({
     // stageReady 是布尔量（派生表首次到位才翻一次），换谱面重新派生不会重建引擎 / 重载音频
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意只跟「音频身份 + 素材进场」：别的旋钮走 setOptions，重建就要重载音频
   }, [stageReady, audio, assets, gpuBands]);
+
+  // 全屏曲中长暂停后，Windows 重新打开预览的音频流会阻塞起播数百毫秒。
+  const canResume = tick.seconds < duration;
+  useEffect(() => {
+    const pb = playbackRef.current;
+    if (!active || !fullscreen || !canResume || !pb || getElectronAPI()?.platform !== 'win32') return;
+    const sync = () => pb.setKeepPausedAudioReady(!document.hidden && document.hasFocus());
+    sync();
+    window.addEventListener('focus', sync);
+    window.addEventListener('blur', sync);
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      window.removeEventListener('focus', sync);
+      window.removeEventListener('blur', sync);
+      document.removeEventListener('visibilitychange', sync);
+      pb.setKeepPausedAudioReady(false);
+    };
+  }, [active, fullscreen, canResume, stageReady, audio, assets, gpuBands]);
 
   // 引擎侧 / 画布侧的旋钮：不重建引擎（重建一次就要把音频重新解码）
   useEffect(() => {

@@ -8,51 +8,93 @@ import {
 } from './simBandRaster';
 import type { SimFieldMetrics } from './simGeometry';
 
+const FLOATS_PER_VERTEX = 10;
+
 const vertexSource = `#version 300 es
 layout(location = 0) in vec2 position;
 layout(location = 1) in vec3 profile;
 layout(location = 2) in float material;
+layout(location = 3) in vec4 segment;
 uniform vec2 size;
 out vec3 band;
 flat out int skin;
+flat out vec4 coverageSegment;
 void main() {
   gl_Position = vec4(position / size * vec2(2., -2.) + vec2(-1., 1.), 0., 1.);
   band = profile;
   skin = int(material);
+  coverageSegment = segment;
 }`;
 
 const fragmentSource = `#version 300 es
 precision highp float;
 in vec3 band;
 flat in int skin;
+flat in vec4 coverageSegment;
+uniform vec2 size;
 uniform highp sampler2D lut;
 uniform vec3 colors[2];
 uniform float opacity;
 out vec4 rgba;
+
+// The integral of the symmetric cross-section is odd and constant beyond the strip.
+float integratedProfile(float u) {
+  float index = min(abs(u), 1.) * 1024.;
+  int lo = int(index);
+  int hi = min(lo + 1, 1024);
+  return sign(u) * mix(
+    texelFetch(lut, ivec2(lo, skin + 4), 0).r,
+    texelFetch(lut, ivec2(hi, skin + 4), 0).r, fract(index));
+}
+
+float filteredProfile(float y, float halfSlope, float phaseSlope, out float phase) {
+  float y0 = max(y - .5, coverageSegment.x);
+  float y1 = min(y + .5, coverageSegment.y);
+  float offset = (y0 + y1) * .5 - y;
+  float halfWidth = max(1e-5, band.y + halfSlope * offset);
+  phase = band.z + phaseSlope * offset;
+  vec2 t = (vec2(y0, y1) - coverageSegment.x) / (coverageSegment.y - coverageSegment.x);
+  vec2 center = mix(vec2(coverageSegment.z), vec2(coverageSegment.w), t);
+  float travel = abs(center.y - center.x);
+  float x = gl_FragCoord.x;
+  if (travel < 1.) {
+    float u = x - (center.x + center.y) * .5;
+    return (y1 - y0) * halfWidth * (integratedProfile((u + .5) / halfWidth)
+                                  - integratedProfile((u - .5) / halfWidth));
+  }
+  // Integrate along the strip's travel at two x positions, including the
+  // coverage of segments that fall between consecutive pixel row centres.
+  float left = min(center.x, center.y);
+  float right = max(center.x, center.y);
+  vec2 upper = (vec2(x - .25, x + .25) - left) / halfWidth;
+  vec2 lower = (vec2(x - .25, x + .25) - right) / halfWidth;
+  float summed = integratedProfile(upper.x) - integratedProfile(lower.x)
+               + integratedProfile(upper.y) - integratedProfile(lower.y);
+  return (y1 - y0) * halfWidth * summed / (2. * travel);
+}
+
 void main() {
-  float distanceFromCenter = abs(gl_FragCoord.x - band.x);
-  float coverage = clamp(band.y - distanceFromCenter, 0., 1.);
-  int crossIndex = int(clamp(distanceFromCenter / band.y, 0., 1.) * 1024.);
-  int alongIndex = int(clamp(band.z, 0., 1.) * 256.);
-  float crossSection = texelFetch(lut, ivec2(crossIndex, skin * 2), 0).r;
+  // Fragment y grows upwards, while stage y grows downwards.
+  float halfSlope = -dFdy(band.y);
+  float phaseSlope = -dFdy(band.z);
+  bool filtered = coverageSegment.y > coverageSegment.x;
+  float phase = band.z;
+  float crossSection;
+  float coverage = 1.;
+  if (filtered) {
+    crossSection = filteredProfile(size.y - gl_FragCoord.y, halfSlope, phaseSlope, phase);
+  } else {
+    float distanceFromCenter = abs(gl_FragCoord.x - band.x);
+    coverage = clamp(band.y - distanceFromCenter, 0., 1.);
+    int crossIndex = int(clamp(distanceFromCenter / band.y, 0., 1.) * 1024.);
+    crossSection = texelFetch(lut, ivec2(crossIndex, skin * 2), 0).r;
+  }
+  int alongIndex = int(clamp(phase, 0., 1.) * 256.);
   float along = texelFetch(lut, ivec2(alongIndex, skin * 2 + 1), 0).r;
-  float alpha = floor(clamp(crossSection * along * coverage * opacity, 0., 1.) * 255.) / 255.;
+  float alpha = floor(clamp(crossSection * along * coverage * opacity, 0., 1.) * 255.
+                    + (filtered ? .5 : 0.)) / 255.;
   if (alpha == 0.) discard;
   rgba = vec4(colors[skin], alpha);
-}`;
-
-const coverVertex = `#version 300 es
-void main() {
-  vec2 pos = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
-  gl_Position = vec4(pos * 2. - 1., 0., 1.);
-}`;
-const coverFragment = `#version 300 es
-precision highp float;
-uniform sampler2D layer;
-out vec4 rgba;
-void main() {
-  vec4 straight = texelFetch(layer, ivec2(gl_FragCoord.xy), 0);
-  rgba = vec4(straight.rgb * straight.a, straight.a);
 }`;
 
 function createProgram(gl: WebGL2RenderingContext, vert: string, frag: string): WebGLProgram {
@@ -76,7 +118,8 @@ function createScratch() {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 1;
   const gl = canvas.getContext('webgl2', {
-    alpha: true, antialias: false, depth: false, stencil: false, failIfMajorPerformanceCaveat: true,
+    alpha: true, premultipliedAlpha: false, antialias: false, depth: false, stencil: false,
+    failIfMajorPerformanceCaveat: true,
   });
   if (!gl) throw new Error('WebGL2 unavailable');
   try {
@@ -89,28 +132,24 @@ function createScratch() {
 
 function initScratch(gl: WebGL2RenderingContext, canvas: HTMLCanvasElement) {
   const material = createProgram(gl, vertexSource, fragmentSource);
-  const cover = createProgram(gl, coverVertex, coverFragment);
-  const framebuffer = gl.createFramebuffer();
-  const pixels = gl.createTexture();
   const lut = gl.createTexture();
   const vertices = gl.createBuffer();
-  if (!framebuffer || !pixels || !lut || !vertices) throw new Error('Unable to allocate band buffers');
+  if (!lut || !vertices) throw new Error('Unable to allocate band buffers');
   gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
-  for (const [index, count, offset] of [[0, 2, 0], [1, 3, 8], [2, 1, 20]]) {
+  for (const [index, count, offset] of [[0, 2, 0], [1, 3, 8], [2, 1, 20], [3, 4, 24]]) {
     gl.enableVertexAttribArray(index);
-    gl.vertexAttribPointer(index, count, gl.FLOAT, false, 24, offset);
+    gl.vertexAttribPointer(index, count, gl.FLOAT, false, FLOATS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT, offset);
   }
-  for (const texture of [pixels, lut]) {
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  }
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pixels, 0);
+  gl.bindTexture(gl.TEXTURE_2D, lut);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.disable(gl.DITHER);
+  // Keep the latest band's straight RGB and accumulate alpha even for overlapping skins.
+  // The 2D stage composites the straight-alpha drawing buffer when it draws this canvas.
+  gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.ONE, gl.ZERO, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   return {
-    canvas, gl, material, cover, framebuffer, pixels, lut, vertices,
+    canvas, gl, material, lut, vertices,
     size: gl.getUniformLocation(material, 'size'),
     opacity: gl.getUniformLocation(material, 'opacity'),
     colors: gl.getUniformLocation(material, 'colors[0]'),
@@ -119,6 +158,14 @@ function initScratch(gl: WebGL2RenderingContext, canvas: HTMLCanvasElement) {
     height: 0,
     skins: null as readonly SimBandRasterMaterial[] | null,
   };
+}
+
+function writeIntegratedProfile(values: Float32Array, offset: number, cross: Float32Array): void {
+  let integral = 0;
+  for (let i = 1; i < cross.length; i++) {
+    integral += (cross[i - 1]! + cross[i]!) / (2 * (cross.length - 1));
+    values[offset + i] = integral;
+  }
 }
 
 function drawGlBands(
@@ -133,7 +180,7 @@ function drawGlBands(
   const { a: sx, d: sy, e: dx, f: dy } = ctx.getTransform();
   const w = Math.max(1, Math.round(metrics.w * sx));
   const h = Math.max(1, Math.round(metrics.h * sy));
-  const { canvas, gl, material, cover, framebuffer, pixels, lut, vertices } = scratch;
+  const { canvas, gl, material, lut, vertices } = scratch;
   if (gl.isContextLost()) throw new Error('Band WebGL context lost');
   if (scratch.width !== w || scratch.height !== h) {
     if (canvas.width !== w) canvas.width = w;
@@ -141,24 +188,20 @@ function drawGlBands(
     if (gl.drawingBufferWidth !== w || gl.drawingBufferHeight !== h) {
       throw new Error('Unable to resize band drawing buffer');
     }
-    gl.bindTexture(gl.TEXTURE_2D, pixels);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-    if (gl.getError() !== gl.NO_ERROR || gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-      throw new Error('Incomplete band framebuffer');
-    }
     scratch.width = w;
     scratch.height = h;
   }
   gl.useProgram(material);
   gl.bindTexture(gl.TEXTURE_2D, lut);
   if (scratch.skins?.[0] !== normal || scratch.skins?.[1] !== sp) {
-    const values = new Float32Array(1025 * 4);
+    const values = new Float32Array(1025 * 6);
     values.set(normal.cross, 0);
     values.set(normal.longitudinal, 1025);
     values.set(sp.cross, 2050);
     values.set(sp.longitudinal, 3075);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1025, 4, 0, gl.RED, gl.FLOAT, values);
+    writeIntegratedProfile(values, 1025 * 4, normal.cross);
+    writeIntegratedProfile(values, 1025 * 5, sp.cross);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1025, 6, 0, gl.RED, gl.FLOAT, values);
     gl.uniform3fv(scratch.colors, [...normal.rgb, ...sp.rgb].map(channel => channel / 255));
     if (gl.getError() !== gl.NO_ERROR) throw new Error('Unable to upload band material');
     scratch.skins = [normal, sp];
@@ -166,8 +209,9 @@ function drawGlBands(
 
   let size = 0;
   const bandScratch = scratch;
+  let clipStart = 0, clipEnd = 0, centerStart = 0, centerEnd = 0;
   function vertex(x: number, y: number, center: number, half: number, phase: number, skin: number) {
-    if (size + 6 > bandScratch.data.length) {
+    if (size + FLOATS_PER_VERTEX > bandScratch.data.length) {
       const enlarged = new Float32Array(bandScratch.data.length * 2);
       enlarged.set(bandScratch.data);
       bandScratch.data = enlarged;
@@ -179,6 +223,10 @@ function drawGlBands(
     data[size++] = half;
     data[size++] = phase;
     data[size++] = skin;
+    data[size++] = clipStart;
+    data[size++] = clipEnd;
+    data[size++] = centerStart;
+    data[size++] = centerEnd;
   }
   for (const group of groups) {
     const chains = simBandCenterlineChains(group.quads);
@@ -200,17 +248,27 @@ function drawGlBands(
         if (b.y - a.y <= 1e-9) continue;
         const start = a.y * sy;
         const end = b.y * sy;
-        // Match the CPU row-center rule. Each folded run owns both ends, and
-        // an exact join within one run belongs to the earlier segment.
-        let first = Math.ceil(start - .5);
-        if (index > 1 && first + .5 === start) first++;
-        const last = Math.min(h - 1, Math.floor(end - .5));
+        const height = end - start;
+        // Even a fully opaque segment of this height rounds to zero in RGBA8.
+        if (height < .5 / 255) continue;
+        centerStart = a.x * sx;
+        centerEnd = b.x * sx;
+        const edgeDelta = Math.abs(centerEnd - centerStart) + Math.abs(b.half - a.half) * sx;
+        const filtered = height < 2 || edgeDelta > 2 * height;
+        clipStart = filtered ? start : 0;
+        clipEnd = filtered ? end : 0;
+        // Regular segments retain row-centre ownership at an exact join.
+        let first = filtered ? Math.floor(start) : Math.ceil(start - .5);
+        if (!filtered && index > 1 && first + .5 === start) first++;
+        const last = Math.min(h - 1, filtered ? Math.ceil(end) - 1 : Math.floor(end - .5));
         first = Math.max(first, 0);
         if (last < first) continue;
         const ay = first;
         const by = last + 1;
-        const sampleA = first === last ? first + .5 : ay;
-        const sampleB = first === last ? first + .5 : by;
+        const singleRow = first === last && (!filtered || height < 2);
+        const oneRowSample = filtered ? (start + end) / 2 : first + .5;
+        const sampleA = singleRow ? oneRowSample : ay;
+        const sampleB = singleRow ? oneRowSample : by;
         const t0 = (sampleA - start) / (end - start);
         const t1 = (sampleB - start) / (end - start);
         const ax = (a.x + (b.x - a.x) * t0) * sx;
@@ -219,33 +277,33 @@ function drawGlBands(
         const bh = (a.half + (b.half - a.half) * t1) * sx;
         const au = (sampleA / sy - low) / span;
         const bu = (sampleB / sy - low) / span;
-        const hwA = Math.max(0, ah);
-        const hwB = Math.max(0, bh);
-        vertex(ax - hwA, ay, ax, ah, au, skin);
-        vertex(ax + hwA, ay, ax, ah, au, skin);
-        vertex(bx - hwB, by, bx, bh, bu, skin);
-        vertex(ax + hwA, ay, ax, ah, au, skin);
-        vertex(bx + hwB, by, bx, bh, bu, skin);
-        vertex(bx - hwB, by, bx, bh, bu, skin);
+        const margin = filtered ? .5 + .5 * edgeDelta / height : 0;
+        let leftA = ax - Math.max(0, ah) - margin;
+        let rightA = ax + Math.max(0, ah) + margin;
+        let leftB = bx - Math.max(0, bh) - margin;
+        let rightB = bx + Math.max(0, bh) + margin;
+        // Bound very short segments without extrapolating their x positions.
+        if (filtered && height < 2) {
+          leftA = leftB = Math.min((a.x - a.half) * sx, (b.x - b.half) * sx) - .5;
+          rightA = rightB = Math.max((a.x + a.half) * sx, (b.x + b.half) * sx) + .5;
+        }
+        vertex(leftA, ay, ax, ah, au, skin);
+        vertex(rightA, ay, ax, ah, au, skin);
+        vertex(leftB, by, bx, bh, bu, skin);
+        vertex(rightA, ay, ax, ah, au, skin);
+        vertex(rightB, by, bx, bh, bu, skin);
+        vertex(leftB, by, bx, bh, bu, skin);
       }
     }
   }
   if (size === 0) return;
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
   gl.viewport(0, 0, w, h);
   gl.clear(gl.COLOR_BUFFER_BIT);
-  // Retain the later band's RGB and independently accumulate opacity through overlaps.
-  gl.enable(gl.BLEND);
   gl.uniform2f(scratch.size, w, h);
   gl.uniform1f(scratch.opacity, opacity);
   gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
   gl.bufferData(gl.ARRAY_BUFFER, scratch.data.subarray(0, size), gl.STREAM_DRAW);
-  gl.drawArrays(gl.TRIANGLES, 0, size / 6);
-  gl.disable(gl.BLEND);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.useProgram(cover);
-  gl.bindTexture(gl.TEXTURE_2D, pixels);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.drawArrays(gl.TRIANGLES, 0, size / FLOATS_PER_VERTEX);
 
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -265,14 +323,11 @@ export function createSimGpuBandRenderer(): { draw: SimBandRenderer; dispose(): 
 
   function release(): void {
     if (!scratch) return;
-    const { gl, canvas, material, cover, framebuffer, pixels, lut, vertices } = scratch;
+    const { gl, canvas, material, lut, vertices } = scratch;
     scratch = undefined;
     gl.deleteBuffer(vertices);
-    gl.deleteFramebuffer(framebuffer);
-    gl.deleteTexture(pixels);
     gl.deleteTexture(lut);
     gl.deleteProgram(material);
-    gl.deleteProgram(cover);
     canvas.width = canvas.height = 1;
   }
 

@@ -1,5 +1,6 @@
 import { waitForPaint, yieldToMainThread } from '../../static/exportPanels';
 import { drawSimFrameAt, prepareSimComboSprites, type SimFrameInput, type SimFrameLayers } from './simField';
+import { SCORE_MAX, SCORE_TIER_THRESHOLDS } from './simHud';
 
 /** 按真实谱面的绘制种类选准备帧，不 seek 播放器、不改变用户的播放位置。 */
 function preparationSeconds(input: SimFrameInput): number[] {
@@ -17,8 +18,23 @@ function preparationSeconds(input: SimFrameInput): number[] {
     bands.add(band.sp);
     times.add((band.t0 + band.t1) / 2);
   }
-  // 顶栏高分态（含发光粒子）也要在音频开始前走一次。
-  const lastHit = input.chart.hitTimes.at(-1);
+  // 同一档的条形纹理会从缩小绘制变为放大绘制。两端都走到，
+  // 避免 Windows 在歌曲中途首次遇到该采样与圆角裁剪组合时编译着色器。
+  const hits = input.chart.hitTimes;
+  if (input.scene.showGameUi !== false && input.assets.hud?.rhythmGameUI) {
+    for (const threshold of SCORE_TIER_THRESHOLDS) {
+      const tierScore = Math.round(threshold * SCORE_MAX);
+      const index = Math.ceil(hits.length * tierScore / SCORE_MAX) - 1;
+      const transition = hits[index];
+      if (transition === undefined) continue;
+      // 同拍的音符同时加分。前一档最满的一帧取前一个不同的命中时点。
+      let previous = index - 1;
+      while (previous >= 0 && hits[previous] === transition) previous--;
+      if (previous >= 0) times.add(hits[previous]!);
+      times.add(transition);
+    }
+  }
+  const lastHit = hits.at(-1);
   if (lastHit != null) times.add(lastHit + 0.03);
   return [...times];
 }

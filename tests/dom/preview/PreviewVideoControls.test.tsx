@@ -32,6 +32,7 @@ const calls = vi.hoisted(() => ({
   pause: vi.fn(),
   seek: vi.fn(),
   setDuration: vi.fn(),
+  setKeepPausedAudioReady: vi.fn(),
   dispose: vi.fn(),
   lastOnTick: null as ((seconds: number, playing: boolean) => void) | null,
 }));
@@ -94,6 +95,7 @@ vi.mock('@/src/preview', async (importOriginal) => {
         seek: calls.seek,
         toggle: calls.play,
         setDuration: calls.setDuration,
+        setKeepPausedAudioReady: calls.setKeepPausedAudioReady,
         render: vi.fn(),
         dispose: calls.dispose,
       };
@@ -135,6 +137,7 @@ async function renderStage(opts: {
   volume?: number;
   audio?: SimPlaybackAudio | null;
   active?: boolean;
+  fullscreen?: boolean;
   chartId?: string | null;
   initialSeconds?: number;
   onSecondsChange?: (s: number) => void;
@@ -155,6 +158,7 @@ async function renderStage(opts: {
   const view = render(
     <PreviewVideoStage
       active={active}
+      fullscreen={opts.fullscreen}
       scene={curScene}
       duration={12}
       audio={audio}
@@ -199,6 +203,31 @@ beforeEach(() => {
 });
 
 describe('动态预览播放条 · 播放器控件（chart-preview 20）', () => {
+  it('Windows 全屏预览按窗口焦点保留暂停音频，卸载后释放', async () => {
+    const { act } = await import('@testing-library/react');
+    vi.stubGlobal('electronAPI', { platform: 'win32' });
+    const focused = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    try {
+      const { unmount } = await renderStage({ fullscreen: true });
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(true);
+      focused.mockReturnValue(false);
+      fireEvent.blur(window);
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(false);
+      focused.mockReturnValue(true);
+      fireEvent.focus(window);
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(true);
+      act(() => calls.lastOnTick?.(12, false));
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(false);
+      act(() => calls.lastOnTick?.(6, false));
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(true);
+      unmount();
+      expect(calls.setKeepPausedAudioReady).toHaveBeenLastCalledWith(false);
+    } finally {
+      focused.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('票 69：长谱派生不在首帧 render 里跑，加载文案先于派生提交到 DOM', async () => {
     const longNotes: ChartNote[] = Array.from({ length: 2400 }, (_, i) => ({
       type: 'Single', beat: i * 0.25, lane: i % 7,

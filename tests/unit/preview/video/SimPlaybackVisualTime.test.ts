@@ -2,10 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioEngine } from '@/src/audio/AudioEngine';
 import { createSimPlayback, type SimPlayback } from '@/src/preview/video/sim/simPlayback';
-import { drawSimFrameAt, type SimFrameInput } from '@/src/preview/video/sim/simField';
+import { drawSimFrameAt, prepareSimFieldBitmap, type SimFrameInput } from '@/src/preview/video/sim/simField';
 
 vi.mock('@/src/preview/video/sim/simField', () => ({
-  drawSimFrameAt: vi.fn(), prepareSimComboSprites: vi.fn(),
+  drawSimFrameAt: vi.fn(), prepareSimComboSprites: vi.fn(), prepareSimLifeGauge: vi.fn(), prepareSimFieldBitmap: vi.fn(),
 }));
 
 // 保留真实引擎、播放生命周期和帧循环；只替换浏览器音频设备与最终画笔。
@@ -68,6 +68,25 @@ function pump(ms: number, audioSeconds = Math.floor(ms / (32 / 3)) * (32 / 3000)
 }
 
 describe('仿真场视觉取时 · 音频主时钟约束', () => {
+  it('正常播放复用场地底图，亮度和密度变化替换底图，卸载释放最后一张', async () => {
+    const images = Array.from({ length: 3 }, () => ({ close: vi.fn() }));
+    for (const image of images) vi.mocked(prepareSimFieldBitmap).mockReturnValueOnce(image as unknown as ImageBitmap);
+    await start();
+    pump(20);
+    playback.setOptions({ volume: 0.5 });
+    playback.setFrame({ ...frame, scene: { ...frame.scene, mirror: true } });
+    expect(vi.mocked(drawSimFrameAt).mock.lastCall?.[3]?.fieldBitmap).toBe(images[0]);
+    expect(images[0]!.close).not.toHaveBeenCalled();
+    playback.setFrame({ ...frame, scene: { ...frame.scene, bgBrightness: 0.4 } });
+    expect(images[0]!.close).toHaveBeenCalledOnce();
+    expect(vi.mocked(drawSimFrameAt).mock.lastCall?.[3]?.fieldBitmap).toBe(images[1]);
+    playback.setOptions({ density: 1.25 });
+    expect(images[1]!.close).toHaveBeenCalledOnce();
+    expect(vi.mocked(drawSimFrameAt).mock.lastCall?.[3]?.fieldBitmap).toBe(images[2]);
+    playback.dispose();
+    expect(images[2]!.close).toHaveBeenCalledOnce();
+  });
+
   it.each([60, 120, 144, 165].flatMap(hz => [0.1, 1, 4].map(rate => ({ hz, rate }))))(
     '$hz Hz / $rate×：音频分块更新时运动仍连续，视觉不脱离音频', async ({ hz, rate }) => {
       await start();

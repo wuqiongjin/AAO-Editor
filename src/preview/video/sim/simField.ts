@@ -587,7 +587,8 @@ export function drawSimFrameAt(
   // 2026-11-08 验收：默认关 AUTO；分数条 / 生命条只用一枚总开关（缺省全开）
   const autoMode = input.scene.autoMode ?? false;
   const showGameUi = input.scene.showGameUi ?? true;
-  drawField(ctx, input, layers?.backgroundAlpha ?? 1, layers?.trackAlpha ?? 1);
+  if (layers?.fieldBitmap) ctx.drawImage(layers.fieldBitmap, 0, 0, metrics.w, metrics.h);
+  else drawField(ctx, input, layers?.backgroundAlpha ?? 1, layers?.trackAlpha ?? 1);
   // 票 74 回修：noteAlpha 只包住「正在接近」的三层（带体 / 双押线 / 音符）。
   // 带体走逐像素光栅，自己的 save/restore 会把 globalAlpha 钉成 1 ⇒ 改从 baseAlpha 传进去；
   // 其余两层是精灵 drawImage，直接借 ctx.globalAlpha；判定线 / 特效 / HUD 全不受影响。
@@ -607,7 +608,7 @@ export function drawSimFrameAt(
   // 票 76：`hudAlpha` 是整层淡入 / 淡出倍率，缺省 1 ⇒ 实时回放观感不变。
   if (layers?.hud !== false && showGameUi) {
     drawTopBar(ctx, metrics, chart, seconds, input.assets.hud, autoMode,
-      clamp01(layers?.hudAlpha ?? 1));
+      clamp01(layers?.hudAlpha ?? 1), seconds, layers?.lifeGauge);
   }
   // 判定字（51/71）在 combo 之下：两条 HUD 不重叠，先字后数只为免得字块压在数字上
   if (layers?.judge !== null) {
@@ -626,6 +627,8 @@ export function drawSimFrameAt(
  * 全部可选，缺省 = 现有观感（一次画全）。`judge: null` = 这一帧不画判定字。
  */
 export interface SimFrameLayers {
+  /** 实时场地中固定的背景、亮度遮罩、轨道和判定线，按舞台位图尺寸合成。 */
+  fieldBitmap?: ImageBitmap;
   /** 实时舞台可选的带体渲染器，显式指定光栅比例的离线帧仍走 CPU。 */
   bandRenderer?: SimBandRenderer;
   /** 背景（bgskin）alpha */
@@ -653,6 +656,8 @@ export interface SimFrameLayers {
   combo?: Partial<SimComboStyle>;
   /** 实时预览已准备好的 COMBO 阴影贴图。 */
   comboShadows?: SimComboShadows;
+  /** 实时预览按舞台物理像素准备的生命条填充。 */
+  lifeGauge?: SimLifeGauge;
 }
 
 /**
@@ -694,9 +699,30 @@ function drawField(
   ctx.restore();
 }
 
+/** 每次场地输入或像素密度变化时重绘。导出的轨道和背景有独立淡入淡出，逐层绘制。 */
+export function prepareSimFieldBitmap(input: SimFrameInput, density: number): ImageBitmap | undefined {
+  const { assets, metrics, scene } = input;
+  if (typeof OffscreenCanvas === 'undefined' || !(assets.background || assets.field || assets.playLine)) return;
+  const width = Math.max(1, Math.round(metrics.w * density));
+  const height = Math.max(1, Math.round(metrics.h * density));
+  try {
+    const canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx || typeof canvas.transferToImageBitmap !== 'function') return;
+    // 播放舞台画过音符后一直使用 high。底图也要用同一滤波缩放素材。
+    ctx.imageSmoothingQuality = 'high';
+    ctx.setTransform(width / metrics.w, 0, 0, height / metrics.h, 0, 0);
+    drawFieldLayers(ctx, metrics, assets, scene.bgBrightness);
+    return canvas.transferToImageBitmap();
+  } catch (error) {
+    console.warn('[preview] 场地底图准备失败，按原素材绘制', error);
+    return;
+  }
+}
+
 /** 场地三图 + 背景亮度黑罩（`brightness` 缺省 = 1 = 原图；两个 alpha 供结尾段分层收） */
 export function drawFieldLayers(
-  ctx: CanvasRenderingContext2D,
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   m: SimFieldMetrics,
   assets: Pick<SimFrameAssets, 'background' | 'field' | 'playLine'>,
   brightness: number = 1,
@@ -730,7 +756,7 @@ export function drawFieldLayers(
  * 动画段 / 视频导出 / 面板预览都走这里 —— "只压暗、只压背景层"只有这一处实现。
  */
 export function drawSimBackground(
-  ctx: CanvasRenderingContext2D,
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   m: SimFieldMetrics,
   img: CanvasImageSource | null,
   brightness: number = 1,
@@ -1576,7 +1602,64 @@ function drawStarFlow(
  * 2026-11-14：填充按 `lifeGaugeInset` 从 `lifeBand` 四边内缩，让 `life-bar.png`
  * 空槽自带的深色框露出来 —— 实机那圈「黑边」就是它，铺满 bbox 会把它盖掉。
  */
-function drawLife(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number): void {
+interface SimLifeGauge {
+  canvas: HTMLCanvasElement;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function lifeGaugeRect(s: number) {
+  const ky = SIM_HUD.lifeH * s / HUD_SPRITES.lifeBar[3];
+  const b = HUD_SPRITES.lifeBand;
+  const inset = Math.max(0, SIM_HUD.lifeGaugeInset) * ky;
+  const h = b.h * ky;
+  return {
+    x: SIM_HUD.lifeX * s + b.x * ky + inset,
+    y: SIM_HUD.lifeY * s + b.y * ky + inset,
+    w: SIM_HUD.lifeW * s - (HUD_SPRITES.lifeBar[2] - b.w) * ky - 2 * inset,
+    h: h - 2 * inset,
+    radius: Math.max(0, Math.min(0.5, SIM_HUD.bandRadius) * h - inset),
+  };
+}
+
+function paintLifeGauge(ctx: CanvasRenderingContext2D, rect: ReturnType<typeof lifeGaugeRect>): void {
+  const { x, y, w, h, radius } = rect;
+  ctx.save();
+  roundRectPath(ctx, x, y, w, h, radius);
+  ctx.clip();
+  const split = Math.max(0.05, Math.min(0.95, SIM_HUD.lifeGaugeSplit));
+  const grad = ctx.createLinearGradient(0, y, 0, y + h);
+  grad.addColorStop(0, SIM_HUD.lifeGaugeTop);
+  grad.addColorStop(split, SIM_HUD.lifeGaugeTop);
+  grad.addColorStop(Math.min(1, split + 0.08), SIM_HUD.lifeGaugeBottom);
+  grad.addColorStop(1, SIM_HUD.lifeGaugeBottom);
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+}
+
+/** 生命恒满。用舞台的像素比例和坐标相位准备一次，避免播放中反复裁剪。 */
+export function prepareSimLifeGauge(metrics: SimFieldMetrics, density: number): SimLifeGauge | undefined {
+  if (typeof document === 'undefined') return;
+  const rect = lifeGaugeRect(metrics.w / 1920);
+  if (rect.w <= 1 || rect.h <= 1) return;
+  const sx = Math.max(1, Math.round(metrics.w * density)) / metrics.w;
+  const sy = Math.max(1, Math.round(metrics.h * density)) / metrics.h;
+  const left = Math.floor(rect.x * sx);
+  const top = Math.floor(rect.y * sy);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil((rect.x + rect.w) * sx) - left;
+  canvas.height = Math.ceil((rect.y + rect.h) * sy) - top;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+  ctx.setTransform(sx, 0, 0, sy, -left, -top);
+  paintLifeGauge(ctx, rect);
+  return { canvas, x: left / sx, y: top / sy, w: canvas.width / sx, h: canvas.height / sy };
+}
+
+function drawLife(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number, prepared?: SimLifeGauge): void {
   const x = SIM_HUD.lifeX * s;
   const y = SIM_HUD.lifeY * s;
   const w = SIM_HUD.lifeW * s;
@@ -1591,31 +1674,11 @@ function drawLife(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number): 
     sliceX(ctx, hud.lifeBar, HUD_SPRITES.lifeBar, x, y, w, h, HUD_SPRITES.lifeSlices, ky);
   }
 
-  const b = HUD_SPRITES.lifeBand;
-  const gx = x + b.x * ky;
-  const gy = y + b.y * ky;
-  const gw = w - (HUD_SPRITES.lifeBar[2] - b.x - b.w) * ky - b.x * ky;
-  const gh = b.h * ky;
-  // 内缩到空槽的**内沿**，把素材那圈深色框留给观众；圆角同步收掉一个 inset 才同心
-  const inset = Math.max(0, SIM_HUD.lifeGaugeInset) * ky;
-  const ix = gx + inset;
-  const iy = gy + inset;
-  const iw = gw - 2 * inset;
-  const ih = gh - 2 * inset;
-  const radius = Math.max(0, Math.min(0.5, SIM_HUD.bandRadius) * gh - inset);
-  if (iw > 1 && ih > 1) {
-    ctx.save();
-    roundRectPath(ctx, ix, iy, iw, ih, radius);
-    ctx.clip();
-    const split = Math.max(0.05, Math.min(0.95, SIM_HUD.lifeGaugeSplit));
-    const grad = ctx.createLinearGradient(0, iy, 0, iy + ih);
-    grad.addColorStop(0, SIM_HUD.lifeGaugeTop);
-    grad.addColorStop(split, SIM_HUD.lifeGaugeTop);
-    grad.addColorStop(Math.min(1, split + 0.08), SIM_HUD.lifeGaugeBottom);
-    grad.addColorStop(1, SIM_HUD.lifeGaugeBottom);
-    ctx.fillStyle = grad;
-    ctx.fillRect(ix, iy, iw, ih);
-    ctx.restore();
+  if (prepared) {
+    ctx.drawImage(prepared.canvas, prepared.x, prepared.y, prepared.w, prepared.h);
+  } else {
+    const rect = lifeGaugeRect(s);
+    if (rect.w > 1 && rect.h > 1) paintLifeGauge(ctx, rect);
   }
   ctx.save();
   ctx.font = `800 ${SIM_HUD.lifeFont * s}px ${HEADER_SANS}`;
@@ -1667,6 +1730,7 @@ function drawTopBar(
   autoMode: boolean,
   alpha: number = 1,
   flowSeconds: number = seconds,
+  lifeGauge?: SimLifeGauge,
 ): void {
   const hud = assets ?? EMPTY_HUD;
   const s = m.w / 1920;
@@ -1677,7 +1741,7 @@ function drawTopBar(
   ctx.textBaseline = 'middle';
   drawScoreBox(ctx, hud, s, flowSeconds, score, inc,
     plusAgesAt(chart, seconds, SIM_HUD.plusDur), alpha);
-  drawLife(ctx, hud, s);
+  drawLife(ctx, hud, s, lifeGauge);
   drawPause(ctx, hud, s);
   drawAutoLive(ctx, m, hud, autoMode);
   ctx.restore();

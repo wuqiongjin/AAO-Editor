@@ -14,6 +14,7 @@ import {
   buildSimChart,
   drawSimFrameAt,
   drawSimHudLayer,
+  prepareSimFieldBitmap,
   SIM_FALLBACK_BG,
   visibleSimBandGroups,
   type SimFrameInput,
@@ -117,6 +118,27 @@ const recordingCtx = (overrides: Record<string, (...args: unknown[]) => unknown>
   createLinearGradient: () => ({ addColorStop: () => undefined }),
   getTransform: () => ({ a: 1, d: 1, e: 0, f: 0 }),
   ...overrides,
+});
+
+it('静止场地按最终物理像素和播放时的高质量滤波合成', () => {
+  const { proxy, calls } = recordingCtx();
+  const bitmap = {} as ImageBitmap;
+  const dimensions: number[][] = [];
+  vi.stubGlobal('OffscreenCanvas', class {
+    constructor(w: number, h: number) { dimensions.push([w, h]); }
+    getContext() { return proxy; }
+    transferToImageBitmap() { return bitmap; }
+  });
+  try {
+    const frame = frameOf([], makeRecordingSprite().spriteIcon);
+    frame.assets.background = {} as HTMLImageElement;
+    expect(prepareSimFieldBitmap(frame, 1.25)).toBe(bitmap);
+    expect(dimensions).toEqual([[1668, 938]]);
+    expect(propValues(calls, 'imageSmoothingQuality')).toContain('high');
+    expect(calls.find(([k]) => k === 'setTransform')?.[1]).toEqual([1668 / 1334, 0, 0, 938 / 750, 0, 0]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 /** 65：离屏 RGBA 缓冲的假画布（记录 createImageData / putImageData，能直接读像素） */
@@ -385,6 +407,12 @@ describe('drawSimFrameAt · 场地三图的矩形（问题 4）', () => {
     const rectOf = (args: unknown[]) => ({ x: args[1], y: args[2], w: args[3], h: args[4] });
     expect(rectOf(dests[0]!)).toEqual(fieldImageRect(frame.metrics));
     expect(rectOf(dests[1]!)).toEqual(playLineRect(frame.metrics));
+    const cached = {} as ImageBitmap;
+    const cachedFrame = recordingCtx();
+    drawSimFrameAt(cachedFrame.proxy, frame, 0, { fieldBitmap: cached });
+    expect(cachedFrame.calls.filter(([k]) => k === 'drawImage').map(([, args]) => args)).toEqual([
+      [cached, 0, 0, frame.metrics.w, frame.metrics.h],
+    ]);
     // 底色仍是"铺满画布"的第一笔（场地缺图时那层近黑底）
     expect(propValues(calls, 'fillStyle')).toContain(SIM_FALLBACK_BG);
   });
@@ -1435,6 +1463,21 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
     // 渐变必须架在内沿上，否则上段亮绿会被 clip 裁掉
     expect(grads.some((g) => g.length === 4 && Math.abs(g[1]! - (outerY + d)) < 1e-6
       && Math.abs(g[3]! - (outerY + outerH - d)) < 1e-6)).toBe(true);
+  });
+
+  it('已有生命条贴图时，实时出帧复用贴图并省去一道裁剪', () => {
+    const frame = hudFrame([single(2, 3)], fakeHud());
+    const baseline = recordingCtx();
+    drawSimFrameAt(baseline.proxy, frame, 1.2);
+    const prepared = recordingCtx();
+    const canvas = {} as HTMLCanvasElement;
+    const lifeGauge = { canvas, x: 1, y: 2, w: 30, h: 5 };
+    drawSimFrameAt(prepared.proxy, frame, 1.2, { lifeGauge });
+
+    expect(prepared.calls).toContainEqual(['drawImage', [canvas, 1, 2, 30, 5]]);
+    expect(prepared.calls.filter(([k]) => k === 'clip')).toHaveLength(
+      baseline.calls.filter(([k]) => k === 'clip').length - 1,
+    );
   });
 
   it('顶部状态栏只用一枚总开关：关掉时四件全收，缺省照画', () => {

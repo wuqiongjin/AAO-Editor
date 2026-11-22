@@ -71,6 +71,8 @@ export class AudioEngine {
   private lastPrimePerfMs: number | null = null;
   /** 空闲挂起定时器（issue 210：非播放态下连续 30s 无交互/音效则优雅 suspend AudioContext，释放 macOS PreventUserIdleSystemSleep 电源锁） */
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private keepPausedAudioReady = false;
+  private pausedAnalyser: AnalyserNode | null = null;
   private static readonly IDLE_SUSPEND_DELAY_MS = 30_000;
   /** 按键音调度器定时器（bug 33：脱离 rAF，切后台仍持续推进调度；无则未在播放） */
   private schedTimer: ReturnType<typeof setInterval> | null = null;
@@ -344,20 +346,46 @@ export class AudioEngine {
     }
   }
 
+  /** 前台预览可保留暂停时已打开的音频流。退出该状态后重新开始空闲计时。 */
+  setKeepPausedAudioReady(keep: boolean): void {
+    if (this.keepPausedAudioReady === keep) return;
+    this.keepPausedAudioReady = keep;
+    if (this.state === 'paused') this.scheduleIdleSuspend();
+  }
+
   private scheduleIdleSuspend(): void {
+    if (this.state === 'paused' && this.keepPausedAudioReady && this.pausedAnalyser) return;
     this.clearIdleSuspend();
     if (this.state === 'playing' || !this.ctx) return;
+    if (this.state === 'paused' && this.keepPausedAudioReady && this.masterGain) {
+      // Chromium 140 会在持续静音时把设备时钟切到替代时钟。无输出的 analyser
+      // 让混音图继续由设备拉取；暂停期间不发声，也不需要 JS 定时器。
+      this.pausedAnalyser = this.ctx.createAnalyser();
+      this.masterGain.connect(this.pausedAnalyser);
+      this.resumePausedDeviceIfNeeded(this.ctx);
+      return;
+    }
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
-      if (this.ctx && this.state !== 'playing' && this.ctx.state === 'running') {
-        if (typeof this.ctx.suspend === 'function') {
-          void Promise.resolve(this.ctx.suspend()).catch(() => undefined);
-        }
+      const ctx = this.ctx;
+      if (ctx?.state === 'running' && this.state !== 'playing' && typeof ctx.suspend === 'function') {
+        // 切回全屏时，后台的挂起请求可能还在由音频线程处理。
+        void Promise.resolve(ctx.suspend()).then(() => this.resumePausedDeviceIfNeeded(ctx)).catch(() => undefined);
       }
     }, AudioEngine.IDLE_SUSPEND_DELAY_MS);
   }
 
+  private resumePausedDeviceIfNeeded(ctx: AudioContext): void {
+    if (ctx === this.ctx && this.pausedAnalyser && ctx.state === 'suspended') {
+      void ctx.resume().catch(() => undefined);
+    }
+  }
+
   private clearIdleSuspend(): void {
+    if (this.pausedAnalyser) {
+      this.masterGain?.disconnect(this.pausedAnalyser);
+      this.pausedAnalyser = null;
+    }
     if (this.idleTimer !== null) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
@@ -412,6 +440,7 @@ export class AudioEngine {
     this.offsetSeconds = 0;
     this.cancelScheduled();
     this.state = 'ready';
+    if (this.pausedAnalyser) this.scheduleIdleSuspend();
   }
 
   /** 清除当前音频（切换到无歌曲模式） */
