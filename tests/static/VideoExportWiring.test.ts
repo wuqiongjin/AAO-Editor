@@ -524,7 +524,7 @@ describe('74 · 开头前导补偿（lead-in）', () => {
     expect(frameDriver).toMatch(/leadInNoteAlphaAt\(/);
     expect(frameDriver).toMatch(/t < simStartSeconds\s*\?/);
     expect(simField).toMatch(/noteAlpha\?: number/);
-    expect(simField).toMatch(/drawBands\(ctx, input, seconds, noteAlpha\)/);
+    expect(simField).toMatch(/drawBands\(ctx, input, seconds, noteAlpha, layers\?\.bandRenderer\)/);
     expect(simField).toMatch(/const alpha = clamp01\(scene\.slideOpacity\) \* noteAlpha/);
     expect(simField).toMatch(/ctx\.globalAlpha = noteAlpha/);
   });

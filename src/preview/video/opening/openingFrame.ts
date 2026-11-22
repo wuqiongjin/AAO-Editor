@@ -12,7 +12,7 @@
 import type { SimFieldMetrics } from '../sim/simGeometry';
 import { fieldImageRect, playLineRect } from '../sim/simGeometry';
 import { drawSimBackground } from '../sim/simField';
-import { drawOpeningDecor } from './openingDecor';
+import { drawOpeningDecor, type DecorSpacing } from './openingDecor';
 import { OPENING_ITEM_IDS, type OpeningItemId } from './openingItems';
 import { HEADER_SANS } from '../../fontStack';
 import { t, type MessageKey } from '../../../i18n';
@@ -164,8 +164,8 @@ export function extractCreditLines(
 }
 
 /**
- * 方案 B：首字对齐（块居中）
- * 整个 credits 区域在画面中轴居中，内部多行统一左对齐，使得“作词/作曲/编曲/谱师”首字垂直对齐。
+ * 逐行墨迹居中（用户 2026-11-22 推翻票 39 方案 B，回到方案 A）：
+ * 每一行都按墨迹框在画面中轴居中；多行不再首字对齐。
  */
 function drawCreditsBlock(
   ctx: CanvasRenderingContext2D,
@@ -179,21 +179,10 @@ function drawCreditsBlock(
   ctx.save();
   ctx.font = `400 ${fontPx}px ${HEADER_SANS}`;
   ctx.fillStyle = '#f0f2f5';
-
-  let maxLineWidth = 0;
-  for (const line of lines) {
-    const lw = ctx.measureText(line).width;
-    if (lw > maxLineWidth) maxLineWidth = lw;
-  }
-  const blockW = Math.min(maxLineWidth, maxW);
-  const blockLeft = Math.round(cx - blockW / 2);
-
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
   lines.forEach((line, idx) => {
     const text = truncateToWidth(ctx, line, maxW);
     const lineCy = startY + idx * lineH + lineH / 2;
-    ctx.fillText(text, blockLeft, lineCy);
+    inkCentered(ctx, text, cx, lineCy);
   });
   ctx.restore();
 }
@@ -282,6 +271,8 @@ export function drawOpeningFrameAt(
   seconds: number = Number.POSITIVE_INFINITY,
   /** 垫层轻推的覆盖参数（原型 / 调参用；缺省 = 票 50 定稿） */
   stack: OpeningStack = OPENING_STACK,
+  /** 装饰布点口径（原型 A/B 对照用；缺省 = 票 81 落默认的 C 版，绘制层级不变） */
+  decorSpacing: DecorSpacing = 'middle',
 ): void {
   ctx.save();
   ctx.globalAlpha = Math.min(1, Math.max(0, alpha));
@@ -302,7 +293,7 @@ export function drawOpeningFrameAt(
     y: m.top - stackD,
     w: m.cover + stackD,
     h: m.cover + stackD,
-  });
+  }, decorSpacing);
 
   // 难度色堆叠垫层：**只画露出来的 L 形**（第五轮）—— 画整个方形的话，封面缺位 / 还没浮现时
   // 会在封面的位置露出一整块纯色方块

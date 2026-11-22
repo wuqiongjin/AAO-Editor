@@ -32,7 +32,7 @@ import {
 } from '@/src/preview/video/opening';
 import { fieldMetrics } from '@/src/preview/video/sim/simGeometry';
 import { getActiveUiLanguage, setActiveUiLanguage } from '@/src/i18n';
-import { makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
+import { fillTexts, makeRecordingCtx, propValues, type RecordedCall } from '@/tests/support/canvas';
 
 /** 假封面（node 环境没有真图；`drawSquareCover` 只读 width / height） */
 const coverStub = () => ({ width: 512, height: 512 }) as unknown as CanvasImageSource;
@@ -359,8 +359,19 @@ describe('chart-preview 39 · 可选附加字段（作词/作曲/编曲/谱师�
     expect(t.filter((s) => /作词|作曲|编曲/.test(s))).toEqual([]);
   });
 
-  it('方案 B 首字对齐块居中：多个字段时，首字 X 坐标完全一致（严格垂直对齐）', () => {
-    const { proxy, calls } = makeRecordingCtx({ measureText: measureTextOk });
+  it('2026-11-22 逐行墨迹居中：多行各自按墨迹框居中（推翻票 39 方案 B 的首字对齐）', () => {
+    // 每行按字数给不同墨迹宽，才能把"逐行居中"和"统一 x 落笔"区分开
+    const measureByLength = (text: unknown) => {
+      const width = String(text).length * 20;
+      return {
+        width,
+        actualBoundingBoxLeft: 0,
+        actualBoundingBoxRight: width,
+        actualBoundingBoxAscent: 30,
+        actualBoundingBoxDescent: 8,
+      };
+    };
+    const { proxy, calls } = makeRecordingCtx({ measureText: measureByLength });
     drawOpeningFrameAt(proxy, 1920, 1080, frameInput({
       credits: {
         lyricist: '織田あすか（Elements Garden）',
@@ -370,18 +381,15 @@ describe('chart-preview 39 · 可选附加字段（作词/作曲/编曲/谱师�
       },
     }), 1);
 
-    // 过滤出 credits 字段绘制的 fillText 调用
-    const creditCalls = calls.filter(
-      ([k, a]) => k === 'fillText' && /作词|作曲|编曲|谱师/.test(String((a as unknown[])[0])),
-    );
-    expect(creditCalls.length).toBe(4);
+    const creditTexts = fillTexts(calls)
+      .filter(([, args]) => /作词|作曲|编曲|谱师/.test(String(args[0])))
+      .map(([, args]) => [String(args[0]), args[1], args[2]] as const);
+    expect(creditTexts).toHaveLength(4);
+    for (const [text, x] of creditTexts) {
+      expect(x).toBeCloseTo(960 - text.length * 10, 5);
+    }
 
-    // 方案 B 不变量：所有 credits 行的 x 坐标必须相同（首字对齐）
-    const xPositions = creditCalls.map(([, a]) => (a as number[])[1]);
-    expect(new Set(xPositions).size).toBe(1);
-
-    // y 坐标单调递增
-    const yPositions = creditCalls.map(([, a]) => (a as number[])[2]);
+    const yPositions = creditTexts.map(([, , y]) => y);
     for (let i = 1; i < yPositions.length; i++) {
       expect(yPositions[i]).toBeGreaterThan(yPositions[i - 1]);
     }

@@ -1701,7 +1701,7 @@ function drawPause(ctx: CanvasRenderingContext2D, hud: SimHudAssets, s: number):
 
 /**
  * `AUTO LIVE` 胶囊（票 71）：用户自备 `hud/auto-live.png`（512×113，**已抠底**，
- * 原件的棋盘格灰底不能带进画面），落在 `(36, 150) 278×51`（1920 设计坐标），
+ * 原件的棋盘格灰底不能带进画面），落在 `(36, 142) 278×51`（1920 设计坐标；票 81 上移 8），
  * **只与 autoMode 挂钩**（整层还要 `showGameUi` 开）。缺件留空 —— 不画自造字样。
  */
 function drawAutoLive(
@@ -1718,9 +1718,77 @@ function drawAutoLive(
     SIM_HUD.autoX * s, SIM_HUD.autoY * s, w, h);
 }
 
-/** 打歌 HUD 顶栏（票 72）：整层由 `showGameUi` 收放；顺序 = 分数框 → 生命 → 暂停钮 → AUTO LIVE。
- *  票 76：`alpha` 是整层淡入 / 淡出倍率 —— 内部元件各自写 `globalAlpha`，所以除了设 ambient
- *  还要把倍率乘进那几处，不能只在外层设一次。 */
+/** 顶栏离屏层：画布跨帧复用，导出逐帧不重建（尺寸变了才重设） */
+let topBarLayerCanvas: HTMLCanvasElement | null = null;
+
+interface TopBarLayer {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  /** 层内 1 用户单位 = `sx` × `sy` 设备像素（取自当前 CTM；实时舞台两轴可能不同） */
+  sx: number;
+  sy: number;
+  /** 层左上角在**设备像素**里的位置（贴回时与入层时的相位一致） */
+  ox: number;
+  oy: number;
+}
+
+/** 顶栏四件在绘制坐标系（场地 CSS 坐标）里的包围盒；只铺这一块，不铺整帧 */
+function topBarBounds(s: number): { x: number; y: number; w: number; h: number } {
+  const rects: readonly (readonly [number, number, number, number])[] = [
+    [SIM_HUD.boxX, SIM_HUD.boxY, SIM_HUD.boxW, SIM_HUD.boxH],
+    [SIM_HUD.lifeX, SIM_HUD.lifeY, SIM_HUD.lifeW, SIM_HUD.lifeH],
+    [SIM_HUD.pauseX, SIM_HUD.pauseY, SIM_HUD.pauseW, SIM_HUD.pauseH],
+    [SIM_HUD.autoX, SIM_HUD.autoY, SIM_HUD.autoW, (113 / 512) * SIM_HUD.autoW],
+  ];
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y, w, h] of rects) {
+    x0 = Math.min(x0, x);
+    y0 = Math.min(y0, y);
+    x1 = Math.max(x1, x + w);
+    y1 = Math.max(y1, y + h);
+  }
+  const pad = 2;
+  return {
+    x: (x0 - pad) * s, y: (y0 - pad) * s,
+    w: (x1 - x0 + pad * 2) * s, h: (y1 - y0 + pad * 2) * s,
+  };
+}
+
+/**
+ * 按当前 CTM 取一张与目标**设备像素栅格对齐**的顶栏离屏层。
+ * 无 DOM（Node 测试）或 CTM 带旋转 / 斜切时返回 null，调用方退回旧的逐元件画法。
+ */
+function topBarLayerAt(ctx: CanvasRenderingContext2D, s: number): TopBarLayer | null {
+  if (typeof document === 'undefined' || typeof ctx.getTransform !== 'function') return null;
+  const t = ctx.getTransform();
+  if (Math.abs(t.b) > 1e-6 || Math.abs(t.c) > 1e-6) return null;
+  const sx = Number.isFinite(t.a) && t.a > 0 ? t.a : 1;
+  const sy = Number.isFinite(t.d) && t.d > 0 ? t.d : 1;
+  const r = topBarBounds(s);
+  const ox = Math.floor(t.e + r.x * sx);
+  const oy = Math.floor(t.f + r.y * sy);
+  const w = Math.max(1, Math.ceil(t.e + (r.x + r.w) * sx) - ox);
+  const h = Math.max(1, Math.ceil(t.f + (r.y + r.h) * sy) - oy);
+  if (!topBarLayerCanvas) topBarLayerCanvas = document.createElement('canvas');
+  if (topBarLayerCanvas.width !== w || topBarLayerCanvas.height !== h) {
+    topBarLayerCanvas.width = w;
+    topBarLayerCanvas.height = h;
+  }
+  const g = topBarLayerCanvas.getContext('2d');
+  if (!g) return null;
+  return { canvas: topBarLayerCanvas, ctx: g, sx, sy, ox, oy };
+}
+
+/**
+ * 打歌 HUD 顶栏（票 72）：整层由 `showGameUi` 收放；顺序 = 分数框 → 生命 → 暂停钮 → AUTO LIVE。
+ *
+ * 票 76：`alpha` 是整层淡入 / 淡出倍率。**半透明必须整层合成**（原型 `drawSimHud` 同一条
+ * 路径）：这层里到处都是重叠 —— 4 切片接缝两侧各留 1px bleed、字母 / 数字 / 填充叠在卡上、
+ * SS+ 星点用 `lighter`。若直接在外层设 `globalAlpha` 逐块画，重叠处会被合成两遍，接缝那条
+ * 2px 的重叠带在半透明时就浮成一条比周围更亮的白线（成片淡入段的"白线"，2026-11-22 回修）。
+ * 所以 alpha < 1 时先按 alpha=1 画进离屏层、再整层一次贴回；alpha = 1（实时回放常态、
+ * 导出常驻段）仍旧直画，既不多开画布也不多一次合成。
+ */
 function drawTopBar(
   ctx: CanvasRenderingContext2D,
   m: SimFieldMetrics,
@@ -1734,13 +1802,53 @@ function drawTopBar(
 ): void {
   const hud = assets ?? EMPTY_HUD;
   const s = m.w / 1920;
+  const layerAlpha = clamp01(alpha);
+  if (layerAlpha <= 0.002) return;
   const score = scoreAt(chart, seconds);
   const inc = scoreIncrement(chart.hitTimes.length);
+  const ages = plusAgesAt(chart, seconds, SIM_HUD.plusDur);
+  if (layerAlpha >= 0.999) {
+    drawTopBarParts(ctx, m, hud, s, flowSeconds, score, inc, ages, 1, lifeGauge, autoMode);
+    return;
+  }
+  const layer = topBarLayerAt(ctx, s);
+  if (!layer) {
+    // 兜底：没有离屏画布可用 ⇒ 仍是旧的逐元件半透明（观感一致，只留接缝白线的老问题）
+    drawTopBarParts(ctx, m, hud, s, flowSeconds, score, inc, ages, layerAlpha, lifeGauge, autoMode);
+    return;
+  }
+  const g = layer.ctx;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-over';
+  g.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
+  g.setTransform(layer.sx, 0, 0, layer.sy, -layer.ox, -layer.oy);
+  drawTopBarParts(g, m, hud, s, flowSeconds, score, inc, ages, 1, lifeGauge, autoMode);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = layerAlpha;
+  ctx.drawImage(layer.canvas, layer.ox, layer.oy);
+  ctx.restore();
+}
+
+/** 顶栏本体（顺序 = 分数框 → 生命 → 暂停钮 → AUTO LIVE）；`alpha` 是**层内**倍率 */
+function drawTopBarParts(
+  ctx: CanvasRenderingContext2D,
+  m: SimFieldMetrics,
+  hud: SimHudAssets,
+  s: number,
+  flowSeconds: number,
+  score: number,
+  inc: number,
+  ages: number[],
+  alpha: number,
+  lifeGauge: SimLifeGauge | undefined,
+  autoMode: boolean,
+): void {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.textBaseline = 'middle';
-  drawScoreBox(ctx, hud, s, flowSeconds, score, inc,
-    plusAgesAt(chart, seconds, SIM_HUD.plusDur), alpha);
+  drawScoreBox(ctx, hud, s, flowSeconds, score, inc, ages, alpha);
   drawLife(ctx, hud, s, lifeGauge);
   drawPause(ctx, hud, s);
   drawAutoLive(ctx, m, hud, autoMode);

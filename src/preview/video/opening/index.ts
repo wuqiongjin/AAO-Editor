@@ -32,6 +32,8 @@ export {
 } from './openingSpec';
 export { OPENING_ITEM_IDS, DEFAULT_OPENING_ITEMS, openingItemOrder } from './openingItems';
 export type { OpeningItemId } from './openingItems';
+export { decorPairAt } from './openingDecor';
+export type { DecorNote, DecorSpacing } from './openingDecor';
 export {
   drawOpeningFieldBackground,
   drawOpeningFrameAt,

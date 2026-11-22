@@ -164,9 +164,19 @@ describe('chart-preview 72 · 归一分（1,000,000 / 7 位定宽）', () => {
       plusColor: SIM_HUD.plusColor,
     }).toEqual({
       plusDur: 0.5, plusDashFrac: 0.2, plusFadeFrac: 0.35, plusDriftDX: 0.02,
-      plusBaseAlpha: 0.85, plusX: 0.45, plusY: 119, plusDX: 0.37, plusRise: 0,
+      plusBaseAlpha: 0.85, plusX: 0.45, plusY: 111, plusDX: 0.37, plusRise: 0,
       plusSpreadX: 0, plusSpreadY: 0, plusFont: 36, plusColor: '#eef4f8',
     });
+  });
+
+  it('2026-11-22 · 整组顶栏 Y 统一上移 8：分数 / 生命 / 暂停 / AUTO LIVE / +增量', () => {
+    expect({
+      boxY: SIM_HUD.boxY,
+      lifeY: SIM_HUD.lifeY,
+      pauseY: SIM_HUD.pauseY,
+      autoY: SIM_HUD.autoY,
+      plusY: SIM_HUD.plusY,
+    }).toEqual({ boxY: 30, lifeY: 30, pauseY: 30, autoY: 142, plusY: 111 });
   });
 
   it('结算 10 档 score-rank：实机没有 SS+ 徽章，满分就是 SS（与打歌 6 档独立）', () => {

@@ -1222,7 +1222,7 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
     expect(ticks).toBe(LETTER_TEXTS.length);
   });
 
-  it('AUTO LIVE 胶囊只在 autoMode 开时画，落在 (36,150) 278×51', () => {
+  it('AUTO LIVE 胶囊只在 autoMode 开时画，落在 (36,142) 278×51（2026-11-22 上移 8）', () => {
     const autoLive = fakeHud().autoLive;
     const frame = hudFrame([single(2, 3)], { ...NO_HUD, autoLive }, true);
     const { proxy, calls } = recordingCtx();
@@ -1232,7 +1232,7 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
     expect(hit?.slice(1, 5)).toEqual([0, 0, 512, 113]);
     const s = frame.metrics.w / 1920;
     expect(hit?.[5]).toBeCloseTo(36 * s, 5);
-    expect(hit?.[6]).toBeCloseTo(150 * s, 5);
+    expect(hit?.[6]).toBeCloseTo(142 * s, 5);
     expect(hit?.[7]).toBeCloseTo(278 * s, 5);
     expect(hit?.[8]).toBeCloseTo((113 / 512) * 278 * s, 5);
 

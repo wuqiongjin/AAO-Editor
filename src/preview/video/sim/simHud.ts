@@ -194,7 +194,8 @@ export const HUD_SPRITES = {
 
 /** 顶栏绘制参数（1920×1080 设计坐标；绘制时按帧宽等比缩） */
 export const SIM_HUD = {
-  boxX: 36, boxY: 38, boxW: 652, boxH: 105,
+  // 2026-11-22 用户把整组顶栏 Y 统一上移 8 设计 px（实时预览 / 导出共用）
+  boxX: 36, boxY: 30, boxW: 652, boxH: 105,
   /** 槽是小圆角矩形（0.5 = 胶囊，会留暗角） */
   bandRadius: 0.15,
   fillScale: 1,
@@ -204,7 +205,7 @@ export const SIM_HUD = {
   letterDY: 7, tickGap: 0,
   /** ▽ 刻度图标高（1920 设计 px，随 `s` 缩放；宽 = 高 × 1.35）。原为随灰带高度的固定魔数，现可在原型里单独调 */
   tickH: 4.24,
-  lifeX: 1458, lifeY: 38, lifeW: 350, lifeH: 82, lifeFont: 22,
+  lifeX: 1458, lifeY: 30, lifeW: 350, lifeH: 82, lifeFont: 22,
   /** 实机生命 gauge（2026-11-08 用户截图取样）：上段亮绿 / 下段深绿，中间短过渡 */
   lifeGaugeTop: '#6eff69', lifeGaugeBottom: '#47aa43', lifeGaugeSplit: 0.46,
   /**
@@ -214,8 +215,8 @@ export const SIM_HUD = {
    * 旧写法把填充铺满整个 bbox ⇒ 暗框被盖掉，绿色像浮在白卡上。设 0 = 回到旧效果。
    */
   lifeGaugeInset: 4,
-  pauseX: 1822, pauseY: 38, pauseW: 82, pauseH: 82,
-  autoX: 36, autoY: 150, autoW: 278,
+  pauseX: 1822, pauseY: 30, pauseW: 82, pauseH: 82,
+  autoX: 36, autoY: 142, autoW: 278,
   /** `+增量`：窗口内**每次命中各一条**（不设上限、不合并）；其余都是可调观感参数。
    *  默认档 = 2026-11-14 重定的两段运动 + 用户 2026-11-14 第三版原型快照（见票 72）。 */
   plusDur: 0.5,
@@ -228,7 +229,7 @@ export const SIM_HUD = {
   /** 刚命中那一瞬也有底亮度（实机那串字是亮白的） */
   plusBaseAlpha: 0.85,
   /** 起点 / 位移（设计坐标；`plusY` 与 `plusRise` 由原型调档，默认不上浮） */
-  plusX: 0.45, plusY: 119, plusDX: 0.37, plusRise: 0,
+  plusX: 0.45, plusY: 111, plusDX: 0.37, plusRise: 0,
   /** 逐条错开（默认 0 = 所有命中走同一条轨迹，实机口径）；X 是 ×框宽、Y 是设计 px，原型里可调 */
   plusSpreadX: 0, plusSpreadY: 0,
   plusFont: 36, plusColor: '#eef4f8',

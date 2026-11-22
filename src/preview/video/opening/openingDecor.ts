@@ -10,6 +10,14 @@
 
 export type DecorKind = 0 | 1 | 2 | 3; // 0 ♪ / 1 ♫ / 2 ★ 顶尖位 / 3 ★ 平顶位
 
+/**
+ * 布点口径（`middle` = 票 81 落默认的生产口径；`current` / `even` 仅供原型 A/B 对照）：
+ * - `current` = 票 30 实测表（A）；
+ * - `even` = x/y 全线性均分（B，右簇被抬进白条，显稀）；
+ * - `middle` = 左右两簇原样，只重排中间两对（C，右簇密度不变）。
+ */
+export type DecorSpacing = 'current' | 'even' | 'middle';
+
 /** 每类装饰的**固定**倾角（度，画布坐标：+ = 顺时针；第四轮 IoU 逐实例拟合） */
 const DECOR_ROT_DEG: Record<DecorKind, number> = { 0: -9, 1: 26, 2: -7, 3: 29 };
 
@@ -42,6 +50,17 @@ const DECOR_SIZE_MIN = 0.02;
 /** 配对偏移（照官方截图实测的固定值） */
 const PAIR_GAP_X = 0.0084; // 星左缘 − 音符右缘（帧宽）
 const PAIR_DROP_Y = 0.0377; // 星顶缘 − 音符顶缘（帧高）
+/** C 版（`middle`）中间两对的 y 上限：星底边必须留在 0.11H 白条内，整对沉在白条后 */
+const MIDDLE_PAIR_Y_MAX = 0.035;
+/**
+ * C 版中间两对的最终布点（帧比例；x = 音符左缘，y = 相对白条上缘）。
+ * 推导：x 在 DECOR_PAIRS[3].x=0.2806 → [6].x=0.714 间三等分；
+ * y 同法插值，第 5 对撞到 0.035H 上限 —— 整对留在白条后（票 81 用户认可 C 后落默认）。
+ */
+const MIDDLE_PAIR_POSITIONS: Readonly<Record<number, { x: number; y: number }>> = {
+  4: { x: 0.425067, y: 0.0242 },
+  5: { x: 0.569533, y: MIDDLE_PAIR_Y_MAX },
+};
 
 /**
  * 装饰链：一串**音符**（♫ / ♪ 交替），每枚自带它的配对星。
@@ -49,7 +68,7 @@ const PAIR_DROP_Y = 0.0377; // 星顶缘 − 音符顶缘（帧高）
  * 用缘而不是锚点，是为了能直接和官方截图的量测数字对照。
  * 两簇 + 中间两对整对沉在白条后面（照官方实测）。
  */
-type DecorNote = {
+export type DecorNote = {
   x: number;
   y: number;
   kind: 0 | 1;
@@ -70,6 +89,29 @@ const DECOR_PAIRS: readonly DecorNote[] = [
   { x: 0.857, y: 0.1102, kind: 1, gray: 128, starKind: 3, starGray: 183 },
   { x: 0.934, y: 0.12, kind: 0, gray: 183, starKind: 2, starGray: 198 },
 ];
+
+/**
+ * 取一对装饰的最终布点（纯函数，绘制与锁测共用同一口径）。
+ * `spacing` 缺省 = 票 81 落默认的 C 版；`current` / `even` 只给原型 A/B 对照。
+ */
+export function decorPairAt(index: number, spacing: DecorSpacing = 'middle'): DecorNote {
+  const raw = DECOR_PAIRS[index];
+  if (spacing === 'even') {
+    const first = DECOR_PAIRS[0];
+    const last = DECOR_PAIRS[DECOR_PAIRS.length - 1];
+    const k = index / (DECOR_PAIRS.length - 1);
+    return {
+      ...raw,
+      x: first.x + (last.x - first.x) * k,
+      y: first.y + (last.y - first.y) * k,
+    };
+  }
+  if (spacing === 'middle') {
+    const override = MIDDLE_PAIR_POSITIONS[index];
+    if (override) return { ...raw, ...override };
+  }
+  return raw;
+}
 
 /** 音符头：接近圆的饱满椭圆（长轴 ≈ 1.37 × 短轴）。`r` = 该字形自己的头径倍率 */
 function drawNoteHead(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, r = 1): void {
@@ -156,8 +198,11 @@ export function drawOpeningDecor(
   h: number,
   bandY: number,
   avoid: { x: number; y: number; w: number; h: number },
+  spacing: DecorSpacing = 'middle',
 ): void {
-  for (const p of DECOR_PAIRS) {
+  DECOR_PAIRS.forEach((_raw, i) => {
+    // 只改 x/y 间距；绘制层级不变（装饰仍在白条 / 封面之下）
+    const p = decorPairAt(i, spacing);
     const sN = decorSize(p.kind, p.x, h);
     const e = GLYPH_EXTENT[p.kind];
     const noteLeft = p.x * w;
@@ -188,5 +233,5 @@ export function drawOpeningDecor(
       drawDecorShape(ctx, it.kind, it.size);
       ctx.restore();
     }
-  }
+  });
 }

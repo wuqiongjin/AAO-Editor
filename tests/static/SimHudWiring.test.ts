@@ -23,7 +23,7 @@ describe('51 · 判定字画在仿真场帧里（预览 / 导出同一份）', (
     expect(field).toMatch(/if \(layers\?\.hud !== false && showGameUi\) \{/);
     // 票 76：顶栏多一个整层 alpha 倍率（缺省 1，实时回放不走淡入淡出）
     expect(field).toMatch(
-      /drawTopBar\(ctx, metrics, chart, seconds, input\.assets\.hud, autoMode,\s*clamp01\(layers\?\.hudAlpha \?\? 1\)\)/,
+      /drawTopBar\(ctx, metrics, chart, seconds, input\.assets\.hud, autoMode,\s*clamp01\(layers\?\.hudAlpha \?\? 1\), seconds, layers\?\.lifeGauge\)/,
     );
     expect(field).toMatch(/hudAlpha\?: number/);
     expect(field).toMatch(/export function drawSimHudLayer\(/);
@@ -207,6 +207,19 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     expect(field).toMatch(/w0 \+ left \+ right, dh/);
   });
 
+  it('2026-11-22 · 半透明整层走离屏合成（接缝重叠只合成一次，成片淡入段不再有白线）', () => {
+    const bar = field.slice(field.indexOf('function drawTopBar('), field.indexOf('function drawTopBarParts('));
+    // alpha = 1（实时回放常态 / 导出常驻段）仍是直画：不多开画布、不多一次合成
+    expect(bar).toMatch(/if \(layerAlpha >= 0\.999\) \{\s*drawTopBarParts\(ctx,/);
+    // 半透明才开层：层内 alpha 恒 1，整层倍率只在贴回时用一次
+    expect(bar).toMatch(/drawTopBarParts\(g, m, hud, s, flowSeconds, score, inc, ages, 1,/);
+    expect(bar).toMatch(/ctx\.globalAlpha = layerAlpha;\s*ctx\.drawImage\(layer\.canvas, layer\.ox, layer\.oy\)/);
+    // 层与目标对齐到设备像素栅格（含 dpr / 场地原点）
+    expect(field).toMatch(/g\.setTransform\(layer\.sx, 0, 0, layer\.sy, -layer\.ox, -layer\.oy\)/);
+    // 兜底：没有离屏画布（Node）仍按旧法画，不抛错
+    expect(bar).toMatch(/if \(!layer\) \{/);
+  });
+
   it('验收修正 · 0 分时分数条必须是空槽（不留左端底珠、不叠星点）', () => {
     expect(field).toMatch(/const fillW = frac <= 0 \? 0 : Math\.max\(band\.h \* 1\.7, band\.w \* frac\)/);
     expect(field).toMatch(/if \(hud\.rhythmGameUI && fillW > 0\)/);
@@ -224,7 +237,9 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     // life-bar.png 的空槽自带 4~5 素材 px 深色框；填充必须内缩才看得见
     for (const src of [hud, protoHud]) expect(src).toMatch(/lifeGaugeInset: 4/);
     expect(field).toMatch(/SIM_HUD\.lifeGaugeInset/);
-    expect(field).toMatch(/ctx\.fillRect\(ix, iy, iw, ih\)/);
+    // 填充已收进 paintLifeGauge（rect 由 lifeGaugeRect 内缩），不再铺满 bbox
+    expect(field).toMatch(/const \{ x, y, w, h, radius \} = rect;/);
+    expect(field).toMatch(/ctx\.fillRect\(x, y, w, h\)/);
     expect(field).not.toMatch(/ctx\.fillRect\(gx, gy, gw, gh\)/);
     expect(protoHud).toMatch(/ctx\.fillRect\(ix, iy, iw \* ratio, ih\)/);
     expect(protoScenes).toMatch(/k: 'lifeGaugeInset'/);
@@ -253,7 +268,8 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     expect(protoScenes).not.toMatch(/function plusBurstsAt|k: 'plusMaxCount'/);
     // 用户明确要保留的观感旋钮：底亮度 / 位移 / 逐条错开 / 密集演示；
     // 2026-11-14 定案：冲刺占比 + 淡出位移（右边的缓移过程即淡出），生产与原型同名同值；
-    // 同日第三版快照把 dur .4→.5 / dash .18→.2 / Y 120→119 / DX .34→.37 定为新缺省。
+    // 同日第三版快照把 dur .4→.5 / dash .18→.2 / DX .34→.37 定为新缺省；
+    // 2026-11-22 用户把 Y 119→111（与整组顶栏一起上移 8）。
     for (const src of [hud, protoHud]) {
       expect(src).toMatch(/plusBaseAlpha: 0\.85/);
       expect(src).toMatch(/plusDashFrac: 0\.2/);
@@ -261,7 +277,7 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
       expect(src).toMatch(/plusDur: 0\.5/);
       expect(src).toMatch(/plusX: 0\.45/);
       expect(src).toMatch(/plusDX: 0\.37/);
-      expect(src).toMatch(/plusY: 119/);
+      expect(src).toMatch(/plusY: 111/);
       expect(src).toMatch(/plusFont: 36/);
       expect(src).toMatch(/plusRise: 0/);
       expect(src).toMatch(/plusSpreadX: 0/);
@@ -279,6 +295,16 @@ describe('72 · 官方 HUD 顶栏（原型定稿参数 / 官方切图 / 归一�
     expect(protoScenes).toMatch(/k: 'plusDashFrac'/);
     expect(protoScenes).toMatch(/k: 'plusDriftDX'/);
     expect(protoScenes).toMatch(/k: 'plusSpreadX'/);
+  });
+
+  it('2026-11-22 · 顶栏五项 Y 在生产 / 原型同名同值（整组上移 8）', () => {
+    for (const src of [hud, protoHud]) {
+      expect(src).toMatch(/boxY: 30/);
+      expect(src).toMatch(/lifeY: 30/);
+      expect(src).toMatch(/pauseY: 30/);
+      expect(src).toMatch(/autoY: 142/);
+      expect(src).toMatch(/plusY: 111/);
+    }
   });
 
   it('2026-11-14 · 结算不再叠两层：原型只走生产一帧，补齐 score 并把旋钮折进 ENDING_SPEC', () => {
