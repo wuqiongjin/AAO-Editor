@@ -135,6 +135,7 @@ function initScratch(gl: WebGL2RenderingContext, canvas: HTMLCanvasElement) {
   const lut = gl.createTexture();
   const vertices = gl.createBuffer();
   if (!lut || !vertices) throw new Error('Unable to allocate band buffers');
+  gl.useProgram(material);
   gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
   for (const [index, count, offset] of [[0, 2, 0], [1, 3, 8], [2, 1, 20], [3, 4, 24]]) {
     gl.enableVertexAttribArray(index);
@@ -156,6 +157,7 @@ function initScratch(gl: WebGL2RenderingContext, canvas: HTMLCanvasElement) {
     data: new Float32Array(4096),
     width: 0,
     height: 0,
+    lastOpacity: Number.NaN,
     skins: null as readonly SimBandRasterMaterial[] | null,
   };
 }
@@ -180,7 +182,7 @@ function drawGlBands(
   const { a: sx, d: sy, e: dx, f: dy } = ctx.getTransform();
   const w = Math.max(1, Math.round(metrics.w * sx));
   const h = Math.max(1, Math.round(metrics.h * sy));
-  const { canvas, gl, material, lut, vertices } = scratch;
+  const { canvas, gl } = scratch;
   if (gl.isContextLost()) throw new Error('Band WebGL context lost');
   if (scratch.width !== w || scratch.height !== h) {
     if (canvas.width !== w) canvas.width = w;
@@ -190,9 +192,9 @@ function drawGlBands(
     }
     scratch.width = w;
     scratch.height = h;
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(scratch.size, w, h);
   }
-  gl.useProgram(material);
-  gl.bindTexture(gl.TEXTURE_2D, lut);
   if (scratch.skins?.[0] !== normal || scratch.skins?.[1] !== sp) {
     const values = new Float32Array(1025 * 6);
     values.set(normal.cross, 0);
@@ -210,6 +212,7 @@ function drawGlBands(
   let size = 0;
   const bandScratch = scratch;
   let clipStart = 0, clipEnd = 0, centerStart = 0, centerEnd = 0;
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
   function vertex(x: number, y: number, center: number, half: number, phase: number, skin: number) {
     if (size + FLOATS_PER_VERTEX > bandScratch.data.length) {
       const enlarged = new Float32Array(bandScratch.data.length * 2);
@@ -287,6 +290,10 @@ function drawGlBands(
           leftA = leftB = Math.min((a.x - a.half) * sx, (b.x - b.half) * sx) - .5;
           rightA = rightB = Math.max((a.x + a.half) * sx, (b.x + b.half) * sx) + .5;
         }
+        left = Math.min(left, leftA, leftB);
+        right = Math.max(right, rightA, rightB);
+        top = Math.min(top, ay);
+        bottom = Math.max(bottom, by);
         vertex(leftA, ay, ax, ah, au, skin);
         vertex(rightA, ay, ax, ah, au, skin);
         vertex(leftB, by, bx, bh, bu, skin);
@@ -297,11 +304,18 @@ function drawGlBands(
     }
   }
   if (size === 0) return;
-  gl.viewport(0, 0, w, h);
+  // Keep the WebGL pixel grid, but copy only the potentially painted area to the stage.
+  const x = Math.max(0, Math.floor(left) - 2);
+  const y = Math.max(0, Math.floor(top) - 2);
+  const width = Math.min(w, Math.ceil(right) + 2) - x;
+  const height = Math.min(h, Math.ceil(bottom) + 2) - y;
+  if (width <= 0 || height <= 0) return;
+  // Rewriting unchanged uniforms makes ANGLE upload shader constants again on D3D11.
+  if (scratch.lastOpacity !== opacity) {
+    gl.uniform1f(scratch.opacity, opacity);
+    scratch.lastOpacity = opacity;
+  }
   gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.uniform2f(scratch.size, w, h);
-  gl.uniform1f(scratch.opacity, opacity);
-  gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
   gl.bufferData(gl.ARRAY_BUFFER, scratch.data.subarray(0, size), gl.STREAM_DRAW);
   gl.drawArrays(gl.TRIANGLES, 0, size / FLOATS_PER_VERTEX);
 
@@ -310,7 +324,9 @@ function drawGlBands(
   ctx.globalAlpha = 1;
   ctx.imageSmoothingEnabled = false;
   try {
-    ctx.drawImage(canvas, dx, dy, metrics.w * sx, metrics.h * sy);
+    const scaleX = metrics.w * sx / w;
+    const scaleY = metrics.h * sy / h;
+    ctx.drawImage(canvas, x, y, width, height, dx + x * scaleX, dy + y * scaleY, width * scaleX, height * scaleY);
   } finally {
     ctx.restore();
   }

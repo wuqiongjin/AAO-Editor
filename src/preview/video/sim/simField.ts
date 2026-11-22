@@ -1563,7 +1563,7 @@ function drawPlus(
   ctx.restore();
 }
 
-/** SS+ 星点层：官方四芒星，大小不一、错相位、左→右循环 */
+/** SS+ 星点层：在分数条现有裁剪内叠加四芒星，大小不一、错相位、左→右循环。 */
 function drawStarFlow(
   ctx: CanvasRenderingContext2D,
   fever: HTMLImageElement,
@@ -1578,9 +1578,6 @@ function drawStarFlow(
   const box = HUD_SPRITES.star;
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  roundRectPath(ctx, band.x, band.y, Math.max(fillW, band.h * 2), band.h,
-    Math.max(0, Math.min(0.5, SIM_HUD.bandRadius)) * band.h);
-  ctx.clip();
   for (let i = 0; i < n; i++) {
     const speed = 0.22 + (((i * 37) % 11) / 11) * 0.26;
     const phase = (flowSeconds * speed * SIM_HUD.starSpeed + i / n) % 1;

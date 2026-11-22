@@ -1356,6 +1356,9 @@ describe('drawSimFrameAt · 打歌 HUD 顶栏（票 71 / 72）', () => {
       .map(([, a]) => a as unknown[]).find((a) => a.length === 9 && a[2] === 393);
     expect(bar?.slice(1, 5)).toEqual([1, 393, 661, 22]);
     expect(calls.filter(([k, a]) => k === 'drawImage' && (a as unknown[])[0] === hud.fever)).toHaveLength(12);
+    const boxEnd = calls.findLastIndex(([k, a]) => k === 'drawImage' && a[0] === hud.scoreBar);
+    const firstStar = calls.findIndex(([k, a]) => k === 'drawImage' && a[0] === hud.fever);
+    expect(calls.slice(boxEnd + 1, firstStar).filter(([k]) => k === 'clip')).toHaveLength(1);
   });
 
   it('票 76 回修 · 内容秒冻结时 SS+ 星点仍按独立相位时钟流动，直到分数条完全消失', () => {
