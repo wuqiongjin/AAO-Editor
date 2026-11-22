@@ -1,9 +1,9 @@
 // 统一 versioned settings JSON（ADR-0003 §6 / ADR-0004 §7）：
 // 合并「快捷键 + 主题 + 布局 + 音频键音」为一份带 schemaVersion 的设置对象。
-// 单一 localStorage 键 bangdream.settings.v1，冲突/schema 损坏时回退默认再按字段合并。
+// 单一 localStorage 键 aao.settings.v1，冲突/schema 损坏时回退默认再按字段合并。
 //
 // 迁移策略：
-// - 旧 bangdream.shortcuts.v1 仍可读（一次性回填到新 settings.shortcuts），不再写入。
+// - 旧 aao.shortcuts.v1 仍可读（一次性回填到新 settings.shortcuts），不再写入。
 // - 旧版 schema（仅有 {schemaVersion, audio.keySet}）已包含 audio 段，load 时按字段合并。
 import { FUNCTIONS, getDefaultConfig, loadConfig, type ShortcutConfig, type ShortcutMasks } from './ShortcutConfig';
 import { normalizeProjectSortKey, type ProjectSortKey } from '../project/projectSort';
