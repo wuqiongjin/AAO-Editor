@@ -128,10 +128,8 @@ export default function PreviewVideoStage({
   const fieldRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playbackRef = useRef<SimPlayback | null>(null);
-  // Issue 80 试用构建启用 GPU 带体，预热与播放复用同一组 GPU 资源。
-  const gpuBands = useMemo(() => (
-    import.meta.env.VITE_PREVIEW_GPU_BANDS === '1' ? createSimGpuBandRenderer() : null
-  ), []);
+  // Issue 80：实时预览默认 GPU 全分辨率带体；WebGL 不可用或丢失时该渲染器返回 false，simField 回 CPU。
+  const gpuBands = useMemo(() => createSimGpuBandRenderer(), []);
   useEffect(() => () => gpuBands?.dispose(), [gpuBands]);
   const spriteIconRef = useRef<CanvasSpriteIcon | null>(null);
   if (spriteIconRef.current === null) spriteIconRef.current = new CanvasSpriteIcon();
