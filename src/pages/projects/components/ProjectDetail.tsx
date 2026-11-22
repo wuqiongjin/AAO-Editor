@@ -10,7 +10,8 @@ import {
   toggleChartCompleted,
   updateChartInfo,
 } from '../../../project/projectCatalog';
-import { chartStatus } from '../../../project/workspaceProject';
+import { chartStatus, isProjectAudioLocked } from '../../../project/workspaceProject';
+import { isChartReadonly } from '../../../project/chartReadonlyGate';
 import {
   displayProjectName,
   untitledProjectLabel,
@@ -56,7 +57,8 @@ export function ProjectDetail({
   mutate: (id: string, fn: (p: ChartProject) => ChartProject | null) => Promise<void>;
 }) {
   const uploads = sel.charts.filter((c) => c.upload);
-  const locked = uploads.length > 0;
+  const locked = isProjectAudioLocked(sel);
+  const pending = sel.charts.some((chart) => chart.pendingPublish);
   // relTime 的 now 走共享 ticker（issue 36）：30s 一跳，三处「N 分钟前」随时间自己走
   const now = useNow();
   // 发布入口的能力灰化（票 41）：写能力被挡住时按钮灰掉，why 挂在按钮 title 上，
@@ -151,7 +153,7 @@ export function ProjectDetail({
               <Play size={14} />{t('projects.openInWorkspace')}
             </button>
             <button type="button" className="pp-btn" onClick={() => onEdit(sel)}><Pencil size={14} />{t('projects.editInfo')}</button>
-            <button type="button" className="pp-icon-btn is-danger" title={t('projects.delete')} onClick={() => onDelete(sel)}><Trash2 size={15} /></button>
+            <button type="button" className="pp-icon-btn is-danger" disabled={pending} title={t('projects.delete')} onClick={() => onDelete(sel)}><Trash2 size={15} /></button>
           </div>
         </header>
         <section>
@@ -159,11 +161,12 @@ export function ProjectDetail({
           <div className="pc-charts">
             {sel.charts.map((c) => {
               const up = chartStatus(c) === 'uploaded';
+              const readonly = isChartReadonly(c);
               return (
                 <div key={c.id} className="pc-chart">
                   <DiffLevelBadge
                     chart={c}
-                    uploaded={up}
+                    uploaded={readonly}
                     onCommit={(patch) => void mutate(sel.id, (p) => updateChartInfo(p, c.id, {
                       title: c.title, diff: patch.diff, level: patch.level,
                     }, Date.now()))}
@@ -198,10 +201,14 @@ export function ProjectDetail({
                       <button
                         type="button"
                         className="pp-btn pp-btn--sm"
-                        disabled={verifying || (!canPublish && !signedOut)}
-                        aria-disabled={signedOut || undefined}
-                        title={verifying ? t('community.account.verifying') : (capabilityBlock != null ? capabilityBlockLabel(capabilityBlock) : undefined)}
+                        disabled={!c.pendingPublish && (verifying || (!canPublish && !signedOut))}
+                        aria-disabled={(!c.pendingPublish && signedOut) || undefined}
+                        title={c.pendingPublish ? undefined : verifying ? t('community.account.verifying') : (capabilityBlock != null ? capabilityBlockLabel(capabilityBlock) : undefined)}
                         onClick={() => {
+                          if (c.pendingPublish) {
+                            onPublishChart(c);
+                            return;
+                          }
                           if (verifying) return;
                           if (signedOut) {
                             setSignInForChart(c);
@@ -210,15 +217,17 @@ export function ProjectDetail({
                           onPublishChart(c);
                         }}
                       >
-                        <Upload size={12} />{t(up ? 'projects.publish.update' : 'projects.publish.action')}
+                        <Upload size={12} />{c.pendingPublish
+                          ? t('projects.publish.recovery.check')
+                          : t(up ? 'projects.publish.update' : 'projects.publish.action')}
                       </button>
                     )}
                     <button
                       type="button"
                       className="pp-icon-btn"
-                      disabled={up}
-                      title={up ? t('projects.editChartDisabled') : t('projects.editChart')}
-                      onClick={() => { if (!up) onChartForm({ project: sel, chart: c }); }}
+                      disabled={readonly}
+                      title={c.pendingPublish ? t('projects.publish.recovery.pending') : up ? t('projects.editChartDisabled') : t('projects.editChart')}
+                      onClick={() => { if (!readonly) onChartForm({ project: sel, chart: c }); }}
                     >
                       <Pencil size={14} />
                     </button>
@@ -233,6 +242,7 @@ export function ProjectDetail({
                     <button
                       type="button"
                       className="pp-icon-btn is-danger"
+                      disabled={c.pendingPublish}
                       title={t('projects.deleteChart')}
                       onClick={() => onDeleteChart({ project: sel, chart: c })}
                     >

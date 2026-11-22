@@ -271,6 +271,33 @@ describe('deleteChartFromProject · 至少一张谱面', () => {
     if (!result.ok) return;
     expect(result.project.charts.map((c) => c.id)).toEqual(['cHd1']);
   });
+
+  it('待确认谱面不能删，复制会去掉待确认状态', () => {
+    const src = createUnnamedProject({ id: 'pSong1', chartId: 'cEx1', now: 1 });
+    const added = addChartToProject(src, { title: null, diff: 2, level: null, codeText: '' }, { chartId: 'cHd1', now: 2 });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    const pending = {
+      attemptId: 'attempt-58',
+      at: 1,
+      username: 'author',
+      song: { type: 'bandori' as const, id: 413 },
+      chartDigest: 'digest',
+      tags: [],
+    };
+    const locked = {
+      ...added.project,
+      charts: added.project.charts.map((chart) => (
+        chart.id === 'cEx1' ? { ...chart, pendingPublish: pending } : chart
+      )),
+    };
+    expect(deleteChartFromProject(locked, 'cEx1')).toEqual({ ok: false, reason: 'pending' });
+    const copy = duplicateChartInProject(locked, 'cEx1', { chartId: 'cCopy', now: 3 }, untitled);
+    expect(copy?.charts.find((chart) => chart.id === 'cEx1')?.pendingPublish).toEqual(pending);
+    const duplicated = copy?.charts.find((chart) => chart.id === 'cCopy');
+    expect(duplicated?.upload).toBeNull();
+    expect(duplicated?.pendingPublish).toBeUndefined();
+  });
 });
 
 describe('duplicateProject · 照搬工程、谱面状态不带', () => {
@@ -365,6 +392,24 @@ describe('票 42 Q3 · 发布描述草稿持久化', () => {
     // 重复调用被拒（只写一次）
     const second = recordChartUpload(uploaded!, 'c1', { postId: 99999, at: 300 });
     expect(second).toBeNull();
+  });
+
+  it('recordChartUpload：待确认谱面只接受同一 attemptId，补记后清掉 pending', () => {
+    const base = createUnnamedProject({ id: 'p1', chartId: 'c1', now: 100 });
+    const pending = {
+      attemptId: 'attempt-58',
+      at: 100,
+      username: 'author',
+      song: { type: 'bandori' as const, id: 413 },
+      chartDigest: 'digest',
+      tags: [],
+    };
+    const waiting = { ...base, charts: [{ ...base.charts[0], pendingPublish: pending }] };
+    expect(recordChartUpload(waiting, 'c1', { postId: 71, at: 200 })).toBeNull();
+    expect(recordChartUpload(waiting, 'c1', { postId: 71, at: 200 }, 'other')).toBeNull();
+    const uploaded = recordChartUpload(waiting, 'c1', { postId: 71, at: 200 }, 'attempt-58');
+    expect(uploaded?.charts[0]).toMatchObject({ upload: { postId: 71, at: 200 } });
+    expect(uploaded?.charts[0]).not.toHaveProperty('pendingPublish');
   });
 });
 

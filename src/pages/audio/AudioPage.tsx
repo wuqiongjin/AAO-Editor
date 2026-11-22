@@ -208,7 +208,7 @@ function AudioSection({ active }: { active: boolean }) {
           title={lockSummary.fullList ?? lockSummary.text ?? undefined}
         >
           <Lock size={15} />
-          <span>{t('projects.audioLockedNamed')}</span>
+          <span>{t(view.lockedBy.some((chart) => chart.pendingPublish) ? 'projects.audioLockedPending' : 'projects.audioLockedNamed')}</span>
         </div>
       )}
 

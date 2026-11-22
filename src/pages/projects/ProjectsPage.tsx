@@ -153,6 +153,10 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
   // 删除工程本体：确认那一步在弹窗里，走到这里就是真的删
   const deleteProject = useCallback(async (p: ProjectSummary) => {
     await flushPersist();
+    if ((await store.get(p.id))?.charts.some((chart) => chart.pendingPublish)) {
+      showToast(t('projects.publish.recovery.pending'), 'warn');
+      return;
+    }
     const wasCurrent = projectId === p.id;
     await store.delete(p.id);
     if (wasCurrent) reset();
@@ -164,7 +168,7 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
     await mutate(project.id, (p) => {
       const result = deleteChartFromProject(p, chart.id);
       if (!result.ok) {
-        showToast(t('projects.deleteLastChart'), 'warn');
+        showToast(t(result.reason === 'pending' ? 'projects.publish.recovery.pending' : 'projects.deleteLastChart'), 'warn');
         return null;
       }
       return result.project;
@@ -420,9 +424,11 @@ export default function ProjectsPage({ active = true }: { active?: boolean }) {
       {/* 发布弹窗（票 11/42）：就地编辑与页面跳转由 publish 收敛 */}
       {publish.target && (
         <PublishDialog
+          key={`${publish.target.project.id}:${publish.target.chart.id}`}
           {...publish.target}
           onClose={publish.close}
           onPublish={publish.run} onEdit={publish.runEdit}
+          onRecover={publish.recover} recovery={publish.recovery}
           onUpdateProject={publish.updateProject}
         />
       )}

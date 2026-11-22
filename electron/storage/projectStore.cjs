@@ -164,6 +164,7 @@ function summarizeChart(chart) {
         level: chart.level ?? null,
         completed: !!chart.completed,
         upload: chart.upload ?? null,
+        ...(chart.pendingPublish ? { pendingPublish: true } : {}),
         lastModified: chart.lastModified,
         noteCount: countChartNotes(chart.notes),
     };

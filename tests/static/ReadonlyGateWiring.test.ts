@@ -64,7 +64,8 @@ describe('chart-projects 06: 只读闸门与音频锁静态装配锁测', () => 
 
   it('useChartProjectPersistence: 已上传谱面与锁定工程防抖落盘防篡改', () => {
     const src = readStripped('src/project/useChartProjectPersistence.ts');
-    expect(src).toMatch(/if \(c\.upload\) return c;/);
+    // 票 58：待确认与已上传同一把闸，防抖落盘不得把只读谱面写回去
+    expect(src).toMatch(/if \(isChartReadonly\(c\)\) return c;/);
     expect(src).toMatch(/isProjectAudioLocked\(prev\)/);
   });
 

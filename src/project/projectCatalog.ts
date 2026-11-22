@@ -93,7 +93,7 @@ export function duplicateProject(
   /** 现有工程显示名：重名时递增「（副本 2）…」（与复制谱面同口径，issue 19 #6） */
   taken: readonly string[] = [],
 ): ChartProject {
-  const charts = src.charts.map((chart, i) => ({
+  const charts = src.charts.map(({ pendingPublish: _pendingPublish, ...chart }, i) => ({
     ...chart,
     id: ids.chartIds[i] ?? chart.id,
     notes: cloneJson(chart.notes),
@@ -267,7 +267,7 @@ export function duplicateChartInProject(
 ): ChartProject | null {
   const index = project.charts.findIndex((c) => c.id === chartId);
   if (index < 0) return null;
-  const src = project.charts[index];
+  const { pendingPublish: _pendingPublish, ...src } = project.charts[index];
   const taken = project.charts.map((c) => chartEffectiveTitle(project.name, c.title, untitled));
   const copy: ProjectChart = {
     ...src,
@@ -287,9 +287,11 @@ export function duplicateChartInProject(
 export function deleteChartFromProject(
   project: ChartProject,
   chartId: string,
-): { ok: true; project: ChartProject } | { ok: false; reason: 'last' | 'missing' } {
+): { ok: true; project: ChartProject } | { ok: false; reason: 'last' | 'missing' | 'pending' } {
   if (project.charts.length <= 1) return { ok: false, reason: 'last' };
-  if (!project.charts.some((c) => c.id === chartId)) return { ok: false, reason: 'missing' };
+  const chart = project.charts.find((c) => c.id === chartId);
+  if (!chart) return { ok: false, reason: 'missing' };
+  if (chart.pendingPublish) return { ok: false, reason: 'pending' };
   return { ok: true, project: { ...project, charts: project.charts.filter((c) => c.id !== chartId) } };
 }
 
@@ -297,7 +299,7 @@ export function toggleChartCompleted(project: ChartProject, chartId: string, now
   return {
     ...project,
     charts: project.charts.map((c) => (
-      c.id === chartId && !c.upload
+      c.id === chartId && !c.upload && !c.pendingPublish
         ? { ...c, completed: !c.completed, lastModified: now }
         : c
     )),
@@ -314,12 +316,14 @@ export function recordChartUpload(
   project: ChartProject,
   chartId: string,
   record: ChartUploadRecord,
+  attemptId?: string,
 ): ChartProject | null {
   const target = project.charts.find((c) => c.id === chartId);
-  if (!target || target.upload) return null;
+  if (!target || target.upload || target.pendingPublish?.attemptId !== attemptId) return null;
+  const { pendingPublish: _pendingPublish, ...chart } = target;
   return {
     ...project,
-    charts: project.charts.map((c) => (c.id === chartId ? { ...c, upload: record } : c)),
+    charts: project.charts.map((c) => (c.id === chartId ? { ...chart, upload: record } : c)),
   };
 }
 
@@ -346,7 +350,7 @@ export function updateChartTags(
   const next = normalizeChartTags(tags);
   return {
     ...project,
-    charts: project.charts.map((c) => (c.id === chartId && !c.upload ? { ...c, tags: next } : c)),
+    charts: project.charts.map((c) => (c.id === chartId && !c.upload && !c.pendingPublish ? { ...c, tags: next } : c)),
   };
 }
 
@@ -394,7 +398,7 @@ export function updateChartInfo(
   return {
     ...project,
     charts: project.charts.map((c) => {
-      if (c.id !== chartId || c.upload) return c;
+      if (c.id !== chartId || c.upload || c.pendingPublish) return c;
       const unchanged = c.title === cleanTitle && c.diff === patch.diff && c.level === patch.level;
       return {
         ...c,

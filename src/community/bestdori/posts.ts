@@ -39,7 +39,7 @@ import {
   postDetailUrl,
   postListUrl,
 } from './endpoints';
-import { toPostDetail, toPostPage, type PostCandidate } from './mapping';
+import { toPostDetail, toPostPage, type PostCandidate, type PostDetail } from './mapping';
 
 /** 单页上限（实测 10..50，按 50 拉：上拉加载少打几次请求） */
 export const POST_PAGE_LIMIT = 50;
@@ -352,13 +352,15 @@ export async function fetchPostDetail(
   transport: CommunityTransport,
   postId: number,
   signal?: AbortSignal,
-): Promise<{ post: PostCandidate; chartCodeText: string }> {
+  fresh = false,
+): Promise<PostDetail> {
   const raw = await withRetry(
     () => transport.requestJson({
       url: postDetailUrl(postId),
       method: 'GET',
       headers: bestdoriHeaders(),
       timeoutMs: BESTDORI_JSON_TIMEOUT_MS,
+      ...(fresh ? { revalidate: true } : {}),
       ...(signal ? { signal } : {}),
     }),
     { policy: BESTDORI_RETRY_POLICY, signal },

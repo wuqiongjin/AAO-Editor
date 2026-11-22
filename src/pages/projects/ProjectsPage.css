@@ -51,12 +51,14 @@
 .pp-cover--fluid { aspect-ratio: 1 / 1; }
 
 .pp-st--uploaded { color: var(--accent); }
+.pp-st--pending { color: var(--warning-text); }
 .pp-st--completed { color: var(--success); }
 .pp-st--unfinished { color: var(--text-subtle); }
 
 .pp-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--radius-full); font-size: var(--text-2xs); white-space: nowrap; }
 .pp-badge--unfinished { background: var(--bg-inset); color: var(--text-muted); }
 .pp-badge--completed { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
+.pp-badge--pending { background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning-text); }
 .pp-badge--uploaded { background: var(--accent-soft); color: var(--accent-text); }
 /* 徽标即控件（票 41）：详情页谱面行状态徽标点开就地状态菜单。
    手型 / hover 口径照同行 `.pc-chart__diff`（难度徽标就地编辑），focus-visible 补键盘可达。 */
@@ -978,6 +980,12 @@
   color: var(--danger-text);
   font-size: var(--text-xs);
   line-height: 1.5;
+}
+.pp-publish__alert--warn {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning-text);
 }
 .pp-publish__alert > svg { flex-shrink: 0; margin-top: 2px; }
 .pp-publish__alert__body { flex: 1; min-width: 0; }

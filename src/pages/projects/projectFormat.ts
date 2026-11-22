@@ -39,6 +39,7 @@ export function projectTimeTag(key: ProjectSortKey): string {
 }
 
 export function statusLabel(chart: ChartStatusFields): string {
+  if (chart.pendingPublish) return t('projects.publish.recovery.pending');
   return t(`projects.status.${chartStatus(chart)}` as 'projects.status.unfinished');
 }
 

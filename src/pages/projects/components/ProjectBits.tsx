@@ -77,8 +77,8 @@ export function StatusBadge({ chart, interactive = false, onSelect }: {
       {statusLabel(chart)}
     </>
   );
-  if (!interactive || s === 'uploaded') {
-    return <span className={`pp-badge pp-badge--${s}`}>{badge}</span>;
+  if (!interactive || s === 'uploaded' || chart.pendingPublish) {
+    return <span className={`pp-badge pp-badge--${chart.pendingPublish ? 'pending' : s}`}>{badge}</span>;
   }
   return (
     <Menu placement="down" align="start" panelClass="pp-menu__panel--status" trigger={(open) => (

@@ -120,7 +120,12 @@ function makeInput(overrides: Partial<PublishInput> = {}): PublishInput {
 async function run(
   routes: Record<string, Route>,
   input: PublishInput,
-  options: { accept?: (n: number) => boolean; now?: number; username?: string } = {},
+  options: {
+    accept?: (n: number) => boolean;
+    now?: number;
+    username?: string;
+    beforePost?: (submission: { attemptId: string }) => Promise<boolean>;
+  } = {},
 ): Promise<{ outcome: PublishOutcome; requests: CommunityRequest[]; writes: { postId: number; at: number; username?: string }[] }> {
   const transport = fakeTransport(routes);
   const recorder = fakeRecorder(options.accept);
@@ -132,6 +137,7 @@ async function run(
       now: () => options.now ?? 1_700_000_000_000,
       sleep: async (ms) => { sleeps.push(ms); },
       username: options.username,
+      beforePost: options.beforePost,
     },
     input,
   );
@@ -460,10 +466,25 @@ describe('票 11 · 发帖与上传记录', () => {
     expect(writes).toEqual([]);
   });
 
-  it('发帖响应缺 id：当平台拒绝，不写记录', async () => {
-    const { outcome, writes } = await run({ [POST_URL]: { result: true } }, makeInput());
-    expect(outcome).toEqual({ ok: false, failure: 'rejected' });
+  it.each([
+    ['缺 ID', { result: true }],
+    ['UNKNOWN', platformError('invalid-response', 'UNKNOWN')],
+    ['超时', platformError('timeout')],
+  ])('发帖回包%s：待确认，无直接重发或本地记账', async (_label, response) => {
+    const { outcome, requests, writes } = await run({ [POST_URL]: response }, makeInput());
+    expect(outcome).toEqual({ ok: false, failure: 'pending-confirmation' });
+    expect(requests.filter((request) => request.url === POST_URL)).toHaveLength(1);
     expect(writes).toEqual([]);
+  });
+
+  it('发帖前待确认状态写不进去时不发送 POST /api/post', async () => {
+    const { outcome, requests } = await run(
+      { [POST_URL]: { result: true, id: 1 } },
+      makeInput(),
+      { beforePost: async () => false },
+    );
+    expect(outcome).toEqual({ ok: false, failure: 'local' });
+    expect(requests.filter((request) => request.url === POST_URL)).toEqual([]);
   });
 });
 
@@ -492,9 +513,9 @@ describe('票 11 · 失败立档（界面只认这个，不认平台码）', () 
     expect(writes).toEqual([]);
   });
 
-  it('离线 → offline', async () => {
+  it('发帖阶段离线 → 待确认', async () => {
     const { outcome } = await run({ [POST_URL]: platformError('offline') }, makeInput());
-    expect(outcome).toEqual({ ok: false, failure: 'offline' });
+    expect(outcome).toEqual({ ok: false, failure: 'pending-confirmation' });
   });
 });
 
@@ -626,6 +647,7 @@ describe('issue 49 · 谱面域预检（width 值域，上传前硬拦）', () =
     expect(payload!.module).toBe('community');
     // meta 键锁死 = 多余键（比如请求体原文）一进来这条就红：只记统计不记内容
     expect(payload!.meta).toEqual({
+      attemptId: expect.any(String),
       bytes: expect.any(Number),
       chartBytes: expect.any(Number),
       objects: { BPM: 1, Single: 1, Directional: 2, Slide: 1 },
@@ -635,6 +657,7 @@ describe('issue 49 · 谱面域预检（width 值域，上传前硬拦）', () =
       level: 24,
       // 'line1\nline2' → text + br + text
       contentBlocks: 3,
+      tags: 0,
     });
   });
 

@@ -73,6 +73,7 @@ export interface ChartSummaryWire {
   level: number | null;
   completed: boolean;
   upload: ChartProject['charts'][number]['upload'];
+  pendingPublish?: true;
   lastModified: number;
   noteCount: number;
 }
@@ -319,6 +320,8 @@ export type ProjectMutationResult =
   | { status: 'missing' }
   | { status: 'cancelled' };
 
+const mutationQueues = new WeakMap<ProjectMutationStore, Map<string, Promise<void>>>();
+
 /**
  * 整记录读-改-写**唯一**入口：`flush → get → fn → save → notify`。
  *
@@ -332,12 +335,27 @@ export async function mutateProject(
   projectId: string,
   fn: (project: ChartProject) => ChartProject | null | Promise<ChartProject | null>,
 ): Promise<ProjectMutationResult> {
-  await deps.flush?.();
-  const loaded = await deps.store.get(projectId);
-  if (!loaded) return { status: 'missing' };
-  const next = await fn(loaded);
-  if (!next) return { status: 'cancelled' };
-  await deps.store.save(next);
-  deps.notify?.();
-  return { status: 'saved', project: next };
+  let queue = mutationQueues.get(deps.store);
+  if (!queue) {
+    queue = new Map();
+    mutationQueues.set(deps.store, queue);
+  }
+  const previous = queue.get(projectId) ?? Promise.resolve();
+  const mutation = previous.then(async (): Promise<ProjectMutationResult> => {
+    await deps.flush?.();
+    const loaded = await deps.store.get(projectId);
+    if (!loaded) return { status: 'missing' };
+    const next = await fn(loaded);
+    if (!next) return { status: 'cancelled' };
+    await deps.store.save(next);
+    deps.notify?.();
+    return { status: 'saved', project: next };
+  });
+  const tail = mutation.then(() => {}, () => {});
+  queue.set(projectId, tail);
+  try {
+    return await mutation;
+  } finally {
+    if (queue.get(projectId) === tail) queue.delete(projectId);
+  }
 }

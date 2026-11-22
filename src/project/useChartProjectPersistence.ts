@@ -7,6 +7,7 @@ import { ChartProjectStore, type ChartProject, type ProjectChart } from './Chart
 import { ChartProjectPersistenceMerger } from './ChartProjectPersistenceMerger';
 import { chartNotesModified, stampChartModified } from './chartModifiedStamp';
 import { isProjectAudioLocked, pickCurrentChart } from './workspaceProject';
+import { isChartReadonly } from './chartReadonlyGate';
 import { AUDIO_DURATION_MISMATCH_TOLERANCE } from '../audio/projectAudio';
 import type { ChartNote } from '../chart/types';
 import type { ChartCodeFidelity } from '../chart/editing/ChartConverter';
@@ -201,7 +202,7 @@ export function useChartProjectPersistence(opts: UseChartProjectPersistenceOptio
       ? prev.charts.map((c, i) => {
           const isCurrent = hasTarget ? c.id === targetId : i === 0;
           if (!isCurrent) return c;
-          if (c.upload) return c; // 已上传谱面只读：不可被改写
+          if (isChartReadonly(c)) return c;
           // issue 35：lastModified 条件戳——notes / 保真真变才重戳，时长 / 音频 / 切 tab flush 不戳
           return stampChartModified(c, { notes: notesRef.current, fidelity, now });
         })

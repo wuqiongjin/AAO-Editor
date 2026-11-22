@@ -48,6 +48,26 @@ function doc(overrides: Record<string, unknown> = {}) {
 describe('electron/projectStore · 真文件往返', () => {
   afterEach(() => setAppLog(null));
 
+  it('票 58 · 发帖待确认状态写进工程，重新打开时仍能恢复且摘要仅暴露状态', async () => {
+    const root = tmpDir('aao-proj-publish-pending-');
+    try {
+      ensureDataRootLayoutSync(root);
+      const pending = {
+        attemptId: 'attempt-58', username: 'author', at: 1, chartDigest: 'digest',
+        song: { type: 'bandori', id: 413 }, tags: [],
+      };
+      const id = 'pPublish58';
+      await putProject(root, { id, doc: doc({ charts: [{ ...chart, pendingPublish: pending }] }) });
+      expect((await getProject(root, id))?.doc.charts[0].pendingPublish).toEqual(pending);
+      expect((await listProjects(root))[0].charts[0].pendingPublish).toBe(true);
+      await putProject(root, { id, doc: doc({ charts: [{ ...chart, upload: { postId: 71, at: 1 } }] }) });
+      expect((await getProject(root, id))?.doc.charts[0]).not.toHaveProperty('pendingPublish');
+      expect((await listProjects(root))[0].charts[0]).not.toHaveProperty('pendingPublish');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('put/get/list/delete 多工程，封面与音频写成独立 bin', async () => {
     const root = tmpDir('aao-proj-fs-');
     try {

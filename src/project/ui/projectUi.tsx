@@ -1,6 +1,6 @@
 // 工程管理页与工作台共用的轻量 UI 碎片（状态图标、菜单项、展示名）。
 import type { ReactNode } from 'react';
-import { Check, Circle, Upload } from 'lucide-react';
+import { Check, Circle, Clock, Upload } from 'lucide-react';
 import type { ChartDifficulty } from '../ChartProject';
 import { chartEffectiveTitle, DIFF_NAMES, projectDisplayName } from '../projectCatalog';
 import { chartStatus, type ChartStatusFields } from '../workspaceProject';
@@ -80,6 +80,7 @@ export function lockedChartsSummary(
 }
 
 export function ChartStatusIcon({ chart, size = 12 }: { chart: ChartStatusFields; size?: number }) {
+  if (chart.pendingPublish) return <Clock size={size} className="pp-st pp-st--pending" />;
   const s = chartStatus(chart);
   if (s === 'uploaded') return <Upload size={size} className="pp-st pp-st--uploaded" />;
   if (s === 'completed') return <Check size={size} className="pp-st pp-st--completed" />;

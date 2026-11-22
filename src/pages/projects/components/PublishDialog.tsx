@@ -52,6 +52,8 @@ import HelpHint from '../../../ui/HelpHint';
 import { InitialAvatar } from './AccountBar';
 import { formatDuration } from '../projectFormat';
 import { useCommunityCapabilities } from '../communityCapabilities';
+import type { PublishRecoveryResult } from '../usePublishEntry';
+import { PublishAssociateControl, PublishPendingAlert } from './PublishRecoveryPanel';
 import './PublishDialog.css';
 
 /** 缺失字段 → 文案键 */
@@ -98,6 +100,7 @@ const STAGE_KEYS: Record<PublishStage, MessageKey> = {
   cover: 'projects.publish.stage.cover',
   post: 'projects.publish.stage.post',
   record: 'projects.publish.stage.record',
+  check: 'projects.publish.stage.check',
 };
 
 type LoadUploadRefs = (projectId: string) => Promise<ProjectUploadRefs | null>;
@@ -208,6 +211,8 @@ export function PublishDialog(props: {
   chartCode: readonly ChartCodeNote[];
   onClose?: () => void;
   onPublish: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
+  recovery?: PublishRecoveryResult | null;
+  onRecover?: (postId?: number) => Promise<boolean>;
   /** 已发谱面点「更新」：直接 `post/edit`，无二次确认（票 51 Q14） */
   onEdit?: (input: { diff: ChartDifficulty; level: number; tags: PostTextTag[] }) => Promise<EditChartOutcome>;
   loadUploadRefs?: LoadUploadRefs;
@@ -219,6 +224,8 @@ export function PublishDialog(props: {
     chartCode,
     onClose,
     onPublish,
+    recovery = null,
+    onRecover,
     onEdit,
     loadUploadRefs = getProjectUploadRefs,
     onUpdateProject,
@@ -237,6 +244,8 @@ export function PublishDialog(props: {
   const [tagDraft, setTagDraft] = useState('');
   const [editing, setEditing] = useState(false);
   const published = chart.upload != null;
+  const [awaitingOutcome, setAwaitingOutcome] = useState(false);
+  const pending = chart.pendingPublish != null || awaitingOutcome;
 
   const [stage, setStage] = useState<PublishStage | null>(null);
   const [failure, setFailure] = useState<PublishFailure | null>(null);
@@ -248,13 +257,13 @@ export function PublishDialog(props: {
   const custom = project.source.type === 'custom';
 
   useEffect(() => {
-    if (!custom) return;
+    if (!custom || pending || published) return;
     let alive = true;
     void loadUploadRefs(project.id).then((loaded) => {
       if (alive) setRefs(loaded);
     });
     return () => { alive = false; };
-  }, [custom, project.id, loadUploadRefs]);
+  }, [custom, pending, published, project.id, loadUploadRefs]);
 
   const coverUrl = useCoverUrl(project.coverBlob);
   const hasCover = custom ? !!project.coverBlob : true;
@@ -393,12 +402,15 @@ export function PublishDialog(props: {
   const busy = stage !== null || editing;
   const refsPending = custom && refs === undefined;
   const refsFailed = custom && refs === null;
-  const canPublish = !published && !busy && !refsPending && !refsFailed && precheck.ok;
+  const canPublish = !published && !pending && !busy && !refsPending && !refsFailed && precheck.ok;
   const canUpdate = published && !busy && parsedLevel != null;
   // 失败与常驻事实重复（本机读不到）就不叠第二条告警（票 50 #2）
   const failureDuplicatesKnownFact = failure != null && refsFailed && failure === 'local';
 
   const runPublish = async () => {
+    if (!canPublish) return;
+    flushDraftImmediate();
+    flushPendingSaves();
     setFailure(null);
     setChartIssues([]);
     try {
@@ -414,14 +426,30 @@ export function PublishDialog(props: {
         onClose?.();
         return;
       }
-      setFailure(outcome.failure);
-      setChartIssues(outcome.chartIssues ?? []);
+      if (outcome.failure === 'pending-confirmation') {
+        setAwaitingOutcome(true);
+      } else {
+        setFailure(outcome.failure);
+        setChartIssues(outcome.chartIssues ?? []);
+      }
     } catch {
       setStage(null);
       setFailure('unknown');
       setChartIssues([]);
     }
     setConfirming(false);
+  };
+
+  const runRecovery = async (postId?: number) => {
+    if (!onRecover || busy) return;
+    flushDraftImmediate();
+    flushPendingSaves();
+    setStage('check');
+    try {
+      if (await onRecover(postId)) onClose?.();
+    } finally {
+      setStage(null);
+    }
   };
 
   const runEdit = async () => {
@@ -492,8 +520,12 @@ export function PublishDialog(props: {
         onClose={closeDialog}
         footer={(
           <>
+            {!published && onRecover && (
+              <PublishAssociateControl busy={busy} onRecover={(postId) => void runRecovery(postId)} />
+            )}
+            <span className="dialog__spacer" />
             <ActionBtn onClick={closeDialog} disabled={busy}>{t('ui.cancel')}</ActionBtn>
-            <ActionBtn
+            {!pending && <ActionBtn
               variant="primary"
               disabled={published ? !canUpdate : !canPublish}
               // 未发：清失败留给 runPublish（确认门上取消的话，告警块还说得通）。已发：点更新直接 post/edit（Q14）。
@@ -502,7 +534,7 @@ export function PublishDialog(props: {
               {busy
                 ? t(published ? 'projects.publish.updating' : 'projects.publish.submitting')
                 : t(published ? 'projects.publish.update' : 'projects.publish.action')}
-            </ActionBtn>
+            </ActionBtn>}
           </>
         )}
       >
@@ -528,7 +560,7 @@ export function PublishDialog(props: {
                 className={`ppc-fact-input ppc-fact-input--title${isTitleMissing ? ' is-missing' : ''}`}
                 value={title}
                 disabled={busy}
-                readOnly={published}
+                readOnly={published || pending}
                 placeholder={project.name?.trim() || t('projects.untitled')}
                 aria-label={t('projects.publish.field.title')}
                 onChange={(e) => {
@@ -545,7 +577,7 @@ export function PublishDialog(props: {
                 className={`ppc-fact-input${isArtistsMissing ? ' is-missing' : ''}`}
                 value={artists}
                 disabled={busy}
-                readOnly={published}
+                readOnly={published || pending}
                 placeholder={t('projects.artistMissing')}
                 aria-label={t('projects.publish.field.artists')}
                 onChange={(e) => {
@@ -560,7 +592,7 @@ export function PublishDialog(props: {
               <select
                 className="ppc-diff-select"
                 value={diff}
-                disabled={busy}
+                disabled={busy || pending}
                 aria-label={t('projects.publish.field.diff')}
                 onChange={(e) => {
                   const next = Number(e.target.value) as ChartDifficulty;
@@ -581,7 +613,7 @@ export function PublishDialog(props: {
                 inputMode="numeric"
                 className={`ppc-fact-input ppc-fact-input--level${isLevelMissing ? ' is-missing' : ''}`}
                 value={level}
-                disabled={busy}
+                disabled={busy || pending}
                 placeholder="未填"
                 aria-label={t('projects.publish.field.level')}
                 onChange={(e) => {
@@ -625,10 +657,10 @@ export function PublishDialog(props: {
         {/* 失败与环境异常告警区（票 50 #2）：环境异常（读不到引用 / 已发布过）是事实陈述，只陈述不挂动作；
             发布失败可关闭（改完字段不再挂着红字）、「重试」重新走发布流程（不可逆动作，仍先过确认弹窗）。
             失败与常驻事实重复时（本地读不到 / 已发布过）不叠两条。 */}
-        {refsFailed && !published && (
+        {refsFailed && !published && !pending && (
           <PublishAlert><p>{t('projects.publish.err.local')}</p></PublishAlert>
         )}
-        {failure && !failureDuplicatesKnownFact && (
+        {failure && !pending && !failureDuplicatesKnownFact && (
           <PublishAlert
             actions={(
               <div className="pp-publish__alert__actions">
@@ -666,13 +698,17 @@ export function PublishDialog(props: {
           </PublishAlert>
         )}
 
+        {!published && (pending || recovery) && (
+          <PublishPendingAlert pending={pending} status={recovery} busy={busy} onRecover={(postId) => void runRecovery(postId)} />
+        )}
+
         {/* 标签收进描述同一张内容卡：上面芯片、下面正文，少一块孤立输入框。
             生成键不进 <label>：否则无障碍名会被拼成整段「描述 + 计数」。 */}
         <div className={`dialog-field ppc-content${isContentMissing ? ' is-missing' : ''}`}>
           <span className="ppc-content__head">
             {t('projects.publish.contentLabel')}
             <span className="ppc-content__actions">
-              {!published && (
+              {!published && !pending && (
                 <button
                   type="button"
                   className="ppc-content__autogen"
@@ -695,7 +731,7 @@ export function PublishDialog(props: {
                     type="button"
                     className="ppc-tag__remove"
                     aria-label={t('projects.publish.removeTag', { tag })}
-                    disabled={busy}
+                    disabled={busy || pending}
                     onClick={() => removeTag(tag)}
                   >
                     <X size={12} aria-hidden="true" />
@@ -706,7 +742,7 @@ export function PublishDialog(props: {
                 type="text"
                 className="ppc-tags__input"
                 value={tagDraft}
-                disabled={busy}
+                disabled={busy || pending}
                 placeholder={t('projects.publish.tagsPlaceholder')}
                 aria-label={t('projects.publish.field.tags')}
                 onChange={(e) => setTagDraft(e.target.value)}
@@ -724,7 +760,7 @@ export function PublishDialog(props: {
               rows={6}
               value={content}
               disabled={busy}
-              readOnly={published}
+              readOnly={published || pending}
               maxLength={POST_CONTENT_MAX_CHARS}
               placeholder={t('projects.publish.contentPlaceholder')}
               aria-label={t('projects.publish.contentLabel')}
@@ -775,7 +811,7 @@ export function PublishDialog(props: {
 
       {/* 不可逆确认弹窗（票 50 #1）：后果说明与问句拆两个文案键，\n 拼接 ——
           .dialog__message 的 pre-line 让问句「确定发布「…」？」独占一行，ConfirmDialog 本体不动 */}
-      {confirming && !busy && (
+      {confirming && !busy && !pending && (
         <ConfirmDialog
           title={t('projects.publish.confirmTitle')}
           message={`${t('projects.publish.confirmMessage')}\n${t('projects.publish.confirmQuestion', { title: displayTitle })}`}

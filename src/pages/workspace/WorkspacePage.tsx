@@ -279,6 +279,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   }, []);
 
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isPublishPending, setIsPublishPending] = useState(false);
   const [showReadonlyToast, setShowReadonlyToast] = useState(false);
   const readonlyTimerRef = useRef<number | null>(null);
 
@@ -326,6 +327,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
   ) => {
     const readonly = isChartReadonly(chart);
     setIsReadOnly(readonly);
+    setIsPublishPending(Boolean(chart.pendingPublish));
     const audioLocked = isProjectAudioLocked(project);
     resetNotes(chart.notes, {
       // 记录的两个扁平字段 → 编辑态的保真字段（映射在边界做，记录形状不变）
@@ -742,7 +744,7 @@ const Editor: React.FC<EditorProps> = ({ active = true }) => {
     {showReadonlyToast && createPortal(
       <div className="readonly-toast" role="alert">
         <Lock size={14} className="readonly-toast__icon" />
-        <span className="readonly-toast__text">{t('workspace.readonlyPrompt')}</span>
+        <span className="readonly-toast__text">{t(isPublishPending ? 'workspace.pendingPublishReadonly' : 'workspace.readonlyPrompt')}</span>
         <button
           type="button"
           className="readonly-toast__copy-btn"

@@ -400,3 +400,48 @@
 .ppc-resize svg {
   display: block;
 }
+.ppc-recovery__posts { display: grid; gap: 4px; max-width: 100%; padding: 0; margin: 8px 0 0; list-style: none; }
+.ppc-recovery__posts button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+
+.ppc-associate,
+.ppc-associate__toggle {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.ppc-associate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ppc-associate__toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ppc-associate__toggle:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration: underline;
+}
+.ppc-associate__toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.ppc-associate__id {
+  width: 9.5em;
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+}

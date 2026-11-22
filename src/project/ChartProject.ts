@@ -43,6 +43,16 @@ export interface ChartTag {
   data: string;
 }
 
+/** 发帖前保存，直到确认未建帖或补写上传记录。 */
+export interface PendingChartPublish {
+  attemptId: string;
+  at: number;
+  username: string;
+  song: import('../community/bestdori/publish').PostSongBody;
+  chartDigest: string;
+  tags: ChartTag[];
+}
+
 export interface ProjectChart {
   id: string;
   /** 谱面代码源数据（ADR-0014 保真：未知字段随 JSON 往返保留） */
@@ -52,6 +62,7 @@ export interface ProjectChart {
   level: number | null;
   completed: boolean;
   upload: ChartUploadRecord | null;
+  pendingPublish?: PendingChartPublish;
   lastModified: number;
   appliedChartCodeText: string | null;
   chartCodePristine: boolean;
@@ -83,6 +94,7 @@ export interface ChartSummary {
   level: number | null;
   completed: boolean;
   upload: ChartUploadRecord | null;
+  pendingPublish?: true;
   lastModified: number;
   noteCount: number;
 }
@@ -112,6 +124,7 @@ export function summarizeChart(chart: ProjectChart): ChartSummary {
     level: chart.level,
     completed: chart.completed,
     upload: chart.upload,
+    ...(chart.pendingPublish ? { pendingPublish: true } : {}),
     lastModified: chart.lastModified,
     noteCount: countChartNotes(chart.notes),
   };
@@ -352,6 +365,7 @@ function summaryFromWire(wire: ProjectSummaryWire): ProjectSummary {
       level: c.level ?? null,
       completed: Boolean(c.completed),
       upload: c.upload ?? null,
+      ...(c.pendingPublish ? { pendingPublish: true as const } : {}),
       lastModified: c.lastModified,
       noteCount: c.noteCount,
     })),

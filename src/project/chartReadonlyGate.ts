@@ -4,7 +4,7 @@
 // 且谱面源数据不变；并提示「已上传的谱面不能修改，复制这张谱面来改？」附复制按钮。
 import type { ChartUploadRecord } from './ChartProject';
 import type { ChartNote } from '../chart/types';
-import { chartStatus } from './workspaceProject';
+import { chartStatus, type ChartStatusFields } from './workspaceProject';
 
 export type ChartEditOp =
   | 'place'
@@ -70,13 +70,20 @@ export function isChartUploaded(chart: { upload: ChartUploadRecord | null }): bo
   return chartStatus({ completed: false, upload: chart.upload }) === 'uploaded';
 }
 
-export const isChartReadonly = isChartUploaded;
+type ChartLockFields = Pick<ChartStatusFields, 'upload' | 'pendingPublish'>;
+
+export function isChartReadonly(chart: ChartLockFields): boolean {
+  return Boolean(chart.pendingPublish) || isChartUploaded(chart);
+}
 
 export type ReadonlyCheckResult =
   | { allowed: true }
-  | { allowed: false; rejected: 'uploaded_readonly'; message: string };
+  | { allowed: false; rejected: 'uploaded_readonly' | 'publish_pending'; message: string };
 
-export function checkChartEditAllowed(chart: { upload: ChartUploadRecord | null }): ReadonlyCheckResult {
+export function checkChartEditAllowed(chart: ChartLockFields): ReadonlyCheckResult {
+  if (chart.pendingPublish) {
+    return { allowed: false, rejected: 'publish_pending', message: '发布结果待确认，谱面暂时不可修改' };
+  }
   if (isChartUploaded(chart)) {
     return {
       allowed: false,
@@ -97,19 +104,20 @@ export function isEditOp(op: ChartOp): op is ChartEditOp {
  * - 读/非编辑操作（select / copy / play）不受阻拦。
  */
 export function executeWithReadonlyGate<T = unknown>(
-  chart: { upload: ChartUploadRecord | null; notes: readonly ChartNote[] },
+  chart: ChartLockFields & { notes: readonly ChartNote[] },
   op: ChartOp,
   action: (notes: readonly ChartNote[]) => { notes: ChartNote[]; result?: T },
 ): {
   ok: boolean;
-  rejected?: 'uploaded_readonly';
+  rejected?: 'uploaded_readonly' | 'publish_pending';
   notes: readonly ChartNote[];
   result?: T;
 } {
-  if (isChartUploaded(chart) && isEditOp(op)) {
+  const check = checkChartEditAllowed(chart);
+  if (!check.allowed && isEditOp(op)) {
     return {
       ok: false,
-      rejected: 'uploaded_readonly',
+      rejected: check.rejected,
       notes: chart.notes,
     };
   }

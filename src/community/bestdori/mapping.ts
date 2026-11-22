@@ -315,13 +315,31 @@ export function toPostPage(raw: unknown): { total: number; rawCount: number; pos
  * 帖子详情 → 候选 + 谱面代码原文（`chart` 数组是完整谱面，交给 Apply 闸门，票 09）。
  * 平台事实（票 27 实测）：`post/details` 的 `post` 对象不包含 `id`，必须由调用方传入 `fallbackId`（即请求 URL 中的 postId）。
  */
-export function toPostDetail(raw: unknown, fallbackId?: number): { post: PostCandidate; chartCodeText: string } | null {
+export interface PostDetail {
+  post: PostCandidate;
+  chartCodeText: string;
+  authorUsername: string | null;
+  tags: { type: 'text'; data: string }[];
+}
+
+export function toPostDetail(raw: unknown, fallbackId?: number): PostDetail | null {
   if (!isPlainObject(raw) || raw.result !== true) return null;
   if (!isPlainObject(raw.post)) return null;
   if (!Array.isArray(raw.post.chart)) return null;
   const post = toPostCandidate(raw.post, fallbackId);
   if (!post) return null;
-  return { post, chartCodeText: JSON.stringify(raw.post.chart) };
+  const author = raw.post.author;
+  const authorUsername = isPlainObject(author) && typeof author.username === 'string'
+    ? author.username : null;
+  const tags: PostDetail['tags'] = [];
+  if (Array.isArray(raw.post.tags)) {
+    for (const tag of raw.post.tags) {
+      if (isPlainObject(tag) && tag.type === 'text' && typeof tag.data === 'string') {
+        tags.push({ type: 'text', data: tag.data });
+      }
+    }
+  }
+  return { post, chartCodeText: JSON.stringify(raw.post.chart), authorUsername, tags };
 }
 
 /* ---------------- 账号（票 10 能力 10） ---------------- */

@@ -63,6 +63,7 @@ export interface ProjectAudioLockSource {
   title: string | null;
   diff: ChartDifficulty;
   level: number | null;
+  pendingPublish?: true;
 }
 
 /**
@@ -102,8 +103,11 @@ export interface ProjectAudioDeps {
 
 function lockSourcesOf(project: ChartProject): ProjectAudioLockSource[] {
   return project.charts
-    .filter((chart) => chart.upload != null)
-    .map((chart) => ({ title: chart.title, diff: chart.diff, level: chart.level }));
+    .filter((chart) => chart.upload != null || chart.pendingPublish != null)
+    .map((chart) => ({
+      title: chart.title, diff: chart.diff, level: chart.level,
+      ...(chart.pendingPublish ? { pendingPublish: true as const } : {}),
+    }));
 }
 
 /** 读某个工程的音频视图；工程不存在返回 null（调用方据此走空态 / 回落） */

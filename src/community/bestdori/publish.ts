@@ -157,7 +157,7 @@ export function precheckPublish(input: PublishInput): PublishPrecheck {
 }
 
 /** 发布阶段（弹窗据此出提示文案；网关没有字节级进度，票 07 定案） */
-export type PublishStage = 'audio' | 'cover' | 'post' | 'record';
+export type PublishStage = 'audio' | 'cover' | 'post' | 'record' | 'check';
 
 /** 发布失败的立档（界面按它取 i18n，一档一句；平台码不上界面） */
 export type PublishFailure =
@@ -184,10 +184,21 @@ export type PublishFailure =
 
 export type PublishOutcome =
   | { ok: true; postId: number; /** 上传记录写没写进去（false = 帖子已在，本机记账失败） */ recordWritten: boolean }
+  | { ok: false; failure: 'pending-confirmation' }
   | { ok: false; failure: PublishFailure; missing?: PublishMissingField[]; chartIssues?: ValidationError[] };
+
+export interface PublishSubmission {
+  attemptId: string;
+  at: number;
+  song: PostSongBody;
+  chart: readonly ChartCodeNote[];
+  tags: PostTextTag[];
+}
 
 export interface PublishDeps {
   transport: CommunityTransport;
+  /** 发帖前先保存待确认状态。保存失败时不能发送发帖请求。 */
+  beforePost?: (submission: PublishSubmission) => Promise<boolean>;
   /**
    * 发布成功后的上传记录写入（页面用 mutateProject + recordChartUpload 装配）。
    * 回 false = 没写进去（已被拒 / 谱面没了）—— 帖子已经在平台上，结果仍是 ok。
@@ -303,7 +314,7 @@ async function uploadBinaryFile(
 }
 
 /** 发帖 body 里的 `song`（官网前端同形：custom 带上传后的 URL，bandori 只带曲库 id） */
-type PostSongBody =
+export type PostSongBody =
   | { type: 'custom'; audio: string; cover?: string }
   | { type: 'bandori'; id: number };
 
@@ -417,13 +428,16 @@ export async function editChartPost(
   }
 }
 
-/**
- * 发布一张谱面（票 11）：预检 →（custom）上传音频 / 封面 → 发帖 → 写上传记录。
- *
- * 任何一个环节失败都不会「半发布」：帖子没发出去就没有记录；帖子发出去而记录写不进去，
- * 结果仍是 `ok`（带 `recordWritten: false`）—— 那意味着平台上已有这一帖，让用户重试
- * 只会多发一帖（ADR-0015 §4：发错只能另发一帖，社区没有作者自助下架）。
- */
+/** 已知不会建帖的拒绝。其余异常在发帖请求开始后需要回查。 */
+const POST_REJECTION_CODES = new Set(['POST_INVALID', 'POST_EMPTY', 'CHART_INVALID', 'TEMPORARY_FILE', 'BLOCKED']);
+
+function confirmedPostRejection(error: unknown): boolean {
+  if (!isCommunityError(error)) return false;
+  return error.kind === 'unauthorized' || error.kind === 'rate-limited' || error.kind === 'request-rejected'
+    || (error.platformCode !== undefined && POST_REJECTION_CODES.has(error.platformCode));
+}
+
+/** 预检 →（custom）上传素材 → 保存待确认状态 → 发帖 → 写上传记录。 */
 export async function publishChart(deps: PublishDeps, input: PublishInput): Promise<PublishOutcome> {
   // 一张谱面至多一条上传记录：已发布过的直接拒，一个字节的网络都不发
   if (input.published) return { ok: false, failure: 'already-published' };
@@ -440,18 +454,25 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
   const chart = sanitizeChartForBestdoriUpload(input.chartCode);
 
   const t0 = Date.now();
-  trail.record({ module: 'community', action: 'upload-start' });
+  const attemptId = crypto.randomUUID();
+  let stage: PublishStage = 'post';
+  let postStarted = false;
+  const reportStage = (next: PublishStage) => {
+    stage = next;
+    deps.onStage?.(next);
+  };
+  trail.record({ module: 'community', action: 'upload-start', meta: { attemptId } });
   try {
     // 上传（custom 才有）：音频必需、封面可选（平台不强制 custom 帖带封面）
     let song: PostSongBody;
     if (input.song.kind === 'custom') {
       // 预检已挡下「没有音频」，这里是类型收口（audio 在上面的判定后必非空）
       if (input.song.audio == null) throw invalidResponse('custom 曲目缺少音频引用');
-      deps.onStage?.('audio');
+      reportStage('audio');
       const audioUrl = await uploadBinaryFile(deps.transport, input.song.audio, deps.sleep ?? defaultSleep);
       let coverUrl: string | null = null;
       if (input.song.cover != null) {
-        deps.onStage?.('cover');
+        reportStage('cover');
         coverUrl = await uploadBinaryFile(deps.transport, input.song.cover, deps.sleep ?? defaultSleep);
       }
       song = { type: 'custom', audio: audioUrl, ...(coverUrl != null ? { cover: coverUrl } : {}) };
@@ -459,7 +480,7 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
       song = { type: 'bandori', id: input.song.songId };
     }
 
-    deps.onStage?.('post');
+    reportStage('post');
     const contentBlocks = formatPostContent(input.content);
     const body = {
       title: input.title,
@@ -475,6 +496,16 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
       tags: normalizePostTags(input.tags),
     };
     const bodyText = JSON.stringify(body);
+    const at = (deps.now ?? Date.now)();
+    if (deps.beforePost) {
+      try {
+        if (!await deps.beforePost({ attemptId, at, song, chart, tags: body.tags })) {
+          return { ok: false, failure: 'local' };
+        }
+      } catch {
+        return { ok: false, failure: 'local' };
+      }
+    }
     // 载荷统计（issue 49）：发帖前记进 trail，只记统计不记内容（请求体原文不进 trail，
     // 凭据红线同口径）。现场没有这段时，平台拒了（POST_INVALID 不指因）只能像票 49 那样
     // 离线复现载荷逐项排除——width 分布就是那次排查最后才锁定的那格。
@@ -482,6 +513,7 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
       module: 'community',
       action: 'post-payload',
       meta: {
+        attemptId,
         bytes: utf8ByteLength(bodyText),
         chartBytes: utf8ByteLength(JSON.stringify(chart)),
         objects: countChartObjects(chart),
@@ -490,8 +522,10 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
         diff: input.diff,
         level: input.level,
         contentBlocks: contentBlocks.length,
+        tags: body.tags.length,
       },
     });
+    postStarted = true;
     const posted = await deps.transport.requestJson({
       url: postCreateUrl(),
       method: 'POST',
@@ -501,12 +535,13 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
     });
 
     // 成功形态 = `{"result":true,"id":<postId>}`；`{result:false,code}` 已被网关翻成错误
-    if (!isPlainObject(posted) || posted.result !== true || typeof posted.id !== 'number') {
+    if (!isPlainObject(posted) || posted.result !== true || typeof posted.id !== 'number'
+      || !Number.isSafeInteger(posted.id) || posted.id <= 0) {
       throw invalidResponse('发帖响应不是预期形态');
     }
     const postId = posted.id;
 
-    deps.onStage?.('record');
+    reportStage('record');
     let recordWritten = false;
     try {
       recordWritten = await deps.writeUploadRecord({
@@ -523,15 +558,26 @@ export async function publishChart(deps: PublishDeps, input: PublishInput): Prom
       action: 'upload-end',
       result: 'ok',
       durationMs: Date.now() - t0,
+      meta: { attemptId, stage, postId, recordWritten },
     });
     return { ok: true, postId, recordWritten };
   } catch (error) {
+    const pending = postStarted && !confirmedPostRejection(error);
     trail.record({
       module: 'community',
       action: 'upload-end',
-      result: 'fail',
+      result: pending ? 'pending' : 'fail',
       durationMs: Date.now() - t0,
+      meta: { attemptId, stage, platformCode: isCommunityError(error) ? error.platformCode : undefined },
     });
+    if (pending) {
+      // 立刻写入本次请求阶段，方便重启后导出的诊断包仍能定位这次尝试。
+      void trail.flush();
+      return { ok: false, failure: 'pending-confirmation' };
+    }
+    if (postStarted && isCommunityError(error) && error.platformCode === 'BLOCKED') {
+      return { ok: false, failure: 'rate-limited' };
+    }
     return { ok: false, failure: publishFailureOf(error) };
   }
 }

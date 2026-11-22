@@ -8,6 +8,7 @@
 //   ⑤ 失败就地内联在弹窗里（不 Toast、不关窗）；**已发布过的谱面不再禁用**，而是进「更新」态
 //      （标题「更新谱面」、主按钮「更新」、无二次确认）——票 51 起的口径。
 import '@testing-library/jest-dom/vitest';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ChartCodeNote } from '@/src/chart/editing/ChartConverter';
@@ -70,6 +71,8 @@ function renderDialog(options: {
   chartCode?: ChartCodeNote[];
   onPublish?: (input: PublishInput, onStage: (stage: PublishStage) => void) => Promise<PublishOutcome>;
   onEdit?: (input: { diff: number; level: number; tags: { type: 'text'; data: string }[] }) => Promise<EditChartOutcome>;
+  onRecover?: (postId?: number) => Promise<boolean>;
+  onClose?: () => void;
   uploadRefs?: ProjectUploadRefs | null;
 } = {}) {
   const onPublish = options.onPublish ?? vi.fn(async () => ({ ok: true as const, postId: 1, recordWritten: true }));
@@ -80,6 +83,8 @@ function renderDialog(options: {
       chartCode={options.chartCode ?? CHART_CODE}
       onPublish={onPublish}
       onEdit={options.onEdit}
+      onRecover={options.onRecover}
+      onClose={options.onClose}
       {...(options.uploadRefs === undefined
         ? {}
         : { loadUploadRefs: async () => options.uploadRefs as ProjectUploadRefs | null })}
@@ -285,6 +290,83 @@ describe('票 11 · 发布弹窗：失败就地内联', () => {
     fireEvent.click(screen.getByRole('button', { name: '发布' }));
     fireEvent.click(await screen.findByRole('button', { name: '确认发布' }));
     expect(await screen.findByText('连不上社区平台，检查网络后重试。')).toBeInTheDocument();
+  });
+});
+
+describe('票 58 · 发布结果待确认', () => {
+  it('结果不明后只提供查帖操作，不再提供发布与重试', async () => {
+    const onPublish = vi.fn(async () => ({ ok: false as const, failure: 'pending-confirmation' as const }));
+    const onRecover = vi.fn(async () => false);
+    renderDialog({ onPublish, onRecover });
+    fillDescription();
+    await confirmAndPublish(onPublish);
+    expect(await screen.findByText('发布结果待确认')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '发布' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull();
+    expect(screen.getByRole('button', { name: '打开社区' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '重新核对' }));
+    expect(onRecover).toHaveBeenCalledWith(undefined);
+    expect(onPublish).toHaveBeenCalledOnce();
+  });
+
+  it('核对过程中不把发布键以「发布中」形态放回来', async () => {
+    let finish!: (ok: boolean) => void;
+    const onRecover = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    const onPublish = vi.fn(async () => ({ ok: false as const, failure: 'pending-confirmation' as const }));
+    renderDialog({ onPublish, onRecover });
+    fillDescription();
+    await confirmAndPublish(onPublish);
+    fireEvent.click(await screen.findByRole('button', { name: '重新核对' }));
+    expect(screen.queryByRole('button', { name: '发布' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '发布中…' })).toBeNull();
+    finish(false);
+    await waitFor(() => expect(screen.getByRole('button', { name: '重新核对' })).toBeEnabled());
+  });
+
+  it('关联已有帖子放在底栏，不占发布表单正文', () => {
+    renderDialog({ onRecover: vi.fn(async () => false) });
+    const associate = screen.getByRole('button', { name: '关联已有帖子' });
+    expect(associate.closest('.dialog__foot')).not.toBeNull();
+    expect(screen.queryByRole('textbox', { name: '帖子 ID' })).toBeNull();
+  });
+
+  it('手动关联已有帖子走独立的核对入口，无需补齐发布必填项', async () => {
+    const onRecover = vi.fn(async () => true);
+    const onClose = vi.fn();
+    const onPublish = renderDialog({ onRecover, onClose });
+    expect(screen.getByRole('button', { name: '发布' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '关联已有帖子' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '帖子 ID' }), { target: { value: '267296' } });
+    fireEvent.click(screen.getByRole('button', { name: '核对并关联' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(onRecover).toHaveBeenCalledWith(267296);
+    expect(onPublish).not.toHaveBeenCalled();
+  });
+
+  it('补记后弹窗切到已上传态', async () => {
+    function RecoverThenUploaded() {
+      const [chart, setChart] = useState(makeChart());
+      return (
+        <PublishDialog
+          project={makeProject({ charts: [chart] })}
+          chart={chart}
+          chartCode={CHART_CODE}
+          onPublish={vi.fn()}
+          onRecover={async (postId) => {
+            setChart(makeChart({ upload: { postId: postId ?? 71, at: AT } }));
+            return true;
+          }}
+        />
+      );
+    }
+    render(<RecoverThenUploaded />);
+    fireEvent.click(screen.getByRole('button', { name: '关联已有帖子' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '帖子 ID' }), { target: { value: '267296' } });
+    fireEvent.click(screen.getByRole('button', { name: '核对并关联' }));
+    expect(await screen.findByRole('heading', { name: '更新谱面' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '更新' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '发布' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '关联已有帖子' })).toBeNull();
   });
 });
 

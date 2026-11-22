@@ -40,7 +40,7 @@ export function ChartInfoDialog({
   onAdd: (input: { title: string | null; diff: ChartDifficulty; level: number | null; codeText: string }) => void;
   onUpdate: (patch: { title: string | null; diff: ChartDifficulty; level: number | null }) => void;
 }) {
-  const locked = !!chart?.upload;
+  const locked = !!(chart?.upload || chart?.pendingPublish);
   const [title, setTitle] = useState(chart?.title ?? '');
   const [diff, setDiff] = useState<ChartDifficulty>(chart?.diff ?? defaultDiff);
   const [level, setLevel] = useState(chart?.level != null ? String(chart.level) : '');
